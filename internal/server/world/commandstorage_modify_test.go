@@ -52,3 +52,27 @@ func TestCommandStorageModifyPersistsPathEdits(t *testing.T) {
 		t.Error("empty storage path was retained")
 	}
 }
+
+// A namespace saved after its last entry was removed reloads with empty
+// contents, which the next write must still be able to fill.
+func TestCommandStorageWritesAfterReloadingAnEmptyNamespace(t *testing.T) {
+	root := t.TempDir()
+	storage := NewCommandStorages(root)
+	storage.Modify("test:gone", func(live nbt.CompoundTag) bool { live.Set("v", nbt.Int(1)); return true })
+	storage.Save()
+	storage.Modify("test:gone", func(live nbt.CompoundTag) bool { live.Delete("v"); return true })
+	storage.Save()
+
+	storage = NewCommandStorages(root)
+	storage.Modify("test:new", func(live nbt.CompoundTag) bool { live.Set("v", nbt.Int(2)); return true })
+	storage.Set("test:set", nbt.Compound{"v": nbt.Int(3)})
+	storage.Save()
+	storage = NewCommandStorages(root)
+	for id, want := range map[string]nbt.Int{"test:new": 2, "test:set": 3} {
+		storage.Read(id, func(live nbt.CompoundTag) {
+			if got := live.Entries()["v"]; got != want {
+				t.Errorf("%s = %v, want %d", id, got, want)
+			}
+		})
+	}
+}
