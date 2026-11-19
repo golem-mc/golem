@@ -249,16 +249,20 @@ func (p pluginPlayer) SetAllowFlight(allow bool) {
 	p.c.send(protocol.IDPlayAbilities, p.c.abilitiesPayload())
 }
 
+// FlySpeed and WalkSpeed answer on Bukkit's scale, twice vanilla's ability
+// values. vanilla-bukkit: CraftPlayer.getFlySpeed
 func (p pluginPlayer) FlySpeed() float32 {
 	if !p.IsValid() {
 		return 0
 	}
-	return p.c.abilityState().flySpeed
+	return p.c.abilityState().flySpeed * 2
 }
 
+// SetFlySpeed takes Bukkit's scale, clamped to -1..1, and stores half of it.
+// vanilla-bukkit: CraftPlayer.setFlySpeed
 func (p pluginPlayer) SetFlySpeed(v float32) {
 	if p.IsValid() {
-		p.c.updateAbilities(func(a *pluginAbilities) { a.flySpeed = min(max(v, -1), 1) })
+		p.c.updateAbilities(func(a *pluginAbilities) { a.flySpeed = min(max(v, -1), 1) / 2 })
 		p.c.send(protocol.IDPlayAbilities, p.c.abilitiesPayload())
 	}
 }
@@ -267,16 +271,17 @@ func (p pluginPlayer) WalkSpeed() float32 {
 	if !p.IsValid() {
 		return 0
 	}
-	return p.c.abilityState().walkSpeed
+	return p.c.abilityState().walkSpeed * 2
 }
 
-// SetWalkSpeed sets the walking speed the client draws its field of view by
-// and the movement speed attribute's base.
+// SetWalkSpeed takes Bukkit's scale, clamped to -1..1, and sets half of it as
+// the walking speed the client draws its field of view by and as the movement
+// speed attribute's base. vanilla-bukkit: CraftPlayer.setWalkSpeed
 func (p pluginPlayer) SetWalkSpeed(v float32) {
 	if !p.IsValid() {
 		return
 	}
-	v = min(max(v, -1), 1)
+	v = min(max(v, -1), 1) / 2
 	p.c.updateAbilities(func(a *pluginAbilities) { a.walkSpeed = v })
 	p.c.player.Attributes(func(a *player.Attributes) { a.SetBase(registry.AttributeMovementSpeed, float64(v)) })
 	p.c.send(protocol.IDPlayAbilities, p.c.abilitiesPayload())

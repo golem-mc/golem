@@ -8,6 +8,7 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/plugin"
+	"github.com/golem-mc/golem/registry"
 )
 
 // statePlugin joins the named players on a held loop and returns their handles.
@@ -111,7 +112,32 @@ func TestPluginPlayerAbilitiesAndGameMode(t *testing.T) {
 	if flags, _, _ := abilities(); flags&protocol.AbilityAllowFlying == 0 || !p.AllowFlight() {
 		t.Fatalf("allow flight flags %x", flags)
 	}
-	run(func() { p.SetFlying(true); p.SetFlySpeed(0.2); p.SetWalkSpeed(0.3) })
+	// A new player answers Bukkit's defaults, twice vanilla's ability values.
+	if p.FlySpeed() != 0.1 || p.WalkSpeed() != 0.2 {
+		t.Fatalf("new player fly %v walk %v, want 0.1 and 0.2", p.FlySpeed(), p.WalkSpeed())
+	}
+	// Setting the defaults back changes nothing on the wire or the attribute.
+	run(func() { p.SetFlySpeed(0.1); p.SetWalkSpeed(0.2) })
+	c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+		if id == protocol.IDPlayAbilities {
+			r := protocol.NewReader(data)
+			r.ReadU8()
+			if fly, walk := r.ReadF32(), r.ReadF32(); fly != 0.05 || walk != 0.1 {
+				t.Fatalf("defaults sent as fly %v walk %v, want vanilla's 0.05 and 0.1", fly, walk)
+			}
+		}
+		return false
+	})
+	var base float64
+	run(func() {
+		if a, ok := p.Attribute(registry.AttributeMovementSpeed); ok {
+			base = a.Base()
+		}
+	})
+	if base != float64(float32(0.1)) {
+		t.Fatalf("movement speed base %v after SetWalkSpeed(0.2), want 0.1", base)
+	}
+	run(func() { p.SetFlying(true); p.SetFlySpeed(0.4); p.SetWalkSpeed(0.6) })
 	var flags uint8
 	var fly, walk float32
 	c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
@@ -121,7 +147,7 @@ func TestPluginPlayerAbilitiesAndGameMode(t *testing.T) {
 		}
 		return false
 	})
-	if flags&protocol.AbilityFlying == 0 || fly != 0.2 || walk != 0.3 || !p.Flying() || p.FlySpeed() != 0.2 || p.WalkSpeed() != 0.3 {
+	if flags&protocol.AbilityFlying == 0 || fly != 0.2 || walk != 0.3 || !p.Flying() || p.FlySpeed() != 0.4 || p.WalkSpeed() != 0.6 {
 		t.Fatalf("abilities flags %x fly %v walk %v", flags, fly, walk)
 	}
 	run(func() { p.SetAllowFlight(false) })
