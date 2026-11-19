@@ -1,6 +1,7 @@
 package plugins_test
 
 import (
+	"sync/atomic"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -10,6 +11,7 @@ import (
 
 // vanilla: HopperBlockEntity.suckInItems, HopperBlockEntity.ejectItems.
 func TestPluginHopperMoveEvents(t *testing.T) {
+	t.Parallel()
 	srv, h, run, _ := inventoryPlayer(t)
 	ow := srv.OverworldWorld()
 	ow.Acquire(worldChunk0)
@@ -19,7 +21,8 @@ func TestPluginHopperMoveEvents(t *testing.T) {
 	placeContainerEntity(ow, 4, 64, 0, registry.BlockChest)
 	var above, hopper, below plugin.Inventory
 	var moves []*plugin.InventoryMoveItemEvent
-	cancel := true
+	var cancel atomic.Bool
+	cancel.Store(true)
 	run(func() {
 		w := h.Overworld()
 		above = containerHandle(t, w, plugin.BlockPos{X: 4, Y: 66}).Inventory()
@@ -28,7 +31,7 @@ func TestPluginHopperMoveEvents(t *testing.T) {
 		above.SetItem(0, plugin.NewStack(registry.ItemStick, 2))
 		plugin.Listen(h, func(e *plugin.InventoryMoveItemEvent) {
 			moves = append(moves, e)
-			e.SetCancelled(cancel)
+			e.SetCancelled(cancel.Load())
 		})
 	})
 	servertest.RunTicks(t, srv, 40)
@@ -40,7 +43,7 @@ func TestPluginHopperMoveEvents(t *testing.T) {
 			t.Errorf("events %+v", moves)
 		}
 	})
-	cancel = false
+	cancel.Store(false)
 	servertest.RunTicks(t, srv, 40)
 	run(func() {
 		if got := below.Item(0); got.Item != registry.ItemStick || got.Count != 2 || !above.Item(0).Empty() || !hopper.Item(0).Empty() {

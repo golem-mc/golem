@@ -41,6 +41,7 @@ func loadPluginChunk(t *testing.T, srv *server.Server, h plugin.Server, run func
 
 // vanilla: ServerChunkCache.getChunk, LevelChunk's saved state and chunk holds.
 func TestPluginLoadChunkSaveReload(t *testing.T) {
+	t.Parallel()
 	srv, h, run, c := worldEffectsPlugin(t)
 	w := srv.OverworldWorld()
 	pos := plugin.ChunkPos{X: 30, Z: -30}
@@ -98,6 +99,7 @@ func TestPluginLoadChunkSaveReload(t *testing.T) {
 }
 
 func TestPluginLoadChunkLoadedAndInvalid(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	w := srv.OverworldWorld()
 	native := world.ChunkPos{X: 30, Z: 30}
@@ -127,6 +129,7 @@ func TestPluginLoadChunkLoadedAndInvalid(t *testing.T) {
 
 // vanilla: ServerChunkCache.removeTicketWithRadius.
 func TestPluginChunkTicketsBelongToTheirPlugin(t *testing.T) {
+	t.Parallel()
 	var a, b, c plugin.Server
 	shared := plugin.ChunkPos{X: 40, Z: 40}
 	failed := plugin.ChunkPos{X: 60, Z: 40}

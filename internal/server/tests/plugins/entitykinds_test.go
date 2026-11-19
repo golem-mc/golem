@@ -36,6 +36,7 @@ func spawnAt(t *testing.T, w plugin.World, k registry.EntityType, configure func
 }
 
 func TestPluginSpawnConfigureRemoveAndData(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	sw := srv.OverworldWorld()
 	sw.Acquire(world.ChunkPos{X: 0, Z: 0})
@@ -82,6 +83,7 @@ func TestPluginSpawnConfigureRemoveAndData(t *testing.T) {
 }
 
 func TestPluginEntityDataSaveReload(t *testing.T) {
+	t.Parallel()
 	srv, w, run, _, save := kindsFixture(t)
 	key := plugin.Key{Namespace: "test", Path: "mark"}
 	var id plugin.UUID

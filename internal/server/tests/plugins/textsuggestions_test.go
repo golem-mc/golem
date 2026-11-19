@@ -14,6 +14,7 @@ import (
 
 // Expectations from ComponentArgument's SnbtGrammar.parseForSuggestions.
 func TestPluginTextCommandSuggestions(t *testing.T) {
+	t.Parallel()
 	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "text", Plugin: &testPlugin{enable: func(s plugin.Server) error {
 		return s.Commands().Register(plugin.Command{Name: "text", Aliases: []string{"txt"}, Children: []plugin.Node{{Arg: plugin.TextArg("value")}}})
 	}}}})

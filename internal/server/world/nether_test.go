@@ -395,30 +395,52 @@ func checkNetherFeatureDigests(t *testing.T, path string, ranges []netherDigestR
 		}
 		want[k] = sum
 	}
-	checked := 0
-	for _, r := range ranges {
-		chunks := generateNetherRange(r.seed, r.x0, r.z0, r.x1, r.z1)
-		var recorded map[ChunkPos]*Chunk
-		for pos, c := range chunks {
-			sum, ok := want[key{r.seed, pos}]
-			if !ok {
-				continue
+	// A file may list more ranges than the test runs; only the chunks of the
+	// ranges it runs are compared.
+	wanted := 0
+	for k := range want {
+		for _, r := range ranges {
+			if k.seed == r.seed && k.pos.X >= r.x0 && k.pos.X <= r.x1 && k.pos.Z >= r.z0 && k.pos.Z <= r.z1 {
+				wanted++
+				break
 			}
-			if got := chunkBlockDigest(c, 0, netherTop); got != sum {
-				if recorded == nil {
-					recorded = recordedNetherRange(t, r)
-				}
-				if replay := chunkBlockDigest(recorded[pos], 0, netherTop); replay != sum {
-					t.Errorf("seed %d chunk (%d, %d): modeled digest %s, replay %s, want vanilla's %s", r.seed, pos.X, pos.Z, got, replay, sum)
-				} else {
-					t.Logf("seed %d chunk (%d, %d): recorded order matches vanilla; approximate scheduler differs", r.seed, pos.X, pos.Z)
-				}
-			}
-			checked++
 		}
 	}
-	if checked != len(want) {
-		t.Fatalf("compared %d chunks, the file lists %d", checked, len(want))
+	var mu sync.Mutex
+	checked := 0
+	// The group's parallel ranges all finish before t.Run returns.
+	t.Run("ranges", func(t *testing.T) {
+		for _, r := range ranges {
+			t.Run(fmt.Sprintf("%d_%d_%d_%d_%d", r.seed, r.x0, r.z0, r.x1, r.z1), func(t *testing.T) {
+				t.Parallel()
+				chunks := generateNetherRange(r.seed, r.x0, r.z0, r.x1, r.z1)
+				var recorded map[ChunkPos]*Chunk
+				n := 0
+				for pos, c := range chunks {
+					sum, ok := want[key{r.seed, pos}]
+					if !ok {
+						continue
+					}
+					if got := chunkBlockDigest(c, 0, netherTop); got != sum {
+						if recorded == nil {
+							recorded = recordedNetherRange(t, r)
+						}
+						if replay := chunkBlockDigest(recorded[pos], 0, netherTop); replay != sum {
+							t.Errorf("seed %d chunk (%d, %d): modeled digest %s, replay %s, want vanilla's %s", r.seed, pos.X, pos.Z, got, replay, sum)
+						} else {
+							t.Logf("seed %d chunk (%d, %d): recorded order matches vanilla; approximate scheduler differs", r.seed, pos.X, pos.Z)
+						}
+					}
+					n++
+				}
+				mu.Lock()
+				checked += n
+				mu.Unlock()
+			})
+		}
+	})
+	if checked != wanted || checked == 0 {
+		t.Fatalf("compared %d chunks, the file lists %d in the ranges", checked, wanted)
 	}
 }
 

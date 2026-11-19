@@ -10,6 +10,7 @@ import (
 )
 
 func TestPluginVillagerAndVehicleHandles(t *testing.T) {
+	t.Parallel()
 	_, w, run, _, _ := kindsFixture(t)
 	run(func() {
 		v, ok := spawnAt(t, w, registry.EntityTypeVillager, nil).(plugin.Villager)
@@ -65,6 +66,7 @@ func TestPluginVillagerAndVehicleHandles(t *testing.T) {
 }
 
 func TestPluginMobMovementAndTarget(t *testing.T) {
+	t.Parallel()
 	srv, w, run, cmd, _ := kindsFixture(t)
 	srv.OverworldWorld().SetChunkForced(world.ChunkPos{X: 0, Z: 0}, true) // entity-ticks with no player
 	cmd("fill 0 79 0 15 79 15 minecraft:stone")

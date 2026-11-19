@@ -13,6 +13,7 @@ import (
 
 // vanilla: PlayerList.placeNewPlayer, remove; ServerGamePacketListenerImpl.onDisconnect
 func TestPluginJoinQuitMessages(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"edit", "suppress", "default"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := servertest.BlockTestConfig()
@@ -114,6 +115,7 @@ func TestPluginJoinQuitMessages(t *testing.T) {
 
 // vanilla: PlayerList.disconnectAllPlayersWithProfile
 func TestPluginDuplicateLoginKickCancellation(t *testing.T) {
+	t.Parallel()
 	var cancel = true
 	kicks := 0
 	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "duplicate", Plugin: &testPlugin{enable: func(s plugin.Server) error {
@@ -163,6 +165,7 @@ func TestPluginDuplicateLoginKickCancellation(t *testing.T) {
 
 // vanilla: ServerCommonPacketListenerImpl.disconnect
 func TestPluginKickCancellationAndMessages(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"edit", "suppress", "quit-edit"} {
 		t.Run(mode, func(t *testing.T) {
 			var host plugin.Server
@@ -251,6 +254,7 @@ func TestPluginKickCancellationAndMessages(t *testing.T) {
 }
 
 func TestPluginConfigurationKickCancellation(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	var saved plugin.Player
 	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "setup-kick", Plugin: &testPlugin{enable: func(s plugin.Server) error {

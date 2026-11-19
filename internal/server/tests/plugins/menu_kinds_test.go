@@ -23,6 +23,8 @@ func twoWindowed(t *testing.T) (*server.Server, plugin.Server, func(func()), *se
 }
 
 // vanilla: AnvilMenu, ContainerLevelAccess.NULL
+// Not parallel: opening a block-less station view is closed by the next server tick that sees it
+// invalid, and flakes when run beside other tests.
 func TestPluginStationMenus(t *testing.T) {
 	cases := []struct {
 		kind plugin.InventoryType
@@ -63,6 +65,7 @@ func TestPluginStationMenus(t *testing.T) {
 
 // vanilla: ServerPlayer.openMenu with a ChestMenu over another player's inventory
 func TestPluginInvseeAndEnderChest(t *testing.T) {
+	t.Parallel()
 	srv, h, run, viewer, _ := twoWindowed(t)
 	var vp, op plugin.Player
 	run(func() {
@@ -97,6 +100,7 @@ func TestPluginInvseeAndEnderChest(t *testing.T) {
 
 // vanilla: HopperMenu, DispenserMenu, ShulkerBoxMenu over a SimpleContainer
 func TestPluginContainerKindMenus(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		kind  plugin.InventoryType
 		menu  int32

@@ -13,6 +13,7 @@ import (
 
 // vanilla: EnchantmentMenu.slotsChanged, EnchantmentMenu.clickMenuButton.
 func TestPluginEnchantEvents(t *testing.T) {
+	t.Parallel()
 	srv, h, run, w := inventoryPlayer(t)
 	ow := srv.OverworldWorld()
 	ow.Acquire(worldChunk0)

@@ -23,6 +23,7 @@ import (
 
 // vanilla: ServerGamePacketListenerImpl.chatMessageChain, SignedMessageValidator.KeyBased
 func TestPluginChatOrdersSignedCommandsAndFailures(t *testing.T) {
+	t.Parallel()
 	profile := protocol.OfflineUUID("Signed")
 	key, session, roots := servertest.SignedSession(t, profile)
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

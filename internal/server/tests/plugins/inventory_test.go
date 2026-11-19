@@ -36,6 +36,7 @@ func testerOf(t *testing.T, h plugin.Server) plugin.Player {
 
 // vanilla: Inventory, SimpleContainer.addItem, ServerPlayer.setItemSlot.
 func TestPluginPlayerInventoryHandles(t *testing.T) {
+	t.Parallel()
 	_, h, run, w := inventoryPlayer(t)
 	run(func() {
 		p := testerOf(t, h)
@@ -83,6 +84,7 @@ func TestPluginPlayerInventoryHandles(t *testing.T) {
 // vanilla: ServerGamePacketListenerImpl.handleContainerClick,
 // AbstractContainerMenu.sendAllDataToRemote.
 func TestPluginInventoryClickEvents(t *testing.T) {
+	t.Parallel()
 	srv, h, run, w := inventoryPlayer(t)
 	ow := srv.OverworldWorld()
 	ow.Acquire(worldChunk0)
@@ -140,6 +142,7 @@ func TestPluginInventoryClickEvents(t *testing.T) {
 var worldChunk0 = world.ChunkPos{}
 
 // vanilla: AbstractContainerMenu.doClick QUICK_CRAFT end step.
+// Not parallel: paced by wall-clock sleeps or a connection read, it flakes under CPU contention.
 func TestPluginInventoryDragEvent(t *testing.T) {
 	srv, h, run, w := inventoryPlayer(t)
 	ow := srv.OverworldWorld()

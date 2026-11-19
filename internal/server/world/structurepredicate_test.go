@@ -9,6 +9,7 @@ import (
 // TestGeneratedStructurePiecesMatchLocations follows references made by the
 // real generators without generating terrain in the referenced start chunk.
 func TestGeneratedStructurePiecesMatchLocations(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		id     string
 		seed   int64
@@ -22,6 +23,7 @@ func TestGeneratedStructurePiecesMatchLocations(t *testing.T) {
 		{"minecraft:trial_chambers", 0, -22, -20, false},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
+			t.Parallel()
 			var gen Generator = NewOverworldGenerator(tc.seed)
 			if tc.nether {
 				gen = NewNetherGenerator(tc.seed)

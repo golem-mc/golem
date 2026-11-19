@@ -12,6 +12,7 @@ import (
 
 // vanilla: Level.setBlock, LevelChunk.setBlockState.
 func TestPluginBlockWriteBoundsAndIdentity(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	w := srv.OverworldWorld()
 	p := world.ChunkPos{X: -2, Z: 3}
@@ -96,6 +97,7 @@ func TestPluginBlockWriteBoundsAndIdentity(t *testing.T) {
 }
 
 func TestPluginBlockWriteClientFlags(t *testing.T) {
+	t.Parallel()
 	srv, h, run, c := worldEffectsPlugin(t)
 	p := srv.PlayerPosition("Effects")
 	x, z := int(p.X), int(p.Z)
@@ -145,6 +147,7 @@ func TestPluginBlockWriteClientFlags(t *testing.T) {
 }
 
 func TestPluginBlockWritePlacementAndWireFlags(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	srv.SetTickFrozen(true)
 	w := srv.OverworldWorld()
@@ -181,6 +184,7 @@ func TestPluginBlockWritePlacementAndWireFlags(t *testing.T) {
 }
 
 func TestPluginBlockWriteRemovalEffects(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	srv.SetTickFrozen(true)
 	w := srv.OverworldWorld()
@@ -241,6 +245,7 @@ func TestPluginBlockWriteRemovalEffects(t *testing.T) {
 }
 
 func TestPluginBlockWriteSaveReloadAndLight(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	srv.SetTickFrozen(true)
 	w := srv.OverworldWorld()

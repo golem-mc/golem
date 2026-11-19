@@ -9,6 +9,7 @@ import (
 
 // vanilla: Projectile.onHit, AbstractArrow.onHitEntity
 func TestPluginProjectileHitEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	srv, c := tickScene(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.ProjectileHitEvent) {

@@ -12,6 +12,7 @@ import (
 )
 
 func TestPluginMediaBlockEntityKinds(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	w := srv.OverworldWorld()
 	w.Acquire(world.ChunkPos{})
@@ -47,6 +48,7 @@ func pluginBook() plugin.ItemStack {
 
 // vanilla: JukeboxBlockEntity.setTheItem, LecternBlockEntity.setBook/setPage.
 func TestPluginMediaEditsSaveReload(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	srv, h, run := worldPlugin(t, cfg)
 	srv.SetTickFrozen(true)

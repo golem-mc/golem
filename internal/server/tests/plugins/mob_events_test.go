@@ -11,6 +11,7 @@ import (
 
 // vanilla: NearestAttackableTargetGoal, Mob.setTarget
 func TestPluginEntityTargetEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	var reason plugin.TargetReason
 	srv, c := tickScene(t, func(s plugin.Server) {
@@ -46,6 +47,7 @@ func TestPluginEntityTargetEvent(t *testing.T) {
 
 // vanilla: LivingEntity.addEffect
 func TestPluginEntityPotionEffectEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	var cause plugin.EffectCause
 	srv, c := tickScene(t, func(s plugin.Server) {
@@ -78,6 +80,7 @@ func TestPluginEntityPotionEffectEvent(t *testing.T) {
 
 // vanilla: SummonCommand, ServerLevel.addFreshEntity
 func TestPluginEntitySpawnEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	var reason plugin.SpawnReason
 	srv, _ := tickScene(t, func(s plugin.Server) {
@@ -101,6 +104,7 @@ func TestPluginEntitySpawnEvent(t *testing.T) {
 
 // vanilla: FarmlandBlock.fallOn
 func TestPluginEntityInteractEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	srv, c := tickScene(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.EntityInteractEvent) {

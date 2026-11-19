@@ -32,6 +32,7 @@ func checkRegistry[T ~int32 | ~uint16](t *testing.T, r plugin.Registries, names 
 }
 
 func TestPluginRegistries(t *testing.T) {
+	t.Parallel()
 	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	run(func() {
 		r := h.Registries()

@@ -11,6 +11,7 @@ import (
 // own, against this checkout, so the example cannot fall behind the plugin
 // API. Its server (cmd/server) is built by `mise run examples:build`.
 func TestExamplePluginBuilds(t *testing.T) {
+	t.Parallel()
 	dir, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "examples", "plugins", "hello"))
 	if err != nil {
 		t.Fatal(err)

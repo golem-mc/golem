@@ -86,6 +86,7 @@ func TestOverworldPodzolUnderSnowVanilla(t *testing.T) {
 		}, treePos{325, 135, -111}, treePos{334, 138, -103}, 18},
 	} {
 		t.Run(fmt.Sprintf("%d,%d", tc.chunk.X, tc.chunk.Z), func(t *testing.T) {
+			t.Parallel()
 			g := NewOverworldGenerator(12345)
 			seq := tc.seq
 			g.DecorateInOrder(seq)

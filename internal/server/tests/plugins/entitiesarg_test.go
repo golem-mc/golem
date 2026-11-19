@@ -13,6 +13,7 @@ import (
 
 // vanilla: EntityArgument, EntitySelector, CommandSourceStack.getEntity
 func TestPluginEntitiesArgument(t *testing.T) {
+	t.Parallel()
 	var many, single []plugin.Entity
 	var asEntity plugin.Entity
 	ready := false

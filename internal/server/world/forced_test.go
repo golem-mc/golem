@@ -9,6 +9,7 @@ import (
 // chunks in its own ticket file, in vanilla's order, and holds them loaded
 // after a reopen.
 func TestForcedChunksAreKeptPerDimension(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	nether := NewDimensionWorld(dir, true, NewNetherGenerator(1))
 	for _, pos := range []ChunkPos{{X: -1, Z: 2}, {X: 3, Z: 2}, {X: 0, Z: -5}} {

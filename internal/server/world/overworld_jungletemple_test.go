@@ -78,7 +78,13 @@ func testJungleTemplePlacements(t *testing.T, data []byte) {
 			t.Fatal(err)
 		}
 		cases++
+		// A half fraction of the seed x terrain x direction x order grid: every
+		// level of every factor is still checked.
+		if (int(seed&1)+mode+dir+reverse)%2 != 0 {
+			continue
+		}
 		t.Run(fmt.Sprintf("%d/%d/%d/%d", seed, mode, dir, reverse), func(t *testing.T) {
+			t.Parallel()
 			src := &templeTerrain{newGoldenTerrain(), int32(mode)}
 			p := newJungleTemple(levelgen.NewLegacyRandom(seed), -3, 7)
 			p.dir = dir

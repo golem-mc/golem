@@ -62,6 +62,7 @@ func TestStrongholdPieces(t *testing.T) {
 // doors, bars) against what a vanilla server saved
 // (testdata/stronghold_blocks.txt: x y z block props).
 func TestStrongholdBlocks(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile("testdata/stronghold_blocks.txt")
 	if err != nil {
 		t.Fatal(err)

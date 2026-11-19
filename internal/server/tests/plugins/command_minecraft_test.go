@@ -11,6 +11,7 @@ import (
 )
 
 func TestPluginMinecraftNamesAndUsage(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "usage", Plugin: &testPlugin{enable: func(s plugin.Server) error {
 		host = s
@@ -38,6 +39,7 @@ func TestPluginMinecraftNamesAndUsage(t *testing.T) {
 }
 
 func TestPluginRegisterAlias(t *testing.T) {
+	t.Parallel()
 	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "alias", Plugin: &testPlugin{enable: func(s plugin.Server) error {
 		if err := plugin.RegisterAlias(s, "sd", "seed"); err != nil {
 			return err

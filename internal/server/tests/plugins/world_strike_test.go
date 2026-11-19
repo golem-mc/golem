@@ -15,6 +15,7 @@ func fireAt(srv interface{ BlockAt(x, y, z int32) uint16 }, p plugin.Vec3) bool 
 
 // vanilla: LightningBolt.setVisualOnly, LightningBolt.tick
 func TestPluginStrikeLightning(t *testing.T) {
+	t.Parallel()
 	srv, h, run, _ := worldEffectsPlugin(t)
 	srv.SetDifficulty(3)
 	pp := srv.PlayerPosition("Effects")

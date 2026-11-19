@@ -73,6 +73,7 @@ func unloadFlat(t *testing.T, run func(func()), h plugin.Server, w plugin.World,
 
 // vanilla: MinecraftServer.createLevels
 func TestPluginCreateWorldFlat(t *testing.T) {
+	t.Parallel()
 	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	g := &flatGen{}
 	w := createFlat(t, run, h, g)
@@ -103,6 +104,7 @@ func TestPluginCreateWorldFlat(t *testing.T) {
 }
 
 func TestPluginCreateWorldSeed(t *testing.T) {
+	t.Parallel()
 	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	var overworld int64
 	var w plugin.World
@@ -116,6 +118,7 @@ func TestPluginCreateWorldSeed(t *testing.T) {
 }
 
 // vanilla: ServerLevel.save
+// Not parallel: it flakes under the CPU contention of the parallel tests.
 func TestPluginWorldSaveReload(t *testing.T) {
 	cfg := servertest.BlockTestConfig()
 	srv, h, run := worldPlugin(t, cfg)
@@ -176,6 +179,7 @@ func TestPluginWorldSaveReload(t *testing.T) {
 
 // vanilla: ServerPlayer.teleport, PlayerList.respawn
 func TestPluginWorldTravelAndUnload(t *testing.T) {
+	t.Parallel()
 	srv, h, run, c := worldEffectsPlugin(t)
 	w := createFlat(t, run, h, &flatGen{})
 	typeID := int32(-1)

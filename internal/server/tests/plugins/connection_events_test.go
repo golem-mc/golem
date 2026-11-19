@@ -18,6 +18,7 @@ import (
 
 // vanilla: ServerLoginPacketListenerImpl.verifyLoginAndFinishConnectionSetup, PlayerList.canPlayerLogin
 func TestPluginPreLoginDenial(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "admission", Plugin: &testPlugin{enable: func(s plugin.Server) error {
 		plugin.Listen(s, func(e *plugin.PlayerPreLoginEvent) {
@@ -41,6 +42,7 @@ func TestPluginPreLoginDenial(t *testing.T) {
 }
 
 func TestPluginLoginResults(t *testing.T) {
+	t.Parallel()
 	for _, result := range []plugin.LoginResult{plugin.LoginAllowed, plugin.LoginFull, plugin.LoginBanned, plugin.LoginWhitelist} {
 		t.Run(fmt.Sprint(result), func(t *testing.T) {
 			cfg := servertest.BlockTestConfig()
@@ -95,6 +97,7 @@ func TestPluginLoginResults(t *testing.T) {
 
 // vanilla: ServerCommonPacketListenerImpl.handleCookieResponse, handleResourcePackResponse
 func TestPluginConfigureConnectionOperations(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	key := plugin.Key{Namespace: "setup", Path: "cookie"}
 	packID := protocol.OfflineUUID("pack")
@@ -175,6 +178,7 @@ func TestPluginConfigureConnectionOperations(t *testing.T) {
 }
 
 func TestPluginClientNotifications(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	var settings []string
 	var statuses []plugin.PackStatus
@@ -245,6 +249,7 @@ func TestPluginClientNotifications(t *testing.T) {
 }
 
 func TestPluginChannelOwnershipAndDelivery(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	key := plugin.Key{Namespace: "channels", Path: "echo"}
 	var host plugin.Server

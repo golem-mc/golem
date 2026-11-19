@@ -10,6 +10,7 @@ import (
 
 // vanilla: Commands.fillUsableCommands; Brigadier CommandDispatcher.parseNodes.
 func TestPluginCommandRedirects(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	ready := false
 	cfg := servertest.BlockTestConfig()

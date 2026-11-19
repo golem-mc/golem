@@ -44,6 +44,7 @@ func pluginLoginRefusal(t *testing.T, srv *server.Server, name, contains string)
 
 // vanilla: BanPlayerCommands.banPlayers, BanIpCommands.banIp, PlayerList.canPlayerLogin
 func TestPluginBans(t *testing.T) {
+	t.Parallel()
 	srv, host := pluginAdminServer(t)
 	c := pluginJoin(t, srv, "Banned")
 	id := protocol.OfflineUUID("Banned").String()
@@ -94,6 +95,7 @@ func TestPluginBans(t *testing.T) {
 
 // vanilla: WhitelistCommand, MinecraftServer.kickUnlistedPlayers, PlayerList.op/deop
 func TestPluginWhitelistAndOps(t *testing.T) {
+	t.Parallel()
 	srv, host := pluginAdminServer(t)
 	c := pluginJoin(t, srv, "Listed")
 	p, _ := host.PlayerNamed("Listed")
@@ -146,6 +148,7 @@ func TestPluginWhitelistAndOps(t *testing.T) {
 }
 
 // vanilla: ServerAdvancementManager.get, AdvancementNode.parent
+// Not parallel: advancement.Current is process-global and every server start replaces it.
 func TestPluginAdvancementLookup(t *testing.T) {
 	var host plugin.Server
 	cfg := servertest.BlockTestConfig()

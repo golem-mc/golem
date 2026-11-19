@@ -14,6 +14,7 @@ import (
 )
 
 func TestPluginTypedBlockEntityKinds(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	w := srv.OverworldWorld()
 	w.Acquire(world.ChunkPos{})
@@ -60,6 +61,7 @@ func TestPluginTypedBlockEntityKinds(t *testing.T) {
 // vanilla: SignBlockEntity.setText, BaseSpawner.setEntityId,
 // BaseCommandBlock.setCommand, BeaconBlockEntity.filterEffect.
 func TestPluginBlockEntityEditsLiveAndSaveReload(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	srv, h, run := worldPlugin(t, cfg)
 	srv.SetTickFrozen(true)
@@ -276,6 +278,7 @@ func mustCompound(t *testing.T, tag nbt.Compound, key string) nbt.Compound {
 
 // vanilla: CommandBlock.tick, BaseSpawner.serverTick, BeaconBlockEntity.tick.
 func TestPluginBlockEntityEditsAffectGameplay(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	srv, h, run := worldPlugin(t, cfg)

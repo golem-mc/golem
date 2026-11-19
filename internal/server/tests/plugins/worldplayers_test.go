@@ -11,6 +11,7 @@ import (
 
 // vanilla: ServerLevel.getPlayers, PlayerList.remove.
 func TestPluginWorldPlayerSnapshots(t *testing.T) {
+	t.Parallel()
 	srv, h, run, c := worldEffectsPlugin(t)
 	var snapshot []plugin.Player
 	run(func() {

@@ -25,6 +25,7 @@ func boneMealOnce(t *testing.T, srv *server.Server, c *servertest.Client, n *int
 
 // vanilla: BoneMealItem.growCrop, CropBlock.performBonemeal
 func TestPluginBlockFertilizeCancelAndEdit(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"cancel", "edit", "keep"} {
 		t.Run(mode, func(t *testing.T) {
 			var fertilized int
@@ -64,6 +65,7 @@ func TestPluginBlockFertilizeCancelAndEdit(t *testing.T) {
 }
 
 // vanilla: SaplingBlock.advanceTree, TreeGrower.growTree
+// Not parallel: it flakes under the CPU contention of the parallel tests.
 func TestPluginStructureGrowCancelAndEdit(t *testing.T) {
 	for _, mode := range []string{"cancel", "edit"} {
 		t.Run(mode, func(t *testing.T) {

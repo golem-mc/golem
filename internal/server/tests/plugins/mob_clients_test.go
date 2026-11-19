@@ -35,6 +35,7 @@ func survivalPlugin(t *testing.T) (*server.Server, plugin.Server, *servertest.Cl
 }
 
 func TestPluginPlayerActiveItemWhileEating(t *testing.T) {
+	t.Parallel()
 	srv, host, c, run := survivalPlugin(t)
 	p, ok := host.PlayerNamed("Walker")
 	if !ok {
@@ -57,6 +58,7 @@ func TestPluginPlayerActiveItemWhileEating(t *testing.T) {
 }
 
 func TestPluginMobLeashShowsOnTheClientAndTargetsAPlayer(t *testing.T) {
+	t.Parallel()
 	_, host, c, run := survivalPlugin(t)
 	p, _ := host.PlayerNamed("Walker")
 	var cow plugin.Mob

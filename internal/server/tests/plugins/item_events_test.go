@@ -8,6 +8,7 @@ import (
 
 // vanilla: ItemEntity.tick
 func TestPluginItemDespawnEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	srv, _ := tickScene(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.ItemDespawnEvent) {
@@ -36,6 +37,7 @@ func TestPluginItemDespawnEvent(t *testing.T) {
 
 // vanilla: ItemEntity.tryToMerge
 func TestPluginItemMergeEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	srv, _ := tickScene(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.ItemMergeEvent) {

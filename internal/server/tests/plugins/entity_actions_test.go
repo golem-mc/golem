@@ -10,6 +10,7 @@ import (
 
 // vanilla: Player.tryToStartFallFlying, stopFallFlying
 func TestPluginEntityToggleGlideEvent(t *testing.T) {
+	t.Parallel()
 	var seen []bool
 	cancel := true
 	srv, c := entityPlugin(t, func(s plugin.Server) {
@@ -38,6 +39,7 @@ func TestPluginEntityToggleGlideEvent(t *testing.T) {
 
 // vanilla: Entity.startRiding, ServerGamePacketListenerImpl.handlePlayerInput
 func TestPluginMountAndVehicleEvents(t *testing.T) {
+	t.Parallel()
 	var mounts, dismounts int
 	var vehicles []plugin.VehicleAction
 	cancelEnter, cancelExit := true, true
@@ -86,6 +88,7 @@ func TestPluginMountAndVehicleEvents(t *testing.T) {
 
 // vanilla: BowItem.releaseUsing
 func TestPluginEntityShootBowEvent(t *testing.T) {
+	t.Parallel()
 	var got *plugin.EntityShootBowEvent
 	srv, c := entityPlugin(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.EntityShootBowEvent) {
@@ -109,6 +112,7 @@ func TestPluginEntityShootBowEvent(t *testing.T) {
 
 // vanilla: Wolf.mobInteract, TamableAnimal.tame
 func TestPluginEntityTameEvent(t *testing.T) {
+	t.Parallel()
 	var got *plugin.EntityTameEvent
 	srv, c := entityPlugin(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.EntityTameEvent) {
@@ -138,6 +142,7 @@ func TestPluginEntityTameEvent(t *testing.T) {
 
 // vanilla: FoodData.eat
 func TestPluginFoodLevelChangeOnEating(t *testing.T) {
+	t.Parallel()
 	var got *plugin.FoodLevelChangeEvent
 	srv, c := entityPlugin(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.FoodLevelChangeEvent) {

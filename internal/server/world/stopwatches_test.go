@@ -10,6 +10,7 @@ import (
 // it at once, so the wait between the restart and the query counts, and a save
 // that never named a stopwatch still records the time it ran.
 func TestStopwatchKeepsTimeAcrossARestart(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	saved := NewStopwatches(root)

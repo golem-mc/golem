@@ -72,7 +72,9 @@ func TestChunkPacketMatchesReference(t *testing.T) {
 // into one growing buffer.
 func TestChunkSectionsMatchReference(t *testing.T) {
 	t.Parallel()
-	overworld, _ := NewWorld(t.TempDir(), NewOverworldGenerator(5))
+	dir := t.TempDir()
+	seedWorldDir(t, dir, 5)
+	overworld, _ := NewWorld(dir, NewOverworldGenerator(5))
 	for _, w := range []*World{overworld, NewDimensionWorld(t.TempDir(), true, NewNetherGenerator(7))} {
 		defer w.Close()
 		for i := range int32(4) {

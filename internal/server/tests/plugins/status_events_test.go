@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"image"
 	"image/png"
+	"sync/atomic"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -15,6 +16,7 @@ import (
 
 // vanilla: ServerStatusPacketListenerImpl.handleStatusRequest, ServerStatus.CODEC
 func TestPluginServerListFieldsAndCancellation(t *testing.T) {
+	t.Parallel()
 	var icon bytes.Buffer
 	if err := png.Encode(&icon, image.NewRGBA(image.Rect(0, 0, 64, 64))); err != nil {
 		t.Fatal(err)
@@ -22,10 +24,10 @@ func TestPluginServerListFieldsAndCancellation(t *testing.T) {
 	for _, mode := range []string{"edit", "hide", "cancel"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := servertest.BlockTestConfig()
-			calls := 0
+			var calls atomic.Int32
 			srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "status", Plugin: &testPlugin{enable: func(s plugin.Server) error {
 				plugin.Listen(s, func(e *plugin.ServerListPingEvent) {
-					calls++
+					calls.Add(1)
 					if e.Address == nil || e.Protocol != 123 || e.Max != cfg.MaxPlayers || e.Online != 0 {
 						t.Error("ping inputs")
 					}
@@ -82,8 +84,8 @@ func TestPluginServerListFieldsAndCancellation(t *testing.T) {
 					t.Fatal("favicon")
 				}
 			}
-			if calls != 1 {
-				t.Fatalf("ping callbacks = %d", calls)
+			if n := calls.Load(); n != 1 {
+				t.Fatalf("ping callbacks = %d", n)
 			}
 		})
 	}

@@ -19,6 +19,7 @@ import (
 )
 
 func TestPluginPermissionDefaults(t *testing.T) {
+	t.Parallel()
 	var h plugin.Server
 	ready := false
 	servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "permissions", Plugin: &testPlugin{enable: func(s plugin.Server) error {
@@ -37,6 +38,7 @@ func TestPluginPermissionDefaults(t *testing.T) {
 }
 
 func TestPluginConsoleCommandEvent(t *testing.T) {
+	t.Parallel()
 	seen := false
 	var listener plugin.Listener
 	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "commands", Plugin: &testPlugin{enable: func(s plugin.Server) error {
@@ -71,6 +73,7 @@ type permissionProvider func(plugin.CommandSender, string) (bool, bool)
 func (p permissionProvider) Has(s plugin.CommandSender, n string) (bool, bool) { return p(s, n) }
 
 func TestPluginPermissionProviderAndChildren(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	var h plugin.Server
@@ -181,6 +184,7 @@ func (*recordingSender) PermissionSet(string) bool   { return false }
 func (s *recordingSender) SendMessage(t plugin.Text) { s.messages = append(s.messages, t) }
 
 func TestPluginDispatch(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	var h plugin.Server
@@ -229,6 +233,7 @@ func currentGoroutine() string {
 }
 
 func TestPluginPlayerCommandEvents(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	var h plugin.Server
@@ -300,6 +305,7 @@ func TestPluginPlayerCommandEvents(t *testing.T) {
 
 // vanilla: RconClient.run, RconConsoleSource
 func TestPluginRemoteCommandEvent(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.RconPassword = "secret"
 	var tickGoroutine string

@@ -12,6 +12,7 @@ import (
 )
 
 func TestPluginEntityHandles(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	w := srv.OverworldWorld()
 	w.Acquire(world.ChunkPos{X: 0, Z: 0})
@@ -78,6 +79,7 @@ func TestPluginEntityHandles(t *testing.T) {
 }
 
 func TestPluginEntityPlayerHandle(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	cfg := servertest.BlockTestConfig()
 	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "entities", Plugin: &testPlugin{enable: func(s plugin.Server) error { host = s; return nil }}}})
@@ -109,6 +111,7 @@ func TestPluginEntityPlayerHandle(t *testing.T) {
 }
 
 func TestPluginLivingEntityHandle(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	w := srv.OverworldWorld()
 	w.Acquire(world.ChunkPos{X: 0, Z: 0})
@@ -200,6 +203,7 @@ func TestPluginLivingEntityHandle(t *testing.T) {
 }
 
 func TestPluginDropItem(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	w := srv.OverworldWorld()
 	w.Acquire(world.ChunkPos{X: 0, Z: 0})

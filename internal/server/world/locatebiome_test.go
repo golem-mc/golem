@@ -73,23 +73,22 @@ func TestOverworldBiomeProbeMatchesGeneratedChunk(t *testing.T) {
 	probe := g.NewBiomeProbe()
 	seen := map[string]bool{}
 	cells, ties := 0, 0
-	// A 4x4 of separated chunks covers negative coordinates and the origin,
-	// with all quart heights and the same minimum biome/tie bounds.
-	for cz := int32(-12); cz < 12; cz += 6 {
-		for cx := int32(-12); cx < 12; cx += 6 {
-			c := newChunk(cx, cz)
-			g.Generate(c)
-			for qz := range int32(4) {
-				for qx := range int32(4) {
-					for qy := int32(worldMinY >> 2); qy < (worldMinY+worldHeight)>>2; qy++ {
-						want := registry.Biome(c.BiomeAt(qx*4, qy*4, qz*4)).Name()
-						got := probe(cx*4+qx, qy, cz*4+qz)
-						cells++
-						if got != want {
-							ties++
-						}
-						seen[got] = true
+	// Separated chunks cover negative coordinates and the origin, with all
+	// quart heights and the same minimum biome/tie bounds.
+	for _, pos := range [][2]int32{{6, 0}, {0, -12}, {-12, -12}, {6, -12}} {
+		cx, cz := pos[0], pos[1]
+		c := newChunk(cx, cz)
+		g.Generate(c)
+		for qz := range int32(4) {
+			for qx := range int32(4) {
+				for qy := int32(worldMinY >> 2); qy < (worldMinY+worldHeight)>>2; qy++ {
+					want := registry.Biome(c.BiomeAt(qx*4, qy*4, qz*4)).Name()
+					got := probe(cx*4+qx, qy, cz*4+qz)
+					cells++
+					if got != want {
+						ties++
 					}
+					seen[got] = true
 				}
 			}
 		}

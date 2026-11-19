@@ -3,18 +3,63 @@ package world
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
+// worldFileTemplates holds, per seed, the files a created overworld leaves
+// behind: level.dat and world_gen_settings.dat. Creating a world searches the
+// seed's spawn, which costs generated chunks; a folder with these files is
+// opened as an existing world, so the search runs once per seed.
+var worldFileTemplates sync.Map // int64 -> func() map[string][]byte
+
+func seedWorldDir(t *testing.T, dir string, seed int64) {
+	t.Helper()
+	build, _ := worldFileTemplates.LoadOrStore(seed, sync.OnceValue(func() map[string][]byte {
+		tmp, err := os.MkdirTemp("", "world-template")
+		if err != nil {
+			panic(err)
+		}
+		defer os.RemoveAll(tmp)
+		w, err := NewWorld(tmp, NewOverworldGenerator(seed))
+		if err != nil {
+			panic(err)
+		}
+		_ = w.Close()
+		files := map[string][]byte{}
+		for _, name := range []string{"level.dat", "data/minecraft/world_gen_settings.dat"} {
+			if files[name], err = os.ReadFile(filepath.Join(tmp, name)); err != nil {
+				panic(err)
+			}
+		}
+		return files
+	}))
+	for name, data := range build.(func() map[string][]byte)() {
+		path := filepath.Join(dir, name)
+		if _, err := os.Stat(path); err == nil {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // netherWorld opens the nether of a world folder, the way the server does.
 func netherWorld(t *testing.T, dir string, seed int64) *World {
 	t.Helper()
+	seedWorldDir(t, dir, seed)
 	ow, err := NewWorld(dir, NewOverworldGenerator(seed))
 	if err != nil {
 		t.Fatal(err)
@@ -43,15 +88,15 @@ func TestNetherProtosSurviveARestart(t *testing.T) {
 	t.Parallel()
 	const seed = 0
 	whole := map[ChunkPos][]byte{}
-	acquireNetherRange(netherWorld(t, t.TempDir(), seed), -42, -16, -38, -12, whole)
+	acquireNetherRange(netherWorld(t, t.TempDir(), seed), -42, -16, -40, -14, whole)
 
 	dir := t.TempDir()
 	got := map[ChunkPos][]byte{}
 	first := netherWorld(t, dir, seed)
-	acquireNetherRange(first, -42, -16, -40, -12, got)
+	acquireNetherRange(first, -42, -16, -41, -14, got)
 	first.Close()
 	second := netherWorld(t, dir, seed)
-	acquireNetherRange(second, -39, -16, -38, -12, got)
+	acquireNetherRange(second, -40, -16, -40, -14, got)
 
 	for pos, want := range whole {
 		if g, ok := got[pos]; ok && !bytes.Equal(g, want) {

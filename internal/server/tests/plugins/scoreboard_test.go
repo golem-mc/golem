@@ -36,6 +36,7 @@ func nextBoardPacket(t *testing.T, c *servertest.Client, srv *server.Server, wan
 
 // vanilla: ServerScoreboard.getStartTrackingPackets, PlayerList.updateEntireScoreboard
 func TestPluginScoreboards(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
@@ -259,6 +260,7 @@ func TestPluginScoreboards(t *testing.T) {
 
 // vanilla: PlayerTeam setters and ServerScoreboard.onTeamChanged
 func TestPluginScoreboardTeamOptions(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
@@ -365,6 +367,7 @@ func TestPluginScoreboardTeamOptions(t *testing.T) {
 }
 
 func TestPluginScoreboardHandleLifetimes(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
@@ -500,6 +503,7 @@ func TestPluginScoreboardHandleLifetimes(t *testing.T) {
 
 // vanilla: ServerPlayer.doTick, awardStat, die
 func TestPluginPrivateScoreboardGameplayCriteria(t *testing.T) {
+	t.Parallel()
 	srv, host := pluginAdminServer(t)
 	c := pluginJoin(t, srv, "Criteria")
 	other := pluginJoin(t, srv, "Observer")

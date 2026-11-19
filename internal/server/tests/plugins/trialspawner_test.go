@@ -56,6 +56,7 @@ func trialTagBytes(t *testing.T, tag nbt.Compound) []byte {
 
 // vanilla: TrialSpawnerConfig.DIRECT_CODEC, TrialSpawner.FullConfig.
 func TestPluginTrialSpawnerSettings(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	srv.SetTickFrozen(true)
 	w := srv.OverworldWorld()
@@ -227,6 +228,7 @@ func TestPluginTrialSpawnerSettings(t *testing.T) {
 // vanilla: TrialSpawnerState.ACTIVE, TrialSpawnerConfig.calculateTargetTotalMobs,
 // calculateTargetSimultaneousMobs, TrialSpawnerStateData.tryDetectPlayers.
 func TestPluginTrialSpawnerGameplay(t *testing.T) {
+	t.Parallel()
 	for _, ominous := range []bool{false, true} {
 		name := "normal"
 		if ominous {

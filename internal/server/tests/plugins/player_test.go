@@ -17,6 +17,7 @@ import (
 
 // vanilla: ClientboundSystemChatPacket, ClientboundTransferPacket
 func TestPluginPlayerMessaging(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
@@ -45,6 +46,7 @@ func TestPluginPlayerMessaging(t *testing.T) {
 // vanilla: ClientboundSetTitlesAnimationPacket, ClientboundTabListPacket,
 // ClientboundPlayerInfoUpdatePacket.Action.UPDATE_DISPLAY_NAME
 func TestPluginPlayerControlPackets(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
@@ -178,6 +180,7 @@ func TestPluginPlayerControlPackets(t *testing.T) {
 }
 
 func TestPluginPlayerLookupsAndStaleHandles(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
@@ -292,6 +295,7 @@ func TestPluginPlayerLookupsAndStaleHandles(t *testing.T) {
 
 // vanilla: ClientboundResourcePackPushPacket, ClientboundResourcePackPopPacket
 func TestPluginPlayerResourcePacks(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance

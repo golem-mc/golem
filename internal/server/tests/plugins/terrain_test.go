@@ -11,6 +11,7 @@ import (
 
 // vanilla: Level.getBlockState, Heightmap.Types, LevelChunk.getBlockEntities.
 func TestPluginTerrainReads(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	pos := world.ChunkPos{X: -2, Z: 3}
 	w := srv.OverworldWorld()

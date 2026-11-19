@@ -163,6 +163,7 @@ func TestPluginLifecycleOrderingAndFailureCleanup(t *testing.T) {
 }
 
 func TestPluginEventPriorityCancellationAndPanicRollback(t *testing.T) {
+	t.Parallel()
 	var h plugin.Server
 	var trace []string
 	p := &testPlugin{enable: func(s plugin.Server) error { h = s; return nil }}
@@ -212,6 +213,7 @@ func TestPluginEventPriorityCancellationAndPanicRollback(t *testing.T) {
 }
 
 func TestPluginSchedulerTicksCancellationAndDisable(t *testing.T) {
+	t.Parallel()
 	var h plugin.Server
 	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "tasks", Plugin: &testPlugin{enable: func(s plugin.Server) error { h = s; return nil }}}})
 	servertest.HoldTicks(t, srv)
@@ -264,6 +266,7 @@ func TestPluginSchedulerTicksCancellationAndDisable(t *testing.T) {
 }
 
 func TestPluginAsyncSchedulerPoolAndCleanup(t *testing.T) {
+	t.Parallel()
 	var h plugin.Server
 	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "async", Plugin: &testPlugin{enable: func(s plugin.Server) error { h = s; return nil }}}})
 	servertest.HoldTicks(t, srv)
@@ -310,6 +313,7 @@ func TestPluginAsyncSchedulerPoolAndCleanup(t *testing.T) {
 }
 
 func TestPluginLoadBeforeOrdering(t *testing.T) {
+	t.Parallel()
 	var order []string
 	makePlugin := func(name string) *testPlugin {
 		return &testPlugin{enable: func(plugin.Server) error { order = append(order, name); return nil }}

@@ -12,6 +12,7 @@ import (
 
 // vanilla: ChestMenu.threeRows, ServerGamePacketListenerImpl.handleContainerClick.
 func TestPluginCustomMenu(t *testing.T) {
+	t.Parallel()
 	srv, h, run, w := inventoryPlayer(t)
 	var menu plugin.Inventory
 	var clicks atomic.Int32
