@@ -1230,6 +1230,13 @@ func (c *Client) Attack(entityID int32) {
 	c.Send(protocol.IDPlayAttackIn, func(b *protocol.Buffer) { b.PutVarInt(entityID) })
 }
 
+// Swing swings the main arm, the packet a client sends for a left click that
+// hits nothing it reaches. Its payload is empty.
+func (c *Client) Swing() {
+	c.T.Helper()
+	c.Send(protocol.IDPlayPunch, func(*protocol.Buffer) {})
+}
+
 // EnterWorldSeeingMob runs the join sequence the way EnterWorld does — to the
 // end of the first chunk batch — capturing on the way the mob that the
 // "players already here" half of a join shows a newcomer, its three packets
