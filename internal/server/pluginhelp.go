@@ -338,6 +338,18 @@ func (s *Server) helpSnapshot() *helpSnapshot {
 			aliasTopic(a, "help")
 		}
 	}
+	if !taken["plugins"] {
+		aliases := []string(nil)
+		if !taken["pl"] {
+			aliases = []string{"pl"}
+		}
+		t := commandTopic(helpCommand{label: "plugins", description: "Gets a list of plugins running on the server", usage: "/plugins", aliases: aliases, see: seeAll})
+		put(t)
+		byPlugin[builtinHelpGroup] = append(byPlugin[builtinHelpGroup], t)
+		for _, a := range aliases {
+			aliasTopic(a, "plugins")
+		}
+	}
 	for _, info := range plugins {
 		if slices.Contains(ignored, info.Plugin) {
 			continue
