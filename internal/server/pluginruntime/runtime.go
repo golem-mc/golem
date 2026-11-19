@@ -256,9 +256,16 @@ func (h *Host) info() plugin.Info {
 }
 
 // Plugins answers a snapshot of all plugin identities and enable states.
-func (h *Host) Plugins() []plugin.Info {
-	infos := make([]plugin.Info, 0, len(h.runtime.hosts))
-	for _, p := range h.runtime.hosts {
+func (h *Host) Plugins() []plugin.Info { return h.runtime.Plugins() }
+
+// Plugins answers a snapshot of every registered plugin's identity and
+// enable state; none without a runtime.
+func (r *Runtime) Plugins() []plugin.Info {
+	if r == nil {
+		return nil
+	}
+	infos := make([]plugin.Info, 0, len(r.hosts))
+	for _, p := range r.hosts {
 		infos = append(infos, p.info())
 	}
 	return infos

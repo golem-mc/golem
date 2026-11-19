@@ -180,6 +180,7 @@ func (s *Server) pluginCommandTree(src command.Source, level int) *command.Node 
 		taken[n.Name] = true
 	}
 	roots = append(roots, s.bukkitHelpRoots(taken)...)
+	roots = append(roots, s.pluginsRoots(taken)...)
 	if s.pluginCommands.active.Load() || s.plugins.Any() {
 		roots = append(roots, minecraftAliases(base, roots)...)
 	}
