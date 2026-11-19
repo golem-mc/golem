@@ -64,6 +64,7 @@ func TestPluginSpecs(t *testing.T) {
 		{"github.com/a/b"}, {"github.com/a/b@latest"}, {"github.com/a/b@main"},
 		{"./missing"}, {"./warps/missing"}, {serverModule + "@v1.0.0"}, {serverModule + "/plugin@v1.0.0"},
 		{"github.com/a/b@v1.0.0", "github.com/a/b@v1.1.0"}, {"./warps/spawn", "./warps/spawn/"},
+		{"./warps/spawn", "example.com/warps/x@v1.0.0"}, {"example.com/warps@v1.0.0", "./warps/spawn"},
 	} {
 		if _, err := (config{Plugins: bad}).pluginSpecs(base); err == nil {
 			t.Errorf("pluginSpecs(%q) took it", bad)

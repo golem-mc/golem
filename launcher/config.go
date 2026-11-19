@@ -187,6 +187,14 @@ func (c config) pluginSpecs(base string) ([]pluginSpec, error) {
 			if p.Module != "" && q.Module == p.Module && q.ModDir != p.ModDir {
 				return nil, fmt.Errorf("plugins %s and %s: module %s is in both %s and %s", q.Dir, p.Dir, p.Module, q.ModDir, p.ModDir)
 			}
+			// A local module's -replace covers every version of it, so a
+			// remote entry inside it would be built from the local checkout.
+			for _, lr := range [][2]pluginSpec{{q, p}, {p, q}} {
+				l, r := lr[0], lr[1]
+				if l.Module != "" && r.Module == "" && (r.Path == l.Module || strings.HasPrefix(r.Path, l.Module+"/")) {
+					return nil, fmt.Errorf("plugins %s and %s: module %s is local in %s, so %s cannot be remote", q, p, l.Module, l.ModDir, r.Path)
+				}
+			}
 		}
 		specs = append(specs, p)
 	}
