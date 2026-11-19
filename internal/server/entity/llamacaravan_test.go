@@ -36,3 +36,53 @@ func TestLlamaJoinsALeashedCaravanAndLeavesWhenItBreaks(t *testing.T) {
 		t.Error("stop did not leave the caravan")
 	}
 }
+
+// TestLlamaCaravanSearchInALargeHerdMatchesTheWholeHerd: past the size at
+// which the search asks the push grid, each llama picks the same head as a
+// scan of the whole herd would.
+func TestLlamaCaravanSearchInALargeHerdMatchesTheWholeHerd(t *testing.T) {
+	const herd = 200
+	build := func() []*Mob {
+		mobs := make([]*Mob, herd)
+		for i := range mobs {
+			// A 20x10 lattice 3 blocks apart, the leashed leads in one column.
+			mobs[i] = NewMob(TypeLlama, int32(i+1), float64(i%20)*3+0.5, 64+float64(i%3), float64(i/20)*3+0.5, int64(i))
+			if i%20 == 0 {
+				mobs[i].LeashHolderID = 999
+			}
+		}
+		return mobs
+	}
+	heads := func(grid bool) []int32 {
+		mobs := build()
+		g := takePushGrid(herd, nil)
+		defer g.release()
+		g.build(mobs)
+		view := &tickView{w: newTestWorld(), others: mobs}
+		out := make([]int32, herd)
+		for i, m := range mobs {
+			if grid {
+				m.push = g
+			}
+			(&caravanGoal{m: m, speed: llamaCaravanSpeed}).CanStart(view)
+			m.push = nil
+			if m.Horse.head != nil {
+				out[i] = m.Horse.head.ID
+			}
+		}
+		return out
+	}
+	want, got := heads(false), heads(true)
+	joined := 0
+	for i := range want {
+		if want[i] != got[i] {
+			t.Fatalf("llama %d follows %d through the grid, %d in a whole-herd scan", i+1, got[i], want[i])
+		}
+		if want[i] != 0 {
+			joined++
+		}
+	}
+	if joined == 0 {
+		t.Fatal("no llama joined a caravan")
+	}
+}

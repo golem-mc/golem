@@ -43,6 +43,7 @@ var scenarios = map[string]scenario{
 	"zombies-500":   {flat, mobs("zombie", 500)},
 	"zombies-2000":  {flat, mobs("zombie", 2000)},
 	"passive-2000":  {flat, mobs("passive", 2000)},
+	"llamas-2000":   {flat, mobs("llama", 2000)},
 	"items-2000":    {flat, items(2000)},
 	"redstone":      {flat, redstoneClocks},
 	"hoppers":       {flat, hoppers},
