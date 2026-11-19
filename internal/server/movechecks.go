@@ -30,6 +30,7 @@ func (c *client) refuseStep(to player.Position) bool {
 		ElytraCheck:   w.BoolRule(world.RuleElytraMovementCheck),
 		FallFlying:    fallFlying,
 		Spectator:     c.player.GameMode() == protocol.GameModeSpectator,
+		Speed:         c.moveSpeedScale(),
 		Collides: func() bool {
 			dims := c.dims(c.player.Appearance().Pose)
 			hw := dims.Width / 2
@@ -51,4 +52,14 @@ func (c *client) refuseStep(to player.Position) bool {
 	}
 	c.send(protocol.IDPlaySyncPosition, c.awaitTeleport(command.Move{Pos: v.Back}))
 	return true
+}
+
+// moveSpeedScale is the body's fly speed (flying) or walk speed over
+// vanilla's default, which only a plugin raises.
+func (c *client) moveSpeedScale() float64 {
+	a := c.abilityState()
+	if c.flying.Load() {
+		return float64(a.flySpeed / 0.05)
+	}
+	return float64(a.walkSpeed / 0.1)
 }
