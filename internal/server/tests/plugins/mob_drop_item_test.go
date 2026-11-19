@@ -9,6 +9,7 @@ import (
 
 // vanilla: Chicken.aiStep, Entity.spawnAtLocation
 func TestPluginEntityDropItemEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	srv, _ := tickScene(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.EntityDropItemEvent) {

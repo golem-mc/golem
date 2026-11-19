@@ -68,11 +68,12 @@ func TestOverworldLocatesStronghold(t *testing.T) {
 			t.Errorf("nearest stronghold (%d, %d), want (-208, -1696)", x, z)
 		}
 	})
-	if !slices.Contains(allStrongholdChunks(g), [2]int32{x >> 4, z >> 4}) {
+	rings := allStrongholdChunks(g)
+	if !slices.Contains(rings, [2]int32{x >> 4, z >> 4}) {
 		t.Errorf("(%d, %d) is not a ring chunk", x, z)
 	}
 	// Moving next to a ring chunk makes it the nearest.
-	target := allStrongholdChunks(g)[100]
+	target := rings[100]
 	if nx, nz, _, ok := g.NearestStructure([]string{"minecraft:stronghold"}, target[0]*16+8, 32, target[1]*16+8, 100); !ok || nx>>4 != target[0] || nz>>4 != target[1] {
 		t.Errorf("standing in ring chunk %v found (%d, %d)", target, nx, nz)
 	}

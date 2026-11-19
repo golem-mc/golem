@@ -50,7 +50,13 @@ func BenchmarkBlocksIn(b *testing.B) {
 // world's floor.
 func TestBlocksInReadsWhatBlockAtReads(t *testing.T) {
 	t.Parallel()
-	w := newTestWorld(t, NewOverworldGenerator(5))
+	dir := t.TempDir()
+	seedWorldDir(t, dir, 5)
+	w, err := NewWorld(dir, NewOverworldGenerator(5))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(w.FlushSaves)
 	w.Acquire(ChunkPos{0, 0})
 	w.Acquire(ChunkPos{-1, 0})
 	defer w.Release(ChunkPos{0, 0})

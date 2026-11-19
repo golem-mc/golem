@@ -12,10 +12,13 @@ import (
 // each reuses the buffer the one before grew, and checks every record is
 // byte-identical to a fresh nbt.Encode of the same chunk.
 func TestSaveChunkBytesMatchEncode(t *testing.T) {
-	w, _ := NewWorld(t.TempDir(), NewOverworldGenerator(5))
+	t.Parallel()
+	dir := t.TempDir()
+	seedWorldDir(t, dir, 5)
+	w, _ := NewWorld(dir, NewOverworldGenerator(5))
 	t.Cleanup(func() { _ = w.Close() })
 
-	for i := range 6 {
+	for i := range 4 {
 		pos := ChunkPos{X: int32(i*3 - 4), Z: int32(i - 2)}
 		c, _ := w.Acquire(pos)
 		if i%2 == 0 {

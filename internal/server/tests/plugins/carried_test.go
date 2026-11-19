@@ -15,6 +15,7 @@ import (
 
 // vanilla: LevelChunk.getBlockEntities, SkullBlockEntity.saveAdditional.
 func TestPluginCarriedBlockEntityData(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	srv, h, run := worldPlugin(t, cfg)
 	w := srv.OverworldWorld()
@@ -134,6 +135,7 @@ func TestPluginCarriedBlockEntityData(t *testing.T) {
 }
 
 func TestPluginSkullHandle(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	srv, h, run := worldPlugin(t, cfg)
 	w := srv.OverworldWorld()

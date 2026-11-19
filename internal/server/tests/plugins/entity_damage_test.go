@@ -28,6 +28,7 @@ func entityPlugin(t *testing.T, listen func(plugin.Server)) (*server.Server, *se
 
 // vanilla: LivingEntity.hurtServer, actuallyHurt
 func TestPluginEntityDamageEvent(t *testing.T) {
+	t.Parallel()
 	var seen []*plugin.EntityDamageEvent
 	mode := "grow"
 	srv, _ := entityPlugin(t, func(s plugin.Server) {
@@ -74,6 +75,7 @@ func TestPluginEntityDamageEvent(t *testing.T) {
 
 // vanilla: ServerPlayer.die, Player.dropEquipment
 func TestPluginPlayerDeathEvent(t *testing.T) {
+	t.Parallel()
 	var got *plugin.PlayerDeathEvent
 	var edit func(*plugin.PlayerDeathEvent)
 	srv, c := entityPlugin(t, func(s plugin.Server) {
@@ -144,6 +146,7 @@ func TestPluginPlayerDeathEvent(t *testing.T) {
 
 // vanilla: LivingEntity.die, dropAllDeathLoot
 func TestPluginEntityDeathEvent(t *testing.T) {
+	t.Parallel()
 	var got *plugin.EntityDeathEvent
 	srv, _ := entityPlugin(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.EntityDeathEvent) {
@@ -174,6 +177,7 @@ func TestPluginEntityDeathEvent(t *testing.T) {
 
 // vanilla: LivingEntity.checkTotemDeathProtection
 func TestPluginEntityResurrectEvent(t *testing.T) {
+	t.Parallel()
 	var got *plugin.EntityResurrectEvent
 	cancel := false
 	srv, _ := entityPlugin(t, func(s plugin.Server) {
@@ -200,6 +204,7 @@ func TestPluginEntityResurrectEvent(t *testing.T) {
 
 // vanilla: FoodData.tick
 func TestPluginFoodAndRegainEvents(t *testing.T) {
+	t.Parallel()
 	var regain *plugin.EntityRegainHealthEvent
 	var food *plugin.FoodLevelChangeEvent
 	srv, _ := entityPlugin(t, func(s plugin.Server) {

@@ -8,6 +8,7 @@ import (
 
 // vanilla: Entity.teleportTo
 func TestPluginTeleportCauseAndVerdict(t *testing.T) {
+	t.Parallel()
 	var causes []plugin.TeleportCause
 	cancel := false
 	srv, host, _ := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {

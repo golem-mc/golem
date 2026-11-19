@@ -36,6 +36,7 @@ func checkSmallStructureFixtures(t *testing.T, pattern string) {
 	}
 	for _, file := range files {
 		t.Run(filepath.Base(file), func(t *testing.T) {
+			t.Parallel()
 			data, err := os.ReadFile(file)
 			if err != nil {
 				t.Fatal(err)

@@ -61,8 +61,10 @@ func testShapedTerrainCache(t *testing.T) {
 }
 
 func TestGenerationWithTerrainEviction(t *testing.T) {
+	t.Parallel()
 	for _, dim := range []string{"overworld", "nether"} {
 		t.Run(dim, func(t *testing.T) {
+			t.Parallel()
 			var generate [2]func(*Chunk)
 			if dim == "overworld" {
 				a, b := NewOverworldGenerator(777), NewOverworldGenerator(777)

@@ -32,6 +32,7 @@ func checkPluginData(t *testing.T, d plugin.Data, values map[string]any) {
 }
 
 func TestPluginDataSaveReload(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	srv, h, run := worldPlugin(t, cfg)
 	pos := world.ChunkPos{X: -2, Z: 3}

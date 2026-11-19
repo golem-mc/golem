@@ -12,6 +12,7 @@ import (
 
 // vanilla: ServerConfigurationPacketListenerImpl.addOptionalTasks, handleResourcePackResponse
 func TestPluginConfigurationPacksHoldUntilResolved(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name       string
 		required   bool

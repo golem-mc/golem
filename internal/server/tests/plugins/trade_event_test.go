@@ -15,6 +15,7 @@ import (
 
 // vanilla: MerchantResultSlot.onTake
 func TestPluginPlayerTradeEvent(t *testing.T) {
+	t.Parallel()
 	var asked atomic.Int32
 	var cancel atomic.Bool
 	cancel.Store(true)
@@ -67,6 +68,7 @@ func TestPluginPlayerTradeEvent(t *testing.T) {
 
 // vanilla: Snowball.use, Projectile.spawnProjectile
 func TestPluginProjectileLaunchEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	srv, _, c := blockScene(t, "minecraft:snowball", false, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.ProjectileLaunchEvent) {
@@ -94,6 +96,7 @@ func TestPluginProjectileLaunchEvent(t *testing.T) {
 
 // vanilla: Pig.thunderHit, Mob.convertTo
 func TestPluginEntityTransformEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	var reason plugin.TransformReason
 	srv, _ := tickScene(t, func(s plugin.Server) {

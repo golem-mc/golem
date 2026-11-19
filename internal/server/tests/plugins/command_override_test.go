@@ -27,6 +27,7 @@ func overrideGamemode(s plugin.Server, say string) plugin.Command {
 }
 
 func TestPluginCommandOverride(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	var host plugin.Server
@@ -86,6 +87,7 @@ func TestPluginCommandOverride(t *testing.T) {
 }
 
 func TestPluginCommandOverrideAliasWithArguments(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	run := func(ctx *plugin.CommandContext) (int, error) {

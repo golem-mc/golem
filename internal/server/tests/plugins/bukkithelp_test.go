@@ -51,6 +51,7 @@ func bukkitHelpServer(t *testing.T, extra ...plugin.Command) (*server.Server, pl
 var warpCommand = plugin.Command{Name: "warp", Aliases: []string{"wp"}, Description: "Go places", Usage: "/<command> <name>", Run: func(*plugin.CommandContext) (int, error) { return 1, nil }}
 
 func TestHelpWithoutPluginsIsBukkits(t *testing.T) {
+	t.Parallel()
 	srv := servertest.NewTestServer(t, servertest.BlockTestConfig())
 	for _, line := range []string{"help", "?", "golem:help"} {
 		out := plainLines(srv.RunLine(line))
@@ -73,6 +74,7 @@ func TestHelpWithoutPluginsIsBukkits(t *testing.T) {
 }
 
 func TestHelpPagesForAPlayer(t *testing.T) {
+	t.Parallel()
 	_, host := bukkitHelpServer(t, warpCommand)
 	op := &helpSender{level: 4}
 	if _, err := host.Dispatch(op, "help"); err != nil {
@@ -104,6 +106,7 @@ func TestHelpPagesForAPlayer(t *testing.T) {
 }
 
 func TestHelpCommandAndPluginTopics(t *testing.T) {
+	t.Parallel()
 	srv, _ := bukkitHelpServer(t, warpCommand)
 	out := plainLines(srv.RunLine("help warp"))
 	want := []string{"--------- Help: /warp ---", "Go places", "Description: Go places", "Usage: /warp <name>", "Aliases: wp"}
@@ -140,6 +143,7 @@ func TestHelpCommandAndPluginTopics(t *testing.T) {
 }
 
 func TestHelpHidesWhatTheSenderMayNotUse(t *testing.T) {
+	t.Parallel()
 	secret := plugin.Command{Name: "secret", Description: "Hidden", Permission: "warps.secret", Run: func(*plugin.CommandContext) (int, error) { return 1, nil }}
 	srv, host := bukkitHelpServer(t, warpCommand, secret)
 	if got := strings.Join(plainLines(srv.RunLine("help")), "\n"); !strings.Contains(got, "/secret: Hidden") {

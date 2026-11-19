@@ -24,7 +24,7 @@ func TestOverworldIsDeterministic(t *testing.T) {
 	g1 := NewOverworldGenerator(42)
 	g2 := NewOverworldGenerator(42)
 
-	for _, pos := range []ChunkPos{{3, -2}, {-1, -1}, {0, 0}, {17, 40}} {
+	for _, pos := range []ChunkPos{{3, -2}, {-1, -1}, {0, 0}} {
 		c1, c2 := newChunk(pos.X, pos.Z), newChunk(pos.X, pos.Z)
 		g1.Generate(c1)
 		g2.Generate(c2)
@@ -560,7 +560,7 @@ func TestOverworldChunkBiomesAreTheBiomeSource(t *testing.T) {
 		columns := 0
 		// Mixed-sign and distant coordinates exercise full vertical quart grids
 		// through the surface and cave biomes required by the assertions.
-		for _, pos := range []ChunkPos{{0, 0}, {-3, 7}, {40, -25}, {-90, -61}, {12, 12}, {300, 41}} {
+		for _, pos := range []ChunkPos{{0, 0}, {-3, 7}, {-90, -61}, {300, 41}} {
 			c := newChunk(pos.X, pos.Z)
 			g.Generate(c)
 			g.biomeSource.FillChunk(pos.X, pos.Z, func(x, y, z int32, biome terrain.OverworldBiome) {

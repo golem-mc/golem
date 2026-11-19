@@ -31,6 +31,7 @@ func worldPlugin(t *testing.T, cfg *config.Config) (*server.Server, plugin.Serve
 }
 
 func TestPluginWorldDiscovery(t *testing.T) {
+	t.Parallel()
 	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	run(func() {
 		worlds := h.Worlds()
@@ -68,6 +69,7 @@ func TestPluginWorldDiscovery(t *testing.T) {
 // vanilla: Level.getDefaultClockTime, MinecraftServer.setWeatherParameters,
 // MinecraftServer.onGameRuleChanged, PlayerList.addWorldborderListener.
 func TestPluginWorldControlsAndPackets(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	srv, h, run := worldPlugin(t, cfg)
@@ -98,7 +100,12 @@ func TestPluginWorldControlsAndPackets(t *testing.T) {
 		}
 	})
 	clocks := map[int32]int64{}
-	for range 2 {
+	// A packet may carry only some clocks: read until both set ones arrived.
+	overClock, endClock := registry.MustID("minecraft:world_clock", "minecraft:overworld"), registry.MustID("minecraft:world_clock", "minecraft:the_end")
+	for range 8 {
+		if clocks[overClock] == 6000 && clocks[endClock] == 12345 {
+			break
+		}
 		r := protocol.NewReader(c.ExpectPlay(protocol.IDPlayUpdateTime))
 		r.ReadI64()
 		for n := r.ReadVarInt(); n > 0; n-- {
@@ -216,6 +223,7 @@ func TestPluginWorldControlsAndPackets(t *testing.T) {
 }
 
 func TestPluginWeatherAndWorldSaveReload(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	cfg.LevelName = t.TempDir()

@@ -471,8 +471,8 @@ func TestPlayerJoins(t *testing.T) {
 		t.Fatalf("set health: %v", err)
 	}
 
-	c.Expect(protocol.IDPlayCenterChunk)
-	c.Expect(protocol.IDPlayChunkBatchStart)
+	expectPastHealth(t, c, protocol.IDPlayCenterChunk)
+	expectPastHealth(t, c, protocol.IDPlayChunkBatchStart)
 
 	// The chunks that follow, which the client asked a render distance of
 	// four for, so it got a 9x9 area of them - in batches the client's
@@ -557,8 +557,8 @@ func TestJoinSendsInventoryAndHealthAheadOfTheChunks(t *testing.T) {
 	}
 
 	// The held back chunk is the first of the batch that has begun.
-	c.Expect(protocol.IDPlayCenterChunk)
-	c.Expect(protocol.IDPlayChunkBatchStart)
+	expectPastHealth(t, c, protocol.IDPlayCenterChunk)
+	expectPastHealth(t, c, protocol.IDPlayChunkBatchStart)
 
 	// The ground may arrive now: a nine-by-nine area for the render
 	// distance of four the client asked for, in batches the client's
@@ -814,5 +814,25 @@ func TestLoginStallGetsSlowLoginDisconnect(t *testing.T) {
 	want := `{"translate":"multiplayer.disconnect.slow_login"}`
 	if got := protocol.NewReader(c.Expect(protocol.IDLoginDisconnect)).ReadString(32767); got != want {
 		t.Errorf("disconnect = %s, want %s", got, want)
+	}
+}
+
+// expectPastHealth reads up to the packet id, stepping over health syncs and
+// time updates: both ride the tick loop, so either can fall between the
+// window and the chunk stream of a join.
+func expectPastHealth(t *testing.T, c *servertest.Client, id int32) {
+	t.Helper()
+	for {
+		got, _, err := c.Read()
+		if err != nil {
+			t.Fatalf("read packet 0x%02X: %v", id, err)
+		}
+		if got == protocol.IDPlaySetHealth || got == protocol.IDPlayUpdateTime {
+			continue
+		}
+		if got != id {
+			t.Fatalf("got packet 0x%02X, want 0x%02X", got, id)
+		}
+		return
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 // vanilla: ServerPlayer.doTick closes a menu that is no longer valid
 func TestPluginServerSideCloseFiresInventoryCloseEvent(t *testing.T) {
+	t.Parallel()
 	srv, h, run, viewer, owner := twoWindowed(t)
 	var closes atomic.Int32
 	run(func() {
@@ -26,6 +27,7 @@ func TestPluginServerSideCloseFiresInventoryCloseEvent(t *testing.T) {
 }
 
 // vanilla: AbstractContainerMenu.slotsChanged
+// Not parallel: paced by wall-clock sleeps or a connection read, it flakes under CPU contention.
 func TestPluginStationGridWritable(t *testing.T) {
 	_, h, run, w := inventoryPlayer(t)
 	run(func() {

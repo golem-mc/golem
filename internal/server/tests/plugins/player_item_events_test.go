@@ -12,6 +12,7 @@ import (
 
 // vanilla: ServerPlayer.completeUsingItem
 func TestPluginItemConsumeCancelKeepsTheMeal(t *testing.T) {
+	t.Parallel()
 	var consumed int
 	var cancel bool
 	srv, _, c := blockScene(t, "minecraft:bread", false, func(s plugin.Server) {
@@ -57,6 +58,7 @@ func TestPluginItemConsumeCancelKeepsTheMeal(t *testing.T) {
 
 // vanilla: BucketItem.use
 func TestPluginBucketCancelAndResult(t *testing.T) {
+	t.Parallel()
 	var events int
 	var cancel bool
 	var last plugin.PlayerBucketEvent
@@ -94,6 +96,7 @@ func TestPluginBucketCancelAndResult(t *testing.T) {
 
 // vanilla: ServerPlayer.startSleepInBed
 func TestPluginBedEnterResultAndLeave(t *testing.T) {
+	t.Parallel()
 	var enters, leaves int
 	var result plugin.BedResult
 	var cancel bool
@@ -145,6 +148,7 @@ func useDown(c *servertest.Client) {
 
 // vanilla: Player.giveExperiencePoints, ServerPlayer.setExperienceLevels
 func TestPluginExpAndLevelChange(t *testing.T) {
+	t.Parallel()
 	var exps, levels int
 	var oldLevel, newLevel int
 	srv, h, run, _ := statePlugin(t, "Eater")
@@ -169,6 +173,7 @@ func TestPluginExpAndLevelChange(t *testing.T) {
 
 // vanilla: PlayerAdvancements.award
 func TestPluginAdvancementDoneEvent(t *testing.T) {
+	t.Parallel()
 	var done int
 	var message plugin.Text
 	_, h, run, _ := statePlugin(t, "Eater")
@@ -193,6 +198,7 @@ func TestPluginAdvancementDoneEvent(t *testing.T) {
 
 // vanilla: ServerPlayerGameMode.handleBlockBreakAction
 func TestPluginLeftClickBlockAndAir(t *testing.T) {
+	t.Parallel()
 	var blocks, airs int
 	var cancel bool
 	srv, _, c := blockScene(t, "minecraft:stone", true, func(s plugin.Server) {
@@ -217,6 +223,7 @@ func TestPluginLeftClickBlockAndAir(t *testing.T) {
 
 // vanilla: ServerPlayer.drop
 func TestPluginDropItemCancelKeepsTheStack(t *testing.T) {
+	t.Parallel()
 	var drops int
 	var cancel bool
 	srv, _, c := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
@@ -257,6 +264,7 @@ func editBook(c *servertest.Client, pages []string, title string) {
 
 // vanilla: ServerGamePacketListenerImpl.handleEditBook
 func TestPluginEditBookCancelAndTitle(t *testing.T) {
+	t.Parallel()
 	var edits int
 	var cancel bool
 	srv, _, c := blockScene(t, "minecraft:writable_book", false, func(s plugin.Server) {
@@ -287,6 +295,7 @@ func TestPluginEditBookCancelAndTitle(t *testing.T) {
 
 // vanilla: Sheep.shear
 func TestPluginShearEntityCancelAndDrops(t *testing.T) {
+	t.Parallel()
 	var shears int
 	var cancel bool
 	var drops []plugin.ItemStack

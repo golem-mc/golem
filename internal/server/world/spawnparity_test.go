@@ -41,6 +41,7 @@ func spawnParityRun(sw entity.SpawnWorld, seed int64, players []entity.SpawnPlay
 }
 
 func TestNaturalSpawnPlayerParity(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		players []entity.SpawnPlayer

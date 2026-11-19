@@ -11,6 +11,7 @@ import (
 
 // vanilla: ItemStack.CODEC, ItemParser, MaxStackSize.
 func TestPluginItemsParseFormat(t *testing.T) {
+	t.Parallel()
 	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	run(func() {
 		items := h.Items()
@@ -60,6 +61,7 @@ func TestPluginItemsParseFormat(t *testing.T) {
 
 // vanilla: EnchantmentHelper.enchantItem.
 func TestPluginItemsEnchant(t *testing.T) {
+	t.Parallel()
 	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	run(func() {
 		items := h.Items()

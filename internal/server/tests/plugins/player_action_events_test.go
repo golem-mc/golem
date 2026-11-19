@@ -14,6 +14,7 @@ import (
 
 // vanilla: ServerGamePacketListenerImpl.handlePlayerInput, handlePlayerCommand
 func TestPluginToggleSneakAndSprintCancel(t *testing.T) {
+	t.Parallel()
 	var sneaks, sprints int
 	var lastSneak, lastSprint, cancel bool
 	srv, _, c := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
@@ -52,6 +53,7 @@ func TestPluginToggleSneakAndSprintCancel(t *testing.T) {
 
 // vanilla: ServerGamePacketListenerImpl.handlePlayerAction SWAP_ITEM_WITH_OFFHAND
 func TestPluginSwapHandItemsCancelAndChange(t *testing.T) {
+	t.Parallel()
 	var swaps int
 	var cancel, replace bool
 	srv, _, c := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
@@ -83,6 +85,7 @@ func TestPluginSwapHandItemsCancelAndChange(t *testing.T) {
 
 // vanilla: ServerGamePacketListenerImpl.handleUseItemOn
 func TestPluginInteractRightClickBlockCancelAndDeny(t *testing.T) {
+	t.Parallel()
 	var clicks int
 	var cancel, denyItem, denyBlock bool
 	srv, _, c := blockScene(t, "minecraft:cobblestone", true, func(s plugin.Server) {
@@ -130,6 +133,7 @@ func TestPluginInteractRightClickBlockCancelAndDeny(t *testing.T) {
 
 // vanilla: ServerGamePacketListenerImpl.handleUseItem
 func TestPluginInteractRightClickAirCancel(t *testing.T) {
+	t.Parallel()
 	var clicks int
 	var cancel bool
 	srv, _, c := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
@@ -151,6 +155,7 @@ func TestPluginInteractRightClickAirCancel(t *testing.T) {
 
 // vanilla: ServerGamePacketListenerImpl.handleMovePlayer
 func TestPluginMoveCancelSendsPlayerBack(t *testing.T) {
+	t.Parallel()
 	var moves int
 	var cancel bool
 	var from, to plugin.Vec3
@@ -177,6 +182,7 @@ func TestPluginMoveCancelSendsPlayerBack(t *testing.T) {
 
 // vanilla: Entity.teleportTo
 func TestPluginTeleportEventCancelAndRedirect(t *testing.T) {
+	t.Parallel()
 	var teleports int
 	var mode string
 	var cause plugin.TeleportCause
@@ -208,6 +214,7 @@ func TestPluginTeleportEventCancelAndRedirect(t *testing.T) {
 
 // vanilla: ServerPlayer.setGameMode
 func TestPluginGameModeChangeCancel(t *testing.T) {
+	t.Parallel()
 	var changes int
 	var cancel bool
 	srv := servertest.NewTestServerWithPlugins(t, servertest.SurvivalTestConfig(), []plugin.Registration{{Name: "modes", Plugin: &testPlugin{enable: func(s plugin.Server) error {
@@ -240,6 +247,7 @@ func TestPluginGameModeChangeCancel(t *testing.T) {
 
 // vanilla: ServerGamePacketListenerImpl.handleAttack, handleInteract
 func TestPluginAttackAndInteractEntityCancel(t *testing.T) {
+	t.Parallel()
 	var attacks, uses int
 	var cancel bool
 	var target string
@@ -281,6 +289,7 @@ func onTick(t *testing.T, srv *server.Server, host plugin.Server, fn func()) {
 
 // vanilla: PlayerList.respawn
 func TestPluginRespawnEventMovesPlayer(t *testing.T) {
+	t.Parallel()
 	var respawns int
 	srv, _, c := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.PlayerRespawnEvent) {

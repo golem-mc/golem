@@ -922,7 +922,10 @@ func checkSectionTallies(t *testing.T, s *section) {
 }
 
 func TestChunkNBTGeneratedOverworldSaveLoad(t *testing.T) {
-	w, err := NewWorld(t.TempDir(), NewOverworldGenerator(5))
+	t.Parallel()
+	dir := t.TempDir()
+	seedWorldDir(t, dir, 5)
+	w, err := NewWorld(dir, NewOverworldGenerator(5))
 	if err != nil {
 		t.Fatal(err)
 	}

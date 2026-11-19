@@ -20,6 +20,7 @@ func speleothemState(t *testing.T, name, direction, thickness string) uint16 {
 }
 
 func TestSulfurSpikeTipMergeRepairedByPostProcessing(t *testing.T) {
+	t.Parallel()
 	c := newChunk(-68, 31)
 	NewOverworldGenerator(0).Generate(c)
 	s := c.BlockAt(-1088&15, 59, 503&15)

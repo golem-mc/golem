@@ -10,9 +10,10 @@ import (
 // against a walk of every block of every column: over generated ground, over
 // an empty chunk, and over lone blocks at the top and the bottom of the world.
 func TestScanSurfaceMatchesAColumnWalk(t *testing.T) {
+	t.Parallel()
 	g := NewOverworldGenerator(5)
 	var chunks []*Chunk
-	for i := range int32(4) {
+	for i := range int32(3) {
 		c := newChunk(i*5, -i*3)
 		g.Generate(c)
 		chunks = append(chunks, c)

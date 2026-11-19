@@ -13,6 +13,7 @@ import (
 
 // vanilla: RecipeManager.prepare, ServerPlayer.awardRecipes.
 func TestPluginRecipesAddRemoveCraft(t *testing.T) {
+	t.Parallel()
 	_, h, run, w := inventoryPlayer(t)
 	// The recipe set is process-wide.
 	t.Cleanup(func() { registry.ApplyPackRecipes(registry.PackRecipes{}) })
@@ -69,6 +70,7 @@ func TestPluginRecipesAddRemoveCraft(t *testing.T) {
 
 // vanilla: InventoryMenu.slotsChanged, ResultSlot.onTake.
 func TestPluginPrepareAndCraftEvents(t *testing.T) {
+	t.Parallel()
 	srv, h, run, w := inventoryPlayer(t)
 	var prepared int
 	var crafted atomic.Int32
@@ -118,6 +120,7 @@ func TestPluginPrepareAndCraftEvents(t *testing.T) {
 
 // vanilla: AbstractFurnaceBlockEntity.awardUsedRecipesAndPopExperience.
 func TestPluginFurnaceExtractEvent(t *testing.T) {
+	t.Parallel()
 	srv, h, run, w := inventoryPlayer(t)
 	ow := srv.OverworldWorld()
 	ow.Acquire(worldChunk0)

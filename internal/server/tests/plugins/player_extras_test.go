@@ -10,6 +10,7 @@ import (
 
 // vanilla: ClientboundSetTimePacket, ClientboundGameEventPacket
 func TestPluginPlayerTimeAndWeather(t *testing.T) {
+	t.Parallel()
 	srv, h, run, cs := statePlugin(t, "Sky")
 	p := handle(t, h, "Sky")
 	run(func() { p.SetPlayerTime(6000, false) })
@@ -56,6 +57,7 @@ func TestPluginPlayerTimeAndWeather(t *testing.T) {
 
 // vanilla: ServerStatsCounter, UserNameToIdResolver
 func TestPluginOfflineStatisticAndNameLookup(t *testing.T) {
+	t.Parallel()
 	srv, h, run, cs := statePlugin(t, "Leaver")
 	p := handle(t, h, "Leaver")
 	jump, ok := h.Registries().Statistic(plugin.MinecraftKey("jump"))

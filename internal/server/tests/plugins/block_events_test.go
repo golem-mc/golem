@@ -64,6 +64,7 @@ func resent(t *testing.T, ids []int32) {
 
 // vanilla: ServerPlayerGameMode.handleBlockBreakAction
 func TestPluginBlockDamageCancelInstaBreakAndAbort(t *testing.T) {
+	t.Parallel()
 	var damaged, aborted int
 	var cancel, insta bool
 	srv, _, c := blockScene(t, "minecraft:diamond_pickaxe", true, func(s plugin.Server) {
@@ -103,6 +104,7 @@ func TestPluginBlockDamageCancelInstaBreakAndAbort(t *testing.T) {
 
 // vanilla: ServerPlayerGameMode.destroyBlock
 func TestPluginBlockBreakCancelAndLoot(t *testing.T) {
+	t.Parallel()
 	var broke int
 	var cancel, noDrops bool
 	xp := -1
@@ -152,6 +154,7 @@ func TestPluginBlockBreakCancelAndLoot(t *testing.T) {
 
 // vanilla: BlockItem.place
 func TestPluginBlockPlaceCancelAndInputs(t *testing.T) {
+	t.Parallel()
 	var placed int
 	var cancel bool
 	srv, _, c := blockScene(t, "minecraft:cobblestone", false, func(s plugin.Server) {
@@ -184,6 +187,7 @@ func TestPluginBlockPlaceCancelAndInputs(t *testing.T) {
 
 // vanilla: ServerGamePacketListenerImpl.updateSignText
 func TestPluginSignChangeEdit(t *testing.T) {
+	t.Parallel()
 	var changed int
 	var cancel bool
 	srv, host, c := blockScene(t, "minecraft:oak_sign", false, func(s plugin.Server) {
@@ -217,6 +221,7 @@ func TestPluginSignChangeEdit(t *testing.T) {
 
 // vanilla: DispenserBlock.dispenseFrom
 func TestPluginBlockDispenseCancelAndEdit(t *testing.T) {
+	t.Parallel()
 	var fires int
 	var cancel, toArrow bool
 	srv, host, _ := blockScene(t, "minecraft:stick", false, func(s plugin.Server) {

@@ -13,6 +13,7 @@ import (
 
 // vanilla: ServerBossEvent, CustomBossEvent, ClientboundBossEventPacket
 func TestPluginBossBars(t *testing.T) {
+	t.Parallel()
 	srv, host := pluginAdminServer(t)
 	c := pluginJoin(t, srv, "Viewer")
 	other := pluginJoin(t, srv, "Other")

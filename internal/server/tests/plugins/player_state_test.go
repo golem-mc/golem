@@ -63,6 +63,7 @@ func handle(t *testing.T, h plugin.Server, name string) plugin.Player {
 
 // vanilla: ClientboundSetHealthPacket, ClientboundSetExperiencePacket
 func TestPluginPlayerFoodAndExperience(t *testing.T) {
+	t.Parallel()
 	srv, h, run, cs := statePlugin(t, "Eater")
 	c, p := cs[0], handle(t, h, "Eater")
 	run(func() { p.SetFood(7); p.SetSaturation(3); p.SetExhaustion(1.5) })
@@ -95,6 +96,7 @@ func TestPluginPlayerFoodAndExperience(t *testing.T) {
 
 // vanilla: ClientboundPlayerAbilitiesPacket, ServerPlayer.setGameMode
 func TestPluginPlayerAbilitiesAndGameMode(t *testing.T) {
+	t.Parallel()
 	srv, h, run, cs := statePlugin(t, "Flyer", "Watcher")
 	c, w, p := cs[0], cs[1], handle(t, h, "Flyer")
 	run(func() { p.SetGameMode(plugin.Survival) })
@@ -172,6 +174,7 @@ func TestPluginPlayerAbilitiesAndGameMode(t *testing.T) {
 
 // vanilla: ServerGamePacketListenerImpl.handleChat, handleChatCommand
 func TestPluginPlayerChat(t *testing.T) {
+	t.Parallel()
 	srv, h, run, cs := statePlugin(t, "Talker", "Hearer")
 	hearer, p := cs[1], handle(t, h, "Talker")
 	run(func() { p.Chat("hello there") })
@@ -186,6 +189,7 @@ func TestPluginPlayerChat(t *testing.T) {
 
 // vanilla: ServerStatsCounter.setValue, PlayerAdvancements.award, revoke
 func TestPluginPlayerStatisticsAndAdvancements(t *testing.T) {
+	t.Parallel()
 	srv, h, run, cs := statePlugin(t, "Scorer")
 	c, p := cs[0], handle(t, h, "Scorer")
 	jump, ok := h.Registries().Statistic(plugin.MinecraftKey("jump"))
@@ -238,6 +242,7 @@ func TestPluginPlayerStatisticsAndAdvancements(t *testing.T) {
 
 // vanilla: ServerPlayer.setCamera
 func TestPluginPlayerSpectating(t *testing.T) {
+	t.Parallel()
 	srv, h, run, cs := statePlugin(t, "Viewer", "Target")
 	c, p, target := cs[0], handle(t, h, "Viewer"), handle(t, h, "Target")
 	if _, ok := p.Spectating(); ok {
@@ -266,6 +271,7 @@ func TestPluginPlayerSpectating(t *testing.T) {
 // vanilla: ChunkMap.TrackedEntity.removePlayer/updatePlayer,
 // ClientboundPlayerInfoRemovePacket
 func TestPluginPlayerHideShow(t *testing.T) {
+	t.Parallel()
 	srv, h, run, cs := statePlugin(t, "Looker", "Hidden")
 	looker, hidden := cs[0], cs[1]
 	p, target := handle(t, h, "Looker"), handle(t, h, "Hidden")

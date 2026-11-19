@@ -30,6 +30,7 @@ func summonedID(t *testing.T, host plugin.Server, typ registry.EntityType) int32
 
 // vanilla: ServerGamePacketListenerImpl.handleInteract, ArmorStand.hurtServer, ItemFrame.hurtServer
 func TestPluginEventsForNonMobEntities(t *testing.T) {
+	t.Parallel()
 	var attacks, uses, hurts int
 	var cancel, cancelHurt bool
 	var attackTypes, useTypes, hurtTypes []registry.EntityType
@@ -85,6 +86,7 @@ func TestPluginEventsForNonMobEntities(t *testing.T) {
 
 // vanilla: ServerExplosion.hurtEntities, BlockAttachedEntity.hurtServer
 func TestPluginBlastNamesItsExploder(t *testing.T) {
+	t.Parallel()
 	var causes []plugin.HangingBreakCause
 	var removers []registry.EntityType
 	var direct registry.EntityType = -2
@@ -117,6 +119,7 @@ func TestPluginBlastNamesItsExploder(t *testing.T) {
 
 // vanilla: ThrownEgg.onHit
 func TestPluginEggThrowEventControlsHatching(t *testing.T) {
+	t.Parallel()
 	var thrown int
 	srv, host, c := blockScene(t, "minecraft:egg", false, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.PlayerEggThrowEvent) {
@@ -145,6 +148,7 @@ func TestPluginEggThrowEventControlsHatching(t *testing.T) {
 
 // vanilla: ServerLevel.addFreshEntity
 func TestPluginEntitySpawnEventForNonMobs(t *testing.T) {
+	t.Parallel()
 	var seen []registry.EntityType
 	var cancel bool
 	var asked int
@@ -191,6 +195,7 @@ func summonTicking(t *testing.T, srv *server.Server, line string) {
 
 // vanilla: Plugin-defined events; Entity.kill, DamageTypes.GENERIC_KILL
 func TestPluginDefinesItsOwnEventAndKillSaysWhy(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	var types []registry.DamageType
 	var got []string
@@ -235,6 +240,7 @@ type definedEvent struct {
 
 // vanilla: HurtByTargetGoal, Mob.setTarget
 func TestPluginTargetEventNamesRetaliation(t *testing.T) {
+	t.Parallel()
 	var reasons []plugin.TargetReason
 	var targets []string
 	srv, host, c := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {

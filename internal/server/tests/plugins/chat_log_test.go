@@ -31,6 +31,7 @@ func (l *lockedBuffer) String() string {
 
 // vanilla: PlayerList.broadcastChatMessage (the console logs the decorated line)
 func TestPluginChatLogsTheFormattedLine(t *testing.T) {
+	t.Parallel()
 	logs := &lockedBuffer{}
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))

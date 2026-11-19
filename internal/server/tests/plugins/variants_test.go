@@ -9,6 +9,7 @@ import (
 )
 
 func TestPluginCommandsAll(t *testing.T) {
+	t.Parallel()
 	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	run(func() {
 		err := h.Commands().Register(plugin.Command{Name: "warp", Aliases: []string{"w2"}, Description: "go", Permission: "warps.use",

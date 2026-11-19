@@ -88,6 +88,7 @@ func TestMonumentSurvivesRestart(t *testing.T) {
 	t.Parallel()
 	const seed = -7343414273836990780
 	open := func(dir string) *World {
+		seedWorldDir(t, dir, seed)
 		w, err := NewWorld(dir, NewOverworldGenerator(seed))
 		if err != nil {
 			t.Fatal(err)

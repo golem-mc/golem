@@ -34,6 +34,7 @@ func (f pluginChatKeyFunc) Keys(ctx context.Context) (*chatsecurity.KeySet, erro
 
 // vanilla: SignedMessageChain.Decoder, PlayerList.broadcastChatMessage
 func TestPluginChatPreservesSignedChain(t *testing.T) {
+	t.Parallel()
 	profile := protocol.OfflineUUID("Signed")
 	service, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {

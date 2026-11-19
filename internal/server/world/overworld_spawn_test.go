@@ -3,6 +3,7 @@ package world
 import "testing"
 
 func TestFindSpawnMatchesVanilla(t *testing.T) {
+	t.Parallel()
 	// Captured from level.dat's Data.spawn.pos after running the vanilla 26.3
 	// reference server once per seed, with level-type=minecraft:normal and
 	// level-seed=0 / 12345 in fresh scratch server.properties (reference:setup).

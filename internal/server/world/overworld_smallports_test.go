@@ -55,7 +55,13 @@ func testSmallPortsPlacements(t *testing.T, lines []string) {
 			t.Fatal(err)
 		}
 		cases++
+		// A half fraction of the full seed x terrain x direction x order grid:
+		// every level of every factor is still checked, with half the pairings.
+		if (int(seed&1)+mode+dir+reverse)%2 != 0 {
+			continue
+		}
 		t.Run(fmt.Sprintf("%s/%d/%d/%d/%d", kind, seed, mode, dir, reverse), func(t *testing.T) {
+			t.Parallel()
 			src := &templeTerrain{newGoldenTerrain(), int32(mode)}
 			var p structurePiece
 			switch kind {

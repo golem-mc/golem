@@ -37,6 +37,7 @@ func containerHandle(t *testing.T, w plugin.World, p plugin.BlockPos) plugin.Con
 
 // vanilla: BaseContainerBlockEntity, RandomizableContainerBlockEntity.
 func TestPluginContainerSettings(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	srv.SetTickFrozen(true)
 	w := srv.OverworldWorld()
@@ -152,6 +153,7 @@ func TestPluginContainerSettings(t *testing.T) {
 }
 
 func TestPluginContainerPersistence(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	srv, h, run := worldPlugin(t, cfg)
 	srv.SetTickFrozen(true)
@@ -239,6 +241,7 @@ func TestPluginContainerPersistence(t *testing.T) {
 
 // vanilla: AbstractFurnaceBlockEntity.dataAccess, serverTick.
 func TestPluginFurnaceSettings(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	srv, h, run := worldPlugin(t, cfg)

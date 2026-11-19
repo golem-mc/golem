@@ -8,6 +8,7 @@ import (
 )
 
 func TestBiomeReadsZoomedQuartAndNoiseBiomeTheOwnCell(t *testing.T) {
+	t.Parallel()
 	g := NewOverworldGenerator(0)
 	w := newTestWorld(t, g)
 	probe := g.NewBiomeProbe()

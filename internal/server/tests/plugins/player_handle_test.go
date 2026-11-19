@@ -72,6 +72,7 @@ func callAll(v any, skip ...string) (panics []string) {
 // A Player handle answers every plugin.Player method without panicking, on a
 // joined player and on one who left.
 func TestPluginPlayerHandleEveryMethod(t *testing.T) {
+	t.Parallel()
 	srv, c, host, run := livingPlugin(t)
 	var p plugin.Player
 	run(func() { p, _ = host.PlayerNamed("Victim") })
@@ -95,6 +96,7 @@ func TestPluginPlayerHandleEveryMethod(t *testing.T) {
 
 // vanilla: LivingEntity.setHealth, heal, hurtServer
 func TestPluginPlayerHealthAndDamage(t *testing.T) {
+	t.Parallel()
 	_, _, host, run := livingPlugin(t)
 	run(func() {
 		p, _ := host.PlayerNamed("Victim")
@@ -126,6 +128,7 @@ func TestPluginPlayerHealthAndDamage(t *testing.T) {
 
 // vanilla: LivingEntity.addEffect, removeEffect, removeAllEffects
 func TestPluginPlayerEffects(t *testing.T) {
+	t.Parallel()
 	_, _, host, run := livingPlugin(t)
 	run(func() {
 		p, _ := host.PlayerNamed("Victim")
@@ -149,6 +152,7 @@ func TestPluginPlayerEffects(t *testing.T) {
 
 // Each carried Entity field reads back what a plugin set.
 func TestPluginPlayerCarriedFlags(t *testing.T) {
+	t.Parallel()
 	_, _, host, run := livingPlugin(t)
 	run(func() {
 		p, _ := host.PlayerNamed("Victim")

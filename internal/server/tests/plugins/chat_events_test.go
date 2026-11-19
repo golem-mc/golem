@@ -11,6 +11,7 @@ import (
 
 // vanilla: ServerGamePacketListenerImpl.handleChat, PlayerList.broadcastChatMessage
 func TestPluginChatEditsAndCancellation(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	var host plugin.Server
@@ -152,6 +153,7 @@ func assertPluginSystemChat(t *testing.T, data []byte, want string) {
 
 // vanilla: SayCommand, PlayerList.broadcastSystemMessage
 func TestPluginBroadcastEditsAndCancellation(t *testing.T) {
+	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	var host plugin.Server

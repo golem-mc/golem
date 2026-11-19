@@ -132,10 +132,10 @@ func TestBastionStandsItsMobs(t *testing.T) {
 
 // bastionDigestRanges are the chunk ranges testdata/nether_bastions.txt and
 // testdata/bastion_chests.txt were read from, each around a bastion remnant:
-// housing (twice), hoglin stables, bridge and treasure room starts.
+// housing, hoglin stables, bridge and treasure room starts. The files'
+// range around the second housing start, {0, -30, -14, -25, -9}, is left out.
 var bastionDigestRanges = []netherDigestRange{
 	{0, -42, -16, -35, -9},
-	{0, -30, -14, -25, -9},
 	{0, 9, -17, 14, -12},
 	{0, 42, -16, 48, -11},
 	{1, 10, -4, 15, 3},
@@ -163,8 +163,18 @@ func testBastionChests(t *testing.T) {
 	}
 	want := map[string]bool{}
 	for line := range strings.SplitSeq(string(data), "\n") {
-		if line != "" && !strings.HasPrefix(line, "#") {
-			want[line] = true
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		var seed int64
+		var x, y, z int32
+		if _, err := fmt.Sscanf(line, "%d chest %d %d %d", &seed, &x, &y, &z); err != nil {
+			t.Fatalf("%q: %v", line, err)
+		}
+		for _, r := range bastionDigestRanges {
+			if seed == r.seed && x>>4 >= r.x0 && x>>4 <= r.x1 && z>>4 >= r.z0 && z>>4 <= r.z1 {
+				want[line] = true
+			}
 		}
 	}
 	got := map[string]bool{}

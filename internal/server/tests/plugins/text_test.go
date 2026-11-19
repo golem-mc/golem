@@ -14,6 +14,7 @@ import (
 
 // vanilla: ClickEvent.Custom.CODEC, HoverEvent.ShowItem.CODEC
 func TestPluginTextPreservesNBTOnWire(t *testing.T) {
+	t.Parallel()
 	payload := nbt.Compound{"byte": nbt.Byte(1), "short": nbt.Short(2), "long": nbt.Long(3), "float": nbt.Float(0.5), "bytes": nbt.ByteArray{0, 255}, "longs": nbt.LongArray{4}}
 	data, err := nbt.EncodeNetwork(payload)
 	if err != nil {
@@ -76,6 +77,7 @@ func TestPluginTextPreservesNBTOnWire(t *testing.T) {
 
 // vanilla: Style.Serializer.MAP_CODEC, ClickEvent.CODEC, HoverEvent.CODEC
 func TestPluginTextRoundTripsEveryAPIField(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "roundtrip", Plugin: &testPlugin{enable: func(s plugin.Server) error { host = s; return nil }}}})
 	servertest.HoldTicks(t, srv)

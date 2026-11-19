@@ -178,6 +178,10 @@ func TestTheFrozenIceOfAFrostWalkerStepMeltsOnSchedule(t *testing.T) {
 	if got := srv.BlockAt(4, 63, 80); got != frozen {
 		t.Fatalf("the step left state %d under the feet, want the frosted ice of age zero", got)
 	}
+	// The light the ice reads is published by an asynchronous relight of the
+	// pond; without waiting for it a loaded machine runs the whole bound
+	// against stale light and the ice never ages.
+	srv.WaitRelights()
 	melted := false
 	for range 1000 {
 		srv.RunTick()

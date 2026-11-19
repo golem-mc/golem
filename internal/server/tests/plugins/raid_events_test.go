@@ -10,6 +10,7 @@ import (
 
 // vanilla: Raids.createOrExtendRaid
 func TestPluginRaidTriggerEvent(t *testing.T) {
+	t.Parallel()
 	cancel := true
 	var stages []plugin.RaidStage
 	srv := servertest.NewTestServerWithPlugins(t, servertest.HostileTestConfig(), []plugin.Registration{{Name: "raids", Plugin: &testPlugin{enable: func(s plugin.Server) error {

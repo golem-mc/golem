@@ -13,6 +13,7 @@ import (
 
 // vanilla: LevelData.setSpawn
 func TestPluginSpawnChangeEvent(t *testing.T) {
+	t.Parallel()
 	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	var got *plugin.SpawnChangeEvent
 	run(func() { plugin.Listen(h, func(e *plugin.SpawnChangeEvent) { got = e }) })
@@ -36,6 +37,7 @@ func TestPluginSpawnChangeEvent(t *testing.T) {
 
 // vanilla: ServerClockManager.setTotalTicks
 func TestPluginTimeSkipEvent(t *testing.T) {
+	t.Parallel()
 	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	// One task: the clock keeps running between ticks.
 	run(func() {
@@ -71,6 +73,7 @@ func TestPluginTimeSkipEvent(t *testing.T) {
 
 // vanilla: ServerLevel.setWeatherParameters
 func TestPluginWeatherChangeEvent(t *testing.T) {
+	t.Parallel()
 	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	var seen []plugin.Weather
 	var cancel = true
@@ -100,6 +103,7 @@ func TestPluginWeatherChangeEvent(t *testing.T) {
 
 // vanilla: LightningBolt, SummonCommand
 func TestPluginLightningStrikeEvent(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	var seen []*plugin.LightningStrikeEvent
 	cancel := true
@@ -125,6 +129,7 @@ func TestPluginLightningStrikeEvent(t *testing.T) {
 
 // vanilla: BaseFireBlock.onPlace, PortalShape.createPortalBlocks
 func TestPluginPortalCreateEvent(t *testing.T) {
+	t.Parallel()
 	srv, h, run, _ := worldEffectsPlugin(t)
 	servertest.BuildFrame(t, srv)
 	w := srv.OverworldWorld()
@@ -169,6 +174,7 @@ func TestPluginPortalCreateEvent(t *testing.T) {
 
 // vanilla: ChunkMap.onChunkReadyToSend, ChunkStatus.FEATURES
 func TestPluginChunkEvents(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	w := createFlat(t, run, h, &flatGen{})
 	var mu sync.Mutex
@@ -210,6 +216,7 @@ func TestPluginChunkEvents(t *testing.T) {
 
 // vanilla: RandomizableContainer.unpackLootTable, LootTable.fill
 func TestPluginLootGenerateEvent(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	w := srv.OverworldWorld()
 	w.Acquire(world.ChunkPos{})

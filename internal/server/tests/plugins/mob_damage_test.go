@@ -90,6 +90,7 @@ func mobHealth(t *testing.T, srv *server.Server, id int32) float64 {
 
 // vanilla: Player.attack, LivingEntity.hurtServer
 func TestPluginMobDamageMelee(t *testing.T) {
+	t.Parallel()
 	srv, c, d := mobDamageScene(t)
 	id := srv.SpawnMob("minecraft:cow", 0.5, 64, 1.5)
 	c.ExpectMobSpawn(protocol.EntityTypeCow)
@@ -105,6 +106,7 @@ func TestPluginMobDamageMelee(t *testing.T) {
 
 // vanilla: ServerExplosion.hurtEntities
 func TestPluginMobDamageExplosion(t *testing.T) {
+	t.Parallel()
 	srv, _, d := mobDamageScene(t)
 	id := srv.SpawnMob("minecraft:cow", 0.5, 64, 4.5)
 	srv.RunExplosion(0.5, 64.5, 4.5, 3)
@@ -119,6 +121,7 @@ func TestPluginMobDamageExplosion(t *testing.T) {
 // A cancelled hurt leaves health and the hurt window as they were.
 // vanilla: LivingEntity.hurtServer
 func TestPluginMobDamageCancel(t *testing.T) {
+	t.Parallel()
 	srv, _, d := mobDamageScene(t)
 	id := srv.SpawnMob("minecraft:cow", 0.5, 64, 4.5)
 	d.cancel = true

@@ -27,6 +27,7 @@ func joinPlugin(t *testing.T, cfg *config.Config, listen func(plugin.Server)) (*
 
 // vanilla: ServerGamePacketListenerImpl.handlePlayerAbilities
 func TestPluginToggleFlightCancelResendsAbilities(t *testing.T) {
+	t.Parallel()
 	var flights int
 	var on, cancel bool
 	srv, c := joinPlugin(t, servertest.BlockTestConfig(), func(s plugin.Server) {
@@ -52,6 +53,7 @@ func TestPluginToggleFlightCancelResendsAbilities(t *testing.T) {
 
 // vanilla: ItemStack.hurtAndBreak
 func TestPluginItemDamageCancelAndChange(t *testing.T) {
+	t.Parallel()
 	var events, change int
 	var cancel bool
 	srv, c := joinPlugin(t, servertest.SurvivalTestConfig(), func(s plugin.Server) {
@@ -103,6 +105,7 @@ func TestPluginItemDamageCancelAndChange(t *testing.T) {
 
 // vanilla: ArmorStand.interact
 func TestPluginArmorStandManipulateCancel(t *testing.T) {
+	t.Parallel()
 	var events int
 	var cancel bool
 	var slot plugin.EquipmentSlot
@@ -142,6 +145,7 @@ func TestPluginArmorStandManipulateCancel(t *testing.T) {
 
 // vanilla: FishingRodItem.use
 func TestPluginFishCastCancel(t *testing.T) {
+	t.Parallel()
 	var casts int
 	var cancel bool
 	srv, c := joinPlugin(t, servertest.SurvivalTestConfig(), func(s plugin.Server) {
@@ -211,6 +215,7 @@ func fishPool(t *testing.T, srv *server.Server, c *servertest.Client) {
 }
 
 // vanilla: FishingHook.catchingFish, FishingHook.retrieve
+// Not parallel: paced by wall-clock sleeps or a connection read, it flakes under CPU contention.
 func TestPluginFishBiteCaughtAndFailed(t *testing.T) {
 	counts := map[plugin.FishState]int{}
 	var cancelBite, cancelCaught bool
@@ -252,7 +257,7 @@ func TestPluginFishBiteCaughtAndFailed(t *testing.T) {
 	}
 
 	// The nibble running out unanswered is a failed attempt.
-	servertest.RunTicks(t, srv, 60)
+	servertest.UntilTicks(t, srv, 200, "the nibble running out", func() bool { return counts[plugin.FishFailed] >= 1 })
 	if counts[plugin.FishFailed] < 1 {
 		t.Fatalf("no failed attempt after the nibble ran out: %v", counts)
 	}

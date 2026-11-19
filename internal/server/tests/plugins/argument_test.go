@@ -15,6 +15,7 @@ import (
 // vanilla: BlockPosArgument, Vec3Argument, BlockStateArgument, ItemArgument,
 // ComponentArgument, DimensionArgument, EntityArgument.
 func TestPluginWorldCommandArguments(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		arg   plugin.Argument
@@ -110,6 +111,7 @@ func TestPluginWorldCommandArguments(t *testing.T) {
 }
 
 func TestPluginWorldCommandSuggestions(t *testing.T) {
+	t.Parallel()
 	var host plugin.Server
 	ready := false
 	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "arguments", Plugin: &testPlugin{enable: func(s plugin.Server) error {

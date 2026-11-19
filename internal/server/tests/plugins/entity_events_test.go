@@ -12,6 +12,7 @@ import (
 
 // vanilla: PrimedTnt.explode, ServerExplosion.explode
 func TestPluginEntityExplosionEvents(t *testing.T) {
+	t.Parallel()
 	var primed, exploded int
 	var cancelPrime, cancelExplode bool
 	srv, _ := tickScene(t, func(s plugin.Server) {
@@ -44,6 +45,7 @@ func TestPluginEntityExplosionEvents(t *testing.T) {
 
 // vanilla: ItemEntity.tick
 func TestPluginEntityRemoveEvent(t *testing.T) {
+	t.Parallel()
 	var got []plugin.RemoveCause
 	srv, _ := tickScene(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.EntityRemoveEvent) { got = append(got, e.Cause) })
@@ -60,6 +62,7 @@ func TestPluginEntityRemoveEvent(t *testing.T) {
 
 // vanilla: Animal.spawnChildFromBreeding
 func TestPluginEntityBreedEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	srv, _ := tickScene(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.EntityBreedEvent) {
@@ -85,6 +88,7 @@ func TestPluginEntityBreedEvent(t *testing.T) {
 
 // vanilla: PiglinAi.stopHoldingOffHandItem
 func TestPluginPiglinBarterEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	srv, _ := tickScene(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.PiglinBarterEvent) {
@@ -113,6 +117,7 @@ func TestPluginPiglinBarterEvent(t *testing.T) {
 
 // vanilla: HangingEntityItem.useOn
 func TestPluginHangingPlaceEvent(t *testing.T) {
+	t.Parallel()
 	cancel, asked := true, 0
 	srv, _, c := blockScene(t, "minecraft:item_frame", false, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.HangingPlaceEvent) {
@@ -139,6 +144,7 @@ func TestPluginHangingPlaceEvent(t *testing.T) {
 
 // vanilla: Villager.updateTrades
 func TestPluginVillagerAcquireTradeEvent(t *testing.T) {
+	t.Parallel()
 	asked := 0
 	srv, _, c := blockScene(t, "minecraft:dirt", false, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.VillagerAcquireTradeEvent) {

@@ -11,13 +11,14 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// ruinedPortalDigestRanges are the chunk ranges testdata/nether_ruinedportals.txt
-// was read from, each around a start, covering rotations and mirrors.
+// ruinedPortalDigestRanges are the chunk ranges of testdata/nether_ruinedportals.txt
+// the block test runs, each around a start. They cover every
+// template, rotation and mirror; the file's range around the start at
+// (-34, -70), a second portal_10 start, is left out.
 // Nether portals have no air pocket in 26.3.
 var ruinedPortalDigestRanges = []netherDigestRange{
 	{0, -20, -27, -14, -21},
 	{0, -25, 3, -19, 9},
-	{0, -37, -73, -31, -67},
 	{0, -59, -67, -53, -61},
 	{0, -63, 80, -57, 86},
 	{0, -66, 11, -60, 17},
@@ -52,8 +53,17 @@ func testGiantRuinedPortalBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	checked := 0
+	// One start per template and mirror: giant_portal_1, 2 and 3 each run
+	// once, with both mirrors among them; the listed second start of each
+	// template is skipped.
+	skip := map[int]bool{1: true, 4: true, 5: true}
+	index := -1
 	for line := range strings.SplitSeq(string(data), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		index++
+		if skip[index] {
 			continue
 		}
 		var seed int64

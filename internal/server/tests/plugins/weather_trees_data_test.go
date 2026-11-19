@@ -11,6 +11,7 @@ import (
 
 // vanilla: ServerLevelData.setThundering, setThunderTime
 func TestPluginSetThunderingLeavesRain(t *testing.T) {
+	t.Parallel()
 	srv, w, run, _, _ := kindsFixture(t)
 	run(func() {
 		w.SetThundering(true, time.Minute)
@@ -32,6 +33,7 @@ func TestPluginSetThunderingLeavesRain(t *testing.T) {
 }
 
 func TestPluginMobMergeDataAndTamed(t *testing.T) {
+	t.Parallel()
 	_, w, run, _, _ := kindsFixture(t)
 	run(func() {
 		fox := spawnAt(t, w, registry.EntityTypeFox, nil).(plugin.Mob)

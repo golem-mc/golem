@@ -17,6 +17,7 @@ var villageEntityChunk = sync.OnceValue(func() *Chunk {
 })
 
 func TestVillageTemplateEntitiesReachTheirChunk(t *testing.T) {
+	t.Parallel()
 	c := villageEntityChunk()
 	counts := map[string]int{}
 	seen := map[string]bool{}

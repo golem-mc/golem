@@ -30,6 +30,7 @@ func worldEffectsPlugin(t *testing.T) (*server.Server, plugin.Server, func(func(
 
 // vanilla: ServerLevel.playSeededSound/levelEvent/sendParticles.
 func TestPluginWorldEffects(t *testing.T) {
+	t.Parallel()
 	srv, h, run, c := worldEffectsPlugin(t)
 	p := srv.PlayerPosition("Effects")
 	pos := plugin.Vec3{X: p.X - .375, Y: p.Y + 1.25, Z: p.Z + .625}
@@ -114,6 +115,7 @@ func droppedDirt(srv *server.Server) (n int) {
 
 // vanilla: Level.explode, ServerExplosion.explode, ServerLevel.explode.
 func TestPluginExplode(t *testing.T) {
+	t.Parallel()
 	srv, h, run, c := worldEffectsPlugin(t)
 	w := srv.OverworldWorld()
 	dirt, air := uint16(registry.BlockDirt.DefaultState()), uint16(registry.BlockAir.DefaultState())
@@ -147,6 +149,7 @@ func TestPluginExplode(t *testing.T) {
 
 // vanilla: ServerExplosion.createFire (explode, fire true).
 func TestPluginExplodeFire(t *testing.T) {
+	t.Parallel()
 	srv, h, run, _ := worldEffectsPlugin(t)
 	w := srv.OverworldWorld()
 	fires := func(fire bool) (n int) {

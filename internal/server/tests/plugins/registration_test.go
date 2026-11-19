@@ -16,6 +16,7 @@ import (
 )
 
 func TestPluginCommandRegistration(t *testing.T) {
+	t.Parallel()
 	ready := false
 	var h plugin.Server
 	var location plugin.Location
@@ -66,6 +67,7 @@ func TestPluginCommandRegistration(t *testing.T) {
 
 // vanilla: Commands.fillUsableCommands, Commands.finishParsing; Brigadier argument types.
 func TestPluginCommandArgumentsAndSuggestions(t *testing.T) {
+	t.Parallel()
 	var h plugin.Server
 	ready := false
 	cases := []struct {
@@ -207,6 +209,7 @@ func TestPluginCommandArgumentsAndSuggestions(t *testing.T) {
 }
 
 func TestPluginCommandPermissionTreeAndExecution(t *testing.T) {
+	t.Parallel()
 	for _, provider := range []bool{false, true} {
 		t.Run(fmt.Sprint(provider), func(t *testing.T) {
 			ready := false

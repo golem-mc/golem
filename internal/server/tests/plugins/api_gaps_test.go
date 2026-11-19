@@ -11,6 +11,7 @@ import (
 
 // Bukkit: PluginManager.callEvent
 func TestPluginEventsFire(t *testing.T) {
+	t.Parallel()
 	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	var order []string
 	run(func() {
@@ -45,6 +46,7 @@ func TestPluginEventsFire(t *testing.T) {
 // A blast's hurt of an item, frame or end crystal is put to listeners.
 // vanilla: ServerExplosion.hurtEntities
 func TestPluginEntityDamageBlast(t *testing.T) {
+	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	sw := srv.OverworldWorld()
 	sw.Acquire(world.ChunkPos{})
