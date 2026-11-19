@@ -1,0 +1,13 @@
+# vanilla 26.2's saved village starts: seed, start chunk x z, number of pieces,
+# SHA-256 of the structure's start tag as nbt.Encode writes it (root name
+# empty), and the structure, read from the reference server's region files.
+0 17 59 105 cedd9e43cfe75df991326519af229a4223205bb70d364b9dd863a7d51eb6f464 minecraft:village_plains
+0 -19 -196 88 30becdfc5e8828ed98edd15173bdea2dc3e4e17bcdd2bda53567876bdd8650af minecraft:village_desert
+0 34 -66 92 0917af60c1dadf9cd2502a56ad97d475e87c652741665ec0f1c539871af03112 minecraft:village_savanna
+0 38 45 74 39fcfaa264c3e136461b5eaebd89e1613bc40df9c0b930e49fcfa224565fdfb2 minecraft:village_savanna
+12345 10 55 107 c11eb9b3f8530b3f6e5e87b6a8677422b61d93f2f763a760f89fb6b321fa9700 minecraft:village_plains
+12345 113 1 63 d1554ec8449c754cb93fb33f2dd3d6f903d4fb5e26ea450be00e8f496ee0dff3 minecraft:village_snowy
+12345 122 41 103 e4decbc79b2e0378a333bc97fcce842c4b96b6660e513ba2023d24fdd94467be minecraft:village_taiga
+12345 -146 37 129 d3bed431e1723c6bae1782947b863636002d9a178d8d10dc0edd587c087a800a minecraft:village_desert
+12345 17 158 77 b67edfee8dc87a6d39dcee3c5a41de91cde2e38e949f5d1a040e6d4778e8f248 minecraft:village_taiga
+12345 -9 -52 99 0979ea0eef3b1bf78403f8beee0d50db7f8d4ab20a50bd2fd9fbef723ada14bd minecraft:village_plains

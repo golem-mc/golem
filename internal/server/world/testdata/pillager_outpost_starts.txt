@@ -1,0 +1,5 @@
+# vanilla 26.2's saved pillager outpost starts: seed, start chunk x z, number of
+# pieces and SHA-256 of structures.starts.minecraft:pillager_outpost as nbt.Encode
+# writes it (root name empty), read from the reference server's region files.
+0 36 103 11 a0f37fe39fd7414cdc807c513a34dfdeafccdafb6eaad7db4e0def1d886d7648
+12345 17 -60 11 dd52be5c07eba14fb2bd26e1ed4289984a3794e06ad4613faa35d5145d7bd030

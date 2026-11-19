@@ -1,0 +1,454 @@
+package entities
+
+import (
+	"github.com/golem-mc/golem/internal/server/servertest"
+
+	"fmt"
+	"math"
+	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
+	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/registry"
+)
+
+// The lightning tests: a thunderstorm's strike die, the bolt entity shown to
+// a tracking client, and what a bolt does where it lands.
+
+// boltSeen is one lightning bolt arrival read off the stream.
+type boltSeen struct {
+	id      int32
+	x, y, z float64
+}
+
+// boltWatch reads the stream for lightning bolt arrivals and removals while
+// the server ticks the bolts n times.
+func boltWatch(c *servertest.Client, srv *server.Server, n int) (arrived []boltSeen, removed []int32) {
+	c.T.Helper()
+	boltType, _ := registry.EntityTypeID("minecraft:lightning_bolt")
+	see := func(id int32, data []byte) bool {
+		switch id {
+		case protocol.IDPlaySpawnEntity:
+			r := protocol.NewReader(data)
+			eid := r.ReadVarInt()
+			r.ReadUUID()
+			if r.ReadVarInt() == boltType {
+				arrived = append(arrived, boltSeen{eid, r.ReadF64(), r.ReadF64(), r.ReadF64()})
+			}
+		case protocol.IDPlayRemoveEntities:
+			r := protocol.NewReader(data)
+			for range r.ReadVarInt() {
+				removed = append(removed, r.ReadVarInt())
+			}
+		}
+		return false
+	}
+	srv.TickBolts(n)
+	c.SettleAndCollect(func(id int32, data []byte) { see(id, data) })
+	return arrived, removed
+}
+
+func thunderstorm(srv *server.Server) {
+	srv.SetWeatherState(true, true, 100000, 100000, 0)
+	for range 400 {
+		srv.TickWeather()
+	}
+}
+
+// TestAThunderstormStrikesAWatchedChunkWithABolt checks the strike die: with
+// it forced, a thunderstorm puts a bolt entity in front of a tracking client,
+// the bolt lights a fire where it lands, and the bolt is removed when spent.
+func TestAThunderstormStrikesAWatchedChunkWithABolt(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
+	srv.StopTick()
+	srv.SetDifficulty(2)
+	thunderstorm(srv)
+	if !srv.Thundering() {
+		t.Fatal("the world is not thundering")
+	}
+	srv.SetLightningOdds(1)
+
+	srv.TickRandomTicks(1)
+	arrived, _ := boltWatch(c, srv, 1)
+	if len(arrived) == 0 {
+		t.Fatal("a thunderstorm with the die forced showed no lightning bolt")
+	}
+	lit := 0
+	for _, b := range arrived {
+		name, _, _ := registry.BlockStateName(srv.BlockAt(int32(math.Floor(b.x)), int32(math.Floor(b.y)), int32(math.Floor(b.z))))
+		if name == "minecraft:fire" {
+			lit++
+		}
+	}
+	if lit == 0 {
+		t.Errorf("no fire stands at any of the %d strikes", len(arrived))
+	}
+
+	var removed []int32
+	for range 40 {
+		_, gone := boltWatch(c, srv, 1)
+		removed = append(removed, gone...)
+	}
+	if len(removed) < len(arrived) {
+		t.Errorf("%d bolts removed after 40 ticks, want all %d", len(removed), len(arrived))
+	}
+}
+
+// TestRainAloneStrikesNoLightning is the control: the die is forced but only
+// a thunderstorm rolls it.
+func TestRainAloneStrikesNoLightning(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
+	srv.StopTick()
+	srv.SetWeatherState(true, false, 100000, 100000, 0)
+	for range 400 {
+		srv.TickWeather()
+	}
+	srv.SetLightningOdds(1)
+
+	srv.TickRandomTicks(3)
+	if arrived, _ := boltWatch(c, srv, 1); len(arrived) != 0 {
+		t.Errorf("rain without thunder showed %d bolts", len(arrived))
+	}
+}
+
+// TestALightningBoltChargesACreeperAndHurtsAPlayer checks the bolt's box: a
+// survival player in it loses five health, a creeper in it is charged, and a
+// creeper outside it is not.
+func TestALightningBoltChargesACreeperAndHurtsAPlayer(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Struck")
+	srv.StopTick()
+	pos := srv.PlayerPosition("Struck")
+	near := srv.SpawnMob("minecraft:creeper", pos.X+1, pos.Y, pos.Z)
+	far := srv.SpawnMob("minecraft:creeper", pos.X+10, pos.Y, pos.Z)
+	before := srv.PlayerHealth("Struck")
+
+	srv.StrikeLightning(pos.X, pos.Y, pos.Z)
+	boltWatch(c, srv, 1)
+
+	if got := before - srv.PlayerHealth("Struck"); got < 5 {
+		t.Errorf("health lost to the bolt = %v, want at least 5", got)
+	}
+	for _, m := range srv.Mobs() {
+		switch m.ID {
+		case near:
+			if !m.Powered {
+				t.Error("the creeper in the bolt's box was not charged")
+			}
+		case far:
+			if m.Powered {
+				t.Error("the creeper outside the bolt's box was charged")
+			}
+		}
+	}
+}
+
+// TestALightningBoltLightsNoFireOnEasy checks the difficulty gate on the
+// strike's fire: peaceful and easy skip it.
+func TestALightningBoltLightsNoFireOnEasy(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
+	srv.StopTick()
+	srv.SetDifficulty(1)
+	pos := srv.PlayerPosition("Watcher")
+
+	srv.StrikeLightning(pos.X+8, pos.Y, pos.Z)
+	boltWatch(c, srv, 1)
+	x, y, z := int32(math.Floor(pos.X+8)), int32(math.Floor(pos.Y)), int32(math.Floor(pos.Z))
+	if name, _, _ := registry.BlockStateName(srv.BlockAt(x, y, z)); name == "minecraft:fire" {
+		t.Error("a bolt on easy lit a fire at its strike")
+	}
+}
+
+// TestALightningBoltLightsFireInCaveAir checks the cell test of the strike's
+// fire: any of the three air blocks takes it, not the plain one alone.
+func TestALightningBoltLightsFireInCaveAir(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
+	srv.StopTick()
+	srv.SetDifficulty(2)
+	pos := srv.PlayerPosition("Watcher")
+	x, y, z := int32(math.Floor(pos.X+8)), int32(math.Floor(pos.Y)), int32(math.Floor(pos.Z))
+	caveAir, _ := registry.FindState("minecraft:cave_air", nil)
+	srv.SetBlock(x, y-1, z, registry.BlockStates["minecraft:stone"])
+	srv.SetBlock(x, y, z, caveAir)
+
+	srv.StrikeLightning(float64(x)+0.5, float64(y), float64(z)+0.5)
+	boltWatch(c, srv, 1)
+	if name := srv.BlockNameAt(x, y, z); name != "minecraft:fire" {
+		t.Errorf("the strike cell of cave air holds %q, want fire", name)
+	}
+}
+
+// TestALightningBoltSoftenedByTheWindowSendsNoDamageEvent checks a mob that
+// took a lesser hurt just before the bolt: the bolt lands only the
+// difference and the damage event is not sent.
+func TestALightningBoltSoftenedByTheWindowSendsNoDamageEvent(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
+	srv.StopTick()
+	pos := srv.PlayerPosition("Watcher")
+	cow := srv.SpawnMob("minecraft:cow", pos.X+2, pos.Y, pos.Z)
+	srv.HurtMobByWorld(cow, 1, "minecraft:on_fire")
+	c.SettleAndCollect(func(int32, []byte) {})
+
+	srv.StrikeLightning(pos.X+2, pos.Y, pos.Z)
+	events := 0
+	srv.TickBolts(1)
+	c.SettleAndCollect(func(id int32, data []byte) {
+		if id == protocol.IDPlayDamageEvent && protocol.NewReader(data).ReadVarInt() == cow {
+			events++
+		}
+	})
+	if hp, _ := srv.MobHealth(cow); hp != 5 {
+		t.Errorf("cow health = %v, want 5 (10 less the fire's 1 and the bolt's softened 4)", hp)
+	}
+	if events != 0 {
+		t.Errorf("%d damage events for a softened hit, want none", events)
+	}
+}
+
+// TestAForcedChunkWithNobodyNearStrikesNoLightning checks that the strike
+// die is rolled only in chunks a player is close to.
+func TestAForcedChunkWithNobodyNearStrikesNoLightning(t *testing.T) {
+	t.Parallel()
+	srv, _ := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
+	srv.StopTick()
+	thunderstorm(srv)
+	srv.SetLightningOdds(1)
+
+	srv.RollThunderInForcedChunk(40, 40, 3)
+	if n := srv.BoltCount(); n != 0 {
+		t.Errorf("%d bolts struck a forced chunk far from any player", n)
+	}
+}
+
+// TestSummonLightningBoltStrikesWhereTheCommandPoints summons a bolt by
+// command: the bolt arrives at the command's position, the success line
+// names it, and on its first tick it lights the strike cell.
+func TestSummonLightningBoltStrikesWhereTheCommandPoints(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Summoner", servertest.OpsListing(t, "Summoner"))
+	srv.StopTick()
+	srv.SetDifficulty(2)
+	pos := srv.PlayerPosition("Summoner")
+	x, y, z := int32(math.Floor(pos.X+8)), int32(math.Floor(pos.Y)), int32(math.Floor(pos.Z))
+	srv.SetBlock(x, y-1, z, registry.BlockStates["minecraft:stone"])
+	srv.SetBlock(x, y, z, registry.BlockStates["minecraft:air"])
+	bx, bz := float64(x)+0.5, float64(z)+0.5
+
+	boltType, _ := registry.EntityTypeID("minecraft:lightning_bolt")
+	var spawned bool
+	var identity uuid.UUID
+	var feedback []byte
+	c.ChatCommand(fmt.Sprintf("summon minecraft:lightning_bolt %v %d %v", bx, y, bz))
+	c.SettleAndCollect(func(id int32, data []byte) {
+		switch id {
+		case protocol.IDPlaySpawnEntity:
+			r := protocol.NewReader(data)
+			r.ReadVarInt()
+			u := r.ReadUUID()
+			if r.ReadVarInt() != boltType {
+				return
+			}
+			if gx, gy, gz := r.ReadF64(), r.ReadF64(), r.ReadF64(); gx != bx || gy != float64(y) || gz != bz {
+				t.Errorf("the bolt arrived at (%v, %v, %v), want (%v, %d, %v)", gx, gy, gz, bx, y, bz)
+			}
+			spawned, identity = true, u
+		case protocol.IDPlaySystemChat:
+			feedback = data
+		}
+	})
+	if !spawned {
+		t.Fatal("/summon minecraft:lightning_bolt showed no bolt")
+	}
+	if feedback == nil {
+		t.Fatal("/summon minecraft:lightning_bolt sent no feedback")
+	}
+	servertest.CheckCommandFeedback(t, feedback, "commands.summon.success",
+		servertest.EntityDisplayComponent("minecraft:lightning_bolt", "entity.minecraft.lightning_bolt", identity))
+
+	srv.TickBolts(1)
+	if name := srv.BlockNameAt(x, y, z); name != "minecraft:fire" {
+		t.Errorf("the summoned bolt's strike cell holds %q, want fire", name)
+	}
+}
+
+// strikeFloatingStone summons a weightless stone item eight blocks from the
+// player and three above the ground, where no fire survives, and a bolt
+// onto it; it returns once the item is in the world and the bolt is summoned.
+func strikeFloatingStone(t *testing.T, invulnerable int) *server.Server {
+	t.Helper()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Striker", servertest.OpsListing(t, "Striker"))
+	servertest.HoldTicks(t, srv)
+	srv.SetDifficulty(2)
+	pos := srv.PlayerPosition("Striker")
+	bx, y, bz := math.Floor(pos.X+8)+0.5, math.Floor(pos.Y)+3, math.Floor(pos.Z)+0.5
+	extra := ""
+	if invulnerable > 0 {
+		extra = fmt.Sprintf(",invulnerable_time:%d", invulnerable)
+	}
+	c.ChatCommand(fmt.Sprintf(`summon minecraft:item %v %v %v {NoGravity:1b,Item:{id:"minecraft:stone",count:1}%s}`, bx, y, bz, extra))
+	c.Settle()
+	if items := srv.ItemsInDimension("minecraft:overworld"); len(items) != 1 {
+		t.Fatalf("the summon left %d items, want the stone", len(items))
+	}
+	c.ChatCommand(fmt.Sprintf("summon minecraft:lightning_bolt %v %v %v", bx, y, bz))
+	c.Settle()
+	if srv.BoltCount() != 1 {
+		t.Fatal("the bolt was never summoned")
+	}
+	return srv
+}
+
+// TestALightningBoltBurnsUpAnItem summons a bolt onto a stone item in the
+// air: the bolt's five damage takes the item's five health on its first tick.
+// vanilla: LightningBolt.tick, Entity.thunderHit, ItemEntity.hurtServer
+func TestALightningBoltBurnsUpAnItem(t *testing.T) {
+	t.Parallel()
+	srv := strikeFloatingStone(t, 0)
+	servertest.UntilTicks(t, srv, 2, "the struck item's removal", func() bool {
+		return len(srv.ItemsInDimension("minecraft:overworld")) == 0
+	})
+}
+
+// TestAnInvulnerableItemOutlastsALightningBolt strikes a stone item with 40
+// invulnerable ticks, longer than a bolt's strike and three flashes can
+// last: the item lies there when the bolt is spent, then the bolt's
+// eight-second burn takes its five health one bite every 20 ticks once the
+// invulnerability runs out, about 140 ticks after the strike.
+// vanilla: Entity.isInvulnerableToBase, Entity.thunderHit, Entity.baseTick
+func TestAnInvulnerableItemOutlastsALightningBolt(t *testing.T) {
+	t.Parallel()
+	srv := strikeFloatingStone(t, 40)
+	servertest.UntilTicks(t, srv, 40, "the bolt's end", func() bool { return srv.BoltCount() == 0 })
+	items := srv.ItemsInDimension("minecraft:overworld")
+	if len(items) != 1 || items[0].Item != "minecraft:stone" {
+		t.Fatalf("after the bolt the items are %+v, want the stone", items)
+	}
+	if fire := srv.ItemFire(items[0].ID); fire <= 0 {
+		t.Fatalf("the struck item's fire = %d, want the bolt's burn lit", fire)
+	}
+	servertest.UntilTicks(t, srv, 140, "the burning item's end", func() bool {
+		return len(srv.ItemsInDimension("minecraft:overworld")) == 0
+	})
+}
+
+// vanilla: LightningBolt.tick, Entity.thunderHit
+func TestALightningBoltHurtsAMannequin(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, tag string
+		want      bool
+	}{
+		{"living", "", true},
+		{"invulnerable", "Invulnerable:1b", false},
+		{"dying", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := joinMannequinOp(t, "Striker")
+			pos := srv.PlayerPosition("Striker")
+			bx, y, bz := math.Floor(pos.X+8)+0.5, math.Floor(pos.Y)+3, math.Floor(pos.Z)+0.5
+			c.ChatCommand(fmt.Sprintf("summon minecraft:mannequin %v %v %v {%s}", bx, y, bz, tc.tag))
+			m := awaitMannequin(t, c, srv)
+			if tc.name == "dying" {
+				c.ChatCommand("damage @e[type=mannequin,limit=1] 20 minecraft:generic")
+				c.Settle()
+			}
+			c.ChatCommand(fmt.Sprintf("summon minecraft:lightning_bolt %v %v %v", bx, y, bz))
+			c.Settle()
+			damage, health := false, float32(-1)
+			c.ReadTicks(srv, 2, func(id int32, data []byte) bool {
+				r := protocol.NewReader(data)
+				switch id {
+				case protocol.IDPlayDamageEvent:
+					if r.ReadVarInt() == m.id {
+						damage = true
+						if got := r.ReadVarInt(); got != registry.MustID("minecraft:damage_type", rules.DamageTypeLightningBolt.Name()) {
+							t.Errorf("damage type = %d, want lightning_bolt", got)
+						}
+						if cause, direct := r.ReadVarInt(), r.ReadVarInt(); cause != 0 || direct != 0 {
+							t.Errorf("damage sources = (%d, %d), want (0, 0)", cause, direct)
+						}
+					}
+				case protocol.IDPlayEntityMetadata:
+					if r.ReadVarInt() == m.id {
+						meta, ok := servertest.ReadMetadata(r)
+						if !ok {
+							t.Fatal("unreadable mannequin metadata")
+						}
+						if e := servertest.MetaOf(meta, protocol.MetadataIndexLivingHealth); e != nil {
+							health = e.FloatVal
+						}
+					}
+				}
+				return false
+			})
+			if damage != tc.want {
+				t.Errorf("damage event = %v, want %v", damage, tc.want)
+			}
+			if tc.want && health != 15 {
+				t.Errorf("health = %v, want 15", health)
+			}
+		})
+	}
+}
+
+// A floating body distinguishes its feet cell from the ground height.
+// vanilla: ServerLevel.findLightningTargetAround
+func TestAThunderstormTargetsArmorStandsAndMannequins(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"armor_stand", "mannequin"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			srv, c := joinMannequinOp(t, "Watcher")
+			pos := srv.PlayerPosition("Watcher")
+			cx, cz := int32(math.Floor(pos.X/16))+1, int32(math.Floor(pos.Z/16))
+			x, y, z := float64(cx*16+8)+0.5, math.Floor(pos.Y)+8, float64(cz*16+8)+0.5
+			c.ChatCommand(fmt.Sprintf("summon minecraft:%s %v %v %v {NoGravity:1b}", kind, x, y, z))
+			c.Settle()
+			srv.SetDifficulty(1)
+			thunderstorm(srv)
+			srv.SetLightningOdds(1)
+			// One chunk and fixed dice make the sampled strike columns repeatable.
+			srv.SetLevelSeed(1)
+			srv.RollThunderInForcedChunk(cx, cz, 128)
+			boltType, _ := registry.EntityTypeID("minecraft:lightning_bolt")
+			targeted, arrived := 0, 0
+			c.SettleAndCollect(func(id int32, data []byte) {
+				if id != protocol.IDPlaySpawnEntity {
+					return
+				}
+				r := protocol.NewReader(data)
+				r.ReadVarInt()
+				r.ReadUUID()
+				if r.ReadVarInt() != boltType {
+					return
+				}
+				arrived++
+				bx, by, bz := r.ReadF64(), r.ReadF64(), r.ReadF64()
+				if math.Abs(bx-x) <= 3 && math.Abs(bz-z) <= 3 && by != y {
+					t.Errorf("a strike in the body's search range landed at height %v, want %v", by, y)
+				}
+				if by == y {
+					if bx != x || bz != z {
+						t.Errorf("elevated strike at (%v, %v, %v), want (%v, %v, %v)", bx, by, bz, x, y, z)
+					}
+					targeted++
+				}
+			})
+			if arrived == 0 {
+				t.Fatal("the forced thunderstorm produced no strikes")
+			}
+			if targeted == 0 {
+				t.Fatal("no natural strike targeted the lone body's feet cell")
+			}
+		})
+	}
+}

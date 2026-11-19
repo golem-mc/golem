@@ -1,0 +1,54 @@
+name: Release
+
+# release-please keeps a release pull request open that bumps the version and
+# updates CHANGELOG.md from the conventional commits on main. Merging it tags
+# the release and creates it on GitHub; GoReleaser then builds the server and
+# the launcher for every platform and attaches them, with SHA256SUMS signed
+# for the launcher.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release PR
+    runs-on: ubuntu-latest
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          # A pull request opened with the default token starts no workflows,
+          # so CI would not run on the release PR; a token of a GitHub App or
+          # a user with access to the repository avoids that.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  goreleaser:
+    name: Build and publish
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - run: |
+          skip=
+          if [ -z "$RELEASE_SIGNING_KEY" ]; then
+            echo "RELEASE_SIGNING_KEY is not set: the release is unsigned, and launchers build it from source"
+            skip=--skip=sign
+          fi
+          mise run release -- $skip
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}

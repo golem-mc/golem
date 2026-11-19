@@ -1,0 +1,25 @@
+# vanilla 26.2's saved nether fortresses, read from the reference server's region
+# files. "start": seed, the forceloaded chunk range, the start chunk, number of
+# pieces and SHA-256 of structures.starts.minecraft:fortress as nbt.Encode writes
+# it (root name empty). "refs": seed, range, a chunk in it and the packed start
+# chunk in its structures.References.minecraft:fortress.
+start 0 32 8 39 15 46 9 168 f6e6a3bad367abfe9c2d2ca450c8ebb5ec4f742055cb796118cd6d40f6d5562c
+refs 0 32 8 39 15 39 8 38654705710
+refs 0 32 8 39 15 39 9 38654705710
+refs 0 32 8 39 15 39 10 38654705710
+refs 0 32 8 39 15 39 11 38654705710
+refs 0 32 8 39 15 39 12 38654705710
+refs 0 32 8 39 15 39 13 38654705710
+refs 0 32 8 39 15 39 14 38654705710
+refs 0 32 8 39 15 39 15 38654705710
+start 0 40 -30 47 -23 33 -36 147 99ec038b4377fdf99048b911f1a919a4256281568384f48623d32da607355699
+start 0 -4 -4 3 3 15 2 129 5101d0168a84a73dc2568a54e37a258a740c16dc5089761547a122870eed8219
+start 1 10 -4 15 3 21 -8 147 0369574d67a7f8848e156a85dd73dafeb2cbd3a498d848accd9fe417face1666
+refs 1 10 -4 15 3 14 -4 -34359738347
+refs 1 10 -4 15 3 14 -3 -34359738347
+refs 1 10 -4 15 3 14 -2 -34359738347
+refs 1 10 -4 15 3 14 -1 -34359738347
+refs 1 10 -4 15 3 15 -4 -34359738347
+refs 1 10 -4 15 3 15 -3 -34359738347
+refs 1 10 -4 15 3 15 -2 -34359738347
+refs 1 10 -4 15 3 15 -1 -34359738347

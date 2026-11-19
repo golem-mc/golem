@@ -1,0 +1,63 @@
+# Builds the server and the launcher for every released platform. The asset
+# names, SHA256SUMS and its signature are what the launcher downloads and
+# verifies (launcher/release.go), so keep them in step with it.
+version: 2
+
+project_name: golem
+
+builds:
+  - id: golem
+    main: .
+    binary: golem
+    env: [CGO_ENABLED=0]
+    # The server's default.pgo applies to the root main package.
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    # Baseline x86-64, so a release runs on any CPU; the launcher's own
+    # builds use the host's level.
+    goamd64: [v1]
+    ignore:
+      - goos: windows
+        goarch: arm64
+  - id: golem-launcher
+    main: ./launcher
+    binary: golem-launcher
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Tag }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    goamd64: [v1]
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - formats: [binary]
+    name_template: "{{ .Binary }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: SHA256SUMS
+  algorithm: sha256
+
+# The launcher trusts a release only when SHA256SUMS carries this Ed25519
+# signature (tools/release). The release workflow skips signing when the
+# RELEASE_SIGNING_KEY secret is not set.
+signs:
+  - id: release-key
+    artifacts: checksum
+    cmd: go
+    args: [run, ./tools/release, sign, "${artifact}", "${signature}"]
+    signature: "${artifact}.sig"
+
+# release-please writes the release notes and CHANGELOG.md and creates the
+# release; GoReleaser only attaches the files to it.
+changelog:
+  disable: true
+
+release:
+  mode: keep-existing

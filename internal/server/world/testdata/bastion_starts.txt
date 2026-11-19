@@ -1,0 +1,9 @@
+# vanilla 26.2's saved bastion remnant starts: seed, start chunk x z, number of
+# pieces and SHA-256 of structures.starts.minecraft:bastion_remnant as nbt.Encode
+# writes it (root name empty), read from the reference server's region files.
+# Housing, hoglin stables, treasure room and bridge starts.
+0 -38 -16 84 0de17cdb884dcb0e760f112dd8d903f1f79e2bca51458e01c748fed17e711ed8
+0 -27 -10 98 f408dd77e07a909cd78e62dfb20fae9078d213cf447adb87ad0ea768b7a19fa5
+1 12 0 176 e36cf987e26911209e9075ca6de4ce7aa6c2bb44db0f8a5a93316110d758ddee
+0 11 -14 43 3fe5e7e82b1017ccc1f75cecc9688cbc941667fe6d76ca406b274d0ba97bee1c
+0 45 -15 83 a342c372cb0fc002dc99b62526948b8209dc3a5f112cd6ba30791e7b4950254b

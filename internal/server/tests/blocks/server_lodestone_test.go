@@ -1,0 +1,559 @@
+package blocks
+
+import (
+	"github.com/golem-mc/golem/internal/server/servertest"
+
+	"testing"
+
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
+	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
+)
+
+// The lodestone compass, black-box: a compass used on a lodestone plays the
+// lock sound at the block and becomes the compass that points there, the
+// stack of one changes in place and a bigger stack or a creative hand splits
+// one off, the dimension the lodestone stands in is part of what the
+// component carries, the tracker survives a save and a reload, and a tick
+// clears the target of a tracked compass whose lodestone is gone.
+
+// lodestoneCompass is the stack the compass in the hand becomes when used on
+// the lodestone at the given place, the form the slot packets carry it in.
+func lodestoneCompass(t *testing.T, count int32, dimension string, x, y, z int32) protocol.ItemStack {
+	t.Helper()
+	locked := servertest.ItemStack(t, "minecraft:compass", count)
+	locked.SetLodestoneTracker(protocol.LodestoneTracker{
+		Target:  &protocol.LodestoneTarget{Dimension: dimension, X: x, Y: y, Z: z},
+		Tracked: true,
+	})
+	return locked
+}
+
+// clearedLodestoneCompass is the compass a tick leaves behind once its
+// lodestone is gone: the tracker with no target — the needle spins — and the
+// tracked flag still set.
+func clearedLodestoneCompass(t *testing.T, count int32) protocol.ItemStack {
+	t.Helper()
+	cleared := servertest.ItemStack(t, "minecraft:compass", count)
+	cleared.SetLodestoneTracker(protocol.LodestoneTracker{Tracked: true})
+	return cleared
+}
+
+// shapeLodestone puts a lodestone into the ground the players stand on,
+// before any of them joins.
+func shapeLodestone(t *testing.T, srv *server.Server, x, y, z int32) {
+	t.Helper()
+	state, ok := registry.FindState("minecraft:lodestone", nil)
+	if !ok {
+		t.Fatal("the registry has no lodestone")
+	}
+	srv.SetLoadedBlock(x, y, z, state)
+}
+
+// lodestoneClick is what one right-click with a held stack put on the wire:
+// the sounds it played and the window slots it set.
+type lodestoneClick struct {
+	sounds  []servertest.PlaySoundEffect
+	updates []servertest.SlotUpdate
+}
+
+// clickBlockAndCollect right-clicks the block at the position with the main
+// hand and reads the click's own answers up to the ack that ends them — over
+// the two echo block updates and the world's own traffic in between.
+func clickBlockAndCollect(t *testing.T, c *servertest.Client, x, y, z int32) lodestoneClick {
+	t.Helper()
+	return clickBlockAndCollectWithHand(t, c, protocol.HandMain, x, y, z)
+}
+
+// clickBlockAndCollectWithHand is clickBlockAndCollect with the hand chosen.
+func clickBlockAndCollectWithHand(t *testing.T, c *servertest.Client, hand, x, y, z int32) lodestoneClick {
+	t.Helper()
+	useBlockWithHand(c, hand, x, y, z)
+	var click lodestoneClick
+	for packetID, data := range c.Packets(servertest.ExpectTimeout) {
+		switch packetID {
+		case protocol.IDPlayAckBlockChange:
+			return click
+		case protocol.IDPlaySoundEffect:
+			click.sounds = append(click.sounds, servertest.DecodePlaySoundEffect(t, data))
+		case protocol.IDPlayContainerSlot:
+			r := protocol.NewReader(data)
+			r.ReadVarInt() // the window, the player's own here
+			r.ReadVarInt() // the state ID
+			click.updates = append(click.updates, servertest.SlotUpdate{
+				Slot:  r.ReadI16(),
+				Stack: servertest.MustReadSlot(t, r),
+			})
+		}
+	}
+	t.Fatalf("the click on (%d, %d, %d) was never acknowledged within %s", x, y, z, servertest.ExpectTimeout)
+	return click
+}
+
+// useBlockWithHand right-clicks the block at the position with the given
+// hand, the way a client does when it is the thing to do with the block.
+func useBlockWithHand(c *servertest.Client, hand, x, y, z int32) {
+	c.T.Helper()
+	c.Send(protocol.IDPlayUseItemOn, func(b *protocol.Buffer) {
+		b.PutVarInt(hand)
+		b.PutPosition(x, y, z)
+		b.PutVarInt(protocol.FaceTop)
+		b.PutF32(0.5)
+		b.PutF32(0.5)
+		b.PutF32(0.5)
+		b.PutBool(false)
+		b.PutBool(false)
+		b.PutVarInt(1)
+	})
+}
+
+// slotUpdateOf picks the slot the click set, failing the test when the click
+// never touched it.
+func slotUpdateOf(t *testing.T, click lodestoneClick, slot int16) protocol.ItemStack {
+	t.Helper()
+	for _, update := range click.updates {
+		if update.Slot == slot {
+			return update.Stack
+		}
+	}
+	t.Fatalf("the click set no slot %d; it set %+v", slot, click.updates)
+	return protocol.ItemStack{}
+}
+
+// expectLockSound checks the lock sound among what the click played: the
+// lodestone compass lock, in the players category, at the block for
+// everyone — the clicker included — at vanilla's volume and pitch.
+func expectLockSound(t *testing.T, click lodestoneClick, x, y, z int32) {
+	t.Helper()
+	id, ok := registry.SoundEventID("minecraft:item.lodestone_compass.lock")
+	if !ok {
+		t.Fatal("the sound registry has no lodestone compass lock")
+	}
+	for _, sound := range click.sounds {
+		if sound.RegistryID != id {
+			continue
+		}
+		if sound.Category != protocol.SoundCategoryPlayer {
+			t.Errorf("the lock sound's category = %d, want %d (players)", sound.Category, protocol.SoundCategoryPlayer)
+		}
+		// The coordinates travel as eighths of a block; the block's centre
+		// is what a block's sound is played at.
+		if wx, wy, wz := (x*8)+4, (y*8)+4, (z*8)+4; sound.X != wx || sound.Y != wy || sound.Z != wz {
+			t.Errorf("the lock sound at (%d %d %d), want the block's centre (%d %d %d)",
+				sound.X, sound.Y, sound.Z, wx, wy, wz)
+		}
+		if sound.Volume != 1 || sound.Pitch != 1 {
+			t.Errorf("the lock sound's volume, pitch = %v, %v, want 1, 1", sound.Volume, sound.Pitch)
+		}
+		return
+	}
+	t.Errorf("the click played no lodestone compass lock among %+v", click.sounds)
+}
+
+// TestACompassLocksOntoALodestone checks the click the feature is: a
+// survival compass used on a lodestone plays the lock sound there and
+// becomes the lodestone compass pointing at the block, the stack of one
+// changed in place and the client told so.
+// vanilla: CompassItem.useOn
+func TestACompassLocksOntoALodestone(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
+	shapeLodestone(t, srv, 2, 63, 1)
+
+	c := connect().Join("Wanderer")
+	srv.GiveSlot("Wanderer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:compass", 1))
+
+	click := clickBlockAndCollect(t, c, 2, 63, 1)
+	expectLockSound(t, click, 2, 63, 1)
+	if len(click.updates) != 1 {
+		t.Fatalf("the click set %d slots (%+v), want the held one alone", len(click.updates), click.updates)
+	}
+	want := lodestoneCompass(t, 1, "minecraft:overworld", 2, 63, 1)
+	if got := slotUpdateOf(t, click, int16(player.HotbarSlot)); !got.Equal(want) {
+		t.Errorf("slot %d = %+v, want %+v", player.HotbarSlot, got, want)
+	}
+	c.Disconnect()
+}
+
+// TestAStackOfTwoCompassesSplitsOneOntoALodestone checks the bigger stack's
+// answer: one compass of the held stack is spent and the locked one lands
+// beside it, the held stack kept plain under its player.
+// vanilla: CompassItem.useOn
+func TestAStackOfTwoCompassesSplitsOneOntoALodestone(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
+	shapeLodestone(t, srv, 2, 63, 1)
+
+	c := connect().Join("Wanderer")
+	srv.GiveSlot("Wanderer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:compass", 2))
+
+	click := clickBlockAndCollect(t, c, 2, 63, 1)
+	expectLockSound(t, click, 2, 63, 1)
+	if len(click.updates) != 2 {
+		t.Fatalf("the click set %d slots (%+v), want the spent held stack and the split-off compass",
+			len(click.updates), click.updates)
+	}
+	plain := servertest.ItemStack(t, "minecraft:compass", 1)
+	if got := slotUpdateOf(t, click, int16(player.HotbarSlot)); !got.Equal(plain) {
+		t.Errorf("slot %d = %+v, want the held stack spent to %+v", player.HotbarSlot, got, plain)
+	}
+	locked := lodestoneCompass(t, 1, "minecraft:overworld", 2, 63, 1)
+	if got := slotUpdateOf(t, click, int16(player.HotbarSlot+1)); !got.Equal(locked) {
+		t.Errorf("slot %d = %+v, want %+v", player.HotbarSlot+1, got, locked)
+	}
+	c.Disconnect()
+}
+
+// TestACreativeCompassKeepsItsStack checks the creative hand: infinite
+// materials spend nothing, so the held stack keeps its share and the locked
+// compass arrives as a new one beside it.
+// vanilla: CompassItem.useOn, ItemStack.consume
+func TestACreativeCompassKeepsItsStack(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
+	shapeLodestone(t, srv, 2, 63, 1)
+
+	c := connect().Join("Creator")
+	srv.GiveSlot("Creator", player.HotbarSlot, servertest.ItemStack(t, "minecraft:compass", 2))
+
+	click := clickBlockAndCollect(t, c, 2, 63, 1)
+	expectLockSound(t, click, 2, 63, 1)
+	if len(click.updates) != 1 {
+		t.Fatalf("the click set %d slots (%+v), want the split-off compass alone", len(click.updates), click.updates)
+	}
+	locked := lodestoneCompass(t, 1, "minecraft:overworld", 2, 63, 1)
+	if got := slotUpdateOf(t, click, int16(player.HotbarSlot+1)); !got.Equal(locked) {
+		t.Errorf("slot %d = %+v, want %+v", player.HotbarSlot+1, got, locked)
+	}
+	if held := srv.InventorySlot("Creator", player.HotbarSlot); !held.Equal(servertest.ItemStack(t, "minecraft:compass", 2)) {
+		t.Errorf("creative held slot %d = %+v, want the stack untouched", player.HotbarSlot, held)
+	}
+	c.Disconnect()
+}
+
+// TestALodestoneInTheNetherLocksItsDimensionIntoTheCompass checks the
+// dimension is part of what the tracker carries: a lodestone locked at in
+// the nether says so, which is what makes a compass point there across the
+// worlds.
+// vanilla: CompassItem.useOn, GlobalPos.of
+func TestALodestoneInTheNetherLocksItsDimensionIntoTheCompass(t *testing.T) {
+	t.Parallel()
+	// Each test edits its own copy of the arrival terrain.
+	cfg := servertest.NetherTestConfig(t, servertest.SurvivalTestConfig())
+	srv, c := servertest.Join(t, cfg, "Crosser")
+	srv.GiveSlot("Crosser", player.HotbarSlot, servertest.ItemStack(t, "minecraft:compass", 1))
+
+	srv.MovePlayerToDimension("Crosser", "minecraft:the_nether", 8.5, 40, 8.5)
+	c.MarkLoaded()
+	// The crossing sends its chunks asynchronously; the loaded chunk the
+	// lodestone goes into is what the batch's end says has arrived.
+	c.ExpectViewWithinTicks(srv, 200)
+	state, ok := registry.FindState("minecraft:lodestone", nil)
+	if !ok {
+		t.Fatal("the registry has no lodestone")
+	}
+	if !srv.SetBlockInDimension("minecraft:the_nether", 5, 39, 8, state) {
+		t.Fatal("the nether at the lodestone was not loaded")
+	}
+
+	click := clickBlockAndCollect(t, c, 5, 39, 8)
+	expectLockSound(t, click, 5, 39, 8)
+	if len(click.updates) != 1 {
+		t.Fatalf("the click set %d slots (%+v), want the held one alone", len(click.updates), click.updates)
+	}
+	want := lodestoneCompass(t, 1, "minecraft:the_nether", 5, 39, 8)
+	if got := slotUpdateOf(t, click, int16(player.HotbarSlot)); !got.Equal(want) {
+		t.Errorf("slot %d = %+v, want %+v", player.HotbarSlot, got, want)
+	}
+	c.Disconnect()
+}
+
+// TestALodestoneCompassSurvivesASaveAndReload checks the file the tracker
+// reaches disk in and what a rerun of the server makes of it: the shape a
+// vanilla codec writes — the target's dimension named and its block three
+// ints, tracked at its default left out — and the rejoin handing the
+// stack back as the lodestone compass it was.
+func TestALodestoneCompassSurvivesASaveAndReload(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SurvivalTestConfig()
+	srv, connect := servertest.Start(t, cfg)
+	shapeLodestone(t, srv, 2, 63, 1)
+
+	c := connect().Join("Keeper")
+	srv.GiveSlot("Keeper", player.HotbarSlot, servertest.ItemStack(t, "minecraft:compass", 1))
+
+	click := clickBlockAndCollect(t, c, 2, 63, 1)
+	want := lodestoneCompass(t, 1, "minecraft:overworld", 2, 63, 1)
+	if got := slotUpdateOf(t, click, int16(player.HotbarSlot)); !got.Equal(want) {
+		t.Fatalf("slot %d = %+v, want %+v", player.HotbarSlot, got, want)
+	}
+	c.Disconnect()
+	srv.Shutdown()
+
+	// The file names the tracker the vanilla way: the target compound with
+	// the dimension and the three ints of the block, nothing else beside it.
+	root := servertest.ReadPlayerFile(t, servertest.PlayerFile(cfg.LevelName, "Keeper"))
+	items, ok := nbt.Get[nbt.List](root, "Inventory")
+	if !ok || len(items.Items) != 1 {
+		t.Fatalf("Inventory = %v, %v; want the one stack that holds something", items, ok)
+	}
+	entry, ok := items.Items[0].(nbt.Compound)
+	if !ok {
+		t.Fatalf("the stack entry is a %s, want a compound", items.Items[0].Type())
+	}
+	components, ok := nbt.Get[nbt.Compound](entry, "components")
+	if !ok {
+		t.Fatal("the stack carries no components")
+	}
+	tracker, ok := nbt.Get[nbt.Compound](components, "minecraft:lodestone_tracker")
+	if !ok {
+		t.Fatalf("the components carry no lodestone tracker: %v", components)
+	}
+	if _, hasTracked := tracker["tracked"]; hasTracked {
+		t.Errorf("the tracker = %v, want tracked left out at its default", tracker)
+	}
+	target, ok := nbt.Get[nbt.Compound](tracker, "target")
+	if !ok {
+		t.Fatalf("the tracker carries no target: %v", tracker)
+	}
+	if got, _ := nbt.Get[nbt.String](target, "dimension"); got != "minecraft:overworld" {
+		t.Errorf("the target's dimension = %q, want minecraft:overworld", got)
+	}
+	pos, ok := nbt.Get[nbt.IntArray](target, "pos")
+	if !ok || len(pos) != 3 {
+		t.Fatalf("the target's pos = %v, %v; want the three ints of the block", pos, ok)
+	}
+	for i, wantX := range []int32{2, 63, 1} {
+		if pos[i] != wantX {
+			t.Errorf("pos[%d] = %d, want %d", i, pos[i], wantX)
+		}
+	}
+
+	// A server of its own, as after a restart, pointed at the same world.
+	restarted := *cfg
+	_, reconnect := servertest.Start(t, &restarted)
+	again := reconnect()
+	again.Login("Keeper")
+	again.Configure()
+	slots := again.Inventory()
+	var found int
+	for slot, stack := range slots {
+		if stack.Empty() {
+			continue
+		}
+		found++
+		if slot != player.HotbarSlot {
+			t.Errorf("slot %d holds %+v, want it empty", slot, stack)
+			continue
+		}
+		if !stack.Equal(want) {
+			t.Errorf("slot %d = %+v, want %+v", slot, stack, want)
+		}
+	}
+	if found != 1 {
+		t.Errorf("%d slots hold something, want the one compass", found)
+	}
+	again.Disconnect()
+}
+
+// TestABrokenLodestoneClearsTheCompassTarget checks the tracked flag's other
+// side: once the lodestone is gone a tick takes the target off the compass,
+// which spins, while the component and the tracked flag stay.
+// vanilla: CompassItem.inventoryTick, LodestoneTracker.tick
+func TestABrokenLodestoneClearsTheCompassTarget(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
+	shapeLodestone(t, srv, 2, 63, 1)
+
+	c := connect().Join("Wanderer")
+	srv.GiveSlot("Wanderer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:compass", 1))
+
+	click := clickBlockAndCollect(t, c, 2, 63, 1)
+	want := lodestoneCompass(t, 1, "minecraft:overworld", 2, 63, 1)
+	if got := slotUpdateOf(t, click, int16(player.HotbarSlot)); !got.Equal(want) {
+		t.Fatalf("slot %d = %+v, want %+v", player.HotbarSlot, got, want)
+	}
+
+	// The lodestone broken, and a few ticks past its going.
+	air, _ := registry.FindState("minecraft:air", nil)
+	if !srv.SetBlock(2, 63, 1, air) {
+		t.Fatal("the lodestone did not go")
+	}
+	servertest.AwaitTicks(t, srv, 5)
+	cleared := clearedLodestoneCompass(t, 1)
+	if got := srv.InventorySlot("Wanderer", player.HotbarSlot); !got.Equal(cleared) {
+		t.Errorf("after the break slot %d = %+v, want the target cleared to %+v",
+			player.HotbarSlot, got, cleared)
+	}
+	c.Disconnect()
+}
+
+// TestALodestoneCompassClearsOnlyItsOwnDimension checks the tick's reach: a
+// compass whose lodestone is gone in the player's dimension loses its target,
+// while one pointing into another dimension keeps it, since this server reads
+// no blocks there and every position would read as air.
+// vanilla: LodestoneTracker.tick
+func TestALodestoneCompassClearsOnlyItsOwnDimension(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
+	shapeLodestone(t, srv, 2, 63, 1)
+
+	c := connect().Join("Wanderer")
+	srv.GiveSlot("Wanderer", player.HotbarSlot, lodestoneCompass(t, 1, "minecraft:overworld", 2, 63, 1))
+	srv.GiveSlot("Wanderer", player.MainSlot, lodestoneCompass(t, 1, "minecraft:the_nether", 5, 39, 8))
+
+	air, _ := registry.FindState("minecraft:air", nil)
+	if !srv.SetBlock(2, 63, 1, air) {
+		t.Fatal("the lodestone did not go")
+	}
+	servertest.AwaitTicks(t, srv, 5)
+
+	if got := srv.InventorySlot("Wanderer", player.HotbarSlot); !got.Equal(clearedLodestoneCompass(t, 1)) {
+		t.Errorf("the overworld compass = %+v, want its target cleared", got)
+	}
+	kept := lodestoneCompass(t, 1, "minecraft:the_nether", 5, 39, 8)
+	if got := srv.InventorySlot("Wanderer", player.MainSlot); !got.Equal(kept) {
+		t.Errorf("the nether compass = %+v, want it kept as %+v", got, kept)
+	}
+	c.Disconnect()
+}
+
+// TestALodestoneCompassClearsATargetOutsideTheWorld checks the other reason a
+// tick drops a target: a block past the world's build bounds is no lodestone,
+// so the compass spins.
+// vanilla: LodestoneTracker.tick, Level.isInWorldBounds
+func TestALodestoneCompassClearsATargetOutsideTheWorld(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Wanderer")
+	srv.GiveSlot("Wanderer", player.HotbarSlot, lodestoneCompass(t, 1, "minecraft:overworld", 0, 5000, 0))
+
+	servertest.AwaitTicks(t, srv, 5)
+	if got := srv.InventorySlot("Wanderer", player.HotbarSlot); !got.Equal(clearedLodestoneCompass(t, 1)) {
+		t.Errorf("the compass = %+v, want the out-of-bounds target cleared", got)
+	}
+	c.Disconnect()
+}
+
+// TestALodestoneCompassClearsATargetBeyondTheWorldsEdge checks the horizontal
+// bound: a target past 30000000 blocks from the origin is outside the world
+// though no chunk of it is held.
+// vanilla: LodestoneTracker.tick, Level.isInWorldBounds
+func TestALodestoneCompassClearsATargetBeyondTheWorldsEdge(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Wanderer")
+	srv.GiveSlot("Wanderer", player.HotbarSlot, lodestoneCompass(t, 1, "minecraft:overworld", 30000005, 64, 0))
+	srv.GiveSlot("Wanderer", player.MainSlot, lodestoneCompass(t, 1, "minecraft:overworld", 0, 64, -30000001))
+	edge := lodestoneCompass(t, 1, "minecraft:overworld", 29999999, 64, -30000000)
+	srv.GiveSlot("Wanderer", player.MainSlot+1, edge)
+
+	servertest.AwaitTicks(t, srv, 5)
+	for _, slot := range []int{player.HotbarSlot, player.MainSlot} {
+		if got := srv.InventorySlot("Wanderer", slot); !got.Equal(clearedLodestoneCompass(t, 1)) {
+			t.Errorf("slot %d = %+v, want the out-of-bounds target cleared", slot, got)
+		}
+	}
+	if got := srv.InventorySlot("Wanderer", player.MainSlot+1); !got.Equal(edge) {
+		t.Errorf("the compass on the edge = %+v, want it kept as %+v", got, edge)
+	}
+	c.Disconnect()
+}
+
+// TestAMobsLodestoneCompassLosesItsBrokenTarget checks the tick reaches a
+// compass a mob holds, not only the ones in a player's inventory.
+// vanilla: EntityEquipment.tick, LodestoneTracker.tick
+func TestAMobsLodestoneCompassLosesItsBrokenTarget(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Wanderer")
+	id := srv.SpawnMob("minecraft:zombie", 8, 64, 8)
+	held := lodestoneCompass(t, 1, "minecraft:overworld", 2, 63, 1)
+	srv.SetMobHand(id, held)
+
+	servertest.AwaitTicks(t, srv, 5)
+	if got := srv.MobHand(id); !got.Equal(clearedLodestoneCompass(t, 1)) {
+		t.Errorf("the mob's compass = %+v, want its target cleared", got)
+	}
+	c.Disconnect()
+}
+
+// TestACompassInTheOffHandLocksOntoALodestone checks the other hand takes the
+// lock too: a compass held off hand used on a lodestone becomes the locked
+// one in that slot.
+// vanilla: CompassItem.useOn
+func TestACompassInTheOffHandLocksOntoALodestone(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
+	shapeLodestone(t, srv, 2, 63, 1)
+
+	c := connect().Join("Wanderer")
+	srv.GiveSlot("Wanderer", player.OffHandSlot, servertest.ItemStack(t, "minecraft:compass", 1))
+
+	click := clickBlockAndCollectWithHand(t, c, protocol.HandOff, 2, 63, 1)
+	expectLockSound(t, click, 2, 63, 1)
+	want := lodestoneCompass(t, 1, "minecraft:overworld", 2, 63, 1)
+	if got := slotUpdateOf(t, click, int16(player.OffHandSlot)); !got.Equal(want) {
+		t.Errorf("off hand slot %d = %+v, want %+v", player.OffHandSlot, got, want)
+	}
+	c.Disconnect()
+}
+
+// TestAFullInventoryDropsTheLockedCompass checks the split-off compass when
+// there is nowhere to put it: the held stack of two is spent and the locked
+// one lands on the ground rather than vanishing.
+// vanilla: CompassItem.useOn, Inventory.add, ServerPlayer.drop
+func TestAFullInventoryDropsTheLockedCompass(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
+	shapeLodestone(t, srv, 2, 63, 1)
+
+	c := connect().Join("Wanderer")
+	srv.GiveSlot("Wanderer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:compass", 2))
+	// Every other item slot filled, so the split-off compass has no home.
+	for slot := player.MainSlot; slot < player.HotbarSlot+player.HotbarSlots; slot++ {
+		if slot == player.HotbarSlot {
+			continue
+		}
+		srv.GiveSlot("Wanderer", slot, servertest.ItemStack(t, "minecraft:dirt", 64))
+	}
+
+	click := clickBlockAndCollect(t, c, 2, 63, 1)
+	expectLockSound(t, click, 2, 63, 1)
+	if got := srv.InventorySlot("Wanderer", player.HotbarSlot); !got.Equal(servertest.ItemStack(t, "minecraft:compass", 1)) {
+		t.Errorf("the held slot = %+v, want the spent compass alone", got)
+	}
+	dropped := srv.ItemsInDimension("minecraft:overworld")
+	if len(dropped) != 1 || dropped[0].Item != "minecraft:compass" || dropped[0].Count != 1 {
+		t.Errorf("the ground holds %+v, want the one locked compass dropped", dropped)
+	}
+	c.Disconnect()
+}
+
+// TestACompassOnABlockThatIsNotALodestoneDoesNothing checks the gate is the
+// lodestone alone: a compass used on anything else locks nothing, plays no
+// sound and stays the compass it was.
+// vanilla: CompassItem.useOn
+func TestACompassOnABlockThatIsNotALodestoneDoesNothing(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
+	state, ok := registry.FindState("minecraft:stone", nil)
+	if !ok {
+		t.Fatal("the registry has no stone")
+	}
+	srv.SetLoadedBlock(2, 63, 1, state)
+
+	c := connect().Join("Wanderer")
+	srv.GiveSlot("Wanderer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:compass", 1))
+
+	click := clickBlockAndCollect(t, c, 2, 63, 1)
+	if len(click.sounds) != 0 {
+		t.Errorf("the click played %+v, want no sound off a lodestone", click.sounds)
+	}
+	if len(click.updates) != 0 {
+		t.Errorf("the click set %+v, want the compass untouched", click.updates)
+	}
+	if got := srv.InventorySlot("Wanderer", player.HotbarSlot); !got.Equal(servertest.ItemStack(t, "minecraft:compass", 1)) {
+		t.Errorf("the held slot = %+v, want the plain compass", got)
+	}
+	c.Disconnect()
+}

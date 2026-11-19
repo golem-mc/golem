@@ -1,0 +1,8 @@
+# vanilla 26.2's saved trial chambers starts: seed, start chunk x z, number of
+# pieces and SHA-256 of structures.starts.minecraft:trial_chambers as nbt.Encode
+# writes it (root name empty), read from the reference server's region files.
+0 -22 -20 254 24ee03a61b078d235dc168eff45ce8880b6dd2502c62cbfd188ecf6fd8ef1926
+0 14 5 241 e72b278b3e96ca52001ad534dd21ac1010a64c64bbd5dfbc6813d4009a31b026
+0 20 -18 190 cbc61018739e67d8909ea832993599ac69135bd1771924a028849c8a45f0c8b3
+12345 -14 4 269 02f760efc123e60179fd297bedcb6b79531a6c273e3353e8ca8ae0408cbebe70
+12345 0 14 274 8b42c7985bd512dce767a69c7bf14d861d53d91b3d66a70bb3f3de07fa4db5aa

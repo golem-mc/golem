@@ -1,0 +1,238 @@
+# Tools
+
+Development tools that are not part of the server. Everything here is Go,
+except the Java helpers in `tools/java`, which ask the vanilla server's own
+classes for data, and the client agent in `tools/clientctl/src`.
+
+Most of them work against a vanilla server and client of the version golem
+implements, which `reference` downloads.
+
+## reference
+
+Downloads and runs the vanilla server and client:
+
+```bash
+mise run reference:setup    # server, client jar and decompiler
+mise run reference:run      # run the vanilla server on port 25599
+mise run reference:reports  # dump its built-in registries and packet IDs
+mise run reference:dump     # have the probe save the registries the server sends
+```
+
+Every file comes from Mojang's launcher metadata and is checked against its
+SHA-1. Everything lands in `reference-server/` (`REFERENCE_DIR`), which is not
+committed. The tasks bring their own JDK through mise. `REFERENCE_PORT` picks
+the port, and `REFERENCE_VERSION` another Minecraft version (see
+[Moving to a new Minecraft version](#moving-to-a-new-minecraft-version)). The
+server runs offline and is not meant to face the network.
+
+`reference:reports` writes `packets.json` (every packet ID by state and
+direction) and `registries.json` (including the registries compiled into the
+client, which are never sent) under `reference-server/generated/reports`.
+
+### The client
+
+The real client checks what the probe cannot:
+
+```bash
+mise run client:setup                      # ~220 MB, once
+mise run client:run 127.0.0.1:25565        # under Xvfb, software OpenGL
+```
+
+The server must run with `online-mode=false`, since the client has no
+Microsoft account. Minecraft is not free: use this only with a copy of the
+game you own. `client:run` starts an Xvfb display `:99`, so it works on a
+machine without a screen or GPU. Take screenshots with
+`DISPLAY=:99 import -window root shot.png`, or drive and inspect the client
+with [clientctl](#clientctl). Point it at the vanilla server first to see
+what right looks like.
+
+## probe
+
+A client that logs in to a server and transcribes every packet it receives:
+
+```bash
+mise run probe 127.0.0.1:25565
+```
+
+It parses each packet with golem's own field layouts and prints `leftover=N`
+for it; anything but `leftover=0` means the layout disagrees with what the
+server sent. Run it against the vanilla server to check a layout, then
+against golem and compare the transcripts.
+
+Environment variables change what it does:
+
+| Variable | Effect |
+|---|---|
+| `PLAY_SECONDS=<n>` | stay in the world longer than the default 20 seconds |
+| `PLAYER=<name>` | log in under another name |
+| `CHAT=<message>` | say something once the world has loaded |
+| `WALK=<n>` | walk that many chunks east |
+| `ACT=1` | punch, sneak and sprint |
+| `GIVE=<slot>:<item>:<count>,...` | put items in slots as a creative client does |
+| `USE=1` | right-click with the item in hand |
+| `ORDER_LIMIT=<n>` | list the order of more than the first 40 play packets (0: all) |
+| `TIMES=1` | timestamp every packet |
+| `HEXDUMP=<id>,...` | print the raw bytes of those play packets |
+| `DUMP=<file>` | write every registry and tag the server sent as JSON |
+| `DEBUG_SAMPLES=1` | transcribe the tick-time samples sent to operators |
+
+For anything involving two players, start a second probe once the first is
+in the world:
+
+```bash
+PLAYER=Watcher PLAY_SECONDS=30 mise run probe 127.0.0.1:25599 > watcher.log &
+until grep -q sync-position watcher.log; do sleep 0.2; done
+PLAYER=Joiner CHAT="hello" PLAY_SECONDS=8 mise run probe 127.0.0.1:25599
+```
+
+## clientctl
+
+A Java agent that runs inside the real client and serves its state and
+actions over HTTP on `127.0.0.1:25700`, with a command-line helper:
+
+```bash
+mise run client:ctl-build
+CLIENTCTL=1 mise run client:run 127.0.0.1:25565
+mise exec -- go run ./tools/clientctl state
+mise exec -- go run ./tools/clientctl chat "/give @s minecraft:diamond_sword"
+mise exec -- go run ./tools/clientctl input -forward -ticks 30 -pitch 70
+mise exec -- go run ./tools/clientctl screenshot /tmp/shot.png
+```
+
+`GET /state` returns the player (position, health, food, game mode and so
+on), the inventory and equipment, the open screen, nearby entities, the chat
+log, recent sounds and what the crosshair aims at. The POST endpoints act as
+the player would: `/chat`, `/input`, `/use`, `/attack`, `/slot`, `/drop`,
+`/click`, `/respawn`, `/connect`, `/disconnect` and `/screenshot`.
+`tools/internal/clientctl` offers the same calls to Go code, for tests that
+assert on a real client session. `CLIENTCTL_HOST` and `CLIENTCTL_PORT` point
+at another client.
+
+## worldgen-parity
+
+Compares golem's world generator with vanilla's, block by block, for a seed,
+dimension and chunk range:
+
+```bash
+mise run worldgen:parity -- -seed 0 -from -4,-4 -to 3,3
+mise run worldgen:parity -- -seed 12345 -dimension the_end -json report.json
+```
+
+The vanilla side is generated by the reference server and cached under
+`reference-server/worldgen/cache`; delete a cache directory to generate it
+again. The report gives the share of matching blocks, terrain shape, biomes
+and surface heights, broken down by section height and generation stage,
+with the most common differences and the worst chunks.
+
+Useful flags: `-dimension` (`overworld`, `the_nether`, `the_end`),
+`-level-type` and `-generator-settings` for other world presets, `-datapack`
+to add a data pack to both sides, `-structures=false`, `-diff <file>` for
+every differing block, `-digests <file>` for per-chunk hashes, `-json <file>`
+for the full report and `-v` for the vanilla server's console. The fixtures
+under `internal/server/world/testdata` were recorded with it.
+
+## loadtest
+
+Starts a server, golem or vanilla, drives it with bot clients through a
+scenario and writes `summary.json` with tick time, CPU, memory and bytes
+received. `loadtest scenarios` lists the scenarios.
+
+```bash
+mise exec -- go build -o /tmp/golem . && mise exec -- go build -o /tmp/loadtest ./tools/loadtest
+/tmp/loadtest run -server golem -golem /tmp/golem -scenario players-50 -out results/golem-players-50
+/tmp/loadtest run -server vanilla -jar server.jar -scenario players-50 -out results/vanilla-players-50
+```
+
+Each run picks free ports and a fresh temporary directory, so runs can share
+a machine. `-profile` also captures a CPU profile.
+
+## checktranslations
+
+Every chat message the server sends is a translation key. This checks that
+every key the server uses exists in the client's language file and gets as
+many arguments as its template has placeholders:
+
+```bash
+mise run check:translations
+```
+
+## Generators
+
+Every `*_gen.go` file, and the data files next to them, is written by
+`tools/gen` from the vanilla server's data, never by hand:
+
+```bash
+mise run reference:setup && mise run reference:reports && mise run reference:dump
+mise run gen                       # every generator
+mise run gen:particles             # or one by name
+go run ./tools/gen -list           # what there is
+mise run gen:check                 # fail if a committed file is out of date
+```
+
+The generators read the reports, the data pack inside the server jar, the
+Java helpers in `tools/java` (which boot the server's registries and print
+what they need) and, where nothing else will do, decompiled classes. The
+`*-golden` generators record vanilla's own algorithms on fixed inputs, which
+the tests then compare golem against. A generator that meets an input it
+does not model stops with a message rather than writing a partial table.
+
+Each generator's file under `tools/gen` starts with what it reads and writes.
+CI does not run `gen:check`, since it needs the reference jars and a JDK;
+run it after changing a generator.
+
+## Profile-guided builds
+
+The server is built with the committed `default.pgo` profile;
+`go build -pgo=off .` builds without it for a comparison.
+`mise run pgo:record` records a new profile from the generation and mob-tick
+benchmarks; passing CPU profiles (for example from `loadtest -profile`) merges
+them in:
+
+```bash
+mise run pgo:record -- results/zombies/profile-main/cpu.pb.gz
+```
+
+Re-record after larger changes to hot code.
+
+## Releases
+
+Releases follow the conventional commits on `main`. The release workflow runs
+[release-please](https://github.com/googleapis/release-please), which keeps a
+release pull request open with the next version and the new `CHANGELOG.md`
+entries: `fix` bumps the patch version, `feat` the minor one, and a breaking
+change (`feat!:`, or a `BREAKING CHANGE:` footer) the major one (the minor one
+while the version is 0.x). Merging that pull request tags the release and
+creates it on GitHub.
+
+[GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) then builds the
+server and the launcher for every platform, writes `SHA256SUMS`, signs it with
+`go run ./tools/release sign` and attaches the files to the release.
+`mise run release:snapshot` builds the same files into `dist/` locally, without
+publishing or signing.
+
+The signing key is made once, by a maintainer:
+
+```bash
+go run ./tools/release keygen | gh secret set RELEASE_SIGNING_KEY -R golem-mc/golem
+```
+
+The private key goes straight into the secret. The public key is printed to
+standard error and goes in `releaseKey` in `launcher/release.go`. Until both
+exist, releases are unsigned and launchers build every version from source.
+
+## Moving to a new Minecraft version
+
+1. Set `REFERENCE_VERSION` to the new version and run
+   `mise run reference:setup`; it prints the Java version the release needs,
+   which goes in the `java = ...` of the tasks that declare one.
+2. Set the version in `internal/protocol/ids.go` (`Version`, `GameVersion`)
+   and `DefaultVersion` in `tools/internal/vanilla`.
+3. `mise run reference:reports`, then `mise run gen:packets` for the packet
+   IDs. Update the registry-derived constants in `internal/protocol/ids.go`
+   (`RegistrySizePotion`, `DataComponentDamage`) by hand.
+4. `mise run reference:dump`, then `mise run gen`. A generator that meets
+   something new stops and names what it could not read.
+5. Check `dataVersion` in `internal/server/playerdata.go` against
+   `world_version` in the jar's `version.json`.
+6. Probe both servers and compare the transcripts, and run
+   `mise run check:translations`.

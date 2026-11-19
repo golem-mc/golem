@@ -1,0 +1,18 @@
+Vanilla 26.3 fixtures, frozen server worlds from:
+  mise run worldgen:parity -- -seed 0 -from -24,-24 -to 23,23
+  mise run worldgen:parity -- -seed 12345 -from -24,-24 -to 23,23
+
+The small_structures_<seed>_<chunkX>_<chunkZ>.nbt files retain the start
+compound from structures.starts, the unopened block_entities inside its
+children's saved bounding boxes, and the structure blocks in those boxes.
+Blocks record the resolved block state ID and block name. The sampled kinds
+are the parity tool's "structure block" category plus stairs, slabs,
+trapdoors and fences. They are copied from vanilla's saved section palettes,
+not computed by the Go world generator.
+
+seed   chunk    structure          template
+0      0,-22    buried_treasure
+0      15,-22   buried_treasure
+0      14,8     shipwreck_beached  sideways_full
+12345  -8,2     shipwreck          sideways_fronthalf_degraded
+12345  11,10    shipwreck          sideways_fronthalf_degraded

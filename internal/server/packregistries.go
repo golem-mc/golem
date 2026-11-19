@@ -1,0 +1,155 @@
+package server
+
+import (
+	"log/slog"
+	"strings"
+
+	"github.com/golem-mc/golem/internal/server/datapack"
+	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
+)
+
+// loadPackRegistries applies the enabled packs' entries of the synchronized
+// registries. It runs once per start: vanilla loads world registries with the
+// world, not on /reload or /datapack. The table is process-wide, so a server
+// without pack entries leaves it alone.
+// vanilla: WorldLoader.load, RegistryDataLoader.WORLD_REGISTRIES
+func loadPackRegistries(dirs []string, skip func(file string, err error)) error {
+	packs := map[string]map[string]nbt.Tag{}
+	for _, reg := range registry.Synchronized {
+		entries, err := datapack.LoadRegistryEntries(dirs, strings.TrimPrefix(reg.Name, "minecraft:"), skip)
+		if err != nil {
+			return err
+		}
+		if len(entries) > 0 {
+			packs[reg.Name] = entries
+		}
+	}
+	if err := loadPackDamageTypes(dirs, skip); err != nil {
+		return err
+	}
+	if err := loadPackTrialSpawners(dirs, skip); err != nil {
+		return err
+	}
+	if err := loadPackEnchantmentProviders(dirs, skip); err != nil {
+		return err
+	}
+	if err := loadPackSulfurArchetypes(dirs, skip); err != nil {
+		return err
+	}
+	unloaded, err := datapack.UnloadedWorldgen(dirs)
+	if err != nil {
+		return err
+	}
+	for _, pack := range unloaded {
+		slog.Warn("Data pack " + pack + " has world generation files, which are not loaded")
+	}
+	if len(packs) == 0 {
+		return nil
+	}
+	for _, problem := range registry.ApplyPackRegistries(packs) {
+		slog.Warn("Data pack registry entry skipped: " + problem)
+	}
+	return loadPackEnchantments(dirs, skip)
+}
+
+// loadPackEnchantments decodes the packs' enchantment files into the
+// definitions the rules read, over the built-in ones. What the tree cannot
+// represent is left out with a Warn naming the enchantment; a file that fails
+// the required fields keeps the built-in definition, if any.
+// vanilla: Enchantment.DIRECT_CODEC
+func loadPackEnchantments(dirs []string, skip func(file string, err error)) error {
+	files, err := datapack.LoadResources(dirs, "enchantment", skip)
+	if err != nil {
+		return err
+	}
+	defs := make(map[string]registry.EnchantmentDef, len(files))
+	for name, data := range files {
+		def, dropped, err := datapack.DecodeEnchantment(name, data)
+		if err != nil {
+			skip(name, err)
+			continue
+		}
+		for _, d := range dropped {
+			slog.Warn("Enchantment " + name + " does not support " + d)
+		}
+		defs[name] = def
+	}
+	registry.ApplyPackEnchantments(defs)
+	return nil
+}
+
+// loadPackDamageTypes layers the packs' damage types over the built-in table
+// the death messages, scaling and exhaustion read.
+func loadPackDamageTypes(dirs []string, skip func(file string, err error)) error {
+	raw, err := datapack.LoadResources(dirs, "damage_type", skip)
+	if err != nil {
+		return err
+	}
+	types := make(map[string]registry.DamageTypeInfo, len(raw))
+	for id, data := range raw {
+		t, err := datapack.DecodeDamageType(data)
+		if err != nil {
+			skip(id, err)
+			continue
+		}
+		types[id] = t
+	}
+	registry.ApplyPackDamageTypes(types)
+	return nil
+}
+
+// loadPackTrialSpawners layers the packs' trial_spawner configs over the
+// built-in ones a spawner names by registry key.
+func loadPackTrialSpawners(dirs []string, skip func(file string, err error)) error {
+	entries, err := datapack.LoadRegistryEntries(dirs, "trial_spawner", skip)
+	if err != nil {
+		return err
+	}
+	for _, name := range entity.ApplyPackTrialSpawnerConfigs(entries) {
+		slog.Warn("Trial spawner config " + name + " skipped: not a valid configuration")
+	}
+	return nil
+}
+
+// loadPackEnchantmentProviders layers the packs' enchantment providers over
+// the built-in table the mob equipment, raid and enderman rolls read.
+func loadPackEnchantmentProviders(dirs []string, skip func(file string, err error)) error {
+	raw, err := datapack.LoadResources(dirs, "enchantment_provider", skip)
+	if err != nil {
+		return err
+	}
+	providers := make(map[string]registry.EnchantmentProvider, len(raw))
+	for id, data := range raw {
+		p, err := datapack.DecodeEnchantmentProvider(data)
+		if err != nil {
+			skip(id, err)
+			continue
+		}
+		providers[id] = p
+	}
+	registry.ApplyPackEnchantmentProviders(providers)
+	return nil
+}
+
+// loadPackSulfurArchetypes layers the packs' sulfur cube archetypes over the
+// built-in list the cubes' behaviour reads. It runs after the damage types,
+// which a contact damage names.
+func loadPackSulfurArchetypes(dirs []string, skip func(file string, err error)) error {
+	raw, err := datapack.LoadResources(dirs, "sulfur_cube_archetype", skip)
+	if err != nil {
+		return err
+	}
+	archetypes := make(map[string]registry.SulfurArchetype, len(raw))
+	for id, data := range raw {
+		a, err := datapack.DecodeSulfurArchetype(data)
+		if err != nil {
+			skip(id, err)
+			continue
+		}
+		archetypes[id] = a
+	}
+	registry.ApplySulfurArchetypes(archetypes)
+	return nil
+}

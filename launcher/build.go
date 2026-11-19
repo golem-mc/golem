@@ -1,0 +1,451 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+	"time"
+
+	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/semver"
+	"golang.org/x/sys/cpu"
+)
+
+// serverPrivate (a variable so tests can serve the server from a fake proxy)
+// is whether serverModule's repository is private, as in a private fork. A
+// private one is fetched with git, credentials and all, and never asked of the
+// public module proxy or checksum database (GOPRIVATE).
+var serverPrivate = false
+
+// buildSchema changes when a build of the same inputs would come out
+// differently, so older cached builds are not reused.
+const buildSchema = "1"
+
+type launcher struct {
+	cache string
+	http  *http.Client
+}
+
+func newLauncher(cache string) *launcher {
+	return &launcher{cache: cache, http: &http.Client{Timeout: 15 * time.Minute}}
+}
+
+// server answers the binary to run: the release when there are no plugins
+// and one is published, else a build.
+func (l *launcher) server(ctx context.Context, cfg config, srvDir string, plugins []pluginSpec, rebuild bool) (string, error) {
+	if len(plugins) == 0 && !rebuild && srvDir == "" {
+		bin, err := l.release(ctx, cfg.Server)
+		if !errors.Is(err, errNoRelease) {
+			return bin, err
+		}
+		logger.Printf("no signed release of %s for %s/%s; using a build from source", cfg.Server, runtime.GOOS, runtime.GOARCH)
+	}
+	return l.build(ctx, cfg, srvDir, plugins, rebuild)
+}
+
+// buildKey names the cache directory of a build of cfg's server and plugins.
+func buildKey(cfg config, srvDir string, plugins []pluginSpec) string {
+	specs := make([]string, len(plugins))
+	for i, p := range plugins {
+		specs[i] = p.String()
+	}
+	slices.Sort(specs)
+	data, _ := json.Marshal([]any{buildSchema, cfg.Server, srvDir, specs, cfg.AllowDependencyUpgrades, runtime.GOOS, runtime.GOARCH, amd64Level()})
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:8])
+}
+
+// build answers a build of the server with plugins, reusing a cached one
+// unless the server (srvDir, when local) or a plugin is a local directory,
+// whose source can change under the same name (the go build cache keeps that
+// rebuild short).
+func (l *launcher) build(ctx context.Context, cfg config, srvDir string, plugins []pluginSpec, rebuild bool) (string, error) {
+	dir := filepath.Join(l.cache, "builds", buildKey(cfg, srvDir, plugins))
+	bin := filepath.Join(dir, exe("golem"))
+	local := srvDir != "" || slices.ContainsFunc(plugins, func(p pluginSpec) bool { return p.Dir != "" })
+	if _, err := os.Stat(bin); err == nil && !rebuild && !local {
+		return bin, nil
+	}
+	logger.Printf("building the server %s with %d plugins", cfg.Server, len(plugins))
+	g, err := l.resolve(ctx, filepath.Join(dir, "src"), cfg, srvDir, plugins)
+	if err != nil {
+		return "", err
+	}
+
+	// The release's own flags (tools/release), no cgo, so no C toolchain is
+	// needed, and the server's PGO profile; but GOAMD64 is this CPU's level
+	// (env), since the binary only runs here.
+	dirOut, err := g.run("list", "-m", "-f", "{{.Dir}}", serverModule)
+	if err != nil {
+		return "", err
+	}
+	pgo := "-pgo=off"
+	if p := filepath.Join(strings.TrimSpace(dirOut), "default.pgo"); fileExists(p) {
+		pgo = "-pgo=" + p
+	}
+	tmp := bin + ".tmp"
+	if _, err := g.run("build", "-trimpath", pgo, "-o", tmp, "."); err != nil {
+		return "", err
+	}
+	return bin, os.Rename(tmp, bin)
+}
+
+// resolve writes the main module for cfg's server and plugins into workDir,
+// resolves its dependencies and runs the checks, answering the go runner
+// to build with. Nothing is compiled.
+func (l *launcher) resolve(ctx context.Context, workDir string, cfg config, srvDir string, plugins []pluginSpec) (*goRun, error) {
+	gobin, err := l.goCommand(ctx)
+	if err != nil {
+		return nil, err
+	}
+	g := &goRun{ctx: ctx, bin: gobin, toolchain: "local"}
+
+	// The server's go.mod names the toolchain every later step runs.
+	// A local checkout is built as it is, as v0.0.0 (a replace has no
+	// version of its own), and needs no network or token.
+	srv := modInfo{Version: "v0.0.0", GoMod: filepath.Join(srvDir, "go.mod")}
+	if srvDir == "" {
+		if srv, err = g.download(serverModule + "@" + cfg.Server); err != nil {
+			return nil, err
+		}
+	}
+	if g.toolchain, err = toolchainOf(srv.GoMod); err != nil {
+		return nil, err
+	}
+	goLine := strings.TrimPrefix(g.toolchain, "go")
+
+	g.dir = workDir
+	if err := writeModule(g.dir, goLine, plugins); err != nil {
+		return nil, err
+	}
+	// The server is required, not fetched with go get: go get of a version
+	// would downgrade or drop a plugin needing a newer one, where the check
+	// below should name it.
+	edit := []string{"mod", "edit", "-require=" + serverModule + "@" + srv.Version}
+	if srvDir != "" {
+		edit = append(edit, "-replace="+serverModule+"="+srvDir)
+	}
+	get := []string{"get"}
+	for _, p := range plugins {
+		if p.Dir != "" {
+			edit = append(edit, "-replace="+p.Path+"="+p.Dir, "-require="+p.Path+"@v0.0.0")
+		} else {
+			get = append(get, p.Path+"@"+p.Version)
+		}
+	}
+	if _, err := g.run(edit...); err != nil {
+		return nil, err
+	}
+	if len(get) > 1 {
+		if _, err := g.run(get...); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := g.run("mod", "tidy"); err != nil {
+		return nil, err
+	}
+	if err := l.check(g, cfg, srvDir, srv.Version, goLine); err != nil {
+		return nil, err
+	}
+	return g, nil
+}
+
+// writeModule writes a fresh main module into dir: a main package importing
+// the plugins, so their init functions register them, then running the
+// server.
+func writeModule(dir, goLine string, plugins []pluginSpec) error {
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	gomod := "module golem-custom\n\ngo " + goLine + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "main.go"), mainSource(plugins), 0o644)
+}
+
+// mainSource is the generated main package.
+func mainSource(plugins []pluginSpec) []byte {
+	var b bytes.Buffer
+	b.WriteString("// Code generated by golem-launcher. DO NOT EDIT.\n\npackage main\n\nimport (\n")
+	fmt.Fprintf(&b, "\t%q\n", serverModule+"/app")
+	if len(plugins) > 0 {
+		b.WriteString("\n")
+	}
+	paths := make([]string, len(plugins))
+	for i, p := range plugins {
+		paths[i] = p.Path
+	}
+	slices.Sort(paths)
+	for _, p := range paths {
+		fmt.Fprintf(&b, "\t_ %q\n", p)
+	}
+	b.WriteString(")\n\nfunc main() { app.Main() }\n")
+	return b.Bytes()
+}
+
+// toolchainOf answers the toolchain a go.mod file asks for: its toolchain
+// line, else its go line as a release.
+func toolchainOf(gomod string) (string, error) {
+	data, err := os.ReadFile(gomod)
+	if err != nil {
+		return "", err
+	}
+	f, err := modfile.Parse(gomod, data, nil)
+	if err != nil {
+		return "", err
+	}
+	if f.Toolchain != nil && goRelease.MatchString(f.Toolchain.Name) {
+		return f.Toolchain.Name, nil
+	}
+	if f.Go == nil {
+		return "", fmt.Errorf("%s has no go line", gomod)
+	}
+	v := "go" + f.Go.Version
+	// "go 1.27" means the first release of 1.27, go1.27.0.
+	if strings.Count(v, ".") == 1 {
+		v += ".0"
+	}
+	if !goRelease.MatchString(v) {
+		return "", fmt.Errorf("%s asks for Go %s, which is not a release", gomod, f.Go.Version)
+	}
+	return v, nil
+}
+
+// check refuses a build whose plugins would change the server: a newer
+// server than launcher.json names, a newer version of a module the server
+// uses (unless allowed), or an import of the server's internals.
+func (l *launcher) check(g *goRun, cfg config, srvDir, want, goLine string) error {
+	got, err := g.run("list", "-m", "-f", "{{.Version}}", serverModule)
+	if err != nil {
+		return err
+	}
+	// A local checkout stands in for every version a plugin asks for.
+	if got = strings.TrimSpace(got); got != want && srvDir == "" {
+		graph, _ := g.run("mod", "graph")
+		return fmt.Errorf("launcher.json names server %s, but a plugin needs %s (%s); run `golem-launcher server %s` to raise it, or use an older plugin",
+			want, got, strings.Join(requirers(graph, serverModule+"@"+got), ", "), got)
+	}
+
+	pkgs, err := g.run("list", "-deps", "-f", listFormat, ".")
+	if err != nil {
+		return err
+	}
+	base, err := l.baseline(g, srvDir, want, goLine)
+	if err != nil {
+		return err
+	}
+	if up := upgrades(base, pkgs); len(up) > 0 {
+		msg := "plugins raise modules the server uses:\n\t" + strings.Join(up, "\n\t")
+		if !cfg.AllowDependencyUpgrades {
+			return errors.New(msg + "\nset \"allow-dependency-upgrades\": true in launcher.json to build anyway")
+		}
+		logger.Print(msg)
+	}
+	return nil
+}
+
+// listFormat prints a package's module, version, path and imports, one
+// package a line.
+const listFormat = `{{with .Module}}{{.Path}} {{.Version}}{{else}}std -{{end}} {{.ImportPath}}{{range .Imports}} {{.}}{{end}}`
+
+// moduleVersions answers the version of each module listFormat's lines
+// name.
+func moduleVersions(list string) map[string]string {
+	v := map[string]string{}
+	for line := range strings.Lines(list) {
+		if f := strings.Fields(line); len(f) >= 3 && f[0] != "std" {
+			v[f[0]] = f[1]
+		}
+	}
+	return v
+}
+
+// upgrades answers the modules the server's own build links that the
+// plugin build links at a newer version.
+func upgrades(base, plugins string) []string {
+	got := moduleVersions(plugins)
+	var up []string
+	for m, v := range moduleVersions(base) {
+		if g, ok := got[m]; ok && m != serverModule && semver.Compare(g, v) > 0 {
+			up = append(up, m+" "+v+" => "+g)
+		}
+	}
+	slices.Sort(up)
+	return up
+}
+
+// baseline answers listFormat's lines for the server built with no plugins,
+// kept per server version.
+func (l *launcher) baseline(g *goRun, srvDir, version, goLine string) (string, error) {
+	cached := filepath.Join(l.cache, "baselines", baselineName(version))
+	// A local checkout changes under one name, so its baseline is not kept.
+	if data, err := os.ReadFile(cached); err == nil && srvDir == "" {
+		return string(data), nil
+	}
+	b := *g
+	b.dir = g.dir + "-baseline"
+	defer os.RemoveAll(b.dir)
+	if err := writeModule(b.dir, goLine, nil); err != nil {
+		return "", err
+	}
+	edit := []string{"mod", "edit", "-require=" + serverModule + "@" + version}
+	if srvDir != "" {
+		edit = append(edit, "-replace="+serverModule+"="+srvDir)
+	}
+	if _, err := b.run(edit...); err != nil {
+		return "", err
+	}
+	if _, err := b.run("mod", "tidy"); err != nil {
+		return "", err
+	}
+	list, err := b.run("list", "-deps", "-f", listFormat, ".")
+	if err != nil {
+		return "", err
+	}
+	if srvDir != "" {
+		return list, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(cached), 0o755); err != nil {
+		return "", err
+	}
+	return list, os.WriteFile(cached, []byte(list), 0o644)
+}
+
+// baselineName is the file name of a server version's baseline.
+func baselineName(version string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(version))
+}
+
+// requirers answers the modules go mod graph says require target, other
+// than the generated main module.
+func requirers(graph, target string) []string {
+	var r []string
+	sc := bufio.NewScanner(strings.NewReader(graph))
+	for sc.Scan() {
+		if from, to, ok := strings.Cut(sc.Text(), " "); ok && to == target && from != "golem-custom" {
+			r = append(r, from)
+		}
+	}
+	return r
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// goRun runs go commands in dir with the build's fixed environment.
+type goRun struct {
+	ctx       context.Context
+	bin, dir  string
+	toolchain string
+}
+
+// env is the caller's environment with the settings the build depends on
+// replaced. GITHUB_TOKEN, when set, reaches git as an HTTP header for
+// github.com only, the way actions/checkout passes its token.
+func (g *goRun) env() []string {
+	fixed := map[string]string{
+		"GOTOOLCHAIN": g.toolchain,
+		// The user's flags could change the build; go get and tidy keep
+		// go.mod complete, so the default -mod=readonly holds.
+		"GOFLAGS":     "",
+		"GOWORK":      "off",
+		"CGO_ENABLED": "0",
+		"GOAMD64":     amd64Level(),
+		"GOOS":        runtime.GOOS,
+		"GOARCH":      runtime.GOARCH,
+		"GOROOT":      "",
+		"GOPRIVATE":   os.Getenv("GOPRIVATE"),
+	}
+	if serverPrivate {
+		fixed["GOPRIVATE"] = strings.Trim(fixed["GOPRIVATE"]+","+serverModule, ",")
+	}
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		_, ok := fixed[k]
+		return ok || strings.HasPrefix(k, "GIT_CONFIG_")
+	})
+	for k, v := range fixed {
+		if v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+		env = append(env, "GIT_CONFIG_COUNT=1",
+			"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
+			"GIT_CONFIG_VALUE_0=Authorization: Basic "+basic)
+	}
+	return env
+}
+
+// run runs go with args, answering its standard output; its errors and
+// progress go to the launcher's standard error.
+func (g *goRun) run(args ...string) (string, error) {
+	cmd := exec.CommandContext(g.ctx, g.bin, args...)
+	cmd.Dir = g.dir
+	cmd.Env = g.env()
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("go %s: %w", strings.Join(args, " "), err)
+	}
+	return string(out), nil
+}
+
+// modInfo is go mod download -json's answer.
+type modInfo struct {
+	Version, GoMod, Dir, Error string
+}
+
+// download fetches one module version outside any main module.
+func (g *goRun) download(spec string) (modInfo, error) {
+	d := *g
+	d.dir = os.TempDir()
+	out, err := d.run("mod", "download", "-json", spec)
+	var m modInfo
+	if jerr := json.Unmarshal([]byte(out), &m); jerr == nil && m.Error != "" {
+		return m, fmt.Errorf("download %s: %s", spec, m.Error)
+	}
+	if err != nil {
+		return m, err
+	}
+	return m, json.Unmarshal([]byte(out), &m)
+}
+
+// amd64Level is the highest GOAMD64 level this CPU supports, up to v3 ("" off
+// amd64). v4's AVX-512 is left out: the compiler gains little from it, and some
+// CPUs lower their clock while running it.
+func amd64Level() string {
+	if runtime.GOARCH != "amd64" {
+		return ""
+	}
+	x := cpu.X86
+	v2 := x.HasCX16 && x.HasLAHF && x.HasPOPCNT && x.HasSSE3 && x.HasSSE41 && x.HasSSE42 && x.HasSSSE3
+	v3 := v2 && x.HasAVX && x.HasAVX2 && x.HasBMI1 && x.HasBMI2 && x.HasF16C && x.HasFMA && x.HasLZCNT && x.HasMOVBE && x.HasOSXSAVE
+	switch {
+	case v3:
+		return "v3"
+	case v2:
+		return "v2"
+	}
+	return "v1"
+}

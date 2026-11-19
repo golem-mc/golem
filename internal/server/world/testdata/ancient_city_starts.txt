@@ -1,0 +1,5 @@
+# vanilla 26.2's saved ancient city starts: seed, start chunk x z, number of
+# pieces and SHA-256 of structures.starts.minecraft:ancient_city as nbt.Encode
+# writes it (root name empty), read from the reference server's region files.
+12345 -18 -18 90 e7bfb774a4c27049bb2ef186b0eb74a2e21a55f8c22b4e6ff538c01bdf56f24c
+12345 11 -11 88 74b124b79fc98da795257214a477bb464e8db12eac9d7152fff7e1defeb1d43d

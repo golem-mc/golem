@@ -1,0 +1,10 @@
+end_city_starts.nbt contains the structures.starts.minecraft:end_city tags
+from vanilla 26.3, seed 0, at chunks -77,-79 (near) and 26,-120 (ship).
+Capture with the reference server's region files after:
+
+REFERENCE_DIR=/tmp/reference-26.3 REFERENCE_VERSION=26.3 mise run worldgen:parity -- -reference /tmp/reference-26.3 -dimension the_end -seed 0 -from -79,-81 -to -74,-76
+REFERENCE_DIR=/tmp/reference-26.3 REFERENCE_VERSION=26.3 mise run worldgen:parity -- -reference /tmp/reference-26.3 -dimension the_end -seed 0 -from 24,-128 -to 27,-119
+
+Both ranges have one matching structure start and zero differing block states.
+The first city has 11 pieces; the second has 48, including a ship and fat tower.
+Keep all saved piece fields, including GD, Rot, OW and BB, in their list order.

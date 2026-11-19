@@ -1,0 +1,326 @@
+package network
+
+import (
+	"bytes"
+	"math"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
+	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
+)
+
+// The pack registry tests are not parallel: the registry table is
+// process-wide, so they run alone and the pack test puts it back after.
+
+// TestConfigurationSendsPackRegistryEntries checks that a data pack's new
+// painting variant and dialog reach Registry Data with their data after the
+// built-ins, that an override of a built-in chat type carries the pack's
+// data while an untouched entry carries none, that a pack tag can name the
+// new entry, and that /dialog show resolves the pack's dialog.
+// vanilla: RegistrySynchronization.packRegistry, RegistryDataLoader
+func TestConfigurationSendsPackRegistryEntries(t *testing.T) {
+	t.Cleanup(func() {
+		registry.ApplyPackRegistries(nil)
+		registry.ApplyPackTags(nil)
+	})
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.LevelName = t.TempDir()
+	pack := filepath.Join(cfg.LevelName, "datapacks", "p")
+	writeFiles(t, map[string]string{
+		filepath.Join(pack, "pack.mcmeta"):                             `{"pack":{"description":"p"}}`,
+		filepath.Join(pack, "data/pk/painting_variant/wide.json"):      `{"asset_id":"pk:wide","width":3,"height":1}`,
+		filepath.Join(pack, "data/pk/dialog/hello.json"):               `{"type":"minecraft:notice","title":"Hello"}`,
+		filepath.Join(pack, "data/pk/tags/painting_variant/mine.json"): `{"values":["pk:wide"]}`,
+		filepath.Join(pack, "data/minecraft/chat_type/chat.json"): `{
+			"chat":{"parameters":["sender","content"],"translation_key":"pk.chat"},
+			"narration":{"parameters":["sender","content"],"translation_key":"chat.type.text.narrate"}}`,
+	})
+
+	_, c := servertest.Dial(t, cfg, servertest.OpsListing(t, "Testificate"))
+	regs, tags := configureReading(c, "Testificate")
+
+	paintings := regs["minecraft:painting_variant"]
+	builtin, _ := registryBuiltin("minecraft:painting_variant")
+	if len(paintings) != len(builtin)+1 || paintings[len(paintings)-1].name != "pk:wide" {
+		t.Fatalf("painting_variant has %d entries ending %v, want the %d built-ins then pk:wide", len(paintings), paintings[len(paintings)-1].name, len(builtin))
+	}
+	wide, _ := paintings[len(paintings)-1].data.(nbt.Compound)
+	if w, _ := nbt.Get[nbt.Int](wide, "width"); w != 3 {
+		t.Errorf("pk:wide data = %v, want width 3", wide)
+	}
+	for _, e := range paintings {
+		if e.name == "minecraft:kebab" && e.data != nil {
+			t.Errorf("minecraft:kebab carries data %v, want none", e.data)
+		}
+	}
+	var chatKey nbt.String
+	for _, e := range regs["minecraft:chat_type"] {
+		if e.name == "minecraft:chat" {
+			chat, _ := e.data.(nbt.Compound)
+			inner, _ := nbt.Get[nbt.Compound](chat, "chat")
+			chatKey, _ = nbt.Get[nbt.String](inner, "translation_key")
+		}
+	}
+	if chatKey != "pk.chat" {
+		t.Errorf("minecraft:chat translation_key = %q, want pk.chat", chatKey)
+	}
+	if got := tags["pk:mine"]; len(got) != 1 || got[0] != int32(len(builtin)) {
+		t.Errorf("painting_variant tag pk:mine = %v, want [%d]", got, len(builtin))
+	}
+
+	c.Playing = true
+	c.EnterWorld("Testificate")
+	c.ChatCommand("dialog show @s pk:hello")
+	data, ok := servertest.ReadUntil(t, c, servertest.ExpectTimeout, protocol.IDPlayShowDialog)
+	if !ok {
+		t.Fatal("no Show Dialog packet")
+	}
+	dialogs, _ := registryBuiltin("minecraft:dialog")
+	// A registry holder travels as its index plus one.
+	if want := []byte{byte(len(dialogs) + 1)}; !bytes.Equal(data, want) {
+		t.Errorf("Show Dialog = % x, want % x (pk:hello after the built-ins)", data, want)
+	}
+}
+
+// TestConfigurationSendsNoRegistryDataWithoutPacks checks that with no data
+// pack every Registry Data entry leaves its data to the client's core pack.
+func TestConfigurationSendsNoRegistryDataWithoutPacks(t *testing.T) {
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.LevelName = t.TempDir()
+	_, c := servertest.Dial(t, cfg)
+	regs, _ := configureReading(c, "Testificate")
+	if len(regs) != len(registry.Synchronized) {
+		t.Errorf("got %d registries, want %d", len(regs), len(registry.Synchronized))
+	}
+	for name, entries := range regs {
+		for _, e := range entries {
+			if e.data != nil {
+				t.Errorf("%s entry %s carries data", name, e.name)
+			}
+		}
+	}
+}
+
+type registryEntry struct {
+	name string
+	data nbt.Tag
+}
+
+// registryBuiltin is a registry's built-in entries.
+func registryBuiltin(name string) ([]string, bool) {
+	for _, r := range registry.Synchronized {
+		if r.Name == name {
+			return r.Entries, true
+		}
+	}
+	return nil, false
+}
+
+// configureReading runs configuration up to Finish Configuration, returning
+// the Registry Data entries by registry and Update Tags' painting_variant
+// tags.
+func configureReading(c *servertest.Client, name string) (map[string][]registryEntry, map[string][]int32) {
+	t := c.T
+	t.Helper()
+	c.Login(name)
+	c.Expect(protocol.IDConfigPluginMessage)
+	c.Expect(protocol.IDKnownPacks)
+	c.Send(protocol.IDKnownPacksIn, func(b *protocol.Buffer) {
+		b.PutVarInt(1)
+		b.PutString("minecraft")
+		b.PutString("core")
+		b.PutString(registry.Version)
+	})
+	regs := map[string][]registryEntry{}
+	var tags map[string][]int32
+	for {
+		id, data, err := c.Read()
+		if err != nil {
+			t.Fatalf("read configuration packet: %v", err)
+		}
+		switch id {
+		case protocol.IDRegistryData:
+			r := protocol.NewReader(data)
+			reg := r.ReadString(32767)
+			entries := []registryEntry{}
+			for range r.ReadVarInt() {
+				e := registryEntry{name: r.ReadString(32767)}
+				if r.ReadBool() {
+					tag, n, err := nbt.DecodeNetwork(data[len(data)-r.Remaining():])
+					if err != nil {
+						t.Fatalf("%s entry %s: %v", reg, e.name, err)
+					}
+					r.Skip(n)
+					e.data = tag
+				}
+				entries = append(entries, e)
+			}
+			if r.Err() != nil || r.Remaining() != 0 {
+				t.Fatalf("registry %s: %v, %d bytes left", reg, r.Err(), r.Remaining())
+			}
+			regs[reg] = entries
+		case protocol.IDConfigUpdateTags:
+			tags = registryTagsOf(t, data, "minecraft:painting_variant")
+		case protocol.IDConfigFinish:
+			c.Send(protocol.IDConfigFinishAck, nil)
+			return regs, tags
+		}
+	}
+}
+
+func writeFiles(t *testing.T, files map[string]string) {
+	t.Helper()
+	for path, body := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestPackWorldClockRuns checks that a data pack's new world_clock gets a
+// running clock: /time of it answers, and its Update Time entry carries rate
+// 1. vanilla: ServerClockManager.init
+func TestPackWorldClockRuns(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackRegistries(nil) })
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.LevelName = t.TempDir()
+	pack := filepath.Join(cfg.LevelName, "datapacks", "p")
+	writeFiles(t, map[string]string{
+		filepath.Join(pack, "pack.mcmeta"):                `{"pack":{"description":"p"}}`,
+		filepath.Join(pack, "data/pk/world_clock/x.json"): `{}`,
+	})
+
+	_, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"), func(s *server.Server) {
+		s.SetTimeSync(0)
+	})
+	c.ChatCommand("time of pk:x set 500")
+	c.ExpectTimeFeedback("commands.time.set.absolute", protocol.Text{Text: "pk:x"}, protocol.Text{Number: new(int64(500))})
+	c.ExpectUpdateClocks(servertest.UpdateClock{Id: registry.MustID("minecraft:world_clock", "pk:x"), Total: 500, Rate: 1})
+}
+
+// TestACreativeStackKeepsAPackPaintingVariant: a painting whose variant is
+// the data pack's entry after the built-ins, which Registry Data listed, is
+// kept by Set Creative Mode Slot rather than refused as out of range, and
+// hangs as that variant at the pack's size.
+// vanilla: PaintingVariant.STREAM_CODEC reads the client's registry,
+// HangingEntityItem.useOn
+func TestACreativeStackKeepsAPackPaintingVariant(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackRegistries(nil) })
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.GameMode = "creative"
+	cfg.LevelName = t.TempDir()
+	pack := filepath.Join(cfg.LevelName, "datapacks", "p")
+	writeFiles(t, map[string]string{
+		filepath.Join(pack, "pack.mcmeta"):                        `{"pack":{"description":"p"}}`,
+		filepath.Join(pack, "data/pk/painting_variant/wide.json"): `{"asset_id":"pk:wide","width":3,"height":1}`,
+	})
+
+	srv, c := servertest.Join(t, cfg, "Testificate")
+	wide := servertest.PaintingVariantID(t, "pk:wide")
+	c.SetCreativeSlot(36, servertest.PaintingStack(t, wide))
+	c.Settle()
+	got, ok := srv.InventorySlot("Testificate", 36).PaintingVariantOf()
+	if !ok || got != wide {
+		t.Errorf("slot holds painting variant %d (ok=%v), want %d", got, ok, wide)
+	}
+
+	// The three cells of wall pk:wide covers, facing north.
+	for x := int32(3); x <= 5; x++ {
+		srv.SetBlock(x, 64, 5, servertest.PaintingWallState)
+	}
+	c.MoveToGround(4.5, 64, 3.5, true)
+	c.Settle()
+	c.PlaceBlock(4, 64, 5, protocol.FaceNorth)
+	painting := c.AwaitSpawn(protocol.EntityTypePainting)
+	entries := c.AwaitMetadataFor(painting.EntityID)
+	if field := servertest.MetaOf(entries, protocol.MetadataIndexPaintingVariant); field == nil || field.VarintVal != wide+1 {
+		t.Errorf("the hung painting's variant = %v, want pk:wide (%d)", field, wide+1)
+	}
+	if n := srv.PaintingCount(); n != 1 {
+		t.Errorf("the server holds %d paintings after hanging the pack stack, want 1", n)
+	}
+}
+
+// TestAPackPlaceableTagPicksThePlacedPainting hangs a plain painting item
+// with a pack whose minecraft:placeable tag holds only its 3x1 pk:wide: the
+// roll draws from the pack's tag, so pk:wide hangs on a wall a built-in 1x1
+// would fit too.
+// vanilla: Painting.create reads PaintingVariantTags.PLACEABLE from the registry
+func TestAPackPlaceableTagPicksThePlacedPainting(t *testing.T) {
+	t.Cleanup(func() {
+		registry.ApplyPackRegistries(nil)
+		registry.ApplyPackTags(nil)
+	})
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.GameMode = "creative"
+	cfg.LevelName = t.TempDir()
+	pack := filepath.Join(cfg.LevelName, "datapacks", "p")
+	writeFiles(t, map[string]string{
+		filepath.Join(pack, "pack.mcmeta"):                                         `{"pack":{"description":"p"}}`,
+		filepath.Join(pack, "data/pk/painting_variant/wide.json"):                  `{"asset_id":"pk:wide","width":3,"height":1}`,
+		filepath.Join(pack, "data/minecraft/tags/painting_variant/placeable.json"): `{"replace":true,"values":["pk:wide"]}`,
+	})
+
+	srv, c := servertest.Join(t, cfg, "Testificate")
+	wide := servertest.PaintingVariantID(t, "pk:wide")
+	c.SetCreativeSlot(36, protocol.ItemStack{ItemID: servertest.PaintingItem(t), Count: 1})
+	c.Settle()
+
+	for x := int32(3); x <= 5; x++ {
+		srv.SetBlock(x, 64, 5, servertest.PaintingWallState)
+	}
+	c.MoveToGround(4.5, 64, 3.5, true)
+	c.Settle()
+	c.PlaceBlock(4, 64, 5, protocol.FaceNorth)
+	painting := c.AwaitSpawn(protocol.EntityTypePainting)
+	entries := c.AwaitMetadataFor(painting.EntityID)
+	if field := servertest.MetaOf(entries, protocol.MetadataIndexPaintingVariant); field == nil || field.VarintVal != wide+1 {
+		t.Errorf("the placed painting's variant = %v, want pk:wide (%d), the pack tag's only entry", field, wide+1)
+	}
+}
+
+// TestASummonedPackPaintingTakesItsSize summons a painting of a pack's
+// 3x1 variant: it keeps the variant, which the metadata names, and its box
+// spans three blocks along the wall and one up.
+// vanilla: PaintingVariant.DIRECT_CODEC, Painting.calculateBoundingBox
+func TestASummonedPackPaintingTakesItsSize(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackRegistries(nil) })
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.LevelName = t.TempDir()
+	pack := filepath.Join(cfg.LevelName, "datapacks", "p")
+	writeFiles(t, map[string]string{
+		filepath.Join(pack, "pack.mcmeta"):                        `{"pack":{"description":"p"}}`,
+		filepath.Join(pack, "data/pk/painting_variant/wide.json"): `{"asset_id":"pk:wide","width":3,"height":1}`,
+	})
+
+	srv, c := servertest.Join(t, cfg, "Summoner", servertest.OpsListing(t, "Summoner"))
+	wide := servertest.PaintingVariantID(t, "pk:wide")
+	c.ChatCommand(`summon minecraft:painting 5.5 64 0.5 {facing:2b,variant:"pk:wide"}`)
+	painting := c.AwaitSpawn(protocol.EntityTypePainting)
+	entries := c.AwaitMetadataFor(painting.EntityID)
+	if field := servertest.MetaOf(entries, protocol.MetadataIndexPaintingVariant); field == nil || field.VarintVal != wide+1 {
+		t.Errorf("the summoned painting's variant = %v, want pk:wide (%d)", field, wide+1)
+	}
+	minX, minY, _, maxX, maxY, _, ok := srv.PaintingBox(painting.EntityID)
+	if !ok {
+		t.Fatal("the server holds no summoned painting")
+	}
+	if w, h := maxX-minX, maxY-minY; math.Abs(w-3) > 1e-9 || math.Abs(h-1) > 1e-9 {
+		t.Errorf("the summoned painting's box is %g wide and %g tall, want 3 by 1", w, h)
+	}
+}

@@ -1,0 +1,346 @@
+package world
+
+import (
+	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
+)
+
+// savedTick is a scheduled tick as a chunk file stores it: block or fluid,
+// position, delay after the save, priority.
+// vanilla: SavedTick (the i, x, y, z, t and p tags)
+type savedTick struct {
+	id       string
+	x, y, z  int32
+	delay    int32
+	priority int32
+}
+
+// decodeSavedTicks reads block_ticks or fluid_ticks; an entry missing its id or
+// position is dropped, and a negative delay is due at once.
+// vanilla: SavedTick.codec
+func decodeSavedTicks(root nbt.Compound, key string) []savedTick {
+	list, ok := nbt.Get[nbt.List](root, key)
+	if !ok {
+		return nil
+	}
+	var out []savedTick
+	for _, item := range list.Items {
+		e, ok := nbt.CompoundView(item)
+		if !ok {
+			continue
+		}
+		id, okID := nbt.Get[nbt.String](e, "i")
+		x, okX := nbt.Get[nbt.Int](e, "x")
+		y, okY := nbt.Get[nbt.Int](e, "y")
+		z, okZ := nbt.Get[nbt.Int](e, "z")
+		if !okID || !okX || !okY || !okZ {
+			continue
+		}
+		t, _ := nbt.Get[nbt.Int](e, "t")
+		pr, _ := nbt.Get[nbt.Int](e, "p")
+		out = append(out, savedTick{
+			id: string(id), x: int32(x), y: int32(y), z: int32(z),
+			delay: max(int32(t), 0), priority: int32(pr),
+		})
+	}
+	return out
+}
+
+func encodeSavedTicks(ticks []savedTick) nbt.List {
+	items := make([]nbt.Tag, len(ticks))
+	for i, t := range ticks {
+		items[i] = nbt.Compound{
+			"i": nbt.String(t.id),
+			"x": nbt.Int(t.x), "y": nbt.Int(t.y), "z": nbt.Int(t.z),
+			"t": nbt.Int(t.delay), "p": nbt.Int(t.priority),
+		}
+	}
+	return nbt.List{Elem: nbt.TypeCompound, Items: items}
+}
+
+// chunkTicks is a chunk's pending ticks in the two lists a file keeps.
+type chunkTicks struct {
+	block, fluid []savedTick
+}
+
+// loadedTick is a tick read from a chunk file, waiting for the physics engine
+// to take it.
+type loadedTick struct {
+	savedTick
+	fluid bool
+}
+
+// ticksOfChunk is the ticks physics holds for the chunk, set by NewPhysics.
+// Called with no world lock held: the engine's lock is taken before the
+// world's.
+func (w *World) ticksOfChunk(pos ChunkPos) chunkTicks {
+	w.mu.RLock()
+	source := w.tickSource
+	w.mu.RUnlock()
+	var out chunkTicks
+	if source != nil {
+		out = source(pos)
+	}
+	// Ticks read from the file and not yet taken by the engine still belong to
+	// the chunk.
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	for _, t := range w.pendingLoaded {
+		if t.x>>4 != pos.X || t.z>>4 != pos.Z {
+			continue
+		}
+		if t.fluid {
+			out.fluid = append(out.fluid, t.savedTick)
+		} else {
+			out.block = append(out.block, t.savedTick)
+		}
+	}
+	return out
+}
+
+// takeLoadedTicks returns and clears the ticks loaded from files and the chunks
+// unloaded since the last call.
+func (w *World) takeLoadedTicks() (loaded []loadedTick, unloaded []ChunkPos) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	loaded, unloaded = w.pendingLoaded, w.unloadedChunks
+	w.pendingLoaded, w.unloadedChunks = nil, nil
+	return loaded, unloaded
+}
+
+// queueLoadedTicks moves a chunk's loaded ticks to the world's hand-over list.
+// The caller holds w.mu.
+func (w *World) queueLoadedTicks(c *Chunk) {
+	w.pendingLoaded = append(w.pendingLoaded, c.loadedTicks...)
+	c.loadedTicks = nil
+}
+
+// dropChunkTicks notes the chunk left memory: its queued ticks go too, unsaved
+// ones included. The caller holds w.mu.
+func (w *World) dropChunkTicks(pos ChunkPos) {
+	kept := w.pendingLoaded[:0]
+	for _, t := range w.pendingLoaded {
+		if t.x>>4 != pos.X || t.z>>4 != pos.Z {
+			kept = append(kept, t)
+		}
+	}
+	w.pendingLoaded = kept
+	w.unloadedChunks = append(w.unloadedChunks, pos)
+}
+
+// prepareTick takes the unloads that must precede a new booking and, for a
+// scheduled tick, flags its chunk for a save. Vanilla does not mark a chunk
+// unsaved for a new tick, losing ticks booked after the last save on shutdown.
+func (w *World) prepareTick(x, z int32, dirty bool) []ChunkPos {
+	pos := ChunkPos{X: x >> 4, Z: z >> 4}
+	w.mu.Lock()
+	unloaded := w.unloadedChunks
+	w.unloadedChunks = nil
+	if loaded, ok := w.chunks[pos]; ok && dirty {
+		loaded.markDirty()
+	}
+	w.mu.Unlock()
+	return unloaded
+}
+
+// chunkTicks is physics' pending ticks inside the chunk, as the file lists
+// them; piston-event entries are block events, not ticks, and are not saved.
+func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var out chunkTicks
+	add := func(t scheduledTick) {
+		if t.pos.x>>4 != pos.X || t.pos.z>>4 != pos.Z || p.tickCancelled(t) {
+			return
+		}
+		if !isTickEvent(t.event) {
+			return
+		}
+		st := savedTick{
+			x: t.pos.x, y: t.pos.y, z: t.pos.z,
+			delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority),
+		}
+		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
+		if isFluidTick(t.event, state) {
+			st.id = fluidTickName(fluidHolding(state))
+			out.fluid = append(out.fluid, st)
+			return
+		}
+		name, _, ok := registry.BlockStateName(state)
+		if !ok {
+			return
+		}
+		st.id = name
+		out.block = append(out.block, st)
+	}
+	for _, t := range p.queue {
+		add(t)
+	}
+	for _, t := range p.parked[pos] {
+		add(t)
+	}
+	return out
+}
+
+// isTickEvent reports whether a queue entry tagged event is a scheduled tick
+// (block or fluid); the rest are piston events, block events in vanilla.
+func isTickEvent(event uint8) bool {
+	switch event {
+	case 0, leafTickEvent, coralTickEvent, redstoneTickEvent, sculkTickEvent, lightningRodTickEvent,
+		driedGhastHydrationEvent, frogspawnHatchEvent, snifferEggHatchEvent, cauldronDripEvent, survivalTickEvent:
+		return true
+	}
+	return false
+}
+
+// isFluidTick reports whether a tick entry tagged event on a cell holding state
+// is a fluid tick: an untagged visit to a fluid-holding cell. A waterlogged
+// block's untagged block tick counts as one too.
+func isFluidTick(event uint8, state uint16) bool {
+	return event == 0 && fluidHolding(state).kind != fluidNone
+}
+
+func fluidTickName(fs fluidState) string {
+	name := "minecraft:water"
+	if fs.kind == fluidLava {
+		name = "minecraft:lava"
+	}
+	if fs.isSource() {
+		return name
+	}
+	return "minecraft:flowing_" + name[len("minecraft:"):]
+}
+
+// adoptLoadedTicks drops the ticks of unloaded chunks and queues loaded ones; a
+// tick whose block changed since booking is dropped, as vanilla's tick would
+// find another block. Runs under p.mu.
+// vanilla: ServerLevel.tickBlock
+func (p *Physics) adoptLoadedTicks() {
+	loaded, unloaded := p.w.takeLoadedTicks()
+	p.discardUnloadedTicks(unloaded)
+	for _, t := range loaded {
+		state := p.w.BlockAt(t.x, t.y, t.z)
+		due := p.now + int64(t.delay)
+		if t.fluid {
+			// vanilla: ServerLevel.tickFluid needs the exact fluid type.
+			if fs := fluidHolding(state); fs.kind != fluidNone && fluidTickName(fs) == t.id {
+				p.schedulePriority(t.x, t.y, t.z, due, int(t.priority))
+			}
+			continue
+		}
+		p.adoptBlockTick(t.x, t.y, t.z, state, t.id, due, int(t.priority))
+	}
+}
+
+// discardUnloadedTicks removes old bookings before any new booking can reuse
+// their positions, including between game ticks while the world is frozen.
+// Runs under p.mu.
+// vanilla: LevelTicks.removeContainer
+func (p *Physics) discardUnloadedTicks(unloaded []ChunkPos) {
+	if len(unloaded) > 0 {
+		gone := make(map[ChunkPos]bool, len(unloaded))
+		for _, pos := range unloaded {
+			gone[pos] = true
+		}
+		for _, pos := range unloaded {
+			for _, t := range p.parked[pos] {
+				if p.tickCancelled(t) {
+					delete(p.cancelled, t.seq)
+				} else {
+					p.forgetBooking(t)
+				}
+			}
+			delete(p.parked, pos)
+		}
+		kept := p.queue[:0]
+		for _, t := range p.queue {
+			if p.tickCancelled(t) {
+				delete(p.cancelled, t.seq)
+				continue
+			}
+			if gone[ChunkPos{X: t.pos.x >> 4, Z: t.pos.z >> 4}] {
+				p.forgetBooking(t)
+				continue
+			}
+			kept = append(kept, t)
+		}
+		p.queue = kept
+		p.queue.init()
+	}
+}
+
+// adoptBlockTick books a block tick for the block named id at a cell holding
+// state, tagged and booked as that block's own ticks are; it is dropped when
+// the cell holds another block, as vanilla's tick would find one. Runs under
+// p.mu.
+// vanilla: ServerLevel.tickBlock
+func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int64, priority int) {
+	name, _, ok := registry.BlockStateName(state)
+	if !ok || name != id {
+		return
+	}
+	switch block := registry.BlockOf(state); {
+	case block == registry.BlockFrogspawn:
+		p.scheduleBooked(p.frogspawnBooked, x, y, z, due, frogspawnHatchEvent)
+	case block == registry.BlockSnifferEgg:
+		p.scheduleBooked(p.snifferEggBooked, x, y, z, due, snifferEggHatchEvent)
+	case block == registry.BlockDriedGhast:
+		p.scheduleDriedGhast(x, y, z, due)
+	case block == registry.BlockCauldron, block == registry.BlockWaterCauldron:
+		p.scheduleBooked(p.cauldronBooked, x, y, z, due, cauldronDripEvent)
+	case block.IsLeaves():
+		p.scheduleLeaf(x, y, z, due)
+	case isLivingCoral(block):
+		p.scheduleBooked(p.coralBooked, x, y, z, due, coralTickEvent)
+	case isSculkSensor(block), name == sculkShrieker:
+		p.scheduleBooked(p.sculkBooked, x, y, z, due, sculkTickEvent)
+	case block == registry.BlockBigDripleaf, block == registry.BlockDetectorRail:
+		p.scheduleBooked(p.redstoneBooked, x, y, z, due, redstoneTickEvent)
+	case isLightningRod(state):
+		p.scheduleBooked(p.rodBooked, x, y, z, due, lightningRodTickEvent)
+	default:
+		if s := survivalOf[state]; s.tick != 0 {
+			p.scheduleSurvival(x, y, z, due)
+			if s.kind == surviveSpeleothem && s.dir == dirUp {
+				// vanilla: SpeleothemBlock.tick drops a hanging stalactite on any block tick.
+				p.fallBooked[blockKey{x, y, z}] = true
+			}
+			return
+		}
+		p.schedulePriority(x, y, z, due, priority)
+	}
+}
+
+// forgetBooking clears the bookkeeping a dropped queue entry held.
+func (p *Physics) forgetBooking(t scheduledTick) {
+	switch t.event {
+	case frogspawnHatchEvent:
+		delete(p.frogspawnBooked, t.pos)
+	case snifferEggHatchEvent:
+		delete(p.snifferEggBooked, t.pos)
+	case driedGhastHydrationEvent:
+		delete(p.ghastBooked, t.pos)
+	case cauldronDripEvent:
+		delete(p.cauldronBooked, t.pos)
+	case leafTickEvent:
+		delete(p.leafBooked, t.pos)
+	case coralTickEvent:
+		delete(p.coralBooked, t.pos)
+	case redstoneTickEvent:
+		delete(p.redstoneBooked, t.pos)
+	case sculkTickEvent:
+		delete(p.sculkBooked, t.pos)
+	case lightningRodTickEvent:
+		delete(p.rodBooked, t.pos)
+	case survivalTickEvent:
+		delete(p.survivalBooked, t.pos)
+		delete(p.fallBooked, t.pos)
+	case 0:
+		delete(p.pending, t.pos)
+		if t.priority == tickPriorityFinalize {
+			delete(p.finalizeSeq, t.pos)
+		}
+	default:
+		delete(p.pendingEvent, t.pos)
+	}
+}

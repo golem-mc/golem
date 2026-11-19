@@ -1,0 +1,42 @@
+# The chests of vanilla 26.3's bastion remnants: seed, "chest", x, y, z, loot
+# table seed and loot table, read from the block_entities of the reference
+# server's region files over the chunk ranges of testdata/nether_bastions.txt.
+0 chest -617 73 -231 -7101128271332227300 minecraft:chests/bastion_other
+0 chest -617 73 -230 -4862606895894018733 minecraft:chests/bastion_other
+0 chest -617 73 -226 -5874070439666380817 minecraft:chests/bastion_other
+0 chest -614 36 -236 6509945585804962138 minecraft:chests/bastion_other
+0 chest -614 36 -235 -4352766279850387654 minecraft:chests/bastion_other
+0 chest -588 33 -230 881617077376103700 minecraft:chests/bastion_other
+0 chest -570 36 -226 -6985166294060167202 minecraft:chests/bastion_other
+0 chest -577 40 -220 230205284973450729 minecraft:chests/bastion_other
+0 chest -426 58 -205 -521136585307312359 minecraft:chests/bastion_other
+0 chest -423 38 -198 3661434470603031127 minecraft:chests/bastion_other
+0 chest -417 68 -201 2451349205790044601 minecraft:chests/bastion_other
+0 chest -428 35 -189 8070431444294720245 minecraft:chests/bastion_other
+0 chest -423 72 -187 -7677741447324966596 minecraft:chests/bastion_other
+0 chest -423 72 -184 -5313965980385169707 minecraft:chests/bastion_other
+0 chest -423 72 -183 -7313470332461867187 minecraft:chests/bastion_other
+0 chest -435 45 -174 -3255701634487162298 minecraft:chests/bastion_hoglin_stable
+0 chest -421 72 -171 5249095953522506693 minecraft:chests/bastion_other
+0 chest -421 72 -168 964067656781417974 minecraft:chests/bastion_other
+0 chest -421 72 -167 -9088199278768534455 minecraft:chests/bastion_other
+0 chest 167 69 -229 7686037701062708296 minecraft:chests/bastion_other
+0 chest 180 80 -233 6052115007397598412 minecraft:chests/bastion_bridge
+0 chest 215 69 -229 7171109929254066111 minecraft:chests/bastion_other
+0 chest 748 40 -229 8689608666808532744 minecraft:chests/bastion_other
+0 chest 758 40 -227 -3050009480341443478 minecraft:chests/bastion_other
+0 chest 711 73 -215 -4234548613512380234 minecraft:chests/bastion_other
+0 chest 711 73 -214 2906294308281479083 minecraft:chests/bastion_other
+0 chest 711 73 -210 2779973595181947071 minecraft:chests/bastion_other
+0 chest 714 36 -220 3344214281148751914 minecraft:chests/bastion_other
+0 chest 714 36 -219 823326323344518980 minecraft:chests/bastion_other
+0 chest 745 33 -212 -8794697853381371119 minecraft:chests/bastion_other
+0 chest 711 73 -199 459265801616854824 minecraft:chests/bastion_other
+0 chest 711 73 -198 5332832257944382887 minecraft:chests/bastion_other
+0 chest 711 73 -194 -2566444493659224020 minecraft:chests/bastion_other
+1 chest 196 82 -27 -3414488877574545625 minecraft:chests/bastion_other
+1 chest 197 82 -27 -7758719991632546479 minecraft:chests/bastion_other
+1 chest 209 82 -23 -5934121560053840958 minecraft:chests/bastion_other
+1 chest 211 82 -25 -6956095096044905908 minecraft:chests/bastion_other
+1 chest 197 59 29 -2582482308942715723 minecraft:chests/bastion_other
+1 chest 211 36 21 6380358814333005823 minecraft:chests/bastion_treasure

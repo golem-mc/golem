@@ -1,0 +1,54 @@
+package world
+
+import "github.com/golem-mc/golem/internal/protocol"
+
+// ContainerStamp identifies a loaded chunk and its latest block or container
+// replacement. Including the chunk identity distinguishes unload followed by reload.
+type ContainerStamp struct {
+	chunk *loadedChunk
+	gen   uint64
+}
+
+// ContainerStamp reads the change stamp without loading a missing chunk.
+func (w *World) ContainerStamp(x, z int32) ContainerStamp {
+	pos := ChunkPos{X: x >> 4, Z: z >> 4}
+	l := w.nearAt(pos)
+	if l == nil {
+		w.mu.RLock()
+		l = w.chunks[pos]
+		w.mu.RUnlock()
+	}
+	if l == nil {
+		return ContainerStamp{}
+	}
+	return ContainerStamp{chunk: l, gen: l.containerGen.Load()}
+}
+
+// InventoryVersion changes on slot writes and bulk loads, including writes
+// before the caller marks the container's chunk dirty.
+func (b *BlockEntity) InventoryVersion() uint64 { return b.inventoryVersion.Load() }
+
+// HopperTargets caches a hopper's push and pull lookups; it is never saved.
+type HopperTargets struct {
+	Push, Pull HopperTargetCache
+}
+
+// HopperTargetCache holds block-container identities and failed-transfer
+// versions. A missing block container still searches the entity column on each
+// attempt, preserving random vehicle selection and movement between ticks.
+type HopperTargetCache struct {
+	Known        bool
+	Tags         uint64
+	Position     [3]int32
+	Stamp        ContainerStamp
+	Partner      [2]int32
+	PartnerStamp ContainerStamp
+	Paired       bool
+	Entities     [2]*BlockEntity
+	Composter    bool
+	Failed       bool
+	SelfVersion  uint64
+	Versions     [2]uint64
+	// VehicleSlots identifies the selected vehicle inventory, including NBT replacements.
+	VehicleSlots *protocol.ItemStack
+}

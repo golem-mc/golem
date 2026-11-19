@@ -1,0 +1,74 @@
+package server
+
+import (
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/plugin"
+	"github.com/golem-mc/golem/registry"
+)
+
+// vanilla: Level.setBlock, LevelChunk.setBlockState
+func (w pluginWorld) SetBlockState(p plugin.BlockPos, state plugin.BlockState, flags plugin.UpdateFlags) bool {
+	if !pluginPositionFits(p) || int(state) >= registry.StateCount ||
+		p.Y < w.MinY() || p.Y >= w.MinY()+w.Height() || !rules.InWorldBoundsHorizontal(int32(p.X), int32(p.Z)) {
+		return false
+	}
+	updates := world.BlockUpdates{
+		Clients: flags&plugin.UpdateClients != 0, Neighbors: flags&plugin.UpdateNeighbors != 0,
+		Shapes: flags&plugin.UpdateKnownShape == 0, OnPlace: flags&plugin.UpdateSkipOnPlace == 0,
+		EntityEffects: flags&plugin.UpdateSkipBlockEntitySideEffects == 0,
+		MovedByPiston: flags&plugin.UpdateMoveByPiston != 0, SkipWireShape: flags&plugin.UpdateSkipShapeUpdateOnWire != 0,
+	}
+	// Flags 4 and 8 affect client rendering only. Flag 32 is cleared before
+	// neighbour shapes; it does not suppress preRemoveSideEffects.
+	return w.srv.writeBlockWithUpdates(w.dim.w, int32(p.X), int32(p.Y), int32(p.Z), uint16(state), nil, writeLight, &updates)
+}
+
+func (s *Server) replacePluginBlockEntity(w *world.World, x, y, z int32, old, state uint16, effects bool) {
+	if world.BlockEntityKept(old, state) {
+		if w.BlockEntity(x, y, z) == nil {
+			s.ensureBlockEntity(w, x, y, z, state)
+		}
+		return
+	}
+	if effects {
+		s.breakBlockEntity(w, x, y, z, old, true, func(_ *world.BlockEntity, spills []protocol.ItemStack) {
+			s.spillContainer(w, x, y, z, spills)
+		})
+	} else {
+		w.RemoveBlockEntity(x, y, z)
+	}
+	s.replaceBlockEntity(w, x, y, z, old, state)
+}
+
+func (s *Server) applyBlockUpdates(w *world.World, x, y, z int32, old, state uint16, u world.BlockUpdates) {
+	changes, effects, primes := s.physicsFor(w).NotifyBlockSet(x, y, z, old, u)
+	s.finishBlockWake(w, x, y, z, old, changes, effects, primes, u.OnPlace, u.Clients, u.Shapes)
+	if !u.Shapes || w.BlockAt(x, y, z) != state {
+		return
+	}
+	s.applyBlockShapeUpdates(w, x, y, z, old, u, 512)
+}
+
+func (s *Server) applyBlockShapeUpdates(w *world.World, x, y, z int32, old uint16, u world.BlockUpdates, limit int) {
+	if limit <= 0 {
+		return
+	} // vanilla: Block.UPDATE_LIMIT
+	changes := rules.UpdateNeighborShapes(w, x, y, z)
+	for i := range changes {
+		changes[i].Silent = !u.Clients
+	}
+	s.tellBlockChanges(w, changes)
+	for _, ch := range changes {
+		s.applyBlockShapeUpdates(w, ch.X, ch.Y, ch.Z, 0, u, limit-1)
+	}
+	changes, effects, primes := s.physicsFor(w).BlockSetShapes(x, y, z, old, u.SkipWireShape, u.Clients)
+	for _, e := range effects {
+		s.tellEffect(w, e)
+	}
+	for _, t := range primes {
+		s.primeTNT(w, t)
+	}
+	s.tellBlockChanges(w, changes)
+}

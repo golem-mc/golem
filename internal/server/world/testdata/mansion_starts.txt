@@ -1,0 +1,5 @@
+# Vanilla 26.2 saved starts from worldgen:parity's cached worlds; seed x z pieces SHA256(nbt.Encode(start)).
+# mise run worldgen:parity -- -seed 0 -from=-221,-52 -to=-221,-52
+# mise run worldgen:parity -- -seed 12345 -from=291,441 -to=291,441
+0 -221 -52 531 832f9172da9291a532615be4f5fe7c95af1bcf8ec366e9bee3270d873f338814
+12345 291 441 487 1083039c9b32741db57874996aef4eb826973961a8f4f7d8074fbd7502275d5e

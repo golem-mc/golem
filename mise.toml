@@ -1,0 +1,569 @@
+[tools]
+go = "1.27.4"
+golangci-lint = "2.15.0"
+gotestsum = "1.13.0"
+
+[tasks.build]
+description = "Build all packages"
+run = "go build ./..."
+
+[tasks."examples:build"]
+description = "Build the example plugin, its server and its test (examples/ are modules of their own)"
+dir = "examples/plugins/hello"
+run = "go build -o /dev/null ./... && go vet ./..."
+
+[tasks."pgo:record"]
+description = "Record and merge generation and mob-tick CPU profiles into default.pgo"
+run = "tools/pgo.sh"
+
+[tasks.test]
+description = "Run all tests, rerunning the ones that fail"
+run = "tools/test.sh"
+
+[tasks."test:changed"]
+description = "Repeat the tests a branch adds or changes, to catch a flaky one before it merges"
+run = "tools/test-changed.sh"
+
+[tasks.lint]
+description = "Run golangci-lint"
+# Wait for golangci-lint's machine-wide lock when other worktrees are checking.
+run = "golangci-lint run --allow-serial-runners ./..."
+
+[tasks.fmt]
+description = "Format all Go files with gofmt"
+run = "gofmt -l -w ."
+
+[tasks."fmt:check"]
+description = "Fail if any Go file is not gofmt-formatted"
+run = '''
+unformatted=$(gofmt -l .)
+if [ -n "$unformatted" ]; then
+  echo "not gofmt-formatted (run 'mise run fmt'):" >&2
+  echo "$unformatted" >&2
+  exit 1
+fi
+'''
+
+[tasks.tidy]
+description = "Tidy go.mod and go.sum, and the example plugin's (a module of its own that builds against this one)"
+run = ["go mod tidy", "cd examples/plugins/hello && go mod tidy"]
+
+[tasks."tidy:check"]
+description = "Fail if go.mod or go.sum, or the example plugin's, is not tidy"
+run = ["go mod tidy -diff", "cd examples/plugins/hello && go mod tidy -diff"]
+
+[tasks.fix]
+description = "Apply go fix's modernizations"
+run = "go fix ./..."
+
+[tasks."fix:check"]
+description = "Fail if go fix would change anything"
+# Overlapping fixes can fail with no diff; run each fixer alone to resolve it.
+run = "go fix -diff ./..."
+
+[tasks.check]
+description = "Everything a PR must pass: build, test, lint, format, fix and tidy checks"
+depends = ["build", "test", "lint", "fmt:check", "fix:check", "tidy:check"]
+
+[tasks.release]
+description = "Build the release binaries with GoReleaser and attach them to the tagged release (the release workflow runs it)"
+tools = { goreleaser = "2.20.0" }
+run = "goreleaser release --clean"
+
+[tasks."release:snapshot"]
+description = "Build every release binary into dist/ locally, without publishing or signing"
+tools = { goreleaser = "2.20.0" }
+run = "goreleaser release --snapshot --clean --skip=publish,sign"
+
+[tasks.dev]
+description = "Run the server from source with go run"
+run = "go run ."
+
+[tasks.probe]
+description = "Probe a server and transcribe what it sends (see tools/README.md)"
+run = 'go run ./tools/probe {{arg(name="addr", default="127.0.0.1:25565")}}'
+
+[tasks."reference:setup"]
+description = "Download the vanilla server, client jar and decompiler of this version (see tools/README.md)"
+run = "go run ./tools/reference setup"
+
+[tasks."reference:run"]
+description = "Run the downloaded vanilla server as a protocol reference"
+tools = { java = "temurin-25" }
+run = "go run ./tools/reference run"
+
+[tasks."reference:reports"]
+description = "Dump the vanilla registries the client keeps to itself (see tools/README.md)"
+tools = { java = "temurin-25" }
+run = "go run ./tools/reference reports"
+
+[tasks."reference:dump"]
+description = "Start the reference server, probe it and save what it sends as reference-server/registries.json"
+tools = { java = "temurin-25" }
+run = "go run ./tools/reference dump"
+
+[tasks."worldgen:parity"]
+description = "Compare our world generator with vanilla's for a seed and chunk range (see tools/README.md)"
+tools = { java = "temurin-25" }
+run = "go run ./tools/worldgen-parity"
+
+[tasks."client:setup"]
+description = "Download the vanilla client (without sounds) into reference-server/client"
+run = "go run ./tools/reference client-setup"
+
+[tasks."client:ctl-build"]
+description = "Build the clientctl java agent into reference-server/ (see tools/README.md)"
+tools = { java = "temurin-25" }
+run = "tools/clientctl/build.sh"
+
+[tasks."client:run"]
+description = "Run the vanilla client offline under Xvfb and join ADDRESS (default 127.0.0.1:25565)"
+tools = { java = "temurin-25" }
+run = 'tools/clientctl/run.sh {{arg(name="address", default="127.0.0.1:25565")}} {{arg(name="username", default="Tester")}}'
+
+[tasks.gen]
+description = "Regenerate every generated table from the reference data (see tools/README.md)"
+# Requires reference:setup and reference:reports; includes registries if a dump exists.
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen -all"
+
+[tasks."gen:check"]
+description = "Fail if a generated file differs from what the reference data generates (see tools/README.md)"
+# Requires the same data as gen, plus reference:dump for registries.
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen -check -all"
+
+[tasks."gen:registries"]
+description = "Regenerate registry/registries_gen.go from a probe dump and the block report"
+run = "go run ./tools/gen registries"
+
+[tasks."gen:equippable"]
+description = "Regenerate registry/equippable_gen.go from the vanilla server's item reports"
+run = "go run ./tools/gen equippable"
+
+[tasks."gen:itemdyes"]
+description = "Regenerate registry/itemdyes_gen.go from the vanilla server's item reports"
+run = "go run ./tools/gen itemdyes"
+
+[tasks."gen:bannerpatternitems"]
+description = "Regenerate registry/bannerpatternitems_gen.go from the vanilla server's item reports"
+run = "go run ./tools/gen bannerpatternitems"
+
+[tasks."gen:entitytypes"]
+description = "Regenerate registry/entitytypes_gen.go and internal/protocol/entitytypes_gen.go from the vanilla server's data report"
+run = "go run ./tools/gen entitytypes"
+
+[tasks."gen:gameevents"]
+description = "Regenerate registry/gameevents_gen.go from the vanilla registry report"
+run = "go run ./tools/gen gameevents"
+
+[tasks."gen:soundevents"]
+description = "Regenerate registry/soundevents_gen.go from the vanilla server's data report"
+run = "go run ./tools/gen soundevents"
+
+[tasks."gen:particles"]
+description = "Regenerate registry/particles_gen.go from the vanilla server's data report"
+run = "go run ./tools/gen particles"
+
+[tasks."gen:packets"]
+description = "Regenerate internal/protocol/packetids_gen.go, the packet ID constants, from the vanilla server's packets.json"
+run = "go run ./tools/gen packets"
+
+[tasks."gen:entitytypeids"]
+description = "Regenerate internal/protocol/entitytypeids_gen.go, the entity type constants, from the vanilla server's registry report"
+run = "go run ./tools/gen entitytypeids"
+
+[tasks."gen:particleids"]
+description = "Regenerate internal/protocol/particleids_gen.go, the particle type constants, from the vanilla server's registry report"
+run = "go run ./tools/gen particleids"
+
+[tasks."gen:stats"]
+description = "Regenerate registry/stats_gen.go from the vanilla server's data report"
+run = "go run ./tools/gen stats"
+
+[tasks."gen:mobmeta"]
+description = "Generate mob metadata capture, encoding and source invalidation from the server schema"
+run = "go run ./tools/gen mobmeta"
+
+[tasks."gen:mobeffects"]
+description = "Regenerate registry/mobeffects_gen.go from the vanilla server's data report"
+run = "go run ./tools/gen mobeffects"
+
+[tasks."gen:items"]
+description = "Regenerate registry/items_gen.go from the vanilla server's data report"
+run = "go run ./tools/gen items"
+
+[tasks."gen:biomeids"]
+description = "Regenerate registry/biomeids_gen.go, the biome constants, from the registries table"
+run = "go run ./tools/gen biomeids"
+
+[tasks."gen:blocks"]
+description = "Regenerate registry/blocks_gen.go from the vanilla server's block report"
+run = "go run ./tools/gen blocks"
+
+[tasks."gen:ids"]
+description = "Regenerate registry/blockids_gen.go, registry/itemids_gen.go, registry/mobeffectids_gen.go and registry/entitytypeids_gen.go, the typed block, item and entity type IDs and the mob effect constants, from the vanilla server's reports"
+run = "go run ./tools/gen ids"
+
+[tasks."gen:blockstates"]
+description = "Regenerate registry/blockstates_gen.go from the vanilla server's block report"
+run = "go run ./tools/gen blockstates"
+
+[tasks."gen:mapdecorations"]
+description = "Regenerate map decoration IDs and tints from the report and vanilla classes"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen mapdecorations"
+
+[tasks."gen:mapcolors"]
+description = "Regenerate registry/blockmapcolors_gen.go from the vanilla server's block states"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen mapcolors"
+
+[tasks."gen:blocksounds"]
+description = "Regenerate registry/blocksounds_gen.go and blocksoundtypes_gen.go from the decompiled client jar"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen blocksounds"
+
+[tasks."gen:blocklight"]
+description = "Regenerate registry/blocklight_gen.go from the decompiled client jar"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen blocklight"
+
+[tasks."gen:blockdrops"]
+description = "Regenerate registry/blockdrops_gen.go (block hardness and correct-tool requirement) by asking the vanilla server's blocks"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen blockdrops"
+
+[tasks."gen:loot"]
+description = "Regenerate registry/loot_gen.go from the vanilla data pack's loot tables"
+run = "go run ./tools/gen loot"
+
+[tasks."gen:blockresistance"]
+description = "Regenerate registry/blockresistance_gen.go by asking the vanilla server's blocks"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen blockresistance"
+
+[tasks."gen:noteblockinstruments"]
+description = "Regenerate registry/noteblockinstruments_gen.go by asking the vanilla server's blocks"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen noteblockinstruments"
+
+[tasks."gen:flammability"]
+description = "Regenerate registry/flammability_gen.go by asking the vanilla server's FireBlock"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen flammability"
+
+[tasks."gen:ignitedbylava"]
+description = "Regenerate registry/ignitedbylava_gen.go by asking the vanilla server's block states"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen ignitedbylava"
+
+[tasks."gen:contextproviders"]
+description = "Regenerate registry/contextproviders_gen.go from the data pack's context_int_provider and context_float_provider entries"
+run = "go run ./tools/gen contextproviders"
+
+[tasks."gen:fuel"]
+description = "Regenerate registry/fuel_gen.go from the decompiled FuelValues and the data pack's item tags"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen fuel"
+
+[tasks."gen:villagertrades"]
+description = "Regenerate registry/villagertrades_gen.go from the data pack's trade sets and trades"
+run = "go run ./tools/gen villagertrades"
+
+[tasks."gen:blocksupport"]
+description = "Regenerate registry/blocksupport_gen.go by asking the vanilla server's block states"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen blocksupport"
+
+[tasks."gen:blockshapes"]
+description = "Regenerate registry/blockshapes_gen.go by asking the vanilla server's block states"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen blockshapes"
+
+[tasks."gen:toolconversions"]
+description = "Regenerate registry/toolconversions_gen.go by asking the vanilla server's AxeItem and ShovelItem"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen toolconversions"
+
+[tasks."gen:blockuse"]
+description = "Regenerate registry/blockuse_gen.go by asking the vanilla server's flower pot and composter"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen blockuse"
+
+[tasks."gen:blockitems"]
+description = "Regenerate registry/blockitems_gen.go by asking the vanilla server's blocks for their pick block item"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen blockitems"
+
+[tasks."gen:lightdata"]
+description = "Regenerate registry/lightdata_gen.go by asking the vanilla server's block states"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen lightdata"
+
+[tasks."gen:itemprops"]
+description = "Regenerate registry/itemprops_gen.go from the vanilla server's item reports"
+run = "go run ./tools/gen itemprops"
+
+[tasks."gen:jigsaw"]
+description = "Regenerate internal/server/world/jigsaw_bastion.zip from the vanilla data pack's jigsaw structures"
+run = "go run ./tools/gen jigsaw"
+
+[tasks."gen:templatefix"]
+description = "Regenerate structure data-fixer schema paths and recipe renames from vanilla"
+tools.java = "temurin-25"
+run = "go run ./tools/gen templatefix"
+
+[tasks."gen:feature-templates"]
+description = "Regenerate internal/server/world/featuretemplates.zip from the vanilla fossil templates and processors"
+run = "go run ./tools/gen feature-templates"
+
+[tasks."gen:netherfossil"]
+description = "Regenerate internal/server/world/netherfossil.zip from the vanilla data pack's nether fossil"
+run = "go run ./tools/gen netherfossil"
+
+[tasks."gen:ruinedportal-golden"]
+description = "Regenerate overworld ruined portal starts from the vanilla classes"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen ruinedportal-golden"
+
+[tasks."gen:ruinedportal"]
+description = "Regenerate internal/server/world/ruinedportal.zip from the vanilla data pack's ruined portals"
+run = "go run ./tools/gen ruinedportal"
+
+[tasks."gen:damagetypes"]
+description = "Regenerate damage type IDs, tag IDs and fields from the vanilla damage registry and data pack"
+run = "go run ./tools/gen damagetypes"
+
+[tasks."gen:sulfurarchetypes"]
+description = "Regenerate the built-in sulfur cube archetypes from the vanilla data pack"
+run = "go run ./tools/gen sulfurarchetypes"
+
+[tasks."gen:paintings"]
+description = "Regenerate registry/paintings_gen.go from the vanilla data pack's painting variants"
+run = "go run ./tools/gen paintings"
+
+[tasks."gen:placekeys"]
+description = "Regenerate registry/placekeys_gen.go from the vanilla data pack's worldgen keys and built-in structure templates"
+run = "go run ./tools/gen placekeys"
+
+[tasks."gen:jsonrpcschema"]
+description = "Regenerate internal/server/management/schema_gen.go from the vanilla server's JSON-RPC API schema report"
+run = "go run ./tools/gen jsonrpcschema"
+
+[tasks."gen:potions"]
+description = "Regenerate registry/potions_gen.go by asking the vanilla server's potions for their effects"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen potions"
+
+[tasks."gen:enchantments"]
+description = "Regenerate registry/enchantments_gen.go from the vanilla data pack's enchantment files"
+run = "go run ./tools/gen enchantments"
+
+[tasks."gen:enchantmentproviders"]
+description = "Regenerate registry/enchantmentproviders_gen.go from the vanilla data pack's enchantment providers"
+run = "go run ./tools/gen enchantmentproviders"
+
+[tasks."gen:recipes"]
+description = "Regenerate registry/recipes_gen.go from the vanilla data pack's recipes"
+run = "go run ./tools/gen recipes"
+
+[tasks."gen:advancements"]
+description = "Regenerate registry/advancements_gen.go from the vanilla data pack's advancements"
+run = "go run ./tools/gen advancements"
+
+[tasks."gen:recipebook"]
+description = "Regenerate registry/recipebook_gen.go from the vanilla data pack's recipes and advancements"
+run = "go run ./tools/gen recipebook"
+
+[tasks."gen:craftingremainders"]
+description = "Regenerate registry/craftingremainders_gen.go by asking the vanilla server's items"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen craftingremainders"
+
+[tasks."gen:language"]
+description = "Regenerate internal/protocol/language_gen.go from the vanilla client's language file"
+run = "go run ./tools/gen language"
+
+[tasks."gen:overworld-biome-golden"]
+description = "Regenerate internal/server/world/terrain/testdata/overworld_biome_golden.txt from the vanilla server's overworld biome source"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen overworld-biome-golden"
+
+[tasks."gen:sampler-golden"]
+description = "Regenerate internal/server/world/terrain/testdata/sampler_golden.txt from the 26.3 server's noise, density samplers, router, aquifer and fill"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen sampler-golden"
+
+[tasks."gen:material-golden"]
+description = "Regenerate internal/server/world/terrain/testdata/material_golden.txt from the 26.3 server's material system"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen material-golden"
+
+[tasks."gen:terrain-golden"]
+description = "Regenerate internal/server/world/terrain/testdata/terrain_golden.txt from the 26.3 server's fill, surface and carvers"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen terrain-golden"
+
+[tasks."gen:overworld-terrain-golden"]
+description = "Record 26.3 terrain with the overworld climate biome source"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen overworld-terrain-golden"
+
+[tasks."gen:overworld-features"]
+description = "Regenerate internal/server/world/levelgen/overworld_features.txt from the vanilla server's FeatureSorter"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen overworld-features"
+
+[tasks."gen:placed-features"]
+description = "Regenerate internal/server/world/levelgen/placed_features.txt, the vanilla placed features as JSON"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen placed-features"
+
+[tasks."gen:overworld-feature-golden"]
+description = "Regenerate internal/server/world/testdata/overworld_feature_golden.txt from the vanilla server's placed features"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen overworld-feature-golden"
+
+[tasks."gen:overworld-surface-golden"]
+description = "Regenerate internal/server/world/terrain/testdata/overworld_surface_golden.txt from the 26.3 material system"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen overworld-surface-golden"
+
+[tasks."gen:structure-golden"]
+description = "Regenerate internal/server/world/levelgen/testdata/structure_golden.txt from the vanilla server's structure sets and placements"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen structure-golden"
+
+[tasks."gen:beardifier-golden"]
+description = "Record 26.3 beardifier kernel, point ranges and strided volumes"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen beardifier-golden"
+
+[tasks."gen:sculk-features"]
+description = "Read 26.3 sculk feature compositions"
+run = "go run ./tools/gen sculk-features"
+
+[tasks."gen:sculk-golden"]
+description = "Record 26.3 sculk feature blocks and random draws"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen sculk-golden"
+
+[tasks."gen:overworld-trees"]
+description = "Regenerate internal/server/world/levelgen/overworld_trees.txt from the vanilla data pack's tree features"
+run = "go run ./tools/gen overworld-trees"
+
+[tasks."gen:overworld-trees-golden"]
+description = "Regenerate internal/server/world/levelgen/testdata/overworld_trees_golden.txt from the vanilla server's tree features"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen overworld-trees-golden"
+
+[tasks."gen:unicodenames"]
+description = "Regenerate nbt/unicodenames.txt.gz, the \\N{name} table, from the JDK's Character names"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen unicodenames"
+
+[tasks."check:translations"]
+description = "Check the server's translation keys against the vanilla client's language file"
+run = 'go run ./tools/checktranslations {{arg(name="clientjar", default="")}}'
+
+[tasks."gen:biomespawns"]
+description = "Regenerate internal/server/entity/spawning_gen.go from the vanilla biome definitions"
+run = "go run ./tools/gen biomespawns"
+
+[tasks."gen:trialspawners"]
+description = "Regenerate internal/server/entity/trialspawners_gen.go from the vanilla data pack's trial spawner configs"
+run = "go run ./tools/gen trialspawners"
+
+[tasks."gen:tagdefs"]
+description = "Regenerate registry/tagdefs_gen.go (the unflattened vanilla tags) from the data pack"
+run = "go run ./tools/gen tagdefs"
+
+[tasks."gen:registrytables"]
+description = "Regenerate registry defaults from vanilla runtime registries, reports and data-pack JSON"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen registrytables"
+
+[tasks."gen:mansion-golden"]
+description = "Regenerate the mansion grid and room collection golden from the vanilla classes"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen mansion-golden"
+
+[tasks."gen:mansion"]
+description = "Pack woodland mansion templates from vanilla"
+run = "go run ./tools/gen mansion"
+
+[tasks."gen:shipwreck"]
+description = "Pack shipwreck templates from vanilla"
+run = "go run ./tools/gen shipwreck"
+
+[tasks."gen:igloo"]
+description = "Pack vanilla igloo templates"
+run = "go run ./tools/gen igloo"
+
+[tasks."gen:monument-golden"]
+description = "Regenerate the monument room graph and fitted piece golden from vanilla classes"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen monument-golden"
+
+[tasks."gen:monument-exterior-golden"]
+description = "Regenerate internal/server/world/testdata/monument_exterior_golden.txt from the vanilla monument building's block placer"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen monument-exterior-golden"
+
+[tasks."gen:monument-rooms-golden"]
+description = "Regenerate internal/server/world/testdata/monument_rooms_golden.txt from vanilla monument interior block placers"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen monument-rooms-golden"
+
+[tasks."gen:oceanruin"]
+description = "Pack vanilla ocean ruin templates"
+run = "go run ./tools/gen oceanruin"
+
+[tasks."gen:oceanruin-golden"]
+description = "Pin vanilla ocean ruin assembly and processors"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen oceanruin-golden"
+
+[tasks."gen:monument-starts-golden"]
+description = "Regenerate monument start and biome-validation pins from vanilla"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen monument-starts-golden"
+
+[tasks."gen:jungletemple-golden"]
+description = "Regenerate jungle temple block, trap and loot goldens from vanilla"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen jungletemple-golden"
+
+[tasks."gen:smallports-golden"]
+description = "Regenerate pyramid, igloo and hut fixtures from vanilla"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen smallports-golden"
+
+[tasks."gen:state-provider-golden"]
+description = "Generate 26.3 block-state provider golden values"
+tools.java = "temurin-25"
+run = "go run ./tools/gen state-provider-golden"
+
+[tasks."gen:nether-features"]
+description = "Regenerate the Nether's data-driven 26.3 features and portal setup"
+run = "go run ./tools/gen nether-features"
+
+[tasks."gen:overworld-biome-parameters"]
+description = "Generate the 26.3 overworld climate parameter list"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen overworld-biome-parameters"
+
+[tasks."gen:column-golden"]
+description = "Generate the 26.3 base terrain columns and heights"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen column-golden"
+
+[tasks."gen:poplar-golden"]
+description = "Record 26.3 poplar trunk and foliage placers"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen poplar-golden"
+
+[tasks."gen:endcity"]
+description = "Pack vanilla end city templates"
+run = "go run ./tools/gen endcity"

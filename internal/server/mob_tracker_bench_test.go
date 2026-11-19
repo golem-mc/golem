@@ -1,0 +1,186 @@
+package server
+
+import (
+	"testing"
+
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/effect"
+	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/registry"
+	"github.com/google/uuid"
+)
+
+// spawnTrackerBenchMobs stands trackerBenchBodies cows on the tracker
+// benchmarks' grid, their AI off so the tick's cost is mostly the tracking.
+func spawnTrackerBenchMobs(b *testing.B, s *Server) {
+	dim := s.allDims()[0]
+	for i := range trackerBenchBodies {
+		x, z := trackerBenchSpot(i)
+		id := s.spawnMobInDim(dim, entity.TypeCow, x, float64(world.GroundLevel), z, int64(i), nil)
+		s.mobsMu.Lock()
+		if ent := s.mobByEntityIDLocked(dim.w, id); ent != nil {
+			ent.mob.NoAI = true
+		}
+		s.mobsMu.Unlock()
+	}
+	for range 20 {
+		s.tickMobs()
+	}
+	s.mobsMu.Lock()
+	defer s.mobsMu.Unlock()
+	if n := len(dim.mobs.herd); n != trackerBenchBodies {
+		b.Fatalf("%d mobs in the herd after the settling ticks, want %d", n, trackerBenchBodies)
+	}
+}
+
+// BenchmarkTickMobsTracked runs the whole mob tick over cows at rest, every
+// one watched by every player.
+func BenchmarkTickMobsTracked(b *testing.B) {
+	s, _ := newTrackerBenchServer(b)
+	spawnTrackerBenchMobs(b, s)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.tickMobs()
+	}
+}
+
+// BenchmarkTickMobsSwimming runs the whole mob tick over a school of cod
+// pathing round stone pillars in a pond, every one watched by every player.
+func BenchmarkTickMobsSwimming(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	dim := s.allDims()[0]
+	water, stone := registry.BlockWater.DefaultState(), registry.BlockStone.DefaultState()
+	for x := int32(-16); x < 16; x++ {
+		for z := int32(-16); z < 16; z++ {
+			pillar := x%4 == 0 && z%4 == 0
+			for y := int32(world.GroundLevel - 6); y < world.GroundLevel; y++ {
+				if pillar {
+					w.SetBlock(x, y, z, stone)
+				} else {
+					w.SetBlock(x, y, z, water)
+				}
+			}
+		}
+	}
+	w.FlushLighting()
+	for i := range trackerBenchBodies {
+		x, z := trackerBenchSpot(i)
+		id := s.spawnMobInDim(dim, entity.TypeCod, x, float64(world.GroundLevel-3), z, int64(i), nil)
+		s.mobsMu.Lock()
+		s.mobByEntityIDLocked(dim.w, id).mob.Persistence = true
+		s.mobsMu.Unlock()
+	}
+	for range 20 {
+		s.tickMobs()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.tickMobs()
+	}
+	b.StopTimer()
+	if n := len(dim.mobs.herd); n != trackerBenchBodies {
+		b.Fatalf("%d cod in the herd after the run, want %d", n, trackerBenchBodies)
+	}
+}
+
+// BenchmarkTickMobsSeated runs the mob tick over cows riding a vehicle that
+// turn every tick, every one watched by every player.
+func BenchmarkTickMobsSeated(b *testing.B) {
+	s, _ := newTrackerBenchServer(b)
+	spawnTrackerBenchMobs(b, s)
+	dim := s.allDims()[0]
+	s.mobsMu.Lock()
+	var seats []*entity.Mob
+	for _, ent := range dim.mobs.herd {
+		seats = append(seats, ent)
+	}
+	for i := 0; i+1 < len(seats); i += 2 {
+		seats[i].Vehicle = seats[i+1]
+	}
+	s.mobsMu.Unlock()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		s.mobsMu.Lock()
+		for j := 0; j+1 < len(seats); j += 2 {
+			ent := seats[j]
+			ent.Yaw = float32(i % 360)
+			ent.HeadYaw = float32(i % 360)
+		}
+		s.mobsMu.Unlock()
+		s.tickMobs()
+	}
+}
+
+// BenchmarkFrozenMobTracking runs the frozen world's mob tracking pass over
+// every cow, with every player in range.
+func BenchmarkFrozenMobTracking(b *testing.B) {
+	s, _ := newTrackerBenchServer(b)
+	spawnTrackerBenchMobs(b, s)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.tickMobTracking(s.trackingWatchers())
+	}
+}
+
+// BenchmarkTickCloudsTracked runs the whole cloud tick over clouds that
+// shrink every tick and never run out, every one watched by every player.
+func BenchmarkTickCloudsTracked(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	for i := range trackerBenchBodies {
+		x, z := trackerBenchSpot(i)
+		s.spawnCloud(w, x, float64(world.GroundLevel), z, nil, 0, protocol.PotionContents{}, uuid.Nil)
+	}
+	s.arrowsMu.Lock()
+	for _, it := range s.clouds {
+		it.cloud.Duration = -1
+		it.cloud.WaitTime = 0
+		it.cloud.Restore(0, 1000, -1e-3)
+	}
+	s.arrowsMu.Unlock()
+	for range 20 {
+		s.tickClouds()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.tickClouds()
+	}
+	b.StopTimer()
+	if n := len(s.clouds); n != trackerBenchBodies {
+		b.Fatalf("%d clouds after the run, want %d", n, trackerBenchBodies)
+	}
+}
+
+// BenchmarkTickCloudsInstants runs the cloud tick over clouds with an
+// instant heal and a timed effect, each landing on the cow beside it every
+// tick.
+func BenchmarkTickCloudsInstants(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	spawnTrackerBenchMobs(b, s)
+	health, slow := registry.MustMobEffect("minecraft:instant_health"), registry.MustMobEffect("minecraft:slowness")
+	for i := range trackerBenchBodies {
+		x, z := trackerBenchSpot(i)
+		s.spawnCloud(w, x, float64(world.GroundLevel), z, []effect.Instance{
+			effect.New(health, 1, 0, false, true, true), effect.New(slow, 200, 0, false, true, true),
+		}, 0, protocol.PotionContents{}, uuid.Nil)
+	}
+	s.arrowsMu.Lock()
+	for _, it := range s.clouds {
+		it.cloud.Duration, it.cloud.WaitTime, it.cloud.Reapplication, it.cloud.RadiusOnUse = -1, 0, 1, 0
+		it.cloud.Restore(0, 1, 0)
+	}
+	s.arrowsMu.Unlock()
+	for range 20 {
+		s.tickClouds()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.tickClouds()
+	}
+}

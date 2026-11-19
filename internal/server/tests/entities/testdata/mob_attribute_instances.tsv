@@ -1,0 +1,32 @@
+# Recorded from vanilla 26.3 with tools/probe, 2026-11-17.
+# Freeze; summon rabbit with NoAI/NoGravity and tag r; summon pig with tag p,
+# NoAI/NoGravity, scale base 2d and a diamond chestplate (see the test).
+# loaded: immediately after summon. merged: Health:2f merged into both.
+# ticked: tick step 1. ticked-merged: merge Health:1f into both.
+# reloaded: save-all flush, stop, restart, freeze.
+# /data get and rich/plain tellraw of attributes[{id:"minecraft:..."}]
+# produce the same entry text. List membership is compared without ordering:
+# AttributeMap's holder identities change list order between JVMs.
+# stage	tag	attribute	entry
+loaded	r	minecraft:attack_damage	{id: "minecraft:attack_damage", base: 3.0d}
+loaded	p	minecraft:scale	{id: "minecraft:scale", base: 2.0d}
+merged	r	minecraft:attack_damage	{id: "minecraft:attack_damage", base: 3.0d}
+merged	p	minecraft:scale	{id: "minecraft:scale", base: 2.0d}
+ticked	r	minecraft:attack_damage	{id: "minecraft:attack_damage", base: 3.0d}
+ticked	r	minecraft:movement_speed	{id: "minecraft:movement_speed", base: 0.30000001192092896d}
+ticked	p	minecraft:movement_speed	{id: "minecraft:movement_speed", base: 0.25d}
+ticked	p	minecraft:scale	{id: "minecraft:scale", base: 2.0d}
+ticked	p	minecraft:armor	{id: "minecraft:armor", base: 0.0d}
+ticked	p	minecraft:armor_toughness	{id: "minecraft:armor_toughness", base: 0.0d}
+ticked-merged	r	minecraft:attack_damage	{id: "minecraft:attack_damage", base: 3.0d}
+ticked-merged	r	minecraft:movement_speed	{id: "minecraft:movement_speed", base: 0.30000001192092896d}
+ticked-merged	p	minecraft:movement_speed	{id: "minecraft:movement_speed", base: 0.25d}
+ticked-merged	p	minecraft:scale	{id: "minecraft:scale", base: 2.0d}
+ticked-merged	p	minecraft:armor	{id: "minecraft:armor", base: 0.0d}
+ticked-merged	p	minecraft:armor_toughness	{id: "minecraft:armor_toughness", base: 0.0d}
+reloaded	r	minecraft:attack_damage	{id: "minecraft:attack_damage", base: 3.0d}
+reloaded	r	minecraft:movement_speed	{id: "minecraft:movement_speed", base: 0.30000001192092896d}
+reloaded	p	minecraft:movement_speed	{id: "minecraft:movement_speed", base: 0.25d}
+reloaded	p	minecraft:scale	{id: "minecraft:scale", base: 2.0d}
+reloaded	p	minecraft:armor	{id: "minecraft:armor", base: 0.0d}
+reloaded	p	minecraft:armor_toughness	{id: "minecraft:armor_toughness", base: 0.0d}

@@ -1,0 +1,42 @@
+# Binary
+golem
+
+# Runtime files
+server.properties
+server-icon.png
+usercache.json
+/world/
+/logs/
+eula.txt
+# What the vanilla server jar unpacks into its working directory
+/libraries/
+/versions/
+*.jar
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
+
+# Vanilla reference server (tools/reference)
+/reference-server/
+# Binaries `go build ./tools/<name>` leaves in the root
+/reference
+/gen
+/probe
+/clientctl
+/checktranslations
+
+# Scratch files (zz_*): throwaway tests and probes, never committed
+zz_*
+
+# Compiled test binaries
+*.test
+# Results loadtest scripts write by default
+/loadtest-results/
+/plugintest/ops.json
+help.yml
+
+# GoReleaser output
+/dist/
