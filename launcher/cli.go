@@ -163,13 +163,16 @@ Example:
 		name: "plugin add", usage: "<path>[@version]",
 		short: "add a plugin, pinned (no version: the latest release tag)",
 		help: `Adds a plugin to launcher.json. Without a version the latest release tag
-(go's module query @latest) is looked up and written pinned. A local module
-directory (./dir) is written as it is. Adding a listed plugin with a version
-changes its version. launcher.json is written only if the result builds.
+(go's module query @latest) is looked up and written pinned. The path may be a
+package inside a module; the module's other listed packages move to the same
+version. A local package directory (./dir, in a module) is written as it is.
+Adding a listed plugin with a version changes its version. launcher.json is
+written only if the result builds.
 
 Example:
   golem-launcher plugin add github.com/golem-mc/essentials
   golem-launcher plugin add github.com/golem-mc/essentials@v1.3.0
+  golem-launcher plugin add github.com/golem-mc/essentials/spawn
   golem-launcher plugin add ./my-plugin`,
 		flags: oneArg("plugin add", (*cli).pluginAdd),
 	},
@@ -684,14 +687,16 @@ func (c *cli) pluginAdd(ctx context.Context, arg string) error {
 	if err != nil {
 		return err
 	}
-	var entry, mod string
+	cfg := st.cfg
+	cfg.Plugins = slices.Clone(cfg.Plugins)
+	var entry, pkg string
 	if isLocalPath(arg) {
 		entry = c.localEntry(arg)
 		one, err := (config{Plugins: []string{entry}}).pluginSpecs(c.base())
 		if err != nil {
 			return err
 		}
-		mod = one[0].Path
+		pkg = one[0].Path
 	} else {
 		p, v, _ := strings.Cut(arg, "@")
 		if v == "" {
@@ -700,16 +705,46 @@ func (c *cli) pluginAdd(ctx context.Context, arg string) error {
 		if v, err = c.l.pin(ctx, p, v); err != nil {
 			return err
 		}
-		mod, entry = p, p+"@"+v
+		pkg, entry = p, p+"@"+v
+		// A build has one version of a module, so the module's other
+		// packages move with this one.
+		mod, _, err := c.l.latestPlugin(ctx, p)
+		if err != nil {
+			return err
+		}
+		same, err := c.moduleEntries(ctx, st.plugins, mod)
+		if err != nil {
+			return err
+		}
+		for _, i := range same {
+			cfg.Plugins[i] = st.plugins[i].Path + "@" + v
+		}
 	}
-	cfg := st.cfg
-	cfg.Plugins = slices.Clone(cfg.Plugins)
-	if i := slices.IndexFunc(st.plugins, func(s pluginSpec) bool { return s.Path == mod }); i >= 0 {
+	if i := slices.IndexFunc(st.plugins, func(s pluginSpec) bool { return s.Path == pkg }); i >= 0 {
 		cfg.Plugins[i] = entry
 	} else {
 		cfg.Plugins = append(cfg.Plugins, entry)
 	}
 	return c.save(ctx, st, cfg, true)
+}
+
+// moduleEntries answers the indexes of the remote plugins whose package is
+// in module mod (as of mod's latest version).
+func (c *cli) moduleEntries(ctx context.Context, plugins []pluginSpec, mod string) ([]int, error) {
+	var r []int
+	for i, p := range plugins {
+		if p.Dir != "" || p.Path != mod && !strings.HasPrefix(p.Path, mod+"/") {
+			continue
+		}
+		pm, _, err := c.l.latestPlugin(ctx, p.Path)
+		if err != nil {
+			return nil, err
+		}
+		if pm == mod {
+			r = append(r, i)
+		}
+	}
+	return r, nil
 }
 
 // findPlugin answers the index of the plugin name selects: by import path,
@@ -775,7 +810,7 @@ func (c *cli) pluginList(ctx context.Context) error {
 		_ = c.l.step("finding the latest versions of "+plural(remote, "plugin"), func() error {
 			for i, p := range st.plugins {
 				if p.Dir == "" {
-					latest[i], _ = c.l.latestPlugin(ctx, p.Path)
+					_, latest[i], _ = c.l.latestPlugin(ctx, p.Path)
 				}
 			}
 			return nil
@@ -877,7 +912,7 @@ func (c *cli) outdated(ctx context.Context) error {
 			if p.Dir != "" {
 				continue
 			}
-			latest, err := c.l.latestPlugin(ctx, p.Path)
+			_, latest, err := c.l.latestPlugin(ctx, p.Path)
 			if err != nil {
 				return err
 			}
@@ -930,12 +965,20 @@ func (c *cli) update(ctx context.Context, server bool, names []string) error {
 			if !pick[i] || p.Dir != "" {
 				continue
 			}
-			latest, err := c.l.latestPlugin(ctx, p.Path)
+			// Every package of the module moves, so one build has one
+			// version of it.
+			mod, latest, err := c.l.latestPlugin(ctx, p.Path)
 			if err != nil {
 				return err
 			}
-			if newer(p.Version, latest) {
-				cfg.Plugins[i] = p.Path + "@" + latest
+			same, err := c.moduleEntries(ctx, st.plugins, mod)
+			if err != nil {
+				return err
+			}
+			for _, j := range same {
+				if q := st.plugins[j]; newer(q.Version, latest) {
+					cfg.Plugins[j] = q.Path + "@" + latest
+				}
 			}
 		}
 		return nil

@@ -46,13 +46,16 @@ error: plugin add takes exactly one argument
 Usage: golem-launcher plugin add <path>[@version]
 
 Adds a plugin to launcher.json. Without a version the latest release tag
-(go's module query @latest) is looked up and written pinned. A local module
-directory (./dir) is written as it is. Adding a listed plugin with a version
-changes its version. launcher.json is written only if the result builds.
+(go's module query @latest) is looked up and written pinned. The path may be a
+package inside a module; the module's other listed packages move to the same
+version. A local package directory (./dir, in a module) is written as it is.
+Adding a listed plugin with a version changes its version. launcher.json is
+written only if the result builds.
 
 Example:
   golem-launcher plugin add github.com/golem-mc/essentials
   golem-launcher plugin add github.com/golem-mc/essentials@v1.3.0
+  golem-launcher plugin add github.com/golem-mc/essentials/spawn
   golem-launcher plugin add ./my-plugin
 
 Flags on every command:

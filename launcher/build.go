@@ -40,6 +40,9 @@ type launcher struct {
 	cache string
 	http  *http.Client
 	ui    *ui.UI
+	// queries holds queryModule's answers, so a command asks go once per
+	// module query however many plugins share the module.
+	queries map[string]queryAnswer
 }
 
 func newLauncher(cache string, u *ui.UI) *launcher {
@@ -176,10 +179,16 @@ func (l *launcher) resolve(ctx context.Context, workDir string, cfg config, srvD
 	if srvDir != "" {
 		edit = append(edit, "-replace="+serverModule+"="+srvDir)
 	}
+	// A local module is replaced once however many of its packages are
+	// listed; go get takes package paths and finds their modules itself.
 	get := []string{"get"}
+	replaced := map[string]bool{}
 	for _, p := range plugins {
 		if p.Dir != "" {
-			edit = append(edit, "-replace="+p.Path+"="+p.Dir, "-require="+p.Path+"@v0.0.0")
+			if !replaced[p.Module] {
+				replaced[p.Module] = true
+				edit = append(edit, "-replace="+p.Module+"="+p.ModDir, "-require="+p.Module+"@v0.0.0")
+			}
 		} else {
 			get = append(get, p.Path+"@"+p.Version)
 		}

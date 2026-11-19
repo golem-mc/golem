@@ -217,7 +217,7 @@ func TestPluginLeftClickBlockAndAir(t *testing.T) {
 	c.StartDigging(d[0], d[1], d[2])
 	ids := fired(t, srv, c, "left click on a block", &blocks, 1)
 	resent(t, ids)
-	c.Send(protocol.IDPlayPunch, func(*protocol.Buffer) {})
+	c.Swing()
 	fired(t, srv, c, "left click in the air", &airs, 1)
 }
 

@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
 	"golang.org/x/mod/modfile"
@@ -23,8 +22,9 @@ type config struct {
 	// commit; or a local golem checkout, relative to launcher.json,
 	// which is rebuilt on every start.
 	Server string `json:"server"`
-	// Plugins are import paths with a version (path@v1.2.3 or path@commit),
-	// or local module directories, which are rebuilt on every start.
+	// Plugins are package import paths with a version (path@v1.2.3 or
+	// path@commit), or local package directories inside a module, which are
+	// rebuilt on every start. The package may sit below its module's root.
 	Plugins []string `json:"plugins"`
 	// AllowDependencyUpgrades lets a plugin raise the version of a module
 	// the server itself uses, which is otherwise refused: the server was
@@ -32,10 +32,12 @@ type config struct {
 	AllowDependencyUpgrades bool `json:"allow-dependency-upgrades,omitempty"`
 }
 
-// pluginSpec is one entry of Plugins: Dir for a local module, else Path at
-// Version.
+// pluginSpec is one entry of Plugins: the package Path, at Version or, when
+// local, in Dir. Module and ModDir (its go.mod's directory) are known only
+// for a local entry; a remote one's module is asked of go (pluginModule).
 type pluginSpec struct {
 	Path, Version, Dir string
+	Module, ModDir     string
 }
 
 func (p pluginSpec) String() string {
@@ -160,21 +162,9 @@ func (c config) pluginSpecs(base string) ([]pluginSpec, error) {
 	for _, s := range c.Plugins {
 		var p pluginSpec
 		if isLocalPath(s) {
-			dir := s
-			if !filepath.IsAbs(dir) {
-				dir = filepath.Join(base, dir)
-			}
-			dir, err := filepath.Abs(dir)
-			if err != nil {
+			var err error
+			if p, err = localPlugin(base, s); err != nil {
 				return nil, err
-			}
-			data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
-			if err != nil {
-				return nil, fmt.Errorf("plugin %s: not a module directory: %w", s, err)
-			}
-			p = pluginSpec{Path: modfile.ModulePath(data), Dir: dir}
-			if p.Path == "" {
-				return nil, fmt.Errorf("plugin %s: go.mod has no module line", s)
 			}
 		} else {
 			path, v, ok := strings.Cut(s, "@")
@@ -186,13 +176,64 @@ func (c config) pluginSpecs(base string) ([]pluginSpec, error) {
 			}
 			p = pluginSpec{Path: path, Version: v}
 		}
-		if p.Path == serverModule {
+		if p.Module == serverModule || p.Path == serverModule || strings.HasPrefix(p.Path, serverModule+"/") {
 			return nil, fmt.Errorf("plugin %s: the server itself is not a plugin", s)
 		}
-		if slices.ContainsFunc(specs, func(q pluginSpec) bool { return q.Path == p.Path }) {
-			return nil, fmt.Errorf("plugin %s is listed twice", p.Path)
+		for _, q := range specs {
+			if q.Path == p.Path {
+				return nil, fmt.Errorf("plugin %s is listed twice", p.Path)
+			}
+			if p.Module != "" && q.Module == p.Module && q.ModDir != p.ModDir {
+				return nil, fmt.Errorf("plugins %s and %s: module %s is in both %s and %s", q.Dir, p.Dir, p.Module, q.ModDir, p.ModDir)
+			}
+			// A local module's -replace covers every version of it, so a
+			// remote entry inside it would be built from the local checkout.
+			for _, lr := range [][2]pluginSpec{{q, p}, {p, q}} {
+				l, r := lr[0], lr[1]
+				if l.Module != "" && r.Module == "" && (r.Path == l.Module || strings.HasPrefix(r.Path, l.Module+"/")) {
+					return nil, fmt.Errorf("plugins %s and %s: module %s is local in %s, so %s cannot be remote", q, p, l.Module, l.ModDir, r.Path)
+				}
+			}
 		}
 		specs = append(specs, p)
 	}
 	return specs, nil
+}
+
+// localPlugin parses the local entry s: a package directory, whose module is
+// the nearest go.mod at or above it.
+func localPlugin(base, s string) (pluginSpec, error) {
+	dir := s
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(base, dir)
+	}
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return pluginSpec{}, err
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return pluginSpec{}, fmt.Errorf("plugin %s: not a directory", s)
+	}
+	for modDir := dir; ; {
+		if data, err := os.ReadFile(filepath.Join(modDir, "go.mod")); err == nil {
+			mod := modfile.ModulePath(data)
+			if mod == "" {
+				return pluginSpec{}, fmt.Errorf("plugin %s: %s has no module line", s, filepath.Join(modDir, "go.mod"))
+			}
+			rel, err := filepath.Rel(modDir, dir)
+			if err != nil {
+				return pluginSpec{}, err
+			}
+			path := mod
+			if rel != "." {
+				path += "/" + filepath.ToSlash(rel)
+			}
+			return pluginSpec{Path: path, Dir: dir, Module: mod, ModDir: modDir}, nil
+		}
+		parent := filepath.Dir(modDir)
+		if parent == modDir {
+			return pluginSpec{}, fmt.Errorf("plugin %s: no go.mod in it or above it", s)
+		}
+		modDir = parent
+	}
 }

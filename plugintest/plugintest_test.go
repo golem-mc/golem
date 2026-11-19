@@ -83,6 +83,27 @@ func TestClientActionsReachPlugins(t *testing.T) {
 	}
 }
 
+func TestSwingIsALeftClickInTheAir(t *testing.T) {
+	srv := plugintest.Start(t, plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}))
+	alice := srv.Join("Alice")
+
+	var airs, others, swings atomic.Int32
+	plugin.Listen(srv.Host(), func(e *plugin.PlayerInteractEvent) {
+		if e.Action == plugin.LeftClickAir {
+			airs.Add(1)
+		} else {
+			others.Add(1)
+		}
+	})
+	plugin.Listen(srv.Host(), func(e *plugin.PlayerAnimationEvent) { swings.Add(1) })
+
+	alice.Swing()
+	alice.Read(2)
+	if airs.Load() != 1 || others.Load() != 0 || swings.Load() != 1 {
+		t.Fatalf("left click air %d, other interacts %d, animation %d; want 1, 0, 1", airs.Load(), others.Load(), swings.Load())
+	}
+}
+
 func TestDisconnectAndKick(t *testing.T) {
 	srv := plugintest.Start(t, plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}))
 	srv.HoldTicks()
