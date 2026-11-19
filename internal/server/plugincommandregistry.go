@@ -10,6 +10,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/command"
+	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/plugin"
 )
 
@@ -298,7 +299,7 @@ func (h *pluginHost) commandNode(n plugin.Node, permission string) (*command.Nod
 			if err := h.fillCommandArguments(src, ctx, values); err != nil {
 				return 0, err
 			}
-			value, err := n.Run(ctx)
+			value, err := h.runCommand(n.Run, ctx, input)
 			if errors.Is(err, plugin.ErrHandled) {
 				return 0, command.ErrRefused
 			}
@@ -364,4 +365,18 @@ func checkPluginRedirects(node *command.Node, targets map[string]*command.Node) 
 		}
 	}
 	return nil
+}
+
+// runCommand runs a plugin command, turning a panic into an error logged
+// under the plugin's name with its stack, which the caller answers with
+// command.failed.
+func (h *pluginHost) runCommand(run func(*plugin.CommandContext) (int, error), ctx *plugin.CommandContext, input string) (value int, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			perr := pluginruntime.Recovered(p)
+			h.Logger().Error("Error in command", "input", input, "error", perr)
+			value, err = 0, perr
+		}
+	}()
+	return run(ctx)
 }
