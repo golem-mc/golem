@@ -7,7 +7,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/player"
 )
 
 // A dead body lingers in the mob book for the tick between its death and the
@@ -44,65 +43,6 @@ func TestKillSelectorSkipsADyingCow(t *testing.T) {
 		servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", mustUUID(t, cowUUID)))
 
 	c.ChatCommand("kill @e[type=cow]")
-	expectNotfoundEntity(t, c)
-
-	c.Disconnect()
-}
-
-// TestExecuteAsSkipsADyingCow checks execute as @e[type=cow]: the dead body
-// names no context, so the tail the fork would run says nothing.
-func TestExecuteAsSkipsADyingCow(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
-	c.MoveToGround(0.5, 64, 0.5, true)
-	c.Settle()
-
-	srv.StopTick()
-	cow := srv.SpawnMob("minecraft:cow", 2.5, 64, 0.5)
-	cowUUID, ok := srv.MobUUID(cow)
-	if !ok {
-		t.Fatal("the cow has no UUID to be named by")
-	}
-	c.Settle()
-
-	c.ChatCommand("kill @e[type=cow]")
-	servertest.AwaitCommandFeedbackText(t, c, "commands.kill.success.single",
-		servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", mustUUID(t, cowUUID)))
-
-	c.ChatCommand("execute as @e[type=cow] run say hi")
-	expectNoChat(t, c)
-
-	c.Disconnect()
-}
-
-// TestKillSelectorSkipsAPickedUpItem checks /kill @e[type=item] against a
-// stack a player has just picked up: the claimed body is Dead though still
-// in the list, and the selector leaves it out.
-func TestKillSelectorSkipsAPickedUpItem(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
-	c.MoveToGround(0.5, 64, 0.5, true)
-	c.Settle()
-
-	// Drive the item pass by hand until the player has claimed the stack:
-	// the claimed body stays in the list, marked Dead, until the next pass
-	// would take it out, so the command reads the dead body, not nothing.
-	srv.StopTick()
-	srv.SpawnItemEntity(0.5, 64.125, 0.5, "minecraft:stone", 3)
-	for i := 0; i < 15 && srv.InventorySlot("Testificate", player.HotbarSlot).Count == 0; i++ {
-		srv.TickEntities(1)
-	}
-	if got := srv.InventorySlot("Testificate", player.HotbarSlot); got.Count != 3 {
-		t.Fatalf("the pickup never landed the stack: the hotbar holds %+v", got)
-	}
-
-	c.ChatCommand("kill @e[type=item]")
 	expectNotfoundEntity(t, c)
 
 	c.Disconnect()

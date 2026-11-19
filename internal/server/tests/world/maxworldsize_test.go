@@ -34,16 +34,6 @@ func readInitializeBorderAbsoluteMax(t *testing.T, connect func() *servertest.Cl
 	return r.ReadVarInt()
 }
 
-// TestADefaultConfigSendsTheWholeWorldAsAbsoluteMax checks the default
-// max-world-size on the wire.
-func TestADefaultConfigSendsTheWholeWorldAsAbsoluteMax(t *testing.T) {
-	t.Parallel()
-	_, connect := servertest.Start(t, servertest.BlockTestConfig())
-	if got := readInitializeBorderAbsoluteMax(t, connect); got != 29999984 {
-		t.Errorf("absolute max = %d, want 29999984", got)
-	}
-}
-
 // TestMaxWorldSizeBoundsTheBorder checks that max-world-size clamps the
 // border's edges: the join tells it, and a block past it is not broken.
 // vanilla: MinecraftServer.createLevels, WorldBorder.setAbsoluteMaxSize

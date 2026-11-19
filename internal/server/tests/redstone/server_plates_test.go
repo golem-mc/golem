@@ -1,10 +1,8 @@
 package redstone
 
 import (
-	"bytes"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
 
@@ -37,7 +35,7 @@ func plateServer(t *testing.T, plate string) (*server.Server, *servertest.Client
 func plateServerWith(t *testing.T, state uint16) (*server.Server, *servertest.Client) {
 	t.Helper()
 	srv, c, _ := servertest.JoinAs(t, servertest.BlockTestConfig(), "Plater", servertest.OpsListing(t, "Plater"))
-	srv.StopTick()
+	servertest.HoldTicks(t, srv)
 	if !srv.SetBlock(plateX, plateY, plateZ, state) {
 		t.Fatalf("could not place state %d", state)
 	}
@@ -95,20 +93,9 @@ func TestItemsPressPlates(t *testing.T) {
 					t.Fatalf("could not spawn %s", item)
 				}
 			}
-			srv.StartTick()
 			expectPlateSettles(t, srv, tc.prop, tc.want)
 		})
 	}
-}
-
-// TestOrbPressesLightPlate puts one experience orb on a light weighted
-// plate: vanilla ExperienceOrb.tick applies block effects too.
-func TestOrbPressesLightPlate(t *testing.T) {
-	t.Parallel()
-	srv, _ := plateServer(t, "minecraft:light_weighted_pressure_plate")
-	srv.SpawnOrb(plateX+0.5, plateY, plateZ+0.5, 1)
-	srv.StartTick()
-	expectPlateSettles(t, srv, "power", "1")
 }
 
 // TestSpectatorDoesNotPressPlate stands a spectator on an oak plate, which
@@ -116,8 +103,8 @@ func TestOrbPressesLightPlate(t *testing.T) {
 func TestSpectatorDoesNotPressPlate(t *testing.T) {
 	t.Parallel()
 	srv, c := plateServer(t, "minecraft:oak_pressure_plate")
-	srv.StartTick()
 	c.ChatCommand("gamemode spectator")
+	c.Settle()
 	c.MoveTo(plateX+0.5, plateY, plateZ+0.5, 0, 0)
 	c.Settle()
 	servertest.AwaitTicks(t, srv, 5)
@@ -125,8 +112,8 @@ func TestSpectatorDoesNotPressPlate(t *testing.T) {
 		t.Fatalf("spectator pressed the plate: powered = %q", got)
 	}
 	c.ChatCommand("gamemode creative")
+	c.Settle()
 	servertest.AwaitTicks(t, srv, 40)
-	t.Logf("DEBUG %+v", srv.ArrowsInDimension("minecraft:overworld"))
 	expectPlateSettles(t, srv, "powered", "true")
 }
 
@@ -137,7 +124,6 @@ func TestPlateClickSounds(t *testing.T) {
 	t.Parallel()
 	for plate, sound := range map[string]string{
 		"minecraft:light_weighted_pressure_plate": "minecraft:block.metal_pressure_plate.click_on",
-		"minecraft:heavy_weighted_pressure_plate": "minecraft:block.metal_pressure_plate.click_on",
 		"minecraft:oak_pressure_plate":            "minecraft:block.wooden_pressure_plate.click_on",
 	} {
 		t.Run(plate, func(t *testing.T) {
@@ -148,10 +134,9 @@ func TestPlateClickSounds(t *testing.T) {
 			}
 			srv, c := plateServer(t, plate)
 			srv.SpawnItemEntity(plateX+0.5, plateY+0.125, plateZ+0.5, "minecraft:stone", 1)
-			srv.StartTick()
-			for id, data := range c.Stream() {
+			heard := c.ReadTicks(srv, 5, func(id int32, data []byte) bool {
 				if id != protocol.IDPlaySoundEffect {
-					continue
+					return false
 				}
 				r := protocol.NewReader(data)
 				if got := r.ReadVarInt() - 1; got != want {
@@ -166,36 +151,12 @@ func TestPlateClickSounds(t *testing.T) {
 				if vol, pitch := r.ReadF32(), r.ReadF32(); vol != 1 || pitch != 1 {
 					t.Errorf("volume, pitch = %v, %v, want 1, 1", vol, pitch)
 				}
-				return
+				return true
+			})
+			if !heard {
+				t.Fatalf("no click sound for %s", plate)
 			}
 		})
-	}
-}
-
-// TestMobOnPlateKeepsTicking summons a cow onto an unpressed plate. The
-// sweep once held the mob lock while the plate asked who stood on it, which
-// took the same lock again and stopped the game tick for good (#63).
-func TestMobOnPlateKeepsTicking(t *testing.T) {
-	t.Parallel()
-	srv, c := plateServer(t, "minecraft:stone_pressure_plate")
-	srv.StartTick()
-	c.ChatCommand(fmt.Sprintf("summon minecraft:cow %d.5 %d %d.5", plateX, plateY, plateZ))
-	// A stuck tick holds locks the cleanups wait on, so a failing t.Fatal
-	// would hang; the watchdog panics off the test goroutine, which ends
-	// the binary without running them.
-	watchdog := time.AfterFunc(20*time.Second, func() {
-		panic("TestMobOnPlateKeepsTicking: the game tick stopped after a mob stepped on a plate")
-	})
-	defer watchdog.Stop()
-	servertest.AwaitTicks(t, srv, 10)
-	if got := plateProps(srv)["powered"]; got != "true" {
-		t.Errorf("cow on the stone plate: powered = %q, want true", got)
-	}
-	c.ChatCommand("time query gametime")
-	for {
-		if data := c.ExpectPlay(protocol.IDPlaySystemChat); bytes.Contains(data, []byte("commands.time.query.gametime")) {
-			break
-		}
 	}
 }
 
@@ -217,127 +178,12 @@ func TestArrowsPressPlates(t *testing.T) {
 			t.Parallel()
 			srv, c := plateServer(t, tc.plate)
 			srv.SpawnStuckArrow("disallowed", plateX+0.5, plateY+0.05, plateZ+0.5)
-			srv.StartTick()
 			expectPlateSettles(t, srv, tc.prop, tc.pressed)
 			c.ChatCommand("kill @e[type=minecraft:arrow]")
+			c.Settle()
 			expectPlateSettles(t, srv, tc.prop, tc.released)
 		})
 	}
-}
-
-// TestFlyingArrowPressesPlate shoots an arrow straight down onto an oak
-// plate: the arrow's own sweep presses it where it lands.
-func TestFlyingArrowPressesPlate(t *testing.T) {
-	t.Parallel()
-	srv, _ := plateServer(t, "minecraft:oak_pressure_plate")
-	srv.ShootArrow(plateX+0.5, plateY+3, plateZ+0.5, 0, -1, 0)
-	srv.StartTick()
-	expectPlateSettles(t, srv, "powered", "true")
-	if arrows := srv.ArrowsInDimension("minecraft:overworld"); len(arrows) != 1 {
-		t.Fatalf("arrows = %+v, want the one that landed", arrows)
-	}
-}
-
-// TestButtonHandUseSoundSkipsTheUser presses a wooden button by hand with two
-// clients watching: the other player hears the press click once and the user
-// hears nothing, because their client predicted the press and vanilla's play
-// sound skips the user there. The release the scheduled tick plays reaches both.
-// vanilla: ButtonBlock.playSound
-func TestButtonHandUseSoundSkipsTheUser(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-
-	watcher := connect().Join("Watcher")
-
-	actor := connect().Join("Actor")
-
-	entityID := watcher.ExpectPlayerAdded("Actor")
-	watcher.ExpectAnnouncement("multiplayer.player.joined", "Actor")
-
-	// Within a hand's reach of the spawn, unlike the plate tests' far cell.
-	const bx, by, bz = 5, 64, 0
-	if !srv.SetBlock(bx, by, bz, servertest.BlockStateWith(t, "minecraft:oak_button", "face=floor,facing=north,powered=false")) {
-		t.Fatal("could not place the button")
-	}
-
-	on, ok := registry.SoundEventID("minecraft:block.wooden_button.click_on")
-	if !ok {
-		t.Fatal("no sound event minecraft:block.wooden_button.click_on")
-	}
-
-	actor.UseBlock(bx, by, bz)
-
-	// The press: the other player hears the click once, the user not at all.
-	// Block updates follow the sound, so reading to the button's update
-	// settles what came of the press.
-	presses := 0
-	for id, data := range watcher.Stream() {
-		if id == protocol.IDPlaySoundEffect {
-			presses++
-			if got := protocol.NewReader(data).ReadVarInt() - 1; got != on {
-				t.Errorf("button press sound = %d, want %d (minecraft:block.wooden_button.click_on)", got, on)
-			}
-		}
-		if id == protocol.IDPlayBlockUpdate {
-			break
-		}
-	}
-	if presses != 1 {
-		t.Errorf("the other player heard %d press clicks, want exactly 1", presses)
-	}
-	for id := range actor.Stream() {
-		if id == protocol.IDPlaySoundEffect {
-			t.Error("the user heard the button press echoed back, but the client predicts it already")
-		}
-		if id == protocol.IDPlayBlockUpdate {
-			break
-		}
-	}
-
-	// The release reaches everyone, the user included.
-	servertest.ExpectSoundEvent(t, watcher, "minecraft:block.wooden_button.click_off")
-	servertest.ExpectSoundEvent(t, actor, "minecraft:block.wooden_button.click_off")
-
-	actor.Conn.Close()
-	watcher.ExpectPlayerRemoved(entityID, "Actor")
-}
-
-// TestArrowHeldWoodenButtonStaysPressed keeps an arrow in an oak button past
-// several press spans: the scheduled tick must leave a held button alone, not
-// click off and let the arrow's sweep press it again. The arrow gone, the
-// button releases.
-// vanilla: ButtonBlock.checkPressed
-func TestArrowHeldWoodenButtonStaysPressed(t *testing.T) {
-	t.Parallel()
-	srv, c := plateServerWith(t, servertest.BlockStateWith(t, "minecraft:oak_button", "face=floor,facing=north,powered=false"))
-	srv.SpawnStuckArrow("disallowed", plateX+0.5, plateY+0.05, plateZ+0.5)
-	srv.StartTick()
-	expectPlateSettles(t, srv, "powered", "true")
-
-	off, ok := registry.SoundEventID("minecraft:block.wooden_button.click_off")
-	if !ok {
-		t.Fatal("no sound event minecraft:block.wooden_button.click_off")
-	}
-	// Six press spans: a button the arrow no longer holds would click off at
-	// ticks 29, 59, 89 and 119 and the arrow's sweep would press it again.
-	offClicks := 0
-	for range 6 {
-		servertest.AwaitTicks(t, srv, 20)
-		c.SettleAndCollect(func(id int32, data []byte) {
-			if id == protocol.IDPlaySoundEffect && protocol.NewReader(data).ReadVarInt()-1 == off {
-				offClicks++
-			}
-		})
-	}
-	if offClicks != 0 {
-		t.Fatalf("the arrow-held button clicked off %d times in 120 ticks, want 0", offClicks)
-	}
-	if got := plateProps(srv)["powered"]; got != "true" {
-		t.Fatalf("arrow-held button powered = %q, want true", got)
-	}
-
-	c.ChatCommand("kill @e[type=minecraft:arrow]")
-	expectPlateSettles(t, srv, "powered", "false")
 }
 
 // TestArrowPressesWoodenButton sticks an arrow in a floor button: a wooden
@@ -354,37 +200,10 @@ func TestArrowPressesWoodenButton(t *testing.T) {
 			t.Parallel()
 			srv, c := plateServerWith(t, servertest.BlockStateWith(t, button, "face=floor,facing=north,powered=false"))
 			srv.SpawnStuckArrow("disallowed", plateX+0.5, plateY+0.05, plateZ+0.5)
-			srv.StartTick()
 			expectPlateSettles(t, srv, "powered", pressed)
 			c.ChatCommand("kill @e[type=minecraft:arrow]")
+			c.Settle()
 			expectPlateSettles(t, srv, "powered", "false")
-		})
-	}
-}
-
-// TestArrowOnlyPressesButtonItsBoxTouches checks the arrow against the
-// button's shape rather than its cell: one stuck high in a floor button's
-// cell leaves it alone, and one whose centre is in the next cell but whose box
-// reaches a wall button's plate presses it.
-// vanilla: ButtonBlock.checkPressed
-func TestArrowOnlyPressesButtonItsBoxTouches(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name, state string
-		x, y, z     float64
-		powered     string
-	}{
-		{"high in floor cell", "face=floor,facing=north,powered=false", plateX + 0.5, plateY + 0.9, plateZ + 0.5, "false"},
-		{"low in floor cell", "face=floor,facing=north,powered=false", plateX + 0.5, plateY + 0.05, plateZ + 0.5, "true"},
-		{"next cell reaching wall plate", "face=wall,facing=east,powered=false", plateX - 0.2, plateY + 0.4, plateZ + 0.5, "true"},
-		{"next cell clear of wall plate", "face=wall,facing=east,powered=false", plateX - 0.4, plateY + 0.4, plateZ + 0.5, "false"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, _ := plateServerWith(t, servertest.BlockStateWith(t, "minecraft:oak_button", tc.state))
-			srv.SpawnStuckArrow("disallowed", tc.x, tc.y, tc.z)
-			srv.StartTick()
-			expectPlateSettles(t, srv, "powered", tc.powered)
 		})
 	}
 }

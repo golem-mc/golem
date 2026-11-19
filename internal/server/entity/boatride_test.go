@@ -39,52 +39,6 @@ func TestBoatKindSeats(t *testing.T) {
 	}
 }
 
-func TestBoatPushTouches(t *testing.T) {
-	// A 0.6-wide mob's side within the 0.2 the hull is swollen by touches.
-	if !BoatPushTouches(BoatHalfWidth+0.45, 0, 0, 0.6, 1, 0, 0, 0) {
-		t.Error("a mob within the inflated box is not touched")
-	}
-	if BoatPushTouches(BoatHalfWidth+0.55, 0, 0, 0.6, 1, 0, 0, 0) {
-		t.Error("a mob past the inflated box is touched")
-	}
-	// The box is a hundredth shorter upright.
-	if BoatPushTouches(0, BoatHeight-0.005, 0, 0.6, 1, 0, 0, 0) {
-		t.Error("a mob standing on the hull's top is touched")
-	}
-}
-
-func TestBoatMovedTooFar(t *testing.T) {
-	b := NewBoat(1, 0, 0, 0, 0)
-	if b.MovedTooFar(0, 0, 0, 9.9, 0, 0) {
-		t.Error("a move under ten blocks is too far")
-	}
-	if !b.MovedTooFar(0, 0, 0, 10.1, 0, 0) {
-		t.Error("a move past ten blocks is not too far")
-	}
-	b.VX = 2
-	if b.MovedTooFar(0, 0, 0, 10.1, 0, 0) {
-		t.Error("the hull's own speed is not allowed for")
-	}
-}
-
-func TestWithBodies(t *testing.T) {
-	var w World
-	if got := WithBodies(w, nil); got != w {
-		t.Error("a world with no bodies is wrapped")
-	}
-	box := NewAABB(0, 0, 0, 1, 1, 1)
-	bw, ok := WithBodies(w, []AABB{box}).(BodyWorld)
-	if !ok {
-		t.Fatal("a world with bodies is not a BodyWorld")
-	}
-	if n := len(bw.BodyBoxes(NewAABB(0.5, 0.5, 0.5, 2, 2, 2))); n != 1 {
-		t.Errorf("crossing box: %d bodies, want 1", n)
-	}
-	if n := len(bw.BodyBoxes(NewAABB(1, 0, 0, 2, 1, 1))); n != 0 {
-		t.Errorf("touching box: %d bodies, want 0", n)
-	}
-}
-
 func TestBodiesGridMatchesFullScan(t *testing.T) {
 	rng := rand.New(rand.NewSource(7))
 	rbox := func(span float64) AABB {

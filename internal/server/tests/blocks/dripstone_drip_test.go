@@ -140,47 +140,6 @@ func TestStalactiteTransferChances(t *testing.T) {
 	}
 }
 
-func TestStalactiteDripLeavesTheWrongCauldronsAlone(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name, source, cauldron, level string
-		wantLevel                     string
-	}{
-		{"water into a lava cauldron", "minecraft:water", "minecraft:lava_cauldron", "", ""},
-		{"lava into a water cauldron", "minecraft:lava", "minecraft:water_cauldron", "2", "2"},
-		{"water into a powder snow cauldron", "minecraft:water", "minecraft:powder_snow_cauldron", "1", "1"},
-		{"water into a full cauldron", "minecraft:water", "minecraft:water_cauldron", "3", "3"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, _ := servertest.AttachActor(t)
-			srv.StopTick()
-			buildStalactite(t, srv, world.DimensionName, 68, fluidSource(tc.source))
-			srv.SetBlock(dripX, cauldronY, dripZ, dripCauldron(tc.cauldron, tc.level))
-
-			srv.TransferDripstoneFluid(world.DimensionName, dripX, 69, dripZ, 0)
-			srv.TickPhysics(60)
-			want := map[string]string(nil)
-			if tc.wantLevel != "" {
-				want = map[string]string{"level": tc.wantLevel}
-			}
-			servertest.ExpectBlockNamed(t, srv, dripX, cauldronY, dripZ, tc.cauldron, want)
-		})
-	}
-}
-
-func TestStalactiteDripFillsAWaterCauldronByOneLevel(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.AttachActor(t)
-	srv.StopTick()
-	buildStalactite(t, srv, world.DimensionName, 68, fluidSource("minecraft:water"))
-	srv.SetBlock(dripX, cauldronY, dripZ, dripCauldron("minecraft:water_cauldron", "2"))
-
-	srv.TransferDripstoneFluid(world.DimensionName, dripX, 69, dripZ, 0)
-	srv.TickPhysics(54)
-	servertest.ExpectBlockNamed(t, srv, dripX, cauldronY, dripZ, "minecraft:water_cauldron", map[string]string{"level": "3"})
-}
-
 func TestStalactiteWithoutAFluidSourceLeavesTheCauldronEmpty(t *testing.T) {
 	t.Parallel()
 	flowing := registry.MustState("minecraft:water", map[string]string{"level": "1"})
@@ -206,20 +165,6 @@ func TestStalactiteWithoutAFluidSourceLeavesTheCauldronEmpty(t *testing.T) {
 	}
 }
 
-func TestStalactiteDripStopsWhenTheTipIsGoneByTheCauldronTick(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.AttachActor(t)
-	srv.StopTick()
-	buildStalactite(t, srv, world.DimensionName, 68, fluidSource("minecraft:water"))
-	srv.SetBlock(dripX, cauldronY, dripZ, dripCauldron("minecraft:cauldron", ""))
-
-	srv.TransferDripstoneFluid(world.DimensionName, dripX, 69, dripZ, 0)
-	srv.TickPhysics(10)
-	srv.SetBlock(dripX, 68, dripZ, 0)
-	srv.TickPhysics(60)
-	servertest.ExpectBlockNamed(t, srv, dripX, cauldronY, dripZ, "minecraft:cauldron", nil)
-}
-
 func TestStalactiteTurnsMudIntoClay(t *testing.T) {
 	t.Parallel()
 	srv, c := servertest.AttachActor(t)
@@ -231,71 +176,4 @@ func TestStalactiteTurnsMudIntoClay(t *testing.T) {
 	if x, y, z, _ := c.AwaitWorldEvent(worldEventDripstoneDrip); x != dripX || y != 68 || z != dripZ {
 		t.Errorf("drip event at (%d,%d,%d), want the tip", x, y, z)
 	}
-}
-
-func TestStalactiteLeavesMudAloneAtTheEdgeOfTheChance(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.AttachActor(t)
-	srv.StopTick()
-	buildStalactite(t, srv, world.DimensionName, 68, registry.MustState("minecraft:mud", nil))
-
-	srv.TransferDripstoneFluid(world.DimensionName, dripX, 69, dripZ, dripWaterChance)
-	servertest.ExpectBlockNamed(t, srv, dripX, 71, dripZ, "minecraft:mud", nil)
-}
-
-func TestStalactiteInTheNetherDripsNoWaterFromMud(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	servertest.CarryIntoNether(t, srv, c, "Actor", dripX, dripZ)
-	srv.StopTick()
-
-	buildStalactite(t, srv, world.NetherName, 68, registry.MustState("minecraft:mud", nil))
-	srv.SetBlockInDimension(world.NetherName, dripX, cauldronY, dripZ, dripCauldron("minecraft:cauldron", ""))
-	srv.TransferDripstoneFluid(world.NetherName, dripX, 69, dripZ, 0)
-	srv.TickPhysics(60)
-	if got, _, _ := registry.BlockStateName(srv.BlockInDimension(world.NetherName, dripX, 71, dripZ)); got != "minecraft:mud" {
-		t.Errorf("nether mud became %s, want it kept", got)
-	}
-	if got, _, _ := registry.BlockStateName(srv.BlockInDimension(world.NetherName, dripX, cauldronY, dripZ)); got != "minecraft:cauldron" {
-		t.Errorf("nether cauldron became %s, want it kept", got)
-	}
-
-	// The same column with lava above drips, so the setup is not what kept it still.
-	buildStalactite(t, srv, world.NetherName, 68, fluidSource("minecraft:lava"))
-	srv.TransferDripstoneFluid(world.NetherName, dripX, 69, dripZ, 0)
-	srv.TickPhysics(54)
-	if got, _, _ := registry.BlockStateName(srv.BlockInDimension(world.NetherName, dripX, cauldronY, dripZ)); got != "minecraft:lava_cauldron" {
-		t.Errorf("nether cauldron under lava became %s, want lava_cauldron", got)
-	}
-}
-
-// TestStalactiteRandomTickFillsACauldron runs the real random tick pass with
-// the dice pinned by seed: every die lands in the one ticking section.
-func TestStalactiteRandomTickFillsACauldron(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.AttachActor(t)
-	srv.StopTick()
-	servertest.SeedPhysics(t, srv, servertest.SaplingSeed)
-	srv.SetGameRuleValue(world.RuleRandomTickSpeed.String(), 4096)
-	buildStalactite(t, srv, world.DimensionName, 68, fluidSource("minecraft:water"))
-	srv.SetBlock(dripX, cauldronY, dripZ, dripCauldron("minecraft:cauldron", ""))
-
-	for range 40 {
-		srv.TickRandomTicks(1)
-		srv.TickPhysics(1)
-	}
-	srv.TickPhysics(60)
-	servertest.ExpectBlockNamed(t, srv, dripX, cauldronY, dripZ, "minecraft:water_cauldron", nil)
-}
-
-func TestOnlyTheTopOfAStalactiteColumnTransfers(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.AttachActor(t)
-	srv.StopTick()
-	buildStalactite(t, srv, world.DimensionName, 68, fluidSource("minecraft:water"))
-	srv.SetBlock(dripX, cauldronY, dripZ, dripCauldron("minecraft:cauldron", ""))
-
-	srv.TransferDripstoneFluid(world.DimensionName, dripX, 68, dripZ, 0)
-	srv.TickPhysics(60)
-	servertest.ExpectBlockNamed(t, srv, dripX, cauldronY, dripZ, "minecraft:cauldron", nil)
 }

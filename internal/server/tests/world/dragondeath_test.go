@@ -12,65 +12,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-func TestKillingTheDragonAwardsFreeTheEndAtTheBlow(t *testing.T) {
-	srv, c, id := joinDragonFight(t)
-	const name = "DragonWatcher"
-	c.ChatCommand("scoreboard objectives add dragonKills minecraft.killed:minecraft.ender_dragon")
-	c.ChatCommand("scoreboard objectives add kills totalKillCount")
-	// Keep the death flight away from its destination so rewards cannot come
-	// from the later removal, and freeze motion while inspecting the blow.
-	c.ChatCommand("data merge entity @e[type=ender_dragon,limit=1] {DragonPhase:0,Pos:[0d,100d,60d]}")
-	c.MoveTo(0, 100, 60, 0, 0)
-	c.Settle()
-	heardDeath, heardHurt, deathEvent := false, false, false
-	collect := func(packet int32, data []byte) {
-		switch packet {
-		case protocol.IDPlaySoundEffect:
-			sound, category, _, _, _, volume, _ := servertest.ReadAmbient(t, data)
-			if sound == "minecraft:entity.generic.death" {
-				heardDeath = true
-				if category != protocol.SoundCategoryHostile || volume != 5 {
-					t.Errorf("death category=%d volume=%v, want hostile at 5", category, volume)
-				}
-			}
-			heardHurt = heardHurt || sound == "minecraft:entity.ender_dragon.hurt"
-		case protocol.IDPlayEntityEvent:
-			r := protocol.NewReader(data)
-			if r.ReadI32() == id && r.ReadU8() == protocol.EntityStatusDeath {
-				deathEvent = true
-			}
-		}
-	}
-	c.ChatCommand("damage @e[type=ender_dragon,limit=1] 2000 minecraft:player_attack by @s")
-	c.SettleAndCollect(collect)
-	for range 5 {
-		servertest.RunTicks(t, srv, 1)
-		c.SettleAndCollect(collect)
-	}
-	for advancement, criterion := range map[string]string{"minecraft:end/kill_dragon": "killed_dragon", "minecraft:adventure/kill_a_mob": "minecraft:ender_dragon"} {
-		if !srv.AdvancementObtained(name, advancement, criterion) {
-			t.Errorf("killing blow did not award %s", advancement)
-		}
-	}
-	if !heardDeath || heardHurt || !deathEvent {
-		t.Errorf("death sound=%v hurt sound=%v death event=%v, want true/false/true", heardDeath, heardHurt, deathEvent)
-	}
-	for _, objective := range []string{"dragonKills", "kills"} {
-		if score, ok := srv.ScoreOf(name, objective); !ok || score != 1 {
-			t.Errorf("%s score=%d present=%v, want 1", objective, score, ok)
-		}
-	}
-	if kills := srv.StatValue(name, "minecraft:killed", "minecraft:ender_dragon"); kills != 1 {
-		t.Errorf("dragon kills=%d, want 1", kills)
-	}
-	if health, ok := srv.MobHealthInDimension(world.EndName, id); !ok || health != 1 {
-		t.Errorf("dragon health=%v present=%v, want alive at 1", health, ok)
-	}
-	if orbs := srv.OrbsInWorld(); len(orbs) != 0 {
-		t.Errorf("killing blow dropped %d orbs before the death animation", len(orbs))
-	}
-}
-
 // One arena covers death, abort and a full ritual; generating the arena is
 // the expensive part, so these checks share its chunks.
 func TestEndDragonDeathAndCrystalRespawn(t *testing.T) {

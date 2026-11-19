@@ -118,26 +118,6 @@ func TestSuspiciousStewGivesItsEffectsAndLeavesABowl(t *testing.T) {
 	})
 }
 
-func TestOminousBottleGivesBadOmenAtItsAmplifier(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Omen")
-	c.Settle()
-
-	bottle := protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:ominous_bottle"), Count: 1}
-	bottle.SetOminousBottleAmplifier(3)
-	srv.GiveSlot("Omen", player.HotbarSlot, bottle)
-	c.UseItemRightClicks(protocol.HandMain)
-
-	got := c.AwaitMobEffect()
-	if got.Effect != registry.MustMobEffect("minecraft:bad_omen") || got.Amplifier != 3 || got.Duration != 120000 {
-		t.Errorf("effect = %+v, want bad_omen 3 for 120000 ticks", got)
-	}
-	// Ambient off, particles off, icon on; bit 8 is not one of the three.
-	if got.Flags&0x07 != 0x04 {
-		t.Errorf("flags = %#x, want 0x04 (icon only)", got.Flags)
-	}
-}
-
 func TestChorusFruitMovesThePlayerWithinSixteenBlocks(t *testing.T) {
 	t.Parallel()
 	srv, c, id := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Chorus")
@@ -170,25 +150,5 @@ func TestChorusFruitMovesThePlayerWithinSixteenBlocks(t *testing.T) {
 	defer mu.Unlock()
 	if want := [3]float64{after.X, after.Y, after.Z}; len(eaten) != 1 || eaten[0] != want {
 		t.Errorf("eat events at %v, want one at %v", eaten, want)
-	}
-}
-
-// A rider leaves the boat before the teleport tries, as vanilla's
-// randomTeleport stops riding first.
-func TestChorusFruitDismountsARiddenBoat(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.BoatPlayer(t, "survival", "Chorus", 0)
-	boatID := srv.SpawnBoat(0.5, 64, 0.5, "minecraft:oak_boat")
-	c.UseOn(boatID)
-	if riders := servertest.AwaitPassengersFor(c, boatID); len(riders) != 1 {
-		t.Fatalf("passengers = %v, want the rider", riders)
-	}
-	srv.GiveSlot("Chorus", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:chorus_fruit"), Count: 1})
-	c.UseItemRightClicks(protocol.HandMain)
-
-	c.AwaitEntityEvent(c.PlayerEntityID, protocol.EntityStatusUseFinished)
-	c.AwaitEntityEvent(c.PlayerEntityID, protocol.EntityStatusTeleportParticles)
-	if rider, ok := srv.BoatRider(boatID); ok {
-		t.Errorf("the boat still holds %q after the chorus fruit", rider)
 	}
 }

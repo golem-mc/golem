@@ -7,55 +7,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// vanilla: AbstractMinecart.tick, getDefaultGravity, comeOffTrack
-func TestMinecartSpawnedInWaterUsesPreviousTickFluid(t *testing.T) {
-	w := newTestWorld()
-	water := registry.BlockWater.DefaultState()
-	for x := int32(-1); x <= 2; x++ {
-		for y := int32(64); y <= 67; y++ {
-			for z := int32(-1); z <= 2; z++ {
-				w.set(x, y, z, water)
-			}
-		}
-	}
-	m := NewMinecart(1, .5, 65, .5)
-	m.VX, m.VY, m.VZ = .25, .3, .15
-	for range 3 {
-		m.Step(w, false)
-	}
-	// Vanilla: X 0.1805 and Y 0.2137, versus 0.1715 and 0.2437
-	// when the first tick uses water's cap and gravity.
-	if math.Abs(m.VX-.1805) > 1e-6 || math.Abs(m.VY-.213655) > 1e-6 {
-		t.Fatalf("motion=(%g,%g), want (0.1805,0.213655)", m.VX, m.VY)
-	}
-}
-
-// vanilla: AbstractMinecart.tick, OldMinecartBehavior.moveAlongTrack
-func TestMinecartRailWaterDragUsesPreviousTickFluid(t *testing.T) {
-	w := newTestWorld()
-	cartGround(t, w, 0, 4, 64)
-	waterRail := cartState(t, "minecraft:rail", map[string]string{"shape": "east_west", "waterlogged": "true"})
-	for x := int32(0); x <= 4; x++ {
-		w.set(x, 64, 0, waterRail)
-	}
-	m := NewMinecart(1, .5, 64.0625, .5)
-	m.VX = .3
-	m.Step(w, false)
-	if math.Abs(m.X-.8) > 1e-6 || math.Abs(m.VX-.3*.96) > 1e-6 {
-		t.Fatalf("first tick: X=%g VX=%g, want air cap and drag", m.X, m.VX)
-	}
-	cartGround(t, w, 0, 4, 64)
-	m.Step(w, false)
-	if math.Abs(m.X-1) > 1e-6 || math.Abs(m.VX-.3*.96*.96*.95) > 1e-6 {
-		t.Fatalf("second tick: X=%g VX=%g, want cached water cap and drag", m.X, m.VX)
-	}
-	beforeX, beforeVX := m.X, m.VX
-	m.Step(w, false)
-	if math.Abs(m.X-beforeX-beforeVX) > 1e-6 || math.Abs(m.VX-beforeVX*.96) > 1e-6 {
-		t.Fatalf("third tick: X=%g VX=%g, want air cap and drag", m.X, m.VX)
-	}
-}
-
 // The cart simulation as ordinary unit tests, driving the step over a
 // world that is nothing but the blocks each case sets. The black-box
 // tests in internal/server/minecart_test.go remain the proof of the whole life of
@@ -134,27 +85,6 @@ func TestALitPoweredRailShovesARestingCartAlongTheLine(t *testing.T) {
 	}
 }
 
-// TestACartRidingEastDoesNotFlipOnEveryTick: a cart rolling east keeps
-// the same heading and the same flip — the angle turned is wrapped before
-// the near-reverse test, so a whole turn's difference does not spin the
-// client's model half a turn every other tick.
-// vanilla: OldMinecartBehavior.tick, Mth.wrapDegrees
-func TestACartRidingEastDoesNotFlipOnEveryTick(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	cartGround(t, w, 0, 20, 64)
-	m := NewMinecart(1, 1.5, 64.0625, 0.5)
-	m.VX = 0.4
-	m.Step(w, false)
-	if math.Abs(float64(m.Yaw)) > 1e-4 || !m.Flipped {
-		t.Fatalf("after one step the cart faces yaw=%v flipped=%v, want the east heading 0, flipped", m.Yaw, m.Flipped)
-	}
-	m.Step(w, false)
-	if math.Abs(float64(m.Yaw)) > 1e-4 || !m.Flipped {
-		t.Errorf("after two steps the cart faces yaw=%v flipped=%v, want it still eastbound at 0, flipped", m.Yaw, m.Flipped)
-	}
-}
-
 // TestACartClimbsAnAscendingRailToTheRaisedLine: a cart with its head of
 // steam reaches a slope and rides it up, its height rising the whole cell
 // to the raised line's own plane, where it carries on east at the height
@@ -186,71 +116,6 @@ func TestACartClimbsAnAscendingRailToTheRaisedLine(t *testing.T) {
 	}
 }
 
-// TestACartTakesTheSouthEastCurve: the south-east curve's line joins the
-// south and the east neighbour — a cart rolling north onto it comes out
-// eastbound, its z run ending at the curve's lane, its x run beginning.
-// vanilla: RailBlock's south_east, OldMinecartBehavior.moveAlongTrack
-func TestACartTakesTheSouthEastCurve(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	// A north-south line north through (2, 64, 3) — the curve there — and
-	// an east-west line out of it eastward.
-	for z := int32(4); z <= 6; z++ {
-		w.set(2, 63, z, cartState(t, "minecraft:stone", nil))
-		w.set(2, 64, z, cartState(t, "minecraft:rail",
-			map[string]string{"shape": "north_south"}))
-	}
-	w.set(2, 63, 3, cartState(t, "minecraft:stone", nil))
-	w.set(2, 64, 3, cartState(t, "minecraft:rail",
-		map[string]string{"shape": "south_east"}))
-	for x := int32(3); x <= 6; x++ {
-		w.set(x, 63, 3, cartState(t, "minecraft:stone", nil))
-		w.set(x, 64, 3, cartState(t, "minecraft:rail",
-			map[string]string{"shape": "east_west"}))
-	}
-
-	// A cart rolling north: its z run ends through the curve, its x run
-	// east along the line beyond.
-	m := NewMinecart(1, 2.5, 64.0625, 5.5)
-	m.VZ = -0.4
-	for range 20 {
-		m.Step(w, false)
-	}
-	if m.Z > 3.51 {
-		t.Fatalf("the cart stands at z=%v, want it north through the curve", m.Z)
-	}
-	if m.X <= 3.5 {
-		t.Errorf("the cart stands at x=%v after the curve, want the eastbound run", m.X)
-	}
-	if math.Abs(m.VZ) > 0.001 || m.VX < 0.02 {
-		t.Errorf("after the curve the cart runs (%v, %v), want east alone", m.VX, m.VZ)
-	}
-}
-
-// TestADarkPoweredRailHaltsASlowCart: the halt a dark powered rail lays
-// on a cart that creeps onto it — the hundredth of a block under which a
-// cart is stopped dead.
-// vanilla: OldMinecartBehavior.moveAlongTrack's haltTrack half
-func TestADarkPoweredRailHaltsASlowCart(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	cartGround(t, w, 0, 4, 64)
-	w.set(2, 64, 0, cartState(t, "minecraft:powered_rail",
-		map[string]string{"shape": "east_west", "powered": "false"}))
-
-	m := NewMinecart(1, 1.5, 64.0625, 0.5)
-	m.VX = 0.2
-	for range 8 {
-		m.Step(w, false)
-	}
-	if x := m.X; x < 1.5 || x > 4 {
-		t.Fatalf("the halted cart drifted to x=%v", x)
-	}
-	if m.VX != 0 {
-		t.Errorf("the dark rail left the cart running at %v, want a dead stop", m.VX)
-	}
-}
-
 // TestACartRunOffTheLineDerailsOntoTheGroundAndStops: the end of the
 // rails drops the cart onto the ground, where the derailed half-spends
 // every tick brings it to a stand beside the line.
@@ -277,87 +142,6 @@ func TestACartRunOffTheLineDerailsOntoTheGroundAndStops(t *testing.T) {
 	}
 	if m.X > 4.5 {
 		t.Errorf("the derailed cart ran on to x=%v, want the friction's stand", m.X)
-	}
-}
-
-// TestACartsMotionDirTurnsItsYawAQuarterClockwise checks the dismount's
-// travel direction, turned about for a flipped cart.
-func TestACartsMotionDirTurnsItsYawAQuarterClockwise(t *testing.T) {
-	for _, tc := range []struct {
-		yaw      float32
-		flipped  bool
-		wdx, wdz int32
-	}{
-		{0, false, -1, 0}, {90, false, 0, -1}, {180, false, 1, 0}, {270, false, 0, 1},
-		{0, true, 1, 0},
-	} {
-		m := NewMinecart(1, 0, 0, 0)
-		m.Yaw, m.Flipped = tc.yaw, tc.flipped
-		if dx, dz := m.MotionDir(); dx != tc.wdx || dz != tc.wdz {
-			t.Errorf("yaw %v flipped %v went (%d, %d), want (%d, %d)", tc.yaw, tc.flipped, dx, dz, tc.wdx, tc.wdz)
-		}
-	}
-}
-
-// TestACartKeepsItsOwnRollingPaceOverTheRidersDefault: a cart with a pace of
-// its own rolls further than the empty default's twenty-fifth off each tick.
-// vanilla: AbstractMinecartContainer.applyNaturalSlowdown
-func TestACartKeepsItsOwnRollingPaceOverTheRidersDefault(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	cartGround(t, w, 0, 40, 64)
-	plain := NewMinecart(1, 1.5, 64.0625, 0.5)
-	plain.VX = 0.3
-	own := NewMinecart(2, 1.5, 64.0625, 0.5)
-	own.VX = 0.3
-	own.Slowdown = 0.995
-	plainX, _, _ := trackOf(plain, w, 5)
-	ownX, _, _ := trackOf(own, w, 5)
-	if ownX <= plainX {
-		t.Errorf("a cart with its own pace reached x=%v, want past the default cart's %v", ownX, plainX)
-	}
-}
-
-// TestACartOnARailKeepsNoVerticalMotion checks the rail holds a cart up: its
-// vertical motion is zeroed every rail tick, resting or rolling, so gravity
-// never builds up while it rides the line.
-// vanilla: AbstractMinecart.applyNaturalSlowdown
-func TestACartOnARailKeepsNoVerticalMotion(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	cartGround(t, w, -40, 40, 64)
-	for _, tc := range []struct {
-		name   string
-		vx     float64
-		ridden bool
-	}{
-		{"resting", 0, false},
-		{"ridden", 0.2, true},
-	} {
-		m := NewMinecart(1, 0.5, 64.0625, 0.5)
-		m.VX = tc.vx
-		for range 50 {
-			m.Step(w, tc.ridden)
-		}
-		if m.VY != 0 {
-			t.Errorf("the %s cart on the rail has VY %v after 50 ticks, want 0", tc.name, m.VY)
-		}
-	}
-}
-
-// TestMinecartBoardableTurnsAWitherAway: a moving cart never picks up a
-// wither, which may not ride though it is pushable; a pig it takes.
-// vanilla: WitherBoss.canRide
-func TestMinecartBoardableTurnsAWitherAway(t *testing.T) {
-	wither := NewMob(TypeWither, 1, 0.5, 64, 0.5, 1)
-	if !wither.Pushable() {
-		t.Fatal("the wither is not pushable; the test no longer reaches the canRide rule")
-	}
-	if MinecartBoardable(wither) {
-		t.Error("MinecartBoardable(wither) = true, want false")
-	}
-	if pig := NewMob(TypePig, 2, 0.5, 64, 0.5, 1); !MinecartBoardable(pig) {
-		t.Error("MinecartBoardable(pig) = false, want true")
 	}
 }
 

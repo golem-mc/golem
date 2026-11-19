@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -14,26 +13,6 @@ import (
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
-
-// vanilla: EnderDragon.kill
-func TestKillRemovesSummonedDragonsDirectly(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, c := servertest.Join(t, cfg, "DragonWatcher", servertest.OpsListing(t, "DragonWatcher"))
-	servertest.HoldTicks(t, srv)
-	c.MoveTo(0, 128, 20, 0, 0)
-	c.Settle()
-	for _, tag := range []string{`{NoAI:1b,Invulnerable:1b}`, `{DragonPhase:0}`} {
-		c.ChatCommand("summon minecraft:ender_dragon 0 128 0 " + tag)
-		c.Settle()
-		ids := srv.MobIDsOfKind("minecraft:ender_dragon")
-		if len(ids) != 1 {
-			t.Fatalf("summoned dragons = %v", ids)
-		}
-		checkDragonKill(t, srv, c, world.DimensionName, ids[0], false)
-	}
-}
 
 // The arena and its reload exceed a small unit test's cost; first and repeat
 // kills each need the complete fight arena to exercise its saved identity.

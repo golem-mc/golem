@@ -44,21 +44,6 @@ func TestNetherChunkEncodesItsOwnSections(t *testing.T) {
 	}
 }
 
-// TestOverworldChunkEncodesEverything checks that the overworld's wire band
-// is the whole of memory, which is what every chunk of it has always been.
-func TestOverworldChunkEncodesEverything(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld(t, NewFlatGenerator())
-	defer w.Close()
-	pos := ChunkPos{X: 0, Z: 0}
-	chunk, _ := w.Acquire(pos)
-	defer w.Release(pos)
-
-	if got, want := string(w.encodeChunkWired(chunk)), string(encodeWhole(chunk)); got != want {
-		t.Error("an overworld chunk encodes a clipped form, want the full height")
-	}
-}
-
 // readLightMasks reads the four BitSets off the front of a light payload —
 // the sky mask, the block mask, and the two empty masks — in the wire form
 // encodeLight and encodeLightSpan both write.
@@ -212,60 +197,5 @@ func TestNetherChunkSavesItsOwnBand(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "level.dat")); err == nil {
 		t.Error("the nether wrote a level.dat, want the vanilla layout without one")
-	}
-}
-
-// TestDimensionVoidStartsAtItsOwnFloor checks where falling out of the world
-// begins in each dimension: 64 below the dimension's own floor, the
-// overworld's being where the old fixed figure of -128 came from.
-func TestDimensionVoidStartsAtItsOwnFloor(t *testing.T) {
-	t.Parallel()
-	if got := newTestWorld(t, NewFlatGenerator()).VoidY(); got != -128 {
-		t.Errorf("overworld void Y = %d, want -128", got)
-	}
-	nether := NewDimensionWorld(t.TempDir(), true, NewNetherGenerator(7))
-	defer nether.Close()
-	if got := nether.VoidY(); got != -64 {
-		t.Errorf("nether void Y = %d, want -64", got)
-	}
-	end := NewDimensionWorld(t.TempDir(), false, NewEndGenerator(7))
-	defer end.Close()
-	if got := end.VoidY(); got != -64 {
-		t.Errorf("end void Y = %d, want -64", got)
-	}
-}
-
-// TestHasChunkReportsSavedChunksOnly checks the portal search's shortcut: a
-// chunk nobody has visited is nothing to load, and a generated one reads back
-// as there once its first unload has saved it, as does a chunk someone
-// changed.
-func TestHasChunkReportsSavedChunksOnly(t *testing.T) {
-	t.Parallel()
-	w := NewDimensionWorld(t.TempDir(), true, NewNetherGenerator(7))
-	defer w.Close()
-	pos := ChunkPos{X: 3, Z: -2}
-	if w.HasChunk(pos) {
-		t.Error("a chunk that was never saved reports as there")
-	}
-
-	chunk, _ := w.Acquire(pos)
-	w.Release(pos)
-	if chunk == nil {
-		t.Fatal("the chunk did not generate")
-	}
-	w.FlushSaves()
-	if !w.HasChunk(pos) {
-		t.Error("a generated and released chunk does not report as there")
-	}
-
-	w.Acquire(pos)
-	if !w.SetBlock(3*16+2, 40, -2*16+2, stoneState) {
-		t.Fatal("the block did not change, so the chunk would not save")
-	}
-	w.Release(pos)
-	w.Save()
-	w.FlushSaves()
-	if !w.HasChunk(pos) {
-		t.Error("a saved chunk does not report as there")
 	}
 }

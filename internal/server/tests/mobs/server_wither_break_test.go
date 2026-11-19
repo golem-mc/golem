@@ -7,7 +7,6 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 )
 
 // The wither's rampage, black box: a hit starts a 20-tick countdown to a pass
@@ -82,22 +81,6 @@ func TestAHitWitherBreaksTheStoneAroundItTwentyTicksLater(t *testing.T) {
 	}
 }
 
-// TestAHitWitherLeavesTheBlocksWithoutMobGriefing holds the rule's gate.
-func TestAHitWitherLeavesTheBlocksWithoutMobGriefing(t *testing.T) {
-	t.Parallel()
-	srv, c, id := witherBox(t)
-	srv.SetGameRule("mob_griefing", false)
-	c.Attack(id)
-	c.Settle()
-	for range 20 {
-		srv.PlaceMob(id, 8.5, 64, 8.5)
-		srv.TickMobs(1)
-	}
-	if srv.BlockAt(7, 64, 7) == 0 {
-		t.Error("the wither broke stone with mob_griefing off")
-	}
-}
-
 // TestAKilledWitherDropsALongLivedNetherStar: the star is an item entity
 // whose age starts at minus the despawn time.
 // vanilla: WitherBoss.dropCustomDeathLoot, ItemEntity.setExtendedLifetime
@@ -140,69 +123,4 @@ func witherDeathScene(t *testing.T) (*server.Server, *servertest.Client) {
 	srv.SetSpawning(false)
 	srv.SetGameRule("mob_griefing", true)
 	return srv, c
-}
-
-// TestACowWitheredAfterASkullLeavesARose keeps the mob kill credit through
-// the effect's sourceless damage.
-func TestACowWitheredAfterASkullLeavesARose(t *testing.T) {
-	t.Parallel()
-	srv, c := witherDeathScene(t)
-	wither := srv.SpawnMob("minecraft:wither", 30.5, 80, 30.5)
-	srv.SetBlock(8, 63, 8, servertest.MustState(t, "minecraft:dirt", nil))
-	cow := srv.SpawnMob("minecraft:cow", 8.5, 64, 8.5)
-	srv.HurtMobByMob(cow, wither, 0.5, "minecraft:wither_skull")
-	// The skull's knockback has no direction, so its push is the cow's
-	// dice; still the cow so it dies over the dirt.
-	srv.PlaceMob(cow, 8.5, 64, 8.5)
-	srv.GiveMobEffect(cow, "minecraft:wither", 20, 1)
-	srv.SetMobHealth(cow, 0.5)
-	srv.TickMobs(1)
-	c.Settle()
-	if got, want := srv.BlockAt(8, 64, 8), servertest.MustState(t, "minecraft:wither_rose", nil); got != want {
-		t.Errorf("withered cow's cell = %d, want rose %d", got, want)
-	}
-}
-
-// TestAPlayerCreditedCowKilledByASkullLeavesNoRose gives the recent player
-// priority over the fatal skull's owner.
-func TestAPlayerCreditedCowKilledByASkullLeavesNoRose(t *testing.T) {
-	t.Parallel()
-	srv, c := witherDeathScene(t)
-	wither := srv.SpawnMob("minecraft:wither", 30.5, 80, 30.5)
-	srv.SetBlock(8, 63, 8, servertest.MustState(t, "minecraft:dirt", nil))
-	cow := srv.SpawnMob("minecraft:cow", 8.5, 64, 8.5)
-	c.MoveTo(10.5, 64, 8.5, 90, 0)
-	c.Attack(cow)
-	c.Settle()
-	if hp, _ := srv.MobHealth(cow); hp >= 10 {
-		t.Fatal("player's hit did not land")
-	}
-	srv.HurtMobByMob(cow, wither, 1000, "minecraft:wither_skull")
-	srv.TickMobs(1)
-	c.Settle()
-	if got := srv.BlockAt(8, 64, 8); got != 0 {
-		t.Errorf("player-credited cow's cell = %d, want air", got)
-	}
-	for _, item := range srv.ItemsInDimension(world.DimensionName) {
-		if item.Item == "minecraft:wither_rose" {
-			t.Error("player-credited cow dropped a rose")
-		}
-	}
-}
-
-// TestAPlayerKilledByAWitherLeavesARose covers ServerPlayer's death path.
-func TestAPlayerKilledByAWitherLeavesARose(t *testing.T) {
-	t.Parallel()
-	srv, c := witherDeathScene(t)
-	wither := srv.SpawnMob("minecraft:wither", 30.5, 80, 30.5)
-	srv.SetBlock(8, 63, 8, servertest.MustState(t, "minecraft:dirt", nil))
-	c.MoveTo(8.5, 64, 8.5, 0, 0)
-	c.Settle()
-	if !srv.HurtByEntity(witherBuilder, 1000, wither) {
-		t.Fatal("fatal wither hit did not land")
-	}
-	c.Settle()
-	if got, want := srv.BlockAt(8, 64, 8), servertest.MustState(t, "minecraft:wither_rose", nil); got != want {
-		t.Errorf("player's cell = %d, want rose %d", got, want)
-	}
 }

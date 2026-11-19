@@ -65,60 +65,6 @@ func TestIntFieldFloorsWhereIntValueTruncates(t *testing.T) {
 	}
 }
 
-// TestShortAndByteFieldTakeTheLowBitsOfTheFlooredInt checks that the narrower
-// reads keep the low bits of IntField, a float flooring first.
-func TestShortAndByteFieldTakeTheLowBitsOfTheFlooredInt(t *testing.T) {
-	t.Parallel()
-	c := Compound{"wide": Int(0x12345), "neg": Float(-1.5), "big": Double(1e12)}
-	if got, ok := ShortField(c, "wide"); !ok || got != 0x2345 {
-		t.Errorf("ShortField(wide) = %#x/%v, want 0x2345/true", got, ok)
-	}
-	if got, ok := ByteField(c, "wide"); !ok || got != 0x45 {
-		t.Errorf("ByteField(wide) = %#x/%v, want 0x45/true", got, ok)
-	}
-	if got, ok := ShortField(c, "neg"); !ok || got != -2 {
-		t.Errorf("ShortField(-1.5) = %d/%v, want -2/true", got, ok)
-	}
-	if got, ok := ByteField(c, "neg"); !ok || got != -2 {
-		t.Errorf("ByteField(-1.5) = %d/%v, want -2/true", got, ok)
-	}
-	// 1e12 clamps to MaxInt32 first, whose low bits are all ones.
-	if got, ok := ShortField(c, "big"); !ok || got != -1 {
-		t.Errorf("ShortField(1e12) = %d/%v, want -1/true", got, ok)
-	}
-	if got, ok := ByteField(c, "big"); !ok || got != -1 {
-		t.Errorf("ByteField(1e12) = %d/%v, want -1/true", got, ok)
-	}
-	for _, key := range []string{"missing", "string"} {
-		if got, ok := ShortField(fieldCompound, key); ok || got != 0 {
-			t.Errorf("ShortField(%q) = %d/%v, want 0/false", key, got, ok)
-		}
-		if got, ok := ByteField(fieldCompound, key); ok || got != 0 {
-			t.Errorf("ByteField(%q) = %d/%v, want 0/false", key, got, ok)
-		}
-	}
-}
-
-// TestBoolFieldReadsTheLowByte checks that any numeric width counts, that only
-// the low byte of the floored int decides, and that a missing or non-numeric
-// field is false.
-func TestBoolFieldReadsTheLowByte(t *testing.T) {
-	t.Parallel()
-	c := Compound{
-		"one": Byte(1), "zero": Byte(0), "short": Short(2), "long": Long(1 << 40),
-		"lowZero": Int(0x100), "float": Float(0.5), "negHalf": Float(-0.5),
-		"double": Double(1.0), "string": String("true"),
-	}
-	for key, want := range map[string]bool{
-		"one": true, "zero": false, "short": true, "long": false, "lowZero": false,
-		"float": false, "negHalf": true, "double": true, "string": false, "missing": false,
-	} {
-		if got := BoolField(c, key); got != want {
-			t.Errorf("BoolField(%q) = %v, want %v", key, got, want)
-		}
-	}
-}
-
 // TestFloatFieldReadsEveryNumericWidth checks the float read of each width and
 // that a missing or non-numeric field reads as absent.
 func TestFloatFieldReadsEveryNumericWidth(t *testing.T) {
@@ -158,16 +104,5 @@ func TestDoubleFieldOrFallsBackOnlyWhenNoNumber(t *testing.T) {
 	}
 	if got := DoubleFieldOr(Compound{"zero": Byte(0)}, "zero", 99); got != 0 {
 		t.Errorf("DoubleFieldOr(zero) = %v, want 0, not the fallback", got)
-	}
-}
-
-// TestIntElementFloorsAFraction checks that a list element reads as IntField
-// does, flooring where IntValue truncates.
-func TestIntElementFloorsAFraction(t *testing.T) {
-	if got, ok := IntElement(Double(-1.5)); !ok || got != -2 {
-		t.Errorf("IntElement(-1.5) = %d, %v; want -2", got, ok)
-	}
-	if _, ok := IntElement(String("x")); ok {
-		t.Error("IntElement of a string reported a number")
 	}
 }

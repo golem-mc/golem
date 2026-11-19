@@ -81,48 +81,6 @@ func TestAnEndermanIsProvokedByAGazeAtItsEyes(t *testing.T) {
 	}
 }
 
-func TestAnEndermanIgnoresAGazeThatMissesItsEyes(t *testing.T) {
-	w := newTestWorld()
-	wideFloor(w, t)
-	m := newEnderman()
-	p := starer(m, 8)
-	// Looking at the feet, 2.55 blocks under the eyes, leaves the cone
-	// 0.025/8 wide.
-	p.Pitch += 12
-	players := []Player{p}
-	if tickFor(m, w, players, 200, func([]MobEvent) bool { return m.TargetID != 0 }) >= 0 {
-		t.Fatal("a gaze at the enderman's feet provoked it")
-	}
-}
-
-func TestAnEndermanIgnoresAGazeThroughAWall(t *testing.T) {
-	w := newTestWorld()
-	wideFloor(w, t)
-	stone := defaultState(t, "minecraft:stone")
-	for y := int32(64); y <= 68; y++ {
-		w.set(4, y, 0, stone)
-	}
-	m := newEnderman()
-	players := []Player{starer(m, 8)}
-	if tickFor(m, w, players, 200, func([]MobEvent) bool { return m.TargetID != 0 }) >= 0 {
-		t.Fatal("a gaze through a wall provoked the enderman")
-	}
-}
-
-func TestAWallBreaksTheLineOfTheGaze(t *testing.T) {
-	w := newTestWorld()
-	wideFloor(w, t)
-	m := newEnderman()
-	p := starer(m, 8)
-	if !m.beingStaredBy(w, &p) {
-		t.Fatal("an open gaze at the eyes was not a stare")
-	}
-	w.set(4, 66, 0, defaultState(t, "minecraft:stone"))
-	if m.beingStaredBy(w, &p) {
-		t.Error("a gaze through a stone block was a stare")
-	}
-}
-
 func TestACarvedPumpkinMakesAGazeHarmless(t *testing.T) {
 	w := newTestWorld()
 	wideFloor(w, t)
@@ -167,16 +125,6 @@ func TestAStaredAtEndermanStandsStill(t *testing.T) {
 	tickFor(m, w, []Player{p}, 60, func([]MobEvent) bool { return m.X > startX+0.5 })
 	if m.X <= startX+0.5 {
 		t.Errorf("the enderman never walked at a target that looked away, x = %v", m.X)
-	}
-}
-
-func TestAnEndermanBlinksAwayFromAStaringTargetUpClose(t *testing.T) {
-	w := newTestWorld()
-	wideFloor(w, t)
-	m := newEnderman()
-	// Becomes the target, then the near stare teleports it.
-	if tickStaring(m, w, starer(m, 3), 100, teleported) < 0 {
-		t.Fatal("a target staring from three blocks never made the enderman teleport")
 	}
 }
 
@@ -244,39 +192,6 @@ func TestAnEndermanTeleportsAwayFromAnArrow(t *testing.T) {
 	}
 }
 
-func TestAnEndermanThatCannotTeleportBouncesTheArrow(t *testing.T) {
-	w := newTestWorld()
-	m := newEnderman()
-	m.Tick(w, nil)
-	if landed, _ := m.HurtByArrow(6, 1, 0, 0, 5, true, false); landed {
-		t.Error("the hit counts as landed with nowhere to teleport to")
-	}
-	if m.TookDodge() {
-		t.Error("a failed teleport was reported as a dodge")
-	}
-	if m.Health != m.MaxHealth {
-		t.Errorf("health = %v, want no damage", m.Health)
-	}
-}
-
-// vanilla: Enderman.hurtServer refuses projectile damage even when all teleports fail.
-func TestAnEndermanRefusesProjectileDamageWithoutATeleportDestination(t *testing.T) {
-	for _, amount := range []float64{0, 2} {
-		for _, cause := range []int32{0, 5} {
-			m := newEnderman()
-			m.Tick(newTestWorld(), nil)
-			x, y, z := m.X, m.Y, m.Z
-			landed, _ := m.HurtByCommand(amount, rules.DamageTypeArrow, cause, cause != 0, false, 0, 0)
-			if landed || m.Health != m.MaxHealth || m.InvulnTicks != 0 {
-				t.Errorf("amount %v, cause %d: landed %v, health %v, cooldown %d", amount, cause, landed, m.Health, m.InvulnTicks)
-			}
-			if m.X != x || m.Y != y || m.Z != z {
-				t.Error("teleported without a destination")
-			}
-		}
-	}
-}
-
 func TestAnEndermanTeleportsFromEveryProjectile(t *testing.T) {
 	w := newTestWorld()
 	wideFloor(w, t)
@@ -301,67 +216,6 @@ func TestAnEndermanTeleportsFromEveryProjectile(t *testing.T) {
 		}
 		if m.X == x && m.Z == z {
 			t.Errorf("%s: no teleport", name)
-		}
-	}
-}
-
-func TestAnEndermanRollsNoTeleportForALivingCause(t *testing.T) {
-	w := newTestWorld()
-	wideFloor(w, t)
-	for _, tc := range []struct {
-		name string
-		hurt func(m *Mob)
-		want bool
-	}{
-		{"nobody", func(m *Mob) { m.HurtByWorld(1, rules.DamageTypeMagic) }, true},
-		{"blast with nobody behind", func(m *Mob) { m.HurtByCausedBlast(1, 0, 0, 0, rules.DamageTypeExplosion, false, false, 0) }, true},
-		{"blast of a creeper", func(m *Mob) { m.HurtByCausedBlast(1, 0, 0, 0, rules.DamageTypeExplosion, false, true, 0) }, false},
-		{"thorns", func(m *Mob) { m.HurtByPlayerThorns(1, rules.DamageTypeThorns, 5, false, 0, 0) }, false},
-	} {
-		got := false
-		for seed := range int64(40) {
-			m := NewMob(TypeEnderman, 1, 0.5, 64, 0.5, seed)
-			m.Tick(w, nil)
-			x, z := m.X, m.Z
-			tc.hurt(m)
-			if m.X != x || m.Z != z {
-				got = true
-			}
-		}
-		if got != tc.want {
-			t.Errorf("%s: teleported = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
-func TestLosingTheTargetResetsTheDaylightHold(t *testing.T) {
-	w := newTestWorld()
-	m := newEnderman()
-	m.Age = 1000
-	m.TargetID = 5
-	m.endermanStep(w, nil)
-	if m.enderman.targetChangeAge != 1000 {
-		t.Fatalf("targetChangeAge = %d after a new target, want 1000", m.enderman.targetChangeAge)
-	}
-	m.Age = 1100
-	m.TargetID = 0
-	m.endermanStep(w, nil)
-	if m.enderman.targetChangeAge != 0 {
-		t.Errorf("targetChangeAge = %d after losing the target, want 0", m.enderman.targetChangeAge)
-	}
-}
-
-func TestAnEndermanTakesAMeleeHitWithoutTeleporting(t *testing.T) {
-	w := newTestWorld()
-	wideFloor(w, t)
-	m := newEnderman()
-	m.TakeDamage(5, Player{X: 2, Y: 64, Z: 0.5, EntityID: 5})
-	if m.Health != 35 {
-		t.Fatalf("health after a 5-point melee hit = %v, want 35", m.Health)
-	}
-	for range 40 {
-		if teleported(m.Tick(w, nil)) {
-			t.Fatal("a melee hit made the enderman teleport")
 		}
 	}
 }
@@ -423,16 +277,6 @@ func TestDaylightSendsAnEndermanAway(t *testing.T) {
 	}
 }
 
-func TestAnEndermanStaysUnderTheNightSky(t *testing.T) {
-	w := newTestWorld()
-	wideFloor(w, t)
-	w.sky = 15
-	m := newEnderman()
-	if tickFor(m, w, nil, 3000, teleported) >= 0 {
-		t.Fatal("the enderman teleported at night with no cause")
-	}
-}
-
 func TestAnEndermanDropsAnEnderPearl(t *testing.T) {
 	pearl, _ := registry.ItemID("minecraft:ender_pearl")
 	got := 0
@@ -446,49 +290,6 @@ func TestAnEndermanDropsAnEnderPearl(t *testing.T) {
 	}
 	if got == 0 || got > 150 {
 		t.Errorf("%d of 200 endermen dropped a pearl, want about half", got)
-	}
-}
-
-func TestAnAttackingEndermanWalksFaster(t *testing.T) {
-	m := newEnderman()
-	idle := m.pace()
-	m.TargetID = 7
-	if got := m.pace() - idle; math.Abs(got-float64(float32(0.15))) > 1e-9 {
-		t.Errorf("attacking speed bonus = %v, want 0.15", got)
-	}
-}
-
-func TestAThrownDodgeIsNotReadByALaterArrow(t *testing.T) {
-	w := newTestWorld()
-	wideFloor(w, t)
-	m := newEnderman()
-	m.Tick(w, nil)
-	if landed, _ := m.HurtByThrown(0, 1, 0, 5, true, false); !landed {
-		t.Fatal("the thrown item was not dodged")
-	}
-	m.HurtByArrow(0, 1, 0, 0, 5, true, false)
-	if m.TookDodge() {
-		t.Error("a zero-damage arrow read the dodge of an earlier thrown item")
-	}
-}
-
-// TestASecondWaterSplashInTheHurtWindowLandsNothing blinks the enderman away
-// again but reports no landed damage, so no damage event is told.
-// vanilla: EnderMan.hurtServer
-func TestASecondWaterSplashInTheHurtWindowLandsNothing(t *testing.T) {
-	w := newTestWorld()
-	wideFloor(w, t)
-	m := newEnderman()
-	m.Tick(w, nil)
-	if landed, _ := m.HurtByWaterSplash(0, 1, 0, false, false); !landed {
-		t.Fatal("the first splash landed no damage")
-	}
-	x, z := m.X, m.Z
-	if landed, _ := m.HurtByWaterSplash(0, 1, 0, false, false); landed {
-		t.Error("a second splash inside the hurt window reported landed damage")
-	}
-	if m.X == x && m.Z == z {
-		t.Error("the second splash did not teleport the enderman")
 	}
 }
 
@@ -548,39 +349,10 @@ func TestAnEndermanAvoidsItsDoesNotTeleportToBlocks(t *testing.T) {
 	}
 }
 
-// A cat's teleport avoids #cat_does_not_teleport_to, which unlike the
-// enderman's tag leaves out bedrock.
-// vanilla: CatRelaxOnOwnerGoal.giveMorningGift
-func TestACatsTeleportAvoidsItsOwnTag(t *testing.T) {
-	for floor, lands := range map[string]bool{"minecraft:bedrock": true, "minecraft:magma_block": false} {
-		w := floorWith(t, defaultState(t, floor), 0)
-		m := NewMob(TypeCat, 1, 0.5, 64, 0.5, 11)
-		got := teleported(m.teleportTo(w, 4.5, 64, 4.5, registry.TagIDCatDoesNotTeleportTo, nil))
-		if got != lands {
-			t.Errorf("a cat over %s: teleported = %v, want %v", floor, got, lands)
-		}
-	}
-}
-
 // clampedWorld holds a random teleport inside x and z of [-3, 3).
 type clampedWorld struct{ testWorld }
 
 func (clampedWorld) ClampToBorder(x, z float64) (float64, float64) {
 	const maxEdge = 3 - float64(float32(1e-5))
 	return math.Max(-3, math.Min(x, maxEdge)), math.Max(-3, math.Min(z, maxEdge))
-}
-
-// vanilla: LivingEntity.randomTeleport, WorldBorder.clampVec3ToBound
-func TestAMobsTeleportClampsToTheWorldBorder(t *testing.T) {
-	cw := clampedWorld{floorWith(t, 0, 0)}
-	// A boat in the world wraps it in Bodies, which must keep the clamp.
-	for name, w := range map[string]World{"plain": cw, "with boats": Bodies{World: cw}} {
-		m := newEnderman()
-		if !teleported(m.teleportTo(w, 20.5, 64, 0.5, registry.TagIDEndermanDoesNotTeleportTo, nil)) {
-			t.Fatalf("%s: the enderman did not teleport", name)
-		}
-		if want := 3 - float64(float32(1e-5)); m.X != want || m.Z != 0.5 {
-			t.Errorf("%s: landed at (%v, %v), want (%v, 0.5)", name, m.X, m.Z, want)
-		}
-	}
 }

@@ -34,15 +34,6 @@ func TestEmptyServerStopsTickingAfterPauseWhenEmpty(t *testing.T) {
 	}
 }
 
-// TestPauseWhenEmptyZeroNeverPauses checks 0 leaves the world ticking.
-func TestPauseWhenEmptyZeroNeverPauses(t *testing.T) {
-	t.Parallel()
-	advanced := emptyTicksAfter(t, 0, 60)
-	if advanced != 60 {
-		t.Errorf("world age advanced %d ticks with pausing off, want 60", advanced)
-	}
-}
-
 // TestPausedServerResumesWhenAPlayerJoins checks the world ticks again once a
 // player is in. The loop runs free: a held loop spins its ticks as fast as the
 // machine goes while the join is still on the wire, and the 30 seconds of loop

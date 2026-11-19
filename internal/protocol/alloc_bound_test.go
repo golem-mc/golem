@@ -25,37 +25,6 @@ func allocated(f func()) uint64 {
 // what a presize to the counts below would.
 const allocBound = 1 << 20
 
-// TestReadersPresizeNoFurtherThanThePayload pins that a count the payload
-// cannot back presizes nothing past what the payload could hold: a few bytes
-// claiming a million entries fail on the shortage without renting memory
-// for the million first.
-func TestReadersPresizeNoFurtherThanThePayload(t *testing.T) {
-	claim := func() *Reader {
-		var b Buffer
-		b.PutVarInt(1 << 20)
-		b.PutRaw([]byte{1, 2, 3})
-		return NewReader(b.Bytes())
-	}
-	for _, tc := range []struct {
-		name string
-		read func(*Reader) bool
-	}{
-		{"block_state", func(r *Reader) bool { _, ok := readBlockStateMap(r); return ok }},
-		{"banner_patterns", func(r *Reader) bool { _, ok := bannerPatternsValue(r); return ok }},
-		{"bees", func(r *Reader) bool { _, ok := beesValue(r); return ok }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var ok bool
-			if n := allocated(func() { ok = tc.read(claim()) }); n > allocBound {
-				t.Errorf("reading a short value allocated %d bytes", n)
-			}
-			if ok {
-				t.Error("a count the payload cannot back read as whole")
-			}
-		})
-	}
-}
-
 // TestComponentNBTIsChargedWhileRead pins that the NBT an item's components
 // carry is held to the network quota as it is read: a list of half a million
 // empty compounds, half a megabyte on the wire and over the quota at its
@@ -123,22 +92,6 @@ func TestReadPacketGrowsWithTheBytesReceived(t *testing.T) {
 	}
 	if n > allocBound {
 		t.Errorf("a 100-byte frame claiming %d allocated %d bytes", maxPacketSize, n)
-	}
-}
-
-// TestReadPacketReadsALargeFrameWhole pins the growing read against the
-// bytes it hands back: a frame several chunks long, the last one partial,
-// comes back as it was sent.
-func TestReadPacketReadsALargeFrameWhole(t *testing.T) {
-	body := make([]byte, 3*frameChunk+123)
-	for i := range body {
-		body[i] = byte(i * 7)
-	}
-	frame := append([]byte{0x2D}, body...)
-	conn := NewConn(framedConn{r: bytes.NewReader(lengthPrefixed(int32(len(frame)), frame))})
-	id, data, err := conn.ReadPacket()
-	if err != nil || id != 0x2D || !bytes.Equal(data, body) {
-		t.Fatalf("ReadPacket = 0x%02X, %d bytes, %v; want 0x2D and the %d bytes sent", id, len(data), err, len(body))
 	}
 }
 

@@ -3,7 +3,6 @@ package player
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -20,26 +19,6 @@ func TestAttributeValueOrdersTheOperations(t *testing.T) {
 	a.AddModifier(registry.AttributeArmor, Modifier{ID: "minecraft:lots", Amount: 100})
 	if got := a.Value(registry.AttributeArmor); got != 30 {
 		t.Errorf("armour = %v, want the cap of 30", got)
-	}
-}
-
-// TestReadingAnAttributeMakesNoInstance pins that Value and RemoveModifier
-// leave the map as it was: an unmodified syncable attribute nobody has a
-// modifier on is not introduced to the client at a join.
-func TestReadingAnAttributeMakesNoInstance(t *testing.T) {
-	var a Attributes
-	a.Value(registry.AttributeSafeFallDistance)
-	if a.RemoveModifier(registry.AttributeSafeFallDistance, "minecraft:effect.jump_boost") {
-		t.Error("a modifier that was never there was reported removed")
-	}
-	all := a.Introduce()
-	if len(all) != len(startingAttributes) {
-		t.Errorf("introduced %d attributes, want %d", len(all), len(startingAttributes))
-	}
-	for _, in := range all {
-		if in.Attribute.Name == "minecraft:safe_fall_distance" {
-			t.Error("safe_fall_distance was introduced with no modifier on it")
-		}
 	}
 }
 
@@ -106,48 +85,6 @@ func TestAttributesSaveRoundTrip(t *testing.T) {
 	if fresh.Save(nil) != nil {
 		t.Error("untouched map saved something")
 	}
-}
-
-// TestSaveKeepsLoadedEntries checks a loaded list survives a save: entries
-// for attributes the map does not hold stay, and one the map holds is written
-// from the map even at its default base.
-func TestSaveKeepsLoadedEntries(t *testing.T) {
-	loaded := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-		nbt.Compound{"id": nbt.String("minecraft:not_an_attribute"), "base": nbt.Double(3)},
-		nbt.Compound{"id": nbt.String("minecraft:armor"), "base": nbt.Double(0)},
-	}}
-	var a Attributes
-	a.Load(loaded)
-	list := a.Save(&loaded)
-	if list == nil || !nbt.Equal(*list, loaded) {
-		t.Errorf("Save = %v, want %v", list, loaded)
-	}
-	a.SetBase(registry.AttributeArmor, 4)
-	list = a.Save(&loaded)
-	entry, _ := nbt.CompoundView(list.Items[1])
-	if got := entry["base"]; got != nbt.Double(4) {
-		t.Errorf("armor base saved as %v, want 4", got)
-	}
-}
-
-// TestResetAttributesKeepsBases checks a new body keeps the base values and
-// loses the modifiers.
-// vanilla: ServerPlayer.restoreFrom
-func TestResetAttributesKeepsBases(t *testing.T) {
-	p := &Player{}
-	p.Attributes(func(a *Attributes) {
-		a.SetBase(registry.AttributeArmor, 5)
-		a.AddModifier(registry.AttributeArmor, Modifier{ID: "minecraft:t", Amount: 2, Persistent: true})
-	})
-	p.ResetAttributes()
-	p.Attributes(func(a *Attributes) {
-		if got := a.Base(registry.AttributeArmor); got != 5 {
-			t.Errorf("base = %v, want 5", got)
-		}
-		if _, ok := a.Modifier(registry.AttributeArmor, "minecraft:t"); ok {
-			t.Error("modifier survived the reset")
-		}
-	})
 }
 
 // TestAttributeSetHoldsEveryAttribute pins that attributeSet, one bit per

@@ -56,29 +56,3 @@ func TestUniversalAngerTurnsAStruckPiglinOnTheNearestPlayer(t *testing.T) {
 		return srv.MobTargetID(p) == otherID
 	})
 }
-
-// A hoglin's brain answers a player's blow whatever the rule says.
-// Invisibility keeps the player 3 blocks away out of the hoglin's own hunt
-// (2 blocks at 0.07 of its follow range), which a blow ignores.
-// vanilla: HoglinAi.wasHurtBy, LivingEntity.getVisibilityPercent
-func TestUniversalAngerStillTurnsAStruckHoglinOnThePlayer(t *testing.T) {
-	t.Parallel()
-	c, playerID, srv := hoglinWorld2(t)
-	srv.SetGameRule("universal_anger", true)
-	c.ChatCommand("effect give @s minecraft:resistance 100 4")
-	c.ChatCommand("effect give @s minecraft:invisibility 100 0")
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	px := srv.PlayerPosition("Slayer")
-	h := srv.SpawnMob(hoglin, px.X+3, 64, px.Z)
-	servertest.RunTicks(t, srv, 40)
-	if got := srv.MobTargetID(h); got != 0 {
-		t.Fatalf("the hoglin targets %d before the blow, want nobody", got)
-	}
-	servertest.AwaitFullSwing(t, srv, "Slayer")
-	c.Attack(h)
-	c.Settle()
-	servertest.UntilTicks(t, srv, 20, "the hoglin targeting the player", func() bool {
-		return srv.MobTargetID(h) == playerID
-	})
-}

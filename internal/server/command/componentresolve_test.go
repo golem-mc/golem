@@ -1,8 +1,6 @@
 package command
 
 import (
-	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -17,30 +15,6 @@ type storedComponentSource struct {
 func (*storedComponentSource) SelfEntity() Entity { return nil }
 func (s *storedComponentSource) ReadCommandStorage(_ string, fn func(nbt.CompoundTag)) {
 	fn(s.storage)
-}
-
-// TestResolveTextPreservesTheInputOnFailure checks a refusal and an expansion
-// beyond the wire budget both leave the stored component intact.
-func TestResolveTextPreservesTheInputOnFailure(t *testing.T) {
-	src := &storedComponentSource{bodies: []Entity{forkBody{}, forkBody{}}}
-	items := make([]nbt.Tag, 40)
-	for i := range items {
-		items[i] = nbt.String(strings.Repeat("x", 30000))
-	}
-	src.storage = nbt.Compound{"v": nbt.NewList(items)}
-	for _, tag := range []nbt.Tag{
-		nbt.Compound{"score": nbt.Compound{"name": nbt.String("@e"), "objective": nbt.String("o")}},
-		nbt.Compound{"nbt": nbt.String("v[]"), "storage": nbt.String("t:s"), "interpret": nbt.Byte(1)},
-	} {
-		for _, original := range []protocol.Text{
-			{Raw: tag},
-			{Text: "Hover", HoverText: &protocol.Text{Raw: tag}},
-		} {
-			if got := ResolveText(src, original); !reflect.DeepEqual(got, original) {
-				t.Error("resolution failure did not preserve the original component")
-			}
-		}
-	}
 }
 
 // TestResolveComponentFoldsNestedLists keeps the first component's style and

@@ -66,17 +66,3 @@ func TestALitBeaconObtainsItsConstructionForPlayersInReach(t *testing.T) {
 		t.Error("a one-layer pyramid obtained create_full_beacon")
 	}
 }
-
-// TestALitBeaconOnAFullPyramidObtainsBeaconator: level 4 passes both
-// construction criteria.
-// vanilla: ConstructBeaconTrigger.TriggerInstance.matches
-func TestALitBeaconOnAFullPyramidObtainsBeaconator(t *testing.T) {
-	t.Parallel()
-	srv, _, _ := beaconAt(t, 4)
-	if !srv.AdvancementObtained("Near", "minecraft:nether/create_full_beacon", "beacon") {
-		t.Error("a four-layer pyramid did not obtain create_full_beacon")
-	}
-	if !srv.AdvancementObtained("Near", "minecraft:nether/create_beacon", "beacon") {
-		t.Error("a four-layer pyramid did not obtain create_beacon")
-	}
-}

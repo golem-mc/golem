@@ -2,10 +2,11 @@ package network
 
 import (
 	"fmt"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"

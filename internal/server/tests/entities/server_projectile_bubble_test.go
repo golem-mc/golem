@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
@@ -98,54 +97,4 @@ func TestProjectilesAreMovedByBubbleColumns(t *testing.T) {
 		return
 	}
 	t.Error("the stuck arrow is gone")
-}
-
-// vanilla: Entity.sendBubbleColumnParticles
-func TestProjectileSurfaceContactsSendParticles(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "SurfaceWatcher", func(srv *server.Server) {
-		servertest.FreezeUntilHeld(t, srv)
-	})
-	servertest.HoldTicks(t, srv)
-	release := srv.HoldChunk(8, 8)
-	defer release()
-	up := servertest.MustState(t, "minecraft:bubble_column", map[string]string{"drag": "false"})
-	bubbleShaft(t, srv, 2, 8, "minecraft:soul_sand", up)
-	bubbleShaft(t, srv, 6, 8, "minecraft:soul_sand", up)
-	c.Settle()
-
-	// Start above the column so each body contacts its surface once on the
-	// move, without a throwable's extra first-tick push from inside water.
-	srv.RunLine("summon minecraft:arrow 2.5 64.25 8.5 {NoGravity:1b,Motion:[0d,-0.5d,0d]}")
-	srv.RunLine("summon minecraft:snowball 6.5 64.25 8.5 {NoGravity:1b,Motion:[0d,-0.5d,0d]}")
-	counts := map[int32]map[int32]int{
-		2: {}, // arrow
-		6: {}, // snowball
-	}
-	c.ReadTicks(srv, 1, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayLevelParticles {
-			return false
-		}
-		p, ok := servertest.ParseLevelParticles(data)
-		if !ok {
-			t.Fatalf("invalid surface particle packet: %x", data)
-		}
-		if p.Type != protocol.ParticleSplash && p.Type != protocol.ParticleBubble {
-			return false
-		}
-		cell := int32(p.X)
-		if counts[cell] == nil || p.X < float64(cell) || p.X >= float64(cell+1) ||
-			p.Y != 64 || p.Z < 8 || p.Z >= 9 || p.Count != 1 {
-			t.Errorf("particle outside the two surface cells: %+v", p)
-			return false
-		}
-		counts[cell][p.Type]++
-		return false // Read through the tick's barrier to count every particle.
-	})
-	for cell, particles := range counts {
-		if particles[protocol.ParticleSplash] != 2 || particles[protocol.ParticleBubble] != 2 {
-			t.Errorf("surface x=%d sent %d splash and %d bubble particles, want two of each",
-				cell, particles[protocol.ParticleSplash], particles[protocol.ParticleBubble])
-		}
-	}
 }

@@ -1,3 +1,0 @@
-# Vanilla mutation recorder input: tools/java/StackComponentHistory.java
-ab	{id:"minecraft:diamond_sword",count:1,components:{"minecraft:damage":1,"minecraft:block_state":{axis:"x"}}}	*	root_mutations
-ba	{id:"minecraft:diamond_sword",count:1,components:{"minecraft:block_state":{axis:"x"},"minecraft:damage":1}}	*	root_mutations

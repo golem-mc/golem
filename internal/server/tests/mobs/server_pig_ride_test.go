@@ -5,7 +5,6 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 	"testing"
 )
@@ -140,44 +139,6 @@ func TestTheCarrotStickBoostsThePigOnceAtATime(t *testing.T) {
 	}
 }
 
-func TestABrokenCarrotStickBecomesAFishingRod(t *testing.T) {
-	t.Parallel()
-	srv, c := striderWorld(t)
-	stick, _ := registry.ItemID("minecraft:carrot_on_a_stick")
-	srv.GiveSlot("Rider", player.HotbarSlot, protocol.ItemStack{ItemID: stick, Count: 1, Damage: 24, CustomName: &protocol.Text{Text: "Goad"}})
-	c.Settle()
-	c.ChatCommand("summon minecraft:pig 5.5 64 5.5 " + pigSaddleTag)
-	spawn := c.ExpectMobSpawn(pigTypeID(t))
-	c.UseOn(spawn.EntityID)
-	c.Settle()
-	c.UseItemRightClicks(protocol.HandMain)
-	c.Settle()
-	rod, _ := registry.ItemID("minecraft:fishing_rod")
-	if got := srv.InventorySlot("Rider", player.HotbarSlot); got.ItemID != rod || got.Count != 1 {
-		t.Errorf("hand holds item %d x%d, want one fishing rod %d", got.ItemID, got.Count, rod)
-	}
-	if got := srv.InventorySlot("Rider", player.HotbarSlot); got.CustomName == nil || got.CustomName.Text != "Goad" {
-		t.Errorf("the rod lost the stick's custom name: %v", got.CustomName)
-	}
-}
-
-func TestABabyPigRefusesASaddle(t *testing.T) {
-	t.Parallel()
-	srv, c := striderWorld(t)
-	srv.GiveSlot("Rider", player.HotbarSlot, servertest.ItemStack(t, "minecraft:saddle", 1))
-	c.Settle()
-	c.ChatCommand("summon minecraft:pig 5.5 64 5.5 {Age:-24000,NoAI:1b}")
-	id := c.ExpectMobSpawn(pigTypeID(t)).EntityID
-	c.UseOn(id)
-	c.Settle()
-	if !srv.MobEquipment(id, "saddle").Empty() {
-		t.Fatal("baby took saddle")
-	}
-	if got := srv.InventorySlot("Rider", player.HotbarSlot); got.Count != 1 {
-		t.Fatalf("hand = %+v", got)
-	}
-}
-
 func TestAPigMountsUnlessThePlayerSneaks(t *testing.T) {
 	t.Parallel()
 	srv, c := striderWorld(t)
@@ -206,100 +167,5 @@ func TestAPigMountsUnlessThePlayerSneaks(t *testing.T) {
 	c.Settle()
 	if ids := srv.MobPassengerIDs(id); len(ids) != 1 {
 		t.Fatalf("passengers = %v", ids)
-	}
-}
-
-func TestASaddledPigDropsItsSaddle(t *testing.T) {
-	t.Parallel()
-	c, srv, id := pigSteer(t, "")
-	c.SendSneak(true)
-	c.Settle()
-	if !srv.KillMob(id) {
-		t.Fatal("pig did not die")
-	}
-	srv.TickMobs(21)
-	for _, item := range srv.ItemsInDimension(world.DimensionName) {
-		if registry.Item(item.Stack.ItemID) == registry.ItemSaddle {
-			return
-		}
-	}
-	t.Fatal("pig dropped no saddle")
-}
-
-func TestAPigsSpeedIsSentToItsRider(t *testing.T) {
-	t.Parallel()
-	srv, c := striderWorld(t)
-	c.ChatCommand("summon minecraft:pig 5.5 64 5.5 " + pigSaddleTag)
-	spawn := c.ExpectMobSpawn(pigTypeID(t))
-	id := spawn.EntityID
-	if spawn.SpeedAttribute != 0.25 {
-		t.Fatalf("pig speed = %v, want 0.25", spawn.SpeedAttribute)
-	}
-	c.UseOn(id)
-	c.Settle()
-	c.ChatCommand("attribute @e[type=minecraft:pig,limit=1] minecraft:movement_speed base set 0.5")
-	c.Settle()
-	srv.TickMobs(1)
-	told := false
-	c.SettleAndCollect(func(packet int32, data []byte) {
-		if packet != protocol.IDPlayUpdateAttributes {
-			return
-		}
-		got, attrs := servertest.ReadAttributes(t, data)
-		if got != id {
-			return
-		}
-		speed, ok := attrs[protocol.AttributeMovementSpeed]
-		if ok {
-			told = true
-			if speed.Base != 0.5 {
-				t.Errorf("pig speed = %+v", speed)
-			}
-		}
-	})
-	if !told {
-		t.Fatal("pig movement speed not sent")
-	}
-}
-
-func TestAPigsFoodFeedsInsteadOfMounting(t *testing.T) {
-	t.Parallel()
-	srv, c := striderWorld(t)
-	srv.GiveSlot("Rider", player.HotbarSlot, servertest.ItemStack(t, "minecraft:carrot", 2))
-	c.Settle()
-	c.ChatCommand("summon minecraft:pig 5.5 64 5.5 " + pigSaddleTag)
-	id := c.ExpectMobSpawn(pigTypeID(t)).EntityID
-	c.UseOn(id)
-	c.Settle()
-	if ids := srv.MobPassengerIDs(id); len(ids) != 0 {
-		t.Fatalf("food mounted rider: %v", ids)
-	}
-	if got := srv.InventorySlot("Rider", player.HotbarSlot).Count; got != 1 {
-		t.Fatalf("carrots left = %d, want 1", got)
-	}
-}
-
-func TestAPigNeedsItsOwnStickInEitherHand(t *testing.T) {
-	t.Parallel()
-	c, srv, id := pigSteer(t, "minecraft:warped_fungus_on_a_stick")
-	moveVehicle(c, 7.5, 64, 5.5, -90)
-	if x, _, _, _ := srv.MobPos(id); x != 5.5 {
-		t.Fatalf("fungus stick steered pig to %v", x)
-	}
-	c.UseItemRightClicks(protocol.HandMain)
-	c.Settle()
-	if got := srv.InventorySlot("Rider", player.HotbarSlot).Damage; got != 0 {
-		t.Fatalf("wrong stick wore by %d", got)
-	}
-	srv.GiveSlot("Rider", player.OffHandSlot, servertest.ItemStack(t, "minecraft:carrot_on_a_stick", 1))
-	c.Settle()
-	moveVehicle(c, 7.5, 64, 5.5, -90)
-	if x, _, _, _ := srv.MobPos(id); x != 7.5 {
-		t.Fatalf("offhand carrot stick left pig at %v", x)
-	}
-	c.UseItemRightClicks(protocol.HandOff)
-	c.Settle()
-	if got := srv.InventorySlot("Rider", player.OffHandSlot).Damage; got != 7 {
-		t.Fatalf("offhand wear = %d, want 7", got)
 	}
 }

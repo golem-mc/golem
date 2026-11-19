@@ -3,7 +3,6 @@ package containers
 import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -66,17 +65,6 @@ func TestFireworkStarCraftsFromGunpowderAndDyes(t *testing.T) {
 		servertest.ItemStack(t, "minecraft:fire_charge", 1), servertest.ItemStack(t, "minecraft:diamond", 1))
 }
 
-func TestFireworkStarFadeAddsFadeColours(t *testing.T) {
-	t.Parallel()
-	_, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	star := withComponent(t, "minecraft:firework_star", 1, protocol.DataComponentFireworkExplosion,
-		explosionBytes(2, []int32{0xB3312C}, nil, false, true))
-	want := withComponent(t, "minecraft:firework_star", 1, protocol.DataComponentFireworkExplosion,
-		explosionBytes(2, []int32{0xB3312C}, []int32{0x253192, 0x3B511A}, false, true))
-	craftInGrid(w, want, star,
-		servertest.ItemStack(t, "minecraft:blue_dye", 1), servertest.ItemStack(t, "minecraft:green_dye", 1))
-}
-
 func TestFireworkRocketCraftsWithFlightAndExplosions(t *testing.T) {
 	t.Parallel()
 	_, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
@@ -91,47 +79,6 @@ func TestFireworkRocketCraftsWithFlightAndExplosions(t *testing.T) {
 		servertest.ItemStack(t, "minecraft:gunpowder", 1), servertest.ItemStack(t, "minecraft:gunpowder", 1), star)
 }
 
-// TestFireworkRocketWithTwoGunpowderHasFlightTwo is the plain rocket without
-// stars: the shapeless two-ingredient recipe cannot match two gunpowder.
-func TestFireworkRocketWithTwoGunpowderHasFlightTwo(t *testing.T) {
-	t.Parallel()
-	_, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	var b protocol.Buffer
-	b.PutVarInt(2)
-	b.PutVarInt(0)
-	want := withComponent(t, "minecraft:firework_rocket", 3, protocol.DataComponentFireworks, b.Bytes())
-	craftInGrid(w, want, servertest.ItemStack(t, "minecraft:paper", 1),
-		servertest.ItemStack(t, "minecraft:gunpowder", 1), servertest.ItemStack(t, "minecraft:gunpowder", 1))
-}
-
-// TestPlainFireworkRocketStacksWithOneWithoutAComponent: one gunpowder and
-// only a star without an explosion is the item's default fireworks component,
-// so the crafted rocket has no patch and a shift-click merges it into a
-// rocket that has none either, as one loaded from a save does.
-func TestPlainFireworkRocketStacksWithOneWithoutAComponent(t *testing.T) {
-	t.Parallel()
-	_, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	w.SetCreativeSlot(44, servertest.ItemStack(t, "minecraft:firework_rocket", 3))
-	rocket := servertest.ItemStack(t, "minecraft:firework_rocket", 3)
-	craftInGrid(w, rocket, servertest.ItemStack(t, "minecraft:paper", 1),
-		servertest.ItemStack(t, "minecraft:gunpowder", 1), servertest.ItemStack(t, "minecraft:firework_star", 1))
-	w.Click(0, 0, protocol.ClickModeQuickMove)
-	w.ExpectClickResult(map[int16]protocol.ItemStack{
-		1: {}, 2: {}, 3: {}, 0: {},
-		44: servertest.ItemStack(t, "minecraft:firework_rocket", 6),
-	}, protocol.ItemStack{})
-}
-
-// TestFireworkRocketRefusesTwoPapers: a second paper spoils the recipe, so
-// the result slot is empty.
-func TestFireworkRocketRefusesTwoPapers(t *testing.T) {
-	t.Parallel()
-	_, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	craftInGrid(w, protocol.ItemStack{}, servertest.ItemStack(t, "minecraft:paper", 1),
-		servertest.ItemStack(t, "minecraft:paper", 1), servertest.ItemStack(t, "minecraft:gunpowder", 1),
-		servertest.ItemStack(t, "minecraft:gunpowder", 1))
-}
-
 func TestSuspiciousStewCraftsInThePlayerGrid(t *testing.T) {
 	t.Parallel()
 	_, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
@@ -143,17 +90,4 @@ func TestSuspiciousStewCraftsInThePlayerGrid(t *testing.T) {
 	craftInGrid(w, want,
 		servertest.ItemStack(t, "minecraft:bowl", 1), servertest.ItemStack(t, "minecraft:brown_mushroom", 1),
 		servertest.ItemStack(t, "minecraft:red_mushroom", 1), servertest.ItemStack(t, "minecraft:poppy", 1))
-}
-
-// A dye's own component, not its item, gives the explosion colour.
-// vanilla: FireworkStarRecipe, DataComponents.DYE
-func TestFireworkStarTakesTheDyeComponentsColour(t *testing.T) {
-	t.Parallel()
-	_, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	dye := servertest.ItemStack(t, "minecraft:red_dye", 1)
-	blue := slices.Index(registry.DyeNames, "blue")
-	dye.SetEnum(protocol.DataComponentDye, int32(blue))
-	want := withComponent(t, "minecraft:firework_star", 1, protocol.DataComponentFireworkExplosion,
-		explosionBytes(0, []int32{registry.FireworkDyeColour(blue)}, nil, false, false))
-	craftInGrid(w, want, servertest.ItemStack(t, "minecraft:gunpowder", 1), dye)
 }

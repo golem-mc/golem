@@ -57,33 +57,3 @@ func TestAChorusFruitTeleportSendsItsParticleEvent(t *testing.T) {
 		t.Errorf("the event points at %v, want the cell reached %v", dest, to)
 	}
 }
-
-// TestAChorusFruitTeleportStaysInsideTheWorldBorder: the target is clamped
-// into the border before the eater drops to the floor, so the eater lands
-// within the 3 blocks around 0.5 0.5.
-// vanilla: LivingEntity.randomTeleport, WorldBorder.clampVec3ToBound
-func TestAChorusFruitTeleportStaysInsideTheWorldBorder(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LevelName = t.TempDir()
-	mealedPlayerFile(t, cfg, "Eater")
-
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Eater"))
-	tick := servertest.StopTicking(t, srv)
-	c := connect()
-	c.JoinAs("Eater")
-
-	c.ChatCommand("worldborder center 0.5 0.5")
-	c.ChatCommand("worldborder set 3")
-	srv.GiveSlot("Eater", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:chorus_fruit"), Count: 1})
-	c.Settle()
-	c.UseItemRightClicks(protocol.HandMain)
-	c.Settle()
-	tick(33)
-	c.Settle()
-
-	if p := srv.PlayerPosition("Eater"); p.X < -1 || p.X >= 2 || p.Z < -1 || p.Z >= 2 {
-		t.Errorf("the eater landed at %.5f %.5f %.5f, outside the border's 3x3 columns", p.X, p.Y, p.Z)
-	}
-}

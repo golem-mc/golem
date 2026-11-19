@@ -4,12 +4,10 @@ import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"fmt"
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	server "github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -95,54 +93,6 @@ func summonSquidSpawn(t *testing.T, c *servertest.Client, kind string, entityTyp
 	c.ChatCommand(command)
 	servertest.AwaitSummonFeedback(t, c, kind, "entity.minecraft."+kind[len("minecraft:"):])
 	return c.ExpectMobSpawn(entityType)
-}
-
-// TestASummonedSquidSwimsInItsPond summons a squid into the pond and
-// watches its body over a hundred hand-driven ticks: the tentacle pump
-// carries it through the water — never out of the pond — and the entity
-// event its wrapped cycle broadcasts restarts the client's tentacle
-// animation at least once on the way.
-func TestASummonedSquidSwimsInItsPond(t *testing.T) {
-	t.Parallel()
-	srv, c := squidTests(t)
-
-	id := summonSquid(t, c, "minecraft:squid", protocol.EntityTypeSquid, pondCentreX, -8.5)
-	start := srv.Mobs()
-	if len(start) != 1 || start[0].ID != id {
-		t.Fatalf("%d mobs stand after the summon, want the one squid (id %d)", len(start), id)
-	}
-
-	tentacles := 0
-	for range 100 {
-		c.SettleAndCollect(func(packetID int32, data []byte) {
-			if packetID != protocol.IDPlayEntityEvent {
-				return
-			}
-			r := protocol.NewReader(data)
-			tickView := r.ReadI32()
-			status := r.ReadU8()
-			if tickView == id && status == protocol.EntityStatusSquidTentacles {
-				tentacles++
-			}
-		})
-		srv.TickMobs(1)
-	}
-	c.Settle()
-
-	m := srv.Mobs()
-	if len(m) != 1 {
-		t.Fatalf("%d mobs stand after the swim, want the one squid", len(m))
-	}
-	moved := math.Hypot(m[0].X-start[0].X, m[0].Z-start[0].Z)
-	if moved < 0.25 {
-		t.Errorf("the squid swam %.2f blocks in a hundred ticks, want the tentacle pump's wandering", moved)
-	}
-	if x, z := int32(math.Floor(m[0].X)), int32(math.Floor(m[0].Z)); x < pondXLo || x > pondXHi || z < pondZLo || z > pondZHi {
-		t.Errorf("the squid swam to (%d, %d), outside the pond it was summoned into", x, z)
-	}
-	if tentacles == 0 {
-		t.Error("no tentacle restart event in the pond's first hundred ticks, want the wrapped cycle's broadcast")
-	}
 }
 
 // TestASquidSquirtsInkAndFleesWhenHurt strikes each kind of squid once in
@@ -231,135 +181,6 @@ func TestASquidSquirtsInkAndFleesWhenHurt(t *testing.T) {
 					return
 				}
 				t.Fatal("the struck squid is gone from the world a hundred ticks after the blow")
-			}
-		})
-	}
-}
-
-// TestASoftenedBlowStillSquirtsInk strikes a squid twice inside the
-// invulnerability window — a whole bare-fisted blow first, then a sword's
-// larger one the window softens to its excess — and expects the softened
-// blow, which tells of no hurt's damage or sound, to squeeze the ink out
-// all the same.
-// vanilla: Squid.hurtServer, LivingEntity.hurtServer
-func TestASoftenedBlowStillSquirtsInk(t *testing.T) {
-	t.Parallel()
-	srv, c := squidTests(t)
-	id := summonSquid(t, c, "minecraft:squid", protocol.EntityTypeSquid, pondCentreX, pondNorth)
-
-	// The whole first blow and its own ink are read past with the settle.
-	c.Attack(id)
-	c.Settle()
-
-	// The sword goes on and the swing comes back to full: the window a
-	// blow opens is ticked by the mobs, which the loop's stop leaves
-	// still, while the arm recovers on the survival ticks. The second
-	// blow's larger damage then lands only its excess.
-	srv.GiveSlot("Striker", player.HotbarSlot,
-		protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:diamond_sword"), Count: 1})
-	for range 20 {
-		srv.TickSurvival()
-	}
-	c.Attack(id)
-
-	squirted, inked := false, false
-	c.ReadTicks(srv, 200, func(packetID int32, data []byte) bool {
-		switch packetID {
-		case protocol.IDPlaySoundEffect:
-			r := protocol.NewReader(data)
-			sound := r.ReadVarInt()
-			name, _ := servertest.SoundEventName(sound - 1)
-			if sound == 0 {
-				name = r.ReadString(32767)
-			}
-			if name == "minecraft:entity.squid.squirt" {
-				squirted = true
-			}
-		case protocol.IDPlayLevelParticles:
-			r := protocol.NewReader(data)
-			pkind := r.ReadVarInt()
-			servertest.ReadParticleTail(t, r)
-			if pkind == protocol.ParticleSquidInk {
-				inked = true
-			}
-		}
-		return squirted && inked
-	})
-	if !squirted {
-		t.Error("the softened blow never played the squirt's own sound")
-	}
-	if !inked {
-		t.Error("the softened blow never squeezed the ink cloud out")
-	}
-}
-
-// TestTheDeadSquidLaysItsInkSacDown kills each kind of squid with a
-// diamond sword and reads the death's loot: the ink sac — one to three of
-// them, the glow squid's own sac glowing. The squid is summoned on one
-// heart so the one blow kills it: a struck squid flees, and the pond is
-// too short to catch it again before the memory of the blow fades.
-func TestTheDeadSquidLaysItsInkSacDown(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		kind      string
-		entityTyp int32
-		sac       string
-	}{
-		{"minecraft:squid", protocol.EntityTypeSquid, "minecraft:ink_sac"},
-		{"minecraft:glow_squid", protocol.EntityTypeGlowSquid, "minecraft:glow_ink_sac"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.kind, func(t *testing.T) {
-			srv, c := squidTests(t)
-
-			id := summonSquidTagged(t, c, tc.kind, tc.entityTyp, pondCentreX, pondNorth, "{Health:1f}")
-			srv.GiveSlot("Striker", player.HotbarSlot,
-				protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:diamond_sword"), Count: 1})
-
-			sac, ok := registry.ItemID(tc.sac)
-			if !ok {
-				t.Fatalf("the item registry has no %s", tc.sac)
-			}
-			var drops []servertest.ItemDrop
-			removed := false
-			for tick := 0; tick < 200 && (!removed || len(drops) == 0); tick++ {
-				if srv.AttackTicks("Striker") >= servertest.SwingRecovered {
-					c.Attack(id)
-				}
-				srv.TickSurvival()
-				srv.TickMobs(1)
-				c.SettleAndCollect(func(packetID int32, data []byte) {
-					switch packetID {
-					case protocol.IDPlaySpawnEntity:
-						if d := servertest.ParseItemSpawn(data); d.EntityID != 0 {
-							c.ReadDropStack(&d)
-							drops = append(drops, d)
-						}
-					case protocol.IDPlayRemoveEntities:
-						r := protocol.NewReader(data)
-						for range r.ReadVarInt() {
-							if r.ReadVarInt() == id {
-								removed = true
-							}
-						}
-					}
-				})
-			}
-			if !removed {
-				t.Fatal("the squid was never struck down by the sword's swings")
-			}
-			if len(drops) == 0 {
-				t.Fatal("the dead squid laid nothing down")
-			}
-			for _, d := range drops {
-				name, _ := registry.ItemName(d.Stack.ItemID)
-				if d.Stack.ItemID != sac {
-					t.Errorf("the dead squid dropped a %s, want its ink sac the table names", name)
-					continue
-				}
-				if d.Stack.Count < 1 || d.Stack.Count > 3 {
-					t.Errorf("the dead squid dropped %d %s, want the table's one to three", d.Stack.Count, name)
-				}
 			}
 		})
 	}

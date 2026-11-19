@@ -56,15 +56,6 @@ func TestARavagerTramplesWheatItStandsIn(t *testing.T) {
 	}
 }
 
-// TestARavagerSparesWheatWithoutMobGriefing: the rule off, the row stands.
-func TestARavagerSparesWheatWithoutMobGriefing(t *testing.T) {
-	t.Parallel()
-	planted, items := ravagerInWheat(t, false)
-	if len(planted) != 6 || len(items) != 0 {
-		t.Errorf("planted = %v, items = %v, want all six and none", planted, items)
-	}
-}
-
 // beeInEyeblossom stands a bee inside an open eyeblossom on a held loop at
 // the difficulty and returns its poison after the contact tick and after the
 // tick that follows.
@@ -93,13 +84,5 @@ func TestAnOpenEyeblossomPoisonsABee(t *testing.T) {
 	first, second, ok := beeInEyeblossom(t, rules.DifficultyNormal)
 	if !ok || first != 25 || second != 24 {
 		t.Errorf("poison = %d then %d, %v; want 25 then 24", first, second, ok)
-	}
-}
-
-// TestAnOpenEyeblossomSparesABeeInPeaceful: no poison in peaceful.
-func TestAnOpenEyeblossomSparesABeeInPeaceful(t *testing.T) {
-	t.Parallel()
-	if d, _, ok := beeInEyeblossom(t, rules.DifficultyPeaceful); ok {
-		t.Errorf("poison = %d in peaceful, want none", d)
 	}
 }

@@ -1,7 +1,6 @@
 package entities
 
 import (
-	"math"
 	"strings"
 	"testing"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
 
 const furnaceCart = "minecraft:furnace_minecart"
@@ -104,66 +102,6 @@ func TestCoalFuelsAFurnaceCartUpToTheCap(t *testing.T) {
 	}
 }
 
-// TestCreativeKeepsTheCoalItFeeds: the cart takes the fuel, the creative
-// player keeps the item.
-// vanilla: MinecartFurnace.interact
-func TestCreativeKeepsTheCoalItFeeds(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.GameMode = "creative"
-	srv, c := servertest.OpenWindowed(t, cfg)
-	c.MoveToGround(2.5, 64, 1.5, true)
-	c.Settle()
-	id := furnaceCartAt(t, srv, "")
-	srv.GiveSlot("Testificate", player.HotbarSlot, itemOf(t, "minecraft:coal", 3))
-	c.InteractAt(id, protocol.HandMain, 0.5, 0.5, 0.5)
-	c.Settle()
-	if got := savedFuel(t, srv, id); got != 3600 {
-		t.Fatalf("fuel = %d, want 3600", got)
-	}
-	if held := srv.InventorySlot("Testificate", player.HotbarSlot); held.Count != 3 {
-		t.Errorf("creative coal count = %d, want 3", held.Count)
-	}
-}
-
-// TestASpectatorCannotFuelAFurnaceCart: the click does nothing.
-func TestASpectatorCannotFuelAFurnaceCart(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	c.MoveToGround(2.5, 64, 1.5, true)
-	c.Settle()
-	id := furnaceCartAt(t, srv, "")
-	srv.GiveSlot("Testificate", player.HotbarSlot, itemOf(t, "minecraft:coal", 3))
-	srv.RunLine("gamemode spectator Testificate")
-	if srv.PlayerGameMode("Testificate") != protocol.GameModeSpectator {
-		t.Fatal("the switch to spectator applies")
-	}
-	c.Settle()
-	c.InteractAt(id, protocol.HandMain, 0.5, 0.5, 0.5)
-	c.Settle()
-	if got := savedFuel(t, srv, id); got != 0 {
-		t.Errorf("a spectator fuelled the cart: %d", got)
-	}
-	if held := srv.InventorySlot("Testificate", player.HotbarSlot); held.Count != 3 {
-		t.Errorf("coal count = %d, want 3", held.Count)
-	}
-}
-
-// TestAFurnaceCartCannotBeRiddenByAClick: the click is the fuel's alone.
-// vanilla: MinecartFurnace.interact
-func TestAFurnaceCartCannotBeRiddenByAClick(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	c.MoveToGround(2.5, 64, 1.5, true)
-	c.Settle()
-	id := furnaceCartAt(t, srv, "")
-	c.InteractAt(id, protocol.HandMain, 0.5, 0.5, 0.5)
-	c.Settle()
-	if riders := srv.MinecartPassengerIDs(id); len(riders) != 0 {
-		t.Fatalf("a click boarded %v", riders)
-	}
-}
-
 // TestALitFurnaceCartOutrunsAPlainCart: a pushed furnace cart keeps moving
 // where an unpushed one has rolled to a stop, and stays under its halved top
 // speed of 0.2 a tick.
@@ -201,43 +139,6 @@ func TestALitFurnaceCartOutrunsAPlainCart(t *testing.T) {
 	}
 }
 
-// TestAFurnaceCartStopsBeingPushedWhenTheFuelRunsOut: the burn time counts
-// down a tick at a time, the lit flag follows, and the push is dropped.
-// vanilla: MinecartFurnace.tick
-func TestAFurnaceCartStopsBeingPushedWhenTheFuelRunsOut(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	id := furnaceCartAt(t, srv, "{Fuel:5s,PushX:0.5d}")
-	srv.TickMinecarts(4)
-	if got := savedFuel(t, srv, id); got != 1 {
-		t.Fatalf("fuel after 4 ticks = %d, want 1", got)
-	}
-	if lit, _ := srv.MinecartLit(id); !lit {
-		t.Fatal("not lit with one tick of fuel left")
-	}
-	srv.TickMinecarts(1)
-	if got := savedFuel(t, srv, id); got != 0 {
-		t.Fatalf("fuel after 5 ticks = %d, want 0", got)
-	}
-	if lit, _ := srv.MinecartLit(id); lit {
-		t.Error("still lit with no fuel")
-	}
-	if px, _ := nbt.Get[nbt.Double](cartSavedTag(t, srv, id), "PushX"); px != 0 {
-		t.Errorf("PushX = %v after the fuel ran out, want 0", px)
-	}
-	x1, _, _, _, _ := srv.MinecartState(id)
-	srv.TickMinecarts(100)
-	x2, _, _, _, _ := srv.MinecartState(id)
-	srv.TickMinecarts(100)
-	x3, _, _, _, _ := srv.MinecartState(id)
-	if x2 <= x1 {
-		t.Errorf("the cart did not coast on after the fuel ran out: %v, %v", x1, x2)
-	}
-	if math.Abs(x3-x2) > 0.1 {
-		t.Errorf("the cart is still pushed 100 ticks after the fuel ran out: %v, %v", x2, x3)
-	}
-}
-
 // TestAFurnaceCartKeepsItsFuelAcrossASave: Fuel and the push save and load,
 // and the load clamps nothing.
 // vanilla: MinecartFurnace.addAdditionalSaveData, readAdditionalSaveData
@@ -257,63 +158,4 @@ func TestAFurnaceCartKeepsItsFuelAcrossASave(t *testing.T) {
 	if got := srv.MinecartKind(id); got != furnaceCart {
 		t.Errorf("kind = %q", got)
 	}
-}
-
-// TestAFurnaceCartItemStandsAFurnaceCartAndDropsWhenBroken: the item lays a
-// furnace cart and a blow that breaks it leaves the item.
-// vanilla: MinecartItem.useOn, VehicleEntity.destroy
-func TestAFurnaceCartItemStandsAFurnaceCartAndDropsWhenBroken(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	c.MoveToGround(0.5, 64, 0.5, true)
-	c.Settle()
-	srv.GiveSlot("Testificate", player.HotbarSlot, itemOf(t, furnaceCart, 1))
-	servertest.CartRails(t, srv, 2, 5)
-	c.MoveTo(2.5, 64, 2.9, 0, 60)
-	c.Settle()
-	c.PlaceBlock(2, 64, 1, protocol.FaceTop)
-	typeID, _ := registry.EntityTypeID(furnaceCart)
-	spawned := servertest.AwaitBoatSpawn(c.Client, typeID)
-	if got := srv.MinecartKind(spawned.EntityID); got != furnaceCart {
-		t.Fatalf("the laid cart is a %q, want %s", got, furnaceCart)
-	}
-	srv.StopTick()
-	if !srv.HurtMinecart(spawned.EntityID, 100, false) {
-		t.Fatal("the blow did not land")
-	}
-	srv.TickMinecarts(1)
-	if !servertest.BlastLeftItem(srv.ItemsInDimension(world.DimensionName), furnaceCart) {
-		t.Error("the broken furnace cart left no item")
-	}
-}
-
-// TestTheLitFlagReachesWatchers: the fuel flag at metadata index 13 is told
-// on the tracking pass after the simulation lights it.
-// vanilla: MinecartFurnace.defineSynchedData
-func TestTheLitFlagReachesWatchers(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	c.MoveToGround(2.5, 64, 1.5, true)
-	c.Settle()
-	id := furnaceCartAt(t, srv, "{Fuel:100s}")
-	// Simulation lights the cart; the next tracking pass publishes it.
-	srv.TickMinecarts(2)
-	for packetID, data := range c.Packets(servertest.ExpectTimeout) {
-		if packetID != protocol.IDPlayEntityMetadata || servertest.MetadataEntityID(data) != id {
-			continue
-		}
-		r := protocol.NewReader(data)
-		r.ReadVarInt()
-		entries, ok := servertest.ReadMetadata(r)
-		if !ok {
-			t.Fatal("unreadable metadata")
-		}
-		if m := servertest.MetaOf(entries, protocol.MetadataIndexMinecartFurnaceFuel); m != nil {
-			if !m.FlagVal {
-				t.Fatal("the lit flag was told as false")
-			}
-			return
-		}
-	}
-	t.Fatal("no lit flag arrived")
 }

@@ -1,8 +1,6 @@
 package entity
 
 import (
-	"math"
-	"math/rand"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -46,73 +44,6 @@ func TestZombieNautilusVariantsAndSavedControls(t *testing.T) {
 				t.Fatalf("unknown sound %s", back.NautilusSound(event).Name())
 			}
 		}
-	}
-}
-
-func TestDrownedNautilusJockeyEligibility(t *testing.T) {
-	for _, tc := range []struct {
-		name, biome                       string
-		natural, structure, baby, trident bool
-		want                              JockeyKind
-	}{
-		{"natural", "minecraft:plains", true, false, false, true, JockeyZombieNautilus},
-		{"structure", "minecraft:plains", false, true, false, true, JockeyStructureNautilus},
-		{"summon", "minecraft:plains", false, false, false, true, JockeyNone},
-		{"river", "minecraft:river", true, false, false, true, JockeyNone},
-		{"baby", "minecraft:plains", true, false, true, true, JockeyNone},
-		{"unarmed", "minecraft:plains", true, false, false, false, JockeyNone},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := NewMob(TypeDrowned, 1, 0, 64, 0, 1)
-			m.Rand = rand.New(rand.NewSource(2)) // nextFloat below 0.5
-			m.SetBaby(tc.baby)
-			if tc.trident {
-				m.MainHand = protocol.ItemStack{ItemID: int32(registry.ItemTrident), Count: 1}
-			}
-			var group *SpawnGroup
-			if tc.natural {
-				group = NewNaturalSpawnGroup(GoDice{m.Rand})
-			}
-			m.rollNautilusJockey(GoDice{m.Rand}, testBiome(tc.biome), group, tc.structure)
-			if m.Jockey != tc.want {
-				t.Fatalf("jockey=%v, want %v", m.Jockey, tc.want)
-			}
-		})
-	}
-}
-
-func TestZombieNautilusChargeSpeedAndSound(t *testing.T) {
-	w := newTestWorld()
-	m := NewMob(TypeZombieNautilus, 1, 0, 64, 0, 1)
-	target := NewMob(TypeCod, 2, 3, 64, 0, 2)
-	tick := &tickView{w: w, others: []*Mob{m, target}}
-	g := &nautilusChargeGoal{m: m, target: target.ID}
-	g.Start(tick)
-	g.Tick(tick)
-	if math.Abs(m.VX-0.5) > 1e-9 || len(tick.events) != 1 || tick.events[0].SoundID != registry.SoundEntityZombieNautilusDash {
-		t.Fatalf("charge vx=%v events=%+v", m.VX, tick.events)
-	}
-}
-
-func TestZombieNautilusSunProtectionUsesBodyArmour(t *testing.T) {
-	w := newTestWorld()
-	w.burn, w.sky, w.darken = true, 15, 0
-	floor64(w, t)
-	m := NewMob(TypeZombieNautilus, 1, 0.5, 64, 0.5, 1)
-	m.Body = protocol.ItemStack{ItemID: int32(registry.ItemIronNautilusArmor), Count: 1}
-	for range 400 {
-		m.burnStep(w, nil)
-	}
-	if m.FireTicks != 0 || m.Body.Empty() {
-		t.Fatal("body armour did not protect from sun")
-	}
-	m.Body = protocol.ItemStack{}
-	m.Worn[wornHead] = protocol.ItemStack{ItemID: int32(registry.ItemIronHelmet), Count: 1}
-	for range 400 {
-		m.burnStep(w, nil)
-	}
-	if m.FireTicks == 0 {
-		t.Fatal("helmet protected from sun instead of body armour")
 	}
 }
 

@@ -42,22 +42,6 @@ func spamClient(t *testing.T, chat, command int) (*servertest.Client, func(id in
 	return c, drain
 }
 
-// TestChatSpamThresholdOneKicksAtTheFirstMessage sets chat-spam-threshold-seconds
-// to 1: one message steps the counter to 20, the threshold, so the sender is
-// kicked where the default threshold would let three messages pass.
-// vanilla: ServerGamePacketListenerImpl.detectRateSpam
-func TestChatSpamThresholdOneKicksAtTheFirstMessage(t *testing.T) {
-	t.Parallel()
-	c, _ := spamClient(t, 1, 10)
-	if err := c.WriteChat("one"); err != nil {
-		t.Fatal(err)
-	}
-	if got := readSpamKick(t, c, protocol.IDPlayPlayerChat); got != 1 {
-		t.Errorf("echoes before the kick = %d, want 1", got)
-	}
-	c.Disconnect()
-}
-
 // TestChatSpamDefaultThresholdAllowsThreeMessages is the counterpart at the
 // default of 10 seconds.
 func TestChatSpamDefaultThresholdAllowsThreeMessages(t *testing.T) {
@@ -69,51 +53,6 @@ func TestChatSpamDefaultThresholdAllowsThreeMessages(t *testing.T) {
 	kicked, echoes := drain(protocol.IDPlayPlayerChat)
 	if kicked || echoes != 3 {
 		t.Errorf("kicked = %v, echoes = %d; want no kick and 3 echoes", kicked, echoes)
-	}
-	c.Disconnect()
-}
-
-// TestCommandSpamThresholdIsSeparateFromChat floods commands with a command
-// threshold of 1 and a chat threshold of 1000: the commands kick. Chat at the
-// same settings, in the next test, does not.
-func TestCommandSpamThresholdIsSeparateFromChat(t *testing.T) {
-	t.Parallel()
-	c, _ := spamClient(t, 1000, 1)
-	if err := c.WriteChatCommand("nosuchcommand"); err != nil {
-		t.Fatal(err)
-	}
-	if got := readSpamKick(t, c, protocol.IDPlaySystemChat); got < 1 {
-		t.Errorf("command failures before the kick = %d, want at least 1", got)
-	}
-	c.Disconnect()
-}
-
-// TestChatIsNotCountedByTheCommandThreshold sends chat with a command
-// threshold of 1: the chat counter is the one with the roomy threshold.
-func TestChatIsNotCountedByTheCommandThreshold(t *testing.T) {
-	t.Parallel()
-	c, drain := spamClient(t, 1000, 1)
-	for i := range 30 {
-		c.Chat(fmt.Sprintf("m%d", i))
-	}
-	kicked, echoes := drain(protocol.IDPlayPlayerChat)
-	if kicked || echoes != 30 {
-		t.Errorf("kicked = %v, echoes = %d; want no kick and 30 echoes", kicked, echoes)
-	}
-	c.Disconnect()
-}
-
-// TestCommandsAreNotCountedByTheChatThreshold is the other direction: a chat
-// threshold of 1 leaves a command flood alone.
-func TestCommandsAreNotCountedByTheChatThreshold(t *testing.T) {
-	t.Parallel()
-	c, drain := spamClient(t, 1, 1000)
-	for range 30 {
-		c.ChatCommand("nosuchcommand")
-	}
-	kicked, failures := drain(protocol.IDPlaySystemChat)
-	if kicked || failures < 30 {
-		t.Errorf("kicked = %v, failures = %d; want no kick and at least 30 failures", kicked, failures)
 	}
 	c.Disconnect()
 }

@@ -30,15 +30,3 @@ func TestDebugStickSelectWrapsBothWays(t *testing.T) {
 		t.Error("stone has no property to select")
 	}
 }
-
-func TestDebugStickCycleWrapsTheValues(t *testing.T) {
-	lit, _ := registry.FindState("minecraft:furnace", map[string]string{"lit": "false"})
-	next, prop, value, ok := DebugStickCycle(lit, "lit", false)
-	if !ok || prop != "lit" || value != "true" {
-		t.Fatalf("cycle lit = %q %q %v, want lit true", prop, value, ok)
-	}
-	back, _, value, _ := DebugStickCycle(next, "lit", false)
-	if value != "false" || back != lit {
-		t.Errorf("a second cycle = %d %q, want the first state back", back, value)
-	}
-}

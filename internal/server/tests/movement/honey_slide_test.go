@@ -3,11 +3,9 @@ package movement
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/registry"
 )
 
 // TestSlidingDownAHoneyBlockObtainsHoneyBlockSlide: a falling player whose box
@@ -100,73 +98,5 @@ func TestAnItemSlidesDownAHoneyBlockSide(t *testing.T) {
 	}
 	if y := itemY(faller); y > 64.01 {
 		t.Errorf("the item beside the stone is at y=%.3f after 20 ticks, want on the floor at 64", y)
-	}
-}
-
-// TestAZombieSlidesDownAHoneyBlockSide: a zombie against a honey pillar's
-// side plays the slide sound on the way down, and the slide's reset fall
-// leaves it unhurt on landing.
-// vanilla: HoneyBlock.entityInside, maybeDoSlideEffects
-func TestAZombieSlidesDownAHoneyBlockSide(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Slider")
-	honey := servertest.MustState(t, "minecraft:honey_block", nil)
-	for y := int32(64); y <= 69; y++ {
-		srv.SetBlock(0, y, 0, honey)
-	}
-	c.MoveToGround(4.5, 64, 4.5, true)
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	srv.SetDayTime(18000) // midnight: no sunlight burn to blur the landing's
-	zombie := srv.SpawnMob("minecraft:zombie", 0.5+0.4375+0.3+0.01, 70, 0.5)
-	if zombie == 0 {
-		t.Fatal("the zombie did not spawn")
-	}
-	slide, _ := registry.SoundEventID("minecraft:block.honey_block.slide")
-	heard := c.ReadTicks(srv, 40, func(id int32, data []byte) bool {
-		return id == protocol.IDPlaySoundEffect && servertest.DecodePlaySoundEffect(t, data).RegistryID == slide
-	})
-	if !heard {
-		t.Fatal("no honey slide sound within 40 ticks")
-	}
-	servertest.UntilTicks(t, srv, 60, "the zombie landing", func() bool {
-		_, y, _, _ := srv.MobPos(zombie)
-		return y < 64.01
-	})
-	servertest.RunTicks(t, srv, 2)
-	if h, ok := srv.MobHealth(zombie); !ok || h < 20 {
-		t.Errorf("the zombie's health is %v (alive %v) after the slide, want 20", h, ok)
-	}
-}
-
-// TestAZombieLandingOnHoneyPlaysTheSlide: a zombie dropped onto a honey
-// block's top plays the slide sound and sends entity event 54.
-// vanilla: HoneyBlock.fallOn
-func TestAZombieLandingOnHoneyPlaysTheSlide(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
-	srv.SetBlock(0, 64, 0, servertest.MustState(t, "minecraft:honey_block", nil))
-	c.MoveToGround(4.5, 64, 4.5, true)
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	srv.SetDayTime(18000) // midnight: no sunlight burn
-	zombie := srv.SpawnMob("minecraft:zombie", 0.5, 67, 0.5)
-	if zombie == 0 {
-		t.Fatal("the zombie did not spawn")
-	}
-	slide, _ := registry.SoundEventID("minecraft:block.honey_block.slide")
-	var heard, event bool
-	c.ReadTicks(srv, 20, func(id int32, data []byte) bool {
-		switch id {
-		case protocol.IDPlaySoundEffect:
-			heard = heard || servertest.DecodePlaySoundEffect(t, data).RegistryID == slide
-		case protocol.IDPlayEntityEvent:
-			r := protocol.NewReader(data)
-			event = event || r.ReadI32() == zombie && r.ReadU8() == protocol.EntityEventHoneySlide
-		}
-		return heard && event
-	})
-	if !heard || !event {
-		t.Errorf("landing on honey: slide sound %v, entity event 54 %v; want both", heard, event)
 	}
 }

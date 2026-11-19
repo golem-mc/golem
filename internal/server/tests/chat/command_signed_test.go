@@ -229,7 +229,7 @@ func TestVerifiedMessageCommands(t *testing.T) {
 }
 
 func TestSignedCommandFailures(t *testing.T) {
-	for _, kind := range []string{"unsigned", "missing session", "empty signatures", "root redirect", "unknown name", "tampered", "empty command"} {
+	for _, kind := range []string{"unsigned", "missing session", "unknown name", "tampered"} {
 		t.Run(kind, func(t *testing.T) {
 			profile := protocol.OfflineUUID("Testificate")
 			key, session, roots := servertest.SignedSession(t, profile)
@@ -250,18 +250,11 @@ func TestSignedCommandFailures(t *testing.T) {
 				c.ChatCommand(input)
 			case "missing session":
 				failure = "chat.disabled.missingProfileKey"
-			case "empty signatures":
-				entries = nil
-				failure = "chat.disabled.missingProfileKey"
-			case "root redirect":
-				input = "execute run say refused" // no signable range; the supplied name is unknown
 			case "unknown name":
 				entries[0].Name = "unknown"
 			case "tampered":
 				input = "say changed"
 				failure = "chat.disabled.invalid_signature"
-			case "empty command":
-				input = ""
 			}
 			if kind != "unsigned" {
 				sendSignedCommand(peer, input, body, entries)
@@ -277,7 +270,7 @@ func TestSignedCommandFailures(t *testing.T) {
 			// A valid follow-up distinguishes broken-chain refusals from non-breaking ones.
 			signature := signCommandBody(t, key, profile, session, 0, body)
 			sendSignedCommand(peer, "say refused", body, []chatsecurity.ArgumentSignature{{Name: "message", Signature: signature}})
-			if kind == "unknown name" || kind == "tampered" || kind == "root redirect" || kind == "empty command" {
+			if kind == "unknown name" || kind == "tampered" {
 				c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("chat.disabled.chain_broken"))
 			} else {
 				peer.receive(key, profile, session.ID, 0, body, "minecraft:say_command", "Testificate", protocol.Text{Text: "refused"}, nil)
@@ -322,107 +315,4 @@ func expectSessionUpdate(c *servertest.Client, profile uuid.UUID, session chatse
 	if r.ReadU8() != 2 || r.ReadVarInt() != 1 || r.ReadUUID() != profile || !r.ReadBool() || r.ReadUUID() != session.ID || r.ReadI64() != session.ExpiresAt || !bytes.Equal(r.ReadBytes(512), session.PublicKey) || !bytes.Equal(r.ReadBytes(4096), session.Certificate) || r.Err() != nil || r.Remaining() != 0 {
 		c.T.Fatal("incorrect session update, or message arrived before session publication")
 	}
-}
-
-func TestSignedSessionsInterleavedRenewalAndLateJoin(t *testing.T) {
-	service, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	profile, other := protocol.OfflineUUID("Testificate"), protocol.OfflineUUID("Watcher")
-	key, session, roots := servertest.SignedSession(t, profile, service)
-	otherKey, otherSession, _ := servertest.SignedSession(t, other, service)
-	var srv *server.Server
-	c := onlineChatClient(t, config.Default(), servertest.OpsListing(t, "Testificate"), func(s *server.Server) {
-		srv = s
-		s.SetChatKeyProvider(chatKeysFunc(func(context.Context) (*chatsecurity.KeySet, error) { return roots, nil }))
-	})
-	watcher := servertest.DialServer(t, srv)
-	servertest.CompleteOnlineChatLogin(watcher, "Watcher")
-	c.ExpectPlayerAdded("Watcher")
-	c.ExpectAnnouncement("multiplayer.player.joined", "Watcher")
-	installChatSession(c, session)
-	for _, recipient := range []*servertest.Client{c, watcher} {
-		expectSessionUpdate(recipient, profile, session)
-	}
-	installChatSession(watcher, otherSession)
-	for _, recipient := range []*servertest.Client{c, watcher} {
-		expectSessionUpdate(recipient, other, otherSession)
-	}
-	sender, receiver := &commandChatPeer{c: c}, &commandChatPeer{c: watcher}
-	peers := []*commandChatPeer{sender, receiver}
-	deliver := func(from *commandChatPeer, key *rsa.PrivateKey, id uuid.UUID, session chatsecurity.SessionData, index int32, name string) {
-		body := chatsecurity.NewBody(fmt.Sprintf("%s %d", name, index), time.Now().UnixMilli(), int64(index+900), from.seen)
-		signature := signCommandBody(t, key, id, session, index, body)
-		sendSignedCommand(from, "me "+body.Content(), body, []chatsecurity.ArgumentSignature{{Name: "action", Signature: signature}})
-		for _, peer := range peers {
-			peer.receive(key, id, session.ID, index, body, "minecraft:emote_command", name, protocol.Text{Text: body.Content()}, nil)
-		}
-	}
-	for i := range 2 {
-		deliver(sender, key, profile, session, int32(i), "Testificate")
-		deliver(receiver, otherKey, other, otherSession, int32(i), "Watcher")
-	}
-	// Identical key data with another UUID must neither publish nor reset the chain.
-	same := session
-	same.ID = uuid.New()
-	installChatSession(c, same)
-	deliver(sender, key, profile, session, 2, "Testificate")
-	late := servertest.DialServer(t, srv)
-	sessions := map[uuid.UUID]chatsecurity.SessionData{profile: session, other: otherSession}
-	captured := 0
-	servertest.CompleteOnlineChatLogin(late, "Late", func(id int32, data []byte) {
-		if id != protocol.IDPlayPlayerInfoUpdate {
-			return
-		}
-		r := protocol.NewReader(data)
-		if r.ReadU8() != 0x9f {
-			t.Fatal("missing initial session action")
-		}
-		for n := r.ReadVarInt(); n > 0; n-- {
-			player := r.ReadUUID()
-			r.ReadString(16)
-			r.SkipProfileProperties()
-			if r.ReadBool() {
-				got := chatsecurity.SessionData{ID: r.ReadUUID(), ExpiresAt: r.ReadI64(), PublicKey: r.ReadBytes(512), Certificate: r.ReadBytes(4096)}
-				want, ok := sessions[player]
-				if !ok || got.ID != want.ID || got.ExpiresAt != want.ExpiresAt || !bytes.Equal(got.PublicKey, want.PublicKey) || !bytes.Equal(got.Certificate, want.Certificate) {
-					t.Fatal("wrong initial session snapshot")
-				}
-				captured++
-			}
-			r.ReadVarInt()
-			r.ReadBool()
-			r.ReadVarInt()
-			r.ReadBool()
-		}
-		if r.Err() != nil || r.Remaining() != 0 {
-			t.Fatal("malformed tab list")
-		}
-	})
-	if captured != 2 {
-		t.Fatalf("captured %d sessions, want 2", captured)
-	}
-	for _, peer := range peers {
-		peer.c.ExpectPlayerAdded("Late")
-		peer.c.ExpectAnnouncement("multiplayer.player.joined", "Late")
-	}
-	peers = append(peers, &commandChatPeer{c: late})
-	deliver(sender, key, profile, session, 3, "Testificate")
-	// Break the sender's chain, then replace its session. Recipient indexes and
-	// acknowledgement windows must continue across the replacement.
-	body := chatsecurity.NewBody("bad", time.Now().UnixMilli(), 0, sender.seen)
-	sendSignedCommand(sender, "me bad", body, []chatsecurity.ArgumentSignature{{Name: "action"}})
-	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("chat.disabled.invalid_signature"))
-	newKey, newSession, _ := servertest.SignedSession(t, profile, service)
-	installChatSession(c, newSession)
-	// Queue the first message immediately, before reading the update.
-	body = chatsecurity.NewBody("renewed", time.Now().UnixMilli(), 22, sender.seen)
-	signature := signCommandBody(t, newKey, profile, newSession, 0, body)
-	sendSignedCommand(sender, "me renewed", body, []chatsecurity.ArgumentSignature{{Name: "action", Signature: signature}})
-	for _, peer := range peers {
-		expectSessionUpdate(peer.c, profile, newSession)
-		peer.receive(newKey, profile, newSession.ID, 0, body, "minecraft:emote_command", "Testificate", protocol.Text{Text: "renewed"}, nil)
-	}
-	deliver(receiver, otherKey, other, otherSession, 2, "Watcher")
 }

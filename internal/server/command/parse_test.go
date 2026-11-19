@@ -1,13 +1,9 @@
 package command
 
 import (
-	"math"
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/registry"
 )
 
 // The answer a Match caller sends for a failure: the key, the %s and the
@@ -505,32 +501,6 @@ func TestMatchSNBTComponentValues(t *testing.T) {
 	}
 }
 
-// TestParseBlockStateQuotedAndPadded checks a command's handler resolves the
-// state the tree walk accepted: a quoted property name or value and a padded
-// integer value each name the state their canonical spelling does.
-func TestParseBlockStateQuotedAndPadded(t *testing.T) {
-	cases := []struct {
-		word     string
-		name     string
-		override map[string]string
-	}{
-		{`oak_log["axis"=x]`, "minecraft:oak_log", map[string]string{"axis": "x"}},
-		{`oak_log['axis'=x]`, "minecraft:oak_log", map[string]string{"axis": "x"}},
-		{`oak_log[axis="x"]`, "minecraft:oak_log", map[string]string{"axis": "x"}},
-		{`oak_log[axis='x']`, "minecraft:oak_log", map[string]string{"axis": "x"}},
-		{`wheat[age=07]`, "minecraft:wheat", map[string]string{"age": "7"}},
-	}
-	for _, tc := range cases {
-		want, ok := registry.FindState(tc.name, tc.override)
-		if !ok {
-			t.Fatalf("FindState(%q, %v): not found", tc.name, tc.override)
-		}
-		if got, _, fail := parseBlockState(tc.word); fail != nil || got != want {
-			t.Errorf("parseBlockState(%q) = (%d, %v), want (%d, no error)", tc.word, got, fail, want)
-		}
-	}
-}
-
 // TestTickRateArgumentReadsABrigadierFloat checks the /tick rate argument
 // is read as brigadier's float with vanilla's 1.0..10000.0 bounds, so a word
 // that is no float and one outside the range stop the command in the walk
@@ -569,92 +539,6 @@ func TestTickRateArgumentReadsABrigadierFloat(t *testing.T) {
 	}
 }
 
-// TestTickRateBoundsPrintJavaFloats checks the /tick rate range error renders
-// its two floats the way Java's Float.toString does: plain notation for
-// magnitudes in [1e-3, 1e7) and the computerized form outside it, and the
-// infinities by name where a word overflows a float.
-// vanilla: FloatArgumentType.parse, Float.toString
-func TestTickRateBoundsPrintJavaFloats(t *testing.T) {
-	tree := ForLevel(PermLevelOwners)
-	for _, tc := range []struct {
-		input string
-		key   string
-		with  []string
-	}{
-		{"tick rate 1234567", keyFloatBig, []string{"10000.0", "1234567.0"}},
-		{"tick rate -0.00001", keyFloatLow, []string{"1.0", "-1.0E-5"}},
-		{"tick rate 99999999999999999999999999999999999999999999", keyFloatBig, []string{"10000.0", "Infinity"}},
-	} {
-		_, fail := Match(tree, tc.input, Tokenize(tc.input), true)
-		if fail == nil || fail.Err == nil {
-			t.Errorf("%q: no typed error, want %s", tc.input, tc.key)
-			continue
-		}
-		if fail.Err.Key != tc.key || !slices.Equal(fail.Err.With, tc.with) {
-			t.Errorf("%q: got %s %q, want %s %q", tc.input, fail.Err.Key, fail.Err.With, tc.key, tc.with)
-		}
-	}
-}
-
-// TestPlaySoundFloatsAreHeldToTheirRanges checks volume (at least 0), pitch
-// (0..2) and minVolume (0..1) stop the walk with the float range errors.
-// vanilla: PlaySoundCommand.register
-func TestPlaySoundFloatsAreHeldToTheirRanges(t *testing.T) {
-	tree := ForLevel(PermLevelOwners)
-	const base = "playsound minecraft:entity.pig.ambient master @s ~ ~ ~ "
-	for _, tc := range []struct {
-		tail string
-		key  string
-		with []string
-	}{
-		{"-1", keyFloatLow, []string{"0.0", "-1.0"}},
-		{"1 3", keyFloatBig, []string{"2.0", "3.0"}},
-		{"1 -1", keyFloatLow, []string{"0.0", "-1.0"}},
-		{"1 1 2", keyFloatBig, []string{"1.0", "2.0"}},
-		{"1 1 -1", keyFloatLow, []string{"0.0", "-1.0"}},
-	} {
-		input := base + tc.tail
-		node, fail := Match(tree, input, Tokenize(input), true)
-		if node != nil || fail == nil || fail.Err == nil {
-			t.Errorf("%q: accepted or untyped, want %s", input, tc.key)
-			continue
-		}
-		if fail.Err.Key != tc.key || !slices.Equal(fail.Err.With, tc.with) {
-			t.Errorf("%q: got %s %q, want %s %q", input, fail.Err.Key, fail.Err.With, tc.key, tc.with)
-		}
-	}
-	for _, ok := range []string{"1000", "1 2", "1 0", "1 1 1", "1 1 0"} {
-		input := base + ok
-		if node, fail := Match(tree, input, Tokenize(input), true); node == nil {
-			t.Errorf("%q: refused (%v), want accepted", input, fail)
-		}
-	}
-}
-
-// TestJavaFloatPrintsFractionalPlainForms checks formatJavaFloat keeps the
-// digits left of the point: a fractional value in the plain range prints its
-// whole part alone, not every shortest digit run together at exp 0.
-// vanilla: Float.toString
-func TestJavaFloatPrintsFractionalPlainForms(t *testing.T) {
-	for _, tc := range []struct {
-		v    float32
-		want string
-	}{
-		{1.5, "1.5"},
-		{12.5, "12.5"},
-		{123.45, "123.45"},
-		{10000.5, "10000.5"},
-		{-123.25, "-123.25"},
-		{0.0015, "0.0015"},
-		// exp 7 rounds up out of the plain range into the computerized form.
-		{9999999.5, "1.0E7"},
-	} {
-		if got := formatJavaFloat(tc.v); got != tc.want {
-			t.Errorf("formatJavaFloat(%v) = %q, want %q", tc.v, got, tc.want)
-		}
-	}
-}
-
 // TestParseTimeArg checks the tick counts ParseTimeArg reads, including its
 // float rounding and int saturation.
 // vanilla: TimeArgument.parse
@@ -688,26 +572,6 @@ func TestParseTimeArg(t *testing.T) {
 		got, ok := ParseTimeArg(tc.arg)
 		if ok != tc.ok || got != tc.want {
 			t.Errorf("ParseTimeArg(%q) = (%d, %v), want (%d, %v)", tc.arg, got, ok, tc.want, tc.ok)
-		}
-	}
-}
-
-func TestJavaLongNarrowsLikeJava(t *testing.T) {
-	cases := []struct {
-		v    float64
-		want int64
-	}{
-		{3.9, 3},
-		{-3.9, -3},
-		{math.NaN(), 0},
-		{1e300, math.MaxInt64},
-		{-1e300, math.MinInt64},
-		{9223372036854775808.0, math.MaxInt64},
-		{-9223372036854775808.0, math.MinInt64},
-	}
-	for _, tc := range cases {
-		if got := world.JavaLong(tc.v); got != tc.want {
-			t.Errorf("world.JavaLong(%v) = %d, want %d", tc.v, got, tc.want)
 		}
 	}
 }

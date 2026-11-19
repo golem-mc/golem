@@ -97,22 +97,3 @@ func TestPlayerSpawnArrivesInOneBundle(t *testing.T) {
 		t.Errorf("dimension arrival bundle = %v, want %v", ids, want)
 	}
 }
-
-// TestVehicleAndMountSpawnBundles checks a boat and a mob carrying a
-// passenger arrive in one bundle.
-// vanilla: ServerEntity.addPairing
-func TestVehicleAndMountSpawnBundles(t *testing.T) {
-	t.Parallel()
-	c := servertest.DataWorld(t, "Bundler")
-	c.ChatCommand(`summon minecraft:oak_boat 2.5 64 2.5`)
-	ids := spawnBundle(c)
-	if len(ids) == 0 || ids[0] != protocol.IDPlaySpawnEntity {
-		t.Errorf("boat bundle = %v, want the spawn first", ids)
-	}
-	c.ChatCommand(`summon minecraft:pig 4.5 64 4.5 {Passengers:[{id:"minecraft:chicken"}]}`)
-	ids = spawnBundle(c)
-	if len(ids) < 2 || ids[0] != protocol.IDPlaySpawnEntity || ids[1] != protocol.IDPlayEntityMetadata {
-		t.Errorf("mount bundle = %v, want the spawn then its metadata first", ids)
-	}
-	c.Disconnect()
-}

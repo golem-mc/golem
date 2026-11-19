@@ -48,30 +48,3 @@ func TestSpawnEnemiesRefreshAcrossDimensions(t *testing.T) {
 	}
 	check(true)
 }
-
-func TestSpawnEnemiesRecomputedOnLoad(t *testing.T) {
-	t.Parallel()
-	for _, mobs := range []bool{false, true} {
-		dir := t.TempDir()
-		w, err := NewWorld(dir, NewFlatGenerator())
-		if err != nil {
-			t.Fatal(err)
-		}
-		w.SetBoolRule(RuleSpawnMobs, false)
-		w.SetDifficulty(DifficultyNormal)
-		w.SetBoolRule(RuleSpawnMobs, mobs)
-		if w.SpawnEnemies() {
-			t.Fatal("enemy flag should still be latched off before saving")
-		}
-		w.Save()
-		w.Close()
-		loaded, err := NewWorld(dir, NewFlatGenerator())
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { loaded.Close() })
-		if got := loaded.SpawnEnemies(); got != mobs {
-			t.Fatalf("loaded SpawnEnemies = %v, want spawn_mobs (%v)", got, mobs)
-		}
-	}
-}

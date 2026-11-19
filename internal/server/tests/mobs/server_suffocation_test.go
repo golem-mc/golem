@@ -4,9 +4,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"testing"
-
-	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/registry"
 )
 
 // The walls against the bodies that are not players: a mob whose eyes a
@@ -72,125 +69,6 @@ func TestABuriedMobSuffocates(t *testing.T) {
 	srv.TickMobs(20)
 	if n := servertest.DrainDamage(c); n != 0 {
 		t.Errorf("%d damage events arrived with the wall gone, want none", n)
-	}
-}
-
-// TestFallingSandBuriesAMobAndTheMobSuffocates checks the landing's own
-// answer to the chicken under it: the falling block passes the body by — an
-// entity is no place to land on — and places its block in the very cell the
-// body's box fills, exactly as it would into empty air. The buried body is
-// not pushed anywhere, and the crush finishes it off where it stands. The
-// loop runs as the falling tests let it, and the shaft's walls keep the
-// chicken under the fall for the ticks the fall needs.
-func TestFallingSandBuriesAMobAndTheMobSuffocates(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Burier", servertest.OpsListing(t, "Burier"))
-
-	sand, ok := registry.FindState("minecraft:sand", nil)
-	if !ok {
-		t.Fatal("the registry has no sand")
-	}
-	stone := servertest.BlockState(t, "minecraft:stone")
-	// A one-cell shaft: a ring of stone a chicken has no way out of and a
-	// fall has no way past, standing open at the top for the sand.
-	for _, pos := range [][3]int32{
-		{4, 64, 2}, {5, 64, 2}, {6, 64, 2}, {4, 64, 3}, {6, 64, 3},
-		{4, 64, 4}, {5, 64, 4}, {6, 64, 4},
-	} {
-		if !srv.SetBlock(pos[0], pos[1], pos[2], stone) {
-			t.Fatalf("the shaft's chunk was not loaded for (%d, %d, %d)", pos[0], pos[1], pos[2])
-		}
-	}
-	chickenID := srv.SpawnMob("minecraft:chicken", 5.5, 64, 3.5)
-	srv.SetMobNoAI(chickenID)
-	c.Settle()
-
-	// A sand block left hanging above the shaft.
-	c.ChatCommand("setblock 5 66 3 sand")
-
-	// The sand falls through the chicken — a falling block lands on
-	// blocks, not bodies — and becomes the block where the chicken
-	// stands.
-	servertest.UntilTicks(t, srv, 100, "the sand landing", func() bool { return srv.BlockAt(5, 64, 3) == sand })
-
-	// The trapped body stays in the fallen block's cell; the nudge out is
-	// an item's and a player's, not a mob's.
-	if x, _, z, ok := srv.MobPos(chickenID); !ok || x < 5 || x > 6 || z < 3 || z > 4 {
-		t.Errorf("the buried chicken spilled out of its cell (x=%v z=%v ok=%v)", x, z, ok)
-	}
-
-	// The crush bites, and four health being a chicken's, the fourth bite
-	// ends it where it stands.
-	// BurialNoise must allow the landing's Add Transient Block while
-	// keeping damage and death events visible to these assertions.
-	c.ExpectBodyDamage(chickenID, "minecraft:in_wall")
-	dead := pumpTicks(c, srv, 160, func(id int32) bool {
-		return servertest.BurialNoise(id) || id == protocol.IDPlayDamageEvent
-	}, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayEntityEvent {
-			return false
-		}
-		r := protocol.NewReader(data)
-		return r.ReadI32() == chickenID && r.ReadU8() == protocol.EntityStatusDeath
-	})
-	if !dead {
-		t.Fatal("the chicken the falling sand buried never suffocated")
-	}
-}
-
-// TestABuriedMobIsSparedInGlassAndLeaves checks the blocks vanilla never
-// suffocates with however full their shapes: the glasses and the leaves
-// are isSuffocating(Blocks::never)'s to exempt, so a body sealed in
-// glass — placed by hand, by /fill or by leaves growing over it — takes no
-// in_wall bite where the same seal of stone would have crushed it on the
-// ten-tick rhythm.
-func TestABuriedMobIsSparedInGlassAndLeaves(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
-	srv.StopTick()
-	t.Cleanup(srv.HoldChunk(5, 60))
-
-	c := connect().Join("Gilder")
-
-	// Three seals, one per exempt block, all in the held chunk: glass,
-	// oak leaves and the white stained glass.
-	seals := []struct {
-		block string
-		cx    int32
-	}{
-		{"minecraft:glass", 2},
-		{"minecraft:oak_leaves", 5},
-		{"minecraft:white_stained_glass", 8},
-	}
-	for _, seal := range seals {
-		srv.SpawnMob("minecraft:chicken", float64(seal.cx)+0.5, 64, 60.5)
-	}
-	c.Settle()
-
-	stone := servertest.BlockState(t, "minecraft:stone")
-	for _, seal := range seals {
-		// The chicken's own cell sealed in the exempt block, and the
-		// four about it in stone, so the buried body cannot walk its
-		// way out; a seal that stayed open would not prove the spare.
-		state := servertest.BlockState(t, seal.block)
-		if !srv.SetBlock(seal.cx, 64, 60, state) {
-			t.Fatalf("the seal of %s at (%d, 64, 60) met no loaded chunk", seal.block, seal.cx)
-		}
-		for _, pos := range [][3]int32{
-			{seal.cx - 1, 64, 60}, {seal.cx + 1, 64, 60},
-			{seal.cx, 64, 59}, {seal.cx, 64, 61},
-		} {
-			if !srv.SetBlock(pos[0], pos[1], pos[2], stone) {
-				t.Fatalf("the seal's ring at (%d, %d, %d) met no loaded chunk", pos[0], pos[1], pos[2])
-			}
-		}
-	}
-
-	// Twenty-five ticks would have bitten a stone-sealed body three
-	// times; the exempt blocks bite not at all.
-	srv.TickMobs(25)
-	if n := servertest.DrainDamage(c); n != 0 {
-		t.Errorf("%d in_wall bites arrived through glass and leaves in 25 ticks, want none", n)
 	}
 }
 

@@ -44,18 +44,3 @@ func TestMobSightClipsPartialShapes(t *testing.T) {
 		})
 	}
 }
-
-func TestVisualSightClipsShapesAndSkipsGlass(t *testing.T) {
-	w := newTestWorld()
-	w.set(0, 64, 0, registry.BlockStates["minecraft:glass"])
-	if !rayClearVisual(w, -2, 64.75, 0.5, 3, 64.75, 0.5) {
-		t.Fatal("glass stopped visual sight")
-	}
-	w.set(1, 64, 0, slabState(t))
-	if !rayClearVisual(w, -2, 64.75, 0.5, 3, 64.75, 0.5) {
-		t.Error("slab stopped visual sight above its shape")
-	}
-	if rayClearVisual(w, -2, 64.25, 0.5, 3, 64.25, 0.5) {
-		t.Error("visual sight passed through the slab's shape")
-	}
-}

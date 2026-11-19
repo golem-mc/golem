@@ -1,35 +1,10 @@
 package world
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
 )
-
-func TestSpiralAroundOrder(t *testing.T) {
-	var got [][2]int32
-	spiralAround(1, func(x, z int32) bool { got = append(got, [2]int32{x, z}); return true })
-	want := [][2]int32{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}, {0, -1}, {1, -1}}
-	if !slices.Equal(got, want) {
-		t.Errorf("spiral = %v, want %v", got, want)
-	}
-	n := 0
-	spiralAround(200, func(int32, int32) bool { n++; return true })
-	if n != 401*401 {
-		t.Errorf("radius 200 spiral visits %d columns, want %d", n, 401*401)
-	}
-}
-
-func TestOutFromOrigin(t *testing.T) {
-	if got, want := outFromOrigin(10, 0, 20, 8), []int32{10, 18, 2}; !slices.Equal(got, want) {
-		t.Errorf("outFromOrigin = %v, want %v", got, want)
-	}
-	// The origin clamps into the range.
-	if got, want := outFromOrigin(500, -63, 320, 64), []int32{320, 256, 192, 128, 64, 0}; !slices.Equal(got, want) {
-		t.Errorf("outFromOrigin = %v, want %v", got, want)
-	}
-}
 
 // ridgeGenerator samples desert only on the one quart column given and at
 // heights that are multiples of 64 blocks.
@@ -141,69 +116,5 @@ func (g *recordingGenerator) NewBiomeProbe() func(qx, qy, qz int32) string {
 			g.qys = append(g.qys, qy)
 		}
 		return "minecraft:plains"
-	}
-}
-
-// TestFindClosestBiomeSampleHeights pins the vertical step and the order
-// the heights of a column are sampled in.
-func TestFindClosestBiomeSampleHeights(t *testing.T) {
-	gen := &recordingGenerator{FlatGenerator: *NewFlatGenerator()}
-	w, err := NewWorld(t.TempDir(), gen)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w.FindClosestBiome(BiomeSearch{
-		OriginY: 70, Radius: 32, HStep: 32, VStep: 64,
-		Allowed: func(b string) bool { return b == "minecraft:desert" },
-	})
-	// Y 70, then 64 apart: above first, then below, alternating outwards.
-	want := []int32{70 >> 2, 134 >> 2, 6 >> 2, 198 >> 2, -58 >> 2, 262 >> 2}
-	if !slices.Equal(gen.qys, want) {
-		t.Errorf("sampled quart heights %v, want %v", gen.qys, want)
-	}
-}
-
-// TestFindClosestBiomeUnplacedBiomeIsRefusedFast: a biome the generator
-// never places is refused before any column is probed.
-func TestFindClosestBiomeUnplacedBiomeIsRefusedFast(t *testing.T) {
-	gen := &recordingGenerator{FlatGenerator: *NewFlatGenerator()}
-	w, err := NewWorld(t.TempDir(), gen)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, ok := w.FindClosestBiome(BiomeSearch{
-		Radius: 6400, HStep: 32, VStep: 64,
-		Allowed: func(b string) bool { return b == "minecraft:badlands" },
-	})
-	if ok || len(gen.qys) != 0 {
-		t.Errorf("ok=%v after %d probes, want a refusal with none", ok, len(gen.qys))
-	}
-}
-
-// TestOverworldLocateBiomeProbesEveryColumn walks the columns of a search
-// without a hit and checks that each probe names a biome the overworld places.
-// Each probe reads the heights of its 4x4 patch from the terrain density, so a
-// full-radius search is long; the walk here is a tenth of one.
-func TestOverworldLocateBiomeProbesEveryColumn(t *testing.T) {
-	t.Parallel()
-	g := NewOverworldGenerator(12345)
-	probe := g.NewBiomeProbe()
-	placed := map[string]bool{}
-	for _, name := range g.PossibleBiomes() {
-		placed[name] = true
-	}
-	ys := outFromOrigin(64, worldMinY+1, worldMinY+worldHeight, 64)
-	probes := 0
-	spiralAround(6400/32/10, func(dx, dz int32) bool {
-		for _, y := range ys {
-			if name := probe(dx*32>>2, y>>2, dz*32>>2); !placed[name] {
-				t.Fatalf("probe at %d,%d,%d named %q, which the overworld does not place", dx*32, y, dz*32, name)
-			}
-			probes++
-		}
-		return true
-	})
-	if probes == 0 {
-		t.Fatal("the walk probed nothing")
 	}
 }

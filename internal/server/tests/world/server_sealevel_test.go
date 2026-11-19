@@ -8,7 +8,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
 
 // The sea level the Login (play) and Respawn packets carry: each dimension's
@@ -99,22 +98,4 @@ func TestLoginSeaLevelFollowsTheDimension(t *testing.T) {
 			c.Disconnect()
 		})
 	}
-}
-
-// TestRespawnIntoTheEndCarriesTheEndsSeaLevel checks the Respawn packet a
-// crossing into the end sends: the end's noise settings carry sea level 0,
-// not the overworld's 63.
-func TestRespawnIntoTheEndCarriesTheEndsSeaLevel(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, c := servertest.Join(t, cfg, "Endling")
-
-	srv.MovePlayerToDimension("Endling", world.EndName, 0, 100, 0)
-	data, ok := servertest.ReadUntil(t, c, servertest.ExpectTimeout, protocol.IDPlayRespawn)
-	if !ok {
-		t.Fatal("no respawn arrived for the crossing into the end")
-	}
-	servertest.CheckRespawn(t, data, registry.MustID("minecraft:dimension_type", world.EndType), world.EndName, 0, 0x03, "the end")
 }

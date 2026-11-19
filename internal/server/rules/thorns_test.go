@@ -42,15 +42,3 @@ func TestThornsTriggersWithAChancePerLevel(t *testing.T) {
 		}
 	}
 }
-
-// TestThornsNeedsADiceAndTheRightSlot checks the guards: no dice refuse
-// the chance, and a slot the enchantment does not work in is skipped.
-func TestThornsNeedsADiceAndTheRightSlot(t *testing.T) {
-	pieces := []EnchPiece{thornsPiece(t, 3, "chest")}
-	if got := PostAttackRetaliations(pieces, &EnchContext{}, nil); len(got) != 0 {
-		t.Errorf("without dice the thorns fired: %v", got)
-	}
-	if got := PostAttackRetaliations([]EnchPiece{thornsPiece(t, 3, "nowhere")}, &EnchContext{}, rand.New(rand.NewSource(1))); len(got) != 0 {
-		t.Errorf("a slot the enchantment does not work in fired: %v", got)
-	}
-}

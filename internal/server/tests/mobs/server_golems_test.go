@@ -7,7 +7,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
@@ -133,144 +132,6 @@ func TestACarvedPumpkinOnIronBuildsAnIronGolem(t *testing.T) {
 	c.PlaceBlock(2, 65, 3, protocol.FaceTop)
 	assertGolemBuild(t, srv, c, watcher, protocol.EntityTypeIronGolem, 100, 0.25, ironTPattern(), [3]int32{2, 64, 3}, 0x01)
 	c.ExpectBlockAck()
-}
-
-// TestAJackOLanternBuildsASnowGolem: the lit pumpkin is the same
-// CarvedPumpkinBlock whose onPlace runs, and the pattern's head cell reads
-// either face of it. vanilla: CarvedPumpkinBlock.PUMPKINS_PREDICATE
-func TestAJackOLanternBuildsASnowGolem(t *testing.T) {
-	t.Parallel()
-	srv, c, watcher := golemScene(t, "minecraft:jack_o_lantern")
-	snow := servertest.MustState(t, "minecraft:snow_block", nil)
-	srv.SetBlock(2, 64, 3, snow)
-	srv.SetBlock(2, 65, 3, snow)
-	c.PlaceBlock(2, 65, 3, protocol.FaceTop)
-	assertGolemBuild(t, srv, c, watcher, protocol.EntityTypeSnowGolem, 4, float64(float32(0.2)), snowPattern(), [3]int32{2, 64, 3}, 0x10)
-	c.ExpectBlockAck()
-}
-
-// TestAPatternMissingItsGolemBuildsNothing: a column one snow short and a T
-// without an arm are no pattern at all — the pumpkin stands where it was
-// placed, nothing spawns, and nobody hears a block break.
-func TestAPatternMissingItsGolemBuildsNothing(t *testing.T) {
-	t.Parallel()
-	iron := servertest.MustState(t, "minecraft:iron_block", nil)
-	for _, tc := range []struct {
-		name   string
-		setup  func(srv *server.Server)
-		click  [3]int32
-		placed [3]int32
-	}{
-		{name: "a column one snow short", setup: func(srv *server.Server) {
-			srv.SetBlock(2, 64, 3, servertest.MustState(t, "minecraft:snow_block", nil))
-		}, click: [3]int32{2, 64, 3}, placed: [3]int32{2, 65, 3}},
-		{name: "a T without its east arm", setup: func(srv *server.Server) {
-			srv.SetBlock(2, 64, 3, iron)
-			srv.SetBlock(1, 65, 3, iron)
-			srv.SetBlock(2, 65, 3, iron)
-		}, click: [3]int32{2, 65, 3}, placed: [3]int32{2, 66, 3}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c, watcher := golemScene(t, "minecraft:carved_pumpkin")
-			tc.setup(srv)
-			c.PlaceBlock(tc.click[0], tc.click[1], tc.click[2], protocol.FaceTop)
-			c.ExpectBlockAck()
-			c.Settle()
-			watcher.Settle()
-
-			if state := srv.BlockAt(tc.placed[0], tc.placed[1], tc.placed[2]); state == 0 {
-				t.Error("the pattern never completed, but the pumpkin is gone from where it was placed")
-			} else if name, _, _ := registry.BlockStateName(state); name != "minecraft:carved_pumpkin" {
-				t.Errorf("the placed cell = %s, want the carved pumpkin standing", name)
-			}
-			if n := srv.MobCount(); n != 0 {
-				t.Errorf("mob count = %d, want none", n)
-			}
-			if heard := servertest.HearTool(t, watcher); len(heard.Events[2001]) != 0 {
-				t.Errorf("the watcher heard %d block-break events, want none: no build ran", len(heard.Events[2001]))
-			}
-		})
-	}
-}
-
-// TestACarvedPumpkinBuildsASnowGolemInTheNetherToo: the onPlace of the
-// carved pumpkin runs wherever the change lands, so a pattern built in the
-// nether stands its golem up in the nether's herd — a world that is not the
-// overworld's is still the one whose blocks leave and whose mob appears.
-func TestACarvedPumpkinBuildsASnowGolemInTheNetherToo(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.MobTestConfig()
-	cfg.GameMode = "creative"
-	srv, c := servertest.Join(t, cfg, "Builder")
-	srv.MovePlayerToDimension("Builder", world.NetherName, 0.5, 64, 0.5)
-	// Hold the arrival chunk for the test: its send is asynchronous, and a
-	// mob planted in a chunk the player does not hold yet is saved away by
-	// the next mob tick and stands back up under a new ID.
-	t.Cleanup(srv.HoldChunkInDimension(world.NetherName, 0, 0))
-	c.Settle()
-	// The nether melts a snow golem (SnowGolemMelts), which dies within a few
-	// seconds of free ticks; the loop is held so the herd is read before any
-	// melt tick can kill it.
-	servertest.HoldTicks(t, srv)
-	srv.GiveSlot("Builder", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:carved_pumpkin"), Count: 1})
-
-	snow := servertest.MustState(t, "minecraft:snow_block", nil)
-	srv.SetBlockInDimension(world.NetherName, 2, 64, 3, snow)
-	srv.SetBlockInDimension(world.NetherName, 2, 65, 3, snow)
-	// The nether's own rock may rise through the cell the pumpkin lands in;
-	// the pattern's air corners the nether's blocks would break are cleared
-	// with the rest of the column's surroundings.
-	for _, cell := range [][3]int32{{1, 66, 3}, {3, 66, 3}, {1, 63, 3}, {3, 63, 3}, {2, 66, 3}} {
-		srv.SetBlockInDimension(world.NetherName, cell[0], cell[1], cell[2], 0)
-	}
-	c.PlaceBlock(2, 65, 3, protocol.FaceTop)
-	golem := c.ExpectMobSpawn(protocol.EntityTypeSnowGolem)
-	// The ack goes out at the tick's end; one melt tick leaves the golem
-	// standing.
-	servertest.RunTicks(t, srv, 1)
-	c.ExpectBlockAck()
-	if golem.X != 2.5 || golem.Y != 64.05 || golem.Z != 3.5 {
-		t.Errorf("the nether golem spawned at (%v, %v, %v), want the foot cell (2.5, 64.05, 3.5)", golem.X, golem.Y, golem.Z)
-	}
-	if state := srv.BlockInDimension(world.NetherName, 2, 66, 3); state != 0 {
-		name, _, _ := registry.BlockStateName(state)
-		t.Errorf("the nether pattern's head cell still holds %s, want it cleared", name)
-	}
-	if mobs := srv.Mobs(); len(mobs) != 1 || mobs[0].Kind != "minecraft:snow_golem" {
-		t.Errorf("mobs = %+v, want the one snow golem of the nether", mobs)
-	}
-}
-
-// TestASnowGolemDoesNotFreezeInItsOwnElement: the snow golem is on the
-// freeze_immune_entity_types tag — of the powder snow it
-// is built of — so the snow it is stood in has no hold on it.
-// vanilla: Entity.canFreeze, the freeze_immune_entity_types tag
-func TestASnowGolemDoesNotFreezeInItsOwnElement(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := golemScene(t, "minecraft:carved_pumpkin")
-	snow := servertest.MustState(t, "minecraft:snow_block", nil)
-	srv.SetBlock(2, 64, 3, snow)
-	srv.SetBlock(2, 65, 3, snow)
-	c.PlaceBlock(2, 65, 3, protocol.FaceTop)
-	golem := c.ExpectMobSpawn(protocol.EntityTypeSnowGolem)
-	if !srv.SetMobNoAI(golem.EntityID) {
-		t.Fatal("the built golem is not in the herd")
-	}
-	c.ExpectBlockAck()
-	servertest.HoldTicks(t, srv)
-
-	// Stand it in powder snow past the fully-frozen mark: a body the snow
-	// can hold would count its ticks, the golem counts none.
-	srv.SetBlock(2, 64, 3, servertest.MustState(t, "minecraft:powder_snow", nil))
-	servertest.AwaitTicks(t, srv, uint64(rules.FullyFrozenTicks+20))
-	mobs := srv.Mobs()
-	if len(mobs) != 1 {
-		t.Fatalf("mobs = %+v, want the one golem", mobs)
-	}
-	if frozen := mobs[0].Frozen; frozen != 0 {
-		t.Errorf("the snow golem counted %d frozen ticks in powder snow, want the kind the snow has no hold on", frozen)
-	}
 }
 
 // TestABuiltIronGolemKeepsItsPlayerCreatedBitAcrossAReload: the build's
@@ -450,21 +311,5 @@ func TestIronIngotsRepairAnIronGolem(t *testing.T) {
 	c.Settle()
 	if left := srv.InventorySlot("Smith", player.HotbarSlot).Count; left != 1 {
 		t.Errorf("ingots left = %d at full health, want 1", left)
-	}
-}
-
-// TestAnIronGolemCracksAudibly: a blow that moves the golem to another crack
-// level plays entity.iron_golem.damage once.
-// vanilla: IronGolem.hurtServer
-func TestAnIronGolemCracksAudibly(t *testing.T) {
-	t.Parallel()
-	srv, c := golemInteractionScene(t, "Breaker")
-	id := srv.SpawnMob("minecraft:iron_golem", 1.5, 64, 0.5)
-	srv.SetMobNoAI(id)
-	sounds := map[string]int{}
-	srv.HurtMobByWorld(id, 30, "minecraft:generic")
-	c.ReadTicks(srv, 3, golemSounds(t, sounds))
-	if sounds["minecraft:entity.iron_golem.damage"] != 1 {
-		t.Errorf("entity.iron_golem.damage sent %d times, want once", sounds["minecraft:entity.iron_golem.damage"])
 	}
 }

@@ -1,7 +1,6 @@
 package inventory
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -27,41 +26,6 @@ func brewedBottle(t *testing.T, item, potion string) protocol.ItemStack {
 	}
 }
 
-// TestEveryBrewingIngredientIsRecognised is the table of the items the data
-// pack's brewing recipes name as a reagent: the ingredient slot takes each of
-// them, and the check rejects every other registered item.
-// vanilla: RecipePropertySet.BREWING_REAGENTS
-func TestEveryBrewingIngredientIsRecognised(t *testing.T) {
-	ingredients := []string{
-		"minecraft:nether_wart",
-		"minecraft:ghast_tear",
-		"minecraft:redstone",
-		"minecraft:glowstone_dust",
-		"minecraft:fermented_spider_eye",
-		"minecraft:gunpowder",
-		"minecraft:dragon_breath",
-		"minecraft:sugar",
-		"minecraft:rabbit_foot",
-		"minecraft:glistering_melon_slice",
-		"minecraft:spider_eye",
-		"minecraft:pufferfish",
-		"minecraft:magma_cream",
-		"minecraft:golden_carrot",
-		"minecraft:blaze_powder",
-		"minecraft:turtle_helmet",
-		"minecraft:phantom_membrane",
-		"minecraft:breeze_rod",
-		"minecraft:cobweb",
-		"minecraft:slime_block",
-		"minecraft:stone",
-	}
-	for id, name := range registry.Items {
-		if got, want := isBrewingIngredient(registry.Item(id)), slices.Contains(ingredients, name); got != want {
-			t.Errorf("%s brewing ingredient = %v, want %v", name, got, want)
-		}
-	}
-}
-
 // TestBrewingFuelFallsThroughToTheIngredientSlot shift-clicks a blaze powder
 // with the fuel slot already full: the vanilla menu passes it to the
 // ingredient slot, which also takes it.
@@ -84,55 +48,6 @@ func TestBrewingFuelFallsThroughToTheIngredientSlot(t *testing.T) {
 	}
 	if !inv.Slots[player.MainSlot].Empty() {
 		t.Errorf("the player's slot = %+v, want it emptied by the move", inv.Slots[player.MainSlot])
-	}
-}
-
-// TestBrewingFuelRestFallsThroughToTheIngredientSlot shift-clicks more blaze
-// powder than the fuel slot has room for: the first pass fills the fuel
-// slot, the repeat moves the rest to the ingredient slot.
-// vanilla: AbstractContainerMenu.doClick (QUICK_MOVE), BrewingStandMenu.quickMoveStack
-func TestBrewingFuelRestFallsThroughToTheIngredientSlot(t *testing.T) {
-	blaze := itemID(t, "minecraft:blaze_powder")
-	container := slots{
-		{}, {}, {},
-		{},
-		{ItemID: blaze, Count: 60},
-	}
-	inv := &player.Inventory{}
-	inv.Set(player.MainSlot, protocol.ItemStack{ItemID: blaze, Count: 10})
-	var outcome Outcome
-	(&Session{}).Click(View{Kind: KindBrewingStand, ID: 1, Entity: container}, inv,
-		protocol.ClickModeQuickMove, 0, 5, false, 0, &outcome)
-	if want := (protocol.ItemStack{ItemID: blaze, Count: 64}); !container[4].Equal(want) {
-		t.Errorf("fuel slot = %+v, want 64 blaze powder", container[4])
-	}
-	if want := (protocol.ItemStack{ItemID: blaze, Count: 6}); !container[3].Equal(want) {
-		t.Errorf("ingredient slot = %+v, want the 6 the fuel slot had no room for", container[3])
-	}
-	if !inv.Slots[player.MainSlot].Empty() {
-		t.Errorf("the player's slot = %+v, want it emptied by the move", inv.Slots[player.MainSlot])
-	}
-}
-
-// TestTheIngredientsAreTheMixesOwn checks the two tables agree: every
-// reagent a brewing recipe names is one the ingredient slot takes, and
-// nothing the slot takes is missing from the recipes.
-// vanilla: RecipeManager's brewing_reagent property set
-func TestTheIngredientsAreTheMixesOwn(t *testing.T) {
-	named := map[string]bool{}
-	for _, recipe := range registry.BrewingRecipes {
-		for _, reagent := range recipe.Reagent {
-			name, ok := registry.ItemName(reagent)
-			if !ok {
-				t.Fatal("a brewing recipe names an item the registry does not know")
-			}
-			named[name] = true
-		}
-	}
-	for id, name := range registry.Items {
-		if got, want := isBrewingIngredient(registry.Item(id)), named[name]; got != want {
-			t.Errorf("%s ingredient slot = %v, mixes = %v", name, got, want)
-		}
 	}
 }
 

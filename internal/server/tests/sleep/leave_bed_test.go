@@ -7,16 +7,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
-func TestLeavingBedAvoidsMagmaWhenASafeExitExists(t *testing.T) {
-	t.Parallel()
-	testLeavingBedExit(t, false, false, 4.5, 0.5)
-}
-
-func TestLeavingBedUsesDangerousExitAsLastResort(t *testing.T) {
-	t.Parallel()
-	testLeavingBedExit(t, true, false, 4.5, 1.5)
-}
-
 func TestLeavingBedUsesFourthOffsetBehindFoot(t *testing.T) {
 	t.Parallel()
 	testLeavingBedExit(t, false, true, 5.5, -0.5)

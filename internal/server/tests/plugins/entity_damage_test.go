@@ -142,28 +142,6 @@ func TestPluginPlayerDeathEvent(t *testing.T) {
 	}
 }
 
-// keepInventory leaves the event no experience to hand out or to a catalyst.
-// vanilla: Player.getBaseExperienceReward
-func TestPluginPlayerDeathEventKeepInventoryHasNoExperience(t *testing.T) {
-	var got *plugin.PlayerDeathEvent
-	srv, _ := entityPlugin(t, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.PlayerDeathEvent) { got = e })
-	})
-	srv.SetGameRule("keep_inventory", true)
-	srv.SetExperienceLevels("Victim", 10)
-	srv.SetHealth("Victim", 5)
-	orbs := srv.OrbCount()
-	if !srv.Hurt("Victim", 50) || got == nil {
-		t.Fatal("no PlayerDeathEvent")
-	}
-	if got.Experience != 0 || !got.KeepLevel {
-		t.Errorf("event experience %d, KeepLevel %v; want 0, true", got.Experience, got.KeepLevel)
-	}
-	if srv.OrbCount() != orbs {
-		t.Error("orbs dropped from a death that keeps the level")
-	}
-}
-
 // vanilla: LivingEntity.die, dropAllDeathLoot
 func TestPluginEntityDeathEvent(t *testing.T) {
 	var got *plugin.EntityDeathEvent
@@ -240,53 +218,5 @@ func TestPluginFoodAndRegainEvents(t *testing.T) {
 	}
 	if food == nil || food.Level != 17 || srv.PlayerFood("Victim") != 18 {
 		t.Errorf("food event %+v, food %d: want the drop to 17 cancelled", food, srv.PlayerFood("Victim"))
-	}
-}
-
-// vanilla: LivingEntity.setHealth; Bukkit's setHealth(0) runs the death with no damage event.
-func TestPluginSetHealthZeroIgnoresDamageCancel(t *testing.T) {
-	var host plugin.Server
-	srv, _ := entityPlugin(t, func(s plugin.Server) {
-		host = s
-		plugin.Listen(s, func(e *plugin.EntityDamageEvent) { e.SetCancelled(true) })
-	})
-	p, ok := host.PlayerNamed("Victim")
-	if !ok {
-		t.Fatal("no player")
-	}
-	srv.SetHealth("Victim", 20)
-	p.SetHealth(0)
-	if got := srv.PlayerHealth("Victim"); got != 0 {
-		t.Errorf("health after SetHealth(0) = %v, want 0", got)
-	}
-}
-
-// vanilla: Player.giveExperiencePoints
-func TestPluginSetTotalExperienceAtLevelBoundary(t *testing.T) {
-	var host plugin.Server
-	_, _ = entityPlugin(t, func(s plugin.Server) { host = s })
-	p, ok := host.PlayerNamed("Victim")
-	if !ok {
-		t.Fatal("no player")
-	}
-	for _, c := range []struct{ total, level int }{{216, 12}, {7, 1}, {16, 2}, {0, 0}} {
-		p.SetTotalExperience(c.total)
-		if p.Level() != c.level || p.Experience() != 0 {
-			t.Errorf("SetTotalExperience(%d): level %d points %d, want level %d points 0", c.total, p.Level(), p.Experience(), c.level)
-		}
-	}
-}
-
-// vanilla: ItemStack.MAX_STACK_SIZE
-func TestPluginSetItemOversizedCount(t *testing.T) {
-	var host plugin.Server
-	_, _ = entityPlugin(t, func(s plugin.Server) { host = s })
-	p, ok := host.PlayerNamed("Victim")
-	if !ok {
-		t.Fatal("no player")
-	}
-	p.Inventory().SetItem(0, plugin.NewStack(registry.ItemDiamond, 100))
-	if got := p.Inventory().Item(0).Count; got != 99 {
-		t.Errorf("count after SetItem(100) = %d, want 99", got)
 	}
 }

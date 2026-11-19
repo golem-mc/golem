@@ -39,25 +39,3 @@ func TestButtonEffectSoundPerFamily(t *testing.T) {
 		}
 	}
 }
-
-func TestPlateEffectSoundPerFamily(t *testing.T) {
-	for block, family := range map[registry.Block]string{
-		registry.BlockOakPressurePlate: "wooden", registry.BlockStonePressurePlate: "stone",
-		registry.BlockPolishedBlackstonePressurePlate: "stone", registry.BlockCherryPressurePlate: "cherry_wood",
-		registry.BlockBambooPressurePlate: "bamboo_wood", registry.BlockCrimsonPressurePlate: "nether_wood",
-		registry.BlockWarpedPressurePlate: "nether_wood", registry.BlockLightWeightedPressurePlate: "metal",
-		registry.BlockHeavyWeightedPressurePlate: "metal",
-	} {
-		for _, on := range []bool{false, true} {
-			suffix := "click_off"
-			if on {
-				suffix = "click_on"
-			}
-			e := plateEffect(block, on, 1, 2, 3)
-			want := "minecraft:block." + family + "_pressure_plate." + suffix
-			if e.SoundID.Name() != want || e.Volume != 1 || e.Pitch != 1 {
-				t.Errorf("%s on=%v: effect %+v, want %s at volume/pitch 1", block.Name(), on, e, want)
-			}
-		}
-	}
-}

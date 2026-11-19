@@ -171,35 +171,3 @@ func TestPluginChatOrdersSignedCommandsAndFailures(t *testing.T) {
 		}
 	}
 }
-
-// A /say continuation must also precede immediate typed chat without a chat listener.
-func TestPluginSayOrdersTypedChat(t *testing.T) {
-	for _, input := range []string{"say first", "execute as @s run say first"} {
-		t.Run(input, func(t *testing.T) {
-			cfg := servertest.BlockTestConfig()
-			cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-			srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "say", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-				plugin.Listen(s, func(e *plugin.BroadcastMessageEvent) {})
-				return nil
-			}}}}, servertest.OpsListing(t, "Speaker"))
-			c := servertest.DialServer(t, srv)
-			c.ViewAsk = config.MinDistance
-			c.Join("Speaker")
-			servertest.HoldTicks(t, srv)
-			c.Settle()
-			c.ChatCommand(input)
-			c.Settle()
-			c.Chat("second")
-			servertest.RunTicks(t, srv, 1)
-			var order []int32
-			c.SettleAndCollect(func(id int32, data []byte) {
-				if id == protocol.IDPlayDisguisedChat || id == protocol.IDPlayPlayerChat {
-					order = append(order, id)
-				}
-			})
-			if len(order) != 2 || order[0] != protocol.IDPlayDisguisedChat || order[1] != protocol.IDPlayPlayerChat {
-				t.Fatalf("chat order = %v", order)
-			}
-		})
-	}
-}

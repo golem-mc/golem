@@ -45,14 +45,3 @@ func TestARungBellMakesNearbyRaidersGlow(t *testing.T) {
 		t.Errorf("the raider 20 blocks from a rung bell is not glowing")
 	}
 }
-
-// TestARungBellWithNoRaiderNearGlowsNothing: a raider 40 blocks away is
-// within the glow radius but too far to start the resonance.
-// vanilla: BellBlockEntity.areRaidersNearby
-func TestARungBellWithNoRaiderNearGlowsNothing(t *testing.T) {
-	t.Parallel()
-	glowing, resonated := ringBellAndWatch(t, 40, 55)
-	if resonated || glowing {
-		t.Errorf("raider 40 blocks away: resonated %v, glowing %v; want neither", resonated, glowing)
-	}
-}

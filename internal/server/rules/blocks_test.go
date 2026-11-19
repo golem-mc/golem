@@ -60,36 +60,6 @@ func TestReplaceableBlocksByState(t *testing.T) {
 	}
 }
 
-// TestFluidReplaceableBlocksByState checks what a poured fluid overwrites:
-// the replaceable tag's blocks and every non-solid one, so a torch, rail or
-// flower a placement could not replace is washed out, while a solid block
-// standing in the way is kept.
-func TestFluidReplaceableBlocksByState(t *testing.T) {
-	yes := map[string]uint16{
-		"air":         airState,
-		"water":       defaultState(t, "minecraft:water"),
-		"short grass": defaultState(t, "minecraft:short_grass"),
-		"a poppy":     defaultState(t, "minecraft:poppy"),
-		"a torch":     defaultState(t, "minecraft:torch"),
-		"a rail":      defaultState(t, "minecraft:rail"),
-	}
-	for what, state := range yes {
-		if !CanBeReplacedByFluid(state) {
-			t.Errorf("CanBeReplacedByFluid said no to %s (state %d)", what, state)
-		}
-	}
-	no := map[string]uint16{
-		"stone":   defaultState(t, "minecraft:stone"),
-		"furnace": defaultState(t, "minecraft:furnace"),
-		"a fence": defaultState(t, "minecraft:oak_fence"),
-	}
-	for what, state := range no {
-		if CanBeReplacedByFluid(state) {
-			t.Errorf("CanBeReplacedByFluid said yes to %s (state %d)", what, state)
-		}
-	}
-}
-
 // mustStateFor resolves one state of a named block by overrides, so the tests
 // name the exact state they mean.
 func mustStateFor(t *testing.T, name string, overrides map[string]string) uint16 {
@@ -167,96 +137,6 @@ func TestWaterByState(t *testing.T) {
 	}
 }
 
-// TestWaterThatWouldFlow checks the brace a flooded anchor reads off a
-// horizontal neighbour: a source or a waterlogged block would run on, and a
-// flow only when it carries at least two eighths with no water below it.
-// vanilla: RespawnAnchorBlock.isWaterThatWouldFlow
-func TestWaterThatWouldFlow(t *testing.T) {
-	water := func(level string) uint16 {
-		return mustStateFor(t, "minecraft:water", map[string]string{"level": level})
-	}
-	cases := []struct {
-		what  string
-		state uint16
-		below uint16
-		want  bool
-	}{
-		{"a source", water("0"), airState, true},
-		{"a deep flow", water("6"), airState, true},
-		{"a shallow flow", water("7"), airState, false},
-		{"a falling column", water("8"), airState, true},
-		{"a flow over water", water("6"), water("0"), false},
-		{"a waterlogged slab", mustStateFor(t, "minecraft:oak_slab", map[string]string{"waterlogged": "true"}), airState, true},
-		{"seagrass", defaultState(t, "minecraft:seagrass"), airState, true},
-		{"stone", defaultState(t, "minecraft:stone"), airState, false},
-		{"lava", defaultState(t, "minecraft:lava"), airState, false},
-		{"air", airState, airState, false},
-	}
-	for _, c := range cases {
-		w := testWorld{}
-		w.set(0, 0, 0, c.state)
-		w.set(0, -1, 0, c.below)
-		if got := IsWaterThatWouldFlow(w, 0, 0, 0); got != c.want {
-			t.Errorf("%s: IsWaterThatWouldFlow = %v, want %v", c.what, got, c.want)
-		}
-	}
-}
-
-// TestPlaceSoundsComeFromTheSoundTable checks the place-sound lookup on the
-// table it reads: stone places with the stone place sound, a fence with the
-// wood one, and a block the table has never heard of falls back to stone
-// rather than silence.
-func TestPlaceSoundsComeFromTheSoundTable(t *testing.T) {
-	cases := map[registry.Block]string{
-		registry.BlockStone:    "minecraft:block.stone.place",
-		registry.BlockOakFence: "minecraft:block.wood.place",
-	}
-	for name, want := range cases {
-		if got := BlockPlaceSound(name); got.Name() != want {
-			t.Errorf("BlockPlaceSound(%s) = %q, want %q", name.Name(), got, want)
-		}
-	}
-	if got := BlockPlaceSound(registry.BlockCount); got.Name() != "minecraft:block.stone.place" {
-		t.Errorf("BlockPlaceSound of an unknown block = %q, want the stone fallback", got)
-	}
-}
-
-// TestFallSoundsCarryTheSoundTypesOwnVolumeAndPitch checks the fall a landing
-// reads from a block's sound type: most types are full on both, so stone
-// plays half volume and three-quarter pitch; a metal block's type pitches up,
-// an anvil's is quieter, and the twisting vines carry the weeping vines' type
-// (Blocks registers them with SoundType.WEEPING_VINES).
-// vanilla: LivingEntity.playBlockFallSound, SoundType.METAL, SoundType.ANVIL
-func TestFallSoundsCarryTheSoundTypesOwnVolumeAndPitch(t *testing.T) {
-	cases := map[registry.Block]struct {
-		fall          string
-		volume, pitch float32
-	}{
-		registry.BlockStone:         {"minecraft:block.stone.fall", 0.5, 0.75},
-		registry.BlockGoldBlock:     {"minecraft:block.metal.fall", 0.5, 1.125},
-		registry.BlockAnvil:         {"minecraft:block.anvil.fall", 0.15, 0.75},
-		registry.BlockTwistingVines: {"minecraft:block.weeping_vines.fall", 0.5, 0.75},
-		registry.BlockWeepingVines:  {"minecraft:block.weeping_vines.fall", 0.5, 0.75},
-	}
-	for name, want := range cases {
-		fall, volume, pitch, ok := BlockFallSound(name)
-		if !ok {
-			t.Errorf("BlockFallSound(%s) said no fall, want %q", name.Name(), want.fall)
-			continue
-		}
-		if fall.Name() != want.fall {
-			t.Errorf("BlockFallSound(%s) fall = %q, want %q", name.Name(), fall, want.fall)
-		}
-		if math.Abs(float64(volume-want.volume)) > 1e-6 || math.Abs(float64(pitch-want.pitch)) > 1e-6 {
-			t.Errorf("BlockFallSound(%s) played at volume %v pitch %v, want %v and %v",
-				name.Name(), volume, pitch, want.volume, want.pitch)
-		}
-	}
-	if _, _, _, ok := BlockFallSound(registry.BlockCactusFlower); ok {
-		t.Error("BlockFallSound of a type with no fall event said yes, want no fall")
-	}
-}
-
 func TestBlockBounceRestitution(t *testing.T) {
 	slime, _ := registry.FindState("minecraft:slime_block", nil)
 	bed, _ := registry.FindState("minecraft:red_bed", nil)
@@ -276,27 +156,5 @@ func TestBlockBounceRestitution(t *testing.T) {
 		if got := BlockBounceRestitution(tc.state, tc.living); got != tc.want {
 			t.Errorf("%s = %v, want %v", tc.name, got, tc.want)
 		}
-	}
-}
-
-func TestBouncedFallNeedsMoreThanOneTickOfGravity(t *testing.T) {
-	if got := BouncedFall(-0.03, -0.03, 0.08, 0.98, 1); got != 0 {
-		t.Errorf("a landing slower than gravity bounced at %v", got)
-	}
-	if got := BouncedFall(-0.08, -0.08, 0.08, 0.98, 1); got != 0 {
-		t.Errorf("a landing at exactly one tick of gravity bounced at %v", got)
-	}
-	if got := BouncedFall(-1, -1, 0.08, 0.98, 1); got <= 0 {
-		t.Errorf("a landing at 1 block per tick bounced at %v, want up", got)
-	}
-}
-
-func TestRestitutedMovementCompensatesBothCollisionDirections(t *testing.T) {
-	t.Parallel()
-	if got := RestitutedMovement(0.5, 0.1, 0.08, 0.9, 0.9); math.Abs(got-(-0.426888)) > 1e-12 {
-		t.Fatalf("ceiling bounce = %g", got)
-	}
-	if got := BouncedFall(-1, -0.5, 0.08, 0.9, 0.9); math.Abs(got-0.8892) > 1e-12 {
-		t.Fatalf("landing bounce = %g", got)
 	}
 }

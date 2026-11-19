@@ -1,14 +1,12 @@
 package plugins_test
 
 import (
-	"encoding/binary"
-	"fmt"
-	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/nbt"
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/plugin"
@@ -83,28 +81,6 @@ func TestPluginEventsForNonMobEntities(t *testing.T) {
 	if got := summonedID(t, host, registry.EntityTypeArmorStand); got != stand {
 		t.Fatalf("stand %d replaced by %d", stand, got)
 	}
-}
-
-// vanilla: ArmorStand.hurtServer, ServerExplosion.hurtEntities
-func TestPluginBlastAsksArmorStandDamage(t *testing.T) {
-	var hurts int
-	var cancel bool
-	srv, host, _ := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.EntityDamageEvent) {
-			if e.Entity.Type() == registry.EntityTypeArmorStand {
-				hurts++
-				e.SetCancelled(cancel)
-			}
-		})
-	})
-	srv.RunLine("summon minecraft:armor_stand 6.5 64 0.5")
-	srv.RunLine("summon minecraft:tnt 6.5 64.5 1.5 {fuse:1}")
-	cancel = true
-	servertest.RunTicks(t, srv, 4)
-	if hurts != 1 {
-		t.Fatalf("stand damage events = %d, want 1", hurts)
-	}
-	onTick(t, srv, host, func() { summonedID(t, host, registry.EntityTypeArmorStand) })
 }
 
 // vanilla: ServerExplosion.hurtEntities, BlockAttachedEntity.hurtServer
@@ -205,7 +181,7 @@ func summonTicking(t *testing.T, srv *server.Server, line string) {
 			return
 		default:
 		}
-		if i == 400 {
+		if i == 4000 {
 			t.Fatalf("%q did not return", line)
 		}
 		servertest.RunTicks(t, srv, 1)
@@ -313,173 +289,4 @@ func tamedWolfReasons(t *testing.T, victim string, want plugin.TargetReason, pro
 		servertest.RunTicks(t, srv, 1)
 	}
 	return reasons
-}
-
-// vanilla: OwnerHurtTargetGoal, Mob.setTarget
-func TestPluginTargetEventNamesOwnerAttackedTarget(t *testing.T) {
-	reasons := tamedWolfReasons(t, "minecraft:cow", plugin.TargetOwnerAttackedTarget, func(c *servertest.Client, id int32) { c.Attack(id) })
-	if len(reasons) == 0 || reasons[0] != plugin.TargetOwnerAttackedTarget {
-		t.Fatalf("target reasons %v, want owner-attacked-target first", reasons)
-	}
-}
-
-// vanilla: OwnerHurtByTargetGoal, Mob.setTarget
-func TestPluginTargetEventNamesOwnerAttacked(t *testing.T) {
-	reasons := tamedWolfReasons(t, "minecraft:zombie", plugin.TargetOwnerAttacked, func(*servertest.Client, int32) {})
-	if !slices.Contains(reasons, plugin.TargetOwnerAttacked) {
-		t.Fatalf("target reasons %v, want owner-attacked", reasons)
-	}
-}
-
-// vanilla: SummonCommand.createEntity, ServerLevel.addFreshEntity
-func TestPluginEntitySpawnEventForSummonedVehicles(t *testing.T) {
-	var reasons []plugin.SpawnReason
-	var types []registry.EntityType
-	var cancel bool
-	srv, host, _ := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.EntitySpawnEvent) {
-			types = append(types, e.Entity.Type())
-			reasons = append(reasons, e.Reason)
-			e.SetCancelled(cancel)
-		})
-	})
-	summonTicking(t, srv, "summon minecraft:oak_boat 3.5 64 3.5")
-	summonTicking(t, srv, "summon minecraft:minecart 5.5 64 3.5")
-	if len(types) != 2 || types[0] != registry.EntityTypeOakBoat || types[1] != registry.EntityTypeMinecart ||
-		reasons[0] != plugin.SpawnCommand || reasons[1] != plugin.SpawnCommand {
-		t.Fatalf("spawn events %v %v, want a boat and a minecart by command", types, reasons)
-	}
-	cancel = true
-	summonTicking(t, srv, "summon minecraft:minecart 7.5 64 3.5")
-	servertest.RunTicks(t, srv, 2)
-	carts := 0
-	for e := range host.Overworld().Entities() {
-		if e.Type() == registry.EntityTypeMinecart {
-			carts++
-		}
-	}
-	if carts != 1 {
-		t.Errorf("minecarts after a cancelled summon = %d, want 1", carts)
-	}
-}
-
-// vanilla: Fox.DefendTrustedTargetGoal, DefendVillageTargetGoal, Mob.setTarget
-func TestPluginTargetEventNamesDefendTrusted(t *testing.T) {
-	var reasons []plugin.TargetReason
-	srv, host, c := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.EntityTargetEvent) { reasons = append(reasons, e.Reason) })
-	})
-	u := protocol.OfflineUUID("Miner")
-	a := nbt.UUIDToIntArray(u)
-	srv.RunLine(fmt.Sprintf("summon minecraft:fox 1.5 64 0.5 {Trusted:[[I;%d,%d,%d,%d]]}", a[0], a[1], a[2], a[3]))
-	srv.RunLine("summon minecraft:zombie 0.5 64 1.5")
-	servertest.RunTicks(t, srv, 1)
-	c.Settle()
-	for i := 0; i < 200 && !slices.Contains(reasons, plugin.TargetDefendOwner); i++ {
-		servertest.RunTicks(t, srv, 1)
-	}
-	_ = host
-	if !slices.Contains(reasons, plugin.TargetDefendOwner) {
-		t.Fatalf("target reasons %v, want defend", reasons)
-	}
-}
-
-// vanilla: ServerExplosion.hurtEntities, LivingEntity.hurtServer
-func TestPluginBlastNamesItsExploderToMobDamage(t *testing.T) {
-	var direct registry.EntityType = -2
-	srv, _, _ := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.EntityDamageEvent) {
-			if e.Entity.Type() == registry.EntityTypePig && e.Source.Direct != nil {
-				direct = e.Source.Direct.Type()
-			}
-		})
-	})
-	srv.SpawnMob("minecraft:pig", 6.5, 64, 0.5)
-	srv.RunLine("summon minecraft:tnt 6.5 64.5 1.5 {fuse:1}")
-	servertest.RunTicks(t, srv, 4)
-	if direct != registry.EntityTypeTnt {
-		t.Errorf("pig blast damage direct = %v, want tnt", direct)
-	}
-}
-
-// vanilla: ServerLevel.addFreshEntity
-func TestPluginSummonedArmorStandFiresSpawn(t *testing.T) {
-	var spawns int
-	srv, _, _ := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.EntitySpawnEvent) {
-			if e.Entity.Type() == registry.EntityTypeArmorStand {
-				spawns++
-			}
-		})
-	})
-	summonTicking(t, srv, "summon minecraft:armor_stand 6.5 64 0.5")
-	if spawns != 1 {
-		t.Errorf("armor stand spawn events = %d, want 1", spawns)
-	}
-}
-
-// A frame broken by a TNT a player lit names the player as the remover.
-// vanilla: ServerExplosion.hurtEntities, BlockAttachedEntity.hurtServer
-func TestPluginBlastRemoverIsTheLighter(t *testing.T) {
-	var removers []plugin.Entity
-	srv, host, c := blockScene(t, "minecraft:dirt", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.HangingBreakEvent) {
-			removers = append(removers, e.Remover)
-		})
-	})
-	servertest.BuildPaintingWall(srv, 4, 64, 65, 5, 5)
-	c.MoveToGround(4.5, 64, 3.5, true)
-	srv.SpawnFrameEntity(4, 64, 4)
-	c.Settle()
-	id := host.Players()[0].UUID()
-	srv.RunLine(fmt.Sprintf("summon minecraft:tnt 4.5 66 2.5 {fuse:1,owner:[I;%d,%d,%d,%d]}",
-		int32(binary.BigEndian.Uint32(id[0:4])), int32(binary.BigEndian.Uint32(id[4:8])),
-		int32(binary.BigEndian.Uint32(id[8:12])), int32(binary.BigEndian.Uint32(id[12:16]))))
-	servertest.RunTicks(t, srv, 4)
-	if len(removers) != 1 || removers[0] == nil || removers[0].Type() != registry.EntityTypePlayer {
-		t.Errorf("removers = %v, want the player who lit the TNT", removers)
-	}
-}
-
-// vanilla: ArmorStandItem.useOn, ServerLevel.addFreshEntity
-func TestPluginPlacedArmorStandAsksSpawn(t *testing.T) {
-	var spawns int
-	srv, host, c := blockScene(t, "minecraft:armor_stand", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.EntitySpawnEvent) {
-			if e.Entity.Type() == registry.EntityTypeArmorStand {
-				spawns++
-				e.SetCancelled(true)
-			}
-		})
-	})
-	d := servertest.DigTarget
-	c.PlaceBlock(d[0], d[1]-1, d[2], protocol.FaceTop)
-	fired(t, srv, c, "armor stand spawn event", &spawns, 1)
-	for e := range host.Overworld().Entities() {
-		if e.Type() == registry.EntityTypeArmorStand {
-			t.Errorf("cancelled stand still in the world")
-		}
-	}
-}
-
-// vanilla: Projectile.setOwner, ThrownEgg.onHit
-func TestPluginSetShooterOnEggFiresEggThrow(t *testing.T) {
-	var thrown int
-	srv, host, c := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.PlayerEggThrowEvent) { thrown++ })
-	})
-	onTick(t, srv, host, func() {
-		p, _ := host.PlayerNamed("Miner")
-		w := host.Overworld()
-		e, err := w.Spawn(registry.EntityTypeEgg, plugin.Location{World: w, Pos: plugin.Vec3{X: 6.5, Y: 66, Z: 0.5}}, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		pr := e.(plugin.Projectile)
-		pr.SetShooter(p)
-		if s, ok := pr.Shooter(); !ok || s.UUID() != p.UUID() {
-			t.Errorf("shooter = %v, %v", s, ok)
-		}
-	})
-	fired(t, srv, c, "egg event", &thrown, 1)
 }

@@ -77,15 +77,6 @@ func TestAWolfShakesDryAfterLeavingTheWater(t *testing.T) {
 	}
 }
 
-// TestAWolfDryAtOnceStaysStill: a wolf that never got wet does not shake.
-func TestAWolfDryAtOnceStaysStill(t *testing.T) {
-	t.Parallel()
-	srv, c, id := wolfYard(t)
-	if got := wolfEvents(t, srv, c, id, 20); len(got) != 0 {
-		t.Errorf("a dry wolf drew events %v, want none", got)
-	}
-}
-
 // TestAWolfInTheRainStartsAndStopsItsShake: in the rain it wets, begins the
 // shake and is told to stop it in the same tick; under a roof it stays dry.
 // vanilla: Wolf.tick

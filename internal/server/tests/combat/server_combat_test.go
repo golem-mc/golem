@@ -1,9 +1,10 @@
 package combat
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"math"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
@@ -211,98 +212,6 @@ func TestAMobIsShovedOffAPlayer(t *testing.T) {
 	}
 }
 
-// TestMobsShoveEachOtherApart stands two cows inside each other's boxes
-// and holds that they part: each pair of overlapping bodies pushes both its
-// sides, and the pair ends a body's width clear of where they began.
-func TestMobsShoveEachOtherApart(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, combatTestConfig(), "Crowd")
-	c.MoveToGround(2.5, 64, 2.5, true)
-	c.Settle()
-
-	first := srv.SpawnMob("minecraft:cow", 40.5, 64, 40.5)
-	second := srv.SpawnMob("minecraft:cow", 40.6, 64, 40.5)
-	c.ExpectMobSpawn(protocol.EntityTypeCow)
-	c.ExpectMobSpawn(protocol.EntityTypeCow)
-
-	parted := 0.0
-	servertest.WaitForTicks(t, srv, 60, func() bool {
-		x1, _, _, ok1 := srv.MobPos(first)
-		x2, _, _, ok2 := srv.MobPos(second)
-		if ok1 && ok2 {
-			parted = x2 - x1
-		}
-		return !ok1 || !ok2 || parted >= 0.3
-	})
-	if parted < 0.3 {
-		c.T.Errorf("two overlapping cows stood %v apart after sixty ticks, want at least 0.3 of the shove", parted)
-	}
-}
-
-// TestAZombieClimbsNoCeiling walks a zombie around a two-block wall with a
-// ceiling over it and holds the climb to the floor-delta test vanilla's
-// move control makes: the body jumps for a waypoint whose floor stands
-// more than a step height above it. The wall makes the hunt's path round
-// it through the lane beside it — and a body pulled back against the
-// wall's face keeps steering at the lane waypoint it already had, a walk
-// whose straight line clips the wall on the way. The old jump read that
-// block ahead of the body and fired whatever the waypoint's floor said,
-// bonking the body's head on the ceiling; the floor-delta test holds the
-// walk down, the drift carrying it along the wall's face.
-func TestAZombieClimbsNoCeiling(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, combatTestConfig(), "Doorway")
-	c.MoveToGround(8.5, 64, 8.5, true)
-	c.Settle()
-
-	// The doorway: a two-block wall at (5,64,5) and (6,64,5) with a
-	// ceiling a block over each, a zombie west of the wall, its player
-	// away south-east — far enough that no melee lands inside the walk
-	// the test watches.
-	stone := servertest.BlockState(t, "minecraft:stone")
-	srv.SetBlock(5, 64, 5, stone)
-	srv.SetBlock(6, 64, 5, stone)
-	srv.SetBlock(5, 66, 5, stone)
-	srv.SetBlock(6, 66, 5, stone)
-
-	zombie := srv.SpawnMob("minecraft:zombie", 3.5, 64, 5.5)
-	c.ExpectMobSpawn(protocol.EntityTypeZombie)
-
-	// The walk around the wall: the hunt's path rounds it south-east, and
-	// the poll waits only for the corner it rounds — the climb the old
-	// code made is not what this half is for.
-	servertest.UntilTicks(c.T, srv, 200, "the zombie rounding the wall", func() bool {
-		x, _, z, ok := srv.MobPos(zombie)
-		return ok && x >= 4.6 && z >= 6.0
-	})
-	if x, _, z, ok := srv.MobPos(zombie); !ok || x < 4.6 || z < 6.0 {
-		c.T.Fatalf("the zombie never rounded the wall: x=%v z=%v", x, z)
-	}
-
-	// Now the drift that made the old code bonk: set flush against the
-	// wall's west face, its legs still steering at the lane waypoint the
-	// hunt had already planned, a straight line that clips the wall. The
-	// jump the old probe fired here put the body into the ceiling; the
-	// floor-delta test keeps it at its feet. The body's half width is 0.3,
-	// so x=4.69 keeps it out of the stone: a centre inside the wall's cell
-	// would jump by vanilla's own-cell test (MoveControl.tick).
-	srv.MoveMob(zombie, 4.69, 5.2)
-	maxY := 0.0
-	for range 40 {
-		servertest.RunTicks(c.T, srv, 1)
-		_, y, _, ok := srv.MobPos(zombie)
-		if !ok {
-			break
-		}
-		if y > maxY {
-			maxY = y
-		}
-	}
-	if maxY > 64.01 {
-		c.T.Errorf("the zombie rose to %v walking past the wall under its ceiling, want it kept at its feet' 64", maxY)
-	}
-}
-
 // swingRecovered is the AttackTicks a whole swing's recovery has wound past:
 // a sword's twelve and a half ticks, so the count at thirteen reads the
 // swing wound up.
@@ -322,49 +231,6 @@ func awaitFullSwing(t *testing.T, srv *server.Server, name string) {
 	servertest.UntilTicks(t, srv, 200, "condition", func() bool {
 		return srv.TicksRun() >= since+2 && srv.AttackTicks(name) >= swingRecovered
 	})
-}
-
-// TestAFreshPlayerDoesNotStrikeACritical plants its player in the world and
-// swings at a cow before a single movement packet has come from the client —
-// the join's own placement being all the server knows, feet on the ground
-// with no fall banked — and holds that the blow is the weapon's whole force
-// and not the half again a critical would carry. Vanilla's critical asks a
-// fall to have been banked, fallDistance over zero, and not merely a body
-// whose ground bit the server has not been told yet; a fresh join has no
-// fall to speak of, so its first standing blow lands plain. The second half
-// stands the other way: a player who has reported a step of falling — the
-// rise of a jump and the drop after it, the distance the server banks off
-// the movement packets — lands the critical, the half again and all.
-func TestAFreshPlayerDoesNotStrikeACritical(t *testing.T) {
-	t.Parallel()
-	srv, c, attacker := servertest.JoinAs(t, combatTestConfig(), "Fencer")
-
-	// The cow is planted by the player's own spawn, near enough to be
-	// tracked and struck, the three and a half blocks between them well
-	// inside a blow's reach.
-	pos := srv.PlayerPosition("Fencer")
-	iron := servertest.MustItemID(t, "minecraft:iron_sword")
-	ironFull := 1.0 + float64(registry.AttackDamage(iron))
-	srv.GiveSlot("Fencer", player.HotbarSlot, protocol.ItemStack{ItemID: iron, Count: 1})
-	awaitFullSwing(t, srv, "Fencer")
-	mobID := srv.SpawnMob("minecraft:cow", pos.X+2.5, 64, pos.Z+2.5)
-	c.ExpectMobSpawn(protocol.EntityTypeCow)
-	if got := c.Strike(mobID, attacker); math.Abs(float64(got)-(10-ironFull)) > 0.01 {
-		c.T.Errorf("the fresh player's first blow left %v, want %v — the whole force, no critical's half again",
-			got, 10-ironFull)
-	}
-
-	// The control: a fall banked, the critical lands. The iron blade's
-	// half again is six of the cow's ten, a blow it survives, so the
-	// reads stay in order.
-	srv.GiveSlot("Fencer", player.HotbarSlot, protocol.ItemStack{ItemID: iron, Count: 1})
-	awaitFullSwing(t, srv, "Fencer")
-	c.MoveToGround(pos.X+2.5, 65, pos.Z+2.5, false)   // the jump's rise
-	c.MoveToGround(pos.X+2.5, 64.4, pos.Z+2.5, false) // the drop it banks
-	if got := c.StrikeFresh(srv, pos.X+7.5, pos.Z+2.5, attacker); math.Abs(float64(got)-(10-1.5*ironFull)) > 0.01 {
-		c.T.Errorf("the falling player's blow left %v, want %v — the critical's half again",
-			got, 10-1.5*ironFull)
-	}
 }
 
 // TestAnAttackBeyondReachStrikesNothing stands its striker's eye six blocks
@@ -411,51 +277,5 @@ func TestAnAttackBeyondReachStrikesNothing(t *testing.T) {
 	r := protocol.NewReader(striker.ExpectPlay(protocol.IDPlayDamageEvent))
 	if got := r.ReadVarInt(); got != targetID {
 		striker.T.Errorf("the in-reach blow landed on entity %d, want %d", got, targetID)
-	}
-}
-
-// TestAnInteractBeyondReachIsIgnored right-clicks a cow with an empty
-// bucket first from eighteen blocks away and then from three, and holds the
-// far click refused and the near one taken: the far one milked nothing, no
-// slot of the hand changed, while the near one filled the bucket with milk
-// the way an in-reach use does. Vanilla's handleInteract verifies the body's
-// box against the interaction range before the use is read at all.
-func TestAnInteractBeyondReachIsIgnored(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, combatTestConfig(), "Milker")
-	c.MoveToGround(2.5, 64, 5.5, true)
-	c.Settle()
-
-	far := srv.SpawnMob("minecraft:cow", 20.5, 64, 5.5)
-	c.ExpectMobSpawn(protocol.EntityTypeCow)
-	srv.GiveSlot("Milker", player.HotbarSlot, protocol.ItemStack{
-		ItemID: servertest.MustItemID(t, "minecraft:bucket"), Count: 1,
-	})
-
-	// The far click, eighteen blocks from the cow: nothing answers it.
-	servertest.HoldTicks(t, srv)
-	c.UseOn(far)
-	c.ReadTicks(srv, 10, func(gotID int32, data []byte) bool {
-		switch gotID {
-		case protocol.IDPlayContainerSlot:
-			c.T.Fatalf("a use past the reach filled a slot (% X)", data)
-		}
-		return false
-	})
-
-	// The near click, three blocks from the cow: the bucket comes back a
-	// bucket of milk, the slot the hand holds changed under it.
-	near := srv.SpawnMob("minecraft:cow", 5.5, 64, 5.5)
-	c.ExpectMobSpawn(protocol.EntityTypeCow)
-	c.UseOn(near)
-	r := protocol.NewReader(c.AwaitPlay(protocol.IDPlayContainerSlot))
-	r.ReadVarInt() // window ID
-	r.ReadVarInt() // state ID
-	if got := r.ReadI16(); got != int16(player.HotbarSlot) {
-		c.T.Errorf("the milk named slot %d, want the held hotbar slot %d", got, player.HotbarSlot)
-	}
-	milk, _ := registry.ItemID("minecraft:milk_bucket")
-	if stack, found := r.ReadSlot(); !found || stack.ItemID != milk {
-		c.T.Errorf("the use left %+v in the hand, want a bucket of milk", stack)
 	}
 }

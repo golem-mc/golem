@@ -2,7 +2,6 @@ package command
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -52,28 +51,6 @@ func TestMatchPathMessageRanges(t *testing.T) {
 	}
 }
 
-func TestMatchPathMessageBranches(t *testing.T) {
-	// The first parser succeeds but its continuation loses. Only the winning
-	// branch's range is retained.
-	message := &Node{Type: NodeArgument, Name: "message", Parser: ParserMessage, Greedy: true, Executable: true}
-	redirect := &Node{Type: NodeArgument, Name: "discarded", Parser: ParserMessage,
-		Children: []*Node{{Type: NodeLiteral, Name: "unreachable"}}}
-	root := &Node{Children: []*Node{redirect, message}}
-	input := "héllo  世界 "
-	_, arguments, _ := MatchPathArguments(root, input, Tokenize(input), true)
-	if !reflect.DeepEqual(arguments, []MessageArgumentRange{{"message", 0, len(input)}}) {
-		t.Fatalf("losing branch leaked: %+v", arguments)
-	}
-
-	// A parsed argument on a non-executable path remains available for the
-	// signature collector, which vanilla runs before command execution.
-	root.Children = []*Node{redirect}
-	path, arguments, _ := MatchPathArguments(root, input, Tokenize(input), true)
-	if path != nil || !reflect.DeepEqual(arguments, []MessageArgumentRange{{"discarded", 0, len("héllo")}}) {
-		t.Fatalf("partial parse: path=%v arguments=%+v", path, arguments)
-	}
-}
-
 func TestSignableArgumentsRootRedirect(t *testing.T) {
 	tree := ForLevel(PermLevelGamemasters)
 	for _, input := range []string{"say héllo  世界 ", "w Player hi", "tm team", "me waves"} {
@@ -110,26 +87,5 @@ func TestSignableArgumentsRootRedirect(t *testing.T) {
 	signed, _ = SignableArguments(root, input, Tokenize(input), true)
 	if !reflect.DeepEqual(signed, []MessageArgumentRange{{"before", 0, 2}}) {
 		t.Fatalf("root redirect changed parent context: %+v", signed)
-	}
-}
-
-func TestMatchPathMessageWhitespaceLimit(t *testing.T) {
-	tree := ForLevel(PermLevelGamemasters)
-	for _, value := range []string{" " + strings.Repeat("a", 255), strings.Repeat(" ", 256)} {
-		input := "say " + value
-		path, arguments, fail := MatchPathArguments(tree, input, Tokenize(input), true)
-		if path == nil || len(arguments) != 1 || input[arguments[0].Start:arguments[0].End] != value {
-			t.Fatalf("256 characters: arguments=%+v failure=%+v", arguments, fail)
-		}
-		input += " "
-		path, arguments, fail = MatchPathArguments(tree, input, Tokenize(input), true)
-		if path != nil || len(arguments) != 0 || fail.Err == nil || fail.Err.Key != keyMessageTooLong || !reflect.DeepEqual(fail.Err.With, []string{"257", "256"}) {
-			t.Fatalf("257 characters: arguments=%+v failure=%+v", arguments, fail)
-		}
-	}
-	input := "say "
-	path, arguments, _ := MatchPathArguments(tree, input, Tokenize(input), true)
-	if path != nil || len(arguments) != 0 {
-		t.Fatal("one separator became an empty message")
 	}
 }

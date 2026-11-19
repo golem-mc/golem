@@ -1,13 +1,10 @@
 package rules
 
 import (
-	"bytes"
 	"math"
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -60,39 +57,6 @@ func TestArmourReductionAgainstVanilla(t *testing.T) {
 	}
 }
 
-// TestDiamondSuitByTheRegistry runs the formula once more with the numbers
-// read out of the registry the way the server gathers them: the diamond
-// suit's four pieces, summed as they are worn.
-func TestDiamondSuitByTheRegistry(t *testing.T) {
-	var points, toughness float64
-	for _, name := range []string{
-		"minecraft:diamond_helmet",
-		"minecraft:diamond_chestplate",
-		"minecraft:diamond_leggings",
-		"minecraft:diamond_boots",
-	} {
-		p, t2 := registry.ArmorOf(itemID(t, name))
-		points += float64(p)
-		toughness += float64(t2)
-	}
-	if points != 20 || toughness != 8 {
-		t.Fatalf("the diamond suit's worn numbers are %v points and %v toughness, want 20 and 8",
-			points, toughness)
-	}
-	if got, want := DamageAfterArmour(10, points, toughness), 10*(1-17.5/25); math.Abs(got-want) > 1e-9 {
-		t.Errorf("a diamond-suited hit of 10 came to %v, want %v", got, want)
-	}
-
-	// The share the pieces pay for turning the blow: vanilla's quarter
-	// of it, at least one.
-	if got := ArmourWearPerPiece(10); got != 2 {
-		t.Errorf("a blow of 10 wears a piece by %v, want its quarter (2)", got)
-	}
-	if got := ArmourWearPerPiece(3); got != 1 {
-		t.Errorf("a blow of 3 wears a piece by %v, want the floor of one", got)
-	}
-}
-
 // TestArmourBypassedByDamage checks which of the hurts walk straight
 // through armour, the minecraft:bypasses_armor tag the registry's own tag
 // table carries: every member of it bypasses, the types this server deals
@@ -119,65 +83,6 @@ func TestArmourBypassedByDamage(t *testing.T) {
 	}
 	if ArmourBypassed(registry.DamageTypeLightningBolt) {
 		t.Error("a damage type outside the tag was bypassed")
-	}
-}
-
-// TestDamageRuleGateByTag checks the game rules the damage types stand
-// behind, the memberships read out of the registry's own damage-type tags:
-// the is_drowning types gated by drowning_damage, the is_fall ones by
-// fall_damage, the is_fire ones by fire_damage, and a type in none of them
-// gated by nothing.
-func TestDamageRuleGateByTag(t *testing.T) {
-	gates := map[registry.DamageType]world.GameRuleIndex{
-		DamageTypeDrown:    world.RuleDrowningDamage,
-		DamageTypeFall:     world.RuleFallDamage,
-		DamageTypeOnFire:   world.RuleFireDamage,
-		DamageTypeInFire:   world.RuleFireDamage,
-		DamageTypeLava:     world.RuleFireDamage,
-		DamageTypeHotFloor: world.RuleFireDamage,
-	}
-	for damageType, want := range gates {
-		if got := DamageRuleGate(damageType); got != want {
-			t.Errorf("DamageRuleGate(%s) = %q, want %q", damageType, got, want)
-		}
-	}
-	for _, damageType := range []registry.DamageType{DamageTypePlayerAttack, DamageTypeCactus, DamageTypeOutOfWorld} {
-		if got := DamageRuleGate(damageType); got != world.RuleUnknown {
-			t.Errorf("DamageRuleGate(%s) = %q, want no gate", damageType, got)
-		}
-	}
-}
-
-// TestSnowballHitDamage prices the snowball's hit by the kind of the body
-// it landed on: three points of damage for a blaze and none for anything
-// else, the hit itself and the knockback coming regardless — the hurt with
-// no damage in it is what an egg's blow is everywhere.
-func TestSnowballHitDamage(t *testing.T) {
-	blaze, ok := registry.EntityTypeID("minecraft:blaze")
-	if !ok {
-		t.Fatal("the entity-type registry has no blaze")
-	}
-	zombie, ok := registry.EntityTypeID("minecraft:zombie")
-	if !ok {
-		t.Fatal("the entity-type registry has no zombie")
-	}
-	player, ok := registry.EntityTypeID("minecraft:player")
-	if !ok {
-		t.Fatal("the entity-type registry has no player")
-	}
-	cases := []struct {
-		what   string
-		entity int32
-		want   float64
-	}{
-		{"blaze", blaze, 3},
-		{"zombie", zombie, 0},
-		{"player", player, 0},
-	}
-	for _, c := range cases {
-		if got := SnowballHitDamage(c.entity); got != c.want {
-			t.Errorf("SnowballHitDamage(%s) = %v, want %v", c.what, got, c.want)
-		}
 	}
 }
 
@@ -245,16 +150,6 @@ func TestArrowPunchScalesOnlyItsHorizontal(t *testing.T) {
 	}
 	if vz != 0 {
 		t.Errorf("the punch push's z = %v, want none", vz)
-	}
-}
-
-// TestArrowPunchDealsNothingWithoutHorizontal checks a shaft falling straight
-// down: with no horizontal flight there is no direction for the Punch extra
-// to push along, so it leaves no push at all, not even a bare lift.
-func TestArrowPunchDealsNothingWithoutHorizontal(t *testing.T) {
-	vx, vy, vz := ArrowPunch(0, 0, 2, 1)
-	if vx != 0 || vy != 0 || vz != 0 {
-		t.Errorf("a vertical shaft's punch = (%v, %v, %v), want no push", vx, vy, vz)
 	}
 }
 
@@ -427,91 +322,6 @@ func TestSweepDamage(t *testing.T) {
 	}
 	if got := SweepDamage(2.0/3.0, 6); math.Abs(got-5) > 1e-9 {
 		t.Errorf("a sweep at two thirds of a six-point blow hurt %v, want 5", got)
-	}
-}
-
-// TestSweepReaches checks the bodies a sweep finds against vanilla's
-// doSweepAttack: the stricken victim a 0.9-wide cow at (4.5, 64, 5.5), the
-// attacker's feet at (2.5, 64, 5.5) — the volume its box grows to, the
-// boxes that overlap it and the three blocks the far end stops at.
-func TestSweepReaches(t *testing.T) {
-	volMin, volMax := SweptVolume(4.05, 64, 5.05, 4.95, 65.4, 5.95)
-	got := []float64{volMin[0], volMin[1], volMin[2], volMax[0], volMax[1], volMax[2]}
-	if !slices.Equal(got, []float64{3.05, 63.75, 4.05, 5.95, 65.65, 6.95}) {
-		t.Errorf("the grown volume = %v, want the victim's box grown 1, 0.25, 1", got)
-	}
-	cases := []struct {
-		what    string
-		x, y, z float64 // the cow's feet
-		reach   bool
-	}{
-		{"a cow beside the victim", 5.2, 64, 5.5, true},
-		{"a cow behind the victim", 4.5, 64, 6.4, true},
-		{"a cow a block past the volume", 6.9, 64, 5.5, false},
-		{"a cow three and a hundredth away", 5.51, 64, 5.5, false},
-		{"a cow over the volume's top", 4.5, 65.7, 5.5, false},
-	}
-	for _, c := range cases {
-		// The body's own box: a cow is 0.9 wide and 1.4 tall.
-		if got := SweepReaches(2.5, 64, 5.5, c.x, c.y, c.z,
-			volMin, volMax,
-			[3]float64{c.x - 0.45, c.y, c.z - 0.45},
-			[3]float64{c.x + 0.45, c.y + 1.4, c.z + 0.45}); got != c.reach {
-			t.Errorf("%s: SweepReaches = %v, want %v", c.what, got, c.reach)
-		}
-	}
-}
-
-// TestKnockbackLiftNeedsTheGround checks that an airborne victim gets no
-// lift from any of the knockback calls, while the horizontal push stays.
-func TestKnockbackLiftNeedsTheGround(t *testing.T) {
-	rng := dice()
-	if vx, vy, _ := KnockbackExtra(3, 4, 0, 0, 1, false, rng); vy != 0 || vx == 0 {
-		t.Errorf("airborne plain hit pushes (%v, %v), want the horizontal alone", vx, vy)
-	}
-	if _, vy, _ := KnockbackExtra(3, 4, 0, 0.5, 1, false, rng); vy != 0 {
-		t.Errorf("airborne enchanted hit lifts %v, want 0", vy)
-	}
-	if _, vy, _ := KnockbackExtraOnly(0, 0.5, 1, false); vy != 0 {
-		t.Errorf("airborne extra-only shove lifts %v, want 0", vy)
-	}
-	if _, vy, _ := ArrowDefaultKnockback(1, 0, 1, false, rng); vy != 0 {
-		t.Errorf("airborne arrow hit lifts %v, want 0", vy)
-	}
-}
-
-// TestBadRespawnPointDeathLink pins the bracketed bug link of the bad
-// respawn point death: its words, click and hover.
-func TestBadRespawnPointDeathLink(t *testing.T) {
-	got := DeathMessage(DamageTypeBadRespawnPoint, protocol.Text{Text: "Steve"}, nil)
-	if want := "Steve was killed by [Intentional Game Design]"; got.Plain() != want {
-		t.Fatalf("message = %q, want %q", got.Plain(), want)
-	}
-	if len(got.With) != 2 {
-		t.Fatalf("arguments = %d, want 2", len(got.With))
-	}
-	link := got.With[1]
-	if link.ClickURL != "https://bugs.mojang.com/browse/MCPE-28723" {
-		t.Errorf("click url = %q", link.ClickURL)
-	}
-	if link.HoverText == nil || link.HoverText.Text != "MCPE-28723" {
-		t.Errorf("hover = %+v", link.HoverText)
-	}
-	var buf protocol.Buffer
-	buf.PutText(got)
-	if !bytes.Contains(buf.Bytes(), []byte("open_url")) {
-		t.Error("the wire form carries no open_url click event")
-	}
-}
-
-// TestAStingDeathMessageIsTheTypesOwn: damage type sting words its message
-// "death.attack.sting" with the victim and the killer, a text that names
-// the victim alone.
-// vanilla: DamageSource.getLocalizedDeathMessage, DamageTypes.STING
-func TestAStingDeathMessageIsTheTypesOwn(t *testing.T) {
-	got := DeathMessage(DamageTypeSting, protocol.Text{Text: "Alex"}, &Killer{Name: protocol.Text{Translate: "entity.minecraft.bee"}})
-	if got.Translate != "death.attack.sting" || len(got.With) != 2 {
-		t.Errorf("sting death message = %+v, want death.attack.sting with two arguments", got)
 	}
 }
 

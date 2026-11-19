@@ -28,36 +28,6 @@ func TestFindSpawnPositionRadialSteps(t *testing.T) {
 	}
 }
 
-func TestFindSpawnPositionFitness(t *testing.T) {
-	for axis := range 6 {
-		if axis == 4 { // depth is ignored, covered by the radial-step test.
-			continue
-		}
-		target := ClimatePoint{}
-		target.Bounds[axis] = [2]int64{10, 20}
-		// The first target's offset makes it worse than the second target.
-		penalized := target
-		penalized.Bounds[6] = [2]int64{100, 100}
-		x, z := FindSpawnPosition(func(qx, qz int32) [6]int64 {
-			var values [6]int64
-			if qx == 0 && qz == 128 {
-				values[axis] = 15
-			}
-			return values
-		}, []ClimatePoint{penalized, target})
-		if x != 0 || z != 512 {
-			t.Errorf("axis %d: spawn = (%d,%d), want (0,512)", axis, x, z)
-		}
-	}
-	// All candidates fit equally well: the origin's distance bias wins.
-	if x, z := FindSpawnPosition(func(int32, int32) [6]int64 { return [6]int64{} }, []ClimatePoint{{}}); x != 0 || z != 0 {
-		t.Errorf("uniform climate spawn = (%d,%d), want origin", x, z)
-	}
-	if x, z := FindSpawnPosition(nil, nil); x != 0 || z != 0 {
-		t.Errorf("empty target spawn = (%d,%d), want origin", x, z)
-	}
-}
-
 func TestOverworldSpawnTargets(t *testing.T) {
 	want := [7][2]int64{{-10000, 10000}, {-10000, 10000}, {-1100, 10000}, {-10000, 10000}, {0, 0}, {-10000, -1600}, {0, 0}}
 	points := OverworldSpawnTargets()

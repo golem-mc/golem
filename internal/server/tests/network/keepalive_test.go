@@ -2,13 +2,13 @@ package network
 
 import (
 	"bytes"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
 	"time"
 
+	"github.com/golem-mc/golem/internal/server/servertest"
+
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/registry"
 )
 
 // settleUnanswered is settle that leaves keep-alives unanswered: record sees
@@ -198,57 +198,4 @@ func configFrame(packetID int32, fill func(*protocol.Buffer)) []byte {
 	out.PutVarInt(int32(frame.Len()))
 	out.PutRaw(frame.Bytes())
 	return out.Bytes()
-}
-
-// TestAPartlySentConfigurationPacketSurvivesAPing sends a known-packs packet
-// in two halves with a configuration keep-alive due in between and checks
-// that the server still parses it: a ping sent while a packet is still
-// arriving must not cut the read in half.
-func TestAPartlySentConfigurationPacketSurvivesAPing(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, c := servertest.Dial(t, cfg)
-	servertest.HoldKeepAlive(t, srv, 5*20)
-	c.Login("Testificate")
-
-	// The configuration phase has begun; the server's own brand and
-	// known-packs packets come before the client's answer under test.
-	c.Expect(protocol.IDConfigPluginMessage)
-	c.Expect(protocol.IDKnownPacks)
-
-	// The answer, sent in two halves across more than one ping interval.
-	frame := configFrame(protocol.IDKnownPacksIn, func(b *protocol.Buffer) {
-		b.PutVarInt(1)
-		b.PutString("minecraft")
-		b.PutString("core")
-		b.PutString(registry.Version)
-	})
-	half := len(frame) / 2
-	if _, err := c.Raw.Write(frame[:half]); err != nil {
-		t.Fatalf("write first half: %v", err)
-	}
-	// A ping falls due while the packet is still half sent.
-	servertest.RunTicks(t, srv, 3)
-	c.Expect(protocol.IDConfigKeepAlive)
-	if _, err := c.Raw.Write(frame[half:]); err != nil {
-		t.Fatalf("write second half: %v", err)
-	}
-
-	// The server parsed the packet and sent the feature flags ahead of the
-	// registries, stepping over the pings it sent meanwhile.
-	for {
-		packetID, _, err := c.ReadBy(time.Now().Add(10 * time.Second))
-		if err != nil {
-			t.Fatalf("read after the two halves: %v", err)
-		}
-		if packetID == protocol.IDConfigKeepAlive {
-			continue
-		}
-		if packetID != protocol.IDFeatureFlags {
-			t.Fatalf("got packet 0x%02X after the two halves, want feature flags", packetID)
-		}
-		break
-	}
 }

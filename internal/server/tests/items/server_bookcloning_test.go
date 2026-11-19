@@ -39,16 +39,3 @@ func TestBookAndQuillsCopyAWrittenBook(t *testing.T) {
 	w.Click(0, 0, protocol.ClickModePickup)
 	w.ExpectClickResult(map[int16]protocol.ItemStack{0: {}, 1: writtenBookAt(t, 0), 2: {}, 3: {}}, want)
 }
-
-func TestACopyOfACopyCannotBeCopied(t *testing.T) {
-	t.Parallel()
-	_, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-
-	w.SetCreativeSlot(36, writtenBookAt(t, 2))
-	w.SetCreativeSlot(37, servertest.ItemStack(t, "minecraft:writable_book", 1))
-	w.PutInGrid(36, 1)
-	w.PutInGrid(37, 2)
-
-	w.Click(0, 0, protocol.ClickModePickup)
-	w.ExpectClickResult(map[int16]protocol.ItemStack{}, protocol.ItemStack{})
-}

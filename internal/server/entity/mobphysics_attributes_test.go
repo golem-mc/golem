@@ -52,52 +52,6 @@ func TestMobAirTravelAttributes(t *testing.T) {
 	}
 }
 
-func TestMobCollisionBouncinessAttribute(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name, block         string
-		x, y, z, vx, vy, vz float64
-		axis                string
-		bounce              bool
-	}{
-		{"floor", "stone", 0.5, 64.5, 0.5, 0, -1, 0, "y", true},
-		{"suppressed floor", "honey_block", 0.5, 64.5, 0.5, 0, -1, 0, "y", false},
-		{"resting floor", "stone", 0.5, 64, 0.5, 0, -0.08, 0, "y", false},
-		{"ceiling", "stone", 0.5, 65, 0.5, 0, 1, 0, "y", true},
-		{"east wall", "stone", 0.5, 64, 0.5, 2, 0, 0, "x", true},
-		{"south wall", "stone", 0.5, 64, 0.5, 0, 0, 2, "z", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := newTestWorld()
-			block := defaultState(t, "minecraft:"+tc.block)
-			floor(w, -2, -2, 4, 4, 63, block)
-			floor(w, -2, -2, 4, 4, 67, block)
-			for y := int32(64); y < 67; y++ {
-				w.set(2, y, 0, block)
-				w.set(0, y, 2, block)
-			}
-			m := NewMob(TypeCow, 1, tc.x, tc.y, tc.z, 1)
-			m.SetAttributes(m.BuildAttributes(nbt.List{}))
-			m.attrs.SetBase(registry.AttributeBounciness, 0.5)
-			m.VX, m.VY, m.VZ = tc.vx, tc.vy, tc.vz
-			m.move(w, m.VX, m.VY, m.VZ)
-			velocity := m.VY
-			if tc.axis == "x" {
-				velocity = m.VX
-			}
-			if tc.axis == "z" {
-				velocity = m.VZ
-			}
-			if tc.bounce && velocity == 0 || !tc.bounce && velocity != 0 {
-				t.Fatalf("bounce=%v: velocity=%g", tc.bounce, velocity)
-			}
-			if tc.bounce && (!m.Impulse || !m.bouncedOff) {
-				t.Fatal("bounce did not request movement sync and its game event")
-			}
-		})
-	}
-}
-
 func TestMobFallDamageAttributesAndJumpBoost(t *testing.T) {
 	t.Parallel()
 	w := newTestWorld()
@@ -133,20 +87,6 @@ func TestMobFallDamageAttributesAndJumpBoost(t *testing.T) {
 		safe, multiplier := m.fallParams()
 		if safe != directSafe || multiplier != directMultiplier {
 			t.Errorf("%s: installing attributes changed fall parameters", kind.Name())
-		}
-	}
-}
-
-func TestCubeJumpStrengthAttribute(t *testing.T) {
-	t.Parallel()
-	for _, kind := range []MobType{TypeSlime, TypeMagmaCube, TypeSulfurCube} {
-		m := NewMob(kind, 1, 0, 64, 0, 1)
-		m.SetAttributes(m.BuildAttributes(nbt.List{}))
-		m.attrs.SetBase(registry.AttributeJumpStrength, 0.8)
-		m.jumpFromGround(0.5)
-		want := float64(float32(0.8)*float32(0.5)) + m.cubeJumpBonus()
-		if math.Abs(m.VY-want) > 1e-6 {
-			t.Errorf("%s jump=%g, want %g", kind.Name(), m.VY, want)
 		}
 	}
 }

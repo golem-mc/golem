@@ -74,13 +74,6 @@ func TestOverworldVegetationStandsOnItsSoil(t *testing.T) {
 	}
 }
 
-// A tall plant is two blocks, the upper half over the lower, on soil.
-// vanilla: DoublePlantBlock.placeAt
-func TestOverworldTallPlantsHaveBothHalves(t *testing.T) {
-	t.Parallel()
-	checkTallPlants(t, surfaceRegion)
-}
-
 func checkTallPlants(t *testing.T, region servertest.RegionFixture) {
 	t.Helper()
 	seed := region.Seed

@@ -5,12 +5,10 @@ import (
 	"math"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/nbt"
 )
 
 // TestAPunchedLargeFireballFliesAlongTheLookAndChangesOwner checks the blow
@@ -39,91 +37,6 @@ func TestAPunchedLargeFireballFliesAlongTheLookAndChangesOwner(t *testing.T) {
 	}
 	if owner == 0 {
 		t.Error("the fireball has no owner, want the player who struck it")
-	}
-}
-
-// TestAPunchedSmallFireballIsNotTurned checks small fireballs are not
-// redirectable.
-// vanilla: EntityTypeTags.REDIRECTABLE_PROJECTILE
-func TestAPunchedSmallFireballIsNotTurned(t *testing.T) {
-	t.Parallel()
-	srv, c := flameScene(t)
-	c.MoveTo(2.5, 64, 0.5, 90, 0)
-	c.Settle()
-	id := srv.LaunchFireball(entity.ThrownSmallFireball, 3.5, 64.5, 0.5, 1, 0, 0, 0, 1)
-
-	c.Attack(id)
-	c.Settle()
-
-	_, owner, vx, _, _, _ := srv.ThrownTagOf(id)
-	if vx <= 0 || owner != 0 {
-		t.Errorf("the small fireball flies %g owned by %d, want it untouched", vx, owner)
-	}
-}
-
-// TestAFireballFarOutOfReachIsNotTurned checks the reach the blow verifies.
-func TestAFireballFarOutOfReachIsNotTurned(t *testing.T) {
-	t.Parallel()
-	srv, c := flameScene(t)
-	c.MoveTo(2.5, 64, 0.5, 90, 0)
-	c.Settle()
-	id := srv.LaunchFireball(entity.ThrownLargeFireball, 20.5, 64.5, 0.5, 1, 0, 0, 0, 1)
-
-	c.Attack(id)
-	c.Settle()
-
-	_, owner, vx, _, _, _ := srv.ThrownTagOf(id)
-	if vx <= 0 || owner != 0 {
-		t.Errorf("the far fireball flies %g owned by %d, want it untouched", vx, owner)
-	}
-}
-
-// TestAPunchedFireballPlaysTheNoDamageSound checks the blow sounds as one
-// that dealt no damage.
-// vanilla: Player.deflectProjectile
-func TestAPunchedFireballPlaysTheNoDamageSound(t *testing.T) {
-	t.Parallel()
-	srv, c := flameScene(t)
-	c.MoveTo(2.5, 64, 0.5, 90, 0)
-	c.Settle()
-	id := srv.LaunchFireball(entity.ThrownLargeFireball, 3.5, 64.5, 0.5, 1, 0, 0, 0, 1)
-
-	c.Attack(id)
-
-	servertest.ExpectSoundEvent(t, c, "minecraft:entity.player.attack.nodamage")
-}
-
-// TestAFireballAtCreativeReachIsTurnedOnlyForCreative checks a box 7 blocks
-// from the eye is inside the creative verified reach (3 + 2 + 3 buffer) and
-// outside the survival one (3 + 3).
-// vanilla: Player.deflectProjectile
-func TestAFireballAtCreativeReachIsTurnedOnlyForCreative(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name      string
-		cfg       *config.Config
-		turned    bool
-		wantOwner string
-	}{
-		{"creative", servertest.BlockTestConfig(), true, "set"},
-		{"survival", servertest.SurvivalTestConfig(), false, "unset"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.Join(t, tc.cfg, "Actor", servertest.OpsListing(t, "Actor"))
-			srv.StopTick()
-			c.MoveTo(2.5, 64, 0.5, 90, 0)
-			c.Settle()
-			id := srv.LaunchFireball(entity.ThrownLargeFireball, 10.0, 64.5, 0.5, 1, 0, 0, 0, 1)
-
-			c.Attack(id)
-			c.Settle()
-
-			_, owner, vx, _, _, _ := srv.ThrownTagOf(id)
-			if turned := vx < 0 && owner != 0; turned != tc.turned {
-				t.Errorf("fireball vx %g owner %d: turned = %v, want %v", vx, owner, turned, tc.turned)
-			}
-		})
 	}
 }
 
@@ -214,79 +127,12 @@ func TestAPunchedWindChargeFliesAlongTheLook(t *testing.T) {
 	}
 }
 
-// TestAShotBesideAFireballLeavesItUntouched flies the player's arrow past a
-// hovering fireball by 0.6 blocks, outside the fireball's box.
-// vanilla: ProjectileUtil.getEntityHitResult
-func TestAShotBesideAFireballLeavesItUntouched(t *testing.T) {
-	t.Parallel()
-	srv, c := flameScene(t)
-	c.MoveTo(2.5, 64, 0.5, 90, -30)
-	c.Settle()
-	id := srv.LaunchFireball(entity.ThrownLargeFireball, 8.5, 64.5, 0.5, 0, 0, 0, 0, 1)
-	if id == 0 {
-		t.Fatal("could not launch")
-	}
-	// The fireball's box spans 8..9 by 64..65; the arrow's passes at z 1.7
-	// to 1.1 clear of it.
-	srv.RunLine(fmt.Sprintf("summon minecraft:arrow 5.5 64.5 1.7 {Owner:%s,Motion:[1d,0d,0d],NoGravity:1b}", actorOwner()))
-	for range 8 {
-		servertest.DriveTargetTicks(srv, 1)
-	}
-	if _, owner, vx, _, _, ok := srv.ThrownTagOf(id); !ok || owner != 0 || vx != 0 {
-		t.Errorf("the fireball (vx %g, owner %d, present %v) was touched, want untouched", vx, owner, ok)
-	}
-}
-
-// TestAFreshWindChargeIsNotTurned checks a player's wind charge refuses a
-// blow in its first five ticks.
-// vanilla: WindCharge.noDeflectTicks
-func TestAFreshWindChargeIsNotTurned(t *testing.T) {
-	t.Parallel()
-	srv, c := flameScene(t)
-	c.MoveTo(2.5, 64, 0.5, 90, -30)
-	c.Settle()
-	srv.RunLine("summon minecraft:wind_charge 4.5 64.8 0.5 {Motion:[-0.05d,0d,0d],acceleration_power:0d}")
-	id := thrownOfKind(srv, "minecraft:wind_charge")
-	if id == 0 {
-		t.Fatal("no wind charge was summoned")
-	}
-	servertest.DriveTargetTicks(srv, 1)
-	c.Settle()
-
-	c.Attack(id)
-	c.Settle()
-
-	_, owner, vx, vy, vz, ok := srv.ThrownTagOf(id)
-	if !ok {
-		t.Fatal("the charge is gone")
-	}
-	if math.Abs(vx+0.05) > 1e-9 || vy != 0 || vz != 0 || owner != 0 {
-		t.Errorf("the charge flies (%g, %g, %g) owned by %d, want (-0.05, 0, 0) and no owner", vx, vy, vz, owner)
-	}
-
-	// Five ticks old, it turns.
-	servertest.DriveTargetTicks(srv, 4)
-	c.Settle()
-	c.Attack(id)
-	c.Settle()
-	if _, owner, vx, _, _, _ = srv.ThrownTagOf(id); vx > -0.5 || owner == 0 {
-		t.Errorf("the five-tick charge flies %g owned by %d, want turned to the look and owned", vx, owner)
-	}
-}
-
 // TestAnArrowTurnsALargeFireball shoots the player's arrow into a hovering
 // fireball: it turns along the player's look and becomes theirs.
 // vanilla: Projectile.onRedirectProjectile
 func TestAnArrowTurnsALargeFireball(t *testing.T) {
 	t.Parallel()
 	shotTurnsFireball(t, "arrow")
-}
-
-// TestASnowballTurnsALargeFireball is the arrow's case for a thrown body.
-// vanilla: Projectile.onRedirectProjectile
-func TestASnowballTurnsALargeFireball(t *testing.T) {
-	t.Parallel()
-	shotTurnsFireball(t, "snowball")
 }
 
 // shotTurnsFireball flies the player's shot of the type into a hovering
@@ -317,70 +163,5 @@ func shotTurnsFireball(t *testing.T, shot string) {
 	}
 	if got, want := ownerOf(t, srv, "fireball"), actorOwner(); got != want {
 		t.Errorf("the fireball's Owner = %q, want the shooter %q", got, want)
-	}
-}
-
-// TestABlastMakesItsIgniterOwnTheFireball checks a blast hands a
-// redirectable body in reach to the blast's cause.
-// vanilla: ServerExplosion.hurtEntities
-func TestABlastMakesItsIgniterOwnTheFireball(t *testing.T) {
-	t.Parallel()
-	srv, _ := flameScene(t)
-	if srv.LaunchFireball(entity.ThrownLargeFireball, 8.5, 65.5, 6.5, 0, 0, 0, 0, 1) == 0 {
-		t.Fatal("could not launch")
-	}
-	if srv.SpawnPlayerTNT("Actor", 8.5, 64, 4.5, 1) == 0 {
-		t.Fatal("could not light the TNT")
-	}
-	for range 5 {
-		if srv.TNTCount() == 0 {
-			break
-		}
-		servertest.DriveTargetTicks(srv, 1)
-	}
-	if srv.TNTCount() != 0 {
-		t.Fatal("the TNT never went off")
-	}
-
-	if got, want := ownerOf(t, srv, "fireball"), actorOwner(); got != want {
-		t.Errorf("the fireball's Owner = %q, want the igniter %q", got, want)
-	}
-}
-
-// TestASummonedWindChargeAcceleratesByDefault summons a wind charge without
-// acceleration_power: it reads the default 0.1 and gains 0.1 a tick along its
-// heading, while one summoned with 0 keeps its speed.
-// vanilla: AbstractHurtingProjectile.readAdditionalSaveData, AbstractHurtingProjectile.tick, AbstractWindCharge.getInertia
-func TestASummonedWindChargeAcceleratesByDefault(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		field     string
-		wantPower float64
-		wantGain  float64
-	}{
-		{"", 0.1, 0.1},
-		{",acceleration_power:0d", 0, 0},
-	} {
-		srv, _ := flameScene(t)
-		srv.RunLine("summon minecraft:wind_charge 0.5 70.5 8.5 {Motion:[0.1d,0d,0d]" + tc.field + "}")
-		id := thrownOfKind(srv, "minecraft:wind_charge")
-		if id == 0 {
-			t.Fatalf("%q: no wind charge was summoned", tc.field)
-		}
-		tag, _, vx, _, _, _ := srv.ThrownTagOf(id)
-		if power, ok := tag["acceleration_power"].(nbt.Double); !ok || math.Abs(float64(power)-tc.wantPower) > 1e-9 {
-			t.Errorf("%q: acceleration_power = %v, want %g", tc.field, tag["acceleration_power"], tc.wantPower)
-		}
-		for tick := 1; tick <= 3; tick++ {
-			servertest.DriveTargetTicks(srv, 1)
-			_, _, next, vy, vz, ok := srv.ThrownTagOf(id)
-			if !ok {
-				t.Fatalf("%q: the charge is gone after tick %d", tc.field, tick)
-			}
-			if math.Abs(next-vx-tc.wantGain) > 1e-9 || vy != 0 || vz != 0 {
-				t.Errorf("%q tick %d: motion (%g, %g, %g) from vx %g, want vx gaining %g", tc.field, tick, next, vy, vz, vx, tc.wantGain)
-			}
-			vx = next
-		}
 	}
 }

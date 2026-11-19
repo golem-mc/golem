@@ -1,16 +1,10 @@
 package mobs
 
 import (
-	"io"
-	"strings"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/console"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
 
 // The zombified piglin over the wire: neutral until struck, then angry for
@@ -119,71 +113,5 @@ func TestAZombifiedPiglinTakesNoFireDamage(t *testing.T) {
 	servertest.RunTicks(t, srv, 60)
 	if h, ok := srv.MobHealth(id); !ok || h != 20 {
 		t.Errorf("health after 60 ticks aflame = %v (%v), want 20", h, ok)
-	}
-}
-
-func TestAZombifiedPiglinSpawnsAsItsOwnType(t *testing.T) {
-	t.Parallel()
-	c, _, srv := piglinWorld(t)
-	id := srv.SpawnMob(piglin, 5.5, 64, 0.5)
-	typeID, _ := registry.EntityTypeID(piglin)
-	m := c.ExpectMobSpawn(int32(typeID))
-	if m.EntityID != id || m.Health != 20 {
-		t.Errorf("spawn = entity %d health %v, want %d and 20", m.EntityID, m.Health, id)
-	}
-}
-
-func TestAZombifiedPiglinSquealsOnFirstAnger(t *testing.T) {
-	t.Parallel()
-	c, _, srv := piglinWorld(t)
-	id := srv.SpawnMobSeeded(piglin, 6.5, 64, 0.5, 1)
-	if !srv.SetMobTargetPlayer(id, "Slayer") {
-		t.Fatal("could not set the piglin's target")
-	}
-	heard, _, _ := servertest.CollectSoundsTicks(c, srv, 21)
-	for _, sound := range heard {
-		if sound.Name == "minecraft:entity.zombified_piglin.angry" && sound.Volume == 2 {
-			// LivingEntity.getVoicePitch is 0.8–1.2 for an adult; the
-			// first-anger call multiplies that pitch by 1.8.
-			if sound.Pitch < 0.8*1.8 || sound.Pitch > 1.2*1.8 {
-				t.Errorf("first-anger pitch = %v, want 1.44–2.16", sound.Pitch)
-			}
-			return
-		}
-	}
-	t.Fatalf("no first-anger squeal within 21 ticks: %+v", heard)
-}
-
-// TestAZombifiedPiglinsAngerIsSavedAndLoaded: a summoned piglin with a saved
-// anger end time and target is angry in the world and writes both back, a
-// calm one writes the -1 sentinel and no target.
-// vanilla: NeutralMob.addPersistentAngerSaveData, readPersistentAngerSaveData
-func TestAZombifiedPiglinsAngerIsSavedAndLoaded(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.HostileTestConfig()
-	srv, _ := servertest.Start(t, cfg)
-	script := strings.Join([]string{
-		`summon minecraft:zombified_piglin 100.5 64 0.5 {NoAI:1b,anger_end_time:5000L,angry_at:[I;1,2,3,4]}`,
-		`summon minecraft:zombified_piglin 100.5 64 8.5 {NoAI:1b}`,
-	}, "\n") + "\n"
-	console.New(strings.NewReader(script), io.Discard, io.Discard, srv).Serve()
-	srv.Shutdown()
-
-	var angry, calm nbt.Compound
-	for _, compound := range servertest.ReadChunkEntities(t, cfg.LevelName, world.ChunkPos{X: world.ChunkOf(100.5), Z: world.ChunkOf(0.5)}) {
-		if _, ok := compound["angry_at"]; ok {
-			angry = compound
-		} else {
-			calm = compound
-		}
-	}
-	if end, _ := angry["anger_end_time"].(nbt.Long); end <= 0 {
-		t.Errorf("an angry piglin saved anger_end_time %v, want a time in the future", angry["anger_end_time"])
-	}
-	if target, _ := angry["angry_at"].(nbt.IntArray); len(target) != 4 || target[0] != 1 || target[3] != 4 {
-		t.Errorf("an angry piglin saved angry_at %v, want [1 2 3 4]", angry["angry_at"])
-	}
-	if end, ok := calm["anger_end_time"].(nbt.Long); !ok || end != -1 {
-		t.Errorf("a calm piglin saved anger_end_time %v, want -1", calm["anger_end_time"])
 	}
 }

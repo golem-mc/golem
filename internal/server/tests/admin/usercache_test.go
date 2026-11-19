@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"bytes"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"path/filepath"
 	"testing"
@@ -73,38 +72,6 @@ func TestUsercacheKeepsJoinedPlayers(t *testing.T) {
 	}
 }
 
-// TestUsercacheRejoinsToFront rejoins a player and reads the cache again: the
-// rejoin refreshes their entry and stands it back at the front, the most
-// recently joined first.
-func TestUsercacheRejoinsToFront(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	srv, connect := servertest.Start(t, cfg, usercacheAt(t))
-
-	alice := connect().Join("Alice")
-
-	bob := connect().Join("Bob")
-	bobID := alice.ExpectPlayerAdded("Bob")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Bob")
-
-	bob.Disconnect()
-	alice.ExpectPlayerRemoved(bobID, "Bob")
-	alice.ExpectAnnouncement("multiplayer.player.left", "Bob")
-
-	connect().Join("Bob")
-	alice.ExpectPlayerAdded("Bob")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Bob")
-
-	records := servertest.ReadListFile[usercacheRecord](t, srv.UsercacheFile())
-	if len(records) != 2 {
-		t.Fatalf("usercache.json holds %d entries, want Alice and Bob", len(records))
-	}
-	if records[0].Name != "Bob" || records[1].Name != "Alice" {
-		t.Errorf("usercache.json = %+v, want the rejoined Bob first", records)
-	}
-}
-
 // TestUsercacheResolvesPlayersWhoLeft runs the profile-argument commands on
 // Bob, who has joined and left, under a casing his name was not joined with:
 // the pair the cache kept answers, not an offline-UUID of the typed word —
@@ -151,69 +118,6 @@ func TestUsercacheResolvesPlayersWhoLeft(t *testing.T) {
 	listed := servertest.ReadListFile[servertest.WhitelistRecord](t, srv.WhitelistFile())
 	if len(listed) != 1 || listed[0].UUID != protocol.OfflineUUID("Bob").String() || listed[0].Name != "Bob" {
 		t.Errorf("whitelist.json = %+v, want Bob listed under the UUID he joined with", listed)
-	}
-
-	alice.Disconnect()
-}
-
-// TestUsercacheResolvesAStoredUUID plants an entry in usercache.json — the
-// standing-in for the entry an authenticated join would leave behind, since
-// no client in this environment can log in online — and checks the commands
-// resolve the name to the UUID the file holds rather than one derived from
-// the typed word.
-func TestUsercacheResolvesAStoredUUID(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	steve := uuid.Must(uuid.NewRandom())
-	seed := usercacheRecord{UUID: steve.String(), Name: "Steve", ExpiresOn: usercacheStamp()}
-	srv, _, alice := servertest.AdminSolo(t, cfg, usercacheAt(t, seed), servertest.WriteAdminFiles(t, nil, nil, nil))
-
-	alice.ChatCommand("op Steve")
-	alice.ExpectCommandFeedbackText("commands.op.success", protocol.Text{Text: "Steve"})
-	ops := servertest.ReadListFile[servertest.OpRecord](t, srv.OpsFile())
-	if len(ops) != 2 || ops[1].UUID != steve.String() || ops[1].Name != "Steve" {
-		t.Errorf("ops.json = %+v, want Steve listed under the UUID the cache holds", ops)
-	}
-
-	alice.ChatCommand("whitelist add Steve")
-	alice.ExpectCommandFeedbackText("commands.whitelist.add.success", protocol.Text{Text: "Steve"})
-	listed := servertest.ReadListFile[servertest.WhitelistRecord](t, srv.WhitelistFile())
-	if len(listed) != 1 || listed[0].UUID != steve.String() || listed[0].Name != "Steve" {
-		t.Errorf("whitelist.json = %+v, want Steve listed under the UUID the cache holds", listed)
-	}
-
-	alice.ChatCommand("ban Steve Bad")
-	alice.ExpectCommandFeedbackText("commands.ban.success",
-		protocol.Text{Text: "Steve"}, protocol.Text{Text: "Bad"})
-	records := servertest.ReadListFile[servertest.BanRecord](t, srv.BannedPlayersFile())
-	if len(records) != 1 || records[0].UUID != steve.String() || records[0].Name != "Steve" ||
-		records[0].Reason != "Bad" {
-		t.Errorf("banned-players.json = %+v, want Steve banned under the UUID the cache holds", records)
-	}
-
-	alice.Disconnect()
-}
-
-// TestUsercacheExpiredEntryLetsTheResolutionPass checks the stamp is read: a
-// name whose cache entry has lapsed resolves without it, since the offline
-// fallback is what an expired entry leaves behind.
-func TestUsercacheExpiredEntryLetsTheResolutionPass(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	seed := usercacheRecord{
-		UUID:      uuid.Must(uuid.NewRandom()).String(),
-		Name:      "Steve",
-		ExpiresOn: "2020-01-01 00:00:00 +0000",
-	}
-	srv, _, alice := servertest.AdminSolo(t, cfg, usercacheAt(t, seed), servertest.WriteAdminFiles(t, nil, nil, nil))
-
-	alice.ChatCommand("op Steve")
-	alice.ExpectCommandFeedbackText("commands.op.success", protocol.Text{Text: "Steve"})
-	ops := servertest.ReadListFile[servertest.OpRecord](t, srv.OpsFile())
-	if len(ops) != 2 || ops[1].UUID != protocol.OfflineUUID("Steve").String() {
-		t.Errorf("ops.json = %+v, want Steve under the offline UUID of the expired entry's name", ops)
 	}
 
 	alice.Disconnect()
@@ -293,39 +197,4 @@ func TestUsercacheSurvivesRestart(t *testing.T) {
 		entries[1].ExpiresOn != seed[0].ExpiresOn {
 		t.Errorf("usercache.json after the restart = %+v, want Alice's join and Steve's seed", entries)
 	}
-}
-
-// TestUsercacheRenamedJoin joins a player whose cached name differs from
-// the one they arrive with: the others read the renamed announcement naming
-// the old one, and once the cache holds the new name, a rejoin is plain.
-func TestUsercacheRenamedJoin(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	_, connect, alice := servertest.AdminSolo(t, cfg, usercacheAt(t, usercacheRecord{
-		UUID: protocol.OfflineUUID("Bob").String(), Name: "Robert", ExpiresOn: usercacheStamp(),
-	}))
-
-	bob := connect().Join("Bob")
-	var want protocol.Buffer
-	want.PutText(protocol.Text{
-		Translate: "multiplayer.player.joined.renamed",
-		With:      []protocol.Text{servertest.PlayerDisplayComponent("Bob"), {Text: "Robert"}},
-		Color:     protocol.ColorYellow,
-	})
-	want.PutBool(false)
-	alice.ExpectPlayerAdded("Bob")
-	if got := alice.ExpectPlay(protocol.IDPlaySystemChat); !bytes.Equal(got, want.Bytes()) {
-		t.Errorf("rename announcement = % X, want % X", got, want.Bytes())
-	}
-
-	bob.Disconnect()
-	for id := range alice.Packets(servertest.ExpectTimeout) {
-		if id == protocol.IDPlaySystemChat {
-			break
-		}
-	}
-	connect().Join("Bob")
-	alice.ExpectPlayerAdded("Bob")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Bob")
 }

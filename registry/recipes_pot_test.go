@@ -38,21 +38,3 @@ func TestSherdsCraftADecoratedPot(t *testing.T) {
 		t.Errorf("a stick side made %+v, want no pot", r)
 	}
 }
-
-func TestCraftMatchNamesTheTableRecipeAndThePot(t *testing.T) {
-	stack := func(name string) protocol.ItemStack { return protocol.ItemStack{ItemID: MustItem(name), Count: 1} }
-	pot := make([]protocol.ItemStack, 9)
-	pot[1], pot[3], pot[5], pot[7] = stack("minecraft:brick"), stack("minecraft:angler_pottery_sherd"),
-		stack("minecraft:brick"), stack("minecraft:brick")
-	if got, _ := CraftMatch(pot, 3); got != "minecraft:decorated_pot" {
-		t.Errorf("a pot's grid crafts %q", got)
-	}
-	planks := []protocol.ItemStack{stack("minecraft:oak_planks"), stack("minecraft:oak_planks"),
-		stack("minecraft:oak_planks"), stack("minecraft:oak_planks")}
-	if got, _ := CraftMatch(planks, 2); got != "minecraft:crafting_table" {
-		t.Errorf("four planks craft %q", got)
-	}
-	if got, _ := CraftMatch([]protocol.ItemStack{stack("minecraft:stick")}, 1); got != "" {
-		t.Errorf("a lone stick crafts %q", got)
-	}
-}

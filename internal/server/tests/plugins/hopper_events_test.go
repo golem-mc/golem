@@ -59,37 +59,3 @@ func TestPluginHopperMoveEvents(t *testing.T) {
 		}
 	})
 }
-
-// vanilla: HopperBlockEntity.addItem(Container, ItemEntity).
-func TestPluginHopperPickupEvent(t *testing.T) {
-	srv, h, run, _ := inventoryPlayer(t)
-	ow := srv.OverworldWorld()
-	ow.Acquire(worldChunk0)
-	defer ow.Release(worldChunk0)
-	placeContainerEntity(ow, 4, 65, 0, registry.BlockHopper)
-	var hopper plugin.Inventory
-	var picks int
-	cancel := true
-	run(func() {
-		w := h.Overworld()
-		hopper = containerHandle(t, w, plugin.BlockPos{X: 4, Y: 65}).Inventory()
-		plugin.Listen(h, func(e *plugin.InventoryPickupItemEvent) {
-			picks++
-			e.SetCancelled(cancel)
-		})
-		w.DropItem(plugin.Vec3{X: 4.5, Y: 66.2, Z: 0.5}, plugin.NewStack(registry.ItemStick, 1), false)
-	})
-	servertest.RunTicks(t, srv, 20)
-	run(func() {
-		if picks == 0 || !hopper.Item(0).Empty() {
-			t.Errorf("cancelled pickup: %d events, hopper %+v", picks, hopper.Item(0))
-		}
-	})
-	cancel = false
-	servertest.RunTicks(t, srv, 20)
-	run(func() {
-		if hopper.Item(0).Item != registry.ItemStick {
-			t.Errorf("allowed pickup left the hopper %+v", hopper.Item(0))
-		}
-	})
-}

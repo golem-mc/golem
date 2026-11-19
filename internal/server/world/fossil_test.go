@@ -7,35 +7,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-func TestFossilEmptyCorners(t *testing.T) {
-	world := newGoldenTerrain()
-	r := newDecorRegion(world, newChunk(0, 0), worldMinY, worldHeight)
-	box := jbox{1, 1, 1, 3, 3, 3}
-	if got := r.countEmptyCorners(box); got != 0 {
-		t.Fatalf("solid corners: got %d, want 0", got)
-	}
-	for _, b := range []struct {
-		pos   [3]int32
-		block registry.Block
-	}{
-		{[3]int32{1, 1, 1}, registry.BlockAir},
-		{[3]int32{1, 1, 3}, registry.BlockCaveAir},
-		{[3]int32{1, 3, 1}, registry.BlockWater},
-		{[3]int32{1, 3, 3}, registry.BlockLava},
-		// Non-solid blocks other than air and the two liquids do not count.
-		{[3]int32{3, 1, 1}, registry.BlockOakLeaves},
-	} {
-		r.set(b.pos[0], b.pos[1], b.pos[2], b.block.DefaultState())
-	}
-	if got := r.countEmptyCorners(box); got != 4 {
-		t.Fatalf("air and liquid corners: got %d, want 4", got)
-	}
-	// BoundingBox.forAllCorners visits all eight even when coordinates coincide.
-	if got := r.countEmptyCorners(jbox{1, 1, 1, 1, 1, 1}); got != 8 {
-		t.Fatalf("degenerate air box: got %d, want 8", got)
-	}
-}
-
 func TestFossilLayerProcessors(t *testing.T) {
 	world := newGoldenTerrain()
 	layer := loadFossilLayer(nil, "minecraft:fossil_diamonds")

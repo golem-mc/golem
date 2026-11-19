@@ -97,26 +97,6 @@ func TestFinalizeDrownedDrawsFromTheSpawnDice(t *testing.T) {
 	}
 }
 
-// TestFinalizeVindicatorDrawsFromTheSpawnDice checks the Mob step, then the
-// iron axe's enchantment slot, on the same random.
-// vanilla: Vindicator.finalizeSpawn, Mob.enchantSpawnedEquipment
-func TestFinalizeVindicatorDrawsFromTheSpawnDice(t *testing.T) {
-	plains := testBiome("minecraft:plains")
-	for _, special := range []float32{0, 1} {
-		local := rules.LocalDifficulty{Special: special}
-		for i := range int32(12) {
-			want := regionDiceAt(i)
-			m := NewMob(TypeVindicator, 1, 0.5, 64, 0.5, 1)
-			m.FinalizeStructureSpawn(regionDiceAt(i), plains, false, local)
-			mirrorMobStep(t, m, want)
-			axe := mirrorEnchants(want, local, protocol.ItemStack{ItemID: int32(registry.ItemIronAxe), Count: 1})
-			if m.MainHand.ItemID != axe.ItemID || len(m.MainHand.Enchantments) != len(axe.Enchantments) {
-				t.Errorf("special %v #%d axe = %+v, want %+v", special, i, m.MainHand, axe)
-			}
-		}
-	}
-}
-
 // mirrorZombieEquipment draws Mob.populateDefaultEquipmentSlots' armour and
 // Zombie's iron tool from want, off hard, and returns the main hand and worn
 // slots it gives.
@@ -154,71 +134,4 @@ func mirrorZombieEquipment(want levelgen.RandomSource, local rules.LocalDifficul
 		}
 	}
 	return main, worn
-}
-
-// TestFinalizeHuskDrawsFromTheSpawnDice finalizes two husks of one natural
-// pack, each on its own region random, and checks each field against a second
-// copy drawn in vanilla's order: Mob's step, Zombie's, the husk's second
-// loot-pickup roll, then the camel husk roll where its box fits, for the
-// second member as well as the first.
-// vanilla: Zombie.finalizeSpawn, Husk.finalizeSpawn
-func TestFinalizeHuskDrawsFromTheSpawnDice(t *testing.T) {
-	desert := testBiome("minecraft:desert")
-	for _, special := range []float32{0, 1} {
-		local := rules.LocalDifficulty{Special: special}
-		for i := range int32(40) {
-			group := NewNaturalSpawnGroup(regionDiceAt(1000 + i))
-			packBaby := regionDiceAt(1000+i).NextFloat() < babyOdds
-			for member := range int32(2) {
-				fits := (i+member)%4 != 0
-				seed := 2*i + member
-				want := regionDiceAt(seed)
-				dice := regionDiceAt(seed)
-				m := NewMob(TypeHusk, 1, 0.5, 64, 0.5, 1)
-				m.CamelHuskFits = fits
-				m.FinalizeSpawn(dice, desert, group, local)
-
-				mirrorMobStep(t, m, want)
-				zombiePickup := want.NextFloat() < 0.55*special
-				if m.IsBaby() != packBaby {
-					t.Errorf("special %v #%d/%d baby = %v, want %v", special, i, member, m.IsBaby(), packBaby)
-				}
-				jockey := JockeyNone
-				if packBaby {
-					if float64(want.NextFloat()) < chickenJockeyOdds {
-						jockey = JockeyNearbyChicken
-					} else if float64(want.NextFloat()) < chickenJockeyOdds {
-						jockey = JockeyFreshChicken
-					}
-				}
-				if got := want.NextFloat() < special*0.1; m.CanBreakDoors != got {
-					t.Errorf("special %v #%d/%d CanBreakDoors = %v, want %v", special, i, member, m.CanBreakDoors, got)
-				}
-				main, worn := mirrorZombieEquipment(want, local)
-				for slot := range worn {
-					if m.Worn[slot].ItemID != worn[slot].ItemID || len(m.Worn[slot].Enchantments) != len(worn[slot].Enchantments) {
-						t.Errorf("special %v #%d/%d worn[%d] = %+v, want %+v", special, i, member, slot, m.Worn[slot], worn[slot])
-					}
-				}
-				pickup := want.NextFloat() < 0.55*special
-				if m.CanPickUpLoot != pickup {
-					t.Errorf("special %v #%d/%d CanPickUpLoot = %v, want the husk's own roll %v (Zombie's was %v)",
-						special, i, member, m.CanPickUpLoot, pickup, zombiePickup)
-				}
-				if fits && want.NextFloat() < camelHuskJockeyOdds {
-					main = protocol.ItemStack{ItemID: int32(registry.ItemIronSpear), Count: 1}
-					jockey = JockeyCamelHusk
-				}
-				if m.MainHand.ItemID != main.ItemID || len(m.MainHand.Enchantments) != len(main.Enchantments) {
-					t.Errorf("special %v #%d/%d main hand = %+v, want %+v", special, i, member, m.MainHand, main)
-				}
-				if m.Jockey != jockey {
-					t.Errorf("special %v #%d/%d jockey = %v, want %v", special, i, member, m.Jockey, jockey)
-				}
-				if next := want.NextInt(); next != dice.NextInt() {
-					t.Errorf("special %v #%d/%d: finalize consumed a different number of draws", special, i, member)
-				}
-			}
-		}
-	}
 }

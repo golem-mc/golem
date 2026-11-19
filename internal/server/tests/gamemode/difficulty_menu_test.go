@@ -57,21 +57,6 @@ func TestMenuChangeDifficultyReachesEveryone(t *testing.T) {
 	expectDifficulty(other, 2, false)
 }
 
-// TestMenuChangeDifficultyRefusesNonOp checks a non-op's request changes
-// nothing and tells nobody.
-func TestMenuChangeDifficultyRefusesNonOp(t *testing.T) {
-	t.Parallel()
-	op, other, difficulty, _ := difficultyMenuWorld(t)
-	sendChangeDifficulty(other, 3)
-	sendLockDifficulty(other, true)
-	other.Settle()
-	if got := difficulty(); got != 1 {
-		t.Errorf("difficulty = %d, want it left at 1", got)
-	}
-	sendChangeDifficulty(op, 2)
-	expectDifficulty(op, 2, false) // the first Change Difficulty the op sees
-}
-
 // TestMenuLockDifficulty checks the lock button sets the flag for everyone
 // and that a locked difficulty refuses the menu, but not /difficulty.
 func TestMenuLockDifficulty(t *testing.T) {

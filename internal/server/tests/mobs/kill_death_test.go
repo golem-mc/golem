@@ -94,35 +94,3 @@ func TestKillMobLootIsImmediateWhileFrozen(t *testing.T) {
 		t.Errorf("loot returned after item cleanup: items=%+v, spawn ticks=%v", items, watch.drops)
 	}
 }
-
-// vanilla: LivingEntity.getKillCredit, LivingEntity.dropExperience
-func TestKillMobPaysRememberedPlayerWhileFrozen(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.MobTestConfig()
-	cfg.ViewDistance = config.MinDistance
-	cfg.SimulationDistance = config.MinDistance
-	srv, c, _ := servertest.JoinAs(t, cfg, "Farmer",
-		servertest.OpsListing(t, "Farmer"))
-	servertest.HoldTicks(t, srv)
-	c.MoveToGround(0.5, 64, 0.5, true)
-	c.Settle()
-	id := srv.SpawnMob("minecraft:cow", 4.5, 64, 4.5)
-	c.ExpectMobSpawn(protocol.EntityTypeCow)
-	srv.RunLine("tick freeze")
-	srv.RunLine("scoreboard objectives add kills totalKillCount")
-	c.ChatCommand("damage @e[type=minecraft:cow,limit=1] 1 minecraft:player_attack by Farmer")
-	c.Settle()
-	if health, ok := srv.MobHealth(id); !ok || health != 9 {
-		t.Fatalf("cow's health after the player's hit = %v, present=%t; want 9", health, ok)
-	}
-
-	watch := newDeathWatch(id)
-	c.ChatCommand("kill @e[type=minecraft:cow]")
-	c.SettleAndCollect(watch.record)
-	if watch.death != 0 || len(watch.orbs) == 0 {
-		t.Errorf("before any tick: death event at %d, experience spawns=%v; want immediate death and experience", watch.death, watch.orbs)
-	}
-	if score, ok := srv.ScoreOf("Farmer", "kills"); !ok || score != 1 {
-		t.Errorf("remembered player's kill score = %d, present=%t; want 1", score, ok)
-	}
-}

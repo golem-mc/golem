@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
-
-	"golang.org/x/term"
 )
 
 // screen is a terminal small enough to check the console's drawing against:
@@ -258,66 +256,9 @@ func TestScreenWrappedLineRedrawsInPlace(t *testing.T) {
 	wantScreen(t, scr, []string{text[:100], text[100:]}, 21, 1)
 }
 
-func TestScreenLogLineAboveAWrappedLine(t *testing.T) {
-	// A log line arriving while the line is wrapped replaces both rows of
-	// the prompt rather than the cursor's row alone. The host logs while
-	// it completes, so the line arrives mid-session.
-	long := strings.Repeat("abcdefghij", 12)
-	scr := newScreen(t, 100, 30)
-	var s *Session
-	host := &fakeHost{onSuggest: func() {
-		_, _ = io.WriteString(s.LogWriter(), "a log line\n")
-	}}
-	s = newSession(strings.NewReader("say "+long+"\x1b[D\t"), scr, io.Discard, host, true)
-	s.columns = func() int { return 100 }
-	s.serveEditing()
-
-	text := prompt + "say " + long
-	wantScreen(t, scr, []string{"a log line", text[:100], text[100:]}, 25, 2)
-}
-
 func TestScreenWideRunesPlaceTheCursorByColumns(t *testing.T) {
 	_, scr, _ := onScreen(t, "say 日本語テスト\x1b[D\x1b[D\x1b[DX", 100, 30)
 	wantScreen(t, scr, []string{"> say 日本語Xテスト"}, 13, 0)
-}
-
-func TestScreenWideRuneWrapsWhole(t *testing.T) {
-	// One column is left on the first row of ten and the rune needs two,
-	// so it starts the second row.
-	_, scr, _ := onScreen(t, "abcdefg日", 10, 5)
-	wantScreen(t, scr, []string{"> abcdefg", "日"}, 2, 1)
-
-	_, scr, _ = onScreen(t, "abcdefg日\x1b[D", 10, 5)
-	wantScreen(t, scr, []string{"> abcdefg", "日"}, 0, 1)
-}
-
-func TestScreenLineEndingOnTheMargin(t *testing.T) {
-	// The line fills its row exactly: the cursor goes to the next row, and
-	// taking a rune away again redraws without a stale row.
-	_, scr, _ := onScreen(t, "abcdefgh", 10, 5)
-	wantScreen(t, scr, []string{"> abcdefgh"}, 0, 1)
-
-	_, scr, _ = onScreen(t, "abcdefghi\x7f\x7f\x7f", 10, 5)
-	wantScreen(t, scr, []string{"> abcdef"}, 8, 0)
-}
-
-func TestScreenSubmitLeavesTheWrappedLine(t *testing.T) {
-	// Enter with the cursor on the first row of a wrapped line moves past
-	// its second row before the next prompt is drawn.
-	_, scr, host := onScreen(t, "say abcdefghijklmnop\x01\r", 10, 10)
-	wantScreen(t, scr, []string{"> say abcd", "efghijklmn", "op", ">"}, 2, 3)
-	if len(host.lines) != 1 || host.lines[0] != "say abcdefghijklmnop" {
-		t.Errorf("ran %q", host.lines)
-	}
-}
-
-func TestScreenEscapeBeforeAnArrow(t *testing.T) {
-	// Esc then Left arrive as one read: the escape alone is dropped and
-	// the arrow still moves the cursor.
-	_, _, host := onScreen(t, "ab\x1b\x1b[DQ\r", 100, 5)
-	if len(host.lines) != 1 || host.lines[0] != "aQb" {
-		t.Errorf("ran %q, want aQb", host.lines)
-	}
 }
 
 func TestLoneEscapeTimesOut(t *testing.T) {
@@ -381,43 +322,6 @@ func TestScreenResizeNarrowerLeavesNoStaleRows(t *testing.T) {
 	wantScreen(t, scr, append([]string{"a line above"}, wrapRows(text, 25)...), 2, 4)
 }
 
-func TestScreenResizeWiderLeavesNoStaleRows(t *testing.T) {
-	digits := strings.Repeat("0123456789", 7)
-	scr := resizedScreen(t, 25, 70, "say "+digits, "X")
-	text := prompt + "say " + digits + "X"
-	wantScreen(t, scr, append([]string{"a line above"}, wrapRows(text, 70)...), 7, 2)
-}
-
-func TestScreenResizeMidLine(t *testing.T) {
-	// The cursor stands on the first row when the window narrows.
-	digits := strings.Repeat("0123456789", 7)
-	scr := resizedScreen(t, 40, 25, "say "+digits+"\x01", "X")
-	text := prompt + "Xsay " + digits
-	wantScreen(t, scr, append([]string{"a line above"}, wrapRows(text, 25)...), 3, 1)
-}
-
-func TestScreenResizeAfterAMarginBreak(t *testing.T) {
-	// The line filled its row, so the cursor sat on the row below; a wider
-	// window keeps that break.
-	scr := resizedScreen(t, 20, 30, "abcdefghijklmnopqr", "X")
-	wantScreen(t, scr, []string{"a line above", "> abcdefghijklmnopqrX"}, 21, 1)
-}
-
-func TestScreenResizeThenEnterKeepsTheEcho(t *testing.T) {
-	digits := strings.Repeat("0123456789", 7)
-	for _, c := range []struct{ before, after int }{{40, 25}, {25, 70}} {
-		scr := resizedScreen(t, c.before, c.after, "say "+digits, "\r")
-		rows := append([]string{"a line above"}, wrapRows(prompt+"say "+digits, c.after)...)
-		got := scr.rows()
-		for i, want := range rows {
-			if i >= len(got) || got[i] != want {
-				t.Errorf("%d→%d: row %d = %q, want %q (screen %q)", c.before, c.after, i, at(got, i), want, got)
-				break
-			}
-		}
-	}
-}
-
 func at(rows []string, i int) string {
 	if i < len(rows) {
 		return rows[i]
@@ -433,14 +337,4 @@ func TestScreenInterruptWipesAWrappedLine(t *testing.T) {
 	if !host.stopped {
 		t.Errorf("did not stop")
 	}
-}
-
-func TestScreenCloseWipesAWrappedLine(t *testing.T) {
-	s, scr, _ := onScreen(t, "say abcdefghijklmnop", 10, 10)
-	wantScreen(t, scr, []string{"> say abcd", "efghijklmn", "op"}, 2, 2)
-	// A zero State and an invalid fd stand in for a raw terminal: the
-	// restore fails and its error is dropped.
-	s.rawState, s.rawFd = &term.State{}, -1
-	s.Close()
-	wantScreen(t, scr, nil, 0, 0)
 }

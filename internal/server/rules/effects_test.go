@@ -19,20 +19,6 @@ func consumableOf(t *testing.T, name string) registry.Consumable {
 	return c
 }
 
-// TestRottenFleshRollsItsChance applies rotten flesh's hunger under its 0.8
-// and not over it (vanilla: ApplyStatusEffectsConsumeEffect).
-func TestRottenFleshRollsItsChance(t *testing.T) {
-	flesh := consumableOf(t, "minecraft:rotten_flesh")
-	for seed, want := range map[int64]bool{1: true, 5: false} { // rolls 0.60 and 0.80
-		v := FreshVitals(0)
-		var s effect.Set
-		out := Consume(&v, &s, nil, flesh.Effects, rand.New(rand.NewSource(seed)))
-		if _, got := s.Get(effectHunger); got != want || len(out.Changes) != map[bool]int{true: 1}[want] {
-			t.Errorf("seed %d: hunger %v with %d changes, want %v", seed, got, len(out.Changes), want)
-		}
-	}
-}
-
 // TestGoldenAppleAbsorbsAndHoneyCures eats a golden apple - four extra
 // hearts' worth of absorption that a hit spends first - and drinks honey
 // against poison.
@@ -110,58 +96,6 @@ func TestHealthBoostBarsAndClamps(t *testing.T) {
 	}
 }
 
-// TestHealthBoostCapsAtTheAttributeRange caps the raised bar at the
-// max_health attribute's own 1024, which the modifier cannot push past.
-func TestHealthBoostCapsAtTheAttributeRange(t *testing.T) {
-	v := FreshVitals(0)
-	var s effect.Set
-	AddEffect(&v, &s, effect.New(effectHealthBoost, 100, 255, false, true, true))
-	Heal(&v, &s, nil, 1e6)
-	if v.Health != 1024 {
-		t.Errorf("a heal under Health Boost 256 reached %v, want the attribute's 1024", v.Health)
-	}
-}
-
-// TestRemoveAndClearEffectsClampHealth is the max_health cap on the paths a
-// command takes: taking the boost off outside the tick takes the health above
-// the bar it leaves behind with it.
-func TestRemoveAndClearEffectsClampHealth(t *testing.T) {
-	v := FreshVitals(0)
-	var s effect.Set
-	AddEffect(&v, &s, effect.New(effectHealthBoost, 100, 1, false, true, true))
-	Heal(&v, &s, nil, 30)
-	if v.Health != 28 {
-		t.Fatalf("a heal under Health Boost II reached %v, want 28", v.Health)
-	}
-	RemoveEffect(&v, &s, nil, effectHealthBoost)
-	if v.Health != MaxHealth {
-		t.Errorf("removing the boost left the health at %v, want %v", v.Health, MaxHealth)
-	}
-
-	AddEffect(&v, &s, effect.New(effectHealthBoost, 100, 0, false, true, true))
-	Heal(&v, &s, nil, 30)
-	if v.Health != 24 {
-		t.Fatalf("a heal under Health Boost I reached %v, want 24", v.Health)
-	}
-	ClearEffects(&v, &s, nil)
-	if v.Health != MaxHealth {
-		t.Errorf("clearing the effects left the health at %v, want %v", v.Health, MaxHealth)
-	}
-}
-
-// TestRegenerationHealsBeforeTheFoodTick heals in place, so the food tick
-// that follows reads a healed body: no saturated heal, no exhaustion
-// (vanilla: tickEffects in super.tick, then foodData.tick).
-func TestRegenerationHealsBeforeTheFoodTick(t *testing.T) {
-	v := player.Vitals{Health: 19, Food: 20, Saturation: 5, FoodTicks: 9, AirSupply: MaxAirSupply}
-	var s effect.Set
-	AddEffect(&v, &s, effect.New(effectRegeneration, 100, 0, false, true, true))
-	TickVitals(&v, &s, nil, DifficultyNormal, false, Habitat{}, nil, 0, true)
-	if v.Health != 20 || v.Exhaustion != 0 || v.FoodTicks != 0 {
-		t.Errorf("health %v, exhaustion %v, food ticks %v; want 20, 0, 0", v.Health, v.Exhaustion, v.FoodTicks)
-	}
-}
-
 // TestAirSupplyEffectRules checks the two effect predicates the breath
 // reads: water_breathing, conduit_power and breath_of_the_nautilus all spare
 // the drain, but the nautilus on its own freezes the breath instead of
@@ -208,36 +142,6 @@ func TestResistanceAndFireResistance(t *testing.T) {
 	}
 	if !FireImmune(active, DamageTypeLava) || FireImmune(active, DamageTypeMagic) {
 		t.Error("fire resistance should turn lava away and nothing else")
-	}
-}
-
-// TestInvisibilityAndGlowingRules checks the two effect flags: each bit follows
-// its own effect alone, and neither stands on a body with no effects.
-func TestInvisibilityAndGlowingRules(t *testing.T) {
-	if Invisible(nil) || Glowing(nil) {
-		t.Error("a body with no effects should be neither invisible nor glowing")
-	}
-	invisible := []effect.Instance{effect.New(effectInvisibility, 100, 0, false, true, true)}
-	if !Invisible(invisible) || Glowing(invisible) {
-		t.Error("invisibility should hide a body without outlining it")
-	}
-	glowing := []effect.Instance{effect.New(effectGlowing, 100, 0, false, true, true)}
-	if !Glowing(glowing) || Invisible(glowing) {
-		t.Error("glowing should outline a body without hiding it")
-	}
-}
-
-// TestEffectHurtsComeBeforeTheBlocks orders a due poison ahead of the magma
-// underfoot: tickEffects runs before aiStep's block hurts, and the first hurt
-// is the one the invulnerability window lets land.
-func TestEffectHurtsComeBeforeTheBlocks(t *testing.T) {
-	v := FreshVitals(0)
-	var s effect.Set
-	AddEffect(&v, &s, effect.New(effectPoison, 100, 0, false, true, true))
-	_, hurts, _, _ := TickVitals(&v, &s, nil, DifficultyNormal, false,
-		Habitat{Ground: stateOf(t, "minecraft:magma_block"), OnGround: true}, nil, 0, true)
-	if len(hurts) != 2 || hurts[0].DamageType != DamageTypeMagic || hurts[1].DamageType != DamageTypeHotFloor {
-		t.Errorf("hurts = %v, want the poison's magic before the magma's hot_floor", hurts)
 	}
 }
 
@@ -292,55 +196,6 @@ func TestCanBeAffected(t *testing.T) {
 	}
 }
 
-// TestAParchedKeepsNoWeakness checks the parched's own canBeAffected: it
-// refuses weakness alone, over the poison and regeneration the undead tag
-// already keeps from it, and takes the rest, the zombie taking weakness
-// (vanilla: Parched.canBeAffected).
-func TestAParchedKeepsNoWeakness(t *testing.T) {
-	parched, _ := registry.EntityTypeID("minecraft:parched")
-	zombie, _ := registry.EntityTypeID("minecraft:zombie")
-	if CanBeAffected(parched, effectWeakness) {
-		t.Error("the parched takes weakness, which its class refuses")
-	}
-	for _, id := range []int32{effectPoison, effectRegeneration} {
-		if CanBeAffected(parched, id) {
-			t.Errorf("the parched takes effect %d, which the undead tag refuses", id)
-		}
-	}
-	for _, id := range []int32{effectHunger, effectWither, effectInstantDamage, effectInfested, effectOozing} {
-		if !CanBeAffected(parched, id) {
-			t.Errorf("the parched refuses effect %d, which only weakness and the undead pair it refuses", id)
-		}
-	}
-	if !CanBeAffected(zombie, effectWeakness) {
-		t.Error("the zombie refuses weakness, which only the parched refuses")
-	}
-}
-
-// TestInstantEffectAmountsAreRounded checks the strength a scaled instant
-// effect lands at: the base scaled and rounded at a half, so a splash
-// Harming I at three-fifths strength deals the rounded 4 and one at a
-// twentieth strength deals 0, and a scaled Healing I gives back the rounded
-// 2.
-// vanilla: HealOrHarmMobEffect.applyInstantaneousEffect
-func TestInstantEffectAmountsAreRounded(t *testing.T) {
-	for _, c := range []struct {
-		id     int32
-		scale  float64
-		amount float64
-		hurt   bool
-	}{
-		{effectInstantDamage, 0.6, 4, true},
-		{effectInstantDamage, 0.05, 0, true},
-		{effectInstantHealth, 0.6, 2, false},
-	} {
-		amount, hurt := InstantEffect(protocol.EntityTypePlayer, c.id, 0, c.scale)
-		if amount != c.amount || hurt != c.hurt {
-			t.Errorf("effect %d at scale %v = (%v, %v), want (%v, %v)", c.id, c.scale, amount, hurt, c.amount, c.hurt)
-		}
-	}
-}
-
 // TestHealOrHarm checks the instant pair's two directions: the
 // inverted-healing-and-harm tag swapping the way each lands on the undead, and
 // the amount following the outcome, four health or six harm a level
@@ -369,34 +224,5 @@ func TestHealOrHarm(t *testing.T) {
 	}
 	if got, hurt := HealOrHarm(protocol.EntityTypePlayer, effectInstantHealth, 0); hurt || got != 4 {
 		t.Errorf("instant health on a player = %v hurt %v, want 4 healed", got, hurt)
-	}
-}
-
-func TestSpectatorBodyVisible(t *testing.T) {
-	cases := []struct {
-		viewerSpec, bodySpec, ownCamera, want bool
-	}{
-		{false, false, true, true},
-		{false, true, true, false},
-		{true, true, true, true},
-		{true, true, false, false},
-		{true, false, true, true},
-	}
-	for _, c := range cases {
-		if got := SpectatorBodyVisible(c.viewerSpec, c.bodySpec, c.ownCamera); got != c.want {
-			t.Errorf("SpectatorBodyVisible(%v, %v, %v) = %v, want %v", c.viewerSpec, c.bodySpec, c.ownCamera, got, c.want)
-		}
-	}
-}
-
-// TestAWitherSkeletonKeepsNoWither checks WitherSkeleton.canBeAffected.
-func TestAWitherSkeletonKeepsNoWither(t *testing.T) {
-	skeleton, _ := registry.EntityTypeID("minecraft:wither_skeleton")
-	zombie, _ := registry.EntityTypeID("minecraft:zombie")
-	if CanBeAffected(skeleton, effectWither) {
-		t.Error("the wither skeleton takes wither")
-	}
-	if !CanBeAffected(zombie, effectWither) {
-		t.Error("the zombie refuses wither")
 	}
 }

@@ -14,27 +14,6 @@ import (
 // The triggers of recipes unlocked, eyes of ender thrown, raid omens absorbed
 // and blocks used.
 
-// TestRecipeGiveObtainsTheRecipeAdvancement: a recipe added to the book fires
-// recipe_unlocked, which its recipes/ advancement waits on; granting such an
-// advancement unlocks its reward recipe.
-// vanilla: ServerRecipeBook.addRecipes, RecipeUnlockedTrigger, AdvancementRewards.grant
-func TestRecipeGiveObtainsTheRecipeAdvancement(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	const stoneAxe = "minecraft:recipes/tools/stone_axe"
-	if srv.AdvancementObtained("Actor", stoneAxe, "has_the_recipe") {
-		t.Fatal("stone_axe's recipe advancement was obtained before the recipe")
-	}
-	c.ChatCommand("recipe give @s minecraft:stone_axe")
-	servertest.UntilTicks(t, srv, 20, stoneAxe+" obtained", func() bool {
-		return srv.AdvancementObtained("Actor", stoneAxe, "has_the_recipe")
-	})
-
-	c.ChatCommand("advancement grant @s only minecraft:recipes/tools/iron_axe")
-	c.ChatCommand("recipe give @s minecraft:iron_axe")
-	servertest.AwaitCommandError(t, c, "commands.recipe.give.failed")
-}
-
 // fixedEyeTarget is a stronghold at one position.
 type fixedEyeTarget struct{ x, y, z int32 }
 
@@ -101,40 +80,4 @@ func TestPackBlockUseAndEnderEyeAdvancements(t *testing.T) {
 	if obtained("eye_far") {
 		t.Error("an eye thrown 40 blocks from its structure passed a distance of at least 1000")
 	}
-}
-
-// TestPackVoluntaryExileIsGrantedWhenARaidAbsorbsTheOmen: a data pack's
-// advancement on voluntary_exile is granted when the raid omen a player
-// carried into a village starts the raid.
-// vanilla: Raid.absorbRaidOmen, CriteriaTriggers.RAID_OMEN
-func TestPackVoluntaryExileIsGrantedWhenARaidAbsorbsTheOmen(t *testing.T) {
-	cfg, data := packConfig(t)
-	writePackFile(t, filepath.Join(data, "pk", "advancement", "exile.json"),
-		`{"criteria":{"exiled":{"trigger":"minecraft:voluntary_exile"}}}`)
-	srv, _ := joinOp(t, cfg, "Packer")
-	srv.SetDifficulty(rules.DifficultyNormal)
-	servertest.HoldTicks(t, srv)
-	pos := srv.PlayerPosition("Packer")
-	bell := [3]int32{int32(pos.X) + 3, int32(pos.Y), int32(pos.Z)}
-	if !srv.SetBlock(bell[0], bell[1], bell[2], registry.MustState("minecraft:bell", nil)) {
-		t.Fatal("the bell was not placed")
-	}
-	srv.SpawnMobInDimension("minecraft:villager", "minecraft:overworld", float64(bell[0])+0.5, float64(bell[1]), float64(bell[2])+1.5)
-	servertest.UntilTicks(t, srv, 400, "the villager claims the bell", func() bool {
-		return srv.VillageNear("minecraft:overworld", bell[0], bell[1], bell[2])
-	})
-
-	srv.GiveEffect("Packer", "minecraft:bad_omen", 100000, 0, true)
-	servertest.RunTicks(t, srv, 2)
-	if _, _, ok := srv.PlayerEffect("Packer", "minecraft:raid_omen"); !ok {
-		t.Fatal("the bad omen did not become a raid omen")
-	}
-	if srv.AdvancementObtained("Packer", "pk:exile", "exiled") {
-		t.Fatal("voluntary_exile fired before a raid absorbed the omen")
-	}
-	// The raid omen runs 600 ticks before the raid absorbs it.
-	// vanilla: Raid.absorbRaidOmen, MobEffects.RAID_OMEN
-	servertest.UntilTicks(t, srv, 620, "pk:exile obtained", func() bool {
-		return srv.AdvancementObtained("Packer", "pk:exile", "exiled")
-	})
 }

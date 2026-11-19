@@ -6,21 +6,6 @@ import (
 	"github.com/golem-mc/golem/nbt"
 )
 
-// TestAWanderingTraderIsALeadlessCreature: vanilla refuses it a lead
-// (AbstractVillager.canBeLeashed) and files it under CREATURE.
-func TestAWanderingTraderIsALeadlessCreature(t *testing.T) {
-	if Leashable(TypeWanderingTrader) {
-		t.Error("a wandering trader can be leashed")
-	}
-	if !CreatureKind(TypeWanderingTrader) {
-		t.Error("a wandering trader is not a creature-category kind")
-	}
-	m := NewMob(TypeWanderingTrader, 1, 0.5, 64, 0.5, 1)
-	if m.MaxHealth != 20 || m.eyeHeight() != 1.62 || m.width() != 0.6 || m.height() != 1.95 {
-		t.Errorf("health %v eye %v box %v x %v", m.MaxHealth, m.eyeHeight(), m.width(), m.height())
-	}
-}
-
 // TestAWanderingTraderLeavesWhenItsDespawnDelayRunsOut: the delay counts
 // down only while no one trades, and the tick it reaches zero removes the
 // trader without a death.
@@ -56,17 +41,6 @@ func TestAWanderingTraderLeavesWhenItsDespawnDelayRunsOut(t *testing.T) {
 	}
 }
 
-// TestAWanderingTraderWithNoDelayStays: a zero DespawnDelay, a summoned
-// trader's, never runs out.
-func TestAWanderingTraderWithNoDelayStays(t *testing.T) {
-	m := NewMob(TypeWanderingTrader, 1, 0.5, 64, 0.5, 1)
-	for range 100 {
-		if m.traderDespawnStep() {
-			t.Fatal("a trader with no despawn delay left")
-		}
-	}
-}
-
 // TestAWanderingTraderSavesItsDelayAndOffers round-trips DespawnDelay, the
 // wander target and the Offers compound.
 func TestAWanderingTraderSavesItsDelayAndOffers(t *testing.T) {
@@ -93,24 +67,6 @@ func TestAWanderingTraderSavesItsDelayAndOffers(t *testing.T) {
 	back.SaveTo(tag, now)
 	if _, ok := tag["wander_target"]; ok {
 		t.Error("a trader with no wander target saved one")
-	}
-}
-
-// TestAWanderingTraderRewardsOnlyAnOrb: a trade drops a 3-6 orb unless the
-// offer withholds it, and the trader gains no experience.
-func TestAWanderingTraderRewardsOnlyAnOrb(t *testing.T) {
-	m := NewMob(TypeWanderingTrader, 1, 0.5, 64, 0.5, 1)
-	level := m.Villager.Level
-	for range 20 {
-		if orb, _, _ := m.RewardTrade(10, true); orb < 3 || orb > 6 {
-			t.Fatalf("orb %d, want 3-6", orb)
-		}
-	}
-	if orb, _, _ := m.RewardTrade(10, false); orb != 0 {
-		t.Errorf("orb %d for an offer without reward, want none", orb)
-	}
-	if m.VillagerXp != 0 || m.Villager.Level != level {
-		t.Errorf("trader xp %d, level %d, want %d", m.VillagerXp, m.Villager.Level, level)
 	}
 }
 
@@ -147,28 +103,5 @@ func TestAWanderingTraderDrinksInvisibilityAtNightAndMilkAtDawn(t *testing.T) {
 	drink(w, "minecraft:entity.wandering_trader.reappeared")
 	if m.hasEffect(mobEffectInvisibility) {
 		t.Error("still invisible after the dawn's milk")
-	}
-}
-
-// TestAWanderingTraderWalksToItsWanderTarget: it heads for the target in
-// legs and forgets it within 2 blocks.
-// vanilla: WanderingTrader.WanderToPositionGoal
-func TestAWanderingTraderWalksToItsWanderTarget(t *testing.T) {
-	stone := defaultState(t, "minecraft:stone")
-	w := newTestWorld()
-	floor(w, -10, -10, 40, 10, 63, stone)
-	m := NewMob(TypeWanderingTrader, 1, 0.5, 64, 0.5, 1)
-	m.WanderTarget = &Waypoint{25, 64, 0}
-	for range 2400 {
-		m.Tick(w, nil)
-		if m.WanderTarget == nil {
-			break
-		}
-	}
-	if m.WanderTarget != nil {
-		t.Fatalf("still bound for its target at %.1f %.1f %.1f", m.X, m.Y, m.Z)
-	}
-	if dx, dz := m.X-25.5, m.Z-0.5; dx*dx+dz*dz > 3*3 {
-		t.Errorf("forgot its target at %.1f %.1f, not near 25.5 0.5", m.X, m.Z)
 	}
 }

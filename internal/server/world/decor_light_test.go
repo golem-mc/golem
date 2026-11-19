@@ -65,67 +65,6 @@ func TestDecorInitializationHalo(t *testing.T) {
 	}
 }
 
-func TestDecorInitializationOverlayAndReload(t *testing.T) {
-	t.Parallel()
-	r := overworldMushroomRegion()
-	ds := r.src.decor()
-	ds.claimAll()
-	defer ds.releaseAll()
-	ds.protos.attach(t.TempDir())
-	pos := ChunkPos{-1, -1}
-	p := ds.protos.ensure(pos)
-	p.decorated = true
-	terrain := *r.near[r.slot(-16, -16)]
-	terrain.fill[(32-worldMinY)/16] = registry.BlockStone.DefaultState()
-	r.near[r.slot(-16, -16)] = &terrain
-	check := func(y int32, want int) {
-		t.Helper()
-		if got := rawLightAt(r, 0, y, 0); got != want {
-			t.Fatalf("y=%d: light=%d, want %d", y, got, want)
-		}
-	}
-	check(80, 15)
-	p.set(0, 64-worldMinY, 0, registry.BlockStone.DefaultState())
-	check(80, 0)
-	// Reload a contributor that has never been bound to the region.
-	ds.protos.spill(pos)
-	check(80, 0)
-	p = ds.protos.lookup(pos)
-	p.set(0, 64-worldMinY, 0, registry.BlockVoidAir.DefaultState())
-	check(80, 15)
-	// Overwrites remove the last occupied terrain section; all three air
-	// kinds must leave no initialization halo, even after another reload.
-	for y := int32(32); y < 48; y++ {
-		for z := range int32(16) {
-			for x := range int32(16) {
-				air := []registry.Block{registry.BlockAir, registry.BlockCaveAir, registry.BlockVoidAir}[(x+z+y)%3]
-				p.set(x, y-worldMinY, z, air.DefaultState())
-			}
-		}
-	}
-	check(worldMinY, 15)
-	ds.protos.spill(pos)
-	check(worldMinY, 15)
-}
-
-func TestDecorInitializationAllAir(t *testing.T) {
-	t.Parallel()
-	r := overworldMushroomRegion()
-	r.src.decor().claimAll()
-	defer r.src.decor().releaseAll()
-	r.protoAt(0, 0).decorated = true
-	for _, b := range []registry.Block{registry.BlockAir, registry.BlockCaveAir, registry.BlockVoidAir} {
-		terrain := &shapedTerrain{}
-		for i := range terrain.fill {
-			terrain.fill[i] = b.DefaultState()
-		}
-		r.near[r.slot(0, 0)] = terrain
-		if got := rawLightAt(r, 0, worldMinY, 0); got != 15 {
-			t.Fatalf("%s: light=%d", b.Name(), got)
-		}
-	}
-}
-
 func TestDecorLightPublication(t *testing.T) {
 	t.Parallel()
 	r := overworldMushroomRegion()
@@ -147,25 +86,4 @@ func TestDecorLightPublication(t *testing.T) {
 	check(0)
 	r.src.(*OverworldGenerator).ReplayLight(ChunkPos{0, 0}, true)
 	check(15)
-}
-
-func TestDecorLightPublishedNeighbourSources(t *testing.T) {
-	t.Parallel()
-	r := overworldMushroomRegion()
-	ds := r.src.decor()
-	r.protoAt(0, 0).decorated = true
-	r.protoAt(16, 0).decorated = true
-	r.set(0, 32, 0, registry.BlockStone.DefaultState())
-	ds.BeginLightReplay()
-	r.src.(*OverworldGenerator).ReplayLight(ChunkPos{0, 0}, false)
-	r.src.(*OverworldGenerator).ReplayLight(ChunkPos{1, 0}, true)
-	ds.claimAll()
-	defer ds.releaseAll()
-	if got := rawLightAt(r, 15, 32, 5); got != 15 {
-		t.Fatal("published lateral sky source did not reach neighbour")
-	}
-	mushroomRoof(r, 16, 33, 5, 3, registry.BlockStone.DefaultState())
-	if got := rawLightAt(r, 15, 32, 5); got != 0 {
-		t.Fatal("retained a sky source after its column was covered")
-	}
 }

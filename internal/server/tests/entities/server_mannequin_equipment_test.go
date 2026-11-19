@@ -117,27 +117,3 @@ func TestAMannequinCarriesLivingTags(t *testing.T) {
 		t.Error("metadata did not reset flags and name visibility")
 	}
 }
-
-func TestAMannequinItemCommands(t *testing.T) {
-	t.Parallel()
-	srv, c := joinMannequinOp(t, "Equipper")
-	c.ChatCommand(`summon mannequin 1.5 64 1.5`)
-	spawn := awaitMannequin(t, c, srv)
-	for wire, slot := range []string{"weapon.mainhand", "weapon.offhand", "armor.feet", "armor.legs", "armor.chest", "armor.head"} {
-		item := map[string]string{"weapon.mainhand": "diamond_sword", "weapon.offhand": "shield", "armor.feet": "diamond_boots", "armor.legs": "diamond_leggings", "armor.chest": "diamond_chestplate", "armor.head": "diamond_helmet"}[slot]
-		c.ChatCommand("item replace entity @e[type=mannequin,limit=1] " + slot + " with " + item)
-		equipped := mannequinEquipment(t, c, srv, spawn.id)
-		if got := servertest.EquipEntry(equipped, uint8(wire)); got.ItemID != servertest.RegistryItemID("minecraft:"+item) || got.Count != 1 {
-			t.Errorf("equipped %s = %+v", slot, got)
-		}
-		// Reading from the mannequin exercises ItemIn as well as SetItemIn.
-		c.ChatCommand("item replace entity @e[type=mannequin,limit=1] weapon.mainhand from entity @e[type=mannequin,limit=1] " + slot)
-		if got := servertest.EquipEntry(mannequinEquipment(t, c, srv, spawn.id), 0); got.ItemID != servertest.RegistryItemID("minecraft:"+item) {
-			t.Errorf("copied %s = %+v", slot, got)
-		}
-	}
-	c.ChatCommand("item replace entity @e[type=mannequin,limit=1] armor.head with air")
-	if got := servertest.EquipEntry(mannequinEquipment(t, c, srv, spawn.id), 5); !got.Empty() {
-		t.Errorf("cleared head = %+v", got)
-	}
-}

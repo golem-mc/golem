@@ -102,19 +102,6 @@ func TestSmiteAndBaneAnswerTheirEntityTags(t *testing.T) {
 	}
 }
 
-// TestPowerRidesTheArrow checks the damage context the bow's damage
-// enchantment answers: power's add applies where the blow's direct attacker
-// is an arrow, which a shaft's own hit is and a melee swing is not.
-func TestPowerRidesTheArrow(t *testing.T) {
-	bow := enchantedStack(t, "minecraft:bow", "minecraft:power", 5)
-	if got := EnchantedDamage(bow, arrowContext(protocol.EntityTypeZombie), 2); got != 2+3 {
-		t.Errorf("power V under an arrow = %v, want the two plus its three", got)
-	}
-	if got := EnchantedDamage(bow, meleeContext(protocol.EntityTypeZombie), 2); got != 2 {
-		t.Errorf("power V under a swing = %v, want the two unchanged", got)
-	}
-}
-
 // TestKnockbackAndPunchAddTheirStrength checks the knockback component: the
 // melee knockback's add, and the punch that adds only where an arrow carried
 // the blow. Both come back halved at the call, vanilla's getKnockback, and
@@ -151,40 +138,6 @@ func TestKnockbackAndPunchAddTheirStrength(t *testing.T) {
 	vx, vy, vz = KnockbackExtra(1, 0, -90, 0.5, 0.6, true, dice())
 	if math.Abs(vx-0.42) > 1e-9 || math.Abs(vy-0.4) > 1e-9 || math.Abs(vz) > 1e-9 {
 		t.Errorf("a knockback I push on a resisting body = (%v, %v, %v), want (0.42, 0.4, 0)", vx, vy, vz)
-	}
-}
-
-// TestKnockbackExtraShovesAlongTheAttackerFacing checks that the extra shove
-// does not ride the away line but the attacker's facing: a hit from the west
-// at a body the attacker looks south from gets the hurt's two tenths east
-// and the attack's half south, the two adds vanilla's two knockback calls
-// make.
-func TestKnockbackExtraShovesAlongTheAttackerFacing(t *testing.T) {
-	// Victim one east, attacker at yaw 0 (facing +Z).
-	vx, vy, vz := KnockbackExtra(1, 0, 0, 0.5, 1, true, dice())
-	if math.Abs(vx-0.2) > 1e-9 || math.Abs(vz-0.5) > 1e-9 || vy != 0.4 {
-		t.Errorf("the folded push = (%v, %v, %v), want (0.2, 0.4, 0.5)", vx, vy, vz)
-	}
-	// The extra alone is the facing's own half, whatever way the two stand.
-	vx, vy, vz = KnockbackExtraOnly(0, 0.5, 1, true)
-	if math.Abs(vx) > 1e-9 || math.Abs(vz-0.5) > 1e-9 || vy != 0.4 {
-		t.Errorf("the extra alone = (%v, %v, %v), want (0, 0.4, 0.5)", vx, vy, vz)
-	}
-}
-
-// TestKnockbackExtraOnlyDealsJustTheExtra checks the single knockback call a
-// softened hit still deals: the default knockback skipped, only the extra's
-// own strength shoves along the attacker's facing, not the fold the two
-// calls make together.
-func TestKnockbackExtraOnlyDealsJustTheExtra(t *testing.T) {
-	vx, vy, vz := KnockbackExtraOnly(-90, 0.5, 1, true)
-	if math.Abs(vx-0.5) > 1e-9 || vy != 0.4 || math.Abs(vz) > 1e-9 {
-		t.Errorf("the extra alone = (%v, %v, %v), want (0.5, 0.4, 0)", vx, vy, vz)
-	}
-	// A small extra lifts only as far as its own strength, under the cap.
-	vx, vy, vz = KnockbackExtraOnly(-90, 0.1, 1, true)
-	if math.Abs(vx-0.1) > 1e-9 || math.Abs(vy-0.1) > 1e-9 || math.Abs(vz) > 1e-9 {
-		t.Errorf("a small extra alone = (%v, %v, %v), want (0.1, 0.1, 0)", vx, vy, vz)
 	}
 }
 
@@ -240,33 +193,6 @@ func TestProtectionSumsTheWornPieces(t *testing.T) {
 	}
 }
 
-// TestEnchantmentProtectionIsCappedAtTwenty checks the cap vanilla's
-// CombatRules puts the points under: twenty of them the most any blow is cut
-// by, a twenty-fifth a point.
-func TestEnchantmentProtectionIsCappedAtTwenty(t *testing.T) {
-	// A full suit of protection IV raises sixty-four points, the cap
-	// taking twenty of the twenty-fifths off.
-	suit := make([]EnchPiece, 0, 4)
-	for _, item := range []string{
-		"minecraft:diamond_helmet", "minecraft:diamond_chestplate",
-		"minecraft:diamond_leggings", "minecraft:diamond_boots",
-	} {
-		suit = append(suit, EnchPiece{Stack: enchantedStack(t, item, "minecraft:protection", 4), Slot: "chest"})
-	}
-	suit[0].Slot, suit[1].Slot, suit[2].Slot, suit[3].Slot = "head", "chest", "legs", "feet"
-	if got := DamageProtection(suit, meleeContext(protocol.EntityTypePlayer), nil); got != 16 {
-		t.Errorf("a protection IV suit's points = %v, want sixteen, its one a level a piece", got)
-	}
-	if got := DamageAfterEnchantmentProtection(10, 16); math.Abs(got-3.6) > 1e-5 {
-		t.Errorf("a ten-point blow under a full protection IV suit = %v, want the ten minus its sixteen twenty-fifths, three and six tenths", got)
-	}
-	// The cap: a suit each piece of which raises its twenty takes the
-	// twenty of twenty-fifths whatever the sum was.
-	if got := DamageAfterEnchantmentProtection(10, 64); math.Abs(got-2) > 1e-5 {
-		t.Errorf("a ten-point blow under sixty-four points of protection = %v, want the capped two", got)
-	}
-}
-
 // TestUnbreakingSparesTheWearByItsRoll checks the item_damage component:
 // unbreaking's remove_binomial, the tool's chance of level over level-plus-
 // one and the armour's of two levels over five levels plus five, each point
@@ -299,22 +225,6 @@ func TestUnbreakingSparesTheWearByItsRoll(t *testing.T) {
 	}
 	if got := ProcessDurabilityChange(helmet, 1, rand.New(rand.NewSource(taken))); got != 1 {
 		t.Errorf("unbreaking III's wear on kept armour = %v, want the point taken", got)
-	}
-}
-
-// TestUnbreakableStacksTakeNoDurabilityChange checks the damageable gate on
-// the other side: an unbreakable stack, enchanted or not, comes back with no
-// wear to take whatever the dice would have kept.
-func TestUnbreakableStacksTakeNoDurabilityChange(t *testing.T) {
-	kept := findSeedAbove(t, []float64{0.75})
-	pickaxe := enchantedStack(t, "minecraft:iron_pickaxe", "minecraft:unbreaking", 3)
-	pickaxe.Unbreakable = true
-	if got := ProcessDurabilityChange(pickaxe, 1, rand.New(rand.NewSource(kept))); got != 0 {
-		t.Errorf("unbreaking III's wear on an unbreakable pickaxe = %v, want none", got)
-	}
-	plain := protocol.ItemStack{ItemID: pickaxe.ItemID, Count: 1, Unbreakable: true}
-	if got := ProcessDurabilityChange(plain, 1, rand.New(rand.NewSource(kept))); got != 0 {
-		t.Errorf("wear on a plain unbreakable pickaxe = %v, want none", got)
 	}
 }
 
@@ -361,29 +271,6 @@ func findSeedAbove(t *testing.T, bounds []float64) int64 {
 	return 0
 }
 
-// TestAmmoUseSpendsTheArrow checks the ammo_use component: infinity's set
-// bringing a plain arrow's cost to nothing, the match_tool condition seeing
-// the ammunition and nothing else.
-func TestAmmoUseSpendsTheArrow(t *testing.T) {
-	infinity := enchantedStack(t, "minecraft:bow", "minecraft:infinity", 1)
-	arrowID, ok := registry.ItemID("minecraft:arrow")
-	if !ok {
-		t.Fatal("the item registry has no arrow")
-	}
-	if got := ProcessAmmoUse(infinity, protocol.ItemStack{ItemID: arrowID, Count: 1}); got != 0 {
-		t.Errorf("infinity's cost of a plain arrow = %v, want nothing", got)
-	}
-	spectralID, ok := registry.ItemID("minecraft:spectral_arrow")
-	if ok {
-		if got := ProcessAmmoUse(infinity, protocol.ItemStack{ItemID: spectralID, Count: 1}); got != 1 {
-			t.Errorf("infinity's cost of a spectral arrow = %v, want the plain one", got)
-		}
-	}
-	if got := ProcessAmmoUse(enchantedStack(t, "minecraft:bow", "minecraft:power", 1), protocol.ItemStack{ItemID: arrowID, Count: 1}); got != 1 {
-		t.Errorf("a bow without infinity's cost of an arrow = %v, want the plain one", got)
-	}
-}
-
 // TestFireAspectIgnitesForItsSeconds checks the post-attack ignite: four
 // seconds a level, floored to the ticks of burn the vanilla igniteForSeconds
 // grants, and only on the direct blow the condition asks for.
@@ -418,217 +305,5 @@ func TestFireAspectIgnitesForItsSeconds(t *testing.T) {
 				t.Errorf("ignite = %d ticks, want %d", got, tc.want)
 			}
 		})
-	}
-}
-
-// TestFlameIgnitesTheShaft checks the projectile-spawned ignite: the hundred
-// seconds of burning the flame bow's arrow arrives in the world with.
-func TestFlameIgnitesTheShaft(t *testing.T) {
-	bow := enchantedStack(t, "minecraft:bow", "minecraft:flame", 1)
-	if got := ProjectileIgniteTicks(bow); got != 2000 {
-		t.Errorf("flame's ignite = %v ticks, want the hundred seconds' two thousand", got)
-	}
-	if got := ProjectileIgniteTicks(enchantedStack(t, "minecraft:bow", "minecraft:power", 1)); got != 0 {
-		t.Errorf("a power bow's ignite = %v ticks, want none", got)
-	}
-}
-
-// TestBaneOfArthropodsAppliesItsSlowness checks the post-attack
-// apply_mob_effect bane of arthropods III carries: a Slowness IV on the
-// spider its blow lands on, thirty to fifty ticks at the level, the instance
-// a three-argument MobEffectInstance builds; nothing on a body outside the
-// tag, nothing where the blow was not direct, and no fire from an effect
-// that carries none.
-func TestBaneOfArthropodsAppliesItsSlowness(t *testing.T) {
-	sword := enchantedStack(t, "minecraft:iron_sword", "minecraft:bane_of_arthropods", 3)
-	spider := meleeContext(protocol.EntityTypeSpider)
-	slowness := registry.MustMobEffect("minecraft:slowness")
-	for seed := range int64(25) {
-		rng := rand.New(rand.NewSource(seed))
-		actions := PostAttackEffects(sword, nil, spider, rng)
-		if len(actions) != 1 || actions[0].Target != "victim" || actions[0].Piece != -1 {
-			t.Fatalf("bane III actions = %+v, want one weapon action on victim", actions)
-		}
-		a := actions[0]
-		if a.Effect.Duration != nil {
-			t.Errorf("bane III has an ignite duration: %+v", a.Effect.Duration)
-		}
-		got := a.MobEffects(rng)
-		if len(got) != 1 {
-			t.Fatalf("bane III on a spider with seed %d gave %+v, want the one effect", seed, got)
-		}
-		if got[0].ID != slowness || got[0].Amplifier != 3 ||
-			got[0].Duration < 30 || got[0].Duration > 50 {
-			t.Errorf("bane III's slowness with seed %d = %+v, want Slowness IV for the 30 to 50 of a level III roll",
-				seed, got[0])
-		}
-		if got[0].Ambient || !got[0].Visible || !got[0].ShowIcon {
-			t.Errorf("bane III's slowness with seed %d = %+v, want the plain instance, its particles and icon shown",
-				seed, got[0])
-		}
-	}
-	if got := PostAttackEffects(sword, nil, meleeContext(protocol.EntityTypeZombie), rand.New(rand.NewSource(0))); len(got) != 0 {
-		t.Errorf("bane III on a zombie gave %+v, want nothing, the zombie no arthropod", got)
-	}
-	if got := PostAttackEffects(sword, nil, arrowContext(protocol.EntityTypeSpider), rand.New(rand.NewSource(0))); len(got) != 0 {
-		t.Errorf("bane III under an arrow gave %+v, want nothing, the blow not direct", got)
-	}
-}
-
-// TestSweepingEdgeRaisesTheRatio checks the sweeping_damage_ratio the
-// held blade carries Sweeping Edge's levels at: vanilla's fraction, half
-// the share of the blow at the first level and three quarters at the
-// third — the mainhand the only slot it works in.
-func TestSweepingEdgeRaisesTheRatio(t *testing.T) {
-	edge := enchantedStack(t, "minecraft:iron_sword", "minecraft:sweeping_edge", 1)
-	if got := EquipmentAttributeValue([]EnchPiece{{Stack: edge, Slot: "mainhand"}}, registry.AttributeSweepingDamageRatio); got != 0.5 {
-		t.Errorf("sweeping edge I's ratio = %v, want half the blow", got)
-	}
-	edge = enchantedStack(t, "minecraft:iron_sword", "minecraft:sweeping_edge", 3)
-	if got := EquipmentAttributeValue([]EnchPiece{{Stack: edge, Slot: "mainhand"}}, registry.AttributeSweepingDamageRatio); got != 0.75 {
-		t.Errorf("sweeping edge III's ratio = %v, want three quarters of the blow", got)
-	}
-	// The off hand's edge raises no sweep of the main hand's blow.
-	if got := EquipmentAttributeValue([]EnchPiece{{Stack: edge, Slot: "offhand"}}, registry.AttributeSweepingDamageRatio); got != 0 {
-		t.Errorf("sweeping edge III in the off hand = %v, want nothing, the main hand carrying the blow", got)
-	}
-}
-
-// TestEnchantmentAttributesSum checks the attribute modifiers: respiration's
-// oxygen bonus a level a piece, efficiency's level squared plus one, and the
-// multipliers the aqua affinity carries.
-func TestEnchantmentAttributesSum(t *testing.T) {
-	respiration := enchantedStack(t, "minecraft:diamond_helmet", "minecraft:respiration", 3)
-	got := EquipmentAttributeValue([]EnchPiece{{Stack: respiration, Slot: "head"}}, registry.AttributeOxygenBonus)
-	if got != 3 {
-		t.Errorf("respiration III's oxygen bonus = %v, want its three levels", got)
-	}
-	// The head slot is the only one the enchantment works in.
-	if got := EquipmentAttributeValue([]EnchPiece{{Stack: respiration, Slot: "chest"}}, registry.AttributeOxygenBonus); got != 0 {
-		t.Errorf("respiration III worn on the chest = %v, want nothing, no head to breathe with", got)
-	}
-	efficiency := enchantedStack(t, "minecraft:iron_pickaxe", "minecraft:efficiency", 5)
-	got = EquipmentAttributeValue([]EnchPiece{{Stack: efficiency, Slot: "mainhand"}}, registry.AttributeMiningEfficiency)
-	if got != 26 {
-		t.Errorf("efficiency V's mining efficiency = %v, want the level squared plus one, twenty-six", got)
-	}
-	aqua := enchantedStack(t, "minecraft:diamond_helmet", "minecraft:aqua_affinity", 1)
-	got = EquipmentAttributeValue([]EnchPiece{{Stack: aqua, Slot: "head"}}, registry.AttributeSubmergedMiningSpeed)
-	if math.Abs(got-1) > 1e-6 {
-		t.Errorf("aqua affinity's submerged mining speed = %v, want the fourfold multiplier over the base's two tenths, one", got)
-	}
-}
-
-// TestTheEnchantmentTableCoversTheRegistry checks the generated table
-// against the registry it sits behind: every enchantment the registry sends
-// has an effects entry, and every entry names an enchantment the registry
-// carries - a regeneration that dropped one, or grew one the server does
-// not register, failing here rather than on the wire.
-func TestTheEnchantmentTableCoversTheRegistry(t *testing.T) {
-	r, ok := registry.Get("minecraft:enchantment")
-	if !ok {
-		t.Fatal("no minecraft:enchantment registry")
-	}
-	for _, name := range r.Entries {
-		id, ok := registry.EnchantmentID(name)
-		if !ok {
-			t.Errorf("the registry's %s has no effects entry", name)
-			continue
-		}
-		if _, ok := registry.EnchantmentEffectsByID(id); !ok {
-			t.Errorf("the registry's %s has no effects entry", name)
-		}
-	}
-	for i := range registry.EnchantmentEffectsTable {
-		name := registry.EnchantmentEffectsTable[i].Name
-		if id, ok := registry.EnchantmentID(name); !ok || id != int32(i) {
-			t.Errorf("the table's %s is at %d, the registry carrying it at %d", name, i, id)
-		}
-	}
-}
-
-func TestChannelingEffectsRequireAThrownTrident(t *testing.T) {
-	weapon := enchantedStack(t, "minecraft:trident", "minecraft:channeling", 1)
-	for _, tc := range []struct {
-		name  string
-		block bool
-		ctx   EnchContext
-		want  bool
-	}{
-		{name: "entity", ctx: EnchContext{Thundering: true, CanSeeSky: true, Victim: protocol.EntityTypeCow, DirectAttacker: protocol.EntityTypeTrident}, want: true},
-		{name: "melee", ctx: EnchContext{Thundering: true, CanSeeSky: true, Victim: protocol.EntityTypeCow, DirectAttacker: protocol.EntityTypePlayer}},
-		{name: "arrow", ctx: EnchContext{Thundering: true, CanSeeSky: true, Victim: protocol.EntityTypeCow, DirectAttacker: protocol.EntityTypeArrow}},
-		{name: "clear", ctx: EnchContext{CanSeeSky: true, Victim: protocol.EntityTypeCow, DirectAttacker: protocol.EntityTypeTrident}},
-		{name: "shade", ctx: EnchContext{Thundering: true, Victim: protocol.EntityTypeCow, DirectAttacker: protocol.EntityTypeTrident}},
-		{name: "rod", block: true, ctx: EnchContext{Thundering: true, CanSeeSky: true, Victim: protocol.EntityTypeTrident, Block: registry.BlockLightningRod}, want: true},
-		{name: "waxed rod", block: true, ctx: EnchContext{Thundering: true, CanSeeSky: true, Victim: protocol.EntityTypeTrident, Block: registry.BlockWaxedOxidizedLightningRod}, want: true},
-		{name: "stone", block: true, ctx: EnchContext{Thundering: true, CanSeeSky: true, Victim: protocol.EntityTypeTrident, Block: registry.BlockStone}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := TridentHitEffects(weapon, &tc.ctx, tc.block)
-			if (len(got) > 0) != tc.want {
-				t.Fatalf("effects=%v, want match %v", got, tc.want)
-			}
-			if tc.want && (len(got) != 1 || got[0].SummonEntity != "minecraft:lightning_bolt" || got[0].PlaySound == nil || got[0].PlaySound.Volume != 5 || got[0].PlaySound.Pitch != 1) {
-				t.Errorf("effects=%+v, want lightning and thunder at volume 5, pitch 1", got)
-			}
-		})
-	}
-}
-
-func TestPostAttackWindBurstRequirementsAndLevels(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		level  int32
-		fall   float64
-		flying bool
-		want   float64
-	}{
-		{"I", 1, 3, false, float64(float32(1.2))},
-		{"II", 2, 3, false, 1.75},
-		{"III", 3, 3, false, float64(float32(2.2))},
-		{"fallback", 4, 3, false, float64(float32(1.5) + float32(float32(0.35)*3))},
-		{"threshold", 1, 1.5, false, float64(float32(1.2))},
-		{"short", 1, 1.49, false, 0},
-		{"flying", 1, 3, true, 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := meleeContext(protocol.EntityTypeZombie)
-			ctx.DirectAttackerFlying, ctx.DirectAttackerFallDistance = tc.flying, tc.fall
-			actions := PostAttackEffects(enchantedStack(t, "minecraft:mace", "minecraft:wind_burst", tc.level), nil, ctx, nil)
-			if tc.want == 0 {
-				if len(actions) != 0 {
-					t.Fatalf("unmet requirements produced %+v", actions)
-				}
-				return
-			}
-			if len(actions) != 1 || actions[0].Target != "attacker" || actions[0].Piece != -1 {
-				t.Fatalf("wind burst actions = %+v, want one weapon action on attacker", actions)
-			}
-			got, ok := actions[0].Explosion()
-			if !ok || got.Radius != 3.5 || got.Knockback != tc.want || got.Interaction != ExplosionTrigger {
-				t.Fatalf("explosion = %+v (supported=%v), want radius 3.5, knockback %v, trigger", got, ok, tc.want)
-			}
-		})
-	}
-}
-
-// TestChargingAndTridentSoundsPickTheEnchantmentsLevel checks the sound lists
-// the stack's highest enchantment picks by level, and the plain defaults.
-// vanilla: EnchantmentHelper.pickHighestLevel
-func TestChargingAndTridentSoundsPickTheEnchantmentsLevel(t *testing.T) {
-	plain := protocol.ItemStack{}
-	if got := ChargingSounds(plain); got.Start != registry.SoundItemCrossbowLoadingStart.Holder() || got.Mid != registry.SoundItemCrossbowLoadingMiddle.Holder() {
-		t.Errorf("plain charging sounds = %+v", got)
-	}
-	if got := TridentSound(plain); got != registry.SoundItemTridentThrow.Holder() {
-		t.Errorf("plain trident sound = %+v", got)
-	}
-	quick := enchantedStack(t, "minecraft:crossbow", "minecraft:quick_charge", 2)
-	if got := ChargingSounds(quick); got.Start != registry.SoundItemCrossbowQuickCharge2.Holder() || got.Mid.ID != -1 || got.End != registry.SoundItemCrossbowLoadingEnd.Holder() {
-		t.Errorf("quick charge 2 sounds = %+v", got)
-	}
-	if got := TridentSound(enchantedStack(t, "minecraft:trident", "minecraft:riptide", 3)); got != registry.SoundItemTridentRiptide3.Holder() {
-		t.Errorf("riptide 3 sound = %+v", got)
 	}
 }

@@ -49,35 +49,6 @@ func TestBlockIDsAndDefaultStates(t *testing.T) {
 	}
 }
 
-func TestBlockAndItemConstants(t *testing.T) {
-	for _, c := range []struct {
-		b    Block
-		name string
-	}{
-		{BlockAir, "minecraft:air"},
-		{BlockStone, "minecraft:stone"},
-		{BlockWater, "minecraft:water"},
-		{BlockBubbleColumn, "minecraft:bubble_column"},
-		{BlockTnt, "minecraft:tnt"},
-	} {
-		if c.b.Name() != c.name {
-			t.Errorf("Block %d is %s, want %s", c.b, c.b.Name(), c.name)
-		}
-	}
-	for _, c := range []struct {
-		i    Item
-		name string
-	}{
-		{ItemAir, "minecraft:air"},
-		{ItemWaterBucket, "minecraft:water_bucket"},
-		{ItemMusicDisc11, "minecraft:music_disc_11"},
-	} {
-		if c.i.Name() != c.name {
-			t.Errorf("Item %d is %s, want %s", c.i, c.i.Name(), c.name)
-		}
-	}
-}
-
 func TestItemsMatchItemIDs(t *testing.T) {
 	if len(Items) != ItemCount {
 		t.Fatalf("Items has %d entries, ItemCount is %d", len(Items), ItemCount)

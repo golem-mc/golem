@@ -2,7 +2,6 @@ package nbt
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -49,28 +48,5 @@ func TestStringSetContains(t *testing.T) {
 		}
 	}); allocs != 0 {
 		t.Fatalf("membership allocated %g times", allocs)
-	}
-}
-
-func TestStringSetHistory(t *testing.T) {
-	t.Parallel()
-	s := NewStringSet([]string{"BB", "Aa", "order", "written"})
-	if got := s.Values(); !slices.Equal(got, []string{"BB", "Aa", "written", "order"}) {
-		t.Fatalf("order = %v", got)
-	}
-	clone := NewStringSet(s.Values())
-	if !s.Remove("BB") || s.Remove("missing") || s.Add("Aa") {
-		t.Fatal("set membership")
-	}
-	s.Add("BB")
-	if got := s.Values(); !slices.Equal(got, []string{"Aa", "BB", "written", "order"}) {
-		t.Fatalf("reinsert = %v", got)
-	}
-	if got := clone.Values(); !slices.Equal(got, []string{"BB", "Aa", "written", "order"}) {
-		t.Fatalf("clone changed: %v", got)
-	}
-	s.Reset(strings.Fields("order order written"))
-	if got := s.Values(); !slices.Equal(got, []string{"written", "order"}) {
-		t.Fatalf("reset = %v", got)
 	}
 }

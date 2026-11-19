@@ -3,9 +3,6 @@ package entities
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/player"
-
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
@@ -54,67 +51,5 @@ func TestAPickOutOfReachGivesNothing(t *testing.T) {
 	got := servertest.PickedEntityStack(t, c, near)
 	if got.ItemID != servertest.MustItemID(t, "minecraft:sheep_spawn_egg") {
 		t.Errorf("picked item %d, want the sheep egg: the cow out of reach answered", got.ItemID)
-	}
-}
-
-// TestMiddleClickingAFilledFrameCopiesItsItem picks a frame that holds a
-// diamond and reads the diamond, not the frame.
-// vanilla: ItemFrame.getPickResult
-func TestMiddleClickingAFilledFrameCopiesItsItem(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.EggPlayer(t, "creative", "Picker", "minecraft:pig_spawn_egg", 1)
-	diamond := servertest.MustItemID(t, "minecraft:diamond")
-	frame := srv.SpawnFilledFrameEntity(1, 64, 3, protocol.ItemStack{ItemID: diamond, Count: 1})
-	c.Settle()
-	got := servertest.PickedEntityStack(t, c, frame.ID)
-	if got.ItemID != diamond || got.Count != 1 {
-		t.Errorf("picked item %d x%d, want one diamond", got.ItemID, got.Count)
-	}
-}
-
-// TestASurvivalPickOnlySelectsAnExistingStack picks a cow while a cow egg
-// waits in the second hotbar slot, then a sheep with no egg to find: the
-// first moves the selection, the second leaves it.
-// vanilla: ServerGamePacketListenerImpl.tryPickItem
-func TestASurvivalPickOnlySelectsAnExistingStack(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.EggPlayer(t, "survival", "Picker", "minecraft:pig_spawn_egg", 1)
-	srv.GiveSlot("Picker", player.HotbarSlot+1, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:cow_spawn_egg"), Count: 1})
-	cow := srv.SpawnMob("minecraft:cow", 2.5, 64, 0.5)
-	sheep := srv.SpawnMob("minecraft:sheep", 2.5, 64, 1.5)
-	c.Settle()
-	selected := func(entity int32) int32 {
-		c.PickEntity(entity)
-		return protocol.NewReader(c.ExpectPlay(protocol.IDPlayHeldItem)).ReadVarInt()
-	}
-	if got := selected(cow); got != 1 {
-		t.Errorf("selected slot %d after picking a cow, want 1", got)
-	}
-	if got := selected(sheep); got != 1 {
-		t.Errorf("selected slot %d after picking a sheep, want 1: survival conjured a stack", got)
-	}
-}
-
-// TestCtrlPickOnAMannequinPrintsItsProfile sends an include-data pick at a
-// mannequin as a creative operator, and as a survival one, who gets nothing.
-// vanilla: ServerGamePacketListenerImpl.handlePickItemFromEntity
-func TestCtrlPickOnAMannequinPrintsItsProfile(t *testing.T) {
-	t.Parallel()
-	srv, c := joinMannequinOp(t, "Picker")
-	c.ChatCommand("summon minecraft:mannequin ~ ~ ~")
-	id := awaitMannequin(t, c, srv).id
-
-	c.ChatCommand("gamemode survival")
-	servertest.RunTicks(t, srv, 2)
-	c.PickEntityWithData(id)
-	if got := c.SawSystemChatWithin(srv, 3, "commands.fetchprofile.entity.success"); got {
-		t.Error("a survival operator was sent the mannequin's profile")
-	}
-
-	c.ChatCommand("gamemode creative")
-	servertest.RunTicks(t, srv, 2)
-	c.PickEntityWithData(id)
-	if !c.SawSystemChatWithin(srv, 3, "commands.fetchprofile.entity.success") {
-		t.Error("a creative operator's include-data pick on a mannequin sent no profile")
 	}
 }

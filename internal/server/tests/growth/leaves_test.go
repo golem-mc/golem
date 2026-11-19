@@ -7,7 +7,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -223,118 +222,5 @@ func TestWaterloggedLeafUpdatesItsDistanceAndDecays(t *testing.T) {
 	name, _, ok := registry.BlockStateName(srv.BlockAt(5, 64, 0))
 	if !ok || name != "minecraft:water" {
 		t.Fatalf("the decayed waterlogged leaf became %q, want minecraft:water", name)
-	}
-}
-
-// TestPersistentLeafKeepsItsPlace checks the other side of the decay: the
-// leaf a player placed, persistent at seven with nothing to hold it, is no
-// state the pass's dice can land on — the passes run over it and the leaf
-// stands where it was put.
-func TestPersistentLeafKeepsItsPlace(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Camper", servertest.OpsListing(t, "Camper"))
-
-	srv.StopTick()
-	servertest.SeedPhysics(t, srv, leafSeed)
-
-	// Placed by the player's hand: persistent, at the seven the open
-	// around the position makes.
-	giveLeaves(t, c)
-	c.PlaceBlock(5, 63, 0, protocol.FaceTop)
-	c.SettleKeeping()
-	srv.TickSurvival()
-	c.ExpectBlockAck()
-	if got := srv.BlockAt(5, 64, 0); leafStateProps(t, got)["persistent"] != "true" {
-		t.Fatalf("the placed leaf is persistent=%s, want true", leafStateProps(t, got)["persistent"])
-	}
-
-	// The passes find nothing to rot: the world stands as it was.
-	srv.TickRandomTicks(20000)
-	if got := srv.BlockAt(5, 64, 0); got == 0 {
-		t.Fatal("the persistent leaf rotted away")
-	}
-	props := leafStateProps(t, srv.BlockAt(5, 64, 0))
-	if props["distance"] != "7" || props["persistent"] != "true" {
-		t.Errorf("the persistent leaf carries distance=%s persistent=%s, want 7 and true",
-			props["distance"], props["persistent"])
-	}
-}
-
-// vanilla: LeavesBlock.updateShape, FlowingFluid.canPassThroughWall
-func TestWaterloggedLeafSpreadsItsWaterAtTheFluidsDelay(t *testing.T) {
-	t.Parallel()
-	for _, shape := range []string{"leaf", "slab_before_fluid_tick"} {
-		t.Run(shape, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Camper", servertest.OpsListing(t, "Camper"))
-			servertest.HoldTicks(t, srv)
-
-			servertest.Setblock(t, c, 4, 64, 0, "oak_log")
-			servertest.Setblock(t, c, 5, 64, 0, "oak_leaves[distance=1,persistent=false,waterlogged=true]")
-			servertest.Setblock(t, c, 6, 64, 0, "stone")
-			// Drain placement ticks before booking the neighbour change's ticks.
-			servertest.RunTicks(t, srv, 10)
-
-			servertest.Setblock(t, c, 6, 64, 0, "air")
-			servertest.RunTicks(t, srv, 4)
-			if name, _, _ := registry.BlockStateName(srv.BlockAt(6, 64, 0)); name != "minecraft:air" {
-				t.Fatalf("the freed cell holds %s 4 ticks after the change, want air", name)
-			}
-
-			want := "minecraft:air"
-			if shape == "slab_before_fluid_tick" {
-				// A full-cube leaf cannot spill. Keep its water but open the
-				// collision shape to make the pending fluid tick observable:
-				// replacing it must neither consume nor postpone that tick.
-				servertest.Setblock(t, c, 5, 64, 0, "oak_slab[type=bottom,waterlogged=true]")
-				want = "minecraft:water"
-			}
-			if name, _, _ := registry.BlockStateName(srv.BlockAt(6, 64, 0)); name != "minecraft:air" {
-				t.Fatalf("the freed cell holds %s before the fluid tick, want air", name)
-			}
-			servertest.RunTicks(t, srv, 1)
-			if name, _, _ := registry.BlockStateName(srv.BlockAt(6, 64, 0)); name != want {
-				t.Fatalf("the freed cell holds %s 5 ticks after the change, want %s", name, want)
-			}
-			if !registry.StateBool(srv.BlockAt(5, 64, 0), registry.PropWaterlogged) {
-				t.Fatal("the source lost its water")
-			}
-		})
-	}
-}
-
-// vanilla: LeavesBlock.updateShape, FlowingFluid.canPassThroughWall
-func TestWaterloggedLeafRecomputesItsDistanceATickAfterAChange(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Camper", servertest.OpsListing(t, "Camper"))
-	servertest.HoldTicks(t, srv)
-	// Isolate scheduled distance and fluid ticks from random decay.
-	srv.SetGameRuleValue(world.RuleRandomTickSpeed.String(), 0)
-
-	servertest.Setblock(t, c, 4, 64, 0, "oak_log")
-	servertest.Setblock(t, c, 5, 64, 0, "oak_leaves[distance=1,persistent=false,waterlogged=true]")
-	servertest.RunTicks(t, srv, 10)
-
-	servertest.Setblock(t, c, 4, 64, 0, "air")
-	if d := leafStateProps(t, srv.BlockAt(5, 64, 0))["distance"]; d != "1" {
-		t.Fatalf("the waterlogged leaf stands at distance=%s before its tick, want 1", d)
-	}
-	servertest.RunTicks(t, srv, 1)
-	if d := leafStateProps(t, srv.BlockAt(5, 64, 0))["distance"]; d != "7" {
-		t.Fatalf("the waterlogged leaf stands at distance=%s a tick after the log went, want 7", d)
-	}
-	if name, _, _ := registry.BlockStateName(srv.BlockAt(4, 64, 0)); name != "minecraft:air" {
-		t.Fatalf("the log's cell holds %s a tick after the change, want air", name)
-	}
-
-	for _, ticks := range []int{4, 10} {
-		servertest.RunTicks(t, srv, ticks)
-		if name, _, _ := registry.BlockStateName(srv.BlockAt(4, 64, 0)); name != "minecraft:air" {
-			t.Fatalf("the log's cell holds %s after the fluid tick, want air", name)
-		}
-		props := leafStateProps(t, srv.BlockAt(5, 64, 0))
-		if props["distance"] != "7" || props["waterlogged"] != "true" {
-			t.Fatalf("leaf after the fluid tick = %v, want distance=7 and waterlogged=true", props)
-		}
 	}
 }

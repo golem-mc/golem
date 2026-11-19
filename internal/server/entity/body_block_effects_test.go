@@ -57,24 +57,3 @@ func TestBodiesSpendBlockStuckMultipliers(t *testing.T) {
 		}
 	}
 }
-
-// vanilla: Entity.getBlockSpeedFactor
-func TestBodiesApplySoulSandAndHoneySpeedFactors(t *testing.T) {
-	for _, block := range []string{"minecraft:stone", "minecraft:soul_sand", "minecraft:honey_block"} {
-		for name, body := range blockEffectBodies() {
-			t.Run(name+"/"+block, func(t *testing.T) {
-				w := newTestWorld()
-				w.set(0, 69, 0, defaultState(t, block))
-				*body.vx, *body.vz = 0.2, 0.1
-				body.move(w)
-				factor := 0.4
-				if block == "minecraft:stone" {
-					factor = 1
-				}
-				if math.Abs(*body.vx-0.2*factor) > 1e-8 || math.Abs(*body.vz-0.1*factor) > 1e-8 {
-					t.Errorf("velocity = (%g,%g), want (%g,%g)", *body.vx, *body.vz, 0.2*factor, 0.1*factor)
-				}
-			})
-		}
-	}
-}

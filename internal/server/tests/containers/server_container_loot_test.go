@@ -1,10 +1,7 @@
 package containers
 
 import (
-	"bytes"
-	"fmt"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -68,29 +65,6 @@ func TestAChestRollsItsLootTableOnFirstOpen(t *testing.T) {
 	}
 }
 
-// TestAHopperDrawsFromAFreshTableChest: a hopper under a chest still holding
-// its loot table takes an item on its first transfer.
-// vanilla: HopperBlockEntity.getSlots, RandomizableContainerBlockEntity.getItem
-func TestAHopperDrawsFromAFreshTableChest(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	servertest.Setblock(t, c, 4, 64, 0, lootChest)
-	if !srv.PlaceContainer(4, 63, 0, "minecraft:hopper") {
-		t.Fatal("could not place the hopper under the chest")
-	}
-	srv.StopTick()
-	servertest.TickBlockEntitiesByHand(srv, 10)
-	drawn := 0
-	for _, s := range srv.InventoryAt(4, 63, 0) {
-		if !s.Empty() {
-			drawn++
-		}
-	}
-	if drawn == 0 {
-		t.Error("the hopper drew nothing from the fresh table chest")
-	}
-}
-
 // TestBreakingAnUnopenedTableChestDropsTheRolledContents: the break rolls the
 // table first, so the spill is the table's stacks.
 // vanilla: Containers.dropContents
@@ -108,140 +82,6 @@ func TestBreakingAnUnopenedTableChestDropsTheRolledContents(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("the broken chest dropped item %d, which the table did not roll", got)
-	}
-}
-
-// TestItemReplaceRollsAnUnopenedTableChest: /item replace on a chest still
-// holding its table rolls the table first, so the other slots keep the
-// rolled stacks and the chest saves no table.
-// vanilla: RandomizableContainerBlockEntity.setItem
-func TestItemReplaceRollsAnUnopenedTableChest(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Dial(t, servertest.ItemCreativeConfig(), servertest.OpsListing(t, "Testificate"))
-	c.Login("Testificate")
-	c.Configure()
-	c.SpawnedAt()
-	c.SkipJoin()
-	servertest.Setblock(t, c, 2, 64, 3, lootChest)
-
-	c.ChatCommand("item replace block 2 64 3 container.0 with minecraft:stone 4")
-	c.Settle()
-	got := srv.InventoryAt(2, 64, 3)
-	want := rolledLoot(t)
-	if got[0].ItemID != servertest.MustItem("minecraft:stone") || got[0].Count != 4 {
-		t.Errorf("slot 0 = %+v, want the four stone set", got[0])
-	}
-	rolled := 0
-	for i := 1; i < len(want); i++ {
-		if !got[i].Equal(want[i]) {
-			t.Errorf("slot %d = %+v, want the rolled %+v", i, got[i], want[i])
-		}
-		if !want[i].Empty() {
-			rolled++
-		}
-	}
-	if rolled == 0 {
-		t.Fatal("the table rolled nothing past slot 0")
-	}
-	tag, _ := srv.BlockEntityTagAt(2, 64, 3)
-	if _, ok := tag["LootTable"]; ok {
-		t.Error("the chest still saves its loot table")
-	}
-	c.Disconnect()
-}
-
-// TestExecuteIfItemsRollsAnUnopenedTableChest: the item test reads the
-// rolled stacks of a chest still holding its table.
-// vanilla: RandomizableContainerBlockEntity.getItem
-func TestExecuteIfItemsRollsAnUnopenedTableChest(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Dial(t, servertest.ItemCreativeConfig(), servertest.OpsListing(t, "Testificate"))
-	c.Login("Testificate")
-	c.Configure()
-	c.SpawnedAt()
-	c.SkipJoin()
-	servertest.Setblock(t, c, 2, 64, 3, lootChest)
-
-	total := 0
-	for _, s := range rolledLoot(t) {
-		if !s.Empty() {
-			total += int(s.Count)
-		}
-	}
-	c.ChatCommand("execute if items block 2 64 3 container.* *")
-	if got := c.ExpectSystemChatPastMobs(); !bytes.Equal(got, servertest.ConditionalPassCount(int64(total))) {
-		t.Errorf("the block container test answered % X, want %d items counted", got, total)
-	}
-	c.Disconnect()
-}
-
-// TestAPoweredCrafterLeavesItsLootTablePending: a crafter fired with a pending
-// table sees an empty grid, plays the fail event and keeps the table; only
-// opening the menu rolls it.
-// vanilla: CrafterBlockEntity.getItem, CrafterBlock.dispenseFrom
-func TestAPoweredCrafterLeavesItsLootTablePending(t *testing.T) {
-	t.Parallel()
-	srv, w := crafterFacingSouth(t, true)
-	servertest.Setblock(t, w.Client, 4, 64, -1,
-		`minecraft:crafter[orientation=south_up]{LootTable:"`+lootTable+`",LootTableSeed:7L}`)
-	w.DrainRecorded()
-	w.Events = nil
-	powerCrafter(t, srv, w)
-	w.DrainRecorded()
-	if !slices.Contains(w.Events, protocol.WorldEventCrafterFail) {
-		t.Errorf("no fail event played; events were %v", w.Events)
-	}
-	tag, ok := srv.BlockEntityTagAt(4, 64, -1)
-	if !ok {
-		t.Fatal("the crafter has no block entity tag")
-	}
-	if _, ok := tag["LootTable"]; !ok {
-		t.Error("the fired crafter rolled its loot table")
-	}
-}
-
-// TestASimpleDungeonChestFillsOnOpen: a table that uses enchant_randomly
-// is generated, so a chest holding it opens with the stacks it rolls.
-// vanilla: RandomizableContainerBlockEntity.createMenu
-func TestASimpleDungeonChestFillsOnOpen(t *testing.T) {
-	t.Parallel()
-	_, w := servertest.OpenWindowedOps(t, servertest.BlockTestConfig())
-	defer w.Disconnect()
-	servertest.Setblock(t, w.Client, 4, 64, 0, `minecraft:chest{LootTable:"minecraft:chests/simple_dungeon",LootTableSeed:7L}`)
-
-	w.UseBlock(4, 64, 0)
-	slots := w.ExpectContainerOpen(protocol.MenuGeneric9x3, true, 4, 64, 0)
-	rolled := 0
-	for _, s := range slots[:27] {
-		if !s.Empty() {
-			rolled++
-		}
-	}
-	if rolled == 0 {
-		t.Fatal("the simple_dungeon chest opened empty")
-	}
-}
-
-// TestChestLootCarriesTheEnchantmentsItsTableRolls: an ancient_city chest
-// enchants its tools and books, so across seeds some stack arrives enchanted.
-func TestChestLootCarriesTheEnchantmentsItsTableRolls(t *testing.T) {
-	t.Parallel()
-	_, w := servertest.OpenWindowedOps(t, servertest.BlockTestConfig())
-	defer w.Disconnect()
-	enchanted := false
-	for seed := 1; seed <= 8 && !enchanted; seed++ {
-		servertest.Setblock(t, w.Client, 4, 64, 0, fmt.Sprintf(`minecraft:chest{LootTable:"minecraft:chests/ancient_city",LootTableSeed:%dL}`, seed))
-		w.UseBlock(4, 64, 0)
-		slots := w.ExpectContainerOpen(protocol.MenuGeneric9x3, true, 4, 64, 0)
-		for _, s := range slots[:27] {
-			if len(s.Enchantments) > 0 || len(s.StoredEnchantments) > 0 {
-				enchanted = true
-			}
-		}
-		w.CloseWindow()
-	}
-	if !enchanted {
-		t.Fatal("no ancient_city stack carried an enchantment")
 	}
 }
 

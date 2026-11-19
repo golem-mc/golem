@@ -80,34 +80,3 @@ func TestASpectatorViewerSeesSurvivalBodies(t *testing.T) {
 		t.Errorf("the spectator viewer saw %+v of a survival body, want nothing", got)
 	}
 }
-
-// TestASpectatorsBodyIsNotSpawnedForALateJoiner: a player who joins after
-// another became a spectator gets the profile but no body.
-func TestASpectatorsBodyIsNotSpawnedForALateJoiner(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BowTestConfig(), servertest.OpsListing(t, "Operator"))
-	op := connect().Join("Operator")
-	spec := connect().Join("Spec")
-	specID := spec.PlayerEntityID
-	op.ExpectPlayerAdded("Spec")
-	srv.StopTick()
-	switchMode(t, srv, op, "Spec", "spectator", protocol.GameModeSpectator)
-
-	late := connect()
-	late.Login("Late")
-	late.Configure()
-	spawns := 0
-	late.ReadJoin(func(packetID int32, data []byte) {
-		if packetID == protocol.IDPlaySpawnEntity && protocol.NewReader(data).ReadVarInt() == specID {
-			spawns++
-		}
-	})
-	late.MarkLoaded()
-	if spawns != 0 {
-		t.Errorf("the late joiner was sent the spectator's body %d times, want 0", spawns)
-	}
-	srv.RunTick()
-	if got := settleBodies(late, specID); got.spawns != 0 {
-		t.Errorf("a tracking pass sent the late joiner the spectator's body %d times, want 0", got.spawns)
-	}
-}

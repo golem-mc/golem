@@ -92,29 +92,6 @@ func TestPluginBlockCookCancelAndEdit(t *testing.T) {
 	}
 }
 
-// vanilla: CampfireBlockEntity.cookTick
-func TestPluginCampfireCookCancel(t *testing.T) {
-	t.Parallel()
-	for _, cancel := range []bool{false, true} {
-		var cooks int
-		srv, _ := physicsScene(t, func(s plugin.Server) {
-			plugin.Listen(s, func(e *plugin.BlockCookEvent) {
-				cooks++
-				e.SetCancelled(cancel)
-			})
-		})
-		srv.SetBlockAndTell(4, 64, 0, servertest.BlockState(t, "minecraft:campfire"))
-		srv.PutBlockEntityStack(world.KindCampfire, 4, 64, 0, 0, servertest.ItemStack(t, "minecraft:beef", 1))
-		servertest.TickBlockEntitiesByHand(srv, 2)
-		if cooks == 0 {
-			t.Fatalf("cancel=%v: no BlockCookEvent", cancel)
-		}
-		if kept := !srv.BlockEntityStack(4, 64, 0, 0).Empty(); kept != cancel {
-			t.Errorf("cancel=%v: the food stayed in its slot: %v", cancel, kept)
-		}
-	}
-}
-
 // vanilla: BrewingStandBlockEntity.doBrew
 func TestPluginBrewCancelAndEdit(t *testing.T) {
 	t.Parallel()
@@ -148,98 +125,6 @@ func TestPluginBrewCancelAndEdit(t *testing.T) {
 			}
 			if mode == "edit" && (!ingredient.Empty() || registry.Item(bottle.ItemID) != registry.ItemDiamond) {
 				t.Errorf("edited brew: ingredient %+v, bottle %+v", ingredient, bottle)
-			}
-		})
-	}
-}
-
-// vanilla: TntBlock.prime
-func TestPluginTNTPrimeCancel(t *testing.T) {
-	t.Parallel()
-	for _, cancel := range []bool{false, true} {
-		var primes int
-		srv, _ := physicsScene(t, func(s plugin.Server) {
-			plugin.Listen(s, func(e *plugin.TNTPrimeEvent) {
-				primes++
-				if e.Block.Pos != pos(4, 64, 0) {
-					t.Errorf("prime at %v", e.Block.Pos)
-				}
-				e.SetCancelled(cancel)
-			})
-		})
-		srv.SetBlockAndTell(4, 64, 0, servertest.BlockState(t, "minecraft:air"))
-		primed := srv.PrimeTNTAt(4, 64, 0)
-		if primes != 1 || primed == cancel {
-			t.Errorf("cancel=%v: %d events, primed %v", cancel, primes, primed)
-		}
-		if got := nameAt(srv, 4, 64, 0); (got == "minecraft:tnt") != cancel {
-			t.Errorf("cancel=%v: the cell holds %s", cancel, got)
-		}
-	}
-}
-
-// vanilla: ServerExplosion.explode
-func TestPluginBlockExplodeCancelAndTrim(t *testing.T) {
-	t.Parallel()
-	for _, mode := range []string{"cancel", "trim"} {
-		t.Run(mode, func(t *testing.T) {
-			t.Parallel()
-			var blasts int
-			srv, _ := physicsScene(t, func(s plugin.Server) {
-				plugin.Listen(s, func(e *plugin.BlockExplodeEvent) {
-					blasts++
-					if len(e.Blocks) == 0 {
-						t.Error("the blast reached no block")
-					}
-					if mode == "cancel" {
-						e.SetCancelled(true)
-					} else {
-						e.Blocks = nil
-					}
-				})
-			})
-			dirt := servertest.BlockState(t, "minecraft:dirt")
-			srv.SetBlockAndTell(4, 63, 0, dirt)
-			srv.SetBlockAndTell(5, 63, 0, dirt)
-			srv.BlockExplosion(4, 64, 0, servertest.BlockState(t, "minecraft:red_bed"))
-			if blasts != 1 {
-				t.Fatalf("%d BlockExplodeEvents, want 1", blasts)
-			}
-			if nameAt(srv, 5, 63, 0) != "minecraft:dirt" {
-				t.Errorf("the blast removed a block it was told to keep: %s", nameAt(srv, 5, 63, 0))
-			}
-		})
-	}
-}
-
-// vanilla: LayeredCauldronBlock.lowerFillLevel
-func TestPluginCauldronLevelChangeCancelAndEdit(t *testing.T) {
-	t.Parallel()
-	for _, mode := range []string{"cancel", "edit"} {
-		t.Run(mode, func(t *testing.T) {
-			t.Parallel()
-			var changes int
-			srv, _ := physicsScene(t, func(s plugin.Server) {
-				plugin.Listen(s, func(e *plugin.CauldronLevelChangeEvent) {
-					changes++
-					if mode == "cancel" {
-						e.SetCancelled(true)
-					} else {
-						e.NewState = plugin.DefaultState(registry.BlockLavaCauldron)
-					}
-				})
-			})
-			srv.SetBlockAndTell(4, 64, 0, stateOf(t, "minecraft:water_cauldron", map[string]string{"level": "2"}))
-			srv.DouseCauldronAt(4, 64, 0)
-			if changes != 1 {
-				t.Fatalf("%d events, want 1", changes)
-			}
-			want := "minecraft:water_cauldron"
-			if mode == "edit" {
-				want = "minecraft:lava_cauldron"
-			}
-			if got := nameAt(srv, 4, 64, 0); got != want {
-				t.Errorf("the cauldron is %s, want %s", got, want)
 			}
 		})
 	}

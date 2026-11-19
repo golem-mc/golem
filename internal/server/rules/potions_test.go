@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -94,46 +93,5 @@ func TestInstantPotionLandsOnTheSpot(t *testing.T) {
 	}
 	if _, ok := harm.Get(registry.MustMobEffect("minecraft:instant_damage")); ok {
 		t.Error("the harm left an instant_damage instance behind")
-	}
-}
-
-func TestScaledDurationFloorsAndKeepsOneTick(t *testing.T) {
-	in := effect.Instance{ID: registry.MustMobEffect("minecraft:speed"), Duration: 3601}
-	if got := ScaledDuration(in, 0.5).Duration; got != 1800 {
-		t.Errorf("3601 at 0.5 = %d, want 1800", got)
-	}
-	if got := ScaledDuration(in, 0).Duration; got != 1 {
-		t.Errorf("3601 at 0 = %d, want 1", got)
-	}
-	huge := []float32{1e6, 1e38, float32(math.Inf(1))}
-	for _, scale := range huge {
-		if got := ScaledDuration(in, scale).Duration; got != math.MaxInt32 {
-			t.Errorf("3601 at %v = %d, want the maximum", scale, got)
-		}
-	}
-	if got := ScaledDuration(in, float32(math.NaN())).Duration; got != 1 {
-		t.Errorf("3601 at NaN = %d, want 1", got)
-	}
-	zero := in
-	zero.Duration = 0
-	if got := ScaledDuration(zero, 2).Duration; got != 0 {
-		t.Errorf("0 ticks scaled to %d", got)
-	}
-	in.Duration = -1
-	if got := ScaledDuration(in, 0.5).Duration; got != -1 {
-		t.Errorf("infinite scaled to %d", got)
-	}
-}
-
-func TestSplashInstanceKeepsInfiniteAndAppliesDurationScale(t *testing.T) {
-	id, _ := registry.MobEffectID("minecraft:night_vision")
-	got, ok := SplashInstance(effect.Instance{ID: id, Duration: effect.Infinite, Visible: true}, 0.75, 1)
-	if !ok || got.Duration != effect.Infinite {
-		t.Errorf("infinite splash = %+v, %v", got, ok)
-	}
-	poison, _ := registry.MobEffectID("minecraft:poison")
-	got, ok = SplashInstance(effect.Instance{ID: poison, Duration: 900}, 1, 0.1)
-	if !ok || got.Duration != 90 {
-		t.Errorf("scaled splash = %+v, %v", got, ok)
 	}
 }

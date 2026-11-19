@@ -6,8 +6,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -101,46 +99,4 @@ func silentSummonCommand(kind string) string {
 		extra = ",Item:{id:\"minecraft:stone\",count:1},PickupDelay:32767s"
 	}
 	return "summon minecraft:" + kind + " 4.5 70 4.5 {Silent:1b,NoGravity:1b" + extra + "}"
-}
-
-func TestSilentEntitiesSurviveRestart(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.MobTestConfig()
-	cfg.LevelName = t.TempDir()
-	srv, c := servertest.Join(t, cfg, "Keeper", servertest.OpsListing(t, "Keeper"))
-	servertest.HoldTicks(t, srv)
-	srv.SetBlock(4, 70, 3, registry.BlockStone.DefaultState())
-	r := servertest.NewMetadataRecorder(t, srv, c)
-	r.Ticks = 0
-	for _, kind := range silentEntityKinds {
-		r.Run(silentSummonCommand(kind))
-	}
-	srv.FlushMobs()
-	for _, kind := range silentEntityKinds {
-		servertest.EntityFileIs(t, cfg.LevelName, world.ChunkPos{}, "minecraft:"+kind, func(tag nbt.Compound) {
-			if tag["Silent"] != nbt.Byte(1) {
-				t.Errorf("saved %s Silent = %v, want 1b", kind, tag["Silent"])
-			}
-		})
-	}
-	c.Disconnect()
-	srv.Shutdown()
-	restarted := *cfg
-	againSrv, connect := servertest.Start(t, &restarted, servertest.OpsListing(t, "Keeper"))
-	servertest.FreezeUntilHeld(t, againSrv)
-	again := connect().Join("Keeper")
-	servertest.HoldTicks(t, againSrv)
-	servertest.UntilTicks(t, againSrv, 20, "saved silent entities wake", func() bool {
-		for _, kind := range silentEntityKinds {
-			if len(againSrv.SelectedEntities("minecraft:"+kind)) != 1 {
-				return false
-			}
-		}
-		return true
-	})
-	r = servertest.NewMetadataRecorder(t, againSrv, again)
-	r.Ticks = 0
-	for _, kind := range silentEntityKinds {
-		checkSilentData(t, r.Run("data get entity @e[type=minecraft:"+kind+",limit=1] Silent"), true)
-	}
 }

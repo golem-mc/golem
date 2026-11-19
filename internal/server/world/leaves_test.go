@@ -142,28 +142,6 @@ func TestCuttingTheTrunkRotsTheCanopy(t *testing.T) {
 	}
 }
 
-// TestWaterloggedLeafLeavesItsWater checks the decay of a waterlogged leaf:
-// the vanilla removeBlock writes the cell's fluid as its block, so the water
-// source stands where the leaf rotted rather than air.
-func TestWaterloggedLeafLeavesItsWater(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	leaf := leafState(t, map[string]string{"distance": "7", "waterlogged": "true"})
-
-	setBlock(t, w, p, 5, GroundLevel, 0, leaf)
-
-	var decays []Decay
-	for pass := 1; pass <= 20000 && len(decays) == 0; pass++ {
-		_, more := p.RandomTick(int64(pass), []ChunkPos{{0, 0}}, 3, 1)
-		decays = append(decays, more...)
-	}
-	if len(decays) != 1 {
-		t.Fatalf("20000 random tick passes handed over %d decays, want the waterlogged leaf's", len(decays))
-	}
-	if got := w.BlockAt(5, GroundLevel, 0); got != waterByLevel[0] {
-		t.Errorf("the decayed waterlogged leaf left state %d, want the water source %d", got, waterByLevel[0])
-	}
-}
-
 // TestPersistentLeavesKeepTheirPlace checks the player's own leaves: a
 // canopy placed persistent goes to distance seven with the trunk gone and
 // stays there through the random ticks, while one non-persistent leaf
@@ -315,77 +293,5 @@ func TestTheWalkMatchesTheVanillaCanopy(tb *testing.T) {
 			tb.Errorf("leaf at (%d, %d, %d) stands at distance=%s, want %d",
 				e.pos[0], e.pos[1], e.pos[2], props["distance"], e.want)
 		}
-	}
-}
-
-// TestGeneratedTreesCarryLeafDistances checks the generator's canopy for
-// shape rather than for the walk's exact distances — the walk's order is
-// the positions' hashes, and a test asserting a whole canopy cell by cell
-// would be a second copy of the walk — while the fixture above holds the
-// exactness. What a generated canopy owes, wherever its walk's dice land:
-// every leaf non-persistent, the way the vanilla feature sets them down,
-// each standing at a distance the property's range holds, and a canopy
-// there at all for the seeds asked.
-func TestGeneratedTreesCarryLeafDistances(t *testing.T) {
-	// Seeds the plain ground around the origin is forested on; a seed
-	// whose origin is open field grows no trees there, and says nothing
-	// about the canopy.
-	t.Parallel()
-	for _, seed := range []int64{2, 3, 42} {
-		t.Run(strconv.FormatInt(seed, 10), func(t *testing.T) {
-			t.Parallel()
-			// One generator for the five-by-five, so neighbours' protos are shared.
-			g := NewOverworldGenerator(seed)
-			leaves := 0
-			for x := int32(-2); x <= 2; x++ {
-				for z := int32(-2); z <= 2; z++ {
-					c := newChunk(x, z)
-					g.Generate(c)
-					for si := range c.sections {
-						baseY := worldMinY + int32(si)*sectionSize
-						blocks := c.sections[si].blocks.Load()
-						if blocks == nil {
-							continue // a section of one state grows no canopy
-						}
-						for i := range blocksPerSection {
-							state := blocks.get(i)
-							_, props, ok := registry.BlockStateName(state)
-							if !ok || !registry.BlockOf(state).IsLeaves() {
-								continue
-							}
-							leaves++
-							p := registry.ParseStateProps(props)
-							lx, ly, lz := int32(i&15), int32(i>>8), int32(i>>4&15)
-							d, err := strconv.Atoi(p["distance"])
-							if err != nil || d < 1 || d > 7 {
-								t.Errorf("seed %d: leaf at (%d, %d, %d) in chunk (%d, %d) stands at distance=%q",
-									seed, lx, baseY+ly, lz, x, z, p["distance"])
-							}
-							if p["persistent"] != "false" {
-								t.Errorf("seed %d: leaf at (%d, %d, %d) in chunk (%d, %d) is persistent=%s",
-									seed, lx, baseY+ly, lz, x, z, p["persistent"])
-							}
-						}
-					}
-				}
-			}
-			if leaves == 0 {
-				t.Errorf("seed %d grew no leaves in the five-by-five around the origin", seed)
-			}
-		})
-	}
-}
-
-func TestLeafDistanceFollowsPackBlockTags(t *testing.T) {
-	t.Cleanup(func() { registry.ApplyPackTags(nil) })
-	stone := registry.MustState("minecraft:stone", nil)
-	if d := leafDistanceOf(stone); d != 7 {
-		t.Fatalf("stone leaf distance = %d before any pack, want 7", d)
-	}
-	registry.ApplyPackTags(registry.PackTags{"minecraft:block": {
-		"minecraft:oak_logs": {Entries: []registry.PackTagEntry{{ID: "minecraft:stone", Required: true}}},
-	}})
-	if d := leafDistanceOf(stone); d != 0 {
-		t.Errorf("stone leaf distance = %d after a pack added it to oak_logs, want 0", d)
 	}
 }

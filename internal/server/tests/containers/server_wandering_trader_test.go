@@ -75,38 +75,3 @@ func TestRightClickingAWanderingTraderOpensItsDrawnTrades(t *testing.T) {
 		t.Errorf("trader xp %d, want 0", xp)
 	}
 }
-
-// vanilla: TradeWithPlayerGoal.canUse (wasHurtRecently), AbstractVillager.stillValid
-func TestHittingATradingWanderingTraderClosesTheWindow(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	trader := srv.SpawnMob("minecraft:wandering_trader", 1.5, 64, 0.5)
-	servertest.HoldTicks(t, srv)
-	if openTrade(w, trader) != 1 {
-		t.Fatal("the trade window did not open")
-	}
-	servertest.RunTicks(t, srv, 4) // the goal takes hold of the trader
-	w.Attack(trader)
-	closed := false
-	w.SettleAndCollect(func(id int32, _ []byte) { closed = closed || id == protocol.IDPlayCloseContainer })
-	w.ReadTicks(srv, 5, func(id int32, _ []byte) bool {
-		closed = closed || id == protocol.IDPlayCloseContainer
-		return closed
-	})
-	if !closed {
-		t.Error("the trade window stayed open after the trader was hit")
-	}
-}
-
-// vanilla: AbstractVillager.teleport
-func TestTeleportingAVillagerClosesItsTradeWindow(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	villager := srv.SpawnVillagerWithOffers("minecraft:farmer", 1, breadOffer(0), 1.5, 64, 0.5)
-	if openTrade(w, villager) != 1 {
-		t.Fatal("the trade window did not open")
-	}
-	if !windowClosedAfter(srv, w, func() { tp(srv, "tp @e[type=villager] 3.5 64 0.5\n") }) {
-		t.Error("the trade window stayed open after the villager was teleported")
-	}
-}

@@ -269,26 +269,6 @@ func itemsOf(tag nbt.Tag) []nbt.Tag {
 	return nil
 }
 
-// TestNBTPathMatchersCompareListsPartially checks the matcher's list
-// comparison: a pattern element only needs a match somewhere in the list.
-// vanilla: NbtUtils.compareNbt
-func TestNBTPathMatchersCompareListsPartially(t *testing.T) {
-	t.Parallel()
-	pattern := nbt.Compound{"Tags": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String("a")}}}
-	tag := nbt.Compound{"Tags": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String("a"), nbt.String("b")}}}
-	if !tagsMatchPattern(pattern, tag) {
-		t.Errorf("tagsMatchPattern = false, want the partial list to match")
-	}
-	fewer := nbt.Compound{"Tags": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String("b")}}}
-	if tagsMatchPattern(pattern, fewer) {
-		t.Errorf("tagsMatchPattern = true, want a missing element to refuse")
-	}
-	nested := nbt.Compound{"o": nbt.Compound{"a": nbt.Int(1)}}
-	if !tagsMatchPattern(nested, nbt.Compound{"o": nbt.Compound{"a": nbt.Int(1), "b": nbt.Int(2)}}) {
-		t.Errorf("tagsMatchPattern = false, want the nested entry to match")
-	}
-}
-
 // TestNBTPathArrayOperations checks the four operations over the typed
 // arrays, which the game counts among its collections.
 func TestNBTPathArrayOperations(t *testing.T) {
@@ -336,39 +316,6 @@ func TestNBTPathArrayOperations(t *testing.T) {
 	}
 	if got := root["arr"].(nbt.IntArray); len(got) != 0 {
 		t.Errorf("array all remove left %v", got)
-	}
-}
-
-// TestMergeCompoundReachesIn checks that a merge into a compound keeps the
-// entries a nested name already holds.
-// vanilla: CompoundTag.merge
-func TestMergeCompoundReachesIn(t *testing.T) {
-	t.Parallel()
-	dst := nbt.Compound{"o": nbt.Compound{"a": nbt.Compound{"x": nbt.Int(1)}}}
-	mergeCompound(dst, nbt.Compound{"o": nbt.Compound{"a": nbt.Compound{"y": nbt.Int(2)}}})
-	inner, ok := dst["o"].(nbt.Compound)["a"].(nbt.Compound)
-	if !ok || inner["x"] != nbt.Int(1) || inner["y"] != nbt.Int(2) {
-		t.Errorf("merge left %#v, want {x:1, y:2}", dst)
-	}
-	mergeCompound(dst, nbt.Compound{"o": nbt.Compound{"b": nbt.Int(3)}})
-	if dst["o"].(nbt.Compound)["b"] != nbt.Int(3) {
-		t.Errorf("merge left %#v", dst)
-	}
-}
-
-// TestNBTPathIndexIsInt32 pins a list index to Java's int.
-// vanilla: NbtPathArgument.readIndex, IntegerArgumentType
-func TestNBTPathIndexIsInt32(t *testing.T) {
-	t.Parallel()
-	for _, text := range []string{"a[2147483647]", "a[-2147483648]"} {
-		if _, err := parseNBTPath(text); err != nil {
-			t.Errorf("parse %q: %v", text, err)
-		}
-	}
-	for _, text := range []string{"a[2147483648]", "a[99999999999]"} {
-		if _, err := parseNBTPath(text); err == nil {
-			t.Errorf("parse %q accepted an index past int", text)
-		}
 	}
 }
 

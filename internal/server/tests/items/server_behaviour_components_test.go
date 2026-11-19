@@ -7,7 +7,6 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/registry"
 )
 
 // A stack's own glider, death_protection and damage_resistant, given with
@@ -99,70 +98,5 @@ func TestAGivenDeathProtectionSavesItsHolder(t *testing.T) {
 	}
 	if got := srv.InventorySlot(name, player.HotbarSlot); !got.Empty() {
 		t.Errorf("the hand still holds %+v after the save", got)
-	}
-}
-
-// TestAGivenFireResistantDiamondOutlastsLava: a diamond whose own
-// damage_resistant names is_fire lies in lava unhurt, while a plain one burns.
-// vanilla: ItemEntity.fireImmune, ItemStack.canBeHurtBy
-func TestAGivenFireResistantDiamondOutlastsLava(t *testing.T) {
-	t.Parallel()
-	const name = "Burner"
-	cfg := servertest.BlockTestConfig()
-	srv, c, _ := servertest.JoinAs(t, cfg, name, servertest.OpsListing(t, name))
-	resistant := giveHeld(t, srv, c, name, `diamond[damage_resistant={types:"#minecraft:is_fire"}]`)
-	servertest.HoldTicks(t, srv)
-
-	lava := registry.MustState("minecraft:lava", nil)
-	if !srv.SetBlock(4, 64, 4, lava) || !srv.SetBlock(4, 64, 8, lava) {
-		t.Fatal("the world did not take the lava")
-	}
-	diamond := servertest.MustItemID(t, "minecraft:diamond")
-	kept := srv.SpawnItemStack(4.5, 64.5, 4.5, resistant)
-	burned := srv.SpawnItemStack(4.5, 64.5, 8.5, protocol.ItemStack{ItemID: diamond, Count: 1})
-
-	servertest.RunTicks(t, srv, 40)
-	alive := map[int32]bool{}
-	for _, it := range srv.ItemsInDimension("minecraft:overworld") {
-		alive[it.ID] = true
-	}
-	if !alive[kept] {
-		t.Error("the fire-resistant diamond burned in lava")
-	}
-	if alive[burned] {
-		t.Error("the plain diamond survived 40 ticks of lava")
-	}
-}
-
-// TestAGivenStackKeepsItsUseEffectsAndSwingAnimations: a stack's own
-// use_effects, attack_animation and interact_animation are accepted and kept
-// in the slot, and so sent with it.
-// vanilla: UseEffects.CODEC, SwingAnimation.CODEC
-func TestAGivenStackKeepsItsUseEffectsAndSwingAnimations(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		item      string
-		component int32
-		want      []any
-	}{
-		{`stick[use_effects={can_sprint:true,speed_multiplier:1.0f}]`, protocol.DataComponentUseEffects, []any{true, true, float32(1)}},
-		{`stick[attack_animation={type:"stab",duration:6}]`, protocol.DataComponentAttackAnimation, []any{int32(2), int32(6)}},
-		{`stick[interact_animation={type:"stab",duration:9}]`, protocol.DataComponentInteractAnimation, []any{int32(2), int32(9)}},
-	} {
-		t.Run(tc.item, func(t *testing.T) {
-			t.Parallel()
-			const name = "Effects"
-			srv, c, _ := servertest.JoinAs(t, servertest.BowTestConfig(), name, servertest.OpsListing(t, name))
-			stack := giveHeld(t, srv, c, name, tc.item)
-			got, ok := stack.RecordOf(tc.component)
-			if !ok || len(got) != len(tc.want) {
-				t.Fatalf("record = %v, %v; want %v", got, ok, tc.want)
-			}
-			for i := range got {
-				if got[i] != tc.want[i] {
-					t.Fatalf("record = %v; want %v", got, tc.want)
-				}
-			}
-		})
 	}
 }

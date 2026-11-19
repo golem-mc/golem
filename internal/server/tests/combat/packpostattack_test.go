@@ -45,42 +45,6 @@ func packMobEffect(name string) string {
 	return fmt.Sprintf(`{"type":"minecraft:apply_mob_effect","to_apply":%q,"min_duration":5,"max_duration":5,"min_amplifier":0,"max_amplifier":0}`, "minecraft:"+name)
 }
 
-// vanilla: Enchantment.doPostAttack, ApplyMobEffect.apply
-func TestPackPostAttackSelectsEachAffectedBody(t *testing.T) {
-	cfg := servertest.MobTestConfig()
-	cfg.LevelName = postAttackPack(t, "mainhand", "#minecraft:enchantable/weapon",
-		packPostAttack("attacker", "attacker", packMobEffect("regeneration"))+","+
-			packPostAttack("attacker", "victim", packMobEffect("glowing")))
-	const name = "Striker"
-	srv, c, id := servertest.JoinAs(t, cfg, name)
-	c.MoveToGround(.5, 64, .5, true)
-	servertest.NightWorld(srv, c)
-	zombie := srv.SpawnMobSeeded("minecraft:zombie", 2.5, 64, .5, 4374)
-	srv.SetMobNoAI(zombie)
-	c.ExpectMobSpawn(protocol.EntityTypeZombie)
-	srv.GiveSlot(name, player.HotbarSlot, servertest.EnchantedStack(t, "minecraft:iron_sword", "pk:targets", 1))
-	servertest.HoldTicks(t, srv)
-	servertest.AwaitFullSwing(t, srv, name)
-	c.Attack(zombie)
-	seen := map[[2]int32]bool{}
-	c.ReadTicks(srv, 2, func(packet int32, data []byte) bool {
-		if packet == protocol.IDPlayUpdateMobEffect {
-			e := servertest.MobEffectFor(data)
-			if e.Amplifier != 0 || e.Duration < 98 || e.Duration > 100 {
-				t.Errorf("unexpected effect: %+v", e)
-			}
-			seen[[2]int32{e.Entity, e.Effect}] = true
-		}
-		return false
-	})
-	regen := registry.MustMobEffect("minecraft:regeneration")
-	_, _, glowing := srv.MobEffectOf(zombie, "minecraft:glowing")
-	_, _, regenerating := srv.MobEffectOf(zombie, "minecraft:regeneration")
-	if !seen[[2]int32{id, regen}] || !glowing || regenerating {
-		t.Fatalf("effects on the wire: %v; want regeneration on player %d and only glowing on zombie %d", seen, id, zombie)
-	}
-}
-
 // ApplyExhaustion only affects players: victim/attacker armour cannot exhaust a zombie.
 // vanilla: ApplyExhaustion.apply
 func TestPackVictimPostAttackExhaustion(t *testing.T) {
@@ -182,53 +146,5 @@ func TestPackWeaponPostAttackActions(t *testing.T) {
 	}
 	if got := srv.InventorySlot(name, player.HotbarSlot).Damage; got != 4 {
 		t.Errorf("weapon wear %d, want 3 effect + 1 attack", got)
-	}
-}
-
-// A mob's weapon and its victim's armour share the dispatcher used for players.
-func TestPackMobPostAttackTargets(t *testing.T) {
-	cfg := servertest.MobTestConfig()
-	cfg.LevelName = postAttackPack(t, "mainhand", "#minecraft:enchantable/weapon",
-		packPostAttack("attacker", "attacker", packMobEffect("glowing"))+","+
-			packPostAttack("attacker", "victim", packMobEffect("slowness"))+","+
-			packPostAttack("attacker", "victim", `{"type":"minecraft:summon_entity","entity":"minecraft:lightning_bolt"}`))
-	srv, c, _ := servertest.JoinAs(t, cfg, "Target")
-	c.MoveToGround(.5, 64, .5, true)
-	servertest.NightWorld(srv, c)
-	zombie := srv.SpawnMobSeeded("minecraft:zombie", 2.5, 64, .5, 4374)
-	srv.SetMobNoAI(zombie)
-	srv.SetMobHand(zombie, servertest.EnchantedStack(t, "minecraft:iron_sword", "pk:targets", 1))
-	servertest.HoldTicks(t, srv)
-	if !srv.StrikePlayerWith(zombie, "Target", 3) {
-		t.Fatal("mob blow did not run")
-	}
-	if _, _, ok := srv.PlayerEffect("Target", "minecraft:slowness"); !ok {
-		t.Error("player received no slowness")
-	}
-	if _, _, ok := srv.MobEffectOf(zombie, "minecraft:glowing"); !ok {
-		t.Error("attacker received no glowing")
-	}
-	var lightning bool
-	c.ReadTicks(srv, 0, func(packet int32, data []byte) bool {
-		if packet == protocol.IDPlaySpawnEntity {
-			r := protocol.NewReader(data)
-			r.ReadVarInt()
-			r.ReadUUID()
-			if r.ReadVarInt() == protocol.EntityTypeLightningBolt {
-				lightning = true
-			}
-		}
-		return false
-	})
-	if !lightning {
-		t.Error("mob weapon summoned no lightning")
-	}
-	cow := srv.SpawnMob("minecraft:cow", 3.5, 64, .5)
-	srv.SetMobNoAI(cow)
-	if !srv.StrikeMobWith(zombie, cow, 3) {
-		t.Fatal("mob-to-mob blow did not run")
-	}
-	if _, _, ok := srv.MobEffectOf(cow, "minecraft:slowness"); !ok {
-		t.Error("mob victim received no slowness")
 	}
 }

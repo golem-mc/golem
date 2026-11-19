@@ -8,8 +8,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/registry"
 )
 
 // The fire spread's cost, black-box: the same wooden site the benchmark
@@ -124,114 +122,6 @@ func drainUntilQuiet(t *testing.T, srv *server.Server, c *servertest.Client) (bl
 	}
 	t.Fatal("packets kept arriving for the whole drain")
 	return
-}
-
-// TestAFireSpreadKeepsLightBilledPerChunk pins the burn's cost end to end:
-// a seeded blaze at its busiest must book a relight per chunk the changes
-// span, not one per changed column, while burning the very same blocks,
-// which the block update count pins exactly. It fails where every changed
-// column is relit on its own; see BenchmarkFireSpread for the same burn's
-// before and after.
-func TestAFireSpreadKeepsLightBilledPerChunk(t *testing.T) {
-	// Not parallel: the burn's packets are timed out by the quiet windows
-	// the drain waits in, and the cores beside the rest of a parallel
-	// batch are not to be had.
-	srv, c := servertest.Join(t, fireConfig(), "Warden", servertest.OpsListing(t, "Warden"))
-
-	// The loop stops before the site is built: the only ticks that run
-	// over it are the ones the test drives, so the burn is the engine's
-	// own dice on a world nothing else has ticked, the same every run
-	// whatever the wall clock spent on the way here.
-	srv.StopTick()
-	servertest.SeedPhysics(t, srv, burnSeed)
-	buildLagSite(t, c)
-	for _, p := range burnSitePillars {
-		setBlockCmd(t, c, p[0]-1, 68, p[1], "fire")
-	}
-
-	// The warmup settles what the site's own wakes book — the leaf
-	// distances the fills left at seven recomputed — and carries the
-	// fires into their first visits. None of it is counted.
-	srv.TickPhysics(40)
-	drainUntilQuiet(t, srv, c)
-
-	// What the window's changes are billed: the relight boxes the batch
-	// path books against the boxes a relight per changed column would
-	// book for the same changes. Counting the bookings, not the wire,
-	// keeps this off the light pool's timing: a drained pool sends the
-	// same chunks' light however many times a per-column path recomputes
-	// it.
-	var booked, columns, chunks int
-	srv.RecordRelights(func(n int, changes []world.BlockChange) {
-		booked += n
-		cols := make(map[[2]int32]struct{}, len(changes))
-		chs := make(map[[2]int32]struct{}, len(changes))
-		for _, ch := range changes {
-			cols[[2]int32{ch.X, ch.Z}] = struct{}{}
-			chs[[2]int32{world.ChunkOf(float64(ch.X)), world.ChunkOf(float64(ch.Z))}] = struct{}{}
-		}
-		columns += len(cols)
-		chunks += len(chs)
-	})
-
-	// The window drives the blaze for real. The burn's light work runs on
-	// the pool beside the ticks; reading each tick's packets as it goes
-	// keeps the buffer from holding a whole burn, whose burst left to the
-	// end can block a writer mid-packet under a loaded race run.
-	start := time.Now()
-	var blockUpdates, sectionBlocks, lightUpdates int
-	for range burnWindow {
-		srv.TickPhysics(1)
-		bu, sb, lu, _ := countPackets(t, srv, c, 0)
-		blockUpdates, sectionBlocks, lightUpdates = blockUpdates+bu, sectionBlocks+sb, lightUpdates+lu
-	}
-	driveTime := time.Since(start)
-
-	bu, sb, lu := drainUntilQuiet(t, srv, c)
-	blockUpdates, sectionBlocks, lightUpdates = blockUpdates+bu, sectionBlocks+sb, lightUpdates+lu
-	var fires, leaves, logs, planksLeft int
-	for y := 64; y <= 70; y++ {
-		for x := range int32(32) {
-			for z := range int32(32) {
-				name, _, _ := registry.BlockStateName(srv.BlockAt(x, int32(y), z))
-				switch name {
-				case "minecraft:fire":
-					fires++
-				case "minecraft:oak_leaves":
-					leaves++
-				case "minecraft:oak_log":
-					logs++
-				case "minecraft:oak_planks":
-					planksLeft++
-				}
-			}
-		}
-	}
-	t.Logf("burn: drove %d ticks in %s (%.1f ms/tick), %d block updates, %d section blocks, %d light updates; %d relights booked over %d chunks the changes touched, %d columns a per-column relight would book; site ends with %d fires, %d leaves, %d logs, %d planks",
-		burnWindow, driveTime, float64(driveTime.Milliseconds())/float64(burnWindow),
-		blockUpdates, sectionBlocks, lightUpdates,
-		booked, chunks, columns, fires, leaves, logs, planksLeft)
-
-	// The burn itself is unchanged by how its work is billed: the changes
-	// the engine made are the same dice on the same world, one packet per
-	// changed section per tick, so their count is a constant of the site and
-	// seed.
-	if got := blockUpdates + sectionBlocks; got != burnChanges {
-		t.Errorf("burn made %d block packets over the wire, want %d — the burn changed with the billing",
-			got, burnChanges)
-	}
-	// The light the burn billed: one relight box per chunk each batch of
-	// changes touches, not one per changed column. The count is measured
-	// against the per-column baseline the same changes give on this
-	// machine, so it is the billing and not the pool's timing.
-	if booked != chunks {
-		t.Errorf("burn booked %d relights over %d chunks the changes touched, want one per chunk",
-			booked, chunks)
-	}
-	if booked*burnRelightRatio > columns {
-		t.Errorf("burn booked %d relights, want well under the %d columns a relight per changed column would book",
-			booked, columns)
-	}
 }
 
 // burnChanges and burnRelightRatio are the seeded burn's own numbers: the

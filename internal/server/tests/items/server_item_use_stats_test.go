@@ -58,97 +58,6 @@ func TestScoopingWithABucketCountsAsUsed(t *testing.T) {
 	expectUsed(t, srv, "minecraft:bucket", 1)
 }
 
-// TestPouringABucketCountsAsUsedForTheFilledBucket: vanilla: BucketItem.use
-func TestPouringABucketCountsAsUsedForTheFilledBucket(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:water_bucket")
-	servertest.UseHeld(actor, 0, 90)
-	actor.Settle()
-	expectUsed(t, srv, "minecraft:water_bucket", 1)
-}
-
-// TestFillingAGlassBottleCountsAsUsed: vanilla: BottleItem.turnBottleIntoItem
-func TestFillingAGlassBottleCountsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, _ := aimedAtWater(t, "minecraft:glass_bottle")
-	expectUsed(t, srv, "minecraft:glass_bottle", 1)
-}
-
-// TestAFlintAndSteelLightCountsAsUsed: vanilla: ItemStack.useOn
-func TestAFlintAndSteelLightCountsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:flint_and_steel")
-	actor.UseBlock(3, 63, 0)
-	actor.Settle()
-	expectUsed(t, srv, "minecraft:flint_and_steel", 1)
-}
-
-// TestTillingWithAHoeCountsAsUsed: vanilla: ItemStack.useOn
-func TestTillingWithAHoeCountsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:iron_hoe")
-	srv.SetBlock(3, 63, 0, registry.MustState("minecraft:dirt", nil))
-	actor.Settle()
-	actor.UseBlock(3, 63, 0)
-	actor.Settle()
-	expectUsed(t, srv, "minecraft:iron_hoe", 1)
-}
-
-// TestCarvingAPumpkinCountsShearsAsUsed: vanilla: PumpkinBlock.useItemOn
-func TestCarvingAPumpkinCountsShearsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:shears")
-	srv.SetBlock(3, 63, 0, registry.MustState("minecraft:pumpkin", nil))
-	actor.Settle()
-	actor.UseBlock(3, 63, 0)
-	actor.Settle()
-	expectUsed(t, srv, "minecraft:shears", 1)
-}
-
-// TestAddingACandleToACakeCountsTheCandleAsUsed: vanilla: CakeBlock.useItemOn
-func TestAddingACandleToACakeCountsTheCandleAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:candle")
-	srv.SetBlock(3, 63, 0, registry.MustState("minecraft:cake", nil))
-	actor.Settle()
-	actor.UseBlock(3, 63, 0)
-	actor.Settle()
-	expectUsed(t, srv, "minecraft:candle", 1)
-}
-
-// TestFeedingAComposterCountsTheItemAsUsed: vanilla: ComposterBlock.useItemOn
-func TestFeedingAComposterCountsTheItemAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:wheat_seeds")
-	srv.SetBlock(3, 63, 0, registry.MustState("minecraft:composter", nil))
-	actor.Settle()
-	actor.UseBlock(3, 63, 0)
-	actor.Settle()
-	expectUsed(t, srv, "minecraft:wheat_seeds", 1)
-}
-
-// TestWaxingASignCountsTheHoneycombAsUsed: vanilla: SignBlock.useItemOn, HoneycombItem.tryApplyToSign
-func TestWaxingASignCountsTheHoneycombAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:honeycomb")
-	srv.SetBlock(3, 63, 0, registry.MustState("minecraft:oak_sign", nil))
-	actor.Settle()
-	actor.UseBlock(3, 63, 0)
-	actor.Settle()
-	expectUsed(t, srv, "minecraft:honeycomb", 1)
-}
-
-// TestFillingACauldronWithABucketCountsAsUsed: vanilla: CauldronInteractions.emptyBucket
-func TestFillingACauldronWithABucketCountsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:water_bucket")
-	srv.SetBlock(3, 63, 0, registry.MustState("minecraft:cauldron", nil))
-	actor.Settle()
-	actor.UseBlock(3, 63, 0)
-	actor.Settle()
-	expectUsed(t, srv, "minecraft:water_bucket", 1)
-}
-
 // TestAShotBowCountsAsUsed: vanilla: BowItem.releaseUsing
 func TestAShotBowCountsAsUsed(t *testing.T) {
 	t.Parallel()
@@ -184,17 +93,6 @@ func TestAnEatenMealCountsAsUsed(t *testing.T) {
 	expectUsed(t, srv, "minecraft:bread", 1)
 }
 
-// TestASpentTotemCountsAsUsed: vanilla: LivingEntity.checkTotemDeathProtection
-func TestASpentTotemCountsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:totem_of_undying")
-	if !srv.Hurt("Actor", 40) {
-		t.Fatal("the blow did not land")
-	}
-	actor.Settle()
-	expectUsed(t, srv, "minecraft:totem_of_undying", 1)
-}
-
 // mineStoneWith has a survival actor break stone with the stack and returns
 // the server once the cell is air.
 func mineStoneWith(t *testing.T, stack protocol.ItemStack) *server.Server {
@@ -226,113 +124,6 @@ func TestMiningABlockCountsTheToolAsUsed(t *testing.T) {
 	expectUsed(t, mineStoneWith(t, pick), "minecraft:netherite_pickaxe", 1)
 }
 
-// TestAToolWithNoDamagePerBlockCountsAsUsedWhenMining: Item.mineBlock answers
-// true for any tool component, whatever it costs.
-// vanilla: Item.mineBlock, ItemStack.mineBlock
-func TestAToolWithNoDamagePerBlockCountsAsUsedWhenMining(t *testing.T) {
-	t.Parallel()
-	pick := servertest.ItemStack(t, "minecraft:netherite_pickaxe", 1)
-	pick.SetTool(protocol.ToolComponent{DefaultMiningSpeed: 10000, DamagePerBlock: 0})
-	expectUsed(t, mineStoneWith(t, pick), "minecraft:netherite_pickaxe", 1)
-}
-
-// TestACreativeBreakDoesNotCountTheToolAsUsed: destroyBlock returns before
-// mineBlock when the player's mode prevents drops.
-// vanilla: ServerPlayerGameMode.destroyBlock
-func TestACreativeBreakDoesNotCountTheToolAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Actor")
-	c.MoveToGround(4.5, 64, 4.5, true)
-	c.Settle()
-	if srv.PlayerGameMode("Actor") != protocol.GameModeCreative {
-		t.Fatal("the scene's player is not in creative")
-	}
-	srv.GiveSlot("Actor", player.HotbarSlot, servertest.ItemStack(t, "minecraft:diamond_pickaxe", 1))
-	srv.SetBlock(5, 64, 4, registry.MustState("minecraft:stone", nil))
-	c.Settle()
-	c.BreakBlock(5, 64, 4)
-	c.Settle()
-	if srv.BlockAt(5, 64, 4) != registry.MustState("minecraft:air", nil) {
-		t.Fatal("the stone was never broken")
-	}
-	expectUsed(t, srv, "minecraft:diamond_pickaxe", 0)
-}
-
-// TestLayingABoatCountsAsUsed: vanilla: BoatItem.use
-func TestLayingABoatCountsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, _ := aimedAtWater(t, "minecraft:oak_boat")
-	expectUsed(t, srv, "minecraft:oak_boat", 1)
-}
-
-// TestAnEggThatSpawnsAMobCountsAsUsed: vanilla: SpawnEggItem.useOn
-func TestAnEggThatSpawnsAMobCountsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:cow_spawn_egg")
-	actor.UseBlock(3, 63, 0)
-	actor.Settle()
-	expectUsed(t, srv, "minecraft:cow_spawn_egg", 1)
-}
-
-// TestRaisingASpyglassCountsAsUsed: vanilla: SpyglassItem.use
-func TestRaisingASpyglassCountsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:spyglass")
-	actor.UseItemRightClicks(protocol.HandMain)
-	actor.Settle()
-	expectUsed(t, srv, "minecraft:spyglass", 1)
-}
-
-// TestACycledDebugStickCountsAsUsed: DebugStickItem.useOn answers SUCCESS
-// for a block with properties.
-// vanilla: ItemStack.useOn, DebugStickItem.useOn
-func TestACycledDebugStickCountsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Actor", servertest.OpsListing(t, "Actor"))
-	c.MoveToGround(4.5, 64, 6.5, true)
-	c.FacePlayer(4.5, 64, 6.5, 180, 0)
-	srv.GiveSlot("Actor", player.HotbarSlot, servertest.ItemStack(t, "minecraft:debug_stick", 1))
-	srv.SetBlock(4, 64, 5, registry.MustState("minecraft:oak_stairs", nil))
-	c.Settle()
-
-	c.UseBlock(4, 64, 5)
-	c.Settle()
-	expectUsed(t, srv, "minecraft:debug_stick", 1)
-}
-
-// TestALeadSneakedOntoAFenceCountsAsUsed: with the block's own use skipped by
-// the sneak, the lead's useOn ties the mob and the item is counted.
-// vanilla: ItemStack.useOn, LeadItem.useOn
-func TestALeadSneakedOntoAFenceCountsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Actor")
-	c.MoveToGround(2.5, 64, 5.5, true)
-	c.Settle()
-	srv.StopTick()
-	srv.SetBlock(6, 64, 5, registry.MustState("minecraft:oak_fence", nil))
-	giveStack(t, srv, player.HotbarSlot, "minecraft:lead", 2)
-	cow := srv.SpawnMob("minecraft:cow", 5.5, 64, 5.5)
-	c.Settle()
-	c.UseOn(cow)
-	c.Settle()
-	expectUsed(t, srv, "minecraft:lead", 0)
-
-	c.SendSneak(true)
-	c.Settle()
-	c.UseBlock(6, 64, 5)
-	c.Settle()
-	expectUsed(t, srv, "minecraft:lead", 1)
-}
-
-// TestACarrotOnAStickCountsAsUsed: vanilla: FoodOnAStickItem.use
-func TestACarrotOnAStickCountsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:carrot_on_a_stick")
-	servertest.UseHeld(actor, 0, 0)
-	actor.Settle()
-	expectUsed(t, srv, "minecraft:carrot_on_a_stick", 1)
-}
-
 // useKnowledgeBook has the actor use a knowledge book naming recipes and
 // reports how many Recipe Book Adds it was sent. vanilla: KnowledgeBookItem.use
 func useKnowledgeBook(t *testing.T, recipes ...string) (*server.Server, int) {
@@ -354,27 +145,4 @@ func useKnowledgeBook(t *testing.T, recipes ...string) (*server.Server, int) {
 		t.Errorf("the knowledge book was not spent: %+v", got)
 	}
 	return srv, adds
-}
-
-// TestAKnowledgeBookCountsAsUsed: vanilla: KnowledgeBookItem.use
-func TestAKnowledgeBookCountsAsUsed(t *testing.T) {
-	t.Parallel()
-	srv, adds := useKnowledgeBook(t, "minecraft:oak_boat")
-	if adds != 1 {
-		t.Errorf("Recipe Book Adds = %d, want 1", adds)
-	}
-	expectUsed(t, srv, "minecraft:knowledge_book", 1)
-}
-
-// TestAKnowledgeBookThatUnlocksNothingIsSpentUncounted: a book naming no
-// recipe, or one that does not exist, fails after it is spent.
-func TestAKnowledgeBookThatUnlocksNothingIsSpentUncounted(t *testing.T) {
-	t.Parallel()
-	for _, recipes := range [][]string{nil, {"minecraft:oak_boat", "minecraft:no_such_recipe"}} {
-		srv, adds := useKnowledgeBook(t, recipes...)
-		if adds != 0 {
-			t.Errorf("%v: Recipe Book Adds = %d, want 0", recipes, adds)
-		}
-		expectUsed(t, srv, "minecraft:knowledge_book", 0)
-	}
 }

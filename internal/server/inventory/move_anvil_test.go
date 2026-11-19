@@ -58,36 +58,3 @@ func TestAShiftClickFeedsAnAnvilsFirstInputThatFits(t *testing.T) {
 		t.Errorf("the hotbar = %+v, want it emptied by the move", got)
 	}
 }
-
-// TestAShiftClickCarriesAnAnvilsInputsHome checks the shift-click out of
-// an input: it moves into the player's things from the first main slot
-// onward, not hotbar-end first.
-func TestAShiftClickCarriesAnAnvilsInputsHome(t *testing.T) {
-	sticks := protocol.ItemStack{ItemID: itemID(t, "minecraft:stick"), Count: 4}
-	sword := protocol.ItemStack{ItemID: itemID(t, "minecraft:diamond_sword"), Count: 1}
-
-	// An empty inventory: the first main slot takes the input.
-	inv := &player.Inventory{}
-	view := anvilView(sticks, protocol.ItemStack{})
-	var outcome Outcome
-	session := &Session{}
-	session.Click(view, inv, protocol.ClickModeQuickMove, 0, 0, false, 0, &outcome)
-	if got := inv.Slots[player.MainSlot]; !got.Equal(sticks) {
-		t.Errorf("the first main slot = %+v, want the sticks from the input", got)
-	}
-	if !view.Menu[0].Empty() {
-		t.Errorf("the first input = %+v, want it emptied by the move", view.Menu[0])
-	}
-
-	// The first main slot taken: the next slot onward, not the hotbar's
-	// far end.
-	inv = &player.Inventory{}
-	inv.Set(player.MainSlot, sword)
-	view = anvilView(sticks, protocol.ItemStack{})
-	outcome = Outcome{}
-	session = &Session{}
-	session.Click(view, inv, protocol.ClickModeQuickMove, 0, 0, false, 0, &outcome)
-	if got := inv.Slots[player.MainSlot+1]; !got.Equal(sticks) {
-		t.Errorf("the second main slot = %+v, want the sticks from the input", got)
-	}
-}

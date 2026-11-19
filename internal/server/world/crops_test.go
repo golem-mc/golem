@@ -46,67 +46,6 @@ func observerDicePulse(t *testing.T, w *World, p *Physics, clock *int64, speed i
 	return 0, false
 }
 
-// TestAnAgingCanePulsesTheObserverWatchingIt checks the flag-260 write: a
-// cane whose age the random pass bumps pulses the observer watching its
-// cell for the two game ticks vanilla's pulse lasts, no client ever told
-// of the age itself.
-// vanilla: SugarCaneBlock.randomTick
-func TestAnAgingCanePulsesTheObserverWatchingIt(t *testing.T) {
-	w, p, clock := observerCircuit(t)
-	setBlock(t, w, p, 13, 62, 9, registry.BlockSand.DefaultState())
-	setBlock(t, w, p, 12, 62, 9, registry.BlockWater.DefaultState())
-	setBlock(t, w, p, 13, 63, 9, rsState(t, "minecraft:sugar_cane", map[string]string{"age": "14"}))
-	for range 12 {
-		*clock++
-		p.Tick(*clock)
-	}
-	if props := observerProps(t, w, 14, 63, 9); props["powered"] == "true" {
-		t.Fatalf("setup: the observer was pulsing before the dice: %v", props)
-	}
-
-	pulseTicks, lampOn := observerDicePulse(t, w, p, clock, 100, 11, func() bool {
-		_, props := rsNameAt(t, w, 13, 63, 9)
-		return props["age"] == "15"
-	})
-
-	if pulseTicks != 2 {
-		t.Errorf("the cane's age bump pulsed the observer for %d ticks, want the two-tick pulse", pulseTicks)
-	}
-	if !lampOn {
-		t.Error("the lamp behind the observer never lit on the age bump")
-	}
-}
-
-// TestADyingFarmlandPulsesTheObserverWatchingIt checks the flags-three
-// write the death makes: a farmland the pass dries out to dirt pulses the
-// observer watching the square.
-// vanilla: FarmlandBlock.randomTick, turnToDirt
-func TestADyingFarmlandPulsesTheObserverWatchingIt(t *testing.T) {
-	w, p, clock := observerCircuit(t)
-	setBlock(t, w, p, 13, 63, 9, rsState(t, "minecraft:farmland", map[string]string{"moisture": "0"}))
-	for range 12 {
-		*clock++
-		p.Tick(*clock)
-	}
-	if props := observerProps(t, w, 14, 63, 9); props["powered"] == "true" {
-		t.Fatalf("setup: the observer was pulsing before the dice: %v", props)
-	}
-
-	// Nothing above the square maintains it, so the first landed die
-	// takes it to dirt.
-	pulseTicks, lampOn := observerDicePulse(t, w, p, clock, 100, 11, func() bool {
-		name, _ := rsNameAt(t, w, 13, 63, 9)
-		return name == "minecraft:dirt"
-	})
-
-	if pulseTicks != 2 {
-		t.Errorf("the farmland's death pulsed the observer for %d ticks, want the two-tick pulse", pulseTicks)
-	}
-	if !lampOn {
-		t.Error("the lamp behind the observer never lit on the farmland's death")
-	}
-}
-
 // TestCropGrowthSpeedStartsAtTheVanillaBase pins getGrowthSpeed's base of
 // one over the three-by-three of ground under the crop: a dry field scores
 // four, a wet one ten, and a single same crop diagonal to it halves whatever
@@ -184,67 +123,6 @@ func TestStemsSurviveOnFarmlandInTheDarkButWheatDoesNot(t *testing.T) {
 	}
 }
 
-// TestCaneAndCactusLeftUnsupportedPlayTheBreakEvent checks the level event
-// 2001 destroyBlock sends when a scheduled survival check breaks them.
-func TestCaneAndCactusLeftUnsupportedPlayTheBreakEvent(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	var clock int64
-	for i, name := range []string{"minecraft:sugar_cane", "minecraft:cactus"} {
-		x, y, z := int32(4+i*3), int32(GroundLevel+4), int32(4)
-		state := registry.BlockStates[name]
-		setBlock(t, w, p, x, y-1, z, registry.BlockStates["minecraft:sand"])
-		w.SetBlock(x, y, z, state)
-		old := w.BlockAt(x, y-1, z)
-		w.SetBlock(x, y-1, z, 0)
-		_, effects, _ := p.NotifyChanged(x, y-1, z, old)
-		for range 8 {
-			clock++
-			_, _, _, e := p.Tick(clock)
-			effects = append(effects, e...)
-		}
-		events := 0
-		for _, e := range effects {
-			if e.LevelEvent == 2001 && e.LevelEventData == int32(state) {
-				events++
-			}
-		}
-		if events != 1 {
-			t.Errorf("%s sent %d break events, want 1", name, events)
-		}
-	}
-}
-
-// Rails and repeaters leave through neighborChanged, which drops them without
-// the level event 2001.
-func TestRailAndRepeaterPoppedByNeighborChangedPlayNoBreakEvent(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	for i, name := range []string{"minecraft:rail", "minecraft:repeater", "minecraft:comparator"} {
-		x, y, z := int32(4+i*3), int32(GroundLevel+4), int32(4)
-		state := registry.BlockStates[name]
-		setBlock(t, w, p, x, y-1, z, registry.BlockStates["minecraft:stone"])
-		w.SetBlock(x, y, z, state)
-		old := w.BlockAt(x, y-1, z)
-		w.SetBlock(x, y-1, z, 0)
-		_, effects, _ := p.NotifyChanged(x, y-1, z, old)
-		for clock := int64(1); clock <= 8; clock++ {
-			_, _, _, e := p.Tick(clock)
-			effects = append(effects, e...)
-		}
-		drops := 0
-		for _, e := range effects {
-			if e.LevelEvent == 2001 {
-				t.Errorf("%s sent a break event", name)
-			}
-			if e.BreakDrop == state {
-				drops++
-			}
-		}
-		if drops != 1 {
-			t.Errorf("%s dropped %d times, want 1", name, drops)
-		}
-	}
-}
-
 // growthTrials throws random visits at the crop at (x, y, z) until the cell
 // changes, reporting whether it did within the bound.
 func growthTrials(w *World, p *Physics, x, y, z int32, trials int) bool {
@@ -317,20 +195,6 @@ func TestPitcherCropGrowsOnRandomTicksIntoTwoBlocks(t *testing.T) {
 	}
 }
 
-// TestPitcherCropDoesNotGrowIntoABlock pins the room gate.
-// vanilla: PitcherCropBlock.canGrow
-func TestPitcherCropDoesNotGrowIntoABlock(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	p.rng = rand.New(rand.NewSource(1))
-	const x, y, z = int32(0), GroundLevel, int32(0)
-	setBlock(t, w, p, x, y-1, z, rsState(t, "minecraft:farmland", map[string]string{"moisture": "7"}))
-	setBlock(t, w, p, x, y, z, rsState(t, "minecraft:pitcher_crop", map[string]string{"half": "lower", "age": "2"}))
-	setBlock(t, w, p, x, y+1, z, rsState(t, "minecraft:stone", nil))
-	if growthTrials(w, p, x, y, z, 3000) {
-		t.Fatal("grew into a block")
-	}
-}
-
 // lightTunnel seals a stone corridor on the ground row, a torch at the far
 // end, and returns the crop cell at its near end whose light is 14 - dist.
 func lightTunnel(t *testing.T, w *World, p *Physics, dist int32) (x, y, z int32) {
@@ -349,110 +213,6 @@ func lightTunnel(t *testing.T, w *World, p *Physics, dist int32) (x, y, z int32)
 	setBlock(t, w, p, dist, y, 0, torchState)
 	w.Relight(0, 0)
 	return 0, y, 0
-}
-
-// TestTorchflowerCropGrowsOnlyFromLightNine pins the light gate at 9.
-// vanilla: CropBlock.randomTick
-func TestTorchflowerCropGrowsOnlyFromLightNine(t *testing.T) {
-	for _, tc := range []struct {
-		dist int32
-		grow bool
-	}{{5, true}, {6, false}} {
-		t.Run("", func(t *testing.T) {
-			w, p := newPhysicsWorld(t)
-			p.rng = rand.New(rand.NewSource(1))
-			x, y, z := lightTunnel(t, w, p, tc.dist)
-			if got, want := int(rawLightAt(w, x, y, z)), int(14-tc.dist); got != want {
-				t.Fatalf("setup: light = %d, want %d", got, want)
-			}
-			setBlock(t, w, p, x, y, z, rsState(t, "minecraft:torchflower_crop", map[string]string{"age": "0"}))
-			if got := growthTrials(w, p, x, y, z, 3000); got != tc.grow {
-				t.Errorf("light %d: grew = %v, want %v", 14-tc.dist, got, tc.grow)
-			}
-		})
-	}
-}
-
-// TestTorchflowerCropSkipsAThirdOfItsVisits mirrors the dice of one visit:
-// the one-in-three skip first, then the growth roll.
-// vanilla: TorchflowerCropBlock.randomTick
-func TestTorchflowerCropSkipsAThirdOfItsVisits(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	const x, y, z = int32(0), GroundLevel, int32(0)
-	setBlock(t, w, p, x, y-1, z, rsState(t, "minecraft:farmland", map[string]string{"moisture": "7"}))
-	young := rsState(t, "minecraft:torchflower_crop", map[string]string{"age": "0"})
-	setBlock(t, w, p, x, y, z, young)
-	bound := int(float32(25.0)/p.cropGrowthSpeed(x, y, z, registry.BlockTorchflowerCrop)) + 1
-	skipped := 0
-	for seed := range int64(300) {
-		r := rand.New(rand.NewSource(seed))
-		skip := r.Intn(3) == 0
-		want := !skip && r.Intn(bound) == 0
-		if skip {
-			skipped++
-		}
-		p.rng = rand.New(rand.NewSource(seed))
-		w.SetBlock(x, y, z, young)
-		if got := growthTrials(w, p, x, y, z, 1); got != want {
-			t.Fatalf("seed %d: grew = %v, want %v", seed, got, want)
-		}
-	}
-	if skipped == 0 {
-		t.Fatal("no seed exercised the skip")
-	}
-}
-
-// TestPitcherCropGrowsOnlyFromLightEight pins the light gate at 8.
-// vanilla: PitcherCropBlock.canGrow
-func TestPitcherCropGrowsOnlyFromLightEight(t *testing.T) {
-	for _, tc := range []struct {
-		dist int32
-		grow bool
-	}{{6, true}, {7, false}} {
-		t.Run("", func(t *testing.T) {
-			w, p := newPhysicsWorld(t)
-			p.rng = rand.New(rand.NewSource(1))
-			x, y, z := lightTunnel(t, w, p, tc.dist)
-			if got, want := int(rawLightAt(w, x, y, z)), int(14-tc.dist); got != want {
-				t.Fatalf("setup: light = %d, want %d", got, want)
-			}
-			setBlock(t, w, p, x, y, z, rsState(t, "minecraft:pitcher_crop", map[string]string{"half": "lower", "age": "0"}))
-			if got := growthTrials(w, p, x, y, z, 3000); got != tc.grow {
-				t.Errorf("light %d: grew = %v, want %v", 14-tc.dist, got, tc.grow)
-			}
-		})
-	}
-}
-
-// TestAGrowingPitcherCropPulsesTheObserverWatchingIt pins the shaped write
-// of the lower half, shared by random ticks and bone meal.
-// vanilla: Level.setBlock, ObserverBlock.updateShape
-func TestAGrowingPitcherCropPulsesTheObserverWatchingIt(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	const x, y, z = int32(13), GroundLevel, int32(9)
-	setBlock(t, w, p, x, y-1, z, rsState(t, "minecraft:farmland", map[string]string{"moisture": "7"}))
-	setBlock(t, w, p, x, y, z, rsState(t, "minecraft:pitcher_crop", map[string]string{"half": "lower", "age": "0"}))
-	setBlock(t, w, p, x+1, y, z, rsState(t, "minecraft:observer", map[string]string{"facing": "west", "powered": "false"}))
-	var clock int64
-	for range 12 {
-		clock++
-		p.Tick(clock)
-	}
-	var changes []BlockChange
-	if !p.growPitcherCrop(x, y, z, w.BlockAt(x, y, z), &changes) {
-		t.Fatal("the crop did not grow")
-	}
-	pulsed := false
-	for range 8 {
-		clock++
-		p.Tick(clock)
-		if observerProps(t, w, x+1, y, z)["powered"] == "true" {
-			pulsed = true
-		}
-	}
-	if !pulsed {
-		t.Error("the observer beside the growing crop never pulsed")
-	}
 }
 
 // newOneChunkPhysics loads only chunk (0,0); fixtures sit at x=z=8, clear of

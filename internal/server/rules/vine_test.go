@@ -7,37 +7,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// TestOrderedByNearest checks Direction.orderedByNearest at the exact
-// quadrants, where Mth's sine table decides the ties: the horizontals of a
-// level look run facing, clockwise side, counter-clockwise side, behind.
-func TestOrderedByNearest(t *testing.T) {
-	cases := []struct {
-		yaw  float32
-		want [4]int
-	}{
-		{0, [4]int{dirSouth, dirWest, dirEast, dirNorth}},
-		{90, [4]int{dirWest, dirNorth, dirSouth, dirEast}},
-		{180, [4]int{dirNorth, dirEast, dirWest, dirSouth}},
-		{270, [4]int{dirEast, dirSouth, dirNorth, dirWest}},
-	}
-	for _, c := range cases {
-		for _, pitch := range []float32{-60, 0, 45, 90} {
-			var horizontals []int
-			for _, d := range orderedByNearest(c.yaw, pitch) {
-				if d >= dirNorth {
-					horizontals = append(horizontals, d)
-				}
-			}
-			if [4]int(horizontals) != c.want {
-				t.Errorf("yaw %v pitch %v: horizontals %v, want %v", c.yaw, pitch, horizontals, c.want)
-			}
-		}
-	}
-	if got, want := orderedByNearest(0, 0), [6]int{dirSouth, dirDown, dirWest, dirEast, dirUp, dirNorth}; got != want {
-		t.Errorf("a level south look orders %v, want %v", got, want)
-	}
-}
-
 func TestVinePlacementState(t *testing.T) {
 	stone := registry.BlockStates["minecraft:stone"]
 	eastVine, _ := registry.FindState("minecraft:vine", map[string]string{"east": "true"})

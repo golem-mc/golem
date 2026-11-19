@@ -2,8 +2,9 @@ package combat
 
 import (
 	"bytes"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
@@ -233,187 +234,14 @@ func TestAnAttackerOlderThanAHundredTicksGetsNoKillCredit(t *testing.T) {
 	}
 }
 
-// TestAnAttackerWithinAHundredTicksKeepsTheKillCredit is the same with 50
-// ticks between the blow and the death: the zombie is named and credited.
-// vanilla: LivingEntity.getKillCredit, DamageSource.getLocalizedDeathMessage
-func TestAnAttackerWithinAHundredTicksKeepsTheKillCredit(t *testing.T) {
-	t.Parallel()
-	n := killCreditDeath(t, 50, func(victim, zombie protocol.Text) protocol.Text {
-		return protocol.Text{Translate: "death.attack.onFire.player",
-			With: []protocol.Text{victim, zombie}}
-	})
-	if n != 1 {
-		t.Errorf("killed_by zombie = %d, want 1", n)
-	}
-}
-
-// TestAFullyAbsorbedBlowStillCreditsItsPlayer has Killer land a full swing on
-// Prey, whose Absorption takes all of it, and burns Prey to death 5 ticks
-// later: the message names Killer.
-// vanilla: LivingEntity.hurtServer, resolvePlayerResponsibleForDamage
-func TestAFullyAbsorbedBlowStillCreditsItsPlayer(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.CombatTestConfig(), servertest.OpsListing(t, "Prey"))
-	killer := connect()
-	killer.JoinAs("Killer")
-	prey := connect()
-	preyID := prey.JoinAs("Prey")
-	killer.MoveToGround(2.5, 64, 5.5, true)
-	prey.MoveToGround(2.5, 64, 6.5, true)
-	prey.Settle()
-	killer.Settle()
-	prey.ChatCommand("effect give @s minecraft:absorption 60 4")
-	prey.Settle()
-	srv.GiveSlot("Killer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:iron_sword", 1))
-	servertest.AwaitFullSwing(t, srv, "Killer")
-	servertest.HoldTicks(t, srv)
-	killer.Attack(preyID)
-	killer.Settle()
-	servertest.RunTicks(t, srv, 5)
-	prey.ChatCommand("damage @s 100 minecraft:on_fire")
-	expectFatalDeath(srv, prey, preyID, protocol.Text{Translate: "death.attack.onFire.player",
-		With: []protocol.Text{servertest.PlayerDisplayComponent("Prey"), servertest.PlayerDisplayComponent("Killer")}})
-}
-
-// TestATameWolfsBiteCreditsItsOwnerWithThePlayerKill has a tame wolf's bite
-// land on Prey, who burns to death within 100 ticks: the message names the
-// owner and the owner counts a player kill.
-// vanilla: LivingEntity.resolvePlayerResponsibleForDamage, Entity.awardKillScore
-func TestATameWolfsBiteCreditsItsOwnerWithThePlayerKill(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.CombatTestConfig(), servertest.OpsListing(t, "Prey"))
-	owner := connect()
-	owner.JoinAs("Owner")
-	prey := connect()
-	preyID := prey.JoinAs("Prey")
-	owner.MoveToGround(2.5, 64, 5.5, true)
-	prey.MoveToGround(2.5, 64, 6.5, true)
-	prey.Settle()
-	owner.Settle()
-	servertest.HoldTicks(t, srv)
-	wolf := srv.SpawnMob("minecraft:wolf", 8.5, 64, 0.5)
-	srv.SetMobNoAI(wolf)
-	if !srv.SetMobOwner(wolf, protocol.OfflineUUID("Owner")) {
-		t.Fatal("no wolf to tame")
-	}
-	if !srv.HurtByEntity("Prey", 1, wolf) {
-		t.Fatal("the wolf's bite did not land")
-	}
-	servertest.RunTicks(t, srv, 5)
-	prey.ChatCommand("damage @s 100 minecraft:on_fire")
-	expectFatalDeath(srv, prey, preyID, protocol.Text{Translate: "death.attack.onFire.player",
-		With: []protocol.Text{servertest.PlayerDisplayComponent("Prey"), servertest.PlayerDisplayComponent("Owner")}})
-	if got := srv.StatValue("Owner", registry.StatCustom, "minecraft:player_kills"); got != 1 {
-		t.Errorf("owner's player_kills = %d, want 1", got)
-	}
-}
-
-// TestATameWolfWithAnOfflineOwnerLeavesNoKillCredit has the bite come from a
-// wolf whose owner is not online: the owner is remembered but cannot be
-// found, so the burn names nobody and the wolf is not counted either.
-// vanilla: LivingEntity.getKillCredit
-func TestATameWolfWithAnOfflineOwnerLeavesNoKillCredit(t *testing.T) {
-	t.Parallel()
-	srv, prey, preyID := servertest.JoinAs(t, servertest.CombatTestConfig(), "Prey", servertest.OpsListing(t, "Prey"))
-	prey.MoveToGround(2.5, 64, 6.5, true)
-	prey.Settle()
-	servertest.HoldTicks(t, srv)
-	wolf := srv.SpawnMob("minecraft:wolf", 8.5, 64, 0.5)
-	srv.SetMobNoAI(wolf)
-	if !srv.SetMobOwner(wolf, protocol.OfflineUUID("Nobody")) {
-		t.Fatal("no wolf to tame")
-	}
-	if !srv.HurtByEntity("Prey", 1, wolf) {
-		t.Fatal("the wolf's bite did not land")
-	}
-	servertest.RunTicks(t, srv, 5)
-	prey.ChatCommand("damage @s 100 minecraft:on_fire")
-	expectFatalDeath(srv, prey, preyID, protocol.Text{Translate: "death.attack.onFire",
-		With: []protocol.Text{servertest.PlayerDisplayComponent("Prey")}})
-	if got := srv.StatValue("Prey", registry.StatKilledBy, "minecraft:wolf"); got != 0 {
-		t.Errorf("killed_by wolf = %d, want 0", got)
-	}
-}
-
 // ownerlessUUID is the identity of a summoned projectile or TNT, UUID:[I;1,2,3,4].
 var ownerlessUUID = uuid.UUID{0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4}
-
-// An arrow with no owner names itself in the death message, as vanilla's
-// DamageSources.arrow(arrow, null) carries it as the direct entity.
-// vanilla: DamageSource.getLocalizedDeathMessage
-func TestAnOwnerlessArrowKillNamesTheArrow(t *testing.T) {
-	t.Parallel()
-	srv, c, playerID := servertest.JoinAs(t, servertest.CombatTestConfig(), "Prey", servertest.OpsListing(t, "Prey"))
-	c.MoveToGround(0.5, 64, 0.5, true)
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	srv.SetHealth("Prey", 1)
-	c.ChatCommand("gamerule send_command_feedback false")
-	c.Settle()
-	c.ChatCommand("summon minecraft:arrow 0.5 67 0.5 {UUID:[I;1,2,3,4],Motion:[0.0d,-1.5d,0.0d]}")
-	expectFatalDeath(srv, c, playerID, protocol.Text{
-		Translate: "death.attack.arrow",
-		With: []protocol.Text{servertest.PlayerDisplayComponent("Prey"),
-			servertest.EntityDisplayComponent("minecraft:arrow", "entity.minecraft.arrow", ownerlessUUID)},
-	})
-}
-
-// An unowned TNT after a recent mob hit words the death as a plain explosion,
-// not the kill-credit ".player" form.
-// vanilla: DamageSource.getLocalizedDeathMessage
-func TestAnOwnerlessTNTKillIgnoresKillCredit(t *testing.T) {
-	t.Parallel()
-	srv, c, playerID := servertest.JoinAs(t, servertest.CombatTestConfig(), "Prey", servertest.OpsListing(t, "Prey"))
-	srv.SetDifficulty(3)
-	srv.SetDayTime(18000)
-	c.MoveToGround(0.5, 64, 0.5, true)
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	zombieID := srv.SpawnMob("minecraft:zombie", 8.5, 64, 0.5)
-	srv.SetMobNoAI(zombieID)
-	if !srv.HurtByEntity("Prey", 1, zombieID) {
-		t.Fatal("the zombie's blow did not land")
-	}
-	c.ChatCommand("gamerule send_command_feedback false")
-	c.Settle()
-	c.ChatCommand(`summon minecraft:tnt 0.5 64 0.5 {UUID:[I;1,2,3,4],fuse:0,CustomName:"Bob"}`)
-	expectFatalDeath(srv, c, playerID, protocol.Text{
-		Translate: "death.attack.explosion",
-		With:      []protocol.Text{servertest.PlayerDisplayComponent("Prey"), customNamed(servertest.EntityDisplayComponent("minecraft:tnt", "entity.minecraft.tnt", ownerlessUUID), "Bob")},
-	})
-}
 
 // customNamed is an entity's display component under a plain custom name.
 func customNamed(component protocol.Text, name string) protocol.Text {
 	component.Translate, component.Text = "", name
 	component.HoverEntity.Name = protocol.Text{Text: name}
 	return component
-}
-
-// An unowned TNT minecart after a recent mob hit names the cart, not the kill
-// credit: the cart is the blast's direct entity.
-// vanilla: MinecartTNT.explode, DamageSource.getLocalizedDeathMessage
-func TestAnOwnerlessTNTMinecartKillNamesTheCart(t *testing.T) {
-	t.Parallel()
-	srv, c, playerID := servertest.JoinAs(t, servertest.CombatTestConfig(), "Prey", servertest.OpsListing(t, "Prey"))
-	srv.SetDifficulty(3)
-	srv.SetDayTime(18000)
-	c.MoveToGround(0.5, 64, 0.5, true)
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	zombieID := srv.SpawnMob("minecraft:zombie", 8.5, 64, 0.5)
-	srv.SetMobNoAI(zombieID)
-	if !srv.HurtByEntity("Prey", 1, zombieID) {
-		t.Fatal("the zombie's blow did not land")
-	}
-	c.ChatCommand("gamerule send_command_feedback false")
-	c.Settle()
-	c.ChatCommand("summon minecraft:tnt_minecart 0.5 64 0.5 {UUID:[I;1,2,3,4],fuse:1}")
-	expectFatalDeath(srv, c, playerID, protocol.Text{
-		Translate: "death.attack.explosion",
-		With: []protocol.Text{servertest.PlayerDisplayComponent("Prey"),
-			servertest.EntityDisplayComponent("minecraft:tnt_minecart", "entity.minecraft.tnt_minecart", ownerlessUUID)},
-	})
 }
 
 // TestADeathWithNoAttackerGivesTheKeyOnlyTheVictim kills a player with

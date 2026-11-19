@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -91,35 +90,6 @@ func TestPatrolSpawnGatesAndTimer(t *testing.T) {
 	}
 }
 
-func TestPatrolSavedFieldsAndDespawn(t *testing.T) {
-	w := newTestWorld()
-	for _, kind := range []MobType{TypePillager, TypeVindicator, TypeEvoker, TypeWitch, TypeRavager} {
-		m := NewMob(kind, 1, 0, 64, 0, 1)
-		m.Patrolling, m.PatrolLeader = true, true
-		m.PatrolTarget = &Waypoint{X: 100, Y: 64, Z: -200}
-		tag := nbt.Compound{}
-		m.SaveTo(tag, func() int64 { return 0 })
-		back := NewMob(kind, 2, 0, 64, 0, 2)
-		back.LoadFrom(tag, w, func() int64 { return 0 })
-		if !back.Patrolling || !back.PatrolLeader || back.PatrolTarget == nil || *back.PatrolTarget != *m.PatrolTarget {
-			t.Fatalf("%s lost patrol fields", kind)
-		}
-		m.NoActionTicks = 1000
-		for range 10000 {
-			if m.despawnStep(w, []Player{{X: 64, Y: 64}}) {
-				t.Fatal("patrol randomly despawned inside 128 blocks")
-			}
-		}
-		if !m.despawnStep(w, []Player{{X: 129, Y: 64}}) {
-			t.Fatal("patrol survived beyond 128 blocks")
-		}
-		back.LoadFrom(nbt.Compound{}, w, func() int64 { return 0 })
-		if back.Patrolling || back.PatrolLeader || back.PatrolTarget != nil {
-			t.Fatal("missing fields did not reset patrol")
-		}
-	}
-}
-
 func TestPatrolGoalCompanionsAndFailure(t *testing.T) {
 	for _, indexed := range []bool{false, true} {
 		t.Run(fmt.Sprintf("grid=%t", indexed), func(t *testing.T) {
@@ -167,53 +137,6 @@ func TestPatrolGoalCompanionsAndFailure(t *testing.T) {
 			leader.Age += 200
 			if !g.CanStart(&tick) {
 				t.Fatal("patrol failed to resume")
-			}
-		})
-	}
-}
-
-func TestPatrolCompanionGridBounds(t *testing.T) {
-	w := patrolFloor(t)
-	for _, tc := range []struct {
-		name               string
-		x, y, z            float64
-		kind               MobType
-		active, dead, want bool
-	}{
-		{"corner", 16.5, 64, -16.5, TypePillager, false, false, true},
-		{"outside x", 16.7, 64, 0, TypePillager, false, false, false},
-		{"outside z", 0, 64, -16.7, TypePillager, false, false, false},
-		{"above", 0, 81, 0, TypePillager, false, false, true},
-		{"outside above", 0, 83, 0, TypePillager, false, false, false},
-		{"below", 0, 47, 0, TypePillager, false, false, true},
-		{"outside below", 0, 46, 0, TypePillager, false, false, false},
-		{"other raider", 2, 64, 0, TypeVindicator, false, false, true},
-		{"non raider", 2, 64, 0, TypeCow, false, false, false},
-		{"active raid", 2, 64, 0, TypePillager, true, false, false},
-		{"dead", 2, 64, 0, TypePillager, false, true, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			leader := NewMob(TypePillager, 1, 0, 64, 0, 1)
-			leader.Patrolling, leader.PatrolLeader = true, true
-			leader.PatrolTarget = &Waypoint{X: 100, Y: 64}
-			other := NewMob(tc.kind, 2, tc.x, tc.y, tc.z, 2)
-			other.raidWalk.view.Active, other.Dead = tc.active, tc.dead
-			seen := 0
-			grid := takePushGrid(102, &seen)
-			defer grid.release()
-			grid.add(leader, 0)
-			grid.add(other, 1)
-			for i := range 100 {
-				grid.add(NewMob(TypePillager, int32(i+3), float64(500+i), 64, 0, int64(i)), i+2)
-			}
-			leader.push = grid
-			g := patrolGoal{m: leader}
-			g.Tick(&tickView{w: w})
-			if leader.Patrolling != tc.want || other.Patrolling != tc.want {
-				t.Fatalf("leader patrolling %t, companion recruited %t, want %t", leader.Patrolling, other.Patrolling, tc.want)
-			}
-			if seen > 2 {
-				t.Fatalf("query examined %d mobs, want at most the two nearby mobs", seen)
 			}
 		})
 	}

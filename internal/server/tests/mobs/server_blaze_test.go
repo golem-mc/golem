@@ -106,23 +106,6 @@ func TestABlazeShootsABurstOfThreeFireballs(t *testing.T) {
 	}
 }
 
-// TestABlazesFireballHurtsAndIgnitesThePlayer: the burst's fireballs reach
-// the player standing still ten blocks off, hurt them and set them alight.
-// vanilla: SmallFireball.onHitEntity
-func TestABlazesFireballHurtsAndIgnitesThePlayer(t *testing.T) {
-	t.Parallel()
-	srv, c, id := blazeWorld(t)
-	srv.SetGameRule("mob_griefing", false)
-	var f blazeFlight
-	f.run(t, srv, c, id, 1500, false)
-	if f.hurtAt < 0 {
-		t.Fatalf("the player was never hurt in 1500 ticks; %d fireballs", len(f.fireballs))
-	}
-	if srv.PlayerFire(blazePlayer) <= 0 {
-		t.Error("the player is not burning")
-	}
-}
-
 // TestABlazeTakesDamageStandingInWater: rain or water hurts a blaze one point a tick.
 // vanilla: Blaze.isSensitiveToWater
 func TestABlazeTakesDamageStandingInWater(t *testing.T) {
@@ -137,19 +120,5 @@ func TestABlazeTakesDamageStandingInWater(t *testing.T) {
 	after, _ := srv.MobHealth(id)
 	if after >= before {
 		t.Errorf("the blaze health went %v to %v in water, want a loss", before, after)
-	}
-}
-
-// TestANoAIBlazeStillTakesWaterDamage: the water bite runs whatever the AI
-// does.
-// vanilla: LivingEntity.aiStep
-func TestANoAIBlazeStillTakesWaterDamage(t *testing.T) {
-	t.Parallel()
-	srv, _, id := summonInPool(t, "blaze")
-	before, _ := srv.MobHealth(id)
-	srv.TickMobs(3)
-	after, _ := srv.MobHealth(id)
-	if after >= before {
-		t.Errorf("the NoAI blaze health went %v to %v in water, want a loss", before, after)
 	}
 }

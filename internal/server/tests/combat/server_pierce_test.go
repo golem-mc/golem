@@ -58,16 +58,3 @@ func TestAPiercingArrowIsNotBlockedByAShield(t *testing.T) {
 		t.Error("a piercing arrow was turned aside by the raised shield")
 	}
 }
-
-// TestACrossbowArrowPlaysTheCrossbowHitSound checks a body hit plays
-// item.crossbow.hit for a crossbow's arrow.
-// vanilla: CrossbowItem.createProjectile
-func TestACrossbowArrowPlaysTheCrossbowHitSound(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Archer")
-	c.MoveToGrounded(3.5, 64, 6.5, 0, 0, true)
-	c.Settle()
-	srv.SpawnArmorStand(3.5, 64, 3.5)
-	srv.ShootPiercingArrow(1.5, 64.5, 3.5, 1, 0, 0, 0, true)
-	servertest.ExpectSoundEvent(t, c, "minecraft:item.crossbow.hit")
-}

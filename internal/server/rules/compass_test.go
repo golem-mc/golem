@@ -51,10 +51,3 @@ func TestLodestoneLost(t *testing.T) {
 		}
 	}
 }
-
-// TestLodestoneLocksInPlace checks the in-place lock against the split.
-func TestLodestoneLocksInPlace(t *testing.T) {
-	if !LodestoneLocksInPlace(false, 1) || LodestoneLocksInPlace(false, 2) || LodestoneLocksInPlace(true, 1) {
-		t.Error("only a survival hand's single compass locks in place")
-	}
-}

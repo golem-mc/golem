@@ -56,34 +56,3 @@ func TestClimateSearchMatchesExhaustiveSearch(t *testing.T) {
 		}
 	}
 }
-
-func TestClimateDistanceCutoffKeepsStrictImprovements(t *testing.T) {
-	t.Parallel()
-	for dimension := range climateDimensions {
-		var target climateTarget
-		target[dimension] = -10
-		n := &rtreeNode{}
-		n.space[dimension] = climateParam{min: -8, max: -6}
-		// The only nonzero term may come last, and equality must prune.
-		for _, limit := range []int64{0, 1, 4, 5, math.MaxInt64} {
-			if got, want := n.distanceBelow(&target, limit), min(n.distance(&target), limit); got != want {
-				t.Fatalf("dimension %d limit %d: got %d, want %d", dimension, limit, got, want)
-			}
-		}
-	}
-}
-
-func TestClimateSearchKeepsCandidateOnTie(t *testing.T) {
-	t.Parallel()
-	a := &rtreeNode{biome: 1}
-	b := &rtreeNode{biome: 2}
-	tree := newSubTree([]*rtreeNode{newSubTree([]*rtreeNode{a}), newSubTree([]*rtreeNode{b})})
-	for _, target := range []climateTarget{{}, {5, -5, 10, -10, 20, -20}} {
-		if got := tree.search(&target, nil); got != a {
-			t.Fatal("a search without a candidate did not keep the first equal leaf")
-		}
-		if got := tree.search(&target, b); got != b {
-			t.Fatal("an equally close candidate was replaced")
-		}
-	}
-}

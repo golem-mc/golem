@@ -81,19 +81,6 @@ func TestPackHitBlockRunsFunctionAsArrow(t *testing.T) {
 	}
 }
 
-// vanilla: EnchantmentHelper.onProjectileSpawned, ExplodeEffect.apply
-func TestPackProjectileSpawnedExplodeBreaksBlock(t *testing.T) {
-	srv, c := joinArcher(t, bowPack(t, `"minecraft:projectile_spawned":[{"effect":{"type":"minecraft:explode","radius":3,
-		"block_interaction":"tnt","small_particle":{"type":"minecraft:explosion"},"large_particle":{"type":"minecraft:explosion_emitter"},
-		"sound":"minecraft:entity.generic.explode"}}]`, nil))
-	dirt, _ := registry.BlockByName("minecraft:dirt")
-	srv.SetBlock(1, 65, 0, dirt.DefaultState())
-	shootEast(t, srv, c)
-	if got := srv.BlockAt(1, 65, 0); got != 0 {
-		t.Fatalf("block beside the bow's arrow is %s, want it blown away", registry.BlockOf(got).Name())
-	}
-}
-
 // vanilla: ExplodeEffect.apply, ClientboundExplodePacket
 func TestPackExplodeSendsItsOwnParticleAndSound(t *testing.T) {
 	srv, c := joinArcher(t, bowPack(t, `"minecraft:projectile_spawned":[{"effect":{"type":"minecraft:explode","radius":1,

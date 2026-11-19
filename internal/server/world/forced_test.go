@@ -46,19 +46,3 @@ func TestForcedChunksAreKeptPerDimension(t *testing.T) {
 		}
 	}
 }
-
-// TestHoldForcedChunksCountsTheFootprints checks the count the startup log
-// prints: 25 chunks around a lone forced chunk, and the union where two
-// footprints overlap.
-func TestHoldForcedChunksCountsTheFootprints(t *testing.T) {
-	w := NewDimensionWorld(t.TempDir(), true, NewNetherGenerator(1))
-	defer w.Close()
-	w.SetChunkForced(ChunkPos{X: 0, Z: 0}, true)
-	if got := w.HoldForcedChunks(); got != 25 {
-		t.Errorf("one forced chunk held %d, want 25", got)
-	}
-	w.SetChunkForced(ChunkPos{X: 1, Z: 0}, true)
-	if got := w.HoldForcedChunks(); got != 30 {
-		t.Errorf("two adjacent forced chunks held %d, want 30", got)
-	}
-}

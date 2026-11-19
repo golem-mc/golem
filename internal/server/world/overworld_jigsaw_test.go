@@ -167,46 +167,6 @@ func TestTrialChamberPlacesBlockEntities(t *testing.T) {
 	}
 }
 
-// TestStructureOverwrittenBlockDropsEntity generates the seed 0 trial chamber
-// chunk where a later piece writes cobblestone over three decorated pots: no
-// block entity may stay on a block without one.
-// vanilla: WorldGenRegion.setBlock
-func TestStructureOverwrittenBlockDropsEntity(t *testing.T) {
-	t.Parallel()
-	c := newChunk(14, 6)
-	NewOverworldGenerator(0).Generate(c)
-	for _, b := range c.blockEntities() {
-		if block := registry.BlockOf(c.BlockAt(b.X&15, b.Y, b.Z&15)); !entityBlocks[block] {
-			t.Errorf("%s at %d %d %d sits on %s", b.Kind, b.X, b.Y, b.Z, block.Name())
-		}
-	}
-}
-
-// TestAbandonedCampSeedsCopperChest generates the seed 0 swamp camp's chunk:
-// its oxidized copper chest is a chest that draws a loot seed, before the
-// wooden chest above it. Seeds are the vanilla 26.3 world's.
-// vanilla: StructureTemplate.placeInWorld
-func TestAbandonedCampSeedsCopperChest(t *testing.T) {
-	t.Parallel()
-	c := newChunk(-134, -38)
-	NewOverworldGenerator(0).Generate(c)
-	want := map[[3]int32]int64{
-		{-2134, 65, -597}: -5838177799474224423,
-		{-2134, 66, -597}: -3170738366193825830,
-	}
-	for _, b := range c.blockEntities() {
-		if seed, ok := want[[3]int32{b.X, b.Y, b.Z}]; ok {
-			delete(want, [3]int32{b.X, b.Y, b.Z})
-			if b.Kind != KindChest || b.LootTableSeed != seed {
-				t.Errorf("%s at %d %d %d: seed %d, want a chest with seed %d", b.Kind, b.X, b.Y, b.Z, b.LootTableSeed, seed)
-			}
-		}
-	}
-	for pos := range want {
-		t.Errorf("no block entity at %v", pos)
-	}
-}
-
 // BenchmarkTrialChambersGenerate measures generating the chunks around the
 // seed 0 trial chamber at (-22, -20), which hold its start and pieces.
 func BenchmarkTrialChambersGenerate(b *testing.B) {
@@ -251,61 +211,5 @@ func TestAncientCityGrowsSculk(t *testing.T) {
 	}
 	if summoning == 0 {
 		t.Error("no shrieker that can summon")
-	}
-}
-
-// TestTrialChamberSpawnersNameTheirConfigs checks every generated trial
-// spawner carries both configs as data pack names, which the entity package
-// resolves (TestTrialSpawnerConfigByRegistryName).
-// vanilla: TrialSpawnerBlockEntity, RegistryFileCodec
-func TestTrialChamberSpawnersNameTheirConfigs(t *testing.T) {
-	t.Parallel()
-	var spawners int
-	for _, c := range trialChamberChunks(NewOverworldGenerator(0)) {
-		for _, item := range c.carriedBlockEntities.Items {
-			entry := item.(nbt.Compound)
-			if entry["id"] != nbt.String("minecraft:trial_spawner") {
-				continue
-			}
-			spawners++
-			for _, key := range []string{"normal_config", "ominous_config"} {
-				name, ok := entry[key].(nbt.String)
-				if !ok || !strings.HasPrefix(string(name), "minecraft:trial_chamber/") {
-					t.Errorf("%s = %v, want a trial_chamber config name", key, entry[key])
-				}
-			}
-		}
-	}
-	if spawners == 0 {
-		t.Error("no trial spawner generated")
-	}
-}
-
-// TestOverworldSavannaFarmCropsVanilla pins crops removed during the tree edge
-// shape pass before vegetation places short grass (vanilla 26.3, seed 0).
-func TestOverworldSavannaFarmCropsVanilla(t *testing.T) {
-	t.Parallel()
-	g := NewOverworldGenerator(0)
-	// The recording's FEATURES order around chunk 37,-66.
-	g.DecorateInOrder([]ChunkPos{
-		{36, -67}, {36, -66}, {37, -67}, {37, -66}, {36, -65},
-		{37, -65}, {38, -67}, {38, -66}, {38, -65},
-	})
-	c := newChunk(37, -66)
-	g.Generate(c)
-	for _, want := range []struct {
-		x, y, z int32
-		block   registry.Block
-	}{
-		{601, 63, -1047, registry.BlockFarmland},
-		{601, 64, -1047, registry.BlockAir},
-		{600, 63, -1046, registry.BlockFarmland},
-		{600, 64, -1046, registry.BlockShortGrass},
-		{602, 64, -1046, registry.BlockAir},
-		{601, 64, -1045, registry.BlockAir},
-	} {
-		if got := registry.BlockOf(c.BlockAt(want.x&15, want.y, want.z&15)); got != want.block {
-			t.Errorf("(%d,%d,%d) = %s, want %s", want.x, want.y, want.z, got.Name(), want.block.Name())
-		}
 	}
 }

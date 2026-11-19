@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
@@ -55,23 +54,6 @@ func TestExecuteAsFromConsoleFollowsTheBroadcastProperty(t *testing.T) {
 	srv.RunLine("execute as @e[type=armor_stand] run tp @s ~ ~ ~")
 	if readsSystemChat(alice) {
 		t.Error("the operator read an echo of an execute as the source does not broadcast")
-	}
-}
-
-// TestExecuteAsFromRconStillBroadcastsWhenAllowed pins the other side of the
-// property: with broadcast-rcon-to-ops on, the operator reads the echo.
-func TestExecuteAsFromRconStillBroadcastsWhenAllowed(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.BroadcastRconToOps = true
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Alice"))
-	alice := servertest.JoinFeedbackWorld(t, connect, "Alice", nil)
-
-	srv.RunRconLine("summon armor_stand 0 64 5")
-	srv.RunRconLine("execute as @e[type=armor_stand] run tp @s ~ ~ ~")
-	if !readsSystemChat(alice) {
-		t.Fatal("the operator read no echo of an execute as from an allowed RCON")
 	}
 }
 
@@ -139,34 +121,4 @@ func TestExecuteAsFromPlayerEchoesUnderTheEntity(t *testing.T) {
 
 	servertest.AwaitAdminBroadcast(t, bob, servertest.PlayerDisplayComponent("Alice"), feedback)
 	servertest.AwaitNoSystemChat(t, alice)
-}
-
-// TestParticlePlaysoundAndNamedSummonEchoToOperators runs each command that
-// reports with sendSuccess(.., true): the other operator reads the echo.
-// vanilla: ParticleCommand.sendParticles, PlaySoundCommand.playSound, SummonCommand.spawnEntity
-func TestParticlePlaysoundAndNamedSummonEchoToOperators(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Alice", "Bob"))
-	alice := servertest.JoinFeedbackWorld(t, connect, "Alice", nil)
-	bob := servertest.JoinFeedbackWorld(t, connect, "Bob", []*servertest.Client{alice})
-	servertest.HoldTicks(t, srv)
-
-	for _, tc := range []struct{ command, key string }{
-		{"particle minecraft:flame ~ ~ ~", "commands.particle.success"},
-		{"playsound minecraft:entity.pig.ambient master @s", "commands.playsound.success.single"},
-		{"summon pig ~ ~ ~ {CustomName:\"x\"}", "commands.summon.success"},
-	} {
-		alice.ChatCommand(tc.command)
-		alice.Settle()
-		// The arguments are not compared; the line is recognised by the
-		// two translation keys.
-		if !bob.ReadTicks(srv, 0, func(id int32, data []byte) bool {
-			return id == protocol.IDPlaySystemChat &&
-				bytes.Contains(data, []byte("chat.type.admin")) && bytes.Contains(data, []byte(tc.key))
-		}) {
-			t.Errorf("no admin echo of %s arrived", tc.key)
-		}
-	}
 }

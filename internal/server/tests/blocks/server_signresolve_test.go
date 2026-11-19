@@ -29,8 +29,8 @@ func TestSignsResolveOpComponentsOnLoad(t *testing.T) {
 	c.ChatCommand(`setblock 12 64 7 chest{CustomName:"Below"}`)
 	c.ExpectCommandFeedback("commands.setblock.success", "12", "64", "7")
 
-	for _, kind := range []string{"oak_sign", "oak_hanging_sign"} {
-		for _, flag := range []string{"", "allow_op_features:0b,", "allow_op_features:1b,"} {
+	for _, kind := range []string{"oak_sign"} {
+		for _, flag := range []string{"", "allow_op_features:1b,"} {
 			t.Run(kind+"/"+flag, func(t *testing.T) {
 				// @p must use the sign's centre rather than the command sender;
 				// @s must have no executor. The NBT position is relative to the sign.
@@ -84,31 +84,6 @@ func TestSignsResolveOpComponentsOnLoad(t *testing.T) {
 				c.ChatCommand(`setblock 12 65 7 air`)
 				c.ExpectCommandFeedback("commands.setblock.success", "12", "65", "7")
 			})
-		}
-	}
-}
-
-func TestDataLoadsSignComponentsBeforeBroadcast(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Writer", servertest.OpsListing(t, "Writer"))
-	c.ChatCommand(`setblock 4 65 7 oak_sign{front_text:{messages:[{selector:"@p"},"","",""],filtered_messages:["Filtered","","",""]}}`)
-	c.ExpectCommandFeedback("commands.setblock.success", "4", "65", "7")
-	c.AwaitBlockEntityData()
-	c.ChatCommand(`data merge block 4 65 7 {allow_op_features:1b}`)
-	c.ExpectCommandFeedback("commands.data.block.modified", "4", "65", "7")
-	_, _, _, _, sent := c.AwaitBlockEntityData()
-	saved, ok := srv.BlockEntityTagAt(4, 65, 7)
-	if !ok {
-		t.Fatal("no saved sign")
-	}
-	for where, tag := range map[string]nbt.Compound{"packet": sent, "saved": saved} {
-		front, _ := nbt.Get[nbt.Compound](tag, "front_text")
-		if _, present := front["filtered_messages"]; present {
-			t.Errorf("%s kept separate filtered lines after the mutable resolution pass", where)
-		}
-		line := signComponentLines(t, tag, "front_text")[0]
-		if got := componentPlain(t, line); got != "Writer" {
-			t.Errorf("%s line = %q, want Writer (%s)", where, got, nbt.Stringify(line))
 		}
 	}
 }

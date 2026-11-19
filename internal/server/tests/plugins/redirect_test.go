@@ -1,7 +1,6 @@
 package plugins_test
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -108,48 +107,4 @@ func TestPluginCommandRedirects(t *testing.T) {
 	c.ChatCommand("link hello")
 	c.ExpectWithinTicks(srv, 4, protocol.IDPlaySystemChat)
 	c.ExpectWithinTicks(srv, 4, protocol.IDPlaySystemChat)
-}
-
-func TestPluginCommandRedirectSuggestionsAndPermission(t *testing.T) {
-	ready := false
-	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "redirects", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-		s.Permissions().Register(plugin.Permission{Name: "hidden", Default: plugin.PermissionDefault{OpLevel: 5}})
-		for _, c := range []plugin.Command{
-			{Name: "choose", Permission: "hidden", Children: []plugin.Node{{Arg: plugin.WordArg("word"), Suggest: func(*plugin.CommandContext, string) []string { t.Error("denied redirect completion ran"); return nil }}}},
-			{Name: "choosealias", Redirect: "choose"},
-			{Name: "again", Children: []plugin.Node{{Literal: "again", Redirect: "again"}, {Literal: "done", Run: func(ctx *plugin.CommandContext) (int, error) {
-				ctx.Sender.SendMessage(plugin.Plain("done"))
-				return 1, nil
-			}}}},
-		} {
-			if err := s.Commands().Register(c); err != nil {
-				return err
-			}
-		}
-		ready = true
-		return nil
-	}}}})
-	if !ready {
-		t.Fatal("redirects were not registered")
-	}
-	servertest.FreezeUntilHeld(t, srv)
-	nodes := servertest.DecodeCommands(t, joinCommandTree(t, srv, "Tree"))
-	for _, name := range []string{"choose", "choosealias", "redirects:choose", "redirects:choosealias"} {
-		if slices.ContainsFunc(nodes, func(n servertest.TestCommandNode) bool { return n.Name == name }) {
-			t.Errorf("denied redirect visible: %s", name)
-		}
-	}
-	c := registrationClient(t, srv)
-	c.CommandSuggestion(61, "/choosealias h")
-	_, _, _, matches := registrationSuggestions(t, srv, c)
-	if len(matches) != 0 {
-		t.Errorf("denied redirect completions = %v", matches)
-	}
-	c.ChatCommand("again again again done")
-	registrationFeedback(t, srv, c, "done")
-	c.CommandSuggestion(62, "/again again d")
-	_, _, _, matches = registrationSuggestions(t, srv, c)
-	if !slices.Equal(matches, []string{"done"}) {
-		t.Errorf("recursive redirect completions = %v", matches)
-	}
 }

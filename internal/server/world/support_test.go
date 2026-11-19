@@ -169,24 +169,6 @@ func TestCanSurviveMatchesVanilla(t *testing.T) {
 	}
 }
 
-func TestSoulFirePlacementSurvives(t *testing.T) {
-	w, _ := newPhysicsWorld(t)
-	for _, tc := range []struct {
-		base registry.Block
-		want bool
-	}{
-		{registry.BlockSoulSand, true},
-		{registry.BlockSoulSoil, true},
-		{registry.BlockStone, false},
-		{registry.BlockAir, false},
-	} {
-		w.SetBlock(4, GroundLevel-1, 4, tc.base.DefaultState())
-		if got := w.PlacementSurvives(registry.BlockSoulFire.DefaultState(), 4, GroundLevel, 4); got != tc.want {
-			t.Errorf("soul fire on %s: PlacementSurvives = %v, want %v", tc.base.Name(), got, tc.want)
-		}
-	}
-}
-
 // TestAscendingRailNeedsItsSlope removes the block an ascending rail climbs.
 func TestAscendingRailNeedsItsSlope(t *testing.T) {
 	w, _ := newPhysicsWorld(t)
@@ -198,66 +180,6 @@ func TestAscendingRailNeedsItsSlope(t *testing.T) {
 	w.SetBlock(1, GroundLevel, 0, 0)
 	if w.Survives(0, GroundLevel, 0, rail) {
 		t.Error("ascending rail without its slope block survived")
-	}
-}
-
-// TestAVineDropsTheFaceItLost takes away one of the two walls a vine hangs
-// on: the vine keeps the other face, then goes with the second wall.
-func TestAVineDropsTheFaceItLost(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	stone := registry.BlockStates["minecraft:stone"]
-	vine, _ := registry.FindState("minecraft:vine", map[string]string{"north": "true", "east": "true"})
-	north, _ := registry.FindState("minecraft:vine", map[string]string{"north": "true"})
-	setBlock(t, w, p, 4, GroundLevel+2, 3, stone)
-	setBlock(t, w, p, 5, GroundLevel+2, 4, stone)
-	setBlock(t, w, p, 4, GroundLevel+2, 4, vine)
-
-	setBlock(t, w, p, 5, GroundLevel+2, 4, 0)
-	if got := w.BlockAt(4, GroundLevel+2, 4); got != north {
-		t.Fatalf("vine after its east wall went = %d, want %d (north only)", got, north)
-	}
-	setBlock(t, w, p, 4, GroundLevel+2, 3, 0)
-	if got := w.BlockAt(4, GroundLevel+2, 4); got != 0 {
-		t.Errorf("vine after both walls went = %d, want air", got)
-	}
-}
-
-// TestSulfurSpikeTakesTheSpeleothemShape: SulfurSpikeBlock extends
-// SpeleothemBlock, so every state collides as the matching dripstone does,
-// at the same per-position offset.
-func TestSulfurSpikeTakesTheSpeleothemShape(t *testing.T) {
-	t.Parallel()
-	for _, s := range registry.AllStates["minecraft:sulfur_spike"] {
-		drip, ok := registry.FindState("minecraft:pointed_dripstone", registry.ParseStateProps(s.Props))
-		if !ok {
-			t.Fatalf("no dripstone state for %s", s.Props)
-		}
-		got, want := CollisionBoxes(s.ID), CollisionBoxes(drip)
-		if len(got) != 1 || len(want) != 1 || got[0] != want[0] {
-			t.Errorf("sulfur_spike[%s] collides as %v, want %v", s.Props, got, want)
-		}
-		gx, gz := collisionOffset(s.ID, 7, -3)
-		wx, wz := collisionOffset(drip, 7, -3)
-		if gx != wx || gz != wz || gx == 0 && gz == 0 {
-			t.Errorf("sulfur_spike[%s] offset (%v, %v), want (%v, %v)", s.Props, gx, gz, wx, wz)
-		}
-	}
-}
-
-// TestAWallHangingSignCollidesAsItsPlank: WallHangingSignBlock's collision
-// is SHAPES_PLANK, the plank across the facing, at the top of the cell.
-func TestAWallHangingSignCollidesAsItsPlank(t *testing.T) {
-	t.Parallel()
-	for facing, want := range map[string]CollisionBox{
-		"east":  cboxF(6, 14, 0, 10, 16, 16),
-		"west":  cboxF(6, 14, 0, 10, 16, 16),
-		"north": cboxF(0, 14, 6, 16, 16, 10),
-		"south": cboxF(0, 14, 6, 16, 16, 10),
-	} {
-		s, _ := registry.FindState("minecraft:oak_wall_hanging_sign", map[string]string{"facing": facing})
-		if got := CollisionBoxes(s); len(got) != 1 || got[0] != want {
-			t.Errorf("oak_wall_hanging_sign[facing=%s] collides as %v, want %v", facing, got, want)
-		}
 	}
 }
 

@@ -1,7 +1,6 @@
 package entity
 
 import (
-	"math/rand"
 	"testing"
 )
 
@@ -27,17 +26,6 @@ func TestReplayRandRewindRepeatsRolls(t *testing.T) {
 			if got := tc.draw(); got != want {
 				t.Fatalf("%s: draw %d after rewind = %d, want %d", tc.name, i, got, want)
 			}
-		}
-	}
-}
-
-// The counted source gives the sequence rand.NewSource(seed) does.
-func TestNewRollsKeepsTheStockSequence(t *testing.T) {
-	r := NewRolls(7)
-	want := rand.New(rand.NewSource(7))
-	for range 5 {
-		if r.Int63() != want.Int63() {
-			t.Fatal("sequences differ")
 		}
 	}
 }

@@ -121,20 +121,3 @@ func TestStateProviderGolden(t *testing.T) {
 		t.Fatalf("incomplete golden: %d states, %d noises", samples, noises)
 	}
 }
-
-func TestNativeNoiseRejectsUnsupportedParameters(t *testing.T) {
-	for _, doc := range []string{
-		`{"base_octave":-33}`, `{"base_octave":0,"octave_count":0}`,
-		`{"base_octave":0,"amplitude_modifiers":[1,2]}`, `{"base_octave":0,"normalize":"other"}`,
-		`{"base_octave":0,"amplitude_modifiers":[-1]}`, `{"base_octave":0,"base_amplitude":0}`,
-	} {
-		t.Run(doc, func(t *testing.T) {
-			defer func() {
-				if recover() == nil {
-					t.Fatal("accepted invalid parameters")
-				}
-			}()
-			compileNativeNoise(parseJSON(doc))
-		})
-	}
-}

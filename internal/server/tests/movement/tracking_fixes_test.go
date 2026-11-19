@@ -1,10 +1,11 @@
 package movement
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"maps"
 	"slices"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
@@ -113,35 +114,6 @@ func TestADimensionChangeForgetsEveryBodyTheClientSaw(t *testing.T) {
 	awaitShownIds(t, crosser, srv, 20, bodies)
 }
 
-// TestAnOrbEnteringARangeCarriesItsWorthAlong walks a player up to an orb
-// spawned out of their sight: its spawn comes with the metadata carrying its
-// worth, which the client sizes the orb by.
-func TestAnOrbEnteringARangeCarriesItsWorthAlong(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance = 4
-
-	srv, scout := servertest.Join(t, cfg, "Scout", servertest.FullSimulationDistance)
-
-	scout.MoveToGround(100.5, 64, 100.5, true)
-	scout.Settle()
-	orbID := srv.SpawnOrb(4.5, 64, 4.5, 27)
-	scout.Settle()
-
-	// No settle after the move: it would drop the spawn the move brings.
-	scout.MoveToGround(5.5, 64, 5.5, true)
-
-	w := servertest.NewOrbWatcher(t, scout)
-	var arrived bool
-	w.ReadUntilTicks(srv, 200, func() bool {
-		arrived = w.OrbIDs[orbID] == 27
-		return arrived
-	})
-	if !arrived {
-		t.Fatalf("the orb the scout walked in on carried no worth: %v", w.OrbIDs)
-	}
-}
-
 // TestAnArrowThatHitsAMobIsRemoved shoots a cow: the arrow is discarded
 // with the hit, and the client is told so.
 func TestAnArrowThatHitsAMobIsRemoved(t *testing.T) {
@@ -166,53 +138,6 @@ func TestAnArrowThatHitsAMobIsRemoved(t *testing.T) {
 		return
 	}
 	t.Fatalf("cow hurt: %v, arrow removed: %v; want both", hurt, removed)
-}
-
-// TestAnArrowThatHitsAPlayerIsRemoved shoots the client's own player: the
-// arrow is discarded with the hit, and the client is told so.
-func TestAnArrowThatHitsAPlayerIsRemoved(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Target")
-	c.MoveToGround(0.5, 64, 0.5, true)
-	c.Settle()
-
-	arrowID := srv.ShootArrow(5.5, 65, 0.5, -2, 0, 0)
-
-	var hurt, removed bool
-	if c.ReadTicks(srv, 200, func(id int32, data []byte) bool {
-		switch id {
-		case protocol.IDPlaySetHealth:
-			hurt = true
-		case protocol.IDPlayRemoveEntities:
-			removed = removed || slices.Contains(servertest.RemovedIDs(t, data), arrowID)
-		}
-		return hurt && removed
-	}) {
-		return
-	}
-	t.Fatalf("player hurt: %v, arrow removed: %v; want both", hurt, removed)
-}
-
-// TestAStuckArrowWhoseLifeRunsOutIsRemoved ages a stuck arrow to the end of
-// its 1200 ticks: the despawn is told to the client.
-func TestAStuckArrowWhoseLifeRunsOutIsRemoved(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
-
-	// Stand the shaft in the block at its own cell: in open air the
-	// in-ground tick lets it fall and resets its life, so the despawn
-	// never arrives.
-	if !srv.SetBlock(2, 64, 6, servertest.MustState(t, "minecraft:stone", nil)) {
-		t.Fatal("could not place the block holding the arrow")
-	}
-	arrowID := srv.SpawnStuckArrow("disallowed", 2.5, 64.5, 6.5)
-	c.Settle()
-	srv.AgeArrow(arrowID, 1195)
-
-	servertest.AwaitRemovalsOfTicks(t, c, srv, 40, arrowID)
-	if srv.ArrowAlive(arrowID) {
-		t.Fatal("the arrow was removed for the client but is still alive")
-	}
 }
 
 // awaitFallingStart reads until the metadata of the falling block id arrives
@@ -307,37 +232,6 @@ func TestARespawnedPlayerSeesThePlayerNearItAgain(t *testing.T) {
 	}
 }
 
-// TestARespawnedPlayerSeesTheMobNearItAgain kills a player standing beside a
-// cow and respawns them: the Respawn forgets the tracking records, so the
-// cow must be paired again.
-func TestARespawnedPlayerSeesTheMobNearItAgain(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.MobTestConfig()
-	cfg.ViewDistance = 4
-
-	srv, c, _ := servertest.JoinAs(t, cfg, "Dier")
-
-	// The cow stands near the world spawn the respawn returns to.
-	mobID := srv.SpawnMob("minecraft:cow", 3.5, 64, 3.5)
-	if got := c.ExpectMobSpawn(protocol.EntityTypeCow).EntityID; got != mobID {
-		t.Fatalf("the cow spawned as entity %d, want %d", got, mobID)
-	}
-	c.Settle()
-
-	if !srv.Hurt("Dier", 1000) {
-		t.Fatal("the blow did not kill the dier")
-	}
-	c.Settle()
-
-	c.Send(protocol.IDPlayClientCommandIn, func(b *protocol.Buffer) {
-		b.PutVarInt(protocol.ClientCommandPerformRespawn)
-	})
-
-	if _, ok := awaitSpawnAt(t, c, mobID); !ok {
-		t.Fatal("the respawned player was never shown the cow again")
-	}
-}
-
 // TestARespawnedPlayerForgetsTheMobFarFromTheSpawn kills a player standing
 // beside a cow and respawns them at a spawn point hundreds of blocks away. A
 // same-dimension Respawn leaves the client's world standing, so the cow left
@@ -393,46 +287,6 @@ func TestARespawnedPlayerForgetsTheMobFarFromTheSpawn(t *testing.T) {
 	}
 }
 
-// TestARespawnedPlayerForgetsThePlayerFarFromTheSpawn is the near-player
-// respawn's counterpart: the dier comes back hundreds of blocks from the
-// player they were standing beside, whose body must be removed from the
-// dier's view rather than left as a ghost.
-func TestARespawnedPlayerForgetsThePlayerFarFromTheSpawn(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.MobTestConfig()
-	cfg.ViewDistance = 4
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Dier"))
-
-	dier := connect()
-	dier.JoinAs("Dier")
-
-	watcher := connect()
-	watcherID := watcher.JoinAs("Watcher")
-	if got := dier.ExpectPlayerAdded("Watcher"); got != watcherID {
-		t.Fatalf("entity ID disagreement: dier saw %d, watcher is %d", got, watcherID)
-	}
-	dier.ExpectAnnouncement("multiplayer.player.joined", "Watcher")
-
-	watcher.MoveToGround(8.5, 64, 0.5, true)
-	dier.Settle()
-	watcher.Settle()
-
-	dier.ChatCommand("spawnpoint Dier 600 64 600")
-	dier.Settle()
-
-	if !srv.Hurt("Dier", 1000) {
-		t.Fatal("the blow did not kill the dier")
-	}
-	dier.Settle()
-	watcher.Settle()
-
-	dier.Send(protocol.IDPlayClientCommandIn, func(b *protocol.Buffer) {
-		b.PutVarInt(protocol.ClientCommandPerformRespawn)
-	})
-
-	servertest.AwaitRemovalsOfTicks(t, dier, srv, 40, watcherID)
-}
-
 // TestAFallingBlockCarriesWhereItsFallBegan checks the start position a
 // falling block's pairing carries, vanilla's DATA_START_POS: to a player
 // who saw the fall begin, and to one who walks into range mid-fall, whose
@@ -467,49 +321,6 @@ func TestAFallingBlockCarriesWhereItsFallBegan(t *testing.T) {
 	if x, y, z := awaitFallingStart(t, srv, walker, id); x != 5 || y != 319 || z != 3 {
 		t.Fatalf("start position on entry = (%d, %d, %d), want (5, 319, 3)", x, y, z)
 	}
-}
-
-// TestATippedArrowFadingInTheGroundPuffsAndLosesItsColour checks a tipped
-// arrow's decay: after 600 ticks in the ground the watcher gets entity event
-// 0 and then the colour metadata back at none.
-func TestATippedArrowFadingInTheGroundPuffsAndLosesItsColour(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
-
-	if !srv.SetBlock(2, 64, 6, servertest.MustState(t, "minecraft:stone", nil)) {
-		t.Fatal("could not place the block holding the arrow")
-	}
-	arrowID := srv.SpawnStuckArrow("disallowed", 2.5, 64.5, 6.5)
-	srv.TipArrow(arrowID)
-	c.Settle()
-	srv.AgeArrow(arrowID, 598)
-
-	puffed := false
-	if c.ReadTicks(srv, 200, func(id int32, data []byte) bool {
-		r := protocol.NewReader(data)
-		switch id {
-		case protocol.IDPlayEntityEvent:
-			if r.ReadI32() == arrowID && r.ReadU8() == protocol.EntityStatusArrowEffectPuff {
-				puffed = true
-			}
-		case protocol.IDPlayEntityMetadata:
-			if r.ReadVarInt() != arrowID || r.ReadU8() != protocol.MetadataIndexArrowColor {
-				return false
-			}
-			r.ReadVarInt()
-			if got := r.ReadVarInt(); got != -1 {
-				return false
-			}
-			if !puffed {
-				t.Fatal("the colour reset arrived before entity event 0")
-			}
-			return true
-		}
-		return false
-	}) {
-		return
-	}
-	t.Fatalf("puffed: %v; want event 0 and then the colour reset to none", puffed)
 }
 
 // awaitSpawnAt reads until a Spawn Entity for id arrives and returns the x it

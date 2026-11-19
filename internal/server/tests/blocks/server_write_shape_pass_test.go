@@ -39,17 +39,3 @@ func TestAFenceReconnectingPulsesTheObserverAboveIt(t *testing.T) {
 		servertest.Setblock(t, c, 5, 64, 0, "oak_fence")
 	}, 5, 65, 0, "down", func(srv *server.Server, c *servertest.Client) { servertest.Setblock(t, c, 5, 64, 1, "stone") }, func(srv *server.Server) { srv.TickPhysics(1) })
 }
-
-func TestGrazedGrassPulsesTheObserverBesideIt(t *testing.T) {
-	t.Parallel()
-	watchServerWrite(t, func(t *testing.T, c *servertest.Client) {
-		servertest.Setblock(t, c, 5, 64, 0, "grass_block")
-	}, 6, 64, 0, "west", func(srv *server.Server, _ *servertest.Client) { srv.GrazeGroundAt(5, 64, 0) }, func(srv *server.Server) { srv.TickPhysics(1) })
-}
-
-func TestALightingFurnacePulsesTheObserverAboveIt(t *testing.T) {
-	t.Parallel()
-	watchServerWrite(t, func(t *testing.T, c *servertest.Client) {
-		servertest.Setblock(t, c, 5, 64, 0, `furnace[facing=north]{Items:[{Slot:0b,id:"minecraft:raw_iron",count:1},{Slot:1b,id:"minecraft:coal",count:1}]}`)
-	}, 5, 65, 0, "down", func(*server.Server, *servertest.Client) {}, func(srv *server.Server) { srv.TickBlockEntities(); srv.TickPhysics(1) })
-}

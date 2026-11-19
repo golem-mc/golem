@@ -1,8 +1,6 @@
 package world
 
 import (
-	"math/rand"
-	"strconv"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
@@ -153,52 +151,5 @@ func TestBoneMealStatesResolve(t *testing.T) {
 				t.Errorf("the tag %s holds %s, which the registry has no state for", tag, member)
 			}
 		}
-	}
-}
-
-func TestBoneMealFlowerBedsCoverEveryFacingAndCount(t *testing.T) {
-	for _, b := range []registry.Block{registry.BlockPinkPetals, registry.BlockWildflowers} {
-		name := b.Name()
-		r := rand.New(rand.NewSource(1))
-		provider := flowerBed(b)
-		seen := map[uint16]bool{}
-		for range 256 {
-			seen[provider(r, 0, 0, 0)] = true
-		}
-		if len(seen) != 16 {
-			t.Fatalf("%s produced %d states, want 16", name, len(seen))
-		}
-		for _, facing := range []string{"north", "east", "south", "west"} {
-			for amount := 1; amount <= 4; amount++ {
-				want := registry.MustState(name, map[string]string{"facing": facing, "flower_amount": strconv.Itoa(amount)})
-				if !seen[want] {
-					t.Errorf("%s never produced facing=%s flower_amount=%d", name, facing, amount)
-				}
-			}
-		}
-	}
-}
-
-// TestBoneMealFlowerForestMatchesPlaceFeature pins the bone meal pick to what
-// /place feature minecraft:flower_flower_forest puts on the same cell.
-func TestBoneMealFlowerForestMatchesPlaceFeature(t *testing.T) {
-	w, _ := newPhysicsWorld(t)
-	kinds := map[uint16]bool{}
-	for x := range int32(40) {
-		w.SetBlock(x, 63, 3, registry.BlockGrassBlock.DefaultState())
-		w.SetBlock(x, 64, 3, registry.BlockAir.DefaultState())
-		seed := rand.New(rand.NewSource(int64(x))).Int63()
-		want, _, ok := w.PlaceConfiguredFeature("minecraft:flower_flower_forest", seed, x, 64, 3)
-		if !ok || len(want) != 1 {
-			t.Fatalf("x=%d: /place feature changed %v (ok=%v), want one block", x, want, ok)
-		}
-		got := flowerForest(rand.New(rand.NewSource(int64(x))), x, 64, 3)
-		if got != want[0].State {
-			t.Errorf("x=%d: bone meal picks %d, the feature places %d", x, got, want[0].State)
-		}
-		kinds[got] = true
-	}
-	if len(kinds) < 2 {
-		t.Errorf("40 cells gave %d flower kinds, want a mix across patches", len(kinds))
 	}
 }

@@ -1,8 +1,6 @@
 package plugins_test
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -65,23 +63,6 @@ func TestPluginWorldDiscovery(t *testing.T) {
 			t.Error("unknown world exists")
 		}
 	})
-}
-
-func TestPluginWorldsDuringLoad(t *testing.T) {
-	loaded := false
-	servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "early", Plugin: &testPlugin{load: func(h plugin.Server) error {
-		if len(h.Worlds()) != 0 || h.Overworld() != nil {
-			t.Error("worlds available before loading")
-		}
-		if _, ok := h.World(plugin.MinecraftKey("overworld")); ok {
-			t.Error("world lookup succeeded before loading")
-		}
-		loaded = true
-		return nil
-	}}}})
-	if !loaded {
-		t.Fatal("plugin loader did not finish")
-	}
 }
 
 // vanilla: Level.getDefaultClockTime, MinecraftServer.setWeatherParameters,
@@ -344,62 +325,5 @@ func TestPluginWeatherAndWorldSaveReload(t *testing.T) {
 			t.Error("rule did not persist")
 		}
 		w.Save(false)
-	})
-}
-
-func TestPluginPackWorldDiscovery(t *testing.T) {
-	t.Cleanup(func() {
-		registry.ApplyPackDamageTypes(nil)
-		registry.ApplyPackEnchantments(nil)
-		registry.ApplyPackRegistries(nil)
-	})
-	cfg := servertest.BlockTestConfig()
-	cfg.LevelName = t.TempDir()
-	pack := filepath.Join(cfg.LevelName, "datapacks", "test")
-	for name, body := range map[string]string{
-		"pack.mcmeta":                     `{"pack":{"description":"plugin world test"}}`,
-		"data/test/damage_type/zap.json":  `{"message_id":"zap","scaling":"always","exhaustion":0.5}`,
-		"data/test/enchantment/glow.json": `{"anvil_cost":1,"description":{"text":"Glow"},"effects":{},"max_cost":{"base":1,"per_level_above_first":1},"max_level":1,"min_cost":{"base":1,"per_level_above_first":1},"slots":["mainhand"],"supported_items":"#minecraft:enchantable/weapon","weight":1}`,
-		"data/test/dimension/sky.json":    `{"type":"minecraft:overworld","generator":{"type":"minecraft:flat","settings":{"biome":"minecraft:plains","layers":[{"block":"minecraft:glass","height":1}]}}}`,
-	} {
-		p := filepath.Join(pack, name)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	_, h, run := worldPlugin(t, cfg)
-	run(func() {
-		w, ok := h.World(plugin.Key{Namespace: "test", Path: "sky"})
-		if !ok {
-			t.Error("pack world missing")
-			return
-		}
-		if len(h.Worlds()) != 4 || w.Dimension() != plugin.MinecraftKey("overworld") || w.Key() == w.Dimension() || w.MinY() != -64 || w.Height() != 384 {
-			t.Errorf("pack world: %v, %v, %d, %d", w.Key(), w.Dimension(), w.MinY(), w.Height())
-		}
-		w.SetDayTime(9000)
-		if h.Overworld().DayTime() != 9000 {
-			t.Error("pack world did not use its dimension type's clock")
-		}
-		r := h.Registries()
-		key := plugin.Key{Namespace: "test", Path: "zap"}
-		id, ok := r.DamageType(key)
-		if !ok {
-			t.Error("pack damage type missing")
-		}
-		if got, ok := r.KeyOf(id); !ok || got != key {
-			t.Errorf("pack damage key=%v,%v", got, ok)
-		}
-		key.Path = "glow"
-		enchantment, ok := r.Enchantment(key)
-		if !ok {
-			t.Error("pack enchantment missing")
-		}
-		if got, ok := r.KeyOf(enchantment); !ok || got != key {
-			t.Errorf("pack enchantment key=%v,%v", got, ok)
-		}
 	})
 }

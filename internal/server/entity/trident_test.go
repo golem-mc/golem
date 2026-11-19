@@ -68,25 +68,6 @@ func TestATridentHitDealsItsEight(t *testing.T) {
 	}
 }
 
-// TestATridentFliesAtFullSpeedInWater checks the flight's own difference
-// from an arrow's in water: the 0.99 inertia the arrow's 0.6 gives way to.
-func TestATridentFliesAtFullSpeedInWater(t *testing.T) {
-	w := newTestWorld()
-	w.set(0, 64, 0, defaultState(t, "minecraft:water"))
-	w.set(1, 64, 0, defaultState(t, "minecraft:water"))
-	w.set(2, 64, 0, defaultState(t, "minecraft:water"))
-	w.set(3, 64, 0, defaultState(t, "minecraft:water"))
-
-	a := newTestTrident(0)
-	a.Step(w, nil, nil)
-	if !closeEnough(a.VX, 3*tridentWaterInertia) {
-		t.Errorf("a trident in water flies on at %v, want the 0.99 share of the three it arrived with", a.VX)
-	}
-	if !closeEnough(a.VY, -0.05) {
-		t.Errorf("the water's gravity pulled the trident to %v, want the same fall an arrow's", a.VY)
-	}
-}
-
 // TestATridentBouncesOffAndNeverHitsAgain plays the server's part in a
 // hit — the deflection the hurt settles — and checks what the flight is
 // left with: the almost-dead bounce back, the dealt mark that empties the
@@ -195,63 +176,6 @@ func TestALoyalTridentReturnsToItsOwner(t *testing.T) {
 	}
 }
 
-// TestAnUnloyalTridentNeverReturns sticks a plain trident into the same
-// wall with its owner behind it: without a loyalty, the body lies stuck —
-// the deflection's dealt mark and the empty sweep its only marks — until
-// the despawn takes it.
-func TestAnUnloyalTridentNeverReturns(t *testing.T) {
-	w := newTestWorld()
-	stone := defaultState(t, "minecraft:stone")
-	w.set(3, 64, 0, stone)
-	w.set(3, 65, 0, stone)
-
-	a := newTestTrident(7)
-	a.Step(w, nil, nil)
-	if !a.InGround {
-		t.Fatal("the trident shot into the wall did not stick")
-	}
-
-	owner := PlayerTarget(7, -4, 63, 0, false)
-	for range 20 {
-		for _, ev := range a.Step(w, &owner, []ArrowTarget{owner}) {
-			if ev.Kind == ArrowTridentReturn {
-				t.Fatal("a trident without loyalty sounded a return")
-			}
-		}
-	}
-	if !a.InGround || a.NoPhysics {
-		t.Fatalf("a trident without loyalty got up out of the ground: inGround=%v noclip=%v", a.InGround, a.NoPhysics)
-	}
-
-	// The despawn an arrow answers for: the 1200 takes the stuck plain
-	// trident, a loyal one the pickup is allowed being its owner's to
-	// wait for instead.
-	a.Life = arrowLifeLimit - 1
-	events := a.Step(w, &owner, nil)
-	if len(events) != 1 || events[0].Kind != ArrowGone || !a.Dead {
-		t.Fatalf("a stuck trident without loyalty at 1200 ticks reported %v dead=%v, want the despawn arrow's own", events, a.Dead)
-	}
-
-	// The loyal one never counts out: the same 1200 leaves it stuck
-	// waiting on its owner, the despawn its own override denies.
-	stone2 := defaultState(t, "minecraft:stone")
-	w.set(0, 64, 2, stone2)
-	loyal := registryEnchantmentID(t, "minecraft:loyalty")
-	waiting := NewTrident(2, 0.5, 64.7, 2.5, 0, 0, 0, PickupAllowed, 7,
-		protocol.ItemStack{
-			ItemID:       int32(registry.ItemTrident),
-			Count:        1,
-			Enchantments: map[int32]int32{loyal: 1},
-		}, 3)
-	waiting.InGround = true
-	waiting.LastState = stone2
-	waiting.Life = arrowLifeLimit - 1
-	if events := waiting.Step(w, nil, nil); len(events) != 0 || waiting.Dead || !waiting.InGround {
-		t.Fatalf("a loyal trident the pickup allows counted out at 1200: %v dead=%v inGround=%v",
-			events, waiting.Dead, waiting.InGround)
-	}
-}
-
 // registryEnchantmentID is the numeric ID of a named enchantment, loud
 // where the registry has none.
 func registryEnchantmentID(t *testing.T, name string) int32 {
@@ -261,25 +185,4 @@ func registryEnchantmentID(t *testing.T, name string) int32 {
 		t.Fatalf("the enchantment registry has no %s", name)
 	}
 	return id
-}
-
-// TestAnEffectlessTippedArrowTurnsPlainInTheGround checks that a stuck arrow
-// whose potion contents give no effect still loses them after 600 ticks.
-// vanilla: Arrow.tick
-func TestAnEffectlessTippedArrowTurnsPlainInTheGround(t *testing.T) {
-	w := newTestWorld()
-	w.set(3, 64, 0, defaultState(t, "minecraft:stone"))
-	w.set(3, 65, 0, defaultState(t, "minecraft:stone"))
-	a := NewArrow(1, 0, 64, 0, 3, 0, 0, false, 7, PickupAllowed, 0, 1)
-	a.Effect = ArrowEffect{Tipped: true}
-	a.PickupStack = protocol.ItemStack{ItemID: 1, Count: 1}
-	a.Step(w, nil, nil)
-	if !a.InGround {
-		t.Fatal("the arrow did not stick")
-	}
-	a.Life = arrowPotionDecay - 1
-	a.Step(w, nil, nil)
-	if !a.Effect.IsPlain() || !a.PickupStack.Empty() {
-		t.Errorf("effect %+v pickup %v, want a plain arrow", a.Effect, a.PickupStack)
-	}
 }

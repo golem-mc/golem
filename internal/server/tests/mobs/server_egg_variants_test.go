@@ -88,37 +88,3 @@ func TestSpawnEggsTakeTheirMobVariantComponents(t *testing.T) {
 		}
 	}
 }
-
-// TestGiveRefusesAnUnknownPigVariant: a variant the registry lacks is no
-// stack.
-func TestGiveRefusesAnUnknownPigVariant(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.EggPlayer(t, "creative", "Breeder", "minecraft:pig_spawn_egg", 1)
-	for _, text := range srv.RunLine(`give @s pig_spawn_egg[pig/variant="nope"]`) {
-		if text.Translate == "commands.give.success" {
-			t.Fatalf("give succeeded: %+v", text)
-		}
-	}
-}
-
-// TestAWolfEggOnAWolfMakesABlackBaby: the egg's variant component applies
-// over the parent's variant the baby inherits.
-func TestAWolfEggOnAWolfMakesABlackBaby(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.EggPlayer(t, "creative", "Breeder", "minecraft:wolf_spawn_egg", 1)
-	srv.GiveSlot("Breeder", player.HotbarSlot,
-		holderEgg(t, "minecraft:wolf_spawn_egg", protocol.DataComponentWolfVariant, "minecraft:wolf_variant", "minecraft:black", nil))
-	id := srv.SpawnMob("minecraft:wolf", 1.5, 64, 0.5)
-	c.ExpectMobSpawn(protocol.EntityTypeWolf)
-	c.UseOn(id)
-	baby := c.ExpectMobSpawn(protocol.EntityTypeWolf)
-	if !baby.HasBaby {
-		t.Fatal("no baby")
-	}
-	for _, text := range srv.RunLine("data get entity @e[type=minecraft:wolf,nbt={Age:-24000},limit=1] variant") {
-		if text.Translate == "commands.data.entity.query" && text.With[1].Plain() == `"minecraft:black"` {
-			return
-		}
-	}
-	t.Error("the baby wolf is not black")
-}

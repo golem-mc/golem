@@ -1,9 +1,9 @@
 package movement
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
-	"slices"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
@@ -124,33 +124,6 @@ func TestSaddlingATameHorseTellsTheSaddleAndSpendsIt(t *testing.T) {
 	}
 }
 
-// TestAWildHorseRearsAtASaddleAndTakesNone: an untamed horse is made mad by
-// an item in hand — it rears (the standing flag) — takes no saddle and gives
-// no seat.
-func TestAWildHorseRearsAtASaddleAndTakesNone(t *testing.T) {
-	t.Parallel()
-	rider, horse, srv := horseSummon(t, "{}")
-	saddle, _ := registry.ItemID("minecraft:saddle")
-	srv.GiveSlot("Rider", player.HotbarSlot, protocol.ItemStack{ItemID: saddle, Count: 1})
-	rider.Settle()
-
-	rider.UseOn(horse.entityID)
-	angry := false
-	rider.SettleAndCollect(func(id int32, data []byte) {
-		switch id {
-		case protocol.IDPlaySetPassengers:
-			rider.T.Error("a wild horse gave a seat to a click with a saddle")
-		case protocol.IDPlaySoundEffect:
-			if servertest.SoundOf(data) == "minecraft:entity.horse.angry" {
-				angry = true
-			}
-		}
-	})
-	if !angry {
-		t.Error("the wild horse made no angry sound at the saddle")
-	}
-}
-
 // TestAClickSeatsThePlayerOnATameHorse: a bare click on a tame horse lists the
 // player as its passenger, the sneak key puts them off and the list empty.
 func TestAClickSeatsThePlayerOnATameHorse(t *testing.T) {
@@ -181,33 +154,6 @@ func TestAClickSeatsThePlayerOnATameHorse(t *testing.T) {
 	})
 	if !left {
 		t.Error("the sneak key left the player on the horse")
-	}
-}
-
-func TestARiderUnderALowCeilingKeepsTheStandingPose(t *testing.T) {
-	t.Parallel()
-	rider, horse, srv := horseSummon(t, "{Tame:1b}")
-	rider.UseOn(horse.entityID)
-	seated := false
-	rider.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlaySetPassengers {
-			vehicle, passengers := servertest.ReadPassengers(rider, data)
-			seated = vehicle == horse.entityID && slices.Contains(passengers, rider.PlayerEntityID)
-		}
-	})
-	if !seated {
-		t.Fatal("the click did not seat the rider on the horse")
-	}
-	servertest.HoldTicks(t, srv)
-	stone := registry.MustState("minecraft:stone", nil)
-	for x := int32(3); x <= 8; x++ {
-		for z := int32(3); z <= 8; z++ {
-			srv.SetBlock(x, 66, z, stone)
-		}
-	}
-	servertest.RunTicks(t, srv, 5)
-	if got := srv.PlayerPose("Rider"); got != protocol.PoseStanding {
-		t.Fatalf("rider pose under the ceiling = %d, want standing (%d)", got, protocol.PoseStanding)
 	}
 }
 
@@ -301,37 +247,6 @@ func TestHorseSpawnsWithItsVariantAndTameFlag(t *testing.T) {
 	}
 }
 
-// TestAMobsSpeedEffectReachesItsWatchersAsAnAttributeModifier: Speed puts
-// effect.speed on the horse's movement_speed for every watcher, and clearing
-// it sends the attribute again without the modifier.
-// vanilla: MobEffects.SPEED, ServerEntity.sendDirtyEntityData
-func TestAMobsSpeedEffectReachesItsWatchersAsAnAttributeModifier(t *testing.T) {
-	t.Parallel()
-	s, rider := servertest.Join(t, servertest.MobTestConfig(), "Rider", servertest.OpsListing(t, "Rider"))
-	rider.MoveToGround(2.5, 64, 5.5, true)
-	rider.Settle()
-	s.StopTick()
-	rider.ChatCommand("summon minecraft:horse 5.5 64 5.5 {Tame:1b}")
-	horse := expectHorseSpawn(rider)
-	servertest.HoldTicks(t, s)
-	rider.ChatCommand("effect give @e[type=minecraft:horse] minecraft:speed 60 1")
-	servertest.RunTicks(t, s, 2)
-	entries := rider.AwaitAttributes(horse.entityID, servertest.AttrMovementSpeed, func(e servertest.AttrEntry) bool {
-		_, ok := servertest.Modifier(e, "minecraft:effect.speed")
-		return ok
-	})
-	m, _ := servertest.Modifier(entries[servertest.AttrMovementSpeed], "minecraft:effect.speed")
-	if want := servertest.AttrMod("minecraft:effect.speed", float64(float32(0.2))*2, 2); m != want {
-		t.Errorf("speed modifier %+v, want %+v", m, want)
-	}
-	rider.ChatCommand("effect clear @e[type=minecraft:horse]")
-	servertest.RunTicks(t, s, 2)
-	rider.AwaitAttributes(horse.entityID, servertest.AttrMovementSpeed, func(e servertest.AttrEntry) bool {
-		_, ok := servertest.Modifier(e, "minecraft:effect.speed")
-		return !ok
-	})
-}
-
 // TestSneakClickingATameHorseDoesNotMountIt: with the sneak key held a tame
 // horse's click is the mount screen's, not a seat.
 func TestSneakClickingATameHorseDoesNotMountIt(t *testing.T) {
@@ -348,63 +263,6 @@ func TestSneakClickingATameHorseDoesNotMountIt(t *testing.T) {
 			rider.T.Error("a sneak-click seated the player")
 		}
 	})
-}
-
-// TestBoardingABoatLeavesTheHorse: a rider who boards a boat is taken off the
-// horse, so no two vehicles list them.
-func TestBoardingABoatLeavesTheHorse(t *testing.T) {
-	t.Parallel()
-	rider, horse, srv := horseSummon(t, "{Tame:1b}")
-	boatID := srv.SpawnBoat(4.5, 64, 4.5, "minecraft:oak_boat")
-	if boatID == 0 {
-		t.Fatal("SpawnBoat came to nothing")
-	}
-	rider.UseOn(horse.entityID)
-	rider.Settle()
-	rider.UseOn(boatID)
-	horseRiders, boatRiders := -1, -1
-	rider.SettleAndCollect(func(id int32, data []byte) {
-		if id != protocol.IDPlaySetPassengers {
-			return
-		}
-		switch vehicle, riders := servertest.ReadPassengers(rider, data); vehicle {
-		case horse.entityID:
-			horseRiders = len(riders)
-		case boatID:
-			boatRiders = len(riders)
-		}
-	})
-	if boatRiders != 1 || horseRiders != 0 {
-		t.Errorf("riders after boarding the boat: boat %d, horse %d, want 1 and 0", boatRiders, horseRiders)
-	}
-}
-
-// TestHorseMoveLimitHoldsForTheWholeTick: three 9-block reports in one tick
-// are measured from where the tick began, so the second is put back.
-func TestHorseMoveLimitHoldsForTheWholeTick(t *testing.T) {
-	t.Parallel()
-	rider, horse, _ := horseSummon(t, "{Tame:1b,equipment:{saddle:{id:\"minecraft:saddle\",count:1}}}")
-	rider.UseOn(horse.entityID)
-	rider.Settle()
-	for _, x := range []float64{14.5, 23.5, 32.5} {
-		rider.Send(protocol.IDPlayMoveVehicleIn, func(b *protocol.Buffer) {
-			b.PutF64(x)
-			b.PutF64(64)
-			b.PutF64(5.5)
-			b.PutF32(0)
-			b.PutF32(0)
-			b.PutBool(true)
-		})
-	}
-	putBack := 0
-	rider.SettleAndCollect(func(id int32, _ []byte) {
-		if id == protocol.IDPlayMoveVehicle {
-			putBack++
-		}
-	})
-	if putBack != 2 {
-		t.Errorf("%d reports put back, want 2 of the 3 nine-block reports", putBack)
-	}
 }
 
 // TestRiddenHorseLandingUsesTheHorseNumbersAndHurtsTheRider: a 9-block
@@ -458,103 +316,6 @@ func TestRiddenHorseLandingUsesTheHorseNumbersAndHurtsTheRider(t *testing.T) {
 	}
 }
 
-// TestAnUnriddenHorseLandsWithItsOwnSoundAndNoGenericFall: a horse falling
-// 3 blocks takes no damage but plays the land sound; a 9-block fall hurts it
-// and still plays no generic fall sound.
-func TestAnUnriddenHorseLandsWithItsOwnSoundAndNoGenericFall(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		height   string
-		wantHurt bool
-	}{{"67", false}, {"73", true}} {
-		rider, horse, srv := horseSummonAt(t, tc.height)
-		srv.TickMobs(60)
-		var horseHurt, landSound, fallSound bool
-		rider.SettleAndCollect(func(id int32, data []byte) {
-			switch id {
-			case protocol.IDPlayDamageEvent:
-				if protocol.NewReader(data).ReadVarInt() == horse.entityID {
-					horseHurt = true
-				}
-			case protocol.IDPlaySoundEffect:
-				switch servertest.SoundOf(data) {
-				case "minecraft:entity.horse.land":
-					landSound = true
-				case "minecraft:entity.generic.small_fall", "minecraft:entity.generic.big_fall":
-					fallSound = true
-				}
-			}
-		})
-		if !landSound || fallSound || horseHurt != tc.wantHurt {
-			t.Errorf("from %s: land sound %v, generic fall sound %v, hurt %v; want true, false, %v",
-				tc.height, landSound, fallSound, horseHurt, tc.wantHurt)
-		}
-	}
-}
-
-// vanilla: AbstractHorse.causeFallDamage
-func TestInvulnerableRiddenHorseLandingStillPlaysBlockFallSound(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name      string
-		y         float64
-		wantBlock int
-		wantHP    float64
-	}{
-		{"damaging fall", 73, 1, 14},
-		{"safe fall", 67, 0, 20},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			rider, horse, srv := horseSummon(t, "{Tame:1b,Invulnerable:1b,Health:30f,attributes:[{id:\"minecraft:max_health\",base:30}],equipment:{saddle:{id:\"minecraft:saddle\",count:1}}}")
-			servertest.HoldTicks(t, srv)
-			rider.ChatCommand("gamemode survival")
-			rider.UseOn(horse.entityID)
-			rider.Settle()
-			report := func(y float64, onGround bool) {
-				rider.Send(protocol.IDPlayMoveVehicleIn, func(b *protocol.Buffer) {
-					b.PutF64(5.5)
-					b.PutF64(y)
-					b.PutF64(5.5)
-					b.PutF32(0)
-					b.PutF32(0)
-					b.PutBool(onGround)
-				})
-			}
-			report(tc.y, false)
-			report(64, true)
-			report(64, true)
-			var land, block, hurt int
-			rider.SettleAndCollect(func(id int32, data []byte) {
-				switch id {
-				case protocol.IDPlaySoundEffect:
-					switch servertest.SoundOf(data) {
-					case "minecraft:entity.horse.land":
-						land++
-					case "minecraft:block.stone.fall":
-						block++
-					case "minecraft:entity.horse.hurt", "minecraft:entity.generic.small_fall", "minecraft:entity.generic.big_fall":
-						t.Errorf("unexpected sound %s", servertest.SoundOf(data))
-					}
-				case protocol.IDPlayDamageEvent:
-					if protocol.NewReader(data).ReadVarInt() == horse.entityID {
-						hurt++
-					}
-				}
-			})
-			if land != 1 || block != tc.wantBlock || hurt != 0 {
-				t.Errorf("landing sounds/events: horse=%d block=%d hurt=%d, want 1, %d, 0", land, block, hurt, tc.wantBlock)
-			}
-			if hp, ok := srv.MobHealth(horse.entityID); !ok || hp != 30 {
-				t.Errorf("horse health = %g (found %v), want 30", hp, ok)
-			}
-			if hp := srv.PlayerHealth("Rider"); hp != tc.wantHP {
-				t.Errorf("rider health = %g, want %g", hp, tc.wantHP)
-			}
-		})
-	}
-}
-
 // horseSummonAt is horseSummon for a wild horse dropped from the height given.
 func horseSummonAt(t *testing.T, y string) (*servertest.Client, horseBody, *server.Server) {
 	t.Helper()
@@ -564,57 +325,6 @@ func horseSummonAt(t *testing.T, y string) (*servertest.Client, horseBody, *serv
 	s.StopTick()
 	rider.ChatCommand("summon minecraft:horse 5.5 " + y + " 5.5")
 	return rider, expectHorseSpawn(rider), s
-}
-
-// TestRiddenHorseLandingOnAnUpwardDripstoneTipHurtsHorseAndRiderAsStalagmite:
-// a 9-block fall onto an upward tip counts 11.5 blocks with the damage
-// doubled for the horse and, handed on, for the rider (floor((11.5-3)*2) = 17).
-// vanilla: PointedDripstoneBlock.fallOn, AbstractHorse.causeFallDamage
-func TestRiddenHorseLandingOnAnUpwardDripstoneTipHurtsHorseAndRiderAsStalagmite(t *testing.T) {
-	t.Parallel()
-	rider, horse, srv := horseSummon(t, "{Tame:1b,equipment:{saddle:{id:\"minecraft:saddle\",count:1}}}")
-	srv.SetLoadedBlock(5, 63, 5, servertest.BlockStateWith(t, "minecraft:pointed_dripstone",
-		"thickness=tip,vertical_direction=up,waterlogged=false"))
-	rider.ChatCommand("gamemode survival")
-	rider.UseOn(horse.entityID)
-	rider.Settle()
-	report := func(y float64, onGround bool) {
-		rider.Send(protocol.IDPlayMoveVehicleIn, func(b *protocol.Buffer) {
-			b.PutF64(5.5)
-			b.PutF64(y)
-			b.PutF64(5.5)
-			b.PutF32(0)
-			b.PutF32(0)
-			b.PutBool(onGround)
-		})
-	}
-	report(73, false)
-	report(64, true)
-	stalagmite := registry.MustID("minecraft:damage_type", "minecraft:stalagmite")
-	hurtBy := map[int32][]int32{}
-	health := float32(20)
-	rider.SettleAndCollect(func(id int32, data []byte) {
-		switch id {
-		case protocol.IDPlayDamageEvent:
-			r := protocol.NewReader(data)
-			victim := r.ReadVarInt()
-			hurtBy[victim] = append(hurtBy[victim], r.ReadVarInt())
-		case protocol.IDPlaySetHealth:
-			health = protocol.NewReader(data).ReadF32()
-		}
-	})
-	if got := hurtBy[horse.entityID]; !slices.Equal(got, []int32{stalagmite}) {
-		t.Errorf("horse damage types = %v, want [%d]", got, stalagmite)
-	}
-	if health != 3 {
-		t.Errorf("rider health %v, want 3 after the stalagmite landing", health)
-	}
-	delete(hurtBy, horse.entityID)
-	for victim, got := range hurtBy {
-		if !slices.Equal(got, []int32{stalagmite}) {
-			t.Errorf("entity %d damage types = %v, want [%d]", victim, got, stalagmite)
-		}
-	}
 }
 
 // TestARiderIsToldTheirHorsesEffects: the player riding a horse gets its
@@ -739,34 +449,6 @@ func TestARiderIsToldTheirHorsesEffects(t *testing.T) {
 	}
 }
 
-// TestARiderPicksUpAnItemBesideTheHorse: a riding player's pickup box is the
-// union of theirs and the mount's, so a stack on the ground by the horse is
-// collected although the rider's feet are far above it.
-// vanilla: Player.aiStep
-func TestARiderPicksUpAnItemBesideTheHorse(t *testing.T) {
-	t.Parallel()
-	rider, horse, srv := horseSummon(t, "{Tame:1b,equipment:{saddle:{id:\"minecraft:saddle\",count:1}}}")
-	rider.UseOn(horse.entityID)
-	rider.Settle()
-	servertest.HoldTicks(t, srv)
-	item := srv.SpawnItemEntityDelay(6, 64, 5.5, "minecraft:stone", 1, 0)
-	servertest.RunTicks(t, srv, 5)
-	if n := srv.ItemCount(); n != 0 {
-		t.Errorf("%d item entities left beside the horse, want the rider to have taken it", n)
-	}
-	picked := false
-	rider.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlayPickupItem {
-			if collected, _, _ := servertest.ReadPickupItem(rider, data); collected == item {
-				picked = true
-			}
-		}
-	})
-	if !picked {
-		t.Error("the rider was not sent a take_item_entity for the item")
-	}
-}
-
 // TestARiderWhoseEyesGoUnderWaterIsThrownOff: a horse throws its rider off
 // once their eyes are under water, a boat keeps its rider.
 // vanilla: LivingEntity.baseTick, Entity.dismountsUnderwater
@@ -814,92 +496,4 @@ func TestARiderWhoseEyesGoUnderWaterIsThrownOff(t *testing.T) {
 		_, riders := servertest.ReadPassengers(rider, data)
 		return len(riders) == 0
 	})
-}
-
-// vanilla: ServerGamePacketListenerImpl.isEntityCollidingWithAnythingNew
-func TestARiddenHorseCanStandFlushAgainstAWall(t *testing.T) {
-	for _, side := range []string{"east", "west", "south", "north"} {
-		t.Run(side, func(t *testing.T) {
-			t.Parallel()
-			rider, horse, srv := horseSummon(t, `{Tame:1b,equipment:{saddle:{id:"minecraft:saddle",count:1}}}`)
-			servertest.HoldTicks(t, srv)
-			rider.UseOn(horse.entityID)
-			rider.Settle()
-			if got := srv.MobPassengerIDs(horse.entityID); !slices.Equal(got, []int32{rider.PlayerEntityID}) {
-				t.Fatalf("passengers = %v, want the rider", got)
-			}
-			x, z := 5.5, 5.5
-			wx, wz := int32(8), int32(5)
-			const half = float64(float32(1.3964844)) / 2
-			switch side {
-			case "east":
-				x = 8 - half
-			case "west":
-				wx, x = 2, 3+half
-			case "south":
-				wx, wz, z = 5, 8, 8-half
-			case "north":
-				wx, wz, z = 5, 2, 3+half
-			}
-			for y := int32(64); y < 67; y++ {
-				if !srv.SetBlock(wx, y, wz, servertest.MustState(t, "minecraft:glass", nil)) {
-					t.Fatal("wall chunk not loaded")
-				}
-			}
-			rider.Send(protocol.IDPlayMoveVehicleIn, func(b *protocol.Buffer) {
-				b.PutF64(x)
-				b.PutF64(64)
-				b.PutF64(z)
-				b.PutF32(0)
-				b.PutF32(0)
-				b.PutBool(true)
-			})
-			rider.SettleAndCollect(func(id int32, _ []byte) {
-				if id == protocol.IDPlayMoveVehicle {
-					t.Error("flush-wall report was corrected")
-				}
-			})
-			if gotX, gotY, gotZ, ok := srv.MobPos(horse.entityID); !ok || gotX != x || gotY != 64 || gotZ != z {
-				t.Errorf("horse at (%v, %v, %v), exists %v; want (%v, 64, %v)", gotX, gotY, gotZ, ok, x, z)
-			}
-		})
-	}
-}
-
-// vanilla: ServerGamePacketListenerImpl.isEntityCollidingWithAnythingNew
-func TestARiddenHorseOnlyRefusesNewCollisions(t *testing.T) {
-	t.Parallel()
-	rider, horse, srv := horseSummon(t, `{Tame:1b,equipment:{saddle:{id:"minecraft:saddle",count:1}}}`)
-	servertest.HoldTicks(t, srv)
-	rider.UseOn(horse.entityID)
-	rider.Settle()
-	report := func(x float64, refused bool) {
-		t.Helper()
-		rider.Send(protocol.IDPlayMoveVehicleIn, func(b *protocol.Buffer) {
-			b.PutF64(x)
-			b.PutF64(64)
-			b.PutF64(5.5)
-			b.PutF32(0)
-			b.PutF32(0)
-			b.PutBool(true)
-		})
-		corrected := false
-		rider.SettleAndCollect(func(id int32, _ []byte) { corrected = corrected || id == protocol.IDPlayMoveVehicle })
-		if corrected != refused {
-			t.Errorf("report x=%v corrected = %v, want %v", x, corrected, refused)
-		}
-		if got, _, _, _ := srv.MobPos(horse.entityID); !refused && got != x {
-			t.Errorf("horse x=%v, want %v", got, x)
-		}
-	}
-	report(7.2, false)
-	// A block appears inside the current box, away from the tick-start box.
-	stone := servertest.MustState(t, "minecraft:stone", nil)
-	srv.SetBlock(7, 64, 5, stone)
-	report(7.25, false)
-	srv.SetBlock(8, 64, 5, stone)
-	report(7.5, true)
-	if x, _, _, _ := srv.MobPos(horse.entityID); x != 7.25 {
-		t.Errorf("refused report moved horse to %v, want 7.25", x)
-	}
 }

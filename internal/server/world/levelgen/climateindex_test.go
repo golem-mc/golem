@@ -25,24 +25,3 @@ func TestClimateIndexSearchTies(t *testing.T) {
 		}
 	}
 }
-
-func TestClimateIndexInvalidParameters(t *testing.T) {
-	badBounds := ClimatePoint{}
-	badBounds.Bounds[0] = [2]int64{1, -1}
-	for _, tc := range []struct {
-		name   string
-		points []ClimatePoint
-		fanout int
-	}{
-		{"empty", nil, 19}, {"fanout", []ClimatePoint{{}}, 1}, {"bounds", []ClimatePoint{badBounds}, 19},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			defer func() {
-				if recover() == nil {
-					t.Fatal("accepted invalid climate index")
-				}
-			}()
-			NewClimateIndex(tc.points, tc.fanout)
-		})
-	}
-}

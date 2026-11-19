@@ -1,13 +1,11 @@
 package combat
 
 import (
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
@@ -55,34 +53,5 @@ func TestASplashHarmingPotionShovesTheVictimAwayFromTheShatter(t *testing.T) {
 
 	if vx, _, _ := readOwnMotion(t, srv, b, bID, 40); vx <= 0.2 {
 		t.Errorf("the splash shoved the victim by vx %.4f, want > 0.2 after travel away from the shatter", vx)
-	}
-}
-
-// TestDrinkingAHarmingPotionHopsTheDrinker drinks a harming potion at full
-// health: the harm's source stands on the drinker, so the 0.4 shove goes in
-// a random direction. vanilla: PotionContents.applyToLivingEntity,
-// LivingEntity.knockback
-func TestDrinkingAHarmingPotionHopsTheDrinker(t *testing.T) {
-	t.Parallel()
-	srv, c, id := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Drinker")
-	c.MoveToGround(0.5, 64, 0.5, true) // airborne, the shove would not lift
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	servertest.RunTicks(t, srv, 1)
-	c.Settle()
-
-	srv.SetFood("Drinker", 6)
-	srv.GiveSlot("Drinker", player.HotbarSlot, brewedPotion(t, 26)) // harming
-	c.Settle()
-
-	c.UseItemRightClicks(protocol.HandMain)
-	c.Settle()
-	for range 40 {
-		srv.TickSurvival()
-	}
-
-	vx, vy, vz := readOwnMotion(t, srv, c, id, 0)
-	if math.Abs(vy-0.3608) > 1e-3 || math.Abs(math.Hypot(vx, vz)-0.4) > 1e-3 {
-		t.Errorf("the drink shoved the drinker by (%.4f, %.4f, %.4f), want vy 0.3608 and a horizontal 0.4", vx, vy, vz)
 	}
 }

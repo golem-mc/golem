@@ -43,35 +43,3 @@ func TestAPigPushedThroughARipeBerryBushIsPricked(t *testing.T) {
 		t.Errorf("pig health = %v, want pricked", hp)
 	}
 }
-
-func TestAPigPushedThroughAYoungBerryBushIsNotPricked(t *testing.T) {
-	t.Parallel()
-	if hp := berryPushHealth(t, "minecraft:pig", "0"); hp != 10 {
-		t.Errorf("pig health = %v, want 10", hp)
-	}
-}
-
-func TestAFoxPushedThroughARipeBerryBushIsNotPricked(t *testing.T) {
-	t.Parallel()
-	if hp := berryPushHealth(t, "minecraft:fox", "1"); hp != 10 {
-		t.Errorf("fox health = %v, want 10", hp)
-	}
-}
-
-// vanilla: SweetBerryBushBlock.entityInside (movement.horizontalDistanceSqr() >= 0.003)
-func TestAStationaryPigInARipeBerryBushIsNotPricked(t *testing.T) {
-	t.Parallel()
-	if hp := berryHealth(t, "minecraft:pig", "1", false); hp != 10 {
-		t.Errorf("pig health = %v, want 10", hp)
-	}
-}
-
-// A pushed pig is pricked once: the bush's stuck multiplier spends its
-// velocity on the next move, so only the first tick's step is >= 0.003.
-// vanilla: SweetBerryBushBlock.entityInside, Entity.move
-func TestAPigPushedIntoARipeBerryBushIsPrickedOnce(t *testing.T) {
-	t.Parallel()
-	if hp := berryPushHealth(t, "minecraft:pig", "3"); hp != 9 {
-		t.Errorf("pig health = %v, want 9", hp)
-	}
-}

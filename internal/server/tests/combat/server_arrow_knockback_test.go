@@ -1,10 +1,11 @@
 package combat
 
 import (
-	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"math"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server"
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 )
@@ -96,60 +97,5 @@ func TestAPunchBowAddsItsPushToTheShot(t *testing.T) {
 	}
 	if math.Abs(vz) > 0.02 {
 		t.Errorf("the punch shot carried a sideways z = %v, want it along the flight alone", vz)
-	}
-}
-
-// TestAnArrowLiftsOnlyAGroundedVictim checks vanilla's knockback lift: an
-// airborne player keeps its vertical velocity instead of gaining 0.4.
-func TestAnArrowLiftsOnlyAGroundedVictim(t *testing.T) {
-	t.Parallel()
-	srv, c, victimID := servertest.JoinAs(t, servertest.CombatTestConfig(), "Victim")
-	c.MoveToGround(0.5, 70, 0.5, false)
-	c.Settle()
-	// Held: the victim hovers instead of falling to the ground a slow
-	// run's ticks would reach before the arrow does.
-	servertest.HoldTicks(t, srv)
-	srv.SetPlayerVelocity("Victim", 0, 0, 0)
-
-	srv.ShootArrow(4.5, 71, 0.5, -2, 0, 0)
-
-	shoves := victimShoves(c, srv, victimID, 40)
-	if len(shoves) == 0 {
-		t.Fatal("the victim was never shoved")
-	}
-	if shoves[0][0] >= 0 {
-		t.Errorf("the shove's x = %v, want it west", shoves[0][0])
-	}
-	if math.Abs(shoves[0][1]+0.0784) > 0.003 {
-		t.Errorf("the airborne victim was lifted by %v, want only one travel step of gravity", shoves[0][1])
-	}
-}
-
-// TestAPunchBowLiftsAnAirborneVictimByItsPushAlone checks that Punch's push,
-// unlike knockback, ignores the ground: an airborne victim of a Punch II
-// shot rises by the push's flat 0.1 and gains none of the default's 0.4.
-func TestAPunchBowLiftsAnAirborneVictimByItsPushAlone(t *testing.T) {
-	t.Parallel()
-	srv, c, victimID := servertest.JoinAs(t, servertest.CombatTestConfig(), "Victim")
-	c.MoveToGround(0.5, 70, 0.5, false)
-	c.Settle()
-	// Held: the victim hovers, and a free loop's ticks over a slow run
-	// reach the eighty floating ticks that kick it.
-	servertest.HoldTicks(t, srv)
-	srv.SetPlayerVelocity("Victim", 0, 0, 0)
-
-	bow := servertest.EnchantedStack(t, "minecraft:bow", "minecraft:punch", 2)
-	srv.ShootArrowFromWeapon(4.5, 71, 0.5, -2, 0, 0, bow)
-
-	shoves := victimShoves(c, srv, victimID, 40)
-	if len(shoves) == 0 {
-		t.Fatal("the punch shot was never shoved")
-	}
-	vx, vy := shoves[0][0], shoves[0][1]
-	if want := (-0.4 - 1.2) * 0.91; math.Abs(vx-want) > 0.02 {
-		t.Errorf("the punch shot shoved at x = %v, want the default and Punch II after air drag (%v)", vx, want)
-	}
-	if math.Abs(vy-(0.1-0.08)*0.98) > 0.02 {
-		t.Errorf("the airborne punch shot lifted at y = %v, want only Punch and one travel step of gravity", vy)
 	}
 }

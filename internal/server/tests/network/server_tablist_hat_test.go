@@ -1,8 +1,9 @@
 package network
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"

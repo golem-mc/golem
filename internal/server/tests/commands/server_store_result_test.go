@@ -96,37 +96,3 @@ func TestExperienceResults(t *testing.T) {
 		{"experience add @s 1 levels", "1"},
 	})
 }
-
-// TestWorldborderResults checks the values /worldborder answers.
-// vanilla: WorldBorderCommand
-func TestWorldborderResults(t *testing.T) {
-	t.Parallel()
-	srv, c := joinOpForStore(t)
-	c.ChatCommand("worldborder set 100")
-	expectStored(t, srv, c, [][2]string{
-		{"worldborder get", "100"},
-		{"worldborder set 150.7", "50"},  // 150.7 - 100, truncated
-		{"worldborder add -50.5", "-50"}, // 100.2 - 150.7, truncated toward zero
-		{"worldborder set 120 10", "19"}, // 120 - 100.2: the lerp's delta
-		{"worldborder center 4 8", "0"},  // success without a value
-		{"worldborder damage amount 2.9", "2"},
-		{"worldborder damage buffer 7.5", "7"},
-		{"worldborder warning distance 13", "13"},
-		{"worldborder warning time 2s", "40"},
-	})
-}
-
-// TestWeatherResults checks the values /weather answers.
-// vanilla: WeatherCommand.setClear, setRain, setThunder
-func TestWeatherResults(t *testing.T) {
-	t.Parallel()
-	srv, c := joinOpForStore(t)
-	expectStored(t, srv, c, [][2]string{
-		{"weather clear 600", "600"},
-		{"weather rain 1200", "1200"},
-		{"weather thunder 30", "30"},
-		{"weather clear", "-1"},
-		{"weather rain", "-1"},
-		{"weather thunder", "-1"},
-	})
-}

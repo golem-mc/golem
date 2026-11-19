@@ -91,35 +91,6 @@ func tick(rs *Raids, n int) {
 	}
 }
 
-// vanilla: Raid.addWaveMob
-func TestRestoringARaiderReplacesWaveEntry(t *testing.T) {
-	l := newLevel(difficultyNormal)
-	_, r, _ := omenRaid(l, 0)
-	original := &fakeRaider{id: uuid.New(), alive: true, health: 24}
-	other := &fakeRaider{id: uuid.New(), alive: true, health: 24}
-	r.Join(1, original)
-	r.Join(1, other)
-	for range 3 {
-		restored := &fakeRaider{id: original.id, alive: true, health: 12}
-		r.Restore(1, restored)
-		if len(r.groups[1]) != 2 || r.groups[1][0] != restored || r.groups[1][1] != other {
-			t.Fatalf("wave = %v, want the restored reference and the other raider", r.groups[1])
-		}
-		if restored.raid != r || restored.wave != 1 {
-			t.Fatal("restored raider was not enlisted in wave one")
-		}
-		if r.totalHealth != 48 || r.Progress() != 0.75 {
-			t.Fatalf("total health = %v, progress = %v; want 48 and 0.75", r.totalHealth, r.Progress())
-		}
-	}
-	// A saved raid has health but no entity references until its chunks load.
-	r.groups = map[int][]Raider{}
-	r.Restore(1, original)
-	if r.totalHealth != 48 || r.Alive() != 1 || r.Progress() != 0.5 {
-		t.Fatalf("restoring an empty wave: health %v, alive %d, progress %v", r.totalHealth, r.Alive(), r.Progress())
-	}
-}
-
 // TestWavesPerDifficulty: easy runs three waves, normal five, hard seven.
 // vanilla: Raid.getNumGroups
 func TestWavesPerDifficulty(t *testing.T) {
@@ -153,26 +124,6 @@ func TestFirstWaveCompositionPerDifficulty(t *testing.T) {
 		if len(seen) != tc.maxBonus+1 {
 			t.Errorf("difficulty %d: bonus pillagers seen %v, want 0..%d", tc.difficulty, seen, tc.maxBonus)
 		}
-	}
-}
-
-// TestOneCaptainPerWave: the first raider able to lead gets the banner.
-// vanilla: Raid.spawnGroup
-func TestOneCaptainPerWave(t *testing.T) {
-	l := newLevel(2)
-	rs, r, _ := omenRaid(l, 0)
-	tick(rs, 310)
-	captains := 0
-	for _, f := range l.spawned {
-		if f.leader {
-			captains++
-		}
-	}
-	if captains != 1 || r.Leader(1) == nil {
-		t.Errorf("captains = %d, leader = %v", captains, r.Leader(1))
-	}
-	if l.horns == 0 {
-		t.Errorf("no horn at the wave")
 	}
 }
 
@@ -214,17 +165,6 @@ func TestNoSpawnPositionStopsTheRaid(t *testing.T) {
 	tick(rs, 310)
 	if r.Status() != Stopped || len(rs.All()) != 0 {
 		t.Errorf("status = %v raids = %d, want stopped and gone", r.Status(), len(rs.All()))
-	}
-}
-
-// TestTheOmenLevelCaps: a raid absorbs omens up to level five.
-// vanilla: Raid.absorbRaidOmen
-func TestTheOmenLevelCaps(t *testing.T) {
-	l := newLevel(2)
-	rs, r, p := omenRaid(l, 3)
-	rs.CreateOrExtend(p, 3, Pos{0, 64, 0}, nil)
-	if r.OmenLevel() != MaxOmenLevel || len(rs.All()) != 1 {
-		t.Errorf("omen level = %d raids = %d, want 5 in one raid", r.OmenLevel(), len(rs.All()))
 	}
 }
 

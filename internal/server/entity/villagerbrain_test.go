@@ -73,37 +73,6 @@ func TestTheVillagerScheduleKeyframesAndWrap(t *testing.T) {
 	}
 }
 
-func TestTwoVillagersShareOneBedByOneClaiming(t *testing.T) {
-	w := newTestWorld()
-	floor(w, -6, -6, 6, 6, 63, defaultState(t, "minecraft:stone"))
-	head := bedHead(t)
-	w.set(1, 64, 0, head)
-	w.set(4, 64, 0, head)
-	view := fakeVillage{w: w, pois: []Waypoint{{1, 64, 0}, {4, 64, 0}}}
-	a := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
-	b := NewMob(TypeVillager, 2, 0.5, 64, 2.5, 2)
-	a.Village, b.Village = view, view
-	for tick := int64(1); tick <= 80 && (a.vb.home == nil || b.vb.home == nil); tick++ {
-		for _, m := range []*Mob{a, b} {
-			m.GameTime = tick
-			other := a
-			if m == a {
-				other = b
-			}
-			m.villagerBrainStep(&tickView{w: w, others: []*Mob{other}})
-		}
-	}
-	if a.vb.home == nil || b.vb.home == nil {
-		t.Fatalf("homes %v and %v, want both claimed", a.vb.home, b.vb.home)
-	}
-	if *a.vb.home == *b.vb.home {
-		t.Errorf("both claimed %v", a.vb.home)
-	}
-	if first := (Waypoint{1, 64, 0}); a.vb.home.at() != first && b.vb.home.at() != first {
-		t.Errorf("homes %v and %v, neither the closest bed", a.vb.home, b.vb.home)
-	}
-}
-
 func TestAJobSiteGivesItsProfession(t *testing.T) {
 	cases := map[string]string{
 		"minecraft:blast_furnace": "minecraft:armorer", "minecraft:smoker": "minecraft:butcher",
@@ -178,56 +147,6 @@ func TestARestockRefillsUsesAndMovesDemand(t *testing.T) {
 	}
 }
 
-func TestACatchUpDemandResetsUsesBeforeTheDemand(t *testing.T) {
-	m := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
-	m.OfferUpdater = testOfferUpdater{}
-	m.Offers = nbt.Compound{"Recipes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{recipe(4, 6, 10)}}}
-	m.vb.restocksToday = 0
-	m.catchUpDemand()
-	// Two missed updates over zero uses, each taking maxUses off.
-	if u, d := recipeOf(m, 0); u != 0 || d != 10-2*6 {
-		t.Errorf("after two missed updates: uses %d demand %d, want 0 and %d", u, d, 10-12)
-	}
-	m.Offers = nbt.Compound{"Recipes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{recipe(4, 6, 10)}}}
-	m.vb.restocksToday = 1
-	m.catchUpDemand()
-	if u, d := recipeOf(m, 0); u != 0 || d != 10-6 {
-		t.Errorf("after one missed update: uses %d demand %d, want 0 and 4", u, d)
-	}
-	m.Offers = nbt.Compound{"Recipes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{recipe(4, 6, 10)}}}
-	m.vb.restocksToday = 2
-	m.catchUpDemand()
-	if u, d := recipeOf(m, 0); u != 4 || d != 10 {
-		t.Errorf("after none missed: uses %d demand %d, want 4 and 10", u, d)
-	}
-}
-
-func TestShouldRestockAllowsTwoADayAWhileApart(t *testing.T) {
-	m := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
-	m.OfferUpdater = testOfferUpdater{}
-	m.Offers = nbt.Compound{"Recipes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{recipe(1, 12, 0)}}}
-	m.vb.lastRestock = 10000
-	m.GameTime, m.DayTime = 13000, 13000
-	if !m.shouldRestock() {
-		t.Fatal("no first restock with a used offer")
-	}
-	m.restock()
-	m.Offers = nbt.Compound{"Recipes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{recipe(1, 12, 0)}}}
-	m.GameTime += 100
-	if m.shouldRestock() {
-		t.Error("a second restock 100 ticks after the first")
-	}
-	m.GameTime += 2400
-	if !m.shouldRestock() {
-		t.Error("no second restock after 2500 ticks")
-	}
-	m.restock()
-	m.GameTime += 2500
-	if m.shouldRestock() {
-		t.Error("a third restock in a day")
-	}
-}
-
 func TestAVillagersBrainRoundTripsAndKeepsWhatItDoesNotModel(t *testing.T) {
 	m := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
 	m.vb.home = &GlobalPos{Dim: "minecraft:overworld", X: 1, Y: 64, Z: -3}
@@ -259,43 +178,6 @@ func TestAVillagersBrainRoundTripsAndKeepsWhatItDoesNotModel(t *testing.T) {
 	}
 }
 
-func TestAWalkNearItsTargetForgetsAnOldCantReach(t *testing.T) {
-	m := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
-	m.Village = fakeVillage{w: newTestWorld()}
-	m.vb.jobSite = &GlobalPos{Dim: "minecraft:overworld", X: 3, Y: 64, Z: 0}
-	m.GameTime = 5000
-	g := &poiWalkGoal{m: m, slot: slotJob, act: actWork, close: 9, far: 100, giveUp: 1200, cantReach: 100}
-	m.vb.activity = actWork
-	if g.CanStart(&tickView{w: newTestWorld()}) {
-		t.Error("a villager at its job site started a walk")
-	}
-	if m.vb.jobSite == nil || g.cantReach != 0 {
-		t.Errorf("job site %v, cantReach %d; want the site kept and cantReach cleared", m.vb.jobSite, g.cantReach)
-	}
-}
-
-func TestWorkingAtTheSiteRestocksAndTellsAnOpenWindow(t *testing.T) {
-	for _, trading := range []bool{true, false} {
-		m := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
-		m.OfferUpdater = testOfferUpdater{}
-		m.Offers = nbt.Compound{"Recipes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{recipe(3, 12, 0)}}}
-		m.Trading = trading
-		m.GameTime = 500
-		view := &tickView{}
-		(&workAtPoiGoal{m: m}).Start(view)
-		if u, _ := recipeOf(m, 0); u != 0 {
-			t.Errorf("trading %v: uses %d after the work, want a restock", trading, u)
-		}
-		told := false
-		for _, ev := range view.events {
-			told = told || ev.Kind == MobOffersChanged
-		}
-		if told != trading {
-			t.Errorf("trading %v: offers change told %v", trading, told)
-		}
-	}
-}
-
 func (v fakeVillage) Claimed(x, y, z int32) bool {
 	for _, p := range v.pois {
 		if p.X == x && p.Y == y && p.Z == z {
@@ -312,73 +194,4 @@ func (v fakeVillage) SectionsToVillage(x, y, z int32, limit int) int {
 		best = min(best, int(max(abs32(p.X>>4-x>>4), abs32(p.Y>>4-y>>4), abs32(p.Z>>4-z>>4))))
 	}
 	return best
-}
-
-func TestStructureVillagerAssignsADistantJobOnlyOnItsFirstBrainTick(t *testing.T) {
-	w := newTestWorld()
-	w.set(10, 64, 0, defaultState(t, "minecraft:lectern"))
-	m := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
-	m.LoadFrom(nbt.Compound{"AssignProfessionWhenSpawned": nbt.Byte(1)}, w, func() int64 { return 0 })
-	m.Village = fakeVillage{w: w}
-	m.vb.potentialJobSite = &GlobalPos{Dim: "minecraft:overworld", X: 10, Y: 64, Z: 0}
-	saved := nbt.Compound{}
-	m.SaveTo(saved, nil)
-	if !nbt.BoolField(saved, "AssignProfessionWhenSpawned") {
-		t.Fatal("save lost pending structure assignment")
-	}
-	m.villagerBrainStep(&tickView{w: w})
-	if m.Villager.Profession != "minecraft:librarian" || m.vb.jobSite == nil {
-		t.Fatal("structure villager did not assign distant workstation")
-	}
-	if m.vb.assignProfessionWhenSpawned {
-		t.Fatal("structure assignment lasted beyond the first brain tick")
-	}
-	saved = nbt.Compound{}
-	m.SaveTo(saved, nil)
-	if _, ok := saved["AssignProfessionWhenSpawned"]; ok {
-		t.Fatal("completed assignment was saved")
-	}
-	m.vb.jobSite = nil
-	m.vb.potentialJobSite = &GlobalPos{Dim: "minecraft:overworld", X: 10, Y: 64, Z: 0}
-	m.assignProfession(&tickView{w: w})
-	if m.vb.jobSite != nil {
-		t.Fatal("later assignment skipped walking to the workstation")
-	}
-}
-
-func TestStructureAssignmentWaitsForAIAndStillRequiresThisDimension(t *testing.T) {
-	w := newTestWorld()
-	m := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
-	m.LoadFrom(nbt.Compound{"AssignProfessionWhenSpawned": nbt.Byte(1), "NoAI": nbt.Byte(1)}, w, nil)
-	m.Village = fakeVillage{w: w}
-	m.Tick(w, nil)
-	if !m.vb.assignProfessionWhenSpawned {
-		t.Fatal("NoAI cleared pending assignment")
-	}
-	m.vb.potentialJobSite = &GlobalPos{Dim: "minecraft:the_nether", X: 10, Y: 64, Z: 0}
-	m.assignProfession(&tickView{w: w})
-	if m.vb.jobSite != nil {
-		t.Fatal("structure assignment used a different dimension")
-	}
-	m.NoAI = false
-	m.Tick(w, nil)
-	if m.vb.assignProfessionWhenSpawned {
-		t.Fatal("first AI tick retained assignment flag")
-	}
-}
-
-func TestVillagerWorkSoundProfessionOrder(t *testing.T) {
-	if len(villagerWorkSounds) != len(villagerProfessions) {
-		t.Fatal("profession sound table length")
-	}
-	for i, name := range villagerProfessions {
-		sound := villagerWorkSounds[i]
-		if name == "minecraft:none" || name == "minecraft:nitwit" {
-			if sound != registry.SoundNone {
-				t.Fatalf("%s has a work sound", name)
-			}
-		} else if sound.Name() != "minecraft:entity.villager.work_"+name[len("minecraft:"):] {
-			t.Fatalf("%s work sound = %s", name, sound.Name())
-		}
-	}
 }

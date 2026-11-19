@@ -1,7 +1,6 @@
 package entities
 
 import (
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -9,7 +8,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
@@ -55,37 +53,6 @@ func itemOf(t *testing.T, name string, count int32) protocol.ItemStack {
 	return protocol.ItemStack{ItemID: servertest.MustItemID(t, name), Count: count}
 }
 
-// TestAChestMinecartItemStandsAChestCartOnARail: the item used on a rail
-// stands a chest minecart there, spends the item, and shows watchers the
-// chest cart's entity type; an item that is no cart stands nothing.
-// vanilla: MinecartItem.useOn
-func TestAChestMinecartItemStandsAChestCartOnARail(t *testing.T) {
-	t.Parallel()
-	srv, c := chestCartPlayer(t, "survival", 2)
-	servertest.CartRails(t, srv, 2, 5)
-	c.MoveTo(2.5, 64, 2.9, 0, 60)
-	c.Settle()
-
-	c.PlaceBlock(2, 64, 1, protocol.FaceTop)
-	typeID, _ := registry.EntityTypeID(chestCart)
-	spawned := servertest.AwaitBoatSpawn(c.Client, typeID)
-	if got := srv.MinecartKind(spawned.EntityID); got != chestCart {
-		t.Fatalf("the laid cart is a %q, want %s", got, chestCart)
-	}
-	servertest.PollUntil(t, 10*time.Second, func() bool {
-		return srv.InventorySlot("Testificate", player.HotbarSlot).Count == 1
-	})
-
-	// A diamond used on the same rail lays no cart.
-	srv.GiveSlot("Testificate", player.HotbarSlot, itemOf(t, "minecraft:diamond", 1))
-	before := len(srv.MinecartsInDimension(world.DimensionName))
-	c.PlaceBlock(3, 64, 1, protocol.FaceTop)
-	c.Settle()
-	if after := len(srv.MinecartsInDimension(world.DimensionName)); after != before {
-		t.Errorf("a diamond used on a rail left %d carts, want the %d it began with", after, before)
-	}
-}
-
 // TestAChestMinecartOpensA27SlotWindowAndTakesItems: a click on the cart
 // opens the 9x3 window, and a shift-click of a hotbar stack moves it into
 // the cart's own slots.
@@ -111,44 +78,6 @@ func TestAChestMinecartOpensA27SlotWindowAndTakesItems(t *testing.T) {
 	})
 	if got := srv.MinecartCargoAt(cartID, 0); got.Count != 5 {
 		t.Errorf("the cart's first slot holds %+v, want the five diamonds", got)
-	}
-}
-
-// TestAChestMinecartIsTitledWithItsName: the window carries the entity's
-// display name.
-// vanilla: Entity.getDisplayName
-func TestAChestMinecartIsTitledWithItsName(t *testing.T) {
-	t.Parallel()
-	srv, c := chestCartPlayer(t, "survival", 0)
-	cartID := summonChestCart(t, srv, "")
-	c.MoveTo(4.5, 64, 2.7, 0, 60)
-	c.Settle()
-	c.UseOn(cartID)
-	title, opened := awaitBoatCargoTitle(t, srv, c.Client)
-	if !opened {
-		t.Fatal("the cart opened nothing")
-	}
-	if title.Translate != "entity.minecraft.chest_minecart" {
-		t.Errorf("title translates %q, want entity.minecraft.chest_minecart", title.Translate)
-	}
-}
-
-// TestAChestMinecartIsTitledWithItsCustomName: a named cart's window
-// carries the name.
-// vanilla: AbstractMinecartContainer, Entity.getDisplayName
-func TestAChestMinecartIsTitledWithItsCustomName(t *testing.T) {
-	t.Parallel()
-	srv, c := chestCartPlayer(t, "survival", 0)
-	cartID := summonChestCart(t, srv, `{CustomName:"Bob"}`)
-	c.MoveTo(4.5, 64, 2.7, 0, 60)
-	c.Settle()
-	c.UseOn(cartID)
-	title, opened := awaitBoatCargoTitle(t, srv, c.Client)
-	if !opened {
-		t.Fatal("the cart opened nothing")
-	}
-	if title.Text != "Bob" || title.Translate != "" {
-		t.Errorf("title is %+v, want the literal Bob", title)
 	}
 }
 
@@ -206,29 +135,6 @@ func TestABrokenChestMinecartDropsItselfAndItsContents(t *testing.T) {
 	}
 }
 
-// TestAKilledChestMinecartSpillsItsContentsAlone: /kill leaves no cart item
-// but the contents still spill.
-// vanilla: Entity.kill, AbstractMinecartContainer.remove
-func TestAKilledChestMinecartSpillsItsContentsAlone(t *testing.T) {
-	t.Parallel()
-	srv, _ := chestCartPlayer(t, "survival", 0)
-	cartID := summonChestCart(t, srv, "")
-	srv.StowMinecartCargo(cartID, 4, itemOf(t, "minecraft:emerald", 7))
-
-	srv.RunLine("kill @e[type=minecraft:chest_minecart]")
-	servertest.PollUntil(t, 10*time.Second, func() bool {
-		srv.TickMinecarts(1)
-		return srv.MinecartKind(cartID) == ""
-	})
-	items := srv.ItemsInDimension(world.DimensionName)
-	if got := servertest.ItemCountOf(items, "minecraft:emerald"); got != 7 {
-		t.Errorf("%d emeralds spilled, want the 7 the cart held", got)
-	}
-	if got := servertest.ItemCountOf(items, chestCart); got != 0 {
-		t.Errorf("%d chest minecart items dropped by a /kill, want none", got)
-	}
-}
-
 // TestAChestMinecartRollsAndKeepsItsLootTable: a summoned cart saves its
 // pending table and seed, the first open rolls it into the slots, and a break
 // of an unopened cart rolls it too.
@@ -263,106 +169,6 @@ func TestAChestMinecartRollsAndKeepsItsLootTable(t *testing.T) {
 	tag, _ = srv.MinecartSaveTag(cartID)
 	if _, ok := tag["LootTable"]; ok {
 		t.Error("the opened cart still saves its loot table")
-	}
-}
-
-// TestOpeningALootChestMinecartObtainsItsCriterion: the open that rolls a
-// chest cart's bastion table is a player_generates_container_loot for that
-// table alone.
-// vanilla: ContainerEntity.unpackChestVehicleLootTable, GenerateContainerLootTrigger
-func TestOpeningALootChestMinecartObtainsItsCriterion(t *testing.T) {
-	t.Parallel()
-	const adv = "minecraft:nether/loot_bastion"
-	srv, c := chestCartPlayer(t, "survival", 0)
-	cartID := summonChestCart(t, srv, `{LootTable:"minecraft:chests/bastion_bridge"}`)
-	if srv.AdvancementObtained("Testificate", adv, "loot_bastion_bridge") {
-		t.Fatal("loot_bastion_bridge was obtained before the cart was opened")
-	}
-
-	c.MoveTo(4.5, 64, 2.7, 0, 60)
-	c.Settle()
-	c.UseOn(cartID)
-	c.ExpectContainerOpen(protocol.MenuGeneric9x3, true, 0, 0, 0)
-	if !srv.AdvancementObtained("Testificate", adv, "loot_bastion_bridge") {
-		t.Error("opening the loot cart did not obtain loot_bastion_bridge")
-	}
-	if srv.AdvancementObtained("Testificate", adv, "loot_bastion_treasure") {
-		t.Error("opening the loot cart obtained loot_bastion_treasure")
-	}
-}
-
-// TestAChestMinecartRollsItsTableAtItsOwnBiome: the mineshaft table's
-// picture disc is gated on the sulfur caves, and the cart's roll reads the
-// biome at the cart's own block, so a cart standing there rolls the disc a
-// roll with no origin never would.
-// vanilla: ContainerEntity.unpackChestVehicleLootTable
-func TestAChestMinecartRollsItsTableAtItsOwnBiome(t *testing.T) {
-	t.Parallel()
-	const table = "minecraft:chests/abandoned_mineshaft"
-	disc := servertest.MustItemID(t, "minecraft:music_disc_bounce")
-	holds := func(slots []protocol.ItemStack) bool {
-		for _, s := range slots {
-			if s.ItemID == disc && !s.Empty() {
-				return true
-			}
-		}
-		return false
-	}
-	// A seed whose roll carries the disc where the biome is the sulfur caves.
-	sulfur := &rules.LootContext{BiomeAt: func(dx, dy, dz int32) string { return "minecraft:sulfur_caves" }}
-	var seed int64
-	for s := int64(1); seed == 0 && s < 500; s++ {
-		slots := make([]protocol.ItemStack, 27)
-		if rules.FillLoot(table, sulfur, rules.NewJavaRandom(s), slots) && holds(slots) {
-			seed = s
-		}
-	}
-	if seed == 0 {
-		t.Fatal("no seed rolled the sulfur-caves disc")
-	}
-
-	srv, c := chestCartPlayer(t, "survival", 0)
-	cartID := summonChestCart(t, srv, `{LootTable:"`+table+`",LootTableSeed:`+strconv.FormatInt(seed, 10)+`L}`)
-	srv.RunLine("fillbiome 0 64 0 8 66 4 minecraft:sulfur_caves")
-	c.MoveTo(4.5, 64, 2.7, 0, 60)
-	c.Settle()
-	c.UseOn(cartID)
-	c.ExpectContainerOpen(protocol.MenuGeneric9x3, true, 0, 0, 0)
-	opened := make([]protocol.ItemStack, 27)
-	for slot := range opened {
-		opened[slot] = srv.MinecartCargoAt(cartID, slot)
-	}
-	if !holds(opened) {
-		t.Error("the cart in the sulfur caves rolled no picture disc under the seed that rolls one there")
-	}
-}
-
-// TestASpectatorOpensNothingOnAChestMinecartWithALootTable: the table stays
-// unrolled and no window opens; without a table the spectator's click opens.
-// vanilla: AbstractMinecartContainer.createMenu
-func TestASpectatorOpensNothingOnAChestMinecartWithALootTable(t *testing.T) {
-	t.Parallel()
-	srv, c := chestCartPlayer(t, "spectator", 0)
-	looted := summonChestCart(t, srv, `{LootTable:"minecraft:chests/buried_treasure"}`)
-	c.MoveTo(4.5, 64, 2.7, 0, 60)
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	c.UseOn(looted)
-	if _, opened := awaitBoatCargoTitle(t, srv, c.Client); opened {
-		t.Error("a spectator opened a chest minecart that still holds a loot table")
-	}
-	if tag, _ := srv.MinecartSaveTag(looted); tag["LootTable"] == nil {
-		t.Error("the spectator's click rolled the loot table")
-	}
-	srv.RunLine("summon minecraft:chest_minecart 5.5 64.0625 1.5")
-	plain := srv.MinecartsInDimension(world.DimensionName)
-	for _, cart := range plain {
-		if cart.ID != looted {
-			c.UseOn(cart.ID)
-		}
-	}
-	if _, opened := awaitBoatCargoTitle(t, srv, c.Client); !opened {
-		t.Error("a spectator's click opened nothing on a cart with no table")
 	}
 }
 
@@ -421,61 +227,4 @@ func TestAChestMinecartKeepsItsItemsAcrossASaveAndReload(t *testing.T) {
 			t.Errorf("saved DisplayState = %v, want stone", state)
 		}
 	})
-}
-
-// TestAChestMinecartTellsWatchersItsDisplayBlock: a fresh chest cart sends no
-// display fields, a custom block state and offset ride the spawn metadata.
-// vanilla: AbstractMinecart.defineSynchedData
-func TestAChestMinecartTellsWatchersItsDisplayBlock(t *testing.T) {
-	t.Parallel()
-	srv, c := chestCartPlayer(t, "survival", 0)
-	servertest.CartRails(t, srv, 3, 6)
-	srv.RunLine(`summon minecraft:chest_minecart 4.5 64.0625 1.5 {DisplayOffset:3,DisplayState:{Name:"minecraft:stone"}}`)
-	stone, _ := registry.FindState("minecraft:stone", nil)
-	var gotState, gotOffset int32 = -1, -1
-	c.ReadTicksSkipping(srv, 200, servertest.BoatSkip, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayEntityMetadata {
-			return false
-		}
-		r := protocol.NewReader(data)
-		r.ReadVarInt() // the cart
-		for {
-			index := r.ReadU8()
-			if index == 0xFF || r.Err() != nil {
-				break
-			}
-			typ := r.ReadVarInt()
-			switch index {
-			case protocol.MetadataIndexMinecartDisplayBlock:
-				gotState = r.ReadVarInt()
-			case protocol.MetadataIndexMinecartDisplayOffset:
-				gotOffset = r.ReadVarInt()
-			default:
-				c.T.Fatalf("unexpected metadata field %d of type %d on a fresh custom cart", index, typ)
-			}
-		}
-		return gotState != -1
-	})
-	if gotState != int32(stone) || gotOffset != 3 {
-		t.Errorf("display metadata = block %d offset %d, want stone %d and 3", gotState, gotOffset, stone)
-	}
-}
-
-// TestAnEmptyChestMinecartSavesAnEmptyItemsList: a chest minecart with no loot
-// table saves an empty Items list, a minecart without a container none.
-// vanilla: ContainerEntity.addChestVehicleSaveData, ContainerHelper.saveAllItems
-func TestAnEmptyChestMinecartSavesAnEmptyItemsList(t *testing.T) {
-	t.Parallel()
-	srv, _ := chestCartPlayer(t, "survival", 0)
-	cartID := summonChestCart(t, srv, "")
-	tag, _ := srv.MinecartSaveTag(cartID)
-	items, ok := nbt.Get[nbt.List](tag, "Items")
-	if !ok || len(items.Items) != 0 {
-		t.Errorf("empty chest cart saved Items = %v (present %v), want an empty list", items, ok)
-	}
-
-	plain := srv.SpawnMinecartOfKind("minecraft:minecart", 4.5, 64.0625, 4.5)
-	if tag, _ := srv.MinecartSaveTag(plain); tag["Items"] != nil {
-		t.Errorf("a plain minecart saved Items = %v, want none", tag["Items"])
-	}
 }

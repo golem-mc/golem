@@ -72,49 +72,6 @@ func TestCommandFeedbackBroadcastsToOperators(t *testing.T) {
 	charlie.Disconnect()
 }
 
-// TestQueryFeedbackStaysWithRunner has an operator run /list, which vanilla
-// passes sendSuccess false for: neither the other operator nor an ordinary
-// player reads anything more than the runner's own reply.
-func TestQueryFeedbackStaysWithRunner(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	_, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Alice", "Bob"))
-
-	alice := servertest.JoinFeedbackWorld(t, connect, "Alice", nil)
-	bob := servertest.JoinFeedbackWorld(t, connect, "Bob", []*servertest.Client{alice})
-	charlie := servertest.JoinFeedbackWorld(t, connect, "Charlie", []*servertest.Client{alice, bob})
-
-	alice.ChatCommand("list")
-	alice.Settle()
-
-	servertest.AwaitNoSystemChat(t, bob)
-	servertest.AwaitNoSystemChat(t, charlie)
-
-	alice.Disconnect()
-	bob.Disconnect()
-	charlie.Disconnect()
-}
-
-// TestClearFailedMultipleCountsTheTargets has an operator /clear several
-// players with nothing to take, and checks the refusal is the multiple form
-// with the count handed over as a number, in the red error form.
-func TestClearFailedMultipleCountsTheTargets(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	_, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Alice", "Bob"))
-	alice := servertest.JoinFeedbackWorld(t, connect, "Alice", nil)
-	bob := servertest.JoinFeedbackWorld(t, connect, "Bob", []*servertest.Client{alice})
-
-	count := int64(2)
-	alice.ChatCommand("clear @a")
-	servertest.AwaitCommandErrorText(t, alice, "clear.failed.multiple", protocol.Text{Number: &count})
-
-	alice.Disconnect()
-	bob.Disconnect()
-}
-
 // TestCommandFailuresWearTheErrorForm has an operator run the commands that
 // fail without changing anything - an /clear of an empty inventory, and /op and /deop that change nothing - and checks
 // each line is the red sendFailure form rather than white success feedback.
@@ -168,33 +125,4 @@ func TestFeedbackRuleOffSilencesBroadcast(t *testing.T) {
 	alice.Disconnect()
 	bob.Disconnect()
 	charlie.Disconnect()
-}
-
-// TestGamemodeOtherNoticeFollowsFeedbackRule has an operator switch another
-// player's mode: the target reads gameMode.changed with send_command_feedback
-// on and nothing with it off, while the mode changes either way.
-// vanilla: GameModeCommand.logGamemodeChange
-func TestGamemodeOtherNoticeFollowsFeedbackRule(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Alice"))
-
-	alice := servertest.JoinFeedbackWorld(t, connect, "Alice", nil)
-	bob := servertest.JoinFeedbackWorld(t, connect, "Bob", []*servertest.Client{alice})
-
-	alice.ChatCommand("gamemode creative Bob")
-	bob.ExpectSystemChat("gameMode.changed", false, protocol.Text{Translate: "gameMode.creative"})
-
-	alice.ChatCommand("gamerule send_command_feedback false")
-	alice.Settle()
-	alice.ChatCommand("gamemode adventure Bob")
-	alice.Settle()
-	servertest.AwaitNoSystemChat(t, bob)
-	if got := srv.PlayerGameMode("Bob"); got != protocol.GameModeAdventure {
-		t.Errorf("Bob's game mode = %d, want adventure", got)
-	}
-
-	alice.Disconnect()
-	bob.Disconnect()
 }

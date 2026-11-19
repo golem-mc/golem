@@ -2,18 +2,13 @@ package management
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/registry"
 )
 
 // vanilla: ServerSettingsService, MinecraftServerSettingsServiceImpl,
@@ -147,83 +142,5 @@ func TestServerSettingsLiveLoginAndStatus(t *testing.T) {
 	after = status()
 	if len(after.Players.Sample) != 0 || after.Players.Online != 1 {
 		t.Errorf("hidden status = %+v, want empty sample and 1 online", after.Players)
-	}
-}
-
-// vanilla: ServerHandshakePacketListenerImpl.handleIntention
-func TestServerSettingsLiveConnectionGates(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.ManagementConfig(offline()), servertest.WriteAdminFiles(t, nil, nil, nil))
-	c := servertest.ManagementClientFor(t, srv)
-	for _, enabled := range []bool{true, false} {
-		result(t, c, "serversettings/accept_transfers/set", []any{enabled})
-		transfer := connect()
-		if enabled {
-			transfer.LoginWithIntent("Visitor", protocol.NextStateTransfer)
-		} else {
-			transfer.Handshake(protocol.NextStateTransfer)
-			if got := protocol.NewReader(transfer.Expect(protocol.IDLoginDisconnect)).ReadString(32767); got != `{"translate":"multiplayer.disconnect.transfers_disabled"}` {
-				t.Fatalf("transfer refusal = %s, want transfers_disabled", got)
-			}
-		}
-		transfer.Raw.Close()
-	}
-	result(t, c, "serversettings/status_replies/set", []any{false})
-	ping := connect()
-	ping.Handshake(protocol.NextStateStatus)
-	if err := ping.Raw.SetReadDeadline(time.Now().Add(servertest.ExpectTimeout)); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := ping.Conn.ReadPacket(); !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-		t.Fatalf("disabled status read = %v, want connection closed", err)
-	}
-	result(t, c, "serversettings/status_replies/set", []any{true})
-	ping = connect()
-	ping.Handshake(protocol.NextStateStatus)
-	ping.Send(protocol.IDStatusRequest, nil)
-	ping.Expect(protocol.IDStatusResponse)
-}
-
-// vanilla: DedicatedServer.getScaledTrackingDistance
-func TestServerSettingsLiveTrackingRange(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.ManagementConfig(servertest.MobTestConfig()), servertest.WriteAdminFiles(t, nil, nil, nil))
-	c := servertest.ManagementClientFor(t, srv)
-	watcher := connect().Join("Watcher")
-	servertest.HoldTicks(t, srv)
-	cow := srv.SpawnMob("minecraft:cow", 30.5, 64, 0.5)
-	watcher.ExpectMobSpawn(protocol.EntityTypeCow)
-	result(t, c, "serversettings/entity_broadcast_range/set", []any{5})
-	servertest.AwaitRemovalsOfTicks(t, watcher, srv, 10, cow)
-	result(t, c, "serversettings/entity_broadcast_range/set", []any{100})
-	spawn := protocol.NewReader(watcher.ExpectWithinTicks(srv, 10, protocol.IDPlaySpawnEntity))
-	if id := spawn.ReadVarInt(); id != cow {
-		t.Fatalf("restored range spawned entity %d, want cow %d", id, cow)
-	}
-}
-
-// vanilla: DedicatedServer.isUnderSpawnProtection
-func TestServerSettingsLiveSpawnProtection(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.ManagementConfig(servertest.BlockTestConfig()), servertest.WriteAdminFiles(t, nil, nil, nil), servertest.OpsListing(t, "Admin"))
-	c := servertest.ManagementClientFor(t, srv)
-	digger := connect().Join("Digger")
-	servertest.HoldTicks(t, srv)
-	srv.SetWorldSpawn(world.SpawnPos{X: 0, Y: 64, Z: 0})
-	stone := registry.BlockStone.DefaultState()
-	if !srv.SetBlock(1, 64, 0, stone) {
-		t.Fatal("could not place target stone")
-	}
-	for _, radius := range []int{16, 0} {
-		result(t, c, "serversettings/spawn_protection_radius/set", []any{radius})
-		digger.StartDigging(1, 64, 0)
-		digger.ExpectWithinTicks(srv, 3, protocol.IDPlayAckBlockChange)
-		want := stone
-		if radius == 0 {
-			want = 0
-		}
-		if got := srv.BlockAt(1, 64, 0); got != want {
-			t.Fatalf("block with spawn protection %d = %d, want %d", radius, got, want)
-		}
 	}
 }

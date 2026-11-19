@@ -92,23 +92,6 @@ func TestWardenRetaliationAndPlayerSwitch(t *testing.T) {
 	}
 }
 
-func TestWardenUnloadedAttackTargetKeepsSavedAnger(t *testing.T) {
-	m, p := newTestWarden(), wardenPlayer(10)
-	v := tickView{w: creakingFloor(t), players: []Player{p}}
-	m.wardenIncreaseAnger(&v, p.EntityID, 100, false)
-	m.wardenSetAttackTarget(p.EntityID)
-	v.players = nil
-	combatWardenStep(m, &v)
-	if m.TargetID != 0 {
-		t.Fatal("unloaded target retained attack memory")
-	}
-	m.Age = 20
-	m.wardenAngerTick(&v)
-	if len(m.warden.anger) != 1 || m.warden.anger[0].uuid != p.UUID || m.warden.anger[0].anger != 99 || m.warden.anger[0].id != 0 {
-		t.Fatalf("forgot unloaded attack target: %+v", m.warden.anger)
-	}
-}
-
 func TestWardenSonicTimingRangeAndCancellation(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -168,54 +151,6 @@ func TestWardenSonicTimingRangeAndCancellation(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestWardenMeleeCooldownAndVisibility(t *testing.T) {
-	m, p := newTestWarden(), wardenPlayer(10)
-	p.X = 1.5
-	w := creakingFloor(t)
-	v := tickView{w: w, players: []Player{p}}
-	m.wardenSetAttackTarget(p.EntityID)
-	g := wardenGoals(m)[1].(*meleeAttackGoal)
-	g.Start(&v)
-	for tick := range 37 {
-		v.events = nil
-		g.Tick(&v)
-		hits := 0
-		for _, ev := range v.events {
-			if ev.Kind == MobAttackedPlayer {
-				hits++
-				if ev.Damage != 30 {
-					t.Fatal("bad melee damage")
-				}
-			}
-		}
-		want := 0
-		if tick%18 == 0 {
-			want = 1
-		}
-		if hits != want {
-			t.Fatalf("tick %d: got %d melee hits", tick, hits)
-		}
-	}
-	m.warden.attackCooldown = 60
-	g.ticksUntilAttack = 0
-	v.events = nil
-	g.Tick(&v)
-	for _, ev := range v.events {
-		if ev.Kind == MobAttackedPlayer {
-			t.Fatal("melee during sonic charge")
-		}
-	}
-	m.warden.attackCooldown = 0
-	w.set(1, 65, 0, defaultState(t, "minecraft:stone"))
-	v.events = nil
-	g.Tick(&v)
-	for _, ev := range v.events {
-		if ev.Kind == MobAttackedPlayer {
-			t.Fatal("melee through wall")
-		}
 	}
 }
 

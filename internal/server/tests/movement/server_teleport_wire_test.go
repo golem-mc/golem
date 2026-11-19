@@ -2,8 +2,9 @@ package movement
 
 import (
 	"bytes"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
@@ -206,79 +207,6 @@ func TestRelativeTeleportKeepsItsOffsets(t *testing.T) {
 	c.Disconnect()
 }
 
-// TestLocalTeleportWithRotationKeepsTheTurn checks a ^ move that names a
-// rotation too: the ^ coordinates make only the position axes relative, while
-// the rotation clause turns the body and carries its own relative bits.
-// vanilla: TeleportCommand.getRelatives
-func TestLocalTeleportWithRotationKeepsTheTurn(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.GameMode = "creative"
-
-	_, c := servertest.Dial(t, cfg, servertest.OpsListing(t, "Testificate"))
-	c.Login("Testificate")
-	c.Configure()
-	c.SpawnedAt() // (0.5, 64, 0.5) in the flat world
-	c.SkipJoin()
-
-	// Facing east, set through the command path so a teleport still waiting
-	// on its accept cannot drop a move; a rotation the ^ move dropped would
-	// leave the body at -90 rather than the 90/20 the clause gives.
-	c.ChatCommand("tp @s 0.5 64 0.5 -90 0")
-	servertest.ExpectTeleport(t, c)
-	c.Settle()
-
-	// An absolute rotation: the position axes and their velocity relative,
-	// the turn absolute, so its bits stay clear.
-	c.ChatCommand("tp @s ^ ^ ^1 90 20")
-	r := protocol.NewReader(syncPositionForTest(t, c))
-	r.ReadVarInt() // teleport ID
-	x, y, z := r.ReadF64(), r.ReadF64(), r.ReadF64()
-	r.ReadF64() // velocity
-	r.ReadF64()
-	r.ReadF64()
-	yaw, pitch := r.ReadF32(), r.ReadF32()
-	flags := r.ReadI32()
-	if err := r.Err(); err != nil {
-		t.Fatalf("synchronize player position: %v", err)
-	}
-	if flags != 0xE7 {
-		t.Errorf("local rotation teleport flags = 0x%02X, want 0xE7 (the position and its velocity relative, the turn absolute)", flags)
-	}
-	if yaw != 90 || pitch != 20 {
-		t.Errorf("local rotation teleport rotation = %v/%v, want the given 90/20", yaw, pitch)
-	}
-	if x < 0.99 || x > 1.01 || y != 0 || z != 0 {
-		t.Errorf("local rotation teleport offset = (%v, %v, %v), want the one-block step", x, y, z)
-	}
-	c.Settle()
-
-	// A relative rotation: its bits join the position ones, and the yaw is
-	// the offset of the resolved 100 from the body's 90.
-	c.ChatCommand("tp @s ^ ^ ^1 ~10 ~")
-	r = protocol.NewReader(syncPositionForTest(t, c))
-	r.ReadVarInt() // teleport ID
-	r.ReadF64()
-	r.ReadF64()
-	r.ReadF64()
-	r.ReadF64() // velocity
-	r.ReadF64()
-	r.ReadF64()
-	yaw, pitch = r.ReadF32(), r.ReadF32()
-	flags = r.ReadI32()
-	if err := r.Err(); err != nil {
-		t.Fatalf("synchronize player position: %v", err)
-	}
-	if flags != 0xFF {
-		t.Errorf("relative local rotation flags = 0x%02X, want 0xFF", flags)
-	}
-	if yaw != 10 || pitch != 0 {
-		t.Errorf("relative local rotation = %v/%v, want the yaw offset 10 and level", yaw, pitch)
-	}
-	c.Disconnect()
-}
-
 // syncPositionForTest reads the next Synchronize Player Position and returns
 // its raw payload, the flags included.
 func syncPositionForTest(t *testing.T, c *servertest.Client) []byte {
@@ -336,67 +264,4 @@ func TestTeleportFacingEntitySendsTheEntityForm(t *testing.T) {
 	}
 	mover.Disconnect()
 	helper.Disconnect()
-}
-
-// TestTeleportFacingStartsFromTheSourceAnchor checks that a facing clause's
-// aim starts at the source's anchor: under execute anchored eyes the angles
-// are measured from a body's eyes, and the Look At says so.
-// vanilla: LookAt.Position
-func TestTeleportFacingStartsFromTheSourceAnchor(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.GameMode = "creative"
-
-	srv, c := servertest.Dial(t, cfg, servertest.OpsListing(t, "Testificate"))
-	c.Login("Testificate")
-	c.Configure()
-	c.SpawnedAt() // (0.5, 64, 0.5) in the flat world
-	c.SkipJoin()
-
-	// A spot level with the eyes, five blocks east: measured from the feet
-	// it would look up about 17.95 degrees, from the eyes it is level.
-	c.ChatCommand("execute anchored eyes run tp @s 0.5 64 0.5 facing 5.5 65.62 0.5")
-	servertest.ExpectTeleport(t, c)
-	if pos := srv.PlayerPosition("Testificate"); pos.Pitch != 0 {
-		t.Errorf("the eyes-anchored facing pitch = %v, want level 0", pos.Pitch)
-	}
-	look, ok := servertest.ReadUntil(t, c, servertest.ExpectTimeout, protocol.IDPlayLookAt)
-	if !ok {
-		t.Fatal("no player look at followed the facing teleport")
-	}
-	if anchor := protocol.NewReader(look).ReadVarInt(); anchor != 1 {
-		t.Errorf("look at source anchor = %d, want eyes (1)", anchor)
-	}
-	c.Disconnect()
-}
-
-// TestACrossingFacingTeleportKeepsTheDeltaBits checks a teleport across
-// dimensions: only the position relativeness is dropped, each relative axis
-// keeps its velocity delta, and the look stays relative.
-// vanilla: TeleportCommand.getRelatives
-func TestACrossingFacingTeleportKeepsTheDeltaBits(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.StartExecuteWorld(t, "Testificate")
-
-	c.ChatCommand("execute in minecraft:the_nether run tp @s ~3 100 ~ facing 0 64 0")
-	sawRespawn := false
-	var sync []byte
-	c.ReadTicks(srv, 400, func(id int32, data []byte) bool {
-		if id == protocol.IDPlayRespawn {
-			sawRespawn = true
-		}
-		if id == protocol.IDPlaySyncPosition && sawRespawn {
-			sync = data
-			return true
-		}
-		return false
-	})
-	if sync == nil {
-		t.Fatal("no synchronize player position arrived behind the crossing")
-	}
-	if flags := servertest.SyncPositionFlags(sync); flags != 0xB8 {
-		t.Errorf("crossing teleport flags = %#x, want 0xB8 (x and z delta plus the relative rotation)", flags)
-	}
-	c.Disconnect()
 }

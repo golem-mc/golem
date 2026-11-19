@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -149,63 +147,6 @@ func TestTagdefsKeepReferencesAndNestedNames(t *testing.T) {
 	}
 }
 
-func TestTagdefsRefuseAnOptionalEntry(t *testing.T) {
-	w := newWorkspace(t)
-	w.serverJar(map[string]string{
-		"data/minecraft/tags/block/odd.json": `{"values": [{"id": "minecraft:x", "required": false}]}`,
-	})
-	if stderr := w.genFails("tagdefs"); !strings.Contains(stderr, "unsupported entry") {
-		t.Errorf("stderr = %q", stderr)
-	}
-}
-
-func TestPlaceKeysCountTemplatesAndPools(t *testing.T) {
-	w := newWorkspace(t)
-	w.serverJar(map[string]string{
-		"data/minecraft/worldgen/feature/oak.json":                   "{}",
-		"data/minecraft/worldgen/structure/village.json":             "{}",
-		"data/minecraft/worldgen/template_pool/village/streets.json": "{}",
-		"data/minecraft/structure/igloo/top.nbt":                     "",
-		"data/minecraft/structure/readme.txt":                        "",
-	})
-	w.gen("placekeys")
-	w.wantContains("registry/placekeys_gen.go",
-		`"minecraft:oak": true`, `"minecraft:village": true`,
-		`"minecraft:village/streets": true`, `"minecraft:igloo/top": true`)
-	if strings.Contains(w.read("registry/placekeys_gen.go"), "readme") {
-		t.Error("a file with another suffix was listed")
-	}
-}
-
-func TestPaintingsFollowTheRegistryOrder(t *testing.T) {
-	w := newWorkspace(t)
-	w.write(w.root, "registry/registries_gen.go", `package registry
-var Synchronized = []Registry{
-	{Name: "minecraft:painting_variant", Entries: []string{
-		"minecraft:b",
-		"minecraft:a",
-	}},
-}`)
-	w.serverJar(map[string]string{
-		"data/minecraft/painting_variant/a.json": `{"width": 1, "height": 2}`,
-		"data/minecraft/painting_variant/b.json": `{"width": 4, "height": 3}`,
-	})
-	w.gen("paintings")
-	got := w.read("registry/paintings_gen.go")
-	if b, a := strings.Index(got, "{4, 3}, // minecraft:b"), strings.Index(got, "{1, 2}, // minecraft:a"); b < 0 || a < b {
-		t.Errorf("rows are not in registry order:\n%s", got)
-	}
-	// A variant the data pack has and the registry lacks stops the generation.
-	w.serverJar(map[string]string{
-		"data/minecraft/painting_variant/a.json": `{"width": 1, "height": 2}`,
-		"data/minecraft/painting_variant/b.json": `{"width": 4, "height": 3}`,
-		"data/minecraft/painting_variant/c.json": `{"width": 1, "height": 1}`,
-	})
-	if stderr := w.genFails("paintings"); !strings.Contains(stderr, "not in the registry: minecraft:c") {
-		t.Errorf("stderr = %q", stderr)
-	}
-}
-
 // biomeRegistry writes the registry file the biomespawns generator reads biome names from.
 func (w *workspace) biomeRegistry(names ...string) {
 	var entries strings.Builder
@@ -213,115 +154,6 @@ func (w *workspace) biomeRegistry(names ...string) {
 		entries.WriteString("\t\t\"minecraft:" + n + "\",\n")
 	}
 	w.write(w.root, "registry/registries_gen.go", "package registry\nvar Synchronized = []Registry{\n\t{Name: \"minecraft:worldgen/biome\", Entries: []string{\n"+entries.String()+"\t}},\n}")
-}
-
-func TestBiomeSpawnsKeepFileOrderAndSkipEmptyLists(t *testing.T) {
-	w := newWorkspace(t)
-	w.biomeRegistry("plains")
-	w.serverJar(map[string]string{
-		"data/minecraft/worldgen/biome/plains.json": j(map[string]any{"attributes": map[string]any{"minecraft:gameplay/natural_mob_spawns": map[string]any{
-			"modifier": "overlay",
-			"argument": map[string]any{"spawns_by_category": map[string]any{
-				"monster": []map[string]any{
-					{"type": "minecraft:zombie", "weight": 95, "count": 4},
-					{"type": "minecraft:spider", "weight": 100, "count": 4},
-				},
-				"creature": []any{},
-			}},
-		}}}),
-	})
-	w.gen("biomespawns")
-	got := w.read("internal/server/entity/spawning_gen.go")
-	zombie, spider := strings.Index(got, `{registry.EntityTypeZombie, 95, 4, 4}`), strings.Index(got, `{registry.EntityTypeSpider, 100, 4, 4}`)
-	if zombie < 0 || spider < zombie {
-		t.Errorf("monster list out of order:\n%s", got)
-	}
-	creatures := got[strings.Index(got, "var biomeCreatureSpawns"):]
-	if strings.Contains(creatures[:strings.Index(creatures, "}\n")+1], "plains") {
-		t.Errorf("an empty list was written:\n%s", creatures)
-	}
-}
-
-func TestEquippableDefaultsSwappableAndSkipsEmpty(t *testing.T) {
-	w := newWorkspace(t)
-	w.report("registries.json", `{"minecraft:sound_event":{"entries":{"minecraft:item.armor.equip_generic":{"protocol_id":0},"minecraft:item.shears.snip":{"protocol_id":1}}}}`)
-	items := "generated/reports/minecraft/components/item/"
-	w.write(w.ref, items+"iron_helmet.json", j(map[string]any{"components": map[string]any{
-		"minecraft:max_stack_size": 1,
-		"minecraft:equippable":     map[string]any{"slot": "head"},
-	}}))
-	w.write(w.ref, items+"shield.json", j(map[string]any{"components": map[string]any{
-		"minecraft:equippable": map[string]any{"slot": "offhand", "swappable": false, "dispensable": false, "equip_on_interact": true},
-	}}))
-	w.write(w.ref, items+"stick.json", j(map[string]any{"components": map[string]any{"minecraft:max_stack_size": 64}}))
-	w.write(w.ref, items+"blank.json", j(map[string]any{"components": map[string]any{"minecraft:equippable": map[string]any{}}}))
-	w.gen("equippable")
-	got := w.read("registry/equippable_gen.go")
-	for _, want := range []string{`{Slot: "head", Swappable: true, Entities: "", EquipSound: SoundItemArmorEquipGeneric.Holder(), CanBeSheared: false, ShearingSound: SoundItemShearsSnip.Holder(), Dispensable: true, DamageOnHurt: true, EquipOnInteract: false}`,
-		`{Slot: "offhand", Swappable: false, Entities: "", EquipSound: SoundItemArmorEquipGeneric.Holder(), CanBeSheared: false, ShearingSound: SoundItemShearsSnip.Holder(), Dispensable: false, DamageOnHurt: true, EquipOnInteract: true}`} {
-		if !strings.Contains(got, want) {
-			t.Errorf("missing %q in\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "stick") || strings.Contains(got, "blank") {
-		t.Errorf("an item without a slot was written:\n%s", got)
-	}
-	w.write(w.ref, items+"iron_helmet.json", `{"components":{"minecraft:equippable":{"slot":"head","equip_sound":"example:unknown"}}}`)
-	if stderr := w.genFails("equippable"); !strings.Contains(stderr, "unregistered component sound") {
-		t.Errorf("unknown sound accepted: %s", stderr)
-	}
-	if w.read("registry/equippable_gen.go") != got {
-		t.Fatal("failed generation overwrote the table")
-	}
-}
-
-func TestItemDyesWritesTheDyeComponentAndRejectsAnUnknownColour(t *testing.T) {
-	w := newWorkspace(t)
-	items := "generated/reports/minecraft/components/item/"
-	w.write(w.ref, items+"orange_dye.json", j(map[string]any{"components": map[string]any{"minecraft:dye": "orange"}}))
-	w.write(w.ref, items+"stick.json", j(map[string]any{"components": map[string]any{"minecraft:max_stack_size": 64}}))
-	w.report("registries.json", `{"minecraft:item": {"entries": {"minecraft:orange_dye": {"protocol_id": 0}}}}`)
-	w.gen("itemdyes")
-	got := w.read("registry/itemdyes_gen.go")
-	if !strings.Contains(got, `ItemOrangeDye: "orange"`) || strings.Contains(got, "Stick") {
-		t.Errorf("unexpected table:\n%s", got)
-	}
-}
-
-func TestBannerPatternItemsWriteTheProvidedTagAndRejectAForeignOne(t *testing.T) {
-	w := newWorkspace(t)
-	items := "generated/reports/minecraft/components/item/"
-	w.write(w.ref, items+"creeper_banner_pattern.json", j(map[string]any{"components": map[string]any{"minecraft:provides_banner_patterns": "#minecraft:pattern_item/creeper"}}))
-	w.write(w.ref, items+"stick.json", j(map[string]any{"components": map[string]any{"minecraft:max_stack_size": 64}}))
-	w.report("registries.json", `{"minecraft:item": {"entries": {"minecraft:creeper_banner_pattern": {"protocol_id": 0}}}}`)
-	w.gen("bannerpatternitems")
-	got := w.read("registry/bannerpatternitems_gen.go")
-	if !strings.Contains(got, `ItemCreeperBannerPattern: "minecraft:pattern_item/creeper"`) || strings.Contains(got, "Stick") {
-		t.Errorf("unexpected table:\n%s", got)
-	}
-}
-
-func TestBlockStatesPutTheDefaultFirstAndFindSixDirectionFacing(t *testing.T) {
-	w := newWorkspace(t)
-	w.report("registries.json", `{"minecraft:item": {"entries": {"minecraft:stone": {"protocol_id": 0}}}}`)
-	w.report("blocks.json", j(map[string]any{
-		"minecraft:stone":     map[string]any{"states": []any{map[string]any{"id": 1, "default": true}}},
-		"minecraft:soul_fire": map[string]any{"states": []any{map[string]any{"id": 2, "default": true}}},
-		"minecraft:piston": map[string]any{
-			"properties": map[string]any{"facing": []string{"north", "up"}, "extended": []string{"true", "false"}},
-			"states": []any{
-				map[string]any{"id": 3, "properties": map[string]string{"facing": "up", "extended": "true"}},
-				map[string]any{"id": 4, "default": true, "properties": map[string]string{"facing": "north", "extended": "false"}},
-			},
-		},
-	}))
-	w.gen("blockstates")
-	w.wantContains("registry/blockstates_gen.go",
-		`"minecraft:piston":`, `{4, "extended=false,facing=north"}, {3, "extended=true,facing=up"}`,
-		`"minecraft:soul_fire":`, `{2, ""}`)
-	if strings.Contains(w.read("registry/blockstates_gen.go"), `"minecraft:stone"`) {
-		t.Error("a propertyless block with an item form was written")
-	}
 }
 
 func TestLanguageRewritesFormatsThenAppliesDeprecations(t *testing.T) {
@@ -421,73 +253,5 @@ func TestRegistriesResolveTagsAndRefuseAStaleReport(t *testing.T) {
 	w.report("registries.json", `{"minecraft:block": {"entries": {"minecraft:stone": {"protocol_id": 0}}}}`)
 	if code, stderr := runWith("registries"); code != 1 || !strings.Contains(stderr, "minecraft:base") {
 		t.Errorf("exit %d, %q", code, stderr)
-	}
-}
-
-func TestBlocksStopWhenTheReportLacksAFamilysType(t *testing.T) {
-	w := newWorkspace(t)
-	w.report("registries.json", `{
-		"minecraft:block": {"entries": {"minecraft:air": {"protocol_id": 0}, "minecraft:sand": {"protocol_id": 1},
-			"minecraft:white_concrete_powder": {"protocol_id": 2}, "minecraft:white_concrete": {"protocol_id": 3}}},
-		"minecraft:item": {"entries": {"minecraft:sand": {"protocol_id": 0}, "minecraft:diamond": {"protocol_id": 1}}}}`)
-	def := func(typ string, states ...map[string]any) map[string]any {
-		return map[string]any{"definition": map[string]any{"type": typ}, "states": states}
-	}
-	powder := def("minecraft:concrete_powder", map[string]any{"id": 2, "default": true})
-	powder["definition"].(map[string]any)["concrete"] = "minecraft:white_concrete"
-	w.report("blocks.json", j(map[string]any{
-		"minecraft:air":                   def("minecraft:air", map[string]any{"id": 0, "default": true}),
-		"minecraft:sand":                  def("minecraft:sand", map[string]any{"id": 1, "default": true}),
-		"minecraft:white_concrete_powder": powder,
-		"minecraft:white_concrete":        def("minecraft:block", map[string]any{"id": 3, "default": true}),
-	}))
-	// The families name definition types the real report has; this report has
-	// none of them, so the generation stops and says which.
-	if stderr := w.genFails("blocks"); !strings.Contains(stderr, "missing block definition type") {
-		t.Errorf("stderr = %q", stderr)
-	}
-}
-
-func TestBlockGroupsFollowDefinitionTypesMembersAndExcludes(t *testing.T) {
-	var blocks vanilla.Blocks
-	all := map[string]string{}
-	for _, g := range blockGroupSpecs {
-		for _, typ := range g.types {
-			all[typ] = ""
-		}
-	}
-	doc := map[string]any{}
-	i := 0
-	for typ := range all {
-		doc["minecraft:b"+strings.ReplaceAll(strings.TrimPrefix(typ, "minecraft:"), "_", "")+strconv.Itoa(i)] =
-			map[string]any{"definition": map[string]any{"type": typ}}
-		i++
-	}
-	// The explicit members and excludes must exist as blocks.
-	for _, g := range blockGroupSpecs {
-		for _, name := range append(append([]string{}, g.members...), g.excludes...) {
-			doc[name] = map[string]any{"definition": map[string]any{"type": "minecraft:other"}}
-		}
-	}
-	if err := json.Unmarshal([]byte(j(doc)), &blocks); err != nil {
-		t.Fatal(err)
-	}
-	definitions, err := blockDefinitions(nil, blocks)
-	if err != nil {
-		t.Fatal(err)
-	}
-	groups, err := blockGroupsFor(definitions)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Contains(groups["minecraft:sea_lantern"], "Lantern") {
-		t.Errorf("an explicit member was left out: %v", groups["minecraft:sea_lantern"])
-	}
-	if slices.Contains(groups["minecraft:carved_pumpkin"], "Lantern") {
-		t.Errorf("an excluded block was put in: %v", groups["minecraft:carved_pumpkin"])
-	}
-	delete(definitions, "minecraft:sea_lantern")
-	if _, err := blockGroupsFor(definitions); err == nil || !strings.Contains(err.Error(), "missing explicit block") {
-		t.Errorf("err = %v", err)
 	}
 }

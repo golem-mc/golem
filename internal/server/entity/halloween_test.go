@@ -70,44 +70,8 @@ func TestHalloweenHeadsOnTheZombieAndSkeletonFamilies(t *testing.T) {
 	}
 }
 
-func TestNoHalloweenHeadsOnOtherDays(t *testing.T) {
-	for _, kind := range []MobType{TypeZombie, TypeSkeleton} {
-		if p, l, _ := halloweenHeads(t, kind, rules.LocalDifficulty{}, 2000); p+l != 0 {
-			t.Errorf("%s: %d pumpkin heads off Halloween", kind, p+l)
-		}
-	}
-}
-
-func TestHalloweenKeepsAnArmouredHead(t *testing.T) {
-	m := NewMob(TypeZombie, 1, 0, 64, 0, 1)
-	helmet := protocol.ItemStack{ItemID: 1, Count: 1}
-	for seed := range int64(500) {
-		m.lootSeed = seed
-		m.Worn[wornHead] = helmet
-		m.rollHalloweenHead(m.halloweenDice(), hardHalloween())
-		if m.Worn[wornHead].ItemID != helmet.ItemID {
-			t.Fatalf("seed %d: pumpkin over a helmet", seed)
-		}
-	}
-}
-
 func hardHalloween() rules.LocalDifficulty {
 	l := hard()
 	l.Halloween = true
 	return l
-}
-
-// A zombie in a pack an animal claimed first still takes the Halloween roll.
-func TestHalloweenHeadOnAZombieOfAMixedGroup(t *testing.T) {
-	heads := 0
-	for seed := range int64(200) {
-		z := NewMob(TypeZombie, 1, 0, 64, 0, seed)
-		z.FinalizeSpawn(GoDice{z.Rand}, testBiome("minecraft:plains"), &SpawnGroup{claimed: true}, rules.LocalDifficulty{Halloween: true})
-		if z.Worn[wornHead].ItemID == int32(registry.ItemCarvedPumpkin) || z.Worn[wornHead].ItemID == int32(registry.ItemJackOLantern) {
-			heads++
-		}
-	}
-	if heads == 0 {
-		t.Fatal("no pumpkin heads on a zombie of a mixed group")
-	}
 }

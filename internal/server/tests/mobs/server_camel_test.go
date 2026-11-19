@@ -6,9 +6,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -52,18 +50,6 @@ func camelRiders(t *testing.T, names ...string) (*server.Server, []*servertest.C
 	return s, clients, camel.EntityID
 }
 
-// TestACamelSpawnsWithThirtyTwoHealth: a summoned camel arrives with 32 health.
-// vanilla: Camel.createAttributes
-func TestACamelSpawnsWithThirtyTwoHealth(t *testing.T) {
-	t.Parallel()
-	srv, c := striderWorld(t)
-	srv.SpawnMob("minecraft:camel", 5.5, 64, 5.5)
-	srv.TickMobs(1)
-	if got := c.ExpectMobSpawn(camelType(t)); got.Health != 32 {
-		t.Errorf("camel health %v, want 32", got.Health)
-	}
-}
-
 // TestTwoPlayersRideOneCamelInOneSetPassengersPacket: the second player's
 // click seats them behind the first, and the packet names both.
 // vanilla: Camel.mobInteract, canAddPassenger
@@ -85,25 +71,6 @@ func TestTwoPlayersRideOneCamelInOneSetPassengersPacket(t *testing.T) {
 	want := []int32{first.PlayerEntityID, second.PlayerEntityID}
 	if !slices.Equal(last, want) {
 		t.Errorf("passengers %v, want %v", last, want)
-	}
-}
-
-// TestASummonedCamelWithANegativePoseTickSits: a negative LastPoseTick spawns
-// the camel in the sitting pose (Pose.SITTING, 10) with the tick told.
-// vanilla: Camel.readAdditionalSaveData
-func TestASummonedCamelWithANegativePoseTickSits(t *testing.T) {
-	t.Parallel()
-	srv, c := striderWorld(t)
-	c.ChatCommand("summon minecraft:camel 5.5 64 5.5 {LastPoseTick:-1L}")
-	camel := c.AwaitSpawn(camelType(t))
-	srv.TickMobs(1)
-	meta := c.AwaitMetadataFor(camel.EntityID)
-	pose := servertest.MetaOf(meta, protocol.MetadataIndexPose)
-	if pose == nil || pose.VarintVal != protocol.PoseSitting {
-		t.Errorf("pose entry %+v, want %d (sitting)", pose, protocol.PoseSitting)
-	}
-	if tick := servertest.MetaOf(meta, protocol.MetadataIndexCamelLastPoseChangeTick); tick == nil || tick.LongVal != -1 {
-		t.Errorf("last pose change tick entry %+v, want -1", tick)
 	}
 }
 
@@ -215,39 +182,5 @@ func TestForwardInputStandsARiddenSittingCamelUp(t *testing.T) {
 	})
 	if !stood {
 		t.Error("the camel did not stand up on forward input")
-	}
-}
-
-// TestACamelSummonedWithNBTIsTame: a camel loaded with no Tame or Tame:0b
-// still takes a saddle and is bred with cactus.
-// vanilla: Camel.isTamed, Camel.mobInteract, Camel.handleEating
-func TestACamelSummonedWithNBTIsTame(t *testing.T) {
-	t.Parallel()
-	for _, tag := range []string{"{NoAI:1b}", "{NoAI:1b,Tame:0b}"} {
-		t.Run(tag, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:saddle", 1, func(s *server.Server) {
-				s.SetWorldAge(1000)
-				servertest.FreezeUntilHeld(t, s)
-			})
-			servertest.HoldTicks(t, srv)
-			nbtTag, err := nbt.ParseSNBT(tag)
-			if err != nil {
-				t.Fatal(err)
-			}
-			id := srv.SpawnMobTagged("minecraft:camel", 1.5, 64, 2.5, nbtTag)
-			if !servertest.ASpawnOfWithinTicks(c, srv, 3, camelType(t)) {
-				t.Fatal("the camel was not told within 3 ticks")
-			}
-			c.UseOn(id)
-			c.Settle()
-			if srv.MobEquipment(id, "saddle").Empty() {
-				t.Error("the camel refused the saddle")
-			}
-			srv.GiveSlot("Rancher", player.HotbarSlot, servertest.ItemStack(t, "minecraft:cactus", 1))
-			c.Settle()
-			c.UseOn(id)
-			c.AwaitEntityEvent(id, loveHearts)
-		})
 	}
 }

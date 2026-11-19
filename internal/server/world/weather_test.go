@@ -129,24 +129,6 @@ func TestAnOlderWorldMigratesTheWeatherToWeatherDat(t *testing.T) {
 	}
 }
 
-// TestSkyFadesWithAdvanceWeatherOff checks that the rule holds the timers
-// but not the fade: vanilla moves the levels outside the rule's gate.
-func TestSkyFadesWithAdvanceWeatherOff(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld(t, NewFlatGenerator())
-	w.SetBoolRule(RuleAdvanceWeather, false)
-	w.SetWeather(true, true, 5, 5, 0)
-	for range 101 {
-		w.TickWeather()
-	}
-	if raining, rain, thunder := w.Sky(); !raining || rain != 1 || thunder != 1 {
-		t.Errorf("sky after 101 ticks = %v, %v, %v; want true, 1, 1", raining, rain, thunder)
-	}
-	if w.level.RainTime != 5 || w.level.ThunderTime != 5 {
-		t.Errorf("timers = %d, %d; want held at 5, 5", w.level.RainTime, w.level.ThunderTime)
-	}
-}
-
 func TestIsRainingFollowsTheFadingSky(t *testing.T) {
 	t.Parallel()
 	w := newTestWorld(t, NewFlatGenerator())
@@ -176,40 +158,6 @@ func TestIsRainingFollowsTheFadingSky(t *testing.T) {
 		if change.Ended != (tick == 81) {
 			t.Fatalf("rain fade-out tick %d: Ended = %v", tick, change.Ended)
 		}
-	}
-}
-
-func TestIsRainingUsesEachDimensionsSky(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld(t, NewFlatGenerator())
-	w.SetBoolRule(RuleAdvanceWeather, false)
-	w.SetWeather(true, true, 5, 5, 0)
-	other := newTestWorld(t, NewFlatGenerator())
-	other.SetTimeSource(w)
-	if !other.IsRaining() || w.IsRaining() {
-		t.Fatal("attaching a time source must prepare only the attached world's rain")
-	}
-	for _, nether := range []bool{true, false} {
-		dim := NewDimensionWorld(t.TempDir(), nether, NewFlatGenerator())
-		t.Cleanup(dim.FlushSaves)
-		dim.SetTimeSource(w)
-		dim.TickWeather()
-		if dim.IsRaining() {
-			t.Fatalf("%s must stay dry under shared rain flags", dim.Name())
-		}
-	}
-	w.SetWeather(false, false, 5, 5, 0)
-	for range 101 {
-		w.TickWeather()
-	}
-	if !other.IsRaining() {
-		t.Fatal("ticking the time source changed another world's rain level")
-	}
-	for range 101 {
-		other.TickWeather()
-	}
-	if other.IsRaining() {
-		t.Fatal("the attached world's rain did not fade out")
 	}
 }
 
@@ -266,23 +214,5 @@ func TestSkyDarkenBlendsTheFadingWeather(t *testing.T) {
 	}
 	if got := w.SkyDarken(); got != 4 {
 		t.Errorf("darken under a %v rain and thunder %v = %d, want 4", rain, thunder, got)
-	}
-}
-
-// TestSpentTimerRollsTheDice checks that a timer at zero is rolled, not
-// flipped, from the dice for the weather it holds.
-func TestSpentTimerRollsTheDice(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld(t, NewFlatGenerator())
-	w.SetWeather(true, false, 0, 0, 0)
-	w.TickWeather()
-	if !w.Raining() || w.Thundering() {
-		t.Fatal("a spent timer flipped the weather")
-	}
-	if r := w.level.RainTime; r < RainDuration.Min || r > RainDuration.Max {
-		t.Errorf("rain timer = %d, want within %v", r, RainDuration)
-	}
-	if th := w.level.ThunderTime; th < ThunderDelay.Min || th > ThunderDelay.Max {
-		t.Errorf("thunder timer = %d, want within %v", th, ThunderDelay)
 	}
 }

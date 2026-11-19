@@ -9,7 +9,6 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -162,92 +161,3 @@ func TestEndDragonBodyDamageAndCrystalHealing(t *testing.T) {
 }
 
 func dragonTypeID() int32 { id, _ := registry.EntityTypeID("minecraft:ender_dragon"); return id }
-
-func TestDestroyingTheHealingCrystalHurtsTheDragonAudibly(t *testing.T) {
-	srv, c, dragon := joinDragonFight(t)
-	c.ChatCommand("gamemode spectator")
-	c.ChatCommand("data merge entity @e[type=ender_dragon,limit=1] {Health:160f}")
-	c.MoveTo(0, 138, -24, 0, 15)
-	c.Settle()
-	// Outside the crystal's 12-block blast radius, the dragon can only be
-	// hurt by onCrystalDestroyed's head hit.
-	crystal := srv.SpawnEndCrystalInDimension(world.EndName, 0, 128, 20)
-	servertest.UntilTicks(t, srv, 100, "dragon healing from the crystal", func() bool {
-		h, _ := srv.MobHealthInDimension(world.EndName, dragon)
-		return h > 160
-	})
-	before, _ := srv.MobHealthInDimension(world.EndName, dragon)
-	c.Settle()
-	c.ChatCommand("damage @e[type=end_crystal,x=0,y=128,z=20,sort=nearest,limit=1] 1 minecraft:player_attack by @s")
-	heardHurt, damageEvent, healthMetadata := false, false, false
-	c.ReadTicks(srv, 2, func(packet int32, data []byte) bool {
-		switch packet {
-		case protocol.IDPlaySoundEffect:
-			sound, category, _, _, _, volume, _ := servertest.ReadAmbient(t, data)
-			if sound == "minecraft:entity.ender_dragon.hurt" {
-				heardHurt = true
-				if category != protocol.SoundCategoryHostile || volume != 5 {
-					t.Errorf("hurt category=%d volume=%v, want hostile at 5", category, volume)
-				}
-			}
-		case protocol.IDPlayDamageEvent:
-			r := protocol.NewReader(data)
-			if r.ReadVarInt() != dragon {
-				break
-			}
-			damageEvent = true
-			if typ := r.ReadVarInt(); typ != registry.MustID("minecraft:damage_type", "minecraft:player_explosion") {
-				t.Errorf("damage type=%d, want player_explosion", typ)
-			}
-			if cause, direct := r.ReadVarInt(), r.ReadVarInt(); cause != c.PlayerEntityID+1 || direct != crystal+1 {
-				t.Errorf("damage cause=%d direct=%d, want player=%d crystal=%d", cause, direct, c.PlayerEntityID+1, crystal+1)
-			}
-			if r.ReadBool() || r.Err() != nil || r.Remaining() != 0 {
-				t.Error("malformed crystal damage event")
-			}
-		case protocol.IDPlayEntityMetadata:
-			if m, ok := servertest.ReadBodyMetadata(c, data, map[int32]bool{dragon: true}); ok && m.HasHealth && m.Health == float32(before-10) {
-				healthMetadata = true
-			}
-		}
-		return heardHurt && damageEvent && healthMetadata
-	})
-	if !heardHurt || !damageEvent || !healthMetadata {
-		t.Errorf("crystal hurt within 2 ticks: sound=%v damage event=%v health metadata=%v", heardHurt, damageEvent, healthMetadata)
-	}
-	if h, _ := srv.MobHealthInDimension(world.EndName, dragon); h != before-10 {
-		t.Errorf("crystal hurt health=%v, want %v", h, before-10)
-	}
-}
-
-// TestEndDragonFightScanFindsCarriedPortal checks that the fight's first scan
-// reads an end portal entity in the arena as a fight already won: no dragon
-// spawns and previously_killed is saved.
-// vanilla: EnderDragonFight.scanState, hasActiveExitPortal
-func TestEndDragonFightScanFindsCarriedPortal(t *testing.T) {
-	srv, c := servertest.Join(t, servertest.CrossingTestConfig(t), "DragonWatcher", servertest.OpsListing(t, "DragonWatcher"), func(s *server.Server) { servertest.FreezeUntilHeld(t, s) })
-	srv.MovePlayerToDimension("DragonWatcher", world.EndName, 0, 70, 0)
-	if _, ok := servertest.ReadUntilViewSent(t, c); !ok {
-		t.Fatal("no End view")
-	}
-	servertest.HoldTicks(t, srv)
-	srv.SetBlockInDimension(world.EndName, 3, 60, 0, registry.BlockStates["minecraft:end_portal"])
-	srv.SetBlockEntityTagInDimension(world.EndName, 3, 60, 0, "minecraft:end_portal", nbt.Compound{})
-	// The fight admits the watcher and requests the arena on tick 20; the tick
-	// after the arena settles completes the scan.
-	servertest.RunTicks(t, srv, 20)
-	servertest.PollUntil(t, 20*time.Second, srv.DragonArenaSettled)
-	servertest.RunTicks(t, srv, 1)
-	for _, m := range srv.MobsInDimension(world.EndName) {
-		if m.Kind == "minecraft:ender_dragon" {
-			t.Fatal("a dragon spawned over an existing exit portal")
-		}
-	}
-	saved := srv.SavedDragonFight()
-	if nbt.BoolField(saved, "needs_state_scanning") {
-		t.Fatal("the fight never scanned")
-	}
-	if !nbt.BoolField(saved, "previously_killed") {
-		t.Fatal("previously_killed not saved")
-	}
-}

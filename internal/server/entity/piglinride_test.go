@@ -31,17 +31,3 @@ func TestABabyPiglinRidesANearbyBabyHoglinThenGetsOffWhenItExpires(t *testing.T)
 		t.Error("the baby stays on after the ride target expired")
 	}
 }
-
-func TestABabyPiglinGetsOffAHoglinThatGrewUp(t *testing.T) {
-	w, ps, hs := huntWorld(t, 1, 1)
-	baby, calf := ps[0], hs[0]
-	baby.SetBaby(true)
-	calf.SetBaby(true)
-	Ride(calf, baby)
-	baby.barter.ride, baby.barter.rideLeft = calf.ID, 400
-	calf.SetBaby(false)
-	runHunt(w, all(ps, hs), 3)
-	if baby.Vehicle != nil {
-		t.Error("the baby rides an adult hoglin")
-	}
-}

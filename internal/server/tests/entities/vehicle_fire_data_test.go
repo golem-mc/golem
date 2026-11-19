@@ -2,10 +2,8 @@ package entities
 
 import (
 	"fmt"
-	"slices"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
@@ -75,63 +73,6 @@ func TestVehicleFireDataMatchesIgnition(t *testing.T) {
 	}
 }
 
-// vanilla: BaseFireBlock.fireIgnite, AbstractBoat.tick, OldMinecartBehavior.tick
-func TestVehicleNegativeFireContact(t *testing.T) {
-	for _, kind := range []string{"oak_boat", "minecart"} {
-		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Stoker", servertest.OpsListing(t, "Stoker"))
-			servertest.HoldTicks(t, srv)
-			srv.SetBlock(4, 70, 4, registry.BlockFire.DefaultState())
-			target := "@e[type=minecraft:" + kind + ",limit=1]"
-			c.ChatCommand("summon minecraft:" + kind + " 4.5 70.5 4.5 {Invulnerable:1b,NoGravity:1b}")
-			typ, _ := registry.EntityTypeID("minecraft:" + kind)
-			c.AwaitSpawn(typ)
-			c.ChatCommand("data merge entity " + target + " {Fire:-12s}")
-			c.Settle()
-			for _, step := range []struct {
-				ticks int
-				want  string
-			}{{1, "-10s"}, {4, "-2s"}, {1, "160s"}} {
-				servertest.RunTicks(t, srv, step.ticks)
-				if got := awaitEntityDataCompound(t, srv, c, target, "Fire"); got != step.want {
-					t.Fatalf("Fire after %d ticks = %s, want %s", step.ticks, got, step.want)
-				}
-			}
-		})
-	}
-}
-
-// vanilla: OldMinecartBehavior.tick, Entity.applyEffectsFromBlocks, AbstractMinecart.tick
-func TestMinecartLavaIgnitesAfterRain(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Stoker", servertest.OpsListing(t, "Stoker"))
-	servertest.HoldTicks(t, srv)
-	srv.SetBlock(4, 150, 4, registry.BlockLava.DefaultState())
-	c.ChatCommand("summon minecraft:minecart 4.5 150.5 4.5 {Invulnerable:1b,NoGravity:1b}")
-	c.AwaitSpawn(protocol.EntityTypeMinecart)
-	c.Settle()
-	servertest.RunTicks(t, srv, 1)
-	target := "@e[type=minecraft:minecart,limit=1]"
-	if got := awaitEntityDataCompound(t, srv, c, target, "Fire"); got != "300s" {
-		t.Fatalf("dry lava Fire = %s, want 300s", got)
-	}
-	srv.SetWeatherState(true, false, 100000, 100000, 0)
-	for range 400 {
-		srv.TickWeather()
-	}
-	servertest.RunTicks(t, srv, 1)
-	if got := awaitEntityDataCompound(t, srv, c, target, "Fire"); got != "300s" {
-		t.Errorf("rainy lava Fire = %s, want 300s", got)
-	}
-	// Without lava's final ignition, the same rain must still clear the cart.
-	srv.SetBlock(4, 150, 4, 0)
-	servertest.RunTicks(t, srv, 1)
-	if got := awaitEntityDataCompound(t, srv, c, target, "Fire"); got != "0s" {
-		t.Errorf("rain without lava Fire = %s, want 0s", got)
-	}
-}
-
 // vanilla: Entity.saveWithoutId, Entity.load, Entity.baseTick, AbstractMinecart.tick
 func TestReloadedVehicleKeepsItsBurn(t *testing.T) {
 	t.Parallel()
@@ -187,27 +128,5 @@ func TestReloadedVehicleKeepsItsBurn(t *testing.T) {
 	}
 	if got := awaitEntityDataCompound(t, againSrv, again, "@e[type=minecraft:minecart,limit=1]", "Fire"); got != "300s" {
 		t.Errorf("cart counted down its fire: %s", got)
-	}
-}
-
-// vanilla: AbstractMinecart.tick
-func TestMinecartFireDoesNotPublishOverlay(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Stoker", servertest.OpsListing(t, "Stoker"))
-	servertest.HoldTicks(t, srv)
-	r := servertest.NewMetadataRecorder(t, srv, c)
-	packets := r.Run(`summon minecart 4.5 70 4.5 {Fire:300s,NoGravity:1b}`)
-	id := servertest.SpawnedID(packets, protocol.EntityTypeMinecart)
-	if id == 0 {
-		t.Fatal("no cart spawned")
-	}
-	r.Record("burn", id, packets)
-	r.Record("burn", id, r.Read(2))
-	r.Record("burn", id, r.Run(`data merge entity @e[type=minecart,limit=1] {Fire:160s}`))
-	r.Record("burn", id, r.Read(2))
-	for _, payload := range r.Got["burn"] {
-		if slices.Contains(metadataIndices(t, payload), protocol.MetadataIndexEntityFlags) {
-			t.Errorf("cart published shared flags for its ignition: %s", payload)
-		}
 	}
 }

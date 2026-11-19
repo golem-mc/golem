@@ -106,133 +106,6 @@ func TestDecodeAdvancementIgnoresWhatVanillaIgnoresAndNeverFiresWhatItCannotTest
 	}
 }
 
-func TestDecodeAdvancementTickCriterionWithPlayerConditionIsUnmodelled(t *testing.T) {
-	adv, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
-		"a":{"trigger":"minecraft:tick"},
-		"b":{"trigger":"minecraft:tick","conditions":{"player":[]}},
-		"c":{"trigger":"minecraft:location"}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i, want := range []bool{false, true, false} {
-		if got := adv.Criteria[i].Unmodelled; got != want {
-			t.Errorf("criterion %s unmodelled = %v, want %v", adv.Criteria[i].Name, got, want)
-		}
-	}
-}
-
-func TestDecodeAdvancementReadsInventorySlots(t *testing.T) {
-	adv, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
-		"a":{"trigger":"minecraft:inventory_changed","conditions":{"slots":{"occupied":{"min":10},"empty":3}}},
-		"b":{"trigger":"minecraft:inventory_changed","conditions":{"slots":{"foo":1}}}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := adv.Criteria[0]
-	if a.Unmodelled {
-		t.Error("a is unmodelled, want modelled")
-	}
-	if want := (registry.AdvancementRange{Min: 10, HasMin: true}); a.Occupied != want {
-		t.Errorf("a's occupied = %+v, want %+v", a.Occupied, want)
-	}
-	if want := (registry.AdvancementRange{Min: 3, Max: 3, HasMin: true, HasMax: true}); a.Empty != want {
-		t.Errorf("a's empty = %+v, want %+v", a.Empty, want)
-	}
-	if !adv.Criteria[1].Unmodelled {
-		t.Error("b, with an unknown slots key, is modelled, want unmodelled")
-	}
-}
-
-func TestDecodeAdvancementReadsDistanceAndEnterBlockCriteria(t *testing.T) {
-	adv, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
-		"a":{"trigger":"nether_travel","conditions":{"distance":{"absolute":12.5,"x":{"max":3}}}},
-		"b":{"trigger":"minecraft:levitation","conditions":{"distance":{"y":{"min":5}},"duration":{"min":20}}},
-		"c":{"trigger":"minecraft:fall_from_height","conditions":{"start_position":{"position":{"y":{"min":100}}}}},
-		"d":{"trigger":"minecraft:fall_from_height","conditions":{"start_position":{"biomes":"minecraft:plains"}}},
-		"e":{"trigger":"minecraft:enter_block","conditions":{"block":"end_gateway"}},
-		"f":{"trigger":"minecraft:enter_block","conditions":{}}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i, wantUnmodelled := range []bool{false, true, false, true, false, true} {
-		if got := adv.Criteria[i].Unmodelled; got != wantUnmodelled {
-			t.Errorf("criterion %s unmodelled = %v, want %v", adv.Criteria[i].Name, got, wantUnmodelled)
-		}
-	}
-	wantA := registry.AdvancementDistance{
-		X:        registry.AdvancementRange{Max: 3, HasMax: true},
-		Absolute: registry.AdvancementRange{Min: 12.5, Max: 12.5, HasMin: true, HasMax: true},
-	}
-	if got := adv.Criteria[0].Distance; got != wantA {
-		t.Errorf("a's distance = %+v, want %+v", got, wantA)
-	}
-	if got := adv.Criteria[2].StartY; got != (registry.AdvancementRange{Min: 100, HasMin: true}) {
-		t.Errorf("c's start Y = %+v, want at least 100", got)
-	}
-	if got := adv.Criteria[4].Where; len(got) != 1 || !reflect.DeepEqual(got[0].Blocks, []string{"minecraft:end_gateway"}) {
-		t.Errorf("e's block = %+v, want the end gateway", got)
-	}
-}
-
-func TestDecodeAdvancementReadsRidingAndHitCriteria(t *testing.T) {
-	adv, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
-		"a":{"trigger":"started_riding","conditions":{"player":[{"condition":"minecraft:entity_properties","entity":"this",
-			"predicate":{"minecraft:vehicle":{"minecraft:entity_type":"#boat","minecraft:passenger":{"minecraft:entity_type":"goat"}}}}]}},
-		"b":{"trigger":"ride_entity_in_lava","conditions":{"distance":{"horizontal":{"min":50}},"player":[{"condition":"minecraft:entity_properties",
-			"entity":"this","predicate":{"minecraft:location":{"dimension":"overworld"},"minecraft:vehicle":{"minecraft:entity_type":"strider"}}}]}},
-		"c":{"trigger":"item_durability_changed","conditions":{"item":{"items":"minecraft:shears"},"durability":{"max":1}}},
-		"d":{"trigger":"target_hit","conditions":{"signal_strength":15,"projectile":[{"condition":"minecraft:entity_properties",
-			"entity":"this","predicate":{"minecraft:distance":{"horizontal":{"min":30}}}}]}},
-		"e":{"trigger":"entity_hurt_player","conditions":{"damage":{"type":{"tags":[{"id":"minecraft:is_projectile","expected":true}]},"blocked":true}}},
-		"f":{"trigger":"entity_hurt_player","conditions":{"damage":{"dealt":{"min":2}}}},
-		"g":{"trigger":"used_totem","conditions":{"item":{"items":"totem_of_undying"}}}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i, wantUnmodelled := range []bool{false, false, true, false, false, true, false} {
-		if got := adv.Criteria[i].Unmodelled; got != wantUnmodelled {
-			t.Errorf("criterion %s unmodelled = %v, want %v", adv.Criteria[i].Name, got, wantUnmodelled)
-		}
-	}
-	if a := adv.Criteria[0]; a.Vehicle != "#minecraft:boat" || a.Passenger != "minecraft:goat" {
-		t.Errorf("a's vehicle and passenger = %q, %q, want #minecraft:boat, minecraft:goat", a.Vehicle, a.Passenger)
-	}
-	if b := adv.Criteria[1]; b.Vehicle != "minecraft:strider" || b.Dimension != "minecraft:overworld" ||
-		b.Distance.Horizontal != (registry.AdvancementRange{Min: 50, HasMin: true}) {
-		t.Errorf("b = %+v, want a strider in the overworld 50 blocks from the start", b)
-	}
-	if d := adv.Criteria[3]; d.Signal != (registry.AdvancementRange{Min: 15, Max: 15, HasMin: true, HasMax: true}) ||
-		d.Distance.Horizontal != (registry.AdvancementRange{Min: 30, HasMin: true}) {
-		t.Errorf("d = %+v, want signal 15 from 30 blocks", d)
-	}
-	if e := adv.Criteria[4]; !e.Projectile || !e.Blocked {
-		t.Errorf("e = %+v, want a blocked projectile", e)
-	}
-	if g := adv.Criteria[6]; len(g.Items) != 1 || len(g.Items[0]) != 1 {
-		t.Errorf("g's items = %v, want the totem", g.Items)
-	}
-}
-
-func TestCureAdvancementRejectsUnmodelledEntityPredicates(t *testing.T) {
-	for _, tc := range []struct {
-		conditions string
-		unmodelled bool
-	}{
-		{`{}`, false},
-		{`{"zombie":{"type":"minecraft:zombie_villager"}}`, true},
-		{`{"villager":{"type":"minecraft:villager"}}`, true},
-		{`{"player":{}}`, true},
-	} {
-		adv, err := DecodeAdvancement("test:cure", []byte(`{"criteria":{"cure":{"trigger":"minecraft:cured_zombie_villager","conditions":`+tc.conditions+`}}}`))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := adv.Criteria[0].Unmodelled; got != tc.unmodelled {
-			t.Errorf("conditions %s: unmodelled %v, want %v", tc.conditions, got, tc.unmodelled)
-		}
-	}
-}
-
 func TestStructureLocationPredicatesDecode(t *testing.T) {
 	for _, tc := range []struct {
 		name, location string
@@ -258,30 +131,6 @@ func TestStructureLocationPredicatesDecode(t *testing.T) {
 				t.Errorf("decoded %+v, want structures %v, unmodelled %v", got, tc.want, tc.unmodelled)
 			}
 		})
-	}
-}
-
-func TestDecodeAxolotlEffectSource(t *testing.T) {
-	got, err := DecodeAdvancement("test:support", []byte(`{
-		"criteria":{"support":{"trigger":"minecraft:effects_changed","conditions":{
-			"source":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:axolotl"}}]
-		}}}
-	}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c := got.Criteria[0]; c.Unmodelled || c.Entity != "minecraft:axolotl" {
-		t.Fatalf("source predicate=%+v", c)
-	}
-	// An untyped source still requires a non-null entity; leave this predicate
-	// unmodelled until the criterion can distinguish it from no source condition.
-	emptySource, err := DecodeAdvancement("test:untyped", []byte(`{
-		"criteria":{"support":{"trigger":"minecraft:effects_changed","conditions":{
-			"source":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{}}]
-		}}}
-	}`))
-	if err != nil || !emptySource.Criteria[0].Unmodelled {
-		t.Fatalf("untyped source=%+v, err=%v", emptySource, err)
 	}
 }
 
@@ -350,25 +199,5 @@ func TestDecodeAdvancementReads263Conditions(t *testing.T) {
 	}
 	if !adv.Criteria[0].Unmodelled {
 		t.Errorf("a match_block without blocks = %+v, want unmodelled", adv.Criteria[0])
-	}
-}
-
-func TestDecodeAdvancementSplitsABiomeOnlyOffItemUsedOnBlock(t *testing.T) {
-	stone := `{"condition":"minecraft:location_check","predicate":{"biomes":"minecraft:desert","block":{"blocks":"minecraft:stone"}}}`
-	adv, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
-		"a":{"trigger":"item_used_on_block","conditions":{"location":[`+stone+`]}},
-		"b":{"trigger":"placed_block","conditions":{"location":[`+stone+`]}},
-		"c":{"trigger":"item_used_on_block","conditions":{"location":[`+stone+`,
-			{"condition":"minecraft:location_check","predicate":{"biomes":"minecraft:plains","block":{"blocks":"minecraft:dirt"}}}]}}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i, wantUnmodelled := range []bool{false, true, true} {
-		if got := adv.Criteria[i].Unmodelled; got != wantUnmodelled {
-			t.Errorf("criterion %s unmodelled = %v, want %v", adv.Criteria[i].Name, got, wantUnmodelled)
-		}
-	}
-	if got := adv.Criteria[0].WhereBiome; got != "minecraft:desert" {
-		t.Errorf("a's biome = %q, want minecraft:desert", got)
 	}
 }

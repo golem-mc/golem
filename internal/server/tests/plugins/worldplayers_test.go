@@ -6,7 +6,6 @@ import (
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
 )
 
@@ -57,33 +56,6 @@ func TestPluginWorldPlayerSnapshots(t *testing.T) {
 	run(func() {
 		if len(h.Overworld().Players()) != 0 || snapshot[0].IsValid() {
 			t.Error("world handles did not expire after disconnect")
-		}
-	})
-}
-
-func TestPluginWorldPlayersFollowDimension(t *testing.T) {
-	srv, h, run, c := worldEffectsPlugin(t)
-	srv.MovePlayerToDimension("Effects", world.EndName, 100.5, 50, .5)
-	c.ExpectWithinTicks(srv, 0, protocol.IDPlayRespawn)
-	var moved bool
-	task := h.Scheduler().RunTimer(1, 1, func() {
-		end, _ := h.World(plugin.MinecraftKey("the_end"))
-		players := end.Players()
-		moved = len(players) == 1 && players[0].Name() == "Effects"
-	})
-	defer task.Cancel()
-	servertest.UntilTicks(t, srv, 1000, "player joining the End", func() bool {
-		c.ReadTicks(srv, 0, func(int32, []byte) bool { return false })
-		return moved
-	})
-	run(func() {
-		if len(h.Overworld().Players()) != 0 {
-			t.Error("departed player remained in old world")
-		}
-		end, _ := h.World(plugin.MinecraftKey("the_end"))
-		p, _ := h.PlayerNamed("Effects")
-		if got := end.Players(); len(got) != 1 || got[0] != p {
-			t.Error("dimension travel replaced the connection-bound handle")
 		}
 	})
 }

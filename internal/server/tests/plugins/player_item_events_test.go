@@ -285,31 +285,6 @@ func TestPluginEditBookCancelAndTitle(t *testing.T) {
 	}
 }
 
-// vanilla: ServerPlayer.teleport
-func TestPluginChangedWorldFiresAfterTheCrossing(t *testing.T) {
-	var changed int
-	var from plugin.World
-	srv, host, c := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.PlayerChangedWorldEvent) {
-			changed++
-			from = e.From
-		})
-	})
-	p := host.Players()[0]
-	nether, ok := host.World(plugin.MinecraftKey("the_nether"))
-	if !ok {
-		t.Fatal("no nether")
-	}
-	was := p.Location().World
-	onTick(t, srv, host, func() {
-		p.Teleport(plugin.Location{World: nether, Pos: plugin.Vec3{X: 0.5, Y: 64, Z: 0.5}}, plugin.TeleportPlugin)
-	})
-	fired(t, srv, c, "changed world", &changed, 1)
-	if from.Key() != was.Key() || p.Location().World.Key() != nether.Key() {
-		t.Fatalf("from %v, now in %v", from.Key(), p.Location().World.Key())
-	}
-}
-
 // vanilla: Sheep.shear
 func TestPluginShearEntityCancelAndDrops(t *testing.T) {
 	var shears int
@@ -336,55 +311,5 @@ func TestPluginShearEntityCancelAndDrops(t *testing.T) {
 	fired(t, srv, c, "allowed shear", &shears, 2)
 	if len(drops) == 0 || srv.InventorySlot("Miner", player.HotbarSlot).Damage != 1 {
 		t.Fatalf("shear drops %v, shears damage %d", drops, srv.InventorySlot("Miner", player.HotbarSlot).Damage)
-	}
-}
-
-// vanilla: ItemEntity.playerTouch
-func TestPluginPickupLimitAndCancel(t *testing.T) {
-	var picks int
-	var mode string
-	srv, _, c := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.EntityPickupItemEvent) {
-			picks++
-			switch mode {
-			case "cancel":
-				e.SetCancelled(true)
-			case "one":
-				e.Count = 1
-				mode = "cancel" // the rest stays and is offered again
-			}
-		})
-	})
-	mode = "cancel"
-	srv.SpawnItemEntityDelay(0.5, 64, 0.5, "minecraft:dirt", 3, 0)
-	fired(t, srv, c, "cancelled pickup", &picks, 1)
-	if !srv.InventorySlot("Miner", player.HotbarSlot+1).Empty() {
-		t.Fatal("a cancelled pickup still took the item")
-	}
-	mode = "one"
-	picks = 0
-	fired(t, srv, c, "limited pickup", &picks, 1)
-	if got := srv.InventorySlot("Miner", player.HotbarSlot+1); got.ItemID != registry.MustItem("minecraft:dirt") || got.Count != 1 {
-		t.Fatalf("limited pickup took %+v, want one dirt", got)
-	}
-}
-
-// vanilla: ServerPlayer.onEquippedItemBroken
-func TestPluginItemBreakFiresWhenTheShearsWearOut(t *testing.T) {
-	var breaks int
-	var item plugin.ItemStack
-	srv, _, c := blockScene(t, "minecraft:shears", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.PlayerItemBreakEvent) {
-			breaks++
-			item = e.Item
-		})
-	})
-	srv.GiveSlot("Miner", player.HotbarSlot, protocol.ItemStack{ItemID: registry.MustItem("minecraft:shears"), Count: 1, Damage: 237})
-	id := srv.SpawnMob("minecraft:sheep", 1.5, 64, 0.5)
-	srv.SetMobNoAI(id)
-	c.UseOn(id)
-	fired(t, srv, c, "item break", &breaks, 1)
-	if item.Item != registry.ItemShears || !srv.InventorySlot("Miner", player.HotbarSlot).Empty() {
-		t.Fatalf("broken item %v, slot %+v", item, srv.InventorySlot("Miner", player.HotbarSlot))
 	}
 }

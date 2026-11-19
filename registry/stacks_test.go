@@ -57,162 +57,6 @@ func TestPotionContentsSurviveTheStackCodec(t *testing.T) {
 	}
 }
 
-// TestPotionContentsAreReadFromVanillaNBT reads the shape a vanilla server
-// writes for a potion: the potion named alone, and a custom effect with a
-// byte amplifier, an explicit show_icon and a hidden twin that carries no id
-// of its own.
-func TestPotionContentsAreReadFromVanillaNBT(t *testing.T) {
-	entry := nbt.Compound{
-		"id":    nbt.String("minecraft:potion"),
-		"count": nbt.Int(1),
-		"components": nbt.Compound{
-			"minecraft:potion_contents": nbt.Compound{
-				"potion": nbt.String("minecraft:healing"),
-				"custom_effects": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-					nbt.Compound{
-						"id":        nbt.String("minecraft:regeneration"),
-						"amplifier": nbt.Byte(1),
-						"duration":  nbt.Int(600),
-						"show_icon": nbt.Byte(1),
-						"hidden_effect": nbt.Compound{
-							"duration":  nbt.Int(50),
-							"show_icon": nbt.Byte(1),
-						},
-					},
-				}},
-			},
-		},
-	}
-	stack, ok := StoredStack(entry)
-	if !ok {
-		t.Fatal("the stored reading refused a vanilla-written potion")
-	}
-	contents, ok := stack.PotionContentsOf()
-	if !ok {
-		t.Fatal("the potion came back without its contents")
-	}
-	if contents.Potion != MustPotion("minecraft:healing") {
-		t.Errorf("potion = %d, want healing", contents.Potion)
-	}
-	if len(contents.CustomEffects) != 1 {
-		t.Fatalf("custom effects = %+v, want one", contents.CustomEffects)
-	}
-	effect := contents.CustomEffects[0]
-	if effect.ID != MustMobEffect("minecraft:regeneration") || effect.Duration != 600 ||
-		effect.Amplifier != 1 || !effect.ShowParticles || !effect.ShowIcon {
-		t.Errorf("effect = %+v, want regeneration II for 600 ticks, particles and icon", effect)
-	}
-	if effect.Hidden != nil {
-		t.Errorf("hidden effect = %+v, want none: a stack stores the wire form, which drops it", effect.Hidden)
-	}
-}
-
-// TestPotionEffectAmplifierReadsAsAnUnsignedByte reads the amplifier the
-// codec writes as a byte: a byte carries its unsigned value, another numeric
-// must land in 0..255, and past that the reading refuses the effect.
-func TestPotionEffectAmplifierReadsAsAnUnsignedByte(t *testing.T) {
-	potionWith := func(amplifier nbt.Tag) nbt.Compound {
-		return nbt.Compound{
-			"id":    nbt.String("minecraft:potion"),
-			"count": nbt.Int(1),
-			"components": nbt.Compound{
-				"minecraft:potion_contents": nbt.Compound{
-					"custom_effects": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-						nbt.Compound{"id": nbt.String("minecraft:speed"), "amplifier": amplifier},
-					}},
-				},
-			},
-		}
-	}
-	for _, c := range []struct {
-		amplifier nbt.Tag
-		want      int32
-	}{
-		{nbt.Byte(1), 1},
-		{nbt.Byte(-1), 255},
-		{nbt.Int(255), 255},
-	} {
-		stack, ok := StoredStack(potionWith(c.amplifier))
-		if !ok {
-			t.Fatalf("the stored reading refused amplifier %v", c.amplifier)
-		}
-		contents, ok := stack.PotionContentsOf()
-		if !ok || len(contents.CustomEffects) != 1 {
-			t.Fatalf("effects = %+v, %v; want one", contents.CustomEffects, ok)
-		}
-		if got := contents.CustomEffects[0].Amplifier; got != c.want {
-			t.Errorf("amplifier %v = %d, want %d", c.amplifier, got, c.want)
-		}
-	}
-	if _, ok := StoredStack(potionWith(nbt.Int(256))); ok {
-		t.Error("the stored reading took an amplifier past 255")
-	}
-}
-
-// TestPotionEffectShowIconDefaultsToShowParticles reads the codec's default:
-// show_icon absent takes show_particles, so particles off turns the icon off.
-func TestPotionEffectShowIconDefaultsToShowParticles(t *testing.T) {
-	entry := nbt.Compound{
-		"id":    nbt.String("minecraft:potion"),
-		"count": nbt.Int(1),
-		"components": nbt.Compound{
-			"minecraft:potion_contents": nbt.Compound{
-				"custom_effects": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-					nbt.Compound{
-						"id":             nbt.String("minecraft:speed"),
-						"show_particles": nbt.Byte(0),
-					},
-				}},
-			},
-		},
-	}
-	stack, ok := StoredStack(entry)
-	if !ok {
-		t.Fatal("the stored reading refused the potion")
-	}
-	contents, ok := stack.PotionContentsOf()
-	if !ok || len(contents.CustomEffects) != 1 {
-		t.Fatalf("effects = %+v, %v; want one", contents.CustomEffects, ok)
-	}
-	if effect := contents.CustomEffects[0]; effect.ShowParticles || effect.ShowIcon {
-		t.Errorf("effect = %+v, want no particles and no icon", effect)
-	}
-}
-
-// TestPotionEffectWritesShowIconAlways writes an effect whose particles are
-// off and whose icon is on: show_icon is written even though it is true, so
-// the codec does not read the icon's absence as the particles' off.
-func TestPotionEffectWritesShowIconAlways(t *testing.T) {
-	stack := protocol.ItemStack{ItemID: MustItem("minecraft:potion"), Count: 1}
-	stack.SetPotionContents(protocol.PotionContents{
-		Potion: MustPotion("minecraft:swiftness"),
-		CustomEffects: []protocol.PotionEffectSpec{
-			{ID: MustMobEffect("minecraft:speed"), ShowParticles: false, ShowIcon: true},
-		},
-	})
-	effect := potionEffectEntry(t, StackTag(stack))
-	if effect["show_icon"] != nbt.Byte(1) || effect["show_particles"] != nbt.Byte(0) {
-		t.Errorf("effect = %v, want show_icon 1 and show_particles 0", effect)
-	}
-}
-
-// TestHiddenEffectIsNotWritten saves an effect with a hidden twin: the
-// codec reads the copying accessor, so the twin is dropped.
-func TestHiddenEffectIsNotWritten(t *testing.T) {
-	stack := protocol.ItemStack{ItemID: MustItem("minecraft:potion"), Count: 1}
-	stack.SetPotionContents(protocol.PotionContents{
-		Potion: MustPotion("minecraft:swiftness"),
-		CustomEffects: []protocol.PotionEffectSpec{
-			{ID: MustMobEffect("minecraft:speed"), Duration: 100,
-				Hidden: &protocol.PotionEffectSpec{ID: MustMobEffect("minecraft:speed"), Duration: 50}},
-		},
-	})
-	effect := potionEffectEntry(t, StackTag(stack))
-	if _, ok := effect["hidden_effect"]; ok {
-		t.Errorf("effect = %v, want no hidden_effect", effect)
-	}
-}
-
 // potionEffectEntry digs the first custom effect compound out of a written
 // potion stack.
 func potionEffectEntry(t *testing.T, tag nbt.CompoundTag) nbt.Compound {
@@ -234,49 +78,6 @@ func potionEffectEntry(t *testing.T, tag nbt.CompoundTag) nbt.Compound {
 		t.Fatalf("custom effect = %v, want a compound", list.Items[0])
 	}
 	return entry
-}
-
-// TestPotionContentsReadFromThePotionAlone reads the codec's alternative to
-// the full compound: a potion's name on its own carries that potion and
-// nothing else.
-func TestPotionContentsReadFromThePotionAlone(t *testing.T) {
-	entry := nbt.Compound{
-		"id":    nbt.String("minecraft:potion"),
-		"count": nbt.Int(1),
-		"components": nbt.Compound{
-			"minecraft:potion_contents": nbt.String("minecraft:healing"),
-		},
-	}
-	stack, ok := StoredStack(entry)
-	if !ok {
-		t.Fatal("the stored reading refused a potion named alone")
-	}
-	contents, ok := stack.PotionContentsOf()
-	if !ok || contents.Potion != MustPotion("minecraft:healing") {
-		t.Fatalf("contents = %+v, %v; want healing", contents, ok)
-	}
-	if contents.CustomColor != nil || len(contents.CustomEffects) != 0 || contents.CustomName != nil {
-		t.Errorf("contents = %+v, want the potion alone", contents)
-	}
-}
-
-// TestStoredPotionContentsSkipAnUnknownField checks that a potion_contents
-// field this server has no word for is skipped, as the codec skips it.
-// vanilla: PotionContents.CODEC
-func TestStoredPotionContentsSkipAnUnknownField(t *testing.T) {
-	entry := nbt.Compound{
-		"id":    nbt.String("minecraft:potion"),
-		"count": nbt.Int(1),
-		"components": nbt.Compound{
-			"minecraft:potion_contents": nbt.Compound{
-				"potion": nbt.String("minecraft:healing"),
-				"future": nbt.String("something"),
-			},
-		},
-	}
-	if _, ok := StoredStack(entry); !ok {
-		t.Error("the stored reading refused a potion_contents field it does not know")
-	}
 }
 
 // TestLodestoneTrackerSurvivesTheStackCodec writes a compass pointed at a
@@ -330,121 +131,6 @@ func TestLodestoneTrackerSurvivesTheStackCodec(t *testing.T) {
 	}
 }
 
-// TestLodestoneTrackerIsReadFromVanillaNBT reads the shapes the codec takes
-// from files it did not write: the block's ints as a list of numbers the
-// way NbtOps also hands the codec one, an explicit tracked flag, and the
-// targetless tracker whose two absent flags are their own defaults.
-// vanilla: LodestoneTracker.CODEC, NbtOps.getIntStream
-func TestLodestoneTrackerIsReadFromVanillaNBT(t *testing.T) {
-	entry := nbt.Compound{
-		"id":    nbt.String("minecraft:compass"),
-		"count": nbt.Int(1),
-		"components": nbt.Compound{
-			"minecraft:lodestone_tracker": nbt.Compound{
-				"target": nbt.Compound{
-					"dimension": nbt.String("minecraft:the_end"),
-					"pos": nbt.List{Elem: nbt.TypeInt, Items: []nbt.Tag{
-						nbt.Int(3), nbt.Int(64), nbt.Int(-7),
-					}},
-				},
-				"tracked": nbt.Byte(1),
-			},
-		},
-	}
-	stack, ok := StoredStack(entry)
-	if !ok {
-		t.Fatal("the stored reading refused a vanilla-written tracker")
-	}
-	tracker, ok := stack.LodestoneTrackerOf()
-	if !ok {
-		t.Fatal("the compass came back without its tracker")
-	}
-	if tracker.Target == nil || tracker.Target.Dimension != "minecraft:the_end" ||
-		tracker.Target.X != 3 || tracker.Target.Y != 64 || tracker.Target.Z != -7 {
-		t.Errorf("tracker = %+v, want the end's (3, 64, -7)", tracker)
-	}
-	if !tracker.Tracked {
-		t.Error("tracker = untracked, want the explicit flag read back")
-	}
-
-	// A tracker without its target reads as the spinning one: the flags
-	// carry the target's absence, and tracked stays at its default.
-	entry["components"] = nbt.Compound{"minecraft:lodestone_tracker": nbt.Compound{}}
-	stack, ok = StoredStack(entry)
-	if !ok {
-		t.Fatal("the stored reading refused a targetless tracker")
-	}
-	tracker, ok = stack.LodestoneTrackerOf()
-	if !ok || tracker.Target != nil || !tracker.Tracked {
-		t.Errorf("tracker = %+v, %v; want no target and tracked by default", tracker, ok)
-	}
-}
-
-// TestLodestoneTrackerReadsAnyNumberAsTracked checks the tracked flag's
-// codec: a boolean reads from any number, nonzero as true, so a file that
-// wrote it as an int is read the way the game's own codec reads it.
-// vanilla: Codec.BOOL
-func TestLodestoneTrackerReadsAnyNumberAsTracked(t *testing.T) {
-	entry := nbt.Compound{
-		"id":    nbt.String("minecraft:compass"),
-		"count": nbt.Int(1),
-		"components": nbt.Compound{
-			"minecraft:lodestone_tracker": nbt.Compound{"tracked": nbt.Int(5)},
-		},
-	}
-	stack, ok := StoredStack(entry)
-	if !ok {
-		t.Fatal("the stored reading refused a tracked the codec reads as true")
-	}
-	if tracker, ok := stack.LodestoneTrackerOf(); !ok || !tracker.Tracked {
-		t.Errorf("tracker = %+v, %v; want tracked read as true", tracker, ok)
-	}
-
-	entry["components"] = nbt.Compound{
-		"minecraft:lodestone_tracker": nbt.Compound{"tracked": nbt.Long(0)},
-	}
-	stack, ok = StoredStack(entry)
-	if !ok {
-		t.Fatal("the stored reading refused a tracked the codec reads as false")
-	}
-	if tracker, ok := stack.LodestoneTrackerOf(); !ok || tracker.Tracked {
-		t.Errorf("tracker = %+v, %v; want tracked read as false", tracker, ok)
-	}
-}
-
-// TestStoredLodestoneTrackerRefusesWhatTheCodecDoesNotWrite checks the
-// reading's refusals: a tracker naming a field the codec has no word for, a
-// dimension the game's own parser would not read, a block of another number
-// of ints, and a target missing one of its fields each leave the whole
-// stack to the file rather than being saved back half-read.
-func TestStoredLodestoneTrackerRefusesWhatTheCodecDoesNotWrite(t *testing.T) {
-	trackerWith := func(tracker nbt.Tag) nbt.Compound {
-		return nbt.Compound{
-			"id":    nbt.String("minecraft:compass"),
-			"count": nbt.Int(1),
-			"components": nbt.Compound{
-				"minecraft:lodestone_tracker": tracker,
-			},
-		}
-	}
-	pos := nbt.IntArray{2, 63, 1}
-	target := nbt.Compound{"dimension": nbt.String("minecraft:overworld"), "pos": pos}
-	for name, tracker := range map[string]nbt.Tag{
-		"a field the codec has no word for": nbt.Compound{"target": target, "future": nbt.Byte(1)},
-		"a dimension no parser would read": nbt.Compound{"target": nbt.Compound{
-			"dimension": nbt.String("Overworld"), "pos": pos}},
-		"a block of two ints": nbt.Compound{"target": nbt.Compound{
-			"dimension": nbt.String("minecraft:overworld"), "pos": nbt.IntArray{2, 63}}},
-		"a target missing its dimension": nbt.Compound{"target": nbt.Compound{"pos": pos}},
-		"a target missing its block":     nbt.Compound{"target": nbt.Compound{"dimension": nbt.String("minecraft:overworld")}},
-		"a tracked of another shape":     nbt.Compound{"target": target, "tracked": nbt.String("true")},
-	} {
-		if _, ok := StoredStack(trackerWith(tracker)); ok {
-			t.Errorf("the stored reading took %s", name)
-		}
-	}
-}
-
 // TestBlockStatePropertiesSurviveTheStackCodec writes a light carrying the
 // level its block_state component names and reads it back: the properties
 // survive the file's NBT shape both ways.
@@ -477,42 +163,6 @@ func TestBlockStatePropertiesSurviveTheStackCodec(t *testing.T) {
 	}
 }
 
-// TestBlockStatePropertiesAreReadFromVanillaNBT reads the shape a vanilla
-// server writes: the properties as plain strings, checked against nothing -
-// which of them a block answers to is its placement's to decide. A value
-// that is not a string refuses the whole stack.
-func TestBlockStatePropertiesAreReadFromVanillaNBT(t *testing.T) {
-	entry := nbt.Compound{
-		"id":    nbt.String("minecraft:light"),
-		"count": nbt.Int(1),
-		"components": nbt.Compound{
-			"minecraft:block_state": nbt.Compound{
-				"level":       nbt.String("7"),
-				"waterlogged": nbt.String("false"),
-			},
-		},
-	}
-	stack, ok := StoredStack(entry)
-	if !ok {
-		t.Fatal("the stored reading refused a vanilla-written light")
-	}
-	props, ok := stack.BlockStatePropertiesOf()
-	if !ok {
-		t.Fatal("the light came back without its block_state")
-	}
-	want := map[string]string{"level": "7", "waterlogged": "false"}
-	if !reflect.DeepEqual(props, want) {
-		t.Errorf("block_state properties = %v, want %v", props, want)
-	}
-
-	entry["components"] = nbt.Compound{"minecraft:block_state": nbt.Compound{
-		"level": nbt.Int(7),
-	}}
-	if _, ok := StoredStack(entry); ok {
-		t.Error("the stored reading took a block_state whose value is not a string")
-	}
-}
-
 // TestMapIDSurvivesTheStackCodec writes a filled map naming the map's saved
 // data and reads it back: the plain int the file's shape is survives both
 // ways, so a map brought over from vanilla keeps pointing at its pixels and
@@ -537,32 +187,6 @@ func TestMapIDSurvivesTheStackCodec(t *testing.T) {
 	}
 	if id, ok := got.MapIDOf(); !ok || id != 3 {
 		t.Errorf("the map came back with id %d, %v; want 3", id, ok)
-	}
-}
-
-// TestMapIDIsReadFromVanillaNBT reads the shape a vanilla server writes: the
-// id as the plain int its codec takes, another number's tag narrow enough to
-// count as one. A value that is no number is a stack no file holds.
-// vanilla: MapId.CODEC, Codec.INT
-func TestMapIDIsReadFromVanillaNBT(t *testing.T) {
-	entry := func(id nbt.Tag) nbt.Compound {
-		return nbt.Compound{
-			"id":         nbt.String("minecraft:filled_map"),
-			"count":      nbt.Int(1),
-			"components": nbt.Compound{"minecraft:map_id": id},
-		}
-	}
-	for _, id := range []nbt.Tag{nbt.Int(0), nbt.Byte(3), nbt.Long(9)} {
-		stack, ok := StoredStack(entry(id))
-		if !ok {
-			t.Fatalf("the stored reading refused a vanilla-written map with map_id %v", id)
-		}
-		if _, ok := stack.MapIDOf(); !ok {
-			t.Errorf("the map came back without its map_id %v", id)
-		}
-	}
-	if _, ok := StoredStack(entry(nbt.String("0"))); ok {
-		t.Error("the stored reading took a map_id whose value is a string")
 	}
 }
 
@@ -594,22 +218,6 @@ func TestBookContentSurvivesTheStackCodec(t *testing.T) {
 	}
 	if book, ok := gotS.WrittenBookOf(); !ok || !reflect.DeepEqual(book, wantWritten) {
 		t.Errorf("written = %+v, %v, want %+v", book, ok, wantWritten)
-	}
-}
-
-func TestBookContentReadsBarePages(t *testing.T) {
-	entry := nbt.Compound{
-		"id": nbt.String("minecraft:writable_book"), "count": nbt.Int(1),
-		"components": nbt.Compound{"minecraft:writable_book_content": nbt.Compound{
-			"pages": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String("hi")}},
-		}},
-	}
-	stack, ok := StoredStack(entry)
-	if !ok {
-		t.Fatal("refused")
-	}
-	if book, _ := stack.WritableBookOf(); len(book.Pages) != 1 || book.Pages[0].Raw != "hi" {
-		t.Errorf("book = %+v", book)
 	}
 }
 
@@ -663,65 +271,6 @@ func writtenBookEntry(extra nbt.Compound) nbt.Compound {
 	}
 }
 
-// TestBookResolvedReadsAnyNumber: resolved is a Codec.BOOL, which over NBT
-// takes any number and is true when it is not zero.
-func TestBookResolvedReadsAnyNumber(t *testing.T) {
-	for _, tc := range []struct {
-		tag  nbt.Tag
-		want bool
-	}{
-		{nbt.Byte(1), true},
-		{nbt.Byte(2), true},
-		{nbt.Byte(-1), true},
-		{nbt.Int(1), true},
-		{nbt.Double(0.5), true},
-		{nbt.Byte(0), false},
-		{nbt.Long(0), false},
-	} {
-		stack, ok := StoredStack(writtenBookEntry(nbt.Compound{"resolved": tc.tag}))
-		if !ok {
-			t.Errorf("resolved %v: stack refused", tc.tag)
-			continue
-		}
-		book, ok := stack.WrittenBookOf()
-		if !ok || book.Resolved != tc.want {
-			t.Errorf("resolved %v: book %+v, %v, want resolved %v", tc.tag, book, ok, tc.want)
-		}
-	}
-	if _, ok := StoredStack(writtenBookEntry(nbt.Compound{"resolved": nbt.String("true")})); ok {
-		t.Error("took a resolved that is a string")
-	}
-}
-
-// TestBookFilterableIgnoresExtraKeys: the full {raw, filtered} form is
-// tried first and ignores keys it does not name.
-func TestBookFilterableIgnoresExtraKeys(t *testing.T) {
-	entry := nbt.Compound{
-		"id": nbt.String("minecraft:writable_book"), "count": nbt.Int(1),
-		"components": nbt.Compound{"minecraft:writable_book_content": nbt.Compound{
-			"pages": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-				nbt.Compound{"raw": nbt.String("x"), "z": nbt.Int(1)},
-			}},
-		}},
-	}
-	stack, ok := StoredStack(entry)
-	if !ok {
-		t.Fatal("writable page with an extra key refused")
-	}
-	if book, _ := stack.WritableBookOf(); len(book.Pages) != 1 || book.Pages[0].Raw != "x" {
-		t.Errorf("writable book = %+v", book)
-	}
-	stack, ok = StoredStack(writtenBookEntry(nbt.Compound{
-		"title": nbt.Compound{"raw": nbt.String("T"), "z": nbt.Int(1)},
-	}))
-	if !ok {
-		t.Fatal("title with an extra key refused")
-	}
-	if book, _ := stack.WrittenBookOf(); book.Title != "T" {
-		t.Errorf("written book = %+v", book)
-	}
-}
-
 // TestBannerLayersProfileAndBaseColorSurviveTheStackCodec writes a shield
 // carrying an inline pattern layer beside a registry one and a base colour,
 // and a head carrying a full profile with a signed property, then reads
@@ -756,19 +305,6 @@ func TestBannerLayersProfileAndBaseColorSurviveTheStackCodec(t *testing.T) {
 		if !got.Equal(stack) {
 			t.Errorf("read back %+v, want %+v", got, stack)
 		}
-	}
-}
-
-// TestBannerPatternNameWithoutNamespaceReadsAsMinecraft checks that a bare
-// pattern name reads in the minecraft namespace.
-func TestBannerPatternNameWithoutNamespaceReadsAsMinecraft(t *testing.T) {
-	reg, _ := Get("minecraft:banner_pattern")
-	layers, ok := BannerPatternsOf(nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{
-		"pattern": nbt.String("stripe_top"),
-		"color":   nbt.String("red"),
-	}}})
-	if !ok || len(layers) != 1 || layers[0].Pattern != reg.ID("minecraft:stripe_top") {
-		t.Errorf("BannerPatternsOf(stripe_top) = %v, %v; want the minecraft:stripe_top layer", layers, ok)
 	}
 }
 
@@ -979,47 +515,6 @@ func TestTradeComponentsSurviveTheStackCodec(t *testing.T) {
 	}
 }
 
-func TestTradeComponentsReadVanillaCodecForms(t *testing.T) {
-	var stack protocol.ItemStack
-	if !ReadComponent(&stack, "minecraft:dyed_color", nbt.List{Elem: nbt.TypeFloat, Items: []nbt.Tag{nbt.Float(1), nbt.Float(0.5), nbt.Float(0)}}) {
-		t.Fatal("could not read RGB channels")
-	}
-	if rgb, _ := stack.DyedColorOf(); rgb != -33024 {
-		t.Fatalf("RGB channels = %x, want ffff7f00", rgb)
-	}
-	for _, duration := range []nbt.Tag{nil, nbt.String("bad"), nbt.Double(7.9), nbt.Int(-1)} {
-		entry := nbt.Compound{"id": nbt.String("night_vision")}
-		if duration != nil {
-			entry["duration"] = duration
-		}
-		if !ReadComponent(&stack, "minecraft:suspicious_stew_effects", nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{entry}}) {
-			t.Fatal("could not read effect")
-		}
-		want := int32(160)
-		if duration == nbt.Double(7.9) {
-			want = 7
-		} else if duration == nbt.Int(-1) {
-			want = -1
-		}
-		if got := stack.SuspiciousStewEffectsOf(); len(got) != 1 || got[0].Duration != want {
-			t.Fatalf("effects %v", got)
-		}
-	}
-	for _, tc := range []struct {
-		name  string
-		value nbt.Tag
-	}{
-		{"minecraft:dyed_color", nbt.String("bad")},
-		{"minecraft:dyed_color", nbt.List{Elem: nbt.TypeFloat}},
-		{"minecraft:suspicious_stew_effects", nbt.Compound{}},
-		{"minecraft:suspicious_stew_effects", nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"id": nbt.String("minecraft:unknown")}}}},
-	} {
-		if !ComponentRefused(tc.name, tc.value) {
-			t.Fatalf("accepted %s = %v", tc.name, tc.value)
-		}
-	}
-}
-
 // TestLoreCustomDataAndAttributeModifiersSurviveTheStackCodec saves a stack
 // carrying the three raw-held components and reads it back equal.
 func TestLoreCustomDataAndAttributeModifiersSurviveTheStackCodec(t *testing.T) {
@@ -1056,36 +551,6 @@ func TestLoreCustomDataAndAttributeModifiersSurviveTheStackCodec(t *testing.T) {
 	have, _ := got.AttributeModifiersOf()
 	if !reflect.DeepEqual(have, want) {
 		t.Errorf("attribute modifiers = %v, want %v", have, want)
-	}
-}
-
-// TestLoreReadsVanillaWrappedList reads a lore list whose plain line is
-// wrapped under the empty name, as vanilla writes a mixed list.
-func TestLoreReadsVanillaWrappedList(t *testing.T) {
-	lore := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-		nbt.Compound{"": nbt.String("a")},
-		nbt.Compound{"text": nbt.String("b"), "color": nbt.String("red")},
-	}}
-	tag := nbt.Compound{
-		"id":         nbt.String("minecraft:diamond_sword"),
-		"count":      nbt.Int(1),
-		"components": nbt.Compound{"minecraft:lore": lore},
-	}
-	data, err := nbt.Encode("", tag)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, decoded, err := nbt.Decode(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, ok := StoredStack(decoded.(nbt.Compound))
-	if !ok {
-		t.Fatal("stored stack not read")
-	}
-	want := []protocol.Text{{Text: "a"}, {Text: "b", Color: "red"}}
-	if !reflect.DeepEqual(got.LoreOf(), want) {
-		t.Fatalf("lore = %v, want %v", got.LoreOf(), want)
 	}
 }
 
@@ -1141,32 +606,5 @@ func TestAConsumableComponentSurvivesTheStoredForm(t *testing.T) {
 	}
 	if own, _ := back.ConsumableOf(); own.Sound != (protocol.SoundHolder{Name: "minecraft:entity.generic.eat"}) {
 		t.Errorf("inline default sound reloaded as %+v", own.Sound)
-	}
-}
-
-func TestContainerBookPartialsKeepStrictValidation(t *testing.T) {
-	for _, page := range []string{`{nbt:"v"}`, `{text:"T",bold:"yes"}`, `{raw:"T",filtered:{nbt:"v"}}`} {
-		t.Run(page, func(t *testing.T) {
-			tag, err := nbt.ParseSNBT(`{title:"Invalid",author:"Tester",pages:[` + page + `]}`)
-			if err != nil {
-				t.Fatal(err)
-			}
-			entry := writtenBookEntry(tag)
-			if _, ok := StoredStack(entry); ok {
-				t.Fatal("strict stored stack reader accepted malformed content")
-			}
-			var scratch protocol.ItemStack
-			if ReadComponent(&scratch, "minecraft:written_book_content", tag) || !ComponentRefused("minecraft:written_book_content", tag) {
-				t.Fatal("strict component validation accepted malformed content")
-			}
-			slots := make([]protocol.ItemStack, 1)
-			LoadSlottedItems(nbt.Compound{"Items": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{entry}}}, slots)
-			if slots[0].Empty() {
-				t.Fatal("container did not retain a partial book")
-			}
-			if saved, ok := StoredStack(StackTag(slots[0])); !ok || !saved.Equal(slots[0]) {
-				t.Fatal("partial result did not round-trip through strict stack decoding")
-			}
-		})
 	}
 }

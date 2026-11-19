@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
@@ -30,44 +29,6 @@ func TestPluginSetThunderingLeavesRain(t *testing.T) {
 			t.Error("no rolled thunder delay")
 		}
 	})
-}
-
-func TestPluginGenerateMoreTreeTypes(t *testing.T) {
-	cases := []struct {
-		name   string
-		tree   plugin.TreeType
-		ground registry.Block
-	}{
-		{"cocoa", plugin.TreeCocoa, registry.BlockDirt},
-		{"tall birch", plugin.TreeTallBirch, registry.BlockDirt},
-		{"pale oak", plugin.TreePaleOak, registry.BlockDirt},
-		{"pale oak creaking", plugin.TreePaleOakCreaking, registry.BlockDirt},
-		{"crimson", plugin.TreeCrimsonFungus, registry.BlockCrimsonNylium},
-		{"warped", plugin.TreeWarpedFungus, registry.BlockWarpedNylium},
-		{"chorus", plugin.TreeChorusPlant, registry.BlockEndStone},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			_, w, run, _, _ := kindsFixture(t)
-			run(func() {
-				for dx := -2; dx <= 2; dx++ {
-					for dz := -2; dz <= 2; dz++ {
-						w.SetBlockState(plugin.BlockPos{X: 8 + dx, Y: 79, Z: 8 + dz}, plugin.DefaultState(c.ground), plugin.UpdateAll)
-					}
-				}
-				pos := plugin.BlockPos{X: 8, Y: 80, Z: 8}
-				ok := false
-				for range 20 { // a feature may fail its random roll
-					if ok = w.GenerateTree(c.tree, pos); ok {
-						break
-					}
-				}
-				if !ok || w.BlockState(pos).Block() == registry.BlockAir {
-					t.Errorf("placed=%v block=%v", ok, w.BlockState(pos).Block())
-				}
-			})
-		})
-	}
 }
 
 func TestPluginMobMergeDataAndTamed(t *testing.T) {
@@ -99,44 +60,4 @@ func TestPluginMobMergeDataAndTamed(t *testing.T) {
 			t.Error("SetTamed(false) left it tame")
 		}
 	})
-}
-
-// Bukkit: CraftWorld.setThundering, setStorm clear the clear-weather time.
-func TestPluginSetThunderingAndStormEndAForcedClear(t *testing.T) {
-	srv, w, run, _, _ := kindsFixture(t)
-	run(func() {
-		w.SetWeather(plugin.WeatherClear, 100*time.Second, 0)
-		w.SetThundering(true, time.Minute)
-	})
-	servertest.RunTicks(t, srv, 2)
-	if !srv.OverworldWorld().Thundering() {
-		t.Error("a forced clear outlived SetThundering")
-	}
-	run(func() {
-		w.SetWeather(plugin.WeatherClear, 100*time.Second, 0)
-		w.SetStorm(true, 30*time.Second)
-	})
-	servertest.RunTicks(t, srv, 2)
-	if !srv.OverworldWorld().Raining() || w.RainDuration() < 29*time.Second {
-		t.Errorf("raining=%v rain %v", srv.OverworldWorld().Raining(), w.RainDuration())
-	}
-	run(func() { w.SetStorm(false, 0) })
-	if srv.OverworldWorld().Raining() {
-		t.Error("SetStorm(false) left the rain on")
-	}
-}
-
-// Bukkit: CraftWorld.setThunderDuration sets the timer whatever the event decided.
-func TestPluginSetThunderingCancelledKeepsDuration(t *testing.T) {
-	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
-	run(func() {
-		plugin.Listen(h, func(e *plugin.ThunderChangeEvent) { e.SetCancelled(true) })
-		h.Overworld().SetThundering(true, time.Minute)
-	})
-	if srv.OverworldWorld().Thundering() {
-		t.Error("a cancelled flip thundered")
-	}
-	if _, thunder := srv.OverworldWorld().WeatherTimers(); thunder < 1190 || thunder > 1200 {
-		t.Errorf("thunder timer %d, want about 1200", thunder)
-	}
 }

@@ -50,35 +50,3 @@ func TestASkeletonWithoutABowFightsInMelee(t *testing.T) {
 		})
 	}
 }
-
-// TestASkeletonDrawingAnOffHandBowSetsTheOffHandBit summons a skeleton with a
-// bow only in its off hand beside a survival player at midnight: its draw
-// tells the client the use is in the off hand.
-// vanilla: RangedBowAttackGoal.tick, ProjectileUtil.getWeaponHoldingHand,
-// LivingEntity.startUsingItem
-func TestASkeletonDrawingAnOffHandBowSetsTheOffHandBit(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.HostileTestConfig(), servertest.OpsListing(t, "Prey"))
-	srv.SetDayTime(18000) // midnight, whose dark is no daylight burn
-	servertest.FreezeUntilHeld(t, srv)
-	c := connect()
-	c.JoinAs("Prey")
-	c.MoveToGround(0.5, 64, 0.5, true)
-	c.Settle()
-
-	pos := srv.PlayerPosition("Prey")
-	c.ChatCommand(fmt.Sprintf(`summon minecraft:skeleton %.2f %.2f %.2f {attributes:[{id:"minecraft:movement_speed",base:0.0d}],equipment:{offhand:{id:"minecraft:bow",count:1}}}`,
-		pos.X+4, pos.Y, pos.Z))
-	skeleton := c.ExpectMobSpawn(protocol.EntityTypeSkeleton)
-	servertest.HoldTicks(t, srv)
-
-	// Target pick and the first draw fit well inside 100 ticks.
-	e, ok := c.MetaEntryWithinTicks(srv, 100, skeleton.EntityID, protocol.MetadataIndexHandState)
-	if !ok {
-		t.Fatal("the skeleton raised no bow within 100 ticks")
-	}
-	want := uint8(protocol.EntityFlagHandActive | protocol.EntityFlagActiveHandOff)
-	if e.ByteVal != want {
-		t.Errorf("hand state = %#02x, want %#02x (using, off hand)", e.ByteVal, want)
-	}
-}

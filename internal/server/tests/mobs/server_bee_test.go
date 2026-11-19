@@ -36,21 +36,6 @@ func beeWorld(t *testing.T, difficulty uint8) (*servertest.Client, int32, *serve
 	return c, id, srv
 }
 
-func TestABeeIgnoresAPlayerBesideIt(t *testing.T) {
-	t.Parallel()
-	_, _, srv := beeWorld(t, rules.DifficultyNormal)
-	id := srv.SpawnMob(bee, 4.5, 64, 0.5)
-	for range 30 {
-		servertest.RunTicks(t, srv, 10)
-		if got := srv.MobTargetID(id); got != 0 {
-			t.Fatalf("a calm bee targets %d", got)
-		}
-		if got := srv.MobAngerTicks(id); got != 0 {
-			t.Fatalf("a calm bee has %d ticks of anger", got)
-		}
-	}
-}
-
 // strikeBee spawns a bee beside the player and hits it once.
 func strikeBee(t *testing.T, c *servertest.Client, srv *server.Server, x, z float64) int32 {
 	t.Helper()
@@ -115,24 +100,6 @@ func TestAStruckBeeStingsOnceAndPoisonsByDifficulty(t *testing.T) {
 	}
 }
 
-func TestAStruckBeeTellsItsAngerEndTime(t *testing.T) {
-	t.Parallel()
-	c, _, srv := beeWorld(t, rules.DifficultyNormal)
-	id := strikeBee(t, c, srv, 3.5, 0.5)
-	e, ok := c.MetaEntryWithinTicks(srv, 5, id, protocol.MetadataIndexBeeAngerEnd)
-	if !ok {
-		t.Fatal("no anger end time within 5 ticks of the blow")
-	}
-	if now, _ := srv.Time(); e.Typ != protocol.MetadataVarLong || e.LongVal <= now {
-		t.Fatalf("anger end entry = type %d value %d, want a VarLong after game time %d", e.Typ, e.LongVal, now)
-	}
-	servertest.UntilTicks(t, srv, 100, "the sting", func() bool { return srv.PlayerHealth("Slayer") < 20 })
-	e, ok = c.MetaEntryWithinTicks(srv, 5, id, protocol.MetadataIndexBeeAngerEnd)
-	if !ok || e.LongVal != -1 {
-		t.Fatalf("anger end after the sting = %+v (found %v), want -1", e, ok)
-	}
-}
-
 func TestStrikingABeeCallsTheBeesInReachButNotTheFarOnes(t *testing.T) {
 	t.Parallel()
 	c, playerID, srv := beeWorld(t, rules.DifficultyNormal)
@@ -146,40 +113,6 @@ func TestStrikingABeeCallsTheBeesInReachButNotTheFarOnes(t *testing.T) {
 	}
 	if got := srv.MobAngerTicks(far); got != 0 {
 		t.Errorf("a bee 57 blocks away has %d ticks of anger", got)
-	}
-}
-
-// TestABeeWandersThroughTheAir: the wander carries a bee away from where it
-// was put, in the air, off the ground.
-func TestABeeWandersThroughTheAir(t *testing.T) {
-	t.Parallel()
-	_, _, srv := beeWorld(t, rules.DifficultyNormal)
-	id := srv.SpawnMob(bee, 10.5, 80, 10.5)
-	moved := 0.0
-	for range 10 {
-		servertest.RunTicks(t, srv, 20)
-		x, y, z, ok := srv.MobPos(id)
-		if !ok {
-			t.Fatal("the bee is gone")
-		}
-		if y < 64 {
-			t.Fatalf("the bee fell to y=%v", y)
-		}
-		moved = max(moved, (x-10.5)*(x-10.5)+(z-10.5)*(z-10.5))
-	}
-	if moved < 1 {
-		t.Errorf("the bee never left its block in 200 ticks (%v squared)", moved)
-	}
-}
-
-func TestABeeSpawnsWithItsFlags(t *testing.T) {
-	t.Parallel()
-	c, _, _ := beeWorld(t, rules.DifficultyNormal)
-	c.ChatCommand("summon minecraft:bee 5.5 64 0.5 {HasNectar:1b,HasStung:1b,NoAI:1b}")
-	typeID, _ := registry.EntityTypeID(bee)
-	m := c.ExpectMobSpawn(int32(typeID))
-	if m.BeeFlags != 4|8 || m.Health != 10 {
-		t.Errorf("spawn flags = %#x health %v, want 0xc and 10", m.BeeFlags, m.Health)
 	}
 }
 

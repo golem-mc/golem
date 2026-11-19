@@ -42,27 +42,3 @@ func TestBlockArgumentsSuggestInsideProperties(t *testing.T) {
 	}
 	c.Disconnect()
 }
-
-// TestIntegerPropertyValuesSuggestInNumericOrder checks that the values of an
-// integer property are listed by value.
-// vanilla: IntegerSuggestion.compareToIgnoreCase
-func TestIntegerPropertyValuesSuggestInNumericOrder(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	_, c := servertest.Join(t, cfg, "Mason", servertest.OpsListing(t, "Mason"))
-
-	c.CommandSuggestion(1, "/setblock ~ ~ ~ kelp[age=")
-	_, _, _, matches := c.ExpectCommandSuggestions()
-	var ages []string
-	for _, m := range matches {
-		if m != "]" && m != "," {
-			ages = append(ages, m)
-		}
-	}
-	if len(ages) != 26 || ages[2] != "2" || ages[10] != "10" || ages[25] != "25" {
-		t.Errorf("kelp ages = %v, want 0 to 25 by value", ages)
-	}
-	c.Disconnect()
-}

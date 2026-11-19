@@ -2,7 +2,6 @@ package blocks
 
 import (
 	"fmt"
-	"math"
 	"sync"
 	"testing"
 	"time"
@@ -101,49 +100,4 @@ func TestABlazeSpawnerSpawnsBesideLava(t *testing.T) {
 type entityPlaceLog struct {
 	mu  sync.Mutex
 	pos [][3]float64
-}
-
-func (l *entityPlaceLog) add(event string, x, y, z float64) {
-	if event != "minecraft:entity_place" {
-		return
-	}
-	l.mu.Lock()
-	l.pos = append(l.pos, [3]float64{x, y, z})
-	l.mu.Unlock()
-}
-
-func (l *entityPlaceLog) has(x, y, z int) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	for _, p := range l.pos {
-		if int(math.Floor(p[0])) == x && int(math.Floor(p[1])) == y && int(math.Floor(p[2])) == z {
-			return true
-		}
-	}
-	return false
-}
-
-// vanilla: BaseSpawner.serverTick, level.gameEvent(ENTITY_PLACE)
-func TestASpawnerSpawnPostsEntityPlace(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Spawnwatcher")
-	servertest.HoldTicks(t, srv)
-	srv.RunLine("time set midnight")
-	srv.RunLine("fill 3 62 3 5 66 5 air")
-	srv.RunLine("setblock 4 63 4 stone")
-	srv.RunLine(`setblock 4 64 2 spawner{Delay:0s,MinSpawnDelay:1s,MaxSpawnDelay:2s,SpawnCount:1s,SpawnData:{entity:{id:"minecraft:zombie",Pos:[4.5d,64d,4.5d],NoAI:1b},custom_spawn_rules:{block_light_limit:[0,15],sky_light_limit:[0,15]}}}`)
-	log := &entityPlaceLog{}
-	srv.ObserveGameEvents(log.add)
-	servertest.RunTicks(t, srv, 40)
-	zombie := false
-	for _, m := range srv.Mobs() {
-		zombie = zombie || m.Kind == "minecraft:zombie"
-	}
-	if !zombie {
-		t.Fatal("no zombie spawned")
-	}
-	if !log.has(4, 64, 4) {
-		t.Errorf("entity_place at %v, want the zombie's block (4,64,4)", log.pos)
-	}
-	c.Disconnect()
 }

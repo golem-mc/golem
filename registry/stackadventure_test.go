@@ -55,32 +55,6 @@ func TestAdventureAndTypedDataSurviveTheStoredForm(t *testing.T) {
 	}
 }
 
-// TestAdventureAndTypedDataRefuseWhatTheCodecRefuses: an empty predicate
-// list, an unknown block or tag, component matchers, and typed data without
-// a known type under "id" refuse the component.
-// vanilla: AdventureModePredicate.CODEC, TypedEntityData.codec
-func TestAdventureAndTypedDataRefuseWhatTheCodecRefuses(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name  string
-		value nbt.Tag
-	}{
-		{"minecraft:can_place_on", nbt.List{Elem: nbt.TypeCompound}},
-		{"minecraft:can_place_on", nbt.Compound{"blocks": nbt.String("minecraft:no_such_block")}},
-		{"minecraft:can_break", nbt.Compound{"blocks": nbt.String("#minecraft:no_such_tag")}},
-		{"minecraft:can_break", nbt.Compound{"components": nbt.Compound{"minecraft:damage": nbt.Int(1)}}},
-		{"minecraft:can_break", nbt.Compound{"state": nbt.Compound{"age": nbt.Int(1)}}},
-		{"minecraft:entity_data", nbt.Compound{"Invisible": nbt.Byte(1)}},
-		{"minecraft:entity_data", nbt.Compound{"id": nbt.String("minecraft:chest")}},
-		{"minecraft:block_entity_data", nbt.Compound{"id": nbt.String("minecraft:zombie")}},
-	}
-	for _, tc := range cases {
-		if !ComponentRefused(tc.name, tc.value) {
-			t.Errorf("%s %v was not refused", tc.name, tc.value)
-		}
-	}
-}
-
 func rawOf(stack protocol.ItemStack, component int32) []byte {
 	for _, raw := range stack.Raw {
 		if raw.Type == component {

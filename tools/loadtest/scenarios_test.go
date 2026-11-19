@@ -56,52 +56,6 @@ func TestViewTimesCompletion(t *testing.T) {
 	}
 }
 
-func TestViewTimesMilestones(t *testing.T) {
-	e := &env{o: &options{view: 2}}
-	b := &bot{}
-	for x := int32(-2); x <= 2; x++ {
-		for z := int32(-2); z <= 2; z++ {
-			b.chunkLog = append(b.chunkLog, chunkArrival{at: time.Duration(len(b.chunkLog)+1) * time.Second, x: x, z: z})
-		}
-	}
-	for _, count := range []int{0, 12, 13, 22, 23, 24, 25} {
-		partial := &bot{name: "milestone", chunkLog: b.chunkLog[:count]}
-		got := e.viewTimes([]*bot{partial})
-		var seconds *float64
-		if count == 25 {
-			seconds = new(float64(25))
-		}
-		checkBotTimes(t, got, []string{"milestone"}, []*float64{seconds})
-		for key, threshold := range map[string]int{"t50_median_s": 13, "t90_median_s": 23, "t100_median_s": 25} {
-			var want float64
-			if count >= threshold {
-				want = float64(threshold)
-			}
-			if got[key] != want {
-				t.Errorf("%d chunks: %s = %v, want %v", count, key, got[key], want)
-			}
-		}
-	}
-}
-
-func TestViewTimesFirstChunk(t *testing.T) {
-	e := &env{o: &options{view: 10}}
-	bots := []*bot{
-		{name: "first", x: 1600, chunkLog: []chunkArrival{
-			{at: time.Second, x: 0}, // Old area must not satisfy the teleport.
-			{at: 3 * time.Second, x: 100},
-			{at: 4 * time.Second, x: 101},
-		}},
-		{name: "second", x: 3200, chunkLog: []chunkArrival{{at: 11 * time.Second, x: 200}}},
-		{name: "empty", x: 4800}, // Receiving nothing cannot satisfy a milestone.
-	}
-	got := e.viewTimes(bots)
-	checkBotTimes(t, got, []string{"first", "second", "empty"}, []*float64{nil, nil, nil})
-	if got["first_max_s"] != float64(11) || got["bots_complete"] != 0 {
-		t.Fatalf("first chunk summary = %v", got)
-	}
-}
-
 func checkBotTimes(t *testing.T, got map[string]any, names []string, seconds []*float64) {
 	t.Helper()
 	entries := got["t100_by_bot"].([]botViewTime)

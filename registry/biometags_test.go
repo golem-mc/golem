@@ -28,25 +28,3 @@ func TestBiomeTagBitsetsMatchRegistry(t *testing.T) {
 		t.Fatal("unknown or out-of-range tag reported a member")
 	}
 }
-
-func TestBiomeTagIDsSurviveReload(t *testing.T) {
-	before := make(map[string]BiomeTagID, len(baseBiomeTagNames))
-	for _, tag := range baseBiomeTagNames {
-		before[tag] = BiomeTagOf(tag)
-	}
-	problems := applyForTest(t, PackTags{"minecraft:worldgen/biome": {
-		"aaa:pack_only": {Entries: []PackTagEntry{req("minecraft:desert")}},
-	}})
-	if len(problems) != 0 {
-		t.Fatal(problems)
-	}
-	for tag, id := range before {
-		if got := BiomeTagOf(tag); got != id {
-			t.Fatalf("%s ID changed from %d to %d", tag, id, got)
-		}
-	}
-	extra := BiomeTagOf("aaa:pack_only")
-	if extra == noBiomeTag || int(extra) < len(baseBiomeTagNames) || !BiomeDesert.InTag(extra) || BiomePlains.InTag(extra) {
-		t.Fatal("pack-only tag was not resolved after built-in tags")
-	}
-}

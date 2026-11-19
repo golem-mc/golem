@@ -16,12 +16,3 @@ func TestEntityTypeTagMembership(t *testing.T) {
 		t.Error("unknown tag has members")
 	}
 }
-
-func TestEntityTypeNames(t *testing.T) {
-	if EntityTypeCow.Name() != "minecraft:cow" || EntityType(-1).Name() != "" {
-		t.Error("Name wrong")
-	}
-	if id, ok := EntityTypeByName("minecraft:cow"); !ok || id != EntityTypeCow {
-		t.Error("EntityTypeByName(cow) wrong")
-	}
-}

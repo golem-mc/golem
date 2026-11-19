@@ -2,12 +2,13 @@ package network
 
 import (
 	"encoding/binary"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"io"
 	"net"
 	"strings"
 	"testing"
 	"unicode/utf16"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"

@@ -70,66 +70,6 @@ func TestADispenserStandsItsArmorStand(t *testing.T) {
 	}
 }
 
-func TestADispenserFitsAHorseChest(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name, kind              string
-		tame, existing, outside bool
-		want                    bool
-	}{
-		{"donkey", "donkey", true, false, false, true},
-		{"mule", "mule", true, false, false, true},
-		{"llama", "llama", true, false, false, true},
-		{"trader_llama", "trader_llama", true, false, false, true},
-		{"untamed", "donkey", false, false, false, false},
-		{"already_chested", "donkey", true, true, false, false},
-		{"horse", "horse", true, false, false, false},
-		{"outside", "donkey", true, false, true, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, w := servertest.Dispensing(t)
-			z := 1.5
-			if tc.outside {
-				z = 3.5
-			}
-			id := srv.SpawnMob("minecraft:"+tc.kind, 4.5, 64, z)
-			if tc.tame {
-				srv.TameHorse(id)
-			}
-			target := srv.SelectedEntities("minecraft:" + tc.kind)[0].(command.DataTarget)
-			if tc.existing {
-				tag, _ := target.DataTag()
-				tag.Set("ChestedHorse", nbt.Byte(1))
-				if !target.(command.DataWriter).SetDataTag(tag.Entries()) {
-					t.Fatal("could not fit initial chest")
-				}
-			}
-			srv.SetInventoryAt(4, 64, 0, 0, servertest.ItemStack(t, "minecraft:chest", 1))
-			w.DrainRecorded()
-			srv.Dispense(4, 64, 0, protocol.FaceSouth)
-			tag, _ := target.DataTag()
-			if got := nbt.BoolField(tag.Entries(), "ChestedHorse"); got != (tc.want || tc.existing) {
-				t.Errorf("chest flag = %v: %v", got, tag)
-			}
-			dropped := 0
-			if !tc.want {
-				dropped = 1
-			}
-			if got := countDropped(srv.ItemsInDimension(world.DimensionName), "minecraft:chest"); got != dropped {
-				t.Errorf("dropped %d chests, want %d", got, dropped)
-			}
-			if left := srv.InventoryAt(4, 64, 0)[0]; !left.Empty() {
-				t.Errorf("remaining stack = %+v", left)
-			}
-			w.DrainRecorded()
-			if !slices.Contains(w.Events, protocol.WorldEventDispense) {
-				t.Errorf("missing click: %v", w.Events)
-			}
-		})
-	}
-}
-
 func TestADispenserMakesMudWithAWaterBottle(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

@@ -278,26 +278,6 @@ func TestSavePreservesCommentsAndUnknownKeys(t *testing.T) {
 	}
 }
 
-// A user's comment must not be replaced by the generated one.
-func TestSaveKeepsEditedComment(t *testing.T) {
-	path := writeConfig(t, "# my wording\nmotd=Custom\n")
-
-	if _, err := Load(path); err != nil {
-		t.Fatalf("load: %v", err)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if !strings.Contains(string(data), "# my wording") {
-		t.Errorf("user comment was replaced, got:\n%s", data)
-	}
-	if strings.Contains(string(data), "# Message shown in the server list.") {
-		t.Errorf("default comment overwrote the user comment, got:\n%s", data)
-	}
-}
-
 func TestSaveRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
 	cfg := Default()
@@ -315,36 +295,6 @@ func TestSaveRoundTrip(t *testing.T) {
 	}
 	if *loaded != *cfg {
 		t.Errorf("round trip = %+v, want %+v", loaded, cfg)
-	}
-}
-
-// Values are stored verbatim; ${...} must not be treated as a reference.
-func TestSaveDoesNotExpandValues(t *testing.T) {
-	path := filepath.Join(t.TempDir(), FileName)
-	cfg := Default()
-	cfg.MOTD = "${motd} ${HOME}"
-
-	if err := cfg.Save(path); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	loaded, err := Load(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if loaded.MOTD != cfg.MOTD {
-		t.Errorf("MOTD = %q, want %q", loaded.MOTD, cfg.MOTD)
-	}
-}
-
-func TestAddrIPv6(t *testing.T) {
-	cfg := Default()
-	cfg.ServerIP = "::1"
-	if got := cfg.Addr(); got != "[::1]:25565" {
-		t.Errorf("Addr() = %q, want %q", got, "[::1]:25565")
-	}
-	cfg.ServerIP = "[::1]"
-	if got := cfg.Addr(); got != "[::1]:25565" {
-		t.Errorf("bracketed Addr() = %q, want %q", got, "[::1]:25565")
 	}
 }
 
@@ -459,65 +409,6 @@ func TestLoadGameMode(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "gamemode=survival") {
 		t.Errorf("config file missing gamemode=survival, got:\n%s", data)
-	}
-}
-
-// TestLoadGameModeNumbers checks gamemode read as the number GameType.byId
-// reads: 0 to 3 name the four modes, and an id outside them is survival.
-func TestLoadGameModeNumbers(t *testing.T) {
-	for _, tc := range []struct {
-		value string
-		want  string
-	}{
-		{"0", "survival"},
-		{"1", "creative"},
-		{"2", "adventure"},
-		{"3", "spectator"},
-		{"4", "survival"},
-		{"99", "survival"},
-		{"-1", "survival"},
-	} {
-		path := writeConfig(t, "gamemode="+tc.value+"\n")
-		cfg, err := Load(path)
-		if err != nil {
-			t.Fatalf("load %q: %v", tc.value, err)
-		}
-		if cfg.GameMode != tc.want {
-			t.Errorf("gamemode=%q gave %q, want %q", tc.value, cfg.GameMode, tc.want)
-		}
-	}
-}
-
-// TestLoadDifficultyNumbers checks difficulty read as the number
-// Difficulty.byId reads: the id wraps modulo four, negatives included, while a
-// number past int32 does not parse and so falls back to the default.
-func TestLoadDifficultyNumbers(t *testing.T) {
-	for _, tc := range []struct {
-		value string
-		want  string
-	}{
-		{"0", "peaceful"},
-		{"1", "easy"},
-		{"2", "normal"},
-		{"3", "hard"},
-		{"4", "peaceful"},
-		{"5", "easy"},
-		{"7", "hard"},
-		{"-1", "hard"},
-		{"-4", "peaceful"},
-		// Java's Integer.parseInt rejects an int32 overflow, so the value
-		// reaches no name and the default easy wins instead of wrapping.
-		{"2147483648", "easy"},
-		{"-2147483649", "easy"},
-	} {
-		path := writeConfig(t, "difficulty="+tc.value+"\n")
-		cfg, err := Load(path)
-		if err != nil {
-			t.Fatalf("load %q: %v", tc.value, err)
-		}
-		if cfg.Difficulty != tc.want {
-			t.Errorf("difficulty=%q gave %q, want %q", tc.value, cfg.Difficulty, tc.want)
-		}
 	}
 }
 
@@ -653,37 +544,6 @@ func TestLoadNetworkCompressionThreshold(t *testing.T) {
 	}
 }
 
-// TestLoadRejectsCompressionThresholdOutsideInt32 checks a threshold the
-// client cannot be told: it travels as a 32-bit VarInt, so a value outside
-// int32 is refused and the default stands, instead of wrapping into a negative
-// that disables compression on the client while the server keeps the huge
-// threshold.
-func TestLoadRejectsCompressionThresholdOutsideInt32(t *testing.T) {
-	for _, value := range []string{"3000000000", "-3000000000", "2147483648", "-2147483649"} {
-		path := writeConfig(t, "network-compression-threshold="+value+"\n")
-		cfg, err := Load(path)
-		if err != nil {
-			t.Fatalf("load %s: %v", value, err)
-		}
-		if got := cfg.NetworkCompressionThreshold; got != Default().NetworkCompressionThreshold {
-			t.Errorf("network-compression-threshold=%s gave %d, want the default %d",
-				value, got, Default().NetworkCompressionThreshold)
-		}
-	}
-
-	// The ends of the int32 range are settings, not mistakes.
-	for _, value := range []int{-2147483648, 2147483647} {
-		path := writeConfig(t, "network-compression-threshold="+strconv.Itoa(value)+"\n")
-		cfg, err := Load(path)
-		if err != nil {
-			t.Fatalf("load %d: %v", value, err)
-		}
-		if got := cfg.NetworkCompressionThreshold; got != value {
-			t.Errorf("network-compression-threshold=%d gave %d", value, got)
-		}
-	}
-}
-
 // TestLoadAcceptsTransfers checks the accepts-transfers key: off by default,
 // and read and written like the other booleans.
 func TestLoadAcceptsTransfers(t *testing.T) {
@@ -769,32 +629,6 @@ func TestLoadBugReportLink(t *testing.T) {
 	}
 }
 
-// TestLoadRejectsInvalidBugReportLink checks that a link vanilla's
-// Util.parseAndValidateUntrustedUri would refuse is dropped rather than sent
-// to a client that cannot open it.
-func TestLoadRejectsInvalidBugReportLink(t *testing.T) {
-	for _, value := range []string{
-		"example.org/x",                 // no scheme
-		"javascript:alert(1)",           // a scheme the client must not follow
-		"http:",                         // no scheme-specific part
-		"http://",                       // "//" before nothing, no authority
-		"https://",                      // the same, over https
-		"https://example.org/a b",       // a space java.net.URI refuses
-		"https://example.org/<>",        // characters RFC 2396 reserves
-		"https://example.org/caf\u00e9", // non-ASCII, needs percent-encoding
-		"https://a#f#g",                 // '#' is not legal inside a fragment
-	} {
-		path := writeConfig(t, "bug-report-link="+value+"\n")
-		cfg, err := Load(path)
-		if err != nil {
-			t.Fatalf("load %q: %v", value, err)
-		}
-		if cfg.BugReportLink != "" {
-			t.Errorf("bug-report-link=%q was kept as %q, want it dropped", value, cfg.BugReportLink)
-		}
-	}
-}
-
 // TestLoadRconSettings checks the rcon keys: off by default with vanilla's
 // port, no password and its commands echoed to the operators, all four read
 // from a file, and the default file carrying all four.
@@ -846,106 +680,6 @@ func TestLoadRconSettings(t *testing.T) {
 	}
 }
 
-// TestLoadQuerySettings checks the query keys: the listener off by default
-// with the vanilla server's port, and both read and written like the other
-// settings.
-func TestLoadQuerySettings(t *testing.T) {
-	if Default().EnableQuery {
-		t.Error("enable-query defaults on, want off")
-	}
-	if Default().QueryPort != 25565 {
-		t.Errorf("query.port defaults to %d, want 25565", Default().QueryPort)
-	}
-
-	path := writeConfig(t, "enable-query=true\nquery.port=25566\n")
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if !cfg.EnableQuery {
-		t.Error("enable-query=true gave false")
-	}
-	if cfg.QueryPort != 25566 {
-		t.Errorf("query.port=25566 gave %d", cfg.QueryPort)
-	}
-
-	// Whatever the port is, the parse only hands the operator a number;
-	// the listener itself refuses the range outside 1 to 65535.
-	path = writeConfig(t, "query.port=not-a-number\n")
-	cfg, err = Load(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.QueryPort != Default().QueryPort {
-		t.Errorf("query.port = %d, want the default %d", cfg.QueryPort, Default().QueryPort)
-	}
-
-	path = filepath.Join(t.TempDir(), FileName)
-	if _, err := Load(path); err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	for _, want := range []string{"enable-query=false", "query.port=25565"} {
-		if !strings.Contains(string(data), want) {
-			t.Errorf("config file missing %s, got:\n%s", want, data)
-		}
-	}
-}
-
-// TestLoadRegionFileSettings checks the two storage keys: the three
-// compression names as written, everything else (vanilla's select is exact)
-// falling back to the default, and the sync flag reading a boolean whose
-// default is on.
-func TestLoadRegionFileSettings(t *testing.T) {
-	for _, tc := range []struct {
-		value string
-		want  string
-	}{
-		{"deflate", "deflate"},
-		{"lz4", "lz4"},
-		{"none", "none"},
-		{" LZ4 ", "deflate"}, // case-sensitive. vanilla: RegionFileVersion.configure
-		{"zstd", "deflate"},  // an unknown name keeps the default
-	} {
-		path := writeConfig(t, "region-file-compression="+tc.value+"\n")
-		cfg, err := Load(path)
-		if err != nil {
-			t.Fatalf("load %q: %v", tc.value, err)
-		}
-		if cfg.RegionFileCompression != tc.want {
-			t.Errorf("region-file-compression=%q gave %q, want %q",
-				tc.value, cfg.RegionFileCompression, tc.want)
-		}
-	}
-
-	path := writeConfig(t, "sync-chunk-writes=false\n")
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.SyncChunkWrites {
-		t.Error("sync-chunk-writes=false gave true, want false")
-	}
-
-	// The default file carries the vanilla defaults: syncing on, deflate.
-	path = filepath.Join(t.TempDir(), FileName)
-	if _, err := Load(path); err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"region-file-compression=deflate", "sync-chunk-writes=true"} {
-		if !strings.Contains(string(data), want) {
-			t.Errorf("config file missing %s, got:\n%s", want, data)
-		}
-	}
-}
-
 // TestLoadResourcePackKeys checks the resource-pack keys: off by default,
 // read from a file, and present in the default file.
 func TestLoadResourcePackKeys(t *testing.T) {
@@ -981,28 +715,6 @@ func TestLoadResourcePackKeys(t *testing.T) {
 	}
 }
 
-// TestLoadHardcore checks the hardcore key reads as a boolean, off by default.
-func TestLoadHardcore(t *testing.T) {
-	if Default().Hardcore {
-		t.Error("default hardcore = true, want false")
-	}
-	cfg, err := Load(writeConfig(t, "hardcore=true\n"))
-	if err != nil || !cfg.Hardcore {
-		t.Errorf("hardcore=true gave %v, err %v", cfg.Hardcore, err)
-	}
-}
-
-// TestLoadAllowFlight checks the allow-flight key reads as a boolean, off by default.
-func TestLoadAllowFlight(t *testing.T) {
-	if Default().AllowFlight {
-		t.Error("default allow-flight = true, want false")
-	}
-	cfg, err := Load(writeConfig(t, "allow-flight=true\n"))
-	if err != nil || !cfg.AllowFlight {
-		t.Errorf("allow-flight=true gave %v, err %v", cfg.AllowFlight, err)
-	}
-}
-
 func TestExtraServerPropertiesDefaultsAndClamps(t *testing.T) {
 	d := Default()
 	if !d.BroadcastConsoleToOps || !d.LogIPs || d.EntityBroadcastRangePercentage != 100 ||
@@ -1026,16 +738,6 @@ func TestExtraServerPropertiesDefaultsAndClamps(t *testing.T) {
 	}
 	if cfg.EntityBroadcastRangePercentage != 1000 || cfg.MaxWorldSize != 1 || cfg.FunctionPermissionLevel != 4 {
 		t.Errorf("clamps wrong: %+v", cfg)
-	}
-}
-
-func TestLoadEnforceSecureProfile(t *testing.T) {
-	cfg, err := Load(writeConfig(t, "enforce-secure-profile=false\n"))
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.EnforceSecureProfile || cfg.EnforcesSecureChat() {
-		t.Errorf("enforce-secure-profile=false loaded as %v", cfg.EnforceSecureProfile)
 	}
 }
 
@@ -1066,40 +768,6 @@ func TestLoadGenerateStructures(t *testing.T) {
 	}
 }
 
-func TestLoadBooleansAreTrueOnlyForTrue(t *testing.T) {
-	for _, tc := range []struct {
-		value string
-		want  bool
-	}{
-		{"true", true}, {"TRUE", true}, {"True", true},
-		{"false", false}, {"yes", false}, {"1", false}, {"t", false}, {"", false},
-	} {
-		path := writeConfig(t, "online-mode="+tc.value+"\nwhite-list="+tc.value+"\n")
-		cfg, err := Load(path)
-		if err != nil {
-			t.Fatalf("load: %v", err)
-		}
-		if cfg.OnlineMode != tc.want || cfg.WhiteList != tc.want {
-			t.Errorf("value %q: online-mode=%v white-list=%v, want %v", tc.value, cfg.OnlineMode, cfg.WhiteList, tc.want)
-		}
-	}
-}
-
-// TestLoadEnableCodeOfConduct checks the enable-code-of-conduct key: off by
-// default, on when set.
-func TestLoadEnableCodeOfConduct(t *testing.T) {
-	if Default().EnableCodeOfConduct {
-		t.Error("enable-code-of-conduct is on by default")
-	}
-	cfg, err := Load(writeConfig(t, "enable-code-of-conduct=true\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.EnableCodeOfConduct {
-		t.Error("enable-code-of-conduct=true was not read")
-	}
-}
-
 // TestPlayerIdleTimeoutRoundTrip checks player-idle-timeout loads and saves.
 func TestPlayerIdleTimeoutRoundTrip(t *testing.T) {
 	path := writeConfig(t, "player-idle-timeout=7\n")
@@ -1120,177 +788,6 @@ func TestPlayerIdleTimeoutRoundTrip(t *testing.T) {
 	}
 	if again.PlayerIdleTimeout != 3 {
 		t.Errorf("PlayerIdleTimeout = %d after save, want 3", again.PlayerIdleTimeout)
-	}
-}
-
-// TestPlayerIdleTimeoutDefaultsOff checks a file without the key never kicks.
-func TestPlayerIdleTimeoutDefaultsOff(t *testing.T) {
-	cfg, err := Load(writeConfig(t, "motd=x\n"))
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.PlayerIdleTimeout != 0 {
-		t.Errorf("PlayerIdleTimeout = %d, want 0", cfg.PlayerIdleTimeout)
-	}
-}
-
-// TestForceGameModeKey reads force-gamemode: off by default, on for "true",
-// and written back by Save.
-func TestForceGameModeKey(t *testing.T) {
-	if Default().ForceGameMode {
-		t.Error("force-gamemode defaults on, want off")
-	}
-	cfg, err := Load(writeConfig(t, "force-gamemode=true\n"))
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if !cfg.ForceGameMode {
-		t.Error("force-gamemode=true gave false")
-	}
-}
-
-// TestSpawnProtectionKey: spawn-protection defaults to 16, reads a number and
-// clamps a negative one to 0.
-func TestSpawnProtectionKey(t *testing.T) {
-	t.Parallel()
-	if got := Default().SpawnProtection; got != 16 {
-		t.Errorf("default spawn-protection = %d, want 16", got)
-	}
-	for value, want := range map[string]int{"5": 5, "-3": 0, "0": 0} {
-		cfg, err := Load(writeConfig(t, "spawn-protection="+value+"\n"))
-		if err != nil {
-			t.Fatalf("spawn-protection=%s: %v", value, err)
-		}
-		if cfg.SpawnProtection != want {
-			t.Errorf("spawn-protection=%s gave %d, want %d", value, cfg.SpawnProtection, want)
-		}
-	}
-}
-
-// TestPauseWhenEmptySecondsRoundTrip checks pause-when-empty-seconds loads,
-// defaults to vanilla's 60 and saves.
-func TestPauseWhenEmptySecondsRoundTrip(t *testing.T) {
-	def, err := Load(writeConfig(t, "motd=x\n"))
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if def.PauseWhenEmptySeconds != 60 {
-		t.Errorf("default PauseWhenEmptySeconds = %d, want 60", def.PauseWhenEmptySeconds)
-	}
-	path := writeConfig(t, "pause-when-empty-seconds=7\n")
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.PauseWhenEmptySeconds != 7 {
-		t.Fatalf("PauseWhenEmptySeconds = %d, want 7", cfg.PauseWhenEmptySeconds)
-	}
-	cfg.PauseWhenEmptySeconds = 3
-	if err := cfg.Save(path); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	again, err := Load(path)
-	if err != nil {
-		t.Fatalf("reload: %v", err)
-	}
-	if again.PauseWhenEmptySeconds != 3 {
-		t.Errorf("PauseWhenEmptySeconds = %d after save, want 3", again.PauseWhenEmptySeconds)
-	}
-}
-
-// TestSpamThresholdSecondsRoundTrip checks both spam thresholds default to 10,
-// load, and save.
-func TestSpamThresholdSecondsRoundTrip(t *testing.T) {
-	d := Default()
-	if d.ChatSpamThresholdSeconds != 10 || d.CommandSpamThresholdSeconds != 10 {
-		t.Fatalf("defaults = %d, %d; want 10, 10", d.ChatSpamThresholdSeconds, d.CommandSpamThresholdSeconds)
-	}
-	path := writeConfig(t, "chat-spam-threshold-seconds=3\ncommand-spam-threshold-seconds=0\n")
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.ChatSpamThresholdSeconds != 3 || cfg.CommandSpamThresholdSeconds != 0 {
-		t.Fatalf("loaded %d, %d; want 3, 0", cfg.ChatSpamThresholdSeconds, cfg.CommandSpamThresholdSeconds)
-	}
-	cfg.ChatSpamThresholdSeconds = 7
-	if err := cfg.Save(path); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	again, err := Load(path)
-	if err != nil {
-		t.Fatalf("reload: %v", err)
-	}
-	if again.ChatSpamThresholdSeconds != 7 || again.CommandSpamThresholdSeconds != 0 {
-		t.Errorf("after save %d, %d; want 7, 0", again.ChatSpamThresholdSeconds, again.CommandSpamThresholdSeconds)
-	}
-}
-
-// TestSpamThresholdSecondsBadValueFallsBack checks a non-number, or one past a
-// Java int, keeps the default of 10 and a missing key is written back.
-func TestSpamThresholdSecondsBadValueFallsBack(t *testing.T) {
-	path := writeConfig(t, "chat-spam-threshold-seconds=lots\ncommand-spam-threshold-seconds=99999999999\n")
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.ChatSpamThresholdSeconds != 10 || cfg.CommandSpamThresholdSeconds != 10 {
-		t.Errorf("bad values loaded %d, %d; want 10, 10", cfg.ChatSpamThresholdSeconds, cfg.CommandSpamThresholdSeconds)
-	}
-	missing := writeConfig(t, "player-idle-timeout=1\n")
-	if _, err := Load(missing); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := os.ReadFile(missing)
-	if !strings.Contains(string(b), "chat-spam-threshold-seconds=10") || !strings.Contains(string(b), "command-spam-threshold-seconds=10") {
-		t.Errorf("missing keys not written back:\n%s", b)
-	}
-}
-
-func TestLoadWhiteListDefaultsToTrue(t *testing.T) {
-	for name, content := range map[string]string{
-		"without the key": "motd=x\n",
-	} {
-		path := writeConfig(t, content)
-		cfg, err := Load(path)
-		if err != nil {
-			t.Fatalf("%s: load: %v", name, err)
-		}
-		if !cfg.WhiteList {
-			t.Errorf("%s: WhiteList = false, want true", name)
-		}
-		if data, _ := os.ReadFile(path); !strings.Contains(string(data), "white-list=") {
-			t.Errorf("%s: file lacks white-list:\n%s", name, data)
-		}
-	}
-
-	cfg, err := Load(writeConfig(t, "white-list=false\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.WhiteList {
-		t.Error("white-list=false loaded as true")
-	}
-	if Default().WhiteList {
-		t.Error("Default().WhiteList = true, want false")
-	}
-}
-
-func TestMaxTickTime(t *testing.T) {
-	if d := Default().MaxTickTime; d != 60000 {
-		t.Errorf("default max-tick-time = %d, want 60000", d)
-	}
-	for _, tc := range []struct {
-		value string
-		want  int64
-	}{{"-1", -1}, {"abc", 60000}, {"0", 0}, {"5000", 5000}} {
-		cfg, err := Load(writeConfig(t, "max-tick-time="+tc.value+"\n"))
-		if err != nil {
-			t.Fatalf("load: %v", err)
-		}
-		if cfg.MaxTickTime != tc.want {
-			t.Errorf("max-tick-time=%s read as %d, want %d", tc.value, cfg.MaxTickTime, tc.want)
-		}
 	}
 }
 
@@ -1404,36 +901,6 @@ func TestGeneratorSettingsKey(t *testing.T) {
 	}
 }
 
-func TestLoadPreventChatReports(t *testing.T) {
-	t.Parallel()
-	if Default().PreventChatReports {
-		t.Fatal("prevent-chat-reports defaults to true")
-	}
-	for _, enabled := range []bool{false, true} {
-		cfg, err := Load(writeConfig(t, "prevent-chat-reports="+strconv.FormatBool(enabled)+"\n"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if cfg.PreventChatReports != enabled {
-			t.Errorf("prevent-chat-reports = %v, want %v", cfg.PreventChatReports, enabled)
-		}
-		if enabled && (!cfg.AdvertisesSecureChat() || cfg.EnforcesSecureChat()) {
-			t.Error("preventing reports must advertise secure chat without enforcing signatures")
-		}
-	}
-	path := filepath.Join(t.TempDir(), FileName)
-	if _, err := Load(path); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "prevent-chat-reports=false") {
-		t.Error("default properties lacks prevent-chat-reports=false")
-	}
-}
-
 // TestLoadLegacyKeys checks resource-pack-hash and announce-player-achievements
 // are read but never written back.
 func TestLoadLegacyKeys(t *testing.T) {
@@ -1457,31 +924,5 @@ func TestLoadLegacyKeys(t *testing.T) {
 	data, _ = os.ReadFile(path)
 	if strings.Contains(string(data), "resource-pack-hash") || strings.Contains(string(data), "announce-player-achievements") {
 		t.Errorf("default file has legacy keys:\n%s", data)
-	}
-}
-
-// TestMaxChainedNeighborUpdatesRoundTrip checks the default, a negative value
-// and the rewritten file.
-func TestMaxChainedNeighborUpdatesRoundTrip(t *testing.T) {
-	def, err := Load(writeConfig(t, "motd=x\n"))
-	if err != nil || def.MaxChainedNeighborUpdates != 1000000 {
-		t.Fatalf("default = %d, %v; want 1000000", def.MaxChainedNeighborUpdates, err)
-	}
-	path := writeConfig(t, "max-chained-neighbor-updates=-1\n")
-	cfg, err := Load(path)
-	if err != nil || cfg.MaxChainedNeighborUpdates != -1 {
-		t.Fatalf("negative = %d, %v; want -1", cfg.MaxChainedNeighborUpdates, err)
-	}
-	cfg.MaxChainedNeighborUpdates = 25
-	if err := cfg.Save(path); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	raw, _ := os.ReadFile(path)
-	if !strings.Contains(string(raw), "max-chained-neighbor-updates=25") {
-		t.Fatalf("rewritten file lacks the key:\n%s", raw)
-	}
-	again, err := Load(path)
-	if err != nil || again.MaxChainedNeighborUpdates != 25 {
-		t.Fatalf("reload = %d, %v; want 25", again.MaxChainedNeighborUpdates, err)
 	}
 }

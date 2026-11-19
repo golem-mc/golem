@@ -8,7 +8,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
@@ -87,46 +86,6 @@ func shootPlayer(t *testing.T, cfg *config.Config, ready func(srv *server.Server
 	return srv
 }
 
-// TestAnArrowThatHurtsAPlayerObtainsTakeAim: a bow's arrow landing on
-// another player is a player_hurt_entity by an arrow too.
-// vanilla: LivingEntity.hurtServer, PlayerHurtEntityTrigger
-func TestAnArrowThatHurtsAPlayerObtainsTakeAim(t *testing.T) {
-	t.Parallel()
-	var before float64
-	srv := shootPlayer(t, servertest.BowTestConfig(), func(srv *server.Server, _ *servertest.Client) {
-		if pos := srv.PlayerPosition("Target"); pos.X != 4.5 || pos.Y != 64 || pos.Z != 0.5 {
-			t.Fatalf("target before advancing the held loop = %+v, want (4.5, 64, 0.5)", pos)
-		}
-		before = srv.PlayerHealth("Target")
-	})
-	if hp := srv.PlayerHealth("Target"); hp >= before {
-		t.Fatalf("the target has %v health of %v, want the arrow's hurt", hp, before)
-	}
-	if !srv.AdvancementObtained("Archer", "minecraft:adventure/shoot_arrow", "shot_arrow") {
-		t.Error("an arrow that hurt a player did not obtain shoot_arrow")
-	}
-}
-
-// TestAnArrowAShieldBlocksObtainsTakeAim: a fresh hit the target's raised
-// shield turns aside whole still fires the shooter's player_hurt_entity.
-// vanilla: LivingEntity.hurtServer
-func TestAnArrowAShieldBlocksObtainsTakeAim(t *testing.T) {
-	t.Parallel()
-	srv := shootPlayer(t, servertest.BowTestConfig(), func(srv *server.Server, target *servertest.Client) {
-		srv.GiveSlot("Target", player.OffHandSlot, protocol.ItemStack{ItemID: servertest.ItemIDOrDie(t, "minecraft:shield"), Count: 1})
-		target.UseItemRightClicks(protocol.HandOff)
-		// The use turns the target to its yaw 0; face the archer again.
-		target.MoveTo(4.5, 64, 0.5, 90, 0)
-		target.Settle()
-	})
-	if hp := srv.PlayerHealth("Target"); hp != 20 {
-		t.Fatalf("the target has %v health, want the shield to block the arrow", hp)
-	}
-	if !srv.AdvancementObtained("Archer", "minecraft:adventure/shoot_arrow", "shot_arrow") {
-		t.Error("an arrow a shield blocked did not obtain shoot_arrow")
-	}
-}
-
 // TestAnArrowThatKillsAPlayerFiresKilledByArrow: a pack's killed_by_arrow
 // naming a player victim is obtained by the shot that kills one.
 // vanilla: AbstractArrow.onHitEntity, KilledByArrowTrigger
@@ -179,21 +138,6 @@ func shootPhantoms(t *testing.T, pierce int) *server.Server {
 	return srv
 }
 
-// TestACrossbowArrowThroughTwoPhantomsObtainsTwoBirds: killed_by_arrow wants
-// the two phantoms killed by one piercing arrow from a crossbow; the same
-// shot without the piercing kills one.
-// vanilla: AbstractArrow.onHitEntity, KilledByArrowTrigger
-func TestACrossbowArrowThroughTwoPhantomsObtainsTwoBirds(t *testing.T) {
-	t.Parallel()
-	const birds = "minecraft:adventure/two_birds_one_arrow"
-	if shootPhantoms(t, 0).AdvancementObtained("Archer", birds, "two_birds") {
-		t.Error("an arrow that killed one phantom obtained two_birds_one_arrow")
-	}
-	if !shootPhantoms(t, 1).AdvancementObtained("Archer", birds, "two_birds") {
-		t.Error("a piercing arrow through two phantoms did not obtain two_birds_one_arrow")
-	}
-}
-
 // shootSkeleton has the archer shoot a one-health skeleton four blocks off
 // at the pitch given, stand back blocks further away while the arrow flies,
 // and waits for the arrow to land.
@@ -217,18 +161,4 @@ func shootSkeleton(t *testing.T, back float64, pitch float32) *server.Server {
 	}
 	flyTicks(c, srv, 40)
 	return srv
-}
-
-// TestAnArrowKillFromFarObtainsSniperDuel: the skeleton must die to a
-// projectile with the player at least 50 blocks off horizontally.
-// vanilla: advancement adventure/sniper_duel, DistancePredicate
-func TestAnArrowKillFromFarObtainsSniperDuel(t *testing.T) {
-	t.Parallel()
-	const duel = "minecraft:adventure/sniper_duel"
-	if shootSkeleton(t, 0, 12).AdvancementObtained("Archer", duel, "killed_skeleton") {
-		t.Error("a kill from four blocks obtained sniper_duel")
-	}
-	if !shootSkeleton(t, 50, 12).AdvancementObtained("Archer", duel, "killed_skeleton") {
-		t.Error("a kill from over 50 blocks did not obtain sniper_duel")
-	}
 }

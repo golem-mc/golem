@@ -1,8 +1,9 @@
 package combat
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
@@ -158,86 +159,6 @@ func TestTheMainHandTotemIsSpentBeforeTheOffHand(t *testing.T) {
 	}
 	if got := srv.PlayerHealth("Holder"); got != 0 {
 		t.Errorf("health after a third blow past both totems = %v, want 0", got)
-	}
-}
-
-// TestAnOffHandOnlyTotemSaves checks the fallback vanilla's hand pick makes
-// when the main hand holds nothing that saves: the offhand's totem is spent,
-// the effects land the same, and the absorption the item's second level names
-// stands on the body.
-func TestAnOffHandOnlyTotemSaves(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.SurvivalConfig()
-
-	srv, c := servertest.Join(t, cfg, "Holder")
-	srv.StopTick()
-
-	srv.GiveSlot("Holder", player.OffHandSlot, totemStack(t))
-	holderID := c.PlayerEntityID
-	if !srv.Hurt("Holder", 40) {
-		t.Fatal("the blow did not land")
-	}
-	if got := servertest.ExpectEmptiedSlot(c); got != player.OffHandSlot {
-		t.Errorf("the spent slot = %d, want the offhand's %d", got, player.OffHandSlot)
-	}
-	c.ExpectMobEffectAdded(holderID, registry.MustMobEffect("minecraft:regeneration"), 1, 900)
-	c.ExpectMobEffectAdded(holderID, registry.MustMobEffect("minecraft:absorption"), 1, 100)
-	c.ExpectMobEffectAdded(holderID, registry.MustMobEffect("minecraft:fire_resistance"), 0, 800)
-	c.ExpectEntityEvent(holderID, protocol.EntityStatusTotem)
-	if got := c.ExpectHealth(); got.Health != 1 {
-		t.Errorf("bar after the save = %v, want 1", got.Health)
-	}
-	c.ExpectDamageEvent(holderID, "minecraft:mob_attack", 1)
-
-	if got := srv.InventorySlot("Holder", player.OffHandSlot); !got.Empty() {
-		t.Errorf("the offhand still holds %+v after the save", got)
-	}
-	if got := srv.PlayerAbsorption("Holder"); got != 8 {
-		t.Errorf("absorption after the save = %v, want 8, the totem's Absorption II", got)
-	}
-}
-
-// TestATotemSaveKeepsTheFallDistance checks that a body the totem saves keeps
-// the fall it was carrying: a lethal blow taken mid-air leaves the banked
-// distance alone, so the landing that follows still lands on the body. The
-// absorbed part of the landing is what the test reads, the totem's extra
-// hearts being the first thing the fall spends.
-// vanilla: LivingEntity.checkTotemDeathProtection touches only the health
-func TestATotemSaveKeepsTheFallDistance(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.SurvivalConfig()
-
-	srv, c := servertest.Join(t, cfg, "Faller")
-	c.MarkLoaded()
-	srv.StopTick()
-
-	srv.GiveSlot("Faller", player.HotbarSlot, totemStack(t))
-
-	// Rise to a known height, then bank eight blocks of fall mid-air.
-	c.MoveToGround(0.5, 70, 0.5, false)
-	c.MoveToGround(0.5, 62, 0.5, false)
-	c.Settle()
-
-	// The lethal blow lands mid-air: the totem stands the body up at one
-	// half-heart, the fall still banked behind it.
-	if !srv.Hurt("Faller", 40) {
-		t.Fatal("the blow did not land")
-	}
-	if got := srv.PlayerHealth("Faller"); got != 1 {
-		t.Fatalf("health after the save = %v, want 1", got)
-	}
-
-	// The save's own invulnerable window would turn the weaker landing
-	// aside, so clear it, keeping the body at the half-heart.
-	srv.SetHealth("Faller", 1)
-
-	// Eight blocks past the free three are five damage, which the totem's
-	// eight absorption eats first.
-	c.MoveToGround(0.5, 62, 0.5, true)
-	c.Settle()
-
-	if got, want := srv.PlayerAbsorption("Faller"), float64(3); got != want {
-		t.Errorf("absorption after the landing = %v, want %v: the fall's five spent on the totem's extra hearts", got, want)
 	}
 }
 

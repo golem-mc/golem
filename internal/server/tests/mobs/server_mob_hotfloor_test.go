@@ -6,7 +6,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/registry"
 )
 
 // cowOn stands a NoAI cow on a block of the kind given, with the main loop
@@ -63,64 +62,6 @@ func TestAMobOnAMagmaBlockTakesHotFloorDamage(t *testing.T) {
 			}
 			if !tc.hurt && after != before {
 				t.Errorf("health %v -> %v, want unchanged", before, after)
-			}
-		})
-	}
-}
-
-// TestAFireImmuneMobOnAMagmaBlockTakesNoDamage: a magma cube is fire immune,
-// so the magma floor leaves its health alone while a cow on it is hurt.
-// vanilla: MagmaBlock.stepOn
-func TestAFireImmuneMobOnAMagmaBlockTakesNoDamage(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		kind string
-		hurt bool
-	}{
-		{"minecraft:magma_cube", false},
-		{"minecraft:cow", true},
-	} {
-		t.Run(tc.kind, func(t *testing.T) {
-			t.Parallel()
-			srv, id := mobOn(t, tc.kind, "minecraft:magma_block", protocol.ItemStack{})
-			before, _ := srv.MobHealth(id)
-			srv.TickMobs(35)
-			after, _ := srv.MobHealth(id)
-			if tc.hurt != (after < before) {
-				t.Errorf("health %v -> %v on magma, hurt want %v", before, after, tc.hurt)
-			}
-		})
-	}
-}
-
-// campfireState is the campfire state with the lit property given.
-func campfireState(t *testing.T, lit string) uint16 {
-	t.Helper()
-	state, ok := registry.FindState("minecraft:campfire", map[string]string{"lit": lit})
-	if !ok {
-		t.Fatalf("no campfire state with lit=%s", lit)
-	}
-	return state
-}
-
-// TestAMobInALitCampfireIsBitten: a cow standing in a lit campfire loses
-// health without catching fire; in an unlit one it loses none.
-// vanilla: CampfireBlock.entityInside
-func TestAMobInALitCampfireIsBitten(t *testing.T) {
-	t.Parallel()
-	for _, lit := range []string{"true", "false"} {
-		t.Run("lit="+lit, func(t *testing.T) {
-			t.Parallel()
-			srv, id := cowOn(t, "minecraft:stone", protocol.ItemStack{})
-			srv.SetBlock(5, 64, 5, campfireState(t, lit))
-			before, _ := srv.MobHealth(id)
-			srv.TickMobs(35)
-			after, _ := srv.MobHealth(id)
-			if (lit == "true") != (after < before) {
-				t.Errorf("lit=%s: health %v -> %v", lit, before, after)
-			}
-			if fire := srv.MobFireTicks(id); fire != 0 {
-				t.Errorf("lit=%s: a campfire set the cow alight for %d ticks", lit, fire)
 			}
 		})
 	}

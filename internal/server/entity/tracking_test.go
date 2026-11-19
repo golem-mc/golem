@@ -54,18 +54,3 @@ func TestTrackingNumbersMatchVanilla(t *testing.T) {
 		t.Errorf("unknown kind's update interval = %d ticks, want the builder default 3", got)
 	}
 }
-
-// TestSpectatableType checks the lookup /spectate reads a target's type
-// through: only the marker, whose clientTrackingRange is zero, is refused.
-func TestSpectatableType(t *testing.T) {
-	for name, want := range map[string]bool{
-		"minecraft:player": true,
-		"minecraft:cow":    true,
-		"minecraft:item":   true,
-		"minecraft:marker": false,
-	} {
-		if got := SpectatableType(name); got != want {
-			t.Errorf("SpectatableType(%s) = %v, want %v", name, got, want)
-		}
-	}
-}

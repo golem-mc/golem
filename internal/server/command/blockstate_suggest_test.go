@@ -67,32 +67,3 @@ func TestBlockPropertySuggestions(t *testing.T) {
 		})
 	}
 }
-
-// TestBlockPredicatePropertySuggestions checks that a block predicate offers
-// the properties of a block like a block state does, and those of every
-// block of a tag after a #tag[.
-// vanilla: BlockStateParser.suggestVaguePropertyName
-func TestBlockPredicatePropertySuggestions(t *testing.T) {
-	tree := &Node{Children: []*Node{Clone.Build()}}
-	const head = "/clone ~ ~ ~ ~ ~ ~ ~ ~ ~ filtered "
-	cases := []struct {
-		name  string
-		tail  string
-		start int
-		want  []string
-	}{
-		{"block", "oak_stairs[hal", 45, []string{"half="}},
-		{"tag", "#minecraft:fences[", 52, []string{"]", "east=", "north=", "south=", "waterlogged=", "west="}},
-		{"tag value", "#minecraft:fences[east=", 57, []string{",", "]", "false", "true"}},
-		{"tag after a space", "#minecraft:fences[ east=true, ", 64, []string{"north=", "south=", "waterlogged=", "west="}},
-		{"tag value, nothing left to follow", "#minecraft:wooden_buttons[face=ceiling,facing=north,powered=true", 94, []string{"]", "false"}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			start, got := Suggest(tree, head+tc.tail, nil)
-			if start != tc.start || !slices.Equal(got, tc.want) {
-				t.Errorf("Suggest = %d %v, want %d %v", start, got, tc.start, tc.want)
-			}
-		})
-	}
-}

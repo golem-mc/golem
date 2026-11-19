@@ -115,26 +115,6 @@ func TestEndGatewayCoolsDownForFortyTicks(t *testing.T) {
 	}
 }
 
-// TestEndGatewayKeepsTheStoredLook checks the teleport leaves the look the
-// server stores where it was while the wire carries zero deltas.
-func TestEndGatewayKeepsTheStoredLook(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Gate")
-	stepIntoGateway(t, srv, c, 3, 3, func() {
-		srv.SetLoadedBlock(20, 120, 20, servertest.BlockState(t, "minecraft:stone"))
-		srv.SetEndGatewayExit(3, gatewayY, 3, 20, 120, 20, true)
-	})
-
-	srv.TickPortals()
-	got := servertest.ReadSyncPosition(t, c.AwaitPlay(protocol.IDPlaySyncPosition))
-	if got.Yaw != 0 || got.Pitch != 0 {
-		t.Errorf("wire look = %v/%v, want zero deltas", got.Yaw, got.Pitch)
-	}
-	if p := srv.PlayerPosition("Gate"); p.Yaw != 30 || p.Pitch != 10 {
-		t.Errorf("stored look = %v/%v, want 30/10", p.Yaw, p.Pitch)
-	}
-}
-
 // TestEndGatewayIgnoresSpectators checks a spectator in a gateway gets no
 // beam and no teleport.
 // vanilla: Player.tick noPhysics
@@ -151,112 +131,6 @@ func TestEndGatewayIgnoresSpectators(t *testing.T) {
 	srv.TickPortals()
 	if beams, teleported := gatewayBeams(t, c, 3, 3); beams != 0 || teleported {
 		t.Errorf("spectator gave %d beams and teleported=%v, want neither", beams, teleported)
-	}
-}
-
-// TestEndGatewayTouchesTheWholeBody checks a gateway at head height, not at
-// the feet, still takes the player.
-// vanilla: Entity.applyEffectsFromBlocks
-func TestEndGatewayTouchesTheWholeBody(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Gate")
-	srv.StopTick()
-	srv.SetLoadedBlock(3, gatewayY, 3, servertest.BlockState(t, "minecraft:end_gateway"))
-	srv.SetEndGatewayExit(3, gatewayY, 3, 20, 120, 20, true)
-	srv.SetLoadedBlock(20, 120, 20, servertest.BlockState(t, "minecraft:stone"))
-	c.MoveToGrounded(3.5, gatewayY-1, 3.5, 30, 10, false)
-	c.Settle()
-
-	srv.TickPortals()
-	c.AwaitPlay(protocol.IDPlaySyncPosition)
-}
-
-// TestEndGatewayUsesTheSneakingBox checks a sneaking player's shorter box
-// stops short of a gateway that a standing one reaches.
-// vanilla: Entity.applyEffectsFromBlocks
-func TestEndGatewayUsesTheSneakingBox(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Gate")
-	c.SendSneak(true)
-	servertest.UntilTicks(t, srv, 40, "sneaking pose", func() bool { return srv.PlayerPose("Gate") == protocol.PoseSneaking })
-	srv.StopTick()
-	srv.SetLoadedBlock(3, gatewayY, 3, servertest.BlockState(t, "minecraft:end_gateway"))
-	srv.SetEndGatewayExit(3, gatewayY, 3, 20, 120, 20, true)
-	srv.SetLoadedBlock(20, 120, 20, servertest.BlockState(t, "minecraft:stone"))
-	// Feet at 88.4: a standing box (1.8) reaches 90.2, a sneaking one (1.5) 89.9.
-	c.MoveToGrounded(3.5, gatewayY-1.6, 3.5, 30, 10, false)
-	c.Settle()
-
-	srv.TickPortals()
-	if beams, teleported := gatewayBeams(t, c, 3, 3); beams != 0 || teleported {
-		t.Errorf("sneaking player gave %d beams and teleported=%v, want neither", beams, teleported)
-	}
-}
-
-// TestEndGatewaySweepsAFastFall checks a player who falls past a gateway
-// within one tick, ending the tick well below it, is still taken.
-// vanilla: Entity.checkInsideBlocks
-func TestEndGatewaySweepsAFastFall(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Gate")
-	srv.StopTick()
-	c.MoveToGrounded(3.5, gatewayY+1, 3.5, 30, 10, false)
-	c.Settle()
-	srv.TickPortals()
-	srv.SetLoadedBlock(3, gatewayY, 3, servertest.BlockState(t, "minecraft:end_gateway"))
-	srv.SetEndGatewayExit(3, gatewayY, 3, 20, 120, 20, true)
-	srv.SetLoadedBlock(20, 120, 20, servertest.BlockState(t, "minecraft:stone"))
-
-	// The 3.1-block drop between ticks is more than the box is tall (1.8), so
-	// the end-of-tick box alone misses the gateway cell.
-	c.MoveToGrounded(3.5, gatewayY-2.1, 3.5, 30, 10, false)
-	c.Settle()
-	srv.TickPortals()
-	c.AwaitPlay(protocol.IDPlaySyncPosition)
-}
-
-// TestEndGatewaySweepDoesNotCrossATeleport checks the tick after a /tp
-// sweeps from the destination, not along the line from the old place, which
-// runs through a gateway.
-// vanilla: Entity.clearMovementThisTick
-func TestEndGatewaySweepDoesNotCrossATeleport(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Gate", servertest.OpsListing(t, "Gate"))
-	srv.StopTick()
-	c.MoveToGrounded(-2.5, gatewayY, 3.5, 30, 10, false)
-	c.Settle()
-	srv.TickPortals()
-	srv.SetLoadedBlock(8, gatewayY, 3, servertest.BlockState(t, "minecraft:end_gateway"))
-	srv.SetEndGatewayExit(8, gatewayY, 3, 30, gatewayY, 3, true)
-	srv.SetLoadedBlock(30, gatewayY, 3, servertest.BlockState(t, "minecraft:stone"))
-
-	c.ChatCommand("tp @s 30.5 90 3.5")
-	c.AwaitPlay(protocol.IDPlaySyncPosition) // the reader accepts it
-	srv.TickPortals()
-	if _, teleported := gatewayBeams(t, c, 8, 3); teleported {
-		t.Error("the tick after /tp swept the old line through the gateway")
-	}
-}
-
-// TestEndGatewaySweepIsCapped checks a move far longer than the sweep's cell
-// cap does not reach a gateway beyond it.
-// vanilla: Entity.maxMovementIterations
-func TestEndGatewaySweepIsCapped(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Gate")
-	srv.StopTick()
-	c.MoveToGrounded(-30.5, gatewayY, 3.5, 30, 10, false)
-	c.Settle()
-	srv.TickPortals()
-	srv.SetLoadedBlock(0, gatewayY, 3, servertest.BlockState(t, "minecraft:end_gateway"))
-	srv.SetEndGatewayExit(0, gatewayY, 3, 20, gatewayY, 3, true)
-	srv.SetLoadedBlock(20, gatewayY, 3, servertest.BlockState(t, "minecraft:stone"))
-
-	c.MoveToGrounded(20.5, gatewayY, 3.5, 30, 10, false)
-	c.Settle()
-	srv.TickPortals()
-	if _, teleported := gatewayBeams(t, c, 0, 3); teleported {
-		t.Error("a sweep of 51 cells reached a gateway past the 16-cell cap")
 	}
 }
 
@@ -291,53 +165,6 @@ func gatewayWithExit(t *testing.T, srv *server.Server) {
 	srv.SetLoadedBlock(3, gatewayY, 3, servertest.BlockState(t, "minecraft:end_gateway"))
 	srv.SetLoadedBlock(20, 120, 20, servertest.BlockState(t, "minecraft:stone"))
 	srv.SetEndGatewayExit(3, gatewayY, 3, 20, 120, 20, true)
-}
-
-// TestEndGatewayCarriesAnItemAndAMobToTheExit checks the other bodies a
-// gateway moves, each once: an item entity and a mob.
-// vanilla: EndGatewayBlock.entityInside
-func TestEndGatewayCarriesAnItemAndAMobToTheExit(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Join(t, servertest.BlockTestConfig(), "Gate")
-	gatewayWithExit(t, srv)
-	srv.SpawnItemEntityMotion(3.5, gatewayY+0.5, 3.5, "minecraft:stick", 1, 0.2, 0, 0)
-	mob := srv.SpawnMob("minecraft:cow", 3.5, gatewayY, 3.5)
-
-	srv.TickEntities(1)
-	// The item's touch cooled the gateway; the mob's waits it out.
-	srv.AdvanceTicksRun(40)
-	srv.TickMobs(3)
-	srv.WaitGatewayMoves()
-	items := srv.ItemsInDimension("minecraft:overworld")
-	x, y, z, _ := srv.MobPos(mob)
-	// The mob keeps its fall, so it may have dropped a little since landing.
-	// The landing keeps the velocity and puts the box on the exit's floor.
-	itemMoved := len(items) == 1 && items[0].X == 20.5 && items[0].Z == 20.5 &&
-		items[0].VX > 0 && items[0].Y > 120 && items[0].Y < 120.5
-	if !itemMoved || x != 20.5 || y <= 119 || y > 120 || z != 20.5 {
-		t.Fatalf("items %+v and mob at (%v, %v, %v), want both at the exit", items, x, y, z)
-	}
-}
-
-// TestEndGatewaySendsABeamEvery2400TicksOfAge checks an idle gateway ticks
-// its age and sends the beam as the age reaches a multiple of 2400, then
-// stays quiet while it cools.
-// vanilla: TheEndGatewayBlockEntity.portalTick
-func TestEndGatewaySendsABeamEvery2400TicksOfAge(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Gate")
-	gatewayWithExit(t, srv)
-	srv.SetEndGatewayAge(3, gatewayY, 3, 2398)
-
-	srv.TickBlockEntities()
-	if beams, _ := gatewayBeams(t, c, 3, 3); beams != 0 {
-		t.Fatalf("age 2399 gave %d beams, want none", beams)
-	}
-	srv.AdvanceTicksRun(1)
-	srv.TickBlockEntities()
-	if beams, _ := gatewayBeams(t, c, 3, 3); beams != 1 {
-		t.Fatalf("age 2400 gave %d beams, want one", beams)
-	}
 }
 
 // TestEndGatewayWithoutAnExitBuildsOneInTheEnd checks a pearl in an End

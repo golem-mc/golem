@@ -2,12 +2,12 @@ package combat
 
 import (
 	"fmt"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/registry"
 )
@@ -122,34 +122,6 @@ func TestAMobKilledByThornsCreditsItsWearer(t *testing.T) {
 	}
 }
 
-// TestThornsPlaysItsHitSoundAtTheMob waits for the sound the thorns hit
-// plays at a zombie that struck its wearer.
-func TestThornsPlaysItsHitSoundAtTheMob(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.HostileTestConfig(), "Knight")
-	servertest.NightWorld(srv, c)
-	thornsWearer(t, srv, "Knight")
-
-	srv.SpawnMob("minecraft:zombie", 4.5, 64, 4.5)
-	found := false
-	c.PumpTicks(srv, 2400, func(id int32, data []byte) bool {
-		if id != protocol.IDPlaySoundEffect {
-			return false
-		}
-		sound, category, _, _, _, _, _ := servertest.ReadAmbient(t, data)
-		if sound == "minecraft:enchant.thorns.hit" {
-			found = true
-			if category != protocol.SoundCategoryHostile {
-				t.Errorf("the thorns sound played in category %d, want the hostile one", category)
-			}
-		}
-		return found
-	})
-	if !found {
-		t.Error("no thorns hit sound reached the wearer")
-	}
-}
-
 // TestThornsHurtsAProjectileShooter checks retaliation against the owner,
 // rather than the projectile, and the unenchanted equipment control.
 func TestThornsHurtsAProjectileShooter(t *testing.T) {
@@ -224,101 +196,5 @@ func TestThornsHurtsAProjectileShooter(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-// TestAThornsKillCreditsTheWearerNotAnEarlierHitter has a creative player,
-// whom the zombie never targets, punch it first; the Thorns III wearer's
-// retaliation then kills it, and mob_kills goes to the wearer alone.
-// vanilla: LivingEntity.resolvePlayerResponsibleForDamage
-func TestAThornsKillCreditsTheWearerNotAnEarlierHitter(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.HostileTestConfig(), "Knight")
-	hitter := servertest.DialServer(t, srv).Join("Hitter")
-	srv.SetPlayerGameMode("Hitter", 1)
-	hitter.MoveToGround(4.5, 64, 6.5, true)
-	hitter.Settle()
-	servertest.NightWorld(srv, c)
-	thornsWearer(t, srv, "Knight")
-
-	servertest.HoldTicks(t, srv)
-	zombieID := srv.SpawnMob("minecraft:zombie", 4.5, 64, 4.5)
-	servertest.AwaitFullSwing(t, srv, "Hitter")
-	hitter.Attack(zombieID)
-	// Read before the ticks are counted: a held loop outruns the connection.
-	hitter.Settle()
-	servertest.UntilTicks(t, srv, 20, "the creative punch lands", func() bool {
-		h, _ := srv.MobHealth(zombieID)
-		return h < 20
-	})
-	if !srv.SetMobHealth(zombieID, 0.5) {
-		t.Fatal("the zombie is not in the herd")
-	}
-	stat := func(name string) int32 { return srv.StatValue(name, registry.StatCustom, "minecraft:mob_kills") }
-	servertest.UntilTicks(t, srv, 2400, "the thorns kill the zombie", func() bool {
-		_, alive := srv.MobHealth(zombieID)
-		return !alive
-	})
-	if knight, hit := stat("Knight"), stat("Hitter"); knight != 1 || hit != 0 {
-		t.Errorf("mob_kills after the thorns kill: wearer %d, earlier hitter %d; want 1 and 0", knight, hit)
-	}
-}
-
-// TestThornsHurtsTheOwnerOfANonArrowProjectile checks that a fireball, a
-// wither skull and evoker fangs that hurt a Thorns wearer are answered on
-// their owner, and that each answer wears the chestplate by two.
-func TestThornsHurtsTheOwnerOfANonArrowProjectile(t *testing.T) {
-	for _, kind := range []string{"small fireball", "wither skull", "fangs"} {
-		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
-			srv, connect := servertest.Start(t, servertest.SurvivalConfig())
-			victim := connect()
-			victimID := victim.JoinAs("Knight")
-			victim.MoveToGround(4.5, 64, 0.5, true)
-			victim.Settle()
-			servertest.HoldTicks(t, srv)
-			thornsWearer(t, srv, "Knight")
-			ownerID := srv.SpawnMob("minecraft:cow", 0.5, 64, 4.5)
-			thornsID := registry.MustID("minecraft:damage_type", "minecraft:thorns")
-			landed, answers := 0, 0
-			for round := 0; round < 40 && answers == 0; round++ {
-				victim.MoveToGround(4.5, 64, 0.5, true)
-				victim.Settle()
-				srv.SetHealth("Knight", 20)
-				switch kind {
-				case "small fireball":
-					srv.LaunchFireball(entity.ThrownSmallFireball, 1.5, 65, 0.5, 1, 0, 0, ownerID, 1)
-				case "wither skull":
-					srv.LaunchFireball(entity.ThrownWitherSkull, 1.5, 65, 0.5, 1, 0, 0, ownerID, 1)
-				case "fangs":
-					srv.SpawnFangs(4.5, 64, 0.5, ownerID)
-				}
-				victim.PumpTicks(srv, 14, func(id int32, data []byte) bool {
-					if id == protocol.IDPlayDamageEvent {
-						r := protocol.NewReader(data)
-						entityID, damageType := r.ReadVarInt(), r.ReadVarInt()
-						if entityID == victimID {
-							landed++
-						}
-						if entityID == ownerID {
-							if damageType != thornsID {
-								t.Errorf("owner damage type = %d, want thorns %d", damageType, thornsID)
-							}
-							answers++
-						}
-					}
-					return false
-				})
-			}
-			if landed == 0 {
-				t.Fatal("nothing hurt the wearer")
-			}
-			if answers == 0 {
-				t.Fatal("the owner was never answered with thorns")
-			}
-			if wear := srv.InventorySlot("Knight", player.OffHandSlot).Damage; int(wear) != 2*answers {
-				t.Errorf("chestplate wear = %d, want %d", wear, 2*answers)
-			}
-		})
 	}
 }

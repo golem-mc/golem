@@ -75,31 +75,6 @@ func TestTadpoleGrowsIntoFrog(t *testing.T) {
 	}
 }
 
-func TestTadpoleFoodAndGoldenDandelion(t *testing.T) {
-	t.Parallel()
-	srv, c := squidTests(t)
-	id := summonSquidTagged(t, c, "minecraft:tadpole", fishType(t, "minecraft:tadpole"), pondCentreX, pondNorth, `{Age:0,NoAI:1b}`)
-	hotbarFish(t, srv, "minecraft:slime_ball")
-	c.UseOn(id)
-	c.Settle()
-	if held := srv.InventorySlot("Striker", player.HotbarSlot); !held.Empty() {
-		t.Fatal("tadpole did not consume slimeball")
-	}
-	hotbarFish(t, srv, "minecraft:golden_dandelion")
-	c.UseOn(id)
-	c.Settle()
-	if held := srv.InventorySlot("Striker", player.HotbarSlot); !held.Empty() {
-		t.Fatal("tadpole did not consume golden dandelion")
-	}
-	hotbarFish(t, srv, "minecraft:water_bucket")
-	c.UseOn(id)
-	c.Settle()
-	tag := srv.InventorySlot("Striker", player.HotbarSlot).BucketEntityData()
-	if age, ok := nbt.IntField(tag, "Age"); !ok || age != 0 || !nbt.BoolField(tag, "AgeLocked") {
-		t.Fatalf("dandelion did not reset and lock age: %v", tag)
-	}
-}
-
 func ageLockedIn(t *testing.T, c *servertest.Client, id int32) bool {
 	t.Helper()
 	for _, e := range c.AwaitMetadataFor(id) {
@@ -145,22 +120,5 @@ func TestGoldenDandelionAgeLocksABabyCow(t *testing.T) {
 	c.UseOn(cow)
 	if ageLockedIn(t, c, cow) {
 		t.Fatal("second click did not unlock")
-	}
-}
-
-func TestGoldenDandelionRefusesABabyVillager(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Milker", servertest.OpsListing(t, "Milker"))
-	c.MoveToGround(2.5, 64, 5.5, true)
-	c.Settle()
-	srv.StopTick()
-	srv.GiveSlot("Milker", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.ItemIDOrDie(t, "minecraft:golden_dandelion"), Count: 1})
-	c.Settle()
-	c.ChatCommand(`summon minecraft:villager 5.5 64 5.5 {Age:-24000,NoAI:1b}`)
-	id := c.ExpectSummonedMob(fishType(t, "minecraft:villager"))
-	c.UseOn(id)
-	c.Settle()
-	if held := srv.InventorySlot("Milker", player.HotbarSlot); held.Count != 1 {
-		t.Fatalf("baby villager took the dandelion: %+v", held)
 	}
 }

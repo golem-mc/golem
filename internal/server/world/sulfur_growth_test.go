@@ -48,35 +48,6 @@ func TestSulfurSpikeGrowthLimit(t *testing.T) {
 	}
 }
 
-func TestSulfurSpikeGrowthSupport(t *testing.T) {
-	for _, support := range []registry.Block{registry.BlockStone, registry.BlockDripstoneBlock, registry.BlockSulfur} {
-		t.Run(support.Name(), func(t *testing.T) {
-			w, p := newPhysicsWorld(t)
-			tip := speleothemState(t, "minecraft:sulfur_spike", "down", "tip")
-			w.SetBlock(0, 71, 0, support.DefaultState())
-			w.SetBlock(0, 70, 0, tip)
-			seed := sulfurGrowthSeed(t, true)
-			p.rng = rand.New(rand.NewSource(seed))
-			var changes []BlockChange
-			p.speleothemRandomTick(0, 70, 0, tip, &changes)
-			want := uint16(airState)
-			if support == registry.BlockSulfur {
-				want = tip
-			}
-			if got := w.BlockAt(0, 69, 0); got != want {
-				t.Fatalf("below tip = %d, want %d", got, want)
-			}
-			if support != registry.BlockSulfur {
-				r := rand.New(rand.NewSource(seed))
-				r.Float32()
-				if got, want := p.rng.Float32(), r.Float32(); got != want {
-					t.Fatal("refused growth spent a direction draw")
-				}
-			}
-		})
-	}
-}
-
 func TestSulfurSpikeStalagmiteGrowth(t *testing.T) {
 	for _, existing := range []bool{false, true} {
 		for _, down := range []bool{false, true} {

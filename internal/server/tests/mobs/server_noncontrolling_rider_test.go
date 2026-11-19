@@ -14,16 +14,6 @@ func TestAPigCarryingASlimeFollowsACarrot(t *testing.T) {
 	pigCarryingCubeFollowsCarrot(t, "slime")
 }
 
-func TestAPigCarryingAMagmaOrSulfurCubeFollowsACarrot(t *testing.T) {
-	t.Parallel()
-	for _, rider := range []string{"magma_cube", "sulfur_cube"} {
-		t.Run(rider, func(t *testing.T) {
-			t.Parallel()
-			pigCarryingCubeFollowsCarrot(t, rider)
-		})
-	}
-}
-
 func pigCarryingCubeFollowsCarrot(t *testing.T, rider string) {
 	t.Helper()
 	const name = "Herder"

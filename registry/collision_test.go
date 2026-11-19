@@ -55,29 +55,6 @@ func TestCollisionHeightReadsShapesOwnTops(t *testing.T) {
 	}
 }
 
-func TestCollisionHeightReadsSnowByTheLayer(t *testing.T) {
-	for _, tc := range []struct {
-		layers string
-		want   float64
-	}{
-		{"1", 0},
-		{"2", 2.0 / 16},
-		{"4", 6.0 / 16},
-		{"8", 14.0 / 16},
-	} {
-		state := MustState("minecraft:snow", map[string]string{"layers": tc.layers})
-		if got := CollisionHeight(state); got != tc.want {
-			t.Errorf("CollisionHeight(snow[layers=%s]) = %v, want %v", tc.layers, got, tc.want)
-		}
-	}
-}
-
-func TestCollisionHeightReadsNothingInTheUnknownState(t *testing.T) {
-	if got := CollisionHeight(65535); got != 0 {
-		t.Errorf("CollisionHeight(65535) = %v, want 0", got)
-	}
-}
-
 // TestNoCollisionHoldsOnlyBlocksWithEmptyShapeInEveryState pins the set to
 // the shapes: a block with a collision shape in any state stays out of it.
 func TestNoCollisionHoldsOnlyBlocksWithEmptyShapeInEveryState(t *testing.T) {

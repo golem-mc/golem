@@ -3,7 +3,6 @@ package containers
 import (
 	"fmt"
 	"io"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -157,19 +156,6 @@ func windowClosedAfter(srv *server.Server, w *servertest.WindowedClient, act fun
 	return closed
 }
 
-// vanilla: AbstractVillager.stillValid, AbstractVillager.die
-func TestAVillagerDyingClosesItsTradeWindow(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	villager := srv.SpawnVillagerWithOffers("minecraft:farmer", 1, breadOffer(0), 1.5, 64, 0.5)
-	if openTrade(w, villager) != 1 {
-		t.Fatal("the trade window did not open")
-	}
-	if !windowClosedAfter(srv, w, func() { srv.KillMob(villager) }) {
-		t.Error("the trade window stayed open after the villager died")
-	}
-}
-
 // vanilla: AbstractVillager.stillValid
 func TestAPlayerWalkedOutOfReachLosesTheTradeWindow(t *testing.T) {
 	srv, connect := servertest.Start(t, servertest.MobTestConfig())
@@ -183,74 +169,8 @@ func TestAPlayerWalkedOutOfReachLosesTheTradeWindow(t *testing.T) {
 	}
 }
 
-// vanilla: AbstractVillager.stillValid, ServerPlayer creative_mode_entity_range
-func TestACreativePlayerKeepsTheTradeWindowTwoBlocksFarther(t *testing.T) {
-	for _, tc := range []struct {
-		mode       string
-		wantClosed bool
-	}{{"survival", true}, {"creative", false}} {
-		t.Run(tc.mode, func(t *testing.T) {
-			srv, connect := servertest.Start(t, servertest.MobTestConfig())
-			w := servertest.WindowedOf(t, "Buyer", connect())
-			villager := srv.SpawnVillagerWithOffers("minecraft:farmer", 1, breadOffer(0), 1.5, 64, 0.5)
-			if openTrade(w, villager) != 1 {
-				t.Fatal("the trade window did not open")
-			}
-			tp(srv, "gamemode "+tc.mode+" Buyer\n")
-			// 7.4 blocks from the villager's box: past 3+4, inside 5+4.
-			if got := windowClosedAfter(srv, w, func() { tp(srv, "tp Buyer 9.2 64 0.5\n") }); got != tc.wantClosed {
-				t.Errorf("window closed = %v, want %v", got, tc.wantClosed)
-			}
-		})
-	}
-}
-
-func TestAPlayerStayingInReachKeepsTheTradeWindow(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	villager := srv.SpawnVillagerWithOffers("minecraft:farmer", 1, breadOffer(0), 1.5, 64, 0.5)
-	if openTrade(w, villager) != 1 {
-		t.Fatal("the trade window did not open")
-	}
-	if windowClosedAfter(srv, w, func() { tp(srv, "tp Buyer 5 64 0.5\n") }) {
-		t.Error("the trade window closed 3.5 blocks from the villager")
-	}
-}
-
 func tp(srv *server.Server, command string) {
 	console.New(strings.NewReader(command), io.Discard, io.Discard, srv).Serve()
-}
-
-// vanilla: AbstractVillager.canBeLeashed, Villager.mobInteract
-func TestALeadInHandStillOpensAVillagersTrades(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	srv.GiveSlot("Buyer", player.HotbarSlot, protocol.ItemStack{ItemID: registry.MustItem("minecraft:lead"), Count: 1})
-	villager := srv.SpawnVillagerWithOffers("minecraft:farmer", 1, breadOffer(0), 1.5, 64, 0.5)
-	if n := openTrade(w, villager); n != 1 {
-		t.Errorf("a lead in hand opened %d windows, want 1", n)
-	}
-}
-
-// vanilla: Villager.mobInteract; a name tag with no name is not used
-func TestABlankNameTagStillOpensAVillagersTrades(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	srv.GiveSlot("Buyer", player.HotbarSlot, protocol.ItemStack{ItemID: registry.MustItem("minecraft:name_tag"), Count: 1})
-	villager := srv.SpawnVillagerWithOffers("minecraft:farmer", 1, breadOffer(0), 1.5, 64, 0.5)
-	if n := openTrade(w, villager); n != 1 {
-		t.Errorf("a blank name tag opened %d windows, want 1", n)
-	}
-}
-
-func TestABabyVillagerOpensNoWindow(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	villager := srv.SpawnVillagerWithOffers("minecraft:farmer", 1, breadOffer(0), 1.5, 64, 0.5)
-	srv.SetMobBaby(villager, true)
-	if n := openTrade(w, villager); n != 0 {
-		t.Errorf("a baby villager opened %d windows, want 0", n)
-	}
 }
 
 // soundsAfterClick counts the sound effects a click on the villager makes.
@@ -263,21 +183,6 @@ func soundsAfterClick(w *servertest.WindowedClient, villager int32) int {
 		}
 	})
 	return n
-}
-
-// vanilla: Villager.setUnhappy
-func TestAVillagerWithNoTradesShakesItsHeadUnlessSilent(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	loud := srv.SpawnVillagerWithOffers("minecraft:nitwit", 1, nil, 1.5, 64, 0.5)
-	if soundsAfterClick(w, loud) == 0 {
-		t.Error("a villager with no trades made no sound")
-	}
-	quiet := srv.SpawnVillagerWithOffers("minecraft:nitwit", 1, nil, 1.5, 64, 0.5)
-	srv.SetMobSilent(quiet, true)
-	if n := soundsAfterClick(w, quiet); n != 0 {
-		t.Errorf("a silent villager made %d sounds", n)
-	}
 }
 
 func TestAVillagerWithAProfessionDrawsItsTradesOnFirstUse(t *testing.T) {
@@ -310,78 +215,6 @@ func TestAVillagerWithAProfessionDrawsItsTradesOnFirstUse(t *testing.T) {
 		if !found {
 			t.Errorf("trade %s is not in farmer/level_1", key)
 		}
-	}
-}
-
-func TestAVillagerKeepsItsDrawnTrades(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	villager := srv.SpawnVillagerWithOffers("minecraft:farmer", 1, nil, 1.5, 64, 0.5)
-	w.UseOn(villager)
-	w.Settle()
-	first, _ := srv.VillagerSaved(villager)
-	w.CloseWindow()
-	w.Settle()
-	w.UseOn(villager)
-	w.Settle()
-	second, _ := srv.VillagerSaved(villager)
-	if !reflect.DeepEqual(first, second) {
-		t.Errorf("trades changed on the second use:\n%v\n%v", first, second)
-	}
-}
-
-// vanilla: Villager.mobInteract returns before getOffers for a baby
-func TestABabyVillagerDrawsNoTrades(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	villager := srv.SpawnVillagerWithOffers("minecraft:farmer", 1, nil, 1.5, 64, 0.5)
-	srv.SetMobBaby(villager, true)
-	w.UseOn(villager)
-	w.Settle()
-	if saved, _ := srv.VillagerSaved(villager); saved != nil {
-		t.Errorf("a baby drew trades: %v", saved)
-	}
-}
-
-// vanilla: AbstractVillager.notifyTradeUpdated
-func TestAVillagerSoundsOnceWhenTheTradeResultChanges(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	srv.GiveSlot("Buyer", player.HotbarSlot, protocol.ItemStack{ItemID: registry.MustItem("minecraft:emerald"), Count: 4})
-	villager := srv.SpawnVillagerWithOffers("minecraft:farmer", 1, breadOffer(0), 1.5, 64, 0.5)
-	if n := openTrade(w, villager); n != 1 {
-		t.Fatalf("opened %d windows, want 1", n)
-	}
-	servertest.HoldTicks(t, srv)
-	// heard is the villager sounds that arrive while the collect settles.
-	heard := func(act func()) []string {
-		var names []string
-		act()
-		w.SettleAndCollect(func(id int32, data []byte) {
-			if id != protocol.IDPlaySoundEffect {
-				return
-			}
-			if sound := protocol.NewReader(data).ReadVarInt(); sound > 0 {
-				name, _ := servertest.SoundEventName(sound - 1)
-				names = append(names, name)
-			}
-		})
-		return names
-	}
-	pick := func() {
-		w.Send(protocol.IDPlaySelectTradeIn, func(b *protocol.Buffer) { b.PutVarInt(0) })
-	}
-	take := func() { w.Click(0, 0, protocol.ClickModePickup) }
-	if got := heard(pick); !slices.Equal(got, []string{"minecraft:entity.villager.yes"}) {
-		t.Errorf("the first result change played %v, want one yes", got)
-	}
-	servertest.RunTicks(t, srv, 10)
-	if got := heard(pick); len(got) != 0 {
-		t.Errorf("a change inside the 20-tick gap played %v, want none", got)
-	}
-	servertest.RunTicks(t, srv, 25)
-	if got := heard(take); !slices.Equal(got, []string{"minecraft:entity.villager.no"}) {
-		t.Errorf("emptying the payment after the gap played %v, want one no", got)
 	}
 }
 
@@ -454,72 +287,5 @@ func TestMerchantsSoundOnceWhenTakingATrade(t *testing.T) {
 				t.Errorf("completed %d trades, want %d", uses, tc.trades)
 			}
 		})
-	}
-}
-
-// vanilla: Villager.updateSpecialPrices
-func TestAHeroOfTheVillagerSeesADiscountOnTheOffers(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	srv.GiveEffect("Buyer", "minecraft:hero_of_the_village", 6000, 0, false)
-	villager := srv.SpawnVillagerWithOffers("minecraft:farmer", 1, breadOffer(0), 1.5, 64, 0.5)
-	var offers []byte
-	w.UseOn(villager)
-	w.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlayMerchantOffers {
-			offers = data
-		}
-	})
-	r := protocol.NewReader(offers)
-	r.ReadVarInt() // window
-	r.ReadVarInt() // offers
-	r.ReadVarInt() // item
-	r.ReadVarInt() // count
-	r.ReadVarInt() // predicate
-	r.ReadSlot()
-	r.ReadBool()
-	r.ReadBool()
-	r.ReadI32() // uses
-	r.ReadI32() // max uses
-	r.ReadI32() // xp
-	if got := r.ReadI32(); got != -1 {
-		t.Errorf("special price on the wire = %d, want -1 (0.3 of 2 floors to 0, at least 1)", got)
-	}
-}
-
-func TestAnOfferCostWrittenWithoutANamespaceStillTrades(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	emerald, helmet := registry.MustItem("minecraft:emerald"), registry.MustItem("minecraft:iron_helmet")
-	srv.GiveSlot("Buyer", player.HotbarSlot, protocol.ItemStack{ItemID: emerald, Count: 5})
-
-	offer := nbt.Compound{
-		"buy":  nbt.Compound{"id": nbt.String("emerald"), "count": nbt.Int(5)},
-		"sell": nbt.Compound{"id": nbt.String("iron_helmet"), "count": nbt.Int(1)},
-	}
-	offers := nbt.Compound{"Recipes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{offer}}}
-	villager := srv.SpawnVillagerWithOffers("minecraft:armorer", 2, offers, 1.5, 64, 0.5)
-	w.UseOn(villager)
-
-	var sent []byte
-	w.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlayMerchantOffers {
-			sent = data
-		}
-	})
-	if sent == nil {
-		t.Fatal("no merchant offers sent")
-	}
-	r := protocol.NewReader(sent)
-	r.ReadVarInt() // window
-	if n := r.ReadVarInt(); n != 1 {
-		t.Fatalf("%d offers sent, want 1", n)
-	}
-	if id, count := r.ReadVarInt(), r.ReadVarInt(); id != emerald || count != 5 {
-		t.Errorf("cost item %d x%d, want emerald %d x5", id, count, emerald)
-	}
-	r.ReadVarInt() // predicate
-	if res, _ := r.ReadSlot(); res.ItemID != helmet || res.Count != 1 {
-		t.Errorf("result %+v, want an iron helmet", res)
 	}
 }

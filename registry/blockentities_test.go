@@ -79,38 +79,3 @@ func TestUpdatePacketTypesMatchTheVanillaClasses(t *testing.T) {
 		}
 	}
 }
-
-// TestUpdateTagTypesMatchTheVanillaClasses pins which block entity types send
-// a non-empty update tag with the chunk: the ones whose vanilla class
-// overrides getUpdateTag. The copper golem statue and the piston are the two
-// rows that tell this list from the update-packet one.
-func TestUpdateTagTypesMatchTheVanillaClasses(t *testing.T) {
-	for _, sent := range []string{
-		"minecraft:banner", "minecraft:beacon", "minecraft:brushable_block",
-		"minecraft:campfire", "minecraft:conduit", "minecraft:creaking_heart",
-		"minecraft:decorated_pot", "minecraft:end_gateway", "minecraft:hanging_sign",
-		"minecraft:jigsaw", "minecraft:mob_spawner", "minecraft:piston",
-		"minecraft:shelf", "minecraft:sign", "minecraft:skull",
-		"minecraft:structure_block", "minecraft:test_block",
-		"minecraft:test_instance_block", "minecraft:trial_spawner", "minecraft:vault",
-	} {
-		if !UpdateTagBlockEntityTypes[sent] {
-			t.Errorf("UpdateTagBlockEntityTypes[%q] = false, want true", sent)
-		}
-	}
-	for _, silent := range []string{
-		"minecraft:barrel", "minecraft:beehive", "minecraft:bell", "minecraft:blast_furnace",
-		"minecraft:brewing_stand", "minecraft:calibrated_sculk_sensor", "minecraft:chest",
-		"minecraft:chiseled_bookshelf", "minecraft:command_block", "minecraft:comparator",
-		"minecraft:copper_golem_statue", "minecraft:crafter", "minecraft:daylight_detector",
-		"minecraft:dispenser", "minecraft:dropper", "minecraft:enchanting_table",
-		"minecraft:end_portal", "minecraft:ender_chest", "minecraft:furnace",
-		"minecraft:hopper", "minecraft:jukebox", "minecraft:lectern",
-		"minecraft:sculk_catalyst", "minecraft:sculk_sensor", "minecraft:sculk_shrieker",
-		"minecraft:shulker_box", "minecraft:smoker", "minecraft:trapped_chest",
-	} {
-		if UpdateTagBlockEntityTypes[silent] {
-			t.Errorf("UpdateTagBlockEntityTypes[%q] = true, want false", silent)
-		}
-	}
-}

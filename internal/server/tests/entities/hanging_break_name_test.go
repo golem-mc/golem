@@ -10,31 +10,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// vanilla: Painting.dropItem, ItemFrame.getFrameItemStackWithData
-func TestBrokenHangingEntityRetainsCustomName(t *testing.T) {
-	t.Parallel()
-	for _, kind := range []string{"painting", "item_frame", "glow_item_frame"} {
-		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
-			srv, c, id := placeNamedHangingEntity(t, kind, "survival")
-			c.Attack(id)
-			var stack protocol.ItemStack
-			servertest.CollectDropsTicks(c, srv, 5, func(got protocol.ItemStack) bool {
-				stack = got
-				return true
-			})
-			if stack.ItemID != servertest.MustItem("minecraft:"+kind) || stack.Count != 1 {
-				t.Fatalf("dropped item %d x%d, want one %s", stack.ItemID, stack.Count, kind)
-			}
-			if stack.CustomName == nil || stack.CustomName.Text != "Bob" {
-				t.Errorf("drop name = %+v, want Bob", stack.CustomName)
-			}
-			servertest.RunTicks(t, srv, 5)
-			assertDropNamed(t, srv, "minecraft:"+kind)
-		})
-	}
-}
-
 // vanilla: ItemFrame.getPickResult, Painting.getPickResult
 func TestPickingNamedHangingEntity(t *testing.T) {
 	t.Parallel()

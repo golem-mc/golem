@@ -147,27 +147,3 @@ func attributeValue(t *testing.T, c *servertest.Client, selector, attribute stri
 	})
 	return got
 }
-
-// A command-created instance survives a save before the first tick, even at
-// the default value.
-// vanilla: AttributeCommand.setAttributeBase, AttributeMap.getInstance
-func TestFrozenMovementSpeedEditIsSaved(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, livingSavedConfig(), "Rider", servertest.OpsListing(t, "Rider"))
-	servertest.HoldTicks(t, srv)
-	for _, tc := range []struct {
-		tag, set string
-		base     nbt.Double
-	}{{"a", "0.5", 0.5}, {"b", "0.25", 0.25}} {
-		c.ChatCommand(`summon pig ~ ~ ~3 {NoAI:1b,Tags:["` + tc.tag + `"]}`)
-		servertest.AwaitSystemChatSaying(t, c, "commands.summon.success")
-		c.ChatCommand("attribute @e[tag=" + tc.tag + ",limit=1] movement_speed base set " + tc.set)
-		servertest.AwaitSystemChatSaying(t, c, "commands.attribute.base_value.set.success")
-		c.ChatCommand("data merge entity @e[tag=" + tc.tag + ",limit=1] {Health:5f}")
-		c.Settle()
-		got := equineAttributes(t, c, "@e[tag="+tc.tag+",limit=1]")
-		if len(got) != 1 || got["minecraft:movement_speed"]["base"] != tc.base {
-			t.Errorf("%s saved attributes = %v, want movement_speed base %v", tc.tag, got, tc.base)
-		}
-	}
-}

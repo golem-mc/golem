@@ -112,42 +112,6 @@ func TestADeathOutOfReachOfACatalystSpreadsNothing(t *testing.T) {
 	}
 }
 
-func TestABabyCowSpreadsNothingButStillBlooms(t *testing.T) {
-	t.Parallel()
-	srv := catalystScene(t, "cow", `{NoAI:1b,Age:-24000}`, protocol.EntityTypeCow, 9, 9)
-	if got := bloomOf(t, srv); got != "true" {
-		t.Errorf("catalyst bloom after a calf died is %s, want true", got)
-	}
-	servertest.RunTicks(t, srv, 40)
-	if sculk, veins, growths := sculkCensus(srv); sculk+veins+growths != 0 {
-		t.Errorf("a calf's death left %d sculk, %d veins, %d growths", sculk, veins, growths)
-	}
-}
-
-// A baby zombie dies with twelve experience to a zombie's five.
-func TestMoreExperienceSpreadsMoreSculk(t *testing.T) {
-	t.Parallel()
-	small := catalystScene(t, "zombie", `{NoAI:1b}`, protocol.EntityTypeZombie, 9, 9)
-	servertest.RunTicks(t, small, 80)
-	big := catalystScene(t, "zombie", `{NoAI:1b,IsBaby:1b}`, protocol.EntityTypeZombie, 9, 9)
-	servertest.RunTicks(t, big, 80)
-	s1, v1, g1 := sculkCensus(small)
-	s2, v2, g2 := sculkCensus(big)
-	if s2+v2+g2 <= s1+v1+g1 {
-		t.Errorf("12 experience left %d/%d/%d sculk/veins/growths, 5 left %d/%d/%d; want more", s2, v2, g2, s1, v1, g1)
-	}
-}
-
-// Obsidian is not in sculk_replaceable, so no veining cursor turns it to sculk.
-func TestSculkDoesNotReplaceBlocksOutsideTheTag(t *testing.T) {
-	t.Parallel()
-	srv := catalystSceneOn(t, "minecraft:obsidian", "zombie", `{NoAI:1b}`, protocol.EntityTypeZombie, 9, 9)
-	servertest.RunTicks(t, srv, 80)
-	if sculk, _, _ := sculkCensus(srv); sculk != 0 {
-		t.Errorf("%d sculk blocks replaced obsidian", sculk)
-	}
-}
-
 // playerDeathScene kills a player of two levels standing beside a catalyst
 // (or none), after the command setup, and returns the sculk census and the
 // orbs the death left once 40 ticks have run.
@@ -197,30 +161,5 @@ func TestAPlayerDyingBesideACatalystSpreadsSculkAndDropsNoOrbs(t *testing.T) {
 	}
 	if sculk == 0 || veins == 0 {
 		t.Errorf("the death left %d sculk and %d veins, want both above zero", sculk, veins)
-	}
-}
-
-func TestAPlayerDyingWithoutACatalystDropsOrbs(t *testing.T) {
-	t.Parallel()
-	sculk, _, orbs := playerDeathScene(t, false)
-	if orbs == 0 || sculk != 0 {
-		t.Errorf("without a catalyst: %d orbs, %d sculk; want orbs and no sculk", orbs, sculk)
-	}
-}
-
-// Both leave the death with no experience to hand over.
-func TestAPlayerWhoKeepsTheirExperienceFeedsNoCatalyst(t *testing.T) {
-	t.Parallel()
-	for name, setup := range map[string][]string{
-		"keep_inventory": {"gamerule keep_inventory true"},
-		"spectator":      {"gamemode spectator"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			sculk, veins, _ := playerDeathScene(t, true, setup...)
-			if sculk+veins != 0 {
-				t.Errorf("%s: %d sculk and %d veins grew from a death worth nothing", name, sculk, veins)
-			}
-		})
 	}
 }

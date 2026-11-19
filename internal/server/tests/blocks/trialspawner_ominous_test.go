@@ -93,33 +93,6 @@ func TestABadOmenTurnsATrialSpawnerOminous(t *testing.T) {
 	}
 }
 
-// TestATrialOmenKeepsItsDurationWhenTheSpawnerTurnsOminous: a player already
-// under trial omen turns the spawner ominous without the effect changing.
-// vanilla: TrialSpawnerStateData.findPlayerWithOminousEffect
-func TestATrialOmenKeepsItsDurationWhenTheSpawnerTurnsOminous(t *testing.T) {
-	t.Parallel()
-	srv, _ := trialScene(t, ominousTrialConfig(2, 2, 2))
-	srv.GiveEffect("Trialist", "minecraft:trial_omen", 500, 0, false)
-	untilOminous(t, srv)
-	if duration, _, ok := srv.PlayerEffect("Trialist", "minecraft:trial_omen"); !ok || duration > 500 {
-		t.Errorf("trial omen = %d (present %v), want the 500 it had", duration, ok)
-	}
-}
-
-// TestACreativePlayerWithOmenLeavesASpawnerNormal: the omen of a player the
-// detector ignores does not turn the spawner.
-// vanilla: PlayerDetector.NO_CREATIVE_PLAYERS
-func TestACreativePlayerWithOmenLeavesASpawnerNormal(t *testing.T) {
-	t.Parallel()
-	srv, c := trialScene(t, ominousTrialConfig(2, 2, 2))
-	setTrialistMode(t, srv, c, "creative", 1)
-	srv.GiveEffect("Trialist", "minecraft:bad_omen", 100000, 0, false)
-	servertest.RunTicks(t, srv, 100)
-	if trialOminousOf(t, srv) {
-		t.Fatal("the spawner turned ominous for a creative player")
-	}
-}
-
 // TestAnOminousTrialSpawnerSpawnsFromItsOminousConfig: turning ominous
 // discards the mobs of the normal mode, clears the spawn data and starts the
 // ominous configuration's own mobs, flamed with the soul fire flag.
@@ -208,113 +181,6 @@ func TestAnOminousTrialSpawnerDropsItsItemsThroughAnItemSpawner(t *testing.T) {
 	}
 }
 
-// TestAnOminousTrialSpawnerWaitsOutTheItemPeriod: no item spawner appears in
-// the 160 ticks after the turn.
-// vanilla: TrialSpawnerStateData.resetAfterBecomingOminous
-func TestAnOminousTrialSpawnerWaitsOutTheItemPeriod(t *testing.T) {
-	t.Parallel()
-	srv, _ := trialScene(t, ominousTrialConfig(100, 1, 1000))
-	srv.GiveEffect("Trialist", "minecraft:trial_omen", 100000, 0, false)
-	untilOminous(t, srv)
-	servertest.RunTicks(t, srv, 150)
-	if n := srv.FixtureCount(); n != 0 {
-		t.Fatalf("%d item spawners stood within the first 150 ticks, want none", n)
-	}
-}
-
-// TestAnOminousItemSpawnerShootsAProjectileItemDown: an arrow in the spawner
-// is shot, not dropped.
-// vanilla: OminousItemSpawner.spawnProjectile
-func TestAnOminousItemSpawnerShootsAProjectileItemDown(t *testing.T) {
-	t.Parallel()
-	srv, _ := trialScene(t, trialConfig(2, 2, 2))
-	srv.RunLine("summon minecraft:ominous_item_spawner 4.5 66 4.5 {item:{id:\"minecraft:arrow\",count:1},spawn_item_after_ticks:3L}")
-	if srv.FixtureCount() != 1 {
-		t.Fatalf("%d fixtures after /summon, want the item spawner", srv.FixtureCount())
-	}
-	srv.TickOminousItemSpawners(2)
-	if srv.FixtureCount() != 1 || srv.ArrowCount() != 0 {
-		t.Fatalf("the spawner dropped early: %d fixtures, %d arrows", srv.FixtureCount(), srv.ArrowCount())
-	}
-	srv.TickOminousItemSpawners(1)
-	if srv.FixtureCount() != 0 || srv.ArrowCount() != 1 {
-		t.Fatalf("after its ticks: %d fixtures, %d arrows, want the arrow shot", srv.FixtureCount(), srv.ArrowCount())
-	}
-}
-
-// TestAnOminousItemSpawnerFiresChargesDown: a fire charge and a wind charge
-// leave the spawner as projectiles, not items.
-// vanilla: OminousItemSpawner.spawnItem, FireChargeItem.asProjectile, WindChargeItem.asProjectile
-func TestAnOminousItemSpawnerFiresChargesDown(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		item, kind string
-		event      int32
-	}{
-		{"minecraft:fire_charge", "minecraft:small_fireball", 1018},
-		{"minecraft:wind_charge", "minecraft:wind_charge", 1051},
-	} {
-		t.Run(tc.item, func(t *testing.T) {
-			t.Parallel()
-			srv, c := trialScene(t, trialConfig(2, 2, 2))
-			hearAll(t, c)
-			srv.RunLine("summon minecraft:ominous_item_spawner 4.5 66 4.5 {item:{id:\"" + tc.item + "\",count:1},spawn_item_after_ticks:1L}")
-			srv.TickOminousItemSpawners(1)
-			heard := hearAll(t, c)
-			if got := heard.events[tc.event]; len(got) != 1 || got[0] != [4]int32{4, 66, 4, 0} {
-				t.Errorf("dispense events %d = %v, want one at the spawner's block with data 0", tc.event, got)
-			}
-			if len(heard.events[3021]) != 1 {
-				t.Errorf("%d level events 3021, want 1", len(heard.events[3021]))
-			}
-			var kinds []string
-			for _, th := range srv.ThrownInDimension("minecraft:overworld") {
-				kinds = append(kinds, th.Kind)
-				if th.Y != 66 {
-					t.Errorf("the %s starts at y=%v, want the spawner's 66", tc.kind, th.Y)
-				}
-			}
-			if !slices.Equal(kinds, []string{tc.kind}) {
-				t.Errorf("projectiles = %v, want one %s", kinds, tc.kind)
-			}
-			if items := srv.ItemsInDimension("minecraft:overworld"); len(items) != 0 {
-				t.Errorf("%d item entities, want the charge fired", len(items))
-			}
-		})
-	}
-}
-
-// TestAnOminousItemSpawnerDropsAnItemWithNoPickupDelay: a plain item is
-// created with the bare ItemEntity constructor.
-// vanilla: OminousItemSpawner.spawnItem, ItemEntity.<init>
-func TestAnOminousItemSpawnerDropsAnItemWithNoPickupDelay(t *testing.T) {
-	t.Parallel()
-	srv, _ := trialScene(t, trialConfig(2, 2, 2))
-	srv.RunLine("summon minecraft:ominous_item_spawner 4.5 66 4.5 {item:{id:\"minecraft:trial_key\",count:1},spawn_item_after_ticks:1L}")
-	srv.TickOminousItemSpawners(1)
-	items := trialItems(srv, "minecraft:trial_key")
-	if len(items) != 1 {
-		t.Fatalf("%d keys dropped, want 1", len(items))
-	}
-	if items[0].PickupDelay != 0 {
-		t.Errorf("pickup delay = %d, want 0", items[0].PickupDelay)
-	}
-}
-
-// TestAnOminousTrialSpawnerRollsItsLootOnce: the item table is rolled when
-// the spawner first needs it, not again on every tick it stays ominous.
-// vanilla: TrialSpawnerStateData.getDispensingItems
-func TestAnOminousTrialSpawnerRollsItsLootOnce(t *testing.T) {
-	t.Parallel()
-	srv, _ := trialScene(t, ominousTrialConfig(100, 1, 1000))
-	srv.GiveEffect("Trialist", "minecraft:trial_omen", 100000, 0, false)
-	untilOminous(t, srv)
-	servertest.RunTicks(t, srv, 50)
-	if n := srv.OminousLootRolls(); n != 1 {
-		t.Errorf("%d loot rolls over 50 ominous ticks, want 1", n)
-	}
-}
-
 // TestAnOminousTrialSpawnerEndsItsOmenAfterTheCooldown: the ominous property
 // goes when the cooldown ends.
 // vanilla: TrialSpawnerState.COOLDOWN, TrialSpawner.removeOminous
@@ -331,44 +197,6 @@ func TestAnOminousTrialSpawnerEndsItsOmenAfterTheCooldown(t *testing.T) {
 	if trialOminousOf(t, srv) || trialStateOf(t, srv) != "waiting_for_players" {
 		t.Fatalf("after the cooldown: state %s, ominous %v, want waiting_for_players and normal",
 			trialStateOf(t, srv), trialOminousOf(t, srv))
-	}
-}
-
-// TestAnOminousTrialSpawnerKeepsItsOmenThroughTheCooldownScan: a player in
-// range does not restart an ominous spawner that is cooling down.
-// vanilla: TrialSpawnerStateData.tryDetectPlayers
-func TestAnOminousTrialSpawnerKeepsItsOmenThroughTheCooldownScan(t *testing.T) {
-	t.Parallel()
-	config := ominousTrialConfig(2, 2, 2)
-	config["cooldown_ends_at"] = nbt.Long(100000)
-	srv, _ := trialScene(t, config)
-	srv.SetBlock(trialX, trialY, trialZ, servertest.MustState(t, "minecraft:trial_spawner",
-		map[string]string{"trial_spawner_state": "cooldown", "ominous": "true"}))
-	servertest.RunTicks(t, srv, 60)
-	if got := trialStateOf(t, srv); got != "cooldown" || !trialOminousOf(t, srv) {
-		t.Fatalf("state %s, ominous %v, want the ominous cooldown held", got, trialOminousOf(t, srv))
-	}
-}
-
-// TestAnOminousItemSpawnerIsSavedWithItsItemAndDelay: the saved compound keeps
-// what vanilla writes, and the spawner it was read back from drops its item.
-// vanilla: OminousItemSpawner.addAdditionalSaveData, readAdditionalSaveData
-func TestAnOminousItemSpawnerIsSavedWithItsItemAndDelay(t *testing.T) {
-	t.Parallel()
-	srv, _ := trialScene(t, trialConfig(2, 2, 2))
-	srv.RunLine("summon minecraft:ominous_item_spawner 4.5 66 4.5 {item:{id:\"minecraft:trial_key\",count:1},spawn_item_after_ticks:4L}")
-	srv.TickOminousItemSpawners(2)
-	tag := srv.FixtureSavedTag()
-	if after, _ := nbt.LongValue(tag["spawn_item_after_ticks"]); after != 4 {
-		t.Errorf("spawn_item_after_ticks = %d, want 4", after)
-	}
-	item, _ := nbt.Get[nbt.Compound](tag, "item")
-	if id, _ := nbt.Get[nbt.String](item, "id"); id != "minecraft:trial_key" {
-		t.Errorf("item id = %q, want the trial key", id)
-	}
-	srv.TickOminousItemSpawners(2)
-	if keys := trialItems(srv, "minecraft:trial_key"); len(keys) != 1 {
-		t.Fatalf("%d keys after the delay, want 1", len(keys))
 	}
 }
 

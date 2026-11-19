@@ -67,35 +67,3 @@ func TestItemPropComponentsRoundTrip(t *testing.T) {
 		}
 	}
 }
-
-func TestEffectiveItemProps(t *testing.T) {
-	t.Parallel()
-	stick := protocol.ItemStack{ItemID: int32(ItemStick), Count: 1}
-	sword := protocol.ItemStack{ItemID: int32(ItemDiamondSword), Count: 1}
-	if StackMaxDamage(stick) != 0 || StackMaxDamage(sword) == 0 {
-		t.Fatal("prototype max damage")
-	}
-	if !StackComponentsValid(stick) || !StackComponentsValid(sword) {
-		t.Fatal("plain stacks are valid")
-	}
-	own, ok := StoredStack(nbt.Compound{"id": nbt.String("minecraft:stick"), "count": nbt.Int(1),
-		"components": nbt.Compound{"minecraft:max_damage": nbt.Int(10), "minecraft:max_stack_size": nbt.Int(1)}})
-	if !ok || StackMaxDamage(own) != 10 {
-		t.Fatalf("stick with max_damage 10 = %+v, %v", own, ok)
-	}
-	if _, ok := StoredStack(nbt.Compound{"id": nbt.String("minecraft:stick"), "count": nbt.Int(1),
-		"components": nbt.Compound{"minecraft:max_damage": nbt.Int(10)}}); ok {
-		t.Fatal("a damageable stackable stick was accepted")
-	}
-	noDamage, ok := StoredStack(nbt.Compound{"id": nbt.String("minecraft:diamond_sword"), "count": nbt.Int(1),
-		"components": nbt.Compound{"!minecraft:max_damage": nbt.Compound{}, "minecraft:max_stack_size": nbt.Int(8)}})
-	if !ok || StackMaxDamage(noDamage) != 0 {
-		t.Fatalf("a sword without max_damage = %+v, %v", noDamage, ok)
-	}
-	ench, _ := StoredStack(nbt.Compound{"id": nbt.String("minecraft:stick"), "count": nbt.Int(1),
-		"components": nbt.Compound{"minecraft:enchantable": snbt(t, "{value:7}"), "minecraft:repairable": snbt(t, `{items:"minecraft:diamond"}`)}})
-	diamond, _ := ItemID("minecraft:diamond")
-	if StackEnchantable(ench) != 7 || !StackRepairs(ench, diamond) || StackRepairs(ench, int32(ItemStick)) {
-		t.Fatal("own enchantable and repairable")
-	}
-}

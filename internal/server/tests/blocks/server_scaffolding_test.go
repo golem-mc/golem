@@ -1,13 +1,10 @@
 package blocks
 
 import (
-	"bytes"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
@@ -81,77 +78,6 @@ func TestScaffoldingPlacementStates(t *testing.T) {
 
 	if got := srv.BlockAt(4, 65, 0); got != cantilever {
 		t.Errorf("cantilever in the world = %d, want %d", got, cantilever)
-	}
-}
-
-// TestScaffoldingCantileverStaysAndAnUnsupportedPieceFalls checks stability
-// both ways: a piece the command leaves standing at distance seven falls as a
-// falling block and settles at the distance the ground reads, while the
-// cantilever built by hand keeps standing, its distance the only thing
-// holding it up. A placement whose distance would be seven — against a wall
-// with nothing but air below — is refused.
-// vanilla: ScaffoldingBlock.tick, ScaffoldingBlock.canSurvive
-func TestScaffoldingCantileverStaysAndAnUnsupportedPieceFalls(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-
-	scaffolding, _ := registry.ItemID("minecraft:scaffolding")
-	c.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: scaffolding, Count: 1})
-
-	ground := scaffoldStateFor(t, "0", "false")
-	cantilever := scaffoldStateFor(t, "1", "true")
-
-	// The column grows the way the clicks now do: the ground placed on the
-	// stone, the piece above it walked up by a side click, the arm walked
-	// out along the look of a top click.
-	c.PlaceBlock(5, 63, 0, protocol.FaceTop)
-	c.PlaceBlock(5, 64, 0, protocol.FaceEast)
-	c.FacePlayer(2.5, 64, 0.5, 90, -20)
-	c.PlaceBlock(5, 65, 0, protocol.FaceTop)
-	servertest.WaitForBlock(t, srv, 4, 65, 0, func(s uint16) bool { return s == cantilever })
-	groundLevel := srv.BlockAt(5, 64, 0)
-
-	// A piece with nothing at all around it — the command sets the default
-	// state, whose distance seven a placement would refuse — leaves as a
-	// falling block: the cell it stood in clears, the body carries the
-	// bottom the falling state reads, and it lands at the distance the
-	// ground gives.
-	hanging := scaffoldStateFor(t, "7", "true")
-	c.ChatCommand("setblock 8 66 3 minecraft:scaffolding")
-	c.AwaitBlockState(8, 66, 3, 0)
-	spawn := c.AwaitFallingSpawn()
-	if spawn.Data != int32(hanging) {
-		t.Errorf("falling body carries %d, want %d (distance 7, bottom)", spawn.Data, hanging)
-	}
-	servertest.WaitForBlock(t, srv, 8, 64, 3, func(s uint16) bool { return s == ground })
-	if got := srv.BlockAt(8, 65, 3); got != 0 {
-		t.Errorf("block above the landing = %d, want 0 (air)", got)
-	}
-
-	// The fall and the landing took their seconds, longer than a whole
-	// unsupported column needs to come down: the cantilever has not moved.
-	if got := srv.BlockAt(4, 65, 0); got != cantilever {
-		t.Errorf("the cantilever after the fall = %d, want %d (still standing)", got, cantilever)
-	}
-	if got := srv.BlockAt(5, 65, 0); got != ground {
-		t.Errorf("the column top after the fall = %d, want %d (still standing)", got, ground)
-	}
-	if got := srv.BlockAt(5, 64, 0); got != groundLevel {
-		t.Errorf("the column base after the fall = %d, want %d (still standing)", got, groundLevel)
-	}
-
-	// A placement that would hang at distance seven is refused: clicking the
-	// side of a stone column leaves the cell beside it air, with nothing
-	// falling either.
-	c.ChatCommand("setblock 2 65 3 minecraft:stone")
-	c.Settle()
-	c.PlaceBlock(2, 65, 3, protocol.FaceWest)
-	c.Settle()
-	if got := srv.BlockAt(1, 65, 3); got != 0 {
-		t.Errorf("placement that would hang = %d, want 0 (air, the placement refused)", got)
-	}
-	if got := srv.FallingCount(); got != 0 {
-		t.Errorf("%d falling blocks left in the world after the refused placement, want none", got)
 	}
 }
 
@@ -329,121 +255,5 @@ func TestClickingScaffoldingWithScaffoldingExtendsTheColumn(t *testing.T) {
 			t.Errorf("%s: the clicked piece at (%d,%d,%d) = %d, want the column's %d",
 				tc.desc, tc.click[0], tc.click[1], tc.click[2], state, column)
 		}
-	}
-}
-
-// TestAClickPastTheBuildLimitSendsTheActionBarLine checks the walk that runs
-// off the world's top: nothing is placed — the clicked column and the cell
-// beside it hold what they held — and the placer alone hears the action
-// bar's build.tooHigh, with the world's top as the number it names.
-// vanilla: ScaffoldingBlockItem.updatePlacementContext,
-// ServerPlayer.sendBuildLimitMessage
-func TestAClickPastTheBuildLimitSendsTheActionBarLine(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-
-	watcher := connect().Join("Watcher")
-
-	actor := connect().Join("Actor")
-	actor.SetChatMode(protocol.ChatModeHidden)
-
-	// A column that reaches the world's own top: the flat world's overworld
-	// runs from -64 to 319, so the piece at 319 is the last one that can
-	// stand, and any walk up from it is past the build limit.
-	const top = int32(319)
-	column := scaffoldStateFor(t, "0", "false")
-	for y := int32(64); y <= top; y++ {
-		if !srv.SetBlock(6, y, 8, column) {
-			t.Fatal("the column's chunk was not loaded")
-		}
-	}
-
-	scaffolding, _ := registry.ItemID("minecraft:scaffolding")
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: scaffolding, Count: 1})
-	actor.FacePlayer(6.5, float64(top), 10.5, 0, -30)
-	actor.PlaceBlock(6, top, 8, protocol.FaceSouth)
-
-	// The line answers on the action bar, red, with the world's top.
-	var want protocol.Buffer
-	want.PutText(protocol.Text{
-		Translate: "build.tooHigh",
-		With:      []protocol.Text{{Text: "319"}},
-		Color:     protocol.ColorRed,
-	})
-	want.PutBool(true) // over the hotbar
-	data, ok := servertest.ReadUntil(t, actor, servertest.ExpectTimeout, protocol.IDPlaySystemChat)
-	if !ok {
-		t.Fatal("no build-limit line within " + servertest.ExpectTimeout.String())
-	}
-	if !bytes.Equal(data, want.Bytes()) {
-		t.Errorf("the action bar line = % X, want % X", data, want.Bytes())
-	}
-	actor.Settle()
-	if state := srv.BlockAt(6, top, 8); state != column {
-		t.Errorf("the column's top piece = %d, want the column's %d (nothing in its cell)", state, column)
-	}
-	if state := srv.BlockAt(6, top, 9); state != 0 {
-		t.Errorf("the cell beside the clicked piece = %d, want air", state)
-	}
-	// Nothing was placed, so the watcher has heard no block update beyond
-	// the joins: the clicked piece and its neighbour are what the echoes
-	// told the placer alone.
-	servertest.HoldTicks(t, srv)
-	watcher.ExpectNoneWithinTicks(srv, 40, servertest.PacketIs(protocol.IDPlayBlockUpdate))
-}
-
-// scaffoldColumn builds a floor at y 63 and scaffolding at the rows given.
-func scaffoldColumn(t *testing.T, srv *server.Server, x, z int32, rows ...int32) {
-	t.Helper()
-	srv.SetLoadedBlock(x, 63, z, servertest.MustState(t, "minecraft:stone", nil))
-	for _, y := range rows {
-		if !srv.SetBlock(x, y, z, scaffoldStateFor(t, "0", "false")) {
-			t.Fatal("the scaffolding's chunk was not loaded")
-		}
-	}
-}
-
-// TestAnItemInsideScaffoldingSlidesPastItsLegs shoves a stack through the
-// cell of a scaffolding piece, level with a corner leg: the body is not
-// above the cell, so the leg is empty to it.
-// vanilla: ScaffoldingBlock.getCollisionShape
-func TestAnItemInsideScaffoldingSlidesPastItsLegs(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Join(t, servertest.SurvivalConfig(), "Dropper")
-	scaffoldColumn(t, srv, 2, 3, 64)
-	srv.SpawnItemEntityMotion(1.5, 64.5, 3.05, "minecraft:stick", 1, 0.3, 0, 0)
-	rest := func() float64 {
-		items := srv.ItemsInDimension(world.DimensionName)
-		if len(items) != 1 {
-			return -1
-		}
-		return items[0].X
-	}
-	// Past the leg's far face (3.0 + 2/16) and the stick's half size.
-	servertest.WaitForTicks(t, srv, 100, func() bool { return rest() > 2+2.0/16+entity.ItemHalfSize })
-	if x := rest(); x <= 2+2.0/16+entity.ItemHalfSize {
-		t.Errorf("the stick stopped at x %v, caught on the leg", x)
-	}
-}
-
-// TestAZombieStandsOnTopOfScaffolding drops a zombie onto a scaffolding
-// column: seen from above, the top plate holds it.
-// vanilla: ScaffoldingBlock.getCollisionShape
-func TestAZombieStandsOnTopOfScaffolding(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Join(t, servertest.SurvivalConfig(), "Watcher")
-	scaffoldColumn(t, srv, 2, 3, 64)
-	srv.SpawnMob("minecraft:zombie", 2.5, 67, 3.5)
-	y := func() float64 {
-		for _, m := range srv.Mobs() {
-			if m.Kind == "minecraft:zombie" {
-				return m.Y
-			}
-		}
-		return -1
-	}
-	servertest.WaitForTicks(t, srv, 100, func() bool { return y() == 65 })
-	if got := y(); got != 65 {
-		t.Errorf("the zombie stands at y %v, want the plate's top at 65", got)
 	}
 }

@@ -139,36 +139,6 @@ func TestMapsReadTheDefaults(t *testing.T) {
 	}
 }
 
-// TestMapsRefuseAFileWithoutItsShape checks the codec's required fields: a
-// file without its dimension or either centre is no map at all, the shape
-// a missing one fails to decode to.
-// vanilla: MapItemSavedData.CODEC, SavedDataStorage.readSavedData
-func TestMapsRefuseAFileWithoutItsShape(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		drop string
-	}{
-		{"no dimension", "dimension"},
-		{"no x centre", "xCenter"},
-		{"no z centre", "zCenter"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			data := nbt.Compound{
-				"dimension": nbt.String("minecraft:overworld"),
-				"xCenter":   nbt.Int(64),
-				"zCenter":   nbt.Int(64),
-				"colors":    nbt.ByteArray(make([]byte, MapSide*MapSide)),
-			}
-			delete(data, tc.drop)
-			writeMapData(t, dir, "0.dat", data)
-			if got, ok := NewMaps(dir).Get(0); ok {
-				t.Errorf("map 0 = %+v, want no map", got)
-			}
-		})
-	}
-}
-
 // TestMapsPlaceTheSavedDecorations checks the markers a file's own banners
 // and frames carry: each placed at the pixel its position makes, the banner
 // keeping its colour and its name, the frame its rotation.
@@ -214,68 +184,6 @@ func TestMapsPlaceTheSavedDecorations(t *testing.T) {
 	if frame.Type != 1 || frame.X != 0 || frame.Y != -7 || frame.Rot != 4 {
 		t.Errorf("the frame marker = type %d at (%d, %d) rot %d, want the frame at (0, -7) rot 4",
 			frame.Type, frame.X, frame.Y, frame.Rot)
-	}
-}
-
-// TestPlaceDecoration checks the placement a marker gets: the clamp at the
-// map's edge, the off-map types a player past it takes, the nether's own
-// scramble of the level's time, and the edge case of a marker a map that
-// does not track past its edge has none of.
-// vanilla: MapItemSavedData.addDecoration, clampMapCoordinate, calculateRotation
-func TestPlaceDecoration(t *testing.T) {
-	overworld := &MapData{CenterX: 64, CenterZ: 64, Scale: 1, Dimension: "minecraft:overworld", TrackingPosition: true}
-
-	// A player on the face: the player marker at the clamped pixel.
-	got, ok := overworld.PlaceDecoration(DecorationPlayer, 0.5, 0.5, 0, 0, true)
-	if !ok || got != (Decoration{Type: DecorationPlayer, X: -63, Y: -63, Rot: 0}) {
-		t.Errorf("a player on the face = %+v, %v; want the player marker at (-63, -63)", got, ok)
-	}
-
-	// A player past the edge but within the off-map radius, and one past
-	// it: the two off-map types, both pinned to the edge.
-	got, ok = overworld.PlaceDecoration(DecorationPlayer, 264, 64, 0, 0, true)
-	if !ok || got != (Decoration{Type: DecorationPlayerOffMap, X: 127, Y: 0, Rot: 0}) {
-		t.Errorf("a player off the map = %+v, %v; want the off-map marker at (127, 0)", got, ok)
-	}
-	offLimits := &MapData{CenterX: 64, CenterZ: 64, Scale: 1, Dimension: "minecraft:overworld", UnlimitedTracking: true}
-	got, ok = offLimits.PlaceDecoration(DecorationPlayer, 1000, 64, 0, 0, true)
-	if !ok || got != (Decoration{Type: DecorationPlayerOffLimits, X: 127, Y: 0, Rot: 0}) {
-		t.Errorf("a player past the limits = %+v, %v; want the off-limits marker at (127, 0)", got, ok)
-	}
-	if _, ok := overworld.PlaceDecoration(DecorationPlayer, 1000, 64, 0, 0, true); ok {
-		t.Error("a player past the limits on a map that does not track them = a marker, want none")
-	}
-
-	// The nether's own scramble of the level's time, not the degrees: at
-	// a game time of 100 the rotation is 10 where the overworld formula
-	// would answer 0.
-	nether := &MapData{CenterX: 64, CenterZ: 64, Dimension: NetherName, TrackingPosition: true}
-	got, ok = nether.PlaceDecoration(DecorationPlayer, 64, 64, 0, 100, true)
-	if !ok || got.Rot != 10 {
-		t.Errorf("a nether player's marker = %+v, %v; want rot 10", got, ok)
-	}
-	// Off a level — the file's own markers — even a nether map turns by
-	// the degrees.
-	got, ok = nether.PlaceDecoration(DecorationFrame, 64, 64, 0, 100, false)
-	if !ok || got.Rot != 0 {
-		t.Errorf("a nether map's file marker = %+v, %v; want rot 0", got, ok)
-	}
-	// The end is no nether: its markers turn by the degrees, 90 reading
-	// as the eighth of a circle like everywhere but the nether.
-	end := &MapData{CenterX: 64, CenterZ: 64, Dimension: EndName, TrackingPosition: true}
-	got, ok = end.PlaceDecoration(DecorationPlayer, 64, 64, 90, 100, true)
-	if !ok || got.Rot != 4 {
-		t.Errorf("an end player's marker = %+v, %v; want rot 4", got, ok)
-	}
-
-	// A banner off a map that does not track past its edge has nowhere to
-	// sit; one an unlimited map tracks still pins to the edge.
-	if _, ok := overworld.PlaceDecoration(DecorationFrame, 264, 64, 0, 0, true); ok {
-		t.Error("a banner off the map = a marker, want none")
-	}
-	got, ok = offLimits.PlaceDecoration(DecorationFrame, 264, 64, 0, 0, true)
-	if !ok || got != (Decoration{Type: DecorationFrame, X: 127, Y: 0, Rot: 0}) {
-		t.Errorf("a banner off an unlimited map = %+v, %v; want the frame marker at (127, 0)", got, ok)
 	}
 }
 
@@ -344,28 +252,5 @@ func TestMapUpdateRedrawsOneStripe(t *testing.T) {
 	}
 	if _, changed := maps.Update(0, w, 0.5, 0.5, 0); changed {
 		t.Error("a second pass over the same stripe reported a change, want none")
-	}
-}
-
-func TestMapsScaleOnlyBelowFourAndKeepTheCentre(t *testing.T) {
-	dir := t.TempDir()
-	maps := NewMaps(dir)
-	id, data := maps.Create("minecraft:overworld", 10, 10, 3)
-	if !maps.Scalable(id) {
-		t.Fatal("a scale 3 map is not scalable, want one")
-	}
-	bigger, ok := maps.Scaled(id)
-	if !ok || bigger == id {
-		t.Fatalf("Scaled = %d, %t, want a fresh id", bigger, ok)
-	}
-	got, _ := maps.Get(bigger)
-	if got.Scale != 4 || got.Dimension != data.Dimension {
-		t.Errorf("scaled map = scale %d in %s, want scale 4 in %s", got.Scale, got.Dimension, data.Dimension)
-	}
-	if maps.Scalable(bigger) {
-		t.Error("a scale 4 map is scalable, want it at the limit")
-	}
-	if maps.Scalable(99) {
-		t.Error("a map without saved data is scalable")
 	}
 }

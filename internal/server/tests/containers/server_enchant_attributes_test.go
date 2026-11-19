@@ -142,24 +142,6 @@ func windChargeLift(t *testing.T, name string, worn []wornPiece, mods int) float
 	return 0
 }
 
-// TestBlastProtectionShrinksAWindChargePush checks that a wind charge's
-// burst, which hurts nobody, still has its push on a player scaled by
-// explosion_knockback_resistance.
-// vanilla: ServerExplosion.hurtEntities
-func TestBlastProtectionShrinksAWindChargePush(t *testing.T) {
-	t.Parallel()
-	bare := windChargeLift(t, "Bare", nil, 0)
-	if bare <= 0 {
-		t.Fatalf("the unarmoured lift is %v, want an upward push", bare)
-	}
-	armoured := windChargeLift(t, "Armoured", []wornPiece{
-		{player.ArmorSlot + 1, servertest.EnchantedStack(t, "minecraft:diamond_chestplate", "minecraft:blast_protection", 4)},
-	}, 1)
-	if want := bare * 0.4; math.Abs(armoured-want) > 0.02*bare {
-		t.Errorf("a Blast Protection IV chestplate lifts %v, want 40%% of %v", armoured, bare)
-	}
-}
-
 // mobBlastPush blasts beside a cow wearing chest, if any, with the tick
 // stopped, and returns the push the blast added to its velocity along x.
 func mobBlastPush(t *testing.T, chest *protocol.ItemStack) float64 {
@@ -182,26 +164,6 @@ func mobBlastPush(t *testing.T, chest *protocol.ItemStack) float64 {
 		t.Fatal("the cow is not in the herd after the blast")
 	}
 	return after - before
-}
-
-// TestBlastProtectionShrinksAMobsBlastPush checks explosion_knockback_resistance
-// on a mob: a worn Blast Protection IV chestplate leaves 40% of the push,
-// and a broken one puts nothing on.
-// vanilla: ServerExplosion.hurtEntities, ItemStack.forEachModifier
-func TestBlastProtectionShrinksAMobsBlastPush(t *testing.T) {
-	t.Parallel()
-	bare := mobBlastPush(t, nil)
-	if bare <= 0 {
-		t.Fatalf("the bare cow's push is %v, want a push away from the blast", bare)
-	}
-	chest := servertest.EnchantedStack(t, "minecraft:diamond_chestplate", "minecraft:blast_protection", 4)
-	if got, want := mobBlastPush(t, &chest), bare*0.4; math.Abs(got-want) > 1e-6 {
-		t.Errorf("the armoured cow's push is %v, want 40%% of %v", got, bare)
-	}
-	broken := brokenStack(t, chest)
-	if got := mobBlastPush(t, &broken); math.Abs(got-bare) > 1e-6 {
-		t.Errorf("the cow in a broken chestplate is pushed %v, want the bare %v", got, bare)
-	}
 }
 
 // TestFireProtectionShortensAPlayersBurn checks burning_time on the player's

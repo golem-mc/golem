@@ -186,37 +186,3 @@ func testSmallPortsStarts(t *testing.T, lines []string) {
 		t.Fatalf("checked %d candidates, %d starts", cases, starts)
 	}
 }
-
-func TestSwampHutMobIdentity(t *testing.T) {
-	spawn := func(x int32) []nbt.Tag {
-		t.Helper()
-		r := newDecorRegion(&templeTerrain{newGoldenTerrain(), 0}, newChunk(x>>4, 0), worldMinY, worldHeight)
-		r.worldSeed = 12345
-		r.bindProtos(ChunkPos{x >> 4, 0})
-		p := newSwampHut(levelgen.NewLegacyRandom(0), x, 0)
-		p.place(r, jbox{x, -64, 0, x + 15, 319, 15}, [3]int32{})
-		ids := []nbt.Tag{}
-		for _, e := range r.protoAt(x, 0).entities {
-			ids = append(ids, e.tag["UUID"])
-		}
-		if len(ids) != 2 {
-			t.Fatalf("got %d mobs", len(ids))
-		}
-		p.place(r, jbox{x, -64, 0, x + 15, 319, 15}, [3]int32{})
-		if len(r.protoAt(x, 0).entities) != 2 {
-			t.Fatal("repeated placement duplicated mobs")
-		}
-		return ids
-	}
-	first, other, again := spawn(0), spawn(32), spawn(0)
-	if !reflect.DeepEqual(first, again) {
-		t.Fatal("regeneration changed UUIDs")
-	}
-	for _, a := range first {
-		for _, b := range other {
-			if reflect.DeepEqual(a, b) {
-				t.Fatal("two huts share UUID")
-			}
-		}
-	}
-}

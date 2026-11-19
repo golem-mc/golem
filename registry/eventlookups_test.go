@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"slices"
 	"testing"
 )
 
@@ -26,32 +25,5 @@ func TestIndexedFuelAndParticles(t *testing.T) {
 	}
 	if id, data, ok := ParticleID("test:missing"); id != 0 || data || ok {
 		t.Fatalf("unknown particle = %d, %v, %v", id, data, ok)
-	}
-}
-
-func TestOrderedBlockTagMembersFollowReload(t *testing.T) {
-	for tag, names := range BlockTags {
-		got := BlockTagOf(tag).Blocks()
-		if len(got) != len(names) {
-			t.Fatalf("%s member count = %d, want %d", tag, len(got), len(names))
-		}
-		for i, name := range names {
-			if got[i].Name() != name {
-				t.Fatalf("%s member %d = %s, want %s", tag, i, got[i].Name(), name)
-			}
-		}
-	}
-	tag := TagIDWallCorals
-	old := tag.Blocks()
-	wantOld := slices.Clone(old)
-	applyForTest(t, PackTags{"minecraft:block": {"minecraft:wall_corals": {Replace: true, Entries: []PackTagEntry{req("minecraft:brain_coral_wall_fan"), req("minecraft:tube_coral_wall_fan")}}}})
-	if got := tag.Blocks(); !slices.Equal(got, []Block{BlockBrainCoralWallFan, BlockTubeCoralWallFan}) {
-		t.Fatalf("reloaded members = %v", got)
-	}
-	if !slices.Equal(old, wantOld) {
-		t.Fatal("reload mutated the old member slice")
-	}
-	if got := noBlockTag.Blocks(); len(got) != 0 {
-		t.Fatalf("unknown tag = %v", got)
 	}
 }

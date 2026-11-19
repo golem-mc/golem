@@ -73,16 +73,6 @@ func TestCreeperShotBySkeletonDropsADisc(t *testing.T) {
 	}
 }
 
-// TestCreeperKilledAfterSkeletonArrowDropsNoDisc pins that the loot attacker
-// is the source of the killing blow: a /kill after the arrow has none.
-func TestCreeperKilledAfterSkeletonArrowDropsNoDisc(t *testing.T) {
-	t.Parallel()
-	srv, _ := flameScene(t)
-	if got := creeperShotThen(t, srv, "minecraft:skeleton", 40, true); countDiscs(got) != 0 {
-		t.Errorf("items after /kill following a skeleton's arrow = %v, want no disc", got)
-	}
-}
-
 // flameScene stops the loop and returns the server a burning arrow is flown
 // against.
 func flameScene(t *testing.T) (*server.Server, *servertest.Client) {

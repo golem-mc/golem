@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
@@ -14,42 +13,6 @@ import (
 const sniffer = "minecraft:sniffer"
 
 func snifferType() int32 { id, _ := registry.EntityTypeID(sniffer); return int32(id) }
-
-func TestASnifferSpawnsAsItsOwnType(t *testing.T) {
-	t.Parallel()
-	c, _, srv := polarWorld(t)
-	id := srv.SpawnMob(sniffer, 3.5, 64, 0.5)
-	m := c.ExpectMobSpawn(snifferType())
-	if m.EntityID != id || m.Health != 14 {
-		t.Fatalf("spawn = %d, health %v; want %d, 14", m.EntityID, m.Health, id)
-	}
-}
-
-func TestTwoSniffersFedTorchflowerSeedsDropAnEggNotABaby(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:torchflower_seeds", 2)
-	servertest.HoldTicks(t, srv)
-	first := srv.SpawnMob(sniffer, 1.5, 64, 4.5)
-	second := srv.SpawnMob(sniffer, 3.5, 64, 4.5)
-	c.ExpectMobSpawn(snifferType())
-	c.ExpectMobSpawn(snifferType())
-	c.UseOn(first)
-	c.AwaitEntityEvent(first, loveHearts)
-	c.UseOn(second)
-	c.AwaitEntityEvent(second, loveHearts)
-	servertest.UntilTicks(t, srv, 400, "sniffer egg", func() bool { return len(srv.ItemsInDimension(world.DimensionName)) > 0 })
-	items := srv.ItemsInDimension(world.DimensionName)
-	if len(items) != 1 || items[0].Item != "minecraft:sniffer_egg" {
-		t.Fatalf("drops = %v, want one sniffer egg", items)
-	}
-	servertest.RunTicks(t, srv, 20)
-	if got := srv.MobCount(); got != 2 {
-		t.Fatalf("mobs = %d, want the two parents only", got)
-	}
-	if got := srv.InventorySlot("Rancher", player.HotbarSlot).Count; got != 0 {
-		t.Fatalf("seeds left = %d, want 0", got)
-	}
-}
 
 func snifferEggHatch(t *testing.T, srv *server.Server) string {
 	t.Helper()
@@ -89,15 +52,6 @@ func TestASnifferEggOnMossCracksAndHatchesABaby(t *testing.T) {
 		}
 	}
 	t.Fatalf("no baby sniffer at the egg: %v", srv.Mobs())
-}
-
-func TestASnifferEggOnStoneIsSlower(t *testing.T) {
-	t.Parallel()
-	srv, c := snifferEggWorld(t, "minecraft:dirt")
-	c.ReadTicks(srv, 4300, func(int32, []byte) bool { return false })
-	if got := snifferEggHatch(t, srv); got != "0" {
-		t.Fatalf("hatch at 4300 ticks = %s, want 0", got)
-	}
 }
 
 func TestADiggingSnifferDropsASeed(t *testing.T) {

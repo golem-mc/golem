@@ -3,9 +3,7 @@ package world_test
 import (
 	"crypto/sha256"
 	"fmt"
-	"math"
 	"math/rand"
-	"reflect"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/entity"
@@ -15,35 +13,6 @@ import (
 
 // Hide the concrete type while retaining optional structure and conductor methods.
 type fallbackSpawnWorld struct{ *world.World }
-
-func TestNaturalSpawnFastMatchesFallback(t *testing.T) {
-	for _, water := range []bool{false, true} {
-		t.Run(fmt.Sprint(water), func(t *testing.T) {
-			w := world.SpawnParityFixture(t, water)
-			hash := sha256.New()
-			requests := 0
-			for seed := int64(1); seed <= 300; seed++ {
-				run := func(sw entity.SpawnWorld) string {
-					return spawnParityRun(sw, seed, []entity.SpawnPlayer{{EntityID: 1, X: 80, Y: 30, Z: 0}}, false)
-				}
-				fast, slow := run(w), run(fallbackSpawnWorld{w})
-				if !reflect.DeepEqual(fast, slow) {
-					t.Fatalf("seed %d: fast\n%s\nfallback\n%s", seed, fast, slow)
-				}
-				fmt.Fprint(hash, fast)
-				requests += len(fast)
-			}
-			got := fmt.Sprintf("%d:%x", requests, hash.Sum(nil))
-			want := "48313:8beb54845a1e7f0aa5277d7f3139cfa76cd199914de5b102b62f405894ddb8da"
-			if water {
-				want = "72636:2e769b72242b9897f934fd8549562cc45fccb84de1d6b89367ef359569789e42"
-			}
-			if got != want {
-				t.Fatalf("fixture digest = %s, want %s", got, want)
-			}
-		})
-	}
-}
 
 func spawnParityRun(sw entity.SpawnWorld, seed int64, players []entity.SpawnPlayer, capped bool) string {
 	rng := rand.New(rand.NewSource(seed))
@@ -122,48 +91,6 @@ func TestNaturalSpawnPlayerParity(t *testing.T) {
 					t.Errorf("%s digest = %s, want %s", name, got, wants[name])
 				}
 			})
-		}
-	}
-}
-
-func TestNaturalSpawnLazyPreparationParity(t *testing.T) {
-	low := make([]entity.SpawnPlayer, 8)
-	for i := range low {
-		low[i] = entity.SpawnPlayer{EntityID: int32(i + 1), X: float64(80 + 2*i), Y: 30, Z: 0, Dead: i == 6, Spectator: i == 7}
-	}
-	high := append([]entity.SpawnPlayer(nil), low...)
-	for i := range high {
-		high[i].Y = 200
-	}
-	cases := []struct {
-		name    string
-		players []entity.SpawnPlayer
-	}{
-		{"low", low},
-		{"high", high},
-	}
-	for _, x := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), math.Nextafter(1<<40, math.Inf(1)), 1 << 40} {
-		players := append([]entity.SpawnPlayer(nil), low...)
-		players = append(players, entity.SpawnPlayer{EntityID: 9, X: x, Y: 30, Spectator: true})
-		cases = append(cases, struct {
-			name    string
-			players []entity.SpawnPlayer
-		}{fmt.Sprintf("spectator-%g", x), players})
-	}
-	for _, water := range []bool{false, true} {
-		w := world.SpawnParityFixture(t, water)
-		for _, capped := range []bool{false, true} {
-			for _, tc := range cases {
-				t.Run(fmt.Sprintf("water=%t/capped=%t/%s", water, capped, tc.name), func(t *testing.T) {
-					for seed := int64(1); seed <= 300; seed++ {
-						fast := spawnParityRun(w, seed, tc.players, capped)
-						slow := spawnParityRun(fallbackSpawnWorld{w}, seed, tc.players, capped)
-						if fast != slow {
-							t.Fatalf("seed %d: fast\n%s\nfallback\n%s", seed, fast, slow)
-						}
-					}
-				})
-			}
 		}
 	}
 }

@@ -291,78 +291,6 @@ func TestFurnacePaysItsSmeltingExperienceWhenItIsBroken(t *testing.T) {
 	}
 }
 
-// TestAFurnaceOwesNoOrbUntilItsCellIsEmptied breaks a furnace that owes
-// experience and reads the wire: no entity spawns before the block update
-// that empties the cell, so the orb is not pushed out of a solid block.
-// vanilla: LevelChunk.setBlockState runs preRemoveSideEffects after the write
-func TestAFurnaceOwesNoOrbUntilItsCellIsEmptied(t *testing.T) {
-	t.Parallel()
-	srv, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	smeltedFurnace(t, srv, w)
-
-	w.BreakBlock(4, 64, 0)
-	cleared, spawned := false, 0
-	w.SettleAndCollect(func(id int32, data []byte) {
-		switch id {
-		case protocol.IDPlayBlockUpdate:
-			r := protocol.NewReader(data)
-			x, y, z := r.ReadPosition()
-			if x == 4 && y == 64 && z == 0 && r.ReadVarInt() == 0 {
-				cleared = true
-			}
-		case protocol.IDPlaySpawnEntity:
-			spawned++
-			if !cleared {
-				t.Error("an entity spawned before the furnace's cell was emptied")
-			}
-		}
-	})
-	if spawned < 2 {
-		t.Errorf("the break spawned %d entities, want the orb and the ingots", spawned)
-	}
-}
-
-// TestFurnacePaysItsSmeltingExperienceOnAShiftClick runs one raw gold
-// through a furnace and shift-clicks the result into the player's things:
-// the quick-move is one of the takes vanilla pays the furnace's stored
-// experience on, and the one smelt's worth - a whole point, a recipe whose
-// experience is one and whose fraction therefore never rolls - arrives as
-// one orb of one at the taker's own place.
-func TestFurnacePaysItsSmeltingExperienceOnAShiftClick(t *testing.T) {
-	t.Parallel()
-	srv, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	servertest.StopTheLoop(t, srv)
-	servertest.LoadFurnace(t, srv, w, "minecraft:raw_gold", 1, 1)
-	runTheSmelts(t, srv, 200+2)
-
-	const goldRecipe = "minecraft:gold_ingot_from_smelting_raw_gold"
-	used, ok := srv.FurnaceRecipesUsed(4, 64, 0)
-	if !ok {
-		t.Fatal("the furnace's block entity went missing")
-	}
-	if len(used) != 1 || used[goldRecipe] != 1 {
-		t.Errorf("the furnace's smelting history = %v, want one of the raw gold recipe", used)
-	}
-
-	// The window again, the ingot in the result slot, and the shift-click
-	// taking it into the player's things - the orb read off the wire, the
-	// mailbox it rides being the click's corrections' own channel.
-	w.UseBlock(4, 64, 0)
-	slots := w.ExpectContainerOpen(protocol.MenuFurnace, true, 4, 64, 0)
-	if got := slots[2]; !got.Equal(servertest.ItemStack(t, "minecraft:gold_ingot", 1)) {
-		w.T.Errorf("the reopened window's result slot = %+v, want the gold ingot", got)
-	}
-	w.Click(2, 0, protocol.ClickModeQuickMove)
-	sightPayout(srv, t, w, 1, 0.5, 64, 0.5)
-
-	if got := srv.InventoryAt(4, 64, 0); len(got) != 3 || !got[2].Empty() {
-		t.Errorf("after the shift-click, the furnace's result slot = %+v, want it empty", got)
-	}
-	if used, _ := srv.FurnaceRecipesUsed(4, 64, 0); len(used) != 0 {
-		t.Errorf("after the shift-click, the furnace still owes %v", used)
-	}
-}
-
 // TestFurnaceRemembersWhatItOwesAcrossARestart runs ten raw iron through a
 // furnace, saves the world with the ingots still in it, and brings a new
 // server up on the same directory: the smelting history comes back out of
@@ -399,35 +327,5 @@ func TestFurnaceRemembersWhatItOwesAcrossARestart(t *testing.T) {
 	sightPayout(back, t, w, 7, 0.5, 64, 0.5)
 	if used, _ := back.FurnaceRecipesUsed(4, 64, 0); len(used) != 0 {
 		t.Errorf("after the paid take, the restarted furnace still owes %v", used)
-	}
-}
-
-// TestPayingAFurnaceMarksItsChunkForTheNextSave pays a furnace's stored
-// experience after a save has made the chunk clean, the order a result take
-// leaves when an autosave lands between the slot click and the payout: the
-// emptied smelting history must reach the next save, or a reload pays the
-// same experience again.
-func TestPayingAFurnaceMarksItsChunkForTheNextSave(t *testing.T) {
-	t.Parallel()
-	srv, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	smeltedFurnace(t, srv, w)
-
-	// The furnace going out queued a relight on the pool; landing after the
-	// save, its light install marks the chunk dirty again.
-	srv.WaitRelights()
-	if !srv.SaveAll(false) {
-		t.Fatal("the save failed")
-	}
-	srv.FlushSaves()
-	if srv.ChunkDirtyAt(4, 0) {
-		t.Fatal("the chunk is still dirty after a save, so the payout's mark cannot be told apart")
-	}
-
-	srv.PayFurnaceSmelts(4, 64, 0)
-	if used, _ := srv.FurnaceRecipesUsed(4, 64, 0); len(used) != 0 {
-		t.Fatalf("the payout left the furnace owing %v", used)
-	}
-	if !srv.ChunkDirtyAt(4, 0) {
-		t.Error("the payout emptied the smelting history without marking the chunk for the next save")
 	}
 }

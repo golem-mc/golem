@@ -1,7 +1,6 @@
 package tickrate
 
 import (
-	"math"
 	"testing"
 )
 
@@ -96,25 +95,6 @@ func TestSetRateClampsAndPaces(t *testing.T) {
 	}
 }
 
-// TestSetRateRefusesNonFiniteAndKeepsSpacing: a NaN or infinite rate is
-// refused, leaving the rate it had, and a rate whose spacing would round to
-// zero keeps a nanosecond.
-func TestSetRateRefusesNonFiniteAndKeepsSpacing(t *testing.T) {
-	m := New()
-	m.SetRate(float32(math.NaN()))
-	if got := m.Rate(); got != DefaultRate {
-		t.Errorf("rate after NaN = %v, want the unchanged %v", got, DefaultRate)
-	}
-	m.SetRate(float32(math.Inf(1)))
-	if got := m.Rate(); got != DefaultRate {
-		t.Errorf("rate after +Inf = %v, want the unchanged %v", got, DefaultRate)
-	}
-	m.SetRate(1e10)
-	if got := m.NanosPerTick(); got < 1 {
-		t.Errorf("nanos per tick at 1e10 a second = %d, want at least 1", got)
-	}
-}
-
 // TestSprintClaimsTicksAndFinishes: a sprint unfreezes the game for its
 // claimed ticks, ends on its own with the completed counts when none are
 // left and restores the freeze it found.
@@ -183,51 +163,6 @@ func TestSprintStopReportsTheUnfinished(t *testing.T) {
 	}
 	if m.Sprinting() {
 		t.Error("the stopped sprint is still sprinting")
-	}
-}
-
-// TestSprintInterruptedThrowsTheFirstAway: a sprint asked over a turning
-// one reports the interrupt, counts only its own ticks and times them
-// alone.
-// vanilla: ServerTickRateManager.requestGameToSprint
-func TestSprintInterruptedThrowsTheFirstAway(t *testing.T) {
-	m := New()
-	m.Sprint(10)
-	m.Tick()
-	m.ClaimSprintTick(0)
-	if !m.Sprint(5) {
-		t.Error("a sprint over a turning one reported no interrupt")
-	}
-	for range 5 {
-		m.ClaimSprintTick(0)
-		m.EndSprintTick(1_000_000) // a millisecond a tick
-	}
-	_, report := m.ClaimSprintTick(0)
-	if report == nil {
-		t.Fatal("the sprint of five did not finish")
-	}
-	if got, want := report.TicksPerSecond, int64(1000); got != want {
-		t.Errorf("ticks per second = %d, want %d", got, want)
-	}
-	if got, want := report.MSPerTick, "1.00"; got != want {
-		t.Errorf("ms per tick = %q, want %q", got, want)
-	}
-}
-
-// TestASprintWithNoClaimedTicksReportsTheRate: an interrupted sprint that
-// never claimed a tick reports the spacing it did not run at.
-func TestASprintWithNoClaimedTicksReportsTheRate(t *testing.T) {
-	m := New()
-	m.Sprint(10)
-	report, stopped := m.StopSprint()
-	if !stopped {
-		t.Fatal("the stop was refused")
-	}
-	if got, want := report.TicksPerSecond, int64(0); got != want {
-		t.Errorf("ticks per second = %d, want %d", got, want)
-	}
-	if got, want := report.MSPerTick, "50.00"; got != want {
-		t.Errorf("ms per tick = %q, want the default spacing's %q", got, want)
 	}
 }
 

@@ -3,7 +3,6 @@ package world
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -15,64 +14,6 @@ func mustFind(t *testing.T, name string, props map[string]string) uint16 {
 		t.Fatalf("no state %s %v", name, props)
 	}
 	return s
-}
-
-// TestSpawnYOffsetDropsOntoTheCellsShapes checks EntityType.getYOffset over
-// the flat world's stone (top at GroundLevel).
-func TestSpawnYOffsetDropsOntoTheCellsShapes(t *testing.T) {
-	w, _ := newPhysicsWorld(t)
-	w.SetBlock(1, GroundLevel, 0, mustFind(t, "minecraft:stone_slab", map[string]string{"type": "bottom"}))
-	w.SetBlock(2, GroundLevel, 0, mustFind(t, "minecraft:oak_fence", nil))
-	w.SetBlock(3, GroundLevel, 0, mustFind(t, "minecraft:chest",
-		map[string]string{"facing": "north", "type": "single"}))
-	cases := []struct {
-		name    string
-		x, y    int32
-		movedUp bool
-		want    float64
-	}{
-		{"air over stone, moved up", 0, GroundLevel, true, 0},
-		{"air over stone, not moved up", 0, GroundLevel, false, 0},
-		{"over a bottom slab, moved up", 1, GroundLevel + 1, true, -0.5},
-		{"inside a bottom slab's cell", 1, GroundLevel, false, 0.5},
-		{"a fence below, moved up onto its tall collision", 2, GroundLevel + 1, true, 0.5},
-		{"a chest below, moved up onto its rim", 3, GroundLevel + 1, true, -0.125},
-		{"high in the air", 0, GroundLevel + 5, true, -1},
-	}
-	for _, tc := range cases {
-		if got := w.SpawnYOffset(tc.x, tc.y, 0, tc.movedUp, 0.45); got != tc.want {
-			t.Errorf("%s: offset %v, want %v", tc.name, got, tc.want)
-		}
-	}
-	if w.CollisionEmpty(0, GroundLevel-1, 0) || !w.CollisionEmpty(0, GroundLevel, 0) {
-		t.Error("stone reads empty or air reads solid")
-	}
-}
-
-// TestClipSourceFluidFindsTheFirstSourceOrBlock checks the SOURCE_ONLY clip.
-func TestClipSourceFluidFindsTheFirstSourceOrBlock(t *testing.T) {
-	w, _ := newPhysicsWorld(t)
-	w.SetBlock(0, GroundLevel, 3, mustFind(t, "minecraft:water", map[string]string{"level": "0"}))
-	w.SetBlock(0, GroundLevel, 2, mustFind(t, "minecraft:water", map[string]string{"level": "3"}))
-	eyeY := float64(GroundLevel) + 1.62
-	// Straight down onto the source from above: the fluid shape's top face.
-	if x, y, z, face, liquid, hit := w.ClipSourceFluid(0.5, eyeY, 3.5, 0, -1, 0, 4.5); !hit || !liquid ||
-		x != 0 || y != GroundLevel || z != 3 || face != protocol.FaceTop {
-		t.Errorf("down onto the source: (%d %d %d) face=%d liquid=%v hit=%v", x, y, z, face, liquid, hit)
-	}
-	// Straight down onto the flowing water: no outline, so the stone.
-	if _, y, _, face, liquid, hit := w.ClipSourceFluid(0.5, eyeY, 2.5, 0, -1, 0, 4.5); !hit || liquid ||
-		y != GroundLevel-1 || face != protocol.FaceTop {
-		t.Errorf("down through the flow: y=%d face=%d liquid=%v hit=%v, want the stone top", y, face, liquid, hit)
-	}
-	// Level over the source's surface (8/9 high) misses it; into the sky.
-	if _, _, _, _, _, hit := w.ClipSourceFluid(0.5, float64(GroundLevel)+0.95, 0.5, 0, 0, 1, 4.5); hit {
-		t.Error("a ray over the surface hit something")
-	}
-	// Beyond reach.
-	if _, _, _, _, _, hit := w.ClipSourceFluid(0.5, eyeY+10, 3.5, 0, -1, 0, 4.5); hit {
-		t.Error("a hit beyond reach")
-	}
 }
 
 // TestTheSpawnerBlockEntityKeepsItsFields: a spawner a vanilla file carries

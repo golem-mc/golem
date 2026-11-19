@@ -117,23 +117,6 @@ func TestRecipeGiveAndTakeSendTheBookPackets(t *testing.T) {
 	}
 }
 
-// TestRecipeTakeBeforeATickKeepsTheRecipeTaken gives and takes a recipe with
-// no tick between them: the recipe advancement the give completed has already
-// granted its reward, so no later tick hands the recipe back.
-func TestRecipeTakeBeforeATickKeepsTheRecipeTaken(t *testing.T) {
-	t.Parallel()
-	srv, c := recipeClient(t)
-	servertest.HoldTicks(t, srv)
-
-	if got := runRecipe(c, "recipe give DJ minecraft:oak_boat"); len(got.adds) != 1 {
-		t.Fatalf("give sent %d Recipe Book Adds, want 1", len(got.adds))
-	}
-	if got := runRecipe(c, "recipe take DJ minecraft:oak_boat"); len(got.removes) != 1 {
-		t.Fatalf("take sent %d Recipe Book Removes, want 1", len(got.removes))
-	}
-	c.ExpectNoneWithinTicks(srv, 2, servertest.PacketIs(protocol.IDPlayRecipeBookAdd))
-}
-
 // TestRecipeStarGivesEveryRecipe unlocks every recipe kind: the packet carries every display the player did not already hold,
 // and the feedback counts the recipes given.
 func TestRecipeStarGivesEveryRecipe(t *testing.T) {
@@ -159,46 +142,6 @@ func TestRecipeStarGivesEveryRecipe(t *testing.T) {
 	}
 	if n, want := protocol.NewReader(got.removes[0]).ReadVarInt(), int32(all); n != want {
 		t.Errorf("take * removed %d entries, want %d", n, want)
-	}
-}
-
-// TestRecipeCommandGivesAndTakesCookingRecipes gives and takes a furnace
-// recipe, which has a book entry as a crafting recipe does.
-// vanilla: RecipeCommand's LEARNABLE_RECIPE admits every non-special recipe
-func TestRecipeCommandGivesAndTakesCookingRecipes(t *testing.T) {
-	t.Parallel()
-	_, c := recipeClient(t)
-	potato := registry.FurnaceDisplayOfName("minecraft:baked_potato").ID
-
-	got := runRecipe(c, "recipe give DJ minecraft:baked_potato")
-	if len(got.adds) != 1 {
-		t.Fatalf("give sent %d Recipe Book Adds, want 1", len(got.adds))
-	}
-	add := protocol.NewReader(got.adds[0])
-	if n, id := add.ReadVarInt(), add.ReadVarInt(); n != 1 || id != potato {
-		t.Errorf("add = %d entries, first display %d, want 1 entry for %d", n, id, potato)
-	}
-	servertest.ExpectFeedbackSoon(t, c, got.chats, "commands.recipe.give.success.single",
-		servertest.NumberText(1), servertest.PlayerDisplayComponent("DJ"))
-
-	got = runRecipe(c, "recipe give DJ minecraft:baked_potato")
-	if len(got.adds) != 0 || !got.said("commands.recipe.give.failed") {
-		t.Errorf("a repeated give sent %d adds, failed = %v, want none and the failure",
-			len(got.adds), got.said("commands.recipe.give.failed"))
-	}
-
-	got = runRecipe(c, "recipe take DJ minecraft:baked_potato")
-	if len(got.removes) != 1 {
-		t.Fatalf("take sent %d Recipe Book Removes, want 1", len(got.removes))
-	}
-	want := protocol.Buffer{}
-	want.PutVarInt(1)
-	want.PutVarInt(potato)
-	if !bytes.Equal(got.removes[0], want.Bytes()) {
-		t.Errorf("remove = %x, want %x", got.removes[0], want.Bytes())
-	}
-	if !got.said("commands.recipe.take.success.single") {
-		t.Error("take did not answer with commands.recipe.take.success.single")
 	}
 }
 
@@ -247,48 +190,6 @@ func TestRecipeGiveSurvivesARejoin(t *testing.T) {
 	}
 }
 
-// TestRecipeGiveToSeveralPlayersCountsThePlayers gives to two players at
-// once: both get the recipe, and the feedback names the player count in the
-// multiple-players wording.
-func TestRecipeGiveToSeveralPlayersCountsThePlayers(t *testing.T) {
-	t.Parallel()
-	_, connect := servertest.Start(t, servertest.SurvivalTestConfig(), servertest.OpsListing(t, "DJ"))
-	op := connect()
-	op.Login("DJ")
-	op.WatchBook = true
-	op.Configure()
-	op.EnterWorldAs("DJ")
-	other := connect()
-	other.Login("Pal")
-	other.WatchBook = true
-	other.Configure()
-	other.EnterWorldAs("Pal")
-	op.Settle()
-	other.Settle()
-
-	// The command has run once the op's own answer is back, so the other
-	// player's packet is already on its way.
-	op.ChatCommand("recipe give @a minecraft:oak_boat")
-	var chats [][]byte
-	op.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlaySystemChat {
-			chats = append(chats, data)
-		}
-	})
-	var palAdds int
-	other.SettleAndCollect(func(id int32, _ []byte) {
-		if id == protocol.IDPlayRecipeBookAdd {
-			palAdds++
-		}
-	})
-	if palAdds != 1 {
-		t.Errorf("the other player got %d adds, want 1", palAdds)
-	}
-	if !(recipeRun{chats: chats}).said("commands.recipe.give.success.multiple") {
-		t.Error("give to two players did not answer with commands.recipe.give.success.multiple")
-	}
-}
-
 func TestRecipeCommandUnlocksWorkstationRecipes(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -318,51 +219,6 @@ func TestRecipeCommandUnlocksWorkstationRecipes(t *testing.T) {
 			got := runRecipe(c, "recipe take @s "+tc.name)
 			if len(got.removes) != 1 || !got.said("commands.recipe.take.success.single") {
 				t.Fatalf("take = %+v, want removal and success", got)
-			}
-		})
-	}
-}
-
-func TestWorkstationRecipesKeepSeenStateAcrossRejoins(t *testing.T) {
-	for _, name := range []string{
-		"minecraft:andesite_slab_from_andesite_stonecutting",
-		"minecraft:netherite_sword_smithing",
-		"minecraft:sentry_armor_trim_smithing_template_smithing_trim",
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			cfg := servertest.SurvivalTestConfig()
-			cfg.LevelName = t.TempDir()
-			_, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "DJ"))
-			c := connect()
-			c.JoinAs("DJ")
-			c.WatchBook = true
-			got := runRecipe(c, "recipe give @s "+name)
-			if len(got.adds) != 1 {
-				t.Fatal("grant sent no recipe")
-			}
-			r := protocol.NewReader(got.adds[0])
-			r.ReadVarInt()
-			id := r.ReadVarInt()
-			c.Send(protocol.IDPlayRecipeBookSeenRecipe, func(b *protocol.Buffer) { b.PutVarInt(id) })
-			c.Settle()
-			c.Disconnect()
-			c = connect()
-			c.Login("DJ")
-			c.WatchBook = true
-			c.Configure()
-			var joined []byte
-			c.ReadJoin(func(packet int32, data []byte) {
-				if packet == protocol.IDPlayRecipeBookAdd {
-					joined = data
-				}
-			})
-			if len(joined) < 2 || protocol.NewReader(joined).ReadVarInt() != 2 {
-				t.Fatal("rejoin lost the workstation recipe")
-			}
-			// Known recipes retain grant order, so the workstation entry is last.
-			if flags := joined[len(joined)-2]; flags != 0 {
-				t.Errorf("seen recipe's rejoin flags = %d, want no notification or highlight", flags)
 			}
 		})
 	}

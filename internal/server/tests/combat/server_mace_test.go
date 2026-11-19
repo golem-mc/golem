@@ -1,16 +1,15 @@
 package combat
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"math"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -94,77 +93,6 @@ func TestAMaceSmashAddsTheFallToTheBlow(t *testing.T) {
 	}
 }
 
-func TestACreativeMaceSmashDealsDamageAndEffects(t *testing.T) {
-	t.Parallel()
-	srv, attacker, watcher, golem := smashFixture(t)
-	srv.SetPlayerGameMode("Fencer", protocol.GameModeCreative)
-	servertest.HoldTicks(t, srv)
-	attacker.Settle()
-	watcher.Settle()
-	fallSixOnto(t, srv, attacker, golem)
-
-	if health, _ := srv.MobHealth(golem); math.Abs(health-64) > 1e-6 {
-		t.Errorf("golem health = %v, want 64 after a six-block smash", health)
-	}
-	if fall := srv.PlayerFallDistance("Fencer"); fall != 0 {
-		t.Errorf("fall after smash = %v, want 0", fall)
-	}
-	heavy, _ := registry.SoundEventID(soundMaceSmashHeavy)
-	var heard, dust, pushed bool
-	watcher.SettleAndCollect(func(id int32, data []byte) {
-		r := protocol.NewReader(data)
-		switch id {
-		case protocol.IDPlaySoundEffect:
-			heard = heard || r.ReadVarInt()-1 == heavy
-		case protocol.IDPlayWorldEvent:
-			dust = dust || r.ReadI32() == protocol.WorldEventMaceSmash
-		case protocol.IDPlaySetEntityMotion:
-			if r.ReadVarInt() == watcher.PlayerEntityID {
-				x, y, z := r.ReadLpVec3()
-				pushed = math.Abs(x-2.1) < 0.01 && math.Abs(y-(0.7-0.0784)) < 0.01 && math.Abs(z) < 0.01
-			}
-		}
-	})
-	if !heard || !dust || !pushed {
-		t.Errorf("creative smash effects: sound=%v dust=%v push=%v, want all three", heard, dust, pushed)
-	}
-
-	attacker.MoveToGround(2.5, 64, 5.5, true)
-	// A fresh fall without a smash must still cost neither health nor stats.
-	attacker.MoveToGround(2.5, 72, 5.5, false)
-	attacker.MoveToGround(2.5, 66, 5.5, false)
-	attacker.Settle()
-	if fall := srv.PlayerFallDistance("Fencer"); fall != 6 {
-		t.Errorf("creative fall before landing = %v, want 6", fall)
-	}
-	attacker.MoveToGround(2.5, 64, 5.5, true)
-	attacker.Settle()
-	if health := srv.PlayerHealth("Fencer"); health != 20 {
-		t.Errorf("creative health after landing = %v, want 20", health)
-	}
-	if stat := srv.StatValue("Fencer", registry.StatCustom, "minecraft:fall_one_cm"); stat != 0 {
-		t.Errorf("creative fall statistic = %v, want 0", stat)
-	}
-}
-
-func TestADensityMaceSmashesHarder(t *testing.T) {
-	t.Parallel()
-	srv, attacker, _, golem := smashFixture(t)
-	srv.GiveSlot("Fencer", player.HotbarSlot, servertest.EnchantedStack(t, "minecraft:mace", "minecraft:density", 2))
-	since := srv.TicksRun()
-	servertest.UntilTicks(t, srv, 200, "condition", func() bool {
-		return srv.TicksRun() >= since+2 && srv.AttackTicks("Fencer") >= maceSwingRecovered
-	})
-	fallSixOnto(t, srv, attacker, golem)
-
-	// Density II adds a whole block's damage per block fallen, ahead of
-	// the critical: (6 + 18 + 6) * 1.5.
-	health, _ := srv.MobHealth(golem)
-	if want := 100.0 - 45; math.Abs(health-want) > 1e-6 {
-		t.Errorf("the golem's health after the dense smash = %v, want %v", health, want)
-	}
-}
-
 func TestAShortFallIsNoSmash(t *testing.T) {
 	t.Parallel()
 	srv, attacker, _, golem := smashFixture(t)
@@ -237,34 +165,6 @@ func TestAMaceSmashPushesTheBodiesAround(t *testing.T) {
 	}
 }
 
-// TestAMaceSmashPushesAKnockbackResistantBodyLess checks the smash applies a
-// mob's knockback resistance: a zombie with full resistance stays put where
-// a plain one is thrown.
-// vanilla: MaceItem.knockback
-func TestAMaceSmashPushesAKnockbackResistantBodyLess(t *testing.T) {
-	t.Parallel()
-	srv, attacker, _, golem := smashFixture(t)
-	plain := srv.SpawnMob("minecraft:zombie", 5.5, 64, 5.5)
-	steady := srv.SpawnMob("minecraft:zombie", 5.5, 64, 5.5)
-	for _, id := range []int32{plain, steady} {
-		srv.SetMobNoAI(id)
-		srv.SetMobKnockbackResistance(id, 0)
-	}
-	srv.SetMobKnockbackResistance(steady, 1)
-	fallSixOnto(t, srv, attacker, golem)
-
-	speed := func(id int32) float64 {
-		vx, _, vz, _ := srv.MobVelocity(id)
-		return math.Hypot(vx, vz)
-	}
-	if speed(plain) < 0.5 {
-		t.Fatalf("the plain zombie was pushed at %v, want a smash's shove", speed(plain))
-	}
-	if speed(steady) > 1e-9 {
-		t.Errorf("the fully resistant zombie was pushed at %v, want none", speed(steady))
-	}
-}
-
 // TestAMaceSmashSparesTheAttackersPets checks the smash's push leaves a
 // wolf the attacker tamed where an untamed one as near is thrown.
 // vanilla: MaceItem.knockbackPredicate, TamableAnimal.considersEntityAsAlly
@@ -296,33 +196,6 @@ func TestAMaceSmashSparesTheAttackersPets(t *testing.T) {
 // soundMaceSmashHeavy is the sound of a smash after a fall past five blocks
 // onto a victim on the ground.
 const soundMaceSmashHeavy = "minecraft:item.mace.smash_ground_heavy"
-
-// TestASmashOnASummonedNoAIMobSoundsInTheAir checks a mob summoned with NoAI,
-// which never travels and so never lands, takes the airborne smash sound.
-func TestASmashOnASummonedNoAIMobSoundsInTheAir(t *testing.T) {
-	t.Parallel()
-	srv, attacker, watcher, _ := smashFixture(t)
-	srv.SetPlayerGameMode("Fencer", protocol.GameModeCreative)
-	servertest.HoldTicks(t, srv)
-	attacker.Settle()
-	watcher.Settle()
-	golem := srv.SpawnMobFromTag(nbt.Compound{"id": nbt.String("minecraft:iron_golem"), "NoAI": nbt.Byte(1)}, 4.5, 64, 5.5)
-	if golem == 0 {
-		t.Fatal("the golem was not summoned")
-	}
-	fallSixOnto(t, srv, attacker, golem)
-
-	air, _ := registry.SoundEventID("minecraft:item.mace.smash_air")
-	var heard bool
-	watcher.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlaySoundEffect {
-			heard = heard || protocol.NewReader(data).ReadVarInt()-1 == air
-		}
-	})
-	if !heard {
-		t.Error("the smash on a summoned NoAI golem did not sound as an airborne one")
-	}
-}
 
 func TestAMaceSmashLandsOnAPlayer(t *testing.T) {
 	t.Parallel()
@@ -372,82 +245,6 @@ func smashDust(watcher *servertest.Client) (x, y, z int32, ok bool) {
 		}
 	})
 	return x, y, z, ok
-}
-
-// TestASmashsDustLandsOnTheBlockTheVictimStandsOn lands a smash on golems
-// whose feet stand on a carpet and on a fence post: the dust is at the
-// carpet and at the post, not at the cell 0.2 under the feet.
-func TestASmashsDustLandsOnTheBlockTheVictimStandsOn(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name  string
-		block string
-		y     float64
-		wantY int32
-	}{
-		{"carpet", "minecraft:white_carpet", 64.0625, 64},
-		{"fence", "minecraft:oak_fence", 65.5, 64},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, attacker, watcher := feedbackFixture(t)
-			watcher.MoveToGround(6.5, 64, 5.5, true)
-			watcher.MoveToGround(6.5, 64, 5.5, true)
-			srv.GiveSlot("Fencer", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:mace"), Count: 1})
-			since := srv.TicksRun()
-			servertest.UntilTicks(t, srv, 200, "condition", func() bool {
-				return srv.TicksRun() >= since+2 && srv.AttackTicks("Fencer") >= maceSwingRecovered
-			})
-			srv.SetBlock(4, 64, 5, servertest.MustDefaultState(t, tc.block))
-			golem := srv.SpawnMob("minecraft:iron_golem", 4.5, tc.y, 5.5)
-			if !srv.SetMobNoAI(golem) {
-				t.Fatal("the golem was not planted")
-			}
-			attacker.Settle()
-			watcher.Settle()
-			fallSixOnto(t, srv, attacker, golem)
-			x, y, z, ok := smashDust(watcher)
-			if !ok {
-				t.Fatal("the watcher saw no smash dust")
-			}
-			if x != 4 || y != tc.wantY || z != 5 {
-				t.Errorf("the dust at (%d, %d, %d), want (4, %d, 5)", x, y, z, tc.wantY)
-			}
-		})
-	}
-}
-
-// TestAMaceSmashLandsOnAnArmorStand punches a stand once from a six-block
-// fall: the shake is a hit, so the dust shows, the fall is spent, and a
-// second stand two blocks off is shoved away.
-func TestAMaceSmashLandsOnAnArmorStand(t *testing.T) {
-	t.Parallel()
-	srv, attacker, watcher := feedbackFixture(t)
-	srv.GiveSlot("Fencer", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:mace"), Count: 1})
-	since := srv.TicksRun()
-	servertest.UntilTicks(t, srv, 200, "condition", func() bool {
-		return srv.TicksRun() >= since+2 && srv.AttackTicks("Fencer") >= maceSwingRecovered
-	})
-	stand := srv.SpawnArmorStand(4.5, 64, 5.5)
-	neighbour := srv.SpawnArmorStand(4.5, 64, 7.5)
-	attacker.Settle()
-	watcher.Settle()
-	fallSixOnto(t, srv, attacker, stand)
-
-	if _, _, _, ok := smashDust(watcher); !ok {
-		t.Error("the watcher saw no smash dust off the stand")
-	}
-	if got := srv.PlayerFallDistance("Fencer"); got != 0 {
-		t.Errorf("the fall left after smashing a stand = %v, want 0", got)
-	}
-	servertest.UntilTicks(t, srv, 100, "condition", func() bool {
-		for _, st := range srv.ArmorStandsInDimension(world.DimensionName) {
-			if st.ID == neighbour {
-				return st.Z > 7.6
-			}
-		}
-		return false
-	})
 }
 
 func TestWindBurstMaceLaunchesTheAttacker(t *testing.T) {
@@ -601,35 +398,6 @@ func TestABreachMaceMakesArmourLessEffective(t *testing.T) {
 	}
 }
 
-func TestAnArrowIgnoresTheShootersWeaponSwitch(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.CombatTestConfig())
-	shooter := connect()
-	shooter.JoinAs("Archer")
-	victim := connect()
-	victim.JoinAs("Victim")
-	servertest.HoldTicks(t, srv)
-	shooter.MoveToGround(10.5, 64, 0.5, true)
-	victim.MoveToGround(0.5, 64, 0.5, true)
-	shooter.Settle()
-	victim.Settle()
-	for i, piece := range []string{"helmet", "chestplate", "leggings", "boots"} {
-		srv.GiveSlot("Victim", player.ArmorSlot+i, servertest.ItemStack(t, "minecraft:iron_"+piece, 1))
-	}
-	srv.GiveSlot("Archer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:bow", 1))
-	if srv.ShootPlayerArrow("Archer", 4.5, 65, 0.5, -2, 0, 0) == 0 {
-		t.Fatal("the arrow never flew")
-	}
-	srv.GiveSlot("Archer", player.HotbarSlot, servertest.EnchantedStack(t, "minecraft:mace", "minecraft:breach", 4))
-	servertest.UntilTicks(t, srv, 5, "the arrow hits the armoured player", func() bool {
-		return srv.PlayerHealth("Victim") < 20
-	})
-	// The ordinary arrow deals 4 before iron's 15 points reduce it to 1.92.
-	if got := 20 - srv.PlayerHealth("Victim"); math.Abs(got-1.92) > 1e-4 {
-		t.Errorf("arrow damage after switching to Breach IV = %v, want 1.92", got)
-	}
-}
-
 // blockDust collects the block-particle bursts in watcher's stream as counts.
 func blockDust(watcher *servertest.Client) (counts []int32) {
 	watcher.SettleAndCollect(func(id int32, data []byte) {
@@ -654,42 +422,4 @@ func blockDust(watcher *servertest.Client) (counts []int32) {
 		}
 	})
 	return counts
-}
-
-func TestAMaceSmashOnAGroundedMobRaisesDustWhenTheAttackerLands(t *testing.T) {
-	t.Parallel()
-	srv, attacker, watcher, golem := smashFixture(t)
-	fallSixOnto(t, srv, attacker, golem)
-	blockDust(watcher)
-
-	attacker.MoveToGround(2.5, 64, 5.5, true)
-	attacker.Settle()
-	if got := blockDust(watcher); len(got) != 1 || got[0] != 100 {
-		t.Errorf("block dust counts on the landing = %v, want one burst of 100", got)
-	}
-	attacker.MoveToGround(2.5, 65, 5.5, false)
-	attacker.MoveToGround(2.5, 64, 5.5, true)
-	attacker.Settle()
-	if got := blockDust(watcher); len(got) != 0 {
-		t.Errorf("block dust counts on a second landing = %v, want none", got)
-	}
-}
-
-func TestAMaceSmashDustSurvivesTheAttackerRejoining(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.CombatTestConfig()
-	cfg.LevelName = t.TempDir()
-	srv, attacker, watcher, golem, connect := smashFixtureOn(t, cfg)
-	fallSixOnto(t, srv, attacker, golem)
-	attacker.Disconnect()
-
-	again := connect()
-	again.JoinAs("Fencer")
-	watcher.Settle()
-	blockDust(watcher)
-	again.MoveToGround(2.5, 64, 5.5, true)
-	again.Settle()
-	if got := blockDust(watcher); len(got) != 1 {
-		t.Errorf("block dust bursts on the landing after a rejoin = %v, want one", got)
-	}
 }

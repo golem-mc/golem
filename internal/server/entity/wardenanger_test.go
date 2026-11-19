@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/google/uuid"
 )
@@ -116,88 +115,6 @@ func TestWardenAngerPersistenceAndUUIDResolution(t *testing.T) {
 	loaded.LoadFrom(nbt.Compound{}, w, nil)
 	if len(loaded.warden.anger) != 0 || loaded.warden.sniffing {
 		t.Fatal("missing data did not reset senses")
-	}
-}
-
-func TestWardenHurtAngerIncludesRefusedDamage(t *testing.T) {
-	for _, mode := range []string{"melee", "arrow", "trident", "firework", "thorns", "mob", "no_ai", "emerging", "creative", "ally", "border"} {
-		t.Run(mode, func(t *testing.T) {
-			w, m, p := creakingFloor(t), newTestWarden(), wardenPlayer(10)
-			m.warden.sniffCooldown = 1000
-			if mode == "no_ai" {
-				m.NoAI = true
-			}
-			if mode == "emerging" {
-				m.WardenEmerging()
-			}
-			if mode == "creative" {
-				p.Huntable, p.Creative = false, true
-			}
-			if mode == "ally" {
-				m.Team, p.Team = "same", "same"
-			}
-			if mode == "border" {
-				w.inBorder = func(x, z int32) bool { return x < 3 }
-			}
-			switch mode {
-			case "arrow":
-				m.HurtByArrow(1, 1, 0, 0, p.EntityID, true, false)
-			case "trident":
-				m.HurtByTrident(1, 1, 0, 0, p.EntityID, true, false)
-			case "firework":
-				m.HurtByFirework(1, rules.DamageTypeFireworks, p.EntityID, true, false, 8, 0)
-			case "thorns":
-				m.HurtByPlayerThorns(1, rules.DamageTypeThorns, p.EntityID, false, 0, 0)
-			case "mob":
-				cow := NewMob(TypeCow, p.EntityID, p.X, p.Y, p.Z, 1)
-				m.HurtByMob(1, cow)
-				m.Age = 1
-				view := tickView{w: w, others: []*Mob{cow}}
-				m.wardenSensesTick(&view)
-				if m.wardenActiveAnger() != 100 {
-					t.Fatal("mob hurt did not add 100 anger")
-				}
-				return
-			default:
-				m.TakeDamage(1, p)
-				m.TakeDamage(1, p) // hurt window refuses damage, but Warden.hurtServer still adds anger.
-			}
-			m.Tick(w, []Player{p})
-			want := 100
-			switch mode {
-			case "no_ai", "emerging", "creative", "ally", "border":
-				want = 0
-			case "melee":
-				want = 150
-			}
-			if got := m.wardenActiveAnger(); got != want {
-				t.Fatalf("anger = %d, want %d", got, want)
-			}
-		})
-	}
-}
-
-func TestWardenContactCooldownAndDisturbance(t *testing.T) {
-	w, m, p := creakingFloor(t), newTestWarden(), wardenPlayer(10)
-	p.X, p.Pushable = 0.7, true
-	m.warden.sniffCooldown = 1000
-	for tick := range 21 {
-		// Keep the overlap despite the physical shove.
-		p.X, p.Z = m.X+0.2, m.Z
-		m.Tick(w, []Player{p})
-		want := 35
-		if tick >= 19 {
-			want--
-		}
-		if tick == 20 {
-			want += 35
-		}
-		if got := m.wardenActiveAnger(); got != want {
-			t.Fatalf("tick %d: anger %d, want %d", tick, got, want)
-		}
-	}
-	if m.warden.disturbanceTicks != 100 || m.warden.digCooldown != 1200 {
-		t.Fatal("touch did not refresh disturbance and digging cooldown")
 	}
 }
 

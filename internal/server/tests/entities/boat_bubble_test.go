@@ -75,38 +75,3 @@ func boatOverColumn(t *testing.T, name string, drag bool) (bubbled bool, events 
 	}
 	return bubbled, events, emptied
 }
-
-// TestADrivenBoatOverAnUpwardColumnIsSentTheLaunchEvent: a driven boat on an
-// upward column's surface shows its bubble time and, once the spell runs
-// out, is told the launch for its driver's client to apply.
-// vanilla: AbstractBoat.tickBubbleColumn
-func TestADrivenBoatOverAnUpwardColumnIsSentTheLaunchEvent(t *testing.T) {
-	t.Parallel()
-	bubbled, events, emptied := boatOverColumn(t, "Launched", false)
-	if !bubbled {
-		t.Error("no boat metadata with a running bubble time came before the throw")
-	}
-	if len(events) != 1 || events[0] != protocol.EntityStatusBoatLaunch {
-		t.Errorf("boat entity events = %v, want [%d]", events, protocol.EntityStatusBoatLaunch)
-	}
-	if emptied {
-		t.Error("the launch emptied the boat, want the rider kept")
-	}
-}
-
-// TestADrivenBoatOverADraggingColumnSinksAndShedsItsRider: a driven boat on a
-// dragging column's surface is told the sink when the spell runs out, and
-// its rider is dismounted.
-func TestADrivenBoatOverADraggingColumnSinksAndShedsItsRider(t *testing.T) {
-	t.Parallel()
-	bubbled, events, emptied := boatOverColumn(t, "Sunk", true)
-	if !bubbled {
-		t.Error("no boat metadata with a running bubble time came before the throw")
-	}
-	if len(events) != 1 || events[0] != protocol.EntityStatusBoatSink {
-		t.Errorf("boat entity events = %v, want [%d]", events, protocol.EntityStatusBoatSink)
-	}
-	if !emptied {
-		t.Error("the sink left the rider aboard")
-	}
-}

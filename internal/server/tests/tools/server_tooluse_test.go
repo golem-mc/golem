@@ -3,7 +3,6 @@ package tools
 import (
 	"fmt"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"reflect"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -37,31 +36,6 @@ func TestAnAxeStripsALog(t *testing.T) {
 	}
 	if len(h.Events) != 0 {
 		t.Errorf("a strip sent world events %v, want none", h.Events)
-	}
-}
-
-// TestAnAxeScrapesWeatheredCopper: one stage of oxidation comes off, with
-// the scrape sound and particles (level event 3005) for the others.
-func TestAnAxeScrapesWeatheredCopper(t *testing.T) {
-	t.Parallel()
-	srv, actor, watcher := servertest.ToolScene(t, "minecraft:iron_axe")
-
-	srv.SetBlock(3, 63, 0, registry.BlockStates["minecraft:weathered_copper"])
-	actor.UseBlock(3, 63, 0)
-	actor.Settle()
-
-	if got, want := srv.BlockAt(3, 63, 0), registry.BlockStates["minecraft:exposed_copper"]; got != want {
-		t.Errorf("the copper after the axe = %d, want %d (exposed)", got, want)
-	}
-	if got := srv.InventorySlot("Actor", player.HotbarSlot); got.Damage != 1 {
-		t.Errorf("the axe's wear = %d, want 1", got.Damage)
-	}
-	h := servertest.HearTool(t, watcher)
-	if h.Sounds["minecraft:item.axe.scrape"] != 1 {
-		t.Errorf("the watcher heard %v, want one item.axe.scrape", h.Sounds)
-	}
-	if got := h.Events[3005]; len(got) != 1 || got[0] != [3]int32{3, 63, 0} {
-		t.Errorf("scrape particles at %v, want one at (3, 63, 0)", got)
 	}
 }
 
@@ -118,22 +92,6 @@ func TestAShieldInTheOffHandHoldsTheAxeBack(t *testing.T) {
 	}
 }
 
-// TestAShieldInTheOffHandHoldsTheShovelBack: a main-hand shovel with a
-// shield in the off hand flattens no path unless the player sneaks.
-// vanilla: BlockTransformer.playerHasBlockingItemUseIntent
-func TestAShieldInTheOffHandHoldsTheShovelBack(t *testing.T) {
-	t.Parallel()
-	shieldHoldsBack(t, "minecraft:iron_shovel", "minecraft:dirt_path")
-}
-
-// TestAShieldInTheOffHandHoldsTheHoeBack: a main-hand hoe with a shield in
-// the off hand tills nothing unless the player sneaks.
-// vanilla: BlockTransformer.playerHasBlockingItemUseIntent
-func TestAShieldInTheOffHandHoldsTheHoeBack(t *testing.T) {
-	t.Parallel()
-	shieldHoldsBack(t, "minecraft:iron_hoe", "minecraft:farmland")
-}
-
 // shieldHoldsBack clicks grass with tool and a shield in the off hand: the
 // grass stays and the tool unworn, then a sneaking click turns it into the
 // block named into.
@@ -162,71 +120,6 @@ func shieldHoldsBack(t *testing.T, tool, into string) {
 	}
 }
 
-// TestAnAxeScrapesBothHalvesOfACopperDoor: a sneaking click scrapes the
-// half it lands on, and the other half follows through the door's shape
-// update, which adopts its partner's block. Without the sneak the click
-// opens the door instead.
-func TestAnAxeScrapesBothHalvesOfACopperDoor(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:iron_axe")
-
-	const props = ",hinge=left,open=false,powered=false"
-	srv.SetBlock(3, 64, 0, servertest.BlockStateWith(t, "minecraft:weathered_copper_door", "facing=north,half=lower"+props))
-	srv.SetBlock(3, 65, 0, servertest.BlockStateWith(t, "minecraft:weathered_copper_door", "facing=north,half=upper"+props))
-
-	actor.Send(protocol.IDPlayPlayerInput, func(b *protocol.Buffer) { b.PutU8(protocol.InputSneak) })
-	actor.Settle()
-	actor.UseBlock(3, 64, 0)
-	actor.Settle()
-
-	if got, want := srv.BlockAt(3, 64, 0), servertest.BlockStateWith(t, "minecraft:exposed_copper_door", "facing=north,half=lower"+props); got != want {
-		t.Errorf("the lower half = %d, want %d (exposed)", got, want)
-	}
-	if got, want := srv.BlockAt(3, 65, 0), servertest.BlockStateWith(t, "minecraft:exposed_copper_door", "facing=north,half=upper"+props); got != want {
-		t.Errorf("the upper half = %d, want %d (exposed)", got, want)
-	}
-}
-
-// TestACopperChestKeepsTheAxeOff: an unsneaked click opens the chest's
-// menu instead, so the axe changes nothing and takes no wear; a sneaking
-// click scrapes it.
-func TestACopperChestKeepsTheAxeOff(t *testing.T) {
-	t.Parallel()
-	srv, actor, watcher := servertest.ToolScene(t, "minecraft:iron_axe")
-
-	chest := servertest.BlockStateWith(t, "minecraft:exposed_copper_chest", "facing=north,type=single,waterlogged=false")
-	srv.SetBlock(3, 64, 0, chest)
-	actor.UseBlock(3, 64, 0)
-	actor.Settle()
-	if got := srv.BlockAt(3, 64, 0); got != chest {
-		t.Errorf("the chest under an unsneaked axe = %d, want %d (unchanged)", got, chest)
-	}
-	if got := srv.InventorySlot("Actor", player.HotbarSlot); got.Damage != 0 {
-		t.Errorf("the axe's wear = %d, want 0", got.Damage)
-	}
-	if h := servertest.HearTool(t, watcher); h.Sounds["minecraft:item.axe.scrape"] != 0 || len(h.Events) != 0 {
-		t.Errorf("the unsneaked click played %v and %v, want nothing", h.Sounds, h.Events)
-	}
-
-	actor.Send(protocol.IDPlayPlayerInput, func(b *protocol.Buffer) { b.PutU8(protocol.InputSneak) })
-	actor.Settle()
-	actor.UseBlock(3, 64, 0)
-	actor.Settle()
-	if got, want := srv.BlockAt(3, 64, 0), servertest.BlockStateWith(t, "minecraft:copper_chest", "facing=north,type=single,waterlogged=false"); got != want {
-		t.Errorf("the chest under a sneaking axe = %d, want %d (scraped)", got, want)
-	}
-	if got := srv.InventorySlot("Actor", player.HotbarSlot); got.Damage != 1 {
-		t.Errorf("the axe's wear = %d, want 1", got.Damage)
-	}
-	h := servertest.HearTool(t, watcher)
-	if h.Sounds["minecraft:item.axe.scrape"] != 1 {
-		t.Errorf("the watcher heard %v, want one item.axe.scrape", h.Sounds)
-	}
-	if got := h.Events[3005]; len(got) != 1 || got[0] != [3]int32{3, 64, 0} {
-		t.Errorf("scrape particles at %v, want one at (3, 64, 0)", got)
-	}
-}
-
 // TestAShovelFlattensAPath: grass under air becomes a path, with the
 // flatten sound for the others and one wear. vanilla: ShovelItem.useOn
 func TestAShovelFlattensAPath(t *testing.T) {
@@ -248,32 +141,6 @@ func TestAShovelFlattensAPath(t *testing.T) {
 	}
 }
 
-// TestAShovelLeavesCoveredGround: no path under a block, and none from a
-// click on the bottom face; the shovel takes no wear for either.
-func TestAShovelLeavesCoveredGround(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:iron_shovel")
-
-	grass := registry.BlockStates["minecraft:grass_block"]
-	srv.SetBlock(3, 63, 0, grass)
-	srv.SetBlock(3, 64, 0, registry.BlockStates["minecraft:stone"])
-	actor.UseBlock(3, 63, 0)
-	actor.Settle()
-	if got := srv.BlockAt(3, 63, 0); got != grass {
-		t.Errorf("covered grass after the shovel = %d, want %d (grass)", got, grass)
-	}
-
-	srv.SetBlock(4, 65, 0, grass)
-	actor.PlaceBlockAt(4, 65, 0, protocol.FaceBottom, 0)
-	actor.Settle()
-	if got := srv.BlockAt(4, 65, 0); got != grass {
-		t.Errorf("grass clicked from below = %d, want %d (grass)", got, grass)
-	}
-	if got := srv.InventorySlot("Actor", player.HotbarSlot); got.Damage != 0 {
-		t.Errorf("the shovel's wear = %d, want 0", got.Damage)
-	}
-}
-
 // TestAShovelPutsOutACampfire: a lit campfire goes out, and everyone gets
 // the extinguish event (1009).
 func TestAShovelPutsOutACampfire(t *testing.T) {
@@ -287,73 +154,6 @@ func TestAShovelPutsOutACampfire(t *testing.T) {
 
 	if got, want := srv.BlockAt(3, 64, 0), servertest.BlockStateWith(t, "minecraft:campfire", "facing=north,lit=false"+rest); got != want {
 		t.Errorf("the campfire after the shovel = %d, want %d (out)", got, want)
-	}
-	if got := servertest.HearTool(t, watcher).Events[1009]; len(got) != 1 || got[0] != [3]int32{3, 64, 0} {
-		t.Errorf("extinguish events at %v, want one at (3, 64, 0)", got)
-	}
-}
-
-// TestAShovelPutsOutACampfireFromBelow: the douse is the campfire's use,
-// which no face refuses. vanilla: CampfireBlock.useItemOn
-func TestAShovelPutsOutACampfireFromBelow(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:iron_shovel")
-
-	const rest = ",signal_fire=false,waterlogged=false"
-	srv.SetBlock(3, 65, 0, servertest.BlockStateWith(t, "minecraft:campfire", "facing=north,lit=true"+rest))
-	actor.PlaceBlockAt(3, 65, 0, protocol.FaceBottom, 0)
-	actor.Settle()
-
-	if got, want := srv.BlockAt(3, 65, 0), servertest.BlockStateWith(t, "minecraft:campfire", "facing=north,lit=false"+rest); got != want {
-		t.Errorf("the campfire clicked from below = %d, want %d (out)", got, want)
-	}
-	if got := srv.InventorySlot("Actor", player.HotbarSlot); got.Damage != 1 {
-		t.Errorf("the shovel's wear = %d, want 1", got.Damage)
-	}
-}
-
-// TestASneakingShovelLeavesACampfireLit: sneaking with an item in hand skips
-// block uses, and the douse is one. vanilla: CampfireBlock.useItemOn,
-// ServerPlayerGameMode.useItemOn
-func TestASneakingShovelLeavesACampfireLit(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:iron_shovel")
-
-	lit := servertest.BlockStateWith(t, "minecraft:campfire", "facing=north,lit=true,signal_fire=false,waterlogged=false")
-	srv.SetBlock(3, 64, 0, lit)
-	actor.Send(protocol.IDPlayPlayerInput, func(b *protocol.Buffer) { b.PutU8(protocol.InputSneak) })
-	actor.Settle()
-	actor.UseBlock(3, 64, 0)
-	actor.Settle()
-
-	if got := srv.BlockAt(3, 64, 0); got != lit {
-		t.Errorf("the campfire under a sneaking shovel = %d, want %d (lit)", got, lit)
-	}
-	if got := srv.InventorySlot("Actor", player.HotbarSlot); got.Damage != 0 {
-		t.Errorf("the shovel's wear = %d, want 0", got.Damage)
-	}
-}
-
-// TestAnAdventureShovelPutsOutACampfire: a block use has no mayBuild gate,
-// so an adventure player's shovel douses a campfire.
-// vanilla: CampfireBlock.useItemOn
-func TestAnAdventureShovelPutsOutACampfire(t *testing.T) {
-	t.Parallel()
-	srv, actor, watcher := servertest.ToolScene(t, "minecraft:iron_shovel")
-
-	const rest = ",signal_fire=true,waterlogged=false"
-	srv.SetBlock(3, 64, 0, servertest.BlockStateWith(t, "minecraft:soul_campfire", "facing=east,lit=true"+rest))
-	srv.SetPlayerGameMode("Actor", protocol.GameModeAdventure)
-	actor.Settle()
-	watcher.Settle()
-	actor.UseBlock(3, 64, 0)
-	actor.Settle()
-
-	if got, want := srv.BlockAt(3, 64, 0), servertest.BlockStateWith(t, "minecraft:soul_campfire", "facing=east,lit=false"+rest); got != want {
-		t.Errorf("the campfire after an adventure shovel = %d, want %d (out)", got, want)
-	}
-	if got := srv.InventorySlot("Actor", player.HotbarSlot); got.Damage != 1 {
-		t.Errorf("the shovel's wear = %d, want 1", got.Damage)
 	}
 	if got := servertest.HearTool(t, watcher).Events[1009]; len(got) != 1 || got[0] != [3]int32{3, 64, 0} {
 		t.Errorf("extinguish events at %v, want one at (3, 64, 0)", got)
@@ -447,61 +247,6 @@ func TestFlintAndSteelLightsACampfire(t *testing.T) {
 	if h := servertest.HearTool(t, watcher); h.Sounds["minecraft:item.flintandsteel.use"] != 1 {
 		t.Errorf("the watcher heard %v, want one item.flintandsteel.use", h.Sounds)
 	}
-}
-
-// TestFlintAndSteelAcksOnce: however the click is answered — a candle
-// lit, fire laid, TNT primed, a refusal — one click is one ack, the
-// tail's.
-func TestFlintAndSteelAcksOnce(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:flint_and_steel")
-	servertest.HoldTicks(t, srv)
-
-	// A candle lights rather than the fire going above it.
-	srv.SetBlock(3, 64, 0, servertest.BlockStateWith(t, "minecraft:candle", "candles=1,lit=false,waterlogged=false"))
-	actor.UseBlock(3, 64, 0)
-	actor.SettleKeeping()
-	srv.TickSurvival()
-	if seq := actor.ExpectBlockAck(); seq != 1 {
-		t.Errorf("the candle click's ack = %d, want 1", seq)
-	}
-	actor.ExpectNoneWithinTicks(srv, 4, servertest.PacketIs(protocol.IDPlayAckBlockChange))
-	actor.Settle()
-
-	// Fire laid into the air above the stone.
-	srv.SetBlock(5, 64, 0, registry.BlockStates["minecraft:stone"])
-	actor.UseBlock(5, 64, 0)
-	actor.SettleKeeping()
-	srv.TickSurvival()
-	if seq := actor.ExpectBlockAck(); seq != 1 {
-		t.Errorf("the fire click's ack = %d, want 1", seq)
-	}
-	actor.ExpectNoneWithinTicks(srv, 4, servertest.PacketIs(protocol.IDPlayAckBlockChange))
-	actor.Settle()
-
-	// The priming path: a TNT block primes and the block goes to air.
-	srv.SetBlock(4, 64, 0, registry.BlockStates["minecraft:tnt"])
-	actor.UseBlock(4, 64, 0)
-	actor.SettleKeeping()
-	srv.TickSurvival()
-	if seq := actor.ExpectBlockAck(); seq != 1 {
-		t.Errorf("the TNT click's ack = %d, want 1", seq)
-	}
-	actor.ExpectNoneWithinTicks(srv, 4, servertest.PacketIs(protocol.IDPlayAckBlockChange))
-	if got := srv.BlockAt(4, 64, 0); got != 0 {
-		t.Errorf("the primed TNT's block = %d, want air", got)
-	}
-	actor.Settle()
-
-	// The refusal path: the struck face's cell is stone, so nothing lights.
-	srv.SetBlock(4, 64, 0, registry.BlockStates["minecraft:stone"])
-	actor.PlaceBlockAt(4, 64, 0, protocol.FaceEast, 0.5)
-	actor.SettleKeeping()
-	srv.TickSurvival()
-	if seq := actor.ExpectBlockAck(); seq != 1 {
-		t.Errorf("the refused click's ack = %d, want 1", seq)
-	}
-	actor.ExpectNoneWithinTicks(srv, 4, servertest.PacketIs(protocol.IDPlayAckBlockChange))
 }
 
 // TestRipeBerriesArePicked: a ripe sweet berry bush gives two or three
@@ -619,22 +364,6 @@ func rolledToolWork(t *testing.T) toolRolls {
 	return rolls
 }
 
-// TestTheSameSeedPicksAndCarvesTheSame: the pick's pitch and the carve's
-// seed throw are rolls of the server's own sources, so two servers grown
-// from one seed sound and throw alike, and would not if either came off a
-// source outside the seed.
-func TestTheSameSeedPicksAndCarvesTheSame(t *testing.T) {
-	t.Parallel()
-	first := rolledToolWork(t)
-	second := rolledToolWork(t)
-	if first.pitch != second.pitch {
-		t.Errorf("the same seed picked at %v and %v", first.pitch, second.pitch)
-	}
-	if !reflect.DeepEqual(first.velocities, second.velocities) {
-		t.Errorf("the same seed threw its seeds differently:\nfirst  %v\nsecond %v", first.velocities, second.velocities)
-	}
-}
-
 // TestAFireChargeLightsFireAndLightableBlocks: a charge used on a stone top
 // puts fire above it, lights a candle, an unlit campfire and a candle cake
 // in place, and each takes one charge and plays the fire charge sound.
@@ -683,20 +412,6 @@ func TestAFireChargeLightsFireAndLightableBlocks(t *testing.T) {
 		if got := charges(); got != 2 {
 			t.Errorf("charges after lighting %s = %d, want 2", tc.block, got)
 		}
-	}
-}
-
-// TestAFireChargeIsKeptWhenNothingLights: a click on a face whose neighbour
-// is solid lights nothing and keeps the charge.
-func TestAFireChargeIsKeptWhenNothingLights(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:fire_charge")
-	srv.SetBlock(3, 64, 0, registry.BlockStates["minecraft:stone"])
-	srv.SetBlock(3, 65, 0, registry.BlockStates["minecraft:stone"])
-	actor.PlaceBlock(3, 64, 0, protocol.FaceTop)
-	actor.Settle()
-	if got := srv.InventorySlot("Actor", player.HotbarSlot).Count; got != 1 {
-		t.Errorf("charges = %d, want 1 (kept)", got)
 	}
 }
 

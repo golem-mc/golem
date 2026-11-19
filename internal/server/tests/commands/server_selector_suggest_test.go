@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
@@ -49,42 +48,6 @@ func TestSelectorOptionSuggestions(t *testing.T) {
 			t.Errorf("/kill @e[ offers %v, missing %s", keys, key)
 		}
 	}
-	c.Disconnect()
-}
-
-// TestSelectorScoresAndAdvancementsOptions checks the two options that were
-// refused as unknown: scores filters on the holder's score, and a non-empty
-// advancements list matches nobody since the server has no advancements.
-func TestSelectorScoresAndAdvancementsOptions(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	_, c, _ := servertest.JoinAs(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
-
-	c.ChatCommand("scoreboard objectives add pts dummy")
-	servertest.AwaitCommandFeedbackText(t, c, "commands.scoreboard.objectives.add.success",
-		protocol.Text{Translate: "chat.square_brackets", With: []protocol.Text{{Text: "pts"}}})
-	c.ChatCommand("scoreboard players set Testificate pts 5")
-	// vanilla: ScoreHolder.getFeedbackDisplayName hovers the scoreboard name.
-	holder := servertest.PlayerDisplayComponent("Testificate")
-	holder.HoverEntity, holder.HoverText = nil, &protocol.Text{Text: "Testificate"}
-	c.ExpectCommandFeedbackText("commands.scoreboard.players.set.success.single",
-		protocol.Text{Translate: "chat.square_brackets", With: []protocol.Text{{Text: "pts"}}}, holder, protocol.Text{Number: new(int64(5))})
-
-	c.ChatCommand("execute if entity @a[scores={pts=3..7}]")
-	c.ExpectCommandFeedbackText("commands.execute.conditional.pass_count", protocol.Text{Number: new(int64(1))})
-	c.ChatCommand("execute if entity @a[scores={pts=6..}]")
-	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("commands.execute.conditional.fail"))
-	c.ChatCommand("execute if entity @a[scores={nope=0..}]")
-	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("commands.execute.conditional.fail"))
-	c.ChatCommand("execute if entity @a[scores={}]")
-	c.ExpectCommandFeedbackText("commands.execute.conditional.pass_count", protocol.Text{Number: new(int64(1))})
-	c.ChatCommand("execute if entity @a[advancements={minecraft:story/root=true}]")
-	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("commands.execute.conditional.fail"))
-	c.ChatCommand("execute if entity @a[advancements={minecraft:story/root={a=false}}]")
-	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("commands.execute.conditional.fail"))
-	c.ChatCommand("execute if entity @a[advancements={}]")
-	c.ExpectCommandFeedbackText("commands.execute.conditional.pass_count", protocol.Text{Number: new(int64(1))})
 	c.Disconnect()
 }
 

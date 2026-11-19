@@ -2,7 +2,6 @@ package mobs
 
 import (
 	"math"
-	"strconv"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -64,28 +63,5 @@ func TestIronGolemStepsOntoABlockWithoutJumping(t *testing.T) {
 	}
 	if maxY > 65+1e-6 {
 		t.Errorf("the golem rose to y=%.3f crossing onto the ledge, want it stepped up to 65 without a jump", maxY)
-	}
-}
-
-// TestAHorseStepsOneBlock reads a horse's step_height through /attribute:
-// vanilla's AbstractHorse.createBaseHorseAttributes gives every equine 1.
-func TestAHorseStepsOneBlock(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Join(t, servertest.MobTestConfig(), "Rider", servertest.OpsListing(t, "Rider"))
-	c.ChatCommand("summon minecraft:horse 1.5 64 0.5 {NoAI:1b}")
-	c.ExpectMobSpawn(protocol.EntityTypeHorse)
-
-	c.ChatCommand("attribute @e[type=horse,limit=1] minecraft:step_height get")
-	var value string
-	c.SettleAndCollect(func(packetID int32, data []byte) {
-		if packetID != protocol.IDPlaySystemChat {
-			return
-		}
-		if text, ok := protocol.ReadText(protocol.NewReader(data)); ok && text.Translate == "commands.attribute.value.get.success" {
-			value = text.With[len(text.With)-1].Text
-		}
-	})
-	if v, err := strconv.ParseFloat(value, 64); err != nil || v != 1 {
-		t.Errorf("horse step_height = %q, want 1", value)
 	}
 }

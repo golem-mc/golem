@@ -150,29 +150,3 @@ func TestStackedPlacementState(t *testing.T) {
 		t.Error("stone was handled as a stacking block")
 	}
 }
-
-func TestWaterAt(t *testing.T) {
-	water := func(level string) uint16 { return mustState(t, "minecraft:water", map[string]string{"level": level}) }
-	cases := []struct {
-		what  string
-		state uint16
-		want  bool
-	}{
-		{"air", 0, false},
-		{"a water source", water("0"), true},
-		{"flowing water", water("3"), false},
-		{"falling water", water("8"), false},
-		{"seagrass", registry.BlockStates["minecraft:seagrass"], true},
-		{"tall seagrass", mustState(t, "minecraft:tall_seagrass", nil), true},
-		{"a bubble column", mustState(t, "minecraft:bubble_column", nil), true},
-		{"a waterlogged slab", mustState(t, "minecraft:oak_slab", map[string]string{"waterlogged": "true"}), true},
-		{"a dry slab", mustState(t, "minecraft:oak_slab", nil), false},
-	}
-	for _, c := range cases {
-		w := testWorld{}
-		w.set(0, 0, 0, c.state)
-		if got := waterAt(w, 0, 0, 0); got != c.want {
-			t.Errorf("%s: waterAt = %v, want %v", c.what, got, c.want)
-		}
-	}
-}

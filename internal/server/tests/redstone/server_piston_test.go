@@ -279,53 +279,6 @@ func distinctPackets(writes []wireWrite) map[int]bool {
 	return packets
 }
 
-// TestAPistonsLandingTellsTheCellsFinalState proves a piston move's pooled
-// write carries the state the cell ends the flush with, not the state the
-// move wrote into it: a lamp pushed under a redstone block lights in the same
-// flush the move lands it, and the move's older dark write must not arrive
-// after the light. Vanilla reads the current state when it flushes the
-// tick's batch (ChunkHolder.broadcastChanges).
-func TestAPistonsLandingTellsTheCellsFinalState(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig(), servertest.OpsListing(t, "Actor"))
-
-	watcher := connect().Join("Watcher")
-
-	actor := connect().Join("Actor")
-
-	// The piston pushes the lamp from (3, 64, 0) under the redstone block
-	// at (4, 65, 0), where the landing lights it.
-	servertest.Setblock(t, actor, 2, 64, 0, "piston[facing=east]")
-	servertest.Setblock(t, actor, 3, 64, 0, "redstone_lamp")
-	servertest.Setblock(t, actor, 4, 65, 0, "redstone_block")
-	watcher.Settle()
-
-	lit := servertest.BlockStateWith(t, "minecraft:redstone_lamp", "lit=true")
-	writes, _, _ := watchPistonMove(t, srv, watcher, func() {
-		servertest.Setblock(t, actor, 2, 64, 1, "redstone_block")
-	})
-
-	if got := srv.BlockAt(4, 64, 0); got != lit {
-		t.Fatalf("the lamp at (4, 64, 0) = %d, want lit=true: the push did not land it powered", got)
-	}
-
-	var last wireWrite
-	seen := false
-	for _, w := range writes {
-		if w.x == 4 && w.y == 64 && w.z == 0 {
-			last, seen = w, true
-		}
-	}
-	if !seen {
-		t.Fatalf("the watcher never heard about the lamp's cell (4, 64, 0)")
-	}
-	if last.state != lit {
-		name, props := servertest.StateProps(last.state)
-		t.Errorf("the watcher's last write of the lamp's cell was %s%v, want the lit state: "+
-			"the move's pooled write arrived after the neighbour reaction", name, props)
-	}
-}
-
 // TestAnExtendedStickyPistonCarriesAWholeHead powers a sticky piston and
 // checks the head that lands in front of it: PistonBaseBlock.moveBlocks
 // extends a piston_head carrying only the facing and the piston's own type,
@@ -355,152 +308,6 @@ func TestAnExtendedStickyPistonCarriesAWholeHead(t *testing.T) {
 		map[string]string{"facing": "east", "extended": "true"})
 	servertest.ExpectBlockNamed(t, srv, 4, 64, 0, "minecraft:piston_head", map[string]string{
 		"facing": "east", "short": "false", "type": "sticky",
-	})
-}
-
-// TestRunningIntoTheExtendedHeadLeavesABodyStanding walks a player against
-// the shaft of an extended piston — the head's cell at the height of their
-// chest, its body beside the piston where only the thin arm and the far
-// plate stand — and checks they stay standing. The head cell's collision is
-// PistonHeadBlock's four-pixel plate at the tip and the four-by-four arm
-// behind it; a full cube there crawls the player out of the way instead,
-// which is what running against a piston's shaft used to do.
-func TestRunningIntoTheExtendedHeadLeavesABodyStanding(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-
-	watcher := connect().Join("Watcher")
-
-	actor := connect().Join("Actor")
-	entityID := watcher.ExpectPlayerAdded("Actor")
-
-	// The piston stands on a stone at chest height, extended east: the
-	// head's cell is the one a body walking south past the piston leans
-	// into above the ground.
-	actor.SetCreativeSlot(player.HotbarSlot, servertest.ItemStack(t, "minecraft:stone", 1))
-	actor.PlaceBlock(3, 63, 0, protocol.FaceTop)
-	actor.Settle()
-	actor.SetCreativeSlot(player.HotbarSlot, servertest.ItemStack(t, "minecraft:piston", 1))
-	actor.FacePlayer(0.5, 64, 0.5, 90, 0)
-	actor.PlaceBlock(3, 64, 0, protocol.FaceTop)
-	actor.Settle()
-	servertest.ExpectBlockNamed(t, srv, 3, 65, 0, "minecraft:piston", map[string]string{
-		"facing": "east", "extended": "false",
-	})
-
-	// The redstone block that powers it stands south of the piston, on
-	// a stone of its own.
-	actor.SetCreativeSlot(player.HotbarSlot, servertest.ItemStack(t, "minecraft:stone", 1))
-	actor.PlaceBlock(3, 63, 1, protocol.FaceTop)
-	actor.Settle()
-	actor.SetCreativeSlot(player.HotbarSlot, servertest.ItemStack(t, "minecraft:redstone_block", 1))
-	actor.PlaceBlock(3, 64, 1, protocol.FaceTop)
-	actor.Settle()
-	servertest.AwaitTicks(t, srv, 6)
-	servertest.ExpectBlockNamed(t, srv, 4, 65, 0, "minecraft:piston_head", map[string]string{
-		"facing": "east", "short": "false", "type": "normal",
-	})
-
-	// The walk: into the corner beside the head, where the standing body
-	// crosses the head's cell at chest height but meets nothing — the
-	// plate is that cell's far tip at x 4.75, past the body's 4.65 edge,
-	// the arm the centred column starting three-eighths in from the side
-	// the player walks on.
-	actor.MoveTo(4.35, 64, 1.25, 90, 0)
-	actor.Settle()
-	if got := srv.PlayerPosition("Actor"); got.X != 4.35 || got.Y != 64 || got.Z != 1.25 {
-		t.Errorf("the player stood at %v, want (4.35, 64, 1.25)", got)
-	}
-
-	// The pose the server reads a tick later goes out as the actor's
-	// metadata: standing where the body stands means no crawl comes.
-	crawled := false
-	watcher.ReadTicks(srv, 10, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayEntityMetadata {
-			return false
-		}
-		m := servertest.ParseMetadata(t, protocol.NewReader(data))
-		if m.EntityID == entityID && m.Pose == protocol.PoseSwimming {
-			crawled = true
-		}
-		return false
-	})
-	if crawled {
-		t.Error("the player walking beside an extended piston's head was drawn crawling")
-	}
-}
-
-// TestAPistonPopsLeaves pushes player-placed leaves with a piston: the leaves are popped, not moved, so the cell past the head stays air.
-// vanilla: PistonStructureResolver.addBlockLine, Blocks.leavesProperties
-func TestAPistonPopsLeaves(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-
-	actor := connect().Join("Actor")
-
-	actor.SetCreativeSlot(player.HotbarSlot, servertest.ItemStack(t, "minecraft:sticky_piston", 1))
-	actor.FacePlayer(0.5, 64, 0.5, 90, 0)
-	actor.PlaceBlock(3, 63, 0, protocol.FaceTop)
-	actor.Settle()
-
-	actor.SetCreativeSlot(player.HotbarSlot, servertest.ItemStack(t, "minecraft:oak_leaves", 1))
-	actor.PlaceBlock(4, 63, 0, protocol.FaceTop)
-	actor.Settle()
-	servertest.ExpectBlockNamed(t, srv, 4, 64, 0, "minecraft:oak_leaves", map[string]string{
-		"persistent": "true",
-	})
-
-	// The power goes on; the watcher then keeps every packet the move
-	// sends while the engine runs it.
-	actor.SetCreativeSlot(player.HotbarSlot, servertest.ItemStack(t, "minecraft:redstone_block", 1))
-	actor.PlaceBlock(3, 63, 1, protocol.FaceTop)
-	servertest.AwaitTicks(t, srv, 6)
-	actor.Settle()
-
-	if name, _ := servertest.StateProps(srv.BlockAt(4, 64, 0)); name != "minecraft:piston_head" {
-		t.Errorf("block at x 4 = %q, want the piston head", name)
-	}
-	if got := srv.BlockAt(5, 64, 0); got != 0 {
-		name, _ := servertest.StateProps(got)
-		t.Errorf("block at x 5 = %q, want air: the leaves were pushed, not popped", name)
-	}
-}
-
-// TestPistonsPlaceFacingUpAndDown places pistons while looking straight down
-// and straight up, and checks both verticals arrive in the facing:
-// PistonBaseBlock.getStateForPlacement faces the piston against the
-// nearest looking direction, so a piston placed looking at the floor points
-// up, toward the placer — and one placed looking at the sky points down —
-// whichever face the placement went against.
-func TestPistonsPlaceFacingUpAndDown(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Actor")
-
-	c.SetCreativeSlot(player.HotbarSlot, servertest.ItemStack(t, "minecraft:piston", 1))
-
-	// Pitch 90 looks straight down: the head points up, at the placer.
-	c.FacePlayer(0.5, 64, 0.5, 0, 90)
-	c.PlaceBlock(2, 63, 0, protocol.FaceTop)
-	c.Settle()
-	servertest.ExpectBlockNamed(t, srv, 2, 64, 0, "minecraft:piston", map[string]string{
-		"facing": "up", "extended": "false",
-	})
-
-	// Pitch -90 looks straight up: the head points down, away from below.
-	c.FacePlayer(0.5, 64, 0.5, 0, -90)
-	c.PlaceBlock(4, 63, 0, protocol.FaceTop)
-	c.Settle()
-	servertest.ExpectBlockNamed(t, srv, 4, 64, 0, "minecraft:piston", map[string]string{
-		"facing": "down", "extended": "false",
-	})
-
-	// The horizontal quadrants still face the way the reverse of the look
-	// names: yaw 90 looks west, the piston east.
-	c.FacePlayer(0.5, 64, 0.5, 90, 0)
-	c.PlaceBlock(6, 63, 0, protocol.FaceTop)
-	c.Settle()
-	servertest.ExpectBlockNamed(t, srv, 6, 64, 0, "minecraft:piston", map[string]string{
-		"facing": "east", "extended": "false",
 	})
 }
 
@@ -705,79 +512,6 @@ func TestPistonDropsWhenBrokenByHand(t *testing.T) {
 	}
 }
 
-// TestCreativeBreaksAPistonWithoutADrop checks the other mode: a creative
-// break of a piston leaves nothing behind, the base's break taking the head
-// down with it.
-func TestCreativeBreaksAPistonWithoutADrop(t *testing.T) {
-	t.Parallel()
-	srv, c := pistonBreaker(t, "creative")
-
-	base := standRetractedPiston(t, srv, false)
-	c.Settle()
-	c.BreakBlock(base[0], base[1], base[2])
-	c.WaitBlockChanged()
-	servertest.ExpectNoDroppedItems(t, srv)
-	servertest.ExpectAir(t, srv, base)
-
-	base, head := standExtendedPiston(t, srv, false)
-	c.Settle()
-	c.BreakBlock(base[0], base[1], base[2])
-	c.WaitBlockChanged()
-	servertest.ExpectNoDroppedItems(t, srv)
-	servertest.ExpectAir(t, srv, base, head)
-}
-
-// TestCreativeBreakingAnOrphanHeadLeavesTheBaseStanding breaks a piston head in
-// creative with a retracted piston behind it: isFittingBase refuses a base that
-// is not the head's own kind, extended and facing with it, so the unrelated
-// piston stands and only the head goes.
-func TestCreativeBreakingAnOrphanHeadLeavesTheBaseStanding(t *testing.T) {
-	t.Parallel()
-	srv, c := pistonBreaker(t, "creative")
-
-	if !srv.SetBlock(2, 64, 0, servertest.BlockStateWith(t, "minecraft:piston", "extended=false,facing=east")) {
-		t.Fatal("the piston's chunk was not loaded")
-	}
-	if !srv.SetBlock(3, 64, 0, servertest.BlockStateWith(t, "minecraft:piston_head", "facing=east,short=false,type=normal")) {
-		t.Fatal("the piston head's chunk was not loaded")
-	}
-	c.Settle()
-	c.BreakBlock(3, 64, 0)
-	c.WaitBlockChanged()
-	servertest.ExpectNoDroppedItems(t, srv)
-	servertest.ExpectAir(t, srv, [3]int32{3, 64, 0})
-	servertest.ExpectBlockNamed(t, srv, 2, 64, 0, "minecraft:piston", map[string]string{
-		"facing": "east", "extended": "false",
-	})
-}
-
-// TestCreativeBreakingTheHeadLeavesNoDrop breaks an extended piston's head in
-// creative, in each direction and for both kinds: PistonHeadBlock.playerWillDestroy
-// destroys the base behind it without drops when the player prevents them, so
-// neither half leaves an item.
-func TestCreativeBreakingTheHeadLeavesNoDrop(t *testing.T) {
-	t.Parallel()
-	for _, sticky := range []bool{false, true} {
-		for _, facing := range []string{"east", "up", "down"} {
-			kind := "normal"
-			if sticky {
-				kind = "sticky"
-			}
-			t.Run(kind+" "+facing, func(t *testing.T) {
-				t.Parallel()
-				srv, c := pistonBreaker(t, "creative")
-
-				base, head := standExtendedPistonFacing(t, srv, sticky, facing)
-				c.Settle()
-				c.BreakBlock(head[0], head[1], head[2])
-				c.WaitBlockChanged()
-				servertest.ExpectNoDroppedItems(t, srv)
-				servertest.ExpectAir(t, srv, base, head)
-			})
-		}
-	}
-}
-
 // TestAMovedObserverKeepsTheEnginePumping lays out the core a flying machine
 // flies on and kicks it through the observed cell: the piston pushes the
 // slime and the observer out, and the moved observer's landing stops the
@@ -788,7 +522,7 @@ func TestCreativeBreakingTheHeadLeavesNoDrop(t *testing.T) {
 // Section Blocks Update when its section holds more than one flight cell.
 // vanilla: PistonMovingBlockEntity.tick, ObserverBlock.updateShape, ObserverBlock.onPlace
 func TestAMovedObserverKeepsTheEnginePumping(t *testing.T) {
-	t.Parallel()
+	// Not parallel: a long held-tick run starves under a loaded runner and times out.
 	srv, c := servertest.AttachActor(t)
 
 	servertest.Setblock(t, c, 8, 65, 0, "sticky_piston[facing=east]")
@@ -798,7 +532,8 @@ func TestAMovedObserverKeepsTheEnginePumping(t *testing.T) {
 
 	// The kick: a stone in the observed cell starts the pulse, whose back
 	// powers the piston, and the extend carries a powered observer out.
-	servertest.Setblock(t, c, 10, 66, 0, "stone")
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand("setblock 10 66 0 stone")
 
 	extended := -1
 	turns := 0

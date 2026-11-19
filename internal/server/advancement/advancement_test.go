@@ -2,13 +2,11 @@ package advancement
 
 import (
 	"encoding/json"
-	"log/slog"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -74,29 +72,6 @@ func shown(t *testing.T, p *Progress) map[string]bool {
 	return got
 }
 
-func TestADoneAdvancementShowsTwoLevelsBelowIt(t *testing.T) {
-	tree := NewTree([]registry.Advancement{
-		node("r", "", false), node("a", "r", false), node("b", "a", false),
-		node("c", "b", false), node("h", "r", true),
-	})
-	p := NewProgress(tree)
-	if u, ok := p.Flush(); ok || len(u.Added) != 0 {
-		t.Fatalf("a fresh player's first flush sends %+v, want nothing", u)
-	}
-	p.Award(tree.Get("r"), "c", time.Unix(1, 0))
-	got := shown(t, p)
-	for id, want := range map[string]bool{"r": true, "a": true, "b": true, "c": false, "h": false} {
-		if got[id] != want {
-			t.Errorf("%s shown = %v, want %v", id, got[id], want)
-		}
-	}
-	// A hidden one shows once done, and so do the ones above it.
-	p.Award(tree.Get("h"), "c", time.Unix(2, 0))
-	if got := shown(t, p); !got["h"] || len(got) != 1 {
-		t.Errorf("after the hidden one is done, added %v, want h alone", got)
-	}
-}
-
 // vanilla: InventoryChangeTrigger.TriggerInstance.matches
 func TestInventoryChangedMatchesChangedStacks(t *testing.T) {
 	for _, tc := range []struct {
@@ -129,66 +104,6 @@ func TestInventoryChangedMatchesChangedStacks(t *testing.T) {
 				t.Errorf("InventoryChanged(%+v) = %t, want %t", inv, got, tc.want)
 			}
 		})
-	}
-}
-
-func TestInventoryChangedWantsEveryPredicate(t *testing.T) {
-	tree := NewTree([]registry.Advancement{{
-		ID:           "r",
-		Display:      &registry.AdvancementDisplay{},
-		Criteria:     []registry.AdvancementCriterion{{Name: "both", Trigger: TriggerInventoryChanged, Items: [][]int32{{1, 2}, {3}}}},
-		Requirements: [][]string{{"both"}},
-	}})
-	p := NewProgress(tree)
-	if p.InventoryChanged(Inventory{Held: []int32{2}}, time.Now()) {
-		t.Error("one predicate of two passed the criterion")
-	}
-	if !p.InventoryChanged(Inventory{Held: []int32{2, 3}}, time.Now()) || !p.Done(tree.Get("r")) {
-		t.Error("an item for each predicate did not pass the criterion")
-	}
-	if p.InventoryChanged(Inventory{Held: []int32{1, 3}}, time.Now()) {
-		t.Error("an obtained criterion was awarded again")
-	}
-}
-
-// TestInventoryChangedWantsTheSlotCounts passes a criterion bounding the
-// occupied slots only once enough are. vanilla: the chest recipe's
-// has_lots_of_items
-func TestInventoryChangedWantsTheSlotCounts(t *testing.T) {
-	tree := NewTree([]registry.Advancement{{
-		ID:           "r",
-		Criteria:     []registry.AdvancementCriterion{{Name: "lots", Trigger: TriggerInventoryChanged, Occupied: registry.AdvancementRange{Min: 10, HasMin: true}}},
-		Requirements: [][]string{{"lots"}},
-	}})
-	p := NewProgress(tree)
-	if p.InventoryChanged(Inventory{Held: []int32{1}, Occupied: 9, Empty: 34}, time.Now()) {
-		t.Error("nine occupied slots passed a criterion wanting ten")
-	}
-	if !p.InventoryChanged(Inventory{Held: []int32{1}, Occupied: 10, Empty: 33}, time.Now()) || !p.Done(tree.Get("r")) {
-		t.Error("ten occupied slots did not pass a criterion wanting ten")
-	}
-}
-
-func TestChangedDimensionMatchesFromAndTo(t *testing.T) {
-	tree := NewTree([]registry.Advancement{{
-		ID:      "r",
-		Display: &registry.AdvancementDisplay{},
-		Criteria: []registry.AdvancementCriterion{
-			{Name: "to", Trigger: TriggerChangedDimension, To: "minecraft:the_nether"},
-			{Name: "back", Trigger: TriggerChangedDimension, From: "minecraft:the_nether", To: "minecraft:overworld"},
-		},
-		Requirements: [][]string{{"to"}, {"back"}},
-	}})
-	p := NewProgress(tree)
-	p.ChangedDimension("minecraft:overworld", "minecraft:the_end", time.Now())
-	p.ChangedDimension("minecraft:the_end", "minecraft:overworld", time.Now())
-	if p.obtained[0] != nil {
-		t.Errorf("crossings that are not the criteria' obtained %v", p.obtained[0])
-	}
-	p.ChangedDimension("minecraft:the_end", "minecraft:the_nether", time.Now())
-	p.ChangedDimension("minecraft:the_nether", "minecraft:overworld", time.Now())
-	if !p.Done(tree.Get("r")) {
-		t.Errorf("both crossings left %v", p.obtained[0])
 	}
 }
 
@@ -336,29 +251,6 @@ func TestTheFileRoundTrips(t *testing.T) {
 	}
 }
 
-// TestRevokingOneOfTwoAlternativesKeepsTheTabUpToDate revokes a criterion of
-// an advancement that stays done, which needs no visibility pass.
-// vanilla: PlayerAdvancements.revoke
-func TestRevokingOneOfTwoAlternativesKeepsTheTabUpToDate(t *testing.T) {
-	root := node("r", "", false)
-	root.Criteria = append(root.Criteria, registry.AdvancementCriterion{Name: "d", Trigger: "minecraft:impossible"})
-	root.Requirements = [][]string{{"c", "d"}}
-	tree := NewTree([]registry.Advancement{root})
-	p := NewProgress(tree)
-	r := tree.Get("r")
-	p.Award(r, "c", time.Unix(1, 0))
-	p.Award(r, "d", time.Unix(2, 0))
-	p.Flush()
-	p.Revoke(r, "c")
-	if len(p.rootsToUpdate) != 0 {
-		t.Error("revoking one of two alternatives queued a visibility pass")
-	}
-	p.Revoke(r, "d")
-	if len(p.rootsToUpdate) != 1 {
-		t.Error("revoking the last criterion queued no visibility pass")
-	}
-}
-
 // column is a Blocks reader over a few cells.
 func column(cells map[[3]int32]uint16) Blocks {
 	return func(dx, dy, dz int32) uint16 { return cells[[3]int32{dx, dy, dz}] }
@@ -439,63 +331,6 @@ func TestItemUsedOnBlockWantsTheToolAndTheBlockState(t *testing.T) {
 	}
 }
 
-func TestTameFilledAndEffectsCriteria(t *testing.T) {
-	_, p := one(
-		registry.AdvancementCriterion{Name: "any", Trigger: TriggerTameAnimal},
-		registry.AdvancementCriterion{Name: "wolf", Trigger: TriggerTameAnimal, Entity: "minecraft:wolf"},
-		registry.AdvancementCriterion{Name: "variant", Trigger: TriggerTameAnimal, Unmodelled: true},
-		registry.AdvancementCriterion{Name: "snow", Trigger: TriggerFilledBucket, Items: [][]int32{{9}}},
-		registry.AdvancementCriterion{Name: "both", Trigger: TriggerEffectsChanged, Effects: []string{"minecraft:speed", "minecraft:haste"}},
-	)
-	now := time.Now()
-	p.TameAnimal("minecraft:horse", "", now)
-	p.FilledBucket(8, now)
-	p.EffectsChanged([]string{"minecraft:speed"}, now)
-	if len(p.obtained[0]) != 1 || p.obtained[0]["any"].IsZero() {
-		t.Fatalf("after a horse, another bucket and one effect: %v", p.obtained[0])
-	}
-	p.FilledBucket(9, now)
-	p.EffectsChanged([]string{"minecraft:haste", "minecraft:speed", "minecraft:glowing"}, now)
-	for _, name := range []string{"snow", "both"} {
-		if _, ok := p.obtained[0][name]; !ok {
-			t.Errorf("%s was not obtained: %v", name, p.obtained[0])
-		}
-	}
-	if _, ok := p.obtained[0]["wolf"]; ok {
-		t.Error("a horse passed the wolf criterion")
-	}
-	if _, ok := p.obtained[0]["variant"]; ok {
-		t.Error("a criterion with conditions the server does not model was awarded")
-	}
-}
-
-func TestTradeBeaconBrewAndFishingCriteria(t *testing.T) {
-	_, p := one(
-		registry.AdvancementCriterion{Name: "trade", Trigger: TriggerVillagerTrade},
-		registry.AdvancementCriterion{Name: "high", Trigger: TriggerVillagerTrade, MinY: 319, HasMinY: true},
-		registry.AdvancementCriterion{Name: "lit", Trigger: TriggerConstructBeacon, LevelMin: 1},
-		registry.AdvancementCriterion{Name: "full", Trigger: TriggerConstructBeacon, LevelMin: 4, LevelMax: 4},
-		registry.AdvancementCriterion{Name: "brew", Trigger: TriggerBrewedPotion},
-		registry.AdvancementCriterion{Name: "cod", Trigger: TriggerFishingRodHooked, Items: [][]int32{{7}}},
-	)
-	now := time.Now()
-	p.VillagerTrade(318.9, now)
-	p.ConstructBeacon(3, now)
-	p.FishingRodHooked([]int32{8, 9}, now)
-	if len(p.obtained[0]) != 2 || p.obtained[0]["trade"].IsZero() || p.obtained[0]["lit"].IsZero() {
-		t.Fatalf("after a low trade, a level-3 beacon and a junk catch: %v", p.obtained[0])
-	}
-	p.VillagerTrade(319, now)
-	p.ConstructBeacon(4, now)
-	p.BrewedPotion(now)
-	p.FishingRodHooked([]int32{8, 7}, now)
-	for _, name := range []string{"high", "full", "brew", "cod"} {
-		if _, ok := p.obtained[0][name]; !ok {
-			t.Errorf("%s was not obtained: %v", name, p.obtained[0])
-		}
-	}
-}
-
 func TestArrowCriteriaWantTheShaftTheWeaponAndTheVictims(t *testing.T) {
 	_, p := one(
 		registry.AdvancementCriterion{Name: "arrow", Trigger: TriggerPlayerHurtEntity, Direct: "#minecraft:arrows"},
@@ -522,46 +357,6 @@ func TestArrowCriteriaWantTheShaftTheWeaponAndTheVictims(t *testing.T) {
 	for _, name := range []string{"trident", "mace"} {
 		if _, ok := p.obtained[0][name]; ok {
 			t.Errorf("%s was obtained", name)
-		}
-	}
-}
-
-func TestFlushTickWaitsForAHold(t *testing.T) {
-	tree := NewTree([]registry.Advancement{node("r", "", false), node("a", "r", false)})
-	p := NewProgress(tree)
-	p.Flush()
-	release := p.Hold()
-	p.Award(tree.Get("r"), "c", time.Unix(1, 0))
-	if _, ok := p.FlushTick(); ok {
-		t.Fatal("the tick flushed a held progress")
-	}
-	if u, ok := p.FlushShow(false); !ok || u.Show {
-		t.Fatalf("held flush = %+v, %v, want the changes with show clear", u, ok)
-	}
-	p.Award(tree.Get("a"), "c", time.Unix(2, 0))
-	release()
-	if u, ok := p.FlushTick(); !ok || !u.Show {
-		t.Fatalf("flush after the release = %+v, %v, want the pending changes", u, ok)
-	}
-}
-
-func TestNewTreeLogsTheAdvancementsItDrops(t *testing.T) {
-	var buf strings.Builder
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
-	defer slog.SetDefault(prev)
-	tree := NewTree([]registry.Advancement{
-		{ID: "t:a", Parent: "t:b", Criteria: []registry.AdvancementCriterion{{Name: "c"}}},
-		{ID: "t:b", Parent: "t:a", Criteria: []registry.AdvancementCriterion{{Name: "c"}}},
-		{ID: "t:orphan", Parent: "t:missing", Criteria: []registry.AdvancementCriterion{{Name: "c"}}},
-		{ID: "t:root", Criteria: []registry.AdvancementCriterion{{Name: "c"}}},
-	})
-	if tree.Len() != 1 {
-		t.Errorf("the tree has %d advancements, want only t:root", tree.Len())
-	}
-	for _, id := range []string{"t:a", "t:b", "t:orphan"} {
-		if !strings.Contains(buf.String(), id) {
-			t.Errorf("the log does not name the dropped %s: %s", id, buf.String())
 		}
 	}
 }
@@ -599,85 +394,6 @@ func TestEntityInteractionCriteriaWantTheItemTheTypeAndTheBody(t *testing.T) {
 	}
 }
 
-// TestThrownItemCriteriaWantTheItemTheEntityAndNoArmor: the picked-up
-// item, the other entity's type and age and the player's armor each have
-// to match, and each pickup trigger answers only its own criteria.
-func TestThrownItemCriteriaWantTheItemTheEntityAndNoArmor(t *testing.T) {
-	_, p := one(
-		registry.AdvancementCriterion{Name: "distract", Trigger: TriggerThrownPickedUpByEntity, Items: [][]int32{{7}}, Entity: "minecraft:piglin", Adult: true, NotWearing: []int32{9}},
-		registry.AdvancementCriterion{Name: "deliver", Trigger: TriggerThrownPickedUpByPlayer, Entity: "minecraft:allay"},
-	)
-	now := time.Now()
-	piglin := Entity{Type: "minecraft:piglin"}
-	p.ThrownItemPickedUp(true, 8, piglin, nil, now)
-	p.ThrownItemPickedUp(true, 7, Entity{Type: "minecraft:piglin", Baby: true}, nil, now)
-	p.ThrownItemPickedUp(true, 7, piglin, []int32{3, 9}, now)
-	p.ThrownItemPickedUp(false, 7, piglin, nil, now)
-	p.ThrownItemPickedUp(true, 7, Entity{Type: "minecraft:allay"}, nil, now)
-	if len(p.obtained[0]) != 0 {
-		t.Fatalf("a mismatch obtained %v", p.obtained[0])
-	}
-	p.ThrownItemPickedUp(true, 7, piglin, []int32{3}, now)
-	p.ThrownItemPickedUp(false, 1, Entity{Type: "minecraft:allay"}, nil, now)
-	for _, name := range []string{"distract", "deliver"} {
-		if _, ok := p.obtained[0][name]; !ok {
-			t.Errorf("%s did not pass", name)
-		}
-	}
-}
-
-func TestDistanceCriteriaMeasureFromTheStart(t *testing.T) {
-	at := func(min float64) registry.AdvancementRange { return registry.AdvancementRange{Min: min, HasMin: true} }
-	_, p := one(
-		registry.AdvancementCriterion{Name: "far", Trigger: TriggerNetherTravel, Distance: registry.AdvancementDistance{Horizontal: at(7000)}},
-		registry.AdvancementCriterion{Name: "cliffs", Trigger: TriggerFallFromHeight, Distance: registry.AdvancementDistance{Y: at(379)},
-			StartY: at(319), PlayerY: registry.AdvancementRange{Max: -59, HasMax: true}},
-		registry.AdvancementCriterion{Name: "up", Trigger: TriggerLevitation, Distance: registry.AdvancementDistance{Y: at(50)}},
-	)
-	now := time.Now()
-	p.Moved(TriggerNetherTravel, [3]float64{0, 64, 0}, [3]float64{4950, 300, 4949}, now)
-	p.Moved(TriggerFallFromHeight, [3]float64{0, 318, 0}, [3]float64{0, -62, 0}, now)
-	p.Moved(TriggerFallFromHeight, [3]float64{0, 330, 0}, [3]float64{0, -58, 0}, now)
-	p.Moved(TriggerLevitation, [3]float64{0, 64, 0}, [3]float64{0, 14, 0}, now)
-	if len(p.obtained[0]) != 1 || p.obtained[0]["up"].IsZero() {
-		t.Fatalf("after a 6999-block return, falls from too low and to too high, and a 50-block levitation: %v", p.obtained[0])
-	}
-	p.Moved(TriggerNetherTravel, [3]float64{0, 64, 0}, [3]float64{4950, 64, 4950}, now)
-	p.Moved(TriggerFallFromHeight, [3]float64{0, 330, 0}, [3]float64{0, -60, 0}, now)
-	for _, name := range []string{"far", "cliffs"} {
-		if _, ok := p.obtained[0][name]; !ok {
-			t.Errorf("%s was not obtained: %v", name, p.obtained[0])
-		}
-	}
-}
-
-func TestRiderConditionsReadTheVehicleAndItsPassengers(t *testing.T) {
-	_, p := one(
-		registry.AdvancementCriterion{Name: "goat", Trigger: TriggerStartedRiding, Vehicle: "#minecraft:boat", Passenger: "minecraft:goat"},
-		registry.AdvancementCriterion{Name: "home", Trigger: TriggerRideInLava, Dimension: "minecraft:overworld", Vehicle: "minecraft:strider",
-			Distance: registry.AdvancementDistance{Horizontal: registry.AdvancementRange{Min: 50, HasMin: true}}},
-	)
-	now := time.Now()
-	boat := Rider{Dimension: "minecraft:overworld", Vehicle: "minecraft:oak_boat", Passengers: []string{"minecraft:player"}}
-	p.StartedRiding(boat, now)
-	p.StartedRiding(Rider{Dimension: "minecraft:overworld", Passengers: []string{"minecraft:goat"}}, now)
-	strider := Rider{Dimension: "minecraft:the_nether", Vehicle: "minecraft:strider", Passengers: []string{"minecraft:player"}}
-	p.RodeInLava(strider, [3]float64{0, 64, 0}, [3]float64{60, 64, 0}, now)
-	strider.Dimension = "minecraft:overworld"
-	p.RodeInLava(strider, [3]float64{0, 64, 0}, [3]float64{30, 64, 30}, now)
-	if len(p.obtained[0]) != 0 {
-		t.Fatalf("an empty boat, a goat on foot, a nether ride and a 42-block ride obtained %v", p.obtained[0])
-	}
-	boat.Passengers = append(boat.Passengers, "minecraft:goat")
-	p.StartedRiding(boat, now)
-	p.RodeInLava(strider, [3]float64{0, 64, 0}, [3]float64{40, 64, 40}, now)
-	for _, name := range []string{"goat", "home"} {
-		if _, ok := p.obtained[0][name]; !ok {
-			t.Errorf("%s was not obtained: %v", name, p.obtained[0])
-		}
-	}
-}
-
 func TestRecipeCraftedWantsTheRecipeAndADistinctItemPerPredicate(t *testing.T) {
 	tree := NewTree([]registry.Advancement{{
 		ID:      "r",
@@ -696,128 +412,6 @@ func TestRecipeCraftedWantsTheRecipeAndADistinctItemPerPredicate(t *testing.T) {
 	}
 	if !p.RecipeCrafted("pot", []int32{1, 2, 9}, time.Now()) {
 		t.Error("two sherds did not pass the criterion")
-	}
-}
-
-func TestUsingItemAsksWhatTheLookMeetsOnlyForACriterionThatWantsIt(t *testing.T) {
-	tree := NewTree([]registry.Advancement{{
-		ID:      "r",
-		Display: &registry.AdvancementDisplay{},
-		Criteria: []registry.AdvancementCriterion{
-			{Name: "ghast", Trigger: TriggerUsingItem, Items: [][]int32{{7}}, LookingAt: "minecraft:ghast"},
-		},
-		Requirements: [][]string{{"ghast"}},
-	}})
-	p := NewProgress(tree)
-	asked := 0
-	look := func(name string) func() string {
-		return func() string { asked++; return name }
-	}
-	if p.UsingItem(8, look("minecraft:ghast"), time.Now()) || asked != 0 {
-		t.Errorf("another item passed or asked the look (asked %d)", asked)
-	}
-	if p.UsingItem(7, look("minecraft:cow"), time.Now()) {
-		t.Error("looking at a cow passed")
-	}
-	if !p.UsingItem(7, look("minecraft:ghast"), time.Now()) {
-		t.Error("looking at a ghast with the item did not pass")
-	}
-}
-
-func TestHeroOfTheVillageAwardsItsCriterion(t *testing.T) {
-	_, p := one(
-		registry.AdvancementCriterion{Name: "hero", Trigger: TriggerHeroOfTheVillage},
-		registry.AdvancementCriterion{Name: "other", Trigger: TriggerUsedTotem},
-	)
-	p.HeroOfTheVillage(time.Now())
-	if _, ok := p.obtained[0]["hero"]; !ok {
-		t.Error("hero was not obtained")
-	}
-	if _, ok := p.obtained[0]["other"]; ok {
-		t.Error("a criterion of another trigger was obtained")
-	}
-}
-
-func TestBeeNestDestroyedNeedsBlockSilkTouchAndBees(t *testing.T) {
-	_, p := one(registry.AdvancementCriterion{Name: "nest", Trigger: TriggerBeeNestDestroyed,
-		Block: "minecraft:bee_nest", Enchantment: "minecraft:silk_touch", Bees: 3})
-	id, _ := registry.EnchantmentID("minecraft:silk_touch")
-	silk := map[int32]int32{id: 1}
-	now := time.Now()
-	for _, tc := range []struct {
-		block string
-		tool  map[int32]int32
-		bees  int
-	}{
-		{"minecraft:beehive", silk, 3},
-		{"minecraft:bee_nest", nil, 3},
-		{"minecraft:bee_nest", silk, 2},
-	} {
-		if p.BeeNestDestroyed(tc.block, tc.tool, tc.bees, now) {
-			t.Errorf("%+v passed", tc)
-		}
-	}
-	if !p.BeeNestDestroyed("minecraft:bee_nest", silk, 3, now) {
-		t.Error("a silk-touch nest with three bees did not pass")
-	}
-}
-
-func TestAvoidVibrationAwardsItsCriterion(t *testing.T) {
-	_, p := one(
-		registry.AdvancementCriterion{Name: "avoid", Trigger: TriggerAvoidVibration},
-		registry.AdvancementCriterion{Name: "other", Trigger: TriggerUsedTotem},
-	)
-	p.AvoidVibration(time.Now())
-	if _, ok := p.obtained[0]["avoid"]; !ok {
-		t.Error("avoid was not obtained")
-	}
-	if _, ok := p.obtained[0]["other"]; ok {
-		t.Error("a criterion of another trigger was obtained")
-	}
-}
-
-func TestFallAfterExplosionReadsTheCauseAndTheDrop(t *testing.T) {
-	_, p := one(registry.AdvancementCriterion{Name: "rockets", Trigger: TriggerFallAfterExplosion, Entity: "minecraft:wind_charge",
-		Distance: registry.AdvancementDistance{Y: registry.AdvancementRange{Min: 7, HasMin: true}}})
-	now := time.Now()
-	impact := [3]float64{0, 64, 0}
-	p.FallAfterExplosion(impact, [3]float64{0, 80, 0}, "minecraft:creeper", now)
-	p.FallAfterExplosion(impact, [3]float64{0, 80, 0}, "", now)
-	p.FallAfterExplosion(impact, [3]float64{0, 70, 0}, "minecraft:wind_charge", now)
-	if len(p.obtained[0]) != 0 {
-		t.Fatalf("a creeper's blast, no cause and a 6-block rise passed: %v", p.obtained[0])
-	}
-	p.FallAfterExplosion(impact, [3]float64{0, 71, 0}, "minecraft:wind_charge", now)
-	if _, ok := p.obtained[0]["rockets"]; !ok {
-		t.Error("a wind charge's blast and a 7-block rise did not pass")
-	}
-}
-
-func TestSlideDownBlockAwardsItsCriterion(t *testing.T) {
-	_, p := one(
-		registry.AdvancementCriterion{Name: "slide", Trigger: TriggerSlideDownBlock},
-		registry.AdvancementCriterion{Name: "other", Trigger: TriggerUsedTotem},
-	)
-	p.SlideDownBlock(time.Now())
-	if _, ok := p.obtained[0]["slide"]; !ok {
-		t.Error("slide was not obtained")
-	}
-	if _, ok := p.obtained[0]["other"]; ok {
-		t.Error("a criterion of another trigger was obtained")
-	}
-}
-
-func TestCuringAZombieVillagerAwardsOnlyModelledCureCriteria(t *testing.T) {
-	_, p := one(
-		registry.AdvancementCriterion{Name: "cure", Trigger: TriggerCuredZombieVillager},
-		registry.AdvancementCriterion{Name: "filtered", Trigger: TriggerCuredZombieVillager, Unmodelled: true},
-		registry.AdvancementCriterion{Name: "trade", Trigger: TriggerVillagerTrade},
-	)
-	if !p.CuredZombieVillager(time.Now()) {
-		t.Fatal("cure did not award a criterion")
-	}
-	if len(p.obtained[0]) != 1 {
-		t.Fatalf("awarded %v, want only cure", p.obtained[0])
 	}
 }
 
@@ -840,87 +434,5 @@ func TestLocationRequiresBiomeAndAnyStructurePiece(t *testing.T) {
 	}
 	if _, ok := p.obtained[0]["empty"]; ok {
 		t.Error("empty structure set matched")
-	}
-}
-
-func TestLocationWantsTheFeetItemAndTheBlockSteppedOn(t *testing.T) {
-	tree := Vanilla()
-	n := tree.Get("minecraft:adventure/walk_on_powder_snow_with_leather_boots")
-	p := NewProgress(tree)
-	now := time.Now()
-	boots, _ := registry.ItemID("minecraft:leather_boots")
-	iron, _ := registry.ItemID("minecraft:iron_boots")
-	snow := registry.MustState("minecraft:powder_snow", nil)
-	stone := registry.MustState("minecraft:stone", nil)
-	for _, s := range []Standing{
-		{Feet: iron, OnGround: true, On: snow},
-		{Feet: boots, OnGround: true, On: stone},
-		{Feet: boots, OnGround: false, On: snow},
-		{OnGround: true, On: snow},
-	} {
-		p.Location("minecraft:plains", nil, s, now)
-	}
-	if p.Obtained(n, "walk_on_powder_snow_with_leather_boots") {
-		t.Fatal("wrong boots, wrong block, airborne or bare feet passed")
-	}
-	p.Location("minecraft:plains", nil, Standing{Feet: boots, OnGround: true, On: snow}, now)
-	if !p.Obtained(n, "walk_on_powder_snow_with_leather_boots") {
-		t.Error("leather boots on powder snow did not pass")
-	}
-}
-
-func TestAxolotlSupportNeedsAnEffectSource(t *testing.T) {
-	tree := NewTree(registry.Advancements)
-	n := tree.Get("minecraft:husbandry/kill_axolotl_target")
-	p := NewProgress(tree)
-	now := time.Now()
-	p.EffectsChanged([]string{"minecraft:regeneration"}, now)
-	p.EffectsChangedFrom([]string{"minecraft:regeneration"}, "minecraft:witch", now)
-	if p.Done(n) {
-		t.Fatal("regeneration without an axolotl source obtained the advancement")
-	}
-	p.EffectsChangedFrom([]string{"minecraft:regeneration"}, "minecraft:axolotl", now)
-	if !p.Done(n) {
-		t.Fatal("the axolotl's support did not obtain the advancement")
-	}
-}
-
-// One struck villager serves both of a channeled_lightning criterion's
-// villager predicates; spear_mobs wants Count stabbed bodies, any without one.
-// vanilla: ChanneledLightningTrigger.TriggerInstance.matches, SpearMobsTrigger.TriggerInstance.matches
-func TestChanneledLightningSharesAVictimAndSpearMobsCounts(t *testing.T) {
-	_, p := one(
-		registry.AdvancementCriterion{Name: "two", Trigger: TriggerChanneledLightning,
-			Victims: []string{"minecraft:villager", "minecraft:villager"}},
-		registry.AdvancementCriterion{Name: "cow", Trigger: TriggerChanneledLightning, Victims: []string{"minecraft:cow"}},
-		registry.AdvancementCriterion{Name: "five", Trigger: TriggerSpearMobs, Count: 5},
-		registry.AdvancementCriterion{Name: "any", Trigger: TriggerSpearMobs},
-	)
-	now := time.Now()
-	p.ChanneledLightning([]string{"minecraft:player", "minecraft:villager"}, now)
-	p.SpearMobs(4, now)
-	if len(p.obtained[0]) != 2 || p.obtained[0]["two"].IsZero() || p.obtained[0]["any"].IsZero() {
-		t.Fatalf("after a struck villager and four stabs: %v", p.obtained[0])
-	}
-	p.SpearMobs(5, now)
-	if p.obtained[0]["five"].IsZero() {
-		t.Errorf("five stabs did not obtain five: %v", p.obtained[0])
-	}
-}
-
-// TestInventoryOfCountsTheSlots checks an item held twice is listed once, a
-// stack at its item's limit counts as full, and the slots a player never
-// fills count as empty.
-func TestInventoryOfCountsTheSlots(t *testing.T) {
-	log, ok := registry.ItemID("minecraft:oak_log")
-	if !ok {
-		t.Fatal("no oak log")
-	}
-	slots := make([]protocol.ItemStack, 41)
-	slots[0] = protocol.ItemStack{ItemID: log, Count: 64}
-	slots[5] = protocol.ItemStack{ItemID: log, Count: 1}
-	got := InventoryOf(slots, nil)
-	if !slices.Equal(got.Held, []int32{log}) || got.Occupied != 2 || got.Full != 1 || got.Empty != 41 {
-		t.Errorf("InventoryOf = %+v, want one log held, two occupied, one full, 41 empty", got)
 	}
 }

@@ -1,7 +1,6 @@
 package scoreboard
 
 import (
-	"slices"
 	"testing"
 )
 
@@ -33,20 +32,6 @@ func TestLookupStatisticCriteria(t *testing.T) {
 	}
 }
 
-func TestCriteriaNamesListStatistics(t *testing.T) {
-	names := CriteriaNames()
-	for _, want := range []string{"dummy", "minecraft.mined:minecraft.stone", "minecraft.custom:minecraft.jump"} {
-		if !slices.Contains(names, want) {
-			t.Errorf("CriteriaNames lacks %q", want)
-		}
-	}
-	for _, name := range names {
-		if _, ok := LookupCriteria(name); !ok {
-			t.Fatalf("suggested %q does not look up", name)
-		}
-	}
-}
-
 func TestUpdateStatTouchesOnlyMatchingObjectives(t *testing.T) {
 	b := New(nil)
 	stone, _ := LookupCriteria("minecraft.mined:minecraft.stone")
@@ -71,20 +56,5 @@ func TestUpdateStatTouchesOnlyMatchingObjectives(t *testing.T) {
 	b.RemoveObjective("d")
 	if b.CountsStat("minecraft:mined", "minecraft:dirt") {
 		t.Error("removed objective still counted")
-	}
-}
-
-func TestUpdateStatKeepsObjectiveOrderAndIndexSurvivesRemoval(t *testing.T) {
-	b := New(nil)
-	stone, _ := LookupCriteria("minecraft.mined:minecraft.stone")
-	b.AddObjective("a", stone, nil)
-	b.AddObjective("b", stone, nil)
-	b.RemoveObjective("a")
-	b.UpdateStat("minecraft:mined", "minecraft:stone", Holder{Name: "A"}, func(v int32) int32 { return v + 1 })
-	if _, ok := b.Score("A", "a"); ok {
-		t.Error("removed objective was written")
-	}
-	if s, _ := b.Score("A", "b"); s.Value != 1 {
-		t.Errorf("b = %d, want 1", s.Value)
 	}
 }

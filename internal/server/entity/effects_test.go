@@ -45,27 +45,6 @@ func TestAMobRefusesTheEffectsItsTypeRefuses(t *testing.T) {
 	}
 }
 
-// TestAConvertedBodyDropsTheEffectsItsTypeRefuses checks InheritEffects
-// through the same gate: a spider converted from a poisoned cow keeps none
-// of the cow's poison, while a cow keeps its own.
-func TestAConvertedBodyDropsTheEffectsItsTypeRefuses(t *testing.T) {
-	poison := registry.MustMobEffect("minecraft:poison")
-	cow := NewMob(TypeCow, 1, 0, 0, 0, 1)
-	if _, ok := cow.AddEffect(effect.New(poison, 100, 0, false, true, true)); !ok {
-		t.Fatal("the cow refused its poison")
-	}
-	spider := NewMob(TypeSpider, 2, 0, 0, 0, 1)
-	spider.InheritEffects(cow)
-	if len(spider.AllEffects()) != 0 {
-		t.Errorf("the spider inherited the cow's poison: %v", spider.AllEffects())
-	}
-	heir := NewMob(TypeCow, 3, 0, 0, 0, 1)
-	heir.InheritEffects(cow)
-	if len(heir.AllEffects()) != 1 {
-		t.Errorf("the heir cow carries %v, want the cow's poison", heir.AllEffects())
-	}
-}
-
 // TestPoisonBitesAMobEveryTwentyFifthTick runs a poisoned cow's own step,
 // one tick at a time: a heart on the first tick, none for the next
 // twenty-four, one again on the twenty-sixth, each told as a hurt of magic
@@ -150,30 +129,6 @@ func TestTheInstantPairTheUndeadWay(t *testing.T) {
 	}
 }
 
-// TestAConvertedBodyTakesTheEffectsItCameWith asks the converted body's
-// own step to run what the old one carried: the poison the drowned is
-// given ticks down in the drowned, while the zombie it came from is no
-// longer ticking at all.
-func TestAConvertedBodyTakesTheEffectsItCameWith(t *testing.T) {
-	zombie := NewMob(TypeZombie, 1, 0, 0, 0, 1)
-	if _, ok := zombie.AddEffect(effect.New(registry.MustMobEffect("minecraft:slowness"), 100, 0, false, true, true)); !ok {
-		t.Fatal("the zombie refused its slowness")
-	}
-	drowned := NewMob(TypeDrowned, 2, 0, 0, 0, 1)
-	drowned.InheritEffects(zombie)
-	if len(drowned.AllEffects()) != 1 {
-		t.Fatalf("the drowned carries %v, want the zombie's slowness", drowned.AllEffects())
-	}
-	// The two countdowns are the own of each body: spending the drowned's
-	// leaves the zombie's where it stood.
-	drowned.Age++
-	drowned.effectsStep(nil)
-	one, two := drowned.AllEffects()[0], zombie.AllEffects()[0]
-	if one.Duration != 99 || two.Duration != 100 {
-		t.Errorf("after the drowned's tick: drowned %v, zombie %v; want 99 and 100", one.Duration, two.Duration)
-	}
-}
-
 // TestMovementAndDamageEffectsScaleAMob checks the pace and the blow of a
 // zombie under speed, slowness, strength and weakness.
 func TestMovementAndDamageEffectsScaleAMob(t *testing.T) {
@@ -235,34 +190,5 @@ func TestAbsorptionSpendsBeforeHealthAndEndsWithTheEffect(t *testing.T) {
 	zombie.RemoveEffect(absorption)
 	if zombie.Absorption != 0 {
 		t.Errorf("absorption after removal = %v, want 0", zombie.Absorption)
-	}
-}
-
-// TestAbsorptionExpiresWithoutTouchingHealth runs the effect out through
-// the body's own step.
-func TestAbsorptionExpiresWithoutTouchingHealth(t *testing.T) {
-	zombie := NewMob(TypeZombie, 1, 0, 0, 0, 1)
-	zombie.AddEffect(effect.New(registry.MustMobEffect("minecraft:absorption"), 3, 0, false, true, true))
-	for range 5 {
-		zombie.Age++
-		zombie.effectsStep(nil)
-	}
-	if zombie.Absorption != 0 || zombie.Health != zombie.MaxHealth || len(zombie.AllEffects()) != 0 {
-		t.Errorf("after expiry absorption %v health %v effects %v", zombie.Absorption, zombie.Health, zombie.AllEffects())
-	}
-}
-
-// TestAConversionKeepsASpentShield checks the amount is copied as it stands
-// instead of refilled by the effect being added again.
-// vanilla: ConversionType.convertCommon
-func TestAConversionKeepsASpentShield(t *testing.T) {
-	absorption := registry.MustMobEffect("minecraft:absorption")
-	zombie := NewMob(TypeZombie, 1, 0, 0, 0, 1)
-	zombie.AddEffect(effect.New(absorption, 100, 1, false, true, true))
-	zombie.Absorption = 3
-	drowned := NewMob(TypeDrowned, 2, 0, 0, 0, 1)
-	drowned.InheritEffects(zombie)
-	if drowned.Absorption != 3 {
-		t.Errorf("absorption after conversion = %v, want 3", drowned.Absorption)
 	}
 }

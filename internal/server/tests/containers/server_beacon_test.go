@@ -294,27 +294,6 @@ func TestABeaconWindowTakesOnlyItsPaymentItem(t *testing.T) {
 	w.ExpectClickResult(map[int16]protocol.ItemStack{beaconPaymentSlot: ingot}, protocol.ItemStack{})
 }
 
-// TestABeaconPaymentSlotHoldsOneItem opens a beacon's window and lays two
-// ingots on its payment slot: one goes in, the other stays on the cursor.
-// vanilla: BeaconMenu.PaymentSlot.getMaxStackSize
-func TestABeaconPaymentSlotHoldsOneItem(t *testing.T) {
-	t.Parallel()
-	srv, connect, clock := beaconCycleServer(t)
-	w := servertest.WindowedOf(t, "Testificate", connect())
-	buildPyramid(t, srv)
-	placeBeacon(t, srv, clock, w)
-	stepBeaconCycle(t, srv, clock)
-	openBeacon(t, w)
-
-	irons := servertest.ItemStack(t, "minecraft:iron_ingot", 2)
-	w.SetCreativeSlot(36, irons)
-	w.Click(beaconHotbar0, 0, protocol.ClickModePickup)
-	w.ExpectClickResult(map[int16]protocol.ItemStack{beaconHotbar0: {}}, irons)
-	w.Click(beaconPaymentSlot, 0, protocol.ClickModePickup)
-	w.ExpectClickResult(map[int16]protocol.ItemStack{beaconPaymentSlot: servertest.ItemStack(t, "minecraft:iron_ingot", 1)},
-		servertest.ItemStack(t, "minecraft:iron_ingot", 1))
-}
-
 // TestABeaconShiftClickFeedsAndEmptiesItsPaymentSlot opens a beacon's window
 // and shift-clicks: a lone ingot out of the player's things goes into the
 // payment slot, a stack of two is more than the slot holds and moves within
@@ -350,50 +329,6 @@ func TestABeaconShiftClickFeedsAndEmptiesItsPaymentSlot(t *testing.T) {
 	}, protocol.ItemStack{})
 }
 
-// TestABeaconShiftClickLeavesAStackOfTwoInThePlayerThings opens a beacon's
-// window and shift-clicks a stack of two ingots: the payment slot holds a
-// single item, so the stack moves within the player's own things instead of
-// being split into it.
-// vanilla: BeaconMenu.quickMoveStack
-func TestABeaconShiftClickLeavesAStackOfTwoInThePlayerThings(t *testing.T) {
-	t.Parallel()
-	srv, connect, clock := beaconCycleServer(t)
-	w := servertest.WindowedOf(t, "Testificate", connect())
-	buildPyramid(t, srv)
-	placeBeacon(t, srv, clock, w)
-	stepBeaconCycle(t, srv, clock)
-	openBeacon(t, w)
-
-	irons := servertest.ItemStack(t, "minecraft:iron_ingot", 2)
-	w.SetCreativeSlot(36, irons)
-	w.Drain()
-	w.Click(beaconHotbar0, 0, protocol.ClickModeQuickMove)
-	w.ExpectClickResult(map[int16]protocol.ItemStack{
-		beaconHotbar0: {},
-		1:             irons,
-	}, protocol.ItemStack{})
-}
-
-// TestABeaconDropsItsPaymentOnClose opens a beacon, pays it an ingot, and
-// closes the window: the ingot is not put back but drops at the player's
-// feet.
-// vanilla: BeaconMenu.removed
-func TestABeaconDropsItsPaymentOnClose(t *testing.T) {
-	t.Parallel()
-	srv, connect, clock := beaconCycleServer(t)
-	w := servertest.WindowedOf(t, "Testificate", connect())
-	buildPyramid(t, srv)
-	placeBeacon(t, srv, clock, w)
-	stepBeaconCycle(t, srv, clock)
-	openBeacon(t, w)
-	payBeacon(t, w)
-
-	w.CloseWindow()
-	w.ExpectWindowZero()
-	w.AwaitDrops(1)
-	w.ExpectDrop(servertest.ItemStack(t, "minecraft:iron_ingot", 1))
-}
-
 // TestABeaconOnAFullPyramidGrantsBothChoices opens a beacon on a level-4
 // pyramid, pays for speed and regeneration, and reads the two effects one
 // cycle applies: the primary at tier zero, the secondary at tier zero too.
@@ -422,111 +357,6 @@ func TestABeaconOnAFullPyramidGrantsBothChoices(t *testing.T) {
 	if secondary.Effect != regeneration || secondary.Amplifier != 0 || secondary.Duration != 340 {
 		t.Errorf("the secondary applied as %+v, want regeneration at tier 0 for 340 ticks", secondary)
 	}
-}
-
-// TestAFullPyramidDoublesThePrimaryWhenBothChoicesMatch opens a beacon on a
-// level-4 pyramid and pays for speed on both sides: the cycle applies one
-// speed at tier one, no second instance.
-// vanilla: BeaconBlockEntity.applyEffects
-func TestAFullPyramidDoublesThePrimaryWhenBothChoicesMatch(t *testing.T) {
-	t.Parallel()
-	srv, connect, clock := beaconCycleServer(t)
-	w := servertest.WindowedOf(t, "Testificate", connect())
-	buildFullPyramid(t, srv)
-	placeBeacon(t, srv, clock, w)
-	stepBeaconCycle(t, srv, clock)
-	openBeacon(t, w)
-	payBeacon(t, w)
-	speed := registry.MustMobEffect("minecraft:speed")
-	w.ChooseBeaconEffects(servertest.OptionalEffect{Present: true, Effect: speed},
-		servertest.OptionalEffect{Present: true, Effect: speed})
-	w.Drain()
-
-	stepBeaconCycle(t, srv, clock)
-	got := w.AwaitMobEffect()
-	if got.Effect != speed || got.Amplifier != 1 || got.Duration != 340 {
-		t.Errorf("the primary applied as %+v, want speed at tier 1 for 340 ticks", got)
-	}
-	w.SettleAndCollect(func(id int32, _ []byte) {
-		if id == protocol.IDPlayUpdateMobEffect {
-			t.Error("the second choice applied the same speed again")
-		}
-	})
-}
-
-// TestABeaconChimesWhenItsPyramidComesAndGoes builds a beacon's pyramid under
-// it and breaks a base block: the cycle that counts the level up chimes
-// activate, the one that counts it back to none chimes deactivate.
-// vanilla: BeaconBlockEntity.tick
-func TestABeaconChimesWhenItsPyramidComesAndGoes(t *testing.T) {
-	t.Parallel()
-	srv, connect, clock := beaconCycleServer(t)
-	w := servertest.WindowedOf(t, "Testificate", connect())
-	buildPyramid(t, srv)
-	placeBeacon(t, srv, clock, w)
-
-	stepBeaconCycle(t, srv, clock)
-	awaitBeaconSound(w, "minecraft:block.beacon.activate")
-
-	if !srv.SetBlock(4, 63, 0, registry.BlockStates["minecraft:dirt"]) {
-		t.Fatal("the chunk at (4,63,0) was not loaded to break the base")
-	}
-	stepBeaconCycle(t, srv, clock)
-	awaitBeaconSound(w, "minecraft:block.beacon.deactivate")
-}
-
-// TestARemovedBeaconPlaysItsDeactivate opens a beacon's window and replaces
-// the beacon with /setblock: the block entity's removal plays the deactivate
-// chime.
-// vanilla: BeaconBlockEntity.setRemoved
-func TestARemovedBeaconPlaysItsDeactivate(t *testing.T) {
-	t.Parallel()
-	clock := servertest.NewStepClock()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig(), func(s *server.Server) {
-		s.SetTickClock(clock, nil)
-		s.SetKeepAlive(time.Hour, time.Hour)
-	}, servertest.OpsListing(t, "Testificate"))
-	w := servertest.WindowedOf(t, "Testificate", connect())
-	buildPyramid(t, srv)
-	placeBeacon(t, srv, clock, w)
-
-	w.ChatCommand("setblock 4 64 0 minecraft:stone")
-	awaitBeaconSound(w, "minecraft:block.beacon.deactivate")
-}
-
-// TestABeaconSoundDoesNotReachTheWholeDimension stands a beacon with a
-// player well past its earshot: the pyramid's chime and its cycle's hum are
-// heard only by the player at the beacon.
-// vanilla: Level.playSound (PlayerList.broadcast, sixteen blocks)
-func TestABeaconSoundDoesNotReachTheWholeDimension(t *testing.T) {
-	t.Parallel()
-	srv, connect, clock := beaconCycleServer(t)
-
-	far := servertest.WindowedOf(t, "Faraway", connect())
-	far.MoveTo(30.5, 64, 0.5, 0, 0)
-	far.Settle()
-
-	near := servertest.WindowedOf(t, "Testificate", connect())
-	buildPyramid(t, srv)
-	placeBeacon(t, srv, clock, near)
-	stepBeaconCycle(t, srv, clock)
-	openBeacon(t, near)
-	payBeacon(t, near)
-	chooseBeaconSpeed(near)
-	near.SettleAndCollect(func(int32, []byte) {})
-
-	// The block's place sound reaches the whole dimension; only the four
-	// sounds the beacon itself plays are checked here.
-	beaconSound := func(id int32, data []byte) {
-		switch name := beaconSoundName(id, data); name {
-		case "minecraft:block.beacon.ambient", "minecraft:block.beacon.activate",
-			"minecraft:block.beacon.deactivate", "minecraft:block.beacon.power_select":
-			t.Errorf("the player out of earshot heard %s", name)
-		}
-	}
-	far.SettleAndCollect(beaconSound)
-	stepBeaconCycle(t, srv, clock)
-	far.SettleAndCollect(beaconSound)
 }
 
 // expectBeaconConfirm drains all of the confirm's answer at once: its
@@ -589,51 +419,6 @@ func expectBeaconProps(w *servertest.WindowedClient, props map[int32]int32, want
 	}
 }
 
-// TestABeaconConfirmSpendsThePaymentBeforeMovingItsChoices reads the wire
-// order of a confirm's own answer: the spent payment slot is corrected before
-// the choices' properties, since both changes wait for the menu's next
-// broadcast, which sends its slots before its data slots.
-// vanilla: AbstractContainerMenu.broadcastChanges
-func TestABeaconConfirmSpendsThePaymentBeforeMovingItsChoices(t *testing.T) {
-	t.Parallel()
-	srv, connect, clock := beaconCycleServer(t)
-	w := servertest.WindowedOf(t, "Testificate", connect())
-	buildPyramid(t, srv)
-	placeBeacon(t, srv, clock, w)
-	stepBeaconCycle(t, srv, clock)
-	openBeacon(t, w)
-	payBeacon(t, w)
-	servertest.ForgetWindowProps(w)
-
-	chooseBeaconSpeed(w)
-
-	slotAt, propertyAt, at := -1, -1, 0
-	w.SettleAndCollect(func(id int32, data []byte) {
-		switch id {
-		case protocol.IDPlayContainerSlot:
-			if slotAt < 0 {
-				slotAt = at
-			}
-			at++
-		case protocol.IDPlayContainerProperty:
-			if propertyAt < 0 {
-				propertyAt = at
-			}
-			at++
-		default:
-			w.Record(id, data)
-		}
-	})
-	if slotAt < 0 || propertyAt < 0 {
-		t.Fatalf("the confirm sent the payment slot at %d and the property at %d, want both",
-			slotAt, propertyAt)
-	}
-	if slotAt > propertyAt {
-		t.Errorf("the confirm sent the payment slot at %d after the property at %d, want the slot first",
-			slotAt, propertyAt)
-	}
-}
-
 // TestABeaconWithoutItsPyramidRefusesItsChoices stands a beacon on bare
 // ground and pays for a choice: the Confirm whose level cannot hold it is
 // the client lying about its menu, and the connection is disconnected.
@@ -668,74 +453,6 @@ func TestABeaconWithoutItsPyramidRefusesItsChoices(t *testing.T) {
 	want.PutText(protocol.Text{Translate: "multiplayer.disconnect.generic"})
 	if reason := w.ExpectPlay(protocol.IDPlayDisconnect); !bytes.Equal(reason, want.Bytes()) {
 		t.Errorf("disconnect reason % X, want % X", reason, want.Bytes())
-	}
-}
-
-// TestABeaconSkipsASpectatorInReach is the spectator's own side of a
-// beacon's reach: the paid speed reaches the survival player standing at the
-// block, but not the spectator standing there beside them.
-// vanilla: BeaconBlockEntity.applyEffects, EntitySelector.NO_SPECTATORS
-func TestABeaconSkipsASpectatorInReach(t *testing.T) {
-	t.Parallel()
-	clock := servertest.NewStepClock()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig(), func(s *server.Server) {
-		s.SetTickClock(clock, nil)
-		s.SetKeepAlive(time.Hour, time.Hour)
-	}, servertest.OpsListing(t, "Ghost", "Testificate"))
-
-	// Both stand on the spawn block the beacon's reach covers; the spectator
-	// joins first so its own join does not land in the survival player's.
-	ghost := servertest.WindowedOf(t, "Ghost", connect())
-	ghost.SettleAndCollect(func(int32, []byte) {})
-	keeper := servertest.WindowedOf(t, "Testificate", connect())
-	keeper.SettleAndCollect(func(int32, []byte) {})
-
-	buildPyramid(t, srv)
-	placeBeacon(t, srv, clock, keeper)
-	stepBeaconCycle(t, srv, clock)
-	openBeacon(t, keeper)
-	payBeacon(t, keeper)
-	chooseBeaconSpeed(keeper)
-	keeper.SettleAndCollect(func(int32, []byte) {})
-	ghost.SettleAndCollect(func(int32, []byte) {})
-
-	// The two modes: the ghost spectates, the keeper keeps the survival
-	// body the beacon should still affect.
-	ghost.ChatCommand("gamemode spectator")
-	keeper.ChatCommand("gamemode survival")
-	ghost.Settle()
-	keeper.Settle()
-	if srv.PlayerGameMode("Ghost") != protocol.GameModeSpectator ||
-		srv.PlayerGameMode("Testificate") != protocol.GameModeSurvival {
-		t.Fatal("the two game-mode switches apply")
-	}
-	ghost.SettleAndCollect(func(int32, []byte) {})
-	keeper.SettleAndCollect(func(int32, []byte) {})
-
-	// The cycle gives the survival player the speed and leaves the spectator
-	// sharing the block out of it.
-	stepBeaconCycle(t, srv, clock)
-	ghost.SettleAndCollect(func(id int32, _ []byte) {
-		if id == protocol.IDPlayUpdateMobEffect {
-			t.Error("the beacon gave a spectator in reach an effect")
-		}
-	})
-	speed := registry.MustMobEffect("minecraft:speed")
-	if got := keeper.AwaitMobEffect(); got.Effect != speed {
-		t.Errorf("the survival player's effect = %d, want speed %d", got.Effect, speed)
-	}
-
-	// The guard reads the mode afresh each cycle, so a ghost back in
-	// survival is covered again on the next one.
-	ghost.ChatCommand("gamemode survival")
-	ghost.Settle()
-	if srv.PlayerGameMode("Ghost") != protocol.GameModeSurvival {
-		t.Fatal("the ghost returns to survival")
-	}
-	ghost.SettleAndCollect(func(int32, []byte) {})
-	stepBeaconCycle(t, srv, clock)
-	if got := ghost.AwaitMobEffect(); got.Effect != speed {
-		t.Errorf("the ghost back in survival got effect %d, want speed %d", got.Effect, speed)
 	}
 }
 

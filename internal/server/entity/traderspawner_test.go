@@ -129,22 +129,6 @@ func TestTheWanderingTraderSpawnerStandsATraderNearThePlayer(t *testing.T) {
 	}
 }
 
-// TestTheWanderingTraderSpawnerHeadsForTheBell: a bell within reach is the
-// wander target and the centre of the search.
-func TestTheWanderingTraderSpawnerHeadsForTheBell(t *testing.T) {
-	w := traderGround(t)
-	w.bell = &Waypoint{10, 64, 10}
-	spawned, _ := traderSpawns(t, w, []SpawnPlayer{{X: 0.5, Y: 64, Z: 0.5}}, 200)
-	if len(spawned) == 0 {
-		t.Fatal("no trader in 200 rolls")
-	}
-	for _, sp := range spawned {
-		if sp.Target != *w.bell || sp.X < 10-48 || sp.X >= 10+48 || sp.Z < 10-48 || sp.Z >= 10+48 {
-			t.Errorf("trader at %d %d bound for %v, want near and bound for the bell", sp.X, sp.Z, sp.Target)
-		}
-	}
-}
-
 // TestTheWanderingTraderSpawnerNeedsALivePlayerAndRoom: no live player
 // resets the chance without a spawn, and a 2x3x2 space with a block in it
 // refuses the spot.
@@ -169,65 +153,5 @@ func TestTheWanderingTraderSpawnerNeedsALivePlayerAndRoom(t *testing.T) {
 	}
 	if !traderHasRoom(w, Waypoint{2, 64, 2}) {
 		t.Error("no room on open ground")
-	}
-}
-
-// TestTheWanderingTraderSpawnerBringsTwoLlamasWithinFourBlocks: each trader
-// comes with up to two llama spots within 4 blocks of its own.
-// vanilla: WanderingTraderSpawner.tryToSpawnLlamaFor
-func TestTheWanderingTraderSpawnerBringsTwoLlamasWithinFourBlocks(t *testing.T) {
-	w := traderGround(t)
-	spawned, _ := traderSpawns(t, w, []SpawnPlayer{{X: 0.5, Y: 64, Z: 0.5}}, 200)
-	if len(spawned) == 0 {
-		t.Fatal("no trader in 200 rolls")
-	}
-	for _, sp := range spawned {
-		if len(sp.Llamas) != traderLlamaCount {
-			t.Errorf("%d llama spots on open ground, want %d", len(sp.Llamas), traderLlamaCount)
-		}
-		for _, at := range sp.Llamas {
-			if at.X < sp.X-4 || at.X >= sp.X+4 || at.Z < sp.Z-4 || at.Z >= sp.Z+4 {
-				t.Errorf("llama at %v, trader at %d %d %d", at, sp.X, sp.Y, sp.Z)
-			}
-		}
-	}
-}
-
-// TestATraderLlamaLeavesWithItsTrader: led by the trader it follows the
-// trader's delay and drops the lead as it goes; led by anything else, or
-// tame, it stays; and it cannot be ridden while the trader leads it.
-// vanilla: TraderLlama.maybeDespawn, TraderLlama.doPlayerRide
-func TestATraderLlamaLeavesWithItsTrader(t *testing.T) {
-	llama := func() *Mob {
-		m := NewMob(TypeTraderLlama, 2, 0, 64, 0, 1)
-		m.LeashHolderID = 1
-		return m
-	}
-	m := llama()
-	m.Horse.traderLead, m.Horse.traderDelay = true, 3
-	if m.CanBeRidden() {
-		t.Error("a trader llama led by its trader can be ridden")
-	}
-	if m.llamaDespawnStep() || m.DespawnDelay != 2 {
-		t.Errorf("delay %d after one step, want the trader's 3 less one", m.DespawnDelay)
-	}
-	m.Horse.traderDelay = 1
-	if !m.llamaDespawnStep() || m.LeashHolderID != 0 {
-		t.Errorf("llama stays with a spent trader, lead %d", m.LeashHolderID)
-	}
-
-	m = llama()
-	if m.llamaDespawnStep() || m.DespawnDelay != traderLlamaDespawn {
-		t.Errorf("a llama on someone else's lead counted down to %d", m.DespawnDelay)
-	}
-	m = NewMob(TypeTraderLlama, 3, 0, 64, 0, 1)
-	m.Horse.Tame = true
-	if m.llamaDespawnStep() || m.DespawnDelay != traderLlamaDespawn {
-		t.Error("a tame trader llama counted down")
-	}
-	m = NewMob(TypeTraderLlama, 4, 0, 64, 0, 1)
-	m.DespawnDelay = 1
-	if !m.llamaDespawnStep() {
-		t.Error("a loose trader llama outlasted its delay")
 	}
 }

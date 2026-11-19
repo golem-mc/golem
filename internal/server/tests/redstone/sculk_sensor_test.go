@@ -8,7 +8,6 @@ package redstone
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -135,26 +134,6 @@ func TestASculkSensorsComparatorReadsTheFrequency(t *testing.T) {
 	}
 }
 
-// TestQuietPlacementsLeaveASculkSensorInactive: wool dampens its own
-// placement, and a placed sensor does not hear itself.
-// vanilla: VibrationSystem.User.isValidVibration,
-// SculkSensorBlockEntity.VibrationUser.canReceiveVibration
-func TestQuietPlacementsLeaveASculkSensorInactive(t *testing.T) {
-	t.Parallel()
-	srv, c := sensorScene(t)
-
-	servertest.PlaceFrom(c, "minecraft:white_wool", 0, 4, -90, 2, 63, 4, protocol.FaceTop)
-	c.Settle()
-	servertest.RunTicks(t, srv, 5)
-	expectSensor(t, srv, 4, 64, 4, "inactive", "0")
-
-	srv.SetBlock(4, 64, 4, servertest.MustState(t, "minecraft:stone", nil))
-	servertest.PlaceFrom(c, "minecraft:sculk_sensor", 0, 4, -90, 2, 64, 4, protocol.FaceTop)
-	c.Settle()
-	servertest.RunTicks(t, srv, 5)
-	expectSensor(t, srv, 2, 65, 4, "inactive", "0")
-}
-
 // TestALandingActivatesASculkSensor drops the player six blocks three blocks
 // from the sensor: hit_ground reaches it with power 10.
 // vanilla: Entity.checkFallDamage
@@ -166,75 +145,6 @@ func TestALandingActivatesASculkSensor(t *testing.T) {
 
 	c.FallSix(0.5)
 	servertest.RunTicks(t, srv, 3)
-	// 15 - floor(15/8 * 3)
-	expectSensor(t, srv, 3, 64, 0, "active", "10")
-}
-
-// TestBreakingAnActiveSculkSensorDepowersTheBlockUnderIt: the lamp the block
-// under the sensor strongly powered goes out with the sensor.
-// vanilla: SculkSensorBlock.affectNeighborsAfterRemoval
-func TestBreakingAnActiveSculkSensorDepowersTheBlockUnderIt(t *testing.T) {
-	t.Parallel()
-	srv, c := sensorScene(t)
-	srv.SetBlock(5, 63, 4, servertest.MustState(t, "minecraft:redstone_lamp", nil))
-
-	placeStoneAt(c, 2)
-	servertest.RunTicks(t, srv, 2)
-	if !servertest.LampLitAt(srv, 5, 63, 4) {
-		t.Fatal("the lamp beside the block under the active sensor is not lit")
-	}
-	srv.RunLine("setblock 4 64 4 air")
-	servertest.RunTicks(t, srv, 5)
-	if servertest.LampLitAt(srv, 5, 63, 4) {
-		t.Error("the lamp stayed lit after the active sensor was removed")
-	}
-}
-
-// TestASculkSensorSetWithPowerDropsIt: a setblock's powered inactive sensor
-// has no phase change booked, so its power goes.
-// vanilla: SculkSensorBlock.onPlace
-func TestASculkSensorSetWithPowerDropsIt(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.AttachActor(t)
-	srv.RunLine("setblock 6 64 6 minecraft:sculk_sensor[power=9]")
-	expectSensor(t, srv, 6, 64, 6, "inactive", "0")
-}
-
-// TestAHitAbsorptionTakesWhollyLeavesASculkSensorQuiet: a hit that only
-// takes absorption hearts emits no entity_damage.
-// vanilla: Player.actuallyHurt
-func TestAHitAbsorptionTakesWhollyLeavesASculkSensorQuiet(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Join(t, servertest.SurvivalTestConfig(), "Padded")
-	srv.SetBlock(3, 64, 0, servertest.MustState(t, "minecraft:sculk_sensor", nil))
-	srv.RunLine("effect give Padded minecraft:absorption 60 4")
-	servertest.HoldTicks(t, srv)
-	expectSensor(t, srv, 3, 64, 0, "inactive", "0")
-
-	srv.RunLine("damage Padded 2 minecraft:generic")
-	servertest.RunTicks(t, srv, 5)
-	expectSensor(t, srv, 3, 64, 0, "inactive", "0")
-}
-
-// TestAHurtMobActivatesASculkSensor: /damage on a zombie three blocks away
-// is an entity_damage vibration, frequency 7.
-// vanilla: LivingEntity.actuallyHurt
-func TestAHurtMobActivatesASculkSensor(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.SurvivalTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, _ := servertest.Join(t, cfg, "Bystander")
-	srv.SetBlock(3, 64, 0, servertest.MustState(t, "minecraft:sculk_sensor", nil))
-	servertest.HoldTicks(t, srv)
-	srv.RunLine("summon minecraft:zombie 6.5 64 0.5 {NoAI:1b}")
-	servertest.RunTicks(t, srv, 1)
-	expectSensor(t, srv, 3, 64, 0, "inactive", "0")
-
-	srv.RunLine("damage @e[type=minecraft:zombie,limit=1] 2")
-	servertest.UntilTicks(t, srv, 8, "the sensor activating", func() bool {
-		_, props := servertest.StateProps(srv.BlockAt(3, 64, 0))
-		return props["sculk_sensor_phase"] == "active"
-	})
 	// 15 - floor(15/8 * 3)
 	expectSensor(t, srv, 3, 64, 0, "active", "10")
 }

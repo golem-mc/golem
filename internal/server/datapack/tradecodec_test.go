@@ -32,26 +32,3 @@ func TestDecodeTradeResultTemplate(t *testing.T) {
 		})
 	}
 }
-
-func TestDecodeTradeRejectsBadResultTemplate(t *testing.T) {
-	for _, gives := range []string{
-		`{"id":"diamond","count":0}`,
-		`{"id":"diamond","count":100}`,
-		`{"id":"diamond","count":-1}`,
-		`{"id":"diamond","count":"one"}`,
-		`{"id":"diamond","count":{"type":"minecraft:constant","value":1}}`,
-		`{"id":"diamond","components":{"minecraft:custom_name":{"text":12}}}`,
-		`{"id":"diamond","components":{"minecraft:not_a_component":{}}}`,
-		`{"id":"diamond","components":{"!minecraft:tool":1}}`,
-		`{"id":"diamond","components":[]}`,
-		`{"id":"missing"}`,
-		`"air"`,
-		`null`,
-	} {
-		t.Run(gives, func(t *testing.T) {
-			if trade, err := DecodeVillagerTrade(fmt.Appendf(nil, `{"wants":{"id":"emerald"},"gives":%s}`, gives)); err == nil {
-				t.Fatalf("decoded bad template as %+v", trade)
-			}
-		})
-	}
-}

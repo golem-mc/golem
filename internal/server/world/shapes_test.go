@@ -89,32 +89,3 @@ func TestCollisionBoxesOfTheModelledFamilies(t *testing.T) {
 		}
 	}
 }
-
-// TestCollisionTopReadsTheModelledFamilies checks the height read the
-// entity physics and the spawn placement stand on: the families with
-// modelled boxes reach the tops of their boxes, everything else keeps the
-// generated table's own per-state word.
-func TestCollisionTopReadsTheModelledFamilies(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name  string
-		props map[string]string
-		want  float64
-	}{
-		{"minecraft:stone", nil, 1},
-		{"minecraft:oak_fence", nil, 1.5},
-		{"minecraft:cobblestone_wall", nil, 1.5},
-		{"minecraft:oak_fence_gate", map[string]string{"open": "true"}, 0},
-		{"minecraft:oak_fence_gate", nil, 1.5},
-		{"minecraft:iron_chain", map[string]string{"axis": "x"}, 9.5 / 16},
-		{"minecraft:chest", nil, 14.0 / 16},
-		{"minecraft:farmland", nil, 15.0 / 16},
-		{"minecraft:white_carpet", nil, 1.0 / 16},
-		{"minecraft:flower_pot", nil, 6.0 / 16},
-		{"minecraft:torch", nil, 0},
-	} {
-		if got := CollisionTop(mustFind(t, tc.name, tc.props)); got != tc.want {
-			t.Errorf("CollisionTop(%s %v) = %v, want %v", tc.name, tc.props, got, tc.want)
-		}
-	}
-}

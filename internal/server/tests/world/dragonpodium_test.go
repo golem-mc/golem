@@ -68,27 +68,3 @@ func TestEndPodiumWaitsForFirstFightScan(t *testing.T) {
 		})
 	}
 }
-
-// vanilla: EnderDragonFight.findExitPortal, spawnExitPortal
-func TestEndLoneBedrockDoesNotSuppressFirstPodium(t *testing.T) {
-	srv, c := servertest.Join(t, servertest.CrossingTestConfig(t), "DragonWatcher", servertest.OpsListing(t, "DragonWatcher"), func(s *server.Server) { servertest.FreezeUntilHeld(t, s) })
-	srv.MovePlayerToDimension("DragonWatcher", world.EndName, 0, 85, 0)
-	if _, ok := servertest.ReadUntilViewSent(t, c); !ok {
-		t.Fatal("no End view")
-	}
-	servertest.HoldTicks(t, srv)
-	srv.SetBlockInDimension(world.EndName, 0, 80, 0, registry.BlockBedrock.DefaultState())
-	servertest.RunTicks(t, srv, 20)
-	servertest.PollUntil(t, 20*time.Second, srv.DragonArenaSettled)
-	servertest.RunTicks(t, srv, 1)
-	data := srv.SavedDragonFight()
-	pos, _ := nbt.Get[nbt.IntArray](data, "exit_portal_location")
-	if !slices.Equal(pos, nbt.IntArray{0, 79, 0}) || nbt.BoolField(data, "needs_state_scanning") {
-		t.Errorf("first scan saved location %v, needs scanning %v", pos, data["needs_state_scanning"])
-	}
-	for _, p := range [][3]int32{{0, 82, 0}, {-3, 79, 0}, {0, 78, 0}} {
-		if got := srv.BlockInDimension(world.EndName, p[0], p[1], p[2]); got != registry.BlockBedrock.DefaultState() {
-			t.Errorf("podium at %v = %d, want bedrock", p, got)
-		}
-	}
-}

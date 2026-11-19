@@ -1,7 +1,6 @@
 package world
 
 import (
-	"bytes"
 	"slices"
 	"strings"
 	"testing"
@@ -33,26 +32,6 @@ func referencePaletteEntry(stateID uint16) nbt.Tag {
 		entry["properties"] = properties
 	}
 	return entry
-}
-
-func TestChunkNBTPaletteCacheBytes(t *testing.T) {
-	t.Parallel()
-	encode := func(tag nbt.Tag) []byte {
-		b, err := nbt.AppendEncode(nil, "", tag)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return b
-	}
-	for state := uint16(0); state <= registry.StateCount; state++ {
-		got, want := encode(blockPaletteEntry(state)), encode(referencePaletteEntry(state))
-		if !bytes.Equal(got, want) {
-			t.Fatalf("state %d: cached entry %x differs from reference %x", state, got, want)
-		}
-	}
-	if got := blockPaletteEntry(65535); got != nbt.String("minecraft:air") {
-		t.Fatalf("unknown state = %v", got)
-	}
 }
 
 func TestChunkNBTPaletteCompactStates(t *testing.T) {

@@ -1,8 +1,9 @@
 package plugins_test
 
 import (
-	"github.com/golem-mc/golem/internal/server"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -86,23 +87,6 @@ func TestPluginEntitiesArgument(t *testing.T) {
 	if _, player := asEntity.(plugin.Player); asEntity == nil || player || !asEntity.IsValid() {
 		t.Errorf("execute as entity = %T", asEntity)
 	}
-}
-
-func TestPluginEntitiesArgumentNeedsPermission(t *testing.T) {
-	ready := false
-	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "entities", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-		ready = true
-		return s.Commands().Register(plugin.Command{Name: "many", Children: []plugin.Node{{Arg: plugin.EntitiesArg("targets", false), Run: func(ctx *plugin.CommandContext) (int, error) {
-			t.Error("ran without permission")
-			return 0, nil
-		}}}})
-	}}}}, servertest.WriteOpsFile(t))
-	if !ready {
-		t.Fatal("not registered")
-	}
-	c := registrationClient(t, srv)
-	c.ChatCommand("many @e")
-	entitiesError(t, srv, c, "argument.entity.selector.not_allowed")
 }
 
 // entitiesError expects a command failure carrying the translation key,

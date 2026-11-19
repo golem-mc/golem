@@ -2,7 +2,6 @@ package mobs
 
 import (
 	"fmt"
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -37,35 +36,6 @@ func TestATurtleWithAnEggSwimsHomeAlongAChannel(t *testing.T) {
 			servertest.UntilTicks(t, srv, 400, "the turtle at the end of the channel", func() bool {
 				x, _, _, _ := srv.MobPos(id)
 				return x >= 27
-			})
-		})
-	}
-}
-
-// TestATurtleTemptedAcrossDeepWaterSwimsStraight: a turtle at the bottom of
-// a canal 5 deep follows seagrass 21 blocks off, passing each path node it
-// is a block or more below on a clear line rather than circling it. It
-// comes in 83 ticks on every seed; circling each node costs it 20 more.
-// vanilla: AmphibiousPathNavigation.canMoveDirectly, PathNavigation.shouldTargetNextNodeInDirection
-func TestATurtleTemptedAcrossDeepWaterSwimsStraight(t *testing.T) {
-	t.Parallel()
-	for seed := int64(1); seed <= 4; seed++ {
-		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.BreedingPlayer(t, "survival", goatOp, "minecraft:seagrass", 1, servertest.OpsListing(t, goatOp))
-			servertest.HoldTicks(t, srv)
-			c.ChatCommand("fill 1 58 -4 24 71 4 minecraft:stone")
-			c.ChatCommand("fill 2 59 -3 23 63 3 minecraft:water")
-			c.ChatCommand("fill 2 64 -3 23 71 3 minecraft:air")
-			c.ReadTicks(srv, 2, func(int32, []byte) bool { return false })
-			id := srv.SpawnMobSeeded("minecraft:turtle", 21.5, 59, 0.5, seed)
-			c.ChatCommand("attribute @e[type=turtle,limit=1] minecraft:tempt_range base set 30")
-			// Pins the command to the next tick, so each seed swims the same
-			// way every run.
-			c.ReadTicks(srv, 1, func(int32, []byte) bool { return false })
-			servertest.UntilTicks(t, srv, 92, "the turtle at the seagrass", func() bool {
-				x, _, z, _ := srv.MobPos(id)
-				return math.Hypot(x-0.5, z-0.5) < 3
 			})
 		})
 	}

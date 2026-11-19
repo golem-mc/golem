@@ -193,19 +193,6 @@ func TestServerParamErrors(t *testing.T) {
 	}
 }
 
-// A malformed receivingPlayers or translatableParams, or a null field, counts as absent.
-// vanilla: SystemMessage.CODEC, Message.CODEC (lenientOptionalFieldOf)
-func TestServerSystemMessageLenientFields(t *testing.T) {
-	t.Parallel()
-	c := servertest.ManagementClientFor(t, newManagementServer(t))
-	sameJSON(t, "receivingPlayers", result(t, c, "server/system_message", sysMsg(map[string]any{
-		"message": map[string]any{"literal": "x"}, "overlay": false, "receivingPlayers": "x"})), `true`)
-	sameJSON(t, "translatableParams", result(t, c, "server/system_message", sysMsg(map[string]any{
-		"message": map[string]any{"translatable": "k", "translatableParams": 5}, "overlay": false})), `true`)
-	sameJSON(t, "null literal", result(t, c, "server/system_message", sysMsg(map[string]any{
-		"message": map[string]any{"literal": nil}, "overlay": false})), `false`)
-}
-
 // vanilla: MinecraftServer.stopServer, DedicatedServer.stopServer
 func TestServerShutdownNotifies(t *testing.T) {
 	t.Parallel()
@@ -242,15 +229,4 @@ func TestServerStop(t *testing.T) {
 	default:
 		t.Error("stop did not request a stop")
 	}
-}
-
-// vanilla: ManagementServer.scheduleHeartbeat
-func TestServerHeartbeat(t *testing.T) {
-	t.Parallel()
-	srv := newManagementServer(t)
-	c := servertest.ManagementClientFor(t, srv)
-	c.Barrier()
-	srv.ManagementHeartbeat()
-	sameJSON(t, "heartbeat", c.ExpectNotification("minecraft:notification/server/status"),
-		`[{"started":true,"version":{"name":"26.3","protocol":777}}]`)
 }

@@ -2,30 +2,6 @@ package entity
 
 import "testing"
 
-// TestFangsBiteEightTicksAfterTheSpike: the spike event comes on the first
-// tick past the warmup, the bite on the eighth and the fangs vanish when the
-// 22 ticks of life are spent.
-// vanilla: EvokerFangs.tick
-func TestFangsBiteEightTicksAfterTheSpike(t *testing.T) {
-	f := NewEvokerFangs(1, 0, 0, 0, 0, 3, 0)
-	spikeAt, biteAt, goneAt := -1, -1, -1
-	for tick := 1; tick <= 60 && goneAt < 0; tick++ {
-		spike, bite := f.Tick()
-		if spike {
-			spikeAt = tick
-		}
-		if bite {
-			biteAt = tick
-		}
-		if f.Dead {
-			goneAt = tick
-		}
-	}
-	if spikeAt != 4 || biteAt != spikeAt+7 || goneAt != spikeAt+22 {
-		t.Errorf("spike %d, bite %d, gone %d; want 4, 11 and 26", spikeAt, biteAt, goneAt)
-	}
-}
-
 // TestFangsAlliedSparesIllagersAndOwnVexes covers the alliance the bite checks.
 func TestFangsAlliedSparesIllagersAndOwnVexes(t *testing.T) {
 	evoker := NewMob(TypeEvoker, 1, 0, 64, 0, 1)

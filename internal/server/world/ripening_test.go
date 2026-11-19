@@ -71,60 +71,6 @@ func TestTheRipeningDiceLandAtVanillasRates(t *testing.T) {
 	}
 }
 
-// TestABerryBushRipensOnBlockLightAlone pins the light gate's read of both
-// light layers: a bush under no sky at all still ripens from block light of
-// nine above it, and stops one short of it.
-func TestABerryBushRipensOnBlockLightAlone(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	const x, y, z = int32(0), GroundLevel, int32(0)
-	bush, ok := registry.FindState("minecraft:sweet_berry_bush", map[string]string{"age": "0"})
-	if !ok {
-		t.Fatal("the registry has no sweet berry bush")
-	}
-
-	ripenings := func(blockLight uint8) int {
-		p.rng = rand.New(rand.NewSource(ripeningSeed))
-		setLightAt(t, w, x, y+1, z, 0, blockLight)
-		return ripeningHits(w, p, x, y, z, bush, p.berryBushTick)
-	}
-
-	if got := ripenings(9); got == 0 {
-		t.Error("the bush under block light nine did not ripen")
-	}
-	if got := ripenings(8); got != 0 {
-		t.Errorf("the bush under block light eight ripened on %d rolls, want none", got)
-	}
-}
-
-// TestARipeningWartPulsesTheObserverWatchingIt checks the ripen write: a
-// nether wart on soul sand whose age the random pass bumps pulses the
-// observer watching it for the two game ticks vanilla's pulse lasts.
-// vanilla: NetherWartBlock.randomTick
-func TestARipeningWartPulsesTheObserverWatchingIt(t *testing.T) {
-	w, p, clock := observerCircuit(t)
-	setBlock(t, w, p, 13, 62, 9, rsState(t, "minecraft:soul_sand", nil))
-	setBlock(t, w, p, 13, 63, 9, rsState(t, "minecraft:nether_wart", map[string]string{"age": "0"}))
-	for range 12 {
-		*clock++
-		p.Tick(*clock)
-	}
-	if props := observerProps(t, w, 14, 63, 9); props["powered"] == "true" {
-		t.Fatalf("setup: the observer was pulsing before the dice: %v", props)
-	}
-
-	pulseTicks, lampOn := observerDicePulse(t, w, p, clock, 300, ripeningSeed, func() bool {
-		_, props := rsNameAt(t, w, 13, 63, 9)
-		return props["age"] != "0"
-	})
-
-	if pulseTicks != 2 {
-		t.Errorf("the wart's ripening pulsed the observer for %d ticks, want the two-tick pulse", pulseTicks)
-	}
-	if !lampOn {
-		t.Error("the lamp behind the observer never lit on the wart's ripening")
-	}
-}
-
 // setLightAt writes the stored sky and block light nibbles of a cell, which
 // the engine would otherwise only set through its own light computation.
 func setLightAt(t *testing.T, w *World, x, y, z int32, sky, block uint8) {

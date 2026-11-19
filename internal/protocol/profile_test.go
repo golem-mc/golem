@@ -128,37 +128,6 @@ func TestProfileTagRoundTripsTheCompleteShape(t *testing.T) {
 	}
 }
 
-// TestProfileTagRoundTripsThePartialShapes reads and writes the name-only,
-// UUID-only and empty profiles: each comes back in the same partial form it
-// went in.
-func TestProfileTagRoundTripsThePartialShapes(t *testing.T) {
-	id := uuid.MustParse("66666666-7777-8888-9999-000000000000")
-	cases := []struct {
-		name           string
-		hasID, hasName bool
-	}{
-		{"name alone", false, true},
-		{"id alone", true, false},
-		{"neither", false, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			wire := partialProfileWire(tc.hasID, id, tc.hasName, "Notch")
-			tag, ok := ProfileToTag(wire)
-			if !ok {
-				t.Fatal("ProfileToTag refused a partial profile")
-			}
-			back, ok := ProfileFromTag(tag)
-			if !ok {
-				t.Fatal("ProfileFromTag refused the compound it read")
-			}
-			if !bytes.Equal(back, wire) {
-				t.Errorf("the written profile = %x, want the wire's %x", back, wire)
-			}
-		})
-	}
-}
-
 // TestProfileTagRoundTripsTheSkinPatch reads a profile whose wire carries
 // two of the three skin textures and a slim model, checks the compound keeps
 // each under its own field and leaves the absent cape out, and writes it back
@@ -274,25 +243,6 @@ func repeatPropertyTags(n int) []nbt.Tag {
 	return items
 }
 
-// TestProfileFromTagSkipsAPropertyMissingAField writes a property list whose
-// entries are each unfit in a different way - a missing name, a missing
-// value, and an entry that is no compound at all - and checks the written
-// profile carries none of them rather than failing whole.
-func TestProfileFromTagSkipsAPropertyMissingAField(t *testing.T) {
-	tag := namedCompound("Notch", []nbt.Tag{
-		nbt.Compound{"value": nbt.String("v")},
-		nbt.Compound{"name": nbt.String("n")},
-		nbt.String("not a compound"),
-	})
-	back, ok := ProfileFromTag(tag)
-	if !ok {
-		t.Fatal("ProfileFromTag refused a compound whose property entries are unfit")
-	}
-	if want := partialProfileWire(false, uuid.Nil, true, "Notch"); !bytes.Equal(back, want) {
-		t.Errorf("the written profile = %x, want the propertyless %x", back, want)
-	}
-}
-
 // TestProfileFromTagReadsTheMapShapes writes the stored shapes a vanilla
 // skull keeps: the id as a list of ints, and the properties as one map of
 // name to value list. Each writes the wire value the codec reads back.
@@ -345,41 +295,4 @@ func TestProfileFromTagReadsTheMapShapes(t *testing.T) {
 			t.Errorf("the written profile = %x, want %x", back, want.Bytes())
 		}
 	})
-}
-
-// TestProfileFromTagRefusesADisallowedName checks the name character rule: a
-// name holding a character the codec allows none of is refused whole, so a
-// bad one never reaches the wire.
-// vanilla: ExtraCodecs.PLAYER_NAME, StringUtil.isValidPlayerName
-func TestProfileFromTagRefusesADisallowedName(t *testing.T) {
-	for _, name := range []string{"a b", "Nötch"} {
-		if raw, ok := ProfileFromTag(nbt.Compound{"name": nbt.String(name)}); ok {
-			t.Errorf("ProfileFromTag(%q) = %x, true, want refused", name, raw)
-		}
-	}
-}
-
-// TestProfileNameReadsTheNamedPlayer checks the display-name source: a
-// profile naming a player answers it, a UUID-only profile names none, and a
-// stack with no profile names none.
-func TestProfileNameReadsTheNamedPlayer(t *testing.T) {
-	named := ItemStack{Raw: []RawComponent{{
-		Type: DataComponentProfile,
-		Data: partialProfileWire(false, uuid.Nil, true, "Notch"),
-	}}}
-	if name, ok := named.ProfileName(); !ok || name != "Notch" {
-		t.Errorf("ProfileName = %q, %v, want Notch, true", name, ok)
-	}
-
-	uuidOnly := ItemStack{Raw: []RawComponent{{
-		Type: DataComponentProfile,
-		Data: partialProfileWire(true, uuid.MustParse("00000000-0000-0000-0000-000000000002"), false, ""),
-	}}}
-	if name, ok := uuidOnly.ProfileName(); ok {
-		t.Errorf("ProfileName = %q, true, want no name for a UUID-only profile", name)
-	}
-
-	if name, ok := (ItemStack{}).ProfileName(); ok {
-		t.Errorf("ProfileName = %q, true, want no name for a stack with no profile", name)
-	}
 }

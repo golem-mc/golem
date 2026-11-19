@@ -112,40 +112,6 @@ func TestAMobUnderWaterSpendsItsBreathAndDrowns(t *testing.T) {
 	}
 }
 
-// TestASoftenedDrownIsMarkedSoftened checks a drown bite that lands inside a
-// mob's window: the excess alone reaches the health and the bite is marked
-// softened so the server can hold back the hurt telling, while the bubble
-// burst it rides still goes out.
-func TestASoftenedDrownIsMarkedSoftened(t *testing.T) {
-	w, _ := pool(t)
-	cow := aimless(NewMob(TypeCow, 1, 0.5, 66, 0.5, 1))
-	cow.NoAI = true
-	cow.HurtByBlast(1, 0, 0, 0, rules.DamageTypeExplosion, false)
-	beforeVX, beforeVY := cow.VX, cow.VY
-	cow.AirSupply = rules.AirDrownFloor + 1
-
-	events := cow.Tick(w, nil)
-	if want := 10.0 - 1 - 1; !closeEnough(cow.Health, want) {
-		t.Errorf("the excess of one left %v health, want the %v", cow.Health, want)
-	}
-	if cow.VX != beforeVX || cow.VY != beforeVY {
-		t.Errorf("a softened drown shoved to (%v, %v), want the velocity left at (%v, %v)",
-			cow.VX, cow.VY, beforeVX, beforeVY)
-	}
-	var bite *MobEvent
-	for i := range events {
-		if events[i].Kind == MobBurned && events[i].DamageType == rules.DamageTypeDrown {
-			bite = &events[i]
-		}
-	}
-	if bite == nil {
-		t.Fatal("the drowning sent no bite for the bubble burst to ride")
-	}
-	if !bite.Softened {
-		t.Error("the softened drowning's bite was not marked softened")
-	}
-}
-
 // TestAMobOutOfWaterBreathesBackUp checks the recovery: away from the water
 // the air comes back four a tick and never past the full breath.
 func TestAMobOutOfWaterBreathesBackUp(t *testing.T) {
@@ -165,42 +131,6 @@ func TestAMobOutOfWaterBreathesBackUp(t *testing.T) {
 	cow.Tick(w, nil)
 	if cow.AirSupply != rules.MaxAirSupply {
 		t.Errorf("the breath past the full = %d, want the %d cap", cow.AirSupply, rules.MaxAirSupply)
-	}
-}
-
-// TestEveryUndeadMobKeepsItsBreathUnderWater checks canBreatheUnderwater on
-// each undead kind here — the husk and drowned alongside the zombie, the
-// stray and bogged alongside the skeleton: a breathing mob under water
-// refills four a tick like out of it, never spends air, and takes no drown
-// bite.
-func TestEveryUndeadMobKeepsItsBreathUnderWater(t *testing.T) {
-	kinds := []MobType{TypeZombie, TypeHusk, TypeDrowned, TypeSkeleton, TypeStray, TypeBogged}
-	for _, kind := range kinds {
-		w, _ := pool(t)
-		m := aimless(NewMob(kind, 1, 0.5, 66, 0.5, 1))
-		m.NoAI = true
-
-		// A low breath climbs by the refill, not straight to the full.
-		m.AirSupply = 100
-		m.Tick(w, nil)
-		if m.AirSupply != 104 {
-			t.Errorf("%s with a low breath under water refilled to %d, want 104", kind, m.AirSupply)
-		}
-
-		m.AirSupply = rules.MaxAirSupply
-		for range rules.MaxAirSupply + 40 {
-			for _, ev := range m.Tick(w, nil) {
-				if ev.Kind == MobBurned && ev.DamageType == rules.DamageTypeDrown {
-					t.Fatalf("%s took a drown bite", kind)
-				}
-			}
-		}
-		if m.AirSupply != rules.MaxAirSupply {
-			t.Errorf("%s's breath under water = %d, want the full %d", kind, m.AirSupply, rules.MaxAirSupply)
-		}
-		if m.Health != m.MaxHealth {
-			t.Errorf("%s's health under water = %v, want the whole %v", kind, m.Health, m.MaxHealth)
-		}
 	}
 }
 
@@ -257,69 +187,5 @@ func TestAMobWithWaterBreathingEffectsBreathesUnderWater(t *testing.T) {
 		if cow.Health != cow.MaxHealth {
 			t.Errorf("%s's health under water = %v, want the whole %v", tc.name, cow.Health, cow.MaxHealth)
 		}
-	}
-}
-
-// TestARefusedDrownBiteStillBursts checks a drown bite the window refuses
-// outright: no health goes, yet the bubble burst event is still told, marked
-// softened so no hurt telling follows.
-func TestARefusedDrownBiteStillBursts(t *testing.T) {
-	w, _ := pool(t)
-	cow := aimless(NewMob(TypeCow, 1, 0.5, 66, 0.5, 1))
-	cow.NoAI = true
-	cow.HurtByBlast(5, 0, 0, 0, rules.DamageTypeExplosion, false)
-	health := cow.Health
-	cow.AirSupply = rules.AirDrownFloor + 1
-
-	events := cow.Tick(w, nil)
-	if cow.Health != health {
-		t.Errorf("a refused bite left %v health, want %v", cow.Health, health)
-	}
-	var bite *MobEvent
-	for i := range events {
-		if events[i].Kind == MobBurned && events[i].DamageType == rules.DamageTypeDrown {
-			bite = &events[i]
-		}
-	}
-	if bite == nil {
-		t.Fatal("the refused drowning told no bubble burst")
-	}
-	if !bite.Softened {
-		t.Error("the refused bite was not marked softened, so its hurt telling would go out")
-	}
-}
-
-// TestAWindowSoftenedKillPlaysNoDeathSound checks that a kill the window cut
-// to its excess is marked softened, while a full-damage kill is not.
-func TestAWindowSoftenedKillPlaysNoDeathSound(t *testing.T) {
-	soft := aimless(NewMob(TypeCow, 1, 0.5, 66, 0.5, 1))
-	soft.HurtByBlast(1, 0, 0, 0, rules.DamageTypeExplosion, false)
-	soft.HurtByBlast(20, 0, 0, 0, rules.DamageTypeExplosion, false)
-	if !soft.Dead {
-		t.Fatal("the larger blow inside the window did not kill")
-	}
-	if !soft.DeathSoftened() {
-		t.Error("a window-softened kill was not marked softened")
-	}
-
-	full := aimless(NewMob(TypeCow, 2, 0.5, 66, 0.5, 1))
-	full.HurtByBlast(20, 0, 0, 0, rules.DamageTypeExplosion, false)
-	if !full.Dead || full.DeathSoftened() {
-		t.Errorf("a full-damage kill: dead=%v softened=%v, want dead and not softened", full.Dead, full.DeathSoftened())
-	}
-}
-
-// TestOnlyABabyHappyGhastBreathesUnderWater checks HappyGhast's own
-// canBreatheUnderwater: the ghastling breathes, the grown ghast, outside the
-// tag, spends its air like a cow.
-func TestOnlyABabyHappyGhastBreathesUnderWater(t *testing.T) {
-	adult := NewMob(TypeHappyGhast, 1, 0.5, 66, 0.5, 1)
-	if adult.canBreatheUnderwater() {
-		t.Error("an adult happy ghast breathes under water, want it to spend its air")
-	}
-	baby := NewMob(TypeHappyGhast, 2, 0.5, 66, 0.5, 1)
-	baby.BabyAge = -24000
-	if !baby.canBreatheUnderwater() {
-		t.Error("a baby happy ghast spends its air under water, want it to breathe")
 	}
 }

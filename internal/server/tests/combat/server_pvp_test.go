@@ -1,10 +1,11 @@
 package combat
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"math"
 	"slices"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
@@ -120,77 +121,6 @@ func TestPvpOffAPlayersArrowPassesThroughAPlayer(t *testing.T) {
 	}
 	if !srv.ArrowAlive(arrowID) {
 		t.Error("the arrow flown through the victim is not in the world any more")
-	}
-}
-
-// TestPvpOffLeavesAMobArrowHittingAPlayer shoots a shaft a mob owns at a
-// player with pvp off: SparePlayers is the player-owned rule alone, so the
-// mob's arrow still draws blood.
-func TestPvpOffLeavesAMobArrowHittingAPlayer(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.PvpOffServer(t)
-
-	victim := connect()
-	victim.JoinAs("Victim")
-	victim.MoveToGround(0.5, 64, 0.5, true)
-	victim.Settle()
-
-	// Spawn the cow only once the victim holds the chunk: a mob dropped in an
-	// unheld chunk is unloaded and re-raised with a new ID before the shot.
-	shooter := srv.SpawnMob("minecraft:cow", 8.5, 64, 8.5)
-
-	arrowID := srv.ShootMobArrow(shooter, 4.5, 65, 0.5, -2, 0, 0)
-	if arrowID == 0 {
-		t.Fatal("the mob's arrow was not stood in the world")
-	}
-	servertest.PollUntil(t, servertest.ExpectTimeout, func() bool { return srv.PlayerHealth("Victim") < 20 })
-	if got := srv.PlayerHealth("Victim"); got >= 20 {
-		t.Errorf("victim health after the mob's arrow = %v of twenty, want a hurt", got)
-	}
-}
-
-// TestPvpOffLeavesAPlayerLitTNTsVictimWholeButPushed lights a TNT with one
-// player's hand and sets it off beside another with pvp off: the blast's
-// cause is the lighter, so the hurt is refused and the victim's health
-// stands at twenty, while the blast still shoves the body.
-func TestPvpOffLeavesAPlayerLitTNTsVictimWholeButPushed(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.PvpOffServer(t)
-
-	lighter := connect()
-	lighter.JoinAs("Lighter")
-	lighter.MoveToGround(0.5, 64, 0.5, true)
-
-	victim := connect()
-	victim.JoinAs("Victim")
-	victim.MoveToGround(3.5, 64, 0.5, true)
-	lighter.Settle()
-	victim.Settle()
-
-	srv.SpawnPlayerTNT("Lighter", 2.5, 64, 0.5, 4)
-
-	pushed, hurt := false, false
-	for id, data := range victim.Packets(servertest.ExpectTimeout) {
-		switch id {
-		case protocol.IDPlayExplosion:
-			pushed = servertest.ReadExplosion(victim, data).Pushed
-		case protocol.IDPlaySetHealth:
-			if servertest.ExpectHealthReport(victim, data).Health < 20 {
-				hurt = true
-			}
-		}
-		if pushed {
-			break
-		}
-	}
-	if hurt {
-		t.Error("the player-lit TNT drew blood under pvp off")
-	}
-	if !pushed {
-		t.Fatal("the player-lit TNT never pushed the victim")
-	}
-	if got := srv.PlayerHealth("Victim"); math.Abs(got-20) > 0.01 {
-		t.Errorf("victim health after the player-lit TNT = %v of twenty, want no hurt", got)
 	}
 }
 

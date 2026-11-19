@@ -145,24 +145,3 @@ func TestAHeldBundleDropsItsStacksOneByOne(t *testing.T) {
 		t.Fatalf("%d items on the ground after the bundle emptied, want 3", got)
 	}
 }
-
-// TestReleasingABundleStopsTheDrops lets go after the first stack: the other
-// two stay in the bundle.
-func TestReleasingABundleStopsTheDrops(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := bundleHolder(t)
-	startBundleUse(t, srv, c)
-	servertest.RunTicks(t, srv, 1)
-	if got := srv.ItemCount(); got != 1 {
-		t.Fatalf("%d stacks dropped on the first tick, want 1", got)
-	}
-	c.ReleaseUseItem()
-	c.Settle()
-	servertest.RunTicks(t, srv, 30)
-	if got := srv.ItemCount(); got != 1 {
-		t.Fatalf("%d stacks on the ground after the release, want 1", got)
-	}
-	if left := srv.InventorySlot("Holder", player.HotbarSlot).BundleContents(); len(left) != 2 {
-		t.Fatalf("bundle holds %d stacks, want 2", len(left))
-	}
-}

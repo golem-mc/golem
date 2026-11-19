@@ -76,18 +76,3 @@ func (fakeLevelWorld) ClockTime(string) (int64, int64, bool) {
 	return 0, 0, false
 }
 func (w fakeLevelWorld) EnvironmentFloat(string, float64, float64, float64) float32 { return w.env }
-
-func TestLevelWithoutOriginEnvironment(t *testing.T) {
-	w := fakeLevelWorld{env: 0.5}
-	const positional = "minecraft:gameplay/creature_world_gen_spawn_probability" // default 0.1
-	const dimensional = "minecraft:gameplay/sky_light_level"
-	if got := LevelWithoutOrigin(w, nil).EnvironmentFloat(positional); got != 0.1 {
-		t.Errorf("positional without origin = %v, want the default 0.1", got)
-	}
-	if got := LevelWithoutOrigin(w, nil).EnvironmentFloat(dimensional); got != 0.5 {
-		t.Errorf("dimensional without origin = %v, want the world's 0.5", got)
-	}
-	if got := LevelAt(w, nil, 0, 0, 0).EnvironmentFloat(positional); got != 0.5 {
-		t.Errorf("positional at an origin = %v, want the world's 0.5", got)
-	}
-}

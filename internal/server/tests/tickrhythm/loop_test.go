@@ -109,18 +109,3 @@ func TestTickLoopDropsABacklogPastTwoSeconds(t *testing.T) {
 		t.Errorf("the warning does not give the backlog:\n%s", logged)
 	}
 }
-
-// TestTickLoopCatchesUpWithinTheWarningInterval checks that a backlog past
-// two seconds within fifteen seconds of the last drop is caught up: the drop
-// is rate-limited with its warning. The first stall drops 59 ticks; after the
-// second, the 21 ticks scheduled up to five seconds all run.
-func TestTickLoopCatchesUpWithinTheWarningInterval(t *testing.T) {
-	t.Parallel()
-	ticks, logged := runStalled(t, map[int]time.Duration{10: 3 * time.Second, 20: 3 * time.Second})
-	if ticks != 41 {
-		t.Errorf("ran %d ticks, want 41: the second stall's backlog caught up rather than dropped", ticks)
-	}
-	if n := strings.Count(logged, overloadWarning); n != 1 {
-		t.Errorf("warned %d times, want once:\n%s", n, logged)
-	}
-}

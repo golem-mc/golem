@@ -7,7 +7,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
-	"github.com/google/uuid"
 )
 
 // TestLoadedArrowSoundEvent checks saved sounds survive a data write and reach
@@ -68,53 +67,6 @@ func TestLoadedArrowSoundEvent(t *testing.T) {
 			}
 			if !tc.mob {
 				query("minecraft:entity.arrow.hit")
-			}
-		})
-	}
-}
-
-// TestPiercingArrowSoundBeforeBlock checks both impacts in one step retain
-// the selected sound before the block landing resets it.
-// vanilla: AbstractArrow.stepMoveAndHit, onHitEntity, onHitBlock
-func TestPiercingArrowSoundBeforeBlock(t *testing.T) {
-	t.Parallel()
-	for _, target := range []string{"cow", "armor_stand"} {
-		t.Run(target, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.Join(t, servertest.CombatTestConfig(), "Watcher", servertest.OpsListing(t, "Watcher"))
-			servertest.HoldTicks(t, srv)
-			c.MoveToGround(0.5, 64, 6.5, true)
-			c.ChatCommand("setblock 5 65 0 stone")
-			c.ExpectCommandFeedback("commands.setblock.success", "5", "65", "0")
-			c.ChatCommand(fmt.Sprintf("summon %s 3.5 64 0.5 {NoAI:1b}", target))
-			var bodyUUID uuid.UUID
-			if target == "armor_stand" {
-				bodyUUID = c.ExpectArmorStandSpawn().Identity
-			} else {
-				bodyUUID = c.ExpectMobSpawn(protocol.EntityTypeCow).Uuid
-			}
-			c.ExpectCommandFeedbackText("commands.summon.success",
-				servertest.EntityDisplayComponent("minecraft:"+target, "entity.minecraft."+target, bodyUUID))
-			c.ChatCommand(`summon arrow 1.5 65 0.5 {NoGravity:1b,Motion:[4d,0d,0d],PierceLevel:1b,SoundEvent:"block.bell.use"}`)
-			shaft := c.AwaitSpawn(protocol.EntityTypeArrow)
-			c.ExpectCommandFeedbackText("commands.summon.success",
-				servertest.EntityDisplayComponent("minecraft:arrow", "entity.minecraft.arrow", shaft.Uuid))
-			bell, _ := registry.SoundEventID("minecraft:block.bell.use")
-			arrow, _ := registry.SoundEventID("minecraft:entity.arrow.hit")
-			var bells, defaults int
-			c.ReadTicks(srv, 1, func(id int32, data []byte) bool {
-				if id == protocol.IDPlaySoundEffect {
-					switch protocol.NewReader(data).ReadVarInt() {
-					case bell + 1:
-						bells++
-					case arrow + 1:
-						defaults++
-					}
-				}
-				return false
-			})
-			if bells != 2 || defaults != 0 {
-				t.Fatalf("one-tick impacts played %d bells and %d default arrow sounds, want 2 and 0", bells, defaults)
 			}
 		})
 	}

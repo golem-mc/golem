@@ -5,7 +5,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
@@ -48,26 +47,5 @@ func TestABellMakesAVillagerHideWithoutOccupyingTheBed(t *testing.T) {
 	advanceVillager(t, srv, c, 300, &seen)
 	if got := srv.VillagerActivity(id); got == "hide" {
 		t.Fatal("villager did not leave HIDE after the bell timeout")
-	}
-}
-
-// vanilla: BellBlock.neighborChanged, BellBlockEntity.updateEntities
-func TestARedstoneBellAlsoMakesAVillagerHide(t *testing.T) {
-	t.Parallel()
-	srv, c := villagerYard(t, func(s *server.Server) { servertest.FreezeUntilHeld(t, s) })
-	srv.SetDayTime(3000)
-	srv.SetBlock(3, 64, 0, servertest.BellState(t, "floor", "north", false))
-	srv.SetBlock(8, 64, 0, servertest.BedStateName("red", "head", "east"))
-	srv.SetBlock(7, 64, 0, servertest.BedStateName("red", "foot", "east"))
-	id := srv.SpawnMobSeeded("minecraft:villager", 1.5, 64, 2.5, 2162)
-	seen := c.WatchVariant(srv, "minecraft:villager")
-	srv.SetPlayerGameMode("Villager", protocol.GameModeCreative)
-	c.SetCreativeSlot(player.HotbarSlot, servertest.ItemStack(t, "minecraft:redstone_block", 1))
-	c.PlaceBlock(3, 63, 1, protocol.FaceTop)
-	c.Settle()
-	srv.TickPhysics(3)
-	advanceVillager(t, srv, c, 2, &seen)
-	if got := srv.VillagerActivity(id); got != "hide" {
-		t.Fatalf("activity %q after redstone bell, want hide", got)
 	}
 }

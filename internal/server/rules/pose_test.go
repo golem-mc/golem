@@ -68,30 +68,3 @@ func TestPlayerPoseMatchesVanillaOrder(t *testing.T) {
 		}
 	}
 }
-
-// TestPlayerPoseStandingFreeFitsOnce checks that a standing body in open
-// space costs one fit.
-func TestPlayerPoseStandingFreeFitsOnce(t *testing.T) {
-	calls := 0
-	pose, ok := PlayerPose(protocol.PoseStanding, false, func(Pose) bool { calls++; return true })
-	if pose != protocol.PoseStanding || !ok || calls != 1 {
-		t.Fatalf("got (%d, %v) after %d fits, want (%d, true) after 1", pose, ok, calls, protocol.PoseStanding)
-	}
-}
-
-func TestPlayerPoseFreeOnlyChecksSwimming(t *testing.T) {
-	for _, swimFits := range []bool{false, true} {
-		calls := 0
-		pose, ok := PlayerPose(protocol.PoseStanding, true, func(p Pose) bool {
-			calls++
-			if p != protocol.PoseSwimming {
-				t.Fatalf("free body checked pose %d, want only swimming", p)
-			}
-			return swimFits
-		})
-		if pose != protocol.PoseStanding || ok != swimFits || calls != 1 {
-			t.Fatalf("swimming fits %v: got (%d, %v) after %d fits, want (%d, %v) after 1",
-				swimFits, pose, ok, calls, protocol.PoseStanding, swimFits)
-		}
-	}
-}

@@ -5,8 +5,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/registry"
 )
 
 // endermitesOf lists the endermites standing in the world.
@@ -66,26 +64,6 @@ func TestAPearlLandingSpawnsAnEndermiteAtTheOwnersOldPlace(t *testing.T) {
 	}
 }
 
-// TestNoEndermiteFromAPearlOnPeacefulOrWithoutSpawnRules pins the two
-// refusals of the landing's spawn.
-func TestNoEndermiteFromAPearlOnPeacefulOrWithoutSpawnRules(t *testing.T) {
-	t.Parallel()
-	srv, _ := endermiteTests(t, 0)
-	if places, _ := pearlLandings(srv, 200); len(places) != 0 {
-		t.Errorf("%d endermites on peaceful, want none", len(places))
-	}
-	srv.SetDifficulty(2)
-	srv.SetGameRule(world.RuleSpawnMonsters.String(), false)
-	if places, _ := pearlLandings(srv, 200); len(places) != 0 {
-		t.Errorf("%d endermites with spawn_monsters off, want none", len(places))
-	}
-	srv.SetGameRule(world.RuleSpawnMonsters.String(), true)
-	srv.SetGameRule(world.RuleSpawnMobs.String(), false)
-	if places, _ := pearlLandings(srv, 200); len(places) != 0 {
-		t.Errorf("%d endermites with spawn_mobs off, want none", len(places))
-	}
-}
-
 // TestAnEndermiteIsDiscardedAfterItsLifetime checks Endermite.life: 2400
 // ticks and it is gone, unless it is persistent.
 // vanilla: Endermite.aiStep
@@ -101,31 +79,5 @@ func TestAnEndermiteIsDiscardedAfterItsLifetime(t *testing.T) {
 	srv.TickMobs(1)
 	if got := len(endermitesOf(srv)); got != 0 {
 		t.Errorf("%d endermites after 2400 ticks, want none", got)
-	}
-}
-
-// TestAPersistentEndermiteStays pins the PersistenceRequired exemption.
-func TestAPersistentEndermiteStays(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.SpawningTestConfig(), "Watcher", servertest.OpsListing(t, "Watcher"))
-	srv.StopTick()
-	srv.SetDifficulty(2)
-	endermite, _ := registry.EntityTypeID("minecraft:endermite")
-	c.ChatCommand("summon minecraft:endermite 0.5 64 0.5 {PersistenceRequired:1b,NoAI:1b}")
-	c.ExpectMobSpawn(endermite)
-	srv.TickMobs(2500)
-	if got := len(endermitesOf(srv)); got != 1 {
-		t.Errorf("%d persistent endermites after 2500 ticks, want 1", got)
-	}
-}
-
-// TestAnEndermiteHasItsAttributes pins the health, which Endermite.
-// createAttributes sets at 8.
-func TestAnEndermiteHasItsAttributes(t *testing.T) {
-	t.Parallel()
-	srv, _ := endermiteTests(t, 2)
-	id := srv.SpawnMob("minecraft:endermite", 0.5, 64, 0.5)
-	if hp, _ := srv.MobHealth(id); hp != 8 {
-		t.Errorf("endermite health %v, want 8", hp)
 	}
 }

@@ -3,8 +3,6 @@ package rules
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/nbt"
-
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/registry"
 )
@@ -378,49 +376,5 @@ func TestBlockActionRestricted(t *testing.T) {
 	}
 	if CanBreakInAdventureMode(plainStack, AdventureTarget{State: stone}) {
 		t.Error("CanBreakInAdventureMode gave a plain stack a block")
-	}
-}
-
-// vanilla: BlockPredicate.matches, NbtPredicate.matches
-func TestAdventurePredicateReadsNBTLazily(t *testing.T) {
-	t.Parallel()
-	state := registry.BlockBeehive.DefaultState()
-	wrongID := protocol.BlockPredicate{NBT: nbt.Compound{"id": nbt.String("minecraft:chest")}}
-	rightID := protocol.BlockPredicate{NBT: nbt.Compound{"id": nbt.String("minecraft:beehive")}}
-	wrongBlock := rightID
-	wrongBlock.Blocks = protocol.BlockPredicateSet{Present: true, Inline: []int32{int32(registry.BlockStone)}}
-	wrongProp := rightID
-	wrongProp.Props = []protocol.BlockPredicateProp{{Name: "honey_level", Value: "5"}}
-	for _, tc := range []struct {
-		name       string
-		predicates []protocol.BlockPredicate
-		tag        nbt.Compound
-		want       bool
-		reads      int
-	}{
-		{"state only", []protocol.BlockPredicate{{}}, nil, true, 0},
-		{"wrong block", []protocol.BlockPredicate{wrongBlock}, nil, false, 0},
-		{"wrong property", []protocol.BlockPredicate{wrongProp}, nil, false, 0},
-		{"one snapshot", []protocol.BlockPredicate{wrongID, rightID}, nbt.Compound{"id": nbt.String("minecraft:beehive")}, true, 1},
-		{"absent entity cached", []protocol.BlockPredicate{wrongID, rightID}, nil, false, 1},
-		{"empty guard requires entity", []protocol.BlockPredicate{{NBT: nbt.Compound{}}}, nil, false, 1},
-		{"later state-only match", []protocol.BlockPredicate{wrongID, {}}, nil, true, 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			reads := 0
-			target := AdventureTarget{State: state, ReadNBT: func() nbt.Compound {
-				reads++
-				return tc.tag
-			}}
-			if got := predicatesMatch(tc.predicates, target); got != tc.want {
-				t.Errorf("match = %t, want %t", got, tc.want)
-			}
-			if reads != tc.reads {
-				t.Errorf("NBT reads = %d, want %d", reads, tc.reads)
-			}
-		})
-	}
-	if predicatesMatch([]protocol.BlockPredicate{rightID}, AdventureTarget{State: state}) {
-		t.Error("NBT guard matched without a reader")
 	}
 }

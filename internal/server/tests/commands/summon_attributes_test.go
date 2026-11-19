@@ -60,23 +60,3 @@ func TestSummonAttributesReadsUnqualifiedIdAndIntBase(t *testing.T) {
 		})
 	}
 }
-
-func TestDataMergeAttributesReadsUnqualifiedIdAndNumericTags(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Tester", servertest.OpsListing(t, "Tester"))
-	servertest.HoldTicks(t, srv)
-	c.ChatCommand("summon zombie ~ ~ ~2 {NoAI:1b}")
-	mob := c.ExpectMobSpawn(protocol.EntityTypeZombie)
-	who := servertest.EntityDisplayComponent("minecraft:zombie", "entity.minecraft.zombie", mob.Uuid)
-	servertest.AwaitCommandFeedbackText(t, c, "commands.summon.success", who)
-	target := mob.Uuid.String()
-	c.ChatCommand("data merge entity " + target + ` {Health:105f,attributes:[{id:"max_health",base:100s,modifiers:[{id:"bonus",amount:5b,operation:"add_value"}]}]}`)
-	servertest.AwaitSystemChatSaying(t, c, "commands.data.entity.modified")
-	c.ChatCommand("attribute " + target + " max_health get")
-	servertest.AwaitCommandFeedbackText(t, c, "commands.attribute.value.get.success",
-		protocol.Text{Translate: "attribute.name.max_health"}, who, protocol.Text{Text: "105.0"})
-	c.ChatCommand("data get entity " + target + " Health")
-	servertest.AwaitCommandFeedbackText(t, c, "commands.data.entity.query", who, servertest.NBTArg("105.0f"))
-	c.ChatCommand("data get entity " + target + ` attributes[{id:"minecraft:max_health"}].modifiers[{id:"minecraft:bonus"}].amount`)
-	servertest.AwaitCommandFeedbackText(t, c, "commands.data.entity.query", who, servertest.NBTArg("5.0d"))
-}

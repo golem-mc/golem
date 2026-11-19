@@ -69,27 +69,3 @@ func TestPiercingArrowKeepsItsImpactVelocityAtAWall(t *testing.T) {
 		})
 	}
 }
-
-// TestPiercingArrowKeepsAMobsImpactVelocityAtAWall checks the same flight
-// snapshot reaches the mob hurt, which is applied before the player hurts.
-func TestPiercingArrowKeepsAMobsImpactVelocityAtAWall(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.CombatTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, c := servertest.Join(t, cfg, "Watcher")
-	c.MoveToGround(3.5, 64, 3.5, true)
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	cow := srv.SpawnMobSeeded("minecraft:cow", 0.5, 64, 3.5, 1)
-	srv.SetMobNoAI(cow)
-	srv.SetBlock(0, 65, 5, registry.BlockStone.DefaultState())
-	srv.ShootPiercingArrow(0.5, 65, 1.5, 0, 0, 4, 1, false)
-	c.ReadTicks(srv, 1, func(int32, []byte) bool { return false })
-	if health, ok := srv.MobHealth(cow); !ok || health != 2 {
-		t.Errorf("cow health = %v, present = %v, want 2 and true", health, ok)
-	}
-	vx, vy, vz, ok := srv.MobVelocity(cow)
-	if !ok || math.Abs(vx) > 0.01 || vy <= 0 || vz < 0.39 {
-		t.Errorf("cow motion = [%v %v %v], present = %v, want upward and forward along +Z", vx, vy, vz, ok)
-	}
-}

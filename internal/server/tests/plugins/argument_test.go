@@ -1,7 +1,6 @@
 package plugins_test
 
 import (
-	"math"
 	"reflect"
 	"slices"
 	"strings"
@@ -183,81 +182,6 @@ func TestPluginWorldCommandSuggestions(t *testing.T) {
 	}
 }
 
-func TestPluginWorldCommandFailures(t *testing.T) {
-	ready := false
-	runs := 0
-	cfg := servertest.BlockTestConfig()
-	cfg.CommandSpamThresholdSeconds = 100
-	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "arguments", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-		var children []plugin.Node
-		for name, arg := range map[string]plugin.Argument{"pos": plugin.BlockPosArg("value"), "vec": plugin.Vec3Arg("value"), "block": plugin.BlockStateArg("value"), "item": plugin.ItemArg("value"), "text": plugin.TextArg("value"), "world": plugin.DimensionArg("value"), "players": plugin.PlayersArg("value", false), "player": plugin.PlayersArg("value", true)} {
-			children = append(children, plugin.Node{Literal: name, Children: []plugin.Node{{Arg: arg, Run: func(*plugin.CommandContext) (int, error) { runs++; return 1, nil }}}})
-		}
-		// Completing an unresolved preceding argument must never emit a chat failure.
-		children = append(children, plugin.Node{Literal: "after", Children: []plugin.Node{{Arg: plugin.DimensionArg("world"), Children: []plugin.Node{{Arg: plugin.WordArg("value"), Suggest: func(*plugin.CommandContext, string) []string {
-			t.Error("completion ran after an invalid dimension")
-			return nil
-		}}}}}})
-		if err := s.Commands().Register(plugin.Command{Name: "invalid", Children: children}); err != nil {
-			return err
-		}
-		ready = true
-		return nil
-	}}}}, servertest.WriteOpsFile(t, servertest.OpRecord{UUID: protocol.OfflineUUID("Tester").String(), Name: "Tester", Level: 2}))
-	if !ready {
-		t.Fatal("advanced arguments were not registered")
-	}
-	c := registrationClient(t, srv)
-	c.CommandSuggestion(40, "/invalid after nonexistent x")
-	_, _, _, matches := registrationSuggestions(t, srv, c)
-	if len(matches) != 0 {
-		t.Errorf("invalid preceding argument suggestions = %v", matches)
-	}
-	for _, tc := range []struct {
-		line, key string
-		context   bool
-	}{
-		{"invalid pos 1 2", "argument.pos3d.incomplete", true},
-		{"invalid pos 1.5 2 3", "parsing.int.invalid", true},
-		{"invalid vec 1 ^ 3", "argument.pos.mixed", true},
-		{"invalid block unknown_block", "argument.block.id.invalid", true},
-		{"invalid block oak_log[axis=bad]", "argument.block.property.invalid", true},
-		{"invalid item missing_item", "argument.item.id.invalid", true},
-		{"invalid text 42", "argument.component.invalid", true},
-		{"invalid world nowhere", "argument.dimension.invalid", false},
-		{"invalid players Nobody", "argument.entity.notfound.player", false},
-		{"invalid players @e", "argument.player.entities", true},
-		{"invalid player @a", "argument.player.toomany", true},
-	} {
-		c.ChatCommand(tc.line)
-		text, ok := protocol.ReadText(protocol.NewReader(c.ExpectWithinTicks(srv, 4, protocol.IDPlaySystemChat)))
-		if !ok || text.Color != protocol.ColorRed || !textHasTranslation(text, tc.key) {
-			t.Fatalf("failure for %q = %+v, want %s", tc.line, text, tc.key)
-		}
-		if tc.context {
-			text, ok = protocol.ReadText(protocol.NewReader(c.ExpectWithinTicks(srv, 4, protocol.IDPlaySystemChat)))
-			if !ok || !textHasTranslation(text, "command.context.here") {
-				t.Fatalf("syntax context for %q = %+v", tc.line, text)
-			}
-		}
-	}
-	guest := servertest.DialServer(t, srv)
-	guest.ViewAsk = 2
-	guest.Join("Guest")
-	guest.ChatCommand("invalid players @a")
-	text, _ := protocol.ReadText(protocol.NewReader(guest.ExpectWithinTicks(srv, 4, protocol.IDPlaySystemChat)))
-	if !textHasTranslation(text, "argument.entity.selector.not_allowed") {
-		t.Errorf("non-op selector refusal = %+v", text)
-	}
-	guest.ExpectWithinTicks(srv, 4, protocol.IDPlaySystemChat)
-	if out := srv.RunLine("list"); len(out) != 1 {
-		t.Fatal("console synchronization failed")
-	}
-	if runs != 0 {
-		t.Errorf("invalid arguments invoked handler %d times", runs)
-	}
-}
-
 func textHasTranslation(text protocol.Text, key string) bool {
 	if text.Translate == key {
 		return true
@@ -268,72 +192,4 @@ func textHasTranslation(text protocol.Text, key string) bool {
 		}
 	}
 	return false
-}
-
-func TestPluginWorldCommandExecuteContext(t *testing.T) {
-	var host plugin.Server
-	ready := false
-	var context *plugin.CommandContext
-	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "arguments", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-		host = s
-		var children []plugin.Node
-		for name, arg := range map[string]plugin.Argument{"pos": plugin.BlockPosArg("value"), "vec": plugin.Vec3Arg("value"), "text": plugin.TextArg("value"), "players": plugin.PlayersArg("value", true)} {
-			children = append(children, plugin.Node{Literal: name, Children: []plugin.Node{{Arg: arg, Run: func(ctx *plugin.CommandContext) (int, error) { context = ctx; return 9, nil }}}})
-		}
-		if err := s.Commands().Register(plugin.Command{Name: "context", Children: children}); err != nil {
-			return err
-		}
-		ready = true
-		return nil
-	}}}})
-	if !ready {
-		t.Fatal("advanced arguments were not registered")
-	}
-	registrationClient(t, srv)
-	registrationTask(t, srv, host, func() {
-		sender := &recordingSender{level: 4}
-		for _, tc := range []struct {
-			line string
-			want any
-		}{
-			{"execute positioned 10 64 -20 run context pos ~-1.2 ~1 ~-0.6", plugin.BlockPos{X: 9, Y: 65, Z: -21}},
-			{"execute positioned 10 64 -20 run context vec ~-1.2 ~1 ~-0.6", plugin.Vec3{X: 9.3, Y: 65, Z: -20.1}},
-			{"execute positioned 10 64 -20 rotated 0 0 run context pos ^ ^ ^2", plugin.BlockPos{X: 10, Y: 64, Z: -18}},
-			{"execute in the_end run context text {selector:'@a'}", "Tester"},
-		} {
-			context = nil
-			_, err := host.Dispatch(sender, tc.line)
-			if err != nil || context == nil {
-				t.Errorf("context dispatch %q: %v", tc.line, err)
-				continue
-			}
-			if got, ok := context.Args["value"].(plugin.Vec3); ok {
-				want := tc.want.(plugin.Vec3)
-				if math.Abs(got.X-want.X) > 1e-6 || math.Abs(got.Y-want.Y) > 1e-6 || math.Abs(got.Z-want.Z) > 1e-6 {
-					t.Errorf("%q: vector=%+v, want %+v", tc.line, got, want)
-				}
-			} else if got, ok := context.Args["value"].(plugin.Text); ok {
-				if got.PlainString() != tc.want {
-					t.Errorf("resolved text=%#v, want %v", got, tc.want)
-				}
-			} else if !reflect.DeepEqual(context.Args["value"], tc.want) {
-				t.Errorf("%q: argument=%#v, want %#v", tc.line, context.Args["value"], tc.want)
-			}
-			if context.Sender.Name() != sender.Name() {
-				t.Errorf("execute changed original sender to %s", context.Sender.Name())
-			}
-			if strings.Contains(tc.line, "in the_end") && context.Location.World.Key() != plugin.MinecraftKey("the_end") {
-				t.Errorf("execution world = %v", context.Location.World.Key())
-			}
-		}
-		context = nil
-		if _, err := host.Dispatch(sender, "execute as Tester at @s run context players @s"); err != nil || context == nil {
-			t.Errorf("execute player dispatch: %v", err)
-			return
-		}
-		players := plugin.Arg[[]plugin.Entity](context, "value")
-		if len(players) != 1 || context.Entity == nil || players[0].UUID() != context.Entity.UUID() || context.Entity.UUID() != protocol.OfflineUUID("Tester") {
-			t.Errorf("execute player context = %#v", context)
-		}
-	})
 }

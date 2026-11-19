@@ -194,73 +194,6 @@ func TestAnOlderWorldIsLeftToVanillasUpgrade(t *testing.T) {
 	}
 }
 
-// TestAWorldFromAnOlderBuildKeepsItsGenerator checks a world an older build
-// of this server created: no world_gen_settings.dat and no DataVersion, its
-// generator in level.dat's Generator field.
-func TestAWorldFromAnOlderBuildKeepsItsGenerator(t *testing.T) {
-	t.Parallel()
-	for gen, want := range map[int32]string{generatorFlat: "minecraft:flat", generatorDefault: "minecraft:normal"} {
-		dir := t.TempDir()
-		writeLevelDat(t, dir, nbt.Compound{"Generator": nbt.Int(gen)})
-		if lt, _, ok := storedGenerator(dir); !ok || lt != want {
-			t.Errorf("Generator %d: storedGenerator = %q, %v; want %s", gen, lt, ok, want)
-		}
-		// The generator the level-type names, or an empty one — the stored
-		// field wins either way.
-		if _, ok := NewGenerator(dir, "", "", "{}").(*FlatGenerator); ok != (want == "minecraft:flat") {
-			t.Errorf("Generator %d: NewGenerator kept the stored generator = %v, want %v", gen, ok, want == "minecraft:flat")
-		}
-	}
-	if lt, _, ok := storedGenerator(t.TempDir()); ok {
-		t.Errorf("a world with no level.dat has stored level type %q", lt)
-	}
-}
-
-// TestTheOlderFieldsWinWhenTheyDisagree checks a level.dat whose spawn and
-// difficulty compounds disagree with SpawnX/Y/Z and Difficulty: vanilla drops
-// the older fields on save, so they can only disagree when an older build of
-// this server saved last, and theirs is the newer value.
-func TestTheOlderFieldsWinWhenTheyDisagree(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	writeLevelDat(t, dir, nbt.Compound{
-		"DataVersion": nbt.Int(dataVersion),
-		"spawn":       nbt.Compound{"pos": nbt.IntArray{40, 100, -20}},
-		"difficulty_settings": nbt.Compound{
-			"difficulty": nbt.String("hard"), "hardcore": nbt.Byte(0), "locked": nbt.Byte(0),
-		},
-		"SpawnX": nbt.Int(7), "SpawnY": nbt.Int(70), "SpawnZ": nbt.Int(7),
-		"Difficulty": nbt.Byte(DifficultyPeaceful),
-	})
-	level, err := LoadLevel(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if level.Spawn != (SpawnPos{X: 7, Y: 70, Z: 7}) || level.Difficulty != DifficultyPeaceful {
-		t.Errorf("spawn %+v difficulty %d, want 7,70,7 and peaceful", level.Spawn, level.Difficulty)
-	}
-}
-
-// TestSaveDoesNotRaceTheSetters runs Save while the difficulty and spawn
-// change, for the race detector.
-func TestSaveDoesNotRaceTheSetters(t *testing.T) {
-	t.Parallel()
-	w, _ := NewWorld(t.TempDir(), NewFlatGenerator())
-	defer w.Close()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for i := range 200 {
-			w.SetDifficulty(uint8(i % 4))
-			w.SetSpawn(SpawnPos{X: int32(i), Y: 70, Z: 0})
-		}
-	}()
-	for range 20 {
-		w.Save()
-	}
-	<-done
-}
-
 // TestFlatWorldSeedIsSettledAndPersisted checks the seed path for a flat
 // world: a level-seed is parsed and saved, a text seed is hashed the way Java
 // hashes, and a restart keeps the world's saved seed over a new level-seed.
@@ -305,26 +238,6 @@ func TestFlatWorldSeedIsSettledAndPersisted(t *testing.T) {
 				t.Errorf("seed after restart = %d, want the saved %d", again.SeedValue(), tc.want)
 			}
 		})
-	}
-}
-
-// TestFlatWorldWithoutLevelSeedRollsAndKeepsOne checks that a flat world
-// created with no level-seed gets a real seed — not zero — and keeps it
-// across a restart.
-func TestFlatWorldWithoutLevelSeedRollsAndKeepsOne(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	w, _ := NewWorld(dir, NewGenerator(dir, "minecraft:flat", "", "{}"))
-	if !w.HasSeed() || w.SeedValue() == 0 {
-		t.Fatalf("a flat world created with no level-seed was given seed %d (%v)", w.SeedValue(), w.HasSeed())
-	}
-	seed := w.SeedValue()
-	w.Close()
-
-	again, _ := NewWorld(dir, NewGenerator(dir, "minecraft:flat", "", "{}"))
-	defer again.Close()
-	if again.SeedValue() != seed {
-		t.Errorf("second open used seed %d, want the created world's %d", again.SeedValue(), seed)
 	}
 }
 

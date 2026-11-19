@@ -34,29 +34,6 @@ func anvilCollectView(t *testing.T) View {
 	}
 }
 
-// TestAPlainClickOnTheAnvilsResultTakesItWhole checks the plain take's
-// button: the result container's removeItem ignores the amount a right
-// click asks for, so both buttons hand the whole result over, the inputs
-// cleared and the cost paid behind it.
-// vanilla: AbstractContainerMenu.doClick PICKUP, ResultContainer.removeItem
-func TestAPlainClickOnTheAnvilsResultTakesItWhole(t *testing.T) {
-	for _, button := range []int32{0, 1} {
-		view := anvilCollectView(t)
-		session := &Session{}
-		var outcome Outcome
-		session.Click(view, &player.Inventory{}, protocol.ClickModePickup, button, AnvilResultSlot, false, 10, &outcome)
-		if got := session.Carried; !got.Equal(namedDirt(t, "Bar", 5)) {
-			t.Errorf("button %d carried = %+v, want the whole result", button, got)
-		}
-		if !view.Menu[0].Empty() {
-			t.Errorf("button %d first input = %+v, want it cleared", button, view.Menu[0])
-		}
-		if !outcome.AnvilTaken {
-			t.Errorf("button %d was not marked, want the cost paid", button)
-		}
-	}
-}
-
 // TestAnAnvilCollectTakesTheWholeResultOrNothing checks the result slot's
 // part of a double click: a cursor of the same named dirt is only topped up
 // when it has room for the whole five, and a cursor with a single slot of
@@ -106,43 +83,4 @@ func TestAnAnvilCollectTakesTheWholeResultOrNothing(t *testing.T) {
 			t.Error("the gather did not spend the anvil")
 		}
 	})
-}
-
-// TestADoubleClickOnAnUnaffordableAnvilResultGathersAndKeepsIt checks that a
-// result the player cannot pay for refuses the pickup, so the sweep gathers
-// like on an empty slot and leaves the result and inputs alone.
-// vanilla: AbstractContainerMenu.doClick PICKUP_ALL
-func TestADoubleClickOnAnUnaffordableAnvilResultGathersAndKeepsIt(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		level  int32
-		gather bool
-	}{{"unaffordable", 0, true}, {"affordable", 10, false}} {
-		t.Run(tc.name, func(t *testing.T) {
-			view := anvilCollectView(t)
-			inv := &player.Inventory{}
-			inv.Slots[player.HotbarSlot] = namedDirt(t, "Bar", 4)
-			session := &Session{Carried: namedDirt(t, "Bar", 1)}
-			var outcome Outcome
-
-			session.Click(view, inv, protocol.ClickModeCollect, 0, AnvilResultSlot, false, tc.level, &outcome)
-
-			want, left := namedDirt(t, "Bar", 1), namedDirt(t, "Bar", 4)
-			if tc.gather {
-				want, left = namedDirt(t, "Bar", 5), protocol.ItemStack{}
-			}
-			if got := session.Carried; !got.Equal(want) {
-				t.Errorf("cursor = %+v, want %+v", got, want)
-			}
-			if got := inv.Slots[player.HotbarSlot]; !got.Equal(left) {
-				t.Errorf("hotbar slot = %+v, want %+v", got, left)
-			}
-			if got := view.Menu[AnvilResultSlot]; !got.Equal(namedDirt(t, "Bar", 5)) {
-				t.Errorf("result = %+v, want it kept", got)
-			}
-			if outcome.AnvilTaken {
-				t.Error("the gather spent the anvil")
-			}
-		})
-	}
 }

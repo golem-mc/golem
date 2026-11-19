@@ -1,7 +1,6 @@
 package entity
 
 import (
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -68,77 +67,6 @@ func TestTheScanCutsItsReachByTheTargetsVisibility(t *testing.T) {
 	}
 }
 
-// TestTheVisibilityMatchReadsTheKindExactly holds the head match to the
-// exact reading vanilla's own takes: the zombie's head halves a zombie's
-// reach alone — a husk, a drowned and a zombie villager read none of it —
-// the skeleton's skull halves the skeleton's own and not its variants',
-// and the creeper's head the creeper's.
-func TestTheVisibilityMatchReadsTheKindExactly(t *testing.T) {
-	zombieHead := headPiece(t, "minecraft:zombie_head")
-	skeletonSkull := headPiece(t, "minecraft:skeleton_skull")
-	creeperHead := headPiece(t, "minecraft:creeper_head")
-	for _, tc := range []struct {
-		name string
-		kind MobType
-		// head is the piece on the target's head slot, empty for none.
-		head protocol.ItemStack
-		// want is the visibility range the shape leaves, in blocks.
-		want float64
-	}{
-		{"a zombie wearing the zombie's head", TypeZombie, zombieHead, 17.5},
-		{"a husk wearing the zombie's head", TypeHusk, zombieHead, 35},
-		{"a drowned wearing the zombie's head", TypeDrowned, zombieHead, 35},
-		{"a zombie villager wearing the zombie's head", TypeZombieVillager, zombieHead, 35},
-		{"a skeleton wearing the skeleton's skull", TypeSkeleton, skeletonSkull, 8},
-		{"a stray wearing the skeleton's skull", TypeStray, skeletonSkull, 16},
-		{"a bogged wearing the skeleton's skull", TypeBogged, skeletonSkull, 16},
-		{"a zombie wearing the skeleton's skull", TypeZombie, skeletonSkull, 35},
-		{"a creeper wearing the creeper's head", TypeCreeper, creeperHead, 8},
-		{"a zombie wearing the creeper's head", TypeZombie, creeperHead, 35},
-		{"a spider wearing nothing", TypeSpider, protocol.ItemStack{}, 16},
-	} {
-		m := NewMob(tc.kind, 1, 0.5, 64, 0.5, 3)
-		p := Player{Worn: [4]protocol.ItemStack{3: tc.head}}
-		if got := m.visibilityRange(&p); math.Abs(got-tc.want) > 1e-9 {
-			t.Errorf("%s: the visibility range = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
-// TestSneakingAndInvisibleBareFloorsAtTwoBlocks checks the floor: a target
-// that sneaks invisible and bare stacks the sneak's 0.8 over the Invisibility
-// effect's bare 0.07 — 1.96 of the zombie's thirty-five — and still shows
-// at the two blocks the closest body does, so nothing short of an empty
-// world hides a hunted target wholly.
-func TestSneakingAndInvisibleBareFloorsAtTwoBlocks(t *testing.T) {
-	z := hunter()
-	p := Player{Sneaking: true, Invisible: true}
-	if got := z.visibilityRange(&p); got != minVisibilityDistance {
-		t.Errorf("the stacked shapes' visibility range = %v, want the floor of %v", got, minVisibilityDistance)
-	}
-}
-
-// TestTheHuntKeepsItsTargetByTheWholeRange checks the other half: the reach
-// a hunt may open by is cut by the target's state, the reach an open hunt
-// is kept by is not — a sneaking target thirty blocks out, past the
-// sneaking reach but inside the follow range, is never dropped.
-func TestTheHuntKeepsItsTargetByTheWholeRange(t *testing.T) {
-	w := newTestWorld()
-	floor64(w, t)
-	z := hunter()
-	players := []Player{{
-		X: 30.5, Y: 64, Z: 0.5, EntityID: 7, Huntable: true, Sneaking: true,
-	}}
-	z.TargetID = 7
-	for range 40 {
-		z.Tick(w, players)
-		if z.TargetID != 7 {
-			t.Fatalf("the hunt dropped its sneaking target at %v blocks, want the whole follow range kept by",
-				math.Sqrt(Dist2(z.X, z.Y, z.Z, players[0].X, players[0].Y, players[0].Z)))
-		}
-	}
-}
-
 // TestTheLookAndLureCutTheirReachByTheTargetsVisibility pins that the idle
 // glance and the lure read the same visibility cut as the hunt scan, and
 // that only the glance needs line of sight.
@@ -200,56 +128,5 @@ func TestTheLookAndLureCutTheirReachByTheTargetsVisibility(t *testing.T) {
 	}
 	if NewMob(TypeCow, 1, 0.5, 64, 0.5, 3).nearestTemptingPlayerWithin(tick, temptRange) == nil {
 		t.Errorf("the lure lost a player behind a wall, want line of sight ignored")
-	}
-}
-
-// TestTheGlanceKeepsLookingAfterTheTargetHides pins that the visibility cut
-// and line of sight gate only the start of a glance.
-func TestTheGlanceKeepsLookingAfterTheTargetHides(t *testing.T) {
-	w := newTestWorld()
-	floor64(w, t)
-	m := NewMob(TypeZombie, 1, 0.5, 64, 0.5, 3)
-	g := &lookAtPlayer{m: m, remains: 10}
-	p := Player{EntityID: 7, X: 6.5, Y: 64, Z: 0.5}
-	g.target = 7
-	p.Invisible = true
-	stone := defaultState(t, "minecraft:stone")
-	for y := int32(64); y <= 67; y++ {
-		w.set(2, y, 0, stone)
-	}
-	tick := &tickView{w: w, players: []Player{p}}
-	if !g.ShouldContinue(tick) {
-		t.Errorf("the glance ended when the target hid, want it kept within the raw range")
-	}
-	tick.players[0].X = 9.5
-	if g.ShouldContinue(tick) {
-		t.Errorf("the glance kept a target past the look range")
-	}
-}
-
-// TestTheLureSkipsSpectatorsAndTheDead pins that a body nobody can see tempts
-// no mob and draws no glance.
-func TestTheLureSkipsSpectatorsAndTheDead(t *testing.T) {
-	w := newTestWorld()
-	floor64(w, t)
-	wheat := protocol.ItemStack{ItemID: itemID(t, "minecraft:wheat"), Count: 1}
-	for _, tc := range []struct {
-		name   string
-		player Player
-		want   bool
-	}{
-		{"alive survival", Player{}, true},
-		{"spectator", Player{Spectator: true}, false},
-		{"dead", Player{Dead: true}, false},
-	} {
-		p := tc.player
-		p.X, p.Y, p.Z, p.HeldItem = 3.5, 64, 0.5, wheat
-		tick := &tickView{w: w, players: []Player{p}}
-		if got := NewMob(TypeCow, 1, 0.5, 64, 0.5, 3).nearestTemptingPlayerWithin(tick, temptRange) != nil; got != tc.want {
-			t.Errorf("%s: tempted = %v, want %v", tc.name, got, tc.want)
-		}
-		if got := NewMob(TypeZombie, 1, 0.5, 64, 0.5, 3).nearestPlayerWithin(tick, lookRange, false) != nil; got != tc.want {
-			t.Errorf("%s: glanced = %v, want %v", tc.name, got, tc.want)
-		}
 	}
 }

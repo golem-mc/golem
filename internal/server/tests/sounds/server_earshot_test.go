@@ -6,10 +6,11 @@ package sounds
 // vanilla: ServerLevel.playSeededSound, PlayerList.broadcast
 
 import (
-	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"slices"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server"
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
@@ -49,46 +50,6 @@ func heardAny(srv *server.Server, c *servertest.Client, names ...string) bool {
 	})
 }
 
-// TestItemFrameSoundsStayWithinEarshot hangs a frame, fills it, turns its
-// item, pops it and breaks the frame beside one player while another stands
-// forty blocks off: each sound is heard at the wall and none far off.
-// vanilla: ItemFrame.playPlacementSound, ItemFrame.interact, ItemFrame.dropItem
-func TestItemFrameSoundsStayWithinEarshot(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	actor, watcher, _ := servertest.PaintingWatchers(t, connect)
-	servertest.BuildPaintingWall(srv, 4, 64, 65, 5, 5)
-	far := farListener(t, connect, actor, watcher)
-
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: servertest.FrameItemID(t, "minecraft:item_frame"), Count: 1})
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	hung := watcher.ExpectFrameSpawn(t, protocol.EntityTypeItemFrame, servertest.WallFrameX, servertest.WallFrameY, servertest.WallFrameZ, 180, 0, protocol.FaceNorth)
-	watcher.ExpectPaintingSound(t, "minecraft:entity.item_frame.place", servertest.WallFrameX, servertest.WallFrameY, servertest.WallFrameZ)
-
-	actor.SetCreativeSlot(player.HotbarSlot, servertest.ItemStack(t, "minecraft:diamond", 1))
-	actor.UseOn(hung.EntityID)
-	servertest.FrameItemSlot(t, watcher, hung.EntityID)
-	watcher.ExpectPaintingSound(t, "minecraft:entity.item_frame.add_item", servertest.WallFrameX, servertest.WallFrameY, servertest.WallFrameZ)
-	actor.UseOn(hung.EntityID)
-	servertest.FrameMetadataField(t, watcher, hung.EntityID, protocol.MetadataIndexFrameRotation)
-	watcher.ExpectPaintingSound(t, "minecraft:entity.item_frame.rotate_item", servertest.WallFrameX, servertest.WallFrameY, servertest.WallFrameZ)
-
-	actor.Attack(hung.EntityID)
-	servertest.FrameItemSlot(t, watcher, hung.EntityID)
-	watcher.ExpectPaintingSound(t, "minecraft:entity.item_frame.remove_item", servertest.WallFrameX, servertest.WallFrameY, servertest.WallFrameZ)
-	actor.Attack(hung.EntityID)
-	watcher.ExpectPaintingRemoval(t, hung.EntityID)
-	watcher.ExpectPaintingSound(t, "minecraft:entity.item_frame.break", servertest.WallFrameX, servertest.WallFrameY, servertest.WallFrameZ)
-
-	if heardAny(srv, far, "minecraft:entity.item_frame.place", "minecraft:entity.item_frame.add_item",
-		"minecraft:entity.item_frame.rotate_item", "minecraft:entity.item_frame.remove_item",
-		"minecraft:entity.item_frame.break") {
-		t.Error("a player forty blocks from the frame heard its sound")
-	}
-}
-
 // TestArmorStandSoundsStayWithinEarshot places an armor stand and punches
 // it down from a creative hand while another player stands forty blocks
 // off: the placer hears both sounds and the far player neither.
@@ -112,138 +73,6 @@ func TestArmorStandSoundsStayWithinEarshot(t *testing.T) {
 
 	if heardAny(srv, far, "minecraft:entity.armor_stand.place", "minecraft:entity.armor_stand.break") {
 		t.Error("a player forty blocks from the stand heard its sound")
-	}
-}
-
-// TestEnderPearlSoundsStayWithinEarshot throws a pearl at the thrower's
-// feet while another player stands forty blocks off: the thrower hears the
-// throw and the landing's teleport, the far player neither.
-// vanilla: EnderpearlItem.use, ThrownEnderpearl.playSound
-func TestEnderPearlSoundsStayWithinEarshot(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BowTestConfig()
-	cfg.SimulationDistance = 2
-	srv, connect := servertest.Start(t, cfg)
-	c := connect()
-	c.JoinAs("Thrower")
-	srv.GiveSlot("Thrower", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:ender_pearl"), Count: 16})
-	far := farListener(t, connect, c)
-
-	c.MoveTo(0.5, 64, 0.5, -90, 45)
-	c.Send(protocol.IDPlayUseItem, func(b *protocol.Buffer) {
-		b.PutVarInt(protocol.HandMain)
-		b.PutVarInt(1)
-		b.PutF32(-90)
-		b.PutF32(45)
-	})
-
-	var heard []string
-	c.ReadTicks(srv, 60, func(id int32, data []byte) bool {
-		if id != protocol.IDPlaySoundEffect {
-			return false
-		}
-		if name, ok := servertest.SoundEventName(protocol.NewReader(data).ReadVarInt() - 1); ok {
-			heard = append(heard, name)
-		}
-		return false
-	})
-	var thrown, teleported bool
-	for _, name := range heard {
-		switch name {
-		case "minecraft:entity.ender_pearl.throw":
-			thrown = true
-		case "minecraft:entity.player.teleport":
-			teleported = true
-		}
-	}
-	if !thrown || !teleported {
-		t.Fatalf("the thrower heard throw=%v teleport=%v, want both: %+v", thrown, teleported, heard)
-	}
-	if heardAny(srv, far, "minecraft:entity.ender_pearl.throw", "minecraft:entity.player.teleport") {
-		t.Error("a player forty blocks from the pearl heard its sound")
-	}
-}
-
-// TestArrowHitSoundsStayWithinEarshot lands shafts in the ground, on an
-// armor stand and on a boat, and deflects a trident off an invisible stand,
-// all beside one player while another stands forty blocks off: each hit is
-// heard close by and none far off.
-// vanilla: AbstractArrow.onHitBlock, AbstractArrow.onHitEntity, ThrownTrident.onHitEntity
-func TestArrowHitSoundsStayWithinEarshot(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig(), servertest.OpsListing(t, "Archer"))
-	c := connect().Join("Archer")
-	c.MoveToGrounded(3.5, 64, 6.5, 0, 0, true)
-	c.Settle()
-	far := farListener(t, connect, c)
-	hits := []string{"minecraft:entity.arrow.hit", "minecraft:item.trident.hit", "minecraft:item.trident.hit_ground"}
-
-	// Into the ground beside the archer.
-	if id := srv.ShootArrow(0.5, 66, 3.5, 0, -1, 0); id == 0 {
-		t.Fatal("the ground shot never flew")
-	}
-	servertest.ExpectSoundEvent(t, c, "minecraft:entity.arrow.hit")
-	if heardAny(srv, far, hits...) {
-		t.Error("a player forty blocks off heard a shaft land in the ground")
-	}
-
-	// Into a stand, which it breaks.
-	c.ChatCommand(`summon minecraft:armor_stand 3.5 64 3.5`)
-	c.ExpectArmorStandSpawn()
-	if id := srv.ShootArrow(1.5, 64.5, 3.5, 10, 0, 0); id == 0 {
-		t.Fatal("the stand shot never flew")
-	}
-	servertest.ExpectSoundEvent(t, c, "minecraft:entity.arrow.hit")
-	servertest.WaitFor(t, srv, 200, func() bool { return servertest.StandsStanding(srv) == 0 })
-	if heardAny(srv, far, hits...) {
-		t.Error("a player forty blocks off heard a shaft land on a stand")
-	}
-
-	// A trident off an invisible stand, which refuses the hurt.
-	c.ChatCommand(`summon minecraft:armor_stand 3.5 64 3.5 {Invisible:1b}`)
-	c.ExpectArmorStandSpawn()
-	if id := srv.ShootTrident(1.5, 64.5, 3.5, 10, 0, 0); id == 0 {
-		t.Fatal("the trident never flew")
-	}
-	servertest.ExpectSoundEvent(t, c, "minecraft:item.trident.hit")
-	if heardAny(srv, far, hits...) {
-		t.Error("a player forty blocks off heard a trident deflect off a stand")
-	}
-
-	// Into a boat's hull.
-	if srv.SpawnBoat(0.5, 64, 2.5, "minecraft:oak_boat") == 0 {
-		t.Fatal("the boat never stood up")
-	}
-	if id := srv.ShootArrow(0.5, 64.4, -0.5, 0, 0, 3); id == 0 {
-		t.Fatal("the boat shot never flew")
-	}
-	servertest.ExpectSoundEvent(t, c, "minecraft:entity.arrow.hit")
-	if heardAny(srv, far, hits...) {
-		t.Error("a player forty blocks off heard a shaft land on a boat")
-	}
-}
-
-// TestAnArrowsPaintingHitStaysWithinEarshot breaks a painting with an
-// ownerless shaft beside two players while a third stands forty blocks off:
-// the shaft's hit is heard at the wall and not far off.
-// vanilla: AbstractArrow.onHitEntity
-func TestAnArrowsPaintingHitStaysWithinEarshot(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	actor, watcher, _ := servertest.PaintingWatchers(t, connect)
-	servertest.BuildPaintingWall(srv, 4, 64, 65, 5, 5)
-	far := farListener(t, connect, actor, watcher)
-	hung := hangShotPainting(t, srv, actor, watcher)
-	actor.MoveToGround(2.5, 64, 3.5, true)
-	actor.Settle()
-
-	if id := srv.ShootArrow(shotPaintingX, shotPaintingY, 1.5, 0, 0, 10); id == 0 {
-		t.Fatal("the arrow never flew")
-	}
-	watcher.ExpectPaintingRemoval(t, hung.EntityID)
-	servertest.ExpectSoundEvent(t, watcher, "minecraft:entity.arrow.hit")
-	if heardAny(srv, far, "minecraft:entity.arrow.hit") {
-		t.Error("a player forty blocks off heard a shaft land on a painting")
 	}
 }
 

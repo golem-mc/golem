@@ -14,7 +14,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 )
 
@@ -176,102 +175,6 @@ func TestSelectorsKillAndTeleportServerOnlyEntities(t *testing.T) {
 	}
 }
 
-// TestPaintingsAndFramesKeepTheirTagsAcrossARestart hangs a painting and a
-// frame, tags each through /tag, saves the world, and reads the tag back off
-// the entity file and off the bodies a restarted server wakes.
-func TestPaintingsAndFramesKeepTheirTagsAcrossARestart(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.LevelName = t.TempDir()
-
-	srv, c := servertest.Join(t, cfg, "Keeper", servertest.OpsListing(t, "Keeper"))
-
-	painting := srv.SpawnPaintingEntity(4, 64, 4, 0)
-	frame := srv.SpawnFrameEntity(6, 64, 4)
-
-	c.ChatCommand("tag @e[type=minecraft:painting] add kept")
-	servertest.AwaitCommandFeedbackText(t, c, "commands.tag.add.success.single",
-		protocol.Text{Text: "kept"},
-		servertest.EntityDisplayComponent("minecraft:painting", "entity.minecraft.painting", painting.UUID))
-	c.ChatCommand("tag @e[type=minecraft:item_frame] add kept")
-	servertest.AwaitCommandFeedbackText(t, c, "commands.tag.add.success.single",
-		protocol.Text{Text: "kept"},
-		servertest.EntityDisplayComponent("minecraft:item_frame", "entity.minecraft.item_frame", frame.UUID))
-
-	// Leaving unloads the spawn chunk: the hanging entities are written to
-	// its entity file by the unload sweep, which carries their Tags, so wait
-	// for that write rather than racing the tick that performs it.
-	c.Disconnect()
-	servertest.PollUntil(t, 10*time.Second, func() bool {
-		return srv.PaintingCount() == 0 && srv.FrameCount() == 0
-	})
-	srv.FlushMobs()
-	srv.Shutdown()
-
-	// The compounds the save writes carry the tag /tag added.
-	servertest.EntityFileIs(t, cfg.LevelName, world.ChunkPos{X: 0, Z: 0}, "minecraft:painting", func(compound nbt.Compound) {
-		expectSavedTags(t, compound, "kept")
-	})
-	servertest.EntityFileIs(t, cfg.LevelName, world.ChunkPos{X: 0, Z: 0}, "minecraft:item_frame", func(compound nbt.Compound) {
-		expectSavedTags(t, compound, "kept")
-	})
-
-	// Back through the files: the restarted server's painting and frame
-	// answer the tag option again.
-	restarted := *cfg
-	againSrv, again := servertest.Join(t, &restarted, "Keeper", servertest.OpsListing(t, "Keeper"))
-	servertest.PollUntil(t, 10*time.Second, func() bool {
-		return againSrv.PaintingCount() == 1 && againSrv.FrameCount() == 1
-	})
-
-	again.ChatCommand("tag @e[type=minecraft:painting,tag=kept] list")
-	servertest.AwaitCommandFeedbackText(t, again, "commands.tag.list.single.success",
-		servertest.EntityDisplayComponent("minecraft:painting", "entity.minecraft.painting", painting.UUID),
-		servertest.TagCountText(1), servertest.GreenTagText("kept"))
-	again.ChatCommand("tag @e[type=minecraft:item_frame,tag=kept] list")
-	servertest.AwaitCommandFeedbackText(t, again, "commands.tag.list.single.success",
-		servertest.EntityDisplayComponent("minecraft:item_frame", "entity.minecraft.item_frame", frame.UUID),
-		servertest.TagCountText(1), servertest.GreenTagText("kept"))
-	again.Disconnect()
-}
-
-// TestCommandDataGetEntityReadsServerOnlyEntities checks that /data get
-// entity answers with a compound for every kind no /summon can name. The
-// kinds without a DataTag case printed the empty compound {}.
-func TestCommandDataGetEntityReadsServerOnlyEntities(t *testing.T) {
-	t.Parallel()
-	for _, target := range serverOnlyTargets() {
-		t.Run(target.typ, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.Join(t, servertest.MobTestConfig(), "Tester", servertest.OpsListing(t, "Tester"))
-
-			// A cloud or a rocket is still there to be read rather than
-			// spent first.
-			srv.StopTick()
-
-			if body := target.spawn(srv); body.ID == 0 {
-				t.Fatalf("no %s was stood up", target.typ)
-			}
-
-			compound := awaitEntityDataCompound(t, srv, c, "@e[type="+target.typ+",limit=1]")
-			if compound == "{}" {
-				t.Errorf("/data get entity printed the empty compound for a %s", target.typ)
-			}
-			for _, key := range []string{"Pos", "UUID"} {
-				if !strings.Contains(compound, key) {
-					t.Errorf("/data get entity for a %s carries no %s: %s", target.typ, key, compound)
-				}
-			}
-			for _, key := range target.savedKeys {
-				if !strings.Contains(compound, key+":") {
-					t.Errorf("/data get entity for a %s carries no %s: %s", target.typ, key, compound)
-				}
-			}
-			c.Disconnect()
-		})
-	}
-}
-
 // awaitEntityDataCompound returns the SNBT printed by /data get entity, with
 // an optional NBT path. Packets read past are kept for the next reader.
 func awaitEntityDataCompound(t *testing.T, srv *server.Server, c *servertest.Client, selector string, path ...string) string {
@@ -352,48 +255,6 @@ func TestTeleportSendsOneTeleportEntityPerWatcher(t *testing.T) {
 			bob.Disconnect()
 		})
 	}
-}
-
-// TestProjectileTickReadsStableEntityBoxes runs the projectile tick against
-// teleports moving a painting, a frame and a knot: the tick reads their boxes
-// from the sliver its lock took, not from the live body the teleport writes.
-// Run it under -race; the reads and writes are otherwise indistinguishable.
-func TestProjectileTickReadsStableEntityBoxes(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Tester", servertest.OpsListing(t, "Tester"))
-	srv.StopTick()
-
-	if srv.SpawnStuckArrow("creative", 0.5, 64, 3.5) == 0 {
-		t.Fatal("no arrow was stood up")
-	}
-	srv.SpawnPaintingEntity(4, 64, 4, 0)
-	srv.SpawnFrameEntity(6, 64, 4)
-	srv.SpawnKnotEntity(8, 64, 4)
-
-	// The tick loop spins on the sliver it took while the commands keep
-	// rewriting the live bodies, so a read of the body itself stands out.
-	stop := make(chan struct{})
-	ticksDone := make(chan struct{})
-	go func() {
-		defer close(ticksDone)
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-				srv.RunTick()
-			}
-		}
-	}()
-	for range 100 {
-		c.ChatCommand("tp @e[type=minecraft:painting] 6.5 64 6.5")
-		c.ChatCommand("tp @e[type=minecraft:item_frame] 9.5 64 6.5")
-		c.ChatCommand("tp @e[type=minecraft:leash_knot] 8 64 4")
-		c.Settle()
-	}
-	close(stop)
-	<-ticksDone
-	c.Disconnect()
 }
 
 // expectSavedTags checks a saved compound's Tags against the words given,

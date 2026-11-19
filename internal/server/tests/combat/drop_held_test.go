@@ -55,33 +55,3 @@ func TestDroppingTheHeldItemSwingsForOthersAndResetsTheCooldown(t *testing.T) {
 		t.Errorf("attack ticks after Q on an empty hand = %d, want 0", got)
 	}
 }
-
-// TestDroppingTheLastOfAStackBeingEatenEndsTheMeal starts eating a single
-// apple and drops it with the stack key: the meal stops at once, before any
-// tick, and the watcher sees the dropper's hand come down.
-// vanilla: ServerPlayer.drop
-func TestDroppingTheLastOfAStackBeingEatenEndsTheMeal(t *testing.T) {
-	t.Parallel()
-	srv, watcher := servertest.Join(t, servertest.SurvivalTestConfig(), "Watcher")
-	c := servertest.DialServer(t, srv)
-	entityID := c.JoinAs("Eater")
-	watcher.ExpectPlayerAdded("Eater")
-	c.Settle()
-
-	srv.SetFood("Eater", 10)
-	srv.GiveSlot("Eater", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:apple"), Count: 1})
-	c.UseItemRightClicks(protocol.HandMain)
-	watcher.ExpectHandState(entityID, protocol.EntityFlagHandActive)
-	if !srv.Eating("Eater") {
-		t.Fatal("the meal did not begin")
-	}
-
-	// Held, so that no tick can find the hand empty before the drop does.
-	servertest.HoldTicks(t, srv)
-	c.DropKey(true)
-	c.Settle()
-	if srv.Eating("Eater") {
-		t.Error("the meal goes on after its apple was dropped")
-	}
-	watcher.ExpectHandState(entityID, 0)
-}

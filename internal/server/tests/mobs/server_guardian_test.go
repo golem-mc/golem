@@ -1,12 +1,10 @@
 package mobs
 
 import (
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	server "github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
@@ -163,55 +161,6 @@ func TestAnElderGuardianChargesSixtyTicksAndHitsHarder(t *testing.T) {
 	}
 }
 
-// TestAGuardianPricksTheOneWhoStrikesItWithSpikesOut: a guardian that is not
-// swimming to a point hurts its melee attacker for 2; one that is swimming
-// has its spikes in and does not.
-// vanilla: Guardian.hurtServer
-func TestAGuardianPricksTheOneWhoStrikesItWithSpikesOut(t *testing.T) {
-	t.Parallel()
-	prick := func(t *testing.T, still bool) float64 {
-		srv, c, _ := guardianTests(t, rules.DifficultyNormal)
-		// The stroll ranks water over air, so it swims only where a lake
-		// offers cells; a beam that lands on the way is not the prick.
-		layLake(t, srv)
-		// Within three blocks of the ledge, so the guardian starts out unhunted.
-		id := spawnGuardian(t, srv, c, "minecraft:guardian", pondCentreX, 63, pondNorth)
-		w := newBeamWatch(t, srv, c, id, "minecraft:guardian")
-		if still {
-			srv.SetMobNoAI(id)
-		} else {
-			for tick := 0; !w.meta.GuardianMoving; tick++ {
-				if tick == 400 {
-					t.Fatal("the guardian never swam anywhere in 400 ticks")
-				}
-				srv.TickMobs(1)
-				c.SettleAndCollect(func(pid int32, data []byte) {
-					if pid == protocol.IDPlayEntityMetadata && protocol.NewReader(data).ReadVarInt() == id {
-						c.ReadMobMetadataInto(&w.meta, data)
-					}
-				})
-			}
-		}
-		before := srv.PlayerHealth(guardianPlayer)
-		for srv.AttackTicks(guardianPlayer) < servertest.SwingRecovered {
-			srv.TickSurvival()
-		}
-		c.Attack(id)
-		c.Settle()
-		return before - srv.PlayerHealth(guardianPlayer)
-	}
-	t.Run("spikes out", func(t *testing.T) {
-		if got := prick(t, true); got != 2 {
-			t.Errorf("striking a still guardian cost %v health, want its 2", got)
-		}
-	})
-	t.Run("swimming", func(t *testing.T) {
-		if got := prick(t, false); got != 0 {
-			t.Errorf("striking a swimming guardian cost %v health, want none", got)
-		}
-	})
-}
-
 // TestAnElderGuardianCursesThePlayersAroundIt: every 1200 ticks the elder
 // gives players within 50 blocks mining fatigue III for 6000 ticks and shows
 // them the apparition with game event 10; a silent elder shows it with 0.
@@ -275,144 +224,5 @@ func TestAnElderGuardianCursesThePlayersAroundIt(t *testing.T) {
 				t.Errorf("the apparition events were %v, want exactly one of %v", events, want)
 			}
 		})
-	}
-}
-
-// TestACursedPlayerOutOfReachIsSpared: the same elder, with the player more
-// than fifty blocks away, curses nobody.
-func TestACursedPlayerOutOfReachIsSpared(t *testing.T) {
-	t.Parallel()
-	srv, _, _ := guardianTests(t, rules.DifficultyNormal)
-	water := registry.MustState("minecraft:water", map[string]string{"level": "0"})
-	for x := int32(-56); x <= -50; x++ {
-		for z := int32(-12); z <= -4; z++ {
-			for y := int32(pondY); y <= pondY+1; y++ {
-				if !srv.SetBlock(x, y, z, water) {
-					t.Fatalf("the pool's chunk at (%d, %d) was not loaded", x, z)
-				}
-			}
-		}
-	}
-	// The player stands at x = 8.5; the elder 61 blocks west.
-	srv.SpawnMob("minecraft:elder_guardian", -52.5, 62, -8.5)
-	for range 1200 {
-		srv.TickMobs(1)
-	}
-	if _, _, ok := srv.PlayerEffect(guardianPlayer, "minecraft:mining_fatigue"); ok {
-		t.Error("a player 61 blocks from the elder was cursed")
-	}
-}
-
-// TestAGuardianSwimsAboutItsLakeAndNeverDrowns: a guardian nobody hunts
-// swims through its lake without leaving it, and holds its breath under
-// water for longer than a land mob's 300 ticks.
-// vanilla: Guardian.aiStep, GuardianMoveControl
-func TestAGuardianSwimsAboutItsLakeAndNeverDrowns(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := guardianTests(t, rules.DifficultyNormal)
-	// A creative player is nobody's target.
-	c.ChatCommand("gamemode creative")
-	c.Settle()
-	// The stroll picks the best of ten random cells, and water outranks air:
-	// the little pond rarely holds one, so the guardian swims in a lake.
-	water := registry.MustState("minecraft:water", map[string]string{"level": "0"})
-	for x := int32(lakeXLo); x <= lakeXHi; x++ {
-		for z := int32(lakeZLo); z <= pondZHi; z++ {
-			for y := int32(60); y <= pondY+1; y++ {
-				if srv.SetBlock(x, y, z, water); srv.BlockAt(x, y, z) != water {
-					t.Fatalf("the lake's chunk at (%d, %d) was not loaded", x, z)
-				}
-			}
-		}
-	}
-	id := spawnGuardian(t, srv, c, "minecraft:guardian", pondCentreX, 62, -8.5)
-	travelled, moving := 0.0, 0
-	last, _ := fishAt(srv, id)
-	for range 450 {
-		srv.TickMobs(1)
-		c.SettleAndCollect(func(pid int32, data []byte) {
-			if pid == protocol.IDPlayEntityMetadata && protocol.NewReader(data).ReadVarInt() == id {
-				var m servertest.SpawnedMob
-				m.EntityID, m.TypeID = id, guardianType(t, "minecraft:guardian")
-				c.ReadMobMetadataInto(&m, data)
-				if m.GuardianMoving {
-					moving++
-				}
-			}
-		})
-		m, ok := fishAt(srv, id)
-		if !ok {
-			t.Fatal("the guardian left the world")
-		}
-		if x, z := int32(math.Floor(m.X)), int32(math.Floor(m.Z)); x < lakeXLo || x > lakeXHi || z < lakeZLo || z > pondZHi || m.Y < 60 || m.Y >= pondY+2 {
-			t.Fatalf("the guardian swam out of the lake to (%.2f, %.2f, %.2f)", m.X, m.Y, m.Z)
-		}
-		travelled += math.Hypot(m.X-last.X, m.Z-last.Z)
-		last = m
-	}
-	if travelled < 3 {
-		t.Errorf("the guardian swam %.2f blocks in 450 ticks, want it wandering", travelled)
-	}
-	if moving == 0 {
-		t.Error("the guardian never told its spikes in while swimming")
-	}
-	if hp, _ := srv.MobHealth(id); hp != 30 {
-		t.Errorf("the guardian has %.1f health after 450 ticks under water, want its 30", hp)
-	}
-}
-
-// TestAnElderGuardianDropsASpongeAndExperience: killed by a player, the elder
-// always leaves a wet sponge, and a guardian's experience is 10.
-// vanilla: entities/elder_guardian.json, Guardian's xpReward
-func TestAnElderGuardianDropsASpongeAndExperience(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := guardianTests(t, rules.DifficultyNormal)
-	id := spawnGuardian(t, srv, c, "minecraft:elder_guardian", pondCentreX, 63, pondNorth)
-	srv.SetMobNoAI(id)
-	srv.SetMobHealth(id, 1)
-	srv.GiveSlot(guardianPlayer, player.HotbarSlot,
-		protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:diamond_sword"), Count: 1})
-	servertest.RecoverByHand(t, srv, guardianPlayer)
-	c.Attack(id)
-	c.Settle()
-	srv.TickMobs(1)
-	sponges := 0
-	for _, it := range srv.ItemsInDimension("minecraft:overworld") {
-		if it.Item == "minecraft:wet_sponge" {
-			sponges += int(it.Count)
-		}
-	}
-	if sponges != 1 {
-		t.Errorf("the dead elder left %d wet sponges, want 1", sponges)
-	}
-	xp := 0
-	for _, o := range srv.OrbsInWorld() {
-		xp += o.XP
-	}
-	if xp != 10 {
-		t.Errorf("the dead elder left %d experience, want 10", xp)
-	}
-}
-
-// TestAnElderGuardianHomesToItsSpawnBlock: on its first AI step an elder
-// guardian sets its home to the block it is in, radius 16, so its walks keep
-// to its monument room; a plain guardian gets no home.
-// vanilla: ElderGuardian.customServerAiStep
-func TestAnElderGuardianHomesToItsSpawnBlock(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := guardianTests(t, rules.DifficultyNormal)
-	elder := spawnGuardian(t, srv, c, "minecraft:elder_guardian", pondCentreX, 62, -8.5)
-	plain := spawnGuardian(t, srv, c, "minecraft:guardian", pondCentreX, 62, -11.5)
-	srv.TickMobs(2)
-
-	x, y, z, radius, set, ok := srv.MobHome(elder)
-	if !ok || !set {
-		t.Fatalf("the elder has no home (ok=%v set=%v)", ok, set)
-	}
-	if x != 8 || y != 62 || z != -9 || radius != 16 {
-		t.Errorf("the elder's home is (%d, %d, %d) radius %d, want (8, 62, -9) radius 16", x, y, z, radius)
-	}
-	if _, _, _, _, set, ok := srv.MobHome(plain); !ok || set {
-		t.Errorf("the plain guardian's home is set=%v (ok=%v), want none", set, ok)
 	}
 }

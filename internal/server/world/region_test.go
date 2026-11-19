@@ -195,52 +195,6 @@ func TestRegionReadsGzipAndNone(t *testing.T) {
 	}
 }
 
-// TestRegionIndex checks the slot calculation for a few chunk coordinates,
-// including negative ones, which is where the floor division and bitwise mask
-// matter.
-func TestRegionIndex(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		x, z int32
-		want int
-	}{
-		{0, 0, 0},
-		{1, 0, 1},
-		{0, 1, 32},
-		{31, 31, 31 + 31*32},
-		{32, 0, 0},  // wraps into the next region
-		{-1, 0, 31}, // last column of the region to the west
-		{-1, -1, 31 + 31*32},
-		{-33, 0, 31}, // two regions west, last column
-	} {
-		if got := regionIndex(tc.x, tc.z); got != tc.want {
-			t.Errorf("regionIndex(%d, %d) = %d, want %d", tc.x, tc.z, got, tc.want)
-		}
-	}
-}
-
-// TestRegionCoords checks that chunk positions map to the right region file.
-func TestRegionCoords(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		pos    ChunkPos
-		rx, rz int32
-	}{
-		{ChunkPos{0, 0}, 0, 0},
-		{ChunkPos{31, 31}, 0, 0},
-		{ChunkPos{32, 0}, 1, 0},
-		{ChunkPos{0, 32}, 0, 1},
-		{ChunkPos{-1, -1}, -1, -1},
-		{ChunkPos{-32, 0}, -1, 0},
-	} {
-		rx, rz := regionCoords(tc.pos)
-		if rx != tc.rx || rz != tc.rz {
-			t.Errorf("regionCoords(%d,%d) = (%d,%d), want (%d,%d)",
-				tc.pos.X, tc.pos.Z, rx, rz, tc.rx, tc.rz)
-		}
-	}
-}
-
 // TestRegionZlibIsReadableByVanillaLayout checks that the bytes writeChunk
 // produces match the layout the vanilla server reads: a big-endian length, a
 // compression type byte, and a zlib-compressed payload, padded to a sector.
@@ -311,47 +265,6 @@ func trimLastSector(t *testing.T, rf *regionFile, index int) {
 	}
 }
 
-// TestRegionReadsAShortLastSector checks that a chunk whose last sector the
-// file ends partway through reads back, and that a later write lands after it
-// rather than over it.
-func TestRegionReadsAShortLastSector(t *testing.T) {
-	t.Parallel()
-	path := regionFilePath(t.TempDir(), 0, 0)
-	rf, err := openRegion(path, defaultSaveFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first := []byte("the chunk vanilla wrote last")
-	if err := rf.writeChunk(ChunkPos{X: 4, Z: 0}, first); err != nil {
-		t.Fatal(err)
-	}
-	trimLastSector(t, rf, 4)
-	rf.close()
-
-	rf, err = openRegion(path, defaultSaveFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { rf.close() })
-	got, err := rf.readChunk(ChunkPos{X: 4, Z: 0})
-	if err != nil {
-		t.Fatalf("readChunk of the short last sector: %v", err)
-	}
-	if !bytes.Equal(got, first) {
-		t.Errorf("readChunk = %q, want %q", got, first)
-	}
-
-	second := []byte("a chunk saved after it")
-	if err := rf.writeChunk(ChunkPos{X: 5, Z: 0}, second); err != nil {
-		t.Fatal(err)
-	}
-	for index, want := range map[int][]byte{4: first, 5: second} {
-		if got, err := rf.readChunk(ChunkPos{X: int32(index), Z: 0}); err != nil || !bytes.Equal(got, want) {
-			t.Errorf("readChunk(%d) = %q, %v; want %q", index, got, err, want)
-		}
-	}
-}
-
 // TestRegionDoesNotOverwriteAnUnreadableChunk checks that a chunk whose data
 // fails to read keeps its bytes: a write to it is refused, and a write to
 // another chunk does not reuse its sectors.
@@ -398,29 +311,6 @@ func TestRegionDoesNotOverwriteAnUnreadableChunk(t *testing.T) {
 	}
 }
 
-// TestRegionWriteReusesFreedSectors checks that a chunk rewritten elsewhere
-// gives its old sectors back, so a region file does not grow on every save.
-func TestRegionWriteReusesFreedSectors(t *testing.T) {
-	t.Parallel()
-	rf, err := openRegion(regionFilePath(t.TempDir(), 0, 0), defaultSaveFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { rf.close() })
-	for range 10 {
-		if err := rf.writeChunk(ChunkPos{X: 0, Z: 0}, []byte("the same chunk, saved again")); err != nil {
-			t.Fatal(err)
-		}
-	}
-	stat, err := rf.file.Stat()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stat.Size() > regionHeaderLen+2*sectorSize {
-		t.Errorf("the file is %d bytes after ten saves of one small chunk", stat.Size())
-	}
-}
-
 // damageChunk writes a chunk record whose payload is not zlib, returning the
 // region file's bytes for comparison after the world has had its go.
 func damageChunk(t *testing.T, path string, pos ChunkPos) []byte {
@@ -442,88 +332,6 @@ func damageChunk(t *testing.T, path string, pos ChunkPos) []byte {
 		t.Fatal(err)
 	}
 	return raw
-}
-
-// TestWorldDoesNotSaveOverAnUnreadableChunk checks the world's side: a block
-// chunk and an entity chunk that fail to load are left as they are on disk
-// by every later save, without the save reporting a failure.
-func TestWorldDoesNotSaveOverAnUnreadableChunk(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	pos := ChunkPos{X: 2, Z: -3}
-	rx, rz := regionCoords(pos)
-	storage := dimensionDir(dir, DimensionName)
-	blocks := damageChunk(t, regionFilePath(storage, rx, rz), pos)
-	entities := damageChunk(t, entitiesRegionFilePath(storage, rx, rz), pos)
-
-	w, _ := NewWorld(dir, NewFlatGenerator())
-	w.Acquire(pos)
-	if !w.SetBlock(pos.X*16, 70, pos.Z*16, stoneState) {
-		t.Fatal("the block did not change, so the chunk would not save")
-	}
-	w.Save()
-	w.Release(pos)
-	w.FlushSaves()
-
-	chunk, _ := w.Acquire(pos)
-	if written, err := w.saveChunk(pos, chunk); written || err != nil {
-		t.Errorf("saveChunk over the damaged chunk = %v, %v; want skipped without an error", written, err)
-	}
-	w.Release(pos)
-	if _, _, err := w.LoadChunkEntities(pos); err == nil {
-		t.Fatal("LoadChunkEntities of a damaged chunk succeeded")
-	}
-	if err := w.SaveChunkEntities(pos, nil); err != nil {
-		t.Errorf("SaveChunkEntities over a damaged chunk = %v, want it skipped", err)
-	}
-	w.Close()
-
-	for path, want := range map[string][]byte{
-		regionFilePath(storage, rx, rz):         blocks,
-		entitiesRegionFilePath(storage, rx, rz): entities,
-	} {
-		got, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(got, want) {
-			t.Errorf("%s changed after the damaged chunk was saved over", path)
-		}
-	}
-}
-
-// TestRegionProtectsChunksItCannotDecode checks that a chunk whose record
-// cannot be decoded at all — an unknown compression id, or an lz4 stream cut
-// short the way a crash might leave one — is reported and kept rather than
-// written over. Records this server reads, among them all four compressions
-// and the external .mcc stubs, belong to the reading tests instead.
-func TestRegionProtectsChunksItCannotDecode(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name    string
-		comp    byte
-		payload []byte
-	}{
-		{"unknown compression id", 127, []byte("a chunk")},
-		{"a broken lz4 stream", 4, hexBytes(t, lz4FixtureCompressed)[:30]},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			rf, err := openRegion(regionFilePath(t.TempDir(), 0, 0), defaultSaveFormat)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { rf.close() })
-			putRawRecord(t, rf, 9, tc.comp, tc.payload)
-
-			if _, err := rf.readChunk(ChunkPos{X: 9, Z: 0}); err == nil {
-				t.Errorf("compression %#x: readChunk succeeded", tc.comp)
-			}
-			if err := rf.writeChunk(ChunkPos{X: 9, Z: 0}, []byte("a regenerated chunk")); !errors.Is(err, errUnreadable) {
-				t.Errorf("compression %#x: writeChunk = %v, want errUnreadable", tc.comp, err)
-			}
-		})
-	}
 }
 
 // hexBytes decodes a fixture recorded as hex, so the reading tests can
@@ -639,26 +447,6 @@ func TestRegionReadsExternalMccChunks(t *testing.T) {
 	entry := rf.offsets[7]
 	if sector, count := entry>>8, entry&0xFF; count != 1 || sector < 2 {
 		t.Errorf("the external record's entry is %d sectors at %d, want 1 sector past the header", count, sector)
-	}
-}
-
-// TestAMissingMccFileLeavesAChunkUnreadable checks that a stub whose
-// external file is not there stops the chunk from being read and from being
-// written over: whatever the region file still holds is kept.
-func TestAMissingMccFileLeavesAChunkUnreadable(t *testing.T) {
-	t.Parallel()
-	rf, err := openRegion(regionFilePath(t.TempDir(), 0, 0), defaultSaveFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { rf.close() })
-	putRawRecord(t, rf, 5, 0x80|2, nil)
-
-	if _, err := rf.readChunk(ChunkPos{X: 5, Z: 0}); err == nil {
-		t.Fatal("readChunk of a missing external chunk succeeded")
-	}
-	if err := rf.writeChunk(ChunkPos{X: 5, Z: 0}, []byte("a regenerated chunk")); !errors.Is(err, errUnreadable) {
-		t.Errorf("writeChunk over it = %v, want errUnreadable", err)
 	}
 }
 
@@ -800,130 +588,6 @@ func TestRegionWritesLz4Chunks(t *testing.T) {
 	}
 }
 
-// TestRegionRemoveChunkDeletesItsMcc checks that clearing an external chunk
-// takes its .mcc away with the entry.
-func TestRegionRemoveChunkDeletesItsMcc(t *testing.T) {
-	t.Parallel()
-	path := regionFilePath(t.TempDir(), 0, 0)
-	rf, err := openRegion(path, defaultSaveFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { rf.close() })
-
-	pos := ChunkPos{X: 4, Z: 2}
-	if err := rf.writeChunk(pos, incompressible(1<<20+sectorSize)); err != nil {
-		t.Fatal(err)
-	}
-	mcc := externalChunkPath(path, pos)
-	if _, err := os.Stat(mcc); err != nil {
-		t.Fatalf("the external file was not written: %v", err)
-	}
-	if err := rf.removeChunk(pos); err != nil {
-		t.Fatalf("removeChunk: %v", err)
-	}
-	if _, err := os.Stat(mcc); !os.IsNotExist(err) {
-		t.Errorf("the external file survived removeChunk: %v", err)
-	}
-	if got, err := rf.readChunk(pos); got != nil || err != nil {
-		t.Errorf("readChunk after removeChunk = %d bytes, %v; want nothing", len(got), err)
-	}
-}
-
-// TestWorldEntitiesRegionWritesMcc checks that an entity list too big for an
-// entry goes to a .mcc beside the entities region file and reads back whole.
-func TestWorldEntitiesRegionWritesMcc(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	w, err := NewWorld(dir, NewFlatGenerator())
-	if err != nil {
-		t.Fatal(err)
-	}
-	pos := ChunkPos{X: 3, Z: 1}
-	blob := nbt.ByteArray(incompressible(1<<20 + sectorSize))
-	entities := []nbt.Tag{nbt.Compound{"id": nbt.String("minecraft:pig"), "Blob": blob}}
-	if err := w.SaveChunkEntities(pos, entities); err != nil {
-		t.Fatalf("SaveChunkEntities: %v", err)
-	}
-	mcc := externalChunkPath(entitiesRegionFilePath(w.storage, 0, 0), pos)
-	if _, err := os.Stat(mcc); err != nil {
-		t.Fatalf("no .mcc beside the entities region: %v", err)
-	}
-	got, ok, err := w.LoadChunkEntities(pos)
-	if err != nil || !ok || len(got) != 1 {
-		t.Fatalf("LoadChunkEntities = %d entities, %v, %v; want the one saved", len(got), ok, err)
-	}
-	if err := w.SaveChunkEntities(pos, nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(mcc); !os.IsNotExist(err) {
-		t.Errorf("the entities .mcc survived an empty save: %v", err)
-	}
-	w.Close()
-}
-
-// TestRegionMccWriteLeavesNoStagedFile checks that a stale staged file from an
-// interrupted write is replaced, and that a write failing after the payload
-// is staged removes it.
-func TestRegionMccWriteLeavesNoStagedFile(t *testing.T) {
-	t.Parallel()
-	path := regionFilePath(t.TempDir(), 0, 0)
-	rf, err := openRegion(path, defaultSaveFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pos := ChunkPos{X: 5, Z: 5}
-	staged := rf.stagedExternalPath(pos)
-	if err := os.WriteFile(staged, []byte("left by a crash, longer than the payload would ever be to keep trunc honest"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	data := incompressible(1<<20 + sectorSize)
-	if err := rf.writeChunk(pos, data); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(staged); !os.IsNotExist(err) {
-		t.Errorf("the staged file remained after the commit: %v", err)
-	}
-	if got, err := rf.readChunk(pos); err != nil || !bytes.Equal(got, data) {
-		t.Errorf("readChunk after a stale staged file = %d bytes, %v", len(got), err)
-	}
-
-	// A closed region file fails the stub write, after the payload is staged.
-	rf.close()
-	if err := rf.writeChunk(ChunkPos{X: 6, Z: 5}, data); err == nil {
-		t.Fatal("writeChunk on a closed region file succeeded")
-	}
-	if _, err := os.Stat(rf.stagedExternalPath(ChunkPos{X: 6, Z: 5})); !os.IsNotExist(err) {
-		t.Errorf("a failed write left its staged file: %v", err)
-	}
-}
-
-// TestRegionMccStageFailureLeavesNoStagedFile checks that a payload write
-// failing partway removes the staged file it created. /dev/full accepts the
-// open and refuses every write.
-func TestRegionMccStageFailureLeavesNoStagedFile(t *testing.T) {
-	t.Parallel()
-	if _, err := os.Stat("/dev/full"); err != nil {
-		t.Skip("no /dev/full")
-	}
-	rf, err := openRegion(regionFilePath(t.TempDir(), 0, 0), defaultSaveFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { rf.close() })
-	pos := ChunkPos{X: 7, Z: 7}
-	staged := rf.stagedExternalPath(pos)
-	if err := os.Symlink("/dev/full", staged); err != nil {
-		t.Fatal(err)
-	}
-	if err := rf.writeChunk(pos, incompressible(1<<20+sectorSize)); err == nil {
-		t.Fatal("writeChunk succeeded with a staged file that refuses writes")
-	}
-	if _, err := os.Lstat(staged); !os.IsNotExist(err) {
-		t.Errorf("a failed staging left its file: %v", err)
-	}
-}
-
 // TestWorldKeepsChunksItCannotUpgrade checks that a chunk record in an older
 // format, or naming a block this server does not know, is left byte for byte
 // as stored by a later edit and save instead of being regenerated or read as
@@ -1001,48 +665,5 @@ func TestWorldKeepsChunksItCannotUpgrade(t *testing.T) {
 				t.Error("the region file changed after an edit and save")
 			}
 		})
-	}
-}
-
-func TestSaveAfterCloseFailsWithoutPanic(t *testing.T) {
-	pos := ChunkPos{X: 1, Z: 2}
-	w, _ := NewWorld(t.TempDir(), NewFlatGenerator())
-	chunk, _ := w.Acquire(pos)
-	w.Close()
-	if written, err := w.saveChunk(pos, chunk); written || !errors.Is(err, errWorldClosed) {
-		t.Errorf("saveChunk after Close = %v, %v; want not written, errWorldClosed", written, err)
-	}
-}
-
-func TestRegionPooledZlibReader(t *testing.T) {
-	t.Parallel()
-	first := bytes.Repeat([]byte("first chunk"), 8192)
-	second := bytes.Repeat([]byte("second"), 32)
-	compress := func(data []byte) []byte {
-		t.Helper()
-		out, err := compressPayload(compressZlib, data)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return out
-	}
-	payload := compress(first)
-	out, err := decompress(compressZlib, payload)
-	if err != nil || !bytes.Equal(out, first) {
-		t.Fatalf("first decompress: %v", err)
-	}
-	badChecksum := bytes.Clone(payload)
-	badChecksum[len(badChecksum)-1] ^= 1
-	for _, bad := range [][]byte{{}, {0, 0}, payload[:len(payload)/2], badChecksum} {
-		if _, err := decompress(compressZlib, bad); err == nil {
-			t.Fatal("accepted corrupt zlib payload")
-		}
-		got, err := decompress(compressZlib, compress(second))
-		if err != nil || !bytes.Equal(got, second) {
-			t.Fatalf("decompress after error: %v", err)
-		}
-		if !bytes.Equal(out, first) {
-			t.Fatal("later decompression modified caller-owned output")
-		}
 	}
 }

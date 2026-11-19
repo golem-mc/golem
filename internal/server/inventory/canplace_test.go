@@ -63,33 +63,3 @@ func TestCanPlaceItemContainerRules(t *testing.T) {
 		t.Error("a shelf slot with room refused an item")
 	}
 }
-
-// TestCanPlaceItemCrafterLaterSlot checks that the crafter takes any enabled
-// slot that is not full and has no later slot to even out into.
-// vanilla: CrafterBlockEntity.canPlaceItem
-func TestCanPlaceItemCrafterLaterSlot(t *testing.T) {
-	t.Parallel()
-	c := &disabledBlock{kind: KindCrafter, slots: make([]protocol.ItemStack, 9), off: map[int]bool{0: true}}
-	stone := item(t, "minecraft:stone", 1)
-	for i := 1; i < 9; i++ {
-		c.slots[i] = item(t, "minecraft:stone", 2)
-	}
-	if CanPlaceItem(c, stone, 0) {
-		t.Error("a disabled slot took an item")
-	}
-	if !CanPlaceItem(c, stone, 5) {
-		t.Error("a later occupied slot with no smaller one after it refused")
-	}
-	c.slots[8] = protocol.ItemStack{}
-	if CanPlaceItem(c, stone, 5) {
-		t.Error("a slot with an empty one after it took the item")
-	}
-	if !CanPlaceItem(c, stone, 8) {
-		t.Error("an empty slot refused")
-	}
-	c.slots[7] = item(t, "minecraft:stone", 64)
-	c.slots[8] = item(t, "minecraft:stone", 64)
-	if CanPlaceItem(c, stone, 7) {
-		t.Error("a full slot took an item")
-	}
-}

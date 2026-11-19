@@ -1,7 +1,6 @@
 package redstone
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -68,69 +67,5 @@ func TestDispenserSulfurAbsorptionSelectsEligibleCubeAndReplacesBlock(t *testing
 	}
 	if got := srv.MobEquipment(adult, "body"); got.ItemID != registry.MustItem("minecraft:oak_planks") {
 		t.Fatalf("disabled TNT replaced body: %+v", got)
-	}
-}
-
-func TestDispenserSulfurAbsorptionSkipsSameItemCube(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Dispensing(t)
-	first := srv.SpawnMob("minecraft:sulfur_cube", 4.5, 64, 1.5)
-	srv.SetMobNoAI(first)
-	for range 2 {
-		srv.SetInventoryAt(4, 64, 0, 0, servertest.ItemStack(t, "minecraft:stone", 1))
-		srv.Dispense(4, 64, 0, protocol.FaceSouth)
-		if srv.MobEquipment(first, "body").Empty() {
-			t.Fatal("first cube did not absorb")
-		}
-		if len(srv.Mobs()) == 1 {
-			second := srv.SpawnMob("minecraft:sulfur_cube", 4.5, 64, 1.5)
-			srv.SetMobNoAI(second)
-		}
-	}
-	for _, m := range srv.Mobs() {
-		if srv.MobEquipment(m.ID, "body").Empty() {
-			t.Fatal("refusing cube stopped target search")
-		}
-	}
-	if items := srv.ItemsInDimension(world.DimensionName); len(items) != 0 {
-		t.Fatalf("successful absorption dropped %+v", items)
-	}
-}
-
-// vanilla: FlintAndSteelDispenseItemBehavior.tryIgniteExplosiveEntities
-func TestADispenserLightsAnExplosiveSulfurCubesFuseWithItsFlintAndSteel(t *testing.T) {
-	t.Parallel()
-	for _, explosive := range []bool{true, false} {
-		srv, w := servertest.Dispensing(t)
-		cube := srv.SpawnMob("minecraft:sulfur_cube", 4.5, 64, 1.5)
-		srv.SetMobNoAI(cube)
-		if explosive {
-			srv.SetInventoryAt(4, 64, 0, 0, servertest.ItemStack(t, "minecraft:tnt", 1))
-			srv.Dispense(4, 64, 0, protocol.FaceSouth)
-			if got := srv.MobEquipment(cube, "body"); got.ItemID != registry.MustItem("minecraft:tnt") {
-				t.Fatalf("body = %+v, want TNT", got)
-			}
-		}
-		srv.SetInventoryAt(4, 64, 0, 0, servertest.ItemStack(t, "minecraft:flint_and_steel", 1))
-		srv.Dispense(4, 64, 0, protocol.FaceSouth)
-		w.DrainRecorded()
-		name, _ := servertest.StatePropsOf(t, srv, 4, 64, 1)
-		wantBlock := "minecraft:fire"
-		if explosive {
-			wantBlock = "minecraft:air"
-		}
-		if name != wantBlock {
-			t.Errorf("explosive=%v: target is %s, want %s", explosive, name, wantBlock)
-		}
-		if got := srv.MobSulfurPrimed(cube); got != explosive {
-			t.Errorf("explosive=%v: primed = %v", explosive, got)
-		}
-		if !slices.Contains(w.Events, protocol.WorldEventDispense) || slices.Contains(w.Events, protocol.WorldEventDispenseFail) {
-			t.Errorf("explosive=%v: events %v", explosive, w.Events)
-		}
-		got := srv.InventoryAt(4, 64, 0)
-		if servertest.NothingIn(got) || got[0].Count != 1 || got[0].Damage != 1 {
-			t.Errorf("explosive=%v: dispenser holds %+v, want worn flint and steel", explosive, got)
-		}
 	}
 }

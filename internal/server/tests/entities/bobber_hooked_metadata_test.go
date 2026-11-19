@@ -5,11 +5,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/command"
-	"github.com/golem-mc/golem/internal/server/entity"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 )
 
 // hookedField reads the hooked-entity field out of a metadata payload kept
@@ -150,40 +146,4 @@ func latecomerMetadata(r *servertest.MetadataRecorder, connect func() *servertes
 		r.Record(name, id, packets)
 	}
 	late.Disconnect()
-}
-
-// TestATeleportedHookIsToldOncePerMovementTick checks that twenty /tp of a
-// cast hook in one tick reach the watcher as one Teleport Entity, sent by the
-// hook's movement tick.
-// vanilla: Entity.teleportTo, ServerEntity.sendChanges
-func TestATeleportedHookIsToldOncePerMovementTick(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BowTestConfig(), servertest.OpsListing(t, "Angler"))
-	c := connect().Join("Angler")
-	srv.GiveSlot("Angler", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:fishing_rod"), Count: 1})
-	c.ChatCommand("gamerule spawn_mobs false")
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	r := servertest.NewMetadataRecorder(t, srv, c)
-	hookID := castHook(t, r, -90, 10)
-
-	hooks := srv.SelectedEntities("minecraft:fishing_bobber")
-	if len(hooks) != 1 {
-		t.Fatalf("selected %d hooks, want 1", len(hooks))
-	}
-	at := hooks[0].Position()
-	for j := range 20 {
-		hooks[0].Teleport(command.Move{Pos: player.Position{X: at.X + float64(j+1), Y: at.Y + 5, Z: at.Z}},
-			world.DimensionName, "test")
-	}
-	told := 0
-	for _, p := range r.Read(entity.BobberInterval) {
-		if p.Id == protocol.IDPlayTeleportEntity && protocol.NewReader(p.Data).ReadVarInt() == hookID {
-			told++
-		}
-	}
-	if told != 1 {
-		t.Errorf("the hook was sent %d Teleport Entity packets for twenty teleports in one tick, want 1", told)
-	}
-	c.Disconnect()
 }

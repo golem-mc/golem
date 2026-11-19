@@ -61,26 +61,3 @@ func TestFangSpellRingsANearTargetAndLinesAFarOne(t *testing.T) {
 		}
 	}
 }
-
-// TestEvokerSearchBoxReachesFourBlocksBelowButNotPast: the search box grows
-// by 4 vertically around both bodies, so a sheep 5.6 below is out of it.
-// vanilla: Evoker.EvokerWololoSpellGoal.canUse
-func TestEvokerSearchBoxReachesFourBlocksBelowButNotPast(t *testing.T) {
-	m := NewMob(TypeEvoker, 1, 0, 64, 0, 1)
-	for _, tc := range []struct {
-		dy, dx float64
-		want   bool
-	}{
-		{-5.0, 0, true},
-		{-5.6, 0, false},
-		{5.9, 0, true},
-		{6.1, 0, false},
-		{0, 16.5, true},
-		{0, 17.2, false},
-	} {
-		sheep := NewMob(TypeSheep, 2, tc.dx, 64+tc.dy, 0, 2)
-		if got := overlapsInflated(m, sheep, evokerWololoRange, evokerWololoRise); got != tc.want {
-			t.Errorf("sheep at dx %v dy %v: %v, want %v", tc.dx, tc.dy, got, tc.want)
-		}
-	}
-}

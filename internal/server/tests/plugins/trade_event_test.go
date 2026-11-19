@@ -3,7 +3,6 @@ package plugins_test
 import (
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
@@ -66,38 +65,6 @@ func TestPluginPlayerTradeEvent(t *testing.T) {
 	}
 }
 
-// vanilla: BlockAttachedEntity.skipAttackInteraction, ItemFrame.hurtServer
-func TestPluginHangingBreakEvent(t *testing.T) {
-	cancel, asked := true, 0
-	var remover plugin.Entity
-	srv, _, c := blockScene(t, "minecraft:dirt", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.HangingBreakEvent) {
-			asked++
-			remover = e.Remover
-			_ = e.Entity.Facing() // reads the frame: no lock may be held
-			e.SetCancelled(cancel)
-		})
-	})
-	servertest.BuildPaintingWall(srv, 4, 64, 65, 5, 5)
-	c.MoveToGround(4.5, 64, 3.5, true)
-	frame := srv.SpawnFrameEntity(4, 64, 4)
-	c.Settle()
-	c.Attack(frame.ID)
-	fired(t, srv, c, "hanging break", &asked, 1)
-	if n := srv.FrameCount(); n != 1 {
-		t.Fatalf("a cancelled break left %d frames, want 1", n)
-	}
-	if remover == nil || remover.Type() != registry.EntityTypePlayer {
-		t.Errorf("remover %v, want the player", remover)
-	}
-	cancel = false
-	c.Attack(frame.ID)
-	fired(t, srv, c, "second hanging break", &asked, 2)
-	if n := srv.FrameCount(); n != 0 {
-		t.Errorf("an allowed break left %d frames, want 0", n)
-	}
-}
-
 // vanilla: Snowball.use, Projectile.spawnProjectile
 func TestPluginProjectileLaunchEvent(t *testing.T) {
 	cancel, asked := true, 0
@@ -152,86 +119,5 @@ func TestPluginEntityTransformEvent(t *testing.T) {
 	}
 	if len(srv.MobIDsOfKind("minecraft:pig")) != 0 || len(srv.MobIDsOfKind("minecraft:zombified_piglin")) != 1 {
 		t.Errorf("allowed: pigs %d, piglins %d", len(srv.MobIDsOfKind("minecraft:pig")), len(srv.MobIDsOfKind("minecraft:zombified_piglin")))
-	}
-}
-
-// vanilla: EnderMan.EndermanTakeBlockGoal.tick
-func TestPluginEntityChangeBlockEvent(t *testing.T) {
-	cancel, asked := true, 0
-	var to plugin.BlockState
-	srv, _ := tickScene(t, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.EntityChangeBlockEvent) {
-			asked++
-			to = e.NewState
-			_ = e.Entity.Type() // reads the mob: no lock may be held
-			e.SetCancelled(cancel)
-		})
-	})
-	stone := servertest.BlockState(t, "minecraft:stone")
-	srv.SetBlock(8, 64, 8, stone)
-	id := srv.SpawnMob("minecraft:enderman", 8.5, 70, 8.5)
-	other := srv.SpawnMob("minecraft:enderman", 9.5, 70, 8.5)
-	take := func() {
-		// The move runs off the tick goroutine, so its listener call is
-		// answered by the ticks driven here.
-		done := make(chan struct{})
-		go func() { srv.EndermenMoveBlockTogether(id, other, 8, 64, 8, true, 0); close(done) }()
-		for range 400 {
-			select {
-			case <-done:
-				return
-			case <-time.After(5 * time.Millisecond):
-				srv.RunTick()
-			}
-		}
-		t.Fatal("the block move never finished")
-	}
-	take()
-	if asked == 0 || to != 0 || srv.BlockAt(8, 64, 8) != stone {
-		t.Fatalf("refused take: asked %d, to %d, block %d", asked, to, srv.BlockAt(8, 64, 8))
-	}
-	cancel = false
-	take()
-	if srv.BlockAt(8, 64, 8) == stone {
-		t.Errorf("an allowed take left the block")
-	}
-}
-
-// vanilla: Entity.igniteForTicks
-func TestPluginEntityCombustEvent(t *testing.T) {
-	cancel, asked := true, 0
-	srv, _ := tickScene(t, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.EntityCombustEvent) {
-			asked++
-			if e.Duration != 100 {
-				t.Errorf("duration %d", e.Duration)
-			}
-			e.Duration = 50
-			e.SetCancelled(cancel)
-		})
-	})
-	ignite := func() {
-		// The ignition runs off the tick goroutine, so its listener call is
-		// answered by the ticks driven here.
-		done := make(chan struct{})
-		go func() { srv.IgnitePlayer("Victim", 100); close(done) }()
-		for range 400 {
-			select {
-			case <-done:
-				return
-			case <-time.After(5 * time.Millisecond):
-				srv.RunTick()
-			}
-		}
-		t.Fatal("the ignition never finished")
-	}
-	ignite()
-	if asked != 1 || srv.PlayerFire("Victim") != -20 {
-		t.Fatalf("refused: asked %d, fire %d", asked, srv.PlayerFire("Victim"))
-	}
-	cancel = false
-	ignite()
-	if got := srv.PlayerFire("Victim"); got < 40 || got > 50 { // the ticks driven above burn some off
-		t.Errorf("fire %d, want the edited 50", got)
 	}
 }

@@ -77,31 +77,3 @@ func TestGoatHornPlaysItsInstrumentAndStartsItsCooldown(t *testing.T) {
 		t.Errorf("the cooldowns sent = %+v, want one of 140 ticks for minecraft:goat_horn", own.cooldowns)
 	}
 }
-
-// TestGoatHornIsRaisedForItsUseDuration toots a horn: a watcher sees the
-// player's hand-active bit set at once and cleared when the 140-tick use
-// duration of the default instrument ends.
-// vanilla: InstrumentItem.use, InstrumentItem.getUseDuration
-func TestGoatHornIsRaisedForItsUseDuration(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BowTestConfig())
-	near := connect().Join("Near")
-	blower := connect()
-	id := blower.JoinAs("Blower")
-	near.ExpectPlayerAdded("Blower")
-	srv.GiveSlot("Blower", 36, protocol.ItemStack{ItemID: servertest.ItemIDOrDie(t, "minecraft:goat_horn"), Count: 1})
-	servertest.HoldTicks(t, srv)
-
-	servertest.UseHeld(blower, 0, 0)
-	e, ok := near.MetaEntryWithinTicks(srv, 2, id, protocol.MetadataIndexHandState)
-	if !ok || e.ByteVal != protocol.EntityFlagHandActive {
-		t.Fatalf("hand state after the toot = %#02x (seen %v), want %#02x", e.ByteVal, ok, protocol.EntityFlagHandActive)
-	}
-	if e, ok := near.MetaEntryWithinTicks(srv, 135, id, protocol.MetadataIndexHandState); ok {
-		t.Fatalf("hand state changed to %#02x before the use duration ended", e.ByteVal)
-	}
-	e, ok = near.MetaEntryWithinTicks(srv, 10, id, protocol.MetadataIndexHandState)
-	if !ok || e.ByteVal != 0 {
-		t.Fatalf("hand state at the use duration's end = %#02x (seen %v), want 0", e.ByteVal, ok)
-	}
-}

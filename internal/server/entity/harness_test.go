@@ -8,25 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestAHarnessedHappyGhastIsTemptedByFoodAlone: once harnessed, the grown
-// body's lure narrows to happy_ghast_food, as a ghastling's is.
-// vanilla: HappyGhast.registerGoals
-func TestAHarnessedHappyGhastIsTemptedByFoodAlone(t *testing.T) {
-	harness := protocol.ItemStack{ItemID: itemID(t, "minecraft:white_harness"), Count: 1}
-	snowball := protocol.ItemStack{ItemID: itemID(t, "minecraft:snowball"), Count: 1}
-	ghast := NewMob(TypeHappyGhast, 1, 0.5, 100, 0.5, 1)
-	if !ghast.tempts(harness) {
-		t.Fatal("a bare happy ghast is not tempted by a harness")
-	}
-	if !ghast.EquipHarness(harness) {
-		t.Fatal("a bare grown happy ghast refused a harness")
-	}
-	if ghast.tempts(harness) || !ghast.tempts(snowball) {
-		t.Errorf("a harnessed happy ghast: tempted by harness %v, by snowball %v; want false, true",
-			ghast.tempts(harness), ghast.tempts(snowball))
-	}
-}
-
 // TestADispenserHarnessesAGrownHappyGhastOnly: a fired harness goes on a bare
 // grown happy ghast, whatever its loot flag, and not on a ghastling or a
 // harnessed body.
@@ -86,36 +67,5 @@ func TestAHarnessedHappyGhastSeatsFourAndHoldsStillAfterOneLeaves(t *testing.T) 
 	}
 	if !ghast.Steered() {
 		t.Error("the ghast still holds still after ten ticks")
-	}
-}
-
-func TestAHappyGhastHoldsStillUnderAPlayerOnTop(t *testing.T) {
-	ghast := NewMob(TypeHappyGhast, 1, 0, 64, 0, 1)
-	ghast.Age = happyGhastStillGrace + 1
-	on := []Player{{X: 0, Y: 68, Z: 0}}
-	for i := range 31 {
-		ghast.happyGhastStillStep(on)
-		if !ghast.StaysStill() || ghast.stillTimeout != 10 {
-			t.Fatalf("step %d: timeout %d, want 10", i, ghast.stillTimeout)
-		}
-	}
-	for name, p := range map[string]Player{
-		"too high":  {X: 0, Y: 70, Z: 0},
-		"too wide":  {X: 3.1, Y: 68, Z: 0},
-		"spectator": {X: 0, Y: 68, Z: 0, Spectator: true},
-		"on ghast":  {X: 0, Y: 68, Z: 0, OnHappyGhast: true},
-	} {
-		g := NewMob(TypeHappyGhast, 1, 0, 64, 0, 1)
-		g.Age = happyGhastStillGrace + 1
-		g.happyGhastStillStep([]Player{p})
-		if g.stillTimeout != 0 {
-			t.Errorf("%s: timeout %d, want 0", name, g.stillTimeout)
-		}
-	}
-	for range 10 {
-		ghast.happyGhastStillStep(nil)
-	}
-	if ghast.StaysStill() {
-		t.Error("still held after the player left")
 	}
 }

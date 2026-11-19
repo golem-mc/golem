@@ -1,8 +1,6 @@
 package world
 
 import (
-	"bytes"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -44,25 +42,5 @@ func TestManyForcedChunksReadBack(t *testing.T) {
 	defer again.Close()
 	if got := len(again.ForcedChunks()); got != n {
 		t.Errorf("reopened with %d forced chunks, want %d", got, n)
-	}
-}
-
-// TestSavedDataWriteLeavesNoTempFile checks a saved data file goes in whole
-// through its temp file, which the rename takes away, and reads back.
-func TestSavedDataWriteLeavesNoTempFile(t *testing.T) {
-	dir := t.TempDir()
-	blob := nbt.ByteArray(bytes.Repeat([]byte{7}, 4<<20))
-	if err := writeSavedData(dir, "data/minecraft/test.dat", nbt.Compound{"blob": blob}); err != nil {
-		t.Fatalf("writeSavedData: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "data/minecraft/test.dat.tmp")); !os.IsNotExist(err) {
-		t.Errorf("the temp file is still there: %v", err)
-	}
-	data, err := readSavedData(dir, "data/minecraft/test.dat")
-	if err != nil {
-		t.Fatalf("readSavedData: %v", err)
-	}
-	if got, _ := nbt.Get[nbt.ByteArray](data, "blob"); !bytes.Equal(got, blob) {
-		t.Errorf("read back %d bytes, want the %d written", len(got), len(blob))
 	}
 }

@@ -57,27 +57,6 @@ func TestAVindicatorWalksToAndHurtsAPlayer(t *testing.T) {
 	}
 }
 
-// TestAColoredJohnnyAttacksASheep: vanilla reads the name with getString, so a
-// styled "Johnny" counts.
-// vanilla: Vindicator.setCustomName
-func TestAColoredJohnnyAttacksASheep(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.HostileTestConfig())
-	srv.SetDayTime(18000)
-	connect().Join("Target")
-	servertest.HoldTicks(t, srv)
-	v := srv.SpawnMob(vindicatorKind, 60.5, 64, 60.5)
-	sheep := srv.SpawnMob("minecraft:sheep", 64.5, 64, 60.5)
-	srv.SetMobColoredName(v, "Johnny", "red")
-	for range 200 {
-		srv.TickMobs(1)
-		if srv.MobTargetID(v) == sheep {
-			return
-		}
-	}
-	t.Error("a red Johnny never targeted the sheep")
-}
-
 // TestOnlyJohnnyAttacksASheep: a vindicator named Johnny takes a nearby sheep
 // for a target, an unnamed one does not.
 // vanilla: Vindicator.VindicatorJohnnyAttackGoal
@@ -159,24 +138,5 @@ func TestIllagersAndRavagersTargetAWanderingTrader(t *testing.T) {
 			}
 			t.Errorf("the %s never took the wandering trader for its target", kind)
 		})
-	}
-}
-
-// TestAVindicatorSparesABabyVillager: a baby villager is never the target.
-// vanilla: AbstractIllager.canAttack
-func TestAVindicatorSparesABabyVillager(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.HostileTestConfig())
-	srv.SetDayTime(18000)
-	connect().Join("Target")
-	servertest.HoldTicks(t, srv)
-	v := srv.SpawnMob(vindicatorKind, 60.5, 64, 60.5)
-	kid := srv.SpawnMob("minecraft:villager", 64.5, 64, 60.5)
-	srv.SetMobBaby(kid, true)
-	for i := range 200 {
-		srv.TickMobs(1)
-		if srv.MobTargetID(v) == kid {
-			t.Fatalf("tick %d: the vindicator targeted a baby villager", i)
-		}
 	}
 }

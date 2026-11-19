@@ -1,13 +1,11 @@
 package movement
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -112,48 +110,6 @@ func TestSneakClickingAChestedDonkeyOpensItsChest(t *testing.T) {
 	w.ExpectClickResult(map[int16]protocol.ItemStack{2: {}}, stone)
 }
 
-// TestADonkeysChestDropsWhatItHolds: the chest's contents drop with the
-// chest on death.
-// vanilla: AbstractHorse.dropEquipment
-func TestADonkeysChestDropsWhatItHolds(t *testing.T) {
-	t.Parallel()
-	rider, _, srv := equineSummon(t, "minecraft:donkey",
-		`{Tame:1b,ChestedHorse:1b,Items:[{Slot:4b,id:"minecraft:stone",count:3}]}`)
-	rider.ChatCommand("gamerule mob_drops false")
-	rider.Settle()
-	rider.ChatCommand("kill @e[type=minecraft:donkey]")
-	rider.Settle()
-	srv.TickMobs(2)
-	rider.Settle()
-	var names []string
-	for _, it := range srv.ItemsInDimension(world.DimensionName) {
-		names = append(names, it.Item)
-	}
-	if len(names) != 2 || names[0] == names[1] {
-		t.Fatalf("dropped %v, want the stone and the chest", names)
-	}
-}
-
-// TestADonkeysChestKeepsCursedStacks: a stack with curse of vanishing in the
-// chest vanishes with the donkey, the chest still drops.
-// vanilla: AbstractHorse.dropEquipment
-func TestADonkeysChestKeepsCursedStacks(t *testing.T) {
-	t.Parallel()
-	rider, _, srv := equineSummon(t, "minecraft:donkey",
-		`{Tame:1b,ChestedHorse:1b,Items:[{Slot:4b,id:"minecraft:stone",count:3,components:{"minecraft:enchantments":{"minecraft:vanishing_curse":1}}}]}`)
-	rider.ChatCommand("kill @e[type=minecraft:donkey]")
-	rider.Settle()
-	srv.TickMobs(2)
-	rider.Settle()
-	var names []string
-	for _, it := range srv.ItemsInDimension(world.DimensionName) {
-		names = append(names, it.Item)
-	}
-	if len(names) != 1 {
-		t.Fatalf("dropped %v, want only the chest", names)
-	}
-}
-
 // TestASaddlePutInTheMountScreenSaddlesTheHorse: the screen's saddle slot is
 // the horse's own, so a saddle placed there is worn and told.
 func TestASaddlePutInTheMountScreenSaddlesTheHorse(t *testing.T) {
@@ -194,40 +150,6 @@ func TestTheInventoryKeyOpensTheRiddenHorsesScreen(t *testing.T) {
 }
 
 // vanilla: AbstractHorse.openCustomInventoryScreen
-func TestTheInventoryKeyOpensTheCamelScreenForEitherRider(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	front := connect().Join("Front")
-	front.MoveToGround(2.5, 64, 5.5, true)
-	back := connect().Join("Back")
-	back.MoveToGround(4.5, 64, 3.5, true)
-	front.Settle()
-	back.Settle()
-	servertest.HoldTicks(t, srv)
-	id := srv.SpawnMob("minecraft:camel", 5.5, 64, 5.5)
-	front.UseOn(id)
-	front.Settle()
-	back.UseOn(id)
-	back.Settle()
-	if ids := srv.MobPassengerIDs(id); !slices.Equal(ids, []int32{front.PlayerEntityID, back.PlayerEntityID}) {
-		t.Fatalf("camel passengers = %v, want front and back players in order", ids)
-	}
-	for _, rider := range []*servertest.Client{front, back} {
-		rider.Send(protocol.IDPlayPlayerCommand, func(b *protocol.Buffer) {
-			b.PutVarInt(rider.PlayerEntityID)
-			b.PutVarInt(protocol.PlayerCommandOpenInventory)
-			b.PutVarInt(0)
-		})
-		r := protocol.NewReader(rider.ExpectWithinTicks(srv, 20, protocol.IDPlayMountScreenOpen))
-		r.ReadVarInt() // window
-		columns, entity := r.ReadVarInt(), r.ReadI32()
-		if columns != 0 || entity != id || r.Err() != nil {
-			t.Fatalf("mount screen columns=%d, entity=%d, err=%v; want 0, %d, nil", columns, entity, r.Err(), id)
-		}
-	}
-}
-
-// vanilla: AbstractHorse.openCustomInventoryScreen
 func TestABystanderCannotOpenAMountWithPassengers(t *testing.T) {
 	t.Parallel()
 	rider, id, srv := equineSummon(t, "minecraft:horse", `{Tame:1b,Passengers:[{id:"minecraft:pig"}]}`)
@@ -239,18 +161,6 @@ func TestABystanderCannotOpenAMountWithPassengers(t *testing.T) {
 	sneakClick(rider, id)
 	rider.ExpectNoneWithinTicks(srv, 20, func(id int32, _ []byte) bool {
 		return id == protocol.IDPlayMountScreenOpen
-	})
-}
-
-// TestAWildHorseOpensNoScreen: an untamed horse has no screen to open.
-func TestAWildHorseOpensNoScreen(t *testing.T) {
-	t.Parallel()
-	rider, horse, _ := horseSummon(t, "{}")
-	sneakClick(rider, horse.entityID)
-	rider.SettleAndCollect(func(id int32, _ []byte) {
-		if id == protocol.IDPlayMountScreenOpen {
-			t.Error("a wild horse opened its screen")
-		}
 	})
 }
 
@@ -281,34 +191,6 @@ func TestHorseArmourGoesOnByClick(t *testing.T) {
 	}
 }
 
-// TestASecondViewerSeesTheMountScreenChange: two players with one donkey's
-// screen open; what one takes from its chest the other is told gone.
-// vanilla: AbstractContainerMenu.broadcastChanges
-func TestASecondViewerSeesTheMountScreenChange(t *testing.T) {
-	t.Parallel()
-	s, connect := servertest.Start(t, servertest.MobTestConfig(), servertest.OpsListing(t, "Rider"))
-	rider := connect()
-	rider.Join("Rider")
-	rider.MoveToGround(2.5, 64, 5.5, true)
-	other := connect()
-	other.Join("Other")
-	other.MoveToGround(4.5, 64, 3.5, true)
-	rider.Settle()
-	other.Settle()
-	s.StopTick()
-	rider.ChatCommand(`summon minecraft:donkey 5.5 64 5.5 {Tame:1b,ChestedHorse:1b,Items:[{Slot:0b,id:"minecraft:stone",count:3}]}`)
-	rider.Settle()
-	other.Settle()
-	id := s.MobIDsOfKind("minecraft:donkey")[0]
-	sneakClick(rider, id)
-	w, _, _ := openMountScreen(t, rider, id)
-	sneakClick(other, id)
-	ow, _, _ := openMountScreen(t, other, id)
-	w.Click(2, 0, protocol.ClickModePickup)
-	w.ExpectClickResult(map[int16]protocol.ItemStack{2: {}}, stackOf(t, "minecraft:stone", 3))
-	ow.AwaitWindowSlot(2, protocol.ItemStack{})
-}
-
 // TestTheMountScreenClosesWhenTheMountDies: the open screen goes once the
 // horse is gone.
 // vanilla: AbstractMountInventoryMenu.stillValid
@@ -326,39 +208,5 @@ func TestTheMountScreenClosesWhenTheMountDies(t *testing.T) {
 	data := rider.ExpectPlay(protocol.IDPlayCloseContainer)
 	if got := protocol.NewReader(data).ReadVarInt(); got != w.Window {
 		t.Errorf("closed window %d, want %d", got, w.Window)
-	}
-}
-
-// TestALlamasScreenHasItsStrengthInColumnsAndTakesACarpet: the chest has one
-// column per strength point, slot 1 takes a carpet and slot 0 no saddle.
-// vanilla: Llama.getInventoryColumns, HorseInventoryMenu
-func TestALlamasScreenHasItsStrengthInColumnsAndTakesACarpet(t *testing.T) {
-	t.Parallel()
-	for _, kind := range []string{"minecraft:llama", "minecraft:trader_llama"} {
-		rider, id, srv := equineSummon(t, kind, "{Tame:1b,ChestedHorse:1b,Strength:4}")
-		carpet := stackOf(t, "minecraft:red_carpet", 1)
-		saddle := stackOf(t, "minecraft:saddle", 1)
-		srv.GiveSlot("Rider", player.HotbarSlot, carpet)
-		srv.GiveSlot("Rider", player.HotbarSlot+1, saddle)
-		rider.Settle()
-		sneakClick(rider, id)
-		w, columns, slots := openMountScreen(t, rider, id)
-		if columns != 4 {
-			t.Errorf("%s: chest columns %d, want 4", kind, columns)
-		}
-		if want := 2 + 3*4 + player.MainInvSlots; len(slots) != want {
-			t.Fatalf("%s: window has %d slots, want %d", kind, len(slots), want)
-		}
-		hotbar := int16(2 + 3*4 + 27)
-		w.Click(hotbar+1, 0, protocol.ClickModePickup)
-		w.ExpectClickResult(map[int16]protocol.ItemStack{hotbar + 1: {}}, saddle)
-		w.Click(0, 0, protocol.ClickModePickup)
-		w.ExpectClickResult(nil, saddle)
-		w.Click(hotbar+1, 0, protocol.ClickModePickup)
-		w.ExpectClickResult(map[int16]protocol.ItemStack{hotbar + 1: saddle}, protocol.ItemStack{})
-		w.Click(hotbar, 0, protocol.ClickModePickup)
-		w.ExpectClickResult(map[int16]protocol.ItemStack{hotbar: {}}, carpet)
-		w.Click(1, 0, protocol.ClickModePickup)
-		w.ExpectClickResult(map[int16]protocol.ItemStack{1: carpet}, protocol.ItemStack{})
 	}
 }

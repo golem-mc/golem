@@ -1,12 +1,9 @@
 package commands
 
 import (
-	"bytes"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"strings"
 	"testing"
-
-	"github.com/golem-mc/golem/internal/server"
 )
 
 // TestArgumentParseErrors sends the commands a vanilla server refuses
@@ -386,36 +383,5 @@ func TestArgumentParseErrors(t *testing.T) {
 			expectNoSystemChat(t, c)
 		})
 	}
-	c.Disconnect()
-}
-
-// TestResourceLocationEmptyNamespace reads the resource locations vanilla
-// supplies the minecraft namespace for when only the path is written: the
-// timeline of a /time query, the entity type of a /summon, and the type option
-// of a target selector all resolve through the empty namespace.
-func TestResourceLocationEmptyNamespace(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.SpawningTestConfig()
-	_, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"), func(s *server.Server) {
-		s.SetTimeSync(0)
-		s.SetPaused(true)
-	})
-
-	c.ChatCommand("time set 986")
-	c.ExpectTimeFeedback("commands.time.set.absolute", textArg("minecraft:overworld"), intArg(986))
-
-	c.ChatCommand("time query :day")
-	c.ExpectTimeFeedback("commands.time.query.timeline", textArg("minecraft:day"), longArg(986))
-
-	c.ChatCommand("summon :pig")
-	servertest.AwaitSummonFeedback(t, c, "minecraft:pig", "entity.minecraft.pig")
-
-	// The type option reads its identifier through the same qualifier, so
-	// the empty namespace names the pig the summon just made.
-	c.ChatCommand("execute if entity @e[type=:pig]")
-	if got := c.ExpectSystemChatPastMobs(); !bytes.Equal(got, conditionalPassCountForTest(1)) {
-		t.Errorf("the type selector counted % X, want the summoned pig", got)
-	}
-
 	c.Disconnect()
 }

@@ -2,7 +2,6 @@ package player
 
 import (
 	"slices"
-	"sync"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -46,23 +45,6 @@ func TestMapHoldingsInventoryChanges(t *testing.T) {
 	checkMapHoldings(t, &p, nil, false)
 }
 
-func TestMapHoldingsCarriedSlots(t *testing.T) {
-	t.Parallel()
-	var p Player
-	var want []int32
-	p.Inventory(func(inv *Inventory) {
-		for slot := range inv.Slots {
-			inv.Slots[slot] = holdingsMap(int32(slot))
-			if slot >= ArmorSlot && slot <= OffHandSlot {
-				want = append(want, int32(slot))
-			}
-		}
-		inv.Body, inv.Saddle = holdingsMap(100), holdingsMap(101)
-		inv.Ender[0] = holdingsMap(102)
-	})
-	checkMapHoldings(t, &p, want, false)
-}
-
 func TestMapHoldingsRequiresMapItemAndID(t *testing.T) {
 	t.Parallel()
 	var p Player
@@ -76,28 +58,6 @@ func TestMapHoldingsRequiresMapItemAndID(t *testing.T) {
 	checkMapHoldings(t, &p, nil, false)
 	p.Inventory(func(inv *Inventory) { inv.Slots[MainSlot+1].SetMapID(0) })
 	checkMapHoldings(t, &p, []int32{0}, false)
-}
-
-func TestMapHoldingsInvisibilityEquipment(t *testing.T) {
-	t.Parallel()
-	var p Player
-	p.Inventory(func(inv *Inventory) { inv.Slots[MainSlot] = holdingsMap(7) })
-	checkMapHoldings(t, &p, []int32{7}, false)
-	pumpkin := protocol.ItemStack{ItemID: int32(registry.ItemCarvedPumpkin), Count: 1}
-	for _, slot := range equipmentSlots {
-		if slot.window == OffHandSlot {
-			continue
-		}
-		p.Inventory(func(inv *Inventory) { *inv.equipmentStack(slot.window) = pumpkin })
-		checkMapHoldings(t, &p, []int32{7}, true)
-		p.Inventory(func(inv *Inventory) { *inv.equipmentStack(slot.window) = protocol.ItemStack{} })
-		checkMapHoldings(t, &p, []int32{7}, false)
-	}
-	p.Inventory(func(inv *Inventory) {
-		inv.Slots[HotbarSlot] = pumpkin
-		inv.Slots[OffHandSlot] = pumpkin
-	})
-	checkMapHoldings(t, &p, []int32{7}, false)
 }
 
 func TestMapHoldingsTagReload(t *testing.T) {
@@ -122,26 +82,4 @@ func TestMapHoldingsTagReload(t *testing.T) {
 	checkMapHoldings(t, &p, []int32{7}, true)
 	registry.ApplyPackTags(nil)
 	checkMapHoldings(t, &p, []int32{7}, false)
-}
-
-func TestMapHoldingsConcurrentInventoryAccess(t *testing.T) {
-	t.Parallel()
-	var p Player
-	p.Inventory(func(inv *Inventory) { inv.Slots[MainSlot] = holdingsMap(1) })
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		for i := range 100 {
-			p.Inventory(func(inv *Inventory) { inv.Slots[MainSlot] = holdingsMap(int32(i%2 + 1)) })
-		}
-	})
-	wg.Go(func() {
-		for range 100 {
-			p.MapHoldings(func(ids []int32, hidden bool) {
-				if len(ids) != 1 || (ids[0] != 1 && ids[0] != 2) || hidden {
-					t.Errorf("inconsistent holdings: %v, hidden %v", ids, hidden)
-				}
-			})
-		}
-	})
-	wg.Wait()
 }

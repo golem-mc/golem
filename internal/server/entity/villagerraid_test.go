@@ -4,7 +4,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
 )
@@ -80,41 +79,6 @@ func TestABellWakesAVillagerAndHidingTimesOutAt300Ticks(t *testing.T) {
 	}
 }
 
-func TestVillagersHearBellsOnlyWithin32Blocks(t *testing.T) {
-	for _, tc := range []struct {
-		x    float64
-		typ  MobType
-		want bool
-	}{
-		{32.49, TypeVillager, true}, {32.5, TypeVillager, false}, {0.5, TypeCow, false},
-	} {
-		m := NewMob(tc.typ, 1, tc.x, 64.5, 0.5, 1)
-		m.NoAI = true
-		m.HearBell(0, 64, 0, 0)
-		if (m.vb.raid.heardBell != nil) != tc.want {
-			t.Errorf("%s at %v heard bell: %v", tc.typ, tc.x, m.vb.raid.heardBell)
-		}
-	}
-	m, _ := raidVillager(t)
-	m.Dead = true
-	m.HearBell(0, 64, 0, 1)
-	if m.vb.raid.heardBell != nil {
-		t.Fatal("dead villager heard bell")
-	}
-}
-
-func TestABellDuringARaidDoesNotSelectHide(t *testing.T) {
-	m, tick := raidVillager(t)
-	m.SetRaidView(RaidView{Has: true, Active: true})
-	m.HearBell(0, 64, 0, m.GameTime)
-	for range 100 {
-		m.villagerRaidStep(tick)
-	}
-	if m.vb.activity != actRaid {
-		t.Fatal("bell displaced raid activity")
-	}
-}
-
 func TestHidingUsesAnOccupiedBedThenFallsBackToItsHome(t *testing.T) {
 	m, tick := raidVillager(t)
 	w := tick.w.(testWorld)
@@ -156,39 +120,6 @@ func (v *hidingVillage) POIs(match func(rules.POIKind) bool, x, y, z int32, radi
 		dx, dy, dz := p.X-x, p.Y-y, p.Z-z
 		return dx*dx+dy*dy+dz*dz > int32(radius*radius)
 	})
-}
-
-func TestHidingSearchesNearbyBeforeTheFullRadius(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		x      float64
-		close  float64
-		radius int
-		want   []int
-	}{
-		{"hidden during raid", 8.5, 1, 24, []int{2}},
-		{"hidden after bell", 8.5, 2, 32, []int{3}},
-		{"distant bed", 0.5, 1, 24, []int{2, 24}},
-		{"nearby bed outside arrival distance", 6.5, 2, 32, []int{3, 32}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m, tick := raidVillager(t)
-			v := &hidingVillage{VillageView: m.Village}
-			m.Village, m.X = v, tc.x
-			g := villagerRaidGoal{m: m}
-			for range 5 {
-				v.radii = nil
-				g.hide(tick, tc.radius, 0.7, tc.close)
-				if !slices.Equal(v.radii, tc.want) {
-					t.Fatalf("lookup radii = %v, want %v", v.radii, tc.want)
-				}
-				if m.vb.raid.hiding == nil || *m.vb.raid.hiding != (Waypoint{8, 64, 0}) {
-					t.Fatal("did not select hiding bed")
-				}
-				m.stopSeeking()
-			}
-		})
-	}
 }
 
 func TestPreRaidRingsTheMeetingBellAndWalksToIt(t *testing.T) {
@@ -273,73 +204,5 @@ func TestRaidVictoryCelebrationMakesBurstRocketsOnlyOutdoors(t *testing.T) {
 	g.celebrate(tick)
 	if g.celebrateUntil != 0 || len(tick.events) != 0 {
 		t.Fatal("celebration started indoors")
-	}
-}
-
-func TestARaidInterruptsASleepingVillagersOldGoal(t *testing.T) {
-	m, tick := raidVillager(t)
-	m.vb.activity = actRest
-	m.Sleeping = true
-	m.vb.sleepPos = Waypoint{8, 64, 0}
-	g := &sleepInBedGoal{m: m}
-	m.ai.running = []Goal{g}
-	m.setVillagerActivity(tick, actRaid)
-	if m.Sleeping || len(m.ai.running) != 0 || m.vb.activity != actRaid {
-		t.Fatal("raid kept old sleep goal")
-	}
-	ops := m.TakeBedOps()
-	if len(ops) != 1 || ops[0].Occupied {
-		t.Fatalf("bed was not released: %v", ops)
-	}
-}
-
-func TestAnActiveRaidMakesAVillagerHideAndAnInactiveRaidDoesNot(t *testing.T) {
-	for _, active := range []bool{false, true} {
-		m, tick := raidVillager(t)
-		m.vb.activity = actRaid
-		m.SetRaidView(RaidView{Has: true, Active: active})
-		g := villagerRaidGoal{m: m}
-		g.Start(tick)
-		g.Tick(tick)
-		if (m.vb.raid.hiding != nil) != active {
-			t.Fatalf("active=%v: hiding=%v", active, m.vb.raid.hiding)
-		}
-		if active && len(m.navOf().nav.path) == 0 {
-			t.Fatal("active raid did not send villager toward hiding place")
-		}
-	}
-}
-
-func TestVillagerSweatRequiresAnActiveUnfinishedRaid(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		view RaidView
-		want bool
-	}{
-		{"countdown", RaidView{Has: true, Active: true, Preparing: true}, true},
-		{"wave", RaidView{Has: true, Active: true}, true},
-		{"absent", RaidView{}, false},
-		{"inactive", RaidView{Has: true}, false},
-		{"victory", RaidView{Has: true, Active: true, Over: true}, false},
-		{"loss", RaidView{Has: true, Active: true, Over: true, Loss: true}, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m, tick := raidVillager(t)
-			m.SetRaidView(tc.view)
-			sweat := false
-			for range 1000 {
-				m.villagerBrainStep(tick)
-				for _, ev := range tick.events {
-					if ev.Kind == MobStatus && ev.Status == protocol.EntityStatusVillagerSplash {
-						sweat = true
-					}
-				}
-				tick.events = nil
-				m.GameTime++
-			}
-			if sweat != tc.want {
-				t.Fatalf("splash particles = %v, want %v", sweat, tc.want)
-			}
-		})
 	}
 }

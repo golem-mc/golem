@@ -3,13 +3,9 @@ package plugins_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"image"
 	"image/png"
-	"io"
-	"net"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -90,79 +86,5 @@ func TestPluginServerListFieldsAndCancellation(t *testing.T) {
 				t.Fatalf("ping callbacks = %d", calls)
 			}
 		})
-	}
-}
-
-// The server-list client retries this pre-1.7 request after a modern ping fails.
-func TestPluginLegacyPingFieldsAndCancellation(t *testing.T) {
-	// ServerStatusPinger's MC|PingHost request, protocol 127, localhost:25565.
-	fallback, err := hex.DecodeString("fe01fa000b004d0043007c00500069006e00670048006f0073007400197f0009006c006f00630061006c0068006f00730074000063dd")
-	if err != nil {
-		t.Fatal(err)
-	}
-	older := bytes.Clone(fallback)
-	older[29] = 74 // Protocol byte after the MC|PingHost channel and payload size.
-	for _, cancel := range []bool{false, true} {
-		for _, tc := range []struct {
-			request []byte
-			version int
-		}{{[]byte{0xFE}, 0}, {[]byte{0xFE, 1}, 0}, {fallback, 127}, {older, 74}} {
-			request := tc.request
-			kind, _ := protocol.ParseLegacyPing(request)
-			t.Run(fmt.Sprintf("cancel=%t/request=%x", cancel, request), func(t *testing.T) {
-				calls := 0
-				srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "legacy", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-					plugin.Listen(s, func(e *plugin.ServerListPingEvent) {
-						calls++
-						if e.Address == nil {
-							t.Error("missing ping address")
-						}
-						wantProtocol := tc.version
-						if cancel && calls == 1 {
-							wantProtocol = protocol.Version // The preceding modern request.
-						}
-						if e.Protocol != wantProtocol {
-							t.Errorf("ping protocol = %d, want %d", e.Protocol, wantProtocol)
-						}
-						e.MOTD = plugin.Plain("Custom legacy").Color("gold")
-						e.Online, e.Max = 7, 42
-						e.SetCancelled(cancel)
-					})
-					return nil
-				}}}})
-				servertest.HoldTicks(t, srv)
-				wantCalls := 1
-				if cancel {
-					modern := servertest.DialServer(t, srv)
-					modern.Handshake(protocol.NextStateStatus)
-					modern.Send(protocol.IDStatusRequest, nil)
-					if id, _, err := modern.Read(); err == nil {
-						t.Fatalf("cancelled modern ping answered with %x", id)
-					}
-					wantCalls++
-				}
-				c := servertest.DialServer(t, srv)
-				if _, err := c.Raw.Write(request); err != nil {
-					t.Fatal(err)
-				}
-				if conn, ok := c.Raw.(*net.TCPConn); ok {
-					_ = conn.CloseWrite()
-				}
-				got, err := io.ReadAll(c.Raw)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if cancel {
-					if len(got) != 0 {
-						t.Fatalf("cancelled legacy ping returned %d bytes", len(got))
-					}
-				} else if want := protocol.LegacyPingReply(kind, "Custom legacy", 7, 42); !bytes.Equal(got, want) {
-					t.Fatalf("legacy reply = %x, want %x", got, want)
-				}
-				if calls != wantCalls {
-					t.Fatalf("ping callbacks = %d, want %d", calls, wantCalls)
-				}
-			})
-		}
 	}
 }

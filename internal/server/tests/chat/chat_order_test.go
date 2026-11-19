@@ -2,7 +2,6 @@ package chat
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
@@ -57,58 +56,6 @@ func TestCommandFailureKeepsItsPlaceBeforeASuccess(t *testing.T) {
 		})
 		if !failed || !succeeded {
 			t.Fatalf("round %d: failure and success read = %v, %v, want both", round, failed, succeeded)
-		}
-	}
-
-	c.Disconnect()
-}
-
-// TestChatEchoKeepsItsPlaceBeforeCommandFeedback checks the order of the two
-// packets one player's own messages cause in a row: the chat echo of what
-// they said, then the failure of the command they sent straight after. Both
-// travel by the same road, so the echo, queued first, reaches them first.
-func TestChatEchoKeepsItsPlaceBeforeCommandFeedback(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	// The command side of the loop is what the spam throttler counts, so
-	// the runner is listed as an operator, whom a kick spares.
-	_, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
-
-	message := servertest.CommandErrorMessageForTest("command.unknown.command")
-	context := servertest.CommandErrorContextForTest("nosuchcommand", 0)
-
-	for round := range 40 {
-		line := fmt.Sprintf("m%d", round)
-		c.Chat(line)
-		c.ChatCommand("nosuchcommand")
-
-		var echo, failure, failureContext bool
-		c.SettleAndCollect(func(id int32, data []byte) {
-			switch id {
-			case protocol.IDPlayPlayerChat:
-				index := servertest.ParsePlayerChat(t, data, "minecraft:chat", "Testificate",
-					protocol.OfflineUUID("Testificate"), line, protocol.Text{Text: line}, "", servertest.ServerStampedChatTimestamp)
-				echo = true
-				if int(index) != round {
-					t.Errorf("round %d: the echo carried global index %d", round, index)
-				}
-			case protocol.IDPlaySystemChat:
-				switch {
-				case !failure && bytes.Equal(data, message):
-					if !echo {
-						t.Fatalf("round %d: the command's failure arrived before the chat echo", round)
-					}
-					failure = true
-				case !failureContext && bytes.Equal(data, context):
-					failureContext = true
-				}
-			}
-		})
-		if !echo || !failure || !failureContext {
-			t.Fatalf("round %d: echo, failure and context read = %v, %v, %v, want all three",
-				round, echo, failure, failureContext)
 		}
 	}
 

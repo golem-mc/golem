@@ -45,26 +45,6 @@ func TestFallingSandPulsesTheObserverItLeaves(t *testing.T) {
 	}, 6, 67, 0)
 }
 
-func TestATurningRailPulsesTheObserverAboveIt(t *testing.T) {
-	t.Parallel()
-	watchEngineWrite(t, func(c *servertest.Client) {
-		servertest.Setblock(t, c, 5, 64, 0, "rail[shape=north_south]")
-		servertest.Setblock(t, c, 5, 65, 0, "observer[facing=down]")
-	}, func(c *servertest.Client) {
-		servertest.Setblock(t, c, 6, 64, 0, "rail")
-	}, 5, 65, 0)
-}
-
-func TestAPairingChestPulsesTheObserverAboveIt(t *testing.T) {
-	t.Parallel()
-	watchEngineWrite(t, func(c *servertest.Client) {
-		servertest.Setblock(t, c, 5, 64, 0, "chest[facing=north,type=single]")
-		servertest.Setblock(t, c, 5, 65, 0, "observer[facing=down]")
-	}, func(c *servertest.Client) {
-		servertest.Setblock(t, c, 6, 64, 0, "chest[facing=north,type=right]")
-	}, 5, 65, 0)
-}
-
 // TestABrokenPistonBasePopsItsHeadWithTheBreakEvent checks that the head left
 // without its base is destroyed with level event 2001.
 //

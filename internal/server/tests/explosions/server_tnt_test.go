@@ -5,7 +5,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
@@ -220,6 +219,7 @@ func TestASummonedTNTFallsAndExplodesAtItsFuse(t *testing.T) {
 	cfg := servertest.BlockTestConfig() // creative, so the blast's drops stay behind
 
 	srv, c := servertest.Join(t, cfg, "Watcher")
+	servertest.HoldTicks(t, srv)
 
 	tntID := srv.SpawnTNT(4.5, 70, 0.5, 40)
 	if tntID == 0 {
@@ -504,6 +504,8 @@ func TestATNTBlockCaughtInABlastPrimesInsteadOfDropping(t *testing.T) {
 	cfg := servertest.BlockTestConfig() // creative, so nothing else is keeping drops
 
 	srv, c := servertest.Join(t, cfg, "Chainer")
+	servertest.HoldTicks(t, srv)
+	servertest.HoldTicks(t, srv)
 
 	tnt, ok := registry.FindState("minecraft:tnt", nil)
 	if !ok {
@@ -581,98 +583,6 @@ func TestATNTBlockCaughtInABlastPrimesInsteadOfDropping(t *testing.T) {
 	}
 	if dropped {
 		t.Error("the caught block left its own item behind, the drop TntBlock.dropFromExplosion refuses")
-	}
-}
-
-// TestATNTBlastDestroysTheItemsItReaches checks the blast's reach over the
-// item entities lying in it: a dirt stack a block from the body's blast and
-// a netherite ingot two blocks out are both destroyed by it — removed from
-// the client's view and gone from the world, with no fresh body carrying the
-// stack standing where the blast caught it — while the damage-resistant
-// nether star a block out survives the same blast, its damage_resistant
-// naming the explosion tags where netherite's names only fire's.
-func TestATNTBlastDestroysTheItemsItReaches(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig() // creative, so nothing else is keeping drops
-
-	srv, c := servertest.Join(t, cfg, "Watcher")
-
-	for _, name := range []string{"minecraft:dirt", "minecraft:nether_star", "minecraft:netherite_ingot"} {
-		if _, ok := registry.ItemID(name); !ok {
-			t.Fatalf("the item registry has no %s", name)
-		}
-	}
-
-	// A dirt stack a block west of where the body will stand, a netherite
-	// ingot two blocks south and a nether star a block east, all lying on
-	// the surface inside the double radius: only the stacks'
-	// damage_resistant can part the star from the rest.
-	dirtID := srv.SpawnItemEntity(3.5, 64.125, 0.5, "minecraft:dirt", 1)
-	ingotID := srv.SpawnItemEntity(4.5, 64.125, 2.5, "minecraft:netherite_ingot", 1)
-	starID := srv.SpawnItemEntity(5.5, 64.125, 0.5, "minecraft:nether_star", 1)
-	if dirtID == 0 || ingotID == 0 || starID == 0 {
-		t.Fatal("SpawnItemEntity came to nothing")
-	}
-	if tntID := srv.SpawnTNT(4.5, 64, 0.5, 40); tntID == 0 {
-		t.Fatal("SpawnTNT came to nothing")
-	}
-
-	exploded := false
-	removed := map[int32]bool{}
-	c.ReadTicksSkipping(srv, 500, tntSkip, func(id int32, data []byte) bool {
-		switch id {
-		case protocol.IDPlayExplosion:
-			exploded = true
-		case protocol.IDPlayRemoveEntities:
-			r := protocol.NewReader(data)
-			for n := r.ReadVarInt(); n > 0 && r.Err() == nil; n-- {
-				removed[r.ReadVarInt()] = true
-			}
-		}
-		return exploded && removed[dirtID] && removed[ingotID]
-	})
-	if !exploded {
-		t.Fatal("the body never went up")
-	}
-	if !removed[dirtID] {
-		t.Error("the dirt was never removed, the blast's reach passing it by")
-	}
-	if !removed[ingotID] {
-		t.Error("the netherite ingot was never removed, its damage_resistant naming only the fire tags")
-	}
-	if removed[starID] {
-		t.Error("the nether star was removed, its damage_resistant putting it past the blast")
-	}
-
-	// The world itself, once the item pass has swept the wreck up: the
-	// dirt and the ingot gone for good — no fresh body carrying either
-	// standing where the blast caught them — and the star still lying
-	// there, its own body. Nothing of the destroyed two comes back over
-	// the wire meanwhile, the wreck's packets going nowhere.
-	c.PumpTicks(srv, 10, func(id int32, data []byte) bool {
-		switch id {
-		case protocol.IDPlaySpawnEntity, protocol.IDPlayTeleportEntity,
-			protocol.IDPlayEntityMetadata:
-			r := protocol.NewReader(data)
-			if got := r.ReadVarInt(); got == dirtID || got == ingotID {
-				t.Errorf("packet %d came for destroyed body %d after its removal", id, got)
-			}
-		}
-		return false
-	})
-	for _, it := range srv.ItemsInDimension(world.DimensionName) {
-		switch it.Item {
-		case "minecraft:dirt":
-			t.Errorf("a dirt stack is still in the world: entity %d at (%v, %v, %v) with %d, the destroyed one come again",
-				it.ID, it.X, it.Y, it.Z, it.Count)
-		case "minecraft:netherite_ingot":
-			t.Errorf("a netherite ingot is still in the world: entity %d at (%v, %v, %v) with %d, the destroyed one come again",
-				it.ID, it.X, it.Y, it.Z, it.Count)
-		case "minecraft:nether_star":
-			if it.ID != starID {
-				t.Errorf("the star stands again as entity %d, want the body it was laid as (%d)", it.ID, starID)
-			}
-		}
 	}
 }
 

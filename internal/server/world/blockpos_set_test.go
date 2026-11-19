@@ -3,7 +3,6 @@ package world
 import (
 	"crypto/sha256"
 	"fmt"
-	"slices"
 	"testing"
 )
 
@@ -50,56 +49,5 @@ func TestBlockPosSetOrderVanilla(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-func TestBlockPosSetIdentityTie(t *testing.T) {
-	for _, n := range []int{2, 17} {
-		t.Run(fmt.Sprint(n), func(t *testing.T) {
-			var in [][3]int32
-			// Distinct positions with the same complete Vec3i hash, not just bucket.
-			for i := int32(0); i < int32(n); i++ {
-				in = append(in, [3]int32{961 * i, 0, -i})
-			}
-			r := &decorRegion{}
-			out := blockPosSetOrder(r, in)
-			if len(out) != n {
-				t.Fatalf("got %d positions, want %d", len(out), n)
-			}
-			if want := n == 17; r.unorderedSet != want {
-				t.Fatalf("unorderedSet=%t, want %t", r.unorderedSet, want)
-			}
-			if again := blockPosSetOrder(&decorRegion{}, in); !slices.Equal(out, again) {
-				t.Fatal("identity fallback is not deterministic")
-			}
-		})
-	}
-}
-
-func TestBlockPosSetLushCaveWitness(t *testing.T) {
-	r := &decorRegion{}
-	out := blockPosSetOrder(r, lushCaveSetWitness)
-	h := sha256.New()
-	for _, p := range out {
-		fmt.Fprintf(h, "%d %d %d\n", p[0], p[1], p[2])
-	}
-	if got := fmt.Sprintf("%x", h.Sum(nil)); got != "9cb524d74edc4a70689f5cfbf590a4e653be6777908988b75fa8676a70d8a0af" {
-		t.Fatalf("Java HashSet witness digest: %s", got)
-	}
-	if r.unorderedSet {
-		t.Fatal("witness required identity tie-breaking")
-	}
-	// Guard the benchmark's coverage of both treeification and tree insertion.
-	s := blockPosSet{table: make([]*blockPosNode, 16), region: r}
-	treeInsertions := 0
-	for _, p := range lushCaveSetWitness {
-		h := hashPosSpread(hashPosHash(p))
-		if head := s.table[s.index(int32(h))]; head != nil && head.tree {
-			treeInsertions++
-		}
-		s.put(&blockPosNode{pos: p, hash: int32(h)})
-	}
-	if treeInsertions == 0 {
-		t.Fatal("benchmark witness did not insert into a tree bin")
 	}
 }

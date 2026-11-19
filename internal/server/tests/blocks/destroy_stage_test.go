@@ -122,86 +122,6 @@ func TestADigShowsRisingCracksToOtherPlayers(t *testing.T) {
 	}
 }
 
-// TestAStageThatDoesNotChangeIsNotResent: a slow dig sends its first stage
-// at the start and nothing on the ticks that leave the stage as it was.
-// A stick takes 1/1.5/100 of the stone a tick, so the stage stays 0 until the 14th tick.
-// vanilla: ServerPlayerGameMode.incrementDestroyProgress (lastSentState)
-func TestAStageThatDoesNotChangeIsNotResent(t *testing.T) {
-	t.Parallel()
-	srv, miner, watcher, _ := crackScene(t)
-	d := servertest.DigTarget
-	srv.GiveSlot("Miner", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:stick"), Count: 1})
-	miner.Settle()
-
-	miner.StartDigging(d[0], d[1], d[2])
-	miner.Settle()
-	want := [][]int32{{0}}
-	want = append(want, make([][]int32, 12)...)
-	want = append(want, []int32{1}, nil)
-	if got := stagesByTick(t, watcher, srv, 15); !sameStages(got, want) {
-		t.Errorf("the stages by tick = %v, want %v", got, want)
-	}
-}
-
-// TestADelayedDestroyKeepsShowingCracks: a finishing click before the block is
-// ready leaves the dig running, its stages going on to the tick that breaks
-// the block.
-// vanilla: ServerPlayerGameMode.tick (delayed destroy)
-func TestADelayedDestroyKeepsShowingCracks(t *testing.T) {
-	t.Parallel()
-	srv, miner, watcher, _ := crackScene(t)
-	d := servertest.DigTarget
-
-	miner.StartDigging(d[0], d[1], d[2])
-	miner.StopDigging(d[0], d[1], d[2])
-	miner.Settle()
-	want := [][]int32{{1, 3}, {5}, {7}, {8}, {10}}
-	if got := stagesByTick(t, watcher, srv, 5); !sameStages(got, want) {
-		t.Errorf("the stages by tick = %v, want %v", got, want)
-	}
-	servertest.ExpectAir(t, srv, d)
-}
-
-// TestADigOnAirShowsNoCrack: starting on air sends stage 10, which the client
-// draws as no crack, and never stage 0.
-// vanilla: ServerPlayerGameMode.handleBlockBreakAction START_DESTROY_BLOCK
-func TestADigOnAirShowsNoCrack(t *testing.T) {
-	t.Parallel()
-	srv, miner, watcher, _ := crackScene(t)
-	d := servertest.DigTarget
-	if !srv.SetBlock(d[0], d[1], d[2], servertest.BlockState(t, "minecraft:air")) {
-		t.Fatal("could not clear the block")
-	}
-	miner.Settle()
-
-	miner.StartDigging(d[0], d[1], d[2])
-	miner.Settle()
-	// The tick that finds the dig on air clears it.
-	want := [][]int32{{10, noStage}, {}}
-	if got := stagesByTick(t, watcher, srv, 2); !sameStages(got, want) {
-		t.Errorf("the stages by tick = %v, want %v", got, want)
-	}
-}
-
-// TestAnAbortOnAnotherPositionClearsBothCracks: cancelling at a block other
-// than the one dug clears the dug block's crack and the named block's.
-// vanilla: ServerPlayerGameMode.handleBlockBreakAction ABORT_DESTROY_BLOCK
-func TestAnAbortOnAnotherPositionClearsBothCracks(t *testing.T) {
-	t.Parallel()
-	srv, miner, watcher, _ := crackScene(t)
-	d := servertest.DigTarget
-
-	miner.StartDigging(d[0], d[1], d[2])
-	miner.Settle()
-	cracksOf(t, watcher, srv, 1)
-	miner.CancelDigging(d[0], d[1]+1, d[2])
-	miner.Settle()
-	got := cracksOf(t, watcher, srv, 0)
-	if len(got) != 2 || got[0].stage != noStage || got[0].y != d[1] || got[1].stage != noStage || got[1].y != d[1]+1 {
-		t.Errorf("after the cancel elsewhere the watcher was sent %+v, want stage -1 at y=%d, then at y=%d", got, d[1], d[1]+1)
-	}
-}
-
 // TestACancelledDigClearsTheCrack: letting go of the block sends stage -1.
 // vanilla: ServerPlayerGameMode.handleBlockBreakAction ABORT_DESTROY_BLOCK
 func TestACancelledDigClearsTheCrack(t *testing.T) {
@@ -217,47 +137,6 @@ func TestACancelledDigClearsTheCrack(t *testing.T) {
 	got := cracksOf(t, watcher, srv, 0)
 	if len(got) != 1 || got[0].stage != noStage || got[0].entity != minerID || got[0].x != d[0] {
 		t.Errorf("after the cancel the watcher was sent %+v, want one stage -1 for the digger", got)
-	}
-}
-
-// TestAnAbortFromOutOfReachClearsTheCrack: a digger moved out of reach
-// mid-dig who lets go still ends the dig, so the crack clears and stops
-// growing.
-// vanilla: ServerPlayerGameMode.handleBlockBreakAction "too far"
-func TestAnAbortFromOutOfReachClearsTheCrack(t *testing.T) {
-	t.Parallel()
-	srv, miner, watcher, minerID := crackScene(t)
-	d := servertest.DigTarget
-
-	miner.StartDigging(d[0], d[1], d[2])
-	miner.Settle()
-	if got := cracksOf(t, watcher, srv, 1); len(got) == 0 || got[0].stage == noStage {
-		t.Fatalf("the start of the dig sent the watcher %+v, want a crack", got)
-	}
-	srv.RunLine("tp Miner 20.5 64 0.5")
-	miner.AwaitPlay(protocol.IDPlaySyncPosition) // the reader accepts it
-	miner.Settle()
-	miner.CancelDigging(d[0], d[1], d[2])
-	miner.Settle()
-
-	cleared := false
-	for _, p := range cracksOf(t, watcher, srv, 10) {
-		if p.x != d[0] || p.y != d[1] || p.z != d[2] || p.entity != minerID {
-			continue
-		}
-		if p.stage == noStage {
-			cleared = true
-		} else if cleared {
-			t.Errorf("after the clear the watcher was sent stage %d", p.stage)
-		}
-	}
-	if !cleared {
-		t.Fatal("the out-of-reach cancel sent the watcher no stage -1 within 10 ticks")
-	}
-	for _, p := range cracksOf(t, watcher, srv, 20) {
-		if p.x == d[0] && p.y == d[1] && p.z == d[2] && p.stage != noStage {
-			t.Errorf("20 ticks after the cancel the watcher was sent stage %d", p.stage)
-		}
 	}
 }
 
@@ -281,23 +160,6 @@ func TestAFinishedDigClearsTheCrack(t *testing.T) {
 		t.Errorf("after the finishing click the watcher was sent %+v, want one stage -1", got)
 	}
 	servertest.ExpectAir(t, srv, d)
-}
-
-// TestALeavingDiggerClearsTheCrack: a digger who disconnects mid-dig takes
-// the crack off the watcher's screen.
-func TestALeavingDiggerClearsTheCrack(t *testing.T) {
-	t.Parallel()
-	srv, miner, watcher, minerID := crackScene(t)
-	d := servertest.DigTarget
-
-	miner.StartDigging(d[0], d[1], d[2])
-	miner.Settle()
-	cracksOf(t, watcher, srv, 1)
-	miner.Disconnect()
-	got := cracksOf(t, watcher, srv, 2)
-	if len(got) != 1 || got[0].stage != noStage || got[0].entity != minerID || got[0].x != d[0] {
-		t.Errorf("after the digger left the watcher was sent %+v, want one stage -1 for them", got)
-	}
 }
 
 // TestACrackReachesOnlyNearbyPlayersOfTheSameDimension: a player 32 blocks

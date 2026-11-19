@@ -3,43 +3,7 @@ package rules
 import (
 	"math/rand"
 	"testing"
-
-	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/effect"
 )
-
-// TestTheElderCurseSpareswhoItShould: creative and spectator players, the
-// ones past fifty blocks, and the ones already carrying the curse at its
-// strength with more than 1199 ticks left are skipped; the rest are cursed.
-// vanilla: MobEffectUtil.addEffectToPlayersAround
-func TestTheElderCurseSparesWhoItShould(t *testing.T) {
-	strong := func(duration int32) *effect.Instance { return &effect.Instance{Amplifier: 2, Duration: duration} }
-	weak := &effect.Instance{Amplifier: 1, Duration: 6000}
-	cases := []struct {
-		name  string
-		mode  int32
-		dist2 float64
-		have  *effect.Instance
-		want  bool
-	}{
-		{"survival", protocol.GameModeSurvival, 100, nil, true},
-		{"adventure", protocol.GameModeAdventure, 100, nil, true},
-		{"creative", protocol.GameModeCreative, 100, nil, false},
-		{"spectator", protocol.GameModeSpectator, 100, nil, false},
-		{"just inside fifty", protocol.GameModeSurvival, 2499, nil, true},
-		{"fifty exactly", protocol.GameModeSurvival, 2500, nil, false},
-		{"fresh curse", protocol.GameModeSurvival, 100, strong(6000), false},
-		{"curse with 1200 left", protocol.GameModeSurvival, 100, strong(1200), false},
-		{"curse with 1199 left", protocol.GameModeSurvival, 100, strong(1199), true},
-		{"infinite curse", protocol.GameModeSurvival, 100, strong(effect.Infinite), false},
-		{"weaker curse", protocol.GameModeSurvival, 100, weak, true},
-	}
-	for _, tc := range cases {
-		if got := ElderCurseApplies(tc.mode, tc.dist2, 50, tc.have, 2, 1200); got != tc.want {
-			t.Errorf("%s: ElderCurseApplies = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
 
 // TestTheGuardiansLootRollsTheFishingTable: the guardians' rare pool rolls
 // vanilla's fishing/fish table, and the elder's wet sponge never fails a

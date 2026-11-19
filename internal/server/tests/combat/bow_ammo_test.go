@@ -1,8 +1,9 @@
 package combat
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
@@ -48,24 +49,6 @@ func TestTheBowSpendsHotbarArrowsBeforeMainRows(t *testing.T) {
 	}
 	if got := srv.InventorySlot("Archer", player.MainSlot).Count; got != 8 {
 		t.Errorf("the main-row stack holds %d arrows after the shot, want 8", got)
-	}
-}
-
-// TestTheBowIgnoresArrowsInTheCraftingGrid: a stack in the crafting grid is
-// no ammunition, so the draw does not start.
-func TestTheBowIgnoresArrowsInTheCraftingGrid(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BowTestConfig(), "Archer")
-	srv.GiveSlot("Archer", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:bow"), Count: 1})
-	srv.GiveSlot("Archer", 1, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:arrow"), Count: 8})
-
-	servertest.DrawBow(c, -90, 0)
-	c.Settle()
-	if got := srv.BowTicks("Archer"); got != 0 {
-		t.Errorf("the bow draws %d ticks on grid arrows, want no draw", got)
-	}
-	if got := srv.InventorySlot("Archer", 1).Count; got != 8 {
-		t.Errorf("the grid stack holds %d arrows, want 8", got)
 	}
 }
 

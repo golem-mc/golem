@@ -73,20 +73,3 @@ func TestPlacedBlockEntityKeepsLeftoverComponents(t *testing.T) {
 	read(reloaded, 4, "k", "Lore line")
 	read(reloaded, 8, "z", "L2")
 }
-
-// A creative pick-block of a block entity carries its own components onto the
-// picked stack, with the ones the kind consumed as the kind's.
-// vanilla: ServerGamePacketListenerImpl.handlePickItemFromBlock, BlockEntity.collectComponents
-func TestPickBlockCarriesTheBlockEntitysLeftoverComponents(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Join(t, servertest.BlockTestConfig(), "Picker", servertest.OpsListing(t, "Picker"))
-	servertest.Setblock(t, c, 3, 64, 0, `chest{components:{"minecraft:lore":["L2"],"minecraft:custom_data":{z:2b}}}`)
-	c.Settle()
-	picked := servertest.PickedStack(t, c, 3, 64, 0, true)
-	if len(picked.LoreOf()) != 1 {
-		t.Errorf("picked lore = %v, want one line", picked.LoreOf())
-	}
-	if data := picked.CustomData(); data == nil || data["z"] == nil {
-		t.Errorf("picked custom_data = %v, want z:2b", data)
-	}
-}

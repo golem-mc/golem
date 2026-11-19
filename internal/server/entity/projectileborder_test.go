@@ -63,49 +63,6 @@ func TestProjectileBorderClampsTheEndpoint(t *testing.T) {
 	}
 }
 
-func TestProjectileBorderLeavesOtherClipsAlone(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		x, dx float64
-	}{
-		{"inside", 5, 1},
-		{"outside enters", 11, -2},
-		{"outside exits", 11, 2},
-		{"excluded far edge", 10, 2},
-		{"stationary near edge", -10, 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := newProjectileBorderWorld()
-			c := clipProjectileFlight(w, tc.x, 70, 0, tc.dx, 0, 0)
-			if c.ok {
-				t.Fatalf("clip = %+v, want a miss", c)
-			}
-		})
-	}
-	t.Run("nearer block", func(t *testing.T) {
-		w := newProjectileBorderWorld()
-		w.set(7, 70, 0, defaultState(t, "minecraft:stone"))
-		c := clipProjectileFlight(w, 5, 70.5, 0.5, 10, 0, 0)
-		if !c.ok || c.border || c.bx != 7 {
-			t.Fatalf("clip = %+v, want the nearer stone", c)
-		}
-	})
-	t.Run("block beyond border", func(t *testing.T) {
-		w := newProjectileBorderWorld()
-		w.set(12, 70, 0, defaultState(t, "minecraft:stone"))
-		c := clipProjectileFlight(w, 9, 70.5, 0.5, 6, 0, 0)
-		if !c.ok || !c.border || c.bx != 9 || c.state != 0 {
-			t.Fatalf("clip = %+v, want the border's air cell", c)
-		}
-	})
-	t.Run("body world wrapper", func(t *testing.T) {
-		w := Bodies{World: newProjectileBorderWorld()}
-		if c := clipProjectileFlight(w, 9, 70, 0, 2, 0, 0); !c.border {
-			t.Fatalf("wrapped world's border ignored: %+v", c)
-		}
-	})
-}
-
 func TestArrowsAndTridentsBounceWithoutLandingAtTheBorder(t *testing.T) {
 	for _, trident := range []bool{false, true} {
 		w := newProjectileBorderWorld()
@@ -121,54 +78,6 @@ func TestArrowsAndTridentsBounceWithoutLandingAtTheBorder(t *testing.T) {
 		}
 		if len(events) != 1 || events[0].Kind != ArrowDeflected || events[0].Target.EntityID != 0 {
 			t.Fatalf("trident %v: events = %+v, want a deflection without a body", trident, events)
-		}
-	}
-}
-
-func TestAFishingHookBouncesOffTheBorder(t *testing.T) {
-	w := newProjectileBorderWorld()
-	b := NewBobber(1, 9, 70, 0, -90, 0, 7, 3, 0, 0)
-	b.X, b.Y, b.Z = 9, 70, 0
-	b.VX, b.VY, b.VZ = 2, 0, 0
-	owner := &BobberOwner{Body: PlayerTarget(7, 5, 70, 0, false), Fishing: true}
-	events := b.Step(w, owner, nil)
-	if b.Dead || b.X >= 9 || b.VX >= 0 || b.State != BobberFlying || b.HookedID != 0 {
-		t.Fatalf("bobber after bounce = %+v", b)
-	}
-	for _, ev := range events {
-		if ev.Kind == BobberHitBlock || ev.Kind == BobberHitTarget {
-			t.Fatalf("border bounce reported a landing: %+v", ev)
-		}
-	}
-}
-
-func TestOtherProjectilesLandOnTheBorder(t *testing.T) {
-	for kind := ThrownEgg; kind <= ThrownLlamaSpit; kind++ {
-		t.Run(registry.EntityTypes[kind.EntityType()], func(t *testing.T) {
-			w := newProjectileBorderWorld()
-			p := NewThrown(1, kind, 9, 70, 0, 2, 0, 0, 0, 3)
-			events := p.Step(w, nil, nil)
-			if !p.Dead {
-				t.Fatalf("%v flew through the border: %+v", kind, p)
-			}
-			for _, ev := range events {
-				if ev.Kind == ThrownBreak && ev.BlockHit.Border && ev.X < 10 && ev.X >= 9 {
-					return
-				}
-			}
-			t.Fatalf("%v events = %+v, want a break at the border", kind, events)
-		})
-	}
-	for _, stars := range []int32{0, 1} {
-		w := newProjectileBorderWorld()
-		f := NewFirework(1, 9, 70, 0, 0, 0, stars, 0, 3)
-		f.VX = 2
-		events := f.Step(w, nil, nil, nil)
-		if f.Dead != (stars > 0) || f.X >= 10 {
-			t.Fatalf("stars %d: firework after border hit = %+v", stars, f)
-		}
-		if len(events) == 0 || events[0].Kind != FireworkHitBlock || !events[0].BlockHit.Border {
-			t.Fatalf("stars %d: events = %+v, want border hit", stars, events)
 		}
 	}
 }

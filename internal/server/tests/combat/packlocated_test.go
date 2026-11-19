@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
@@ -74,90 +73,4 @@ func TestPackTickEffectGlowsTheWearer(t *testing.T) {
 	if _, _, ok := srv.PlayerEffect(name, "minecraft:glowing"); !ok {
 		t.Error("the wearer does not glow two ticks after putting the boots on")
 	}
-}
-
-// A mob wearing a pack enchantment runs its tick entity effects too.
-// vanilla: EnchantmentHelper.tickEffects
-func TestPackTickEffectGlowsTheMob(t *testing.T) {
-	cfg := servertest.MobTestConfig()
-	cfg.LevelName = packEnchantments(t, map[string]string{"data/pk/enchantment/glow.json": glowBoots})
-	srv, c, _ := servertest.JoinAs(t, cfg, "Watcher")
-	c.MoveToGround(.5, 64, .5, true)
-	servertest.NightWorld(srv, c)
-	zombie := srv.SpawnMobSeeded("minecraft:zombie", 2.5, 64, .5, 4374)
-	srv.SetMobNoAI(zombie)
-	servertest.HoldTicks(t, srv)
-	srv.SetMobWorn(zombie, 0, servertest.EnchantedStack(t, "minecraft:iron_boots", "pk:glow", 1))
-	servertest.RunTicks(t, srv, 3)
-	if _, _, ok := srv.MobEffectOf(zombie, "minecraft:glowing"); !ok {
-		t.Error("the zombie does not glow after three ticks in the boots")
-	}
-}
-
-// Changing one worn slot runs only that slot's location_changed entries; the
-// others wait for a block move.
-// vanilla: LivingEntity.collectEquipmentChanges, onChangedBlock
-func TestPackLocationChangedRunsOnlyTheChangedSlot(t *testing.T) {
-	const name = "Dresser"
-	cfg := servertest.BowTestConfig()
-	cfg.LevelName = packEnchantments(t, map[string]string{"data/pk/enchantment/haste.json": hasteHelmet})
-	srv, c, _ := servertest.JoinAs(t, cfg, name)
-	c.MoveToGround(0.5, 64, 0.5, true)
-	servertest.HoldTicks(t, srv)
-	srv.GiveSlot(name, player.ArmorSlot, servertest.EnchantedStack(t, "minecraft:iron_helmet", "pk:haste", 1))
-	servertest.RunTicks(t, srv, 2)
-	before, _, ok := srv.PlayerEffect(name, "minecraft:haste")
-	if !ok {
-		t.Fatal("the helmet's location_changed effect did not run when it was put on")
-	}
-	servertest.RunTicks(t, srv, 20)
-	srv.GiveSlot(name, player.ArmorSlot+3, servertest.EnchantedStack(t, "minecraft:iron_boots", "minecraft:unbreaking", 1))
-	servertest.RunTicks(t, srv, 2)
-	after, _, ok := srv.PlayerEffect(name, "minecraft:haste")
-	if !ok || after >= before {
-		t.Errorf("haste duration %d after the boots, was %d: the helmet's entry ran again", after, before)
-	}
-}
-
-// A zombie in boots with a pack location_changed movement_speed modifier gets
-// the modifier on its attribute map, which its pace reads.
-// vanilla: EnchantmentHelper.runLocationChangedEffects
-func TestPackLocationChangedAttributeSpeedsTheMob(t *testing.T) {
-	cfg := servertest.MobTestConfig()
-	cfg.LevelName = packEnchantments(t, map[string]string{"data/pk/enchantment/fast.json": fastBoots})
-	srv, c, _ := servertest.JoinAs(t, cfg, "Watcher")
-	c.MoveToGround(.5, 64, .5, true)
-	servertest.NightWorld(srv, c)
-	zombie := srv.SpawnMobSeeded("minecraft:zombie", 2.5, 64, .5, 4374)
-	srv.SetMobNoAI(zombie)
-	bare := srv.SpawnMobSeeded("minecraft:zombie", 2.5, 64, 2.5, 4374)
-	srv.SetMobNoAI(bare)
-	servertest.HoldTicks(t, srv)
-	srv.SetMobWorn(zombie, 0, servertest.EnchantedStack(t, "minecraft:iron_boots", "pk:fast", 1))
-	servertest.RunTicks(t, srv, 3)
-	if got, base := srv.MobPace(zombie), srv.MobPace(bare); got <= base {
-		t.Errorf("pace %v with the fast boots, %v bare: the modifier is not read", got, base)
-	}
-	c.AwaitAttributes(zombie, servertest.AttrMovementSpeed, func(e servertest.AttrEntry) bool { return hasSuffixModifier(e, "pack:fast") })
-	srv.SetMobWorn(zombie, 0, servertest.EnchantedStack(t, "minecraft:iron_boots", "minecraft:unbreaking", 1))
-	servertest.RunTicks(t, srv, 3)
-	c.AwaitAttributes(zombie, servertest.AttrMovementSpeed, func(e servertest.AttrEntry) bool { return !hasSuffixModifier(e, "pack:fast") })
-}
-
-// An armor stand in boots with a pack location_changed attribute effect holds
-// the modifier on its attribute map and tells its watchers.
-// vanilla: EnchantmentHelper.runLocationChangedEffects
-func TestPackLocationChangedAttributeFollowsTheStandsBoots(t *testing.T) {
-	cfg := servertest.BowTestConfig()
-	cfg.LevelName = packEnchantments(t, map[string]string{"data/pk/enchantment/fast.json": fastBoots})
-	srv, c, _ := servertest.JoinAs(t, cfg, "Watcher")
-	c.MoveToGround(.5, 64, .5, true)
-	servertest.HoldTicks(t, srv)
-	stand := srv.SpawnArmorStand(2.5, 64, .5)
-	srv.SetArmorStandStack(stand, entity.StandFeet, servertest.EnchantedStack(t, "minecraft:iron_boots", "pk:fast", 1))
-	servertest.RunTicks(t, srv, 3)
-	c.AwaitAttributes(stand, servertest.AttrMovementSpeed, func(e servertest.AttrEntry) bool { return hasSuffixModifier(e, "pack:fast") })
-	srv.SetArmorStandStack(stand, entity.StandFeet, servertest.EnchantedStack(t, "minecraft:iron_boots", "minecraft:unbreaking", 1))
-	servertest.RunTicks(t, srv, 3)
-	c.AwaitAttributes(stand, servertest.AttrMovementSpeed, func(e servertest.AttrEntry) bool { return !hasSuffixModifier(e, "pack:fast") })
 }

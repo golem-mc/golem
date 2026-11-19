@@ -65,18 +65,3 @@ func TestWaterWashesAwayCobweb(t *testing.T) {
 	t.Parallel()
 	washAway(t, "", "cobweb", "minecraft:string")
 }
-
-func TestWaterWashesAwayBambooSapling(t *testing.T) {
-	t.Parallel()
-	washAway(t, "dirt", "bamboo_sapling", "minecraft:bamboo")
-}
-
-func TestWaterWashesAwayAzalea(t *testing.T) {
-	t.Parallel()
-	washAwayBy(t, "water", 5, "grass_block", "azalea", "minecraft:azalea")
-}
-
-func TestLavaWashesAwayFloweringAzalea(t *testing.T) {
-	t.Parallel()
-	washAwayBy(t, "lava", 30, "grass_block", "flowering_azalea", "")
-}

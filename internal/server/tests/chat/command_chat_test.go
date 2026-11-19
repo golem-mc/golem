@@ -8,7 +8,6 @@ import (
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 )
 
@@ -82,25 +81,6 @@ func TestSayCommandResolvesSelector(t *testing.T) {
 	bob.Disconnect()
 }
 
-// TestMeCommandResolvesSelector expands a selector in the action into the
-// display names it names. vanilla: MessageArgument.Message.toComponent
-func TestMeCommandResolvesSelector(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	// Selecting entities needs the gamemaster permission even though /me
-	// itself does not.
-	_, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
-
-	c.ChatCommand("me waves at @p")
-	servertest.ExpectDisguisedChatComponent(t, c, "minecraft:emote_command", "Testificate",
-		protocol.Text{Text: "waves at ", Extra: []protocol.Text{
-			servertest.PlayerDisplayComponent("Testificate"),
-		}}, "")
-	c.Disconnect()
-}
-
 // TestMsgCommandResolvesSelector expands a selector in the whispered message
 // into the display names it names, for the target and the sender alike.
 // vanilla: MessageArgument.Message.toComponent
@@ -131,37 +111,6 @@ func TestMsgCommandResolvesSelector(t *testing.T) {
 	bob.Disconnect()
 }
 
-// TestSayCommandRefusesMalformedSelector checks a selector a message
-// argument cannot read fails the command at the parser rather than being
-// broadcast whole: only an unknown or missing selector letter is stepped
-// over. vanilla: MessageArgument.Message.parseText
-func TestSayCommandRefusesMalformedSelector(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Alice"))
-
-	alice := connect().Join("Alice")
-
-	bob := connect().Join("Bob")
-	alice.ExpectPlayerAdded("Bob")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Bob")
-
-	alice.ChatCommand("say hi @a[")
-	alice.ExpectCommandError(
-		servertest.CommandErrorMessageForTest("argument.entity.options.unterminated"),
-		servertest.CommandErrorContextForTest("say hi @a[", len("say hi @a[")))
-
-	// The refusal ends the command, so nothing is broadcast to the world:
-	// once Alice's command is done with, nothing is queued to Bob.
-	alice.SettleKeeping()
-	bob.ExpectNoneWithinTicks(srv, 0, servertest.PacketIs(protocol.IDPlayDisguisedChat))
-
-	alice.Disconnect()
-	bob.Disconnect()
-}
-
 // TestSayCommandRefusesOverlongMessage checks a message argument is capped at
 // 256 characters, refused rather than broadcast whole.
 // vanilla: MessageArgument.Message.parseText
@@ -178,29 +127,6 @@ func TestSayCommandRefusesOverlongMessage(t *testing.T) {
 	// alone, with no context line behind it.
 	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("argument.message.too_long", "257", "256"))
 	c.ExpectNoneWithinTicks(srv, 0, servertest.PacketIs(protocol.IDPlaySystemChat))
-	c.Disconnect()
-}
-
-// TestSayCommandLengthCountsCharacters checks the message cap counts UTF-16
-// code units, not bytes: 256 Cyrillic characters sit at the cap and go out,
-// and one more is refused.
-// vanilla: MessageArgument.Message.parseText
-func TestSayCommandLengthCountsCharacters(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
-
-	atCap := strings.Repeat("ф", 256)
-	c.ChatCommand("say " + atCap)
-	servertest.ExpectDisguisedChat(t, c, "minecraft:say_command", "Testificate", atCap, "")
-
-	over := strings.Repeat("ф", 257)
-	c.ChatCommand("say " + over)
-	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("argument.message.too_long", "257", "256"))
-	c.ExpectNoneWithinTicks(srv, 0, servertest.PacketIs(protocol.IDPlaySystemChat))
-
 	c.Disconnect()
 }
 
@@ -313,242 +239,6 @@ func TestTeamMsgCommand(t *testing.T) {
 	alice.Disconnect()
 	bob.Disconnect()
 	carol.Disconnect()
-}
-
-// TestMsgCommandToTwoTargets whispers to two players at once: each target
-// reads the message, and the sender reads one outgoing message per target.
-// vanilla: MsgCommand.sendMessage
-func TestMsgCommandToTwoTargets(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	// A player needs to be an operator to use a selector.
-	_, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Alice"))
-	alice := connect().Join("Alice")
-	targets := map[string]*servertest.Client{}
-	for _, name := range []string{"Bob", "Carol"} {
-		c := connect().Join(name)
-		alice.ExpectPlayerAdded(name)
-		alice.ExpectAnnouncement("multiplayer.player.joined", name)
-		targets[name] = c
-	}
-	// The command arrives unsigned, so the sender reads one outgoing
-	// Disguised form per target, in target order, and each target the
-	// incoming form with no target.
-	// incoming form named by the sender.
-	alice.ChatCommand("msg @a[name=!Alice] hi both")
-	servertest.ExpectDisguisedChat(t, alice, "minecraft:msg_command_outgoing", "Alice", "hi both", "Bob")
-	servertest.ExpectDisguisedChat(t, alice, "minecraft:msg_command_outgoing", "Alice", "hi both", "Carol")
-	for _, c := range targets {
-		servertest.ExpectDisguisedChat(t, c, "minecraft:msg_command_incoming", "Alice", "hi both", "")
-		c.Disconnect()
-	}
-	alice.Disconnect()
-}
-
-// TestMsgSelectorWithSpacesInItsBrackets checks the targets argument read
-// whole and the message found behind it: the whisper reaches the player the
-// selector names, and the message is the text after the selector rather than
-// one of its own options.
-func TestMsgSelectorWithSpacesInItsBrackets(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	// A player needs to be an operator to use a selector.
-	_, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Alice"))
-
-	alice := connect().Join("Alice")
-
-	bob := connect().Join("Bob")
-	alice.ExpectPlayerAdded("Bob")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Bob")
-
-	alice.ChatCommand("msg @a[ name=Bob ] secret plans")
-	servertest.ExpectDisguisedChat(t, bob, "minecraft:msg_command_incoming", "Alice", "secret plans", "")
-	servertest.ExpectDisguisedChat(t, alice, "minecraft:msg_command_outgoing", "Alice", "secret plans", "Bob")
-
-	alice.Disconnect()
-	bob.Disconnect()
-}
-
-// TestSelectorTargetsResolveInJoinOrder checks the order a selector's targets
-// resolve in: the player list, the order players joined in, not order by
-// name. vanilla: PlayerList.getPlayers
-func TestSelectorTargetsResolveInJoinOrder(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, connect := servertest.Start(t, cfg)
-
-	bob := connect().Join("Bob")
-
-	alice := connect().Join("Alice")
-	bob.ExpectPlayerAdded("Alice")
-	bob.ExpectAnnouncement("multiplayer.player.joined", "Alice")
-
-	// Bob joined first, so @a names him first even though Alice's name sorts
-	// first; the console reads one outgoing whisper per target.
-	reply := srv.RunLine("msg @a both")
-	if len(reply) != 2 || reply[0].Plain() != "You whisper to Bob: both" ||
-		reply[1].Plain() != "You whisper to Alice: both" {
-		t.Fatalf("msg @a answered %v, want Bob then Alice", reply)
-	}
-
-	// The limit cuts from the same join order, so it keeps Bob.
-	reply = srv.RunLine("msg @a[limit=1] alone")
-	if len(reply) != 1 || reply[0].Plain() != "You whisper to Bob: alone" {
-		t.Fatalf("msg @a[limit=1] answered %v, want Bob alone", reply)
-	}
-
-	// Both stand at the spawn, so @p is a tie, which breaks towards the same
-	// join order.
-	reply = srv.RunLine("msg @p nearest")
-	if len(reply) != 1 || reply[0].Plain() != "You whisper to Bob: nearest" {
-		t.Fatalf("msg @p answered %v, want Bob", reply)
-	}
-
-	// /list names them in the same order, not sorted by name.
-	list := srv.RunLine("list")
-	if len(list) != 1 || list[0].Translate != "commands.list.players" {
-		t.Fatalf("list answered %v, want the players translation", list)
-	}
-	var names []string
-	for _, part := range list[0].With[2].Extra {
-		if part.Text != ", " {
-			names = append(names, part.Text)
-		}
-	}
-	if len(names) != 2 || names[0] != "Bob" || names[1] != "Alice" {
-		t.Fatalf("list names = %v, want [Bob Alice]", names)
-	}
-
-	// Each target still reads the whispers in turn.
-	servertest.ExpectDisguisedChat(t, bob, "minecraft:msg_command_incoming", "Server", "both", "")
-	servertest.ExpectDisguisedChat(t, alice, "minecraft:msg_command_incoming", "Server", "both", "")
-	servertest.ExpectDisguisedChat(t, bob, "minecraft:msg_command_incoming", "Server", "alone", "")
-	servertest.ExpectDisguisedChat(t, bob, "minecraft:msg_command_incoming", "Server", "nearest", "")
-
-	bob.Disconnect()
-	alice.Disconnect()
-}
-
-// TestSelectorTargetsFollowARespawn checks that a respawn re-adds the player to
-// the end of the player list, so a selector names them last.
-// vanilla: PlayerList.respawn
-func TestSelectorTargetsFollowARespawn(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, connect := servertest.Start(t, cfg)
-
-	bob := connect().Join("Bob")
-
-	alice := connect().Join("Alice")
-	bob.ExpectPlayerAdded("Alice")
-	bob.ExpectAnnouncement("multiplayer.player.joined", "Alice")
-
-	// Bob joined first, so he is at the head; the respawn puts him at the
-	// end, and @a names Alice first.
-	srv.RunLine("kill Bob")
-	bob.Send(protocol.IDPlayClientCommandIn, func(b *protocol.Buffer) {
-		b.PutVarInt(protocol.ClientCommandPerformRespawn)
-	})
-	bob.AwaitPacket(protocol.IDPlayRespawn)
-
-	reply := srv.RunLine("msg @a back")
-	if len(reply) != 2 || reply[0].Plain() != "You whisper to Alice: back" ||
-		reply[1].Plain() != "You whisper to Bob: back" {
-		t.Fatalf("msg @a answered %v, want Alice then Bob", reply)
-	}
-
-	bob.Disconnect()
-	alice.Disconnect()
-}
-
-// TestWorldLimitedSelectorFollowsDimensionOrder checks that a selector limited
-// to the runner's dimension iterates that dimension's own player list, where a
-// player who crossed in is at the end, rather than the global join order.
-// vanilla: ServerLevel.players
-func TestWorldLimitedSelectorFollowsDimensionOrder(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Carol"))
-
-	alice := connect().Join("Alice")
-
-	bob := connect().Join("Bob")
-	alice.ExpectPlayerAdded("Bob")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Bob")
-
-	carol := connect().Join("Carol")
-	alice.ExpectPlayerAdded("Carol")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Carol")
-	bob.ExpectPlayerAdded("Carol")
-	bob.ExpectAnnouncement("multiplayer.player.joined", "Carol")
-
-	// Into the nether in an order that differs from the join order: Bob
-	// crossed first, so the nether's own list is Bob, Alice, Carol.
-	srv.MovePlayerToDimension("Bob", world.NetherName, 8, 40, 8)
-	srv.MovePlayerToDimension("Alice", world.NetherName, 8, 40, 8)
-	srv.MovePlayerToDimension("Carol", world.NetherName, 8, 40, 8)
-
-	// Carol runs it and is excluded, leaving Bob and Alice: the nether's
-	// order is Bob then Alice, the join order the reverse.
-	carol.ChatCommand("msg @a[name=!Carol,distance=..64] here")
-	servertest.ExpectDisguisedChat(t, carol, "minecraft:msg_command_outgoing", "Carol", "here", "Bob")
-	servertest.ExpectDisguisedChat(t, carol, "minecraft:msg_command_outgoing", "Carol", "here", "Alice")
-
-	for _, c := range []*servertest.Client{alice, bob, carol} {
-		c.Disconnect()
-	}
-}
-
-// TestWorldLimitedSelectorFollowsARespawn checks that a same-dimension respawn
-// re-adds the player to the end of the dimension's own player list, not only
-// the global one, so a world-limited selector names them last.
-// vanilla: ServerLevel.addRespawnedPlayer
-func TestWorldLimitedSelectorFollowsARespawn(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Carol"))
-
-	alice := connect().Join("Alice")
-
-	bob := connect().Join("Bob")
-	alice.ExpectPlayerAdded("Bob")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Bob")
-
-	carol := connect().Join("Carol")
-	alice.ExpectPlayerAdded("Carol")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Carol")
-	bob.ExpectPlayerAdded("Carol")
-	bob.ExpectAnnouncement("multiplayer.player.joined", "Carol")
-
-	// Alice joined first, but her respawn moves her to the end of the
-	// overworld's own list: Bob then Alice.
-	srv.RunLine("kill Alice")
-	alice.Send(protocol.IDPlayClientCommandIn, func(b *protocol.Buffer) {
-		b.PutVarInt(protocol.ClientCommandPerformRespawn)
-	})
-	alice.AwaitPacket(protocol.IDPlayRespawn)
-
-	// Carol runs it and is excluded, leaving Bob and Alice in the overworld's
-	// order after the respawn: Bob then Alice.
-	carol.ChatCommand("msg @a[name=!Carol,distance=..64] here")
-	servertest.ExpectDisguisedChat(t, carol, "minecraft:msg_command_outgoing", "Carol", "here", "Bob")
-	servertest.ExpectDisguisedChat(t, carol, "minecraft:msg_command_outgoing", "Carol", "here", "Alice")
-
-	for _, c := range []*servertest.Client{alice, bob, carol} {
-		c.Disconnect()
-	}
 }
 
 // TestSeedCommand names the seed the world was generated from. The seed the

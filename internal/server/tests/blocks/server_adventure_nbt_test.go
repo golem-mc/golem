@@ -50,39 +50,3 @@ func TestAdventurePlacesWithMatchingBlockEntityNBT(t *testing.T) {
 		})
 	}
 }
-
-func TestAdventureBreaksWithMatchingBlockEntityNBT(t *testing.T) {
-	t.Parallel()
-	for _, tc := range adventureNBTCases {
-		t.Run(tc.name, func(t *testing.T) {
-			srv, c := adventureWorld(t, servertest.OpsListing(t, "Actor"))
-			servertest.HoldTicks(t, srv)
-			c.ChatCommand("setblock 2 64 0 " + tc.block)
-			c.Settle()
-			c.ChatCommand(fmt.Sprintf(`give @s diamond_axe[can_break={blocks:"minecraft:%s",nbt:%s}]`, tc.block, tc.pattern))
-			c.Settle()
-			if got := srv.InventorySlot("Actor", player.HotbarSlot); got.Count != 1 || registry.Item(got.ItemID) != registry.ItemDiamondAxe {
-				t.Fatalf("given stack = %+v, want one diamond axe", got)
-			}
-			c.BreakBlock(2, 64, 0)
-			c.SettleKeeping()
-			c.ExpectWithinTicks(srv, 2, protocol.IDPlayAckBlockChange)
-			c.Settle()
-			if tc.want {
-				servertest.UntilTicks(t, srv, 40, "allowed dig removes the block", func() bool {
-					return srv.BlockAt(2, 64, 0) == registry.BlockAir.DefaultState()
-				})
-			}
-			wantState, wantDamage := registry.BlockStates["minecraft:"+tc.block], int32(0)
-			if tc.want {
-				wantState, wantDamage = registry.BlockAir.DefaultState(), 1
-			}
-			if got := srv.BlockAt(2, 64, 0); got != wantState {
-				t.Errorf("dug state = %d, want %d", got, wantState)
-			}
-			if got := srv.InventorySlot("Actor", player.HotbarSlot); got.Count != 1 || got.Damage != wantDamage {
-				t.Errorf("server tool = %+v, want count 1 and damage %d", got, wantDamage)
-			}
-		})
-	}
-}

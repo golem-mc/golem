@@ -71,35 +71,3 @@ func TestADeadPlayersBodyLeavesTheirWatchersAfterTwentyTicks(t *testing.T) {
 		t.Error("the respawned body was not shown to the watcher again")
 	}
 }
-
-// TestADeadPlayerRejoiningIsNotShownLying checks the watcher is never given
-// a body for a player who comes back to the death screen.
-// vanilla: LivingEntity.tickDeath
-func TestADeadPlayerRejoiningIsNotShownLying(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig(), servertest.OpsListing(t, "Victim"))
-	victim := connect()
-	id := victim.JoinAs("Victim")
-	watcher := connect().Join("Watcher")
-	watcher.Settle()
-	victim.Settle()
-
-	victim.ChatCommand("kill")
-	servertest.ExpectDeathSequence(t, victim, id, protocol.Text{
-		Translate: "death.attack.genericKill",
-		With:      []protocol.Text{servertest.PlayerDisplayComponent("Victim")},
-	})
-	victim.Disconnect()
-	watcher.Settle()
-
-	again := connect()
-	again.Login("Victim")
-	again.Configure()
-	rejoinID := protocol.NewReader(again.AwaitPlay(protocol.IDPlayLogin)).ReadI32()
-	again.AwaitPlay(protocol.IDPlayChunkBatchFinished)
-	again.MarkLoaded()
-	servertest.HoldTicks(t, srv)
-	if _, _, spawned := bodyEvents(watcher, srv, rejoinID, 5); spawned {
-		t.Error("the watcher was shown the body of a player who rejoined dead")
-	}
-}

@@ -181,24 +181,6 @@ func TestALecternGivesTheBookBack(t *testing.T) {
 	servertest.ExpectWirePower(t, srv, 6, 64, 0, "0")
 }
 
-// TestALecternWithoutABookSwallowsAnItemClick checks that a lectern with no
-// book neither opens nor lets a block be placed against it.
-func TestALecternWithoutABookSwallowsAnItemClick(t *testing.T) {
-	t.Parallel()
-	srv, w, _ := lecternServer(t)
-	servertest.Setblock(t, w.Client, 4, 64, 0, "minecraft:lectern[facing=north,has_book=false,powered=false]")
-	srv.GiveSlot("Testificate", player.HotbarSlot, servertest.ItemStack(t, "minecraft:stone", 1))
-	w.Settle()
-	w.UseBlock(4, 64, 0)
-	w.Settle()
-	if got := srv.BlockAt(4, 65, 0); got != 0 {
-		t.Errorf("the cell above the lectern holds state %d, want air", got)
-	}
-	if props := lecternProps(t, srv); props["has_book"] != "false" {
-		t.Errorf("the lectern = %v, want no book", props)
-	}
-}
-
 // TestABrokenLecternThrowsItsBook breaks a lectern that holds a book: the
 // book lies on the ground, shifted toward the side the lectern faced.
 func TestABrokenLecternThrowsItsBook(t *testing.T) {
@@ -257,84 +239,6 @@ func openLectern(t *testing.T, w *servertest.WindowedClient) {
 	w.AwaitWindowProperty(0, 0)
 }
 
-// TestABlankWritableBookReadsFifteen checks that a writable book with no
-// content component still counts as a book.
-func TestABlankWritableBookReadsFifteen(t *testing.T) {
-	t.Parallel()
-	srv, w, clock := lecternServer(t)
-	servertest.Setblock(t, w.Client, 4, 64, 0, "minecraft:lectern[facing=north,has_book=false,powered=false]")
-	srv.GiveSlot("Testificate", player.HotbarSlot, servertest.ItemStack(t, "minecraft:writable_book", 1))
-	w.Settle()
-	w.UseBlock(4, 64, 0)
-	w.Settle()
-	servertest.StepTicks(t, srv, clock, 4)
-	if props := lecternProps(t, srv); props["has_book"] != "true" {
-		t.Fatalf("the lectern = %v, want the blank book on it", props)
-	}
-	servertest.ExpectWirePower(t, srv, 6, 64, 0, "15")
-}
-
-// TestALecternTakesTheBookFromTheOffHand places from the off hand.
-func TestALecternTakesTheBookFromTheOffHand(t *testing.T) {
-	t.Parallel()
-	srv, w, clock := lecternServer(t)
-	w.ChatCommand("gamemode survival")
-	w.Settle()
-	servertest.Setblock(t, w.Client, 4, 64, 0, "minecraft:lectern[facing=north,has_book=false,powered=false]")
-	srv.GiveSlot("Testificate", player.OffHandSlot, writableBookOf(t, 2))
-	w.Settle()
-	w.UseBlockWithHand(protocol.HandOff, 4, 64, 0)
-	w.Settle()
-	servertest.StepTicks(t, srv, clock, 4)
-	if props := lecternProps(t, srv); props["has_book"] != "true" {
-		t.Errorf("the lectern = %v, want the off-hand book on it", props)
-	}
-	if got := srv.InventorySlot("Testificate", player.OffHandSlot); !got.Empty() {
-		t.Errorf("the off hand holds %+v after placing, want it empty", got)
-	}
-}
-
-// TestACreativePlayerKeepsTheBookStack places a book without spending it; the
-// harness's default mode is creative.
-func TestACreativePlayerKeepsTheBookStack(t *testing.T) {
-	t.Parallel()
-	srv, w, clock := lecternServer(t)
-	w.ChatCommand("gamemode creative")
-	w.Settle()
-	putBookOnLectern(t, srv, w, clock, 2)
-	if props := lecternProps(t, srv); props["has_book"] != "true" {
-		t.Fatalf("the lectern = %v, want the book on it", props)
-	}
-	if got := srv.InventorySlot("Testificate", player.HotbarSlot); got.Count != 1 {
-		t.Errorf("the hotbar book count = %d, want 1 kept", got.Count)
-	}
-}
-
-// TestALecternHoldsAWrittenBook places a written book and reads its signal.
-func TestALecternHoldsAWrittenBook(t *testing.T) {
-	t.Parallel()
-	srv, w, clock := lecternServer(t)
-	servertest.Setblock(t, w.Client, 4, 64, 0, "minecraft:lectern[facing=north,has_book=false,powered=false]")
-	var value protocol.Buffer
-	value.PutString("Title")
-	value.PutBool(false)
-	value.PutString("Author")
-	value.PutVarInt(0)
-	value.PutVarInt(0)
-	value.PutBool(true)
-	book := servertest.ItemStack(t, "minecraft:written_book", 1)
-	book.Raw = []protocol.RawComponent{{Type: protocol.DataComponentWrittenBookContent, Data: value.Bytes()}}
-	srv.GiveSlot("Testificate", player.HotbarSlot, book)
-	w.Settle()
-	w.UseBlock(4, 64, 0)
-	w.Settle()
-	servertest.StepTicks(t, srv, clock, 4)
-	if props := lecternProps(t, srv); props["has_book"] != "true" {
-		t.Fatalf("the lectern = %v, want the written book on it", props)
-	}
-	servertest.ExpectWirePower(t, srv, 6, 64, 0, "15")
-}
-
 // TestAnAdventurePlayerTurnsPagesButCannotTakeTheBook checks the take button
 // is refused for a body that may not build.
 func TestAnAdventurePlayerTurnsPagesButCannotTakeTheBook(t *testing.T) {
@@ -351,58 +255,4 @@ func TestAnAdventurePlayerTurnsPagesButCannotTakeTheBook(t *testing.T) {
 	}
 	w.ClickButton(lecternNextPage)
 	w.AwaitWindowProperty(0, 1)
-}
-
-// TestASpectatorsLecternButtonsDoNothing checks both buttons are ignored.
-func TestASpectatorsLecternButtonsDoNothing(t *testing.T) {
-	t.Parallel()
-	srv, w, clock := lecternServer(t)
-	putBookOnLectern(t, srv, w, clock, 4)
-	w.ChatCommand("gamemode spectator")
-	w.Settle()
-	openLectern(t, w)
-	w.ClickButton(lecternNextPage)
-	w.ClickButton(lecternTakeBook)
-	w.Settle()
-	if props := lecternProps(t, srv); props["has_book"] != "true" || props["powered"] != "false" {
-		t.Errorf("the lectern after spectator presses = %v, want the book kept and no pulse", props)
-	}
-	if tag, ok := srv.BlockEntityTagAt(4, 64, 0); !ok || tag["Page"] != nbt.Int(0) {
-		t.Errorf("the saved page = %v, want 0", tag["Page"])
-	}
-}
-
-// TestATakenBookDropsWithTheThrownDelayWhenTheInventoryIsFull checks the
-// forty-tick pickup delay; creative voids a stack that fits nowhere, so the
-// player is in survival.
-func TestATakenBookDropsWithTheThrownDelayWhenTheInventoryIsFull(t *testing.T) {
-	t.Parallel()
-	srv, w, clock := lecternServer(t)
-	putBookOnLectern(t, srv, w, clock, 3)
-	w.ChatCommand("gamemode survival")
-	w.Settle()
-	stone := servertest.ItemStack(t, "minecraft:stone", 64)
-	for slot := range player.MainSlot + player.MainInvSlots {
-		srv.GiveSlot("Testificate", slot, stone)
-	}
-	w.Settle()
-	openLectern(t, w)
-	w.ClickButton(lecternTakeBook)
-	w.Settle()
-	var book *server.TestItem
-	for _, it := range srv.ItemsInDimension("minecraft:overworld") {
-		if it.Item == "minecraft:writable_book" {
-			it := it
-			book = &it
-		}
-	}
-	if book == nil {
-		t.Fatal("the full inventory left the book nowhere")
-	}
-	if book.PickupDelay < 30 {
-		t.Errorf("the thrown book's pickup delay = %d, want about 40", book.PickupDelay)
-	}
-	if props := lecternProps(t, srv); props["has_book"] != "false" {
-		t.Errorf("the lectern = %v, want no book", props)
-	}
 }

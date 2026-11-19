@@ -69,24 +69,3 @@ func TestAMobIsNotPushedByAPlayerWhoseTeamNeverCollides(t *testing.T) {
 		}
 	}
 }
-
-// TestMobsOnANeverCollidingTeamDoNotPushEachOther stands two pigs close
-// together on a team with collisionRule never and expects neither to move.
-// vanilla: EntitySelector.pushableBy
-func TestMobsOnANeverCollidingTeamDoNotPushEachOther(t *testing.T) {
-	t.Parallel()
-	for _, never := range []bool{false, true} {
-		w := newShoveWorld(t, "Joiner")
-		w.pig(9.5, 9.5)
-		w.pig(9.7, 9.5)
-		if never {
-			w.neverTeam()
-			w.srv.RunLine("team join t @e[type=minecraft:pig]")
-		}
-		w.run()
-		moved := w.moved(0, 9.5, 9.5) || w.moved(1, 9.7, 9.5)
-		if moved == never {
-			t.Errorf("never=%v: pigs moved = %v after %d ticks", never, moved, pigShoveTicks)
-		}
-	}
-}

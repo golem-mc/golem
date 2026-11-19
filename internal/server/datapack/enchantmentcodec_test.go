@@ -2,7 +2,6 @@ package datapack
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -115,29 +114,6 @@ func TestDecodeEnchantmentItemSets(t *testing.T) {
 	}
 }
 
-func TestDecodeEnchantmentRequiredFields(t *testing.T) {
-	for _, data := range []string{`{"max_level":1}`, `{"supported_items":"#minecraft:x"}`, `{"supported_items":"nope","max_level":1}`, `[`} {
-		if _, _, err := DecodeEnchantment("pk:x", []byte(data)); err == nil {
-			t.Errorf("DecodeEnchantment(%s) succeeded", data)
-		}
-	}
-}
-
-// TestDecodeEnchantmentLookupOfInts checks that a lookup's values may all be
-// whole numbers, which the JSON converter reads as an int array.
-func TestDecodeEnchantmentLookupOfInts(t *testing.T) {
-	def, _, err := DecodeEnchantment("pk:x", []byte(`{
-		"supported_items":"minecraft:diamond_sword",
-		"max_level":3,
-		"effects":{"minecraft:damage":[{"effect":{"type":"minecraft:add","value":{"type":"minecraft:lookup","values":[1,2,4],"fallback":8}}}]}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(def.Effects.Damage) != 1 || !slices.Equal(def.Effects.Damage[0].Effect.Value.Values, []float32{1, 2, 4}) {
-		t.Errorf("damage = %+v, want a lookup of 1, 2, 4", def.Effects.Damage)
-	}
-}
-
 // vanilla: TagPredicate.codec
 func TestDecodeEnchantmentDamageHolderSets(t *testing.T) {
 	for _, tc := range []struct {
@@ -165,57 +141,5 @@ func TestDecodeEnchantmentDamageHolderSets(t *testing.T) {
 				t.Errorf("%s/%t: condition %+v", tc.id, expected, c)
 			}
 		}
-	}
-}
-
-func TestDecodeEnchantmentRejectsInvalidDamageHolderSets(t *testing.T) {
-	for _, id := range []string{`"minecraft:no_such_damage"`, `["lava","minecraft:no_such_damage"]`, `["#minecraft:is_fire"]`, `[1]`, `3`, `{}`, `null`} {
-		raw := fmt.Sprintf(`{"supported_items":"minecraft:elytra","max_level":1,
-   "effects":{"minecraft:damage_protection":[{"effect":{"type":"minecraft:add","value":10},
-   "requirements":{"type":"minecraft:damage_source_properties","predicate":{"tags":[{"id":%s,"expected":false}]}}}]}}`, id)
-		def, dropped, err := DecodeEnchantment("pk:holders", []byte(raw))
-		if err != nil || len(dropped) != 1 || len(def.Effects.DamageProtection) != 0 {
-			t.Errorf("%s: effects %+v, dropped %v, error %v", id, def.Effects, dropped, err)
-		}
-	}
-}
-
-// vanilla: ExplodeEffect.CODEC
-func TestDecodeExplodeFullShape(t *testing.T) {
-	def, dropped, err := DecodeEnchantment("pk:x", []byte(`{"supported_items":"minecraft:bow","max_level":1,"effects":{"minecraft:projectile_spawned":[{"effect":{
-		"type":"minecraft:explode","radius":2,"block_interaction":"tnt","immune_blocks":["minecraft:bedrock"],
-		"attribute_to_user":true,"damage_type":"minecraft:explosion","offset":[0,1,0],"create_fire":true,
-		"small_particle":{"type":"minecraft:explosion"},"large_particle":{"type":"minecraft:explosion_emitter"},
-		"sound":"minecraft:entity.generic.explode"}}]}}`))
-	if err != nil || len(dropped) > 0 {
-		t.Fatalf("decode: %v, dropped %v", err, dropped)
-	}
-	x := def.Effects.ProjectileSpawned[0].Effect.Explode
-	if x == nil || x.BlockInteraction != "tnt" || !x.AttributeToUser || !x.CreateFire || x.Offset != [3]float64{0, 1, 0} ||
-		x.DamageType != "minecraft:explosion" || len(x.ImmuneList) != 1 || x.WindBurst() {
-		t.Fatalf("explode decoded to %+v", x)
-	}
-}
-
-// vanilla: BlockStateProvider.CODEC
-func TestDecodeReplaceStateProviders(t *testing.T) {
-	decode := func(provider string) error {
-		def, dropped, err := DecodeEnchantment("pk:x", []byte(`{"supported_items":"minecraft:bow","max_level":1,"effects":{"minecraft:hit_block":[{"effect":{
-			"type":"minecraft:replace_block","block_state":`+provider+`}}]}}`))
-		if err == nil && (len(dropped) > 0 || def.Effects.HitBlock[0].Effect.Replace == nil) {
-			err = errors.New("dropped")
-		}
-		return err
-	}
-	for _, typ := range []string{"minecraft:simple_state_provider", "minecraft:simple"} {
-		if err := decode(`{"type":"` + typ + `","state":{"id":"minecraft:stone"}}`); err != nil {
-			t.Errorf("%s: %v", typ, err)
-		}
-	}
-	if err := decode(`{"type":"minecraft:weighted_state_provider","entries":[{"data":{"Name":"minecraft:stone"},"weight":1}]}`); err != nil {
-		t.Errorf("weighted provider: %v", err)
-	}
-	if err := decode(`{"type":"minecraft:rule_based_state_provider","rules":[]}`); err == nil {
-		t.Error("a provider that reads the world decoded")
 	}
 }

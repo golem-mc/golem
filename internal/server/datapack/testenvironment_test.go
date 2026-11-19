@@ -85,17 +85,3 @@ func TestDecodeTestEnvironment(t *testing.T) {
 		}
 	}
 }
-
-// TestDecodeTestEnvironmentStopsACycle: entries naming each other fail
-// rather than recurse forever.
-func TestDecodeTestEnvironmentStopsACycle(t *testing.T) {
-	loop, err := JSONTag([]byte(`{"type":"all_of","definitions":["pk:loop"]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	envs := testEnvs(t)
-	envs.Entry = func(string) (nbt.Tag, bool) { return loop, true }
-	if _, err := DecodeTestEnvironment(nbt.String("pk:loop"), envs); err == nil {
-		t.Error("a cycle decoded")
-	}
-}

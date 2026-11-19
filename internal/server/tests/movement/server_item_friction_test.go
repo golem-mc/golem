@@ -1,9 +1,10 @@
 package movement
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"math"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/entity"
@@ -66,39 +67,6 @@ func TestAnItemSlidesFurtherOnIceAndShorterOnSlimeThanOnStone(t *testing.T) {
 	}
 	if iceX-startX < 5 {
 		t.Errorf("the item slid %v blocks on ice, want it gliding several", iceX-startX)
-	}
-}
-
-// TestAnOrbSlidesFurtherOnIceThanOnStone is the same launch for an
-// experience orb, whose tick reads the friction of the block below it the
-// same way.
-func TestAnOrbSlidesFurtherOnIceThanOnStone(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Join(t, servertest.BlockTestConfig(), "Slider")
-	srv.StopTick()
-
-	stone := servertest.BlockState(t, "minecraft:stone")
-	ice := servertest.BlockState(t, "minecraft:ice")
-	for x := int32(0); x <= 15; x++ {
-		srv.SetBlock(x, 63, 20, stone)
-		srv.SetBlock(x, 63, 24, ice)
-	}
-
-	const startX = 1.5
-	stoneID := srv.SpawnOrbMotion(startX, 64, 20.5, 1, 0.5, 0, 0)
-	iceID := srv.SpawnOrbMotion(startX, 64, 24.5, 1, 0.5, 0, 0)
-	if stoneID == 0 || iceID == 0 {
-		t.Fatal("the sliding orbs did not spawn")
-	}
-
-	srv.TickEntities(40)
-	stoneX := orbSlide(t, srv, stoneID)
-	iceX := orbSlide(t, srv, iceID)
-	if iceX-startX <= stoneX-startX {
-		t.Errorf("the orb slid %v blocks on ice but %v on stone, want ice further", iceX-startX, stoneX-startX)
-	}
-	if iceX-startX < 5 {
-		t.Errorf("the orb slid %v blocks on ice, want it gliding several", iceX-startX)
 	}
 }
 

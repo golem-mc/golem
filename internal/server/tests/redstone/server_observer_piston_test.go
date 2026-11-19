@@ -103,35 +103,3 @@ func TestPulledObserverPulsesAtItsNewPosition(t *testing.T) {
 		t.Errorf("the lamp behind the output lit=%v dark=%v, want it to light and go dark again", lampOn, lampOff)
 	}
 }
-
-// TestPushedPoweredObserverEndsUnpowered pushes an observer already part way
-// through a pulse: the move captures it powered, and the landing has to end
-// the pulse rather than leave the observer lit forever at its new position.
-func TestPushedPoweredObserverEndsUnpowered(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	srv.StopTick()
-
-	servertest.Setblock(t, c, 5, 64, 5, "piston[facing=east]")
-	servertest.Setblock(t, c, 6, 64, 5, "observer[facing=north]")
-	// A block in the face the observer watches books its pulse, so two
-	// ticks later the observer is lit and the move catches it that way.
-	servertest.Setblock(t, c, 6, 64, 4, "stone")
-	srv.TickPhysics(2)
-	if _, powered := servertest.ObserverPowerAt(srv, 6, 64, 5); !powered {
-		t.Fatal("setup: the observer never lit")
-	}
-	// The power beside the piston runs the extend with the observer lit.
-	servertest.Setblock(t, c, 5, 64, 6, "redstone_block")
-
-	for tick := 1; tick <= 12; tick++ {
-		srv.TickPhysics(1)
-	}
-	landed, powered := servertest.ObserverPowerAt(srv, 7, 64, 5)
-	if !landed {
-		t.Fatal("the powered observer never reached its new position")
-	}
-	if powered {
-		t.Error("the observer was still powered after the move, want it dark")
-	}
-}

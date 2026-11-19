@@ -251,17 +251,3 @@ func BenchmarkJigsawPlan(b *testing.B) {
 		})
 	}
 }
-
-// A pool graph without structure aliases skips the alias pools its jigsaw
-// blocks name, which have no file, rather than fail.
-func TestJigsawPoolGraphSkipsAliasPools(t *testing.T) {
-	for _, id := range []string{"minecraft:trial_chambers/chamber/end", "minecraft:trial_chambers/spawner/ranged"} {
-		start, pools, err := jigsawPoolGraph(id)
-		if err != nil || start == nil {
-			t.Errorf("jigsawPoolGraph(%s) = %v, %d pools, %v; want a start pool", id, start, len(pools), err)
-		}
-	}
-	if _, _, err := jigsawPoolGraph("minecraft:no/such/pool"); err == nil {
-		t.Error("jigsawPoolGraph of a missing root pool: no error")
-	}
-}

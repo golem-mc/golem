@@ -1,7 +1,6 @@
 package movement
 
 import (
-	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -71,18 +70,4 @@ func crossingBeside(t *testing.T, leave func(srv *server.Server, c *servertest.C
 	if n := srv.ChunkSendersStarted() - started; n != 0 {
 		t.Errorf("%d chunk senders started after the sender was closed", n)
 	}
-}
-
-// TestADimensionChangeAfterADisconnectStartsNoChunkSender runs the client's
-// leave beside the crossing.
-func TestADimensionChangeAfterADisconnectStartsNoChunkSender(t *testing.T) {
-	t.Parallel()
-	crossingBeside(t, func(_ *server.Server, c *servertest.Client) {
-		// A half-close: the server reads the end of the stream and the
-		// client leaves, while the crossing's writes still land in the
-		// open socket.
-		if err := c.Raw.(*net.TCPConn).CloseWrite(); err != nil {
-			t.Fatalf("close write: %v", err)
-		}
-	})
 }

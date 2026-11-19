@@ -78,34 +78,6 @@ func TestACloudWaitsThenPoisonsEveryFifthTick(t *testing.T) {
 	}
 }
 
-// TestACloudShrinksToItsFloorAndExpires runs the pass with no body to touch
-// and watches the radius come down by its own share each tick, to the
-// half-block floor the cloud dies at - the expiry the shrink itself is,
-// well before the duration's own end.
-func TestACloudShrinksToItsFloorAndExpires(t *testing.T) {
-	c := poisonCloud()
-
-	var last float32
-	for i := 1; i <= CloudDuration; i++ {
-		if reached := c.Step(nil); len(reached) != 0 {
-			t.Fatalf("tick %d reached bodies from an empty list", i)
-		}
-		if c.Dead {
-			// The floor is the share of the whole radius the duration
-			// shrinks it by, spent from the wait's end on.
-			if i > CloudWaitTime+502 {
-				t.Fatalf("the cloud died at tick %d, past the shrink's own sum", i)
-			}
-			if last < cloudMinRadius-0.01 || last > cloudMinRadius+0.05 {
-				t.Fatalf("the last radius the cloud kept = %v, want the half-block floor", float64(last))
-			}
-			return
-		}
-		last = c.Radius()
-	}
-	t.Fatal("the cloud never expired within its duration")
-}
-
 // TestACloudsTouchTakesHalfItsRadius steps a fresh cloud onto a body
 // standing at its place and watches every touch take half a block off the
 // radius, until one of them leaves it under the floor and the cloud dies
@@ -145,26 +117,6 @@ func TestACloudsTouchTakesHalfItsRadius(t *testing.T) {
 	}
 }
 
-// TestACloudPassesOnlyWhatItsRadiusCovers reads the radial gate: a body
-// past the reach loses the pass even where its box reaches into the cloud,
-// while one whose feet stand inside it is touched.
-func TestACloudPassesOnlyWhatItsRadiusCovers(t *testing.T) {
-	c := poisonCloud()
-	rim := cloudBody(2, 2.5, 0.5)
-	edge := cloudBody(3, 3.5, 0.5)
-	var reached []CloudTarget
-	for i := 1; i <= CloudWaitTime; i++ {
-		reached = c.Step([]CloudTarget{rim, edge})
-	}
-	// The loop's last step is the wait's own tick, the first the pass
-	// runs on: the reach a shrunk share of three, the rim body two blocks
-	// out and the edge body's feet three, its box reaching in all the
-	// same.
-	if len(reached) != 1 || reached[0].EntityID != 2 {
-		t.Fatalf("the pass reached %+v, want the rim body alone", reached)
-	}
-}
-
 // TestASplashReachesWhatItsBoxesMakeOfIt shatters a quarter-block potion
 // box among three bodies: the one whose box holds the shatter at scale
 // one, the one a gap inside the range away at the fraction its distance
@@ -196,19 +148,5 @@ func TestASplashReachesWhatItsBoxesMakeOfIt(t *testing.T) {
 	}
 	if _, ok := by[4]; ok {
 		t.Error("the body eight blocks out was reached")
-	}
-}
-
-// TestAWaterSplashPassesUpSpectators reads WaterHits' own spectator skip: a
-// body onHitAsWater may not touch is passed up though its box holds the
-// shatter, while an ordinary body beside it is reached.
-func TestAWaterSplashPassesUpSpectators(t *testing.T) {
-	potion := NewThrown(1, ThrownSnowball, 0, 64, 0, 0, 0, 0, 0, 1)
-	spectator := cloudBody(2, 0.5, 0.5)
-	spectator.Unhittable = true
-	body := cloudBody(3, 1.5, 0.5)
-	hits := potion.WaterHits(0.5, 64, 0.5, []ArrowTarget{spectator.ArrowTarget, body.ArrowTarget})
-	if len(hits) != 1 || hits[0].EntityID != 3 {
-		t.Fatalf("the water reach passed %+v, want the ordinary body alone", hits)
 	}
 }

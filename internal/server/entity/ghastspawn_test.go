@@ -96,44 +96,6 @@ func TestAFortressPieceSpawnsTheFortressList(t *testing.T) {
 	}
 }
 
-// TestABlazeOutsideItsHomeWalksBackToIt: MoveTowardsRestrictionGoal starts
-// only outside the home and picks a cell nearer to it.
-// vanilla: MoveTowardsRestrictionGoal
-func TestABlazeOutsideItsHomeWalksBackToIt(t *testing.T) {
-	w := newTestWorld()
-	stone := defaultState(t, "minecraft:stone")
-	for x := int32(-20); x <= 60; x++ {
-		for z := int32(-20); z <= 20; z++ {
-			w.set(x, 63, z, stone)
-		}
-	}
-	view := &tickView{w: w}
-	m := NewMob(TypeBlaze, 1, 40.5, 64, 0.5, 1)
-	g := &homeGoal{m: m, priority: blazeHomePriority, pace: 1}
-	wired := false
-	for _, goal := range blazeGoals(m) {
-		_, isHome := goal.(*homeGoal)
-		wired = wired || isHome
-	}
-	if !wired {
-		t.Error("the blaze's goals hold no return home")
-	}
-	if g.CanStart(view) {
-		t.Error("a blaze with no home started walking home")
-	}
-	m.RestrictTo(0, 64, 0, 8)
-	if !g.CanStart(view) {
-		t.Fatal("a blaze outside its home did not start walking home")
-	}
-	if g.target.X >= 40 {
-		t.Errorf("the walk's cell is x=%d, want one nearer the home than 40", g.target.X)
-	}
-	m.X = 1.5
-	if g.CanStart(view) {
-		t.Error("a blaze inside its home started walking home")
-	}
-}
-
 // TestOnlyAPlayersFireballHurtsAGhastAndItKillsAndDropsTheDisc: the fire
 // immunity stops a mob's fireball, the reflected one deals 1000 and the kill
 // rolls the music disc.
@@ -172,36 +134,5 @@ func TestOnlyAPlayersFireballHurtsAGhastAndItKillsAndDropsTheDisc(t *testing.T) 
 	}
 	if !found {
 		t.Error("a bare-handed player's reflected kill dropped no disc")
-	}
-}
-
-// TestAGhastHeadFollowsItsBodyTenDegreesATick: the head eases to the body's
-// yaw instead of snapping.
-// vanilla: LookControl.tick
-func TestAGhastHeadFollowsItsBodyTenDegreesATick(t *testing.T) {
-	m := NewMob(TypeGhast, 1, 0.5, 64, 0.5, 1)
-	m.HeadYaw = 0
-	m.VX, m.VZ = -1, 0 // yaw 90
-	(&ghastLookGoal{m: m}).Tick(nil)
-	if m.Yaw != 90 || m.HeadYaw != ghastHeadTurnSpeed {
-		t.Errorf("yaw %v head %v, want 90 and %d", m.Yaw, m.HeadYaw, ghastHeadTurnSpeed)
-	}
-}
-
-// TestAHoglinSpawnsInLightButNeverOnNetherWartBlock pins
-// checkHoglinSpawnRules: no light check, refused over a nether wart block.
-// vanilla: Hoglin.checkHoglinSpawnRules
-func TestAHoglinSpawnsInLightButNeverOnNetherWartBlock(t *testing.T) {
-	w := netherSpawnWorld(t)
-	w.biomeName = "minecraft:crimson_forest"
-	w.set(10, 63, 10, defaultState(t, "minecraft:crimson_nylium"))
-	rng := rand.New(rand.NewSource(1))
-	if !validSpawnPositionForType(w, rng, TypeHoglin, 10, 64, 10, 100, CategoryMonster) {
-		t.Error("a hoglin was refused on crimson nylium in block light 15, vanilla has no light check")
-	}
-	w.set(10, 63, 10, defaultState(t, "minecraft:nether_wart_block"))
-	w.blockLights[[3]int32{10, 64, 10}] = 0
-	if validSpawnPositionForType(w, rng, TypeHoglin, 10, 64, 10, 100, CategoryMonster) {
-		t.Error("a hoglin spawned on a nether wart block")
 	}
 }

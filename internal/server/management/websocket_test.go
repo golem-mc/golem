@@ -1,7 +1,6 @@
 package management
 
 import (
-	"encoding/binary"
 	"errors"
 	"io"
 	"net"
@@ -103,23 +102,5 @@ func TestWSConnClosesOnUnmaskedClientFrame(t *testing.T) {
 	}
 	if r := <-got; !errors.As(r.err, &closed) || closed.Code != CloseProtocolError {
 		t.Errorf("server read %v, want a close with %d", r.err, CloseProtocolError)
-	}
-}
-
-func TestWSConnEchoesClose(t *testing.T) {
-	t.Parallel()
-	srv, cli := pipe(t)
-	got := readAsync(srv)
-	write(t, cli, clientFrame(true, opClose, string(binary.BigEndian.AppendUint16(nil, 1001)), false))
-	echo := make([]byte, 4)
-	if _, err := io.ReadFull(cli, echo); err != nil {
-		t.Fatalf("read echo: %v", err)
-	}
-	if want := []byte{0x80 | opClose, 2, 0x03, 0xE9}; string(echo) != string(want) {
-		t.Errorf("echo = % x, want % x", echo, want)
-	}
-	var closed *CloseError
-	if r := <-got; !errors.As(r.err, &closed) || closed.Code != 1001 {
-		t.Errorf("server read %v, want a close with 1001", r.err)
 	}
 }

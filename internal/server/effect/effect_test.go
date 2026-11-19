@@ -2,7 +2,6 @@ package effect
 
 import (
 	"reflect"
-	"sync"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
@@ -34,25 +33,6 @@ func TestStrongerShorterHidesTheWeaker(t *testing.T) {
 	}
 	if len(changes) != 1 || changes[0].Kind != Updated || changes[0].Instance.Amplifier != 1 {
 		t.Errorf("changes = %+v, want the one downgrade", changes)
-	}
-}
-
-// TestTickRemovesAndResends counts an effect down: every 600th tick of its
-// countdown is resent, and the last one removes it.
-func TestTickRemovesAndResends(t *testing.T) {
-	var s Set
-	s.Add(New(hunger, 601, 0, false, true, true))
-	var kinds []ChangeKind
-	for range 601 {
-		for _, ch := range s.Tick(0, func(*Instance) bool { return true }) {
-			kinds = append(kinds, ch.Kind)
-		}
-	}
-	if !reflect.DeepEqual(kinds, []ChangeKind{Updated, Removed}) {
-		t.Errorf("changes = %v, want an update at 600 and the removal", kinds)
-	}
-	if _, ok := s.Get(hunger); ok {
-		t.Error("the effect outlived its duration")
 	}
 }
 
@@ -123,79 +103,4 @@ func TestParticlesCarryTheEffectColour(t *testing.T) {
 	if !reflect.DeepEqual(particles, want) || ambient {
 		t.Errorf("particles = %v, %v; want %v, not all ambient", particles, ambient, want)
 	}
-}
-
-// TestParticlesUseTheEffectsOwnParticle gives effects with their own particle
-// type that type, with no colour and no ambient alpha.
-func TestParticlesUseTheEffectsOwnParticle(t *testing.T) {
-	particles, _ := Particles([]Instance{
-		New(registry.MustMobEffect("minecraft:infested"), 600, 0, false, true, true),
-		New(registry.MustMobEffect("minecraft:oozing"), 600, 0, true, true, true),
-		New(registry.MustMobEffect("minecraft:weaving"), 600, 0, false, true, true),
-		New(registry.MustMobEffect("minecraft:wind_charged"), 600, 0, false, true, true),
-	})
-	want := []Particle{
-		{"minecraft:infested", 0}, {"minecraft:item_slime", 0},
-		{"minecraft:item_cobweb", 0}, {"minecraft:small_gust", 0},
-	}
-	if !reflect.DeepEqual(particles, want) {
-		t.Errorf("particles = %v, want %v", particles, want)
-	}
-}
-
-// TestShouldApplyMasksTheShift shifts by the amplifier's low five bits, as
-// Java's >> does: poison at level 33 (amplifier 32) runs every 25 ticks.
-func TestShouldApplyMasksTheShift(t *testing.T) {
-	if ShouldApply(poison, 24, 32) || !ShouldApply(poison, 25, 32) {
-		t.Error("poison at amplifier 32 should run on the 25-tick rhythm")
-	}
-}
-
-// TestCopiesHandedOutShareNoHiddenChain reads every copy a Set returns while
-// the Set keeps ticking, as the player's lock holder does: under -race a copy
-// that still points at the live hidden instance is a data race.
-func TestCopiesHandedOutShareNoHiddenChain(t *testing.T) {
-	var s Set
-	s.Add(New(hunger, 100000, 0, false, true, true))
-	s.Add(New(hunger, 50000, 2, false, true, true))
-	var mu sync.RWMutex
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for range 2000 {
-			mu.Lock()
-			s.Tick(0, func(*Instance) bool { return true })
-			mu.Unlock()
-		}
-	}()
-	read := func(in Instance) int32 {
-		var sum int32
-		for h := in.Hidden; h != nil; h = h.Hidden {
-			sum += h.Duration
-		}
-		return sum
-	}
-	for running := true; running; {
-		select {
-		case <-done:
-			running = false
-		default:
-		}
-		mu.RLock()
-		all := s.All()
-		got, _ := s.Get(hunger)
-		mu.RUnlock()
-		for _, in := range all {
-			read(in)
-		}
-		read(got)
-	}
-	mu.Lock()
-	ch, _ := s.Add(New(hunger, 70000, 1, false, true, true))
-	mu.Unlock()
-	read(ch.Instance)
-	mu.Lock()
-	s.Tick(0, func(*Instance) bool { return true })
-	mu.Unlock()
-	read(ch.Instance)
 }

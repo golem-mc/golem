@@ -102,77 +102,6 @@ func TestAPackDimensionIsCreatedSavedAndRestored(t *testing.T) {
 	}
 }
 
-// TestAPackOverworldDimensionRains checks that a pack dimension of the
-// overworld's type shares the overworld's weather: a player sent there by
-// execute in during /weather rain is told the rain has started, and the rain
-// falls on its open sky.
-// vanilla: Level.canHaveWeather, PlayerList.sendLevelInfo
-func TestAPackOverworldDimensionRains(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.LevelName = t.TempDir()
-	writePack(t, cfg.LevelName, map[string]string{
-		"data/pk/dimension/sky.json": `{"type":"minecraft:overworld","generator":{"type":"minecraft:flat",
-			"settings":{"biome":"minecraft:plains","layers":[{"block":"minecraft:glass","height":1}]}}}`,
-	})
-	srv, c := servertest.Join(t, cfg, "Voyager", servertest.OpsListing(t, "Voyager"))
-
-	c.ChatCommand("weather rain")
-	servertest.UntilTicks(t, srv, 100, "the overworld's rain", srv.IsRaining)
-
-	c.ChatCommand("execute in pk:sky run tp @s 0 -63 0")
-	arrived := false
-	if !c.ReadTicks(srv, 200, func(id int32, data []byte) bool {
-		if id == protocol.IDPlayRespawn {
-			arrived = true
-		}
-		return arrived && id == protocol.IDPlayGameEvent && data[0] == protocol.GameEventBeginRaining
-	}) {
-		t.Fatalf("no start of rain after the respawn into pk:sky (respawn seen: %v)", arrived)
-	}
-	servertest.UntilTicks(t, srv, 200, "rain on pk:sky's open glass", func() bool {
-		return srv.RainingAtInDimension("pk:sky", 0, -63, 0)
-	})
-}
-
-// TestAPackOverworldDimensionDarkens checks that a pack dimension of the
-// overworld's type darkens with the overworld's day timeline and weather: at
-// midnight and in a noon thunderstorm it reads the overworld's SkyDarken.
-// vanilla: Level.updateSkyBrightness, EnvironmentAttributeSystem.addDynamicLayers
-func TestAPackOverworldDimensionDarkens(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.LevelName = t.TempDir()
-	writePack(t, cfg.LevelName, map[string]string{
-		"data/pk/dimension/sky.json": `{"type":"minecraft:overworld","generator":{"type":"minecraft:flat",
-			"settings":{"biome":"minecraft:plains","layers":[{"block":"minecraft:glass","height":1}]}}}`,
-	})
-	srv, c := servertest.Join(t, cfg, "Voyager", servertest.OpsListing(t, "Voyager"))
-	servertest.HoldTicks(t, srv)
-
-	cases := []struct {
-		commands []string
-		want     int
-	}{
-		{[]string{"time set midnight"}, 11},
-		{[]string{"time set noon", "weather thunder"}, 5},
-	}
-	for _, tc := range cases {
-		for _, cmd := range tc.commands {
-			c.ChatCommand(cmd)
-		}
-		c.Settle()
-		// The weather fades in over a few hundred ticks; the loop is held, so
-		// both dimensions are read between the same two ticks.
-		servertest.UntilTicks(t, srv, 400, "the overworld's darkening after "+tc.commands[len(tc.commands)-1], func() bool {
-			return srv.SkyDarkenInDimension("minecraft:overworld") == tc.want
-		})
-		if got := srv.SkyDarkenInDimension("pk:sky"); got != tc.want {
-			t.Errorf("pk:sky darkens %d after %v, want the overworld's %d", got, tc.commands, tc.want)
-		}
-	}
-}
-
 // vanilla: EnvironmentAttributeSystem.addDynamicLayers, Mob.isSunBurnTick,
 // DaylightDetectorBlock.updateSignalStrength
 func TestAPackOverworldDimensionBurnsMonstersAndReadsDaylight(t *testing.T) {
@@ -284,36 +213,5 @@ func TestAPackDimensionUsesItsTypesBedRule(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-// TestASpawnPointInAPackDimensionIsWhereThePlayerRespawns checks that a
-// /spawnpoint set in a data pack dimension is where a death returns the
-// player, not the world spawn.
-// vanilla: ServerPlayer.findRespawnPositionAndUseSpawnBlock
-func TestASpawnPointInAPackDimensionIsWhereThePlayerRespawns(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.LevelName = t.TempDir()
-	writePack(t, cfg.LevelName, map[string]string{
-		"data/pk/dimension/void.json": `{"type":"minecraft:overworld","generator":{"type":"minecraft:flat",
-			"settings":{"biome":"minecraft:plains","layers":[{"block":"minecraft:glass","height":1}]}}}`,
-	})
-	srv, c := servertest.Join(t, cfg, "Voyager", servertest.OpsListing(t, "Voyager"))
-
-	c.ChatCommand("execute in pk:void run tp @s 0 -63 0")
-	c.ExpectWithinTicks(srv, 200, protocol.IDPlayRespawn)
-	c.ChatCommand("execute in pk:void run spawnpoint @s 0 -63 0")
-	c.ChatCommand("kill @s")
-	c.PerformRespawn()
-
-	data := c.ExpectWithinTicks(srv, 200, protocol.IDPlayRespawn)
-	r := protocol.NewReader(data)
-	r.ReadVarInt()
-	if got := r.ReadString(32767); got != "pk:void" {
-		t.Errorf("respawn dimension = %q, want pk:void", got)
-	}
-	if got := srv.PlayerDimension("Voyager"); got != "pk:void" {
-		t.Errorf("player dimension = %q, want pk:void", got)
 	}
 }

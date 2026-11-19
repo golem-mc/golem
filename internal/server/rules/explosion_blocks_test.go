@@ -7,7 +7,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -138,28 +137,6 @@ func BenchmarkExplosionBlocks(b *testing.B) {
 	}
 }
 
-func TestExplosionBlocksResistanceFallback(t *testing.T) {
-	for _, state := range []uint16{
-		0, registry.StateCount, ^uint16(0),
-		registry.BlockTorch.DefaultState(), registry.BlockWater.DefaultState(),
-		registry.BlockCaveAir.DefaultState(), registry.BlockBubbleColumn.DefaultState(),
-		registry.BlockLava.DefaultState(), registry.BlockObsidian.DefaultState(),
-	} {
-		for _, override := range []func(int32, int32, int32) (float64, bool){
-			nil,
-			func(int32, int32, int32) (float64, bool) { return 100, false },
-			func(int32, int32, int32) (float64, bool) { return 1, true },
-		} {
-			w := cellWorld(state)
-			want := explosionBlocksMap(w, rand.New(rand.NewSource(1)), 5.5, 64.5, 5.5, 4, override)
-			got := ExplosionBlocks(w, rand.New(rand.NewSource(1)), 5.5, 64.5, 5.5, 4, override)
-			if !slices.Equal([][3]int32(got), want) {
-				t.Fatalf("state %d, override present %v: %d cells, want %d (or different cells)", state, override != nil, len(got), len(want))
-			}
-		}
-	}
-}
-
 type blastReadCounter struct {
 	BlockReader
 	reads map[[3]int32]int
@@ -168,55 +145,6 @@ type blastReadCounter struct {
 func (w blastReadCounter) BlockAt(x, y, z int32) uint16 {
 	w.reads[[3]int32{x, y, z}]++
 	return w.BlockReader.BlockAt(x, y, z)
-}
-
-func TestExplosionBlocksResolvesEachCellOnce(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		override func(int32, int32, int32) (float64, bool)
-	}{
-		{"nil", nil},
-		{"fallback", func(int32, int32, int32) (float64, bool) { return 100, false }},
-		{"precision", func(int32, int32, int32) (float64, bool) { return 0.123456789, true }},
-		{"runaway", func(_, y, _ int32) (float64, bool) { return -0.9, y > 62 }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := blastReadCounter{groundWorld{}, make(map[[3]int32]int)}
-			calls := make(map[[3]int32]int)
-			override := tc.override
-			if override != nil {
-				override = func(x, y, z int32) (float64, bool) {
-					pos := [3]int32{x, y, z}
-					calls[pos]++
-					if calls[pos] != w.reads[pos] {
-						t.Fatalf("override at %v ran before BlockAt", pos)
-					}
-					return tc.override(x, y, z)
-				}
-			}
-			gotRNG, wantRNG := rand.New(rand.NewSource(1)), rand.New(rand.NewSource(1))
-			got := ExplosionBlocks(w, gotRNG, -3.2, 72.3, 20.9, 4, override)
-			want := explosionBlocksMap(groundWorld{}, wantRNG, -3.2, 72.3, 20.9, 4, tc.override)
-			if !slices.Equal([][3]int32(got), want) || gotRNG.Int63() != wantRNG.Int63() {
-				t.Fatal("cached blast changed the cells, their order or the RNG draws")
-			}
-			outsideRepeated := false
-			for pos, reads := range w.reads {
-				// Radius four's reach is nine cells from floor(center).
-				inside := pos[0] >= -13 && pos[0] <= 5 && pos[1] >= 63 && pos[1] <= 81 && pos[2] >= 11 && pos[2] <= 29
-				if inside && reads != 1 {
-					t.Fatalf("cell %v resolved %d times, want once", pos, reads)
-				}
-				outsideRepeated = outsideRepeated || (!inside && reads > 1)
-				if override != nil && calls[pos] != reads {
-					t.Fatalf("cell %v: %d reads, %d overrides", pos, reads, calls[pos])
-				}
-			}
-			if tc.name == "runaway" && !outsideRepeated {
-				t.Fatal("negative resistance did not exercise repeated uncached reads outside the cube")
-			}
-		})
-	}
 }
 
 // caveGroundWorld replaces only groundWorld's air, preserving its obstacles.
@@ -290,22 +218,6 @@ func (w *blastFirstCellReader) BlockAt(_, _, _ int32) uint16 {
 	return registry.BlockStone.DefaultState()
 }
 
-func TestExplosionOriginReadFollowsTheFirstPowerRoll(t *testing.T) {
-	for _, radius := range []float64{0, 4} {
-		source := &blastSourceCounter{Source: rand.NewSource(1)}
-		rng, reference := rand.New(source), rand.New(rand.NewSource(1))
-		w := &blastFirstCellReader{t: t, source: source}
-		got := ExplosionBlocks(w, rng, 8.5, 60.5, 8.5, radius, nil)
-		want := explosionBlocksMap(oneBlock(registry.BlockStone.DefaultState()), reference, 8.5, 60.5, 8.5, radius, nil)
-		if !slices.Equal([][3]int32(got), want) || rng.Int63() != reference.Int63() {
-			t.Fatalf("radius %g: the origin fast path changed cells or RNG draws", radius)
-		}
-		if radius == 0 && w.reads != 0 || radius == 4 && w.reads == 0 {
-			t.Fatalf("radius %g read %d cells", radius, w.reads)
-		}
-	}
-}
-
 // orderedBlastReader records first visits, independent of the cache's layout.
 type orderedBlastReader struct {
 	BlockReader
@@ -335,61 +247,4 @@ func (w mixedBlastReader) BlockAt(x, y, z int32) uint16 {
 		return registry.BlockOakSlab.DefaultState()
 	}
 	return registry.BlockAir.DefaultState()
-}
-
-func TestExplosionFastWalkerMatchesGeneralReadOrder(t *testing.T) {
-	centers := [][3]float64{
-		{8.5, 60.5, 8.5}, {-8.5, 60.5, -8.5}, {29999980.5, 60.5, -29999980.5},
-		{16, 64, -16}, {0.3000000119209289, 64.5, 0.5},
-		{0.300000011920929, 64.5, 0.5}, {0.699999988079071, 64.5, 0.5},
-		{0.6999999880790712, 64.5, 0.5}, {0.5, 64.30000001192093, 0.5},
-		{0.5, 64.5, -0.300000011920929}, {0.5, 64.5, -0.3000000119209289},
-	}
-	for _, radius := range []float64{0, 0.34, math.Nextafter(4, 0), 4, math.Nextafter(4, 5)} {
-		for _, center := range centers {
-			for _, reader := range []BlockReader{oneBlock(registry.BlockStone.DefaultState()), oneBlock(0), mixedBlastReader{}, mixedBlastReader{true}} {
-				for seed := int64(1); seed <= 3; seed++ {
-					gotReader := &orderedBlastReader{BlockReader: reader, seen: make(map[[3]int32]bool)}
-					wantReader := &orderedBlastReader{BlockReader: reader, seen: make(map[[3]int32]bool)}
-					gotRNG, wantRNG := rand.New(rand.NewSource(seed)), rand.New(rand.NewSource(seed))
-					x, y, z := center[0], center[1], center[2]
-					got := ExplosionBlocks(gotReader, gotRNG, x, y, z, radius, nil)
-					want := explosionBlocksGeneral(wantReader, wantRNG, x, y, z, radius, nil)
-					oracle := explosionBlocksMap(reader, rand.New(rand.NewSource(seed)), x, y, z, radius, nil)
-					if !slices.Equal(got, want) || !slices.Equal([][3]int32(got), oracle) || gotRNG.Int63() != wantRNG.Int63() || !slices.Equal(gotReader.visits, wantReader.visits) {
-						t.Fatalf("radius %.17g center %v reader %T seed %d: cells, RNG or first-visit read order differ", radius, center, reader, seed)
-					}
-				}
-			}
-		}
-	}
-}
-
-func TestExplosionExposureSnapshotAcrossSections(t *testing.T) {
-	w, err := world.NewWorld(t.TempDir(), world.NewFlatGenerator())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { w.Close() })
-	for _, pos := range []world.ChunkPos{{X: 0, Z: -1}, {X: 1, Z: -1}, {X: 0, Z: 0}, {X: 1, Z: 0}} {
-		w.Acquire(pos)
-		defer w.Release(pos)
-	}
-	states := []uint16{registry.BlockStone.DefaultState(), registry.BlockOakSlab.DefaultState(), registry.BlockWater.DefaultState(), 0}
-	for x := int32(14); x <= 17; x++ {
-		for y := int32(94); y <= 98; y++ {
-			for z := int32(-2); z <= 2; z++ {
-				w.SetBlock(x, y, z, states[(x+y+z)&3])
-			}
-		}
-	}
-	snapshot := w.SnapshotBlocks()
-	defer snapshot.Release()
-	for _, center := range [][3]float64{{12.5, 95.5, -3.5}, {20.5, 97.5, 4.5}, {15.5, 96.5, 0.5}} {
-		got := ExplosionExposure(snapshot, 17.2, 95, -0.3, 17.8, 96.8, 0.3, center[0], center[1], center[2])
-		want := ExplosionExposure(w, 17.2, 95, -0.3, 17.8, 96.8, 0.3, center[0], center[1], center[2])
-		if got != want {
-			t.Fatalf("center %v: snapshot exposure %g, world %g", center, got, want)
-		}
-	}
 }

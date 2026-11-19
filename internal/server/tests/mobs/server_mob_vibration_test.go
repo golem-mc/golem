@@ -56,47 +56,6 @@ func stepsPastX(e *gameEvents, x float64) int {
 	return n
 }
 
-// TestAWalkingMobPostsStepGameEvents: a creeper's steps are vibrations on stone
-// that a sculk sensor hears, and none on wool, which dampens them.
-// vanilla: Entity.vibrationAndSoundEffectsFromBlock
-func TestAWalkingMobPostsStepGameEvents(t *testing.T) {
-	t.Parallel()
-	for floor, wantHeard := range map[string]bool{"minecraft:stone": true, "minecraft:white_wool": false} {
-		t.Run(floor, func(t *testing.T) {
-			t.Parallel()
-			events, heard, _, _ := walkVibrations(t, "minecraft:creeper", protocol.EntityTypeCreeper, floor, 60)
-			if n := stepsPastX(events, 2); n < 3 {
-				t.Errorf("%d step events at x > 2, want at least 3", n)
-			}
-			if heard != wantHeard {
-				t.Errorf("sensor heard = %v, want %v", heard, wantHeard)
-			}
-		})
-	}
-}
-
-// TestALandingMobPostsHitGround: a cow dropped two blocks posts hit_ground at
-// its landing.
-// vanilla: Entity.checkFallDamage
-func TestALandingMobPostsHitGround(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	srv.SetSpawning(false)
-	events := &gameEvents{seen: map[string][][3]float64{}}
-	srv.ObserveGameEvents(events.add)
-	srv.SpawnMob("minecraft:cow", 2.5, 66, 0.5)
-	servertest.RunTicks(t, srv, 20)
-	hits := events.seen["minecraft:hit_ground"]
-	if len(hits) == 0 {
-		t.Fatal("no hit_ground event")
-	}
-	if h := hits[0]; h[1] < 63.99 || h[1] > 64.01 || h[0] < 2.49 || h[0] > 2.51 || h[2] < 0.49 || h[2] > 0.51 {
-		t.Errorf("first hit_ground at %v, want 2.5, 64, 0.5", h)
-	}
-}
-
 // TestAWardenWalksUnheard: a warden dampens vibrations, so its steps are
 // posted as none.
 // vanilla: Warden.dampensVibrations

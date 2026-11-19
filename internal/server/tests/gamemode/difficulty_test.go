@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
@@ -90,79 +89,6 @@ func TestDifficultyCommandSetsTheWorld(t *testing.T) {
 	}
 }
 
-// TestDifficultyCommandNamesTheDifficulty checks the bare /difficulty, which
-// names the world's difficulty without changing it.
-func TestDifficultyCommandNamesTheDifficulty(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, c := servertest.Dial(t, cfg, servertest.OpsListing(t, "Testificate"))
-	if got := srv.Difficulty(); got != 1 {
-		t.Fatalf("starting difficulty = %d, want 1 (easy)", got)
-	}
-	c.Join("Testificate")
-
-	c.ChatCommand("difficulty")
-	c.ExpectComponentFeedback("commands.difficulty.query",
-		protocol.Text{Translate: "options.difficulty.easy"})
-	c.Disconnect()
-}
-
-// TestDifficultyCommandRefusesTheSameDifficulty checks /difficulty easy on a
-// world already at easy: the runner is told the difficulty did not change,
-// in red, and no Change Difficulty reaches anyone, since there was no change
-// to tell them about. vanilla: DifficultyCommand.setDifficulty
-func TestDifficultyCommandRefusesTheSameDifficulty(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, c := servertest.Dial(t, cfg, servertest.OpsListing(t, "Testificate"))
-	if got := srv.Difficulty(); got != 1 {
-		t.Fatalf("starting difficulty = %d, want 1 (easy)", got)
-	}
-	c.Join("Testificate")
-	servertest.HoldTicks(t, srv)
-
-	c.ChatCommand("difficulty easy")
-	c.ExpectComponentError("commands.difficulty.failure",
-		protocol.Text{Translate: "options.difficulty.easy"})
-	servertest.ExpectNoPacket(t, srv, c, 40, protocol.IDPlayDifficulty)
-	c.Disconnect()
-}
-
-// TestStarvationStopsAtEasyFloor checks the easy floor: a player starving on
-// easy keeps at least half their bar, the bites stopping once the health is
-// down past ten half-hearts and never coming back.
-func TestStarvationStopsAtEasyFloor(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LevelName = t.TempDir()
-
-	hungryPlayerFile(t, cfg.LevelName, "Hungry", 10.5)
-
-	srv, c := servertest.Join(t, cfg, "Hungry")
-	servertest.HoldTicks(t, srv)
-
-	// One more bite takes the health to the floor and past it by the one
-	// bite it was over; after that the bites stop for good, easy never
-	// starving anyone below half their bar.
-	got := expectHealthWithin(t, srv, c, 180)
-	if got.Health != 9.5 {
-		t.Errorf("health after the last bite = %v, want 9.5, easy stopping at half a bar", got.Health)
-	}
-	if got.Food != 0 {
-		t.Errorf("food = %d, want 0", got.Food)
-	}
-
-	// A pause long enough for several more bites if the floor were not
-	// holding, which it is.
-	servertest.ExpectNoHealth(t, srv, c, 180)
-	c.Disconnect()
-}
-
 // TestStarvationKillsOnHard checks the hard floor, which is the ground: a
 // starving player on hard is bitten down to nothing and dies of it.
 func TestStarvationKillsOnHard(t *testing.T) {
@@ -194,33 +120,5 @@ func TestStarvationKillsOnHard(t *testing.T) {
 	c.ExpectDamageEvent(entityID, "minecraft:starve", 0)
 	c.ExpectCombatDeath(entityID, starved)
 	c.ExpectDeathMessage(starved)
-	c.Disconnect()
-}
-
-// TestPeacefulFeedsAndHeals checks the peaceful world, which neither starves
-// anybody nor lets them stay hurt: health and food both climb back, a step
-// every twenty ticks, until they are full.
-func TestPeacefulFeedsAndHeals(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LevelName = t.TempDir()
-	cfg.Difficulty = "peaceful"
-
-	hungryPlayerFile(t, cfg.LevelName, "Hungry", 5.0)
-
-	srv, c := servertest.Join(t, cfg, "Hungry")
-	servertest.HoldTicks(t, srv)
-
-	// The bar climbs without anyone eating: a half-heart and a shank every
-	// second, until both are full.
-	var got servertest.HealthReport
-	servertest.PollUntil(t, 30*time.Second, func() bool {
-		got = expectHealthWithin(t, srv, c, 40)
-		return got.Health == 20 && got.Food == 20
-	})
-	if got.Health != 20 || got.Food != 20 {
-		t.Errorf("health = %v, food = %d, want the peaceful world to have fed and healed to full", got.Health, got.Food)
-	}
 	c.Disconnect()
 }

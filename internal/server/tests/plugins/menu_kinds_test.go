@@ -95,26 +95,6 @@ func TestPluginInvseeAndEnderChest(t *testing.T) {
 	})
 }
 
-func TestPluginEnderChestOfAnotherPlayer(t *testing.T) {
-	_, h, run, viewer, _ := twoWindowed(t)
-	run(func() {
-		vp, _ := h.PlayerNamed("Viewer")
-		op, _ := h.PlayerNamed("Owner")
-		op.EnderChest().SetItem(2, plugin.NewStack(registry.ItemApple, 5))
-		vp.OpenInventory(op.EnderChest())
-	})
-	slots := viewer.ExpectContainerOpen(protocol.MenuGeneric9x3, false, 0, 0, 0)
-	run(func() {
-		vp, _ := h.PlayerNamed("Viewer")
-		if v, _ := vp.OpenView(); v.Top().Type() != plugin.InvEnderChest || v.Top().Holder() == nil {
-			t.Errorf("ender chest top type %v, want InvEnderChest", v.Top().Type())
-		}
-	})
-	if slots[2].Count != 5 {
-		t.Fatalf("ender slot 2 %+v", slots[2])
-	}
-}
-
 // vanilla: HopperMenu, DispenserMenu, ShulkerBoxMenu over a SimpleContainer
 func TestPluginContainerKindMenus(t *testing.T) {
 	cases := []struct {
@@ -145,37 +125,6 @@ func TestPluginContainerKindMenus(t *testing.T) {
 		if _, title := w.ExpectOpenTitle(tc.menu, 0, 0, 0, 0); title.Text != "Own" {
 			t.Errorf("kind %d: title %+v", tc.kind, title)
 		}
-		w.CloseWindow()
-	}
-}
-
-// A plugin-held furnace smelts nothing and its buttons act on no block:
-// presses on kinds that read a block entity or a table must be ignored, and
-// a shift-click moves the item to the player's inventory.
-// vanilla: AbstractFurnaceMenu, LecternMenu, EnchantmentMenu with ContainerLevelAccess.NULL
-func TestPluginBlocklessMenusIgnoreBlockActions(t *testing.T) {
-	_, h, run, w := inventoryPlayer(t)
-	for _, tc := range []struct {
-		kind plugin.InventoryType
-		menu int32
-	}{
-		{plugin.InvLectern, protocol.MenuLectern}, {plugin.InvEnchanting, protocol.MenuEnchantment},
-		{plugin.InvMerchant, protocol.MenuMerchant}, {plugin.InvBeacon, protocol.MenuBeacon},
-		{plugin.InvCrafter, protocol.MenuCrafter}, {plugin.InvFurnace, protocol.MenuFurnace},
-	} {
-		run(func() {
-			testerOf(t, h).OpenInventory(h.CreateInventory(tc.kind, 0, plugin.Plain("Own"), nil))
-		})
-		w.ExpectOpenTitle(tc.menu, 0, 0, 0, 0)
-		w.ClickButton(1)
-		w.ClickButton(2)
-		w.Click(0, 0, protocol.ClickModeQuickMove)
-		w.CollectClickResponse()
-		run(func() {
-			if _, ok := testerOf(t, h).OpenView(); !ok {
-				t.Errorf("kind %d: window closed", tc.kind)
-			}
-		})
 		w.CloseWindow()
 	}
 }

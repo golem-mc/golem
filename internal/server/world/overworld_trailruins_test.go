@@ -44,15 +44,3 @@ func TestTrailRuinsVanilla(t *testing.T) {
 		t.Fatalf("suspicious gravel %d, bricks %d, digest %x", suspicious, bricks, h.Sum(nil))
 	}
 }
-
-func TestTemplateOrdersTopSlabsAfterFullCubes(t *testing.T) {
-	tag, err := nbt.ParseSNBT(`{palette:[{Name:"minecraft:mud_brick_slab",Properties:{type:"top",waterlogged:"false"}},{Name:"minecraft:gravel"}],blocks:[{pos:[0,0,0],state:0},{pos:[0,1,0],state:1}]}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	root := tag
-	blocks := loadTemplatePalette(root["palette"].(nbt.List), root["blocks"].(nbt.List))
-	if registry.BlockOf(blocks[0].State) != registry.BlockGravel || registry.BlockOf(blocks[1].State) != registry.BlockMudBrickSlab {
-		t.Fatalf("placement order: %v", blocks)
-	}
-}

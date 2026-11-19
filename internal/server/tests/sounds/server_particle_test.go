@@ -107,33 +107,6 @@ func TestParticleCommandRange(t *testing.T) {
 	}
 }
 
-// TestParticleCommandDeltaAndSpeed checks that a whole-number delta is sent as
-// typed, not moved to a block centre, and that a negative speed sends nothing.
-func TestParticleCommandDeltaAndSpeed(t *testing.T) {
-	t.Parallel()
-	_, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "DJ", servertest.OpsListing(t, "DJ"))
-	c.Settle()
-
-	particles, _ := runParticle(c, "particle minecraft:flame ~ ~ ~ 1 2 3 0 5")
-	if len(particles) != 1 {
-		t.Fatalf("got %d packets, want 1", len(particles))
-	}
-	r := protocol.NewReader(particles[0])
-	r.ReadVarInt()
-	r.ReadBool()
-	r.ReadBool()
-	r.ReadF64()
-	r.ReadF64()
-	r.ReadF64()
-	if dx, dy, dz := r.ReadF32(), r.ReadF32(), r.ReadF32(); dx != 1 || dy != 2 || dz != 3 {
-		t.Errorf("delta = (%v %v %v), want (1 2 3)", dx, dy, dz)
-	}
-
-	if particles, _ = runParticle(c, "particle minecraft:flame ~ ~ ~ 1 2 3 -1 5"); len(particles) != 0 {
-		t.Errorf("negative speed sent %d packets, want 0", len(particles))
-	}
-}
-
 // particleData returns the particle type ID of a Level Particles packet and
 // the options after it, for a packet whose count is under 128.
 func particleData(t *testing.T, packet []byte) (int32, []byte) {

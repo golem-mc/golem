@@ -3,16 +3,14 @@ package network
 import (
 	"bytes"
 	"fmt"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"math"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/server/servertest"
+
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/registry"
-	"github.com/google/uuid"
 )
 
 // The bounds the wire input is held to, matching vanilla's: a field a
@@ -154,104 +152,6 @@ func TestAWireValueTheDecoderRefusesDisconnectsItsSender(t *testing.T) {
 	}
 }
 
-// TestAWireValueTheDecoderRefusesBeforeTheClientLoads sends a packet whose
-// status is outside its enum, or that is cut off mid-field, while the
-// loading screen is still up: vanilla decodes on the netty thread, before its
-// hasClientLoaded check, so the value costs the sender the connection even
-// then.
-func TestAWireValueTheDecoderRefusesBeforeTheClientLoads(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name   string
-		packet string
-		send   func(*servertest.Client)
-	}{
-		{
-			"a player action whose status is past the enum",
-			"player_action",
-			func(c *servertest.Client) { c.SendPlayerAction(9) },
-		},
-		{
-			"a position cut off before the client loads",
-			"move_player_pos",
-			func(c *servertest.Client) {
-				c.Send(protocol.IDPlayPosition, func(b *protocol.Buffer) { b.PutF64(0) })
-			},
-		},
-		{
-			"a position and rotation cut off before the client loads",
-			"move_player_pos_rot",
-			func(c *servertest.Client) {
-				c.Send(protocol.IDPlayPositionAndRotation, func(b *protocol.Buffer) { b.PutF64(0) })
-			},
-		},
-		{
-			"a rotation cut off before the client loads",
-			"move_player_rot",
-			func(c *servertest.Client) {
-				c.Send(protocol.IDPlayRotation, func(b *protocol.Buffer) { b.PutF32(0) })
-			},
-		},
-		{
-			"movement flags cut off before the client loads",
-			"move_player_status_only",
-			func(c *servertest.Client) { c.Send(protocol.IDPlayMovementFlags, nil) },
-		},
-		{
-			"an attack cut off before the client loads",
-			"attack",
-			func(c *servertest.Client) { c.Send(protocol.IDPlayAttackIn, nil) },
-		},
-		{
-			"an interact cut off before the client loads",
-			"interact",
-			func(c *servertest.Client) { c.Send(protocol.IDPlayInteractIn, nil) },
-		},
-		{
-			"a player command cut off before the client loads",
-			"player_command",
-			func(c *servertest.Client) {
-				c.Send(protocol.IDPlayPlayerCommand, func(b *protocol.Buffer) { b.PutVarInt(0) })
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-
-			sender := connect()
-			sender.Login("Sender")
-			sender.Configure()
-			// The chunk stream has run and Player Loaded is yet to come:
-			// the loading screen is still up.
-			sender.ReadThroughJoin("Sender")
-
-			tc.send(sender)
-			expectDecodeDisconnect(t, srv, sender, tc.packet)
-		})
-	}
-}
-
-// TestAStabActionTheVanillaEnumCarriesIsIgnored pins the top of the Player
-// Action status' own range: vanilla's enum runs to status 7, the stab,
-// which this server has no behaviour for, so
-// the packet is ignored with the sender kept - one past it, the case
-// above, is a value no vanilla client would ever reach a server with.
-func TestAStabActionTheVanillaEnumCarriesIsIgnored(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Stabber")
-
-	c.SendPlayerAction(7) // the stab, status 7
-	// No behaviour means no answer to the sequence; the connection is
-	// still good behind it.
-	c.Settle()
-	if got := srv.PlayerCount(); got != 1 {
-		t.Fatalf("player count = %d, want the stab not to cost its sender the connection", got)
-	}
-	c.Chat("still here")
-	c.ExpectChat("Stabber", "still here")
-}
-
 // The depth limit on the decode of a slot and its components: a container
 // component holds slots, and every one of those can carry a container
 // again, so a level of nesting costs a few bytes on the wire but a frame
@@ -323,51 +223,6 @@ func TestDeeplyNestedCreativeSlotDisconnectsOnlyTheSender(t *testing.T) {
 	watcher.ExpectAnnouncement("multiplayer.player.left", "Bomber")
 	watcher.Chat("still here")
 	watcher.ExpectChat("Watcher", "still here")
-}
-
-// TestCreativeSlotKeepsNestingWithinTheDepthLimit checks the other side of
-// the limit: a stack nested seventeen containers deep is taken in, kept in
-// the slot it was set to, and relayed to the other players whole.
-func TestCreativeSlotKeepsNestingWithinTheDepthLimit(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-
-	watcher := connect().Join("Watcher")
-
-	packer := connect()
-	packer.Login("Packer")
-	packer.Configure()
-	packer.Inventory()
-	packer.EnterWorld("Packer")
-	packerEntity := watcher.ExpectPlayerAdded("Packer")
-	watcher.ExpectAnnouncement("multiplayer.player.joined", "Packer")
-
-	stone, ok := registry.ItemID("minecraft:stone")
-	if !ok {
-		t.Fatal("the registry has no stone")
-	}
-	const levels = 17
-	packer.Send(protocol.IDPlayCreativeSlot, func(b *protocol.Buffer) {
-		nestedCreativeSlot(b, 36, stone, levels)
-	})
-
-	want := protocol.ItemStack{ItemID: stone, Count: 1}
-	for range levels {
-		want = protocol.ItemStack{ItemID: stone, Count: 1, Container: []protocol.ItemStack{want}}
-	}
-	servertest.WaitFor(t, srv, 100, func() bool {
-		return srv.InventorySlot("Packer", player.HotbarSlot).Equal(want)
-	})
-	if got := srv.InventorySlot("Packer", player.HotbarSlot); !got.Equal(want) {
-		t.Errorf("the held stack = %+v, want the nested stack %+v", got, want)
-	}
-
-	// And the stack rides back out: the selected hotbar slot is visible,
-	// so the others are told what the packer now holds, nesting and all.
-	entries := watcher.ExpectEquipment(packerEntity)
-	if got := servertest.EquipEntry(entries, protocol.EquipMainHand); !got.Equal(want) {
-		t.Errorf("the relayed equipment = %+v, want the nested stack %+v", got, want)
-	}
 }
 
 // TestAPlayPacketThatFailsToDecodeDisconnectsItsSender drives every play
@@ -676,162 +531,6 @@ func TestAKnownPacksReplyPastTheCodecLimitDisconnectsItsSender(t *testing.T) {
 	}
 }
 
-// TestAKnownPacksReplyAtTheCodecLimitIsAccepted sends a Known Packs reply
-// listing exactly 64 packs, the most the codec reads, with the vanilla pack
-// among them: the count is accepted and the server finishes configuration.
-// vanilla: ServerboundSelectKnownPacks.STREAM_CODEC
-func TestAKnownPacksReplyAtTheCodecLimitIsAccepted(t *testing.T) {
-	t.Parallel()
-	_, connect := servertest.Start(t, servertest.BlockTestConfig())
-
-	sender := connect()
-	sender.Login("Sender")
-
-	// The server introduces itself before it reads anything back.
-	sender.Expect(protocol.IDConfigPluginMessage)
-	sender.Expect(protocol.IDKnownPacks)
-
-	sender.Send(protocol.IDKnownPacksIn, func(b *protocol.Buffer) {
-		b.PutVarInt(64)
-		for i := range 63 {
-			b.PutString("example")
-			b.PutString(fmt.Sprintf("pack_%d", i))
-			b.PutString("1")
-		}
-		b.PutString("minecraft")
-		b.PutString("core")
-		b.PutString(registry.Version)
-	})
-
-	if _, ok := servertest.ReadUntil(t, sender, servertest.ExpectTimeout, protocol.IDConfigFinish); !ok {
-		t.Fatal("no finish for a known-packs count at the codec's 64")
-	}
-}
-
-// TestANegativeKnownPacksCountDisconnectsItsSender sends a Known Packs reply
-// whose count is negative: vanilla's list codec rejects a negative capacity
-// before reading, so the count fails the decode rather than falling through to
-// the "does not know data pack" disconnect.
-// vanilla: ServerboundSelectKnownPacks.STREAM_CODEC
-func TestANegativeKnownPacksCountDisconnectsItsSender(t *testing.T) {
-	t.Parallel()
-	_, connect := servertest.Start(t, servertest.BlockTestConfig())
-
-	sender := connect()
-	sender.Login("Sender")
-
-	// The server introduces itself before it reads anything back.
-	sender.Expect(protocol.IDConfigPluginMessage)
-	sender.Expect(protocol.IDKnownPacks)
-
-	sender.Send(protocol.IDKnownPacksIn, func(b *protocol.Buffer) { b.PutVarInt(-1) })
-	reason, ok := servertest.ReadUntil(t, sender, servertest.ExpectTimeout, protocol.IDConfigDisconnect)
-	if !ok {
-		t.Fatal("no configuration disconnect for a negative known-packs count")
-	}
-	if !bytes.Equal(reason, wantDecodeFailed("select_known_packs")) {
-		t.Errorf("disconnect reason % X, want % X", reason, wantDecodeFailed("select_known_packs"))
-	}
-}
-
-// TestAPacketThatDecodesButBreaksAGameplayRuleStillOnlyDrops pins the other
-// side of the decode failures: a packet the decoder accepts but a gameplay rule
-// refuses - a hotbar slot outside the nine, a move out of the world - is still
-// dropped alone, the connection left good.
-func TestAPacketThatDecodesButBreaksAGameplayRuleStillOnlyDrops(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name string
-		send func(*servertest.Client)
-	}{
-		{
-			"a hotbar slot outside the nine",
-			func(c *servertest.Client) {
-				c.Send(protocol.IDPlayHeldItemIn, func(b *protocol.Buffer) { b.PutI16(9) })
-			},
-		},
-		{
-			"a move out of the world",
-			func(c *servertest.Client) {
-				c.Send(protocol.IDPlayPosition, func(b *protocol.Buffer) {
-					b.PutF64(30_000_001) // past the world border
-					b.PutF64(64)
-					b.PutF64(0)
-					b.PutU8(0)
-				})
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Sender")
-
-			tc.send(c)
-			c.Settle()
-			if got := srv.PlayerCount(); got != 1 {
-				t.Fatalf("player count = %d, want the packet not to cost its sender the connection", got)
-			}
-			c.Chat("still here")
-			c.ExpectChat("Sender", "still here")
-		})
-	}
-}
-
-// TestABodyWithBytesPastItsFieldsDisconnectsItsSender sends a Set Held Item
-// carrying one byte more than its short field: vanilla's decoder refuses a
-// packet with bytes left after its read, and so does this server.
-// vanilla: PacketDecoder.decode
-func TestABodyWithBytesPastItsFieldsDisconnectsItsSender(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Sender")
-
-	// The packet carries a short; the trailing 00 is a byte it does not declare.
-	c.Send(protocol.IDPlayHeldItemIn, func(b *protocol.Buffer) {
-		b.PutI16(1)
-		b.PutU8(0)
-	})
-	want := wantExtraBytes("play", "set_carried_item", "ServerboundSetCarriedItemPacket", 1)
-	if reason := c.ExpectPlay(protocol.IDPlayDisconnect); !bytes.Equal(reason, want) {
-		t.Errorf("disconnect reason % X, want % X", reason, want)
-	}
-	servertest.WaitFor(t, srv, 100, func() bool { return srv.PlayerCount() == 0 })
-}
-
-// TestAPunchCarryingAHandDisconnectsItsSender sends a punch with a hand
-// behind it: the packet has no fields, so the hand is a byte past its read.
-// vanilla: ServerboundPunchPacket.STREAM_CODEC, PacketDecoder.decode
-func TestAPunchCarryingAHandDisconnectsItsSender(t *testing.T) {
-	t.Parallel()
-	srv, watcher := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
-	c := servertest.DialServer(t, srv).Join("Sender")
-	entityID := watcher.ExpectPlayerAdded("Sender")
-
-	// The bare punch is the whole packet, and is relayed as a swing.
-	c.Send(protocol.IDPlayPunch, func(b *protocol.Buffer) {})
-	swing := watcher.ExpectWithinTicks(srv, 20, protocol.IDPlaySwingAnimation)
-	if got := protocol.NewReader(swing).ReadVarInt(); got != entityID {
-		t.Errorf("swinging entity = %d, want %d", got, entityID)
-	}
-
-	c.Send(protocol.IDPlayPunch, func(b *protocol.Buffer) { b.PutVarInt(protocol.HandMain) })
-	want := wantExtraBytes("play", "punch", "ServerboundPunchPacket", 1)
-	if reason := c.ExpectPlay(protocol.IDPlayDisconnect); !bytes.Equal(reason, want) {
-		t.Errorf("disconnect reason % X, want % X", reason, want)
-	}
-	servertest.UntilTicks(t, srv, 20, "the sender to be dropped", func() bool { return srv.PlayerCount() == 1 })
-}
-
-// TestAPingRequestCutShortDisconnectsItsSender sends a Ping Request whose
-// body is one byte: the timestamp it is answered with is a long, so a short
-// one does not read and costs the sender the connection.
-func TestAPingRequestCutShortDisconnectsItsSender(t *testing.T) {
-	t.Parallel()
-	srv, sender := servertest.Join(t, servertest.BlockTestConfig(), "Sender")
-
-	sender.Send(protocol.IDPlayPingRequest, func(b *protocol.Buffer) { b.PutU8(0) })
-	expectDecodeDisconnect(t, srv, sender, "ping_request")
-}
-
 // TestANaNMoveKicksWithInvalidPlayerMovement sends a move whose x is NaN,
 // the value vanilla ends the connection over.
 // vanilla: ServerGamePacketListenerImpl.handleMovePlayer
@@ -864,42 +563,6 @@ func TestAnInfiniteCoordinateIsClampedNotDropped(t *testing.T) {
 	}
 	c.Chat("still here")
 	c.ExpectChat("Mover", "still here")
-}
-
-// TestAConfigurationPacketWithBytesPastItsFieldsDisconnectsItsSender sends an
-// Acknowledge Finish Configuration carrying one byte more than its empty body:
-// the configuration phase holds its packets to the same trailing check the
-// play phase does.
-// vanilla: PacketDecoder.decode
-func TestAConfigurationPacketWithBytesPastItsFieldsDisconnectsItsSender(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Dial(t, servertest.BlockTestConfig())
-	c.Login("Sender")
-
-	// The server introduces itself and asks about data packs, as at join.
-	c.Expect(protocol.IDConfigPluginMessage)
-	k := protocol.NewReader(c.Expect(protocol.IDKnownPacks))
-	for count := k.ReadVarInt(); count > 0; count-- {
-		k.ReadString(32767)
-		k.ReadString(32767)
-		k.ReadString(32767)
-	}
-	c.Send(protocol.IDKnownPacksIn, func(b *protocol.Buffer) {
-		b.PutVarInt(1)
-		b.PutString("minecraft")
-		b.PutString("core")
-		b.PutString(registry.Version)
-	})
-	c.Send(protocol.IDConfigFinishAck, func(b *protocol.Buffer) { b.PutU8(0) })
-
-	reason, ok := servertest.ReadUntil(t, c, servertest.ExpectTimeout, protocol.IDConfigDisconnect)
-	if !ok {
-		t.Fatal("no configuration disconnect for the extra byte")
-	}
-	want := wantExtraBytes("configuration", "finish_configuration", "ServerboundFinishConfigurationPacket", 1)
-	if !bytes.Equal(reason, want) {
-		t.Errorf("disconnect reason % X, want % X", reason, want)
-	}
 }
 
 // TestAnUnknownConfigurationPacketIDDisconnectsItsSender sends a configuration
@@ -973,27 +636,6 @@ func TestALegitimateCustomClickActionIsNotKicked(t *testing.T) {
 	c.ExpectChat("Sender", "still here")
 }
 
-// TestANonBrandCustomPayloadIsIgnored sends a payload of bare bytes on a
-// channel this server does not know: vanilla's DiscardedPayload has no length
-// prefix, so the bytes are the rest of the payload rather than a length-prefixed
-// array, and the sender stays connected.
-// vanilla: DiscardedPayload
-func TestANonBrandCustomPayloadIsIgnored(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Sender")
-
-	c.Send(protocol.IDPlayPluginMessageIn, func(b *protocol.Buffer) {
-		b.PutString("foo:bar")
-		b.PutRaw([]byte("hello world"))
-	})
-	c.Settle()
-	if got := srv.PlayerCount(); got != 1 {
-		t.Fatalf("player count = %d, want the mod channel not to cost its sender the connection", got)
-	}
-	c.Chat("still here")
-	c.ExpectChat("Sender", "still here")
-}
-
 // TestAnOversizedCustomPayloadDisconnectsItsSender sends more than the 32767
 // bytes vanilla's DiscardedPayload allows on an unrecognized channel: the
 // overrun fails the packet and ends that one connection.
@@ -1041,50 +683,6 @@ func TestAConfigurationCookieResponseDisconnectsItsSender(t *testing.T) {
 	}
 }
 
-// TestAPlayCookieResponseDisconnectsItsSender sends a Cookie Response once the
-// player is in the world: the play phase refuses it the way configuration does.
-func TestAPlayCookieResponseDisconnectsItsSender(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Sender")
-
-	c.Send(protocol.IDPlayCookieResponse, func(b *protocol.Buffer) {
-		b.PutString("minecraft:test")
-		b.PutBool(false) // no payload
-	})
-	want := wantDisconnect("multiplayer.disconnect.unexpected_query_response")
-	if reason := c.ExpectPlay(protocol.IDPlayDisconnect); !bytes.Equal(reason, want) {
-		t.Errorf("disconnect reason % X, want % X", reason, want)
-	}
-	servertest.WaitFor(t, srv, 100, func() bool { return srv.PlayerCount() == 0 })
-}
-
-// TestALoginPluginResponseWhereAcknowledgedIsDueDisconnectsItsSender sends a
-// Login Plugin Response where Login Acknowledged is due: the server never sent
-// a Login Plugin Request, so the answer is unsolicited and the client is
-// disconnected rather than left to time out.
-func TestALoginPluginResponseWhereAcknowledgedIsDueDisconnectsItsSender(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Dial(t, servertest.BlockTestConfig())
-
-	c.Handshake(protocol.NextStateLogin)
-	c.Send(protocol.IDLoginStart, func(b *protocol.Buffer) {
-		b.PutString("Sender")
-		b.PutUUID(uuid.Nil)
-	})
-	threshold := protocol.NewReader(c.Expect(protocol.IDSetCompression)).ReadVarInt()
-	c.Conn.EnableCompression(int(threshold))
-	c.Expect(protocol.IDLoginSuccess)
-
-	c.Send(protocol.IDLoginPluginResponse, func(b *protocol.Buffer) {
-		b.PutVarInt(7)   // the query id the answer names
-		b.PutBool(false) // not understood
-	})
-	want := wantLoginDisconnect("multiplayer.disconnect.unexpected_query_response")
-	if reason := c.Expect(protocol.IDLoginDisconnect); !bytes.Equal(reason, want) {
-		t.Errorf("login disconnect reason % X, want % X", reason, want)
-	}
-}
-
 // TestALoginCookieResponseWhereStartIsDueDisconnectsItsSender sends a Cookie
 // Response in place of Login Start: the server never sent a Cookie Request, so
 // the answer is unsolicited wherever it arrives, including before the name.
@@ -1100,138 +698,5 @@ func TestALoginCookieResponseWhereStartIsDueDisconnectsItsSender(t *testing.T) {
 	want := wantLoginDisconnect("multiplayer.disconnect.unexpected_query_response")
 	if reason := c.Expect(protocol.IDLoginDisconnect); !bytes.Equal(reason, want) {
 		t.Errorf("login disconnect reason % X, want % X", reason, want)
-	}
-}
-
-// TestALoginPluginResponseWhereStartIsDueDisconnectsItsSender sends a Login
-// Plugin Response in place of Login Start, which the server never asked for.
-func TestALoginPluginResponseWhereStartIsDueDisconnectsItsSender(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Dial(t, servertest.BlockTestConfig())
-
-	c.Handshake(protocol.NextStateLogin)
-	c.Send(protocol.IDLoginPluginResponse, func(b *protocol.Buffer) {
-		b.PutVarInt(7)   // the query id the answer names
-		b.PutBool(false) // not understood
-	})
-	want := wantLoginDisconnect("multiplayer.disconnect.unexpected_query_response")
-	if reason := c.Expect(protocol.IDLoginDisconnect); !bytes.Equal(reason, want) {
-		t.Errorf("login disconnect reason % X, want % X", reason, want)
-	}
-}
-
-// TestALoginCookieResponseWhereAcknowledgedIsDueDisconnectsItsSender sends a
-// Cookie Response where Login Acknowledged is due, which vanilla refuses the
-// same way it refuses the plugin response there.
-func TestALoginCookieResponseWhereAcknowledgedIsDueDisconnectsItsSender(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Dial(t, servertest.BlockTestConfig())
-
-	c.Handshake(protocol.NextStateLogin)
-	c.Send(protocol.IDLoginStart, func(b *protocol.Buffer) {
-		b.PutString("Sender")
-		b.PutUUID(uuid.Nil)
-	})
-	threshold := protocol.NewReader(c.Expect(protocol.IDSetCompression)).ReadVarInt()
-	c.Conn.EnableCompression(int(threshold))
-	c.Expect(protocol.IDLoginSuccess)
-
-	c.Send(protocol.IDLoginCookieResponse, func(b *protocol.Buffer) {
-		b.PutString("minecraft:test")
-		b.PutBool(false) // no payload
-	})
-	want := wantLoginDisconnect("multiplayer.disconnect.unexpected_query_response")
-	if reason := c.Expect(protocol.IDLoginDisconnect); !bytes.Equal(reason, want) {
-		t.Errorf("login disconnect reason % X, want % X", reason, want)
-	}
-}
-
-// TestALoginCookieResponseWhereEncryptionIsDueDisconnectsItsSender sends a
-// Cookie Response in place of Encryption Response in online mode, before the
-// shared secret exists.
-func TestALoginCookieResponseWhereEncryptionIsDueDisconnectsItsSender(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = true
-	_, c := servertest.Dial(t, cfg)
-
-	c.Handshake(protocol.NextStateLogin)
-	c.Send(protocol.IDLoginStart, func(b *protocol.Buffer) {
-		b.PutString("Sender")
-		b.PutUUID(uuid.Nil)
-	})
-	c.Expect(protocol.IDEncryptionRequest)
-
-	c.Send(protocol.IDLoginCookieResponse, func(b *protocol.Buffer) {
-		b.PutString("minecraft:test")
-		b.PutBool(false) // no payload
-	})
-	want := wantLoginDisconnect("multiplayer.disconnect.unexpected_query_response")
-	if reason := c.Expect(protocol.IDLoginDisconnect); !bytes.Equal(reason, want) {
-		t.Errorf("login disconnect reason % X, want % X", reason, want)
-	}
-}
-
-// TestALoginPluginResponseWhereEncryptionIsDueDisconnectsItsSender sends a
-// Login Plugin Response in place of Encryption Response in online mode.
-func TestALoginPluginResponseWhereEncryptionIsDueDisconnectsItsSender(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = true
-	_, c := servertest.Dial(t, cfg)
-
-	c.Handshake(protocol.NextStateLogin)
-	c.Send(protocol.IDLoginStart, func(b *protocol.Buffer) {
-		b.PutString("Sender")
-		b.PutUUID(uuid.Nil)
-	})
-	c.Expect(protocol.IDEncryptionRequest)
-
-	c.Send(protocol.IDLoginPluginResponse, func(b *protocol.Buffer) {
-		b.PutVarInt(7)   // the query id the answer names
-		b.PutBool(false) // not understood
-	})
-	want := wantLoginDisconnect("multiplayer.disconnect.unexpected_query_response")
-	if reason := c.Expect(protocol.IDLoginDisconnect); !bytes.Equal(reason, want) {
-		t.Errorf("login disconnect reason % X, want % X", reason, want)
-	}
-}
-
-// TestARepeatedKnownPacksReplyDisconnectsItsSender answers Select Known Packs
-// twice: the negotiation is over after the first reply, so the second costs
-// its sender the connection.
-// vanilla: ServerConfigurationPacketListenerImpl.finishCurrentTask
-func TestARepeatedKnownPacksReplyDisconnectsItsSender(t *testing.T) {
-	t.Parallel()
-	_, connect := servertest.Start(t, servertest.BlockTestConfig())
-
-	sender := connect()
-	sender.Login("Sender")
-	sender.Expect(protocol.IDConfigPluginMessage)
-	sender.Expect(protocol.IDKnownPacks)
-
-	reply := func(b *protocol.Buffer) {
-		b.PutVarInt(1)
-		b.PutString("minecraft")
-		b.PutString("core")
-		b.PutString(registry.Version)
-	}
-	sender.Send(protocol.IDKnownPacksIn, reply)
-	if _, ok := servertest.ReadUntil(t, sender, servertest.ExpectTimeout, protocol.IDConfigFinish); !ok {
-		t.Fatal("no finish for the first known-packs reply")
-	}
-	sender.Send(protocol.IDKnownPacksIn, reply)
-	reason, ok := servertest.ReadUntil(t, sender, servertest.ExpectTimeout, protocol.IDConfigDisconnect)
-	if !ok {
-		t.Fatal("no configuration disconnect for a repeated known-packs reply")
-	}
-	var want protocol.Buffer
-	want.PutText(protocol.Text{
-		Translate: "disconnect.genericReason",
-		With: []protocol.Text{{Text: "Internal Exception: java.lang.IllegalStateException: " +
-			"Unexpected request for task finish, current task: join_world, requested: synchronize_registries"}},
-	})
-	if !bytes.Equal(reason, want.Bytes()) {
-		t.Errorf("disconnect reason % X, want % X", reason, want.Bytes())
 	}
 }

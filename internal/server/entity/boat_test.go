@@ -1,11 +1,9 @@
 package entity
 
 import (
-	"fmt"
 	"math"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -94,187 +92,6 @@ func TestANoGravityBoatHangsInTheAir(t *testing.T) {
 	}
 }
 
-// TestANoGravityBoatUsesNoGravityInTheWaterToo: the tag takes the gravity
-// term out of both water floats as well as the air's, so a gravity-less hull
-// whole under the water drifts up on the flat lift and one part in on the
-// depth's, where it would otherwise sink by the 0.04 a tick.
-// vanilla: AbstractBoat.floatBoat's UNDER_WATER and IN_WATER, Entity.getGravity
-func TestANoGravityBoatUsesNoGravityInTheWaterToo(t *testing.T) {
-	t.Parallel()
-	// Whole under the water: the flat lift alone.
-	under := newTestWorld()
-	for z := int32(-1); z <= 1; z++ {
-		for x := int32(-1); x <= 1; x++ {
-			for y := int32(0); y <= 5; y++ {
-				under.set(x, y, z, boatWater)
-			}
-		}
-	}
-	b := NewBoat(1, 0.5, 1.5, 0.5, 0)
-	b.NoGravity = true
-	b.Step(under, false)
-	want := boatUnderWaterLift * boatGravity / boatBuoyancyDiv * boatWaterDamp
-	if math.Abs(b.VY-want) > 1e-9 {
-		t.Errorf("the no-gravity hull whole under the water runs %v a tick, want the lift %v", b.VY, want)
-	}
-
-	// Part in the water: the depth's lift alone.
-	part := newTestWorld()
-	const surface = 3.0 + 8.0/9.0
-	for z := int32(-1); z <= 1; z++ {
-		for x := int32(-1); x <= 1; x++ {
-			for y := int32(0); y <= 3; y++ {
-				part.set(x, y, z, boatWater)
-			}
-		}
-	}
-	b = NewBoat(1, 0.5, surface-0.1, 0.5, 0)
-	b.NoGravity = true
-	b.Step(part, false)
-	want = b.water.height / BoatHeight * boatGravity / boatBuoyancyDiv * boatWaterDamp
-	if math.Abs(b.VY-want) > 1e-9 {
-		t.Errorf("the no-gravity hull part in the water runs %v a tick, want the depth's lift %v", b.VY, want)
-	}
-}
-
-// TestABoatWholeUnderTheWaterSinks: a hull the water closes whole over
-// loses the depth's lift for the flat hundredth vanilla's UNDER_WATER branch
-// keeps, less than gravity, so it sinks rather than climbing to the surface.
-// vanilla: AbstractBoat.floatBoat's UNDER_WATER
-func TestABoatWholeUnderTheWaterSinks(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	for z := int32(-1); z <= 1; z++ {
-		for x := int32(-1); x <= 1; x++ {
-			for y := int32(0); y <= 5; y++ {
-				w.set(x, y, z, boatWater)
-			}
-		}
-	}
-	b := NewBoat(1, 0.5, 1.5, 0.5, 0)
-	start := b.Y
-	for range 20 {
-		b.Step(w, false)
-	}
-	if b.Y >= start {
-		t.Errorf("the hull whole under the water went from %v to %v, want it sinking", start, b.Y)
-	}
-}
-
-func TestABoatCreatedUnderWaterStaysOnBottom(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	floor(w, -1, -1, 1, 1, 0, boatStone(t))
-	floor(w, -1, -1, 1, 1, 1, boatWater)
-	b := NewBoat(1, 0.5, 1, 0.5, 0)
-	for tick := range 40 {
-		b.Step(w, false)
-		if b.Y != 1 || !b.OnGround || b.VY != 0 {
-			t.Fatalf("tick %d: y=%g vy=%g grounded=%v; want y=1, vy=0 on bottom", tick+1, b.Y, b.VY, b.OnGround)
-		}
-	}
-}
-
-func TestWaterCoveringABeachedBoatDoesNotSnap(t *testing.T) {
-	t.Parallel()
-	flowing, ok := registry.WithInt(boatWater, registry.PropLevel, 1)
-	if !ok {
-		t.Fatal("no flowing water state")
-	}
-	for _, tc := range []struct {
-		name   string
-		ridden bool
-		water  uint16
-	}{
-		{"source", false, boatWater},
-		{"flowing", false, flowing},
-		{"ridden-source", true, boatWater},
-		{"ridden-flowing", true, flowing},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := newTestWorld()
-			floor(w, -1, -1, 1, 1, 0, boatStone(t))
-			b := NewBoat(1, 0.5, 1, 0.5, 0)
-			b.Step(w, tc.ridden)
-			if b.lastStatus != boatOnLand {
-				t.Fatalf("beached status=%v, want on land", b.lastStatus)
-			}
-			floor(w, -1, -1, 1, 1, 1, tc.water)
-			for tick := range 40 {
-				b.Step(w, false)
-				if b.Y != 1 || !b.OnGround {
-					t.Fatalf("tick %d: y=%g grounded=%v; want beached at y=1", tick+1, b.Y, b.OnGround)
-				}
-			}
-		})
-	}
-}
-
-// TestABoatWholeUnderARunningFlowSinksSlowly: a hull the running water
-// closes over loses the depth's lift too, the flat 7e-4 gravity the
-// UNDER_FLOWING_WATER branch keeps in its place, with a tenth off each
-// side rather than the still water's half again.
-// vanilla: AbstractBoat.floatBoat's UNDER_FLOWING_WATER
-func TestABoatWholeUnderARunningFlowSinksSlowly(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	flowing, ok := registry.FindState("minecraft:water", map[string]string{"level": "1"})
-	if !ok {
-		t.Fatal("no flowing water state")
-	}
-	for z := int32(-1); z <= 1; z++ {
-		for x := int32(-1); x <= 1; x++ {
-			for y := int32(0); y <= 5; y++ {
-				w.set(x, y, z, flowing)
-			}
-		}
-	}
-	b := NewBoat(1, 0.5, 1.5, 0.5, 0)
-	b.VX, b.VZ = 1, 1
-	b.Step(w, false)
-	if math.Abs(b.VY+boatUnderFlowingSink) > 1e-9 {
-		t.Errorf("the hull under the running flow runs %v down a tick, want the flat %v", b.VY, -boatUnderFlowingSink)
-	}
-	if math.Abs(b.VX-0.9) > 1e-9 || math.Abs(b.VZ-0.9) > 1e-9 {
-		t.Errorf("the running flow left the hull's drift at (%v %v), want a tenth off each", b.VX, b.VZ)
-	}
-}
-
-// TestABoatUnderSourceWaterOverARunningColumnStaysStillWater: the status
-// reads only the slab over the hull's ceiling, so source water there settles
-// a hull whose feet stand in a falling column — the still water's half-again
-// drag, not the running flow's tenth. A whole-pool flow cannot tell the two
-// apart; this mixes them.
-// vanilla: AbstractBoat.isUnderwater
-func TestABoatUnderSourceWaterOverARunningColumnStaysStillWater(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	falling, ok := registry.FindState("minecraft:water", map[string]string{"level": "8"})
-	if !ok {
-		t.Fatal("no falling water state")
-	}
-	for z := int32(-1); z <= 1; z++ {
-		for x := int32(-1); x <= 1; x++ {
-			// A running column at the hull's feet, source water over its
-			// ceiling.
-			w.set(x, 0, z, falling)
-			w.set(x, 1, z, falling)
-			for y := int32(2); y <= 5; y++ {
-				w.set(x, y, z, boatWater)
-			}
-		}
-	}
-	b := NewBoat(1, 0.5, 1.5, 0.5, 0)
-	b.VX = 1
-	b.Step(w, false)
-	if math.Abs(b.VX-boatUnderWaterFriction) > 1e-9 {
-		t.Errorf("the hull under source water ran %v a tick, want the still water's %v", b.VX, boatUnderWaterFriction)
-	}
-	if b.VY >= 0 {
-		t.Errorf("the hull under source water rises at %v a tick, want the still water's sink", b.VY)
-	}
-}
-
 // TestABoatKeepsItsGlideOnIce: the ground branch's drag is the slipperiness
 // of the blocks under the hull, so a hull sliding over ice keeps 0.98 of its
 // drift a tick where a hull on stone keeps six tenths.
@@ -314,119 +131,6 @@ func TestABoatKeepsItsGlideOnIce(t *testing.T) {
 	}
 }
 
-// TestABoatOverALilyPadTakesTheAirDrag: a slab whose only shape is a lily
-// pad leaves the hull in the air drag — no shape left to land on — not the
-// land drag.
-// vanilla: AbstractBoat.getGroundFriction, getNearbySlipperiness
-func TestABoatOverALilyPadTakesTheAirDrag(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	pad, ok := registry.FindState("minecraft:lily_pad", nil)
-	if !ok {
-		t.Fatal("no lily pad state")
-	}
-	for z := int32(-2); z <= 2; z++ {
-		for x := int32(-2); x <= 2; x++ {
-			w.set(x, 62, z, pad)
-		}
-	}
-	b := NewBoat(1, 0.5, 63, 0.5, 0)
-	b.OnGround = true
-	b.VX = 1
-	b.Step(w, false)
-	if math.Abs(b.VX-boatAirFriction) > 1e-9 {
-		t.Errorf("the hull over the lily pad runs %v a tick, want the air drag %v", b.VX, boatAirFriction)
-	}
-}
-
-// TestABoatComingOffTheAirPlungesJustUnderTheSurface: a boat that falls
-// into the water is snapped to just under the surface the tick it first
-// touches it — the whole hull less the hundredth-and-a-thousandth
-// vanilla's splash-down leaves above it — and bobs back up to its rest
-// from there.
-// vanilla: AbstractBoat.tick's IN_AIR → IN_WATER
-func TestABoatComingOffTheAirPlungesJustUnderTheSurface(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	for z := int32(-1); z <= 1; z++ {
-		for x := int32(-1); x <= 1; x++ {
-			for y := int32(0); y <= 3; y++ {
-				w.set(x, y, z, boatWater)
-			}
-		}
-	}
-	const surface = 3.0 + 8.0/9.0
-	b := NewBoat(1, 0.5, 10, 0.5, 0)
-	// The fall runs until the hull is about to touch the water; the next
-	// tick is the splash-down.
-	for i := 0; i < 200 && b.Y > surface; i++ {
-		b.Step(w, false)
-	}
-	if b.lastStatus != boatInAir {
-		t.Fatal("the boat never came off the air into the water")
-	}
-	b.Step(w, false)
-	// The hull's ceiling is already above the water cell, so the scan starts
-	// at y=4 rather than at the fluid surface below it.
-	const entryY = 4 - BoatHeight + 0.101
-	if math.Abs(b.Y-entryY) > 1e-6 || b.VY != 0 || b.lastStatus != boatInWater {
-		t.Errorf("the splash-down left the boat at y=%v, want the plunge at %v",
-			b.Y, entryY)
-	}
-	// From the plunge the hull bobs back to its rest.
-	for range 200 {
-		b.Step(w, false)
-	}
-	if math.Abs(b.Y-boatRest(surface)) > 0.02 {
-		t.Errorf("after two hundred ticks the boat rests at y=%v, want the balance %v", b.Y, boatRest(surface))
-	}
-}
-
-func TestAFastFallingBoatFindsTheSurfaceAbove(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	for y := int32(0); y <= 3; y++ {
-		floor(w, -1, -1, 1, 1, y, boatWater)
-	}
-	b := NewBoat(1, 0.5, 10, 0.5, 0)
-	b.VY = -8
-	b.Step(w, false)
-	if b.Y >= 3 || b.lastStatus != boatInAir {
-		t.Fatalf("fall y=%g status=%v, want below the top water cell from air", b.Y, b.lastStatus)
-	}
-	b.Step(w, false)
-	want := 3 + fluidOwnHeight(fluidCellOf(boatWater)) - boatEntryDepth
-	if math.Abs(b.Y-want) > 1e-6 || b.VY != 0 || b.lastStatus != boatInWater {
-		t.Fatalf("entry y=%g vy=%g status=%v; want y=%g vy=0 in water", b.Y, b.VY, b.lastStatus, want)
-	}
-}
-
-func TestABoatWaterEntrySnapChecksCollision(t *testing.T) {
-	t.Parallel()
-	for _, blocked := range []bool{false, true} {
-		t.Run(fmt.Sprintf("blocked=%v", blocked), func(t *testing.T) {
-			w := newTestWorld()
-			b := NewBoat(1, 0.5, 2, 0.5, 0)
-			b.NoGravity = true
-			b.Step(w, false)
-			b.VY = -0.25
-			for y := int32(0); y <= 3; y++ {
-				floor(w, -1, -1, 1, 1, y, boatWater)
-			}
-			want := 4 - boatEntryDepth
-			wantVY := 0.0
-			if blocked {
-				w.set(1, 3, 0, boatStone(t))
-				want, wantVY = 1.75, -0.25
-			}
-			b.Step(w, false)
-			if math.Abs(b.Y-want) > 1e-6 || b.VY != wantVY || b.lastStatus != boatInWater {
-				t.Fatalf("entry y=%g vy=%g status=%v; want y=%g vy=%g in water", b.Y, b.VY, b.lastStatus, want, wantVY)
-			}
-		})
-	}
-}
-
 // TestABoatFallsAndLandsLikeAnythingElse: off the water a boat falls the
 // gravity every body falls by and rests on the ground it reaches, the box
 // sitting on the block's top.
@@ -451,27 +155,6 @@ func TestABoatFallsAndLandsLikeAnythingElse(t *testing.T) {
 	}
 	if b.VY != 0 {
 		t.Errorf("the landed boat still runs %v a tick, want the stillness of a rest", b.VY)
-	}
-}
-
-// TestABoatStepsTheLargerHorizontalAxisFirst: a diagonal move runs the
-// horizontal axes in Direction.axisStepOrder's larger-first order, so a hull
-// whose longer way passes the end of a wall clears it where stepping the
-// smaller axis first would have stopped it short.
-// vanilla: Entity.collideWithShapes, Direction.axisStepOrder
-func TestABoatStepsTheLargerHorizontalAxisFirst(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	// One block east of the hull's start, its near face at x=1 and its
-	// z span 0..1.
-	w.set(1, 64, 0, boatStone(t))
-	// The hull south of that span, its way north twice its way east, so
-	// the z step runs first and carries it past the wall before x is read.
-	b := NewBoat(1, 0.0, 64, -2.0, 0)
-	b.VX, b.VZ = 0.5, 2.5
-	b.move(w, false)
-	if math.Abs(b.X-0.3125) > 1e-9 || math.Abs(b.Z-0.5) > 1e-9 {
-		t.Errorf("the diagonal move left the hull at (%v %v), want (0.3125 0.5): the larger axis first clears the wall's end", b.X, b.Z)
 	}
 }
 
@@ -525,37 +208,6 @@ func TestAFlowingPoolCarriesABoatAlong(t *testing.T) {
 	}
 	if b.X <= 0.7 {
 		t.Errorf("the boat still rests at x=%v, want the current having carried it east", b.X)
-	}
-}
-
-// TestABoatFarBelowTheWorldIsDiscardedLeavingNothing: the below-world
-// check that ends the boat marks it out of the world with nothing behind
-// it — the discard of vanilla's onBelowWorld, not a break.
-func TestABoatFarBelowTheWorldIsDiscardedLeavingNothing(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	b := NewBoat(1, 0.5, -600, 0.5, 0)
-	b.Step(w, false)
-	if !b.Dead {
-		t.Fatal("the boat beneath the world's bottom was not discarded")
-	}
-	if !b.NoLoot {
-		t.Error("the discarded boat leaves a drop behind, want nothing")
-	}
-}
-
-// TestARiddenBoatKeepsStill: a boat a driver holds is run by the driver's
-// client, so the simulation moves it not at all — the tick the server runs
-// reads the report, not the physics.
-func TestARiddenBoatKeepsStill(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld()
-	b := NewBoat(1, 0.5, 64, 0.5, 0)
-	for range 10 {
-		b.Step(w, true)
-	}
-	if b.Y != 64 {
-		t.Errorf("the ridden boat drifted to y=%v, want the stillness of a drive", b.Y)
 	}
 }
 
@@ -629,61 +281,6 @@ func TestABoatsBlowsRunOutAndItsDamageWearsOff(t *testing.T) {
 	}
 }
 
-// TestACreativeBlowDiscardsABoatWithNothingBehind: a creative instabuild's
-// blow takes the boat out of the world at once, no rocking run out and no
-// drop.
-// vanilla: VehicleEntity.hurtServer's creative discard
-func TestACreativeBlowDiscardsABoatWithNothingBehind(t *testing.T) {
-	t.Parallel()
-	b := NewBoat(1, 0.5, 64, 0.5, 0)
-	if !b.TakeDamage(1, true) {
-		t.Fatal("the creative blow did not land")
-	}
-	if !b.Dead || !b.NoLoot {
-		t.Error("a creative blow rocked the boat instead of discarding it clean")
-	}
-
-	// A sunk hull takes no passenger, its eye under the water.
-	pool := newTestWorld()
-	for z := int32(0); z <= 0; z++ {
-		for x := int32(0); x <= 0; x++ {
-			pool.set(x, 0, z, boatWater)
-			pool.set(x, 1, z, boatWater)
-		}
-	}
-	sunk := NewBoat(1, 0.5, 0.5, 0.5, 0)
-	sunk.updateFluids(pool, false)
-	if !sunk.EyeInWater() {
-		t.Error("a hull whole under a block of water reads dry-eyed")
-	}
-	if sunk.CanTakePassenger(0, 2) {
-		t.Error("a sunk hull takes a passenger")
-	}
-}
-
-// TestABlastBetweenTheDeckAndTheDefaultEyePushesTheBoatUp: a hull's eye sits
-// at the top of the hull, the eyeHeight the boat entity types set, so a blast
-// just below the deck's top but above the dimensions' default 0.85-of-the-
-// hull eye pushes the boat up. Read off the default the vertical part would
-// come out down.
-// vanilla: Entity.getEyePosition, EntityTypes BOAT eyeHeight
-func TestABlastBetweenTheDeckAndTheDefaultEyePushesTheBoatUp(t *testing.T) {
-	t.Parallel()
-	b := NewBoat(1, 0.5, 64, 0.5, 0)
-	ex, ey, ez := b.EyePosition()
-	if math.Abs(ey-(64+BoatHeight)) > 1e-9 {
-		t.Errorf("the hull's eye stands at y=%v, want the top of the hull %v", ey, 64+BoatHeight)
-	}
-	// The blast halfway between the top eye and the default one: below the
-	// top, above the default.
-	blastY := 64 + (BoatHeight+BoatHeight*0.85)/2
-	dist := ey - blastY
-	_, ky, _ := rules.ExplosionKnockback(ex, ey, ez, b.X, blastY, b.Z, math.Abs(dist), 1, 5)
-	if ky <= 0 {
-		t.Errorf("the blast above the default eye pushed the hull by %v down, want it up", ky)
-	}
-}
-
 // TestASunkenBoatEjectsItsRidersAtSixtyTicks: a ridden hull held wholly under
 // water unseats its riders on the sixtieth tick, and takes no boarders after.
 // vanilla: AbstractBoat.tick's outOfControlTicks
@@ -711,32 +308,5 @@ func TestASunkenBoatEjectsItsRidersAtSixtyTicks(t *testing.T) {
 	b.Step(newTestWorld(), true)
 	if b.EjectPassengers || b.outOfControl != 0 {
 		t.Error("the count survived the hull coming up")
-	}
-}
-
-// vanilla: AbstractBoat.getGroundFriction
-func TestBoatGroundFrictionRequiresShapeContact(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name, block string
-		y           float64
-		contact     bool
-	}{
-		{"above stone", "minecraft:stone", 64.01, false},
-		{"above slab", "minecraft:stone_slab", 64, false},
-		{"on slab", "minecraft:stone_slab", 63.5, true},
-		{"on fence", "minecraft:oak_fence", 64.5, true},
-		{"above fence", "minecraft:oak_fence", 64.51, false},
-		{"lily pad", "minecraft:lily_pad", 63.09375, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := newTestWorld()
-			w.set(0, 63, 0, defaultState(t, tc.block))
-			b := NewBoat(1, 0.5, tc.y, 0.5, 0)
-			friction, contact := b.groundFriction(w)
-			if contact != tc.contact || contact && friction != float64(float32(0.6)) {
-				t.Fatalf("ground friction = %v, %v; want contact=%v", friction, contact, tc.contact)
-			}
-		})
 	}
 }

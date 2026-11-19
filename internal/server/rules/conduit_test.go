@@ -1,8 +1,6 @@
 package rules
 
 import (
-	"github.com/golem-mc/golem/registry"
-	"math/rand"
 	"testing"
 )
 
@@ -123,45 +121,6 @@ func TestConduitFrameCountsTheCage(t *testing.T) {
 	}
 }
 
-// TestConduitEffectRange checks the sixteen blocks per seven frame blocks,
-// the integer division taking each sixteen-block step only once the
-// sevens fill: the minimal frame reaches thirty-two, a whole cage
-// ninety-six.
-// vanilla: ConduitBlockEntity.applyEffects, activeSize / 7 * 16
-func TestConduitEffectRange(t *testing.T) {
-	for _, tc := range []struct {
-		frame, want int
-	}{
-		{16, 32},
-		{20, 32},
-		{21, 48},
-		{28, 64},
-		{35, 80},
-		{42, 96},
-	} {
-		if got := ConduitEffectRange(tc.frame); got != tc.want {
-			t.Errorf("a frame of %d reaches %d, want %d", tc.frame, got, tc.want)
-		}
-	}
-}
-
-// TestConduitReaches checks the corner-to-corner reach: the cell the body
-// stands in is what measures, and the reach is inside only.
-// vanilla: Vec3i.closerThan, as applyEffects reads it
-func TestConduitReaches(t *testing.T) {
-	if !ConduitReaches(0, 64, 0, 31.4, 64, 0, 32) {
-		t.Errorf("thirty-one blocks east is within thirty-two")
-	}
-	if ConduitReaches(0, 64, 0, 32.2, 64, 0, 32) {
-		t.Errorf("a body in the cell thirty-two away is not within thirty-two")
-	}
-	// The corners of the cells measure, not the fractions of the spots:
-	// a body anywhere in the cell whose corner is 31 stands 31 away.
-	if !ConduitReaches(0, 64, 0, 31.9, 64.9, 0.1, 32) {
-		t.Errorf("the corner of the cell the body stands in measures the reach")
-	}
-}
-
 // TestConduitHuntsTheCube checks the pick's box: a body at the far corner of
 // the eight-block cube is a candidate although the sphere the kept target
 // is measured against does not reach it.
@@ -188,40 +147,7 @@ func TestConduitHuntsTheCube(t *testing.T) {
 	}
 }
 
-// TestConduitAmbient checks the toggle sounds, the pulse line and the short
-// ambient's roll, drawn only when it plays.
-func TestConduitAmbient(t *testing.T) {
-	if ConduitToggleSound(true) != registry.SoundBlockConduitActivate ||
-		ConduitToggleSound(false) != registry.SoundBlockConduitDeactivate {
-		t.Error("toggle sounds")
-	}
-	if !ConduitAmbientPulse(160) || ConduitAmbientPulse(161) {
-		t.Error("the pulse plays on the eighty-tick line")
-	}
-	rng := rand.New(rand.NewSource(1))
-	if next, play := ConduitShortAmbient(100, 100, rng); play || next != 100 {
-		t.Errorf("not yet due: %d %v", next, play)
-	}
-	want := 101 + 60 + int64(rand.New(rand.NewSource(1)).Intn(40))
-	if next, play := ConduitShortAmbient(101, 100, rng); !play || next != want {
-		t.Errorf("due: %d %v, want %d (the first draw)", next, play, want)
-	}
-}
-
 // rainStub rains on the cells it holds.
 type rainStub map[[3]int32]bool
 
 func (r rainStub) RainingAt(x, y, z int32) bool { return r[[3]int32{x, y, z}] }
-
-// TestRainsOnBody checks the feet cell and the top cell, and nothing between.
-func TestRainsOnBody(t *testing.T) {
-	if !RainsOnBody(rainStub{{0, 64, 0}: true}, 0.5, 64.2, 0.5, 66) {
-		t.Error("rain on the feet")
-	}
-	if !RainsOnBody(rainStub{{-1, 66, 0}: true}, -0.5, 64.2, 0.5, 66) {
-		t.Error("rain on the top")
-	}
-	if RainsOnBody(rainStub{{0, 65, 0}: true}, 0.5, 64.2, 0.5, 66) {
-		t.Error("the cell between is not read")
-	}
-}

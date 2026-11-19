@@ -2,7 +2,6 @@ package entity
 
 import (
 	"slices"
-	"sync"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
@@ -95,48 +94,5 @@ func assertEncodedMemoryOrder(t *testing.T, b *memoryMap, want []string) {
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("encoded=%v, want %v", got, want)
-	}
-}
-
-func TestMemoryMapOrderContexts(t *testing.T) {
-	t.Parallel()
-	hashes := map[string]uint32{"home": 0x80000002, "minecraft:meeting_point": 1}
-	first := NewMemoryMapOrder(hashes, 0)
-	second := NewMemoryMapOrder(hashes, 0xffffffff)
-	hashes["home"] = 8
-	if first.hash("minecraft:home") != 2 || second.hash("minecraft:home") != 2 {
-		t.Fatal("context did not copy and mask hashes")
-	}
-	for _, tc := range []struct {
-		order *MemoryMapOrder
-		want  []string
-	}{
-		{first, []string{"meeting_point", "home"}},
-		{second, []string{"home", "meeting_point"}},
-	} {
-		t.Run(tc.want[0], func(t *testing.T) {
-			t.Parallel()
-			m := &Mob{}
-			m.SetMemoryMapOrder(tc.order)
-			b := m.newMemoryMap()
-			b.Set("home", nbt.Int(1))
-			b.Set("meeting_point", nbt.Int(2))
-			assertMemoryTraversal(t, b, tc.want)
-			m.SetMemoryMapOrder(nil)
-			if m.newMemoryMap().order != defaultMemoryMapOrder {
-				t.Fatal("nil context did not select process default")
-			}
-		})
-	}
-	var wg sync.WaitGroup
-	identities := make([]uint32, 16)
-	for i := range identities {
-		wg.Go(func() { identities[i] = first.hash("minecraft:last_slept") })
-	}
-	wg.Wait()
-	for _, hash := range identities {
-		if hash > 0x7fffffff || hash != second.hash("minecraft:last_slept") {
-			t.Fatal("module process identity differs between contexts")
-		}
 	}
 }

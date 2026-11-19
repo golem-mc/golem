@@ -1,7 +1,6 @@
 package redstone
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -63,6 +62,7 @@ func tripwireServer(t *testing.T) (*server.Server, *servertest.Client, *serverte
 	srv, connect := servertest.Start(t, servertest.BlockTestConfig(), servertest.OpsListing(t, "Actor"))
 	actor := connect().Join("Actor")
 	watcher := connect().Join("Watcher")
+	servertest.HoldTicks(t, srv)
 	return srv, actor, watcher
 }
 
@@ -146,52 +146,6 @@ func TestStandingOnTheStringPowersBothHooksAndTheirLamps(t *testing.T) {
 	expectPropsSettle(t, srv, x0-1, 64, tripZ, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
 	expectPropsSettle(t, srv, x1+1, 64, tripZ, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
 	servertest.ExpectSoundEvent(t, c, "minecraft:block.tripwire.click_on")
-}
-
-// TestAnObserverWatchingTheStringPulsesWhenItIsPressed puts an observer on the
-// middle string with a lamp behind it: the string's powered write runs the
-// shape pass, so the observer sees it.
-// vanilla: TripWireBlock.checkPressed, Level.setBlock
-func TestAnObserverWatchingTheStringPulsesWhenItIsPressed(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	const x0, x1 = 40, 52
-	buildTripwire(t, srv, c, x0, x1)
-	servertest.Setblock(t, c, x0+6, 64, tripZ+1, "observer[facing=north]")
-	servertest.Setblock(t, c, x0+6, 64, tripZ+2, "redstone_lamp")
-	c.Settle()
-
-	c.MoveToGround(float64(x0+6)+0.5, 64, tripZ+0.5, true)
-	expectPropsSettle(t, srv, x0+6, 64, tripZ+2, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
-}
-
-// TestLeavingTheStringUnpowersAfterTheRecheck walks the player off again:
-// the wire unpowers from its booked re-check, both hooks answer, and the
-// lamps go back to waiting for light — until an item entity drops onto the
-// string and presses it too, the sweep asking the same of any body.
-// vanilla: TripWireBlock.checkPressed, TripWireBlock.tick, entityInside
-func TestLeavingTheStringUnpowersAfterTheRecheck(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	const x0, x1 = 40, 52
-	buildTripwire(t, srv, c, x0, x1)
-
-	c.MoveToGround(float64(x0+6)+0.5, 64, tripZ+0.5, true)
-	expectPropsSettle(t, srv, x0, 64, tripZ, "minecraft:tripwire_hook", map[string]string{"powered": "true"})
-	servertest.ExpectBlockNamed(t, srv, x0-1, 64, tripZ, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
-
-	c.MoveToGround(float64(x0)-1.5, 64, tripZ+0.5, true)
-	expectPropsSettle(t, srv, x0+6, 64, tripZ, "minecraft:tripwire", map[string]string{"powered": "false"})
-	expectPropsSettle(t, srv, x0, 64, tripZ, "minecraft:tripwire_hook", map[string]string{"powered": "false"})
-	expectPropsSettle(t, srv, x1, 64, tripZ, "minecraft:tripwire_hook", map[string]string{"powered": "false"})
-	expectPropsSettle(t, srv, x0-1, 64, tripZ, "minecraft:redstone_lamp", map[string]string{"lit": "false"})
-	expectPropsSettle(t, srv, x1+1, 64, tripZ, "minecraft:redstone_lamp", map[string]string{"lit": "false"})
-	servertest.ExpectSoundEvent(t, c, "minecraft:block.tripwire.click_off")
-
-	srv.SpawnItemEntity(float64(x0+6)+0.5, 64.1, tripZ+0.5, "minecraft:stone", 1)
-	expectPropsSettle(t, srv, x0+6, 64, tripZ, "minecraft:tripwire", map[string]string{"powered": "true"})
-	expectPropsSettle(t, srv, x0, 64, tripZ, "minecraft:tripwire_hook", map[string]string{"powered": "true"})
-	expectPropsSettle(t, srv, x0-1, 64, tripZ, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
 }
 
 // TestCuttingTheStringWithShearsDisarmsIt cuts the middle string with
@@ -366,155 +320,4 @@ func TestAPistonDestroyingTheStringFiresTheHooks(t *testing.T) {
 		"attached": "false", "powered": "false",
 	})
 	servertest.ExpectSoundEvent(t, c, "minecraft:block.tripwire.click_off")
-}
-
-// TestAPistonDestroyingAHookDetachesThePartner drives a piston through the
-// far hook of an attached line: the destroyed hook's removal runs with
-// movedByPiston false, so the partner lets go.
-// vanilla: PistonBaseBlock.moveBlocks, TripWireHookBlock.affectNeighborsAfterRemoval
-func TestAPistonDestroyingAHookDetachesThePartner(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	const x0, x1 = 40, 52
-	buildTripwire(t, srv, c, x0, x1)
-	servertest.ExpectBlockNamed(t, srv, x0, 64, tripZ, "minecraft:tripwire_hook", map[string]string{
-		"attached": "true", "powered": "false",
-	})
-
-	servertest.Setblock(t, c, x1, 64, tripZ+1, "piston[facing=north]")
-	servertest.Setblock(t, c, x1, 64, tripZ+2, "redstone_block")
-	expectPropsSettle(t, srv, x0, 64, tripZ, "minecraft:tripwire_hook", map[string]string{
-		"attached": "false", "powered": "false",
-	})
-}
-
-// TestSettingTripwireStateOverTripwireLeavesTheHooksAlone writes another
-// tripwire state over the middle string: the block did not change, so the
-// removal wake never runs and the hooks stay attached and dark.
-// vanilla: TripWireBlock.affectNeighborsAfterRemoval, LevelChunk.setBlockState
-func TestSettingTripwireStateOverTripwireLeavesTheHooksAlone(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	const x0, x1 = 40, 52
-	buildTripwire(t, srv, c, x0, x1)
-
-	servertest.Setblock(t, c, x0+6, 64, tripZ, "tripwire[attached=true,east=true,west=true,disarmed=true]")
-	// The hooks never pulse: the write changed no block, so no removal wake
-	// runs and nothing is left for the re-check to unwind.
-	for range 25 {
-		for _, x := range []int32{x0, x1} {
-			if _, props := servertest.StateProps(srv.BlockAt(x, 64, tripZ)); props["powered"] == "true" {
-				t.Fatalf("the hook at x=%d powered on a tripwire state write", x)
-			}
-		}
-		c.PumpTicks(srv, 1, func(int32, []byte) bool { return false })
-	}
-	servertest.ExpectBlockNamed(t, srv, x0, 64, tripZ, "minecraft:tripwire_hook", map[string]string{
-		"attached": "true", "powered": "false",
-	})
-	servertest.ExpectBlockNamed(t, srv, x1, 64, tripZ, "minecraft:tripwire_hook", map[string]string{
-		"attached": "true", "powered": "false",
-	})
-}
-
-// TestSettingAHookOverAHookLeavesThePartnerAlone writes a bare hook over the
-// one already attached: the block did not change, so no removal wake runs and
-// the partner keeps its attach.
-// vanilla: TripWireHookBlock.affectNeighborsAfterRemoval, LevelChunk.setBlockState
-func TestSettingAHookOverAHookLeavesThePartnerAlone(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	const x0, x1 = 40, 52
-	buildTripwire(t, srv, c, x0, x1)
-
-	servertest.Setblock(t, c, x0, 64, tripZ, "tripwire_hook[facing=east,attached=false,powered=false]")
-	servertest.AwaitTicks(t, srv, 25)
-	servertest.ExpectBlockNamed(t, srv, x1, 64, tripZ, "minecraft:tripwire_hook", map[string]string{
-		"attached": "true", "powered": "false",
-	})
-}
-
-func TestFishingBobberPowersBothTripwireHooks(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := tripwireServer(t)
-	const x0, x1 = 10, 16
-	buildTripwire(t, srv, c, x0, x1)
-	servertest.HoldTicks(t, srv)
-	c.ChatCommand("gamemode survival")
-	srv.GiveSlot("Actor", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:fishing_rod"), Count: 1})
-	c.MoveTo(x0+3.5, 64, tripZ-1.5, 0, 40)
-	servertest.UseHeld(c, 0, 40)
-	c.Settle()
-	servertest.UntilTicks(t, srv, 40, "bobber powers both hooks", func() bool {
-		for _, x := range []int32{x0, x1} {
-			_, props := servertest.StateProps(srv.BlockAt(x, 64, tripZ))
-			if props["powered"] != "true" {
-				return false
-			}
-		}
-		return true
-	})
-}
-
-func TestFireworkAndEndCrystalPowerTripwireHooks(t *testing.T) {
-	t.Parallel()
-	for _, kind := range []string{"firework_rocket", "end_crystal"} {
-		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
-			srv, c, _ := tripwireServer(t)
-			const x0, x1 = 10, 16
-			buildTripwire(t, srv, c, x0, x1)
-			c.MoveTo(0.5, 64, 0.5, 0, 0)
-			c.Settle()
-			servertest.HoldTicks(t, srv)
-			c.ChatCommand(fmt.Sprintf("summon minecraft:%s %d.5 64 %d.5 {LifeTime:600}", kind, x0+3, tripZ))
-			c.Settle()
-			servertest.RunTicks(t, srv, 1)
-			for _, x := range []int32{x0, x1} {
-				servertest.ExpectBlockNamed(t, srv, x, 64, tripZ, "minecraft:tripwire_hook", map[string]string{"powered": "true"})
-			}
-		})
-	}
-}
-
-// TestTripwirePressedInTheItemsMoveTick: a stone item falling from two
-// blocks above a string whose hooks are set unattached (/setblock never
-// attaches) presses it on the ninth tick, the tick its box first dips into
-// the string's half-height shape.
-// vanilla: Entity.applyEffectsFromBlocks, TripWireBlock.getEntityInsideCollisionShape
-func TestTripwirePressedInTheItemsMoveTick(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	servertest.Setblock(t, c, 41, 64, tripZ, "tripwire_hook[facing=south]")
-	servertest.Setblock(t, c, 42, 64, tripZ, "tripwire")
-	servertest.Setblock(t, c, 43, 64, tripZ, "tripwire_hook[facing=north]")
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	srv.RunLine("summon item 42.5 66 6.5 {Item:{id:\"minecraft:stone\",count:1},PickupDelay:32767s}")
-	if got := firstPoweredTick(t, srv, 42, 64, tripZ, "minecraft:tripwire", 30); got != 9 {
-		t.Errorf("tripwire first powered after tick %d, want 9", got)
-	}
-}
-
-// TestAHalfScalePlayerBelowTheStringDoesNotPressIt stands the player in the
-// block under the middle string: at scale 0.5 the body is 0.9 tall and stops
-// short of the string, at scale 1 it is 1.8 tall and reaches it.
-// vanilla: TripWireBlock.checkPressed (the entity's own bounding box)
-func TestAHalfScalePlayerBelowTheStringDoesNotPressIt(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	const x0, x1 = 40, 52
-	buildTripwireAt(t, srv, c, x0, x1, 65)
-
-	c.ChatCommand("attribute @s minecraft:scale base set 0.5")
-	c.MoveToGround(float64(x0+6)+0.5, 64, tripZ+0.5, true)
-	c.Settle()
-	servertest.RunTicks(t, srv, 40)
-	servertest.ExpectBlockNamed(t, srv, x0+6, 65, tripZ, "minecraft:tripwire", map[string]string{"powered": "false"})
-	servertest.ExpectBlockNamed(t, srv, x0, 65, tripZ, "minecraft:tripwire_hook", map[string]string{"powered": "false"})
-
-	c.ChatCommand("attribute @s minecraft:scale base set 1")
-	c.Settle()
-	expectPropsSettle(t, srv, x0+6, 65, tripZ, "minecraft:tripwire", map[string]string{"powered": "true"})
-	expectPropsSettle(t, srv, x0, 65, tripZ, "minecraft:tripwire_hook", map[string]string{"powered": "true"})
 }

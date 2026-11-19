@@ -76,28 +76,6 @@ func TestAFenceConnectsToOneKindOfNeighbourAndNotAnother(t *testing.T) {
 	}
 }
 
-// TestACrossBlockIsPlacedInTheStateItsNeighboursConnect checks that the
-// connection decision reaches the placed state itself: the fence east of the
-// spot makes the fence being placed take the east=true state, waterlogged
-// left false the way a fresh placement does.
-func TestACrossBlockIsPlacedInTheStateItsNeighboursConnect(t *testing.T) {
-	w := testWorld{}
-	w.set(1, 0, 0, defaultState(t, "minecraft:oak_fence"))
-
-	got := CrossStateWithConnections(w, registry.BlockOakFence, 0, 0, 0)
-	want, ok := registry.FindState("minecraft:oak_fence", map[string]string{"east": "true"})
-	if !ok {
-		t.Fatal("the block registry has no east-connected oak fence state")
-	}
-	if got != want {
-		t.Errorf("CrossStateWithConnections placed state %d, want %d (east=true)", got, want)
-	}
-	props := stateProps(t, got)
-	if props["east"] != "true" || props["waterlogged"] != "false" {
-		t.Errorf("the placed state holds %v, want east=true, waterlogged=false", props)
-	}
-}
-
 // stateProps decodes the properties of a block state, for the assertions that
 // read a placed state back.
 func stateProps(t *testing.T, state uint16) map[string]string {

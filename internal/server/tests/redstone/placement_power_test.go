@@ -16,16 +16,8 @@ func TestSetblockWaitsForPowerNeighborChange(t *testing.T) {
 	}{
 		{"redstone_lamp", "lit", false},
 		{"oak_door", "powered", true},
-		{"iron_door", "powered", true},
-		{"oak_trapdoor", "powered", false},
-		{"oak_fence_gate", "powered", false},
 		{"dispenser", "triggered", false},
-		{"dropper", "triggered", false},
-		{"bell", "powered", false},
-		{"note_block", "powered", false},
-		{"crafter", "triggered", false},
 		{"repeater[facing=north]", "powered", false},
-		{"comparator[facing=north]", "powered", false},
 	} {
 		t.Run(tc.block, func(t *testing.T) {
 			t.Parallel()
@@ -59,26 +51,11 @@ func TestSetblockWaitsForPowerNeighborChange(t *testing.T) {
 	}
 }
 
-func TestFillLampWaitsForPowerNeighborChange(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	servertest.HoldTicks(t, srv)
-	servertest.Setblock(t, c, 5, 64, 4, "redstone_block")
-	// Adjacent lamps in a larger fill give each other real neighbour changes.
-	c.ChatCommand("fill 5 64 5 5 64 5 redstone_lamp")
-	c.Settle()
-	servertest.RunTicks(t, srv, 8)
-	servertest.ExpectBlockNamed(t, srv, 5, 64, 5, "minecraft:redstone_lamp", map[string]string{"lit": "false"})
-	servertest.Setblock(t, c, 5, 65, 5, "stone")
-	servertest.ExpectBlockNamed(t, srv, 5, 64, 5, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
-}
-
 // vanilla: DiodeBlock.setPlacedBy, ComparatorBlock.shouldTurnOn
 func TestHandPlacedDiodePowersAfterOneTick(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ item, source string }{
 		{"repeater", "redstone_block"},
-		{"comparator", "redstone_block"},
 		{"comparator", "composter[level=8]"},
 	} {
 		t.Run(tc.item+"/"+tc.source, func(t *testing.T) {

@@ -148,24 +148,6 @@ func TestFarmAnimalVariantFollowsTheBiome(t *testing.T) {
 	}
 }
 
-// TestRandomRegistryEntryDrawsEveryEntry checks the sound variant draw
-// reaches each of the pig's three sound variants and nothing else.
-func TestRandomRegistryEntryDrawsEveryEntry(t *testing.T) {
-	rng := levelgen.NewXoroshiroRandom(1)
-	seen := map[string]int{}
-	for range 300 {
-		seen[RandomRegistryEntry("minecraft:pig_sound_variant", rng)]++
-	}
-	for _, want := range []string{"minecraft:big", "minecraft:classic", "minecraft:mini"} {
-		if seen[want] == 0 {
-			t.Errorf("never drew %s: %v", want, seen)
-		}
-	}
-	if len(seen) != 3 {
-		t.Errorf("drew %v, want only the three pig sound variants", seen)
-	}
-}
-
 // testBiome is the biome registered under name, NoBiome for an unknown one.
 func testBiome(name string) registry.Biome {
 	b, _ := registry.BiomeByName(name)

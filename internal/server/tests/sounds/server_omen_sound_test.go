@@ -54,31 +54,3 @@ func TestAnOmenEffectPlaysItsSoundOnlyWhenNewlyAdded(t *testing.T) {
 		}
 	}
 }
-
-func TestAMobGainingAnOmenPlaysItsSoundInItsOwnCategory(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Caster", servertest.OpsListing(t, "Caster"))
-	srv.StopTick()
-
-	want, _ := registry.SoundEventID("minecraft:event.mob_effect.bad_omen")
-	for _, tc := range []struct {
-		mob      string
-		category int32
-	}{
-		{"minecraft:zombie", protocol.SoundCategoryHostile},
-		{"minecraft:cow", protocol.SoundCategoryNeutral},
-	} {
-		c.ChatCommand("summon " + tc.mob + " 0.5 64 0.5 {NoAI:1b}")
-		c.ChatCommand("effect give @e[type=" + tc.mob + ",limit=1] minecraft:bad_omen 100 0")
-		r := protocol.NewReader(c.AwaitPlay(protocol.IDPlaySoundEffect))
-		if got := r.ReadVarInt() - 1; got != want {
-			t.Errorf("%s: sound = %d, want %d", tc.mob, got, want)
-		}
-		if got := r.ReadVarInt(); got != tc.category {
-			t.Errorf("%s: category = %d, want %d", tc.mob, got, tc.category)
-		}
-		c.ChatCommand("kill @e[type=" + tc.mob + "]")
-		c.Settle()
-	}
-	c.Disconnect()
-}

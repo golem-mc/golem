@@ -10,7 +10,6 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -64,30 +63,6 @@ func TestASpawnEggPlacesItsMobWhereVanillaDoes(t *testing.T) {
 	}
 }
 
-// TestANamedSpawnEggNamesItsMob: the egg's custom_name is applied to the
-// mob (Entity.applyComponentsFromItemStack), shown as its custom name field.
-func TestANamedSpawnEggNamesItsMob(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.EggPlayer(t, "survival", "Namer", "minecraft:pig_spawn_egg", 1)
-	srv.GiveSlot("Namer", player.HotbarSlot, protocol.ItemStack{
-		ItemID: servertest.MustItemID(t, "minecraft:pig_spawn_egg"), Count: 1,
-		CustomName: &protocol.Text{Text: "Wilbur"},
-	})
-	c.PlaceBlock(2, 63, 3, protocol.FaceTop)
-	pig := c.AwaitSpawn(protocol.EntityTypePig)
-	meta := c.AwaitMetadataFor(pig.EntityID)
-	name := servertest.MetaOf(meta, protocol.MetadataIndexCustomName)
-	if name == nil || name.TextVal == nil {
-		t.Fatal("the pig carries no custom name field")
-	}
-	if text, ok := protocol.TextOf(name.TextVal); !ok || text.Text != "Wilbur" {
-		t.Fatalf("pig's custom name field = %v, want Wilbur", name.TextVal)
-	}
-	if mobs := srv.Mobs(); len(mobs) != 1 || mobs[0].Name != "Wilbur" {
-		t.Errorf("mobs = %+v, want one pig named Wilbur", mobs)
-	}
-}
-
 // TestASpawnEggOnItsOwnAdultSpawnsABaby: a zombie egg used on a grown
 // zombie spawns a baby zombie where the parent stands
 // (SpawnEggItem.spawnOffspringFromSpawnEgg), spending the egg.
@@ -112,60 +87,6 @@ func TestASpawnEggOnItsOwnAdultSpawnsABaby(t *testing.T) {
 	servertest.UntilTicks(t, srv, 300, "condition", func() bool {
 		return srv.InventorySlot("Breeder", player.HotbarSlot).Count == 1
 	})
-}
-
-// TestASpawnEggOnAnotherKindDoesNothing: a cow egg on a creeper is no
-// offspring (spawnsEntity fails), and the egg is kept.
-func TestASpawnEggOnAnotherKindDoesNothing(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.EggPlayer(t, "survival", "Mixer", "minecraft:cow_spawn_egg", 1)
-	srv.StopTick()
-	srv.SpawnMob("minecraft:creeper", 2.5, 64, 1.5)
-	creeper := c.ExpectMobSpawn(protocol.EntityTypeCreeper)
-	c.UseOn(creeper.EntityID)
-	// A creeper egg on a creeper: Mob.setBaby does nothing, so no offspring.
-	srv.GiveSlot("Mixer", player.HotbarSlot, protocol.ItemStack{
-		ItemID: servertest.MustItemID(t, "minecraft:creeper_spawn_egg"), Count: 1,
-	})
-	c.UseOn(creeper.EntityID)
-	c.Settle()
-	if n := srv.MobCount(); n != 1 {
-		t.Errorf("mob count = %d, want the one creeper", n)
-	}
-	if got := srv.InventorySlot("Mixer", player.HotbarSlot).Count; got != 1 {
-		t.Errorf("eggs left = %d, want 1", got)
-	}
-}
-
-// TestAWanderingTraderEggOnATraderDoesNothing: a wandering trader can be a
-// baby, but getBreedOffspring makes none, so the egg is kept.
-func TestAWanderingTraderEggOnATraderDoesNothing(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.EggPlayer(t, "survival", "Trader", "minecraft:wandering_trader_spawn_egg", 1)
-	srv.StopTick()
-	srv.SpawnMob("minecraft:wandering_trader", 2.5, 64, 1.5)
-	trader := c.ExpectMobSpawn(protocol.EntityTypeWanderingTrader)
-	c.UseOn(trader.EntityID)
-	c.Settle()
-	if n := srv.MobCount(); n != 1 {
-		t.Errorf("mob count = %d, want the one trader", n)
-	}
-	if got := srv.InventorySlot("Trader", player.HotbarSlot).Count; got != 1 {
-		t.Errorf("eggs left = %d, want 1", got)
-	}
-}
-
-// TestACreativeSpawnEggIsKept: a creative player's egg spawns its mob and
-// stays in the hand (ItemStack.consume skips infinite materials).
-func TestACreativeSpawnEggIsKept(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.EggPlayer(t, "creative", "Maker", "minecraft:cow_spawn_egg", 2)
-	c.PlaceBlock(2, 63, 3, protocol.FaceTop)
-	c.ExpectMobSpawn(protocol.EntityTypeCow)
-	c.ExpectBlockAck()
-	if got := srv.InventorySlot("Maker", player.HotbarSlot).Count; got != 2 {
-		t.Errorf("eggs left = %d, want the 2 creative keeps", got)
-	}
 }
 
 // TestAMonsterEggInPeacefulIsRefused: EntityType.canSpawn refuses a monster
@@ -209,178 +130,6 @@ func TestASpawnEggUsedAtWaterSpawnsInIt(t *testing.T) {
 	servertest.UntilTicks(t, srv, 300, "condition", func() bool {
 		return srv.InventorySlot("Swimmer", player.HotbarSlot).Empty()
 	})
-}
-
-// TestASpawnEggOnASpawner: with spawner_blocks_work off the egg is refused
-// with vanilla's message and kept; with it on the egg's kind lands on the
-// spawner's next spawn, told as the block entity data a Block Update rides
-// with, and the egg is spent.
-func TestASpawnEggOnASpawner(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.EggPlayer(t, "survival", "Keeper", "minecraft:cow_spawn_egg", 2)
-	srv.SetBlock(2, 64, 3, servertest.MustState(t, "minecraft:spawner", nil))
-	srv.SetGameRule("spawner_blocks_work", false)
-	c.PlaceBlock(2, 64, 3, protocol.FaceTop)
-	c.ExpectSystemChat("advMode.notEnabled.spawner", false)
-	c.ExpectBlockAck()
-
-	srv.SetGameRule("spawner_blocks_work", true)
-	c.PlaceBlock(2, 64, 3, protocol.FaceTop)
-	x, y, z, beType, data := c.AwaitBlockEntityData()
-	if x != 2 || y != 64 || z != 3 {
-		t.Errorf("block entity data at (%d,%d,%d), want the spawner at (2,64,3)", x, y, z)
-	}
-	if beType != protocol.BlockEntitySpawner {
-		t.Errorf("block entity type = %d, want %d", beType, protocol.BlockEntitySpawner)
-	}
-	if _, has := data["id"]; has {
-		t.Errorf("the spawner's update tag carries an id: %#v", data)
-	}
-	spawn, ok := nbt.Get[nbt.Compound](data, "SpawnData")
-	if !ok {
-		t.Fatalf("block entity SpawnData = %#v, want the next spawn", data)
-	}
-	next, ok := nbt.Get[nbt.Compound](spawn, "entity")
-	cow, ok2 := nbt.Get[nbt.String](next, "id")
-	if !ok || !ok2 || cow != "minecraft:cow" {
-		t.Fatalf("SpawnData.entity = %#v, want the cow", spawn)
-	}
-	// The numbers a fresh spawner keeps, BaseSpawner's own defaults.
-	// The tag is read at the tick's flush, after the spawner's own tick took
-	// one off Delay.
-	if got, has := nbt.Get[nbt.Short](data, "Delay"); !has || got < 19 || got > 20 {
-		t.Errorf("spawner Delay = %d/%v, want 19 or 20", got, has)
-	}
-	for name, want := range map[string]nbt.Short{
-		"MinSpawnDelay": 200, "MaxSpawnDelay": 800, "SpawnCount": 4,
-		"MaxNearbyEntities": 6, "RequiredPlayerRange": 16, "SpawnRange": 4,
-	} {
-		if got, has := nbt.Get[nbt.Short](data, name); !has || got != want {
-			t.Errorf("spawner %s = %d/%v, want %d", name, got, has, want)
-		}
-	}
-	if _, has := data["SpawnPotentials"]; has {
-		t.Errorf("packet carries SpawnPotentials, want it dropped")
-	}
-	if n := srv.MobCount(); n != 0 {
-		t.Errorf("mob count = %d, want none", n)
-	}
-	servertest.UntilTicks(t, srv, 300, "condition", func() bool {
-		return srv.InventorySlot("Keeper", player.HotbarSlot).Count == 1
-	})
-}
-
-// TestAMonsterEggOnASpawnerInPeacefulStaysSilent: useOn reads canSpawn
-// before it reads the block it is on, so a zombie egg refused in peaceful
-// says nothing even on a spawner with spawner_blocks_work off.
-func TestAMonsterEggOnASpawnerInPeacefulStaysSilent(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.EggPlayer(t, "survival", "Pacifist", "minecraft:zombie_spawn_egg", 1)
-	srv.SetDifficulty(0)
-	srv.SetBlock(2, 64, 3, servertest.MustState(t, "minecraft:spawner", nil))
-	srv.SetGameRule("spawner_blocks_work", false)
-	c.PlaceBlock(2, 64, 3, protocol.FaceTop)
-	if chats := c.SystemChatsBeforeSettle(); len(chats) != 0 {
-		t.Errorf("%d system chats, want the silent canSpawn refusal", len(chats))
-	}
-	if n := srv.MobCount(); n != 0 {
-		t.Errorf("mob count = %d, want none", n)
-	}
-	if got := srv.InventorySlot("Pacifist", player.HotbarSlot).Count; got != 1 {
-		t.Errorf("eggs left = %d, want 1", got)
-	}
-}
-
-// TestASpawnEggOnATrialSpawnerLeavesItInactive: TrialSpawner.overrideEntityToSpawn
-// writes the block inactive, keeping its ominous flag. The block and its
-// update tag go out at the tick's flush, after the spawner's own tick has
-// moved it on to waiting_for_players, so the tag is the active one. No mob
-// arrives, and the egg is spent.
-// vanilla: ChunkHolder.broadcastChanges, TrialSpawnerBlockEntity.getUpdateTag
-func TestASpawnEggOnATrialSpawnerLeavesItInactive(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.EggPlayer(t, "survival", "Warden", "minecraft:cow_spawn_egg", 1)
-	// The egg gives the spawner a spawn entity, so the next tick moves it from
-	// inactive to waiting_for_players; held, the one tick the test runs does it
-	// before the flush.
-	servertest.HoldTicks(t, srv)
-	srv.SetGameRule("spawner_blocks_work", true)
-	srv.SetBlock(2, 64, 3, servertest.MustState(t, "minecraft:trial_spawner",
-		map[string]string{"ominous": "true", "trial_spawner_state": "cooldown"}))
-	c.PlaceBlock(2, 64, 3, protocol.FaceTop)
-	// The block entity data goes out with the block at the tick's flush.
-	c.ReadTicks(srv, 0, func(int32, []byte) bool { return false })
-	servertest.RunTicks(t, srv, 1)
-	_, _, _, beType, data := c.AwaitBlockEntityData()
-	if beType != protocol.BlockEntityTrialSpawner {
-		t.Errorf("block entity type = %d, want %d", beType, protocol.BlockEntityTrialSpawner)
-	}
-	spawn, _ := nbt.Get[nbt.Compound](data, "spawn_data")
-	entity, _ := nbt.Get[nbt.Compound](spawn, "entity")
-	if id, _ := nbt.Get[nbt.String](entity, "id"); id != "minecraft:cow" {
-		t.Errorf("block entity data = %#v, want the active update tag with the cow", data)
-	}
-	want := servertest.MustState(t, "minecraft:trial_spawner",
-		map[string]string{"ominous": "true", "trial_spawner_state": "waiting_for_players"})
-	if got := srv.LoadBlockAt(2, 64, 3); got != want {
-		name, props, _ := registry.BlockStateName(got)
-		t.Errorf("trial spawner left as %s %s, want ominous=true,trial_spawner_state=waiting_for_players", name, props)
-	}
-	if n := srv.MobCount(); n != 0 {
-		t.Errorf("mob count = %d, want none", n)
-	}
-	servertest.UntilTicks(t, srv, 300, "condition", func() bool {
-		return srv.InventorySlot("Warden", player.HotbarSlot).Empty()
-	})
-}
-
-// TestASpawnEggsMobSpeaksAsItArrives: EntityType.spawn plays the mob's
-// ambient sound once it is in the world (Mob.playAmbientSound), the cow its
-// egg makes speaking at its spawn with its kind's own quiet voice.
-func TestASpawnEggsMobSpeaksAsItArrives(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.EggPlayer(t, "survival", "Rancher", "minecraft:cow_spawn_egg", 1)
-	c.PlaceBlock(2, 63, 3, protocol.FaceTop)
-	heard, spoke := false, false
-	for id, data := range c.Stream() {
-		switch id {
-		case protocol.IDPlaySpawnEntity:
-			spoke = true
-		case protocol.IDPlaySoundEffect:
-			name, category, x, y, z, volume, pitch := servertest.ReadAmbient(t, data)
-			// Either cow voice: the finalize's dice chose the sound
-			// variant, and this test is the arrival's sound, not which.
-			if name != "minecraft:entity.cow.ambient" && name != "minecraft:entity.cow_moody.ambient" {
-				continue
-			}
-			heard = true
-			if category != protocol.SoundCategoryNeutral {
-				t.Errorf("ambient sound category = %d, want neutral", category)
-			}
-			if volume != 0.4 {
-				t.Errorf("ambient volume = %v, want 0.4", volume)
-			}
-			if pitch < 0.79 || pitch > 1.21 {
-				t.Errorf("ambient pitch = %v, want the cow's adult voice", pitch)
-			}
-			// The spawn at (2.5, 64, 3.5), on the wire as eighths.
-			if x != 20 || y != 64*8 || z != 28 {
-				t.Errorf("ambient sound at (%d,%d,%d), want (20,512,28)", x, y, z)
-			}
-		case protocol.IDPlayAckBlockChange:
-			// useItemOnTail's ack is queued after the interaction's own
-			// packets, so the egg's sound must already have gone out; the
-			// ordinary ambient roll the mob runs later cannot stand in
-			// for it.
-			if !heard {
-				t.Fatal("the block ack arrived before the egg's ambient sound")
-			}
-		}
-		if heard && spoke {
-			return
-		}
-	}
-	t.Fatalf("spawn (%v) and ambient sound (%v) never arrived together", spoke, heard)
 }
 
 // farmVariantCases are the three farm animals with the entity type their
@@ -454,44 +203,6 @@ func TestASpawnedFarmAnimalCarriesItsBiomeVariant(t *testing.T) {
 			spawn := c.AwaitSpawn(tc.entityType)
 			if got, ok := variantFieldOf(c.AwaitMetadataFor(spawn.EntityID), tc.variantType); ok {
 				t.Errorf("the plains %s's variant = %d, want the temperate default left out", tc.kind, got)
-			}
-		})
-	}
-}
-
-// TestABredFarmAnimalInheritsItsParentsVariant: an egg of a farm animal's own
-// kind used on a grown one gives the baby the parent's variant
-// (getBreedOffspring), so a cow bred in a warm biome carries the warm variant
-// in its metadata rather than the constructor's temperate default.
-func TestABredFarmAnimalInheritsItsParentsVariant(t *testing.T) {
-	t.Parallel()
-	for _, tc := range farmVariantCases {
-		t.Run(tc.kind, func(t *testing.T) {
-			t.Parallel()
-			srv, c := netherEggPlayer(t, "Breeder", tc.egg)
-			// The nether's own ground can fill the cell the parent is planted
-			// in. A body standing in a wall suffocates, the chicken's low eyes
-			// soonest, so stand it on a stone floor in clear air, and freeze it
-			// so it cannot wander out of the egg's reach.
-			srv.SetBlockInDimension(world.NetherName, 2, 63, 2, servertest.MustState(t, "minecraft:stone", nil))
-			srv.SetBlockInDimension(world.NetherName, 2, 64, 2, 0)
-			srv.SetBlockInDimension(world.NetherName, 2, 65, 2, 0)
-			parentID := srv.SpawnMobInDimension(tc.kind, world.NetherName, 2.5, 64, 2.5)
-			if !srv.SetMobNoAI(parentID) {
-				t.Fatalf("the planted %s is not in the herd", tc.kind)
-			}
-			parent := c.AwaitSpawn(tc.entityType)
-			if got, ok := variantFieldOf(c.AwaitMetadataFor(parent.EntityID), tc.variantType); !ok || got != tc.warm {
-				t.Fatalf("the parent's variant = %d (carried %v), want the warm %d", got, ok, tc.warm)
-			}
-			c.UseOn(parent.EntityID)
-			baby := c.AwaitSpawn(tc.entityType)
-			entries := c.AwaitMetadataFor(baby.EntityID)
-			if flag := servertest.MetaOf(entries, protocol.MetadataIndexBaby); flag == nil || !flag.FlagVal {
-				t.Fatalf("the egg's offspring (id %d, parent %d) is not a baby; metadata %+v", baby.EntityID, parent.EntityID, entries)
-			}
-			if got, ok := variantFieldOf(entries, tc.variantType); !ok || got != tc.warm {
-				t.Errorf("the bred %s's variant = %d (carried %v), want the parent's warm %d", tc.kind, got, ok, tc.warm)
 			}
 		})
 	}

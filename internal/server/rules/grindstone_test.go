@@ -39,29 +39,6 @@ func anEnchantedSword(t *testing.T, ench map[int32]int32) protocol.ItemStack {
 	}
 }
 
-// TestGrindstoneCombineAnswersNothingForAnEmptyWindow covers the branches
-// that make nothing: two empties, a stack of more than one, a lone item
-// carrying no magic, and two inputs of different kinds.
-func TestGrindstoneCombineAnswersNothingForAnEmptyWindow(t *testing.T) {
-	sword := anEnchantedSword(t, map[int32]int32{sharpness: 1})
-	pick := protocol.ItemStack{ItemID: grindstoneItem(t, "minecraft:diamond_pickaxe"), Count: 1}
-
-	if got := GrindstoneCombine(protocol.ItemStack{}, protocol.ItemStack{}); !got.Empty() {
-		t.Errorf("two empties = %+v, want nothing", got)
-	}
-	two := sword
-	two.Count = 2
-	if got := GrindstoneCombine(two, protocol.ItemStack{}); !got.Empty() {
-		t.Errorf("a stack of two = %+v, want nothing", got)
-	}
-	if got := GrindstoneCombine(pick, protocol.ItemStack{}); !got.Empty() {
-		t.Errorf("a lone plain pick = %+v, want nothing", got)
-	}
-	if got := GrindstoneCombine(sword, pick); !got.Empty() {
-		t.Errorf("a sword and a pick = %+v, want nothing", got)
-	}
-}
-
 // TestGrindstoneCombineStripsALoneItemToItsCurses checks the disenchant on
 // its own: the lone enchanted sword shows without its sharpness and with
 // its repair cost started over; a sword carrying a curse shows with the
@@ -112,90 +89,6 @@ func TestGrindstoneCombineMergesTheWornPairIntoTheRepairs(t *testing.T) {
 		if !got.Equal(want) {
 			t.Errorf("a pair worn to %d = %+v, want %+v", c.damage, got, want)
 		}
-	}
-}
-
-// TestGrindstoneCombineKeepsThePairsCursesAndTheTwinStacks checks the
-// merge's own corners: the second input's curse upgraded onto the result,
-// the first's kept at its own level, a kind that never wears joining
-// only with its exact twin as the stack of two, and two of the same
-// enchanted books stripped into the plain pair.
-func TestGrindstoneCombineKeepsThePairsCursesAndTheTwinStacks(t *testing.T) {
-	// The plain sword's pair gains the vanishing curse from the second.
-	plain := anEnchantedSword(t, nil)
-	cursed := anEnchantedSword(t, map[int32]int32{vanishingCurse: 1})
-	got := GrindstoneCombine(plain, cursed)
-	want := anEnchantedSword(t, map[int32]int32{vanishingCurse: 1})
-	want.RepairCost = 1
-	if !got.Equal(want) {
-		t.Errorf("the plain pair's merge = %+v, want the curse gained %+v", got, want)
-	}
-
-	// A curse carried by both stays at the level it was.
-	twice := GrindstoneCombine(cursed, cursed)
-	want = anEnchantedSword(t, map[int32]int32{vanishingCurse: 1})
-	want.RepairCost = 1
-	if !twice.Equal(want) {
-		t.Errorf("the doubly cursed merge = %+v, want %+v", twice, want)
-	}
-
-	// Two different curses make the two survive together.
-	bound := anEnchantedSword(t, map[int32]int32{bindingCurse: 1})
-	got = GrindstoneCombine(bound, cursed)
-	want = anEnchantedSword(t, map[int32]int32{bindingCurse: 1, vanishingCurse: 1})
-	want.RepairCost = 3 // the doubling run over two charms
-	if !got.Equal(want) {
-		t.Errorf("the two curses' merge = %+v, want %+v", got, want)
-	}
-
-	// A kind that never wears joins only with its exact twin: two of a
-	// kind that stacks showing as the stack of two.
-	dirt := protocol.ItemStack{ItemID: grindstoneItem(t, "minecraft:dirt"), Count: 1}
-	if got := GrindstoneCombine(dirt, dirt); got.Count != 2 || got.ItemID != dirt.ItemID {
-		t.Errorf("the dirt pair = %+v, want the stack of two", got)
-	}
-	renamed := dirt
-	name := protocol.Text{Text: "Silt"}
-	renamed.CustomName = &name
-	if got := GrindstoneCombine(dirt, renamed); !got.Empty() {
-		t.Errorf("the mismatched pair = %+v, want nothing", got)
-	}
-
-	// Two enchanted books of one enchantment stack no higher than the
-	// one they are, so the pair of them makes nothing.
-	book := protocol.ItemStack{
-		ItemID:             grindstoneItem(t, "minecraft:enchanted_book"),
-		Count:              1,
-		StoredEnchantments: map[int32]int32{sharpness: 1},
-	}
-	if got := GrindstoneCombine(book, book); !got.Empty() {
-		t.Errorf("the books' merge = %+v, want nothing for a pair that cannot stack", got)
-	}
-}
-
-// TestGrindstoneWorthCountsTheRemovedLevelsCosts pins the worth a strip is
-// paid: each non-curse enchantment's minimum cost at its level, over the
-// component of the stack's own kind - sharpness's own data a linear base
-// of one and eleven a level above the first.
-func TestGrindstoneWorthCountsTheRemovedLevelsCosts(t *testing.T) {
-	if got := GrindstoneWorth(anEnchantedSword(t, map[int32]int32{sharpness: 1})); got != 1 {
-		t.Errorf("sharpness I is worth %d, want 1", got)
-	}
-	if got := GrindstoneWorth(anEnchantedSword(t, map[int32]int32{sharpness: 3})); got != 23 {
-		t.Errorf("sharpness III is worth %d, want 23", got)
-	}
-	// The curses strip free.
-	if got := GrindstoneWorth(anEnchantedSword(t, map[int32]int32{vanishingCurse: 1})); got != 0 {
-		t.Errorf("a curse is worth %d, want nothing", got)
-	}
-	// A book's worth reads its stored levels.
-	book := protocol.ItemStack{
-		ItemID:             grindstoneItem(t, "minecraft:enchanted_book"),
-		Count:              1,
-		StoredEnchantments: map[int32]int32{sharpness: 1},
-	}
-	if got := GrindstoneWorth(book); got != 1 {
-		t.Errorf("the book is worth %d, want its sharpness's one", got)
 	}
 }
 

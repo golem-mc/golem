@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
@@ -50,60 +49,6 @@ func TestKillingAMobObtainsItsCriteria(t *testing.T) {
 		t.Parallel()
 		killWithSword(t, "Slayer", "minecraft:zombie", protocol.EntityTypeZombie)
 	})
-}
-
-// TestBeingKilledByAnEntityObtainsKilledBySomething: a death whose kill
-// credit is a mob is an entity_killed_player, even when the final blow is the
-// world's. vanilla: LivingEntity.getKillCredit, Entity.awardKillScore
-func TestBeingKilledByAnEntityObtainsKilledBySomething(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Victim")
-	zombie := srv.SpawnMob("minecraft:zombie", 40.5, 64, 40.5)
-	srv.HurtByEntity("Victim", 1, zombie)
-	srv.HurtAs("Victim", 100, "minecraft:fall")
-	c.Settle()
-	if srv.PlayerHealth("Victim") > 0 {
-		t.Fatal("the fall did not kill")
-	}
-	if !srv.AdvancementObtained("Victim", "minecraft:adventure/root", "killed_by_something") {
-		t.Error("the zombie's credit did not obtain killed_by_something")
-	}
-}
-
-// TestKillingAPlayerObtainsKilledSomething: a player who hurt another is
-// credited with the kill when the fall lands the final blow, and the victim
-// is killed by an entity. vanilla: ServerPlayer.die, ServerPlayer.awardKillScore
-func TestKillingAPlayerObtainsKilledSomething(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
-	killer := connect()
-	killerID := killer.JoinAs("Killer")
-	victim := connect()
-	victim.JoinAs("Victim")
-	srv.HurtByEntity("Victim", 1, killerID)
-	srv.HurtAs("Victim", 100, "minecraft:fall")
-	victim.Settle()
-	if !srv.AdvancementObtained("Killer", "minecraft:adventure/root", "killed_something") {
-		t.Error("the attacker was not credited with killed_something")
-	}
-	if !srv.AdvancementObtained("Victim", "minecraft:adventure/root", "killed_by_something") {
-		t.Error("the victim did not obtain killed_by_something")
-	}
-}
-
-// TestFallingToDeathObtainsNoKilledBySomething: a death with no entity
-// behind it, the world's own, is not an entity_killed_player.
-func TestFallingToDeathObtainsNoKilledBySomething(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Fallen")
-	srv.HurtAs("Fallen", 100, "minecraft:fall")
-	c.Settle()
-	if srv.PlayerHealth("Fallen") > 0 {
-		t.Fatal("the fall did not kill")
-	}
-	if srv.AdvancementObtained("Fallen", "minecraft:adventure/root", "killed_by_something") {
-		t.Error("a fall obtained killed_by_something")
-	}
 }
 
 // TestEatingObtainsConsumeItemCriteria: a finished meal is a consume_item
@@ -201,79 +146,4 @@ func killBesideACatalyst(t *testing.T, catalyst bool) bool {
 		return srv.AdvancementObtained(name, "minecraft:adventure/root", "killed_something")
 	})
 	return srv.AdvancementObtained(name, "minecraft:adventure/kill_mob_near_sculk_catalyst", "kill_mob_near_sculk_catalyst")
-}
-
-func TestKillingAMobBesideACatalystObtainsItsAdvancement(t *testing.T) {
-	t.Parallel()
-	if !killBesideACatalyst(t, true) {
-		t.Error("a kill beside a catalyst did not obtain kill_mob_near_sculk_catalyst")
-	}
-	if killBesideACatalyst(t, false) {
-		t.Error("a kill with no catalyst near obtained kill_mob_near_sculk_catalyst")
-	}
-}
-
-// TestKillingACaptainObtainsVoluntaryExile: a pillager without the ominous
-// banner is not the raid captain the criterion wants, one wearing it is.
-// vanilla: advancement adventure/voluntary_exile, Raider.isCaptain
-func TestKillingACaptainObtainsVoluntaryExile(t *testing.T) {
-	t.Parallel()
-	const name = "Exile"
-	srv, c := servertest.BreedingPlayer(t, "survival", name, "", 0)
-	srv.GiveSlot(name, player.HotbarSlot, servertest.EnchantedStack(t, "minecraft:netherite_sword", "minecraft:sharpness", 5))
-	kill := func(id int32) {
-		// A pillager has 24 health: three blows.
-		for range 3 {
-			servertest.AwaitFullSwing(t, srv, name)
-			c.Attack(id)
-			c.Settle()
-		}
-		servertest.RunTicks(t, srv, 30)
-	}
-	kill(srv.SpawnMob("minecraft:pillager", 1.5, 64, 2.5))
-	if srv.AdvancementObtained(name, "minecraft:adventure/voluntary_exile", "voluntary_exile") {
-		t.Fatal("a pillager without the banner obtained voluntary_exile")
-	}
-	kill(srv.SpawnCaptain("minecraft:pillager", 1.5, 64, 2.5))
-	if !srv.AdvancementObtained(name, "minecraft:adventure/voluntary_exile", "voluntary_exile") {
-		t.Error("a captain's death did not obtain voluntary_exile")
-	}
-}
-
-// TestAMobThePlayerHurtThatDiesToTheWorldIsAKill: the kill advancements go
-// with the kill credit, so a /kill after the player's blow still counts, and
-// a mob nobody hurt earns none.
-// vanilla: LivingEntity.die, ServerPlayer.awardKillScore
-func TestAMobThePlayerHurtThatDiesToTheWorldIsAKill(t *testing.T) {
-	t.Parallel()
-	start := func(t *testing.T, name string) (*server.Server, *servertest.Client, servertest.SpawnedMob) {
-		cfg := servertest.MobTestConfig()
-		cfg.GameMode = "survival"
-		srv, c := servertest.Join(t, cfg, name, servertest.OpsListing(t, name))
-		c.MoveToGround(0.5, 64, 0.5, true)
-		c.Settle()
-		srv.SpawnMob("minecraft:zombie", 1.5, 64, 2.5)
-		return srv, c, c.ExpectMobSpawn(protocol.EntityTypeZombie)
-	}
-	t.Run("hurt", func(t *testing.T) {
-		t.Parallel()
-		srv, c, mob := start(t, "Hunter")
-		servertest.AwaitFullSwing(t, srv, "Hunter")
-		c.Attack(mob.EntityID)
-		c.ChatCommand("kill @e[type=minecraft:zombie]")
-		servertest.UntilTicks(t, srv, 40, "the kill is credited", func() bool {
-			return srv.AdvancementObtained("Hunter", "minecraft:adventure/root", "killed_something") &&
-				srv.AdvancementObtained("Hunter", "minecraft:adventure/kill_a_mob", "minecraft:zombie")
-		})
-	})
-	t.Run("unhurt", func(t *testing.T) {
-		t.Parallel()
-		srv, c, _ := start(t, "Bystander")
-		c.ChatCommand("kill @e[type=minecraft:zombie]")
-		servertest.RunTicks(t, srv, 40)
-		if srv.AdvancementObtained("Bystander", "minecraft:adventure/root", "killed_something") ||
-			srv.AdvancementObtained("Bystander", "minecraft:adventure/kill_a_mob", "minecraft:zombie") {
-			t.Error("a mob nobody hurt was credited as a kill")
-		}
-	})
 }

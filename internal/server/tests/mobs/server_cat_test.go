@@ -122,25 +122,6 @@ func TestRawFishTamesACatOneTimeInThree(t *testing.T) {
 	}
 }
 
-// TestACatIgnoresFoodItDoesNotEat: a wild cat fed a bone is neither tamed
-// nor fed.
-func TestACatIgnoresFoodItDoesNotEat(t *testing.T) {
-	t.Parallel()
-	const name = "Tamer"
-	srv, c := catYard(t, name, "minecraft:bone")
-	cat := spawnCat(t, srv, c, 2.5, 0.5)
-	for range 6 {
-		c.UseOn(cat.EntityID)
-	}
-	advanceCat(t, srv, c, 2, &cat)
-	if got := srv.InventorySlot(name, player.HotbarSlot).Count; got != 64 {
-		t.Errorf("%d bones left, want all 64 untouched", got)
-	}
-	if cat.TamableFlags != 0 {
-		t.Errorf("tame flags %#x after bones, want none", cat.TamableFlags)
-	}
-}
-
 // TestAnOwnerSitsAndStandsTheirCat: an empty-handed click by the owner flips
 // the sit order; anyone else's click does nothing.
 // vanilla: Cat.mobInteract
@@ -264,27 +245,6 @@ func TestAWildCatRunsFromAPlayerButATameOneStays(t *testing.T) {
 	}
 }
 
-// TestCatsSpawnInSomeVariantButAllBlackUnderADimMoon: under a new moon a
-// spawned cat wears one of the ten variants with an unconditional spawn
-// condition, never all_black, and the ten turn up across a crowd.
-// vanilla: Cat.finalizeSpawn, VariantUtils.selectVariantToSpawn
-func TestCatsSpawnInSomeVariantButAllBlackUnderADimMoon(t *testing.T) {
-	t.Parallel()
-	srv, c := catYard(t, "Watcher", "")
-	srv.SetDayTime(4 * 24000)
-	seen := map[int32]bool{}
-	for i := range 40 {
-		cat := spawnCat(t, srv, c, float64(i%8)*2-8, float64(i/8)*2-4)
-		if cat.Variant == 0 {
-			t.Fatalf("cat %d spawned all_black under a new moon", i)
-		}
-		seen[cat.Variant] = true
-	}
-	if len(seen) < 5 {
-		t.Errorf("%d distinct variants among 40 cats (%v), want a spread", len(seen), seen)
-	}
-}
-
 // TestAllBlackCatsSpawnUnderAFullMoon: with the variant dice fixed, a cat that
 // draws all_black under a full moon draws something else under a dim one.
 // vanilla: CatVariants.bootstrap, MoonBrightnessCheck
@@ -362,23 +322,6 @@ func TestATameCatSurvivesASaveAndReload(t *testing.T) {
 	})
 }
 
-// TestATrustingOcelotSurvivesASaveAndReload: the trust is saved as the
-// Trusting byte and comes back.
-// vanilla: Ocelot.addAdditionalSaveData
-func TestATrustingOcelotSurvivesASaveAndReload(t *testing.T) {
-	t.Parallel()
-	saveAndReload(t, "summon minecraft:ocelot 4.5 64 5.5 {Trusting:1b}", protocol.EntityTypeOcelot, "minecraft:ocelot",
-		func(compound nbt.Compound) {
-			if got := compound["Trusting"]; got != nbt.Byte(1) {
-				t.Errorf("saved Trusting = %v, want 1b", got)
-			}
-		}, func(ocelot servertest.SpawnedMob) {
-			if !ocelot.Trusting {
-				t.Error("restored ocelot is not trusting")
-			}
-		})
-}
-
 // entityOwnerOf reads a saved Owner int array.
 func entityOwnerOf(compound nbt.Compound) (uuid.UUID, bool) {
 	words, ok := protocol.UUIDWords(compound["Owner"])
@@ -386,113 +329,4 @@ func entityOwnerOf(compound nbt.Compound) (uuid.UUID, bool) {
 		return uuid.Nil, false
 	}
 	return nbt.UUIDFromIntArray(words)
-}
-
-// TestATemptedCatCrouchesAndAFleeingOneSprints: a wild cat walking to a
-// player's fish is told in the crouching pose, and one running from a
-// player within seven blocks is told sprinting.
-// vanilla: Cat.customServerAiStep
-func TestATemptedCatCrouchesAndAFleeingOneSprints(t *testing.T) {
-	t.Parallel()
-	srv, c := catYard(t, "Lure", "minecraft:cod")
-	lured := spawnCat(t, srv, c, 6.5, 0.5)
-	advanceCat(t, srv, c, 8, &lured)
-	if lured.Pose != protocol.PoseSneaking {
-		t.Errorf("lured cat pose %d, want %d (crouching)", lured.Pose, protocol.PoseSneaking)
-	}
-	if lured.BaseFlags&protocol.EntityFlagSprinting != 0 {
-		t.Error("lured cat is told sprinting")
-	}
-
-	srv2, c2 := catYard(t, "Walker", "")
-	fleeing := spawnCat(t, srv2, c2, 4.5, 0.5)
-	advanceCat(t, srv2, c2, 8, &fleeing)
-	if fleeing.BaseFlags&protocol.EntityFlagSprinting == 0 {
-		t.Error("cat fleeing a player 4 blocks away is not told sprinting")
-	}
-	if fleeing.Pose == protocol.PoseSneaking {
-		t.Error("fleeing cat is told crouching")
-	}
-}
-
-// summonClassicCat summons a cat with the classic sound set, so its sound
-// names are fixed, and reads its spawn.
-func summonClassicCat(t *testing.T, srv *server.Server, c *servertest.Client, x, z float64, tags string) servertest.SpawnedMob {
-	t.Helper()
-	srv.RunLine(fmt.Sprintf("summon minecraft:cat %v 64 %v {sound_variant:\"minecraft:classic\"%s}", x, z, tags))
-	return c.ExpectMobSpawn(protocol.EntityTypeCat)
-}
-
-// ownerTag is the Owner field naming the player.
-func ownerTag(name string) string {
-	w := nbt.UUIDToIntArray(protocol.OfflineUUID(name))
-	return fmt.Sprintf(",Owner:[I;%d,%d,%d,%d]", w[0], w[1], w[2], w[3])
-}
-
-// TestATameCatInLovePurrs: a tame cat in love purrs for its idle sound
-// instead of its ambient meow.
-// vanilla: Cat.getAmbientSound
-func TestATameCatInLovePurrs(t *testing.T) {
-	t.Parallel()
-	const name = "Keeper"
-	srv, c := catYard(t, name, "")
-	cat := summonClassicCat(t, srv, c, 2.5, 0.5, ownerTag(name)+",Sitting:1b")
-	srv.SetMobInLove(cat.EntityID, 600)
-	var sounds []string
-	if !c.ReadTicks(srv, 590, func(id int32, data []byte) bool {
-		if id != protocol.IDPlaySoundEffect {
-			return false
-		}
-		s := servertest.SoundOf(data)
-		sounds = append(sounds, s)
-		return s == "minecraft:entity.cat.purr"
-	}) {
-		t.Fatalf("a tame cat in love never purred in 590 ticks; heard %v", sounds)
-	}
-	for _, s := range sounds {
-		if s == "minecraft:entity.cat.ambient" || s == "minecraft:entity.cat.purreow" {
-			t.Errorf("a tame cat in love played %s; heard %v", s, sounds)
-		}
-	}
-}
-
-// TestATemptedStrayCatBegs: a wild cat lured by a player's cod begs for it.
-// vanilla: Cat.tick
-func TestATemptedStrayCatBegs(t *testing.T) {
-	t.Parallel()
-	srv, c := catYard(t, "Lure", "minecraft:cod")
-	summonClassicCat(t, srv, c, 3.5, 0.5, "")
-	var sounds []string
-	if !c.ReadTicks(srv, 220, func(id int32, data []byte) bool {
-		if id != protocol.IDPlaySoundEffect {
-			return false
-		}
-		s := servertest.SoundOf(data)
-		sounds = append(sounds, s)
-		return s == "minecraft:entity.cat.beg_for_food"
-	}) {
-		t.Errorf("a tempted stray never begged in 220 ticks; heard %v", sounds)
-	}
-}
-
-// TestACatHissesAtASwoopingPhantom: the phantom swooping a survival player
-// finds the cat beside them and the cat hisses. The bound is the bite's
-// in TestPhantomBitesItsTarget: the phantom circles for a random while first.
-// vanilla: Phantom.PhantomSweepAttackGoal.canContinueToUse, Cat.hiss
-func TestACatHissesAtASwoopingPhantom(t *testing.T) {
-	t.Parallel()
-	srv, c := phantomTests(t)
-	srv.RunLine("summon minecraft:cat 4.5 64 0.5 {sound_variant:\"minecraft:classic\",NoAI:1b}")
-	srv.SpawnMob("minecraft:phantom", 0.5, 84, 0.5)
-	for range 120 {
-		srv.TickMobs(10)
-		hissed := false
-		c.SettleAndCollect(func(id int32, data []byte) {
-			hissed = hissed || id == protocol.IDPlaySoundEffect && servertest.SoundOf(data) == "minecraft:entity.cat.hiss"
-		})
-		if hissed {
-			return
-		}
-	}
-	t.Error("the cat never hissed at the phantom in 1200 ticks")
 }

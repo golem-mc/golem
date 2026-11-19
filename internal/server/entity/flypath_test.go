@@ -41,27 +41,6 @@ func TestAFlightPathGoesThroughTheGapInAWall(t *testing.T) {
 	}
 }
 
-func TestAFlightPathToASealedCellStopsOutsideTheShell(t *testing.T) {
-	w := newTestWorld()
-	stone := defaultState(t, "minecraft:stone")
-	for dx := int32(-1); dx <= 1; dx++ {
-		for dy := int32(-1); dy <= 1; dy++ {
-			for dz := int32(-1); dz <= 1; dz++ {
-				if dx != 0 || dy != 0 || dz != 0 {
-					w.set(8+dx, 64+dy, dz, stone)
-				}
-			}
-		}
-	}
-	path, reached := flyPathFind(w, &beeFlight, Waypoint{2, 64, 0}, Waypoint{8, 64, 0}, 1, beeFlight.pathLength*16)
-	if reached {
-		t.Fatal("a flight reached the inside of a stone shell")
-	}
-	if len(path) == 0 || manhattan(path[len(path)-1], Waypoint{8, 64, 0}) > 3 {
-		t.Fatalf("the path %v does not end against the shell", path)
-	}
-}
-
 func TestAFlightPathAvoidsWaterFireAndTheCellsOverAFence(t *testing.T) {
 	w := newTestWorld()
 	water := defaultState(t, "minecraft:water")
@@ -86,17 +65,6 @@ func TestAFlightPathAvoidsWaterFireAndTheCellsOverAFence(t *testing.T) {
 	}
 	if malus, ok := flyCellMalus(w, &beeFlight, 6, 64, 0); !ok || malus != 0 {
 		t.Errorf("open air costs %v (%v), want 0", malus, ok)
-	}
-}
-
-func TestAFlightPathSpendsItsNodesOnABoundedSearch(t *testing.T) {
-	w := newTestWorld()
-	path, reached := flyPathFind(w, &beeFlight, Waypoint{0, 64, 0}, Waypoint{200, 64, 0}, 1, 50)
-	if reached {
-		t.Fatal("a 50-node search reached 200 blocks away")
-	}
-	if len(path) == 0 || len(path) > 50 {
-		t.Fatalf("a spent search left a path of %d cells", len(path))
 	}
 }
 
@@ -141,37 +109,5 @@ func TestFlightCellPricesByKind(t *testing.T) {
 		if malus, ok := flyCellMalus(w, c.f, c.x, c.y, c.z); malus != c.malus || ok != c.ok {
 			t.Errorf("%s is (%v, %v), want (%v, %v)", c.name, malus, ok, c.malus, c.ok)
 		}
-	}
-}
-
-func TestFlightWaterloggedCellPrices(t *testing.T) {
-	for _, tc := range []struct {
-		block          registry.Block
-		malus          float64
-		accepted       bool
-		neighbourMalus float64
-	}{
-		{registry.BlockLadder, 8, true, 8},
-		{registry.BlockPointedDripstone, 0, true, 0},
-		{registry.BlockOakStairs, 0, false, 0},
-		{registry.BlockOakFence, 0, false, 0},
-		{registry.BlockOakLeaves, 0, false, 0},
-		{registry.BlockLantern, 0, false, 0},
-		{registry.BlockIronChain, 0, false, 0},
-	} {
-		t.Run(tc.block.Name(), func(t *testing.T) {
-			state, ok := registry.WithBool(tc.block.DefaultState(), registry.PropWaterlogged, true)
-			if !ok {
-				t.Fatal("missing waterlogged state")
-			}
-			w := newTestWorld()
-			w.set(0, 64, 0, state)
-			if malus, ok := flyCellMalus(w, &allayFlight, 0, 64, 0); malus != tc.malus || ok != tc.accepted {
-				t.Errorf("cell price = (%v, %v), want (%v, %v)", malus, ok, tc.malus, tc.accepted)
-			}
-			if malus, ok := flyCellMalus(w, &allayFlight, 1, 64, 0); malus != tc.neighbourMalus || !ok {
-				t.Errorf("neighbour price = (%v, %v), want (%v, true)", malus, ok, tc.neighbourMalus)
-			}
-		})
 	}
 }

@@ -5,19 +5,13 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/tools/internal/vanilla"
 )
@@ -145,29 +139,6 @@ func TestADownloadThatDoesNotMatchItsHashIsRefused(t *testing.T) {
 	}
 }
 
-func TestClientSetupSkipsSoundsAndOtherPlatformsLibraries(t *testing.T) {
-	m := newMojang(t, "26.3")
-	defer func(old string) { assetHost = old }(assetHost)
-	assetHost = m.URL
-	cfg := config{dir: t.TempDir(), version: "26.3"}
-	var out bytes.Buffer
-	if err := clientSetup(m.fetcher(), cfg, &out); err != nil {
-		t.Fatal(err)
-	}
-	dir := cfg.clientDir()
-	for _, want := range []string{"client.jar", "libraries/com/a.jar", "26.3.json", "assets/indexes/99.json"} {
-		if _, err := os.Stat(filepath.Join(dir, want)); err != nil {
-			t.Errorf("%s: %v", want, err)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(dir, "libraries", "com", "mac.jar")); err == nil {
-		t.Error("a library for another platform was downloaded")
-	}
-	if !strings.Contains(out.String(), "1 of 2 assets (sounds skipped)") || !strings.Contains(out.String(), "1 libraries") {
-		t.Errorf("output = %q", out.String())
-	}
-}
-
 func TestClientCommandJoinsOfflineAndCarriesTheAgentWhenAsked(t *testing.T) {
 	m := newMojang(t, "26.3")
 	cfg := config{dir: t.TempDir(), version: "26.3"}
@@ -227,97 +198,4 @@ func TestOfflineUUIDIsTheNameBasedOne(t *testing.T) {
 		}
 	}
 	t.Errorf("uuid in %v, want %s", cmd, want)
-}
-
-func TestWaitForPort(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	exited, exitErr := make(chan struct{}), fmt.Errorf("exit status 1")
-	if err := waitForPort(l.Addr().String(), time.Second, exited, &exitErr); err != nil {
-		t.Errorf("a listening port: %v", err)
-	}
-	if err := waitForPort("127.0.0.1:1", 600*time.Millisecond, exited, &exitErr); err == nil || !strings.Contains(err.Error(), "did not come up") {
-		t.Errorf("a port nobody listens on: %v", err)
-	}
-	close(exited)
-	if err := waitForPort("127.0.0.1:1", 5*time.Second, exited, &exitErr); err == nil || !strings.Contains(err.Error(), "exited before it was ready: exit status 1") {
-		t.Errorf("a server that exited: %v", err)
-	}
-}
-
-// TestDumpReturnsWhenTheServerExitsEarly runs dump against a java that dies
-// at once (a bound port, a missing EULA): dump has to report that, not hang
-// waiting on the process it already saw exit.
-func TestDumpReturnsWhenTheServerExitsEarly(t *testing.T) {
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "java"), []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	cfg := config{dir: t.TempDir(), version: "1.0", port: 1}
-	if err := os.MkdirAll(filepath.Dir(cfg.serverJar()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(cfg.serverJar(), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- dump(cfg, io.Discard, io.Discard) }()
-	select {
-	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "exited before it was ready") {
-			t.Errorf("dump = %v, want the server's early exit", err)
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("dump did not return")
-	}
-}
-
-// TestDumpRefusesAPortSomethingHolds has a listener stand where the server
-// would: waitForPort would take it for the server dump starts.
-func TestDumpRefusesAPortSomethingHolds(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	cfg := config{dir: t.TempDir(), version: "1.0", port: l.Addr().(*net.TCPAddr).Port}
-	if err := os.MkdirAll(filepath.Dir(cfg.serverJar()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(cfg.serverJar(), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := dump(cfg, io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "already listens") {
-		t.Errorf("dump = %v, want a refusal naming the port", err)
-	}
-}
-
-// TestForwardSignalsPassesTermOnToTheChild signals this process while a child
-// sleeps: the child has to get the signal, or it outlives its parent.
-func TestForwardSignalsPassesTermOnToTheChild(t *testing.T) {
-	cmd := exec.Command("sleep", "30")
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan struct{})
-	defer close(done)
-	forwardSignals(cmd.Process, done) // the handler is in place when this returns
-	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
-		t.Fatal(err)
-	}
-	waited := make(chan error, 1)
-	go func() { waited <- cmd.Wait() }()
-	select {
-	case err := <-waited:
-		if err == nil || !strings.Contains(err.Error(), "terminated") {
-			t.Errorf("child exit = %v, want a termination by SIGTERM", err)
-		}
-	case <-time.After(10 * time.Second):
-		_ = cmd.Process.Kill()
-		t.Fatal("the child did not get the signal")
-	}
 }

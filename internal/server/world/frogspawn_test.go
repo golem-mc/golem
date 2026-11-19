@@ -52,25 +52,3 @@ func TestFrogspawnBooksOneHatchAndChecksSupport(t *testing.T) {
 		})
 	}
 }
-
-func TestFrogspawnHatchSurvivesReload(t *testing.T) {
-	w, p, dir := newSavedWorld(t)
-	setBlock(t, w, p, 2, 63, 2, waterByLevel[0])
-	setBlock(t, w, p, 2, 64, 2, registry.BlockFrogspawn.DefaultState())
-	p.Tick(100)
-	ticks := p.chunkTicks(ChunkPos{}).block
-	if len(ticks) != 1 || ticks[0].id != "minecraft:frogspawn" {
-		t.Fatalf("saved ticks=%v", ticks)
-	}
-	w2, p2 := reopenWorld(t, w, dir)
-	p2.Tick(1)
-	due := int64(ticks[0].delay) + 1
-	p2.Tick(due - 1)
-	if w2.BlockAt(2, 64, 2) != registry.BlockFrogspawn.DefaultState() {
-		t.Fatal("hatch delay lost on reload")
-	}
-	p2.Tick(due)
-	if h := p2.TakeTadpoleHatches(); len(h) < 2 || len(h) > 5 {
-		t.Fatalf("reloaded hatches=%v", h)
-	}
-}

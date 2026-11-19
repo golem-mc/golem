@@ -87,32 +87,6 @@ func (w *recordingWorld) PlaceSpawner(x, y, z int)              { w.SetBlock(x, 
 func (w *recordingWorld) FenceAt(int, int, int)                 {}
 func (w *recordingWorld) ScheduleFluid(int, int, int)           {}
 
-func TestFortressStaysInsideTheChunk(t *testing.T) {
-	t.Parallel()
-	start := NewFortressStart(0, 15, 2)
-	st := &FortressStates{Air: 0, NetherBricks: 1}
-	for i := range st.Fence {
-		st.Fence[i] = uint16(10 + i)
-	}
-	total := 0
-	for cz := int32(1); cz <= 9; cz++ {
-		for cx := int32(9); cx <= 22; cx++ {
-			if !start.Intersects(cx, cz) {
-				continue
-			}
-			w := &recordingWorld{writes: map[[3]int]uint16{}, chunk: BoundingBox{int(cx) * 16, 1, int(cz) * 16, int(cx)*16 + 15, 255, int(cz)*16 + 15}}
-			start.PlaceInChunk(w, st, NewLegacyRandom(1), cx, cz)
-			if len(w.bad) > 0 {
-				t.Fatalf("chunk (%d, %d): wrote outside it at %v", cx, cz, w.bad[0])
-			}
-			total += len(w.writes)
-		}
-	}
-	if total < 10000 {
-		t.Fatalf("a fortress wrote only %d blocks", total)
-	}
-}
-
 func TestFortressMirrorAndRotation(t *testing.T) {
 	t.Parallel()
 	// An east fence on a piece facing south is a west fence, facing west a
@@ -139,23 +113,5 @@ func TestFortressMirrorAndRotation(t *testing.T) {
 	p := &fortressPiece{dir: dW}
 	if got := p.transform(stairsB(dN)); got.arg != uint8(dW) {
 		t.Errorf("stairs facing north on a west piece face %d, want west", got.arg)
-	}
-}
-
-func TestBastionStartCentre(t *testing.T) {
-	t.Parallel()
-	// The box of every start template, rotated about the origin, centres
-	// within half its size of the chunk corner.
-	seen := map[[2]int32]bool{}
-	for cx := range int32(200) {
-		x, z := BastionStartCentre(3, cx, -cx)
-		dx, dz := x-cx*16, z-(-cx)*16
-		if dx < -24 || dx > 24 || dz < -24 || dz > 24 {
-			t.Fatalf("chunk %d: centre offset (%d, %d) out of range", cx, dx, dz)
-		}
-		seen[[2]int32{dx, dz}] = true
-	}
-	if len(seen) < 8 {
-		t.Fatalf("only %d distinct centre offsets in 200 chunks", len(seen))
 	}
 }

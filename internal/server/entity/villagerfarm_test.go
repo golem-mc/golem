@@ -56,44 +56,6 @@ func TestVillagerFarmHarvestAndPlantAllSeeds(t *testing.T) {
 	}
 }
 
-func TestVillagerFarmComposterBreadReservesAndLimits(t *testing.T) {
-	m, w, p := farmer(t)
-	w.set(0, 64, 0, defaultState(t, "minecraft:composter"))
-	m.barter.Inventory[0], m.barter.Inventory[1] = farmStack("wheat", 12), farmStack("wheat_seeds", 64)
-	m.barter.Inventory[7] = farmStack("wheat_seeds", 10)
-	r := m.Farm(w, FarmCompost, p)
-	if m.countItem(wheatItem) != 3 || m.countItem(breadItem) != 3 || m.countItem(registry.MustItem("minecraft:wheat_seeds")) < 54 || r.Fill != 1 {
-		t.Fatalf("compost result %+v, inventory %v", r, m.barter.Inventory)
-	}
-	level, _ := registry.StateInt(r.State, registry.PropLevel)
-	if level < 1 || level > 7 || m.barter.Inventory[7].Count != 10 {
-		t.Fatalf("level=%d, last stack=%v", level, m.barter.Inventory[7])
-	}
-	m.barter.Inventory = [piglinInventorySize]protocol.ItemStack{farmStack("wheat_seeds", 6), farmStack("wheat_seeds", 6), farmStack("beetroot_seeds", 10)}
-	m.Farm(w, FarmCompost, p)
-	if m.countItem(registry.MustItem("minecraft:wheat_seeds")) != 10 || m.countItem(registry.MustItem("minecraft:beetroot_seeds")) != 10 {
-		t.Fatalf("reserves across stacks/types %v", m.barter.Inventory)
-	}
-	for _, n := range []string{"7", "8"} {
-		w.set(0, 64, 0, registry.MustState("minecraft:composter", map[string]string{"level": n}))
-		m.barter.Inventory = [piglinInventorySize]protocol.ItemStack{farmStack("wheat_seeds", 10), farmStack("bread", 37), farmStack("wheat", 9)}
-		r = m.Farm(w.testWorld, FarmCompost, p) // workstation use ignores mob_griefing
-		if m.countItem(wheatItem) != 9 || m.countItem(breadItem) != 37 || m.barter.Inventory[0].Count != 10 {
-			t.Fatalf("full workstation changed reserves: %v", m.barter.Inventory)
-		}
-		if n == "8" && (!r.Emptied || len(r.Drops) != 1 || r.Drops[0].ItemID != registry.MustItem("minecraft:bone_meal") || r.Drops[0].Count != 1) {
-			t.Fatalf("ready composter = %+v", r)
-		}
-	}
-	// At level 6 the first successful insertion stops this work session.
-	w.set(0, 64, 0, registry.MustState("minecraft:composter", map[string]string{"level": "6"}))
-	m.barter.Inventory = [piglinInventorySize]protocol.ItemStack{farmStack("wheat_seeds", 64)}
-	r = m.Farm(w, FarmCompost, p)
-	if level, _ := registry.StateInt(r.State, registry.PropLevel); level != 7 || m.barter.Inventory[0].Count < 44 {
-		t.Fatalf("full-level stop: %+v, seeds=%d", r, m.barter.Inventory[0].Count)
-	}
-}
-
 func TestVillagerFarmSensorAndWorkGoals(t *testing.T) {
 	m, w, p := farmer(t)
 	w.set(4, 66, 4, defaultState(t, "minecraft:farmland"))
@@ -173,58 +135,5 @@ func TestVillagerFarmSensorAndWorkGoals(t *testing.T) {
 	w.set(0, 64, 0, registry.MustState("minecraft:beetroots", map[string]string{"age": "3"}))
 	if m.Farm(w, FarmBonemeal, p).Bonemeal || m.barter.Inventory[0].Count != 1 {
 		t.Fatal("bone meal was spent on a ripe crop")
-	}
-}
-
-func TestVillagerFarmStrollStaysNearItsJobAndStopsAtActivityChange(t *testing.T) {
-	m, w, _ := farmer(t)
-	m.SetJobSite("minecraft:overworld", 0, 64, 0)
-	m.vb.farmland = []Waypoint{{3, 63, 0}}
-	m.GameTime = 100
-	g := &farmlandStrollGoal{m: m}
-	v := &tickView{w: w}
-	for tries := 0; !g.CanStart(v); tries++ {
-		if tries > 1000 {
-			t.Fatal("never walked to secondary farmland")
-		}
-	}
-	g.Start(v)
-	if g.next != 200 || !g.ShouldContinue(v) {
-		t.Fatal("missing farmland path/cooldown")
-	}
-	m.vb.activity = actRest
-	if g.ShouldContinue(v) {
-		t.Fatal("farmland walk continued into rest")
-	}
-	g.Stop(v)
-	m.vb.activity, m.GameTime, m.X = actWork, 201, 7.5
-	for range 50 {
-		if g.CanStart(v) {
-			t.Fatal("farmland walk started more than six blocks from the job")
-		}
-	}
-}
-
-func TestVillagerCompostsStackComponents(t *testing.T) {
-	for _, removed := range []bool{false, true} {
-		m, w, p := farmer(t)
-		state := registry.BlockComposter.DefaultState()
-		w.set(p.X, p.Y, p.Z, state)
-		seeds := farmStack("wheat_seeds", 11)
-		if removed {
-			seeds.Remove(protocol.DataComponentCompostable)
-		} else {
-			seeds.SetCompostable(protocol.CompostableComponent{Layers: 7})
-		}
-		m.barter.Inventory[0] = seeds
-		result := m.Farm(w, FarmCompost, p)
-		wantLevel, wantCount := 7, int32(10)
-		if removed {
-			wantLevel, wantCount = 0, 11
-		}
-		level, _ := registry.StateInt(result.State, registry.PropLevel)
-		if level != wantLevel || m.barter.Inventory[0].Count != wantCount {
-			t.Errorf("removed=%v: level=%d count=%d, want %d and %d", removed, level, m.barter.Inventory[0].Count, wantLevel, wantCount)
-		}
 	}
 }

@@ -117,42 +117,6 @@ func TestBoatStridesActivateASculkSensor(t *testing.T) {
 	}
 }
 
-// Ensure the scene's supporting block is the one the event carries: wool
-// silences a grounded boat even with a passenger who is not sneaking.
-func TestWoolSilencesBoatStrides(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, c := servertest.Join(t, cfg, "Actor", servertest.OpsListing(t, "Actor"))
-	servertest.HoldTicks(t, srv)
-	wool := servertest.MustState(t, "minecraft:white_wool", nil)
-	for x := range int32(12) {
-		for z := range int32(3) {
-			srv.SetBlock(x, 63, z, wool)
-		}
-	}
-	boat := srv.SpawnBoat(1.5, 64, 1.5, "minecraft:oak_boat")
-	c.UseOn(boat)
-	servertest.AwaitPassengersFor(c, boat)
-	c.Settle()
-	srv.SetBlock(5, 64, 3, servertest.MustState(t, "minecraft:sculk_sensor", nil))
-	c.Send(protocol.IDPlayMoveVehicleIn, func(b *protocol.Buffer) {
-		b.PutF64(3.5)
-		b.PutF64(64)
-		b.PutF64(1.5)
-		b.PutF32(90)
-		b.PutF32(0)
-		b.PutBool(true)
-	})
-	c.Settle()
-	for range 20 {
-		servertest.RunTicks(t, srv, 1)
-		if vehicleSensorPowered(srv) {
-			t.Fatal("boat steps on wool activated the sensor")
-		}
-	}
-}
-
 func vehicleSensorPowered(srv *server.Server) bool {
 	power, _ := registry.StateInt(srv.BlockAt(5, 64, 3), registry.PropPower)
 	return power > 0

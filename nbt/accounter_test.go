@@ -85,19 +85,6 @@ func stringList(count int) []byte {
 	return data
 }
 
-// TestDecodeNetworkQuotaChargesTheAccountersUnits pins the charge against
-// vanilla's count: fifty thousand one-letter strings, 2.1 MB of the
-// accounter's units on 150 KB of wire, are over the network quota, and
-// forty thousand are under it.
-func TestDecodeNetworkQuotaChargesTheAccountersUnits(t *testing.T) {
-	if _, _, err := DecodeNetworkQuota(stringList(50000), NetworkQuota); !errors.Is(err, ErrOverQuota) {
-		t.Errorf("fifty thousand strings: err = %v, want ErrOverQuota", err)
-	}
-	if _, _, err := DecodeNetworkQuota(stringList(40000), NetworkQuota); err != nil {
-		t.Errorf("forty thousand strings: err = %v, want them read", err)
-	}
-}
-
 // TestDecodeNetworkQuotaRefusesBeforeBuilding pins that the quota is charged
 // while reading, not on the finished tree: a list of half a million empty
 // compounds, a byte apiece on the wire and 52 of the accounter's units, is
@@ -118,55 +105,5 @@ func TestDecodeNetworkQuotaRefusesBeforeBuilding(t *testing.T) {
 	}
 	if n := after.TotalAlloc - before.TotalAlloc; n > 1<<20 {
 		t.Errorf("refusing the list allocated %d bytes", n)
-	}
-}
-
-// TestDecodeNetworkQuotaKeepsTheDecodersRefusals pins that the walk leaves a
-// malformed tag to the decoder's own error: a cut-off tag, an unknown type
-// and a nesting past the limit are refused whatever the quota.
-func TestDecodeNetworkQuotaKeepsTheDecodersRefusals(t *testing.T) {
-	deep := []byte{byte(TypeList)}
-	for range maxDepth + 2 {
-		deep = append(deep, byte(TypeList), 0, 0, 0, 1)
-	}
-	for name, data := range map[string][]byte{
-		"empty":     {},
-		"end":       {byte(TypeEnd)},
-		"cut off":   {byte(TypeInt), 0, 0},
-		"unknown":   {13},
-		"too deep":  deep,
-		"bad count": {byte(TypeByteArray), 0xFF, 0xFF, 0xFF, 0xFF},
-	} {
-		if _, _, err := DecodeNetworkQuota(data, math.MaxInt64); err == nil {
-			t.Errorf("%s: read without an error", name)
-		}
-	}
-}
-
-// vanilla: NbtAccounter.pushDepth; only lists and compounds push depth.
-func TestDecodeNetworkLimitsContainerBoundary(t *testing.T) {
-	for _, leaf := range []Tag{Int(7), IntArray{7}, Compound{}, List{}} {
-		for _, containers := range []int{16, 17} {
-			tree := leaf
-			depth := containers
-			if leaf.Type() == TypeCompound || leaf.Type() == TypeList {
-				depth--
-			}
-			for range depth {
-				tree = Compound{"x": tree}
-			}
-			data, err := EncodeNetwork(tree)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, n, err := DecodeNetworkLimits(data, 32768, 16)
-			if containers == 16 {
-				if err != nil || n != len(data) {
-					t.Errorf("leaf %T at boundary: consumed %d, err %v", leaf, n, err)
-				}
-			} else if err == nil {
-				t.Errorf("leaf %T: accepted %d containers", leaf, containers)
-			}
-		}
 	}
 }

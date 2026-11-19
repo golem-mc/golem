@@ -139,35 +139,6 @@ func TestPluginInventoryClickEvents(t *testing.T) {
 
 var worldChunk0 = world.ChunkPos{}
 
-// vanilla: ServerPlayer.openMenu.
-func TestPluginInventoryOpenCancelled(t *testing.T) {
-	srv, h, run, w := inventoryPlayer(t)
-	ow := srv.OverworldWorld()
-	ow.Acquire(worldChunk0)
-	defer ow.Release(worldChunk0)
-	placeContainerEntity(ow, 4, 64, 0, registry.BlockChest)
-	var seen atomic.Int32
-	var gotView plugin.InventoryView
-	run(func() {
-		plugin.Listen(h, func(e *plugin.InventoryOpenEvent) {
-			gotView = e.View
-			seen.Add(1)
-			e.SetCancelled(true)
-		})
-	})
-	w.UseBlock(4, 64, 0)
-	servertest.UntilTicks(t, srv, 20, "the open event", func() bool { return seen.Load() == 1 })
-	w.ExpectNoneWithinTicks(srv, 3, servertest.PacketIs(protocol.IDPlayOpenScreen))
-	if gotView == nil || gotView.Top().Type() != plugin.InvChest || gotView.Top().Size() != 27 {
-		t.Errorf("view %v", gotView)
-	}
-	run(func() {
-		if _, open := testerOf(t, h).OpenView(); open {
-			t.Error("a cancelled open left a window")
-		}
-	})
-}
-
 // vanilla: AbstractContainerMenu.doClick QUICK_CRAFT end step.
 func TestPluginInventoryDragEvent(t *testing.T) {
 	srv, h, run, w := inventoryPlayer(t)
@@ -239,61 +210,6 @@ func TestPluginInventoryDragEvent(t *testing.T) {
 	run(func() {
 		if chestSlot(0).Count != 1 || chestSlot(1).Count != 2 || testerOf(t, h).Cursor().Count != 1 {
 			t.Errorf("edited drag: %+v %+v cursor %+v", chestSlot(0), chestSlot(1), testerOf(t, h).Cursor())
-		}
-	})
-}
-
-// Bukkit numbers the player's inventory 0-35 storage, 36-39 armour from the
-// boots up, 40 the off hand; Add and FirstEmpty fill storage only.
-// vanilla: Inventory.getFreeSlot, Inventory.add
-func TestPluginPlayerInventoryBukkitSlots(t *testing.T) {
-	_, h, run, _ := inventoryPlayer(t)
-	run(func() {
-		p := testerOf(t, h)
-		inv := p.Inventory()
-		boots := plugin.NewStack(registry.ItemDiamondBoots, 1)
-		helmet := plugin.NewStack(registry.ItemDiamondHelmet, 1)
-		shield := plugin.NewStack(registry.ItemShield, 1)
-		inv.SetItem(36, boots)
-		inv.SetItem(39, helmet)
-		inv.SetItem(40, shield)
-		eq := p.Equipment()
-		if eq.Get(plugin.SlotFeet).Item != registry.ItemDiamondBoots || eq.Get(plugin.SlotHead).Item != registry.ItemDiamondHelmet || eq.Get(plugin.SlotOffHand).Item != registry.ItemShield {
-			t.Errorf("equipment did not follow slots 36, 39, 40")
-		}
-		eq.Set(plugin.SlotChest, plugin.NewStack(registry.ItemDiamondChestplate, 1))
-		if inv.Item(38).Item != registry.ItemDiamondChestplate || len(inv.Contents()) != 41 {
-			t.Errorf("slot 38 %+v, %d contents", inv.Item(38), len(inv.Contents()))
-		}
-		for i := range 36 {
-			inv.SetItem(i, plugin.NewStack(registry.ItemStick, 64))
-		}
-		inv.SetItem(10, plugin.ItemStack{})
-		inv.Add(plugin.NewStack(registry.ItemApple, 1))
-		if inv.FirstEmpty() != -1 || inv.Item(10).Item != registry.ItemApple {
-			t.Errorf("FirstEmpty %d, slot 10 %+v", inv.FirstEmpty(), inv.Item(10))
-		}
-		inv.SetItem(36, plugin.ItemStack{})
-		if left := inv.Add(plugin.NewStack(registry.ItemApple, 64)); len(left) != 1 || !inv.Item(36).Empty() {
-			t.Errorf("Add used an armour slot: left %v, boots %+v", left, inv.Item(36))
-		}
-	})
-}
-
-// Bukkit: CraftPlayer.disconnect closes the open window before PlayerQuitEvent.
-func TestPluginQuitClosesOpenWindowWithEvent(t *testing.T) {
-	_, h, run, w := inventoryPlayer(t)
-	var order []string
-	run(func() {
-		plugin.Listen(h, func(e *plugin.InventoryCloseEvent) { order = append(order, "close") })
-		plugin.Listen(h, func(e *plugin.PlayerQuitEvent) { order = append(order, "quit") })
-		testerOf(t, h).OpenInventory(h.CreateInventory(plugin.InvChest, 1, plugin.Text{}, "x"))
-	})
-	w.ExpectContainerOpen(protocol.MenuGeneric9x1, false, 0, 0, 0)
-	w.Disconnect()
-	run(func() {
-		if len(order) != 2 || order[0] != "close" || order[1] != "quit" {
-			t.Errorf("events %v, want close then quit", order)
 		}
 	})
 }

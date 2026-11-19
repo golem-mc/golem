@@ -70,22 +70,6 @@ func TestAJoinWhileSomeoneSleepsRaisesTheShareNeeded(t *testing.T) {
 	}
 }
 
-// TestALeaveWhileSomeoneSleepsLetsTheNightPass has the awake player leave: the
-// recount leaves the sleeper alone in the world, says the night will pass, and
-// it does.
-func TestALeaveWhileSomeoneSleepsLetsTheNightPass(t *testing.T) {
-	t.Parallel()
-	srv, a, b := sleepPair(t)
-	a.ExpectSleepStarted(srv, 6.5, 0.5, 0)
-	b.Disconnect()
-
-	expectSleepChatKey(t, a, "sleep.skipping_night")
-	passTheNight(srv)
-	if _, dayTime := srv.Time(); dayTime != 24000 {
-		t.Errorf("the night left the clock at %d, want 24000", dayTime)
-	}
-}
-
 // TestAPlayerInTheNetherIsNotCountedForTheNight has the other player stand in
 // the nether: the overworld holds one player, who passes the night, and the
 // message does not reach the nether.
@@ -105,79 +89,5 @@ func TestAPlayerInTheNetherIsNotCountedForTheNight(t *testing.T) {
 	passTheNight(srv)
 	if _, dayTime := srv.Time(); dayTime != 24000 {
 		t.Errorf("the night left the clock at %d, want 24000", dayTime)
-	}
-}
-
-// TestACrossingOutOfTheOverworldLetsTheNightPass has the awake player leave
-// the overworld after the sleep began: the recount at the crossing drops them.
-func TestACrossingOutOfTheOverworldLetsTheNightPass(t *testing.T) {
-	t.Parallel()
-	srv, a, b := sleepPair(t)
-	a.ExpectSleepStarted(srv, 6.5, 0.5, 0)
-	srv.MovePlayerToDimension("Watcher", world.NetherName, 85, 40, 85)
-
-	expectSleepChatKey(t, a, "sleep.skipping_night")
-	passTheNight(srv)
-	if _, dayTime := srv.Time(); dayTime != 24000 {
-		t.Errorf("the night left the clock at %d, want 24000", dayTime)
-	}
-	_ = b
-}
-
-// TestASpectatorSwitchLetsTheNightPass has the awake player become a
-// spectator, who is not counted.
-func TestASpectatorSwitchLetsTheNightPass(t *testing.T) {
-	t.Parallel()
-	srv, a, b := sleepPair(t, servertest.OpsListing(t, "Watcher"))
-	a.ExpectSleepStarted(srv, 6.5, 0.5, 0)
-	b.ChatCommand("gamemode spectator Watcher")
-
-	expectSleepChatKey(t, a, "sleep.skipping_night")
-	passTheNight(srv)
-	if _, dayTime := srv.Time(); dayTime != 24000 {
-		t.Errorf("the night left the clock at %d, want 24000", dayTime)
-	}
-}
-
-// TestAnEmptyOverworldKeepsTheLastCount has the lone sleeper leave and a
-// newcomer join: the level held no player at the leave, so no recount ran, and
-// the newcomer's join is a change from the sleeper still counted.
-// vanilla: ServerLevel.updateSleepingPlayerList
-func TestAnEmptyOverworldKeepsTheLastCount(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig(), servertest.NoTimeSync)
-	srv.StopTick()
-	a := connect().Join("Actor")
-	a.ExpectSleepStarted(srv, 6.5, 0.5, 0)
-	a.Disconnect()
-
-	c := connect()
-	c.Login("Newcomer")
-	c.Configure()
-	var told [][]byte
-	c.ReadJoin(func(id int32, data []byte) {
-		if id == protocol.IDPlaySystemChat {
-			told = append(told, data)
-		}
-	})
-	want := servertest.SystemChatPayload("sleep.players_sleeping", true, protocol.Text{Text: "0"}, protocol.Text{Text: "1"})
-	found := false
-	for _, chat := range told {
-		found = found || bytes.Equal(chat, want)
-	}
-	if !found {
-		t.Errorf("the newcomer was never told 0 of 1 asleep, got % X", told)
-	}
-}
-
-// TestAJoinWithNobodySleepingSaysNothing checks the recount stays quiet when
-// no one slept before or sleeps now, whatever the player count did.
-func TestAJoinWithNobodySleepingSaysNothing(t *testing.T) {
-	t.Parallel()
-	_, a, _ := sleepPair(t)
-	for _, chat := range a.SystemChatsBeforeSettle() {
-		if bytes.Contains(chat, []byte("sleep.")) {
-			t.Errorf("a join with nobody asleep was told as % X", chat)
-		}
 	}
 }

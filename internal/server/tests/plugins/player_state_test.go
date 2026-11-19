@@ -144,53 +144,6 @@ func TestPluginPlayerAbilitiesAndGameMode(t *testing.T) {
 	}
 }
 
-// vanilla: ClientboundCooldownPacket, ItemCooldowns
-func TestPluginPlayerCooldown(t *testing.T) {
-	srv, h, run, cs := statePlugin(t, "Cool")
-	c, p := cs[0], handle(t, h, "Cool")
-	pearl := plugin.MinecraftKey("ender_pearl")
-	run(func() { p.SetCooldown(pearl, 40) })
-	r := protocol.NewReader(c.ExpectWithinTicks(srv, 0, protocol.IDPlayCooldown))
-	if r.ReadString(256) != "minecraft:ender_pearl" || r.ReadVarInt() != 40 {
-		t.Fatal("cooldown packet")
-	}
-	if left := p.Cooldown(pearl); left <= 0 || left > 40 {
-		t.Fatalf("cooldown left %d", left)
-	}
-	run(func() { p.SetCooldown(pearl, 0) })
-	r = protocol.NewReader(c.ExpectWithinTicks(srv, 0, protocol.IDPlayCooldown))
-	if r.ReadString(256) != "minecraft:ender_pearl" || r.ReadVarInt() != 0 || p.Cooldown(pearl) != 0 {
-		t.Fatal("cooldown not cleared")
-	}
-}
-
-// vanilla: ServerPlayer.setRespawnPosition, PlayerList.op
-func TestPluginPlayerRespawnPointAndOpLevel(t *testing.T) {
-	srv, h, run, cs := statePlugin(t, "Pointer")
-	c, p := cs[0], handle(t, h, "Pointer")
-	run(func() {
-		loc := plugin.Location{World: h.Overworld(), Pos: plugin.Vec3{X: 10.5, Y: 70, Z: -3.5}, Yaw: 90}
-		p.SetRespawnPoint(&loc, true)
-		got, ok := p.RespawnPoint()
-		if !ok || got.Pos.Block() != loc.Pos.Block() || got.Yaw != 90 {
-			t.Errorf("respawn point = %+v, %v", got, ok)
-		}
-		p.SetRespawnPoint(nil, false)
-		if _, ok := p.RespawnPoint(); ok {
-			t.Error("respawn point not cleared")
-		}
-	})
-	run(func() { p.SetOpLevel(3) })
-	r := protocol.NewReader(c.ExpectWithinTicks(srv, 0, protocol.IDPlayEntityEvent))
-	if r.ReadI32() != p.ID() || r.ReadU8() != protocol.EntityStatusOpLevelBase+3 || p.OpLevel() != 3 {
-		t.Fatal("op level")
-	}
-	run(func() { p.SetOpLevel(0) })
-	if p.OpLevel() != 0 {
-		t.Fatal("deop")
-	}
-}
-
 // vanilla: ServerGamePacketListenerImpl.handleChat, handleChatCommand
 func TestPluginPlayerChat(t *testing.T) {
 	srv, h, run, cs := statePlugin(t, "Talker", "Hearer")

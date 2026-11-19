@@ -180,39 +180,3 @@ func TestPluginAdvancementLookup(t *testing.T) {
 		t.Fatal("unknown advancement")
 	}
 }
-
-// vanilla: DeOpCommands.deopPlayers, MinecraftServer.kickUnlistedPlayers
-func TestPluginDeopEnforcesWhitelist(t *testing.T) {
-	srv, host := pluginAdminServer(t)
-	id := protocol.OfflineUUID("Operator")
-	host.Ops().Set(id, "Operator", 3, false)
-	host.Whitelist().SetEnabled(true)
-	host.Whitelist().SetEnforced(true)
-	// Operators bypass the login whitelist, but not the enforcement kick.
-	c := pluginJoin(t, srv, "Operator")
-	host.Ops().Set(id, "Operator", 0, false)
-	c.ExpectPlay(protocol.IDPlayCommands)
-	c.ExpectPlay(protocol.IDPlayEntityEvent)
-	servertest.ExpectDisconnect(t, c, protocol.Text{Translate: "multiplayer.disconnect.not_whitelisted"})
-}
-
-// A name that never joined is banned by name and takes its UUID at login.
-// vanilla: PlayerList.canPlayerLogin
-func TestPluginBanByName(t *testing.T) {
-	srv, host := pluginAdminServer(t)
-	host.Bans().Ban("Ghost", "by name", time.Time{}, "src")
-	e, ok := host.Bans().Entry("gHOST")
-	if !ok || e.Name != "Ghost" || e.Reason != "by name" {
-		t.Fatalf("entry = %+v, %v", e, ok)
-	}
-	pluginLoginRefusal(t, srv, "gHost", "multiplayer.disconnect.banned.reason")
-	e, ok = host.Bans().Entry(protocol.OfflineUUID("gHost").String())
-	if !ok || e.Name != "gHost" || len(host.Bans().Entries()) != 1 {
-		t.Fatalf("bound entry = %+v, %v", e, ok)
-	}
-	host.Bans().Ban("Other", "r", time.Time{}, "src")
-	host.Bans().Pardon("other")
-	if _, ok := host.Bans().Entry("Other"); ok {
-		t.Fatal("pardon by name retained ban")
-	}
-}

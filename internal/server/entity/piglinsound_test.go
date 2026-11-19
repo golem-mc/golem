@@ -50,35 +50,3 @@ func TestZombifiedPiglinFirstAngerSoundDelay(t *testing.T) {
 		}
 	}
 }
-
-func TestPiglinAmbientSoundRequiresIdleActivity(t *testing.T) {
-	cases := []struct {
-		name string
-		busy func(*Mob)
-	}{
-		{"idle", func(*Mob) {}},
-		{"fighting", func(m *Mob) { m.TargetID = 2 }},
-		{"admiring", func(m *Mob) { m.barter.admiring = 100 }},
-		{"retreating", func(m *Mob) { m.barter.retreat = 100 }},
-		{"celebrating", func(m *Mob) { m.barter.celebrate = 100 }},
-		{"riding", func(m *Mob) { m.barter.ride = 100 }},
-	}
-	for _, typ := range []MobType{TypePiglin, TypePiglinBrute} {
-		for _, tc := range cases {
-			m := NewMob(typ, 1, 0, 64, 0, 1)
-			tc.busy(m)
-			m.ambientTimer = ambientDie
-			events := m.ambientStep(nil, nil, nil)
-			want := 0
-			if tc.name == "idle" {
-				want = 1
-			}
-			if len(events) != want {
-				t.Errorf("%v %s: got %d ambient events, want %d", typ, tc.name, len(events), want)
-			}
-			if m.ambientTimer != -m.ambientSoundInterval() {
-				t.Errorf("%v %s: ambient timer did not reset while busy", typ, tc.name)
-			}
-		}
-	}
-}

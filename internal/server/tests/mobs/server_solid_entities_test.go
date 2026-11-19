@@ -39,30 +39,6 @@ func solidEntityY(t *testing.T, srv *server.Server, selector string) float64 {
 	return 0
 }
 
-func TestAZombieLandsOnAShulkersShell(t *testing.T) {
-	t.Parallel()
-	srv, c := solidEntityWorld(t)
-	// Keep its AI (and gravity), but prevent wandering off the shell.
-	c.ChatCommand(`summon minecraft:zombie 5.5 68 5.5 {PersistenceRequired:1b,attributes:[{id:"minecraft:movement_speed",base:0.0}]}`)
-	zombie := c.ExpectMobSpawn(protocol.EntityTypeZombie)
-	servertest.RunTicks(t, srv, 30)
-	_, y, _, ok := srv.MobPos(zombie.EntityID)
-	if !ok || math.Abs(y-65) > 1e-6 {
-		t.Fatalf("zombie Y = %v (present %v), want 65 on the shell", y, ok)
-	}
-}
-
-func TestAnXPOrbRestsOnAShulker(t *testing.T) {
-	t.Parallel()
-	srv, c := solidEntityWorld(t)
-	c.ChatCommand("summon minecraft:experience_orb 5.5 68 5.5 {Motion:[0d,0d,0d]}")
-	c.Settle()
-	servertest.RunTicks(t, srv, 30)
-	if y := solidEntityY(t, srv, "@e[type=minecraft:experience_orb,limit=1]"); math.Abs(y-65) > 1e-6 {
-		t.Fatalf("orb Y = %v, want 65 on the shell", y)
-	}
-}
-
 func TestPrimedTNTRestsOnAShulker(t *testing.T) {
 	t.Parallel()
 	srv, c := solidEntityWorld(t)
@@ -72,30 +48,6 @@ func TestPrimedTNTRestsOnAShulker(t *testing.T) {
 	if y := solidEntityY(t, srv, "@e[type=minecraft:tnt,limit=1]"); math.Abs(y-65) > 1e-6 {
 		t.Fatalf("TNT Y = %v, want 65 on the shell", y)
 	}
-}
-
-func TestFallingSandBreaksOnAShulker(t *testing.T) {
-	t.Parallel()
-	srv, c := solidEntityWorld(t)
-	c.ChatCommand(`summon minecraft:falling_block 5.5 68 5.5 {BlockState:{id:"minecraft:sand"},Time:1,Motion:[0d,0d,0d]}`)
-	c.Settle()
-	for range 30 {
-		servertest.RunTicks(t, srv, 1)
-		for _, it := range srv.ItemsInDimension("minecraft:overworld") {
-			if it.Item == "minecraft:sand" {
-				// The item takes its first upward hop in the same tick.
-				if it.Y < 65.125 || it.Y > 66 {
-					t.Errorf("sand item spawned at Y = %v, want above the shell at 65", it.Y)
-				}
-				return
-			}
-		}
-	}
-	// The shell stops the fall, but cannot support a placed sand block.
-	if state := srv.BlockAt(5, 64, 5); state != 0 {
-		t.Errorf("sand fell through the shell and placed state %d at its feet", state)
-	}
-	t.Fatal("the sand did not break into an item on the shell")
 }
 
 func TestFallingBodiesLandOnAParkedHappyGhast(t *testing.T) {

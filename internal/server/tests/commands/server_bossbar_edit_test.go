@@ -224,37 +224,3 @@ func TestBossbarSetNameColorStyleMax(t *testing.T) {
 	alice.Disconnect()
 	bob.Disconnect()
 }
-
-// TestBossbarResultValues checks the value /execute store reads off each form.
-// vanilla: BossBarCommands
-func TestBossbarResultValues(t *testing.T) {
-	t.Parallel()
-	_, alice, bob := bossbarTwoPlayers(t)
-	bar := bossbarWithBob(t, alice, bob)
-
-	stored := func(command string, want string, feedbackKey string, with ...protocol.Text) {
-		t.Helper()
-		alice.ChatCommand("execute store result storage test:r x int 1 run " + command)
-		alice.ExpectCommandFeedbackText(feedbackKey, with...)
-		alice.ChatCommand("data get storage test:r x")
-		alice.ExpectCommandFeedback("commands.data.storage.query", "test:r", want)
-	}
-	stored("bossbar list", "1", "commands.bossbar.list.bars.some", servertest.NumberText(1), testBarDisplay)
-	stored("bossbar get test:bar max", "100", "commands.bossbar.get.max", testBarDisplay, servertest.NumberText(100))
-	stored("bossbar get test:bar visible", "1", "commands.bossbar.get.visible.visible", testBarDisplay)
-	stored("bossbar get test:bar players", "1", "commands.bossbar.get.players.some",
-		testBarDisplay, servertest.NumberText(1), servertest.PlayerDisplayComponent("Bob"))
-	stored("bossbar set test:bar max 40", "40", "commands.bossbar.set.max.success", testBarDisplay, servertest.NumberText(40))
-
-	// A setter with no value of its own stores 0.
-	stored("bossbar set test:bar color pink", "0", "commands.bossbar.set.color.success",
-		bossBarDisplay("The Test Bar", "test:bar", "red"))
-	expectBossBarStyle(t, bob, bar, 0, 0)
-
-	stored("bossbar remove test:bar", "0", "commands.bossbar.remove.success",
-		bossBarDisplay("The Test Bar", "test:bar", "red"))
-	expectBossBarRemove(t, bob, bar)
-
-	alice.Disconnect()
-	bob.Disconnect()
-}

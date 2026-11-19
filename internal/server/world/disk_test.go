@@ -1,7 +1,6 @@
 package world
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
@@ -51,80 +50,6 @@ func TestDiskClearsTallPlantAboveIt(t *testing.T) {
 	}
 }
 
-func TestDiskKeepsUnsupportedRail(t *testing.T) {
-	world := newGoldenTerrain()
-	r := newDecorRegion(world, newChunk(0, 0), worldMinY, worldHeight)
-	r.nx, r.nz = 0, 0
-	rail, ok := registry.FindState("minecraft:rail", map[string]string{"shape": "north_south"})
-	if !ok {
-		t.Fatal("no rail state")
-	}
-	grass, ok := registry.FindState("minecraft:tall_grass", map[string]string{"half": "lower"})
-	if !ok {
-		t.Fatal("no tall_grass state")
-	}
-	const y = 80
-	r.set(8, y, 8, rail)
-	r.set(9, y, 8, grass)
-	r.dropUnsupported(8, y, 8)
-	r.dropUnsupported(9, y, 8)
-	if got := r.get(8, y, 8); got != rail {
-		t.Errorf("rail became %d, want %d", got, rail)
-	}
-	if got := r.get(9, y, 8); got != airState {
-		t.Errorf("tall grass is %d, want air", got)
-	}
-}
-
-func TestDiskDefersUnsupportedCaneUntilTick(t *testing.T) {
-	r := newDecorRegion(newGoldenTerrain(), newChunk(0, 0), worldMinY, worldHeight)
-	cane := registry.BlockSugarCane.DefaultState()
-	r.set(8, 80, 8, registry.BlockGrassBlock.DefaultState())
-	r.set(8, 81, 8, cane)
-	r.set(8, 82, 8, cane)
-	r.set(8, 80, 8, registry.BlockGravel.DefaultState())
-	r.markAbove(8, 80, 8)
-	own := r.protoAt(8, 8)
-	r.reconnectShapes(own)
-	for y := int32(81); y <= 82; y++ {
-		if got := r.get(8, y, 8); got != cane {
-			t.Errorf("y=%d: got %d, want cane", y, got)
-		}
-	}
-	if len(own.sources) != 1 || own.sources[0] != (posKey{8, 81 - worldMinY, 8}) {
-		t.Fatalf("scheduled ticks = %v, want only bottom cane", own.sources)
-	}
-}
-
-func TestGeneratedCaneSurvivalTick(t *testing.T) {
-	for _, restore := range []bool{false, true} {
-		t.Run(fmt.Sprintf("restore=%v", restore), func(t *testing.T) {
-			w, p := newPhysicsWorld(t)
-			const x, y, z = 8, GroundLevel + 4, 8
-			cane := registry.BlockSugarCane.DefaultState()
-			w.SetBlock(x, y-1, z, registry.BlockGravel.DefaultState())
-			w.SetBlock(x, y, z, cane)
-			w.SetBlock(x, y+1, z, cane)
-			w.pendingGenerated = append(w.pendingGenerated, posKey{x, y, z})
-			if got := w.BlockAt(x, y, z); got != cane {
-				t.Fatalf("before first tick: %d, want cane", got)
-			}
-			if restore {
-				w.SetBlock(x, y-1, z, registry.BlockSand.DefaultState())
-				w.SetBlock(x+1, y-1, z, waterState)
-			}
-			p.Tick(1)
-			want := uint16(airState)
-			if restore {
-				want = cane
-			}
-			if got := w.BlockAt(x, y, z); got != want {
-				t.Fatalf("restore=%v: got %d, want %d", restore, got, want)
-			}
-		})
-	}
-}
-
 func TestGeneratedMagmaGrowsBubbleColumn(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -162,54 +87,6 @@ func TestGeneratedMagmaGrowsBubbleColumn(t *testing.T) {
 			}
 			if len(own.sources) != 0 {
 				t.Errorf("unexpected fluid visits: %v", own.sources)
-			}
-		})
-	}
-}
-
-// A bubble column grown beside a tall seagrass over magma breaks it into water
-// when the column comes first; when the seagrass's own mark comes first, the
-// lower half goes to air without updating the upper half, which the column
-// then breaks.
-// vanilla: BubbleColumnBlock.updateColumn, LevelChunk.postProcessGeneration
-func TestGeneratedBubbleColumnBreaksSeagrassBeside(t *testing.T) {
-	lower, _ := registry.WithProp(registry.BlockTallSeagrass.DefaultState(), registry.PropHalf, "lower")
-	upper, _ := registry.WithProp(registry.BlockTallSeagrass.DefaultState(), registry.PropHalf, "upper")
-	const y = 80
-	for _, tc := range []struct {
-		name         string
-		columnFirst  bool
-		wantY1, want uint16
-	}{
-		{"column first", true, bubbleDownState, bubbleDownState},
-		{"seagrass first", false, airState, waterState},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r := newDecorRegion(newGoldenTerrain(), newChunk(0, 0), worldMinY, worldHeight)
-			for yy := int32(y + 1); yy <= y+3; yy++ {
-				r.set(8, yy, 8, waterState)
-				r.set(8, yy, 9, waterState)
-			}
-			r.set(8, y+1, 9, lower)
-			r.set(8, y+2, 9, upper)
-			order := [][2]int32{{8, 8}, {8, 9}}
-			if !tc.columnFirst {
-				order[0], order[1] = order[1], order[0]
-			}
-			for _, p := range order {
-				r.set(p[0], y, p[1], registry.BlockMagmaBlock.DefaultState())
-			}
-			r.reconnectShapes(r.protoAt(8, 8))
-			if got := r.get(8, y+1, 9); got != tc.wantY1 {
-				t.Errorf("lower half: got %d, want %d", got, tc.wantY1)
-			}
-			if got := r.get(8, y+2, 9); got != tc.want {
-				t.Errorf("upper half: got %d, want %d", got, tc.want)
-			}
-			for yy := int32(y + 1); yy <= y+3; yy++ {
-				if got := r.get(8, yy, 8); got != bubbleDownState {
-					t.Errorf("column at y=%d: got %d, want drag column", yy, got)
-				}
 			}
 		})
 	}

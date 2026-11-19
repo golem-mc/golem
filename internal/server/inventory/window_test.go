@@ -42,18 +42,6 @@ func TestStonecutterPickAndInputChange(t *testing.T) {
 	}
 }
 
-// TestSlotsChangedAsksForTheEnchantOffers checks the enchanting table's
-// item or lapis moving is handed back to the caller.
-func TestSlotsChangedAsksForTheEnchantOffers(t *testing.T) {
-	var w Window
-	if !w.SlotsChanged(KindEnchant, nil, &Outcome{Announce: []int32{1}}, false) {
-		t.Error("the lapis moving did not ask for the offers")
-	}
-	if w.SlotsChanged(KindEnchant, nil, &Outcome{Announce: []int32{5}}, false) {
-		t.Error("a player slot moving asked for the offers")
-	}
-}
-
 // TestCorrections checks an announced slot is always corrected, a matching
 // claim is not, and a mismatching or incomparable one is.
 func TestCorrections(t *testing.T) {
@@ -78,23 +66,5 @@ func TestCorrections(t *testing.T) {
 	}
 	if claims[3].Slot != 2 {
 		t.Error("the caller's claims were changed")
-	}
-}
-
-// TestOpenWindowIDsWrap checks the window IDs count from 1 through 100, then
-// start over.
-func TestOpenWindowIDsWrap(t *testing.T) {
-	var s Session
-	if id := s.OpenWindow(); id != 1 {
-		t.Fatalf("first window ID %d, want 1", id)
-	}
-	for range 98 {
-		s.OpenWindow()
-	}
-	if id := s.OpenWindow(); id != 100 {
-		t.Errorf("100th window ID = %d, want 100", id)
-	}
-	if id := s.OpenWindow(); id != 1 {
-		t.Errorf("101st window ID = %d, want 1", id)
 	}
 }

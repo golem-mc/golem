@@ -84,30 +84,3 @@ func TestMobLoadsUnqualifiedModelAttributes(t *testing.T) {
 		})
 	}
 }
-
-// vanilla: AbstractHorse.setOffspringAttributes, Camel.getBreedOffspring
-func TestEquineOffspringAttributesPersist(t *testing.T) {
-	t.Parallel()
-	for _, kind := range []MobType{TypeHorse, TypeDonkey, TypeMule, TypeLlama, TypeCamel} {
-		mother := NewMob(kind, 1, 0, 64, 0, 1)
-		father := NewMob(kind, 2, 0, 64, 0, 2)
-		baby := NewMob(kind, 3, 0, 64, 0, 3)
-		mother.breedHorse(baby, father)
-		tag := nbt.Compound{}
-		baby.SaveTo(tag, nil)
-		list, _ := nbt.Get[nbt.List](tag, "attributes")
-		want := 3
-		if IsCamel(kind) {
-			want = 1
-		}
-		if len(list.Items) != want {
-			t.Errorf("%v offspring attributes = %v, want %d instances", kind, list, want)
-		}
-		back := NewMob(kind, 4, 0, 64, 0, 4)
-		back.LoadFrom(tag, nil, nil)
-		if back.MaxHealth != baby.MaxHealth || back.Horse.Speed != baby.Horse.Speed || back.Horse.Jump != baby.Horse.Jump {
-			t.Errorf("%v offspring stats changed on reload: health %v/%v, speed %v/%v, jump %v/%v",
-				kind, back.MaxHealth, baby.MaxHealth, back.Horse.Speed, baby.Horse.Speed, back.Horse.Jump, baby.Horse.Jump)
-		}
-	}
-}

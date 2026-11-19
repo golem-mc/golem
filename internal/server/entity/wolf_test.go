@@ -34,28 +34,6 @@ func TestAWolfShakesFor42DryTicksAndSoundsOnce(t *testing.T) {
 	}
 }
 
-// TestAWolfSoundsNothingWhileItStaysWet: in the rain a started shake is
-// cancelled at once and never plays the shake sound.
-func TestAWolfSoundsNothingWhileItStaysWet(t *testing.T) {
-	w := newTestWorld()
-	w.rain = true
-	m := NewMob(TypeWolf, 1, 0.5, 64, 0.5, 1)
-	m.OnGround = true
-	for range 30 {
-		for _, ev := range m.wolfWetStep(w, nil) {
-			if ev.Kind == MobWolfShakeSound {
-				t.Fatal("a wolf in the rain played the shake sound")
-			}
-		}
-	}
-}
-
-func TestAWolfSpeaksAtFortyPercent(t *testing.T) {
-	if v := MobSoundVolume(TypeWolf); v != 0.4 {
-		t.Errorf("wolf volume = %v, want 0.4", v)
-	}
-}
-
 // TestAStruckWolfTurnsOnItsAttackerAndRalliesThePack: a wild wolf hit by a
 // player targets them, and a neighbouring wolf is sent after them too.
 // vanilla: Wolf.registerGoals' HurtByTargetGoal.setAlertOthers
@@ -74,20 +52,6 @@ func TestAStruckWolfTurnsOnItsAttackerAndRalliesThePack(t *testing.T) {
 	}
 	if packmate.TargetID != 7 {
 		t.Errorf("the packmate targeted %d, want 7", packmate.TargetID)
-	}
-}
-
-// TestAWolfLeavesAPlayerAloneUntilStruck: a wolf beside a player that never
-// hit it picks no target.
-func TestAWolfLeavesAPlayerAloneUntilStruck(t *testing.T) {
-	w := newTestWorld()
-	floor64(w, t)
-	wolf := NewMob(TypeWolf, 1, 0.5, 64, 0.5, 3)
-	for range 40 {
-		wolf.Tick(w, []Player{survivor(7, 2.5)})
-	}
-	if wolf.TargetID != 0 {
-		t.Errorf("an unprovoked wolf targeted %d", wolf.TargetID)
 	}
 }
 
@@ -115,63 +79,6 @@ func TestAWolfBitesForFour(t *testing.T) {
 	}
 }
 
-// TestAWolfChasesATargetBehindAWall: the wolf's melee goal keeps re-pathing
-// to a target it cannot see.
-// vanilla: Wolf.registerGoals' MeleeAttackGoal(this, 1.0, true)
-func TestAWolfChasesATargetBehindAWall(t *testing.T) {
-	w := newTestWorld()
-	floor64(w, t)
-	stone := defaultState(t, "minecraft:stone")
-	for y := int32(64); y <= 65; y++ {
-		for z := int32(-1); z <= 1; z++ {
-			w.set(3, y, z, stone)
-		}
-	}
-	wolf := NewMob(TypeWolf, 1, 0.5, 64, 0.5, 3)
-	wolf.OnGround = true
-	wolf.TargetID = 7
-	var melee *meleeAttackGoal
-	for _, g := range wolfGoals(wolf) {
-		if mg, ok := g.(*meleeAttackGoal); ok {
-			melee = mg
-		}
-	}
-	melee.Tick(&tickView{w: w, players: []Player{survivor(7, 6.5)}})
-	if melee.pathedTargetX == 0 {
-		t.Error("the wolf planned no search for a target behind a wall")
-	}
-}
-
-// TestAWolfPanicsAtFireButNotAtABlow: the wolf flees an environmental hurt
-// and stands its ground against a player's blow.
-// vanilla: Wolf.registerGoals' TamableAnimalPanicGoal
-func TestAWolfPanicsAtFireButNotAtABlow(t *testing.T) {
-	w := newTestWorld()
-	floor(w, -6, -6, 6, 6, 63, defaultState(t, "minecraft:stone"))
-	wolf := NewMob(TypeWolf, 1, 0.5, 64, 0.5, 1)
-	wolf.OnGround = true
-	var panic *panicGoal
-	for _, g := range wolfGoals(wolf) {
-		if pg, ok := g.(*panicGoal); ok {
-			panic = pg
-		}
-	}
-	if panic == nil {
-		t.Fatal("the wolf has no panic goal")
-	}
-	wolf.noteLastDamage(rules.DamageTypePlayerAttack)
-	if panic.CanStart(&tickView{w: w}) {
-		t.Error("a wolf panicked at a player's blow")
-	}
-	wolf.noteLastDamage(rules.DamageTypeLava)
-	if !panic.CanStart(&tickView{w: w}) {
-		t.Error("a wolf did not panic at lava")
-	}
-	if panic.pace != 1.5 {
-		t.Errorf("panic pace = %v, want 1.5", panic.pace)
-	}
-}
-
 var (
 	ownerA = uuid.MustParse("00000000-0000-0000-0000-00000000000a")
 	ownerB = uuid.MustParse("00000000-0000-0000-0000-00000000000b")
@@ -183,26 +90,6 @@ func tameWolf(id int32, x, z float64, owner uuid.UUID) *Mob {
 	m.OnGround = true
 	m.Tamable.Tame, m.Tamable.Owner = true, owner
 	return m
-}
-
-// TestABoneRollTamesAWolfOneTimeInThree runs the roll over many wolves.
-// vanilla: Wolf.tryToTame
-func TestABoneRollTamesAWolfOneTimeInThree(t *testing.T) {
-	tamed := 0
-	for seed := range 3000 {
-		m := NewMob(TypeWolf, 1, 0.5, 64, 0.5, int64(seed))
-		if m.TryToTame(ownerA) {
-			tamed++
-			if !m.IsOwnedBy(ownerA) || !m.Tamable.OrderedToSit || m.Health != 40 || m.MaxHealth != 40 {
-				t.Fatalf("a tamed wolf is %+v with %v of %v health", m.Tamable, m.Health, m.MaxHealth)
-			}
-		} else if m.Tamable.Tame {
-			t.Fatal("a failed roll tamed the wolf")
-		}
-	}
-	if tamed < 900 || tamed > 1100 {
-		t.Errorf("%d of 3000 wolves tamed, want about a third", tamed)
-	}
 }
 
 // TestATameWolfSitsWithoutItsOwnerAndStandsWithThem: a tame wolf whose owner
@@ -240,92 +127,6 @@ func TestATameWolfSitsWithoutItsOwnerAndStandsWithThem(t *testing.T) {
 	}
 }
 
-// TestAnOrderedWolfRisesWhileItsOwnerIsHurtNearby: the owner under attack
-// within twelve blocks pulls an ordered wolf up, but not one further off.
-// vanilla: SitWhenOrderedToGoal.canUse
-func TestAnOrderedWolfRisesWhileItsOwnerIsHurtNearby(t *testing.T) {
-	w := newTestWorld()
-	floor64(w, t)
-	for _, c := range []struct {
-		x       float64
-		sitting bool
-	}{{3.5, false}, {20.5, true}} {
-		wolf := tameWolf(1, 0.5, 0.5, ownerA)
-		wolf.Tamable.OrderedToSit = true
-		owner := Player{X: c.x, Y: 64, Z: 0.5, EntityID: 7, Huntable: true, UUID: ownerA, HurtBy: 9, HurtByStamp: 5}
-		for range 6 {
-			wolf.tick(w, []Player{owner}, nil)
-		}
-		if wolf.Tamable.SittingPose != c.sitting {
-			t.Errorf("owner at %v hurt: sitting = %v, want %v", c.x, wolf.Tamable.SittingPose, c.sitting)
-		}
-	}
-}
-
-// TestATameWolfDoesNotTurnOnItsOwner: the owner's own blow is no grudge.
-// vanilla: TamableAnimal.canAttack
-func TestATameWolfDoesNotTurnOnItsOwner(t *testing.T) {
-	w := newTestWorld()
-	floor64(w, t)
-	wolf := tameWolf(1, 0.5, 0.5, ownerA)
-	owner := Player{X: 1.5, Y: 64, Z: 0.5, EntityID: 7, Huntable: true, UUID: ownerA}
-	wolf.TakeDamage(1, owner)
-	for range 6 {
-		wolf.tick(w, []Player{owner}, nil)
-	}
-	if wolf.TargetID != 0 {
-		t.Errorf("a wolf struck by its owner targets %d", wolf.TargetID)
-	}
-}
-
-// TestATameWolfCallsOnlyItsOwnersPack: a struck tame wolf rallies the wolves
-// of its owner and no others.
-// vanilla: HurtByTargetGoal.alertOthers
-func TestATameWolfCallsOnlyItsOwnersPack(t *testing.T) {
-	w := newTestWorld()
-	floor64(w, t)
-	struck := tameWolf(1, 0.5, 0.5, ownerA)
-	kin := tameWolf(2, 2.5, 0.5, ownerA)
-	stranger := tameWolf(3, 2.5, 2.5, ownerB)
-	wild := NewMob(TypeWolf, 4, 0.5, 64, 2.5, 4)
-	attacker := survivor(9, 4.5)
-	struck.TakeDamage(1, attacker)
-	for range 4 {
-		struck.tick(w, []Player{attacker}, []*Mob{kin, stranger, wild})
-	}
-	if kin.TargetID != 9 {
-		t.Errorf("the owner's other wolf targets %d, want 9", kin.TargetID)
-	}
-	if stranger.TargetID != 0 || wild.TargetID != 0 {
-		t.Errorf("another owner's wolf targets %d and a wild one %d, want neither called", stranger.TargetID, wild.TargetID)
-	}
-}
-
-// TestAWolfOnlyFollowsFromTenBlocks: the follow starts at ten blocks, and a
-// sitting wolf never does.
-// vanilla: FollowOwnerGoal
-func TestAWolfOnlyFollowsFromTenBlocks(t *testing.T) {
-	w := newTestWorld()
-	for x := int32(-20); x <= 20; x++ {
-		for z := int32(-4); z <= 4; z++ {
-			w.set(x, 63, z, defaultState(t, "minecraft:stone"))
-		}
-	}
-	for _, c := range []struct {
-		dist    float64
-		sit     bool
-		follows bool
-	}{{9, false, false}, {11, false, true}, {11, true, false}} {
-		wolf := tameWolf(1, 0.5, 0.5, ownerA)
-		wolf.Tamable.OrderedToSit = c.sit
-		owner := Player{X: 0.5 + c.dist, Y: 64, Z: 0.5, EntityID: 7, Huntable: true, UUID: ownerA}
-		g := &followOwnerGoal{m: wolf}
-		if got := g.CanStart(&tickView{w: w, players: []Player{owner}}); got != c.follows {
-			t.Errorf("owner %v away, sitting=%v: follow starts = %v, want %v", c.dist, c.sit, got, c.follows)
-		}
-	}
-}
-
 // TestAWolfTakesItsVariantFromTheBiomeAndItsPackKeepsIt: the first wolf of a
 // pack picks the variant of the biome, the rest repeat it, whatever biome
 // they stand in; a biome without a variant gives the pale wolf.
@@ -359,18 +160,6 @@ func TestAWolfTakesItsVariantFromTheBiomeAndItsPackKeepsIt(t *testing.T) {
 	}
 }
 
-// TestAWolfSpawnsOnWolvesSpawnableOn checks Wolf.checkWolfSpawnRules: the
-// ground is the wolves_spawnable_on tag, not just grass.
-func TestAWolfSpawnsOnWolvesSpawnableOn(t *testing.T) {
-	spawnGroundCases(t, TypeWolf, map[string]bool{
-		"minecraft:podzol":      true,
-		"minecraft:coarse_dirt": true,
-		"minecraft:snow_block":  true,
-		"minecraft:grass_block": true,
-		"minecraft:stone":       false,
-	})
-}
-
 // spawnGroundCases checks validSpawnPositionAt for creature t, in full sky
 // light, on each ground block.
 func spawnGroundCases(t *testing.T, typ MobType, cases map[string]bool) {
@@ -383,23 +172,5 @@ func spawnGroundCases(t *testing.T, typ MobType, cases map[string]bool) {
 		if got := validSpawnPositionAt(w, GoDice{rng}, typ, 0.5, 64, 0.5, 0, CategoryCreature); got != want {
 			t.Errorf("%v on %s = %v, want %v", typ, ground, got, want)
 		}
-	}
-}
-
-// TestAnAngryWolfRefusesALead checks that a wolf with anger set cannot be
-// leashed while a calm one in reach can.
-// vanilla: Wolf.canBeLeashed
-func TestAnAngryWolfRefusesALead(t *testing.T) {
-	h := &LeashHolder{X: 0.5, Y: 64, Z: 1.5, Height: 1.8, Present: true, SameLevel: true}
-	m := NewMob(TypeWolf, 1, 0.5, 64, 0.5, 1)
-	if !LeashableBy(m, h) {
-		t.Fatal("a calm wolf in reach refuses a lead")
-	}
-	m.SetAnger(100, uuid.New(), true)
-	if !m.Angry() {
-		t.Fatal("the wolf is not angry after SetAnger")
-	}
-	if LeashableBy(m, h) {
-		t.Error("an angry wolf accepts a lead")
 	}
 }

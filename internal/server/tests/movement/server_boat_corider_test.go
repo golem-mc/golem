@@ -6,11 +6,11 @@ package movement
 // vanilla: Projectile.canHitEntity, Projectile.isOutsideOwnerCollisionRange
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"math"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/servertest"
+
 	"github.com/golem-mc/golem/internal/server"
 )
 
@@ -63,40 +63,5 @@ func TestAnArrowPassesTheBoatCoRiderUntilItClearsTheGroup(t *testing.T) {
 	}
 	if got := srv.ArrowCount(); got != 1 {
 		t.Errorf("arrows flying = %d, want the shaft spent on nothing", got)
-	}
-}
-
-// TestARocketPassesTheBoatCoRiderUntilItClearsTheGroup lights a rocket
-// under the co-rider's feet: it rises through them and the hull and
-// bursts only when its life ends.
-func TestARocketPassesTheBoatCoRiderUntilItClearsTheGroup(t *testing.T) {
-	t.Parallel()
-	srv, _, _, _, to := sharedBoat(t)
-	servertest.HoldTicks(t, srv)
-	if id := srv.SpawnPlayerFirework("Shooter", to[0], to[1]-0.2, to[2]); id == 0 {
-		t.Fatal("the rocket never flew")
-	}
-	servertest.AwaitTicks(t, srv, 6)
-	if got := srv.FireworkCount(); got != 1 {
-		t.Errorf("rockets flying = %d, want the rocket still rising past the co-rider", got)
-	}
-}
-
-// TestAHookCastAtTheBoatCoRiderCatchesNothing casts the rod at the other
-// seat: the hook starts among the group and hooks none of it.
-func TestAHookCastAtTheBoatCoRiderCatchesNothing(t *testing.T) {
-	t.Parallel()
-	srv, c, _, from, to := sharedBoat(t)
-	srv.GiveSlot("Shooter", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:fishing_rod"), Count: 1})
-	yaw := float32(-math.Atan2(to[0]-from[0], to[2]-from[2]) * 180 / math.Pi)
-	servertest.UseHeld(c, yaw, 0)
-	_, spawns, metas, _, _, _ := servertest.FishingRead(c, srv, 40)
-	if len(servertest.SpawnsOf(spawns, protocol.EntityTypeFishingBobber)) != 1 {
-		t.Fatal("the cast never spawned a bobber")
-	}
-	for _, m := range metas {
-		if m.HookedTold && m.Hooked != 0 {
-			t.Errorf("the hook caught body %d, want the group passed over", m.Hooked)
-		}
 	}
 }

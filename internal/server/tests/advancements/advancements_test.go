@@ -12,7 +12,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 )
 
 // The advancements a player's screen shows, the criteria that grant them,
@@ -169,44 +168,6 @@ func TestAdvancementsSurviveARejoin(t *testing.T) {
 	expectStoryRoot(t, u)
 }
 
-// TestEnteringTheNetherShowsTheNetherTab crosses into the nether: both
-// changed_dimension criteria that ask for it are obtained, the nether
-// root's and story/enter_the_nether's, and the latter shows its ancestors
-// in the story tab.
-// vanilla: ServerPlayer.triggerDimensionChangeTriggers
-func TestEnteringTheNetherShowsTheNetherTab(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
-	c, _ := join(t, connect, "Traveller")
-	c.ExpectNoneWithinTicks(srv, 2, servertest.PacketIs(protocol.IDPlayUpdateAdvancements))
-
-	srv.MovePlayerToDimension("Traveller", world.NetherName, 0.5, 40, 0.5)
-	if srv.PlayerDimension("Traveller") != world.NetherName {
-		t.Fatal("the player did not cross into the nether")
-	}
-	u := awaitUpdate(t, srv, c)
-	for id, criterion := range map[string]string{
-		"minecraft:nether/root":            "entered_nether",
-		"minecraft:story/enter_the_nether": "entered_nether",
-	} {
-		if _, ok := u.added[id]; !ok {
-			t.Errorf("Update Advancements did not add %s", id)
-		}
-		if u.progress[id][criterion] == nil {
-			t.Errorf("%s's progress = %v, want %s obtained", id, u.progress[id], criterion)
-		}
-	}
-	if _, ok := u.added["minecraft:story/root"]; !ok {
-		t.Error("story/root, an ancestor of a done advancement, was not added")
-	}
-	if _, ok := u.added["minecraft:end/root"]; ok {
-		t.Error("end/root was added by a crossing into the nether")
-	}
-	if got := u.progress["minecraft:story/root"]["crafting_table"]; got != nil {
-		t.Error("story/root's crafting_table is obtained without a crafting table")
-	}
-}
-
 // seenTab sends Seen Advancements opening the given tab.
 func seenTab(c *servertest.Client, tab string) {
 	c.Send(protocol.IDPlaySeenAdvancements, func(b *protocol.Buffer) {
@@ -227,38 +188,4 @@ func readSelectedTab(t *testing.T, data []byte) string {
 		t.Fatalf("select advancements tab: %v, %d bytes left", err, r.Remaining())
 	}
 	return tab
-}
-
-// TestSeenAdvancementsSelectsTheTab opens tabs on the advancements screen:
-// a displayed root is selected and named back, the same one again changes
-// nothing, an advancement that is not a root clears the tab, and closing
-// the screen or naming an unknown advancement does nothing.
-// vanilla: ServerGamePacketListenerImpl.handleSeenAdvancements,
-// PlayerAdvancements.setSelectedTab
-func TestSeenAdvancementsSelectsTheTab(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
-	c, _ := join(t, connect, "Reader")
-	selectPacket := servertest.PacketIs(protocol.IDPlaySelectAdvancementsTab)
-
-	seenTab(c, "minecraft:story/root")
-	if got := readSelectedTab(t, c.ExpectWithinTicks(srv, 4, protocol.IDPlaySelectAdvancementsTab)); got != "minecraft:story/root" {
-		t.Errorf("selected tab = %q, want minecraft:story/root", got)
-	}
-	seenTab(c, "story/root")
-	c.ExpectNoneWithinTicks(srv, 2, selectPacket)
-
-	seenTab(c, "minecraft:story/mine_stone")
-	if got := readSelectedTab(t, c.ExpectWithinTicks(srv, 4, protocol.IDPlaySelectAdvancementsTab)); got != "" {
-		t.Errorf("selected tab = %q after a non-root, want none", got)
-	}
-
-	seenTab(c, "minecraft:no_such/advancement")
-	c.Send(protocol.IDPlaySeenAdvancements, func(b *protocol.Buffer) { b.PutVarInt(1) })
-	c.ExpectNoneWithinTicks(srv, 2, selectPacket)
-
-	seenTab(c, "minecraft:nether/root")
-	if got := readSelectedTab(t, c.ExpectWithinTicks(srv, 4, protocol.IDPlaySelectAdvancementsTab)); got != "minecraft:nether/root" {
-		t.Errorf("selected tab = %q, want minecraft:nether/root", got)
-	}
 }

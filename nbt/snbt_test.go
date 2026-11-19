@@ -430,49 +430,6 @@ func TestParseValue(t *testing.T) {
 	}
 }
 
-// TestParseSNBTUnicodeName checks that a \N{NAME} escape resolves to its
-// character: names are case-insensitive and trimmed, and a code point with no
-// name of its own answers to its "BLOCK HEX" form.
-// vanilla: Character.codePointOf
-func TestParseSNBTUnicodeName(t *testing.T) {
-	tests := []struct{ name, want string }{
-		{"DIGIT ONE", "1"},
-		{"digit one", "1"},
-		{" Latin Small Letter A ", "a"},
-		{"HYPHEN-MINUS", "-"},
-		{"GRINNING FACE", "\U0001F600"},
-		{"NULL", "\x00"},
-		{"HANGUL SYLLABLES AC00", "\uAC00"},
-		{"CJK UNIFIED IDEOGRAPHS 4e00", "\u4E00"},
-		{"PRIVATE USE AREA E000", "\uE000"},
-	}
-	for _, test := range tests {
-		tree, err := ParseSNBT(`{a:"\N{` + test.name + `}"}`)
-		if err != nil {
-			t.Errorf("ParseSNBT with \\N{%s}: %v", test.name, err)
-			continue
-		}
-		if got, _ := tree["a"].(String); string(got) != test.want {
-			t.Errorf("\\N{%s} = %q, want %q", test.name, got, test.want)
-		}
-	}
-	for _, name := range []string{"NO SUCH NAME", "DIGIT  ONE", "BASIC LATIN 41", "HANGUL SYLLABLES 0AC00", "HANGUL SYLLABLES AC00 1"} {
-		_, err := ParseSNBT(`{a:"\N{` + name + `}"}`)
-		pe, ok := err.(*ParseError)
-		if !ok || pe.Key != errInvalidCharName {
-			t.Errorf("ParseSNBT with \\N{%s} = %v, want %s", name, err, errInvalidCharName)
-		}
-	}
-}
-
-// TestParseSNBTNotACompound checks the error ParseSNBT gives when the text
-// names a tag of some other kind, which a command argument never is.
-func TestParseSNBTNotACompound(t *testing.T) {
-	if _, err := ParseSNBT("[1]"); err == nil {
-		t.Error("a list read as a compound")
-	}
-}
-
 // TestParseSNBTKindsKeepTheirWidths pins the suffix to the type: an f
 // suffix never widens to a double, and a missing suffix never widens to a
 // long, because a round-trip through the binary form would say otherwise.

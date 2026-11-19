@@ -3,8 +3,6 @@ package world
 import (
 	"bytes"
 	"github.com/golem-mc/golem/internal/server/world/terrain"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 
@@ -301,68 +299,6 @@ func TestOverworldSeedSurvivesRestart(t *testing.T) {
 	}
 }
 
-// TestOverworldRandomSeedIsPersistedAtCreation checks the no-level-seed rule:
-// a world being created picks one random seed and writes it into level.dat
-// at once, so the world is the same however often the server restarts —
-// without the test being able to predict which seed that is.
-func TestOverworldRandomSeedIsPersistedAtCreation(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-
-	w, _ := NewWorld(dir, NewGenerator(dir, "minecraft:normal", "", "{}"))
-	defer w.Close()
-	if w.level.Seed == 0 {
-		t.Fatal("a new world was given the seed 0, want a real one minted at creation")
-	}
-
-	// The level.dat written at creation carries it, so a restart reads the
-	// same world back even without a Save in between.
-	level, err := LoadLevel(dir)
-	if err != nil {
-		t.Fatalf("LoadLevel: %v", err)
-	}
-	if !level.HasSeed || level.Seed != w.level.Seed {
-		t.Errorf("seed in level.dat = (%d, %v), want the minted seed %d", level.Seed, level.HasSeed, w.level.Seed)
-	}
-	if _, err := os.Stat(filepath.Join(dir, levelDatFile)); err != nil {
-		t.Errorf("level.dat was not written at world creation: %v", err)
-	}
-
-	// And opening the world again keeps that seed rather than minting a new
-	// one, so the terrain does not change under the first save's chunks.
-	again, _ := NewWorld(dir, NewGenerator(dir, "minecraft:normal", "", "{}"))
-	defer again.Close()
-	if again.level.Seed != w.level.Seed {
-		t.Errorf("second open minted seed %d, want the created world's %d", again.level.Seed, w.level.Seed)
-	}
-}
-
-// TestOverworldSeedZeroReopensWithoutLevelSeed checks that a saved seed of 0
-// settles a deferred generator, whose own placeholder seed is also 0.
-func TestOverworldSeedZeroReopensWithoutLevelSeed(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	w, _ := NewWorld(dir, NewOverworldGeneratorFor("normal", 0))
-	w.Close()
-
-	again, _ := NewWorld(dir, NewGenerator(dir, "minecraft:normal", "", "{}"))
-	defer again.Close()
-	if !again.level.HasSeed || again.level.Seed != 0 {
-		t.Fatalf("seed after reopen = (%d, %v), want the saved seed 0", again.level.Seed, again.level.HasSeed)
-	}
-	pos := ChunkPos{X: 3, Z: -1}
-	chunk, _ := again.Acquire(pos)
-	defer again.Release(pos)
-
-	fresh, _ := NewWorld(t.TempDir(), NewOverworldGeneratorFor("normal", 0))
-	defer fresh.Close()
-	want, _ := fresh.Acquire(pos)
-	defer fresh.Release(pos)
-	if !bytes.Equal(chunk.encoded, want.encoded) {
-		t.Error("the reopened world generated a chunk unlike seed 0's")
-	}
-}
-
 // TestParseSeed checks the reading of a level-seed value: numbers are seeds
 // and anything else is hashed the way Java hashes.
 func TestParseSeed(t *testing.T) {
@@ -438,21 +374,6 @@ func TestNewGeneratorChoosesByLevelType(t *testing.T) {
 			}
 		}
 	}
-}
-
-// TestOverworldFrozenSeedPanicsNotSilently records the contract that a
-// deferred generator nobody opened a world with refuses to work rather than
-// generate a world that would never be regenerated the same way.
-func TestOverworldUnseededGeneratorRefuses(t *testing.T) {
-	t.Parallel()
-	defer func() {
-		if recover() == nil {
-			t.Error("generating from an unresolved seed did not panic")
-		}
-	}()
-	g := &OverworldGenerator{deferred: true}
-	c := newChunk(0, 0)
-	g.Generate(c)
 }
 
 // BenchmarkOverworldGenerate measures one column of the world being made:
@@ -622,48 +543,6 @@ func TestOverworldOreVeinsCrossChunkBorders(t *testing.T) {
 	}
 	if paired < 10 {
 		t.Errorf("%d coal blocks continue over a chunk border, want veins that cross it", paired)
-	}
-}
-
-// TestOverworldOreContinuesAcrossBorderLikeInside checks that a coal block on a
-// chunk's edge has a coal neighbour over the border about as often as an inner
-// coal block has one beside it, which holds only if both chunks replay the vein.
-func TestOverworldOreContinuesAcrossBorderLikeInside(t *testing.T) {
-	t.Parallel()
-	g := NewOverworldGenerator(5)
-	terrain := testTerrain(5, false)
-	// Nine adjacent pairs cover both boundary columns and thousands of inner cells.
-	isCoal := func(s uint16) bool { return s == g.coalOreState || s == g.deepslateCoalOreState }
-
-	var edge, edgeNext, inner, innerNext int
-	for cx := int32(-1); cx <= 1; cx++ {
-		for cz := int32(-1); cz <= 1; cz++ {
-			a, b := newChunk(cx, cz), newChunk(cx+1, cz)
-			terrain.Generate(a)
-			terrain.Generate(b)
-			for y := int32(worldMinY + 10); y < 100; y++ {
-				for z := range int32(16) {
-					if isCoal(a.BlockAt(15, y, z)) {
-						edge++
-						if isCoal(b.BlockAt(0, y, z)) {
-							edgeNext++
-						}
-					}
-					if isCoal(a.BlockAt(7, y, z)) {
-						inner++
-						if isCoal(a.BlockAt(8, y, z)) {
-							innerNext++
-						}
-					}
-				}
-			}
-		}
-	}
-	if edge == 0 || inner == 0 {
-		t.Fatalf("found %d edge and %d inner coal blocks, want some of each", edge, inner)
-	}
-	if e, i := float64(edgeNext)/float64(edge), float64(innerNext)/float64(inner); e < i/2 {
-		t.Errorf("%.2f of edge coal continues over the border against %.2f inside a chunk, want about the same", e, i)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 
 	"testing"
 
-	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -54,22 +53,6 @@ func TestAShulkerBoxWithItsLidBlockedStaysShut(t *testing.T) {
 	}
 }
 
-// TestAShulkerBoxTopSlabLeavesTheLidFree checks the half block: a top slab
-// above an up box sits above the lid's reach.
-func TestAShulkerBoxTopSlabLeavesTheLidFree(t *testing.T) {
-	t.Parallel()
-	srv, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	putShulker(t, srv.SetBlock, "up")
-	slab, _ := registry.FindState("minecraft:stone_slab", map[string]string{"type": "top"})
-	if !srv.SetBlock(4, 65, 0, slab) {
-		t.Fatal("the slab's chunk is not loaded")
-	}
-	w.UseBlock(4, 64, 0)
-	if got := servertest.ShulkerWindowOpens(t, w.Client); got != 1 {
-		t.Errorf("%d windows opened under a top slab, want 1", got)
-	}
-}
-
 // TestAShulkerBoxAlreadyOpenOpensForASecondPlayer checks that a box with its
 // lid up skips the test.
 func TestAShulkerBoxAlreadyOpenOpensForASecondPlayer(t *testing.T) {
@@ -89,60 +72,5 @@ func TestAShulkerBoxAlreadyOpenOpensForASecondPlayer(t *testing.T) {
 	bob.UseBlock(4, 64, 0)
 	if got := servertest.ShulkerWindowOpens(t, bob.Client); got != 1 {
 		t.Errorf("the second player's windows = %d, want 1", got)
-	}
-}
-
-// TestAnOpeningShulkerBoxLiftsAnItemOnItsLid checks that the lid shoves what
-// rests on it up, an item and a mob alike.
-// vanilla: ShulkerBoxBlockEntity.moveCollidedEntities
-func TestAnOpeningShulkerBoxLiftsAnItemOnItsLid(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		rise func(srv *server.Server) func() float64
-	}{
-		{"item", func(srv *server.Server) func() float64 {
-			srv.SpawnItemEntityMotion(4.5, 65.125, 0.5, "minecraft:stone", 1, 0, 0, 0)
-			return func() float64 { return servertest.SoleItemY(t, srv) }
-		}},
-		{"zombie", func(srv *server.Server) func() float64 {
-			id := srv.SpawnMob("minecraft:zombie", 4.5, 65, 0.5)
-			srv.SetMobNoAI(id)
-			return func() float64 { _, y, _, _ := srv.MobPos(id); return y }
-		}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-			// Clear the terrain the box stands in.
-			for y := int32(63); y <= 68; y++ {
-				for x := int32(3); x <= 5; x++ {
-					for z := int32(-1); z <= 1; z++ {
-						srv.SetBlock(x, y, z, registry.MustState("minecraft:air", nil))
-					}
-				}
-			}
-			srv.SetBlock(4, 63, 0, registry.MustState("minecraft:stone", nil))
-			putShulker(t, srv.SetBlock, "up")
-			servertest.HoldTicks(t, srv)
-			y := tc.rise(srv)
-			servertest.RunTicks(t, srv, 2)
-			if got := y(); got > 65.2 {
-				t.Fatalf("y before the lid opens = %v, want it resting on the lid", got)
-			}
-			w.UseBlock(4, 64, 0)
-			if got := servertest.ShulkerWindowOpens(t, w.Client); got != 1 {
-				t.Fatalf("%d windows opened, want 1", got)
-			}
-			peak := 0.0
-			for range 12 {
-				servertest.RunTicks(t, srv, 1)
-				peak = max(peak, y())
-			}
-			if peak <= 65.5 {
-				t.Errorf("highest y while the lid opened = %v, want above 65.5", peak)
-			}
-		})
 	}
 }

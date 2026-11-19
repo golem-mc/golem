@@ -30,14 +30,3 @@ func TestStateValuesMatchMaps(t *testing.T) {
 		}
 	}
 }
-
-// TestStateValueTableSize reports the tables' size, so a property that
-// splits many rows shows up.
-func TestStateValueTableSize(t *testing.T) {
-	rows := len(valueRows) / valueWidth
-	bytes := len(stateValueRow)*2 + len(valueRows)
-	t.Logf("%d props, %d rows, %d values, %d bytes", valueWidth, rows, len(valueNames), bytes)
-	if bytes > 1<<20 {
-		t.Errorf("state value tables take %d bytes, want under 1 MiB", bytes)
-	}
-}

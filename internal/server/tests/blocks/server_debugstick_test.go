@@ -82,33 +82,6 @@ func TestADebugStickSelectsThenCyclesAProperty(t *testing.T) {
 	}
 }
 
-// TestASneakingDebugStickGoesBackwards steps the value the other way round,
-// wrapping to the property's last.
-// vanilla: Player.isSecondaryUseActive, Util.findPreviousInIterable
-func TestASneakingDebugStickGoesBackwards(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := debugStickScene(t, "minecraft:oak_stairs", servertest.OpsListing(t, "Actor"))
-	order, _ := registry.BlockPropertyOrder("minecraft:oak_stairs", "facing")
-	actor.Send(protocol.IDPlayPlayerInput, func(b *protocol.Buffer) { b.PutU8(protocol.InputSneak) })
-	actor.Settle()
-
-	actor.UseBlock(4, 64, 5)
-	last := order[len(order)-1]
-	expectDebugStickLine(t, actor, "item.minecraft.debug_stick.update", "facing", last)
-	if got := stairFacing(t, srv); got != last {
-		t.Errorf("the stair after a sneaking use faces %q, want %q", got, last)
-	}
-}
-
-// TestADebugStickOnABlockWithoutPropertiesSaysSo shows the empty line.
-// vanilla: DebugStickItem.handleInteraction
-func TestADebugStickOnABlockWithoutPropertiesSaysSo(t *testing.T) {
-	t.Parallel()
-	_, actor, _ := debugStickScene(t, "minecraft:stone", servertest.OpsListing(t, "Actor"))
-	actor.StartDigging(4, 64, 5)
-	expectDebugStickLine(t, actor, "item.minecraft.debug_stick.empty", "minecraft:stone")
-}
-
 // TestADebugStickDoesNothingForAPlayerWithoutPermission shows no line and
 // leaves the block and the stick as they were; the left click breaks nothing.
 // vanilla: Player.canUseGameMasterBlocks

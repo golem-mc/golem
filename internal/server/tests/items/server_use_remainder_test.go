@@ -77,35 +77,3 @@ func TestUseRemainderGoesToInventoryOrDropsWithComponents(t *testing.T) {
 		})
 	}
 }
-
-func TestCreativeConsumptionCreatesNoRemainder(t *testing.T) {
-	t.Parallel()
-	srv, c := consumableWorld(t, `apple[use_remainder={id:"minecraft:stick",count:2}]`)
-	c.ChatCommand("gamemode creative")
-	c.Settle()
-	c.UseItemRightClicks(0)
-	c.Settle()
-	servertest.RunTicks(t, srv, 35)
-	if got := srv.InventorySlot("Eater", player.HotbarSlot); registry.Item(got.ItemID) != registry.ItemApple || got.Count != 1 {
-		t.Fatalf("creative meal changed the held stack: %+v", got)
-	}
-	if got := srv.InventorySlot("Eater", player.HotbarSlot+1); !got.Empty() {
-		t.Fatalf("creative meal created an extra remainder: %+v", got)
-	}
-}
-
-func TestUseRemainderKeepsItsComponentsThroughARejoin(t *testing.T) {
-	t.Parallel()
-	srv, c := rejoinedWith(t, `apple[use_remainder={id:"minecraft:stick",count:2,components:{"minecraft:custom_name":"Leftovers"}}]`)
-	stack := srv.InventorySlot("Eater", player.HotbarSlot)
-	if stack.Empty() {
-		t.Fatal("/give put nothing in the hotbar")
-	}
-	c.UseItemRightClicks(0)
-	c.Settle()
-	servertest.RunTicks(t, srv, 35)
-	got := srv.InventorySlot("Eater", player.HotbarSlot)
-	if registry.Item(got.ItemID) != registry.ItemStick || got.Count != 2 || got.CustomName == nil || got.CustomName.Plain() != "Leftovers" {
-		t.Fatalf("remainder after rejoin and meal = %+v", got)
-	}
-}

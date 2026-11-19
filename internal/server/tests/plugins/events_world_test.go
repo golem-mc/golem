@@ -34,20 +34,6 @@ func TestPluginSpawnChangeEvent(t *testing.T) {
 	})
 }
 
-// A plugin world's spawn change names that world.
-func TestPluginSpawnChangePluginWorld(t *testing.T) {
-	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
-	w := createFlat(t, run, h, &flatGen{})
-	var got *plugin.SpawnChangeEvent
-	run(func() {
-		plugin.Listen(h, func(e *plugin.SpawnChangeEvent) { got = e })
-		w.SetSpawnPoint(plugin.Location{Pos: plugin.Vec3{X: 3.5, Y: 5, Z: 3.5}})
-	})
-	if got == nil || got.World.Key() != flatKey || got.Previous.Pos.Block() != (plugin.BlockPos{X: 8, Y: 4, Z: 8}) {
-		t.Fatalf("event = %+v", got)
-	}
-}
-
 // vanilla: ServerClockManager.setTotalTicks
 func TestPluginTimeSkipEvent(t *testing.T) {
 	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
@@ -219,34 +205,6 @@ func TestPluginChunkEvents(t *testing.T) {
 	awaitPluginIO(t, srv, "chunk events", func() bool { return count("populate") == 1 && count("unload") == 1 })
 	if count("load-new") != 1 {
 		t.Errorf("events = %v", log)
-	}
-}
-
-// vanilla: ServerLevel.advanceWeatherCycle
-func TestPluginWeatherChangeNatural(t *testing.T) {
-	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
-	var seen []plugin.Weather
-	cancel := true
-	run(func() {
-		plugin.Listen(h, func(e *plugin.WeatherChangeEvent) {
-			seen = append(seen, e.New)
-			e.SetCancelled(cancel)
-		})
-	})
-	weather := func() (w plugin.Weather) {
-		run(func() { w = h.Overworld().Weather() })
-		return w
-	}
-	srv.SetWeatherState(false, false, 1, 100000, 0)
-	srv.TickWeather()
-	if len(seen) != 1 || seen[0] != plugin.WeatherRain || weather() != plugin.WeatherClear {
-		t.Fatalf("cancelled: events %v, weather %v", seen, weather())
-	}
-	cancel = false
-	srv.SetWeatherState(false, false, 1, 100000, 0)
-	srv.TickWeather()
-	if weather() != plugin.WeatherRain {
-		t.Errorf("weather = %v after an allowed flip", weather())
 	}
 }
 

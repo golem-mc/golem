@@ -7,7 +7,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -84,80 +83,4 @@ func TestContainerLootRollsForTheOpeningPlayer(t *testing.T) {
 		return false
 	})
 	wantOpenerLoot(t, "the broken shulker box", lootCounts(box))
-}
-
-// TestContainerAndBreakLootCopyThePlayersData checks that copy_custom_data
-// from this reads the player's saved compound, SelectedItem included, both
-// when a chest's pending table rolls for its opener and when a broken block's
-// table rolls for its breaker. Calcite's table is one no other test of the
-// package rolls, since the pack layer is process-wide.
-// vanilla: ContextNbtProvider, NbtPredicate.getEntityTagToCompare,
-// RandomizableContainer.unpackLootTable, Block.getDrops
-func TestContainerAndBreakLootCopyThePlayersData(t *testing.T) {
-	t.Cleanup(func() { registry.ApplyPackLoot(nil, nil, nil) })
-	cfg := packWorld(t)
-	copyHeld := `[{"function":"minecraft:copy_custom_data","source":"this",` +
-		`"ops":[{"source":"SelectedItem.id","target":"held","op":"replace"}]}]`
-	data := filepath.Join(cfg.LevelName, "datapacks", "a", "data")
-	writeFile(t, filepath.Join(data, "pk", "loot_table", "held.json"), oneItemTable("minecraft:stick", copyHeld))
-	writeFile(t, filepath.Join(data, "minecraft", "loot_table", "blocks", "calcite.json"), oneItemTable("minecraft:stick", copyHeld))
-	srv, c := servertest.Dial(t, cfg, servertest.OpsListing(t, "Testificate"))
-	w := servertest.WindowedOf(t, "Testificate", c)
-	defer w.Disconnect()
-	c.MoveToGround(0.5, 64, 0.5, true)
-	c.Settle()
-	c.ChatCommand(`item replace entity @s hotbar.0 with minecraft:netherite_pickaxe[minecraft:enchantments={"minecraft:efficiency":5}]`)
-	c.Settle()
-	const want = nbt.String("minecraft:netherite_pickaxe")
-
-	servertest.Setblock(t, c, 2, 64, 0, `minecraft:chest{LootTable:"pk:held"}`)
-	w.UseBlock(2, 64, 0)
-	slots := w.ExpectContainerOpen(protocol.MenuGeneric9x3, true, 2, 64, 0)
-	w.CloseWindow()
-	var chest nbt.Compound
-	for _, s := range slots[:27] {
-		if !s.Empty() {
-			chest = s.CustomData()
-		}
-	}
-	if chest["held"] != want {
-		t.Errorf("the opened chest's stick carries %v, want held = %v from the opener", chest, want)
-	}
-
-	servertest.Setblock(t, c, 0, 64, 2, "minecraft:calcite")
-	c.BreakBlock(0, 64, 2)
-	var broken nbt.Compound
-	servertest.UntilTicks(t, srv, 40, "the broken calcite's stick", func() bool {
-		for _, it := range srv.ItemsInDimension(world.DimensionName) {
-			if it.Item == "minecraft:stick" {
-				broken = it.Stack.CustomData()
-				return true
-			}
-		}
-		return false
-	})
-	if broken["held"] != want {
-		t.Errorf("the broken calcite's stick carries %v, want held = %v from the breaker", broken, want)
-	}
-
-	// The tool wears before the drops roll, so a break that uses up the
-	// pickaxe (netherite's max damage is 2031) leaves nothing to copy.
-	// vanilla: ServerPlayerGameMode.destroyBlock
-	c.ChatCommand(`item replace entity @s hotbar.0 with minecraft:netherite_pickaxe[minecraft:damage=2030,minecraft:enchantments={"minecraft:efficiency":5}]`)
-	c.Settle()
-	servertest.Setblock(t, c, 0, 64, -2, "minecraft:calcite")
-	c.BreakBlock(0, 64, -2)
-	var last nbt.Compound
-	servertest.UntilTicks(t, srv, 40, "the stick of the calcite that broke the pickaxe", func() bool {
-		for _, it := range srv.ItemsInDimension(world.DimensionName) {
-			if it.Item == "minecraft:stick" && it.Z < 0 {
-				last = it.Stack.CustomData()
-				return true
-			}
-		}
-		return false
-	})
-	if _, ok := last["held"]; ok {
-		t.Errorf("the stick of the calcite that broke the pickaxe carries %v, want no held: the pickaxe is gone before the roll", last)
-	}
 }

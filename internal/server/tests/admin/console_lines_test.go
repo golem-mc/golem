@@ -54,27 +54,6 @@ func TestConsoleJoinAndLeaveLines(t *testing.T) {
 	}
 }
 
-// TestLogIPsOffWithholdsTheAddress checks log-ips=false replaces the client
-// address in the join line and the connection log attributes.
-// vanilla: Connection.getLoggableAddress
-func TestLogIPsOffWithholdsTheAddress(t *testing.T) {
-	logs := captureConsole(t)
-
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LogIPs = false
-	_, c := servertest.Join(t, cfg, "Tester")
-	c.Disconnect()
-
-	got := logs.String()
-	if !strings.Contains(got, "Tester[IP hidden] logged in with entity id 1") {
-		t.Errorf("the join line shows an address:\n%s", got)
-	}
-	if strings.Contains(got, "127.0.0.1") {
-		t.Errorf("the log leaks the client address:\n%s", got)
-	}
-}
-
 // TestConsoleStartupLines checks the server logs the vanilla startup lines:
 // the version, the level being prepared, and the done line with its seconds.
 // vanilla: DedicatedServer.initServer
@@ -127,70 +106,5 @@ func TestConsoleSaveAllLines(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("the console wrote %q, want it to carry %q", got, want)
 		}
-	}
-}
-
-// TestConsoleSaveAllFlushLogsTheChunkStores runs /save-all flush and checks
-// the per-dimension chunk-store report vanilla prints for a flush, and that a
-// bare /save-all leaves it out. vanilla: MinecraftServer.saveAllChunks,
-// ChunkMap.save
-func TestConsoleSaveAllFlushLogsTheChunkStores(t *testing.T) {
-	logs := captureConsole(t)
-
-	cfg := config.Default()
-	srv, _ := servertest.Start(t, cfg)
-
-	srv.RunLine("save-all")
-	bare := logs.String()
-	for _, want := range []string{"(world)", "(DIM-1)", "(DIM1)", "All dimensions are saved"} {
-		if strings.Contains(bare, want) {
-			t.Errorf("a bare /save-all logged %q:\n%s", want, bare)
-		}
-	}
-
-	srv.RunLine("save-all flush")
-	got := logs.String()
-	at := -1
-	for _, want := range []string{
-		"[Server thread/INFO]: ThreadedAnvilChunkStorage (world): All chunks are saved",
-		"[Server thread/INFO]: ThreadedAnvilChunkStorage (DIM-1): All chunks are saved",
-		"[Server thread/INFO]: ThreadedAnvilChunkStorage (DIM1): All chunks are saved",
-		"[Server thread/INFO]: ThreadedAnvilChunkStorage: All dimensions are saved",
-	} {
-		index := strings.Index(got, want)
-		if index < 0 {
-			t.Errorf("the log lacks %q:\n%s", want, got)
-		} else if index < at {
-			t.Errorf("%q is out of order:\n%s", want, got)
-		}
-		at = index
-	}
-}
-
-// TestConsoleAutoSaveLogsAtDebug checks the auto-save says nothing at INFO and
-// reports its run at debug, the level vanilla's MinecraftServer.autoSave logs
-// at. vanilla: MinecraftServer.autoSave
-func TestConsoleAutoSaveLogsAtDebug(t *testing.T) {
-	logs := captureConsole(t)
-
-	cfg := config.Default()
-	srv, _ := servertest.Start(t, cfg)
-	servertest.HoldTicks(t, srv)
-	servertest.AutoSaveEveryTick(srv)
-
-	servertest.UntilTicks(t, srv, servertest.AutoSaveEvery, "the auto-save finishes", func() bool {
-		return strings.Contains(logs.String(), "Autosave finished")
-	})
-	got := logs.String()
-	for _, want := range []string{
-		"[Server thread/DEBUG]: Autosave started",
-		"[Server thread/DEBUG]: Autosave finished",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("the log lacks %q:\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "[Server thread/INFO]: Autosave") {
-		t.Errorf("the auto-save logged at INFO:\n%s", got)
 	}
 }

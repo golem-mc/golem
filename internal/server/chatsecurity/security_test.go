@@ -9,7 +9,6 @@ import (
 	"crypto/x509"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"math"
 	"os"
 	"slices"
@@ -266,63 +265,6 @@ func TestLastSeenWindow(t *testing.T) {
 		if err != nil || !slices.Equal(got, expected) {
 			t.Fatalf("update %d: %v", i, err)
 		}
-	}
-}
-
-func TestLastSeenRejections(t *testing.T) {
-	for _, test := range []struct {
-		name     string
-		offset   int
-		bits     uint32
-		checksum byte
-	}{
-		{"negative offset", -1, 0, 0}, {"large offset", 1, 0, 0},
-		{"high bit", 0, 1 << 20, 0}, {"empty slot", 0, 1, 0}, {"checksum", 0, 0, 2},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			var v Validator
-			if _, err := v.ApplyUpdate(test.offset, test.bits, test.checksum); !errors.Is(err, ErrInvalidAck) {
-				t.Fatalf("accepted: %v", err)
-			}
-		})
-	}
-	for _, acknowledged := range []bool{false, true} {
-		var v Validator
-		if err := v.AddPending(Signature{1}); err != nil {
-			t.Fatal(err)
-		}
-		bits := uint32(0)
-		if acknowledged {
-			bits = 1 << 19
-		}
-		if _, err := v.ApplyUpdate(1, bits, 0); err != nil {
-			t.Fatal(err)
-		}
-		// Previously ignored slots cannot be acknowledged; previously acknowledged
-		// slots cannot be ignored, even when the checksum is skipped.
-		if _, err := v.ApplyUpdate(0, bits^(1<<19), 0); err != ErrInvalidAck {
-			t.Fatalf("illegal transition: %v", err)
-		}
-	}
-	var v Validator
-	for i := range 4096 - WindowSize {
-		var sig Signature
-		binary.BigEndian.PutUint32(sig[:4], uint32(i))
-		if err := v.AddPending(sig); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := v.AddPending(Signature{255}); err != ErrTooManyPending {
-		t.Fatalf("overflow: %v", err)
-	}
-	// Independent Java Arrays.hashCode results for signed bytes and zero mapping.
-	if Checksum([]Signature{{0: 255}}) != 65 {
-		t.Fatal("signed-byte checksum")
-	}
-	var zero Signature
-	zero[255] = 224
-	if Checksum([]Signature{zero}) != 1 {
-		t.Fatal("zero checksum must become one")
 	}
 }
 

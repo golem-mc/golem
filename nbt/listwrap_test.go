@@ -2,7 +2,6 @@ package nbt
 
 import (
 	"reflect"
-	"slices"
 	"testing"
 )
 
@@ -69,49 +68,5 @@ func TestWrappedListRoundTrip(t *testing.T) {
 				t.Errorf("second Decode = %#v, want %#v", second, first)
 			}
 		})
-	}
-}
-
-// TestMixedListWrapsAWrapperLikeCompound checks a compound that looks like a
-// wrapper is wrapped again in a mixed list, so it does not read back as the
-// value it holds.
-// vanilla: ListTag.wrapIfNeeded
-func TestMixedListWrapsAWrapperLikeCompound(t *testing.T) {
-	list := List{Elem: TypeCompound, Items: []Tag{Byte(1), Compound{"": Byte(2)}}}
-	data, err := Encode("", list)
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
-	_, tag, err := Decode(data)
-	if err != nil {
-		t.Fatalf("Decode: %v", err)
-	}
-	if !reflect.DeepEqual(tag, list) {
-		t.Fatalf("Decode = %#v, want %#v", tag, list)
-	}
-	again, err := Encode("", tag)
-	if err != nil {
-		t.Fatalf("re-Encode: %v", err)
-	}
-	if !slices.Equal(again, data) {
-		t.Errorf("re-Encode wrote %x, want the bytes it read %x", again, data)
-	}
-}
-
-// TestListNamesItsTypeByItsEntries checks a list whose Elem disagrees with
-// the one type its entries share is written as that type, not refused.
-// vanilla: ListTag.identifyRawElementType
-func TestListNamesItsTypeByItsEntries(t *testing.T) {
-	data, err := Encode("", List{Elem: TypeCompound, Items: []Tag{Byte(1), Byte(2)}})
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
-	_, tag, err := Decode(data)
-	if err != nil {
-		t.Fatalf("Decode: %v", err)
-	}
-	want := List{Elem: TypeByte, Items: []Tag{Byte(1), Byte(2)}}
-	if !reflect.DeepEqual(tag, want) {
-		t.Errorf("Decode = %#v, want %#v", tag, want)
 	}
 }

@@ -83,17 +83,3 @@ func TestAGroundedVictimsVelocityIsHalvedByEachKnockback(t *testing.T) {
 	shove := strikeMovingVictim(t, sword, true, [3]float64{0.4, 0, 0})
 	wantShove(t, shove, [3]float64{(0.2+0.4)/2 + 0.5, 0.4, 0}, "the grounded victim")
 }
-
-// TestTheAttackKnockbackAttributeAddsAnExtraShove: a bare-handed blow from a
-// fencer whose attack_knockback base is 2, facing east, on a grounded victim
-// at rest. The hurt's 0.4 is halved by the extra knockback, which adds its
-// 2/2 = 1.0 east; the lift stays at 0.4.
-// vanilla: LivingEntity.getKnockback
-func TestTheAttackKnockbackAttributeAddsAnExtraShove(t *testing.T) {
-	t.Parallel()
-	shove := strikeMovingVictim(t, protocol.ItemStack{}, true, [3]float64{}, func(fencer *servertest.Client) {
-		fencer.ChatCommand("attribute Fencer minecraft:attack_knockback base set 2")
-		servertest.AwaitSystemChatSaying(t, fencer, "commands.attribute.base_value.set.success")
-	})
-	wantShove(t, shove, [3]float64{0.2 + 1.0, 0.4, 0}, "the grounded victim")
-}

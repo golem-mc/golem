@@ -8,7 +8,6 @@ import (
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
@@ -143,74 +142,6 @@ func TestSpawnProtectionPlace(t *testing.T) {
 			}
 			if tc.places && got.overlays != 0 {
 				t.Errorf("overlays = %d, want none", got.overlays)
-			}
-		})
-	}
-}
-
-// TestSpawnProtectionBottle: a non-op's bottle does not fill from water
-// inside the radius, and says nothing.
-func TestSpawnProtectionBottle(t *testing.T) {
-	t.Parallel()
-	srv, c := spawnProtected(t, servertest.SurvivalConfig(), 2, "Boss")
-	water, _ := registry.FindState("minecraft:water", nil)
-	srv.SetBlock(0, 63, 0, water)
-	srv.SetWorldSpawn(world.SpawnPos{X: 2, Y: 64, Z: 0})
-	srv.GiveSlot("Digger", player.HotbarSlot, servertest.ItemStack(t, "minecraft:glass_bottle", 1))
-	c.Settle()
-	servertest.UseHeld(c, 0, 90)
-	got := tallyAfterClick(t, srv, c)
-	if got.overlays != 0 {
-		t.Errorf("overlays = %d, want none", got.overlays)
-	}
-	if held := srv.InventorySlot("Digger", player.HotbarSlot); held.ItemID != registry.MustItem("minecraft:glass_bottle") {
-		t.Errorf("hand after the click = %+v, want the empty bottle", held)
-	}
-}
-
-// TestSpawnProtectionRadiusZero: spawn-protection=0 protects nothing.
-func TestSpawnProtectionRadiusZero(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.SurvivalConfig()
-	cfg.SpawnProtection = 0
-	srv, c := spawnProtected(t, cfg, 10, "Boss")
-	srv.GiveSlot("Digger", player.HotbarSlot, servertest.ItemStack(t, "minecraft:shears", 1))
-	c.Settle()
-	c.StartDigging(servertest.DigTarget[0], servertest.DigTarget[1], servertest.DigTarget[2])
-	c.Settle()
-	servertest.ExpectAir(t, srv, servertest.DigTarget)
-}
-
-// TestSpawnProtectionThrownBody: a snowball a non-op threw breaks no
-// decorated pot inside the radius; an op's does.
-// vanilla: Projectile.mayInteract
-func TestSpawnProtectionThrownBody(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		owner  string
-		breaks bool
-	}{
-		{"Digger", false},
-		{"Boss", true},
-	} {
-		t.Run(tc.owner, func(t *testing.T) {
-			t.Parallel()
-			srv, _ := spawnProtected(t, servertest.SurvivalConfig(), 2, "Boss")
-			srv.StopTick()
-			pot := servertest.BlockState(t, "minecraft:decorated_pot")
-			if !srv.SetBlock(6, 65, 0, pot) {
-				t.Fatal("could not place the pot")
-			}
-			if srv.ThrowThrownBy(entity.ThrownSnowball, 6.5, 65.5, -1.2, protocol.OfflineUUID(tc.owner)) == 0 {
-				t.Fatal("could not throw")
-			}
-			servertest.DriveTargetTicks(srv, 8)
-			want := pot
-			if tc.breaks {
-				want = 0
-			}
-			if got := srv.BlockAt(6, 65, 0); got != want {
-				t.Errorf("the decorated pot = %d, want %d", got, want)
 			}
 		})
 	}

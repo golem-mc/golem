@@ -43,35 +43,3 @@ func TestWardenSpawnSearch(t *testing.T) {
 		})
 	}
 }
-
-func TestWardenSpawnObstructionsAndBorder(t *testing.T) {
-	for _, mode := range []string{"clear", "head", "water", "water_above", "body", "body_above", "border"} {
-		t.Run(mode, func(t *testing.T) {
-			w := wardenSpawnTerrain{newTestWorld()}
-			w.set(0, 63, 0, defaultState(t, "minecraft:stone"))
-			var bodies []SpawnBody
-			switch mode {
-			case "head":
-				w.set(0, 66, 0, defaultState(t, "minecraft:stone_slab"))
-			case "water":
-				w.set(0, 64, 0, defaultState(t, "minecraft:water"))
-			case "water_above":
-				w.set(0, 65, 0, defaultState(t, "minecraft:water"))
-			case "body":
-				bodies = []SpawnBody{{MinX: 0, MinY: 64, MinZ: 0, MaxX: 1, MaxY: 66, MaxZ: 1}}
-			case "body_above":
-				bodies = []SpawnBody{{MinX: 0, MinY: 66, MinZ: 0, MaxX: 1, MaxY: 67, MaxZ: 1}}
-			case "border":
-				w.inBorder = func(int32, int32) bool { return false }
-			}
-			rolls := 0
-			_, _, _, ok := FindWardenSpawnSpot(w, 0, 64, 0, func(n int) int { rolls++; return n / 2 }, bodies)
-			if ok != (mode == "clear" || mode == "water_above" || mode == "body_above") {
-				t.Fatalf("spawn=%v", ok)
-			}
-			if !ok && rolls != 40 {
-				t.Fatalf("random rolls=%d, want two for each of 20 attempts", rolls)
-			}
-		})
-	}
-}

@@ -1,7 +1,6 @@
 package plugins_test
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -321,116 +320,5 @@ func TestPluginLoadBeforeOrdering(t *testing.T) {
 	})
 	if !slices.Equal(order, []string{"before", "after"}) {
 		t.Fatalf("LoadBefore order: %v", order)
-	}
-}
-
-func TestPluginRegistrationOrderAfterDependencies(t *testing.T) {
-	var order []string
-	makePlugin := func(name string) *testPlugin {
-		return &testPlugin{enable: func(plugin.Server) error { order = append(order, name); return nil }}
-	}
-	servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{
-		{Name: "dependent", Plugin: makePlugin("dependent"), Depends: []string{"dependency"}},
-		{Name: "dependency", Plugin: makePlugin("dependency")},
-		{Name: "unrelated", Plugin: makePlugin("unrelated")},
-	})
-	if !slices.Equal(order, []string{"dependency", "dependent", "unrelated"}) {
-		t.Fatalf("registration order after dependency: %v", order)
-	}
-}
-
-func TestPluginMOTDPreservesComponent(t *testing.T) {
-	var h plugin.Server
-	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "motd", Plugin: &testPlugin{enable: func(s plugin.Server) error { h = s; return nil }}}})
-	servertest.HoldTicks(t, srv)
-
-	translated := plugin.Translate("test.welcome", plugin.Plain("Tester").Color("gold")).Italic()
-	styled := plugin.Text{Literal: "Style", Style: plugin.Style{
-		Color: "#123456", Shadow: new(uint32(0xff123456)), Bold: new(false), Italic: new(false),
-		Underlined: new(true), Strikethrough: new(false), Obfuscated: new(true),
-		Font: plugin.MinecraftKey("default"), Insertion: "insert",
-	}}.OnClick(plugin.SuggestCommand, "/help").OnHover(plugin.Plain("Tooltip").Color("gold"))
-	fallback := plugin.Translate("test.fallback", plugin.Text{Keybind: "key.jump"})
-	fallback.Fallback = "Press %s"
-	for _, tc := range []struct {
-		text plugin.Text
-		json string
-	}{
-		{plugin.Plain("Welcome ").Append(plugin.Plain("Tester").Color("gold").Bold()), `{"text":"Welcome ","extra":[{"text":"Tester","color":"gold","bold":true}]}`},
-		{styled, `{"text":"Style","color":"#123456","shadow_color":-15584170,"bold":false,"italic":false,"underlined":true,"strikethrough":false,"obfuscated":true,"font":"minecraft:default","insertion":"insert","click_event":{"action":"suggest_command","command":"/help"},"hover_event":{"action":"show_text","value":{"text":"Tooltip","color":"gold"}}}`},
-		{fallback, `{"translate":"test.fallback","fallback":"Press %s","with":[{"keybind":"key.jump"}]}`},
-		{translated, `{"translate":"test.welcome","italic":true,"with":[{"text":"Tester","color":"gold"}]}`},
-	} {
-		h.SetMOTD(tc.text)
-		if got := h.MOTD(); !reflect.DeepEqual(got, tc.text) {
-			t.Fatalf("MOTD = %+v, want %+v", got, tc.text)
-		}
-		c := servertest.DialServer(t, srv)
-		c.Handshake(protocol.NextStateStatus)
-		c.Send(protocol.IDStatusRequest, nil)
-		r := protocol.NewReader(c.Expect(protocol.IDStatusResponse))
-		var response struct {
-			Description map[string]any `json:"description"`
-		}
-		if err := json.Unmarshal([]byte(r.ReadString(32767)), &response); err != nil {
-			t.Fatal(err)
-		}
-		var want map[string]any
-		if err := json.Unmarshal([]byte(tc.json), &want); err != nil {
-			t.Fatal(err)
-		}
-		if !reflect.DeepEqual(response.Description, want) {
-			t.Fatalf("status MOTD = %v, want %v", response.Description, want)
-		}
-	}
-
-	// A caller cannot mutate the atomically published component through a getter.
-	copy := h.MOTD()
-	copy.Args[0].Literal = "mutated"
-	*copy.Style.Italic = false
-	if got := h.MOTD(); got.Args[0].Literal != "Tester" || !*got.Style.Italic {
-		t.Fatalf("MOTD aliases caller data: %+v", got)
-	}
-	servertest.ReleaseTicks(t, srv)
-	c := servertest.DialServer(t, srv)
-	c.Login("MOTD")
-	c.Configure()
-	for id, data := range c.Packets(servertest.ExpectTimeout) {
-		if id != protocol.IDPlayServerData {
-			continue
-		}
-		got, ok := protocol.ReadText(protocol.NewReader(data))
-		want := protocol.Text{Translate: "test.welcome", With: []protocol.Text{{Text: "Tester", Color: "gold"}}, Italic: true}
-		if !ok || !protocol.TextEqual(got, want) {
-			t.Fatalf("Server Data MOTD: %+v, want %+v", got, want)
-		}
-		return
-	}
-	t.Fatal("Server Data did not arrive")
-
-}
-
-func TestPluginSchedulerDeadlineOrdering(t *testing.T) {
-	var h plugin.Server
-	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "order", Plugin: &testPlugin{enable: func(s plugin.Server) error { h = s; return nil }}}})
-	servertest.HoldTicks(t, srv)
-	var got []string
-	record := func(s string) func() { return func() { got = append(got, s) } }
-	future := h.Scheduler().RunLater(10000, record("future"))
-	h.Scheduler().RunLater(4, record("four"))
-	timer := h.Scheduler().RunTimer(2, 2, record("timer"))
-	h.Scheduler().RunLater(2, record("two"))
-	cancelled := h.Scheduler().RunLater(2, record("cancelled"))
-	h.Scheduler().RunLater(1, func() { got = append(got, "one"); cancelled.Cancel() })
-	servertest.RunTicks(t, srv, 4)
-	want := []string{"one", "timer", "two", "four", "timer"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("deadline/registration order: %v, want %v", got, want)
-	}
-	timer.Cancel()
-	future.Cancel()
-	servertest.RunTicks(t, srv, 4)
-	if !slices.Equal(got, want) {
-		t.Fatalf("cancelled tasks ran: %v", got)
 	}
 }

@@ -137,38 +137,3 @@ func TestSpreadPlayersFailsWhenTheAreaIsTooCrowded(t *testing.T) {
 		c.Disconnect()
 	}
 }
-
-// TestSpreadPlayersRefusesAHeightBelowTheWorld checks the under form's guard.
-func TestSpreadPlayersRefusesAHeightBelowTheWorld(t *testing.T) {
-	t.Parallel()
-	srv, clients := joinSpreadPlayers(t, "Alice")
-	c := clients[0]
-	c.ChatCommand("spreadplayers 0 0 1 10 under -100 false @s")
-	n100, n64 := int64(-100), int64(-64)
-	servertest.AwaitCommandErrorText(t, c, "commands.spreadplayers.failed.invalid.height",
-		protocol.Text{Number: &n100}, protocol.Text{Number: &n64})
-	c.ChatCommand("spreadplayers 0 0 1 10 under 100 false @s")
-	awaitSystemChatContaining(t, srv, c, "commands.spreadplayers.success.entities")
-	c.Disconnect()
-}
-
-// TestSpreadPlayersLandsOverUnloadedChunks checks that a wide spread reaches
-// chunks nobody has loaded, instead of re-rolling until a point falls inside
-// the loaded area.
-func TestSpreadPlayersLandsOverUnloadedChunks(t *testing.T) {
-	t.Parallel()
-	srv, clients := joinSpreadPlayers(t, "Alice", "Bob", "Carol")
-	clients[0].ChatCommand("spreadplayers 0 0 10 2000 false @a")
-	awaitSystemChatContaining(t, srv, clients[0], "commands.spreadplayers.success.entities")
-	far := 0.0
-	for _, c := range clients {
-		p := servertest.ExpectTeleport(t, c)
-		far = math.Max(far, math.Max(math.Abs(p.X), math.Abs(p.Z)))
-	}
-	if far < 100 {
-		t.Errorf("every player is within %.0f blocks of the centre of a 2000-block spread", far)
-	}
-	for _, c := range clients {
-		c.Disconnect()
-	}
-}

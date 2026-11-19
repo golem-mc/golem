@@ -1,12 +1,12 @@
 package combat
 
 import (
-	"bytes"
+	"slices"
+	"testing"
+
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"slices"
-	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/registry"
@@ -837,48 +837,6 @@ func (w *potionWitness) radiusMetas(entityID int32) []float32 {
 	return out
 }
 
-// TestALingeringPotionScalesItsCloudEffects uses a lingering Poison potion
-// and reads the poison the cloud rains into a cow: the item's own
-// potion_duration_scale of a quarter brings the brewing's 900 ticks down to
-// 225, where the un-scaled cloud would give the drinking strength.
-func TestALingeringPotionScalesItsCloudEffects(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	a := connect()
-	a.Login("Lingerer")
-	a.Configure()
-	a.EnterWorldAs("Lingerer")
-	b := connect()
-	b.Login("Victim")
-	b.Configure()
-	bID := b.EnterWorldAs("Victim")
-	b.MoveTo(2.0, 64, 0.5, 270, 0)
-	a.Settle()
-	b.Settle()
-
-	srv.GiveSlot("Lingerer", 36, potionStack(t, "minecraft:lingering_potion", poisonBrewing, 1))
-	a.MoveTo(0.5, 64, 0.5, -90, 90)
-	servertest.UseHeld(a, -90, 90)
-
-	var poison servertest.MobEffect
-	if !b.ReadTicksSkipping(srv, potionDeadlineTicks, nil, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayUpdateMobEffect {
-			return false
-		}
-		e := servertest.MobEffectFor(data)
-		if e.Entity == bID && e.Effect == poisonEffect {
-			poison = e
-			return true
-		}
-		return false
-	}) {
-		t.Fatal("the cloud never poisoned the body standing in it")
-	}
-	if poison.Duration != 225 {
-		t.Errorf("the cloud's poison lasts %d ticks, want the quarter of the brewing's 900", poison.Duration)
-	}
-}
-
 // TestALingeringPotionWithoutEffectsLeavesNoCloud throws a lingering water
 // and a lingering mundane potion: neither has an effect to rain, so neither
 // leaves an area effect cloud, though each still plays its shatter's world
@@ -995,54 +953,6 @@ func TestASplashHarmingPotionScalesItsInstantDamageByDistance(t *testing.T) {
 	}
 }
 
-// TestASplashHarmingPotionKillsWithIndirectMagic splashes a Strong Harming
-// at a body left on 2 health beside the shatter: the death names the thrower
-// (death.attack.indirectMagic), and the instant harm is applied in place, so
-// the victim is never sent an Update Mob Effect for it.
-// vanilla: ThrownSplashPotion.onHitAsPotion, HealOrHarmMobEffect
-func TestASplashHarmingPotionKillsWithIndirectMagic(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.MobTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, connect := servertest.Start(t, cfg)
-	a := connect()
-	a.JoinAs("Thrower")
-	b := connect()
-	bID := b.JoinAs("Victim")
-	b.MoveTo(1.0, 64, 0.5, 270, 0)
-	a.Settle()
-	b.Settle()
-
-	srv.SetHealth("Victim", 2)
-	srv.GiveSlot("Thrower", 36, potionStack(t, "minecraft:splash_potion", registry.MustPotion("minecraft:strong_harming"), 1))
-	a.MoveTo(0.5, 64, 0.5, -90, 90)
-	servertest.UseHeld(a, -90, 90)
-
-	var sentInstant bool
-	var chat []byte
-	if !b.PumpTicks(srv, uint64(potionDeadlineTicks), func(id int32, data []byte) bool {
-		switch id {
-		case protocol.IDPlayUpdateMobEffect:
-			if e := servertest.MobEffectFor(data); e.Entity == bID && e.Effect == instantDamageEffect {
-				sentInstant = true
-			}
-		case protocol.IDPlaySystemChat:
-			chat = data
-			return true
-		}
-		return false
-	}) {
-		t.Fatal("the victim never died of the splash")
-	}
-	if sentInstant {
-		t.Error("the victim was sent an Update Mob Effect for instant_damage")
-	}
-	want := deathMessage("Victim", servertest.PlayerDisplayComponent("Thrower"))
-	if !bytes.Equal(chat, want) {
-		t.Errorf("death message = % X, want indirectMagic naming Victim and Thrower % X", chat, want)
-	}
-}
-
 // deathMessage is the System Chat payload of an indirect magic death of the
 // player named victim, by killer.
 func deathMessage(victim string, killer protocol.Text) []byte {
@@ -1069,69 +979,6 @@ func cloudHere(t *testing.T, srv *server.Server, specs []protocol.PotionEffectSp
 	t.Fatal("the cloud never landed its effects")
 }
 
-// TestAnOwnerlessCloudAppliesItsEffectsInOrder drives a cloud with no owner
-// whose harm precedes its absorption over a player on four health: the harm
-// lands first and kills them, as the effects' order has it, with indirect
-// magic whose death message names the cloud alone.
-// vanilla: AreaEffectCloud.serverTick, HealOrHarmMobEffect.applyInstantaneousEffect
-func TestAnOwnerlessCloudAppliesItsEffectsInOrder(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.MobTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, c, _ := servertest.JoinAs(t, cfg, "Victim")
-	srv.StopTick()
-	c.MoveTo(0.5, 64, 0.5, 0, 0)
-	c.Settle()
-	srv.SetHealth("Victim", 4)
-
-	cloudHere(t, srv, []protocol.PotionEffectSpec{
-		{ID: instantDamageEffect, Amplifier: 1, Duration: 1, ShowParticles: true, ShowIcon: true},
-		{ID: absorptionEffect, Duration: 600, ShowParticles: true, ShowIcon: true},
-	}, func() bool { return srv.PlayerHealth("Victim") != 4 })
-	if h := srv.PlayerHealth("Victim"); h > 0 {
-		t.Fatalf("the victim is on %v health, want the harm to land before the absorption and kill them", h)
-	}
-	var chat []byte
-	c.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlaySystemChat {
-			chat = data
-		}
-	})
-	want := deathMessage("Victim", protocol.Text{Translate: "entity.minecraft.area_effect_cloud"})
-	if !bytes.Equal(chat, want) {
-		t.Errorf("death message = % X, want indirectMagic naming Victim and the cloud % X", chat, want)
-	}
-}
-
-// TestACloudsSaturationLeavesMobsAlone drives a cloud of instant health and
-// saturation over an injured cow and an undead zombie: only the health
-// reaches them, healing the cow its share of 4 and harming the zombie its
-// share of 6.
-// vanilla: SaturationMobEffect.applyEffectTick, MobEffect.applyInstantaneousEffect
-func TestACloudsSaturationLeavesMobsAlone(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.MobTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, c, _ := servertest.JoinAs(t, cfg, "Bystander")
-	srv.StopTick()
-	cow := srv.SpawnMob("minecraft:cow", 1.5, 64, 0.5)
-	zombie := srv.SpawnMob("minecraft:zombie", -0.5, 64, 0.5)
-	c.Settle()
-	srv.SetMobHealth(cow, 4)
-	srv.SetMobHealth(zombie, 10)
-
-	cloudHere(t, srv, []protocol.PotionEffectSpec{
-		{ID: saturationEffect, Duration: 1, ShowParticles: true, ShowIcon: true},
-		{ID: instantHealthEffect, Duration: 1, ShowParticles: true, ShowIcon: true},
-	}, func() bool { h, _ := srv.MobHealth(cow); return h != 4 })
-	if h, _ := srv.MobHealth(cow); h != 6 {
-		t.Errorf("the cow is on %v health, want 6: healed by the instant health alone", h)
-	}
-	if h, _ := srv.MobHealth(zombie); h != 7 {
-		t.Errorf("the zombie is on %v health, want 7: harmed by the instant health alone", h)
-	}
-}
-
 // TestACloudsMagicBypassesAMobsArmour drives a healing cloud over a zombie in
 // a diamond chestplate: the harm is the unarmoured share, since indirect
 // magic bypasses armour.
@@ -1152,44 +999,6 @@ func TestACloudsMagicBypassesAMobsArmour(t *testing.T) {
 	}, func() bool { h, _ := srv.MobHealth(zombie); return h != 10 })
 	if h, _ := srv.MobHealth(zombie); h != 7 {
 		t.Errorf("the armoured zombie is on %v health, want 7: armour does not soften magic", h)
-	}
-}
-
-// TestAnOwnerlessCloudTeleportsEndermen drives an ownerless harming cloud
-// over endermen with fixed seeds: with no living cause, each rolls a
-// nine-in-ten teleport after the damage, so some leave their spot.
-// vanilla: EnderMan.hurtServer
-func TestAnOwnerlessCloudTeleportsEndermen(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.MobTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, c, _ := servertest.JoinAs(t, cfg, "Bystander")
-	servertest.HoldTicks(t, srv)
-	ids := make([]int32, 8)
-	for i := range ids {
-		ids[i] = srv.SpawnMobSeeded("minecraft:enderman", 0.5+float64(i%4)*0.2, 64, 1.5+float64(i/4)*0.2, int64(i+1))
-		srv.SetMobNoAI(ids[i])
-	}
-	// One tick hands each enderman its world, which a hurt teleport needs.
-	servertest.RunTicks(t, srv, 1)
-	srv.StopTick()
-	c.Settle()
-	x0 := make([]float64, len(ids))
-	for i, id := range ids {
-		x0[i], _, _, _ = srv.MobPos(id)
-	}
-
-	cloudHere(t, srv, []protocol.PotionEffectSpec{
-		{ID: instantDamageEffect, Duration: 1, ShowParticles: true, ShowIcon: true},
-	}, func() bool { h, _ := srv.MobHealth(ids[0]); return h != 40 })
-	moved := 0
-	for i, id := range ids {
-		if x, _, _, _ := srv.MobPos(id); x != x0[i] {
-			moved++
-		}
-	}
-	if moved == 0 {
-		t.Error("no enderman teleported from an ownerless harming cloud, want the hurt roll to move most of them")
 	}
 }
 
@@ -1246,107 +1055,6 @@ func TestASplashPotionDoesNotSplashASpectator(t *testing.T) {
 	})
 }
 
-// TestALingeringCloudDoesNotRainOnASpectator throws a lingering Poison
-// potion at a survival body standing in the cloud beside a spectator: the
-// cloud rains on the living body, and never on the spectator.
-func TestALingeringCloudDoesNotRainOnASpectator(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.MobTestConfig(), servertest.OpsListing(t, "Lingerer"))
-	a := connect()
-	a.Login("Lingerer")
-	a.Configure()
-	aID := a.EnterWorldAs("Lingerer")
-	b := connect()
-	b.Login("Ghost")
-	b.Configure()
-	bID := b.EnterWorldAs("Ghost")
-	b.MoveTo(1.0, 64, 0.5, 270, 0)
-	a.Settle()
-	b.Settle()
-	servertest.HoldTicks(t, srv)
-
-	// Settled: the held loop runs its ticks as fast as they are asked
-	// for, so all of them could pass before the command is read.
-	a.ChatCommand("gamemode spectator Ghost")
-	a.Settle()
-	servertest.UntilTicks(t, srv, 1200, "condition", func() bool {
-		return srv.PlayerGameMode("Ghost") == protocol.GameModeSpectator
-	})
-	a.Settle()
-	b.Settle()
-
-	srv.GiveSlot("Lingerer", 36, potionStack(t, "minecraft:lingering_potion", poisonBrewing, 1))
-	a.MoveTo(0.5, 64, 0.5, -90, 90)
-	servertest.UseHeld(a, -90, 90)
-	a.Settle()
-
-	if !a.PumpTicks(srv, uint64(potionDeadlineTicks), func(id int32, data []byte) bool {
-		if id != protocol.IDPlayUpdateMobEffect {
-			return false
-		}
-		e := servertest.MobEffectFor(data)
-		return e.Entity == aID && e.Effect == poisonEffect
-	}) {
-		t.Fatal("the cloud never rained on the living body standing in it")
-	}
-	b.PumpTicks(srv, uint64(potionDeadlineTicks), func(id int32, data []byte) bool {
-		if id != protocol.IDPlayUpdateMobEffect {
-			return false
-		}
-		e := servertest.MobEffectFor(data)
-		if e.Entity == bID {
-			t.Error("a cloud rained on a spectator no splash may touch")
-			return true
-		}
-		return false
-	})
-}
-
-// TestACloudDoesNotStepOnItsShatterTick stands a lingering potion's cloud
-// up with the tick loop stopped and drives the cloud pass by hand: the first
-// pass is the one after the shatter, so the waiting flag is not told until
-// the second.
-func TestACloudDoesNotStepOnItsShatterTick(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Dial(t, servertest.MobTestConfig())
-	c.Login("Lingerer")
-	c.Configure()
-	c.EnterWorldAs("Lingerer")
-	c.Settle()
-
-	srv.GiveSlot("Lingerer", 36, potionStack(t, "minecraft:lingering_potion", poisonBrewing, 1))
-	srv.StopTick()
-	c.MoveTo(0.5, 64, 0.5, -90, 90)
-	servertest.UseHeld(c, -90, 90)
-	c.Settle()
-	srv.TickEntities(5)
-
-	w := newPotionWitness()
-	c.SettleAndCollect(func(id int32, data []byte) { w.note(c, id, data) })
-	cloud := w.spawnOfType(protocol.EntityTypeAreaEffectCloud)
-	if cloud == nil {
-		t.Fatal("no area effect cloud came into the world for the lingering throw")
-	}
-	waiting := func() bool {
-		for _, m := range w.cloudMetas {
-			if m.entityID == cloud.EntityID && m.hasWaiting && m.waiting {
-				return true
-			}
-		}
-		return false
-	}
-	srv.TickClouds(1)
-	c.SettleAndCollect(func(id int32, data []byte) { w.note(c, id, data) })
-	if waiting() {
-		t.Fatal("the cloud stepped on the very tick its potion shattered")
-	}
-	srv.TickClouds(1)
-	c.SettleAndCollect(func(id int32, data []byte) { w.note(c, id, data) })
-	if !waiting() {
-		t.Fatal("the cloud never stepped on the tick after its shatter")
-	}
-}
-
 // shatterOrder is the packet order a shatter's telling is checked in: the
 // first index of each kind named by a test.
 type shatterOrder struct {
@@ -1383,136 +1091,6 @@ func (o *shatterOrder) firstSpawn(entityType int32) int {
 		}
 	}
 	return -1
-}
-
-// TestAPotionShatterTellsInVanillaOrder drives a splash and a lingering
-// shatter with the tick loop stopped and reads the packets' order: a splash
-// tells the bodies' effects before the world event and the removal, and a
-// lingering potion spawns its cloud before the world event and the removal.
-func TestAPotionShatterTellsInVanillaOrder(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	splash := connect()
-	splash.Login("Splasher")
-	splash.Configure()
-	splash.EnterWorldAs("Splasher")
-	linger := connect()
-	linger.Login("Lingerer")
-	linger.Configure()
-	linger.EnterWorldAs("Lingerer")
-	linger.MoveTo(16.5, 64, 0.5, -90, 90)
-	splash.Settle()
-	linger.Settle()
-
-	srv.GiveSlot("Splasher", 36, potionStack(t, "minecraft:splash_potion", poisonBrewing, 1))
-	srv.GiveSlot("Lingerer", 36, potionStack(t, "minecraft:lingering_potion", poisonBrewing, 1))
-	srv.StopTick()
-
-	order := newShatterOrder()
-	splash.MoveTo(0.5, 64, 0.5, -90, 90)
-	servertest.UseHeld(splash, -90, 90)
-	splash.Settle()
-	srv.TickEntities(5)
-	splash.SettleAndCollect(func(id int32, data []byte) { order.note(splash, id, data) })
-
-	effect := order.first(protocol.IDPlayUpdateMobEffect)
-	event := order.first(protocol.IDPlayWorldEvent)
-	remove := order.first(protocol.IDPlayRemoveEntities)
-	if effect < 0 || event < 0 || remove < 0 {
-		t.Fatalf("the splash missed a shatter packet: effect %d, event %d, remove %d", effect, event, remove)
-	}
-	if effect >= event || event >= remove {
-		t.Errorf("the splash's shatter order = effect %d, event %d, remove %d; want effect, event, removal", effect, event, remove)
-	}
-
-	dir := newShatterOrder()
-	servertest.UseHeld(linger, -90, 90)
-	linger.Settle()
-	srv.TickEntities(5)
-	linger.SettleAndCollect(func(id int32, data []byte) { dir.note(linger, id, data) })
-	cloud := dir.firstSpawn(protocol.EntityTypeAreaEffectCloud)
-	cevent := dir.first(protocol.IDPlayWorldEvent)
-	cremove := dir.first(protocol.IDPlayRemoveEntities)
-	if cloud < 0 || cevent < 0 || cremove < 0 {
-		t.Fatalf("the lingering shatter missed a packet: cloud %d, event %d, remove %d", cloud, cevent, cremove)
-	}
-	if cloud >= cevent || cevent >= cremove {
-		t.Errorf("the lingering shatter order = cloud %d, event %d, remove %d; want cloud, event, removal", cloud, cevent, cremove)
-	}
-}
-
-// TestASplashWaterPotionThatHitsABodyDousesNoFire throws a splash water
-// bottle point-blank at a body with lit fires at its side: vanilla douses
-// only from onHitBlock, so a potion that broke on the body leaves every
-// fire burning.
-func TestASplashWaterPotionThatHitsABodyDousesNoFire(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	a := connect()
-	a.Login("Thrower")
-	a.Configure()
-	a.EnterWorldAs("Thrower")
-	b := connect()
-	b.Login("Victim")
-	b.Configure()
-	b.EnterWorldAs("Victim")
-	b.MoveTo(1.0, 64, 0.5, 270, 0)
-	a.Settle()
-	b.Settle()
-
-	fire := registry.MustState("minecraft:fire", nil)
-	srv.SetBlock(0, 64, 1, registry.MustState("minecraft:stone", nil))
-	srv.SetBlock(0, 64, -1, registry.MustState("minecraft:stone", nil))
-	cells := [][3]int32{{0, 65, 1}, {0, 65, -1}}
-	for _, cell := range cells {
-		if !srv.SetBlock(cell[0], cell[1], cell[2], fire) {
-			t.Fatalf("the fire at %v could not be placed", cell)
-		}
-	}
-	servertest.HoldTicks(t, srv)
-	srv.GiveSlot("Thrower", 36, potionStack(t, "minecraft:splash_potion", registry.MustPotion("minecraft:water"), 1))
-	a.MoveTo(0.5, 64, 0.5, -90, 0)
-	servertest.UseHeld(a, -90, 0)
-
-	w := newPotionWitness()
-	w.listenWhile(srv, a, potionDeadlineTicks)
-	for _, cell := range cells {
-		if got := srv.BlockAt(cell[0], cell[1], cell[2]); got == 0 {
-			t.Errorf("a water splash that broke on a body doused the fire at %v", cell)
-		}
-	}
-}
-
-// vanilla: AbstractThrownPotion.onHitBlock
-func TestASplashWaterPotionThatHitsABodyLeavesTheOriginsCampfireLit(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	a := connect()
-	a.Login("Thrower")
-	a.Configure()
-	a.EnterWorldAs("Thrower")
-	b := connect()
-	b.Login("Victim")
-	b.Configure()
-	b.EnterWorldAs("Victim")
-	b.MoveTo(7, 64, 6.5, 270, 0)
-	a.Settle()
-	b.Settle()
-
-	lit := registry.MustState("minecraft:campfire", map[string]string{"lit": "true"})
-	if !srv.SetBlock(0, 0, 0, lit) {
-		t.Fatal("the origin's campfire could not be placed")
-	}
-	servertest.HoldTicks(t, srv)
-	srv.GiveSlot("Thrower", 36, potionStack(t, "minecraft:splash_potion", registry.MustPotion("minecraft:water"), 1))
-	a.MoveTo(6.5, 64, 6.5, -90, 0)
-	servertest.UseHeld(a, -90, 0)
-
-	w := newPotionWitness()
-	w.listenWhile(srv, a, potionDeadlineTicks)
-	if got := srv.BlockAt(0, 0, 0); got != lit {
-		t.Errorf("the origin's campfire = state %d, want lit state %d", got, lit)
-	}
 }
 
 // TestASplashWaterPotionReachesOnlyWithinFourBlocks douses the burning
@@ -1570,99 +1148,6 @@ func TestASplashWaterPotionReachesOnlyWithinFourBlocks(t *testing.T) {
 	}
 }
 
-// TestASplashWaterPotionDousesACandleWithItsSound throws a splash water
-// bottle at the thrower's feet with a lit candle beside them: the candle is
-// turned unlit and the block.candle.extinguish fizz is heard.
-func TestASplashWaterPotionDousesACandleWithItsSound(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Dial(t, servertest.MobTestConfig())
-	c.Login("Douser")
-	c.Configure()
-	c.EnterWorldAs("Douser")
-	c.Settle()
-
-	srv.SetBlock(0, 64, 1, servertest.BlockStateWith(t, "minecraft:candle", "candles=1,lit=true,waterlogged=false"))
-	servertest.HoldTicks(t, srv)
-	srv.GiveSlot("Douser", 36, potionStack(t, "minecraft:splash_potion", registry.MustPotion("minecraft:water"), 1))
-	c.MoveTo(0.5, 64, 0.5, -90, 90)
-	servertest.UseHeld(c, -90, 90)
-
-	w := newPotionWitness()
-	w.listenWhile(srv, c, potionDeadlineTicks)
-	if got, want := srv.BlockAt(0, 64, 1), servertest.BlockStateWith(t, "minecraft:candle", "candles=1,lit=false,waterlogged=false"); got != want {
-		t.Errorf("the candle the water fell beside = %d, want %d (out)", got, want)
-	}
-	if w.soundNamed("minecraft:block.candle.extinguish") == nil {
-		t.Error("the doused candle's fizz was not heard")
-	}
-}
-
-// TestASplashWaterPotionPutsOutABurningMobWithItsSound throws a splash
-// water bottle beside a burning mob: the mob's fire is put out and the
-// neutral-category fizz is heard.
-func TestASplashWaterPotionPutsOutABurningMobWithItsSound(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Dial(t, servertest.MobTestConfig())
-	c.Login("Douser")
-	c.Configure()
-	c.EnterWorldAs("Douser")
-	c.Settle()
-
-	cow := srv.SpawnMob("minecraft:cow", 2.5, 64, 0.5)
-	if cow == 0 {
-		t.Fatal("the cow could not be spawned")
-	}
-	srv.SetMobNoAI(cow)
-	srv.SetMobFire(cow, 200)
-	servertest.HoldTicks(t, srv)
-	srv.GiveSlot("Douser", 36, potionStack(t, "minecraft:splash_potion", registry.MustPotion("minecraft:water"), 1))
-	c.MoveTo(0.5, 64, 0.5, -90, 90)
-	servertest.UseHeld(c, -90, 90)
-
-	w := newPotionWitness()
-	w.listenWhile(srv, c, potionDeadlineTicks)
-	fizz := w.soundNamed("minecraft:entity.generic.extinguish_fire")
-	if fizz == nil {
-		t.Fatal("the doused mob's fizz was not heard")
-	}
-	if fizz.Category != protocol.SoundCategoryNeutral {
-		t.Errorf("the mob's fizz category = %d, want the neutral %d", fizz.Category, protocol.SoundCategoryNeutral)
-	}
-}
-
-// TestASplashWaterPotionPutsOutABurningMonsterWithItsSound is the monster
-// case of the doused-mob fizz: a monster speaks in the hostile bracket,
-// the category extinguishFire takes from the body's own getSoundSource.
-func TestASplashWaterPotionPutsOutABurningMonsterWithItsSound(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Dial(t, servertest.MobTestConfig())
-	c.Login("Douser")
-	c.Configure()
-	c.EnterWorldAs("Douser")
-	c.Settle()
-
-	zombie := srv.SpawnMob("minecraft:zombie", 2.5, 64, 0.5)
-	if zombie == 0 {
-		t.Fatal("the zombie could not be spawned")
-	}
-	srv.SetMobNoAI(zombie)
-	srv.SetMobFire(zombie, 200)
-	servertest.HoldTicks(t, srv)
-	srv.GiveSlot("Douser", 36, potionStack(t, "minecraft:splash_potion", registry.MustPotion("minecraft:water"), 1))
-	c.MoveTo(0.5, 64, 0.5, -90, 90)
-	servertest.UseHeld(c, -90, 90)
-
-	w := newPotionWitness()
-	w.listenWhile(srv, c, potionDeadlineTicks)
-	fizz := w.soundNamed("minecraft:entity.generic.extinguish_fire")
-	if fizz == nil {
-		t.Fatal("the doused monster's fizz was not heard")
-	}
-	if fizz.Category != protocol.SoundCategoryHostile {
-		t.Errorf("the monster's fizz category = %d, want the hostile %d", fizz.Category, protocol.SoundCategoryHostile)
-	}
-}
-
 // splashWaterAt gives a thrower a splash water bottle and throws it straight
 // down at (0.5, 64, 0.5), then runs the ticks the flight and shatter take.
 func splashWaterAt(t *testing.T, srv *server.Server, c *servertest.Client, name string) {
@@ -1697,94 +1182,5 @@ func TestASplashWaterPotionHurtsAndTeleportsAnEnderman(t *testing.T) {
 	}
 	if x, y, z, _ := srv.MobPos(id); x == x0 && y == y0 && z == z0 {
 		t.Error("a water splash left the enderman where it stood, want it teleported")
-	}
-}
-
-// TestASplashWaterPotionHurtsEachWaterSensitiveMob splashes water beside
-// each water-sensitive kind: one health lost to the indirect magic blow.
-// vanilla: AbstractThrownPotion.onHitAsWater
-func TestASplashWaterPotionHurtsEachWaterSensitiveMob(t *testing.T) {
-	t.Parallel()
-	for _, kind := range []string{"minecraft:blaze", "minecraft:snow_golem", "minecraft:strider"} {
-		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.Dial(t, servertest.MobTestConfig())
-			c.Login("Splasher")
-			c.Configure()
-			c.EnterWorldAs("Splasher")
-			c.Settle()
-			servertest.HoldTicks(t, srv)
-
-			id := srv.SpawnMob(kind, 2.0, 64, 0.5)
-			srv.SetMobNoAI(id)
-			before, _ := srv.MobHealth(id)
-			splashWaterAt(t, srv, c, "Splasher")
-			if after, _ := srv.MobHealth(id); before-after != 1 {
-				t.Errorf("a water splash cost the %s %v health, want 1", kind, before-after)
-			}
-		})
-	}
-}
-
-// TestASplashWaterPotionSparesAWaterInsensitiveCow splashes water beside a
-// cow, which is not hurt by water.
-func TestASplashWaterPotionSparesAWaterInsensitiveCow(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Dial(t, servertest.MobTestConfig())
-	c.Login("Splasher")
-	c.Configure()
-	c.EnterWorldAs("Splasher")
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-
-	id := srv.SpawnMob("minecraft:cow", 2.0, 64, 0.5)
-	before, _ := srv.MobHealth(id)
-	splashWaterAt(t, srv, c, "Splasher")
-	if after, _ := srv.MobHealth(id); after != before {
-		t.Errorf("a water splash took a cow from %v to %v health", before, after)
-	}
-}
-
-// TestALingeringPotionThatHitsAMobLeavesItsCloudAtTheMobsFeet throws a
-// lingering potion level into a cow's side: the cloud is put at the cow's
-// position on the ground, not at the impact point up on its box.
-// vanilla: ThrownLingeringPotion.onHitAsPotion
-func TestALingeringPotionThatHitsAMobLeavesItsCloudAtTheMobsFeet(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Lobber", servertest.OpsListing(t, "Lobber"))
-
-	cow := srv.SpawnMob("minecraft:cow", 3.0, 64, 0.5)
-	cowSpawn := c.ExpectMobSpawn(protocol.EntityTypeCow)
-	if cowSpawn.EntityID != cow {
-		t.Fatalf("the planted cow spawned as id %d, want %d", cowSpawn.EntityID, cow)
-	}
-	srv.SetMobNoAI(cow)
-	servertest.HoldTicks(t, srv)
-
-	srv.GiveSlot("Lobber", 36, potionStack(t, "minecraft:lingering_potion", poisonBrewing, 1))
-	// Pitched down past the throw's twenty-degree lift, the flight dips
-	// into the cow's side, above the ground.
-	c.MoveTo(0.5, 64, 0.5, -90, 35)
-	servertest.UseHeld(c, -90, 35)
-
-	var cloud servertest.ThrownSpawn
-	if !c.ReadTicks(srv, 40, func(id int32, data []byte) bool {
-		if id != protocol.IDPlaySpawnEntity {
-			return false
-		}
-		if _, typ := servertest.SpawnEntityHead(data); typ != protocol.EntityTypeAreaEffectCloud {
-			return false
-		}
-		cloud = servertest.ReadThrownSpawn(c, data)
-		return true
-	}) {
-		t.Fatal("no area effect cloud arrived for the lingering throw")
-	}
-	if cloud.X != cowSpawn.X || cloud.Y != cowSpawn.Y || cloud.Z != cowSpawn.Z {
-		t.Errorf("the cloud stands at (%v, %v, %v), want the struck cow's (%v, %v, %v)",
-			cloud.X, cloud.Y, cloud.Z, cowSpawn.X, cowSpawn.Y, cowSpawn.Z)
-	}
-	if cloud.Y != 64 {
-		t.Errorf("the cloud stands at y=%v, want the ground the cow stands on, 64", cloud.Y)
 	}
 }

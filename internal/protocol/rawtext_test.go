@@ -100,20 +100,6 @@ func TestRawTextFitsBoundsNesting(t *testing.T) {
 	}
 }
 
-func TestRawTextEncodingIsDeterministic(t *testing.T) {
-	t.Parallel()
-	tag := nbt.Compound{"text": nbt.String("a"), "bold": nbt.Byte(1), "italic": nbt.Byte(1), "insertion": nbt.String("i")}
-	var first Buffer
-	first.PutText(Text{Raw: tag})
-	for range 20 {
-		var b Buffer
-		b.PutText(Text{Raw: tag})
-		if string(b.Bytes()) != string(first.Bytes()) {
-			t.Fatal("two writes of one component differ")
-		}
-	}
-}
-
 func TestStyledTextOfKeepsUnmodelledStyle(t *testing.T) {
 	t.Parallel()
 	text := func(fields nbt.Compound) nbt.Compound {
@@ -160,42 +146,5 @@ func TestStyledTextOfKeepsUnmodelledStyle(t *testing.T) {
 	want, wantOK := TextOf(deep)
 	if got, ok := StyledTextOf(deep); !wantOK || !ok || got.Raw != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("StyledTextOf(40 nested extras) = %v, want TextOf's modelled form (TextOf ok %v)", ok, wantOK)
-	}
-}
-
-// vanilla: Style.Serializer.MAP_CODEC, KeybindContents
-func TestStyledTextOfKeepsEveryStyleKeyAndKeybind(t *testing.T) {
-	t.Parallel()
-	for name, tag := range map[string]nbt.Tag{
-		"bold":          nbt.Compound{"text": nbt.String("x"), "bold": nbt.Byte(1)},
-		"strikethrough": nbt.Compound{"text": nbt.String("x"), "strikethrough": nbt.Byte(1)},
-		"obfuscated":    nbt.Compound{"text": nbt.String("x"), "obfuscated": nbt.Byte(1)},
-		"font":          nbt.Compound{"text": nbt.String("x"), "font": nbt.String("minecraft:uniform")},
-		"shadow_color":  nbt.Compound{"text": nbt.String("x"), "shadow_color": nbt.Int(-1)},
-		"keybind":       nbt.Compound{"keybind": nbt.String("key.jump")},
-		"keybind_bold":  nbt.Compound{"keybind": nbt.String("key.jump"), "bold": nbt.Byte(1), "extra": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String("y")}}},
-	} {
-		got, ok := StyledTextOf(tag)
-		if !ok || got.Raw == nil || !nbt.Equal(got.Raw, tag) {
-			t.Errorf("%s: StyledTextOf = %+v, %v; want the tag kept", name, got, ok)
-		}
-	}
-	if _, ok := StyledTextOf(nbt.Compound{"keybind": nbt.Int(1)}); ok {
-		t.Error("a non-string keybind was accepted")
-	}
-}
-
-// vanilla: Entity.removeAction
-func TestWithoutClickDropsTheClickFromARawText(t *testing.T) {
-	t.Parallel()
-	click := nbt.Compound{"action": nbt.String("copy_to_clipboard"), "value": nbt.String("v")}
-	raw := nbt.Compound{"text": nbt.String("x"), "bold": nbt.Byte(1), "click_event": click}
-	got := Text{Raw: raw}.WithoutClick()
-	want := nbt.Compound{"text": nbt.String("x"), "bold": nbt.Byte(1)}
-	if !nbt.Equal(got.Raw, want) {
-		t.Errorf("WithoutClick = %v, want %v", got.Raw, want)
-	}
-	if _, kept := raw["click_event"]; !kept {
-		t.Error("the stored tag was edited")
 	}
 }

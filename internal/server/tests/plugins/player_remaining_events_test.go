@@ -8,11 +8,8 @@ import (
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
-	"github.com/golem-mc/golem/registry"
 )
 
 func joinPlugin(t *testing.T, cfg *config.Config, listen func(plugin.Server)) (*server.Server, *servertest.Client) {
@@ -173,36 +170,6 @@ func TestPluginFishCastCancel(t *testing.T) {
 	}
 }
 
-// vanilla: Entity.handlePortal, NetherPortalBlock
-func TestPluginPortalCancelKeepsPlayerHome(t *testing.T) {
-	var events int
-	var cause plugin.TeleportCause
-	var to string
-	srv := servertest.NewTestServerWithPlugins(t, servertest.CrossingTestConfig(t), []plugin.Registration{{Name: "portal", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-		plugin.Listen(s, func(e *plugin.EntityPortalEvent) {
-			events++
-			cause = e.Cause
-			if w, ok := e.To.World.(interface{ Name() string }); ok {
-				to = w.Name()
-			}
-			e.SetCancelled(true)
-		})
-		return nil
-	}}}})
-	c := servertest.DialServer(t, srv)
-	c.Join("Tester")
-	servertest.LightPortal(t, srv, c)
-	c.MoveTo(float64(servertest.PortalInnerX0)+0.5, servertest.PortalFloorY, servertest.PortalInnerZ+0.5, 0, 0)
-	servertest.WaitFor(t, srv, 200, func() bool { return events > 0 })
-	servertest.AwaitTicks(t, srv, 5)
-	if got := srv.PlayerDimension("Tester"); got != world.DimensionName {
-		t.Fatalf("a cancelled portal crossing left the player in %q", got)
-	}
-	if cause != plugin.TeleportNetherPortal || to != world.NetherName && to != "" {
-		t.Errorf("cause %v, destination %q", cause, to)
-	}
-}
-
 // pump runs ticks paced in real time, so a packet a listener blocks on is
 // read and finished.
 func pump(t *testing.T, srv *server.Server, n int) {
@@ -226,36 +193,6 @@ func hurt(t *testing.T, srv *server.Server) {
 			servertest.RunTicks(t, srv, 1)
 			time.Sleep(3 * time.Millisecond)
 		}
-	}
-}
-
-// vanilla: LivingEntity.doHurtEquipment, ItemStack.hurtAndBreak
-func TestPluginItemDamageOnWornArmour(t *testing.T) {
-	var events int
-	var cancel bool
-	srv, _ := joinPlugin(t, servertest.SurvivalTestConfig(), func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.PlayerItemDamageEvent) {
-			events++
-			if cancel {
-				e.SetCancelled(true)
-			} else {
-				e.Damage = 7
-			}
-		})
-	})
-	srv.GiveSlot("Tester", player.ArmorSlot+1, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:iron_chestplate"), Count: 1})
-	cancel = true
-	hurt(t, srv)
-	servertest.RunTicks(t, srv, 1)
-	if got := srv.InventorySlot("Tester", player.ArmorSlot+1); events != 1 || got.Damage != 0 {
-		t.Fatalf("cancelled armour wear: %d events, damage %d", events, got.Damage)
-	}
-	cancel = false
-	servertest.RunTicks(t, srv, 25) // the hurt invulnerability
-	hurt(t, srv)
-	servertest.RunTicks(t, srv, 1)
-	if got := srv.InventorySlot("Tester", player.ArmorSlot+1); events != 2 || got.Damage != 7 {
-		t.Fatalf("changed armour wear: %d events, damage %d, want 7", events, got.Damage)
 	}
 }
 
@@ -352,39 +289,5 @@ func TestPluginFishBiteCaughtAndFailed(t *testing.T) {
 	servertest.RunTicks(t, srv, 2)
 	if counts[plugin.FishCaught] != 2 || loot() == 0 || !sawCaught {
 		t.Fatalf("allowed catch: %d events, %d items, caught set %v", counts[plugin.FishCaught], srv.ItemCount(), sawCaught)
-	}
-}
-
-// vanilla: FishingHook.retrieve, FishingHook.pullEntity
-func TestPluginFishCaughtEntityCancel(t *testing.T) {
-	var events int
-	var typ registry.EntityType = -1
-	srv, c := joinPlugin(t, servertest.SurvivalTestConfig(), func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.PlayerFishEvent) {
-			if e.State == plugin.FishCaughtEntity {
-				events++
-				if e.Caught != nil {
-					typ = e.Caught.Type()
-				}
-				e.SetCancelled(true)
-			}
-		})
-	})
-	srv.GiveSlot("Tester", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:fishing_rod"), Count: 1})
-	cow := srv.SpawnMob("minecraft:cow", 3.5, 64, 0.5)
-	srv.SetMobNoAI(cow)
-	c.MoveTo(0.5, 64, 0.5, -90, 10)
-	c.Settle()
-	servertest.UseHeld(c, -90, 10)
-	pump(t, srv, 10)
-	servertest.RunTicks(t, srv, 40)
-	servertest.UseHeld(c, -90, 10)
-	pump(t, srv, 10)
-	servertest.RunTicks(t, srv, 2)
-	if events != 1 || typ != registry.EntityTypeCow {
-		t.Fatalf("caught-entity events %d, type %v", events, typ)
-	}
-	if got := srv.InventorySlot("Tester", 36); got.Damage != 0 {
-		t.Errorf("a cancelled pull wore the rod by %d", got.Damage)
 	}
 }

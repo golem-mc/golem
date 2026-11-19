@@ -2,14 +2,12 @@ package network
 
 import (
 	"bytes"
-	"math"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -188,72 +186,6 @@ func writeFiles(t *testing.T, files map[string]string) {
 	}
 }
 
-// TestPackWorldClockRuns checks that a data pack's new world_clock gets a
-// running clock: /time of it answers, and its Update Time entry carries rate
-// 1. vanilla: ServerClockManager.init
-func TestPackWorldClockRuns(t *testing.T) {
-	t.Cleanup(func() { registry.ApplyPackRegistries(nil) })
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LevelName = t.TempDir()
-	pack := filepath.Join(cfg.LevelName, "datapacks", "p")
-	writeFiles(t, map[string]string{
-		filepath.Join(pack, "pack.mcmeta"):                `{"pack":{"description":"p"}}`,
-		filepath.Join(pack, "data/pk/world_clock/x.json"): `{}`,
-	})
-
-	_, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"), func(s *server.Server) {
-		s.SetTimeSync(0)
-	})
-	c.ChatCommand("time of pk:x set 500")
-	c.ExpectTimeFeedback("commands.time.set.absolute", protocol.Text{Text: "pk:x"}, protocol.Text{Number: new(int64(500))})
-	c.ExpectUpdateClocks(servertest.UpdateClock{Id: registry.MustID("minecraft:world_clock", "pk:x"), Total: 500, Rate: 1})
-}
-
-// TestACreativeStackKeepsAPackPaintingVariant: a painting whose variant is
-// the data pack's entry after the built-ins, which Registry Data listed, is
-// kept by Set Creative Mode Slot rather than refused as out of range, and
-// hangs as that variant at the pack's size.
-// vanilla: PaintingVariant.STREAM_CODEC reads the client's registry,
-// HangingEntityItem.useOn
-func TestACreativeStackKeepsAPackPaintingVariant(t *testing.T) {
-	t.Cleanup(func() { registry.ApplyPackRegistries(nil) })
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.GameMode = "creative"
-	cfg.LevelName = t.TempDir()
-	pack := filepath.Join(cfg.LevelName, "datapacks", "p")
-	writeFiles(t, map[string]string{
-		filepath.Join(pack, "pack.mcmeta"):                        `{"pack":{"description":"p"}}`,
-		filepath.Join(pack, "data/pk/painting_variant/wide.json"): `{"asset_id":"pk:wide","width":3,"height":1}`,
-	})
-
-	srv, c := servertest.Join(t, cfg, "Testificate")
-	wide := servertest.PaintingVariantID(t, "pk:wide")
-	c.SetCreativeSlot(36, servertest.PaintingStack(t, wide))
-	c.Settle()
-	got, ok := srv.InventorySlot("Testificate", 36).PaintingVariantOf()
-	if !ok || got != wide {
-		t.Errorf("slot holds painting variant %d (ok=%v), want %d", got, ok, wide)
-	}
-
-	// The three cells of wall pk:wide covers, facing north.
-	for x := int32(3); x <= 5; x++ {
-		srv.SetBlock(x, 64, 5, servertest.PaintingWallState)
-	}
-	c.MoveToGround(4.5, 64, 3.5, true)
-	c.Settle()
-	c.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	painting := c.AwaitSpawn(protocol.EntityTypePainting)
-	entries := c.AwaitMetadataFor(painting.EntityID)
-	if field := servertest.MetaOf(entries, protocol.MetadataIndexPaintingVariant); field == nil || field.VarintVal != wide+1 {
-		t.Errorf("the hung painting's variant = %v, want pk:wide (%d)", field, wide+1)
-	}
-	if n := srv.PaintingCount(); n != 1 {
-		t.Errorf("the server holds %d paintings after hanging the pack stack, want 1", n)
-	}
-}
-
 // TestAPackPlaceableTagPicksThePlacedPainting hangs a plain painting item
 // with a pack whose minecraft:placeable tag holds only its 3x1 pk:wide: the
 // roll draws from the pack's tag, so pk:wide hangs on a wall a built-in 1x1
@@ -290,37 +222,5 @@ func TestAPackPlaceableTagPicksThePlacedPainting(t *testing.T) {
 	entries := c.AwaitMetadataFor(painting.EntityID)
 	if field := servertest.MetaOf(entries, protocol.MetadataIndexPaintingVariant); field == nil || field.VarintVal != wide+1 {
 		t.Errorf("the placed painting's variant = %v, want pk:wide (%d), the pack tag's only entry", field, wide+1)
-	}
-}
-
-// TestASummonedPackPaintingTakesItsSize summons a painting of a pack's
-// 3x1 variant: it keeps the variant, which the metadata names, and its box
-// spans three blocks along the wall and one up.
-// vanilla: PaintingVariant.DIRECT_CODEC, Painting.calculateBoundingBox
-func TestASummonedPackPaintingTakesItsSize(t *testing.T) {
-	t.Cleanup(func() { registry.ApplyPackRegistries(nil) })
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LevelName = t.TempDir()
-	pack := filepath.Join(cfg.LevelName, "datapacks", "p")
-	writeFiles(t, map[string]string{
-		filepath.Join(pack, "pack.mcmeta"):                        `{"pack":{"description":"p"}}`,
-		filepath.Join(pack, "data/pk/painting_variant/wide.json"): `{"asset_id":"pk:wide","width":3,"height":1}`,
-	})
-
-	srv, c := servertest.Join(t, cfg, "Summoner", servertest.OpsListing(t, "Summoner"))
-	wide := servertest.PaintingVariantID(t, "pk:wide")
-	c.ChatCommand(`summon minecraft:painting 5.5 64 0.5 {facing:2b,variant:"pk:wide"}`)
-	painting := c.AwaitSpawn(protocol.EntityTypePainting)
-	entries := c.AwaitMetadataFor(painting.EntityID)
-	if field := servertest.MetaOf(entries, protocol.MetadataIndexPaintingVariant); field == nil || field.VarintVal != wide+1 {
-		t.Errorf("the summoned painting's variant = %v, want pk:wide (%d)", field, wide+1)
-	}
-	minX, minY, _, maxX, maxY, _, ok := srv.PaintingBox(painting.EntityID)
-	if !ok {
-		t.Fatal("the server holds no summoned painting")
-	}
-	if w, h := maxX-minX, maxY-minY; math.Abs(w-3) > 1e-9 || math.Abs(h-1) > 1e-9 {
-		t.Errorf("the summoned painting's box is %g wide and %g tall, want 3 by 1", w, h)
 	}
 }

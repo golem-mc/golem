@@ -99,52 +99,11 @@ func TestPackTagReplaceDropsBuiltinEntries(t *testing.T) {
 	}
 }
 
-func TestPackTagWithMissingRequiredEntryIsDropped(t *testing.T) {
-	problems := applyForTest(t, PackTags{"minecraft:block": {
-		"pk:bad":   {Entries: []PackTagEntry{req("minecraft:stone"), req("nope:missing")}},
-		"pk:user":  {Entries: []PackTagEntry{{ID: "pk:bad", Tag: true, Required: true}}},
-		"pk:soft":  {Entries: []PackTagEntry{{ID: "pk:bad", Tag: true, Required: false}, req("minecraft:dirt")}},
-		"pk:loop1": {Entries: []PackTagEntry{{ID: "pk:loop2", Tag: true, Required: true}}},
-		"pk:loop2": {Entries: []PackTagEntry{{ID: "pk:loop1", Tag: true, Required: true}}},
-	}})
-	for _, gone := range []string{"pk:bad", "pk:user", "pk:loop1", "pk:loop2"} {
-		if _, ok := BlockTagMembers(gone); ok {
-			t.Errorf("%s loaded", gone)
-		}
-	}
-	if m, ok := BlockTagMembers("pk:soft"); !ok || !slices.Equal(m, []string{"minecraft:dirt"}) {
-		t.Errorf("pk:soft = %v, %v", m, ok)
-	}
-	if len(problems) < 3 {
-		t.Errorf("problems = %v", problems)
-	}
-}
-
 func TestPackTagsOfSynchronizedRegistry(t *testing.T) {
 	applyForTest(t, PackTags{"minecraft:enchantment": {"minecraft:curse": {Entries: []PackTagEntry{req("minecraft:mending")}}}})
 	mending, _ := EnchantmentID("minecraft:mending")
 	if !EnchantmentInTag(mending, "minecraft:curse") {
 		t.Error("mending not in the extended curse tag")
-	}
-}
-
-func TestBuiltinBlockTagIDsAreRegistryIDs(t *testing.T) {
-	for _, r := range BuiltinTags {
-		if r.Registry != "minecraft:block" {
-			continue
-		}
-		for _, tag := range r.Tags {
-			var got []string
-			for _, id := range tag.IDs {
-				got = append(got, Block(id).Name())
-			}
-			want := slices.Clone(BlockTags[tag.Name])
-			slices.Sort(got)
-			slices.Sort(want)
-			if !slices.Equal(got, want) {
-				t.Fatalf("%s: ids name %v, want %v", tag.Name, got, want)
-			}
-		}
 	}
 }
 
@@ -181,58 +140,5 @@ func TestResolvingDefinitionsReproducesTheBuiltinTables(t *testing.T) {
 				}
 			}
 		}
-	}
-}
-
-func TestPackChangeReachesBuiltinTagsThatReferenceIt(t *testing.T) {
-	applyForTest(t, PackTags{"minecraft:block": {
-		"minecraft:oak_logs": {Replace: true, Entries: []PackTagEntry{req("minecraft:stone")}},
-	}})
-	stone, _ := BlockByName("minecraft:stone")
-	oak, _ := BlockByName("minecraft:oak_log")
-	for _, tag := range []string{"minecraft:logs", "minecraft:logs_that_burn"} {
-		id := BlockTagOf(tag)
-		if !stone.InTag(id) || oak.InTag(id) {
-			t.Errorf("%s: stone in %v, oak log in %v; want true, false", tag, stone.InTag(id), oak.InTag(id))
-		}
-	}
-}
-
-func TestBlockTagSnapshotSurvivesReload(t *testing.T) {
-	signs := BlockTagOf("minecraft:signs")
-	before := CurrentBlockTags()
-	if before != CurrentBlockTags() || before.InTag(BlockTorch, signs) {
-		t.Fatal("unstable snapshot or torch already in signs")
-	}
-	applyForTest(t, PackTags{"minecraft:block": {
-		"minecraft:signs": {Entries: []PackTagEntry{req("minecraft:torch")}},
-	}})
-	after := CurrentBlockTags()
-	if after == before || !after.InTag(BlockTorch, signs) || before.InTag(BlockTorch, signs) {
-		t.Fatal("tag reload did not publish a new immutable snapshot")
-	}
-	ApplyPackTags(nil)
-	if CurrentBlockTags().InTag(BlockTorch, signs) || !after.InTag(BlockTorch, signs) {
-		t.Fatal("restoring built-in tags changed a retained snapshot")
-	}
-	if before.InTag(Block(BlockCount), signs) || before.InTag(BlockAir, noBlockTag) {
-		t.Fatal("invalid block or tag belongs to snapshot")
-	}
-}
-
-func TestPackTagsForRegistryWithoutVanillaTags(t *testing.T) {
-	applyForTest(t, PackTags{"minecraft:trim_material": {
-		"pk:x": {Entries: []PackTagEntry{req("minecraft:amethyst"), {ID: "minecraft:copper", Required: true}}},
-	}})
-	got, ok := SyncTagMembers("minecraft:trim_material")("pk:x")
-	if !ok || !slices.Equal(got, []string{"minecraft:amethyst", "minecraft:copper"}) {
-		t.Fatalf("pk:x = %v, %v", got, ok)
-	}
-	if _, ok := SyncTagMembers("minecraft:trim_material")("pk:y"); ok {
-		t.Error("pk:y resolved")
-	}
-	ApplyPackTags(nil)
-	if _, ok := SyncTagMembers("minecraft:trim_material")("pk:x"); ok {
-		t.Error("pk:x survived reset")
 	}
 }

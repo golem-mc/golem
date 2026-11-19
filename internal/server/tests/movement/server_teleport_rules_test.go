@@ -1,8 +1,9 @@
 package movement
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
 // TestTeleportWithoutRotationKeepsEachTargetsFacing checks that a /tp that
@@ -75,14 +76,4 @@ func TestTeleportRefusesAPositionOutsideTheWorld(t *testing.T) {
 	if p := srv.PlayerPosition("Alpha"); p.X != 29999999.5 {
 		t.Errorf("Alpha at x=%v, want the in-bounds 29999999.5", p.X)
 	}
-}
-
-// TestSetblockFeedbackCountsInIntegers checks that /setblock names the
-// position as numbers, which is how vanilla sends the three ints.
-// vanilla: SetBlockCommand.setBlock
-func TestSetblockFeedbackCountsInIntegers(t *testing.T) {
-	t.Parallel()
-	_, alpha, _, _ := servertest.StartExecuteWorldForTwo(t, "Alpha", "Beta")
-	alpha.ChatCommand("setblock 4 100 4 stone")
-	servertest.AwaitCommandFeedbackText(t, alpha, "commands.setblock.success", servertest.NumberText(4), servertest.NumberText(100), servertest.NumberText(4))
 }

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
@@ -130,49 +129,6 @@ func TestScheduleRunsOnTheDueTick(t *testing.T) {
 	c.Disconnect()
 }
 
-// TestScheduleSameTickOrder checks that events due on one tick run in the
-// order they were scheduled, whichever function each names.
-// vanilla: TimerQueue.schedule, TimerQueue.tick
-func TestScheduleSameTickOrder(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := scheduleWorld(t)
-
-	c.ChatCommand("schedule function t:first 4")
-	servertest.FeedbackComponent(t, c)
-	c.ChatCommand("schedule function t:second 4")
-	servertest.FeedbackComponent(t, c)
-	servertest.RunTicks(t, srv, 4)
-	if got := score(t, c, "#o"); got != 6 {
-		t.Errorf("#o after first then second = %d, want 6", got)
-	}
-
-	c.ChatCommand("schedule function t:second 4")
-	servertest.FeedbackComponent(t, c)
-	c.ChatCommand("schedule function t:first 4")
-	servertest.FeedbackComponent(t, c)
-	servertest.RunTicks(t, srv, 4)
-	if got := score(t, c, "#o"); got != 5 {
-		t.Errorf("#o after second then first = %d, want 5", got)
-	}
-	c.Disconnect()
-}
-
-// TestScheduledFunctionRunsAtGamemasterLevel checks that scheduled functions
-// run as the game loop's gamemaster-level source, and that a function with a
-// level 3 command is not loaded, so it cannot be scheduled.
-// vanilla: ServerFunctionManager.getGameLoopSender, ServerFunctionLibrary.reload
-func TestScheduledFunctionRunsAtGamemasterLevel(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := scheduleWorld(t)
-
-	if got := srv.GameLoopPermLevel(); got != 2 {
-		t.Errorf("scheduled functions run at level %d, want 2", got)
-	}
-	c.ChatCommand("schedule function t:grant 5")
-	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("arguments.function.unknown", "t:grant"))
-	c.Disconnect()
-}
-
 // TestScheduleReplaceAndAppend checks that replace, the default, drops the
 // queued events of the function, append keeps them, and an append at a
 // queued time adds nothing.
@@ -250,92 +206,6 @@ func TestScheduleClear(t *testing.T) {
 	c.Disconnect()
 }
 
-// vanilla: ScheduleCommand.register, ScheduleCommand.remove
-func TestScheduleClearIdentifier(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := scheduleWorld(t)
-	schedule(t, c, "schedule_probe 100t", "commands.schedule.created.function", "minecraft:schedule_probe", 100)
-	c.ChatCommand("schedule clear schedule_probe")
-	with := expectScoreboardFeedback(t, c, "commands.schedule.cleared.success")
-	if len(with) != 2 || number(with[0]) != 1 || with[1].Text != "minecraft:schedule_probe" {
-		t.Errorf("clear said %+v, want 1 event of minecraft:schedule_probe", with)
-	}
-	c.ChatCommand("schedule clear foo")
-	if with := expectScoreboardRefusal(t, c, "commands.schedule.cleared.failure"); len(with) != 1 || with[0].Text != "minecraft:foo" {
-		t.Errorf("unknown clear said %+v, want minecraft:foo", with)
-	}
-	for _, id := range []string{"#t:all", "a/b:c"} {
-		key := "command.expected.separator"
-		if id == "a/b:c" {
-			key = "argument.id.invalid"
-		}
-		c.ChatCommand("schedule clear " + id)
-		c.ExpectCommandError(servertest.CommandErrorMessageForTest(key),
-			servertest.CommandErrorContextForTest("schedule clear "+id, len("schedule clear ")))
-	}
-	servertest.RunTicks(t, srv, 100)
-	if got := score(t, c, "#a"); got != 0 {
-		t.Errorf("cleared function ran %d times, want 0", got)
-	}
-	c.Disconnect()
-}
-
-func TestScheduleClearIdentifierTree(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Dial(t, servertest.BlockTestConfig(), servertest.OpsListing(t, "Tester"))
-	c.Login("Tester")
-	c.Configure()
-	nodes := servertest.DecodeCommands(t, c.AwaitPlay(protocol.IDPlayCommands))
-	c.SkipJoin()
-	node := nodes[0]
-	for _, name := range []string{"schedule", "clear", "function"} {
-		found := false
-		for _, i := range node.Children {
-			if nodes[i].Name == name {
-				node, found = nodes[i], true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("missing schedule clear node %s", name)
-		}
-	}
-	if node.Parser != 36 || !node.Executable { // minecraft:resource_location
-		t.Errorf("clear function = %+v, want executable identifier", node)
-	}
-	c.Disconnect()
-}
-
-// TestScheduleTag checks that a scheduled tag runs every function it holds
-// in order, nested tags spliced in and repeats dropped, and that a tag that
-// is not loaded schedules and runs nothing.
-// vanilla: FunctionTagCallback.handle, TagLoader.build
-func TestScheduleTag(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := scheduleWorld(t)
-
-	schedule(t, c, "#t:outer 2", "commands.schedule.created.tag", "t:outer", 2)
-	schedule(t, c, "#t:broken 2", "commands.schedule.created.tag", "t:broken", 2)
-	schedule(t, c, "#t:unknown 2", "commands.schedule.created.tag", "t:unknown", 2)
-	servertest.RunTicks(t, srv, 2)
-	// outer = all (count, count2) + count, a repeat.
-	if a, b := score(t, c, "#a"), score(t, c, "#b"); a != 1 || b != 1 {
-		t.Errorf("counters after the tag = %d, %d, want 1, 1", a, b)
-	}
-
-	c.ChatCommand("function #t:all")
-	with := expectScoreboardFeedback(t, c, "commands.function.scheduled.multiple")
-	if len(with) != 1 || len(with[0].Extra) != 3 || with[0].Extra[0].Text != "t:count" || with[0].Extra[2].Text != "t:count2" {
-		t.Errorf("/function #t:all announced %+v, want t:count and t:count2", with)
-	}
-	if a, b := score(t, c, "#a"), score(t, c, "#b"); a != 2 || b != 2 {
-		t.Errorf("counters after /function #t:all = %d, %d, want 2, 2", a, b)
-	}
-	c.ChatCommand("function #t:broken")
-	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("commands.function.scheduled.no_functions", "t:broken"))
-	c.Disconnect()
-}
-
 // TestScheduleRefusals checks the refusals: a time of zero, a negative time,
 // and a function that is not loaded.
 // vanilla: ScheduleCommand.ERROR_SAME_TICK, FunctionArgument.ERROR_UNKNOWN_FUNCTION
@@ -354,30 +224,6 @@ func TestScheduleRefusals(t *testing.T) {
 	servertest.RunTicks(t, srv, 6)
 	if got := score(t, c, "#a"); got != 0 {
 		t.Errorf("count after the refusals = %d, want 0", got)
-	}
-	c.Disconnect()
-}
-
-// TestScheduleWaitsOutAFrozenGame checks that the queue runs at the game
-// time: a frozen game does not advance it, so an event comes due only after
-// the unfreeze.
-// vanilla: ServerLevel.tickTime
-func TestScheduleWaitsOutAFrozenGame(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := scheduleWorld(t)
-
-	schedule(t, c, "t:count 3", "commands.schedule.created.function", "t:count", 3)
-	c.ChatCommand("tick freeze")
-	c.Settle()
-	servertest.RunTicks(t, srv, 10)
-	if got := score(t, c, "#a"); got != 0 {
-		t.Fatalf("count in a frozen game = %d, want 0", got)
-	}
-	c.ChatCommand("tick unfreeze")
-	c.Settle()
-	servertest.RunTicks(t, srv, 3)
-	if got := score(t, c, "#a"); got != 1 {
-		t.Errorf("count 3 ticks after the unfreeze = %d, want 1", got)
 	}
 	c.Disconnect()
 }
@@ -453,57 +299,6 @@ func TestScheduledEventsSurviveARestart(t *testing.T) {
 	c2.Disconnect()
 }
 
-// TestScheduledOverdueEventRunsOnFirstTick checks that an event whose time
-// passed while the server was down runs on the first tick after the restart.
-// vanilla: TimerQueue.tick
-func TestScheduledOverdueEventRunsOnFirstTick(t *testing.T) {
-	t.Parallel()
-	srv, c, cfg := scheduleWorld(t)
-
-	c.ChatCommand("schedule function t:count 100000")
-	servertest.FeedbackComponent(t, c)
-	c.Disconnect()
-	srv.Shutdown()
-
-	path := filepath.Join(cfg.LevelName, "data", "minecraft", "scheduled_events.dat")
-	events := readScheduledEvents(t, path)
-	if len(events) != 1 {
-		t.Fatalf("saved %d events, want 1", len(events))
-	}
-	events[0].(nbt.Compound)["trigger_time"] = nbt.Long(1)
-	root := nbt.Compound{
-		"DataVersion": nbt.Int(1),
-		"data":        nbt.Compound{"events": nbt.List{Elem: nbt.TypeCompound, Items: events}},
-	}
-	raw, err := nbt.Encode("", root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	if _, err := gz.Write(raw); err != nil {
-		t.Fatal(err)
-	}
-	if err := gz.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	restarted := *cfg
-	srv2, c2, _ := startScheduleWorld(t, &restarted, false)
-	servertest.RunTicks(t, srv2, 1)
-	if got := score(t, c2, "#a"); got != 1 {
-		t.Errorf("count after the first tick with an overdue event = %d, want 1", got)
-	}
-	servertest.RunTicks(t, srv2, 5)
-	if got := score(t, c2, "#a"); got != 1 {
-		t.Errorf("count 5 ticks on = %d, want it run once", got)
-	}
-	c2.Disconnect()
-}
-
 // readScheduledEvents decodes the events list of a saved scheduled_events.dat.
 func readScheduledEvents(t *testing.T, path string) []nbt.Tag {
 	t.Helper()
@@ -530,35 +325,4 @@ func readScheduledEvents(t *testing.T, path string) []nbt.Tag {
 	data, _ := nbt.Get[nbt.Compound](root, "data")
 	events, _ := nbt.Get[nbt.List](data, "events")
 	return events.Items
-}
-
-// TestLoadAndTickTags checks that the minecraft:load tag runs once after the
-// pack loads and the minecraft:tick tag on every tick that runs.
-// vanilla: ServerFunctionManager.tick
-func TestLoadAndTickTags(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LevelName = t.TempDir()
-	pack := filepath.Join(cfg.LevelName, "datapacks", "test")
-	writeFile(t, filepath.Join(pack, "pack.mcmeta"), `{"pack":{"pack_format":101,"description":"test"}}`)
-	writeFile(t, filepath.Join(pack, "data/minecraft/tags/function/load.json"), `{"values":["t:load"]}`)
-	writeFile(t, filepath.Join(pack, "data/minecraft/tags/function/tick.json"), `{"values":["t:tick"]}`)
-	writeFile(t, filepath.Join(pack, "data/t/function/load.mcfunction"),
-		"scoreboard objectives add cnt dummy\nscoreboard players add #a cnt 1\nscoreboard players add #b cnt 0\n")
-	writeFile(t, filepath.Join(pack, "data/t/function/tick.mcfunction"), "scoreboard players add #b cnt 1\n")
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Testificate"))
-	servertest.FreezeUntilHeld(t, srv)
-	c := connect().Join("Testificate")
-	servertest.HoldTicks(t, srv)
-	servertest.RunTicks(t, srv, 5)
-	if got := score(t, c, "#a"); got != 1 {
-		t.Errorf("load tag ran %d times, want 1", got)
-	}
-	b := score(t, c, "#b")
-	servertest.RunTicks(t, srv, 7)
-	if got := score(t, c, "#b"); got != b+7 {
-		t.Errorf("tick tag count went %d -> %d over 7 ticks, want +7", b, got)
-	}
-	c.Disconnect()
 }

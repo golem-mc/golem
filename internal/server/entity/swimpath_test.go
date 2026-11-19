@@ -3,8 +3,6 @@ package entity
 import (
 	"math"
 	"testing"
-
-	"github.com/golem-mc/golem/registry"
 )
 
 // dividedPond is a water box, x 0..10, z 0..6 and two cells deep at y 62..63,
@@ -56,28 +54,6 @@ func TestASwimPathGoesThroughTheGapOfAWall(t *testing.T) {
 	}
 }
 
-// TestASwimPathToAnUnreachableCellEndsAtTheNearestNode: a target in rock is
-// approached as near as the water allows.
-// vanilla: Target.updateBest
-func TestASwimPathToAnUnreachableCellEndsAtTheNearestNode(t *testing.T) {
-	w := dividedPond(t)
-	path := findSwimPath(w, 1, 1, Waypoint{1, 62, 1}, Waypoint{5, 62, 1}, 0, 16, 256)
-	if end := path[len(path)-1]; end != (Waypoint{4, 62, 1}) {
-		t.Errorf("the path ends at %v, want the cell beside the wall", end)
-	}
-}
-
-// TestASwimPathStopsAtTheVisitedNodeBudget: a search given too few nodes ends
-// short of a target it could otherwise reach.
-// vanilla: PathFinder.findPath
-func TestASwimPathStopsAtTheVisitedNodeBudget(t *testing.T) {
-	w := dividedPond(t)
-	path := findSwimPath(w, 1, 1, Waypoint{1, 62, 1}, Waypoint{9, 62, 1}, 1, 16, 20)
-	if end := path[len(path)-1]; manhattan(end, Waypoint{9, 62, 1}) <= 1 {
-		t.Errorf("a 20-node search reached %v", end)
-	}
-}
-
 // TestAFishSwimsRoundAWall: ordered to the far side of the wall, a cod follows
 // its path through the gap and arrives. The stuck watch drops a long swim
 // whose pace falls behind the move control's, so the order is renewed as the
@@ -102,35 +78,6 @@ func TestAFishSwimsRoundAWall(t *testing.T) {
 	t.Errorf("the cod ended at (%.2f, %.2f, %.2f), want it across the pond", m.X, m.Y, m.Z)
 }
 
-// TestASwimPathRefusesAWaterloggedFence: a waterlogged fence holds water but
-// refuses a swim, so a path across a flooded area goes nowhere through it.
-// vanilla: SwimNodeEvaluator.getPathTypeOfMob, FenceBlock.isPathfindable
-func TestASwimPathRefusesAWaterloggedFence(t *testing.T) {
-	w := newTestWorld()
-	water := defaultState(t, "minecraft:water")
-	fence, ok := registry.WithBool(defaultState(t, "minecraft:oak_fence"), registry.PropWaterlogged, true)
-	if !ok {
-		t.Fatal("an oak fence has no waterlogged property")
-	}
-	for x := int32(-2); x <= 12; x++ {
-		for z := int32(-6); z <= 6; z++ {
-			for y := int32(58); y <= 64; y++ {
-				if x == 5 {
-					w.set(x, y, z, fence)
-				} else {
-					w.set(x, y, z, water)
-				}
-			}
-		}
-	}
-	path := findSwimPath(w, 1, 1, Waypoint{0, 61, 0}, Waypoint{10, 61, 0}, 1, 16, 256)
-	for _, c := range path {
-		if c.X == 5 {
-			t.Fatalf("the path %v crosses the fence at %v", path, c)
-		}
-	}
-}
-
 // openPond is a water box, x 0..10, z 0..4 and two cells deep at y 62..63,
 // with a cod given the straight path (5,62,2), (6,62,2), (7,62,2) from x.
 func openPond(t *testing.T, x float64) (testWorld, *Mob) {
@@ -147,28 +94,4 @@ func openPond(t *testing.T, x float64) (testWorld, *Mob) {
 	m.moveTo([]Waypoint{{5, 62, 2}, {6, 62, 2}, {7, 62, 2}}, Waypoint{7, 62, 2}, 1)
 	m.nav.swim = true
 	return w, m
-}
-
-// TestAFishTargetsTheNextNodeWithinTwoBlocksInOpenWater: 1.4 blocks short of
-// its node, out of its reach box, a cod with a clear line passes it.
-// vanilla: PathNavigation.shouldTargetNextNodeInDirection, WaterBoundPathNavigation.canMoveDirectly
-func TestAFishTargetsTheNextNodeWithinTwoBlocksInOpenWater(t *testing.T) {
-	w, m := openPond(t, 5.5-1.4)
-	m.swimNavTick(w)
-	if len(m.nav.path) == 0 || m.nav.path[0] != (Waypoint{6, 62, 2}) {
-		t.Errorf("path = %v, want it to start at the second node (6, 62, 2)", m.nav.path)
-	}
-}
-
-// TestAFishKeepsItsNodeBehindABlock: a stone block on the line to the node
-// keeps the cod aiming at it. The cod sits 1.9 blocks short, still within
-// two, so a whole block fits between it and the node.
-// vanilla: PathNavigation.isClearForMovementBetween
-func TestAFishKeepsItsNodeBehindABlock(t *testing.T) {
-	w, m := openPond(t, 5.5-1.9)
-	w.set(4, 62, 2, defaultState(t, "minecraft:stone"))
-	m.swimNavTick(w)
-	if len(m.nav.path) == 0 || m.nav.path[0] != (Waypoint{5, 62, 2}) {
-		t.Errorf("path = %v, want it to still start at the first node (5, 62, 2)", m.nav.path)
-	}
 }

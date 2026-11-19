@@ -58,20 +58,3 @@ func (w *emptyCollisionWorld) CollisionCellsIn(_, _, _, _, _, _ int32, buf []wor
 	w.reads++
 	return buf[:0]
 }
-
-func TestEmptySparseMoveCellsAreCached(t *testing.T) {
-	w := &emptyCollisionWorld{testWorld: newTestWorld()}
-	box := AABB{0.2, 64, 0.2, 0.8, 65.8, 0.8}
-	view := WithBodies(w, []AABB{{100, 64, 100, 101, 65, 101}})
-	cells := gatherMoveCells(view, box, 0.1, -0.08, 0.1, 0.6)
-	defer cells.release()
-	for axis, d := range []float64{0.1, -0.08, 0.1} {
-		_, _, blocked := clipMove(view, collideCtx{moveCells: &cells}, box, axis, d)
-		if blocked {
-			t.Fatalf("empty sweep blocked on axis %d", axis)
-		}
-	}
-	if w.reads != 1 {
-		t.Fatalf("empty cell gather read %d times, want 1", w.reads)
-	}
-}

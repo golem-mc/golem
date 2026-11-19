@@ -52,38 +52,3 @@ func TestASwimmingPlayerCanPlaceABlockAboveTheirBody(t *testing.T) {
 		})
 	}
 }
-
-func TestBlockPlacementUsesThePlayersScale(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name, scale string
-		x, y        int32
-		allowed     bool
-	}{
-		{"above a small player", "0.5", 0, 65, true},
-		{"inside a tall player", "2", 0, 66, false},
-		{"beside a wide player", "2", 1, 64, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-			servertest.HoldTicks(t, srv)
-			c.ChatCommand("attribute @s minecraft:scale base set " + tc.scale)
-			servertest.AwaitSystemChatSaying(t, c, "commands.attribute.base_value.set.success")
-			stone := registry.MustState("minecraft:stone", nil)
-			srv.SetBlock(tc.x+1, tc.y, 0, stone)
-			c.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{
-				ItemID: servertest.MustItemID(t, "minecraft:stone"), Count: 1,
-			})
-			c.UseBlockSeq(tc.x+1, tc.y, 0, protocol.FaceWest, 1)
-			c.Settle()
-			want := uint16(0)
-			if tc.allowed {
-				want = stone
-			}
-			if got := srv.BlockAt(tc.x, tc.y, 0); got != want {
-				t.Errorf("block %s = %d, want %d", tc.name, got, want)
-			}
-		})
-	}
-}

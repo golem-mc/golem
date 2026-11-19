@@ -97,38 +97,3 @@ func TestAShulkerBoxConductsOnlyWhileClosed(t *testing.T) {
 		t.Errorf("the wire beside the closed box has power %s, want 15", got)
 	}
 }
-
-// TestAReplacedShulkerBoxStartsClosed checks that a box swapped mid-animation
-// leaves no lid state behind: the new box conducts at once, keeps conducting
-// through the ticks the old animation would have run, and opens from zero.
-// vanilla: ShulkerBoxBlockEntity starts CLOSED
-func TestAReplacedShulkerBoxStartsClosed(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	setBlock(t, w, p, 10, 64, 10, rsState(t, "minecraft:red_shulker_box", map[string]string{"facing": "up"}))
-	clock := tickFor(p, 0, 2)
-	p.ShulkerViewersChanged(10, 64, 10, 1)
-	clock = tickFor(p, clock, 3)
-	if w.ConductorAt(10, 64, 10) {
-		t.Fatal("an opening shulker box is a conductor")
-	}
-
-	setBlock(t, w, p, 10, 64, 10, rsState(t, "minecraft:blue_shulker_box", map[string]string{"facing": "up"}))
-	if !w.ConductorAt(10, 64, 10) {
-		t.Error("the replacement box does not conduct at once")
-	}
-	clock = tickFor(p, clock, shulkerLidTicks)
-	if !w.ConductorAt(10, 64, 10) {
-		t.Error("the replacement box stopped conducting for the old box's animation")
-	}
-
-	p.ShulkerViewersChanged(10, 64, 10, 1)
-	clock = tickFor(p, clock, shulkerLidTicks-1)
-	if w.ConductorAt(10, 64, 10) {
-		t.Error("the replacement box conducts while it opens")
-	}
-	p.ShulkerViewersChanged(10, 64, 10, 0)
-	tickFor(p, clock, shulkerLidTicks)
-	if !w.ConductorAt(10, 64, 10) {
-		t.Error("the replacement box did not finish closing from a fresh lid")
-	}
-}

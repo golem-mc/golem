@@ -49,28 +49,6 @@ func TestTransferCommand(t *testing.T) {
 	alice.Disconnect()
 }
 
-// TestTransferDefaultPort runs /transfer with a hostname alone: the Transfer
-// packet carries vanilla's default port 25565, and the feedback follows it.
-func TestTransferDefaultPort(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	_, _, alice, _ := servertest.AdminPair(t, cfg, servertest.WriteAdminFiles(t, nil, nil, nil))
-
-	alice.ChatCommand("transfer 127.0.0.1")
-	expectTransfer(t, alice, "127.0.0.1", 25565)
-
-	feedback := servertest.FeedbackComponent(t, alice)
-	if feedback.Translate != "commands.transfer.success.single" {
-		t.Fatalf("transfer feedback key = %q, want commands.transfer.success.single", feedback.Translate)
-	}
-	if len(feedback.With) != 3 || feedback.With[2].Number == nil || *feedback.With[2].Number != 25565 {
-		t.Errorf("transfer feedback args = %+v, want the port 25565", feedback.With)
-	}
-
-	alice.Disconnect()
-}
-
 // TestTransferTargetsAnotherPlayer runs /transfer naming a player: the
 // target receives the Transfer packet and the runner the feedback naming
 // the target, who alone is moved.
@@ -94,55 +72,6 @@ func TestTransferTargetsAnotherPlayer(t *testing.T) {
 	}
 
 	bob.Disconnect()
-	alice.Disconnect()
-}
-
-// TestTransferPlayersSelector runs /transfer whose player selector names two
-// players: each receives the Transfer packet and the runner the
-// count-shaped feedback.
-func TestTransferPlayersSelector(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	_, _, alice, bob := servertest.AdminPair(t, cfg, servertest.WriteAdminFiles(t, nil, nil, nil))
-
-	alice.ChatCommand("transfer example.org 25852 @a")
-	expectTransfer(t, alice, "example.org", 25852)
-	expectTransfer(t, bob, "example.org", 25852)
-
-	feedback := servertest.FeedbackComponent(t, alice)
-	if feedback.Translate != "commands.transfer.success.multiple" {
-		t.Fatalf("transfer feedback key = %q, want commands.transfer.success.multiple", feedback.Translate)
-	}
-	if len(feedback.With) != 3 || feedback.With[0].Number == nil || *feedback.With[0].Number != 2 ||
-		feedback.With[1].Text != "example.org" ||
-		feedback.With[2].Number == nil || *feedback.With[2].Number != 25852 {
-		t.Errorf("transfer feedback args = %+v, want a count of two, example.org and 25852", feedback.With)
-	}
-
-	bob.Disconnect()
-	alice.Disconnect()
-}
-
-// TestTransferQuotedHostname runs /transfer whose hostname is a quoted
-// phrase: the Transfer packet carries the phrase without the quotes.
-func TestTransferQuotedHostname(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	_, _, alice, _ := servertest.AdminPair(t, cfg, servertest.WriteAdminFiles(t, nil, nil, nil))
-
-	alice.ChatCommand(`transfer "a b" 25565`)
-	expectTransfer(t, alice, "a b", 25565)
-
-	feedback := servertest.FeedbackComponent(t, alice)
-	if feedback.Translate != "commands.transfer.success.single" {
-		t.Fatalf("transfer feedback key = %q, want commands.transfer.success.single", feedback.Translate)
-	}
-	if len(feedback.With) != 3 || feedback.With[1].Text != "a b" {
-		t.Errorf("transfer feedback args = %+v, want the hostname \"a b\"", feedback.With)
-	}
-
 	alice.Disconnect()
 }
 

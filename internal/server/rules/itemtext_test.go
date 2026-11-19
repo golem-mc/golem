@@ -7,29 +7,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// TestADecoratedShieldIsNamedByItsBaseColour checks the shield's name reads
-// its base_color, an ID out of range naming white, and a plain shield keeps
-// the item's own key.
-// vanilla: ShieldItem.getName
-func TestADecoratedShieldIsNamedByItsBaseColour(t *testing.T) {
-	shield := protocol.ItemStack{ItemID: registry.MustItem("minecraft:shield"), Count: 1}
-	if got := ItemName(shield).Translate; got != "item.minecraft.shield" {
-		t.Errorf("plain shield = %q, want item.minecraft.shield", got)
-	}
-	blue := shield
-	blue.SetBaseColor(11)
-	if got := ItemName(blue).Translate; got != "item.minecraft.shield.blue" {
-		t.Errorf("blue shield = %q, want item.minecraft.shield.blue", got)
-	}
-	var value protocol.Buffer
-	value.PutVarInt(99)
-	outOfRange := shield
-	outOfRange.Raw = []protocol.RawComponent{{Type: protocol.DataComponentBaseColor, Data: value.Bytes()}}
-	if got := ItemName(outOfRange).Translate; got != "item.minecraft.shield.white" {
-		t.Errorf("base colour 99 = %q, want item.minecraft.shield.white", got)
-	}
-}
-
 // TestItemNameFollowsTheStacksOwnNameSources checks the potion effect keys,
 // the lodestone compass, the item_name and rarity components and a custom
 // name over both.

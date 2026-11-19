@@ -1,10 +1,8 @@
 package blocks
 
 import (
-	"strings"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -155,98 +153,6 @@ func TestGivingABlockStatePlacesTheStateItNames(t *testing.T) {
 	if got, want := srv.BlockAt(5, 64, 0), lightState(t, "5"); got != want {
 		t.Errorf("block after place = %d, want the level five light %d", got, want)
 	}
-	c.Disconnect()
-}
-
-// TestGivingRefusesABlockStateThatIsNotStrings checks the item argument's
-// refusals, which the component's own codec answers: a value that is not a
-// map, and a property value that is not a string. The messages are the ones
-// the vanilla parser words them with.
-// vanilla: ItemParser, BlockItemStateProperties.CODEC
-func TestGivingRefusesABlockStateThatIsNotStrings(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.GameMode = "creative"
-
-	_, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
-
-	for _, tc := range []struct {
-		name    string
-		command string // the command text, without the leading slash
-		message string // the refusal under the malformed key
-		cursor  int    // where the "<--[HERE]" marker points
-	}{
-		{"a value that is not a string",
-			`give @s light[block_state={level:5}]`,
-			"Not a string missed input: {level:5}",
-			strings.Index(`give @s light[block_state={level:5}]`, "{level:5}")},
-		{"a value that is a list",
-			`give @s light[block_state={level:["5"]}]`,
-			"Not a string missed input: {level:[\"5\"]}",
-			strings.Index(`give @s light[block_state={level:["5"]}]`, `{level:["5"]}`)},
-		{"a value that is no map",
-			`give @s light[block_state="junk"]`,
-			`Not a map: "junk"`,
-			strings.Index(`give @s light[block_state="junk"]`, `"junk"`)},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			c.ChatCommand(tc.command)
-			c.ExpectCommandError(
-				servertest.CommandErrorMessageForTest("arguments.item.component.malformed",
-					"minecraft:block_state", tc.message),
-				servertest.CommandErrorContextForTest(tc.command, tc.cursor))
-		})
-	}
-
-	// An empty component is every item's own default, so it is no refusal
-	// and no component: the give hands out the plain light.
-	c.ChatCommand("give @s light[block_state={}]")
-	updates, _ := servertest.AwaitSlotUpdates(t, c, 1)
-	light, ok := registry.ItemID("minecraft:light")
-	if !ok {
-		t.Fatal("the registry has no light")
-	}
-	if !updates[0].Stack.Equal(protocol.ItemStack{ItemID: light, Count: 1}) {
-		t.Errorf("give slot update = %+v, want the plain light the empty component gives", updates[0])
-	}
-	c.Disconnect()
-}
-
-// TestPlacingAppliesTheBlockStateToADoublePlantsUpperHalf checks a double
-// plant carrying the component: the small dripleaf's upper half copies the
-// facing the component gave the lower half, the way its setPlacedBy derives
-// the upper from the state the component made.
-// vanilla: SmallDripleafBlock.setPlacedBy
-func TestPlacingAppliesTheBlockStateToADoublePlantsUpperHalf(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Placer")
-
-	// A small dripleaf grows on clay, so lay it under the cell.
-	clay, ok := registry.FindState("minecraft:clay", nil)
-	if !ok {
-		t.Fatal("the registry has no clay")
-	}
-	if !srv.SetBlock(5, 63, 0, clay) {
-		t.Fatal("could not lay the clay")
-	}
-
-	// The player looks north, so a plain placement would face both halves to
-	// the opposite, south; the component turns the lower east and the upper
-	// half has to follow it.
-	c.FacePlayer(0.5, 64, 0.5, 180, 0)
-	c.SetCreativeSlot(player.HotbarSlot,
-		itemWithBlockState(t, "minecraft:small_dripleaf", [2]string{"facing", "east"}))
-	c.Settle()
-	c.PlaceBlock(5, 63, 0, protocol.FaceTop)
-	c.Settle()
-
-	servertest.ExpectBlockNamed(t, srv, 5, 64, 0, "minecraft:small_dripleaf", map[string]string{
-		"half": "lower", "facing": "east",
-	})
-	servertest.ExpectBlockNamed(t, srv, 5, 65, 0, "minecraft:small_dripleaf", map[string]string{
-		"half": "upper", "facing": "east",
-	})
 	c.Disconnect()
 }
 

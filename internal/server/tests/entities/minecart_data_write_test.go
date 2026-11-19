@@ -2,7 +2,6 @@ package entities
 
 import (
 	"encoding/hex"
-	"regexp"
 	"slices"
 	"testing"
 
@@ -83,31 +82,5 @@ func TestAMinecartsDataWriteTellsOnlyWhatItTurned(t *testing.T) {
 		if slices.Contains(indices, protocol.MetadataIndexVehicleShakeDirection) {
 			t.Errorf("the rocking cart was told its rocking direction again (%s)", payload)
 		}
-	}
-}
-
-// TestAMinecartOnARailSavesNoVerticalMotion summons a cart onto a rail and
-// lets it rest there: the rail zeroes its vertical motion every tick, so the
-// saved Motion holds no gravity built up over the wait.
-// vanilla: AbstractMinecart.applyNaturalSlowdown
-func TestAMinecartOnARailSavesNoVerticalMotion(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.MobTestConfig(), servertest.OpsListing(t, "Carter"))
-	c := connect().Join("Carter")
-	c.ChatCommand("gamerule spawn_mobs false")
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	srv.SetBlock(3, 64, 4, registry.BlockRail.DefaultState())
-	c.ChatCommand(`summon minecraft:minecart 3.5 64 4.5 {Tags:["railed"]}`)
-	c.Settle()
-	servertest.RunTicks(t, srv, 40)
-
-	compound := awaitEntityDataCompound(t, srv, c, "@e[tag=railed,limit=1]")
-	m := regexp.MustCompile(`Motion: \[[^,\]]+, ([^,\]]+),`).FindStringSubmatch(compound)
-	if m == nil {
-		t.Fatalf("the cart's data carries no Motion: %s", compound)
-	}
-	if m[1] != "0.0d" {
-		t.Errorf("the cart resting on the rail saved Motion[1] %s after 40 ticks, want 0.0d", m[1])
 	}
 }

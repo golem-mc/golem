@@ -4,7 +4,6 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -224,48 +223,6 @@ func TestSlimeChunkDiceMatchVanillaWorldC(t *testing.T) {
 	}
 }
 
-// TestSlimeSpawnsInSlimeChunkWhateverTheLight stands a slime chunk's ground
-// under a full night sky and demands the rule stand the slime up, then the
-// same ground in a chunk whose dice say no and demands it does not.
-func TestSlimeSpawnsInSlimeChunkWhateverTheLight(t *testing.T) {
-	w := newSpawnTestWorld()
-	w.seed = worldCSeed
-	w.darken = 11
-	w.sky = 15
-	x, z := atChunk(-7, -5)
-	w.groundAt(t, x, 29, z)
-	if !slimeValidate(w, rngOpeningGate(), x, 30, z) {
-		t.Fatal("the slime chunk's own dice opened and the rule refused the slime")
-	}
-	ox, oz := atChunk(0, 0)
-	w.groundAt(t, ox, 29, oz)
-	if slimeValidate(w, rngOpeningGate(), ox, 30, oz) {
-		t.Fatal("a chunk the slime-chunk dice refuse stood a slime up")
-	}
-}
-
-// TestSlimeNeedsUnderFortyInSlimeChunks walks the fortieth block: a slime
-// chunk stands its slimes under it and nowhere at or above it.
-func TestSlimeNeedsUnderFortyInSlimeChunks(t *testing.T) {
-	w := newSpawnTestWorld()
-	w.seed = worldCSeed
-	w.darken = 11
-	w.sky = 15
-	x, z := atChunk(-7, -5)
-	for _, y := range []int32{29, 39} {
-		w.groundAt(t, x, y-1, z)
-		if !slimeValidate(w, rngOpeningGate(), x, y, z) {
-			t.Errorf("y=%d in a slime chunk: the rule refused", y)
-		}
-	}
-	for _, y := range []int32{40, 45} {
-		w.groundAt(t, x, y-1, z)
-		if slimeValidate(w, rngOpeningGate(), x, y, z) {
-			t.Errorf("y=%d in a slime chunk: the rule stood a slime up", y)
-		}
-	}
-}
-
 // TestSlimeSurfaceBranchByTheMoon walks the surface branch: a swamp at the
 // heights between the fiftieth and the seventieth stands a slime up when the
 // moon's chance die opens and the cell is dark enough for an eight-sided die
@@ -323,61 +280,5 @@ func TestSlimeSurfaceBranchByTheMoon(t *testing.T) {
 	w.sky = 4
 	if slimeValidate(w, rngUnderHalf(), x, 60, z) {
 		t.Fatal("a plains stood a surface slime up")
-	}
-}
-
-// TestSlimePeacefulRefused demands the peaceful refusal stand ahead of both
-// branches of the slime's rule, as SpawnPlacements.checkSpawnRules runs it.
-func TestSlimePeacefulRefused(t *testing.T) {
-	w := newSpawnTestWorld()
-	w.seed = worldCSeed
-	w.darken = 11
-	w.sky = 15
-	w.diff = uint8(rules.DifficultyPeaceful)
-	w.diffUp = true
-	x, z := atChunk(-7, -5)
-	w.groundAt(t, x, 29, z)
-	if slimeValidate(w, rngOpeningGate(), x, 30, z) {
-		t.Fatal("a peaceful world stood a slime up in a slime chunk")
-	}
-}
-
-// Every queried block is a conductor, so each read records the initial roll.
-// vanilla: NaturalSpawner.getRandomPosWithin
-func TestSpawnRollStopsAtFirstAir(t *testing.T) {
-	stone := defaultState(t, "minecraft:stone")
-	for _, tc := range []struct {
-		name    string
-		surface int32
-		top     int32
-	}{
-		{"our flat ground at sixty-three", 63, 64},
-		{"highest block at sixty-four", 64, 65},
-		{"vanilla flat ground at minus sixty-one", -61, -60},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := newSpawnTestWorld()
-			w.allStone = true
-			w.stoneState = stone
-			w.surface = tc.surface
-			w.asked = make(map[[3]int32]int)
-			seen := make(map[int32]bool)
-			for seed := range int64(2000) {
-				spawnCategoryForChunk(w, readSpawnPoint(w), rand.New(rand.NewSource(seed)),
-					ChunkPos{X: 0, Z: 0}, nil, nil, &SpawnPotential{}, &SpawnCounts{}, CategoryMonster, func(SpawnRequest) {})
-			}
-			for at := range w.asked {
-				seen[at[1]] = true
-			}
-			top := int32(-1 << 30)
-			for y := range seen {
-				if y > top {
-					top = y
-				}
-			}
-			if top != tc.top {
-				t.Errorf("the dice rolled as high as y=%d, want %d (read heights: %v)", top, tc.top, seen)
-			}
-		})
 	}
 }

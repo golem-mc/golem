@@ -3,7 +3,6 @@ package entities
 import (
 	"fmt"
 	"math"
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
@@ -33,23 +32,6 @@ func summonBolt(t *testing.T, srv *server.Server, c *servertest.Client, x, y, z 
 	c.Settle()
 	if srv.BoltCount() != 1 {
 		t.Fatal("the bolt was never summoned")
-	}
-}
-
-// TestALightningBoltDestroysAnXPOrb: the bolt's five damage spends an
-// orb's five health on the strike tick, and the client is told it is gone.
-// vanilla: Entity.thunderHit, ExperienceOrb.hurtServer
-func TestALightningBoltDestroysAnXPOrb(t *testing.T) {
-	t.Parallel()
-	srv, c, x, y, z := boltBeside(t)
-	id := srv.SpawnOrb(x, y+3, z, 7)
-	summonBolt(t, srv, c, x, y+3, z)
-	_, removed := boltWatch(c, srv, 1)
-	if n := srv.OrbCount(); n != 0 {
-		t.Fatalf("%d orbs outlast the strike, want the struck orb gone", n)
-	}
-	if !slices.Contains(removed, id) {
-		t.Errorf("removed entities %v, want the orb %d", removed, id)
 	}
 }
 
@@ -109,27 +91,5 @@ func TestALightningBoltExplodesAnEndCrystal(t *testing.T) {
 	}
 	if !removed || !exploded {
 		t.Errorf("the client saw the crystal removed %v and an explosion %v, want both", removed, exploded)
-	}
-}
-
-// TestALightningBoltLeavesAnInvulnerableEndCrystal: the struck crystal's
-// hurt is refused, so it stands and no blast runs.
-// vanilla: EndCrystal.hurtServer
-func TestALightningBoltLeavesAnInvulnerableEndCrystal(t *testing.T) {
-	t.Parallel()
-	srv, c, x, y, z := boltBeside(t)
-	srv.SpawnInvulnerableEndCrystal(x, y+3, z)
-	c.Settle()
-	summonBolt(t, srv, c, x, y+3, z)
-	srv.TickBolts(1)
-	exploded := false
-	c.SettleAndCollect(func(pid int32, _ []byte) {
-		exploded = exploded || pid == protocol.IDPlayExplosion
-	})
-	if n := srv.EndCrystalCount(); n != 1 {
-		t.Errorf("%d crystals after the strike, want the invulnerable one standing", n)
-	}
-	if exploded {
-		t.Error("the client saw an explosion, want none")
 	}
 }

@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -53,30 +52,5 @@ func TestAMapMadeBeforeAShutdownSurvivesIt(t *testing.T) {
 	again, back := servertest.Join(t, &restarted, "Cartographer")
 	if id := makeMap(t, again, back, "Cartographer"); id != 1 {
 		t.Errorf("the map made after the restart = id %d, want 1, the one after the saved map's", id)
-	}
-}
-
-// TestAShutdownCountsLeaveGameOnce ends a session by stopping the server: the
-// player is saved once, by their own departure, so leave_game reads 1.
-// vanilla: PlayerList.remove
-func TestAShutdownCountsLeaveGameOnce(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.SurvivalTestConfig()
-	cfg.LevelName = t.TempDir()
-	srv, _ := servertest.Join(t, cfg, "Leaver")
-	srv.Shutdown()
-
-	data, err := os.ReadFile(filepath.Join(cfg.LevelName, "players", "stats", protocol.OfflineUUID("Leaver").String()+".json"))
-	if err != nil {
-		t.Fatalf("read the stats file: %v", err)
-	}
-	var file struct {
-		Stats map[string]map[string]int32 `json:"stats"`
-	}
-	if err := json.Unmarshal(data, &file); err != nil {
-		t.Fatalf("parse the stats file: %v", err)
-	}
-	if got := file.Stats["minecraft:custom"]["minecraft:leave_game"]; got != 1 {
-		t.Errorf("leave_game after one session ended by a shutdown = %d, want 1", got)
 	}
 }

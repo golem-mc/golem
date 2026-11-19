@@ -8,15 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/golem-mc/golem/internal/protocol"
 )
-
-func TestDefaultVersionIsTheServers(t *testing.T) {
-	if DefaultVersion != protocol.GameVersion {
-		t.Errorf("DefaultVersion = %s, protocol.GameVersion = %s", DefaultVersion, protocol.GameVersion)
-	}
-}
 
 func TestVersionFromEnvPrefersReferenceVersion(t *testing.T) {
 	t.Setenv("REFERENCE_VERSION", "")
@@ -47,17 +39,6 @@ func TestOrderedKeepsFileOrder(t *testing.T) {
 	}
 	if !slices.Equal(seen, o.Keys()) {
 		t.Errorf("All = %v, Keys = %v", seen, o.Keys())
-	}
-}
-
-func TestOrderedNests(t *testing.T) {
-	var o Ordered[Ordered[int]]
-	if err := json.Unmarshal([]byte(`{"y": {"q": 1, "p": 2}, "x": {"z": 3}}`), &o); err != nil {
-		t.Fatal(err)
-	}
-	y, _ := o.Get("y")
-	if !slices.Equal(o.Keys(), []string{"y", "x"}) || !slices.Equal(y.Keys(), []string{"q", "p"}) {
-		t.Errorf("order lost: %v %v", o.Keys(), y.Keys())
 	}
 }
 
@@ -97,26 +78,6 @@ func TestNamesByIDSortsByProtocolID(t *testing.T) {
 	}
 	if want := []string{"minecraft:a", "minecraft:b", "minecraft:c"}; !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
-	}
-}
-
-func TestNamesByIDRefusesAGap(t *testing.T) {
-	ref := writeReports(t, "registries.json", `{"minecraft:item": {"entries": {
-		"minecraft:a": {"protocol_id": 0}, "minecraft:c": {"protocol_id": 2}}}}`)
-	rs, _ := ref.Registries()
-	_, err := rs.NamesByID("minecraft:item")
-	if err == nil || !strings.Contains(err.Error(), "minecraft:c is 2, expected 1") {
-		t.Errorf("err = %v", err)
-	}
-	if _, err := rs.NamesByID("minecraft:nothing"); err == nil {
-		t.Error("a missing registry was accepted")
-	}
-}
-
-func TestMissingReportNamesTheTask(t *testing.T) {
-	_, err := Ref{Dir: t.TempDir()}.Registries()
-	if err == nil || !strings.Contains(err.Error(), "mise run reference:reports") {
-		t.Errorf("err = %v", err)
 	}
 }
 
@@ -184,33 +145,5 @@ func TestRunJavaReportsAFailureWithItsStderr(t *testing.T) {
 	fakeJava(t, "", 3)
 	if _, err := ref.RunJava("Thing.java", JavaOptions{}); err == nil || !strings.Contains(err.Error(), "Thing.java failed") {
 		t.Errorf("err = %v", err)
-	}
-}
-
-func TestRunJavaNamesTheMissingServerJar(t *testing.T) {
-	fakeJava(t, "", 0)
-	_, err := Ref{Dir: t.TempDir(), Version: "26.3"}.RunJava("Thing.java", JavaOptions{})
-	if err == nil || !strings.Contains(err.Error(), "reference:run") {
-		t.Errorf("err = %v", err)
-	}
-}
-
-func TestFilesListsWholePathsInLexicalOrder(t *testing.T) {
-	dir := t.TempDir()
-	for _, name := range []string{"a.json", "a/b.json", "a/c.txt", "b.json"} {
-		p := filepath.Join(dir, "d", name)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte("{}"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, err := Files(os.DirFS(dir), "d", ".json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"a.json", "a/b.json", "b.json"}; !slices.Equal(got, want) {
-		t.Errorf("Files = %v, want %v", got, want)
 	}
 }

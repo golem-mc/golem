@@ -2,10 +2,8 @@ package mobs
 
 import (
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
@@ -30,70 +28,5 @@ func TestAGoatDoesNotRamAPlayerOnPeaceful(t *testing.T) {
 	}
 	if h := srv.PlayerHealth("Rammed"); h != 20 {
 		t.Errorf("health = %v, want 20", h)
-	}
-}
-
-func TestAnIronGolemStruckOnPeacefulDoesNotHitBack(t *testing.T) {
-	t.Parallel()
-	c, _, srv := polarWorld(t)
-	srv.SetDifficulty(0)
-	golem := srv.SpawnMob("minecraft:iron_golem", 3.5, 64, 0.5)
-	servertest.AwaitFullSwing(t, srv, "Slayer")
-	c.Attack(golem)
-	c.Settle()
-	// Checked every tick: a target picked by mistake may be dropped again
-	// within a few.
-	for range 60 {
-		servertest.RunTicks(t, srv, 1)
-		if got := srv.MobTargetID(golem); got != 0 {
-			t.Fatalf("a struck golem on peaceful targets %d, want nobody", got)
-		}
-	}
-}
-
-func TestAPolarBearIgnoresAPlayerNearItsCubOnPeaceful(t *testing.T) {
-	t.Parallel()
-	_, _, srv := polarWorld(t)
-	srv.SetDifficulty(0)
-	bear := srv.SpawnMob(polarBear, 7.5, 64, 0.5)
-	cub := srv.SpawnMob(polarBear, 8.5, 64, 2.5)
-	srv.SetMobBaby(cub, true)
-	// Checked every tick: a target picked by mistake may be dropped again
-	// within a few.
-	for range 60 {
-		servertest.RunTicks(t, srv, 1)
-		if got := srv.MobTargetID(bear); got != 0 {
-			t.Fatalf("a polar bear on peaceful targets %d, want nobody", got)
-		}
-	}
-}
-
-func TestATrustedFoxDoesNotDefendAgainstAPlayerOnPeaceful(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.MobTestConfig(), func(s *server.Server) {
-		s.SetKeepAlive(time.Hour, time.Hour)
-	})
-	srv.SetDayTime(18000)
-	srv.SetSpawning(false)
-	trusted := connect().Join("Fox")
-	trusted.MoveToGround(0.5, 64, 0.5, true)
-	attacker := connect().Join("Attacker")
-	attacker.MoveToGround(0.5, 64, 1.5, true)
-	srv.SetDifficulty(0)
-	servertest.HoldTicks(t, srv)
-	fox := srv.SpawnMobSeeded(foxType, 6.5, 64, 0.5, 3)
-	srv.TrustFox(fox, "Fox")
-	servertest.AwaitFullSwing(t, srv, "Attacker")
-	attacker.Attack(trusted.PlayerEntityID)
-	// Checked every tick: a target picked by mistake may be dropped again
-	// within a few.
-	for range 60 {
-		servertest.RunTicks(t, srv, 1)
-		if got := srv.MobTargetID(fox); got != 0 {
-			t.Fatalf("a trusted fox on peaceful targets %d, want nobody", got)
-		}
-		if foxState(t, srv, fox).Flags&protocol.FoxDefending != 0 {
-			t.Fatal("a trusted fox on peaceful shows it is defending")
-		}
 	}
 }

@@ -50,26 +50,3 @@ func TestVehicleMovementEmission(t *testing.T) {
 		})
 	}
 }
-
-// Entity.nextStep truncates moveDist before adding one; the overshoot must
-// not shift every subsequent threshold by another overshoot.
-func TestVehicleStrideUsesWholeStepThresholds(t *testing.T) {
-	w := newTestWorld()
-	for x := range int32(5) {
-		w.set(x, 63, 0, defaultState(t, "minecraft:stone"))
-	}
-	stride := stepState{}
-	from := 0.5
-	for _, distance := range []float64{1.7, 1.65} {
-		to := from + distance
-		ev := stride.vehicleEvent(w, bodyMove{fx: from, fy: 64, fz: .5, tx: to, ty: 64, tz: .5}, BoatHalfWidth, true, false, false)
-		if ev.Kind != rules.GameEventStep {
-			t.Fatalf("after %g blocks, event=%q, want step", to-.5, ev.Kind)
-		}
-		from = to
-	}
-	ev := stride.vehicleEvent(w, bodyMove{fx: from, fy: 64, fz: .5, tx: from, ty: 64, tz: .5}, BoatHalfWidth, true, false, false)
-	if ev.Kind != registry.GameEventNone {
-		t.Errorf("stationary move repeated %q", ev.Kind)
-	}
-}

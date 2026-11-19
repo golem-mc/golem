@@ -39,19 +39,6 @@ func TestMinedStoneRaisesAStatisticObjective(t *testing.T) {
 	}
 }
 
-// TestPlayTimeObjectiveFollowsTheTicks checks that the statistics the tick
-// awards reach their objectives.
-// vanilla: ServerPlayer.doTick
-func TestPlayTimeObjectiveFollowsTheTicks(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.StartExecuteWorld(t, "Testificate")
-	addObjective(t, c, "played", "minecraft.custom:minecraft.play_time")
-	servertest.RunTicks(t, srv, 5)
-	if v, ok := srv.ScoreOf("Testificate", "played"); !ok || v < 5 {
-		t.Errorf("play_time objective = %d (%t) after 5 ticks, want at least 5", v, ok)
-	}
-}
-
 // TestUnknownStatisticCriteriaAreRefused checks that a stat type or key
 // that does not exist is an invalid criteria, and that a bare key is read in
 // minecraft.

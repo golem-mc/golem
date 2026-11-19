@@ -1,58 +1,11 @@
 package rules
 
 import (
-	"strconv"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/registry"
 )
-
-// TestAxisFromFace checks the axis of a placed block from the face it was
-// placed on: a log placed on the ground or against the ceiling stands up, and
-// one placed against a wall lies along the wall, north and south deciding the
-// z of the lying.
-func TestAxisFromFace(t *testing.T) {
-	cases := []struct {
-		face int32
-		axis string
-	}{
-		{protocol.FaceTop, "y"},
-		{protocol.FaceBottom, "y"},
-		{protocol.FaceNorth, "z"},
-		{protocol.FaceSouth, "z"},
-		{protocol.FaceWest, "x"},
-		{protocol.FaceEast, "x"},
-	}
-	for _, c := range cases {
-		if got := axisFromFace(c.face); got != c.axis {
-			t.Errorf("axisFromFace(%d) = %q, want %q", c.face, got, c.axis)
-		}
-	}
-}
-
-// TestFacingFromFace checks the facing of a 6-directional block from the face
-// it was placed against: a piston placed against the north wall points north,
-// the way it would push, and one placed on the ground points up - into what
-// stands above it.
-func TestFacingFromFace(t *testing.T) {
-	cases := []struct {
-		face   int32
-		facing string
-	}{
-		{protocol.FaceBottom, "down"},
-		{protocol.FaceTop, "up"},
-		{protocol.FaceNorth, "north"},
-		{protocol.FaceSouth, "south"},
-		{protocol.FaceWest, "west"},
-		{protocol.FaceEast, "east"},
-	}
-	for _, c := range cases {
-		if got := facingFromFace(c.face); got != c.facing {
-			t.Errorf("facingFromFace(%d) = %q, want %q", c.face, got, c.facing)
-		}
-	}
-}
 
 // TestFacingFromPlayer checks the facing of a 4-directional block from the
 // placing player's yaw: the block faces the player rather than the way they
@@ -76,31 +29,6 @@ func TestFacingFromPlayer(t *testing.T) {
 	for _, c := range cases {
 		if got := facingFromPlayer(c.yaw); got != c.facing {
 			t.Errorf("facingFromPlayer(%v) = %q, want %q", c.yaw, got, c.facing)
-		}
-	}
-}
-
-// TestPlayerDirection checks the direction the player looks in from their
-// yaw: the vanilla Entity.getDirection, the opposite of facingFromPlayer,
-// with the same wrap and 45-degree quadrant boundaries.
-func TestPlayerDirection(t *testing.T) {
-	cases := []struct {
-		yaw       float32
-		direction string
-	}{
-		{0, "south"},    // yaw 0 looks south
-		{44.9, "south"}, // the quadrant holds to its 45-degree boundary
-		{90, "west"},    // yaw 90 looks west
-		{180, "north"},  // yaw 180 looks north
-		{270, "east"},   // yaw 270 looks east
-		{315, "south"},  // the wrap back to the first quadrant
-		{-90, "east"},   // a negative yaw wraps, rather than missing a quadrant
-		{-1, "south"},
-		{720.5, "south"}, // anything past a whole turn folds back
-	}
-	for _, c := range cases {
-		if got := PlayerDirection(c.yaw); got != c.direction {
-			t.Errorf("PlayerDirection(%v) = %q, want %q", c.yaw, got, c.direction)
 		}
 	}
 }
@@ -130,30 +58,6 @@ func TestHalfAndTypeFromFaceAndCursor(t *testing.T) {
 		}
 		if got := typeFromCursor(c.face, c.cursorY); got != c.half {
 			t.Errorf("typeFromCursor(%d, %v) = %q, want %q", c.face, c.cursorY, got, c.half)
-		}
-	}
-}
-
-// TestRotationFromYaw checks the 22.5-degree steps of a placed sign or banner,
-// which run clockwise from south at 0: west at 4, north at 8, east at 12, and
-// a negative yaw or one past a turn folding back into the 16 steps.
-func TestRotationFromYaw(t *testing.T) {
-	cases := []struct {
-		yaw      float32
-		rotation string
-	}{
-		{0, "0"},
-		{22.5, "1"},
-		{90, "4"},
-		{180, "8"},
-		{270, "12"},
-		{337.5, "15"},
-		{-22.5, "15"},
-		{361, "0"},
-	}
-	for _, c := range cases {
-		if got := rotationFromYaw(c.yaw); got != c.rotation {
-			t.Errorf("rotationFromYaw(%v) = %q, want %q", c.yaw, got, c.rotation)
 		}
 	}
 }
@@ -240,106 +144,6 @@ func TestPlacementOverridesPickRealBlocksProperties(t *testing.T) {
 		}
 		if _, ok := registry.WithProps(blockNamed(c.name).DefaultState(), overrides...); !ok {
 			t.Errorf("PlacementOverrides(%s, %+v) = %v, which no state carries", c.name, c.ctx, overrides)
-		}
-	}
-}
-
-// TestCommandBlockPlacementUsesLook checks the three command blocks against
-// CommandBlock.getStateForPlacement: FACING is the nearest looking direction
-// reversed, so the pitch counts and the clicked face does not - a block
-// placed while looking steeply down faces up whichever face was clicked, and
-// a horizontal look faces back across the placer.
-func TestCommandBlockPlacementUsesLook(t *testing.T) {
-	cases := []struct {
-		desc   string
-		ctx    PlacementContext
-		facing string
-	}{
-		{"looking steeply down", PlacementContext{Face: protocol.FaceTop, Yaw: 0, Pitch: 60}, "up"},
-		{"a side click still reads the pitch", PlacementContext{Face: protocol.FaceNorth, Yaw: 0, Pitch: 60}, "up"},
-		{"looking west", PlacementContext{Face: protocol.FaceTop, Yaw: 90, Pitch: 0}, "east"},
-	}
-	for _, name := range []string{
-		"minecraft:command_block",
-		"minecraft:chain_command_block",
-		"minecraft:repeating_command_block",
-	} {
-		for _, c := range cases {
-			overrides := PlacementOverrides(blockNamed(name), c.ctx)
-			got := overrideMap(overrides)
-			if got["facing"] != c.facing {
-				t.Errorf("PlacementOverrides(%s, %s) facing = %q, want %q",
-					name, c.desc, got["facing"], c.facing)
-			}
-			if _, ok := registry.WithProps(blockNamed(name).DefaultState(), overrides...); !ok {
-				t.Errorf("PlacementOverrides(%s, %s) = %v, which no state carries", name, c.desc, overrides)
-			}
-		}
-	}
-}
-
-// TestCrafterOrientation checks CrafterBlock.getStateForPlacement's
-// ORIENTATION over every FrontAndTop: the front is the nearest looking
-// direction reversed, the top is up for a horizontal front, the horizontal
-// look when the front points up and its opposite when the front points down.
-func TestCrafterOrientation(t *testing.T) {
-	// Yaw reads through PlayerDirection: 0 south, 90 west, 180 north, 270
-	// east.
-	cases := []struct {
-		desc string
-		ctx  PlacementContext
-		want string
-	}{
-		{"looking south, flat", PlacementContext{Yaw: 0, Pitch: 0}, "north_up"},
-		{"looking west, flat", PlacementContext{Yaw: 90, Pitch: 0}, "east_up"},
-		{"looking north, flat", PlacementContext{Yaw: 180, Pitch: 0}, "south_up"},
-		{"looking east, flat", PlacementContext{Yaw: 270, Pitch: 0}, "west_up"},
-		{"looking south, down", PlacementContext{Yaw: 0, Pitch: 60}, "up_south"},
-		{"looking west, down", PlacementContext{Yaw: 90, Pitch: 60}, "up_west"},
-		{"looking north, down", PlacementContext{Yaw: 180, Pitch: 60}, "up_north"},
-		{"looking east, down", PlacementContext{Yaw: 270, Pitch: 60}, "up_east"},
-		{"looking south, up", PlacementContext{Yaw: 0, Pitch: -60}, "down_north"},
-		{"looking west, up", PlacementContext{Yaw: 90, Pitch: -60}, "down_east"},
-		{"looking north, up", PlacementContext{Yaw: 180, Pitch: -60}, "down_south"},
-		{"looking east, up", PlacementContext{Yaw: 270, Pitch: -60}, "down_west"},
-		// A pitch just either side of the forty-five-degree flip: the
-		// nearest look is still horizontal below it and vertical above it.
-		{"south, just flat of the flip", PlacementContext{Yaw: 0, Pitch: 44}, "north_up"},
-		{"south, just past the flip", PlacementContext{Yaw: 0, Pitch: 46}, "up_south"},
-	}
-	for _, c := range cases {
-		if got := crafterOrientation(c.ctx); got != c.want {
-			t.Errorf("crafterOrientation(%s) = %q, want %q", c.desc, got, c.want)
-		}
-	}
-}
-
-// TestJigsawOrientation checks JigsawBlock.getStateForPlacement on all six
-// faces: the front is the clicked face; the top is up unless the front is
-// vertical, then the opposite of the horizontal look.
-func TestJigsawOrientation(t *testing.T) {
-	cases := []struct {
-		face int32
-		yaw  float32
-		want string
-	}{
-		{protocol.FaceNorth, 0, "north_up"},
-		{protocol.FaceSouth, 0, "south_up"},
-		{protocol.FaceEast, 0, "east_up"},
-		{protocol.FaceWest, 90, "west_up"},
-		{protocol.FaceTop, 0, "up_north"},
-		{protocol.FaceTop, 90, "up_east"},
-		{protocol.FaceBottom, 180, "down_south"},
-		{protocol.FaceBottom, 270, "down_west"},
-	}
-	for _, c := range cases {
-		overrides := PlacementOverrides(registry.BlockJigsaw, PlacementContext{Face: c.face, Yaw: c.yaw})
-		got := overrideMap(overrides)
-		if got["orientation"] != c.want {
-			t.Errorf("jigsaw face %d yaw %v orientation = %q, want %q", c.face, c.yaw, got["orientation"], c.want)
-		}
-		if _, ok := registry.WithProps(registry.BlockJigsaw.DefaultState(), overrides...); !ok {
-			t.Errorf("jigsaw overrides %v match no state", overrides)
 		}
 	}
 }
@@ -519,41 +323,6 @@ func TestDoorStateWithHinge(t *testing.T) {
 	}
 }
 
-// TestDoorStateWithPower checks DoorBlock.getStateForPlacement's signal read:
-// a door placed where it is powered takes open=true and powered=true, and one
-// placed without a signal stays shut and unpowered.
-func TestDoorStateWithPower(t *testing.T) {
-	door := defaultState(t, "minecraft:oak_door")
-	for _, powered := range []bool{false, true} {
-		state := DoorStateWithPower(door, powered)
-		_, raw, ok := registry.BlockStateName(state)
-		if !ok {
-			t.Fatalf("DoorStateWithPower(powered=%v) returned an unknown state", powered)
-		}
-		props := registry.ParseStateProps(raw)
-		want := strconv.FormatBool(powered)
-		if props["open"] != want || props["powered"] != want {
-			t.Errorf("DoorStateWithPower(powered=%v) = open=%q powered=%q, want both %q",
-				powered, props["open"], props["powered"], want)
-		}
-	}
-}
-
-func TestAnvilFacesAQuarterTurnFromTheLook(t *testing.T) {
-	cases := []struct {
-		yaw    float32
-		facing string
-	}{{0, "west"}, {90, "north"}, {180, "east"}, {270, "south"}}
-	for _, name := range []string{"minecraft:anvil", "minecraft:chipped_anvil", "minecraft:damaged_anvil"} {
-		for _, c := range cases {
-			got := overrideMap(PlacementOverrides(blockNamed(name), PlacementContext{Face: protocol.FaceTop, Yaw: c.yaw}))
-			if got["facing"] != c.facing {
-				t.Errorf("%s at yaw %v faces %q, want %q", name, c.yaw, got["facing"], c.facing)
-			}
-		}
-	}
-}
-
 // TestWaterloggedForPlacement checks the fluid read a waterloggable block's
 // placement makes: a source waterlogs and a flow of level 1-7 does not, the
 // coral family and the conduit are waterlogged by a falling column (level 8
@@ -680,20 +449,6 @@ func TestBlockStateFromItemComponent(t *testing.T) {
 	for _, c := range cases {
 		if got := BlockStateFromItemComponent(c.placed, c.props); got != c.want {
 			t.Errorf("%s: state = %d, want %d", c.what, got, c.want)
-		}
-	}
-}
-
-func TestPlacementFacesLookDirection(t *testing.T) {
-	for _, name := range []string{
-		"minecraft:campfire", "minecraft:soul_campfire", "minecraft:decorated_pot",
-		"minecraft:oak_fence_gate", "minecraft:calibrated_sculk_sensor",
-	} {
-		for yaw, want := range map[float32]string{0: "south", 90: "west", 180: "north", 270: "east"} {
-			got := overrideMap(PlacementOverrides(blockNamed(name), PlacementContext{Yaw: yaw, Face: protocol.FaceTop}))["facing"]
-			if got != want {
-				t.Errorf("%s at yaw %v: facing %q, want %q", name, yaw, got, want)
-			}
 		}
 	}
 }

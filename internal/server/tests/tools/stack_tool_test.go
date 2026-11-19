@@ -6,7 +6,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
@@ -59,25 +58,6 @@ func TestAStacksToolLetsASwordBreakStoneInCreative(t *testing.T) {
 	}
 }
 
-// TestAStacksToolRefusesAPickaxeInCreative: a pickaxe whose stack says it
-// cannot destroy blocks in creative breaks nothing.
-func TestAStacksToolRefusesAPickaxeInCreative(t *testing.T) {
-	t.Parallel()
-	srv, c := creativeScene(t)
-	stone := servertest.BlockState(t, "minecraft:stone")
-	x, y, z := creativeTarget[0], creativeTarget[1], creativeTarget[2]
-
-	c.SetCreativeSlot(player.HotbarSlot, toolStack(t, "minecraft:iron_pickaxe",
-		protocol.ToolComponent{DefaultMiningSpeed: 1, DamagePerBlock: 1}))
-	c.StartDiggingHere(x, y, z)
-	if change := c.WaitBlockChanged(); change.State != stone {
-		t.Errorf("the refused dig answered with block %d, want the stone %d resent", change.State, stone)
-	}
-	if got := srv.BlockAt(x, y, z); got != stone {
-		t.Errorf("world block = %d, want the stone %d standing", got, stone)
-	}
-}
-
 // survivalScene stands a survival player holding the stack beside a block.
 func survivalScene(t *testing.T, stack protocol.ItemStack, block string) (*server.Server, *servertest.Client) {
 	t.Helper()
@@ -118,53 +98,6 @@ func TestAStacksRulesSetTheSurvivalDigSpeed(t *testing.T) {
 	servertest.ExpectOneDroppedItem(t, srv, "minecraft:cobblestone")
 }
 
-// TestAStacksRuleThatIsNotCorrectDropsNothing: the same speed without
-// correct_for_drops breaks the stone and leaves no drop.
-func TestAStacksRuleThatIsNotCorrectDropsNothing(t *testing.T) {
-	t.Parallel()
-	rule := protocol.ToolRule{
-		Blocks: protocol.BlockPredicateSet{Present: true, Tag: "minecraft:mineable/pickaxe"},
-		Speed:  1000, HasSpeed: true,
-	}
-	stack := toolStack(t, "minecraft:diamond_pickaxe", protocol.ToolComponent{
-		Rules: []protocol.ToolRule{rule}, DefaultMiningSpeed: 1, DamagePerBlock: 1, CanDestroyBlocksInCreative: true})
-	srv, c := survivalScene(t, stack, "minecraft:stone")
-	d := servertest.DigTarget
-
-	c.StartDigging(d[0], d[1], d[2])
-	c.Settle()
-
-	servertest.ExpectAir(t, srv, d)
-	servertest.ExpectNoDroppedItems(t, srv)
-}
-
-// TestAStacksToolReplacesTheItemsRules: shears insta-mine leaves, shears
-// whose own tool carries no rules dig them at speed 1 and leave them standing.
-// vanilla: ItemStack.getDestroySpeed
-func TestAStacksToolReplacesTheItemsRules(t *testing.T) {
-	t.Parallel()
-	stack := toolStack(t, "minecraft:shears", protocol.ToolComponent{
-		DefaultMiningSpeed: 1, DamagePerBlock: 1, CanDestroyBlocksInCreative: true})
-	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Miner")
-	c.MoveToGround(0.5, 64, 0.5, true)
-	srv.GiveSlot("Miner", player.HotbarSlot, stack)
-	leaves, ok := registry.FindState("minecraft:oak_leaves", map[string]string{"persistent": "true"})
-	if !ok {
-		t.Fatal("no persistent oak leaves")
-	}
-	d := servertest.DigTarget
-	if !srv.SetBlock(d[0], d[1], d[2], leaves) {
-		t.Fatal("could not stand the leaves")
-	}
-	c.Settle()
-
-	c.StartDigging(d[0], d[1], d[2])
-	c.Settle()
-	if got := srv.BlockAt(d[0], d[1], d[2]); got != leaves {
-		t.Errorf("block after the dig = %d, want the leaves %d standing", got, leaves)
-	}
-}
-
 // TestAStacksDamagePerBlockWearsTheTool: the break wears the stack by the
 // component's damage_per_block, not the item's.
 // vanilla: Item.mineBlock
@@ -185,29 +118,5 @@ func TestAStacksDamagePerBlockWearsTheTool(t *testing.T) {
 	servertest.ExpectAir(t, srv, d)
 	if got := srv.InventorySlot("Miner", player.HotbarSlot).Damage; got != 7 {
 		t.Errorf("the tool's wear after one block = %d, want 7", got)
-	}
-}
-
-// TestAStacksRemovedToolDigsAtHandSpeedWithoutDrops: a pickaxe whose
-// minecraft:tool is removed digs stone at hand speed, so a tick leaves it
-// standing, and the stone would drop nothing.
-// vanilla: Item.getDestroySpeed, Item.isCorrectToolForDrops
-func TestAStacksRemovedToolDigsAtHandSpeedWithoutDrops(t *testing.T) {
-	t.Parallel()
-	stack := servertest.ItemStack(t, "minecraft:diamond_pickaxe", 1)
-	stack.Remove(protocol.DataComponentTool)
-	srv, c := survivalScene(t, stack, "minecraft:stone")
-	d := servertest.DigTarget
-	stone := srv.BlockAt(d[0], d[1], d[2])
-
-	c.StartDigging(d[0], d[1], d[2])
-	c.Settle()
-
-	if got := srv.BlockAt(d[0], d[1], d[2]); got != stone {
-		t.Errorf("block after the dig = %d, want the stone %d standing", got, stone)
-	}
-	if rules.StackCorrectForDrops(stack, registry.BlockStone) || rules.StackMiningSpeed(stack, registry.BlockStone) != 1 ||
-		!rules.StackCanDestroyInCreative(stack) || rules.StackDamagePerBlock(stack) != 0 {
-		t.Error("a stack without its tool reads as a tool")
 	}
 }

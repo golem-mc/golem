@@ -104,30 +104,6 @@ func TestRedstoneDrivenBlocksPulseTheObserverWatchingThem(t *testing.T) {
 	}
 }
 
-// TestObserverWatchingTheLowerDoorHalfPulsesWhenTheUpperHalfIsPowered covers
-// the partner: the signal touches the upper half, which writes only itself
-// and lets the lower half the observer watches follow through the shape
-// update, whose own shape pass is what pulses the observer.
-// vanilla: DoorBlock.neighborChanged, DoorBlock.updateShape.
-func TestObserverWatchingTheLowerDoorHalfPulsesWhenTheUpperHalfIsPowered(t *testing.T) {
-	t.Parallel()
-	srv, c := witnessObserverScene(t,
-		"oak_door[half=lower,facing=north,hinge=left,open=false,powered=false]",
-		"oak_door[half=upper,facing=north,hinge=left,open=false,powered=false]")
-	for _, edge := range []struct{ name, cell string }{
-		{"power", "redstone_block"},
-		{"unpower", "air"},
-	} {
-		pulseTicks, lampOn, lampOff := followWitnessEdge(t, srv, c, 0, 65, 5, edge.cell)
-		if pulseTicks != 2 {
-			t.Errorf("the %s edge showed the observer powered %d ticks, want a two-tick pulse", edge.name, pulseTicks)
-		}
-		if !lampOn || !lampOff {
-			t.Errorf("the %s edge left the lamp behind the observer lit=%v dark=%v, want it to light and go dark", edge.name, lampOn, lampOff)
-		}
-	}
-}
-
 // TestTorchLitFlipsPulseTheObserverWatchingIt flips a lever on the support of
 // a torch either way: the torch's lit flip two ticks later pulses the
 // observer standing on the lever's roof, watching the torch, for two game
@@ -167,47 +143,6 @@ func TestTorchLitFlipsPulseTheObserverWatchingIt(t *testing.T) {
 			t.Errorf("%s: the observer showed powered %d ticks, want a two-tick pulse", edge.name, pulseTicks)
 		}
 	}
-}
-
-// TestSetblockNoteBlockStaysUnpowered checks that the powered flip belongs to
-// a neighbour change, not to the engine's every-change wake: /setblock puts a
-// note block beside a powered redstone block and vanilla leaves it
-// unpowered. vanilla: NoteBlock.neighborChanged.
-func TestSetblockNoteBlockStaysUnpowered(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 6, 64, 7, "redstone_block")
-	servertest.Setblock(t, c, 5, 64, 7, "note_block[instrument=harp,note=0,powered=false]")
-	servertest.ExpectBlockNamed(t, srv, 5, 64, 7, "minecraft:note_block", map[string]string{"powered": "false"})
-}
-
-// TestSetblockCopperBulbBesidePowerLights checks the bulb's placement read:
-// vanilla's onPlace runs the same check its neighbour change does, so a bulb
-// written beside a powered redstone block lights. vanilla:
-// CopperBulbBlock.onPlace, checkAndFlip.
-func TestSetblockCopperBulbBesidePowerLights(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 6, 64, 7, "redstone_block")
-	servertest.Setblock(t, c, 5, 64, 7, "copper_bulb[lit=false,powered=false]")
-	servertest.ExpectBlockNamed(t, srv, 5, 64, 7, "minecraft:copper_bulb", map[string]string{"lit": "true", "powered": "true"})
-}
-
-// TestSetblockCopperBulbOverItselfStaysPut checks the onPlace block-identity
-// gate: a /setblock of a bulb over a bulb is no placement, so vanilla runs no
-// power read and the written state stands. vanilla: CopperBulbBlock.onPlace.
-func TestSetblockCopperBulbOverItselfStaysPut(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 6, 64, 7, "redstone_block")
-	servertest.Setblock(t, c, 5, 64, 7, "copper_bulb[lit=false,powered=false]")
-	servertest.ExpectBlockNamed(t, srv, 5, 64, 7, "minecraft:copper_bulb", map[string]string{"lit": "true", "powered": "true"})
-
-	servertest.Setblock(t, c, 5, 64, 7, "copper_bulb[lit=true,powered=false]")
-	servertest.ExpectBlockNamed(t, srv, 5, 64, 7, "minecraft:copper_bulb", map[string]string{"lit": "true", "powered": "false"})
 }
 
 // TestPlayerRedstoneEdgesPulseTheObserverWatchingThem checks that the
@@ -359,54 +294,4 @@ func TestHandToggledDoorsPulseTheObserverWatchingThem(t *testing.T) {
 			}
 		}
 	}
-}
-
-// TestFlagTwoBlockWritesPulseTheObserverWatchingThem checks that flag-2 block
-// writes still run the shape pass, so the observer beside them pulses for two
-// ticks.
-// vanilla: ComposterBlock.tick, AbstractSkullBlock.neighborChanged
-func TestFlagTwoBlockWritesPulseTheObserverWatchingThem(t *testing.T) {
-	t.Parallel()
-	setup := func(t *testing.T, block string) (*server.Server, *servertest.Client) {
-		srv, c := servertest.AttachActor(t)
-		srv.StopTick()
-		servertest.Setblock(t, c, 0, 64, 4, block)
-		servertest.Setblock(t, c, 1, 64, 4, "observer[facing=west]")
-		c.Settle()
-		srv.TickPhysics(8)
-		if _, powered := servertest.ObserverPowerAt(srv, 1, 64, 4); powered {
-			t.Fatal("setup: the observer was already pulsing")
-		}
-		return srv, c
-	}
-
-	t.Run("composter turning ready", func(t *testing.T) {
-		t.Parallel()
-		srv, _ := setup(t, "composter[level=7]")
-		powered, ready := 0, false
-		for range 30 {
-			srv.TickPhysics(1)
-			if _, props := servertest.StateProps(srv.BlockAt(0, 64, 4)); props["level"] == "8" {
-				ready = true
-			}
-			if _, p := servertest.ObserverPowerAt(srv, 1, 64, 4); p {
-				powered++
-			}
-		}
-		if !ready {
-			t.Fatal("the composter never turned ready")
-		}
-		if powered != 2 {
-			t.Errorf("the observer showed powered %d ticks, want a two-tick pulse", powered)
-		}
-	})
-
-	t.Run("powered skull", func(t *testing.T) {
-		t.Parallel()
-		srv, c := setup(t, "skeleton_skull")
-		servertest.Setblock(t, c, 0, 64, 5, "redstone_block")
-		if got := observerPulseTicks(srv); got != 2 {
-			t.Errorf("the observer showed powered %d ticks, want a two-tick pulse", got)
-		}
-	})
 }

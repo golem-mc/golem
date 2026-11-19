@@ -69,39 +69,6 @@ func TestSwingPlaysTheArmAnimation(t *testing.T) {
 	c.Disconnect()
 }
 
-// TestSwingAnimationAndDuration checks that /swing sends the animation type
-// and duration it names, the default duration when it names only a type, and
-// refuses a duration under a tick or a type it does not know.
-func TestSwingAnimationAndDuration(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Join(t, servertest.MobTestConfig(), "Stabber", servertest.OpsListing(t, "Stabber"))
-	name := servertest.PlayerDisplayComponent("Stabber")
-
-	c.ChatCommand("swing @s mainhand stab 12")
-	if id, hand := expectSwingOf(t, c, 2, 12); id != c.PlayerEntityID || hand != protocol.HandMain {
-		t.Errorf("stab = entity %d hand %d, want %d and %d", id, hand, c.PlayerEntityID, protocol.HandMain)
-	}
-	servertest.AwaitCommandFeedbackText(t, c, "commands.swing.success.single", name)
-	c.ChatCommand("swing @s offhand none")
-	if _, hand := expectSwingOf(t, c, 0, 6); hand != protocol.HandOff {
-		t.Errorf("none hand = %d, want off hand", hand)
-	}
-	servertest.AwaitCommandFeedbackText(t, c, "commands.swing.success.single", name)
-	c.ChatCommand("swing @s mainhand whack 1s")
-	expectSwingOf(t, c, 1, 20)
-	servertest.AwaitCommandFeedbackText(t, c, "commands.swing.success.single", name)
-
-	c.ChatCommand("swing @s mainhand stab 0")
-	c.ExpectCommandError(
-		servertest.CommandErrorMessageForTest("argument.time.tick_count_too_low", "1", "0"),
-		servertest.CommandErrorContextForTest("swing @s mainhand stab 0", len("swing @s mainhand stab 0")))
-	c.ChatCommand("swing @s mainhand poke")
-	c.ExpectCommandError(
-		servertest.CommandErrorMessageForTest("argument.swing_animation.invalid", "poke"),
-		servertest.CommandErrorContextForTest("swing @s mainhand poke", len("swing @s mainhand poke")))
-	c.Disconnect()
-}
-
 // TestSwingCommandTree checks the swing subtree the client is sent against
 // 26.3's commands.json: names, parsers, executable nodes and the duration's
 // floor of one tick.

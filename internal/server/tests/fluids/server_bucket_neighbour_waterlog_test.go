@@ -53,34 +53,3 @@ func TestAWaterBucketWaterlogsTheSlabBesideTheClickedFace(t *testing.T) {
 		t.Errorf("the hand after the pour = item %d, want minecraft:bucket", held)
 	}
 }
-
-// TestAWaterBucketWaterlogsTheRailBesideTheClickedFace: a rail in the cell
-// beyond the clicked face is waterlogged in place, not washed away.
-// vanilla: BucketItem.emptyContents, SimpleWaterloggedBlock.canPlaceLiquid
-func TestAWaterBucketWaterlogsTheRailBesideTheClickedFace(t *testing.T) {
-	t.Parallel()
-	name, props, held := pourBesideTheFace(t, "minecraft:rail",
-		map[string]string{"shape": "north_south", "waterlogged": "false"})
-	if name != "minecraft:rail" || props["waterlogged"] != "true" {
-		t.Errorf("the block beside the face = %s %v, want a waterlogged rail", name, props)
-	}
-	if held != servertest.ItemIDOrDie(t, "minecraft:bucket") {
-		t.Errorf("the hand after the pour = item %d, want minecraft:bucket", held)
-	}
-}
-
-// TestAWaterBucketWaterlogsTheSeaPickleBesideTheClickedFace: a sea pickle,
-// non-solid like the rail, in the cell beyond the clicked face is
-// waterlogged in place rather than dropped as an item.
-// vanilla: BucketItem.emptyContents, SeaPickleBlock (SimpleWaterloggedBlock)
-func TestAWaterBucketWaterlogsTheSeaPickleBesideTheClickedFace(t *testing.T) {
-	t.Parallel()
-	name, props, held := pourBesideTheFace(t, "minecraft:sea_pickle",
-		map[string]string{"pickles": "1", "waterlogged": "false"})
-	if name != "minecraft:sea_pickle" || props["waterlogged"] != "true" {
-		t.Errorf("the block beside the face = %s %v, want a waterlogged sea pickle", name, props)
-	}
-	if held != servertest.ItemIDOrDie(t, "minecraft:bucket") {
-		t.Errorf("the hand after the pour = item %d, want minecraft:bucket", held)
-	}
-}

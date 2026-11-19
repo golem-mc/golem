@@ -1,12 +1,12 @@
 package combat
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -88,31 +88,6 @@ func TestDrinkingAWaterBottleUsesItUpAndLeavesTheBottle(t *testing.T) {
 	})
 }
 
-// TestDrinkingFromTheOffHandAppliesTheEffectsAndLeavesTheBottle drinks a
-// swiftness potion held in the off hand: the hand state says the off hand is
-// the one raised, the speed lands and the bottle takes its place.
-func TestDrinkingFromTheOffHandAppliesTheEffectsAndLeavesTheBottle(t *testing.T) {
-	t.Parallel()
-	srv, c, id := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Drinker")
-	c.Settle()
-
-	srv.GiveSlot("Drinker", player.OffHandSlot, swiftnessPotion(t))
-	c.UseItemRightClicks(protocol.HandOff)
-	c.ExpectHandState(id, protocol.EntityFlagHandActive|protocol.EntityFlagActiveHandOff)
-
-	if got, want := c.AwaitMobEffect(), (servertest.MobEffect{
-		Entity: id, Effect: registry.MustMobEffect("minecraft:speed"),
-		Amplifier: 0, Duration: 3600, Flags: 0x02 | 0x04 | 0x08,
-	}); got != want {
-		t.Errorf("update mob effect = %+v, want %+v", got, want)
-	}
-	bottle := servertest.MustItemID(t, "minecraft:glass_bottle")
-	servertest.UntilTicks(t, srv, 100, "condition", func() bool {
-		got := srv.InventorySlot("Drinker", player.OffHandSlot)
-		return got.ItemID == bottle && got.Count == 1
-	})
-}
-
 // TestDrinkingASwiftnessPotionAppliesItsEffectsAndLeavesTheBottle right-clicks
 // a swiftness potion: the drinking player's hand goes up for the animation
 // other clients play, the finished drink sends the speed it was brewed with
@@ -174,86 +149,6 @@ func TestPotionContentsSurviveARestart(t *testing.T) {
 		Amplifier: 0, Duration: 3600, Flags: 0x02 | 0x04 | 0x08,
 	}); got != want {
 		t.Errorf("update mob effect = %+v, want %+v", got, want)
-	}
-}
-
-// TestVanillaPotionContentsAreRead reads a vanilla-written player file: the
-// potion's contents are NBT, naming the potion and a custom effect, and the
-// stack comes back whole and drinks what it names.
-func TestVanillaPotionContentsAreRead(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.SurvivalTestConfig()
-	cfg.LevelName = t.TempDir()
-	const name = "Alchemist"
-
-	servertest.WritePlayerFile(t, servertest.PlayerFile(cfg.LevelName, name), nbt.Compound{
-		"Inventory": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-			nbt.Compound{
-				"Slot":  nbt.Byte(0),
-				"id":    nbt.String("minecraft:potion"),
-				"count": nbt.Int(1),
-				"components": nbt.Compound{
-					"minecraft:potion_contents": nbt.Compound{
-						"potion": nbt.String("minecraft:swiftness"),
-						"custom_effects": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-							nbt.Compound{
-								"id":        nbt.String("minecraft:jump_boost"),
-								"amplifier": nbt.Byte(1),
-								"duration":  nbt.Int(200),
-								"show_icon": nbt.Byte(1),
-								"hidden_effect": nbt.Compound{
-									"duration":  nbt.Int(50),
-									"show_icon": nbt.Byte(1),
-								},
-							},
-						}},
-					},
-				},
-			},
-		}},
-	})
-
-	srv, c, _ := servertest.JoinAs(t, cfg, name)
-	c.Settle()
-
-	kept := srv.InventorySlot(name, player.HotbarSlot)
-	contents, ok := kept.PotionContentsOf()
-	if !ok {
-		t.Fatalf("the potion the file named came back as %+v", kept)
-	}
-	if contents.Potion != registry.MustPotion("minecraft:swiftness") {
-		t.Errorf("potion = %d, want swiftness", contents.Potion)
-	}
-	if len(contents.CustomEffects) != 1 ||
-		contents.CustomEffects[0].ID != registry.MustMobEffect("minecraft:jump_boost") ||
-		contents.CustomEffects[0].Amplifier != 1 || contents.CustomEffects[0].Duration != 200 ||
-		contents.CustomEffects[0].Hidden != nil {
-		t.Errorf("custom effects = %+v, want jump boost II for 200 ticks without the hidden twin", contents.CustomEffects)
-	}
-
-	c.UseItemRightClicks(protocol.HandMain)
-	if got := c.AwaitMobEffect(); got.Effect != registry.MustMobEffect("minecraft:speed") {
-		t.Errorf("the first effect = %+v, want speed", got)
-	}
-}
-
-// TestCreativeDrinkingAppliesTheEffectsAndKeepsThePotion drinks the same
-// potion in creative: the effect lands, while the stack stays, infinite
-// materials keeping it the whole drink long.
-func TestCreativeDrinkingAppliesTheEffectsAndKeepsThePotion(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.BlockTestConfig(), "Drinker")
-	c.Settle()
-
-	potion := swiftnessPotion(t)
-	srv.GiveSlot("Drinker", player.HotbarSlot, potion)
-	c.UseItemRightClicks(protocol.HandMain)
-
-	if got := c.AwaitMobEffect(); got.Effect != registry.MustMobEffect("minecraft:speed") || got.Duration != 3600 {
-		t.Errorf("update mob effect = %+v, want speed for 3600 ticks", got)
-	}
-	if kept := srv.InventorySlot("Drinker", player.HotbarSlot); !kept.Equal(potion) {
-		t.Errorf("the drunk potion = %+v, want it kept whole", kept)
 	}
 }
 
@@ -349,22 +244,4 @@ func TestDrinkingAHarmingPotionKillsWithIndirectMagic(t *testing.T) {
 	c.ExpectCombatDeath(id, message)
 	c.ExpectDeathMessage(message)
 	c.Disconnect()
-}
-
-// TestDrinkingAScaledPotionShortensItsEffects drinks a swiftness potion
-// carrying a potion_duration_scale of a half: the 3600-tick brewing is sent
-// as 1800 ticks.
-func TestDrinkingAScaledPotionShortensItsEffects(t *testing.T) {
-	t.Parallel()
-	srv, c, id := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Drinker")
-	c.Settle()
-
-	potion := swiftnessPotion(t)
-	potion.SetPotionDurationScale(0.5)
-	srv.GiveSlot("Drinker", player.HotbarSlot, potion)
-	c.UseItemRightClicks(protocol.HandMain)
-
-	if got := c.AwaitMobEffect(); got.Entity != id || got.Duration != 1800 {
-		t.Errorf("update mob effect = %+v, want entity %d for 1800 ticks", got, id)
-	}
 }

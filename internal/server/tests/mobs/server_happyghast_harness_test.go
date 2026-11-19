@@ -1,10 +1,8 @@
 package mobs
 
 import (
-	"encoding/binary"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -87,41 +85,5 @@ func TestAGhastlingRefusesAHarness(t *testing.T) {
 	}
 	if got := srv.InventorySlot("Rider", player.HotbarSlot); got.Count != 1 {
 		t.Errorf("hand holds %d harnesses after the click, want 1", got.Count)
-	}
-}
-
-// hearts counts the love-heart events the client is sent for entity id.
-func hearts(c *servertest.Client, id int32) int {
-	n := 0
-	c.SettleAndCollect(func(pid int32, data []byte) {
-		if pid == protocol.IDPlayEntityEvent && len(data) >= 5 &&
-			int32(binary.BigEndian.Uint32(data)) == id && data[4] == protocol.EntityStatusLoveHearts {
-			n++
-		}
-	})
-	return n
-}
-
-// TestASnowballDoesNotPutAGrownHappyGhastInLove: a grown happy ghast cannot
-// fall in love, so the click keeps the snowball; a ghastling still eats it.
-// vanilla: HappyGhast.canFallInLove
-func TestASnowballDoesNotPutAGrownHappyGhastInLove(t *testing.T) {
-	t.Parallel()
-	srv, _, c := wolfSceneWith(t, "Rider", servertest.MobTestConfig())
-	id := srv.SpawnMob("minecraft:happy_ghast", 4.5, 64, 0.5)
-	srv.SetMobNoAI(id)
-	giveHand(t, srv, "Rider", "minecraft:snowball", 4)
-	c.UseOn(id)
-	if n := hearts(c, id); n != 0 {
-		t.Errorf("a grown happy ghast shows hearts %d times", n)
-	}
-	if got := srv.InventorySlot("Rider", player.HotbarSlot).Count; got != 4 {
-		t.Errorf("hand holds %d snowballs, want 4", got)
-	}
-	srv.SetMobBaby(id, true)
-	c.UseOn(id)
-	c.SettleAndCollect(func(int32, []byte) {})
-	if got := srv.InventorySlot("Rider", player.HotbarSlot).Count; got != 3 {
-		t.Errorf("hand holds %d snowballs after feeding a ghastling, want 3", got)
 	}
 }

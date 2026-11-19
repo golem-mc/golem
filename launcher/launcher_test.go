@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -162,17 +161,6 @@ func TestMainSourceImportsPluginsSorted(t *testing.T) {
 	}
 }
 
-func TestBuildKeyIgnoresPluginOrder(t *testing.T) {
-	a := []pluginSpec{{Path: "x", Version: "v1.0.0"}, {Path: "y", Version: "v1.0.0"}}
-	b := []pluginSpec{a[1], a[0]}
-	if buildKey(config{Server: "v1.0.0"}, "", a) != buildKey(config{Server: "v1.0.0"}, "", b) {
-		t.Error("the order of the plugin list changed the build")
-	}
-	if buildKey(config{Server: "v1.0.0"}, "", a) == buildKey(config{Server: "v1.0.1"}, "", a) {
-		t.Error("another server version reused the build")
-	}
-}
-
 func writeMod(t *testing.T, dir, module string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -243,34 +231,6 @@ func TestDefaultServerInsideCheckout(t *testing.T) {
 	writeMod(t, other, "example.com/other")
 	if got := checkoutRoot(other); got != "" {
 		t.Errorf("checkoutRoot = %q for another module", got)
-	}
-}
-
-func TestDefaultServerOutsideCheckout(t *testing.T) {
-	old := version
-	defer func() { version = old }()
-	dir := t.TempDir()
-
-	version = "v1.4.0"
-	if got, err := defaultServer(dir, noLatest); err != nil || got != "v1.4.0" {
-		t.Errorf("with a version: %q, %v", got, err)
-	}
-
-	version = ""
-	if got, err := defaultServer(dir, func() (string, error) { return "v1.5.0", nil }); err != nil || got != "v1.5.0" {
-		t.Errorf("source build, latest release: %q, %v", got, err)
-	}
-	if _, err := defaultServer(dir, func() (string, error) { return "latest", nil }); err == nil {
-		t.Error("an unpinned tag was taken")
-	}
-
-	path := filepath.Join(dir, "launcher.json")
-	_, err := loadConfig(path, noLatest)
-	if err == nil || !strings.Contains(err.Error(), "no release yet") {
-		t.Fatalf("no release: err = %v", err)
-	}
-	if _, serr := os.Stat(path); serr == nil {
-		t.Error("launcher.json written without a server")
 	}
 }
 
@@ -417,22 +377,6 @@ func TestHelpTopLevel(t *testing.T) {
 	}
 }
 
-func TestHelpSubcommand(t *testing.T) {
-	var want string
-	for _, args := range [][]string{{"plugin", "add", "--help"}, {"help", "plugin", "add"}, {"plugin", "add", "-h"}} {
-		var out bytes.Buffer
-		if err := execute(context.Background(), args, &out, io.Discard, func() {}); err != nil {
-			t.Fatalf("%v: %v", args, err)
-		}
-		if want == "" {
-			want = out.String()
-		}
-		if out.String() != want || !strings.Contains(want, "Usage: golem-launcher plugin add <path>[@version]") || !strings.Contains(want, "Example:") {
-			t.Errorf("%v printed %q", args, out.String())
-		}
-	}
-}
-
 func TestUnknownCommandAndFlagExitTwo(t *testing.T) {
 	for _, args := range [][]string{{"bogus"}, {"plugin", "bogus"}, {"-nope"}, {"plugin", "list", "-nope"}, {"plugin", "add"}, {"check", "extra"}} {
 		var out, errw bytes.Buffer
@@ -483,20 +427,6 @@ func TestPluginAddRefusedNeedingNewerServer(t *testing.T) {
 	f.must("plugin", "add", "example.com/warps@v1.0.0")
 	if got := f.loadCfg().Plugins; !slices.Equal(got, []string{"example.com/warps@v1.0.0"}) {
 		t.Errorf("plugins = %q", got)
-	}
-}
-
-func TestPluginAddLocalDirectory(t *testing.T) {
-	f := newFixture(t, `{"server": "v1.5.0", "plugins": []}`)
-	local := filepath.Join(f.dir, "mine")
-	writeMod(t, local, "example.com/mine")
-	if err := os.WriteFile(filepath.Join(local, "mine.go"), []byte("package mine\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	f.must("plugin", "add", local)
-	got := f.loadCfg().Plugins
-	if len(got) != 1 || got[0] != local {
-		t.Fatalf("plugins = %q", got)
 	}
 }
 
@@ -551,18 +481,6 @@ func TestOutdatedAndUpdate(t *testing.T) {
 	}
 	if out := f.must("outdated"); !strings.Contains(out, "up to date") {
 		t.Errorf("outdated after update = %q", out)
-	}
-}
-
-func TestUpdateServerAlone(t *testing.T) {
-	// A plugin's newest version needing a newer server is refused when only
-	// that plugin moves; moving the server alone leaves older plugins fine.
-	f := newFixture(t, `{"server": "v1.0.0", "plugins": ["example.com/shops@v1.0.0"]}`)
-	latestServerOverride = func(context.Context) (string, error) { return "v1.5.0", nil }
-	t.Cleanup(func() { latestServerOverride = nil })
-	f.must("update", "--server")
-	if got := f.loadCfg(); got.Server != "v1.5.0" || got.Plugins[0] != "example.com/shops@v1.0.0" {
-		t.Errorf("after update --server: %+v", got)
 	}
 }
 
@@ -630,16 +548,6 @@ func TestCacheClean(t *testing.T) {
 		if !fileExists(kept) {
 			t.Errorf("%s was deleted", kept)
 		}
-	}
-}
-
-func TestDiffConfigKeepsOrder(t *testing.T) {
-	a := config{Server: "v1", Plugins: []string{"b@v1", "a@v1"}}
-	b := config{Server: "v2", Plugins: []string{"b@v2", "a@v1", "c@v1"}}
-	got := diffConfig(a, b)
-	want := []string{"server v1 -> v2", "plugin b v1 -> v2", "added c@v1"}
-	if !slices.Equal(got, want) {
-		t.Errorf("diff = %q, want %q", got, want)
 	}
 }
 

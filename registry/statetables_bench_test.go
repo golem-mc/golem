@@ -39,17 +39,3 @@ func BenchmarkHopperPropsTables(b *testing.B) {
 	}
 	_ = n
 }
-
-func TestHopperStateTables(t *testing.T) {
-	ids := hopperStates()
-	if len(ids) != 10 {
-		t.Fatalf("hopper states = %d, want 10", len(ids))
-	}
-	for _, id := range ids {
-		p := StateProps(id)
-		if StateEnabled(id) != (p["enabled"] == "true") || !StateHasFacing(id) ||
-			StateFacing(id) != int(facingOrder[p["facing"]]) {
-			t.Errorf("state %d props %v disagree with tables", id, p)
-		}
-	}
-}

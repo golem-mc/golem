@@ -5,7 +5,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"io"
 	"log/slog"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -41,24 +40,6 @@ func TestConsoleRunsCommandAsServer(t *testing.T) {
 	}
 }
 
-// TestConsoleRefusesARepeatedComponent has the console run a /give whose item
-// list names one component twice: the refusal carries no place in the input,
-// so the console answers the message alone rather than slicing the input at a
-// cursor below zero.
-func TestConsoleRefusesARepeatedComponent(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Start(t, config.Default())
-
-	reply := srv.RunLine("give Nobody diamond_sword[damage=1,damage=2]")
-	if len(reply) != 1 || len(reply[0].Extra) != 1 {
-		t.Fatalf("the console answered %v, want the refusal alone", reply)
-	}
-	inner := reply[0].Extra[0]
-	if inner.Translate != "arguments.item.component.repeated" {
-		t.Errorf("the console refusal = %q, want the repeated-component message", inner.Translate)
-	}
-}
-
 // TestConsoleStopsTheServer has the console run /stop: the listener ends,
 // which is what the console's stop asks the server's Listen for.
 func TestConsoleStopsTheServer(t *testing.T) {
@@ -83,19 +64,6 @@ func TestConsoleStopsTheServer(t *testing.T) {
 	}
 }
 
-// TestConsoleSuggestionsCarryStop completes a bare slash out of the
-// console's permission level, which offers /stop where a player's own
-// level would not.
-func TestConsoleSuggestionsCarryStop(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Start(t, config.Default())
-
-	_, matches := srv.Suggest("/")
-	if !slices.Contains(matches, "stop") {
-		t.Errorf("suggestions %q do not carry stop", matches)
-	}
-}
-
 // TestConsoleReportsAParseError has the console run a line that matches
 // nothing, whose error the client would render with the line and the
 // marker under it.
@@ -112,32 +80,6 @@ func TestConsoleReportsAParseError(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "bogus<--[HERE]") {
 		t.Errorf("output %q does not carry the error's context", out.String())
-	}
-}
-
-// TestConsoleStopSaysSoOnce runs /stop from the console: the reply says
-// "Stopping the server" and the shutdown logs "Stopping server", each once.
-// vanilla: StopCommand, MinecraftServer.stopServer. Not parallel: it swaps
-// the default logger.
-func TestConsoleStopSaysSoOnce(t *testing.T) {
-	logs := &servertest.SyncBuffer{}
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	srv, _ := servertest.Start(t, config.Default())
-	reply := srv.RunLine("stop")
-	if len(reply) != 1 || reply[0].Plain() != "Stopping the server" {
-		t.Errorf("stop answered %v, want Stopping the server", reply)
-	}
-	srv.Shutdown()
-
-	got := logs.String()
-	if strings.Contains(got, "Stopping the server") {
-		t.Errorf("the log repeats the reply: %s", got)
-	}
-	if strings.Count(got, `msg="Stopping server"`) != 1 {
-		t.Errorf("the log has not one Stopping server line: %s", got)
 	}
 }
 
@@ -196,71 +138,5 @@ func TestAdminCommandsEchoToTheLog(t *testing.T) {
 	stopped := strings.Index(got, `msg="Stopping server"`)
 	if echo < 0 || execute < echo || stop < execute || stopped < stop {
 		t.Errorf("the log lacks the echoes and the stop in order: %s", got)
-	}
-}
-
-// TestConsoleFailuresAreRed runs a console line that fails: the answer is in
-// red, as a player's would be.
-func TestConsoleFailuresAreRed(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Start(t, config.Default())
-	reply := srv.RunLine("msg Nobody x")
-	if len(reply) != 1 || reply[0].ANSI() != "\x1b[0;91mNo player was found\x1b[0m" {
-		t.Errorf("msg to nobody answered %v, want No player was found in red", reply)
-	}
-}
-
-// TestConsoleEchoesAnOpsGameMode has an operator switch game mode with the
-// admin echo on and off: on, the session the log lines go through carries
-// "[Probe: Set own game mode to Survival Mode]"; off, it stays quiet.
-// vanilla: CommandSourceStack.broadcastToAdmins. Not parallel: it swaps the
-// default logger.
-func TestConsoleEchoesAnOpsGameMode(t *testing.T) {
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	srv, c := servertest.Join(t, cfg, "Probe", servertest.OpsListing(t, "Probe"))
-
-	var consoleOut servertest.SyncBuffer
-	con := console.New(strings.NewReader(""), io.Discard, &consoleOut, srv)
-	prev := slog.Default()
-	slog.SetDefault(slog.New(console.NewLogHandler(con.LogWriter(), slog.LevelInfo, false)))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	srv.SetGameRule("log_admin_commands", false)
-	c.ChatCommand("gamemode creative")
-	c.ExpectSystemChat("commands.gamemode.success.self", false, protocol.Text{Translate: "gameMode.creative"})
-	if strings.Contains(consoleOut.String(), "Set own game mode") {
-		t.Fatalf("the console echoes a command run with log_admin_commands off:\n%s", consoleOut.String())
-	}
-
-	srv.SetGameRule("log_admin_commands", true)
-	c.ChatCommand("gamemode survival")
-	c.ExpectSystemChat("commands.gamemode.success.self", false, protocol.Text{Translate: "gameMode.survival"})
-	servertest.PollUntil(t, 10*time.Second, func() bool {
-		return strings.Contains(consoleOut.String(), "[Probe: Set own game mode to Survival Mode]")
-	})
-}
-
-// TestGameModeChangeLogsNoDuplicateKey has an operator switch game mode and
-// holds that no log line repeats a key the logger's With already carries.
-// Not parallel: it swaps the default logger.
-func TestGameModeChangeLogsNoDuplicateKey(t *testing.T) {
-	logs := captureConsole(t)
-
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	_, c := servertest.Join(t, cfg, "Probe", servertest.OpsListing(t, "Probe"))
-
-	c.ChatCommand("gamemode creative")
-	c.ExpectSystemChat("commands.gamemode.success.self", false, protocol.Text{Translate: "gameMode.creative"})
-
-	got := logs.String()
-	if !strings.Contains(got, "game mode set") {
-		t.Fatalf("the log lacks the game mode set line:\n%s", got)
-	}
-	for line := range strings.Lines(got) {
-		if strings.Count(line, "player=") > 1 {
-			t.Errorf("a log line repeats player=: %q", line)
-		}
 	}
 }

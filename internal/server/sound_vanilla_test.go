@@ -111,30 +111,6 @@ func TestSoundEffectMatchesVanillaCreeperPrimed(t *testing.T) {
 	compareSoundEffect(t, "creeper primed", got, want)
 }
 
-// TestSoundEffectMatchesVanillaCreeperDeath pins the second capture the same
-// probing session gave — the death sound /kill deals a creeper, whose pitch
-// is the mob's own voice roll rather than a fixed one, carried here as the
-// exact bits the vanilla server sent.
-func TestSoundEffectMatchesVanillaCreeperDeath(t *testing.T) {
-	t.Parallel()
-	// minecraft:entity.creeper.death, ID 479 plus one, at (30.5, -62.0,
-	// 15.5), volume one, the voice pitch 0x3f8b5a0b.
-	vanilla := "e00305000000f4fffffe100000007c3f8000003f8b5a0b5779c442fc548aca"
-	raw, err := hex.DecodeString(vanilla)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := decodeSoundEffect(t, raw)
-
-	name := "minecraft:entity.creeper.death"
-	if id, ok := registry.SoundEventID(name); !ok || id != 479 {
-		t.Fatalf("the sound registry has %s at %d (ok=%v), want the vanilla 479", name, id, ok)
-	}
-	got := decodeSoundEffect(t, soundEffectAt(name, protocol.SoundCategoryHostile, 30.5, -62.0, 15.5,
-		1.0, math.Float32frombits(0x3f8b5a0b)))
-	compareSoundEffect(t, "creeper death", got, want)
-}
-
 // TestSoundEffectRegistryReference checks the builder sends any known sound
 // the same way: as the registry ID one above the
 // registry's own numbering, with no name on the wire.

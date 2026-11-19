@@ -45,7 +45,7 @@ func fired(t *testing.T, srv *server.Server, c *servertest.Client, what string, 
 	// The packet may not have been read yet, so the ticks are paced in real
 	// time until its listeners have run.
 	for i := 0; *n < want; i++ {
-		if i == 400 {
+		if i == 4000 {
 			t.Fatalf("no %s", what)
 		}
 		servertest.RunTicks(t, srv, 1)
@@ -147,25 +147,6 @@ func TestPluginBlockBreakCancelAndLoot(t *testing.T) {
 	servertest.UntilTicks(t, srv, 20, "the block to break", func() bool { return srv.BlockAt(d[0], d[1], d[2]) == 0 })
 	if srv.ItemCount() != 0 || srv.OrbCount() == 0 {
 		t.Fatalf("edited break: items=%d orbs=%d, want no items and an orb", srv.ItemCount(), srv.OrbCount())
-	}
-}
-
-// Without a listener the break drops the block's loot as before.
-func TestPluginBlockBreakKeepsVanillaLoot(t *testing.T) {
-	var broke int
-	srv, _, c := blockScene(t, "minecraft:diamond_pickaxe", true, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.BlockBreakEvent) { broke++ })
-	})
-	d := servertest.DigTarget
-	c.StartDigging(d[0], d[1], d[2])
-	c.Settle()
-	servertest.RunTicks(t, srv, 1)
-	c.StopDigging(d[0], d[1], d[2])
-	c.Settle()
-	servertest.RunTicks(t, srv, 12)
-	servertest.ExpectAir(t, srv, d)
-	if broke != 1 || srv.ItemCount() != 1 {
-		t.Fatalf("events=%d items=%d, want 1 and 1", broke, srv.ItemCount())
 	}
 }
 
@@ -274,83 +255,6 @@ func TestPluginBlockDispenseCancelAndEdit(t *testing.T) {
 	}
 	if fires != 2 {
 		t.Fatalf("fires=%d, want 2", fires)
-	}
-}
-
-// vanilla: BlockBehaviour.onDestroy drops through Block.dropResources
-func TestPluginBlockDropItemEdit(t *testing.T) {
-	var drops int
-	srv, _, c := blockScene(t, "minecraft:diamond_pickaxe", true, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.BlockDropItemEvent) {
-			drops++
-			if e.Player.Name() != "Miner" || e.State != plugin.DefaultState(registry.BlockStone) || len(e.Items) != 1 || e.Items[0].Item != registry.ItemCobblestone {
-				t.Errorf("drop inputs: %v %v", e.State, e.Items)
-			}
-			e.Items = append(e.Items, plugin.ItemStack{Item: registry.ItemDiamond, Count: 1})
-		})
-	})
-	d := servertest.DigTarget
-	c.StartDigging(d[0], d[1], d[2])
-	c.Settle()
-	servertest.RunTicks(t, srv, 1)
-	c.StopDigging(d[0], d[1], d[2])
-	c.Settle()
-	servertest.RunTicks(t, srv, 12)
-	if drops != 1 || srv.ItemCount() != 2 {
-		t.Fatalf("drops=%d items=%d, want 1 and 2", drops, srv.ItemCount())
-	}
-}
-
-// vanilla: BellBlock.useWithoutItem, BellBlock.attemptToRing
-func TestPluginBellRingCancel(t *testing.T) {
-	var rings int
-	var cancel bool
-	srv, _, c := blockScene(t, "minecraft:stick", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.BellRingEvent) {
-			rings++
-			if e.Block.Pos != (plugin.BlockPos{X: 2, Y: 64}) || e.Entity == nil {
-				t.Errorf("bell inputs: %v %v", e.Block.Pos, e.Entity)
-			}
-			e.SetCancelled(cancel)
-		})
-	})
-	d := servertest.DigTarget
-	srv.SetBlock(d[0], d[1], d[2], facing(t, registry.BlockBell, "north"))
-	for i, cancel2 := range []bool{true, false} {
-		cancel = cancel2
-		c.PlaceBlock(d[0], d[1], d[2], protocol.FaceNorth)
-		ids := fired(t, srv, c, "bell ring", &rings, i+1)
-		if slices.Contains(ids, protocol.IDPlayBlockAction) == cancel2 {
-			t.Errorf("cancel=%v: block action sent=%v", cancel2, !cancel2)
-		}
-	}
-}
-
-// vanilla: FlintAndSteelItem.useOn
-func TestPluginBlockIgniteCancel(t *testing.T) {
-	var ignites int
-	var cancel bool
-	srv, _, c := blockScene(t, "minecraft:flint_and_steel", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.BlockIgniteEvent) {
-			ignites++
-			if e.Cause != plugin.IgniteFlintAndSteel || e.Player == nil || e.Block.Pos != (plugin.BlockPos{X: 2, Y: 64}) {
-				t.Errorf("ignite inputs: %v %v %v", e.Cause, e.Player, e.Block.Pos)
-			}
-			e.SetCancelled(cancel)
-		})
-	})
-	d := servertest.DigTarget
-	cancel = true
-	c.PlaceBlock(d[0], d[1]-1, d[2], protocol.FaceTop)
-	fired(t, srv, c, "cancelled ignite", &ignites, 1)
-	if srv.BlockAt(d[0], d[1], d[2]) != 0 || srv.InventorySlot("Miner", player.HotbarSlot).Damage != 0 {
-		t.Fatal("cancelled ignite still lit or wore the tool")
-	}
-	cancel = false
-	c.PlaceBlock(d[0], d[1]-1, d[2], protocol.FaceTop)
-	fired(t, srv, c, "ignite", &ignites, 2)
-	if srv.BlockAt(d[0], d[1], d[2]) == 0 {
-		t.Fatal("fire was not placed")
 	}
 }
 

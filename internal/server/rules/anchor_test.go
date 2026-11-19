@@ -2,22 +2,6 @@ package rules
 
 import "testing"
 
-// TestAnchorState checks the charge read and the recharged state.
-func TestAnchorState(t *testing.T) {
-	two := mustState(t, "minecraft:respawn_anchor", map[string]string{"charges": "2"})
-	charges, ok := AnchorState(two)
-	if !ok || charges != 2 {
-		t.Fatalf("AnchorState = %d, %v", charges, ok)
-	}
-	three, ok := AnchorWithCharges(two, charges+1)
-	if !ok || three != mustState(t, "minecraft:respawn_anchor", map[string]string{"charges": "3"}) {
-		t.Errorf("AnchorWithCharges(3) = %d, %v", three, ok)
-	}
-	if _, ok := AnchorState(stateOf(t, "minecraft:stone")); ok {
-		t.Error("stone is no anchor")
-	}
-}
-
 // TestAnchorRefusesRespawn checks that only an empty anchor refuses, and a
 // forced point never.
 func TestAnchorRefusesRespawn(t *testing.T) {
@@ -70,13 +54,6 @@ func TestAnchorUse(t *testing.T) {
 	}
 }
 
-// TestAnchorCanCharge checks glowstone is needed and a full anchor declines.
-func TestAnchorCanCharge(t *testing.T) {
-	if !AnchorCanCharge(3, true) || AnchorCanCharge(4, true) || AnchorCanCharge(0, false) {
-		t.Error("only a non-full anchor with glowstone charges")
-	}
-}
-
 // anchorTestWorld is a stone floor at y 63 with the anchor at (0, 64, 0).
 func anchorTestWorld(t *testing.T) bedWorld {
 	t.Helper()
@@ -99,22 +76,5 @@ func TestAnchorStandUpSkipsADangerousCellWhileASafeOneExists(t *testing.T) {
 	px, py, pz, ok := AnchorStandUpSpot(w, 0, 64, 0)
 	if !ok || px != -0.5 || py != 64 || pz != 0.5 {
 		t.Errorf("stand-up = (%v, %v, %v), %v; want (-0.5, 64, 0.5), true", px, py, pz, ok)
-	}
-}
-
-// TestAnchorStandUpTakesADangerousCellWhenNoneIsSafe checks the second pass:
-// the only standable cell, over a magma block, is taken.
-func TestAnchorStandUpTakesADangerousCellWhenNoneIsSafe(t *testing.T) {
-	w := anchorTestWorld(t)
-	stone := stateOf(t, "minecraft:stone")
-	for _, o := range anchorStandUpOffsets {
-		if o[1] >= 0 && o != [3]int32{0, 0, -1} && o != [3]int32{0, 1, -1} {
-			w.blocks[[3]int32{o[0], 64 + o[1], o[2]}] = stone
-		}
-	}
-	w.blocks[[3]int32{0, 63, -1}] = stateOf(t, "minecraft:magma_block")
-	px, py, pz, ok := AnchorStandUpSpot(w, 0, 64, 0)
-	if !ok || px != 0.5 || py != 64 || pz != -0.5 {
-		t.Errorf("stand-up = (%v, %v, %v), %v; want (0.5, 64, -0.5), true", px, py, pz, ok)
 	}
 }

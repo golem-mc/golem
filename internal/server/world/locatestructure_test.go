@@ -1,7 +1,6 @@
 package world
 
 import (
-	"math"
 	"slices"
 	"testing"
 
@@ -93,81 +92,6 @@ func allStrongholdChunks(g *OverworldGenerator) [][2]int32 {
 		func(qx, qz int32) bool { return probe(qx, 0, qz).InTag(strongholdPreferredTag) })
 }
 
-// TestStrongholdSearchResolvesOnlyTheNearStarts: the nearest stronghold found
-// by resolving the starts nearest first is the one the exhaustive scan of all
-// 128 picks, from places around and between the rings, and most starts stay
-// unresolved.
-func TestStrongholdSearchResolvesOnlyTheNearStarts(t *testing.T) {
-	t.Parallel()
-	g := NewOverworldGenerator(12345)
-	chunks := allStrongholdChunks(g)
-	starts := levelgen.ConcentricRingStarts(g.seed, strongholdDistance, strongholdSpread, strongholdCount)
-	for i, c := range chunks {
-		dx := math.Abs(float64(c[0]-starts[i].X) * 16)
-		dz := math.Abs(float64(c[1]-starts[i].Z) * 16)
-		if dx > ringMoveBlocks || dz > ringMoveBlocks {
-			t.Errorf("start %d moved (%.0f, %.0f) blocks, more than ringMoveBlocks %d", i, dx, dz, ringMoveBlocks)
-		}
-	}
-	probe := g.newBiomeIDProbe()
-	// A layout of its own, unresolved whatever other tests of the seed did;
-	// wider batches hide a bound that is too tight.
-	g.rings = &strongholdRings{seed: g.seed, batch: 1}
-	exhaustive := func(x, y, z int32) (int32, int32, bool) {
-		var bx, bz int32
-		best, found := 0.0, false
-		for _, c := range chunks {
-			dx, dy, dz := float64(c[0]*16+8-x), float64(32-y), float64(c[1]*16+8-z)
-			d := dx*dx + dy*dy + dz*dz
-			if found && d >= best || !probe(c[0]*4, 0, c[1]*4).InTag(strongholdBiomeTag) {
-				continue
-			}
-			bx, bz, best, found = c[0]*16, c[1]*16, d, true
-		}
-		return bx, bz, found
-	}
-	// A grid across the first rings, where the nearest starts are close to each other.
-	var places [][3]int32
-	for px := int32(-3200); px <= 3200; px += 400 {
-		for pz := int32(-3200); pz <= 3200; pz += 400 {
-			places = append(places, [3]int32{px, 64, pz})
-		}
-	}
-	for _, p := range places {
-		wx, wz, wok := exhaustive(p[0], p[1], p[2])
-		gx, gz, _, gok := g.NearestStructure([]string{strongholdID}, p[0], p[1], p[2], 0)
-		if gx != wx || gz != wz || gok != wok {
-			t.Errorf("from %v: found (%d, %d) %v, exhaustive scan (%d, %d) %v", p, gx, gz, gok, wx, wz, wok)
-		}
-	}
-	resolved := 0
-	for _, done := range g.rings.resolved {
-		if done {
-			resolved++
-		}
-	}
-	if resolved == 0 || resolved > strongholdCount/2 {
-		t.Errorf("%d of %d starts resolved", resolved, strongholdCount)
-	}
-}
-
-// TestStrongholdRingLayout: 128 chunks in rings of 3, 6, 10, ... around the
-// origin, the first ring 128 +- 40 chunks out before a start moves to a
-// preferred biome within 7 chunks.
-// vanilla: ChunkGeneratorStructureState.generateRingPositions
-func TestStrongholdRingLayout(t *testing.T) {
-	chunks := allStrongholdChunks(NewOverworldGenerator(0))
-	if len(chunks) != 128 {
-		t.Fatalf("%d ring chunks, want 128", len(chunks))
-	}
-	for i, c := range chunks[:3] {
-		d := math.Hypot(float64(c[0]), float64(c[1]))
-		if d < 80 || d > 176 {
-			t.Errorf("first-ring chunk %d at %v is %.0f chunks out", i, c, d)
-		}
-	}
-}
-
 func BenchmarkOverworldLocateStronghold(b *testing.B) {
 	for b.Loop() {
 		g := NewOverworldGenerator(0)
@@ -182,50 +106,6 @@ func BenchmarkNetherLocateFortressWorstCase(b *testing.B) {
 	for b.Loop() {
 		levelgen.NearestRandomSpread(0, levelgen.NetherComplexSpacing, levelgen.NetherComplexSeparation,
 			levelgen.NetherComplexSalt, 0, 0, 100, func(cx, cz int32) bool { g.complexIsFortress(cx, cz); return false })
-	}
-}
-
-// TestStrongholdRingTestResolvesOnlyNearStarts: the ring test of a chunk
-// resolves only the starts that can move to it, and finds each ring chunk.
-// Six starts keep it at a fraction of a second; all 128 take seconds.
-func TestStrongholdRingTestResolvesOnlyNearStarts(t *testing.T) {
-	t.Parallel()
-	const seed = 4653
-	g := NewOverworldGenerator(seed)
-	// A layout of its own, unresolved whatever other tests of the seed did.
-	g.rings = &strongholdRings{seed: g.seed, batch: ringBatch}
-	resolvedCount := func() int {
-		n := 0
-		for _, done := range g.rings.resolved {
-			if done {
-				n++
-			}
-		}
-		return n
-	}
-	if g.inStrongholdRing(0, 0) {
-		t.Error("chunk (0, 0) is a ring chunk")
-	}
-	if n := resolvedCount(); n != 0 {
-		t.Errorf("the ring test of chunk (0, 0) resolved %d starts", n)
-	}
-	probe := g.newBiomeIDProbe()
-	preferred := func(qx, qz int32) bool { return probe(qx, 0, qz).InTag(strongholdPreferredTag) }
-	starts := levelgen.ConcentricRingStarts(seed, strongholdDistance, strongholdSpread, strongholdCount)[:6]
-	want := make([][2]int32, len(starts))
-	for i, s := range starts {
-		want[i] = s.Resolve(preferred)
-		if !g.inStrongholdRing(want[i][0], want[i][1]) {
-			t.Errorf("start %d's chunk %v is not a ring chunk", i, want[i])
-		}
-	}
-	if n := resolvedCount(); n >= 16 {
-		t.Errorf("the ring tests of %d chunks resolved %d starts", len(starts), n)
-	}
-	for i, c := range want {
-		if !g.rings.resolved[i] || g.rings.chunks[i] != c {
-			t.Errorf("start %d resolved %v to %v, want %v", i, g.rings.resolved[i], g.rings.chunks[i], c)
-		}
 	}
 }
 

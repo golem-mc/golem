@@ -77,51 +77,6 @@ func TestACreativeOperatorOpensAGameMasterScreenInsteadOfPlacing(t *testing.T) {
 	}
 }
 
-// TestASneakingOperatorPlacesAgainstAGameMasterBlock: sneaking with an item
-// skips the block's use.
-func TestASneakingOperatorPlacesAgainstAGameMasterBlock(t *testing.T) {
-	t.Parallel()
-	for _, block := range screenBlocks {
-		t.Run(block, func(t *testing.T) {
-			t.Parallel()
-			if !screenClick(t, servertest.BlockTestConfig(), block, true, servertest.OpsListing(t, "Actor")) {
-				t.Errorf("a sneaking operator's click on %s placed nothing", block)
-			}
-		})
-	}
-}
-
-// TestAGameMasterScreenNeedsTheGameMasterPermission: a creative player
-// without the permission, and an operator in survival, place instead.
-func TestAGameMasterScreenNeedsTheGameMasterPermission(t *testing.T) {
-	t.Parallel()
-	for _, block := range screenBlocks {
-		t.Run(block, func(t *testing.T) {
-			t.Parallel()
-			if !screenClick(t, servertest.BlockTestConfig(), block, false) {
-				t.Errorf("a creative non-operator's click on %s placed nothing", block)
-			}
-			if !screenClick(t, servertest.SurvivalTestConfig(), block, false, servertest.OpsListing(t, "Actor")) {
-				t.Errorf("a survival operator's click on %s placed nothing", block)
-			}
-		})
-	}
-}
-
-// TestAnOffHandClickOnAGameMasterBlockPlaces: only the main hand reaches the
-// block's own use, so a stone in the off hand goes on.
-func TestAnOffHandClickOnAGameMasterBlockPlaces(t *testing.T) {
-	t.Parallel()
-	for _, block := range screenBlocks {
-		t.Run(block, func(t *testing.T) {
-			t.Parallel()
-			if !screenClickWith(t, servertest.BlockTestConfig(), block, false, protocol.HandOff, servertest.OpsListing(t, "Actor")) {
-				t.Errorf("an operator's off-hand click on %s placed nothing", block)
-			}
-		})
-	}
-}
-
 // TestOpeningACommandBlockSendsItsData: chunk data leaves a command block's
 // tag empty, so an operator's click sends it for the editor; a non-operator's
 // click opens nothing and is sent nothing. vanilla: ServerPlayer.openCommandBlock

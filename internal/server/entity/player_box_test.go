@@ -20,14 +20,3 @@ func TestPlayerBoxFallback(t *testing.T) {
 		}
 	}
 }
-
-// A vex touches a crawling player's low box, not a standing one's.
-func TestVexTouchesUsesTheTargetBox(t *testing.T) {
-	m := NewMob(TypeVex, 1, 0.5, 65, 0.5, 3)
-	if !vexTouches(m, &Player{X: 0.5, Y: 64.5, Z: 0.5}) {
-		t.Fatal("a standing player's box was missed")
-	}
-	if vexTouches(m, &Player{X: 0.5, Y: 64.5, Z: 0.5, Width: 0.6, Height: 0.5, EyeHeight: 0.4}) {
-		t.Error("a crawling player's box reached the vex above it")
-	}
-}

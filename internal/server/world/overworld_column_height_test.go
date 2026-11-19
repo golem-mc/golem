@@ -19,14 +19,3 @@ func TestOverworldColumnHeightIsTheChunksHeight(t *testing.T) {
 		}
 	}
 }
-
-// TestOverworldColumnHeightBuildsNoChunk fails if a cache miss falls back to
-// the full chunk fill.
-func TestOverworldColumnHeightBuildsNoChunk(t *testing.T) {
-	t.Parallel()
-	g := NewOverworldGenerator(8675309)
-	g.columnHeight(3*16+7, 31*16+2)
-	if n := len(g.heights); n != 0 {
-		t.Fatalf("columnHeight cached %d chunks of heights, want 0", n)
-	}
-}

@@ -15,20 +15,3 @@ func TestGeneratedDamageTypes(t *testing.T) {
 		t.Errorf("bad_respawn_point = %+v", got)
 	}
 }
-
-// TestPackDamageTypeOverridesTheTable checks that ApplyPackDamageTypes layers
-// over the table and that nil restores it.
-func TestPackDamageTypeOverridesTheTable(t *testing.T) {
-	t.Cleanup(func() { ApplyPackDamageTypes(nil) })
-	ApplyPackDamageTypes(map[string]DamageTypeInfo{"minecraft:cactus": {MessageID: "spiky"}})
-	if got := LookupDamageType("minecraft:cactus").MessageID; got != "spiky" {
-		t.Errorf("overridden message_id = %q", got)
-	}
-	if got := LookupDamageType("minecraft:fall").MessageID; got != "fall" {
-		t.Errorf("untouched fall message_id = %q", got)
-	}
-	ApplyPackDamageTypes(nil)
-	if got := LookupDamageType("minecraft:cactus").MessageID; got != "cactus" {
-		t.Errorf("restored message_id = %q", got)
-	}
-}

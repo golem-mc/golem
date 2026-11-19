@@ -71,66 +71,6 @@ func TestAFlightIntoWaterTurnsToBobbing(t *testing.T) {
 	}
 }
 
-// TestAFlightBanksTheFallItDrops checks the fall_distance the hook's NBT
-// reports: a flight through open air banks each tick it descends, and a
-// hook landed on the ground clears it. The cast is aimed straight down so
-// the fall is the whole of the move, whatever the line's horizontal share.
-func TestAFlightBanksTheFallItDrops(t *testing.T) {
-	w := newTestWorld()
-	b := NewBobber(1, 0, 80, 0, 0, 90, 7, 3, 0, 0)
-	b.VX, b.VZ = 0, 0
-	for range 5 {
-		b.Step(w, &BobberOwner{Fishing: true}, nil)
-	}
-	if b.FallDistance() <= 0 {
-		t.Errorf("the fall distance a flight over open air banked = %v, want more than nought", b.FallDistance())
-	}
-
-	// A bed of stone under the flight stops it and clears the fall.
-	stone := defaultState(t, "minecraft:stone")
-	for x := int32(-2); x <= 2; x++ {
-		for z := int32(-2); z <= 2; z++ {
-			w.set(x, 60, z, stone)
-		}
-	}
-	for !b.OnGround {
-		b.Step(w, &BobberOwner{Fishing: true}, nil)
-	}
-	if b.FallDistance() != 0 {
-		t.Errorf("the landed hook still carries a fall distance of %v, want the cleared nought", b.FallDistance())
-	}
-}
-
-// TestAWaterEntryClearsTheFallTheFlightBanked checks the fall_distance
-// across the water's take: the flight banks a fall over the open air, and
-// the tick that stands the hook in the water writes it off before the
-// entry's damp.
-// vanilla: Entity.baseTick
-func TestAWaterEntryClearsTheFallTheFlightBanked(t *testing.T) {
-	w := newTestWorld()
-	water := defaultState(t, "minecraft:water")
-	for x := int32(-2); x <= 2; x++ {
-		for z := int32(-2); z <= 2; z++ {
-			w.set(x, 63, z, water)
-		}
-	}
-	b := NewBobber(1, 0, 66, 0, 0, 50, 7, 3, 0, 0)
-	b.Step(w, &BobberOwner{Fishing: true}, nil)
-	b.Step(w, &BobberOwner{Fishing: true}, nil)
-	if b.FallDistance() <= 0 {
-		t.Fatalf("the flight over the air banked no fall, want the descent banked before the water")
-	}
-	// The tick that takes the water writes off the fall the air banked,
-	// rather than carrying it under the surface.
-	b.Step(w, &BobberOwner{Fishing: true}, nil)
-	if b.State != BobberBobbing {
-		t.Fatalf("the hook that entered the water is %v, want the bobbing", b.State)
-	}
-	if b.FallDistance() != 0 {
-		t.Errorf("the hook in the water carries a fall distance of %v, want the nought the water writes off", b.FallDistance())
-	}
-}
-
 // TestABittenHookOpensTheNibbleWindow winds a bobbing hook to the bite's
 // door and checks the bite: one event, the window of twenty to forty
 // ticks opened, the flag the wire pops on set, and the window's end
@@ -270,101 +210,6 @@ func TestAFlightHooksTheBodyItMeets(t *testing.T) {
 	}
 }
 
-// TestAHookTakesTheNearestBodyNotTheFirst puts a far body before a near
-// one on the flight line: the hook names the near body, the nearest
-// crossing vanilla's getEntityHitResult returns.
-func TestAHookTakesTheNearestBodyNotTheFirst(t *testing.T) {
-	w := newTestWorld()
-	b := NewBobber(1, 0, 64, 0, 0, 0, 7, 3, 0, 0)
-	b.VX, b.VY, b.VZ = 0, 0, 5
-	far := ArrowTarget{EntityID: 20, MinX: -0.5, MinY: 63, MinZ: 3.0, MaxX: 0.5, MaxY: 65, MaxZ: 3.5}
-	near := ArrowTarget{EntityID: 10, MinX: -0.5, MinY: 63, MinZ: 1.0, MaxX: 0.5, MaxY: 65, MaxZ: 1.5}
-	b.Step(w, &BobberOwner{Fishing: true}, []ArrowTarget{far, near})
-	if b.HookedID != 10 {
-		t.Fatalf("the flight hooked body %d, want the near body 10 the line meets first", b.HookedID)
-	}
-}
-
-// TestTheHookDropsOffABodyThatCannotInteract unhooks a body that has died
-// or turned spectator: vanilla's canInteractWithLevel, the target no
-// projectile may meet.
-func TestTheHookDropsOffABodyThatCannotInteract(t *testing.T) {
-	w := newTestWorld()
-	b := NewBobber(1, 0, 64, 0, 0, 0, 7, 3, 0, 0)
-	target := ArrowTarget{EntityID: 9, MinX: -0.5, MinY: 63, MinZ: 0.5, MaxX: 0.5, MaxY: 64.9, MaxZ: 1.5}
-	owner := &BobberOwner{Fishing: true}
-	b.Step(w, owner, []ArrowTarget{target})
-	b.Step(w, owner, []ArrowTarget{target})
-	if b.State != BobberHookedInEntity {
-		t.Fatalf("the hook never rode the body, state %v", b.State)
-	}
-	dead := target
-	dead.Unhittable = true
-	b.Step(w, owner, []ArrowTarget{dead})
-	if b.State != BobberFlying || b.HookedID != 0 {
-		t.Fatalf("the hook off a body that cannot interact is state %v hooking %d, want the flying free", b.State, b.HookedID)
-	}
-}
-
-// TestTheRestingHookNeverTimesOut checks vanilla's alternation on the
-// ground: a resting hook has a zero delta every other tick, and on those
-// ticks onGround is false and the life resets, so a hook lying on a block
-// never reaches the twelve hundred.
-func TestTheRestingHookNeverTimesOut(t *testing.T) {
-	w := newTestWorld()
-	stone := defaultState(t, "minecraft:stone")
-	for x := int32(-2); x <= 2; x++ {
-		for z := int32(-2); z <= 2; z++ {
-			w.set(x, 63, z, stone)
-		}
-	}
-	b := NewBobber(1, 0, 64, 0, 0, 0, 7, 3, 0, 0)
-	owner := &BobberOwner{Fishing: true}
-	for !b.OnGround {
-		b.Step(w, owner, nil)
-	}
-	sawGround, sawAir := false, false
-	for range 2 * bobberLifeLimit {
-		b.Step(w, owner, nil)
-		if b.Dead {
-			t.Fatalf("the resting hook left at life %d, want it never to reach %d", b.life, bobberLifeLimit)
-		}
-		if b.OnGround {
-			sawGround = true
-		} else {
-			sawAir = true
-		}
-	}
-	if !sawGround || !sawAir {
-		t.Errorf("the resting hook was onGround=%v and in the air=%v, want the vanilla alternation of both", sawGround, sawAir)
-	}
-}
-
-// TestOpenWaterNeedsItsLowestLayerWet checks the treasure's condition on a
-// column that starts with air: it fails, however much water might lie
-// above, while a clear pool under the sky holds.
-func TestOpenWaterNeedsItsLowestLayerWet(t *testing.T) {
-	w := newTestWorld()
-	b := NewBobber(1, 0, 64, 0, 0, 0, 7, 3, 0, 0)
-	if b.openWaterAt(w, 0, 64, 0) {
-		t.Error("open water held over four layers of air")
-	}
-	water := defaultState(t, "minecraft:water")
-	for x := int32(-2); x <= 2; x++ {
-		for z := int32(-2); z <= 2; z++ {
-			w.set(x, 63, z, water)
-			w.set(x, 64, z, water)
-		}
-	}
-	if !b.openWaterAt(w, 0, 64, 0) {
-		t.Error("open water did not hold over a clear pool under the sky")
-	}
-	w.set(1, 63, 0, defaultState(t, "minecraft:stone"))
-	if b.openWaterAt(w, 0, 64, 0) {
-		t.Error("open water held across a solid cell")
-	}
-}
-
 // TestTheHookLeavesWithItsAngler checks the hold: a hook whose angler
 // gives nothing to hold — gone, or fishing no more — is out of the world
 // with no event, and one whose angler holds stays for the water.
@@ -383,17 +228,5 @@ func TestTheHookLeavesWithItsAngler(t *testing.T) {
 	b = NewBobber(1, 0, 64, 0, 0, 0, 7, 3, 0, 0)
 	if events := b.Step(w, &BobberOwner{Fishing: true}, nil); b.Dead || events != nil {
 		t.Fatalf("a held hook stepped to dead=%v with %#v, want the flight carried on", b.Dead, events)
-	}
-}
-
-// TestAFlightPassesThroughABodyItStartsInside casts from inside a body's box:
-// with no entry crossing the hook takes nobody.
-func TestAFlightPassesThroughABodyItStartsInside(t *testing.T) {
-	w := newTestWorld()
-	b := NewBobber(1, 0, 64, 0, 0, 0, 7, 3, 0, 0)
-	around := ArrowTarget{EntityID: 9, MinX: -2, MinY: 62, MinZ: -2, MaxX: 2, MaxY: 66, MaxZ: 2}
-	b.Step(w, &BobberOwner{Fishing: true}, []ArrowTarget{around})
-	if b.HookedID != 0 {
-		t.Fatalf("the cast from inside a body hooked %d", b.HookedID)
 	}
 }

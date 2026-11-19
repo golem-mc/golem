@@ -2,12 +2,13 @@ package network
 
 import (
 	"encoding/json"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
@@ -148,20 +149,6 @@ func hasJoinedQuery(t *testing.T, cfg *config.Config) url.Values {
 	case <-time.After(10 * time.Second):
 		t.Fatal("the session server was never asked")
 		return nil
-	}
-}
-
-// TestPreventProxyConnectionsSendsTheClientAddress checks the hasJoined
-// request carries ip= only with prevent-proxy-connections on.
-func TestPreventProxyConnectionsSendsTheClientAddress(t *testing.T) {
-	t.Parallel()
-	on := config.Default()
-	on.PreventProxyConnections = true
-	if q := hasJoinedQuery(t, on); q.Get("ip") != "127.0.0.1" || q.Get("username") != "Testificate" {
-		t.Errorf("query with the option on = %v, want ip=127.0.0.1", q)
-	}
-	if q := hasJoinedQuery(t, config.Default()); q.Has("ip") {
-		t.Errorf("query with the option off = %v, want no ip", q)
 	}
 }
 

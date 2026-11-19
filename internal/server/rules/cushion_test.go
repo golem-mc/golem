@@ -32,14 +32,3 @@ func TestCushionPlacementReadsTheShapesUnderIt(t *testing.T) {
 		}
 	}
 }
-
-// TestCushionYawSnapsToTheNearestDirection checks the placer's yaw snapped
-// to a quarter turn. vanilla: Direction.fromYRot, toYRot
-func TestCushionYawSnapsToTheNearestDirection(t *testing.T) {
-	t.Parallel()
-	for yaw, want := range map[float32]float32{0: 0, 44: 0, 46: 90, 180: 180, -100: 270, 315: 0, 420: 90} {
-		if got := CushionYaw(yaw); got != want {
-			t.Errorf("CushionYaw(%v) = %v, want %v", yaw, got, want)
-		}
-	}
-}

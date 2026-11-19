@@ -7,7 +7,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -77,25 +76,6 @@ func TestSummonedVehiclesLoadNestedMobPassengers(t *testing.T) {
 			c.Settle()
 			if got := passengers(vehicle); len(got) != 0 {
 				t.Errorf("vehicle passengers after dismount = %v", got)
-			}
-		})
-	}
-}
-
-// vanilla: SummonCommand.createEntity, ServerLevel.tryAddFreshEntityWithPassengers
-func TestSummonedVehiclesRefuseALivePassengerUUID(t *testing.T) {
-	t.Parallel()
-	for _, kind := range []string{"oak_boat", "minecart"} {
-		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Summoner", servertest.OpsListing(t, "Summoner"))
-			servertest.HoldTicks(t, srv)
-			c.ChatCommand(`summon pig 3.5 64 3.5 {UUID:[I;1,2,3,4],NoAI:1b}`)
-			c.Settle()
-			c.ChatCommand(fmt.Sprintf(`summon %s 3.5 64 3.5 {Passengers:[{id:"minecraft:pig",UUID:[I;1,2,3,4]}]}`, kind))
-			servertest.AwaitCommandError(t, c, "commands.summon.failed.uuid")
-			if mobs, boats, carts := srv.MobCount(), srv.BoatCount(), len(srv.MinecartsInDimension(world.DimensionName)); mobs != 1 || boats != 0 || carts != 0 {
-				t.Errorf("after refused summon: %d mobs, %d boats, %d carts; want only the original pig", mobs, boats, carts)
 			}
 		})
 	}

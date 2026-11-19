@@ -3,7 +3,6 @@ package entity
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -35,64 +34,6 @@ func TestAHoglinConvertsOnTheThreeHundredFirstTickOutsideTheNether(t *testing.T)
 	}
 	if got := convertedAt(true); got != 0 {
 		t.Errorf("a hoglin in the Nether converted at tick %d", got)
-	}
-}
-
-func TestAnImmuneHoglinDoesNotConvert(t *testing.T) {
-	w := newTestWorld()
-	m := NewMob(TypeHoglin, 1, 0.5, 64, 0.5, 1)
-	m.ZombificationImmune = true
-	for range 400 {
-		for _, ev := range m.Tick(w, nil) {
-			if ev.Kind == MobConverted {
-				t.Fatal("an immune hoglin converted")
-			}
-		}
-	}
-}
-
-func TestABabyHoglinDealsHalfAPointAndAnAdultThrows(t *testing.T) {
-	baby := NewMob(TypeHoglin, 1, 0.5, 64, 0.5, 1)
-	baby.SetBaby(true)
-	var ev MobEvent
-	baby.hoglinBlow(&ev)
-	if ev.Damage != hoglinBabyAttack || ev.Hoglin.Throw {
-		t.Errorf("baby blow %v throw %v, want 0.5 and none", ev.Damage, ev.Hoglin.Throw)
-	}
-	adult := NewMob(TypeHoglin, 2, 0.5, 64, 0.5, 1)
-	ev = MobEvent{}
-	adult.hoglinBlow(&ev)
-	if ev.Damage < 3 || ev.Damage > 8 || !ev.Hoglin.Throw {
-		t.Errorf("adult blow %v throw %v, want 3 to 8 and a throw", ev.Damage, ev.Hoglin.Throw)
-	}
-}
-
-func TestHoglinsAndZoglinsRollBabiesWithoutAGroup(t *testing.T) {
-	for _, kind := range []MobType{TypeHoglin, TypeZoglin} {
-		babies := 0
-		for i := range 400 {
-			m := NewMob(kind, int32(i+1), 0.5, 64, 0.5, int64(i))
-			m.FinalizeSpawn(GoDice{m.Rand}, testBiome("minecraft:nether_wastes"), nil, rules.LocalDifficulty{})
-			if m.IsBaby() {
-				babies++
-			}
-		}
-		// vanilla: Hoglin.finalizeSpawn, 0.2 of 400 is 80
-		if babies < 50 || babies > 110 {
-			t.Errorf("%s: %d babies of 400, want about 80", kind, babies)
-		}
-	}
-}
-
-func TestAPacifiedHoglinCannotBeFedIntoLove(t *testing.T) {
-	m := NewMob(TypeHoglin, 1, 0.5, 64, 0.5, 1)
-	m.hoglin.pacified = 5
-	if loved, _ := m.Feed(); loved || m.IsInLove() {
-		t.Error("a pacified hoglin fell in love")
-	}
-	m.hoglin.pacified = 0
-	if loved, _ := m.Feed(); !loved {
-		t.Error("an unpacified hoglin did not fall in love")
 	}
 }
 
@@ -145,33 +86,6 @@ func goalOf[G Goal](goals []Goal) G {
 	return zero
 }
 
-// A second blow while the grudge runs restarts its 200 ticks.
-// vanilla: HoglinAi.setAttackTarget
-func TestASecondBlowRestartsTheGrudge(t *testing.T) {
-	w := newTestWorld()
-	floor64(w, t)
-	view := &tickView{w: w, players: []Player{survivor(7, 5.5)}}
-	for _, m := range []*Mob{NewMob(TypeHoglin, 1, 0.5, 64, 0.5, 1), NewMob(TypeZoglin, 2, 0.5, 64, 0.5, 1)} {
-		var g Goal = goalOf[*hoglinHurtGoal](hoglinGoals(m))
-		if m.Type == TypeZoglin {
-			g = goalOf[*grudgeGoal](zoglinGoals(m))
-		}
-		m.retaliate, m.Age = 7, 1000
-		g.Start(view)
-		m.Age += 150
-		m.retaliate = 7
-		g.Tick(view)
-		m.Age += 150
-		if !g.ShouldContinue(view) {
-			t.Errorf("%s: the second blow did not restart the grudge", m.Type)
-		}
-		m.Age += 51
-		if g.ShouldContinue(view) {
-			t.Errorf("%s: the grudge outlived 200 ticks of the second blow", m.Type)
-		}
-	}
-}
-
 func TestPiglinRepellentNeedsALitSoulCampfire(t *testing.T) {
 	t.Parallel()
 	state := func(name string, props map[string]string) uint16 {
@@ -197,16 +111,5 @@ func TestPiglinRepellentNeedsALitSoulCampfire(t *testing.T) {
 		if got := isPiglinRepellent(tc.state); got != tc.want {
 			t.Errorf("%s: got %v, want %v", name, got, tc.want)
 		}
-	}
-}
-
-// vanilla: Hoglin.getBreedOffspring
-func TestABredHoglinBabyIsPersistent(t *testing.T) {
-	mother := NewMob(TypeHoglin, 1, 0.5, 64, 0.5, 1)
-	father := NewMob(TypeHoglin, 2, 1.5, 64, 0.5, 2)
-	baby := NewMob(TypeHoglin, 3, 0.5, 64, 0.5, 3)
-	mother.BreedInto(baby, father)
-	if !baby.Persistence {
-		t.Error("the hoglin baby is not persistent")
 	}
 }

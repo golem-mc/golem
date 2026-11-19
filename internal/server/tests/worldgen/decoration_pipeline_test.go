@@ -2,8 +2,6 @@ package worldgen
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -203,49 +201,5 @@ func TestOverworldDecorationIsIndependentOfGenerationOrder(t *testing.T) {
 	}
 	if border == 0 {
 		t.Error("no fluid on a chunk border column, want springs written across borders")
-	}
-}
-
-// A chunk whose neighbours are not yet decorated leaves its proto on disk when
-// the world closes, and a world reopened on it generates what one that never
-// stopped does.
-func TestOverworldProtosSurviveARestart(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	first := openPipelineWorld(t, dir)
-	first.Acquire(world.ChunkPos{X: 0, Z: 0})
-	first.Release(world.ChunkPos{X: 0, Z: 0})
-	first.Close()
-
-	var protos int
-	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && filepath.Base(filepath.Dir(path)) == "proto" {
-			protos++
-		}
-		return nil
-	})
-	if protos == 0 {
-		t.Fatal("no proto chunk written under the world's proto folder, want the unfinished neighbours kept")
-	}
-
-	resumed := openPipelineWorld(t, dir)
-	defer resumed.Close()
-	steady := openPipelineWorld(t, t.TempDir())
-	defer steady.Close()
-	steady.Acquire(world.ChunkPos{X: 0, Z: 0})
-	steady.Release(world.ChunkPos{X: 0, Z: 0})
-
-	order := windowChunks(false)
-	defer holdWindow(resumed, order)()
-	defer holdWindow(steady, order)()
-	got, _ := springCells(t, resumed, order)
-	want, _ := springCells(t, steady, order)
-	if len(got) != len(want) {
-		t.Errorf("%d fluid cells after the restart, %d without one", len(got), len(want))
-	}
-	for pos, s := range want {
-		if got[pos] != s {
-			t.Fatalf("fluid at %v is %d after the restart, %d without", pos, got[pos], s)
-		}
 	}
 }

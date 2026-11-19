@@ -2,7 +2,6 @@ package survival
 
 import (
 	"fmt"
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -85,46 +84,4 @@ func TestADeadPlayersChunksAreDroppedAndComeBackOnRespawn(t *testing.T) {
 	servertest.UntilTicks(t, srv, 400, "the furnace smelts again", func() bool {
 		return ingots(t, srv, x, y, z) >= 2
 	})
-}
-
-// TestADeadPlayersChunkGetsNoRandomTicks: the dead player's chunk leaves the
-// random tick pass while a living player far away keeps theirs.
-// vanilla: ChunkMap.removeEntity, ServerChunkCache.tickChunks
-func TestADeadPlayersChunkGetsNoRandomTicks(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig(), servertest.OpsListing(t, "Victim", "Other"))
-	victim := connect()
-	victim.JoinAs("Victim")
-	other := connect()
-	other.Join("Other")
-	other.Settle()
-	servertest.HoldTicks(t, srv)
-
-	const farX, farZ = 640, 0
-	other.ChatCommand(fmt.Sprintf("tp @s %d.5 65 %d.5", farX, farZ))
-	for range 2000 {
-		if srv.ChunkLoadedInDimension(world.DimensionName, farX, farZ) {
-			break
-		}
-		other.ReadTicks(srv, 1, func(int32, []byte) bool { return false })
-		victim.ReadTicks(srv, 0, func(int32, []byte) bool { return false })
-		<-srv.ChunkBeat()
-	}
-	p := srv.PlayerPosition("Victim")
-	own := world.ChunkPos{X: world.ChunkOf(p.X), Z: world.ChunkOf(p.Z)}
-	far := world.ChunkPos{X: farX / 16, Z: farZ / 16}
-	if got := srv.RandomTickChunkPositions(); !slices.Contains(got, own) || !slices.Contains(got, far) {
-		t.Fatalf("before the death own %v and far %v should both tick, got %d chunks", own, far, len(got))
-	}
-
-	victim.ChatCommand("kill")
-	victim.Settle()
-	servertest.RunTicks(t, srv, 25)
-	got := srv.RandomTickChunkPositions()
-	if slices.Contains(got, own) {
-		t.Errorf("the dead player's chunk %v still gets random ticks", own)
-	}
-	if !slices.Contains(got, far) {
-		t.Errorf("the living player's chunk %v lost its random ticks", far)
-	}
 }

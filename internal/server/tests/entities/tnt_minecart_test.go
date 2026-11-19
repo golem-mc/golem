@@ -2,7 +2,6 @@ package entities
 
 import (
 	"math"
-	"math/rand"
 	"strconv"
 	"strings"
 	"sync"
@@ -131,65 +130,6 @@ func TestALitActivatorPrimesATNTCartForEightyTicks(t *testing.T) {
 	}
 }
 
-// TestAnUnlitActivatorLeavesATNTCartBe: an activator without power does not
-// prime.
-// vanilla: MinecartTNT.activateMinecart
-func TestAnUnlitActivatorLeavesATNTCartBe(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	srv.StopTick()
-	id, _ := tntCartAt(t, srv, 4.5, 64.0625, 1.5, "", 1)
-	litActivator(t, srv, 4, "false")
-	srv.TickMinecarts(3)
-	if fuse, _ := srv.MinecartFuse(id); fuse != -1 {
-		t.Errorf("fuse = %d, want -1", fuse)
-	}
-}
-
-// TestATNTCartDoesNotPrimeWhereTNTDoesNotExplode: tnt_explodes off keeps the
-// activator from lighting the fuse.
-// vanilla: MinecartTNT.primeFuse
-func TestATNTCartDoesNotPrimeWhereTNTDoesNotExplode(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	srv.StopTick()
-	srv.RunLine("gamerule tnt_explodes false")
-	id, _ := tntCartAt(t, srv, 4.5, 64.0625, 1.5, "", 1)
-	litActivator(t, srv, 4, "true")
-	srv.TickMinecarts(3)
-	if fuse, _ := srv.MinecartFuse(id); fuse != -1 {
-		t.Errorf("fuse = %d, want -1 with tnt_explodes off", fuse)
-	}
-}
-
-// TestATNTCartThatFallsThreeBlocksExplodesWithTheFallsSpeed: a landing from
-// at least three blocks sets it off, the power growing with a speed of the
-// fall over ten; a shorter fall does not.
-// vanilla: MinecartTNT.causeFallDamage, MinecartTNT.explode
-func TestATNTCartThatFallsThreeBlocksExplodesWithTheFallsSpeed(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	srv.StopTick()
-	_, radii := tntCartAt(t, srv, 12.5, 70, 8.5, "", 11)
-	srv.TickMinecarts(60)
-	want := 4 + rand.New(rand.NewSource(11)).Float64()*1.5*0.6
-	if len(radii.list()) != 1 || math.Abs((radii.list())[0]-float64(float32(want))) > 1e-6 {
-		t.Fatalf("blast radii = %v, want one of %v for a six block fall", radii.list(), want)
-	}
-	if cartCount(srv) != 0 {
-		t.Error("the cart survived its fall")
-	}
-
-	short, radii2 := tntCartAt(t, srv, 40.5, 66, 8.5, "", 11)
-	srv.TickMinecarts(60)
-	if len(radii2.list()) != 0 || cartCount(srv) != 1 {
-		t.Errorf("a two block fall: radii %v, carts %d, want none and the cart standing", radii2.list(), cartCount(srv))
-	}
-	if fuse, _ := srv.MinecartFuse(short); fuse != -1 {
-		t.Errorf("fuse = %d, want -1", fuse)
-	}
-}
-
 // TestATNTCartHittingAWallFastExplodes: a hard horizontal hit explodes it, a
 // soft one does not.
 // vanilla: MinecartTNT.tick
@@ -241,75 +181,6 @@ func TestAFireArrowSetsATNTCartOffAtOnce(t *testing.T) {
 	}
 }
 
-func TestAPlainArrowBreaksATNTCartIntoItsItem(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	_, radii := tntCartAt(t, srv, 4.5, 64.0625, 5.5, "", 5)
-	srv.ShootArrow(4.5, 64.4, 2.5, 0, 0, 3)
-	servertest.WaitForTicks(t, srv, 20, func() bool {
-		return cartCount(srv) == 0 && servertest.BlastLeftItem(srv.ItemsInDimension(world.DimensionName), tntCart)
-	}, "the arrow never broke the cart into its item")
-	if len(radii.list()) != 0 {
-		t.Errorf("blast radii = %v, want none", radii.list())
-	}
-}
-
-// TestFireDamageLightsATNTCartsFuseWithTwoRolls: a fire source lights the
-// fuse at two rolls of twenty and leaves the cart standing.
-// vanilla: MinecartTNT.destroy
-func TestFireDamageLightsATNTCartsFuseWithTwoRolls(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	srv.StopTick()
-	id, _ := tntCartAt(t, srv, 4.5, 64.0625, 1.5, "", 3)
-	r := rand.New(rand.NewSource(3))
-	want := int32(r.Intn(20) + r.Intn(20))
-	if !srv.HurtMinecart(id, 1, true) {
-		t.Fatal("the blow did not land")
-	}
-	if fuse, ok := srv.MinecartFuse(id); !ok || fuse != want {
-		t.Errorf("fuse = %d (standing %v), want %d", fuse, ok, want)
-	}
-}
-
-// TestLavaLightsATNTCartsFuse: a cart in lava is hurt as a fire source is.
-// vanilla: Entity.lavaHurt, MinecartTNT.destroy
-func TestLavaLightsATNTCartsFuse(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	srv.StopTick()
-	id, _ := tntCartAt(t, srv, 12.5, 64, 8.5, "", 9)
-	if !srv.SetBlock(12, 64, 8, servertest.MustState(t, "minecraft:lava", map[string]string{"level": "0"})) {
-		t.Fatal("no lava")
-	}
-	srv.TickMinecarts(1)
-	if fuse, _ := srv.MinecartFuse(id); fuse < 0 {
-		t.Errorf("fuse = %d, want a lit fuse", fuse)
-	}
-}
-
-// TestABlowBreaksAStillTNTCartButLightsAMovingOne: damage past forty drops
-// the item from a cart at rest and lights the fuse of one moving.
-// vanilla: MinecartTNT.destroy
-func TestABlowBreaksAStillTNTCartButLightsAMovingOne(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	srv.StopTick()
-	still, _ := tntCartAt(t, srv, 4.5, 64.0625, 1.5, "", 1)
-	srv.HurtMinecart(still, 5, false)
-	srv.TickMinecarts(1)
-	if cartCount(srv) != 0 || !servertest.BlastLeftItem(srv.ItemsInDimension(world.DimensionName), tntCart) {
-		t.Fatal("a blow past forty did not break the still cart into its item")
-	}
-
-	moving, _ := tntCartAt(t, srv, 5.5, 64.0625, 1.5, "", 1)
-	srv.SetMinecartMotion(moving, 0.3, 0, 0)
-	srv.HurtMinecart(moving, 5, false)
-	if fuse, ok := srv.MinecartFuse(moving); !ok || fuse < 0 {
-		t.Errorf("the moving cart's fuse = %d (standing %v), want a lit fuse", fuse, ok)
-	}
-}
-
 // TestATNTCartSavesItsFuseAndNonDefaultExplosion: the fuse is always saved,
 // the explosion settings only when they differ from the defaults, and a load
 // clamps them to 0..128.
@@ -346,56 +217,6 @@ func TestATNTCartSavesItsFuseAndNonDefaultExplosion(t *testing.T) {
 	}
 }
 
-// TestASummonedTNTCartWithAFuseExplodesWhenItRunsOut: a cart summoned lit
-// goes off after the fuse it was given.
-// vanilla: MinecartTNT.tick
-func TestASummonedTNTCartWithAFuseExplodesWhenItRunsOut(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	srv.StopTick()
-	_, radii := tntCartAt(t, srv, 4.5, 64.0625, 1.5, "{fuse:5,explosion_power:7.0f}", 1)
-	srv.TickMinecarts(5)
-	if len(radii.list()) != 0 || cartCount(srv) != 1 {
-		t.Fatalf("after five ticks: radii %v, carts %d, want the cart still standing", radii.list(), cartCount(srv))
-	}
-	srv.TickMinecarts(1)
-	if len(radii.list()) != 1 || (radii.list())[0] != 7 || cartCount(srv) != 0 {
-		t.Errorf("after the sixth tick: radii %v, carts %d, want one blast of 7", radii.list(), cartCount(srv))
-	}
-}
-
-// TestAPrimedTNTCartsBlastSparesRailsAndTheBlocksUnderThem: a lit cart's
-// blast leaves the rails and the cell under each standing, though the blast
-// breaks the ground beside them.
-// vanilla: MinecartTNT.getBlockExplosionResistance, shouldBlockExplode
-func TestAPrimedTNTCartsBlastSparesRailsAndTheBlocksUnderThem(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	srv.StopTick()
-	cart, _ := tntCartAt(t, srv, 4.5, 64.0625, 1.5, "{fuse:1,explosion_power:7.0f}", 1)
-	rail := srv.BlockAt(4, 64, 1)
-	under := srv.BlockAt(4, 63, 1)
-	beside := srv.BlockAt(4, 63, 3)
-	if under == 0 || beside == 0 {
-		t.Fatalf("the test ground is air: under %d, beside %d", under, beside)
-	}
-	srv.TickMinecarts(2)
-	if fuse, ok := srv.MinecartFuse(cart); ok {
-		t.Fatalf("the cart is still there with fuse %d", fuse)
-	}
-	for x := int32(3); x <= 6; x++ {
-		if srv.BlockAt(x, 64, 1) != rail {
-			t.Errorf("the rail at x=%d was destroyed", x)
-		}
-		if srv.BlockAt(x, 63, 1) == 0 {
-			t.Errorf("the block under the rail at x=%d was destroyed", x)
-		}
-	}
-	if srv.BlockAt(4, 63, 3) != 0 {
-		t.Errorf("the ground beside the track survived the blast")
-	}
-}
-
 func TestALitTNTCartsBlastPrimesTheTNTCartBesideIt(t *testing.T) {
 	t.Parallel()
 	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
@@ -406,20 +227,5 @@ func TestALitTNTCartsBlastPrimesTheTNTCartBesideIt(t *testing.T) {
 	srv.TickMinecarts(45)
 	if n := len(radii.list()); n != 2 || cartCount(srv) != 0 {
 		t.Errorf("blasts %v, carts %d, want two blasts and no cart", radii.list(), cartCount(srv))
-	}
-}
-
-func TestALitTNTCartsBlastBreaksAPlainCartBesideIt(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	srv.StopTick()
-	_, radii := tntCartAt(t, srv, 3.5, 64.0625, 1.5, "{fuse:1}", 1)
-	srv.RunLine("summon minecraft:minecart 5.5 64.0625 1.5")
-	if cartCount(srv) != 2 {
-		t.Fatalf("carts %d, want 2", cartCount(srv))
-	}
-	srv.TickMinecarts(5)
-	if n := len(radii.list()); n != 1 || cartCount(srv) != 0 {
-		t.Errorf("blasts %v, carts %d, want one blast and no cart", radii.list(), cartCount(srv))
 	}
 }

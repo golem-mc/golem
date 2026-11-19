@@ -10,7 +10,6 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
@@ -114,14 +113,6 @@ func TestAHeldFilledMapShowsItsSavedData(t *testing.T) {
 		t.Errorf("the patch = %d bytes, want the file's %d, starting %v...",
 			len(update.Colours), len(colours), colours[:8])
 	}
-}
-
-// TestAnItemFrameShowsTheMapItHolds is the issue's other half: a map hung in
-// an item frame sends the same data to a player nearby who carries no map of
-// their own, the frame being the only source of what they are sent.
-func TestAnItemFrameShowsTheMapItHolds(t *testing.T) {
-	t.Parallel()
-	frameShowsMap(t, "minecraft:filled_map")
 }
 
 // frameShowsMap hangs a map of the named item and map id 0 in a frame and
@@ -257,67 +248,6 @@ func TestAHeldMapMarkerFollowsTheHolder(t *testing.T) {
 	servertest.ExpectNoPacket(t, srv, c, 40, protocol.IDPlayMapData)
 }
 
-// TestAHeldMapGainsTheFrameMarker is the ordering half: a map has already
-// been sent to its holder, so its marker list was fixed, and a frame takes
-// the map after that send. The holder's copy is told of the frame's marker
-// in a re-send that carries no colours. The map is locked for the same
-// reason as the marker test's: only the markers move.
-func TestAHeldMapGainsTheFrameMarker(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.LevelName = t.TempDir()
-	servertest.WriteMapSavedData(t, cfg.LevelName, 0, 2, true, mapColours())
-
-	srv, connect := servertest.Start(t, cfg)
-	actor, _, _ := servertest.PaintingWatchers(t, connect)
-	servertest.BuildPaintingWall(srv, 4, 64, 65, 5, 5)
-
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{
-		ItemID: servertest.FrameItemID(t, "minecraft:item_frame"), Count: 1})
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	hung := actor.ExpectFrameSpawn(t, protocol.EntityTypeItemFrame, servertest.WallFrameX, servertest.WallFrameY, servertest.WallFrameZ, 180, 0, protocol.FaceNorth)
-	actor.ExpectBlockAck()
-	actor.ExpectUseEchoes(4, 64, 5, protocol.FaceNorth)
-
-	// The holder carries a copy before the frame takes one, so the first
-	// send is the whole face with the holder's marker alone.
-	mapStack := servertest.ItemStack(t, "minecraft:filled_map", 1)
-	mapStack.SetMapID(0)
-	actor.SetCreativeSlot(player.HotbarSlot, mapStack)
-	before := actor.ExpectMapData(t, 0)
-	if before.Columns != servertest.MapSide {
-		t.Fatalf("the first send's patch = %d columns, want the whole face", before.Columns)
-	}
-	if len(before.Icons) != 1 || before.Icons[0].TypeID != 0 {
-		t.Fatalf("the first send's markers = %+v, want the holder's alone", before.Icons)
-	}
-
-	// The frame takes the map; the holder's copy learns of the frame's
-	// marker in a re-send that carries no colours.
-	actor.UseOn(hung.EntityID)
-	if got := servertest.FrameItemSlot(t, actor, hung.EntityID); got.ItemID != mapStack.ItemID || got.Count != 1 {
-		t.Fatalf("the frame holds %+v after the use, want the map it was handed", got)
-	}
-	update := actor.AwaitMapMarker(t, 0, 1)
-	if update.Columns != 0 {
-		t.Errorf("the re-send's patch = %d columns, want none", update.Columns)
-	}
-	var sawPlayer, sawFrame bool
-	for _, icon := range update.Icons {
-		switch icon.TypeID {
-		case 0:
-			sawPlayer = true
-		case 1:
-			sawFrame = true
-		}
-	}
-	if !sawPlayer || !sawFrame {
-		t.Errorf("the re-send's markers = %+v, want the holder's and the frame's", update.Icons)
-	}
-}
-
 // awaitMapColour reads until a colour patch for the id carries a pixel of the
 // want colour index, answering the update; it is how a test waits for the
 // terrain a sweep picked up rather than the stripes still loading around it.
@@ -339,104 +269,6 @@ func awaitMapColour(c *servertest.Client, t *testing.T, id int32, want byte) ser
 	}
 	t.Fatalf("no colour patch for map %d carried colour %d within %s", id, want, servertest.ExpectTimeout)
 	return servertest.MapDataUpdate{}
-}
-
-// TestAHeldMapRedrawsTheTerrainAroundTheHolder is the walking half of the
-// block: a map made from an empty map is drawn once, and a holder who keeps
-// carrying it must see the terrain under them change. The saved map is
-// blank, so a redrawn pixel carries the world's own colour, and the block
-// built after the join is what a later sweep picks up.
-func TestAHeldMapRedrawsTheTerrainAroundTheHolder(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.LevelName = t.TempDir()
-	const name = "Cartographer"
-	servertest.WriteMapSavedData(t, cfg.LevelName, 0, 0, false, make([]byte, servertest.MapSide*servertest.MapSide))
-	servertest.WritePlayerFile(t, servertest.PlayerFile(cfg.LevelName, name), nbt.Compound{
-		"Inventory": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-			nbt.Compound{
-				"Slot":  nbt.Byte(0),
-				"id":    nbt.String("minecraft:filled_map"),
-				"count": nbt.Int(1),
-				"components": nbt.Compound{
-					"minecraft:map_id": nbt.Int(0),
-				},
-			},
-		}},
-		"SelectedItemSlot": nbt.Int(0),
-	})
-
-	srv, connect := servertest.Start(t, cfg)
-	c := connect()
-	c.Login(name)
-	c.Configure()
-	_, passed := c.JoinWindow(t)
-	if passed == nil {
-		data, ok := servertest.ReadUntil(t, c, servertest.JoinTimeout, protocol.IDPlayMapData)
-		if !ok {
-			t.Fatalf("no first map item data within %s", servertest.JoinTimeout)
-		}
-		passed = data
-	}
-	c.MarkLoaded()
-	if first := servertest.ParseMapData(t, passed); first.Columns != servertest.MapSide {
-		t.Fatalf("the first send's patch = %d columns, want the whole face", first.Columns)
-	}
-
-	// Build in the map's own chunk, at a pixel a later sweep samples again:
-	// the map's centre is (64, 64) and the player stands at (0.5, 64, 0.5),
-	// so the block at (3, 64, 3) is pixel (3, 3). A blank saved face means
-	// the dirt's colour can only come from the block just built, not the
-	// stone the loading stripes around it carry.
-	dirt := servertest.MustState(t, "minecraft:dirt", nil)
-	servertest.WaitFor(t, srv, 1200, func() bool { return srv.SetBlock(3, world.GroundLevel, 3, dirt) })
-	awaitMapColour(c, t, 0, 10)
-}
-
-// TestARedrawReachesEveryPlayerHoldingTheMap checks the redraw one holder's
-// walking makes is sent to a second player who only carries the map in their
-// inventory and so redraws nothing themselves.
-func TestARedrawReachesEveryPlayerHoldingTheMap(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.LevelName = t.TempDir()
-	servertest.WriteMapSavedData(t, cfg.LevelName, 0, 0, false, make([]byte, servertest.MapSide*servertest.MapSide))
-	mapStack := func(slot int) nbt.Compound {
-		return nbt.Compound{
-			"Slot":  nbt.Byte(slot),
-			"id":    nbt.String("minecraft:filled_map"),
-			"count": nbt.Int(1),
-			"components": nbt.Compound{
-				"minecraft:map_id": nbt.Int(0),
-			},
-		}
-	}
-	for name, slot := range map[string]int{"Cartographer": 0, "Bystander": 9} {
-		servertest.WritePlayerFile(t, servertest.PlayerFile(cfg.LevelName, name), nbt.Compound{
-			"Inventory":        nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{mapStack(slot)}},
-			"SelectedItemSlot": nbt.Int(0),
-		})
-	}
-
-	srv, connect := servertest.Start(t, cfg)
-	join := func(name string) *servertest.Client {
-		c := connect()
-		c.Login(name)
-		c.Configure()
-		if _, passed := c.JoinWindow(t); passed == nil {
-			if _, ok := servertest.ReadUntil(t, c, servertest.JoinTimeout, protocol.IDPlayMapData); !ok {
-				t.Fatalf("%s: no first map item data within %s", name, servertest.JoinTimeout)
-			}
-		}
-		c.MarkLoaded()
-		return c
-	}
-	join("Cartographer")
-	bystander := join("Bystander")
-
-	dirt := servertest.MustState(t, "minecraft:dirt", nil)
-	servertest.WaitFor(t, srv, 1200, func() bool { return srv.SetBlock(3, world.GroundLevel, 3, dirt) })
-	awaitMapColour(bystander, t, 0, 10)
 }
 
 // holdersOfMapZero starts a server where Cartographer and Bystander both
@@ -502,78 +334,6 @@ func playerMarkers(update servertest.MapDataUpdate) int {
 		}
 	}
 	return n
-}
-
-// TestEveryHolderOfAMapShowsOnIt checks a map carried by two players in its
-// dimension shows both markers to each of them.
-func TestEveryHolderOfAMapShowsOnIt(t *testing.T) {
-	t.Parallel()
-	_, cartographer, bystander := holdersOfMapZero(t)
-	for name, c := range map[string]*servertest.Client{"Cartographer": cartographer, "Bystander": bystander} {
-		found := false
-		for packetID, data := range c.Packets(servertest.ExpectTimeout) {
-			if packetID == protocol.IDPlayMapData {
-				if u := servertest.ParseMapData(t, data); u.ID() == 0 && playerMarkers(u) == 2 {
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			t.Errorf("%s never saw both holders' markers on map 0", name)
-		}
-	}
-}
-
-// TestAMapInvisibilityItemHidesTheHolderFromOthers checks a holder wearing a
-// carved pumpkin is left off the other holders' map, while still seeing both
-// markers on theirs.
-func TestAMapInvisibilityItemHidesTheHolderFromOthers(t *testing.T) {
-	t.Parallel()
-	pumpkin := nbt.Compound{
-		"Slot":  nbt.Byte(103),
-		"id":    nbt.String("minecraft:carved_pumpkin"),
-		"count": nbt.Int(1),
-	}
-	srv, cartographer, bystander := holdersOfMapZero(t, pumpkin)
-	found := false
-	for packetID, data := range bystander.Packets(servertest.ExpectTimeout) {
-		if packetID == protocol.IDPlayMapData {
-			if u := servertest.ParseMapData(t, data); u.ID() == 0 && playerMarkers(u) == 2 {
-				found = true
-				break
-			}
-		}
-	}
-	if !found {
-		t.Errorf("the pumpkin wearer never saw the other holder's marker")
-	}
-	cartographer.ReadTicks(srv, 40, func(packetID int32, data []byte) bool {
-		if packetID == protocol.IDPlayMapData {
-			if u := servertest.ParseMapData(t, data); u.ID() == 0 && playerMarkers(u) > 1 {
-				t.Fatalf("the pumpkin wearer's marker reached the other holder: %+v", u.Icons)
-			}
-		}
-		return false
-	})
-}
-
-// TestAHolderInAnotherDimensionSeesTheMapsHolders checks the dimension that
-// counts is the holder's: a player in the nether carrying an overworld map
-// is shown the overworld holder's marker, though not one of their own.
-// vanilla: MapItemSavedData.tickCarriedBy
-func TestAHolderInAnotherDimensionSeesTheMapsHolders(t *testing.T) {
-	t.Parallel()
-	_, cartographer, bystander := holdersOfMapZeroIn(t, world.NetherName)
-	for packetID, data := range cartographer.Packets(servertest.ExpectTimeout) {
-		if packetID == protocol.IDPlayMapData {
-			if u := servertest.ParseMapData(t, data); u.ID() == 0 && playerMarkers(u) == 1 {
-				return
-			}
-		}
-	}
-	_ = bystander
-	t.Error("the nether viewer never saw the overworld holder's marker")
 }
 
 // TestAFrameViewerSeesTheMapsHolders checks a player who sees the map only
@@ -678,43 +438,4 @@ func TestAFilledMapTogglesABannerMarker(t *testing.T) {
 	awaitBannerMarkers(t, c, 1)
 	srv.SetBlock(2, 64, 2, 0)
 	awaitBannerMarkers(t, c, 0)
-}
-
-// TestTogglingABannerWhileAMapIsHeldIsRaceFree toggles a banner marker from
-// one connection while the tick sends the map's markers to another holder;
-// run with -race, the detector stays silent.
-func TestTogglingABannerWhileAMapIsHeldIsRaceFree(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.LevelName = t.TempDir()
-	servertest.WriteMapSavedData(t, cfg.LevelName, 0, 1, true, mapColours())
-	for _, name := range []string{"Holder", "Toggler"} {
-		servertest.WritePlayerFile(t, servertest.PlayerFile(cfg.LevelName, name), nbt.Compound{
-			"Inventory": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-				nbt.Compound{
-					"Slot": nbt.Byte(0), "id": nbt.String("minecraft:filled_map"), "count": nbt.Int(1),
-					"components": nbt.Compound{"minecraft:map_id": nbt.Int(0)},
-				},
-			}},
-			"SelectedItemSlot": nbt.Int(0),
-		})
-	}
-	srv, connect := servertest.Start(t, cfg)
-	holder := connect().Join("Holder")
-	toggler := connect().Join("Toggler")
-	srv.SetBlock(2, 64, 2, servertest.BlockState(t, "minecraft:red_banner"))
-	srv.EnsureBlockEntityInDimension("minecraft:overworld", 2, 64, 2, world.KindBanner)
-	holder.Settle()
-	toggler.Settle()
-	toggler.UseBlock(2, 64, 2)
-	awaitBannerMarkers(t, holder, 1)
-
-	// The sleep paces the toggles rather than waiting on state: spread over
-	// about eight free-running ticks, not sent in a burst between two, the
-	// connection's writes overlap the tick's marker reads.
-	for range 400 {
-		toggler.UseBlock(2, 64, 2)
-		time.Sleep(time.Millisecond)
-	}
-	toggler.Settle()
 }

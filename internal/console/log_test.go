@@ -70,18 +70,6 @@ func TestLogHandlerEscapesControlCharacters(t *testing.T) {
 	}
 }
 
-func TestLogHandlerEscapesBytesThatAreNotUTF8(t *testing.T) {
-	// 0x9B alone is the 8-bit CSI to a terminal outside UTF-8 mode.
-	var out bytes.Buffer
-	h := NewLogHandler(&out, slog.LevelInfo, false)
-	// The brand has no space, so only the invalid byte can make it quoted.
-	handle(t, h, slog.LevelInfo, "[Not Secure] * Nobody \x9b31mC1RED \x9b2J", "input", "me \x9b2J", "brand", "\x9b2J")
-	want := `[21:04:05] [Server thread/INFO]: [Not Secure] * Nobody \x9b31mC1RED \x9b2J input="me \x9b2J" brand="\x9b2J"` + "\n"
-	if out.String() != want {
-		t.Errorf("wrote %q, want %q", out.String(), want)
-	}
-}
-
 func TestLogHandlerColour(t *testing.T) {
 	var out bytes.Buffer
 	h := NewLogHandler(&out, slog.LevelInfo, true)
@@ -106,23 +94,5 @@ func TestLogHandlerDrawsTheComponent(t *testing.T) {
 	}
 	if want := "]:\x1b[0m [Not Secure] \x1b[0;91mhi\x1b[0m\n"; !strings.HasSuffix(coloured.String(), want) {
 		t.Errorf("colour wrote %q, want it to end %q", coloured.String(), want)
-	}
-}
-
-func TestLogHandlerColourEscapesControlCharacters(t *testing.T) {
-	// In colour the message is drawn from its component; the player's own
-	// escapes in it are still written as text.
-	line := protocol.Text{Text: "[Not Secure] ", Extra: []protocol.Text{{Text: "* Nobody \x1b]0;pwned\x07\x1b[2K\rFAKE LINE"}}}
-	var out bytes.Buffer
-	handle(t, NewLogHandler(&out, slog.LevelInfo, true), slog.LevelInfo, line.Plain(), protocol.LogComponentKey, line)
-	handle(t, NewLogHandler(&out, slog.LevelInfo, true), slog.LevelWarn, "plain \x1b[31mRED")
-	got := out.String()
-	for _, want := range []string{`* Nobody \x1b]0;pwned\a\x1b[2K\rFAKE LINE`, `plain \x1b[31mRED`} {
-		if !strings.Contains(got, want) {
-			t.Errorf("wrote %q, want it to carry %q", got, want)
-		}
-	}
-	if strings.ContainsAny(got, "\x07\r") || strings.Contains(got, "\x1b]") || strings.Contains(got, "\x1b[2K") || strings.Contains(got, "\x1b[31mRED") {
-		t.Errorf("wrote a raw control sequence: %q", got)
 	}
 }

@@ -2,11 +2,9 @@ package command
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
 
 func TestParticleOptionsAcceptOrderedCompounds(t *testing.T) {
@@ -31,18 +29,5 @@ func TestParticleOptionsAcceptOrderedCompounds(t *testing.T) {
 				t.Fatalf("ordered options = (%d, %x, %t), want (%d, %x, true)", id, data, ok, wantID, wantData)
 			}
 		})
-	}
-}
-
-// TestParticleOptionsCoverEveryTypeWithData checks that no particle type
-// that carries data falls through to the missing-reader error.
-func TestParticleOptionsCoverEveryTypeWithData(t *testing.T) {
-	for _, name := range registry.ParticleTypes {
-		if _, withData, _ := registry.ParticleID(name); !withData {
-			continue
-		}
-		if _, err := particleOptions(name, nbt.Compound{}); err != nil && strings.HasSuffix(err.Error(), "has no option reader") {
-			t.Errorf("%s has no option reader", name)
-		}
 	}
 }

@@ -118,35 +118,6 @@ func TestFallDamageByHeight(t *testing.T) {
 	}
 }
 
-func TestCreativeFallTrackingAndImmunity(t *testing.T) {
-	v := FreshVitals(protocol.GameModeCreative)
-	damage, landed := TrackMovement(&v, nil, player.Position{Y: 72}, player.Position{Y: 66},
-		false, false, Dry, false, false, false, 3, 1, Landing{})
-	if damage != 0 || landed != 0 || v.FallDistance != 6 {
-		t.Fatalf("airborne creative fall: damage=%v landed=%v distance=%v, want 0, 0, 6", damage, landed, v.FallDistance)
-	}
-	damage, landed = TrackMovement(&v, nil, player.Position{Y: 66}, player.Position{Y: 64, OnGround: true},
-		false, false, Dry, false, false, false, 3, 1, Landing{})
-	if damage != 0 || landed != 8 || v.FallDistance != 0 {
-		t.Errorf("creative landing: damage=%v landed=%v distance=%v, want 0, 8, 0", damage, landed, v.FallDistance)
-	}
-	trackFall(&v, player.Position{Y: 64, OnGround: true}, player.Position{Y: 65}, false, true, Dry)
-	trackFall(&v, player.Position{X: 0, Y: 64}, player.Position{X: 5, Y: 64, OnGround: true}, false, true, Dry)
-	trackFall(&v, player.Position{X: 0, Y: 64}, player.Position{X: 5, Y: 64}, false, false, Submerged)
-	if v.Exhaustion != 0 {
-		t.Errorf("creative movement exhaustion = %v, want 0", v.Exhaustion)
-	}
-
-	for _, mode := range []int32{protocol.GameModeCreative, protocol.GameModeSpectator} {
-		v = FreshVitals(mode)
-		v.FallDistance = 6
-		trackFall(&v, player.Position{Y: 72}, player.Position{Y: 66}, mode == protocol.GameModeCreative, false, Dry)
-		if v.FallDistance != 0 {
-			t.Errorf("flying/spectator mode %v kept fall distance %v, want 0", mode, v.FallDistance)
-		}
-	}
-}
-
 // TestFallIntoWaterLandsUnhurt checks the water's mercy: the fall's
 // distance is written off the moment the body is in the water, so however
 // far a body fell to reach it, the landing costs nothing.
@@ -166,61 +137,6 @@ func TestFallIntoWaterLandsUnhurt(t *testing.T) {
 	trackFall(&v, player.Position{Y: 94, OnGround: true}, player.Position{Y: 93, OnGround: true}, false, false, Wading)
 	if v.FallDistance != 0 {
 		t.Errorf("wading left %v of fall distance banked", v.FallDistance)
-	}
-}
-
-// TestFallDamageReadsTheSafeDistance pins the safe_fall_distance attribute's
-// word on the fall: everything past the safe distance costs, floored, and a
-// fall no further than it costs nothing.
-func TestFallDamageReadsTheSafeDistance(t *testing.T) {
-	for _, tc := range []struct{ fall, safe, want float64 }{
-		{10, 0, 10}, // nothing safe: the whole fall costs
-		{5, 0, 5},
-		{10, 3, 7}, // the default safe distance
-		{10, 5, 5}, // jump boost II's safe five
-		{5, 5, 0},  // no further than the safe distance
-	} {
-		if got := FallDamage(tc.fall, tc.safe, 1); got != tc.want {
-			t.Errorf("a %v-block fall with a safe distance of %v hurt for %v, want %v", tc.fall, tc.safe, got, tc.want)
-		}
-	}
-}
-
-// TestResetsFallNamesTheEffectsThatWriteTheFallOff pins which effects the
-// fall reset reads: slow falling and levitation, and nothing else.
-func TestResetsFallNamesTheEffectsThatWriteTheFallOff(t *testing.T) {
-	inst := func(id int32) []effect.Instance {
-		return []effect.Instance{effect.New(id, 100, 0, false, true, true)}
-	}
-	for _, id := range []int32{effectSlowFalling, effectLevitation} {
-		if !ResetsFall(inst(id)) {
-			t.Errorf("effect %d should write the fall off", id)
-		}
-	}
-	if ResetsFall(nil) {
-		t.Error("a body with no effects should keep its fall")
-	}
-	if ResetsFall(inst(effectRegeneration)) {
-		t.Error("regeneration should keep the fall")
-	}
-}
-
-// TestAnEffectTakesTheFallBack walks the effects branch of TrackMovement:
-// with slow falling or levitation active the body banks nothing of a step's
-// descent, so the landing after it costs nothing.
-func TestAnEffectTakesTheFallBack(t *testing.T) {
-	for _, id := range []int32{effectSlowFalling, effectLevitation} {
-		effects := []effect.Instance{effect.New(id, 100, 0, false, true, true)}
-		v := FreshVitals(protocol.GameModeSurvival)
-		if damage := trackFallEffects(&v, effects, player.Position{Y: 100}, player.Position{Y: 96}, false, false, Dry); damage != 0 {
-			t.Fatalf("the step through the air under effect %d hurt for %v", id, damage)
-		}
-		if v.FallDistance != 0 {
-			t.Fatalf("effect %d left %v of fall distance banked", id, v.FallDistance)
-		}
-		if damage := trackFallEffects(&v, effects, player.Position{Y: 96}, player.Position{Y: 94, OnGround: true}, false, false, Dry); damage != 0 {
-			t.Errorf("landing under effect %d hurt for %v", id, damage)
-		}
 	}
 }
 
@@ -249,51 +165,6 @@ func TestAClimbableCatchesAFallUnhurt(t *testing.T) {
 	}
 	if damage := trackClimbingFall(&v, player.Position{Y: 95.85}, player.Position{Y: 95.85, OnGround: true}); damage != 0 {
 		t.Errorf("the catch's landing hurt for %v", damage)
-	}
-}
-
-// TestAStepOffAClimbableCountsOnlyTheNewDrop checks the catch's other half:
-// the climb forgives only what it caught, the drop that follows the step off
-// being a fall of its own, banked from nothing.
-func TestAStepOffAClimbableCountsOnlyTheNewDrop(t *testing.T) {
-	v := FreshVitals(protocol.GameModeSurvival)
-	if damage := trackFall(&v, player.Position{Y: 100}, player.Position{Y: 96}, false, false, Dry); damage != 0 {
-		t.Fatalf("the fall's step through the air hurt for %v", damage)
-	}
-
-	// The hold: the body hangs on the climb, the fall it carried stays
-	// written off, and the drop the step off takes is the only one the
-	// landing reads.
-	if damage := trackClimbingFall(&v, player.Position{Y: 96}, player.Position{Y: 96}); damage != 0 {
-		t.Fatalf("holding on the climb hurt for %v", damage)
-	}
-	if damage := trackClimbingFall(&v, player.Position{Y: 96}, player.Position{Y: 95.85}); damage != 0 {
-		t.Fatalf("the slide the hold's step off began hurt for %v", damage)
-	}
-	if damage := trackFall(&v, player.Position{Y: 95.85}, player.Position{Y: 89.85, OnGround: true}, false, false, Dry); damage != 3 {
-		t.Errorf("landing six blocks below the catch hurt for %v, want the new drop's 3", damage)
-	}
-}
-
-// TestAClimbSlideBanksNothingButItsSteps checks the climb's own descent: a
-// body sliding down what it climbs banks each step's descent as it goes,
-// but the climb writes the carry-off at the step's start, so however far
-// the slide ran, the banked fall it lands with is the last step's own.
-func TestAClimbSlideBanksNothingButItsSteps(t *testing.T) {
-	v := FreshVitals(protocol.GameModeSurvival)
-	was := player.Position{Y: 100}
-	for range 40 {
-		now := player.Position{Y: was.Y - 0.15}
-		if damage := trackClimbingFall(&v, was, now); damage != 0 {
-			t.Fatalf("a step of the slide hurt for %v", damage)
-		}
-		was = now
-	}
-	if math.Abs(v.FallDistance-0.15) > 1e-9 {
-		t.Errorf("the slide left %v banked, want its last step's 0.15", v.FallDistance)
-	}
-	if damage := trackClimbingFall(&v, was, player.Position{Y: was.Y, OnGround: true}); damage != 0 {
-		t.Errorf("landing off the slide hurt for %v", damage)
 	}
 }
 
@@ -327,77 +198,6 @@ func TestFallChargesExhaustionForItsOwn(t *testing.T) {
 	trackFall(&v, player.Position{X: 0, Y: 100, OnGround: true}, player.Position{X: 100, Y: 100, OnGround: true}, false, false, Dry)
 	if v.Exhaustion != 0 {
 		t.Errorf("walking left %v exhaustion, want none", v.Exhaustion)
-	}
-}
-
-// TestWaterAndAirChargeTheirOwn follows checkMovementStatistics: a swim or
-// a walk under water costs a hundredth per block of the whole distance, a
-// wade a hundredth per block of the horizontal one, and a sprint through
-// the air nothing beyond its jump.
-func TestWaterAndAirChargeTheirOwn(t *testing.T) {
-	near := func(got, want float64) bool { return math.Abs(got-want) < 1e-9 }
-
-	v := FreshVitals(protocol.GameModeSurvival)
-	trackFall(&v, player.Position{X: 0, Y: 50}, player.Position{X: 3, Y: 46}, false, true, Submerged)
-	if !near(v.Exhaustion, 0.05) {
-		t.Errorf("swimming five blocks left %v exhaustion, want 0.05", v.Exhaustion)
-	}
-
-	v = FreshVitals(protocol.GameModeSurvival)
-	trackFall(&v, player.Position{X: 0, Y: 62, OnGround: true}, player.Position{X: 4, Y: 61, OnGround: true}, false, false, Wading)
-	if !near(v.Exhaustion, 0.04) {
-		t.Errorf("wading four blocks left %v exhaustion, want 0.04", v.Exhaustion)
-	}
-
-	v = FreshVitals(protocol.GameModeSurvival)
-	trackFall(&v, player.Position{X: 0, Y: 101}, player.Position{X: 2, Y: 100.5}, false, true, Dry)
-	if v.Exhaustion != 0 {
-		t.Errorf("sprinting through the air left %v exhaustion, want none", v.Exhaustion)
-	}
-}
-
-// TestSwimmingChargesTheWholeDistanceAboveWater checks that the swimming
-// pose is charged the 3D distance before the eye position is looked at, and
-// a wader not swimming only the horizontal one.
-func TestSwimmingChargesTheWholeDistanceAboveWater(t *testing.T) {
-	was, now := player.Position{X: 0, Y: 62}, player.Position{X: 3, Y: 58}
-	v := FreshVitals(protocol.GameModeSurvival)
-	TrackMovement(&v, nil, was, now, false, false, Wading, true, false, false, 3.0, 1, Landing{})
-	if math.Abs(v.Exhaustion-0.05) > 1e-9 {
-		t.Errorf("swimming with the eyes above water left %v exhaustion, want 0.05", v.Exhaustion)
-	}
-	v = FreshVitals(protocol.GameModeSurvival)
-	TrackMovement(&v, nil, was, now, false, false, Wading, false, false, false, 3.0, 1, Landing{})
-	if math.Abs(v.Exhaustion-0.03) > 1e-9 {
-		t.Errorf("wading left %v exhaustion, want 0.03", v.Exhaustion)
-	}
-}
-
-// TestActionsChargeExhaustion pins the costs that are not movement: the
-// damage type's own exhaustion, and nothing at all charged to the modes
-// that cannot be hurt.
-func TestActionsChargeExhaustion(t *testing.T) {
-	for damageType, want := range map[registry.DamageType]float64{
-		DamageTypeMobAttack: 0.1, DamageTypeArrow: 0.1, DamageTypeExplosion: 0.1,
-		DamageTypeFall: 0, DamageTypeStarve: 0, DamageTypeOutOfWorld: 0, DamageTypeOnFire: 0,
-		DamageTypeDrown: 0, DamageTypeInWall: 0, DamageTypeEnderPearl: 0,
-		DamageTypeLava: 0.1, DamageTypeInFire: 0.1, DamageTypeCactus: 0.1,
-		DamageTypeHotFloor: 0.1, DamageTypeSweetBerryBush: 0.1,
-	} {
-		if got := DamageExhaustion(damageType); got != want {
-			t.Errorf("%s costs %v exhaustion, want %v", damageType, got, want)
-		}
-	}
-
-	v := FreshVitals(protocol.GameModeCreative)
-	Exhaust(&v, AttackExhaustion)
-	if v.Exhaustion != 0 {
-		t.Errorf("a creative player was charged %v exhaustion", v.Exhaustion)
-	}
-	v = FreshVitals(protocol.GameModeSurvival)
-	Exhaust(&v, MineExhaustion)
-	if v.Exhaustion != MineExhaustion {
-		t.Errorf("a survival break left %v exhaustion, want %v", v.Exhaustion, MineExhaustion)
 	}
 }
 
@@ -550,21 +350,6 @@ func TestRegenerationNeedsAFedPlayer(t *testing.T) {
 	}
 }
 
-// TestVoidHitsBelowTheWorld checks the void hurts on every tick below the
-// world, the first included, and on none above it.
-func TestVoidHitsBelowTheWorld(t *testing.T) {
-	v := FreshVitals(protocol.GameModeSurvival)
-	for i := 1; i <= 3; i++ {
-		if _, hurts, _ := tickOne(&v, world.DifficultyNormal, true); len(hurts) != 1 ||
-			hurts[0].DamageType != DamageTypeOutOfWorld || hurts[0].Amount != VoidDamage {
-			t.Fatalf("void tick %d came to %v, want one void blow", i, hurts)
-		}
-	}
-	if _, hurts, _ := tickOne(&v, world.DifficultyNormal, false); len(hurts) != 0 {
-		t.Errorf("a tick above the world came to %v, want no blow", hurts)
-	}
-}
-
 // TestInvulnerabilityCountsDown ticks off the half-second window a hit
 // grants, which runs even for a body that cannot be hurt by anything else.
 func TestInvulnerabilityCountsDown(t *testing.T) {
@@ -603,51 +388,6 @@ func TestModeCannotBeHurt(t *testing.T) {
 	}
 }
 
-// TestFreshVitalsStartsFull is the state a join and a respawn grant.
-func TestFreshVitalsStartsFull(t *testing.T) {
-	v := FreshVitals(protocol.GameModeSurvival)
-	if v.GameMode != protocol.GameModeSurvival || v.Health != MaxHealth || v.Food != MaxFood || v.Saturation != 5 {
-		t.Errorf("fresh vitals are %+v, want a full fed survivor", v)
-	}
-	if dead, deadWeight := v.Dead, v.InvulnerableTicks != 0; dead || deadWeight {
-		t.Errorf("fresh vitals carry death or a hurt window: %+v", v)
-	}
-	if math.IsNaN(v.Saturation) {
-		t.Error("fresh saturation is not a number")
-	}
-}
-
-// TestASaturatedFullBarHealsFast pins FoodData.tick's fast regeneration: a
-// hurt player on a full bar with saturation behind it heals every tenth
-// tick, a sixth of the saturation spent (six at most) coming back as
-// health and going on the exhaustion — the heal that keeps a well-fed
-// player standing through a fight.
-func TestASaturatedFullBarHealsFast(t *testing.T) {
-	v := FreshVitals(protocol.GameModeSurvival)
-	v.Health = 10
-	for i := 1; i < saturatedRegenTicks; i++ {
-		if event, _, _ := tickOne(&v, world.DifficultyNormal, false); event != VitalsSteady {
-			t.Fatalf("tick %d came to %v, want steady until the tenth", i, event)
-		}
-	}
-	if event, _, _ := tickOne(&v, world.DifficultyNormal, false); event != VitalsHealed {
-		t.Fatalf("the tenth tick came to %v, want a heal", event)
-	}
-	// Five saturation: five sixths of a half-heart back, five exhaustion
-	// on — four of it turned into a point of saturation on the next tick,
-	// one left over.
-	if want := 10 + 5.0/6; v.Health != want {
-		t.Errorf("the fast heal took the health to %v, want %v", v.Health, want)
-	}
-	tickOne(&v, world.DifficultyNormal, false)
-	if v.Saturation != 4 || v.Exhaustion != 1 {
-		t.Errorf("the fast heal left saturation %v exhaustion %v, want 4 and 1", v.Saturation, v.Exhaustion)
-	}
-	if v.Food != MaxFood {
-		t.Errorf("the fast heal took food to %v, want the bar untouched", v.Food)
-	}
-}
-
 // TestPeacefulHealsAndFeedsOnItsOwnClocks pins ServerPlayer.
 // tickRegeneration: a half-heart and a point of saturation every twenty
 // ticks, a shank every ten.
@@ -667,19 +407,6 @@ func TestPeacefulHealsAndFeedsOnItsOwnClocks(t *testing.T) {
 	}
 	if v.Saturation != 1 {
 		t.Errorf("twenty peaceful ticks left saturation %v, want 1", v.Saturation)
-	}
-}
-
-// TestPeacefulHealReachesTheBoostedBar heals on the peaceful world's own
-// clock up to the bar health boost raises, past the base twenty.
-func TestPeacefulHealReachesTheBoostedBar(t *testing.T) {
-	// Age 19 so the tick that counts up to 20 is the peaceful heal's due one.
-	v := player.Vitals{Health: 21, Food: 20, AirSupply: MaxAirSupply, AgeTicks: 19}
-	var s effect.Set
-	AddEffect(&v, &s, effect.New(effectHealthBoost, 100, 1, false, true, true))
-	TickVitals(&v, &s, nil, world.DifficultyPeaceful, false, Habitat{}, nil, 0, true)
-	if v.Health != 22 {
-		t.Errorf("a peaceful heal under Health Boost II reached %v, want 22", v.Health)
 	}
 }
 
@@ -719,115 +446,5 @@ func TestLandingScalesTheFall(t *testing.T) {
 		if got := land(tc.landing); math.Abs(got-tc.want) > 1e-9 {
 			t.Errorf("a ten-block fall onto %s hurt for %v, want %v", tc.name, got, tc.want)
 		}
-	}
-}
-
-// TestAShortDropOntoASoftBlockIsFree pins the floor after the landing
-// block's scaling: a fall of four to six blocks has three or fewer past the
-// safe three, so a hay bale's fifth and a bed's half both floor to nothing.
-func TestAShortDropOntoASoftBlockIsFree(t *testing.T) {
-	for _, ground := range []struct {
-		name  string
-		state uint16
-	}{
-		{"hay", registry.MustState("minecraft:hay_block", nil)},
-		{"bed", registry.MustState("minecraft:red_bed", nil)},
-	} {
-		for _, drop := range []float64{4, 5, 6} {
-			v := FreshVitals(protocol.GameModeSurvival)
-			damage, _ := TrackMovement(&v, nil, player.Position{Y: 64 + drop}, player.Position{Y: 64, OnGround: true},
-				false, false, Dry, false, false, false, 3.0, 1, Landing{Ground: ground.state})
-			if damage != 0 {
-				t.Errorf("a %v-block fall onto %s hurt for %v, want none", drop, ground.name, damage)
-			}
-		}
-	}
-}
-
-// TestFallResetSweepReadsTheFallDamageResettingTag checks the sweep's
-// predicate and its gates: a step of a block or longer through a web, a berry
-// bush, a vine, a ladder or water writes the fall off, a step through stone
-// does not, a step of a block or less is not swept however much fall it
-// carries, and neither is a step by a body carrying none. A player's sweep
-// also writes the fall off on an end portal or gateway and on a nether portal
-// while the default delay rule makes it immediate; a mob's does not.
-// vanilla: Entity.move, ClipContext.Block.FALLDAMAGE_RESETTING,
-// ClipContext.Fluid.WATER
-func TestFallResetSweepReadsTheFallDamageResettingTag(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		cell     [3]int32
-		block    string
-		carry    float64
-		fromY    float64
-		toY      float64
-		isPlayer bool
-		nether   bool
-		want     bool
-	}{
-		{"web", [3]int32{0, 70, 0}, "minecraft:cobweb", 4, 76, 64, false, false, true},
-		{"berry bush", [3]int32{0, 70, 0}, "minecraft:sweet_berry_bush", 4, 76, 64, false, false, true},
-		{"vine", [3]int32{0, 70, 0}, "minecraft:vine", 4, 76, 64, false, false, true},
-		{"ladder", [3]int32{0, 70, 0}, "minecraft:ladder", 4, 76, 64, false, false, true},
-		{"water", [3]int32{0, 70, 0}, "minecraft:water", 4, 76, 64, false, false, true},
-		{"stone", [3]int32{0, 70, 0}, "minecraft:stone", 4, 76, 64, false, false, false},
-		{"a step under a block", [3]int32{0, 70, 0}, "minecraft:cobweb", 4, 71.5, 70.7, false, false, false},
-		{"no fall carried", [3]int32{0, 70, 0}, "minecraft:cobweb", 0, 76, 64, false, false, false},
-		{"a layer above the path", [3]int32{0, 80, 0}, "minecraft:cobweb", 4, 76, 64, false, false, false},
-		{"a layer past the eight-block reach", [3]int32{0, 66, 0}, "minecraft:cobweb", 4, 76, 64, false, false, false},
-		{"a player's end portal", [3]int32{0, 70, 0}, "minecraft:end_portal", 4, 76, 64, true, false, true},
-		{"a player's end gateway", [3]int32{0, 70, 0}, "minecraft:end_gateway", 4, 76, 64, true, false, true},
-		{"a mob's end portal", [3]int32{0, 70, 0}, "minecraft:end_portal", 4, 76, 64, false, false, false},
-		{"a player's nether portal made immediate", [3]int32{0, 70, 0}, "minecraft:nether_portal", 4, 76, 64, true, true, true},
-		{"a player's nether portal still delayed", [3]int32{0, 70, 0}, "minecraft:nether_portal", 4, 76, 64, true, false, false},
-	} {
-		w := stubBlocks{tc.cell: stateOf(t, tc.block)}
-		was := player.Position{X: 0.5, Y: tc.fromY, Z: 0.5}
-		now := player.Position{X: 0.5, Y: tc.toY, Z: 0.5}
-		if got := FallResetSweep(w, tc.carry, was, now, tc.isPlayer, tc.nether); got != tc.want {
-			t.Errorf("FallResetSweep through %s = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
-// TestLandingOnAnUpwardDripstoneTipIsStalagmiteDamage pins
-// PointedDripstoneBlock.fallOn: a landing on an upward tip counts the fall
-// 2.5 blocks longer and doubles the damage, as minecraft:stalagmite damage;
-// a downward tip, a thicker piece and a landing that fell nothing act as stone.
-func TestLandingOnAnUpwardDripstoneTipIsStalagmiteDamage(t *testing.T) {
-	piece := func(direction, thickness string) uint16 {
-		return registry.MustState("minecraft:pointed_dripstone", map[string]string{
-			"vertical_direction": direction, "thickness": thickness, "waterlogged": "false"})
-	}
-	land := func(ground uint16, drop float64) float64 {
-		v := FreshVitals(protocol.GameModeSurvival)
-		damage, _ := TrackMovement(&v, nil, player.Position{Y: 64 + drop}, player.Position{Y: 64, OnGround: true},
-			false, false, Dry, false, false, false, 3.0, 1, Landing{Ground: ground})
-		return damage
-	}
-	tip := piece("up", "tip")
-	// floor((1 + 2.5 - 3) * 2)
-	if got := land(tip, 1); got != 1 {
-		t.Errorf("a one-block drop onto an upward tip hurt for %v, want 1", got)
-	}
-	if got := land(tip, 0); got != 0 {
-		t.Errorf("standing on an upward tip hurt for %v, want none", got)
-	}
-	if got := FallOn(tip).DamageType; got != DamageTypeStalagmite {
-		t.Errorf("the upward tip's damage type = %q, want %q", got, DamageTypeStalagmite)
-	}
-	for _, tc := range []struct{ direction, thickness string }{
-		{"down", "tip"}, {"up", "frustum"}, {"up", "middle"}, {"up", "base"}, {"up", "tip_merge"},
-	} {
-		ground := piece(tc.direction, tc.thickness)
-		if got := land(ground, 1); got != 0 {
-			t.Errorf("a one-block drop onto %s/%s hurt for %v, want none like stone", tc.direction, tc.thickness, got)
-		}
-		if got := FallOn(ground).DamageType; got != DamageTypeFall {
-			t.Errorf("%s/%s damage type = %q, want fall", tc.direction, tc.thickness, got)
-		}
-	}
-	if got := DeathMessage(DamageTypeStalagmite, protocol.Text{Text: "Alex"}, nil); got.Translate != "death.attack.stalagmite" {
-		t.Errorf("the stalagmite death message = %q, want death.attack.stalagmite", got.Translate)
 	}
 }

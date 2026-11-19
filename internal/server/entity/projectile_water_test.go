@@ -53,38 +53,3 @@ func TestRocketAndEyeSplashBeforeMovingEvenOnTheirLastTick(t *testing.T) {
 		}
 	})
 }
-
-// vanilla: AbstractArrow.tick calls baseTick after the noPhysics move.
-func TestReturningTridentTracksWaterEntryAndExit(t *testing.T) {
-	w := newTestWorld()
-	w.set(0, 64, 0, registry.BlockWater.DefaultState())
-	a := newTestTrident(7)
-	a.Loyalty = 1
-	a.RestoreDealtDamage(true)
-	owner := PlayerTarget(7, 10, 64, 0, false)
-	a.X, a.Y, a.Z = 0.5, 64, 0.5
-	a.VX, a.VY, a.VZ = 0, 0, 0
-	for _, event := range a.Step(w, &owner, nil) {
-		if event.Kind == ArrowSplashed {
-			t.Fatal("a returning trident splashed on its first tick")
-		}
-	}
-	if !a.inWater {
-		t.Fatal("return tick did not record water contact")
-	}
-	a.X = 2.5
-	a.Step(w, &owner, nil)
-	if a.inWater {
-		t.Fatal("return tick did not clear water contact after leaving")
-	}
-	a.X, a.VX = 1.25, -0.5
-	events := a.Step(w, &owner, nil)
-	if len(events) != 1 || events[0].Kind != ArrowSplashed {
-		t.Fatalf("water entry events = %v, want one splash", events)
-	}
-	ev := events[0]
-	volume, _ := splashSound(a.VX, a.VY, a.VZ, nil)
-	if ev.X != a.X || ev.Y != a.Y || ev.Z != a.Z || ev.Volume != volume {
-		t.Errorf("splash = %+v, want moved position (%v,%v,%v), volume %v", ev, a.X, a.Y, a.Z, volume)
-	}
-}

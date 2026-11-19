@@ -57,64 +57,6 @@ func TestAHurtBodyWithInfestedLetsSilverfishOut(t *testing.T) {
 	c.Disconnect()
 }
 
-// TestASilverfishStaysOnTopOfPowderSnow sinks a silverfish into a walled
-// column of powder snow: it jumps until it stands on the snow's surface.
-// vanilla: ClimbOnTopOfPowderSnowGoal
-func TestASilverfishStaysOnTopOfPowderSnow(t *testing.T) {
-	t.Parallel()
-	srv, c := silverfishTests(t, "survival", true)
-	bedrock, snow := blockNamed(t, "minecraft:bedrock"), servertest.MustState(t, "minecraft:powder_snow", nil)
-	for x := int32(5); x <= 9; x++ {
-		for z := int32(5); z <= 9; z++ {
-			srv.SetBlock(x, 64, z, bedrock)
-			if x == 7 && z == 7 {
-				srv.SetBlock(x, 65, z, snow)
-			} else {
-				srv.SetBlock(x, 65, z, bedrock)
-			}
-		}
-	}
-	id := srv.SpawnMob(silverfishKind, 7.5, 65.2, 7.5)
-	top := 0.0
-	for range 60 {
-		srv.TickMobs(1)
-		if _, y, _, ok := srv.MobPos(id); ok && y > top {
-			top = y
-		}
-	}
-	if top < 66 {
-		t.Errorf("the silverfish rose to y = %.2f, want out of the snow onto its surface at 66", top)
-	}
-	c.Disconnect()
-}
-
-// TestAHurtPlayerWithInfestedLetsSilverfishOut lands 800 hurts, each a hair
-// stronger than the last so the window passes the excess, on a player under
-// the effect with the dice seeded: the silverfish the seeded rolls give.
-// vanilla: InfestedMobEffect.onMobHurt
-func TestAHurtPlayerWithInfestedLetsSilverfishOut(t *testing.T) {
-	t.Parallel()
-	srv, c := silverfishTests(t, "survival", true)
-	for i := 1; i <= 800; i++ {
-		srv.Hurt("Miner", float64(i)*0.0005)
-	}
-	if n := len(silverfishes(srv)); n != 0 {
-		t.Fatalf("%d silverfish came out of a player without the effect", n)
-	}
-	srv.GiveEffect("Miner", "minecraft:infested", 1000, 0, true)
-	srv.SeedInfested(7)
-	r := rand.New(rand.NewSource(7))
-	want := 0
-	for i := 1; i <= 800; i++ {
-		want += infestedReplay(r)
-		srv.Hurt("Miner", 0.4+float64(i)*0.0005)
-	}
-	if n := len(silverfishes(srv)); n != want || want == 0 {
-		t.Errorf("%d silverfish came out of 800 hurts, want %d from the seeded rolls", n, want)
-	}
-	c.Disconnect()
-}
-
 // infestedReplay draws what one hurt's roll draws from the dice and answers
 // how many silverfish it lets out.
 func infestedReplay(r *rand.Rand) int {

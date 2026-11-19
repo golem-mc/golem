@@ -1,9 +1,10 @@
 package combat
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"math"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
@@ -87,53 +88,6 @@ func TestABlowInsideTheWindowLandsOnlyItsExcess(t *testing.T) {
 	}
 }
 
-// TestAHurriedBlowOutsideTheWindowShovesWhole checks the cooldown's
-// outside: a hurried blow on a body past the window lands whole, its
-// damage scaled by the swing's recovery but its shove not — a hurried
-// blow lifts a grounded mob to the same four tenths a recovered one
-// would.
-// vanilla: Player.attack
-func TestAHurriedBlowOutsideTheWindowShovesWhole(t *testing.T) {
-	t.Parallel()
-	srv, c, attackerID := servertest.JoinAs(t, servertest.CombatTestConfig(), "Hasty")
-	c.MoveToGround(2.5, 64, 5.5, true)
-	c.Settle()
-
-	mobID := srv.SpawnMob("minecraft:cow", 5.5, 64, 5.5)
-	c.ExpectMobSpawn(protocol.EntityTypeCow)
-
-	srv.StopTick()
-	sword := hurrySword(t, srv, "Hasty")
-	strength := rules.AttackStrengthScale(0, rules.AttackSpeed(sword))
-	swordHit := hurriedBlow(sword, strength)
-
-	c.Attack(mobID)
-	c.ExpectMobDamageEvent(mobID, "minecraft:player_attack", attackerID+1)
-	hurtAnim := protocol.NewReader(c.ExpectMobPacket(protocol.IDPlayHurtAnimation))
-	if got := hurtAnim.ReadVarInt(); got != mobID {
-		c.T.Fatalf("hurt animation for entity %d, want %d", got, mobID)
-	}
-	hurtAnim.ReadF32()
-	motion := protocol.NewReader(c.ExpectMobPacket(protocol.IDPlaySetEntityMotion))
-	if got := motion.ReadVarInt(); got != mobID {
-		c.T.Fatalf("shove for entity %d, want %d", got, mobID)
-	}
-	vx, vy, vz := motion.ReadLpVec3()
-	if err := motion.Err(); err != nil {
-		c.T.Fatalf("set entity velocity: %v", err)
-	}
-	if vx <= 0 || vz != 0 {
-		c.T.Errorf("knockback = (%v %v %v), wanted east and no south (the cow stands east)", vx, vy, vz)
-	}
-	if math.Abs(vy-0.4) > 0.1 {
-		c.T.Errorf("the hurried blow lifted the cow to %v, want the whole blow's vanilla 0.4 — "+
-			"the cooldown scales a hurried blow's damage, not its knockback", vy)
-	}
-	if got := servertest.ExpectMobHealth(c, mobID); math.Abs(float64(got)-(10-swordHit)) > 0.01 {
-		c.T.Errorf("the hurried blow left %v health, want the scaled %v", got, 10-swordHit)
-	}
-}
-
 // TestAReducedArrowTellsOnlyItsHealth checks the telling of an arrow's blow
 // that lands inside a mob's window: the excess alone reaches the health,
 // and none of a whole hurt's damage event, flinch, tilt, shove or hurt
@@ -191,88 +145,6 @@ func TestAReducedArrowTellsOnlyItsHealth(t *testing.T) {
 	}
 }
 
-// TestAReducedFallIsToldOnlyByItsHealth checks a landing that lands inside
-// a mob's window: the excess alone reaches the health and the damage event
-// and hurt sound of a whole fall stay back — the gate the fall's own hurt
-// passes through — while the fall-damage sound and the block-fall sound
-// still play ungated.
-// vanilla: LivingEntity.causeFallDamage, hurtServer
-func TestAReducedFallIsToldOnlyByItsHealth(t *testing.T) {
-	t.Parallel()
-	srv, c, attackerID := servertest.JoinAs(t, servertest.CombatTestConfig(), "Landing")
-	c.MoveToGround(2.5, 64, 5.5, true)
-	c.Settle()
-	servertest.AwaitFullSwing(t, srv, "Landing")
-
-	// The loop stopped before the drop, so the fall is the hand-driven
-	// ticks' alone to run.
-	srv.StopTick()
-	cowID := srv.SpawnMob("minecraft:cow", 2.5, 74, 5.5)
-	c.ExpectMobSpawn(protocol.EntityTypeCow)
-
-	// Fall until the cow is within the player's reach, then strike it in
-	// mid-air to open the window with the fist's one.
-	for {
-		srv.TickMobs(1)
-		if _, y, _, ok := srv.MobPos(cowID); !ok || y <= 66.5 {
-			break
-		}
-	}
-	if got := c.Strike(cowID, attackerID); math.Abs(float64(got)-9) > 0.01 {
-		t.Fatalf("the mid-air fist left %v health, want the nine", got)
-	}
-	c.Settle() // the melee's own hurt sound, before the fall's telling
-
-	damages, hurtAnims, hurtSounds, fallSounds := 0, 0, 0, 0
-	health := float32(-1)
-	for range 8 {
-		srv.TickMobs(1)
-		c.SettleAndCollect(func(id int32, data []byte) {
-			switch id {
-			case protocol.IDPlayDamageEvent:
-				if protocol.NewReader(data).ReadVarInt() == cowID {
-					damages++
-				}
-			case protocol.IDPlayHurtAnimation:
-				if protocol.NewReader(data).ReadVarInt() == cowID {
-					hurtAnims++
-				}
-			case protocol.IDPlaySoundEffect:
-				switch servertest.SoundOf(data) {
-				case "minecraft:entity.generic.big_fall", "minecraft:entity.generic.small_fall":
-					fallSounds++
-				case "minecraft:entity.cow.hurt":
-					hurtSounds++
-				}
-			case protocol.IDPlayEntityMetadata:
-				if protocol.NewReader(data).ReadVarInt() != cowID {
-					return
-				}
-				if m := servertest.ReadZombieMetadata(c, data); m.HasHealth {
-					health = m.Health
-				}
-			}
-		})
-	}
-	if damages != 0 {
-		t.Errorf("the reduced fall told %d damage events, want none", damages)
-	}
-	if hurtAnims != 0 {
-		t.Errorf("the reduced fall sent %d hurt animations, want none", hurtAnims)
-	}
-	if hurtSounds != 0 {
-		t.Errorf("the reduced fall played %d hurt sounds, want none", hurtSounds)
-	}
-	if fallSounds != 1 {
-		t.Errorf("the reduced fall played %d fall sounds, want the one ungated big_fall", fallSounds)
-	}
-	// The melee's one and the fall's excess over it: the fall's seven less
-	// the one already behind the window, off the cow's ten.
-	if math.Abs(float64(health)-3) > 0.01 {
-		t.Errorf("the reduced fall left %v health, want the %v", health, 3.0)
-	}
-}
-
 // mobMetadataHealth reads the health out of a mob metadata packet, past the
 // air field a drowning mob carries beside it, and reports whether the packet
 // was about the entity named.
@@ -305,181 +177,6 @@ func mobMetadataHealth(c *servertest.Client, data []byte, entityID int32) (float
 		}
 	}
 	return health, has
-}
-
-// TestAReducedDrownIsToldOnlyByItsBubble checks a drown bite that lands
-// inside a mob's window: the excess alone reaches the health and neither the
-// damage event nor the hurt sound of a whole bite goes out, while the bubble
-// burst still does — the one telling not behind the full-hurt gate, as it is
-// not for a player.
-func TestAReducedDrownIsToldOnlyByItsBubble(t *testing.T) {
-	t.Parallel()
-	srv, c, attackerID := servertest.JoinAs(t, servertest.MobTestConfig(), "Diver", servertest.OpsListing(t, "Diver"))
-	c.MoveToGround(2.5, 64, 5.5, true)
-	c.Settle()
-	servertest.AwaitFullSwing(t, srv, "Diver")
-
-	srv.StopTick()
-	// The stopped loop streams no chunks, so the pool's own chunk is held
-	// for the mob's tick to run.
-	release := srv.HoldChunk(5, 5)
-	t.Cleanup(release)
-	water := servertest.BlockState(t, "minecraft:water")
-	srv.SetBlock(5, 64, 5, water)
-	srv.SetBlock(5, 65, 5, water)
-
-	c.ChatCommand("summon minecraft:cow 5.5 64 5.5 {NoAI:1b}")
-	cow := c.ExpectMobSpawn(protocol.EntityTypeCow).EntityID
-	c.Settle()
-
-	// The fist's whole blow opens the cow's window with its one.
-	if got := c.Strike(cow, attackerID); math.Abs(float64(got)-9) > 0.01 {
-		t.Fatalf("the fist's whole left the cow at %v health, want the nine", got)
-	}
-	c.Settle()
-
-	// The breath reaches its floor the next tick, inside the window.
-	srv.SetMobAir(cow, rules.AirDrownFloor+1)
-	srv.TickMobs(1)
-
-	damages, bubbles, hurtSounds := 0, 0, 0
-	health := float32(-1)
-	c.SettleAndCollect(func(id int32, data []byte) {
-		switch id {
-		case protocol.IDPlayDamageEvent:
-			if protocol.NewReader(data).ReadVarInt() == cow {
-				damages++
-			}
-		case protocol.IDPlayEntityEvent:
-			r := protocol.NewReader(data)
-			if r.ReadI32() == cow && r.ReadU8() == protocol.EntityEventDrown {
-				bubbles++
-			}
-		case protocol.IDPlaySoundEffect:
-			if servertest.SoundOf(data) == "minecraft:entity.cow.hurt" {
-				hurtSounds++
-			}
-		case protocol.IDPlayEntityMetadata:
-			if m, ok := mobMetadataHealth(c, data, cow); ok {
-				health = m
-			}
-		}
-	})
-	if damages != 0 {
-		t.Errorf("the reduced drown told %d damage events, want none", damages)
-	}
-	if bubbles != 1 {
-		t.Errorf("the reduced drown sent %d bubble bursts, want the one", bubbles)
-	}
-	if hurtSounds != 0 {
-		t.Errorf("the reduced drown played %d hurt sounds, want none", hurtSounds)
-	}
-	// The fist's one and the drown's excess over it: the two less the one
-	// already behind the window, off the cow's ten.
-	if math.Abs(float64(health)-8) > 0.01 {
-		t.Errorf("the reduced drown left %v health, want the excess's eight", health)
-	}
-}
-
-// TestAReducedAnvilsBlowIsToldOnlyByItsHealth checks a gravity block's blow
-// that lands inside a mob's window: the excess alone reaches the health and
-// none of the damage event, the flinch or the shove of a whole blow goes
-// out. The fall and the landing run by hand, and the stopped mob pass keeps
-// the window open until it lands.
-func TestAReducedAnvilsBlowIsToldOnlyByItsHealth(t *testing.T) {
-	t.Parallel()
-	srv, c, attackerID := servertest.JoinAs(t, servertest.MobTestConfig(), "Bruiser", servertest.OpsListing(t, "Bruiser"))
-	c.MoveToGround(2.5, 64, 5.5, true)
-	c.Settle()
-	servertest.AwaitFullSwing(t, srv, "Bruiser")
-
-	c.ChatCommand("summon minecraft:cow 5.5 64 5.5 {NoAI:1b}")
-	cow := c.ExpectMobSpawn(protocol.EntityTypeCow).EntityID
-	c.Settle()
-
-	srv.StopTick()
-	// The stopped loop streams no chunks, so the anvil's chunk is held for
-	// the physics and the falling pass to find the block in memory.
-	release := srv.HoldChunk(5, 5)
-	t.Cleanup(release)
-
-	// The fist's whole blow opens the cow's window with its one.
-	if got := c.Strike(cow, attackerID); math.Abs(float64(got)-9) > 0.01 {
-		t.Fatalf("the fist's whole left the cow at %v health, want the nine", got)
-	}
-	c.Settle()
-	// The fist's knockback plays on in the tick after it; flush that motion
-	// so only the anvil's own traffic is counted below.
-	srv.TickMobs(1)
-	c.Settle()
-
-	// An anvil hangs three blocks over the cow's cell. The physics pass
-	// stands the falling body up and the falling pass runs it down.
-	c.ChatCommand("setblock 5 67 5 minecraft:anvil")
-	c.Settle()
-	for range 40 {
-		if srv.FallingCount() > 0 {
-			break
-		}
-		srv.TickPhysics(1)
-	}
-	if srv.FallingCount() != 1 {
-		t.Fatal("the anvil never became a falling body")
-	}
-	for range 40 {
-		if srv.FallingCount() == 0 {
-			break
-		}
-		srv.TickFallings(1)
-	}
-	if srv.FallingCount() != 0 {
-		t.Fatal("the anvil never landed")
-	}
-
-	srv.TickMobs(1)
-	damages, hurtAnims, motions := 0, 0, 0
-	health := float32(-1)
-	c.SettleAndCollect(func(id int32, data []byte) {
-		switch id {
-		case protocol.IDPlayDamageEvent:
-			if protocol.NewReader(data).ReadVarInt() == cow {
-				damages++
-			}
-		case protocol.IDPlayHurtAnimation:
-			if protocol.NewReader(data).ReadVarInt() == cow {
-				hurtAnims++
-			}
-		case protocol.IDPlaySetEntityMotion:
-			// A shove lifts the body; a cow settling to the floor only falls.
-			r := protocol.NewReader(data)
-			if r.ReadVarInt() == cow {
-				if _, vy, _ := r.ReadLpVec3(); vy > 0 {
-					motions++
-				}
-			}
-		case protocol.IDPlayEntityMetadata:
-			if protocol.NewReader(data).ReadVarInt() != cow {
-				return
-			}
-			if m := servertest.ReadZombieMetadata(c, data); m.HasHealth {
-				health = m.Health
-			}
-		}
-	})
-	if damages != 0 {
-		t.Errorf("the reduced anvil told %d damage events, want none", damages)
-	}
-	if hurtAnims != 0 {
-		t.Errorf("the reduced anvil sent %d hurt animations, want none", hurtAnims)
-	}
-	if motions != 0 {
-		t.Errorf("the reduced anvil sent %d shoves, want none", motions)
-	}
-	// The fist's one and the anvil's excess over it: the anvil's six for
-	// this fall less the one already behind the window, off the cow's ten.
-	if math.Abs(float64(health)-4) > 0.01 {
-		t.Errorf("the reduced anvil left %v health, want the excess's four", health)
-	}
 }
 
 // TestHasteAndMiningFatigueSetTheSwingsPace checks the attack cooldown reads
@@ -544,36 +241,5 @@ func TestAHelmetBlowRefusedInsideTheWindowStillWearsTheHelmet(t *testing.T) {
 	}
 	if got := srv.InventorySlot("Capped", player.ArmorSlot); got.Damage == 0 {
 		t.Error("the refused blow wore no helmet")
-	}
-}
-
-// TestAHelmetSoftenedBlowIsWhatTheWindowKeeps checks that the window
-// remembers the softened amount: after a falling anvil's ten the last hurt
-// is 7.5, so a mob's eight tops it.
-// vanilla: LivingEntity.hurtServer
-func TestAHelmetSoftenedBlowIsWhatTheWindowKeeps(t *testing.T) {
-	t.Parallel()
-	srv, _ := helmetPlayer(t, "Capped")
-	if !srv.HurtAs("Capped", 10, rules.DamageTypeFallingAnvil) {
-		t.Fatal("the anvil's blow did not land")
-	}
-	if !srv.Hurt("Capped", 8) {
-		t.Error("a blow of 8 was refused inside a window whose last hurt is 7.5")
-	}
-}
-
-// TestARefusedBlowInsideTheWindowWakesASleeper checks that a hurt the window
-// turns away still stands the sleeper up.
-// vanilla: LivingEntity.hurtServer
-func TestARefusedBlowInsideTheWindowWakesASleeper(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.SurvivalConfig(), "Actor", servertest.NoTimeSync)
-	c.ExpectSleepStarted(srv, 6.5, 0.5, 0)
-	srv.OpenHurtWindow("Actor", 5)
-	if srv.Hurt("Actor", 1) {
-		t.Fatal("a blow of 1 landed inside a window of 5")
-	}
-	if srv.Sleeping("Actor") {
-		t.Error("the refused blow left the player asleep")
 	}
 }

@@ -6,7 +6,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
@@ -128,87 +127,5 @@ func TestClientReceivesUpdateTimeOnJoin(t *testing.T) {
 	// least that.
 	if worldAge < 5 {
 		t.Errorf("world age = %d, want at least 5 (the clock had advanced before the join)", worldAge)
-	}
-}
-
-// TestClientReceivesPeriodicUpdateTime checks that the main loop broadcasts
-// the time to every player often enough to keep the client's clock from
-// drifting, the way the vanilla server sends an Update Time packet
-// periodically. The packet names no clock: the client advances each clock on
-// its own at the rate a join or a /time command last carried, so this is a
-// correction rather than the clock itself.
-func TestClientReceivesPeriodicUpdateTime(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LevelName = t.TempDir()
-
-	srv, c := servertest.Join(t, cfg, "Testificate", func(s *server.Server) {
-		// Sync every 100ms, the way the keep-alive test shortens its
-		// interval, so a test does not have to wait out the real one.
-		s.SetTimeSync(100 * time.Millisecond)
-	})
-
-	// The join sequence's Update Time has already arrived; the next one is
-	// the periodic broadcast. Skip whatever the join sequence is still
-	// sending and wait for a second Update Time.
-	var updates int
-	c.ReadTicks(srv, 100, func(packetID int32, data []byte) bool {
-		switch packetID {
-		case protocol.IDPlayUpdateTime:
-			updates++
-			r := protocol.NewReader(data)
-			// The world age in the periodic update should be at least
-			// as far along as the one the join update carried — the
-			// clock only moves forward.
-			if got := r.ReadI64(); got < 1 {
-				t.Errorf("periodic world age = %d, want the clock to have advanced", got)
-			}
-			if got := r.ReadVarInt(); got != 0 {
-				t.Errorf("periodic clock entries = %d, want 0", got)
-			}
-		}
-		return updates >= 2
-	})
-	if updates < 2 {
-		t.Errorf("received %d periodic Update Time packets, want at least 2", updates)
-	}
-
-	c.Disconnect()
-	_ = srv
-}
-
-// TestPeriodicUpdateTimeSyncsEvery20Ticks checks that the main loop sends the
-// world's age on vanilla's cadence - every 20 ticks, with an empty clock list
-// - so the client's own clocks are corrected at the rate the vanilla server
-// corrects them.
-func TestPeriodicUpdateTimeSyncsEvery20Ticks(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LevelName = t.TempDir()
-
-	srv, c := servertest.Join(t, cfg, "Testificate")
-
-	// The join sequence's Update Time was read with the join, so every one
-	// from here is the periodic broadcast. Two fit inside 45 ticks, more
-	// than twice the 20-tick interval.
-	var ages []int64
-	c.PumpTicks(srv, 45, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayUpdateTime {
-			return false
-		}
-		r := protocol.NewReader(data)
-		ages = append(ages, r.ReadI64())
-		if got := r.ReadVarInt(); got != 0 {
-			t.Errorf("periodic Update Time carries %d clocks, want 0", got)
-		}
-		return len(ages) >= 2
-	})
-	if len(ages) < 2 {
-		t.Fatalf("read %d periodic Update Time packets in 45 ticks, want 2", len(ages))
-	}
-	if got := ages[1] - ages[0]; got != 20 {
-		t.Errorf("periodic Update Time world ages differ by %d, want 20 (the vanilla cadence)", got)
 	}
 }

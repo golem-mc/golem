@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"math/rand"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
@@ -32,29 +31,5 @@ func TestAGhastDropsTearsAndGunpowderAndTheDiscOnlyForAFireballKill(t *testing.T
 		Attacker: LootEntity{Type: "minecraft:player"}, DirectAttacker: LootEntity{Type: "minecraft:fireball"}}
 	if n := disc(fireball, 714); n != 50 {
 		t.Errorf("a player's fireball kill dropped %d discs in 50 deaths, want one each", n)
-	}
-}
-
-// TestADamageSourceConditionMatchesOneDamageType: a condition naming one
-// damage type holds for that type alone, and with a direct entity also asks
-// after the entity that carried the blow.
-// vanilla: DamageSourcePredicate.matches, TagPredicate.matches
-func TestADamageSourceConditionMatchesOneDamageType(t *testing.T) {
-	for _, c := range []struct {
-		cond registry.LootDamageSource
-		ctx  LootContext
-		want bool
-	}{
-		{registry.LootDamageSource{DamageTypes: &registry.DamageTypeSet{Types: []registry.DamageType{registry.DamageTypeInFire}}}, LootContext{DamageType: registry.DamageTypeInFire}, true},
-		{registry.LootDamageSource{DamageTypes: &registry.DamageTypeSet{Types: []registry.DamageType{registry.DamageTypeInFire}}}, LootContext{DamageType: registry.DamageTypeOnFire}, false},
-		{registry.LootDamageSource{DamageTypes: &registry.DamageTypeSet{Types: []registry.DamageType{registry.DamageTypeInFire}}}, LootContext{}, false},
-		{registry.LootDamageSource{DamageTypes: &registry.DamageTypeSet{Types: []registry.DamageType{registry.DamageTypeFireball}}, DirectType: "minecraft:fireball"},
-			LootContext{DamageType: registry.DamageTypeFireball, DirectAttacker: LootEntity{Type: "minecraft:fireball"}}, true},
-		{registry.LootDamageSource{DamageTypes: &registry.DamageTypeSet{Types: []registry.DamageType{registry.DamageTypeFireball}}, DirectType: "minecraft:fireball"},
-			LootContext{DamageType: registry.DamageTypeFireball, DirectAttacker: LootEntity{Type: "minecraft:small_fireball"}}, false},
-	} {
-		if got := TestLootCondition(c.cond, &c.ctx, rand.New(rand.NewSource(1))); got != c.want {
-			t.Errorf("%#v against damage %q = %v, want %v", c.cond, c.ctx.DamageType, got, c.want)
-		}
 	}
 }

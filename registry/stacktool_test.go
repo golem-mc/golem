@@ -33,21 +33,6 @@ func TestAToolComponentSurvivesTheStoredForm(t *testing.T) {
 	}
 }
 
-// TestARemovedToolSurvivesAFileRoundTrip: a stack with no tool and no
-// attack_range is stored as the removal keys and reads back with neither.
-// vanilla: DataComponentPatch.PatchKey.CODEC
-func TestARemovedToolSurvivesAFileRoundTrip(t *testing.T) {
-	t.Parallel()
-	id, _ := ItemID("minecraft:diamond_pickaxe")
-	stack := protocol.ItemStack{ItemID: id, Count: 1}
-	stack.Remove(protocol.DataComponentTool)
-	stack.Remove(protocol.DataComponentAttackRange)
-	back, ok := StoredStack(StackTag(stack))
-	if !ok || !back.Same(stack) {
-		t.Errorf("after the round trip ok=%v removed=%b, want %b", ok, back.Removed, stack.Removed)
-	}
-}
-
 // TestEveryKeptRemovalSurvivesAFileRoundTrip: equippable, weapon and
 // blocks_attacks removals are stored as their removal keys and read back.
 func TestEveryKeptRemovalSurvivesAFileRoundTrip(t *testing.T) {

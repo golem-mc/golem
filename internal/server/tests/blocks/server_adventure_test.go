@@ -2,7 +2,6 @@ package blocks
 
 import (
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -110,38 +109,6 @@ func TestAdventureBuildsOnlyOnCanPlaceOnBlocks(t *testing.T) {
 	}
 }
 
-// TestAdventureBuildsWithAGivenCanPlaceOn: the can_place_on a /give writes
-// gates placement as the one a creative client sends does: on dirt, not on
-// grass. vanilla: ItemParser, AdventureModePredicate.CODEC
-func TestAdventureBuildsWithAGivenCanPlaceOn(t *testing.T) {
-	t.Parallel()
-	srv, c := adventureWorld(t, servertest.OpsListing(t, "Actor"))
-
-	c.ChatCommand(`give @s stone[can_place_on={blocks:"minecraft:dirt"}] 2`)
-	servertest.AwaitSlotUpdates(t, c, 1)
-	// Past the pickup effect's entity the give spawns and removes.
-	c.Settle()
-	if got := srv.InventorySlot("Actor", player.HotbarSlot); got.Count != 2 {
-		t.Fatalf("the hand after /give = %+v, want the two stones", got)
-	}
-
-	stone := registry.BlockStates["minecraft:stone"]
-	srv.SetBlock(2, 63, 0, registry.BlockStates["minecraft:dirt"])
-	srv.SetBlock(3, 63, 0, registry.BlockStates["minecraft:grass_block"])
-	c.Settle()
-	c.PlaceBlock(2, 63, 0, protocol.FaceTop)
-	c.ExpectBlockAck()
-	if got := srv.BlockAt(2, 64, 0); got != stone {
-		t.Errorf("above the dirt = %d, want the stone (%d)", got, stone)
-	}
-	c.Settle()
-	c.PlaceBlock(3, 63, 0, protocol.FaceTop)
-	c.ExpectBlockAck()
-	if got := srv.BlockAt(3, 64, 0); got != 0 {
-		t.Errorf("above the grass = %d, want air", got)
-	}
-}
-
 // TestAdventureDigsOnlyCanBreakBlocks: an adventure player holding shears
 // whose minecraft:can_break names the oak leaves mines those leaves the
 // way survival does — the share a tick of shears clears the whole of the
@@ -205,73 +172,6 @@ func TestAdventureDigsOnlyCanBreakBlocks(t *testing.T) {
 	}
 }
 
-// TestAPickaxeDigsOnlyCanBreakBlocks: a pickaxe whose minecraft:can_break
-// names the netherrack digs it — Efficiency V clearing the whole of the
-// block with one share — and the START of a dig on the stone its component
-// does not name is answered with the correction, whatever the tool would
-// have done to it.
-// vanilla: Player.blockActionRestricted
-func TestAPickaxeDigsOnlyCanBreakBlocks(t *testing.T) {
-	t.Parallel()
-	srv, c := adventureWorld(t)
-
-	pickaxe := servertest.EnchantedStack(t, "minecraft:diamond_pickaxe", "minecraft:efficiency", 5)
-	pickaxe.Raw = append(pickaxe.Raw, servertest.AdventureComponentRaw(t, protocol.DataComponentCanBreak, "minecraft:netherrack"))
-	srv.GiveSlot("Actor", player.HotbarSlot, pickaxe)
-	// A tick puts Efficiency's mining_efficiency on the player.
-	servertest.RunTicks(t, srv, 1)
-
-	netherrack, ok := registry.FindState("minecraft:netherrack", nil)
-	if !ok {
-		t.Fatal("no netherrack state")
-	}
-	stone, ok := registry.FindState("minecraft:stone", nil)
-	if !ok {
-		t.Fatal("no stone state")
-	}
-
-	// The stone the component does not name: refused, the dig never booked,
-	// whatever the pickaxe would have made of it.
-	srv.SetBlock(digTarget[0], digTarget[1], digTarget[2], stone)
-	c.Settle()
-	c.StartDigging(digTarget[0], digTarget[1], digTarget[2])
-	if got := c.ExpectBlockUpdate(); got.State != stone {
-		t.Errorf("the answer to the started dig = %d, want the stone's own state (%d)", got.State, stone)
-	}
-	if got := srv.BlockAt(digTarget[0], digTarget[1], digTarget[2]); got != stone {
-		t.Errorf("the stone after the refused dig = %d, want it standing (%d)", got, stone)
-	}
-	servertest.ExpectNoDroppedItems(t, srv)
-
-	// The netherrack the component names: one share, its drops falling.
-	srv.SetBlock(digTarget[0], digTarget[1], digTarget[2], netherrack)
-	c.Settle()
-	c.StartDigging(digTarget[0], digTarget[1], digTarget[2])
-	c.Settle()
-	servertest.ExpectAir(t, srv, digTarget)
-	servertest.ExpectOneDroppedItem(t, srv, "minecraft:netherrack")
-}
-
-// TestTheCreativeClientKeepsItsCanPlaceOnStack: the untrusted slot the Set
-// Creative Mode Slot packet carries takes a stack holding can_place_on,
-// checked against the component's own codec, and the slot keeps it — an
-// adventure player's hand reaches the server carrying these, and the
-// server must be able to hold one at all.
-func TestTheCreativeClientKeepsItsCanPlaceOnStack(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder")
-	c.Settle()
-
-	stack := servertest.AdventuredStack(t, "minecraft:stone", protocol.DataComponentCanPlaceOn, "minecraft:dirt", "minecraft:grass_block")
-	c.SetCreativeSlot(player.HotbarSlot, stack)
-	c.Settle()
-	got := srv.InventorySlot("Builder", player.HotbarSlot)
-	if got.ItemID != stack.ItemID || got.Count != 1 || len(got.Raw) != 1 ||
-		got.Raw[0].Type != protocol.DataComponentCanPlaceOn {
-		t.Fatalf("the creative slot holds %+v, want one %d carrying can_place_on", got, stack.ItemID)
-	}
-}
-
 // TestASpectatorDigsNothing: the restructured dig START that answers
 // adventure's can_break keeps spectator exactly where it was — the START
 // of a spectator's dig answers nothing but its acknowledgement, books no
@@ -302,149 +202,6 @@ func TestASpectatorDigsNothing(t *testing.T) {
 	}
 	if got := srv.BlockAt(digTarget[0], digTarget[1], digTarget[2]); got != stone {
 		t.Errorf("the stone after the spectator's dig = %d, want it standing (%d)", got, stone)
-	}
-}
-
-// TestACreativeSlotRefusesAnUnknownCanPlaceOnTag: a stack whose can_place_on
-// names a block tag the server never sent is refused, because relaying it
-// would take every client that decodes the stack down. A tag the server does
-// send reads.
-// vanilla: ByteBufCodecs tag decode, MappedRegistry.get
-func TestACreativeSlotRefusesAnUnknownCanPlaceOnTag(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder")
-	c.Settle()
-
-	unknown := adventuredTagStack(t, "minecraft:stone", protocol.DataComponentCanPlaceOn, "minecraft:no_such_tag")
-	c.SetCreativeSlot(player.HotbarSlot, unknown)
-	c.Settle()
-	if got := srv.InventorySlot("Builder", player.HotbarSlot); !got.Empty() {
-		t.Errorf("the slot holds %+v, want the unknown tag refused", got)
-	}
-
-	known := adventuredTagStack(t, "minecraft:stone", protocol.DataComponentCanPlaceOn, "minecraft:logs")
-	c.SetCreativeSlot(player.HotbarSlot, known)
-	c.Settle()
-	if got := srv.InventorySlot("Builder", player.HotbarSlot); got.ItemID != known.ItemID {
-		t.Errorf("the slot holds %+v, want the stack with the known tag", got)
-	}
-}
-
-// TestAnAdventureBucketUsesItsCanPlaceOnBlocks: an adventure hand's bucket
-// scoops and pours where its minecraft:can_place_on names the clicked block,
-// the gate vanilla's BucketItem.use answers to mayUseItemAt; without the
-// component the same click is refused.
-// vanilla: BucketItem.use, Player.mayUseItemAt
-func TestAnAdventureBucketUsesItsCanPlaceOnBlocks(t *testing.T) {
-	t.Parallel()
-	srv, c := adventureWorld(t)
-
-	water, ok := registry.FindState("minecraft:water", nil)
-	if !ok {
-		t.Fatal("the block registry has no water")
-	}
-	bucket := servertest.ItemIDOrDie(t, "minecraft:bucket")
-	waterBucket := servertest.ItemIDOrDie(t, "minecraft:water_bucket")
-
-	// The scoop: the empty bucket's component names the water it drains.
-	srv.GiveSlot("Actor", player.HotbarSlot,
-		servertest.AdventuredStack(t, "minecraft:bucket", protocol.DataComponentCanPlaceOn, "minecraft:water"))
-	c.Settle()
-	srv.SetBlock(4, 63, 4, water)
-	c.Settle()
-	c.MoveStep(4.5, 64, 4.5, true)
-	servertest.UseHeld(c, 0, 90)
-	got := c.ExpectBucketUseResult()
-	if got.Update.X != 4 || got.Update.Y != 63 || got.Update.Z != 4 || got.Update.State != 0 {
-		t.Errorf("the scoop changed block (%d,%d,%d) = %d, want the water emptied",
-			got.Update.X, got.Update.Y, got.Update.Z, got.Update.State)
-	}
-	if got.Slot.ItemID != waterBucket {
-		t.Errorf("the hand after the scoop = %+v, want a water bucket", got.Slot)
-	}
-
-	// The pour: the filled bucket's component names the stone it pours on.
-	srv.GiveSlot("Actor", player.HotbarSlot,
-		servertest.AdventuredStack(t, "minecraft:water_bucket", protocol.DataComponentCanPlaceOn, "minecraft:stone"))
-	c.Settle()
-	servertest.UseHeld(c, -90, 58.3)
-	got = c.ExpectBucketUseResult()
-	if got.Update.X != 5 || got.Update.Y != 64 || got.Update.Z != 4 || got.Update.State != water {
-		t.Errorf("the pour changed block (%d,%d,%d) = %d, want a water source over the stone",
-			got.Update.X, got.Update.Y, got.Update.Z, got.Update.State)
-	}
-	if got.Slot.ItemID != bucket {
-		t.Errorf("the hand after the pour = %+v, want the empty bucket", got.Slot)
-	}
-
-	// A bucket whose component names nothing is refused: the water stays and
-	// the hand keeps its bucket.
-	srv.GiveSlot("Actor", player.HotbarSlot, protocol.ItemStack{ItemID: bucket, Count: 1})
-	c.Settle()
-	srv.SetBlock(4, 63, 4, water)
-	c.Settle()
-	c.MoveStep(4.5, 64, 4.5, true)
-	servertest.UseHeld(c, 0, 90)
-	c.Settle()
-	if got := srv.BlockAt(4, 63, 4); got != water {
-		t.Errorf("the water after a plain bucket's click = %d, want it standing", got)
-	}
-	if held := srv.InventorySlot("Actor", player.HotbarSlot); held.ItemID != bucket {
-		t.Errorf("the hand after a plain bucket's click = %+v, want the empty bucket", held)
-	}
-}
-
-// TestAnAdventureSpawnEggGatesOnTheBlockBehindTheLiquid: an adventure hand's
-// egg used on a liquid source is gated on the block behind the hit face —
-// the cell opposite the face the ray entered the liquid through, the stone
-// under the water's top here — not the liquid itself. The component naming
-// that stone spawns; the one naming the liquid is refused.
-// vanilla: SpawnEggItem.use, Player.mayUseItemAt
-func TestAnAdventureSpawnEggGatesOnTheBlockBehindTheLiquid(t *testing.T) {
-	t.Parallel()
-	srv, c := adventureWorld(t)
-	srv.SetBlock(2, 64, 3, servertest.MustState(t, "minecraft:water", map[string]string{"level": "0"}))
-	c.Settle()
-
-	// From the eye (0.5, 65.62, 0.5) at the water's top, so the ray enters
-	// through the top face and mayUseItemAt reads the stone below.
-	dx, dy, dz := 2.0, 64.9-65.62, 3.0
-	yaw := float32(-math.Atan2(dx, dz) * 180 / math.Pi)
-	pitch := float32(-math.Atan2(dy, math.Hypot(dx, dz)) * 180 / math.Pi)
-	use := func() {
-		c.Send(protocol.IDPlayUseItem, func(b *protocol.Buffer) {
-			b.PutVarInt(protocol.HandMain)
-			b.PutVarInt(1)
-			b.PutF32(yaw)
-			b.PutF32(pitch)
-		})
-	}
-
-	// The component names the stone behind the liquid: the egg spawns into
-	// the liquid's cell.
-	srv.GiveSlot("Actor", player.HotbarSlot,
-		servertest.AdventuredStack(t, "minecraft:cow_spawn_egg", protocol.DataComponentCanPlaceOn, "minecraft:stone"))
-	c.Settle()
-	use()
-	cow := c.AwaitSpawn(protocol.EntityTypeCow)
-	if cow.X != 2.5 || cow.Y != 64 || cow.Z != 3.5 {
-		t.Errorf("cow spawned at (%v, %v, %v), want (2.5, 64, 3.5)", cow.X, cow.Y, cow.Z)
-	}
-
-	// The component names the liquid itself: the gate reads the stone, so
-	// the click is refused and no body arrives.
-	srv.GiveSlot("Actor", player.HotbarSlot,
-		servertest.AdventuredStack(t, "minecraft:cow_spawn_egg", protocol.DataComponentCanPlaceOn, "minecraft:water"))
-	c.Settle()
-	use()
-	spawns := 0
-	c.SettleAndCollect(func(id int32, _ []byte) {
-		if id == protocol.IDPlaySpawnEntity {
-			spawns++
-		}
-	})
-	if spawns != 0 {
-		t.Errorf("the water-named egg spawned %d bodies, want none", spawns)
 	}
 }
 

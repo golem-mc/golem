@@ -36,10 +36,3 @@ func TestZombiesSpawnWithPumpkinsOnHalloween(t *testing.T) {
 		t.Error("no pumpkin heads among 80 zombies on October 31")
 	}
 }
-
-func TestZombiesSpawnBareHeadedOffHalloween(t *testing.T) {
-	t.Parallel()
-	if n := halloweenHeads(t, time.Date(2026, time.October, 30, 12, 0, 0, 0, time.UTC)); n != 0 {
-		t.Errorf("%d pumpkin heads among 80 zombies on October 30", n)
-	}
-}

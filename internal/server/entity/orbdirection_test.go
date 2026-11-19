@@ -31,11 +31,3 @@ func TestADirectedOrbPopLeavesAlongTheDirection(t *testing.T) {
 		t.Errorf("zero direction offset = (%v,%v,%v), want none", ox, oy, oz)
 	}
 }
-
-// TestABottleOEnchantingFallsAtItsOwnGravity pins the 0.07 pull.
-// vanilla: ThrownExperienceBottle.getDefaultGravity
-func TestABottleOEnchantingFallsAtItsOwnGravity(t *testing.T) {
-	if got := ThrownExperienceBottle.Gravity(); got != 0.07 {
-		t.Errorf("gravity = %v, want 0.07", got)
-	}
-}

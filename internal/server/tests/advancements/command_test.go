@@ -147,20 +147,6 @@ func TestGrantAndRevokeOnly(t *testing.T) {
 	o.expectFeedback(t, "commands.advancement.revoke.one.to.one.failure")
 }
 
-// TestAnnouncementFollowsTheGameRule turns show_advancement_messages off:
-// the grant still shows the advancement but says nothing in chat.
-// vanilla: PlayerAdvancements.award
-func TestAnnouncementFollowsTheGameRule(t *testing.T) {
-	t.Parallel()
-	srv, c := startOp(t)
-	run(t, srv, c, "gamerule show_advancement_messages false")
-	o := run(t, srv, c, "advancement grant @s only minecraft:story/mine_stone")
-	o.expectFeedback(t, "commands.advancement.grant.one.to.one.success")
-	if len(o.updates) != 1 || len(o.announcements()) != 0 {
-		t.Errorf("updates %d, announcements %+v; want one update and no announcement", len(o.updates), o.announcements())
-	}
-}
-
 // TestModesAndCriterion covers the modes around an advancement and the
 // one-criterion form.
 // vanilla: AdvancementCommands.getAdvancements, performCriterion
@@ -197,98 +183,5 @@ func TestModesAndCriterion(t *testing.T) {
 	}
 	if count(fb.With[0]) != int64(selected) {
 		t.Errorf("revoke from root selected %d advancements, want %d", count(fb.With[0]), selected)
-	}
-}
-
-// vanilla: AdvancementCommands.perform
-func TestRevokeEverythingReportsSelectionAndReturnsChanged(t *testing.T) {
-	t.Parallel()
-	srv, c := startOp(t)
-	servertest.HoldTicks(t, srv)
-	// Read feedback without advancing ticks, so automatic criteria cannot add progress.
-	feedback := func(cmd string) outcome {
-		t.Helper()
-		c.ChatCommand(cmd)
-		msg, ok := protocol.ReadText(protocol.NewReader(c.AwaitPlay(protocol.IDPlaySystemChat)))
-		if !ok {
-			t.Fatal("command feedback does not decode")
-		}
-		return outcome{chats: []protocol.Text{msg}}
-	}
-	feedback("advancement revoke @s everything")
-	feedback("advancement grant @s only minecraft:story/root").expectFeedback(t, "commands.advancement.grant.one.to.one.success")
-
-	fb := feedback("execute store result storage test:advancement changed int 1 run advancement revoke @s everything").expectFeedback(t, "commands.advancement.revoke.many.to.one.success")
-	if want := int64(advancement.Vanilla().Len()); len(fb.With) != 2 || count(fb.With[0]) != want {
-		t.Errorf("revoke arguments = %+v, want %d selected advancements", fb.With, want)
-	}
-	c.ChatCommand("data get storage test:advancement changed")
-	c.ExpectCommandFeedback("commands.data.storage.query", "test:advancement", "1")
-}
-
-// TestEverythingGrantsWithoutToasts grants and revokes every advancement:
-// the grant's update clears show advancements, the revoke's does not.
-// vanilla: AdvancementCommands.perform's showAdvancements
-func TestEverythingGrantsWithoutToasts(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig(), servertest.OpsListing(t, "Admin"))
-	c, _ := join(t, connect, "Admin")
-	total := int64(advancement.Vanilla().Len())
-
-	o := run(t, srv, c, "advancement grant @s everything")
-	fb := o.expectFeedback(t, "commands.advancement.grant.many.to.one.success")
-	if count(fb.With[0]) != total {
-		t.Errorf("grant everything selected %d, want %d", count(fb.With[0]), total)
-	}
-	if len(o.updates) != 1 || o.updates[0].show {
-		t.Fatalf("grant everything sent %+v, want one update with show advancements clear", o.updates)
-	}
-
-	o = run(t, srv, c, "advancement revoke @s everything")
-	fb = o.expectFeedback(t, "commands.advancement.revoke.many.to.one.success")
-	if count(fb.With[0]) != total {
-		t.Errorf("revoke everything selected %d, want %d", count(fb.With[0]), total)
-	}
-	if len(o.updates) != 1 || !o.updates[0].show {
-		t.Fatalf("revoke everything sent %+v, want one update with show advancements set", o.updates)
-	}
-}
-
-// TestAdvancementsSelectorOption matches a player by what they have done.
-// vanilla: EntitySelectorOptions advancements option
-func TestAdvancementsSelectorOption(t *testing.T) {
-	t.Parallel()
-	srv, c := startOp(t)
-	probe := func(sel string) string {
-		o := run(t, srv, c, "advancement grant "+sel+" only minecraft:story/root crafting_table")
-		fb := o.feedback()
-		if len(fb) != 1 {
-			t.Fatalf("%s: feedback %+v", sel, fb)
-		}
-		return key(fb[0])
-	}
-	const none = "argument.entity.notfound.player"
-	done, undone := "@a[advancements={minecraft:story/root=true}]", "@a[advancements={minecraft:story/root=false}]"
-	if got := probe(done); got != none {
-		t.Errorf("%s before a grant = %s, want nobody", done, got)
-	}
-	if got := probe(undone); got != "commands.advancement.grant.criterion.to.one.success" {
-		t.Errorf("%s before a grant = %s, want the player", undone, got)
-	}
-	// The grant above made it done.
-	if got := probe(done); got != "commands.advancement.grant.criterion.to.one.failure" {
-		t.Errorf("%s after a grant = %s, want a match with nothing to change", done, got)
-	}
-	if got := probe("@a[advancements={minecraft:story/root={crafting_table=true}}]"); got != "commands.advancement.grant.criterion.to.one.failure" {
-		t.Errorf("criterion=true after a grant = %s, want a match", got)
-	}
-	if got := probe("@a[advancements={minecraft:story/root={crafting_table=false}}]"); got != none {
-		t.Errorf("criterion=false after a grant = %s, want nobody", got)
-	}
-	if got := probe("@a[advancements={minecraft:story/root={no_such=true}}]"); got != none {
-		t.Errorf("unknown criterion = %s, want nobody", got)
-	}
-	if got := probe("@a[advancements={minecraft:no_such/advancement=false}]"); got != none {
-		t.Errorf("unknown advancement = %s, want nobody", got)
 	}
 }

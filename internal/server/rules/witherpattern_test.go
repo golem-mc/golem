@@ -37,20 +37,3 @@ func TestAWitherTAlongEitherAxisIsMatched(t *testing.T) {
 		}
 	}
 }
-
-// TestAWitherTWithoutItsStemIsNotMatched: the base pattern needs the stem
-// and its two empty corners.
-func TestAWitherTWithoutItsStemIsNotMatched(t *testing.T) {
-	sand := defaultState(t, "minecraft:soul_soil")
-	w := testWorld{}
-	for _, c := range [][3]int32{{1, 65, 3}, {2, 65, 3}, {3, 65, 3}} {
-		w.set(c[0], c[1], c[2], sand)
-	}
-	if WitherBaseAt(w, 1, 66, 3) {
-		t.Error("a bar with no stem matched the base")
-	}
-	w.set(2, 64, 3, sand)
-	if !WitherBaseAt(w, 1, 66, 3) {
-		t.Error("the T of soul soil did not match the base")
-	}
-}

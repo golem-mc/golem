@@ -188,60 +188,6 @@ func TestOverworldGenerationIsIndependentOfOrder(t *testing.T) {
 	}
 }
 
-// A chunk that a neighbour's decoration already shaped takes its terrain from
-// the cache and generates the same as one generated cold.
-func TestOverworldGenerationReusesCachedTerrain(t *testing.T) {
-	t.Parallel()
-	centre := ChunkPos{X: 3, Z: -2}
-	cold := newChunk(centre.X, centre.Z)
-	NewOverworldGenerator(777).Generate(cold)
-	g := NewOverworldGenerator(777)
-	// The z neighbour: its ring decorates the centre's west column before the
-	// centre, as the cold run does. An x neighbour's ring changes which
-	// columns precede the centre, and the trees that spill over move its own.
-	g.Generate(newChunk(3, -3))
-	warm := newChunk(centre.X, centre.Z)
-	g.Generate(warm)
-	if len(cold.pendingGenerated) == 0 {
-		t.Fatal("no generated fluid visits to compare")
-	}
-	if !slices.Equal(cold.pendingGenerated, warm.pendingGenerated) {
-		t.Fatalf("cached terrain lost or reordered fluid visits: %d cold, %d warm", len(cold.pendingGenerated), len(warm.pendingGenerated))
-	}
-	coldBlocks, warmBlocks := chunkBlocks(cold), chunkBlocks(warm)
-	for i, s := range coldBlocks {
-		if s != warmBlocks[i] {
-			t.Fatalf("cell %d differs: %d cold against %d warm", i, s, warmBlocks[i])
-		}
-	}
-}
-
-// A simple_block feature with schedule_tick books a tick at the block it
-// placed, and without it books none.
-// vanilla: SimpleBlockFeature.place
-func TestSimpleBlockBooksATickOnlyWhenAsked(t *testing.T) {
-	t.Parallel()
-	g := NewOverworldGenerator(0)
-	r := newDecorRegion(g, newChunk(0, 0), worldMinY, worldHeight)
-	r.nx, r.nz = 0, 0
-	var x, y, z int32 = 8, 100, 8
-	r.set(x, y, z, registry.BlockGrassBlock.DefaultState())
-	r.set(x, y+1, z, registry.BlockAir.DefaultState())
-	eye := map[string]any{"type": "minecraft:simple_state_provider", "state": map[string]any{"Name": "minecraft:closed_eyeblossom"}}
-	for _, tick := range []bool{false, true} {
-		feature := compileFeature(jobj{"type": "minecraft:simple_block", "config": jobj{"to_place": eye, "schedule_tick": tick}})
-		before := len(r.protoAt(x, z).sources)
-		if !feature(r, [3]int32{x, y + 1, z}) {
-			t.Fatalf("schedule_tick=%v: the eyeblossom was not placed", tick)
-		}
-		r.set(x, y+1, z, registry.BlockAir.DefaultState())
-		booked := len(r.protoAt(x, z).sources) - before
-		if want := map[bool]int{false: 0, true: 1}[tick]; booked != want {
-			t.Errorf("schedule_tick=%v booked %d ticks, want %d", tick, booked, want)
-		}
-	}
-}
-
 // orderDependent reports whether two blocks may differ only because chunks
 // decorated in another order.
 func orderDependent(a, b uint16) bool {

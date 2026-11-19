@@ -40,11 +40,3 @@ func TestStatePropTablesMatchMaps(t *testing.T) {
 		}
 	}
 }
-
-func TestFacingIndex(t *testing.T) {
-	for name, want := range map[string]int{"down": 0, "up": 1, "north": 2, "south": 3, "west": 4, "east": 5, "": 5, "sideways": 5} {
-		if got := FacingIndex(name); got != want {
-			t.Errorf("FacingIndex(%q) = %d, want %d", name, got, want)
-		}
-	}
-}

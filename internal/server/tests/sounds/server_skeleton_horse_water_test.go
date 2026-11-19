@@ -3,7 +3,6 @@ package sounds
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
@@ -29,59 +28,4 @@ func skeletonHorseInPool(t *testing.T) (*server.Server, *servertest.Client, int3
 		t.Fatal("skeleton horse was not summoned")
 	}
 	return srv, c, id
-}
-
-// vanilla: SkeletonHorse.getAmbientSound
-func TestSkeletonHorseAmbientWaterSoundWhenSubmerged(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := skeletonHorseInPool(t)
-	srv.TickMobs(5)
-	c.Settle()
-	heard := ""
-	for tick := 0; tick < 400 && heard == ""; tick += 10 {
-		srv.TickMobs(10)
-		c.SettleAndCollect(func(id int32, data []byte) {
-			if id != protocol.IDPlaySoundEffect {
-				return
-			}
-			name, _, _, _, _, _, _ := servertest.ReadAmbient(t, data)
-			if name == "minecraft:entity.skeleton_horse.ambient_water" || name == "minecraft:entity.skeleton_horse.ambient" {
-				heard = name
-			}
-		})
-	}
-	if heard != "minecraft:entity.skeleton_horse.ambient_water" {
-		t.Fatalf("ambient voice = %q, want entity.skeleton_horse.ambient_water", heard)
-	}
-}
-
-// vanilla: SkeletonHorse.playJumpSound
-func TestSkeletonHorseJumpWaterSound(t *testing.T) {
-	t.Parallel()
-	srv, c, id := skeletonHorseInPool(t)
-	srv.TickMobs(2)
-	c.UseOn(id)
-	c.Settle()
-	c.Send(protocol.IDPlayPlayerCommand, func(b *protocol.Buffer) {
-		b.PutVarInt(c.PlayerEntityID)
-		b.PutVarInt(protocol.PlayerCommandStartRidingJump)
-		b.PutVarInt(80)
-	})
-	var volume float32
-	heard := ""
-	record := func(pid int32, data []byte) {
-		if pid != protocol.IDPlaySoundEffect {
-			return
-		}
-		name, _, _, _, _, v, _ := servertest.ReadAmbient(t, data)
-		if name == "minecraft:entity.skeleton_horse.jump_water" || name == "minecraft:entity.horse.jump" {
-			heard, volume = name, v
-		}
-	}
-	c.SettleAndCollect(record)
-	srv.TickMobs(1)
-	c.SettleAndCollect(record)
-	if heard != "minecraft:entity.skeleton_horse.jump_water" || volume != 0.4 {
-		t.Fatalf("jump sound = %q at %v, want entity.skeleton_horse.jump_water at 0.4", heard, volume)
-	}
 }

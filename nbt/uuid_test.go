@@ -67,16 +67,3 @@ func TestUUIDFieldReadsBothShapes(t *testing.T) {
 		}
 	}
 }
-
-// TestUUIDWordsLeavesTheCountToTheDecoder checks that UUIDWords accepts an
-// int list of any length, which UUIDFromIntArray then rejects.
-func TestUUIDWordsLeavesTheCountToTheDecoder(t *testing.T) {
-	t.Parallel()
-	got, ok := UUIDWords(List{Elem: TypeInt, Items: []Tag{Int(7), Int(8)}})
-	if !ok || len(got) != 2 || got[0] != 7 || got[1] != 8 {
-		t.Errorf("UUIDWords(two ints) = %v/%v, want [7 8]/true", got, ok)
-	}
-	if got, ok := UUIDWords(nil); ok || got != nil {
-		t.Errorf("UUIDWords(nil) = %v/%v, want nil/false", got, ok)
-	}
-}

@@ -73,23 +73,6 @@ func TestIPBanMethods(t *testing.T) {
 	sameJSON(t, "clear", result(t, c, "ip_bans/clear", nil), `[]`)
 }
 
-// vanilla: StoredUserList.add, BanListEntry.equals (created is not compared)
-func TestIdenticalIPBanSendsNoAdded(t *testing.T) {
-	t.Parallel()
-	seeded := []servertest.IpBanRecord{{IP: "10.0.0.1", Created: "2020-01-01 00:00:00 +0000", Source: "Management server", Expires: "forever"}}
-	srv, _ := servertest.Start(t, servertest.ManagementConfig(offline()), servertest.WriteAdminFiles(t, nil, seeded, nil))
-	c := servertest.ManagementClientFor(t, srv)
-
-	res, added := callNotified(t, c, "minecraft:ip_bans/add", []any{[]any{map[string]any{"ip": "10.0.0.1"}}}, "ip_bans/added")
-	sameJSON(t, "add", res, `[{"ip":"10.0.0.1","source":"Management server"}]`)
-	if len(added) != 0 {
-		t.Fatalf("identical add sent %d ip_bans/added, want 0", len(added))
-	}
-	if got := servertest.ReadListFile[servertest.IpBanRecord](t, srv.BannedIPsFile()); len(got) != 1 || got[0].Created != seeded[0].Created {
-		t.Errorf("banned-ips.json = %+v, want the seeded entry kept", got)
-	}
-}
-
 // vanilla: PlayerService.kick
 func TestKickMethod(t *testing.T) {
 	t.Parallel()

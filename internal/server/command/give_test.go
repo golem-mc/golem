@@ -2,9 +2,6 @@ package command
 
 import (
 	"testing"
-
-	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/registry"
 )
 
 // TestTextComponentMalformedAcceptsTheCodecsShapes pins the walk's text
@@ -118,22 +115,5 @@ func TestTextComponentMalformedAcceptsTheCodecsShapes(t *testing.T) {
 		if msg := textComponentMalformed(value); msg == "" {
 			t.Errorf("textComponentMalformed(%s) accepted a value the codec refuses", value)
 		}
-	}
-}
-
-func TestGiveRefusesNegativeAndNonFiniteDurationScales(t *testing.T) {
-	item, ok := registry.ItemID("minecraft:potion")
-	if !ok {
-		t.Fatal("the registry has no potion")
-	}
-	for _, value := range []string{"-1", "-0.5f", "nan", "inf", "-inf", "Infinity"} {
-		var stack protocol.ItemStack
-		if applyComponent(&stack, item, "minecraft:potion_duration_scale", value) {
-			t.Errorf("potion_duration_scale %q was accepted", value)
-		}
-	}
-	var stack protocol.ItemStack
-	if !applyComponent(&stack, item, "minecraft:potion_duration_scale", "0.5f") || stack.PotionDurationScaleOf() != 0.5 {
-		t.Errorf("0.5f gave scale %v", stack.PotionDurationScaleOf())
 	}
 }

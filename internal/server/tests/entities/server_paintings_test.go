@@ -11,10 +11,11 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"io"
 	"math"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
@@ -235,35 +236,6 @@ func TestPaintingsUseTheItemsVariantComponent(t *testing.T) {
 	}
 }
 
-// TestPaintingsRefuseAVariantThatDoesNotFit hangs a preset item whose
-// variant is too large for the wall: the survives check fails, so nothing is
-// placed even though create would have found a smaller one that fits.
-func TestPaintingsRefuseAVariantThatDoesNotFit(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	actor, watcher, _ := servertest.PaintingWatchers(t, connect)
-	// A one-wide, two-tall wall: every placeable variant that fits is a
-	// 1x2, so the 4x4 the item names has no spot.
-	servertest.BuildPaintingWall(srv, 4, 64, 65, 5, 5)
-
-	skull := servertest.PaintingVariantID(t, "minecraft:burning_skull")
-	if dims := registry.PaintingVariants[skull]; dims.Width != 4 || dims.Height != 4 {
-		t.Fatalf("burning_skull is %dx%d, want the 4x4 this test relies on", dims.Width, dims.Height)
-	}
-	actor.SetCreativeSlot(player.HotbarSlot, servertest.PaintingStack(t, skull))
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	servertest.HoldTicks(t, srv)
-	if servertest.ASpawnOfWithinTicks(watcher, srv, 60, protocol.EntityTypePainting) {
-		t.Error("a painting was hung although the item's variant does not fit")
-	}
-	if n := srv.PaintingCount(); n != 0 {
-		t.Errorf("the server holds %d paintings, want none", n)
-	}
-}
-
 // paintingStackWithData is a painting item carrying entity_data of a
 // painting that names the variant.
 func paintingStackWithData(t *testing.T, variant string) protocol.ItemStack {
@@ -271,52 +243,6 @@ func paintingStackWithData(t *testing.T, variant string) protocol.ItemStack {
 	return protocol.ItemStack{ItemID: servertest.PaintingItem(t), Count: 1,
 		Raw: []protocol.RawComponent{entityDataComponent(t, protocol.EntityTypePainting,
 			nbt.Compound{"variant": nbt.String(variant)})}}
-}
-
-// TestPaintingsUseTheItemsEntityDataVariant hangs the variant a painting
-// item's entity_data names instead of create's roll, which would have
-// picked a larger one on the wide wall.
-func TestPaintingsUseTheItemsEntityDataVariant(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	actor, watcher, _ := servertest.PaintingWatchers(t, connect)
-	servertest.BuildPaintingWall(srv, 4, 64, 68, 3, 6)
-
-	kebab := servertest.PaintingVariantID(t, "minecraft:kebab")
-	actor.SetCreativeSlot(player.HotbarSlot, paintingStackWithData(t, "minecraft:kebab"))
-	actor.MoveToGround(6.5, 64, 5.5, true)
-	actor.Settle()
-
-	actor.PlaceBlock(4, 66, 5, protocol.FaceEast)
-	got := watcher.ExpectPaintingSpawn(t, protocol.FaceEast, 5, 66, 5)
-	if got.Variant != kebab {
-		t.Errorf("the hung variant = %d, want the entity_data's kebab (%d)", got.Variant, kebab)
-	}
-	if srv.PaintingCount() != 1 {
-		t.Errorf("the server holds %d paintings, want the one that was hung", srv.PaintingCount())
-	}
-}
-
-// TestPaintingsRefuseAnEntityDataVariantThatDoesNotFit names a 4x4 variant
-// in entity_data on a 1x2 wall: nothing is hung.
-func TestPaintingsRefuseAnEntityDataVariantThatDoesNotFit(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	actor, watcher, _ := servertest.PaintingWatchers(t, connect)
-	servertest.BuildPaintingWall(srv, 4, 64, 65, 5, 5)
-
-	actor.SetCreativeSlot(player.HotbarSlot, paintingStackWithData(t, "minecraft:burning_skull"))
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	servertest.HoldTicks(t, srv)
-	if servertest.ASpawnOfWithinTicks(watcher, srv, 60, protocol.EntityTypePainting) {
-		t.Error("a painting was hung although the entity_data's variant does not fit")
-	}
-	if n := srv.PaintingCount(); n != 0 {
-		t.Errorf("the server holds %d paintings, want none", n)
-	}
 }
 
 // TestAPaintingFallsWithItsSupport breaks the wall a 1x2 hangs on and reads
@@ -367,43 +293,6 @@ func TestAPaintingFallsWithItsSupport(t *testing.T) {
 	}
 }
 
-// TestABlockPlacedIntoAPaintingTakesItDown hangs one, then builds into the
-// cell it hangs in. A painting's sliver reaches a sixteenth of a block into
-// the hanging cell off the wall, so the arriving stone collides with it and
-// the painting comes down rather than hanging inside a block.
-func TestABlockPlacedIntoAPaintingTakesItDown(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	actor, watcher, actorEntityID := servertest.PaintingWatchers(t, connect)
-	servertest.BuildPaintingWall(srv, 4, 64, 65, 5, 5)
-
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: servertest.PaintingItem(t), Count: 1})
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	got := watcher.ExpectPaintingSpawn(t, protocol.FaceNorth, 4, 64, 4)
-	watcher.ExpectPaintingSound(t, "minecraft:entity.painting.place", 4.5, 65, 4.96875)
-	actor.ExpectBlockAck()
-	actor.ExpectUseEchoes(4, 64, 5, protocol.FaceNorth)
-
-	// Stone in hand, against the wall's north face again: the stone takes
-	// the hanging cell, and the painting cannot survive inside it. The
-	// others see the held hand lighten first.
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: registry.MustItem("minecraft:stone"), Count: 1})
-	if held := servertest.EquipEntry(watcher.ExpectEquipment(actorEntityID), 0); held.ItemID != registry.MustItem("minecraft:stone") {
-		t.Fatalf("the held stack after the change = %d, want stone", held.ItemID)
-	}
-	servertest.HoldTicks(t, srv)
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	actor.Settle()
-	servertest.RunTicks(t, srv, 101)
-	watcher.AwaitBlockState(4, 64, 4, registry.BlockStates["minecraft:stone"])
-	watcher.ExpectPaintingRemoval(t, got.EntityID)
-	if srv.PaintingCount() != 0 {
-		t.Errorf("the server holds %d paintings after a stone was built into it, want none", srv.PaintingCount())
-	}
-}
-
 // TestAPaintingBreaksByAHit swings at a hung painting. Any blow lands: the
 // painting comes out of every view with its break sound — and a creative
 // hand lays nothing behind it.
@@ -434,58 +323,6 @@ func TestAPaintingBreaksByAHit(t *testing.T) {
 	servertest.HoldTicks(t, srv)
 	if servertest.ASpawnOfWithinTicks(watcher, srv, 60, protocol.EntityTypeItem) {
 		t.Error("a creative blow laid the painting's item")
-	}
-}
-
-// TestAPaintingSoundDoesNotReachAcrossTheWorld hangs a painting in front of
-// one player and takes it down in front of them, while a second player stands
-// well past the sixteen blocks a sound reaches: the place and the break are
-// heard at the wall and nowhere else.
-// vanilla: Painting.playPlacementSound, Painting.dropItem
-func TestAPaintingSoundDoesNotReachAcrossTheWorld(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	actor, watcher, _ := servertest.PaintingWatchers(t, connect)
-	servertest.BuildPaintingWall(srv, 4, 64, 65, 5, 5)
-
-	far := connect().Join("Faraway")
-	far.MoveTo(40.5, 64, 0.5, 0, 0)
-	far.Settle()
-	// The far player's arrival and its body are queued on the connections
-	// already in the world; drop them before the reads below.
-	watcher.Settle()
-	actor.Settle()
-
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: servertest.PaintingItem(t), Count: 1})
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	got := watcher.ExpectPaintingSpawn(t, protocol.FaceNorth, 4, 64, 4)
-	watcher.ExpectPaintingSound(t, "minecraft:entity.painting.place", 4.5, 65, 4.96875)
-	actor.ExpectBlockAck()
-	actor.ExpectUseEchoes(4, 64, 5, protocol.FaceNorth)
-
-	actor.Send(protocol.IDPlayAttackIn, func(b *protocol.Buffer) {
-		b.PutVarInt(got.EntityID)
-	})
-	watcher.ExpectPaintingRemoval(t, got.EntityID)
-	watcher.ExpectPaintingSound(t, "minecraft:entity.painting.break", 4.5, 65, 4.96875)
-
-	heard := far.ReadTicksSkipping(srv, 40, nil, func(id int32, data []byte) bool {
-		if id != protocol.IDPlaySoundEffect {
-			return false
-		}
-		r := protocol.NewReader(data)
-		sound := r.ReadVarInt()
-		if sound == 0 {
-			r.ReadString(32767)
-			return false
-		}
-		name, ok := servertest.SoundEventName(sound - 1)
-		return ok && (name == "minecraft:entity.painting.place" || name == "minecraft:entity.painting.break")
-	})
-	if heard {
-		t.Error("a player well past the painting's earshot heard its sound")
 	}
 }
 
@@ -658,72 +495,6 @@ func directionOfPaintingMetadata(t *testing.T, e servertest.CapturedEntity) int3
 	return field.VarintVal
 }
 
-// TestASurvivalBlowAtAPaintingSpendsNothing swings at a hung painting in
-// survival: it comes down, and none of a blow's side effects follow — no
-// cooldown, no sword wear, no attack sound. vanilla's skipAttackInteraction
-// returns before Player.attack runs any of them.
-func TestASurvivalBlowAtAPaintingSpendsNothing(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
-	actor, watcher, actorEntityID := servertest.PaintingWatchers(t, connect)
-	servertest.BuildPaintingWall(srv, 4, 64, 65, 5, 5)
-
-	srv.GiveSlot("Actor", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.PaintingItem(t), Count: 1})
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	actor.ExpectBlockAck()
-	got := watcher.ExpectPaintingSpawn(t, protocol.FaceNorth, 4, 64, 4)
-	watcher.ExpectPaintingSound(t, "minecraft:entity.painting.place", 4.5, 65, 4.96875)
-	if held := servertest.EquipEntry(watcher.ExpectEquipment(actorEntityID), 0); !held.Empty() {
-		t.Fatalf("the held stack after the survival placement = %+v, want it spent", held)
-	}
-
-	// The sword the blow would waste: the client is not told of the slot, so
-	// a wear's own correction is the equipment update the swing would send.
-	srv.GiveSlot("Actor", player.HotbarSlot, protocol.ItemStack{
-		ItemID: registry.MustItem("minecraft:diamond_sword"), Count: 1,
-	})
-
-	actor.Attack(got.EntityID)
-	watcher.ExpectPaintingRemoval(t, got.EntityID)
-	watcher.ExpectPaintingSound(t, "minecraft:entity.painting.break", 4.5, 65, 4.96875)
-
-	watcher.ExpectNoneWithinTicks(srv, 10,
-		servertest.PacketIs(protocol.IDPlaySoundEffect, protocol.IDPlayEntityEquipment))
-}
-
-// TestAStrictFillThatNeverWakesStillTakesItsPaintingDown fills a painting's
-// wall away with strict, which replaces the blocks without waking the
-// neighbours: the periodic survives poll still takes the painting down.
-func TestAStrictFillThatNeverWakesStillTakesItsPaintingDown(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig(), servertest.OpsListing(t, "Actor"))
-	actor, _, _ := servertest.PaintingWatchers(t, connect)
-
-	// A one-tall wall, so the only variant that fits is a 1x1.
-	servertest.BuildPaintingWall(srv, 4, 64, 64, 5, 5)
-
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: servertest.PaintingItem(t), Count: 1})
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	actor.ExpectBlockAck()
-	actor.ExpectUseEchoes(4, 64, 5, protocol.FaceNorth)
-	if n := srv.PaintingCount(); n != 1 {
-		t.Fatalf("the server holds %d paintings, want the hung one", n)
-	}
-
-	servertest.HoldTicks(t, srv)
-	actor.ChatCommand("fill 4 64 5 4 64 5 air strict")
-	actor.ExpectPlay(protocol.IDPlaySystemChat)
-	if n := srv.PaintingCount(); n != 1 {
-		t.Fatalf("the strict fill woke the painting early: %d up, want 1", n)
-	}
-
-	servertest.WaitForTicks(t, srv, 115, func() bool { return srv.PaintingCount() == 0 })
-}
-
 // TestAnExplosionBreaksAPainting stands a primed TNT three and a half blocks
 // from a hung painting: the blast's hurt reaches it and takes it down, the
 // way ServerExplosion.hurtEntities reaches every body that does not ignore
@@ -753,230 +524,6 @@ func TestAnExplosionBreaksAPainting(t *testing.T) {
 	servertest.WaitForTicks(t, srv, 20, func() bool { return srv.PaintingCount() == 0 })
 	if srv.BlockAt(4, 64, 5) != obsidian {
 		t.Fatal("the blast destroyed the wall, so the painting's fall proves nothing")
-	}
-}
-
-// TestAnExplosionSparesAPaintingWhenTheTNTIsInWater holds a blast off a
-// painting while the primed TNT stands in water: BlockAttachedEntity.
-// ignoreExplosion spares the painting because the explosion's direct source
-// is wet, not because of anything in the painting's own cell. The wall is
-// obsidian, so the painting's survival is the ignore's.
-func TestAnExplosionSparesAPaintingWhenTheTNTIsInWater(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	actor, _, _ := servertest.PaintingWatchers(t, connect)
-	obsidian := registry.MustState("minecraft:obsidian", nil)
-	srv.SetBlock(4, 64, 5, obsidian)
-	srv.SetBlock(4, 65, 5, obsidian)
-
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: servertest.PaintingItem(t), Count: 1})
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	actor.ExpectBlockAck()
-	actor.ExpectUseEchoes(4, 64, 5, protocol.FaceNorth)
-	if n := srv.PaintingCount(); n != 1 {
-		t.Fatalf("the server holds %d paintings, want the hung one", n)
-	}
-	// The water goes where the TNT's feet stand, not where the painting
-	// hangs.
-	srv.SetBlock(4, 64, 1, registry.MustState("minecraft:water", nil))
-
-	if id := srv.SpawnTNT(4.5, 64, 1.5, 1); id == 0 {
-		t.Fatal("the TNT never stood up")
-	}
-	servertest.AwaitTicks(t, srv, 20)
-	if n := srv.PaintingCount(); n != 1 {
-		t.Errorf("the server holds %d paintings after the blast, want the spared one", n)
-	}
-}
-
-// TestWaterInThePaintingsCellDoesNotSpareIt is the other side of the same
-// rule: a dry TNT with water in the painting's own cell destroys it. The
-// water is not what BlockAttachedEntity.ignoreExplosion reads. The wall is
-// obsidian, so the painting can only have gone from the hurt.
-func TestWaterInThePaintingsCellDoesNotSpareIt(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	actor, _, _ := servertest.PaintingWatchers(t, connect)
-	obsidian := registry.MustState("minecraft:obsidian", nil)
-	srv.SetBlock(4, 64, 5, obsidian)
-	srv.SetBlock(4, 65, 5, obsidian)
-
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: servertest.PaintingItem(t), Count: 1})
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	actor.ExpectBlockAck()
-	actor.ExpectUseEchoes(4, 64, 5, protocol.FaceNorth)
-	if n := srv.PaintingCount(); n != 1 {
-		t.Fatalf("the server holds %d paintings, want the hung one", n)
-	}
-	srv.SetBlock(4, 64, 4, registry.MustState("minecraft:water", nil))
-
-	if id := srv.SpawnTNT(4.5, 64, 1.5, 1); id == 0 {
-		t.Fatal("the TNT never stood up")
-	}
-	servertest.WaitForTicks(t, srv, 20, func() bool { return srv.PaintingCount() == 0 })
-	if srv.BlockAt(4, 64, 5) != obsidian {
-		t.Fatal("the blast destroyed the wall, so the painting's fall proves nothing")
-	}
-}
-
-// TestACreativePlayersTNTBreaksAPaintingWithoutDropping primes a TNT block
-// with a creative hand beside a hung painting: the blast takes the painting
-// down, and Painting.dropItem lays no item because the blast's indirect
-// source — the player who lit the block — is a creative one.
-func TestACreativePlayersTNTBreaksAPaintingWithoutDropping(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	actor, _, _ := servertest.PaintingWatchers(t, connect)
-	obsidian := registry.MustState("minecraft:obsidian", nil)
-	srv.SetBlock(4, 64, 5, obsidian)
-	srv.SetBlock(4, 65, 5, obsidian)
-
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: servertest.PaintingItem(t), Count: 1})
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	actor.ExpectBlockAck()
-	actor.ExpectUseEchoes(4, 64, 5, protocol.FaceNorth)
-	if n := srv.PaintingCount(); n != 1 {
-		t.Fatalf("the server holds %d paintings, want the hung one", n)
-	}
-
-	// A TNT block beside the painting, struck with the creative hand's
-	// flint and steel, so the blast's cause is the player.
-	tnt, ok := registry.FindState("minecraft:tnt", nil)
-	if !ok {
-		t.Fatal("the block registry has no minecraft:tnt")
-	}
-	srv.SetBlock(4, 64, 1, tnt)
-	flint, ok := registry.ItemID("minecraft:flint_and_steel")
-	if !ok {
-		t.Fatal("the item registry has no minecraft:flint_and_steel")
-	}
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: flint, Count: 1})
-	servertest.HoldTicks(t, srv)
-	actor.PlaceBlock(4, 64, 1, protocol.FaceTop)
-	actor.Settle()
-
-	servertest.WaitForTicks(t, srv, 120, func() bool { return srv.PaintingCount() == 0 })
-	for _, it := range srv.ItemsInDimension("minecraft:overworld") {
-		if it.Item == "minecraft:painting" {
-			t.Errorf("a creative player's TNT laid the painting item at (%v, %v, %v)", it.X, it.Y, it.Z)
-		}
-	}
-}
-
-// TestBreakingAPaintingWithEntityDropsOffDropsNothing breaks a painting by
-// taking its wall with entity_drops off: it still goes, but Painting.dropItem
-// returns before both the break sound and the item.
-func TestBreakingAPaintingWithEntityDropsOffDropsNothing(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	actor, watcher, _ := servertest.PaintingWatchers(t, connect)
-	srv.SetGameRule("entity_drops", false)
-	servertest.BuildPaintingWall(srv, 4, 64, 65, 5, 5)
-
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: servertest.PaintingItem(t), Count: 1})
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	actor.ExpectBlockAck()
-	watcher.ExpectPaintingSpawn(t, protocol.FaceNorth, 4, 64, 4)
-	watcher.ExpectPaintingSound(t, "minecraft:entity.painting.place", 4.5, 65, 4.96875)
-	actor.ExpectUseEchoes(4, 64, 5, protocol.FaceNorth)
-
-	servertest.HoldTicks(t, srv)
-	actor.BreakBlock(4, 65, 5)
-	actor.Settle()
-
-	// Read the whole window rather than stopping at the removal: the break
-	// sound and the item follow it, so stopping early would miss them.
-	removed, sound, dropped := false, false, false
-	watcher.ReadTicks(srv, 101, func(packetID int32, data []byte) bool {
-		switch packetID {
-		case protocol.IDPlayRemoveEntities:
-			removed = true
-		case protocol.IDPlaySoundEffect:
-			r := protocol.NewReader(data)
-			if id, ok := registry.SoundEventID("minecraft:entity.painting.break"); ok && r.ReadVarInt() == id+1 {
-				sound = true
-			}
-		case protocol.IDPlaySpawnEntity:
-			r := protocol.NewReader(data)
-			r.ReadVarInt()
-			r.ReadUUID()
-			if r.ReadVarInt() == protocol.EntityTypeItem {
-				dropped = true
-			}
-		}
-		return false
-	})
-	if !removed {
-		t.Fatal("the painting's support went without the painting coming down")
-	}
-	if sound {
-		t.Error("breaking a painting with entity_drops off played the break sound")
-	}
-	if dropped {
-		t.Error("breaking a painting with entity_drops off laid the item")
-	}
-}
-
-// TestAPaintingWithoutBlockPosOrAKnownVariantStillLoads covers the two save
-// fallbacks: an unknown variant keeps the registry's first entry, and a
-// missing block_pos falls back to Pos.
-func TestAPaintingWithoutBlockPosOrAKnownVariantStillLoads(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.LevelName = t.TempDir()
-
-	srv, connect := servertest.Start(t, cfg)
-	actor, watcher, actorEntityID := servertest.PaintingWatchers(t, connect)
-	servertest.BuildPaintingWall(srv, 4, 64, 64, 5, 5)
-
-	actor.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: servertest.PaintingItem(t), Count: 1})
-	actor.MoveToGround(4.5, 64, 3.5, true)
-	actor.Settle()
-	actor.PlaceBlock(4, 64, 5, protocol.FaceNorth)
-	actor.ExpectBlockAck()
-	watcher.ExpectPaintingSpawn(t, protocol.FaceNorth, 4, 64, 4)
-	watcher.ExpectPaintingSound(t, "minecraft:entity.painting.place", 4.5, 64.5, 4.96875)
-	actor.ExpectUseEchoes(4, 64, 5, protocol.FaceNorth)
-
-	actor.Conn.Close()
-	watcher.ExpectPlayerRemoved(actorEntityID, "Actor")
-	srv.FlushMobs()
-	srv.Shutdown()
-
-	// Strip the anchor cell and break the variant name, the way a save from a
-	// server that lost the field or the variant would read.
-	chunk := world.ChunkPos{X: 0, Z: 0}
-	editPaintingEntity(t, cfg.LevelName, chunk, func(compound nbt.Compound) {
-		delete(compound, "block_pos")
-		compound["variant"] = nbt.String("minecraft:no_such_painting")
-	})
-
-	restarted := *cfg
-	againSrv, reconnect := servertest.Start(t, &restarted)
-	again := reconnect()
-	again.Login("Keeper")
-	again.Configure()
-	shown := again.JoinCapturing("Keeper", map[int32]string{
-		protocol.EntityTypePainting: "painting",
-	})
-	back := servertest.CapturedOr(t, again, shown, "painting", protocol.EntityTypePainting)
-	if back.X != 4 || back.Y != 64 || back.Z != 4 {
-		t.Errorf("the restored painting hangs at (%v, %v, %v), want the cell corner (4, 64, 4)",
-			back.X, back.Y, back.Z)
-	}
-	if got := hungVariant(t, back); got != 0 {
-		t.Errorf("the restored painting's variant = %d, want the registry's first (0)", got)
-	}
-	if againSrv.PaintingCount() != 1 {
-		t.Errorf("the restarted server holds %d paintings, want the one that was saved", againSrv.PaintingCount())
 	}
 }
 

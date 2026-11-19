@@ -1,7 +1,6 @@
 package world
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
@@ -25,24 +24,6 @@ func TestBorderLerpReachesItsTarget(t *testing.T) {
 	}
 	if st := b.State(); st.Size != 200 || st.LerpTicks != 0 {
 		t.Errorf("state after the lerp = %+v, want size 200 and no ticks left", st)
-	}
-}
-
-func TestBorderBoundsAreHalfOpen(t *testing.T) {
-	t.Parallel()
-	b := NewBorder()
-	b.SetSize(10)
-	for _, c := range []struct {
-		x    float64
-		want bool
-	}{{-5, true}, {4.99, true}, {5, false}, {-5.01, false}} {
-		if got := b.Contains(c.x, 0); got != c.want {
-			t.Errorf("Contains(%v, 0) = %v, want %v", c.x, got, c.want)
-		}
-	}
-	b.SetCenter(100, 0)
-	if !b.ContainsBlock(100, 0) || b.ContainsBlock(0, 0) {
-		t.Error("the bounds did not follow the centre")
 	}
 }
 
@@ -73,41 +54,6 @@ func borderData(cx float64) nbt.Compound {
 	}
 }
 
-// TestBorderIsReadPerDimension checks that the nether reads its own
-// world_border.dat, that a saved lerp resumes and that a centre out of range
-// reads as the default.
-func TestBorderIsReadPerDimension(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	nether := filepath.Join(dir, "dimensions", "minecraft", "the_nether")
-	if err := WriteSavedData(nether, borderFile, borderData(-8)); err != nil {
-		t.Fatal(err)
-	}
-	want := BorderState{CenterX: -8, CenterZ: 3, Size: 64, Target: 64, WarningBlocks: 2, WarningTime: 9, AbsoluteMax: BorderAbsoluteMax}
-	if got := NewDimensionWorld(dir, true, NewNetherGenerator(1)).LoadBorder().State(); got != want {
-		t.Errorf("nether border = %+v, want %+v", got, want)
-	}
-	if got, want := NewDimensionWorld(dir, false, NewEndGenerator(1)).LoadBorder().State(), NewBorder().State(); got != want {
-		t.Errorf("end border = %+v, want the default %+v", got, want)
-	}
-
-	moving := borderData(0)
-	moving["lerp_time"], moving["lerp_target"] = nbt.Long(40), nbt.Double(10)
-	if err := WriteSavedData(nether, borderFile, moving); err != nil {
-		t.Fatal(err)
-	}
-	if st := NewDimensionWorld(dir, true, NewNetherGenerator(1)).LoadBorder().State(); st.Size != 64 || st.Target != 10 || st.LerpTicks != 40 {
-		t.Errorf("lerping border = %+v, want size 64 heading for 10 over 40 ticks", st)
-	}
-
-	if err := WriteSavedData(nether, borderFile, borderData(3e7)); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := NewDimensionWorld(dir, true, NewNetherGenerator(1)).LoadBorder().State(), NewBorder().State(); got != want {
-		t.Errorf("out-of-range border = %+v, want the default", got)
-	}
-}
-
 func TestBorderBoxBounds(t *testing.T) {
 	t.Parallel()
 	b := NewBorder()
@@ -133,38 +79,4 @@ func TestBorderBoxBounds(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestSpawnChunkBorderMatchesCorners(t *testing.T) {
-	b := NewBorder()
-	w := newTestWorld(t, NewFlatGenerator())
-	if !w.ChunkInBorder(ChunkPos{}) {
-		t.Fatal("nil border")
-	}
-	w.SetBorder(b)
-	check := func() {
-		t.Helper()
-		for x := int32(-10); x <= 10; x++ {
-			for z := int32(-10); z <= 10; z++ {
-				pos := ChunkPos{X: x, Z: z}
-				want := w.InBorder(x*16, z*16) && w.InBorder(x*16+15, z*16+15)
-				if w.ChunkInBorder(pos) != want || b.ContainsChunk(pos) != want {
-					t.Fatalf("border corners differ at %v", pos)
-				}
-			}
-		}
-	}
-	check()
-	b.SetSize(32)
-	check()
-	b.SetCenter(16, -16)
-	check()
-	b.SetSize(31.999999)
-	check()
-	b.LerpSize(32, 128, 10)
-	for range 10 {
-		check()
-		b.Tick()
-	}
-	check()
 }

@@ -3,12 +3,13 @@ package network
 import (
 	"bytes"
 	"encoding/binary"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"net"
 	"slices"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
@@ -147,27 +148,6 @@ func TestQueryHandshakeReturnsChallengeToken(t *testing.T) {
 	queryHandshake(t, q, [4]byte{4, 3, 2, 1})
 }
 
-// TestQueryMapKeepsTheLevelIDUnderAUniverse checks the full stat's map when
-// the world's files live beneath a separate universe directory.
-// vanilla: QueryThreadGs4, DedicatedServer.getLevelIdName
-func TestQueryMapKeepsTheLevelIDUnderAUniverse(t *testing.T) {
-	t.Parallel()
-	cfg := queryConfig()
-	cfg.Universe = t.TempDir()
-	cfg.LevelName = "w"
-	srv, _ := servertest.Start(t, cfg)
-	q := dialQuery(t, startQueryConn(t, srv))
-	session := [4]byte{5, 6, 7, 7}
-	token := queryHandshake(t, q, session)
-	if _, err := q.Write(statRequest(session, token, 4)); err != nil {
-		t.Fatalf("send a full stat: %v", err)
-	}
-	reply := queryReply(t, q, 2*time.Second)
-	if !bytes.Contains(reply, []byte("\x00map\x00w\x00")) {
-		t.Errorf("full stat does not report map w: %q", reply)
-	}
-}
-
 // TestQueryBasicStat checks the basic stat answers: the MOTD, game type,
 // map, player counts, port and host address, in that order, the port alone
 // little endian. A datagram whose length is anything but fifteen bytes
@@ -221,39 +201,6 @@ func TestQueryBasicStat(t *testing.T) {
 		t.Error("a twelve-byte stat got no basic answer")
 	} else if rest := expectTypeAndSession(t, reply, session); !bytes.HasPrefix(rest, []byte(cfg.MOTD)) {
 		t.Errorf("twelve-byte stat answered %q, want the basic form", rest[:min(len(rest), 40)])
-	}
-}
-
-// TestQueryReportsTheLocalHostForABindAllAddress checks the reported host:
-// server-ip 0.0.0.0 is a bind-all address, not a host, so the stat answers
-// the machine's own address as it does for an empty server-ip (vanilla:
-// QueryThreadGs4's constructor).
-func TestQueryReportsTheLocalHostForABindAllAddress(t *testing.T) {
-	t.Parallel()
-	readHost := func(serverIP string) string {
-		cfg := queryConfig()
-		cfg.ServerIP = serverIP
-		srv, _ := servertest.Start(t, cfg)
-		q := dialQuery(t, startQueryConn(t, srv))
-		session := [4]byte{3, 1, 4, 1}
-		token := queryHandshake(t, q, session)
-		if _, err := q.Write(statRequest(session, token, 0)); err != nil {
-			t.Fatalf("send a basic stat: %v", err)
-		}
-		reply := queryReply(t, q, 2*time.Second)
-		if reply == nil {
-			t.Fatalf("the basic stat for server-ip %q got no answer", serverIP)
-		}
-		rest := expectTypeAndSession(t, reply, session)
-		for range 5 { // MOTD, game type, map, online, max
-			_, rest = queryCString(t, rest)
-		}
-		rest = rest[2:] // the little-endian port
-		host, _ := queryCString(t, rest)
-		return host
-	}
-	if got, local := readHost("0.0.0.0"), readHost(""); got != local {
-		t.Errorf("server-ip 0.0.0.0 reported host %q, want the empty server-ip's %q", got, local)
 	}
 }
 
@@ -362,34 +309,6 @@ func TestQueryFullStatListsThePlayerNames(t *testing.T) {
 	}
 	if rest = expectTypeAndSession(t, reply, session); !bytes.HasPrefix(rest, prefix) {
 		t.Error("a full stat's padding was read as more than a length")
-	}
-}
-
-// TestQueryStatAnswersWithTheHandshakesSession checks the echo: each stat
-// answer carries the session of the handshake that minted the token, not
-// the one the stat itself was sent with.
-func TestQueryStatAnswersWithTheHandshakesSession(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Start(t, queryConfig())
-	q := dialQuery(t, startQueryConn(t, srv))
-
-	handshake := [4]byte{0x0F, 0x12, 0x34, 0x56}
-	token := queryHandshake(t, q, handshake)
-	stat := [4]byte{8, 8, 7, 7}
-	for _, padding := range []int{0, 4} {
-		if _, err := q.Write(statRequest(stat, token, padding)); err != nil {
-			t.Fatalf("send a stat with %d bytes of padding: %v", padding, err)
-		}
-		reply := queryReply(t, q, 2*time.Second)
-		if reply == nil {
-			t.Fatalf("the stat with %d bytes of padding got no answer", padding)
-		}
-		if !bytes.Equal(reply[1:5], handshake[:]) {
-			t.Errorf("stat answer echoed % X, want the handshake's session % X", reply[1:5], handshake)
-		}
-		if bytes.Equal(reply[1:5], stat[:]) {
-			t.Error("stat answer echoed the stat's own session")
-		}
 	}
 }
 

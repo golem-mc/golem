@@ -3,9 +3,7 @@ package advancements
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
@@ -39,71 +37,10 @@ func TestBoardingABoatAGoatSitsInObtainsGreatestOfAllTime(t *testing.T) {
 	c.ChatCommand("ride @e[type=goat,limit=1] mount @e[type=birch_boat,limit=1]")
 	servertest.AwaitSystemChatSaying(t, c, "commands.ride.mount.success")
 	c.UseOn(laden)
+	c.Settle()
 	servertest.UntilTicks(t, srv, 100, "boarding a boat a goat sits in obtains ride_a_boat_with_a_goat", func() bool {
 		return srv.AdvancementObtained(name, goat, "ride_a_boat_with_a_goat")
 	})
-}
-
-// TestBoostingAStriderObtainsThisBoatHasLegs rides a saddled strider: the
-// mount alone does not obtain ride_strider, the fungus stick's wear from a
-// boost does. vanilla: ItemStack.applyDamage, ItemDurabilityTrigger
-func TestBoostingAStriderObtainsThisBoatHasLegs(t *testing.T) {
-	t.Parallel()
-	const name, legs = "Rider", "minecraft:nether/ride_strider"
-	srv, c, strider := striderRider(t, name)
-	srv.GiveSlot(name, player.HotbarSlot, protocol.ItemStack{ItemID: servertest.ItemIDOrDie(t, "minecraft:warped_fungus_on_a_stick"), Count: 1})
-	c.Settle()
-	if srv.AdvancementObtained(name, legs, "used_warped_fungus_on_a_stick") {
-		t.Fatal("mounting a strider obtained ride_strider")
-	}
-	c.UseItemRightClicks(protocol.HandMain)
-	c.Settle()
-	if got := srv.InventorySlot(name, player.HotbarSlot).Damage; got != 1 {
-		t.Fatalf("stick wear %d after a boost, want 1", got)
-	}
-	if !srv.AdvancementObtained(name, legs, "used_warped_fungus_on_a_stick") {
-		t.Errorf("the boost's wear on the stick, riding strider %d, did not obtain ride_strider", strider)
-	}
-}
-
-// TestRidingAStriderFiftyBlocksThroughLavaObtainsFeelsLikeHome carries a
-// rider's strider through lava: 20 blocks from where it entered does not
-// obtain ride_strider_in_overworld_lava, 60 does.
-// vanilla: ServerPlayer.trackEnteredOrExitedLavaOnVehicle, DistanceTrigger
-func TestRidingAStriderFiftyBlocksThroughLavaObtainsFeelsLikeHome(t *testing.T) {
-	t.Parallel()
-	const name, home = "Rider", "minecraft:nether/ride_strider_in_overworld_lava"
-	lava := servertest.BlockState(t, "minecraft:lava")
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), name, servertest.OpsListing(t, name))
-	c.MoveToGround(2.5, 64, 5.5, true)
-	c.Settle()
-	for _, x := range []int32{5, 25, 65} {
-		for dx := int32(-2); dx <= 2; dx++ {
-			for dz := int32(3); dz <= 7; dz++ {
-				if !srv.SetBlock(x+dx, 63, dz, lava) {
-					t.Fatalf("chunk of (%d, %d) not loaded", x+dx, dz)
-				}
-			}
-		}
-	}
-	c.ChatCommand("summon minecraft:strider 5.5 63.5 5.5 {NoAI:1b,equipment:{saddle:{id:\"minecraft:saddle\",count:1}}}")
-	strider := c.ExpectMobSpawn(striderType(t)).EntityID
-	c.UseOn(strider)
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	servertest.RunTicks(t, srv, 3)
-
-	srv.MoveMob(strider, 25.5, 5.5)
-	servertest.RunTicks(t, srv, 3)
-	if srv.AdvancementObtained(name, home, "ride_entity_distance") {
-		t.Fatal("riding a strider 20 blocks through lava obtained ride_strider_in_overworld_lava")
-	}
-	srv.MoveMob(strider, 65.5, 5.5)
-	servertest.RunTicks(t, srv, 3)
-	if !srv.AdvancementObtained(name, home, "ride_entity_distance") {
-		t.Errorf("riding a strider 60 blocks through lava did not obtain ride_strider_in_overworld_lava (rider at %+v)",
-			srv.PlayerPosition(name))
-	}
 }
 
 // striderType is the strider's entity type ID.

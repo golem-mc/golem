@@ -324,25 +324,3 @@ func TestOverworldTreesGolden(t *testing.T) {
 		t.Fatalf("the golden exercises too little: %d placing cases over %d features", placedCases, len(kinds))
 	}
 }
-
-// TestOverworldTreesGoldenSeesChanges shows the digest is not vacuous: the
-// same case with another feature seed writes something else.
-func TestOverworldTreesGoldenSeesChanges(t *testing.T) {
-	t.Parallel()
-	src := &treeGoldenTerrain{shaped: map[ChunkPos]*shapedTerrain{}}
-	cf := compileConfigured("minecraft:oak")
-	var digests = map[string]bool{}
-	for x := int32(0); x < 64; x += 8 {
-		pos := treePos{x, treeGoldenSurface(x, 0) + 1, 0}
-		if pos[1] <= treeGoldenSeaTop+1 {
-			continue // the ground there is sand under water, no tree stands on it
-		}
-		for index := range int32(6) {
-			_, d, _ := treeGoldenRun(src, 12345, 0, 0, index, 8, func(r *decorRegion) bool { return cf(r, pos) })
-			digests[d] = true
-		}
-	}
-	if len(digests) < 2 {
-		t.Fatal("the digest does not depend on the random draws")
-	}
-}

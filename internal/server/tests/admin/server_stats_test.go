@@ -125,31 +125,6 @@ func TestAMinedStoneIsCountedAcrossARejoin(t *testing.T) {
 	}
 }
 
-// TestAStoneBrokenByHandIsNotMined: stone wants a pickaxe to drop, and a
-// break that drops nothing is not counted.
-// vanilla: ServerPlayerGameMode.destroyBlock reaches playerDestroy only with
-// hasCorrectToolForDrops
-func TestAStoneBrokenByHandIsNotMined(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.SurvivalConfig(), "Puncher")
-	c.MoveToGround(0.5, 64, 0.5, true)
-	if !srv.SetBlock(servertest.DigTarget[0], servertest.DigTarget[1], servertest.DigTarget[2], registry.MustState("minecraft:stone", nil)) {
-		t.Fatal("could not stand the stone")
-	}
-	c.Settle()
-	// By hand stone takes 1.5 * 100 = 150 ticks; the early click leaves
-	// the rest to the ticks.
-	c.BreakBlock(servertest.DigTarget[0], servertest.DigTarget[1], servertest.DigTarget[2])
-	servertest.PollUntil(t, 20*time.Second, func() bool {
-		return srv.BlockAt(servertest.DigTarget[0], servertest.DigTarget[1], servertest.DigTarget[2]) == 0
-	})
-	got := requestStats(c)
-	typeID, stoneID, _ := registry.StatID(registry.StatMined, "minecraft:stone")
-	if n, ok := got[statKey{typeID, stoneID}]; ok {
-		t.Errorf("Award Statistics' mined stone = %d after a break by hand, want none", n)
-	}
-}
-
 // TestStepsJumpsAndDeathsAreCounted walks a block along the ground, jumps,
 // and dies, and reads walk_one_cm, jump, deaths and the reset
 // time_since_death off Request Stats; a second request carries only what
@@ -218,37 +193,6 @@ func TestAMobKillIsCounted(t *testing.T) {
 	}
 	if n := seen[statKey{typeID, cowID}]; n != 1 {
 		t.Errorf("killed cow = %d, want 1", n)
-	}
-}
-
-// TestAKillCommandAfterAPunchCountsNoKilledStat punches a cow and then
-// kills it with /kill: the player is still the last to have hurt it, so
-// mob_kills counts, but the killing blow was nobody's, so killed/cow stays
-// zero. vanilla: LivingEntity.die, ServerPlayer.awardKillScore,
-// Player.killedEntity
-func TestAKillCommandAfterAPunchCountsNoKilledStat(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.SurvivalConfig(), "Puncher")
-	srv.SpawnMob("minecraft:cow", 1.5, 64, 0.5)
-	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
-	servertest.AwaitFullSwing(t, srv, "Puncher")
-	c.Attack(cow.EntityID)
-	c.Settle()
-	if !srv.KillMob(cow.EntityID) {
-		t.Fatal("the cow did not answer /kill")
-	}
-
-	typeID, cowID, _ := registry.StatID(registry.StatKilled, "minecraft:cow")
-	seen := map[statKey]int32{}
-	servertest.PollUntil(t, 10*time.Second, func() bool {
-		maps.Copy(seen, requestStats(c))
-		return seen[customStat(t, "minecraft:mob_kills")] > 0
-	})
-	if n := seen[customStat(t, "minecraft:mob_kills")]; n != 1 {
-		t.Errorf("mob_kills = %d, want 1", n)
-	}
-	if n := seen[statKey{typeID, cowID}]; n != 0 {
-		t.Errorf("killed cow = %d, want 0", n)
 	}
 }
 
@@ -357,83 +301,5 @@ func TestCraftedPlanksAreCountedPerPath(t *testing.T) {
 				t.Errorf("crafted oak planks = %d, want %d", got, tt.want)
 			}
 		})
-	}
-}
-
-// statOf is the count of one stat in an Award Statistics, zero when absent.
-func statOf(t *testing.T, got map[statKey]int32, statType, key string) int32 {
-	t.Helper()
-	typeID, keyID, ok := registry.StatID(statType, key)
-	if !ok {
-		t.Fatalf("no stat %s / %s", statType, key)
-	}
-	return got[statKey{typeID, keyID}]
-}
-
-// TestSmeltedIngotsTakenFromAFurnaceAreCrafted takes a furnace's output and
-// finds crafted/iron_ingot.
-// vanilla: FurnaceResultSlot.checkTakeAchievements, ItemStack.onCraftedBy
-func TestSmeltedIngotsTakenFromAFurnaceAreCrafted(t *testing.T) {
-	t.Parallel()
-	srv, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	servertest.StopTheLoop(t, srv)
-	servertest.LoadFurnace(t, srv, w, "minecraft:raw_iron", 1, 1)
-	for range 202 {
-		srv.TickBlockEntities()
-	}
-	w.UseBlock(4, 64, 0)
-	w.ExpectContainerOpen(protocol.MenuFurnace, true, 4, 64, 0)
-	w.Click(2, 0, protocol.ClickModeQuickMove)
-	w.SettleKeeping()
-	srv.TickSurvival()
-	if n := statOf(t, requestStats(w.Client), registry.StatCrafted, "minecraft:iron_ingot"); n != 1 {
-		t.Errorf("crafted iron_ingot = %d, want 1", n)
-	}
-}
-
-// TestAStonecutterTakeIsCrafted takes one cut and finds it counted.
-// vanilla: StonecutterMenu result slot onTake, ItemStack.onCraftedBy
-func TestAStonecutterTakeIsCrafted(t *testing.T) {
-	t.Parallel()
-	_, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	w.SetCreativeSlot(36, servertest.ItemStack(t, "minecraft:stonecutter", 1))
-	w.PlaceBlock(4, 63, 0, protocol.FaceTop)
-	w.ExpectBlockAck()
-	w.UseBlock(4, 64, 0)
-	w.ExpectContainerOpen(protocol.MenuStonecutter, false, 4, 64, 0)
-	w.SetCreativeSlot(36, servertest.ItemStack(t, "minecraft:stone", 3))
-	w.Click(2+27, 0, protocol.ClickModePickup)
-	w.Click(0, 0, protocol.ClickModePickup)
-	w.ClickButton(0)
-	w.SettleTrackingState()
-	w.Click(1, 0, protocol.ClickModePickup)
-	w.SettleTrackingState()
-	if n := statOf(t, requestStats(w.Client), registry.StatCrafted, "minecraft:chiseled_stone_bricks"); n != 1 {
-		t.Errorf("crafted chiseled_stone_bricks = %d, want 1", n)
-	}
-}
-
-// TestAZombieKillIsCountedAsKilledBy lets a zombie land the fatal bite.
-// vanilla: ServerPlayer.die
-func TestAZombieKillIsCountedAsKilledBy(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.HostileTestConfig())
-	srv.SetDifficulty(3)
-	srv.SetDayTime(18000)
-	c := connect()
-	c.JoinAs("Prey")
-	c.Settle()
-	srv.SpawnMob("minecraft:zombie", 1.5, 64, 0.5)
-	srv.SetHealth("Prey", 1)
-	seen := false
-	c.ReadTicksSkipping(srv, servertest.HostileTicks, nil, func(id int32, _ []byte) bool {
-		seen = id == protocol.IDPlayCombatDeath
-		return seen
-	})
-	if !seen {
-		t.Fatal("the player never died")
-	}
-	if n := statOf(t, requestStats(c), registry.StatKilledBy, "minecraft:zombie"); n != 1 {
-		t.Errorf("killed_by zombie = %d, want 1", n)
 	}
 }

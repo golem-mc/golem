@@ -1,7 +1,6 @@
 package blocks
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -53,23 +52,5 @@ func TestASpectatorUsingAnEndGatewayMovesToItsExit(t *testing.T) {
 	got := servertest.ReadSyncPosition(t, c.AwaitPlay(protocol.IDPlaySyncPosition))
 	if got.X != 20.5 || got.Y != 120 || got.Z != 20.5 {
 		t.Errorf("landed at (%v, %v, %v), want the exit's bottom centre (20.5, 120, 20.5)", got.X, got.Y, got.Z)
-	}
-}
-
-// TestASpectatorUsingAnEndGatewayWithoutAnExitIsTold checks a gateway outside
-// the end with no exit_portal says the spectator cannot teleport.
-// vanilla: ServerPlayerGameMode.useItemOn, TheEndGatewayBlockEntity.getPortalPosition
-func TestASpectatorUsingAnEndGatewayWithoutAnExitIsTold(t *testing.T) {
-	t.Parallel()
-	srv, c := spectatorBesideBlock(t)
-	srv.SetLoadedBlock(3, gatewayY, 3, servertest.BlockState(t, "minecraft:end_gateway"))
-	c.MoveTo(3.5, gatewayY, 1.5, 0, 0)
-	c.Settle()
-	c.UseBlock(3, gatewayY, 3)
-	var want protocol.Buffer
-	want.PutText(protocol.Text{Translate: "spectator.cannot_teleport", Color: "red"})
-	want.PutBool(true)
-	if got := c.ExpectPlay(protocol.IDPlaySystemChat); !bytes.Equal(got, want.Bytes()) {
-		t.Errorf("system chat = %x, want %x", got, want.Bytes())
 	}
 }

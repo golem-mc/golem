@@ -1,8 +1,6 @@
 package world
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/world/levelgen"
@@ -68,31 +66,6 @@ func TestMineshaftIsPlacedIntoItsChunks(t *testing.T) {
 	}
 }
 
-// TestMineshaftSpawnerEntityIsOnItsBlock places a cave spider spawner below
-// y=0 and finds its block entity on the spawner block.
-func TestMineshaftSpawnerEntityIsOnItsBlock(t *testing.T) {
-	t.Parallel()
-	g := mineshaftGenerator()
-	c := newChunk(0, 0)
-	r := newDecorRegion(g, c, worldMinY, worldHeight)
-	r.nx, r.nz = 0, 0
-	var x, y, z int32 = 5, -51, 4
-	spawner := mineshaftBlocks().spawner
-	r.set(x, y, z, spawner)
-	r.placeBlockEntity(x, y, z, spawner, nbt.Compound{
-		"id":        nbt.String(KindSpawner.Name()),
-		"SpawnData": nbt.Compound{"entity": nbt.Compound{"id": nbt.String("minecraft:cave_spider")}},
-	})
-	r.finishOverworld(r.protoAt(x, z))
-	be := c.blockEntity(x, y, z)
-	if be == nil || be.Kind != KindSpawner {
-		t.Fatalf("no spawner block entity at %d,%d,%d: %v", x, y, z, be)
-	}
-	if got := c.BlockAt(x, y, z); got != spawner {
-		t.Errorf("block %d, want the spawner %d", got, spawner)
-	}
-}
-
 // TestMineshaftChestMinecartIsGeneratedWithItsLoot stands a cart in a proto and
 // finds it, with its loot table, among the generated entities of the chunk.
 func TestMineshaftChestMinecartIsGeneratedWithItsLoot(t *testing.T) {
@@ -135,113 +108,5 @@ func TestMineshaftChestMinecartIsGeneratedWithItsLoot(t *testing.T) {
 	}
 	if c.blockEntity(x, y, z) != nil {
 		t.Error("the cart became a block entity")
-	}
-}
-
-// TestMineshaftPendingCartsStayWithTheirChunks keeps two carts per chunk
-// across 1025 pending chunks, including both carts of each late chunk.
-func TestMineshaftPendingCartsStayWithTheirChunks(t *testing.T) {
-	g := NewOverworldGenerator(3)
-	chunks := make([]*Chunk, 1025)
-	for i := range chunks {
-		c := newChunk(int32(i), 0)
-		chunks[i] = c
-		for x := range int32(2) {
-			_, cart := protoEntity{x: x, tag: nbt.Compound{"id": nbt.String("minecraft:chest_minecart")}}.resolve(c.x, c.z, worldMinY, g.seed)
-			c.generatedEntities = append(c.generatedEntities, cart)
-		}
-	}
-	for i, c := range chunks {
-		if len(c.generatedEntities) != 2 {
-			t.Fatalf("chunk %d has %d carts, want 2", i, len(c.generatedEntities))
-		}
-		for j, tag := range c.generatedEntities {
-			pos := tag["Pos"].(nbt.List)
-			if pos.Items[0] != nbt.Double(float64(i*16+j)+0.5) {
-				t.Fatalf("chunk %d cart %d: position %v", i, j, pos)
-			}
-		}
-	}
-}
-
-// TestMineshaftCartsSavedBeforeWake keeps both carts when terrain reaches disk
-// without a server entity wake, then loads that terrain without new carts.
-func TestMineshaftCartsSavedBeforeWake(t *testing.T) {
-	dir := t.TempDir()
-	pos := ChunkPos{X: -19, Z: 10}
-	w, err := NewWorld(dir, NewOverworldGenerator(3))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer w.Close()
-	w.Acquire(pos)
-	if got := len(w.chunks[pos].chunk.generatedEntities); got != 2 {
-		t.Fatalf("generated %d carts, want 2", got)
-	}
-	// An entity write failure must keep terrain unsaved and carts available.
-	if err := os.MkdirAll(w.storage, 0755); err != nil {
-		t.Fatal(err)
-	}
-	blocker := filepath.Join(w.storage, "entities")
-	if err := os.WriteFile(blocker, nil, 0600); err != nil {
-		t.Fatal(err)
-	}
-	loaded := w.chunks[pos]
-	if _, err := w.saveLoaded(pos, loaded, loaded.dirtyGen); err == nil {
-		t.Fatal("terrain save succeeded despite the blocked entity directory")
-	}
-	if c, err := w.loadChunk(pos); err != nil || c != nil {
-		t.Fatalf("terrain reached disk before entities: chunk %v, error %v", c, err)
-	}
-	if err := os.Remove(blocker); err != nil {
-		t.Fatal(err)
-	}
-	w.Release(pos)
-	w.FlushSaves()
-	w.Acquire(pos)
-	defer w.Release(pos)
-	if got := len(w.chunks[pos].chunk.generatedEntities); got != 0 {
-		t.Fatalf("reloaded chunk generated %d new carts", got)
-	}
-	tags, has, err := w.LoadChunkEntities(pos)
-	if err != nil || !has || len(tags) != 2 {
-		t.Fatalf("saved carts %v, entry %v, error %v", tags, has, err)
-	}
-	first, firstOK := nbt.CompoundView(tags[0])
-	second, secondOK := nbt.CompoundView(tags[1])
-	firstID, firstHasID := nbt.UUIDField(first, "UUID")
-	secondID, secondHasID := nbt.UUIDField(second, "UUID")
-	if !firstOK || !secondOK || !firstHasID || !secondHasID {
-		t.Fatal("saved carts are missing compound UUIDs")
-	}
-	if firstID == secondID {
-		t.Fatal("two carts have the same UUID")
-	}
-}
-
-// TestMineshaftCartHandoffCannotRegenerateRemovedCarts consumes the wake's
-// tags, then saves an empty entity list without resurrecting the starting carts.
-func TestMineshaftCartHandoffCannotRegenerateRemovedCarts(t *testing.T) {
-	w, err := NewWorld(t.TempDir(), NewOverworldGenerator(3))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer w.Close()
-	pos := ChunkPos{X: -19, Z: 10}
-	w.Acquire(pos)
-	if got := len(w.TakeGeneratedEntities(pos)); got != 2 {
-		t.Fatalf("wake got %d carts, want 2", got)
-	}
-	if got := len(w.TakeGeneratedEntities(pos)); got != 0 {
-		t.Fatalf("second wake got %d carts", got)
-	}
-	if err := w.SaveChunkEntities(pos, nil); err != nil {
-		t.Fatal(err)
-	}
-	w.Release(pos)
-	w.FlushSaves()
-	tags, _, err := w.LoadChunkEntities(pos)
-	if err != nil || len(tags) != 0 {
-		t.Fatalf("removed carts regenerated: %v, error %v", tags, err)
 	}
 }

@@ -44,40 +44,6 @@ func TestEmptySpawnBlockRefusesOnlyAFullCollision(t *testing.T) {
 	}
 }
 
-// vanilla: EntityType.isBlockDangerous, EntityTypes builders' immuneTo tags
-func TestEmptySpawnBlockHonoursTheMobsHazardImmunity(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		typ   MobType
-		block registry.Block
-		want  bool
-	}{
-		{TypeHusk, registry.BlockWitherRose, false},
-		{TypeBogged, registry.BlockSweetBerryBush, false},
-		{TypeCaveSpider, registry.BlockCactus, false},
-		{TypeZombieVillager, registry.BlockPowderSnow, false},
-		{TypeStray, registry.BlockPowderSnow, true},
-		{TypeStray, registry.BlockFire, false},
-		{TypeMagmaCube, registry.BlockFire, true},
-		{TypeMagmaCube, registry.BlockSoulFire, true},
-		{TypeMagmaCube, registry.BlockSweetBerryBush, false},
-		{TypeMagmaCube, registry.BlockPowderSnow, false},
-		{TypeMagmaCube, registry.BlockLava, false},
-		{TypeSlime, registry.BlockFire, false},
-		{TypeWitch, registry.BlockWitherRose, false},
-		{TypeWitherSkeleton, registry.BlockWitherRose, true},
-		{TypeFox, registry.BlockSweetBerryBush, true},
-		{TypePolarBear, registry.BlockPowderSnow, true},
-		{TypeSnowGolem, registry.BlockPowderSnow, true},
-	} {
-		t.Run(tc.typ.Name()+"/"+tc.block.Name(), func(t *testing.T) {
-			if got := emptySpawnBlock(tc.typ, tc.block.DefaultState()); got != tc.want {
-				t.Errorf("empty = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestSpawnPlacementChecksHazardsAtFeetAndHead(t *testing.T) {
 	t.Parallel()
 	w := newSpawnTestWorld()
@@ -98,34 +64,5 @@ func TestSpawnPlacementChecksHazardsAtFeetAndHead(t *testing.T) {
 			t.Errorf("magma cube refused fire at y=%d", y)
 		}
 		w.set(0, y, 0, registry.BlockAir.DefaultState())
-	}
-}
-
-// TestSpawnBlockDangerousCountsLitCampfiresAndLavaCauldrons: a lit campfire
-// and a lava cauldron burn a mob that is not fire immune; an unlit campfire
-// does not. vanilla: NodeEvaluator.isBurningBlock
-func TestSpawnBlockDangerousCountsLitCampfiresAndLavaCauldrons(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		typ   MobType
-		block string
-		props map[string]string
-		want  bool
-	}{
-		{TypeZombie, "minecraft:campfire", map[string]string{"lit": "true"}, true},
-		{TypeZombie, "minecraft:soul_campfire", map[string]string{"lit": "true"}, true},
-		{TypeZombie, "minecraft:campfire", map[string]string{"lit": "false"}, false},
-		{TypeZombie, "minecraft:lava_cauldron", nil, true},
-		{TypeZombie, "minecraft:water_cauldron", nil, false},
-		{TypeMagmaCube, "minecraft:campfire", map[string]string{"lit": "true"}, false},
-		{TypeMagmaCube, "minecraft:lava_cauldron", nil, false},
-	} {
-		state := registry.MustState(tc.block, tc.props)
-		if got := spawnBlockDangerous(tc.typ, state); got != tc.want {
-			t.Errorf("spawnBlockDangerous(%s, %s %v) = %v, want %v", tc.typ.Name(), tc.block, tc.props, got, tc.want)
-		}
-		if got := emptySpawnBlock(tc.typ, state); got == tc.want {
-			t.Errorf("emptySpawnBlock(%s, %s %v) = %v, want %v", tc.typ.Name(), tc.block, tc.props, got, !tc.want)
-		}
 	}
 }

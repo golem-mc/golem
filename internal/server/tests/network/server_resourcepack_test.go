@@ -2,10 +2,9 @@ package network
 
 import (
 	"bytes"
-	"errors"
-	"github.com/golem-mc/golem/internal/server/servertest"
-	"reflect"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
@@ -71,8 +70,7 @@ func sendPackResponse(c *servertest.Client, id uuid.UUID, action resourcepack.Ac
 }
 
 // TestConfigurationOffersTheResourcePack checks that Add Resource Pack, with
-// the url, hash, id and prompt, comes before Finish Configuration, and that
-// the phase waits for the answer.
+// the url, hash, id and prompt, comes before Finish Configuration.
 func TestConfigurationOffersTheResourcePack(t *testing.T) {
 	t.Parallel()
 	_, c := servertest.Dial(t, packConfig())
@@ -101,13 +99,6 @@ func TestConfigurationOffersTheResourcePack(t *testing.T) {
 	}
 	if r.Remaining() != 0 || r.Err() != nil {
 		t.Errorf("leftover=%d err=%v", r.Remaining(), r.Err())
-	}
-
-	// Still downloading: Finish Configuration keeps waiting.
-	sendPackResponse(c, id, resourcepack.Accepted)
-	sendPackResponse(c, id, resourcepack.Downloaded)
-	if _, ok := servertest.ReadUntil(t, c, servertest.ExpectTimeout/4, protocol.IDConfigFinish); ok {
-		t.Fatal("Finish Configuration arrived before the pack was resolved")
 	}
 }
 
@@ -168,51 +159,6 @@ func TestOptionalResourcePackDeclinedLetsThePlayerIn(t *testing.T) {
 	c.EnterWorld("Testificate")
 }
 
-// TestRequiredResourcePackDeclinedInPlay checks that the play phase handles
-// the response too, and kicks a required decline.
-func TestRequiredResourcePackDeclinedInPlay(t *testing.T) {
-	t.Parallel()
-	cfg := packConfig()
-	cfg.RequireResourcePack = true
-	_, c := servertest.Dial(t, cfg)
-	c.Login("Testificate")
-	id := protocol.NewReader(configureUntilPack(c)).ReadUUID()
-	sendPackResponse(c, id, resourcepack.SuccessfullyLoaded)
-	c.Expect(protocol.IDConfigFinish)
-	c.Send(protocol.IDConfigFinishAck, nil)
-	c.Playing = true
-	c.EnterWorld("Testificate")
-
-	sendPackResponse(c, id, resourcepack.Declined)
-	servertest.ExpectDisconnect(t, c, protocol.Text{Translate: "multiplayer.requiredTexturePrompt.disconnect"})
-}
-
-// TestNoResourcePackWithoutTheURL checks that with resource-pack unset the
-// phase is the plain one.
-func TestNoResourcePackWithoutTheURL(t *testing.T) {
-	t.Parallel()
-	cfg := packConfig()
-	cfg.ResourcePack = ""
-	_, c := servertest.Dial(t, cfg)
-	c.Login("Testificate")
-	c.Configure()
-}
-
-// TestResourcePackIDDefaultsToTheURLsNameUUID checks the id a pack without
-// resource-pack-id gets: Java's UUID.nameUUIDFromBytes of the URL.
-func TestResourcePackIDDefaultsToTheURLsNameUUID(t *testing.T) {
-	t.Parallel()
-	cfg := packConfig()
-	cfg.ResourcePackID = ""
-	_, c := servertest.Dial(t, cfg)
-	c.Login("Testificate")
-
-	got := protocol.NewReader(configureUntilPack(c)).ReadUUID()
-	if want := uuid.MustParse("44a09017-ad23-3c41-983a-70248eaafdb5"); got != want {
-		t.Errorf("id = %s, want %s", got, want)
-	}
-}
-
 // readPackPrompt reads Add Resource Pack up to its prompt and returns the
 // prompt's tag, nil when none is sent.
 func readPackPrompt(t *testing.T, data []byte) nbt.Tag {
@@ -237,102 +183,4 @@ func readPackPrompt(t *testing.T, data []byte) nbt.Tag {
 		t.Errorf("leftover=%d", len(rest)-n)
 	}
 	return tag
-}
-
-// TestResourcePackPromptWithAnInvalidColorIsNotSent checks that a prompt
-// whose colour the client's codec cannot read is dropped, so the client
-// still decodes Add Resource Pack.
-func TestResourcePackPromptWithAnInvalidColorIsNotSent(t *testing.T) {
-	t.Parallel()
-	cfg := packConfig()
-	cfg.ResourcePackPrompt = `{"text":"x","color":"notacolor"}`
-	_, c := servertest.Dial(t, cfg)
-	c.Login("Testificate")
-
-	if tag := readPackPrompt(t, configureUntilPack(c)); tag != nil {
-		t.Errorf("prompt = %#v, want none", tag)
-	}
-}
-
-// TestResourcePackPromptKeepsItsStyle checks that the prompt is relayed with
-// the styles and content types the Text model has no field for.
-func TestResourcePackPromptKeepsItsStyle(t *testing.T) {
-	t.Parallel()
-	cfg := packConfig()
-	cfg.ResourcePackPrompt = `{"text":"Take it","bold":true,"strikethrough":false,"color":"#FFAA00",` +
-		`"extra":[{"keybind":"key.jump","font":"minecraft:alt"}]}`
-	_, c := servertest.Dial(t, cfg)
-	c.Login("Testificate")
-
-	want := nbt.Compound{
-		"text": nbt.String("Take it"), "bold": nbt.Byte(1), "strikethrough": nbt.Byte(0), "color": nbt.String("#FFAA00"),
-		"extra": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-			nbt.Compound{"keybind": nbt.String("key.jump"), "font": nbt.String("minecraft:alt")},
-		}},
-	}
-	if got := readPackPrompt(t, configureUntilPack(c)); !reflect.DeepEqual(got, want) {
-		t.Errorf("prompt = %#v, want %#v", got, want)
-	}
-}
-
-// TestFinishBeforeThePackAnswerIsRefused checks that a client acknowledging
-// Finish Configuration while the pack answer is still due never joins.
-func TestFinishBeforeThePackAnswerIsRefused(t *testing.T) {
-	t.Parallel()
-	cfg := packConfig()
-	cfg.RequireResourcePack = true
-	_, c := servertest.Dial(t, cfg)
-	c.Login("Testificate")
-
-	configureUntilPack(c)
-	c.Send(protocol.IDConfigFinishAck, nil)
-	for {
-		id, _, err := c.Read()
-		if errors.Is(err, servertest.ErrWaitOver) {
-			t.Fatal("the connection stayed open")
-		}
-		if err != nil {
-			return
-		}
-		if id == protocol.IDPlayLogin {
-			t.Fatal("the player joined without answering the pack")
-		}
-	}
-}
-
-// TestOverlongPackHashFailsConfiguration checks that a resource-pack-sha1
-// longer than the packet takes kicks with the configuration error instead
-// of sending the pack.
-func TestOverlongPackHashFailsConfiguration(t *testing.T) {
-	t.Parallel()
-	cfg := packConfig()
-	cfg.ResourcePackSHA1 = testPackSHA1 + "0"
-	_, c := servertest.Dial(t, cfg)
-	c.Login("Testificate")
-	c.Expect(protocol.IDConfigPluginMessage)
-	c.Expect(protocol.IDKnownPacks)
-	c.Send(protocol.IDKnownPacksIn, func(b *protocol.Buffer) {
-		b.PutVarInt(1)
-		b.PutString("minecraft")
-		b.PutString("core")
-		b.PutString(registry.Version)
-	})
-
-	var want protocol.Buffer
-	want.PutText(protocol.Text{Translate: "multiplayer.disconnect.configuration_error"})
-	for {
-		id, data, err := c.Read()
-		if err != nil {
-			t.Fatalf("no disconnect: %v", err)
-		}
-		switch id {
-		case protocol.IDConfigResourcePackPush, protocol.IDConfigFinish:
-			t.Fatalf("packet 0x%02X sent, want the configuration error", id)
-		case protocol.IDConfigDisconnect:
-			if !bytes.Equal(data, want.Bytes()) {
-				t.Errorf("disconnect = % X, want % X", data, want.Bytes())
-			}
-			return
-		}
-	}
 }

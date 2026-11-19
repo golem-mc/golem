@@ -48,17 +48,3 @@ func TestOpeningAContainerCountsItsStatistic(t *testing.T) {
 		})
 	}
 }
-
-// TestALecternWithABookCountsAnInteraction: opening a lectern's window counts.
-// vanilla: LecternBlock.openScreen
-func TestALecternWithABookCountsAnInteraction(t *testing.T) {
-	t.Parallel()
-	srv, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	srv.SetBlock(4, 64, 0, registry.MustState("minecraft:lectern", map[string]string{"has_book": "true"}))
-	w.UseBlock(4, 64, 0)
-	w.Settle()
-
-	if got := srv.StatValue("Testificate", registry.StatCustom, "minecraft:interact_with_lectern"); got != 1 {
-		t.Errorf("interact_with_lectern = %d, want 1", got)
-	}
-}

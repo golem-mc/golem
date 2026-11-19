@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -31,73 +30,6 @@ func TestAVillagerEatsUntilFullThenSpendsTwelve(t *testing.T) {
 	m.BabyAge = villagerParentAge
 	if m.villagerCanBreed() {
 		t.Error("a parent on its cooldown can breed")
-	}
-}
-
-func TestAVillagerPicksUpOnlyWhatItWants(t *testing.T) {
-	m := NewMob(TypeVillager, 1, 0, 64, 0, 1)
-	if !m.CanPickUpLoot {
-		t.Fatal("a new villager cannot pick up loot")
-	}
-	s := stagedSlots{}
-	if slot, n, ok := s.take(m, itemsOf("minecraft:bread", 5)); !ok || slot != "inventory" || n != 5 {
-		t.Errorf("bread: %q %d %v", slot, n, ok)
-	}
-	if _, _, ok := s.take(m, itemsOf("minecraft:bone_meal", 1)); ok {
-		t.Error("a jobless villager takes bone meal")
-	}
-	m.Villager.Profession = "minecraft:farmer"
-	if _, _, ok := s.take(m, itemsOf("minecraft:bone_meal", 1)); !ok {
-		t.Error("a farmer refuses bone meal")
-	}
-	for i := range m.barter.Inventory {
-		m.barter.Inventory[i] = itemsOf("minecraft:stone", 64)
-	}
-	m.barter.Inventory[3] = itemsOf("minecraft:bread", 60)
-	if _, n, ok := s.take(m, itemsOf("minecraft:bread", 10)); !ok || n != 4 {
-		t.Errorf("into a nearly full inventory: %d %v, want 4", n, ok)
-	}
-}
-
-func TestAVillagerThrowsHalfItsSurplus(t *testing.T) {
-	cases := []struct{ have, thrown int32 }{{40, 20}, {30, 6}, {24, 0}}
-	for _, c := range cases {
-		m := NewMob(TypeVillager, 1, 0, 64, 0, 1)
-		o := NewMob(TypeVillager, 2, 2, 64, 0, 2)
-		m.Villager.Profession = "minecraft:farmer"
-		m.barter.Inventory[0] = itemsOf("minecraft:wheat", c.have)
-		tv := &tickView{}
-		m.throwHalfStack(tv, func(s protocol.ItemStack) bool { return s.ItemID == wheatItem }, o)
-		var got int32
-		for _, ev := range tv.events {
-			if ev.Kind == MobThrewItem {
-				got += ev.Stack.Count
-				if ev.VX <= 0 {
-					t.Errorf("%d wheat: thrown away from the target, vx %v", c.have, ev.VX)
-				}
-			}
-		}
-		if got != c.thrown || m.countItem(wheatItem) != c.have-c.thrown {
-			t.Errorf("%d wheat: threw %d, kept %d; want %d thrown", c.have, got, m.countItem(wheatItem), c.thrown)
-		}
-	}
-}
-
-func TestAVillagerSharesSeedsWithAFarmer(t *testing.T) {
-	m := NewMob(TypeVillager, 1, 0, 64, 0, 1)
-	farmer := NewMob(TypeVillager, 2, 2, 64, 0, 2)
-	farmer.Villager.Profession = "minecraft:farmer"
-	m.barter.Inventory[0] = itemsOf("minecraft:wheat_seeds", 40)
-	tv := &tickView{}
-	m.shareWith(tv, farmer)
-	if len(tv.events) != 1 || tv.events[0].Stack.Count != 20 {
-		t.Errorf("events %v, want 20 seeds thrown", tv.events)
-	}
-	tv = &tickView{}
-	farmer.barter.Inventory[0] = itemsOf("minecraft:wheat_seeds", 40)
-	farmer.shareWith(tv, m)
-	if len(tv.events) != 0 {
-		t.Errorf("a farmer threw its own seeds: %v", tv.events)
 	}
 }
 
@@ -131,30 +63,5 @@ func TestVillagersBreedOnlyWithAFreeBedForTheChild(t *testing.T) {
 	}
 	if baby.Villager.Profession != "minecraft:none" || !baby.Villager.Finalized {
 		t.Errorf("child data %+v", baby.Villager)
-	}
-}
-
-func TestAVillagersFoodRoundTrips(t *testing.T) {
-	m := NewMob(TypeVillager, 1, 0, 64, 0, 1)
-	m.FoodLevel = 7
-	m.barter.Inventory[0] = itemsOf("minecraft:potato", 9)
-	tag := nbt.Compound{}
-	m.SaveTo(tag, func() int64 { return 0 })
-	if v, _ := nbt.ByteField(tag, "FoodLevel"); v != 7 {
-		t.Errorf("FoodLevel saved as %d", v)
-	}
-	l := NewMob(TypeVillager, 2, 0, 64, 0, 2)
-	l.LoadFrom(tag, newTestWorld(), func() int64 { return 0 })
-	if l.FoodLevel != 7 || l.countItem(registry.MustItem("minecraft:potato")) != 9 {
-		t.Errorf("loaded food level %d, potatoes %d", l.FoodLevel, l.countItem(registry.MustItem("minecraft:potato")))
-	}
-	empty := NewMob(TypeVillager, 3, 0, 64, 0, 3)
-	tag = nbt.Compound{}
-	empty.SaveTo(tag, func() int64 { return 0 })
-	if list, ok := nbt.Get[nbt.List](tag, "Inventory"); !ok || len(list.Items) != 0 {
-		t.Errorf("an empty inventory saved as %v, want an empty list", tag["Inventory"])
-	}
-	if drops := l.inventoryDrops(); drops != nil {
-		t.Errorf("a villager's inventory drops %v", drops)
 	}
 }

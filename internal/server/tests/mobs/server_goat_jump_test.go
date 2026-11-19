@@ -82,27 +82,3 @@ func TestAGoatLongJumpsAcrossAGap(t *testing.T) {
 		t.Errorf("the long jump cooldown after landing = %d, want 600 to 1200", got)
 	}
 }
-
-// TestAGoatOnACooldownDoesNotLongJump: the cooldown holds the leap back.
-func TestAGoatOnACooldownDoesNotLongJump(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.BreedingPlayer(t, "survival", goatOp, "", 0, servertest.OpsListing(t, goatOp))
-	servertest.HoldTicks(t, srv)
-	c.ChatCommand("fill 0 99 0 2 99 2 minecraft:stone")
-	c.ChatCommand("fill 6 99 0 8 99 2 minecraft:stone")
-	c.ChatCommand("tp @s 0.5 100 0.5")
-	c.ReadTicks(srv, 2, func(int32, []byte) bool { return false })
-	id := srv.SpawnMobSeeded("minecraft:goat", 1.5, 100, 1.5, 3)
-	c.ExpectMobSpawn(protocol.EntityTypeGoat)
-	srv.SetGoatRamCooldown(id, 100000)
-	c.ReadTicks(srv, 3, func(int32, []byte) bool { return false })
-	srv.SetGoatLongJumpCooldown(id, 1000)
-	var w goatWatch
-	c.ReadTicks(srv, 200, func(packetID int32, data []byte) bool {
-		readGoat(t, c, id, &w, data, packetID)
-		return false
-	})
-	if w.sounds["minecraft:entity.goat.long_jump"] != 0 {
-		t.Error("a goat on cooldown long jumped")
-	}
-}

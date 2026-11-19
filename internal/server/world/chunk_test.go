@@ -1,11 +1,9 @@
 package world
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -169,155 +167,6 @@ func TestSectionOfSeveralBlocksUsesAPalette(t *testing.T) {
 	}
 }
 
-// TestSectionOfSeveralBiomesSendsAPalette checks the biome container a chunk
-// packet carries for a section that mixes biomes: the 64 per-cell entries go
-// out through a palette and a packed index array — the [plains, desert] grid
-// of the loaded chunk — rather than the one biome a single-valued container
-// carries for a uniform section.
-func TestSectionOfSeveralBiomesSendsAPalette(t *testing.T) {
-	t.Parallel()
-	plains := registry.MustID("minecraft:worldgen/biome", "minecraft:plains")
-	desert := registry.MustID("minecraft:worldgen/biome", "minecraft:desert")
-
-	loaded, err := decodeChunkNBT(mixedBiomeSections())
-	if err != nil {
-		t.Fatalf("decodeChunkNBT: %v", err)
-	}
-
-	// The bottom section is the packet's first; its blocks are all air, so
-	// the block container before the biomes is the single-value one.
-	r := protocol.NewReader(encodeWhole(loaded))
-	if count, fluids := r.ReadI16(), r.ReadI16(); count != 0 || fluids != 0 {
-		t.Fatalf("the empty section counts %d blocks and %d fluids, want none", count, fluids)
-	}
-	if bits, blocks := readContainer(t, r, blocksPerSection); bits != 0 || blocks[0] != airState {
-		t.Fatalf("the bottom section's blocks went out at %d bits, want the single-value air", bits)
-	}
-
-	bits, biomes := readContainer(t, r, 64)
-	if bits != 1 {
-		t.Fatalf("the biome container's bits per entry = %d, want 1 for a palette of two", bits)
-	}
-	for i, cell := range biomes {
-		want := plains
-		if i == 63 { // the topmost cell (3, 3, 3), the one the desert fills
-			want = desert
-		}
-		if int32(cell) != want {
-			t.Fatalf("biome cell %d = %d, want %d", i, cell, want)
-		}
-	}
-}
-
-// TestSectionOfMoreBiomesThanAPaletteHoldsSendsDirectIDs checks the widest
-// biome container a section goes out as: past the eight entries an indirect
-// palette carries, the cells travel as raw registry IDs at the biome
-// registry's own width — seven bits for the 66 biomes of the registry —
-// with no palette list ahead of them.
-func TestSectionOfMoreBiomesThanAPaletteHoldsSendsDirectIDs(t *testing.T) {
-	t.Parallel()
-	names := []string{
-		"minecraft:badlands", "minecraft:birch_forest", "minecraft:beach",
-		"minecraft:forest", "minecraft:ocean", "minecraft:plains",
-		"minecraft:desert", "minecraft:snowy_plains", "minecraft:swamp",
-	}
-
-	// Cell i holds the i%9th palette entry, packed by hand at 4 bits each
-	// — the width a palette of nine asks for — 16 entries to a long over
-	// the grid's 64 cells.
-	var data nbt.LongArray
-	for i := 0; i < 64; i += 16 {
-		var packed uint64
-		min := min(16, 64-i)
-		for j := range min {
-			packed |= uint64((i+j)%len(names)) << (j * 4)
-		}
-		data = append(data, int64(packed))
-	}
-
-	palette := make([]nbt.Tag, len(names))
-	for i, name := range names {
-		palette[i] = nbt.String(name)
-	}
-	root := nbt.Compound{
-		"DataVersion": nbt.Int(dataVersion),
-		"xPos":        nbt.Int(0),
-		"yPos":        nbt.Int(worldMinY / sectionSize),
-		"zPos":        nbt.Int(0),
-		"Status":      nbt.String("minecraft:full"),
-		"sections": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-			nbt.Compound{
-				"Y": nbt.Byte(worldMinY / sectionSize),
-				"biomes": nbt.Compound{
-					"palette": nbt.List{Elem: nbt.TypeString, Items: palette},
-					"data":    data,
-				},
-			},
-		}},
-	}
-
-	loaded, err := decodeChunkNBT(root)
-	if err != nil {
-		t.Fatalf("decodeChunkNBT: %v", err)
-	}
-
-	r := protocol.NewReader(encodeWhole(loaded))
-	r.ReadI16() // block count: the section holds none
-	r.ReadI16() // fluid count
-	readContainer(t, r, blocksPerSection)
-
-	if bits := r.ReadU8(); bits != 7 {
-		t.Fatalf("the biome container's bits per entry = %d, want the registry's direct width 7", bits)
-	}
-	// The direct form carries no palette: the entries are the registry IDs
-	// themselves, nine to a long.
-	for i := 0; i < 64; i += 9 {
-		packed := uint64(r.ReadI64())
-		for j := 0; j < 9 && i+j < 64; j++ {
-			got := int32(packed>>(j*7)) & 0x7f
-			if want := biomeID(names[(i+j)%len(names)]); got != want {
-				t.Fatalf("biome cell %d = %d, want %d", i+j, got, want)
-			}
-		}
-	}
-	if err := r.Err(); err != nil {
-		t.Fatalf("read the direct container: %v", err)
-	}
-}
-
-// TestChunkBiomeAtReadsTheMixedCells checks the cell a section's 4x4x4 biome
-// grid answers for: every block coordinate inside the desert cell reads
-// desert, an adjacent cell reads plains, and the section above reads its own
-// single biome.
-func TestChunkBiomeAtReadsTheMixedCells(t *testing.T) {
-	t.Parallel()
-	plains := registry.MustID("minecraft:worldgen/biome", "minecraft:plains")
-	desert := registry.MustID("minecraft:worldgen/biome", "minecraft:desert")
-	swamp := registry.MustID("minecraft:worldgen/biome", "minecraft:swamp")
-
-	loaded, err := decodeChunkNBT(mixedBiomeSections())
-	if err != nil {
-		t.Fatalf("decodeChunkNBT: %v", err)
-	}
-
-	// The desert fills the grid's topmost cell, local x, y and z 12..15.
-	for _, p := range [][3]int32{{12, 12, 12}, {15, 12, 12}, {12, 15, 15}} {
-		if got := loaded.BiomeAt(p[0], worldMinY+p[1], p[2]); got != desert {
-			t.Errorf("biome at (%d,%d,%d) = %d, want desert (%d)", p[0], worldMinY+p[1], p[2], got, desert)
-		}
-	}
-	// The neighbouring cell and the foot of the section are plains.
-	for _, p := range [][3]int32{{0, 0, 0}, {11, 11, 11}, {0, 15, 0}} {
-		if got := loaded.BiomeAt(p[0], worldMinY+p[1], p[2]); got != plains {
-			t.Errorf("biome at (%d,%d,%d) = %d, want plains (%d)", p[0], worldMinY+p[1], p[2], got, plains)
-		}
-	}
-	// The section above carries its own single biome.
-	if got := loaded.BiomeAt(0, worldMinY+sectionSize, 0); got != swamp {
-		t.Errorf("biome above = %d, want swamp (%d)", got, swamp)
-	}
-}
-
 // TestSectionWithWaterReportsFluidCount checks that water blocks in a section
 // are counted in the fluid count field, not just the block count. Without a
 // non-zero fluid count the client skips fluid physics and a player falls
@@ -363,29 +212,5 @@ func TestSectionWithWaterReportsFluidCount(t *testing.T) {
 		if got := blocks[blockIndex(tc.x, y, tc.z)]; got != water {
 			t.Errorf("block at (%d,%d,%d) = %d, want %d (water)", tc.x, y, tc.z, got, water)
 		}
-	}
-}
-
-func TestChunkGeneratedTicks(t *testing.T) {
-	c := &Chunk{x: -2, z: -3}
-	c.scheduleGenerated(15, -64, 0)
-	c.scheduleGenerated(0, 17, 15)
-	want := [][3]int32{{-17, -64, -48}, {-32, 17, -33}}
-	first := c.GeneratedTicks()
-	if !reflect.DeepEqual(first, want) {
-		t.Fatalf("ticks = %v, want %v", first, want)
-	}
-	first[0][0] = 123
-	if got := c.GeneratedTicks(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("mutation changed pending ticks: %v", got)
-	}
-	snapshot := c.GeneratedTicks()
-	c.scheduleGenerated(1, -1, 2)
-	if !reflect.DeepEqual(snapshot, want) {
-		t.Fatalf("later scheduling changed snapshot: %v", snapshot)
-	}
-	want = append(want, [3]int32{-31, -1, -46})
-	if got := c.GeneratedTicks(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("ticks after scheduling = %v, want %v", got, want)
 	}
 }

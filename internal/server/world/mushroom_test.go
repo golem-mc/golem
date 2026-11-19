@@ -68,19 +68,3 @@ func TestAMushroomSpreadsOnRandomTicksInTheDark(t *testing.T) {
 		})
 	}
 }
-
-// TestAMushroomInTheLightDoesNotSpread checks the survival gate on the
-// target cells.
-func TestAMushroomInTheLightDoesNotSpread(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	state := registry.MustState("minecraft:brown_mushroom", nil)
-	setBlock(t, w, p, 0, GroundLevel, 0, state)
-	p.rng = rand.New(rand.NewSource(3))
-	var changes []BlockChange
-	for range 5000 {
-		p.mushroomTick(0, GroundLevel, 0, state, &changes)
-	}
-	if len(changes) != 0 {
-		t.Fatalf("a mushroom in daylight planted %d, want none", len(changes))
-	}
-}

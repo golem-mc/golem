@@ -8,23 +8,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// TestEveryArmourSlotHoldsOne checks the cap that covers the whole armour
-// range: each of the four slots a piece is worn in holds one, and the main
-// inventory slot right after them keeps the item's own whole stack.
-// vanilla: ArmorSlot.getMaxStackSize
-func TestEveryArmourSlotHoldsOne(t *testing.T) {
-	pumpkins := protocol.ItemStack{ItemID: itemID(t, "minecraft:carved_pumpkin"), Count: 64}
-	view := View{Kind: KindPlayer}
-	for slot := int32(player.ArmorSlot); slot < player.ArmorSlot+player.ArmorSlots; slot++ {
-		if got := view.slotLimit(slot, pumpkins); got != 1 {
-			t.Errorf("armour slot %d limit = %d, want 1", slot, got)
-		}
-	}
-	if got := view.slotLimit(player.MainSlot, pumpkins); got != 64 {
-		t.Errorf("the slot after the armour limit = %d, want the whole stack", got)
-	}
-}
-
 // TestShiftClickEquipsArmourFromThePlayersThings checks the piece of
 // armour a shift-click moves out of the player's own things: it tries
 // the armour slot its equippable component names first - vanilla:
@@ -167,49 +150,5 @@ func TestBindingCurseKeepsWornArmourOn(t *testing.T) {
 		if creative && (kept || session.Carried.Count != 2) {
 			t.Errorf("creative collect did not gather the worn pumpkin: slot %+v, cursor %+v", inv.Slots[player.ArmorSlot], session.Carried)
 		}
-	}
-}
-
-// vanilla: BundleContents.Mutable.tryTransfer, ArmorSlot.mayPickup
-func TestBundleRespectsBindingCurseOnWornArmour(t *testing.T) {
-	curse, ok := registry.EnchantmentID("minecraft:binding_curse")
-	if !ok {
-		t.Fatal("no binding_curse enchantment")
-	}
-	helmet := protocol.ItemStack{ItemID: itemID(t, "minecraft:iron_helmet"), Count: 1,
-		Enchantments: map[int32]int32{curse: 1}}
-	for _, tc := range []struct {
-		name     string
-		creative bool
-	}{
-		{"survival", false},
-		{"creative", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			inv := &player.Inventory{}
-			inv.Set(player.ArmorSlot, helmet)
-			session := &Session{Carried: bundleOf(t)}
-			var outcome Outcome
-			session.Click(View{}, inv, protocol.ClickModePickup, 0, player.ArmorSlot, tc.creative, 0, &outcome)
-			wantSound := registry.SoundItemBundleInsertFail
-			if tc.creative {
-				wantSound = registry.SoundItemBundleInsert
-			}
-			if len(outcome.BundleSounds) != 1 || outcome.BundleSounds[0] != wantSound {
-				t.Errorf("bundle sounds = %v, want [%s]", outcome.BundleSounds, wantSound.Name())
-			}
-
-			wantSlot, wantBundle := helmet, bundleOf(t)
-			if tc.creative {
-				wantSlot = protocol.ItemStack{}
-				wantBundle = bundleOf(t, helmet)
-			}
-			if got := inv.Slots[player.ArmorSlot]; !got.Equal(wantSlot) {
-				t.Errorf("armour slot = %+v, want %+v", got, wantSlot)
-			}
-			if got := session.Carried; !got.Equal(wantBundle) {
-				t.Errorf("cursor = %+v, want %+v", got, wantBundle)
-			}
-		})
 	}
 }

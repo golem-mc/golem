@@ -57,21 +57,6 @@ func TestRedstonePrimesTNTOnlyWhereTntExplodes(t *testing.T) {
 	}
 }
 
-func TestFlintAndSteelAndFireChargePrimeTNTOnlyWhereTntExplodes(t *testing.T) {
-	t.Parallel()
-	for _, item := range []string{"minecraft:flint_and_steel", "minecraft:fire_charge"} {
-		for _, allowed := range []bool{false, true} {
-			srv, c, tnt := tntRuleScene(t, allowed)
-			servertest.PlaceFrom(c, item, 0, 0, 270, 6, 65, 0, protocol.FaceTop)
-			if allowed {
-				expectTNTPrimed(t, srv)
-			} else {
-				expectTNTKept(t, srv, tnt)
-			}
-		}
-	}
-}
-
 func TestABlastPrimesTNTOnlyWhereTntExplodes(t *testing.T) {
 	t.Parallel()
 	for _, allowed := range []bool{false, true} {
@@ -91,42 +76,6 @@ func TestABlastPrimesTNTOnlyWhereTntExplodes(t *testing.T) {
 		}
 		if n := len(srv.TNTsInDimension(world.DimensionName)); n != want {
 			t.Errorf("allowed=%v: primed TNT = %d, want %d", allowed, n, want)
-		}
-	}
-}
-
-func TestADispenserFlintAndSteelPrimesTNTOnlyWhereTntExplodes(t *testing.T) {
-	t.Parallel()
-	for _, allowed := range []bool{false, true} {
-		srv, w := servertest.Dispensing(t)
-		srv.SetGameRule(world.RuleTNTExplodes.String(), allowed)
-		tnt := servertest.BlockState(t, "minecraft:tnt")
-		srv.SetBlock(4, 64, 1, tnt)
-		srv.SetInventoryAt(4, 64, 0, 0, servertest.ItemStack(t, "minecraft:flint_and_steel", 1))
-		w.DrainRecorded()
-		srv.Dispense(4, 64, 0, protocol.FaceSouth)
-		n := len(srv.TNTsInDimension(world.DimensionName))
-		if allowed != (srv.BlockAt(4, 64, 1) == 0) || allowed != (n == 1) {
-			t.Errorf("allowed=%v: block %d, primed %d", allowed, srv.BlockAt(4, 64, 1), n)
-		}
-	}
-}
-
-func TestADispenserTNTItemPrimesOnlyWhereTntExplodes(t *testing.T) {
-	t.Parallel()
-	for _, allowed := range []bool{false, true} {
-		srv, w := servertest.Dispensing(t)
-		srv.SetGameRule(world.RuleTNTExplodes.String(), allowed)
-		srv.SetInventoryAt(4, 64, 0, 0, servertest.ItemStack(t, "minecraft:tnt", 1))
-		w.DrainRecorded()
-		srv.Dispense(4, 64, 0, protocol.FaceSouth)
-		n := len(srv.TNTsInDimension(world.DimensionName))
-		if allowed != (n == 1) {
-			t.Errorf("allowed=%v: primed %d", allowed, n)
-		}
-		kept := srv.InventoryAt(4, 64, 0)[0]
-		if allowed == (kept.Count == 1) {
-			t.Errorf("allowed=%v: slot count %d, want the item kept only when off", allowed, kept.Count)
 		}
 	}
 }

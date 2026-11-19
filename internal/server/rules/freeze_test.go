@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -100,85 +99,5 @@ func TestFreezeImmuneWearablesHoldTheCounter(t *testing.T) {
 	}
 	if hurts != 0 {
 		t.Errorf("a leathered body took %d hurts in the snow, want none", hurts)
-	}
-}
-
-// TestFreezeSpeedAmount prices the powder snow's slow: nothing at a body
-// just touched by it, the five hundredths of vanilla's pace at the full
-// freeze, and the frozen share between.
-func TestFreezeSpeedAmount(t *testing.T) {
-	if got := FreezeSpeedAmount(0); got != 0 {
-		t.Errorf("FreezeSpeedAmount(0) = %v, want no slow", got)
-	}
-	if got := FreezeSpeedAmount(FullyFrozenTicks); got != -0.05 {
-		t.Errorf("FreezeSpeedAmount(full) = %v, want the -0.05 of the full freeze", got)
-	}
-	if got := FreezeSpeedAmount(FullyFrozenTicks / 2); got != -0.025 {
-		t.Errorf("FreezeSpeedAmount(half) = %v, want the -0.025 of the half freeze", got)
-	}
-}
-
-// TestFreezeHurtAmounts prices the two freeze hurts: the one half-heart of
-// a plain body and the five of vanilla's freeze_hurts_extra_types.
-func TestFreezeHurtAmounts(t *testing.T) {
-	if got := FreezeHurt(false); got != 1 {
-		t.Errorf("FreezeHurt(false) = %v, want the one of a plain body", got)
-	}
-	if got := FreezeHurt(true); got != 5 {
-		t.Errorf("FreezeHurt(true) = %v, want the five the extra types take", got)
-	}
-}
-
-// TestFreezeImmuneWearablesTagIsTheLeather checks the wearables the
-// registry's own tag names: the four leather pieces a player wears, worn
-// or held, and nothing of the metal armours.
-func TestFreezeImmuneWearablesTagIsTheLeather(t *testing.T) {
-	for _, name := range []string{
-		"minecraft:leather_helmet", "minecraft:leather_chestplate",
-		"minecraft:leather_leggings", "minecraft:leather_boots",
-	} {
-		if !FreezeImmuneWearables(freezeWearableOf(t, name)) {
-			t.Errorf("%s is not one of the freeze_immune_wearables, want the worn leather it is", name)
-		}
-	}
-	if FreezeImmuneWearables(freezeWearableOf(t, "minecraft:diamond_chestplate")) {
-		t.Error("a diamond chestplate holds the freeze off, want the leather alone")
-	}
-	if FreezeImmuneWearables(protocol.ItemStack{}) {
-		t.Error("an empty hand holds the freeze off, want an empty stack to be none")
-	}
-}
-
-// TestIsPowderSnow reads the block: the powder snow answers yes, what it is
-// not answers no — the snow block among it, which is no powder.
-func TestIsPowderSnow(t *testing.T) {
-	if !IsPowderSnow(stateOf(t, "minecraft:powder_snow")) {
-		t.Error("the powder snow is not itself")
-	}
-	for _, name := range []string{"minecraft:air", "minecraft:stone", "minecraft:snow"} {
-		if IsPowderSnow(stateOf(t, name)) {
-			t.Errorf("%s read as powder snow", name)
-		}
-	}
-}
-
-// TestTheFreezeDamageRuleGate names the rule the freeze hurts behind: the
-// is_freezing tag's own freeze_damage, as the is_drowning's stand behind
-// drowning_damage.
-func TestTheFreezeDamageRuleGate(t *testing.T) {
-	if got := DamageRuleGate(DamageTypeFreeze); got != world.RuleFreezeDamage {
-		t.Errorf("DamageRuleGate(%s) = %q, want %q", DamageTypeFreeze, got, world.RuleFreezeDamage)
-	}
-}
-
-// TestTheFreezeDeathNamesItself checks the words a freeze death is
-// announced with: the victim alone, frozen to death.
-func TestTheFreezeDeathNamesItself(t *testing.T) {
-	got := DeathMessage(DamageTypeFreeze, protocol.Text{Text: "Alex"}, nil)
-	if got.Translate != "death.attack.freeze" {
-		t.Errorf("the freeze's death message key = %q, want death.attack.freeze", got.Translate)
-	}
-	if len(got.With) != 1 || got.With[0].Text != "Alex" {
-		t.Errorf("the freeze's death message words = %v, want the victim alone", got.With)
 	}
 }

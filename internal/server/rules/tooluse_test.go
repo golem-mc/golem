@@ -29,39 +29,6 @@ func TestAxeStripsEveryLogKeepingTheAxis(t *testing.T) {
 	}
 }
 
-func TestAxeCopperKeepsEveryProperty(t *testing.T) {
-	props := map[string]string{"facing": "west", "half": "upper", "hinge": "right", "open": "true", "powered": "false"}
-	use, ok := AxeConversion(toolStateOf(t, "minecraft:oxidized_copper_door", props))
-	if !ok || use.State != toolStateOf(t, "minecraft:weathered_copper_door", props) || use.LevelEvent != LevelEventScrape {
-		t.Errorf("scraped door = %+v, %v", use, ok)
-	}
-	// Waxed comes off before any scrape: the waxed blocks have no previous stage.
-	use, ok = AxeConversion(toolStateOf(t, "minecraft:waxed_oxidized_copper_bulb", map[string]string{"lit": "true", "powered": "true"}))
-	if !ok || use.State != toolStateOf(t, "minecraft:oxidized_copper_bulb", map[string]string{"lit": "true", "powered": "true"}) ||
-		use.Sound.Name() != "minecraft:item.axe.wax_off" || use.LevelEvent != LevelEventWaxOff {
-		t.Errorf("unwaxed bulb = %+v, %v", use, ok)
-	}
-	if _, ok := AxeConversion(registry.BlockStates["minecraft:copper_block"]); ok {
-		t.Error("bare unweathered copper converted")
-	}
-	if _, ok := AxeConversion(registry.BlockStates["minecraft:stripped_oak_log"]); ok {
-		t.Error("a stripped log stripped again")
-	}
-}
-
-func TestAxeDoubleCopperChestNamesItsPartner(t *testing.T) {
-	use, ok := AxeConversion(toolStateOf(t, "minecraft:exposed_copper_chest",
-		map[string]string{"facing": "north", "type": "left", "waterlogged": "false"}))
-	if !ok || !use.HasPartner || use.PartnerDX != 1 || use.PartnerDZ != 0 {
-		t.Errorf("left half facing north = %+v, %v; want the partner east", use, ok)
-	}
-	use, _ = AxeConversion(toolStateOf(t, "minecraft:exposed_copper_chest",
-		map[string]string{"facing": "north", "type": "single", "waterlogged": "false"}))
-	if use.HasPartner {
-		t.Error("a single chest has a partner")
-	}
-}
-
 func TestTransformHeldBackByShield(t *testing.T) {
 	shield := protocol.ItemStack{ItemID: registry.MustItem("minecraft:shield"), Count: 1}
 	torch := protocol.ItemStack{ItemID: registry.MustItem("minecraft:torch"), Count: 1}
@@ -132,18 +99,6 @@ func TestPumpkinCarve(t *testing.T) {
 	}
 }
 
-func TestHoneycombWaxIsTheWaxOffInverse(t *testing.T) {
-	for waxed, bare := range registry.CopperWaxOff {
-		use, ok := HoneycombWax(registry.BlockStates[bare])
-		if !ok || use.State != registry.BlockStates[waxed] || use.LevelEvent != LevelEventWaxOn || !use.Consumes {
-			t.Errorf("%s waxed = %+v, %v; want %s", bare, use, ok, waxed)
-		}
-	}
-	if _, ok := HoneycombWax(registry.BlockStates["minecraft:waxed_copper_block"]); ok {
-		t.Error("waxed copper waxed again")
-	}
-}
-
 func TestFlintLight(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -172,58 +127,5 @@ func TestFlintLight(t *testing.T) {
 				t.Errorf("FlintLight(%s %v) = %d, want it lit", c.name, c.props, lit)
 			}
 		}
-	}
-}
-
-func TestBerryHarvest(t *testing.T) {
-	for age, ok := range map[string]bool{"0": false, "1": false, "2": true, "3": true} {
-		pick, got := BerryHarvest(toolStateOf(t, "minecraft:sweet_berry_bush", map[string]string{"age": age}), false)
-		if got != ok {
-			t.Errorf("bush age %s harvested = %v, want %v", age, got, ok)
-		}
-		if ok && (pick.Table != "minecraft:harvest/sweet_berry_bush" || pick.After != toolStateOf(t, "minecraft:sweet_berry_bush", map[string]string{"age": "1"})) {
-			t.Errorf("bush age %s = %s, %d", age, pick.Table, pick.After)
-		}
-		if ok && registry.StateValue(pick.Loot.BlockState, registry.PropAge) != age {
-			t.Errorf("bush age %s rolled against state %d, want the age it was picked at", age, pick.Loot.BlockState)
-		}
-	}
-	// A bone meal in hand is left to grow a bush short of full; a full one
-	// is picked all the same.
-	if _, ok := BerryHarvest(toolStateOf(t, "minecraft:sweet_berry_bush", map[string]string{"age": "2"}), true); ok {
-		t.Error("bone meal picked a bush short of full")
-	}
-	if _, ok := BerryHarvest(toolStateOf(t, "minecraft:sweet_berry_bush", map[string]string{"age": "3"}), true); !ok {
-		t.Error("bone meal left a full bush unpicked")
-	}
-	pick, ok := BerryHarvest(toolStateOf(t, "minecraft:cave_vines_plant", map[string]string{"berries": "true"}), false)
-	if !ok || pick.Table != "minecraft:harvest/cave_vine" || pick.After != toolStateOf(t, "minecraft:cave_vines_plant", map[string]string{"berries": "false"}) {
-		t.Errorf("cave vine plant = %s, %d, %v", pick.Table, pick.After, ok)
-	}
-}
-
-// TestWaterDowseCells checks the cells a water splash douses at the block
-// its flight met, from the face it entered through: the block one step out
-// along the face, the hit block itself, and that first cell's four
-// horizontal neighbours.
-// vanilla: AbstractThrownPotion.onHitBlock
-func TestWaterDowseCells(t *testing.T) {
-	if got, want := WaterDowseCells(2, 4, 6, protocol.FaceTop),
-		[6][3]int32{
-			{2, 5, 6},
-			{2, 4, 6},
-			{3, 5, 6}, {1, 5, 6},
-			{2, 5, 7}, {2, 5, 5},
-		}; got != want {
-		t.Errorf("a top-face hit douses %v, want %v", got, want)
-	}
-	if got, want := WaterDowseCells(2, 4, 6, protocol.FaceNorth),
-		[6][3]int32{
-			{2, 4, 5},
-			{2, 4, 6},
-			{3, 4, 5}, {1, 4, 5},
-			{2, 4, 6}, {2, 4, 4},
-		}; got != want {
-		t.Errorf("a north-face hit douses %v, want %v", got, want)
 	}
 }

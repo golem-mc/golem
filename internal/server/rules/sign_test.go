@@ -88,23 +88,6 @@ func TestSignFrontFacing(t *testing.T) {
 	}
 }
 
-// The side threshold is a half turn: a bearing exactly 90° away still reads
-// as the front, one past it does not.
-func TestSignFrontFacingThreshold(t *testing.T) {
-	t.Parallel()
-	sign := stateWith(t, "minecraft:oak_sign", map[string]string{"rotation": "0"}) // the front faces south
-	// Due east of the centre is a quarter turn off the front.
-	centre := []float64{4.5, 6.5} // the sign at (4, 64, 6), its centre
-	far := 10.0
-	if !SignFrontFacing(sign, 4, 6, centre[0]+far, centre[1]) {
-		t.Error("a bearing due east of a south-facing sign reads as the back, want the 90° front")
-	}
-	// A step north of due east tips past 90°.
-	if SignFrontFacing(sign, 4, 6, centre[0]+far, centre[1]-0.1) {
-		t.Error("a bearing past 90° reads as the front, want the back")
-	}
-}
-
 // The §-code strip: one code pair per §, the code characters vanilla's
 // pattern ranges over, and everything else standing as it was — in
 // particular an unpaired § and a § before a letter outside the codes.

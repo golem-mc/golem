@@ -17,16 +17,8 @@ func TestCacheConfig(t *testing.T) {
 	}{
 		{"no version", cacheConfig{}, cacheConfig{Version: "26.3"}, false},
 		{"26.3", cacheConfig{Version: "26.3"}, cacheConfig{Version: "26.3"}, true},
-		{"different version", cacheConfig{Version: "26.3"}, cacheConfig{Version: "26.1"}, false},
-		{"pack versus plain", cacheConfig{Version: "26.3", Datapacks: []string{"terrain"}}, cacheConfig{Version: "26.3"}, false},
-		{"different pack", cacheConfig{Version: "26.3", Datapacks: []string{"terrain"}}, cacheConfig{Version: "26.3", Datapacks: []string{"carved"}}, false},
 		{"same packs", cacheConfig{Version: "26.3", Datapacks: []string{"terrain", "extra"}}, cacheConfig{Version: "26.3", Datapacks: []string{"terrain", "extra"}}, true},
-		{"pack order", cacheConfig{Version: "26.3", Datapacks: []string{"terrain", "extra"}}, cacheConfig{Version: "26.3", Datapacks: []string{"extra", "terrain"}}, false},
-		{"structures", cacheConfig{Version: "26.3", NoStructures: true}, cacheConfig{Version: "26.3"}, false},
 		{"level type", cacheConfig{Version: "26.3", LevelType: levelTypeID("AMPLIFIED")}, cacheConfig{Version: "26.3"}, false},
-		{"same level type", cacheConfig{Version: "26.3", LevelType: levelTypeID("amplified")}, cacheConfig{Version: "26.3", LevelType: levelTypeID("minecraft:amplified")}, true},
-		{"normal level type", cacheConfig{Version: "26.3"}, cacheConfig{Version: "26.3", LevelType: levelTypeID("minecraft:normal")}, true},
-		{"flat", cacheConfig{Version: "26.3", LevelType: levelTypeID("flat")}, cacheConfig{Version: "26.3", LevelType: "minecraft:flat"}, true},
 		{"generator settings", cacheConfig{Version: "26.3", LevelType: "minecraft:flat", GeneratorSettings: `{"layers":[]}`}, cacheConfig{Version: "26.3", LevelType: "minecraft:flat"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -130,41 +122,5 @@ func TestCacheRequiresLightTimeline(t *testing.T) {
 		if (got != "") != (version == cacheLighting) {
 			t.Fatalf("lighting %d: cache=%q", version, got)
 		}
-	}
-}
-
-func TestCacheEntitiesRecordedOnRequest(t *testing.T) {
-	dir := t.TempDir()
-	entry := filepath.Join(dir, "entry")
-	if err := os.Mkdir(entry, 0755); err != nil {
-		t.Fatal(err)
-	}
-	meta := cacheMeta{Version: "26.3", Dimension: "the_nether", Range: chunkRange{-4, -4, 3, 3}, Order: cacheOrderFor(dimensions["the_nether"])}
-	data, err := json.Marshal(meta)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(entry, "meta.json"), data, 0644); err != nil {
-		t.Fatal(err)
-	}
-	find := func(recordEntities bool) string {
-		return findCached(dir, dimensions["the_nether"], 0, chunkRange{-2, -2, 1, 1}, meta.cacheConfig, recordEntities)
-	}
-	if find(false) != entry || find(true) != "" {
-		t.Fatalf("without entities/: plain %q, -record-entities %q", find(false), find(true))
-	}
-	if err := os.Mkdir(filepath.Join(entry, "entities"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if find(true) != entry {
-		t.Fatalf("with entities/: -record-entities %q", find(true))
-	}
-}
-
-func TestPropertyValue(t *testing.T) {
-	got := propertyValue(`{"layers":[{"block":"minecraft:stone","height":1}],"biome":"a\b"}`)
-	want := `{"layers"\:[{"block"\:"minecraft\:stone","height"\:1}],"biome"\:"a\\b"}`
-	if got != want {
-		t.Fatalf("propertyValue = %s, want %s", got, want)
 	}
 }

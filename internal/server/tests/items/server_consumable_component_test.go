@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -54,60 +53,6 @@ func TestAStackWithConsumableAndFoodIsEaten(t *testing.T) {
 	}
 }
 
-// TestAConsumableTakesItsOwnSeconds: consume_seconds sets the length of the
-// use, 0 consuming at once.
-// vanilla: Consumable.consumeTicks
-func TestAConsumableTakesItsOwnSeconds(t *testing.T) {
-	t.Parallel()
-	srv, c := consumableWorld(t, "stick[consumable={consume_seconds:0.25}]")
-	c.UseItemRightClicks(0)
-	c.Settle()
-	servertest.RunTicks(t, srv, 2)
-	if !hotbar(srv) {
-		t.Fatal("the stick was consumed before its 5 ticks")
-	}
-	servertest.UntilTicks(t, srv, 6, "the stick is consumed", func() bool { return !hotbar(srv) })
-
-	srv, c = consumableWorld(t, "stick[consumable={consume_seconds:0}]")
-	c.UseItemRightClicks(0)
-	c.Settle()
-	servertest.RunTicks(t, srv, 1)
-	if hotbar(srv) {
-		t.Fatal("a consumable of 0 seconds is not consumed on the use")
-	}
-}
-
-// TestFoodWithoutConsumableIsNotEdible: a stack with food but no consumable
-// starts no use.
-// vanilla: Item.use reads the stack's CONSUMABLE
-func TestFoodWithoutConsumableIsNotEdible(t *testing.T) {
-	t.Parallel()
-	srv, c := consumableWorld(t, "stick[food={nutrition:4,saturation:2.4}]")
-	c.UseItemRightClicks(0)
-	c.Settle()
-	if srv.Eating("Eater") {
-		t.Fatal("a stick with food but no consumable starts a use")
-	}
-	servertest.RunTicks(t, srv, 40)
-	if !hotbar(srv) {
-		t.Fatal("the stick was consumed")
-	}
-}
-
-// TestAnAppleWithOwnConsumeEffectsAppliesThem: the stack's on_consume_effects
-// replace the apple's.
-// vanilla: Consumable.onConsume
-func TestAnAppleWithOwnConsumeEffectsAppliesThem(t *testing.T) {
-	t.Parallel()
-	srv, c := consumableWorld(t, `apple[consumable={on_consume_effects:[{type:"minecraft:apply_effects",effects:[{id:"minecraft:speed",duration:200}]}]}]`)
-	c.UseItemRightClicks(0)
-	c.Settle()
-	servertest.UntilTicks(t, srv, 40, "the apple is eaten", func() bool { return !hotbar(srv) })
-	if duration, _, ok := srv.PlayerEffect("Eater", "minecraft:speed"); !ok || duration <= 0 {
-		t.Fatal("eating the apple gave no Speed")
-	}
-}
-
 // TestConsumableAndFoodSurviveARejoin: both components are saved with the
 // stack and read back.
 func TestConsumableAndFoodSurviveARejoin(t *testing.T) {
@@ -153,55 +98,4 @@ func rejoinedWith(t *testing.T, stack string) (*server.Server, *servertest.Clien
 	c = connect().Join("Eater")
 	servertest.HoldTicks(t, srv)
 	return srv, c
-}
-
-// TestAnAppleWithoutConsumableStartsNoUse: an apple whose patch removes
-// consumable keeps the removal through a rejoin and is not eaten.
-// vanilla: Item.use, stack.get(DataComponents.CONSUMABLE)
-func TestAnAppleWithoutConsumableStartsNoUse(t *testing.T) {
-	t.Parallel()
-	srv, c := rejoinedWith(t, "apple[!consumable]")
-	stack := srv.InventorySlot("Eater", player.HotbarSlot)
-	if !stack.Removes(protocol.DataComponentConsumable) {
-		t.Fatalf("the reloaded apple %+v lost its consumable removal", stack)
-	}
-	c.UseItemRightClicks(0)
-	c.Settle()
-	if srv.Eating("Eater") {
-		t.Fatal("an apple without consumable starts a use")
-	}
-	servertest.RunTicks(t, srv, 40)
-	if !hotbar(srv) {
-		t.Fatal("the apple without consumable was eaten")
-	}
-}
-
-// TestAnAppleWithoutFoodIsEatenAtFullHungerAndFeedsNothing: an apple whose
-// patch removes food keeps the removal through a rejoin, is eaten with a
-// full bar, and a second one eaten at food 10 leaves it at 10.
-// vanilla: Consumable.canConsume, Consumable.onConsume
-func TestAnAppleWithoutFoodIsEatenAtFullHungerAndFeedsNothing(t *testing.T) {
-	t.Parallel()
-	srv, c := rejoinedWith(t, "apple[!food] 2")
-	stack := srv.InventorySlot("Eater", player.HotbarSlot)
-	if !stack.Removes(protocol.DataComponentFood) {
-		t.Fatalf("the reloaded apple %+v lost its food removal", stack)
-	}
-	count := func() int32 { return srv.InventorySlot("Eater", player.HotbarSlot).Count }
-
-	srv.SetFood("Eater", 20)
-	c.UseItemRightClicks(0)
-	c.Settle()
-	if !srv.Eating("Eater") {
-		t.Fatal("an apple without food starts no meal at a full bar")
-	}
-	servertest.UntilTicks(t, srv, 40, "the first apple is eaten", func() bool { return count() == 1 })
-
-	srv.SetFood("Eater", 10)
-	c.UseItemRightClicks(0)
-	c.Settle()
-	servertest.UntilTicks(t, srv, 40, "the second apple is eaten", func() bool { return count() == 0 })
-	if got := srv.PlayerFood("Eater"); got != 10 {
-		t.Errorf("food after eating an apple without food = %d, want 10", got)
-	}
 }

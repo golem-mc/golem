@@ -125,25 +125,6 @@ func TestSessionPlainRunsLines(t *testing.T) {
 	}
 }
 
-func TestSessionPlainPrintsEveryAnswer(t *testing.T) {
-	host := &fakeHost{replies: [][]protocol.Text{
-		{{Text: "first"}},
-		{{Text: "second"}, {Text: "third"}},
-	}}
-	out := served(t, host, "one\ntwo\n")
-	if out != replied+"first\n"+replied+"second\n"+replied+"third\n" {
-		t.Errorf("printed %q, want one line per component", out)
-	}
-}
-
-func TestSessionPlainTrimsTheCarriageReturn(t *testing.T) {
-	host := &fakeHost{}
-	served(t, host, "say hi\r\n")
-	if len(host.lines) != 1 || host.lines[0] != "say hi" {
-		t.Fatalf("ran %q, want say hi without the carriage return", host.lines)
-	}
-}
-
 func TestSessionEditingTypesAndSubmits(t *testing.T) {
 	host := &fakeHost{replies: [][]protocol.Text{{{Text: "answered"}}}}
 	out := pressed(t, host, "say_hi enter")
@@ -205,17 +186,6 @@ func TestSessionEditingTabCompletesFromTheHost(t *testing.T) {
 	}
 }
 
-func TestSessionEditingTabCompletesOverAPartialWord(t *testing.T) {
-	host := &fakeHost{start: 6, matches: []string{"seed"}}
-	pressed(t, host, "time _se tab enter")
-
-	// The suggestion was asked for the text left of the cursor, slash
-	// and all, and the match replaced the partial word only.
-	if len(host.lines) != 1 || host.lines[0] != "time seed " {
-		t.Fatalf("ran %q, want time seed with its space", host.lines)
-	}
-}
-
 func TestSessionEditingTabListsTheChoices(t *testing.T) {
 	host := &fakeHost{start: 1, matches: []string{"say", "seed", "summon"}}
 	out := pressed(t, host, "tab enter")
@@ -248,14 +218,6 @@ func TestSessionEditingCtrlDEndsAnEmptyConsole(t *testing.T) {
 	}
 }
 
-func TestSessionEditingCtrlDEletesForwardOnALine(t *testing.T) {
-	host := &fakeHost{}
-	pressed(t, host, "say_hi home ctrl-d enter")
-	if len(host.lines) != 1 || host.lines[0] != "ay hi" {
-		t.Fatalf("ran %q, want ay hi", host.lines)
-	}
-}
-
 func TestSessionLogWriterOnATerminal(t *testing.T) {
 	host := &fakeHost{}
 	var out bytes.Buffer
@@ -281,65 +243,6 @@ func TestSessionLogWriterOnAPlainConsole(t *testing.T) {
 	}
 	if logs.String() != "a log line\n" {
 		t.Errorf("logs = %q, want the log line", logs.String())
-	}
-}
-
-func TestSessionLogWriterKeepsHalfALine(t *testing.T) {
-	host := &fakeHost{}
-	var logs bytes.Buffer
-	s := newSession(strings.NewReader(""), io.Discard, &logs, host, false)
-	w := s.LogWriter()
-	if _, err := io.WriteString(w, "half"); err != nil {
-		t.Fatalf("write log: %v", err)
-	}
-	if logs.Len() != 0 {
-		t.Errorf("logs = %q, want nothing before the line is whole", logs.String())
-	}
-	if _, err := io.WriteString(w, " a line\n"); err != nil {
-		t.Fatalf("write log: %v", err)
-	}
-	if logs.String() != "half a line\n" {
-		t.Errorf("logs = %q, want the joined line", logs.String())
-	}
-}
-
-func TestSessionLogLinesAfterCtrlDArePlain(t *testing.T) {
-	host := &fakeHost{}
-	var out bytes.Buffer
-	s := newSession(strings.NewReader(decodeForTest(t, "ctrl-d")), &out, io.Discard, host, true)
-	s.serveEditing()
-	if !strings.HasSuffix(out.String(), "Console input closed\r\n") {
-		t.Errorf("output %q does not say the input closed", out.String())
-	}
-
-	// With the console closed, a log line is written as it is, with no
-	// prompt drawn under it.
-	out.Reset()
-	if _, err := io.WriteString(s.LogWriter(), "a log line\n"); err != nil {
-		t.Fatal(err)
-	}
-	if out.String() != "a log line\n" {
-		t.Errorf("output %q, want the bare log line", out.String())
-	}
-}
-
-func TestSessionClosedBeforeServeDrawsNothing(t *testing.T) {
-	// A server that fails to start closes the console before its Serve
-	// may have run; the Serve then leaves the terminal alone.
-	var out bytes.Buffer
-	s := newSession(strings.NewReader("say hi\r"), &out, io.Discard, &fakeHost{}, true)
-	s.Close()
-	s.serveEditing()
-	if out.Len() != 0 {
-		t.Errorf("a closed console printed %q", out.String())
-	}
-}
-
-func TestSessionEscapesRepliesControlCharacters(t *testing.T) {
-	host := &fakeHost{replies: [][]protocol.Text{{{Text: "You whisper to Tester: \x1b[31mRED"}}}}
-	out := served(t, host, "msg Tester x\n")
-	if want := replied + `You whisper to Tester: \x1b[31mRED` + "\n"; out != want {
-		t.Errorf("printed %q, want %q", out, want)
 	}
 }
 

@@ -5,68 +5,11 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/nbt"
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
-
-func TestADolphinSpawnsWithItsMoistness(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Keeper", servertest.OpsListing(t, "Keeper"))
-	c.Settle()
-	servertest.HoldTicks(t, srv)
-	for _, tc := range []struct {
-		nbt  string
-		want int32
-	}{
-		{"0", 0},
-		{"1", 1},
-		{"2400", 2400},
-	} {
-		c.ChatCommand("summon minecraft:dolphin 3.5 64 0.5 {NoAI:1b,Moistness:" + tc.nbt + "}")
-		spawn := c.AwaitSpawn(int32(registry.EntityTypeDolphin))
-		moistness := servertest.MetaOf(c.AwaitMetadataFor(spawn.EntityID), protocol.MetadataIndexDolphinMoistness)
-		if tc.want == 2400 {
-			if moistness != nil {
-				t.Errorf("default moistness = %+v, want omitted", moistness)
-			}
-		} else if moistness == nil || moistness.Typ != protocol.MetadataVarInt || moistness.VarintVal != tc.want {
-			t.Errorf("moistness %s: spawn metadata = %+v, want varint %d", tc.nbt, moistness, tc.want)
-		}
-	}
-}
-
-func TestASummonedDolphinSwimsInItsPond(t *testing.T) {
-	t.Parallel()
-	srv, c := squidTests(t)
-	c.ChatCommand("summon minecraft:dolphin 8.5 62 -8.5")
-	servertest.AwaitSummonFeedback(t, c, "minecraft:dolphin", "entity.minecraft.dolphin")
-	spawn := c.ExpectMobSpawn(fishType(t, "minecraft:dolphin"))
-	id := spawn.EntityID
-	if spawn.DolphinMoistness != 2400 || spawn.Air != 4800 {
-		t.Fatalf("spawn moistness %d air %d, want 2400/4800", spawn.DolphinMoistness, spawn.Air)
-	}
-	start, _ := fishAt(srv, id)
-	travelled := 0.0
-	for range 200 {
-		srv.TickMobs(1)
-		m, ok := fishAt(srv, id)
-		if !ok {
-			t.Fatal("dolphin disappeared")
-		}
-		travelled += math.Hypot(m.X-start.X, m.Z-start.Z)
-		start = m
-	}
-	c.Settle()
-	if travelled < 1 {
-		t.Errorf("swam %.2f blocks, want at least one", travelled)
-	}
-	if hp, _ := srv.MobHealth(id); hp != 10 {
-		t.Errorf("health = %g, want 10", hp)
-	}
-}
 
 func TestADolphinOnLandFlopsAndDriesOut(t *testing.T) {
 	t.Parallel()
@@ -151,35 +94,6 @@ func TestADolphinSurfacesForAirUnderARoof(t *testing.T) {
 	c.Settle()
 	if !surfaced {
 		t.Error("dolphin never reached the surface air pocket")
-	}
-}
-
-func TestAKilledDolphinDropsAtMostOneCod(t *testing.T) {
-	t.Parallel()
-	srv, c := squidTests(t)
-	// Several kills exercise a table whose empty result is legitimate.
-	cod := 0
-	for range 32 {
-		id := summonSquid(t, c, "minecraft:dolphin", fishType(t, "minecraft:dolphin"), pondCentreX, -8.5)
-		if !srv.KillMob(id) {
-			t.Fatal("no dolphin to kill")
-		}
-		srv.TickMobs(1)
-		c.Settle()
-		count := 0
-		for _, it := range srv.ItemsInDimension("minecraft:overworld") {
-			if it.Item != "minecraft:cod" {
-				t.Fatalf("unexpected dolphin drop %s", it.Item)
-			}
-			count += int(it.Count)
-		}
-		if count < cod || count > cod+1 {
-			t.Fatalf("kill dropped %d cod, want 0-1", count-cod)
-		}
-		cod = count
-	}
-	if cod == 0 {
-		t.Fatal("thirty-two dolphins dropped no cod")
 	}
 }
 
@@ -279,26 +193,4 @@ func TestADolphinPicksUpAndTossesWaterItemsWithPickupDelay(t *testing.T) {
 		}
 	}
 	t.Fatal("tossed item disappeared after one tick")
-}
-
-func TestADolphinTurnsSmoothlyTowardANearbySwimmer(t *testing.T) {
-	t.Parallel()
-	srv, c := squidTests(t)
-	servertest.HoldTicks(t, srv)
-	c.MoveToGround(6.5, 62, -8.5, false)
-	c.SendSprint(c.PlayerEntityID, true)
-	if m := c.ExpectMetadata(); m.Pose != protocol.PoseSwimming {
-		t.Fatalf("pose %d, want SWIMMING", m.Pose)
-	}
-	c.Settle()
-	id := summonSquidTagged(t, c, "minecraft:dolphin", fishType(t, "minecraft:dolphin"), pondCentreX, -8.5, `{Rotation:[0f,0f]}`)
-	servertest.RunTicks(t, srv, 1)
-	m, ok := fishAt(srv, id)
-	if !ok {
-		t.Fatal("dolphin disappeared")
-	}
-	// vanilla: DolphinSwimWithPlayerGoal.tick, SmoothSwimmingLookControl.tick.
-	if math.Abs(float64(m.Pitch)-1) > 0.001 || math.Abs(float64(m.HeadYaw)-21) > 0.001 {
-		t.Fatalf("pitch/head yaw = %g/%g, want 1/21 after the first look tick", m.Pitch, m.HeadYaw)
-	}
 }

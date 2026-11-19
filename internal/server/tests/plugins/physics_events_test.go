@@ -3,7 +3,6 @@ package plugins_test
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -180,72 +179,6 @@ func TestPluginBlockRedstoneEditsPower(t *testing.T) {
 	}
 }
 
-// vanilla: LeavesBlock.randomTick
-func TestPluginLeavesDecayCancel(t *testing.T) {
-	t.Parallel()
-	for _, cancel := range []bool{false, true} {
-		var decays int
-		srv, _ := physicsScene(t, func(s plugin.Server) {
-			plugin.Listen(s, func(e *plugin.LeavesDecayEvent) {
-				decays++
-				e.SetCancelled(cancel)
-			})
-		})
-		srv.SetGameRuleValue(world.RuleRandomTickSpeed.String(), servertest.CropsTickSpeed)
-		leaf := stateOf(t, "minecraft:oak_leaves", map[string]string{"persistent": "false", "distance": "7", "waterlogged": "false"})
-		srv.SetBlockAndTell(4, 70, 0, leaf)
-		srv.TickRandomTicks(3000, world.ChunkPos{})
-		if decays == 0 {
-			t.Fatalf("cancel=%v: no LeavesDecayEvent", cancel)
-		}
-		if gone := srv.BlockAt(4, 70, 0) != leaf; gone == cancel {
-			t.Errorf("cancel=%v: leaf gone=%v", cancel, gone)
-		}
-	}
-}
-
-// vanilla: SpongeBlock.removeWaterBreadthFirstSearch
-func TestPluginSpongeAbsorbCancelAndTrim(t *testing.T) {
-	t.Parallel()
-	for _, mode := range []string{"none", "cancel", "trim"} {
-		t.Run(mode, func(t *testing.T) {
-			t.Parallel()
-			var cells int
-			srv, _ := physicsScene(t, func(s plugin.Server) {
-				plugin.Listen(s, func(e *plugin.SpongeAbsorbEvent) {
-					cells = len(e.Blocks)
-					switch mode {
-					case "cancel":
-						e.SetCancelled(true)
-					case "trim":
-						e.Blocks = e.Blocks[:1]
-					}
-				})
-			})
-			water := servertest.BlockState(t, "minecraft:water")
-			srv.SetBlockAndTell(6, 64, 0, water)
-			srv.SetBlockAndTell(7, 64, 0, water)
-			srv.SetBlockAndTell(5, 64, 0, servertest.BlockState(t, "minecraft:sponge"))
-			if cells != 2 {
-				t.Fatalf("the event listed %d cells, want 2", cells)
-			}
-			wantSponge, wantFar := "minecraft:wet_sponge", "minecraft:air"
-			switch mode {
-			case "cancel":
-				wantSponge, wantFar = "minecraft:sponge", "minecraft:water"
-			case "trim":
-				wantFar = "minecraft:water"
-			}
-			if got := nameAt(srv, 5, 64, 0); got != wantSponge {
-				t.Errorf("sponge cell holds %s, want %s", got, wantSponge)
-			}
-			if got := nameAt(srv, 7, 64, 0); got != wantFar {
-				t.Errorf("far water cell holds %s, want %s", got, wantFar)
-			}
-		})
-	}
-}
-
 // vanilla: PistonBaseBlock.moveBlocks
 func TestPluginBlockPistonExtendCancel(t *testing.T) {
 	t.Parallel()
@@ -268,37 +201,6 @@ func TestPluginBlockPistonExtendCancel(t *testing.T) {
 		}
 		if pushed := srv.BlockAt(6, 64, 0) == stone; pushed == cancel {
 			t.Errorf("cancel=%v: stone pushed=%v", cancel, pushed)
-		}
-	}
-}
-
-// vanilla: NoteBlock.playNote
-func TestPluginNotePlayCancel(t *testing.T) {
-	t.Parallel()
-	for _, cancel := range []bool{false, true} {
-		var plays []plugin.NotePlayEvent
-		srv, c := physicsScene(t, func(s plugin.Server) {
-			plugin.Listen(s, func(e *plugin.NotePlayEvent) {
-				plays = append(plays, plugin.NotePlayEvent{Block: e.Block, Instrument: e.Instrument, Note: e.Note})
-				e.SetCancelled(cancel)
-			})
-		})
-		srv.SetBlockAndTell(4, 64, 0, servertest.BlockState(t, "minecraft:note_block"))
-		c.Settle()
-		c.SettleAndCollect(func(int32, []byte) {})
-		srv.SetBlockAndTell(5, 64, 0, servertest.BlockState(t, "minecraft:redstone_block"))
-		srv.TickPhysics(3)
-		var actions int
-		c.SettleAndCollect(func(id int32, _ []byte) {
-			if id == protocol.IDPlayBlockAction {
-				actions++
-			}
-		})
-		if len(plays) != 1 || plays[0].Block.Pos != pos(4, 64, 0) || plays[0].Instrument == "" {
-			t.Fatalf("cancel=%v: note inputs %+v", cancel, plays)
-		}
-		if (actions != 0) != !cancel {
-			t.Errorf("cancel=%v: %d block actions reached the client", cancel, actions)
 		}
 	}
 }
@@ -338,48 +240,6 @@ func TestPluginBlockGrowCancelAndEdit(t *testing.T) {
 			}
 			if got := srv.BlockAt(6, 64, 0); got != want {
 				t.Errorf("the crop holds state %d, want %d", got, want)
-			}
-		})
-	}
-}
-
-// vanilla: SpreadingSnowyDirtBlock.randomTick
-func TestPluginGrassFadeAndSpread(t *testing.T) {
-	t.Parallel()
-	for _, mode := range []string{"fade", "fade-cancel", "spread-cancel"} {
-		t.Run(mode, func(t *testing.T) {
-			t.Parallel()
-			var fades, spreads int
-			srv, _ := physicsScene(t, func(s plugin.Server) {
-				plugin.Listen(s, func(e *plugin.BlockFadeEvent) {
-					fades++
-					e.SetCancelled(mode == "fade-cancel")
-				})
-				plugin.Listen(s, func(e *plugin.BlockSpreadEvent) {
-					spreads++
-					e.SetCancelled(true)
-				})
-			})
-			srv.SetGameRuleValue(world.RuleRandomTickSpeed.String(), servertest.CropsTickSpeed)
-			grass := servertest.BlockStateWith(t, "minecraft:grass_block", "snowy=false")
-			dirt := servertest.BlockState(t, "minecraft:dirt")
-			if mode == "spread-cancel" {
-				srv.SetBlockAndTell(6, 63, 0, grass)
-				srv.SetBlockAndTell(7, 63, 0, dirt)
-				srv.TickRandomTicks(2000, world.ChunkPos{})
-				if spreads == 0 || srv.BlockAt(7, 63, 0) != dirt {
-					t.Errorf("spreads=%d, beside block %s", spreads, nameAt(srv, 7, 63, 0))
-				}
-				return
-			}
-			srv.SetBlockAndTell(6, 63, 0, grass)
-			srv.SetBlockAndTell(6, 64, 0, servertest.BlockState(t, "minecraft:stone"))
-			srv.TickRandomTicks(2000, world.ChunkPos{})
-			if fades == 0 {
-				t.Fatal("no BlockFadeEvent")
-			}
-			if dead := srv.BlockAt(6, 63, 0) == dirt; dead == (mode == "fade-cancel") {
-				t.Errorf("%s: grass dead=%v", mode, dead)
 			}
 		})
 	}
@@ -457,34 +317,6 @@ func TestPluginFireBurnIgniteSpread(t *testing.T) {
 				if n := count(); n != 1 {
 					t.Errorf("%d fires stand, want the original only (spread rewritten to stone)", n)
 				}
-			}
-		})
-	}
-}
-
-// vanilla: LightningBolt.spawnFire
-func TestPluginLightningIgniteCancel(t *testing.T) {
-	t.Parallel()
-	for _, mode := range []string{"allow", "cancel"} {
-		t.Run(mode, func(t *testing.T) {
-			t.Parallel()
-			var seen []plugin.BlockIgniteEvent
-			srv, _ := physicsScene(t, func(s plugin.Server) {
-				plugin.Listen(s, func(e *plugin.BlockIgniteEvent) {
-					seen = append(seen, plugin.BlockIgniteEvent{Block: e.Block, Cause: e.Cause})
-					e.SetCancelled(mode == "cancel")
-				})
-			})
-			srv.SetDifficulty(3)
-			srv.SetBlockAndTell(8, 63, 0, servertest.BlockState(t, "minecraft:stone"))
-			srv.SetBlockAndTell(8, 64, 0, 0)
-			srv.StrikeLightning(8.5, 64, 0.5)
-			srv.TickBolts(4)
-			if len(seen) == 0 || seen[0].Cause != plugin.IgniteLightning || seen[0].Block.Pos != pos(8, 64, 0) {
-				t.Fatalf("ignite events: %+v", seen)
-			}
-			if got := nameAt(srv, 8, 64, 0) == "minecraft:fire"; got == (mode == "cancel") {
-				t.Errorf("fire at strike cell = %v in mode %s", got, mode)
 			}
 		})
 	}

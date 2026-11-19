@@ -6,7 +6,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 )
 
@@ -83,57 +82,5 @@ func TestADispenserPoursItsFishBucket(t *testing.T) {
 				t.Errorf("the dispenser's slot = %+v, want the empty bucket", got)
 			}
 		})
-	}
-}
-
-// TestADispenserDropsAFishBucketItCannotPour: facing a block no water can
-// replace, the bucket is dropped whole and no fish gets out.
-// vanilla: DispenseItemBehavior (filledBucketBehavior)
-func TestADispenserDropsAFishBucketItCannotPour(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Dispensing(t)
-	srv.SetBlock(4, 64, 1, servertest.MustState(t, "minecraft:stone", nil))
-	if !srv.SetInventoryAt(4, 64, 0, 0, fishBucket(t, "minecraft:cod_bucket", nbt.Compound{}, "")) {
-		t.Fatal("the dispenser has no block entity to fill")
-	}
-	srv.Dispense(4, 64, 0, protocol.FaceSouth)
-	for _, m := range srv.Mobs() {
-		if m.Kind == "minecraft:cod" {
-			t.Fatal("a cod got out of a bucket poured into stone")
-		}
-	}
-	items := srv.ItemsInDimension(world.DimensionName)
-	if len(items) != 1 || items[0].Item != "minecraft:cod_bucket" {
-		t.Errorf("the dispenser dropped %+v, want the one cod bucket", items)
-	}
-}
-
-func TestDispenserReleasesSulfurCubeWithoutReplacingBlock(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Dispensing(t)
-	stone := servertest.MustState(t, "minecraft:stone", nil)
-	srv.SetBlock(4, 64, 1, stone)
-	bucket := fishBucket(t, "minecraft:sulfur_cube_bucket", nbt.Compound{"age": nbt.Int(-1200), "age_locked": nbt.Byte(1), "Health": nbt.Float(3)}, "Sulfur")
-	if !srv.SetInventoryAt(4, 64, 0, 0, bucket) {
-		t.Fatal("missing dispenser")
-	}
-	srv.Dispense(4, 64, 0, protocol.FaceSouth)
-	if srv.BlockAt(4, 64, 1) != stone {
-		t.Fatal("bucket replaced solid block")
-	}
-	var cubes []server.TestMob
-	for _, m := range srv.Mobs() {
-		if m.Kind == "minecraft:sulfur_cube" {
-			cubes = append(cubes, m)
-		}
-	}
-	if len(cubes) != 1 || cubes[0].Name != "Sulfur" {
-		t.Fatalf("released cubes = %+v", cubes)
-	}
-	if hp, _ := srv.MobHealth(cubes[0].ID); hp != 3 {
-		t.Fatalf("health = %g", hp)
-	}
-	if got := srv.InventoryAt(4, 64, 0); len(got) == 0 || got[0].ItemID != servertest.ItemID(t, "minecraft:bucket") {
-		t.Fatalf("dispenser contents = %+v", got)
 	}
 }

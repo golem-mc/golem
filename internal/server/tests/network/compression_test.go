@@ -3,10 +3,11 @@ package network
 import (
 	"bytes"
 	"compress/zlib"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"io"
 	"testing"
 	"time"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 )

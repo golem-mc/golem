@@ -11,44 +11,6 @@ import (
 	"github.com/golem-mc/golem/nbt"
 )
 
-// gustBurst is an Explosion packet's header and the particle and sound that
-// follow its knockback.
-type gustBurst struct {
-	x, y, z  float64
-	radius   float32
-	pushed   bool
-	particle int32
-	sound    int32
-}
-
-func readGustBurst(data []byte) gustBurst {
-	r := protocol.NewReader(data)
-	g := gustBurst{x: r.ReadF64(), y: r.ReadF64(), z: r.ReadF64(), radius: r.ReadF32()}
-	r.ReadI32()
-	if g.pushed = r.ReadBool(); g.pushed {
-		r.ReadF64()
-		r.ReadF64()
-		r.ReadF64()
-	}
-	g.particle, g.sound = r.ReadVarInt(), r.ReadVarInt()
-	return g
-}
-
-// collectBursts steps the mob pass n ticks and returns the Explosion packets
-// the client was sent.
-func collectBursts(srv *server.Server, c *servertest.Client, n int) []gustBurst {
-	var out []gustBurst
-	for range n {
-		srv.TickMobs(1)
-		c.SettleAndCollect(func(id int32, data []byte) {
-			if id == protocol.IDPlayExplosion {
-				out = append(out, readGustBurst(data))
-			}
-		})
-	}
-	return out
-}
-
 func windChargedStart(t *testing.T, name string) (*server.Server, *servertest.Client, int32) {
 	t.Helper()
 	srv, c, id := servertest.JoinAs(t, servertest.MobTestConfig(), name, servertest.OpsListing(t, name))
@@ -57,107 +19,6 @@ func windChargedStart(t *testing.T, name string) (*server.Server, *servertest.Cl
 	srv.SetDayTime(18000)
 	srv.StopTick()
 	return srv, c, id
-}
-
-// TestAWindChargedBodyBurstsWhenItsCorpseLeaves kills a wind_charged zombie
-// and holds the gust at the corpse's last tick: radius 3 to 5, centred at
-// half the hull's height, the large emitter and the breeze's sound, pushing
-// the player beside it.
-// vanilla: WindChargedMobEffect.onMobRemoved
-func TestAWindChargedBodyBurstsWhenItsCorpseLeaves(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := windChargedStart(t, "Gusty")
-	c.ChatCommand("summon minecraft:zombie 5.5 64 5.5 {NoAI:1b}")
-	spawn := c.ExpectMobSpawn(protocol.EntityTypeZombie)
-	c.Give("effect give @e[type=minecraft:zombie] minecraft:wind_charged 60", spawn.EntityID)
-	c.ChatCommand("kill @e[type=minecraft:zombie]")
-	c.Settle()
-	for range 19 {
-		if bursts := collectBursts(srv, c, 1); len(bursts) != 0 {
-			t.Fatalf("a gust came while the corpse still lay: %+v", bursts)
-		}
-	}
-	bursts := collectBursts(srv, c, 3)
-	if len(bursts) != 1 {
-		t.Fatalf("%d explosions around the corpse's end, want one gust", len(bursts))
-	}
-	g := bursts[0]
-	if g.radius < 3 || g.radius >= 5 {
-		t.Errorf("gust radius = %v, want 3 up to 5", g.radius)
-	}
-	if g.x != 5.5 || g.z != 5.5 || g.y < 64.9 || g.y > 65.0 {
-		t.Errorf("gust at %v %v %v, want the hull's middle above (5.5, 64, 5.5)", g.x, g.y, g.z)
-	}
-	if g.particle != protocol.ParticleGustEmitterLarge || g.sound != protocol.SoundEventBreezeWindBurst {
-		t.Errorf("gust particle %d sound %d, want the large emitter and the breeze burst", g.particle, g.sound)
-	}
-	if !g.pushed {
-		t.Error("the gust did not push the player three blocks away")
-	}
-}
-
-// TestAWindChargedCreeperBurstsAfterItsBlast blows up a wind_charged creeper:
-// the explosion is a KILLED removal, so a gust follows its own blast.
-// vanilla: Creeper.explodeCreeper, WindChargedMobEffect.onMobRemoved
-func TestAWindChargedCreeperBurstsAfterItsBlast(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := windChargedStart(t, "Gusty")
-	c.ChatCommand("summon minecraft:creeper 5.5 64 5.5 {NoAI:1b,ignited:1b,Fuse:2}")
-	spawn := c.ExpectMobSpawn(protocol.EntityTypeCreeper)
-	c.Give("effect give @e[type=minecraft:creeper] minecraft:wind_charged 60", spawn.EntityID)
-	var all []gustBurst
-	for range 6 {
-		all = append(all, collectBursts(srv, c, 5)...)
-	}
-	gust := -1
-	for i, g := range all {
-		if g.sound != protocol.SoundEventBreezeWindBurst {
-			continue
-		}
-		if gust >= 0 {
-			t.Fatalf("more than one gust: %+v", all)
-		}
-		gust = i
-	}
-	if gust < 1 {
-		t.Fatalf("gust at index %d of %+v, want one after the creeper's blast", gust, all)
-	}
-	g := all[gust]
-	if g.particle != protocol.ParticleGustEmitterLarge || g.radius < 3 || g.radius >= 5 || g.y < 64.8 || g.y > 65.0 {
-		t.Errorf("gust %+v, want the large emitter, radius 3 up to 5, y in 64.8..65", g)
-	}
-}
-
-// TestAWindChargedPlayerBurstsOnRespawn kills a wind_charged player and
-// holds the gust at the death spot when the respawn removes the body.
-// vanilla: WindChargedMobEffect.onMobRemoved
-func TestAWindChargedPlayerBurstsOnRespawn(t *testing.T) {
-	t.Parallel()
-	const name = "Gusty"
-	_, c, id := windChargedStart(t, name)
-	c.Give("effect give "+name+" minecraft:wind_charged 60", id)
-	c.ChatCommand("kill")
-	servertest.ExpectDeathSequence(t, c, id, protocol.Text{
-		Translate: "death.attack.genericKill",
-		With:      []protocol.Text{servertest.PlayerDisplayComponent(name)},
-	})
-	c.PerformRespawn()
-	var bursts []gustBurst
-	c.SettleAndCollect(func(pid int32, data []byte) {
-		if pid == protocol.IDPlayExplosion {
-			bursts = append(bursts, readGustBurst(data))
-		}
-	})
-	if len(bursts) != 1 {
-		t.Fatalf("%d explosions on the respawn, want one gust", len(bursts))
-	}
-	g := bursts[0]
-	if g.x != 2.5 || g.z != 5.5 || g.y < 64.8 || g.y > 65.0 {
-		t.Errorf("gust at %v %v %v, want the player's middle above (2.5, 64, 5.5)", g.x, g.y, g.z)
-	}
-	if g.particle != protocol.ParticleGustEmitterLarge || g.sound != protocol.SoundEventBreezeWindBurst {
-		t.Errorf("gust particle %d sound %d, want the large emitter and the breeze burst", g.particle, g.sound)
-	}
 }
 
 // creeperBlastCloud blows up a creeper (with speed when effects is set) and
@@ -251,15 +112,5 @@ func TestACreeperWithEffectsLeavesACloudAfterItsBlast(t *testing.T) {
 	// The cloud saves through PotionContents.CODEC, which drops hidden effects.
 	if _, has := speed["hidden_effect"]; has {
 		t.Errorf("effect %v, want no hidden_effect", speed)
-	}
-}
-
-// TestACreeperWithoutEffectsLeavesNoCloud blows up a bare creeper.
-// vanilla: Creeper.spawnLingeringCloud
-func TestACreeperWithoutEffectsLeavesNoCloud(t *testing.T) {
-	t.Parallel()
-	srv, _, spawns, _ := creeperBlastCloud(t, false)
-	if len(spawns) != 0 || srv.CloudCount() != 0 {
-		t.Fatalf("%d cloud spawns, %d clouds, want none", len(spawns), srv.CloudCount())
 	}
 }

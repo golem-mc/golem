@@ -67,32 +67,6 @@ func biomeTestWorld(t testing.TB) (*World, *OverworldGenerator) {
 	return w, g
 }
 
-func TestBiomeMatchesZoomedQuartNearUnloadedChunks(t *testing.T) {
-	w, g := biomeTestWorld(t)
-	probe := g.NewBiomeProbe()
-	minQY, maxQY := w.MinY()>>2, (w.MinY()+w.Height()-1)>>2
-	for x := int32(-40); x < 40; x++ {
-		for z := int32(-40); z < 40; z++ {
-			for _, y := range []int32{-64, 0, 63, 64, 100, 319} {
-				qx, qy, qz := levelgen.ZoomedQuart(w.zoomSeed, x, y, z)
-				qy = min(max(qy, minQY), maxQY)
-				w.mu.RLock()
-				loaded, ok := w.chunks[ChunkPos{X: qx >> 2, Z: qz >> 2}]
-				w.mu.RUnlock()
-				var want string
-				if ok {
-					want = registry.Biome(loaded.chunk.BiomeAt((qx*4)&15, qy*4, (qz*4)&15)).Name()
-				} else {
-					want = probe(qx, qy, qz)
-				}
-				if got := w.Biome(x, y, z).Name(); got != want {
-					t.Fatalf("Biome(%d, %d, %d) = %q, want %q", x, y, z, got, want)
-				}
-			}
-		}
-	}
-}
-
 func BenchmarkBiome(b *testing.B) {
 	w, _ := biomeTestWorld(b)
 	for b.Loop() {

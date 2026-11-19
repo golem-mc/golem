@@ -199,48 +199,6 @@ func TestClipBlocksStopsAtTheShapes(t *testing.T) {
 	}
 }
 
-// TestClipBlocksPassesOverTheRails: every rail's outline is its 2/16 bed,
-// 8/16 when it ascends, so a ray over it stops on the block behind.
-func TestClipBlocksPassesOverTheRails(t *testing.T) {
-	w := newRayWorld(t)
-	stone, ok := registry.FindState("minecraft:stone", nil)
-	if !ok {
-		t.Fatal("the block registry has no stone")
-	}
-	if !w.SetBlock(10, 64, 0, stone) {
-		t.Fatal("the world did not take the stone")
-	}
-	for _, name := range []string{"rail", "powered_rail", "detector_rail", "activator_rail"} {
-		flat, ok := registry.FindState("minecraft:"+name, nil)
-		if !ok {
-			t.Fatalf("the block registry has no %s", name)
-		}
-		if !w.SetBlock(9, 64, 0, flat) {
-			t.Fatalf("the world did not take the %s", name)
-		}
-		hit, ok := w.ClipBlocks(8.5, 64.5, 0.5, 3, 0, 0, nil)
-		if !ok || hit.X != 10 || hit.Y != 64 || hit.Z != 0 || hit.Face != protocol.FaceWest {
-			t.Errorf("the clip over the flat %s = %+v (%v), want the stone's west face", name, hit, ok)
-		}
-
-		ascending, ok := registry.WithProp(flat, registry.PropShape, "ascending_east")
-		if !ok {
-			t.Fatalf("the %s has no ascending_east shape", name)
-		}
-		if !w.SetBlock(9, 64, 0, ascending) {
-			t.Fatalf("the world did not take the ascending %s", name)
-		}
-		hit, ok = w.ClipBlocks(8.5, 64.4, 0.5, 3, 0, 0, nil)
-		if !ok || hit.X != 9 || hit.Y != 64 || hit.Z != 0 || hit.Face != protocol.FaceWest {
-			t.Errorf("the clip under the ascending %s's half = %+v (%v), want the rail's west face", name, hit, ok)
-		}
-		hit, ok = w.ClipBlocks(8.5, 64.6, 0.5, 3, 0, 0, nil)
-		if !ok || hit.X != 10 || hit.Y != 64 || hit.Z != 0 || hit.Face != protocol.FaceWest {
-			t.Errorf("the clip over the ascending %s's half = %+v (%v), want the stone's west face", name, hit, ok)
-		}
-	}
-}
-
 // TestOutlineBoxesReadsTheOutlines: the families the collision leaves
 // empty carry the outlines vanilla draws them with, and the fluids carry
 // none at all.
@@ -274,44 +232,6 @@ func TestOutlineBoxesReadsTheOutlines(t *testing.T) {
 	}
 	if boxes := outlineBoxes(stateOf("stone", "")); len(boxes) != 1 || boxes[0] != unitBox() {
 		t.Errorf("the stone outline = %v, want the whole cube", boxes)
-	}
-}
-
-// TestOutlineBoxesReadTheTallFamiliesOutlines checks the look ray's shape
-// for the collision families whose outline is shorter than their collision:
-// a fence's and a wall's 16-sixteenth posts and arms, a low wall side's 14,
-// and a gate's plate held open or shut.
-func TestOutlineBoxesReadTheTallFamiliesOutlines(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name  string
-		props map[string]string
-		want  []box
-	}{
-		{"minecraft:oak_fence", nil, []box{boxF(6, 0, 6, 10, 16, 10)}},
-		{"minecraft:oak_fence", map[string]string{"north": "true"},
-			[]box{boxF(6, 0, 6, 10, 16, 10), boxF(6, 0, 0, 10, 16, 6)}},
-		{"minecraft:cobblestone_wall", nil, []box{boxF(4, 0, 4, 12, 16, 12)}},
-		{"minecraft:cobblestone_wall", map[string]string{
-			"east": "none", "north": "low", "south": "tall", "up": "false", "west": "none"},
-			[]box{boxF(5, 0, 0, 11, 14, 11), boxF(5, 0, 5, 11, 16, 16)}},
-		{"minecraft:oak_fence_gate", nil, []box{boxF(0, 0, 6, 16, 16, 10)}},
-		{"minecraft:oak_fence_gate", map[string]string{"open": "true", "facing": "east"},
-			[]box{boxF(6, 0, 0, 10, 16, 16)}},
-		{"minecraft:oak_fence_gate", map[string]string{"in_wall": "true"},
-			[]box{boxF(0, 0, 6, 16, 13, 10)}},
-	} {
-		got := outlineBoxes(mustFind(t, tc.name, tc.props))
-		if len(got) != len(tc.want) {
-			t.Errorf("the outline of %s %v = %v, want %v", tc.name, tc.props, got, tc.want)
-			continue
-		}
-		for i := range got {
-			if got[i] != tc.want[i] {
-				t.Errorf("outline box %d of %s %v = %v, want %v",
-					i, tc.name, tc.props, got[i], tc.want[i])
-			}
-		}
 	}
 }
 

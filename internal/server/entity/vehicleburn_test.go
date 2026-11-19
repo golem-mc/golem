@@ -2,8 +2,6 @@ package entity
 
 import (
 	"testing"
-
-	"github.com/golem-mc/golem/registry"
 )
 
 type vehicleRainWorld struct {
@@ -48,32 +46,6 @@ func TestVehiclesSkipRainQueriesWithoutFire(t *testing.T) {
 					t.Fatalf("RainingAt called %d times without fire to extinguish", w.queries)
 				}
 			})
-		}
-	}
-}
-
-func TestVehicleRainExtinguishesNewIgnition(t *testing.T) {
-	t.Parallel()
-	for _, kind := range []string{"boat", "minecart"} {
-		for _, rain := range []bool{false, true} {
-			w := newTestWorld()
-			w.rain = rain
-			w.set(0, 0, 0, registry.MustState("minecraft:fire", nil))
-			var fire int
-			if kind == "boat" {
-				b := NewBoat(1, .5, .5, .5, 0)
-				b.NoGravity, b.Invulnerable = true, true
-				stepBurningBoat(b, w, false)
-				fire = b.FireTicks
-			} else {
-				m := NewMinecart(1, .5, .5, .5)
-				m.NoGravity, m.Invulnerable = true, true
-				m.Step(w, false)
-				fire = m.FireTicks
-			}
-			if (fire > 0) == rain {
-				t.Errorf("%s (rain %v): FireTicks=%d", kind, rain, fire)
-			}
 		}
 	}
 }

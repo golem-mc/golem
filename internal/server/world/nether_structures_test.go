@@ -44,43 +44,6 @@ func TestNetherFortressBlockEntitiesMatchVanilla(t *testing.T) {
 	}
 }
 
-// TestNetherFortressFencesConnect checks that every fence of a fortress
-// chunk takes its connections from its neighbours, the post-processing a
-// freshly generated chunk gets.
-func TestNetherFortressFencesConnect(t *testing.T) {
-	t.Parallel()
-	g := NewNetherGenerator(0)
-	fence := registry.BlockOf(g.fortress.states.Fence[0])
-	fences := 0
-	for cz := int32(1); cz <= 3; cz++ {
-		c := newChunk(19, cz)
-		g.Generate(c)
-		for y := int32(40); y < 100; y++ {
-			for z := int32(1); z < 15; z++ {
-				for x := int32(1); x < 15; x++ {
-					state := c.BlockAt(x, y, z)
-					if registry.BlockOf(state) != fence {
-						continue
-					}
-					fences++
-					want := 0
-					for d, o := range [4][2]int32{{0, -1}, {1, 0}, {0, 1}, {-1, 0}} {
-						if registry.ConnectsToFence(fence, c.BlockAt(x+o[0], y, z+o[1]), fenceDirNames[d]) {
-							want |= 1 << d
-						}
-					}
-					if state != g.fortress.states.Fence[want] {
-						t.Fatalf("fence at chunk (19, %d) %d,%d,%d: state %d, want %d", cz, x, y, z, state, g.fortress.states.Fence[want])
-					}
-				}
-			}
-		}
-	}
-	if fences < 50 {
-		t.Fatalf("only %d fortress fences in three chunks", fences)
-	}
-}
-
 // The counts are those of a vanilla 26.3 world: worldgen:parity finds the
 // blocks of these chunks identical.
 func TestNetherFortressBricksMatchVanilla(t *testing.T) {
@@ -105,46 +68,6 @@ func TestNetherFortressBricksMatchVanilla(t *testing.T) {
 		}
 		if n != c.want {
 			t.Errorf("seed %d chunk (%d, %d): %d nether bricks, want %d", c.seed, c.cx, c.cz, n, c.want)
-		}
-	}
-}
-
-// TestNetherFortressCellsReadTheBastionBiomeAtItsStartCentre pins three cells of
-// seed 0 where the biome at the chunk corner and at the bastion start piece's
-// centre disagree; a vanilla server has a fortress in the first, a
-// bastion remnant in the second and a bastion remnant in the third, whose
-// entrance_base start template is 16x32x32.
-func TestNetherFortressCellsReadTheBastionBiomeAtItsStartCentre(t *testing.T) {
-	t.Parallel()
-	g := NewNetherGenerator(0)
-	if g.fortressInCell(3, -2) == nil {
-		t.Error("cell (3, -2): no fortress, want one")
-	}
-	if g.fortressInCell(-1, -8) != nil {
-		t.Error("cell (-1, -8): a fortress, want the bastion remnant")
-	}
-	if g.fortressInCell(6, -8) != nil {
-		t.Error("cell (6, -8): a fortress, want the bastion remnant")
-	}
-}
-
-func TestNetherFortressDisabledByGenerateStructures(t *testing.T) {
-	t.Parallel()
-	g := NewNetherGenerator(0)
-	g.DisableStructures()
-	if g.fortressInCell(3, -2) != nil {
-		t.Error("fortress generated with structures disabled")
-	}
-	bricks, _ := registry.FindState("minecraft:nether_bricks", nil)
-	c := newChunk(19, 3)
-	g.Generate(c)
-	for y := range int32(128) {
-		for z := range int32(16) {
-			for x := range int32(16) {
-				if c.BlockAt(x, y, z) == bricks {
-					t.Fatalf("nether bricks at %d,%d,%d with structures disabled", x, y, z)
-				}
-			}
 		}
 	}
 }

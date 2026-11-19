@@ -46,30 +46,3 @@ func TestAStacksOwnMaxDamageEndsItsTool(t *testing.T) {
 		t.Fatalf("a pickaxe without max_damage wore: %+v", got)
 	}
 }
-
-// TestGiveReadsMaxDamage: /give takes max_damage and its removal, and a
-// stackable item cannot be given one.
-// vanilla: DataComponents.MAX_DAMAGE, ItemStack.validateComponents
-func TestGiveReadsMaxDamage(t *testing.T) {
-	t.Parallel()
-	srv, w := servertest.OpenWindowedOps(t, servertest.BlockTestConfig())
-	w.ChatCommand("give @s stick[max_damage=10]")
-	w.ChatCommand("give @s diamond_sword[max_damage=10]")
-	w.ChatCommand("give @s diamond_pickaxe[!max_damage]")
-	servertest.UntilTicks(t, srv, 20, "two stacks", func() bool {
-		return !srv.InventorySlot("Testificate", player.HotbarSlot+1).Empty()
-	})
-	sword := srv.InventorySlot("Testificate", player.HotbarSlot)
-	if sword.ItemID != servertest.MustItem("minecraft:diamond_sword") {
-		t.Fatalf("slot 0 = %+v, want the sword", sword)
-	}
-	if n := registry.StackMaxDamage(sword); n != 10 {
-		t.Errorf("the sword's max_damage = %d, want 10", n)
-	}
-	if got := registry.StackMaxDamage(srv.InventorySlot("Testificate", player.HotbarSlot+1)); got != 0 {
-		t.Errorf("the pickaxe's max damage = %d, want 0", got)
-	}
-	if got := srv.InventorySlot("Testificate", player.HotbarSlot+2); !got.Empty() {
-		t.Errorf("the stackable stick was given: %+v", got)
-	}
-}

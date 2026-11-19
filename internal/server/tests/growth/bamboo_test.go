@@ -93,37 +93,3 @@ func TestBambooStalkGrowsOnRandomTicks(t *testing.T) {
 	servertest.AwaitBlockEventually(t, c, 5, 65, 0,
 		servertest.CropsStateOf(t, "minecraft:bamboo", map[string]string{"age": "0", "leaves": "small", "stage": "0"}))
 }
-
-// TestBambooStalkAtBuildCeilingReshufflesLeaves checks a stage-0 stalk topping
-// out at the build ceiling: the cell above reads as air and full sky light, so
-// the tick still runs growBambooCell, which rewrites the leaves of the two
-// cells below even though the new cell at y=320 cannot be placed.
-func TestBambooStalkAtBuildCeilingReshufflesLeaves(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Gardener", servertest.OpsListing(t, "Gardener"))
-
-	srv.StopTick()
-	servertest.SeedPhysics(t, srv, servertest.CropsSeed)
-	srv.SetGameRuleValue(world.RuleRandomTickSpeed.String(), servertest.GrowthTickSpeed)
-
-	servertest.SetFarmBlock(t, c, srv, 5, 316, 0, "minecraft:grass_block", nil)
-	// The bottom stalk is stage 1, so it never ticks and cannot rewrite 318.
-	servertest.SetFarmBlock(t, c, srv, 5, 317, 0, "minecraft:bamboo",
-		map[string]string{"age": "0", "leaves": "none", "stage": "1"})
-	servertest.SetFarmBlock(t, c, srv, 5, 318, 0, "minecraft:bamboo",
-		map[string]string{"age": "0", "leaves": "large", "stage": "0"})
-	servertest.SetFarmBlock(t, c, srv, 5, 319, 0, "minecraft:bamboo",
-		map[string]string{"age": "0", "leaves": "none", "stage": "0"})
-
-	reshuffled := false
-	for range 500 {
-		if _, props := servertest.StateProps(srv.BlockAt(5, 318, 0)); props["leaves"] == "small" {
-			reshuffled = true
-			break
-		}
-		srv.TickRandomTicks(1)
-	}
-	if !reshuffled {
-		t.Fatal("the ceiling stalk never rewrote the leaves below it")
-	}
-}

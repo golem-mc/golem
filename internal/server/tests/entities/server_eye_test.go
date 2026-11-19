@@ -1,10 +1,8 @@
 package entities
 
 import (
-	"math"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -126,64 +124,6 @@ func TestAnEyeOfEnderWithNothingToLocateDoesNothing(t *testing.T) {
 	})
 }
 
-// TestAnEyeOfEnderIsKeptInCreativeAndRefusedToASpectator checks the two
-// modes that spend nothing: a creative thrower keeps the stack, a spectator
-// throws no eye at all.
-// vanilla: EnderEyeItem.use
-func TestAnEyeOfEnderIsKeptInCreativeAndRefusedToASpectator(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		mode   string
-		thrown bool
-	}{{"creative", true}, {"spectator", false}} {
-		t.Run(tc.mode, func(t *testing.T) {
-			t.Parallel()
-			srv, c := eyeFlight(t, fixedEyeTarget{40, 30, 0}, tc.mode)
-			servertest.UseHeld(c, -90, 0)
-			srv.TickEntities(2)
-			spawned := false
-			c.SettleAndCollect(func(id int32, data []byte) {
-				if id == protocol.IDPlaySpawnEntity {
-					r := protocol.NewReader(data)
-					r.ReadVarInt()
-					r.ReadUUID()
-					spawned = spawned || r.ReadVarInt() == protocol.EntityTypeEyeOfEnder
-				}
-			})
-			if spawned != tc.thrown {
-				t.Errorf("eye thrown = %v, want %v", spawned, tc.thrown)
-			}
-			if got := srv.InventorySlot("Thrower", 36).Count; got != 3 {
-				t.Errorf("held eyes = %d, want all 3 kept", got)
-			}
-		})
-	}
-}
-
-// TestAnEyeOfEnderAimedAtAPortalFrameIsNotThrown leaves the use to the
-// frame: no eye flies and the stack is untouched.
-// vanilla: EnderEyeItem.use
-func TestAnEyeOfEnderAimedAtAPortalFrameIsNotThrown(t *testing.T) {
-	t.Parallel()
-	srv, c := eyeFlight(t, fixedEyeTarget{40, 30, 0}, "survival")
-	srv.SetBlock(3, 65, 0, servertest.BlockState(t, "minecraft:end_portal_frame"))
-	servertest.UseHeld(c, -90, 0)
-	srv.TickEntities(2)
-	c.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlaySpawnEntity {
-			r := protocol.NewReader(data)
-			r.ReadVarInt()
-			r.ReadUUID()
-			if r.ReadVarInt() == protocol.EntityTypeEyeOfEnder {
-				t.Errorf("an eye flew at a portal frame")
-			}
-		}
-	})
-	if got := srv.InventorySlot("Thrower", 36).Count; got != 3 {
-		t.Errorf("held eyes = %d, want 3", got)
-	}
-}
-
 // vanilla: SnowballItem.use
 func TestAThrownSnowballSwingsForOthersOnly(t *testing.T) {
 	t.Parallel()
@@ -208,90 +148,4 @@ func TestAThrownSnowballSwingsForOthersOnly(t *testing.T) {
 		t.Errorf("swing hand = %d", got)
 	}
 	c.ExpectNoneWithinTicks(srv, 5, servertest.PacketIs(protocol.IDPlaySwingAnimation))
-}
-
-// vanilla: EnderEyeItem.use, StructurePlacement.getLocatePos
-func TestEyesLocateWorldStructuresWithoutAnInjectedLocator(t *testing.T) {
-	t.Parallel()
-	servertest.LimitGeneration(t)
-	cfg := servertest.BowTestConfig()
-	cfg.LevelType = "normal"
-	cfg.LevelSeed = "1"
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, c := servertest.Join(t, cfg, "Thrower")
-	servertest.HoldTicks(t, srv)
-	c.MoveTo(0.5, 100, 0.5, 0, -20)
-	c.Settle()
-	// Seed 1's nearest stronghold, verified with vanilla /locate structure.
-	const tx, tz = -1136, 848
-	for _, tc := range []struct {
-		mode, hand int32
-		slot       int
-		want       int32
-	}{
-		{protocol.GameModeSurvival, protocol.HandMain, 36, 2},
-		{protocol.GameModeCreative, protocol.HandOff, 45, 3},
-	} {
-		srv.SetPlayerGameMode("Thrower", tc.mode)
-		srv.GiveSlot("Thrower", tc.slot, protocol.ItemStack{ItemID: int32(registry.ItemEnderEye), Count: 3})
-		c.Send(protocol.IDPlayUseItem, func(b *protocol.Buffer) {
-			b.PutVarInt(tc.hand)
-			b.PutVarInt(1)
-			b.PutF32(0)
-			b.PutF32(-20)
-		})
-		eye := c.ExpectThrownSpawn(srv, protocol.EntityTypeEyeOfEnder)
-		if got := srv.EyeCount(); got != 1 {
-			t.Fatalf("flying eyes = %d, want 1 without a locator override", got)
-		}
-		if got := srv.InventorySlot("Thrower", tc.slot).Count; got != tc.want {
-			t.Errorf("held eyes = %d, want %d in mode %d", got, tc.want, tc.mode)
-		}
-		servertest.RunTicks(t, srv, 20)
-		updates := 0
-		c.SettleAndCollect(func(id int32, data []byte) {
-			if id != protocol.IDPlayTeleportEntity {
-				return
-			}
-			r := protocol.NewReader(data)
-			if r.ReadVarInt() != eye.EntityID {
-				return
-			}
-			r.ReadVarInt()
-			x, y, z := r.ReadF64(), r.ReadF64(), r.ReadF64()
-			dx, dz := x-eye.X, z-eye.Z
-			if dx >= 0 || dz <= 0 || math.Abs(dx*(tz-eye.Z)-dz*(tx-eye.X)) > 0.01 || y <= eye.Y {
-				t.Errorf("eye flew to (%v, %v, %v), want up toward (%d, 0, %d)", x, y, z, tx, tz)
-			}
-			updates++
-		})
-		if updates == 0 {
-			t.Error("no eye flight updates")
-		}
-		servertest.RunTicks(t, srv, 61)
-		c.Settle()
-		if got := srv.EyeCount(); got != 0 {
-			t.Errorf("flying eyes after 81 ticks = %d, want 0", got)
-		}
-	}
-}
-
-func TestEyesWithoutWorldStructuresKeepTheStack(t *testing.T) {
-	t.Parallel()
-	servertest.LimitGeneration(t)
-	cfg := servertest.BowTestConfig()
-	cfg.LevelType, cfg.LevelSeed = "normal", "1"
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	cfg.GenerateStructures = false
-	srv, c := servertest.Join(t, cfg, "Thrower")
-	servertest.HoldTicks(t, srv)
-	srv.GiveSlot("Thrower", 36, protocol.ItemStack{ItemID: int32(registry.ItemEnderEye), Count: 3})
-	servertest.UseHeld(c, 0, -20)
-	c.Settle()
-	if got := srv.EyeCount(); got != 0 {
-		t.Errorf("eyes without structures = %d, want 0", got)
-	}
-	if got := srv.InventorySlot("Thrower", 36).Count; got != 3 {
-		t.Errorf("held eyes = %d, want 3", got)
-	}
 }

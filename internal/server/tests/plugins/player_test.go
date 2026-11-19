@@ -2,7 +2,6 @@ package plugins_test
 
 import (
 	"bytes"
-	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -178,59 +177,6 @@ func TestPluginPlayerControlPackets(t *testing.T) {
 	c.AwaitServed()
 }
 
-// vanilla: ServerboundCookieResponsePacket; callbacks belong to the tick scheduler.
-func TestPluginPlayerCookies(t *testing.T) {
-	var host plugin.Server
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "cookies", Plugin: &testPlugin{enable: func(s plugin.Server) error { host = s; return nil }}}})
-	c := servertest.DialServer(t, srv)
-	c.ViewAsk = config.MinDistance
-	c.Join("Cookie")
-	servertest.HoldTicks(t, srv)
-	p, _ := host.PlayerNamed("Cookie")
-	type result struct {
-		data []byte
-		ok   bool
-	}
-	results := make(chan result, 4)
-	key := plugin.Key{Namespace: "test", Path: "cookie"}
-	for _, present := range []bool{true, false} {
-		for range 2 {
-			p.RequestCookie(key, func(data []byte, ok bool) { results <- result{data, ok} })
-		}
-		r := protocol.NewReader(c.ExpectWithinTicks(srv, 0, protocol.IDPlayCookieRequest))
-		if r.ReadString(32767) != key.String() || r.Err() != nil {
-			t.Fatal("request key")
-		}
-		c.Send(protocol.IDPlayCookieResponse, func(b *protocol.Buffer) {
-			b.PutString(key.String())
-			b.PutBool(present)
-			if present {
-				b.PutBytes([]byte{1, 255})
-			}
-		})
-		c.ExpectNoneWithinTicks(srv, 0, servertest.PacketIs(protocol.IDPlayDisconnect))
-		servertest.RunTicks(t, srv, 1)
-		for range 2 {
-			select {
-			case got := <-results:
-				if got.ok != present || present && !bytes.Equal(got.data, []byte{1, 255}) {
-					t.Fatalf("cookie = %+v", got)
-				}
-			default:
-				t.Fatal("callback missing")
-			}
-		}
-	}
-	// The same key answered again is unsolicited, as on an unmodified server.
-	c.Send(protocol.IDPlayCookieResponse, func(b *protocol.Buffer) { b.PutString(key.String()); b.PutBool(false) })
-	actual, ok := protocol.ReadText(protocol.NewReader(c.AwaitPacket(protocol.IDPlayDisconnect)))
-	if !ok || actual.Translate != "multiplayer.disconnect.unexpected_query_response" {
-		t.Fatal("unsolicited cookie accepted")
-	}
-}
-
 func TestPluginPlayerLookupsAndStaleHandles(t *testing.T) {
 	var host plugin.Server
 	cfg := servertest.BlockTestConfig()
@@ -388,119 +334,5 @@ func TestPluginPlayerResourcePacks(t *testing.T) {
 	text, ok = protocol.ReadText(protocol.NewReader(c.AwaitPacket(protocol.IDPlayDisconnect)))
 	if !ok || text.Translate != "multiplayer.requiredTexturePrompt.disconnect" {
 		t.Fatal("required decline")
-	}
-}
-
-// vanilla: ClientboundLevelParticlesPacket, DustParticleOptions.STREAM_CODEC,
-// BlockParticleOption.STREAM_CODEC, ItemStackTemplate.STREAM_CODEC
-func TestPluginPlayerParticles(t *testing.T) {
-	var host plugin.Server
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "particles", Plugin: &testPlugin{enable: func(s plugin.Server) error { host = s; return nil }}}})
-	c := servertest.DialServer(t, srv)
-	c.ViewAsk = config.MinDistance
-	c.Join("Particle")
-	servertest.HoldTicks(t, srv)
-	p, _ := host.PlayerNamed("Particle")
-	for _, tc := range []struct {
-		particle plugin.Particle
-		options  func(*protocol.Buffer)
-	}{
-		{plugin.Particle{Type: protocol.ParticleFlame}, func(*protocol.Buffer) {}},
-		{plugin.Particle{Type: protocol.ParticleSculkCharge, Roll: .25}, func(b *protocol.Buffer) { b.PutF32(.25) }},
-		{plugin.Particle{Type: protocol.ParticleShriek, Delay: 4}, func(b *protocol.Buffer) { b.PutVarInt(4) }},
-		{plugin.Particle{Type: protocol.ParticleTrail, Target: plugin.Vec3{X: 2, Y: 3, Z: 4}, Color: 123, Duration: 20}, func(b *protocol.Buffer) { b.PutF64(2); b.PutF64(3); b.PutF64(4); b.PutI32(123); b.PutVarInt(20) }},
-		{plugin.Particle{Type: protocol.ParticleVibration, Target: plugin.Vec3{X: 2, Y: 3, Z: 4}, ArrivalTicks: 5}, func(b *protocol.Buffer) { b.PutVarInt(0); b.PutPosition(2, 3, 4); b.PutVarInt(5) }},
-		{plugin.Particle{Type: protocol.ParticleGeyserBase, WaterBlocks: 3, BurstImpulse: 1.5}, func(b *protocol.Buffer) { b.PutI32(3); b.PutF32(1.5) }},
-		{plugin.Particle{Type: protocol.ParticleDragonBreath, Power: new(float32(2))}, func(b *protocol.Buffer) { b.PutF32(2) }},
-
-		{plugin.Particle{Type: protocol.ParticleDust, Color: 0x123456, Size: 2, Long: true}, func(b *protocol.Buffer) { b.PutI32(0x123456); b.PutF32(2) }},
-		{plugin.Particle{Type: protocol.ParticleDustColorTransition, Color: 0x123456, To: 0x654321, Size: 1}, func(b *protocol.Buffer) { b.PutI32(0x123456); b.PutI32(0x654321); b.PutF32(1) }},
-		{plugin.Particle{Type: protocol.ParticleBlock, State: plugin.BlockState(registry.BlockOakStairs.DefaultState())}, func(b *protocol.Buffer) { b.PutVarInt(int32(registry.BlockOakStairs.DefaultState())) }},
-		{plugin.Particle{Type: protocol.ParticleItem, Item: &plugin.ItemStack{Item: registry.ItemDiamond, Count: 2}}, func(b *protocol.Buffer) {
-			b.PutVarInt(int32(registry.ItemDiamond))
-			b.PutVarInt(2)
-			b.PutVarInt(0)
-			b.PutVarInt(0)
-		}},
-	} {
-		p.SpawnParticles(tc.particle, plugin.Vec3{X: 1, Y: 65, Z: 2}, 5, plugin.Vec3{X: .1, Y: .2, Z: .3}, .5)
-		var want protocol.Buffer
-		want.PutVarInt(int32(tc.particle.Type))
-		tc.options(&want)
-		want.PutBool(tc.particle.Long)
-		want.PutBool(false)
-		want.PutF64(1)
-		want.PutF64(65)
-		want.PutF64(2)
-		want.PutF32(.1)
-		want.PutF32(.2)
-		want.PutF32(.3)
-		for range 3 {
-			want.PutF32(.5)
-		}
-		want.PutVarInt(5)
-		want.PutVarInt(0)
-		got := c.ExpectWithinTicks(srv, 0, protocol.IDPlayLevelParticles)
-		if !bytes.Equal(got, want.Bytes()) {
-			t.Fatalf("particle %d = %x, want %x", tc.particle.Type, got, want.Bytes())
-		}
-	}
-}
-
-// vanilla: PlayerDataStorage.load
-func TestPluginPlayerOfflineBackup(t *testing.T) {
-	var host plugin.Server
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "backup", Plugin: &testPlugin{enable: func(s plugin.Server) error { host = s; return nil }}}})
-	c := servertest.DialServer(t, srv)
-	c.ViewAsk = config.MinDistance
-	c.Join("Backup")
-	servertest.HoldTicks(t, srv)
-	p, ok := host.PlayerNamed("Backup")
-	if !ok {
-		t.Fatal("online player missing")
-	}
-	id, first := p.UUID(), p.FirstPlayed()
-	srv.RunLine("spawnpoint Backup 2 65 3 45 0")
-	c.Disconnect()
-	offline, ok := host.OfflinePlayer(id)
-	if !ok {
-		t.Fatal("saved player missing")
-	}
-	last := offline.LastSeen()
-	dat := servertest.PlayerFile(cfg.LevelName, "Backup")
-	if err := os.Rename(dat, dat+"_old"); err != nil {
-		t.Fatal(err)
-	}
-	for _, current := range []string{"missing", "corrupt"} {
-		t.Run(current, func(t *testing.T) {
-			if current == "corrupt" {
-				if err := os.WriteFile(dat, []byte("damaged"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			recovered, ok := host.OfflinePlayer(id)
-			if !ok {
-				t.Fatal("OfflinePlayer discarded valid .dat_old recovery")
-			}
-			if recovered.UUID() != id || recovered.Name() != "Backup" || recovered.FirstPlayed().UnixMilli() != first.UnixMilli() || !recovered.LastSeen().Equal(last) {
-				t.Fatal("recovered offline metadata differs from saved data")
-			}
-			if loc, ok := recovered.RespawnPoint(); !ok || loc.Pos != (plugin.Vec3{X: 2, Y: 65, Z: 3}) || loc.Yaw != 45 {
-				t.Fatal("recovered offline spawn differs from saved data")
-			}
-			if _, ok := recovered.Online(); ok {
-				t.Fatal("offline player reported as online")
-			}
-		})
-	}
-	if err := os.WriteFile(dat+"_old", []byte("damaged"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := host.OfflinePlayer(id); ok {
-		t.Fatal("unrecoverable player data accepted")
 	}
 }

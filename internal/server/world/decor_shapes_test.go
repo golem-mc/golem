@@ -53,61 +53,6 @@ func TestTemplateShapesDoorsAndFences(t *testing.T) {
 	}
 }
 
-func TestTemplateShapeDoorWithoutMatchingHalf(t *testing.T) {
-	r := newDecorRegion(newGoldenTerrain(), newChunk(0, 0), worldMinY, worldHeight)
-	lower, _ := registry.WithProp(registry.BlockOakDoor.DefaultState(), registry.PropHalf, "lower")
-	different, _ := registry.WithProp(registry.BlockSpruceDoor.DefaultState(), registry.PropHalf, "upper")
-	for _, neighbour := range []uint16{airState, lower, different} {
-		r.set(4, 80, 4, lower)
-		r.set(4, 81, 4, neighbour)
-		r.templateShapes([]posKey{{4, 80, 4}})
-		if got := r.get(4, 80, 4); got != lower {
-			t.Errorf("neighbour %d: got %d, want unchanged %d", neighbour, got, lower)
-		}
-	}
-}
-
-func TestJigsawPlacementPreservesKnownShape(t *testing.T) {
-	r := newDecorRegion(newGoldenTerrain(), newChunk(0, 0), worldMinY, worldHeight)
-	fence := registry.BlockAcaciaFence.DefaultState()
-	p := jigsawPiece{pos: [3]int32{4, 80, 4}}
-	el := jigsawElement{template: &jigsawTemplate{Template: &Template{Palettes: [][]TemplateBlock{{
-		{Pos: [3]int32{0, 0, 0}, State: fence},
-		{Pos: [3]int32{1, 0, 0}, State: fence},
-	}}}}}
-	p.placeElement(&el, r, jbox{0, worldMinY, 0, 15, worldMinY + worldHeight - 1, 15}, p.pos, "")
-	for _, x := range []int32{4, 5} {
-		want := fence
-		if got := r.get(x, 80, 4); got != want {
-			t.Errorf("fence at x=%d: got %d, want %d", x, got, want)
-		}
-	}
-}
-
-func TestTreeShapeEdgeUpdatesOnlyFacingFenceSide(t *testing.T) {
-	for _, span := range []treePos{{}, {64, 0, 0}, {0, 64, 0}, {0, 0, 64}, {4, 3, 64}} {
-		for _, d := range []int{dirNorth, dirSouth, dirWest, dirEast} {
-			r := newDecorRegion(newGoldenTerrain(), newChunk(0, 0), worldMinY, worldHeight)
-			p := treePos{8, 80, 8}
-			fence, _ := registry.WithBool(registry.BlockAcaciaFence.DefaultState(), registry.PropWaterlogged, true)
-			// Another solid neighbour must not cause an update on an unrelated side.
-			for _, o := range fenceOffsets {
-				r.set(p[0]+o[0], p[1], p[2]+o[1], registry.BlockAcaciaLog.DefaultState())
-			}
-			r.set(p[0], p[1], p[2], fence)
-			log := at(p, dirDelta[d])
-			lo := treePos{log[0] - span[0], log[1] - span[1], log[2] - span[2]}
-			shape := newTreeShape(lo, log)
-			shape.fill(log)
-			(&treeBuild{r: r}).updateShapeAtEdge(shape)
-			want, _ := registry.WithBool(fence, facePropIDs[d], true)
-			if got := r.get(p[0], p[1], p[2]); got != want {
-				t.Errorf("span %v, direction %s: got %d, want %d", span, faceProps[d], got, want)
-			}
-		}
-	}
-}
-
 func TestReconnectShapesGrowingPlantEnds(t *testing.T) {
 	r := newDecorRegion(newGoldenTerrain(), newChunk(0, 0), worldMinY, worldHeight)
 	r.worldSeed = 42

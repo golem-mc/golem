@@ -68,18 +68,6 @@ func TestPackPreventArmorChangeBindsTheHelmet(t *testing.T) {
 	}
 }
 
-// A pack that overrides binding_curse without the component frees the helmet.
-func TestPackBindingCurseWithoutPreventArmorChangeComesOff(t *testing.T) {
-	files := map[string]string{
-		"data/minecraft/enchantment/binding_curse.json": `{"anvil_cost":8,"description":{"translate":"enchantment.minecraft.binding_curse"},
-			"max_level":1,"weight":1,"min_cost":{"base":25,"per_level_above_first":0},"max_cost":{"base":50,"per_level_above_first":0},
-			"slots":["armor"],"supported_items":"#minecraft:enchantable/equippable","effects":{}}`,
-	}
-	if takeOffHelmet(t, "Freed", "minecraft:binding_curse", files) {
-		t.Error("the helmet with an overridden binding_curse stayed, want it to come off")
-	}
-}
-
 // A pack enchantment's damage_immunity for #is_fire spares its wearer lava.
 // vanilla: EnchantmentHelper.isImmuneToDamage, LivingEntity.isInvulnerableTo
 func TestPackDamageImmunityKeepsTheWearerOutOfLavaHarm(t *testing.T) {

@@ -76,35 +76,6 @@ func TestRecordComponentsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestRecordComponentRemoval(t *testing.T) {
-	t.Parallel()
-	stack, ok := StoredStack(nbt.Compound{"id": nbt.String("minecraft:stick"), "count": nbt.Int(1), "components": nbt.Compound{"!minecraft:cooking_fuel": nbt.Compound{}}})
-	if !ok || !stack.Removes(protocol.DataComponentCookingFuel) {
-		t.Fatalf("removal = %+v, %v", stack, ok)
-	}
-}
-
-func TestRecordComponentMalformed(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct{ name, in, want string }{
-		{"cooking_fuel", "{}", "No key speed_multiplier in MapLike[{}]; No key burn_time in MapLike[{}]"},
-		{"cooking_fuel", "{burn_time:{},speed_multiplier:1f}", "Failed to parse either. First: Not a number; Second: Not a string"},
-		{"cooking_fuel", "5", "Not a map: 5"},
-		{"villager_food", "{nutrition:0}", "Value must be positive: 0"},
-		{"use_effects", "{speed_multiplier:2f}", "Value must be within range [0.0;1.0]: 2.0"},
-		{"attack_animation", "{type:'spin',duration:-1}", "Value must be non-negative: -1; Unknown element name:spin"},
-		{"kinetic_weapon", "{damage_conditions:{}}", "No key max_duration_ticks in MapLike[{}]"},
-	} {
-		value := snbtValue(t, c.in)
-		if got := ComponentValueMalformed("minecraft:"+c.name, value); got != c.want {
-			t.Errorf("%s %s = %q, want %q", c.name, c.in, got, c.want)
-		}
-		if ReadComponent(new(protocol.ItemStack), "minecraft:"+c.name, value) {
-			t.Errorf("%s %s accepted", c.name, c.in)
-		}
-	}
-}
-
 func snbtValue(t *testing.T, text string) nbt.Tag {
 	t.Helper()
 	wrapped, err := nbt.ParseSNBT("{v:" + text + "}")

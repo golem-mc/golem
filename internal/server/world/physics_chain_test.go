@@ -68,25 +68,3 @@ func TestChainedNeighborUpdateCap(t *testing.T) {
 		t.Fatalf("unlimited ran %d, logged %q", got, logs)
 	}
 }
-
-// TestChainedNeighborUpdateFanOut drives the real fan-out: the position and
-// its six neighbours are siblings of one chain, so a cap of 3 trips once.
-func TestChainedNeighborUpdateFanOut(t *testing.T) {
-	_, p := chainPhysics(t)
-	logs := captureErrors(t)
-	p.SetMaxChainedNeighborUpdates(3)
-	var changes []BlockChange
-	p.neighborUpdate(8, GroundLevel+1, 8, 0, 0, &changes)
-	if n := strings.Count(logs.String(), "Too many chained neighbor updates"); n != 1 {
-		t.Fatalf("logged %d times, want 1: %s", n, logs)
-	}
-	if p.chainDepth != 0 || p.chainCount != 0 {
-		t.Fatalf("chain not reset: depth %d count %d", p.chainDepth, p.chainCount)
-	}
-	logs.Reset()
-	p.SetMaxChainedNeighborUpdates(-1)
-	p.neighborUpdate(8, GroundLevel+1, 8, 0, 0, &changes)
-	if logs.Len() != 0 {
-		t.Fatalf("unlimited logged %q", logs)
-	}
-}

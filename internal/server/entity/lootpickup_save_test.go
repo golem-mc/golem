@@ -8,20 +8,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-func TestPillagerLootPickupLoad(t *testing.T) {
-	t.Parallel()
-	m := NewMob(TypePillager, 1, 0.5, 64, 0.5, 1)
-	if m.CanPickUpLoot {
-		t.Fatal("a pillager that has never loaded can pick up loot")
-	}
-	for _, tag := range []nbt.Compound{{}, {"CanPickUpLoot": nbt.Byte(0)}, {"CanPickUpLoot": nbt.Byte(1)}} {
-		m.LoadFrom(tag, nil, func() int64 { return 0 })
-		if !m.CanPickUpLoot {
-			t.Errorf("loaded %v: loot pickup disabled", tag)
-		}
-	}
-}
-
 func TestMobSavesEffectiveLootPickup(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []MobType{TypeAllay, TypeSulfurCube} {

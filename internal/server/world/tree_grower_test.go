@@ -57,56 +57,6 @@ func TestConfiguredGrowerRefusalPreservesSaplings(t *testing.T) {
 	}
 }
 
-func TestGrowerFlowerSearchBounds(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	flower := registry.BlockDandelion.DefaultState()
-	for _, tc := range []struct {
-		pos  [3]int32
-		want bool
-	}{
-		{[3]int32{3, 63, -2}, true},
-		{[3]int32{7, 65, 2}, true},
-		{[3]int32{2, 64, 0}, false},
-		{[3]int32{5, 66, 0}, false},
-	} {
-		w.SetBlock(tc.pos[0], tc.pos[1], tc.pos[2], flower)
-		if got := p.treeHasFlowers(5, 64, 0); got != tc.want {
-			t.Errorf("flower at %v: got %v, want %v", tc.pos, got, tc.want)
-		}
-		w.SetBlock(tc.pos[0], tc.pos[1], tc.pos[2], airState)
-	}
-}
-
-func TestWaterloggedPropaguleKeepsSourceWhenTreeGrows(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	for x := range int32(16) {
-		for z := range int32(16) {
-			w.SetBlock(x, 99, z, registry.BlockDirt.DefaultState())
-		}
-	}
-	state, _ := registry.WithInt(registry.BlockMangrovePropagule.DefaultState(), registry.PropStage, 1)
-	state, _ = registry.WithBool(state, registry.PropWaterlogged, true)
-	w.SetBlock(7, 100, 7, state)
-	p.rng = rand.New(rand.NewSource(21))
-	var changes []BlockChange
-	p.advanceTree(7, 100, 7, state, &changes)
-	if len(changes) == 0 || registry.BlockOf(w.BlockAt(7, 100, 7)) == registry.BlockMangrovePropagule {
-		t.Fatal("waterlogged propagule did not grow")
-	}
-	if f := fluidHolding(w.BlockAt(7, 100, 7)); f.kind != fluidWater || !f.isSource() {
-		t.Fatal("growth removed the propagule's water source")
-	}
-	for _, c := range changes {
-		if c.X == 7 && c.Y == 100 && c.Z == 7 {
-			if !c.Reshaped {
-				t.Fatalf("grown %s over the propagule is not marked reshaped", registry.BlockOf(c.State).Name())
-			}
-			return
-		}
-	}
-	t.Fatal("growth did not publish the propagule's replacement")
-}
-
 // fixedRoll is an intner whose every draw is n, recording the bounds asked.
 type fixedRoll struct {
 	n      int

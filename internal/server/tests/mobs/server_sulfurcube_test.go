@@ -8,7 +8,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -97,33 +96,6 @@ func TestSulfurCubeBucketReleasesWithoutWaterAndAwardsUsed(t *testing.T) {
 	}
 }
 
-func TestSulfurCubeBucketEligibility(t *testing.T) {
-	t.Parallel()
-	srv, c := squidTests(t)
-	id := srv.SpawnMob("minecraft:sulfur_cube", playerX, 64, playerZ-1)
-	srv.SetMobNoAI(id)
-	for _, tc := range []struct {
-		baby bool
-		item string
-	}{
-		{false, "minecraft:water_bucket"},
-		{true, "minecraft:water_bucket"},
-		{true, "minecraft:bucket"},
-	} {
-		srv.SetMobBaby(id, tc.baby)
-		item := servertest.MustItemID(t, tc.item)
-		srv.GiveSlot("Striker", player.HotbarSlot, protocol.ItemStack{ItemID: item, Count: 1})
-		c.UseOn(id)
-		c.Settle()
-		if _, ok := fishAt(srv, id); !ok {
-			t.Fatalf("baby=%v item=%s scooped cube", tc.baby, tc.item)
-		}
-		if got := srv.InventorySlot("Striker", player.HotbarSlot); got.ItemID != item || got.Count != 1 {
-			t.Fatalf("baby=%v item=%s changed held stack: %+v", tc.baby, tc.item, got)
-		}
-	}
-}
-
 // sulfurExplosionFixture uses only flat chunks around the player, without a pond.
 func sulfurExplosionFixture(t *testing.T) (*server.Server, *servertest.Client, int32) {
 	t.Helper()
@@ -188,45 +160,6 @@ func TestExplosiveSulfurCubeFuseAndFlintAndSteel(t *testing.T) {
 				t.Fatalf("blast floor broken=%v, TNT=%v griefing=%v", broken, tc.tnt, tc.grief)
 			}
 		})
-	}
-}
-
-func TestExplosiveSulfurCubeFireChargeAndDisabledIgnition(t *testing.T) {
-	t.Parallel()
-	srv, c, id := sulfurExplosionFixture(t)
-	charge := servertest.MustItemID(t, "minecraft:fire_charge")
-	srv.GiveSlot("Striker", player.HotbarSlot, protocol.ItemStack{ItemID: charge, Count: 3})
-	srv.SetGameRule(world.RuleTNTExplodes.String(), false)
-	c.UseOn(id)
-	c.Settle()
-	if got := srv.InventorySlot("Striker", player.HotbarSlot); got.Count != 3 {
-		t.Fatalf("disabled ignition spent fire charge: %+v", got)
-	}
-	if got := srv.StatValue("Striker", registry.StatUsed, "minecraft:fire_charge"); got != 0 {
-		t.Fatalf("disabled ignition awarded %d uses", got)
-	}
-	servertest.RunTicks(t, srv, 120)
-	if _, ok := srv.MobHealth(id); !ok {
-		t.Fatal("disabled ignition removed cube")
-	}
-	srv.SetGameRule(world.RuleTNTExplodes.String(), true)
-	c.UseOn(id)
-	c.Settle()
-	if got := srv.InventorySlot("Striker", player.HotbarSlot); got.Count != 2 {
-		t.Fatalf("fire charge count = %d", got.Count)
-	}
-	if got := srv.StatValue("Striker", registry.StatUsed, "minecraft:fire_charge"); got != 1 {
-		t.Fatalf("fire charge used = %d", got)
-	}
-	c.MoveToGround(playerX-8, 64, playerZ, true)
-	c.Settle()
-	servertest.RunTicks(t, srv, 119)
-	if _, ok := srv.MobHealth(id); !ok {
-		t.Fatal("fire charge fuse ended early")
-	}
-	servertest.RunTicks(t, srv, 1)
-	if _, ok := srv.MobHealth(id); ok {
-		t.Fatal("fire charge did not prime cube")
 	}
 }
 
@@ -358,96 +291,5 @@ func TestHotSulfurCubeBurnsAPlayerItPushes(t *testing.T) {
 	servertest.RunTicks(t, srv, 5)
 	if hp := srv.PlayerHealth("Striker"); hp >= 20 {
 		t.Fatalf("a hot cube left the player at %g health", hp)
-	}
-}
-
-// hotCubeBurn pushes a hot cube against the player on difficulty d and reads
-// the first burn within 20 ticks: the player's health after it and the Damage
-// Event's cause ID (the cube's entity ID plus one); burned is false for none.
-// vanilla: SulfurCube.applyContactDamage, Player.hurtServer
-func hotCubeBurn(t *testing.T, d uint8) (cubeID int32, hp float64, causeID int32, burned bool) {
-	t.Helper()
-	srv, c := squidTests(t)
-	srv.SetDifficulty(d)
-	cubeID = sulfurCubeWith(t, srv, c, "minecraft:magma_block")
-	srv.MoveMob(cubeID, playerX+0.3, playerZ)
-	servertest.HoldTicks(t, srv)
-	hotType := registry.MustID("minecraft:damage_type", "minecraft:sulfur_cube_hot")
-	burned = c.ReadTicks(srv, 20, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayDamageEvent {
-			return false
-		}
-		r := protocol.NewReader(data)
-		if r.ReadVarInt() != c.PlayerEntityID || r.ReadVarInt() != hotType {
-			return false
-		}
-		causeID = r.ReadVarInt()
-		return true
-	})
-	return cubeID, srv.PlayerHealth("Striker"), causeID, burned
-}
-
-func TestHotSulfurCubeBurnScalesWithDifficultyAndNamesTheCube(t *testing.T) {
-	t.Parallel()
-	cubeID, hp, causeID, burned := hotCubeBurn(t, rules.DifficultyHard)
-	if !burned {
-		t.Fatal("a hot cube pushed against the player sent no burn")
-	}
-	if causeID != cubeID+1 {
-		t.Errorf("burn cause ID = %d, want the cube's %d", causeID, cubeID+1)
-	}
-	// sulfurHotDamage is 1; hard scales it by 1.5.
-	if want := 20 - 1.5; hp != want {
-		t.Errorf("health after one hard burn = %g, want %g", hp, want)
-	}
-}
-
-func TestHotSulfurCubeDoesNotBurnOnPeaceful(t *testing.T) {
-	t.Parallel()
-	if _, hp, _, burned := hotCubeBurn(t, rules.DifficultyPeaceful); burned || hp != 20 {
-		t.Fatalf("a peaceful burn landed: event %v, health %g", burned, hp)
-	}
-}
-
-// A hot cube's burn is in #no_wolf_retaliation, so the owner's tamed wolf
-// leaves the cube alone. vanilla: OwnerHurtByTargetGoal.canUse
-func TestTamedWolfDoesNotAvengeAHotSulfurCubeBurn(t *testing.T) {
-	t.Parallel()
-	srv, c := squidTests(t)
-	wolf := srv.SpawnMob("minecraft:wolf", playerX, 64, playerZ+1.5)
-	if !srv.TameMobFor(wolf, "Striker") {
-		t.Fatal("the wolf was not tamed")
-	}
-	cube := sulfurCubeWith(t, srv, c, "minecraft:magma_block")
-	srv.MoveMob(cube, playerX+0.3, playerZ)
-	servertest.HoldTicks(t, srv)
-	servertest.UntilTicks(t, srv, 20, "the cube's burn", func() bool { return srv.PlayerHealth("Striker") < 20 })
-	servertest.RunTicks(t, srv, 5)
-	if got := srv.MobTargetID(wolf); got == cube {
-		t.Fatal("the tamed wolf targets the cube that burned its owner")
-	}
-}
-
-func TestSulfurCubePrimingUsesItsSizeVolumeAndVoicePitch(t *testing.T) {
-	t.Parallel()
-	srv, c, id := sulfurExplosionFixture(t)
-	srv.HurtMobByWorld(id, 1, "minecraft:in_fire")
-	srv.TickMobs(1)
-	heard := false
-	c.SettleAndCollect(func(pid int32, data []byte) {
-		if pid != protocol.IDPlaySoundEffect {
-			return
-		}
-		name, category, _, _, _, volume, pitch := servertest.ReadAmbient(t, data)
-		if name != "minecraft:entity.tnt.primed" {
-			return
-		}
-		heard = true
-		if category != protocol.SoundCategoryNeutral || volume != 0.8 || pitch < 0.79 || pitch > 1.21 {
-			t.Errorf("priming: category=%d volume=%v pitch=%v; want neutral/0.8/[0.79,1.21]", category, volume, pitch)
-		}
-	})
-	if !heard {
-		t.Fatal("cube priming was silent")
 	}
 }

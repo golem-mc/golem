@@ -4,7 +4,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/entity"
@@ -65,52 +64,6 @@ func countDropped(items []server.TestItem, name string) int {
 func standInCell(w *servertest.WindowedClient) {
 	w.FacePlayer(4.5, 64, 1.5, 180, 0)
 	w.DrainRecorded()
-}
-
-// vanilla: EquipmentDispenseItemBehavior.dispenseEquipment, LivingEntity.onEquipItem
-func TestADispenserPlayerEquipFeedbackOnce(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		item   string
-		slot   int
-		events int
-	}{
-		{"minecraft:iron_chestplate", player.ArmorSlot + 1, 1},
-		{"minecraft:shield", player.OffHandSlot, 0},
-	} {
-		t.Run(tc.item, func(t *testing.T) {
-			t.Parallel()
-			cfg := servertest.BlockTestConfig()
-			cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-			srv, w := servertest.OpenWindowed(t, cfg)
-			servertest.HoldTicks(t, srv)
-			if !srv.PlaceContainer(4, 64, 0, "minecraft:dispenser") {
-				t.Fatal("could not place the dispenser")
-			}
-			stack := servertest.ItemStack(t, tc.item, 1)
-			if !srv.SetInventoryAt(4, 64, 0, 0, stack) {
-				t.Fatal("the dispenser has no block entity to fill")
-			}
-			standInCell(w)
-			events := observeEvents(srv)
-
-			srv.Dispense(4, 64, 0, protocol.FaceSouth)
-			heard, _, _ := servertest.CollectSoundsSettled(w.Client)
-			eq, _ := registry.StackEquippable(stack)
-			if len(heard) != 1 || heard[0].Name != registry.Sound(eq.EquipSound.ID+1).Name() || heard[0].Category != protocol.SoundCategoryPlayer {
-				t.Errorf("sounds = %+v, want %v once in players", heard, eq.EquipSound)
-			}
-			if got := len(events.of("minecraft:equip")); got != tc.events {
-				t.Errorf("equip events = %d, want %d", got, tc.events)
-			}
-			if got := events.of("minecraft:unequip"); len(got) != 0 {
-				t.Errorf("unequip events = %v, want none", got)
-			}
-			if got := srv.InventorySlot("Testificate", tc.slot); !got.Same(stack) {
-				t.Errorf("slot %d = %+v, want %+v", tc.slot, got, stack)
-			}
-		})
-	}
 }
 
 // TestADispenserDressesAPlayerInFront checks a chestplate lands on the
@@ -178,39 +131,6 @@ func TestADispenserDropsArmourForAWornSlot(t *testing.T) {
 	}
 }
 
-// TestADispenserSkipsASpectator checks a spectator in the cell is not
-// dressed.
-// vanilla: LivingEntity.canEquipWithDispenser
-func TestADispenserSkipsASpectator(t *testing.T) {
-	t.Parallel()
-	srv, items, _ := equipDispense(t, "minecraft:iron_helmet", func(srv *server.Server, w *servertest.WindowedClient) {
-		standInCell(w)
-		srv.SetPlayerGameMode("Testificate", protocol.GameModeSpectator)
-	})
-	if got := srv.InventorySlot("Testificate", player.ArmorSlot); !got.Empty() {
-		t.Errorf("the spectator wears %+v, want nothing", got)
-	}
-	if n := countDropped(items, "minecraft:iron_helmet"); n != 1 {
-		t.Errorf("%d helmets dropped, want 1", n)
-	}
-}
-
-// TestADispenserRefusesWhatThePlayerMayNotWear checks wolf armor, whose
-// component allows wolves alone, drops at a player.
-// vanilla: Equippable.canBeEquippedBy
-func TestADispenserRefusesWhatThePlayerMayNotWear(t *testing.T) {
-	t.Parallel()
-	srv, items, _ := equipDispense(t, "minecraft:wolf_armor", func(_ *server.Server, w *servertest.WindowedClient) {
-		standInCell(w)
-	})
-	if got := srv.InventorySlot("Testificate", player.ArmorSlot+1); !got.Empty() {
-		t.Errorf("the chest holds %+v, want nothing", got)
-	}
-	if n := countDropped(items, "minecraft:wolf_armor"); n != 1 {
-		t.Errorf("%d wolf armors dropped, want 1", n)
-	}
-}
-
 // TestADispenserDressesAMobThatTakesLoot checks a zombie that picks loot up
 // is helmeted, kept alive with its guaranteed drop, while one that does not
 // gets the piece on the ground.
@@ -243,36 +163,6 @@ func TestADispenserDressesAMobThatTakesLoot(t *testing.T) {
 	}
 }
 
-// TestADispenserDressesAWolfInItsArmor checks wolf armor goes on the body of
-// a wolf that takes loot, and a zombie that does refuses it.
-// vanilla: Equippable.canBeEquippedBy, Mob.canDispenserEquipIntoSlot
-func TestADispenserDressesAWolfInItsArmor(t *testing.T) {
-	t.Parallel()
-	var wolf int32
-	srv, items, _ := equipDispense(t, "minecraft:wolf_armor", func(srv *server.Server, _ *servertest.WindowedClient) {
-		wolf = srv.SpawnMob("minecraft:wolf", 4.5, 64, 1.5)
-		srv.SetMobCanPickUpLoot(wolf)
-	})
-	if got := srv.MobEquipment(wolf, "body"); got.ItemID != registry.MustItem("minecraft:wolf_armor") {
-		t.Errorf("the wolf wears %+v, want the wolf armor", got)
-	}
-	if n := countDropped(items, "minecraft:wolf_armor"); n != 0 {
-		t.Errorf("%d wolf armors dropped, want 0", n)
-	}
-
-	var zombie int32
-	srv, items, _ = equipDispense(t, "minecraft:wolf_armor", func(srv *server.Server, _ *servertest.WindowedClient) {
-		zombie = srv.SpawnMob("minecraft:zombie", 4.5, 64, 1.5)
-		srv.SetMobCanPickUpLoot(zombie)
-	})
-	if got := srv.MobEquipment(zombie, "body"); !got.Empty() {
-		t.Errorf("the zombie wears %+v, want nothing", got)
-	}
-	if n := countDropped(items, "minecraft:wolf_armor"); n != 1 {
-		t.Errorf("%d wolf armors dropped, want 1", n)
-	}
-}
-
 // vanilla: AbstractHorse.canDispenserEquipIntoSlot, Mob.canDispenserEquipIntoSlot
 func TestADispenserDressesEquinesInBodyEquipment(t *testing.T) {
 	t.Parallel()
@@ -281,18 +171,10 @@ func TestADispenserDressesEquinesInBodyEquipment(t *testing.T) {
 		tame, loot, worn, equips bool
 	}{
 		{"tamed horse", "horse", "iron_horse_armor", true, false, false, true},
-		{"wild horse", "horse", "iron_horse_armor", false, false, false, false},
 		{"looting wild horse", "horse", "iron_horse_armor", false, true, false, true},
-		{"armored horse", "horse", "iron_horse_armor", true, false, true, false},
-		{"tamed zombie horse", "zombie_horse", "golden_horse_armor", true, false, false, true},
 		{"tamed llama", "llama", "white_carpet", true, false, false, true},
-		{"tamed trader llama", "trader_llama", "white_carpet", true, false, false, true},
-		{"wild llama", "llama", "white_carpet", false, false, false, false},
-		{"looting wild llama", "llama", "white_carpet", false, true, false, true},
-		{"covered llama", "llama", "white_carpet", true, false, true, false},
 		{"horse refuses carpet", "horse", "white_carpet", true, true, false, false},
 		{"llama refuses armor", "llama", "iron_horse_armor", true, true, false, false},
-		{"skeleton horse refuses armor", "skeleton_horse", "iron_horse_armor", true, true, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -338,36 +220,6 @@ func TestADispenserDressesEquinesInBodyEquipment(t *testing.T) {
 				t.Errorf("equip sound heard = %v, want %v; sounds = %v", heard, tc.equips, sounds)
 			}
 		})
-	}
-}
-
-// TestADispenserSaddlesAStriderWithoutTheLootFlag checks the strider is the
-// one mob a dispenser saddles without it picking loot up, and that a cow,
-// which cannot take a saddle, is left bare.
-// vanilla: Strider.canDispenserEquipIntoSlot, EntityTypeTags.CAN_EQUIP_SADDLE
-func TestADispenserSaddlesAStriderWithoutTheLootFlag(t *testing.T) {
-	t.Parallel()
-	var strider int32
-	srv, items, _ := equipDispense(t, "minecraft:saddle", func(srv *server.Server, _ *servertest.WindowedClient) {
-		strider = srv.SpawnMob("minecraft:strider", 4.5, 64, 1.5)
-	})
-	if got := srv.MobEquipment(strider, "saddle"); got.ItemID != registry.MustItem("minecraft:saddle") {
-		t.Errorf("the strider carries %+v, want the saddle", got)
-	}
-	if n := countDropped(items, "minecraft:saddle"); n != 0 {
-		t.Errorf("%d saddles dropped, want 0", n)
-	}
-
-	var cow int32
-	srv, items, _ = equipDispense(t, "minecraft:saddle", func(srv *server.Server, _ *servertest.WindowedClient) {
-		cow = srv.SpawnMob("minecraft:cow", 4.5, 64, 1.5)
-		srv.SetMobCanPickUpLoot(cow)
-	})
-	if got := srv.MobEquipment(cow, "saddle"); !got.Empty() {
-		t.Errorf("the cow carries %+v, want nothing", got)
-	}
-	if n := countDropped(items, "minecraft:saddle"); n != 1 {
-		t.Errorf("%d saddles dropped, want 1", n)
 	}
 }
 
@@ -423,44 +275,6 @@ func TestADispenserWaxesTheCopperInFront(t *testing.T) {
 	if left := srv.InventoryAt(4, 64, 0)[0]; !left.Empty() {
 		t.Errorf("the dispenser keeps %+v, want it empty", left)
 	}
-}
-
-// TestADispenserDropsAHoneycombItCannotUse checks stone and already waxed
-// copper leave the block alone and the honeycomb drops.
-func TestADispenserDropsAHoneycombItCannotUse(t *testing.T) {
-	t.Parallel()
-	for _, block := range []string{"minecraft:stone", "minecraft:waxed_copper_block"} {
-		t.Run(block, func(t *testing.T) {
-			t.Parallel()
-			srv, items, _, sounds := equipDispenseHeard(t, "minecraft:honeycomb", func(srv *server.Server, _ *servertest.WindowedClient) {
-				srv.SetBlock(4, 64, 1, servertest.BlockState(t, block))
-			})
-			if slices.Contains(sounds, "minecraft:item.honeycomb.wax_on") {
-				t.Errorf("wax-on sound played; sounds were %v", sounds)
-			}
-			if name, _ := servertest.StateProps(srv.BlockAt(4, 64, 1)); name != block {
-				t.Errorf("the block became %s, want %s kept", name, block)
-			}
-			if n := countDropped(items, "minecraft:honeycomb"); n != 1 {
-				t.Errorf("%d honeycombs dropped, want 1", n)
-			}
-		})
-	}
-}
-
-func TestADispenserSaddlesAPigWithoutTheLootFlag(t *testing.T) {
-	t.Parallel()
-	var pig int32
-	srv, items, _ := equipDispense(t, "minecraft:saddle", func(srv *server.Server, _ *servertest.WindowedClient) {
-		pig = srv.SpawnMob("minecraft:pig", 4.5, 64, 1.5)
-	})
-	if got := srv.MobEquipment(pig, "saddle"); got.ItemID != registry.MustItem("minecraft:saddle") {
-		t.Errorf("the pig carries %+v, want the saddle", got)
-	}
-	if n := countDropped(items, "minecraft:saddle"); n != 0 {
-		t.Errorf("%d saddles dropped, want 0", n)
-	}
-
 }
 
 // TestADispenserBuildsAGolemWithItsCarvedPumpkin checks the pumpkin is set

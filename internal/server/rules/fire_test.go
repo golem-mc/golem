@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"math/rand"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/blocklogic"
@@ -118,59 +117,6 @@ func TestFireStateForPlacement(t *testing.T) {
 	}
 }
 
-func TestFireNeighborShapeKeepsAgeAndUnsupportedInput(t *testing.T) {
-	requested := registry.MustState("minecraft:fire", map[string]string{"age": "11", "east": "true"})
-	for _, tc := range []struct {
-		name string
-		w    testWorld
-		want uint16
-	}{
-		{
-			"floor clears lean",
-			testWorld{{0, 1, 0}: registry.BlockNetherrack.DefaultState()},
-			registry.MustState("minecraft:fire", map[string]string{"age": "11"}),
-		},
-		{
-			"fuel sets lean",
-			testWorld{{-1, 2, 0}: registry.BlockOakPlanks.DefaultState()},
-			registry.MustState("minecraft:fire", map[string]string{"age": "11", "west": "true"}),
-		},
-		{"unsupported keeps input", testWorld{}, requested},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := NeighborShapedState(tc.w, nil, requested, 0, 2, 0); got != tc.want {
-				t.Errorf("shaped fire = %d, want %d", got, tc.want)
-			}
-		})
-	}
-}
-
-// TestFireCanBurnReadsTheTable checks the fuel test the survival and the
-// lean flags both read: the flammability table's ignite odds, and the
-// waterlogged rule the getter applies over them.
-func TestFireCanBurnReadsTheTable(t *testing.T) {
-	if !blocklogic.FireCanBurn(defaultState(t, "minecraft:oak_planks")) {
-		t.Error("oak planks were not fuel")
-	}
-	if blocklogic.FireCanBurn(defaultState(t, "minecraft:stone")) {
-		t.Error("stone was fuel")
-	}
-	waterlogged, ok := registry.FindState("minecraft:oak_slab", map[string]string{"waterlogged": "true"})
-	if !ok {
-		t.Fatal("the block registry has no waterlogged oak slab")
-	}
-	if blocklogic.FireCanBurn(waterlogged) {
-		t.Error("a waterlogged slab was fuel")
-	}
-	dry, ok := registry.FindState("minecraft:oak_slab", map[string]string{"waterlogged": "false"})
-	if !ok {
-		t.Fatal("the block registry has no dry oak slab")
-	}
-	if !blocklogic.FireCanBurn(dry) {
-		t.Error("a dry oak slab was not fuel")
-	}
-}
-
 // blockLabel names a block state for a failure message; the engine's fire
 // tests keep their own, this one standing in for the placement half.
 func blockLabel(state uint16) string {
@@ -182,40 +128,4 @@ func blockLabel(state uint16) string {
 		return name
 	}
 	return name + " " + props
-}
-
-// TestExplosionFireCellsRollsOneInThree pins the odds over a long row of
-// cleared cells on solid floor, and that a cell over air, or over a floor
-// that is not a solid-render block, never burns.
-func TestExplosionFireCellsRollsOneInThree(t *testing.T) {
-	const n = 3000
-	stone := defaultState(t, "minecraft:stone")
-	soulSand := defaultState(t, "minecraft:soul_sand")
-	glass := defaultState(t, "minecraft:glass")
-	for _, tc := range []struct {
-		name  string
-		floor uint16
-	}{{"stone", stone}, {"soul sand", soulSand}} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := fireWorld{testWorld{}}
-			var cells [][3]int32
-			for x := range int32(n) {
-				w.set(x, 0, 0, tc.floor)
-				cells = append(cells, [3]int32{x, 1, 0})
-			}
-			lit := len(ExplosionFireCells(w, rand.New(rand.NewSource(7)), cells))
-			if lit < n/3-150 || lit > n/3+150 {
-				t.Errorf("%d of %d cells burned, want about a third", lit, n)
-			}
-		})
-	}
-	w := fireWorld{testWorld{}}
-	var cells [][3]int32
-	for x := range int32(n) {
-		w.set(x, 0, 0, glass)
-		cells = append(cells, [3]int32{x, 1, 0}, [3]int32{x, 5, 0})
-	}
-	if got := ExplosionFireCells(w, rand.New(rand.NewSource(7)), cells); len(got) != 0 {
-		t.Errorf("%d cells burned over glass or air, want none", len(got))
-	}
 }

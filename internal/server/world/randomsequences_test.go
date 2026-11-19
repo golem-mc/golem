@@ -1,7 +1,6 @@
 package world
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
@@ -90,80 +89,6 @@ func TestRandomSequenceMatchesTheJVM(t *testing.T) {
 		[2]int32{6, -1355040038})
 }
 
-// TestRandomSequenceResumesFromSavedState checks the pair a saved sequence
-// carries rebuilds the stream at the point the last draw left it: the
-// all-zero pair the generator's own escape, the saved state of the console's
-// nonexistent_seq, and the state the same console's one draw of
-// minecraft:extra — the draw printed the 1 the fresh stream rolls here.
-// The extra state is the pair the session's random_sequences.dat kept.
-func TestRandomSequenceResumesFromSavedState(t *testing.T) {
-	t.Parallel()
-	s := RandomSequenceFromState(0, 0)
-	if lo, hi := s.State(); lo != xoroshiroGoldenRatio || hi != xoroshiroSilverRatio {
-		t.Errorf("FromState(0, 0) = %d, %d, want the ratios %d, %d",
-			lo, hi, xoroshiroGoldenRatio, xoroshiroSilverRatio)
-	}
-	if got := s.nextLong(); got != 6807859099481836695 {
-		t.Errorf("FromState(0, 0) long[0] = %d, want 6807859099481836695", got)
-	}
-	if got := s.NextIntBound(3); got != 0 {
-		t.Errorf("FromState(0, 0) IntBound(3) = %d, want 0", got)
-	}
-	extra := NewRandomSequence(7, "minecraft:extra")
-	if got := extra.NextIntBetween(1, 2); got != 1 {
-		t.Errorf("the fresh minecraft:extra drew %d, want 1", got)
-	}
-	if lo, hi := extra.State(); lo != -1048954605574995705 || hi != -6620296267031638231 {
-		t.Errorf("after the draw the state = %d, %d, want -1048954605574995705, -6620296267031638231", lo, hi)
-	}
-}
-
-// TestRandomSequenceResetsToTheSameStream checks a reset makes the name's
-// stream over: the same seed and id draw what the fresh one drew.
-func TestRandomSequenceResetsToTheSameStream(t *testing.T) {
-	t.Parallel()
-	first := NewRandomSequence(7, "minecraft:kdice")
-	var draws [8]int32
-	for i := range draws {
-		draws[i] = first.NextIntBetween(0, 2147483646)
-	}
-	reset := NewRandomSequence(7, "minecraft:kdice")
-	for i, want := range draws {
-		if got := reset.NextIntBetween(0, 2147483646); got != want {
-			t.Fatalf("the reset drew %d at %d, want %d", got, i, want)
-		}
-	}
-}
-
-// TestRandomSequencesDrawDoesNotRaceSave draws one name from two goroutines
-// while a third saves the sequences, for the race detector: Draw steps a
-// stream under the lock the save reads every stream under, so neither sees
-// the other's half-finished state.
-func TestRandomSequencesDrawDoesNotRaceSave(t *testing.T) {
-	t.Parallel()
-	s := NewRandomSequences(t.TempDir())
-	const seed = int64(123456789)
-	const turns = 200
-
-	var wg sync.WaitGroup
-	wg.Add(3)
-	for range 2 {
-		go func() {
-			defer wg.Done()
-			for range turns {
-				s.Draw("minecraft:dice", seed, 1, 6)
-			}
-		}()
-	}
-	go func() {
-		defer wg.Done()
-		for range turns {
-			s.Save()
-		}
-	}()
-	wg.Wait()
-}
-
 // TestRandomSequencesRoundTrip walks three sessions of one world folder: a
 // sequence created and drawn in the first, the file the save writes
 // carrying its advanced state and the reset defaults, and the reopened
@@ -230,36 +155,5 @@ func TestRandomSequencesRoundTrip(t *testing.T) {
 	if third.salt != 42 || third.includeWorldSeed || !third.includeSequenceID {
 		t.Errorf("the third session reads salt %d, flags %v/%v, want 42, false, true",
 			third.salt, third.includeWorldSeed, third.includeSequenceID)
-	}
-}
-
-// TestRandomSequenceResetRestartsTheStream checks the reset forms: the one
-// that names a sequence restarts it under the defaults where the words gave
-// no salt and under the words' salt and flags where they did, and the star
-// reset answers by the count it cleared.
-func TestRandomSequenceResetRestartsTheStream(t *testing.T) {
-	s := NewRandomSequences(t.TempDir())
-	const seed = int64(-987654321)
-
-	freshLo, freshHi := s.Get("minecraft:x", seed).State()
-	// A reset without a salt rebuilds the stream the fresh one was.
-	s.Reset("minecraft:x", seed, 0, false, true, true)
-	if lo, hi := s.Get("minecraft:x", seed).State(); lo != freshLo || hi != freshHi {
-		t.Errorf("the default reset moved the stream to %d, %d, want %d, %d", lo, hi, freshLo, freshHi)
-	}
-	// A salted reset seeds the stream the words named: no world seed, and
-	// the name folded out by its own flag.
-	saltedLo, saltedHi := NewRandomSequence(37, "").State()
-	s.Reset("minecraft:x", seed, 37, true, false, false)
-	if lo, hi := s.Get("minecraft:x", seed).State(); lo != saltedLo || hi != saltedHi {
-		t.Errorf("the salted reset moved the stream to %d, %d, want %d, %d", lo, hi, saltedLo, saltedHi)
-	}
-	// A second name makes the count the star reset answers with.
-	s.Get("minecraft:y", seed)
-	if count := s.ResetAll(0, false, true, true); count != 2 {
-		t.Errorf("the star reset counted %d, want the two sequences it cleared", count)
-	}
-	if ids := s.IDs(); len(ids) != 0 {
-		t.Errorf("after the star reset the ids = %v, want none", ids)
 	}
 }

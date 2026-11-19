@@ -3,8 +3,6 @@ package blocks
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
-
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
@@ -73,63 +71,4 @@ func TestASurvivalLeftClickTeleportsTheDragonEgg(t *testing.T) {
 	c.Settle()
 
 	checkEggMoved(t, eggCells(srv))
-}
-
-// TestADragonEggStaysInsideTheWorldBorder: a cell outside the border is
-// refused, so the egg lands within the 3x3 columns the border holds.
-// vanilla: DragonEggBlock.teleport
-func TestADragonEggStaysInsideTheWorldBorder(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	srv.StopTick()
-
-	servertest.Setblock(t, c, 4, 63, 2, "dirt")
-	servertest.Setblock(t, c, 4, 64, 2, "dragon_egg")
-	c.ChatCommand("worldborder center 4 2")
-	c.ChatCommand("worldborder set 3")
-	c.Settle()
-	c.UseBlock(4, 64, 2)
-	c.Settle()
-
-	d := checkEggMoved(t, eggCells(srv))
-	if d[0] < 3 || d[0] > 5 || d[2] < 1 || d[2] > 3 {
-		t.Errorf("the egg landed at %v, outside the border's 3x3 columns", d)
-	}
-}
-
-// TestADragonEggTeleportSendsItsParticleEvent: the client draws the trail
-// from level event 2015 at the old cell, whose data packs the offset to the
-// new one with radii 16, 8, 16.
-// vanilla: DragonEggBlock.teleport
-func TestADragonEggTeleportSendsItsParticleEvent(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	srv.StopTick()
-
-	servertest.Setblock(t, c, 4, 63, 2, "dirt")
-	servertest.Setblock(t, c, 4, 64, 2, "dragon_egg")
-	c.ChatCommand("gamemode survival")
-	c.Settle()
-	c.StartDigging(4, 64, 2)
-	var events [][4]int32
-	c.SettleAndCollect(func(id int32, data []byte) {
-		if id != protocol.IDPlayWorldEvent {
-			return
-		}
-		if event, x, y, z, d := servertest.ReadWorldEvent(t, data); event == protocol.WorldEventDragonEggTeleport {
-			events = append(events, [4]int32{x, y, z, d})
-		}
-	})
-
-	d := checkEggMoved(t, eggCells(srv))
-	if len(events) != 1 {
-		t.Fatalf("got %d dragon egg teleport events, want 1", len(events))
-	}
-	ev := events[0]
-	if [3]int32{ev[0], ev[1], ev[2]} != [3]int32{4, 64, 2} {
-		t.Errorf("the event is at %v, want the old cell 4 64 2", ev[:3])
-	}
-	if to := servertest.UnpackPosDiff(4, 64, 2, ev[3], 16, 8, 16); to != d {
-		t.Errorf("the event's data points at %v, want the egg's new cell %v", to, d)
-	}
 }

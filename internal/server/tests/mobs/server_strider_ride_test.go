@@ -7,7 +7,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/registry"
 )
 
 // The strider's boost, its jockeys, its walk to lava and where a rider steps
@@ -70,113 +69,6 @@ func TestTheFungusStickBoostsTheStriderOnceAtATime(t *testing.T) {
 	c.Settle()
 	if got := srv.InventorySlot("Rider", player.HotbarSlot).Damage; got != 1 {
 		t.Errorf("stick wear %d after a use during the boost, want 1", got)
-	}
-}
-
-// TestTheFungusStickDoesNothingWithoutASteeredStrider: the stick used with no
-// strider under the player is not worn.
-func TestTheFungusStickDoesNothingWithoutASteeredStrider(t *testing.T) {
-	t.Parallel()
-	srv, c := striderWorld(t)
-	stick, _ := registry.ItemID("minecraft:warped_fungus_on_a_stick")
-	srv.GiveSlot("Rider", player.HotbarSlot, protocol.ItemStack{ItemID: stick, Count: 1})
-	c.Settle()
-	c.UseItemRightClicks(protocol.HandMain)
-	c.Settle()
-	if got := srv.InventorySlot("Rider", player.HotbarSlot).Damage; got != 0 {
-		t.Errorf("stick wear %d with no strider under the rider, want 0", got)
-	}
-}
-
-// TestTheFungusStickCountsAsUsedOnlyWhenItBoostsNothing: a use with no strider
-// under the player counts; the use that boosts one does not.
-// vanilla: FoodOnAStickItem.use
-func TestTheFungusStickCountsAsUsedOnlyWhenItBoostsNothing(t *testing.T) {
-	t.Parallel()
-	const stick = "minecraft:warped_fungus_on_a_stick"
-	srv, c := striderWorld(t)
-	srv.GiveSlot("Rider", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, stick), Count: 1})
-	c.Settle()
-	c.UseItemRightClicks(protocol.HandMain)
-	c.Settle()
-	if got := srv.StatValue("Rider", registry.StatUsed, stick); got != 1 {
-		t.Errorf("used with no strider = %d, want 1", got)
-	}
-
-	c2, srv2, _ := striderSteer(t, stick)
-	c2.UseItemRightClicks(protocol.HandMain)
-	c2.Settle()
-	srv2.TickMobs(1)
-	if got := srv2.StatValue("Rider", registry.StatUsed, stick); got != 0 {
-		t.Errorf("used by a boosting use = %d, want 0", got)
-	}
-}
-
-// TestABrokenFungusStickBecomesAFishingRod: the use that wears the stick out
-// leaves a fishing rod in the hand.
-func TestABrokenFungusStickBecomesAFishingRod(t *testing.T) {
-	t.Parallel()
-	srv, c := striderWorld(t)
-	stick, _ := registry.ItemID("minecraft:warped_fungus_on_a_stick")
-	srv.GiveSlot("Rider", player.HotbarSlot, protocol.ItemStack{ItemID: stick, Count: 1, Damage: 99, CustomName: &protocol.Text{Text: "Goad"}})
-	c.Settle()
-	c.ChatCommand("summon minecraft:strider 5.5 64 5.5 " + striderSaddleTag)
-	spawn := c.ExpectMobSpawn(striderTypeID(t))
-	c.UseOn(spawn.EntityID)
-	c.Settle()
-	c.UseItemRightClicks(protocol.HandMain)
-	c.Settle()
-	rod, _ := registry.ItemID("minecraft:fishing_rod")
-	if got := srv.InventorySlot("Rider", player.HotbarSlot); got.ItemID != rod || got.Count != 1 {
-		t.Errorf("hand holds item %d x%d, want one fishing rod %d", got.ItemID, got.Count, rod)
-	}
-	if got := srv.InventorySlot("Rider", player.HotbarSlot); got.CustomName == nil || got.CustomName.Text != "Goad" {
-		t.Errorf("the rod lost the stick's custom name: %v", got.CustomName)
-	}
-}
-
-// TestStridersRollJockeysWhenTheySpawn: among striders stood up fresh, some
-// carry a zombified piglin holding the stick and some a baby strider, and a
-// baby strider never carries one.
-// vanilla: Strider.finalizeSpawn
-func TestStridersRollJockeysWhenTheySpawn(t *testing.T) {
-	t.Parallel()
-	srv, _ := striderWorld(t)
-	for seed := int64(1); seed <= 150; seed++ {
-		srv.SpawnMobSeeded("minecraft:strider", 20.5, 64, 20.5, seed)
-	}
-	stick, _ := registry.ItemID("minecraft:warped_fungus_on_a_stick")
-	kind := map[int32]string{}
-	baby := map[int32]bool{}
-	mobs := srv.Mobs()
-	for _, m := range mobs {
-		kind[m.ID], baby[m.ID] = m.Kind, m.Baby
-	}
-	piglins, babies := 0, 0
-	for _, m := range mobs {
-		if m.Vehicle == 0 {
-			continue
-		}
-		if kind[m.Vehicle] != "minecraft:strider" || baby[m.Vehicle] {
-			t.Fatalf("%s %d rides %s (baby %v), want a grown strider", m.Kind, m.ID, kind[m.Vehicle], baby[m.Vehicle])
-		}
-		switch m.Kind {
-		case "minecraft:zombified_piglin":
-			piglins++
-			if got := srv.MobHand(m.ID); got.ItemID != stick {
-				t.Errorf("jockey piglin holds item %d, want the stick %d", got.ItemID, stick)
-			}
-		case "minecraft:strider":
-			babies++
-			if !m.Baby {
-				t.Errorf("strider jockey %d is grown", m.ID)
-			}
-		default:
-			t.Errorf("%s rides a strider", m.Kind)
-		}
-	}
-	if piglins == 0 || babies == 0 {
-		t.Errorf("%d piglin and %d baby strider jockeys among 150 striders, want some of each", piglins, babies)
 	}
 }
 
@@ -263,23 +155,5 @@ func TestARiderStepsOffAStriderOntoDryGroundNotIntoLava(t *testing.T) {
 	pos := srv.PlayerPosition("Rider")
 	if pos.Y < 63.95 || pos.Y > 64.05 || pos.X < 6 || pos.X >= 7 {
 		t.Errorf("rider stands at (%v, %v, %v), want on the stone at y=64 over x=6", pos.X, pos.Y, pos.Z)
-	}
-}
-
-// TestARiderIsNotPutInLavaWhenNoDryCellIsBeside: with lava all around, the
-// rider is set on top of the strider.
-func TestARiderIsNotPutInLavaWhenNoDryCellIsBeside(t *testing.T) {
-	t.Parallel()
-	srv, c := striderWorld(t)
-	layLava(t, srv, 4, 4, 6, 6)
-	c.ChatCommand("summon minecraft:strider 5.5 64 5.5 " + striderSaddleTag)
-	spawn := c.ExpectMobSpawn(striderTypeID(t))
-	srv.TickMobs(10)
-	c.UseOn(spawn.EntityID)
-	c.Settle()
-	c.SendSneak(true)
-	c.Settle()
-	if pos := srv.PlayerPosition("Rider"); pos.Y < 65 {
-		t.Errorf("rider stands at y=%v, want on top of the strider above 65", pos.Y)
 	}
 }

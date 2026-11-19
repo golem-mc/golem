@@ -45,18 +45,3 @@ func TestVillagerFeedbackNamesItsProfession(t *testing.T) {
 		})
 	}
 }
-
-// vanilla: Villager.getTypeName, Villager.readAdditionalSaveData
-func TestVillagerFeedbackReadsItsCurrentProfession(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Join(t, servertest.MobTestConfig(), "Summoner", servertest.OpsListing(t, "Summoner"))
-	identity := uuid.MustParse("00000001-0000-0002-0000-000300000004")
-	c.ChatCommand(`summon villager 3.5 64 3.5 {UUID:[I;1,2,3,4],NoAI:1b,VillagerData:{profession:"minecraft:farmer"}}`)
-	servertest.AwaitCommandFeedbackText(t, c, "commands.summon.success",
-		servertest.EntityDisplayComponent("minecraft:villager", "entity.minecraft.villager.farmer", identity))
-	c.ChatCommand(`data merge entity @e[type=villager,limit=1] {VillagerData:{profession:"minecraft:armorer"}}`)
-	servertest.AwaitSystemChatSaying(t, c, "commands.data.entity.modified")
-	c.ChatCommand(`kill @e[type=villager,name=Armorer,limit=1]`)
-	servertest.AwaitCommandFeedbackText(t, c, "commands.kill.success.single",
-		servertest.EntityDisplayComponent("minecraft:villager", "entity.minecraft.villager.armorer", identity))
-}

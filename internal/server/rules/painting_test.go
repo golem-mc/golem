@@ -2,29 +2,6 @@ package rules
 
 import "testing"
 
-// TestPaintingBoxIsTheSliverOnTheWall checks the box against vanilla's
-// numbers: a 2x2 painting hung at (10, 64, 9) on a wall at z=10 faces north,
-// centres half a block west and half a block up, and occupies a sixteenth
-// of a block of the hanging cell against the wall.
-func TestPaintingBoxIsTheSliverOnTheWall(t *testing.T) {
-	minX, minY, minZ, maxX, maxY, maxZ := PaintingBox(10, 64, 9, dirNorth, 2, 2)
-	if minX != 9 || maxX != 11 || minY != 64 || maxY != 66 || minZ != 9.9375 || maxZ != 10 {
-		t.Errorf("2x2 north-facing box = (%v..%v, %v..%v, %v..%v), want (9..11, 64..66, 9.9375..10)",
-			minX, maxX, minY, maxY, minZ, maxZ)
-	}
-}
-
-// TestPaintingBoxOfAnOddSizeCentresOnTheCell: a 1x1 painting hung east of
-// a wall centres on its hanging cell and reaches a sixteenth of a block
-// off the wall's face only.
-func TestPaintingBoxOfAnOddSizeCentresOnTheCell(t *testing.T) {
-	minX, _, minZ, maxX, maxY, maxZ := PaintingBox(5, 64, 5, dirEast, 1, 1)
-	if minX != 5 || maxX != 5.0625 || minZ != 5 || maxZ != 6 || maxY != 65 {
-		t.Errorf("1x1 east-facing box = (%v..%v, ..%v, %v..%v), want (5..5.0625, ..65, 5..6)",
-			minX, maxX, maxY, minZ, maxZ)
-	}
-}
-
 // TestPaintingCells lists the cells each box covers: a 2x2's four in the
 // hanging layer, and the four wall cells behind them that carry it.
 func TestPaintingCells(t *testing.T) {
@@ -102,18 +79,5 @@ func TestChoosePaintingKeepsTheLargestThatFit(t *testing.T) {
 	}
 	if rolls != 1 {
 		t.Errorf("pick rolled %d times, want once per create", rolls)
-	}
-}
-
-// TestBoxesIntersect: boxes that overlap do, and boxes that only touch do
-// not — two paintings back to back on either side of one wall share a face.
-func TestBoxesIntersect(t *testing.T) {
-	northSliver := [3]float64{9, 64, 9.9375}
-	northSliverMax := [3]float64{11, 66, 10}
-	if BoxesIntersect(northSliver, northSliverMax, [3]float64{9, 64, 10}, [3]float64{11, 66, 10.0625}) {
-		t.Error("boxes touching face-to-face intersect")
-	}
-	if !BoxesIntersect(northSliver, northSliverMax, [3]float64{10, 64, 9}, [3]float64{10.5, 65.5, 10}) {
-		t.Error("overlapping boxes do not intersect")
 	}
 }

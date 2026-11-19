@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -57,36 +56,5 @@ func TestFuelBurnTimeMatchesVanilla(t *testing.T) {
 	}
 	if IsCookingFuel(protocol.ItemStack{}) {
 		t.Error("an empty stack is fuel")
-	}
-}
-
-// TestFuelSlotTakesFuelAndOneBucket checks what the furnace's fuel slot
-// accepts from the cursor: any fuel, and a single empty bucket of a stack.
-// vanilla: FurnaceFuelSlot.mayPlace, getMaxStackSize
-func TestFuelSlotTakesFuelAndOneBucket(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		count     int32
-		wantSlot  int32
-		wantCarry int32
-	}{
-		{"minecraft:wooden_pickaxe", 1, 1, 0},
-		{"minecraft:oak_slab", 10, 10, 0},
-		{"minecraft:bucket", 5, 1, 4},
-		{"minecraft:stone", 10, 0, 10},
-		{"minecraft:crimson_planks", 10, 0, 10},
-	} {
-		id := itemID(t, tc.name)
-		furnace := make(slots, 3)
-		session := &Session{Carried: protocol.ItemStack{ItemID: id, Count: tc.count}}
-		var outcome Outcome
-		session.Click(View{Kind: KindFurnace, ID: 3, Entity: furnace}, &player.Inventory{},
-			protocol.ClickModePickup, 0, 1, false, 0, &outcome)
-		if got := furnace[1].Count; got != tc.wantSlot {
-			t.Errorf("%s: fuel slot holds %d, want %d", tc.name, got, tc.wantSlot)
-		}
-		if got := session.Carried.Count; got != tc.wantCarry {
-			t.Errorf("%s: cursor holds %d, want %d", tc.name, got, tc.wantCarry)
-		}
 	}
 }

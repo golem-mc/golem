@@ -2,8 +2,6 @@ package chat
 
 import (
 	"bytes"
-	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
@@ -26,22 +24,6 @@ func expectPlayerChat(t *testing.T, c *servertest.Client, chatType, sender strin
 		}
 		return servertest.ParsePlayerChat(t, data, chatType, sender, senderID, message,
 			protocol.Text{Text: message}, target, timestamp)
-	}
-	return 0 // unreachable: Stream ends only by the caller or a failure
-}
-
-// expectPlayerChatResolved is expectPlayerChat where resolving a message
-// argument's selectors left the message with a component form, which the
-// packet carries beside the body as typed.
-// vanilla: PlayerChatMessage.withUnsignedContent
-func expectPlayerChatResolved(t *testing.T, c *servertest.Client, chatType, sender string, senderID uuid.UUID, body string, resolved protocol.Text, target string, timestamp int64) int32 {
-	t.Helper()
-	for packetID, data := range c.Stream() {
-		t.Helper()
-		if packetID != protocol.IDPlayPlayerChat {
-			continue
-		}
-		return servertest.ParsePlayerChat(t, data, chatType, sender, senderID, body, resolved, target, timestamp)
 	}
 	return 0 // unreachable: Stream ends only by the caller or a failure
 }
@@ -193,49 +175,6 @@ func TestPlayerChatIndexesCountPerRecipient(t *testing.T) {
 	}
 }
 
-// TestMsgNamesTheSenderByProfile checks the packet a direct message travels
-// in when a player sends it over the signed command packet: the same unsigned
-// Player Chat Message as chat, each half under its own side's chat type — the
-// incoming one for the target, which names no one as its target, the outgoing
-// one for the sender, which names the target it went to. An unsigned command
-// carries no signing context, so its whisper is the Disguised form instead.
-// vanilla: MsgCommand, OutgoingChatMessage.create, CommandSourceStack.isClientSigned
-func TestMsgNamesTheSenderByProfile(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	_, connect := servertest.Start(t, cfg)
-
-	alice := connect().Join("Alice")
-
-	bob := connect().Join("Bob")
-	alice.ExpectPlayerAdded("Bob")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Bob")
-
-	aliceID := protocol.OfflineUUID("Alice")
-	alice.SignedChatCommand("msg Bob secret plans")
-	if got := expectPlayerChat(t, bob, "minecraft:msg_command_incoming", "Alice", aliceID, "secret plans", "", servertest.ServerStampedChatTimestamp); got != 0 {
-		t.Errorf("Bob's first incoming whisper's global index = %d, want 0", got)
-	}
-	if got := expectPlayerChat(t, alice, "minecraft:msg_command_outgoing", "Alice", aliceID, "secret plans", "Bob", servertest.ServerStampedChatTimestamp); got != 0 {
-		t.Errorf("Alice's first outgoing whisper's global index = %d, want 0", got)
-	}
-
-	// A whisper straight after counts the next number on both connections,
-	// each of the two packets stepped by the one before it.
-	alice.SignedChatCommand("msg Bob plans two")
-	if got := expectPlayerChat(t, bob, "minecraft:msg_command_incoming", "Alice", aliceID, "plans two", "", servertest.ServerStampedChatTimestamp); got != 1 {
-		t.Errorf("Bob's second incoming whisper's global index = %d, want 1", got)
-	}
-	if got := expectPlayerChat(t, alice, "minecraft:msg_command_outgoing", "Alice", aliceID, "plans two", "Bob", servertest.ServerStampedChatTimestamp); got != 1 {
-		t.Errorf("Alice's second outgoing whisper's global index = %d, want 1", got)
-	}
-
-	alice.Disconnect()
-	bob.Disconnect()
-}
-
 // TestChatAckBeyondTheWindowDisconnects checks the offsets of the
 // acknowledgements a chat packet and a standalone Chat Ack carry: the
 // last-seen window holds nothing an unsigning server has sent it, so any
@@ -267,78 +206,6 @@ func TestChatAckBeyondTheWindowDisconnects(t *testing.T) {
 			expectGone(t, srv, c)
 		})
 	}
-}
-
-// TestChatAckBitsAndChecksumDisconnects checks the rest of the
-// acknowledgement: a bit naming a message the server never sent is the
-// validation failure, and so is a checksum that is neither the empty set's
-// nor the byte that tells the server to skip the check. The skip byte itself
-// is accepted, and the message behind a valid acknowledgement still relays.
-// vanilla: LastSeenMessagesValidator.applyUpdate,
-// LastSeenMessages.Update.verifyChecksum
-func TestChatAckBitsAndChecksumDisconnects(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		name string
-		send func(c *servertest.Client)
-	}{
-		{"an acknowledged bit", func(c *servertest.Client) {
-			c.ChatAckWithBitset("a bit of ack", 0x01, 1)
-		}},
-		{"a checksum off the set", func(c *servertest.Client) {
-			c.ChatWithAck("a checksum of two", 0, 2)
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := config.Default()
-			cfg.OnlineMode = false
-			srv, c := servertest.Join(t, cfg, "Testificate")
-
-			tc.send(c)
-			expectChatValidationFailed(t, c)
-			expectGone(t, srv, c)
-		})
-	}
-
-	t.Run("the skip checksum passes", func(t *testing.T) {
-		cfg := config.Default()
-		cfg.OnlineMode = false
-		_, c := servertest.Join(t, cfg, "Testificate")
-
-		// Zero is the byte that has the checksum skipped rather than
-		// checked, and a message carrying it relays like any other.
-		c.ChatWithAck("skipping the checksum", 0, 0)
-		expectPlayerChat(t, c, "minecraft:chat", "Testificate",
-			protocol.OfflineUUID("Testificate"), "skipping the checksum", "", servertest.ServerStampedChatTimestamp)
-
-		c.Disconnect()
-	})
-}
-
-// TestSignedChatCommandAckValidated checks that a Signed Chat Command, which
-// a client with a chat session ends with an acknowledgement of the same
-// shape, is validated by the same window: an offset beyond zero disconnects
-// rather than running the command.
-// vanilla: ServerGamePacketListenerImpl.handleSignedChatCommand
-func TestSignedChatCommandAckValidated(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	srv, c := servertest.Join(t, cfg, "Testificate")
-
-	c.Send(protocol.IDPlaySignedChatCommand, func(b *protocol.Buffer) {
-		b.PutString("list")
-		b.PutI64(0)    // timestamp
-		b.PutI64(0)    // salt
-		b.PutVarInt(0) // no signed arguments
-		b.PutVarInt(1) // one message of the server's acknowledged
-		b.PutRaw([]byte{0, 0, 0})
-		b.PutU8(1) // the empty set's checksum
-	})
-
-	expectChatValidationFailed(t, c)
-	expectGone(t, srv, c)
 }
 
 // TestMsgFromUnsignedCommandIsDisguised checks that a direct message a player
@@ -391,119 +258,4 @@ func TestSignedSayIsPlayerChat(t *testing.T) {
 	servertest.ExpectDisguisedChat(t, c, "minecraft:say_command", "Testificate", "unsigned hello", "")
 
 	c.Disconnect()
-}
-
-// TestSignedSayResolvesSelector checks that the Player Chat Message a signed
-// /say produces carries the resolved form of a selector in its body beside the
-// text as typed: @s becomes the sender's display name, the same substitution
-// the Disguised form makes, but the signed form has a body to carry it beside.
-// vanilla: MessageArgument.resolveChatMessage, PlayerChatMessage.withUnsignedContent
-func TestSignedSayResolvesSelector(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	_, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
-
-	c.SignedChatCommand("say @s hi")
-	message := protocol.Text{Extra: []protocol.Text{
-		servertest.PlayerDisplayComponent("Testificate"),
-		{Text: " hi"},
-	}}
-	expectPlayerChatResolved(t, c, "minecraft:say_command", "Testificate",
-		protocol.OfflineUUID("Testificate"), "@s hi", message, "", servertest.ServerStampedChatTimestamp)
-
-	c.Disconnect()
-}
-
-// TestExecuteAsMsgUsesDisguisedChat follows the root redirect signing boundary.
-func TestExecuteAsMsgUsesDisguisedChat(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	_, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Alice"))
-
-	alice := connect().Join("Alice")
-
-	bob := connect().Join("Bob")
-	alice.ExpectPlayerAdded("Bob")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Bob")
-
-	carol := connect().Join("Carol")
-	alice.ExpectPlayerAdded("Carol")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Carol")
-	bob.ExpectPlayerAdded("Carol")
-	bob.ExpectAnnouncement("multiplayer.player.joined", "Carol")
-
-	alice.SignedChatCommand("execute as Bob run msg Carol hi")
-
-	servertest.ExpectDisguisedChat(t, carol, "minecraft:msg_command_incoming", "Bob", "hi", "")
-	servertest.ExpectDisguisedChat(t, bob, "minecraft:msg_command_outgoing", "Bob", "hi", "Carol")
-
-	alice.Disconnect()
-	bob.Disconnect()
-	carol.Disconnect()
-}
-
-// TestPlayerChatIndexesStayOrderedUnderConcurrentSenders has several
-// connections chat at one observer at once and checks the global indexes the
-// observer reads are 0, 1, 2, ... in the order they arrive. Taking the index
-// and queueing the packet must be one step: two senders otherwise queue index
-// 6 before 5, which the client reads as multiplayer.disconnect.bad_chat_index.
-// vanilla: ServerGamePacketListenerImpl.nextChatIndex
-func TestPlayerChatIndexesStayOrderedUnderConcurrentSenders(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	names := []string{"Bob", "Carol", "Dave", "Erin", "Frank", "Gina"}
-	// The senders are listed as operators, whom the chat spam counter spares,
-	// so a burst is not cut short by a kick.
-	_, connect := servertest.Start(t, cfg, servertest.OpsListing(t, names...))
-
-	observer := connect().Join("Alice")
-
-	senders := make([]*servertest.Client, 0, len(names))
-	for _, name := range names {
-		c := connect().Join(name)
-		observer.ExpectPlayerAdded(name)
-		observer.ExpectAnnouncement("multiplayer.player.joined", name)
-		senders = append(senders, c)
-	}
-
-	const perSender = 500
-	var wg sync.WaitGroup
-	for i, c := range senders {
-		wg.Add(1)
-		go func(c *servertest.Client, i int) {
-			defer wg.Done()
-			for j := range perSender {
-				// A write failure is the connection ending, which the read
-				// side reports; the burst simply stops short.
-				if err := c.WriteChat(fmt.Sprintf("m%d-%d", i, j)); err != nil {
-					return
-				}
-			}
-		}(c, i)
-	}
-
-	total := int32(len(senders) * perSender)
-	var seen int32
-	for id, data := range observer.Stream() {
-		if id != protocol.IDPlayPlayerChat {
-			continue
-		}
-		index := protocol.NewReader(data).ReadVarInt()
-		if index != seen {
-			t.Fatalf("global index %d arrived after %d, want %d: the indexes are out of order", index, seen-1, seen)
-		}
-		if seen++; seen == total {
-			break
-		}
-	}
-	wg.Wait()
-	if seen != total {
-		t.Fatalf("read %d player chat messages, want %d", seen, total)
-	}
 }

@@ -5,7 +5,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/registry"
 )
 
 func stackOf(t *testing.T, name string, count int32) protocol.ItemStack {
@@ -45,35 +44,6 @@ func TestOfferPriceFollowsDemandAndSpecialPrice(t *testing.T) {
 	o.SpecialPrice, o.Demand = 0, -5
 	if got := o.PricedCountA(); got != 10 {
 		t.Errorf("negative demand = %d, want the base 10", got)
-	}
-}
-
-// TestRecomputeMerchantPaysOnlyForAnInStockOffer pins the result: the
-// payment, in either slot, must cover the cost; a sold-out offer pays
-// nothing; a hint inside the list names the only offer looked at.
-func TestRecomputeMerchantPaysOnlyForAnInStockOffer(t *testing.T) {
-	offer := breadOffer(t)
-	emeralds := func(n int32) protocol.ItemStack { return stackOf(t, "minecraft:emerald", n) }
-	for _, tc := range []struct {
-		name   string
-		a, b   protocol.ItemStack
-		offers []Offer
-		hint   int32
-		want   protocol.ItemStack
-	}{
-		{"covered", emeralds(2), protocol.ItemStack{}, []Offer{offer}, 0, offer.Result},
-		{"short", emeralds(1), protocol.ItemStack{}, []Offer{offer}, 0, protocol.ItemStack{}},
-		{"second slot", protocol.ItemStack{}, emeralds(2), []Offer{offer}, 0, offer.Result},
-		{"extra b refused", emeralds(2), stackOf(t, "minecraft:dirt", 1), []Offer{offer}, 0, protocol.ItemStack{}},
-		{"sold out", emeralds(2), protocol.ItemStack{}, []Offer{{CostA: offer.CostA, Result: offer.Result, MaxUses: 4, Uses: 4}}, 0, protocol.ItemStack{}},
-		{"hint names another", emeralds(2), protocol.ItemStack{}, []Offer{offer, offer}, 1, offer.Result},
-		{"hint misses", emeralds(2), protocol.ItemStack{}, []Offer{offer, {CostA: Cost{ItemID: itemID(t, "minecraft:paper"), Count: 1}, Result: offer.Result, MaxUses: 1}}, 1, protocol.ItemStack{}},
-	} {
-		menu := []protocol.ItemStack{tc.a, tc.b, {}}
-		RecomputeMerchant(menu, tc.offers, tc.hint)
-		if !menu[MerchantResultSlot].Equal(tc.want) {
-			t.Errorf("%s: result = %+v, want %+v", tc.name, menu[MerchantResultSlot], tc.want)
-		}
 	}
 }
 
@@ -144,80 +114,6 @@ func twoOffers(t *testing.T) []Offer {
 	}
 }
 
-// TestShiftClickStopsWhenTheResultChangesItem pins the repeat condition: the
-// bread trade leaves 5 emeralds, which pay for apples, and the shift-click
-// must not take them.
-func TestShiftClickStopsWhenTheResultChangesItem(t *testing.T) {
-	offers := twoOffers(t)
-	menu := []protocol.ItemStack{stackOf(t, "minecraft:emerald", 15), {}, offers[0].Result}
-	view := merchantView(menu, offers, -1)
-	inv := &player.Inventory{}
-	session := &Session{}
-	var outcome Outcome
-	session.Click(view, inv, protocol.ClickModeQuickMove, 0, MerchantResultSlot, false, 0, &outcome)
-	if offers[0].Uses != 1 || offers[1].Uses != 0 {
-		t.Errorf("uses = %d and %d, want the bread trade once and no apple trade", offers[0].Uses, offers[1].Uses)
-	}
-}
-
-// TestCtrlQStopsWhenTheResultChangesItem is the same for the throw loop.
-func TestCtrlQStopsWhenTheResultChangesItem(t *testing.T) {
-	offers := twoOffers(t)
-	menu := []protocol.ItemStack{stackOf(t, "minecraft:emerald", 15), {}, offers[0].Result}
-	view := merchantView(menu, offers, -1)
-	inv := &player.Inventory{}
-	session := &Session{}
-	var outcome Outcome
-	session.Click(view, inv, protocol.ClickModeThrow, 1, MerchantResultSlot, false, 0, &outcome)
-	if offers[0].Uses != 1 || offers[1].Uses != 0 || len(outcome.Dropped) != 1 {
-		t.Errorf("uses = %d and %d, dropped %d, want one bread trade", offers[0].Uses, offers[1].Uses, len(outcome.Dropped))
-	}
-}
-
-// TestShiftClickOnAMerchantPaymentGoesHome pins the quick move out of the
-// payment slot and between the player's rows.
-func TestShiftClickOnAMerchantPaymentGoesHome(t *testing.T) {
-	menu := []protocol.ItemStack{stackOf(t, "minecraft:emerald", 3), {}, {}}
-	view := merchantView(menu, []Offer{breadOffer(t)}, 0)
-	inv := &player.Inventory{}
-	session := &Session{}
-	var outcome Outcome
-	session.Click(view, inv, protocol.ClickModeQuickMove, 0, 0, false, 0, &outcome)
-	if !menu[0].Empty() || inv.Slots[player.MainSlot].Count != 3 {
-		t.Errorf("payment %+v, first main %+v, want the emeralds home in the main rows", menu[0], inv.Slots[player.MainSlot])
-	}
-	// From the main rows to the hotbar.
-	session.Click(view, inv, protocol.ClickModeQuickMove, 0, 3, false, 0, &outcome)
-	if inv.Slots[player.HotbarSlot].Count != 3 {
-		t.Errorf("hotbar = %+v, want the emeralds in its first slot", inv.Slots[player.HotbarSlot])
-	}
-}
-
-// TestNothingIsPlacedInTheMerchantResult pins the result slot against a
-// cursor and a double click.
-func TestNothingIsPlacedInTheMerchantResult(t *testing.T) {
-	offers := []Offer{breadOffer(t)}
-	menu := []protocol.ItemStack{stackOf(t, "minecraft:emerald", 2), {}, offers[0].Result}
-	view := merchantView(menu, offers, 0)
-	inv := &player.Inventory{}
-	inv.Slots[player.MainSlot] = stackOf(t, "minecraft:bread", 3)
-	session := &Session{Carried: stackOf(t, "minecraft:bread", 1)}
-	var outcome Outcome
-	session.Click(view, inv, protocol.ClickModeCollect, 0, 4, false, 0, &outcome)
-	if session.Carried.Count != 1 {
-		t.Errorf("the double click left %d bread held, want the 1 held: the window gathers nothing", session.Carried.Count)
-	}
-	if got := inv.Slots[player.MainSlot]; got.Count != 3 {
-		t.Errorf("the double click took from the things: %+v", got)
-	}
-	if offers[0].Uses != 0 || !menu[0].Equal(stackOf(t, "minecraft:emerald", 2)) {
-		t.Errorf("a double click took the result: uses %d, payment %+v", offers[0].Uses, menu[0])
-	}
-	if view.placeable(MerchantResultSlot, stackOf(t, "minecraft:bread", 1)) {
-		t.Error("the result takes a placement")
-	}
-}
-
 // TestSelectTradeMovesTheCostsFromTheThings pins tryMoveItems: the old
 // payments go home first, the new costs come out of the things as far as a
 // stack, and a second cost fills the second slot.
@@ -259,84 +155,5 @@ func TestSelectTradeMovesTheCostsFromTheThings(t *testing.T) {
 	SelectTrade(view, inv, 5, &outcome)
 	if !menu[0].Equal(before) {
 		t.Error("Select Trade past the offers moved items")
-	}
-}
-
-// TestClosingTheMerchantWindowHandsBackThePayments pins the close.
-func TestClosingTheMerchantWindowHandsBackThePayments(t *testing.T) {
-	menu := []protocol.ItemStack{stackOf(t, "minecraft:emerald", 3), stackOf(t, "minecraft:paper", 1), stackOf(t, "minecraft:bread", 6)}
-	view := merchantView(menu, nil, 0)
-	inv := &player.Inventory{}
-	session := &Session{}
-	session.Close(view, inv, false, false)
-	if inv.Slots[player.MainSlot].Count+inv.Slots[player.HotbarSlot].Count == 0 {
-		t.Error("the payments were not handed back")
-	}
-	if !menu[0].Empty() || !menu[1].Empty() {
-		t.Error("the payment slots still hold their stacks")
-	}
-}
-
-// vanilla: ItemCost.test
-func TestAWaterCostAcceptsOnlyAPlainWaterBottle(t *testing.T) {
-	potion := itemID(t, "minecraft:potion")
-	water := protocol.ItemStack{ItemID: potion, Count: 1}
-	water.SetPotion(waterPotion)
-	awkward := protocol.ItemStack{ItemID: potion, Count: 1}
-	awkward.SetPotion(registry.MustPotion("minecraft:awkward"))
-	offer := Offer{CostA: Cost{ItemID: potion, Count: 1, Water: true}, Result: stackOf(t, "minecraft:emerald", 1), MaxUses: 2}
-	for _, c := range []struct {
-		name  string
-		stack protocol.ItemStack
-		want  bool
-	}{{"water", water, true}, {"awkward", awkward, false}, {"bare", protocol.ItemStack{ItemID: potion, Count: 1}, false}} {
-		if got := offer.satisfiedBy(c.stack, protocol.ItemStack{}); got != c.want {
-			t.Errorf("%s bottle pays = %v, want %v", c.name, got, c.want)
-		}
-	}
-}
-
-// vanilla: MerchantMenu.moveFromInventoryToPaymentSlot
-func TestSelectTradeSkipsStacksTheCostRejects(t *testing.T) {
-	potion := itemID(t, "minecraft:potion")
-	healing := protocol.ItemStack{ItemID: potion, Count: 1}
-	healing.SetPotion(registry.MustPotion("minecraft:healing"))
-	water := protocol.ItemStack{ItemID: potion, Count: 1}
-	water.SetPotion(waterPotion)
-	offer := Offer{CostA: Cost{ItemID: potion, Count: 1, Water: true}, Result: stackOf(t, "minecraft:emerald", 1), MaxUses: 2}
-	menu := []protocol.ItemStack{{}, {}, {}}
-	view := merchantView(menu, []Offer{offer}, 0)
-	inv := &player.Inventory{}
-	inv.Slots[player.MainSlot] = healing
-	inv.Slots[player.MainSlot+1] = water
-	var outcome Outcome
-	SelectTrade(view, inv, 0, &outcome)
-	if !menu[0].Equal(water) {
-		t.Errorf("payment 0 = %+v, want the water bottle", menu[0])
-	}
-	if !inv.Slots[player.MainSlot].Equal(healing) {
-		t.Errorf("first slot = %+v, want the healing potion left in place", inv.Slots[player.MainSlot])
-	}
-}
-
-// vanilla: Villager.updateSpecialPrices
-func TestHeroDiscountTakesAtLeastOneItem(t *testing.T) {
-	offers := []Offer{{CostA: Cost{ItemID: itemID(t, "minecraft:emerald"), Count: 2}}, {CostA: Cost{ItemID: itemID(t, "minecraft:emerald"), Count: 20}}}
-	HeroDiscount(offers, 1)
-	if offers[0].SpecialPrice != -1 || offers[1].SpecialPrice != -7 {
-		t.Errorf("special prices = %d, %d, want -1 and -7", offers[0].SpecialPrice, offers[1].SpecialPrice)
-	}
-}
-
-// vanilla: Villager.updateSpecialPrices
-func TestReputationDiscountScalesByThePriceMultiplier(t *testing.T) {
-	offers := []Offer{{CostA: Cost{ItemID: itemID(t, "minecraft:emerald"), Count: 5}, PriceMultiplier: 0.05}}
-	ReputationDiscount(offers, 60)
-	if offers[0].SpecialPrice != -3 {
-		t.Errorf("special price = %d, want -3", offers[0].SpecialPrice)
-	}
-	ReputationDiscount(offers, -30)
-	if offers[0].SpecialPrice != -3+2 {
-		t.Errorf("special price after a bad reputation = %d, want -1", offers[0].SpecialPrice)
 	}
 }

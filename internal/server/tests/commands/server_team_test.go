@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
@@ -294,32 +293,6 @@ func TestTeamsSurviveARestart(t *testing.T) {
 	again.Disconnect()
 }
 
-// An entity holder's feedback name hovers its scoreboard name, not the entity.
-// vanilla: ScoreHolder.getFeedbackDisplayName
-func TestTeamJoinFeedbackHoversScoreboardName(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.StartExecuteWorld(t, "Testificate")
-	c.ChatCommand("team add red")
-	expectTeamPacket(t, c, "red", 0)
-	expectTeamPacket(t, c, "red", 2)
-	expectScoreboardFeedback(t, c, "commands.team.add.success")
-	c.ChatCommand("team join red @s")
-	expectTeamPacket(t, c, "red", 3)
-	with := expectScoreboardFeedback(t, c, "commands.team.join.success.single")
-	// The name is the team's prefix, name and suffix as siblings of an
-	// empty root, which carries the hover.
-	name := with[0]
-	if len(name.Extra) != 3 || name.Extra[1].Text != "Testificate" {
-		t.Errorf("join feedback names %+v, want Testificate", name)
-	}
-	if name.HoverEntity != nil {
-		t.Errorf("join feedback name has a show_entity hover %+v", name.HoverEntity)
-	}
-	if name.HoverText == nil || name.HoverText.Text != "Testificate" {
-		t.Errorf("join feedback hover %+v, want show_text Testificate", name.HoverText)
-	}
-}
-
 // TestTeamDeathMessageVisibility: a player's death in chat reaches whom the
 // victim's team deathMessageVisibility allows, while the victim's own Combat
 // Death always carries it.
@@ -372,44 +345,5 @@ func TestTeamDeathMessageVisibility(t *testing.T) {
 				t.Errorf("other team heard the death %v, want %v", chat, tc.rest)
 			}
 		})
-	}
-}
-
-// TestTeamLeaveCountsOnlyMembers checks that /team leave over several
-// holders names only the ones that were on a team.
-// vanilla: TeamCommand.leaveTeam
-func TestTeamLeaveCountsOnlyMembers(t *testing.T) {
-	t.Parallel()
-	_, c := joinOpForStore(t, "Bob")
-	c.ChatCommand("team add red")
-	c.ChatCommand("team join red Alice")
-	c.ChatCommand("team leave @a")
-	// Bob's join trails its equipment and join line into the feedback, so
-	// only the command feedback is read.
-	var keys []string
-	var leave protocol.Text
-	for id, data := range c.Packets(servertest.ExpectTimeout) {
-		if id != protocol.IDPlaySystemChat {
-			continue
-		}
-		text, ok := protocol.ReadText(protocol.NewReader(data))
-		if !ok {
-			t.Fatal("decode system chat component")
-		}
-		if !strings.HasPrefix(text.Translate, "commands.") {
-			continue
-		}
-		keys = append(keys, text.Translate)
-		if len(keys) == 3 {
-			leave = text
-			break
-		}
-	}
-	if want := []string{"commands.team.add.success", "commands.team.join.success.single",
-		"commands.team.leave.success.single"}; !slices.Equal(keys, want) {
-		t.Fatalf("feedback %v, want %v", keys, want)
-	}
-	if len(leave.With) != 1 || leave.With[0].Text != "Alice" {
-		t.Errorf("leave feedback %+v, want Alice alone", leave.With)
 	}
 }

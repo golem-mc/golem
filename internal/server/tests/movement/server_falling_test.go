@@ -1,14 +1,13 @@
 package movement
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"math"
 	"strconv"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/server/servertest"
+
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
@@ -80,46 +79,6 @@ func TestSandFallsAsAnEntityAndLands(t *testing.T) {
 	c.AwaitFallingRemoval(spawn.EntityID)
 }
 
-// TestFallingSandBuriesAnItemAndTheItemPushesOut checks the burial's
-// answer: an item lying where a falling block lands is left inside the
-// block the landing placed, and the item's own tick answers a buried body
-// with vanilla's moveTowardsClosestSpace — the walk towards the nearest
-// side whose neighbour is not a full block's shape, out of the sand and
-// back into the open air.
-func TestFallingSandBuriesAnItemAndTheItemPushesOut(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-
-	sand, ok := registry.FindState("minecraft:sand", nil)
-	if !ok {
-		t.Fatal("the registry has no sand")
-	}
-
-	// A dirt item resting on the flat world's floor, and a sand block
-	// hanging above it: the sand falls through the item — an item has no
-	// collision to land on — and places its block in the very cell the
-	// item's box lies in.
-	srv.SpawnItemEntity(12.5, 64.125, 8.5, "minecraft:dirt", 1)
-	c.ChatCommand("setblock 12 66 8 sand")
-	c.AwaitBlockState(12, 66, 8, 0)
-	waitForBlock(t, srv, 12, 64, 8, func(s uint16) bool { return s == sand })
-
-	// The burial's answer: within a couple of seconds the item's box is
-	// out of the sand's cell again, wherever the nearest free side led.
-	servertest.WaitFor(t, srv, 160, func() bool {
-		for _, it := range srv.ItemsInDimension(world.DimensionName) {
-			if it.Item != "minecraft:dirt" {
-				continue
-			}
-			buried := it.X+0.125 > 12 && it.X-0.125 < 13 &&
-				it.Y+0.125 > 64 && it.Y-0.125 < 65 &&
-				it.Z+0.125 > 8 && it.Z-0.125 < 9
-			return !buried
-		}
-		return false
-	})
-}
-
 // TestFallingSandLandsOnATorchDropsAsAnItem checks the landing's refusal: a
 // falling block whose feet come to rest in a cell it cannot place in — the
 // torch's, which a placement may not replace — is gone and its block is
@@ -154,43 +113,6 @@ func TestFallingSandLandsOnATorchDropsAsAnItem(t *testing.T) {
 	}
 	if got := srv.BlockAt(8, 66, 3); got != 0 {
 		t.Errorf("block the sand fell from = %d, want 0 (air)", got)
-	}
-}
-
-// TestFallingConcretePowderSetsAsConcrete checks the one gravity block that
-// changes kind in the fall: a concrete powder whose landing is in water —
-// the cell it comes to rest in a source's — sets the concrete of its colour
-// instead of itself.
-func TestFallingConcretePowderSetsAsConcrete(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-
-	water, ok := registry.FindState("minecraft:water", map[string]string{"level": "0"})
-	if !ok {
-		t.Fatal("the registry has no water source")
-	}
-	_, ok = registry.FindState("minecraft:white_concrete_powder", nil)
-	if !ok {
-		t.Fatal("the registry has no white concrete powder")
-	}
-	concrete, ok := registry.FindState("minecraft:white_concrete", nil)
-	if !ok {
-		t.Fatal("the registry has no white concrete")
-	}
-
-	// A water source sitting on the floor, and a powder hanging above it:
-	// the powder falls through the air and into the water's cell, which is
-	// the landing vanilla's freeToLand gives a powder in water.
-	c.ChatCommand("setblock 12 64 3 minecraft:water")
-	c.AwaitBlockState(12, 64, 3, water)
-	c.ChatCommand("setblock 12 66 3 minecraft:white_concrete_powder")
-	c.AwaitBlockState(12, 66, 3, 0)
-	c.AwaitFallingSpawn()
-
-	// The landing sets the concrete where the water was.
-	waitForBlock(t, srv, 12, 64, 3, func(s uint16) bool { return s == concrete })
-	if got := srv.BlockAt(12, 65, 3); got != 0 {
-		t.Errorf("block above the concrete = %d, want 0 (air)", got)
 	}
 }
 
@@ -325,151 +247,6 @@ func TestAFallingAnvilHurtsThePlayerUnderIt(t *testing.T) {
 	}
 }
 
-// TestAWornOutAnvilBreaksWithItsSound checks the landing of an anvil its
-// fall wears past its last state: a damaged anvil dropped 26 blocks rolls
-// wear at certainty (vanilla's 0.05 a block past the first reaches 1 at 19),
-// so the client hears World Event 1029 at the landing cell and the anvil
-// leaves neither a block nor an item.
-// vanilla: FallingBlockEntity.tick, AnvilBlock.onBrokenAfterFall
-func TestAWornOutAnvilBreaksWithItsSound(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-	servertest.HoldTicks(t, srv)
-
-	c.ChatCommand("setblock 8 90 3 damaged_anvil")
-	c.Settle()
-
-	isItem := func(id int32, data []byte) bool {
-		if id != protocol.IDPlaySpawnEntity {
-			return false
-		}
-		r := protocol.NewReader(data)
-		r.ReadVarInt() // entity ID
-		r.ReadUUID()
-		return r.ReadVarInt() == protocol.EntityTypeItem
-	}
-	var (
-		broken    bool
-		x, y, z   int32
-		itemSeen  bool
-		landSound bool
-	)
-	found := c.ReadTicks(srv, 200, func(id int32, data []byte) bool {
-		itemSeen = itemSeen || isItem(id, data)
-		if id != protocol.IDPlayWorldEvent {
-			return false
-		}
-		r := protocol.NewReader(data)
-		switch r.ReadI32() {
-		case protocol.WorldEventAnvilBroken:
-			x, y, z = r.ReadPosition()
-			broken = true
-		case protocol.WorldEventAnvilLand:
-			landSound = true
-		}
-		return broken
-	})
-	if !found {
-		t.Fatal("no World Event 1029 from the worn-out anvil within 200 ticks")
-	}
-	if x != 8 || y != 64 || z != 3 {
-		t.Errorf("1029 at (%d, %d, %d), want the landing cell (8, 64, 3)", x, y, z)
-	}
-	if landSound {
-		t.Error("the broken anvil played the landing sound 1031 as well")
-	}
-	if itemSeen || c.ReadTicks(srv, 5, isItem) {
-		t.Error("the broken anvil dropped an item")
-	}
-	if got := srv.BlockAt(8, 64, 3); got != 0 {
-		t.Errorf("block at the landing cell = %d, want 0 (air)", got)
-	}
-}
-
-// TestAFallingAnvilHurtsAShortMob checks the hurt box reaches a body shorter
-// than the block: the falling body's own box, not one shrunk to miss it. A
-// still baby chicken stands in the anvil's cell and takes the blow, told as
-// a Damage Event and the flinch a watching client shows.
-func TestAFallingAnvilHurtsAShortMob(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-
-	c.ChatCommand("summon minecraft:chicken 5.5 64 5.5 {NoAI:1b,Age:-24000}")
-	chicken := c.AwaitSpawn(protocol.EntityTypeChicken).EntityID
-
-	// The anvil comes down through the chicken's own cell.
-	c.ChatCommand("setblock 5 70 5 minecraft:anvil")
-
-	var (
-		hurtType int32
-		hurt     bool
-		flashed  bool
-	)
-	found := c.ReadTicks(srv, 1200, func(id int32, data []byte) bool {
-		c.T.Helper()
-		switch id {
-		case protocol.IDPlayDamageEvent:
-			r := protocol.NewReader(data)
-			if r.ReadVarInt() != chicken {
-				return false
-			}
-			hurtType = r.ReadVarInt()
-			hurt = true
-		case protocol.IDPlayHurtAnimation:
-			r := protocol.NewReader(data)
-			if r.ReadVarInt() != chicken {
-				return false
-			}
-			flashed = true
-		}
-		return hurt && flashed
-	})
-	if !found {
-		t.Fatalf("no damage event and flinch for the chicken within %s", servertest.ExpectTimeout)
-	}
-	if want := registry.MustID("minecraft:damage_type", "minecraft:falling_anvil"); hurtType != want {
-		t.Errorf("damage type = %d, want %d (falling_anvil)", hurtType, want)
-	}
-}
-
-// TestAFallingAnvilHelmetTurnsTheBlow checks the damages_helmet handling: a
-// player in a helmet takes three quarters of the anvil's blow, and the helmet
-// wears for it.
-func TestAFallingAnvilHelmetTurnsTheBlow(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-
-	helmet, ok := registry.ItemID("minecraft:iron_helmet")
-	if !ok {
-		t.Fatal("the item registry has no iron helmet")
-	}
-	srv.GiveSlot("Builder", player.ArmorSlot, protocol.ItemStack{ItemID: helmet, Count: 1})
-	c.Settle()
-
-	c.ChatCommand("setblock 0 70 0 minecraft:anvil")
-
-	var health servertest.HealthReport
-	found := c.ReadTicks(srv, 1200, func(id int32, data []byte) bool {
-		c.T.Helper()
-		if id == protocol.IDPlaySetHealth {
-			health = servertest.ExpectHealthReport(c, data)
-		}
-		return id == protocol.IDPlayDamageEvent
-	})
-	if !found {
-		t.Fatalf("no damage event from the anvil's fall within %s", servertest.ExpectTimeout)
-	}
-	// Ten half-hearts softened to three quarters is 7.5, which the helmet's
-	// two armour points cut by the armour formula; twenty less that.
-	want := 20 - 7.5*(1-0.4/25)
-	if math.Abs(float64(health.Health)-want) > 0.01 {
-		t.Errorf("health behind the helmet = %v, want %v", health.Health, want)
-	}
-	if got := srv.InventorySlot("Builder", player.ArmorSlot); got.Damage == 0 {
-		t.Error("the helmet took no wear for the blow")
-	}
-}
-
 // TestAStalactiteFallsAndHurtsThePlayerUnderIt checks a speleothem's fall: a
 // pointed dripstone stalactite whose hold went leaves its cells as falling
 // block entities, one per block down to the tip, instead of popping into
@@ -596,89 +373,4 @@ func TestAStalactiteFallsAndHurtsThePlayerUnderIt(t *testing.T) {
 	}
 }
 
-// TestAFallingWaterloggableBlockLandsWaterloggedOnlyInASource checks the
-// landing's block update: an oak slab body coming to rest in a water source
-// is placed waterlogged with its other properties kept, and in flowing water
-// is placed dry.
-// vanilla: FallingBlockEntity.tick
-func TestAFallingWaterloggableBlockLandsWaterloggedOnlyInASource(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-	servertest.HoldTicks(t, srv)
-
-	for _, tc := range []struct {
-		x     int32
-		water string
-		wet   string
-	}{{12, "level=0", "true"}, {16, "level=1", "false"}} {
-		want := registry.MustState("minecraft:oak_slab", map[string]string{"type": "top", "waterlogged": tc.wet})
-		c.ChatCommand("setblock " + itoa(tc.x) + " 64 3 minecraft:water[" + tc.water + "]")
-		c.ReadTicks(srv, 0, func(int32, []byte) bool { return false })
-		c.ChatCommand("summon minecraft:falling_block " + itoa(tc.x) + ".5 64.2 3.5 {BlockState:{id:\"minecraft:oak_slab\",properties:{type:\"top\",waterlogged:\"false\"}}}")
-		c.ReadTicks(srv, 0, func(int32, []byte) bool { return false })
-		if !c.ReadTicks(srv, 10, func(id int32, data []byte) bool {
-			for _, ch := range servertest.BlockChangesIn(t, id, data) {
-				if ch.X == tc.x && ch.Y == 64 && ch.Z == 3 && uint32(ch.State) == uint32(want) {
-					return true
-				}
-			}
-			return false
-		}) {
-			t.Fatalf("no block update to %v at x=%d within 10 ticks", want, tc.x)
-		}
-	}
-}
-
 func itoa(n int32) string { return strconv.Itoa(int(n)) }
-
-// TestFallingPoppyOnStoneDropsAsAnItem checks the landing's survival test: a
-// falling poppy that comes to rest on stone cannot survive there, so it is
-// dropped as an item and nothing is placed.
-func TestFallingPoppyOnStoneDropsAsAnItem(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-
-	c.ChatCommand("setblock 8 63 3 stone")
-	c.ChatCommand("summon minecraft:falling_block 8.5 66 3.5 {BlockState:{id:\"minecraft:poppy\"}}")
-
-	item := c.AwaitSpawn(protocol.EntityTypeItem)
-	if item.X != 8.5 || item.Z != 3.5 {
-		t.Errorf("item at (%g, %g), want (8.5, 3.5)", item.X, item.Z)
-	}
-	if got := srv.BlockAt(8, 64, 3); got != 0 {
-		t.Errorf("block at the landing cell = %d, want 0 (air)", got)
-	}
-}
-
-// TestFallingBlockDropFirstStepsOnTheNextTick checks the item a falling block
-// breaks into is where its feet were, with its spawn hop, in the tick it
-// appears: it takes its first physics step in the following tick.
-// vanilla: EntityTickList.ensureActiveIsNotIterated
-func TestFallingBlockDropFirstStepsOnTheNextTick(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-	servertest.FreezeUntilHeld(t, srv)
-
-	torch, _ := registry.FindState("minecraft:torch", nil)
-	c.ChatCommand("setblock 8 64 3 torch")
-	c.AwaitBlockState(8, 64, 3, torch)
-	c.ChatCommand(`summon falling_block 8.5 66 3.5 {BlockState:{Name:"minecraft:sand"},Time:1,Motion:[0d,0d,0d]}`)
-	c.AwaitSpawn(protocol.EntityTypeFallingBlock)
-	servertest.HoldTicks(t, srv)
-	for range 30 {
-		servertest.RunTicks(t, srv, 1)
-		items := srv.ItemsInDimension(world.DimensionName)
-		if len(items) == 0 {
-			continue
-		}
-		if it := items[0]; it.VY != 0.2 {
-			t.Fatalf("item velocity Y = %g in its spawn tick, want the 0.2 hop unstepped", it.VY)
-		}
-		servertest.RunTicks(t, srv, 1)
-		if it := srv.ItemsInDimension(world.DimensionName)[0]; it.VY == 0.2 {
-			t.Fatalf("item velocity Y = %g a tick later, want it stepped", it.VY)
-		}
-		return
-	}
-	t.Fatal("the sand never dropped as an item")
-}

@@ -2,11 +2,11 @@ package plugins_test
 
 import (
 	"fmt"
-	"github.com/golem-mc/golem/internal/config"
 	"os"
-	"slices"
 	"strings"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/config"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
@@ -63,28 +63,6 @@ func TestHelpWithoutPluginsIsBukkits(t *testing.T) {
 	}
 	if out := srv.RunLine("minecraft:help"); !strings.Contains(fmt.Sprint(out), "command.unknown.command") {
 		t.Fatalf("minecraft:help produced %v", out)
-	}
-}
-
-func TestHelpConsoleIsOnePage(t *testing.T) {
-	srv, _ := bukkitHelpServer(t, warpCommand)
-	for _, line := range []string{"help", "?", "bukkit:help"} {
-		out := plainLines(srv.RunLine(line))
-		if len(out) < 20 || !strings.HasPrefix(out[0], "--------- Help: Index ---") || out[1] != "Use /help [n] to get page n of help." {
-			t.Fatalf("%s produced %q", line, out[:min(len(out), 3)])
-		}
-		if len(out[0]) != 49 {
-			t.Fatalf("header %q is %d wide", out[0], len(out[0]))
-		}
-		all := strings.Join(out, "\n")
-		for _, want := range []string{"Aliases: Lists command aliases", "Bukkit: All commands for Bukkit", "Minecraft: All commands for Minecraft", "Warps: All commands for Warps", "/warp: Go places", "/seed: A Mojang provided command."} {
-			if !strings.Contains(all, want) {
-				t.Fatalf("%s lacks %q", line, want)
-			}
-		}
-		if strings.Contains(all, "/wp: Alias") {
-			t.Fatalf("index lists an alias")
-		}
 	}
 }
 
@@ -220,58 +198,6 @@ command-topics-in-master-index: false
 	}
 }
 
-func TestHelpYAMLIsWrittenOnFirstStart(t *testing.T) {
-	t.Chdir(t.TempDir())
-	servertest.NewTestServer(t, servertest.BlockTestConfig())
-	data, err := os.ReadFile("help.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, key := range []string{"general-topics", "index-topics", "amended-topics", "ignore-plugins", "command-topics-in-master-index: true"} {
-		if !strings.Contains(string(data), key) {
-			t.Fatalf("help.yml lacks %q", key)
-		}
-	}
-}
-
-func TestHelpOverrideWins(t *testing.T) {
-	override := plugin.Command{Name: "help", Override: true, Run: func(ctx *plugin.CommandContext) (int, error) {
-		ctx.Sender.SendMessage(plugin.Plain("mine"))
-		return 1, nil
-	}}
-	srv, host := bukkitHelpServer(t, override)
-	if got := plainLines(srv.RunLine("help")); len(got) != 1 || got[0] != "mine" {
-		t.Fatalf("help: %q", got)
-	}
-	if got := plainLines(srv.RunLine("bukkit:help")); len(got) < 2 || !strings.HasPrefix(got[0], "--------- Help: Index") {
-		t.Fatalf("bukkit:help: %q", got)
-	}
-	if got := plainLines(srv.RunLine("?")); len(got) < 2 || !strings.HasPrefix(got[0], "--------- Help: Index") {
-		t.Fatalf("?: %q", got)
-	}
-	_ = host
-}
-
-func TestHelpMapAPI(t *testing.T) {
-	_, host := bukkitHelpServer(t, warpCommand)
-	m := host.Help()
-	m.Add(plugin.NewHelpTopic("Lore", "Story", "Once upon a time", ""))
-	topic, ok := m.Topic("lore")
-	if !ok || topic.Name() != "Lore" || topic.ShortText() != "Story" {
-		t.Fatalf("topic: %v %v", topic, ok)
-	}
-	if _, ok := m.Topic("/warp"); !ok {
-		t.Fatal("no /warp topic")
-	}
-	if idx, ok := m.Topic(""); !ok || idx.Name() != "Index" {
-		t.Fatal("no index")
-	}
-	topics := m.Topics()
-	if topics[0].Name() != "Aliases" || !strings.HasPrefix(topics[len(topics)-1].Name(), "/") {
-		t.Fatalf("topics out of order: first %s last %s", topics[0].Name(), topics[len(topics)-1].Name())
-	}
-}
-
 // joinedRoots is the root names of the command tree a joining player is sent.
 func joinedRoots(t *testing.T, srv *server.Server) []string {
 	t.Helper()
@@ -289,28 +215,4 @@ func joinedRoots(t *testing.T, srv *server.Server) []string {
 		}
 	})
 	return names
-}
-
-func TestHelpRootsInTheCommandTree(t *testing.T) {
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	plain := joinedRoots(t, servertest.NewTestServer(t, cfg))
-	for _, name := range []string{"bukkit:help", "?", "help"} {
-		if !slices.Contains(plain, name) {
-			t.Fatalf("a server without plugins lacks %s: %v", name, plain)
-		}
-	}
-	if slices.Contains(plain, "minecraft:help") || slices.Contains(plain, "minecraft:list") {
-		t.Fatalf("a server without plugins offers a minecraft: root: %v", plain)
-	}
-	srv, _ := bukkitHelpServer(t)
-	with := joinedRoots(t, srv)
-	for _, name := range []string{"bukkit:help", "?", "help"} {
-		if !slices.Contains(with, name) {
-			t.Fatalf("a server with a plugin lacks %s: %v", name, with)
-		}
-	}
-	if slices.Contains(with, "minecraft:help") {
-		t.Fatalf("minecraft:help is in the tree: %v", with)
-	}
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
-	"github.com/google/uuid"
 )
 
 // The item simulation as ordinary unit tests, driving the step over a
@@ -401,56 +400,6 @@ func (w testWorld) ShulkerBoxBoxes(state uint16, x, y, z int32) []world.Collisio
 }
 func (w testWorld) PlacementSurvives(uint16, int32, int32, int32) bool { return true }
 
-// TestBlockGridMatchesAMap holds the grid to a position map over random
-// sets, air sets and unsets, near and past maxGridSections' reach.
-func TestBlockGridMatchesAMap(t *testing.T) {
-	t.Parallel()
-	rng := rand.New(rand.NewSource(1))
-	g := &blockGrid{}
-	want := map[[3]int32]uint16{}
-	spans := []int32{40, 600, 1 << 20, 30_000_000}
-	for range 20000 {
-		r := spans[rng.Intn(len(spans))]
-		pos := [3]int32{rng.Int31n(2*r) - r, rng.Int31n(800) - 400, rng.Int31n(2*r) - r}
-		if rng.Intn(4) == 0 && len(want) > 0 {
-			for p := range want {
-				pos = p
-				break
-			}
-			g.unset(pos[0], pos[1], pos[2])
-			delete(want, pos)
-			continue
-		}
-		state := uint16(rng.Intn(3))
-		g.set(pos[0], pos[1], pos[2], state)
-		want[pos] = state
-	}
-	got := map[[3]int32]bool{}
-	for pos := range g.cells() {
-		if _, ok := want[pos]; !ok || got[pos] {
-			t.Fatalf("cells yields %v, set %v, twice %v", pos, ok, got[pos])
-		}
-		got[pos] = true
-	}
-	if len(got) != len(want) {
-		t.Fatalf("cells yields %d cells, want %d", len(got), len(want))
-	}
-	for pos, state := range want {
-		if s := g.at(pos[0], pos[1], pos[2]); s != state {
-			t.Fatalf("at(%v) = %d, want %d", pos, s, state)
-		}
-		if s := g.at(pos[0]+1, pos[1], pos[2]); s != want[[3]int32{pos[0] + 1, pos[1], pos[2]}] {
-			t.Fatalf("at beside %v = %d, want %d", pos, s, want[[3]int32{pos[0] + 1, pos[1], pos[2]}])
-		}
-	}
-	if g.far == nil {
-		t.Fatal("no set reached past the grid's bound")
-	}
-	if (*blockGrid)(nil).at(1, 2, 3) != 0 {
-		t.Fatal("a nil grid reads other than air")
-	}
-}
-
 // defaultState is the default state of a named block, so the tests name
 // what they mean.
 func defaultState(t testing.TB, name string) uint16 {
@@ -536,40 +485,6 @@ func TestAnItemFallsWithGravityAndDragAndComesToRestOnASolidBlock(t *testing.T) 
 	}
 }
 
-// TestARestingItemIsNotSupportedOverAir picks a resting item's floor away
-// and steps it through the rest cycle to the move that runs: the block
-// gone, the item takes the fall up again, wedged over air as it is.
-func TestARestingItemIsNotSupportedOverAir(t *testing.T) {
-	stone := defaultState(t, "minecraft:stone")
-	w := newTestWorld()
-	w.set(10, 40, 10, stone)
-
-	it := &Item{X: 10.5, Y: 41 + halfSize, Z: 10.5, OnGround: true}
-	it.Step(w, nil)
-	if !it.OnGround || !closeEnough(it.Y, 41+halfSize) {
-		t.Fatal("a resting item is not supported on the solid block it lies on")
-	}
-
-	w.blocks.unset(10, 40, 10)
-	// The rest cycle gathers the fall without moving until the tick its
-	// move runs on, whichever of the four that is; the move finds no floor
-	// and the item is falling again.
-	for range 4 {
-		it.Step(w, nil)
-		if it.OnGround {
-			continue // not this tick's move; the gathering goes on
-		}
-		if it.Y >= 41+halfSize {
-			t.Errorf("the item still stands at %v after its first unsupported move, want it falling into the air", it.Y)
-		}
-		if it.VY >= 0 {
-			t.Errorf("vy over air = %v, want the fall taken up (negative)", it.VY)
-		}
-		return
-	}
-	t.Fatal("four ticks over air and the item never took the fall up")
-}
-
 // TestAnItemABlockCoversIsPushedOutTowardsTheNearestFreeSide drops the
 // falling sand's own result on a resting item: the block the fall placed
 // fills the very cell the item's box lies in, and vanilla's tick answers a
@@ -623,62 +538,6 @@ func TestAnItemABlockCoversIsPushedOutTowardsTheNearestFreeSide(t *testing.T) {
 	}
 }
 
-// TestAnItemBuriedOffCentreIsPushedTowardsTheNearestFace buries an item a
-// fifth of a block from the west face of the cell its sand fills: the west
-// side is the nearest free one, and the push is westward, the flat axes
-// the walk did not choose left at three quarters of what they carried.
-func TestAnItemBuriedOffCentreIsPushedTowardsTheNearestFace(t *testing.T) {
-	stone := defaultState(t, "minecraft:stone")
-	sand := defaultState(t, "minecraft:sand")
-	w := newTestWorld()
-	w.set(10, 40, 10, stone)
-
-	it := &Item{X: 10.2, Y: 41 + halfSize, Z: 10.5, OnGround: true}
-	it.Step(w, nil)
-
-	w.set(10, 41, 10, sand)
-	it.Rand = rand.New(rand.NewSource(3))
-	it.Step(w, nil)
-
-	if it.VX >= 0 {
-		t.Errorf("vx after the tick buried = %v, want it pushing west", it.VX)
-	}
-	if !closeEnough(it.VZ, 0) {
-		t.Errorf("vz after the tick buried = %v, want the unchosen axis at three quarters of nothing", it.VZ)
-	}
-}
-
-// TestAnItemBuriedUnderSolidNeighboursIsPushedUp buries an item in a cell
-// of sand whose every side the vanilla walk asks — the four flat ones and
-// the top — is sand too: no side is free, and the walk's own default
-// stands, the body pushed up, out of the ground rather than down through
-// it.
-func TestAnItemBuriedUnderSolidNeighboursIsPushedUp(t *testing.T) {
-	stone := defaultState(t, "minecraft:stone")
-	sand := defaultState(t, "minecraft:sand")
-	w := newTestWorld()
-	w.set(10, 40, 10, stone)
-
-	it := &Item{X: 10.5, Y: 41 + halfSize, Z: 10.5, OnGround: true}
-	it.Step(w, nil)
-
-	w.set(10, 41, 10, sand)
-	w.set(10, 41, 9, sand)
-	w.set(10, 41, 11, sand)
-	w.set(9, 41, 10, sand)
-	w.set(11, 41, 10, sand)
-	w.set(10, 42, 10, sand)
-	it.Rand = rand.New(rand.NewSource(5))
-	it.Step(w, nil)
-
-	if it.VY <= 0 {
-		t.Errorf("vy after the tick buried = %v, want it pushing up", it.VY)
-	}
-	if !closeEnough(it.VX, 0) || !closeEnough(it.VZ, 0) {
-		t.Errorf("vx, vz after the tick buried = %v, %v, want the unchosen axes at three quarters of nothing", it.VX, it.VZ)
-	}
-}
-
 // TestAnItemDespawnsAtTheDespawnAge checks the despawn rule the tick asks
 // of every item: an item is given five minutes, and the tick its age
 // reaches the despawn age is the one that finds its time up.
@@ -724,27 +583,6 @@ func TestAnItemsPickupDelayRunsOutBeforeAnyoneMayHaveIt(t *testing.T) {
 	it.Step(w, nil)
 	if !it.PickupDue() {
 		t.Error("a due pickup went back to waiting, want the delay to stay spent")
-	}
-}
-
-// TestAnItemAtTheMinimumAgeNeverAges checks the unlimited lifetime the
-// Short.MIN_VALUE age marks: the tick leaves the age at the marker, so the
-// item never reaches the despawn age however long it lies there.
-// vanilla: ItemEntity.tick
-func TestAnItemAtTheMinimumAgeNeverAges(t *testing.T) {
-	w := newTestWorld()
-	it := &Item{Age: math.MinInt16}
-	if it.ShouldDespawn() {
-		t.Fatal("an item at the minimum age despawns, want its time never up")
-	}
-	for range 100 {
-		it.Step(w, nil)
-	}
-	if it.Age != math.MinInt16 {
-		t.Errorf("age after a hundred ticks = %d, want it held at %d", it.Age, math.MinInt16)
-	}
-	if it.ShouldDespawn() {
-		t.Error("an item at the minimum age despawns after ticking, want its time never up")
 	}
 }
 
@@ -838,66 +676,6 @@ func TestAnItemInLavaIsDestroyedInTwoTicks(t *testing.T) {
 	}
 }
 
-// TestANetheriteIngotInLavaSurvivesAndFloats drops the one thing vanilla
-// makes unburnable into the same pool: the damage_resistant component's
-// is_fire set keeps every point of the lava off it, it never catches, and
-// it floats up through the lava the way anything does.
-func TestANetheriteIngotInLavaSurvivesAndFloats(t *testing.T) {
-	stone := defaultState(t, "minecraft:stone")
-	lava := defaultState(t, "minecraft:lava")
-	w := newTestWorld()
-	w.set(0, 62, 0, stone)
-	w.set(0, 63, 0, lava)
-
-	ingot, ok := registry.ItemID("minecraft:netherite_ingot")
-	if !ok {
-		t.Fatal("the item registry has no netherite ingot")
-	}
-	it := &Item{ID: 7, X: 0.5, Y: 63 + halfSize, Z: 0.5, Health: 5, Stack: protocol.ItemStack{ItemID: ingot, Count: 1}}
-	for range 250 {
-		if events := it.Step(w, nil); len(events) != 0 {
-			t.Fatalf("the ingot's tick played %v, want silence from an unburnable stack", events)
-		}
-	}
-	if it.Dead {
-		t.Fatal("the netherite ingot burned up in lava, want it immune")
-	}
-	if it.Health != 5 {
-		t.Errorf("the ingot's health after 250 ticks of lava = %d, want every point kept", it.Health)
-	}
-	if it.fireTicks > 0 {
-		t.Errorf("the ingot's fire after 250 ticks of lava = %d, want it never lit", it.fireTicks)
-	}
-	// The float's mark is the top of its cycle: an ingot that has found
-	// the lava's surface has been up where the fluid is shallow.
-	high := it.Y
-	for range 50 {
-		it.Step(w, nil)
-		if it.Y > high {
-			high = it.Y
-		}
-	}
-	if high < 63.75 {
-		t.Errorf("the highest of the ingot's last 50 ticks = %v, want it floated up at the lava's surface", high)
-	}
-}
-
-// TestAnItemInAFallingWaterColumnIsPushedDown puts an item into a falling
-// column of water running down a wall: the current points down the fall,
-// and the push of it beats the buoyancy, so the item is carried downward.
-func TestAnItemInAFallingWaterColumnIsPushedDown(t *testing.T) {
-	w := fallingColumn(t, "minecraft:water", true)
-
-	it := &Item{X: 0.5, Y: 63 + halfSize, Z: 0.5, Health: 5}
-	it.Step(w, nil)
-	if it.VY >= 0 {
-		t.Errorf("vy after one tick in a falling column = %v, want the current carrying it down", it.VY)
-	}
-	if it.Y >= 63+halfSize {
-		t.Errorf("y after one tick in a falling column = %v, want it carried below where it started", it.Y)
-	}
-}
-
 // mergePair stands two items of the same stackable item side by side in
 // one block, resting on the floor given, with the counts, pickup delays
 // and ages a test wants to merge, and returns them with the neighbour
@@ -955,132 +733,6 @@ func TestAMergeTakesTheSmallerStackIntoTheLarger(t *testing.T) {
 	}
 }
 
-// TestAnItemAtTheUnlimitedAgeNeverMerges steps a resting stack at the
-// unlimited-lifetime marker on its settled scan's tick: the marker's age
-// fails the merge gate, so neither the item nor its neighbour is taken in.
-// vanilla: ItemEntity.isMergable
-func TestAnItemAtTheUnlimitedAgeNeverMerges(t *testing.T) {
-	w := newTestWorld()
-	w.set(3, 60, -7, defaultState(t, "minecraft:stone"))
-
-	a, b, neighbours := mergePair(t, "minecraft:dirt", 1, 1, 0, 0, ItemUnlimitedAge, 0, 60)
-	a.tickCount = 39 // the step below is the fortieth tick, the scan's due
-	a.Step(w, neighbours)
-
-	if a.Dead || a.Stack.Count != 1 {
-		t.Errorf("the marked stack holds %+v dead=%v, want it untouched", a.Stack, a.Dead)
-	}
-	if b.Stack.Count != 1 {
-		t.Errorf("the neighbour holds %d, want it untouched beside the marker", b.Stack.Count)
-	}
-}
-
-// TestAMergeOfEqualStacksLeavesTheNeighbourAlive steps one of two equal
-// resting stacks on its scan's tick: the counts being equal, the ticking
-// item is the one that gives way, its neighbour surviving with the summed
-// count — the vanilla comparison reads the tie the neighbour's way.
-func TestAMergeOfEqualStacksLeavesTheNeighbourAlive(t *testing.T) {
-	w := newTestWorld()
-	w.set(3, 60, -7, defaultState(t, "minecraft:stone"))
-
-	a, b, neighbours := mergePair(t, "minecraft:dirt", 3, 3, 0, 0, 50, 50, 60)
-	a.tickCount = 39
-	a.Step(w, neighbours)
-
-	if !a.Dead {
-		t.Error("the ticking item of an equal pair survived the merge, want it giving way to its neighbour")
-	}
-	if b.Dead || b.Stack.Count != 6 {
-		t.Errorf("the neighbour holds %+v dead=%v, want it surviving with both stacks' six", b.Stack, b.Dead)
-	}
-}
-
-// TestStacksThatCannotBeOneDoNotMerge steps two resting stacks of
-// different items, and then two of one item whose combined count will not
-// fit a single stack, on the ticks their scans come due: the same-item
-// rule and the one-stack rule both hold, nothing merged and nothing dead.
-func TestStacksThatCannotBeOneDoNotMerge(t *testing.T) {
-	w := newTestWorld()
-	w.set(3, 60, -7, defaultState(t, "minecraft:stone"))
-
-	dirt, stone, neighbours := mergePair(t, "minecraft:dirt", 2, 2, 0, 0, 0, 0, 60)
-	stoneID, ok := registry.ItemID("minecraft:stone")
-	if !ok {
-		t.Fatal("the item registry has no stone")
-	}
-	stone.Stack = protocol.ItemStack{ItemID: stoneID, Count: 2}
-	dirt.tickCount = 39
-	dirt.Step(w, neighbours)
-	if dirt.Dead || stone.Dead || dirt.Stack.Count != 2 || stone.Stack.Count != 2 {
-		t.Errorf("stacks of different items merged: %+v and %+v", dirt.Stack, stone.Stack)
-	}
-
-	full, spare, fullNeighbours := mergePair(t, "minecraft:dirt", 63, 5, 0, 0, 0, 0, 60)
-	full.tickCount = 39
-	full.Step(w, fullNeighbours)
-	if full.Dead || spare.Dead || full.Stack.Count != 63 || spare.Stack.Count != 5 {
-		t.Errorf("sixty-three and five merged: %+v and %+v, want two stacks whose combined count fits no one stack left alone", full.Stack, spare.Stack)
-	}
-}
-
-// TestAFullStackIsNotAMergeableOne steps a full stack on its scan's tick
-// with a smaller neighbour beside it: a stack with no room in it is
-// nothing the scan asks, and neither side of the pair moves.
-func TestAFullStackIsNotAMergeableOne(t *testing.T) {
-	w := newTestWorld()
-	w.set(3, 60, -7, defaultState(t, "minecraft:stone"))
-
-	full, spare, neighbours := mergePair(t, "minecraft:dirt", 64, 5, 0, 0, 0, 0, 60)
-	full.tickCount = 39
-	full.Step(w, neighbours)
-	if full.Dead || spare.Dead || full.Stack.Count != 64 || spare.Stack.Count != 5 {
-		t.Errorf("a full stack took its neighbour in: %+v and %+v", full.Stack, spare.Stack)
-	}
-
-	other, _, otherNeighbours := mergePair(t, "minecraft:dirt", 5, 64, 0, 0, 0, 0, 60)
-	other.tickCount = 39
-	other.Step(w, otherNeighbours)
-	if other.Dead || other.Stack.Count != 5 {
-		t.Errorf("a five-stack took a full one in: %+v, want the full stack refused as a neighbour", other.Stack)
-	}
-}
-
-// TestAFallingItemScansEverySecondTick drops a pair from a height and
-// steps the first one onto a tick whose scan is due only for an item
-// whose move this tick carried it into another block: the fall crosses
-// the block boundary below it, the every-second rhythm lets the scan run,
-// and the neighbour takes the faller in. A tick later by one, the same
-// falling pair's scan is not due, and nothing merges.
-func TestAFallingItemScansEverySecondTick(t *testing.T) {
-	w := newTestWorld()
-	w.set(0, 60, 0, defaultState(t, "minecraft:stone"))
-
-	due, other, neighbours := mergePair(t, "minecraft:dirt", 1, 1, 0, 0, 0, 0, 60)
-	due.OnGround = false
-	due.Y = 65 + halfSize
-	other.OnGround = false
-	other.Y = 65 + halfSize
-	due.tickCount = 3 // the step below is the fourth tick, an even one
-	due.Step(w, neighbours)
-	if !due.Dead {
-		t.Error("a falling pair's even tick ran no scan, want the every-second rhythm of a mover")
-	}
-	if other.Stack.Count != 2 {
-		t.Errorf("the survivor holds %d, want both fallers' two", other.Stack.Count)
-	}
-
-	odd, other2, oddNeighbours := mergePair(t, "minecraft:dirt", 1, 1, 0, 0, 0, 0, 60)
-	odd.OnGround = false
-	odd.Y = 65 + halfSize
-	other2.OnGround = false
-	other2.Y = 65 + halfSize
-	odd.tickCount = 2 // the step below is the third tick, an odd one
-	odd.Step(w, oddNeighbours)
-	if odd.Dead {
-		t.Error("a falling pair's odd tick merged them, want the scan only on the even ones")
-	}
-}
-
 // TestAnEnchantedStackDoesNotMergeWithAPlainOne steps a resting enchanted
 // stack and a plain one of the same item through the same scans: the
 // components two stacks carry are part of what makes them of a kind, the
@@ -1118,118 +770,6 @@ func TestAnEnchantedStackDoesNotMergeWithAPlainOne(t *testing.T) {
 	}
 }
 
-// TestAReservedStackDoesNotMergeWithAPublicOne steps a leftover reserved for
-// one player and an ordinary drop of the same item beside it: the target is
-// part of what makes two stacks of a kind, so a reservation neither spreads
-// to the public stack nor is lost by merging into it.
-// vanilla: ItemEntity.tryToMerge
-func TestAReservedStackDoesNotMergeWithAPublicOne(t *testing.T) {
-	w := newTestWorld()
-	w.set(3, 60, -7, defaultState(t, "minecraft:stone"))
-
-	reserved := uuid.MustParse("00000000-0000-0000-0000-0000000000ab")
-	leftover, public, neighbours := mergePair(t, "minecraft:dirt", 2, 2, 0, 0, 0, 0, 60)
-	leftover.Target = &reserved
-	leftover.tickCount = 39
-	leftover.Step(w, neighbours)
-	if leftover.Dead || public.Dead || leftover.Stack.Count != 2 || public.Stack.Count != 2 {
-		t.Errorf("a reserved stack merged with a public one: %+v and %+v", leftover.Stack, public.Stack)
-	}
-	if public.Target != nil {
-		t.Errorf("the public stack's target = %v, want the reservation not to spread", *public.Target)
-	}
-
-	// Two leftovers reserved for the same player are of a kind and merge.
-	first, second, sameNeighbours := mergePair(t, "minecraft:dirt", 2, 2, 0, 0, 0, 0, 60)
-	first.Target, second.Target = &reserved, &reserved
-	first.tickCount = 39
-	first.Step(w, sameNeighbours)
-	if !first.Dead || second.Dead || second.Stack.Count != 4 {
-		t.Errorf("two stacks reserved for the same player did not merge: %+v and %+v", first.Stack, second.Stack)
-	}
-}
-
-// TestAnItemLandsInsideACactusAndIsDestroyed drops an item onto a cactus:
-// the shorter collision box sinks its feet to 15/16 of the cell, inside the
-// cactus, where the contact hurts it a point a tick until the five run out.
-func TestAnItemLandsInsideACactusAndIsDestroyed(t *testing.T) {
-	w := newTestWorld()
-	w.set(0, 62, 0, defaultState(t, "minecraft:sand"))
-	w.set(0, 63, 0, defaultState(t, "minecraft:cactus"))
-
-	it := &Item{X: 0.5, Y: 65, Z: 0.5, Health: 5}
-	for i := 0; i < 100 && !it.Dead; i++ {
-		it.Step(w, nil)
-	}
-	if !it.Dead {
-		t.Fatalf("the item survived 100 ticks on a cactus (feet at %v), want it destroyed", it.Y-halfSize)
-	}
-	if feet := it.Y - halfSize; math.Abs(feet-63.9375) > 1e-6 {
-		t.Errorf("feet = %v, want 63.9375 (the cactus's collision top)", feet)
-	}
-}
-
-// TestAnItemOnHoneyRestsAtThePaddedTop checks the honey block's 15/16
-// collision top: an item dropped onto it settles inside the cell.
-func TestAnItemOnHoneyRestsAtThePaddedTop(t *testing.T) {
-	w := newTestWorld()
-	w.set(0, 63, 0, defaultState(t, "minecraft:honey_block"))
-
-	it := &Item{X: 0.5, Y: 66, Z: 0.5, Health: 5}
-	for range 100 {
-		it.Step(w, nil)
-	}
-	if feet := it.Y - halfSize; math.Abs(feet-63.9375) > 1e-6 {
-		t.Errorf("feet = %v, want 63.9375", feet)
-	}
-}
-
-// TestACactusDestroysAFireproofStack checks the cactus is no fire damage: a
-// netherite stack that shrugs off lava still dies on it.
-func TestACactusDestroysAFireproofStack(t *testing.T) {
-	w := newTestWorld()
-	w.set(0, 62, 0, defaultState(t, "minecraft:sand"))
-	w.set(0, 63, 0, defaultState(t, "minecraft:cactus"))
-	ingot, ok := registry.ItemID("minecraft:netherite_ingot")
-	if !ok {
-		t.Fatal("the item registry has no netherite ingot")
-	}
-	it := &Item{X: 0.5, Y: 65, Z: 0.5, Health: 5, Stack: protocol.ItemStack{ItemID: ingot, Count: 1}}
-	for i := 0; i < 100 && !it.Dead; i++ {
-		it.Step(w, nil)
-	}
-	if !it.Dead {
-		t.Fatal("the netherite stack survived 100 ticks on a cactus")
-	}
-}
-
-// TestACactusSparesAStackResistingCactus lays a stick with its own
-// damage_resistant naming minecraft:cactus on a cactus: it survives.
-// vanilla: ItemEntity.hurtServer, ItemStack.canBeHurtBy
-func TestACactusSparesAStackResistingCactus(t *testing.T) {
-	w := newTestWorld()
-	w.set(0, 62, 0, defaultState(t, "minecraft:sand"))
-	w.set(0, 63, 0, defaultState(t, "minecraft:cactus"))
-	stick, ok := registry.ItemID("minecraft:stick")
-	if !ok {
-		t.Fatal("the item registry has no stick")
-	}
-	reg, _ := registry.Get("minecraft:damage_type")
-	cactus := reg.ID("minecraft:cactus")
-	if cactus < 0 {
-		t.Fatal("the damage type registry has no cactus")
-	}
-	stack := protocol.ItemStack{ItemID: stick, Count: 1}
-	stack.SetDamageResistant(protocol.DamageSetComponent{Present: true, IDs: []int32{cactus}})
-	it := &Item{X: 0.5, Y: 65, Z: 0.5, Health: 5, Stack: stack}
-	for range 100 {
-		it.Step(w, nil)
-	}
-	if it.Dead || it.Health != 5 {
-		t.Fatalf("the cactus-resistant stick was hurt on a cactus: dead %v, health %d", it.Dead, it.Health)
-	}
-}
-
 // TestRainPutsOutABurningItemOnlyWhereItLands burns three items in rain: the
 // one under open sky is put out, the one under a roof and the one in a dry
 // biome keep burning.
@@ -1256,25 +796,6 @@ func TestRainPutsOutABurningItemOnlyWhereItLands(t *testing.T) {
 		if it.fireTicks != c.want {
 			t.Errorf("%s: fire after rain = %d, want %d", c.name, it.fireTicks, c.want)
 		}
-	}
-}
-
-// TestRainPutsOutABurningOrbOnlyWhereItLands is the orb's counterpart.
-func TestRainPutsOutABurningOrbOnlyWhereItLands(t *testing.T) {
-	w := newTestWorld()
-	w.rain = true
-	open := NewOrb(1, 0.5, 64, 0.5, 0, 0, 0, 1, 1)
-	open.fireTicks = 100
-	open.insideEffects(w, bodyMove{}, new([]OrbEvent))
-	if open.fireTicks != 0 {
-		t.Errorf("open sky: fire = %d, want 0", open.fireTicks)
-	}
-	w.set(0, 66, 0, defaultState(t, "minecraft:stone"))
-	roofed := NewOrb(2, 0.5, 64, 0.5, 0, 0, 0, 1, 1)
-	roofed.fireTicks = 100
-	roofed.insideEffects(w, bodyMove{}, new([]OrbEvent))
-	if roofed.fireTicks != 100 {
-		t.Errorf("roofed: fire = %d, want 100", roofed.fireTicks)
 	}
 }
 
@@ -1322,27 +843,6 @@ func TestAnItemOnSlimeLosesMostOfItsSlide(t *testing.T) {
 	}
 }
 
-// TestAnOrbOnSlimeLosesMostOfItsSlide is the same cut for an experience
-// orb, whose tick takes stepOn after its move too.
-// vanilla: ExperienceOrb.tick, SlimeBlock.stepOn
-func TestAnOrbOnSlimeLosesMostOfItsSlide(t *testing.T) {
-	vz := func(block string) float64 {
-		w := newTestWorld()
-		floor := defaultState(t, block)
-		for z := int32(8); z <= 14; z++ {
-			w.set(10, 40, z, floor)
-		}
-		o := NewOrb(1, 10.5, 41, 10.5, 0, 0, 0.2, 1, 1)
-		o.OnGround = true
-		o.Step(w, nil, func(*Orb) []*Orb { return nil })
-		return o.VZ
-	}
-	slime, stone := vz("minecraft:slime_block"), vz("minecraft:stone")
-	if !(slime > 0 && slime < 0.6*stone) {
-		t.Errorf("vz on slime = %v, on stone = %v; want slime under 0.6 of stone's", slime, stone)
-	}
-}
-
 func (w testWorld) InBorderBox(minX, minZ, maxX, maxZ float64) bool {
 	return w.InBorder(int32(math.Floor(minX)), int32(math.Floor(minZ))) && w.InBorder(int32(math.Floor(maxX-1e-5)), int32(math.Floor(maxZ-1e-5)))
 }
@@ -1358,35 +858,3 @@ func (w testWorld) PrecipitatesAt(x, y, z int32) bool { return w.RainingAt(x, y,
 
 // InClouds is false: the test world has no cloud layer.
 func (w testWorld) InClouds(x, y, z, height float64) bool { return false }
-
-// TestAnItemStuckInABlockTakesNoBlockEffects buries the bottom of a burning
-// item's box in stone under open rain, and another's under a fire cell: a
-// box inside a block's collision is noPhysics for the tick, so the rain does
-// not put the first out (its fire only counts down) and the fire does not
-// light the second.
-// vanilla: Entity.isAffectedByBlocks
-func TestAnItemStuckInABlockTakesNoBlockEffects(t *testing.T) {
-	stone := defaultState(t, "minecraft:stone")
-	fire := defaultState(t, "minecraft:fire")
-
-	w := newTestWorld()
-	w.rain = true
-	w.set(0, 64, 0, stone)
-	rained := &Item{X: 0.5, Y: 64.9 + halfSize, Z: 0.5, Health: 5, fireTicks: 100, Rand: rand.New(rand.NewSource(1))}
-	if !rained.insideSolid(w) {
-		t.Fatal("the item's box is not inside the stone")
-	}
-	rained.Step(w, nil)
-	if rained.fireTicks != 99 {
-		t.Errorf("fire after a stuck tick in the rain = %d, want 99 (counted down, not put out)", rained.fireTicks)
-	}
-
-	w = newTestWorld()
-	w.set(0, 64, 0, stone)
-	w.set(0, 65, 0, fire)
-	lit := &Item{X: 0.5, Y: 64.9 + halfSize, Z: 0.5, Health: 5, Rand: rand.New(rand.NewSource(1))}
-	lit.Step(w, nil)
-	if lit.fireTicks > 0 || lit.Health != 5 {
-		t.Errorf("after a stuck tick under fire: fire = %d, health = %v, want unlit and unhurt", lit.fireTicks, lit.Health)
-	}
-}

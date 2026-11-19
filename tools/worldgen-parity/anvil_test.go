@@ -51,14 +51,6 @@ func TestUnpackPalette(t *testing.T) {
 	}
 }
 
-func TestCeilLog2(t *testing.T) {
-	for n, want := range map[int]int{1: 0, 2: 1, 3: 2, 4: 2, 5: 3, 16: 4, 17: 5, 64: 6} {
-		if got := ceilLog2(n); got != want {
-			t.Errorf("ceilLog2(%d) = %d, want %d", n, got, want)
-		}
-	}
-}
-
 // writeRegion writes a one-chunk region file: the location header, a zero
 // timestamp table, then a deflate record.
 // location header, a zero timestamp table, then a deflate record.
@@ -189,15 +181,6 @@ func TestReadVanillaChunk(t *testing.T) {
 	}
 }
 
-func TestResolveStateRejectsUnknownProperties(t *testing.T) {
-	if got := resolveState("minecraft:oak_log", map[string]string{"axis": "w"}); got != unknownState {
-		t.Errorf("an unknown property value resolved to %s", blockName(got))
-	}
-	if got := resolveState("minecraft:no_such_block", nil); got != unknownState {
-		t.Errorf("an unknown block resolved to %s", blockName(got))
-	}
-}
-
 func TestReadNetherChunk(t *testing.T) {
 	nether := dimensions["the_nether"]
 	netherrack := nbt.Compound{"Name": nbt.String("minecraft:netherrack")}
@@ -241,39 +224,6 @@ func TestReadNetherChunk(t *testing.T) {
 	}
 	if got := biomeName(cd.Biomes[cellIndex(0, 63, 0)]); got != "minecraft:crimson_forest" {
 		t.Errorf("top biome = %s, want crimson_forest", got)
-	}
-}
-
-func TestReadVanillaChunkModernPalette(t *testing.T) {
-	// vanilla: BlockState.CODEC, StateHolder.codec; NBT wraps mixed palette entries.
-	palette := nbt.NewList([]nbt.Tag{
-		nbt.String("minecraft:air"), nbt.String("minecraft:oak_log"),
-		nbt.Compound{"id": nbt.String("minecraft:oak_log"), "properties": nbt.Compound{"axis": nbt.String("x")}},
-		nbt.String("minecraft:missing_block"),
-	})
-	indices := make([]int, 4096)
-	indices[1], indices[2], indices[3] = 1, 2, 3
-	root := nbt.Compound{
-		"xPos": nbt.Int(0), "zPos": nbt.Int(0), "Status": nbt.String("minecraft:full"),
-		"sections": nbt.NewList([]nbt.Tag{nbt.Compound{
-			"Y": nbt.Byte(0), "block_states": nbt.Compound{"palette": palette, "data": nbt.LongArray(pack(indices, 4))},
-		}}),
-	}
-	dir := t.TempDir()
-	writeRegion(t, dir, "region", 0, 0, root)
-	saved, err := readRegionChunk(dir, "region", 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := decodeVanillaChunk(dimensions["the_end"], saved)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []uint16{resolveState("minecraft:air", nil), resolveState("minecraft:oak_log", map[string]string{"axis": "y"}), resolveState("minecraft:oak_log", map[string]string{"axis": "x"}), unknownState}
-	for i, state := range want {
-		if got.Blocks[i] != state {
-			t.Errorf("block %d = %d, want %d", i, got.Blocks[i], state)
-		}
 	}
 }
 

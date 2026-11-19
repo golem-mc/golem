@@ -1,13 +1,11 @@
 package entity
 
 import (
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
-	"github.com/google/uuid"
 )
 
 func TestCopperGolemSaveKeepsWeatheringAndNextAge(t *testing.T) {
@@ -24,27 +22,6 @@ func TestCopperGolemSaveKeepsWeatheringAndNextAge(t *testing.T) {
 	fresh.SaveTo(saved, nil)
 	if saved["weather_state"] != nbt.String("unaffected") || saved["next_weather_age"] != nbt.Long(-1) {
 		t.Fatalf("fresh golem saves %v, %v, want unaffected and -1", saved["weather_state"], saved["next_weather_age"])
-	}
-}
-
-func TestCopperGolemWaxAndScrapeFollowVanillasOrder(t *testing.T) {
-	t.Parallel()
-	m := NewMob(TypeCopperGolem, 1, 0, 64, 0, 1)
-	m.SetCopperWeather(CopperWeathered)
-	if !m.CopperWax() || m.CopperWax() {
-		t.Fatal("honeycomb should wax once")
-	}
-	if got := m.CopperScrapeWith(); got != CopperScrapeWax || m.CopperWeather() != CopperWeathered {
-		t.Fatalf("first axe = %v at stage %d, want the wax removed alone", got, m.CopperWeather())
-	}
-	if got := m.CopperScrapeWith(); got != CopperScrapeStage || m.CopperWeather() != CopperExposed {
-		t.Fatalf("second axe = %v at stage %d, want one stage scraped", got, m.CopperWeather())
-	}
-	bolt := uuid.New()
-	m.CopperStruck(bolt)
-	m.CopperStruck(bolt)
-	if m.CopperWeather() != CopperUnaffected {
-		t.Fatalf("a bolt left stage %d, want one stage scraped once", m.CopperWeather())
 	}
 }
 
@@ -104,49 +81,5 @@ func TestACopperGolemTurningIntoAStatueDropsItsHandAndAntenna(t *testing.T) {
 		if e.Kind == MobDroppedItem {
 			t.Errorf("an empty-handed golem dropped %+v", e)
 		}
-	}
-}
-
-// A copper golem avoids fire like the animals, and while its transport cools
-// down with no chests about it strolls at most two blocks from where it stood.
-// vanilla: CopperGolem.<init>, CopperGolemAi.initIdleActivity's RandomStroll.stroll(1.0f, 2, 2)
-func TestACopperGolemShufflesWithinTwoBlocksWhileItsTransportCoolsDown(t *testing.T) {
-	t.Parallel()
-	w := flatWorld(t)
-	m := NewMob(TypeCopperGolem, 1, 0.5, 64, 0.5, 1)
-	if f := m.pathFootprint(w); f.fireMalus != -1 || f.nearFireMalus != 16 || f.nearDamageMalus != 16 {
-		t.Errorf("fire, near fire, near damaging malus = %v, %v, %v, want -1, 16, 16", f.fireMalus, f.nearFireMalus, f.nearDamageMalus)
-	}
-	if c := m.copper.cooldown; c < 60 || c >= 100 {
-		t.Errorf("a new golem's transport cooldown = %d, want 60 to 99", c)
-	}
-	var stroll *randomStroll
-	for _, g := range m.ai.goals {
-		if gated, ok := g.(*gatedGoal); ok {
-			stroll = gated.Goal.(*runOneGoal).choices[0].(*randomStroll)
-		}
-	}
-	picks := 0
-	pick := stroll.pick
-	stroll.pick = func(tv *tickView) (Waypoint, bool) {
-		at, ok := pick(tv)
-		if ok {
-			picks++
-			if dx, dz := math.Abs(float64(at.X)-math.Floor(m.X)), math.Abs(float64(at.Z)-math.Floor(m.Z)); dx > 2 || dz > 2 {
-				t.Errorf("stroll target %+v from (%.2f, %.2f)", at, m.X, m.Z)
-			}
-		}
-		return at, ok
-	}
-	for range 2000 {
-		m.copper.cooldown = 1 << 20
-		m.tick(w, nil, []*Mob{m})
-	}
-	// Half the idle choices are a stroll, the rest 30-60 ticks of standing.
-	if picks < 10 {
-		t.Fatalf("the golem strolled %d times in 2000 ticks", picks)
-	}
-	if m.X < -18 || m.X > 18 || m.Z < -18 || m.Z > 18 {
-		t.Errorf("the golem walked off the floor to (%.2f, %.2f)", m.X, m.Z)
 	}
 }

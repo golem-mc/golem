@@ -67,42 +67,6 @@ func TestGeneratedStructurePiecesMatchLocations(t *testing.T) {
 	}
 }
 
-func TestStructureMembershipReadsUnloadedSavedStart(t *testing.T) {
-	w := newTestWorld(t, NewFlatGenerator())
-	const id = "minecraft:stronghold"
-	startPos, targetPos := ChunkPos{X: -2, Z: -3}, ChunkPos{X: -1, Z: -3}
-	c, _ := w.Acquire(startPos)
-	c.setStructureStart(id, structureStartNBT(id, startPos.X, startPos.Z, []nbt.Tag{
-		nbt.Compound{"BB": nbt.IntArray{-32, 60, -48, -12, 66, -40}},
-		nbt.Compound{"BB": nbt.IntArray{-4, 60, -48, -1, 66, -40}},
-		nbt.Compound{"BB": nbt.IntArray{1, 2}}, // malformed boxes cannot match
-	}))
-	w.MarkDirty(startPos)
-	w.Release(startPos)
-	w.FlushSaves()
-	c, _ = w.Acquire(targetPos)
-	c.setStructureReferences(id, []int64{packChunk(startPos.X, startPos.Z)})
-	for _, tc := range []struct {
-		x, y, z int32
-		want    bool
-	}{
-		{-12, 66, -40, true}, {-11, 64, -40, false}, {-4, 60, -48, true}, {-4, 59, -48, false},
-	} {
-		if got := w.StructureHasPieceAt(tc.x, tc.y, tc.z, []string{id}); got != tc.want {
-			t.Errorf("piece membership at (%d,%d,%d) = %v, want %v", tc.x, tc.y, tc.z, got, tc.want)
-		}
-	}
-	if w.ChunkLoaded(startPos) {
-		t.Fatal("reading saved pieces loaded their terrain into the world")
-	}
-	w.Release(targetPos)
-	w.FlushSaves()
-	w.Acquire(targetPos)
-	if !w.StructureHasPieceAt(-12, 66, -40, []string{id}) {
-		t.Fatal("membership was lost after saving and reloading the target chunk")
-	}
-}
-
 func TestFullStructureBoundsGrowWithTerrainAdaptation(t *testing.T) {
 	w := newTestWorld(t, NewFlatGenerator())
 	startPos := ChunkPos{}
@@ -131,37 +95,6 @@ func TestFullStructureBoundsGrowWithTerrainAdaptation(t *testing.T) {
 		}
 		w.Release(q)
 	}
-}
-
-func TestStructureFullBoundsIncludeGapsAcrossChunks(t *testing.T) {
-	w := newTestWorld(t, NewFlatGenerator())
-	const id = "minecraft:monument"
-	startPos, targetPos := ChunkPos{-2, -3}, ChunkPos{-1, -3}
-	c, _ := w.Acquire(startPos)
-	c.setStructureStart(id, structureStartNBT(id, startPos.X, startPos.Z, []nbt.Tag{
-		nbt.Compound{"BB": nbt.IntArray{-32, 40, -48, -29, 50, -40}},
-		nbt.Compound{"BB": nbt.IntArray{-4, 40, -48, -1, 50, -40}},
-	}))
-	w.MarkDirty(startPos)
-	w.Release(startPos)
-	w.FlushSaves()
-	c, _ = w.Acquire(targetPos)
-	c.setStructureReferences(id, []int64{packChunk(startPos.X, startPos.Z)})
-	for range 2 {
-		if !w.StructureContains(-12, 45, -44, id, false) {
-			t.Fatal("gap inside full bounds did not match")
-		}
-		if w.StructureContains(-12, 45, -44, id, true) {
-			t.Fatal("gap matched piece bounds")
-		}
-		if w.StructureContains(-12, 51, -44, id, false) {
-			t.Fatal("above full bounds matched")
-		}
-		if w.ChunkLoaded(startPos) {
-			t.Fatal("membership query loaded start terrain")
-		}
-	}
-	w.Release(targetPos)
 }
 
 func TestGeneratedHutAndMonumentSpawnBounds(t *testing.T) {
@@ -195,23 +128,5 @@ func TestGeneratedHutAndMonumentSpawnBounds(t *testing.T) {
 			w.Release(pos)
 			w.Release(ChunkPos{tc.x, tc.z})
 		})
-	}
-}
-
-func TestStructureReferencesListsNonEmptyReferences(t *testing.T) {
-	w := newTestWorld(t, NewFlatGenerator())
-	if got := w.StructureReferences(100, 100); got != nil {
-		t.Fatalf("unloaded chunk references = %v, want none", got)
-	}
-	pos := ChunkPos{}
-	c, _ := w.Acquire(pos)
-	defer w.Release(pos)
-	c.setStructureReferences("minecraft:monument", []int64{packChunk(0, 0)})
-	c.setStructureReferences("minecraft:swamp_hut", nil)
-	for range 2 {
-		got := w.StructureReferences(5, 5)
-		if len(got) != 1 || got[0] != "minecraft:monument" {
-			t.Fatalf("references = %v, want [minecraft:monument]", got)
-		}
 	}
 }

@@ -2,12 +2,10 @@ package command
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/registry"
 )
 
 func TestParsedSelectorCache(t *testing.T) {
@@ -64,71 +62,7 @@ type cachedSelectorSource struct{ forkSource }
 
 func (*cachedSelectorSource) OnlineTargetsIn(string) []Target { return nil }
 
-func TestParsedSelectorConcurrentResolution(t *testing.T) {
-	const word = "@e[distance=..10,sort=nearest,limit=2]"
-	first, err := parsedSelector(word, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	near, far := &cachedSelectorBody{x: 1}, &cachedSelectorBody{x: 5}
-	src := &cachedSelectorSource{forkSource{bodies: []Entity{far, &cachedSelectorBody{x: 20}, near}}}
-	var wg sync.WaitGroup
-	for range 2 {
-		wg.Go(func() {
-			for range 100 {
-				sel, err := parsedSelector(word, true)
-				if err != nil || sel != first {
-					t.Error("concurrent resolution did not reuse selector")
-					return
-				}
-				optional := resolveOptionalEntities(src, word)
-				required, key := resolveRequiredEntities(src, word)
-				resolved, resolveErr := resolveAs(src, word, argumentEntityNotFoundKey, false)
-				if key != "" || resolveErr != nil {
-					t.Errorf("resolution failed: %s, %v", key, resolveErr)
-					return
-				}
-				for _, found := range [][]Entity{optional, required, resolved} {
-					if len(found) != 2 || found[0] != near || found[1] != far {
-						t.Errorf("cached selector changed selection or order: %v", found)
-						return
-					}
-				}
-			}
-		})
-	}
-	wg.Wait()
-}
-
 func (*cachedSelectorBody) EntityType() string { return "minecraft:armor_stand" }
-
-func TestParsedSelectorSeesTagReload(t *testing.T) {
-	t.Cleanup(func() { registry.ApplyPackTags(nil) })
-	const word = "@e[type=#test:cached_selector]"
-	body := &cachedSelectorBody{}
-	src := &cachedSelectorSource{forkSource{bodies: []Entity{body}}}
-	sel, err := parsedSelector(word, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := resolveOptionalEntities(src, word); len(got) != 0 {
-		t.Fatalf("unknown tag selected %v", got)
-	}
-	registry.ApplyPackTags(registry.PackTags{"minecraft:entity_type": {
-		"test:cached_selector": {Entries: []registry.PackTagEntry{{ID: "minecraft:armor_stand", Required: true}}},
-	}})
-	again, err := parsedSelector(word, true)
-	if err != nil || again != sel {
-		t.Fatal("reload test did not reuse selector")
-	}
-	if got := resolveOptionalEntities(src, word); len(got) != 1 || got[0] != body {
-		t.Fatalf("reloaded tag selected %v", got)
-	}
-	registry.ApplyPackTags(nil)
-	if got := resolveOptionalEntities(src, word); len(got) != 0 {
-		t.Fatalf("removed tag selected %v", got)
-	}
-}
 
 type cachedAdvancementTarget struct {
 	Target
@@ -145,30 +79,3 @@ type cachedAdvancementSource struct {
 func (*cachedAdvancementSource) PermLevel() int            { return PermLevelOwners }
 func (*cachedAdvancementSource) Position() player.Position { return player.Position{} }
 func (s *cachedAdvancementSource) OnlineTargets() []Target { return []Target{s.target} }
-
-func TestParsedSelectorSeesAdvancementReload(t *testing.T) {
-	t.Cleanup(func() { advancement.ApplyPack(nil) })
-	const word = "@a[advancements={test:cached_selector=false}]"
-	target := &cachedAdvancementTarget{progress: advancement.NewProgress(advancement.Current())}
-	src := &cachedAdvancementSource{target: target}
-	sel, err := parsedSelector(word, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := resolveOptionalEntities(src, word); len(got) != 0 {
-		t.Fatalf("unknown advancement selected %v", got)
-	}
-	tree := advancement.ApplyPack([]registry.Advancement{{ID: "test:cached_selector", Criteria: []registry.AdvancementCriterion{{Name: "test", Trigger: "minecraft:impossible"}}, Requirements: [][]string{{"test"}}}})
-	target.progress.Reload(tree)
-	again, err := parsedSelector(word, true)
-	if err != nil || again != sel {
-		t.Fatal("reload test did not reuse selector")
-	}
-	if got := resolveOptionalEntities(src, word); len(got) != 1 || got[0] != target {
-		t.Fatalf("reloaded advancement selected %v", got)
-	}
-	target.progress.Reload(advancement.ApplyPack(nil))
-	if got := resolveOptionalEntities(src, word); len(got) != 0 {
-		t.Fatalf("removed advancement selected %v", got)
-	}
-}

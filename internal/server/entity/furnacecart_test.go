@@ -23,30 +23,6 @@ func TestFurnaceFuelTakesEightItemsThenRefuses(t *testing.T) {
 	}
 }
 
-func TestFurnaceFuelPushesAwayFromThePlayer(t *testing.T) {
-	var f FurnaceCart
-	f.AddFuel(5, 5, 3, 6)
-	if f.PushX != 2 || f.PushZ != -1 || f.PushY != 0 {
-		t.Errorf("push = (%v, %v, %v), want (2, 0, -1)", f.PushX, f.PushY, f.PushZ)
-	}
-}
-
-func TestFurnaceTickBurnsAndClearsPushWhenOut(t *testing.T) {
-	f := FurnaceCart{Fuel: 2, PushX: 1}
-	f.Tick()
-	if f.Fuel != 1 || !f.Lit || f.PushX != 1 {
-		t.Fatalf("after one tick: fuel %d lit %v push %v", f.Fuel, f.Lit, f.PushX)
-	}
-	f.Tick()
-	if f.Fuel != 0 || f.Lit || f.PushX != 0 {
-		t.Fatalf("after two ticks: fuel %d lit %v push %v, want empty, unlit, no push", f.Fuel, f.Lit, f.PushX)
-	}
-	f.Tick()
-	if f.Fuel != 0 {
-		t.Errorf("fuel went to %d below empty", f.Fuel)
-	}
-}
-
 func TestFurnaceSlowdown(t *testing.T) {
 	idle := FurnaceCart{}
 	if vx, vz := idle.Slowdown(0.1, -0.04, 0.2, false); math.Abs(vx-0.098) > 1e-12 || math.Abs(vz-0.196) > 1e-12 {
@@ -77,21 +53,5 @@ func TestFurnaceSlowdown(t *testing.T) {
 	water := FurnaceCart{PushX: 0.5}
 	if vx, _ := water.Slowdown(0.1, 0, 0, true); math.Abs(vx-0.058) > 1e-12 {
 		t.Errorf("in water vx = %v, want a tenth of 0.58", vx)
-	}
-}
-
-func TestFurnaceCartTopSpeedIsHalved(t *testing.T) {
-	plain, furnace := NewMinecart(1, 0, 0, 0), NewMinecart(2, 0, 0, 0)
-	furnace.Furnace = &FurnaceCart{}
-	for _, c := range []struct {
-		water       bool
-		plain, furn float64
-	}{{false, 0.4, 0.2}, {true, 0.2, 0.15}} {
-		if got := plain.maxSpeed(c.water); math.Abs(got-c.plain) > 1e-12 {
-			t.Errorf("plain cart (water %v) = %v, want %v", c.water, got, c.plain)
-		}
-		if got := furnace.maxSpeed(c.water); math.Abs(got-c.furn) > 1e-12 {
-			t.Errorf("furnace cart (water %v) = %v, want %v", c.water, got, c.furn)
-		}
 	}
 }

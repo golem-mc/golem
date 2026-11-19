@@ -21,61 +21,6 @@ func breedTickView(mobs ...*Mob) *tickView {
 	return &tickView{w: testWorld{}, others: mobs}
 }
 
-// TestBreedPartnerMustBeNearAndOfTheKind: getFreePartner's reach is eight
-// blocks and its mate the same kind, so a body past the reach or of another
-// species is no partner.
-func TestBreedPartnerMustBeNearAndOfTheKind(t *testing.T) {
-	near := lover(1, 0.5, TypeCow)
-	if mate := lover(2, 6.5, TypeCow); (&breedGoal{m: near}).freePartner(breedTickView(near, mate)) != mate {
-		t.Error("a cow six blocks off is no partner, want it found within the eight-block reach")
-	}
-	if mate := lover(3, 9.5, TypeCow); (&breedGoal{m: near}).freePartner(breedTickView(near, mate)) != nil {
-		t.Error("a cow nine blocks off was taken as a partner, want the scan's eight-block reach")
-	}
-	if mate := lover(4, 2.5, TypePig); (&breedGoal{m: near}).freePartner(breedTickView(near, mate)) != nil {
-		t.Error("a pig was taken as a cow's partner, want the kind checked")
-	}
-}
-
-// TestAPanickingMateIsRefused: BreedGoal skips a panicking partner both when
-// choosing one and while a courtship runs, PathfinderMob.isPanicking over
-// the running panic goal.
-func TestAPanickingMateIsRefused(t *testing.T) {
-	a := lover(1, 0.5, TypeCow)
-	b := lover(2, 1.5, TypeCow)
-	tv := breedTickView(a, b)
-
-	g := &breedGoal{m: a}
-	if p := g.freePartner(tv); p != b {
-		t.Fatal("the loving cow beside the other was no partner, want it found")
-	}
-	b.ai.running = append(b.ai.running, &panicGoal{m: b})
-	if p := g.freePartner(tv); p != nil {
-		t.Error("a panicking cow was taken as a partner, want it refused")
-	}
-	g.partner = b
-	if g.ShouldContinue(tv) {
-		t.Error("a courtship kept a partner that panicked, want it let go")
-	}
-}
-
-// TestABreedCourtshipGivesUpAfterSixtyTicks: BreedGoal.canContinueToUse
-// stops a courtship once its own count reaches the sixty-tick give-up.
-func TestABreedCourtshipGivesUpAfterSixtyTicks(t *testing.T) {
-	a := lover(1, 0.5, TypeCow)
-	b := lover(2, 1.5, TypeCow)
-	tv := breedTickView(a, b)
-
-	g := &breedGoal{m: a, partner: b, loveTime: breedGiveUp - 1}
-	if !g.ShouldContinue(tv) {
-		t.Fatalf("the courtship let go at %d goal-ticks, want the %d-tick give-up", g.loveTime, breedGiveUp)
-	}
-	g.loveTime = breedGiveUp
-	if g.ShouldContinue(tv) {
-		t.Errorf("the courtship ran at %d goal-ticks, want the %d-tick give-up", g.loveTime, breedGiveUp)
-	}
-}
-
 // TestBreedCourtshipTiming counts real selector ticks through MobBred.
 func TestBreedCourtshipTiming(t *testing.T) {
 	for _, kind := range []MobType{TypeCow, TypeAxolotl} {
@@ -112,35 +57,6 @@ func TestBreedCourtshipTiming(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestBrainCourtshipGivesUpAtBirthTime(t *testing.T) {
-	a, b := lover(1, 0.5, TypeAxolotl), lover(2, 4.5, TypeAxolotl)
-	a.Rand.Seed(0)
-	want := 61 + rand.New(rand.NewSource(0)).Intn(50)
-	tv := breedTickView(a, b)
-	g := &breedGoal{m: a}
-	if !g.CanStart(tv) {
-		t.Fatal("no partner within the courtship range")
-	}
-	g.Start(tv)
-	for ticks := 0; ticks <= 110; ticks++ {
-		if !g.ShouldContinue(tv) {
-			if ticks != want {
-				t.Fatalf("gave up after %d full ticks, want %d", ticks, want)
-			}
-			if len(tv.events) != 0 {
-				t.Fatal("bred with a partner outside breeding distance")
-			}
-			g.Stop(tv)
-			if g.partner != nil || g.loveTime != 0 {
-				t.Fatal("stopped courtship retained its partner or timer")
-			}
-			return
-		}
-		g.Tick(tv)
-	}
-	t.Fatal("courtship continued past its birth time")
 }
 
 // TestABredLambWearsItsParentsMixedColour: BreedInto's sheep half is

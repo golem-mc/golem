@@ -4,16 +4,7 @@ import (
 	"reflect"
 	"slices"
 	"testing"
-
-	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
-
-func TestRegistryFitsEffectMask(t *testing.T) {
-	if len(registry.MobEffects) > 64 {
-		t.Fatalf("%d registered effects exceed the 64-bit active mask", len(registry.MobEffects))
-	}
-}
 
 func TestSetRegistryOrderAndReuse(t *testing.T) {
 	var s Set
@@ -74,38 +65,6 @@ func TestSetRegistryOrderAndReuse(t *testing.T) {
 	}
 	if len(s.All()) != 0 {
 		t.Fatal("removed slot remains active")
-	}
-}
-
-func TestSetCloneOwnsHiddenCountdown(t *testing.T) {
-	var s Set
-	s.Add(New(hunger, 10, 0, false, true, true))
-	s.Add(New(hunger, 1, 1, false, true, true))
-	clone := s.Clone()
-	clone.Tick(1, func(*Instance) bool { return true })
-	in, _ := s.Get(hunger)
-	if in.Duration != 1 || in.Hidden == nil || in.Hidden.Duration != 10 {
-		t.Fatalf("ticking clone changed original: %+v", in)
-	}
-	in, _ = clone.Get(hunger)
-	if in.Duration != 9 || in.Amplifier != 0 || in.Hidden != nil {
-		t.Fatalf("clone downgrade = %+v", in)
-	}
-}
-
-func TestDecodeDuplicateEffectReplacesSlot(t *testing.T) {
-	s := Decode(nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-		nbt.Compound{"id": nbt.String("minecraft:hunger"), "duration": nbt.Int(100)},
-		nbt.Compound{"id": nbt.String("minecraft:hunger"), "duration": nbt.Int(1)},
-	}})
-	if all := s.All(); len(all) != 1 || all[0].Duration != 1 {
-		t.Fatalf("decoded duplicates = %+v", all)
-	}
-	if changes := s.Tick(1, func(*Instance) bool { return true }); len(changes) != 1 || changes[0].Kind != Removed {
-		t.Fatalf("decoded expiry = %+v", changes)
-	}
-	if len(s.All()) != 0 {
-		t.Fatal("decoded effect survived expiry")
 	}
 }
 

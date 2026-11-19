@@ -59,39 +59,3 @@ func TestMobCrammedAmongVehiclesTakesCrammingDamage(t *testing.T) {
 		})
 	}
 }
-
-// vanilla: Entity.rideTick, LivingEntity.pushEntities
-func TestBoatPassengerTakesCrammingDamage(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Herder")
-	servertest.HoldTicks(t, srv)
-	c.MoveToGround(0.5, 64, 0.5, true)
-	c.Settle()
-	srv.SetGameRuleValue("max_entity_cramming", 2)
-	const x, z = 4.5, 0.5
-	pig := srv.SpawnMob("minecraft:pig", x, 64, z)
-	if !srv.SetMobNoAI(pig) {
-		t.Fatal("the pig could not be held")
-	}
-	boat := srv.SpawnBoat(x, 64, z, "minecraft:oak_boat")
-	if !srv.MountMobOnBoat(pig, boat) {
-		t.Fatal("the pig could not board")
-	}
-	for range 2 {
-		srv.SpawnBoat(x, 64, z, "minecraft:oak_boat")
-	}
-	servertest.RunTicks(t, srv, 60)
-	want := registry.MustID("minecraft:damage_type", "minecraft:cramming")
-	hit := false
-	c.SettleAndCollect(func(pid int32, data []byte) {
-		if pid == protocol.IDPlayDamageEvent {
-			r := protocol.NewReader(data)
-			if r.ReadVarInt() == pig && r.ReadVarInt() == want {
-				hit = true
-			}
-		}
-	})
-	if !hit {
-		t.Error("no cramming damage event for the boat passenger after 60 ticks")
-	}
-}

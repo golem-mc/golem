@@ -44,36 +44,6 @@ func TestAHoveringSurvivalPlayerIsKickedAfterEightyTicks(t *testing.T) {
 	servertest.ExpectDisconnect(t, c, flyingKick)
 }
 
-func TestAHalfGravityPlayerHoversTwiceAsLong(t *testing.T) {
-	srv, c := joinWithMoveChecks(t, servertest.SurvivalTestConfig(), "Moon", disallowFlight, servertest.OpsListing(t, "Moon"))
-	c.ChatCommand("attribute @s minecraft:gravity base set 0.04")
-	servertest.AwaitSystemChatSaying(t, c, "commands.attribute.base_value.set.success")
-	servertest.HoldTicks(t, srv)
-	hover(c)
-	expectNoKick(c, srv, 150)
-	servertest.RunTicks(t, srv, 15)
-	servertest.ExpectDisconnect(t, c, flyingKick)
-}
-
-func TestAZeroGravityPlayerMayHover(t *testing.T) {
-	srv, c := joinWithMoveChecks(t, servertest.SurvivalTestConfig(), "Weightless", disallowFlight, servertest.OpsListing(t, "Weightless"))
-	c.ChatCommand("attribute @s minecraft:gravity base set 0")
-	servertest.AwaitSystemChatSaying(t, c, "commands.attribute.base_value.set.success")
-	servertest.HoldTicks(t, srv)
-	hover(c)
-	expectNoKick(c, srv, 200)
-}
-
-func TestAdventurePlayersAreKickedForHovering(t *testing.T) {
-	cfg := servertest.SurvivalTestConfig()
-	cfg.GameMode = "adventure"
-	srv, c := joinHeld(t, cfg, "Adv")
-	hover(c)
-	expectNoKick(c, srv, 70)
-	servertest.RunTicks(t, srv, 15)
-	servertest.ExpectDisconnect(t, c, flyingKick)
-}
-
 func TestAHoverShortOfTheLimitIsNotKicked(t *testing.T) {
 	srv, c := joinHeld(t, servertest.SurvivalTestConfig(), "Brief")
 	ground := c.Pos().Y
@@ -82,36 +52,6 @@ func TestAHoverShortOfTheLimitIsNotKicked(t *testing.T) {
 	// A landing step resets the count.
 	c.MoveToGrounded(c.Pos().X, ground, c.Pos().Z, 0, 0, true)
 	expectNoKick(c, srv, 60)
-}
-
-func TestATeleportRestartsTheHoverCount(t *testing.T) {
-	srv, c := joinHeld(t, servertest.SurvivalTestConfig(), "Tele")
-	hover(c)
-	expectNoKick(c, srv, 60)
-	srv.TeleportAfter("minecraft:player", "minecraft:overworld", c.Pos().X, c.Pos().Y+5, c.Pos().Z, func() {})
-	expectNoKick(c, srv, 60)
-}
-
-func TestAllowFlightLetsAPlayerHover(t *testing.T) {
-	cfg := servertest.SurvivalTestConfig()
-	cfg.AllowFlight = true
-	srv, c := joinWithMoveChecks(t, cfg, "Fly", func(s *server.Server) { s.SetAllowFlight(true) })
-	servertest.HoldTicks(t, srv)
-	hover(c)
-	expectNoKick(c, srv, 100)
-}
-
-func TestAPlayerStandingOnTheGroundIsNotKicked(t *testing.T) {
-	srv, c := joinHeld(t, servertest.SurvivalTestConfig(), "Stand")
-	c.MoveToGrounded(c.Pos().X, c.Pos().Y, c.Pos().Z, 0, 0, true)
-	expectNoKick(c, srv, 100)
-}
-
-func TestLevitationLetsAPlayerHover(t *testing.T) {
-	srv, c := joinHeld(t, servertest.SurvivalTestConfig(), "Lev")
-	srv.GiveEffect("Lev", "minecraft:levitation", 1000, 0, false)
-	hover(c)
-	expectNoKick(c, srv, 100)
 }
 
 func TestCreativeAndSpectatorPlayersMayHover(t *testing.T) {

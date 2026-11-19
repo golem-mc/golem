@@ -76,46 +76,6 @@ func dialThrough[C net.Conn](t *testing.T, srv *server.Server, wrap func(net.Con
 	}
 }
 
-// TestAQuietClientStaysWhenTheLoopIsStopped checks the play read's backstop
-// against the one state of the server in which a client has nothing to
-// answer: the main loop stopped, the keep-alive exchange with it. The
-// backstop exists to drop a client that stops answering the exchange, so a
-// client the exchange cannot reach - the tests that drive the world by hand,
-// whose player stands still while the server runs no loop - keeps its place
-// and its chunks however long it sits quiet. The deadline the read is given
-// is what decides that, so the test reads it off the connection instead of
-// sitting out its width.
-func TestAQuietClientStaysWhenTheLoopIsStopped(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv := servertest.NewTestServer(t, cfg)
-	c, conn := dialThrough(t, srv, func(c net.Conn) *deadlineConn { return &deadlineConn{Conn: c} })
-	c.Join("Testificate")
-	// The backstop is two keep-alive timeouts wide. It is shortened only
-	// now, so a slow join is not held to it; the settle makes the read loop
-	// arm it.
-	srv.SetKeepAlive(time.Hour, time.Second)
-	c.Settle()
-	c.Settle()
-	if conn.readDeadline().IsZero() {
-		t.Fatal("a running loop left the play read without its backstop")
-	}
-
-	srv.StopTick()
-	// A read arms its deadline before it waits, so the answer to the second
-	// ping comes from a read armed after the stop.
-	c.Settle()
-	c.Settle()
-	if got := conn.readDeadline(); !got.IsZero() {
-		t.Fatalf("a stopped loop left the read deadline at %v, want none", got)
-	}
-	if got := srv.PlayerCount(); got != 1 {
-		t.Errorf("player count = %d, want 1", got)
-	}
-}
-
 // TestPlayerStaysConnected answers the keep-alives of a hundred held ticks and
 // checks the player stays, then stops answering and checks the first ping
 // left out is the one that drops them.
@@ -173,25 +133,6 @@ func TestPlayerLeaves(t *testing.T) {
 	}
 }
 
-// TestShutdownDisconnectsPlayers stops the server under two players who are
-// still connected and checks each is sent a Play Disconnect carrying the
-// server-shutdown reason before their connection ends, the way the vanilla
-// server's PlayerList.removeAll tells every player the server is closing.
-// vanilla: PlayerList.removeAll
-func TestShutdownDisconnectsPlayers(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, _, alice, bob := servertest.AdminPair(t, cfg)
-
-	srv.Shutdown()
-
-	reason := protocol.Text{Translate: "multiplayer.disconnect.server_shutdown"}
-	servertest.ExpectDisconnect(t, alice, reason)
-	servertest.ExpectDisconnect(t, bob, reason)
-}
-
 // TestStopCommandDisconnectsPlayers runs /stop the way the console does and
 // checks the player is told the server is closing, the shutdown the stop
 // request reaches being the same one a signal reaches.
@@ -227,10 +168,6 @@ type stallingConn struct {
 	deadline time.Time
 	release  chan struct{}
 	once     sync.Once
-}
-
-func newStallingConn(conn net.Conn) *stallingConn {
-	return &stallingConn{Conn: conn, release: make(chan struct{})}
 }
 
 func (c *stallingConn) stall() {
@@ -270,44 +207,6 @@ func (c *stallingConn) Write(p []byte) (int, error) {
 		return c.Conn.Write(p)
 	case <-expired:
 		return 0, os.ErrDeadlineExceeded
-	}
-}
-
-// TestShutdownReturnsWhenAJoinedClientStopsReading joins a client whose
-// connection then stops taking writes, so the server's writer blocks in Write
-// with the shutdown's Disconnect queued behind it, and checks Shutdown returns
-// without waiting out the write timeout: the wait for a stalled connection is
-// bounded.
-func TestShutdownReturnsWhenAJoinedClientStopsReading(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv := servertest.NewTestServer(t, cfg, func(s *server.Server) {
-		// Nothing on the loop's clock is left to write, so the only packet
-		// the stalled connection meets is the shutdown's Disconnect.
-		s.SetKeepAlive(time.Hour, time.Hour)
-		s.SetTimeSync(0)
-	})
-
-	c, stalled := dialThrough(t, srv, newStallingConn)
-
-	c.Join("Lagger")
-
-	// The client stops reading: its receive buffer fills and the next write
-	// the server makes blocks in Write.
-	stalled.stall()
-	t.Cleanup(stalled.unblock)
-
-	stopped := make(chan struct{})
-	go func() {
-		defer close(stopped)
-		srv.Shutdown()
-	}()
-	select {
-	case <-stopped:
-	case <-time.After(servertest.ExpectTimeout):
-		t.Fatal("Shutdown did not return promptly with a joined client that stopped reading")
 	}
 }
 

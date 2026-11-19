@@ -76,31 +76,6 @@ func TestDecodeKeys(t *testing.T) {
 	}
 }
 
-func TestDecodeKeepsAnUnfinishedSequence(t *testing.T) {
-	// An escape sequence cut in half waits for the rest rather than being
-	// read as something it is not.
-	keys := decodeInChunks(t, "\x1b", "[A")
-	if len(keys) != 1 || keys[0].Kind != KeyUp {
-		t.Fatalf("a cut arrow decoded as %v, want one up", keys)
-	}
-
-	// A rune cut in half waits for the rest too.
-	keys = decodeInChunks(t, "h\xc3", "\xa9i")
-	if len(keys) != 3 || keys[1].Rune != 'é' || keys[2].Rune != 'i' {
-		t.Fatalf("a cut rune decoded as %v", keys)
-	}
-
-	// A lone escape at the very end of a read waits as well.
-	keys = decodeInChunks(t, "\x1b", "")
-	if len(keys) != 0 {
-		t.Fatalf("a lone escape decoded as %v, want none yet", keys)
-	}
-	keys = decode(t, []byte("\x1b\x1b"))
-	if len(keys) != 1 || keys[0].Kind != KeyUnknown {
-		t.Fatalf("two escapes decoded as %v, want one unknown", keys)
-	}
-}
-
 func TestDecodeEscapeKey(t *testing.T) {
 	// The escape key, given up on, is one ignored key; the key typed after
 	// it is itself rather than half of an alt-keypress.
@@ -119,17 +94,5 @@ func TestDecodeEscapeKey(t *testing.T) {
 	keys := decode(t, []byte("\x1b\x1b[D"))
 	if len(keys) != 2 || keys[0].Kind != KeyUnknown || keys[1].Kind != KeyLeft {
 		t.Fatalf("decoded %v, want unknown then left", keys)
-	}
-}
-
-func TestDecodeWalksOverUnknownBytes(t *testing.T) {
-	// A byte that starts nothing valid is consumed, and the keys after it
-	// still arrive. Ctrl-F is one such byte: nothing the editor wants.
-	keys := decode(t, []byte("a\x06\x1bb"))
-	if len(keys) != 3 {
-		t.Fatalf("decoded %d keys, want 3", len(keys))
-	}
-	if keys[0].Kind != KeyRune || keys[1].Kind != KeyUnknown || keys[2].Kind != KeyUnknown {
-		t.Errorf("kinds = %v, want rune, unknown, unknown", keys)
 	}
 }

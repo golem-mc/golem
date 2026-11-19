@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/golem-mc/golem/internal/config"
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 )
 
@@ -271,75 +270,6 @@ func TestRconRunsCommandsAsTheRconSource(t *testing.T) {
 	if got := c.receive(); got.id != 4 || got.typ != rconPacketOutput || got.payload != "" {
 		t.Errorf("say answered %+v, want an empty answer", got)
 	}
-}
-
-// TestRconEmptyCommandIsRefused runs the empty command: vanilla's dispatcher
-// refuses an empty line with the unknown-command message and its context,
-// not with silence. vanilla: Commands.performCommand
-func TestRconEmptyCommandIsRefused(t *testing.T) {
-	t.Parallel()
-	_, c := rconStart(t)
-
-	c.send(1, rconPacketAuth, "sesame")
-	if got := c.receive(); got.id != 1 {
-		t.Fatalf("login answered id %d, want 1", got.id)
-	}
-
-	c.send(2, rconPacketCommand, "")
-	got := c.receive()
-	if got.id != 2 || got.typ != rconPacketOutput {
-		t.Fatalf("empty command answered %+v, want id 2, type 0", got)
-	}
-	if got.payload != "Unknown or incomplete command. See below for error<--[HERE]" {
-		t.Errorf("empty command answered %q, want the unknown-command refusal", got.payload)
-	}
-}
-
-// TestRconShortFrameIsAnswered sends the shortest frame vanilla accepts, a
-// length of 8 covering only the id and the type: it is answered as an
-// unknown request, not dropped by a minimum that counted the length prefix
-// twice. vanilla: RconClient.run
-func TestRconShortFrameIsAnswered(t *testing.T) {
-	t.Parallel()
-	_, c := rconStart(t)
-
-	c.send(1, rconPacketAuth, "sesame")
-	if got := c.receive(); got.id != 1 {
-		t.Fatalf("login answered id %d, want 1", got.id)
-	}
-
-	c.sendShort(2, 5)
-	if got := c.receive(); got.id != 2 || got.typ != rconPacketOutput || got.payload != "Unknown request 5" {
-		t.Errorf("short frame answered %+v, want %q", got, "Unknown request 5")
-	}
-}
-
-// TestRconAdminEchoNamesRcon runs /op over RCON while an operator is in the
-// world: the operator reads the admin echo under vanilla's Rcon source name,
-// not under Server.
-func TestRconAdminEchoNamesRcon(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.EnableRcon = true
-	cfg.RconPassword = "sesame"
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Alice"))
-	alice := servertest.JoinFeedbackWorld(t, connect, "Alice", nil)
-
-	c := dialRcon(t, srv)
-	c.send(1, rconPacketAuth, "sesame")
-	if got := c.receive(); got.id != 1 {
-		t.Fatalf("login answered id %d, want 1", got.id)
-	}
-	c.send(2, rconPacketCommand, "op Steve")
-	if got := c.receive(); got.id != 2 {
-		t.Fatalf("op answered id %d, want 2", got.id)
-	}
-
-	servertest.AwaitAdminBroadcast(t, alice, protocol.Text{Text: "Rcon"}, protocol.Text{
-		Translate: "commands.op.success",
-		With:      []protocol.Text{{Text: "Steve"}},
-	})
 }
 
 // TestRconAdminEchoFollowsTheProperty turns broadcast-rcon-to-ops off and

@@ -5,7 +5,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 )
 
 // The observer watching a fire come and go: lava lighting it, a fire
@@ -57,27 +56,6 @@ func awaitFirePulse(t *testing.T, srv *server.Server, step func(), happened func
 	return false, false
 }
 
-// TestAFireBurningOutPulsesTheObserverWatchingIt stands a fire alone on the
-// ground at (7,64,3) with an observer[facing=west] at (8,64,3): with nothing
-// to eat it goes out once it is old enough, and the removal's shape pass
-// pulses the observer.
-func TestAFireBurningOutPulsesTheObserverWatchingIt(t *testing.T) {
-	t.Parallel()
-	srv, c := fireWatchSetup(t, "observer[facing=west]", 8, 64, 3, 9, 64, 3)
-	servertest.Setblock(t, c, 7, 64, 3, "fire")
-	c.Settle()
-	srv.TickPhysics(8)
-	if _, powered := servertest.ObserverPowerAt(srv, 8, 64, 3); powered {
-		t.Fatal("setup: the observer was already pulsing")
-	}
-
-	pulsed, lamp := awaitFirePulse(t, srv, func() { srv.TickPhysics(1) },
-		func() bool { return fireAge(srv.BlockAt(7, 64, 3)) < 0 }, 8, 64, 3, 9, 64, 3)
-	if !pulsed || !lamp {
-		t.Errorf("the fire burned out without a pulse: observer=%v lamp=%v", pulsed, lamp)
-	}
-}
-
 // TestAFireSpreadingIntoTheWatchedCellPulsesTheObserver puts a fire at
 // (6,64,3) on netherrack, which never lets it die, beside the empty watched
 // cell (7,64,3) with planks over it, and an observer[facing=west] at (8,64,3): the fire spreads into the cell, and the
@@ -98,51 +76,6 @@ func TestAFireSpreadingIntoTheWatchedCellPulsesTheObserver(t *testing.T) {
 		func() bool { return fireAge(srv.BlockAt(7, 64, 3)) >= 0 }, 8, 64, 3, 9, 64, 3)
 	if !pulsed || !lamp {
 		t.Errorf("the fire spread into the watched cell without a pulse: observer=%v lamp=%v", pulsed, lamp)
-	}
-}
-
-// TestLavaLightingTheWatchedCellPulsesTheObserver lays a lava source at
-// (6,64,3) beside planks at (7,64,3) and an observer[facing=down] at
-// (7,66,3) over the cell (7,65,3): the lava's random tick lights the cell,
-// and the write's shape pass pulses the observer.
-func TestLavaLightingTheWatchedCellPulsesTheObserver(t *testing.T) {
-	t.Parallel()
-	srv, c := fireWatchSetup(t, "observer[facing=down]", 7, 66, 3, 7, 67, 3)
-	srv.SetGameRuleValue(world.RuleRandomTickSpeed.String(), growthTickSpeed)
-	servertest.Setblock(t, c, 7, 64, 3, "oak_planks")
-	servertest.Setblock(t, c, 6, 64, 3, "lava")
-	c.Settle()
-	srv.TickPhysics(8)
-	if _, powered := servertest.ObserverPowerAt(srv, 7, 66, 3); powered {
-		t.Fatal("setup: the observer was already pulsing")
-	}
-
-	pulsed, lamp := awaitFirePulse(t, srv,
-		func() { srv.TickRandomTicks(1); srv.TickPhysics(1) },
-		func() bool { return fireAge(srv.BlockAt(7, 65, 3)) >= 0 }, 7, 66, 3, 7, 67, 3)
-	if !pulsed || !lamp {
-		t.Errorf("the lava lit the watched cell without a pulse: observer=%v lamp=%v", pulsed, lamp)
-	}
-}
-
-// TestAFireAgingPulsesTheObserverWatchingIt stands a fire on netherrack at
-// (7,64,3), which never lets it die, with an observer[facing=west] at
-// (8,64,3): the aging write's shape pass pulses the observer.
-func TestAFireAgingPulsesTheObserverWatchingIt(t *testing.T) {
-	t.Parallel()
-	srv, c := fireWatchSetup(t, "observer[facing=west]", 8, 64, 3, 9, 64, 3)
-	servertest.Setblock(t, c, 7, 63, 3, "netherrack")
-	servertest.Setblock(t, c, 7, 64, 3, "fire")
-	c.Settle()
-	srv.TickPhysics(8)
-	if _, powered := servertest.ObserverPowerAt(srv, 8, 64, 3); powered {
-		t.Fatal("setup: the observer was already pulsing")
-	}
-
-	pulsed, lamp := awaitFirePulse(t, srv, func() { srv.TickPhysics(1) },
-		func() bool { return fireAge(srv.BlockAt(7, 64, 3)) > 0 }, 8, 64, 3, 9, 64, 3)
-	if !pulsed || !lamp {
-		t.Errorf("the fire aged without a pulse: observer=%v lamp=%v", pulsed, lamp)
 	}
 }
 

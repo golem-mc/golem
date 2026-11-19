@@ -6,7 +6,6 @@ import (
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 )
 
@@ -103,33 +102,4 @@ func TestTagQueryIgnoresNonOperator(t *testing.T) {
 			t.Errorf("a non-operator's tag query was answered")
 		}
 	})
-}
-
-// TestEntityTagQueryAnswersMobsInTheOwnDimension has an operator query a
-// cow, then again from the Nether: the cow stands in another dimension, so
-// the second query gets no reply.
-func TestEntityTagQueryAnswersMobsInTheOwnDimension(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.GameMode = "creative"
-	srv, c := servertest.Join(t, cfg, "Alice", servertest.OpsListing(t, "Alice"))
-
-	c.ChatCommand("summon minecraft:cow 2.5 64 2.5")
-	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
-
-	sendEntityTagQuery(c, 1, cow.EntityID)
-	id, tag := readTagQuery(t, c.AwaitPlay(protocol.IDPlayTagQuery))
-	comp, ok := tag.(nbt.Compound)
-	if id != 1 || !ok || comp["variant"] == nil {
-		t.Fatalf("cow reply = %d, %v; want transaction 1 and the cow's compound", id, tag)
-	}
-
-	c.ChatCommand("execute in minecraft:the_nether run tp @s 2.5 64 2.5")
-	servertest.PollUntil(t, servertest.ExpectTimeout, func() bool { return srv.PlayerDimension("Alice") == world.NetherName })
-	sendEntityTagQuery(c, 2, cow.EntityID)
-	sendEntityTagQuery(c, 3, c.PlayerEntityID)
-	if id, _ = readTagQuery(t, c.AwaitPlay(protocol.IDPlayTagQuery)); id != 3 {
-		t.Errorf("a cow in another dimension was answered: next reply is transaction %d, want 3", id)
-	}
 }

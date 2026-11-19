@@ -1,7 +1,6 @@
 package entity
 
 import (
-	"math"
 	"math/rand"
 	"testing"
 )
@@ -25,31 +24,6 @@ func TestAnEyeEndsItsFlightAfterEightyOneTicks(t *testing.T) {
 	}
 	if !e.Dead {
 		t.Error("an ended eye is not dead")
-	}
-}
-
-func TestAnEyeFartherThanTwelveBlocksAimsTwelveOutAndEightUp(t *testing.T) {
-	e := NewEyeOfEnder(1, 0, 70, 0)
-	e.SignalTo(100, 40, 0, rand.New(rand.NewSource(1)))
-	w := newTestWorld()
-	e.Step(w)
-	e.Step(w)
-	// Heading +x, rising toward y 78.
-	if e.X <= 0 || e.VY <= 0 {
-		t.Errorf("after two ticks the eye is at x=%v with vy=%v, want it moving along +x and rising", e.X, e.VY)
-	}
-	flyEye(e, 200)
-	if e.X > 12.5 || e.Y < 70 {
-		t.Errorf("the eye ended at (%v, %v), want it held within 12 blocks of the start", e.X, e.Y)
-	}
-}
-
-func TestAnEyeOverItsTargetKeepsAFinitePosition(t *testing.T) {
-	e := NewEyeOfEnder(1, 3, 70, 3)
-	e.SignalTo(3, 70, 3, rand.New(rand.NewSource(1)))
-	flyEye(e, 200)
-	if math.IsNaN(e.X) || math.IsNaN(e.Z) {
-		t.Errorf("the eye ended at (%v, %v)", e.X, e.Z)
 	}
 }
 

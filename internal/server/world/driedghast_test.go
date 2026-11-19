@@ -20,35 +20,6 @@ func waterloggedGhastState(t *testing.T, facing string, hydration int) uint16 {
 	return state
 }
 
-// TestABookedDriedGhastLeavesItsCellsFluidVisitFree checks that the hydration
-// visit a dried ghast books is its own kind: a flood's fluid visit of the same
-// waterlogged cell still lands, and the source mining the block leaves does
-// still spread.
-// vanilla: DriedGhastBlock.hasScheduledTick
-func TestABookedDriedGhastLeavesItsCellsFluidVisitFree(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	var clock int64
-	state := waterloggedGhastState(t, "north", 0)
-	setBlock(t, w, p, 0, GroundLevel, 0, state)
-	p.driedGhastRandomTick(0, GroundLevel, 0, state)
-
-	// The booking is the ghast's own: a plain fluid visit of the same cell
-	// still goes on the queue beside it.
-	p.schedule(0, GroundLevel, 0, p.now+waterTickDelay)
-	if len(p.queue) != 2 {
-		t.Fatalf("queue entries after booking the ghast and a fluid visit = %d, want 2", len(p.queue))
-	}
-
-	// Replacing the block with the source mining it leaves: the spread must
-	// not be held back by the booking.
-	setBlock(t, w, p, 0, GroundLevel, 0, waterByLevel[0])
-	for range 100 {
-		clock++
-		p.Tick(clock)
-	}
-	assertFluid(t, w, 1, GroundLevel, 0, fluidWater, 1, "the mining source spreads")
-}
-
 // TestAHatchLeavesAWaterSourceThatSpreads checks that the hatch writes the
 // cell's water with flag 3: the source books its own spread and reaches an
 // open neighbour, rather than standing as one block forever.

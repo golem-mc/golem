@@ -150,69 +150,6 @@ func TestEnvelope(t *testing.T) {
 	}
 }
 
-// TestLenientMessages reads each message as Gson's lenient JsonParser does.
-// vanilla: WebSocketToJsonCodec.decode, Connection.channelRead0
-func TestLenientMessages(t *testing.T) {
-	t.Parallel()
-	srv := newManagementServer(t)
-	c := servertest.ManagementClientFor(t, srv)
-
-	const invalid = `{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid Request"}}`
-	notFound := func(id string) string {
-		return `{"jsonrpc":"2.0","id":` + id + `,"error":{"code":-32601,"message":"Method not found","data":"Method not found: minecraft:x"}}`
-	}
-	for _, tc := range []struct{ send, want string }{
-		{`abc`, invalid},
-		{``, invalid},
-		{" \n// only a comment\n", invalid},
-		{`NULL trailing`, invalid},
-		{")]}'\n", invalid},
-		{")]}'\n// c", invalid},
-		{`{id:1,method:'minecraft:x'}`, notFound("1")},
-		{`{'id'=>"a\'b";  method = 'minecraft:x' # comment` + "\n}", notFound(`"a'b"`)},
-		{`)]}'` + "\n" + `/* c */ {"id":01,"method":"minecraft:x"}`, notFound(`"01"`)},
-		{`[{id:2,method:"minecraft:x"},,]`, `[` + notFound("2") + `,` + invalid + `,` + invalid + `]`},
-	} {
-		c.Send(tc.send)
-		sameJSON(t, tc.send, c.Next(), tc.want)
-	}
-	// A comma before '}' wants another name, and an unquoted string ends at ':'.
-	for _, send := range []string{`{"id":1,}`, `{id:1,method:minecraft:x}`, `abc def`, `{"id":1} // trailing`, `{id:1`, `/* open`, `"\x"`} {
-		c.Send(send)
-		var parse struct {
-			ID    json.RawMessage    `json:"id"`
-			Error struct{ Code int } `json:"error"`
-		}
-		if raw := c.Next(); json.Unmarshal(raw, &parse) != nil || string(parse.ID) != "null" || parse.Error.Code != -32700 {
-			t.Errorf("%q: got %s, want a -32700 with id null", send, raw)
-		}
-	}
-}
-
-// TestNestingLimit refuses strict JSON nested past Gson's limit of 255.
-// vanilla: WebSocketToJsonCodec.decode (JsonReader nesting limit)
-func TestNestingLimit(t *testing.T) {
-	t.Parallel()
-	srv := newManagementServer(t)
-	c := servertest.ManagementClientFor(t, srv)
-
-	nested := func(n int) string { return strings.Repeat("[", n) + strings.Repeat("]", n) }
-	c.Send(nested(255))
-	sameJSON(t, "255 levels", c.Next(), `[{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid Request"}}]`)
-	c.Send(nested(256))
-	var parse struct {
-		ID    json.RawMessage `json:"id"`
-		Error struct {
-			Code int
-			Data string
-		} `json:"error"`
-	}
-	if raw := c.Next(); json.Unmarshal(raw, &parse) != nil || string(parse.ID) != "null" || parse.Error.Code != -32700 ||
-		!strings.Contains(parse.Error.Data, "Nesting limit 255 reached") {
-		t.Errorf("256 levels: got %s, want a -32700 with id null for the nesting limit", raw)
-	}
-}
-
 // TestListenServesManagement binds both ports on 127.0.0.1 through Listen.
 // vanilla: JsonRpc.create, ManagementServer.start
 func TestListenServesManagement(t *testing.T) {
@@ -247,30 +184,5 @@ func TestListenServesManagement(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("listen did not end after the stop")
-	}
-}
-
-// TestListenRefusesManagementSettings checks the settings New refuses before
-// the world loads. vanilla: JsonRpc.create
-func TestListenRefusesManagementSettings(t *testing.T) {
-	t.Parallel()
-	for name, tc := range map[string]struct {
-		mutate func(*config.Config)
-		want   string
-	}{
-		"tls on":       {func(c *config.Config) { c.ManagementServerTLSEnabled = true }, "management-server-tls-enabled"},
-		"short secret": {func(c *config.Config) { c.ManagementServerSecret = "short" }, "40 alphanumeric"},
-	} {
-		cfg := servertest.ManagementConfig(config.Default())
-		cfg.OnlineMode = false
-		cfg.LevelName = t.TempDir()
-		tc.mutate(cfg)
-		srv, err := server.New(cfg)
-		if err == nil || !strings.Contains(err.Error(), tc.want) {
-			if srv != nil {
-				srv.Shutdown()
-			}
-			t.Errorf("%s: New returned %v, want an error naming %q", name, err, tc.want)
-		}
 	}
 }

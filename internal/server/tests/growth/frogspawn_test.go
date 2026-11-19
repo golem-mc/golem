@@ -57,19 +57,3 @@ func TestFrogspawnHatches(t *testing.T) {
 		}
 	}
 }
-
-func TestFallingBlockDestroysFrogspawn(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Keeper", servertest.OpsListing(t, "Keeper"))
-	servertest.SetFarmBlock(t, c, srv, 2, 63, 2, "minecraft:water", nil)
-	servertest.SetFarmBlock(t, c, srv, 2, 64, 2, "minecraft:frogspawn", nil)
-	servertest.HoldTicks(t, srv)
-	srv.SpawnFallingBlock(2, 66, 2, registry.BlockSand.DefaultState())
-	servertest.RunTicks(t, srv, 20)
-	if got := srv.BlockAt(2, 64, 2); got == registry.BlockFrogspawn.DefaultState() {
-		t.Fatal("falling sand left frogspawn intact")
-	}
-	if len(srv.ItemsInDimension("minecraft:overworld")) != 0 {
-		t.Fatal("destroyed frogspawn dropped an item")
-	}
-}

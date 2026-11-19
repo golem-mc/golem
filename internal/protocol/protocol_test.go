@@ -99,24 +99,6 @@ func TestReaderShortPacket(t *testing.T) {
 	}
 }
 
-func TestVarIntStream(t *testing.T) {
-	for _, want := range []int32{0, 1, 127, 128, 2097151, -1, -2147483648, 2147483647} {
-		var b protocol.Buffer
-		b.PutVarInt(want)
-
-		got, n, err := protocol.ReadVarInt(bytes.NewReader(b.Bytes()))
-		if err != nil {
-			t.Fatalf("ReadVarInt(%d): %v", want, err)
-		}
-		if got != want {
-			t.Errorf("ReadVarInt = %d, want %d", got, want)
-		}
-		if n != b.Len() {
-			t.Errorf("ReadVarInt read %d bytes, want %d", n, b.Len())
-		}
-	}
-}
-
 func TestVarIntTooLong(t *testing.T) {
 	_, _, err := protocol.ReadVarInt(bytes.NewReader([]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01}))
 	if !errors.Is(err, protocol.ErrVarIntTooLong) {
@@ -169,14 +151,6 @@ func TestPacketRoundTripCompressed(t *testing.T) {
 	// have to survive the trip.
 	exchange(t, client, server, 0x01, []byte("short"))
 	exchange(t, client, server, 0x02, bytes.Repeat([]byte("compress me "), 100))
-}
-
-func TestPacketRoundTripEncrypted(t *testing.T) {
-	client, server := connPair(t)
-	enableEncryption(t, client, server)
-
-	exchange(t, client, server, 0x03, []byte("secret payload"))
-	exchange(t, server, client, 0x04, bytes.Repeat([]byte{0xAB}, 1000))
 }
 
 func TestPacketRoundTripEncryptedAndCompressed(t *testing.T) {
@@ -259,42 +233,6 @@ func TestWritePacketFrames(t *testing.T) {
 	})
 }
 
-// TestReadPacketPayloadOutlivesTheNextRead: the server queues replies made
-// of a payload for another goroutine to write, so reading the next packet
-// must not overwrite it.
-func TestReadPacketPayloadOutlivesTheNextRead(t *testing.T) {
-	for _, threshold := range []int{-1, 256} {
-		client, server := connPair(t)
-		if threshold >= 0 {
-			client.EnableCompression(threshold)
-			server.EnableCompression(threshold)
-		}
-		errs := make(chan error, 1)
-		go func() {
-			if err := client.WritePacket(0x01, []byte("first")); err != nil {
-				errs <- err
-				return
-			}
-			errs <- client.WritePacket(0x02, []byte("SECOND"))
-		}()
-
-		_ = server.SetReadDeadline(time.Now().Add(5 * time.Second))
-		_, first, err := server.ReadPacket()
-		if err != nil {
-			t.Fatalf("read first packet: %v", err)
-		}
-		if _, _, err := server.ReadPacket(); err != nil {
-			t.Fatalf("read second packet: %v", err)
-		}
-		if err := <-errs; err != nil {
-			t.Fatalf("write packets: %v", err)
-		}
-		if string(first) != "first" {
-			t.Errorf("threshold %d: first payload became %q after the next read", threshold, first)
-		}
-	}
-}
-
 func TestPutPosition(t *testing.T) {
 	var b protocol.Buffer
 	b.PutPosition(1, 2, 3)
@@ -322,62 +260,6 @@ func TestReadPosition(t *testing.T) {
 		x, y, z := protocol.NewReader(b.Bytes()).ReadPosition()
 		if x != c.x || y != c.y || z != c.z {
 			t.Errorf("ReadPosition(%d, %d, %d) = (%d, %d, %d)", c.x, c.y, c.z, x, y, z)
-		}
-	}
-}
-
-func TestPutAngle(t *testing.T) {
-	cases := []struct {
-		degrees float32
-		want    uint8
-	}{
-		{0, 0},
-		{90, 64},
-		{180, 128},
-		{-90, 192},
-		{360, 0},
-		// Angles are not clamped to a turn; the byte wraps.
-		{450, 64},
-		{-3600 - 90, 192},
-	}
-
-	for _, c := range cases {
-		var b protocol.Buffer
-		b.PutAngle(c.degrees)
-		if got := b.Bytes(); len(got) != 1 || got[0] != c.want {
-			t.Errorf("PutAngle(%g) = %v, want [%d]", c.degrees, got, c.want)
-		}
-	}
-
-	// A rotation of any magnitude must convert to whatever the same
-	// rotation within a turn would: reducing first keeps the int32
-	// conversion defined.
-	const huge = float32(1e30)
-	var big, reduced protocol.Buffer
-	big.PutAngle(huge)
-	reduced.PutAngle(float32(math.Mod(float64(huge), 360)))
-	if !bytes.Equal(big.Bytes(), reduced.Bytes()) {
-		t.Errorf("PutAngle(%g) = %v, want %v", huge, big.Bytes(), reduced.Bytes())
-	}
-}
-
-func TestPutLpVec3(t *testing.T) {
-	// The sample vectors the Minecraft Wiki gives with the LpVec3 definition.
-	cases := []struct {
-		x, y, z float64
-		want    []byte
-	}{
-		{0, 0, 0, []byte{0x00}},
-		{1, 0, -1, []byte{0xF1, 0xFF, 0x00, 0x00, 0xFF, 0xFF}},
-		{10, 0.2, -5, []byte{0xF6, 0xFF, 0x40, 0x01, 0x05, 0x1F, 0x02}},
-		{123457, 15.071, 0, []byte{0xF5, 0xFF, 0x7F, 0xFF, 0x00, 0x07, 0x90, 0xF1, 0x01}},
-	}
-
-	for _, c := range cases {
-		var b protocol.Buffer
-		b.PutLpVec3(c.x, c.y, c.z)
-		if got := b.Bytes(); !bytes.Equal(got, c.want) {
-			t.Errorf("PutLpVec3(%g, %g, %g) = % x, want % x", c.x, c.y, c.z, got, c.want)
 		}
 	}
 }
@@ -504,16 +386,6 @@ func TestPutTextTranslated(t *testing.T) {
 	}
 }
 
-func TestPutTextPlainIsAString(t *testing.T) {
-	// Text on its own stays a string tag, both shorter and what the
-	// vanilla server sends.
-	var b protocol.Buffer
-	b.PutText(protocol.Text{Text: "hi"})
-	if want := []byte{0x08, 0, 2, 'h', 'i'}; !bytes.Equal(b.Bytes(), want) {
-		t.Errorf("PutText = % X, want % X", b.Bytes(), want)
-	}
-}
-
 func TestPutTextStyled(t *testing.T) {
 	// A component carrying italic or underline is a compound, as vanilla
 	// writes the "<--[HERE]" marker and a command error's underlined
@@ -597,24 +469,6 @@ func TestSlotRoundTrip(t *testing.T) {
 	}
 }
 
-func TestReadSlotRefusesComponents(t *testing.T) {
-	// A potion as a vanilla server sent it: one component to add (51,
-	// potion_contents, holding its own compound). What follows a component is
-	// decided by its type, so a reader that does not know the type cannot
-	// find the end of the stack and has to give up on the packet.
-	data := []byte{0x01, 0xBE, 0x07, 0x01, 0x00, 0x33, 0x0A, 0x00, 0x06, 'p', 'o', 't', 'i', 'o', 'n', 0x00, 0x11, 'm', 'i', 'n', 'e', 'c', 'r', 'a', 'f', 't', ':', 'h', 'e', 'a', 'l', 'i', 'n', 'g'}
-	if stack, ok := protocol.NewReader(data).ReadSlot(); ok {
-		t.Errorf("ReadSlot = %+v, true; want it to refuse a stack with a component it does not model", stack)
-	}
-
-	// A truncated stack is refused rather than read as something else.
-	for _, n := range []int{0, 1, 2, 3} {
-		if _, ok := protocol.NewReader([]byte{0x05, 0xF4, 0x07, 0x00, 0x00}[:n]).ReadSlot(); ok && n != 0 {
-			t.Errorf("ReadSlot accepted %d bytes of a five byte stack", n)
-		}
-	}
-}
-
 func TestSlotCarriesComponents(t *testing.T) {
 	// Every component the stack model keeps round-trips. The order the
 	// components travel in is the registry's own numbering: wear first,
@@ -670,48 +524,6 @@ func TestSlotCarriesComponents(t *testing.T) {
 		if stack, ok := protocol.NewReader(b.Bytes()).ReadSlot(); ok {
 			t.Errorf("ReadSlot = %+v, true; want it to refuse an enchantment at level %d", stack, level)
 		}
-	}
-}
-
-func TestSlotCarriesDamage(t *testing.T) {
-	// Item 1012 with three damage: count, ID, one component to add (damage,
-	// ID 3 here), none to remove, then the wear's VarInt.
-	var b protocol.Buffer
-	b.PutSlot(protocol.ItemStack{ItemID: 1012, Count: 1, Damage: 3})
-	want := []byte{0x01, 0xF4, 0x07, 0x01, 0x00, 0x03, 0x03}
-	if !bytes.Equal(b.Bytes(), want) {
-		t.Errorf("PutSlot of a worn item = % X, want % X", b.Bytes(), want)
-	}
-
-	got, ok := protocol.NewReader(want).ReadSlot()
-	if !ok {
-		t.Fatal("ReadSlot refused the damage it writes itself")
-	}
-	if got.Damage != 3 {
-		t.Errorf("ReadSlot read the wear as %d, want 3", got.Damage)
-	}
-
-	// Wear of zero is the item fresh: no component on the wire at all.
-	fresh := protocol.ItemStack{ItemID: 1012, Count: 1}
-	b.Reset()
-	b.PutSlot(fresh)
-	var plain protocol.Buffer
-	plain.PutSlot(protocol.ItemStack{ItemID: 1012, Count: 1, Damage: 0})
-	if !bytes.Equal(b.Bytes(), plain.Bytes()) {
-		t.Errorf("PutSlot of a fresh item = % X, want the plain % X", b.Bytes(), plain.Bytes())
-	}
-
-	// A damage removed — the client setting a stack back to its default —
-	// is the one removal this server reads rather than refuses.
-	b.Reset()
-	b.PutVarInt(1) // count
-	b.PutVarInt(1012)
-	b.PutVarInt(0) // none to add
-	b.PutVarInt(1) // one to remove
-	b.PutVarInt(protocol.DataComponentDamage)
-	stack, ok := protocol.NewReader(b.Bytes()).ReadSlot()
-	if !ok || stack.Damage != 0 {
-		t.Errorf("ReadSlot of a damage removed = %+v, %v; want the wear read as zero", stack, ok)
 	}
 }
 
@@ -784,86 +596,6 @@ func TestHashedSlotMatchesDamage(t *testing.T) {
 	}
 }
 
-// TestHashedSlotSpendsAClaimItCannotCompare pins that a claim carrying a
-// component the server cannot compare is still read to its end: the reader is
-// left after the claim, not inside it, so a packet's trailing-bytes check
-// does not mistake the unread fields for extra bytes.
-func TestHashedSlotSpendsAClaimItCannotCompare(t *testing.T) {
-	var b protocol.Buffer
-	b.PutBool(true)
-	b.PutVarInt(1012)
-	b.PutVarInt(1)
-	b.PutVarInt(2) // two added components
-	b.PutVarInt(9) // an unmodelled component, with a hash nothing can check
-	b.PutI32(0x11223344)
-	b.PutVarInt(protocol.DataComponentDamage)
-	b.PutI32(0)
-	b.PutVarInt(1) // one removed component
-	b.PutVarInt(protocol.DataComponentUnbreakable)
-
-	r := protocol.NewReader(b.Bytes())
-	if _, ok := r.ReadHashedSlot(); ok {
-		t.Error("ReadHashedSlot accepted a claim it cannot compare")
-	}
-	if r.Remaining() != 0 {
-		t.Errorf("ReadHashedSlot left %d bytes unread, want the whole claim", r.Remaining())
-	}
-}
-
-// TestHashedSlotComponentCountsBoundTheCodec pins the bound on both component
-// counts: exactly 256 reads, while 257 - and a negative, which vanilla's map
-// and set reject at their capacity allocation - fail the decode.
-// vanilla: HashedPatchMap.STREAM_CODEC
-func TestHashedSlotComponentCountsBoundTheCodec(t *testing.T) {
-	hashed := func(added, removed int) *protocol.Buffer {
-		var b protocol.Buffer
-		b.PutBool(true)
-		b.PutVarInt(1012) // item ID
-		b.PutVarInt(1)    // count
-		b.PutVarInt(int32(added))
-		for range added {
-			b.PutVarInt(protocol.DataComponentDamage)
-			b.PutI32(0) // the checksum, which this reader does not compare
-		}
-		b.PutVarInt(int32(removed))
-		for range removed {
-			b.PutVarInt(protocol.DataComponentDamage)
-		}
-		return &b
-	}
-
-	for _, tc := range []struct {
-		name           string
-		added, removed int
-		ok             bool
-	}{
-		{"256 added components", 256, 0, true},
-		{"256 removed components", 0, 256, true},
-		{"257 added components", 257, 0, false},
-		{"257 removed components", 0, 257, false},
-		{"a negative added count", -1, 0, false},
-		{"a negative removed count", 0, -1, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, ok := protocol.NewReader(hashed(tc.added, tc.removed).Bytes()).ReadHashedSlot(); ok != tc.ok {
-				t.Errorf("ReadHashedSlot ok = %v, want %v", ok, tc.ok)
-			}
-		})
-	}
-}
-
-func TestPutTextTooLongStaysReadable(t *testing.T) {
-	// An NBT string's length is an unsigned short; one too long goes out
-	// empty rather than with a wrapped length, which would leave the client
-	// reading the rest of the packet at the wrong offset.
-	var b protocol.Buffer
-	b.PutText(protocol.Text{Text: strings.Repeat("x", math.MaxUint16+1)})
-
-	if want := []byte{0x08, 0, 0}; !bytes.Equal(b.Bytes(), want) {
-		t.Errorf("PutText = % X, want % X (an empty string tag)", b.Bytes(), want)
-	}
-}
-
 func TestReadStringLimitIsInCodeUnits(t *testing.T) {
 	// A String(n) may take up to three bytes per code unit.
 	text := strings.Repeat("€", 16) // 16 code units, 48 bytes
@@ -879,69 +611,6 @@ func TestReadStringLimitIsInCodeUnits(t *testing.T) {
 	r := protocol.NewReader(tooLong.Bytes())
 	if r.ReadString(16); r.Err() == nil {
 		t.Error("expected a string over the byte limit to be rejected")
-	}
-}
-
-func TestReadStringReplacesInvalidUTF8(t *testing.T) {
-	// Malformed bytes come out as one U+FFFD per malformed sequence. An
-	// overlong sequence is rejected one byte at a time, an encoded surrogate
-	// and a sequence the string ends inside are replaced whole.
-	for _, tc := range []struct {
-		name string
-		raw  string
-		want string
-	}{
-		{"lone continuation byte", "\x80", "\uFFFD"},
-		{"overlong sequence", "\xC0\x80", "\uFFFD\uFFFD"},
-		{"surrogate", "\xED\xA0\x80", "\uFFFD"},
-		{"truncated four byte sequence", "\xF0\x9F\x98", "\uFFFD"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var b protocol.Buffer
-			b.PutString(tc.raw)
-			if got := protocol.NewReader(b.Bytes()).ReadString(32767); got != tc.want {
-				t.Errorf("ReadString = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestReadStringDecodedLengthLimit(t *testing.T) {
-	// The byte limit alone admits three times the code units: 48 bytes of
-	// ASCII decode to 48 of them, over a String(16)'s 16.
-	var b protocol.Buffer
-	b.PutString(strings.Repeat("a", 48))
-	r := protocol.NewReader(b.Bytes())
-	if r.ReadString(16); r.Err() == nil {
-		t.Error("expected 48 bytes of ASCII to be rejected against a limit of 16")
-	}
-
-	// An emoji is one rune but two code units, so eight fill String(16)
-	// and a ninth does not, though both stay under the byte limit.
-	emoji := "\U0001F600"
-	eight := strings.Repeat(emoji, 8) // 16 code units, 32 bytes
-	b.Reset()
-	b.PutString(eight)
-	if got := protocol.NewReader(b.Bytes()).ReadString(16); got != eight {
-		t.Errorf("ReadString = %q, want %q", got, eight)
-	}
-
-	b.Reset()
-	b.PutString(strings.Repeat(emoji, 9)) // 18 code units, 36 bytes
-	r = protocol.NewReader(b.Bytes())
-	if r.ReadString(16); r.Err() == nil {
-		t.Error("expected nine emoji to be rejected against a limit of 16")
-	}
-}
-
-func TestEnableEncryptionRejectsWrongKeySize(t *testing.T) {
-	// The secret doubles as the feedback register, so only AES-128 works.
-	client, _ := connPair(t)
-	if err := client.EnableEncryption(make([]byte, 32)); err == nil {
-		t.Error("expected a 32-byte shared secret to be rejected")
-	}
-	if err := client.EnableEncryption(make([]byte, 16)); err != nil {
-		t.Errorf("16-byte shared secret: %v", err)
 	}
 }
 

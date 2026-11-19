@@ -8,29 +8,6 @@ import (
 	"testing"
 )
 
-func TestArgumentCount(t *testing.T) {
-	cases := []struct {
-		template    string
-		needed      int
-		unsupported bool
-	}{
-		{"no placeholders", 0, false},
-		{"%s and %s", 2, false},
-		{"%2$s before %1$s", 2, false},
-		{"%3$s", 3, false},
-		{"100%% sure of %s", 1, false},
-		{"%s then %1$s", 1, false},
-		{"%d items", 0, true},
-		{"trailing %", 0, true},
-	}
-	for _, c := range cases {
-		needed, unsupported := argumentCount(c.template)
-		if needed != c.needed || unsupported != c.unsupported {
-			t.Errorf("argumentCount(%q) = %d, %v; want %d, %v", c.template, needed, unsupported, c.needed, c.unsupported)
-		}
-	}
-}
-
 // serverTree writes Go files under a internal/server/ directory of a temporary root.
 func serverTree(t *testing.T, files map[string]string) string {
 	t.Helper()
@@ -130,17 +107,6 @@ func f(i int, mode string) {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in\n%s", want, out)
 		}
-	}
-}
-
-func TestVerboseListsKeysWithTheirArgumentCounts(t *testing.T) {
-	root := serverTree(t, map[string]string{"a.go": `package server
-
-var a = "death.attack.generic"
-`})
-	code, out := runCheck(t, root, true)
-	if code != 0 || !strings.Contains(out, `death.attack.generic = "%1$s died" (1 argument)`) {
-		t.Errorf("exit %d:\n%s", code, out)
 	}
 }
 

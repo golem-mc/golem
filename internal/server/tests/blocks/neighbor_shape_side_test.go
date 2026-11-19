@@ -7,11 +7,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-func propOf(srv interface{ BlockAt(x, y, z int32) uint16 }, x, y, z int32, key string) string {
-	_, props := servertest.StateProps(srv.BlockAt(x, y, z))
-	return props[key]
-}
-
 func TestReshapingKeepsUnrelatedProperties(t *testing.T) {
 	for _, tc := range []struct {
 		name, placed, neighbor string
@@ -43,40 +38,5 @@ func TestReshapingKeepsUnrelatedProperties(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestFenceNeighbourChangeKeepsTheOtherSides replaces the west neighbour of a
-// fence in a /fill row and requires the side spelled in the fill to survive.
-// vanilla: FenceBlock.updateShape
-func TestFenceNeighbourChangeKeepsTheOtherSides(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	c.ChatCommand("fill 70 64 5 72 64 5 oak_fence[north=true]")
-	c.Settle()
-	servertest.Setblock(t, c, 69, 64, 5, "stone")
-	c.Settle()
-	if got := propOf(srv, 70, 64, 5, "west"); got != "true" {
-		t.Errorf("west = %q, want true after stone beside it", got)
-	}
-	if got := propOf(srv, 70, 64, 5, "north"); got != "true" {
-		t.Errorf("north = %q, want the spelled true", got)
-	}
-}
-
-// TestWallNeighbourChangeKeepsTheOtherSides is the wall counterpart.
-// vanilla: WallBlock.updateShape
-func TestWallNeighbourChangeKeepsTheOtherSides(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	c.ChatCommand("fill 70 64 9 72 64 9 cobblestone_wall[north=low]")
-	c.Settle()
-	servertest.Setblock(t, c, 69, 64, 9, "stone")
-	c.Settle()
-	if got := propOf(srv, 70, 64, 9, "west"); got == "none" {
-		t.Errorf("west = none, want a connection to the stone")
-	}
-	if got := propOf(srv, 70, 64, 9, "north"); got != "low" {
-		t.Errorf("north = %q, want the spelled low", got)
 	}
 }

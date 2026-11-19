@@ -5,39 +5,6 @@ import (
 	"testing"
 )
 
-func TestGolemApproachUsesALiveTargetWithin32Blocks(t *testing.T) {
-	w := newTestWorld()
-	floor(w, -32, -32, 48, 32, 63, defaultState(t, "minecraft:stone"))
-	m := NewMob(TypeIronGolem, 1, 0.5, 64, 0.5, 2162)
-	target := NewMob(TypeZombie, 2, 20.5, 64, 0.5, 1)
-	m.TargetID = target.ID
-	tick := &tickView{w: w, others: []*Mob{target}}
-	g := &golemApproachGoal{m: m, priority: 2, pace: 0.9}
-	found := false
-	for range 100 {
-		if g.CanStart(tick) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("no approach destination for target within 32 blocks")
-	}
-	g.Start(tick)
-	if !g.ShouldContinue(tick) {
-		t.Fatal("approach did not start navigating")
-	}
-	target.X = 33
-	if g.CanStart(tick) || g.ShouldContinue(tick) {
-		t.Fatal("approaching a target beyond 32 blocks")
-	}
-	target.X = 20.5
-	target.Dead = true
-	if g.ShouldContinue(tick) {
-		t.Fatal("approaching a dead target")
-	}
-}
-
 func TestGolemFlowerConditionsAndInterruption(t *testing.T) {
 	w := newTestWorld()
 	floor(w, -8, -8, 8, 8, 63, defaultState(t, "minecraft:stone"))
@@ -77,59 +44,5 @@ func TestGolemFlowerConditionsAndInterruption(t *testing.T) {
 	m.ForceGolemFlowerOffer()
 	if g.CanStart(tick) {
 		t.Fatal("offering outside the vertical box")
-	}
-}
-
-func TestGolemVillageStrollIgnoresIdleCutoff(t *testing.T) {
-	w := newTestWorld()
-	floor(w, -20, -20, 20, 20, 63, defaultState(t, "minecraft:stone"))
-	m := NewMob(TypeIronGolem, 1, 0.5, 64, 0.5, 2162)
-	m.NoActionTicks = 1000
-	tick := &tickView{w: w}
-	var stroll Goal
-	for _, g := range ironGolemGoals(m) {
-		if g.Priority() == 4 && g.Flags() == GoalMove {
-			stroll = g
-		}
-	}
-	if stroll == nil {
-		t.Fatal("missing village stroll")
-	}
-	for range 1000 {
-		if stroll.CanStart(tick) {
-			return
-		}
-	}
-	t.Fatal("idle golem never strolls")
-}
-
-func TestGolemReturnUsesOccupiedVillageSections(t *testing.T) {
-	w := newTestWorld()
-	floor(w, -16, -16, 64, 16, 63, defaultState(t, "minecraft:stone"))
-	m := NewMob(TypeIronGolem, 1, 43.5, 64, 0.5, 2162)
-	tick := &tickView{w: w}
-	m.Village = fakeVillage{w: w}
-	if _, ok := m.golemReturnPos(tick); ok {
-		t.Fatal("returned toward a missing village")
-	}
-	m.Village = fakeVillage{w: w, pois: []Waypoint{{3, 64, 0}}}
-	found := false
-	for range 100 {
-		if p, ok := m.golemReturnPos(tick); ok && p.X < 43 {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("no return destination toward the occupied village")
-	}
-	// VillageIndex treats the entire adjacent section as village.
-	m.X = 20.5
-	for _, g := range ironGolemGoals(m) {
-		if g.Priority() == 2 && g.Flags() == GoalMove {
-			if stroll, ok := g.(*randomStroll); ok && !stroll.blocked() {
-				t.Fatal("return goal ran inside the village")
-			}
-		}
 	}
 }

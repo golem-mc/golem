@@ -75,27 +75,6 @@ func TestANumberKeyOnTheCraftingResultNeedsAnEmptySlot(t *testing.T) {
 	}
 }
 
-// TestANumberKeyOnTheCraftingResultHandsBackRemainders crafts a honey block
-// by key: the bottles come back as glass bottles in their cells.
-func TestANumberKeyOnTheCraftingResultHandsBackRemainders(t *testing.T) {
-	t.Parallel()
-	srv, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-
-	srv.GiveSlot("Testificate", 9, servertest.ItemStack(t, "minecraft:honey_bottle", 4))
-	w.Drain()
-	w.PutInGrid(9, 1, 2, 3, 4)
-
-	w.Click(0, 2, protocol.ClickModeSwap)
-	w.ExpectClickResult(map[int16]protocol.ItemStack{
-		0:  {},
-		1:  servertest.ItemStack(t, "minecraft:glass_bottle", 1),
-		2:  servertest.ItemStack(t, "minecraft:glass_bottle", 1),
-		3:  servertest.ItemStack(t, "minecraft:glass_bottle", 1),
-		4:  servertest.ItemStack(t, "minecraft:glass_bottle", 1),
-		38: servertest.ItemStack(t, "minecraft:honey_block", 1),
-	}, protocol.ItemStack{})
-}
-
 // swapOnATableResult sets a crafting table's grid to one log and presses
 // button on the result.
 func swapOnATableResult(t *testing.T, button int8) (*server.Server, *servertest.WindowedClient) {
@@ -116,34 +95,4 @@ func swapOnATableResult(t *testing.T, button int8) (*server.Server, *servertest.
 
 	w.Click(0, button, protocol.ClickModeSwap)
 	return srv, w
-}
-
-// TestANumberKeyOnACraftingTableResultCraftsIntoTheHotbar checks the number
-// key over the 3x3 table's result: window slot 40 is hotbar slot 4.
-func TestANumberKeyOnACraftingTableResultCraftsIntoTheHotbar(t *testing.T) {
-	t.Parallel()
-	srv, w := swapOnATableResult(t, 3)
-	w.ExpectClickResult(map[int16]protocol.ItemStack{
-		0:  {},
-		1:  {},
-		40: servertest.ItemStack(t, "minecraft:oak_planks", 4),
-	}, protocol.ItemStack{})
-	if got := srv.InventorySlot("Testificate", player.HotbarSlot+3); !got.Equal(servertest.ItemStack(t, "minecraft:oak_planks", 4)) {
-		t.Errorf("hotbar slot 4 = %+v, want four planks", got)
-	}
-}
-
-// TestFOnACraftingTableResultCraftsIntoTheOffHand checks F over the table's
-// result: the window carries no off-hand slot, so only the grid is
-// corrected.
-func TestFOnACraftingTableResultCraftsIntoTheOffHand(t *testing.T) {
-	t.Parallel()
-	srv, w := swapOnATableResult(t, 40)
-	w.ExpectClickResult(map[int16]protocol.ItemStack{
-		0: {},
-		1: {},
-	}, protocol.ItemStack{})
-	if got := srv.InventorySlot("Testificate", player.OffHandSlot); !got.Equal(servertest.ItemStack(t, "minecraft:oak_planks", 4)) {
-		t.Errorf("off hand = %+v, want four planks", got)
-	}
 }

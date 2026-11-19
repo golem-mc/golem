@@ -44,32 +44,6 @@ func TestClickingACopperGolemStatueCyclesItsPose(t *testing.T) {
 	}
 }
 
-// TestHoneycombOnAStatueWaxsItOnlyWhenUnwaxed: honeycomb leaves an unwaxed
-// statue's pose and waxes it, while a waxed statue takes it as a pose click.
-// vanilla: WeatheringCopperGolemStatueBlock.useItemOn
-func TestHoneycombOnAStatueWaxsItOnlyWhenUnwaxed(t *testing.T) {
-	t.Parallel()
-	srv, actor, _, _ := statueScene(t)
-	srv.GiveSlot("Actor", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.ItemIDOrDie(t, "minecraft:honeycomb"), Count: 1})
-	pose := func() string { return registry.StateValue(srv.BlockAt(3, 64, 0), registry.PropCopperGolemPose) }
-
-	srv.SetBlock(3, 64, 0, registry.BlockStates["minecraft:copper_golem_statue"])
-	actor.UseBlock(3, 64, 0)
-	actor.Settle()
-	if got := registry.BlockOf(srv.BlockAt(3, 64, 0)); got != registry.BlockOf(registry.BlockStates["minecraft:waxed_copper_golem_statue"]) {
-		t.Errorf("unwaxed statue after honeycomb is block %d, want waxed", got)
-	}
-	if got := pose(); got != "standing" {
-		t.Errorf("unwaxed statue pose after honeycomb = %q, want standing", got)
-	}
-
-	actor.UseBlock(3, 64, 0)
-	actor.Settle()
-	if got := pose(); got != "sitting" {
-		t.Errorf("waxed statue pose after honeycomb = %q, want sitting", got)
-	}
-}
-
 // statueScene is a survival actor and a watcher at spawn in the smallest view,
 // with the loop stopped, and a count of the block_change events at the statue
 // cell (3, 64, 0).

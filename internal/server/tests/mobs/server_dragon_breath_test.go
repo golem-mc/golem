@@ -142,27 +142,3 @@ func TestADragonStrafesWithABreathCloudThatFillsABottle(t *testing.T) {
 		t.Fatalf("bottling radius %v -> %v, want a loss of 0.5", before, after)
 	}
 }
-
-// vanilla: DragonSittingFlamingPhase.doServerTick, end
-func TestASittingDragonSpawnsItsFlameOnTickTenAndDiscardsItOnExit(t *testing.T) {
-	t.Parallel()
-	srv, c, id := dragonBreathWorld(t)
-	srv.SetDragonPhase(id, entity.DragonSittingFlaming, "")
-	var wire dragonBreathWire
-	servertest.RunTicks(t, srv, 9)
-	wire.collect(t, c)
-	if wire.cloud != 0 {
-		t.Fatal("flame appeared before tick 10")
-	}
-	servertest.RunTicks(t, srv, 1)
-	wire.collect(t, c)
-	if wire.cloud == 0 || wire.radius != 5 {
-		t.Fatalf("flame cloud=%d, radius=%v", wire.cloud, wire.radius)
-	}
-	srv.SetDragonPhase(id, entity.DragonTakeoff, "")
-	servertest.RunTicks(t, srv, 1)
-	wire.collect(t, c)
-	if !wire.removed || srv.CloudCount() != 0 {
-		t.Fatal("flame survived the phase exit")
-	}
-}

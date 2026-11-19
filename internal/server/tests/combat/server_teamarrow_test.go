@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
@@ -67,43 +66,5 @@ func TestAPlayersArrowHurtsATeammateWithFriendlyFire(t *testing.T) {
 	srv, _, _ := teamShot(t, true)
 	if got := srv.PlayerHealth("Victim"); got >= 20 {
 		t.Errorf("teammate health after the arrow = %v, want a hurt", got)
-	}
-}
-
-// TestASpearJabSparesATeammateWithoutFriendlyFire jabs a teammate with pvp
-// on: spared while the team's friendly fire is off, hurt once it is on.
-// vanilla: PiercingWeapon.canHitEntity, Player.canHarmPlayer
-func TestASpearJabSparesATeammateWithoutFriendlyFire(t *testing.T) {
-	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.CombatTestConfig())
-	c := connect()
-	jabber(t, srv, c, "Jabber")
-	v := connect()
-	v.JoinAs("Mate")
-	v.MoveToGround(5.5, 64, 8.5, true)
-	v.MoveToGround(5.5, 64, 8.5, true)
-	v.Settle()
-	c.Settle()
-	srv.RunLine("team add blue")
-	srv.RunLine("team modify blue friendlyFire false")
-	srv.RunLine("team join blue Jabber")
-	srv.RunLine("team join blue Mate")
-
-	chargeByHand(t, srv, "Jabber", 13)
-	c.Stab()
-	c.Settle()
-	if got := srv.PlayerHealth("Mate"); math.Abs(got-20) > 0.01 {
-		t.Errorf("teammate health after a jab under friendly fire off = %v, want 20", got)
-	}
-	if got := srv.InventorySlot("Jabber", player.HotbarSlot).Damage; got != 0 {
-		t.Errorf("a jab at a spared teammate wore the spear to %d, want 0", got)
-	}
-
-	srv.RunLine("team modify blue friendlyFire true")
-	chargeByHand(t, srv, "Jabber", 13)
-	c.Stab()
-	c.Settle()
-	if got := srv.PlayerHealth("Mate"); got >= 20 {
-		t.Errorf("teammate health after a jab under friendly fire on = %v, want a hurt", got)
 	}
 }

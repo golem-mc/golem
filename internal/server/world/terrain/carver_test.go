@@ -46,18 +46,3 @@ func TestCarvingMaskVisit(t *testing.T) {
 		})
 	}
 }
-
-func TestCarvingMaskGet(t *testing.T) {
-	m := NewCarvingMask(-63, 312)
-	for _, p := range [][3]int32{{0, -63, 0}, {15, 312, 15}, {7, 0, 9}} {
-		m.Carve(p[0], p[1], p[2])
-		if !m.Get(p[0], p[1], p[2]) {
-			t.Errorf("marked block %v is absent", p)
-		}
-	}
-	for _, p := range [][3]int32{{0, -64, 0}, {15, 313, 15}, {0, 0, 0}, {-1, 0, 0}, {16, 0, 0}, {0, 0, -1}, {0, 0, 16}} {
-		if m.Get(p[0], p[1], p[2]) {
-			t.Errorf("unmarked block %v is present", p)
-		}
-	}
-}

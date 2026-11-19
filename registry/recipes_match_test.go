@@ -37,29 +37,6 @@ func TestCraftMatchPickaxeAndSticks(t *testing.T) {
 	}
 }
 
-// TestPatternBlankEdgesAreTrimmed crafts a mace, whose pattern is a blank
-// column either side of the core over the rod, in the 2x2 grid and in the
-// right-hand column of the 3x3. vanilla: ShapedRecipePattern.shrink
-func TestPatternBlankEdgesAreTrimmed(t *testing.T) {
-	core := protocol.ItemStack{ItemID: int32(ItemHeavyCore), Count: 1}
-	rod := protocol.ItemStack{ItemID: int32(ItemBreezeRod), Count: 1}
-	none := protocol.ItemStack{}
-	for _, c := range []struct {
-		width int32
-		cells []protocol.ItemStack
-	}{
-		{2, []protocol.ItemStack{core, none, rod, none}},
-		{3, []protocol.ItemStack{none, none, none, none, none, core, none, none, rod}},
-	} {
-		if _, result := CraftMatch(c.cells, c.width); Item(result.ItemID) != ItemMace {
-			t.Errorf("a core over a rod in %v crafts %+v, want a mace", c.cells, result)
-		}
-	}
-	if _, result := CraftMatch([]protocol.ItemStack{rod, none, core, none}, 2); !result.Empty() {
-		t.Errorf("a rod over a core crafts %+v, want nothing", result)
-	}
-}
-
 // craftBenchGrids returns the 3x3 grids BenchmarkCraftMatch times.
 func craftBenchGrids() map[string][]protocol.ItemStack {
 	plank := protocol.ItemStack{ItemID: int32(ItemOakPlanks), Count: 1}

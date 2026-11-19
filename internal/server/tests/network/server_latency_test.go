@@ -1,10 +1,11 @@
 package network
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/google/uuid"
 
@@ -68,9 +69,9 @@ func TestTabListLatencyFollowsKeepAliveRoundTrip(t *testing.T) {
 	}
 	ka.advance(400 * time.Millisecond)
 	c.AnswerKeepAlive(ping)
+	c.Settle() // the answer is processed before the broadcast tick
 
-	// The answer is read while the loop steps on; the broadcast is 601
-	// ticks after the last one.
+	// The broadcast is 601 ticks after the last one.
 	servertest.StepTicks(t, srv, clock, 601)
 	got := readLatencyUpdate(c, id)
 	if got != 100 {

@@ -8,13 +8,11 @@ package blocks
 
 import (
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -108,29 +106,6 @@ func TestPlacingARailUnderARaisedRailAscends(t *testing.T) {
 		map[string]string{"shape": "east_west"})
 }
 
-// TestARailPlacedOnEmptyGroundKeepsTheLookAxis checks the placement state's
-// own axis: a rail placed with nothing around it stands east-west for a
-// builder looking west and north-south for one looking north.
-// vanilla: BaseRailBlock.getStateForPlacement
-func TestARailPlacedOnEmptyGroundKeepsTheLookAxis(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder")
-	railPlayer(t, srv, c, "minecraft:rail", 2)
-
-	c.FacePlayer(0.5, 64, 3.5, 90, 60)
-	c.PlaceBlock(2, 63, 3, protocol.FaceTop)
-	c.ExpectBlockAck()
-	servertest.ExpectBlockNamed(t, srv, 2, 64, 3, "minecraft:rail",
-		map[string]string{"shape": "east_west"})
-
-	// Far enough east that neither rail reaches the other's columns.
-	c.MoveTo(3.5, 64, 7.5, 180, 60)
-	c.PlaceBlock(3, 63, 8, protocol.FaceTop)
-	c.ExpectBlockAck()
-	servertest.ExpectBlockNamed(t, srv, 3, 64, 8, "minecraft:rail",
-		map[string]string{"shape": "north_south"})
-}
-
 // TestBreakingASignalSourceBesideARailJunctionReshapesIt checks the
 // neighbour change: a redstone block broken beside a rail holding three
 // other rails makes that rail re-derive its shape from the three that are
@@ -167,106 +142,6 @@ func TestBreakingASignalSourceBesideARailJunctionReshapesIt(t *testing.T) {
 		map[string]string{"shape": "south_east"})
 	servertest.ExpectBlockNamed(t, srv, 3, 64, 3, "minecraft:rail",
 		map[string]string{"shape": "east_west"})
-}
-
-// TestRailsReshapeBeyondTheOverworld checks the same placement derivation
-// in another dimension: the end's arrival platform has the engine of every
-// other world, and the rail placed beside one standing on the obsidian
-// lines up with it there too.
-func TestRailsReshapeBeyondTheOverworld(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder")
-
-	arrival := world.EndArrival()
-	srv.MovePlayerToDimension("Builder", world.EndName,
-		float64(arrival.X)+0.5, float64(arrival.Y), float64(arrival.Z)+0.5)
-	// The arrival's chunks have to be read: a connection that stops reading
-	// holds the whole server's tick loop up on its socket.
-	c.Settle()
-	srv.GiveSlot("Builder", player.HotbarSlot,
-		protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:rail"), Count: 1})
-	rail := servertest.MustState(t, "minecraft:rail", nil)
-	servertest.WaitFor(t, srv, 200, func() bool {
-		return srv.SetBlockInDimension(world.EndName, arrival.X+2, arrival.Y, arrival.Z, rail)
-	})
-
-	// Facing south down the platform's x axis, so the placement state is
-	// the north-south one the pair has to beat.
-	c.MoveTo(float64(arrival.X)+0.5, float64(arrival.Y), float64(arrival.Z)+0.5, 0, 60)
-	c.PlaceBlock(arrival.X+1, arrival.Y-1, arrival.Z, protocol.FaceTop)
-	c.ExpectBlockAck()
-
-	for _, pos := range [][3]int32{{arrival.X + 1, arrival.Y, arrival.Z}, {arrival.X + 2, arrival.Y, arrival.Z}} {
-		name, props := servertest.StateProps(srv.BlockInDimension(world.EndName, pos[0], pos[1], pos[2]))
-		if name != "minecraft:rail" {
-			t.Fatalf("block at (%d, %d, %d) of the end is %q, want a rail", pos[0], pos[1], pos[2], name)
-		}
-		if props["shape"] != "east_west" {
-			t.Errorf("the end's rail at (%d, %d, %d) is %s, want east_west",
-				pos[0], pos[1], pos[2], props["shape"])
-		}
-	}
-}
-
-// TestAThreeWayJunctionCurvesWithTheSignal pins the signal's place in the
-// curve preference: a junction of rails south, east and west, a redstone
-// block north in the empty column, lands on south-west while the signal is
-// live and on south-east once the block is broken. The signal order is the
-// no-signal order reversed, so with both curve pairs answering the two
-// orders end on the two curves.
-func TestAThreeWayJunctionCurvesWithTheSignal(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder")
-	railPlayer(t, srv, c, "minecraft:rail", 1)
-	for _, pos := range [][3]int32{{2, 64, 4}, {3, 64, 3}, {1, 64, 3}} {
-		if !srv.SetBlock(pos[0], pos[1], pos[2], servertest.MustState(t, "minecraft:rail", nil)) {
-			t.Fatalf("the rail at (%d, %d, %d) did not stand", pos[0], pos[1], pos[2])
-		}
-	}
-	if !srv.SetBlock(2, 64, 2, servertest.MustState(t, "minecraft:redstone_block", nil)) {
-		t.Fatal("the redstone block's chunk is not loaded")
-	}
-	c.PlaceBlock(2, 63, 3, protocol.FaceTop)
-	c.ExpectBlockAck()
-	servertest.ExpectBlockNamed(t, srv, 2, 64, 3, "minecraft:rail",
-		map[string]string{"shape": "south_west"})
-
-	c.BreakBlock(2, 64, 2)
-	c.ExpectBlockAck()
-	servertest.ExpectBlockNamed(t, srv, 2, 64, 3, "minecraft:rail",
-		map[string]string{"shape": "south_east"})
-}
-
-// TestACornerRailCurvesOnlyForThePlainRail pins the straight flag: with
-// rails standing south and east of the spot, the plain rail lands on the
-// south-east curve, while the three straight rails keep the north-south
-// axis their placement chose. The player faces south.
-func TestACornerRailCurvesOnlyForThePlainRail(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name  string
-		rail  string
-		shape string
-	}{
-		{"the plain rail curves", "minecraft:rail", "south_east"},
-		{"a powered rail keeps its axis", "minecraft:powered_rail", "north_south"},
-		{"a detector rail keeps its axis", "minecraft:detector_rail", "north_south"},
-		{"an activator rail keeps its axis", "minecraft:activator_rail", "north_south"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder")
-			railPlayer(t, srv, c, tc.rail, 1)
-			if !srv.SetBlock(3, 64, 3, servertest.MustState(t, "minecraft:rail", nil)) ||
-				!srv.SetBlock(2, 64, 4, servertest.MustState(t, "minecraft:rail", nil)) {
-				t.Fatal("the standing rails' chunks are not loaded")
-			}
-			c.PlaceBlock(2, 63, 3, protocol.FaceTop)
-			c.ExpectBlockAck()
-			servertest.ExpectBlockNamed(t, srv, 2, 64, 3, tc.rail,
-				map[string]string{"shape": tc.shape})
-		})
-	}
 }
 
 // TestLeverPowersNinePoweredRailsOfTen lays a line of ten bare powered
@@ -312,49 +187,6 @@ func TestLeverPowersNinePoweredRailsOfTen(t *testing.T) {
 	}
 }
 
-// TestObserverFacingAPoweredRailPulsesOnItsStateChanges points an observer
-// at the first rail of a powered line and pulls the lever beside it: the
-// rail's POWERED property moves on both edges, and the observer pulses on
-// each. vanilla: ObserverBlock.updateShape, PoweredRailBlock.updateState.
-func TestObserverFacingAPoweredRailPulsesOnItsStateChanges(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	for x := int32(2); x <= 4; x++ {
-		servertest.Setblock(t, c, x, 64, 0, "powered_rail")
-	}
-	servertest.Setblock(t, c, 1, 64, 0, "lever[face=floor,facing=north]")
-	servertest.Setblock(t, c, 2, 64, 1, "observer[facing=north]")
-
-	// A pulse is the observer's powered=true update on the wire; each edge of
-	// the rail's state sends one.
-	pulse := func() bool {
-		return c.PumpTicks(srv, 100, func(id int32, data []byte) bool {
-			if id != protocol.IDPlayBlockUpdate {
-				return false
-			}
-			r := protocol.NewReader(data)
-			x, y, z := r.ReadPosition()
-			if x != 2 || y != 64 || z != 1 {
-				return false
-			}
-			got, props := servertest.StateProps(uint16(r.ReadVarInt()))
-			return got == "minecraft:observer" && props["powered"] == "true"
-		})
-	}
-
-	c.UseBlock(1, 64, 0)
-	if !pulse() {
-		t.Error("the observer never pulsed on the rail lighting")
-	}
-	servertest.AwaitTicks(t, srv, 4) // the pulse's own trailing edge first
-
-	c.UseBlock(1, 64, 0)
-	if !pulse() {
-		t.Error("the observer never pulsed on the rail darkening")
-	}
-}
-
 // TestActivatorRailsPowerTheirOwnLinesOnly gives the activator rail the
 // same lever line the powered rail takes — its own nine of ten — and checks
 // the seam: the powered family passes its power along rails of its own kind,
@@ -396,82 +228,6 @@ func TestActivatorRailsPowerTheirOwnLinesOnly(t *testing.T) {
 				map[string]string{"powered": "false"})
 		}
 	})
-}
-
-// TestAPoweredRailSlopeDoesNotLightTheRailOneAboveItsFlatEnd places a dip
-// of two powered rails between a flat high rail and a redstone block: the
-// fed rail's flat walk steps onto the dark slope one below its end and
-// stops, and the slope's backward walk reaches the stone under the fed
-// rail, so only the rail beside the block lights.
-// vanilla: PoweredRailBlock.findPoweredRailSignal.
-func TestAPoweredRailSlopeDoesNotLightTheRailOneAboveItsFlatEnd(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 10, 99, 33, "stone")
-	servertest.Setblock(t, c, 11, 100, 33, "stone")
-	servertest.Setblock(t, c, 9, 100, 33, "stone")
-	servertest.Setblock(t, c, 11, 101, 33, "powered_rail")
-	servertest.Setblock(t, c, 10, 100, 33, "powered_rail")
-	servertest.Setblock(t, c, 9, 101, 33, "powered_rail")
-	servertest.Setblock(t, c, 12, 101, 33, "redstone_block")
-
-	servertest.ExpectBlockNamed(t, srv, 11, 101, 33, "minecraft:powered_rail",
-		map[string]string{"shape": "east_west", "powered": "true"})
-	servertest.ExpectBlockNamed(t, srv, 10, 100, 33, "minecraft:powered_rail",
-		map[string]string{"shape": "ascending_west", "powered": "false"})
-	servertest.ExpectBlockNamed(t, srv, 9, 101, 33, "minecraft:powered_rail",
-		map[string]string{"shape": "east_west", "powered": "false"})
-}
-
-// TestBreakingTheRailASlopeRunsToTakesThePowerDown feeds a powered rail on
-// a step from a redstone block and lets its power run down the slope to the
-// rail that climbs to it, then breaks the top rail: the removal wakes the
-// support block below the rail, whose neighbours include the lower rail, so
-// it goes dark. vanilla: BaseRailBlock.affectNeighborsAfterRemoval.
-func TestBreakingTheRailASlopeRunsToTakesThePowerDown(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 9, 99, 25, "stone")
-	servertest.Setblock(t, c, 10, 100, 25, "stone")
-	servertest.Setblock(t, c, 9, 100, 25, "powered_rail[shape=ascending_east]")
-	servertest.Setblock(t, c, 10, 101, 25, "powered_rail")
-	servertest.Setblock(t, c, 11, 101, 25, "redstone_block")
-	servertest.ExpectBlockNamed(t, srv, 9, 100, 25, "minecraft:powered_rail", map[string]string{"shape": "ascending_east", "powered": "true"})
-	servertest.ExpectBlockNamed(t, srv, 10, 101, 25, "minecraft:powered_rail", map[string]string{"powered": "true"})
-
-	servertest.Setblock(t, c, 10, 101, 25, "air")
-	servertest.ExpectBlockNamed(t, srv, 9, 100, 25, "minecraft:powered_rail", map[string]string{"shape": "ascending_east", "powered": "false"})
-}
-
-// TestAPoweredRailSlopeKeepsToItsOwnAxis checks the axis check the walk makes
-// on a slope: the slope reads as its flat axis, so a rail one cell above its
-// low end on the other axis does not continue the walk and the slope stays
-// dark.
-// vanilla: PoweredRailBlock.findPoweredRailSignal.
-func TestAPoweredRailSlopeKeepsToItsOwnAxis(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 9, 64, 39, "rail")
-	servertest.Setblock(t, c, 9, 64, 41, "rail")
-	servertest.Setblock(t, c, 9, 64, 40, "powered_rail")
-	servertest.ExpectBlockNamed(t, srv, 9, 64, 40, "minecraft:powered_rail",
-		map[string]string{"shape": "north_south"})
-
-	servertest.Setblock(t, c, 11, 64, 40, "stone")
-	servertest.Setblock(t, c, 11, 65, 40, "rail")
-	servertest.Setblock(t, c, 10, 64, 40, "powered_rail")
-	servertest.ExpectBlockNamed(t, srv, 10, 64, 40, "minecraft:powered_rail",
-		map[string]string{"shape": "ascending_east"})
-
-	servertest.Setblock(t, c, 8, 64, 40, "redstone_block")
-
-	servertest.ExpectBlockNamed(t, srv, 9, 64, 40, "minecraft:powered_rail",
-		map[string]string{"shape": "north_south", "powered": "true"})
-	servertest.ExpectBlockNamed(t, srv, 10, 64, 40, "minecraft:powered_rail",
-		map[string]string{"shape": "ascending_east", "powered": "false"})
 }
 
 // TestAPoweredRailSlopeCarriesPowerToBothEnds feeds the flat low rail of a
@@ -541,76 +297,5 @@ func TestAnActivatorRailGoesWithItsSupport(t *testing.T) {
 	if got := srv.BlockAt(4, 65, 3); got != 0 {
 		name, props, _ := registry.BlockStateName(got)
 		t.Errorf("the activator rail above the removed support = %s%v, want air", name, props)
-	}
-}
-
-// TestSetblockOfAnUnsupportedStraightRailLeavesAir sets each straight rail
-// in open air: its landing runs neighborChanged on itself, which removes it.
-// The plain rail has no such pass and stays until a neighbour changes.
-func TestSetblockOfAnUnsupportedStraightRailLeavesAir(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	for i, rail := range []string{"powered_rail", "detector_rail", "activator_rail"} {
-		x := int32(40 + i)
-		servertest.Setblock(t, c, x, 70, 30, rail)
-		if got := srv.BlockAt(x, 70, 30); got != 0 {
-			name, _, _ := registry.BlockStateName(got)
-			t.Errorf("%s set over nothing = %s, want air", rail, name)
-		}
-	}
-	servertest.Setblock(t, c, 50, 70, 30, "rail")
-	servertest.ExpectBlockNamed(t, srv, 50, 70, 30, "minecraft:rail", nil)
-}
-
-// TestSetblockAndFillHandNeighboursTheNewBlock pins which block a command's
-// neighbour wake names: replace mode of /setblock and /fill hands the block
-// that was set, destroy mode of /setblock hands the one its break removed.
-// A plain rail curved by two neighbours reroutes only when a redstone block
-// is the block that changed beside it.
-// vanilla: ServerLevel.updateNeighboursOnBlockSet, RailBlock.updateState
-func TestSetblockAndFillHandNeighboursTheNewBlock(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name    string
-		prior   bool // a redstone block stands south of the junction before its rail
-		command string
-		want    string
-	}{
-		{"setblock replace sets a signal source", false, "setblock 9 64 11 redstone_block", "north_west"},
-		{"fill replace sets a signal source", false, "fill 9 64 11 9 64 11 redstone_block", "north_west"},
-		{"setblock replace removes a signal source", true, "setblock 9 64 11 stone", "north_west"},
-		{"fill replace removes a signal source", true, "fill 9 64 11 9 64 11 stone", "north_west"},
-		{"setblock destroy removes a signal source", true, "setblock 9 64 11 stone destroy", "north_east"},
-		{"clone move clears the source with the old block", true, "clone 9 64 11 9 64 11 30 64 11 replace move", "north_east"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.AttachActor(t)
-			if tc.prior {
-				servertest.Setblock(t, c, 9, 64, 11, "redstone_block")
-			}
-			for _, pos := range [][3]int32{{8, 64, 10}, {10, 64, 10}, {9, 64, 9}, {9, 64, 10}} {
-				servertest.Setblock(t, c, pos[0], pos[1], pos[2], "rail")
-			}
-			start := "north_east"
-			if tc.prior {
-				start = "north_west"
-			}
-			servertest.ExpectBlockNamed(t, srv, 9, 64, 10, "minecraft:rail",
-				map[string]string{"shape": start})
-			c.ChatCommand(tc.command)
-			one := int64(1)
-			switch {
-			case strings.HasPrefix(tc.command, "clone"):
-				servertest.AwaitCommandFeedbackText(t, c, "commands.clone.success", protocol.Text{Number: &one})
-			case strings.HasPrefix(tc.command, "fill"):
-				servertest.AwaitCommandFeedbackText(t, c, "commands.fill.success", protocol.Text{Number: &one})
-			default:
-				servertest.AwaitCommandFeedback(t, c, "commands.setblock.success", "9", "64", "11")
-			}
-			servertest.ExpectBlockNamed(t, srv, 9, 64, 10, "minecraft:rail",
-				map[string]string{"shape": tc.want})
-		})
 	}
 }

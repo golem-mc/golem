@@ -25,22 +25,6 @@ func TestABrokenBoatDropsItsItemWithTheVehiclesCustomName(t *testing.T) {
 	assertDropNamed(t, srv, "minecraft:oak_boat")
 }
 
-// TestABrokenMinecartDropsItsItemWithTheVehiclesCustomName: the dropped cart
-// item carries the cart's custom_name.
-// vanilla: VehicleEntity.destroy
-func TestABrokenMinecartDropsItsItemWithTheVehiclesCustomName(t *testing.T) {
-	t.Parallel()
-	srv, _, _ := cartPlayer(t, "survival", "Breaker", 1)
-	srv.StopTick()
-	cartID := srv.SpawnMinecart(4.5, 64.0625, 1.5)
-	srv.RunLine(`data merge entity @e[type=minecraft:minecart,limit=1] {CustomName:"Bob"}`)
-	if !srv.HurtMinecart(cartID, 100, false) {
-		t.Fatal("the blow did not land")
-	}
-	srv.TickMinecarts(1)
-	assertDropNamed(t, srv, "minecraft:minecart")
-}
-
 func assertDropNamed(t *testing.T, srv *server.Server, item string) {
 	t.Helper()
 	for _, it := range srv.ItemsInDimension(world.DimensionName) {

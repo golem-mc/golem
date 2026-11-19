@@ -3,12 +3,13 @@ package storage
 import (
 	"bytes"
 	"encoding/binary"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"

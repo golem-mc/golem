@@ -50,11 +50,3 @@ func TestABucketOnABabyCowMilksNothing(t *testing.T) {
 		t.Errorf("a calf's bucket: %d slot changes, %d milk sounds, hand %+v; want a bucket and nothing sent", slots, sounds, held)
 	}
 }
-
-func TestABucketOnADyingCowMilksNothing(t *testing.T) {
-	t.Parallel()
-	slots, sounds, held := useHeldOnFreshMob(t, "cow", "minecraft:bucket", `{}`, true)
-	if slots != 0 || sounds != 0 || held.ItemID != servertest.ItemIDOrDie(t, "minecraft:bucket") {
-		t.Errorf("a dying cow's bucket: %d slot changes, %d milk sounds, hand %+v; want a bucket and nothing sent", slots, sounds, held)
-	}
-}

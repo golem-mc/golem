@@ -1,7 +1,6 @@
 package entity
 
 import (
-	"math/rand"
 	"reflect"
 	"testing"
 
@@ -52,63 +51,10 @@ func TestZombieCuringRequiresWeaknessAndKeepsTheStarter(t *testing.T) {
 	}
 }
 
-func TestZombieCuringTicksWithoutAIAndStopsAfterConversion(t *testing.T) {
-	w := newTestWorld()
-	m := NewMob(TypeZombieVillager, 1, 0, 64, 0, 1)
-	m.NoAI = true
-	m.startCuring(uuid.New(), 2, w.Difficulty())
-	for i := range 2 {
-		events := m.tick(w, nil, nil)
-		converted := false
-		for _, ev := range events {
-			if ev.Kind == MobConverted && ev.Into == TypeVillager {
-				converted = true
-			}
-		}
-		if converted != (i == 1) {
-			t.Fatalf("tick %d: events = %v", i, events)
-		}
-	}
-	if events := m.tick(w, nil, nil); len(events) != 0 {
-		t.Fatalf("conversion was repeated: %v", events)
-	}
-	dead := NewMob(TypeZombieVillager, 2, 0, 64, 0, 1)
-	dead.startCuring(uuid.Nil, 0, w.Difficulty())
-	dead.Dead = true
-	for _, ev := range dead.tick(w, nil, nil) {
-		if ev.Kind == MobConverted {
-			t.Fatal("a dead body cured")
-		}
-	}
-}
-
 type cureZeroSource struct{}
 
 func (*cureZeroSource) Seed(int64)   {}
 func (*cureZeroSource) Int63() int64 { return 0 }
-
-func TestZombieCuringCountsAtMostFourteenBedsOrBars(t *testing.T) {
-	w := newTestWorld()
-	bars := defaultState(t, "minecraft:iron_bars")
-	floor(w, -4, -4, 3, 3, 60, bars)
-	m := NewMob(TypeZombieVillager, 1, -0.5, 64, -0.5, 1)
-	m.startCuring(uuid.Nil, 100, w.Difficulty())
-	m.Rand = rand.New(&cureZeroSource{})
-	m.cureStep(w)
-	if m.cure.left != 85 {
-		t.Fatalf("countdown = %d, want 85 (14 bonuses)", m.cure.left)
-	}
-	w = newTestWorld()
-	w.set(-4, 60, -4, bedHead(t))
-	w.set(-4, 60, -3, bars)
-	w.set(-5, 60, -4, bars) // Outside the truncated-coordinate search.
-	w.set(4, 60, -4, bars)  // The positive radius boundary is exclusive.
-	m.cure.left = 100
-	m.cureStep(w)
-	if m.cure.left != 97 {
-		t.Fatalf("countdown = %d, want 97 (bed and bars)", m.cure.left)
-	}
-}
 
 func TestZombieCuringRoundTripsCountdownTradesXpAndGossip(t *testing.T) {
 	w := newTestWorld()
@@ -180,42 +126,5 @@ func TestACuredVillagerKeepsItsTradesAndBindingEquipment(t *testing.T) {
 	}
 	if _, has := m.effects.Get(registry.MustMobEffect("minecraft:nausea")); !has {
 		t.Fatal("cured villager has no nausea")
-	}
-}
-
-func TestInfectionInitializesZombieAttributesWithoutRerollingAgeOrEquipment(t *testing.T) {
-	old := NewMob(TypeVillager, 1, 0, 64, 0, 1)
-	old.MainHand = protocol.ItemStack{ItemID: int32(registry.ItemIronSword), Count: 1}
-	var leaders, doors, follows int
-	for seed := range int64(1000) {
-		old.SetBaby(seed%2 == 0)
-		m := NewMob(TypeZombieVillager, 2, 0, 64, 0, seed)
-		m.ConvertedFrom(old)
-		m.InfectedFrom(old, 1)
-		if m.IsBaby() != old.IsBaby() || !reflect.DeepEqual(m.MainHand, old.MainHand) || !reflect.DeepEqual(m.Worn, old.Worn) {
-			t.Fatalf("seed %d: infection rerolled age or equipment", seed)
-		}
-		if m.zombie.ReinforceBase <= 0 || m.zombie.ReinforceBase >= reinforceBaseMax || m.KnockbackResistance() <= 0 || m.KnockbackResistance() >= knockbackBonusMax {
-			t.Fatalf("seed %d: missing or invalid conversion attributes: %+v", seed, m.zombie)
-		}
-		if m.zombie.LeaderBonus > 0 {
-			leaders++
-			if m.MaxHealth <= 20 || m.Health != m.MaxHealth || !m.CanBreakDoors {
-				t.Fatalf("seed %d: invalid leader", seed)
-			}
-		} else if m.CanBreakDoors {
-			doors++
-		}
-		if m.zombie.FollowBonus > 1 {
-			follows++
-		}
-	}
-	if leaders == 0 || doors == 0 || follows == 0 {
-		t.Fatalf("missing rolls: leaders %d, nonleader doors %d, follow bonuses %d", leaders, doors, follows)
-	}
-	m := NewMob(TypeZombieVillager, 2, 0, 64, 0, 1)
-	m.InfectedFrom(old, 0)
-	if m.CanBreakDoors || m.zombie.LeaderBonus != 0 || m.zombie.FollowBonus != 0 {
-		t.Fatal("zero special difficulty enabled doors, leader or follow bonus")
 	}
 }

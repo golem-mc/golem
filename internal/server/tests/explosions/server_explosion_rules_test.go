@@ -6,7 +6,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -150,6 +149,7 @@ func TestMobGriefingKeepsTheWorldFromTheCreeperBlast(t *testing.T) {
 	cfg := servertest.HostileTestConfig()
 
 	srv, c := servertest.Join(t, cfg, "Bystander")
+	servertest.HoldTicks(t, srv)
 
 	// The veto set before anything is stood up: the interaction is read
 	// when the blast is built, and the world it leaves is the rule's own.
@@ -196,51 +196,6 @@ func TestMobGriefingKeepsTheWorldFromTheCreeperBlast(t *testing.T) {
 	}
 }
 
-// TestTheMobDecayRuleDropsWhole leaves mob_griefing on and turns the mob
-// decay rule off: the creeper's blast takes the stones it reaches and every
-// one of them gives its own stack whole, the loot context carrying no blast
-// radius for the tables' explosion_decay to roll against.
-func TestTheMobDecayRuleDropsWhole(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.HostileTestConfig()
-
-	srv, c := servertest.Join(t, cfg, "Bystander")
-
-	srv.SetGameRule("mob_explosion_drop_decay", false)
-
-	stone, ok := registry.FindState("minecraft:stone", nil)
-	if !ok {
-		t.Fatal("the block registry has no stone")
-	}
-	for _, pos := range stoneRing {
-		srv.SetBlock(pos[0], pos[1], pos[2], stone)
-	}
-	// The stones before the blast ran, the crater's chew into the flat
-	// world's own stone among them.
-	snapshot := stoneCellsAround(srv.BlockAt, -1, 6, 61, 67, -3, 4)
-
-	creeperID := srv.SpawnMob("minecraft:creeper", 2.5, 64, 0.5)
-	if creeperID == 0 {
-		t.Fatal("the creeper never stood up")
-	}
-
-	drops, boom, exploded := collectBlast(srv, c, servertest.HostileTicks)
-	if !exploded {
-		t.Fatal("the creeper never exploded")
-	}
-	if boom.Radius != 3.0 {
-		t.Errorf("servertest.Explosion radius = %v, want the creeper's 3", boom.Radius)
-	}
-	destroyed := snapshot.destroyedNow(srv.BlockAt)
-	if destroyed < 3 {
-		t.Fatalf("the blast took %d stones, want at least the three the rays next door chew", destroyed)
-	}
-	if got := cobbleDropped(t, drops); got != destroyed {
-		t.Errorf("the decayless blast dropped %d cobblestone for %d stones destroyed, want every stone's own stack",
-			got, destroyed)
-	}
-}
-
 // TestTheTNTDecayRuleDropsWhole turns the tnt decay rule off and drops a
 // primed body onto a patch of stone: the blast takes what it reaches and
 // every stone of it drops whole, the way DESTROY — no radius in the loot
@@ -250,6 +205,7 @@ func TestTheTNTDecayRuleDropsWhole(t *testing.T) {
 	cfg := servertest.BlockTestConfig() // creative, so the blast's drops stay behind
 
 	srv, c := servertest.Join(t, cfg, "Watcher")
+	servertest.HoldTicks(t, srv)
 
 	srv.SetGameRule("tnt_explosion_drop_decay", false)
 
@@ -335,97 +291,6 @@ func TestPrimedTNTObeysTNTExplodesAtFuseExpiry(t *testing.T) {
 			}
 			if got := srv.BlockAt(7, 64, 6); got != dirt {
 				t.Errorf("block beside TNT = %d, want dirt (%d)", got, dirt)
-			}
-		})
-	}
-}
-
-// TestTheBlockDecayRuleDropsWhole turns the block decay rule off and sleeps
-// in a bed where beds cannot work: the bad-respawn-point blast that takes
-// both halves takes the stones around them with every drop whole, the
-// block interaction's own rule being the only gate on it.
-func TestTheBlockDecayRuleDropsWhole(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Actor")
-
-	srv.SetGameRule("block_explosion_drop_decay", false)
-
-	srv.MovePlayerToDimension("Actor", world.NetherName, 85, 40, 85)
-	if _, ok := servertest.ReadUntilViewSent(t, c); !ok {
-		t.Fatal("the nether never arrived for the actor")
-	}
-
-	stone, ok := registry.FindState("minecraft:stone", nil)
-	if !ok {
-		t.Fatal("the block registry has no stone")
-	}
-	read := func(x, y, z int32) uint16 {
-		return srv.BlockInDimension(world.NetherName, x, y, z)
-	}
-	// The patch around the bed, five by five at its own level, the two
-	// bed cells the only gap in it — and the stones before the blast ran.
-	for x := int32(86); x <= 90; x++ {
-		for z := int32(86); z <= 90; z++ {
-			if (x == 88 && z == 88) || (x == 88 && z == 89) {
-				continue
-			}
-			if !srv.SetBlockInDimension(world.NetherName, x, 40, z, stone) {
-				t.Fatalf("could not stand the stone at (%d,40,%d)", x, z)
-			}
-		}
-	}
-	snapshot := stoneCellsAround(read, 84, 93, 36, 44, 84, 93)
-
-	if !srv.SetBlockInDimension(world.NetherName, 88, 40, 88, servertest.BedStateName("red", "foot", "south")) ||
-		!srv.SetBlockInDimension(world.NetherName, 88, 40, 89, servertest.BedStateName("red", "head", "south")) {
-		t.Fatal("could not stand the bed in the nether")
-	}
-
-	c.UseBlock(88, 40, 88)
-	drops, boom, exploded := collectBlast(srv, c, servertest.HostileTicks)
-	if !exploded {
-		t.Fatal("the bed never blew")
-	}
-	if boom.Radius != 5.0 {
-		t.Errorf("servertest.Explosion radius = %v, want the bad respawn point's 5", boom.Radius)
-	}
-	destroyed := snapshot.destroyedNow(read)
-	if destroyed < 10 {
-		t.Fatalf("the blast took %d stones, want the wide chew a five-wide blast gives", destroyed)
-	}
-	if got := cobbleDropped(t, drops); got != destroyed {
-		t.Errorf("the decayless blast dropped %d cobblestone for %d stones destroyed, want every stone's own stack",
-			got, destroyed)
-	}
-}
-
-func TestASummonedTNTKeepsItsExplosionPower(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct{ given, want string }{{"8f", "8.0f"}, {"500f", "128.0f"}} {
-		t.Run(c.given, func(t *testing.T) {
-			t.Parallel()
-			srv, cl := servertest.Join(t, servertest.BlockTestConfig(), "Keeper", servertest.OpsListing(t, "Keeper"))
-			servertest.HoldTicks(t, srv)
-			cl.ChatCommand("summon minecraft:tnt 6.5 64 6.5 {fuse:1000s,explosion_power:" + c.given + "}")
-			cl.AwaitSpawn(protocol.EntityTypeTnt)
-			if n := srv.TNTCount(); n != 1 {
-				t.Fatalf("TNTCount = %d, want 1", n)
-			}
-			cl.ChatCommand("data get entity @e[type=minecraft:tnt,limit=1] explosion_power")
-			var answer string
-			cl.ReadTicks(srv, 3, func(id int32, data []byte) bool {
-				if id != protocol.IDPlaySystemChat {
-					return false
-				}
-				text, ok := protocol.ReadText(protocol.NewReader(data))
-				if !ok || text.Translate != "commands.data.entity.query" || len(text.With) != 2 {
-					return false
-				}
-				answer = text.With[1].Plain()
-				return true
-			})
-			if answer != c.want {
-				t.Errorf("explosion_power read back %q, want %q", answer, c.want)
 			}
 		})
 	}

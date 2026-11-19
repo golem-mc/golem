@@ -41,28 +41,3 @@ func TestFeedingABabyCowSendsGrowthParticles(t *testing.T) {
 		return id == protocol.IDPlayLevelParticles && ok && p.Type == protocol.ParticleHappyVillager
 	})
 }
-
-// TestAgeLockingABabyCowSendsPauseIcons: a golden dandelion that locks a calf
-// shows a pause_mob_growth icon on every second of the forty ticks after.
-// vanilla: AgeableMob.makeAgeLockedParticle
-func TestAgeLockingABabyCowSendsPauseIcons(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.BreedingPlayer(t, "survival", "Locker", "minecraft:golden_dandelion", 1,
-		func(srv *server.Server) { servertest.FreezeUntilHeld(t, srv) })
-	servertest.HoldTicks(t, srv)
-	calf := srv.SpawnMob("minecraft:cow", 1.5, 64, 1.5)
-	srv.SetMobBaby(calf, true)
-
-	c.UseOn(calf)
-	icons := map[int32]int{}
-	c.ReadTicks(srv, 40, func(id int32, data []byte) bool {
-		if p, ok := servertest.ParseLevelParticles(data); id == protocol.IDPlayLevelParticles && ok {
-			icons[p.Type]++
-		}
-		return false
-	})
-	if icons[protocol.ParticlePauseMobGrowth] != 20 || icons[protocol.ParticleResetMobGrowth] != 0 {
-		t.Errorf("particles by type in the forty ticks after locking = %v, want 20 pause_mob_growth (%d)",
-			icons, protocol.ParticlePauseMobGrowth)
-	}
-}

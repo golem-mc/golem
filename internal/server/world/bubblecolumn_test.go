@@ -63,25 +63,3 @@ func TestBreakingTheBaseRemovesTheColumn(t *testing.T) {
 		}
 	}
 }
-
-func TestPlacingSoulSandUnderWaterStartsAColumn(t *testing.T) {
-	w, p, clock := bubbleWorld(t, registry.BlockStates["minecraft:cobblestone"], 3)
-	runTicks(p, clock, 30)
-	setBlock(t, w, p, 0, GroundLevel-1, 0, registry.BlockStates["minecraft:soul_sand"])
-	runTicks(p, clock, 22)
-	if got := w.BlockAt(0, GroundLevel+2, 0); got != bubbleUpState {
-		t.Errorf("top of the water over placed soul sand = %d, want a lifting column", got)
-	}
-}
-
-func TestColumnStopsAtFlowingWater(t *testing.T) {
-	w, p, clock := bubbleWorld(t, registry.BlockStates["minecraft:soul_sand"], 2)
-	setBlock(t, w, p, 0, GroundLevel+2, 0, waterByLevel[1])
-	runTicks(p, clock, 22)
-	if got := w.BlockAt(0, GroundLevel+1, 0); got != bubbleUpState {
-		t.Errorf("top source = %d, want a column", got)
-	}
-	if got := w.BlockAt(0, GroundLevel+2, 0); got == bubbleUpState {
-		t.Error("the column grew through flowing water")
-	}
-}

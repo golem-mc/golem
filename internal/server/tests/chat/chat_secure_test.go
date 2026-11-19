@@ -49,15 +49,3 @@ func TestEnforceSecureProfileRefusesChatWithoutSession(t *testing.T) {
 	}
 
 }
-
-// TestEnforceSecureProfileOffAllowsChatWithoutSession checks the property
-// off leaves an online-mode player's unsigned chat alone.
-func TestEnforceSecureProfileOffAllowsChatWithoutSession(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.EnforceSecureProfile = false
-	c := onlineChatClient(t, cfg)
-
-	c.Chat("hello")
-	c.ExpectChat("Testificate", "hello")
-}

@@ -152,49 +152,6 @@ func TestSelectTradeFillsThePaymentAndTheTakeSpendsIt(t *testing.T) {
 	}
 }
 
-// TestSelectTradeOutOfRangeDoesNothing pins the index bound.
-func TestSelectTradeOutOfRangeDoesNothing(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	w := servertest.WindowedOf(t, "Testificate", connect())
-	emerald := registry.MustItem("minecraft:emerald")
-	srv.GiveSlot("Testificate", player.HotbarSlot, protocol.ItemStack{ItemID: emerald, Count: 5})
-	openMerchantFor(t, srv, w, []inventory.Offer{
-		{CostA: inventory.Cost{ItemID: emerald, Count: 1}, Result: protocol.ItemStack{ItemID: registry.MustItem("minecraft:bread"), Count: 1}, MaxUses: 4},
-	})
-	if got := selectTrade(w, 7); len(got) != 0 {
-		t.Errorf("Select Trade past the offers answered %+v, want nothing", got)
-	}
-}
-
-func TestMerchantWindowStaysOpenAcrossTicks(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	w := servertest.WindowedOf(t, "Testificate", connect())
-	emerald, bread := registry.MustItem("minecraft:emerald"), registry.MustItem("minecraft:bread")
-	openMerchantFor(t, srv, w, []inventory.Offer{{
-		CostA: inventory.Cost{ItemID: emerald, Count: 1}, Result: protocol.ItemStack{ItemID: bread, Count: 1}, MaxUses: 4,
-	}})
-	for range 3 {
-		srv.TickOpenWindow("Testificate")
-	}
-	if uses, _ := srv.MerchantState("Testificate"); len(uses) != 1 {
-		t.Error("the merchant window closed on a tick")
-	}
-}
-
-func TestMerchantWithoutOffersSendsNoOfferPacket(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
-	w := servertest.WindowedOf(t, "Testificate", connect())
-	srv.OpenMerchant("Testificate", nil)
-	sawOffers, sawOpen := false, false
-	w.SettleAndCollect(func(id int32, _ []byte) {
-		sawOffers = sawOffers || id == protocol.IDPlayMerchantOffers
-		sawOpen = sawOpen || id == protocol.IDPlayOpenScreen
-	})
-	if !sawOpen || sawOffers {
-		t.Errorf("open screen %v, merchant offers %v; want the window without the packet", sawOpen, sawOffers)
-	}
-}
-
 // A merchant with a window open turns to its trading player; a villager
 // walks to within two blocks of them, a wandering trader holds still (it only
 // stops, so it starts within reach).

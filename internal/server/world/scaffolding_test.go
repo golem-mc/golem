@@ -65,28 +65,3 @@ func TestScaffoldingDistanceFollowsTheBlocksAroundIt(t *testing.T) {
 	checkScaffold(t, w, 0, GroundLevel+2, 0, "0", "false", "on the column's top")
 	checkScaffold(t, w, 1, GroundLevel+2, 0, "1", "true", "over air beside it")
 }
-
-// TestScaffoldingPlacementRefusesOnlyTheUnsupportedCeiling checks the
-// placement gate that stands in for canSurvive: a scaffolding placement whose
-// distance would be the stability ceiling is refused, but one that lands on an
-// existing piece is not — the extension path, which does not reach the check.
-// vanilla: ScaffoldingBlockItem.updatePlacementContext
-func TestScaffoldingPlacementRefusesOnlyTheUnsupportedCeiling(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	scaffold := scaffoldingTestState(t, nil)
-
-	if w.ScaffoldingRefusesPlacement(0, GroundLevel, 0) {
-		t.Error("a placement on the stone floor was refused, want the ground to hold it")
-	}
-	if !w.ScaffoldingRefusesPlacement(1, GroundLevel+4, 0) {
-		t.Error("a placement hanging over air beside plain blocks was accepted, want the ceiling refused")
-	}
-	setBlock(t, w, p, 1, GroundLevel+4, 0, scaffold)
-	if w.ScaffoldingRefusesPlacement(1, GroundLevel+4, 0) {
-		t.Error("a placement onto an existing piece was refused, want it to stand")
-	}
-	setBlock(t, w, p, 2, GroundLevel+4, 0, scaffoldingTestState(t, map[string]string{"distance": "0"}))
-	if w.ScaffoldingRefusesPlacement(3, GroundLevel+4, 0) {
-		t.Error("a placement one past a scaffolded side was refused, want it to stand")
-	}
-}

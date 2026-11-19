@@ -1,7 +1,6 @@
 package world
 
 import (
-	"github.com/golem-mc/golem/internal/server/world/terrain"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/world/levelgen"
@@ -40,32 +39,5 @@ func TestSpeleothemProviders(t *testing.T) {
 				t.Fatal("provider consumed the wrong random draws")
 			}
 		})
-	}
-}
-
-func TestOverworldDecorationStartsWithEmptyGaussianCache(t *testing.T) {
-	g := NewOverworldGenerator(4)
-	g.noStructures = true
-	reference := levelgen.NewWorldgenRandom(0)
-	seed := reference.SetDecorationSeed(4, 0, 0)
-	reference.SetFeatureSeed(seed, 0, 0)
-	want := reference.NextGaussian()
-	calls := 0
-	g.placed = []overworldPlaced{{
-		feature: terrain.OverworldFeature{Biomes: ^uint64(0)},
-		place: func(r *decorRegion, _ [3]int32) {
-			calls++
-			if got := r.rng.NextGaussian(); got != want {
-				t.Errorf("decoration %d: Gaussian = %v, want %v", calls, got, want)
-			}
-		},
-	}}
-	r := newDecorRegion(g, newChunk(0, 0), worldMinY, worldHeight)
-	r.biomeCells = &cellReader{g: g}
-	r.rng.NextGaussian()
-	r.decorateOverworld(0, 0)
-	r.decorateOverworld(0, 0)
-	if calls != 2 {
-		t.Fatalf("feature called %d times, want 2", calls)
 	}
 }

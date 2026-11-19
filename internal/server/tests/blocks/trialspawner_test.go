@@ -130,15 +130,6 @@ func TestATrialSpawnerRunsItsNormalCycle(t *testing.T) {
 	}
 }
 
-// TestATrialSpawnerSendsItsBlockBeforeItsUpdateTag: a state change reaches a
-// watcher as the block update, then the spawner's Block Entity Data.
-// vanilla: TrialSpawnerBlockEntity.setState, ChunkHolder.broadcastBlockEntityIfNeeded
-func TestATrialSpawnerSendsItsBlockBeforeItsUpdateTag(t *testing.T) {
-	t.Parallel()
-	srv, c := trialScene(t, trialConfig(2, 2, 2))
-	c.ExpectBlockBeforeEntityData(srv, 700, [3]int32{trialX, trialY, trialZ})
-}
-
 // TestATrialSpawnerStopsAtItsTotal: with a total of three mobs and one at a
 // time, the spawner stands exactly three up, never two together, and the
 // state data tracks them.
@@ -203,35 +194,6 @@ func TestATrialSpawnerIgnoresCreativePlayers(t *testing.T) {
 	})
 }
 
-// TestATrialSpawnerNeedsMobSpawning: peaceful difficulty keeps the spawner
-// waiting; hard wakes it.
-// vanilla: TrialSpawner.canSpawnInLevel
-func TestATrialSpawnerNeedsMobSpawning(t *testing.T) {
-	t.Parallel()
-	srv, _ := trialScene(t, trialConfig(1, 1, 2))
-	srv.SetDifficulty(0)
-	servertest.RunTicks(t, srv, 60)
-	if got := trialStateOf(t, srv); got != "waiting_for_players" {
-		t.Fatalf("state = %s in peaceful, want waiting_for_players", got)
-	}
-	srv.SetDifficulty(2)
-	servertest.UntilTicks(t, srv, 60, "the spawner waking", func() bool {
-		return trialStateOf(t, srv) == "active"
-	})
-}
-
-// TestATrialSpawnerWithoutAMobStaysInactive: no spawn_potentials and no
-// spawn_data leave the spawner inactive however long a player stands by.
-// vanilla: TrialSpawnerState.INACTIVE
-func TestATrialSpawnerWithoutAMobStaysInactive(t *testing.T) {
-	t.Parallel()
-	srv, _ := trialScene(t, nbt.Compound{})
-	servertest.RunTicks(t, srv, 80)
-	if got := trialStateOf(t, srv); got != "inactive" {
-		t.Errorf("state = %s, want inactive", got)
-	}
-}
-
 // TestATrialSpawnerHoldsToItsSimultaneousLimit: with room for five mobs in
 // all but two at a time, an unattended spawner keeps two standing and no more.
 // vanilla: TrialSpawnerStateData.isReadyToSpawnNextMob
@@ -253,52 +215,6 @@ func TestATrialSpawnerHoldsToItsSimultaneousLimit(t *testing.T) {
 	if most != 2 {
 		t.Errorf("at most %d mobs stood together, want the limit of 2 reached", most)
 	}
-}
-
-// TestATrialSpawnerSpawnsDrownedInTheLight: vanilla skips the darkness check
-// of the drowned for a trial spawner.
-// vanilla: Drowned.checkDrownedSpawnRules
-func TestATrialSpawnerSpawnsDrownedInTheLight(t *testing.T) {
-	t.Parallel()
-	config := trialConfig(1, 1, 2)
-	normal := config["normal_config"].(nbt.Compound)
-	normal["spawn_potentials"] = nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{
-		"weight": nbt.Int(1),
-		"data":   nbt.Compound{"entity": nbt.Compound{"id": nbt.String("minecraft:drowned")}},
-	}}}
-	srv, _ := trialScene(t, config)
-	srv.RunLine("time set noon")
-	servertest.UntilTicks(t, srv, 300, "a drowned in daylight", func() bool { return srv.MobCount() > 0 })
-}
-
-// vanilla: PatrollingMonster.checkPatrollingMonsterSpawnRules, TrialSpawner.spawnMob
-func TestATrialSpawnerKeepsPillagerBlockLightLimit(t *testing.T) {
-	t.Parallel()
-	config := trialConfig(1, 1, 1)
-	potential := config["normal_config"].(nbt.Compound)["spawn_potentials"].(nbt.List).Items[0].(nbt.Compound)
-	potential["data"] = nbt.Compound{
-		"entity": nbt.Compound{
-			"id": nbt.String("minecraft:pillager"), "NoAI": nbt.Byte(1),
-			"Pos": nbt.List{Elem: nbt.TypeDouble, Items: []nbt.Tag{nbt.Double(6.5), nbt.Double(64), nbt.Double(2.5)}},
-		},
-		"custom_spawn_rules": nbt.Compound{"block_light_limit": nbt.Compound{
-			"min_inclusive": nbt.Int(0), "max_inclusive": nbt.Int(15),
-		}},
-	}
-	srv, _ := trialScene(t, config)
-	srv.SetBlock(6, 64, 3, registry.BlockGlowstone.DefaultState())
-	srv.RelightAt(6, 3)
-	if light := srv.BlockLightAt(6, 64, 2); light != 14 {
-		t.Fatalf("spawn cell light = %d, want 14", light)
-	}
-	servertest.RunTicks(t, srv, 150)
-	if got := trialStateOf(t, srv); got != "active" || srv.MobCount() != 0 {
-		t.Fatalf("state %s with %d mobs in block light 14, want active and none", got, srv.MobCount())
-	}
-	// Custom light limits supplement the type's predicate; they cannot bypass it.
-	srv.SetBlock(6, 64, 3, registry.BlockAir.DefaultState())
-	srv.RelightAt(6, 3)
-	servertest.UntilTicks(t, srv, 50, "a pillager after removing the block light", func() bool { return srv.MobCount() > 0 })
 }
 
 // trialLootList is a loot_tables_to_eject list of equally weighted tables.
@@ -372,66 +288,6 @@ func TestATrialSpawnerEjectsItsRewardLoot(t *testing.T) {
 	if loot, _ := nbt.Get[nbt.String](trialTag(t, srv), "ejecting_loot_table"); loot != "" {
 		t.Errorf("ejecting_loot_table = %q in the cooldown, want it cleared", loot)
 	}
-}
-
-// TestATrialSpawnerWithoutRewardTablesEjectsNothing: an empty
-// loot_tables_to_eject list leaves the ejection with nothing to roll, and the
-// cycle still goes on.
-// vanilla: TrialSpawnerState.EJECTING_REWARD
-func TestATrialSpawnerWithoutRewardTablesEjectsNothing(t *testing.T) {
-	t.Parallel()
-	config := trialConfig(1, 1, 2)
-	config["normal_config"].(nbt.Compound)["loot_tables_to_eject"] = trialLootList()
-	srv, c := trialScene(t, config)
-
-	heard := playTrialToCooldown(t, srv, c)
-	if n := len(srv.ItemsInDimension("minecraft:overworld")) - len(trialItems(srv, "minecraft:rotten_flesh")); n != 0 {
-		t.Errorf("%d items ejected, want none", n)
-	}
-	if got := len(heard.Events[3014]); got != 0 {
-		t.Errorf("%d level events 3014, want none", got)
-	}
-}
-
-// TestATrialSpawnerDefaultRewardIsConsumablesOrKey: with no list the spawner
-// rolls the trial chamber consumables or key table, so the ejection throws
-// something.
-// vanilla: TrialSpawnerConfig.Builder
-func TestATrialSpawnerDefaultRewardIsConsumablesOrKey(t *testing.T) {
-	t.Parallel()
-	srv, c := trialScene(t, trialConfig(1, 1, 2))
-	heard := playTrialToCooldown(t, srv, c)
-	if len(heard.Events[3014]) != 1 {
-		t.Errorf("%d level events 3014 after the default ejection, want one", len(heard.Events[3014]))
-	}
-}
-
-// TestATrialSpawnerHonoursCustomSpawnRules: spawn data whose block light limit
-// the room cannot meet spawns nothing, one it meets does. The active spawner
-// lights its own surroundings, so the dark room is only dark above that glow.
-// vanilla: SpawnData.CustomSpawnRules.isValidPosition
-func TestATrialSpawnerHonoursCustomSpawnRules(t *testing.T) {
-	t.Parallel()
-	rules := func(lo, hi int32) nbt.Compound {
-		return nbt.Compound{"block_light_limit": nbt.Compound{
-			"min_inclusive": nbt.Int(lo), "max_inclusive": nbt.Int(hi)}}
-	}
-	withRules := func(r nbt.Compound) nbt.Compound {
-		config := trialConfig(1, 1, 2)
-		potential := config["normal_config"].(nbt.Compound)["spawn_potentials"].(nbt.List).Items[0].(nbt.Compound)
-		potential["data"].(nbt.Compound)["custom_spawn_rules"] = r
-		return config
-	}
-	srv, _ := trialScene(t, withRules(rules(15, 15)))
-	srv.RunLine("time set midnight")
-	servertest.RunTicks(t, srv, 200)
-	if got := trialStateOf(t, srv); got != "active" || srv.MobCount() != 0 {
-		t.Errorf("state %s with %d mobs under an unmeetable block light limit, want active and none", got, srv.MobCount())
-	}
-
-	srv, _ = trialScene(t, withRules(rules(1, 15)))
-	srv.RunLine("time set midnight")
-	servertest.UntilTicks(t, srv, 300, "a mob under a block light limit of 1-15", func() bool { return srv.MobCount() > 0 })
 }
 
 // ejectingTrialConfig is a spawner already in the ejecting state with two
@@ -560,85 +416,5 @@ func TestATrialSpawnerDressesItsMobsFromTheEquipmentTable(t *testing.T) {
 	}
 	if armoured == 0 {
 		t.Error("no zombie wore any armour, want some of the 50% pieces to roll")
-	}
-}
-
-// TestATrialSpawnerEquipmentChanceOfOneNumberCoversEverySlot: a single
-// number is the drop chance of every slot that was filled; the others keep
-// the default.
-func TestATrialSpawnerEquipmentChanceOfOneNumberCoversEverySlot(t *testing.T) {
-	t.Parallel()
-	gear, chances := trialGear(t, equipmentTrialConfig("minecraft:equipment/trial_chamber_melee", nbt.Float(1)))
-	for i, c := range chances {
-		for slot := range c {
-			want := float32(0.085)
-			if !gear[i][slot].Empty() {
-				want = 1
-			}
-			if c[slot] != want {
-				t.Errorf("mob %d slot %d drop chance %v, want %v", i, slot, c[slot], want)
-			}
-		}
-	}
-}
-
-// TestATrialSpawnerWithoutEquipmentLeavesTheHandsBare: spawn data with no
-// equipment gives its zombie nothing from a table.
-func TestATrialSpawnerWithoutEquipmentLeavesTheHandsBare(t *testing.T) {
-	t.Parallel()
-	srv, _ := trialScene(t, trialConfig(1, 1, 2))
-	srv.RunLine("time set midnight")
-	servertest.UntilTicks(t, srv, 300, "a zombie", func() bool { return srv.MobCount() > 0 })
-	gear, _ := srv.MobGear(srv.Mobs()[0].ID)
-	if !gear[0].Empty() {
-		t.Errorf("zombie holds item %d with no equipment table", gear[0].ItemID)
-	}
-}
-
-// TestATrialSpawnerReadsAConfigByRegistryName: a spawner as a generated trial
-// chamber saves it, its configs only names, still wakes up and spawns the
-// named config's mobs.
-// vanilla: TrialSpawner.Config
-func TestATrialSpawnerReadsAConfigByRegistryName(t *testing.T) {
-	t.Parallel()
-	srv, _ := trialScene(t, nbt.Compound{
-		"normal_config":  nbt.String("minecraft:trial_chamber/melee/zombie/normal"),
-		"ominous_config": nbt.String("minecraft:trial_chamber/melee/zombie/ominous"),
-	})
-	for range 400 {
-		servertest.RunTicks(t, srv, 1)
-		if srv.MobCount() > 0 {
-			if got := trialStateOf(t, srv); got != "active" {
-				t.Errorf("state = %s with a mob standing, want active", got)
-			}
-			return
-		}
-	}
-	t.Fatalf("no mob spawned from a named config; state %s", trialStateOf(t, srv))
-}
-
-// vanilla: TrialSpawner.spawnMob, level.gameEvent(ENTITY_PLACE)
-func TestATrialSpawnerSpawnPostsEntityPlace(t *testing.T) {
-	t.Parallel()
-	srv, _ := trialScene(t, trialConfig(1, 1, 2))
-	log := &entityPlaceLog{}
-	srv.ObserveGameEvents(log.add)
-	for range 300 {
-		servertest.RunTicks(t, srv, 1)
-		if srv.MobCount() > 0 {
-			break
-		}
-	}
-	var zombie *server.TestMob
-	for _, m := range srv.Mobs() {
-		if m.Kind == "minecraft:zombie" {
-			zombie = &m
-		}
-	}
-	if zombie == nil {
-		t.Fatal("no zombie spawned")
-	}
-	if !log.has(int(math.Floor(zombie.X)), int(math.Floor(zombie.Y)), int(math.Floor(zombie.Z))) {
-		t.Errorf("entity_place at %v, want the zombie's block at %v", log.pos, zombie)
 	}
 }

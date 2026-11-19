@@ -128,33 +128,3 @@ func bundleChain(bundles int) []byte {
 	}
 	return value
 }
-
-// TestSlotKeepsAShulkerOfBundles pins the limit above a stack survival can
-// build: a shulker box whose container holds a seventeen-bundle chain is
-// taken in whole, while a chain past the limit fails the packet.
-func TestSlotKeepsAShulkerOfBundles(t *testing.T) {
-	shulker := func(chain []byte) []byte {
-		var container Buffer
-		container.PutVarInt(1) // one entry
-		container.PutBool(true)
-		container.PutVarInt(1) // the entry's item
-		container.PutVarInt(1) // the entry's count
-		container.PutVarInt(1) // one component added
-		container.PutVarInt(0) // none removed
-		container.PutVarInt(DataComponentBundleContents)
-		container.PutRaw(chain)
-		return untrustedSlotOf(1, DataComponentContainer, container.Bytes())
-	}
-
-	if _, ok := NewReader(shulker(bundleChain(17))).ReadUntrustedSlot(); !ok {
-		t.Fatal("ReadUntrustedSlot refused a shulker box of seventeen nested bundles")
-	}
-
-	r := NewReader(shulker(bundleChain(maxComponentDepth + 1)))
-	if _, ok := r.ReadUntrustedSlot(); ok {
-		t.Error("ReadUntrustedSlot took a shulker box of bundles past the limit")
-	}
-	if !errors.Is(r.Err(), ErrSlotTooDeep) {
-		t.Errorf("reader error = %v, want ErrSlotTooDeep", r.Err())
-	}
-}

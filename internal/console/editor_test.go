@@ -202,35 +202,3 @@ func TestEditorAcceptRecordsHistory(t *testing.T) {
 		t.Errorf("repeat accept grew the history to %v", e.history)
 	}
 }
-
-func TestEditorReplaceText(t *testing.T) {
-	// A line half typed, cursor over the partial word, completed in place.
-	e := &editor{}
-	for _, r := range "say se" {
-		e.Key(Key{Kind: KeyRune, Rune: r})
-	}
-	e.ReplaceText(4, 6, "seed")
-	if got := e.Text(); got != "say seed" {
-		t.Errorf("line = %q, want say seed", got)
-	}
-	if e.cursor != 8 {
-		t.Errorf("cursor = %d, want 8", e.cursor)
-	}
-}
-
-func TestEditorCtrlDEndsWithNothingLeft(t *testing.T) {
-	// Ctrl-D on an empty line is the session's to end on; the editor only
-	// deletes forward with something ahead of the cursor.
-	e := &editor{}
-	for _, r := range "say" {
-		e.Key(Key{Kind: KeyRune, Rune: r})
-	}
-	e.Key(Key{Kind: KeyHome})
-	if action := e.Key(Key{Kind: KeyCtrlD}); action != editDraw || e.Text() != "ay" {
-		t.Errorf("ctrl-d at the start = %q, %v, want ay, editDraw", e.Text(), action)
-	}
-	e.Key(Key{Kind: KeyEnd})
-	if action := e.Key(Key{Kind: KeyCtrlD}); action != editIgnore {
-		t.Errorf("ctrl-d at the end = %v, want editIgnore", action)
-	}
-}

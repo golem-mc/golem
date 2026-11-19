@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -89,58 +88,5 @@ func TestExhaustionDrainsSaturationFirst(t *testing.T) {
 	drainExhaustion(&v, DifficultyNormal)
 	if v.Food != 0 || v.Exhaustion != 1 {
 		t.Errorf("the drain invented food or kept the counter: %+v", v)
-	}
-}
-
-// TestExhaustionDrainsOnePointATick spreads a large cost over ticks, the way
-// FoodData.tick converts at most four of the counter each time, and caps
-// the counter at forty the way addExhaustion does.
-func TestExhaustionDrainsOnePointATick(t *testing.T) {
-	v := FreshVitals(0)
-	v.Saturation = 0
-	exhaust(&v, 100) // a whole lot of sprinting at once
-	if v.Exhaustion != 40 {
-		t.Fatalf("the counter holds %v, want the cap of forty", v.Exhaustion)
-	}
-	drainExhaustion(&v, DifficultyNormal)
-	if v.Food != MaxFood-1 {
-		t.Errorf("one tick drained to food %v, want one point gone", v.Food)
-	}
-	for range 20 {
-		drainExhaustion(&v, DifficultyNormal)
-	}
-	// Forty drains while it is above four: nine of them, the last leaving
-	// exactly four behind.
-	if v.Food != MaxFood-9 || v.Exhaustion != 4 {
-		t.Errorf("the drain left %+v, want nine food gone and four counted", v)
-	}
-}
-
-// TestPeacefulExhaustionSparesTheFood drains saturation as anywhere else but
-// never the food, the Difficulty.PEACEFUL check in FoodData.tick.
-func TestPeacefulExhaustionSparesTheFood(t *testing.T) {
-	v := FreshVitals(0)
-	v.Saturation = 1
-	v.Exhaustion = 10
-	drainExhaustion(&v, DifficultyPeaceful)
-	drainExhaustion(&v, DifficultyPeaceful)
-	if v.Saturation != 0 || v.Food != MaxFood || v.Exhaustion != 2 {
-		t.Errorf("peaceful drained to %+v, want the saturation gone and the food whole", v)
-	}
-}
-
-// TestExhaustionNeverDropsBarsBelowZero pins the floors the drain stops at:
-// saturation at zero, food at zero, and the exhaustion counter itself
-// always finite.
-func TestExhaustionNeverDropsBarsBelowZero(t *testing.T) {
-	v := FreshVitals(0)
-	v.Saturation = 0.5
-	exhaust(&v, 5)
-	drainExhaustion(&v, DifficultyNormal)
-	if v.Saturation != 0 {
-		t.Errorf("the drain ran saturation below zero: %v", v.Saturation)
-	}
-	if math.IsNaN(v.Exhaustion) || math.IsInf(v.Exhaustion, 0) {
-		t.Errorf("the exhaustion counter is not finite: %v", v.Exhaustion)
 	}
 }

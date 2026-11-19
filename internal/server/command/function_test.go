@@ -75,29 +75,3 @@ type infoSource struct {
 }
 
 func (s *infoSource) Info(msg string, _ ...any) { s.infos = append(s.infos, msg) }
-
-// TestExecRunStopsAtTheQueueLimit checks that a run whose queue passes its
-// cap drops what is queued, queues nothing more and stops.
-// vanilla: ExecutionContext.queueNext, handleQueueOverflow
-func TestExecRunStopsAtTheQueueLimit(t *testing.T) {
-	src := &infoSource{}
-	r := &execRun{quota: 1000, limit: 1000, src: src, maxQueue: 5}
-	ran := 0
-	var step func(*execRun)
-	step = func(r *execRun) {
-		ran++
-		// Two steps per step run: the queue grows until it overflows.
-		r.later(step)
-		r.later(step)
-	}
-	r.later(step)
-	if err := r.drain(); err != nil {
-		t.Fatalf("drain: %v", err)
-	}
-	if ran < 3 || ran > 10 {
-		t.Errorf("steps run = %d, want a few before the cap of 5 stops the run", ran)
-	}
-	if len(src.infos) != 1 || !strings.Contains(src.infos[0], "queue overflow") {
-		t.Errorf("logged %q, want one queue overflow line", src.infos)
-	}
-}

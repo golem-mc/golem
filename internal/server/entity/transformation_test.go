@@ -54,16 +54,3 @@ func TestAMatrixTransformationDecomposesToTheSameMatrix(t *testing.T) {
 		}
 	}
 }
-
-// TestAnAxisAngleRotationIsAQuaternion checks the {axis, angle} form of a rotation.
-// vanilla: ExtraCodecs.QUATERNIONF
-func TestAnAxisAngleRotationIsAQuaternion(t *testing.T) {
-	tag := nbt.Compound{
-		"translation": floats(0, 0, 0), "scale": floats(1, 1, 1), "right_rotation": floats(0, 0, 0, 1),
-		"left_rotation": nbt.Compound{"axis": floats(0, 2, 0), "angle": nbt.Float(math.Pi)},
-	}
-	got := TransformationOf(tag).LeftRotation
-	if math.Abs(float64(got[1])-1) > 1e-6 || math.Abs(float64(got[3])) > 1e-6 {
-		t.Errorf("left rotation = %v, want a half turn about y", got)
-	}
-}

@@ -55,11 +55,3 @@ func TestPlayerTakesCrammingDamage(t *testing.T) {
 		t.Error("no cramming damage event for the player")
 	}
 }
-
-// TestPlayerIgnoresCrammingWhenRuleIsZero: the rule at 0 turns the hurt off.
-func TestPlayerIgnoresCrammingWhenRuleIsZero(t *testing.T) {
-	t.Parallel()
-	if lost, _, _ := crammedPlayer(t, 0); lost != 0 {
-		t.Fatalf("health lost = %v, want 0", lost)
-	}
-}

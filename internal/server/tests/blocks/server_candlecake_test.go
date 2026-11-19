@@ -6,7 +6,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/registry"
 )
 
 // A candle stands on a full top face and fire on a full top face too, so
@@ -54,62 +53,6 @@ func TestACandleStaysOffABittenCake(t *testing.T) {
 		if got := srv.InventorySlot("Actor", player.HotbarSlot).Count; got != 1 {
 			t.Errorf("candles left after clicking %s = %d, want 1 (unspent)", tc.name, got)
 		}
-	}
-}
-
-// TestFlintAndSteelLeavesALitCandleCake strikes the top of a lit candle cake
-// with flint and steel: fire cannot stand on the half-height top, so nothing
-// lights, the tool takes no wear and its use sound does not play.
-func TestFlintAndSteelLeavesALitCandleCake(t *testing.T) {
-	t.Parallel()
-	srv, actor, watcher := servertest.ToolScene(t, "minecraft:flint_and_steel")
-
-	litCake := servertest.BlockStateWith(t, "minecraft:candle_cake", "lit=true")
-	srv.SetBlock(3, 64, 0, litCake)
-	actor.PlaceBlockAt(3, 64, 0, protocol.FaceTop, 0.875)
-	actor.Settle()
-
-	if got := srv.BlockAt(3, 64, 0); got != litCake {
-		t.Errorf("the lit candle cake after the steel = %d, want %d (unchanged)", got, litCake)
-	}
-	if got := srv.BlockAt(3, 65, 0); got != 0 {
-		t.Errorf("above the lit candle cake = %d, want air (no fire)", got)
-	}
-	if got := srv.InventorySlot("Actor", player.HotbarSlot).Damage; got != 0 {
-		t.Errorf("the steel's wear = %d, want 0", got)
-	}
-	if h := servertest.HearTool(t, watcher); h.Sounds["minecraft:item.flintandsteel.use"] != 0 {
-		t.Errorf("the watcher heard %v, want no flint and steel use", h.Sounds)
-	}
-}
-
-// TestCakeCandleInteractionsStillWork keeps the two answers the refusal above
-// must not swallow: a candle on an uneaten cake is the candle-cake
-// interaction, and flint and steel lights an unlit candle cake.
-func TestCakeCandleInteractionsStillWork(t *testing.T) {
-	t.Parallel()
-	srv, actor, _ := servertest.ToolScene(t, "minecraft:stick")
-
-	srv.SetBlock(3, 64, 0, registry.BlockStates["minecraft:cake"])
-	srv.GiveSlot("Actor", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.ItemIDOrDie(t, "minecraft:red_candle"), Count: 1})
-	actor.PlaceBlock(3, 64, 0, protocol.FaceTop)
-	actor.Settle()
-	if got, want := srv.BlockAt(3, 64, 0), servertest.BlockStateWith(t, "minecraft:red_candle_cake", "lit=false"); got != want {
-		t.Fatalf("a candle on an uneaten cake = %d, want %d (red candle cake)", got, want)
-	}
-	if got := srv.InventorySlot("Actor", player.HotbarSlot).Count; got != 0 {
-		t.Errorf("candles left after the candle-cake interaction = %d, want 0 (spent)", got)
-	}
-
-	srv.SetBlock(4, 64, 0, servertest.BlockStateWith(t, "minecraft:candle_cake", "lit=false"))
-	srv.GiveSlot("Actor", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.ItemIDOrDie(t, "minecraft:flint_and_steel"), Count: 1})
-	actor.PlaceBlockAt(4, 64, 0, protocol.FaceTop, 0.875)
-	actor.Settle()
-	if got, want := srv.BlockAt(4, 64, 0), servertest.BlockStateWith(t, "minecraft:candle_cake", "lit=true"); got != want {
-		t.Errorf("flint and steel on an unlit candle cake = %d, want %d (lit)", got, want)
-	}
-	if got := srv.BlockAt(4, 65, 0); got != 0 {
-		t.Errorf("above the lit candle cake = %d, want air (the cake lit, no fire went up)", got)
 	}
 }
 

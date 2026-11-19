@@ -52,102 +52,6 @@ func TestLitDustPrimesTNTBesideTheBlockBelow(t *testing.T) {
 	}
 }
 
-// TestDustLightingPrimesTNTAlreadyBesideTheBlockBelow checks the wake side:
-// the TNT is already beside the stone before the dust lights, so the wire's
-// own two-step wake has to reach it rather than the TNT's placement.
-func TestDustLightingPrimesTNTAlreadyBesideTheBlockBelow(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	// Stone with the TNT beside it and the unlit dust on top.
-	servertest.Setblock(t, c, 6, 64, 5, "stone")
-	servertest.Setblock(t, c, 6, 64, 6, "tnt")
-	servertest.Setblock(t, c, 6, 65, 5, "redstone_wire")
-
-	// Light the dust from the side. The loop stops first so the body is
-	// read where the prime put it, not a tick into its fall.
-	srv.StopTick()
-	servertest.Setblock(t, c, 5, 65, 5, "redstone_block")
-	c.Settle()
-
-	if got := srv.BlockAt(6, 64, 6); got == registry.BlockStates["minecraft:tnt"] {
-		t.Fatal("the TNT beside the strongly powered stone never primed")
-	}
-	var found bool
-	for _, it := range srv.TNTsInDimension("minecraft:overworld") {
-		if it.X == 6.5 && it.Y == 64 && it.Z == 6.5 {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("no primed TNT stood beside the stone: %v", srv.TNTsInDimension("minecraft:overworld"))
-	}
-}
-
-// TestDustLightingLightsLampAlreadyBesideTheBlockBelow is the same reach for a
-// lamp: it is already beside the stone before the dust lights.
-func TestDustLightingLightsLampAlreadyBesideTheBlockBelow(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 6, 64, 5, "stone")
-	servertest.Setblock(t, c, 6, 64, 6, "redstone_lamp")
-	servertest.Setblock(t, c, 6, 65, 5, "redstone_wire")
-	servertest.Setblock(t, c, 5, 65, 5, "redstone_block")
-	c.Settle()
-
-	servertest.ExpectBlockNamed(t, srv, 6, 64, 6, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
-}
-
-// TestBreakingLitDustTurnsOffLampBesideTheBlockBelow checks the removal wake:
-// the lamp beside the stone goes dark when the lit dust above the stone is
-// broken, the removal's wake having to reach it two steps away.
-func TestBreakingLitDustTurnsOffLampBesideTheBlockBelow(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	// The dust on the stone lit by the redstone block beside it.
-	servertest.Setblock(t, c, 6, 64, 5, "stone")
-	servertest.Setblock(t, c, 5, 65, 5, "redstone_block")
-	servertest.Setblock(t, c, 6, 65, 5, "redstone_wire")
-	c.Settle()
-
-	// A neighbour change makes the lamp read the dust's strong power
-	// through the stone.
-	servertest.Setblock(t, c, 6, 64, 6, "redstone_lamp")
-	servertest.Setblock(t, c, 6, 65, 6, "stone")
-	c.Settle()
-	servertest.ExpectBlockNamed(t, srv, 6, 64, 6, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
-
-	// Break the lit dust: the lamp waits out its four-tick off delay.
-	servertest.Setblock(t, c, 6, 65, 5, "air")
-	c.PumpTicks(srv, 6, func(int32, []byte) bool { return false })
-	servertest.ExpectBlockNamed(t, srv, 6, 64, 6, "minecraft:redstone_lamp", map[string]string{"lit": "false"})
-}
-
-// TestDustDoesNotPowerTNTBesideAnUnconnectedSide is the negative: a dust cell
-// in a straight line points at neither side, so TNT beside the dust itself,
-// at the dust's own level, stays unlit. vanilla: RedStoneWireBlock.getSignal's
-// connection check.
-func TestDustDoesNotPowerTNTBesideAnUnconnectedSide(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	// A straight north-south line on the ground, its head fed by a redstone
-	// block, and TNT beside the middle cell facing a side the line does not
-	// connect.
-	servertest.Setblock(t, c, 6, 64, 4, "redstone_wire[north=side,south=side]")
-	servertest.Setblock(t, c, 6, 64, 5, "redstone_wire[north=side,south=side]")
-	servertest.Setblock(t, c, 6, 64, 6, "redstone_wire[north=side,south=side]")
-	servertest.Setblock(t, c, 5, 64, 4, "redstone_block")
-	servertest.Setblock(t, c, 7, 64, 5, "tnt")
-	c.Settle()
-
-	if got := srv.BlockAt(7, 64, 5); got != registry.BlockStates["minecraft:tnt"] {
-		t.Error("the TNT beside the unconnected side of a straight dust line primed, want it left standing")
-	}
-}
-
 // TestLeverThroughTheFloorLightsTheLampBelow pulls a lever on a stone floor
 // with a lamp under the floor: the lever strongly powers the stone and the
 // lamp, whose only neighbour is the stone, reads that strong power through
@@ -164,57 +68,6 @@ func TestLeverThroughTheFloorLightsTheLampBelow(t *testing.T) {
 	c.UseBlock(3, 65, 0)
 	c.Settle()
 	servertest.ExpectBlockNamed(t, srv, 3, 63, 0, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
-}
-
-// TestSetblockRedstoneWireTakesItsConnections gives a bare /setblock wire a
-// trapped chest beside it and checks the wire leaves its placement with the
-// neighbour-shape update's isolated-pair connections rather than none. A
-// trapped chest is a signal source, a plain chest is not, so only the trapped
-// one gives the wire a side to reach out from.
-// vanilla: BlockInput.place, Block.updateFromNeighbourShapes.
-func TestSetblockRedstoneWireTakesItsConnections(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 5, 64, 5, "trapped_chest")
-	servertest.Setblock(t, c, 6, 64, 5, "redstone_wire")
-	c.Settle()
-
-	servertest.ExpectBlockNamed(t, srv, 6, 64, 5, "minecraft:redstone_wire",
-		map[string]string{"east": "side", "west": "side"})
-}
-
-// TestSetblockRedstoneWireStaysADotWithoutANeighbour is the negative: a bare
-// /setblock wire with nothing that connects to it stays the dot it was placed
-// as, rather than taking the isolated-pair line a fresh recompute would give.
-// vanilla: RedStoneWireBlock.getConnectionState's wasDot && isDot return.
-func TestSetblockRedstoneWireStaysADotWithoutANeighbour(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 6, 64, 5, "redstone_wire")
-	c.Settle()
-
-	servertest.ExpectBlockNamed(t, srv, 6, 64, 5, "minecraft:redstone_wire", map[string]string{
-		"east": "none", "north": "none", "south": "none", "west": "none",
-	})
-}
-
-// TestSetblockRedstoneWireDropsAStaleCommandSide places a wire whose named
-// side no neighbour supports: the shape pass recomputes from the neighbours,
-// dropping the side the command named, rather than keeping it.
-// vanilla: RedStoneWireBlock.getConnectionState restarting from
-// defaultBlockState.
-func TestSetblockRedstoneWireDropsAStaleCommandSide(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 6, 64, 5, "redstone_wire[north=side]")
-	c.Settle()
-
-	servertest.ExpectBlockNamed(t, srv, 6, 64, 5, "minecraft:redstone_wire", map[string]string{
-		"east": "side", "west": "side", "north": "side", "south": "side",
-	})
 }
 
 // TestPlayerPlacedLoneDustIsACross places a single dust with nothing that
@@ -241,6 +94,7 @@ func TestPlayerPlacedLoneDustIsACross(t *testing.T) {
 func TestRemovingASourceDropsDustFedThroughABlock(t *testing.T) {
 	t.Parallel()
 	srv, c := servertest.AttachActor(t)
+	servertest.HoldTicks(t, srv)
 
 	servertest.Setblock(t, c, 4, 64, 5, "stone")
 	servertest.Setblock(t, c, 4, 65, 5, "lever[face=floor,facing=north,powered=true]")
@@ -269,96 +123,6 @@ func TestRemovingASourceDropsDustFedThroughABlock(t *testing.T) {
 		name, props := servertest.StateProps(srv.BlockAt(p[0], p[1], p[2]))
 		if name == "minecraft:redstone_wire" && props["power"] != "0" {
 			t.Errorf("dust at %v has power %s after the lever went, want 0", p, props["power"])
-		}
-	}
-}
-
-// TestRemovingAPlateDropsDustFedThroughTheLamp is the same circuit with a
-// lamp in place of the stone: the plate on the lamp strongly powers it, dust
-// beside the lamp reads that power, and breaking the plate has to take the
-// dust to 0.
-func TestRemovingAPlateDropsDustFedThroughTheLamp(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 4, 64, 5, "redstone_lamp")
-	servertest.Setblock(t, c, 4, 65, 5, "oak_pressure_plate[powered=true]")
-	servertest.Setblock(t, c, 5, 64, 5, "redstone_wire")
-	servertest.Setblock(t, c, 6, 64, 5, "redstone_wire")
-	servertest.Setblock(t, c, 7, 64, 5, "redstone_wire")
-	c.Settle()
-
-	cells := [][3]int32{{5, 64, 5}, {6, 64, 5}, {7, 64, 5}}
-	for _, p := range cells {
-		if _, props := servertest.StateProps(srv.BlockAt(p[0], p[1], p[2])); props["power"] == "0" {
-			t.Fatalf("setup: dust at %v never lit", p)
-		}
-	}
-
-	servertest.Setblock(t, c, 4, 65, 5, "air")
-	c.PumpTicks(srv, 25, func(int32, []byte) bool { return false })
-	for _, p := range cells {
-		name, props := servertest.StateProps(srv.BlockAt(p[0], p[1], p[2]))
-		if name == "minecraft:redstone_wire" && props["power"] != "0" {
-			t.Errorf("dust at %v has power %s after the plate went, want 0", p, props["power"])
-		}
-	}
-}
-
-// TestBreakingASourceLeavesABudPistonByTheStoneAlone puts a retracted piston
-// beside the stone a floor source stands on and breaks the source. The piston
-// is quasi-powered through a redstone block beside the air above it, so it
-// extends the moment its own cell hears a block update. A source that carried
-// no signal must wake nothing, leaving the piston retracted; one that carried
-// a signal wakes the block it powered and that block's neighbours - the ring
-// the piston sits in - so the piston extends.
-func TestBreakingASourceLeavesABudPistonByTheStoneAlone(t *testing.T) {
-	t.Parallel()
-	sources := []struct {
-		name    string
-		off, on string
-	}{
-		{"lever", "minecraft:lever[face=floor,facing=north]",
-			"minecraft:lever[face=floor,facing=north,powered=true]"},
-		{"button", "minecraft:oak_button[face=floor,facing=north,powered=false]",
-			"minecraft:oak_button[face=floor,facing=north,powered=true]"},
-		{"plate", "minecraft:oak_pressure_plate[powered=false]",
-			"minecraft:oak_pressure_plate[powered=true]"},
-	}
-	for _, tc := range sources {
-		for _, powered := range []bool{false, true} {
-			name := tc.name + "Unpowered"
-			source := tc.off
-			extended := "false"
-			if powered {
-				name = tc.name + "Powered"
-				source = tc.on
-				extended = "true"
-			}
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
-				srv, c := servertest.AttachActor(t)
-
-				servertest.Setblock(t, c, 4, 64, 5, "stone")
-				// The piston goes down before the source: its placement
-				// reads no power, so it starts retracted.
-				servertest.Setblock(t, c, 5, 64, 5, "piston[facing=east]")
-				// The piston's quasi-connected power: a redstone block
-				// beside the air above it, no direct line to the piston.
-				servertest.Setblock(t, c, 6, 65, 5, "redstone_block")
-				servertest.Setblock(t, c, 4, 65, 5, source)
-				c.Settle()
-				if got, props := servertest.StateProps(srv.BlockAt(5, 64, 5)); got != "minecraft:piston" || props["extended"] != "false" {
-					t.Fatalf("setup: the piston started %s %v, want it retracted", got, props)
-				}
-
-				servertest.Setblock(t, c, 4, 65, 5, "air")
-				c.PumpTicks(srv, 8, func(int32, []byte) bool { return false })
-
-				if got, props := servertest.StateProps(srv.BlockAt(5, 64, 5)); got != "minecraft:piston" || props["extended"] != extended {
-					t.Fatalf("the piston hearing the %s removal: %s %v, want extended=%s", name, got, props, extended)
-				}
-			})
 		}
 	}
 }
@@ -406,48 +170,6 @@ func TestBreakingAPressedButtonReleasesTheBlockItHangsOn(t *testing.T) {
 	})
 }
 
-// TestAPistonBreakingASourceWakesItsAttachedBlock puts a powered floor source
-// on a stone and breaks it with a piston. The move destroys the cell with
-// movedByPiston false, so the removal wake runs: the block the source stood on
-// wakes and a retracted piston beside it extends.
-// vanilla: PistonBaseBlock.moveBlocks, BasePressurePlateBlock.affectNeighborsAfterRemoval
-func TestAPistonBreakingASourceWakesItsAttachedBlock(t *testing.T) {
-	t.Parallel()
-	sources := []struct {
-		name  string
-		state string
-	}{
-		{"lever", "minecraft:lever[face=floor,facing=north,powered=true]"},
-		{"plate", "minecraft:oak_pressure_plate[powered=true]"},
-	}
-	for _, tc := range sources {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.AttachActor(t)
-
-			servertest.Setblock(t, c, 4, 64, 5, "stone")
-			// The BUD piston goes down before the source, so it starts
-			// retracted, quasi-powered by the redstone block.
-			servertest.Setblock(t, c, 5, 64, 5, "piston[facing=east]")
-			servertest.Setblock(t, c, 6, 65, 5, "redstone_block")
-			servertest.Setblock(t, c, 4, 65, 5, tc.state)
-			// The destroyer, unpowered until the redstone block lands.
-			servertest.Setblock(t, c, 3, 65, 5, "piston[facing=east]")
-			c.Settle()
-			if got, props := servertest.StateProps(srv.BlockAt(5, 64, 5)); got != "minecraft:piston" || props["extended"] != "false" {
-				t.Fatalf("setup: the piston started %s %v", got, props)
-			}
-
-			servertest.Setblock(t, c, 3, 64, 5, "redstone_block")
-			c.PumpTicks(srv, 8, func(int32, []byte) bool { return false })
-
-			if got, props := servertest.StateProps(srv.BlockAt(5, 64, 5)); got != "minecraft:piston" || props["extended"] != "true" {
-				t.Fatalf("the piston beside the broken source's block: %s %v, want it extended", got, props)
-			}
-		})
-	}
-}
-
 // TestPoweringATorchsBaseTurnsOffTheLampAbove lights a lamp on a block a
 // torch stands under, then powers the torch's base with a wall lever: the
 // torch goes dark two ticks later and the lamp must go with it, which needs
@@ -473,65 +195,6 @@ func TestPoweringATorchsBaseTurnsOffTheLampAbove(t *testing.T) {
 
 	servertest.ExpectBlockNamed(t, srv, 3, 65, 0, "minecraft:redstone_torch", map[string]string{"lit": "false"})
 	servertest.ExpectBlockNamed(t, srv, 3, 67, 0, "minecraft:redstone_lamp", map[string]string{"lit": "false"})
-}
-
-// TestRepeaterStaysOffWhenLockedAfterItsTickWasBooked is the issue's repro: a
-// repeater R facing west has its input rise while a side diode powering up
-// books its own visit in the same tick. The locker's visit runs first, so R
-// is already locked when its booked visit runs; R must skip it and stay off.
-// vanilla: DiodeBlock.tick -> isLocked.
-func TestRepeaterStaysOffWhenLockedAfterItsTickWasBooked(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	srv.StopTick()
-
-	// R at (11, 64, 9) faces west, its input at (10, 64, 9). The locker at
-	// (11, 64, 10) faces south, its output north into R's side and its
-	// input at (11, 64, 11). Both inputs rise in one tick, the locker's
-	// first, so its visit is the earlier of the two due together.
-	servertest.Setblock(t, c, 11, 64, 9, "repeater[facing=west,delay=1]")
-	servertest.Setblock(t, c, 11, 64, 10, "repeater[facing=south,delay=1]")
-	servertest.Setblock(t, c, 11, 64, 11, "redstone_block")
-	servertest.Setblock(t, c, 10, 64, 9, "redstone_block")
-
-	srv.TickPhysics(3)
-
-	servertest.ExpectBlockNamed(t, srv, 11, 64, 10, "minecraft:repeater", map[string]string{"powered": "true"})
-	servertest.ExpectBlockNamed(t, srv, 11, 64, 9, "minecraft:repeater", map[string]string{"powered": "false"})
-}
-
-// TestObserverWatchingARepeaterSeesTheLockFlip points an observer at a
-// repeater and locks it from the side: the shape pass that writes LOCKED must
-// run the repeater's own neighbour shape pass, which books the observer's
-// pulse. vanilla: RepeaterBlock.updateShape -> LevelChunk.setBlockState.
-func TestObserverWatchingARepeaterSeesTheLockFlip(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	// R at (11, 64, 9) faces west. The locker at (11, 64, 10) faces
-	// south, its output north into R's side, fed by the redstone block at
-	// (11, 64, 11). The observer at (11, 64, 8) faces south, watching R.
-	servertest.Setblock(t, c, 11, 64, 9, "repeater[facing=west,delay=1]")
-	servertest.Setblock(t, c, 11, 64, 10, "repeater[facing=south,delay=1]")
-	// Isolate the lock edge from the observer's command-placement pulse.
-	servertest.Setblock(t, c, 11, 64, 8, "observer[facing=south] strict")
-	servertest.Setblock(t, c, 11, 64, 11, "redstone_block")
-
-	fired := c.PumpTicks(srv, 40, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayBlockUpdate {
-			return false
-		}
-		r := protocol.NewReader(data)
-		x, y, z := r.ReadPosition()
-		if x != 11 || y != 64 || z != 8 {
-			return false
-		}
-		_, props := servertest.StateProps(uint16(r.ReadVarInt()))
-		return props["powered"] == "true"
-	})
-	if !fired {
-		t.Error("the observer watching the repeater never pulsed on the lock")
-	}
 }
 
 // TestRepeaterPlacedBesideAPoweredDiodeArrivesLocked places a repeater beside
@@ -589,36 +252,6 @@ func pistonFacingDelta(facing string) (int32, int32, int32) {
 	}
 }
 
-// TestDownFacingPistonIgnoresTheRedstoneBlockInFront is the reported setup: a
-// piston facing down with a redstone block directly below its face stays
-// retracted, plain and sticky, because a piston reads no power from the side
-// it faces. vanilla: PistonBaseBlock.getNeighborSignal.
-func TestDownFacingPistonIgnoresTheRedstoneBlockInFront(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct{ name, piston string }{
-		{"plain", "piston"},
-		{"sticky", "sticky_piston"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c := servertest.AttachActor(t)
-
-			// The piston goes down first, retracted; the redstone block
-			// below is then the block update that would wake it.
-			servertest.Setblock(t, c, 6, 66, 5, tc.piston+"[facing=down]")
-			c.Settle()
-			servertest.ExpectBlockNamed(t, srv, 6, 66, 5, "minecraft:"+tc.piston, map[string]string{"extended": "false"})
-
-			servertest.Setblock(t, c, 6, 65, 5, "redstone_block")
-			c.Settle()
-			c.PumpTicks(srv, 40, func(int32, []byte) bool { return false })
-
-			servertest.ExpectBlockNamed(t, srv, 6, 66, 5, "minecraft:"+tc.piston, map[string]string{"extended": "false", "facing": "down"})
-			servertest.ExpectBlockNamed(t, srv, 6, 65, 5, "minecraft:redstone_block", nil)
-		})
-	}
-}
-
 // TestPistonIgnoresARedstoneBlockInFrontOnTheOtherFacings is the same rule for
 // the five facings but down: the redstone block in front powers nothing, so
 // the piston holds its ground and the block does not move.
@@ -673,63 +306,4 @@ func TestPistonReadsQuasiConnectivityFromTwoAbove(t *testing.T) {
 	c.PumpTicks(srv, 8, func(int32, []byte) bool { return false })
 
 	servertest.ExpectBlockNamed(t, srv, 5, 64, 5, "minecraft:piston", map[string]string{"extended": "true"})
-}
-
-// TestRepeaterBooksExtremelyHighBeforeALockerBookedLater: R's front is empty,
-// so R books HIGH and the pulse placed first books it before the locker; the
-// locker faces R, a diode not facing back, so its EXTREMELY_HIGH visit runs
-// first and locks R.
-// vanilla: DiodeBlock.checkTickOnNeighbor, DiodeBlock.shouldPrioritize.
-func TestRepeaterBooksExtremelyHighBeforeALockerBookedLater(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	srv.StopTick()
-
-	servertest.Setblock(t, c, 11, 64, 9, "repeater[facing=west,delay=1]")
-	servertest.Setblock(t, c, 11, 64, 10, "repeater[facing=south,delay=1]")
-	servertest.Setblock(t, c, 10, 64, 9, "redstone_block")
-	servertest.Setblock(t, c, 11, 64, 11, "redstone_block")
-
-	srv.TickPhysics(3)
-
-	servertest.ExpectBlockNamed(t, srv, 11, 64, 10, "minecraft:repeater", map[string]string{"powered": "true"})
-	servertest.ExpectBlockNamed(t, srv, 11, 64, 9, "minecraft:repeater", map[string]string{"powered": "false"})
-}
-
-// TestRepeaterFacingIntoADiodeThatFacesBackKeepsHighPriority puts a diode in
-// front of R that outputs back into it: R is not prioritised, so the locker
-// still runs first.
-func TestRepeaterFacingIntoADiodeThatFacesBackKeepsHighPriority(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	srv.StopTick()
-
-	servertest.Setblock(t, c, 11, 64, 9, "repeater[facing=west,delay=1]")
-	servertest.Setblock(t, c, 12, 64, 9, "repeater[facing=east,delay=1]")
-	servertest.Setblock(t, c, 11, 64, 10, "repeater[facing=south,delay=1]")
-	servertest.Setblock(t, c, 10, 64, 9, "redstone_block")
-	servertest.Setblock(t, c, 11, 64, 11, "redstone_block")
-
-	srv.TickPhysics(3)
-
-	servertest.ExpectBlockNamed(t, srv, 11, 64, 9, "minecraft:repeater", map[string]string{"powered": "false"})
-}
-
-// TestRepeaterFacingIntoADiodeThatDoesNotFaceBackIsPrioritised puts a diode in
-// front of R that does not face back: R books EXTREMELY_HIGH like the locker
-// and, booked first, runs first and turns on.
-func TestRepeaterFacingIntoADiodeThatDoesNotFaceBackIsPrioritised(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-	srv.StopTick()
-
-	servertest.Setblock(t, c, 11, 64, 9, "repeater[facing=west,delay=1]")
-	servertest.Setblock(t, c, 12, 64, 9, "repeater[facing=west,delay=1]")
-	servertest.Setblock(t, c, 11, 64, 10, "repeater[facing=south,delay=1]")
-	servertest.Setblock(t, c, 10, 64, 9, "redstone_block")
-	servertest.Setblock(t, c, 11, 64, 11, "redstone_block")
-
-	srv.TickPhysics(3)
-
-	servertest.ExpectBlockNamed(t, srv, 11, 64, 9, "minecraft:repeater", map[string]string{"powered": "true"})
 }

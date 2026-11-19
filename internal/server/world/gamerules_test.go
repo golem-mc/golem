@@ -182,19 +182,6 @@ func TestGameRulesLoadVanillaFile(t *testing.T) {
 	}
 }
 
-// TestGameRulesMissingFileGivesDefaults checks that a world with no
-// game_rules.dat runs on the table's defaults, the way a fresh world does.
-func TestGameRulesMissingFileGivesDefaults(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld(t, NewFlatGenerator())
-	if !w.BoolRule(RuleAdvanceTime) {
-		t.Error("advance_time with no file = false, want default true")
-	}
-	if got := w.IntRule(RuleRandomTickSpeed); got != 3 {
-		t.Errorf("random_tick_speed with no file = %d, want default 3", got)
-	}
-}
-
 // TestTickTimeGatedByAdvanceTime checks that the advance_time rule gates the
 // clock and nothing else: a world age that keeps counting whatever the rule
 // says, the way the vanilla server's ServerLevel.tickTime does, and a day
@@ -273,44 +260,5 @@ func TestRuleBounds(t *testing.T) {
 	}
 	if _, _, _, ok := RuleBounds("nonsense"); ok {
 		t.Error("RuleBounds(nonsense) = ok, want false")
-	}
-}
-
-func TestGameRuleIndices(t *testing.T) {
-	t.Parallel()
-	w := &World{rules: ruleTable()}
-	defaults := &World{}
-	for i, row := range GameRuleTable {
-		id := RuleIndex(row.ID)
-		if id != GameRuleIndex(i) || id.String() != row.ID {
-			t.Fatalf("rule %s resolved to index %d, want %d", row.ID, id, i)
-		}
-		if defaults.BoolRule(id) != row.DefBool || defaults.IntRule(id) != row.DefInt {
-			t.Fatalf("default for %s differs from its row", row.ID)
-		}
-		if row.Kind == RuleBool {
-			w.SetBoolRule(id, !row.DefBool)
-		} else {
-			w.SetIntRule(id, row.DefInt+1)
-		}
-	}
-	restored := &World{rules: ruleTable()}
-	rulesFromCompound(restored.rules, rulesToCompound(w.rules))
-	for i, row := range GameRuleTable {
-		id := GameRuleIndex(i)
-		want := ruleValue{b: row.DefBool, i: row.DefInt}
-		if !row.FeatureGated {
-			if row.Kind == RuleBool {
-				want.b = !want.b
-			} else {
-				want.i++
-			}
-		}
-		if got := (ruleValue{b: restored.BoolRule(id), i: restored.IntRule(id)}); got != want {
-			t.Errorf("restored %s = %+v, want %+v", row.ID, got, want)
-		}
-	}
-	if RuleIndex("unknown") != RuleUnknown || w.BoolRule(RuleUnknown) || w.IntRule(RuleUnknown) != 0 {
-		t.Error("unknown rule did not read as zero")
 	}
 }

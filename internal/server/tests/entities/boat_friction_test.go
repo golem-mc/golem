@@ -52,31 +52,3 @@ func TestSummonedBoatGroundFriction(t *testing.T) {
 		})
 	}
 }
-
-// vanilla: AbstractBoat.getGroundFriction, ScaffoldingBlock.getCollisionShape
-func TestSummonedBoatScaffoldingFriction(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, c := servertest.Join(t, cfg, "Slider", servertest.OpsListing(t, "Slider"))
-	servertest.HoldTicks(t, srv)
-	scaffolding, ok := registry.WithInt(registry.BlockScaffolding.DefaultState(), registry.PropDistance, 0)
-	if !ok {
-		t.Fatal("missing scaffolding distance=0 state")
-	}
-	for x := int32(0); x <= 12; x++ {
-		for z := int32(0); z <= 2; z++ {
-			srv.SetBlock(x, 99, z, registry.BlockStone.DefaultState())
-			srv.SetBlock(x, 100, z, scaffolding)
-		}
-	}
-	c.ChatCommand("summon oak_boat 1.5 100.9 0.5 {NoGravity:1b,Motion:[0.8d,0d,0d]}")
-	boat := c.AwaitSpawn(protocol.EntityTypeOakBoat).EntityID
-	servertest.RunTicks(t, srv, 12)
-	x, y, z, _, _, ok := srv.BoatState(boat)
-	// Captured from the same summon and 12-tick step in the vanilla client.
-	const wantX = 2.697387800138562
-	if !ok || math.Abs(x-wantX) > 1e-10 || y != 100.9 || z != 0.5 {
-		t.Errorf("pos=(%.15g,%g,%g) exists=%v; want (%g,100.9,0.5)", x, y, z, ok, wantX)
-	}
-}

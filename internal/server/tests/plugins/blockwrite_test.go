@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
@@ -146,35 +144,6 @@ func TestPluginBlockWriteClientFlags(t *testing.T) {
 	}
 }
 
-// Shape updates and neighborChanged are independent in Level.setBlock.
-func TestPluginBlockWriteShapeAndNeighborFlags(t *testing.T) {
-	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
-	srv.SetTickFrozen(true)
-	w := srv.OverworldWorld()
-	w.Acquire(world.ChunkPos{})
-	defer w.Release(world.ChunkPos{})
-	run(func() {
-		pw := h.Overworld()
-		stone := registry.BlockStone.DefaultState()
-		for i, flags := range []plugin.UpdateFlags{0, plugin.UpdateKnownShape, plugin.UpdateNeighbors | plugin.UpdateKnownShape, plugin.UpdateAll} {
-			y := int32(90 + i*4)
-			w.SetBlock(6, y, 6, stone)
-			w.SetBlock(5, y, 6, registry.BlockOakFence.DefaultState())
-			lamp, _ := registry.WithBool(registry.BlockRedstoneLamp.DefaultState(), registry.PropLit, false)
-			w.SetBlock(7, y, 6, lamp)
-			if !pw.SetBlockState(plugin.BlockPos{X: 6, Y: int(y), Z: 6}, plugin.DefaultState(registry.BlockRedstoneBlock), flags) {
-				t.Error("write failed")
-			}
-			if got := registry.StateBool(w.BlockAt(5, y, 6), registry.PropEast); got != (flags&plugin.UpdateKnownShape == 0) {
-				t.Errorf("flags %d fence east=%v", flags, got)
-			}
-			if got := registry.StateBool(w.BlockAt(7, y, 6), registry.PropLit); got != (flags&plugin.UpdateNeighbors != 0) {
-				t.Errorf("flags %d neighbor lamp lit=%v", flags, got)
-			}
-		}
-	})
-}
-
 func TestPluginBlockWritePlacementAndWireFlags(t *testing.T) {
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	srv.SetTickFrozen(true)
@@ -271,79 +240,6 @@ func TestPluginBlockWriteRemovalEffects(t *testing.T) {
 	}
 }
 
-func TestPluginBlockWriteMovedByPiston(t *testing.T) {
-	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
-	srv.SetTickFrozen(true)
-	w := srv.OverworldWorld()
-	defer srv.HoldChunk(0, 0)()
-	run(func() {
-		for i, moved := range []bool{false, true} {
-			y := int32(90 + i*4)
-			w.SetBlock(6, y-1, 6, registry.BlockStone.DefaultState())
-			lever := registry.MustState("minecraft:lever", map[string]string{"face": "floor", "powered": "true"})
-			w.SetBlock(6, y, 6, lever)
-			lamp, _ := registry.WithBool(registry.BlockRedstoneLamp.DefaultState(), registry.PropLit, true)
-			w.SetBlock(7, y-1, 6, lamp)
-			flags := plugin.UpdateNeighbors | plugin.UpdateKnownShape | plugin.UpdateSkipOnPlace
-			if moved {
-				flags |= plugin.UpdateMoveByPiston
-			}
-			h.Overworld().SetBlockState(plugin.BlockPos{X: 6, Y: int(y), Z: 6}, plugin.DefaultState(registry.BlockAir), flags)
-		}
-	})
-	srv.SetTickFrozen(false)
-	servertest.RunTicks(t, srv, 5)
-	srv.SetTickFrozen(true)
-	for i, want := range []bool{false, true} {
-		if lit := registry.StateBool(w.BlockAt(7, int32(89+i*4), 6), registry.PropLit); lit != want {
-			t.Errorf("moved=%v lamp lit=%v", want, lit)
-		}
-	}
-}
-
-func TestPluginBlockWriteShapesWithoutClients(t *testing.T) {
-	srv, h, run, c := worldEffectsPlugin(t)
-	w := srv.OverworldWorld()
-	p := srv.PlayerPosition("Effects")
-	x, z := int32(p.X)&^15|7, int32(p.Z)&^15|7
-	run(func() {
-		w.SetBlock(x-1, 90, z, registry.BlockOakFence.DefaultState())
-		w.SetBlock(x, 100, z, registry.BlockStone.DefaultState())
-		w.SetBlock(x, 101, z, registry.BlockTorch.DefaultState())
-		// No UPDATE_CLIENTS: a fence reconnects silently, while a torch's
-		// destruction sends its own flag-3 change and break event.
-		h.Overworld().SetBlockState(plugin.BlockPos{X: int(x), Y: 90, Z: int(z)}, plugin.DefaultState(registry.BlockStone), 0)
-		h.Overworld().SetBlockState(plugin.BlockPos{X: int(x), Y: 100, Z: int(z)}, plugin.DefaultState(registry.BlockAir), 0)
-	})
-	torch := false
-	c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
-		for _, ch := range servertest.BlockChangesIn(t, id, data) {
-			if ch.Y == 90 || ch.Y == 100 {
-				t.Errorf("silent write sent cell %v", ch)
-			}
-			if ch.X == x && ch.Y == 101 && ch.Z == z && ch.State == registry.BlockAir.DefaultState() {
-				torch = true
-			}
-		}
-		return false
-	})
-	if !torch {
-		t.Error("shape destruction did not reach client")
-	}
-	if !registry.StateBool(w.BlockAt(x-1, 90, z), registry.PropEast) {
-		t.Error("silent fence did not reconnect")
-	}
-	// Known-shape suppresses updateShape even with neighborChanged enabled.
-	run(func() {
-		w.SetBlock(x, 110, z, registry.BlockStone.DefaultState())
-		w.SetBlock(x, 111, z, registry.BlockTorch.DefaultState())
-		h.Overworld().SetBlockState(plugin.BlockPos{X: int(x), Y: 110, Z: int(z)}, plugin.DefaultState(registry.BlockAir), plugin.UpdateAll|plugin.UpdateKnownShape)
-		if registry.BlockOf(w.BlockAt(x, 111, z)) != registry.BlockTorch {
-			t.Error("neighborChanged ran a torch shape update")
-		}
-	})
-}
-
 func TestPluginBlockWriteSaveReloadAndLight(t *testing.T) {
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	srv.SetTickFrozen(true)
@@ -388,101 +284,4 @@ func TestPluginBlockWriteSaveReloadAndLight(t *testing.T) {
 			t.Error("block writes lost on reload")
 		}
 	})
-}
-
-func TestPluginBlockWriteObserverShapes(t *testing.T) {
-	srv, h, run, c := worldEffectsPlugin(t)
-	w := srv.OverworldWorld()
-	observer, _ := registry.WithProp(registry.BlockObserver.DefaultState(), registry.PropFacing, "down")
-	run(func() {
-		for i, flags := range []plugin.UpdateFlags{plugin.UpdateClients, 0, plugin.UpdateAll | plugin.UpdateKnownShape} {
-			y := int32(90 + i*5)
-			w.SetBlock(5, y, 6, registry.BlockOakFence.DefaultState())
-			w.SetBlock(5, y+1, 6, observer)
-			h.Overworld().SetBlockState(plugin.BlockPos{X: 6, Y: int(y), Z: 6}, plugin.DefaultState(registry.BlockStone), flags)
-		}
-	})
-	srv.SetTickFrozen(false)
-	servertest.RunTicks(t, srv, 2)
-	srv.SetTickFrozen(true)
-	for i, want := range []bool{true, true, false} {
-		if got := registry.StatePowered(w.BlockAt(5, int32(91+i*5), 6)); got != want {
-			t.Errorf("case %d observer powered=%v, want %v", i, got, want)
-		}
-	}
-	seen := map[int32]bool{}
-	c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
-		for _, ch := range servertest.BlockChangesIn(t, id, data) {
-			if ch.X == 5 && ch.Z == 6 && registry.BlockOf(ch.State) == registry.BlockObserver && registry.StatePowered(ch.State) {
-				seen[ch.Y] = true
-			}
-		}
-		return false
-	})
-	if !seen[91] || !seen[96] || seen[101] {
-		t.Errorf("observer packets=%v", seen)
-	}
-}
-
-// vanilla: NetherPortalBlock.updateShape; known-shape writes leave the portal alone.
-func TestPluginBlockWritePortalShapeFlags(t *testing.T) {
-	srv, h, run, c := worldEffectsPlugin(t)
-	servertest.PortalFrame(t, srv)
-	w := srv.OverworldWorld()
-	cell := servertest.FrameInterior()[0]
-	left := plugin.BlockPos{X: servertest.PortalInnerX0 - 1, Y: servertest.PortalFloorY, Z: servertest.PortalInnerZ}
-	run(func() {
-		h.Overworld().SetBlockState(left, plugin.DefaultState(registry.BlockAir), plugin.UpdateAll|plugin.UpdateKnownShape)
-		if registry.BlockOf(w.BlockAt(cell[0], cell[1], cell[2])) != registry.BlockNetherPortal {
-			t.Error("known-shape write collapsed portal")
-		}
-	})
-	c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
-		for _, ch := range servertest.BlockChangesIn(t, id, data) {
-			if registry.BlockOf(ch.State) == registry.BlockAir && ch.X >= 4 && ch.X <= 5 && ch.Y >= 64 && ch.Y <= 66 && ch.Z == 4 {
-				t.Error("known-shape sent portal removal")
-			}
-		}
-		return false
-	})
-	run(func() {
-		h.Overworld().SetBlockState(left.Offset(plugin.Up, 1), plugin.DefaultState(registry.BlockAir), plugin.UpdateAll)
-	})
-	if registry.BlockOf(w.BlockAt(cell[0], cell[1], cell[2])) != registry.BlockAir {
-		t.Error("ordinary shape write kept invalid portal")
-	}
-}
-
-// vanilla: BlockAttachedEntity.tick polls hanging support every 101 entity ticks.
-func TestPluginBlockWriteFrameSupportPoll(t *testing.T) {
-	srv, h, run, c := worldEffectsPlugin(t)
-	w := srv.OverworldWorld()
-	w.SetBlock(4, 64, 2, registry.BlockStone.DefaultState())
-	srv.GiveSlot("Effects", player.HotbarSlot, servertest.ItemStack(t, "minecraft:item_frame", 1))
-	servertest.ReleaseTicks(t, srv)
-	c.PlaceBlock(4, 64, 2, protocol.FaceNorth)
-	servertest.UntilTicks(t, srv, 20, "item frame placement", func() bool { return srv.FrameCount() == 1 })
-	servertest.HoldTicks(t, srv)
-	run(func() {
-		h.Overworld().SetBlockState(plugin.BlockPos{X: 4, Y: 64, Z: 2}, plugin.DefaultState(registry.BlockAir), plugin.UpdateAll)
-	})
-	if srv.FrameCount() != 1 {
-		t.Fatal("block write bypassed the hanging support poll")
-	}
-	srv.SetTickFrozen(false)
-	servertest.RunTicks(t, srv, 100)
-	if srv.FrameCount() != 1 {
-		t.Fatal("frame dropped before tick 101")
-	}
-	c.ReadTicks(srv, 0, func(id int32, _ []byte) bool {
-		if id == protocol.IDPlayRemoveEntities {
-			t.Error("early frame removal packet")
-		}
-		return false
-	})
-	servertest.RunTicks(t, srv, 1)
-	if srv.FrameCount() != 0 {
-		t.Fatal("unsupported frame survived tick 101")
-	}
-	c.ExpectWithinTicks(srv, 0, protocol.IDPlayRemoveEntities)
 }

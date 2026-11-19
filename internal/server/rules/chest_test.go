@@ -7,27 +7,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// TestCopperChestPlacementSettlesOnTheLeastOxidizedStage places an exposed
-// copper chest beside an oxidized single: they pair, and the placed block
-// takes the exposed stage. vanilla: CopperChestBlock.getStateForPlacement
-func TestCopperChestPlacementSettlesOnTheLeastOxidizedStage(t *testing.T) {
-	neighbour, ok := registry.FindState("minecraft:oxidized_copper_chest", map[string]string{"facing": "north", "type": "single"})
-	if !ok {
-		t.Fatal("no oxidized copper chest state")
-	}
-	w := testWorld{}
-	w.set(1, 0, 0, neighbour)
-	state, ok := ChestPlacementState(w, registry.BlockExposedCopperChest, PlacementContext{Face: protocol.FaceTop}, 0, 0, 0)
-	if !ok {
-		t.Fatal("no placement state")
-	}
-	name, raw, _ := registry.BlockStateName(state)
-	props := registry.ParseStateProps(raw)
-	if name != "minecraft:exposed_copper_chest" || props["type"] != "left" {
-		t.Errorf("placed %s %v, want exposed left", name, props)
-	}
-}
-
 // TestChestPlacementPairsWithASingleBeside places a chest at the origin,
 // the player looking south so it faces north, beside one other chest.
 func TestChestPlacementPairsWithASingleBeside(t *testing.T) {

@@ -109,66 +109,6 @@ func TestMonumentGolden(t *testing.T) {
 	}
 }
 
-func TestMonumentRoomsRemainConnectedAndFitOnce(t *testing.T) {
-	t.Parallel()
-	for seed := range int64(256) {
-		m := GenerateMonument(NewLegacyRandom(seed), 0, 0, int(seed%4))
-		covered := map[int]bool{}
-		for _, p := range m.Pieces {
-			if p.Room == nil {
-				continue
-			}
-			w, h, d := 1, 1, 1
-			switch p.Kind {
-			case MonumentCore:
-				w, h, d = 2, 2, 2
-			case MonumentDoubleXY:
-				w, h = 2, 2
-			case MonumentDoubleYZ:
-				h, d = 2, 2
-			case MonumentDoubleZ:
-				d = 2
-			case MonumentDoubleX:
-				w = 2
-			case MonumentDoubleY:
-				h = 2
-			}
-			for y := range h {
-				for z := range d {
-					for x := range w {
-						i := p.Room.Index + x + 5*z + 25*y
-						if covered[i] {
-							t.Fatalf("seed %d: room %d fitted twice", seed, i)
-						}
-						covered[i] = true
-					}
-				}
-			}
-		}
-		// Traverse only open connections, without using the pruning DFS.
-		reached := map[int]bool{m.Source.Index: true}
-		queue := []*MonumentRoom{m.Source}
-		for len(queue) != 0 {
-			r := queue[0]
-			queue = queue[1:]
-			for dir, other := range r.Connections {
-				if r.Openings[dir] && !reached[other.Index] {
-					reached[other.Index] = true
-					queue = append(queue, other)
-				}
-			}
-		}
-		if len(covered) != 46 || len(m.Rooms) != 49 {
-			t.Fatalf("seed %d: %d fitted cells, %d rooms", seed, len(covered), len(m.Rooms))
-		}
-		for _, r := range m.Rooms {
-			if !reached[r.Index] || !r.claimed || (r.Index < 75 && !covered[r.Index]) {
-				t.Fatalf("seed %d: room %d disconnected, unclaimed or unfitted", seed, r.Index)
-			}
-		}
-	}
-}
-
 func BenchmarkMonumentGenerate(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {

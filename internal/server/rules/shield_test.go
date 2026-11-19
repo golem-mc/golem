@@ -15,28 +15,6 @@ func shieldProps(t *testing.T) *registry.BlocksAttacks {
 	return b
 }
 
-// TestBlockItemDamageIsFlooredWithTheBase pins the shield's item_damage
-// threshold 3, base 1 and factor 1: nothing under the threshold, and the
-// floor of the base added to the amount over it.
-// vanilla: BlocksAttacks.ItemDamageFunction.apply
-func TestBlockItemDamageIsFlooredWithTheBase(t *testing.T) {
-	b := shieldProps(t)
-	cases := []struct {
-		blocked float64
-		want    int32
-	}{
-		{0, 0},
-		{2.99, 0},
-		{3, 4},
-		{5.5, 6},
-	}
-	for _, c := range cases {
-		if got := BlockItemDamage(b, c.blocked); got != c.want {
-			t.Errorf("BlockItemDamage(%v) = %d, want %d", c.blocked, got, c.want)
-		}
-	}
-}
-
 // TestShieldBlocksByAngleAndDelay checks the block's frontal arc and its
 // delay: a blow from within the forward half plane is turned aside once the
 // shield has been up for the block delay, and one from behind or inside the

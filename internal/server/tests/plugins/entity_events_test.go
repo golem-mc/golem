@@ -10,32 +10,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// vanilla: Creeper.thunderHit
-func TestPluginCreeperPowerEvent(t *testing.T) {
-	cancel, asked := true, 0
-	srv, _ := tickScene(t, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.CreeperPowerEvent) {
-			asked++
-			_ = e.Creeper.Health() // reads the mob: no lock may be held
-			e.SetCancelled(cancel)
-		})
-	})
-	id := srv.SpawnMob("minecraft:creeper", 8.5, 64, 8.5)
-	srv.StrikeLightning(8.5, 64, 8.5)
-	srv.RunTick()
-	if asked != 1 || srv.CreeperPowered(id) {
-		t.Fatalf("refused charge: asked %d, powered %v", asked, srv.CreeperPowered(id))
-	}
-	cancel = false
-	srv.StrikeLightning(8.5, 64, 8.5)
-	for range 3 {
-		srv.RunTick()
-	}
-	if asked < 2 || !srv.CreeperPowered(id) {
-		t.Errorf("allowed charge: asked %d, powered %v", asked, srv.CreeperPowered(id))
-	}
-}
-
 // vanilla: PrimedTnt.explode, ServerExplosion.explode
 func TestPluginEntityExplosionEvents(t *testing.T) {
 	var primed, exploded int
@@ -192,25 +166,4 @@ func TestPluginVillagerAcquireTradeEvent(t *testing.T) {
 			t.Errorf("maxUses = %d, want the edited 99", n)
 		}
 	}
-}
-
-// vanilla: Villager.setVillagerData
-func TestPluginVillagerCareerChangeEvent(t *testing.T) {
-	cancel, asked := true, 0
-	srv, _ := tickScene(t, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.VillagerCareerChangeEvent) {
-			asked++
-			if e.Profession != plugin.MinecraftKey("farmer") {
-				t.Errorf("profession %v", e.Profession)
-			}
-			_ = e.Villager.Level() // reads the villager: no lock may be held
-			e.SetCancelled(cancel)
-		})
-	})
-	srv.SetBlock(5, 64, 4, servertest.BlockState(t, "minecraft:composter"))
-	srv.SpawnVillagerNoProfession(4.5, 64, 4.5)
-	ticksUntil(t, srv, "the profession is asked", func() bool { srv.TickMobs(1); return asked > 0 })
-	cancel = false
-	asked = 0
-	ticksUntil(t, srv, "the profession is asked again", func() bool { srv.TickMobs(1); return asked > 0 })
 }

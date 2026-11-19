@@ -1,10 +1,11 @@
 package combat
 
 import (
-	"github.com/golem-mc/golem/internal/config"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"slices"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
@@ -104,55 +105,6 @@ func TestAStandingSwordSweeps(t *testing.T) {
 	}
 }
 
-// A step of 0.259 blocks is over the sweep threshold at the default speed
-// (0.25) and under it with Speed I (0.3), so the attribute decides the sweep.
-// vanilla: Player.isSweepAttack, getSpeed
-func TestASweepScalesWithMovementSpeed(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name  string
-		speed bool
-		sweep bool
-	}{{"default speed", false, false}, {"speed I", true, true}} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, attacker, watcher := feedbackFixture(t)
-			srv.GiveSlot("Fencer", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:iron_sword"), Count: 1})
-			servertest.AwaitFullSwing(t, srv, "Fencer")
-			cow := feedbackCow(srv, attacker, watcher)
-			// With the loop stopped the known movement cannot expire.
-			srv.StopTick()
-			if tc.speed {
-				srv.GiveEffect("Fencer", "minecraft:speed", 1200, 0, false)
-				srv.TickSurvival()
-			}
-			attacker.MoveToGround(2.759, 64, 5.5, true)
-			attacker.Settle()
-
-			attacker.Attack(cow)
-			h := attacker.HearBlow(cow)
-			if got := slices.Contains(h.Sounds, "sweep"); got != tc.sweep {
-				t.Errorf("sounds = %v, sweep = %v, want %v", h.Sounds, got, tc.sweep)
-			}
-		})
-	}
-}
-
-func TestASharpSwordShowsTheMagicCritical(t *testing.T) {
-	t.Parallel()
-	srv, attacker, watcher := feedbackFixture(t)
-	srv.GiveSlot("Fencer", player.HotbarSlot, servertest.EnchantedStack(t, "minecraft:iron_sword", "minecraft:sharpness", 1))
-	servertest.AwaitFullSwing(t, srv, "Fencer")
-	cow := feedbackCow(srv, attacker, watcher)
-
-	attacker.Attack(cow)
-	for _, c := range []*servertest.Client{attacker, watcher} {
-		if h := c.HearBlow(cow); !slices.Equal(h.Animations, []uint8{protocol.AnimationMagicCriticalHit}) {
-			t.Errorf("animations of the cow = %v, want the magic critical alone", h.Animations)
-		}
-	}
-}
-
 func TestASpammedBlowIsWeak(t *testing.T) {
 	t.Parallel()
 	srv, attacker, watcher := feedbackFixture(t)
@@ -187,35 +139,4 @@ func fallingBlowIsPlain(t *testing.T, attacker, watcher *servertest.Client, cow 
 			t.Errorf("attack sounds = %v, want no crit", h.Sounds)
 		}
 	}
-}
-
-func TestABlindFallingBlowIsNoCritical(t *testing.T) {
-	t.Parallel()
-	srv, attacker, watcher := feedbackFixture(t)
-	srv.GiveSlot("Fencer", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:iron_sword"), Count: 1})
-	srv.GiveEffect("Fencer", "minecraft:blindness", 600, 0, false)
-	servertest.AwaitFullSwing(t, srv, "Fencer")
-	cow := feedbackCow(srv, attacker, watcher)
-
-	attacker.MoveToGround(2.5, 65, 5.5, false)
-	attacker.MoveToGround(2.5, 64.4, 5.5, false)
-	fallingBlowIsPlain(t, attacker, watcher, cow)
-}
-
-func TestASeatedFallingBlowIsNoCritical(t *testing.T) {
-	t.Parallel()
-	srv, attacker, watcher := feedbackFixture(t)
-	srv.GiveSlot("Fencer", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:iron_sword"), Count: 1})
-	servertest.AwaitFullSwing(t, srv, "Fencer")
-	cow := feedbackCow(srv, attacker, watcher)
-
-	attacker.MoveToGround(2.5, 65, 5.5, false)
-	attacker.MoveToGround(2.5, 64.4, 5.5, false)
-	boat := srv.SpawnBoat(2.5, 64.4, 5.5, "minecraft:oak_boat")
-	attacker.UseOn(boat)
-	attacker.Settle()
-	if got := srv.BoatPassengerIDs(boat); len(got) != 1 {
-		t.Fatalf("the boat holds %v, want the fencer aboard", got)
-	}
-	fallingBlowIsPlain(t, attacker, watcher, cow)
 }

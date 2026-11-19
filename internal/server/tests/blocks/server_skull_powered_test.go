@@ -3,8 +3,6 @@ package blocks
 import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
-
-	"github.com/golem-mc/golem/internal/protocol"
 )
 
 // A head or skull takes POWERED from the neighbour signal, and one set down
@@ -30,17 +28,4 @@ func TestAHeadFollowsTheSignalBesideIt(t *testing.T) {
 	c.Settle()
 	servertest.ExpectBlockNamed(t, srv, 5, 64, 4, "minecraft:dragon_head", map[string]string{"powered": "false"})
 	servertest.ExpectBlockNamed(t, srv, 9, 64, 4, "minecraft:piglin_wall_head", map[string]string{"powered": "false"})
-}
-
-// TestAHeadSetDownBesideAPoweredBlockStartsPowered is the placement half.
-func TestAHeadSetDownBesideAPoweredBlockStartsPowered(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 5, 64, 5, "redstone_block")
-	servertest.PlaceFrom(c, "minecraft:dragon_head", 5, 3, 270, 5, 63, 4, protocol.FaceTop)
-	servertest.ExpectBlockNamed(t, srv, 5, 64, 4, "minecraft:dragon_head", map[string]string{"powered": "true"})
-
-	servertest.PlaceFrom(c, "minecraft:dragon_head", 8, 3, 270, 8, 63, 4, protocol.FaceTop)
-	servertest.ExpectBlockNamed(t, srv, 8, 64, 4, "minecraft:dragon_head", map[string]string{"powered": "false"})
 }

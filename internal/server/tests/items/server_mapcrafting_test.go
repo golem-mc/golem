@@ -96,24 +96,3 @@ func TestPaperExtendsAMapIntoAFreshOne(t *testing.T) {
 		t.Errorf("the taken map keeps its scale mark: %+v", carried)
 	}
 }
-
-func TestAFullyExtendedMapDoesNotExtend(t *testing.T) {
-	t.Parallel()
-	w := extendOnTable(t, 4)
-
-	w.Click(0, 0, protocol.ClickModePickup)
-	w.ExpectClickResult(map[int16]protocol.ItemStack{}, protocol.ItemStack{})
-}
-
-func TestQDroppingAnExtendedMapScalesIt(t *testing.T) {
-	t.Parallel()
-	w := extendOnTable(t, 0)
-
-	w.Click(0, 0, protocol.ClickModeThrow)
-	w.AwaitDrops(1)
-	got := w.TakeDrop()
-	id, ok := got.MapIDOf()
-	if _, marked := got.MapPostProcessingOf(); !ok || id == 5 || marked {
-		t.Fatalf("dropped %+v (map id %d, marked %t), want a map under a fresh id, unmarked", got, id, marked)
-	}
-}

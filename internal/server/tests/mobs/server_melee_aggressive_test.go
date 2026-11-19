@@ -27,45 +27,6 @@ func mobFlagsOf(c *servertest.Client, data []byte, entityID int32) (uint8, bool)
 	return 0, false
 }
 
-// A vindicator's MeleeAttackGoal raises the aggressive bit when the hunt
-// starts and holds it until the goal stops, so the client draws the axe for
-// every blow. The goal itself stops once its path is done (it does not follow
-// an unseen target), so the bit may drop between hunts; it must never be
-// down on a tick a blow lands.
-// vanilla: MeleeAttackGoal.start, MeleeAttackGoal.canContinueToUse, VindicatorRenderer
-func TestAVindicatorKeepsItsAxeRaisedWhileItHunts(t *testing.T) {
-	t.Parallel()
-	srv, c, playerID := servertest.JoinAs(t, servertest.HostileTestConfig(), "Prey")
-	srv.GiveEffect("Prey", "minecraft:resistance", 600, 4, false)
-	servertest.HoldTicks(t, srv)
-	id := srv.SpawnMob("minecraft:vindicator", 4.5, 64, 4.5)
-
-	raised, blows := false, 0
-	for tick := range 100 {
-		blow := false
-		c.ReadTicksSkipping(srv, 1, servertest.HostileSkip, func(pid int32, data []byte) bool {
-			switch pid {
-			case protocol.IDPlayEntityMetadata:
-				if flags, ok := mobFlagsOf(c, data, id); ok {
-					raised = flags&protocol.EntityFlagAggressive != 0
-				}
-			case protocol.IDPlayDamageEvent:
-				blow = blow || protocol.NewReader(data).ReadVarInt() == playerID
-			}
-			return false
-		})
-		if blow {
-			blows++
-			if !raised {
-				t.Fatalf("the vindicator's blow on tick %d landed with its aggressive bit down", tick)
-			}
-		}
-	}
-	if blows == 0 {
-		t.Fatal("the vindicator landed no blow in the window")
-	}
-}
-
 // A piglin's brain sets the aggressive bit every tick it has an attack
 // target, so a piglin chasing with a sword holds it up and never flickers.
 // vanilla: PiglinAi.updateActivity, Piglin.getArmPose

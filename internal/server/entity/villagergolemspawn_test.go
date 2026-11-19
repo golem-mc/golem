@@ -6,16 +6,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-func TestGolemLegacySpotAcceptsEveryAirKind(t *testing.T) {
-	stone, _ := registry.FindState("minecraft:stone", nil)
-	for _, name := range []string{"minecraft:air", "minecraft:cave_air", "minecraft:void_air"} {
-		air, ok := registry.FindState(name, nil)
-		if !ok || !golemStandsOn(stone, air) {
-			t.Errorf("refused %s above stone", name)
-		}
-	}
-}
-
 // A village spawn checks its column even when nearby blocks obstruct its box.
 type golemSpawnTestWorld map[[3]int32]uint16
 

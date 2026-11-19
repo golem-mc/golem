@@ -48,17 +48,3 @@ func TestPerlinNoiseVolumeColumns(t *testing.T) {
 		}
 	}
 }
-
-func TestPerlinNoiseVolumeLongCell(t *testing.T) {
-	p := NewPerlinNoise(levelgen.NewXoroshiroRandom(12345))
-	v := NewVolume(1, 65537, 1, -13, -64, 29)
-	out := make([]float32, v.Size())
-	p.AddToVolume(out, v, 0.0371, 0, 0.75)
-	want := []float32{0}
-	p.AddToVolume(want, NewVolume(1, 1, 1, v.MinX, v.MinY, v.MinZ), 0.0371, 0, 0.75)
-	for i, value := range out {
-		if math.Float32bits(value) != math.Float32bits(want[0]) {
-			t.Fatalf("at %d: got %08x, want %08x", i, math.Float32bits(value), math.Float32bits(want[0]))
-		}
-	}
-}

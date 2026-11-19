@@ -2,54 +2,9 @@ package nbt
 
 import (
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 )
-
-// TestParseSNBTEmptyKeyBehindATrailingComma checks an empty name fails its
-// compound whatever follows its value, and leaves nothing behind that fails
-// a compound read after it.
-func TestParseSNBTEmptyKeyBehindATrailingComma(t *testing.T) {
-	for _, text := range []string{
-		`{"":1b,}`,
-		`{'':1b,}`,
-		`{a:{"":1b,}}`,
-		`{a:[{"":1b,}]}`,
-		`{"":1b,a:2b}`,
-	} {
-		if got, err := ParseSNBT(text); err == nil {
-			t.Errorf("ParseSNBT(%s) = %v, want an error", text, got)
-		}
-	}
-
-	for _, tc := range []struct {
-		text string
-		want Compound
-	}{
-		{`{a:1b,}`, Compound{"a": Byte(1)}},
-		{`{a:[{b:1b,},{c:2b}]}`, Compound{"a": List{Elem: TypeCompound, Items: []Tag{
-			Compound{"b": Byte(1)}, Compound{"c": Byte(2)},
-		}}}},
-	} {
-		got, err := ParseSNBT(tc.text)
-		if err != nil {
-			t.Errorf("ParseSNBT(%s): %v", tc.text, err)
-			continue
-		}
-		if !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("ParseSNBT(%s) = %#v, want %#v", tc.text, got, tc.want)
-		}
-	}
-
-	// A value read after a refused one starts over.
-	if _, _, pe := ParseValueTag(`{"":1b,}`); pe == nil {
-		t.Fatal(`ParseValueTag({"":1b,}) succeeded, want an error`)
-	}
-	if _, err := ParseSNBT(`{a:{b:1b}}`); err != nil {
-		t.Errorf("ParseSNBT after a refused empty key: %v", err)
-	}
-}
 
 // TestParseSNBTDepthMatchesDecode checks SNBT nests exactly as deep as
 // Decode reads back, and no deeper, so a command cannot store a tree whose

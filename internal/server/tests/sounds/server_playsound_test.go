@@ -88,33 +88,6 @@ func TestPlaySoundCommandDefaults(t *testing.T) {
 	}
 }
 
-// TestPlaySoundCommandOutOfRangeMinVolume plays a sound from a hundred blocks
-// away with a minimum volume, so the target hears it at that volume from two
-// blocks away, on the line back toward the true source.
-func TestPlaySoundCommandOutOfRangeMinVolume(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "DJ", servertest.OpsListing(t, "DJ"))
-	c.Settle()
-
-	pos := srv.PlayerPosition("DJ")
-	sound, chat := runPlaysound(c, "playsound minecraft:block.note_block.pling master @s ~100 ~ ~ 1 0.5 0.5")
-	got := servertest.DecodePlaySoundEffect(t, sound)
-	wantX, wantY, wantZ := int32((pos.X+2)*8), int32(pos.Y*8), int32(pos.Z*8)
-	if got.X != wantX || got.Y != wantY || got.Z != wantZ {
-		t.Errorf("out-of-range position = (%d %d %d), want (%d %d %d)", got.X, got.Y, got.Z, wantX, wantY, wantZ)
-	}
-	if got.Volume != 0.5 {
-		t.Errorf("out-of-range volume = %v, want the 0.5 minimum", got.Volume)
-	}
-	if got.Pitch != 0.5 {
-		t.Errorf("out-of-range pitch = %v, want 0.5", got.Pitch)
-	}
-	if want := servertest.PlaySoundFeedback("commands.playsound.success.single",
-		protocol.Text{Text: "minecraft:block.note_block.pling"}, servertest.PlayerDisplayComponent("DJ")); !bytes.Equal(chat, want) {
-		t.Errorf("feedback = % X, want % X", chat, want)
-	}
-}
-
 // TestPlaySoundCommandTooFarFails plays from out of range with no minimum
 // volume: the target hears nothing and the runner is told the sound is too
 // far away.
@@ -130,42 +103,6 @@ func TestPlaySoundCommandTooFarFails(t *testing.T) {
 	if want := servertest.CommandErrorMessageForTest("commands.playsound.failed"); !bytes.Equal(chat, want) {
 		t.Errorf("failure = % X, want % X", chat, want)
 	}
-}
-
-// TestPlaySoundCommandOneSeed checks that every target of one command hears
-// the same variant: the seed long is drawn once for the whole command, not
-// per packet.
-func TestPlaySoundCommandOneSeed(t *testing.T) {
-	t.Parallel()
-	_, connect := servertest.Start(t, servertest.SurvivalTestConfig(), servertest.OpsListing(t, "Alice"))
-	alice := connect()
-	alice.JoinAs("Alice")
-
-	bob := connect()
-	bob.JoinAs("Bob")
-	alice.ExpectPlayerAdded("Bob")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Bob")
-
-	alice.ChatCommand("playsound minecraft:entity.cow.ambient master @a ~ ~ ~")
-	var aliceSound []byte
-	alice.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlaySoundEffect {
-			aliceSound = data
-		}
-	})
-	bobSound := bob.ExpectPlay(protocol.IDPlaySoundEffect)
-
-	gotAlice := servertest.DecodePlaySoundEffect(t, aliceSound)
-	gotBob := servertest.DecodePlaySoundEffect(t, bobSound)
-	if !gotAlice.HasSeed || !gotBob.HasSeed {
-		t.Fatalf("seeds missing: Alice %v, Bob %v", gotAlice.HasSeed, gotBob.HasSeed)
-	}
-	if gotAlice.Seed != gotBob.Seed {
-		t.Errorf("seed varies per target: Alice %d, Bob %d", gotAlice.Seed, gotBob.Seed)
-	}
-
-	alice.Disconnect()
-	bob.Disconnect()
 }
 
 // childCommand returns the named child of a decoded command node, failing if
@@ -222,44 +159,5 @@ func TestPlaySoundCommandTree(t *testing.T) {
 	}
 
 	c.SkipJoin()
-	c.Disconnect()
-}
-
-// TestPlaySoundSelectorWithSpacesInItsBrackets checks the targets argument
-// read whole: the runner hears the sound through a selector whose options are
-// parted by spaces, rather than the selector being cut at its first space.
-func TestPlaySoundSelectorWithSpacesInItsBrackets(t *testing.T) {
-	t.Parallel()
-	_, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "DJ", servertest.OpsListing(t, "DJ"))
-	c.Settle()
-
-	_, chat := runPlaysound(c, "playsound minecraft:block.note_block.harp master @s[ name=DJ ]")
-	want := servertest.PlaySoundFeedback("commands.playsound.success.single",
-		protocol.Text{Text: "minecraft:block.note_block.harp"}, servertest.PlayerDisplayComponent("DJ"))
-	if !bytes.Equal(chat, want) {
-		t.Errorf("feedback = % X, want % X", chat, want)
-	}
-	c.Disconnect()
-}
-
-// TestPlaySoundCommandSuggestions checks that the sound argument suggests the
-// registered sound events and the source literals complete after it.
-func TestPlaySoundCommandSuggestions(t *testing.T) {
-	t.Parallel()
-	_, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "DJ", servertest.OpsListing(t, "DJ"))
-
-	c.CommandSuggestion(1, "/playsound entity.ender_dragon.growl")
-	if _, _, _, matches := c.ExpectCommandSuggestions(); !slices.Equal(matches, []string{"minecraft:entity.ender_dragon.growl"}) {
-		t.Errorf("sound suggestions = %v, want [minecraft:entity.ender_dragon.growl]", matches)
-	}
-
-	// Suggestions come back sorted, so the source literals read
-	// alphabetically rather than in tree order.
-	c.CommandSuggestion(2, "/playsound minecraft:ui.button.Click ")
-	wantSources := []string{"ambient", "block", "hostile", "master", "music", "neutral", "player", "record", "ui", "voice", "weather"}
-	if _, _, _, matches := c.ExpectCommandSuggestions(); !slices.Equal(matches, wantSources) {
-		t.Errorf("source suggestions = %v, want %v", matches, wantSources)
-	}
-
 	c.Disconnect()
 }

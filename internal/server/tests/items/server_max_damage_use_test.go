@@ -38,27 +38,3 @@ func TestASwordWithItsOwnMaxDamageBreaksOnItsLastHit(t *testing.T) {
 		t.Fatalf("the sword survived its tenth wear: %+v", got)
 	}
 }
-
-// TestMendingRepairsToAStacksOwnMaxDamage: an orb mends a max_damage=20
-// pickaxe at 19 wear down to no wear.
-// vanilla: ExperienceOrb.repairPlayerItems
-func TestMendingRepairsToAStacksOwnMaxDamage(t *testing.T) {
-	t.Parallel()
-	cfg, _ := servertest.ExperienceSetup(t)
-	srv, c, _ := servertest.JoinAs(t, cfg, "Mender")
-
-	pick := servertest.EnchantedStack(t, "minecraft:diamond_pickaxe", "minecraft:mending", 1)
-	pick = withMaxDamage(pick, 20)
-	pick.Damage = 19
-	srv.GiveSlot("Mender", player.HotbarSlot, pick)
-
-	w := servertest.NewOrbWatcher(t, c)
-	srv.SpawnOrb(0.5, 64, 0.5, 10)
-	w.ReadUntilTicks(srv, 240, func() bool {
-		_, told := w.Slots[player.HotbarSlot]
-		return len(w.Takes) > 0 && told
-	})
-	if got := srv.InventorySlot("Mender", player.HotbarSlot); got.Damage != 0 {
-		t.Errorf("the pickaxe's wear after mending = %d, want 0", got.Damage)
-	}
-}

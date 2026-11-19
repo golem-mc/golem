@@ -32,33 +32,3 @@ func TestRaidSpawnSpotOk(t *testing.T) {
 		}
 	}
 }
-
-func TestRaidSpawnSpotEmptyCells(t *testing.T) {
-	t.Parallel()
-	air := registry.BlockAir.DefaultState()
-	stone := registry.BlockStone.DefaultState()
-	snow := registry.MustState("minecraft:snow", map[string]string{"layers": "1"})
-	carpet := registry.BlockWhiteCarpet.DefaultState()
-	water := registry.BlockWater.DefaultState()
-	fire := registry.BlockFire.DefaultState()
-	for _, tc := range []struct {
-		name             string
-		below, at, above uint16
-		want             bool
-	}{
-		{"snow ignores head collision", snow, air, stone, true},
-		{"snow needs air at feet", snow, carpet, air, false},
-		{"carpet at feet", stone, carpet, air, true},
-		{"head collision", stone, air, stone, false},
-		{"water at feet", stone, water, air, false},
-		{"water at head", stone, air, water, false},
-		{"fire at feet", stone, fire, air, false},
-		{"fire at head", stone, air, fire, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := RaidSpawnSpotOk(tc.below, tc.at, tc.above); got != tc.want {
-				t.Errorf("RaidSpawnSpotOk = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}

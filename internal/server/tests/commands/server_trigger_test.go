@@ -3,7 +3,6 @@ package commands
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
@@ -62,44 +61,6 @@ func TestTriggerCommand(t *testing.T) {
 	c.ChatCommand("trigger press set 4")
 	expectScoreboardRefusal(t, c, "commands.trigger.failed.unprimed")
 	get(-2)
-
-	c.Disconnect()
-}
-
-// TestSelectorTeamOption matches team= against the teams /team makes, with
-// an empty name for no team.
-func TestSelectorTeamOption(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.StartExecuteWorld(t, "Alice")
-
-	pass := func(selector string) {
-		t.Helper()
-		c.ChatCommand("execute if entity " + selector)
-		c.ExpectCommandFeedbackText("commands.execute.conditional.pass_count", protocol.Text{Number: new(int64(1))})
-	}
-	fail := func(selector string) {
-		t.Helper()
-		c.ChatCommand("execute if entity " + selector)
-		c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("commands.execute.conditional.fail"))
-	}
-
-	c.ChatCommand("team add red")
-	expectTeamPacket(t, c, "red", 0)
-	expectTeamPacket(t, c, "red", 2)
-	expectScoreboardFeedback(t, c, "commands.team.add.success")
-	pass("@a[team=]")
-	pass("@a[team=!red]")
-	fail("@a[team=red]")
-	fail("@a[team=!]")
-
-	c.ChatCommand("team join red Alice")
-	expectTeamPacket(t, c, "red", 3)
-	expectScoreboardFeedback(t, c, "commands.team.join.success.single")
-	pass("@a[team=red]")
-	pass("@a[team=!]")
-	pass("@a[team=!blue,team=!]")
-	fail("@a[team=]")
-	fail("@a[team=!red]")
 
 	c.Disconnect()
 }

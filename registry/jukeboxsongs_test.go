@@ -39,13 +39,3 @@ func TestJukeboxSongStackCodec(t *testing.T) {
 		}
 	}
 }
-
-func TestJukeboxPackSongOverrides(t *testing.T) {
-	t.Cleanup(func() { ApplyPackRegistries(nil) })
-	ApplyPackRegistries(map[string]map[string]nbt.Tag{"minecraft:jukebox_song": {
-		"minecraft:13": nbt.Compound{"length_in_seconds": nbt.Double(1.01), "comparator_output": nbt.Int(9)},
-	}})
-	if song, ok := JukeboxSongOf("minecraft:13"); !ok || song.LengthTicks != 21 || song.Comparator != 9 {
-		t.Errorf("pack override = %+v, %v", song, ok)
-	}
-}

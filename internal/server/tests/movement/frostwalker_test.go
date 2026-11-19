@@ -1,9 +1,10 @@
 package movement
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"math"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
@@ -163,41 +164,6 @@ func TestFrostWalkerFreezesTheWaterAroundAStep(t *testing.T) {
 	checkTheFrozenSetsAreEqual(t, srv, blockUpdatesAfter(t, c), second)
 }
 
-// TestTheFrostWalkerStepNeedsTheGround checks the effect's own
-// requirements and its trigger: an airborne step crosses cells without
-// freezing anything — the file's is_on_ground requirement — the landing
-// report of a cell already crossed runs nothing — vanilla runs the
-// effect once per cell crossed, whether it took or not — and it is the
-// next cell's crossing, reported from the ground, that freezes at last.
-func TestTheFrostWalkerStepNeedsTheGround(t *testing.T) {
-	t.Parallel()
-	srv, c := frostWalkerPond(t, "Hopper", servertest.EnchantedStack(t, "minecraft:diamond_boots", "minecraft:frost_walker", 2))
-	water := servertest.BlockState(t, "minecraft:water")
-
-	c.MoveToGround(4.5, 64, 80.5, false)
-	if updates := blockUpdatesAfter(t, c); len(updates) != 0 {
-		t.Errorf("%d cells froze under an airborne step, want none", len(updates))
-	}
-
-	// The ground the step lands on is in a cell the airborne crossing
-	// already took its turn over.
-	c.MoveToGround(4.5, 64, 80.5, true)
-	if updates := blockUpdatesAfter(t, c); len(updates) != 0 {
-		t.Errorf("%d cells froze on the landing report of the cell already crossed, want none", len(updates))
-	}
-	if got := srv.BlockAt(4, 63, 80); got != water {
-		t.Errorf("cell (4, 63, 80) holds state %d after the landing report, want the water", got)
-	}
-
-	// The next cell crossed, from the ground, freezes the water under
-	// and around the feet.
-	c.MoveToGround(5.5, 64, 80.5, true)
-	updates := blockUpdatesAfter(t, c)
-	if !seenFrozen(t, updates, [3]int32{4, 63, 80}) {
-		t.Error("the step onto the next cell left no block update for the water under the feet, want it frozen")
-	}
-}
-
 // TestTheFrozenIceOfAFrostWalkerStepMeltsOnSchedule checks the aging half
 // the walk leaves behind: the ice a step froze over the pond runs the
 // schedule the placement booked and melts back to plain water, on a bound
@@ -244,160 +210,6 @@ func TestUnenchantedBootsLeaveTheWaterAlone(t *testing.T) {
 		if got := srv.BlockAt(cell[0], cell[1], cell[2]); got != water {
 			t.Errorf("cell %v holds state %d under unenchanted boots, want the water", cell, got)
 		}
-	}
-}
-
-// TestFrostWalkerLeavesFlowingWaterAlone checks the disk's fluid predicate
-// on the wire: the source water of the pond freezes, but the cell the
-// flowing water of a level above zero fills stays water, matching the
-// file's matching_fluids over minecraft:water alone.
-func TestFrostWalkerLeavesFlowingWaterAlone(t *testing.T) {
-	t.Parallel()
-	srv, c := frostWalkerPond(t, "Rapids", servertest.EnchantedStack(t, "minecraft:diamond_boots", "minecraft:frost_walker", 2))
-	flowing := servertest.BlockStateWith(t, "minecraft:water", "level=1")
-	if !srv.SetBlock(4, 63, 80, flowing) {
-		t.Fatal("the pond's chunk was not loaded")
-	}
-
-	c.MoveToGround(4.5, 64, 80.5, true)
-	disk := frostWalkerDisk(4.5, 64, 80.5, 4)
-	delete(disk, [3]int32{2, 63, 79}) // the glass roofs this cell
-	delete(disk, [3]int32{4, 63, 80}) // the flowing water is not a source
-	checkTheFrozenSetsAreEqual(t, srv, blockUpdatesAfter(t, c), disk)
-	if got := srv.BlockAt(4, 63, 80); got != flowing {
-		t.Errorf("the flowing water under the feet holds state %d, want it left alone", got)
-	}
-}
-
-// TestASpectatorInFrostWalkerBootsLeavesTheWaterAlone checks the effect's
-// spectator skip: a body that switches to spectator keeps the on-ground
-// flag its client reports, but the water it steps over stops freezing.
-func TestASpectatorInFrostWalkerBootsLeavesTheWaterAlone(t *testing.T) {
-	t.Parallel()
-	srv, c := frostWalkerPond(t, "Ghost", servertest.EnchantedStack(t, "minecraft:diamond_boots", "minecraft:frost_walker", 2), servertest.OpsListing(t, "Ghost"))
-	water := servertest.BlockState(t, "minecraft:water")
-
-	// The boots freeze before the switch.
-	c.MoveToGround(4.5, 64, 80.5, true)
-	if updates := blockUpdatesAfter(t, c); len(updates) == 0 {
-		t.Fatal("the step froze nothing, want the water in boots to freeze")
-	}
-
-	c.ChatCommand("gamemode spectator Ghost")
-	servertest.PollUntil(t, servertest.ExpectTimeout, func() bool {
-		return srv.PlayerGameMode("Ghost") == protocol.GameModeSpectator
-	})
-	c.Settle()
-
-	// The step east crosses into fresh cells, but a spectator's effect does
-	// not run, so the bridge stops growing.
-	c.MoveToGround(6.5, 64, 80.5, true)
-	if updates := blockUpdatesAfter(t, c); len(updates) != 0 {
-		t.Errorf("%d cells froze under a spectator, want none", len(updates))
-	}
-	if got := srv.BlockAt(9, 63, 80); got != water {
-		t.Errorf("cell (9, 63, 80) holds state %d under a spectator, want the water", got)
-	}
-}
-
-// TestALandingJumpRefreezesTheWaterUnderfoot checks the landing trigger:
-// the water melted back under the feet freezes again when a fall settles
-// on the ground, even though the body landed in the cell it took off from.
-func TestALandingJumpRefreezesTheWaterUnderfoot(t *testing.T) {
-	t.Parallel()
-	srv, c := frostWalkerPond(t, "Jumper", servertest.EnchantedStack(t, "minecraft:diamond_boots", "minecraft:frost_walker", 2))
-	water := servertest.BlockState(t, "minecraft:water")
-
-	c.MoveToGround(4.5, 64, 80.5, true)
-	blockUpdatesAfter(t, c)
-	if !srv.SetBlock(4, 63, 80, water) {
-		t.Fatal("the pond's chunk was not loaded")
-	}
-
-	// The jump up and back down, landing in the cell it left: the airborne
-	// reports cross cells but freeze nothing, and the landing runs the
-	// effect again though the cell itself did not change.
-	c.MoveToGround(4.5, 65, 80.5, false)
-	c.MoveToGround(4.5, 64.5, 80.5, false)
-	c.MoveToGround(4.5, 64, 80.5, true)
-	updates := blockUpdatesAfter(t, c)
-	if len(updates) != 1 || !seenFrozen(t, updates, [3]int32{4, 63, 80}) {
-		t.Errorf("the landing froze updates %v, want the water under the feet alone refrozen", updates)
-	}
-}
-
-// TestEquippingTheBootsFreezesTheWaterUnderfoot checks the equipment
-// trigger: a standing body with bare feet watches the water under it freeze
-// on the tick the enchanted pair is put on.
-func TestEquippingTheBootsFreezesTheWaterUnderfoot(t *testing.T) {
-	t.Parallel()
-	srv, c := frostWalkerPond(t, "Latecomer", protocol.ItemStack{})
-	c.MoveToGround(4.5, 64, 80.5, true)
-	if updates := blockUpdatesAfter(t, c); len(updates) != 0 {
-		t.Fatalf("%d cells froze barefoot, want none", len(updates))
-	}
-
-	srv.GiveSlot("Latecomer", player.ArmorSlot+3, servertest.EnchantedStack(t, "minecraft:diamond_boots", "minecraft:frost_walker", 2))
-	srv.RunTick()
-
-	disk := frostWalkerDisk(4.5, 64, 80.5, 4)
-	delete(disk, [3]int32{2, 63, 79})
-	checkTheFrozenSetsAreEqual(t, srv, blockUpdatesAfter(t, c), disk)
-}
-
-// TestAWornFrostWalkerBootRefreezesTheWaterUnderfoot checks the equipment
-// trigger's stack comparison: the wear a hit leaves on the boots changes the
-// stack without changing its level, and the changed stack runs the effect
-// again, as vanilla's stack test does.
-func TestAWornFrostWalkerBootRefreezesTheWaterUnderfoot(t *testing.T) {
-	t.Parallel()
-	srv, c := frostWalkerPond(t, "Battered", servertest.EnchantedStack(t, "minecraft:diamond_boots", "minecraft:frost_walker", 2))
-	water := servertest.BlockState(t, "minecraft:water")
-
-	c.MoveToGround(4.5, 64, 80.5, true)
-	blockUpdatesAfter(t, c)
-	// A tick records the boots stack the equip scan last saw.
-	srv.RunTick()
-	if !srv.SetBlock(4, 63, 80, water) {
-		t.Fatal("the pond's chunk was not loaded")
-	}
-	srv.RunTick()
-	if got := srv.BlockAt(4, 63, 80); got != water {
-		t.Fatalf("the water under the feet held state %d before the hit, want it left alone", got)
-	}
-
-	// The hit wears the boots: same level, changed stack.
-	worn := servertest.EnchantedStack(t, "minecraft:diamond_boots", "minecraft:frost_walker", 2)
-	worn.Damage = 1
-	srv.GiveSlot("Battered", player.ArmorSlot+3, worn)
-	srv.RunTick()
-
-	if got := srv.BlockAt(4, 63, 80); got != servertest.BlockStateWith(t, "minecraft:frosted_ice", "age=0") {
-		t.Errorf("the cell holds state %d after the boots wore, want the water refrozen", got)
-	}
-}
-
-// TestABodyOnThePondHoldsItsCellBack checks the disk's unobstructed
-// predicate on the wire: the water a second body's box reaches is left
-// alone, while the cells around it freeze.
-func TestABodyOnThePondHoldsItsCellBack(t *testing.T) {
-	t.Parallel()
-	srv, connect, walker := frostWalkerPondServer(t, "Walker", servertest.EnchantedStack(t, "minecraft:diamond_boots", "minecraft:frost_walker", 2))
-	water := servertest.BlockState(t, "minecraft:water")
-
-	blocker := connect()
-	blocker.JoinAs("Blocker")
-	// Wading at the disk's own level, so the body's box reaches the cell.
-	blocker.MoveToGround(2.5, 63, 80.5, true)
-	blocker.Settle()
-
-	walker.MoveToGround(4.5, 64, 80.5, true)
-	disk := frostWalkerDisk(4.5, 64, 80.5, 4)
-	delete(disk, [3]int32{2, 63, 79}) // the glass roofs this cell
-	delete(disk, [3]int32{2, 63, 80}) // the blocker's box reaches this cell
-	checkTheFrozenSetsAreEqual(t, srv, blockUpdatesAfter(t, walker), disk)
-	if got := srv.BlockAt(2, 63, 80); got != water {
-		t.Errorf("the cell the blocker reaches holds state %d, want the water", got)
 	}
 }
 

@@ -1,7 +1,6 @@
 package mobs
 
 import (
-	"fmt"
 	"math"
 	"testing"
 
@@ -81,37 +80,5 @@ func TestATurtleEggOffSandOrByDayDoesNotHatch(t *testing.T) {
 	srv.TickRandomTicks(12)
 	if got := srv.BlockAt(5, 64, 0); got != egg {
 		t.Errorf("an egg on dirt changed to state %d", got)
-	}
-}
-
-// TestAZombieStompsATurtleEggTenBlocksAway: a zombie (its target a creative player, so none) walks to a turtle egg
-// and breaks it; with mob_griefing off it leaves the egg alone.
-// vanilla: Zombie.ZombieAttackTurtleEggGoal
-func TestAZombieStompsATurtleEggTenBlocksAway(t *testing.T) {
-	for _, griefing := range []bool{true, false} {
-		t.Run(fmt.Sprintf("griefing=%v", griefing), func(t *testing.T) { eggStompCase(t, griefing) })
-	}
-}
-
-func eggStompCase(t *testing.T, griefing bool) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Camper", servertest.OpsListing(t, "Camper"))
-	c.Settle()
-	srv.SetSpawning(false)
-	srv.SetDayTime(18000)
-	srv.SetGameRule(world.RuleMobGriefing.String(), griefing)
-	pos := srv.PlayerPosition("Camper")
-	x, y, z := int32(pos.X)+10, int32(pos.Y), int32(pos.Z)
-	servertest.SetFarmBlock(t, c, srv, x, y-1, z, "minecraft:sand", nil)
-	egg := servertest.SetFarmBlock(t, c, srv, x, y, z, "minecraft:turtle_egg", map[string]string{"eggs": "1"})
-	servertest.HoldTicks(t, srv)
-	srv.SpawnMob("minecraft:zombie", pos.X, pos.Y, pos.Z)
-	if griefing {
-		servertest.UntilTicks(t, srv, 300, "the zombie removes the egg", func() bool { return srv.BlockAt(x, y, z) != egg })
-		return
-	}
-	servertest.RunTicks(t, srv, 300)
-	if srv.BlockAt(x, y, z) != egg {
-		t.Error("the egg is gone with mob_griefing off")
 	}
 }

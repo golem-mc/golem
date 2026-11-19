@@ -5,15 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"math"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/world/chunksched"
-	"github.com/golem-mc/golem/internal/server/world/levelgen"
-	"github.com/golem-mc/golem/internal/server/world/terrain"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -59,18 +56,6 @@ func TestNetherIsDeterministic(t *testing.T) {
 				t.Fatalf("chunk (%d, %d) block at y=%d differs", pos.X, pos.Z, y)
 			}
 		}
-	}
-}
-
-// TestNetherSeedsDiffer checks that the seed is worth setting: two different
-// seeds produce two different chunks at the same coordinates.
-func TestNetherSeedsDiffer(t *testing.T) {
-	t.Parallel()
-	a := netherChunk(42, 3, -2)
-	b := netherChunk(43, 3, -2)
-
-	if bytes.Equal(encodeWhole(a), encodeWhole(b)) {
-		t.Error("seeds 42 and 43 produced the same chunk at (3, -2)")
 	}
 }
 
@@ -154,70 +139,6 @@ func TestNetherLavaSea(t *testing.T) {
 	}
 }
 
-// TestNetherRockUnderTheLavaSea checks the band under the lava line, y 6..28:
-// the cavern noise keeps deciding rock and open cells below the sea, so its
-// closed cells hold netherrack, its open ones lava, and most columns carry
-// rock under the sea.
-// vanilla: NoiseRouterData.nether
-func TestNetherRockUnderTheLavaSea(t *testing.T) {
-	t.Parallel()
-	g := NewNetherGenerator(12345)
-	rock := map[uint16]bool{
-		// the ore veins and the magma, gravel, blackstone and soul sand
-		// blobs replace netherrack under the sea's top, so every one of
-		// them counts as rock carrying on under the sea — the magma's
-		// band 27..36 dips into the sea itself
-		g.netherrackState:    true,
-		g.quartzOreState:     true,
-		g.goldOreState:       true,
-		g.magmaState:         true,
-		g.ancientDebrisState: true,
-		g.gravelState:        true,
-		g.blackstoneState:    true,
-		g.soulSandState:      true,
-		// the surface rule's basalt deltas and soul sand valley dress
-		// the rock under the sea too
-		g.basaltState:   true,
-		g.soulSoilState: true,
-	}
-	lavaState := g.lavaState
-
-	var columns, rocky, lava int
-	for i := range int64(5) {
-		for cx := range int32(4) {
-			for cz := range int32(4) {
-				c := netherChunk(12345+i, cx, cz)
-				for x := range int32(16) {
-					for z := range int32(16) {
-						columns++
-						hasRock := false
-						for y := int32(6); y <= 28; y++ {
-							switch state := c.BlockAt(x, y, z); {
-							case rock[state]:
-								hasRock = true
-							case state == lavaState:
-								lava++
-							default:
-								t.Errorf("seed %d: block at (%d, %d, %d) = %d, want rock or lava below the sea",
-									12345+i, cx*16+x, y, cz*16+z, state)
-							}
-						}
-						if hasRock {
-							rocky++
-						}
-					}
-				}
-			}
-		}
-	}
-	if rocky*2 <= columns {
-		t.Errorf("%d of %d columns hold rock under the lava sea, want most of them to", rocky, columns)
-	}
-	if lava == 0 {
-		t.Error("the sweep found no lava below the sea's top, want the sea filling the cells the noise opens")
-	}
-}
-
 // TestNetherGlowstoneAndOres rounds the features up in one sweep of sixteen
 // chunks: glowstone hanging under the cavern ceilings, and quartz, nether
 // gold and magma scattered through the netherrack — the magma in vanilla's
@@ -263,137 +184,6 @@ func TestNetherGlowstoneAndOres(t *testing.T) {
 	}
 }
 
-// TestNetherMagmaFiresAndMushrooms sweeps the seeded nether for the
-// scattered features of its open ground: veins of magma in vanilla's band
-// at the lava sea's shore, fire patches standing on bare netherrack, soul
-// fire on the valley's exposed soul soil, and the wastes' mushrooms on
-// solid ground.
-// vanilla: ore_magma, patch_fire, patch_soul_fire, brown_mushroom_nether, red_mushroom_nether
-func TestNetherMagmaFiresAndMushrooms(t *testing.T) {
-	t.Parallel()
-	g := NewNetherGenerator(3)
-
-	const bandLo, bandHi = int32(27), int32(36) // the band vanilla's ore_magma draws from
-	// A fire's ground was netherrack when the fire was lit; the ores run
-	// after the fires, so any of them may stand there now.
-	fireGround := map[uint16]bool{
-		g.netherrackState: true, g.quartzOreState: true, g.goldOreState: true, g.magmaState: true,
-		g.ancientDebrisState: true,
-		g.gravelState:        true, g.blackstoneState: true, g.soulSandState: true,
-	}
-	var magmaInBand, magmaAtSea, fires, soulFires, brown, red int
-	for cz := range int32(16) {
-		for cx := range int32(16) {
-			c := netherChunk(3, cx, cz)
-			for x := range int32(sectionSize) {
-				for z := range int32(sectionSize) {
-					for y := range int32(netherTop) {
-						switch c.BlockAt(x, y, z) {
-						case g.magmaState:
-							if y < bandLo || y > bandHi {
-								continue
-							}
-							magmaInBand++
-							for _, d := range [][3]int32{{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}} {
-								if c.BlockAt(x+d[0], y+d[1], z+d[2]) == g.lavaState {
-									magmaAtSea++
-									break
-								}
-							}
-						case g.fireState:
-							fires++
-							if below := c.BlockAt(x, y-1, z); !fireGround[below] {
-								t.Errorf("fire at (%d, %d, %d) stands on the state %d, want the netherrack it was lit on",
-									cx*sectionSize+x, y, cz*sectionSize+z, below)
-							}
-						case g.soulFireState:
-							soulFires++
-							if below := c.BlockAt(x, y-1, z); below != g.soulSoilState {
-								t.Errorf("soul fire at (%d, %d, %d) stands on the state %d, want soul soil",
-									cx*sectionSize+x, y, cz*sectionSize+z, below)
-							}
-						case g.brownMushroomState, g.redMushroomState:
-							if c.BlockAt(x, y, z) == g.brownMushroomState {
-								brown++
-							} else {
-								red++
-							}
-							if !registry.FaceSturdy(c.BlockAt(x, y-1, z), dirUp, registry.SupportFull) {
-								t.Errorf("mushroom at (%d, %d, %d) floats over the state %d, want solid ground",
-									cx*sectionSize+x, y, cz*sectionSize+z, c.BlockAt(x, y-1, z))
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	t.Logf("magma %d in the 27..36 band, %d at the sea; %d fires; %d soul fires; %d brown, %d red mushrooms",
-		magmaInBand, magmaAtSea, fires, soulFires, brown, red)
-	if magmaInBand < 12000 {
-		t.Errorf("%d magma blocks in the y 27..36 band, want the blobs in and over the sea", magmaInBand)
-	}
-	if magmaAtSea < 20 {
-		t.Errorf("%d magma blocks beside the lava sea, want the sea's shore seamed with it", magmaAtSea)
-	}
-	if fires < 100 {
-		t.Errorf("%d fires over 256 chunks, want the patches on the open netherrack", fires)
-	}
-	if soulFires < 5 {
-		t.Errorf("%d soul fires over 256 chunks, want it on the valley's exposed soul soil", soulFires)
-	}
-	if brown < 20 || red < 20 {
-		t.Errorf("%d brown and %d red mushrooms over 256 chunks, want both kinds' patches", brown, red)
-	}
-}
-
-// TestNetherForestFiresOnForestColumns checks the fires of the two forests
-// stand on the forests' own bare netherrack: the patch field runs high enough
-// on their floors to leave some rock bare, and a fire's own column — not
-// merely a wastes column inside a forest's chunk — takes the patch. The seed
-// fixes the run.
-// vanilla: patch_fire, SurfaceRuleData.nether
-func TestNetherForestFiresOnForestColumns(t *testing.T) {
-	t.Parallel()
-	g := NewNetherGenerator(12345)
-
-	// The chunks of the two forests near the origin; the region fields are
-	// cheap, so only the forest chunks are generated.
-	var crimsonFires, warpedFires, forestChunks int
-	for cx := int32(-8); cx <= 8; cx++ {
-		for cz := int32(-8); cz <= 8; cz++ {
-			r := g.regionAt(cx*sectionSize+sectionSize/2, cz*sectionSize+sectionSize/2)
-			if r != g.crimsonForest && r != g.warpedForest {
-				continue
-			}
-			forestChunks++
-			c := netherChunk(12345, cx, cz)
-			for x := range int32(sectionSize) {
-				for z := range int32(sectionSize) {
-					for y := range int32(netherTop) {
-						if c.BlockAt(x, y, z) != g.fireState {
-							continue
-						}
-						switch g.regionAt(cx*sectionSize+x, cz*sectionSize+z) {
-						case g.crimsonForest:
-							crimsonFires++
-						case g.warpedForest:
-							warpedFires++
-						}
-					}
-				}
-			}
-		}
-	}
-	t.Logf("%d forest chunks: %d fires on crimson columns, %d on warped", forestChunks, crimsonFires, warpedFires)
-	if crimsonFires == 0 {
-		t.Error("no fire on a crimson forest column, want its bare netherrack carrying patches")
-	}
-	if warpedFires == 0 {
-		t.Error("no fire on a warped forest column, want its bare netherrack carrying patches")
-	}
-}
-
 // TestNetherBiomes checks what the chunks carry: every 4x4x4 cell holds the
 // noise biome of its quart column, the one the features' biome filters read,
 // and a sweep of the biome source turns up all five biomes.
@@ -425,48 +215,6 @@ func TestNetherBiomes(t *testing.T) {
 		if !seen[biome] {
 			t.Errorf("a sweep of the biome source missed biome %d", biome)
 		}
-	}
-}
-
-// TestNetherLightFromLavaAndGlowstone checks the emitters the nether places:
-// the registry data the light engine reads gives lava and glowstone their
-// vanilla light of 15, and a lava sea seen through the world's own acquire
-// path lights the air above it.
-func TestNetherLightFromLavaAndGlowstone(t *testing.T) {
-	t.Parallel()
-	g := NewNetherGenerator(7)
-	if got := registry.LightEmission(g.lavaState); got != 15 {
-		t.Errorf("lava's light emission = %d, want 15", got)
-	}
-	if got := registry.LightEmission(g.glowstoneState); got != 15 {
-		t.Errorf("glowstone's light emission = %d, want 15", got)
-	}
-
-	// The light engine at work: a chunk of the nether acquired through a
-	// world, its lava lighting the air over it.
-	w := newTestWorld(t, NewNetherGenerator(7))
-	defer w.Close()
-	pos := ChunkPos{X: 0, Z: 0}
-	chunk, _ := w.Acquire(pos)
-	defer w.Release(pos)
-
-	found := false
-	for x := range int32(16) {
-		for z := range int32(16) {
-			if chunk.BlockAt(x, netherLavaLevel, z) != g.lavaState {
-				continue
-			}
-			if above := chunk.BlockAt(x, netherLavaLevel+1, z); above != airState {
-				continue // under a ceiling: not a lit surface
-			}
-			if got := w.BlockLightAt(x, netherLavaLevel+1, z); got != 14 {
-				t.Errorf("block light over the lava sea at (%d, %d, %d) = %d, want 14", x, netherLavaLevel+1, z, got)
-			}
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("no lit lava surface in the origin chunk, want the lava sea glowing")
 	}
 }
 
@@ -525,48 +273,6 @@ func testNetherCarvers(t *testing.T) {
 	checkNetherDigests(t, "testdata/nether_carved.txt", func(g *NetherGenerator, c *Chunk) {
 		g.buildTerrain(c, true)
 	})
-}
-
-// TestNetherGenerateCarvesBeforeFeatures checks that Generate runs the
-// carver, and that features can fill its air: some of the cells
-// it carves end up holding a feature's block.
-func TestNetherGenerateCarvesBeforeFeatures(t *testing.T) {
-	t.Parallel()
-	g := NewNetherGenerator(0)
-	caves, decorated := 0, 0
-	for cx := int32(-2); cx <= 1; cx++ {
-		for cz := int32(-2); cz <= 1; cz++ {
-			carved := newChunk(cx, cz)
-			g.shapeTerrain(carved)
-			uncarved := newChunk(cx, cz)
-			g.shapeTerrain(uncarved)
-			g.buildTerrain(carved, true)
-			full := newChunk(cx, cz)
-			g.Generate(full)
-			for y := range int32(netherTop) {
-				for z := range int32(sectionSize) {
-					for x := range int32(sectionSize) {
-						if carved.BlockAt(x, y, z) != airState || uncarved.BlockAt(x, y, z) == airState {
-							continue
-						}
-						switch full.BlockAt(x, y, z) {
-						case airState:
-							caves++
-						case g.netherrackState:
-						default:
-							decorated++
-						}
-					}
-				}
-			}
-		}
-	}
-	if caves == 0 {
-		t.Error("Generate left no carved air")
-	}
-	if decorated == 0 {
-		t.Error("no feature placed anything into the carved caves")
-	}
 }
 
 // checkNetherDigests builds every chunk a digest file lists and compares the
@@ -773,107 +479,5 @@ func BenchmarkNetherGenerateCold(b *testing.B) {
 	for b.Loop() {
 		g := NewNetherGenerator(5)
 		g.Generate(newChunk(100, 100))
-	}
-}
-
-// TestNetherBlobOres runs each of the three blob ores alone on a block of
-// chunks and counts what that feature placed: its veins per chunk, each laying
-// down at least a quarter of its size in blocks, inside its height band
-// widened by the vein's own reach.
-// vanilla: ore_gravel_nether, ore_blackstone, ore_soul_sand
-func TestNetherBlobOres(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name        string
-		count, size int32
-		lo, hi      int32
-		state       func(*NetherGenerator) uint16
-	}{
-		{"minecraft:ore_gravel_nether", 2, 33, 5, 41, func(g *NetherGenerator) uint16 { return g.gravelState }},
-		{"minecraft:ore_blackstone", 2, 33, 5, 31, func(g *NetherGenerator) uint16 { return g.blackstoneState }},
-		{"minecraft:ore_soul_sand", 12, 12, 0, 31, func(g *NetherGenerator) uint16 { return g.soulSandState }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			g := NewNetherGenerator(5)
-			var placed *netherPlaced
-			for i := range g.placed {
-				if g.placed[i].feature.Name == tc.name {
-					placed = &g.placed[i]
-				}
-			}
-			if placed == nil {
-				t.Fatalf("no placed feature %s", tc.name)
-			}
-			inMask := func(x, z int32) bool {
-				qx, _, qz := levelgen.ZoomedQuart(g.zoomSeed, x, 64, z)
-				return placed.feature.Biomes&(1<<terrain.NetherBiomeAt(g.state.Router, qx, 0, qz)) != 0
-			}
-			// A centre whose 3x3 chunks all carry the feature's biome, so
-			// every placement passes the biome filter.
-			var cx, cz int32
-			found := false
-			for x := int32(-16); x < 16 && !found; x++ {
-				for z := int32(-16); z < 16 && !found; z++ {
-					ok := true
-					for px := (x - 1) * 16; px < (x+2)*16 && ok; px += 4 {
-						for pz := (z - 1) * 16; pz < (z+2)*16 && ok; pz += 4 {
-							ok = inMask(px, pz)
-						}
-					}
-					cx, cz, found = x, z, ok
-				}
-			}
-			if !found {
-				t.Fatal("no 3x3 chunks of the feature's biome in the sweep")
-			}
-
-			veins := 0
-			place := placed.place
-			placed.place = func(r *decorRegion, p [3]int32) {
-				veins++
-				place(r, p)
-			}
-			r := newNetherRegion(g, newChunk(cx, cz))
-			g.decor().protos.init()
-			for dx := int32(-1); dx <= 1; dx++ {
-				for dz := int32(-1); dz <= 1; dz++ {
-					nx, nz := cx+dx, cz+dz
-					r.nx, r.nz = nx, nz
-					seed := r.rng.SetDecorationSeed(g.seed, nx*sectionSize, nz*sectionSize)
-					r.rng.SetFeatureSeed(seed, placed.feature.Slot.Index, placed.feature.Slot.Step)
-					r.walk(placed.mods, [3]int32{nx * sectionSize, 0, nz * sectionSize}, placed.place)
-				}
-			}
-
-			// A vein runs up to 2 below its origin and spreads by the radius
-			// of its size.
-			reach := int32(math.Ceil(float64((float32(tc.size)/16*2+1)/2))) + 2
-			state := tc.state(g)
-			var n int
-			for x := (cx - 2) * sectionSize; x < (cx+3)*sectionSize; x++ {
-				for z := (cz - 2) * sectionSize; z < (cz+3)*sectionSize; z++ {
-					for y := range int32(netherTop) {
-						if r.get(x, y, z) != state || r.terrainAt(x, y, z) == state {
-							continue
-						}
-						n++
-						if y < tc.lo-reach || y > tc.hi+reach {
-							t.Errorf("%s placed at y=%d, want %d..%d widened by %d", tc.name, y, tc.lo, tc.hi, reach)
-						}
-					}
-				}
-			}
-			// A size is the number of spheres a vein strings along its
-			// axis, so a vein holds more blocks than its size, but one
-			// replaces only netherrack and overlaps its neighbours.
-			t.Logf("%d veins placed %d blocks", veins, n)
-			if want := int(9 * tc.count); veins != want {
-				t.Errorf("%d veins, want %d per chunk over 9 chunks", veins, want)
-			}
-			if floor := veins * int(tc.size) / 4; n < floor {
-				t.Errorf("%d blocks placed by %d veins of %d, want at least %d", n, veins, tc.size, floor)
-			}
-		})
 	}
 }

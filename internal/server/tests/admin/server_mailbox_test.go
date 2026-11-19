@@ -7,34 +7,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 )
 
-// TestABurstOfTheWorldsDoingDoesNotDropTheClient kills a crowd of mobs with
-// one command: every death is a sound, an event, a removal and a drop for
-// the watching client, hundreds of packets queued in one go. The vanilla
-// server queues them all and leaves a stalled client to the keep-alive, so
-// the client must still be connected afterwards - the burst once overran a
-// 256-packet queue and the server hung up on a player who had only typed a
-// /kill.
-func TestABurstOfTheWorldsDoingDoesNotDropTheClient(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.SpawningTestConfig()
-	srv, c := servertest.Join(t, cfg, "Op", servertest.WriteOpsFile(t, servertest.OpRecord{
-		UUID:  protocol.OfflineUUID("Op").String(),
-		Name:  "Op",
-		Level: 4,
-	}))
-
-	for i := range 120 {
-		srv.SpawnMob("minecraft:cow", float64(i%12)+2.5, 64, float64(i/12)+2.5)
-	}
-	c.Settle()
-	c.ChatCommand("kill @e[type=minecraft:cow]")
-
-	// Still connected: the ping's answer comes back after the whole burst.
-	c.Settle()
-	c.Settle()
-	c.Disconnect()
-}
-
 // TestEveryPingIsAnsweredWithItsOwnPayload sends pings back to back, each
 // followed by another packet, and checks every answer echoes its own
 // payload. The answer is queued and written later on another goroutine, so

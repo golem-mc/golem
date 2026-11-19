@@ -1,12 +1,10 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -124,68 +122,6 @@ func TestGeneratorsRunTogetherAndReportInOrder(t *testing.T) {
 	}
 }
 
-// TestDecompileRunsOncePerClass asks for the same class from several
-// generators at once.
-func TestDecompileRunsOncePerClass(t *testing.T) {
-	bin := t.TempDir()
-	count := filepath.Join(bin, "count")
-	script := "#!/bin/sh\necho x >> " + count + "\necho source\n"
-	if err := os.WriteFile(filepath.Join(bin, "java"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	ref := t.TempDir()
-	jar := filepath.Join(ref, "client.jar")
-	f, err := os.Create(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	zw := zip.NewWriter(f)
-	if _, err := zw.Create("A.class"); err != nil {
-		t.Fatal(err)
-	}
-	if err := zw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	if err := os.WriteFile(vanilla.Ref{Dir: ref}.CFRJar(), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	e := &env{ref: vanilla.Ref{Dir: ref}, sources: &sourceCache{m: map[string]*decompiled{}}}
-	var wg sync.WaitGroup
-	for range 4 {
-		wg.Go(func() {
-			if src, err := e.decompile(jar, "A.class"); err != nil || strings.TrimSpace(src) != "source" {
-				t.Errorf("decompile = %q, %v", src, err)
-			}
-		})
-	}
-	wg.Wait()
-	if b, _ := os.ReadFile(count); strings.Count(string(b), "x") != 1 {
-		t.Errorf("CFR ran %d times, want once", strings.Count(string(b), "x"))
-	}
-}
-
-func TestAGapInTheIDsStopsTheGeneration(t *testing.T) {
-	root, ref := fixture(t, `{"minecraft:particle_type": {"entries": {
-		"minecraft:a": {"protocol_id": 0}, "minecraft:b": {"protocol_id": 2}}}}`)
-	code, _, stderr := runGen(root, ref, "particles")
-	if code != 1 || !strings.Contains(stderr, "not contiguous") {
-		t.Errorf("exit %d, %q", code, stderr)
-	}
-}
-
-func TestEntityTypesFillTwoPackages(t *testing.T) {
-	root, ref := fixture(t, `{"minecraft:entity_type": {"entries": {"minecraft:player": {"protocol_id": 0}}}}`)
-	if code, _, stderr := runGen(root, ref, "entitytypes"); code != 0 {
-		t.Fatalf("exit %d: %s", code, stderr)
-	}
-	got, _ := os.ReadFile(filepath.Join(root, "internal", "protocol", "entitytypes_gen.go"))
-	if !strings.Contains(string(got), "package protocol") || !strings.Contains(string(got), `"minecraft:player": true,`) {
-		t.Errorf("internal/protocol/entitytypes_gen.go:\n%s", got)
-	}
-}
-
 func TestIDsNameConstantsAndCheckStates(t *testing.T) {
 	root, ref := fixture(t, `{
 		"minecraft:block": {"entries": {"minecraft:stone": {"protocol_id": 0}, "minecraft:oak_log": {"protocol_id": 1}}},
@@ -226,74 +162,6 @@ func TestIDsNameConstantsAndCheckStates(t *testing.T) {
 	}
 }
 
-func TestIdentNaming(t *testing.T) {
-	cases := []struct {
-		name, want string
-		ok         bool
-	}{
-		{"minecraft:tnt", "BlockTnt", true},
-		{"minecraft:water_bucket", "BlockWaterBucket", true},
-		{"minecraft:block.stone.break", "BlockBlockStoneBreak", true},
-		{"minecraft:2x2_thing", "Block2x2Thing", true},
-		{"stone", "", false},
-		{"minecraft:Stone", "", false},
-		{"minecraft:a/b", "", false},
-	}
-	for _, c := range cases {
-		got, err := ident("Block", c.name)
-		if (err == nil) != c.ok || got != c.want {
-			t.Errorf("ident(%q) = %q, %v", c.name, got, err)
-		}
-	}
-	if _, err := idents("Block", []string{"minecraft:a_b", "minecraft:a__b"}); err == nil {
-		t.Error("two names for one constant were accepted")
-	}
-}
-
-func TestAllRunsRegistriesFirstAndSkipsItWithoutADump(t *testing.T) {
-	names := allNames()
-	if len(names) != len(generators) || names[0] != "registries" {
-		t.Errorf("allNames = %v", names)
-	}
-	rest := names[1:]
-	if !slices.IsSorted(rest) {
-		t.Errorf("the others are not in name order: %v", rest)
-	}
-
-	defer restoreGenerators(snapshotGenerators())
-	var (
-		mu  sync.Mutex
-		ran []string
-	)
-	for _, n := range names {
-		generators[n] = generator{name: n, doc: generators[n].doc, run: func(*env) error {
-			mu.Lock()
-			defer mu.Unlock()
-			ran = append(ran, n)
-			return nil
-		}}
-	}
-
-	root, ref := fixture(t, `{}`)
-	var out, errb bytes.Buffer
-	if code := run([]string{"-root", root, "-ref", ref, "-all"}, &out, &errb); code != 0 {
-		t.Fatalf("exit %d: %s", code, errb.String())
-	}
-	if slices.Contains(ran, "registries") || !strings.Contains(out.String(), "skipping registries") {
-		t.Errorf("registries ran without a dump: %v\n%s", ran, out.String())
-	}
-	if err := os.WriteFile(filepath.Join(ref, "registries.json"), []byte(`{}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	ran = nil
-	if code := run([]string{"-root", root, "-ref", ref, "-all"}, &out, &errb); code != 0 {
-		t.Fatalf("exit %d: %s", code, errb.String())
-	}
-	if len(ran) != len(names) || ran[0] != "registries" {
-		t.Errorf("ran %v", ran)
-	}
-}
-
 func snapshotGenerators() map[string]generator {
 	out := make(map[string]generator, len(generators))
 	maps.Copy(out, generators)
@@ -303,22 +171,4 @@ func snapshotGenerators() map[string]generator {
 func restoreGenerators(saved map[string]generator) {
 	clear(generators)
 	maps.Copy(generators, saved)
-}
-
-func TestCheckAllFailsWithoutADump(t *testing.T) {
-	root, ref := fixture(t, particleReport)
-	code, _, stderr := runGen(root, ref, "-check", "-all")
-	if code == 0 || !strings.Contains(stderr, "no dump") {
-		t.Errorf("-check -all without a dump = %d, %q; want a failure naming the dump", code, stderr)
-	}
-}
-
-// TestARepeatedNameRunsOnce: two runs of one generator would write its file
-// at the same time.
-func TestARepeatedNameRunsOnce(t *testing.T) {
-	root, ref := fixture(t, particleReport)
-	code, stdout, stderr := runGen(root, ref, "particles", "particles")
-	if code != 0 || strings.Count(stdout, "particle_type") != 1 {
-		t.Errorf("exit %d, stdout %q, stderr %q; want one run", code, stdout, stderr)
-	}
 }

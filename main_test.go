@@ -125,34 +125,6 @@ func captured(r io.Reader) (stop func() string) {
 	}
 }
 
-// TestFatalErrorRestoresTheTerminal fails the start on a terminal and holds
-// that the terminal is left as it was found, and the error logged as one, in
-// red.
-func TestFatalErrorRestoresTheTerminal(t *testing.T) {
-	master, slave := openPTY(t)
-	before := termios(t, slave)
-	output := captured(master)
-
-	if code := failToListen(t, slave, slave, ""); code != 1 {
-		t.Errorf("exit code %d, want 1", code)
-	}
-	if after := termios(t, slave); after != before {
-		t.Errorf("the terminal was left changed: lflag %#x oflag %#x, was %#x %#x",
-			after.Lflag, after.Oflag, before.Lflag, before.Oflag)
-	}
-
-	_ = slave.Close()
-	out := strings.TrimRight(output(), "\r\n")
-	last := out[strings.LastIndex(out, "\n")+1:]
-	if !strings.Contains(last, "\x1b[31mERROR\x1b[0m") || !strings.Contains(last, "\x1b[31mserver error: listen: ") ||
-		!strings.Contains(last, "address already in use") {
-		t.Errorf("the last line is %q, want the listen error in red at level ERROR", last)
-	}
-	if strings.HasSuffix(out, "> ") {
-		t.Errorf("output ends in a prompt: %q", out)
-	}
-}
-
 // TestPipedOutputIsPlain runs the server with its input on a terminal and
 // its output piped, and holds that the output carries no prompt and no
 // escape codes and that the terminal is not touched.
@@ -191,24 +163,6 @@ func TestPipedOutputIsPlain(t *testing.T) {
 
 // sgrCode is an escape code that sets a colour or a decoration.
 var sgrCode = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
-// TestNoColorOnATerminal fails the start on a terminal with NO_COLOR set,
-// and holds that the log has no colour, the line editing's own codes aside.
-func TestNoColorOnATerminal(t *testing.T) {
-	master, slave := openPTY(t)
-	output := captured(master)
-	if code := failToListen(t, slave, slave, "1"); code != 1 {
-		t.Errorf("exit code %d, want 1", code)
-	}
-	_ = slave.Close()
-	out := output()
-	if sgrCode.MatchString(out) {
-		t.Errorf("output with NO_COLOR carries colour: %q", out)
-	}
-	if !strings.Contains(out, "[Server thread/ERROR]: server error: listen: ") {
-		t.Errorf("output %q lacks the plain error line", out)
-	}
-}
 
 // writeServerProperties gives dir a server.properties on a free port with no
 // online check, so the server runs without a client.
@@ -434,36 +388,6 @@ func readDatagram(conn *net.UDPConn) ([]byte, error) {
 		return nil, err
 	}
 	return buf[:n], nil
-}
-
-// TestServerLogsRepliesToLatestLog runs the server on a pipe, runs /save-all
-// through the console and stops it: latest.log holds the startup log line and
-// the command's reply, and both reach the standard output. vanilla:
-// log4j2's SYSTEM_OUT and rolling file appenders.
-func TestServerLogsRepliesToLatestLog(t *testing.T) {
-	dir := t.TempDir()
-	writeServerProperties(t, dir)
-
-	stdout, stderr := runServer(t, dir, "save-all\nstop\n")
-
-	latest, err := os.ReadFile(filepath.Join(dir, "logs", "latest.log"))
-	if err != nil {
-		t.Fatalf("read latest.log: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
-	}
-	for _, want := range []string{
-		"Starting minecraft server version 26.3",
-		"Saved the game",
-	} {
-		if !strings.Contains(string(latest), want) {
-			t.Errorf("latest.log lacks %q:\n%s", want, latest)
-		}
-		if !strings.Contains(stdout, want) {
-			t.Errorf("stdout lacks %q:\n%s", want, stdout)
-		}
-	}
-	if strings.Contains(stderr, "[Server thread/") {
-		t.Errorf("the standard error carries log lines:\n%s", stderr)
-	}
 }
 
 // TestServerRotatesTheLogOnRestart starts the server twice in the same

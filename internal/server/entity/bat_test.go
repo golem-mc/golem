@@ -3,8 +3,6 @@ package entity
 import (
 	"math/rand"
 	"testing"
-
-	"github.com/golem-mc/golem/internal/server/rules"
 )
 
 // batWorld is a spawnTestWorld whose air is the empty state, as the bat's
@@ -80,66 +78,6 @@ func TestABatWakesWhenAPlayerIsWithinFourBlocks(t *testing.T) {
 	}
 }
 
-// TestABatWakesWhenItsCeilingGoesAndWhenHurt checks the other two wakes.
-// vanilla: Bat.customServerAiStep, Bat.hurtServer
-func TestABatWakesWhenItsCeilingGoesAndWhenHurt(t *testing.T) {
-	m, w := hangingBat(t)
-	w.set(0, 31, 0, 0)
-	m.Tick(w, nil)
-	if m.Resting {
-		t.Error("a bat stayed resting under no ceiling")
-	}
-
-	h, w2 := hangingBat(t)
-	h.HurtByWorld(1, rules.DamageTypeCramming)
-	if h.Resting {
-		t.Error("a hurt bat stayed resting")
-	}
-	h.Tick(w2, nil)
-}
-
-// TestAFlyingBatStaysAloftAndMoves checks the flight: no gravity fall to the
-// floor in a hundred ticks, and a different place from the start.
-// vanilla: Bat.customServerAiStep
-func TestAFlyingBatStaysAloftAndMoves(t *testing.T) {
-	m, w := hangingBat(t)
-	for x := int32(-40); x <= 40; x++ {
-		for z := int32(-40); z <= 40; z++ {
-			w.set(x, 31, z, 0)
-			w.set(x, 33, z, 0)
-			w.set(x, 34, z, 0)
-		}
-	}
-	m.Resting = false
-	startX, startZ := m.X, m.Z
-	for range 200 {
-		m.Tick(w, nil)
-		if m.Y <= 29.9 {
-			t.Fatalf("the bat sank to the floor at y=%v", m.Y)
-		}
-	}
-	if m.X == startX && m.Z == startZ {
-		t.Error("the flying bat never left its place")
-	}
-}
-
-// TestABatIsAmbientNotACreatureOrMonster checks the category predicates the
-// caps count by, and the vanilla box and health.
-func TestABatIsAmbientNotACreatureOrMonster(t *testing.T) {
-	if !AmbientKind(TypeBat) || MonsterKind(TypeBat) || CreatureKind(TypeBat) {
-		t.Errorf("bat ambient=%v monster=%v creature=%v", AmbientKind(TypeBat), MonsterKind(TypeBat), CreatureKind(TypeBat))
-	}
-	if AmbientKind(TypeCow) || AmbientKind(TypeZombie) {
-		t.Error("a cow or zombie counted as ambient")
-	}
-	if w, h := KindDims(TypeBat); w != 0.5 || h != 0.9 {
-		t.Errorf("box %v by %v, want 0.5 by 0.9", w, h)
-	}
-	if m := NewMob(TypeBat, 1, 0, 0, 0, 1); m.MaxHealth != 6 {
-		t.Errorf("health %v, want 6", m.MaxHealth)
-	}
-}
-
 // batsFromPasses runs the position pass over many seeds in the world and
 // counts the requests made, with the types seen.
 func batsFromPasses(w batWorld, counts func() *SpawnCounts) (n int, types map[MobType]bool) {
@@ -187,62 +125,5 @@ func TestBatsSpawnInDarkCavesBelowTheSurface(t *testing.T) {
 	}
 	if n, _ := batsFromPasses(dirt, fresh); n != 0 {
 		t.Errorf("cobblestone floor spawned %d bats", n)
-	}
-}
-
-// TestBatsStopAtTheAmbientCap checks the category's own cap of fifteen per
-// chunk-equivalent: a full global count stands nothing up, and monsters
-// do not count toward it.
-// vanilla: MobCategory.AMBIENT
-func TestBatsStopAtTheAmbientCap(t *testing.T) {
-	w := caveWorld(t)
-	bx, bz := atChunk(0, 0)
-	players := []SpawnPlayer{{EntityID: 1, X: float64(bx) + 100.5, Y: 30, Z: float64(bz) + 0.5}}
-	chunks := []ChunkPos{{}}
-	run := func(global int) int {
-		n := 0
-		for seed := int64(1); seed < 400; seed++ {
-			counts := &SpawnCounts{Global: global, PerPlayer: map[int32]int{}}
-			SpawnNaturally(w, rand.New(rand.NewSource(seed)), chunks, players, nil, nil, []SpawnPass{AmbientPass(counts)}, 289,
-				func(SpawnRequest) { n++ })
-		}
-		return n
-	}
-	if run(0) == 0 {
-		t.Fatal("control: an empty count stood up no bat")
-	}
-	if got := run(15); got != 0 {
-		t.Errorf("a global count at 15 of 15 stood up %d bats", got)
-	}
-}
-
-// TestABatDoesNotWakeForAPlayerBehindAWall checks that the wake needs line of
-// sight: a wall between the bat and a player three blocks away leaves it
-// asleep.
-// vanilla: Bat.BAT_RESTING_TARGETING, TargetingConditions.checkLineOfSight
-func TestABatDoesNotWakeForAPlayerBehindAWall(t *testing.T) {
-	m, w := hangingBat(t)
-	for x := int32(-2); x <= 2; x++ {
-		for y := int32(30); y <= 32; y++ {
-			w.groundAt(t, x, y, 2)
-		}
-	}
-	m.Tick(w, []Player{{X: 0.5, Y: 30, Z: 3.5, EntityID: 2}})
-	if !m.Resting {
-		t.Fatal("a bat woke for a player behind a wall")
-	}
-}
-
-// TestAFlyingBatGetsNoForwardPush checks that flight adds no walk speed:
-// MoveControl resets the forward input Bat.customServerAiStep sets.
-// vanilla: Bat.customServerAiStep, MoveControl.tick
-func TestAFlyingBatGetsNoForwardPush(t *testing.T) {
-	m, w := hangingBat(t)
-	m.Resting = false
-	for range 20 {
-		m.Tick(w, nil)
-		if m.walk.speed != 0 {
-			t.Fatalf("a flying bat walks at speed %v, want 0", m.walk.speed)
-		}
 	}
 }

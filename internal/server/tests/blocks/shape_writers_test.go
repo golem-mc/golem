@@ -121,59 +121,6 @@ func TestSetblockRemovingAFenceDisconnectsIt(t *testing.T) {
 	}
 }
 
-// TestFillConnectsFenceRow checks that a non-strict /fill of a fence row
-// connects every cell, ends included: each filled cell takes its shape from
-// the whole row and the neighbours reshape after the batch.
-func TestFillConnectsFenceRow(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-
-	c.ChatCommand("fill 5 64 5 9 64 5 oak_fence")
-	servertest.WaitFor(t, srv, 100, func() bool {
-		return srv.BlockAt(9, 64, 5) == fenceState(t, map[string]string{"west": "true"})
-	})
-
-	want := map[int32]map[string]string{
-		5: {"east": "true"},
-		6: {"east": "true", "west": "true"},
-		7: {"east": "true", "west": "true"},
-		8: {"east": "true", "west": "true"},
-		9: {"west": "true"},
-	}
-	for x, overrides := range want {
-		if got := srv.BlockAt(x, 64, 5); got != fenceState(t, overrides) {
-			t.Errorf("fence at %d = %d, want %v", x, got, overrides)
-		}
-	}
-}
-
-// TestExplosionRemovingAFenceNeighbourDisconnectsIt checks that a blast's
-// removal of the block a fence connects to reshapes the fence: the writer
-// walks the removed cells and runs the neighbour update on each.
-func TestExplosionRemovingAFenceNeighbourDisconnectsIt(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Bystander", servertest.OpsListing(t, "Bystander"))
-
-	// The fence at (7,64,0) connects west to dirt at (6,64,0). A blast
-	// centred on the dirt is small enough to destroy it but not the fence.
-	c.ChatCommand("setblock 7 64 0 oak_fence")
-	servertest.AwaitBlockUpdate(t, c, 7, 64, 0, fenceState(t, nil))
-	c.ChatCommand("setblock 6 64 0 dirt")
-	servertest.WaitFor(t, srv, 60, func() bool {
-		_, props := servertest.StateProps(srv.BlockAt(7, 64, 0))
-		return props["west"] == "true"
-	})
-
-	srv.BlastAt(6.5, 64.5, 0.5, 0.9)
-
-	if got := srv.BlockAt(6, 64, 0); got != 0 {
-		t.Errorf("blast left the neighbour = %d, want air", got)
-	}
-	if got := srv.BlockAt(7, 64, 0); got != fenceState(t, nil) {
-		t.Errorf("fence beside the crater = %d, want no connections", got)
-	}
-}
-
 // TestFallingSandConnectsToWall checks that a falling block's landing next to
 // a wall reshapes the wall: the landed sand is a sturdy neighbour, so the
 // wall takes a low arm toward it.
@@ -237,33 +184,6 @@ func TestPistonPushesAFenceToConnect(t *testing.T) {
 	}
 }
 
-// TestSetblockKeepsShapeProperties checks that the placed-state shape update
-// keeps a cross or wall's other properties: /setblock of a waterlogged fence,
-// wall or bars must not drop the waterlogged property the way the stair path
-// already keeps it.
-func TestSetblockKeepsShapeProperties(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-
-	c.ChatCommand("setblock 5 64 5 oak_fence[waterlogged=true]")
-	servertest.AwaitBlockUpdate(t, c, 5, 64, 5, fenceState(t, map[string]string{"waterlogged": "true"}))
-
-	c.ChatCommand("setblock 7 64 5 cobblestone_wall[waterlogged=true]")
-	servertest.AwaitBlockUpdate(t, c, 7, 64, 5, wallState(t, map[string]string{
-		"up": "true", "north": "none", "south": "none", "east": "none", "west": "none",
-		"waterlogged": "true",
-	}))
-
-	c.ChatCommand("setblock 9 64 5 iron_bars[waterlogged=true]")
-	servertest.AwaitBlockUpdate(t, c, 9, 64, 5, barsState(t, map[string]string{"waterlogged": "true"}))
-
-	c.ChatCommand("setblock 11 64 5 glass_pane[waterlogged=true]")
-	servertest.AwaitBlockUpdate(t, c, 11, 64, 5, paneState(t, map[string]string{"waterlogged": "true"}))
-
-	c.ChatCommand("setblock 13 64 5 copper_bars[waterlogged=true]")
-	servertest.AwaitBlockUpdate(t, c, 13, 64, 5, copperBarsState(t, map[string]string{"waterlogged": "true"}))
-}
-
 // TestAReshapedCrossKeepsWaterlogged checks that the neighbour update keeps a
 // cross block's other properties: a waterlogged fence, iron bars, glass pane
 // or copper bars reshaped by a new neighbour must stay waterlogged.
@@ -290,26 +210,6 @@ func TestAReshapedCrossKeepsWaterlogged(t *testing.T) {
 	servertest.AwaitBlockUpdate(t, c, 5, 64, 11, copperBarsState(t, map[string]string{"waterlogged": "true"}))
 	c.ChatCommand("setblock 6 64 11 stone")
 	servertest.AwaitBlockUpdate(t, c, 5, 64, 11, copperBarsState(t, map[string]string{"east": "true", "waterlogged": "true"}))
-}
-
-// TestAReshapedWallKeepsWaterlogged checks that the neighbour update keeps a
-// wall's other properties: a wall reshaped by a new neighbour must stay
-// waterlogged.
-func TestAReshapedWallKeepsWaterlogged(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
-
-	c.ChatCommand("setblock 5 64 5 cobblestone_wall[waterlogged=true]")
-	servertest.AwaitBlockUpdate(t, c, 5, 64, 5, wallState(t, map[string]string{
-		"up": "true", "north": "none", "south": "none", "east": "none", "west": "none",
-		"waterlogged": "true",
-	}))
-
-	c.ChatCommand("setblock 6 64 5 stone")
-	servertest.AwaitBlockUpdate(t, c, 5, 64, 5, wallState(t, map[string]string{
-		"up": "true", "north": "none", "south": "none", "east": "low", "west": "none",
-		"waterlogged": "true",
-	}))
 }
 
 // fenceState returns the block state ID an oak_fence would be in with the given

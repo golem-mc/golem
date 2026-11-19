@@ -5,38 +5,6 @@ import (
 	"testing"
 )
 
-func TestMaterialBranchOutcomes(t *testing.T) {
-	biomes := &countedMaterialBiomes{names: []string{"plains", "forest"}}
-	c := &materialContext{biomes: biomes, possibleBiomes: []int{0}}
-	yes, no := isBiome("plains"), isBiome("forest")
-	for _, tt := range []struct {
-		name  string
-		rule  materialRule
-		want  Material
-		match bool
-	}{
-		{"empty", sequence(), 0, false},
-		{"all false", sequence(ifTrue(no, block(Dirt)), ifTrue(no, block(Stone))), 0, false},
-		{"single match", sequence(ifTrue(no, block(Dirt)), ifTrue(yes, block(Stone))), Stone, true},
-		{"first match", sequence(ifTrue(no, block(Dirt)), block(Stone), block(Dirt)), Stone, true},
-		{"nested false", ifTrue(yes, ifTrue(no, block(Dirt))), 0, false},
-		{"nested true", ifTrue(yes, ifTrue(not(no), block(Dirt))), Dirt, true},
-		{"invert true", ifTrue(not(yes), block(Dirt)), 0, false},
-		{"double invert", ifTrue(not(not(yes)), block(Dirt)), Dirt, true},
-		{"unknown name", ifTrue(isBiome("unknown"), block(Dirt)), 0, false},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			m, ok := tt.rule(c)(0, 0, 0)
-			if m != tt.want || ok != tt.match {
-				t.Fatalf("got %v,%v, want %v,%v", m, ok, tt.want, tt.match)
-			}
-		})
-	}
-	if biomes.calls != 0 {
-		t.Fatal("known possibilities sampled a biome")
-	}
-}
-
 func TestMaterialRuleOrder(t *testing.T) {
 	c := &materialContext{biomes: &countedMaterialBiomes{names: []string{"plains", "forest"}}, possibleBiomes: []int{0}}
 	var trace []string

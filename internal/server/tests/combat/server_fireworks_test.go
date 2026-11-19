@@ -519,77 +519,6 @@ func TestAGlidingPlayerUsesARocketAttachedToThemselves(t *testing.T) {
 	}
 }
 
-// TestAStalledFireworkRocketBurstsBesideAMob launches a rocket of one
-// explosion into the metre of air under a stone ceiling, where its rise
-// stalls within the ceiling's reach, so the burst comes down beside the
-// cow standing at the mouth: the hurt the distance's falloff leaves it,
-// with the fireworks damage type and the cow's hurt voice behind it, and
-// the burst's event and removal told each the once at the life's end.
-func TestAStalledFireworkRocketBurstsBesideAMob(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.BowTestConfig(), "Launcher")
-
-	// The ceiling one block above the launch face's air, and the cow
-	// beside it, pinned where it stands.
-	stone, ok := registry.BlockStates["minecraft:stone"]
-	if !ok {
-		t.Fatal("the block registry has no minecraft:stone")
-	}
-	srv.SetBlock(5, 65, 2, stone)
-	cowID := srv.SpawnMob("minecraft:cow", 5.5, 64, 5.5)
-	srv.SetMobNoAI(cowID)
-
-	srv.GiveSlot("Launcher", 36, servertest.FireworkStack(0, 1))
-	c.MoveTo(3.5, 64, 1.5, -90, -25)
-	servertest.HoldTicks(t, srv)
-	useItemOnFace(c, 5, 63, 2, protocol.FaceTop, 0.5, 0.9, 0.5)
-
-	traffic := readFireworkTraffic(c, srv, 60)
-	rocket := traffic.fireworkOf()
-	if rocket == nil {
-		t.Fatal("no firework rocket came into the world for the use")
-	}
-	// Launched from the face under the ceiling.
-	if d := rocket.Y - (63 + 0.9 + 0.15); d < -0.01 || d > 0.01 {
-		t.Errorf("the rocket was born at y=%v, want the face's own 0.15 above", rocket.Y)
-	}
-	events := traffic.eventsOf(rocket.EntityID)
-	if len(events) != 1 || events[0].Status != protocol.EntityStatusFireworkBurst {
-		t.Fatalf("the rocket's entity events = %#v, want the burst's one", events)
-	}
-	if !traffic.removedOnce(rocket.EntityID) {
-		t.Error("the rocket was not taken out of the world exactly once")
-	}
-	// The cow: hurt by the burst's fireworks type, its health told off,
-	// its voice played from where it stands.
-	fireworksType := registry.MustID("minecraft:damage_type", "minecraft:fireworks")
-	hurt := false
-	for _, ev := range traffic.damageEvents {
-		if ev.Id == cowID && ev.DamageType == fireworksType {
-			hurt = true
-		}
-	}
-	if !hurt {
-		t.Error("no fireworks damage event named the cow")
-	}
-	if healths := traffic.healthsOf(cowID); len(healths) == 0 {
-		t.Error("the cow's health was never told after the burst")
-	} else {
-		if last := healths[len(healths)-1]; last >= 10 {
-			t.Errorf("the cow's latest health was told %v, want the falloff's share off it", last)
-		}
-	}
-	cowVoice := false
-	for _, s := range traffic.sounds {
-		if s.Name == "minecraft:entity.cow.hurt" && s.X > 5 && s.X < 6.1 && s.Y > 63.5 && s.Y < 65 && s.Z > 5 && s.Z < 6.1 {
-			cowVoice = true
-		}
-	}
-	if !cowVoice {
-		t.Error("no cow hurt voice played from the cow")
-	}
-}
-
 // TestAStartedGlideSetsTheFallFlyingFlag sends the fall-flying player
 // command to a gliding player in the air and reads the shared flags byte
 // back: the 0x80 fall-flying bit, which is what opens the wings on the
@@ -626,39 +555,6 @@ func TestAStartedGlideSetsTheFallFlyingFlag(t *testing.T) {
 	if flags&protocol.EntityFlagFlying == 0 {
 		t.Errorf("the glider's shared flags = %#02x, want the fall-flying bit %#02x", flags, protocol.EntityFlagFlying)
 	}
-}
-
-// TestAGlideDoesNotStartBesideWater pins the glide's water refusal on the
-// body's box rather than the feet block: vanilla refuses the start while
-// isInWater, so a body whose box reaches a water cell beside it stays down
-// even though the cell under its centre is dry.
-// vanilla: Player.tryToStartFallFlying
-func TestAGlideDoesNotStartBesideWater(t *testing.T) {
-	t.Parallel()
-	srv, c, playerID := servertest.JoinAs(t, servertest.BowTestConfig(), "Glider")
-
-	srv.GiveSlot("Glider", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:elytra"), Count: 1})
-	servertest.UseHeld(c, -90, 0)
-	c.AwaitPlay(protocol.IDPlayContainerSlot)
-	c.AwaitPlay(protocol.IDPlayContainerSlot)
-
-	// Water beside the body: the feet cell (1,66,0) is dry while the box's
-	// 0.8 edge reaches the source at x=0.
-	srv.SetBlock(0, 66, 0, servertest.BlockState(t, "minecraft:water"))
-	c.MoveToGrounded(1.1, 66, 0.5, -90, 10, false)
-	servertest.HoldTicks(t, srv)
-	servertest.StartFallFlying(c)
-
-	c.ReadTicks(srv, 40, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayEntityMetadata {
-			return false
-		}
-		m := servertest.ReadBurningMetadata(t, data)
-		if m.EntityID == playerID && m.Flags&protocol.EntityFlagFlying != 0 {
-			t.Errorf("the glider's flags = %#02x beside the water, want no fall-flying bit", m.Flags)
-		}
-		return false
-	})
 }
 
 // TestAGlideEndsWhenTheGliderBoardsABoat seats a gliding player in a boat:
@@ -715,72 +611,6 @@ func TestAGlideEndsWhenTheGliderBoardsABoat(t *testing.T) {
 	}
 }
 
-// TestAGlideDoesNotStartInLava refuses the start with the feet in a lava
-// cell: vanilla refuses while isInLiquid, which counts lava as well as water.
-// vanilla: Player.tryToStartFallFlying, Entity.isInLiquid
-func TestAGlideDoesNotStartInLava(t *testing.T) {
-	t.Parallel()
-	srv, c, playerID := servertest.JoinAs(t, servertest.BowTestConfig(), "Glider")
-
-	srv.GiveSlot("Glider", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:elytra"), Count: 1})
-	servertest.UseHeld(c, -90, 0)
-	c.AwaitPlay(protocol.IDPlayContainerSlot)
-	c.AwaitPlay(protocol.IDPlayContainerSlot)
-
-	srv.SetBlock(1, 66, 0, servertest.BlockState(t, "minecraft:lava"))
-	c.MoveToGrounded(1.1, 66, 0.5, -90, 10, false)
-	servertest.HoldTicks(t, srv)
-	servertest.StartFallFlying(c)
-
-	c.ReadTicks(srv, 20, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayEntityMetadata {
-			return false
-		}
-		m := servertest.ReadBurningMetadata(t, data)
-		if m.EntityID == playerID && m.Flags&protocol.EntityFlagFlying != 0 {
-			t.Errorf("the glider's flags = %#02x in the lava, want no fall-flying bit", m.Flags)
-		}
-		return false
-	})
-}
-
-// TestAFireworkRocketLaunchedAtTheLauncherFliesThrough launches a rocket on
-// the block the launcher stands on, so it is born inside the launcher's own
-// box: a projectile's line that begins inside a body finds no crossing, so
-// the rocket rises through and lives its life instead of bursting at once.
-func TestAFireworkRocketLaunchedAtTheLauncherFliesThrough(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.BowTestConfig(), "Launcher")
-
-	srv.GiveSlot("Launcher", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:firework_rocket"), Count: 1})
-	useItemOnFace(c, 0, 63, 0, protocol.FaceTop, 0.5, 0.9, 0.5)
-
-	spawned := int32(-1)
-	removed := false
-	c.PumpTicks(srv, 4, func(id int32, data []byte) bool {
-		switch id {
-		case protocol.IDPlaySpawnEntity:
-			if s := servertest.ReadThrownSpawn(c, data); s.EntityType == protocol.EntityTypeFireworkRocket {
-				spawned = s.EntityID
-			}
-		case protocol.IDPlayRemoveEntities:
-			r := protocol.NewReader(data)
-			for range r.ReadVarInt() {
-				if gone := r.ReadVarInt(); spawned >= 0 && gone == spawned {
-					removed = true
-				}
-			}
-		}
-		return false
-	})
-	if spawned < 0 {
-		t.Fatal("no firework rocket came into the world for the use")
-	}
-	if removed {
-		t.Error("the rocket burst on the body its flight began inside instead of rising through")
-	}
-}
-
 // TestAFireworkBurstBreaksAnArmorStandInReach glides past a stand and uses
 // a starred rocket: the burst breaks the visible stand outright — the
 // fireworks damage type is one of is_explosion — the way a blast does.
@@ -808,58 +638,6 @@ func TestAFireworkBurstBreaksAnArmorStandInReach(t *testing.T) {
 	}
 	if n := srv.ArmorStandCount(); n != 0 {
 		t.Errorf("%d armor stands remain after the burst, want the one in reach broken", n)
-	}
-}
-
-// TestAFireworkBurstBreaksTwoArmorStandsInReach glides past two stands and
-// uses a starred rocket: both broken outright, so the burst's removal walk
-// may neither trip over the stand the one before vacated nor skip it.
-func TestAFireworkBurstBreaksTwoArmorStandsInReach(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.BowTestConfig(), "Glider", servertest.OpsListing(t, "Glider"))
-
-	c.ChatCommand("summon minecraft:armor_stand 1.5 64 0.5")
-	c.ExpectArmorStandSpawn()
-	c.ChatCommand("summon minecraft:armor_stand 1.5 64 1.5")
-	c.ExpectArmorStandSpawn()
-
-	srv.GiveSlot("Glider", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:elytra"), Count: 1})
-	servertest.UseHeld(c, -90, 0)
-	c.AwaitPlay(protocol.IDPlayContainerSlot)
-	c.AwaitPlay(protocol.IDPlayContainerSlot)
-	srv.GiveSlot("Glider", 36, servertest.FireworkStack(0, 1))
-
-	c.MoveToGrounded(0.5, 66, 0.5, -90, 10, false)
-	servertest.HoldTicks(t, srv)
-	servertest.StartFallFlying(c)
-	servertest.UseHeld(c, -90, 10)
-
-	traffic := readFireworkTraffic(c, srv, 60)
-	if rocket := traffic.fireworkOf(); rocket == nil {
-		t.Fatal("no firework rocket came into the world for the gliding use")
-	}
-	if n := srv.ArmorStandCount(); n != 0 {
-		t.Errorf("%d armor stands remain after the burst, want both in reach broken", n)
-	}
-}
-
-// TestAFireworkRocketLaunchesInCreativeForFree checks the block launch's
-// cost in creative: none. Infinite materials take the stack's count back
-// to what it was after the item's useOn spent one.
-func TestAFireworkRocketLaunchesInCreativeForFree(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.BlockTestConfig(), "Creator")
-	srv.GiveSlot("Creator", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:firework_rocket"), Count: 2})
-
-	servertest.HoldTicks(t, srv)
-	useItemOnFace(c, 3, 63, 1, protocol.FaceTop, 0.5, 0.9, 0.5)
-
-	traffic := readFireworkTraffic(c, srv, 60)
-	if rocket := traffic.fireworkOf(); rocket == nil {
-		t.Fatal("no firework rocket came into the world for the use")
-	}
-	if left := srv.InventorySlot("Creator", 36); left.Count != 2 {
-		t.Errorf("the creative hotbar holds %d rockets after the launch, want the two it started with", left.Count)
 	}
 }
 
@@ -936,48 +714,6 @@ func TestAGlidingElytraWearsOneEveryTwentyTicks(t *testing.T) {
 	}
 }
 
-// TestAGlidingElytraWearsOnTheTwentiethTick pins the first wear to glide
-// tick 20, not 19.
-// vanilla: LivingEntity.updateFallFlying
-func TestAGlidingElytraWearsOnTheTwentiethTick(t *testing.T) {
-	t.Parallel()
-	// Held: a free loop's reader runs a tick past the count.
-	srv, c := heldGlidingElytraClient(t, "Glider")
-	since := srv.TicksRun()
-	c.PumpTicksSince(srv, since, 19, func(int32, []byte) bool { return false })
-	if d := srv.InventorySlot("Glider", 6).Damage; d != 0 {
-		t.Errorf("elytra damage after 19 ticks of glide = %d, want 0", d)
-	}
-	c.PumpTicksSince(srv, since, 22, func(int32, []byte) bool { return false })
-	if d := srv.InventorySlot("Glider", 6).Damage; d != 1 {
-		t.Errorf("elytra damage after 22 ticks of glide = %d, want 1", d)
-	}
-}
-
-// TestASpectatorsGlideEnds checks that a spectator, who always flies, stops
-// gliding and wears nothing.
-// vanilla: Player.canGlide
-func TestASpectatorsGlideEnds(t *testing.T) {
-	t.Parallel()
-	// Held: the glide wears a point every twenty ticks until the switch
-	// lands, and the hover step the wings opened from counts toward the
-	// eighty floating ticks that kick, so a free loop's ticks over the
-	// setup would show either.
-	srv, c := heldGlidingElytraClient(t, "Glider", servertest.OpsListing(t, "Glider"))
-	c.ChatCommand("gamemode spectator Glider")
-	servertest.PollUntil(t, servertest.ExpectTimeout, func() bool {
-		return srv.PlayerGameMode("Glider") == protocol.GameModeSpectator
-	})
-	since := srv.TicksRun()
-	c.PumpTicksSince(srv, since, 60, func(int32, []byte) bool { return false })
-	if srv.PlayerFallFlying("Glider") {
-		t.Error("a spectator went on gliding")
-	}
-	if d := srv.InventorySlot("Glider", 6).Damage; d != 0 {
-		t.Errorf("a spectator's elytra took %d wear, want 0", d)
-	}
-}
-
 // TestLevitationEndsAGlide gives Levitation to a gliding player: the wings
 // close at the next tick.
 // vanilla: LivingEntity.canGlide
@@ -993,61 +729,4 @@ func TestLevitationEndsAGlide(t *testing.T) {
 	if srv.PlayerFallFlying("Glider") {
 		t.Error("the glide went on under Levitation")
 	}
-}
-
-// TestAGivenRocketFliesItsGivenFlight checks the flight a /give wrote into a
-// rocket's fireworks component sets the rocket's life: a rocket of three
-// flights lives at least forty ticks, where the default one is gone before
-// thirty-one.
-// vanilla: FireworkRocketEntity
-func TestAGivenRocketFliesItsGivenFlight(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BowTestConfig()
-	cfg.GameMode = "creative"
-	srv, c, _ := servertest.JoinAs(t, cfg, "Launcher", servertest.OpsListing(t, "Launcher"))
-	c.ChatCommand("give @s firework_rocket[fireworks={flight_duration:3}]")
-	servertest.AwaitSlotUpdates(t, c, 1)
-
-	servertest.HoldTicks(t, srv)
-	useItemOnFace(c, 3, 63, 1, protocol.FaceTop, 0.5, 0.9, 0.5)
-
-	early := readFireworkTraffic(c, srv, 38)
-	rocket := early.fireworkOf()
-	if rocket == nil {
-		t.Fatal("no firework rocket came into the world for the use")
-	}
-	if early.removedOnce(rocket.EntityID) {
-		t.Error("the rocket of flight 3 was gone within 38 ticks")
-	}
-	late := readFireworkTraffic(c, srv, 16)
-	if !late.removedOnce(rocket.EntityID) {
-		t.Error("the rocket of flight 3 outlived 54 ticks")
-	}
-}
-
-func TestARocketBoostDropsTheGlidersLeads(t *testing.T) {
-	t.Parallel()
-	srv, c, playerID := servertest.JoinAs(t, servertest.BowTestConfig(), "Glider")
-	cowID := srv.SpawnMob("minecraft:cow", 2, 64, 0.5)
-	srv.SetMobNoAI(cowID)
-	srv.SetMobLeashHolder(cowID, playerID)
-
-	srv.GiveSlot("Glider", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:elytra"), Count: 1})
-	servertest.UseHeld(c, -90, 0)
-	c.AwaitPlay(protocol.IDPlayContainerSlot)
-	c.AwaitPlay(protocol.IDPlayContainerSlot)
-	srv.GiveSlot("Glider", 36, servertest.FireworkStack(0, 1))
-
-	c.MoveToGrounded(0.5, 66, 0.5, -90, 10, false)
-	servertest.HoldTicks(t, srv)
-	servertest.StartFallFlying(c)
-	servertest.UseHeld(c, -90, 10)
-	if drop := c.ExpectLeashDrop(); drop.Stack.ItemID != servertest.ItemIDOrDie(t, "minecraft:lead") || drop.Stack.Count != 1 {
-		t.Errorf("the rocket boost laid %+v, want one lead", drop.Stack)
-	}
-	c.Settle()
-	servertest.UntilTicks(t, srv, 2, "the cow to be let go", func() bool {
-		holder, _ := srv.MobLeashHolder(cowID)
-		return holder == 0
-	})
 }

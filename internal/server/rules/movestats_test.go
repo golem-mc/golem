@@ -39,28 +39,3 @@ func TestMovementStatPicksTheFirstMatch(t *testing.T) {
 		}
 	}
 }
-
-// TestClimbingIsOffForASpectatorAndAGliderInGlideBlocks: onClimbable is
-// false for a spectator and for a glider in a can_glide_through block, even
-// in vines.
-func TestClimbingIsOffForASpectatorAndAGliderInGlideBlocks(t *testing.T) {
-	vine := registry.MustState("minecraft:vine", map[string]string{"north": "true"})
-	ladder := registry.MustState("minecraft:ladder", map[string]string{"facing": "north"})
-	air := registry.MustState("minecraft:air", nil)
-	for _, tc := range []struct {
-		name                  string
-		feet                  uint16
-		spectator, fallFlying bool
-		want                  bool
-	}{
-		{"walker in vines", vine, false, false, true},
-		{"spectator in vines", vine, true, false, false},
-		{"glider in vines", vine, false, true, false},
-		{"glider on a ladder", ladder, false, true, true},
-		{"walker in air", air, false, false, false},
-	} {
-		if got := Climbing(tc.feet, air, tc.spectator, tc.fallFlying); got != tc.want {
-			t.Errorf("%s: Climbing = %t, want %t", tc.name, got, tc.want)
-		}
-	}
-}

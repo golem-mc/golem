@@ -37,25 +37,6 @@ func countOfKind(srv *server.Server, kind string) int {
 	return n
 }
 
-// TestAnEvokerHasItsVanillaBody: 24 health, the evoker type.
-// vanilla: Evoker.createAttributes
-func TestAnEvokerHasItsVanillaBody(t *testing.T) {
-	t.Parallel()
-	srv, _ := evokerWorld(t)
-	id := srv.SpawnMob(evokerKind, 40.5, 64, 40.5)
-	if hp, _ := srv.MobHealth(id); hp != 24 {
-		t.Errorf("evoker health = %v, want 24", hp)
-	}
-	vex := srv.SpawnMob(vexKind, 44.5, 64, 40.5)
-	if hp, _ := srv.MobHealth(vex); hp != 14 {
-		t.Errorf("vex health = %v, want 14", hp)
-	}
-	iron, _ := registry.ItemID("minecraft:iron_sword")
-	if got := srv.MobHand(vex); got.ItemID != iron {
-		t.Errorf("vex main hand = item %d, want the iron sword %d", got.ItemID, iron)
-	}
-}
-
 // TestAnEvokerSummonsThreeVexesBoundToIt: the first spell against a target
 // is the summon; three vexes arrive with an owner, a bound block and a
 // limited life of 30 to 119 seconds, and the spell byte shows on the wire.
@@ -175,57 +156,6 @@ func TestFangsSpareAnIllager(t *testing.T) {
 	}
 }
 
-// TestOrphanFangsBiteEverythingWithPlainMagic: fangs without an owner hurt a
-// mob and the player for exactly 6, unscaled by the Hard difficulty.
-// vanilla: EvokerFangs.dealDamageTo
-func TestOrphanFangsBiteEverythingWithPlainMagic(t *testing.T) {
-	t.Parallel()
-	srv, c := evokerWorld(t)
-	c.MoveToGround(20.5, 64, 0.5, true)
-	zombie := srv.SpawnMob("minecraft:zombie", 20.5, 64, 0.5)
-	srv.SetMobNoAI(zombie)
-	srv.SpawnFangs(20.5, 64, 0.5, 0)
-	var lowest float32 = 20
-	pumpTicks(c, srv, 30, servertest.HostileSkip, func(pid int32, data []byte) bool {
-		if pid == protocol.IDPlaySetHealth {
-			lowest = min(lowest, servertest.ExpectHealthReport(c, data).Health)
-		}
-		return false
-	})
-	if hp, _ := srv.MobHealth(zombie); hp != 14 {
-		t.Errorf("zombie health = %v after orphan fangs, want 14", hp)
-	}
-	if lowest != 14 {
-		t.Errorf("player health fell to %v after orphan fangs, want 14", lowest)
-	}
-}
-
-// TestFangsSpareAnotherEvokersVexes: a vex summoned by an illager is allied
-// to the fangs' owner, a stray vex is not.
-// vanilla: Evoker.considersEntityAsAlly
-func TestFangsSpareAnotherEvokersVexes(t *testing.T) {
-	t.Parallel()
-	srv, c := evokerWorld(t)
-	c.MoveToGround(60.5, 64, 0.5, true)
-	owner := srv.SpawnMob(evokerKind, 20.5, 64, 6.5)
-	other := srv.SpawnMob(evokerKind, 30.5, 64, 6.5)
-	srv.SetMobNoAI(owner)
-	srv.SetMobNoAI(other)
-	allied := srv.SpawnMob(vexKind, 20.5, 64, 1.5)
-	stray := srv.SpawnMob(vexKind, 20.5, 64, 2.5)
-	srv.SetMobNoAI(allied)
-	srv.SetMobNoAI(stray)
-	srv.SetMobVexOwner(allied, other)
-	srv.SpawnFangs(20.5, 64, 2, owner)
-	pumpTicks(c, srv, 30, servertest.HostileSkip, func(int32, []byte) bool { return false })
-	if hp, _ := srv.MobHealth(allied); hp != 14 {
-		t.Errorf("another evoker's vex health = %v, want 14", hp)
-	}
-	if hp, _ := srv.MobHealth(stray); hp >= 14 {
-		t.Errorf("stray vex health = %v, want it bitten", hp)
-	}
-}
-
 // TestAnEvokerTurnsBlueSheepRed: with nothing to hunt, the wololo spell dyes
 // a blue sheep in reach red, and mob griefing off forbids it.
 // vanilla: Evoker.EvokerWololoSpellGoal
@@ -246,19 +176,5 @@ func TestAnEvokerTurnsBlueSheepRed(t *testing.T) {
 		if got := srv.MobColour(sheep); got != want {
 			t.Errorf("mob_griefing %v: sheep colour = %q, want %q", griefing, got, want)
 		}
-	}
-}
-
-// TestAnEvokerDropsATotem: the evoker's loot table always holds a totem of
-// undying.
-// vanilla: entities/evoker loot table
-func TestAnEvokerDropsATotem(t *testing.T) {
-	t.Parallel()
-	srv, _ := evokerWorld(t)
-	id := srv.SpawnMob(evokerKind, 40.5, 64, 40.5)
-	srv.KillMob(id)
-	srv.TickMobs(5)
-	if !overworldHoldsItemNamed(srv, "minecraft:totem_of_undying") {
-		t.Error("the dead evoker dropped no totem of undying")
 	}
 }

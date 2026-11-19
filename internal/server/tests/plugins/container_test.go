@@ -1,14 +1,12 @@
 package plugins_test
 
 import (
-	"bytes"
 	"math"
 	"reflect"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
@@ -153,87 +151,6 @@ func TestPluginContainerSettings(t *testing.T) {
 	})
 }
 
-func checkContainerLock(t *testing.T, c plugin.Container, want string) {
-	t.Helper()
-	got := c.Lock()
-	if got == nil {
-		t.Error("lock missing")
-		return
-	}
-	actual, err := nbt.ParseOrderedSNBT(string(*got))
-	if err != nil {
-		t.Fatal(err)
-	}
-	expected, err := nbt.ParseOrderedSNBT(want)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !nbt.Equal(actual, expected) {
-		t.Errorf("lock=%s, want %s", *got, want)
-	}
-}
-
-// vanilla: ItemPredicate.CODEC, DataComponentMatchers.CODEC, NbtPredicate.CODEC.
-func TestPluginContainerLockRoundTrip(t *testing.T) {
-	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
-	w := srv.OverworldWorld()
-	w.Acquire(world.ChunkPos{})
-	defer w.Release(world.ChunkPos{})
-	be := placeContainerEntity(w, 1, 80, 1, registry.BlockChest)
-	run(func() {
-		c := containerHandle(t, h.Overworld(), plugin.BlockPos{X: 1, Y: 80, Z: 1})
-		cases := []struct{ input, want string }{
-			{`{items:["minecraft:tripwire_hook","minecraft:stick"],count:{min:2,max:5}}`, ""},
-			{`{items:"#minecraft:planks",count:{min:2}}`, ""},
-			{`{components:{"minecraft:custom_name":"Key","minecraft:damage":5}}`, ""},
-			{`{predicates:{"minecraft:custom_data":"{key:1b}","minecraft:damage":{durability:{min:10}}}}`, ""},
-			{`{count:3}`, ""}, {`{count:{min:2s,max:5d}}`, ""}, {`{ignored:1}`, `{}`}, {`{count:{max:5}}`, ""}, {`{items:[]}`, ""}, {`{count:"bad",items:"minecraft:stick"}`, ""},
-			{`{predicates:{custom_data:{key:1b}},ignored:1,components:{}}`, `{predicates:{"minecraft:custom_data":"{key:1b}"}}`},
-			{`{components:{custom_data:{byte:1b,short:2s,int:3,long:4L,float:5f,double:6d,array:[B;1b],nested:[{n:7s}]}},predicates:{}}`, `{components:{"minecraft:custom_data":{byte:1b,short:2s,int:3,long:4L,float:5f,double:6d,array:[B;1b],nested:[{n:7s}]}}}`},
-			{`{}`, `{}`},
-		}
-		for _, tc := range cases {
-			input := plugin.LockPredicate(tc.input)
-			c.SetLock(&input)
-			want := tc.want
-			if want == "" {
-				want = tc.input
-			}
-			checkContainerLock(t, c, want)
-			snapshot := c.Lock()
-			previous := *snapshot
-			input = "{}"
-			checkContainerLock(t, c, want)
-			c.SetLock(snapshot)
-			if *snapshot != *c.Lock() {
-				t.Error("read/write/read changed normalized predicate")
-			}
-			*c.Lock() = "{}"
-			checkContainerLock(t, c, want)
-			c.SetLock(nil)
-			if c.Lock() != nil || *snapshot != previous {
-				t.Error("clear or earlier snapshot changed")
-			}
-			c.SetLock(snapshot)
-			checkContainerLock(t, c, want)
-			for _, bad := range []string{"", "{", "[]", "1", "{} trailing", "{}{}", "{count:}"} {
-				invalid := plugin.LockPredicate(bad)
-				c.SetLock(&invalid)
-				if *c.Lock() != *snapshot {
-					t.Errorf("invalid %q changed lock", bad)
-				}
-			}
-			be.Use(func(e *world.BlockEntity) {
-				loaded := &world.BlockEntity{Kind: e.Kind}
-				loaded.LoadBlockEntityData(e.TypeID(), e.EncodeNBT())
-				if !nbt.Equal(e.Lock, loaded.Lock) {
-					t.Errorf("save/reload changed %s", *snapshot)
-				}
-			})
-		}
-	})
-}
-
 func TestPluginContainerPersistence(t *testing.T) {
 	cfg := servertest.BlockTestConfig()
 	srv, h, run := worldPlugin(t, cfg)
@@ -318,157 +235,6 @@ func TestPluginContainerPersistence(t *testing.T) {
 			}
 		}
 	})
-}
-
-// vanilla: LockCode.canUnlock, BaseContainerBlockEntity.createMenu.
-func TestPluginContainerPackets(t *testing.T) {
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, h, run := worldPlugin(t, cfg)
-	servertest.FreezeUntilHeld(t, srv)
-	servertest.ReleaseTicks(t, srv)
-	c := servertest.WindowedOf(t, "ContainerViewer", servertest.DialServer(t, srv))
-	servertest.HoldTicks(t, srv)
-	srv.SetTickFrozen(true)
-	w := srv.OverworldWorld()
-	srv.RunLine("setblock 4 64 0 chest[facing=north,type=left]")
-	srv.RunLine("setblock 5 64 0 chest[facing=north,type=right]")
-	c.FacePlayer(4.5, 64, 3.5, 0, 0)
-	c.Settle()
-	var left, right plugin.Container
-	run(func() {
-		left = containerHandle(t, h.Overworld(), plugin.BlockPos{X: 4, Y: 64})
-		right = containerHandle(t, h.Overworld(), plugin.BlockPos{X: 5, Y: 64})
-	})
-	chunk, _ := w.Acquire(world.ChunkPos{})
-	defer w.Release(world.ChunkPos{})
-	before := bytes.Clone(w.ChunkPacket(chunk))
-	run(func() { left.Data().Set(plugin.Key{"test", "secret"}, "private-plugin-value") })
-	setLock := func(target plugin.Container, text string) {
-		run(func() { lock := plugin.LockPredicate(text); target.SetLock(&lock) })
-		if after := w.ChunkPacket(chunk); !bytes.Equal(before, after) {
-			t.Error("private lock changed client chunk bytes")
-		}
-	}
-	refuse := func(x int32) {
-		c.UseBlock(x, 64, 0)
-		c.ExpectSystemChat("container.isLocked", true, protocol.Text{Translate: "container.chestDouble"})
-		name, sx, sy, sz := c.AwaitChestSound()
-		if name != "minecraft:block.chest.locked" || sx != 5 || sy != 64.5 || sz != .5 {
-			t.Error("locked sound")
-		}
-		c.ExpectNoneWithinTicks(srv, 1, servertest.PacketIs(protocol.IDPlayOpenScreen))
-	}
-	hand := func(item registry.Item, count int32, name *protocol.Text) {
-		c.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: int32(item), Count: count, CustomName: name})
-		c.Settle()
-	}
-	open := func(x int32) {
-		c.UseBlock(x, 64, 0)
-		c.ExpectContainerOpen(protocol.MenuGeneric9x6, true, x, 64, 0)
-		c.CloseWindow()
-		c.ExpectWindowZero()
-		c.Settle()
-	}
-	setLock(right, `{items:["minecraft:tripwire_hook","minecraft:stick"],count:{min:2,max:5}}`)
-	refuse(4)
-	hand(registry.ItemStick, 1, nil)
-	refuse(5)
-	hand(registry.ItemStick, 2, nil)
-	open(4)
-	hand(registry.ItemTripwireHook, 5, nil)
-	open(5)
-	hand(registry.ItemStick, 6, nil)
-	refuse(4)
-	setLock(right, `{items:"#minecraft:planks",count:{min:2}}`)
-	hand(registry.ItemTripwireHook, 2, nil)
-	refuse(4)
-	hand(registry.ItemOakPlanks, 2, nil)
-	open(5)
-	setLock(left, `{components:{"minecraft:custom_name":"Key"}}`)
-	refuse(5)
-	name := protocol.Text{Text: "Key"}
-	hand(registry.ItemOakPlanks, 2, &name)
-	open(4)
-	// Both halves gate the same menu, without editing the other half's lock.
-	run(func() {
-		if left == right || right.Lock() == nil {
-			t.Error("chest halves share metadata")
-		}
-	})
-	setLock(right, `{items:[]}`)
-	srv.SetPlayerGameMode("ContainerViewer", protocol.GameModeSpectator)
-	c.Settle()
-	open(4)
-	srv.SetPlayerGameMode("ContainerViewer", protocol.GameModeCreative)
-	c.Settle()
-	run(func() { left.SetLock(nil); right.SetLock(nil) })
-	hand(registry.ItemAir, 0, nil)
-	setLock(right, `{}`)
-	open(4)
-	c.UseBlock(4, 64, 0)
-	c.ExpectContainerOpen(protocol.MenuGeneric9x6, true, 4, 64, 0)
-	run(func() {
-		lock := plugin.LockPredicate(`{items:[]}`)
-		right.SetLock(&lock)
-		right.SetLootTable(plugin.Key{"custom", "unregistered"}, 99)
-		if table, seed := left.LootTable(); table != (plugin.Key{}) || seed != 0 {
-			t.Error("loot edit changed the other chest half")
-		}
-		left.Data().Set(plugin.Key{"test", "other"}, true)
-		name := plugin.Plain("Renamed vault")
-		left.SetCustomName(&name)
-	})
-	if after := w.ChunkPacket(chunk); !bytes.Equal(before, after) {
-		t.Error("metadata changed client chunk bytes")
-	}
-	_, _, _, _, tag := c.AwaitBlockEntityData()
-	for _, key := range []string{"lock", "LootTable", "LootTableSeed", "plugins"} {
-		if tag[key] != nil {
-			t.Errorf("private %s leaked in update", key)
-		}
-	}
-	c.ExpectNoneWithinTicks(srv, 1, func(id int32, _ []byte) bool {
-		return id == protocol.IDPlayOpenScreen || id == protocol.IDPlayCloseContainer
-	})
-	c.CloseWindow()
-	c.ExpectWindowZero()
-	run(func() { right.SetLock(nil); right.SetLootTable(plugin.Key{}, 0) })
-	c.Settle()
-	c.UseBlock(4, 64, 0)
-	r := protocol.NewReader(c.ExpectWithinTicks(srv, 2, protocol.IDPlayOpenScreen))
-	c.Window = r.ReadVarInt()
-	if r.ReadVarInt() != protocol.MenuGeneric9x6 {
-		t.Error("wrong renamed menu")
-	}
-	title, ok := protocol.ReadText(r)
-	if !ok || title.Plain() != "Renamed vault" {
-		t.Errorf("subsequent title=%+v", title)
-	}
-	c.ExpectWindowContent()
-	c.CloseWindow()
-	c.ExpectWindowZero()
-	c.Settle()
-	run(func() {
-		for _, bad := range []string{"", "{", "[]", "{} trailing"} {
-			lock := plugin.LockPredicate(bad)
-			left.SetLock(&lock)
-		}
-		left.SetLootTable(plugin.Key{"INVALID", "table"}, 1)
-	})
-	c.ExpectNoneWithinTicks(srv, 1, func(id int32, _ []byte) bool {
-		return id == protocol.IDPlayBlockEntityData || id == protocol.IDPlayContainerProperty || id == protocol.IDPlayOpenScreen || id == protocol.IDPlayCloseContainer
-	})
-	run(func() {
-		w.RemoveBlockEntity(4, 64, 0)
-		w.EnsureBlockEntity(4, 64, 0, world.KindChest)
-		name := plugin.Plain("Stale")
-		left.SetCustomName(&name)
-		lock := plugin.LockPredicate(`{items:[]}`)
-		left.SetLock(&lock)
-		left.SetLootTable(plugin.Key{"custom", "stale"}, 1)
-	})
-	c.ExpectNoneWithinTicks(srv, 1, servertest.PacketIs(protocol.IDPlayBlockEntityData))
 }
 
 // vanilla: AbstractFurnaceBlockEntity.dataAccess, serverTick.

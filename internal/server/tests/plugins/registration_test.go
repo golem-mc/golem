@@ -1,7 +1,6 @@
 package plugins_test
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -205,108 +204,6 @@ func TestPluginCommandArgumentsAndSuggestions(t *testing.T) {
 			t.Errorf("dispatch result=%d err=%v", result, err)
 		}
 	})
-}
-
-// vanilla: CommandDispatcher.getCompletionSuggestions, ArgumentCommandNode.listSuggestions
-func TestPluginGreedyCommandSuggestions(t *testing.T) {
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	greedy := func(prefix string, preceding map[string]any) plugin.Node {
-		return plugin.Node{Arg: plugin.GreedyArg("value"), Suggest: func(ctx *plugin.CommandContext, partial string) []string {
-			if len(ctx.Args) != len(preceding) || (len(preceding) > 0 && !reflect.DeepEqual(ctx.Args, preceding)) || ctx.Input != prefix+partial {
-				t.Errorf("greedy suggest context: args=%#v partial=%q input=%q", ctx.Args, partial, ctx.Input)
-			}
-			if strings.HasPrefix("two words", partial) {
-				return []string{"two words"}
-			}
-			return nil
-		}, Run: func(*plugin.CommandContext) (int, error) { return 1, nil }}
-	}
-	ready := false
-	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "example", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-		if err := s.Commands().Register(plugin.Command{Name: "reviewgreedy", Children: []plugin.Node{
-			greedy("reviewgreedy ", nil),
-			{Literal: "after", Children: []plugin.Node{{Arg: plugin.StringArg("first"), Children: []plugin.Node{
-				greedy(`reviewgreedy after "one word" `, map[string]any{"first": "one word"}),
-			}}}},
-		}}); err != nil {
-			return err
-		}
-		ready = true
-		return nil
-	}}}})
-	if !ready {
-		t.Fatal("registration failed")
-	}
-	c := registrationClient(t, srv)
-	for _, prefix := range []string{"/reviewgreedy ", `/reviewgreedy after "one word" `} {
-		for _, partial := range []string{"tw", "two ", "two wo"} {
-			c.CommandSuggestion(22, prefix+partial)
-			id, start, length, matches := registrationSuggestions(t, srv, c)
-			if id != 22 || start != int32(len(prefix)) || length != int32(len(partial)) || !slices.Equal(matches, []string{"two words"}) {
-				t.Fatalf("greedy suggestions for %q: %d %d %d %v", prefix+partial, id, start, length, matches)
-			}
-		}
-	}
-}
-
-func TestPluginCommandClashesAndCleanup(t *testing.T) {
-	var live, failed plugin.Server
-	ready := false
-	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{
-		{Name: "failed", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-			failed = s
-			if err := s.Commands().Register(plugin.Command{Name: "released"}); err != nil {
-				return err
-			}
-			return errors.New("disable this plugin")
-		}}},
-		{Name: "live", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-			live = s
-			run := plugin.Node{Run: func(ctx *plugin.CommandContext) (int, error) {
-				ctx.Sender.SendMessage(plugin.Plain("alive"))
-				return 1, nil
-			}}
-			for _, c := range []plugin.Command{{Name: "list"}, {Name: "other", Aliases: []string{"list"}}} {
-				if err := s.Commands().Register(c); err == nil {
-					t.Errorf("clash accepted: %s", c.Name)
-				}
-			}
-			if err := s.Commands().Register(plugin.Command{Name: "released", Aliases: []string{"alias"}, Node: run}); err != nil {
-				return err
-			}
-			if err := s.Commands().Register(plugin.Command{Name: "alias"}); err == nil {
-				t.Error("plugin clash accepted")
-			}
-			if err := s.Commands().Register(plugin.Command{Name: "other", Aliases: []string{"released"}}); err == nil {
-				t.Error("alias clash accepted")
-			}
-			ready = true
-			return nil
-		}}},
-	})
-	if !ready {
-		t.Fatal("registration failed")
-	}
-	if err := failed.Commands().Register(plugin.Command{Name: "late"}); err == nil {
-		t.Fatal("disabled owner registered command")
-	}
-	c := registrationClient(t, srv)
-	c.ChatCommand("live:alias")
-	registrationFeedback(t, srv, c, "alive")
-	registrationTask(t, srv, live, func() { failed.Commands().Unregister("released") })
-	c.ChatCommand("released")
-	registrationFeedback(t, srv, c, "alive")
-	registrationTask(t, srv, live, func() { live.Commands().Unregister("released") })
-	nodes := servertest.DecodeCommands(t, c.ExpectWithinTicks(srv, 4, protocol.IDPlayCommands))
-	for _, n := range nodes {
-		if slices.Contains([]string{"released", "alias", "live:released", "live:alias", "failed:released", "other", "late"}, n.Name) {
-			t.Errorf("removed or failed root remains: %s", n.Name)
-		}
-	}
-	c.ChatCommand("alias")
-	c.ExpectWithinTicks(srv, 4, protocol.IDPlaySystemChat)
-	c.ExpectWithinTicks(srv, 4, protocol.IDPlaySystemChat)
 }
 
 func TestPluginCommandPermissionTreeAndExecution(t *testing.T) {

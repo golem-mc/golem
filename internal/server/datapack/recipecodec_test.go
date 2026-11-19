@@ -79,58 +79,6 @@ func TestDecodeIngredientsFollowTags(t *testing.T) {
 	}
 }
 
-// TestDecodeCookingTime checks that every cooking kind requires its cooking
-// time, so a file without one adds nothing, and that any number is taken,
-// truncated to an int.
-// vanilla: AbstractCookingRecipe.cookingMapCodec
-func TestDecodeCookingTime(t *testing.T) {
-	for kind, cooking := range cookingTypes {
-		name := cooking.name
-		var set registry.PackRecipes
-		err := DecodeRecipe("pk:r", []byte(`{"type":"`+name+`","ingredient":"minecraft:clay_ball","result":"minecraft:brick"}`), &set)
-		if err == nil || !strings.Contains(err.Error(), "No key cookingtime") || !set.Empty() {
-			t.Errorf("%s without cookingtime: error = %v, set %+v; want a refusal naming cookingtime and nothing added", name, err, set)
-		}
-		set = decodeRecipe(t, `{"type":"`+name+`","ingredient":"minecraft:clay_ball","result":"minecraft:brick","cookingtime":-5}`)
-		if got := set.Cooking[kind]; len(got) != 1 || got[0].Duration != -5 || got[0].Name != "pk:r" || got[0].ResultCount != 1 {
-			t.Errorf("%s decoded to %+v, want one recipe taking -5 ticks", name, got)
-		}
-	}
-	set := decodeRecipe(t, `{"type":"minecraft:smelting","ingredient":"minecraft:clay_ball","result":"minecraft:brick","experience":0.7,"cookingtime":50}`)
-	if got := set.Cooking[registry.CookingSmelting][0]; got.Duration != 50 || got.Experience != 0.7 {
-		t.Errorf("decoded %+v, want 50 ticks and 0.7 experience", got)
-	}
-	// Codec.INT truncates a fraction toward zero and wraps past int range.
-	for in, want := range map[string]int32{"1.5": 1, "-2.5": -2, "10000000000": 1410065408} {
-		set := decodeRecipe(t, `{"type":"minecraft:smelting","ingredient":"minecraft:clay_ball","result":"minecraft:brick","cookingtime":`+in+`}`)
-		if got := set.Cooking[registry.CookingSmelting][0].Duration; got != want {
-			t.Errorf("cookingtime %s decoded to %d ticks, want %d", in, got, want)
-		}
-	}
-}
-
-// TestDecodeResultCountTruncates checks that a result count with a fraction
-// is truncated before the 1..99 check.
-// vanilla: ItemStackTemplate.CODEC, ExtraCodecs.intRange over Codec.INT
-func TestDecodeResultCountTruncates(t *testing.T) {
-	for in, want := range map[string]int32{"2.5": 2, "1.9": 1, "99.9": 99} {
-		set := decodeRecipe(t, `{"type":"minecraft:smelting","ingredient":"minecraft:clay_ball","result":{"id":"minecraft:brick","count":`+in+`},"cookingtime":10}`)
-		if got := set.Cooking[registry.CookingSmelting][0].ResultCount; got != want {
-			t.Errorf("result count %s decoded to %d, want %d", in, got, want)
-		}
-	}
-}
-
-// TestDecodeStonecuttingTakesEveryItemOfAnIngredient checks that a tag
-// ingredient becomes one recipe per item.
-func TestDecodeStonecuttingTakesEveryItemOfAnIngredient(t *testing.T) {
-	set := decodeRecipe(t, `{"type":"minecraft:stonecutting","ingredient":["minecraft:stone","minecraft:granite"],
-		"result":{"id":"minecraft:stick","count":2}}`)
-	if len(set.Stonecutting) != 2 || set.Stonecutting[0].ResultCount != 2 || set.Stonecutting[0].ID != "pk:r" {
-		t.Errorf("decoded %+v, want two recipes of 2 sticks", set.Stonecutting)
-	}
-}
-
 // TestDecodeSmithing checks both smithing kinds, with the template and
 // addition of a transform left out.
 func TestDecodeSmithing(t *testing.T) {

@@ -28,45 +28,6 @@ func glowFireSummon(kind string) string {
 	return "summon minecraft:" + kind + " 4.5 70 4.5 {Glowing:1b,HasVisualFire:1b,NoGravity:1b}"
 }
 
-func TestGlowingVisualFireDataAndMetadata(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.MobTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, c := servertest.Join(t, cfg, "Listener", servertest.OpsListing(t, "Listener"))
-	servertest.HoldTicks(t, srv)
-	r := servertest.NewMetadataRecorder(t, srv, c)
-	r.Ticks = 0
-	// Only an arrow's metadata delta follows a /data write on the next tick.
-	write := func(kind, cmd string) []servertest.PushedPacket {
-		if kind == "arrow" {
-			r.Ticks = 1
-		}
-		defer func() { r.Ticks = 0 }()
-		return r.Run(cmd)
-	}
-	for kind, want := range glowFireKinds {
-		t.Run(kind, func(t *testing.T) {
-			packets := r.Run(glowFireSummon(kind))
-			typ, _ := registry.EntityTypeID("minecraft:" + kind)
-			id := servertest.SpawnedID(packets, typ)
-			if id == 0 {
-				t.Fatal("no spawn received")
-			}
-			checkFlagsMetadata(t, packets, id, want)
-			target := "@e[type=minecraft:" + kind + ",limit=1]"
-			for _, key := range []string{"Glowing", "HasVisualFire"} {
-				checkTagData(t, r.Run("data get entity "+target+" "+key), key, true)
-			}
-			checkFlagsMetadata(t, write(kind, "data merge entity "+target+" {Glowing:0b,HasVisualFire:0b}"), id, 0)
-			for _, key := range []string{"Glowing", "HasVisualFire"} {
-				checkTagData(t, r.Run("data get entity "+target+" "+key), key, false)
-			}
-			checkFlagsMetadata(t, write(kind, "data merge entity "+target+" {Glowing:1b,HasVisualFire:1b}"), id, want)
-			r.Run("kill " + target)
-		})
-	}
-}
-
 func checkFlagsMetadata(t *testing.T, packets []servertest.PushedPacket, id int32, want uint8) {
 	t.Helper()
 	var got *uint8

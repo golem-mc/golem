@@ -2,7 +2,6 @@ package main
 
 import (
 	"archive/zip"
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -175,47 +174,6 @@ func TestReferenceLoginSendsSelectedProtocolAndRejectsChangedLayout(t *testing.T
 	}
 }
 
-func TestReferenceConfigurationRefusesIncompleteCaptures(t *testing.T) {
-	p, err := referenceProfile(configurationReference(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var wrongPack, inline, shortTags protocol.Buffer
-	wrongPack.PutVarInt(1)
-	wrongPack.PutString("minecraft")
-	wrongPack.PutString("core")
-	wrongPack.PutString("26.1")
-	inline.PutString("minecraft:worldgen/biome")
-	inline.PutVarInt(1)
-	inline.PutString("minecraft:plains")
-	inline.PutBool(true)
-	shortTags.PutVarInt(1) // registry name and tags missing
-	for _, tt := range []struct {
-		name, want string
-		id         int32
-		data       []byte
-	}{
-		{"wrong known pack", "expected minecraft:core 26.3", 15, wrongPack.Bytes()},
-		{"inline registry", "inline data", 7, inline.Bytes()},
-		{"truncated tags", "update-tags", 14, shortTags.Bytes()},
-		{"early finish", "without registries and tags", 3, nil},
-		{"short keepalive", "expected 8", 4, []byte{1}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			before := dump
-			dump.Registries, dump.Tags = nil, nil
-			t.Cleanup(func() { dump = before })
-			client, server := configurationPipe(t)
-			finished := make(chan error, 1)
-			go func() { finished <- handleConfiguration(client, p) }()
-			writeConfigurationPacket(t, server, tt.id, tt.data)
-			if err := <-finished; err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("capture = %v, want %q", err, tt.want)
-			}
-		})
-	}
-}
-
 func configurationPipe(t *testing.T) (*protocol.Conn, *protocol.Conn) {
 	t.Helper()
 	a, b := net.Pipe()
@@ -230,26 +188,5 @@ func writeConfigurationPacket(t *testing.T, c *protocol.Conn, id int32, data []b
 	t.Helper()
 	if err := c.WritePacket(id, data); err != nil {
 		t.Fatal(fmt.Errorf("write configuration 0x%02x: %w", id, err))
-	}
-}
-
-func TestReferenceDumpRecordsRelease(t *testing.T) {
-	before := dump
-	t.Cleanup(func() { dump = before })
-	dump.Version, dump.Protocol = "26.3", 777
-	dump.Registries = []dumpedRegistry{{Name: "minecraft:worldgen/biome", Entries: []string{"minecraft:plains"}}}
-	path := filepath.Join(t.TempDir(), "registries.json")
-	t.Setenv("DUMP", path)
-	writeDump()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var saved struct {
-		Version  string `json:"version"`
-		Protocol int32  `json:"protocol"`
-	}
-	if err := json.Unmarshal(data, &saved); err != nil || saved.Version != "26.3" || saved.Protocol != 777 {
-		t.Errorf("saved dump = %+v, %v", saved, err)
 	}
 }

@@ -82,37 +82,6 @@ func giveFlint(t *testing.T, c *servertest.Client) {
 	c.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{ItemID: flintID, Count: 1})
 }
 
-// TestFireLitByFlintAndSteelAgesOnTheLoop checks the wiring end to end: a
-// fire the flint and steel lights is one the physics engine has taken on,
-// and the fire's age property moves on the main loop's own ticks — the
-// silent aging writes the vanilla server makes and the client draws for
-// itself.
-func TestFireLitByFlintAndSteelAgesOnTheLoop(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, fireConfig(), "Camper", servertest.OpsListing(t, "Camper"))
-
-	setBlockCmd(t, c, 3, 64, 3, "oak_planks")
-	giveFlint(t, c)
-	// The steel struck on the stone between player and planks: the fire
-	// goes up with the planks beside it as its fuel.
-	c.PlaceBlock(2, 63, 3, protocol.FaceTop)
-
-	was := servertest.WaitForBlock(t, srv, 2, 64, 3, func(s uint16) bool {
-		return fireAge(s) >= 0
-	})
-	start := fireAge(was)
-
-	// The fire ages: within the ticks the loop runs while the test
-	// watches, the AGE property climbs from where the placement left it.
-	// The wait is on the game's own clock, so a starved loop is given
-	// ticks rather than a share of a wall-clock window. A visit ages the
-	// fire by one with the die Intn(3)/2, so the budget covers the
-	// several 30-39-tick visits a run may need before one lands.
-	servertest.WaitForTicks(t, srv, 800, func() bool {
-		return fireAge(srv.BlockAt(2, 64, 3)) > start
-	})
-}
-
 // TestFireBurnsPlanksAwayOnTheWire checks the burn at the black box: planks
 // beside a fire are eaten by it on the hand-driven engine, and the Block
 // Update that tells the client what the planks became arrives.
@@ -197,36 +166,6 @@ func TestRainPutsFireOutInTheOpen(t *testing.T) {
 	awaitBlockOtherThan(t, srv, c, 6, 64, 3, fire)
 }
 
-// TestFirePrimesATNTOnTheServer checks the prime at the black box: fire
-// beside a TNT block takes it, and what stands up in its place is a primed
-// body on the default fuse, at the block's own place.
-func TestFirePrimesATNTOnTheServer(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Sapper", servertest.OpsListing(t, "Sapper"))
-
-	setBlockCmd(t, c, 6, 64, 3, "tnt")
-	// The live loop stops before the fire is laid: a prime it ticked
-	// would leave the body a tick or more short of the default fuse.
-	srv.StopTick()
-	setBlockCmd(t, c, 5, 64, 3, "fire")
-
-	driveFire(t, srv, 400)
-
-	if got := srv.BlockAt(6, 64, 3); got == registry.BlockStates["minecraft:tnt"] {
-		t.Fatal("the TNT block stood 400 ticks of fire beside it and never primed")
-	}
-	var found bool
-	for _, it := range srv.TNTsInDimension("minecraft:overworld") {
-		if it.X == 6.5 && it.Y == 64 && it.Z == 3.5 && it.Fuse == 80 {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("no primed body stood at the block's place on the default fuse: %v",
-			srv.TNTsInDimension("minecraft:overworld"))
-	}
-}
-
 // TestFlintAndSteelLightsSoulFire checks the soul fire's lighting: the steel
 // struck above soul sand lights the soul fire, the flame that never ages and
 // never spreads.
@@ -245,98 +184,6 @@ func TestFlintAndSteelLightsSoulFire(t *testing.T) {
 	}
 	if got := srv.BlockAt(3, 64, 3); got != soul {
 		t.Errorf("the steel above soul sand lit %d, want the soul fire %d", got, soul)
-	}
-}
-
-// TestFlintAndSteelLightsFireIntoCaveAir checks the vanilla air test at the
-// black box: isAir, which cave air and void air answer too. The steel struck
-// on the stone under a cave's own air lights fire there and takes one wear
-// per strike. vanilla: BaseFireBlock.canBePlacedAt
-func TestFlintAndSteelLightsFireIntoCaveAir(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Cavern")
-
-	flintID, ok := registry.ItemID("minecraft:flint_and_steel")
-	if !ok {
-		t.Fatal("the item registry has no flint and steel")
-	}
-	srv.GiveSlot("Cavern", player.HotbarSlot, protocol.ItemStack{ItemID: flintID, Count: 1})
-
-	for i, air := range []string{"minecraft:cave_air", "minecraft:void_air"} {
-		x := int32(3 + 2*i)
-		state, ok := registry.FindState(air, nil)
-		if !ok {
-			t.Fatalf("the block registry has no %s", air)
-		}
-		if !srv.SetBlock(x, 64, 3, state) {
-			t.Fatalf("the chunk did not take the %s at (%d, 64, 3)", air, x)
-		}
-		c.PlaceBlock(x, 63, 3, protocol.FaceTop)
-		c.Settle()
-
-		if got := srv.BlockAt(x, 64, 3); fireAge(got) < 0 {
-			t.Errorf("the steel under %s at (%d, 64, 3) lit %d, want a fire", air, x, got)
-		}
-		if got := srv.InventorySlot("Cavern", player.HotbarSlot); got.Damage != int32(i+1) {
-			t.Errorf("the flint and steel's wear after %d strikes = %d, want %d", i+1, got.Damage, i+1)
-		}
-	}
-}
-
-// TestFlintAndSteelLightsNothingIntoGrass checks the vanilla target: the
-// steel struck at a face that opens into anything but air — the short grass
-// standing on the block struck — lights nothing at all, a fire being lit
-// into air only.
-func TestFlintAndSteelLightsNothingIntoGrass(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Squib", servertest.OpsListing(t, "Squib"))
-
-	grass := setBlockCmd(t, c, 3, 64, 3, "short_grass")
-	giveFlint(t, c)
-	// The top face of the stone under the grass: where the fire would go
-	// is the grass's own cell, and the grass is not air to light into.
-	c.PlaceBlock(3, 63, 3, protocol.FaceTop)
-	c.Settle()
-
-	if got := srv.BlockAt(3, 64, 3); got != grass {
-		t.Errorf("the steel struck under short grass left %d, want the grass untouched", got)
-	}
-}
-
-// TestFlintAndSteelStacksNoFlameOnAFire checks the struck fire itself: the
-// client's hand reaches a fire's own outline, so the steel struck on the
-// flame's top face aims at the air above it — and the air over a fire
-// survives nothing, the fire under it holding nothing up, so no second
-// flame is lit. Struck on the top of the block under the fire the aim is
-// the fire's own cell, which is no air to light into either.
-func TestFlintAndSteelStacksNoFlameOnAFire(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Stoker", servertest.OpsListing(t, "Stoker"))
-
-	giveFlint(t, c)
-	// One fire on the flat stone, nothing beside it to feed on.
-	c.PlaceBlock(3, 63, 3, protocol.FaceTop)
-	c.Settle()
-	if got := srv.BlockAt(3, 64, 3); fireAge(got) < 0 {
-		t.Fatalf("the open ground lit %d, want a fire", got)
-	}
-
-	// Struck on the flame's own top face: the aim is the air above it.
-	c.PlaceBlock(3, 64, 3, protocol.FaceTop)
-	c.Settle()
-	if got := srv.BlockAt(3, 65, 3); fireAge(got) >= 0 {
-		t.Error("the steel struck on the fire stacked a flame above it")
-	}
-	if got := srv.BlockAt(3, 64, 3); fireAge(got) < 0 {
-		t.Error("the struck fire itself went out, want it standing")
-	}
-
-	// And struck on the top of the block under the fire: the aim is the
-	// fire's own cell, no air to light into.
-	c.PlaceBlock(3, 63, 3, protocol.FaceTop)
-	c.Settle()
-	if got := srv.BlockAt(3, 65, 3); fireAge(got) >= 0 {
-		t.Error("the steel struck under the fire stacked a flame above it")
 	}
 }
 

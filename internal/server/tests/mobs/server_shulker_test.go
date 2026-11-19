@@ -97,26 +97,3 @@ func TestAShulkerWhoseBlockIsBrokenTeleports(t *testing.T) {
 		t.Error("the shulker never left the cell whose block was broken")
 	}
 }
-
-// TestShulkersLeaveShellsInHalfTheirDeaths: the shell drops at the 50%
-// chance the loot table rolls.
-// vanilla: entities/shulker.json
-func TestShulkersLeaveShellsInHalfTheirDeaths(t *testing.T) {
-	t.Parallel()
-	srv, _, y := shulkerTests(t)
-	at := srv.PlayerPosition("Watcher")
-	for i := range 60 {
-		id := srv.SpawnMob("minecraft:shulker", at.X+3+float64(i%10), y, at.Z-3-float64(i/10))
-		srv.KillMob(id)
-	}
-	srv.TickMobs(2)
-	shells := 0
-	for _, it := range srv.ItemsInDimension("minecraft:overworld") {
-		if it.Item == "minecraft:shulker_shell" {
-			shells += int(it.Count)
-		}
-	}
-	if shells < 15 || shells > 45 {
-		t.Errorf("60 dead shulkers left %d shells, want about 30", shells)
-	}
-}

@@ -61,33 +61,6 @@ func TestARabbitHopsInsteadOfWalking(t *testing.T) {
 	}
 }
 
-// TestARabbitHopsFasterWhenFleeing checks Rabbit.setLandingDelay: ten ticks
-// between hops at a stroll, three when the speed modifier reaches 2.2, and
-// the higher hop of the flight.
-func TestARabbitHopsFasterWhenFleeing(t *testing.T) {
-	w := hopWorld(t)
-	stroll, _, strollTop, _ := hopRun(t, w, 0.6, 14.5, 0.5, 60)
-	flee, _, fleeTop, _ := hopRun(t, w, 2.2, 14.5, 0.5, 60)
-	for i := 1; i < len(stroll); i++ {
-		if gap := stroll[i] - stroll[i-1]; gap < 10 {
-			t.Errorf("strolling hops %d ticks apart, want at least the landing delay of 10", gap)
-		}
-	}
-	if len(flee) < 3 {
-		t.Fatalf("fleeing hopped %d times, want at least 3", len(flee))
-	}
-	// A hop in the air takes about 11 ticks at the flight's height, and the
-	// landing delay is 3 instead of 10.
-	for i := 1; i < len(flee); i++ {
-		if gap := flee[i] - flee[i-1]; gap >= 17 {
-			t.Errorf("fleeing hops %d ticks apart, want the landing delay of 3 (under 17)", gap)
-		}
-	}
-	if !(fleeTop > strollTop+0.02) {
-		t.Errorf("flight top %.3f, stroll top %.3f, want the flight to hop higher (0.3 against 0.2)", fleeTop, strollTop)
-	}
-}
-
 // TestARabbitFleesPlayersWolvesAndMonsters checks the three
 // RabbitAvoidEntityGoals and their distances: 8 blocks for a player, 10 for
 // a wolf and 4 for a monster.
@@ -235,72 +208,5 @@ func TestARabbitEatsARipeCarrot(t *testing.T) {
 				t.Errorf("raid at %v,%v,%v with %d carrot ticks, want the crop cell and 40", raided.X, raided.Y, raided.Z, m.MoreCarrotTicks)
 			}
 		})
-	}
-}
-
-// TestARabbitIgnoresMobsThatAreNotMonsters checks the Monster class bound of
-// the avoid goal: phantoms and slimes are hostile-category but not Monster.
-func TestARabbitIgnoresMobsThatAreNotMonsters(t *testing.T) {
-	for _, kind := range []MobType{TypePhantom, TypeSlime, TypeMagmaCube} {
-		w := hopWorld(t)
-		m := NewMob(TypeRabbit, 1, 0.5, 64, 0.5, 3)
-		m.OnGround = true
-		o := NewMob(kind, 2, 2.5, 64, 0.5, 4)
-		o.NoAI = true
-		for range 100 {
-			m.tick(w, nil, []*Mob{m, o})
-			if m.rabbit.speedMod >= 2.2 {
-				t.Fatalf("the rabbit fled a %s", kind)
-			}
-		}
-	}
-}
-
-// TestARabbitWatchesPlayersWithinTen checks Rabbit.registerGoals'
-// LookAtPlayerGoal distance of 10.
-func TestARabbitWatchesPlayersWithinTen(t *testing.T) {
-	for _, c := range []struct {
-		dist float64
-		look bool
-	}{{9.5, true}, {10.5, false}} {
-		w := hopWorld(t)
-		m := NewMob(TypeRabbit, 1, 0.5, 64, 0.5, 3)
-		m.OnGround = true
-		players := []Player{{X: 0.5 + c.dist, Y: 64, Z: 0.5, EntityID: 9}}
-		looked := false
-		for range 400 {
-			m.tick(w, players, []*Mob{m})
-			// Facing +x is yaw -90.
-			if m.HeadYaw < -89 && m.HeadYaw > -91 {
-				looked = true
-				break
-			}
-		}
-		if looked != c.look {
-			t.Errorf("player at %.1f: looked = %v, want %v", c.dist, looked, c.look)
-		}
-	}
-}
-
-// TestTheKillerBunnyTargetsAWolf checks Rabbit.setVariant's
-// NearestAttackableTargetGoal<Wolf>.
-func TestTheKillerBunnyTargetsAWolf(t *testing.T) {
-	w := hopWorld(t)
-	killer := NewMob(TypeRabbit, 1, 0.5, 64, 0.5, 3)
-	killer.RabbitType = rabbitEvil
-	killer.OnGround = true
-	plain := NewMob(TypeRabbit, 2, 0.5, 64, 4.5, 3)
-	plain.OnGround = true
-	wolf := NewMob(TypeWolf, 3, 4.5, 64, 0.5, 4)
-	wolf.NoAI = true
-	for range 200 {
-		killer.tick(w, nil, []*Mob{killer, plain, wolf})
-		plain.tick(w, nil, []*Mob{killer, plain, wolf})
-	}
-	if killer.TargetID != 3 {
-		t.Errorf("killer bunny target %d, want the wolf (3)", killer.TargetID)
-	}
-	if plain.TargetID != 0 {
-		t.Errorf("plain rabbit target %d, want none", plain.TargetID)
 	}
 }

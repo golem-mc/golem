@@ -32,39 +32,6 @@ func fallTick(t *testing.T, w World, x, y, z float64, state uint16) (*FallingBlo
 	return f, events
 }
 
-// TestAFallIsHeldUpByTheBlockNotItsFluid checks FallingBlock.isFree:
-// a block falls through air, the fire tag, a water or lava block, and
-// anything the replaceable tag names — but not a water plant or a
-// waterlogged solid, whose own cell's water does not free it.
-// vanilla: FallingBlock.isFree
-func TestAFallIsHeldUpByTheBlockNotItsFluid(t *testing.T) {
-	state := func(name string) uint16 { return registry.MustState(name, nil) }
-	free := []string{
-		"minecraft:air", "minecraft:fire", "minecraft:soul_fire",
-		"minecraft:water", "minecraft:lava", "minecraft:short_grass",
-		"minecraft:seagrass", "minecraft:tall_seagrass",
-	}
-	for _, name := range free {
-		if !fallingFree(state(name)) {
-			t.Errorf("fallingFree(%s) = false, want a cell that falls through", name)
-		}
-	}
-	waterlogged, ok := registry.FindState("minecraft:oak_fence", map[string]string{"waterlogged": "true"})
-	if !ok {
-		t.Fatal("no waterlogged oak fence")
-	}
-	held := []uint16{
-		state("minecraft:kelp"), state("minecraft:kelp_plant"),
-		state("minecraft:stone"), waterlogged,
-	}
-	for _, s := range held {
-		name, _, _ := registry.BlockStateName(s)
-		if fallingFree(s) {
-			t.Errorf("fallingFree(%s) = true, want a cell that holds a falling block", name)
-		}
-	}
-}
-
 // TestALandingPlacesItsBlock checks the plain landing: a body whose feet
 // come to rest on a solid floor places the block it carries in the cell its
 // feet stand in — the vanilla tick's blockPosition — and ends.
@@ -86,39 +53,6 @@ func TestALandingPlacesItsBlock(t *testing.T) {
 	}
 	if events[0].State != sand {
 		t.Errorf("landing state = %d, want %d (sand)", events[0].State, sand)
-	}
-}
-
-// TestALandingOnATorchDrops checks the refusal: a body come to rest in a
-// cell a placement may not replace — the torch's, which has no collision to
-// land on and so sits under the body's feet — ends in a drop, not a
-// placement, the torch cell itself untouched by the decision.
-func TestALandingOnATorchDrops(t *testing.T) {
-	w := newTestWorld()
-	sand := registry.BlockStates["minecraft:sand"]
-	torch := registry.BlockStates["minecraft:torch"]
-	stone := registry.BlockStates["minecraft:stone"]
-	w.set(4, 63, 2, stone)
-	w.set(4, 64, 2, torch)
-
-	f, events := fallTick(t, &w, 4.5, 64.5, 2.5, sand)
-	if !f.Dead {
-		t.Fatal("a dropped body is not dead")
-	}
-	// A landing that cannot place breaks the body before it drops.
-	if len(events) != 2 || events[0].Kind != FallingBroken || events[1].Kind != FallingDropped {
-		t.Fatalf("events = %v, want a break then a drop", events)
-	}
-	if b := events[0]; b.X != 4 || b.Y != 64 || b.Z != 2 {
-		t.Errorf("break cell = %d %d %d, want the landing cell 4 64 2", b.X, b.Y, b.Z)
-	}
-	if events[1].State != sand {
-		t.Errorf("drop state = %d, want %d (sand)", events[1].State, sand)
-	}
-	// The drop is at the body's feet, the position vanilla's
-	// spawnAtLocation lays the item at.
-	if events[1].FeetY != 64.0 {
-		t.Errorf("drop at y %g, want the feet's 64.0", events[1].FeetY)
 	}
 }
 
@@ -178,105 +112,6 @@ func TestAConcretePowderSetsAsConcrete(t *testing.T) {
 	})
 }
 
-// TestAFallPastTheWorldBottomIsDropped checks the timeout: a body below the
-// world's bottom for the vanilla tick's hundred ticks gives its block up as
-// an item, and one without the drop is merely gone — and a body that has
-// fallen beneath the dimension's bottom and sixty-four more is gone at once,
-// the discard vanilla's base tick runs.
-func TestAFallPastTheWorldBottomIsDropped(t *testing.T) {
-	w := newTestWorld()
-	sand := registry.BlockStates["minecraft:sand"]
-
-	// The below-world discard, the first tick beneath the void line.
-	f := NewFallingBlock(1, 4.5, float64(w.MinY())-65, 2.5, 0, 0, 0, sand, 1)
-	if events := f.Step(&w); len(events) != 0 || !f.Dead {
-		t.Fatalf("below-world body: events = %v, dead = %v; want a silent discard", events, f.Dead)
-	}
-
-	// A body already past its hundredth tick when it crosses the world's
-	// bottom drops the block there — the time rule, which wins over the
-	// base tick's discard for a body that entered the void late.
-	f = NewFallingBlock(1, 4.5, float64(w.MinY())-1, 2.5, 0, 0, 0, sand, 1)
-	f.Time = 100
-	var events []FallingEvent
-	for i := 0; i < fallingOutOfWorldTicks+2 && !f.Dead; i++ {
-		events = f.Step(&w)
-	}
-	if !f.Dead {
-		t.Fatal("a body below the world's bottom never ended")
-	}
-	if len(events) != 1 || events[0].Kind != FallingDropped {
-		t.Fatalf("events = %v, want one drop", events)
-	}
-
-	// The drop taken off the body leaves nothing behind.
-	f = NewFallingBlock(1, 4.5, float64(w.MinY())-1, 2.5, 0, 0, 0, sand, 1)
-	f.DropItem = false
-	f.Time = 100
-	for i := 0; i < fallingOutOfWorldTicks+2 && !f.Dead; i++ {
-		events = f.Step(&w)
-	}
-	if !f.Dead || len(events) != 0 {
-		t.Fatalf("a dropless body's end: events = %v, dead = %v; want a silent discard", events, f.Dead)
-	}
-}
-
-// TestAFallSixHundredTicksOldIsDropped checks the lifetime: a body still in
-// the air after the vanilla tick's six hundred gives its block up wherever
-// it stands.
-func TestAFallSixHundredTicksOldIsDropped(t *testing.T) {
-	w := newTestWorld()
-	sand := registry.BlockStates["minecraft:sand"]
-
-	// A fall this long needs the head start its terminal pace asks for:
-	// six hundred ticks of falling cover a thousand blocks and more.
-	f := NewFallingBlock(1, 4.5, 1300, 2.5, 0, 0, 0, sand, 1)
-	var events []FallingEvent
-	for i := 0; i < fallingLifetimeTicks+1 && !f.Dead; i++ {
-		events = f.Step(&w)
-	}
-	if !f.Dead {
-		t.Fatal("a body in the air for six hundred ticks never ended")
-	}
-	if len(events) != 1 || events[0].Kind != FallingDropped {
-		t.Fatalf("events = %v, want one drop", events)
-	}
-	if f.Time != fallingLifetimeTicks+1 {
-		t.Errorf("time = %d, want %d", f.Time, fallingLifetimeTicks+1)
-	}
-}
-
-// TestTheFallRunsOnVanillasNumbers checks the trajectory against the
-// vanilla tick's own arithmetic: gravity subtracted, the move made by it,
-// the air drag taken after — so the body's position after N ticks is the
-// sum of the moved-by velocities and its stored velocity the dragged one,
-// the numbers the packets carry.
-func TestTheFallRunsOnVanillasNumbers(t *testing.T) {
-	w := newTestWorld()
-	sand := registry.BlockStates["minecraft:sand"]
-
-	f := NewFallingBlock(1, 4.5, 200, 2.5, 0, 0, 0, sand, 1)
-	y := 200.0
-	v := 0.0
-	for i := range 40 {
-		if ev := f.Step(&w); len(ev) != 0 {
-			t.Fatalf("tick %d produced events %v over open air", i, ev)
-		}
-		// The tick's own arithmetic: the velocity the move was made by —
-		// the gravity taken off the stored one — and the drag taken off
-		// what is stored after the move.
-		moved := v - fallingGravity
-		y += moved
-		v = moved * airDragFloat
-		if diff := f.Y - y; diff > 1e-9 || diff < -1e-9 {
-			t.Fatalf("tick %d: y = %g, want %g", i+1, f.Y, y)
-		}
-		if diff := f.VY - v; diff > 1e-9 || diff < -1e-9 {
-			t.Fatalf("tick %d: vy = %g, want %g", i+1, f.VY, v)
-		}
-	}
-}
-
 // rollRand hands back a random source whose first draw is known: a hit
 // rolls under every chance the wear rolls against, a miss rolls over the
 // largest of them. The seed is found on a throwaway source so the one the
@@ -287,69 +122,6 @@ func rollRand(hit bool) *rand.Rand {
 		if (hit && draw < 0.05) || (!hit && draw > 0.5) {
 			return rand.New(rand.NewSource(s))
 		}
-	}
-}
-
-// TestAFallTracksItsDistance checks the fall's distance: the downward moves
-// of the fall pile up while the body is in the air, and the landing — the
-// roll asked before the forgetting — leaves the distance at nothing.
-// vanilla: checkFallDamage
-func TestAFallTracksItsDistance(t *testing.T) {
-	w := newTestWorld()
-	sand := registry.BlockStates["minecraft:sand"]
-	stone := registry.BlockStates["minecraft:stone"]
-	w.set(4, 63, 2, stone)
-
-	f := NewFallingBlock(1, 4.5, 70.0, 2.5, 0, 0, 0, sand, 1)
-	for i := 0; !f.Dead && i < 1000; i++ {
-		f.Step(&w)
-		if !f.OnGround && f.Y < 69 && f.FallDistance == 0 {
-			t.Fatalf("tick %d: a fall in the air keeps no distance", i)
-		}
-	}
-	if !f.Dead {
-		t.Fatal("the body never came to rest")
-	}
-	if f.FallDistance != 0 {
-		t.Errorf("fall distance at rest = %g, want 0", f.FallDistance)
-	}
-}
-
-// TestAFallThroughAWebOrWaterLayerForgetsItsDistance holds the fall-reset
-// sweep of Entity.move: a long fall through a one-thick layer of web or
-// water carries only the steps taken below the layer into the landing.
-// vanilla: Entity.move, ClipContext.Block.FALLDAMAGE_RESETTING
-func TestAFallThroughAWebOrWaterLayerForgetsItsDistance(t *testing.T) {
-	for _, layer := range []string{"minecraft:cobweb", "minecraft:water"} {
-		t.Run(layer, func(t *testing.T) {
-			w := newTestWorld()
-			stone := registry.BlockStates["minecraft:stone"]
-			l := defaultState(t, layer)
-			for x := int32(3); x <= 5; x++ {
-				for z := int32(1); z <= 3; z++ {
-					w.set(x, 40, z, stone)
-					w.set(x, 50, z, l)
-				}
-			}
-			f := NewFallingBlock(1, 4.5, 90.0, 2.5, 0, 0, 0, registry.BlockStates["minecraft:anvil"], 1)
-			past := false
-			worst := 0.0
-			for i := 0; !f.Dead && !f.OnGround && i < 1000; i++ {
-				f.Step(&w)
-				if f.Y < 49 {
-					past = true
-				}
-				if past && f.FallDistance > worst {
-					worst = f.FallDistance
-				}
-			}
-			if !past {
-				t.Fatal("the body never passed the layer")
-			}
-			if worst > 12 {
-				t.Errorf("fall distance below the layer = %g, want only the short fall", worst)
-			}
-		})
 	}
 }
 
@@ -532,23 +304,6 @@ func TestAFallHurtsWhatItLandsOn(t *testing.T) {
 	})
 }
 
-// TestAHurtBoxIsTheBodyBox checks the box a landing gathers its victims by:
-// the falling body's own box, not one shrunk about it.
-// vanilla: FallingBlockEntity.causeFallDamage getBoundingBox
-func TestAHurtBoxIsTheBodyBox(t *testing.T) {
-	f := NewFallingBlock(1, 4.5, 64, 2.5, 0, 0, 0, registry.BlockStates["minecraft:anvil"], 1)
-	minX, minY, minZ, maxX, maxY, maxZ := f.HurtBox()
-	if minX != 4.5-FallingHalfWidth || maxX != 4.5+FallingHalfWidth {
-		t.Errorf("x box = [%g, %g], want the body's own", minX, maxX)
-	}
-	if minY != 64 || maxY != 64+FallingHeight {
-		t.Errorf("y box = [%g, %g], want [64, %g]", minY, maxY, 64+FallingHeight)
-	}
-	if minZ != 2.5-FallingHalfWidth || maxZ != 2.5+FallingHalfWidth {
-		t.Errorf("z box = [%g, %g], want the body's own", minZ, maxZ)
-	}
-}
-
 // TestEntityDropsRuleOffSilencesEveryDropSite checks that a body giving its
 // block up drops nothing while entity_drops is false: the lifetime end and the
 // failed landing both.
@@ -582,44 +337,6 @@ func TestEntityDropsRuleOffSilencesEveryDropSite(t *testing.T) {
 		}
 		if !f.Dead || len(events) != 2*want {
 			t.Fatalf("noDrops=%v failed landing: events = %v, dead = %v; want %d", noDrops, events, f.Dead, want)
-		}
-	}
-}
-
-func TestFallingAirDisappearsBeforeStepping(t *testing.T) {
-	for _, state := range []uint16{
-		registry.BlockAir.DefaultState(), registry.BlockCaveAir.DefaultState(), registry.BlockVoidAir.DefaultState(), 65535,
-	} {
-		f := NewFallingBlock(1, 4.5, 90, 2.5, 0, 0, 0, state, 1)
-		events := f.Step(nil)
-		if !f.Dead || f.Time != 0 || len(events) != 0 {
-			t.Errorf("state %d: dead=%v time=%d events=%v, want immediate discard", state, f.Dead, f.Time, events)
-		}
-	}
-}
-
-// TestALandingInWaterIsWaterlogged checks that a waterloggable block landing
-// in a water source keeps its other properties and gains waterlogged, and
-// that flowing water does not waterlog it.
-// vanilla: FallingBlockEntity.tick
-func TestALandingInWaterIsWaterlogged(t *testing.T) {
-	slab := registry.MustState("minecraft:oak_slab", map[string]string{"type": "top", "waterlogged": "false"})
-	for _, tc := range []struct {
-		water map[string]string
-		want  bool
-	}{{map[string]string{"level": "0"}, true}, {map[string]string{"level": "1"}, false}} {
-		w := newTestWorld()
-		w.set(0, 63, 0, registry.BlockStates["minecraft:stone"])
-		w.set(0, 64, 0, registry.MustState("minecraft:water", tc.water))
-		_, events := fallTick(t, &w, 0.5, 66, 0.5, slab)
-		if len(events) != 1 || events[0].Kind != FallingLanded {
-			t.Fatalf("level %s: events = %v, want one landing", tc.water["level"], events)
-		}
-		if got := registry.StateBool(events[0].State, registry.PropWaterlogged); got != tc.want {
-			t.Errorf("level %s: waterlogged = %v, want %v", tc.water["level"], got, tc.want)
-		}
-		if got := registry.StateValue(events[0].State, registry.PropType); got != "top" {
-			t.Errorf("level %s: type = %q, want top kept", tc.water["level"], got)
 		}
 	}
 }

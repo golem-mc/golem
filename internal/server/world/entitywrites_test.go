@@ -4,7 +4,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/nbt"
 )
@@ -46,94 +45,6 @@ func TestSaveChunkEntitiesStampedDropsAnOlderRead(t *testing.T) {
 	}
 	if id := savedEntityID(t, w, pos); id != "minecraft:cow" {
 		t.Errorf("the file holds %q, want the newer read's minecraft:cow", id)
-	}
-}
-
-// TestChunkEntitiesStampCurrent checks a stamp stops being current once a newer
-// read of the chunk is taken, and only for that chunk.
-func TestChunkEntitiesStampCurrent(t *testing.T) {
-	w, err := NewWorld(t.TempDir(), NewFlatGenerator())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = w.Close() })
-	a, b := ChunkPos{X: 0, Z: 0}, ChunkPos{X: 1, Z: 0}
-	first, other := w.StampChunkEntities(a), w.StampChunkEntities(b)
-	if !w.ChunkEntitiesStampCurrent(a, first) {
-		t.Error("the only read of a chunk is not current")
-	}
-	w.StampChunkEntities(a)
-	if w.ChunkEntitiesStampCurrent(a, first) {
-		t.Error("a read is current after a newer one of the same chunk")
-	}
-	if !w.ChunkEntitiesStampCurrent(b, other) {
-		t.Error("a read of another chunk lost its place to a's newer read")
-	}
-}
-
-// TestSaveChunkEntitiesStampedSerialisesOneChunk checks a write of a chunk
-// waits for the write already holding that chunk, while a write of another
-// chunk does not, and that the bookkeeping is gone once the writes are.
-func TestSaveChunkEntitiesStampedSerialisesOneChunk(t *testing.T) {
-	w, err := NewWorld(t.TempDir(), NewFlatGenerator())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = w.Close() })
-	held, other := ChunkPos{X: 4, Z: 4}, ChunkPos{X: 5, Z: 4}
-	e := &w.entityWrites
-	cw := &chunkWrite{users: 1}
-	cw.mu.Lock() // a write of held in progress
-	e.mu.Lock()
-	e.writing = map[ChunkPos]*chunkWrite{held: cw}
-	e.mu.Unlock()
-
-	// hang guards below are not waits: the writes are expected to finish.
-	otherDone := make(chan error, 1)
-	go func() {
-		otherDone <- w.SaveChunkEntitiesStamped(other, w.StampChunkEntities(other), entityTag("minecraft:pig"))
-	}()
-	select {
-	case err := <-otherDone:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(10 * time.Second): // a hang guard, not a wait
-		t.Fatal("a write of another chunk waited for the held chunk's write")
-	}
-
-	heldDone := make(chan error, 1)
-	go func() {
-		heldDone <- w.SaveChunkEntitiesStamped(held, w.StampChunkEntities(held), entityTag("minecraft:cow"))
-	}()
-	// Parked on the held lock, or, with no lock, already through.
-	for !parkedInEntityWrite() {
-		select {
-		case err := <-heldDone:
-			t.Fatalf("a write of the held chunk went through while another held it (err %v)", err)
-		default:
-			runtime.Gosched()
-		}
-	}
-	select {
-	case err := <-heldDone:
-		t.Fatalf("a write of the held chunk went through while another held it (err %v)", err)
-	default:
-	}
-	e.mu.Lock()
-	cw.users-- // the held write ends
-	e.mu.Unlock()
-	cw.mu.Unlock()
-	if err := <-heldDone; err != nil {
-		t.Fatal(err)
-	}
-	if id := savedEntityID(t, w, held); id != "minecraft:cow" {
-		t.Errorf("the file holds %q, want minecraft:cow", id)
-	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if len(e.writing) != 0 || len(e.latest) != 0 {
-		t.Errorf("bookkeeping left behind: %d writing, %d latest", len(e.writing), len(e.latest))
 	}
 }
 

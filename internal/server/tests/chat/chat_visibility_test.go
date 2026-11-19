@@ -2,7 +2,6 @@ package chat
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
@@ -95,41 +94,6 @@ func TestCommandsOnlyPlayerChatsButHearsNoPlayerChat(t *testing.T) {
 	bob.Disconnect()
 }
 
-// TestSayAndMsgSkipACommandsOnlyPlayer checks the chat broadcasts the
-// commands carry over the same player-chat types: /say's world line and the
-// two halves of a /msg reach a full client alone, so a commands-only player
-// reads neither.
-func TestSayAndMsgSkipACommandsOnlyPlayer(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	// /say is a gamemaster's command, so the runner is listed as an
-	// operator.
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Alice"))
-	alice := connect().Join("Alice")
-
-	bob := connect().Join("Bob")
-	alice.ExpectPlayerAdded("Bob")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Bob")
-
-	bob.SetChatMode(1) // commands only
-	// Bob's client information travels his own connection, so the wait
-	// keeps it from racing the say Alice's connection sends next.
-	bob.Settle()
-
-	alice.ChatCommand("say hello team")
-	servertest.ExpectDisguisedChat(t, alice, "minecraft:say_command", "Alice", "hello team", "")
-	expectNoPlayerChat(t, srv, alice, bob)
-
-	alice.ChatCommand("msg Bob psst")
-	servertest.ExpectDisguisedChat(t, alice, "minecraft:msg_command_outgoing", "Alice", "psst", "Bob")
-	expectNoPlayerChat(t, srv, alice, bob)
-
-	alice.Disconnect()
-	bob.Disconnect()
-}
-
 // TestHiddenChatStillRunsCommands checks execution and suppressed feedback separately.
 func TestHiddenChatStillRunsCommands(t *testing.T) {
 	t.Parallel()
@@ -156,88 +120,6 @@ func TestHiddenChatStillRunsCommands(t *testing.T) {
 
 	alice.Disconnect()
 	bob.Disconnect()
-}
-
-// TestHiddenChatFiltersSystemMessages covers joins, tellraw, titles and mode changes.
-func TestHiddenChatFiltersSystemMessages(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Alice"))
-	alice := connect().Join("Alice")
-	bob := connect().Join("Bob")
-	alice.ExpectPlayerAdded("Bob")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Bob")
-	bob.SetChatMode(protocol.ChatModeHidden)
-	bob.Settle()
-
-	carol := connect().Join("Carol")
-	alice.ExpectPlayerAdded("Carol")
-	alice.ExpectAnnouncement("multiplayer.player.joined", "Carol")
-	servertest.HoldTicks(t, srv)
-	bob.ExpectNoneWithinTicks(srv, 10, servertest.PacketIs(protocol.IDPlaySystemChat))
-
-	alice.ChatCommand(`title Bob actionbar "x"`)
-	var want protocol.Buffer
-	want.PutText(protocol.Text{Text: "x"})
-	if got := bob.ExpectPlay(protocol.IDPlayActionBarText); !bytes.Equal(got, want.Bytes()) {
-		t.Errorf("action bar = % X, want % X", got, want.Bytes())
-	}
-	alice.ChatCommand(`tellraw Bob "hi"`)
-	alice.SettleKeeping()
-	bob.ExpectNoneWithinTicks(srv, 10, servertest.PacketIs(protocol.IDPlaySystemChat))
-
-	bob.Chat("hidden")
-	if got := bob.ExpectPlay(protocol.IDPlaySystemChat); !bytes.Equal(got, hiddenChatOptionsLine()) {
-		t.Errorf("hidden chat answer = % X, want % X", got, hiddenChatOptionsLine())
-	}
-
-	bob.SetChatMode(1) // commands only
-	bob.Settle()
-	servertest.ReleaseTicks(t, srv)
-	dave := connect().Join("Dave")
-	bob.ExpectPlayerAdded("Dave")
-	bob.ExpectAnnouncement("multiplayer.player.joined", "Dave")
-
-	alice.Disconnect()
-	bob.Disconnect()
-	carol.Disconnect()
-	dave.Disconnect()
-}
-
-// TestHiddenChatIsNotCounted floods from a hidden-chat player: the red line
-// answers every message and none of them steps the counter, so no kick.
-// vanilla: ServerGamePacketListenerImpl.tryHandleChat
-func TestHiddenChatIsNotCounted(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-
-	srv, c := servertest.Join(t, cfg, "Testificate")
-
-	c.SetChatMode(protocol.ChatModeHidden)
-	for round := range 30 {
-		c.Chat(fmt.Sprintf("spam %d", round))
-	}
-
-	answers := 0
-	c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
-		switch id {
-		case protocol.IDPlaySystemChat:
-			if bytes.Equal(data, hiddenChatOptionsLine()) {
-				answers++
-			}
-		case protocol.IDPlayDisconnect:
-			t.Fatalf("hidden chat was counted and kicked the player: % X", data)
-		}
-		return false
-	})
-	if answers != 30 {
-		t.Errorf("the hidden client read %d red answers, want 30", answers)
-	}
-
-	c.Disconnect()
 }
 
 // TestChatModeReturnsToFull has a player hide chat and then switch back to

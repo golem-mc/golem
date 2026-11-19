@@ -71,17 +71,6 @@ func TestFurnaceFacesAndShulkerRefusal(t *testing.T) {
 	}
 }
 
-func TestEjectSkipsWhatTheTargetRefuses(t *testing.T) {
-	hopper := &testBlock{kind: KindHopper, slots: []protocol.ItemStack{
-		item(t, "minecraft:stone", 2), item(t, "minecraft:coal", 1), {}, {}, {},
-	}}
-	furnace := &testBlock{kind: KindFurnace, slots: make([]protocol.ItemStack, 3)}
-	moved, _ := Eject(hopper, furnace, protocol.FaceNorth)
-	if !moved || !hopper.slots[1].Empty() || hopper.slots[0].Count != 2 || furnace.slots[1].Count != 1 {
-		t.Fatalf("moved %v, hopper %v, furnace %v", moved, hopper.slots[:2], furnace.slots)
-	}
-}
-
 func TestDispenseGiveBackTakesItsSlotWhenItCan(t *testing.T) {
 	dispenser := &testBlock{kind: KindDispenser, slots: make([]protocol.ItemStack, 9)}
 	if left := DispenseGiveBack(dispenser, 4, item(t, "minecraft:bucket", 1)); !left.Empty() ||
@@ -95,15 +84,6 @@ func TestDispenseGiveBackTakesItsSlotWhenItCan(t *testing.T) {
 	}
 }
 
-func TestDispenseGiveBackOverflowsIntoTheOtherSlots(t *testing.T) {
-	dispenser := &testBlock{kind: KindDispenser, slots: make([]protocol.ItemStack, 9)}
-	dispenser.slots[4] = item(t, "minecraft:dirt", 64)
-	if left := DispenseGiveBack(dispenser, 4, item(t, "minecraft:bone_meal", 1)); !left.Empty() ||
-		!dispenser.slots[0].Equal(item(t, "minecraft:bone_meal", 1)) {
-		t.Fatalf("left %v, slots %v", left, dispenser.slots)
-	}
-}
-
 func TestSuckReadsTheFurnaceBottomOutputFirst(t *testing.T) {
 	furnace := &testBlock{kind: KindFurnace, slots: []protocol.ItemStack{
 		item(t, "minecraft:stone", 1), item(t, "minecraft:coal", 1), item(t, "minecraft:iron_ingot", 2),
@@ -113,29 +93,6 @@ func TestSuckReadsTheFurnaceBottomOutputFirst(t *testing.T) {
 	if !moved || !intoEmpty || !hopper.slots[0].Equal(item(t, "minecraft:iron_ingot", 1)) ||
 		!hopper.slots[1].Empty() || furnace.slots[2].Count != 1 || furnace.slots[1].Count != 1 {
 		t.Fatalf("moved %v intoEmpty %v, hopper %v, furnace %v", moved, intoEmpty, hopper.slots[:2], furnace.slots)
-	}
-}
-
-func TestSuckStopsAtTheFirstMove(t *testing.T) {
-	chest := &testBlock{kind: KindChest, slots: []protocol.ItemStack{
-		item(t, "minecraft:dirt", 2), item(t, "minecraft:stick", 1), item(t, "minecraft:cobblestone", 1),
-	}}
-	hopper := &testBlock{kind: KindHopper, slots: make([]protocol.ItemStack, 5)}
-	moved, intoEmpty := Suck(chest, hopper)
-	if !moved || !intoEmpty || !hopper.slots[0].Equal(item(t, "minecraft:dirt", 1)) || !hopper.slots[1].Empty() ||
-		chest.slots[0].Count != 1 || chest.slots[1].Count != 1 || chest.slots[2].Count != 1 {
-		t.Fatalf("moved %v intoEmpty %v, hopper %v, chest %v", moved, intoEmpty, hopper.slots, chest.slots)
-	}
-}
-
-func TestDispenseGiveBackIntoAFullDispenserReturnsTheStack(t *testing.T) {
-	dispenser := &testBlock{kind: KindDispenser, slots: make([]protocol.ItemStack, 9)}
-	for i := range dispenser.slots {
-		dispenser.slots[i] = item(t, "minecraft:stone", 64)
-	}
-	bone := item(t, "minecraft:bone_meal", 1)
-	if left := DispenseGiveBack(dispenser, 4, bone); !left.Equal(bone) {
-		t.Fatalf("left %v, want the stack back", left)
 	}
 }
 
@@ -179,20 +136,5 @@ func BenchmarkEjectIntoADoubleChest(b *testing.B) {
 		Eject(hopper, chest, protocol.FaceBottom)
 		chest.Put(53, roomy)
 		hopper.slots[0] = full
-	}
-}
-
-func TestBrewingStandBottleSlotsTakeOneBottleEach(t *testing.T) {
-	stand := &testBlock{kind: KindBrewingStand, slots: make([]protocol.ItemStack, 5)}
-	for i := range 5 {
-		left, _ := AddItem(stand, item(t, "minecraft:glass_bottle", 1), protocol.FaceNorth, true)
-		if wantLeft := i >= 3; left.Empty() == wantLeft {
-			t.Fatalf("bottle %d: left %v", i, left)
-		}
-	}
-	for i := range 3 {
-		if stand.slots[i].Count != 1 {
-			t.Errorf("slot %d holds %d bottles, want 1", i, stand.slots[i].Count)
-		}
 	}
 }

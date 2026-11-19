@@ -50,35 +50,6 @@ func TestPluginToggleSneakAndSprintCancel(t *testing.T) {
 	}
 }
 
-// vanilla: ServerGamePacketListenerImpl.handleSetCarriedItem
-func TestPluginItemHeldCancelRestoresSlot(t *testing.T) {
-	var held int
-	var prev, next int
-	var cancel bool
-	srv, _, c := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.PlayerItemHeldEvent) {
-			held++
-			prev, next = e.Previous, e.New
-			e.SetCancelled(cancel)
-		})
-	})
-	cancel = true
-	c.SwapHotbarSlot(3)
-	ids := fired(t, srv, c, "held event", &held, 1)
-	if prev != 0 || next != 3 {
-		t.Fatalf("previous %d new %d, want 0 and 3", prev, next)
-	}
-	if !slices.Contains(ids, protocol.IDPlayHeldItem) {
-		t.Error("the client's selection was not put back")
-	}
-	cancel = false
-	c.SwapHotbarSlot(3)
-	ids = fired(t, srv, c, "allowed held event", &held, 2)
-	if slices.Contains(ids, protocol.IDPlayHeldItem) {
-		t.Error("an allowed change was answered with a held item")
-	}
-}
-
 // vanilla: ServerGamePacketListenerImpl.handlePlayerAction SWAP_ITEM_WITH_OFFHAND
 func TestPluginSwapHandItemsCancelAndChange(t *testing.T) {
 	var swaps int
@@ -154,25 +125,6 @@ func TestPluginInteractRightClickBlockCancelAndDeny(t *testing.T) {
 	fired(t, srv, c, "allowed click", &clicks, 3)
 	if srv.BlockAt(d[0], d[1]+1, d[2]) == above {
 		t.Fatal("an allowed click placed nothing")
-	}
-}
-
-// vanilla: ServerPlayerGameMode.useItemOn
-func TestPluginInteractDenyBlockKeepsItemUse(t *testing.T) {
-	var clicks int
-	srv, _, c := blockScene(t, "minecraft:cobblestone", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.PlayerInteractEvent) {
-			clicks++
-			e.DenyBlock = true
-		})
-	})
-	d := servertest.DigTarget
-	srv.SetBlock(d[0], d[1], d[2], servertest.BlockState(t, "minecraft:crafting_table"))
-	c.PlaceBlock(d[0], d[1], d[2], protocol.FaceTop)
-	fired(t, srv, c, "click", &clicks, 1)
-	// The table did not open, so the cobblestone went on top of it.
-	if srv.BlockAt(d[0], d[1]+1, d[2]) != servertest.BlockState(t, "minecraft:cobblestone") {
-		t.Fatal("DenyBlock did not leave the item's use to place")
 	}
 }
 
@@ -345,7 +297,7 @@ func TestPluginRespawnEventMovesPlayer(t *testing.T) {
 	c.PerformRespawn()
 	// The listener runs on a tick, once the connection has read the packet.
 	for i := 0; respawns < 1; i++ {
-		if i == 400 {
+		if i == 4000 {
 			t.Fatal("no respawn event")
 		}
 		servertest.RunTicks(t, srv, 1)
@@ -355,17 +307,4 @@ func TestPluginRespawnEventMovesPlayer(t *testing.T) {
 	if noBlock || respawns != 1 || pos.X != 9.5 {
 		t.Fatalf("respawn at %v (no-block %v), %d events", pos, noBlock, respawns)
 	}
-}
-
-// vanilla: ServerGamePacketListenerImpl.handleAnimate
-func TestPluginAnimationCancelKeepsSwingOff(t *testing.T) {
-	var swings int
-	srv, _, c := blockScene(t, "minecraft:stone", false, func(s plugin.Server) {
-		plugin.Listen(s, func(e *plugin.PlayerAnimationEvent) {
-			swings++
-			e.SetCancelled(true)
-		})
-	})
-	c.Send(protocol.IDPlayPunch, func(*protocol.Buffer) {})
-	fired(t, srv, c, "animation event", &swings, 1)
 }

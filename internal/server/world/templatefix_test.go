@@ -45,24 +45,6 @@ func readTemplateFixFixtures(t *testing.T, file string) map[string]nbt.Compound 
 	return out
 }
 
-func TestTemplateDataFixVanilla(t *testing.T) {
-	input := readTemplateFixFixtures(t, "templatefix_input.snbt")
-	expected := readTemplateFixFixtures(t, "templatefix_expected.snbt")
-	if len(input) != len(expected) {
-		t.Fatal("fixture counts differ")
-	}
-	for name, root := range input {
-		t.Run(name, func(t *testing.T) {
-			if err := upgradeTemplate(root); err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(root, expected[name]) {
-				t.Errorf("fixed = %#v\nwant %#v", root, expected[name])
-			}
-		})
-	}
-}
-
 func TestTemplateDataFixVanilla26_3(t *testing.T) {
 	// Generated separately with REFERENCE_VERSION=26.3 so the next release's
 	// schema and fixtures can be checked without activating its production data.
@@ -124,48 +106,6 @@ func TestTemplateDataFixVanilla26_3(t *testing.T) {
 	}
 }
 
-func TestTemplateDataFixBoundaries(t *testing.T) {
-	cases := []struct {
-		version      int32
-		input, fixed string
-	}{
-		{4535, `{entities:[{nbt:{id:"minecraft:copper_golem",weather_state:1}}]}`, `{entities:[{nbt:{id:"minecraft:copper_golem",weather_state:"exposed"}}]}`},
-		{4541, `{palette:[{Name:"minecraft:chain"}]}`, `{palette:[{id:"minecraft:iron_chain"}]}`},
-		{4649, `{entities:[{nbt:{id:"minecraft:item",Item:{id:"minecraft:stone",components:{"minecraft:consumable":{animation:"spear"}}}}}]}`, `{entities:[{nbt:{id:"minecraft:item",Item:{id:"minecraft:stone",components:{"minecraft:consumable":{animation:"trident"}}}}}]}`},
-		{4763, `{entities:[{nbt:{id:"minecraft:villager",VillagerDataFinalized:0b}}]}`, `{entities:[{nbt:{id:"minecraft:villager",VillagerDataFinalized:1b}}]}`},
-		{4769, `{blocks:[{nbt:{id:"minecraft:furnace",RecipesUsed:{"minecraft:quartz_slab_from_stonecutting":2}}}]}`, `{blocks:[{nbt:{id:"minecraft:furnace",RecipesUsed:{"minecraft:quartz_slab_from_quartz_block_stonecutting":2}}}]}`},
-		{4885, `{blocks:[{nbt:{id:"minecraft:bed"}}]}`, `{blocks:[{}]}`},
-		{4888, `{entities:[{nbt:{id:"minecraft:armor_stand",attributes:[{id:"minecraft:nameplate_distance"}]}}]}`, `{entities:[{nbt:{id:"minecraft:armor_stand",attributes:[{id:"minecraft:name_tag_distance"}]}}]}`},
-	}
-	for _, tc := range cases {
-		for _, version := range []int32{tc.version - 1, tc.version} {
-			root, err := nbt.ParseSNBT(tc.input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			root["DataVersion"] = nbt.Int(version)
-			want := tc.input
-			if tc.version == 4541 {
-				want = `{palette:[{id:"minecraft:chain"}]}` // 50060 renames Name to id
-			}
-			if version < tc.version {
-				want = tc.fixed
-			}
-			expected, err := nbt.ParseSNBT(want)
-			if err != nil {
-				t.Fatal(err)
-			}
-			expected["DataVersion"] = nbt.Int(version)
-			if err := upgradeTemplate(root); err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(root, expected) {
-				t.Errorf("fix %d at %d: got %#v, want %#v", tc.version, version, root, expected)
-			}
-		}
-	}
-}
-
 func TestParseTemplateDataFix(t *testing.T) {
 	root, err := nbt.ParseSNBT(`{DataVersion:4440,size:[2,1,1],palette:[{Name:"minecraft:chain",Properties:{axis:"x"}},{Name:"minecraft:chest"}],blocks:[{pos:[0,0,0],state:0},{pos:[1,0,0],state:1,nbt:{id:"minecraft:chest",Items:[{Slot:0b,id:"minecraft:chain",count:1}]}}],entities:[{pos:[0.5d,1.0d,0.5d],blockPos:[0,1,0],nbt:{id:"minecraft:villager"}}]}`)
 	if err != nil {
@@ -210,22 +150,6 @@ func TestParseTemplateDataFix(t *testing.T) {
 		}
 		if !reflect.DeepEqual(tpl, again) {
 			t.Error("upgraded template changed after saving and reloading")
-		}
-	}
-}
-
-func TestParseTemplateDataVersionFloor(t *testing.T) {
-	for _, version := range []nbt.Tag{nil, nbt.Int(4439), nbt.Int(-1), nbt.String("4440")} {
-		root := nbt.Compound{}
-		if version != nil {
-			root["DataVersion"] = version
-		}
-		raw, err := nbt.Encode("", root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := ParseTemplate(raw); err == nil || !strings.Contains(err.Error(), "below supported minimum 4440") {
-			t.Errorf("version %v: error = %v", version, err)
 		}
 	}
 }

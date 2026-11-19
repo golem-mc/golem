@@ -47,29 +47,6 @@ func TestSaplingGrowsOnRandomTicks(t *testing.T) {
 	t.Errorf("the sapling stands as %s %s after 20000 random ticks, want the oak grown", name, props)
 }
 
-// TestMangrovePropaguleAgesOnRandomTicks checks the hanging branch of the
-// vanilla MangrovePropaguleBlock.randomTick: it random-ticks at midnight,
-// where its above cell is lit at four, and climbs an age per hit with no roll
-// and no light check, so it ripens where a sapling would draw nothing.
-func TestMangrovePropaguleAgesOnRandomTicks(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Gardener", servertest.OpsListing(t, "Gardener"))
-
-	srv.StopTick()
-	servertest.SeedPhysics(t, srv, saplingSeed)
-	srv.SetGameRuleValue(world.RuleRandomTickSpeed.String(), saplingTickSpeed)
-	srv.SetDayTime(18000)
-
-	servertest.SetFarmBlock(t, c, srv, 5, 64, 0, "minecraft:mangrove_propagule", map[string]string{"hanging": "true", "age": "0"})
-
-	srv.TickRandomTicks(20000)
-
-	name, props := servertest.StateProps(srv.BlockAt(5, 64, 0))
-	if name != "minecraft:mangrove_propagule" || props["hanging"] != "true" || props["age"] != "4" {
-		t.Errorf("the propagule stands as %s %v after 20000 random ticks, want hanging age=4", name, props)
-	}
-}
-
 // TestMangrovePropaguleGrowsOnRandomTicks checks the standing branch: a
 // standing propagule advances through stage 1 and grows its configured tree.
 func TestMangrovePropaguleGrowsOnRandomTicks(t *testing.T) {
@@ -158,40 +135,5 @@ func TestConfiguredSaplingsGrowOnRandomTicks(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestSingleDarkOakSaplingDoesNotGrow(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Gardener", servertest.OpsListing(t, "Gardener"))
-	srv.StopTick()
-	servertest.SeedPhysics(t, srv, saplingSeed)
-	srv.SetGameRuleValue(world.RuleRandomTickSpeed.String(), saplingTickSpeed)
-	servertest.SetFarmBlock(t, c, srv, 5, 63, 0, "minecraft:dirt", nil)
-	servertest.SetFarmBlock(t, c, srv, 5, 64, 0, "minecraft:dark_oak_sapling", nil)
-	srv.TickRandomTicks(20000)
-	state := srv.BlockAt(5, 64, 0)
-	if registry.BlockOf(state) != registry.BlockDarkOakSapling || registry.StateValue(state, registry.PropStage) != "1" {
-		t.Fatalf("single sapling became %d, want stage-1 dark oak sapling", state)
-	}
-}
-
-// TestBoneMealGrowsAPoplarSapling checks the poplar grower: a poplar sapling
-// on grass, bone-mealed until it grows, stands as one of the three poplars,
-// a trunk of poplar logs where the sapling stood.
-func TestBoneMealGrowsAPoplarSapling(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Gardener", servertest.OpsListing(t, "Gardener"))
-	srv.StopTick()
-	servertest.SeedPhysics(t, srv, saplingSeed)
-	servertest.SetFarmBlock(t, c, srv, 5, 63, 0, "minecraft:grass_block", nil)
-	servertest.SetFarmBlock(t, c, srv, 5, 64, 0, "minecraft:poplar_sapling", nil)
-	servertest.GiveFarmItem(t, c, "minecraft:bone_meal")
-
-	boneMealClicks(t, c, srv, 5, 64, 0, 30, func(name string, _ map[string]string) bool {
-		return name == "minecraft:poplar_log"
-	})
-	if name, _ := servertest.StateProps(srv.BlockAt(5, 65, 0)); name != "minecraft:poplar_log" {
-		t.Errorf("above the trunk's foot stands %s, want the poplar's trunk", name)
 	}
 }

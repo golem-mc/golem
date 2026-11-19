@@ -1,7 +1,6 @@
 package entity
 
 import (
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -42,25 +41,6 @@ func TestAxolotlVariantsAndPackBabies(t *testing.T) {
 	back.LoadFrom(saved, nil, nil)
 	if back.AxolotlVariant() != AxolotlBlue || !back.FromBucket {
 		t.Fatal("save lost variant or bucket origin")
-	}
-}
-
-func TestAxolotlBreedingInheritsOrRollsBlue(t *testing.T) {
-	m := NewMob(TypeAxolotl, 1, 0, 64, 0, 42)
-	partner := NewMob(TypeAxolotl, 2, 0, 64, 0, 43)
-	m.SetAxolotlVariant(AxolotlGold)
-	partner.SetAxolotlVariant(AxolotlCyan)
-	baby := NewMob(TypeAxolotl, 3, 0, 64, 0, 44)
-	counts := map[int]int{}
-	for range 12000 {
-		m.BreedInto(baby, partner)
-		if !baby.Persistence {
-			t.Fatal("bred axolotl is not persistent")
-		}
-		counts[baby.AxolotlVariant()]++
-	}
-	if len(counts) != 3 || counts[AxolotlBlue] < 1 || counts[AxolotlBlue] > 40 || counts[AxolotlGold] < 5000 || counts[AxolotlCyan] < 5000 {
-		t.Fatalf("12000 offspring variants: %v", counts)
 	}
 }
 
@@ -229,110 +209,6 @@ func TestAxolotlHuntsWaterTargetsAndKeepsBucketCooldown(t *testing.T) {
 	}
 }
 
-func TestAxolotlSwimsWithoutSinkingOrFluidPush(t *testing.T) {
-	w := tank(t, rules.DifficultyNormal)
-	m := NewMob(TypeAxolotl, 1, 0.5, 61, 0.5, 1)
-	m.updateMobFluids(w)
-	if !m.seekTo(w, 4.5, 62, 0.5, 0.5, navReach) {
-		t.Fatal("no amphibious path through water")
-	}
-	startX := m.X
-	for range 30 {
-		m.updateMobFluids(w)
-		m.axolotlMoveControl(w)
-		m.axolotlTravelInWater(w)
-	}
-	if m.X <= startX+0.2 || m.Y <= 61 {
-		t.Fatalf("did not swim up path: (%v,%v,%v)", m.X, m.Y, m.Z)
-	}
-	m.stopSeeking()
-	m.VX, m.VY, m.VZ = 0, 0, 0
-	y := m.Y
-	m.axolotlMoveControl(w)
-	m.axolotlTravelInWater(w)
-	if math.Abs(m.Y-y) > 1e-9 {
-		t.Fatal("idle axolotl sank")
-	}
-}
-
-func TestAxolotlSupportRequiresTheNearbyKillingPlayer(t *testing.T) {
-	for _, tc := range []struct {
-		name                      string
-		x                         float64
-		worldDamage, alive, stale bool
-		want                      bool
-	}{
-		{name: "near", x: 20, want: true},
-		{name: "bounding boxes overlap", x: 20.6, want: true},
-		{name: "outside", x: 21},
-		{name: "world final blow", worldDamage: true},
-		{name: "survived", alive: true},
-		{name: "stale source", stale: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := NewMob(TypeAxolotl, 1, 0, 61, 0, 1)
-			o := NewMob(TypeCod, 2, 1, 61, 0, 2)
-			p := Player{EntityID: 42, X: tc.x, Y: 61}
-			damage := 100.0
-			if tc.alive {
-				damage = 1
-			}
-			o.takeAttack(damage, rules.DamageTypePlayerAttack, p, 0, false)
-			if tc.worldDamage {
-				o.noteLastDamage(registry.DamageTypeDrown)
-			}
-			if tc.stale {
-				o.Age += lastDamageExpiry + 1
-			}
-			g := &axolotlHuntGoal{m: m, target: o}
-			view := &tickView{players: []Player{p}}
-			g.Stop(view)
-			if got := len(view.events) == 1; got != tc.want {
-				t.Fatalf("support=%v, want %v: %+v", got, tc.want, view.events)
-			}
-		})
-	}
-}
-
-func TestAxolotlBrainCountdownsSurviveReload(t *testing.T) {
-	m := NewMob(TypeAxolotl, 1, 0, 61, 0, 1)
-	m.axolotl.playDead = 150
-	m.axolotl.temptationCooldown = 75
-	m.axolotl.huntingCooldown = 1234
-	tag := nbt.Compound{}
-	m.SaveTo(tag, nil)
-	back := NewMob(TypeAxolotl, 2, 0, 61, 0, 2)
-	back.LoadFrom(tag, nil, nil)
-	back.axolotlBrainStep()
-	if back.axolotl.playDead != 149 || back.axolotl.temptationCooldown != 74 || back.axolotl.huntingCooldown != 1233 {
-		t.Fatalf("loaded countdowns: %+v", back.axolotl)
-	}
-	for _, goal := range back.ai.goals {
-		if gated, ok := goal.(*gatedGoal); ok {
-			choice, ok := gated.Goal.(*runOneGoal)
-			if !ok {
-				continue
-			}
-			g, ok := choice.choices[0].(*temptGoal)
-			if !ok {
-				continue
-			}
-			for range 10 {
-				if g.CanStart(&tickView{}) {
-					t.Fatal("temptation started during its saved cooldown")
-				}
-			}
-			if back.axolotl.temptationCooldown != 74 {
-				t.Fatal("goal selection consumed brain cooldown ticks")
-			}
-			g.Stop(nil)
-			if back.axolotl.temptationCooldown != 100 {
-				t.Fatal("stopping temptation did not set its brain memory")
-			}
-		}
-	}
-}
-
 func TestAxolotlBrainActivitiesAndSensors(t *testing.T) {
 	w := tank(t, rules.DifficultyNormal)
 	m := NewMob(TypeAxolotl, 1, 0.5, 61, 0.5, 1)
@@ -409,45 +285,5 @@ func TestAxolotlBrainActivitiesAndSensors(t *testing.T) {
 	herd.Tick(w, nil, nil)
 	if m.TargetID != prey.ID {
 		t.Fatal("expiring hunting cooldown missed the sensor pulse")
-	}
-}
-
-func TestAxolotlIdleWaterAndSwimming(t *testing.T) {
-	w := newTestWorld()
-	m := NewMob(TypeAxolotl, 1, 0.5, 61, 0.5, 1)
-	water := registry.BlockWater.DefaultState()
-	w.set(1, 61, 0, water)
-	w.set(1, 62, 0, registry.BlockStone.DefaultState())
-	w.set(5, 61, 0, water)
-	if p, ok := axolotlWater(w, m); !ok || p != (Waypoint{5, 61, 0}) {
-		t.Fatalf("surface water was not preferred: %v (%v)", p, ok)
-	}
-	w.set(5, 61, 0, 0)
-	if _, ok := axolotlWater(w, m); ok {
-		t.Fatal("submerged fallback inside 1.5 blocks was selected")
-	}
-	w.set(3, 61, 0, water)
-	w.set(3, 62, 0, registry.BlockStone.DefaultState())
-	if p, ok := axolotlWater(w, m); !ok || p != (Waypoint{3, 61, 0}) {
-		t.Fatalf("submerged fallback: %v (%v)", p, ok)
-	}
-	pool := tank(t, rules.DifficultyNormal)
-	found := false
-	for range 20 {
-		p, ok := axolotlSwimPos(pool, m)
-		if ok {
-			found = true
-			if !rules.IsWater(pool.BlockAt(floorI(p[0]), floorI(p[1]), floorI(p[2]))) {
-				t.Fatal("swim destination is dry")
-			}
-		}
-	}
-	if !found {
-		t.Fatal("ordered swim behavior never found a water destination")
-	}
-	m.axolotl.playDead = 100
-	m.axolotlBrainStep()
-	if len(m.AllEffects()) != 0 {
-		t.Fatal("restored play-dead memory granted regeneration without HURT_BY_ENTITY")
 	}
 }

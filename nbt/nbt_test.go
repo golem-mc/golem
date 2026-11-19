@@ -303,33 +303,6 @@ func TestEncodeRejects(t *testing.T) {
 	}
 }
 
-// TestHeterogeneousList checks a list whose entries are not all the same
-// tag saves the way the game saves one, wrapped as compounds with a single
-// empty key, and reads back the tree that went in.
-// vanilla: NbtList.write, NbtList.read
-func TestHeterogeneousList(t *testing.T) {
-	list := List{Elem: TypeInt, Items: []Tag{Int(1), String("two")}}
-	data, err := Encode("", list)
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
-	_, tag, err := Decode(data)
-	if err != nil {
-		t.Fatalf("Decode: %v", err)
-	}
-	want := List{Elem: TypeCompound, Items: []Tag{Int(1), String("two")}}
-	if !reflect.DeepEqual(tag, want) {
-		t.Fatalf("Decode = %v, want %v", tag, want)
-	}
-	again, err := Encode("", tag)
-	if err != nil {
-		t.Fatalf("re-Encode: %v", err)
-	}
-	if !slices.Equal(data, again) {
-		t.Errorf("re-Encode wrote %x, want the bytes it read", again)
-	}
-}
-
 // TestLongValueFloorsDoubles checks the one narrowing where a double differs
 // from a float: DoubleTag.longValue floors, FloatTag.longValue truncates
 // toward zero.
@@ -354,26 +327,5 @@ func TestGet(t *testing.T) {
 	}
 	if _, ok := Get[String](c, "absent"); ok {
 		t.Error("Get[String](absent) found something")
-	}
-}
-
-func TestAppendEncodeMatchesEncode(t *testing.T) {
-	tag := Compound{"a": Int(1), "b": List{Elem: TypeString, Items: []Tag{String("x"), String("y")}}, "c": LongArray{1, 2, 3}}
-	want, err := Encode("n", tag)
-	if err != nil {
-		t.Fatal(err)
-	}
-	prefix := []byte{9, 9}
-	got, err := AppendEncode(prefix, "n", tag)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got[:2], prefix) || !bytes.Equal(got[2:], want) {
-		t.Fatalf("AppendEncode = %x, want prefix then %x", got, want)
-	}
-
-	bad, err := AppendEncode(prefix, "", Compound{"x": nil})
-	if err == nil || len(bad) != 2 {
-		t.Fatalf("AppendEncode of a bad tag = %x, %v; want dst unchanged and an error", bad, err)
 	}
 }

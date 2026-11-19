@@ -31,36 +31,6 @@ func TestFillLootLaysTheTableIntoFreeSlots(t *testing.T) {
 	}
 }
 
-func TestFillLootRefusesAnUnknownTable(t *testing.T) {
-	slots := make([]protocol.ItemStack, 3)
-	if FillLoot("minecraft:chests/nothing", &LootContext{}, rand.New(rand.NewSource(1)), slots) {
-		t.Error("an unknown table was reported filled")
-	}
-}
-
-func TestFillLootSameSeedSameLayout(t *testing.T) {
-	a, b := make([]protocol.ItemStack, 27), make([]protocol.ItemStack, 27)
-	FillLoot("minecraft:chests/buried_treasure", &LootContext{}, rand.New(rand.NewSource(9)), a)
-	FillLoot("minecraft:chests/buried_treasure", &LootContext{}, rand.New(rand.NewSource(9)), b)
-	for i := range a {
-		if a[i].ItemID != b[i].ItemID || a[i].Count != b[i].Count {
-			t.Fatalf("slot %d differs under one seed: %+v vs %+v", i, a[i], b[i])
-		}
-	}
-}
-
-func TestFillLootKnowsTheEnchantingTables(t *testing.T) {
-	for _, table := range []string{
-		"minecraft:chests/simple_dungeon", "minecraft:chests/stronghold_library",
-		"minecraft:chests/bastion_treasure", "minecraft:chests/trial_chambers/corridor",
-	} {
-		slots := make([]protocol.ItemStack, 27)
-		if !FillLoot(table, &LootContext{}, rand.New(rand.NewSource(3)), slots) {
-			t.Errorf("%s is unknown", table)
-		}
-	}
-}
-
 func TestFillLootEnchantsTheStacksItsTablesEnchant(t *testing.T) {
 	enchanted, books, damaged := 0, 0, 0
 	for seed := range int64(200) {

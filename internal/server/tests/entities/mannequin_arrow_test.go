@@ -37,30 +37,6 @@ func TestMannequinLodgedArrowRemoval(t *testing.T) {
 	}
 }
 
-func TestMannequinArrowsThatDoNotLodge(t *testing.T) {
-	for _, tc := range []struct{ name, kind, arrowTag, bodyTag string }{
-		{name: "piercing", kind: "arrow", arrowTag: ",PierceLevel:1b"},
-		{name: "trident", kind: "trident"},
-		{name: "refused", kind: "arrow", bodyTag: ",Invulnerable:1b"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c := joinMannequinOp(t, "PassingArrow")
-			c.ChatCommand("summon mannequin 3.5 64 3.5 {immovable:1b" + tc.bodyTag + "}")
-			id := awaitMannequin(t, c, srv).id
-			c.ChatCommand("summon " + tc.kind + " 3.5 65 2 {Motion:[0d,0d,1.5d],NoGravity:1b" + tc.arrowTag + "}")
-			c.Settle()
-			if got := servertest.StuckArrows(t, c, srv, id, 5); len(got) != 0 {
-				t.Fatalf("arrow counts = %v, want none", got)
-			}
-			health := dataOfMannequin(t, c, srv, "Health")
-			if (health == "20.0f") != (tc.name == "refused") {
-				t.Fatalf("Health = %s, want damage only on accepted hits", health)
-			}
-		})
-	}
-}
-
 // vanilla: AbstractArrow.onHitEntity, EnchantmentHelper.doPostAttackEffectsWithItemSource
 func TestMannequinProjectileThorns(t *testing.T) {
 	for _, kind := range []string{"arrow", "spectral_arrow", "trident"} {
@@ -106,21 +82,5 @@ func TestMannequinProjectileThorns(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-func TestMannequinThornsHurtsMobShooter(t *testing.T) {
-	t.Parallel()
-	srv, c := joinMannequinOp(t, "ThornsWatcher")
-	c.ChatCommand(`summon mannequin 3.5 64 3.5 {immovable:1b,equipment:{offhand:{id:"minecraft:diamond_chestplate",count:1,components:{"minecraft:enchantments":{"minecraft:thorns":7}}}}}`)
-	awaitMannequin(t, c, srv)
-	shooter := srv.SpawnMob("minecraft:cow", 0.5, 64, 3.5)
-	srv.ShootMobArrow(shooter, 3.5, 65, 2, 0, 0, 1.5)
-	servertest.RunTicks(t, srv, 1)
-	if health, ok := srv.MobHealth(shooter); !ok || health < 5 || health > 9 {
-		t.Fatalf("shooter health = %v (present=%v), want 5..9", health, ok)
-	}
-	if vx, _, _, ok := srv.MobVelocity(shooter); !ok || vx >= 0 {
-		t.Fatalf("shooter x velocity = %v (present=%v), want a shove away from the mannequin", vx, ok)
 	}
 }

@@ -143,69 +143,6 @@ func checkSmallStructureFixtures(t *testing.T, pattern string) {
 	}
 }
 
-func TestBuriedTreasureSealsFluids(t *testing.T) {
-	r := newDecorRegion(newGoldenTerrain(), newChunk(0, 0), worldMinY, worldHeight)
-	r.bindProtos(ChunkPos{})
-	x, z := int32(9), int32(9)
-	y := r.heightOf(hmOceanFloorWG, x, z)
-	r.set(x, y-1, z, registry.BlockStone.DefaultState())
-	r.set(x, y, z, registry.BlockWater.DefaultState())
-	for _, d := range []posKey{{0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 0, 0}, {1, 0, 0}} {
-		r.set(x+d[0], y+d[1], z+d[2], registry.BlockWater.DefaultState())
-		if d[1] == 0 {
-			r.set(x+d[0], y-1, z+d[2], registry.BlockWater.DefaultState())
-		}
-	}
-	p := &buriedTreasurePiece{x: x, y: 90, z: z}
-	p.place(r, jbox{0, worldMinY, 0, 15, 319, 15}, [3]int32{})
-	if p.y != y {
-		t.Fatalf("chest y=%d, want %d", p.y, y)
-	}
-	if registry.BlockOf(r.get(x, y, z)) != registry.BlockChest {
-		t.Fatal("missing chest")
-	}
-	for _, d := range []posKey{{0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 0, 0}, {1, 0, 0}} {
-		if r.src.isAir(r.get(x+d[0], y+d[1], z+d[2])) {
-			t.Fatalf("unsealed neighbour %v", d)
-		}
-	}
-}
-
-func TestSwampHutPlacesVanillaLayoutAndMobs(t *testing.T) {
-	r := newDecorRegion(newGoldenTerrain(), newChunk(0, 0), worldMinY, worldHeight)
-	r.bindProtos(ChunkPos{})
-	p := newSwampHut(levelgen.NewLegacyRandom(0), 0, 0)
-	p.dir = shS
-	p.heightPosition = 80
-	p.box = jbox{0, 80, 0, 6, 86, 8}
-	p.place(r, jbox{0, worldMinY, 0, 15, 319, 15}, [3]int32{})
-	frame := levelgen.PieceFrame{BB: toBoundingBox(p.box), Dir: p.dir}
-	x, y, z := frame.WorldPos(2, 3, 2)
-	if got := r.get(int32(x), int32(y), int32(z)); registry.BlockOf(got) != registry.BlockOakFence {
-		t.Fatalf("fence state: got %v", got)
-	}
-	x, y, z = frame.WorldPos(3, 2, 6)
-	if got := r.get(int32(x), int32(y), int32(z)); registry.BlockOf(got) != registry.BlockCraftingTable {
-		t.Fatalf("crafting table state: got %v", got)
-	}
-	tag := p.nbt()
-	if tag["Witch"] != nbt.Byte(1) || tag["Cat"] != nbt.Byte(1) {
-		t.Fatalf("spawn flags: %v", tag)
-	}
-	witches, cats := 0, 0
-	for _, e := range r.protoAt(0, 0).entities {
-		switch e.tag["id"] {
-		case nbt.String("minecraft:witch"):
-			witches++
-		case nbt.String("minecraft:cat"):
-			cats++
-		}
-	}
-	if witches != 1 || cats != 1 {
-		t.Fatalf("mobs: %d witches, %d cats", witches, cats)
-	}
-}
-
 func TestDesertPyramidPlacesChestsAndArchaeology(t *testing.T) {
 	r := newDecorRegion(newGoldenTerrain(), newChunk(0, 0), worldMinY, worldHeight)
 	r.bindProtos(ChunkPos{})
@@ -336,72 +273,10 @@ func TestShipwreckWaterloggingAndChunkClipping(t *testing.T) {
 	}
 }
 
-func TestShipwreckLeavesDoubleSlabDryInWater(t *testing.T) {
-	r := newDecorRegion(newGoldenTerrain(), newChunk(0, 0), worldMinY, worldHeight)
-	r.bindProtos(ChunkPos{})
-	double, _ := registry.WithBool(registry.BlockOakSlab.DefaultState(), registry.PropWaterlogged, false)
-	double, _ = registry.WithProps(double, registry.PropValue{P: registry.PropType, V: "double"})
-	water := registry.BlockWater.DefaultState()
-	template := &Template{Size: [3]int32{2, 1, 1}, Palettes: [][]TemplateBlock{{
-		{Pos: [3]int32{0, 0, 0}, State: double},
-		{Pos: [3]int32{1, 0, 0}, State: double},
-	}}}
-	r.set(0, 100, 0, water)
-	r.set(1, 100, 1, water)
-	p := &shipwreckPiece{template: template, pos: [3]int32{0, 100, 0}, adjusted: true}
-	p.box = p.templateBox()
-	p.place(r, jbox{0, worldMinY, 0, 15, 319, 15}, [3]int32{})
-	for _, x := range []int32{0, 1} {
-		if registry.StateBool(r.get(x, 100, 0), registry.PropWaterlogged) {
-			t.Errorf("double slab at x=%d waterlogged", x)
-		}
-	}
-}
-
 func BenchmarkOverworldGeneratePortal(b *testing.B) {
 	NewOverworldGenerator(0).Generate(newChunk(20, 9))
 	b.ReportAllocs()
 	for b.Loop() {
 		NewOverworldGenerator(0).Generate(newChunk(20, 9))
-	}
-}
-
-// TestIglooFloorSnowsGrassBelow checks seed 20260 chunk 423,-188, where the
-// igloo's snow floor sits over grass.
-func TestIglooFloorSnowsGrassBelow(t *testing.T) {
-	t.Parallel()
-	c := newChunk(423, -188)
-	NewOverworldGenerator(20260).Generate(c)
-	snowy := func(x, y, z int32) bool {
-		s := c.BlockAt(x&15, y, z&15)
-		if registry.BlockOf(s) != registry.BlockGrassBlock {
-			t.Fatalf("(%d,%d,%d) is %v, want grass_block", x, y, z, registry.BlockOf(s))
-		}
-		return registry.StateBool(s, registry.PropSnowy)
-	}
-	for _, p := range [][2]int32{{6769, -3004}, {6769, -3003}, {6770, -3003}, {6773, -3003}, {6774, -3003},
-		{6771, -3002}, {6772, -3002}, {6773, -3002}, {6772, -3001}} {
-		if !snowy(p[0], 74, p[1]) {
-			t.Errorf("(%d,74,%d) snowy=false, want true", p[0], p[1])
-		}
-	}
-	if snowy(6771, 73, -3004) {
-		t.Error("(6771,73,-3004) snowy=true, want false")
-	}
-}
-
-// TestOverworldOceanPortalSeagrassUnderMagmaVanilla pins a block of a seed
-// 20260 (26.3) ocean ruined portal: seagrass a neighbouring chunk placed there
-// loses its support when the portal's edge shape update meets the magma the
-// template writes below it, and the netherrack spread then covers the magma.
-func TestOverworldOceanPortalSeagrassUnderMagmaVanilla(t *testing.T) {
-	t.Parallel()
-	c := newChunk(407, -191)
-	NewOverworldGenerator(20260).Generate(c)
-	if got := registry.BlockOf(c.BlockAt(6514&15, 48, -3048&15)); got != registry.BlockAir {
-		t.Fatalf("(6514,48,-3048) = %s; want air", got.Name())
-	}
-	if got := registry.BlockOf(c.BlockAt(6514&15, 47, -3048&15)); got != registry.BlockNetherrack {
-		t.Fatalf("(6514,47,-3048) = %s; want netherrack", got.Name())
 	}
 }

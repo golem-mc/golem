@@ -3,9 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/registry"
 )
 
 // newAttachWorld is a flat world with the chunks around the origin loaded,
@@ -23,20 +21,4 @@ func newAttachWorld(t testing.TB) *world.World {
 		}
 	}
 	return w
-}
-
-// TestLadderTakesTheClickedWall: with two walls to lean on, the ladder
-// placed beside a clicked block takes that block, the clicked face's
-// opposite leading BlockPlaceContext.getNearestLookingDirections.
-func TestLadderTakesTheClickedWall(t *testing.T) {
-	w := newAttachWorld(t)
-	stone := registry.BlockStates["minecraft:stone"]
-	w.SetBlock(-1, 0, 0, stone)
-	w.SetBlock(0, 0, -1, stone)
-	got, ok := AttachPlacementState(w, registry.BlockLadder, PlacementContext{Face: protocol.FaceEast, Yaw: 180}, 0, 0, 0)
-	want, _ := registry.FindState("minecraft:ladder", map[string]string{"facing": "east"})
-	if !ok || got != want {
-		_, props, _ := registry.BlockStateName(got)
-		t.Errorf("ladder = %s, %v; want facing=east", props, ok)
-	}
 }

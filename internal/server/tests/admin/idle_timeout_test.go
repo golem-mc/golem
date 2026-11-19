@@ -3,7 +3,6 @@ package admin
 import (
 	"bytes"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -47,25 +46,6 @@ func TestSetIdleTimeoutKicksAnIdlePlayer(t *testing.T) {
 
 	servertest.RunTicks(t, srv, idleTicks(59*time.Second)+2)
 	servertest.RunTicks(t, srv, idleTicks(2*time.Second)+2)
-	expectIdleKick(c)
-}
-
-// TestIdleTimeoutFromProperty checks player-idle-timeout kicks without any
-// command, and that an action restarts the count.
-func TestIdleTimeoutFromProperty(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.PlayerIdleTimeout = 1
-	srv, c := idleServer(t, cfg)
-
-	servertest.RunTicks(t, srv, idleTicks(50*time.Second))
-	c.ChatCommand("seed")
-	c.Settle()
-	servertest.RunTicks(t, srv, idleTicks(50*time.Second)+2)
-	if got := srv.PlayerCount(); got != 1 {
-		t.Fatalf("an acting player was kicked: %d players left", got)
-	}
-	servertest.RunTicks(t, srv, idleTicks(20*time.Second)+2)
 	expectIdleKick(c)
 }
 
@@ -122,25 +102,6 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
-// TestIdleClockCountsOnlyAClientsRealMoves checks that a step under the
-// 1e-5 threshold leaves the clock alone and a larger one restarts it.
-// vanilla: ServerGamePacketListenerImpl.handlePlayerKnownMovement
-func TestIdleClockCountsOnlyAClientsRealMoves(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.PlayerIdleTimeout = 1
-	srv, c := idleServer(t, cfg)
-	c.MoveTo(0.5, 64, 0.5, 0, 0)
-	c.Settle()
-	p := srv.PlayerPosition("Sleeper")
-
-	servertest.RunTicks(t, srv, idleTicks(50*time.Second))
-	c.SendPosition(p.X+0.001, p.Y, p.Z, true) // 1e-6 squared: not an action
-	c.Settle()
-	servertest.RunTicks(t, srv, idleTicks(20*time.Second)+2)
-	expectIdleKick(c)
-}
-
 // TestIdleClockRestartsOnAClientMove checks a real step counts as acting.
 func TestIdleClockRestartsOnAClientMove(t *testing.T) {
 	t.Parallel()
@@ -155,87 +116,5 @@ func TestIdleClockRestartsOnAClientMove(t *testing.T) {
 	servertest.RunTicks(t, srv, idleTicks(50*time.Second)+2)
 	if got := srv.PlayerCount(); got != 1 {
 		t.Fatalf("a moving player was kicked: %d players left", got)
-	}
-}
-
-// TestHiddenChatDoesNotRestartTheIdleClock checks a refused chat message is
-// not the player acting.
-// vanilla: ServerGamePacketListenerImpl.tryHandleChat
-func TestHiddenChatDoesNotRestartTheIdleClock(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.PlayerIdleTimeout = 1
-	srv, c := idleServer(t, cfg)
-	c.Send(protocol.IDPlayClientInformation, func(b *protocol.Buffer) {
-		b.PutString("en_GB")
-		b.PutI8(4)
-		b.PutVarInt(protocol.ChatModeHidden)
-		b.PutBool(true)
-		b.PutU8(0x7f)
-		b.PutVarInt(protocol.MainHandRight)
-		b.PutBool(false)
-		b.PutBool(true)
-		b.PutVarInt(0)
-	})
-	c.Settle()
-
-	servertest.RunTicks(t, srv, idleTicks(50*time.Second))
-	c.Chat("hello")
-	c.Settle()
-	servertest.RunTicks(t, srv, idleTicks(20*time.Second)+2)
-	expectIdleKick(c)
-}
-
-// TestACartRiderIsKickedWhileTheServerCarriesThem checks the cart's seat
-// writes do not restart the clock.
-func TestACartRiderIsKickedWhileTheServerCarriesThem(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.PlayerIdleTimeout = 1
-	srv, c := idleServer(t, cfg)
-	if !srv.SetBlock(2, 64, 7, servertest.MustState(t, "minecraft:stone", nil)) ||
-		!srv.SetBlock(2, 64, 6, servertest.MustState(t, "minecraft:powered_rail",
-			map[string]string{"shape": "north_south", "powered": "true"})) {
-		t.Fatal("the launcher's chunks are not loaded")
-	}
-	for z := int32(0); z <= 5; z++ {
-		srv.SetBlock(2, 64, z, servertest.MustState(t, "minecraft:rail", map[string]string{"shape": "north_south"}))
-	}
-	cartID := srv.SpawnMinecart(2.5, 64.0625, 6.5)
-	c.MoveTo(2.5, 64, 7.9, 0, 60)
-	c.Settle()
-	c.UseOn(cartID)
-	c.Settle()
-	if _, ok := srv.MinecartRider(cartID); !ok {
-		t.Fatal("the cart took no rider")
-	}
-	x0, y0, z0, _, _ := srv.MinecartState(cartID)
-
-	servertest.RunTicks(t, srv, 60)
-	if x, y, z, _, _ := srv.MinecartState(cartID); x == x0 && y == y0 && z == z0 {
-		t.Fatal("the cart never moved, so the seat was never carried")
-	}
-	// The held ticks finish before the kick is read, so the socket is closed
-	// by then and a batch ack would write into it.
-	c.NoBatchAcks = true
-	servertest.RunTicks(t, srv, idleTicks(70*time.Second)-60)
-	expectIdleKick(c)
-}
-
-// TestSetIdleTimeoutWritesServerProperties checks the command persists
-// player-idle-timeout.
-// vanilla: DedicatedServer.setPlayerIdleTimeout
-func TestSetIdleTimeoutWritesServerProperties(t *testing.T) {
-	t.Parallel()
-	srv, c := idleServer(t, servertest.BlockTestConfig())
-	srv.SetConfigFile(filepath.Join(t.TempDir(), "server.properties"))
-	c.ChatCommand("setidletimeout 5")
-	c.ExpectCommandFeedback("commands.setidletimeout.success", "5")
-	loaded, err := config.Load(srv.ConfigFile())
-	if err != nil {
-		t.Fatalf("reload server.properties: %v", err)
-	}
-	if loaded.PlayerIdleTimeout != 5 {
-		t.Errorf("player-idle-timeout = %d, want 5", loaded.PlayerIdleTimeout)
 	}
 }

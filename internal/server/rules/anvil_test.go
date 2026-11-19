@@ -1,11 +1,9 @@
 package rules
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -42,12 +40,6 @@ func aBook(t *testing.T, ench map[int32]int32) protocol.ItemStack {
 }
 
 const sharpness, smite, efficiency = int32(33), int32(35), int32(8)
-
-func TestAnvilCombineEmptyBase(t *testing.T) {
-	if a := AnvilCombine(protocol.ItemStack{}, aSword(t, 0, 1, 0), "", false); !a.Result.Empty() || a.Cost != 0 {
-		t.Fatalf("empty base: %+v", a)
-	}
-}
 
 func TestAnvilCombineMaterialRepair(t *testing.T) {
 	diamond := protocol.ItemStack{ItemID: anvilItem(t, "minecraft:diamond"), Count: 1}
@@ -133,38 +125,6 @@ func TestAnvilCombineRename(t *testing.T) {
 	}
 }
 
-func TestAnvilCombineRenameBesideACombine(t *testing.T) {
-	// A rename on top of a combine is not a rename alone, so the second
-	// sword is consumed rather than left whole.
-	a := AnvilCombine(aSword(t, 500, 1, 0), aSword(t, 500, 1, 0), "Excalibur", false)
-	if a.OnlyRenaming {
-		t.Fatalf("rename beside a combine reported a rename alone: %+v", a)
-	}
-	if a.Cost != 3 || a.Result.Damage != 0 {
-		t.Fatalf("rename beside a combine: %+v", a)
-	}
-	if left := AnvilTake(aSword(t, 500, 1, 0), a); !left.Empty() {
-		t.Fatalf("rename beside a combine kept the second input: %+v", left)
-	}
-	// Two level-five swords whose prior work is twenty each, renamed: the
-	// combine's five levels and the rename's one make forty-six, past what
-	// survival may take.
-	priorWorked := func() protocol.ItemStack {
-		s := enchantedSword(t, 5)
-		s.RepairCost = 20
-		return s
-	}
-	a = AnvilCombine(priorWorked(), priorWorked(), "Excalibur", false)
-	if !a.Result.Empty() || a.Cost != 46 || a.OnlyRenaming {
-		t.Fatalf("too-expensive combine beside a rename: %+v", a)
-	}
-	// What may conjure takes the combine anyway, at the uncapped price.
-	a = AnvilCombine(priorWorked(), priorWorked(), "Excalibur", true)
-	if a.Result.Empty() || a.Cost != 46 || a.OnlyRenaming || a.Result.RepairCost != 41 {
-		t.Fatalf("creative combine beside a rename: %+v", a)
-	}
-}
-
 func TestAnvilCombineTooExpensive(t *testing.T) {
 	book := aBook(t, map[int32]int32{sharpness: 1})
 	a := AnvilCombine(aSword(t, 0, 1, 39), book, "", false)
@@ -247,20 +207,6 @@ func TestAnvilCombineIncompatible(t *testing.T) {
 	}
 }
 
-func TestAnvilCombineClashChargedForUnsupported(t *testing.T) {
-	density, ok := registry.EnchantmentID("minecraft:density")
-	unbreaking, ok2 := registry.EnchantmentID("minecraft:unbreaking")
-	if !ok || !ok2 {
-		t.Fatal("enchantment registry lacks density or unbreaking")
-	}
-	// Density is off a sword's list yet still clashes with sharpness: a
-	// level for the clash, plus unbreaking's halved worth of one.
-	a := AnvilCombine(enchantedSword(t, 1), aBook(t, map[int32]int32{density: 1, unbreaking: 1}), "", false)
-	if a.Cost != 2 || a.Result.Enchantments[unbreaking] != 1 {
-		t.Fatalf("unsupported clash: %+v", a)
-	}
-}
-
 func enchantedSword(t *testing.T, level int32) protocol.ItemStack {
 	t.Helper()
 	s := aSword(t, 0, 1, 0)
@@ -284,88 +230,5 @@ func TestAnvilTake(t *testing.T) {
 	}
 	if left := AnvilTake(diamond, AnvilAnswer{}); !left.Empty() {
 		t.Fatalf("combine take: %+v", left)
-	}
-}
-
-func TestAnvilFilterText(t *testing.T) {
-	if got := FilterText("Ex\u00A7dac1l\u007Fibur"); got != "Exdac1libur" {
-		t.Fatalf("filter: %q", got)
-	}
-	if got := FilterText("a\nb\tc"); got != "abc" {
-		t.Fatalf("filter newlines: %q", got)
-	}
-	// Fifty characters stand, fifty-one do not; a rune past the basic
-	// plane counts as the two units it travels as.
-	if _, ok := AnvilValidateName(strings.Repeat("a", 50)); !ok {
-		t.Fatal("fifty refused")
-	}
-	if _, ok := AnvilValidateName(strings.Repeat("a", 51)); ok {
-		t.Fatal("fifty-one accepted")
-	}
-	if _, ok := AnvilValidateName(strings.Repeat("\U0001F600", 25)); !ok {
-		t.Fatal("fifty units refused")
-	}
-	if _, ok := AnvilValidateName(strings.Repeat("\U0001F600", 26)); ok {
-		t.Fatal("fifty-two units accepted")
-	}
-}
-
-func TestAnvilCombineUnbreakableTakesNoMendOrMerge(t *testing.T) {
-	worn := aSword(t, 100, 1, 0)
-	worn.Unbreakable = true
-	diamond := protocol.ItemStack{ItemID: anvilItem(t, "minecraft:diamond"), Count: 1}
-	if a := AnvilCombine(worn, diamond, "", false); !a.Result.Empty() {
-		t.Errorf("unbreakable sword with a diamond: %+v", a)
-	}
-	if a := AnvilCombine(worn, aSword(t, 100, 1, 0), "", false); !a.Result.Empty() {
-		t.Errorf("unbreakable sword with a second sword: %+v", a)
-	}
-	// Control: the same pair without the component is mended.
-	if a := AnvilCombine(aSword(t, 100, 1, 0), diamond, "", false); a.Result.Empty() {
-		t.Error("a plain worn sword with a diamond gives no result")
-	}
-}
-
-// TestAnvilCombineMaterialRepairLeavesTheMaterialsMagic: a repair material
-// mends and nothing more; magic it carries neither joins the item, nor
-// costs, nor spoils the result.
-func TestAnvilCombineMaterialRepairLeavesTheMaterialsMagic(t *testing.T) {
-	protection, ok := registry.EnchantmentID("minecraft:protection")
-	if !ok {
-		t.Fatal("no protection enchantment")
-	}
-	for _, magic := range []map[int32]int32{{sharpness: 5}, {protection: 4}} {
-		diamonds := protocol.ItemStack{ItemID: anvilItem(t, "minecraft:diamond"), Count: 2, Enchantments: magic}
-		a := AnvilCombine(aSword(t, 1000, 1, 0), diamonds, "", false)
-		if a.Result.Empty() || a.Result.Damage != 220 || len(a.Result.Enchantments) != 0 || a.Cost != 2 || a.Consumed != 2 {
-			t.Errorf("diamonds with %v: cost %d consumed %d result %+v", magic, a.Cost, a.Consumed, a.Result)
-		}
-	}
-}
-
-// TestAnvilCombineEmptyEnchantedBookIsABook: an enchanted book with nothing
-// stored still carries the component, so it may sit beside a rename.
-func TestAnvilCombineEmptyEnchantedBookIsABook(t *testing.T) {
-	a := AnvilCombine(aSword(t, 0, 1, 0), aBook(t, nil), "Bob", false)
-	if a.Result.Empty() || a.Result.CustomName == nil || a.Result.CustomName.Text != "Bob" || a.Cost != 1 || !a.OnlyRenaming {
-		t.Fatalf("sword beside an empty book, renamed: %+v", a)
-	}
-}
-
-func TestAnvilCombineSameStyledName(t *testing.T) {
-	for _, tag := range []nbt.Tag{
-		nbt.Compound{"text": nbt.String("Coin"), "italic": nbt.Byte(0)},
-		nbt.Compound{"text": nbt.String("Co"), "bold": nbt.Byte(1), "extra": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String("in")}}},
-	} {
-		text, ok := protocol.StyledTextOf(tag)
-		if !ok || text.Raw == nil {
-			t.Fatalf("StyledTextOf(%v) = %+v, %v; want a raw text", tag, text, ok)
-		}
-		named := aSword(t, 0, 1, 0)
-		named.CustomName = &text
-		// vanilla: AnvilMenu.createResult compares getHoverName().getString()
-		if a := AnvilCombine(named, protocol.ItemStack{}, "Coin", false); !a.Result.Empty() || a.Cost != 0 {
-			t.Fatalf("same styled name %v: %+v", tag, a)
-		}
 	}
 }

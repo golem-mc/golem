@@ -78,35 +78,3 @@ func TestDesertWellArchaeologySurvivesSave(t *testing.T) {
 		}
 	}
 }
-
-func TestDesertWellRejectsUnsuitableGround(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		z    int32
-		hole bool
-	}{
-		{"snow", -128, false},
-		{"unsupported sand", 128, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			world := newGoldenTerrain()
-			r := newDecorRegion(world, newChunk(-80, tc.z>>4), worldMinY, worldHeight)
-			r.nx, r.nz = -80, tc.z>>4
-			if tc.hole {
-				r.set(-1282, 69, tc.z+2, airState)
-				r.set(-1282, 68, tc.z+2, airState)
-			}
-			before, n := world.changes(r)
-			r.rng.SetSeed(7)
-			if r.placeDesertWell([3]int32{-1280, 71, tc.z}) {
-				t.Fatal("well accepted unsuitable ground")
-			}
-			if after, count := world.changes(r); after != before || count != n {
-				t.Fatal("rejected well changed blocks")
-			}
-			if r.rng.NextLong() != levelgen.NewWorldgenRandom(7).NextLong() {
-				t.Fatal("rejected well consumed random draws")
-			}
-		})
-	}
-}

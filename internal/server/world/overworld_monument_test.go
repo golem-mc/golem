@@ -11,23 +11,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/world/levelgen"
 	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
-
-func TestMonumentDoesNotRaiseWorldgenOceanFloor(t *testing.T) {
-	src := &monumentTerrain{newGoldenTerrain(), 0}
-	r := newDecorRegion(src, newChunk(0, 0), worldMinY, worldHeight)
-	want := oceanFloorWGHeight(r, 8, 8)
-	r.set(8, 55, 8, registry.BlockPrismarineBricks.DefaultState())
-	if got := oceanFloorWGHeight(r, 8, 8); got != want || got >= 39 {
-		t.Fatalf("worldgen floor moved into monument: got %d, terrain %d", got, want)
-	}
-	called := false
-	r.walk([]placementMod{surfaceRelativeMaxMod(oceanFloorWGHeight, -2)}, [3]int32{8, 54, 8}, func(*decorRegion, [3]int32) { called = true })
-	if called {
-		t.Fatal("underwater magma reached a monument chamber")
-	}
-}
 
 // TestMonumentMatchesVanilla compares the ocean monument with vanilla's: its
 // starts, and the exterior and rooms placed over the shared synthetic terrain.

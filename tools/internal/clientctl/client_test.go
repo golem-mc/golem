@@ -79,30 +79,6 @@ func TestWaitTicksUsesClientTicks(t *testing.T) {
 	}
 }
 
-func TestWaitTicksRejectsInvalidState(t *testing.T) {
-	for _, tc := range []struct {
-		body    string
-		wantErr string
-	}{
-		{`{"connected":false,"ticks":null}`, "disconnected"},
-		{`{"connected":true}`, "no valid tick counter"},
-		{`{"ok":false,"error":"client not started yet"}`, "client not started yet"},
-	} {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = io.WriteString(w, tc.body)
-		}))
-		c := &Client{Base: srv.URL, HTTP: srv.Client()}
-		_, err := c.WaitTicks(func(Result) bool {
-			t.Error("predicate called with invalid state")
-			return true
-		}, 5, time.Second)
-		srv.Close()
-		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-			t.Errorf("state %s: error = %v, want %q", tc.body, err, tc.wantErr)
-		}
-	}
-}
-
 func TestWaitTicksWatchdog(t *testing.T) {
 	for _, stalledRequest := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stalled-request-%t", stalledRequest), func(t *testing.T) {

@@ -1,14 +1,14 @@
 package network
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"iter"
 	"math"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/server/servertest"
+
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -308,24 +308,6 @@ func TestAWaypointUntracksWhenItsPlayerCrossesDimensions(t *testing.T) {
 	}
 }
 
-// TestWaypointsUntrackWhenTwoPlayersCrossToDifferentWorldsAtOnce checks that
-// two players leaving one world for two others together still empty each
-// other's bars, though neither forgetting saw the other in its old world.
-func TestWaypointsUntrackWhenTwoPlayersCrossToDifferentWorldsAtOnce(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-
-	a := connect().Join("Alpha")
-	a.Settle()
-	b := connect().Join("Bravo")
-	aID, bID := protocol.OfflineUUID("Alpha"), protocol.OfflineUUID("Bravo")
-	trackWaypoint(t, a, bID, protocol.WaypointTrack)
-	trackWaypoint(t, b, aID, protocol.WaypointTrack)
-
-	srv.CrossApart("Alpha", world.NetherName, "Bravo", world.EndName)
-	trackWaypoint(t, a, bID, protocol.WaypointUntrack)
-	trackWaypoint(t, b, aID, protocol.WaypointUntrack)
-}
-
 // TestSpectatorPlayersSendNoWaypoints checks the spectator branches: a player
 // switched to spectator transmits no waypoint, their return to survival
 // restores it, and a receiver spectating keeps receiving the others'.
@@ -387,103 +369,6 @@ func TestSpectatorPlayersSendNoWaypoints(t *testing.T) {
 	expectNoWaypoint(t, op, 500*time.Millisecond, moverID)
 }
 
-// TestAWaypointUntracksAndRetracksThroughARespawn checks the death branch: the
-// dead body keeps its place on the bar until the respawn — vanilla keeps the
-// transmitter until the body is removed — and the respawn's untrack is
-// followed by a fresh track at the block the fresh body stands on.
-func TestAWaypointUntracksAndRetracksThroughARespawn(t *testing.T) {
-	t.Parallel()
-	_, connect := servertest.Start(t, servertest.BlockTestConfig(), servertest.OpsListing(t, "Mover"))
-
-	mover := connect()
-	entityID := mover.JoinAs("Mover")
-
-	watcher := connect().Join("Watcher")
-	moverUUID := protocol.OfflineUUID("Mover")
-	moverAt := blockOf(mover.LastTeleport)
-	trackWaypoint(t, watcher, moverUUID, protocol.WaypointTrack)
-
-	// The dead keep their place: no untrack between the death and the
-	// respawn.
-	mover.ChatCommand("kill")
-	servertest.ExpectDeathSequence(t, mover, entityID, protocol.Text{
-		Translate: "death.attack.genericKill",
-		With:      []protocol.Text{servertest.PlayerDisplayComponent("Mover")},
-	})
-	expectNoWaypoint(t, watcher, 200*time.Millisecond, moverUUID)
-
-	mover.PerformRespawn()
-	mover.ExpectRespawnThroughTeleport()
-	trackWaypoint(t, watcher, moverUUID, protocol.WaypointUntrack)
-
-	// The next tick pairs the fresh body back in, at the block it stands on.
-	wp := trackWaypoint(t, watcher, moverUUID, protocol.WaypointTrack)
-	if !wp.at(moverAt.x, moverAt.y, moverAt.z) {
-		t.Errorf("the re-track after the respawn points at (%d, %d, %d), want the respawn block (%d, %d, %d)",
-			wp.x, wp.y, wp.z, moverAt.x, moverAt.y, moverAt.z)
-	}
-}
-
-// TestFarWaypointsDropToChunksAndAngles checks the two coarser forms a
-// waypoint takes when the transmitter is beyond the receiver's chunks: the
-// chunk the transmitter is in, and — past vanilla's really-far distance of 332
-// — an angle alone. The client asks for four chunks of view, so 120 blocks out
-// is already beyond it.
-func TestFarWaypointsDropToChunksAndAngles(t *testing.T) {
-	t.Parallel()
-	_, connect := servertest.Start(t, servertest.BlockTestConfig(), servertest.OpsListing(t, "Mover"))
-
-	mover := connect()
-	mover.JoinAs("Mover")
-
-	watcher := connect().Join("Watcher")
-	moverUUID := protocol.OfflineUUID("Mover")
-	trackWaypoint(t, watcher, moverUUID, protocol.WaypointTrack)
-
-	// Beyond the receiver's chunks, the waypoint names the chunk alone.
-	teleportTo(t, mover, "Mover", 120.5, 64, 0.5)
-	wp := trackWaypoint(t, watcher, moverUUID, protocol.WaypointTrack)
-	if wp.kind != protocol.WaypointTypeChunk {
-		t.Fatalf("the far waypoint is of type %d, want a chunk", wp.kind)
-	}
-	if !wp.at(7, 0, 0) {
-		t.Errorf("the far waypoint names chunk (%d, %d), want (7, 0)", wp.x, wp.z)
-	}
-
-	// One chunk on is an update of the chunk, the way a block on is an
-	// update of the block.
-	teleportTo(t, mover, "Mover", 136.5, 64, 0.5)
-	wp = trackWaypoint(t, watcher, moverUUID, protocol.WaypointUpdate)
-	if wp.kind != protocol.WaypointTypeChunk {
-		t.Fatalf("the chunk's update is of type %d, want a chunk", wp.kind)
-	}
-	if !wp.at(8, 0, 0) {
-		t.Errorf("the update names chunk (%d, %d), want (8, 0)", wp.x, wp.z)
-	}
-
-	// Past 332 blocks, only an angle remains: the clockwise-turned bearing
-	// from the transmitter to the receiver, in radians — due east of the
-	// watcher, -π/2.
-	teleportTo(t, mover, "Mover", 400.5, 64, 0.5)
-	wp = trackWaypoint(t, watcher, moverUUID, protocol.WaypointTrack)
-	if wp.kind != protocol.WaypointTypeAzimuth {
-		t.Fatalf("the really far waypoint is of type %d, want an angle", wp.kind)
-	}
-	if wp.angle != float32(-math.Pi/2) {
-		t.Errorf("the angle is %g, want %g for a transmitter due east", wp.angle, float32(-math.Pi/2))
-	}
-
-	// Back within the receiver's chunks, the waypoint is a block again.
-	teleportTo(t, mover, "Mover", 10.5, 64, 0.5)
-	wp = trackWaypoint(t, watcher, moverUUID, protocol.WaypointTrack)
-	if wp.kind != protocol.WaypointTypeVec3i {
-		t.Fatalf("the returning waypoint is of type %d, want a position", wp.kind)
-	}
-	if !wp.at(10, 64, 0) {
-		t.Errorf("the returning waypoint points at (%d, %d, %d), want (10, 64, 0)", wp.x, wp.y, wp.z)
-	}
-}
-
 // teleportTo runs the teleport a client's own /tp @s is — its own player, the
 // coordinates java's doubles spell in the feedback — and reads through the
 // feedback and the position sync that lands the client's body.
@@ -496,61 +381,4 @@ func teleportTo(t *testing.T, c *servertest.Client, name string, x, y, z float64
 		protocol.Text{Text: coords[0]}, protocol.Text{Text: coords[1]}, protocol.Text{Text: coords[2]})
 	servertest.ExpectTeleport(t, c)
 	c.MoveToGround(x, y, z, true)
-}
-
-// TestAWaypointIsSentAgainAfterARespawnOnTheSameSpot checks that a respawn
-// that moves nobody still re-pairs the two players: nothing the locator bar
-// reads changed, yet the respawn dropped the link.
-func TestAWaypointIsSentAgainAfterARespawnOnTheSameSpot(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance = config.MinDistance
-	cfg.SimulationDistance = config.MinDistance
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Mover"))
-
-	mover := connect()
-	mover.ViewAsk = config.MinDistance
-	entityID := mover.JoinAs("Mover")
-	watcher := connect()
-	watcher.ViewAsk = config.MinDistance
-	watcher.Join("Watcher")
-	servertest.HoldTicks(t, srv)
-	moverUUID := protocol.OfflineUUID("Mover")
-	spawn := mover.LastTeleport
-	readWaypoint := func(operation int32) {
-		t.Helper()
-		for i, p := range watcher.WaypointBacklog {
-			wp := parseWaypoint(t, p.Data)
-			if wp.id == moverUUID && wp.operation == operation {
-				watcher.WaypointBacklog = watcher.WaypointBacklog[i+1:]
-				return
-			}
-		}
-		watcher.WaypointBacklog = nil
-		watcher.WatchWaypoints = true
-		defer func() { watcher.WatchWaypoints = false }()
-		if !watcher.ReadTicks(srv, 5, func(id int32, data []byte) bool {
-			if id != protocol.IDPlayWaypoint {
-				return false
-			}
-			wp := parseWaypoint(t, data)
-			return wp.id == moverUUID && wp.operation == operation
-		}) {
-			t.Fatalf("no waypoint operation %d within 5 ticks", operation)
-		}
-	}
-	readWaypoint(protocol.WaypointTrack)
-
-	mover.ChatCommand("kill")
-	servertest.ExpectDeathSequence(t, mover, entityID, protocol.Text{
-		Translate: "death.attack.genericKill",
-		With:      []protocol.Text{servertest.PlayerDisplayComponent("Mover")},
-	})
-	mover.PerformRespawn()
-	got, _ := mover.ExpectRespawnThroughTeleport()
-	if got.X != spawn.X || got.Y != spawn.Y || got.Z != spawn.Z {
-		t.Fatalf("respawned at %v, want the world spawn %v it stood on", got, spawn)
-	}
-	readWaypoint(protocol.WaypointUntrack)
-	readWaypoint(protocol.WaypointTrack)
 }

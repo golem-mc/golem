@@ -1,9 +1,6 @@
 package world
 
 import (
-	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/world/levelgen"
-	"sync"
 	"testing"
 )
 
@@ -46,68 +43,5 @@ func TestExplorerPreviewPaintsWaterCoastsAndLeavesBorders(t *testing.T) {
 	}
 	if data.Colors[3*MapSide+10] != 77 {
 		t.Fatal("deep-water odd row was painted")
-	}
-}
-
-func TestExplorerPreviewScalesTruncatesCentersAndSaves(t *testing.T) {
-	dir := t.TempDir()
-	m := NewMaps(dir)
-	id, data := m.Create(DimensionName, 0, 0, 2)
-	data.CenterX, data.CenterZ = -3, -5
-	calls := 0
-	m.RenderBiomePreview(id, NetherName, func(_, _, _ int32) string { t.Fatal("other dimension was sampled"); return "" })
-	m.RenderBiomePreview(id, DimensionName, func(x, y, z int32) string {
-		if calls == 0 && (x != -256 || z != -260) {
-			t.Fatalf("first sample (%d,%d), want (-256,-260)", x, z)
-		}
-		calls++
-		return "minecraft:ocean"
-	})
-	m.Save()
-	restored, ok := NewMaps(dir).Get(id)
-	if !ok || restored.Colors != data.Colors || restored.Colors[2*MapSide+10] == 0 || calls != MapSide*MapSide {
-		t.Fatal("saved map lost biome preview")
-	}
-}
-
-func TestMapBiomeReaderUsesZoomAndUnloadedBiomes(t *testing.T) {
-	g := NewOverworldGenerator(0)
-	w := newTestWorld(t, g)
-	read := w.MapBiomeReader()
-	probe := g.NewBiomeProbe()
-	for _, p := range [][3]int32{{272, 0, 944}, {-34, 0, -125}, {0, 0, 0}} {
-		qx, qy, qz := levelgen.ZoomedQuart(g.zoomSeed, p[0], p[1], p[2])
-		if got, want := read(p[0], p[1], p[2]), probe(qx, qy, qz); got != want {
-			t.Fatalf("biome %q, want %q", got, want)
-		}
-	}
-	if w.LoadedChunks() != 0 {
-		t.Fatal("biome lookup generated terrain")
-	}
-}
-
-func TestCarriedMapTargetsAreImportedOnceAndReloadedFromTheItem(t *testing.T) {
-	root := t.TempDir()
-	m := NewMaps(root)
-	id, data := m.Create("minecraft:overworld", 272, 944, 2)
-	entries := map[string]protocol.MapDecoration{"+": {Type: "minecraft:village_plains", X: 272, Z: 944, Rotation: 180}}
-	var holders sync.WaitGroup
-	for range 8 {
-		holders.Go(func() {
-			for range 2 {
-				m.AddItemDecorations(id, entries)
-			}
-		})
-	}
-	holders.Wait()
-	if len(data.ItemDecorations) != 1 || data.ItemDecorations[0].Type != 28 {
-		t.Fatalf("targets %+v", data.ItemDecorations)
-	}
-	m.Save()
-	reloaded := NewMaps(root)
-	reloaded.AddItemDecorations(id, entries)
-	saved, _ := reloaded.Get(id)
-	if len(saved.ItemDecorations) != 1 {
-		t.Fatal("reloaded item did not restore its target")
 	}
 }

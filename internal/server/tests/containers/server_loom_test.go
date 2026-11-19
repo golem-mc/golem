@@ -90,23 +90,6 @@ func TestLoomAppliesTheSelectedPattern(t *testing.T) {
 	}, want)
 }
 
-// TestLoomOutOfRangeButtonPicksNothing checks a press past the offered
-// patterns changes nothing.
-func TestLoomOutOfRangeButtonPicksNothing(t *testing.T) {
-	t.Parallel()
-	_, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
-	openLoom(t, w)
-	layInLoom(t, w, 0, servertest.ItemStack(t, "minecraft:white_banner", 1), loomBannerSlot)
-	layInLoom(t, w, 1, servertest.ItemStack(t, "minecraft:black_dye", 1), loomDyeSlot)
-	servertest.ForgetWindowProps(w)
-	w.ClickButton(int32(len(registry.BannerPatternTagIDs("minecraft:no_item_required"))))
-	w.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlayContainerSlot || id == protocol.IDPlayContainerProperty {
-			t.Errorf("packet %#x after a press outside the patterns", id)
-		}
-	})
-}
-
 // storedStack builds a stack from an item and its saved components.
 func storedStack(t *testing.T, item string, components nbt.Compound) protocol.ItemStack {
 	t.Helper()

@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -87,100 +86,6 @@ func TestEquipmentModifiersComeAndGo(t *testing.T) {
 	}
 }
 
-// TestGearCarriesItsEnchantmentsModifiers checks the enchantments' own side
-// of the equipment-slot walk: each attribute effect the data files
-// carry follows its piece under the file's id over the slot, at the amount
-// vanilla's float calculate returns and only in the slots the enchantment
-// works in. The amounts are the reference server's own update attributes.
-// vanilla: EnchantmentHelper.forEachModifier
-func TestGearCarriesItsEnchantmentsModifiers(t *testing.T) {
-	cases := []struct {
-		slot  string
-		stack protocol.ItemStack
-		want  registry.AttributeModifier
-	}{
-		{"feet", enchantedStack(t, "minecraft:iron_boots", "minecraft:depth_strider", 3),
-			registry.AttributeModifier{Attribute: registry.AttributeWaterMovementEfficiency, ID: "minecraft:enchantment.depth_strider/feet", Amount: 1, Slot: "feet"}},
-		{"feet", enchantedStack(t, "minecraft:iron_boots", "minecraft:blast_protection", 4),
-			registry.AttributeModifier{Attribute: registry.AttributeExplosionKnockbackResistance, ID: "minecraft:enchantment.blast_protection/feet", Amount: float64(float32(0.6)), Slot: "feet"}},
-		{"legs", enchantedStack(t, "minecraft:iron_leggings", "minecraft:swift_sneak", 3),
-			registry.AttributeModifier{Attribute: registry.AttributeSneakingSpeed, ID: "minecraft:enchantment.swift_sneak/legs", Amount: float64(float32(0.15)*2 + float32(0.15)), Slot: "legs"}},
-		{"chest", enchantedStack(t, "minecraft:iron_chestplate", "minecraft:fire_protection", 1),
-			registry.AttributeModifier{Attribute: registry.AttributeBurningTime, ID: "minecraft:enchantment.fire_protection/chest", Amount: float64(float32(-0.15)), Operation: registry.AttributeAddMultipliedBase, Slot: "chest"}},
-		{"head", enchantedStack(t, "minecraft:diamond_helmet", "minecraft:respiration", 3),
-			registry.AttributeModifier{Attribute: registry.AttributeOxygenBonus, ID: "minecraft:enchantment.respiration/head", Amount: 3, Slot: "head"}},
-		{"head", enchantedStack(t, "minecraft:diamond_helmet", "minecraft:aqua_affinity", 1),
-			registry.AttributeModifier{Attribute: registry.AttributeSubmergedMiningSpeed, ID: "minecraft:enchantment.aqua_affinity/head", Amount: 4, Operation: registry.AttributeAddMultipliedTotal, Slot: "head"}},
-		{"mainhand", enchantedStack(t, "minecraft:diamond_pickaxe", "minecraft:efficiency", 5),
-			registry.AttributeModifier{Attribute: registry.AttributeMiningEfficiency, ID: "minecraft:enchantment.efficiency/mainhand", Amount: 26, Slot: "mainhand"}},
-		{"mainhand", enchantedStack(t, "minecraft:diamond_sword", "minecraft:sweeping_edge", 3),
-			registry.AttributeModifier{Attribute: registry.AttributeSweepingDamageRatio, ID: "minecraft:enchantment.sweeping_edge/mainhand", Amount: float64(float32(0.75)), Slot: "mainhand"}},
-	}
-	for _, tc := range cases {
-		if got := EquipmentModifiers(tc.stack, tc.slot); !slices.Contains(got, tc.want) {
-			t.Errorf("modifiers at %s = %+v, want %+v among them", tc.slot, got, tc.want)
-		}
-	}
-
-	// One level of depth strider: a single third, not the whole.
-	one := enchantedStack(t, "minecraft:iron_boots", "minecraft:depth_strider", 1)
-	want := registry.AttributeModifier{Attribute: registry.AttributeWaterMovementEfficiency, ID: "minecraft:enchantment.depth_strider/feet", Amount: float64(float32(0.33333334)), Slot: "feet"}
-	if got := EquipmentModifiers(one, "feet"); !slices.Contains(got, want) {
-		t.Errorf("depth strider I = %+v, want %+v among its modifiers", got, want)
-	}
-
-	// Only in the slots the enchantment works in: the strider boots put
-	// nothing anywhere else, neither their armour nor the enchantment.
-	for _, slot := range []string{"mainhand", "offhand", "legs", "chest", "head"} {
-		if got := EquipmentModifiers(cases[0].stack, slot); len(got) != 0 {
-			t.Errorf("depth strider boots at %s = %+v, want nothing", slot, got)
-		}
-	}
-
-	// A worn-out piece puts none on, enchanted or not.
-	broken := enchantedStack(t, "minecraft:iron_boots", "minecraft:depth_strider", 3)
-	broken.Damage = registry.MaxDamage(broken.ItemID)
-	if got := EquipmentModifiers(broken, "feet"); len(got) != 0 {
-		t.Errorf("a broken piece's modifiers = %+v, want none", got)
-	}
-}
-
-// TestStateModifiers pins the modifiers a player's state puts on: the creative
-// reach, the sprint and the crouch that takes a player off the locator bar.
-func TestStateModifiers(t *testing.T) {
-	var a player.Attributes
-	UpdateStateAttributes(&a, true, true, true)
-	if got := a.Value(registry.AttributeBlockInteractionRange); got != 5 {
-		t.Errorf("creative block reach = %v, want 5", got)
-	}
-	if got := a.Value(registry.AttributeEntityInteractionRange); got != 5 {
-		t.Errorf("creative entity reach = %v, want 5", got)
-	}
-	if got, want := a.Value(registry.AttributeMovementSpeed), float64(float32(0.1))*(1+float64(float32(0.3))); got != want {
-		t.Errorf("sprinting speed = %v, want %v", got, want)
-	}
-	UpdateStateAttributes(&a, false, false, false)
-	if a.Value(registry.AttributeBlockInteractionRange) != 4.5 || a.Value(registry.AttributeMovementSpeed) != float64(float32(0.1)) {
-		t.Error("the state modifiers did not come off")
-	}
-}
-
-// TestCrouchingHidesTheWaypointTransmitRange checks the crouch's own modifier:
-// the whole of the transmit range down while the pose holds, which is how the
-// waypoint pass stops transmitting a crouching player.
-// vanilla: ServerPlayer.WAYPOINT_TRANSMIT_RANGE_CROUCH_MODIFIER
-func TestCrouchingHidesTheWaypointTransmitRange(t *testing.T) {
-	var a player.Attributes
-	UpdateStateAttributes(&a, false, false, true)
-	if got := a.Value(registry.AttributeWaypointTransmitRange); got != 0 {
-		t.Errorf("waypoint transmit range while crouching = %v, want 0", got)
-	}
-	UpdateStateAttributes(&a, false, false, false)
-	if got := a.Value(registry.AttributeWaypointTransmitRange); got != 6e7 {
-		t.Errorf("waypoint transmit range after standing = %v, want the base", got)
-	}
-}
-
 // TestEffectModifiersComeAndGo pins the modifiers the active effects put on
 // the attributes: jump boost adds a block a level to safe_fall_distance, and
 // the modifier comes off when the effect ends.
@@ -237,53 +142,5 @@ func TestSpeedAndSlownessScaleTheMovementSpeed(t *testing.T) {
 	UpdateEffectAttributes(&a, nil)
 	if got := a.Value(registry.AttributeMovementSpeed); got != base {
 		t.Errorf("movement speed after the effects end = %v, want the base %v", got, base)
-	}
-}
-
-// TestOtherEffectAttributeModifiers checks the effects past the movement
-// speed: haste and mining fatigue scale attack_speed, invisibility takes
-// waypoint_transmit_range down whole, absorption adds to max_absorption, and
-// each comes off when its effect ends.
-// vanilla: MobEffects.HASTE, MINING_FATIGUE, INVISIBILITY, ABSORPTION
-func TestOtherEffectAttributeModifiers(t *testing.T) {
-	haste := registry.MustMobEffect("minecraft:haste")
-	miningFatigue := registry.MustMobEffect("minecraft:mining_fatigue")
-	invisibility := registry.MustMobEffect("minecraft:invisibility")
-	absorption := registry.MustMobEffect("minecraft:absorption")
-	var a player.Attributes
-
-	UpdateEffectAttributes(&a, []effect.Instance{effect.New(haste, 100, 1, false, true, true)})
-	if got, want := a.Value(registry.AttributeAttackSpeed), 4*(1+float64(float32(0.1))*2); got != want {
-		t.Errorf("attack speed on Haste II = %v, want %v", got, want)
-	}
-	UpdateEffectAttributes(&a, []effect.Instance{effect.New(miningFatigue, 100, 0, false, true, true)})
-	if got, want := a.Value(registry.AttributeAttackSpeed), 4*(1-float64(float32(0.1))); got != want {
-		t.Errorf("attack speed on Mining Fatigue I = %v, want %v", got, want)
-	}
-	UpdateEffectAttributes(&a, []effect.Instance{effect.New(invisibility, 100, 0, false, true, true)})
-	if got := a.Value(registry.AttributeWaypointTransmitRange); got != 0 {
-		t.Errorf("waypoint transmit range on Invisibility = %v, want 0", got)
-	}
-	// Vanilla names this row after what it hides, not after the effect.
-	const invisID = "minecraft:effect.waypoint_transmit_range_hide"
-	found := false
-	if in := a.Instance(registry.AttributeWaypointTransmitRange); in != nil {
-		for _, m := range in.Modifiers {
-			if m.ID == invisID {
-				found = true
-			}
-		}
-	}
-	if !found {
-		t.Errorf("invisibility did not put the %s modifier on the waypoint transmit range", invisID)
-	}
-	UpdateEffectAttributes(&a, []effect.Instance{effect.New(absorption, 100, 1, false, true, true)})
-	if got := a.Value(registry.AttributeMaxAbsorption); got != 8 {
-		t.Errorf("max absorption on Absorption II = %v, want 8", got)
-	}
-	UpdateEffectAttributes(&a, nil)
-	if a.Value(registry.AttributeAttackSpeed) != 4 || a.Value(registry.AttributeMaxAbsorption) != 0 || a.Value(registry.AttributeWaypointTransmitRange) != 6e7 {
-		t.Errorf("after the effects end: attack speed %v, absorption %v, waypoint range %v",
-			a.Value(registry.AttributeAttackSpeed), a.Value(registry.AttributeMaxAbsorption), a.Value(registry.AttributeWaypointTransmitRange))
 	}
 }

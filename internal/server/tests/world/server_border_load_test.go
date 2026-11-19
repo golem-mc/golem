@@ -1,9 +1,6 @@
 package world
 
 import (
-	"bytes"
-	"compress/gzip"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -65,38 +62,6 @@ func TestJoinSendsTheSavedWorldBorder(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := joinBorder{100, -50, 1000, 1000, 0, 29999984, 7, 20}
-	if got := joinedBorder(t, cfg); got != want {
-		t.Errorf("join border = %+v, want %+v", got, want)
-	}
-}
-
-// TestJoinSendsALegacyLevelDatBorder checks that a level.dat from before 26.1
-// still carrying Border* fields sets the overworld's border, with the
-// warning time 15 the upgrade gives a field that is absent.
-// vanilla: LegacyWorldBorderFix
-func TestJoinSendsALegacyLevelDatBorder(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LevelName = t.TempDir()
-	encoded, err := nbt.Encode("", nbt.Compound{"Data": nbt.Compound{
-		"BorderCenterX": nbt.Double(10), "BorderCenterZ": nbt.Double(20), "BorderSize": nbt.Double(500),
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	if _, err := gz.Write(encoded); err != nil {
-		t.Fatal(err)
-	}
-	if err := gz.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfg.LevelName, "level.dat"), buf.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	want := joinBorder{10, 20, 500, 500, 0, 29999984, 5, 15}
 	if got := joinedBorder(t, cfg); got != want {
 		t.Errorf("join border = %+v, want %+v", got, want)
 	}

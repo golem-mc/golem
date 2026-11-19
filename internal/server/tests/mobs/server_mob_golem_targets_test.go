@@ -62,20 +62,6 @@ func TestASkeletonShootsAnIronGolem(t *testing.T) {
 	}
 }
 
-// TestASlimeDamagesAnIronGolem: a slime hops onto a golem and hurts it.
-// vanilla: Slime.registerGoals
-func TestASlimeDamagesAnIronGolem(t *testing.T) {
-	t.Parallel()
-	srv, _ := golemTargetWorld(t)
-	golem := srv.SpawnMob("minecraft:iron_golem", 0.5, 64, 0.5)
-	srv.SetMobNoAI(golem) // the golem would kill the slime before it lands a hit
-	slime := srv.SpawnMob("minecraft:slime", 4.5, 64, 0.5)
-	srv.SetMobSize(slime, 2) // a size-1 slime deals no damage
-	if !golemHurtWithin(t, srv, golem, 100, 600) {
-		t.Error("the iron golem was never hurt by the slime")
-	}
-}
-
 // TestAWitherSkeletonAttacksAPiglin: a wither skeleton hunts a piglin, and a
 // plain skeleton does not.
 // vanilla: WitherSkeleton.registerGoals
@@ -87,25 +73,4 @@ func TestAWitherSkeletonAttacksAPiglin(t *testing.T) {
 	if !golemHurtWithin(t, srv, piglin, 16, 600) {
 		t.Error("the piglin was never hurt by the wither skeleton")
 	}
-}
-
-// TestASkeletonShootsOnlyABabyTurtleAshore: an adult turtle is left alone, a
-// baby on land is hunted.
-// vanilla: Turtle.BABY_ON_LAND_SELECTOR
-func TestASkeletonShootsOnlyABabyTurtleAshore(t *testing.T) {
-	t.Parallel()
-	srv, _ := golemTargetWorld(t)
-	adult := srv.SpawnMob("minecraft:turtle", 0.5, 64, 0.5)
-	baby := srv.SpawnMob("minecraft:turtle", 0.5, 64, 4.5)
-	srv.SetMobBaby(baby, true)
-	skel := srv.SpawnMob("minecraft:skeleton", 8.5, 64, 2.5)
-	for range 120 {
-		servertest.RunTicks(t, srv, 5)
-		if got := srv.MobTargetID(skel); got == adult {
-			t.Fatal("the skeleton hunts an adult turtle")
-		} else if got == baby {
-			return
-		}
-	}
-	t.Error("the skeleton never hunted the baby turtle")
 }

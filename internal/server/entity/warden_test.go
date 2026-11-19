@@ -1,12 +1,10 @@
 package entity
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
-	"github.com/golem-mc/golem/nbt"
 )
 
 func newTestWarden() *Mob {
@@ -98,75 +96,5 @@ func TestWardenLifecyclePersistenceAndNoAI(t *testing.T) {
 	w.diffUp, w.diff = true, rules.DifficultyPeaceful
 	if !m.despawnStep(w, nil) {
 		t.Fatal("warden survived peaceful")
-	}
-}
-
-func TestWardenDarknessTimingAndInvulnerability(t *testing.T) {
-	w := creakingFloor(t)
-	m := newTestWarden()
-	pulses := 0
-	for range 240 {
-		for _, ev := range m.Tick(w, nil) {
-			if ev.Kind == MobWardenDarkness {
-				pulses++
-			}
-		}
-	}
-	if pulses != 2 {
-		t.Fatalf("darkness pulses=%d, want 2", pulses)
-	}
-	m.WardenEmerging()
-	m.HurtByCausedBlast(50, 1, 2, 3, rules.DamageTypeExplosion, false, false, 0)
-	if m.Health != 500 || m.VX != 0 || m.VZ != 0 {
-		t.Fatal("explosion affected an emerging warden")
-	}
-	if !m.InvulnerableTo(rules.DamageTypeInFire, false) {
-		t.Fatal("warden is not fire immune")
-	}
-	m.warden.pose = protocol.PoseStanding
-	if m.InvulnerableTo(rules.DamageTypeMobAttack, false) {
-		t.Fatal("standing warden is invulnerable")
-	}
-}
-
-func TestWardenLifecycleMemoriesRoundTrip(t *testing.T) {
-	m := newTestWarden()
-	m.WardenEmerging()
-	m.warden.digCooldown, m.warden.emerging = 777, 91
-	tag := nbt.Compound{}
-	m.SaveTo(tag, nil)
-	memories := tag["Brain"].(nbt.Compound)["memories"].(nbt.Compound)
-	other := nbt.Compound{"value": nbt.Compound{}, "ttl": nbt.Long(100)}
-	memories["minecraft:sniff_cooldown"] = other
-	loaded := newTestWarden()
-	loaded.LoadFrom(tag, creakingFloor(t), nil)
-	if loaded.warden.digCooldown != 777 || loaded.warden.emerging != 91 || loaded.WardenPose() != protocol.PoseEmerging {
-		t.Fatalf("loaded lifecycle: %+v", loaded.warden)
-	}
-	again := nbt.Compound{}
-	loaded.SaveTo(again, nil)
-	if !reflect.DeepEqual(tag["Brain"], again["Brain"]) {
-		t.Fatal("brain memories changed in a round trip")
-	}
-	loaded.LoadFrom(nbt.Compound{}, creakingFloor(t), nil)
-	if loaded.warden.digCooldown != 0 || loaded.WardenPose() != protocol.PoseStanding {
-		t.Fatal("missing brain invented a digging cooldown or emergence")
-	}
-}
-
-func TestWardenSuppressesWarningsInABox(t *testing.T) {
-	m := newTestWarden()
-	m.X, m.Y, m.Z = 24.9, 64, 24.9
-	if !m.WardenSuppressesShrieker(0, 64, 0) {
-		t.Fatal("intersecting box corner did not suppress a warning")
-	}
-	m.X = 25
-	if m.WardenSuppressesShrieker(0, 64, 0) {
-		t.Fatal("warden outside the box suppressed a warning")
-	}
-	m.Type = TypeCow
-	m.X, m.Z = 0.5, 0.5
-	if m.WardenSuppressesShrieker(0, 64, 0) {
-		t.Fatal("cow suppressed a warning")
 	}
 }

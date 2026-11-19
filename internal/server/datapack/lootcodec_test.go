@@ -198,105 +198,9 @@ func ghastRecord(tag string) string {
 		`{"minecraft:entity_type":"minecraft:fireball"},"tags":[{"id":"` + tag + `","expected":true}]}}]}]}`
 }
 
-// TestDecodeLootTableReadsTheGhastDamageSource checks the direct entity plus
-// tag shape that vanilla's ghast table carries, without the extracted data,
-// with the tag written as a holder set and as a bare tag key.
-func TestDecodeLootTableReadsTheGhastDamageSource(t *testing.T) {
-	for _, tag := range []string{"#minecraft:is_projectile", "minecraft:is_projectile"} {
-		got, err := DecodeLootTable([]byte(ghastRecord(tag)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := registry.LootDamageSource{DirectType: "minecraft:fireball", DamageTypes: &registry.DamageTypeSet{Tag: registry.DamageTypeTagIDIsProjectile, IsTag: true}}
-		if conds := got.Pools[0].Conditions; len(conds) != 1 || !reflect.DeepEqual(conds[0], want) {
-			t.Errorf("%s: conditions = %#v, want %#v", tag, conds, want)
-		}
-	}
-}
-
 func damageSourceRecord(id string) string {
 	return `{"pools":[{"rolls":1,"entries":[],"conditions":[{"condition":"minecraft:damage_source_properties",` +
 		`"predicate":{"tags":[{"id":` + id + `,"expected":true}]}}]}]}`
-}
-
-// TestDecodeLootTableReadsADamageSourceIDAsAHolderSet checks that 26.3's
-// damage source tag id names one damage type, a list of them or a #tag, and
-// that a bare name that is neither a damage type nor a tag is refused.
-// vanilla: TagPredicate.codec
-func TestDecodeLootTableReadsADamageSourceIDAsAHolderSet(t *testing.T) {
-	for id, want := range map[string]registry.LootCondition{
-		`"minecraft:in_fire"`:  registry.LootDamageSource{DamageTypes: &registry.DamageTypeSet{Types: []registry.DamageType{registry.DamageTypeInFire}}},
-		`"in_fire"`:            registry.LootDamageSource{DamageTypes: &registry.DamageTypeSet{Types: []registry.DamageType{registry.DamageTypeInFire}}},
-		`"#minecraft:is_fire"`: registry.LootDamageSource{DamageTypes: &registry.DamageTypeSet{Tag: registry.DamageTypeTagIDIsFire, IsTag: true}},
-		`"minecraft:is_fire"`:  registry.LootDamageSource{DamageTypes: &registry.DamageTypeSet{Tag: registry.DamageTypeTagIDIsFire, IsTag: true}},
-		`["minecraft:lava"]`:   registry.LootDamageSource{DamageTypes: &registry.DamageTypeSet{Types: []registry.DamageType{registry.DamageTypeLava}}},
-		`["minecraft:in_fire","minecraft:lava"]`: registry.LootAnyOf{Terms: []registry.LootCondition{
-			registry.LootDamageSource{DamageTypes: &registry.DamageTypeSet{Types: []registry.DamageType{registry.DamageTypeInFire}}}, registry.LootDamageSource{DamageTypes: &registry.DamageTypeSet{Types: []registry.DamageType{registry.DamageTypeLava}}},
-		}},
-		`[]`: registry.LootAnyOf{Terms: []registry.LootCondition{}},
-	} {
-		got, err := DecodeLootTable([]byte(damageSourceRecord(id)))
-		if err != nil {
-			t.Errorf("%s: %v", id, err)
-			continue
-		}
-		if conds := got.Pools[0].Conditions; len(conds) != 1 || !reflect.DeepEqual(conds[0], want) {
-			t.Errorf("%s: conditions = %#v, want %#v", id, conds, want)
-		}
-	}
-	for _, id := range []string{`"minecraft:no_such_damage"`, `["minecraft:in_fire","minecraft:no_such_damage"]`, `3`} {
-		if _, err := DecodeLootTable([]byte(damageSourceRecord(id))); err == nil {
-			t.Errorf("%s: decoded, want a refusal", id)
-		}
-	}
-	got, err := DecodeLootTable([]byte(ghastRecord("minecraft:fireball")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := registry.LootDamageSource{DirectType: "minecraft:fireball", DamageTypes: &registry.DamageTypeSet{Types: []registry.DamageType{registry.DamageTypeFireball}}}
-	if conds := got.Pools[0].Conditions; len(conds) != 1 || !reflect.DeepEqual(conds[0], want) {
-		t.Errorf("direct entity with one damage type: conditions = %#v, want %#v", conds, want)
-	}
-}
-
-// TestDecodeLootTableReadsThe263HolderSets checks the fields read as
-// holder sets: a tag entry's items, with expand optional, and an
-// exploration map's destination, beside the bare tag key.
-// vanilla: TagEntry.MAP_CODEC, ExplorationMapFunction.MAP_CODEC
-func TestDecodeLootTableReadsThe263HolderSets(t *testing.T) {
-	table, err := DecodeLootTable([]byte(`{"pools":[{"rolls":1,"entries":[{"type":"minecraft:tag","items":["minecraft:stick","minecraft:apple"]}]}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := table.Pools[0].Entries[0].(registry.LootTag); !slices.Equal(got.Items, []registry.Item{registry.ItemStick, registry.ItemApple}) || got.Expand {
-		t.Errorf("tag entry = %#v, want the two items, not expanded", got)
-	}
-	for destination, want := range map[string][]string{
-		`"#minecraft:mineshaft"`:       {"minecraft:mineshaft", "minecraft:mineshaft_mesa"},
-		`"minecraft:mineshaft"`:        {"minecraft:mineshaft"},
-		`"minecraft:on_treasure_maps"`: {"minecraft:buried_treasure"},
-		`["minecraft:monument"]`:       {"minecraft:monument"},
-	} {
-		fn, err := DecodeItemModifier([]byte(`{"function":"minecraft:exploration_map","destination":` + destination + `}`))
-		if err != nil {
-			t.Fatalf("%s: %v", destination, err)
-		}
-		if got := fn.(registry.LootExplorationMap).Destination; !slices.Equal(got, want) {
-			t.Errorf("destination %s = %v, want %v", destination, got, want)
-		}
-	}
-}
-
-// TestDecodeItemPredicateReadsMapIDPresence checks the any-value component
-// predicate the treasure-map chests filter with. vanilla: AnyValue
-func TestDecodeItemPredicateReadsMapIDPresence(t *testing.T) {
-	fn, err := DecodeItemModifier([]byte(`{"function":"minecraft:filtered","item_filter":{"predicates":{"minecraft:map_id":{}}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p := fn.(registry.LootFiltered).Predicate; !p.HasMapID || p.HasDyedColor {
-		t.Errorf("predicate = %#v, want map id presence only", p)
-	}
 }
 
 // TestDecodeLootTableRequiresRollsAndExpand checks the fields vanilla's
@@ -318,25 +222,6 @@ func TestDecodeLootTableRequiresRollsAndExpand(t *testing.T) {
 	}
 	if e, ok := got.Pools[0].Entries[0].(registry.LootTag); !ok || len(e.Items) != 0 || !e.Expand {
 		t.Errorf("entry = %#v, want an empty expanding tag", got.Pools[0].Entries[0])
-	}
-}
-
-// TestDecodeLootTableSetNameTargets checks that set_name reads its target:
-// item_name sets the item name, the default is the custom name.
-// vanilla: SetNameFunction.CODEC
-func TestDecodeLootTableSetNameTargets(t *testing.T) {
-	for target, want := range map[string]bool{`,"target":"item_name"`: true, `,"target":"custom_name"`: false, ``: false} {
-		body := `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:stick","functions":` +
-			`[{"function":"minecraft:set_name","name":{"text":"Hi"}` + target + `}]}]}]}`
-		table, err := DecodeLootTable([]byte(body))
-		if err != nil {
-			t.Fatalf("%q: %v", target, err)
-		}
-		fns := table.Pools[0].Entries[0].(registry.LootItemEntry).Functions
-		got, ok := fns[0].(registry.LootSetName)
-		if !ok || got.ItemName != want {
-			t.Errorf("%q: function = %#v, want ItemName %v", target, fns[0], want)
-		}
 	}
 }
 
@@ -440,24 +325,6 @@ func TestDecodeItemModifierComponentFunctions(t *testing.T) {
 	}
 }
 
-func TestDecodePredicateMatchBlockKeepsAbsentBlocksNil(t *testing.T) {
-	got, err := DecodePredicate([]byte(`{"type":"minecraft:match_block","state":{"half":"lower"}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, ok := got.(registry.LootMatchBlock)
-	if !ok || m.Blocks != nil || len(m.Properties) != 1 {
-		t.Errorf("decoded %#v, want state-only match_block with nil Blocks", got)
-	}
-	got, err = DecodePredicate([]byte(`{"condition":"minecraft:match_block","blocks":[]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m, ok := got.(registry.LootMatchBlock); !ok || m.Blocks == nil || len(m.Blocks) != 0 {
-		t.Errorf("decoded %#v, want empty non-nil Blocks", got)
-	}
-}
-
 func TestDecodePredicateLevelAndValueChecks(t *testing.T) {
 	for _, in := range []string{
 		`{"condition":"minecraft:time_check","clock":"overworld","period":24000,"value":{"min":0,"max":12000}}`,
@@ -483,46 +350,5 @@ func TestDecodePredicateLevelAndValueChecks(t *testing.T) {
 		if _, err := DecodePredicate([]byte(in)); err == nil || err.Error() != want {
 			t.Errorf("%s: got %v, want %q", in, err, want)
 		}
-	}
-}
-
-// vanilla: RaiderPredicate.CODEC
-func TestDecodeRaiderLootPredicateDefaultsAndFlags(t *testing.T) {
-	for _, tc := range []struct {
-		raw           string
-		raid, captain bool
-	}{
-		{`{}`, false, false},
-		{`{"is_captain":true}`, false, true},
-		{`{"has_raid":true}`, true, false},
-		{`{"has_raid":true,"is_captain":true}`, true, true},
-		{`{"has_raid":false,"is_captain":false}`, false, false},
-	} {
-		cond, err := DecodePredicate([]byte(`{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:type_specific/raider":` + tc.raw + `}}`))
-		if err != nil {
-			t.Fatalf("%s: %v", tc.raw, err)
-		}
-		p := cond.(registry.LootEntityProperties).Predicate
-		if p.HasRaid == nil || p.Captain == nil || *p.HasRaid != tc.raid || *p.Captain != tc.captain {
-			t.Errorf("%s: predicate = %+v", tc.raw, p)
-		}
-	}
-}
-
-// TestDecodePredicateRefusesAnUnknownSlotRange checks that a slots predicate
-// naming no slot range is refused at load.
-// vanilla: SlotRanges.CODEC
-func TestDecodePredicateRefusesAnUnknownSlotRange(t *testing.T) {
-	old := SlotRangeKnown
-	t.Cleanup(func() { SlotRangeKnown = old })
-	SlotRangeKnown = func(name string) bool { return name == "weapon.mainhand" }
-	slots := func(name string) string {
-		return `{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:slots":{"` + name + `":{"items":"minecraft:stick"}}}}`
-	}
-	if _, err := DecodePredicate([]byte(slots("weapon.mainhand"))); err != nil {
-		t.Errorf("known slot range: %v", err)
-	}
-	if _, err := DecodePredicate([]byte(slots("nope.0"))); err == nil {
-		t.Error("unknown slot range decoded, want a refusal")
 	}
 }

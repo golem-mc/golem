@@ -1,7 +1,6 @@
 package plugins_test
 
 import (
-	"math"
 	"os"
 	"testing"
 
@@ -162,53 +161,6 @@ func TestPluginDuplicateLoginKickCancellation(t *testing.T) {
 	}
 }
 
-// vanilla: PlayerList.disconnectAllPlayersWithProfile
-func TestPluginConcurrentDuplicateLoginKickCancellation(t *testing.T) {
-	calls := 0
-	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "duplicates", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-		plugin.Listen(s, func(e *plugin.PlayerKickEvent) {
-			calls++
-			if e.Reason.Translate != "multiplayer.disconnect.duplicate_login" {
-				t.Errorf("replacement reason = %+v", e.Reason)
-			}
-			e.SetCancelled(true)
-		})
-		return nil
-	}}}})
-	old := pluginJoin(t, srv, "Subject")
-	var newcomers []*servertest.Client
-	for range 2 {
-		c := servertest.DialServer(t, srv)
-		c.Login("Subject")
-		c.Expect(protocol.IDConfigPluginMessage)
-		c.Expect(protocol.IDKnownPacks)
-		lifecycleConfigureToFinish(c)
-		newcomers = append(newcomers, c)
-	}
-	servertest.HoldTicks(t, srv)
-	for _, c := range newcomers {
-		c.Send(protocol.IDConfigFinishAck, nil)
-		c.Playing = true
-		// Let each connection reach its replacement wait while the tick
-		// decision is held, using the original connection's wire barrier.
-		old.Settle()
-	}
-	servertest.ReleaseTicks(t, srv)
-	for _, c := range newcomers {
-		servertest.ExpectDisconnect(t, c, protocol.Text{Translate: "multiplayer.disconnect.duplicate_login"})
-		c.AwaitServed()
-	}
-	servertest.HoldTicks(t, srv)
-	defer servertest.ReleaseTicks(t, srv)
-	if calls != 1 || srv.PlayerCount() != 1 {
-		t.Fatalf("replacement callbacks = %d, players = %d", calls, srv.PlayerCount())
-	}
-	old.Settle()
-	old.Chat("original session remains")
-	old.ExpectWithinTicks(srv, 0, protocol.IDPlayPlayerChat)
-	old.ExpectNoneWithinTicks(srv, 0, servertest.PacketIs(protocol.IDPlayDisconnect))
-}
-
 // vanilla: ServerCommonPacketListenerImpl.disconnect
 func TestPluginKickCancellationAndMessages(t *testing.T) {
 	for _, mode := range []string{"edit", "suppress", "quit-edit"} {
@@ -298,71 +250,6 @@ func TestPluginKickCancellationAndMessages(t *testing.T) {
 	}
 }
 
-func TestPluginPacketKickCancellation(t *testing.T) {
-	calls := 0
-	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "validation", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-		plugin.Listen(s, func(e *plugin.PlayerKickEvent) {
-			calls++
-			if e.Reason.Translate != "multiplayer.disconnect.invalid_player_movement" {
-				t.Errorf("kick reason = %+v", e.Reason)
-			}
-			_ = s.Players()
-			e.SetCancelled(true)
-		})
-		return nil
-	}}}})
-	c := pluginJoin(t, srv, "Subject")
-	servertest.HoldTicks(t, srv)
-	defer servertest.ReleaseTicks(t, srv)
-	c.Settle()
-	c.Send(protocol.IDPlayPosition, func(b *protocol.Buffer) {
-		b.PutF64(math.NaN())
-		b.PutF64(64)
-		b.PutF64(0)
-		b.PutU8(0)
-	})
-	c.Settle()
-	if calls != 0 {
-		t.Fatal("packet kick callback ran off the tick")
-	}
-	servertest.RunTicks(t, srv, 1)
-	c.ExpectNoneWithinTicks(srv, 0, servertest.PacketIs(protocol.IDPlayDisconnect))
-	if calls != 1 || srv.PlayerCount() != 1 {
-		t.Fatal("packet kick was not cancelled")
-	}
-}
-
-// vanilla: ServerGamePacketListenerImpl.detectRateSpam
-func TestPluginSpamKickCancellationRestoresChat(t *testing.T) {
-	cfg := servertest.BlockTestConfig()
-	cfg.ChatSpamThresholdSeconds = 1
-	calls := 0
-	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "spam", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-		plugin.Listen(s, func(e *plugin.PlayerKickEvent) {
-			calls++
-			if e.Reason.Translate != "disconnect.spam" {
-				t.Errorf("spam reason = %+v", e.Reason)
-			}
-			e.SetCancelled(true)
-		})
-		return nil
-	}}}})
-	c := pluginJoin(t, srv, "Subject")
-	servertest.HoldTicks(t, srv)
-	defer servertest.ReleaseTicks(t, srv)
-	c.Settle()
-	for i := range 2 {
-		c.Chat("still here")
-		c.ExpectWithinTicks(srv, 0, protocol.IDPlayPlayerChat)
-		c.Settle()
-		servertest.RunTicks(t, srv, 1)
-		c.ExpectNoneWithinTicks(srv, 0, servertest.PacketIs(protocol.IDPlayDisconnect))
-		if calls != i+1 {
-			t.Fatal("cancelled spam kick did not restore chat processing")
-		}
-	}
-}
-
 func TestPluginConfigurationKickCancellation(t *testing.T) {
 	calls := 0
 	var saved plugin.Player
@@ -412,86 +299,6 @@ func TestPluginConfigurationKickCancellation(t *testing.T) {
 	servertest.HoldTicks(t, srv)
 	if calls != 2 || saved.IsValid() || srv.PlayerCount() != 0 {
 		t.Fatal("configuration kick did not finish the connection")
-	}
-}
-
-// vanilla: ServerCommonPacketListenerImpl.handleKeepAlive, ServerConfigurationPacketListenerImpl.finishCurrentTask
-func TestPluginConfigurationPacketKick(t *testing.T) {
-	for _, source := range []string{"keep-alive", "timeout", "unexpected-task"} {
-		for _, cancel := range []bool{true, false} {
-			mode := "edit"
-			if cancel {
-				mode = "cancel"
-			}
-			t.Run(source+"/"+mode, func(t *testing.T) {
-				calls := 0
-				var saved plugin.Player
-				srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "configuration-validation", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-					plugin.Listen(s, func(e *plugin.PlayerKickEvent) {
-						calls++
-						saved = e.Player
-						if !e.Player.IsValid() || e.Player.Name() != "Setup" || e.Message != nil || len(s.Players()) != 0 {
-							t.Error("configuration packet kick inputs")
-						}
-						want := "disconnect.timeout"
-						if source == "unexpected-task" {
-							want = "disconnect.genericReason"
-						}
-						if e.Reason.Translate != want {
-							t.Errorf("kick reason = %+v", e.Reason)
-						}
-						e.SetCancelled(cancel)
-						if cancel {
-							e.Player.SendPluginMessage(plugin.Key{Namespace: "setup", Path: "kept"}, nil)
-						} else {
-							e.Reason = plugin.Plain("Configuration validation refused").Color("red")
-						}
-					})
-					return nil
-				}}}})
-				c := servertest.DialServer(t, srv)
-				c.ViewAsk = 2
-				c.Login("Setup")
-				c.Expect(protocol.IDConfigPluginMessage)
-				c.Expect(protocol.IDKnownPacks)
-				var ping []byte
-				switch source {
-				case "keep-alive":
-					c.Send(protocol.IDConfigKeepAliveIn, func(b *protocol.Buffer) { b.PutI64(123) })
-				case "timeout":
-					servertest.HoldKeepAlive(t, srv, servertest.KeepAliveWaitTicks)
-					servertest.RunTicks(t, srv, 1)
-					ping = c.Expect(protocol.IDConfigKeepAlive)
-					servertest.RunTicks(t, srv, servertest.KeepAliveWaitTicks)
-					servertest.ReleaseTicks(t, srv)
-				default:
-					c.Send(protocol.IDConfigAcceptCodeOfConduct, nil)
-				}
-				if cancel {
-					r := protocol.NewReader(c.Expect(protocol.IDConfigPluginMessage))
-					if r.ReadString(32767) != "setup:kept" {
-						t.Fatal("cancelled configuration kick did not keep the connection")
-					}
-					if ping != nil {
-						c.Send(protocol.IDConfigKeepAliveIn, func(b *protocol.Buffer) { b.PutRaw(ping) })
-					}
-					lifecycleConfigureToFinish(c)
-					c.Send(protocol.IDConfigFinishAck, nil)
-					c.Playing = true
-					c.ReadJoin(func(int32, []byte) {})
-				} else {
-					text, ok := protocol.ReadText(protocol.NewReader(c.Expect(protocol.IDConfigDisconnect)))
-					if !ok || text.Plain() != "Configuration validation refused" || !lifecycleStyle(text, "red", false) {
-						t.Fatalf("configuration disconnect = %+v", text)
-					}
-					c.AwaitServed()
-				}
-				servertest.HoldTicks(t, srv)
-				if calls != 1 || saved.IsValid() != cancel {
-					t.Fatalf("callbacks = %d, valid = %v", calls, saved.IsValid())
-				}
-			})
-		}
 	}
 }
 

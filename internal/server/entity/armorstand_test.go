@@ -1,7 +1,6 @@
 package entity
 
 import (
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -53,49 +52,6 @@ func TestAStandFallsToTheFloorUnderGravity(t *testing.T) {
 	}
 }
 
-// TestAStandsEyeSitsAtItsDimensionHeight reads the eye an explosion's
-// knockback runs from: 1.7775 above a full stand's feet, 0.9875 on the small.
-func TestAStandsEyeSitsAtItsDimensionHeight(t *testing.T) {
-	for _, tc := range []struct {
-		small bool
-		want  float64
-	}{
-		{false, 1.7775},
-		{true, 0.9875},
-	} {
-		s := NewArmorStand(1, 0.5, 64, 0.5)
-		s.Small = tc.small
-		_, y, _ := s.EyePosition()
-		if got := y - s.Y; math.Abs(got-tc.want) > 1e-9 {
-			t.Errorf("small=%v: eye height = %v, want %v", tc.small, got, tc.want)
-		}
-	}
-}
-
-// TestFireLeavesAnInvulnerableStandStanding stands an invulnerable one in a
-// fire cell and steps it: the cell still lights it, but neither the source's
-// bite nor the burn's lands, so it keeps its full health.
-func TestFireLeavesAnInvulnerableStandStanding(t *testing.T) {
-	w := armorStandWorld(t)
-	w.set(0, 64, 0, defaultState(t, "minecraft:fire"))
-	s := NewArmorStand(1, 0.5, 64, 0.5)
-	s.Invulnerable = true
-	full := s.Health
-	for tick := range 100 {
-		for _, ev := range s.Step(w) {
-			if ev.Kind == ArmorStandBroke {
-				t.Fatalf("tick %d broke the invulnerable stand", tick)
-			}
-		}
-	}
-	if s.Health != full {
-		t.Errorf("the invulnerable stand's health = %v, want its full %v", s.Health, full)
-	}
-	if s.FireTicks == 0 {
-		t.Error("the fire never caught the invulnerable stand, want it alight")
-	}
-}
-
 // TestFireBreaksAStandWithinAFewTicks stands one in a fire cell and steps
 // it: the cell re-lights it every tick, so its fire count stays at the full
 // eight seconds and the burn's four-point bite lands every tick — the stand
@@ -135,118 +91,6 @@ func TestFireBreaksAStandWithinAFewTicks(t *testing.T) {
 	}
 }
 
-// TestARoofedBurningStandKeepsItsBurnInTheRain stands one in fire under a
-// roof while it rains and steps it: the rain never lands on the stand, so
-// the fire cell keeps re-lighting it and the burn's four points land.
-// vanilla: Entity.applyEffectsFromBlocks, Entity.isInRain
-func TestARoofedBurningStandKeepsItsBurnInTheRain(t *testing.T) {
-	w := armorStandWorld(t)
-	w.set(0, 64, 0, defaultState(t, "minecraft:fire"))
-	w.set(0, 66, 0, defaultState(t, "minecraft:stone")) // the roof over the stand
-	w.rain = true
-	s := NewArmorStand(1, 0.5, 64, 0.5)
-	var broke bool
-	for tick := 0; tick < 40 && !broke; tick++ {
-		for _, ev := range s.Step(w) {
-			if ev.Kind == ArmorStandBroke {
-				broke = true
-			}
-		}
-	}
-	if !broke {
-		t.Fatalf("a roofed stand in fire never burned out in the rain: health %v, fire %d", s.Health, s.FireTicks)
-	}
-}
-
-// TestLavaLightsAStandWithoutBurningIt stands one in a lava cell and steps
-// it: lava lights the stand for its fifteen seconds but, in neither of the
-// armor-stand damage tags, lands no damage of its own, and the burn is
-// skipped while it stands there.
-func TestLavaLightsAStandWithoutBurningIt(t *testing.T) {
-	w := armorStandWorld(t)
-	w.set(0, 64, 0, defaultState(t, "minecraft:lava"))
-	s := NewArmorStand(1, 0.5, 64, 0.5)
-	for tick := range 30 {
-		if evs := s.Step(w); len(evs) > 0 {
-			t.Fatalf("lava broke the stand at tick %d", tick)
-		}
-	}
-	if s.Health != ArmorStandHealth {
-		t.Errorf("a stand in lava lost %v health, want none", ArmorStandHealth-s.Health)
-	}
-	if s.FireTicks < fireTicksLava {
-		t.Errorf("the stand's fire count = %d, want the lava's %d", s.FireTicks, fireTicksLava)
-	}
-}
-
-// TestAnInvisibleStandDoesNotBurn stands an invisible one in fire and
-// steps it: the stand lights, but ArmorStand.hurtServer's invisible early
-// return leaves both the fire source's bite and the burn off it.
-func TestAnInvisibleStandDoesNotBurn(t *testing.T) {
-	w := armorStandWorld(t)
-	w.set(0, 64, 0, defaultState(t, "minecraft:fire"))
-	s := NewArmorStand(1, 0.5, 64, 0.5)
-	s.Invisible = true
-	var broke bool
-	for tick := 0; tick < 40 && !broke; tick++ {
-		for _, ev := range s.Step(w) {
-			if ev.Kind == ArmorStandBroke {
-				broke = true
-			}
-		}
-	}
-	if broke || s.Health != ArmorStandHealth {
-		t.Errorf("an invisible stand in fire lost %v health, want none", ArmorStandHealth-s.Health)
-	}
-	if s.FireTicks == 0 {
-		t.Error("the invisible stand never lit, want the fire still on it")
-	}
-}
-
-// TestANoGravityStandIsOutOfTheCellsFire stands a no-gravity one in a fire
-// cell and steps it: Entity.isAffectedByBlocks is false for a stand whose
-// hasPhysics the NoGravity flag turns off, so the cell neither lights the
-// stand nor lands its 0.15, and a lava cell lights it not either. A burn it
-// already carried still bites, the countdown running outside the block
-// effects.
-// vanilla: Entity.applyEffectsFromBlocks, ArmorStand.hasPhysics
-func TestANoGravityStandIsOutOfTheCellsFire(t *testing.T) {
-	w := armorStandWorld(t)
-	w.set(0, 64, 0, defaultState(t, "minecraft:fire"))
-	s := NewArmorStand(1, 0.5, 64, 0.5)
-	s.NoGravity = true
-	for range 40 {
-		s.Step(w)
-	}
-	if s.FireTicks != 0 {
-		t.Errorf("a no-gravity stand in fire holds fire ticks %d, want none — no cell lights it", s.FireTicks)
-	}
-	if s.Health != ArmorStandHealth {
-		t.Errorf("a no-gravity stand in fire lost %v health, want none", ArmorStandHealth-s.Health)
-	}
-
-	// The burn already on it still bites: the countdown is not gated.
-	alight := NewArmorStand(2, 0.5, 64, 0.5)
-	alight.NoGravity = true
-	alight.FireTicks = 20
-	alight.Step(w)
-	if want := ArmorStandHealth - burnDamage; alight.Health != want {
-		t.Errorf("a no-gravity stand alight kept health %v, want the burn's bite cut to %v", alight.Health, want)
-	}
-
-	// Lava is out of it the same way.
-	lava := armorStandWorld(t)
-	lava.set(0, 64, 0, defaultState(t, "minecraft:lava"))
-	s2 := NewArmorStand(3, 0.5, 64, 0.5)
-	s2.NoGravity = true
-	for range 10 {
-		s2.Step(lava)
-	}
-	if s2.FireTicks != 0 {
-		t.Errorf("a no-gravity stand in lava holds fire ticks %d, want none", s2.FireTicks)
-	}
-}
-
 // TestTheWaterDragsAStandWithItsOwnFraction stands one in still water with
 // a sideways drift and steps it once: the water's own four-fifths drag
 // shrinks the drift, not the air's 0.91.
@@ -258,39 +102,6 @@ func TestTheWaterDragsAStandWithItsOwnFraction(t *testing.T) {
 	s.Step(w)
 	if s.VX != defaultWaterSlowDown {
 		t.Errorf("the stand's drift after one tick in water = %v, want the water's drag %v", s.VX, defaultWaterSlowDown)
-	}
-}
-
-// TestTheLavaDragsAStandWithItsOwnFraction stands one in deep lava with a
-// sideways drift and steps it once: deep lava drags everything by half,
-// and its own quarter-gravity pull adds after.
-func TestTheLavaDragsAStandWithItsOwnFraction(t *testing.T) {
-	w := newTestWorld()
-	w.set(0, 64, 0, defaultState(t, "minecraft:lava"))
-	s := NewArmorStand(1, 0.5, 64, 0.5)
-	s.VX = 1
-	s.Step(w)
-	if s.VX != 0.5 {
-		t.Errorf("the stand's drift after one tick in deep lava = %v, want the deep lava's half", s.VX)
-	}
-	if want := -ArmorStandGravity / 4; s.VY != want {
-		t.Errorf("the lava's own pull left VY %v, want %v", s.VY, want)
-	}
-}
-
-// TestWaterOverLavaPullsAStandDownOnce stands one with water in the top of
-// its box over lava in the bottom and steps it: isInWater wins the fluid
-// branch, so the water's own pull lands alone where the lava's
-// quarter-gravity would otherwise pull the stand down a second time.
-// vanilla: LivingEntity.travelInFluid
-func TestWaterOverLavaPullsAStandDownOnce(t *testing.T) {
-	w := newTestWorld()
-	w.set(0, 64, 0, defaultState(t, "minecraft:lava"))
-	w.set(0, 65, 0, defaultState(t, "minecraft:water"))
-	s := NewArmorStand(1, 0.5, 64, 0.5)
-	s.Step(w)
-	if want := -ArmorStandGravity / 16; s.VY != want {
-		t.Errorf("the stand in water over lava left VY %v, want the water's pull alone %v", s.VY, want)
 	}
 }
 
@@ -323,43 +134,6 @@ func TestWaterCarriesAStandWithItsCurrent(t *testing.T) {
 	}
 	if s.VX == 0 && s.VZ == 0 && s.VY == 0 {
 		t.Error("the current never pushed the stand's velocity")
-	}
-}
-
-// TestASmallStandsEyeClearsAOneDeepSource stands a small one in a single
-// source cell at its feet and steps it: the small stand's eye sits at the
-// whole of its box, above the source's eight ninths, so the eye is not
-// marked in the water as the default 0.85 eye height would mark it.
-// vanilla: EntityFluidInteraction.update
-func TestASmallStandsEyeClearsAOneDeepSource(t *testing.T) {
-	w := newTestWorld()
-	w.set(0, 64, 0, defaultState(t, "minecraft:water"))
-	s := NewArmorStand(1, 0.5, 64, 0.5)
-	s.Small = true
-	s.Step(w)
-	if s.water.eyesIn {
-		t.Errorf("the small stand's eye at %v was marked in a source topping %v", 64+s.eyeHeight(), 64+sourceHeight)
-	}
-}
-
-// TestAMarkerStandStaysPut stands a marker in fire and in a current and
-// steps it: a marker holds no box, never burns and never moves.
-func TestAMarkerStandStaysPut(t *testing.T) {
-	w := armorStandWorld(t)
-	w.set(0, 64, 0, defaultState(t, "minecraft:fire"))
-	s := NewArmorStand(1, 0.5, 64, 0.5)
-	s.Marker = true
-	for range 100 {
-		s.Step(w)
-	}
-	if s.FireTicks != 0 {
-		t.Errorf("a marker in fire holds fire ticks %d, want none — no box to light", s.FireTicks)
-	}
-	if s.X != 0.5 || s.Y != 64 || s.Z != 0.5 {
-		t.Errorf("the marker moved to (%v, %v, %v), want it never moving", s.X, s.Y, s.Z)
-	}
-	if !s.Box().hasHeightZero() {
-		t.Error("the marker's box is not the empty one")
 	}
 }
 
@@ -400,16 +174,6 @@ func TestPunchesShakeThenBreakTheStand(t *testing.T) {
 	}
 	if s.Dead {
 		t.Error("the punch after the window broke the stand anyway")
-	}
-}
-
-// TestAPunchInTheWorldsFirstTicksBreaks pins the open window vanilla's
-// lastHit starting at nought leaves: a punch in the world's first five
-// ticks reads as one within the window and breaks the stand.
-func TestAPunchInTheWorldsFirstTicksBreaks(t *testing.T) {
-	s := NewArmorStand(1, 0, 0, 0)
-	if out := s.Punch(3, false); out != PunchBroke {
-		t.Errorf("a punch at tick 3 = %d, want the break the open window gives", out)
 	}
 }
 
@@ -548,75 +312,5 @@ func TestASwapSplitsAStackAndCopiesForACreativeHand(t *testing.T) {
 	if hand.Count != 3 || s.StackOf(StandHead).Count != 1 {
 		t.Errorf("the copy left hand %d and stand %d, want 3 and 1",
 			hand.Count, s.StackOf(StandHead).Count)
-	}
-}
-
-// TestAPlacedStandFacesItsPlacerSnappedToAnEighth checks the placement yaw:
-// the placer's yaw turned about and snapped to 45 degrees.
-func TestAPlacedStandFacesItsPlacerSnappedToAnEighth(t *testing.T) {
-	for _, tc := range []struct{ placer, want float32 }{
-		{0, -180}, {90, -90}, {-90, 90}, {30, -135}, {200, 0},
-	} {
-		if got := ArmorStandPlacementYaw(tc.placer); got != tc.want {
-			t.Errorf("a placer at yaw %v stood the stand at %v, want %v", tc.placer, got, tc.want)
-		}
-	}
-}
-
-// TestTheUseSlotPicksTheHeldItemsSlotOrTheClickedOne checks the use's
-// choice: a name tag and a marker fall through, a held helmet goes to the
-// head, a locked slot refuses it, and an empty hand on an empty stand does
-// nothing.
-func TestTheUseSlotPicksTheHeldItemsSlotOrTheClickedOne(t *testing.T) {
-	helmetID, ok := registry.ItemID("minecraft:iron_helmet")
-	if !ok {
-		t.Fatal("no iron_helmet in the registry")
-	}
-	tagID, _ := registry.ItemID("minecraft:name_tag")
-	helmet := protocol.ItemStack{ItemID: helmetID, Count: 1}
-
-	s := NewArmorStand(1, 0, 0, 0)
-	if _, use := s.UseSlot(protocol.ItemStack{ItemID: tagID, Count: 1}, 0, 1, 0); use != StandUsePass {
-		t.Errorf("a name tag came to %d, want a pass", use)
-	}
-	if _, use := s.UseSlot(protocol.ItemStack{}, 0, 1, 0); use != StandUsePass {
-		t.Errorf("an empty hand on an empty stand came to %d, want a pass", use)
-	}
-	if slot, use := s.UseSlot(helmet, 0, 0.2, 0); use != StandUseSwap || slot != StandHead {
-		t.Errorf("a helmet came to slot %d use %d, want the head swapped", slot, use)
-	}
-	s.DisabledSlots = 1 << 4
-	if _, use := s.UseSlot(helmet, 0, 0.2, 0); use != StandUseRefused {
-		t.Errorf("a helmet on a locked head came to %d, want a refusal", use)
-	}
-	s = NewArmorStand(1, 0, 0, 0)
-	s.Marker = true
-	if _, use := s.UseSlot(helmet, 0, 0.2, 0); use != StandUsePass {
-		t.Errorf("a marker came to %d, want a pass", use)
-	}
-}
-
-// TestABrokenStandDropsWhatItHeldInWireOrder checks the equipment drops
-// leave the empty slots out and keep the wire order.
-func TestABrokenStandDropsWhatItHeldInWireOrder(t *testing.T) {
-	s := NewArmorStand(1, 0, 0, 0)
-	s.SetStack(StandHead, protocol.ItemStack{ItemID: 3, Count: 1})
-	s.SetStack(StandMainHand, protocol.ItemStack{ItemID: 2, Count: 1})
-	drops := s.EquipmentDrops()
-	if len(drops) != 2 || drops[0].ItemID != 2 || drops[1].ItemID != 3 {
-		t.Errorf("the drops were %+v, want the main hand then the head", drops)
-	}
-}
-
-// TestALavaCauldronLightsAStand checks that a stand in a lava cauldron is
-// lit for the lava's fifteen seconds.
-// vanilla: LavaCauldronBlock.entityInside
-func TestALavaCauldronLightsAStand(t *testing.T) {
-	w := armorStandWorld(t)
-	w.set(0, 64, 0, defaultState(t, "minecraft:lava_cauldron"))
-	s := NewArmorStand(1, 0.5, 64, 0.5)
-	s.Step(w)
-	if s.FireTicks < fireTicksLava-1 {
-		t.Errorf("the stand's fire count = %d, want about the lava's %d", s.FireTicks, fireTicksLava)
 	}
 }

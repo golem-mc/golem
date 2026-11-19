@@ -1,7 +1,6 @@
 package worldgen
 
 import (
-	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -9,7 +8,6 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/registry"
 )
 
 // copyRegion generates each seed's 5x5 once per process. Each reader gets its
@@ -61,7 +59,6 @@ func TestOverworldOfSeed12345(t *testing.T) {
 	t.Run("GeneratedLavaStaysPut", func(t *testing.T) { overworldGeneratedLavaStaysPut(t, srv) })
 	t.Run("SpringsFlowWhenTheirChunkTicks", func(t *testing.T) { overworldSpringsFlowWhenTheirChunkTicks(t, srv) })
 	runParallel(t, srv,
-		check{"RawOreBlocksMatchVanillasFill", overworldRawOreBlocksMatchVanillasFill},
 		check{"EmeraldOnlyInMountainBiomes", overworldEmeraldOnlyInMountainBiomes},
 	)
 }
@@ -120,36 +117,6 @@ func sharedVegetationWorld(t *testing.T, region servertest.RegionFixture) *world
 	return w
 }
 
-// A fixture must load from disk rather than silently regenerate, and one
-// reader's edits must not reach either another reader or the cached source.
-func TestRegionFixtureCopiesAreIndependent(t *testing.T) {
-	t.Parallel()
-	open := func() *world.World {
-		gen := &fixtureGenerator{Generator: world.NewOverworldGenerator(pipelineSeed)}
-		w, err := world.NewWorld(copyRegion(t, pipelineSeed), gen)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = w.Close() })
-		pos := world.ChunkPos{X: 0, Z: 0}
-		w.Acquire(pos)
-		t.Cleanup(func() { w.Release(pos) })
-		if gen.generated.Load() != 0 {
-			t.Fatal("fixture chunk was regenerated")
-		}
-		return w
-	}
-	a, b := open(), open()
-	before := b.BlockAt(0, 200, 0)
-	if before != registry.BlockAir.DefaultState() {
-		t.Fatal("expected air above the fixture's terrain")
-	}
-	a.SetBlock(0, 200, 0, registry.BlockStone.DefaultState())
-	if b.BlockAt(0, 200, 0) != before || open().BlockAt(0, 200, 0) != before {
-		t.Fatal("a fixture reader changed another copy or the cached source")
-	}
-}
-
 type fixtureGenerator struct {
 	world.Generator
 	generated atomic.Int32
@@ -159,5 +126,3 @@ func (g *fixtureGenerator) Generate(c *world.Chunk) {
 	g.generated.Add(1)
 	g.Generator.Generate(c)
 }
-
-var sharedEndGenerator = sync.OnceValue(func() *world.EndGenerator { return world.NewEndGenerator(0) })

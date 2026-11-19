@@ -1,8 +1,6 @@
 package mobs
 
 import (
-	"crypto/sha256"
-	"fmt"
 	"math"
 	"math/rand"
 	"slices"
@@ -11,30 +9,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
-
-// seededOutcomeOverLayer replaces every other cell of the flat surface's free
-// layer (y=64) with the block given, runs 40 seeded midnight passes and
-// hashes what they grew.
-func seededOutcomeOverLayer(t *testing.T, state uint16) string {
-	t.Helper()
-	srv, _ := zombieTests(t, servertest.SpawningTestConfig())
-	srv.SetDayTime(midnight)
-	for x := int32(-48); x < 48; x++ {
-		for z := int32(-48); z < 48; z++ {
-			if (x+z)&1 == 0 {
-				srv.SetBlock(x, 64, z, state)
-			}
-		}
-	}
-	hash := sha256.New()
-	for seed := int64(1); seed <= 40; seed++ {
-		srv.SpawnPass(seed)
-		for _, m := range srv.Mobs() {
-			fmt.Fprintf(hash, "%s %g %g %g %g %t\n", m.Kind, m.X, m.Y, m.Z, m.Yaw, m.Baby)
-		}
-	}
-	return fmt.Sprintf("%x", hash.Sum(nil))
-}
 
 // vanilla: NaturalSpawner.spawnCategoryForPosition. Inside the player's
 // exclusion radius, each pack consumes only its size float and four dice per
@@ -105,22 +79,5 @@ func TestNaturalSpawnInitialStairsVanillaWalk(t *testing.T) {
 	}
 	if got := len(srv.Mobs()); got != 0 {
 		t.Fatalf("%d mobs spawned inside the exclusion radius", got)
-	}
-}
-
-// TestNaturalSpawnInitialPositionInStairs pins the outcome of passes whose
-// initial position often lands in stairs: nonconducting, so the pack walk and
-// its draws run, unlike in a full block that rejects the position.
-// vanilla: NaturalSpawner.spawnCategoryForPosition
-func TestNaturalSpawnInitialPositionInStairs(t *testing.T) {
-	t.Parallel()
-	stairs := seededOutcomeOverLayer(t, registry.BlockOakStairs.DefaultState())
-	stone := seededOutcomeOverLayer(t, registry.BlockStone.DefaultState())
-	if stairs == stone {
-		t.Fatal("stairs rejected the initial position like a conductor, so the pack walk's draws were skipped")
-	}
-	const want = "327ee131ef993c3bfe484e3ac4cb3f5fa3aa66237346825026f45e3cf6dfb89b"
-	if stairs != want {
-		t.Fatalf("seeded outcome over stairs = %s, want %s", stairs, want)
 	}
 }

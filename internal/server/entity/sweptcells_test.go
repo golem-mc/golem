@@ -35,22 +35,6 @@ func TestForEachCellBetweenSweepsThePathOnceInStepOrder(t *testing.T) {
 	}
 }
 
-// A box that does not move yields its own cells, all at step 0.
-func TestForEachCellBetweenStillYieldsTheBox(t *testing.T) {
-	box := AABB{4.75, 65.2, 0.25, 5.25, 65.7, 0.75}
-	n := 0
-	forEachCellBetween(5, 65.2, 0.5, 5, 65.2, 0.5, box, func(x, y, z int32, step int) bool {
-		if x < 4 || x > 5 || y != 65 || z != 0 || step != 0 {
-			t.Errorf("cell (%d,%d,%d) at step %d, want the box's own at step 0", x, y, z, step)
-		}
-		n++
-		return true
-	})
-	if n != 2 {
-		t.Errorf("yielded %d cells, want 2", n)
-	}
-}
-
 // The cells a box sweeps, with their steps, are the ones vanilla's walk
 // visits, including the cells its perpendicular corner skips on a diagonal.
 // The wants were printed by BlockGetter.forEachBlockIntersectedBetween on

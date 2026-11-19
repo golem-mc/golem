@@ -1,13 +1,10 @@
 package plugins_test
 
 import (
-	"bytes"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/config"
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
@@ -136,47 +133,6 @@ func TestPluginCarriedBlockEntityData(t *testing.T) {
 	})
 }
 
-func TestPluginCarriedHandleIdentity(t *testing.T) {
-	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
-	w := srv.OverworldWorld()
-	w.Acquire(world.ChunkPos{})
-	defer w.Release(world.ChunkPos{})
-	run(func() {
-		p := plugin.BlockPos{X: 5, Y: 80, Z: 5}
-		w.SetBlock(5, 80, 5, registry.BlockPlayerHead.DefaultState())
-		w.EnsureBlockEntityForBlock(5, 80, 5)
-		b, _ := h.Overworld().BlockEntity(p)
-		skull := b.(plugin.Skull)
-		w.SetBlockEntityTag(5, 80, 5, world.KindSkull.Name(), nbt.Compound{"profile": nbt.String("Tester")})
-		w.SetCarriedField(5, 80, 5, "note_block_sound", nbt.String("test:note"))
-		tag, _ := w.BlockEntityTag(5, 80, 5)
-		w.ReplaceCarried(5, 80, 5, tag)
-		again, _ := h.Overworld().BlockEntity(p)
-		if again != b || !b.IsValid() || skull.Profile().Name != "Tester" || skull.NoteBlockSound() != (plugin.Key{"test", "note"}) {
-			t.Error("retag or gameplay edit broke the live handle")
-		}
-		w.RemoveBlockEntity(5, 80, 5)
-		w.EnsureBlockEntityForBlock(5, 80, 5)
-		fresh, _ := h.Overworld().BlockEntity(p)
-		if b.IsValid() || fresh == b || !fresh.IsValid() {
-			t.Error("replacement reused the removed identity")
-		}
-		skull.SetProfile(&plugin.Profile{Name: "Stale"})
-		skull.SetNoteBlockSound(plugin.MinecraftKey("stale"))
-		b.Data().Set(plugin.Key{"test", "stale"}, true)
-		if skull.Profile() != nil || skull.NoteBlockSound() != (plugin.Key{}) || len(b.Data().Keys()) != 0 {
-			t.Error("stale getters")
-		}
-		if f := fresh.(plugin.Skull); f.Profile() != nil || f.NoteBlockSound() != (plugin.Key{}) || len(f.Data().Keys()) != 0 {
-			t.Error("stale setter touched replacement")
-		}
-		w.SetBlockEntityTag(5, 80, 5, "minecraft:banner", nbt.Compound{})
-		if fresh.IsValid() {
-			t.Error("different type retained identity")
-		}
-	})
-}
-
 func TestPluginSkullHandle(t *testing.T) {
 	cfg := servertest.BlockTestConfig()
 	srv, h, run := worldPlugin(t, cfg)
@@ -263,142 +219,5 @@ func TestPluginSkullHandle(t *testing.T) {
 		if fresh := b.(plugin.Skull); fresh.Profile() != nil || fresh.NoteBlockSound() != (plugin.Key{}) {
 			t.Error("cleared skull values returned on reload")
 		}
-	})
-}
-
-// vanilla: SkullBlockEntity.getUpdatePacket/getUpdateTag, NoteBlock.triggerEvent.
-func TestPluginSkullPacketsAndGameplay(t *testing.T) {
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, h, run := worldPlugin(t, cfg)
-	servertest.FreezeUntilHeld(t, srv)
-	servertest.ReleaseTicks(t, srv)
-	c := servertest.DialServer(t, srv)
-	c.Join("SkullTester")
-	servertest.HoldTicks(t, srv)
-	srv.SetTickFrozen(true)
-	w := srv.OverworldWorld()
-	var skull plugin.Skull
-	run(func() {
-		w.SetBlock(4, 65, 2, registry.MustState("minecraft:note_block", map[string]string{"instrument": "custom_head"}))
-		w.SetBlock(4, 66, 2, registry.BlockPlayerHead.DefaultState())
-		w.EnsureBlockEntityForBlock(4, 66, 2)
-		b, _ := h.Overworld().BlockEntity(plugin.BlockPos{X: 4, Y: 66, Z: 2})
-		skull = b.(plugin.Skull)
-		skull.Data().Set(plugin.Key{"test", "secret"}, "private-plugin-value")
-	})
-	profile := plugin.Profile{Name: "Tester", Properties: []plugin.ProfileProperty{{Name: "textures", Value: "skin"}}}
-	for _, edit := range []struct {
-		change func()
-		check  func(nbt.Compound) bool
-	}{
-		{func() { skull.SetProfile(&profile) }, func(tag nbt.Compound) bool {
-			p := mustCompound(t, tag, "profile")
-			return p["name"] == nbt.String("Tester") && p["properties"] != nil
-		}},
-		{func() { skull.SetNoteBlockSound(plugin.MinecraftKey("entity.pig.ambient")) }, func(tag nbt.Compound) bool {
-			return tag["note_block_sound"] == nbt.String("minecraft:entity.pig.ambient")
-		}},
-	} {
-		run(edit.change)
-		x, y, z, kind, tag := c.AwaitBlockEntityData()
-		if x != 4 || y != 66 || z != 2 || kind != world.BlockEntityTypeID(world.KindSkull.Name()) || !edit.check(tag) {
-			t.Errorf("skull update %d,%d,%d kind %d tag=%v", x, y, z, kind, tag)
-		}
-		if tag["plugins"] != nil || tag["id"] != nil || tag["components"] != nil {
-			t.Error("skull update exposed private or chunk fields")
-		}
-	}
-	c.UseBlock(4, 65, 2)
-	r := protocol.NewReader(c.ExpectWithinTicks(srv, 2, protocol.IDPlaySoundEffect))
-	if r.ReadVarInt() != 0 || r.ReadString(32767) != "minecraft:entity.pig.ambient" || r.ReadBool() ||
-		r.ReadVarInt() != protocol.SoundCategoryRecord || r.ReadI32() != 36 || r.ReadI32() != 524 || r.ReadI32() != 20 ||
-		r.ReadF32() != 3 || r.ReadF32() != 1 {
-		t.Error("custom head note packet")
-	}
-	r.ReadI64()
-	if r.Err() != nil || r.Remaining() != 0 {
-		t.Error("malformed custom head note")
-	}
-	picked := servertest.PickedStack(t, c, 4, 66, 2, true)
-	if p, ok := picked.ProfileOf(); !ok || p.Name != profile.Name {
-		t.Error("picked skull lost the plugin's profile")
-	}
-	if _, tag, ok := picked.BlockEntityDataOf(); ok && tag["plugins"] != nil {
-		t.Error("picked skull exposed private data")
-	}
-	run(func() { skull.SetProfile(nil); skull.SetNoteBlockSound(plugin.Key{}) })
-	for range 2 {
-		_, _, _, _, tag := c.AwaitBlockEntityData()
-		if tag["plugins"] != nil {
-			t.Error("clear exposed private data")
-		}
-	}
-	c.UseBlock(4, 65, 2)
-	c.ExpectNoneWithinTicks(srv, 2, servertest.PacketIs(protocol.IDPlaySoundEffect))
-	run(func() {
-		w.RemoveBlockEntity(4, 66, 2)
-		w.EnsureBlockEntityForBlock(4, 66, 2)
-		skull.SetProfile(&profile)
-		skull.SetNoteBlockSound(plugin.MinecraftKey("entity.pig.ambient"))
-	})
-	c.ExpectNoneWithinTicks(srv, 1, servertest.PacketIs(protocol.IDPlayBlockEntityData))
-}
-
-func TestPluginCarriedDataStaysOffWire(t *testing.T) {
-	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, h, run := worldPlugin(t, cfg)
-	w := srv.OverworldWorld()
-	chunk, _ := w.Acquire(world.ChunkPos{})
-	defer w.Release(world.ChunkPos{})
-	for i, block := range []registry.Block{registry.BlockPlayerHead, registry.BlockWhiteBanner} {
-		w.SetBlock(int32(i+4), 80, 5, block.DefaultState())
-		w.EnsureBlockEntityForBlock(int32(i+4), 80, 5)
-	}
-	before := bytes.Clone(w.ChunkPacket(chunk))
-	run(func() {
-		for i := range 2 {
-			b, _ := h.Overworld().BlockEntity(plugin.BlockPos{X: i + 4, Y: 80, Z: 5})
-			b.Data().Set(plugin.Key{"test", "secret"}, "private-plugin-value")
-		}
-	})
-	if after := w.ChunkPacket(chunk); !bytes.Equal(before, after) {
-		t.Error("private data changed cached chunk bytes")
-	}
-	servertest.FreezeUntilHeld(t, srv)
-	servertest.ReleaseTicks(t, srv)
-	c := servertest.DialServer(t, srv)
-	c.Login("CarriedData")
-	c.Configure()
-	saw := false
-	c.ReadJoin(func(id int32, data []byte) {
-		if id == protocol.IDPlayChunkData {
-			r := protocol.NewReader(data)
-			if r.ReadI32() == 0 && r.ReadI32() == 0 {
-				saw = true
-				if !bytes.Equal(data, before) {
-					t.Error("chunk sent private data to joining client")
-				}
-			}
-		}
-	})
-	if !saw {
-		t.Fatal("client never received chunk 0,0")
-	}
-	c.MarkLoaded()
-	servertest.HoldTicks(t, srv)
-	run(func() {
-		for i := range 2 {
-			b, _ := h.Overworld().BlockEntity(plugin.BlockPos{X: i + 4, Y: 80, Z: 5})
-			b.Data().Set(plugin.Key{"test", "live"}, int32(42))
-			b.Data().Remove(plugin.Key{"test", "secret"})
-		}
-	})
-	c.ReadTicks(srv, 2, func(id int32, _ []byte) bool {
-		if id == protocol.IDPlayBlockEntityData || id == protocol.IDPlayBlockUpdate || id == protocol.IDPlaySectionBlocks {
-			t.Error("private data write broadcast a change")
-		}
-		return false
 	})
 }

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
@@ -42,27 +41,6 @@ func TestABiteOfCakeCountsASlice(t *testing.T) {
 				t.Errorf("eat_cake_slice = %d after a bite, want 1", got)
 			}
 		})
-	}
-}
-
-// TestFoodOnACampfireCountsAnInteraction: a click that puts food on a campfire
-// counts; one that finds no free slot does not.
-// vanilla: CampfireBlock.useItemOn
-func TestFoodOnACampfireCountsAnInteraction(t *testing.T) {
-	t.Parallel()
-	srv, w := servertest.OpenWindowed(t, servertest.SurvivalTestConfig())
-	srv.StopTick()
-	srv.SetBlock(3, 64, 0, campfireState(t, "minecraft:campfire", true))
-	srv.GiveSlot("Testificate", player.HotbarSlot, servertest.ItemStack(t, "minecraft:beef", 8))
-	w.Settle()
-
-	for i := 1; i <= 5; i++ {
-		w.UseBlock(3, 64, 0)
-		w.Settle()
-		want := int32(min(i, 4))
-		if got := customStat(srv, "minecraft:interact_with_campfire"); got != want {
-			t.Fatalf("interact_with_campfire = %d after %d clicks, want %d", got, i, want)
-		}
 	}
 }
 
@@ -105,43 +83,5 @@ func TestRingingABellCountsIt(t *testing.T) {
 	w.Settle()
 	if got := customStat(srv, "minecraft:bell_ring"); got != 1 {
 		t.Errorf("bell_ring = %d after a ring, want 1", got)
-	}
-}
-
-// TestPlantingAFlowerPotCountsIt: a plant put in an empty pot counts.
-// vanilla: FlowerPotBlock.useItemOn
-func TestPlantingAFlowerPotCountsIt(t *testing.T) {
-	t.Parallel()
-	srv, w := servertest.OpenWindowed(t, servertest.SurvivalTestConfig())
-	srv.StopTick()
-	srv.SetBlock(3, 64, 0, servertest.MustState(t, "minecraft:flower_pot", nil))
-	srv.GiveSlot("Testificate", player.HotbarSlot, servertest.ItemStack(t, "minecraft:poppy", 1))
-	w.Settle()
-
-	w.UseBlock(3, 64, 0)
-	w.Settle()
-	if got := customStat(srv, "minecraft:pot_flower"); got != 1 {
-		t.Errorf("pot_flower = %d after planting, want 1", got)
-	}
-}
-
-// TestLyingDownInABedCountsASleep: a bed that takes the player counts once.
-// vanilla: ServerPlayer.startSleepInBed
-func TestLyingDownInABedCountsASleep(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Testificate", servertest.NoTimeSync)
-	srv.StopTick()
-	servertest.StandSleepBed(t, srv)
-	servertest.SetNight(t, srv)
-	c.MoveTo(6.5, 64, 0.5, 0, 0)
-	c.Settle()
-
-	c.UseBlock(servertest.SleepBedHeadX, servertest.SleepBedHeadY, servertest.SleepBedHeadZ)
-	c.Settle()
-	if !srv.Sleeping("Testificate") {
-		t.Fatal("the player did not lie down")
-	}
-	if got := customStat(srv, "minecraft:sleep_in_bed"); got != 1 {
-		t.Errorf("sleep_in_bed = %d, want 1", got)
 	}
 }

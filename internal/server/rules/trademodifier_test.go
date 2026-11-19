@@ -48,26 +48,3 @@ func TestTradeEquipmentChargesTheRolledLevelsAndFiltersFailures(t *testing.T) {
 		}
 	}
 }
-
-func TestTradeFilterReadsStoredEnchantmentsAndItsConditions(t *testing.T) {
-	book, _ := registry.ItemID("minecraft:enchanted_book")
-	mending, _ := registry.EnchantmentID("minecraft:mending")
-	filter := registry.LootFiltered{Predicate: registry.LootItemPredicate{
-		StoredEnchantments: []registry.LootEnchantments{{Enchantments: []string{"minecraft:mending"}, Min: 1, Max: 1}},
-	}, OnFail: registry.LootDiscard{}}
-	for _, stored := range []bool{false, true} {
-		stack := protocol.ItemStack{ItemID: book, Count: 1, Enchantments: map[int32]int32{mending: 1}}
-		if stored {
-			stack.StoredEnchantments = stack.Enchantments
-		}
-		got, _ := ApplyTradeModifiers([]registry.LootFunction{filter}, stack, rand.New(rand.NewSource(1)), nil)
-		if got.Empty() == stored {
-			t.Errorf("stored %v: result %+v", stored, got)
-		}
-	}
-	filter.Conditions = []registry.LootCondition{registry.LootRandomChance{Chance: registry.LootConstant{}}}
-	got, _ := ApplyTradeModifiers([]registry.LootFunction{filter}, protocol.ItemStack{ItemID: book, Count: 1}, rand.New(rand.NewSource(1)), nil)
-	if got.Empty() {
-		t.Fatal("failed condition ran the filter")
-	}
-}

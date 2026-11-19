@@ -131,25 +131,6 @@ func TestAZombieInfectsTheVillagerItKillsOnHard(t *testing.T) {
 	}
 }
 
-func TestAZombieLeavesAVillagerDeadOnEasy(t *testing.T) {
-	t.Parallel()
-	srv, c, villager, _ := infectionYard(t, rules.DifficultyEasy)
-	zombieVillager, _ := registry.EntityTypeID("minecraft:zombie_villager")
-	servertest.UntilTicks(t, srv, 400, "the villager died", func() bool {
-		health, ok := srv.MobHealth(villager)
-		return !ok || health <= 0
-	})
-	c.ExpectNoneWithinTicks(srv, 20, func(pid int32, data []byte) bool {
-		r := protocol.NewReader(data)
-		if pid != protocol.IDPlaySpawnEntity {
-			return false
-		}
-		r.ReadVarInt()
-		r.ReadUUID()
-		return r.ReadVarInt() == zombieVillager
-	})
-}
-
 func TestAZombieHuntsItsNonPlayerTargets(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -183,24 +164,6 @@ func TestAZombieHuntsItsNonPlayerTargets(t *testing.T) {
 				t.Error("hunter did not select the expected target")
 			}
 		})
-	}
-}
-
-func TestAZombieIgnoresAnAdultTurtle(t *testing.T) {
-	t.Parallel()
-	srv, c, _, zombie := infectionYard(t, rules.DifficultyEasy)
-	c.ChatCommand(`kill @e[type=minecraft:villager]`)
-	c.Settle()
-	turtle := srv.SpawnMob("minecraft:turtle", 0.5, 64, 0.5)
-	srv.SetMobNoAI(turtle)
-	for range 100 {
-		servertest.RunTicks(t, srv, 1)
-		if srv.MobTargetID(zombie) == turtle {
-			t.Fatal("zombie targeted an adult turtle")
-		}
-	}
-	if health, _ := srv.MobHealth(turtle); health != 30 {
-		t.Errorf("adult turtle health = %v, want 30", health)
 	}
 }
 

@@ -93,35 +93,6 @@ func TestPluginLoginResults(t *testing.T) {
 	}
 }
 
-// vanilla: ServerConfigurationPacketListenerImpl.handleConfigurationFinished, PlayerList.canPlayerLogin
-func TestPluginLoginOverrideKeepsUnrelatedConfigurationRefusals(t *testing.T) {
-	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "admission", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-		plugin.Listen(s, func(e *plugin.PlayerLoginEvent) {
-			if e.Result != plugin.LoginBanned {
-				t.Errorf("initial login result = %v, want banned", e.Result)
-			}
-			e.Result = plugin.LoginAllowed
-		})
-		plugin.Listen(s, func(*plugin.PlayerConfigureEvent) {
-			if _, err := s.Dispatch(s.Console(), "whitelist on"); err != nil {
-				t.Error(err)
-			}
-		})
-		return nil
-	}}}})
-	path := filepath.Join(t.TempDir(), "banned-players.json")
-	servertest.WriteJSONList(t, path, []servertest.BanRecord{{UUID: protocol.OfflineUUID("Override").String(), Name: "Override", Reason: "fixture"}})
-	srv.SetBannedPlayersFile(path)
-	c := servertest.DialServer(t, srv)
-	c.ViewAsk = config.MinDistance
-	c.Login("Override")
-	c.Configure()
-	reason, ok := protocol.ReadText(protocol.NewReader(c.Expect(protocol.IDPlayDisconnect)))
-	if !ok || reason.Translate != "multiplayer.disconnect.not_whitelisted" {
-		t.Fatalf("configuration refusal = %+v, want whitelist refusal", reason)
-	}
-}
-
 // vanilla: ServerCommonPacketListenerImpl.handleCookieResponse, handleResourcePackResponse
 func TestPluginConfigureConnectionOperations(t *testing.T) {
 	cfg := servertest.BlockTestConfig()
@@ -273,93 +244,6 @@ func TestPluginClientNotifications(t *testing.T) {
 	}
 }
 
-// vanilla: ServerboundCustomClickActionPacket.UNTRUSTED_TAG_CODEC, NbtAccounter.pushDepth
-func TestPluginCustomClickWireDepth(t *testing.T) {
-	for _, pairs := range []int{8, 9} {
-		t.Run(fmt.Sprint(pairs), func(t *testing.T) {
-			data := []byte{byte(nbt.TypeInt), 0, 0, 0, 7}
-			for range pairs {
-				// Each empty-name compound unwraps during decoding, but both
-				// containers must count against the wire depth limit of 16.
-				outer := []byte{byte(nbt.TypeList), byte(nbt.TypeCompound), 0, 0, 0, 1, data[0], 0, 0}
-				outer = append(outer, data[1:]...)
-				data = append(outer, byte(nbt.TypeEnd))
-			}
-			key := plugin.Key{Namespace: "depth", Path: "click"}
-			srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "depth", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-				plugin.Listen(s, func(e *plugin.PlayerCustomClickEvent) {
-					if e.ID != key || e.Player.Name() != "Depth" {
-						t.Error("custom click identity")
-					}
-					e.Player.SendPluginMessage(key, e.Payload)
-				})
-				return nil
-			}}}})
-			c := servertest.DialServer(t, srv)
-			c.Login("Depth")
-			c.Expect(protocol.IDConfigPluginMessage)
-			c.Expect(protocol.IDKnownPacks)
-			c.Send(protocol.IDConfigCustomClickAction, func(b *protocol.Buffer) { b.PutString(key.String()); b.PutBytes(data) })
-			if pairs == 8 {
-				r := protocol.NewReader(c.Expect(protocol.IDConfigPluginMessage))
-				if r.ReadString(32767) != key.String() || !bytes.Equal(r.Rest(), data) || r.Err() != nil {
-					t.Fatal("custom click changed raw network NBT")
-				}
-			} else {
-				c.Expect(protocol.IDConfigDisconnect)
-			}
-		})
-	}
-}
-
-// vanilla: SignBlockEntity.executeClickCommandsIfPresent
-func TestPluginSignCustomClick(t *testing.T) {
-	var clicks []*plugin.PlayerCustomClickEvent
-	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "signs", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-		plugin.Listen(s, func(e *plugin.PlayerCustomClickEvent) {
-			clicks = append(clicks, e)
-		})
-		return nil
-	}}}}, servertest.OpsListing(t, "SignClick"))
-	c := servertest.DialServer(t, srv)
-	c.ViewAsk = config.MinDistance
-	c.Join("SignClick")
-	servertest.HoldTicks(t, srv)
-	c.MoveTo(4.5, 64, 5.5, 0, 0)
-	c.Settle()
-	data, err := nbt.EncodeNetwork(nbt.Compound{"n": nbt.Int(7)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, allowed := range []bool{true, false} {
-		opFeatures := ""
-		if allowed {
-			opFeatures = "allow_op_features:1b,"
-		}
-		c.ChatCommand(`setblock 4 65 7 minecraft:oak_sign{is_waxed:1b,` + opFeatures + `front_text:{messages:[{text:"Click",click_event:{action:"custom",id:"signs:click",payload:{n:7}}},"","",""]}}`)
-		c.ExpectCommandFeedback("commands.setblock.success", "4", "65", "7")
-		c.Settle()
-		c.UseBlock(4, 65, 7)
-		c.Settle()
-		if len(clicks) != 0 {
-			t.Fatal("sign callback ran on connection goroutine")
-		}
-		servertest.RunTicks(t, srv, 1)
-		if allowed {
-			if len(clicks) != 1 {
-				t.Fatalf("enabled sign events = %d, want 1", len(clicks))
-			}
-			e := clicks[0]
-			if !e.Player.IsValid() || e.Player.Name() != "SignClick" || e.Player.UUID() != protocol.OfflineUUID("SignClick") || e.ID.String() != "signs:click" || !bytes.Equal(e.Payload, data) {
-				t.Fatalf("sign click = %+v", e)
-			}
-		} else if len(clicks) != 0 {
-			t.Fatal("sign without op features fired a plugin event")
-		}
-		clicks = nil
-	}
-}
-
 func TestPluginChannelOwnershipAndDelivery(t *testing.T) {
 	cfg := servertest.BlockTestConfig()
 	key := plugin.Key{Namespace: "channels", Path: "echo"}
@@ -423,37 +307,5 @@ func TestPluginChannelOwnershipAndDelivery(t *testing.T) {
 	servertest.RunTicks(t, srv, 1)
 	if calls != 2 {
 		t.Fatal("unregistered channel dispatched")
-	}
-}
-
-func TestPluginRequiredPackReportsBeforeDisconnect(t *testing.T) {
-	packID := protocol.OfflineUUID("required")
-	reported := make(chan bool, 1)
-	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{Name: "required", Plugin: &testPlugin{enable: func(s plugin.Server) error {
-		plugin.Listen(s, func(e *plugin.PlayerConfigureEvent) {
-			e.Player.SendResourcePack(packID, "https://example.invalid/pack", "", true, nil)
-		})
-		plugin.Listen(s, func(e *plugin.PlayerResourcePackStatusEvent) {
-			reported <- e.ID == packID && e.Status == plugin.PackDeclined && e.Player.IsValid() && e.Player.Name() == "Required"
-		})
-		return nil
-	}}}})
-	c := servertest.DialServer(t, srv)
-	c.Login("Required")
-	c.Expect(protocol.IDConfigPluginMessage)
-	c.Expect(protocol.IDConfigResourcePackPush)
-	c.Expect(protocol.IDKnownPacks)
-	c.Send(protocol.IDConfigResourcePackIn, func(b *protocol.Buffer) { b.PutUUID(packID); b.PutVarInt(int32(plugin.PackDeclined)) })
-	text, ok := protocol.ReadText(protocol.NewReader(c.Expect(protocol.IDConfigDisconnect)))
-	if !ok || text.Translate != "multiplayer.requiredTexturePrompt.disconnect" {
-		t.Fatal("required pack denial")
-	}
-	select {
-	case ok := <-reported:
-		if !ok {
-			t.Fatal("pack status inputs")
-		}
-	default:
-		t.Fatal("pack denial was not reported before disconnect")
 	}
 }

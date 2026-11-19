@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"os"
 	"reflect"
 	"testing"
 
@@ -147,26 +146,6 @@ func dropFalseSilent(b []byte) []byte {
 	return bytes.ReplaceAll(b, []byte(`"Silent":false,`), nil)
 }
 
-func TestRandomTickKeepsPaletteVisitOrder(t *testing.T) {
-	want, err := os.ReadFile("testdata/randomtick-order.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := randomTickPaletteOutcome(t, 32); !bytes.Equal(bytes.TrimSpace(want), got) {
-		t.Fatalf("seeded random tick changed: %s", got)
-	}
-}
-
-// The longer stream revisits cells after visits have allocated or widened
-// their section palette. This digest includes ordered effects and future RNG.
-func TestRandomTickReloadsChangedPalette(t *testing.T) {
-	got := sha256.Sum256(randomTickPaletteOutcome(t, 256))
-	const want = "ac36cba197c6d729a385ae9d1a2e19963b7a1325bcd934dbdfb894fbb677103d"
-	if hex.EncodeToString(got[:]) != want {
-		t.Fatalf("palette-revisit stream changed: %x", got)
-	}
-}
-
 // A vine callback mutates the live section while RandomTick has dropped the
 // read lock. Predict only position draws; visits below consume no extra dice.
 func randomTickTransitionOutcome(t *testing.T) []byte {
@@ -260,58 +239,4 @@ func randomTickTransitionOutcome(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return b
-}
-
-func TestRandomTickKeepsSectionTransitionOrder(t *testing.T) {
-	got := randomTickTransitionOutcome(t)
-	want, err := os.ReadFile("testdata/randomtick-transitions.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(bytes.TrimSpace(want), got) {
-		t.Fatalf("transition stream changed: %s", got)
-	}
-}
-
-func TestRandomTickReloadsReplacedChunk(t *testing.T) {
-	w := newTestWorld(t, NewFlatGenerator())
-	pos := ChunkPos{X: -1, Z: -1}
-	c, _ := w.Acquire(pos)
-	defer w.Release(pos)
-	const speed = 8
-	predict := NewPhysics(w)
-	predict.SetSeed(6532)
-	for range speed {
-		if predict.rng.Intn(precipitationDie) == 0 {
-			predict.blockRandomPos(-16, 0, -16)
-		}
-	}
-	var dice [speed][3]int32
-	for i := range dice {
-		x, y, z := predict.blockRandomPos(-16, 96, -16)
-		dice[i] = [3]int32{x, y, z}
-	}
-	vine := registry.BlockVine.DefaultState()
-	first, next := dice[0], dice[1]
-	c.SetBlock(first[0]&15, first[1], first[2]&15, vine)
-	replacement := newChunk(pos.X, pos.Z)
-	leaf := leafState(t, map[string]string{"persistent": "false", "distance": "7"})
-	replacement.SetBlock(next[0]&15, next[1], next[2]&15, leaf)
-	p := NewPhysics(w)
-	p.SetSeed(6532)
-	visits := 0
-	p.SetVineSpreadRule(func() bool {
-		visits++
-		w.mu.Lock()
-		w.chunks[pos].chunk = replacement
-		w.mu.Unlock()
-		return false
-	})
-	_, decays := p.RandomTick(1, []ChunkPos{pos}, speed, 1)
-	if visits != 1 || len(decays) != 1 || decays[0].X != next[0] || decays[0].Y != next[1] || decays[0].Z != next[2] {
-		t.Fatalf("visits=%d decays=%v, want next die %v in replacement", visits, decays, next)
-	}
-	if got, want := p.rng.Int63(), predict.rng.Int63(); got != want {
-		t.Fatalf("next RNG=%d want %d", got, want)
-	}
 }

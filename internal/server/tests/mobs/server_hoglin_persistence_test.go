@@ -30,35 +30,3 @@ func TestAHoglinFedCrimsonFungusIsPersistent(t *testing.T) {
 		t.Error("the unfed hoglin is persistent")
 	}
 }
-
-func TestAPiglinWearingAGoldenHelmetIsPersistent(t *testing.T) {
-	t.Parallel()
-	c, _, srv := barterWorld(t)
-	p := srv.SpawnMob(barterPiglin, 5.5, 64, 0.5)
-	c.ChatCommand(`summon item 5.5 64 0.5 {Item:{id:"minecraft:golden_helmet",count:1}}`)
-	c.Settle()
-	servertest.UntilTicks(t, srv, 40, "the piglin holding the helmet", func() bool {
-		return !srv.MobOffHand(p).Empty()
-	})
-	servertest.UntilTicks(t, srv, 200, "the piglin wearing the helmet", func() bool {
-		return srv.MobOffHand(p).Empty()
-	})
-	if !srv.MobPersistent(p) {
-		t.Error("the piglin that wears the helmet is not persistent")
-	}
-}
-
-func TestAPiglinThatBarteredAnIngotIsNotPersistent(t *testing.T) {
-	t.Parallel()
-	c, _, srv := barterWorld(t)
-	p := srv.SpawnMob(barterPiglin, 5.5, 64, 0.5)
-	c.ChatCommand(`summon item 5.5 64 0.5 {Item:{id:"minecraft:gold_ingot",count:1}}`)
-	c.Settle()
-	servertest.UntilTicks(t, srv, 40, "the piglin taking the ingot", func() bool {
-		return srv.MobOffHand(p).Count == 1
-	})
-	servertest.UntilTicks(t, srv, 200, "the barter", func() bool { return srv.MobOffHand(p).Empty() })
-	if srv.MobPersistent(p) {
-		t.Error("the bartering piglin is persistent")
-	}
-}

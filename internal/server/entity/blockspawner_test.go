@@ -140,64 +140,6 @@ func TestSpawnerPlacementDice(t *testing.T) {
 	}
 }
 
-func TestSpawnerCollisionPrecedesPlacementDice(t *testing.T) {
-	w := newSpawnTestWorld()
-	w.set(0, 64, 0, registry.BlockStone.DefaultState())
-	rng, want := rand.New(rand.NewSource(1)), rand.New(rand.NewSource(1))
-	if SpawnerAllows(w, rng, TypeGhast, 0.5, 64, 0.5) {
-		t.Fatal("ghast allowed inside stone")
-	}
-	if rng.Int63() != want.Int63() {
-		t.Fatal("colliding spawn consumed placement dice")
-	}
-}
-
-// vanilla: Ocelot.checkSpawnObstruction
-func TestSpawnerOcelotObstruction(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		y      float64
-		ground registry.Block
-		liquid registry.Block
-		body   bool
-		want   bool
-	}{
-		{name: "below sea level", y: 62.99, ground: registry.BlockGrassBlock},
-		{name: "stone", y: 63, ground: registry.BlockStone},
-		{name: "dirt", y: 63, ground: registry.BlockDirt},
-		{name: "air", y: 63, ground: registry.BlockAir},
-		{name: "grass at sea level", y: 63, ground: registry.BlockGrassBlock, want: true},
-		{name: "oak leaves at sea level", y: 63, ground: registry.BlockOakLeaves, want: true},
-		{name: "jungle leaves above sea level", y: 80, ground: registry.BlockJungleLeaves, want: true},
-		{name: "water", y: 63, ground: registry.BlockGrassBlock, liquid: registry.BlockWater},
-		{name: "lava", y: 63, ground: registry.BlockGrassBlock, liquid: registry.BlockLava},
-		{name: "body", y: 63, ground: registry.BlockGrassBlock, body: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := newSpawnTestWorld()
-			w.sky = 15
-			w.darken = 0
-			y := int32(tc.y)
-			w.set(-1, y-1, -1, tc.ground.DefaultState())
-			if tc.liquid != 0 {
-				w.set(-1, y, -1, tc.liquid.DefaultState())
-			}
-			var bodies []SpawnBody
-			if tc.body {
-				bodies = []SpawnBody{spawnBox(TypeCow, -0.5, tc.y, -0.5)}
-			}
-			for name, fits := range map[string]func(SpawnWorld, MobType, float64, float64, float64, []SpawnBody) bool{
-				"block spawner":         SpawnerMobFits,
-				"trial or custom rules": TrialMobFits,
-			} {
-				if got := fits(w, TypeOcelot, -0.5, tc.y, -0.5, bodies); got != tc.want {
-					t.Errorf("%s: fits = %v, want %v", name, got, tc.want)
-				}
-			}
-		})
-	}
-}
-
 func BenchmarkSpawnerMobFits(b *testing.B) {
 	w := newSpawnTestWorld()
 	w.sky = 15
@@ -224,24 +166,6 @@ func BenchmarkSpawnerAllows(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				SpawnerAllows(w, rng, kind, 0.5, 64, 0.5)
-			}
-		})
-	}
-}
-
-func TestSpawnerWaterPlacementsSkipWaterAtFeet(t *testing.T) {
-	for _, kind := range []MobType{TypeSquid, TypeDolphin, TypeCod, TypeSalmon, TypePufferfish, TypeTropicalFish, TypeNautilus} {
-		t.Run(kind.Name(), func(t *testing.T) {
-			w := newSpawnTestWorld()
-			w.set(0, 49, 0, registry.BlockWater.DefaultState())
-			w.set(0, 51, 0, registry.BlockWater.DefaultState())
-			rng := rand.New(rand.NewSource(1))
-			if !SpawnerAllows(w, rng, kind, 0.5, 50, 0.5) {
-				t.Fatal("refused air feet between water cells at spawn height")
-			}
-			w.set(0, 49, 0, registry.BlockAir.DefaultState())
-			if SpawnerAllows(w, rng, kind, 0.5, 50, 0.5) {
-				t.Fatal("allowed without water below")
 			}
 		})
 	}

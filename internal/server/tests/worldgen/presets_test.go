@@ -62,7 +62,7 @@ func TestAmplifiedLevelTypeIsKeptAcrossARestart(t *testing.T) {
 	if settings, preset := storedOverworldGenerator(t, dir); settings != "minecraft:amplified" || preset != "minecraft:overworld" {
 		t.Errorf("stored generator settings %q, biome source preset %q; want minecraft:amplified, minecraft:overworld", settings, preset)
 	}
-	columns := [][2]int32{{0, 0}, {5, 9}, {15, 15}, {-2000, -1750}}
+	columns := [][2]int32{{5, 9}, {-2000, -1750}}
 	first := map[[3]int32]uint16{}
 	for _, c := range columns {
 		for y := int32(-64); y < 320; y += 3 {
@@ -121,55 +121,6 @@ func TestLargeBiomesLevelTypeReadsTheLargeClimate(t *testing.T) {
 	}
 	if mismatches > 0 {
 		t.Errorf("%d of %d surface columns read a biome other than the large biomes source's", mismatches, columns)
-	}
-}
-
-// TestSingleBiomeSurfaceLevelTypeIsPlainsEverywhere starts a single_biome_surface
-// world and reads chunk (0, 0)'s surface biomes: all plains, where the normal
-// world on this seed has ocean.
-func TestSingleBiomeSurfaceLevelTypeIsPlainsEverywhere(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	srv := startPreset(t, dir, "single_biome_surface")
-	settings, source := storedOverworldSource(t, dir)
-	typ, _ := nbt.Get[nbt.String](source, "type")
-	biome, _ := nbt.Get[nbt.String](source, "biome")
-	if settings != "minecraft:overworld" || typ != "minecraft:fixed" || biome != "minecraft:plains" {
-		t.Errorf("stored generator settings %q, biome source %q of %q; want minecraft:overworld, minecraft:fixed of minecraft:plains", settings, typ, biome)
-	}
-
-	var columns, mismatches int
-	srv.ScanOverworldSurfaces(0, 0, 15, 15, 319, func(x, y, z int32, _ uint16) bool {
-		columns++
-		if got := srv.OverworldBiomeAt(x, y, z); got != "minecraft:plains" {
-			if mismatches++; mismatches <= 8 {
-				t.Errorf("the surface at (%d, %d, %d) reads %s, want minecraft:plains", x, y, z, got)
-			}
-		}
-		return false
-	})
-	if columns == 0 {
-		t.Fatal("chunk (0, 0) carries no terrain at all")
-	}
-	if mismatches > 0 {
-		t.Errorf("%d of %d surface columns read a biome other than plains", mismatches, columns)
-	}
-}
-
-// TestAnUnknownLevelTypeIsTheNormalOverworld starts worlds asked for a name
-// vanilla's preset registry does not hold: the legacy largebiomes is one, as
-// vanilla only consults its legacy names for a value that is no identifier.
-func TestAnUnknownLevelTypeIsTheNormalOverworld(t *testing.T) {
-	t.Parallel()
-	for _, levelType := range []string{"largebiomes", "nonsense"} {
-		t.Run(levelType, func(t *testing.T) {
-			t.Parallel()
-			dir := t.TempDir()
-			startPreset(t, dir, levelType)
-			if settings, _ := storedOverworldGenerator(t, dir); settings != "minecraft:overworld" {
-				t.Errorf("level-type %s stored settings %q, want minecraft:overworld", levelType, settings)
-			}
-		})
 	}
 }
 

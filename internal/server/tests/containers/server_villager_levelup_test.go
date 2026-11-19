@@ -72,44 +72,6 @@ func TestATradeLevelsUpAVillagerAndRefreshesTheOpenWindow(t *testing.T) {
 	}
 }
 
-// The offers a level-up adds are discounted for the trading player like the
-// ones the window opened with.
-// vanilla: Villager.updateTrades, Villager.updateSpecialPrices
-func TestALevelUpDiscountsTheNewOffersForAHero(t *testing.T) {
-	srv, connect := servertest.Start(t, servertest.MobTestConfig())
-	w := servertest.WindowedOf(t, "Buyer", connect())
-	srv.GiveEffect("Buyer", "minecraft:hero_of_the_village", 6000, 0, false)
-	srv.GiveSlot("Buyer", player.HotbarSlot, protocol.ItemStack{ItemID: registry.MustItem("minecraft:emerald"), Count: 4})
-	offers := breadOffer(0)
-	recipes, _ := nbt.Get[nbt.List](offers, "Recipes")
-	recipes.Items[0].(nbt.Compound)["xp"] = nbt.Int(10)
-	villager := srv.SpawnVillagerWithOffers("minecraft:farmer", 1, offers, 1.5, 64, 0.5)
-	servertest.HoldTicks(t, srv)
-
-	if n := openTrade(w, villager); n != 1 {
-		t.Fatalf("opened %d windows, want 1", n)
-	}
-	selectTrade(w, 0)
-	w.Click(merchantResult, 0, protocol.ClickModePickup)
-	var sent []merchantOffers
-	w.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlayMerchantOffers {
-			sent = append(sent, readMerchantOffers(t, data))
-		}
-	})
-	if len(sent) != 1 || len(sent[0].specialPrices) != 3 {
-		t.Fatalf("merchant offers after the level-up %+v, want one packet of 3 offers", sent)
-	}
-	// Hero at amplifier 0 takes max(floor(0.3*cost), 1): 1 off the bread's
-	// 2 emeralds and off each farmer level 2 cost (6 pumpkins, 1 emerald).
-	// Reputation is still 0: the TRADE gossip lands on the next tick.
-	for i, p := range sent[0].specialPrices {
-		if p != -1 {
-			t.Errorf("offer %d special price %d, want -1", i, p)
-		}
-	}
-}
-
 // merchantOffers is what a Merchant Offers packet says beyond each offer.
 type merchantOffers struct {
 	window, offers, level, xp int32

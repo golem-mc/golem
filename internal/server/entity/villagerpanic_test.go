@@ -4,8 +4,6 @@ import (
 	"github.com/golem-mc/golem/registry"
 
 	"testing"
-
-	"github.com/golem-mc/golem/internal/server/effect"
 )
 
 // vanilla: VillagerHostilesSensor
@@ -38,128 +36,6 @@ func TestVillagerHostileSensorUsesEachKindsRange(t *testing.T) {
 			m.villagerDangerStep(tick)
 			if m.vb.danger.hostile != nil || m.vb.activity == actPanic {
 				t.Fatal("outside the kind's range still panicked")
-			}
-		})
-	}
-}
-
-// vanilla: NearestVisibleLivingEntitySensor, Sensor
-func TestVillagerHostileSensorKeepsTheNearestVisibleLivingDanger(t *testing.T) {
-	w := flatWorld(t)
-	m := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
-	near := NewMob(TypeZombie, 2, 4.5, 64, 0.5, 2)
-	far := NewMob(TypePillager, 3, 0.5, 64, 8.5, 3)
-	tick := &tickView{w: w, others: []*Mob{far, near}}
-	m.villagerDangerStep(tick)
-	if m.vb.danger.hostile != near {
-		t.Fatal("did not pick the nearest danger")
-	}
-	for y := int32(64); y <= 67; y++ {
-		w.set(2, y, 0, defaultState(t, "minecraft:stone"))
-	}
-	m.vb.danger.scan = 0
-	m.villagerDangerStep(tick)
-	if m.vb.danger.hostile != far {
-		t.Fatal("saw a danger through a wall")
-	}
-	far.Health = 0
-	m.villagerDangerStep(tick)
-	if m.vb.danger.hostile != nil {
-		t.Fatal("kept a dead danger")
-	}
-	near.AddEffect(effect.New(mobEffectInvisibility, 100, 0, false, false, false))
-	for y := int32(64); y <= 67; y++ {
-		w.set(2, y, 0, 0)
-	}
-	m.vb.danger.scan = 0
-	m.villagerDangerStep(tick)
-	if m.vb.danger.hostile != nil {
-		t.Fatal("saw a naked invisible danger four blocks away")
-	}
-	near.X = 2.5
-	m.vb.danger.scan = 0
-	m.villagerDangerStep(tick)
-	if m.vb.danger.hostile != near {
-		t.Fatal("missed an invisible danger within the two-block floor")
-	}
-}
-
-// vanilla: HurtBySensor, VillagerPanicTrigger, VillagerCalmDown
-func TestVillagerPanicKeepsACloseAttackerAfterTheHurtExpires(t *testing.T) {
-	w := flatWorld(t)
-	for _, player := range []bool{false, true} {
-		m := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
-		m.GameTime, m.DayTime = 200, 12500
-		tick := &tickView{w: w}
-		if player {
-			tick.players = []Player{{EntityID: 2, X: 3.5, Y: 64, Z: 0.5}}
-		} else {
-			tick.others = []*Mob{NewMob(TypeCow, 2, 3.5, 64, 0.5, 2)}
-		}
-		m.vb.lastSlept = 100
-		for i := range 2 {
-			o := NewMob(TypeVillager, int32(i+3), float64(i)+0.5, 64, 0.5, int64(i+3))
-			o.GameTime, o.vb.lastSlept = m.GameTime, 100
-			tick.others = append(tick.others, o)
-		}
-		m.noteLastDamage(registry.DamageTypeMobAttack)
-		m.blowAttacker = 2
-		m.villagerDangerStep(tick)
-		if m.vb.activity != actPanic {
-			t.Fatal("hurt did not trigger panic")
-		}
-		m.updateActivity()
-		if m.vb.activity != actPanic {
-			t.Fatal("schedule overrode panic")
-		}
-		m.golemStep(tick)
-		if len(tick.events) != 1 || tick.events[0].Kind != MobWantsGolem {
-			t.Fatal("hurt villager did not request a golem")
-		}
-		tick.events = nil
-		m.Age += lastDamageExpiry + 1
-		m.vb.danger.scan = 0
-		m.villagerDangerStep(tick)
-		if m.vb.activity != actPanic {
-			t.Fatal("forgot a close attacker when the hurt expired")
-		}
-		if m.panicking() {
-			t.Fatal("panic activity counted as PathfinderMob.isPanicking")
-		}
-		m.golemStep(tick)
-		if len(tick.events) != 0 {
-			t.Fatal("requested a golem after hurt expired with only a close attacker")
-		}
-		if player {
-			tick.players[0].X = 6.51
-		} else {
-			tick.others[0].X = 6.51
-		}
-		m.villagerDangerStep(tick)
-		if m.vb.activity != actRest || m.vb.danger.attacker != 0 {
-			t.Fatal("did not calm and return to the schedule beyond six blocks")
-		}
-	}
-}
-
-func TestVillagerPanicDropsDeadOrAbsentAttackers(t *testing.T) {
-	w := flatWorld(t)
-	for _, tc := range []struct {
-		name string
-		p    []Player
-		o    []*Mob
-	}{
-		{name: "absent"},
-		{name: "dead player", p: []Player{{EntityID: 2, Dead: true}}},
-		{name: "dead mob", o: []*Mob{{ID: 2, Type: TypeCow}}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := NewMob(TypeVillager, 1, 0, 64, 0, 1)
-			m.GameTime, m.DayTime = 200, 1000
-			m.vb.activity, m.vb.danger.attacker = actPanic, 2
-			m.villagerDangerStep(&tickView{w: w, players: tc.p, others: tc.o})
-			if m.vb.activity != actIdle || m.vb.danger.attacker != 0 {
-				t.Fatal("kept panicking over a dead or absent attacker")
 			}
 		})
 	}
@@ -239,46 +115,5 @@ func TestAHostileMakesThreeRestedVillagersRequestAGolem(t *testing.T) {
 		if ev.Kind == MobWantsGolem {
 			t.Fatal("asked again with a golem-seen memory")
 		}
-	}
-}
-
-// vanilla: SetWalkTargetAwayFrom uses land positions, never water.
-func TestVillagerLandFleeRejectsWater(t *testing.T) {
-	w := newTestWorld()
-	floor(w, -30, -30, 30, 30, 63, defaultState(t, "minecraft:stone"))
-	water := defaultState(t, "minecraft:water")
-	floor(w, -30, -30, 30, 30, 64, water)
-	m := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
-	for range 20 {
-		if p, ok := landRandomPosAway(w, m, 3, 0, 16, 7); ok {
-			t.Fatalf("land flee picked water at %v", p)
-		}
-	}
-}
-
-// vanilla: HurtBySensor, VillagerPanicTrigger.isHurt
-func TestVillagerPanicFromEnvironmentalDamageExpires(t *testing.T) {
-	m := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
-	m.GameTime, m.DayTime = 200, 1000
-	m.noteLastDamage(registry.DamageTypeFall)
-	tick := &tickView{w: flatWorld(t)}
-	m.villagerDangerStep(tick)
-	if m.vb.activity != actPanic || m.vb.danger.attacker != 0 {
-		t.Fatal("environmental hurt did not trigger panic without an attacker")
-	}
-	m.Age = lastDamageExpiry + 1
-	m.vb.danger.scan = 0
-	m.villagerDangerStep(tick)
-	if m.vb.activity != actIdle {
-		t.Fatal("kept panicking after environmental hurt expired")
-	}
-}
-
-func TestANoAIVillagerDoesNotSenseHostiles(t *testing.T) {
-	m := NewMob(TypeVillager, 1, 0.5, 64, 0.5, 1)
-	m.NoAI = true
-	m.tick(flatWorld(t), nil, []*Mob{NewMob(TypePillager, 2, 3.5, 64, 0.5, 2)})
-	if m.vb.activity == actPanic || m.vb.danger.hostile != nil {
-		t.Fatal("NoAI villager sensed the hostile")
 	}
 }

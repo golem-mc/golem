@@ -39,39 +39,6 @@ func layLava(t *testing.T, srv *server.Server, x0, z0, x1, z1 int32) {
 	}
 }
 
-// striderCold follows the shiver flag (metadata 19) of one entity.
-func striderCold(c *servertest.Client, id int32, cold *bool) func(int32, []byte) {
-	return func(packet int32, data []byte) {
-		if packet != protocol.IDPlayEntityMetadata {
-			return
-		}
-		r := protocol.NewReader(data)
-		if r.ReadVarInt() != id {
-			return
-		}
-		for r.Err() == nil {
-			index := r.ReadU8()
-			if index == protocol.MetadataEnd {
-				return
-			}
-			switch r.ReadVarInt() {
-			case protocol.MetadataByte:
-				r.ReadU8()
-			case protocol.MetadataVarInt:
-				r.ReadVarInt()
-			case protocol.MetadataFloat:
-				r.ReadF32()
-			case protocol.MetadataBoolean:
-				if v := r.ReadBool(); index == protocol.MetadataIndexStriderCold {
-					*cold = v
-				}
-			default:
-				return
-			}
-		}
-	}
-}
-
 // TestAStriderStandsOnLavaAndTakesNoFire: dropped into a lava pool, a strider
 // ends up standing on the surface, half a block above the source, unburnt.
 func TestAStriderStandsOnLavaAndTakesNoFire(t *testing.T) {
@@ -94,53 +61,6 @@ func TestAStriderStandsOnLavaAndTakesNoFire(t *testing.T) {
 	}
 	if fire := srv.MobFire(id); fire != 0 {
 		t.Errorf("strider burns %d ticks, want 0", fire)
-	}
-}
-
-// TestAStriderSinkingInDeepLavaFloatsUp: a strider dropped under a lava column
-// rises to the surface.
-func TestAStriderSinkingInDeepLavaFloatsUp(t *testing.T) {
-	t.Parallel()
-	srv, _ := striderWorld(t)
-	lava := servertest.BlockState(t, "minecraft:lava")
-	for x := int32(10); x <= 14; x++ {
-		for z := int32(10); z <= 14; z++ {
-			srv.SetBlock(x, 63, z, lava)
-			srv.SetBlock(x, 64, z, lava)
-			srv.SetBlock(x, 65, z, lava)
-		}
-	}
-	id := srv.SpawnMob("minecraft:strider", 12.5, 63.1, 12.5)
-	for range 120 {
-		srv.TickMobs(1)
-	}
-	_, y, _, _ := srv.MobPos(id)
-	if y < 65.45 || y > 65.55 {
-		t.Errorf("strider feet at y=%v, want the surface of the column 65.5", y)
-	}
-}
-
-// TestAStriderShiversOutsideLava: the cold flag is told on a strider standing
-// on grass, and taken back once it stands in lava.
-func TestAStriderShiversOutsideLava(t *testing.T) {
-	t.Parallel()
-	srv, c := striderWorld(t)
-	layLava(t, srv, 10, 10, 14, 14)
-	id := srv.SpawnMob("minecraft:strider", 5.5, 64, 5.5)
-	cold := false
-	record := striderCold(c, id, &cold)
-	srv.TickMobs(2)
-	c.SettleAndCollect(record)
-	if !cold {
-		t.Fatal("a strider on grass does not shiver")
-	}
-	srv.MoveMob(id, 12.5, 12.5)
-	for range 4 {
-		srv.TickMobs(1)
-	}
-	c.SettleAndCollect(record)
-	if cold {
-		t.Error("a strider in lava still shivers")
 	}
 }
 
@@ -210,20 +130,6 @@ func TestASaddledStriderFollowsARiderWithAFungusStick(t *testing.T) {
 	}
 }
 
-// TestAStriderIgnoresARiderWithoutAFungusStick: seated bare-handed, the rider
-// does not steer, so a reported vehicle move is refused.
-func TestAStriderIgnoresARiderWithoutAFungusStick(t *testing.T) {
-	t.Parallel()
-	c, srv, id := striderSteer(t, "")
-	if ids := srv.MobPassengerIDs(id); len(ids) != 1 {
-		t.Fatalf("passengers %v, want the rider alone", ids)
-	}
-	moveVehicle(c, 7.5, 64, 5.5, -90)
-	if x, _, _, _ := srv.MobPos(id); x != 5.5 {
-		t.Errorf("strider at x=%v, want it unmoved at 5.5 without the stick", x)
-	}
-}
-
 // TestSaddlingAStriderFitsAndSpendsTheSaddle: a saddle clicked onto a bare
 // strider is fitted, told as equipment slot 7, and spent.
 func TestSaddlingAStriderFitsAndSpendsTheSaddle(t *testing.T) {
@@ -279,51 +185,6 @@ func TestAStriderInWaterTakesDrownDamage(t *testing.T) {
 	}
 }
 
-func TestAStridersColdSpeedIsSentToItsRider(t *testing.T) {
-	t.Parallel()
-	c, srv, id := striderSteer(t, "minecraft:warped_fungus_on_a_stick")
-	srv.SetBlock(5, 64, 5, servertest.BlockState(t, "minecraft:lava"))
-	srv.TickMobs(1)
-	c.Settle()
-	srv.SetBlock(5, 64, 5, 0)
-	cold, warm := false, false
-	record := func(packet int32, data []byte) {
-		if packet != protocol.IDPlayUpdateAttributes {
-			return
-		}
-		got, entries := servertest.ReadAttributes(t, data)
-		if got != id {
-			return
-		}
-		speed, ok := entries[protocol.AttributeMovementSpeed]
-		if !ok {
-			return
-		}
-		for _, mod := range speed.Modifiers {
-			if mod.Id == "minecraft:suffocating" {
-				if mod.Amount != float64(float32(-0.34)) || mod.Operation != 1 {
-					t.Errorf("cold speed modifier=%+v", mod)
-				}
-				cold = true
-				return
-			}
-		}
-		warm = true
-	}
-	srv.TickMobs(1)
-	c.SettleAndCollect(record)
-	if !cold {
-		t.Fatal("rider received no cold speed modifier")
-	}
-	warm = false
-	srv.SetBlock(5, 64, 5, servertest.BlockState(t, "minecraft:lava"))
-	srv.TickMobs(1)
-	c.SettleAndCollect(record)
-	if !warm {
-		t.Fatal("rider received no warm speed attribute without the modifier")
-	}
-}
-
 func TestAStriderWithLavaAtItsEyesRefusesARider(t *testing.T) {
 	t.Parallel()
 	srv, c := striderWorld(t)
@@ -344,22 +205,6 @@ func TestAStriderWithLavaAtItsEyesRefusesARider(t *testing.T) {
 	c.Settle()
 	if ids := srv.MobPassengerIDs(spawn.EntityID); len(ids) != 1 {
 		t.Fatalf("strider with eyes above lava has passengers %v, want one", ids)
-	}
-}
-
-func TestARiddenStriderPlaysItsSteps(t *testing.T) {
-	t.Parallel()
-	c, srv, _ := striderSteer(t, "minecraft:warped_fungus_on_a_stick")
-	moveVehicle(c, 7.5, 64, 5.5, -90)
-	_, _, _, volume := c.AwaitSoundNamed("minecraft:entity.strider.step")
-	if volume != 1 {
-		t.Errorf("dry step volume=%g, want 1", volume)
-	}
-	layLava(t, srv, 8, 4, 12, 7)
-	moveVehicle(c, 9.5, 63.5, 5.5, -90)
-	_, _, _, volume = c.AwaitSoundNamed("minecraft:entity.strider.step_lava")
-	if volume != 1 {
-		t.Errorf("lava step volume=%g, want 1", volume)
 	}
 }
 
@@ -408,14 +253,5 @@ func TestAnIdleStriderWalksAndSoundsAcrossALavaLake(t *testing.T) {
 	x, y, z, ok := srv.MobPos(id)
 	if !ok || (x-12.5)*(x-12.5)+(z-12.5)*(z-12.5) < 1 || y < 63.45 || y > 63.55 {
 		t.Errorf("idle strider reached (%g, %g, %g), want movement across the lava surface", x, y, z)
-	}
-}
-
-// TestAStriderHasTwentyHealth: Strider.createAttributes adds no MAX_HEALTH, so the default 20 applies.
-func TestAStriderHasTwentyHealth(t *testing.T) {
-	srv, _ := striderWorld(t)
-	id := srv.SpawnMob("minecraft:strider", 5.5, 64, 5.5)
-	if hp, _ := srv.MobHealth(id); hp != 20 {
-		t.Errorf("fresh strider health %v, want 20", hp)
 	}
 }

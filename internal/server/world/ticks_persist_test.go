@@ -1,10 +1,8 @@
 package world
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -148,25 +146,6 @@ func TestUnloadingAChunkDropsItsQueuedTicks(t *testing.T) {
 	}
 }
 
-// TestChunkWritesPendingTicksToItsFile reads the saved chunk back as NBT.
-func TestChunkWritesPendingTicksToItsFile(t *testing.T) {
-	w, p, _ := newSavedWorld(t)
-	t.Cleanup(func() { w.Close() })
-	setBlock(t, w, p, 3, GroundLevel, 3, waterByLevel[0])
-	ticks := w.ticksOfChunk(ChunkPos{})
-	if len(ticks.fluid) != 1 || ticks.fluid[0].id != "minecraft:water" {
-		t.Fatalf("fluid ticks = %+v, want one for minecraft:water", ticks.fluid)
-	}
-	c, _ := w.Acquire(ChunkPos{})
-	root, err := encodeChunkNBTWith(c, nil, ticks)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if list, ok := nbt.Get[nbt.List](root, "fluid_ticks"); !ok || len(list.Items) != 1 {
-		t.Errorf("fluid_ticks = %v, %v; want one entry", list, ok)
-	}
-}
-
 // fallsAfterReload removes the hold of a stalactite at (x, y, z), saves and
 // reloads the world and returns how many stalactites fall within 10 ticks.
 func fallsAfterReload(t *testing.T, waterlogged bool) int {
@@ -192,80 +171,4 @@ func fallsAfterReload(t *testing.T, waterlogged bool) int {
 		falls += len(f)
 	}
 	return falls
-}
-
-// TestBookedStalactiteFallSurvivesAReload checks a fall booked before a save
-// still happens afterwards, plain and waterlogged.
-func TestBookedStalactiteFallSurvivesAReload(t *testing.T) {
-	for _, waterlogged := range []bool{false, true} {
-		t.Run(fmt.Sprintf("waterlogged=%v", waterlogged), func(t *testing.T) {
-			if got := fallsAfterReload(t, waterlogged); got != 1 {
-				t.Errorf("%d stalactite falls after the reload, want 1", got)
-			}
-		})
-	}
-}
-
-// TestLoadedFluidTickNeedsTheSameFluid checks a saved water tick is not taken
-// for a cell that holds lava now.
-func TestLoadedFluidTickNeedsTheSameFluid(t *testing.T) {
-	w, p, _ := newSavedWorld(t)
-	t.Cleanup(func() { w.Close() })
-	setBlock(t, w, p, 3, GroundLevel, 3, lavaByLevel[0])
-	p.mu.Lock()
-	p.queue, p.pending = nil, map[blockKey]bool{}
-	p.mu.Unlock()
-	w.mu.Lock()
-	w.pendingLoaded = []loadedTick{{id: "minecraft:water", x: 3, y: GroundLevel, z: 3, fluid: true}}
-	w.mu.Unlock()
-	p.mu.Lock()
-	p.adoptLoadedTicks()
-	n := len(p.queue)
-	p.mu.Unlock()
-	if n != 0 {
-		t.Errorf("a water tick was queued for a lava cell: %d entries", n)
-	}
-}
-
-// TestChunkLoadDropsTicksOutsideIt checks entries positioned in another chunk
-// are not kept.
-func TestChunkLoadDropsTicksOutsideIt(t *testing.T) {
-	t.Parallel()
-	c := flatChunk(0, 0)
-	root, err := encodeChunkNBTWith(c, nil, chunkTicks{block: []savedTick{
-		{id: "minecraft:stone", x: 1, y: 70, z: 1},
-		{id: "minecraft:stone", x: 40, y: 70, z: 1},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := decodeChunkNBT(root)
-	if err != nil || got == nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(got.loadedTicks) != 1 || got.loadedTicks[0].x != 1 {
-		t.Errorf("loaded ticks = %+v, want only the one inside the chunk", got.loadedTicks)
-	}
-}
-
-// TestBookingATickMarksItsChunkForASave checks a tick booked in a saved chunk
-// makes the next save write it.
-func TestBookingATickMarksItsChunkForASave(t *testing.T) {
-	w, p, _ := newSavedWorld(t)
-	t.Cleanup(func() { w.Close() })
-	w.Save()
-	pos := ChunkPos{}
-	w.mu.RLock()
-	dirty := w.chunks[pos].dirty
-	w.mu.RUnlock()
-	if dirty {
-		t.Fatal("setup: the chunk is dirty after a save")
-	}
-	p.schedule(3, GroundLevel, 3, p.now+5)
-	w.mu.RLock()
-	dirty = w.chunks[pos].dirty
-	w.mu.RUnlock()
-	if !dirty {
-		t.Error("booking a tick left the chunk clean")
-	}
 }

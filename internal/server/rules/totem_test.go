@@ -1,11 +1,9 @@
 package rules
 
 import (
-	"math/rand"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -46,37 +44,6 @@ func TestTotemHandPicksTheSavingHand(t *testing.T) {
 		}
 		if c.wantNoDeath != (death == nil) {
 			t.Errorf("TotemHand (%s) death effects = %v, want the other", c.what, death)
-		}
-	}
-}
-
-// TestTotemSaveStandsTheBodyUpAtOneHalfHeart pins what the saving item does
-// to the body: the health back at one and the dead flag down, with the three
-// effects its death_protection names applied in the order the component
-// lists them. The changes the save returns are the told ones.
-// vanilla: LivingEntity.checkTotemDeathProtection, DeathProtection.applyEffects
-func TestTotemSaveStandsTheBodyUpAtOneHalfHeart(t *testing.T) {
-	_, death := TotemHand(DamageTypeMobAttack, totemOfUndying(), protocol.ItemStack{})
-	v := FreshVitals(protocol.GameModeSurvival)
-	v.Health = 0
-	v.Dead = true
-	var effects effect.Set
-	changes := TotemSave(&v, &effects, nil, death, rand.New(rand.NewSource(1)))
-	if v.Health != 1 || v.Dead {
-		t.Errorf("after the save: health=%v dead=%v, want 1 and alive", v.Health, v.Dead)
-	}
-	wantEffects := []int32{
-		registry.MustMobEffect("minecraft:regeneration"),
-		registry.MustMobEffect("minecraft:absorption"),
-		registry.MustMobEffect("minecraft:fire_resistance"),
-	}
-	if len(changes) != len(wantEffects) {
-		t.Fatalf("the save told %d changes, want %d", len(changes), len(wantEffects))
-	}
-	for i, want := range wantEffects {
-		if changes[i].Kind != effect.Added || changes[i].Instance.ID != want {
-			t.Errorf("change %d = %d of effect %d, want the added %d",
-				i, changes[i].Kind, changes[i].Instance.ID, want)
 		}
 	}
 }

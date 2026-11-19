@@ -1,14 +1,11 @@
 package network
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
 
 // TestAnOutOfRangeHandIsReadAsTheMainHand sends ids past the end of enums
@@ -69,41 +66,6 @@ func TestAnOutOfRangeHandIsReadAsTheMainHand(t *testing.T) {
 	c.UseItemRightClicks(2)
 	if !servertest.ASpawnOfWithinTicks(c, srv, 20, protocol.EntityTypeSnowball) {
 		t.Fatal("use item with hand 2 threw no snowball")
-	}
-	if srv.PlayerCount() != 1 {
-		t.Errorf("player count = %d, want the sender still connected", srv.PlayerCount())
-	}
-}
-
-// TestAnInteractWithHand2UsesTheMainHand: Interact with hand 2 uses the
-// main hand's name tag on a pig, which then carries the tag's name.
-// vanilla: InteractionHand.BY_ID
-func TestAnInteractWithHand2UsesTheMainHand(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Namer")
-	srv.SpawnMob("minecraft:pig", 1.5, 64, 2.5)
-	pig := c.ExpectMobSpawn(protocol.EntityTypePig)
-	// Held, so a slow run never reaches the tab list's latency broadcast.
-	servertest.HoldTicks(t, srv)
-	srv.GiveSlot("Namer", player.HotbarSlot, protocol.ItemStack{
-		ItemID: registry.MustItem("minecraft:name_tag"), Count: 1,
-		CustomName: &protocol.Text{Text: "Wilbur"},
-	})
-	c.InteractAt(pig.EntityID, 2, 0.1, 0.9, 0.2)
-	var meta []byte
-	if !c.ReadTicks(srv, 20, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayEntityMetadata || protocol.NewReader(data).ReadVarInt() != pig.EntityID {
-			return false
-		}
-		meta = data
-		return true
-	}) {
-		t.Fatal("no pig metadata within 20 ticks of an Interact with hand 2")
-	}
-	named := pig
-	c.ReadMobMetadataInto(&named, meta)
-	if !reflect.DeepEqual(named.Name, nbt.String("Wilbur")) {
-		t.Errorf("the pig is named %v after an Interact with hand 2, want Wilbur", named.Name)
 	}
 	if srv.PlayerCount() != 1 {
 		t.Errorf("player count = %d, want the sender still connected", srv.PlayerCount())

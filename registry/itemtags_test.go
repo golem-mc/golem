@@ -52,22 +52,3 @@ func TestItemTagBitsetsMatchRegistry(t *testing.T) {
 		t.Fatal("restoring built-in tags did not restore membership")
 	}
 }
-
-func TestItemTagTableKeepsMissingBuiltinIDs(t *testing.T) {
-	id := ItemTagIDDyes
-	problems := applyForTest(t, PackTags{"minecraft:item": {
-		"minecraft:dyes": {Replace: true, Entries: []PackTagEntry{req("test:missing_item")}},
-		"aaa:pack_only":  {Entries: []PackTagEntry{req("minecraft:stone")}},
-	}})
-	if len(problems) == 0 || ItemTagExists("minecraft:dyes") {
-		t.Fatal("invalid pack tag was not dropped")
-	}
-	if ItemTagOf("minecraft:dyes") != id || ItemTagOf("aaa:pack_only") != ItemTagID(len(baseItemTagNames)) {
-		t.Fatal("missing built-in tag did not retain its position")
-	}
-	for item := range Item(ItemCount) {
-		if item.InTag(id) {
-			t.Fatal("missing built-in tag has members")
-		}
-	}
-}

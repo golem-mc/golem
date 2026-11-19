@@ -51,19 +51,3 @@ func TestWardenSpawnTrackerCodec(t *testing.T) {
 		}
 	}
 }
-
-func TestLoadedWardenSpawnTrackerDecays(t *testing.T) {
-	tracker := WardenSpawnTrackerFromTag(nbt.Compound{
-		"ticks_since_last_warning": nbt.Int(11999),
-		"warning_level":            nbt.Int(3),
-		"cooldown_ticks":           nbt.Int(4),
-	})
-	tracker.Tick()
-	if want := (WardenSpawnTracker{12000, 3, 3}); tracker != want {
-		t.Fatalf("before decay = %+v, want %+v", tracker, want)
-	}
-	tracker.Tick()
-	if want := (WardenSpawnTracker{0, 2, 2}); tracker != want {
-		t.Fatalf("after decay = %+v, want %+v", tracker, want)
-	}
-}

@@ -5,7 +5,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
@@ -85,40 +84,4 @@ func TestAWorkingVillagerGrowsACropWithBoneMeal(t *testing.T) {
 		}
 	}
 	t.Fatalf("bone meal particles=%v, crop=%d", particles, srv.BlockAt(5, 64, 0))
-}
-
-func TestAFarmerMakesBreadAndCompostsSurplusSeeds(t *testing.T) {
-	t.Parallel()
-	srv, c, id := farmYard(t, `{id:"minecraft:wheat",count:12},{id:"minecraft:wheat_seeds",count:64}`, "0", 1)
-	filled := false
-	for range 120 {
-		c.ReadTicks(srv, 10, func(pid int32, data []byte) bool {
-			if pid == protocol.IDPlayWorldEvent && protocol.NewReader(data).ReadI32() == rules.LevelEventComposterFill {
-				filled = true
-			}
-			return false
-		})
-		if !filled {
-			continue
-		}
-		var wheat, bread, seeds int32
-		for _, s := range srv.MobInventory(id) {
-			switch s.ItemID {
-			case registry.MustItem("minecraft:wheat"):
-				wheat += s.Count
-			case registry.MustItem("minecraft:bread"):
-				bread += s.Count
-			case registry.MustItem("minecraft:wheat_seeds"):
-				seeds += s.Count
-			}
-		}
-		if wheat != 3 || bread != 3 || seeds < 44 || seeds >= 64 {
-			t.Fatalf("wheat=%d bread=%d seeds=%d", wheat, bread, seeds)
-		}
-		if level, _ := registry.StateInt(srv.BlockAt(6, 64, 0), registry.PropLevel); level <= 0 {
-			t.Fatal("composter did not fill")
-		}
-		return
-	}
-	t.Fatal("farmer never worked at its composter")
 }

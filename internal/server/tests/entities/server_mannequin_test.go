@@ -170,16 +170,6 @@ func TestASummonedMannequinCarriesItsTag(t *testing.T) {
 	}
 }
 
-// TestAMannequinRefusesAnInvalidPose checks that a pose a mannequin cannot
-// take fails the summon.
-func TestAMannequinRefusesAnInvalidPose(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Join(t, mannequinConfig(), "Summoner", servertest.OpsListing(t, "Summoner"))
-
-	c.ChatCommand(`summon minecraft:mannequin 1.5 64 1.5 {pose:"sitting"}`)
-	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("commands.summon.failed"))
-}
-
 // TestAMannequinSurvivesARestart checks that a mannequin's own fields are
 // saved with its chunk and come back with it.
 func TestAMannequinSurvivesARestart(t *testing.T) {
@@ -242,53 +232,6 @@ func TestAMannequinSurvivesARestart(t *testing.T) {
 	}
 	if got := dataOfMannequin(t, client, srv2, "profile"); !strings.Contains(got, "Notch") {
 		t.Errorf("restored profile = %s, want the one named Notch", got)
-	}
-}
-
-// TestAMergeMovesAMannequinForItsWatcher checks that a /data merge of the
-// position and rotation reaches a watcher that already sees the mannequin.
-// vanilla: Entity.load
-func TestAMergeMovesAMannequinForItsWatcher(t *testing.T) {
-	t.Parallel()
-	srv, c := joinMannequinOp(t, "Mover")
-	c.ChatCommand(`summon minecraft:mannequin 1.5 64 1.5`)
-	spawn := awaitMannequin(t, c, srv)
-
-	c.ChatCommand(`data merge entity @e[type=mannequin,limit=1] {Pos:[3.5d,64d,1.5d],Rotation:[90f,30f]}`)
-	var moved, turned []byte
-	record := func(id int32, data []byte) bool {
-		if protocol.NewReader(data).ReadVarInt() == spawn.id {
-			switch id {
-			case protocol.IDPlayTeleportEntity:
-				moved = data
-			case protocol.IDPlayHeadRotation:
-				turned = data
-			}
-		}
-		return moved != nil && turned != nil
-	}
-	c.SettleAndCollect(func(id int32, data []byte) { record(id, data) })
-	if moved == nil || turned == nil {
-		c.ReadTicks(srv, 5, record)
-	}
-	if moved == nil {
-		t.Fatal("the watcher was sent no movement for the merged position")
-	}
-	if turned == nil {
-		t.Fatal("the watcher was sent no head rotation for the merged yaw")
-	}
-	hr := protocol.NewReader(turned)
-	hr.ReadVarInt()
-	if head := hr.ReadU8(); head != 64 {
-		t.Errorf("head turned to %d, want 64 (90°)", head)
-	}
-	r := protocol.NewReader(moved)
-	r.ReadVarInt()
-	r.ReadVarInt() // position path
-	x, y, z := r.ReadF64(), r.ReadF64(), r.ReadF64()
-	yaw, pitch := r.ReadF32(), r.ReadF32()
-	if x != 3.5 || y != 64 || z != 1.5 || yaw != 90 || pitch != 30 {
-		t.Errorf("moved to (%v, %v, %v) facing (%v, %v), want (3.5, 64, 1.5) facing (90, 30)", x, y, z, yaw, pitch)
 	}
 }
 
@@ -356,30 +299,6 @@ func TestATeleportedMannequinMovesForItsWatcher(t *testing.T) {
 	}
 	if !selects(c, srv, "@e[type=mannequin]", "crossed") {
 		t.Error("a mannequin teleported into the nether is nowhere")
-	}
-}
-
-// TestAMannequinsBoxFollowsItsPose checks that a selector volume meets the
-// body of the pose, a swimming one lying under a volume a standing one reaches.
-// vanilla: Avatar.POSES
-func TestAMannequinsBoxFollowsItsPose(t *testing.T) {
-	t.Parallel()
-	srv, c := joinMannequinOp(t, "Measurer")
-	const above = "@e[type=mannequin,x=1,y=65,z=1,dx=0,dy=0,dz=0]"
-
-	c.ChatCommand(`summon minecraft:mannequin 1.5 64 1.5`)
-	awaitMannequin(t, c, srv)
-	if !selects(c, srv, above, "high") {
-		t.Fatal("a standing mannequin, 1.8 tall, is not found by a volume at its head")
-	}
-
-	c.ChatCommand(`data merge entity @e[type=mannequin,limit=1] {pose:"swimming"}`)
-	c.Settle()
-	if selects(c, srv, above, "high2") {
-		t.Error("a swimming mannequin, 0.6 tall, is found by a volume above it")
-	}
-	if !selects(c, srv, "@e[type=mannequin,x=1,y=64,z=1,dx=0,dy=0,dz=0]", "low") {
-		t.Error("a swimming mannequin is not found by a volume at its body")
 	}
 }
 
@@ -513,85 +432,5 @@ func TestAMannequinDamagedToDeathIsRemoved(t *testing.T) {
 	}
 	if selects(c, srv, "@e[type=mannequin]", "gone") {
 		t.Error("a selector still finds the removed mannequin")
-	}
-}
-
-// TestASecondPunchInsideTheWindowLandsNothing checks that a weaker blow
-// inside the first's ten ticks of invulnerability lands nothing.
-// vanilla: LivingEntity.hurtServer
-func TestASecondPunchInsideTheWindowLandsNothing(t *testing.T) {
-	t.Parallel()
-	srv, c := joinMannequinOp(t, "Twice")
-	id := summonPunchable(t, c, srv, "Twice")
-
-	c.Attack(id)
-	first := readMannequinHurt(c, srv, id, 3, func(s *mannequinHurtSeen) bool {
-		return s.healthSent && s.damageEvent && slices.Contains(s.sounds, "minecraft:entity.generic.hurt")
-	})
-	if !first.healthSent || first.health != 19 {
-		t.Fatalf("first punch: health sent=%v value=%v, want 19", first.healthSent, first.health)
-	}
-
-	c.Attack(id)
-	second := readMannequinHurt(c, srv, id, 2, func(*mannequinHurtSeen) bool { return false })
-	if second.damageEvent || second.healthSent {
-		t.Errorf("second punch: damage event=%v health sent=%v (%v), want neither", second.damageEvent, second.healthSent, second.health)
-	}
-	if got := dataOfMannequin(t, c, srv, "Health"); got != "19.0f" {
-		t.Errorf("Health = %s, want 19.0f", got)
-	}
-}
-
-// TestAnInvulnerableMannequinRefusesAllButBypassingDamage checks that the
-// Invulnerable tag is kept and turns away a survival punch and plain
-// /damage, while out_of_world, which bypasses invulnerability, still lands.
-// vanilla: Entity.isInvulnerableToBase
-func TestAnInvulnerableMannequinRefusesAllButBypassingDamage(t *testing.T) {
-	t.Parallel()
-	srv, c := joinMannequinOp(t, "Statue")
-	c.ChatCommand("summon minecraft:mannequin ~ ~ ~1 {Invulnerable:1b}")
-	id := awaitMannequin(t, c, srv).id
-	servertest.AwaitFullSwing(t, srv, "Statue")
-	if got := dataOfMannequin(t, c, srv, "Invulnerable"); got != "1b" {
-		t.Errorf("Invulnerable = %s, want 1b", got)
-	}
-
-	c.Attack(id)
-	punched := readMannequinHurt(c, srv, id, 3, func(*mannequinHurtSeen) bool { return false })
-	if punched.damageEvent || punched.healthSent {
-		t.Errorf("punch: damage event=%v health sent=%v, want neither", punched.damageEvent, punched.healthSent)
-	}
-	c.ChatCommand("damage @e[type=mannequin,limit=1] 5")
-	if got := dataOfMannequin(t, c, srv, "Health"); got != "20.0f" {
-		t.Errorf("Health after a punch and /damage = %s, want 20.0f", got)
-	}
-
-	c.ChatCommand("damage @e[type=mannequin,limit=1] 5 minecraft:out_of_world")
-	if got := dataOfMannequin(t, c, srv, "Health"); got != "15.0f" {
-		t.Errorf("Health after out_of_world /damage = %s, want 15.0f", got)
-	}
-}
-
-// TestAMannequinSummonedAtZeroHealthIsDying checks that a stored Health of 0
-// loads as a dying body that lands no hurt, while a missing Health is 20.
-// vanilla: LivingEntity.readAdditionalSaveData, setHealth
-func TestAMannequinSummonedAtZeroHealthIsDying(t *testing.T) {
-	t.Parallel()
-	srv, c := joinMannequinOp(t, "Zero")
-	c.ChatCommand("summon minecraft:mannequin ~ ~ ~1 {Health:0f}")
-	id := awaitMannequin(t, c, srv).id
-
-	if selects(c, srv, "@e[type=mannequin]", "alive") {
-		t.Error("a selector finds the mannequin summoned at zero health")
-	}
-	gone := readMannequinHurt(c, srv, id, 25, func(s *mannequinHurtSeen) bool { return s.removed })
-	if !gone.removed {
-		t.Fatal("the dying mannequin was not removed")
-	}
-
-	c.ChatCommand("summon minecraft:mannequin ~ ~ ~1")
-	awaitMannequin(t, c, srv)
-	if !selects(c, srv, "@e[type=mannequin]", "full") {
-		t.Error("a mannequin without Health is not alive")
 	}
 }

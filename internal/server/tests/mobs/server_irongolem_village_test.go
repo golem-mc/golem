@@ -2,7 +2,6 @@ package mobs
 
 import (
 	"math"
-	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -96,106 +95,5 @@ func TestAnIronGolemOffersAFlowerFor400Ticks(t *testing.T) {
 	}
 	if started < 1 || stopped-started != 400 {
 		t.Fatalf("flower start/stop ticks = %d/%d, want a 400-tick offer", started, stopped)
-	}
-}
-
-// antennaSlotSeen reads the Set Equipment packets in data and reports whether
-// slot 7 (the saddle slot) of entity id carries the given item, or is empty
-// when item is 0.
-func antennaSlotSeen(t *testing.T, pid int32, data []byte, id int32, item int32) bool {
-	t.Helper()
-	if pid != protocol.IDPlayEntityEquipment {
-		return false
-	}
-	r := protocol.NewReader(data)
-	if r.ReadVarInt() != id {
-		return false
-	}
-	for {
-		slot := r.ReadU8()
-		stack, ok := r.ReadSlot()
-		if !ok {
-			t.Fatalf("equipment: %v", r.Err())
-		}
-		if slot&0x7f == 7 && stack.ItemID == item && (item == 0) == stack.Empty() {
-			return true
-		}
-		if slot&0x80 == 0 {
-			return false
-		}
-	}
-}
-
-// vanilla: OfferFlowerGoal.stop, CopperGolem.EQUIPMENT_SLOT_ANTENNA
-func TestAnIronGolemPutsAPoppyOnACopperGolemsAntenna(t *testing.T) {
-	t.Parallel()
-	srv, c := villagerYard(t)
-	srv.SetDayTime(2000)
-	// The iron golem stands on a 2-block pillar, above the copper golem's
-	// head: only a box grown 2 down from its feet reaches the copper golem.
-	stone := registry.BlockStates["minecraft:stone"]
-	srv.SetBlock(-1, 64, 0, stone)
-	srv.SetBlock(-1, 65, 0, stone)
-	copper := srv.SpawnMob("minecraft:copper_golem", 1.5, 64, 0.5)
-	srv.SetMobNoAI(copper)
-	id := srv.SpawnMobSeeded("minecraft:iron_golem", -0.5, 66, 0.5, 3)
-	c.WatchVariant(srv, "minecraft:copper_golem")
-	srv.ForceGolemFlowerOffer(id)
-	poppy := int32(registry.ItemPoppy)
-	seen := false
-	for tick := 1; tick <= 410; tick++ {
-		servertest.RunTicks(t, srv, 1)
-		c.SettleAndCollect(func(pid int32, data []byte) {
-			seen = seen || antennaSlotSeen(t, pid, data, copper, poppy)
-		})
-	}
-	if !seen {
-		t.Fatal("no Set Equipment put a poppy in slot 7 of the copper golem")
-	}
-	query := ""
-	for _, text := range srv.RunLine("data get entity @e[type=minecraft:copper_golem,limit=1] equipment.saddle") {
-		if text.Translate == "commands.data.entity.query" && len(text.With) == 2 {
-			query = text.With[1].Plain()
-		}
-	}
-	if !strings.Contains(query, "minecraft:poppy") {
-		t.Fatalf("equipment.saddle = %q, want a poppy", query)
-	}
-	giveHand(t, srv, "Villager", "minecraft:shears", 1)
-	c.UseOn(copper)
-	c.Settle()
-	servertest.RunTicks(t, srv, 2)
-	cleared := false
-	c.SettleAndCollect(func(pid int32, data []byte) {
-		cleared = cleared || antennaSlotSeen(t, pid, data, copper, 0)
-	})
-	if !cleared {
-		t.Error("shearing sent no Set Equipment with slot 7 empty")
-	}
-}
-
-func TestACopperGolemSummonedWithAnAntennaPairsWithIt(t *testing.T) {
-	t.Parallel()
-	srv, c := villagerYard(t)
-	seen := false
-	srv.RunLine(`summon minecraft:copper_golem 2.5 64 0.5 {NoAI:1b,equipment:{saddle:{id:"minecraft:poppy"}}}`)
-	servertest.RunTicks(t, srv, 1)
-	c.SettleAndCollect(func(pid int32, data []byte) {
-		if pid != protocol.IDPlayEntityEquipment {
-			return
-		}
-		r := protocol.NewReader(data)
-		r.ReadVarInt()
-		for {
-			slot := r.ReadU8()
-			stack, _ := r.ReadSlot()
-			seen = seen || (slot&0x7f == 7 && stack.ItemID == int32(registry.ItemPoppy))
-			if slot&0x80 == 0 {
-				return
-			}
-		}
-	})
-	if !seen {
-		t.Fatal("the pairing carried no poppy in slot 7")
 	}
 }

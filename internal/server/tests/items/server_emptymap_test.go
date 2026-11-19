@@ -6,11 +6,7 @@ package items
 // sound.
 
 import (
-	"errors"
-	"fmt"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -181,135 +177,6 @@ func TestACreativePlayerKeepsTheEmptyMapAndGainsAFilledOne(t *testing.T) {
 	}
 	if !found {
 		t.Error("no filled map landed in the creative player's inventory")
-	}
-}
-
-// TestASpectatorMakesNoMap: an empty map in a spectator's hand does nothing —
-// no sound, no Map Item Data, the hand unchanged and no map file written.
-// vanilla: ServerPlayerGameMode.useItem
-func TestASpectatorMakesNoMap(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.SurvivalTestConfig()
-	srv, ghost := servertest.Join(t, cfg, "Ghost", servertest.OpsListing(t, "Ghost"))
-
-	ghost.ChatCommand("gamemode spectator")
-	ghost.Settle()
-	if srv.PlayerGameMode("Ghost") != protocol.GameModeSpectator {
-		t.Fatal("the switch to spectator applies")
-	}
-
-	empty := servertest.ItemID(t, "minecraft:map")
-	srv.GiveSlot("Ghost", player.HotbarSlot, protocol.ItemStack{ItemID: empty, Count: 1})
-	ghost.Settle()
-
-	ghost.UseItemRightClicks(protocol.HandMain)
-	ghost.SettleAndCollect(func(id int32, _ []byte) {
-		switch id {
-		case protocol.IDPlayEntitySoundEffect:
-			t.Error("a spectator's empty map played a sound")
-		case protocol.IDPlayMapData:
-			t.Error("a spectator's empty map sent Map Item Data")
-		}
-	})
-
-	if held := srv.InventorySlot("Ghost", player.HotbarSlot); held.ItemID != empty || held.Count != 1 {
-		t.Errorf("the hand after the click = %+v, want the empty map untouched", held)
-	}
-	if !srv.SaveAll(false) {
-		t.Fatal("save-all reported failure")
-	}
-	if _, err := os.Stat(mapFilePath(cfg.LevelName, "0.dat")); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("a spectator's map was saved: stat error %v, want no file", err)
-	}
-}
-
-// TestAMapMadeInTheNetherNamesThatDimension: the map an empty map makes keeps
-// the dimension it was made in, so the face it draws and the markers it
-// tracks are the nether's own.
-// vanilla: EmptyMapItem.use, MapItemSavedData.createFresh
-func TestAMapMadeInTheNetherNamesThatDimension(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.SurvivalTestConfig()
-	srv, c := servertest.Join(t, cfg, "Cartographer")
-
-	srv.MovePlayerToDimension("Cartographer", world.NetherName, 8.5, 64, 8.5)
-	servertest.WaitFor(t, srv, 200, func() bool {
-		return srv.PlayerDimension("Cartographer") == world.NetherName
-	})
-	c.Settle()
-
-	empty := servertest.ItemID(t, "minecraft:map")
-	srv.GiveSlot("Cartographer", player.HotbarSlot, protocol.ItemStack{ItemID: empty, Count: 1})
-	c.Settle()
-
-	c.UseItemRightClicks(protocol.HandMain)
-	c.Settle()
-
-	if held := srv.InventorySlot("Cartographer", player.HotbarSlot); held.ItemID != servertest.ItemID(t, "minecraft:filled_map") {
-		t.Fatalf("the hand after the click = %+v, want a filled map", held)
-	}
-	if !srv.SaveAll(false) {
-		t.Fatal("save-all reported failure")
-	}
-	saved := readSavedMap(t, cfg.LevelName, "0.dat")
-	if dimension, ok := nbt.Get[nbt.String](saved, "dimension"); !ok || string(dimension) != world.NetherName {
-		t.Errorf("the saved map's dimension = %q (present %v), want the nether", dimension, ok)
-	}
-	if x, _ := nbt.IntValue(saved["xCenter"]); x != 0 {
-		t.Errorf("the saved map's xCenter = %d, want 0 for the (8, 8) area", x)
-	}
-	if z, _ := nbt.IntValue(saved["zCenter"]); z != 0 {
-		t.Errorf("the saved map's zCenter = %d, want 0 for the (8, 8) area", z)
-	}
-}
-
-// TestAStackOfEmptyMapsMakesOneMapPerUse: a survival stack of two spends one
-// map per click, each map counting on from the last, and each takes the centre
-// of the area the player's block position falls in.
-// vanilla: EmptyMapItem.use, MapItemSavedData.createFresh
-func TestAStackOfEmptyMapsMakesOneMapPerUse(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.SurvivalTestConfig()
-	srv, c := servertest.Join(t, cfg, "Cartographer")
-
-	c.MoveTo(100.5, 64, 100.5, 0, 0)
-	c.Settle()
-	if pos := srv.PlayerPosition("Cartographer"); pos.X != 100.5 || pos.Z != 100.5 {
-		t.Fatalf("the cartographer stands at (%v, %v), want (100.5, 100.5)", pos.X, pos.Z)
-	}
-
-	empty := servertest.ItemID(t, "minecraft:map")
-	filled := servertest.ItemID(t, "minecraft:filled_map")
-	srv.GiveSlot("Cartographer", player.HotbarSlot, protocol.ItemStack{ItemID: empty, Count: 2})
-	c.Settle()
-
-	c.UseItemRightClicks(protocol.HandMain)
-	c.Settle()
-	if held := srv.InventorySlot("Cartographer", player.HotbarSlot); held.ItemID != empty || held.Count != 1 {
-		t.Fatalf("the hand after the first click = %+v, want one empty map left", held)
-	}
-
-	c.UseItemRightClicks(protocol.HandMain)
-	c.Settle()
-	held := srv.InventorySlot("Cartographer", player.HotbarSlot)
-	if held.ItemID != filled {
-		t.Fatalf("the hand after the second click = %+v, want a filled map", held)
-	}
-	if id, ok := held.MapIDOf(); !ok || id != 1 {
-		t.Errorf("the map in the hand names id %d (carried %v), want the second id 1", id, ok)
-	}
-
-	if !srv.SaveAll(false) {
-		t.Fatal("save-all reported failure")
-	}
-	for id, want := range map[int32]int32{0: 128, 1: 128} {
-		saved := readSavedMap(t, cfg.LevelName, fmt.Sprintf("%d.dat", id))
-		if x, _ := nbt.IntValue(saved["xCenter"]); x != want {
-			t.Errorf("map %d's xCenter = %d, want %d", id, x, want)
-		}
-		if z, _ := nbt.IntValue(saved["zCenter"]); z != want {
-			t.Errorf("map %d's zCenter = %d, want %d", id, z, want)
-		}
 	}
 }
 

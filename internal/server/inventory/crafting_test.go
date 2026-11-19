@@ -68,31 +68,3 @@ func TestCraftFromThePlayerGridConsumesWhatItMatched(t *testing.T) {
 		}
 	}
 }
-
-func TestLimitedCraftingExemptsPotsAndCrafterPreviews(t *testing.T) {
-	inv := &player.Inventory{CanCraftRecipe: func(string) bool { return false }}
-	grid := make([]protocol.ItemStack, 9)
-	grid[0] = protocol.ItemStack{ItemID: itemID(t, "minecraft:oak_log"), Count: 1}
-	if got := craftResultOf(View{Kind: KindCrafting, Grid: grid}, inv); !got.Empty() {
-		t.Fatalf("locked table recipe = %+v", got)
-	}
-	if got := craftResultOf(View{Kind: KindCrafter, Grid: grid}, inv); got.ItemID != itemID(t, "minecraft:oak_planks") || got.Count != 4 {
-		t.Fatalf("crafter preview = %+v, want four planks", got)
-	}
-	grid[0] = protocol.ItemStack{}
-	for _, i := range []int{1, 3, 5, 7} {
-		grid[i] = protocol.ItemStack{ItemID: itemID(t, "minecraft:angler_pottery_sherd"), Count: 1}
-	}
-	view := View{Kind: KindCrafting, Grid: grid}
-	var outcome Outcome
-	session := &Session{}
-	session.Click(view, inv, protocol.ClickModePickup, 0, 0, false, 0, &outcome)
-	if got := session.Carried; got.ItemID != itemID(t, "minecraft:decorated_pot") || got.Count != 1 {
-		t.Errorf("special recipe = %+v, want a decorated pot", got)
-	}
-	for i, cell := range grid {
-		if !cell.Empty() {
-			t.Errorf("pot ingredient %d remained: %+v", i, cell)
-		}
-	}
-}

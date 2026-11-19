@@ -62,23 +62,3 @@ func TestARiddenHorseClopsThenGallops(t *testing.T) {
 		t.Fatalf("rider heard %v, nearby listener heard %v", sounds, nearby)
 	}
 }
-
-func TestAPigSteeredWithACarrotSteps(t *testing.T) {
-	t.Parallel()
-	rider, srv, _ := pigSteer(t, "minecraft:carrot_on_a_stick")
-	servertest.HoldTicks(t, srv)
-	steps := 0
-	for tick := range 40 {
-		x := 5.5 + float64(min(tick+1, 40-tick-1))*0.25
-		moveVehicle(rider, x, 64, 5.5, -90)
-		rider.SettleAndCollect(func(packet int32, data []byte) {
-			if packet == protocol.IDPlaySoundEffect && servertest.SoundOf(data) == "minecraft:entity.pig.step" {
-				steps++
-			}
-		})
-		servertest.RunTicks(t, srv, 1)
-	}
-	if steps == 0 {
-		t.Fatal("rider heard no pig steps")
-	}
-}

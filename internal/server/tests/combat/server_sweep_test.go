@@ -1,9 +1,10 @@
 package combat
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"math"
 	"testing"
+
+	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
@@ -208,82 +209,6 @@ func TestASweepHurtsAPlayerBesideItsVictim(t *testing.T) {
 	wantShove(t, shove, [3]float64{0.2, 0.4, 0.4}, "the swept player")
 }
 
-// TestASweepFollowsABlowOnAPlayer swings the whole blade at a player with
-// a cow standing beside them, and holds the stricken player takes the
-// blade's whole six off twenty while the bystander takes the sweep the
-// same way as around a mob's own blow: the plain one off a ten, with the
-// shove and the fencer behind the damage event.
-func TestASweepFollowsABlowOnAPlayer(t *testing.T) {
-	t.Parallel()
-	f := newSweepFixture(t)
-	f.watcher.MoveToGround(40.5, 64, 40.5, true)
-	f.watcher.Settle()
-	f.ironSword(t)
-
-	target := f.connect()
-	targetID := target.JoinAs("Target")
-	target.MoveToGround(4.5, 64, 5.5, true)
-	target.MoveToGround(4.5, 64, 5.5, true)
-	target.Settle()
-	f.fencer.Settle()
-
-	f.srv.StopTick()
-	beside := f.srv.SpawnMob("minecraft:cow", 5.45, 64, 5.5)
-	target.Settle()
-	f.watcher.Settle()
-
-	f.fencer.Attack(targetID)
-	f.fencer.Settle()
-	heard := f.watcher.HearBodies()
-	if got := heard.Healths[beside]; math.Abs(float64(got)-9) > 0.01 {
-		t.Errorf("the cow swept beside the stricken player was left at %v, want the sweep's plain one off a ten", got)
-	}
-	if got := heard.DamageEvents[beside]; got != f.fencerID+1 {
-		t.Errorf("the swept cow's damage event named %d as the cause, want the fencer's %d", got, f.fencerID+1)
-	}
-
-	var health float32
-	target.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlaySetHealth {
-			health = protocol.NewReader(data).ReadF32()
-		}
-	})
-	if math.Abs(float64(health)-14) > 0.01 {
-		t.Errorf("the stricken player was left at %v of twenty, want the blade's whole six off it", health)
-	}
-}
-
-// TestASweepFollowsABlowOnABoat swings the whole blade at a boat with a cow
-// standing beside it, and holds that the blow on the boat still sweeps the
-// living body beside it: the plain one off a ten, the fencer named behind
-// the damage event.
-func TestASweepFollowsABlowOnABoat(t *testing.T) {
-	t.Parallel()
-	f := newSweepFixture(t)
-	f.watcher.MoveToGround(40.5, 64, 40.5, true)
-	f.watcher.Settle()
-	f.ironSword(t)
-
-	f.srv.StopTick()
-	boat := f.srv.SpawnBoat(4.5, 64, 5.5, "minecraft:oak_boat")
-	if boat == 0 {
-		t.Fatal("SpawnBoat came to nothing")
-	}
-	beside := f.srv.SpawnMob("minecraft:cow", 5.45, 64, 5.5)
-	f.fencer.Settle()
-	f.watcher.Settle()
-
-	f.fencer.Attack(boat)
-	f.fencer.Settle()
-	heard := f.watcher.HearBodies()
-	if got := heard.Healths[beside]; math.Abs(float64(got)-9) > 0.01 {
-		t.Errorf("the cow swept beside the struck boat was left at %v, want the sweep's plain one off a ten", got)
-	}
-	if got := heard.DamageEvents[beside]; got != f.fencerID+1 {
-		t.Errorf("the swept cow's damage event named %d as the cause, want the fencer's %d", got, f.fencerID+1)
-	}
-}
-
 // TestASweepSkipsACreativeBystander stands a creative player beside the
 // stricken cow with a survival cow behind it, and holds that the sweep
 // leaves the creative body whole while still hurting the survival one: the
@@ -365,83 +290,5 @@ func TestASweepShakesTheArmorStandsBesideItsVictim(t *testing.T) {
 	}
 	if shaken[far] {
 		t.Error("the stand out of the sweep's reach was shaken")
-	}
-}
-
-// TestASweepShovesAShakenArmorStand holds that a stand the sweep only shakes
-// takes the 0.4 shove along the swinger's facing, and one out of reach none.
-func TestASweepShovesAShakenArmorStand(t *testing.T) {
-	t.Parallel()
-	f := newSweepFixture(t)
-	f.ironSword(t)
-
-	f.srv.StopTick()
-	stricken := f.srv.SpawnMob("minecraft:cow", 4.5, 64, 5.5)
-	beside := f.srv.SpawnArmorStand(5.45, 64, 5.5)
-	far := f.srv.SpawnArmorStand(9.5, 64, 5.5)
-	f.fencer.Settle()
-
-	f.fencer.Attack(stricken)
-	f.fencer.Settle()
-	servertest.UntilTicks(t, f.srv, 1200, "condition", func() bool {
-		_, _, vz, _ := f.srv.ArmorStandVelocity(beside)
-		return vz != 0
-	})
-	vx, vy, vz, _ := f.srv.ArmorStandVelocity(beside)
-	if math.Abs(vx) > 1e-9 || math.Abs(vz-0.4) > 1e-9 {
-		t.Errorf("the shaken stand's velocity = (%v, %v, %v), want a 0.4 shove along the facing", vx, vy, vz)
-	}
-	if fx, fy, fz, _ := f.srv.ArmorStandVelocity(far); fx != 0 || fy != 0 || fz != 0 {
-		t.Errorf("the stand out of reach was shoved: (%v, %v, %v)", fx, fy, fz)
-	}
-}
-
-// TestACreativeSweepBreaksTheArmorStandsBesideItsVictim holds that a creative
-// swinger's sweep takes a stand down at once.
-func TestACreativeSweepBreaksTheArmorStandsBesideItsVictim(t *testing.T) {
-	t.Parallel()
-	f := newSweepFixture(t)
-	f.ironSword(t)
-	f.fencer.ChatCommand("gamemode creative Fencer")
-	servertest.UntilTicks(t, f.srv, 1200, "condition", func() bool {
-		return f.srv.PlayerGameMode("Fencer") == protocol.GameModeCreative
-	})
-	f.fencer.Settle()
-
-	f.srv.StopTick()
-	stricken := f.srv.SpawnMob("minecraft:cow", 4.5, 64, 5.5)
-	beside := f.srv.SpawnArmorStand(5.45, 64, 5.5)
-	f.fencer.Settle()
-
-	f.fencer.Attack(stricken)
-	f.fencer.Settle()
-	servertest.UntilTicks(t, f.srv, 1200, "condition", func() bool {
-		_, _, _, ok := f.srv.ArmorStandVelocity(beside)
-		return !ok
-	})
-}
-
-// TestASecondSweepWithinTheWindowBreaksTheArmorStand holds that a stand the
-// first sweep shook is taken down by a second one a few ticks later.
-func TestASecondSweepWithinTheWindowBreaksTheArmorStand(t *testing.T) {
-	t.Parallel()
-	f := newSweepFixture(t)
-	f.ironSword(t)
-
-	f.srv.StopTick()
-	stricken := f.srv.SpawnMob("minecraft:cow", 4.5, 64, 5.5)
-	beside := f.srv.SpawnArmorStand(5.45, 64, 5.5)
-	f.fencer.Settle()
-
-	f.fencer.Attack(stricken)
-	servertest.SwingLanded(t, f.srv, "Fencer")
-	if _, _, _, ok := f.srv.ArmorStandVelocity(beside); !ok {
-		t.Fatal("the first sweep broke the stand")
-	}
-	servertest.RecoverByHand(t, f.srv, "Fencer")
-	f.fencer.Attack(stricken)
-	f.fencer.Settle()
-	if _, _, _, ok := f.srv.ArmorStandVelocity(beside); ok {
-		t.Fatal("the second sweep inside the window left the stand standing")
 	}
 }

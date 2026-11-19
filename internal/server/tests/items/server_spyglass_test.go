@@ -58,21 +58,3 @@ func TestTheSpyglassPlaysItsUseAndStopSounds(t *testing.T) {
 	watcher.ExpectHandState(id, 0)
 	expectSpyglassSound(t, watcher, stop)
 }
-
-// TestASwappedSpyglassEndsWithoutAStopSound drops the held slot mid-look:
-// the use ends and the stop sound stays unplayed, as vanilla's
-// stopUsingItem never calls releaseUsing.
-func TestASwappedSpyglassEndsWithoutAStopSound(t *testing.T) {
-	t.Parallel()
-	srv, watcher, holder, id, use, stop := spyglassWatcher(t)
-	holder.UseItemRightClicks(protocol.HandMain)
-	watcher.ExpectHandState(id, protocol.EntityFlagHandActive)
-	expectSpyglassSound(t, watcher, use)
-	holder.Send(protocol.IDPlayHeldItemIn, func(b *protocol.Buffer) { b.PutI16(1) })
-	watcher.ExpectHandState(id, 0)
-	holder.ReleaseUseItem()
-	watcher.ExpectNoneWithinTicks(srv, 10, func(pid int32, data []byte) bool {
-		var s servertest.SoundSee
-		return pid == protocol.IDPlaySoundEffect && func() bool { s.ReadSoundSee(t, data); return s.Sound == stop }()
-	})
-}

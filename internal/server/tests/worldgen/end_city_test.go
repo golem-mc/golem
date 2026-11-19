@@ -12,7 +12,7 @@ import (
 // The seed-0 ship at 408,125,-2036 is in the vanilla capture documented in
 // internal/server/world/testdata/end_city_starts.txt. Only its treasure chunk is needed.
 func TestEndCityTreasureAndEntities(t *testing.T) {
-	g := sharedEndGenerator()
+	g := world.NewEndGenerator(0)
 	w := world.NewDimensionWorld(t.TempDir(), false, g)
 	defer w.Close()
 	pos := world.ChunkPos{X: 25, Z: -127}

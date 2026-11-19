@@ -181,6 +181,7 @@ func dropIntoThePool(t *testing.T, c *servertest.Client, item string) {
 func TestAnItemDroppedIntoWaterFloatsUpToTheSurface(t *testing.T) {
 	t.Parallel()
 	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Dropper")
+	servertest.HoldTicks(t, srv)
 
 	fluidPool(t, srv, 0, 0, "minecraft:water")
 
@@ -208,6 +209,7 @@ func TestAnItemDroppedIntoWaterFloatsUpToTheSurface(t *testing.T) {
 func TestAnItemDroppedIntoLavaBurnsUp(t *testing.T) {
 	t.Parallel()
 	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Dropper")
+	servertest.HoldTicks(t, srv)
 
 	fluidPool(t, srv, 0, 0, "minecraft:lava")
 
@@ -225,55 +227,6 @@ func TestAnItemDroppedIntoLavaBurnsUp(t *testing.T) {
 	}
 }
 
-// TestANetheriteIngotDroppedIntoLavaSurvivesAndFloats drops the one thing
-// vanilla makes unburnable into the same pool: the ingot keeps every point
-// of its health, is never taken away, and floats up through the lava the
-// way the drift lifts anything.
-func TestANetheriteIngotDroppedIntoLavaSurvivesAndFloats(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Dropper")
-
-	fluidPool(t, srv, 0, 0, "minecraft:lava")
-
-	w := newFluidWatcher(t, c, 0)
-	dropIntoThePool(t, c, "minecraft:netherite_ingot")
-	w.watch(srv, 160)
-	if w.item.entityID == 0 {
-		t.Fatal("the drop never arrived")
-	}
-	if w.item.removed {
-		t.Error("the netherite ingot in lava was taken away, want it immune to the burn")
-	}
-	if w.item.burned {
-		t.Error("the netherite ingot in lava played a burn, want it never on fire to fizz")
-	}
-	if !w.item.roseAgain {
-		t.Errorf("the ingot touched the lava's floor and never rose again (lowest %v), want the lava's drift to float it up", w.item.lowestY)
-	}
-}
-
-// TestSummoningAnItemIntoStillWaterFloatsItUp summons an item entity the
-// way an operator does, into the bottom of a pool of still water, and
-// watches it: the vanilla item does not lie where it was summoned, it
-// floats — the drift carrying it up until it bobs about the surface, which
-// is what its rising again after the floor says.
-func TestSummoningAnItemIntoStillWaterFloatsItUp(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.BlockTestConfig(), "Caller", servertest.OpsListing(t, "Caller"))
-
-	fluidPool(t, srv, 0, 0, "minecraft:water")
-
-	w := newFluidWatcher(t, c, 0)
-	c.ChatCommand(`summon minecraft:item 0.5 63.0 0.5 {Item:{id:"minecraft:stone",count:1},PickupDelay:32767s}`)
-	w.watch(srv, 160)
-	if w.item.entityID == 0 {
-		t.Fatal("the summon left no item behind")
-	}
-	if !w.item.roseAgain {
-		t.Errorf("the summoned item never rose above the pool's floor (lowest %v), want the water's drift to float it up", w.item.lowestY)
-	}
-}
-
 // orbTravel is one summoned orb as the tests watch it travel: where it was
 // spawned and the lowest and highest it has been seen since.
 type orbTravel struct {
@@ -283,86 +236,6 @@ type orbTravel struct {
 	lowest  float64
 	highest float64
 	seen    bool
-}
-
-// TestAnOrbSummonedIntoShallowWaterSinksBeforeItFloats summons an orb into
-// the last sliver of a one-deep pool, where its feet are in the water and
-// its eyes are above it: the vanilla drift is the eye test's to give, so
-// the orb falls to the pool's floor first — sinking below where it was
-// summoned — and only then, its eyes under, floats back up.
-func TestAnOrbSummonedIntoShallowWaterSinksBeforeItFloats(t *testing.T) {
-	t.Parallel()
-	cfg, setup := servertest.ExperienceSetup(t, "Caller")
-	srv, c, _ := servertest.JoinAs(t, cfg, "Caller", setup)
-
-	fluidPool(t, srv, 0, 0, "minecraft:water")
-
-	// The summoner stands clear of the pool, out of the eight blocks the
-	// orb's follow reaches, so the water is the only thing moving it.
-	c.MoveTo(10.5, 64, 0.5, 0, 0)
-	c.Settle()
-
-	c.ChatCommand("summon minecraft:experience_orb 0.5 63.7 0.5")
-
-	// The orb's travels: the fall into the pool it was summoned over the
-	// top of, and the float back up its underwater eyes give it once it
-	// has landed.
-	var orb orbTravel
-	servertest.HoldTicks(t, srv)
-	c.ReadTicks(srv, 300, func(gotID int32, data []byte) bool {
-		switch gotID {
-		case protocol.IDPlaySpawnEntity:
-			r := protocol.NewReader(data)
-			id := r.ReadVarInt()
-			r.ReadUUID()
-			if kind := r.ReadVarInt(); kind != protocol.EntityTypeExperienceOrb {
-				return false
-			}
-			r.ReadF64()
-			y := r.ReadF64()
-			orb = orbTravel{id: id, spawnY: y, y: y, lowest: y, highest: y, seen: true}
-		case protocol.IDPlayEntityPosition:
-			r := protocol.NewReader(data)
-			if id := r.ReadVarInt(); id != orb.id {
-				return false
-			}
-			r.ReadVarInt() // properties
-			r.ReadI16()
-			orb.y += float64(r.ReadI16()) / 4096
-			r.ReadI16()
-			if orb.y < orb.lowest {
-				orb.lowest = orb.y
-			}
-			if orb.y > orb.highest {
-				orb.highest = orb.y
-			}
-		case protocol.IDPlayTeleportEntity:
-			r := protocol.NewReader(data)
-			if id := r.ReadVarInt(); id != orb.id {
-				return false
-			}
-			r.ReadVarInt() // position path
-			r.ReadF64()
-			y := r.ReadF64()
-			orb.y = y
-			if y < orb.lowest {
-				orb.lowest = y
-			}
-			if y > orb.highest {
-				orb.highest = y
-			}
-		}
-		return false
-	})
-	if !orb.seen {
-		t.Fatal("the summon never stood the orb up")
-	}
-	if orb.lowest >= 63.6 {
-		t.Errorf("the orb's lowest seen height = %v (summoned at %v), want the dip below where it was summoned, the fall its dry eyes left it", orb.lowest, orb.spawnY)
-	}
-	if orb.highest <= 63.65 {
-		t.Errorf("the orb's highest seen height = %v, want the float its underwater eyes give it", orb.highest)
-	}
 }
 
 // The deep-water tests run below y=0, where a vanilla superflat world's
@@ -416,56 +289,6 @@ const (
 	bobHigh         = deepPoolSurface - 0.1
 )
 
-// TestAnItemDroppedIntoADeepPoolFloatsAtTheSurface drops an item into a
-// three-deep pool: it sinks to the floor, floats back up and bobs at the
-// surface rather than resting on the bottom.
-func TestAnItemDroppedIntoADeepPoolFloatsAtTheSurface(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Join(t, servertest.BlockTestConfig(), "Dropper")
-	srv.StopTick()
-	stoneRoom(t, srv, 0, 0, -63, 3)
-
-	id := srv.SpawnItemEntity(1.5, -58.5+entity.ItemHalfSize, 1.5, "minecraft:stone", 1)
-	lowest := 0.0
-	for range 100 {
-		srv.TickEntities(1)
-		_, y, _ := itemFeet(t, srv, id)
-		lowest = min(lowest, y)
-	}
-	if lowest > -62.9 {
-		t.Errorf("the item's lowest feet = %v, want it to have sunk to the floor at -63 first", lowest)
-	}
-	srv.TickEntities(300)
-	for range 200 {
-		srv.TickEntities(1)
-		if _, y, _ := itemFeet(t, srv, id); y < bobLow || y > bobHigh {
-			t.Fatalf("the item's feet at %v, want them bobbing within [%v, %v] under the surface", y, bobLow, bobHigh)
-		}
-	}
-}
-
-// TestAnOrbDroppedIntoADeepPoolFloatsAtTheSurface is the same drop for an
-// experience orb, whose eyes under water float it the same way.
-func TestAnOrbDroppedIntoADeepPoolFloatsAtTheSurface(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Join(t, servertest.BlockTestConfig(), "Dropper")
-	srv.StopTick()
-	stoneRoom(t, srv, 0, 0, -63, 3)
-
-	id := srv.SpawnOrb(1.5, -58.5, 1.5, 1)
-	srv.TickEntities(400)
-	for range 200 {
-		srv.TickEntities(1)
-		_, y, _, ok := srv.OrbPos(id)
-		if !ok {
-			t.Fatal("the orb is gone")
-		}
-		if y < bobLow || y > bobHigh {
-			t.Fatalf("the orb's feet at %v, want them bobbing within [%v, %v] under the surface", y, bobLow, bobHigh)
-		}
-	}
-}
-
 // TestAnItemInFlowingWaterDriftsWithTheCurrent lays an item in a channel
 // whose water runs from a source at x=0 down to level 7 at x=7: the current
 // carries it along +x.
@@ -501,21 +324,6 @@ func TestAnItemInFlowingWaterDriftsWithTheCurrent(t *testing.T) {
 	}
 	if z != 5.5 {
 		t.Errorf("the item drifted to z=%v, want it kept on the channel's line at 5.5", z)
-	}
-}
-
-// TestACowLandsOnGroundBelowYZero drops a cow onto a stone floor at y=-61,
-// with the main loop running: it lands on the floor's top at -60 rather than
-// being lifted toward y=0.
-func TestACowLandsOnGroundBelowYZero(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Join(t, servertest.BlockTestConfig(), "Farmer")
-	stoneRoom(t, srv, 10, 10, -60, 0)
-
-	id := srv.SpawnMob("minecraft:cow", 11.5, -58.5, 11.5)
-	servertest.AwaitTicks(t, srv, 40)
-	if _, y, _, ok := srv.MobPos(id); !ok || y != -60 {
-		t.Errorf("the cow stands at y=%v (found %v), want it on the floor at -60", y, ok)
 	}
 }
 

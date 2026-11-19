@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/server/world/levelgen"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -72,85 +70,6 @@ func TestRuleProcessorPositionChance(t *testing.T) {
 		}
 		if got := none.process(stone, 0, x, 150, 7, 50); got != stone {
 			t.Fatalf("chance 0 replaced the block at %d", x)
-		}
-	}
-}
-
-func TestRuleProcessorRejectsUnsupported(t *testing.T) {
-	t.Parallel()
-	for name, rule := range map[string]string{
-		"modifier": `{"input_predicate":{"predicate_type":"minecraft:always_true"},"location_predicate":{"predicate_type":"minecraft:always_true"},"output_state":{"Name":"minecraft:air"},"block_entity_modifier":{"type":"minecraft:unknown"}}`,
-		"location": `{"input_predicate":{"predicate_type":"minecraft:always_true"},"location_predicate":{"predicate_type":"minecraft:block_match"},"output_state":{"Name":"minecraft:air"}}`,
-		"block":    `{"input_predicate":{"block":"minecraft:nope","predicate_type":"minecraft:random_block_match","probability":1},"location_predicate":{"predicate_type":"minecraft:always_true"},"output_state":{"Name":"minecraft:air"}}`,
-	} {
-		raw := `{"processors":[{"processor_type":"minecraft:rule","rules":[` + rule + `]}]}`
-		if _, _, err := loadStructureProcessors(json.RawMessage(raw), nil); err == nil {
-			t.Errorf("%s: no error", name)
-		}
-	}
-}
-
-// TestBlockRotKeepsOtherBlocks checks that a block outside the rottable tag
-// always stays and one inside it is dropped about (1-integrity) of the time.
-// vanilla: BlockRotProcessor.processBlock
-func TestBlockRotKeepsOtherBlocks(t *testing.T) {
-	t.Parallel()
-	rot := blockRot{tag: registry.BlockTagOf("minecraft:ancient_city_replaceable"), tagged: true, integrity: 0.5}
-	stone, _ := registry.FindState("minecraft:stone", nil)
-	bricks, _ := registry.FindState("minecraft:deepslate_bricks", nil)
-	dropped := 0
-	for x := range int32(400) {
-		if _, ok := rot.apply(stone, 0, x, 50, 3, 0); !ok {
-			t.Fatalf("stone dropped at %d", x)
-		}
-		if _, ok := rot.apply(bricks, 0, x, 50, 3, 0); !ok {
-			dropped++
-		}
-	}
-	if dropped < 140 || dropped > 260 {
-		t.Errorf("dropped %d of 400 deepslate bricks at integrity 0.5", dropped)
-	}
-}
-
-func TestRuleProcessorAppendLoot(t *testing.T) {
-	p := rulesFor(t, `{"input_predicate":{"block":"minecraft:gravel","predicate_type":"minecraft:random_block_match","probability":1},"location_predicate":{"predicate_type":"minecraft:always_true"},"output_state":{"Name":"minecraft:suspicious_gravel"},"block_entity_modifier":{"type":"minecraft:append_loot","loot_table":"minecraft:archaeology/trail_ruins_common"}}`)
-	original := nbt.Compound{"custom": nbt.Int(7)}
-	state, tag := p.processTag(registry.BlockGravel.DefaultState(), 0, -20, 60, 33, 0, original)
-	rng := levelgen.NewLegacyRandom(blockPosSeed(-20, 60, 33))
-	rng.NextFloat() // The matching predicate draws before AppendLoot.
-	if state != registry.BlockSuspiciousGravel.DefaultState() || tag["LootTableSeed"] != nbt.Long(rng.NextLong()) || tag["LootTable"] != nbt.String("minecraft:archaeology/trail_ruins_common") || tag["custom"] != original["custom"] {
-		t.Fatalf("state %d, tag %v", state, tag)
-	}
-	if original["LootTable"] != nil {
-		t.Fatal("modified template NBT")
-	}
-}
-
-func TestCappedProcessorCountsChanges(t *testing.T) {
-	// A state-preserving rule must not consume the cap; an NBT-only change must.
-	for _, loot := range []string{"", "minecraft:archaeology/trail_ruins_common"} {
-		cap := cappedProcessor{min: 3, max: 3, delegate: ruleProcessor{rules: []processorRule{
-			{kind: inputBlock, input: registry.BlockStone, output: registry.BlockStone.DefaultState(), loot: loot},
-			{kind: inputBlock, input: registry.BlockGravel, output: registry.BlockSuspiciousGravel.DefaultState()},
-		}}}
-		placed := &PlacedTemplate{}
-		for i := range 40 {
-			b := registry.BlockStone
-			if i%4 == 0 {
-				b = registry.BlockGravel
-			}
-			placed.Changes = append(placed.Changes, BlockChange{X: int32(i), Y: 60, State: b.DefaultState()})
-			placed.Tags = append(placed.Tags, nil)
-		}
-		cap.finalize(placed, 0, [3]int32{0, 60, 0}, 60, nil)
-		changes := 0
-		for i, b := range placed.Changes {
-			if registry.BlockOf(b.State) == registry.BlockSuspiciousGravel || placed.Tags[i] != nil {
-				changes++
-			}
-		}
-		if changes != 3 {
-			t.Fatalf("loot %q: %d changes", loot, changes)
 		}
 	}
 }

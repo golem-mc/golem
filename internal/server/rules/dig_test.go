@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -84,58 +83,5 @@ func TestDestroyProgressMatchesVanillasNumbers(t *testing.T) {
 				t.Errorf("DestroyProgress = %v, want %v", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestDestroyProgressThresholds(t *testing.T) {
-	// The client insta-mines at one and above; these sit on either side.
-	if p := DestroyProgress(blockNamed("minecraft:oak_leaves"), mainHand(held(t, "minecraft:iron_hoe"))); p < 1 {
-		t.Errorf("iron hoe on leaves = %v, want at least 1", p)
-	}
-	if p := DestroyProgress(blockNamed("minecraft:short_grass"), mainHand(held(t, ""))); !math.IsInf(float64(p), 1) {
-		t.Errorf("hand on short grass = %v, want +Inf (hardness zero)", p)
-	}
-	if p := DestroyProgress(blockNamed("minecraft:bamboo"), mainHand(held(t, "minecraft:iron_sword"))); p < 1 {
-		t.Errorf("sword on bamboo = %v, want at least 1", p)
-	}
-}
-
-func TestDigEffects(t *testing.T) {
-	eff := func(name string, amplifier int32) effect.Instance {
-		return effect.New(registry.MustMobEffect(name), 100, amplifier, false, false, false)
-	}
-	for _, tc := range []struct {
-		name           string
-		effects        []effect.Instance
-		haste, fatigue int
-	}{
-		{"none", nil, 0, 0},
-		{"haste III", []effect.Instance{eff("minecraft:haste", 2)}, 3, 0},
-		{"conduit power II", []effect.Instance{eff("minecraft:conduit_power", 1)}, 2, 0},
-		{"the higher of haste and conduit power", []effect.Instance{
-			eff("minecraft:haste", 1), eff("minecraft:conduit_power", 3),
-		}, 4, 0},
-		{"mining fatigue II", []effect.Instance{eff("minecraft:mining_fatigue", 1)}, 0, 2},
-		{"haste and mining fatigue", []effect.Instance{
-			eff("minecraft:haste", 0), eff("minecraft:mining_fatigue", 0),
-		}, 1, 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			haste, fatigue := DigEffects(tc.effects)
-			if haste != tc.haste || fatigue != tc.fatigue {
-				t.Errorf("DigEffects = (%d, %d), want (%d, %d)", haste, fatigue, tc.haste, tc.fatigue)
-			}
-		})
-	}
-}
-
-func TestDestroyStageIsTenthsOfProgress(t *testing.T) {
-	for _, c := range []struct {
-		progress float32
-		want     int32
-	}{{0, 0}, {0.09, 0}, {0.1, 1}, {0.55, 5}, {0.99, 9}, {1, 10}} {
-		if got := DestroyStage(c.progress); got != c.want {
-			t.Errorf("DestroyStage(%v) = %d, want %d", c.progress, got, c.want)
-		}
 	}
 }

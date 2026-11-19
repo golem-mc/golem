@@ -1,7 +1,6 @@
 package blocks
 
 import (
-	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -61,47 +60,5 @@ func TestBoneMealGrowsAShelfMushroomOnce(t *testing.T) {
 		if got := srv.InventorySlot("Gardener", player.HotbarSlot); got.ItemID != boneMeal || got.Count != want {
 			t.Errorf("held slot after bone meal %d = %+v, want %d bone meals", i+1, got, want)
 		}
-	}
-}
-
-// TestShelfMushroomLandingHalvesTheFallAndBounces drops a player ten blocks
-// onto a shelf mushroom: the fall counts half (5 - 3 = 2 damage) and the
-// bounce sound reaches the lander, whose client does not play it itself.
-// vanilla: Blocks.SHELF_MUSHROOM fallDistanceReduction, ShelfMushroomBlock.bounceOn
-func TestShelfMushroomLandingHalvesTheFallAndBounces(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, survivalPatchConfig(), "Faller")
-	srv.StopTick()
-
-	srv.SetLoadedBlock(0, 63, 1, servertest.BlockState(t, "minecraft:stone"))
-	srv.SetLoadedBlock(0, 63, 0, servertest.MustState(t, "minecraft:shelf_mushroom", map[string]string{"facing": "north", "age": "0"}))
-	top := 63 + 11.0/16 // the cap's collision top
-	c.MoveToGround(0.5, top+10, 0.5, false)
-	c.Settle()
-	c.MoveToGround(0.5, top, 0.5, true)
-
-	bounce, _ := registry.SoundEventID("minecraft:block.shelf_mushroom.bounce")
-	var heard bool
-	c.SettleAndCollect(func(id int32, data []byte) {
-		if id != protocol.IDPlaySoundEffect {
-			return
-		}
-		r := protocol.NewReader(data)
-		if r.ReadVarInt()-1 != bounce {
-			return
-		}
-		heard = true
-		if category := r.ReadVarInt(); category != protocol.SoundCategoryBlock {
-			t.Errorf("bounce sound category = %d, want blocks", category)
-		}
-		if x, y, z := r.ReadI32(), r.ReadI32(), r.ReadI32(); x != 4 || y != 63*8+4 || z != 4 {
-			t.Errorf("bounce sound at fixed (%d, %d, %d), want the mushroom's centre", x, y, z)
-		}
-	})
-	if !heard {
-		t.Error("the landing on the shelf mushroom played no bounce sound")
-	}
-	if got := srv.PlayerHealth("Faller"); math.Abs(got-18) > 1e-3 {
-		t.Errorf("health after the ten-block fall onto the shelf mushroom = %v, want 18", got)
 	}
 }

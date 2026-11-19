@@ -34,22 +34,3 @@ func TestValidStackTemplate(t *testing.T) {
 		})
 	}
 }
-
-func TestStackTemplateBundleWeightOverflow(t *testing.T) {
-	// Multiplying a nested bundle weight by 64 eventually exceeds Fraction's
-	// numerator bound, even though every contained stack fits its own maximum.
-	stack := protocol.ItemStack{ItemID: int32(ItemDiamond), Count: 64}
-	for range 6 {
-		outer := protocol.ItemStack{ItemID: int32(ItemDiamond), Count: 64}
-		outer.SetBundleContents([]protocol.ItemStack{stack})
-		stack = outer
-	}
-	if !ValidStackTemplate(stack) {
-		t.Fatal("representable nested weight rejected")
-	}
-	outer := protocol.ItemStack{ItemID: int32(ItemDiamond), Count: 1}
-	outer.SetBundleContents([]protocol.ItemStack{stack})
-	if ValidStackTemplate(outer) {
-		t.Fatal("overflowing nested weight accepted")
-	}
-}

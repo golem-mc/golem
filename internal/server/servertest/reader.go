@@ -84,10 +84,13 @@ func (c *Client) ReadBy(deadline time.Time) (int32, []byte, error) {
 	// A finished chunk batch is answered (play phase only: configuration Store
 	// Cookie shares the ID), the way a client that wants the
 	// rest of its chunks does; the answer keeps the paced stream flowing.
+	// It asks for the most a client may, so a join's chunks arrive in a few
+	// ticks rather than at the starting rate's nine a tick.
 	// The pacing tests turn this off and answer the batches themselves.
+	// vanilla: ChunkBatchSizeCalculator.getDesiredChunksPerTick (1 to 64)
 	if c.Playing && id == protocol.IDPlayChunkBatchFinished && !c.NoBatchAcks {
 		c.Send(protocol.IDPlayChunkBatchReceived, func(b *protocol.Buffer) {
-			b.PutF32(9)
+			b.PutF32(64)
 		})
 	}
 	if c.PlayerAttributes(id, data) {

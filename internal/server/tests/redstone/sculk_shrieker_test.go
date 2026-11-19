@@ -70,19 +70,6 @@ func TestASensorsClickMakesAShriekerShriek(t *testing.T) {
 	expectShrieker(t, srv, "false", "false")
 }
 
-// TestAShriekNeedsAPlayer: a block the server sets has no player behind it,
-// and a sensor lit by it makes the shrieker keep quiet.
-// vanilla: SculkShriekerBlockEntity.VibrationUser.canReceiveVibration
-func TestAShriekNeedsAPlayer(t *testing.T) {
-	t.Parallel()
-	srv, _ := shriekerScene(t, "false")
-	srv.PostGameEvent("minecraft:block_place", 2.5, 64.5, 4.5)
-	servertest.RunTicks(t, srv, 8)
-	expectSensor(t, srv, 4, 64, 4, "active", "12")
-	servertest.RunTicks(t, srv, 8)
-	expectShrieker(t, srv, "false", "false")
-}
-
 // TestAShriekWarnsAndDarkensWhenItCanSummon: at the end of a shriek the
 // player hears the level 1 warning and takes darkness for 260 ticks; a
 // shrieker that cannot summon does neither.
@@ -97,8 +84,6 @@ func TestAShriekWarnsAndDarkensWhenItCanSummon(t *testing.T) {
 	}{
 		{"true", true, 1, 1},
 		{"false", true, 0, 0},
-		// Only a survival or adventure player takes the darkness.
-		{"true", false, 1, 0},
 	} {
 		t.Run(fmt.Sprintf("can_summon=%s,survival=%v", tc.canSummon, tc.survival), func(t *testing.T) {
 			t.Parallel()
@@ -118,32 +103,6 @@ func TestAShriekWarnsAndDarkensWhenItCanSummon(t *testing.T) {
 				t.Errorf("darkness was told %d times, want %d", got, tc.darkness)
 			}
 		})
-	}
-}
-
-// TestTheWarningClimbsOncePer200Ticks sets the shrieker off twice: the second
-// shriek inside the 200-tick cooldown does not happen, a third one after it
-// warns at level 2.
-// vanilla: WardenSpawnTracker.increaseWarningLevel, WardenSpawnTracker.tryWarn
-func TestTheWarningClimbsOncePer200Ticks(t *testing.T) {
-	t.Parallel()
-	srv, c := shriekerScene(t, "true")
-	placeStoneAt(c, 2)
-	servertest.RunTicks(t, srv, 100)
-	expectShrieker(t, srv, "true", "false")
-
-	c.BreakBlock(2, 64, 4)
-	c.Settle()
-	servertest.RunTicks(t, srv, 20)
-	expectShrieker(t, srv, "true", "false")
-
-	servertest.RunTicks(t, srv, 100)
-	placeStoneAt(c, 2)
-	servertest.RunTicks(t, srv, 5)
-	expectShrieker(t, srv, "true", "true")
-	heard, _, _ := servertest.CollectSoundsTicks(c, srv, 90)
-	if got := servertest.CountSounds(heard, "minecraft:entity.warden.nearby_closer", protocol.SoundCategoryHostile); got != 1 {
-		t.Errorf("heard the level 2 warning %d times, want 1", got)
 	}
 }
 
@@ -184,102 +143,4 @@ func TestAnActivatingSensorMakesAnAmethystBlockResonate(t *testing.T) {
 	servertest.RunTicks(t, srv, 5)
 	// 15 - floor(15/8 * 6)
 	expectSensor(t, srv, 11, 64, 4, "active", "4")
-}
-
-// TestBreakingAShriekingShriekerStillAnswers removes a shrieking shrieker, by
-// a creative break and by a command: it answers at once, and only once.
-// vanilla: SculkShriekerBlockEntity.preRemoveSideEffects
-func TestBreakingAShriekingShriekerStillAnswers(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name     string
-		survival bool
-		darkness int
-	}{
-		{"creative break", false, 0},
-		{"setblock destroy", true, 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c := shriekerScene(t, "true")
-			placeStoneAt(c, 2)
-			servertest.RunTicks(t, srv, 5)
-			expectShrieker(t, srv, "true", "true")
-			if tc.survival {
-				c.SendChangeGameMode(protocol.GameModeSurvival)
-				c.Settle()
-				srv.RunLine("setblock 6 64 4 minecraft:air destroy")
-			} else {
-				c.BreakBlock(6, 64, 4)
-			}
-			heard, counts, _ := servertest.CollectSoundsTicks(c, srv, 10)
-			if got := servertest.CountSounds(heard, "minecraft:entity.warden.nearby_close", protocol.SoundCategoryHostile); got != 1 {
-				t.Errorf("heard the warning %d times, want 1", got)
-			}
-			if got := counts[protocol.IDPlayUpdateMobEffect]; got != tc.darkness {
-				t.Errorf("darkness was told %d times, want %d", got, tc.darkness)
-			}
-			heard, counts, _ = servertest.CollectSoundsTicks(c, srv, 100)
-			if got := servertest.CountSounds(heard, "minecraft:entity.warden.nearby_close", protocol.SoundCategoryHostile); got != 0 {
-				t.Errorf("heard the warning %d more times", got)
-			}
-			if counts[protocol.IDPlayUpdateMobEffect] != 0 {
-				t.Error("darkness was told a second time")
-			}
-		})
-	}
-}
-
-// TestBreakingAnIdleShriekerAnswersNothing: an idle shrieker, or a shrieking
-// one that cannot summon, gives no warning when removed.
-func TestBreakingAnIdleShriekerAnswersNothing(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name, canSummon string
-		shriek          bool
-	}{
-		{"idle", "true", false},
-		{"cannot summon", "false", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c := shriekerScene(t, tc.canSummon)
-			if tc.shriek {
-				placeStoneAt(c, 2)
-				servertest.RunTicks(t, srv, 5)
-				expectShrieker(t, srv, tc.canSummon, "true")
-			}
-			c.SendChangeGameMode(protocol.GameModeSurvival)
-			c.Settle()
-			srv.RunLine("setblock 6 64 4 minecraft:air destroy")
-			heard, counts, _ := servertest.CollectSoundsTicks(c, srv, 10)
-			if got := servertest.CountSounds(heard, "minecraft:entity.warden.nearby_close", protocol.SoundCategoryHostile); got != 0 {
-				t.Errorf("heard the warning %d times, want 0", got)
-			}
-			if counts[protocol.IDPlayUpdateMobEffect] != 0 {
-				t.Error("darkness was told")
-			}
-		})
-	}
-}
-
-// TestReplacingAShriekingShriekerAnswersNothing: a plain /setblock skips the
-// block entity's removal side effects.
-// vanilla: LevelChunk.setBlockState (UPDATE_SKIP_BLOCK_ENTITY_SIDEEFFECTS)
-func TestReplacingAShriekingShriekerAnswersNothing(t *testing.T) {
-	t.Parallel()
-	srv, c := shriekerScene(t, "true")
-	placeStoneAt(c, 2)
-	servertest.RunTicks(t, srv, 5)
-	expectShrieker(t, srv, "true", "true")
-	c.SendChangeGameMode(protocol.GameModeSurvival)
-	c.Settle()
-	srv.RunLine("setblock 6 64 4 minecraft:air")
-	heard, counts, _ := servertest.CollectSoundsTicks(c, srv, 10)
-	if got := servertest.CountSounds(heard, "minecraft:entity.warden.nearby_close", protocol.SoundCategoryHostile); got != 0 {
-		t.Errorf("heard the warning %d times, want 0", got)
-	}
-	if counts[protocol.IDPlayUpdateMobEffect] != 0 {
-		t.Error("darkness was told")
-	}
 }

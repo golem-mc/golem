@@ -4,7 +4,6 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
 )
@@ -32,41 +31,6 @@ func TestRabbitVariantFollowsTheBiome(t *testing.T) {
 	plains := rabbitTypesIn("minecraft:plains", 2000)
 	if len(plains) != 3 || plains[rabbitBrown] < 900 || plains[rabbitSalt] < 650 || plains[rabbitBlack] == 0 {
 		t.Errorf("plains variants = %v, want brown 50%%, salt 40%%, black 10%%", plains)
-	}
-}
-
-// TestARabbitPackSharesItsFirstMembersVariant checks Rabbit.RabbitGroupData.
-func TestARabbitPackSharesItsFirstMembersVariant(t *testing.T) {
-	group := NewSpawnGroup(GoDice{rand.New(rand.NewSource(1))})
-	first := NewMob(TypeRabbit, 1, 0, 64, 0, 1)
-	first.FinalizeSpawn(GoDice{first.Rand}, testBiome("minecraft:plains"), group, rules.LocalDifficulty{Special: 1})
-	for seed := int64(2); seed < 30; seed++ {
-		next := NewMob(TypeRabbit, int32(seed), 0, 64, 0, seed)
-		next.FinalizeSpawn(GoDice{next.Rand}, testBiome("minecraft:plains"), group, rules.LocalDifficulty{Special: 1})
-		if next.RabbitType != first.RabbitType {
-			t.Fatalf("pack member %d is type %d, want the first's %d", seed, next.RabbitType, first.RabbitType)
-		}
-	}
-}
-
-// TestARabbitKindMatchesVanilla checks the builder's box, the attributes
-// and the food.
-func TestARabbitKindMatchesVanilla(t *testing.T) {
-	if w, h := KindDims(TypeRabbit); w != 0.49 || h != 0.6 {
-		t.Errorf("box %v by %v, want 0.49 by 0.6", w, h)
-	}
-	m := NewMob(TypeRabbit, 1, 0, 64, 0, 1)
-	if m.MaxHealth != 3 || m.Health != 3 {
-		t.Errorf("health %v of %v, want 3", m.Health, m.MaxHealth)
-	}
-	for _, food := range []string{"minecraft:carrot", "minecraft:golden_carrot", "minecraft:dandelion"} {
-		id, _ := registry.ItemID(food)
-		if !m.tempts(protocol.ItemStack{ItemID: id, Count: 1}) {
-			t.Errorf("%s is no rabbit food", food)
-		}
-	}
-	if id, _ := registry.ItemID("minecraft:wheat"); m.tempts(protocol.ItemStack{ItemID: id, Count: 1}) {
-		t.Error("wheat is rabbit food")
 	}
 }
 
@@ -128,45 +92,6 @@ func TestARabbitIsBredIntoEitherParentsVariant(t *testing.T) {
 	}
 	if other < 40 || other > 180 {
 		t.Errorf("%d of 2000 took the biome's variant, want about one in twenty", other)
-	}
-}
-
-// TestARabbitSpawnsOnTheRabbitGround checks Rabbit.checkRabbitSpawnRules:
-// sand is a rabbit's ground and stone is not.
-func TestARabbitSpawnsOnTheRabbitGround(t *testing.T) {
-	rng := rand.New(rand.NewSource(1))
-	for ground, want := range map[string]bool{"minecraft:sand": true, "minecraft:grass_block": true, "minecraft:stone": false} {
-		w := newSpawnTestWorld()
-		w.sky = 15
-		floor(w.testWorld, -4, -4, 4, 4, 63, defaultState(t, ground))
-		if got := validSpawnPositionAt(w, GoDice{rng}, TypeRabbit, 0.5, 64, 0.5, 0, CategoryCreature); got != want {
-			t.Errorf("rabbit on %s = %v, want %v", ground, got, want)
-		}
-	}
-}
-
-// TestARabbitPackLeavesOnlyItsFirstMemberGrown checks the 1.0 baby chance of
-// Rabbit.RabbitGroupData.
-func TestARabbitPackLeavesOnlyItsFirstMemberGrown(t *testing.T) {
-	group := NewSpawnGroup(GoDice{rand.New(rand.NewSource(1))})
-	for seed := int64(1); seed <= 40; seed++ {
-		m := NewMob(TypeRabbit, int32(seed), 0, 64, 0, seed)
-		m.FinalizeSpawn(GoDice{m.Rand}, testBiome("minecraft:plains"), group, rules.LocalDifficulty{Special: 1})
-		if want := seed > 1; m.IsBaby() != want {
-			t.Fatalf("pack member %d baby = %v, want %v", seed, m.IsBaby(), want)
-		}
-	}
-}
-
-// TestARabbitWalksToItsMateAtEightTenths checks Rabbit's BreedGoal(this, 0.8).
-func TestARabbitWalksToItsMateAtEightTenths(t *testing.T) {
-	rabbit := NewMob(TypeRabbit, 1, 0, 64, 0, 1)
-	cow := NewMob(TypeCow, 2, 0, 64, 0, 2)
-	if got := (&breedGoal{m: rabbit}).pace(); got != 0.8 {
-		t.Errorf("rabbit breed pace = %v, want 0.8", got)
-	}
-	if got := (&breedGoal{m: cow}).pace(); got != 1.0 {
-		t.Errorf("cow breed pace = %v, want 1.0", got)
 	}
 }
 

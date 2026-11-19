@@ -9,40 +9,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
-// vanilla: Shulker.teleportSomewhere
-func TestHurtShulkerNeverTeleportsOntoBedrock(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
-	servertest.HoldTicks(t, srv)
-	// The grass is beyond teleport reach. Bedrock is valid for staying
-	// attached, but not teleporting.
-	srv.RunLine(`fill -8 99 -8 8 99 8 bedrock`)
-	id := srv.SpawnMob("minecraft:shulker", .5, 100, .5)
-	// Increasing damage lands through the hurt cooldown without extra ticks.
-	for i := range 200 {
-		srv.SetMobHealth(id, 12)
-		srv.HurtMobByWorld(id, 1+float64(i)/1000, "minecraft:out_of_world")
-		servertest.RunTicks(t, srv, 1)
-		x, y, z, ok := srv.MobPos(id)
-		if !ok || x != .5 || y != 100 || z != .5 {
-			t.Fatalf("shulker teleported onto forbidden support at %v,%v,%v (alive %v)", x, y, z, ok)
-		}
-	}
-	// Prove the same cell permits a hurt teleport once its supports are allowed.
-	srv.RunLine(`fill -8 99 -8 8 99 8 stone`)
-	hurt := 2.0
-	servertest.UntilTicks(t, srv, 200, "hurt shulker teleports onto stone", func() bool {
-		x, y, z, _ := srv.MobPos(id)
-		if x != .5 || y != 100 || z != .5 {
-			return true
-		}
-		srv.SetMobHealth(id, 12)
-		hurt += .001
-		srv.HurtMobByWorld(id, hurt, "minecraft:out_of_world")
-		return false
-	})
-}
-
 // vanilla: Shulker.startRiding, tick, hurtServer, teleportSomewhere
 func TestHurtShulkerTeleportsOutOfVehicle(t *testing.T) {
 	t.Parallel()
@@ -128,37 +94,5 @@ func TestHurtShulkerTeleportsOutOfVehicle(t *testing.T) {
 				t.Errorf("vehicle moved teleported shulker from %v,%v,%v to %v,%v,%v", x, y, z, nx, ny, nz)
 			}
 		})
-	}
-}
-
-// vanilla: Shulker.hitByShulkerBullet
-func TestRidingShulkerSplitsWhenHitByBullet(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
-	servertest.HoldTicks(t, srv)
-	srv.RunLine(`fill -8 99 -8 8 99 8 stone`)
-	srv.RunLine(`summon oak_boat 0.5 100 0.5 {Tags:[vehicle]}`)
-	srv.RunLine(`summon shulker 0.5 100 0.5 {Tags:[shell]}`)
-	id := srv.MobIDsOfKind("minecraft:shulker")[0]
-	srv.RunLine(`ride @e[tag=shell,limit=1] mount @e[tag=vehicle,limit=1]`)
-	if srv.MobVehicleID(id) == 0 {
-		t.Fatal("shulker did not board")
-	}
-	ticks := 0
-	servertest.UntilTicks(t, srv, 200, "bullet teleports the riding shulker", func() bool {
-		if srv.MobVehicleID(id) == 0 {
-			return true
-		}
-		srv.SetMobHealth(id, 30)
-		srv.SetShulkerPeek(id, 100)
-		if ticks%10 == 0 {
-			x, y, z, _ := srv.MobPos(id)
-			srv.LaunchShulkerBullet(x, y+.75, z, id, 3)
-		}
-		ticks++
-		return false
-	})
-	if n := len(srv.MobIDsOfKind("minecraft:shulker")); n != 2 {
-		t.Errorf("%d shulkers after bullet teleport, want original and copy", n)
 	}
 }

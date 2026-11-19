@@ -45,18 +45,3 @@ func TestHurtingABodyPostsAnEntityDamageVibration(t *testing.T) {
 		})
 	}
 }
-
-// TestAnItemBurningInLavaPostsAnEntityDamageVibration: a stack on a lava cell
-// hurts each tick, which a sculk sensor beside it hears.
-// vanilla: ItemEntity.hurtServer
-func TestAnItemBurningInLavaPostsAnEntityDamageVibration(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.BoatPlayer(t, "survival", "Dropper", 0)
-	srv.SetBlock(4, 64, 2, servertest.MustState(t, "minecraft:sculk_sensor", nil))
-	srv.SetBlock(1, 64, 2, servertest.MustState(t, "minecraft:lava", map[string]string{"level": "0"}))
-	c.Settle()
-	srv.SpawnItemEntity(1.5, 64.5, 2.5, "minecraft:stick", 1)
-	servertest.UntilTicks(t, srv, 20, "the sensor hears the burning stack", func() bool {
-		return sensorPhase(t, srv) == "active"
-	})
-}

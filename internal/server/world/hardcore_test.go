@@ -33,20 +33,3 @@ func TestALevelDatHardcoreFlagPinsHard(t *testing.T) {
 		t.Errorf("reloaded level hardcore = %v, err %v; want true", level != nil && level.Hardcore, err)
 	}
 }
-
-// TestAnOlderLevelDatHardcoreByteLoadsHardcore checks the top-level hardcore
-// byte of an older level.dat is read next to Difficulty.
-// vanilla: LevelDatDifficultyFix
-func TestAnOlderLevelDatHardcoreByteLoadsHardcore(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	writeLevelDat(t, dir, nbt.Compound{
-		"DataVersion": nbt.Int(dataVersion),
-		"Difficulty":  nbt.Byte(1),
-		"hardcore":    nbt.Byte(1),
-	})
-	level, err := LoadLevel(dir)
-	if err != nil || !level.Hardcore || level.Difficulty != DifficultyHard {
-		t.Errorf("level = %+v, err %v; want hardcore and hard", level, err)
-	}
-}

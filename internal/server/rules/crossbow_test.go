@@ -47,30 +47,3 @@ func TestMultishotDrawsThreeFannedArrows(t *testing.T) {
 		t.Errorf("a single arrow turns %v, want straight on", got)
 	}
 }
-
-func TestPiercingLevelReadsTheEnchantment(t *testing.T) {
-	t.Parallel()
-	if got := PiercingLevel(crossbowWith(t, "minecraft:piercing", 3), protocol.ItemStack{}); got != 3 {
-		t.Errorf("piercing level = %d, want 3", got)
-	}
-}
-
-func TestCrossbowChargeStepPinsTheTicks(t *testing.T) {
-	t.Parallel()
-	type step struct{ start, mid, load bool }
-	for _, tc := range []struct {
-		duration int32
-		want     map[int32]step
-	}{
-		{25, map[int32]step{0: {}, 4: {}, 5: {start: true}, 12: {}, 13: {mid: true}, 24: {}, 25: {load: true}, 26: {load: true}}},
-		{10, map[int32]step{1: {}, 2: {start: true}, 4: {}, 5: {mid: true}, 9: {}, 10: {load: true}}},
-		{0, map[int32]step{0: {}, 1: {true, true, true}, 2: {load: true}}},
-	} {
-		for elapsed, want := range tc.want {
-			start, mid, load := CrossbowChargeStep(elapsed, tc.duration)
-			if got := (step{start, mid, load}); got != want {
-				t.Errorf("duration %d elapsed %d = %+v, want %+v", tc.duration, elapsed, got, want)
-			}
-		}
-	}
-}

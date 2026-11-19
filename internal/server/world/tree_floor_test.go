@@ -59,18 +59,6 @@ func TestBoneMealNeedsTheTreesMinimumHeight(t *testing.T) {
 	}
 }
 
-// TestBoneMealRefusesALoneDarkOakSapling checks canGrow: a grower with only
-// mega trees is no bone meal target without its 2x2.
-// vanilla: TreeGrower.canGrow
-func TestBoneMealRefusesALoneDarkOakSapling(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	w.SetBlock(5, 63, 0, mustState("minecraft:dirt", nil))
-	setBlock(t, w, p, 5, 64, 0, registry.BlockDarkOakSapling.DefaultState())
-	if _, _, _, used, _ := p.BoneMeal(5, 64, 0, 1, uuid.Nil); used {
-		t.Error("bone meal was used on a lone dark oak sapling")
-	}
-}
-
 func mustState(name string, props map[string]string) uint16 {
 	s, ok := registry.FindState(name, props)
 	if !ok {

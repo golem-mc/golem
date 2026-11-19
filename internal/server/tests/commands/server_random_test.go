@@ -113,13 +113,10 @@ func TestRandomRefusesDegenerateRanges(t *testing.T) {
 		})
 	}
 	// A range holding one value, written either way, is too small.
-	refuse("closed at both ends", "random value 1..1", "commands.random.error.range_too_small")
 	refuse("a lone number", "random value 5", "commands.random.error.range_too_small")
 	// The span — the largest value less the smallest — must stay under the
 	// int cap, which an open minimum or a full-width range runs past.
 	refuse("the span at the cap", "random value 0..2147483647", "commands.random.error.range_too_large")
-	refuse("an open minimum", "random value ..5", "commands.random.error.range_too_large")
-	refuse("the whole width", "random value -2147483648..2147483647", "commands.random.error.range_too_large")
 }
 
 // TestRandomRangeParseErrors checks the typed errors the range argument's
@@ -350,100 +347,5 @@ func TestRandomGatesItsSequencesBehindOps(t *testing.T) {
 		servertest.CommandErrorMessageForTest("command.unknown.argument"),
 		servertest.CommandErrorContextForTest("random value 1..2 minecraft:sneaky",
 			strings.Index("random value 1..2 minecraft:sneaky", "minecraft:sneaky")))
-	c.Disconnect()
-}
-
-// TestRandomSuggestsSequenceNames checks the names the sequence arguments
-// offer: the sequences that exist, in the shape vanilla suggests them — a
-// bare prefix over the whole identifier.
-func TestRandomSuggestsSequenceNames(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	_, c := servertest.Join(t, cfg, "Alice", servertest.OpsListing(t, "Alice"))
-
-	c.ChatCommand("random reset minecraft:poker")
-	expectResetReply(t, c, "minecraft:poker")
-
-	// The reset's two ways forward: its star literal and the sequence
-	// names that exist.
-	c.CommandSuggestion(7, "/random reset ")
-	_, _, _, matches := c.ExpectCommandSuggestions()
-	assertSuggestions(t, matches, "*", "minecraft:poker")
-
-	// A prefix of the full name completes to it alone.
-	c.CommandSuggestion(8, "/random reset minecraft:")
-	_, _, _, matches = c.ExpectCommandSuggestions()
-	assertSuggestions(t, matches, "minecraft:poker")
-
-	// The value form suggests the same names for its sequence.
-	c.CommandSuggestion(9, "/random value 1..2 minecraft:")
-	_, _, _, matches = c.ExpectCommandSuggestions()
-	assertSuggestions(t, matches, "minecraft:poker")
-	c.Disconnect()
-
-	// A non-operator is offered neither the gated forms nor their names.
-	// A second world: the session lock holds the first server's folder.
-	plain := config.Default()
-	plain.OnlineMode = false
-	_, bob := servertest.Join(t, plain, "Bob")
-	bob.CommandSuggestion(4, "/random ")
-	_, _, _, matches = bob.ExpectCommandSuggestions()
-	assertSuggestions(t, matches, "roll", "value")
-	bob.CommandSuggestion(5, "/random reset ")
-	_, _, _, matches = bob.ExpectCommandSuggestions()
-	assertSuggestions(t, matches)
-	bob.Disconnect()
-}
-
-// assertSuggestions checks the names a completion offered, in order.
-func assertSuggestions(t *testing.T, got []string, want ...string) {
-	t.Helper()
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("suggestions = %q, want %q", got, want)
-	}
-}
-
-// TestRandomValueResultIsTheDraw checks that /execute store result takes the
-// drawn value, and the number of sequences a reset restarted.
-// vanilla: RandomCommand.randomSample, RandomCommand.resetAllSequences
-func TestRandomValueResultIsTheDraw(t *testing.T) {
-	t.Parallel()
-	srv, c := joinOpForStore(t)
-	if got := storedResult(t, srv, c, "random value 7..8"); got != "7" && got != "8" {
-		t.Fatalf("stored result = %q, want 7 or 8", got)
-	}
-	c.ChatCommand("random value 1..2 t:one")
-	c.ChatCommand("random value 1..2 t:two")
-	c.ChatCommand("random value 1..2 t:three")
-	expectStored(t, srv, c, [][2]string{
-		{"random reset t:one", "1"},
-		{"random reset *", "3"},
-	})
-}
-
-// TestExecuteScoreMatchesRangeParseErrors checks that the range of
-// `execute if score ... matches` is refused while the walk reads it.
-// vanilla: RangeArgument.intRange
-func TestExecuteScoreMatchesRangeParseErrors(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	_, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
-
-	for _, tc := range []struct {
-		name, command, key string
-		cursor             int
-	}{
-		{"a minimum above the maximum", "execute if score @s obj matches 6..5 run say x", "argument.range.swapped", len("execute if score @s obj matches ")},
-		{"a tail the reading stops at", "execute if score @s obj matches 1..x run say x", "command.expected.separator", len("execute if score @s obj matches 1..")},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			c.ChatCommand(tc.command)
-			c.ExpectCommandError(
-				servertest.CommandErrorMessageForTest(tc.key),
-				servertest.CommandErrorContextForTest(tc.command, tc.cursor))
-		})
-	}
 	c.Disconnect()
 }

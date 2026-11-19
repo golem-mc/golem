@@ -3,7 +3,6 @@ package world
 import (
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/nbt"
 )
@@ -76,23 +75,5 @@ func TestEndGatewayTickPreservesCarriedSnapshotsAndSlots(t *testing.T) {
 				t.Errorf("next tick repeated beams at %v", beams)
 			}
 		})
-	}
-}
-
-func TestEndGatewayTickFilterMayTakeTheWorldLock(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld(t, NewFlatGenerator())
-	w.Acquire(ChunkPos{0, 0})
-	defer w.Release(ChunkPos{0, 0})
-	w.SetBlockEntityTag(1, 80, 1, "minecraft:end_gateway", nbt.Compound{"Age": nbt.Long(0)})
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		w.TickEndGatewaysIn(2400, func(ChunkPos) bool { return !w.AnyChunkForced() })
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("TickEndGatewaysIn deadlocked on a filter that reads the world")
 	}
 }

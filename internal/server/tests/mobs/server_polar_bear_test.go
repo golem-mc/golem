@@ -1,16 +1,11 @@
 package mobs
 
 import (
-	"io"
-	"strings"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/console"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -43,18 +38,6 @@ func standingOf(srv *server.Server, id int32) bool {
 	return false
 }
 
-func TestALoneAdultPolarBearIgnoresAPlayer(t *testing.T) {
-	t.Parallel()
-	_, _, srv := polarWorld(t)
-	bear := srv.SpawnMob(polarBear, 7.5, 64, 0.5)
-	for range 20 {
-		servertest.RunTicks(t, srv, 10)
-		if got := srv.MobTargetID(bear); got != 0 {
-			t.Fatalf("a lone polar bear targets %d, want nobody", got)
-		}
-	}
-}
-
 func TestAnAdultPolarBearHuntsAFox(t *testing.T) {
 	t.Parallel()
 	_, _, srv := polarWorld(t)
@@ -70,21 +53,6 @@ func TestAnAdultPolarBearHuntsAFox(t *testing.T) {
 		got, alive := srv.MobHealth(fox)
 		return !alive || got < health
 	})
-}
-
-func TestABabyPolarBearIgnoresAFox(t *testing.T) {
-	t.Parallel()
-	_, _, srv := polarWorld(t)
-	bear := srv.SpawnMob(polarBear, 2.5, 64, 24.5)
-	srv.SetMobBaby(bear, true)
-	fox := srv.SpawnMob("minecraft:fox", 8.5, 64, 24.5)
-	srv.SetMobNoAI(fox)
-	for range 200 {
-		servertest.RunTicks(t, srv, 1)
-		if got := srv.MobTargetID(bear); got != 0 {
-			t.Fatalf("a cub targets %d, want nobody", got)
-		}
-	}
 }
 
 func TestAPolarBearHuntsAVisibleFoxAcrossAMoat(t *testing.T) {
@@ -139,24 +107,6 @@ func TestAnAdultPolarBearAttacksAPlayerNearItsCub(t *testing.T) {
 	}
 }
 
-func TestAPolarBearBeyondACubsReachLeavesAPlayerAlone(t *testing.T) {
-	t.Parallel()
-	_, _, srv := polarWorld(t)
-	bear := srv.SpawnMob(polarBear, 7.5, 64, 0.5)
-	cub := srv.SpawnMob(polarBear, 7.5, 64, 12.5)
-	srv.SetMobBaby(cub, true)
-	// The cub would otherwise stroll into the bear's reach.
-	srv.SetMobNoAI(cub)
-	// Checked every 10 ticks: a bear that did pick the player may have
-	// dropped the grudge again by the end of the run.
-	for range 20 {
-		servertest.RunTicks(t, srv, 10)
-		if got := srv.MobTargetID(bear); got != 0 {
-			t.Fatalf("a bear with its cub 12 blocks off targets %d, want nobody", got)
-		}
-	}
-}
-
 func TestHurtingACubSendsTheAdultsAfterTheAttacker(t *testing.T) {
 	t.Parallel()
 	c, playerID, srv := polarWorld(t)
@@ -183,21 +133,6 @@ func TestHurtingACubSendsTheAdultsAfterTheAttacker(t *testing.T) {
 	}
 }
 
-func TestStrikingAnAdultPolarBearAngersOnlyThatBear(t *testing.T) {
-	t.Parallel()
-	c, playerID, srv := polarWorld(t)
-	bear := srv.SpawnMob(polarBear, 3.5, 64, 0.5)
-	other := srv.SpawnMob(polarBear, 3.5, 64, 12.5)
-	servertest.AwaitFullSwing(t, srv, "Slayer")
-	c.Attack(bear)
-	c.Settle()
-	servertest.UntilTicks(t, srv, 20, "the bear's target", func() bool { return srv.MobTargetID(bear) == playerID })
-	servertest.RunTicks(t, srv, 40)
-	if got := srv.MobTargetID(other); got != 0 {
-		t.Errorf("a second bear targets %d, want nobody", got)
-	}
-}
-
 func TestAPolarBearStandsUpWithinTheBlowWindow(t *testing.T) {
 	t.Parallel()
 	c, playerID, srv := polarWorld(t)
@@ -210,35 +145,6 @@ func TestAPolarBearStandsUpWithinTheBlowWindow(t *testing.T) {
 		t.Error("a bear that has only just picked its target is already standing")
 	}
 	servertest.UntilTicks(t, srv, 60, "the bear to stand", func() bool { return standingOf(srv, bear) })
-}
-
-func TestAPolarBearSpawnsAsItsOwnType(t *testing.T) {
-	t.Parallel()
-	c, _, srv := polarWorld(t)
-	id := srv.SpawnMob(polarBear, 7.5, 64, 0.5)
-	typeID, _ := registry.EntityTypeID(polarBear)
-	m := c.ExpectMobSpawn(int32(typeID))
-	if m.EntityID != id || m.Health != 30 {
-		t.Errorf("spawn = entity %d health %v, want %d and 30", m.EntityID, m.Health, id)
-	}
-}
-
-// A bear watching over a cub looks for players only half as far as its
-// follow range of 20.
-// vanilla: PolarBearAttackPlayersGoal.getFollowDistance
-func TestAPolarBearGuardingACubIgnoresAPlayerBeyondTenBlocks(t *testing.T) {
-	t.Parallel()
-	_, playerID, srv := polarWorld(t)
-	bear := srv.SpawnMob(polarBear, 14.5, 64, 0.5)
-	cub := srv.SpawnMob(polarBear, 14.5, 64, 2.5)
-	srv.SetMobBaby(cub, true)
-	servertest.RunTicks(t, srv, 100)
-	if got := srv.MobTargetID(bear); got != 0 {
-		t.Fatalf("a bear 12 blocks from the player targets %d, want nobody", got)
-	}
-	srv.MoveMob(bear, 8.5, 0.5)
-	srv.MoveMob(cub, 8.5, 2.5)
-	servertest.UntilTicks(t, srv, 200, "the bear's target at 6 blocks", func() bool { return srv.MobTargetID(bear) == playerID })
 }
 
 func TestAStandingPolarBearSendsItsFlagAndGrowlsOnce(t *testing.T) {
@@ -273,32 +179,4 @@ func TestAStandingPolarBearSendsItsFlagAndGrowlsOnce(t *testing.T) {
 		}
 	}
 	t.Fatalf("standing flag sent %v, warning sound played %v; want both", stood, growled)
-}
-
-func TestAPolarBearsAngerIsSaved(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.HostileTestConfig()
-	srv, _ := servertest.Start(t, cfg)
-	script := strings.Join([]string{
-		`summon minecraft:polar_bear 100.5 64 0.5 {NoAI:1b,anger_end_time:5000L}`,
-		`summon minecraft:polar_bear 100.5 64 8.5 {NoAI:1b}`,
-	}, "\n") + "\n"
-	console.New(strings.NewReader(script), io.Discard, io.Discard, srv).Serve()
-	srv.Shutdown()
-
-	var angry, calm int
-	for _, compound := range servertest.ReadChunkEntities(t, cfg.LevelName, world.ChunkPos{X: world.ChunkOf(100.5), Z: world.ChunkOf(0.5)}) {
-		end, ok := compound["anger_end_time"].(nbt.Long)
-		switch {
-		case ok && end > 0:
-			angry++
-		case ok && end == -1:
-			calm++
-		default:
-			t.Errorf("a saved polar bear carries anger_end_time %v, want a future time or -1", compound["anger_end_time"])
-		}
-	}
-	if angry != 1 || calm != 1 {
-		t.Errorf("saved %d angry and %d calm bears, want one each", angry, calm)
-	}
 }

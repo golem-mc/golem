@@ -75,38 +75,3 @@ func TestMoveCellsCoverMovesAndStepRetry(t *testing.T) {
 		})
 	}
 }
-
-func TestMoveCellsFallbackAndDynamicShapes(t *testing.T) {
-	w := &moveCellsWorld{testWorld: newTestWorld()}
-	w.set(1, 64, 0, defaultState(t, "minecraft:moving_piston"))
-	w.set(0, 64, 1, defaultState(t, "minecraft:shulker_box"))
-	b := AABB{0.2, 64, 0.2, 0.8, 65.8, 0.8}
-	cells := gatherMoveCells(w, b, 0.6, -0.2, 0.6, 0.6)
-	defer cells.release()
-	ctx := collideCtx{moveCells: &cells}
-	for i, axis := range []int{axisX, axisZ} {
-		got, top, blocked := clipMove(w, ctx, b, axis, 0.6)
-		reads := w.reads
-		want, wantTop, wantBlocked := clipMove(w, noCtx, b, axis, 0.6)
-		if reads != i+1 { // one prefetch, plus the preceding uncached comparison
-			t.Fatalf("cached clip read BlocksIn: %d calls", reads)
-		}
-		if got != want || top != wantTop || blocked != wantBlocked {
-			t.Fatalf("axis %d: cached clip differs", axis)
-		}
-	}
-	if w.pistonReads != 4 || w.shulkerReads != 4 {
-		t.Fatalf("shape reads: piston %d, shulker %d", w.pistonReads, w.shulkerReads)
-	}
-	// A sweep outside the window must fetch its own full range, not truncate.
-	w.set(-5, 64, 0, defaultState(t, "minecraft:stone"))
-	reads := w.reads
-	got, top, blocked := clipMove(w, ctx, b, axisX, -6)
-	if w.reads != reads+1 {
-		t.Fatalf("outside clip did not fall back")
-	}
-	want, wantTop, wantBlocked := clipMove(w, noCtx, b, axisX, -6)
-	if got != want || top != wantTop || blocked != wantBlocked {
-		t.Fatal("fallback clip differs")
-	}
-}

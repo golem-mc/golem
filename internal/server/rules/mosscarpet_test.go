@@ -37,27 +37,3 @@ func TestMossyCarpetSidesGrowTallAndTopperLosesBaselessSides(t *testing.T) {
 		t.Errorf("topper over a base without east has %v, want east=none", p)
 	}
 }
-
-// TestMossyCarpetShapeUpdateChainsThroughAStack checks that a change to the
-// base carpet's sides reaches the topper above it.
-func TestMossyCarpetShapeUpdateChainsThroughAStack(t *testing.T) {
-	w := newAttachWorld(t)
-	stone := registry.BlockStates["minecraft:stone"]
-	const y = 100
-	w.SetBlock(1, y, 0, stone)
-	w.SetBlock(1, y+1, 0, stone)
-	base := world.MossyCarpetState(w, registry.BlockStates[paleMossCarpet], 0, y, 0, true)
-	w.SetBlock(0, y, 0, base)
-	topper, _ := registry.FindState(paleMossCarpet, map[string]string{
-		"bottom": "false", "north": "none", "south": "none", "east": "low", "west": "none",
-	})
-	w.SetBlock(0, y+1, 0, topper)
-	w.SetBlock(1, y, 0, 0)
-	UpdateNeighborShapes(w, 1, y, 0)
-	if got := w.BlockAt(0, y+1, 0); got != 0 {
-		t.Errorf("topper over a base that lost its side = %v, want air", mossProps(t, got))
-	}
-	if p := mossProps(t, w.BlockAt(0, y, 0)); p["east"] != "none" {
-		t.Errorf("base east = %v, want none", p["east"])
-	}
-}

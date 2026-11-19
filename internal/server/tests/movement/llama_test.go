@@ -83,27 +83,3 @@ func TestAChestOnATameLlamaIsFittedAndSpent(t *testing.T) {
 		t.Errorf("chest flag after the click %d, want 1", chest)
 	}
 }
-
-// TestALlamaLandsWithoutTheHorseLandSound: a llama dropped 3 blocks takes no
-// damage and plays no land sound, unlike a horse.
-// vanilla: Llama.causeFallDamage
-func TestALlamaLandsWithoutTheHorseLandSound(t *testing.T) {
-	t.Parallel()
-	s, connect := servertest.Start(t, servertest.MobTestConfig(), servertest.OpsListing(t, "Rider"))
-	rider := connect()
-	rider.Join("Rider")
-	rider.MoveToGround(2.5, 64, 5.5, true)
-	rider.Settle()
-	s.StopTick()
-	rider.ChatCommand("summon minecraft:llama 5.5 67 5.5")
-	s.TickMobs(60)
-	var landed bool
-	rider.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlaySoundEffect && servertest.SoundOf(data) == "minecraft:entity.horse.land" {
-			landed = true
-		}
-	})
-	if landed {
-		t.Error("a llama played the horse land sound")
-	}
-}

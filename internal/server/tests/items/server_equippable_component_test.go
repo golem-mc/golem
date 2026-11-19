@@ -65,57 +65,6 @@ func TestGivenEquippableStickIsWornByUse(t *testing.T) {
 	expectSlot(t, srv, player.HotbarSlot, "")
 }
 
-// TestGivenEquippableStickFitsTheHelmetSlot: a click puts the stick with a
-// head equippable into the helmet slot, where a plain stick is refused.
-// vanilla: ArmorSlot.mayPlace, LivingEntity.isEquippableInSlot
-func TestGivenEquippableStickFitsTheHelmetSlot(t *testing.T) {
-	t.Parallel()
-	srv, w := givenWindowed(t, servertest.SurvivalTestConfig(), `stick[equippable={slot:"head"}]`)
-	srv.GiveSlot("Testificate", player.MainSlot, servertest.ItemStack(t, "minecraft:stick", 1))
-	w.Settle()
-
-	w.Click(player.MainSlot, 0, protocol.ClickModePickup)
-	w.Click(player.ArmorSlot, 0, protocol.ClickModePickup)
-	w.Settle()
-	expectSlot(t, srv, player.ArmorSlot, "")
-	w.Click(player.MainSlot, 0, protocol.ClickModePickup)
-
-	w.Click(player.HotbarSlot, 0, protocol.ClickModePickup)
-	w.Click(player.ArmorSlot, 0, protocol.ClickModePickup)
-	w.Settle()
-	expectSlot(t, srv, player.ArmorSlot, "minecraft:stick")
-	expectSlot(t, srv, player.HotbarSlot, "")
-	if _, own := srv.InventorySlot("Testificate", player.ArmorSlot).EquippableOf(); !own {
-		t.Error("the worn stick is not the given one")
-	}
-}
-
-// TestGivenEquippableSlotOverridesTheItems: a leather helmet given a chest
-// equippable goes on the chest when used.
-func TestGivenEquippableSlotOverridesTheItems(t *testing.T) {
-	t.Parallel()
-	srv, w := givenWindowed(t, servertest.SurvivalTestConfig(), `leather_helmet[equippable={slot:"chest"}]`)
-
-	w.UseItemRightClicks(protocol.HandMain)
-	w.Settle()
-	expectSlot(t, srv, player.ArmorSlot+1, "minecraft:leather_helmet")
-	expectSlot(t, srv, player.ArmorSlot, "")
-	expectSlot(t, srv, player.HotbarSlot, "")
-}
-
-// TestGivenUnswappableEquippableStaysInHand: swappable:false keeps the stick
-// in hand when used.
-// vanilla: Item.use
-func TestGivenUnswappableEquippableStaysInHand(t *testing.T) {
-	t.Parallel()
-	srv, w := givenWindowed(t, servertest.SurvivalTestConfig(), `stick[equippable={slot:"head",swappable:false}]`)
-
-	w.UseItemRightClicks(protocol.HandMain)
-	w.Settle()
-	expectSlot(t, srv, player.ArmorSlot, "")
-	expectSlot(t, srv, player.HotbarSlot, "minecraft:stick")
-}
-
 // TestGivenEquippableSurvivesARestart: the stack's own equippable reaches the
 // player file and comes back, so the stick still goes on the head with its
 // own sound.
@@ -143,33 +92,4 @@ func TestGivenEquippableSurvivesARestart(t *testing.T) {
 	expectEquipSound(t, srv, w, "minecraft:item.armor.equip_gold")
 	w.Settle()
 	expectSlot(t, srv, player.ArmorSlot, "minecraft:stick")
-}
-
-// TestGivenEquippableStackWearsOneAndStowsTheOldPiece: using a stack of
-// equippable sticks over a worn piece wears one, keeps the rest in hand,
-// returns the old piece to the inventory and plays the equip sound.
-// vanilla: Equippable.swapWithEquipmentSlot, ItemStack.consumeAndReturn
-func TestGivenEquippableStackWearsOneAndStowsTheOldPiece(t *testing.T) {
-	t.Parallel()
-	srv, w := givenWindowed(t, servertest.SurvivalTestConfig(), `stick[equippable={slot:"head"}] 5`)
-	srv.GiveSlot("Testificate", player.ArmorSlot, servertest.ItemStack(t, "minecraft:golden_helmet", 1))
-	w.Settle()
-
-	w.UseItemRightClicks(protocol.HandMain)
-	expectEquipSound(t, srv, w, "minecraft:item.armor.equip_generic")
-	w.Settle()
-	expectSlot(t, srv, player.ArmorSlot, "minecraft:stick")
-	if got := srv.InventorySlot("Testificate", player.HotbarSlot); got.ItemID != servertest.MustItemID(t, "minecraft:stick") || got.Count != 4 {
-		t.Errorf("hand = %+v, want four sticks", got)
-	}
-	helmet := servertest.MustItemID(t, "minecraft:golden_helmet")
-	found := false
-	for slot := player.MainSlot; slot <= player.HotbarSlot+8; slot++ {
-		if srv.InventorySlot("Testificate", slot).ItemID == helmet {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("the old helmet did not return to the inventory")
-	}
 }

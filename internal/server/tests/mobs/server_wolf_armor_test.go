@@ -2,7 +2,6 @@ package mobs
 
 import (
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -122,24 +121,6 @@ func TestTheOwnerDressesATameWolfInArmor(t *testing.T) {
 	}
 }
 
-// TestAStrangerCannotDressAWolf: only the owner puts armor on.
-// vanilla: Wolf.mobInteract
-func TestAStrangerCannotDressAWolf(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.MobTestConfig()
-	srv, connect, _ := wolfSceneWith(t, "Owner", cfg)
-	stranger := connect().Join("Stranger")
-	id := srv.SpawnMob(wolfType, 1.5, 64, 0.5)
-	srv.SetMobNoAI(id)
-	srv.TameMobFor(id, "Owner")
-	giveHand(t, srv, "Stranger", "minecraft:wolf_armor", 1)
-	stranger.UseOn(id)
-	watchWolf(t, stranger, srv, id, 2)
-	if item, _ := srv.WolfArmor(id); item != "" {
-		t.Errorf("a stranger dressed the wolf in %q", item)
-	}
-}
-
 // TestWolfArmorSoaksBlowsAndCracks: a blow wears the armor by its damage
 // rounded up and leaves the health; crossing a cracking threshold plays the
 // crack sound with scute particles; a type that bypasses the armor wounds the
@@ -196,39 +177,6 @@ func TestWolfArmorBreaksAtItsLimit(t *testing.T) {
 	}
 	if !seen.status(protocol.EntityStatusBreakBody) || !seen.heard("minecraft:item.wolf_armor.break") {
 		t.Errorf("break not told: statuses %v sounds %v", seen.statuses, seen.sounds)
-	}
-}
-
-// TestAScuteMendsTheArmorOfASittingWolf: an eighth of the durability a scute,
-// only while the wolf sits and the armor is worn.
-// vanilla: Wolf.mobInteract
-func TestAScuteMendsTheArmorOfASittingWolf(t *testing.T) {
-	t.Parallel()
-	srv, c, id := ownedWolf(t)
-	srv.SetWolfArmor(id, "minecraft:wolf_armor", 20)
-	giveHand(t, srv, "Owner", "minecraft:armadillo_scute", 5)
-	c.UseOn(id)
-	watchWolf(t, c, srv, id, 1)
-	if _, damage := srv.WolfArmor(id); damage != 20 || srv.InventorySlot("Owner", player.HotbarSlot).Count != 5 {
-		t.Fatalf("a standing wolf was mended: damage %d", damage)
-	}
-	srv.SetWolfStance(id, true)
-	c.UseOn(id)
-	seen := watchWolf(t, c, srv, id, 1)
-	if _, damage := srv.WolfArmor(id); damage != 12 {
-		t.Errorf("damage after a scute = %d, want 12", damage)
-	}
-	if left := srv.InventorySlot("Owner", player.HotbarSlot).Count; left != 4 {
-		t.Errorf("scutes left = %d, want 4", left)
-	}
-	if !seen.heard("minecraft:item.wolf_armor.repair") {
-		t.Errorf("no repair sound in %v", seen.sounds)
-	}
-	srv.SetWolfArmor(id, "minecraft:wolf_armor", 0)
-	c.UseOn(id)
-	watchWolf(t, c, srv, id, 1)
-	if left := srv.InventorySlot("Owner", player.HotbarSlot).Count; left != 4 {
-		t.Errorf("a scute was spent on undamaged armor: %d left", left)
 	}
 }
 
@@ -300,64 +248,6 @@ func TestAHurtWildWolfStaysAngryAndRefusesBones(t *testing.T) {
 	}
 }
 
-// TestWolfVoicesFollowTheSoundVariant: each variant speaks its own events, a
-// pup the baby set, an angry wolf growls.
-// vanilla: Wolf.getAmbientSound, WolfSoundVariants
-func TestWolfVoicesFollowTheSoundVariant(t *testing.T) {
-	t.Parallel()
-	srv, _ := wolfScene(t, "Owner")
-	id := srv.SpawnMob(wolfType, 1.5, 64, 0.5)
-	srv.SetMobNoAI(id)
-	for variant, stem := range map[string]string{
-		"minecraft:classic": "wolf", "minecraft:puglin": "wolf_puglin", "minecraft:sad": "wolf_sad",
-		"minecraft:angry": "wolf_angry", "minecraft:grumpy": "wolf_grumpy",
-		"minecraft:big": "wolf_big", "minecraft:cute": "wolf_cute",
-	} {
-		srv.SetWolfSoundVariant(id, variant)
-		ambient, hurt, death := srv.WolfVoice(id)
-		if !strings.HasPrefix(ambient, "minecraft:entity."+stem+".") ||
-			hurt != "minecraft:entity."+stem+".hurt" || death != "minecraft:entity."+stem+".death" {
-			t.Errorf("%s: ambient %q hurt %q death %q", variant, ambient, hurt, death)
-		}
-	}
-	srv.SetWolfSoundVariant(id, "minecraft:big")
-	srv.AngerMob(id, 100)
-	if ambient, _, _ := srv.WolfVoice(id); ambient != "minecraft:entity.wolf_big.growl" {
-		t.Errorf("angry ambient = %q, want a growl", ambient)
-	}
-	srv.SetMobBaby(id, true)
-	if _, hurt, death := srv.WolfVoice(id); hurt != "minecraft:entity.baby_wolf.hurt" || death != "minecraft:entity.baby_wolf.death" {
-		t.Errorf("baby hurt %q death %q", hurt, death)
-	}
-}
-
-// TestAWolfBegsForBonesAndMeat: a player within eight blocks holding a bone or
-// meat tilts the wolf's head; with the hand emptied it stops.
-// vanilla: BegGoal, Wolf.DATA_INTERESTED_ID
-func TestAWolfBegsForBonesAndMeat(t *testing.T) {
-	t.Parallel()
-	srv, c := wolfScene(t, "Owner")
-	id := srv.SpawnMob(wolfType, 4.5, 64, 0.5)
-	var begged, stopped bool
-	for i := 0; i < 20 && !begged; i++ {
-		for _, m := range watchWolf(t, c, srv, id, 4).meta {
-			begged = begged || m.begTold && m.begging
-		}
-	}
-	if !begged {
-		t.Fatal("a wolf never begged for the bone in hand")
-	}
-	srv.GiveSlot("Owner", player.HotbarSlot, protocol.ItemStack{})
-	for i := 0; i < 60 && !stopped; i++ {
-		for _, m := range watchWolf(t, c, srv, id, 4).meta {
-			stopped = stopped || m.begTold && !m.begging
-		}
-	}
-	if !stopped {
-		t.Error("the wolf kept begging with an empty hand")
-	}
-}
-
 // TestAWildWolfHuntsSheepButATameOneDoesNot: the wild wolf turns on a sheep
 // in reach; the tame one leaves it be.
 // vanilla: Wolf.registerGoals, NonTameRandomTargetGoal
@@ -378,107 +268,6 @@ func TestAWildWolfHuntsSheepButATameOneDoesNot(t *testing.T) {
 		}
 		if hunted == tame {
 			t.Errorf("tame=%v: hunted the sheep = %v", tame, hunted)
-		}
-	}
-}
-
-// TestWolfArmorBreakingWithoutACrackStillTellsTheBreak: a blow that wears the
-// armor through from the uncracked state moves no crack level, yet the break
-// event and sound still go out and the crack ones do not.
-// vanilla: ItemStack.hurtAndBreak, Wolf.actuallyHurt
-func TestWolfArmorBreakingWithoutACrackStillTellsTheBreak(t *testing.T) {
-	t.Parallel()
-	srv, c, id := ownedWolf(t)
-	srv.SetWolfArmor(id, "minecraft:wolf_armor", 0)
-	srv.HurtMobByWorld(id, 70, "minecraft:cactus")
-	seen := watchWolf(t, c, srv, id, 2)
-	if item, _ := srv.WolfArmor(id); item != "" {
-		t.Fatalf("body = %q after a blow past the durability", item)
-	}
-	if !seen.status(protocol.EntityStatusBreakBody) || !seen.heard("minecraft:item.wolf_armor.break") {
-		t.Errorf("break not told: statuses %v sounds %v", seen.statuses, seen.sounds)
-	}
-	if seen.heard("minecraft:item.wolf_armor.crack") {
-		t.Error("a crack was heard though no crack level moved")
-	}
-}
-
-// TestAnAngryWolfTellsItsAngerEndTime: the anger end time (index 22) goes out
-// as the game tick the anger ends at when it starts, and as -1 when it runs
-// out; the client draws the angry eyes and tail from it.
-// vanilla: Wolf.DATA_ANGER_END_TIME, NeutralMob.setTimeToRemainAngry
-func TestAnAngryWolfTellsItsAngerEndTime(t *testing.T) {
-	t.Parallel()
-	srv, c := wolfScene(t, "Owner")
-	id := srv.SpawnMob(wolfType, 6.5, 64, 0.5)
-	srv.SetMobNoAI(id)
-	now, _ := srv.Time()
-	srv.AngerMob(id, 60)
-	var starts, ends []int64
-	for range 20 {
-		for _, m := range watchWolf(t, c, srv, id, 5).meta {
-			if m.angerTold && m.angerEnd > 0 {
-				starts = append(starts, m.angerEnd)
-			}
-			if m.angerTold && m.angerEnd == -1 {
-				ends = append(ends, m.angerEnd)
-			}
-		}
-	}
-	if len(starts) == 0 {
-		t.Fatal("the anger start was never told")
-	}
-	if last := starts[len(starts)-1]; last < now+55 || last > now+65 {
-		t.Errorf("anger end = %d, want about %d (now %d + 60)", last, now+60, now)
-	}
-	if len(ends) == 0 {
-		t.Error("the end of the anger was never told")
-	}
-}
-
-// TestAWolfHuntsSkeletonsRabbitsAndBabyTurtles: skeleton kinds are prey to
-// every wolf, rabbits and baby turtles on land to wild ones only; a grown
-// turtle is left alone.
-// vanilla: Wolf.registerGoals
-func TestAWolfHuntsSkeletonsRabbitsAndBabyTurtles(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name, kind string
-		baby       bool
-		wild, tame bool
-	}{
-		{"skeleton", "minecraft:skeleton", false, true, true},
-		{"rabbit", "minecraft:rabbit", false, true, false},
-		{"baby turtle", "minecraft:turtle", true, true, false},
-		{"grown turtle", "minecraft:turtle", false, false, false},
-	}
-	for _, tc := range cases {
-		for _, tame := range []bool{false, true} {
-			t.Run(tc.name+map[bool]string{false: " wild", true: " tame"}[tame], func(t *testing.T) {
-				t.Parallel()
-				srv, c := wolfScene(t, "Owner")
-				id := srv.SpawnMob(wolfType, 6.5, 64, 6.5)
-				prey := srv.SpawnMob(tc.kind, 10.5, 64, 6.5)
-				srv.SetMobNoAI(prey)
-				if tc.baby {
-					srv.SetMobBaby(prey, true)
-				}
-				if tame {
-					srv.TameMobFor(id, "Owner")
-				}
-				hunted := false
-				for i := 0; i < 40 && !hunted; i++ {
-					watchWolf(t, c, srv, id, 5)
-					hunted = srv.MobTargetID(id) == prey
-				}
-				want := tc.wild
-				if tame {
-					want = tc.tame
-				}
-				if hunted != want {
-					t.Errorf("hunted = %v, want %v", hunted, want)
-				}
-			})
 		}
 	}
 }

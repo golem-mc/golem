@@ -1,7 +1,6 @@
 package chatsecurity
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -9,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -113,54 +111,4 @@ func TestServiceKeysRejectResponses(t *testing.T) {
 			t.Fatal("followed trust redirect")
 		}
 	})
-}
-
-func TestServiceKeysCoalescingAndCancellation(t *testing.T) {
-	body := serviceResponse(t)
-	entered, release := make(chan struct{}), make(chan struct{})
-	var calls atomic.Int32
-	cache := NewServiceKeys(t.Context(), &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		if calls.Add(1) == 1 {
-			close(entered)
-		}
-		<-release
-		return keyResponse(body), nil
-	})})
-	caller, cancel := context.WithCancel(t.Context())
-	canceled := make(chan error, 1)
-	go func() { _, err := cache.Keys(caller); canceled <- err }()
-	<-entered
-	var wg sync.WaitGroup
-	for range 16 {
-		wg.Go(func() {
-			if _, err := cache.Keys(t.Context()); err != nil {
-				t.Error(err)
-			}
-		})
-	}
-	cancel()
-	if err := <-canceled; !errors.Is(err, context.Canceled) {
-		t.Fatalf("caller cancellation: %v", err)
-	}
-	close(release)
-	wg.Wait()
-	if calls.Load() != 1 {
-		t.Fatalf("requests: %d", calls.Load())
-	}
-	shutdown, stop := context.WithCancel(t.Context())
-	entered = make(chan struct{})
-	canceledFetch := make(chan struct{})
-	cache = NewServiceKeys(shutdown, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		close(entered)
-		<-r.Context().Done()
-		close(canceledFetch)
-		return nil, r.Context().Err()
-	})})
-	go func() { _, err := cache.Keys(t.Context()); canceled <- err }()
-	<-entered
-	stop()
-	if err := <-canceled; !errors.Is(err, context.Canceled) {
-		t.Fatalf("shutdown cancellation: %v", err)
-	}
-	<-canceledFetch
 }

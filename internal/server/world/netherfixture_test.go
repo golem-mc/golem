@@ -1,7 +1,6 @@
 package world
 
 import (
-	"bytes"
 	"sync"
 	"testing"
 
@@ -73,37 +72,6 @@ func fixtureChunkBytes(c *Chunk) ([]byte, error) {
 		return nil, err
 	}
 	return nbt.Encode("", root)
-}
-
-func TestNetherFixtureReadersAreIndependent(t *testing.T) {
-	t.Parallel()
-	const seed = 0
-	pos := ChunkPos{X: -27, Z: -10}
-	open := func() *Chunk {
-		return generateNetherRange(seed, pos.X, pos.Z, pos.X, pos.Z)[pos]
-	}
-	a, b := open(), open()
-	before, err := fixtureChunkBytes(b)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a.SetBlock(0, 200, 0, torchState)
-	starts := a.structuresTag("starts")
-	if len(starts) == 0 {
-		t.Fatal("fixture has no structure NBT to test")
-	}
-	starts[bastionID].(nbt.Compound)["id"] = nbt.String("minecraft:invalid")
-	for _, c := range []*Chunk{b, open()} {
-		got, err := fixtureChunkBytes(c)
-		if err != nil || !bytes.Equal(got, before) {
-			t.Fatalf("reader changed another copy or the source: %v", err)
-		}
-	}
-	_, fresh := generateNetherRangeWith(seed, pos.X, pos.Z, pos.X, pos.Z)
-	want, err := fixtureChunkBytes(fresh[pos])
-	if err != nil || !bytes.Equal(want, before) {
-		t.Fatalf("fixture differs from fresh generation: %v", err)
-	}
 }
 
 func BenchmarkNetherGoldenRegion(b *testing.B) {

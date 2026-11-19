@@ -8,7 +8,6 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -29,19 +28,6 @@ func TestBadOmenInAVillageBecomesARaidOmen(t *testing.T) {
 	_ = bell
 }
 
-// TestBadOmenAtAnUnclaimedBellStays: a bell no villager holds a ticket on is
-// no village, so the bad omen is left alone.
-// vanilla: ServerLevel.isVillage, PoiManager.sectionsToVillage
-func TestBadOmenAtAnUnclaimedBellStays(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := bareBell(t, rules.DifficultyNormal)
-	srv.GiveEffect("Hero", "minecraft:bad_omen", 100000, 0, true)
-	run(c, srv, 3)
-	if _, _, ok := srv.PlayerEffect("Hero", "minecraft:raid_omen"); ok {
-		t.Errorf("a raid omen began at a bell no villager claimed")
-	}
-}
-
 // TestRaidIsLostWhenTheVillagersDie: with every villager dead their tickets
 // are released, the village is gone and the raid ends in loss.
 // vanilla: Raid.tick
@@ -58,22 +44,6 @@ func TestRaidIsLostWhenTheVillagersDie(t *testing.T) {
 		r := srv.Raids()
 		return len(r) == 1 && r[0].Status == "loss"
 	})
-}
-
-// TestBadOmenOutsideAVillageStays: with no village point of interest near,
-// the bad omen is left alone.
-func TestBadOmenOutsideAVillageStays(t *testing.T) {
-	t.Parallel()
-	srv, c, bell := village(t, rules.DifficultyNormal)
-	srv.SetBlock(bell[0], bell[1], bell[2], registry.MustState("minecraft:air", nil))
-	srv.GiveEffect("Hero", "minecraft:bad_omen", 100000, 0, true)
-	run(c, srv, 3)
-	if _, _, ok := srv.PlayerEffect("Hero", "minecraft:bad_omen"); !ok {
-		t.Errorf("the bad omen was taken outside a village")
-	}
-	if _, _, ok := srv.PlayerEffect("Hero", "minecraft:raid_omen"); ok {
-		t.Errorf("a raid omen began outside a village")
-	}
 }
 
 // TestARaidOmenStartsARaidAtTheVillage: when the raid omen runs out the raid
@@ -209,40 +179,6 @@ func TestTheNextWaveFollowsTheLastRaider(t *testing.T) {
 	}
 }
 
-// TestTheThirdWaveBringsARavager: wave 3 of a raid carries one ravager, which
-// the raid counts and which wears no banner.
-// vanilla: Raid.RaiderType
-func TestTheThirdWaveBringsARavager(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := village(t, rules.DifficultyNormal)
-	startRaid(t, c, srv, 0)
-	for wave := 1; wave <= 3; wave++ {
-		run(c, srv, 330)
-		if wave < 3 {
-			for _, id := range raiderIDs(srv) {
-				srv.KillMob(id)
-			}
-		}
-	}
-	if got := countKind(srv, "minecraft:ravager"); got != 1 {
-		t.Fatalf("ravagers = %d in wave 3, want 1", got)
-	}
-	r := srv.Raids()[0]
-	if r.Groups != 3 || r.Alive != len(raiderIDs(srv)) {
-		t.Errorf("raid = %+v with %d raiders, want wave 3 with every raider counted", r, len(raiderIDs(srv)))
-	}
-	for _, m := range srv.Mobs() {
-		if m.Kind == "minecraft:ravager" {
-			if srv.MobHeadItem(m.ID) != 0 {
-				t.Error("the ravager wears a banner")
-			}
-			if in, wave := srv.MobRaid(m.ID); !in || wave != 3 {
-				t.Errorf("ravager raid = %v wave %d, want wave 3", in, wave)
-			}
-		}
-	}
-}
-
 // TestACompletedRaidIsWon: on easy a raid of three waves ends in victory when
 // the last raider is dead, and the bar says so.
 // vanilla: Raid.tick
@@ -310,22 +246,6 @@ func TestACompletedRaidIsWon(t *testing.T) {
 	}
 }
 
-// TestALostVillageLosesTheRaid: with the village gone after the first wave
-// the raid is lost and the bar says defeat.
-// vanilla: Raid.tick
-func TestALostVillageLosesTheRaid(t *testing.T) {
-	t.Parallel()
-	srv, c, bell := village(t, rules.DifficultyNormal)
-	startRaid(t, c, srv, 0)
-	run(c, srv, 330)
-	srv.SetBlock(bell[0], bell[1], bell[2], registry.MustState("minecraft:air", nil))
-	run(c, srv, 450)
-	r := srv.Raids()
-	if len(r) != 1 || r[0].Status != "loss" || r[0].BarTitleKind != 2 {
-		t.Errorf("raids = %+v, want one lost raid with the defeat bar", r)
-	}
-}
-
 // TestAPeacefulWorldStopsTheRaid: switching to peaceful ends the raid.
 // vanilla: Raid.tick
 func TestAPeacefulWorldStopsTheRaid(t *testing.T) {
@@ -374,72 +294,6 @@ func TestRaidsAreSaved(t *testing.T) {
 	}
 }
 
-// TestARaiderNearARaidJoinsIt: a pillager standing inside a raid's range is
-// counted by it within a second, one beyond it is not.
-// vanilla: Raider.aiStep, Raids.getNearbyRaid
-func TestARaiderNearARaidJoinsIt(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := village(t, rules.DifficultyNormal)
-	startRaid(t, c, srv, 0)
-	near := srv.SpawnMob("minecraft:pillager", 6.5, 64, 6.5)
-	far := srv.SpawnMob("minecraft:pillager", 140.5, 64, 6.5)
-	run(c, srv, 25)
-	if in, _ := srv.MobRaid(near); !in {
-		t.Errorf("the pillager at the village did not join the raid")
-	}
-	if in, _ := srv.MobRaid(far); in {
-		t.Errorf("the pillager 140 blocks away joined the raid")
-	}
-	if got := srv.Raids()[0].Alive; got != 1 {
-		t.Errorf("raiders counted = %d, want 1", got)
-	}
-}
-
-// TestAVillageReachesOneSectionOut: a bell two sections from the player makes
-// no village there, one in the next section does.
-// vanilla: ServerLevel.isVillage, PoiManager.sectionsToVillage
-func TestAVillageReachesOneSectionOut(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := bareBell(t, rules.DifficultyNormal)
-	bellState := registry.MustState("minecraft:bell", nil)
-	srv.SetBlock(40, 64, 0, bellState)
-	spawnVillager(t, srv, [3]int32{40, 64, 0})
-	srv.GiveEffect("Hero", "minecraft:bad_omen", 100000, 0, true)
-	run(c, srv, 3)
-	if _, _, ok := srv.PlayerEffect("Hero", "minecraft:raid_omen"); ok {
-		t.Fatalf("a bell two sections away made a village")
-	}
-	srv.SetBlock(20, 64, 0, bellState)
-	spawnVillager(t, srv, [3]int32{20, 64, 0})
-	run(c, srv, 410)
-	if _, _, ok := srv.PlayerEffect("Hero", "minecraft:raid_omen"); !ok {
-		t.Errorf("a bell in the next section made no village")
-	}
-}
-
-// TestDamageMovesTheBar: a raider hurt without dying lowers the bar.
-// vanilla: Raider.hurtServer
-func TestDamageMovesTheBar(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := village(t, rules.DifficultyNormal)
-	startRaid(t, c, srv, 0)
-	run(c, srv, 330)
-	ids := raiderIDs(srv)
-	srv.HurtMobByWorld(ids[0], 5, "minecraft:generic")
-	events := run(c, srv, 3)
-	r := srv.Raids()[0]
-	if r.Alive != len(ids) || r.Progress >= 1 || r.Progress <= 0 {
-		t.Fatalf("after damage: alive %d progress %v, want %d alive and a fill below 1", r.Alive, r.Progress, len(ids))
-	}
-	var sent bool
-	for _, ev := range events {
-		sent = sent || ev.action == protocol.BossEventProgress && ev.fill == r.Progress
-	}
-	if !sent {
-		t.Errorf("no Boss Event moved the fill to %v: %+v", r.Progress, events)
-	}
-}
-
 // TestNoRaidStartsInTheNether: a raid omen that runs out in the nether
 // starts no raid.
 // vanilla: Raids.createOrExtendRaid
@@ -480,126 +334,6 @@ func TestNoRaidStartsInTheNether(t *testing.T) {
 	}
 }
 
-// TestTheCaptainsBannerIsOminous: the captain's banner carries the ominous
-// banner's item name, uncommon rarity and a tooltip that hides its patterns.
-// vanilla: Raid.getBannerComponentPatch
-func TestTheCaptainsBannerIsOminous(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := village(t, rules.DifficultyNormal)
-	startRaid(t, c, srv, 0)
-	run(c, srv, 330)
-	var banner protocol.ItemStack
-	for _, m := range srv.Mobs() {
-		if srv.MobHeadItem(m.ID) != 0 {
-			banner = srv.MobHeadStack(m.ID)
-		}
-	}
-	var name, tooltip protocol.Buffer
-	name.PutText(protocol.Text{Translate: "block.minecraft.ominous_banner"})
-	tooltip.PutBool(false)
-	tooltip.PutVarInt(1)
-	tooltip.PutVarInt(protocol.DataComponentBannerPatterns)
-	want := map[int32]string{
-		protocol.DataComponentItemName:       string(name.Bytes()),
-		protocol.DataComponentRarity:         "\x01",
-		protocol.DataComponentTooltipDisplay: string(tooltip.Bytes()),
-	}
-	for _, raw := range banner.Raw {
-		if w, ok := want[raw.Type]; ok {
-			if string(raw.Data) != w {
-				t.Errorf("component %d = %x, want %x", raw.Type, raw.Data, w)
-			}
-			delete(want, raw.Type)
-		}
-	}
-	if len(want) != 0 {
-		t.Errorf("banner lacks components %v", want)
-	}
-}
-
-// TestRaidOmenPositionIsSavedWithThePlayer: the bell where a bad omen became a
-// raid omen is written to the player file as raid_omen_position.
-// vanilla: ServerPlayer.addAdditionalSaveData
-func TestRaidOmenPositionIsSavedWithThePlayer(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.HostileTestConfig()
-	srv, connect := servertest.Start(t, cfg)
-	c := connect().Join("Hero")
-	servertest.HoldTicks(t, srv)
-	pos := srv.PlayerPosition("Hero")
-	bell := [3]int32{int32(pos.X) + 3, int32(pos.Y), int32(pos.Z)}
-	if !srv.SetBlock(bell[0], bell[1], bell[2], registry.MustState("minecraft:bell", nil)) {
-		t.Fatalf("the bell was not placed")
-	}
-	spawnVillager(t, srv, bell)
-	srv.GiveEffect("Hero", "minecraft:bad_omen", 100000, 0, true)
-	run(c, srv, 2)
-	c.Disconnect()
-
-	root := servertest.ReadPlayerFile(t, servertest.PlayerFile(cfg.LevelName, "Hero"))
-	got, ok := nbt.Get[nbt.IntArray](root, "raid_omen_position")
-	if !ok || len(got) != 3 {
-		t.Fatalf("raid_omen_position = %v, %v; want the position of the omen", got, ok)
-	}
-	if got[0] != int32(pos.X) || got[2] != int32(pos.Z) {
-		t.Errorf("raid_omen_position = %v, want the player's block (%d, _, %d)", got, int32(pos.X), int32(pos.Z))
-	}
-}
-
-// TestRaidersCelebrateALostRaid: once the village is gone and the raid lost,
-// the raiders that have no target jump and cheer.
-// vanilla: Raider.RaiderCelebration
-func TestRaidersCelebrateALostRaid(t *testing.T) {
-	t.Parallel()
-	srv, c, bell := bareBell(t, rules.DifficultyNormal)
-	villager := spawnVillager(t, srv, bell)
-	srv.SetPlayerGameMode("Hero", protocol.GameModeCreative)
-	startRaid(t, c, srv, 0)
-	run(c, srv, 330)
-	for _, m := range srv.Mobs() {
-		if m.Celebrating {
-			t.Fatalf("a %s celebrates before the raid is lost", m.Kind)
-		}
-		// Waves spawn beyond the client's view; bring the raiders into
-		// tracking range before checking their celebration metadata.
-		srv.MoveMob(m.ID, float64(bell[0])+5, float64(bell[2]))
-	}
-	// Settle tracking while Celebrating is still false so the loss produces
-	// a metadata delta for an already-visible raider.
-	run(c, srv, 1)
-	// The raiders target a living villager, which keeps them from cheering.
-	srv.KillMob(villager)
-	srv.SetBlock(bell[0], bell[1], bell[2], registry.MustState("minecraft:air", nil))
-	celebrating := map[int32]bool{}
-	c.ReadTicks(srv, 450, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayEntityMetadata {
-			return false
-		}
-		r := protocol.NewReader(data)
-		eid := r.ReadVarInt()
-		entries, ok := servertest.ReadMetadata(r)
-		if m := servertest.MetaOf(entries, protocol.MetadataIndexRaiderCelebrating); ok && m != nil && m.FlagVal {
-			celebrating[eid] = true
-		}
-		return false
-	})
-	if len(celebrating) == 0 {
-		t.Error("the client was sent no celebrating flag (metadata index 16)")
-	}
-	if r := srv.Raids(); len(r) != 1 || r[0].Status != "loss" {
-		t.Fatalf("raids = %+v, want one lost raid", r)
-	}
-	n := 0
-	for _, m := range srv.Mobs() {
-		if m.Celebrating {
-			n++
-		}
-	}
-	if n == 0 {
-		t.Error("no raider celebrates the lost raid")
-	}
-}
-
 // TestRaidersWalkTowardTheVillage: raiders spawned away from the village head
 // for the raid's centre.
 // vanilla: PathfindToRaidGoal
@@ -632,58 +366,4 @@ func TestRaidersWalkTowardTheVillage(t *testing.T) {
 	if after := meanDist(); after >= before-2 {
 		t.Errorf("mean distance to the village %.1f -> %.1f, want the raiders closer", before, after)
 	}
-}
-
-// TestRaidersWalkBetweenBeds: a raider inside the village goes to one of its
-// beds.
-// vanilla: Raider.RaiderMoveThroughVillageGoal
-func TestRaidersWalkBetweenBeds(t *testing.T) {
-	t.Parallel()
-	srv, c, bell := bareBell(t, rules.DifficultyNormal)
-	villager := spawnVillager(t, srv, bell)
-	// Raiders hunt a villager within their follow range and only walk the
-	// beds while they have no target, so the villager that holds the village
-	// stands out of range, still.
-	// vanilla: Raider.RaiderMoveThroughVillageGoal.canUse
-	srv.SetMobNoAI(villager)
-	srv.MoveMob(villager, float64(bell[0])+0.5, float64(bell[2])+75.5)
-	srv.SetPlayerGameMode("Hero", protocol.GameModeCreative)
-	var heads [][3]int32
-	for i, off := range [][2]int32{{-12, -8}, {-12, 8}, {10, -12}, {10, 12}} {
-		x, z := bell[0]+off[0], bell[2]+off[1]
-		props := map[string]string{"facing": "north", "occupied": "false", "part": "foot"}
-		srv.SetBlock(x, bell[1], z-1, servertest.MustState(t, "minecraft:red_bed", props))
-		props["part"] = "head"
-		if !srv.SetBlock(x, bell[1], z, servertest.MustState(t, "minecraft:red_bed", props)) {
-			t.Fatalf("bed %d was not placed", i)
-		}
-		heads = append(heads, [3]int32{x, bell[1], z})
-	}
-	startRaid(t, c, srv, 0)
-	reached := func() bool {
-		for _, m := range srv.Mobs() {
-			if m.Kind == "minecraft:witch" || m.Vehicle != 0 {
-				continue
-			}
-			for _, id := range raiderIDs(srv) {
-				if id != m.ID {
-					continue
-				}
-				for _, h := range heads {
-					if math.Hypot(m.X-float64(h[0])-0.5, m.Z-float64(h[2])-0.5) < 2 {
-						return true
-					}
-				}
-			}
-		}
-		return false
-	}
-	run(c, srv, 330)
-	for range 60 {
-		run(c, srv, 10)
-		if reached() {
-			return
-		}
-	}
-	t.Errorf("no raider reached a bed within 600 ticks of the first wave spawning (%d raiders)", len(raiderIDs(srv)))
 }

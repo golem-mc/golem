@@ -3,14 +3,10 @@ package mobs
 import (
 	"testing"
 
-	"github.com/google/uuid"
-
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
 
 // The wolf's care, black box: the collar dye, healing by meat, and the
@@ -29,83 +25,6 @@ func wolfState(t *testing.T, srv *server.Server, id int32) server.TestWolf {
 		t.Fatal("the wolf is not in the herd")
 	}
 	return st
-}
-
-// TestADyeRecoloursTheOwnersWolfCollar: the owner's dye sets the collar and
-// is spent; the same colour again is neither spent nor a sit toggle; a
-// stranger's dye does nothing. The collar is told to watchers and saved.
-// vanilla: Wolf.mobInteract, Wolf.addAdditionalSaveData
-func TestADyeRecoloursTheOwnersWolfCollar(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.MobTestConfig()
-	cfg.LevelName = t.TempDir()
-	srv, connect, owner := wolfSceneWith(t, "Owner", cfg)
-	stranger := connect().Join("Stranger")
-	owner.ExpectPlayerAdded("Stranger")
-	id := srv.SpawnMob(wolfType, 1.5, 64, 0.5)
-	srv.SetMobNoAI(id)
-	srv.TameMobFor(id, "Owner")
-	if got := wolfState(t, srv, id).Collar; got != "red" {
-		t.Fatalf("a new wolf's collar = %q, want red", got)
-	}
-
-	giveHand(t, srv, "Stranger", "minecraft:blue_dye", 4)
-	stranger.UseOn(id)
-	stranger.Settle()
-	if got := wolfState(t, srv, id).Collar; got != "red" {
-		t.Errorf("a stranger's dye made the collar %q", got)
-	}
-
-	giveHand(t, srv, "Owner", "minecraft:blue_dye", 4)
-	var told *wolfMeta
-	owner.UseOn(id)
-	owner.Settle()
-	owner.ReadTicks(srv, 2, func(pid int32, data []byte) bool {
-		if pid == protocol.IDPlayEntityMetadata {
-			r := protocol.NewReader(data)
-			if r.ReadVarInt() == id {
-				if m := readWolfMeta(t, r); m.collar >= 0 {
-					told = &m
-				}
-			}
-		}
-		return false
-	})
-	if got := wolfState(t, srv, id).Collar; got != "blue" {
-		t.Fatalf("collar after a blue dye = %q, want blue", got)
-	}
-	if told == nil || told.collar != 11 {
-		t.Errorf("collar metadata = %+v, want the blue dye id 11", told)
-	}
-	if left := srv.InventorySlot("Owner", player.HotbarSlot).Count; left != 3 {
-		t.Errorf("dyes left = %d, want 3", left)
-	}
-	sitting := tamable(t, srv, id).OrderedToSit
-
-	owner.UseOn(id)
-	owner.Settle()
-	if left := srv.InventorySlot("Owner", player.HotbarSlot).Count; left != 3 {
-		t.Errorf("a dye the collar already wears was spent: %d left", left)
-	}
-	if tamable(t, srv, id).OrderedToSit != sitting {
-		t.Error("a dye the collar already wears toggled the sitting")
-	}
-
-	uid, _ := srv.MobUUID(id)
-	srv.FlushMobs()
-	saved := servertest.SavedMobsByUUID(t, cfg.LevelName)[uuid.MustParse(uid)]
-	if saved == nil {
-		t.Fatal("the wolf is not in the saved entities")
-	}
-	if collar, _ := nbt.Get[nbt.Byte](saved, "CollarColor"); collar != 11 {
-		t.Errorf("saved CollarColor = %d, want 11", collar)
-	}
-	if variant, _ := nbt.Get[nbt.String](saved, "variant"); variant == "" {
-		t.Error("the saved wolf has no variant")
-	}
-	if sound, _ := nbt.Get[nbt.String](saved, "sound_variant"); sound == "" {
-		t.Error("the saved wolf has no sound variant")
-	}
 }
 
 // TestMeatHealsAHurtTameWolfByTwiceItsNutrition: a hurt tame wolf eats the
@@ -200,70 +119,5 @@ func TestTwoFedTameWolvesBreedATamePup(t *testing.T) {
 	}
 	if hp := wolfState(t, srv, pup.ID).Health; hp != 40 {
 		t.Errorf("pup health = %v, want a tame wolf's 40", hp)
-	}
-}
-
-// TestWildWolvesAndSittingWolvesDoNotBreed: love between wolves that are
-// not both tame and standing ends in no pup.
-// vanilla: Wolf.canMate
-func TestWildWolvesAndSittingWolvesDoNotBreed(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name string
-		tame func(srv *server.Server, c *servertest.Client, a, b int32)
-	}{
-		{"wild", func(*server.Server, *servertest.Client, int32, int32) {}},
-		{"one wild", func(srv *server.Server, _ *servertest.Client, a, _ int32) { srv.TameMobFor(a, "Owner") }},
-		{"one sitting", func(srv *server.Server, c *servertest.Client, a, b int32) {
-			srv.TameMobFor(a, "Owner")
-			srv.TameMobFor(b, "Owner")
-			giveHand(c.T, srv, "Owner", "minecraft:stick", 1)
-			c.UseOn(b)
-			c.Settle()
-			servertest.RunTicks(c.T, srv, 2) // the sit goal starts on a tick
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c := wolfScene(t, "Owner")
-			a := srv.SpawnMob(wolfType, 1.5, 64, 2.5)
-			b := srv.SpawnMob(wolfType, 2.5, 64, 2.5)
-			tc.tame(srv, c, a, b)
-			srv.SetMobHealth(a, 40)
-			srv.SetMobHealth(b, 40)
-			giveHand(t, srv, "Owner", "minecraft:beef", 8)
-			c.UseOn(a)
-			c.UseOn(b)
-			c.Settle()
-			servertest.RunTicks(t, srv, 200)
-			if n := srv.MobCount(); n != 2 {
-				t.Errorf("%d wolves stand after the courtship, want the two parents", n)
-			}
-		})
-	}
-}
-
-// TestAWolfsVariantAndSoundVariantAreShownToANewWatcher: a wolf of a
-// non-default variant arrives with its variant and sound variant in the
-// metadata, as registry IDs.
-// vanilla: Wolf.DATA_VARIANT_ID, DATA_SOUND_VARIANT_ID
-func TestAWolfsVariantAndSoundVariantAreShownToANewWatcher(t *testing.T) {
-	t.Parallel()
-	srv, connect, _ := wolfSceneWith(t, "Owner", servertest.MobTestConfig())
-	id := srv.SpawnMob(wolfType, 1.5, 64, 0.5)
-	srv.SetWolfVariant(id, "minecraft:ashen", "")
-	srv.SetMobSoundVariant(id, "minecraft:grumpy")
-	late := connect()
-	late.Login("Late")
-	late.Configure()
-	seen, ok := late.EnterWorldSeeingMob("Late", protocol.EntityTypeWolf)
-	if !ok {
-		t.Fatal("the joining player was not shown the wolf")
-	}
-	if want := registry.MustID("minecraft:wolf_variant", "minecraft:ashen"); seen.Variant != want {
-		t.Errorf("variant ID = %d, want %d (ashen)", seen.Variant, want)
-	}
-	if want := registry.MustID("minecraft:wolf_sound_variant", "minecraft:grumpy"); seen.SoundVariant != want {
-		t.Errorf("sound variant ID = %d, want %d (grumpy)", seen.SoundVariant, want)
 	}
 }

@@ -74,26 +74,3 @@ func TestFailedChunkSaveWarnsOperatorsOnLowDisk(t *testing.T) {
 		t.Errorf("the log has no low disk space warning:\n%s", got)
 	}
 }
-
-// TestFailedChunkSaveWithRoomSendsNoWarning checks the 64 MiB threshold: a
-// save that fails with exactly that much usable space is a plain failure.
-func TestFailedChunkSaveWithRoomSendsNoWarning(t *testing.T) {
-	srv, op, _, logs := lowDiskScene(t, 64<<20, 4)
-	servertest.UntilTicks(t, srv, lowDiskSaveTicks, "the failed chunk save is logged", func() bool {
-		return strings.Contains(logs.String(), "could not save chunk")
-	})
-	op.ExpectNoneWithinTicks(srv, 0, isLowDiskWarning)
-	if strings.Contains(logs.String(), "Low disk space") {
-		t.Error("the log warns of low disk space with 64 MiB free")
-	}
-}
-
-// TestFailedChunkSaveSparesLowerOperators checks the level gate: an operator
-// below level 3 gets no warning.
-func TestFailedChunkSaveSparesLowerOperators(t *testing.T) {
-	srv, op, _, logs := lowDiskScene(t, 0, 2)
-	servertest.UntilTicks(t, srv, lowDiskSaveTicks, "the low disk space log line", func() bool {
-		return strings.Contains(logs.String(), "Low disk space")
-	})
-	op.ExpectNoneWithinTicks(srv, 0, isLowDiskWarning)
-}

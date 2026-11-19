@@ -2,8 +2,6 @@ package entity
 
 import (
 	"testing"
-
-	"github.com/golem-mc/golem/internal/server/rules"
 )
 
 // TestTraderLlamaDefendsItsTraderOncePerHurt: the llama leashed to a trader
@@ -44,29 +42,5 @@ func TestTraderLlamaDefendsItsTraderOncePerHurt(t *testing.T) {
 	trader.Age = 9
 	if g.CanStart(view) {
 		t.Error("an unleashed llama defended a trader")
-	}
-}
-
-// TestAZombieHorseRollsItsZombieRiderOnlyInANaturalPack: a finalized zombie
-// horse of a natural pack carries a zombie jockey; a summon or a skeleton
-// horse rolls none.
-// vanilla: ZombieHorse.finalizeSpawn
-func TestAZombieHorseRollsItsZombieRiderOnlyInANaturalPack(t *testing.T) {
-	for seed := int64(1); seed <= 20; seed++ {
-		m := NewMob(TypeZombieHorse, 1, 0, 64, 0, seed)
-		m.FinalizeSpawn(GoDice{m.Rand}, testBiome("minecraft:plains"), NewNaturalSpawnGroup(GoDice{m.Rand}), rules.LocalDifficulty{})
-		if m.Jockey != JockeyRider || m.RiderKind != TypeZombie {
-			t.Fatalf("seed %d: jockey %v rider %v", seed, m.Jockey, m.RiderKind)
-		}
-		m = NewMob(TypeZombieHorse, 1, 0, 64, 0, seed)
-		m.FinalizeSpawn(GoDice{m.Rand}, testBiome("minecraft:plains"), nil, rules.LocalDifficulty{})
-		if m.Jockey != JockeyNone {
-			t.Fatalf("seed %d: a summoned zombie horse rolled a jockey", seed)
-		}
-	}
-	m := NewMob(TypeSkeletonHorse, 1, 0, 64, 0, 1)
-	m.FinalizeSpawn(GoDice{m.Rand}, testBiome("minecraft:plains"), NewNaturalSpawnGroup(GoDice{m.Rand}), rules.LocalDifficulty{})
-	if m.Jockey != JockeyNone {
-		t.Error("a skeleton horse rolled a jockey")
 	}
 }

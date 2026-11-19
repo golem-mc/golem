@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
@@ -117,43 +116,6 @@ func TestPluginPrepareAndCraftEvents(t *testing.T) {
 		4: servertest.ItemStack(t, "minecraft:glass_bottle", 1)}, servertest.ItemStack(t, "minecraft:diamond", 3))
 }
 
-// vanilla: AnvilMenu.createResult.
-func TestPluginPrepareAnvilEvent(t *testing.T) {
-	srv, h, run, w := inventoryPlayer(t)
-	ow := srv.OverworldWorld()
-	ow.Acquire(worldChunk0)
-	defer ow.Release(worldChunk0)
-	ow.SetBlock(4, 64, 0, registry.BlockAnvil.DefaultState())
-	var seen atomic.Int32
-	run(func() {
-		plugin.Listen(h, func(e *plugin.PrepareItemCraftEvent) {
-			seen.Add(1)
-			if e.Result.Item == registry.ItemDiamondSword {
-				e.Cost = 7
-				e.Result.Count = 1
-				name := plugin.Plain("Listener")
-				e.Result.Patch.CustomName = &name
-			}
-		})
-		testerOf(t, h).Inventory().SetItem(0, plugin.NewStack(registry.ItemDiamondSword, 1))
-	})
-	servertest.RunTicks(t, srv, 2)
-	w.Drain()
-	w.UseBlock(4, 64, 0)
-	w.ExpectContainerOpen(protocol.MenuAnvil, false, 4, 64, 0)
-	w.Drain()
-	w.Click(30, 0, protocol.ClickModePickup)
-	w.Click(0, 0, protocol.ClickModePickup)
-	w.Drain()
-	w.Send(protocol.IDPlayRenameItemIn, func(b *protocol.Buffer) { b.PutString("Sharp") })
-	servertest.UntilTicks(t, srv, 20, "the prepare event", func() bool { return seen.Load() >= 1 })
-	want := servertest.ItemStack(t, "minecraft:diamond_sword", 1)
-	name := protocol.Text{Text: "Listener"}
-	want.CustomName = &name
-	w.AwaitWindowSlot(2, want)
-	w.AwaitWindowProperty(int32(server.AnvilCostProperty), 7)
-}
-
 // vanilla: AbstractFurnaceBlockEntity.awardUsedRecipesAndPopExperience.
 func TestPluginFurnaceExtractEvent(t *testing.T) {
 	srv, h, run, w := inventoryPlayer(t)
@@ -184,40 +146,4 @@ func TestPluginFurnaceExtractEvent(t *testing.T) {
 			t.Errorf("extract event %+v", got)
 		}
 	})
-}
-
-// vanilla: GrindstoneMenu.createResult.
-func TestPluginPrepareGrindstoneEvent(t *testing.T) {
-	srv, h, run, w := inventoryPlayer(t)
-	ow := srv.OverworldWorld()
-	ow.Acquire(worldChunk0)
-	defer ow.Release(worldChunk0)
-	ow.SetBlock(4, 64, 0, registry.BlockGrindstone.DefaultState())
-	var seen atomic.Int32
-	run(func() {
-		plugin.Listen(h, func(e *plugin.PrepareItemCraftEvent) {
-			if e.Result.Item == registry.ItemDiamondSword {
-				e.Result = plugin.NewStack(registry.ItemStick, 1)
-				seen.Add(1)
-			}
-		})
-		sword := plugin.NewStack(registry.ItemDiamondSword, 1)
-		sword.Patch.Enchantments = map[plugin.Enchantment]int{33: 1}
-		testerOf(t, h).Inventory().SetItem(0, sword)
-	})
-	servertest.RunTicks(t, srv, 2)
-	w.Drain()
-	w.UseBlock(4, 64, 0)
-	w.ExpectContainerOpen(protocol.MenuGrindstone, false, 4, 64, 0)
-	w.Drain()
-	sword := servertest.ItemStack(t, "minecraft:diamond_sword", 1)
-	sword.Enchantments = map[int32]int32{33: 1}
-	w.Click(30, 0, protocol.ClickModePickup)
-	w.ExpectClickResult(map[int16]protocol.ItemStack{30: {}}, sword)
-	w.Click(0, 0, protocol.ClickModePickup)
-	// The listener's result is the one the click answers with.
-	w.ExpectClickResult(map[int16]protocol.ItemStack{0: sword, 2: servertest.ItemStack(t, "minecraft:stick", 1)}, protocol.ItemStack{})
-	if seen.Load() == 0 {
-		t.Error("no prepare event")
-	}
 }

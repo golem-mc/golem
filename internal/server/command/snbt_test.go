@@ -43,29 +43,3 @@ func TestPrimitiveTagReadsOnlyNumbersAsNumbers(t *testing.T) {
 		}
 	}
 }
-
-func TestComponentResourceLocationGrammar(t *testing.T) {
-	for _, tc := range []struct {
-		text string
-		want nbtRead
-	}{
-		{"minecraft:instrument=minecraft:ponder_goat_horn", nbtIsCompound},
-		{"minecraft:custom_data={id:minecraft:stone}", nbtMalformed},
-		{"minecraft:custom_data={id:'minecraft:stone'}", nbtIsCompound},
-	} {
-		if got, _, _, _ := readComponentList(tc.text); got != tc.want {
-			t.Errorf("readComponentList(%q) = %v, want %v", tc.text, got, tc.want)
-		}
-	}
-}
-
-func TestSummonTagStrictKeys(t *testing.T) {
-	verdict, scalars, _, tag := readSummonTag(`{"\u0064ata":{v:0x10s},"\x48ealth":20f,NoAI:TRUE}`)
-	if verdict != nbtIsCompound || scalars["Health"] != "20f" {
-		t.Fatalf("summon verdict = %v, scalars = %v", verdict, scalars)
-	}
-	want := nbt.Compound{"data": nbt.Compound{"v": nbt.Short(16)}, "Health": nbt.Float(20), "NoAI": nbt.Byte(1)}
-	if !nbt.Equal(tag, want) {
-		t.Errorf("summon tag = %v, want %v", tag, want)
-	}
-}

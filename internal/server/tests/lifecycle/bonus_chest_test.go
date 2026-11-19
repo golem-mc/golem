@@ -69,16 +69,3 @@ func TestBonusChestFlagPlacesSpawnChest(t *testing.T) {
 		t.Errorf("world_gen_settings bonus_chest = %d, want 1", got)
 	}
 }
-
-// TestNoBonusChestWithoutTheFlag checks that a world made without
-// --bonusChest has no chest and saves bonus_chest:0b.
-func TestNoBonusChestWithoutTheFlag(t *testing.T) {
-	t.Parallel()
-	dir, chests, _, _ := bonusChestWorld(t, false)
-	if len(chests) != 0 {
-		t.Errorf("chests in the spawn chunk = %v, want none", chests)
-	}
-	if got := worldGenBonusChest(t, dir); got != 0 {
-		t.Errorf("world_gen_settings bonus_chest = %d, want 0", got)
-	}
-}

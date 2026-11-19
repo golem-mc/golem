@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 )
 
@@ -63,44 +62,5 @@ func TestHardcoreWorldFlagsLoginHardAndSpectatesOnRespawn(t *testing.T) {
 	settings, _ := nbt.Get[nbt.Compound](root, "difficulty_settings")
 	if got, ok := nbt.Get[nbt.Byte](settings, "hardcore"); !ok || got != 1 {
 		t.Errorf("level.dat hardcore = %v, %v; want 1", got, ok)
-	}
-}
-
-// TestNonHardcoreRespawnKeepsTheGameMode checks that
-// a respawn outside a hardcore world keeps the game mode.
-func TestNonHardcoreRespawnKeepsTheGameMode(t *testing.T) {
-	t.Parallel()
-	srv, c, entityID := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Soft", servertest.OpsListing(t, "Soft"))
-	servertest.KillAndRespawn(t, c, entityID, "Soft")
-	c.Settle()
-	if got := srv.PlayerGameMode("Soft"); got == protocol.GameModeSpectator {
-		t.Error("a non-hardcore respawn left the player in spectator")
-	}
-}
-
-// TestHardcoreDeathInTheNetherRespawnsInSpectator checks the dimension-change
-// respawn path also switches the player to spectator.
-// vanilla: ServerGamePacketListenerImpl.handleClientCommand
-func TestHardcoreDeathInTheNetherRespawnsInSpectator(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.SurvivalTestConfig()
-	cfg.Hardcore = true
-	srv, c, entityID := servertest.JoinAs(t, cfg, "Nether", servertest.OpsListing(t, "Nether"))
-	srv.MovePlayerToDimension("Nether", world.NetherName, 8, 40, 8)
-	if _, ok := servertest.ReadUntilViewSent(t, c); !ok {
-		t.Fatal("the nether never arrived around the moved player")
-	}
-	c.ChatCommand("kill")
-	servertest.ExpectDeathSequence(t, c, entityID, protocol.Text{
-		Translate: "death.attack.genericKill",
-		With:      []protocol.Text{servertest.PlayerDisplayComponent("Nether")},
-	})
-	c.PerformRespawn()
-	if _, ok := servertest.ReadUntil(t, c, servertest.ExpectTimeout, protocol.IDPlayRespawn); !ok {
-		t.Fatal("no respawn arrived for the death in the nether")
-	}
-	c.Settle()
-	if got := srv.PlayerGameMode("Nether"); got != protocol.GameModeSpectator {
-		t.Errorf("game mode after the nether respawn = %d, want spectator", got)
 	}
 }

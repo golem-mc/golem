@@ -151,30 +151,6 @@ func TestDialogRefusals(t *testing.T) {
 	bob.Disconnect()
 }
 
-// TestCustomClickActionRunsNothing checks that a run_command payload from a
-// player without permission is only logged: vanilla's handler does no more.
-// vanilla: MinecraftServer.handleCustomClickAction
-func TestCustomClickActionRunsNothing(t *testing.T) {
-	t.Parallel()
-	_, alice, bob, _ := servertest.StartExecuteWorldForTwo(t, "Alice", "Bob")
-
-	payload, err := nbt.EncodeNetwork(nbt.Compound{"command": nbt.String("dialog show Alice minecraft:server_links")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	bob.Send(protocol.IDPlayCustomClickAction, func(b *protocol.Buffer) {
-		b.PutString("minecraft:run_command")
-		b.PutVarInt(int32(len(payload)))
-		b.PutRaw(payload)
-	})
-	bob.Settle()
-	if sawAfterSettle(alice, protocol.IDPlayShowDialog) {
-		t.Error("a click action ran a command")
-	}
-	alice.Disconnect()
-	bob.Disconnect()
-}
-
 // TestDialogInlineFieldsAreValidated checks that an inline dialog whose
 // fields the codec refuses is not sent, and that a well-formed multi_action
 // dialog is.

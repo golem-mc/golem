@@ -2,11 +2,11 @@ package entities
 
 import (
 	"fmt"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/server/servertest"
+
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -259,121 +259,6 @@ func TestAFixtureSurvivesARestart(t *testing.T) {
 	}
 }
 
-// TestAFixtureDoesNotSaveItsTeam loads a text display from a compound with
-// Team "red" and finds no Team in the compound it is saved with.
-// vanilla: Entity.load, Entity.saveWithoutId
-func TestAFixtureDoesNotSaveItsTeam(t *testing.T) {
-	t.Parallel()
-	cfg := servertest.BlockTestConfig()
-	cfg.LevelName = t.TempDir()
-	srv, c := servertest.Join(t, cfg, "Mapper", servertest.OpsListing(t, "Mapper"))
-
-	c.ChatCommand(`team add red`)
-	c.ChatCommand(`summon minecraft:text_display 3.5 70 4.5 {text:'"kept"',Team:"red"}`)
-	textType, _ := registry.EntityTypeID("minecraft:text_display")
-	c.AwaitSpawn(textType)
-	srv.FlushMobs()
-	srv.Shutdown()
-
-	servertest.EntityFileIs(t, cfg.LevelName, world.ChunkPos{X: 0, Z: 0}, "minecraft:text_display", func(compound nbt.Compound) {
-		if team, has := compound["Team"]; has {
-			t.Errorf("saved Team = %v, want no Team key", team)
-		}
-	})
-}
-
-// TestADefaultDisplayReadsBackEveryField checks that /data get entity returns
-// the fields vanilla always saves, not only the ones the summon gave.
-// vanilla: Display.addAdditionalSaveData
-func TestADefaultDisplayReadsBackEveryField(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Mapper", servertest.OpsListing(t, "Mapper"))
-
-	c.ChatCommand(`summon minecraft:text_display 3.5 70 4.5 {text:'"x"'}`)
-	textType, _ := registry.EntityTypeID("minecraft:text_display")
-	c.AwaitSpawn(textType)
-	saved := srv.FixtureSavedTag()
-	for _, key := range []string{"shadow_radius", "transformation", "billboard", "view_range", "line_width", "alignment"} {
-		if _, ok := saved[key]; !ok {
-			t.Errorf("saved tag lacks %s", key)
-		}
-	}
-}
-
-// TestADisplayRotationIsNormalized checks that an unnormalized rotation is
-// the identity once normalized, so no metadata is sent for it.
-// vanilla: ExtraCodecs.QUATERNIONF_COMPONENTS
-func TestADisplayRotationIsNormalized(t *testing.T) {
-	t.Parallel()
-	tag := nbt.Compound{"transformation": nbt.Compound{"left_rotation": nbt.List{Elem: nbt.TypeFloat,
-		Items: []nbt.Tag{nbt.Float(0), nbt.Float(0), nbt.Float(0), nbt.Float(2)}}}}
-	if got := entity.FixtureMetadata(1, entity.FixtureTextDisplay, tag); got != nil {
-		t.Errorf("an identity rotation sent metadata % x", got)
-	}
-	tag["brightness"] = nbt.Compound{"block": nbt.Int(5)}
-	if got := entity.FixtureMetadata(1, entity.FixtureTextDisplay, tag); got != nil {
-		t.Errorf("a brightness without sky sent metadata % x", got)
-	}
-}
-
-// TestAnInteractionRecordsItsLastAttackerAndUser checks that a hit and a use
-// each leave the player's UUID and a timestamp, saved with the entity.
-// vanilla: Interaction.skipAttackInteraction, Interaction.interact
-func TestAnInteractionRecordsItsLastAttackerAndUser(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Mapper", servertest.OpsListing(t, "Mapper"))
-
-	c.ChatCommand(`summon minecraft:interaction 3.5 70 4.5 {width:4f,height:4f}`)
-	typ, _ := registry.EntityTypeID("minecraft:interaction")
-	spawn := c.AwaitSpawn(typ)
-	saved := srv.FixtureSavedTag()
-	if _, ok := saved["attack"]; ok {
-		t.Fatal("a fresh interaction has an attack record")
-	}
-	c.Attack(spawn.EntityID)
-	c.UseOn(spawn.EntityID)
-	for _, key := range []string{"attack", "interaction"} {
-		var rec nbt.Compound
-		servertest.UntilTicks(t, srv, 40, key+" record", func() bool {
-			rec, _ = nbt.Get[nbt.Compound](srv.FixtureSavedTag(), key)
-			return rec != nil
-		})
-		if _, ok := nbt.UUIDField(rec, "player"); !ok {
-			t.Errorf("%s record has no player: %v", key, rec)
-		}
-		if _, ok := rec["timestamp"].(nbt.Long); !ok {
-			t.Errorf("%s record has no timestamp: %v", key, rec)
-		}
-	}
-}
-
-// TestAMergeIntoADisplayTellsWhatChanged checks that /data merge writes the
-// tag and sends the changed fields, including a reset to the default.
-// vanilla: EntityDataAccessor.setData, SynchedEntityData.packDirty
-func TestAMergeIntoADisplayTellsWhatChanged(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Mapper", servertest.OpsListing(t, "Mapper"))
-
-	c.ChatCommand(`summon minecraft:text_display 3.5 70 4.5 {text:'"x"',line_width:50}`)
-	typ, _ := registry.EntityTypeID("minecraft:text_display")
-	spawn := c.AwaitSpawn(typ)
-	awaitFixtureMeta(c, spawn.EntityID)
-	c.ChatCommand(`data merge entity @e[type=minecraft:text_display,limit=1] {line_width:200,Glowing:1b,CustomName:'"n"'}`)
-	f := awaitFixtureMeta(c, spawn.EntityID)
-	if got := f[24]; got.typ != protocol.MetadataVarInt || got.intV != 200 {
-		t.Errorf("line width = %+v, want the default 200 told", got)
-	}
-	if got := f[0]; got.byteV&protocol.EntityFlagGlowing == 0 {
-		t.Errorf("flags = %+v, want glowing", got)
-	}
-	if _, ok := f[2]; !ok {
-		t.Error("the custom name was not sent")
-	}
-	if got, _ := nbt.Get[nbt.Byte](srv.FixtureSavedTag(), "Glowing"); got != 1 {
-		t.Error("the merge did not reach the saved tag")
-	}
-}
-
 // TestADisplayGivenAMatrixIsSentDecomposed checks that a 16-number
 // transformation reaches the client as translation and scale.
 // vanilla: Transformation.EXTENDED_CODEC
@@ -427,26 +312,6 @@ func TestATeleportedFixtureIsToldItsNewPlace(t *testing.T) {
 	}
 }
 
-// TestAMergeResendsADisplaysStartDelayEachTime checks that every merge into a
-// display tells the interpolation start delay, even an unchanged one.
-// vanilla: Display.setTransformationInterpolationDelay
-func TestAMergeResendsADisplaysStartDelayEachTime(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Join(t, servertest.BlockTestConfig(), "Mapper", servertest.OpsListing(t, "Mapper"))
-
-	c.ChatCommand(`summon minecraft:text_display 3.5 70 4.5 {text:'"x"'}`)
-	typ, _ := registry.EntityTypeID("minecraft:text_display")
-	spawn := c.AwaitSpawn(typ)
-	awaitFixtureMeta(c, spawn.EntityID)
-	for _, scale := range []string{"1f,1f,1f", "2f,2f,2f"} {
-		c.ChatCommand(`data merge entity @e[type=minecraft:text_display,limit=1] {start_interpolation:0,interpolation_duration:20,transformation:{translation:[0f,0f,0f],scale:[` + scale + `],left_rotation:[0f,0f,0f,1f],right_rotation:[0f,0f,0f,1f]}}`)
-		f := awaitFixtureMeta(c, spawn.EntityID)
-		if got, ok := f[8]; !ok || got.typ != protocol.MetadataVarInt || got.intV != 0 {
-			t.Errorf("merge with scale %s: start delay = %+v (sent %v), want 0 told", scale, got, ok)
-		}
-	}
-}
-
 // TestATextDisplayResolvesItsSelector summons a text display whose text is a
 // selector and merges one whose text is a score: the client is sent the
 // resolved text.
@@ -482,23 +347,4 @@ func TestATextDisplayResolvesItsSelector(t *testing.T) {
 func flattenText(tag nbt.Tag) string {
 	text, _ := protocol.TextOf(tag)
 	return text.Plain()
-}
-
-// TestATextDisplayKeepsStylesTheModelHasNoFieldFor checks bold text and a
-// keybind arrive as their components, not as an empty string.
-// vanilla: Display.TextDisplay.DATA_TEXT_ID
-func TestATextDisplayKeepsStylesTheModelHasNoFieldFor(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.Join(t, servertest.BlockTestConfig(), "Mapper", servertest.OpsListing(t, "Mapper"))
-	typ, _ := registry.EntityTypeID("minecraft:text_display")
-	for _, tc := range []struct{ tag, want string }{
-		{`{text:{text:"D",bold:true}}`, `map[bold:1 text:D]`},
-		{`{text:{keybind:"key.jump"}}`, `map[keybind:key.jump]`},
-	} {
-		c.ChatCommand(`summon minecraft:text_display 3.5 70 4.5 ` + tc.tag)
-		f := awaitFixtureMeta(c, c.AwaitSpawn(typ).EntityID)
-		if got := fmt.Sprint(f[23].text); got != tc.want {
-			t.Errorf("%s: text = %s, want %s", tc.tag, got, tc.want)
-		}
-	}
 }

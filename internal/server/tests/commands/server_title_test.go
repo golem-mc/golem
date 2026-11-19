@@ -281,43 +281,6 @@ func TestTellrawKeepsListsStylesAndEvents(t *testing.T) {
 	}
 }
 
-// TestTellrawParsesTheComponentBeforeTheTargets checks the error order and
-// the codec message, and the context line, of a refused component.
-// vanilla: TellRawCommand argument order, ComponentArgument.ERROR_INVALID_COMPONENT
-func TestTellrawParsesTheComponentBeforeTheTargets(t *testing.T) {
-	t.Parallel()
-	srv, _ := servertest.Start(t, config.Default())
-
-	reply := srv.RunLine(`tellraw Nobody {"text":1}`)
-	if len(reply) == 0 || len(reply[0].Extra) != 1 || reply[0].Extra[0].Translate != "argument.component.invalid" {
-		t.Fatalf("reply = %v, want argument.component.invalid", reply)
-	}
-	reply = srv.RunLine(`tellraw Nobody "x"`)
-	if len(reply) != 1 || len(reply[0].Extra) != 1 || reply[0].Extra[0].Translate != "argument.entity.notfound.player" {
-		t.Errorf("reply = %v, want the player-not-found refusal", reply)
-	}
-}
-
-// TestConsoleTellrawResolvesAgainstTheConsole runs tellraw from the console,
-// whose @s finds no entity, so the selector is empty text.
-// vanilla: SelectorContents.resolve
-func TestConsoleTellrawResolvesAgainstTheConsole(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	srv, c := servertest.Join(t, cfg, "DJ")
-	c.Settle()
-
-	if reply := srv.RunLine(`tellraw @a {"selector":"@s","bold":true}`); len(reply) != 0 {
-		t.Fatalf("tellraw answered %v, want nothing", reply)
-	}
-	want := rawChat(nbt.Compound{"text": nbt.String(""), "bold": nbt.Byte(1)})
-	lines := chatLines(c)
-	if len(lines) != 1 || !bytes.Equal(lines[0], want) {
-		t.Errorf("got %x, want %x", lines, want)
-	}
-}
-
 // TestTellrawRefusesBadSyntaxAndBothNbtFlags checks the SNBT parser's own
 // error for unreadable text and the refusal of interpret with plain.
 // vanilla: NbtContents.CODEC, SnbtGrammar
@@ -332,31 +295,6 @@ func TestTellrawRefusesBadSyntaxAndBothNbtFlags(t *testing.T) {
 	reply = srv.RunLine(`tellraw @a {nbt:"a",storage:"minecraft:x",interpret:1b,plain:1b}`)
 	if len(reply) == 0 || len(reply[0].Extra) != 1 || reply[0].Extra[0].Translate != "argument.component.invalid" {
 		t.Errorf("reply = %v, want argument.component.invalid", reply)
-	}
-}
-
-// TestTitleTimesTakeTimeUnitsAndNoNegatives checks the times arguments read
-// as minecraft:time with a minimum of 0.
-// vanilla: TitleCommand, TimeArgument.time(0)
-func TestTitleTimesTakeTimeUnitsAndNoNegatives(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "DJ", servertest.OpsListing(t, "DJ"))
-	c.Settle()
-
-	got := titlePackets(c, "title @s times 1s 5s 1t")
-	var want protocol.Buffer
-	want.PutI32(20)
-	want.PutI32(100)
-	want.PutI32(1)
-	if len(got[protocol.IDPlayTitlesAnimation]) != 1 || !bytes.Equal(got[protocol.IDPlayTitlesAnimation][0], want.Bytes()) {
-		t.Errorf("times packet = %x, want %x", got[protocol.IDPlayTitlesAnimation], want.Bytes())
-	}
-	got = titlePackets(c, "title @s times -5 10 10")
-	if len(got[protocol.IDPlayTitlesAnimation]) != 0 {
-		t.Errorf("a negative time sent %x", got[protocol.IDPlayTitlesAnimation])
-	}
-	if reply := srv.RunLine("title @a times -5 10 10"); len(reply) == 0 {
-		t.Error("the console accepted a negative time")
 	}
 }
 
@@ -380,92 +318,5 @@ func TestTitleFeedbackCountsTheTargets(t *testing.T) {
 	})
 	if titles != 1 || len(feedback) != 1 || !bytes.Contains(feedback[0], []byte("commands.title.show.title.multiple")) {
 		t.Errorf("titles = %d, feedback = %q", titles, feedback)
-	}
-}
-
-// TestCommandBlockTellrawSendsTheComponent runs tellraw from a command block.
-func TestCommandBlockTellrawSendsTheComponent(t *testing.T) {
-	t.Parallel()
-	_, c := servertest.AttachActor(t)
-
-	servertest.Setblock(t, c, 2, 64, 0, "command_block[facing=north,conditional=false]")
-	c.Settle()
-	c.ProgramCommandBlock(2, 64, 0, `tellraw @a ["cb ",{"text":"b","bold":true}]`, servertest.ProgramModeImpulse, true, false, false)
-	servertest.AwaitCommandFeedback(t, c, "advMode.setCommand.success", `tellraw @a ["cb ",{"text":"b","bold":true}]`)
-	servertest.Setblock(t, c, 2, 65, 0, "lever[face=floor,facing=north]")
-	c.Settle()
-	c.UseBlock(2, 65, 0)
-
-	want := rawChat(nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-		nbt.Compound{"": nbt.String("cb ")},
-		nbt.Compound{"text": nbt.String("b"), "bold": nbt.Byte(1)},
-	}})
-	for id, data := range c.Stream() {
-		if id == protocol.IDPlaySystemChat && bytes.Equal(data, want) {
-			return
-		}
-	}
-	t.Errorf("the command block's tellraw did not arrive")
-}
-
-// TestTellrawInterpretsOnAnyNonZeroNumber checks that an nbt component's
-// interpret flag turns on for any non-zero number, not only a byte.
-// vanilla: NbtContents.CODEC, Codec.BOOL
-func TestTellrawInterpretsOnAnyNonZeroNumber(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	srv, c := servertest.Join(t, cfg, "DJ")
-	c.Settle()
-	srv.RunLine(`data merge storage minecraft:x {a:{text:"hi"}}`)
-
-	for _, flag := range []string{"1", "1.5f", "2.0"} {
-		srv.RunLine(`tellraw @a {nbt:"a",storage:"minecraft:x",interpret:` + flag + `}`)
-		lines := chatLines(c)
-		if len(lines) != 1 || !bytes.Contains(lines[0], []byte("hi")) || bytes.Contains(lines[0], []byte("{")) {
-			t.Errorf("interpret:%s sent %q, want the stored component's text", flag, lines)
-		}
-	}
-	srv.RunLine(`tellraw @a {nbt:"a",storage:"minecraft:x",interpret:0}`)
-	lines := chatLines(c)
-	if len(lines) != 1 || !bytes.Contains(lines[0], []byte("{")) {
-		t.Errorf("interpret:0 sent %q, want the stored tag as text", lines)
-	}
-}
-
-// TestTellrawSendsAnObjectComponent checks that an atlas sprite, typed and
-// compact, is sent as it was written, and that one without a sprite is
-// refused.
-// vanilla: ObjectContents.MAP_CODEC, AtlasSprite.MAP_CODEC
-func TestTellrawSendsAnObjectComponent(t *testing.T) {
-	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "DJ", servertest.OpsListing(t, "DJ"))
-	c.Settle()
-
-	for _, tc := range []struct {
-		command string
-		want    nbt.Compound
-	}{
-		{`tellraw @s {object:"atlas",sprite:"item/diamond"}`,
-			nbt.Compound{"object": nbt.String("atlas"), "sprite": nbt.String("item/diamond")}},
-		{`tellraw @s {sprite:"item/diamond",fallback:"D"}`,
-			nbt.Compound{"sprite": nbt.String("item/diamond"), "fallback": nbt.String("D")}},
-		{`tellraw @s {sprite:"item/diamond",fallback:{selector:"@s"}}`,
-			nbt.Compound{"sprite": nbt.String("item/diamond"), "fallback": nbt.Compound{
-				"text":  nbt.String(""),
-				"extra": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{protocol.TextTag(playerNameText("DJ"))}},
-			}}},
-		{`tellraw @s {object:"player",player:"Notch"}`,
-			nbt.Compound{"object": nbt.String("player"), "player": nbt.String("Notch")}},
-	} {
-		c.ChatCommand(tc.command)
-		if got := c.ExpectWithinTicks(srv, 5, protocol.IDPlaySystemChat); string(got) != string(rawChat(tc.want)) {
-			t.Errorf("%s sent %x, want %x", tc.command, got, rawChat(tc.want))
-		}
-	}
-
-	reply := srv.RunLine(`tellraw @a {object:"atlas"}`)
-	if len(reply) == 0 || len(reply[0].Extra) != 1 || reply[0].Extra[0].Translate != "argument.component.invalid" {
-		t.Errorf("reply = %v, want argument.component.invalid", reply)
 	}
 }

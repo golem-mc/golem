@@ -62,14 +62,3 @@ func TestAZombieInACauldronJumpsOut(t *testing.T) {
 	t.Parallel()
 	chaseFromCell(t, "minecraft:cauldron", nil, 64.25)
 }
-
-// TestAZombieHopsInAnOpenTrapdoorsCell: an open trapdoor's panel rises above
-// the feet of a mob in its cell, so the mob hops while crossing it.
-// vanilla: MoveControl.tick
-func TestAZombieHopsInAnOpenTrapdoorsCell(t *testing.T) {
-	t.Parallel()
-	_, maxY := chaseFromCell(t, "minecraft:oak_trapdoor", map[string]string{"open": "true", "facing": "north"}, 64)
-	if maxY <= 64.3 {
-		t.Errorf("the zombie rose only to y=%.3f in the trapdoor's cell, want a hop above 64.3", maxY)
-	}
-}

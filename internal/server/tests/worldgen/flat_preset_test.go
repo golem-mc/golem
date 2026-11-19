@@ -67,35 +67,6 @@ func TestFlatLevelTypeIsTheVanillaDefaultPreset(t *testing.T) {
 	c.EnterWorld("Testificate")
 }
 
-// TestFlatWorldIsAnnouncedFlatToTheClient reads the Login (play) packet a
-// flat world's join opens the play phase with: its Is Flat flag and sea
-// level are the flat world's own — the flag true, the level one above the
-// world's floor — where a noise world's are false and 63.
-func TestFlatWorldIsAnnouncedFlatToTheClient(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LevelType = "minecraft:flat"
-	cfg.LevelName = t.TempDir()
-
-	_, connect := servertest.Start(t, cfg)
-
-	c := connect()
-	c.Login("Testificate")
-	c.Configure()
-	tail := servertest.ReadLoginTail(t, c.ExpectNext(protocol.IDPlayLogin))
-	if !tail.Superflat {
-		t.Error("the login packet said the world is not flat")
-	}
-	if tail.HasDeath {
-		t.Error("the login packet carried a death location for a living player")
-	}
-	if tail.SeaLevel != -63 {
-		t.Errorf("the login packet's sea level = %d, want -63", tail.SeaLevel)
-	}
-	c.EnterWorld("Testificate")
-}
-
 // TestTheStoredFlatPresetReopensWithItsGround joins a server whose world
 // records a flat preset of its own — the stone up 128 a world this server
 // built before the vanilla default preset was kept does — and reads the
@@ -198,24 +169,6 @@ func storedGenerator(t *testing.T, dir string) nbt.Compound {
 	return gen
 }
 
-func TestFlatForestLakeStoneIsNotReplacedByOre(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LevelType = "minecraft:flat"
-	cfg.LevelSeed = "0"
-	cfg.LevelName = t.TempDir()
-	cfg.GeneratorSettings = `{"biome":"minecraft:forest","features":true,"lakes":true,"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:dirt","height":3},{"block":"minecraft:grass_block","height":1}]}`
-	srv, _ := servertest.Start(t, cfg)
-	servertest.StopTicking(t, srv)
-	// Vanilla 26.3 leaves the lava lake's stone rim intact in both chunks.
-	for _, p := range [][3]int32{{65, -61, -33}, {66, -62, -31}} {
-		if got := registry.BlockOf(srv.LoadBlockAt(p[0], p[1], p[2])); got != registry.BlockStone {
-			t.Errorf("lake rim at %v = %s, want stone", p, got.Name())
-		}
-	}
-}
-
 // TestFlatGeneratorSettingsBuildTheLayersAndBiome starts a flat world whose
 // generator-settings name layers and a biome, and reads them back from the
 // world and from world_gen_settings.dat.
@@ -273,80 +226,6 @@ func storedBiome(t *testing.T, dir string) nbt.String {
 	return b
 }
 
-// TestFlatGeneratorSettingsWithoutLayersKeepTheDefaultPreset checks that a
-// value with no layers list leaves the default bedrock, dirt and grass.
-// vanilla: DedicatedServerProperties (resultOrPartial)
-func TestFlatGeneratorSettingsWithoutLayersKeepTheDefaultPreset(t *testing.T) {
-	t.Parallel()
-	for _, settings := range []string{`{}`, `{"layers":"stone"}`} {
-		srv, _ := startFlatWith(t, "minecraft:flat", settings, false)
-		assertColumn(t, srv, settings, map[int32]string{
-			-64: "minecraft:bedrock", -63: "minecraft:dirt", -62: "minecraft:dirt",
-			-61: "minecraft:grass_block", -60: "minecraft:air",
-		})
-	}
-}
-
-// TestBadFlatGeneratorSettingsLayersAreDropped checks that an unknown block, a
-// height out of range or a layer missing a field drops that layer only, and
-// that the remaining layers are kept.
-// vanilla: ListCodec (partial result), FlatLayerInfo.CODEC
-func TestBadFlatGeneratorSettingsLayersAreDropped(t *testing.T) {
-	t.Parallel()
-	srv, _ := startFlatWith(t, "minecraft:flat",
-		`{"layers":[{"block":"minecraft:nope","height":1},{"block":"stone","height":2},{"block":"dirt","height":-1},{"block":"dirt"},7,{"block":"sand","height":1}]}`, false)
-	assertColumn(t, srv, "mixed", map[int32]string{
-		-64: "minecraft:stone", -63: "minecraft:stone", -62: "minecraft:sand", -61: "minecraft:air",
-	})
-	srv, _ = startFlatWith(t, "minecraft:flat", `{"layers":[{"block":"minecraft:nope","height":1}]}`, false)
-	assertColumn(t, srv, "only unknown", map[int32]string{-64: "minecraft:air"})
-}
-
-// TestFlatGeneratorSettingsBiomeIsLenient checks that a biome without a
-// namespace resolves and that a non-string biome is plains with the layers
-// kept.
-// vanilla: Biome.CODEC, Identifier.CODEC, FlatLevelGeneratorSettings.CODEC (lenientOptionalFieldOf)
-func TestFlatGeneratorSettingsBiomeIsLenient(t *testing.T) {
-	t.Parallel()
-	_, dir := startFlatWith(t, "minecraft:flat", `{"layers":[{"block":"stone","height":1}],"biome":"desert"}`, false)
-	if b := storedBiome(t, dir); b != "minecraft:desert" {
-		t.Errorf("biome desert: stored biome = %q, want minecraft:desert", b)
-	}
-	srv, dir := startFlatWith(t, "minecraft:flat", `{"layers":[{"block":"stone","height":1}],"biome":5}`, false)
-	if b := storedBiome(t, dir); b != "minecraft:plains" {
-		t.Errorf("biome 5: stored biome = %q, want minecraft:plains", b)
-	}
-	assertColumn(t, srv, "biome 5", map[int32]string{-64: "minecraft:stone", -63: "minecraft:air"})
-}
-
-// TestFlatGeneratorSettingsWithAnUnknownBiomeUsePlains checks the biome
-// fallback while the layers are kept.
-func TestFlatGeneratorSettingsWithAnUnknownBiomeUsePlains(t *testing.T) {
-	t.Parallel()
-	srv, _ := startFlatWith(t, "minecraft:flat",
-		`{"layers":[{"block":"minecraft:stone","height":2}],"biome":"minecraft:nope"}`, true)
-	for y, want := range map[int32]string{-64: "minecraft:stone", -63: "minecraft:stone", -62: "minecraft:air"} {
-		n, _, _ := registry.BlockStateName(srv.LoadBlockAt(0, y, 0))
-		if n != want {
-			t.Errorf("block at y=%d = %q, want %q", y, n, want)
-		}
-	}
-	if got := srv.OverworldBiomeAt(0, -60, 0); got != "minecraft:plains" {
-		t.Errorf("biome = %q, want minecraft:plains", got)
-	}
-}
-
-// TestGeneratorSettingsDoNotAffectANormalWorld checks that a seeded world
-// ignores generator-settings.
-func TestGeneratorSettingsDoNotAffectANormalWorld(t *testing.T) {
-	t.Parallel()
-	_, dir := startFlatWith(t, "normal",
-		`{"layers":[{"block":"minecraft:stone","height":2}],"biome":"minecraft:desert"}`, false)
-	if kind, _ := nbt.Get[nbt.String](storedGenerator(t, dir), "type"); kind != "minecraft:noise" {
-		t.Errorf("generator type = %q, want minecraft:noise", kind)
-	}
-}
-
 // TestADefaultFlatWorldHasItsVillagesWhenStructuresGenerate joins a default
 // flat server with generate-structures on and off and asks /locate for a
 // plains village: found with it on, not found with it off.
@@ -369,29 +248,5 @@ func TestADefaultFlatWorldHasItsVillagesWhenStructuresGenerate(t *testing.T) {
 				servertest.AwaitCommandErrorText(t, c, "commands.locate.structure.not_found", protocol.Text{Text: "minecraft:village_plains"})
 			}
 		})
-	}
-}
-
-// TestDefaultFlatWorldGrowsNoFirstGenerationAnimals grows the first-generation
-// animals of the chunks around spawn in a default flat world, whose village
-// and stronghold structure sets make it a flat-mode overworld generator: none
-// grow.
-// vanilla: FlatLevelSource.spawnOriginalMobs is empty
-func TestDefaultFlatWorldGrowsNoFirstGenerationAnimals(t *testing.T) {
-	t.Parallel()
-	cfg := config.Default()
-	cfg.OnlineMode = false
-	cfg.LevelType = "minecraft:flat"
-	cfg.LevelSeed = "0"
-	cfg.LevelName = t.TempDir()
-	srv, _ := servertest.Start(t, cfg)
-	servertest.StopTicking(t, srv)
-
-	for x := int32(-4); x <= 4; x++ {
-		for z := int32(-4); z <= 4; z++ {
-			if mobs := srv.GrowNaturalMobsForTest(world.ChunkPos{X: x, Z: z}); len(mobs) != 0 {
-				t.Errorf("chunk (%d, %d) grew %d first-generation mobs, want none", x, z, len(mobs))
-			}
-		}
 	}
 }

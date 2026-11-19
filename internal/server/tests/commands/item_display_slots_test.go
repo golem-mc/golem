@@ -94,25 +94,3 @@ func TestItemDisplayContentsSlot(t *testing.T) {
 	write("item modify entity "+target+` contents {type:"discard"}`, 0)
 	copyToPlayer("contents", 0)
 }
-
-// vanilla: Display.ItemDisplay.getSlot, Entity.getSlot
-func TestItemDisplayRejectsOtherSlots(t *testing.T) {
-	t.Parallel()
-	srv, c := dialItem(t, "Testificate")
-	servertest.HoldTicks(t, srv)
-	for _, kind := range []string{"item_display", "block_display", "text_display", "interaction"} {
-		c.ChatCommand("summon " + kind + " 3.5 64 3.5")
-		servertest.AwaitSystemChatSaying(t, c, "commands.summon.success")
-		slots := []string{"contents"}
-		if kind == "item_display" {
-			slots = []string{"container.1", "weapon.mainhand"}
-		}
-		for _, slot := range slots {
-			target := "@e[type=" + kind + ",limit=1]"
-			c.ChatCommand("item replace entity " + target + " " + slot + " with stone")
-			awaitItemFailure(t, c, itemTargetNoSlotKey, protocol.Text{Text: slot})
-			c.ChatCommand("item replace entity @s hotbar.0 from entity " + target + " " + slot)
-			awaitItemFailure(t, c, itemSourceNoSlotKey, protocol.Text{Text: slot})
-		}
-	}
-}

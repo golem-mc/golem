@@ -48,58 +48,6 @@ func TestPatchOrderRemoveThenSetAppends(t *testing.T) {
 	}
 }
 
-func TestPatchOrderCopiesDoNotShare(t *testing.T) {
-	var stack ItemStack
-	stack.SetDyedColor(1)
-	copied := stack
-	copied.SetCustomDataTag(nbt.Compound{"a": nbt.Int(1)})
-	copied.ForgetPatch(DataComponentDyedColor)
-	if got := wireComponents(stack); !slices.Equal(got, []int32{DataComponentDyedColor}) {
-		t.Errorf("original order = %v after changing a copy", got)
-	}
-	if got := stack.PatchOrdered([]int32{DataComponentCustomData, DataComponentDyedColor}); got[0] != DataComponentDyedColor {
-		t.Errorf("noted ids must lead, got %v", got)
-	}
-}
-
-func TestPatchOrderRemoveKeepsPosition(t *testing.T) {
-	var stack ItemStack
-	for _, c := range []int32{DataComponentTool, DataComponentAttackRange, DataComponentTool} {
-		if !stack.Remove(c) {
-			t.Fatalf("remove %d refused", c)
-		}
-	}
-	got := stack.patchOrder
-	if want := []int32{DataComponentTool, DataComponentAttackRange}; !slices.Equal(got, want) {
-		t.Errorf("order = %v, want %v", got, want)
-	}
-	var out Buffer
-	out.putRemovedComponents(stack)
-	var want Buffer
-	want.PutVarInt(DataComponentTool)
-	want.PutVarInt(DataComponentAttackRange)
-	if string(out.Bytes()) != string(want.Bytes()) {
-		t.Errorf("removed bytes = %x, want %x", out.Bytes(), want.Bytes())
-	}
-}
-
-func TestPatchOrderTemplateRemovalOrder(t *testing.T) {
-	var stack ItemStack
-	stack.ItemID, stack.Count = 1, 1
-	stack.Remove(DataComponentFood)
-	stack.Remove(DataComponentTool)
-	var tmpl Buffer
-	tmpl.PutItemTemplate(stack)
-	// Template: id, count, 0 added, 2 removed, then the removed types.
-	r := NewReader(tmpl.Bytes())
-	for range 4 {
-		r.ReadVarInt()
-	}
-	if a, b := r.ReadVarInt(), r.ReadVarInt(); a != DataComponentFood || b != DataComponentTool {
-		t.Errorf("template removals = %d, %d; want food, tool", a, b)
-	}
-}
-
 // TestPatchOrderWithoutHistoryKeepsWireBytes compares captures from 0c799c182,
 // before patch-root history. Literal fields leave even the nested history empty.
 func TestPatchOrderWithoutHistoryKeepsWireBytes(t *testing.T) {

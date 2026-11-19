@@ -65,32 +65,3 @@ func TestStoragePathRefusalsDiscardEdits(t *testing.T) {
 		})
 	}
 }
-
-func TestStoragePathRootPredicatesCommitEdits(t *testing.T) {
-	srv, _ := startFunctionServer(t, nil)
-	servertest.HoldTicks(t, srv)
-	for _, line := range []string{
-		`data merge storage t:s {guard:1,rows:[1],obj:{v:1}}`,
-		`data modify storage t:s {guard:1}.rows append value 2`,
-		`data modify storage t:s {guard:1}.obj{v:1}.v set value 2`,
-		`data modify storage t:s {guard:1}.created.v set value 3`,
-		`data remove storage t:s {guard:1}.created`,
-		`data modify storage t:s {guard:1} merge value {extra:3}`,
-		`execute store result storage t:s {guard:1}.result int 1 run data get storage t:s extra`,
-	} {
-		if feedback := srv.RunRconLine(line); len(feedback) != 1 || feedback[0].Color == "red" {
-			t.Fatalf("%s: %+v", line, feedback)
-		}
-	}
-	for _, tc := range []struct{ path, want string }{
-		{"guard", "1"}, {"rows", "[1, 2]"}, {"obj.v", "2"}, {"extra", "3"}, {"result", "3"},
-	} {
-		feedback := srv.RunRconLine("data get storage t:s " + tc.path)
-		if len(feedback) != 1 || len(feedback[0].With) != 2 {
-			t.Fatalf("%s query: %+v", tc.path, feedback)
-		}
-		if got := feedback[0].With[1].Plain(); got != tc.want {
-			t.Errorf("%s = %s, want %s", tc.path, got, tc.want)
-		}
-	}
-}

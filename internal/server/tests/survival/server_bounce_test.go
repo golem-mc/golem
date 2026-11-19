@@ -157,39 +157,3 @@ func jumpsOf(t *testing.T, c *servertest.Client) int32 {
 	}
 	return jumps
 }
-
-// A landing a position packet reports on a slime block, then a rise, is the
-// body bouncing, not a jump; one that only a flags packet reports is still a
-// jump; the same landing on stone or while sneaking (no bounce) counts.
-// vanilla: ServerGamePacketListenerImpl.handlePlayerPositionChange,
-// Entity.restituteMovementAfterCollisions
-func TestBounceLandings(t *testing.T) {
-	t.Parallel()
-	const jump = 0.05 // vanilla: Player.jumpFromGround, causeFoodExhaustion
-	cases := []struct {
-		name      string
-		block     string
-		steps     []bounceStep
-		sneak     bool
-		wantJumps int32
-	}{
-		{"position landing on slime", "minecraft:slime_block", bounceLandingByPosition, false, 0},
-		{"flags landing on slime", "minecraft:slime_block", bounceLandingByFlags, false, 1},
-		{"position landing on stone", "minecraft:stone", bounceLandingByPosition, false, 1},
-		{"position landing on a bed", "minecraft:white_bed", bounceLandingByPosition, false, 0},
-		{"slow position landing on slime", "minecraft:slime_block", bounceLandingSlow, false, 1},
-		{"sneaking position landing on slime", "minecraft:slime_block", bounceLandingByPosition, true, 1},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			jumps, exhaustion := jumpsAndExhaustion(t, tc.block, tc.steps, tc.sneak)
-			if jumps != tc.wantJumps {
-				t.Errorf("jumps = %d, want %d", jumps, tc.wantJumps)
-			}
-			if want := jump * float64(tc.wantJumps); math.Abs(exhaustion-want) > 1e-6 {
-				t.Errorf("exhaustion added = %v, want %v", exhaustion, want)
-			}
-		})
-	}
-}

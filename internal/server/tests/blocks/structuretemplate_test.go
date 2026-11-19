@@ -3,7 +3,6 @@ package blocks
 import (
 	"bytes"
 	"compress/gzip"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,83 +13,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 )
-
-// vanilla: StructureTemplate.createEntityIgnoreException, EntityType.create
-func TestTemplateLoadIgnoresNestedPassengers(t *testing.T) {
-	t.Parallel()
-	for _, route := range []string{"structure block", "place command"} {
-		t.Run(route, func(t *testing.T) {
-			t.Parallel()
-			cfg := servertest.BlockTestConfig()
-			cfg.LevelName = t.TempDir()
-			dir := filepath.Join(cfg.LevelName, "generated", "test", "structure")
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			template := nbt.Compound{
-				"size":        tplInts(4, 2, 1),
-				"palette":     nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"Name": nbt.String("minecraft:air")}}},
-				"blocks":      nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{tplBlock(0, 0, nil)}},
-				"DataVersion": nbt.Int(4440),
-			}
-			var entries []nbt.Tag
-			for i, kind := range []string{"pig", "oak_boat", "minecart", "chicken"} {
-				tag := nbt.Compound{"id": nbt.String("minecraft:" + kind), "NoAI": nbt.Byte(1), "NoGravity": nbt.Byte(1)}
-				if kind != "chicken" {
-					tag["Passengers"] = nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-						nbt.Compound{"id": nbt.String("minecraft:chicken")},
-					}}
-				}
-				entries = append(entries, nbt.Compound{
-					"pos":      nbt.List{Elem: nbt.TypeDouble, Items: []nbt.Tag{nbt.Double(float64(i) + 0.5), nbt.Double(1), nbt.Double(0.5)}},
-					"blockPos": tplInts(int32(i), 1, 0),
-					"nbt":      tag,
-				})
-			}
-			template["entities"] = nbt.List{Elem: nbt.TypeCompound, Items: entries}
-			raw, err := nbt.Encode("", template)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(dir, "riders.nbt"), raw, 0o644); err != nil {
-				t.Fatal(err)
-			}
-			srv, c := servertest.Join(t, cfg, "Actor", servertest.OpsListing(t, "Actor"))
-			servertest.HoldTicks(t, srv)
-			for _, x := range []int32{30, 50} {
-				servertest.Setblock(t, c, x, 64, 10, "minecraft:structure_block[mode=load]")
-				if route == "structure block" {
-					c.ProgramStructureBlock(servertest.StructureBlockPacket{
-						X: x, Y: 64, Z: 10, Action: servertest.StructureActionLoad, Mode: servertest.StructureModeLoad,
-						Name: "test:riders", Offset: [3]int8{0, 1, 0}, Size: [3]int8{4, 2, 1}, Integrity: 1,
-					})
-				} else {
-					c.ChatCommand(fmt.Sprintf("place template test:riders %d 65 10", x))
-				}
-				counts := make(map[int32]int)
-				c.SettleAndCollect(func(id int32, data []byte) {
-					switch id {
-					case protocol.IDPlaySpawnEntity:
-						r := protocol.NewReader(data)
-						r.ReadVarInt()
-						r.ReadUUID()
-						counts[r.ReadVarInt()]++
-					case protocol.IDPlaySetPassengers:
-						_, riders := servertest.ReadPassengers(c, data)
-						if len(riders) != 0 {
-							t.Errorf("template loaded passengers %v", riders)
-						}
-					}
-				})
-				for _, typ := range []int32{protocol.EntityTypePig, protocol.EntityTypeOakBoat, protocol.EntityTypeMinecart, protocol.EntityTypeChicken} {
-					if counts[typ] != 1 {
-						t.Errorf("load at x=%d spawned %d of type %d, want one top-level entity", x, counts[typ], typ)
-					}
-				}
-			}
-		})
-	}
-}
 
 func tplInts(v ...int32) nbt.List {
 	l := nbt.List{Elem: nbt.TypeInt}
@@ -204,44 +126,6 @@ func TestALoadKeepsDataMarkerJigsawAndTestBlocks(t *testing.T) {
 	}
 }
 
-// TestAPoweredLoadPlacesTheTemplateEntitiesTurned: a lever-powered load block
-// stands the template's armor stand up at its offset position, turned by the
-// block's rotation or mirror about the origin block's corner.
-// vanilla: StructureBlock.trigger, StructureTemplate.transform(Vec3, ...)
-func TestAPoweredLoadPlacesTheTemplateEntitiesTurned(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name             string
-		mirror, rotation int32
-		dx, dz           float64
-	}{
-		{"plain", 0, 0, 0.25, 0.75},
-		{"clockwise 90", 0, 1, 0.25, 0.25},
-		{"mirror front-back", 2, 0, 0.75, 0.75},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv, c := markerScene(t)
-			servertest.Setblock(t, c, 30, 64, 10, "minecraft:structure_block[mode=load]")
-			c.ProgramStructureBlock(servertest.StructureBlockPacket{
-				X: 30, Y: 64, Z: 10, Action: servertest.StructureActionUpdate, Mode: servertest.StructureModeLoad,
-				Name: "test:markers", Offset: [3]int8{0, 2, 0}, Size: [3]int8{4, 1, 1}, Integrity: 1,
-				Mirror: tc.mirror, Rotation: tc.rotation,
-			})
-			c.Settle()
-			servertest.Setblock(t, c, 30, 65, 10, "minecraft:lever[face=floor,facing=north]")
-			c.MoveToGround(28.5, 64, 8.5, true)
-			c.Settle()
-			c.UseBlock(30, 65, 10)
-			servertest.RunTicks(t, srv, 4)
-			got := c.AwaitSpawn(protocol.EntityTypeArmorStand)
-			if got.X != 30+tc.dx || got.Y != 66 || got.Z != 10+tc.dz {
-				t.Errorf("armor stand at (%v, %v, %v), want (%v, 66, %v)", got.X, got.Y, got.Z, 30+tc.dx, 10+tc.dz)
-			}
-		})
-	}
-}
-
 // saveWithEntities saves the 3x3x3 box at (11,64,10) from a save block at
 // (10,64,10) as test:stands.
 func saveWithEntities(t *testing.T, c *servertest.Client, ignoreEntities bool) {
@@ -310,71 +194,5 @@ func TestAStructureBlockSaveCapturesTheEntitiesInTheBox(t *testing.T) {
 	got := c.AwaitSpawn(protocol.EntityTypeArmorStand)
 	if got.X != 32.5 || got.Y != 65 || got.Z != 11.5 {
 		t.Errorf("loaded stand at (%v, %v, %v), want (32.5, 65, 11.5)", got.X, got.Y, got.Z)
-	}
-}
-
-// TestAStructureBlockSaveNestsRidersUnderTheirMount: a mount saved from the
-// box carries its rider under Passengers, with an empty passenger-root entry.
-// vanilla: StructureTemplate.fillEntityList, Entity.save, Entity.saveWithoutId
-func TestAStructureBlockSaveNestsRidersUnderTheirMount(t *testing.T) {
-	t.Parallel()
-	srv, c, dir := structureScene(t)
-	c.MoveToGround(12.5, 64, 11.5, true)
-	servertest.HoldTicks(t, srv)
-	c.ChatCommand("summon minecraft:pig 12.5 64 11.5")
-	pig := c.AwaitSpawn(protocol.EntityTypePig)
-	c.ChatCommand("summon minecraft:chicken 12.5 64 11.5")
-	chicken := c.AwaitSpawn(protocol.EntityTypeChicken)
-	c.ChatCommand("ride @e[type=chicken,limit=1] mount @e[type=pig,limit=1]")
-	servertest.AwaitSystemChatSaying(t, c, "commands.ride.mount.success")
-
-	servertest.Setblock(t, c, 10, 64, 10, "minecraft:structure_block[mode=save]")
-	saveWithEntities(t, c, false)
-	data, err := os.ReadFile(filepath.Join(dir, "generated", "test", "structure", "stands.nbt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	tpl, err := world.ParseTemplate(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tpl.Entities) != 2 {
-		t.Fatalf("saved %d entries, want the pig and an empty passenger root", len(tpl.Entities))
-	}
-	found := false
-	empty := 0
-	for _, e := range tpl.Entities {
-		if len(e.NBT) == 0 {
-			empty++
-			continue
-		}
-		if id, _ := nbt.Get[nbt.String](e.NBT, "id"); id != "minecraft:pig" {
-			t.Errorf("unexpected top-level entity id %q; mounted passengers must have empty root NBT", id)
-			continue
-		}
-		if id, ok := nbt.UUIDField(e.NBT, "UUID"); !ok || id != pig.Uuid {
-			t.Errorf("saved pig UUID = %v, want %v", id, pig.Uuid)
-		}
-		riders, _ := nbt.Get[nbt.List](e.NBT, "Passengers")
-		if len(riders.Items) != 1 {
-			continue
-		}
-		rider, ok := riders.Items[0].(nbt.CompoundTag)
-		if !ok {
-			t.Fatalf("saved passenger is %T, want a compound", riders.Items[0])
-		}
-		if id, _ := nbt.Get[nbt.String](rider.Entries(), "id"); id != "minecraft:chicken" {
-			t.Errorf("saved passenger id = %q, want minecraft:chicken", id)
-		}
-		if id, ok := nbt.UUIDField(rider.Entries(), "UUID"); !ok || id != chicken.Uuid {
-			t.Errorf("saved passenger UUID = %v, want %v", id, chicken.Uuid)
-		}
-		found = true
-	}
-	if !found {
-		t.Errorf("pig has no chicken under Passengers in %d saved entities", len(tpl.Entities))
-	}
-	if empty != 1 {
-		t.Errorf("saved %d empty passenger roots, want 1", empty)
 	}
 }

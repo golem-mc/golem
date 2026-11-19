@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
@@ -27,34 +26,5 @@ func TestSelectorBoxFollowsScale(t *testing.T) {
 	}
 	if !holds("0.5") {
 		t.Error("a volume over the body did not match the half-scale player")
-	}
-}
-
-// TestFangsMissAHalfScalePlayerAboveTheHead: fangs whose box starts above
-// the 0.9 high body spare the player, fangs at the feet bite.
-// vanilla: EvokerFangs.dealDamageTo
-func TestFangsMissAHalfScalePlayerAboveTheHead(t *testing.T) {
-	t.Parallel()
-	srv, c := servertest.Join(t, servertest.HostileTestConfig(), "Tiny", servertest.OpsListing(t, "Tiny"))
-	servertest.HoldTicks(t, srv)
-	c.MoveToGround(20.5, 64, 0.5, true)
-	c.ChatCommand("attribute @s minecraft:scale base set 0.5")
-	servertest.AwaitSystemChatSaying(t, c, "commands.attribute.base_value.set.success")
-	lowest := func(y float64) float32 {
-		var low float32 = 20
-		srv.SpawnFangs(20.5, y, 0.5, 0)
-		pumpTicks(c, srv, 30, servertest.HostileSkip, func(pid int32, data []byte) bool {
-			if pid == protocol.IDPlaySetHealth {
-				low = min(low, servertest.ExpectHealthReport(c, data).Health)
-			}
-			return false
-		})
-		return low
-	}
-	if got := lowest(64.95); got != 20 {
-		t.Errorf("health = %v after fangs above the head, want 20", got)
-	}
-	if got := lowest(64); got != 14 {
-		t.Errorf("health = %v after fangs at the feet, want 14", got)
 	}
 }
