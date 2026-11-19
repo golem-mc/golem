@@ -165,4 +165,9 @@ func TestColorFlag(t *testing.T) {
 	if _, errw, _ := f.run("outdated"); !strings.Contains(errw, "\x1b[") {
 		t.Errorf("FORCE_COLOR did not paint: %q", errw)
 	}
+	for _, args := range [][]string{{"-color=never", "--help"}, {"plugin", "list", "-color=never", "-h"}, {"plugin", "list", "-color=never", "-bogus"}} {
+		if out, errw, _ := f.run(args...); strings.Contains(out+errw, "\x1b[") {
+			t.Errorf("%q painted: %q %q", args, out, errw)
+		}
+	}
 }

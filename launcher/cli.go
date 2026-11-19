@@ -394,11 +394,12 @@ func (c *cli) execute(ctx context.Context, args []string) error {
 	fs.SetOutput(io.Discard)
 	g.register(fs, true)
 	rest, err := parseInterleavedLeading(fs, args)
+	// Apply -color even when parsing failed, so help and usage errors honour it.
+	if cerr := c.setColor(g.color); err == nil {
+		err = cerr
+	}
 	if errors.Is(err, flag.ErrHelp) {
 		return c.helpFor(nil)
-	}
-	if err == nil {
-		err = c.setColor(g.color)
 	}
 	if err != nil {
 		return c.usageFailure(nil, err)
@@ -439,8 +440,8 @@ func (c *cli) execute(ctx context.Context, args []string) error {
 		}
 	}
 	pos, err := parseInterleaved(cfs, rest)
-	if err == nil {
-		err = c.setColor(g.color)
+	if cerr := c.setColor(g.color); err == nil {
+		err = cerr
 	}
 	if errors.Is(err, flag.ErrHelp) {
 		return c.helpFor(strings.Fields(cmd.name))
