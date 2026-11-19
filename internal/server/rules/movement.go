@@ -9,9 +9,12 @@ const movePacketBurst = 5
 
 // MovedTooQuickly reports whether a step of movedSq (squared blocks) exceeds
 // 100 per move packet this tick (300 gliding) on top of expectedSq, the
-// squared velocity carried. Packets past the burst count as one.
+// squared velocity carried. Packets past the burst count as one. speed is
+// the body's walk or fly speed over vanilla's default; above 1 it widens
+// the budget by its square, so a plugin's faster player is not sent back.
 // vanilla: ServerGamePacketListenerImpl.handleMovePlayer
-func MovedTooQuickly(movedSq, expectedSq float64, packets int, fallFlying bool) bool {
+// vanilla-bukkit: the budget's speed scaling is Spigot's (movedTooQuicklyMultiplier)
+func MovedTooQuickly(movedSq, expectedSq float64, packets int, fallFlying bool, speed float64) bool {
 	if packets > movePacketBurst {
 		packets = 1
 	}
@@ -19,7 +22,11 @@ func MovedTooQuickly(movedSq, expectedSq float64, packets int, fallFlying bool) 
 	if fallFlying {
 		metersPerTick = 300
 	}
-	return movedSq-expectedSq > float64(metersPerTick*float32(packets))
+	budget := float64(metersPerTick * float32(packets))
+	if speed > 1 {
+		budget *= speed * speed
+	}
+	return movedSq-expectedSq > budget
 }
 
 // MoveCheck is the state of the moved-too-quickly check across a tick:
@@ -44,6 +51,8 @@ type MoveStep struct {
 	MovementCheck, ElytraCheck bool // the player_movement_check and elytra_movement_check rules
 	FallFlying                 bool
 	Spectator                  bool
+	// Speed is the walk or fly speed over vanilla's default (1 or less: none).
+	Speed float64
 	// Collides says whether the step enters a collision shape the body was
 	// not already in; asked only when the step reaches that check.
 	Collides func() bool
@@ -75,7 +84,7 @@ func (m *MoveCheck) Judge(s MoveStep) MoveVerdict {
 		m.Packets++
 		if s.MovementCheck && (!s.FallFlying || s.ElytraCheck) {
 			dx, dy, dz := s.To.X-m.Anchor[0], s.To.Y-m.Anchor[1], s.To.Z-m.Anchor[2]
-			if MovedTooQuickly(dx*dx+dy*dy+dz*dz, 0, m.Packets, s.FallFlying) {
+			if MovedTooQuickly(dx*dx+dy*dy+dz*dz, 0, m.Packets, s.FallFlying, s.Speed) {
 				return MoveVerdict{Refused: true, TooQuick: true, Back: s.Was, Delta: [3]float64{dx, dy, dz}}
 			}
 		}

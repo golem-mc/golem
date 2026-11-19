@@ -13,20 +13,24 @@ func TestMovedTooQuickly(t *testing.T) {
 		expectedSq float64
 		packets    int
 		fallFlying bool
+		speed      float64
 		want       bool
 	}{
-		{"ten blocks on one packet", 100, 0, 1, false, false},
-		{"past ten blocks on one packet", 100.01, 0, 1, false, true},
-		{"second packet of the tick", 199, 0, 2, false, false},
-		{"five packets", 499, 0, 5, false, false},
-		{"a burst past five counts as one", 101, 0, 6, false, true},
-		{"carried velocity", 150, 60, 1, false, false},
-		{"gliding", 299, 0, 1, true, false},
-		{"past the glide", 301, 0, 1, true, true},
+		{"ten blocks on one packet", 100, 0, 1, false, 0, false},
+		{"past ten blocks on one packet", 100.01, 0, 1, false, 0, true},
+		{"second packet of the tick", 199, 0, 2, false, 0, false},
+		{"five packets", 499, 0, 5, false, 0, false},
+		{"a burst past five counts as one", 101, 0, 6, false, 0, true},
+		{"carried velocity", 150, 60, 1, false, 0, false},
+		{"gliding", 299, 0, 1, true, 0, false},
+		{"past the glide", 301, 0, 1, true, 0, true},
+		{"ten times the fly speed", 9000, 0, 1, false, 10, false},
+		{"past ten times the fly speed", 10001, 0, 1, false, 10, true},
+		{"a slower body keeps vanilla's budget", 100, 0, 1, false, 0.5, false},
 	} {
-		if got := MovedTooQuickly(tc.movedSq, tc.expectedSq, tc.packets, tc.fallFlying); got != tc.want {
-			t.Errorf("%s: MovedTooQuickly(%v, %v, %d, %v) = %v, want %v",
-				tc.name, tc.movedSq, tc.expectedSq, tc.packets, tc.fallFlying, got, tc.want)
+		if got := MovedTooQuickly(tc.movedSq, tc.expectedSq, tc.packets, tc.fallFlying, tc.speed); got != tc.want {
+			t.Errorf("%s: MovedTooQuickly(%v, %v, %d, %v, %v) = %v, want %v",
+				tc.name, tc.movedSq, tc.expectedSq, tc.packets, tc.fallFlying, tc.speed, got, tc.want)
 		}
 	}
 }
