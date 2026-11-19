@@ -448,12 +448,16 @@ func (c *cli) run(ctx context.Context, rebuild bool, serverArgs []string) error 
 	if err != nil {
 		return err
 	}
+	notices := c.startUpdateCheck(ctx, st)
 	bin, err := c.l.server(ctx, st.cfg, st.srvDir, st.plugins, rebuild)
 	if err != nil {
 		return err
 	}
+	for _, n := range notices() {
+		fmt.Fprintln(c.out, n)
+	}
 	c.stop()
-	return runServer(bin, serverArgs)
+	return startServer(bin, serverArgs)
 }
 
 func (c *cli) build(ctx context.Context, outFile string) error {
@@ -470,7 +474,7 @@ func (c *cli) build(ctx context.Context, outFile string) error {
 		if err != nil {
 			return err
 		}
-		if err := writeExecutable(outFile, data); err != nil {
+		if err := writeFileAtomic(outFile, data, 0o755); err != nil {
 			return err
 		}
 		bin = outFile
@@ -749,36 +753,22 @@ func (c *cli) outdated(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var lines []string
-	if st.srvDir == "" {
-		latest, err := c.l.latestServer(ctx)
-		if err != nil {
-			return err
-		}
-		if newer(st.cfg.Server, latest) {
-			lines = append(lines, fmt.Sprintf("server\t%s\t%s", st.cfg.Server, latest))
-		}
+	items, err := c.outdatedItems(ctx, st, false)
+	if err != nil {
+		return err
 	}
-	for _, p := range st.plugins {
-		if p.Dir != "" {
-			continue
-		}
-		_, latest, err := c.l.latestPlugin(ctx, p.Path)
-		if err != nil {
-			return err
-		}
-		if newer(p.Version, latest) {
-			lines = append(lines, fmt.Sprintf("%s\t%s\t%s", p.Path, p.Version, latest))
-		}
-	}
-	if len(lines) == 0 {
+	if len(items) == 0 {
 		fmt.Fprintln(c.out, "everything is up to date")
 		return nil
 	}
 	tw := tabwriter.NewWriter(c.out, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tPINNED\tLATEST")
-	for _, l := range lines {
-		fmt.Fprintln(tw, l)
+	for _, it := range items {
+		name := it.path
+		if name == serverModule {
+			name = "server"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", name, it.current, it.latest)
 	}
 	return tw.Flush()
 }
@@ -805,7 +795,7 @@ func (c *cli) update(ctx context.Context, server bool, names []string) error {
 		}
 	}
 	if server && st.srvDir == "" {
-		latest, err := c.l.latestServer(ctx)
+		latest, err := c.l.latestOf(ctx, serverModule, false)
 		if err != nil {
 			return err
 		}
@@ -817,9 +807,14 @@ func (c *cli) update(ctx context.Context, server bool, names []string) error {
 		if !pick[i] || p.Dir != "" {
 			continue
 		}
+		latest, err := c.l.latestOf(ctx, p.Path, false)
+		if err != nil {
+			return err
+		}
 		// Every package of the module moves, so one build has one
-		// version of it.
-		mod, latest, err := c.l.latestPlugin(ctx, p.Path)
+		// version of it. latestOf's query is remembered, so this asks
+		// go nothing more.
+		mod, _, err := c.l.latestPlugin(ctx, p.Path)
 		if err != nil {
 			return err
 		}

@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/mod/modfile"
@@ -38,13 +39,26 @@ const buildSchema = "1"
 type launcher struct {
 	cache string
 	http  *http.Client
+	clock clock
+	// versionsMu guards the version cache file (versionCachePath).
+	versionsMu sync.Mutex
 	// queries holds queryModule's answers, so a command asks go once per
-	// module query however many plugins share the module.
-	queries map[string]queryAnswer
+	// module query however many plugins share the module; queriesMu guards
+	// it, as the update check asks in parallel.
+	queriesMu sync.Mutex
+	queries   map[string]queryAnswer
 }
 
+// testLauncher, when set, adjusts every new launcher; tests give it a fake
+// clock or HTTP transport.
+var testLauncher func(*launcher)
+
 func newLauncher(cache string) *launcher {
-	return &launcher{cache: cache, http: &http.Client{Timeout: 15 * time.Minute}}
+	l := &launcher{cache: cache, http: &http.Client{Timeout: 15 * time.Minute}, clock: realClock{}}
+	if testLauncher != nil {
+		testLauncher(l)
+	}
+	return l
 }
 
 // server answers the binary to run: the release when there are no plugins

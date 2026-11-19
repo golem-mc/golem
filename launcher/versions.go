@@ -22,15 +22,20 @@ type queryAnswer struct {
 // complaint is part of the error, not printed: pluginModule expects some
 // queries to fail.
 func (l *launcher) queryModule(ctx context.Context, q string) (string, error) {
-	if a, ok := l.queries[q]; ok {
+	l.queriesMu.Lock()
+	a, ok := l.queries[q]
+	l.queriesMu.Unlock()
+	if ok {
 		return a.version, a.err
 	}
 	v, err := l.askModule(ctx, q)
 	if ctx.Err() == nil {
+		l.queriesMu.Lock()
 		if l.queries == nil {
 			l.queries = map[string]queryAnswer{}
 		}
 		l.queries[q] = queryAnswer{v, err}
+		l.queriesMu.Unlock()
 	}
 	return v, err
 }
