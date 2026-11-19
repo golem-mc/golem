@@ -26,6 +26,10 @@ const (
 // startServer hands over to the server; tests replace it.
 var startServer = runServer
 
+// updateCheckDone runs once a start's update check has its answer; tests
+// replace it.
+var updateCheckDone = func() {}
+
 // clock is the launcher's time; tests drive it.
 type clock interface {
 	Now() time.Time
@@ -166,11 +170,20 @@ func (c *cli) startUpdateCheck(ctx context.Context, st state) func() []string {
 		}
 	}()
 	// Read before the goroutine: a check cut short outlives the start.
-	own := ownVersion()
+	own, finished := ownVersion(), updateCheckDone
 	done := make(chan []string, 1)
-	go func() { done <- c.updateNotices(ctx, st, own) }()
+	go func() {
+		done <- c.updateNotices(ctx, st, own)
+		finished()
+	}()
 	return func() []string {
 		defer cancel()
+		// An answer that is in wins over an expiry that is also due.
+		select {
+		case n := <-done:
+			return n
+		default:
+		}
 		select {
 		case n := <-done:
 			return n

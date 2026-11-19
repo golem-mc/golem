@@ -207,6 +207,37 @@ func TestStartNoticesTimeout(t *testing.T) {
 	}
 }
 
+// A check that finished before the timeout is reported even when the build
+// holds the start past it.
+func TestStartNoticesFinishedBeforeSlowBuild(t *testing.T) {
+	f := newStartFixture(t, `{"server": "v1.0.0", "plugins": []}`, "v0.1.0", "v1.5.0")
+	finished := make(chan struct{}, 1)
+	updateCheckDone = func() { finished <- struct{}{} }
+	t.Cleanup(func() { updateCheckDone = func() {} })
+	c := &cli{l: newLauncher(f.cache), configPath: f.config, out: &bytes.Buffer{}}
+	st, err := c.load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		strings.TrimSuffix(serverNotice, "\n"),
+		strings.TrimSuffix(launcherNotice, "\n"),
+		strings.TrimSuffix(updateHint, "\n"),
+	}
+	for range 20 { // select picks at random between ready cases
+		notices := c.startUpdateCheck(context.Background(), st)
+		<-f.clock.armed
+		<-finished
+		f.clock.Advance(updateCheckTimeout)
+		// Lets the expiry goroutine mark the check expired, so that both
+		// answers are ready; the test passes without it but misses a lost one.
+		time.Sleep(5 * time.Millisecond)
+		if got := notices(); !slices.Equal(got, want) {
+			t.Fatalf("notices = %q, want %q", got, want)
+		}
+	}
+}
+
 func TestStartNoticesCache(t *testing.T) {
 	f := newStartFixture(t, `{"server": "v1.0.0", "plugins": []}`, "v0.1.0", "v1.5.0")
 	want := serverNotice + launcherNotice + updateHint
