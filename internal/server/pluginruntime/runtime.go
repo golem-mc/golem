@@ -218,11 +218,28 @@ func (h *Host) Done() <-chan struct{} { return h.done }
 func (h *Host) guard(fn func() error) (err error) {
 	defer func() {
 		if p := recover(); p != nil {
-			err = fmt.Errorf("panic: %v\n%s", p, debug.Stack())
+			err = Recovered(p)
 		}
 	}()
 	return fn()
 }
+
+// PanicError is a plugin's recovered panic. Its message is the panic's value;
+// the console prints Stack, the goroutine's stack where it panicked, under
+// the log line.
+type PanicError struct {
+	Value any
+	stack []byte
+}
+
+// Recovered wraps p, just recovered, with the stack of the panic; call it in
+// the deferred function that recovered.
+func Recovered(p any) *PanicError { return &PanicError{Value: p, stack: debug.Stack()} }
+
+func (e *PanicError) Error() string { return fmt.Sprintf("panic: %v", e.Value) }
+
+// Stack is the stack trace of the panicking goroutine.
+func (e *PanicError) Stack() string { return string(e.stack) }
 
 // Logger answers the logger tagged with the plugin name.
 func (h *Host) Logger() *slog.Logger { return slog.Default().With("plugin", h.Name()) }

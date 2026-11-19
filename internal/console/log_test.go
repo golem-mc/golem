@@ -96,3 +96,26 @@ func TestLogHandlerDrawsTheComponent(t *testing.T) {
 		t.Errorf("colour wrote %q, want it to end %q", coloured.String(), want)
 	}
 }
+
+// panicked is an error carrying a stack, as a plugin's recovered panic does.
+type panicked struct{}
+
+func (panicked) Error() string { return "panic: boom" }
+func (panicked) Stack() string {
+	return "goroutine 1 [running]:\nmain.f()\n\t/x.go:3 +0x1\n"
+}
+
+func TestLogHandlerPrintsStacksUnderTheLine(t *testing.T) {
+	var out bytes.Buffer
+	h := NewLogHandler(&out, slog.LevelInfo, false)
+	handle(t, h, slog.LevelError, "command panicked", "input", "boom",
+		StackKey, "goroutine 7 [running]:\nmain.g()\n\t/y.go:9 +0x2\n")
+	handle(t, h, slog.LevelError, "Error in command", "error", panicked{})
+	want := "[21:04:05] [Server thread/ERROR]: command panicked input=boom\n" +
+		"\tgoroutine 7 [running]:\n\tmain.g()\n\t\t/y.go:9 +0x2\n" +
+		`[21:04:05] [Server thread/ERROR]: Error in command error="panic: boom"` + "\n" +
+		"\tgoroutine 1 [running]:\n\tmain.f()\n\t\t/x.go:3 +0x1\n"
+	if out.String() != want {
+		t.Errorf("wrote\n%s\nwant\n%s", out.String(), want)
+	}
+}

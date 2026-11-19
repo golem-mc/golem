@@ -51,6 +51,7 @@ func (h *LogHandler) Handle(_ context.Context, r slog.Record) error {
 	plain := message
 	var attrs strings.Builder
 	attrs.WriteString(h.attrs)
+	var stacks []string
 	r.Attrs(func(a slog.Attr) bool {
 		if a.Key == protocol.LogComponentKey {
 			if t, ok := a.Value.Any().(protocol.Text); ok {
@@ -60,13 +61,29 @@ func (h *LogHandler) Handle(_ context.Context, r slog.Record) error {
 				return true
 			}
 		}
+		if trace, ok := stackOf(a); ok {
+			stacks = append(stacks, trace)
+			if a.Key == StackKey {
+				return true
+			}
+		}
 		appendAttr(&attrs, h.group, a)
 		return true
 	})
+	// A stack trace follows the line, a frame to a line, rather than as one
+	// quoted value.
+	var trailer strings.Builder
+	for _, trace := range stacks {
+		for line := range strings.SplitSeq(strings.TrimRight(trace, "\n"), "\n") {
+			frame := strings.TrimLeft(line, "\t")
+			indent := line[:len(line)-len(frame)]
+			trailer.WriteString("\t" + indent + protocol.EscapeControls(frame) + "\n")
+		}
+	}
 
 	var file string
 	if h.file != nil {
-		file = logPrefix(r.Time, r.Level, false) + plain + attrs.String() + "\n"
+		file = logPrefix(r.Time, r.Level, false) + plain + attrs.String() + "\n" + trailer.String()
 	}
 
 	var b strings.Builder
@@ -83,6 +100,7 @@ func (h *LogHandler) Handle(_ context.Context, r slog.Record) error {
 		}
 	}
 	b.WriteByte('\n')
+	b.WriteString(trailer.String())
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	_, err := io.WriteString(h.w, b.String())
@@ -205,4 +223,23 @@ func needsQuoting(s string) bool {
 		}
 	}
 	return false
+}
+
+// StackKey is the attribute a stack trace is logged under; the handler
+// prints its value under the line instead of after the key.
+const StackKey = "stack"
+
+// stackOf answers the stack trace an attribute carries: a StackKey string, or
+// an error with a Stack method (a plugin's recovered panic).
+func stackOf(a slog.Attr) (string, bool) {
+	v := a.Value.Resolve()
+	if a.Key == StackKey && v.Kind() == slog.KindString {
+		return v.String(), true
+	}
+	if v.Kind() == slog.KindAny {
+		if st, ok := v.Any().(interface{ Stack() string }); ok {
+			return st.Stack(), true
+		}
+	}
+	return "", false
 }
