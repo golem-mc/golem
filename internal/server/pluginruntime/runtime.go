@@ -46,6 +46,7 @@ type Runtime struct {
 	callsMu       sync.Mutex
 	calls         []tickCall
 	callsPending  atomic.Bool
+	callsQueued   chan struct{} // holds one signal while calls wait
 	stopped       chan struct{}
 	connections   connectionTasks
 	bindEvent     func(plugin.Event, plugin.Server) func()
@@ -53,7 +54,7 @@ type Runtime struct {
 
 // New creates handles without invoking plugins; Load starts their lifecycle.
 func New(registrations []plugin.Registration, adapter func(*Host) plugin.Server) *Runtime {
-	r := &Runtime{stopped: make(chan struct{})}
+	r := &Runtime{stopped: make(chan struct{}), callsQueued: make(chan struct{}, 1)}
 	byName := make(map[string]*Host)
 	for _, reg := range registrations {
 		if reg.Plugin == nil || reg.Name == "" || reg.Name == "." || reg.Name == ".." || strings.ContainsAny(reg.Name, `/\\`) || byName[reg.Name] != nil {
