@@ -43,17 +43,27 @@ func TestPluginSpecs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(local, "go.mod"), []byte("module example.com/warps\n\ngo 1.27\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	specs, err := config{Plugins: []string{"github.com/a/b@v1.2.0", "./warps"}}.pluginSpecs(base)
+	spawn := filepath.Join(local, "spawn")
+	if err := os.MkdirAll(spawn, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	specs, err := config{Plugins: []string{"github.com/a/b@v1.2.0", "github.com/a/b/c@v1.2.0", "./warps", "./warps/spawn"}}.pluginSpecs(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []pluginSpec{{Path: "github.com/a/b", Version: "v1.2.0"}, {Path: "example.com/warps", Dir: local}}
+	want := []pluginSpec{
+		{Path: "github.com/a/b", Version: "v1.2.0"},
+		{Path: "github.com/a/b/c", Version: "v1.2.0"},
+		{Path: "example.com/warps", Dir: local, Module: "example.com/warps", ModDir: local},
+		{Path: "example.com/warps/spawn", Dir: spawn, Module: "example.com/warps", ModDir: local},
+	}
 	if !slices.Equal(specs, want) {
 		t.Fatalf("specs = %v, want %v", specs, want)
 	}
 	for _, bad := range [][]string{
 		{"github.com/a/b"}, {"github.com/a/b@latest"}, {"github.com/a/b@main"},
-		{"./missing"}, {serverModule + "@v1.0.0"}, {"github.com/a/b@v1.0.0", "github.com/a/b@v1.1.0"},
+		{"./missing"}, {"./warps/missing"}, {serverModule + "@v1.0.0"}, {serverModule + "/plugin@v1.0.0"},
+		{"github.com/a/b@v1.0.0", "github.com/a/b@v1.1.0"}, {"./warps/spawn", "./warps/spawn/"},
 	} {
 		if _, err := (config{Plugins: bad}).pluginSpecs(base); err == nil {
 			t.Errorf("pluginSpecs(%q) took it", bad)
@@ -437,6 +447,94 @@ func TestPluginList(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("plugin list lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+// publishKit adds example.com/kit v1.0.0 and v1.3.0 to the fake proxy: one
+// module whose plugins are the packages spawn and homes below its root.
+func (f *fixture) publishKit() {
+	for _, v := range []string{"v1.0.0", "v1.3.0"} {
+		f.publish("example.com/kit", v, "", map[string]string{"spawn/spawn.go": "package spawn\n", "homes/homes.go": "package homes\n"})
+	}
+}
+
+func TestPackageInModuleAddListOutdatedUpdate(t *testing.T) {
+	f := newFixture(t, `{"server": "v1.5.0", "plugins": ["example.com/shops@v1.0.0"]}`)
+	f.publishKit()
+	latestServerOverride = func(context.Context) (string, error) { return "v1.5.0", nil }
+	t.Cleanup(func() { latestServerOverride = nil })
+
+	f.must("plugin", "add", "example.com/kit/spawn")
+	if got := f.loadCfg().Plugins; !slices.Equal(got, []string{"example.com/shops@v1.0.0", "example.com/kit/spawn@v1.3.0"}) {
+		t.Fatalf("plugins after a versionless add = %q", got)
+	}
+	// A second package of the module takes the first along to its version.
+	f.must("plugin", "add", "example.com/kit/homes@v1.0.0")
+	want := []string{"example.com/shops@v1.0.0", "example.com/kit/spawn@v1.0.0", "example.com/kit/homes@v1.0.0"}
+	if got := f.loadCfg().Plugins; !slices.Equal(got, want) {
+		t.Fatalf("plugins = %q, want %q", got, want)
+	}
+
+	out := f.must("plugin", "list")
+	for _, want := range []string{`example.com/kit/spawn\s+v1.0.0\s+remote\s+v1.3.0`, `example.com/kit/homes\s+v1.0.0\s+remote\s+v1.3.0`} {
+		if !regexp.MustCompile(want).MatchString(out) {
+			t.Errorf("plugin list lacks %q:\n%s", want, out)
+		}
+	}
+	out = f.must("outdated")
+	for _, want := range []string{`example.com/kit/spawn\s+v1.0.0\s+v1.3.0`, `example.com/kit/homes\s+v1.0.0\s+v1.3.0`} {
+		if !regexp.MustCompile(want).MatchString(out) {
+			t.Errorf("outdated lacks %q:\n%s", want, out)
+		}
+	}
+
+	// Updating one package moves its module's other package, not another module.
+	f.must("update", "spawn")
+	want = []string{"example.com/shops@v1.0.0", "example.com/kit/spawn@v1.3.0", "example.com/kit/homes@v1.3.0"}
+	if got := f.loadCfg().Plugins; !slices.Equal(got, want) {
+		t.Fatalf("plugins after update spawn = %q, want %q", got, want)
+	}
+	if _, _, err := f.run("plugin", "add", "example.com/kit/nothing"); err == nil {
+		t.Error("a package the module does not have was added")
+	}
+}
+
+func TestLocalPackageInModule(t *testing.T) {
+	f := newFixture(t, `{"server": "v1.5.0", "plugins": []}`)
+	latestServerOverride = func(context.Context) (string, error) { return "v1.5.0", nil }
+	t.Cleanup(func() { latestServerOverride = nil })
+	kit := filepath.Join(f.dir, "kit")
+	writeMod(t, kit, "example.com/kit")
+	for _, pkg := range []string{"spawn", "homes"} {
+		if err := os.MkdirAll(filepath.Join(kit, pkg), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(kit, pkg, pkg+".go"), []byte("package "+pkg+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	f.must("plugin", "add", filepath.Join(kit, "spawn"))
+	f.must("plugin", "add", filepath.Join(kit, "homes"))
+	want := []string{filepath.Join(kit, "spawn"), filepath.Join(kit, "homes")}
+	if got := f.loadCfg().Plugins; !slices.Equal(got, want) {
+		t.Fatalf("plugins = %q, want %q", got, want)
+	}
+	out := f.must("plugin", "list")
+	for _, want := range []string{`example.com/kit/spawn\s+-\s+local`, `example.com/kit/homes\s+-\s+local`} {
+		if !regexp.MustCompile(want).MatchString(out) {
+			t.Errorf("plugin list lacks %q:\n%s", want, out)
+		}
+	}
+	if out := f.must("outdated"); !strings.Contains(out, "up to date") {
+		t.Errorf("outdated = %q", out)
+	}
+	f.must("update")
+	if got := f.loadCfg().Plugins; !slices.Equal(got, want) {
+		t.Errorf("update changed local plugins: %q", got)
+	}
+	if out := f.must("check"); !strings.HasPrefix(out, "ok") {
+		t.Errorf("check = %q", out)
 	}
 }
 
