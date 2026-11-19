@@ -52,14 +52,20 @@ var warpCommand = plugin.Command{Name: "warp", Aliases: []string{"wp"}, Descript
 
 func TestHelpWithoutPluginsIsBukkits(t *testing.T) {
 	srv := servertest.NewTestServer(t, servertest.BlockTestConfig())
-	for _, line := range []string{"help", "?", "bukkit:help"} {
+	for _, line := range []string{"help", "?", "golem:help"} {
 		out := plainLines(srv.RunLine(line))
 		if len(out) < 3 || !strings.HasPrefix(out[0], "--------- Help: Index") {
 			t.Fatalf("%s produced %v", line, out)
 		}
 	}
-	if out := plainLines(srv.RunLine("help Minecraft")); len(out) < 3 || !strings.Contains(strings.Join(out, "\n"), "/seed") {
-		t.Fatalf("help Minecraft produced %v", out)
+	golem := strings.Join(plainLines(srv.RunLine("help Golem")), "\n")
+	if !strings.Contains(golem, "/seed") || !strings.Contains(golem, "/help") || !strings.Contains(golem, "A built-in command.") {
+		t.Fatalf("help Golem produced %s", golem)
+	}
+	for _, gone := range []string{"Minecraft", "Bukkit"} {
+		if out := plainLines(srv.RunLine("help " + gone)); len(out) > 0 && strings.Contains(out[0], "Help: "+gone) {
+			t.Errorf("help %s still has a topic: %v", gone, out)
+		}
 	}
 	if out := srv.RunLine("minecraft:help"); !strings.Contains(fmt.Sprint(out), "command.unknown.command") {
 		t.Fatalf("minecraft:help produced %v", out)
