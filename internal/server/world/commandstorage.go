@@ -150,7 +150,8 @@ func (s *CommandStorages) file(namespace string) (*commandStorageFile, error) {
 	if err != nil && !errors.Is(err, errNoSavedData) {
 		return nil, err
 	}
-	if contents, ok := nbt.Get[nbt.CompoundTag](data, "contents"); ok {
+	// An empty saved compound has no map behind it; keep the made one.
+	if contents, ok := nbt.Get[nbt.CompoundTag](data, "contents"); ok && contents.Entries() != nil {
 		file.contents = contents.Entries()
 	}
 	s.files[namespace] = file
