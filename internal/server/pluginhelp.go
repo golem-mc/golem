@@ -30,6 +30,9 @@ const (
 	// helpUnbounded is ChatPaginator.UNBOUNDED_PAGE_WIDTH / _HEIGHT, the
 	// console's.
 	helpUnbounded = 1<<31 - 1
+	// builtinHelpGroup is the index topic of the server's own commands,
+	// which CraftBukkit splits into "Minecraft" and "Bukkit".
+	builtinHelpGroup = "Golem"
 )
 
 const defaultHelpYAML = `# This is the help configuration file.
@@ -317,11 +320,11 @@ func (s *Server) helpSnapshot() *helpSnapshot {
 			continue
 		}
 		name := n.Name
-		t := commandTopic(helpCommand{label: name, description: "A Mojang provided command.", usage: "/" + name + " <args>", see: func(sender plugin.CommandSender) bool {
+		t := commandTopic(helpCommand{label: name, description: "A built-in command.", usage: "/" + name + " <args>", see: func(sender plugin.CommandSender) bool {
 			return isHelpConsole(sender) || command.FindLiteralChild(command.ForLevel(sender.OpLevel()), name) != nil
 		}})
 		put(t)
-		byPlugin["Minecraft"] = append(byPlugin["Minecraft"], t)
+		byPlugin[builtinHelpGroup] = append(byPlugin[builtinHelpGroup], t)
 	}
 	if !taken["help"] {
 		aliases := []string(nil)
@@ -330,7 +333,7 @@ func (s *Server) helpSnapshot() *helpSnapshot {
 		}
 		t := commandTopic(helpCommand{label: "help", description: "Shows the help menu", usage: "/help <pageNumber>\n/help <topic>\n/help <topic> <pageNumber>", aliases: aliases, see: seeAll})
 		put(t)
-		byPlugin["Bukkit"] = append(byPlugin["Bukkit"], t)
+		byPlugin[builtinHelpGroup] = append(byPlugin[builtinHelpGroup], t)
 		for _, a := range aliases {
 			aliasTopic(a, "help")
 		}
@@ -436,12 +439,12 @@ func (m pluginHelpMap) Add(t plugin.HelpTopic) {
 	h.added = append(h.added, t)
 }
 
-// bukkitHelpRoots are the roots /help runs from: bukkit:help, and help and ?
+// bukkitHelpRoots are the roots /help runs from: golem:help, and help and ?
 // unless a plugin took them.
 func (s *Server) bukkitHelpRoots(taken map[string]bool) []*command.Node {
 	args := &command.Node{Type: command.NodeArgument, Name: "args", Executable: true, Parser: command.ParserString,
 		Properties: func(b *protocol.Buffer) { b.PutVarInt(2) }, Greedy: true, Handler: s.runBukkitHelp}
-	root := &command.Node{Type: command.NodeLiteral, Plugin: true, Name: "bukkit:help", Executable: true, Handler: s.runBukkitHelp, Children: []*command.Node{args}}
+	root := &command.Node{Type: command.NodeLiteral, Plugin: true, Name: "golem:help", Executable: true, Handler: s.runBukkitHelp, Children: []*command.Node{args}}
 	roots := []*command.Node{root}
 	for _, name := range []string{"help", "?"} {
 		if !taken[name] {
@@ -451,7 +454,7 @@ func (s *Server) bukkitHelpRoots(taken map[string]bool) []*command.Node {
 	return roots
 }
 
-// runBukkitHelp is bukkit:help. vanilla-bukkit: HelpCommand.execute
+// runBukkitHelp is golem:help. vanilla-bukkit: HelpCommand.execute
 func (s *Server) runBukkitHelp(src command.Source, input string, _ map[string]command.ArgumentValue) (int32, error) {
 	sender := s.pluginCommandSender(src)
 	args := strings.Fields(input)
