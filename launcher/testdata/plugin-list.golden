@@ -1,0 +1,10 @@
+$ golem-launcher plugin list
+-- stdout --
+PLUGIN                VERSION  SOURCE             LATEST
+example.com/shops     v1.0.0   remote             v1.2.0
+example.com/shops/v2  v2.0.0   remote             v2.0.0
+example.com/mine      -        local ./my-plugin  -
+example.com/gone      v1.0.0   remote             unknown
+-- stderr --
+✓ finding the latest versions of 3 plugins (0.0s)
+

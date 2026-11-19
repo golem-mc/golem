@@ -7,7 +7,6 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -20,18 +19,16 @@ const serverModule = "github.com/golem-mc/golem"
 // -ldflags -X; a build from source answers its module version instead.
 var version string
 
-var logger = log.New(os.Stderr, "[launcher] ", 0)
-
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	// execute printed the error.
 	err := execute(ctx, os.Args[1:], os.Stdout, os.Stderr, stop)
 	var ue usageError
 	switch {
 	case errors.As(err, &ue):
-		os.Exit(2) // execute printed the usage
+		os.Exit(2)
 	case err != nil:
-		logger.Print(err)
 		os.Exit(1)
 	}
 }

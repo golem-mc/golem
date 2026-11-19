@@ -59,7 +59,11 @@ func (l *launcher) pin(ctx context.Context, path, v string) (string, error) {
 	if isPinned(v) {
 		return v, nil
 	}
-	got, err := l.queryModule(ctx, path+"@"+v)
+	var got string
+	err := l.step("resolving "+path+"@"+v, func() (err error) {
+		got, err = l.queryModule(ctx, path+"@"+v)
+		return err
+	})
 	if err != nil {
 		return "", fmt.Errorf("%s@%s: %w", path, v, err)
 	}

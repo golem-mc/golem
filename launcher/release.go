@@ -52,30 +52,46 @@ func (l *launcher) release(ctx context.Context, version string) (string, error) 
 	asset := releaseAsset("golem", version, runtime.GOOS, runtime.GOARCH)
 	bin := filepath.Join(l.cache, "releases", version, asset)
 	if _, err := os.Stat(bin); err == nil {
+		l.ui.OK("using cached release golem %s", version)
 		return bin, nil
 	}
-	assets, err := l.releaseAssets(ctx, version)
+	var sums, sig []byte
+	var assets map[string]string
+	t := l.ui.Step("finding the release golem " + version)
+	err := func() (err error) {
+		if assets, err = l.releaseAssets(ctx, version); err != nil {
+			return err
+		}
+		if assets[asset] == "" || assets["SHA256SUMS"] == "" || assets["SHA256SUMS.sig"] == "" {
+			return errNoRelease
+		}
+		if sums, err = l.fetch(ctx, assets["SHA256SUMS"], true); err != nil {
+			return err
+		}
+		sig, err = l.fetch(ctx, assets["SHA256SUMS.sig"], true)
+		return err
+	}()
+	switch {
+	case errors.Is(err, errNoRelease):
+		t.DoneNote("none")
+		return "", err
+	case err != nil:
+		t.Fail("")
+		return "", err
+	}
+	t.Done()
+	data, err := l.get(ctx, assets[asset], true, asset)
 	if err != nil {
 		return "", err
 	}
-	if assets[asset] == "" || assets["SHA256SUMS"] == "" || assets["SHA256SUMS.sig"] == "" {
-		return "", errNoRelease
-	}
-	sums, err := l.fetch(ctx, assets["SHA256SUMS"], true)
+	err = l.step("verifying the release signature", func() error {
+		if err := verifyRelease(releaseKey, sums, sig, asset, data); err != nil {
+			return fmt.Errorf("release %s: %w", version, err)
+		}
+		return nil
+	})
 	if err != nil {
 		return "", err
-	}
-	sig, err := l.fetch(ctx, assets["SHA256SUMS.sig"], true)
-	if err != nil {
-		return "", err
-	}
-	logger.Printf("downloading %s", asset)
-	data, err := l.fetch(ctx, assets[asset], true)
-	if err != nil {
-		return "", err
-	}
-	if err := verifyRelease(releaseKey, sums, sig, asset, data); err != nil {
-		return "", fmt.Errorf("release %s: %w", version, err)
 	}
 	return bin, writeExecutable(bin, data)
 }
@@ -135,6 +151,11 @@ var errNotFound = errors.New("not found")
 // than its description. GITHUB_TOKEN, when set, goes only to GitHub's API:
 // the asset download it redirects to drops the header.
 func (l *launcher) fetch(ctx context.Context, url string, binary bool) ([]byte, error) {
+	return l.get(ctx, url, binary, "")
+}
+
+// get is fetch showing the body's download as name, when name is not "".
+func (l *launcher) get(ctx context.Context, url string, binary bool, name string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -159,7 +180,17 @@ func (l *launcher) fetch(ctx context.Context, url string, binary bool) ([]byte, 
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("%s: %s", url, resp.Status)
 	}
-	return io.ReadAll(resp.Body)
+	if name == "" {
+		return io.ReadAll(resp.Body)
+	}
+	t := l.ui.Download(name, resp.ContentLength)
+	data, err := io.ReadAll(t.Reader(resp.Body))
+	if err != nil {
+		t.Fail("")
+		return nil, err
+	}
+	t.Done()
+	return data, nil
 }
 
 // writeExecutable writes data to path through a temporary file, so a

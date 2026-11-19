@@ -1,0 +1,25 @@
+$ golem-launcher cache clean
+-- stdout --
+removed 2 cached entries
+
+$ golem-launcher cache clean -color=sometimes
+-- stderr --
+error: -color must be auto, always or never, not "sometimes"
+
+Usage: golem-launcher cache clean
+
+Deletes the cached builds, releases, baselines and Go toolchains that the
+current launcher.json does not need. Go's own module and build caches stay.
+
+Example:
+  golem-launcher cache clean
+
+Flags on every command:
+  -config file   the launcher's configuration (default launcher.json)
+  -cache dir     where toolchains, releases and builds are kept
+                 (default: the user cache directory + /golem)
+  -color when    colour and progress bars: auto, always or never (default
+                 auto: on a terminal, unless NO_COLOR is set; FORCE_COLOR
+                 forces colour)
+-- exit: 2 --
+

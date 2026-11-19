@@ -136,7 +136,6 @@ func loadConfig(path string, latest func() (string, error)) (config, error) {
 		if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
 			return config{}, err
 		}
-		logger.Printf("wrote %s for server %s with no plugins", path, cfg.Server)
 		return cfg, nil
 	}
 	if err != nil {

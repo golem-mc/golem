@@ -22,6 +22,8 @@ import (
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/semver"
 	"golang.org/x/sys/cpu"
+
+	"github.com/golem-mc/golem/launcher/ui"
 )
 
 // serverPrivate (a variable so tests can serve the server from a fake proxy)
@@ -37,10 +39,38 @@ const buildSchema = "1"
 type launcher struct {
 	cache string
 	http  *http.Client
+	ui    *ui.UI
 }
 
-func newLauncher(cache string) *launcher {
-	return &launcher{cache: cache, http: &http.Client{Timeout: 15 * time.Minute}}
+func newLauncher(cache string, u *ui.UI) *launcher {
+	return &launcher{cache: cache, http: &http.Client{Timeout: 15 * time.Minute}, ui: u}
+}
+
+// step runs f as the step name: a spinner while it runs, then ✓, or ✗ and
+// the go command's messages when it fails.
+func (l *launcher) step(name string, f func() error) error {
+	t := l.ui.Step(name)
+	if err := f(); err != nil {
+		if ge, ok := errors.AsType[*goError](err); ok {
+			t.Fail(ge.stderr)
+		} else {
+			t.Fail("")
+		}
+		return err
+	}
+	t.Done()
+	return nil
+}
+
+// plural answers n and noun, "no plugins", "1 plugin", "3 plugins".
+func plural(n int, noun string) string {
+	switch n {
+	case 0:
+		return "no " + noun + "s"
+	case 1:
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // server answers the binary to run: the release when there are no plugins
@@ -51,7 +81,7 @@ func (l *launcher) server(ctx context.Context, cfg config, srvDir string, plugin
 		if !errors.Is(err, errNoRelease) {
 			return bin, err
 		}
-		logger.Printf("no signed release of %s for %s/%s; using a build from source", cfg.Server, runtime.GOOS, runtime.GOARCH)
+		l.ui.Info("no signed release of %s for %s/%s; using a build from source", cfg.Server, runtime.GOOS, runtime.GOARCH)
 	}
 	return l.build(ctx, cfg, srvDir, plugins, rebuild)
 }
@@ -77,9 +107,9 @@ func (l *launcher) build(ctx context.Context, cfg config, srvDir string, plugins
 	bin := filepath.Join(dir, exe("golem"))
 	local := srvDir != "" || slices.ContainsFunc(plugins, func(p pluginSpec) bool { return p.Dir != "" })
 	if _, err := os.Stat(bin); err == nil && !rebuild && !local {
+		l.ui.OK("using cached build of golem %s with %s", cfg.Server, plural(len(plugins), "plugin"))
 		return bin, nil
 	}
-	logger.Printf("building the server %s with %d plugins", cfg.Server, len(plugins))
 	g, err := l.resolve(ctx, filepath.Join(dir, "src"), cfg, srvDir, plugins)
 	if err != nil {
 		return "", err
@@ -88,16 +118,20 @@ func (l *launcher) build(ctx context.Context, cfg config, srvDir string, plugins
 	// The release's own flags (tools/release), no cgo, so no C toolchain is
 	// needed, and the server's PGO profile; but GOAMD64 is this CPU's level
 	// (env), since the binary only runs here.
-	dirOut, err := g.run("list", "-m", "-f", "{{.Dir}}", serverModule)
-	if err != nil {
-		return "", err
-	}
-	pgo := "-pgo=off"
-	if p := filepath.Join(strings.TrimSpace(dirOut), "default.pgo"); fileExists(p) {
-		pgo = "-pgo=" + p
-	}
 	tmp := bin + ".tmp"
-	if _, err := g.run("build", "-trimpath", pgo, "-o", tmp, "."); err != nil {
+	err = l.step(fmt.Sprintf("building golem %s with %s", cfg.Server, plural(len(plugins), "plugin")), func() error {
+		dirOut, err := g.run("list", "-m", "-f", "{{.Dir}}", serverModule)
+		if err != nil {
+			return err
+		}
+		pgo := "-pgo=off"
+		if p := filepath.Join(strings.TrimSpace(dirOut), "default.pgo"); fileExists(p) {
+			pgo = "-pgo=" + p
+		}
+		_, err = g.run("build", "-trimpath", pgo, "-o", tmp, ".")
+		return err
+	})
+	if err != nil {
 		return "", err
 	}
 	return bin, os.Rename(tmp, bin)
@@ -118,7 +152,11 @@ func (l *launcher) resolve(ctx context.Context, workDir string, cfg config, srvD
 	// version of its own), and needs no network or token.
 	srv := modInfo{Version: "v0.0.0", GoMod: filepath.Join(srvDir, "go.mod")}
 	if srvDir == "" {
-		if srv, err = g.download(serverModule + "@" + cfg.Server); err != nil {
+		err := l.step("downloading golem "+cfg.Server, func() (err error) {
+			srv, err = g.download(serverModule + "@" + cfg.Server)
+			return err
+		})
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -146,15 +184,23 @@ func (l *launcher) resolve(ctx context.Context, workDir string, cfg config, srvD
 			get = append(get, p.Path+"@"+p.Version)
 		}
 	}
-	if _, err := g.run(edit...); err != nil {
-		return nil, err
+	resolving := "resolving the server's modules"
+	if len(plugins) > 0 {
+		resolving = "resolving " + plural(len(plugins), "plugin")
 	}
-	if len(get) > 1 {
-		if _, err := g.run(get...); err != nil {
-			return nil, err
+	err = l.step(resolving, func() error {
+		if _, err := g.run(edit...); err != nil {
+			return err
 		}
-	}
-	if _, err := g.run("mod", "tidy"); err != nil {
+		if len(get) > 1 {
+			if _, err := g.run(get...); err != nil {
+				return err
+			}
+		}
+		_, err := g.run("mod", "tidy")
+		return err
+	})
+	if err != nil {
 		return nil, err
 	}
 	if err := l.check(g, cfg, srvDir, srv.Version, goLine); err != nil {
@@ -232,33 +278,50 @@ func toolchainOf(gomod string) (string, error) {
 // server than launcher.json names, a newer version of a module the server
 // uses (unless allowed), or an import of the server's internals.
 func (l *launcher) check(g *goRun, cfg config, srvDir, want, goLine string) error {
-	got, err := g.run("list", "-m", "-f", "{{.Version}}", serverModule)
+	err := l.step("checking the server version", func() error {
+		got, err := g.run("list", "-m", "-f", "{{.Version}}", serverModule)
+		if err != nil {
+			return err
+		}
+		// A local checkout stands in for every version a plugin asks for.
+		if got = strings.TrimSpace(got); got != want && srvDir == "" {
+			graph, _ := g.run("mod", "graph")
+			return fmt.Errorf("launcher.json names server %s, but a plugin needs %s (%s); run `golem-launcher server %s` to raise it, or use an older plugin",
+				want, got, strings.Join(requirers(graph, serverModule+"@"+got), ", "), got)
+		}
+		return nil
+	})
 	if err != nil {
 		return err
-	}
-	// A local checkout stands in for every version a plugin asks for.
-	if got = strings.TrimSpace(got); got != want && srvDir == "" {
-		graph, _ := g.run("mod", "graph")
-		return fmt.Errorf("launcher.json names server %s, but a plugin needs %s (%s); run `golem-launcher server %s` to raise it, or use an older plugin",
-			want, got, strings.Join(requirers(graph, serverModule+"@"+got), ", "), got)
 	}
 
-	pkgs, err := g.run("list", "-deps", "-f", listFormat, ".")
+	var pkgs string
+	err = l.step("checking the plugins' imports", func() (err error) {
+		pkgs, err = g.run("list", "-deps", "-f", listFormat, ".")
+		return err
+	})
 	if err != nil {
 		return err
 	}
-	base, err := l.baseline(g, srvDir, want, goLine)
-	if err != nil {
-		return err
-	}
-	if up := upgrades(base, pkgs); len(up) > 0 {
-		msg := "plugins raise modules the server uses:\n\t" + strings.Join(up, "\n\t")
-		if !cfg.AllowDependencyUpgrades {
-			return errors.New(msg + "\nset \"allow-dependency-upgrades\": true in launcher.json to build anyway")
+	var allowed []string
+	err = l.step("checking dependency upgrades", func() error {
+		base, err := l.baseline(g, srvDir, want, goLine)
+		if err != nil {
+			return err
 		}
-		logger.Print(msg)
+		if up := upgrades(base, pkgs); len(up) > 0 {
+			msg := "plugins raise modules the server uses:\n\t" + strings.Join(up, "\n\t")
+			if !cfg.AllowDependencyUpgrades {
+				return errors.New(msg + "\nset \"allow-dependency-upgrades\": true in launcher.json to build anyway")
+			}
+			allowed = up
+		}
+		return nil
+	})
+	if len(allowed) > 0 {
+		l.ui.Warn("plugins raise modules the server uses (allow-dependency-upgrades):\n\t%s", strings.Join(allowed, "\n\t"))
 	}
-	return nil
+	return err
 }
 
 // listFormat prints a package's module, version, path and imports, one
@@ -397,19 +460,31 @@ func (g *goRun) env() []string {
 	return env
 }
 
-// run runs go with args, answering its standard output; its errors and
-// progress go to the launcher's standard error.
+// run runs go with args, answering its standard output. Its standard error
+// is kept for the error a failure answers, which the step prints.
 func (g *goRun) run(args ...string) (string, error) {
 	cmd := exec.CommandContext(g.ctx, g.bin, args...)
 	cmd.Dir = g.dir
 	cmd.Env = g.env()
-	cmd.Stderr = os.Stderr
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("go %s: %w", strings.Join(args, " "), err)
+		return "", &goError{args: args, err: err, stderr: stderr.String()}
 	}
 	return string(out), nil
 }
+
+// goError is a go command that failed, with what it wrote to standard error.
+type goError struct {
+	args   []string
+	err    error
+	stderr string
+}
+
+func (e *goError) Error() string { return "go " + strings.Join(e.args, " ") + ": " + e.err.Error() }
+
+func (e *goError) Unwrap() error { return e.err }
 
 // modInfo is go mod download -json's answer.
 type modInfo struct {

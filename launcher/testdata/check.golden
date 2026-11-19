@@ -1,0 +1,29 @@
+$ golem-launcher check
+-- stderr --
+✓ downloading golem v1.0.0 (0.0s)
+✓ resolving 1 plugin (0.0s)
+✗ checking the server version
+error: check failed: launcher.json names server v1.0.0, but a plugin needs v1.5.0 (example.com/warps@v1.1.0); run `golem-launcher server v1.5.0` to raise it, or use an older plugin
+-- exit: 1 --
+
+$ golem-launcher server v1.5.0
+-- stdout --
+updated $DIR/launcher.json:
+  server v1.0.0 → v1.5.0
+-- stderr --
+✓ downloading golem v1.5.0 (0.0s)
+✓ resolving 1 plugin (0.0s)
+✓ checking the server version (0.0s)
+✓ checking the plugins' imports (0.0s)
+✓ checking dependency upgrades (0.0s)
+
+$ golem-launcher check
+-- stdout --
+ok: server v1.5.0 and 1 plugin resolve and pass every check
+-- stderr --
+✓ downloading golem v1.5.0 (0.0s)
+✓ resolving 1 plugin (0.0s)
+✓ checking the server version (0.0s)
+✓ checking the plugins' imports (0.0s)
+✓ checking dependency upgrades (0.0s)
+

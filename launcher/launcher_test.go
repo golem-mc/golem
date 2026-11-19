@@ -575,6 +575,9 @@ Flags (before or after the command):
   -config file   the launcher's configuration (default launcher.json)
   -cache dir     where toolchains, releases and builds are kept
                  (default: the user cache directory + /golem)
+  -color when    colour and progress bars: auto, always or never (default
+                 auto: on a terminal, unless NO_COLOR is set; FORCE_COLOR
+                 forces colour)
   -rebuild       build the server even when a cached build or a release matches
 
 launcher.json, pinned to exact versions (the commands above edit it):

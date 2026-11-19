@@ -61,10 +61,9 @@ func (l *launcher) toolchain(ctx context.Context, v string) (string, error) {
 	if _, err := os.Stat(gobin); err == nil {
 		return gobin, nil
 	}
-	logger.Printf("downloading the Go toolchain %s for %s/%s", v, runtime.GOOS, runtime.GOARCH)
 	escPath, _ := module.EscapePath(m.Path)
 	escVer, _ := module.EscapeVersion(m.Version)
-	data, err := l.fetch(ctx, goProxy()+"/"+escPath+"/@v/"+escVer+".zip", false)
+	data, err := l.get(ctx, goProxy()+"/"+escPath+"/@v/"+escVer+".zip", false, "Go toolchain "+v)
 	if errors.Is(err, errNotFound) {
 		return "", fmt.Errorf("no toolchain of Go %s for %s/%s", v, runtime.GOOS, runtime.GOARCH)
 	}
@@ -79,25 +78,28 @@ func (l *launcher) toolchain(ctx context.Context, v string) (string, error) {
 		return "", err
 	}
 	defer os.Remove(zipFile)
-	if err := l.checkSum(m, zipFile); err != nil {
+	if err := l.step("checking the toolchain against sum.golang.org", func() error { return l.checkSum(m, zipFile) }); err != nil {
 		return "", err
 	}
 	tmp := fmt.Sprintf("%s.tmp-%d", dir, os.Getpid())
 	defer os.RemoveAll(tmp)
-	if err := modzip.Unzip(tmp, m, zipFile); err != nil {
-		return "", err
-	}
-	if runtime.GOOS != "windows" {
-		// Module zips keep no file modes. The same files cmd/go marks in
-		// its toolchain download (toolchain.Exec): every tool, lib's
-		// scripts, and bin.
-		for _, d := range []struct{ dir, pattern string }{{"pkg/tool", ""}, {"lib", "*.sh"}, {"bin", ""}} {
-			if err := allowExec(filepath.Join(tmp, d.dir), d.pattern); err != nil {
-				return "", err
+	err = l.step("unpacking the toolchain", func() error {
+		if err := modzip.Unzip(tmp, m, zipFile); err != nil {
+			return err
+		}
+		if runtime.GOOS != "windows" {
+			// Module zips keep no file modes. The same files cmd/go marks in
+			// its toolchain download (toolchain.Exec): every tool, lib's
+			// scripts, and bin.
+			for _, d := range []struct{ dir, pattern string }{{"pkg/tool", ""}, {"lib", "*.sh"}, {"bin", ""}} {
+				if err := allowExec(filepath.Join(tmp, d.dir), d.pattern); err != nil {
+					return err
+				}
 			}
 		}
-	}
-	if err := os.Rename(tmp, dir); err != nil {
+		return os.Rename(tmp, dir)
+	})
+	if err != nil {
 		return "", err
 	}
 	return gobin, nil
@@ -222,4 +224,4 @@ func (o *sumOps) WriteCache(file string, data []byte) {
 
 func (o *sumOps) Log(string) {}
 
-func (o *sumOps) SecurityError(msg string) { logger.Print(msg) }
+func (o *sumOps) SecurityError(msg string) { o.l.ui.Warn("%s", msg) }
