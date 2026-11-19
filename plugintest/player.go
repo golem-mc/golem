@@ -132,6 +132,13 @@ func (p *Player) Attack(entityID int32) {
 	p.send(func(c *servertest.Client) { c.Attack(entityID) })
 }
 
+// Swing swings the main arm, a left click in the air when the player looks at
+// no block in reach.
+func (p *Player) Swing() {
+	p.s.t.Helper()
+	p.send(func(c *servertest.Client) { c.Swing() })
+}
+
 // Interact right-clicks the entity with the main hand, at its centre.
 func (p *Player) Interact(entityID int32) {
 	p.s.t.Helper()

@@ -139,7 +139,7 @@ func TestASwingRecoversBeforeItsNextBlow(t *testing.T) {
 	// recovery, and the blow that follows it lands short again.
 	awaitRecovery(t, srv)
 	srv.StopTick()
-	c.Send(protocol.IDPlayPunch, func(b *protocol.Buffer) {})
+	c.Swing()
 	afterThird := c.StrikeFresh(srv, 7.5, 5.5, attacker)
 	if got, floor := afterThird, float32(10-full*0.5); got < floor {
 		c.T.Errorf("health after the swing's blow = %v, want at least %v (the blow held under half)", got, floor)
