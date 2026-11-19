@@ -518,9 +518,11 @@ func TestBreakingTheTopCaneDropsIt(t *testing.T) {
 	c.StartDigging(5, 66, 0)
 
 	expectCaneDrops(t, servertest.AwaitCropBreak(t, c, 5, 66, 0, 0), 1)
+	// The block, not the state: the loop keeps running, and a random tick
+	// may age the cane left on top.
 	for _, y := range []int32{64, 65} {
-		if got := srv.BlockAt(5, y, 0); got != cane {
-			t.Errorf("the cane at y=%d = %d, want %d (still standing)", y, got, cane)
+		if got := srv.BlockAt(5, y, 0); registry.BlockOf(got) != registry.BlockOf(cane) {
+			t.Errorf("the block at y=%d = state %d, want sugar cane (still standing)", y, got)
 		}
 	}
 }
