@@ -99,7 +99,10 @@ func (l *launcher) latestOf(ctx context.Context, path string, cached bool) (stri
 	if path == serverModule {
 		return l.latest(ctx, path, cached, l.latestServer)
 	}
-	return l.latest(ctx, path, cached, func(ctx context.Context) (string, error) { return l.latestPlugin(ctx, path) })
+	return l.latest(ctx, path, cached, func(ctx context.Context) (string, error) {
+		_, v, err := l.latestPlugin(ctx, path)
+		return v, err
+	})
 }
 
 // outdatedItem is the server (path serverModule) or a plugin with a newer

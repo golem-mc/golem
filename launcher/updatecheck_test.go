@@ -281,6 +281,7 @@ func TestUpdateNoticesPluginsAndLocal(t *testing.T) {
 		t.Errorf("cached notices = %q, want %q", got, want)
 	}
 	f.clock.Advance(time.Minute)
+	c.l = newLauncher(f.cache) // a new command: no remembered queries
 	if got := c.updateNotices(context.Background(), st, ""); len(got) != 0 {
 		t.Errorf("notices with the proxy off = %q", got)
 	}

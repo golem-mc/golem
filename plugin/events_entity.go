@@ -473,9 +473,10 @@ type HangingPlaceEvent struct {
 type HangingBreakEvent struct {
 	Cancellable
 	Entity Hanging
-	// Remover is the entity that broke it, whatever its kind: the
-	// exploder of a blast (it may already be removed, but still answers
-	// Type). Nil for physics, or when the breaker is unknown.
+	// Remover is the entity that broke it, whatever its kind. For a blast
+	// it is the cause when that differs from the exploder (the player who
+	// lit the TNT), else the exploder, which may already be removed but
+	// still answers Type. Nil for physics, or when the breaker is unknown.
 	Remover Entity
 	Cause   HangingBreakCause
 }

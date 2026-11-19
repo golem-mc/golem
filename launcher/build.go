@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -41,6 +42,11 @@ type launcher struct {
 	clock clock
 	// versionsMu guards the version cache file (versionCachePath).
 	versionsMu sync.Mutex
+	// queries holds queryModule's answers, so a command asks go once per
+	// module query however many plugins share the module; queriesMu guards
+	// it, as the update check asks in parallel.
+	queriesMu sync.Mutex
+	queries   map[string]queryAnswer
 }
 
 // testLauncher, when set, adjusts every new launcher; tests give it a fake
@@ -150,10 +156,16 @@ func (l *launcher) resolve(ctx context.Context, workDir string, cfg config, srvD
 	if srvDir != "" {
 		edit = append(edit, "-replace="+serverModule+"="+srvDir)
 	}
+	// A local module is replaced once however many of its packages are
+	// listed; go get takes package paths and finds their modules itself.
 	get := []string{"get"}
+	replaced := map[string]bool{}
 	for _, p := range plugins {
 		if p.Dir != "" {
-			edit = append(edit, "-replace="+p.Path+"="+p.Dir, "-require="+p.Path+"@v0.0.0")
+			if !replaced[p.Module] {
+				replaced[p.Module] = true
+				edit = append(edit, "-replace="+p.Module+"="+p.ModDir, "-require="+p.Module+"@v0.0.0")
+			}
 		} else {
 			get = append(get, p.Path+"@"+p.Version)
 		}
@@ -368,6 +380,9 @@ type goRun struct {
 	ctx       context.Context
 	bin, dir  string
 	toolchain string
+	// stderr, when set, takes go's errors instead of the launcher's
+	// standard error.
+	stderr io.Writer
 }
 
 // env is the caller's environment with the settings the build depends on
@@ -416,6 +431,9 @@ func (g *goRun) run(args ...string) (string, error) {
 	cmd.Dir = g.dir
 	cmd.Env = g.env()
 	cmd.Stderr = os.Stderr
+	if g.stderr != nil {
+		cmd.Stderr = g.stderr
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("go %s: %w", strings.Join(args, " "), err)

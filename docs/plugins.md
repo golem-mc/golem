@@ -29,9 +29,12 @@ with no plugins, pinned to the launcher's own version:
   path to a local golem checkout (starting with `.` or `/`, relative to
   `launcher.json`), which is built as it is, uncommitted changes included,
   on every start.
-- Each plugin is an import path with an exact version (a tag or a commit), or
-  a local module directory, relative to `launcher.json`. A local directory is
-  rebuilt on every start, which makes it the loop for developing a plugin.
+- Each plugin is a package import path with an exact version (a tag or a
+  commit), or a local package directory, relative to `launcher.json`. The
+  package may sit below its module's root (`github.com/golem-mc/essentials/spawn`,
+  `./essentials/spawn`); packages of one module share its version, and
+  `update` moves them together. A local directory is rebuilt on every start,
+  which makes it the loop for developing a plugin.
 - `allow-dependency-upgrades` (default false) is described under
   [What the launcher refuses](#what-the-launcher-refuses).
 - `updateCheck` (default true): false stops the launcher from printing, on
