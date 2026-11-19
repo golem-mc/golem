@@ -37,7 +37,25 @@ func (r *Runtime) enqueue(call tickCall) bool {
 	}
 	r.calls = append(r.calls, call)
 	r.callsPending.Store(true)
+	select {
+	case r.callsQueued <- struct{}{}:
+	default:
+	}
 	return true
+}
+
+// CallsQueued is signalled when a call is queued, so the tick loop can run
+// it between ticks instead of keeping its connection waiting for the next
+// tick's start.
+func (r *Runtime) CallsQueued() <-chan struct{} { return r.callsQueued }
+
+// RunCallsBetweenTicks runs the queued calls on the tick loop's goroutine
+// while it waits for the next tick, which makes that goroutine the tick
+// goroutine for them. vanilla: MinecraftServer.waitUntilNextTick, which
+// runs the server thread's queued packet tasks while it waits
+func (r *Runtime) RunCallsBetweenTicks() {
+	r.tickGoroutine.Store(goroutineID())
+	r.runCalls()
 }
 
 func (r *Runtime) runCalls() {

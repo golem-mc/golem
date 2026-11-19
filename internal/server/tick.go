@@ -237,11 +237,41 @@ func (s *Server) tickLoop(done, exited chan struct{}) {
 			return
 		}
 		s.metrics.Tick(start, time.Now())
-		if !clock.Wait(next, done) {
+		if !s.waitForTick(clock, next, done) {
 			return
 		}
 		if sprintTick {
 			s.tickRate.EndSprintTick(time.Now().UnixNano())
+		}
+	}
+}
+
+// waitForTick is clock.Wait for the next tick, which on a real clock runs
+// the plugin calls connections queue in the meantime: a connection that
+// fires an event (a move, a chat line) waits for its listeners, and
+// waiting for the next tick's start would hold every packet behind it -
+// keep-alives, chunk acknowledgements, commands - by up to a tick.
+// vanilla: MinecraftServer.waitUntilNextTick
+func (s *Server) waitForTick(clock tickClock, next time.Time, done <-chan struct{}) bool {
+	if _, real := clock.(wallClock); !real || s.plugins == nil {
+		return clock.Wait(next, done)
+	}
+	queued := s.plugins.CallsQueued()
+	for {
+		d := time.Until(next)
+		if d <= 0 {
+			return clock.Wait(next, done)
+		}
+		timer := time.NewTimer(d)
+		select {
+		case <-timer.C:
+			return true
+		case <-done:
+			timer.Stop()
+			return false
+		case <-queued:
+			timer.Stop()
+			s.plugins.RunCallsBetweenTicks()
 		}
 	}
 }
