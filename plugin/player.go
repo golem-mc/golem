@@ -176,6 +176,8 @@ type Player interface {
 	SetFlying(bool)
 	AllowFlight() bool
 	SetAllowFlight(bool)
+	// FlySpeed and WalkSpeed are on Bukkit's scale, from -1 to 1: a new
+	// player flies at 0.1 and walks at 0.2. The setters clamp to that range.
 	FlySpeed() float32
 	SetFlySpeed(float32)
 	WalkSpeed() float32
