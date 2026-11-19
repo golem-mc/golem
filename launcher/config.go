@@ -30,6 +30,9 @@ type config struct {
 	// the server itself uses, which is otherwise refused: the server was
 	// tested with its own versions.
 	AllowDependencyUpgrades bool `json:"allow-dependency-upgrades,omitempty"`
+	// UpdateCheck, false, turns off the check on start for newer versions
+	// of the server, the plugins and the launcher; unset is on.
+	UpdateCheck *bool `json:"updateCheck,omitempty"`
 }
 
 // pluginSpec is one entry of Plugins: Dir for a local module, else Path at
