@@ -267,7 +267,7 @@ func TestUpdateNoticesPluginsAndLocal(t *testing.T) {
 		"↑ example.com/warps v1.1.0 is out (you run v1.0.0)",
 		strings.TrimSuffix(updateHint, "\n"),
 	}
-	if got := c.updateNotices(context.Background(), st); !slices.Equal(got, want) {
+	if got := c.updateNotices(context.Background(), st, ""); !slices.Equal(got, want) {
 		t.Errorf("notices = %q, want %q", got, want)
 	}
 	if f.releases.count() != 0 {
@@ -277,11 +277,11 @@ func TestUpdateNoticesPluginsAndLocal(t *testing.T) {
 	// proxy; after it, a failed lookup is silent.
 	t.Setenv("GOPROXY", "off")
 	f.clock.Advance(versionCacheTTL - time.Minute)
-	if got := c.updateNotices(context.Background(), st); !slices.Equal(got, want) {
+	if got := c.updateNotices(context.Background(), st, ""); !slices.Equal(got, want) {
 		t.Errorf("cached notices = %q, want %q", got, want)
 	}
 	f.clock.Advance(time.Minute)
-	if got := c.updateNotices(context.Background(), st); len(got) != 0 {
+	if got := c.updateNotices(context.Background(), st, ""); len(got) != 0 {
 		t.Errorf("notices with the proxy off = %q", got)
 	}
 }

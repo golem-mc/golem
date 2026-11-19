@@ -162,8 +162,10 @@ func (c *cli) startUpdateCheck(ctx context.Context, st state) func() []string {
 		case <-ctx.Done():
 		}
 	}()
+	// Read before the goroutine: a check cut short outlives the start.
+	own := ownVersion()
 	done := make(chan []string, 1)
-	go func() { done <- c.updateNotices(ctx, st) }()
+	go func() { done <- c.updateNotices(ctx, st, own) }()
 	return func() []string {
 		defer cancel()
 		select {
@@ -176,10 +178,10 @@ func (c *cli) startUpdateCheck(ctx context.Context, st state) func() []string {
 	}
 }
 
-// updateNotices answers one line per outdated item, using the version cache;
-// none once ctx is done, so a check cut short reports nothing.
-func (c *cli) updateNotices(ctx context.Context, st state) []string {
-	own := ownVersion()
+// updateNotices answers one line per outdated item, using the version cache,
+// with own the launcher's version; none once ctx is done, so a check cut short
+// reports nothing.
+func (c *cli) updateNotices(ctx context.Context, st state, own string) []string {
 	var launcherLatest string
 	var wg sync.WaitGroup
 	if own != "" { // a build from a checkout has no version to compare
