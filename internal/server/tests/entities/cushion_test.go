@@ -224,7 +224,7 @@ func TestAPlayerLeavingSeatedTakesTheCushion(t *testing.T) {
 		t.Errorf("Attach = %v, want the cushion's UUID %v", attach, ids)
 	}
 
-	back := connect().Join("Sitter")
+	back := connect().JoinKeeping("Sitter")
 	seat := back.AwaitSpawn(cushionType).EntityID
 	if riders := servertest.AwaitPassengersFor(back, seat); len(riders) != 1 || riders[0] != back.PlayerEntityID {
 		t.Fatalf("the restored cushion's passengers = %v, want the sitter %d", riders, back.PlayerEntityID)
