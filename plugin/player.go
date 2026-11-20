@@ -222,4 +222,7 @@ type AdvancementProgress interface {
 	// Award and Revoke change one criterion, as /advancement does.
 	Award(criterion string) bool
 	Revoke(criterion string) bool
+	// SetAwarded makes exactly these criteria obtained, silently: no toast,
+	// chat line, reward or event. Unknown names are ignored.
+	SetAwarded(criteria []string)
 }

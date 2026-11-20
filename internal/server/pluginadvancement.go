@@ -69,6 +69,15 @@ func (h *pluginHost) Advancement(key plugin.Key) (plugin.Advancement, bool) {
 	return nil, false
 }
 
+func (h *pluginHost) Advancements() []plugin.Advancement {
+	nodes := advancement.Current().All()
+	out := make([]plugin.Advancement, len(nodes))
+	for i, n := range nodes {
+		out[i] = pluginAdvancement{n}
+	}
+	return out
+}
+
 type pluginAdvancement struct{ node *advancement.Node }
 
 func (a pluginAdvancement) Key() plugin.Key { key, _ := plugin.ParseKey(a.node.ID); return key }
