@@ -511,7 +511,7 @@ func (c *client) sendUpdateTime() error {
 		return c.writePacket(protocol.IDPlayUpdateTime, "update time", c.playerTimePayload(*s.time))
 	}
 	return c.writePacket(protocol.IDPlayUpdateTime, "update time",
-		updateTimePayload(c.srv.world, c.srv.world.Clocks()...))
+		updateTimePayload(c.theWorld(), c.theWorld().Clocks()...))
 }
 
 // sendDifficulty sets what the client shows in its options menu: the
@@ -519,7 +519,7 @@ func (c *client) sendUpdateTime() error {
 // there.
 func (c *client) sendDifficulty() error {
 	return c.writePacket(protocol.IDPlayDifficulty, "change difficulty",
-		difficultyPayload(c.srv.world.Difficulty(), c.srv.world.DifficultyLocked()))
+		difficultyPayload(c.theWorld().Difficulty(), c.theWorld().DifficultyLocked()))
 }
 
 // sendOpLevel tells the client what its player may run, in the entity event

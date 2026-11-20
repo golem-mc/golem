@@ -40,9 +40,9 @@ func (s *Server) tickDimensionWeather(w *world.World) {
 	if change.Began {
 		event = protocol.GameEventBeginRaining
 	}
-	s.broadcast(protocol.IDPlayGameEvent, gameEventPayload(uint8(event), 0))
-	s.broadcast(protocol.IDPlayGameEvent, gameEventPayload(protocol.GameEventRainLevel, change.Rain))
-	s.broadcast(protocol.IDPlayGameEvent, gameEventPayload(protocol.GameEventThunderLevel, change.Thunder))
+	s.broadcastLevel(w, protocol.IDPlayGameEvent, gameEventPayload(uint8(event), 0))
+	s.broadcastLevel(w, protocol.IDPlayGameEvent, gameEventPayload(protocol.GameEventRainLevel, change.Rain))
+	s.broadcastLevel(w, protocol.IDPlayGameEvent, gameEventPayload(protocol.GameEventThunderLevel, change.Thunder))
 }
 
 // vetoNaturalWeather lets the plugins cancel a flip of the weather flags the

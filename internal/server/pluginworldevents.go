@@ -85,26 +85,26 @@ func (s *Server) weatherAllowed(dim *dimension, raining, thundering bool) (rain,
 
 // setWeatherAllowed sets the weather as far as the plugins allow; a change
 // they cancelled whole leaves the timers alone.
-func (s *Server) setWeatherAllowed(raining, thundering bool, rainTime, thunderTime, clearTime int32) {
-	rain, thunder := s.world.Raining(), s.world.Thundering()
-	allowedRain, allowedThunder := s.weatherAllowed(s.allDims()[0], raining, thundering)
+func (s *Server) setWeatherAllowed(dim *dimension, raining, thundering bool, rainTime, thunderTime, clearTime int32) {
+	rain, thunder := dim.w.Raining(), dim.w.Thundering()
+	allowedRain, allowedThunder := s.weatherAllowed(dim, raining, thundering)
 	if (allowedRain != raining || allowedThunder != thundering) && allowedRain == rain && allowedThunder == thunder {
 		return
 	}
-	s.world.SetWeather(allowedRain, allowedThunder, rainTime, thunderTime, clearTime)
+	dim.w.SetWeather(allowedRain, allowedThunder, rainTime, thunderTime, clearTime)
 }
 
 // setThunderAllowed sets the thundering timer, and the flag as far as the
 // plugins allow; a cancelled flip keeps the flag but not the timer.
-func (s *Server) setThunderAllowed(thundering bool, thunderTime int32) {
-	_, thunder := s.weatherAllowed(s.allDims()[0], s.world.Raining(), thundering)
-	s.world.SetThunder(thunder, thunderTime)
+func (s *Server) setThunderAllowed(dim *dimension, thundering bool, thunderTime int32) {
+	_, thunder := s.weatherAllowed(dim, dim.w.Raining(), thundering)
+	dim.w.SetThunder(thunder, thunderTime)
 }
 
 // setRainAllowed is setThunderAllowed for the raining flag and timer.
-func (s *Server) setRainAllowed(raining bool, rainTime int32) {
-	rain, _ := s.weatherAllowed(s.allDims()[0], raining, s.world.Thundering())
-	s.world.SetRain(rain, rainTime)
+func (s *Server) setRainAllowed(dim *dimension, raining bool, rainTime int32) {
+	rain, _ := s.weatherAllowed(dim, raining, dim.w.Thundering())
+	dim.w.SetRain(rain, rainTime)
 }
 
 // resetWeatherAllowed reports whether the plugins let the sky clear.

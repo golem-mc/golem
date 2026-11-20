@@ -446,7 +446,7 @@ func (w *World) SpawnEnemies() bool { return w.spawnEnemies.Load() }
 // refreshSpawnEnemies runs with timeMu held or before the world is shared.
 // vanilla: MinecraftServer.updateMobSpawningFlags, ServerLevel.isSpawningMonsters
 func (w *World) refreshSpawnEnemies() {
-	enemies := w.ruleBool(RuleSpawnMobs) && w.ruleBool(RuleSpawnMonsters)
+	enemies := w.ruleOf(RuleSpawnMobs) && w.ruleOf(RuleSpawnMonsters)
 	w.spawnEnemies.Store(enemies)
 	for _, dim := range w.spawnWorlds {
 		dim.spawnEnemies.Store(enemies)
