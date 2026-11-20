@@ -278,7 +278,7 @@ the `plugin` package (`go doc github.com/golem-mc/golem/plugin`).
 | `ServicesManager` | `Provide`, `Service` and `Providers`, typed by interface |
 | `CommandExecutor`, `TabCompleter`, Paper's Brigadier commands | `Command`: a Brigadier tree with vanilla argument types; `Override` replaces a vanilla command, which stays reachable as `minecraft:name` |
 | `HelpMap`, `HelpTopic`, `help.yml` | `Server.Help()`, `HelpMap`, `HelpTopic`, `NewHelpTopic`; `help.yml` is written on first start |
-| `Permission`, `hasPermission` | `Permission`, `CommandSender.HasPermission`, `PermissionProvider` as a service |
+| `Permission`, `hasPermission`, `PermissionAttachment` | `Permission`, `CommandSender.HasPermission`, `Player.AddAttachment`, `PermissionProvider` as a service |
 | `World`, `Block`, `BlockState`, `Chunk`, `ChunkGenerator` | `World`, `Block`, `BlockEntity` and its kinds, `Chunk`, `Generator` |
 | `Entity`, `LivingEntity`, `Mob`, `Player` and the entity kinds | the same interfaces; assert an `Entity` to the kind |
 | `ItemStack` and `ItemMeta` | `ItemStack`, a value with its data component patch |

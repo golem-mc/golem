@@ -13,11 +13,11 @@ type CommandSender interface {
 	// OpLevel answers the operator level, 0 to 4; the console has 4.
 	OpLevel() int
 	// HasPermission decides a permission node: a provider service first,
-	// then the node's default.
+	// then the player's attachments, then the node's default.
 	HasPermission(node string) bool
-	// PermissionSet tells whether a permission provider decided the node
-	// explicitly, rather than leaving it to the node's default or to
-	// operator level. Bukkit: Permissible.isPermissionSet
+	// PermissionSet tells whether a permission provider or attachment
+	// decided the node explicitly, rather than leaving it to the node's
+	// default or to operator level. Bukkit: Permissible.isPermissionSet
 	PermissionSet(node string) bool
 }
 
@@ -75,6 +75,11 @@ type Player interface {
 	SetGameMode(GameMode)
 	// SetOpLevel makes the player an operator (0 removes them).
 	SetOpLevel(level int)
+	// AddAttachment attaches a transient permission set to this player,
+	// owned by the calling plugin and removed when the plugin is disabled
+	// or the player leaves. Answers nil if the player is no longer online.
+	// Bukkit: Permissible.addAttachment
+	AddAttachment() PermissionAttachment
 	// Kick disconnects the player with reason, firing PlayerKickEvent.
 	Kick(reason Text)
 	// Transfer sends the player to another server (the Transfer packet).

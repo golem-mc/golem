@@ -86,7 +86,14 @@ func (r *permissionRegistry) reindex() {
 	r.index = index
 }
 
-// HasPermission consults the provider outside runtime locks, then defaults and children.
+// AttachmentSource is implemented by a CommandSender that carries per-player
+// transient permission attachments.
+type AttachmentSource interface {
+	AttachedPermission(node string) (value, set bool)
+}
+
+// HasPermission consults the provider outside runtime locks, then attachments,
+// then defaults and children.
 func (r *Runtime) HasPermission(sender plugin.CommandSender, node string) bool {
 	if r == nil {
 		return sender.OpLevel() > 0
@@ -95,6 +102,12 @@ func (r *Runtime) HasPermission(sender plugin.CommandSender, node string) bool {
 	if v, ok := r.lookupService(reflect.TypeFor[plugin.PermissionProvider]()); ok {
 		provider = v.(plugin.PermissionProvider)
 		if allowed, decided := provider.Has(sender, node); decided {
+			return allowed
+		}
+	}
+	attachments, _ := sender.(AttachmentSource)
+	if attachments != nil {
+		if allowed, set := attachments.AttachedPermission(node); set {
 			return allowed
 		}
 	}
@@ -113,10 +126,17 @@ func (r *Runtime) HasPermission(sender plugin.CommandSender, node string) bool {
 		}
 		visiting[name] = true
 		defer func() { delete(visiting, name); memo[name] = allowed }()
-		// The requested node's provider was consulted before taking the snapshot.
-		if provider != nil && name != node {
-			if value, decided := provider.Has(sender, name); decided {
-				return value
+		// The requested node's provider and attachments were consulted before taking the snapshot.
+		if name != node {
+			if provider != nil {
+				if value, decided := provider.Has(sender, name); decided {
+					return value
+				}
+			}
+			if attachments != nil {
+				if value, set := attachments.AttachedPermission(name); set {
+					return value
+				}
 			}
 		}
 		if index != nil {
@@ -134,17 +154,22 @@ func (r *Runtime) HasPermission(sender plugin.CommandSender, node string) bool {
 	return has(node)
 }
 
-// PermissionSet answers whether the provider decided the node for sender.
+// PermissionSet answers whether a provider or attachment decided the node for sender.
 func (r *Runtime) PermissionSet(sender plugin.CommandSender, node string) bool {
 	if r == nil {
 		return false
 	}
-	v, ok := r.lookupService(reflect.TypeFor[plugin.PermissionProvider]())
-	if !ok {
-		return false
+	if v, ok := r.lookupService(reflect.TypeFor[plugin.PermissionProvider]()); ok {
+		if _, decided := v.(plugin.PermissionProvider).Has(sender, node); decided {
+			return true
+		}
 	}
-	_, decided := v.(plugin.PermissionProvider).Has(sender, node)
-	return decided
+	if attachments, ok := sender.(AttachmentSource); ok {
+		if _, set := attachments.AttachedPermission(node); set {
+			return true
+		}
+	}
+	return false
 }
 
 // Permissions answers this plugin's permission registrations.
