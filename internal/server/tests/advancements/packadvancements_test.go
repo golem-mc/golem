@@ -921,3 +921,21 @@ func TestPackHurtEntityFiresOnAnInteractionHit(t *testing.T) {
 		t.Fatal("an interaction's 1-damage blow fired the dealt.min 2 criterion")
 	}
 }
+
+// TestPackHurtEntityFiresOnAPlayerLitTNTBlastOfTheEnderDragon: a
+// player_hurt_entity criterion fires for the ender dragon hurt by a TNT the
+// player lit.
+// vanilla: EnderDragon.hurt, reallyHurt, LivingEntity.hurtServer
+func TestPackHurtEntityFiresOnAPlayerLitTNTBlastOfTheEnderDragon(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "dragon", "player_hurt_entity",
+		`{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:ender_dragon"}}],"damage":{"taken":{"min":0.01}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+	srv.SpawnMob("minecraft:ender_dragon", 20.5, 64, 4.5)
+	srv.SpawnPlayerTNT("Packer", 20.5, 64, 4.5, 1)
+	servertest.UntilTicks(t, srv, 5, "the player-lit blast's hurt of the dragon", func() bool { return srv.AdvancementObtained("Packer", "pk:dragon", "c") })
+}

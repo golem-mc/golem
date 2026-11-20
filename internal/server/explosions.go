@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/golem-mc/golem/plugin"
+	"math"
 	"math/rand"
 	"slices"
 
@@ -365,7 +366,9 @@ func (s *Server) blastMobs(b blast, in *blastInputs, fx *blastEffects) {
 			continue
 		}
 		if m.Type == entity.TypeEnderDragon {
-			s.blastDragon(b, in, m, herd.book[m], pusher, &pushes)
+			s.blastDragon(b, in, m, herd.book[m], pusher, &pushes, func(dealt, took float64) {
+				hurts = append(hurts, landed{herd.book[m], m.Type, dealt, took})
+			})
 			continue
 		}
 		dist, ok := in.at.Reach(m.X, m.Y, m.Z)
@@ -1172,7 +1175,7 @@ func (t *mobDimTick) creeperExploded(fx *mobEffects, ev entity.MobEvent) {
 // blastDragon measures each part independently, including parts beyond the
 // parent's reach. Part pushes belong to the parts, not their parent.
 // vanilla: ServerExplosion.hurtEntities, Level.getEntities
-func (s *Server) blastDragon(b blast, in *blastInputs, m *entity.Mob, ent *mobEntity, pusher plugin.Entity, pushes *[]*mobKnockback) {
+func (s *Server) blastDragon(b blast, in *blastInputs, m *entity.Mob, ent *mobEntity, pusher plugin.Entity, pushes *[]*mobKnockback, landedHurt func(dealt, took float64)) {
 	defer m.AimDragonPart(entity.DragonBody)
 	typ := int32(m.Type)
 	for part := -1; part < 8; part++ {
@@ -1201,7 +1204,17 @@ func (s *Server) blastDragon(b blast, in *blastInputs, m *entity.Mob, ent *mobEn
 		}
 		if !b.harmless {
 			m.AimDragonPart(part)
+			before := m.Health
 			s.hurtByBlast(b, m, hit.Damage, 0, 0, 0, in.causeCreative)
+			if took := before - m.Health; took > 0 && b.causeID != 0 {
+				// A part other than the head and neck takes the softened
+				// damage. vanilla: EnderDragon.hurt
+				dealt := hit.Damage
+				if part != entity.DragonHead && part != entity.DragonNeck {
+					dealt = dealt/4 + math.Min(dealt, 1)
+				}
+				landedHurt(dealt, took)
+			}
 		}
 	}
 }
