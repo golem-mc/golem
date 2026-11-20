@@ -1,12 +1,11 @@
 package plugins_test
 
 import (
+	"testing"
 	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"testing"
-
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 )
@@ -169,7 +168,7 @@ func TestPluginEntityMoveEventWalkingZombie(t *testing.T) {
 	t.Parallel()
 	var moves, vehicle int
 	var first, last plugin.EntityMoveEvent
-	srv, c := tickScene(t, func(s plugin.Server) {
+	srv, _ := tickScene(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.EntityMoveEvent) {
 			if moves == 0 {
 				first = *e
@@ -196,7 +195,7 @@ func TestPluginEntityMoveEventWalkingZombie(t *testing.T) {
 	}
 	x1, _, z1, _ := srv.MobPos(id)
 	if x0 == x1 && z0 == z1 {
-		t.Skip("zombie did not walk")
+		t.Fatal("zombie did not walk")
 	}
 	if moves == 0 || first.From.Pos == first.To.Pos && first.From.Yaw == first.To.Yaw {
 		t.Fatalf("walking zombie: %d events, first %+v", moves, first)
@@ -207,7 +206,6 @@ func TestPluginEntityMoveEventWalkingZombie(t *testing.T) {
 	if vehicle != 0 {
 		t.Errorf("%d vehicle events", vehicle)
 	}
-	_ = c
 }
 
 // A moving player fires PlayerMoveEvent and neither of the entity events.
@@ -223,10 +221,7 @@ func TestPluginPlayerMoveFiresOnlyPlayerMoveEvent(t *testing.T) {
 	srv.RunTick()
 	p := srv.PlayerPosition("Victim")
 	c.SendPosition(p.X+0.3, p.Y, p.Z, true)
-	time.Sleep(50 * time.Millisecond)
-	for range 3 {
-		srv.RunTick()
-	}
+	ticksUntil(t, srv, "player move event", func() bool { return player > 0 })
 	if player == 0 || entity != 0 || vehicle != 0 {
 		t.Fatalf("player %d, entity %d, vehicle %d events", player, entity, vehicle)
 	}
