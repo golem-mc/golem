@@ -7,6 +7,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/plugin"
@@ -270,4 +271,51 @@ func facing(t *testing.T, b registry.Block, dir string) uint16 {
 		t.Fatalf("%v has no facing", b)
 	}
 	return state
+}
+
+// TestPluginBlockDispenseTarget checks Target names the armor stand a helmet
+// goes onto (cancelling leaves the slot bare and the item in the dispenser)
+// and is nil when the dispenser shoots an arrow.
+// vanilla: EquipmentDispenseItemBehavior.dispenseEquipment
+func TestPluginBlockDispenseTarget(t *testing.T) {
+	t.Parallel()
+	var targets []plugin.LivingEntity
+	var cancel bool
+	srv, host, _ := blockScene(t, "minecraft:stick", false, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.BlockDispenseEvent) {
+			targets = append(targets, e.Target)
+			e.SetCancelled(cancel)
+		})
+	})
+	host.Scheduler().RunTask(func() {
+		host.Overworld().SetBlockState(plugin.BlockPos{X: 5, Y: 64, Z: 4}, plugin.BlockState(facing(t, registry.BlockDispenser, "south")), plugin.UpdateAll)
+	})
+	servertest.RunTicks(t, srv, 1)
+	stand := srv.SpawnArmorStand(5.5, 64, 5.5)
+	dispense := func(item string) {
+		if !srv.SetInventoryAt(5, 64, 4, 0, servertest.ItemStack(t, item, 1)) {
+			t.Fatal("missing dispenser")
+		}
+		srv.Dispense(5, 64, 4, protocol.FaceSouth)
+	}
+
+	cancel = true
+	dispense("minecraft:iron_helmet")
+	if len(targets) != 1 || targets[0] == nil || targets[0].Type() != registry.EntityTypeArmorStand {
+		t.Fatalf("cancelled equip target = %v", targets)
+	}
+	if !srv.ArmorStandStack(stand, entity.StandHead).Empty() || srv.InventoryAt(5, 64, 4)[0].Count != 1 {
+		t.Fatal("cancelled dispense equipped the stand or lost the item")
+	}
+
+	cancel = false
+	dispense("minecraft:iron_helmet")
+	if targets[1] == nil || srv.ArmorStandStack(stand, entity.StandHead).Empty() {
+		t.Fatalf("equip target=%v head=%+v", targets[1], srv.ArmorStandStack(stand, entity.StandHead))
+	}
+
+	dispense("minecraft:arrow")
+	if len(targets) != 3 || targets[2] != nil {
+		t.Fatalf("arrow target = %v, want nil", targets)
+	}
 }

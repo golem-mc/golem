@@ -199,6 +199,13 @@ func (s *Server) pluginDispense(w *world.World, visit *dispenseVisit, d *world.D
 	ax, ay, az := dispenseAim(*d)
 	original := pluginStack(visit.taken)
 	e := &plugin.BlockDispenseEvent{Block: s.pluginBlock(w, d.X, d.Y, d.Z), Item: original, Velocity: plugin.Vec3{X: ax, Y: ay, Z: az}}
+	if !dropper {
+		if id, ok := s.dispenseEquipTarget(w, *visit, *d); ok {
+			if ent, ok := s.pluginAdapter.entityByUUID(id, ""); ok {
+				e.Target, _ = s.pluginAdapter.pluginEntityOf(ent).(plugin.LivingEntity)
+			}
+		}
+	}
 	s.plugins.Fire(e)
 	if e.Cancelled() {
 		return true

@@ -715,6 +715,15 @@ func (s *ArmorStand) BreakingParticles() (x, y, z float64, dx, dy, dz float32) {
 // allowed entity.
 // vanilla: LivingEntity.canEquipWithDispenser, ArmorStand.canUseSlot
 func (s *ArmorStand) DispenserEquip(stack protocol.ItemStack) bool {
+	return s.dispenserEquip(stack, true)
+}
+
+// CanDispenserEquip reports whether DispenserEquip would fit the piece, changing nothing.
+func (s *ArmorStand) CanDispenserEquip(stack protocol.ItemStack) bool {
+	return s.dispenserEquip(stack, false)
+}
+
+func (s *ArmorStand) dispenserEquip(stack protocol.ItemStack, commit bool) bool {
 	if s.Dead {
 		return false
 	}
@@ -731,8 +740,10 @@ func (s *ArmorStand) DispenserEquip(stack protocol.ItemStack) bool {
 	if slot < 0 || s.SlotLocked(slot) || s.HasItemInSlot(slot) {
 		return false
 	}
-	stack.Count = 1
-	s.SetStack(slot, stack)
+	if commit {
+		stack.Count = 1
+		s.SetStack(slot, stack)
+	}
 	return true
 }
 
