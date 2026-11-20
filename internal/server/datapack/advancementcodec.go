@@ -534,10 +534,37 @@ func advPlayerConditions(player any) (out []registry.LootCondition, ok bool) {
 	func() {
 		defer recoverLoot(&err)
 		for _, term := range player.([]any) {
-			out = append(out, conditionHolder(term))
+			out = append(out, conditionHolder(advTyped(term)))
 		}
 	}()
 	return out, err == nil
+}
+
+// advTyped is advCondition's inverse: it keys a condition and its terms by
+// "type" again, for the loot codec.
+func advTyped(v any) any {
+	c, ok := v.(obj)
+	if !ok {
+		return v
+	}
+	c = maps.Clone(c)
+	if kind, keyed := c["condition"]; keyed {
+		c["type"] = kind
+		delete(c, "condition")
+	}
+	if terms, ok := c["terms"].([]any); ok {
+		c["terms"] = slices.Collect(func(yield func(any) bool) {
+			for _, t := range terms {
+				if !yield(advTyped(t)) {
+					return
+				}
+			}
+		})
+	}
+	if term, ok := c["term"]; ok {
+		c["term"] = advTyped(term)
+	}
+	return c
 }
 
 // advTrigger reads the conditions the server tests of one trigger.

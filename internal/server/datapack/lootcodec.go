@@ -1367,7 +1367,7 @@ func (d lootDecoder) function(f obj) registry.LootFunction {
 	case "minecraft:set_name":
 		return setName(f, conds)
 	case "minecraft:set_lore":
-		unknownKeys(f, "set_lore", "type", "condition", "conditions", "lore", "mode", "offset", "size", "entity")
+		unknownKeys(f, "set_lore", key, "condition", "conditions", "lore", "mode", "offset", "size", "entity")
 		var lines []protocol.Text
 		for _, l := range list(required(f, "lore"), "lore") {
 			lines = append(lines, textComponent(l))
