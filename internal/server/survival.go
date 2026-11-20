@@ -2303,6 +2303,8 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 	var inks []mobInk
 	var thorns []mobThorns
 	var pricks []guardianPrick
+	var struck []advancement.Entity
+	self := c.LootEntity
 	c.srv.mobsMu.Lock()
 	for m, ent := range c.srv.herdOf(w).book {
 		if m.ID == targetID || m.Dead || alliedTo(c.player.UUID, myTeam, allies, m) {
@@ -2320,10 +2322,14 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 			pricks = append(pricks, guardianPrick{id: m.ID, x: m.X, y: m.Y, z: m.Z, killer: c.srv.mobKiller(ent)})
 		}
 		oldVX, oldVY, oldVZ, oldImpulse := m.VX, m.VY, m.VZ, m.Impulse
-		hurt, ink, laid, _ := landMobHurt(ent, rules.EnchantedDamage(held, &mobCtx, sweep)*strength,
+		healthBefore := m.Health
+		swept := rules.EnchantedDamage(held, &mobCtx, sweep) * strength
+		hurt, ink, laid, _ := landMobHurt(ent, swept,
 			attacker, rules.SweepShove, held, mobCtx, nil)
 		kb := c.srv.holdMobKnockback(ent, c.player.UUID, oldVX, oldVY, oldVZ, oldImpulse)
 		if laid {
+			struck = append(struck, advancement.Entity{Type: m.Type.Name(), Loot: c.srv.mobLoot(ent), Blow: &advancement.Blow{
+				Dealt: swept, Taken: healthBefore - m.Health, Type: mobCtx.DamageType, Attacker: self, Direct: self}})
 			c.awardDamageStat(registry.CustomStatDamageDealtResisted, m.BlowResisted)
 			c.awardDamageStat(registry.CustomStatDamageDealtAbsorbed, m.BlowAbsorbed)
 			thorns = append(thorns, mobRetaliations(ent, &mobCtx, held))
@@ -2340,6 +2346,9 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 		}
 	}
 	c.srv.mobsMu.Unlock()
+	for _, v := range struck {
+		c.hurtEntityAdvancements(v)
+	}
 	for _, p := range pricks {
 		c.srv.guardianThorns(c, p.id, p.x, p.y, p.z, p.killer)
 	}

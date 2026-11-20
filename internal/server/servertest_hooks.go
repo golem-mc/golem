@@ -7875,6 +7875,19 @@ func (s *Server) SpawnMannequinForTest(x, y, z float64) int32 {
 	return ent.mannequin.ID
 }
 
+// FixtureIDForTest returns the entity ID of the first live fixture of kind
+// (entity.FixtureInteraction, ...), or 0.
+func (s *Server) FixtureIDForTest(kind string) int32 {
+	s.fixturesMu.Lock()
+	defer s.fixturesMu.Unlock()
+	for _, ent := range s.fixtures {
+		if ent.kind == kind && !ent.dead {
+			return ent.id
+		}
+	}
+	return 0
+}
+
 // SetBodyFallDistance seeds the banked fall of a tracked body.
 func (s *Server) SetBodyFallDistance(kind string, id int32, fall float64) bool {
 	_, ok := s.bodyFallForTest(kind, id, &fall)

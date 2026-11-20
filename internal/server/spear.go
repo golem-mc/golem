@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -363,6 +364,11 @@ func (c *client) stabMob(ent *mobEntity, held protocol.ItemStack, pw registry.Pi
 	if laid {
 		c.awardDamageStat(registry.CustomStatDamageDealtResisted, resisted)
 		c.awardDamageStat(registry.CustomStatDamageDealtAbsorbed, absorbed)
+	}
+	if laid && hurts {
+		self := c.LootEntity
+		c.hurtEntityAdvancements(advancement.Entity{Type: kind.Name(), Loot: c.srv.mobLoot(ent), Blow: &advancement.Blow{
+			Dealt: damage, Taken: dealt, Type: damageType, Attacker: self, Direct: self}})
 	}
 	c.stabEndsSprint(pw)
 
