@@ -510,6 +510,38 @@ func advCriterion(id, name string, value obj) registry.AdvancementCriterion {
 		fail("unknown trigger %s", trigger)
 	}
 	conditions := advContexts(asObjOr(value["conditions"]))
+	c := advTrigger(name, trigger, conditions)
+	if !c.Unmodelled {
+		return c
+	}
+	if player, ok := conditions["player"]; ok {
+		rest := maps.Clone(conditions)
+		delete(rest, "player")
+		if second := advTrigger(name, trigger, rest); !second.Unmodelled {
+			if conds, ok := advPlayerConditions(player); ok {
+				second.Player = conds
+				return second
+			}
+		}
+	}
+	return c
+}
+
+// advPlayerConditions decodes a criterion's player conditions with the loot
+// codec, or false for one it refuses.
+func advPlayerConditions(player any) (out []registry.LootCondition, ok bool) {
+	var err error
+	func() {
+		defer recoverLoot(&err)
+		for _, term := range player.([]any) {
+			out = append(out, conditionHolder(term))
+		}
+	}()
+	return out, err == nil
+}
+
+// advTrigger reads the conditions the server tests of one trigger.
+func advTrigger(name, trigger string, conditions obj) registry.AdvancementCriterion {
 	c := registry.AdvancementCriterion{Name: name, Trigger: trigger}
 	only := func(keys ...string) { advOnly(&c, conditions, keys...) }
 	switch trigger {

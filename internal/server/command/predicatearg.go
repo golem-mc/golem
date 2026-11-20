@@ -144,3 +144,8 @@ func checkPredicateArgument(text string) *ParseError {
 	_, err := parsePredicate(text)
 	return err
 }
+
+// FillLootWorld points ctx's location and level reads at src, at pos.
+func FillLootWorld(ctx *rules.LootContext, src Source, pos player.Position) {
+	fillLootWorld(ctx, src, pos)
+}
