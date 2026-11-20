@@ -283,12 +283,12 @@ func genericComponentFilter(name string, op byte, value string) (ItemFilter, boo
 	switch op {
 	case 0, '~':
 		if op == '~' {
-			if tag, ok := valueTag(value); ok {
-				if test, ok := registry.ComponentPredicateTest(name, tag); ok {
-					return test, true
-				}
+			tag, _ := valueTag(value)
+			test, typed, ok := registry.DecodeComponentPredicate(name, tag)
+			if ok {
+				return test, true
 			}
-			if registry.HasPredicateType(name) {
+			if typed {
 				return nil, false
 			}
 		}

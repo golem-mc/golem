@@ -45,11 +45,27 @@ func TestCommandItemPredicatesMatchComponentPredicateTypes(t *testing.T) {
 		}
 	}
 
+	// /clear with a maxCount of 0 counts the matches without removing them.
+	clearCounts := func(predicate string, want bool) {
+		t.Helper()
+		c.ChatCommand("clear @s " + predicate + " 0")
+		one := int64(1)
+		var found protocol.Buffer
+		found.PutText(protocol.Text{Translate: "commands.clear.test.single",
+			With: []protocol.Text{{Number: &one}, servertest.PlayerDisplayComponent("Testificate")}})
+		found.PutBool(false)
+		if got := c.ExpectPlay(protocol.IDPlaySystemChat); bytes.Equal(got, found.Bytes()) != want {
+			t.Errorf("clear %s answered % X, want a match: %v", predicate, got, want)
+		}
+	}
+
 	gold := `*[minecraft:trim~{material:"minecraft:gold"}]`
 	hold(`minecraft:iron_helmet[trim={material:"minecraft:gold",pattern:"minecraft:coast"}]`)
 	answers(gold, true)
+	clearCounts(gold, true)
 	hold(`minecraft:iron_helmet[trim={material:"minecraft:iron",pattern:"minecraft:coast"}]`)
 	answers(gold, false)
+	clearCounts(gold, false)
 
 	diamond := `*[container~{items:{contains:[{items:"minecraft:diamond"}]}}]`
 	hold(`minecraft:shulker_box[container=[{slot:0,item:{id:"minecraft:diamond"}}]]`)
