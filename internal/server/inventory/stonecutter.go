@@ -19,7 +19,7 @@ func StonecutterResult(input, index int32) (protocol.ItemStack, bool) {
 	if !ok {
 		return protocol.ItemStack{}, false
 	}
-	return protocol.ItemStack{ItemID: recipe.ResultID, Count: recipe.ResultCount}, true
+	return registry.RecipeResult(recipe.ID, protocol.ItemStack{ItemID: recipe.ResultID, Count: recipe.ResultCount}), true
 }
 
 func stonecutterRecipe(input, index int32) (registry.StonecutterRecipe, bool) {

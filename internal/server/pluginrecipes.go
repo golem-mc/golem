@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"slices"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/datapack"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 )
@@ -26,8 +27,7 @@ type pluginRecipeList struct{ h *pluginHost }
 
 // Add decodes r through the data pack recipe reader, so a plugin's recipe
 // crafts, cooks and shows in the book exactly as the same file in a pack
-// does, then gives it to every online player. A result with data components
-// is refused, as in a pack: no recipe table holds a component patch.
+// does, then gives it to every online player.
 func (l pluginRecipeList) Add(r plugin.Recipe) error {
 	s := l.h.srv
 	key := r.RecipeKey()
@@ -41,6 +41,9 @@ func (l pluginRecipeList) Add(r plugin.Recipe) error {
 	var probe registry.PackRecipes
 	if err := datapack.DecodeRecipe(key.String(), data, &probe); err != nil {
 		return fmt.Errorf("plugin: recipe %s: %w", key, err)
+	}
+	if _, err := resultPatch(r); err != nil {
+		return err
 	}
 	s.pluginRecipeMu.Lock()
 	if _, ok := s.pluginRecipeOf(key); ok {
@@ -162,6 +165,12 @@ func (s *Server) layerPluginRecipes(packs registry.PackRecipes) registry.PackRec
 		if err != nil {
 			continue // Add decoded it once already
 		}
+		if patch, err := resultPatch(r); err == nil && len(patch) > 0 {
+			if out.Results == nil {
+				out.Results = map[string][]registry.ResultComponent{}
+			}
+			out.Results[r.RecipeKey().String()] = patch
+		}
 	}
 	// A plugin's crafting recipes are in every new player's book.
 	for i := first; i < len(out.Crafting); i++ {
@@ -192,7 +201,7 @@ func registryRecipe(name string) (plugin.Recipe, bool) {
 	}
 	if ds := registry.CraftingDisplaysOfName(name); len(ds) > 0 {
 		d := ds[0]
-		res := plugin.NewStack(registry.Item(d.ResultID), int(d.ResultCount))
+		res := pluginStack(registry.RecipeResult(d.Name, protocol.ItemStack{ItemID: d.ResultID, Count: d.ResultCount}))
 		if !d.Shaped {
 			r := plugin.ShapelessRecipe{Key: key, Result: res}
 			for _, sq := range d.Squares {
@@ -227,15 +236,15 @@ func registryRecipe(name string) (plugin.Recipe, bool) {
 	if d := registry.FurnaceDisplayOfName(name); d != nil {
 		kinds := [...]string{"smelting", "blasting", "smoking", "campfire_cooking"}
 		return plugin.CookingRecipe{Key: key, Kind: plugin.MinecraftKey(kinds[d.Kind]), Input: bookIngredient(d.Ingredient),
-			Result: plugin.NewStack(registry.Item(d.ResultID), int(d.ResultCount)), Experience: d.Experience, CookTime: int(d.Duration)}, true
+			Result: pluginStack(registry.RecipeResult(d.Name, protocol.ItemStack{ItemID: d.ResultID, Count: d.ResultCount})), Experience: d.Experience, CookTime: int(d.Duration)}, true
 	}
 	if d := registry.StonecutterDisplayOfName(name); d != nil {
 		return plugin.StonecuttingRecipe{Key: key, Input: bookIngredient(d.Ingredient),
-			Result: plugin.NewStack(registry.Item(d.ResultID), int(d.ResultCount))}, true
+			Result: pluginStack(registry.RecipeResult(d.Name, protocol.ItemStack{ItemID: d.ResultID, Count: d.ResultCount}))}, true
 	}
 	if d := registry.SmithingDisplayOfName(name); d != nil && !d.Trim {
 		return plugin.SmithingRecipe{Key: key, Template: bookIngredient(d.Template), Base: bookIngredient(d.Base),
-			Addition: bookIngredient(d.Addition), Result: plugin.NewStack(registry.Item(d.ResultID), int(d.ResultCount))}, true
+			Addition: bookIngredient(d.Addition), Result: pluginStack(registry.RecipeResult(d.Name, protocol.ItemStack{ItemID: d.ResultID, Count: d.ResultCount}))}, true
 	}
 	return nil, false
 }
@@ -329,9 +338,38 @@ func resultJSON(s plugin.ItemStack) (any, error) {
 	if !ok || st.Empty() {
 		return nil, errors.New("plugin: recipe result is not a valid stack")
 	}
-	if !reflect.DeepEqual(s.Patch, plugin.ItemPatch{}) {
-		return nil, errors.New("plugin: a recipe result with data components is not supported")
-	}
 	name, _ := registry.ItemName(st.ItemID)
 	return map[string]any{"id": name, "count": st.Count}, nil
+}
+
+// resultPatch is the component patch of r's result, which the recipe JSON
+// does not carry: the components the stack holds away from its item's defaults.
+func resultPatch(r plugin.Recipe) ([]registry.ResultComponent, error) {
+	var result plugin.ItemStack
+	switch r := r.(type) {
+	case plugin.ShapedRecipe:
+		result = r.Result
+	case plugin.ShapelessRecipe:
+		result = r.Result
+	case plugin.CookingRecipe:
+		result = r.Result
+	case plugin.StonecuttingRecipe:
+		result = r.Result
+	case plugin.SmithingRecipe:
+		result = r.Result
+	}
+	stack, ok := pluginProtocolStack(result)
+	if !ok {
+		return nil, errors.New("plugin: recipe result is not a valid stack")
+	}
+	components := registry.StackComponents(stack)
+	var patch []registry.ResultComponent
+	var probe protocol.ItemStack
+	for _, name := range nbt.HashOrderedKeys(components) {
+		if !registry.ReadComponent(&probe, name, components[name]) {
+			return nil, fmt.Errorf("plugin: recipe result component %s is not supported", name)
+		}
+		patch = append(patch, registry.ResultComponent{Name: name, Value: components[name]})
+	}
+	return patch, nil
 }

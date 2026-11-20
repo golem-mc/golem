@@ -25,11 +25,6 @@ func TestPluginRecipesAddRemoveCraft(t *testing.T) {
 			Result: plugin.NewStack(registry.ItemDiamond, 1)}); err == nil {
 			t.Error("a recipe outside the plugin's namespace was accepted")
 		}
-		bad := plugin.NewStack(registry.ItemDiamond, 1)
-		bad.Patch.Unbreakable = new(bool)
-		if err := rs.Add(plugin.ShapelessRecipe{Key: plugin.Key{Namespace: "world", Path: "bad"}, Ingredients: []plugin.Ingredient{stick}, Result: bad}); err == nil {
-			t.Error("a result with components was accepted")
-		}
 		if err := rs.Add(plugin.ShapedRecipe{Key: key, Pattern: []string{"SS", "SS"}, Keys: map[rune]plugin.Ingredient{'S': stick},
 			Result: plugin.NewStack(registry.ItemDiamond, 2)}); err != nil {
 			t.Fatal(err)
@@ -149,4 +144,27 @@ func TestPluginFurnaceExtractEvent(t *testing.T) {
 			t.Errorf("extract event %+v", got)
 		}
 	})
+}
+
+// vanilla: ItemStackTemplate.apply, ShapelessRecipe.assemble
+func TestPluginRecipeResultKeepsItsComponents(t *testing.T) {
+	// Not parallel: the recipe set is process-wide.
+	_, h, run, w := inventoryPlayer(t)
+	t.Cleanup(func() { registry.ApplyPackRecipes(registry.PackRecipes{}) })
+	run(func() {
+		result := plugin.NewStack(registry.ItemDiamond, 1)
+		yes := true
+		result.Patch.Unbreakable = &yes
+		if err := h.Recipes().Add(plugin.ShapelessRecipe{Key: plugin.Key{Namespace: "world", Path: "tough"},
+			Ingredients: []plugin.Ingredient{{Items: []registry.Item{registry.ItemStick}}}, Result: result}); err != nil {
+			t.Fatal(err)
+		}
+		testerOf(t, h).Inventory().SetItem(0, plugin.NewStack(registry.ItemStick, 1))
+	})
+	w.Drain()
+	w.PutInGrid(36, 1)
+	w.Click(0, 0, protocol.ClickModePickup)
+	want := servertest.ItemStack(t, "minecraft:diamond", 1)
+	want.Unbreakable = true
+	w.ExpectClickResult(map[int16]protocol.ItemStack{0: {}, 1: {}, 2: {}, 3: {}, 4: {}}, want)
 }
