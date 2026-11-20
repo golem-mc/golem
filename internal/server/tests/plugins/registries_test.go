@@ -65,6 +65,43 @@ func TestPluginRegistries(t *testing.T) {
 			rules[i] = "minecraft:" + r.ID
 		}
 		checkRegistry(t, r, rules, r.GameRule, 0)
+		infos := r.GameRules()
+		if len(infos) != len(world.GameRuleTable) {
+			t.Fatalf("GameRules=%d, want %d", len(infos), len(world.GameRuleTable))
+		}
+		for i, info := range infos {
+			def := world.GameRuleTable[i]
+			if int(info.ID) != i || info.Key != plugin.MinecraftKey(def.ID) || info.Boolean != (def.Kind == world.RuleBool) {
+				t.Errorf("rule %d=%+v", i, info)
+			}
+			if got, ok := r.KeyOf(info.ID); !ok || got != info.Key {
+				t.Errorf("KeyOf(%d)=%v,%v", i, got, ok)
+			}
+			if info.Boolean && (info.Min != 0 || info.Max != 1 || info.Default != map[bool]int{false: 0, true: 1}[def.DefBool]) {
+				t.Errorf("bool rule %+v", info)
+			}
+			if !info.Boolean && (info.Default != int(def.DefInt) || info.Min != int(def.Min) || info.Max != int(def.Max)) {
+				t.Errorf("int rule %+v", info)
+			}
+		}
+		for _, name := range []string{"keep_inventory", "random_tick_speed"} {
+			id, _ := r.GameRule(plugin.MinecraftKey(name))
+			info := infos[id]
+			w := h.Overworld()
+			if w.GameRule(id) != info.Default {
+				t.Errorf("%s=%d, default %d", name, w.GameRule(id), info.Default)
+			}
+			if _, err := h.Dispatch(h.Console(), "gamerule "+name+" "+map[bool]string{true: "true", false: "7"}[info.Boolean]); err != nil {
+				t.Fatal(err)
+			}
+			want := 7
+			if info.Boolean {
+				want = 1
+			}
+			if w.GameRule(id) != want || r.GameRules()[id].Default != info.Default {
+				t.Errorf("%s=%d default=%d after /gamerule", name, w.GameRule(id), r.GameRules()[id].Default)
+			}
+		}
 		if _, ok := r.GameRule(plugin.Key{Namespace: "example", Path: "advance_time"}); ok {
 			t.Error("foreign rule resolved")
 		}
