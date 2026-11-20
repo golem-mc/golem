@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -292,8 +293,25 @@ type pluginOfflinePlayer struct {
 	host        *pluginHost
 	id          plugin.UUID
 	name        string
+	once        sync.Once
 	first, last time.Time
 	spawn       *respawnPos
+}
+
+func (p *pluginOfflinePlayer) load() {
+	p.once.Do(func() {
+		root, err := p.host.srv.players.load(uuid.UUID(p.id))
+		if err != nil {
+			p.host.Logger().Warn("could not load player data", "uuid", uuid.UUID(p.id), "error", err)
+		}
+		if root != nil {
+			fixPlayerRespawn(root)
+			if r, ok := storedRespawn(root); ok {
+				p.spawn = &r
+			}
+		}
+		p.first, p.last = p.host.srv.pluginPlayedTimes(uuid.UUID(p.id), root)
+	})
 }
 
 func (h *pluginHost) OfflinePlayer(id plugin.UUID) (plugin.OfflinePlayer, bool) {
@@ -314,18 +332,59 @@ func (h *pluginHost) OfflinePlayer(id plugin.UUID) (plugin.OfflinePlayer, bool) 
 	}
 	fixPlayerRespawn(root)
 	first, last := h.srv.pluginPlayedTimes(uuid.UUID(id), root)
-	p := pluginOfflinePlayer{host: h, id: id, name: name, first: first, last: last}
+	p := &pluginOfflinePlayer{host: h, id: id, name: name, first: first, last: last}
 	if r, ok := storedRespawn(root); ok {
 		p.spawn = &r
 	}
+	p.once.Do(func() {})
 	return p, true
 }
-func (p pluginOfflinePlayer) UUID() plugin.UUID             { return p.id }
-func (p pluginOfflinePlayer) Name() string                  { return p.name }
-func (p pluginOfflinePlayer) Online() (plugin.Player, bool) { return p.host.Player(p.id) }
-func (p pluginOfflinePlayer) FirstPlayed() time.Time        { return p.first }
-func (p pluginOfflinePlayer) LastSeen() time.Time           { return p.last }
-func (p pluginOfflinePlayer) RespawnPoint() (plugin.Location, bool) {
+
+func (h *pluginHost) OfflinePlayers() []plugin.OfflinePlayer {
+	online := h.Players()
+	seen := make(map[plugin.UUID]struct{}, len(online))
+	out := make([]plugin.OfflinePlayer, 0, len(online))
+	for _, p := range online {
+		id := p.UUID()
+		if id == (plugin.UUID{}) {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, p)
+	}
+	ids, err := h.srv.players.list()
+	if err != nil {
+		h.Logger().Warn("could not list player data", "error", err)
+		return out
+	}
+	if len(ids) == 0 {
+		return out
+	}
+	names := h.srv.usercache.names()
+	for _, id := range ids {
+		pid := plugin.UUID(id)
+		if _, ok := seen[pid]; ok {
+			continue
+		}
+		seen[pid] = struct{}{}
+		out = append(out, &pluginOfflinePlayer{host: h, id: pid, name: names[id]})
+	}
+	return out
+}
+
+func (p *pluginOfflinePlayer) UUID() plugin.UUID             { return p.id }
+func (p *pluginOfflinePlayer) Name() string                  { return p.name }
+func (p *pluginOfflinePlayer) Online() (plugin.Player, bool) { return p.host.Player(p.id) }
+func (p *pluginOfflinePlayer) FirstPlayed() time.Time {
+	p.load()
+	return p.first
+}
+func (p *pluginOfflinePlayer) LastSeen() time.Time {
+	p.load()
+	return p.last
+}
+func (p *pluginOfflinePlayer) RespawnPoint() (plugin.Location, bool) {
+	p.load()
 	if p.spawn != nil {
 		return pluginRespawn(p.host, *p.spawn)
 	}
@@ -347,7 +406,7 @@ func (s *Server) pluginPlayedTimes(id uuid.UUID, root nbt.Compound) (first, last
 }
 
 // Statistic reads the counter from the player's stats file.
-func (p pluginOfflinePlayer) Statistic(s plugin.Statistic) int {
+func (p *pluginOfflinePlayer) Statistic(s plugin.Statistic) int {
 	stats, err := p.host.srv.players.loadStats(uuid.UUID(p.id))
 	if err != nil || stats == nil {
 		return 0

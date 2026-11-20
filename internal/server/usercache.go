@@ -71,6 +71,25 @@ func (s *userCacheStore) nameOf(id uuid.UUID) (string, bool) {
 	return "", false
 }
 
+// names answers the cached name for every readable UUID, expired or not.
+func (s *userCacheStore) names() map[uuid.UUID]string {
+	entries := s.list.snapshot()
+	out := make(map[uuid.UUID]string, len(entries))
+	for _, entry := range entries {
+		id, err := uuid.Parse(entry.UUID)
+		if err != nil {
+			continue
+		}
+		if _, err := time.Parse(listTimeLayout, entry.ExpiresOn); err != nil {
+			continue
+		}
+		if _, exists := out[id]; !exists {
+			out[id] = entry.Name
+		}
+	}
+	return out
+}
+
 // profiles is the cached identities in file order, most recent first,
 // skipping expired or unreadable entries.
 // vanilla: CachedUserNameToIdResolver.readGameProfile, get
