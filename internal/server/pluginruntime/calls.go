@@ -82,7 +82,9 @@ func (r *Runtime) drainCalls() {
 		return
 	}
 	deadline := time.Now().Add(callDrainBudget)
-	for {
+	// The deadline is checked before the signal is taken, so calls left
+	// when the budget runs out keep their signal for waitForTick.
+	for time.Now().Before(deadline) {
 		// A signal left from before the last batch says nothing new.
 		select {
 		case <-r.callsQueued:
@@ -104,7 +106,7 @@ func (r *Runtime) drainCalls() {
 				return
 			}
 		}
-		if time.Now().After(deadline) || !r.runCalls() {
+		if !r.runCalls() {
 			return
 		}
 	}
