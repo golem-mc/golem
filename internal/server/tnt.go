@@ -111,6 +111,7 @@ func (s *Server) tickTNT() {
 		blasts         []blast
 		ores           []cellSpot
 		bounces        []bodyBounce
+		bodyLandings   []bodyLanding
 	)
 
 	colliders := s.collidersByWorld(tntCollisions)
@@ -157,6 +158,10 @@ func (s *Server) tickTNT() {
 			continue
 		}
 		events := it.tnt.Step(colliders[it.w])
+		if it.tnt.LandedFall > 0 {
+			it.tnt.LandedFall = 0
+			bodyLandings = append(bodyLandings, bodyLanding{w: it.w, x: it.tnt.X, y: it.tnt.Y, z: it.tnt.Z, halfWidth: entity.TNTHalfWidth})
+		}
 		for _, ev := range events {
 			if ev.Kind == entity.TntSteppedOnRedstoneOre {
 				ores = append(ores, cellSpot{it.w, int32(ev.X), int32(ev.Y), int32(ev.Z)})
@@ -231,6 +236,7 @@ func (s *Server) tickTNT() {
 	}
 
 	s.runBodyBounces(bounces)
+	s.runBodyLandings(bodyLandings)
 
 	// The blasts run ahead of the sends they may answer: a chain the blast
 	// lit is in the world before the tick's packets go out.

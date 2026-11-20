@@ -138,6 +138,9 @@ type ArmorStandEvent struct {
 
 // halfWidth is half the bounding box's horizontal span, and boxHeight its
 // height, the small stand's own half of each and the marker's nothing.
+// HalfWidth is half the stand's box width.
+func (s *ArmorStand) HalfWidth() float64 { return s.halfWidth() }
+
 func (s *ArmorStand) halfWidth() float64 {
 	if s.Small {
 		return ArmorStandWidth / 4
@@ -236,7 +239,7 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 		s.settleVelocity()
 	} else {
 		wasOnGround, fell := s.OnGround, s.FallDistance
-		s.travel(w, s.Box(), s.halfWidth(), ArmorStandGravity)
+		s.LandedFall = s.travel(w, s.Box(), s.halfWidth(), ArmorStandGravity)
 		if !wasOnGround && fell > 0 && s.OnGround && s.locatedActive() {
 			events = append(events, ArmorStandEvent{Kind: ArmorStandLocated, X: s.X, Y: s.Y, Z: s.Z,
 				Level: LocatedMoved | LocatedLanded})

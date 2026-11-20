@@ -165,6 +165,8 @@ type Bobber struct {
 	// fallDistance is the fall banked while descending in air, cleared on the
 	// ground; the hook's NBT fall_distance.
 	fallDistance float64
+	// LandedFall is the fall a landing this tick ended, 0 when none.
+	LandedFall float64
 }
 
 // CapFall is Entity.checkFallDistanceAccumulation.
@@ -686,7 +688,7 @@ func (b *Bobber) move(w World) {
 	b.horizontalBlocked = bx || bz
 	x, z := box.centerXZ()
 	b.X, b.Y, b.Z = x, box.minY, z
-	bankFall(&b.fallDistance, oldY, b.Y, b.OnGround)
+	b.LandedFall = bankFall(&b.fallDistance, oldY, b.Y, b.OnGround)
 }
 
 // signum is Math.signum, 0 for 0.

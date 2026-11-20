@@ -73,6 +73,8 @@ type TNT struct {
 	stuck   stuckFactor
 	// fallDistance is the fall banked since the body last stood on the ground.
 	fallDistance float64
+	// LandedFall is the fall a landing this tick ended, 0 when none.
+	LandedFall float64
 
 	Fuse int
 	// Power is the blast radius. vanilla: PrimedTnt.explosionPower
@@ -190,7 +192,7 @@ func (t *TNT) move(w World) bool {
 		landingVY = 0
 	}
 	onGround := moveBox(w, fallCtx(t.fallDistance), &t.X, &t.Y, &t.Z, &t.VX, &t.VY, &t.VZ, &t.stuck, TNTHalfWidth, TNTHeight)
-	bankFall(&t.fallDistance, oldY, t.Y, onGround)
+	t.LandedFall = bankFall(&t.fallDistance, oldY, t.Y, onGround)
 	if onGround && landingVY < 0 {
 		// moveBox zeroed the velocity; restitute it instead.
 		// vanilla: Entity.restituteMovementAfterCollisions

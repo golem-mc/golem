@@ -133,6 +133,9 @@ type Item struct {
 	OnGround   bool
 	// fallDistance is the fall banked since the item last stood on the ground.
 	fallDistance float64
+	// LandedFall is the fall a landing this tick ended, 0 when none; the
+	// server posts the hit-ground game event for it and clears it.
+	LandedFall float64
 	// vanilla: Entity.isNoGravity
 	NoGravity bool
 	// Invulnerable is the permanent Invulnerable save flag.
@@ -643,7 +646,7 @@ func (it *Item) move(w World) {
 	f := blockSpeedFactor(w, it.X, it.Y-halfSize, it.Z)
 	it.VX *= f
 	it.VZ *= f
-	bankFall(&it.fallDistance, startY, it.Y, it.OnGround)
+	it.LandedFall = bankFall(&it.fallDistance, startY, it.Y, it.OnGround)
 	it.webbed = stuckIn(w, it.itemBox(), it.X, it.Y-halfSize, it.Z, false, false, false, false)
 }
 

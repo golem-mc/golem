@@ -32,7 +32,9 @@ const (
 	orbMergeDistance  = 0.5
 	orbLifeLimit      = 6000
 	orbHalfSize       = 0.25
-	orbHeight         = 0.5
+	// OrbHalfSize is half the orb's box width.
+	OrbHalfSize = orbHalfSize
+	orbHeight   = 0.5
 	// OrbMergeReach is the largest X or Z distance between two orbs' centres
 	// at which orbBoxesTouch can hold.
 	OrbMergeReach = 2*orbHalfSize + orbMergeDistance
@@ -115,6 +117,8 @@ type Orb struct {
 	OnGround   bool
 	// fallDistance is the fall banked since the orb last stood on the ground.
 	fallDistance float64
+	// LandedFall is the fall a landing this tick ended, 0 when none.
+	LandedFall float64
 	// stuck is the multiplier the last block effects left for the next
 	// move.
 	stuck  stuckFactor
@@ -582,7 +586,7 @@ func (o *Orb) move(w World) bool {
 			o.VZ = 0
 		}
 	}
-	bankFall(&o.fallDistance, startY, o.Y, o.OnGround)
+	o.LandedFall = bankFall(&o.fallDistance, startY, o.Y, o.OnGround)
 	return o.OnGround
 }
 
