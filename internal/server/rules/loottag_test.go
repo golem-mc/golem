@@ -12,7 +12,7 @@ import (
 // that replaces one changes every built-in table that names it.
 func TestBuiltinEnchantFunctionsFollowLoadedTags(t *testing.T) {
 	unbreaking, _ := registry.EnchantmentID("minecraft:unbreaking")
-	efficiency, _ := registry.EnchantmentID("minecraft:feather_falling")
+	featherFalling, _ := registry.EnchantmentID("minecraft:feather_falling")
 	replace := func(tag, member string) {
 		registry.ApplyPackTags(registry.PackTags{"minecraft:enchantment": {
 			tag: {Replace: true, Entries: []registry.PackTagEntry{{ID: member, Required: true}}},
@@ -60,8 +60,8 @@ func TestBuiltinEnchantFunctionsFollowLoadedTags(t *testing.T) {
 		got, _ := ApplyTradeModifiers(trade.Modifiers, protocol.ItemStack{ItemID: boots, Count: 1}, rand.New(rand.NewSource(seed)), nil)
 		for id := range got.Enchantments {
 			enchanted++
-			if id != efficiency {
-				t.Fatalf("seed %d: boots hold %d, want only efficiency", seed, id)
+			if id != featherFalling {
+				t.Fatalf("seed %d: boots hold %d, want only featherFalling", seed, id)
 			}
 		}
 	}
