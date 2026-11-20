@@ -465,6 +465,14 @@ func (a pluginProgress) Revoke(criterion string) bool {
 	return pr != nil && pr.Revoke(a.node.node, criterion)
 }
 
+// SetAwarded replaces the obtained criteria without a toast, chat line,
+// reward or plugin event; the client is sent the change on the next flush.
+func (a pluginProgress) SetAwarded(criteria []string) {
+	if pr := a.c.Advancements(); pr != nil {
+		pr.SetAwarded(a.node.node, criteria, time.Now())
+	}
+}
+
 // compassTarget is a spawn position a plugin pointed one player's compasses at.
 type compassTarget struct {
 	dim string

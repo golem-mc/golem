@@ -240,6 +240,35 @@ func TestPluginPlayerStatisticsAndAdvancements(t *testing.T) {
 	c.ExpectWithinTicks(srv, 0, protocol.IDPlayUpdateAdvancements)
 }
 
+// vanilla: PlayerAdvancements.award, revoke
+func TestPluginSetAwardedIsSilent(t *testing.T) {
+	t.Parallel()
+	srv, h, run, cs := statePlugin(t, "Silent")
+	c, p := cs[0], handle(t, h, "Silent")
+	keys := map[string]bool{}
+	for _, a := range h.Advancements() {
+		keys[a.Key().String()] = true
+	}
+	if !keys["minecraft:story/root"] || !keys["minecraft:story/mine_stone"] {
+		t.Fatal("Advancements misses story advancements")
+	}
+	adv, _ := h.Advancement(plugin.MinecraftKey("story/mine_stone"))
+	progress := p.Advancements(adv)
+	run(func() { progress.SetAwarded([]string{"get_stone"}) })
+	if !progress.Done() {
+		t.Fatal("not done after SetAwarded")
+	}
+	run(func() { progress.SetAwarded(nil) })
+	if progress.Done() {
+		t.Fatal("done after SetAwarded(nil)")
+	}
+	run(func() { progress.SetAwarded([]string{"get_stone"}) })
+	if !progress.Done() {
+		t.Fatal("not done again")
+	}
+	c.ExpectNoneWithinTicks(srv, 5, func(id int32, _ []byte) bool { return id == protocol.IDPlaySystemChat || id == protocol.IDPlaySetExperience })
+}
+
 // vanilla: ServerPlayer.setCamera
 func TestPluginPlayerSpectating(t *testing.T) {
 	t.Parallel()

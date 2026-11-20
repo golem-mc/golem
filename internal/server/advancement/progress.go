@@ -144,6 +144,46 @@ func (p *Progress) Revoke(n *Node, criterion string) bool {
 	return true
 }
 
+// SetAwarded makes exactly the named criteria of n obtained, at the given time
+// for the new ones. It queues no completion and asks no veto, so nothing is
+// announced or rewarded; unknown names are ignored.
+func (p *Progress) SetAwarded(n *Node, criteria []string, at time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	wasDone := p.isDone(n)
+	want := map[string]time.Time{}
+	for _, c := range criteria {
+		if !hasCriterion(n, c) {
+			continue
+		}
+		t, ok := p.obtained[n.index][c]
+		if !ok {
+			t = at
+		}
+		want[c] = t
+	}
+	if len(want) == len(p.obtained[n.index]) {
+		same := true
+		for c := range want {
+			if _, ok := p.obtained[n.index][c]; !ok {
+				same = false
+			}
+		}
+		if same {
+			return
+		}
+	}
+	if len(want) == 0 {
+		p.obtained[n.index] = nil
+	} else {
+		p.obtained[n.index] = want
+	}
+	p.changed[n] = struct{}{}
+	if wasDone != p.isDone(n) {
+		p.rootsToUpdate[n.Root()] = struct{}{}
+	}
+}
+
 // TakeCompleted returns the nodes done since the last call, in order.
 // vanilla: PlayerAdvancements.award
 func (p *Progress) TakeCompleted() []*Node {
