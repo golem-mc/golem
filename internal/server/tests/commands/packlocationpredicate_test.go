@@ -39,6 +39,7 @@ func TestInlineLocationPredicateReadsEveryPart(t *testing.T) {
 	srv.SetBlockEntityTagAt(20, y, 36, "minecraft:chest", nbt.Compound{"Items": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
 		nbt.Compound{"Slot": nbt.Byte(0), "id": nbt.String("minecraft:stick"), "count": nbt.Int(3)},
 	}}})
+	srv.SetBlock(28, y+10, 28, state("minecraft:glass", nil))
 	srv.RelightAt(20, 20)
 
 	says := func(at string, predicate string, want bool) {
@@ -75,6 +76,16 @@ func TestInlineLocationPredicateReadsEveryPart(t *testing.T) {
 	says("20.5 305.5 28.5", `can_see_sky:true`, true)
 	says("20.5 295.5 28.5", `can_see_sky:true`, false)
 	says("24.5 295.5 28.5", `can_see_sky:true`, true)
+	// Glass lets sky light through, so the cell under it sees the sky.
+	says("28.5 295.5 28.5", `can_see_sky:true`, true)
+
+	// A dimension without sky light never does, even above its roof.
+	c.ChatCommand("execute in minecraft:the_nether run setblock 0 200 0 minecraft:stone")
+	c.ExpectPlay(protocol.IDPlaySystemChat)
+	c.ChatCommand("execute in minecraft:the_nether positioned 0.5 201 0.5 unless predicate {condition:\"minecraft:location_check\",predicate:{can_see_sky:true}} run say hi")
+	if got := c.ExpectPlay(protocol.IDPlayDisguisedChat); !bytes.Equal(got, sayPayloadForTest("Testificate", "hi")) {
+		t.Errorf("nether can_see_sky said % X, want the tail's say", got)
+	}
 
 	says("20.5 291.5 24.5", `smokey:true`, true)
 	says("22.5 291.5 24.5", `smokey:true`, false)

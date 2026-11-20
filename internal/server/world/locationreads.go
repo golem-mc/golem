@@ -4,11 +4,10 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// CanSeeSky reports whether no block at or above the column's top stands
-// over y.
-// vanilla: LevelReader.canSeeSky
+// CanSeeSky reports whether the cell holds full sky light.
+// vanilla: BlockAndLightGetter.canSeeSky
 func (w *World) CanSeeSky(x, y, z int32) bool {
-	return y > w.SurfaceHeight(x, z)
+	return w.SkyLightAt(x, y, z) >= 15
 }
 
 // FluidAt is the fluid state at a block as a fluid predicate reads it: the
