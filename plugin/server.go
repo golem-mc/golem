@@ -214,6 +214,10 @@ type Scheduler interface {
 	// RunAsyncTimer runs fn on another goroutine after delay, then every
 	// period.
 	RunAsyncTimer(delay, period time.Duration, fn func()) Task
+	// OnTick reports whether the caller runs on the tick goroutine: in a
+	// listener, a command executor or a tick task. Safe from any goroutine.
+	// Bukkit: Server.isPrimaryThread
+	OnTick() bool
 }
 
 // Task is a scheduled task.

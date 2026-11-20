@@ -169,3 +169,81 @@ func TestExplosionAndSoundReaders(t *testing.T) {
 		t.Fatalf("sounds = %+v, want the generic explode", got)
 	}
 }
+
+func TestSchedulerOnTick(t *testing.T) {
+	srv := plugintest.Start(t, plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}))
+	host := srv.Host()
+	sched := host.Scheduler()
+
+	if sched.OnTick() {
+		t.Fatal("OnTick = true on the test goroutine, want false")
+	}
+
+	var cmdOnTick, consoleOnTick, listenerOnTick, taskOnTick, asyncOnTick atomic.Bool
+	cmdRan := make(chan struct{}, 2)
+	if err := host.Commands().Register(plugin.Command{
+		Name: "ontick",
+		Run: func(ctx *plugin.CommandContext) (int, error) {
+			if _, ok := ctx.Sender.(plugin.Player); ok {
+				cmdOnTick.Store(sched.OnTick())
+			} else {
+				consoleOnTick.Store(sched.OnTick())
+			}
+			cmdRan <- struct{}{}
+			return 1, nil
+		},
+	}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+
+	listenerDone := make(chan struct{}, 1)
+	plugin.Listen(host, func(*plugin.PlayerAnimationEvent) {
+		listenerOnTick.Store(sched.OnTick())
+		select {
+		case listenerDone <- struct{}{}:
+		default:
+		}
+	})
+
+	alice := srv.Join("Alice")
+	alice.Run("/ontick")
+	alice.Read(2)
+	<-cmdRan
+
+	srv.Console("ontick")
+	<-cmdRan
+
+	alice.Swing()
+	alice.Read(2)
+	<-listenerDone
+
+	taskDone := make(chan struct{})
+	sched.RunTask(func() {
+		taskOnTick.Store(sched.OnTick())
+		close(taskDone)
+	})
+	<-taskDone
+
+	asyncDone := make(chan struct{})
+	sched.RunAsync(func() {
+		asyncOnTick.Store(sched.OnTick())
+		close(asyncDone)
+	})
+	<-asyncDone
+
+	if !cmdOnTick.Load() {
+		t.Error("OnTick = false inside a player command's Run, want true")
+	}
+	if !consoleOnTick.Load() {
+		t.Error("OnTick = false inside a console command's Run, want true")
+	}
+	if !listenerOnTick.Load() {
+		t.Error("OnTick = false inside an event listener, want true")
+	}
+	if !taskOnTick.Load() {
+		t.Error("OnTick = false inside a RunTask task, want true")
+	}
+	if asyncOnTick.Load() {
+		t.Error("OnTick = true inside a RunAsync task, want false")
+	}
+}
