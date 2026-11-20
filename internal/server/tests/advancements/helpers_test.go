@@ -15,7 +15,10 @@ type sentAdvancement struct {
 	parent       string
 	display      bool
 	title        string
+	titleTag     nbt.Tag
+	descTag      nbt.Tag
 	icon, count  int32
+	iconStack    protocol.ItemStack
 	frame, flags int32
 	background   string
 	x, y         float32
@@ -34,19 +37,20 @@ type sentUpdate struct {
 	show     bool
 }
 
-// readText reads a network text component and returns its translation key.
-func readText(t *testing.T, r *protocol.Reader) (string, *protocol.Reader) {
+// readText reads a network text component and returns its raw tag and
+// translation key (empty when not a plain translation component).
+func readText(t *testing.T, r *protocol.Reader) (nbt.Tag, string, *protocol.Reader) {
 	t.Helper()
 	rest := r.Rest()
 	tag, n, err := nbt.DecodeNetwork(rest)
 	if err != nil {
 		t.Fatalf("text component: %v", err)
 	}
-	text, ok := protocol.TextOf(tag)
+	text, ok := protocol.ComponentTextOf(tag)
 	if !ok {
 		t.Fatalf("not a text component: %v", tag)
 	}
-	return text.Translate, protocol.NewReader(rest[n:])
+	return tag, text.Translate, protocol.NewReader(rest[n:])
 }
 
 // parseUpdate reads Update Advancements whole, failing on bytes left over.
@@ -61,12 +65,13 @@ func parseUpdate(t *testing.T, data []byte) sentUpdate {
 			a.parent = r.ReadString(32767)
 		}
 		if a.display = r.ReadBool(); a.display {
-			a.title, r = readText(t, r)
-			_, r = readText(t, r)
-			a.icon, a.count = r.ReadVarInt(), r.ReadVarInt()
-			if added, removed := r.ReadVarInt(), r.ReadVarInt(); added != 0 || removed != 0 {
-				t.Fatalf("%s: icon carries a component patch (%d, %d)", id, added, removed)
+			a.titleTag, a.title, r = readText(t, r)
+			a.descTag, _, r = readText(t, r)
+			stack, ok := r.ReadItemTemplate()
+			if !ok {
+				t.Fatalf("%s: invalid icon item template", id)
 			}
+			a.icon, a.count, a.iconStack = stack.ItemID, stack.Count, stack
 			a.frame = r.ReadVarInt()
 			a.flags = r.ReadI32()
 			if a.flags&0x01 != 0 {
