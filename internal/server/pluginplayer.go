@@ -1,8 +1,10 @@
 package server
 
 import (
+	"maps"
 	"net"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -191,6 +193,140 @@ func (p pluginPlayer) HasPermission(node string) bool {
 }
 func (p pluginPlayer) PermissionSet(node string) bool {
 	return p.IsValid() && p.c.srv.plugins.PermissionSet(p, node)
+}
+
+func (p pluginPlayer) AttachedPermission(node string) (bool, bool) {
+	if !p.IsValid() {
+		return false, false
+	}
+	p.c.pluginMu.Lock()
+	defer p.c.pluginMu.Unlock()
+	for _, v := range slices.Backward(p.c.pluginAttachments) {
+		if value, ok := v.values[node]; ok {
+			return value, true
+		}
+	}
+	return false, false
+}
+
+// pluginPermissionAttachment holds one plugin's transient permission map for a
+// single client connection. Lock order: host.attachMu before c.pluginMu.
+type pluginPermissionAttachment struct {
+	host    *pluginHost
+	c       *client
+	values  map[string]bool
+	removed bool
+}
+
+func (p pluginPlayer) AddAttachment() plugin.PermissionAttachment {
+	if !p.IsValid() {
+		return nil
+	}
+	h := p.hostOrAdapter()
+	if h != nil && h.host != nil {
+		h.attachOnce.Do(func() { h.host.Own(h.releaseAttachments) })
+		h.attachMu.Lock()
+		defer h.attachMu.Unlock()
+		if h.attachClosed {
+			return nil
+		}
+	}
+	p.c.pluginMu.Lock()
+	defer p.c.pluginMu.Unlock()
+	if p.c.leaving.Load() || p.c.pluginQuitAt.Load() != 0 {
+		return nil
+	}
+	att := &pluginPermissionAttachment{host: h, c: p.c, values: make(map[string]bool)}
+	p.c.pluginAttachments = append(p.c.pluginAttachments, att)
+	if h != nil && h.host != nil {
+		if h.attachments == nil {
+			h.attachments = make(map[*pluginPermissionAttachment]struct{})
+		}
+		h.attachments[att] = struct{}{}
+	}
+	return att
+}
+
+func (a *pluginPermissionAttachment) Permissions() map[string]bool {
+	a.c.pluginMu.Lock()
+	defer a.c.pluginMu.Unlock()
+	if a.removed || a.c.leaving.Load() || a.c.pluginQuitAt.Load() != 0 {
+		return map[string]bool{}
+	}
+	return maps.Clone(a.values)
+}
+
+func (a *pluginPermissionAttachment) Set(node string, value bool) {
+	a.c.pluginMu.Lock()
+	defer a.c.pluginMu.Unlock()
+	if a.removed || a.c.leaving.Load() || a.c.pluginQuitAt.Load() != 0 {
+		return
+	}
+	a.values[node] = value
+}
+
+func (a *pluginPermissionAttachment) Unset(node string) {
+	a.c.pluginMu.Lock()
+	defer a.c.pluginMu.Unlock()
+	if a.removed || a.c.leaving.Load() || a.c.pluginQuitAt.Load() != 0 {
+		return
+	}
+	delete(a.values, node)
+}
+
+// detachLocked marks the attachment removed, clears its values, and drops it
+// from c.pluginAttachments. Caller holds a.c.pluginMu.
+func (a *pluginPermissionAttachment) detachLocked() {
+	if a.removed {
+		return
+	}
+	a.removed = true
+	clear(a.values)
+	a.c.pluginAttachments = slices.DeleteFunc(a.c.pluginAttachments, func(other *pluginPermissionAttachment) bool {
+		return other == a
+	})
+}
+
+func (a *pluginPermissionAttachment) untrackHost() {
+	if a.host == nil || a.host.host == nil {
+		return
+	}
+	a.host.attachMu.Lock()
+	delete(a.host.attachments, a)
+	a.host.attachMu.Unlock()
+}
+
+func (a *pluginPermissionAttachment) Remove() {
+	a.untrackHost()
+	a.c.pluginMu.Lock()
+	defer a.c.pluginMu.Unlock()
+	a.detachLocked()
+}
+
+func (h *pluginHost) releaseAttachments() {
+	h.attachMu.Lock()
+	defer h.attachMu.Unlock()
+	h.attachClosed = true
+	all := h.attachments
+	h.attachments = nil
+	for att := range all {
+		att.c.pluginMu.Lock()
+		att.detachLocked()
+		att.c.pluginMu.Unlock()
+	}
+}
+
+func (c *client) clearPluginAttachments() {
+	c.pluginMu.Lock()
+	atts := c.pluginAttachments
+	c.pluginAttachments = nil
+	for _, att := range atts {
+		att.detachLocked()
+	}
+	c.pluginMu.Unlock()
+	for _, att := range atts {
+		att.untrackHost()
+	}
 }
 func (p pluginPlayer) SendMessage(msg plugin.Text) {
 	if p.IsValid() {

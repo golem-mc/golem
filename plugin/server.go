@@ -430,6 +430,21 @@ type PermissionProvider interface {
 	Has(sender CommandSender, node string) (has, decided bool)
 }
 
+// PermissionAttachment holds transient permission values attached to an
+// online player by a plugin. Its values last until unset, the attachment is
+// removed, the plugin is disabled, or the player leaves.
+// Bukkit: PermissionAttachment
+type PermissionAttachment interface {
+	// Permissions answers a copy of the attachment's current node values.
+	Permissions() map[string]bool
+	// Set sets node to value on this attachment.
+	Set(node string, value bool)
+	// Unset removes node from this attachment.
+	Unset(node string)
+	// Remove detaches this attachment from the player.
+	Remove()
+}
+
 // BanList is a ban list of players or addresses. Bukkit: BanList
 type BanList interface {
 	// Ban bans target (a UUID or a name for players, an address for IPs) with
