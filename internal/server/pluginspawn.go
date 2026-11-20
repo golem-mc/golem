@@ -3,33 +3,90 @@ package server
 import (
 	"slices"
 
-	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
 
+// spawnReasonNBTKey is the NBT tag key Paper saves an entity's spawn reason
+// under; omitted when SpawnDefault so unmodified saves stay vanilla-clean.
+const spawnReasonNBTKey = "Paper.SpawnReason"
+
+func spawnReasonCode(r plugin.SpawnReason) uint8 { return uint8(r) + 1 }
+
+func spawnReasonOf(code uint8) plugin.SpawnReason {
+	if code == 0 {
+		return plugin.SpawnDefault
+	}
+	return plugin.SpawnReason(code - 1)
+}
+
+func putSpawnReason(tag nbt.CompoundTag, id string, code uint8) {
+	if id == "" || code == 0 {
+		return
+	}
+	if r := spawnReasonOf(code); r != plugin.SpawnDefault && int(r) < len(spawnReasonNames) && spawnReasonNames[r] != "" {
+		tag.Set(spawnReasonNBTKey, nbt.String(spawnReasonNames[r]))
+	}
+}
+
+func readSpawnReason(dst *uint8, compound nbt.Compound) {
+	if raw, ok := nbt.Get[nbt.String](compound, spawnReasonNBTKey); ok {
+		if r, known := spawnReasonByName[string(raw)]; known {
+			*dst = spawnReasonCode(r)
+		}
+	}
+}
+
+var spawnReasonNames = [...]string{
+	plugin.SpawnNatural:         "NATURAL",
+	plugin.SpawnChunkGeneration: "CHUNK_GEN",
+	plugin.SpawnSpawner:         "SPAWNER",
+	plugin.SpawnTrialSpawner:    "TRIAL_SPAWNER",
+	plugin.SpawnEgg:             "EGG",
+	plugin.SpawnBreeding:        "BREEDING",
+	plugin.SpawnCommand:         "COMMAND",
+	plugin.SpawnPlugin:          "CUSTOM",
+	plugin.SpawnDispenser:       "DISPENSE_EGG",
+	plugin.SpawnStructure:       "STRUCTURE",
+	plugin.SpawnPatrol:          "PATROL",
+	plugin.SpawnRaid:            "RAID",
+	plugin.SpawnReinforcements:  "REINFORCEMENTS",
+	plugin.SpawnConversion:      "CONVERSION",
+	plugin.SpawnBucket:          "BUCKET",
+	plugin.SpawnLightning:       "LIGHTNING",
+	plugin.SpawnBuildIronGolem:  "BUILD_IRONGOLEM",
+	plugin.SpawnBuildSnowGolem:  "BUILD_SNOWMAN",
+	plugin.SpawnBuildWither:     "BUILD_WITHER",
+	plugin.SpawnVillageDefense:  "VILLAGE_DEFENSE",
+	plugin.SpawnJockey:          "JOCKEY",
+	plugin.SpawnTriggered:       "TRIGGERED",
+	plugin.SpawnDefault:         "DEFAULT",
+	plugin.SpawnSpawnerEgg:      "SPAWNER_EGG",
+}
+
+var spawnReasonByName = func() map[string]plugin.SpawnReason {
+	m := make(map[string]plugin.SpawnReason, len(spawnReasonNames))
+	for r, name := range spawnReasonNames {
+		if name != "" {
+			m[name] = plugin.SpawnReason(r)
+		}
+	}
+	return m
+}()
+
 // spawnAllowed puts a mob just added to EntitySpawnEvent listeners and
 // discards it on a cancel, which the watchers in range see as an appearance
-// and a removal in the same tick. The reason is what the caller named, else
-// read off the spawn: a group is natural, a baby is an egg's chick.
+// and a removal in the same tick.
 // vanilla: ServerLevel.addFreshEntity
-func (s *Server) spawnAllowed(ent *mobEntity, group *entity.SpawnGroup, baby bool) bool {
+func (s *Server) spawnAllowed(ent *mobEntity) bool {
 	if s.plugins == nil || !s.plugins.Has(pluginruntime.EntitySpawn) {
 		return true
 	}
-	reason := plugin.SpawnDefault
-	switch {
-	case ent.spawnReason != 0:
-		reason = plugin.SpawnReason(ent.spawnReason - 1)
-	case group != nil:
-		reason = plugin.SpawnNatural
-	case baby:
-		reason = plugin.SpawnEgg
-	}
-	e := &plugin.EntitySpawnEvent{Entity: pluginEntity{id: ent.uuid}, Reason: reason}
+	e := &plugin.EntitySpawnEvent{Entity: pluginEntity{id: ent.uuid}, Reason: spawnReasonOf(ent.spawnReason)}
 	s.firePluginEvent(e)
 	if !e.Cancelled() {
 		return true

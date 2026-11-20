@@ -36,6 +36,16 @@ type worldScope struct {
 	// quiet drops summon log lines and never reads by: a structure template
 	// places many entities for no player.
 	quiet bool
+	// spawnReason is plugin.SpawnReason+1 when a caller overrides /summon's
+	// SpawnCommand (e.g. World.Spawn sets SpawnPlugin).
+	spawnReason uint8
+}
+
+func (ws worldScope) summonReason() plugin.SpawnReason {
+	if ws.spawnReason != 0 {
+		return plugin.SpawnReason(ws.spawnReason - 1)
+	}
+	return plugin.SpawnCommand
 }
 
 // logSummon logs a summon the source made.
@@ -1525,12 +1535,13 @@ func (ws worldScope) summonMob(kind string, x, y, z float64, tag nbt.Compound) (
 		return 0, nil, errNotSimulated
 	}
 	s, dim := ws.srv, ws.in()
+	reason := ws.summonReason()
 	var id int32
 	if tag == nil {
 		// A summon loads even an empty tag, so a bat reads BatFlags 0 and flies.
 		// vanilla: SummonCommand's EntityType.loadEntityRecursive
 		id = s.spawnMobArriving(dim, entity.MobTypeOf(kind), x, y, z, 0, nil, false, "", true, func(ent *mobEntity) {
-			ent.spawnReason = uint8(plugin.SpawnCommand) + 1
+			ent.spawnReason = spawnReasonCode(reason)
 			if ent.mob.Type == entity.TypeBat {
 				ent.mob.SetMetadataResting(false)
 			}
@@ -1538,7 +1549,9 @@ func (ws worldScope) summonMob(kind string, x, y, z float64, tag nbt.Compound) (
 		ws.logSummon("mob summoned", "kind", kind, "x", x, "y", y, "z", z)
 	} else {
 		var err error
-		id, err = s.spawnSummonedMobInDim(dim, entity.MobTypeOf(kind), x, y, z, tag)
+		id, err = s.spawnSummonedMobFacing(dim, entity.MobTypeOf(kind), x, y, z, tag, func(ent *mobEntity) {
+			ent.spawnReason = spawnReasonCode(reason)
+		})
 		if err != nil {
 			if errors.Is(err, errDuplicateUUID) {
 				return 0, nil, command.ErrDuplicateUUID
@@ -1675,15 +1688,17 @@ func (ws worldScope) SummonItem(x, y, z float64, stack protocol.ItemStack, picku
 	it.custom = customNameOfTag(tag)
 	it.look = entityLookOf(tag)
 	it.thrower = entityUUIDFieldOf(tag, "Thrower")
+	reason := ws.summonReason()
+	it.spawnReason = spawnReasonCode(reason)
 	ws.srv.registerItem(it)
-	ws.srv.itemsSpawned(plugin.SpawnCommand, it)
+	ws.srv.itemsSpawned(reason, it)
 	ws.logSummon("item summoned", "item", stack.ItemID, "count", stack.Count, "x", x, "y", y, "z", z)
 	return it.item.ID, it.uuid, nil
 }
 
 // SummonArmorStand spawns a stand from the tag, or at defaults with none.
 func (ws worldScope) SummonArmorStand(x, y, z float64, tag nbt.Compound) (int32, uuid.UUID, error) {
-	ent, err := ws.srv.summonArmorStand(ws.in().w, x, y, z, tag)
+	ent, err := ws.srv.summonArmorStand(ws.in().w, x, y, z, tag, ws.summonReason())
 	if err != nil {
 		return 0, uuid.Nil, err
 	}
@@ -1769,7 +1784,7 @@ func (ws worldScope) SummonSaved(name string, x, y, z float64, tag nbt.Compound)
 // SummonBoat spawns the named hull at the command's position, with any
 // cargo from the tag.
 func (ws worldScope) SummonBoat(kind string, x, y, z float64, tag nbt.Compound) (int32, uuid.UUID, error) {
-	it, err := ws.srv.summonBoat(ws.in().w, kind, x, y, z, tag)
+	it, err := ws.srv.summonBoat(ws.in().w, kind, x, y, z, tag, ws.summonReason())
 	if err != nil {
 		return 0, uuid.Nil, err
 	}
@@ -1780,7 +1795,7 @@ func (ws worldScope) SummonBoat(kind string, x, y, z float64, tag nbt.Compound) 
 // SummonMinecart spawns the named cart at the command's position, with any
 // contents from the tag.
 func (ws worldScope) SummonMinecart(kind string, x, y, z float64, tag nbt.Compound) (int32, uuid.UUID, error) {
-	it, err := ws.srv.summonMinecart(ws.in().w, kind, x, y, z, tag)
+	it, err := ws.srv.summonMinecart(ws.in().w, kind, x, y, z, tag, ws.summonReason())
 	if err != nil {
 		return 0, uuid.Nil, err
 	}

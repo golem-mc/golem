@@ -778,6 +778,7 @@ func (s *Server) finishBreeding(birth mobBirth) {
 	biome := birth.w.Biome(rules.BlockOf(birth.x), rules.BlockOf(birth.y), rules.BlockOf(birth.z))
 	child := s.spawnMobArriving(s.dimensionOfWorld(birth.w), birth.mother.OffspringType(birth.partner),
 		birth.x, birth.y, birth.z, 0, nil, true, "", false, func(ent *mobEntity) {
+			ent.spawnReason = spawnReasonCode(plugin.SpawnBreeding)
 			// Read the parents under the mob lock: their dice share the goal's stream.
 			s.mobsMu.Lock()
 			birth.mother.BreedInto(ent.mob, birth.partner)
@@ -2201,6 +2202,7 @@ func (s *Server) hatchTurtles(dim *dimension, h world.TurtleHatch) {
 		x := float64(h.X) + 0.3 + float64(i)*0.2
 		z := float64(h.Z) + 0.3
 		s.spawnMobArriving(dim, entity.TypeTurtle, x, float64(h.Y), z, 0, nil, true, "", false, func(ent *mobEntity) {
+			ent.spawnReason = spawnReasonCode(plugin.SpawnEgg)
 			ent.mob.Home = entity.Waypoint{X: h.X, Y: h.Y, Z: h.Z}
 		})
 	}
@@ -2268,12 +2270,15 @@ func (s *Server) standMobArriving(dim *dimension, kind entity.MobType, x, y, z f
 	if prep != nil {
 		prep(ent)
 	}
+	if ent.spawnReason == 0 && group != nil {
+		ent.spawnReason = spawnReasonCode(plugin.SpawnNatural)
+	}
 	ent.mob.DressSpawnLeader(ominousBanner())
 	// Snapshot before publication: commands and ticks can move or silence the mob.
 	spawnSound := finalize && !baby && m.Type == entity.TypeCopperGolem && !m.Silent
 	spawnX, spawnY, spawnZ := m.X, m.Y, m.Z
 	s.addMob(ent)
-	if !s.spawnAllowed(ent, group, baby) {
+	if !s.spawnAllowed(ent) {
 		return ent
 	}
 	if spawnSound {
@@ -2382,8 +2387,20 @@ func (s *Server) spawnSummonedMobFacing(dim *dimension, kind entity.MobType, x, 
 	}
 	giveRidersUUIDs(compound)
 	var riders wakeResult
-	if !s.addMobCore(true, s.standWithRiders(s.herdOf(dim.w), ent, compound, &riders)...) {
+	mobs := s.standWithRiders(s.herdOf(dim.w), ent, compound, &riders)
+	for _, r := range mobs[1:] {
+		if r.spawnReason == 0 {
+			r.spawnReason = ent.spawnReason
+		}
+	}
+	if !s.addMobCore(true, mobs...) {
 		return 0, errDuplicateUUID
+	}
+	if !s.spawnAllowed(ent) {
+		for _, r := range mobs[1:] {
+			s.discardSpawned(r)
+		}
+		return ent.mob.ID, nil
 	}
 	// A summoned vex may name an evoker already live, and a tagged summon
 	// may bring back an evoker a live vex was saved to follow.

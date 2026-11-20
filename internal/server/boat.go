@@ -57,6 +57,7 @@ type boatEntity struct {
 
 	cargo        []protocol.ItemStack
 	cargoVersion uint64 // slot writes, guarded by boatsMu
+	spawnReason  uint8  // plugin.SpawnReason+1; 0 means SpawnDefault
 
 	// lootTable is the table a chest boat's cargo is still to be rolled
 	// from, with the seed the roll takes (0 for none); both are guarded by
@@ -1162,7 +1163,7 @@ func (s *Server) newBoat(w *world.World, name string, x, y, z float64, yaw float
 // and a tag whose UUID is already a live body's are the two refusals, the
 // notifier the caller's.
 // vanilla: SummonCommand.createEntity
-func (s *Server) summonBoat(w *world.World, kind string, x, y, z float64, tag nbt.Compound) (*boatEntity, error) {
+func (s *Server) summonBoat(w *world.World, kind string, x, y, z float64, tag nbt.Compound, reason plugin.SpawnReason) (*boatEntity, error) {
 	compound := summonTag(tag, kind, x, y, z)
 	if woken, fresh := s.wakeChunkOnce(s.dimensionOfWorld(w),
 		world.ChunkPos{X: world.ChunkOf(x), Z: world.ChunkOf(z)}); fresh {
@@ -1179,7 +1180,8 @@ func (s *Server) summonBoat(w *world.World, kind string, x, y, z float64, tag nb
 		return nil, command.ErrDuplicateUUID
 	}
 	it.boat.X, it.boat.Y, it.boat.Z = x, y, z
-	if err := s.registerSummonedVehicle(w, compound, vehicleSeat{boat: it}); err != nil {
+	it.spawnReason = spawnReasonCode(reason)
+	if err := s.registerSummonedVehicle(w, compound, vehicleSeat{boat: it}, reason); err != nil {
 		return nil, err
 	}
 	return it, nil

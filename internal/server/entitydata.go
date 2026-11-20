@@ -169,6 +169,7 @@ func itemTagAs(ent *itemEntity, id string) *nbt.OrderedCompound {
 		tag.Set("Owner", nbt.UUIDToIntArray(*it.Target))
 	}
 	tag.Set("Item", registry.StackTag(it.Stack))
+	putSpawnReason(tag, id, ent.spawnReason)
 	return tag
 }
 
@@ -548,6 +549,7 @@ func boatTagAs(ent *boatEntity, id string) *nbt.OrderedCompound {
 		// vanilla: Entity.addSaveData
 		tag.Set("Passengers", nbt.List{Elem: nbt.TypeCompound, Items: ent.carriedPassengers})
 	}
+	putSpawnReason(tag, id, ent.spawnReason)
 	return tag
 }
 
@@ -611,6 +613,7 @@ func applyItemTag(it *itemEntity, compound nbt.Compound) {
 	it.custom = customNameOfTag(compound)
 	it.look = entityLookOf(compound)
 	it.thrower = entityUUIDFieldOf(compound, "Thrower")
+	readSpawnReason(&it.spawnReason, compound)
 }
 
 // applyItemTagCounters reads an item's age, health, invulnerable time and
@@ -1249,6 +1252,7 @@ func armorStandTagAs(ent *armorStandEntity, id string) *nbt.OrderedCompound {
 		tag.Set("Marker", boolTag(true))
 	}
 	tag.Set("Pose", armorStandPoseTag(s))
+	putSpawnReason(tag, id, ent.spawnReason)
 	return tag
 }
 
@@ -1386,6 +1390,7 @@ func applyArmorStandTag(ent *armorStandEntity, compound nbt.Compound) {
 	s.FireTicks = fireOfTag(compound)
 	ent.tags.Reset(tagsOfTag(compound))
 	ent.custom = customNameOfTag(compound)
+	readSpawnReason(&ent.spawnReason, compound)
 	applyArmorStandFields(ent, compound)
 }
 
@@ -1465,6 +1470,7 @@ func applyBoatTag(it *boatEntity, compound nbt.Compound) {
 		it.leash = ref
 	}
 	it.tags.Reset(tagsOfTag(compound))
+	readSpawnReason(&it.spawnReason, compound)
 }
 
 // minecartTag writes a cart's compound: the base fields, the tags, and the
@@ -1519,6 +1525,7 @@ func minecartTagAs(ent *minecartEntity, id string) *nbt.OrderedCompound {
 		// vanilla: Entity.addSaveData
 		tag.Set("Passengers", nbt.List{Elem: nbt.TypeCompound, Items: ent.carriedPassengers})
 	}
+	putSpawnReason(tag, id, ent.spawnReason)
 	return tag
 }
 
@@ -1563,6 +1570,7 @@ func applyMinecartTag(it *minecartEntity, compound nbt.Compound) {
 	m.Invulnerable = nbt.BoolField(compound, "Invulnerable")
 	it.custom = customNameOfTag(compound)
 	it.look = entityLookOf(compound)
+	readSpawnReason(&it.spawnReason, compound)
 	m.Flipped = nbt.BoolField(compound, "FlippedRotation")
 	m.FirstTick = nbt.BoolField(compound, "HasTicked")
 	it.displayState = 0

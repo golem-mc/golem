@@ -12,7 +12,7 @@ import (
 // registerSummonedVehicle loads a boat's or cart's nested mob riders and shows
 // every body before sending the links between them.
 // vanilla: SummonCommand.createEntity, EntityType.loadPassengersRecursive
-func (s *Server) registerSummonedVehicle(w *world.World, compound nbt.Compound, seat vehicleSeat) error {
+func (s *Server) registerSummonedVehicle(w *world.World, compound nbt.Compound, seat vehicleSeat, reason plugin.SpawnReason) error {
 	var woken wakeResult
 	var identity uuid.UUID
 	var x, y, z float64
@@ -61,6 +61,6 @@ func (s *Server) registerSummonedVehicle(w *world.World, compound nbt.Compound, 
 		s.broadcastWorld(w, packet.id, packet.data)
 	}
 	// The command's own summon asks only after the riders are in, as for a mob.
-	s.bodySpawned(identity, plugin.SpawnCommand)
+	s.bodySpawned(identity, reason)
 	return nil
 }
