@@ -274,7 +274,7 @@ the `plugin` package (`go doc github.com/golem-mc/golem/plugin`).
 | `Listener`, `@EventHandler(priority, ignoreCancelled)`, `Cancellable` | `Listen(s, func(*E))` with `ListenOptions`; events embed `Cancellable` |
 | event classes | `*Event` structs with Bukkit's names, fields instead of getters and setters |
 | `BukkitScheduler` | `Scheduler`: tick tasks and async tasks |
-| `ServicesManager` | `Provide` and `Service`, typed by interface |
+| `ServicesManager` | `Provide`, `Service` and `Providers`, typed by interface |
 | `CommandExecutor`, `TabCompleter`, Paper's Brigadier commands | `Command`: a Brigadier tree with vanilla argument types; `Override` replaces a vanilla command, which stays reachable as `minecraft:name` |
 | `HelpMap`, `HelpTopic`, `help.yml` | `Server.Help()`, `HelpMap`, `HelpTopic`, `NewHelpTopic`; `help.yml` is written on first start |
 | `Permission`, `hasPermission` | `Permission`, `CommandSender.HasPermission`, `PermissionProvider` as a service |

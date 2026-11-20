@@ -3,6 +3,7 @@ package plugins_test
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -139,6 +140,17 @@ func TestPluginLifecycleOrderingAndFailureCleanup(t *testing.T) {
 	plugin.Provide[fmt.Stringer](handles[2], service("high"), 10)
 	if got, ok := plugin.Service[fmt.Stringer](h); !ok || got.String() != "high" {
 		t.Fatalf("service: %v %v", got, ok)
+	}
+	if ps := h.Services().Providers(reflect.TypeFor[fmt.Stringer]()); len(ps) != 2 ||
+		ps[0].Plugin != "last" || ps[0].Priority != 10 || ps[0].Impl.(fmt.Stringer).String() != "high" ||
+		ps[1].Plugin != "first" || ps[1].Priority != 0 {
+		t.Fatalf("providers (the failed plugin's priority-100 provider must be gone): %+v", ps)
+	}
+	if ps := plugin.Providers[fmt.Stringer](h); len(ps) != 2 || ps[0].Plugin != "last" || ps[0].Service.String() != "high" || ps[1].Plugin != "first" {
+		t.Fatalf("typed providers: %+v", ps)
+	}
+	if ps := h.Services().Providers(reflect.TypeFor[io.Reader]()); ps == nil || len(ps) != 0 {
+		t.Fatalf("unprovided providers: %#v", ps)
 	}
 	handles[2].Scheduler().RunLater(100, func() { t.Error("disabled task ran") })
 	srv.Shutdown()

@@ -225,6 +225,18 @@ type Services interface {
 	Provide(t reflect.Type, impl any, priority int)
 	// Lookup answers the highest-priority implementation of t.
 	Lookup(t reflect.Type) (any, bool)
+	// Providers answers a snapshot of every implementation of t, highest
+	// priority first, equal priorities in the order they were provided; empty
+	// when there is none. Bukkit: ServicesManager.getRegistrations
+	Providers(t reflect.Type) []ServiceProvider
+}
+
+// ServiceProvider is one registered implementation of a service type.
+type ServiceProvider struct {
+	// Plugin is the name of the plugin that provided Impl.
+	Plugin   string
+	Priority int
+	Impl     any
 }
 
 // Provide registers impl as the plugin's implementation of the interface
@@ -243,6 +255,23 @@ func Service[S any](s Server) (S, bool) {
 		return zero, false
 	}
 	return v.(S), true
+}
+
+// Provider is one implementation of S and the plugin providing it.
+type Provider[S any] struct {
+	Plugin   string
+	Service  S
+	Priority int
+}
+
+// Providers answers every implementation of S, highest priority first.
+func Providers[S any](s Server) []Provider[S] {
+	all := s.Services().Providers(reflect.TypeFor[S]())
+	out := make([]Provider[S], len(all))
+	for i, p := range all {
+		out[i] = Provider[S]{Plugin: p.Plugin, Service: p.Impl.(S), Priority: p.Priority}
+	}
+	return out
 }
 
 // Messenger is the plugin channels: custom payload packets on a channel
