@@ -262,7 +262,7 @@ func (s *Server) tellGlobalLevelEvent(w *world.World, event, x, y, z, data int32
 
 // portalFrameLit reports whether a frame would light around the fire at (x, y, z).
 func (s *Server) portalFrameLit(w *world.World, x, y, z int32) bool {
-	_, ok := rules.LightPortal(w, w.DimensionName(), x, y, z)
+	_, ok := rules.LightPortal(w, w.DimensionTypeName(), x, y, z)
 	return ok
 }
 
@@ -271,7 +271,7 @@ func (s *Server) portalFrameLit(w *world.World, x, y, z int32) bool {
 // fire the physics places too (vanilla: BaseFireBlock.onPlace), so spreading
 // fire lights frames.
 func (s *Server) ignitePortalAt(w *world.World, x, y, z int32) bool {
-	lit, ok := rules.LightPortal(w, w.DimensionName(), x, y, z)
+	lit, ok := rules.LightPortal(w, w.DimensionTypeName(), x, y, z)
 	if ok {
 		if lit = s.portalWritesAllowed(w, lit, plugin.PortalFire); lit == nil {
 			return false
@@ -541,7 +541,7 @@ func (c *client) travelByEndPortal(from *dimension) {
 	if c.ridingMob() || c.ridingCushion() {
 		return
 	}
-	if from.name == world.EndName {
+	if from.w.DimensionTypeName() == world.EndType {
 		// A vehicle leaves the end with no passenger who has yet to see
 		// the credits. vanilla: Entity.canTeleport
 		if (c.ridingBoat() || c.ridingMinecart()) && !c.player.SeenCredits() {
@@ -626,7 +626,9 @@ func (c *client) enterEnd() {
 		return
 	}
 	c.srv.holdArrival(end, spot)
-	c.srv.buildEndArrivalPlatform()
+	if end.w.DimensionTypeName() == world.EndType {
+		c.srv.buildEndArrivalPlatform(end)
+	}
 	// Faces west (Direction.WEST.toYRot() = 90), toward the main island, and
 	// keeps the pitch: it is sent as a zero offset, Pos holds it for the store.
 	// vanilla: EndPortalBlock.getPortalDestination
@@ -671,7 +673,7 @@ func (c *client) spectatorUsePortal(x, y, z int32, state uint16) (bool, error) {
 		c.playPortalTravel()
 	case state == rules.EndPortalState:
 		c.clearCamera()
-		if c.dimension().name != world.EndName {
+		if c.dimension().w.DimensionTypeName() != world.EndType {
 			c.enterEnd()
 			return true, nil
 		}
@@ -718,8 +720,7 @@ func (c *client) showEndCredits() {
 // clears the air above on every arrival, in case it was dug out. A cell
 // already holding its block is left alone; any other is broken with its
 // drops and contents first. vanilla: EndPlatformFeature.createEndPlatform
-func (s *Server) buildEndArrivalPlatform() {
-	end := s.dimensionByName(world.EndName)
+func (s *Server) buildEndArrivalPlatform(end *dimension) {
 	w := end.w
 	platform := world.EndArrivalPlatform()
 	defer s.holdChanges(w, platform)()
@@ -844,11 +845,11 @@ func (s *Server) portalEntryAllowed(to *dimension) bool {
 }
 
 // endPortalDestination is the world spawn column, in its dimension, at its
-// motion-blocking surface when leaving the end, or the arrival platform
-// (built first) when entering it.
+// motion-blocking surface when leaving an end-typed world, or the end's
+// arrival platform when entering it.
 // vanilla: EndPortalBlock.getPortalDestination, Entity.adjustSpawnLocation
 func (s *Server) endPortalDestination(from *dimension) (to *dimension, spot world.SpawnPos) {
-	if from.name == world.EndName {
+	if from.w.DimensionTypeName() == world.EndType {
 		to, spot = s.worldSpawn()
 		pos := world.ChunkPos{X: world.ChunkOf(float64(spot.X)), Z: world.ChunkOf(float64(spot.Z))}
 		to.w.Acquire(pos)
@@ -857,7 +858,6 @@ func (s *Server) endPortalDestination(from *dimension) (to *dimension, spot worl
 		to.w.Release(pos)
 		return to, spot
 	}
-	s.buildEndArrivalPlatform()
 	return s.dimensionByName(world.EndName), world.EndArrival()
 }
 
@@ -923,12 +923,16 @@ func (s *Server) entityPortalArrival(who command.Entity, kind rules.PortalKind, 
 // returns the body to its list.
 func (s *Server) crossPortal(w *world.World, id int32, pos player.Position, kind rules.PortalKind,
 	arrive func(to *dimension, spot world.SpawnPos, exitAxis [2]int32) (register func()), putBack func()) {
-	to, spot, exitAxis, ok := s.entityPortalArrival(s.relatedByID(w, id), kind, s.dimensionOfWorld(w), pos, false)
+	from := s.dimensionOfWorld(w)
+	to, spot, exitAxis, ok := s.entityPortalArrival(s.relatedByID(w, id), kind, from, pos, false)
 	if ok && kind == rules.PortalEnd {
 		moved, at, allowed := s.pluginPortal(s.relatedByID(w, id), pos, to, spot, plugin.TeleportEndPortal)
 		if ok = allowed; allowed && (moved != to || at != spot) {
 			to, spot = moved, at
 			exitAxis = rules.NetherPortalAxis(to.w.BlockAt(spot.X, spot.Y, spot.Z))
+		}
+		if ok && from.w.DimensionTypeName() != world.EndType && to.w.DimensionTypeName() == world.EndType {
+			s.buildEndArrivalPlatform(to)
 		}
 	}
 	var register func()

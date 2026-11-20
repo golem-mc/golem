@@ -133,10 +133,10 @@ func PortalShape(w BlockReader, dx, dz, x, y, z int32, allowAir bool) ([][3]int3
 
 // LightPortal returns the portal blocks filling a valid frame around the
 // fire at (x, y, z), both axes tried and at most one valid, and whether
-// there was one. Only the overworld and the nether light portals.
+// there was one. Only overworld- and nether-typed worlds light portals.
 // vanilla: BaseFireBlock.inPortalDimension, PortalShape.findEmptyPortalShape
-func LightPortal(w BlockReader, dimension string, x, y, z int32) ([]world.BlockChange, bool) {
-	if dimension != world.DimensionName && dimension != world.NetherName {
+func LightPortal(w BlockReader, dimensionType string, x, y, z int32) ([]world.BlockChange, bool) {
+	if dimensionType != world.DimensionType && dimensionType != world.NetherType {
 		return nil, false
 	}
 	for _, state := range [2]uint16{NetherPortalX, NetherPortalZ} {

@@ -124,21 +124,31 @@ func TestPluginPortalEventRetargetsExitSearch(t *testing.T) {
 	})
 }
 
-// With SearchRadius 0 and creation off, the listener's radii are honoured: the body stays.
+// With a portal 60 blocks away, SearchRadius 32 and creation off, none is found and the body stays.
 func TestPluginPortalEventSearchRadius(t *testing.T) {
 	t.Parallel()
-	srv, h, run, c, _ := portalPlugin(t)
+	srv, h, run, c, hell := portalPlugin(t)
+	_, portalX, _, _ := servertest.PortalStates(t)
+	t.Cleanup(srv.HoldChunkInDimension(hellKey.String(), 60, 0))
+	if !srv.SetBlockInDimension(hellKey.String(), 60, servertest.PortalFloorY, 0, portalX) {
+		t.Fatal("placing distant portal failed")
+	}
 	var fired atomic.Int32
 	run(func() {
 		plugin.Listen(h, func(e *plugin.EntityPortalEvent) {
 			fired.Add(1)
-			e.SearchRadius = 0
+			e.To.World = hell
+			e.To.Pos = plugin.Vec3{X: 0, Y: servertest.PortalFloorY, Z: 0}
+			e.SearchRadius = 32
 			e.CanCreatePortal = false
 		})
 	})
 	lightFrameAndStand(t, srv, c)
 	for deadline := time.Now().Add(10 * time.Second); fired.Load() == 0 && time.Now().Before(deadline); {
 		servertest.RunTicks(t, srv, 1)
+	}
+	if fired.Load() == 0 {
+		t.Fatal("the portal event never fired")
 	}
 	servertest.RunTicks(t, srv, 20)
 	if got := srv.PlayerDimension("Portaler"); got != world.DimensionName {
@@ -217,5 +227,87 @@ func TestPluginNetherTypedWorldPortalLeadsToOverworld(t *testing.T) {
 	}
 	if math.Abs(pos.X-36) > 20 || math.Abs(pos.Z-36) > 20 {
 		t.Errorf("arrival = (%v, %v), want near (36, 36)", pos.X, pos.Z)
+	}
+}
+
+// End portals and gateways in a plugin world of type minecraft:the_end behave as
+// the end's: retargeting into one builds the arrival platform there, its end
+// portals return to the overworld spawn (after credits), and an exit-less end
+// gateway builds an exit and teleports the player.
+func TestPluginEndTypedWorldPortalAndGateway(t *testing.T) {
+	t.Parallel()
+	srv, h, run, c, _ := portalPlugin(t)
+	endKey := plugin.Key{Namespace: "test", Path: "end"}
+	var customEnd plugin.World
+	run(func() {
+		var err error
+		customEnd, err = h.CreateWorld(plugin.WorldOptions{Key: endKey, Dimension: plugin.MinecraftKey("the_end"), Seed: 5, Generator: &flatGen{}})
+		if err != nil {
+			t.Errorf("CreateWorld: %v", err)
+		}
+		plugin.Listen(h, func(e *plugin.EntityPortalEvent) {
+			if e.Cause == plugin.TeleportEndPortal && e.From.World.Key() == plugin.MinecraftKey("overworld") {
+				e.To.World = customEnd
+			}
+		})
+	})
+	if customEnd == nil {
+		t.FailNow()
+	}
+
+	endPortal := srv.EndPortalState()
+	arrival := world.EndArrival()
+	obsidian, _, _, _ := servertest.PortalStates(t)
+
+	// Entering an overworld end portal retargeted to the custom end builds the
+	// obsidian platform in the custom end, not in minecraft:the_end.
+	if !srv.SetBlock(10, servertest.PortalFloorY-1, 10, endPortal) {
+		t.Fatal("placing overworld end portal failed")
+	}
+	c.MoveTo(10.5, servertest.PortalFloorY-1, 10.5, 0, 0)
+	c.Settle()
+	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
+	servertest.WaitFor(t, srv, 200, func() bool { return srv.PlayerDimension("Portaler") == endKey.String() })
+	servertest.WaitFor(t, srv, 200, func() bool {
+		return srv.BlockInDimension(endKey.String(), arrival.X, arrival.Y-1, arrival.Z) == obsidian
+	})
+	if got := srv.BlockInDimension(world.EndName, arrival.X, arrival.Y-1, arrival.Z); got == obsidian {
+		t.Error("arrival platform was built in vanilla minecraft:the_end")
+	}
+
+	// Standing in an end portal in the custom end shows the end credits on the
+	// first exit, then returns to the overworld spawn on respawn.
+	servertest.RunTicks(t, srv, 15)
+	if !srv.SetBlockInDimension(endKey.String(), arrival.X, arrival.Y, arrival.Z, endPortal) {
+		t.Fatal("placing custom end portal failed")
+	}
+	servertest.ExpectEndCredits(t, c, srv)
+	c.PerformRespawn()
+	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
+	servertest.WaitFor(t, srv, 200, func() bool { return srv.PlayerDimension("Portaler") == world.DimensionName })
+
+	// Once credits have been seen, an end portal in the custom end returns
+	// directly to the overworld without rolling credits again.
+	servertest.RunTicks(t, srv, 15)
+	srv.MovePlayerToDimension("Portaler", endKey.String(), float64(arrival.X)+0.5, float64(arrival.Y), float64(arrival.Z)+0.5)
+	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
+	// The next respawn is the immediate return from the custom end to the overworld.
+	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
+	servertest.WaitFor(t, srv, 200, func() bool { return srv.PlayerDimension("Portaler") == world.DimensionName })
+
+	// An exit-less end gateway in the custom end creates an exit and teleports
+	// the player away, as in minecraft:the_end.
+	t.Cleanup(srv.HoldChunkInDimension(endKey.String(), 12, 10))
+	gateway := registry.MustState("minecraft:end_gateway", nil)
+	if !srv.SetBlockInDimension(endKey.String(), 12, 65, 10, gateway) {
+		t.Fatal("placing end gateway failed")
+	}
+	servertest.RunTicks(t, srv, 15)
+	srv.MovePlayerToDimension("Portaler", endKey.String(), 12.5, 65, 10.5)
+	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
+	servertest.RunTicks(t, srv, 1)
+	srv.WaitGatewayMoves()
+	if p := srv.PlayerPosition("Portaler"); srv.PlayerDimension("Portaler") != endKey.String() || math.Hypot(p.X, p.Z) <= 100 {
+		t.Errorf("gateway arrival = (%v, %v) in %q, want >100 blocks out in %q", p.X, p.Z, srv.PlayerDimension("Portaler"), endKey)
 	}
 }
