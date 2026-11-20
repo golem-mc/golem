@@ -171,15 +171,22 @@ func (m *Mob) AimDragonPart(part int) {
 	}
 }
 
+// DragonPartDamage is the damage a hit of amount deals to the aimed part:
+// whole on the head and neck, softened elsewhere. vanilla: EnderDragon.hurt
+func (m *Mob) DragonPartDamage(amount float64) float64 {
+	if m.dragon.headAimed {
+		return amount
+	}
+	return amount/4 + math.Min(amount, 1)
+}
+
 // dragonHurt reduces the part's damage before the living hurt window.
 // vanilla: EnderDragon.hurt, reallyHurt
 func (m *Mob) dragonHurt(amount float64, damageType registry.DamageType, byPlayer bool) float64 {
 	if m.dragon.phase == dragonDying {
 		return 0
 	}
-	if !m.dragon.headAimed {
-		amount = amount/4 + math.Min(amount, 1)
-	}
+	amount = m.DragonPartDamage(amount)
 	if amount < 0.01 || !byPlayer && !damageType.InTag(registry.DamageTypeTagIDAlwaysHurtsEnderDragons) {
 		return 0
 	}
@@ -533,9 +540,7 @@ func (m *Mob) dragonAccepts(amount float64) bool {
 	if m.dragon == nil || m.Dead || m.dragon.phase == dragonDying {
 		return false
 	}
-	if !m.dragon.headAimed {
-		amount = amount/4 + math.Min(amount, 1)
-	}
+	amount = m.DragonPartDamage(amount)
 	return amount >= 0.01
 }
 

@@ -1,8 +1,6 @@
 package server
 
 import (
-	"github.com/golem-mc/golem/plugin"
-	"math"
 	"math/rand"
 	"slices"
 
@@ -12,6 +10,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
@@ -1209,11 +1208,7 @@ func (s *Server) blastDragon(b blast, in *blastInputs, m *entity.Mob, ent *mobEn
 			if took := before - m.Health; took > 0 && b.causeID != 0 {
 				// A part other than the head and neck takes the softened
 				// damage. vanilla: EnderDragon.hurt
-				dealt := hit.Damage
-				if part != entity.DragonHead && part != entity.DragonNeck {
-					dealt = dealt/4 + math.Min(dealt, 1)
-				}
-				landedHurt(dealt, took)
+				landedHurt(m.DragonPartDamage(hit.Damage), took)
 			}
 		}
 	}
