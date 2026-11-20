@@ -1,15 +1,23 @@
 package entities
 
 import (
+	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
+// landingBurst is one decoded block-particle Level Particles packet.
+type landingBurst struct {
+	state   int32
+	x, y, z float64
+	count   int32
+}
+
 // standDustAfterDrop drops an armor stand from height blocks above a stone
 // floor and returns the block-particle bursts the watcher is sent.
-func standDustAfterDrop(t *testing.T, height float64) (counts []int32, stone uint16) {
+func standDustAfterDrop(t *testing.T, height float64) (bursts []landingBurst, stone uint16) {
 	t.Helper()
 	srv, c := servertest.BreedingPlayer(t, "creative", "Watcher", "", 0)
 	stone = servertest.MustState(t, "minecraft:stone", nil)
@@ -30,18 +38,23 @@ func standDustAfterDrop(t *testing.T, height float64) (counts []int32, stone uin
 		if particle := r.ReadVarInt(); particle != protocol.ParticleBlock {
 			return
 		}
+		var b landingBurst
+		b.state = r.ReadVarInt()
 		r.ReadBool()
 		r.ReadBool()
-		r.ReadF64()
-		r.ReadF64()
-		r.ReadF64()
-		r.ReadF32()
-		r.ReadF32()
-		r.ReadF32()
-		r.ReadF32()
-		counts = append(counts, r.ReadVarInt())
+		b.x, b.y, b.z = r.ReadF64(), r.ReadF64(), r.ReadF64()
+		for range 6 {
+			r.ReadF32()
+		}
+		b.count = r.ReadVarInt()
+		r.ReadVarInt()
+		if r.Err() != nil || r.Remaining() != 0 {
+			t.Errorf("block particle packet misdecoded: err %v, %d bytes left", r.Err(), r.Remaining())
+			return
+		}
+		bursts = append(bursts, b)
 	})
-	return counts, stone
+	return bursts, stone
 }
 
 // An armor stand that falls more than 3 blocks bursts block particles where
@@ -49,8 +62,16 @@ func standDustAfterDrop(t *testing.T, height float64) (counts []int32, stone uin
 // vanilla: LivingEntity.checkFallDamage
 func TestAnArmorStandBurstsBlockParticlesAfterALongFall(t *testing.T) {
 	t.Parallel()
-	if got, _ := standDustAfterDrop(t, 6); len(got) != 1 || got[0] <= 0 {
-		t.Errorf("6-block drop sent block bursts %v, want one", got)
+	got, stone := standDustAfterDrop(t, 6)
+	if len(got) != 1 {
+		t.Fatalf("6-block drop sent block bursts %v, want one", got)
+	}
+	b := got[0]
+	if b.state != int32(stone) || b.count <= 0 {
+		t.Errorf("burst state %d count %d, want stone %d and count > 0", b.state, b.count, stone)
+	}
+	if math.Abs(b.x-3.5) > 0.5 || b.y != 64 || math.Abs(b.z-1.5) > 0.5 {
+		t.Errorf("burst at (%v, %v, %v), want the landing position (3.5, 64, 1.5)", b.x, b.y, b.z)
 	}
 	if got, _ := standDustAfterDrop(t, 3.5); len(got) != 0 {
 		t.Errorf("3.5-block drop sent block bursts %v, want none", got)
