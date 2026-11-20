@@ -69,7 +69,7 @@ func (c *client) bucketMob(ent *mobEntity, hand int32) error {
 		s.broadcastSoundID(ent.w, pickupSound, mobSoundCategory(kind), x, y, z, 1.0, 1.0)
 	}
 	c.filledResult(hand, bucket, false)
-	c.filledBucketAdvancements(id)
+	c.filledBucketAdvancements(bucket)
 	return nil
 }
 

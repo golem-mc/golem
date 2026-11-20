@@ -99,7 +99,7 @@ func (c *client) fillDragonBreath(hand int32) bool {
 	}
 	s.broadcastSoundID(w, registry.SoundItemBottleFillDragonbreath, protocol.SoundCategoryNeutral, pos.X, pos.Y, pos.Z, 1, 1)
 	s.gameEvent(w, rules.GameEventFluidPickup, pos.X, pos.Y, pos.Z, c.gameEventContext(0))
-	c.interactedWithEntityAdvancements(advancement.EntityInteraction{Type: "minecraft:area_effect_cloud"}, int32(registry.ItemGlassBottle))
+	c.interactedWithEntityAdvancements(advancement.EntityInteraction{Type: "minecraft:area_effect_cloud"}, protocol.ItemStack{ItemID: int32(registry.ItemGlassBottle), Count: 1})
 	c.awardItemStat(registry.StatTypeUsed, int32(registry.ItemGlassBottle), 1)
 	c.filledResult(hand, protocol.ItemStack{ItemID: int32(registry.ItemDragonBreath), Count: 1}, true)
 	return true

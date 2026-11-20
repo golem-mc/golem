@@ -3656,7 +3656,7 @@ func (c *client) mobInteract(ent *mobEntity, hand int32, held protocol.ItemStack
 		return true, nil
 	case item == registry.ItemShears && !tagUsed && c.shearLeashesOfMob(ent, hand):
 		return true, nil
-	case item == registry.ItemShears && !sneaking && c.shearEquipment(ent, hand, held.ItemID):
+	case item == registry.ItemShears && !sneaking && c.shearEquipment(ent, hand, held):
 		return true, nil
 	case leashedToPlayer && !tagUsed:
 		if handled, err := c.bindLeadToMob(ent, held, hand); handled {
@@ -3800,7 +3800,7 @@ func (c *client) shearMob(ent *mobEntity, hand int32) error {
 		s.mobsMu.Lock()
 		after := s.bodyInteraction(ent)
 		s.mobsMu.Unlock()
-		c.shearedEquipmentAdvancements(after, take.drops[0].ItemID)
+		c.shearedEquipmentAdvancements(after, take.drops[0])
 	}
 	if ent.mob.Type == entity.TypeMooshroom {
 		s.convertShearedMooshroom(ent)
@@ -4185,7 +4185,7 @@ func (c *client) stewFromMooshroom(ent *mobEntity, hand int32) error {
 // vanilla: Mob.interact, Animal.mobInteract, setInLove
 func (c *client) feedMob(ent *mobEntity, hand int32) (bool, error) {
 	s := c.srv
-	held := c.heldItem(hand).ItemID
+	held := c.heldItem(hand)
 	s.mobsMu.Lock()
 	m := ent.mob
 	if !m.Alive() {
@@ -4300,7 +4300,7 @@ func (s *Server) hatchTadpole(dim *dimension, h world.TadpoleHatch) {
 // shearEquipment takes the first shearable piece off a mob: one shears wear,
 // the piece drops, its shearing sound plays.
 // vanilla: Entity.interact, Mob.attemptToShearEquipment, Mob.shearItem
-func (c *client) shearEquipment(ent *mobEntity, hand, shears int32) bool {
+func (c *client) shearEquipment(ent *mobEntity, hand int32, shears protocol.ItemStack) bool {
 	s := c.srv
 	s.mobsMu.Lock()
 	after := s.bodyInteraction(ent)
@@ -4316,7 +4316,7 @@ func (c *client) shearEquipment(ent *mobEntity, hand, shears int32) bool {
 		s.broadcastSoundHolder(ent.w, taken.Sound, protocol.SoundCategoryNeutral, x, y, z, 1, 1)
 	}
 	s.gameEvent(ent.w, rules.GameEventShear, x, y, z, c.gameEventContext(0))
-	c.shearedEquipmentAdvancements(after, taken.Stack.ItemID)
+	c.shearedEquipmentAdvancements(after, taken.Stack)
 	c.interactedWithEntityAdvancements(after, shears)
 	return true
 }

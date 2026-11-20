@@ -339,7 +339,7 @@ func (c *client) useInteraction(target, hand int32) bool {
 	if ent == nil {
 		return false
 	}
-	held := c.heldItem(hand).ItemID
+	held := c.heldItem(hand)
 	pos := c.player.Position()
 	minX, minY, minZ, maxX, maxY, maxZ := s.fixtureBox(ent)
 	if rules.WithinEntityInteractionRange(c.entityRange(),

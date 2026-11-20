@@ -53,7 +53,7 @@ func (c *client) useOnWolf(ent *mobEntity, hand int32, held protocol.ItemStack, 
 		case repaired:
 			c.spendHeld(hand)
 			s.broadcastSoundID(ent.w, registry.SoundItemWolfArmorRepair, protocol.SoundCategoryNeutral, x, y, z, 1, 1)
-			c.interactedWithEntityAdvancements(after, held.ItemID)
+			c.interactedWithEntityAdvancements(after, held)
 			return true, nil
 		}
 		if entity.IsWolfFood(held.ItemID) {

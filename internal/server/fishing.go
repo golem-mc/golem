@@ -271,11 +271,7 @@ func (c *client) retrieveBobber(hand int32, it *bobberEntity) {
 		luck := float64(hook.Luck) + c.luckAttribute()
 		biome := it.w.BiomeAt(int32(math.Floor(hook.X)), int32(math.Floor(hook.Y)), int32(math.Floor(hook.Z)))
 		loot := rules.FishingLoot(hook.Rand, luck, hook.OpenWater, biome, s.lootLevelAt(it.w, hook.X, hook.Y, hook.Z))
-		caught := make([]int32, len(loot))
-		for i, stack := range loot {
-			caught[i] = stack.ItemID
-		}
-		c.fishingRodHookedAdvancements(caught)
+		c.fishingRodHookedAdvancements(loot)
 		for _, stack := range loot {
 			item := s.newItemEntity(it.w, stack, hook.X, hook.Y, hook.Z,
 				dx*0.1, dy*0.1+lift, dz*0.1, 0)

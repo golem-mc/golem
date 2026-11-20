@@ -56,7 +56,7 @@ type mobEquipped struct {
 type mobThrownPickup struct {
 	w         *world.World
 	thrower   uuid.UUID
-	item      int32
+	item      protocol.ItemStack
 	collector advancement.Entity
 }
 
@@ -200,7 +200,7 @@ func (s *Server) tickMobLoot() {
 	var thrown []mobThrownPickup
 	for _, t := range claimed {
 		if t.thrower != uuid.Nil && t.take.Mob.Alive() {
-			thrown = append(thrown, mobThrownPickup{w: t.w, thrower: t.thrower, item: t.stack.ItemID,
+			thrown = append(thrown, mobThrownPickup{w: t.w, thrower: t.thrower, item: t.stack,
 				collector: advancement.Entity{Type: t.take.Mob.Type.Name(), Baby: t.take.Mob.IsBaby(), Loot: s.mobLoot(s.herdOf(t.w).book[t.take.Mob])}})
 		}
 		m := t.take.Mob

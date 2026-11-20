@@ -69,7 +69,7 @@ func (c *client) applyToolUse(hand, x, y, z int32, held protocol.ItemStack, use 
 	// changes; the shovel does not.
 	// vanilla: BlockTransformer.transformBlock, HoneycombItem.useOn, ShearsItem.useOn
 	if transformer != registry.BlockTransformerShovel {
-		c.itemUsedOnBlockAdvancements(w, x, y, z, held.ItemID)
+		c.itemUsedOnBlockAdvancements(w, x, y, z, held)
 	}
 	if use.Sound != registry.SoundNone {
 		c.srv.broadcastSoundIDExcept(w, c,

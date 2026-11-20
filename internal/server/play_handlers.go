@@ -492,9 +492,9 @@ func (c *client) handleUseItemOn(r *protocol.Reader) error {
 	clicked, beside := w.BlockAt(x, y, z), w.BlockAt(x+off[0], y+off[1], z+off[2])
 	err := c.placeBlock(hand, x, y, z, ctx)
 	if c.itemUsedOn {
-		c.itemUsedOnBlockAdvancements(c.theWorld(), x, y, z, held.ItemID)
+		c.itemUsedOnBlockAdvancements(c.theWorld(), x, y, z, held)
 	}
-	c.blockUseAdvancements(c.theWorld(), x, y, z, c.heldItem(hand).ItemID)
+	c.blockUseAdvancements(c.theWorld(), x, y, z, c.heldItem(hand))
 	c.sendBuildLimitIfRefused(hand, held, clicked, beside, x, y, z, face)
 	// The single ack, recorded last, behind the placement's broadcasts and
 	// echoes, for the tick end to flush (see ackBlock). vanilla's

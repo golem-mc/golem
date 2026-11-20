@@ -270,20 +270,20 @@ func TestPlacedBlockReadsStateTagsAndNeighbours(t *testing.T) {
 	transplanter := tree.Get("minecraft:adventure/heart_transplanter")
 	// A log with the heart one below and a log below that, all upright,
 	// passes through the all_of inside any_of; a sideways middle does not.
-	p.PlacedBlock(column(map[[3]int32]uint16{{0, 0, 0}: log("y"), {0, -1, 0}: heart("x"), {0, -2, 0}: log("y")}), int32(registry.ItemPaleOakLog), now)
+	p.PlacedBlock(column(map[[3]int32]uint16{{0, 0, 0}: log("y"), {0, -1, 0}: heart("x"), {0, -2, 0}: log("y")}), stack(int32(registry.ItemPaleOakLog)), now)
 	if p.Obtained(transplanter, "place_pale_oak_log") {
 		t.Fatal("a heart on another axis passed")
 	}
-	p.PlacedBlock(column(map[[3]int32]uint16{{0, 0, 0}: log("y"), {0, -1, 0}: heart("y")}), int32(registry.ItemPaleOakLog), now)
+	p.PlacedBlock(column(map[[3]int32]uint16{{0, 0, 0}: log("y"), {0, -1, 0}: heart("y")}), stack(int32(registry.ItemPaleOakLog)), now)
 	if p.Obtained(transplanter, "place_pale_oak_log") {
 		t.Fatal("a log without the far end passed")
 	}
-	p.PlacedBlock(column(map[[3]int32]uint16{{0, 0, 0}: log("y"), {0, -1, 0}: heart("y"), {0, -2, 0}: log("y")}), int32(registry.ItemPaleOakLog), now)
+	p.PlacedBlock(column(map[[3]int32]uint16{{0, 0, 0}: log("y"), {0, -1, 0}: heart("y"), {0, -2, 0}: log("y")}), stack(int32(registry.ItemPaleOakLog)), now)
 	if !p.Obtained(transplanter, "place_pale_oak_log") {
 		t.Error("log, heart, log in a column did not pass")
 	}
 	// A wheat crop placed passes its own criterion only.
-	p.PlacedBlock(column(map[[3]int32]uint16{{0, 0, 0}: registry.MustState("minecraft:wheat", nil)}), int32(registry.ItemWheatSeeds), now)
+	p.PlacedBlock(column(map[[3]int32]uint16{{0, 0, 0}: registry.MustState("minecraft:wheat", nil)}), stack(int32(registry.ItemWheatSeeds)), now)
 	if !p.Obtained(tree.Get("minecraft:husbandry/plant_seed"), "wheat") ||
 		p.Obtained(tree.Get("minecraft:husbandry/plant_seed"), "beetroots") {
 		t.Error("a placed wheat crop did not obtain exactly the wheat criterion")
@@ -301,19 +301,19 @@ func TestItemUsedOnBlockWantsTheToolAndTheBlockState(t *testing.T) {
 	stick, _ := registry.ItemID("minecraft:stick")
 	copper := column(map[[3]int32]uint16{{0, 0, 0}: registry.MustState("minecraft:copper_block", nil)})
 	wax := tree.Get("minecraft:husbandry/wax_on")
-	p.ItemUsedOnBlock(copper, stick, "", now)
-	p.ItemUsedOnBlock(column(map[[3]int32]uint16{{0, 0, 0}: registry.MustState("minecraft:stone", nil)}), honeycomb, "", now)
+	p.ItemUsedOnBlock(copper, stack(stick), "", now)
+	p.ItemUsedOnBlock(column(map[[3]int32]uint16{{0, 0, 0}: registry.MustState("minecraft:stone", nil)}), stack(honeycomb), "", now)
 	if p.Obtained(wax, "wax_on") {
 		t.Fatal("the wrong tool or the wrong block passed")
 	}
-	p.ItemUsedOnBlock(copper, honeycomb, "", now)
+	p.ItemUsedOnBlock(copper, stack(honeycomb), "", now)
 	if !p.Obtained(wax, "wax_on") {
 		t.Error("honeycomb on copper did not pass")
 	}
 	// A vault criterion reads the vault's state, not just its name.
 	key, _ := registry.ItemID("minecraft:trial_key")
 	ominous := column(map[[3]int32]uint16{{0, 0, 0}: registry.MustState("minecraft:vault", map[string]string{"ominous": "true"})})
-	p.ItemUsedOnBlock(ominous, key, "", now)
+	p.ItemUsedOnBlock(ominous, stack(key), "", now)
 	if p.Obtained(tree.Get("minecraft:adventure/under_lock_and_key"), "under_lock_and_key") {
 		t.Error("an ominous vault passed the plain vault criterion")
 	}
@@ -321,12 +321,12 @@ func TestItemUsedOnBlockWantsTheToolAndTheBlockState(t *testing.T) {
 	disc, _ := registry.ItemID("minecraft:music_disc_cat")
 	jukebox := column(map[[3]int32]uint16{{0, 0, 0}: registry.MustState("minecraft:jukebox", nil)})
 	meadows := tree.Get("minecraft:adventure/play_jukebox_in_meadows")
-	p.ItemUsedOnBlock(jukebox, disc, "minecraft:plains", now)
-	p.ItemUsedOnBlock(jukebox, stick, "minecraft:meadow", now)
+	p.ItemUsedOnBlock(jukebox, stack(disc), "minecraft:plains", now)
+	p.ItemUsedOnBlock(jukebox, stack(stick), "minecraft:meadow", now)
 	if p.Obtained(meadows, "play_jukebox_in_meadows") {
 		t.Fatal("a jukebox outside a meadow, or a stick, passed")
 	}
-	p.ItemUsedOnBlock(jukebox, disc, "minecraft:meadow", now)
+	p.ItemUsedOnBlock(jukebox, stack(disc), "minecraft:meadow", now)
 	if !p.Obtained(meadows, "play_jukebox_in_meadows") {
 		t.Error("a disc in a meadow jukebox did not pass")
 	}
@@ -343,13 +343,13 @@ func TestArrowCriteriaWantTheShaftTheWeaponAndTheVictims(t *testing.T) {
 	)
 	now := time.Now()
 	p.PlayerHurtProjectile("minecraft:spectral_arrow", now)
-	p.KilledByArrow([]string{"minecraft:phantom"}, 5, nil, now)
-	p.KilledByArrow([]string{"minecraft:phantom", "minecraft:phantom"}, 4, nil, now)
+	p.KilledByArrow([]string{"minecraft:phantom"}, stack(5), nil, now)
+	p.KilledByArrow([]string{"minecraft:phantom", "minecraft:phantom"}, stack(4), nil, now)
 	if len(p.obtained[0]) != 1 || p.obtained[0]["arrow"].IsZero() {
 		t.Fatalf("after a spectral arrow, one phantom and a bow's pair: %v", p.obtained[0])
 	}
-	p.KilledByArrow([]string{"minecraft:phantom", "minecraft:cow", "minecraft:phantom"}, 5, nil, now)
-	p.KilledByArrow([]string{"a", "b", "c", "d", "e", "e"}, 4, nil, now)
+	p.KilledByArrow([]string{"minecraft:phantom", "minecraft:cow", "minecraft:phantom"}, stack(5), nil, now)
+	p.KilledByArrow([]string{"a", "b", "c", "d", "e", "e"}, stack(4), nil, now)
 	for _, name := range []string{"pair", "five"} {
 		if _, ok := p.obtained[0][name]; !ok {
 			t.Errorf("%s was not obtained: %v", name, p.obtained[0])
@@ -373,17 +373,17 @@ func TestEntityInteractionCriteriaWantTheItemTheTypeAndTheBody(t *testing.T) {
 	)
 	now := time.Now()
 	wolf := EntityInteraction{Type: "minecraft:wolf", Body: 9, BodyDamage: 8}
-	p.InteractedWithEntity(wolf, 7, nil, now)
-	p.InteractedWithEntity(EntityInteraction{Type: "minecraft:fox", Body: 9}, 7, nil, now)
-	p.InteractedWithEntity(EntityInteraction{Type: "minecraft:wolf", Body: 4}, 7, nil, now)
-	p.InteractedWithEntity(EntityInteraction{Type: "minecraft:wolf", Body: 9}, 8, nil, now)
-	p.ShearedEquipment(EntityInteraction{Type: "minecraft:fox"}, 9, nil, now)
-	p.ShearedEquipment(wolf, 8, nil, now)
+	p.InteractedWithEntity(wolf, stack(7), nil, now)
+	p.InteractedWithEntity(EntityInteraction{Type: "minecraft:fox", Body: 9}, stack(7), nil, now)
+	p.InteractedWithEntity(EntityInteraction{Type: "minecraft:wolf", Body: 4}, stack(7), nil, now)
+	p.InteractedWithEntity(EntityInteraction{Type: "minecraft:wolf", Body: 9}, stack(8), nil, now)
+	p.ShearedEquipment(EntityInteraction{Type: "minecraft:fox"}, stack(9), nil, now)
+	p.ShearedEquipment(wolf, stack(8), nil, now)
 	if len(p.obtained[0]) != 0 {
 		t.Fatalf("a mismatch obtained %v", p.obtained[0])
 	}
-	p.InteractedWithEntity(EntityInteraction{Type: "minecraft:wolf", Body: 9}, 7, nil, now)
-	p.ShearedEquipment(wolf, 9, nil, now)
+	p.InteractedWithEntity(EntityInteraction{Type: "minecraft:wolf", Body: 9}, stack(7), nil, now)
+	p.ShearedEquipment(wolf, stack(9), nil, now)
 	if _, ok := p.obtained[0]["mended"]; !ok {
 		t.Error("an undamaged armor mended with the item did not pass")
 	}
@@ -405,13 +405,13 @@ func TestRecipeCraftedWantsTheRecipeAndADistinctItemPerPredicate(t *testing.T) {
 		Requirements: [][]string{{"pot"}},
 	}})
 	p := NewProgress(tree)
-	if p.RecipeCrafted("other", []int32{1, 2}, time.Now()) {
+	if p.RecipeCrafted("other", stacks(1, 2), time.Now()) {
 		t.Error("another recipe passed the criterion")
 	}
-	if p.RecipeCrafted("pot", []int32{1, 3}, time.Now()) {
+	if p.RecipeCrafted("pot", stacks(1, 3), time.Now()) {
 		t.Error("one sherd for two predicates passed the criterion")
 	}
-	if !p.RecipeCrafted("pot", []int32{1, 2, 9}, time.Now()) {
+	if !p.RecipeCrafted("pot", stacks(1, 2, 9), time.Now()) {
 		t.Error("two sherds did not pass the criterion")
 	}
 }
@@ -436,4 +436,14 @@ func TestLocationRequiresBiomeAndAnyStructurePiece(t *testing.T) {
 	if _, ok := p.obtained[0]["empty"]; ok {
 		t.Error("empty structure set matched")
 	}
+}
+
+func stack(id int32) protocol.ItemStack { return protocol.ItemStack{ItemID: id, Count: 1} }
+
+func stacks(ids ...int32) []protocol.ItemStack {
+	out := make([]protocol.ItemStack, len(ids))
+	for i, id := range ids {
+		out[i] = stack(id)
+	}
+	return out
 }

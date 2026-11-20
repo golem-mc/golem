@@ -329,8 +329,11 @@ func TestDecodeAdvancementReadsItemPredicatesLevelsDurabilityAndPotions(t *testi
 	if want := registry.MustPotion("minecraft:swiftness"); c[3].Unmodelled || !reflect.DeepEqual(c[3].Potions, []int32{want}) {
 		t.Errorf("potion criterion: %+v", c[3])
 	}
-	if !c[4].Unmodelled || !c[5].Unmodelled || !c[6].Unmodelled || c[6].Potions != nil {
-		t.Error("an effects predicate, and a full predicate on a trigger that tests IDs only, stay unmodelled")
+	if !c[4].Unmodelled || !c[6].Unmodelled || c[6].Potions != nil {
+		t.Error("an effects predicate and a potion tag stay unmodelled")
+	}
+	if c[5].Unmodelled || len(c[5].ItemTests) != 1 || c[5].ItemTests[0] == nil {
+		t.Errorf("a counted weapon predicate is kept whole: %+v", c[5])
 	}
 }
 

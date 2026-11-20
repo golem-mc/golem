@@ -206,11 +206,11 @@ func (o *Outcome) throw(stack protocol.ItemStack) {
 	o.Dropped = append(o.Dropped, stack)
 }
 
-// RecipeCraft is a recipe a take made and the item IDs of the non-empty
+// RecipeCraft is a recipe a take made and the non-empty
 // ingredient cells it spent.
 type RecipeCraft struct {
 	ID          string
-	Ingredients []int32
+	Ingredients []protocol.ItemStack
 }
 
 // newRecipeCraft is the RecipeCraft of recipe id made from cells.
@@ -218,7 +218,7 @@ func newRecipeCraft(id string, cells []protocol.ItemStack) RecipeCraft {
 	craft := RecipeCraft{ID: id}
 	for _, cell := range cells {
 		if !cell.Empty() {
-			craft.Ingredients = append(craft.Ingredients, cell.ItemID)
+			craft.Ingredients = append(craft.Ingredients, cell)
 		}
 	}
 	return craft
