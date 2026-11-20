@@ -89,7 +89,7 @@ func (s *Server) stepOnSculkSensor(w *world.World, x, y, z int32, bx, by, bz flo
 // shriekerCanRespond is whether a shrieker may warn and summon.
 // vanilla: SculkShriekerBlockEntity.canRespond
 func (s *Server) shriekerCanRespond(w *world.World, canSummon bool) bool {
-	return canSummon && s.world.Difficulty() != rules.DifficultyPeaceful && w.BoolRule(world.RuleSpawnWardens)
+	return canSummon && w.Difficulty() != rules.DifficultyPeaceful && w.BoolRule(world.RuleSpawnWardens)
 }
 
 // tryShriek has the shrieker shriek for the player, first raising nearby

@@ -87,7 +87,7 @@ func (t *mobDimTick) contactOf(ev entity.MobEvent) mobContact {
 // sulfurBurnPlayer lands a cube's contact burn on c, scaled by difficulty
 // (sulfur_cube_hot scales when_caused_by_living_non_player). vanilla: Player.hurtServer
 func (s *Server) sulfurBurnPlayer(c *client, hurt mobContact) {
-	amount := rules.ScaledWithDifficulty(hurt.amount, s.world.Difficulty())
+	amount := rules.ScaledWithDifficulty(hurt.amount, hurt.w.Difficulty())
 	if amount <= 0 {
 		return
 	}

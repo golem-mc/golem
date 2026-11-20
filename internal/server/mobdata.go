@@ -432,7 +432,7 @@ func generateNaturalMobs(s *Server, w *world.World, pos world.ChunkPos) []*mobEn
 	defer w.Release(pos)
 	mobs := entity.OriginalMobs(w, w.SeedValue(), entity.ChunkPos{X: pos.X, Z: pos.Z}, s.nextEntity,
 		func(x, z float64) rules.LocalDifficulty {
-			return rules.NewLocalDifficulty(s.world.Difficulty(), s.effectiveDifficultyAt(w, x, z))
+			return rules.NewLocalDifficulty(w.Difficulty(), s.effectiveDifficultyAt(w, x, z))
 		})
 	return generatedHerd(s, w, mobs)
 }

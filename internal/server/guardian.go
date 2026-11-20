@@ -20,7 +20,7 @@ type elderCurse struct {
 // guardianBeam lands a finished beam's magic damage, difficulty-scaled like
 // the blow after it. vanilla: Guardian.GuardianAttackGoal.tick
 func (s *Server) guardianBeam(strike mobStrike, victim *client) {
-	scaled := rules.ScaledWithDifficulty(strike.beam, s.world.Difficulty())
+	scaled := rules.ScaledWithDifficulty(strike.beam, strike.w.Difficulty())
 	landed, softened := victim.hurt(scaled, rules.DamageTypeIndirectMagic, &damageCause{
 		entityID: strike.mob.ID,
 		x:        strike.x, y: strike.y, z: strike.z,
@@ -100,7 +100,7 @@ type guardianPrick struct {
 // guardianThorns pricks the player who struck a guardian with its spikes out.
 // vanilla: Guardian.hurtServer
 func (s *Server) guardianThorns(c *client, id int32, x, y, z float64, killer *rules.Killer) {
-	scaled := rules.ScaledWithDifficulty(entity.GuardianThornsDamage(), s.world.Difficulty())
+	scaled := rules.ScaledWithDifficulty(entity.GuardianThornsDamage(), c.theWorld().Difficulty())
 	landed, softened := c.hurt(scaled, rules.DamageTypeThorns, &damageCause{
 		entityID: id, x: x, y: y, z: z, killer: killer, shove: true,
 	})

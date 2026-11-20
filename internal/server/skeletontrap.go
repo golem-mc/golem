@@ -49,7 +49,7 @@ func (s *Server) springSkeletonTrap(trap skeletonTrap) {
 	if !alive {
 		return
 	}
-	local := rules.NewLocalDifficulty(s.world.Difficulty(), s.effectiveDifficultyAt(trap.w, x, z))
+	local := rules.NewLocalDifficulty(trap.w.Difficulty(), s.effectiveDifficultyAt(trap.w, x, z))
 	rider := func() *mobEntity {
 		return s.standMobArriving(dim, entity.TypeSkeleton, x, y, z, 0, nil, false, "", true,
 			func(ent *mobEntity) { ent.mob.ArmTrapRider(local) })

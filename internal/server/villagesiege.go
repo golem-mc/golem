@@ -18,7 +18,7 @@ func (s *Server) tickVillageSiege(clients []*client) {
 		}
 		players := spawnPlayersOf(clients, dim.w)
 		var spawns []entity.SpawnRequest
-		enemies := dim.w.SpawnEnemies() && s.world.Difficulty() != rules.DifficultyPeaceful
+		enemies := dim.w.SpawnEnemies() && dim.w.Difficulty() != rules.DifficultyPeaceful
 		// raidsMu guards the village index and precedes mobsMu.
 		s.raidsMu.Lock()
 		dim.siege.Tick(siegeLevel{dim.w, dim}, s.spawnRng, enemies, players, func(r entity.SpawnRequest) { spawns = append(spawns, r) })

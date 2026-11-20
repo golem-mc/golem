@@ -69,7 +69,7 @@ func (c *client) Damage(amount float32, damageType registry.DamageType, origin c
 		livingNonPlayer = !isPlayer && living && holder.HasAttributes()
 	}
 	if rules.DamageScales(damageType, livingNonPlayer) {
-		scaled = rules.ScaledWithDifficulty(scaled, c.srv.world.Difficulty())
+		scaled = rules.ScaledWithDifficulty(scaled, c.theWorld().Difficulty())
 	}
 	if scaled == 0 {
 		return false

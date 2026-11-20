@@ -44,7 +44,7 @@ func (c *client) useSpawnEgg(hand, x, y, z, face int32) bool {
 	// useOn's first check, before reading the block: an unsimulated kind, one
 	// no egg may spawn, or one canSpawn refuses (a monster in peaceful) fails
 	// silently and keeps the egg.
-	if !simulated || !entity.AllowedAt(kind, c.srv.world.Difficulty()) {
+	if !simulated || !entity.AllowedAt(kind, c.theWorld().Difficulty()) {
 		c.useSwing = swingNone
 		return true
 	}
@@ -127,7 +127,7 @@ func (c *client) handleUseSpawnEgg(hand int32) bool {
 	mode := c.player.GameMode()
 	held := c.heldItem(hand)
 	kind, simulated, egg := heldSpawnEgg(held)
-	if !egg || !simulated || !entity.AllowedAt(kind, c.srv.world.Difficulty()) {
+	if !egg || !simulated || !entity.AllowedAt(kind, c.theWorld().Difficulty()) {
 		return false
 	}
 	pos := c.player.Position()
@@ -282,7 +282,7 @@ func applyEggComponents(m *entity.Mob, egg protocol.ItemStack) {
 func (c *client) spawnEggOnMob(ent *mobEntity, hand int32) bool {
 	held := c.heldItem(hand)
 	kind, simulated, egg := heldSpawnEgg(held)
-	if !egg || !simulated || kind != ent.mob.Type || !entity.AllowedAt(kind, c.srv.world.Difficulty()) {
+	if !egg || !simulated || kind != ent.mob.Type || !entity.AllowedAt(kind, c.theWorld().Difficulty()) {
 		return false
 	}
 	s := c.srv

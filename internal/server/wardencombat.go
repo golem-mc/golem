@@ -18,7 +18,7 @@ func (s *Server) sonicBoom(strike mobStrike, victim *client) {
 	if victim != nil {
 		// sonic_boom scales for players and bypasses shields,
 		// armour and Protection; Resistance and the hurt window still apply.
-		landed, softened := victim.hurt(rules.ScaledWithDifficulty(strike.damage, s.world.Difficulty()), registry.DamageTypeSonicBoom, &damageCause{
+		landed, softened := victim.hurt(rules.ScaledWithDifficulty(strike.damage, strike.w.Difficulty()), registry.DamageTypeSonicBoom, &damageCause{
 			entityID: strike.mob.ID, x: strike.x, y: strike.y, z: strike.z, killer: strike.killer, weapon: strike.mob.MainHand,
 		})
 		if landed {
