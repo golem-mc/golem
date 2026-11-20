@@ -32,7 +32,9 @@ func (p pluginPlayer) SendTitle(title, subtitle plugin.Text, fadeIn, stay, fadeO
 	if !p.IsValid() {
 		return
 	}
-	p.c.SetTitleTimes(int32(fadeIn), int32(stay), int32(fadeOut))
+	if fadeIn >= 0 || stay >= 0 || fadeOut >= 0 {
+		p.c.SetTitleTimes(int32(fadeIn), int32(stay), int32(fadeOut))
+	}
 	p.c.ShowTitle(command.TitleSubtitle, pluginProtocolText(subtitle))
 	p.c.ShowTitle(command.TitleMain, pluginProtocolText(title))
 }

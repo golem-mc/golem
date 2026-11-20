@@ -83,6 +83,8 @@ func TestPluginPlayerControlPackets(t *testing.T) {
 			t.Fatalf("title = %+v", actual)
 		}
 	}
+	p.SendTitle(plugin.Plain("t2"), plugin.Plain("s2"), -1, -1, -1)
+	c.ExpectNoneWithinTicks(srv, 1, servertest.PacketIs(protocol.IDPlayTitlesAnimation))
 	check(protocol.IDPlayClearTitles, p.ClearTitle, func(b *protocol.Buffer) { b.PutBool(false) })
 	check(protocol.IDPlayTabList, func() { p.SetListHeaderFooter(plugin.Plain("head"), plugin.Plain("foot")) }, func(b *protocol.Buffer) {
 		b.PutText(protocol.Text{Raw: nbt.Compound{"text": nbt.String("head")}})
