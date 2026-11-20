@@ -15,7 +15,9 @@ import (
 // vanilla: SimpleJsonResourceReloadListener.scanDirectory
 func LoadResources(packs []string, dir string, skip func(file string, err error)) (map[string][]byte, error) {
 	out := map[string][]byte{}
-	for _, pack := range packs {
+	filters := LoadFilters(packs)
+	for i, pack := range packs {
+		dropHidden(out, filters[i], dir+"/", ".json")
 		if err := withPack(pack, func(fsys fs.FS) error { return loadPackResources(fsys, dir, out, skip) }); err != nil {
 			return nil, fmt.Errorf("data pack %s: %w", filepath.Base(pack), err)
 		}

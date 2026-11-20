@@ -31,18 +31,24 @@ func StructureFile(worldDir string, packs []string, id string) (data []byte, ok 
 	return structureFile(worldDir, views, id)
 }
 
+// packView is an opened pack with its filter section.
+type packView struct {
+	fs     fs.FS
+	filter filterSection
+}
+
 // openViews opens each pack's view; a pack that cannot be opened is left out.
-func openViews(packs []string) []fs.FS {
-	views := make([]fs.FS, 0, len(packs))
+func openViews(packs []string) []packView {
+	views := make([]packView, 0, len(packs))
 	for _, pack := range packs {
 		if v, err := packFS(pack); err == nil {
-			views = append(views, v)
+			views = append(views, packView{v, readFilter(pack)})
 		}
 	}
 	return views
 }
 
-func structureFile(worldDir string, views []fs.FS, id string) ([]byte, bool, error) {
+func structureFile(worldDir string, views []packView, id string) ([]byte, bool, error) {
 	ns, name, found := strings.Cut(id, ":")
 	if !found || !validNamespace(ns) || !validPath(name) || slices.Contains(strings.Split(name, "/"), "..") {
 		return nil, false, ErrInvalidID
@@ -52,8 +58,12 @@ func structureFile(worldDir string, views []fs.FS, id string) ([]byte, bool, err
 	}
 	rel := path.Join("data", ns, "structure", name+structureExt)
 	for _, v := range slices.Backward(views) {
-		if data, err := fs.ReadFile(v, rel); err == nil {
+		if data, err := fs.ReadFile(v.fs, rel); err == nil {
 			return data, true, nil
+		}
+		// A filter hides the packs below it.
+		if v.filter.hides(ns, "structure/"+name+structureExt) {
+			break
 		}
 	}
 	return nil, false, nil
@@ -66,7 +76,7 @@ func ListStructures(worldDir string, packs []string) []string {
 	return listStructures(worldDir, openViews(packs))
 }
 
-func listStructures(worldDir string, views []fs.FS) []string {
+func listStructures(worldDir string, views []packView) []string {
 	seen := map[string]bool{}
 	scan := func(root fs.FS) {
 		nss, _ := fs.ReadDir(root, ".")
@@ -82,12 +92,19 @@ func listStructures(worldDir string, views []fs.FS) []string {
 			})
 		}
 	}
-	scan(os.DirFS(filepath.Join(worldDir, GeneratedDir)))
 	for _, v := range views {
-		if data, err := fs.Sub(v, "data"); err == nil {
+		for id := range seen {
+			ns, name, _ := strings.Cut(id, ":")
+			if v.filter.hides(ns, "structure/"+name+structureExt) {
+				delete(seen, id)
+			}
+		}
+		if data, err := fs.Sub(v.fs, "data"); err == nil {
 			scan(data)
 		}
 	}
+	// The generated folder is no pack, so no filter hides it.
+	scan(os.DirFS(filepath.Join(worldDir, GeneratedDir)))
 	ids := make([]string, 0, len(seen))
 	for id := range seen {
 		ids = append(ids, id)
@@ -134,7 +151,7 @@ func SaveStructure(worldDir, id string, data []byte) error {
 type TemplateFiles struct {
 	WorldDir string
 	mu       sync.Mutex
-	views    []fs.FS
+	views    []packView
 }
 
 // SetPacks sets the enabled pack folders in layer order.

@@ -62,7 +62,9 @@ func LoadFunctionTags(packs []string, skip func(file string, err error)) (Functi
 // vanilla: TagLoader.load
 func LoadTags(packs []string, dir string, skip func(file string, err error)) (map[string]RawTag, error) {
 	out := map[string]RawTag{}
-	for _, pack := range packs {
+	filters := LoadFilters(packs)
+	for i, pack := range packs {
+		dropHidden(out, filters[i], "tags/"+dir+"/", tagExt)
 		if err := withPack(pack, func(fsys fs.FS) error { return loadPackTags(fsys, dir, out, skip) }); err != nil {
 			return nil, fmt.Errorf("data pack %s: %w", filepath.Base(pack), err)
 		}

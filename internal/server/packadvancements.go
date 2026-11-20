@@ -15,10 +15,19 @@ import (
 // fails to decode is logged and skipped, leaving the built-in one. The recipe
 // unlock advancements under recipes/ are not read: none is shown or fired.
 // vanilla: ServerAdvancementManager.apply
-func loadPackAdvancements(dirs []string, skip func(file string, err error)) ([]registry.Advancement, error) {
+func loadPackAdvancements(dirs []string, skip func(file string, err error)) (packed []registry.Advancement, hidden map[string]bool, err error) {
 	raw, err := datapack.LoadResources(dirs, "advancement", skip)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if filters := datapack.LoadFilters(dirs); filters.Any() {
+		hidden = map[string]bool{}
+		for _, a := range registry.Advancements {
+			ns, path, _ := strings.Cut(a.ID, ":")
+			if filters.Builtin(ns, "advancement/"+path+".json") {
+				hidden[a.ID] = true
+			}
+		}
 	}
 	var out []registry.Advancement
 	for _, id := range slices.Sorted(maps.Keys(raw)) {
@@ -32,14 +41,14 @@ func loadPackAdvancements(dirs []string, skip func(file string, err error)) ([]r
 		}
 		out = append(out, adv)
 	}
-	return out, nil
+	return out, hidden, nil
 }
 
 // applyPackAdvancements layers the packs' advancements over the vanilla
 // tree and puts every online player's progress over the result.
 // vanilla: PlayerList.reloadResources, PlayerAdvancements.reload
-func (s *Server) applyPackAdvancements(pack []registry.Advancement) {
-	tree := advancement.ApplyPack(pack)
+func (s *Server) applyPackAdvancements(pack []registry.Advancement, hidden map[string]bool) {
+	tree := advancement.ApplyPackHiding(pack, hidden)
 	s.mu.RLock()
 	players := s.clientsLocked()
 	s.mu.RUnlock()

@@ -81,14 +81,20 @@ func Current() *Tree {
 // pack has replacing the vanilla advancement of that ID whole, and returns
 // the tree now in force. No advancements leaves the vanilla tree.
 // vanilla: ServerAdvancementManager.apply
-func ApplyPack(pack []registry.Advancement) *Tree {
-	if len(pack) == 0 {
+func ApplyPack(pack []registry.Advancement) *Tree { return ApplyPackHiding(pack, nil) }
+
+// ApplyPackHiding is ApplyPack with the vanilla advancements in hidden left
+// out; a node whose parent is gone goes with it.
+func ApplyPackHiding(pack []registry.Advancement, hidden map[string]bool) *Tree {
+	if len(pack) == 0 && len(hidden) == 0 {
 		packed.Store(nil)
 		return Vanilla()
 	}
 	byID := make(map[string]registry.Advancement, len(registry.Advancements)+len(pack))
 	for _, a := range registry.Advancements {
-		byID[a.ID] = a
+		if !hidden[a.ID] {
+			byID[a.ID] = a
+		}
 	}
 	for _, a := range pack {
 		byID[a.ID] = a

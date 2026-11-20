@@ -40,11 +40,11 @@ func (s *Server) loadFunctions() error {
 	}
 	s.applyPackTags(packTags)
 	// Advancement criteria resolve item tags against the loaded tags.
-	packAdvancements, err := loadPackAdvancements(dirs, skip)
+	packAdvancements, hiddenAdvancements, err := loadPackAdvancements(dirs, skip)
 	if err != nil {
 		return err
 	}
-	s.applyPackAdvancements(packAdvancements)
+	s.applyPackAdvancements(packAdvancements, hiddenAdvancements)
 	// Before the loot: a table's context provider names resolve against them.
 	ints, floats, err := loadPackContextProviders(dirs, skip)
 	if err != nil {
@@ -60,7 +60,7 @@ func (s *Server) loadFunctions() error {
 	if err != nil {
 		return err
 	}
-	s.applyPackLoot(tables, predicates, modifiers)
+	s.applyPackLoot(tables, predicates, modifiers, hiddenLoot(dirs, tables))
 	// After the tags too: an ingredient's tag resolves against the loaded tags.
 	recipes, err := loadPackRecipes(dirs, skip)
 	if err != nil {
