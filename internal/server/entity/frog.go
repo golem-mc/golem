@@ -30,21 +30,13 @@ func init() {
 	mobTracking[TypeFrog] = tracking{rangeChunks: 10, updateInterval: 3}
 }
 
-// finalizeFrog draws the variant among the highest-priority biome matches,
-// then the long jump cooldown.
-// vanilla: Frog.finalizeSpawn, FrogVariants.bootstrap
-func (m *Mob) finalizeFrog(dice Dice, biome registry.Biome) {
-	var matched []string
-	if biome.InTag(registry.BiomeTagIDSpawnsWarmVariantFrogs) {
-		matched = append(matched, "minecraft:warm")
+// finalizeFrog draws the variant from the frog_variant spawn conditions, then
+// the long jump cooldown.
+// vanilla: Frog.finalizeSpawn
+func (m *Mob) finalizeFrog(dice Dice, ctx rules.SpawnContext) {
+	if v, ok := rules.SelectVariantToSpawn("minecraft:frog_variant", ctx, dice); ok {
+		m.Variant = v
 	}
-	if biome.InTag(registry.BiomeTagIDSpawnsColdVariantFrogs) {
-		matched = append(matched, "minecraft:cold")
-	}
-	if len(matched) == 0 {
-		matched = append(matched, "minecraft:temperate")
-	}
-	m.Variant = matched[dice.NextIntN(int32(len(matched)))]
 	m.frog.jump.cooldown = rollJumpGap(m, dice) // vanilla: FrogAi.initMemories
 }
 

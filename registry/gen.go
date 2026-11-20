@@ -55,3 +55,4 @@ package registry
 //go:generate go run ../tools/gen fuel
 //go:generate go run ../tools/gen contextproviders
 //go:generate go run ../tools/gen villagertrades
+//go:generate go run ../tools/gen variantspawns

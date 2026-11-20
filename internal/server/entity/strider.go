@@ -436,7 +436,7 @@ func (m *Mob) itemSteeringBoostStep() {
 // rider is finalized there and then, on the same dice, before the strider's
 // own Mob step.
 // vanilla: Strider.finalizeSpawn, Strider.spawnJockey
-func (m *Mob) finalizeStrider(dice Dice, biome registry.Biome, local rules.LocalDifficulty) {
+func (m *Mob) finalizeStrider(dice Dice, ctx rules.SpawnContext, local rules.LocalDifficulty) {
 	if m.IsBaby() {
 		return
 	}
@@ -445,13 +445,13 @@ func (m *Mob) finalizeStrider(dice Dice, biome registry.Biome, local rules.Local
 		rider = m.striderRider(TypeZombifiedPiglin)
 		group := &SpawnGroup{rng: dice, claimed: true, zombie: true, noChicken: true}
 		group.baby = dice.NextFloat() < babyOdds // vanilla: Zombie.getSpawnAsBabyOdds
-		rider.finalizeSpawn(dice, biome, group, local, false, false)
+		rider.finalizeSpawn(dice, ctx, group, local, false)
 		rider.SetEquipment(protocol.EquipMainHand, protocol.ItemStack{ItemID: int32(registry.ItemWarpedFungusOnAStick), Count: 1})
 		m.SetMetadataHorseSaddle(protocol.ItemStack{ItemID: int32(registry.ItemSaddle), Count: 1})
 	} else if dice.NextIntN(striderBabyJockeyOdds) == 0 {
 		rider = m.striderRider(TypeStrider)
 		rider.SetBaby(true)
-		rider.finalizeSpawn(dice, biome, nil, local, false, false)
+		rider.finalizeSpawn(dice, ctx, nil, local, false)
 	} else {
 		return
 	}

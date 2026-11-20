@@ -48,7 +48,8 @@ func TestFinalizeStructureTag(t *testing.T) {
 			wantLeft := want.NextFloat() < leftHandedOdds
 			var wantVariant, wantSound string
 			if tc.id == "minecraft:cat" {
-				open := catVariants // a full moon: every variant's condition holds
+				catReg, _ := registry.Get("minecraft:cat_variant")
+				open := catReg.Entries // a full moon: every variant's condition holds
 				if tc.blackCat {
 					open = []string{"minecraft:all_black"}
 				}

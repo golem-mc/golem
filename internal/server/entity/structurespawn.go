@@ -62,6 +62,17 @@ func CatInHut(w any, x, y, z int32) bool {
 	return ok && sw.StructureContains(x, y, z, "minecraft:swamp_hut", true)
 }
 
+// StructurePredicate returns a predicate reporting whether (x, y, z) is inside
+// a piece of a named structure, or nil when w does not track structures.
+// vanilla: StructureManager.getStructureWithPieceAt
+func StructurePredicate(w any, x, y, z int32) func(string) bool {
+	sw, ok := w.(structureSpawnWorld)
+	if !ok {
+		return nil
+	}
+	return func(id string) bool { return sw.StructureContains(x, y, z, id, true) }
+}
+
 // StructureNautilusKey marks a structure drowned in a chunk an older build of
 // this server generated; a load spawns its zombie nautilus under it.
 const StructureNautilusKey = "golem:structure_nautilus"
