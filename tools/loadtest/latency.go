@@ -30,7 +30,7 @@ func llamas(n int) func(*env) error {
 		e.sum.Extra["count_after_summon"] = e.count("@e[type=llama]")
 		lat := &latencies{}
 		_, err := e.spawnBots(1, "lat", 10, int8(e.o.view), func(i int) behaviour {
-			return &timedWalker{walker: walker{radius: 24, speed: walk, rng: rand.New(rand.NewPCG(uint64(i), 7))}, lat: lat}
+			return &timedWalker{radius: 24, speed: walk, rng: rand.New(rand.NewPCG(uint64(i), 7)), lat: lat}
 		})
 		if err != nil {
 			return err
