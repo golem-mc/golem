@@ -53,7 +53,7 @@ func CraftMatch(cells []protocol.ItemStack, width int32) (string, protocol.ItemS
 	if id, result, ok := imbueResult(cells); ok {
 		return id, result
 	}
-	result := specialCraftResult(cells)
+	result := specialCraftResult(cells, set.replaced)
 	if result.ItemID == potItem && !result.Empty() {
 		return "minecraft:decorated_pot", result
 	}

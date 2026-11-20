@@ -23,7 +23,7 @@ func dyeIndex(stack protocol.ItemStack) (int, bool) {
 // transmuteDyed is a shulker box or bundle beside one dye: the box of that
 // colour with the input's components; its own colour is no recipe.
 // vanilla: TransmuteRecipe.matches, TransmuteRecipe.assemble
-func transmuteDyed(cells []protocol.ItemStack) (protocol.ItemStack, bool) {
+func transmuteDyed(cells []protocol.ItemStack, replaced map[string]bool) (protocol.ItemStack, bool) {
 	i, j, ok := gridPair(cells)
 	if !ok {
 		return protocol.ItemStack{}, false
@@ -45,8 +45,9 @@ func transmuteDyed(cells []protocol.ItemStack) (protocol.ItemStack, bool) {
 	default:
 		return protocol.ItemStack{}, false
 	}
-	id, ok := ItemID("minecraft:" + DyeNames[dye] + suffix)
-	if !ok || id == input.ItemID {
+	name := "minecraft:" + DyeNames[dye] + suffix
+	id, ok := ItemID(name)
+	if !ok || id == input.ItemID || replaced[name] {
 		return protocol.ItemStack{}, false
 	}
 	result := input

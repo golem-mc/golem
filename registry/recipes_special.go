@@ -67,8 +67,9 @@ func fireworkShape(item int32) (int32, bool) {
 }
 
 // specialCraftResult returns what the grid-computed recipes make of the
-// grid, the empty stack when none matches.
-func specialCraftResult(cells []protocol.ItemStack) protocol.ItemStack {
+// grid, the empty stack when none matches. replaced holds the recipe IDs a
+// pack replaces or hides.
+func specialCraftResult(cells []protocol.ItemStack, replaced map[string]bool) protocol.ItemStack {
 	filled := 0
 	for i := range cells {
 		if !cells[i].Empty() {
@@ -81,7 +82,8 @@ func specialCraftResult(cells []protocol.ItemStack) protocol.ItemStack {
 	for _, recipe := range []func([]protocol.ItemStack) (protocol.ItemStack, bool){
 		fireworkRocket, fireworkStar, fireworkStarFade, shieldDecoration, bannerDuplicateResult,
 		bookCloneResult, mapClone, mapExtend, decoratedPot,
-		transmuteDyed, dyedArmour, repairItem,
+		func(c []protocol.ItemStack) (protocol.ItemStack, bool) { return transmuteDyed(c, replaced) },
+		dyedArmour, repairItem,
 	} {
 		if result, ok := recipe(cells); ok {
 			return result

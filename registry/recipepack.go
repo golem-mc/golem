@@ -95,6 +95,8 @@ type recipeSet struct {
 	smithingByName    map[string]int
 	smithingByID      map[int32]int
 	propertySets      []RecipePropertySet
+	// replaced holds the built-in recipe IDs a pack replaces, drops or hides.
+	replaced map[string]bool
 }
 
 var (
@@ -286,12 +288,26 @@ func layerRecipes(p PackRecipes) *recipeSet {
 	}
 	slices.SortStableFunc(s.craftOrder, func(a, b craftRef) int { return compareID(id(a), id(b)) })
 	s.propertySets = propertySetsOf(s)
+	s.replaced = replaced
 	return newRecipeSet(s)
 }
 
-// builtinRecipeIDs lists the ID of every built-in recipe.
+// builtinRecipeIDs lists the ID of every built-in recipe: the matcher's and
+// every display's, which also names the recipes computed from the grid.
 func builtinRecipeIDs() []string {
 	var ids []string
+	for _, d := range CraftingDisplays {
+		ids = append(ids, d.Name)
+	}
+	for _, d := range FurnaceDisplays {
+		ids = append(ids, d.Name)
+	}
+	for _, d := range StonecutterDisplays {
+		ids = append(ids, d.Name)
+	}
+	for _, d := range SmithingDisplays {
+		ids = append(ids, d.Name)
+	}
 	for _, r := range builtinRecipes.shaped {
 		ids = append(ids, r.ID)
 	}

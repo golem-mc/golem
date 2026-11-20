@@ -18,7 +18,7 @@ func TestEmptyGridCraftsNothing(t *testing.T) {
 		if _, result, ok := imbueResult(cells); ok {
 			t.Errorf("an empty %dx%d grid imbues %+v", width, width, result)
 		}
-		if result := specialCraftResult(cells); !result.Empty() {
+		if result := specialCraftResult(cells, nil); !result.Empty() {
 			t.Errorf("an empty %dx%d grid makes special %+v", width, width, result)
 		}
 	}

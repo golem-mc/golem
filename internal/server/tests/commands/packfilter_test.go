@@ -31,7 +31,10 @@ func TestPackFilterHidesBuiltInRecipes(t *testing.T) {
 	srv.GiveSlot("Testificate", 36, servertest.ItemStack(t, "minecraft:oak_planks", 8))
 	srv.GiveSlot("Testificate", 37, servertest.ItemStack(t, "minecraft:clay_ball", 8))
 	srv.GiveSlot("Testificate", 38, servertest.ItemStack(t, "minecraft:coal", 8))
+	srv.GiveSlot("Testificate", 39, servertest.ItemStack(t, "minecraft:white_bundle", 1))
+	srv.GiveSlot("Testificate", 40, servertest.ItemStack(t, "minecraft:black_dye", 1))
 
+	w.WatchBook = true
 	if got := gridResult(t, w, placement{36, 1}, placement{36, 3}); !got.Empty() {
 		t.Errorf("two oak planks craft %+v although a pack's filter hides the vanilla recipes", got)
 	}
@@ -39,8 +42,14 @@ func TestPackFilterHidesBuiltInRecipes(t *testing.T) {
 	if got := runRecipe(w.Client, "recipe give Testificate minecraft:stick"); len(got.adds) != 0 {
 		t.Errorf("/recipe give sent %d adds for a hidden vanilla recipe", len(got.adds))
 	}
-	if got := runRecipe(w.Client, "recipe give Testificate *"); len(got.adds) != 0 {
-		t.Errorf("/recipe give * sent %d adds although every vanilla recipe is hidden", len(got.adds))
+	// Only the pack's own recipe is left to give.
+	if got := runRecipe(w.Client, "recipe give Testificate *"); len(got.adds) > 1 || !got.said("commands.recipe.give.success.single") {
+		t.Errorf("/recipe give * sent %d adds (single said: %v) although only the pack's recipe is left",
+			len(got.adds), got.said("commands.recipe.give.success.single"))
+	}
+	// A dyeing recipe is matched from the grid, not listed, and is hidden too.
+	if got := gridResult(t, w, placement{39, 1}, placement{40, 2}); !got.Empty() {
+		t.Errorf("a bundle and a dye craft %+v although a pack's filter hides the dyeing recipes", got)
 	}
 }
 
