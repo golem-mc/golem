@@ -2062,12 +2062,19 @@ func (s *Server) teleportCartAcross(ref *minecartEntity, to *dimension, at playe
 			}
 			crossed = append(crossed, r)
 		}
+		twin.boarding = true
 		register = func() {
 			s.registerMinecart(twin)
+			if seam := s.minecartBoardSeam; seam != nil {
+				seam()
+			}
 			for _, r := range crossed {
 				s.mountMinecart(r, twin, false)
 			}
 			s.reseatMinecartMobs(mobs, ref, twin, turn)
+			s.minecartsMu.Lock()
+			twin.boarding = false
+			s.minecartsMu.Unlock()
 		}
 	}
 	return

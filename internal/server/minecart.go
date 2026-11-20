@@ -46,9 +46,15 @@ type minecartEntity struct {
 
 	passengers []*client
 	mobs       []*mobEntity
-	tags       nbt.StringSet
-	custom     customName
-	look       entityLook
+	// boarding marks a crossing's twin between its registration and the
+	// seating of the riders it carries: the departure sweep leaves it, as an
+	// empty cart in a chunk the riders have yet to load would otherwise go
+	// to its chunk file, the riders then seated on a cart no longer in the
+	// world. Guarded by the cart lock.
+	boarding bool
+	tags     nbt.StringSet
+	custom   customName
+	look     entityLook
 
 	// kind is the cart's entity type and item name; cargo is the container
 	// of a kind that holds one, guarded by the cart lock.

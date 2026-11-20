@@ -4653,6 +4653,13 @@ func (s *Server) CartCrossBetween(between func()) {
 	s.minecartCrossSeam = between
 }
 
+// CartBoardBetween holds open the window a cart's crossing leaves after the
+// twin is registered and before its riders are seated on it, running between
+// there: the window the tick's departure sweep can land in.
+func (s *Server) CartBoardBetween(between func()) {
+	s.minecartBoardSeam = between
+}
+
 // RideOutOfCart puts the named player's body into the state a second crossing
 // of their own leaves it in — travelling, their cart's seat given up — for a
 // test that holds a cart's crossing open while the rider is carried by
