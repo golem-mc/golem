@@ -1044,7 +1044,18 @@ func (s *Server) entityLoot(w *world.World, id int32) func() rules.LootEntity {
 	if k := s.entityClient(id - 1); k != nil {
 		return k.LootEntity
 	}
-	return s.mobLootByEntityID(w, id-1)
+	return s.lazyMobLoot(w, id-1)
+}
+
+// lazyMobLoot is mobLootByEntityID resolved when the loot entity is read, so
+// a hurt no criterion reads takes no lock; the zero entity when the mob is gone.
+func (s *Server) lazyMobLoot(w *world.World, id int32) func() rules.LootEntity {
+	return func() rules.LootEntity {
+		if load := s.mobLootByEntityID(w, id); load != nil {
+			return load()
+		}
+		return rules.LootEntity{}
+	}
 }
 
 // targetHitAdvancements fires target_hit for the player's projectile that

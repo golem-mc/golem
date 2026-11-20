@@ -193,7 +193,7 @@ func (s *Server) tellArrowMobHit(hit arrowMobHit) {
 		thrown := rules.LootEntity{Type: hit.direct}
 		blow := advancement.Blow{Dealt: hit.dealt, Taken: hit.taken, Type: hit.damageType, Indirect: true,
 			Attacker: s.entityLoot(hit.w, hit.causeID), Direct: func() rules.LootEntity { return thrown }}
-		victim := advancement.Entity{Type: hit.kind.Name(), Loot: s.mobLootByEntityID(hit.w, hit.victimID), Blow: &blow}
+		victim := advancement.Entity{Type: hit.kind.Name(), Loot: s.lazyMobLoot(hit.w, hit.victimID), Blow: &blow}
 		s.arrowHitAdvancements(s.entityClient(hit.shooter), hit.direct, hit.killed, hit.weapon, &victim)
 	}
 	if hit.thorns.mob == nil {
