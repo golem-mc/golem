@@ -227,6 +227,11 @@ func (s *Server) StartTick() { s.startTick() }
 // goroutine does not outlive the test.
 func (s *Server) StopTick() { s.stopTick() }
 
+// DisablePlugins disables the server's plugins, the way Shutdown does, so
+// anything they hold is released when a test server stops. Calling it again,
+// or after Shutdown, is safe.
+func (s *Server) DisablePlugins() { s.disablePlugins() }
+
 // FlushSaves waits for the chunk saves queued in every dimension. Tests call
 // it once they have stopped driving the world, before their world directory is
 // removed, so the removal does not race a save still in flight on the I/O pool.
