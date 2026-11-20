@@ -473,20 +473,26 @@ func (o arrowOps) SetPickup(p plugin.ArrowPickup) {
 	}
 }
 func (o arrowOps) Potion() (plugin.Key, []plugin.EffectInstance, bool) {
+	if o.e.Type() != registry.EntityTypeArrow {
+		return plugin.Key{}, nil, false
+	}
 	item, _ := nbt.Get[nbt.Compound](o.e.saved(), "item")
 	stack, ok := registry.StoredStack(item)
 	if !ok {
 		return plugin.Key{}, nil, false
 	}
 	contents, ok := stack.PotionContentsOf()
-	if !ok || contents.Potion == protocol.NoPotion {
+	if !ok || contents.Potion == protocol.NoPotion && len(contents.CustomEffects) == 0 {
 		return plugin.Key{}, nil, false
 	}
-	name, ok := registry.PotionName(contents.Potion)
-	if !ok {
-		return plugin.Key{}, nil, false
+	var key plugin.Key
+	if contents.Potion != protocol.NoPotion {
+		name, ok := registry.PotionName(contents.Potion)
+		if !ok {
+			return plugin.Key{}, nil, false
+		}
+		key, _ = plugin.ParseKey(name)
 	}
-	key, _ := plugin.ParseKey(name)
 	// The effects are the shot's own: a tipped arrow's durations are scaled.
 	// vanilla: Arrow.getPotionContents, PotionContents.forEachEffect
 	e := pickupEffect(stack)

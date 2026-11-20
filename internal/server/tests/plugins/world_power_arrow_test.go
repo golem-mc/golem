@@ -3,9 +3,11 @@ package plugins_test
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
+	"github.com/golem-mc/golem/registry"
 )
 
 // TestPluginWorldPower checks World.Power reads the signal a lever feeds the
@@ -42,17 +44,24 @@ func TestPluginArrowPotion(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name string
-	}{{"tipped"}, {"plain"}} {
-		tipped := tc.name == "tipped"
+	}{{"tipped"}, {"custom"}, {"plain"}} {
+		tipped := tc.name != "plain"
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			srv, h, run := worldPlugin(t, servertest.BowTestConfig())
 			c := servertest.DialServer(t, srv)
 			c.Join("Archer")
 			srv.GiveSlot("Archer", 36, servertest.ItemStack(t, "minecraft:crossbow", 1))
-			if tipped {
+			switch tc.name {
+			case "tipped":
 				srv.GiveSlot("Archer", 37, servertest.TippedArrow(t, "minecraft:poison"))
-			} else {
+			case "custom":
+				id, _ := registry.MobEffectID("minecraft:slowness")
+				stack := servertest.ItemStack(t, "minecraft:tipped_arrow", 1)
+				stack.SetPotionContents(protocol.PotionContents{Potion: protocol.NoPotion,
+					CustomEffects: []protocol.PotionEffectSpec{{ID: id, Duration: 800, ShowParticles: true, ShowIcon: true}}})
+				srv.GiveSlot("Archer", 37, stack)
+			default:
 				srv.GiveSlot("Archer", 37, servertest.ItemStack(t, "minecraft:arrow", 1))
 			}
 			c.MoveTo(0.5, 64, 0.5, -90, 0)
@@ -77,7 +86,10 @@ func TestPluginArrowPotion(t *testing.T) {
 				if ok != tipped {
 					t.Fatalf("Potion ok = %v, want %v", ok, tipped)
 				}
-				if tipped && (key != plugin.MinecraftKey("poison") || len(effects) != 1 || effects[0].Duration != 112) {
+				if tc.name == "custom" && (key != plugin.Key{} || len(effects) != 1 || effects[0].Duration != 100) {
+					t.Errorf("custom Potion = %v %v", key, effects)
+				}
+				if tc.name == "tipped" && (key != plugin.MinecraftKey("poison") || len(effects) != 1 || effects[0].Duration != 112) {
 					t.Errorf("Potion = %v %v", key, effects)
 				}
 			})

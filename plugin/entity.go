@@ -444,7 +444,8 @@ type Arrow interface {
 	SetPickup(ArrowPickup)
 	InGround() bool
 	// Potion is the tipped arrow's potion and the effects it applies on a
-	// hit; ok is false for a plain or spectral arrow.
+	// hit; the key is zero for an arrow with only custom effects, and ok is
+	// false for a plain arrow, a spectral arrow or a trident.
 	Potion() (Key, []EffectInstance, bool)
 }
 
