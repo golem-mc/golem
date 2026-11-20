@@ -2,6 +2,7 @@ package plugins_test
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -32,6 +33,7 @@ func TestPluginGeneratorProvider(t *testing.T) {
 	})
 	servertest.HoldTicks(t, srv)
 	var w plugin.World
+	var generated atomic.Bool
 	run := func(f func()) {
 		t.Helper()
 		ran := false
@@ -58,7 +60,7 @@ func TestPluginGeneratorProvider(t *testing.T) {
 			t.Errorf("CreateWorld: %v", err)
 			return
 		}
-		w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) {})
+		w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) { generated.Store(true) })
 		for _, info := range h.Plugins() {
 			if info.Generators != (info.Name == "Gens") {
 				t.Errorf("Generators of %s = %v", info.Name, info.Generators)
@@ -68,7 +70,7 @@ func TestPluginGeneratorProvider(t *testing.T) {
 	if w == nil {
 		t.FailNow()
 	}
-	awaitPluginIO(t, srv, "generated chunk", func() bool { return srv.ChunkLoadedInDimension("test:flat", 0, 0) })
+	awaitPluginIO(t, srv, "generated chunk", generated.Load)
 	if got := srv.LoadBlockInDimension("test:flat", 0, 64, 0); got != uint16(registry.BlockAir.DefaultState()) {
 		t.Fatalf("(0,64,0) = %d, want air", got)
 	}
