@@ -74,6 +74,18 @@ func retagBuiltins(s *recipeSet, replaced map[string]bool) {
 			s.imbue[i].Material = square(sq[0], s.imbue[i].Material)
 		}
 	}
+	for i := range s.transmute {
+		if sq := squares(s.transmute[i].ID, 1+int(s.transmute[i].MaxMaterial)); sq != nil {
+			s.transmute[i].Input = square(sq[0], s.transmute[i].Input)
+			s.transmute[i].Material = square(sq[1], s.transmute[i].Material)
+		}
+	}
+	for i := range s.dye {
+		if sq := squares(s.dye[i].ID, 2); sq != nil {
+			s.dye[i].Target = square(sq[0], s.dye[i].Target)
+			s.dye[i].Dye = square(sq[1], s.dye[i].Dye)
+		}
+	}
 	for i := range s.displays {
 		if d := &s.displays[i]; !replaced[d.Name] {
 			d.Items = retag(d.Name, d.Items)

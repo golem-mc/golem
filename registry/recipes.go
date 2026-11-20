@@ -28,7 +28,7 @@ func CraftMatch(cells []protocol.ItemStack, width int32) (string, protocol.ItemS
 			filled++
 		}
 	}
-	// No recipe, stew, imbue or special one matches an empty grid.
+	// No recipe, stew or special one matches an empty grid.
 	// vanilla: RecipeMap.getRecipesFor
 	if filled == 0 {
 		return "", protocol.ItemStack{}
@@ -36,21 +36,36 @@ func CraftMatch(cells []protocol.ItemStack, width int32) (string, protocol.ItemS
 	grid := gridBoxOf(cells, width)
 	set := recipes()
 	for _, ref := range set.craftOrder {
-		if int(ref.cells) != filled {
+		if ref.cells != 0 && int(ref.cells) != filled {
 			continue
 		}
-		if ref.shaped {
+		switch ref.kind {
+		case craftShaped:
 			if r := &set.shaped[ref.index]; shapedIn(r, ref.symmetric, cells, width, grid) {
 				return r.ID, RecipeResult(r.ID, protocol.ItemStack{ItemID: r.ResultID, Count: r.ResultCount})
 			}
-		} else if r := &set.shapeless[ref.index]; shapelessFits(r, cells) {
-			return r.ID, RecipeResult(r.ID, protocol.ItemStack{ItemID: r.ResultID, Count: r.ResultCount})
+		case craftShapeless:
+			if r := &set.shapeless[ref.index]; shapelessFits(r, cells) {
+				return r.ID, RecipeResult(r.ID, protocol.ItemStack{ItemID: r.ResultID, Count: r.ResultCount})
+			}
+		case craftTransmute:
+			r := &set.transmute[ref.index]
+			if result, ok := r.result(cells, filled); ok {
+				return r.ID, result
+			}
+		case craftDye:
+			r := &set.dye[ref.index]
+			if result, ok := r.result(cells, filled); ok {
+				return r.ID, result
+			}
+		case craftImbue:
+			r := &set.imbue[ref.index]
+			if result, ok := r.result(cells, filled); ok {
+				return r.ID, result
+			}
 		}
 	}
 	if id, result, ok := stewResult(cells); ok {
-		return id, result
-	}
-	if id, result, ok := imbueResult(cells); ok {
 		return id, result
 	}
 	result := specialCraftResult(cells)

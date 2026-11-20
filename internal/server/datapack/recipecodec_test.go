@@ -104,6 +104,8 @@ func TestDecodeRecipeRefusals(t *testing.T) {
 	for name, tc := range map[string]struct{ json, want string }{
 		"a broken file":              {`{"type":`, "unexpected"},
 		"an unknown type":            {`{"type":"minecraft:nope"}`, "unknown recipe type"},
+		"a material count of 9":      {`{"type":"minecraft:crafting_transmute","input":"minecraft:stick","material":"minecraft:stick","material_count":9,"result":"minecraft:stick"}`, "1 to 8"},
+		"a half-open material count": {`{"type":"minecraft:crafting_transmute","input":"minecraft:stick","material":"minecraft:stick","material_count":{"min":2},"result":"minecraft:stick"}`, "max"},
 		"a special type":             {`{"type":"minecraft:crafting_special_bookcloning"}`, "built in"},
 		"no type":                    {`{}`, `No key type`},
 		"four pattern rows":          {shaped(`["a","a","a","a"]`, a), "1 to 3 rows"},
@@ -266,4 +268,34 @@ func equalSquares(a, b []registry.BookIngredient) bool {
 		// The display sends an item list in the file's order.
 		return x.Tag == y.Tag && slices.Equal(x.Items, y.Items)
 	})
+}
+
+// A transmute recipe has one book display per material count, on consecutive
+// IDs, and a pack file of a vanilla ID takes the vanilla IDs.
+// vanilla: TransmuteRecipe.display, RecipeManager.prepare
+func TestTransmuteRecipeDisplaysFollowTheMaterialCount(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackRecipes(registry.PackRecipes{}) })
+	var set registry.PackRecipes
+	for id, body := range map[string]string{
+		"pk:two": `{"type":"minecraft:crafting_transmute","input":"minecraft:stick","material":"minecraft:clay_ball",
+			"material_count":{"min":2,"max":4},"add_material_count_to_result":true,"result":{"count":2}}`,
+		"minecraft:map_cloning": `{"type":"minecraft:crafting_transmute","input":"#minecraft:clonable_maps",
+			"material":"minecraft:map","material_count":{"min":1,"max":2},"result":{}}`,
+	} {
+		if err := DecodeRecipe(id, []byte(body), &set); err != nil {
+			t.Fatal(err)
+		}
+	}
+	registry.ApplyPackRecipes(set)
+	pack := registry.CraftingDisplaysOfName("pk:two")
+	if len(pack) != 3 || pack[1].ID != pack[0].ID+1 || len(pack[2].Slots.Squares) != 4 {
+		t.Fatalf("pk:two displays = %+v, want three consecutive ones", pack)
+	}
+	if kids := pack[2].Slots.Result.Children; len(kids) != 1 || kids[0].Count != 2+4 {
+		t.Errorf("the 4-material display result count = %d, want 6", pack[2].Slots.Result.Count)
+	}
+	clone := registry.CraftingDisplaysOfName("minecraft:map_cloning")
+	if len(clone) != 2 || clone[0].ID != 936 || clone[1].ID != 937 {
+		t.Errorf("map_cloning displays = %v, want the first two vanilla IDs", clone)
+	}
 }
