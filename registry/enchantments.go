@@ -266,10 +266,12 @@ type EnchParticleAxis struct {
 	Base          EnchFloatRange
 }
 
-// EnchParticles is a spawn_particles effect with a data-less particle.
+// EnchParticles is a spawn_particles effect. Options are the particle's
+// encoded options, empty for a type with none.
 // vanilla: SpawnParticlesEffect
 type EnchParticles struct {
 	Particle             int32
+	Options              []byte
 	Horizontal, Vertical EnchParticleAxis
 	Speed                EnchFloatRange
 }
@@ -307,18 +309,20 @@ type EnchExplode struct {
 }
 
 // EnchExplosionLook is an explode effect's small_particle, large_particle,
-// block_particles and sound. A particle is an ID of a particle with no data.
+// block_particles and sound. A particle is its ID plus its encoded options.
 // vanilla: ExplodeEffect
 type EnchExplosionLook struct {
-	Small, Large int32
-	Sound        protocol.SoundHolder
-	Blocks       []EnchBlockParticle
+	Small, Large               int32
+	SmallOptions, LargeOptions []byte
+	Sound                      protocol.SoundHolder
+	Blocks                     []EnchBlockParticle
 }
 
 // EnchBlockParticle is one weighted entry of block_particles.
 // vanilla: ExplosionParticleInfo
 type EnchBlockParticle struct {
 	Particle       int32
+	Options        []byte
 	Scaling, Speed float32
 	Weight         int32
 }

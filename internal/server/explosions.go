@@ -1007,13 +1007,16 @@ func (b blast) payload(blockCount int32, kx, ky, kz float64, pushed bool) []byte
 	if l := b.look; l != nil {
 		if rules.ExplosionSmall(b.radius) {
 			p.PutVarInt(l.Small)
+			p.PutRaw(l.SmallOptions)
 		} else {
 			p.PutVarInt(l.Large)
+			p.PutRaw(l.LargeOptions)
 		}
 		protocol.PutSoundHolder(&p, l.Sound)
 		p.PutVarInt(int32(len(l.Blocks)))
 		for _, e := range l.Blocks {
 			p.PutVarInt(e.Particle)
+			p.PutRaw(e.Options)
 			p.PutF32(e.Scaling)
 			p.PutF32(e.Speed)
 			p.PutVarInt(e.Weight)
