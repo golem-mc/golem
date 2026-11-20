@@ -9,10 +9,12 @@ type Commands interface {
 	// Register adds a command. A name or alias another command holds is
 	// registered only as plugin:name, and an error wrapping ErrNameTaken
 	// (naming the skipped bare names) is returned; the command still runs
-	// under those and any free aliases. It fails without registering only
-	// when nothing could be registered (or the command is invalid).
-	// Command.Override replaces a vanilla command's bare name.
-	// Bukkit: CommandMap.register
+	// under those and any free aliases. Callers should check
+	// errors.Is(err, ErrNameTaken) and not return it from Enable so later
+	// setup still runs (though returning it from Enable leaves the plugin
+	// enabled). It fails without registering only when nothing could be
+	// registered (or the command is invalid). Command.Override replaces a
+	// vanilla command's bare name. Bukkit: CommandMap.register
 	Register(c Command) error
 	// Unregister removes a command this plugin registered.
 	Unregister(name string)
@@ -158,12 +160,14 @@ var ErrHandled = errors.New("plugin: command failure already reported")
 
 // ErrNameTaken is wrapped by Commands.Register's error when one or more bare
 // names were already held and registered only as plugin:name; the command
-// still runs under those and any free aliases.
+// still runs under those and any free aliases. Callers should test with
+// errors.Is and not return it from Enable.
 var ErrNameTaken = errors.New("plugin: command name taken")
 
 // RegisterAlias registers name as another command line: /name args runs
-// "line args" as the same sender, as Bukkit's commands.yml aliases do. It
-// fails as Register does when the name is taken.
+// "line args" as the same sender, as Bukkit's commands.yml aliases do. When
+// name is taken it registers plugin:name and returns ErrNameTaken, as
+// Register does.
 func RegisterAlias(s Server, name, line string) error {
 	run := func(ctx *CommandContext) (int, error) {
 		full := line

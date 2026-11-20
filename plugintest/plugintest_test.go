@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/plugintest"
 	"github.com/golem-mc/golem/registry"
@@ -306,6 +308,9 @@ func TestCommandFallbackPrefixWhenNameTaken(t *testing.T) {
 			vanillaErr = s.Commands().Register(plugin.Command{Name: "seed", Run: say("b-seed")})
 			return nil
 		})},
+		plugin.Registration{Name: "c", Plugin: enableFunc(func(s plugin.Server) error {
+			return s.Commands().Register(godCmd("from-c"))
+		})},
 	))
 
 	if !errors.Is(bErr, plugin.ErrNameTaken) || !strings.Contains(bErr.Error(), "god") {
@@ -316,6 +321,16 @@ func TestCommandFallbackPrefixWhenNameTaken(t *testing.T) {
 	}
 	if !errors.Is(vanillaErr, plugin.ErrNameTaken) || !strings.Contains(vanillaErr.Error(), "seed") {
 		t.Fatalf("plugin b Register(seed) = %v, want ErrNameTaken naming seed", vanillaErr)
+	}
+
+	enabled := make(map[string]bool)
+	for _, info := range srv.Host().Plugins() {
+		enabled[info.Name] = info.Enabled
+	}
+	for _, name := range []string{"a", "b", "c"} {
+		if !enabled[name] {
+			t.Errorf("plugin %q Enabled = false, want true", name)
+		}
 	}
 
 	alice := srv.Join("Alice")
@@ -331,6 +346,8 @@ func TestCommandFallbackPrefixWhenNameTaken(t *testing.T) {
 		{"/godmode on", "from-b:on"},
 		{"/b:godmode", "from-b"},
 		{"/b:seed", "b-seed"},
+		{"/c:god", "from-c"},
+		{"/c:god on", "from-c:on"},
 	} {
 		alice.Run(tc.cmd)
 		if msgs := alice.Messages(2); len(msgs) != 1 || msgs[0] != tc.want {
@@ -341,6 +358,75 @@ func TestCommandFallbackPrefixWhenNameTaken(t *testing.T) {
 	if out := srv.Console("seed"); !strings.Contains(strings.Join(out, "\n"), "Seed:") {
 		t.Errorf("console seed = %q, want vanilla Seed output", out)
 	}
+}
+
+type hostCapture struct{ host *plugin.Server }
+
+func (c hostCapture) Enable(s plugin.Server) error { *c.host = s; return nil }
+func (hostCapture) Disable()                       {}
+
+func TestSpawnProtection(t *testing.T) {
+	startWithConfig := func(t *testing.T, modify func(*config.Config)) plugin.Server {
+		t.Helper()
+		cfg := config.Default()
+		cfg.OnlineMode = false
+		cfg.LevelName = t.TempDir()
+		cfg.LevelType = server.TestFlatLevelType
+		cfg.SimulationDistance = 4
+		cfg.PauseWhenEmptySeconds = 0
+		cfg.SyncChunkWrites = false
+		if modify != nil {
+			modify(cfg)
+		}
+		var host plugin.Server
+		srv, err := server.NewSeededSharingNether(cfg, 0, server.SharedNetherSeed,
+			plugin.Registration{Name: "capture", Plugin: hostCapture{&host}},
+		)
+		if err != nil {
+			t.Fatalf("create server: %v", err)
+		}
+		t.Cleanup(func() {
+			if err := srv.CloseWorlds(); err != nil {
+				t.Errorf("close worlds: %v", err)
+			}
+		})
+		return host
+	}
+
+	t.Run("default properties", func(t *testing.T) {
+		host := startWithConfig(t, nil)
+		if got := host.SpawnProtection(); got != 16 {
+			t.Fatalf("SpawnProtection() = %d, want 16 (vanilla default)", got)
+		}
+	})
+
+	t.Run("disabled in properties", func(t *testing.T) {
+		host := startWithConfig(t, func(cfg *config.Config) { cfg.SpawnProtection = 0 })
+		if got := host.SpawnProtection(); got != 0 {
+			t.Fatalf("SpawnProtection() = %d, want 0", got)
+		}
+	})
+
+	t.Run("plugintest option", func(t *testing.T) {
+		srvDefault := plugintest.Start(t, plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}))
+		if got := srvDefault.Host().SpawnProtection(); got != 0 {
+			t.Fatalf("plugintest default SpawnProtection() = %d, want 0", got)
+		}
+		srvSet := plugintest.Start(t,
+			plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}),
+			plugintest.WithSpawnProtection(16),
+		)
+		if got := srvSet.Host().SpawnProtection(); got != 16 {
+			t.Fatalf("plugintest WithSpawnProtection(16) = %d, want 16", got)
+		}
+		srvOff := plugintest.Start(t,
+			plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}),
+			plugintest.WithSpawnProtection(0),
+		)
+		if got := srvOff.Host().SpawnProtection(); got != 0 {
+			t.Fatalf("plugintest WithSpawnProtection(0) = %d, want 0", got)
+		}
+	})
 }
 
 func TestDefaultGameMode(t *testing.T) {

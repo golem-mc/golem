@@ -1,6 +1,7 @@
 package pluginruntime
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -150,9 +151,13 @@ func (r *Runtime) Enable() {
 			continue
 		}
 		if err := h.guard(func() error { return h.registration.Plugin.Enable(h.api) }); err != nil {
-			h.Logger().Error("Error enabling plugin", "error", err)
-			h.cleanup()
-			continue
+			if errors.Is(err, plugin.ErrNameTaken) {
+				h.Logger().Warn("Command name taken; registered under plugin prefix", "error", err)
+			} else {
+				h.Logger().Error("Error enabling plugin", "error", err)
+				h.cleanup()
+				continue
+			}
 		}
 		h.enabled.Store(true)
 		if r.bus.has(PluginEnable) {

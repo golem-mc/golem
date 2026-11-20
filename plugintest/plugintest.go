@@ -38,12 +38,13 @@ const (
 )
 
 type options struct {
-	plugins  []plugin.Registration
-	gameMode string
-	world    WorldType
-	seed     string
-	ops      []string
-	cache    []plugin.Profile
+	plugins         []plugin.Registration
+	gameMode        string
+	world           WorldType
+	seed            string
+	ops             []string
+	cache           []plugin.Profile
+	spawnProtection int
 }
 
 // Option configures Start.
@@ -71,6 +72,12 @@ func Ops(names ...string) Option { return func(o *options) { o.ops = append(o.op
 // usercache.json held them: /seen, /mute and the like resolve their names.
 func WithUsercache(entries ...plugin.Profile) Option {
 	return func(o *options) { o.cache = append(o.cache, entries...) }
+}
+
+// WithSpawnProtection sets server.properties' spawn-protection radius. The
+// default is 0 so test players can edit blocks near spawn without being ops.
+func WithSpawnProtection(radius int) Option {
+	return func(o *options) { o.spawnProtection = max(radius, 0) }
 }
 
 // Server is a running test server, stopped when the test ends.
@@ -108,7 +115,11 @@ func Start(t *testing.T, opts ...Option) *Server {
 	}
 	// An ops list always exists, so that a player it does not name is no
 	// operator.
-	s.srv = servertest.NewTestServerWithPlugins(t, cfg, regs, servertest.OpsListing(t, o.ops...), usercacheOf(t, o.cache))
+	s.srv = servertest.NewTestServerWithPlugins(t, cfg, regs,
+		servertest.OpsListing(t, o.ops...),
+		usercacheOf(t, o.cache),
+		servertest.SpawnProtectionRadius(o.spawnProtection),
+	)
 	if s.host == nil {
 		t.Fatal("plugintest: the server did not enable its plugins")
 	}

@@ -204,8 +204,12 @@ plugin.Command{Name: "hello", Node: plugin.Node{Children: []plugin.Node{{
 }}}}
 ```
 
-Register it with `s.Commands().Register`; return a `plugin.CommandError` to
-fail with a message.
+Register it with `s.Commands().Register`; if another command already holds the
+bare name or an alias, it still registers under `plugin:name` (and any free
+aliases) and returns an error wrapping `plugin.ErrNameTaken`—check with
+`errors.Is(err, plugin.ErrNameTaken)` and log or ignore it instead of returning
+it from `Enable` so later setup still runs. Return a `plugin.CommandError` from
+`Run` to fail with a message.
 
 **A tick task** runs on the tick goroutine: `s.Scheduler().RunTimer(delay,
 period, fn)` (`RunTask`, `RunLater` are the same shape).

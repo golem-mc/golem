@@ -831,6 +831,7 @@ func newServerWith(cfg *config.Config, seed int64, shared sharedNether, plugins 
 		tickRate:        tickrate.New(),
 	}
 	s.maxPlayers.Store(int32(cfg.MaxPlayers))
+	s.spawnProtection.Store(int32(cfg.SpawnProtection))
 	motd := protocol.Text{Text: cfg.MOTD}
 	s.motd.Store(&motd)
 	s.loadPlugins(plugins)
@@ -997,7 +998,6 @@ func newServerWith(cfg *config.Config, seed int64, shared sharedNether, plugins 
 	// level.dat keeps its own.
 	s.world.SetDefaultHardcore(cfg.Hardcore)
 	s.allowFlight.Store(cfg.AllowFlight)
-	s.spawnProtection.Store(int32(cfg.SpawnProtection))
 	s.acceptsTransfers.Store(cfg.AcceptsTransfers)
 	s.hideOnlinePlayers.Store(cfg.HideOnlinePlayers)
 	s.enableStatus.Store(cfg.EnableStatus)
