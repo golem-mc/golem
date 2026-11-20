@@ -68,9 +68,12 @@ func runJfr(src Source, input string, args []string) error {
 		if err != nil {
 			return refuse(src, jfrDumpFailedKey, protocol.Text{Text: err.Error()})
 		}
-		rel, rerr := filepath.Rel(src.ServerDir(), path)
-		if rerr != nil {
-			rel = path
+		// path is absolute, so the base must be too.
+		rel := path
+		if base, err := filepath.Abs(src.ServerDir()); err == nil {
+			if r, err := filepath.Rel(base, path); err == nil {
+				rel = r
+			}
 		}
 		// vanilla: ComponentUtils.copyOnClickText with underline
 		return src.Feedback(jfrStoppedKey, protocol.Text{

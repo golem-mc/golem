@@ -18,8 +18,10 @@ import (
 // vanilla: JfrCommand
 func TestJfrStartStop(t *testing.T) {
 	dir := t.TempDir()
+	// A relative config path, as a launched server has: the server dir is ".".
+	t.Chdir(dir)
 	_, c := servertest.Join(t, servertest.BlockTestConfig(), "Alice", servertest.OpsListing(t, "Alice"),
-		func(s *server.Server) { s.SetConfigFile(filepath.Join(dir, "server.properties")) })
+		func(s *server.Server) { s.SetConfigFile("server.properties") })
 
 	c.ChatCommand("jfr start")
 	c.ExpectCommandFeedback("commands.jfr.started")
