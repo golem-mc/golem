@@ -49,8 +49,9 @@ func ReadPluginMeta(dir, name string) (m PluginMeta, ok bool) {
 	settings, _ := nbt.Get[nbt.String](data, "generator_settings")
 	biome, _ := nbt.Get[nbt.String](data, "biome")
 	noStructures, _ := nbt.Get[nbt.Byte](data, "no_structures")
+	bonusChest, _ := nbt.Get[nbt.Byte](data, "bonus_chest")
 	m = PluginMeta{Seed: int64(seed), Spawn: SpawnPos{X: pos[0], Y: pos[1], Z: pos[2], Yaw: float32(yaw), Pitch: float32(pitch)},
-		Gen: PluginGenSpec{Type: string(typ), Settings: string(settings), Biome: string(biome), NoStructures: noStructures != 0}}
+		Gen: PluginGenSpec{Type: string(typ), Settings: string(settings), Biome: string(biome), NoStructures: noStructures != 0, BonusChest: bonusChest != 0}}
 	if lv, ok := nbt.Get[nbt.Compound](data, "level"); ok {
 		age, _ := nbt.Get[nbt.Long](lv, "age")
 		d, _ := nbt.Get[nbt.Byte](lv, "difficulty")
@@ -88,6 +89,9 @@ func (w *World) SavePluginMeta() {
 	}
 	if w.pluginGen.NoStructures {
 		data["no_structures"] = nbt.Byte(1)
+	}
+	if w.pluginGen.BonusChest {
+		data["bonus_chest"] = nbt.Byte(1)
 	}
 	w.timeMu.Unlock()
 	if err := writeSavedData(w.storage, pluginMetaFile, data); err != nil {

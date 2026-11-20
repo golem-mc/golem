@@ -25,6 +25,25 @@ func (w pluginWorld) SetBlockState(p plugin.BlockPos, state plugin.BlockState, f
 	return w.srv.writeBlockWithUpdates(w.dim.w, int32(p.X), int32(p.Y), int32(p.Z), uint16(state), nil, writeLight, &updates)
 }
 
+// BreakBlock breaks the block as if mined without a tool.
+// vanilla: Level.destroyBlock
+func (w pluginWorld) BreakBlock(p plugin.BlockPos, drops bool) bool {
+	if !pluginPositionFits(p) || p.Y < w.MinY() || p.Y >= w.MinY()+w.Height() ||
+		!rules.InWorldBoundsHorizontal(int32(p.X), int32(p.Z)) {
+		return false
+	}
+	x, y, z := int32(p.X), int32(p.Y), int32(p.Z)
+	lw := w.dim.w
+	if !lw.ChunkLoaded(world.ChunkPos{X: world.ChunkOf(float64(x)), Z: world.ChunkOf(float64(z))}) {
+		return false
+	}
+	old := lw.BlockAt(x, y, z)
+	if !w.srv.destroyBlockContentsLoot(lw, x, y, z, old, "", drops) {
+		return false
+	}
+	return w.SetBlockState(p, plugin.BlockState(world.RemovalLeaves(old)), plugin.UpdateAll)
+}
+
 func (s *Server) replacePluginBlockEntity(w *world.World, x, y, z int32, old, state uint16, effects bool) {
 	if world.BlockEntityKept(old, state) {
 		if w.BlockEntity(x, y, z) == nil {

@@ -1,13 +1,17 @@
 package world
 
 import (
+	"bytes"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -41,7 +45,7 @@ func TestAPackDimensionIsCreatedSavedAndRestored(t *testing.T) {
 		"data/pk/dimension/void.json": `{"type":"minecraft:overworld","generator":{"type":"minecraft:flat",
 			"settings":{"biome":"minecraft:plains","layers":[{"block":"minecraft:glass","height":1}]}}}`,
 		"data/pk/dimension/fixed.json": `{"type":"minecraft:overworld","generator":{"type":"minecraft:noise","settings":"minecraft:overworld",
-			"biome_source":{"type":"minecraft:fixed","biome":"minecraft:plains"}}}`,
+			"biome_source":{"type":"minecraft:fixed","biome":"minecraft:nether_wastes"}}}`,
 		"data/pk/dimension/odd.json": `{"type":"minecraft:overworld","generator":{"type":"minecraft:debug"}}`,
 	})
 
@@ -213,5 +217,111 @@ func TestAPackDimensionUsesItsTypesBedRule(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestAPackDimensionGeneratesFixedBiomeAndLargeBiomes checks that overworld
+// noise settings with a fixed overworld biome, and the large_biomes settings,
+// make dimensions /locate biome and biome queries answer for.
+// vanilla: FixedBiomeSource, NoiseGeneratorSettings.LARGE_BIOMES
+func TestAPackDimensionGeneratesFixedBiomeAndLargeBiomes(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelName = t.TempDir()
+	cfg.GenerateStructures = false
+	writePack(t, cfg.LevelName, map[string]string{
+		"data/test/dimension/desert.json": `{"type":"minecraft:overworld","generator":{"type":"minecraft:noise","settings":"minecraft:overworld",
+			"biome_source":{"type":"minecraft:fixed","biome":"minecraft:desert"}}}`,
+		"data/test/dimension/big.json": `{"type":"minecraft:overworld","generator":{"type":"minecraft:noise","settings":"minecraft:large_biomes",
+			"biome_source":{"type":"minecraft:multi_noise","preset":"minecraft:overworld"}}}`,
+		"data/test/dimension/nether_biome.json": `{"type":"minecraft:overworld","generator":{"type":"minecraft:noise","settings":"minecraft:overworld",
+			"biome_source":{"type":"minecraft:fixed","biome":"minecraft:the_end"}}}`,
+	})
+	srv, c := servertest.Join(t, cfg, "Voyager", servertest.OpsListing(t, "Voyager"))
+	servertest.HoldTicks(t, srv)
+
+	c.ChatCommand("execute in test:desert run locate biome minecraft:desert")
+	found := c.ReadTicks(srv, 200, func(id int32, data []byte) bool {
+		return id == protocol.IDPlaySystemChat && bytes.Contains(data, []byte("commands.locate.biome.success"))
+	})
+	if !found {
+		t.Error("locate biome minecraft:desert in test:desert did not succeed")
+	}
+	for _, p := range [][2]int32{{0, 0}, {20000, -35000}, {-90000, 70000}} {
+		if got := srv.BiomeInDimension("test:desert", p[0], 64, p[1]); got != "minecraft:desert" {
+			t.Errorf("biome of test:desert at %d,%d = %q, want minecraft:desert", p[0], p[1], got)
+		}
+	}
+	if got := srv.BiomeInDimension("test:big", 0, 64, 0); got == "" {
+		t.Error("test:big answers no biome: the dimension was skipped")
+	}
+}
+
+// TestAPackReplacesTheVanillaOverworld checks that a pack stem named
+// minecraft:overworld replaces the overworld's generator, so the world a new
+// player spawns in is the stem's flat world.
+// vanilla: WorldDimensions.bake
+func TestAPackReplacesTheVanillaOverworld(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelName = t.TempDir()
+	cfg.LevelType = "minecraft:normal"
+	writePack(t, cfg.LevelName, map[string]string{
+		"data/minecraft/dimension/overworld.json": `{"type":"minecraft:overworld","generator":{"type":"minecraft:flat",
+			"settings":{"biome":"minecraft:plains","layers":[{"block":"minecraft:glass","height":1}]}}}`,
+	})
+	srv, c := servertest.Join(t, cfg, "Voyager")
+	pos := srv.PlayerPosition("Voyager")
+	x, z := int32(math.Floor(pos.X)), int32(math.Floor(pos.Z))
+	c.Settle()
+	if got := srv.BlockAt(x, -64, z); got != registry.BlockStates["minecraft:glass"] {
+		t.Errorf("block at y=-64 under spawn = %d, want glass", got)
+	}
+	if got := srv.BlockAt(x, -63, z); got != registry.BlockStates["minecraft:air"] {
+		t.Errorf("block at y=-63 under spawn = %d, want air", got)
+	}
+}
+
+// netherBedrockFloorAfterPack joins on the shared-nether test world with a
+// pack holding stem as minecraft:the_nether, crosses into the nether and
+// reports whether bedrock lies at y=0 under the player, which only a nether
+// generator makes there (a flat stem's layers would not).
+func netherBedrockFloorAfterPack(t *testing.T, stem string) bool {
+	t.Helper()
+	servertest.LimitGeneration(t)
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelName = t.TempDir()
+	cfg.LevelType = server.TestFlatLevelType
+	writePack(t, cfg.LevelName, map[string]string{"data/minecraft/dimension/the_nether.json": stem})
+	srv, c := servertest.Join(t, cfg, "Voyager")
+	srv.MovePlayerToDimension("Voyager", world.NetherName, 8, 77, 8)
+	c.Settle()
+	servertest.PollUntil(t, servertest.ChunksSettledTimeout, func() bool {
+		return srv.ChunkLoadedInDimension(world.NetherName, 0, 0)
+	})
+	return srv.BlockInDimension(world.NetherName, 8, 0, 8) == registry.BlockStates["minecraft:bedrock"]
+}
+
+// TestAPackReplacesTheNetherWithANoiseStem checks that a stem named
+// minecraft:the_nether with the nether's type and noise generator is applied,
+// and the nether still generates when it drops the shared fixture.
+// vanilla: WorldDimensions.bake
+func TestAPackReplacesTheNetherWithANoiseStem(t *testing.T) {
+	t.Parallel()
+	if !netherBedrockFloorAfterPack(t, `{"type":"minecraft:the_nether","generator":{"type":"minecraft:noise","settings":"minecraft:nether",
+		"biome_source":{"type":"minecraft:multi_noise","preset":"minecraft:nether"}}}`) {
+		t.Error("no bedrock at nether y=0: the replaced nether did not generate")
+	}
+}
+
+// TestAPackNetherStemOfAnotherTypeKeepsTheVanillaGenerator checks that a stem
+// named minecraft:the_nether whose dimension type is the overworld's is
+// skipped with a warning, so the vanilla nether generates.
+// vanilla: WorldDimensions.bake
+func TestAPackNetherStemOfAnotherTypeKeepsTheVanillaGenerator(t *testing.T) {
+	t.Parallel()
+	if !netherBedrockFloorAfterPack(t, `{"type":"minecraft:overworld","generator":{"type":"minecraft:flat",
+		"settings":{"biome":"minecraft:plains","layers":[{"block":"minecraft:glass","height":1}]}}}`) {
+		t.Error("no bedrock at nether y=0: the wrong-type stem replaced the vanilla nether")
 	}
 }

@@ -500,9 +500,12 @@ const (
 	SpawnCategoryCount = int(registry.MobCategoryCount)
 )
 
-// spawnListsOf are the biome spawn lists a category is rolled from.
+// spawnListsOf are the biome spawn lists a category is rolled from, or nil for
+// categories that have no natural spawn list (MobCategoryMisc).
 func spawnListsOf(c SpawnCategory) *[registry.BiomeCount][]spawnData {
 	switch c {
+	case CategoryMonster:
+		return &biomeMonsterSpawns
 	case CategoryCreature:
 		return &biomeCreatureSpawns
 	case CategoryWaterCreature:
@@ -516,7 +519,7 @@ func spawnListsOf(c SpawnCategory) *[registry.BiomeCount][]spawnData {
 	case CategoryAxolotls:
 		return &biomeAxolotlSpawns
 	}
-	return &biomeMonsterSpawns
+	return nil
 }
 
 // spawnData is MobSpawnSettings.SpawnerData: type, weight and pack size
@@ -536,20 +539,12 @@ type spawnCost struct {
 
 // spawnCostAt is the biome's spawn cost for the type.
 func spawnCostAt(biome registry.Biome, t MobType) (spawnCost, bool) {
-	if biome < 0 || biome >= registry.BiomeCount {
-		return spawnCost{}, false
-	}
-	for _, c := range biomeSpawnCosts[biome] {
-		if c.mob == t {
-			return c, true
-		}
-	}
-	return spawnCost{}, false
+	return currentBiomeSpawns().costAt(biome, t)
 }
 
 // HasSpawnCost reports whether any biome gives the type a spawn cost.
 func HasSpawnCost(t MobType) bool {
-	return t >= 0 && t < registry.EntityTypeCount && spawnCostTypes[t]
+	return t >= 0 && t < registry.EntityTypeCount && currentBiomeSpawns().spawnCostTypes[t]
 }
 
 // SpawnChargeOf is the charge a mob of the type adds in the biome it stands in.
@@ -631,7 +626,7 @@ func spawnListFor(category SpawnCategory, biome registry.Biome) []spawnData {
 	if biome < 0 || biome >= registry.BiomeCount {
 		return nil
 	}
-	return spawnListsOf(category)[biome]
+	return currentBiomeSpawns().lists[category][biome].entries
 }
 
 // canSpawnMobAt tests value membership (NaturalSpawner.canSpawnMobAt).
@@ -812,15 +807,17 @@ func SpawnOriginalMobs(w SpawnWorld, spawn, region Dice, pos ChunkPos, sink func
 	// vanilla: NoiseBasedChunkGenerator.spawnOriginalMobs's sourcePos
 	// vanilla: EnvironmentAttributeSystem.addBiomeLayerForAttribute (the
 	// probability is not full-resolution, so it reads the corner's own cell)
+	table := currentBiomeSpawns()
 	top := w.MinY() + w.Height() - 1
 	biome := w.Biome(xo, top, zo)
 	chance := creatureSpawnProbability
-	if noise := w.NoiseBiome(xo, top, zo); noise >= 0 {
-		if p := biomeCreatureProbabilities[noise]; p != 0 {
-			chance = p
-		}
+	if noise := w.NoiseBiome(xo, top, zo); noise >= 0 && noise < registry.BiomeCount {
+		chance = table.creatureProbabilities[noise]
 	}
-	list := spawnListFor(CategoryCreature, biome)
+	var list []spawnData
+	if biome >= 0 && biome < registry.BiomeCount {
+		list = table.lists[CategoryCreature][biome].entries
+	}
 	if len(list) == 0 {
 		// No creatures in this biome (ocean, the End): vanilla returns before
 		// the gate roll.
@@ -903,7 +900,14 @@ func OriginalMobs(w SpawnWorld, seed int64, pos ChunkPos, nextID func() int32, d
 		// Each animal's biome is read at its own block, so one across a biome
 		// edge takes its side; sheep colour and variants read it.
 		// vanilla: SpawnContext.create
-		m.FinalizeSpawn(r.Region, w.Biome(rules.BlockOf(r.X), rules.BlockOf(r.Y), rules.BlockOf(r.Z)), r.Group, difficulty(r.X, r.Z))
+		bx, by, bz := rules.BlockOf(r.X), rules.BlockOf(r.Y), rules.BlockOf(r.Z)
+		local := difficulty(r.X, r.Z)
+		ctx := rules.SpawnContext{
+			Biome:          w.Biome(bx, by, bz),
+			MoonBrightness: local.Moon,
+			InStructure:    StructurePredicate(w, bx, by, bz),
+		}
+		m.FinalizeSpawnAt(r.Region, ctx, r.Group, local)
 		herd = append(herd, m)
 	})
 	return herd
@@ -1172,7 +1176,7 @@ func (c *naturalSpawnContext) spawnCategoryForPosition(spawn spawnPoint, rng *ra
 				continue
 			}
 			// vanilla: SpawnState.canSpawn
-			cost, costed := spawnCostAt(biome, data.mob)
+			cost, costed := c.spawns().costAt(biome, data.mob)
 			if costed && potential.EnergyChange(x0, y, z0, cost.charge) > cost.budget {
 				continue
 			}

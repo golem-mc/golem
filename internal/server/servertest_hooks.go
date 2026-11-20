@@ -1593,6 +1593,11 @@ func (s *Server) BlockInDimension(dimension string, x, y, z int32) uint16 {
 	return s.dimensionByName(dimension).w.BlockAt(x, y, z)
 }
 
+// BiomeInDimension is the biome name at the given block of the named dimension.
+func (s *Server) BiomeInDimension(dimension string, x, y, z int32) string {
+	return s.dimensionByName(dimension).w.BiomeAt(x, y, z)
+}
+
 // RainingAtInDimension is the named dimension's RainingAt.
 func (s *Server) RainingAtInDimension(dimension string, x, y, z int32) bool {
 	return s.dimensionByName(dimension).w.RainingAt(x, y, z)
@@ -4228,20 +4233,33 @@ func (s *Server) OfferGold(id int32) bool {
 
 // SavedDragonFight writes the End's fight data and reads it back from disk.
 func (s *Server) SavedDragonFight() nbt.Compound {
-	s.saveDragonFight()
-	return s.dimensionByName(world.EndName).w.ReadDragonFight()
+	return s.SavedDragonFightInDimension(world.EndName)
+}
+
+// SavedDragonFightInDimension writes the named dimension's fight data and reads
+// it back from disk.
+func (s *Server) SavedDragonFightInDimension(dimension string) nbt.Compound {
+	dim := s.dimensionByName(dimension)
+	s.saveDragonFight(dim)
+	return dim.w.ReadDragonFight()
 }
 
 // DragonArenaSettled reports whether no dragon fight arena chunk is still
 // generating, so the fight's next tick acts on a whole arena.
 func (s *Server) DragonArenaSettled() bool {
-	f := s.dragonFight
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for _, a := range f.loading {
-		if len(a.ch) == 0 {
-			return false
+	for _, dim := range s.allDims() {
+		f := dim.dragonFight
+		if f == nil {
+			continue
 		}
+		f.mu.Lock()
+		for _, a := range f.loading {
+			if len(a.ch) == 0 {
+				f.mu.Unlock()
+				return false
+			}
+		}
+		f.mu.Unlock()
 	}
 	return true
 }

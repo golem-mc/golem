@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
@@ -912,7 +913,13 @@ var DigTarget = [3]int32{2, 64, 0}
 // stack in the main hand, with the block named standing at DigTarget.
 func Digger(t *testing.T, stack protocol.ItemStack, block string, props map[string]string, onGround bool) (*server.Server, *Client) {
 	t.Helper()
-	srv, c := Join(t, SurvivalConfig(), "Digger")
+	return DiggerIn(t, SurvivalConfig(), stack, block, props, onGround)
+}
+
+// DiggerIn is Digger on a server of the given configuration.
+func DiggerIn(t *testing.T, cfg *config.Config, stack protocol.ItemStack, block string, props map[string]string, onGround bool) (*server.Server, *Client) {
+	t.Helper()
+	srv, c := Join(t, cfg, "Digger")
 	c.MoveToGround(0.5, 64, 0.5, onGround)
 	if !stack.Empty() {
 		srv.GiveSlot("Digger", player.HotbarSlot, stack)

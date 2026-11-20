@@ -534,10 +534,19 @@ func intLimit(v any, where string) (string, string) {
 // enchantment when the table names none, else the names the list or tag
 // resolves to.
 func (r *lootReader) enchantOptions(f obj) string {
-	if !f.has("options") {
+	if !f.has("options") || enchantTag(f) != "" {
 		return "nil"
 	}
 	return "[]string{" + quotedList(r.nameList("enchantment", f["options"])) + "}"
+}
+
+// enchantTag is the OptionsTag field of an enchant function whose options
+// name a tag: the tag stays a reference the server binds to the loaded tags.
+func enchantTag(f obj) string {
+	if s, ok := f["options"].(string); ok && strings.HasPrefix(s, "#") {
+		return fmt.Sprintf(", OptionsTag: %s", gogen.Quote(lootQualified(s[1:])))
+	}
+	return ""
 }
 
 // snbt writes a JSON value as the SNBT the set_components function keeps it as.
@@ -667,11 +676,11 @@ func (r *lootReader) function(f obj, where string) string {
 		return fmt.Sprintf("LootSetEnchantments{Enchantments: map[string]LootNumber{%s}, Add: %s, Conditions: %s}",
 			strings.Join(parts, ", "), add(), conds)
 	case "minecraft:enchant_randomly":
-		return fmt.Sprintf("LootEnchantRandomly{Options: %s, OnlyCompatible: %t%s, Conditions: %s}",
-			r.enchantOptions(f), f.boolOr("only_compatible", true), costField, conds)
+		return fmt.Sprintf("LootEnchantRandomly{Options: %s%s, OnlyCompatible: %t%s, Conditions: %s}",
+			r.enchantOptions(f), enchantTag(f), f.boolOr("only_compatible", true), costField, conds)
 	case "minecraft:enchant_with_levels":
-		return fmt.Sprintf("LootEnchantWithLevels{Levels: %s, Options: %s%s, Conditions: %s}",
-			number(f.field("levels"), where), r.enchantOptions(f), costField, conds)
+		return fmt.Sprintf("LootEnchantWithLevels{Levels: %s, Options: %s%s%s, Conditions: %s}",
+			number(f.field("levels"), where), r.enchantOptions(f), enchantTag(f), costField, conds)
 	case "minecraft:discard":
 		return fmt.Sprintf("LootDiscard{Conditions: %s}", conds)
 	case "minecraft:filtered":

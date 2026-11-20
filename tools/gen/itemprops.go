@@ -170,7 +170,7 @@ type itemPropsReader struct {
 
 	// The expanded block sets the tool rules name, deduplicated so that a set
 	// several rules share is written out once and pointed at by each of them.
-	blockSets     [][]string
+	blockSets     []toolBlocks
 	blockSetIndex map[string]int
 
 	// Tools and foods become named values of their own so the table reads as
@@ -187,30 +187,38 @@ type itemEntry struct {
 	multi bool
 }
 
-func (r *itemPropsReader) blockSet(names []string) int {
-	members := slices.Clone(names)
-	slices.Sort(members)
-	members = slices.Compact(members)
-	key := strings.Join(members, "\x00")
+// toolBlocks is what one tool rule names: tags, resolved against the loaded
+// tags when the rule is asked, and blocks listed inline.
+type toolBlocks struct {
+	tags   []string
+	blocks []string
+}
+
+func (r *itemPropsReader) blockSet(tb toolBlocks) int {
+	tags := slices.Clone(tb.tags)
+	slices.Sort(tags)
+	tags = slices.Compact(tags)
+	blocks := slices.Clone(tb.blocks)
+	slices.Sort(blocks)
+	blocks = slices.Compact(blocks)
+	key := strings.Join(tags, "\x00") + "\x01" + strings.Join(blocks, "\x00")
 	if i, ok := r.blockSetIndex[key]; ok {
 		return i
 	}
-	for _, m := range members {
+	for _, m := range blocks {
 		if _, ok := r.blockReport.Get(m); !ok {
 			fail("%s is named by a tool rule but not in the block report", m)
 		}
 	}
 	r.blockSetIndex[key] = len(r.blockSets)
-	r.blockSets = append(r.blockSets, members)
+	r.blockSets = append(r.blockSets, toolBlocks{tags, blocks})
 	return r.blockSetIndex[key]
 }
 
-// ruleBlocks are the block names one tool rule covers: an entry that is a tag
-// is expanded, an entry that is a block is qualified. A rule may cover nothing
-// at all: the incorrect_for_diamond_tool tag is empty in this version, a
-// diamond tool being wrong for no block. A rule that matches no block decides
-// nothing, which is what an empty set says.
-func (r *itemPropsReader) ruleBlocks(blocks any) []string {
+// ruleBlocks are the tags and blocks one tool rule names. A tag is kept by
+// name so that a data pack's changes to it count; it may be empty here, as
+// incorrect_for_diamond_tool is in this version.
+func (r *itemPropsReader) ruleBlocks(blocks any) toolBlocks {
 	var entries []string
 	switch v := blocks.(type) {
 	case string:
@@ -222,15 +230,17 @@ func (r *itemPropsReader) ruleBlocks(blocks any) []string {
 	default:
 		fail("a tool rule has blocks of a shape the generator does not read: %v", blocks)
 	}
-	var names []string
+	var tb toolBlocks
 	for _, entry := range entries {
-		if strings.HasPrefix(entry, "#") {
-			names = append(names, blockTagMembers(r.dp, entry, nil)...)
+		if after, ok := strings.CutPrefix(entry, "#"); ok {
+			tag := qualified(after)
+			blockTagMembers(r.dp, entry, nil) // stops on a tag the data does not define
+			tb.tags = append(tb.tags, tag)
 		} else {
-			names = append(names, qualified(entry))
+			tb.blocks = append(tb.blocks, qualified(entry))
 		}
 	}
-	return names
+	return tb
 }
 
 func (r *itemPropsReader) tool(tool obj) toolSpec {
@@ -650,18 +660,23 @@ var %sDeathProtection = []ConsumeEffect{
 	}
 
 	f.WriteString(`
-// The expanded block sets the tool rules name, each written out once however
-// many rules share it. A rule's set holds the members of the tag it named at
-// generation time, so nothing at runtime has to know a tag from a list.
+// The block sets the tool rules name, each written out once however many
+// rules share it. A tag stays a name, read against the loaded tags.
 `)
-	for i, members := range r.blockSets {
-		symbols, err := idents("Block", members)
+	for i, tb := range r.blockSets {
+		symbols, err := idents("Block", tb.blocks)
 		if err != nil {
 			fail("%v", err)
 		}
-		f.Printf("var itemBlockSet%d = [BlockCount]bool{\n", i)
-		for _, sym := range symbols {
-			f.Printf("\t%s: true,\n", sym)
+		f.Printf("var itemBlockSet%d = ToolBlocks{", i)
+		if len(tb.tags) > 0 {
+			f.Printf("Tags: []string{%s}", quoteAll(tb.tags))
+			if len(symbols) > 0 {
+				f.WriteString(", ")
+			}
+		}
+		if len(symbols) > 0 {
+			f.Printf("Blocks: []Block{%s}", strings.Join(symbols, ", "))
 		}
 		f.WriteString("}\n")
 	}

@@ -122,7 +122,7 @@ func BenchmarkDragonRitual(b *testing.B) {
 			ids = append(ids, c.uuid)
 		}
 	}
-	f := s.dragonFight
+	f := s.dimensionByName(world.EndName).dragonFight
 	b.Run("step", func(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {

@@ -90,7 +90,7 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 			seed = s.world.SeedValue()
 		}
 	}
-	spec := world.PluginGenSpec{Type: string(opts.Type), Settings: opts.GeneratorSettings, Biome: opts.Biome.String(), NoStructures: opts.NoStructures}
+	spec := world.PluginGenSpec{Type: string(opts.Type), Settings: opts.GeneratorSettings, Biome: opts.Biome.String(), NoStructures: opts.NoStructures, BonusChest: opts.BonusChest}
 	if opts.Biome == (plugin.Key{}) {
 		spec.Biome = ""
 	}
@@ -123,12 +123,12 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 	d := &dimension{name: name, typeID: typeID, gen: gen, plugin: true, genSpec: spec, w: world.NewCustomDimensionWorld(s.levelDir, name, shape, gen)}
 	d.w.UseOwnRules(s.world)
 	d.w.SetPluginGen(spec)
+	spawn := meta.Spawn
+	d.w.SetOwnSeedAndSpawn(seed, spawn)
 	if err := s.initDimension(d, false); err != nil {
 		return nil, err
 	}
 	d.w.HoldForcedChunks()
-	spawn := meta.Spawn
-	d.w.SetOwnSeedAndSpawn(seed, spawn)
 	if existed {
 		d.w.RestoreLevel(meta)
 	} else {
@@ -139,6 +139,9 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 	if !existed {
 		spawn = initialPluginSpawn(opts.Generator, gen, handle)
 		d.w.SetOwnSeedAndSpawn(seed, spawn)
+		if spec.BonusChest {
+			d.w.PlaceBonusChest(s.levelRng)
+		}
 		d.w.SavePluginMeta()
 	}
 	s.fireWorldLoad(d)
@@ -221,7 +224,9 @@ func (h *pluginHost) UnloadWorld(w plugin.World, save bool) error {
 		if d.raids.Dirty() {
 			d.w.WriteRaids(d.raids.Encode())
 		}
+		s.saveDragonFight(d)
 	}
+	s.dropDragonFight(d)
 	d.w.DrainSaves()
 	s.dropEntitiesIn(d.w)
 	if err := d.w.Close(); err != nil {

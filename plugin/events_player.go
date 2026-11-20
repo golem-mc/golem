@@ -459,3 +459,34 @@ type PlayerArmorStandManipulateEvent struct {
 	PlayerItem ItemStack
 	StandItem  ItemStack
 }
+
+// PortalKind is which portal block an entity touches.
+type PortalKind uint8
+
+const (
+	PortalKindNether PortalKind = iota
+	PortalKindEnd
+	PortalKindEndGateway
+)
+
+// EntityPortalEnterEvent fires each tick an entity's body is inside a nether
+// portal, end portal or end gateway block, even while its portal cooldown
+// holds it there. A player in spectator mode or riding another body does not
+// touch the block. It fires on the tick goroutine, after the tick's entity
+// passes. Bukkit: EntityPortalEnterEvent
+type EntityPortalEnterEvent struct {
+	Base
+	Entity Entity
+	Block  Block
+	Kind   PortalKind
+}
+
+// EntityPortalExitEvent fires once an entity has arrived through a portal
+// (nether or end), with the place it left and where it now stands. Bukkit:
+// EntityPortalExitEvent
+type EntityPortalExitEvent struct {
+	Base
+	Entity   Entity
+	From, To Location
+	Cause    TeleportCause
+}

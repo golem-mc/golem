@@ -64,7 +64,12 @@ func ApplyPackRegistries(packs map[string]map[string]nbt.Tag) []string {
 		out[i].Data = data
 	}
 	synchronizedNow.Store(&out)
+	if len(packs) == 0 {
+		packBiomeClimates.Store(nil)
+	}
 	damageTypesNow.Store(newDamageTypeState())
 	reindexEnchantments()
+	reindexVariantSpawns()
+	reindexSoundVariants()
 	return problems
 }

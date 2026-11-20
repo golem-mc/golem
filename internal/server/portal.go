@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/google/uuid"
 	"log/slog"
 	"slices"
 
@@ -327,7 +328,32 @@ func (s *Server) writeBatch(w *world.World, changes []world.BlockChange) {
 // its frame (vanilla: NetherPortalBlock.updateShape). Single portal blocks,
 // as /setblock places, are left.
 func (s *Server) updatePortalNear(w *world.World, x, y, z int32) {
-	for _, cell := range rules.CollapsingPortals(w, x, y, z) {
+	collapsing := rules.CollapsingPortals(w, x, y, z)
+	if len(collapsing) == 0 {
+		return
+	}
+	var hooks physicsHooks
+	ask := s.plugins != nil && s.plugins.Has(pluginruntime.BlockPhysics)
+	if ask {
+		hooks = physicsHooks{s: s, dim: s.dimensionOfWorld(w)}
+	}
+	for _, cell := range collapsing {
+		if ask {
+			state := w.BlockAt(cell[0], cell[1], cell[2])
+			if !rules.IsPortalState(state) {
+				continue
+			}
+			d := world.HookDecision{
+				Kind: world.HookPhysics,
+				X:    cell[0], Y: cell[1], Z: cell[2],
+				Old:  state,
+				From: [3]int32{x, y, z},
+			}
+			hooks.Decide(&d)
+			if d.Cancel || w.BlockAt(cell[0], cell[1], cell[2]) != state {
+				continue
+			}
+		}
 		if cleared := rules.CollapsedPortal(w, cell[0], cell[1], cell[2]); len(cleared) > 0 {
 			s.writeBatch(w, cleared)
 			slog.Info("nether portal collapsed", "x", cell[0], "y", cell[1], "z", cell[2])
@@ -406,6 +432,9 @@ func (c *client) tickPortal() {
 			c.decayPortalIn()
 			return
 		}
+		if c.vehicle.Load() == nil && !c.ridingMinecart() {
+			c.srv.notePortalTouch(c, uuid.Nil, dim.w, pos.X, pos.Y, pos.Z, state)
+		}
 		// Standing in a portal during cooldown re-arms it without counting
 		// (vanilla: Entity.setAsInsidePortal), so an arrival must step out and back.
 		if c.portalCooldown.Load() > 0 {
@@ -438,6 +467,9 @@ func (c *client) tickPortal() {
 			c.decayPortalIn()
 			return
 		}
+		if c.vehicle.Load() == nil && !c.ridingMinecart() {
+			c.srv.notePortalTouch(c, uuid.Nil, dim.w, pos.X, pos.Y, pos.Z, state)
+		}
 		// Take the cooldown as for the nether: the travel runs on its own goroutine,
 		// and until it switches dimension the next tick still reads the feet in the
 		// overworld's portal, so without it one crossing becomes two.
@@ -448,6 +480,7 @@ func (c *client) tickPortal() {
 
 	default:
 		if gx, gy, gz, ok := c.gatewayInBody(prev, pos); ok {
+			c.srv.notePortalTouch(c, uuid.Nil, dim.w, float64(gx), float64(gy), float64(gz), rules.EndGatewayState)
 			c.touchEndGateway(gx, gy, gz)
 			return
 		}
@@ -502,6 +535,18 @@ func (c *client) travelByNetherPortal(from *dimension) {
 		return
 	}
 	c.playPortalTravel()
+	c.notePortalExit(from, pos, rules.PortalNether)
+}
+
+// notePortalExit queues EntityPortalExitEvent for this player, who left from
+// in pos.
+func (c *client) notePortalExit(from *dimension, pos player.Position, kind rules.PortalKind) {
+	if !c.srv.portalNoteListening(pluginruntime.EntityPortalExit) {
+		return
+	}
+	loc := plugin.Location{World: pluginWorld{srv: c.srv, dim: from, host: c.srv.pluginAdapter},
+		Pos: plugin.Vec3{X: pos.X, Y: pos.Y, Z: pos.Z}, Yaw: pos.Yaw, Pitch: pos.Pitch}
+	c.srv.notePortalExit(c, uuid.Nil, loc, kind)
 }
 
 // playPortalTravel plays the portal-travel sound to this player alone, after
@@ -590,7 +635,9 @@ func (c *client) travelByEndPortal(from *dimension) {
 		if moved != dest || spot != block {
 			dest, at = moved, standingAt(spot)
 		}
+		left := c.player.Position()
 		c.arriveAt(dest, at)
+		c.notePortalExit(from, left, rules.PortalEnd)
 		// A player on foot takes the respawn search's transition, which
 		// plays no sound.
 		if vehicle {
@@ -629,6 +676,7 @@ func (c *client) enterEnd() {
 	if end.w.DimensionTypeName() == world.EndType {
 		c.srv.buildEndArrivalPlatform(end)
 	}
+	from, left := c.dimension(), c.player.Position()
 	// Faces west (Direction.WEST.toYRot() = 90), toward the main island, and
 	// keeps the pitch: it is sent as a zero offset, Pos holds it for the store.
 	// vanilla: EndPortalBlock.getPortalDestination
@@ -641,6 +689,7 @@ func (c *client) enterEnd() {
 		return
 	}
 	c.playPortalTravel()
+	c.notePortalExit(from, left, rules.PortalEnd)
 }
 
 // spectatorUsePortal is a spectator's use of a portal block: they travel
@@ -924,6 +973,7 @@ func (s *Server) entityPortalArrival(who command.Entity, kind rules.PortalKind, 
 func (s *Server) crossPortal(w *world.World, id int32, pos player.Position, kind rules.PortalKind,
 	arrive func(to *dimension, spot world.SpawnPos, exitAxis [2]int32) (register func()), putBack func()) {
 	from := s.dimensionOfWorld(w)
+	exitWho, exitFrom, exiting := s.portalExitSource(w, id)
 	to, spot, exitAxis, ok := s.entityPortalArrival(s.relatedByID(w, id), kind, from, pos, false)
 	if ok && kind == rules.PortalEnd {
 		moved, at, allowed := s.pluginPortal(s.relatedByID(w, id), pos, to, spot, plugin.TeleportEndPortal)
@@ -946,6 +996,9 @@ func (s *Server) crossPortal(w *world.World, id int32, pos player.Position, kind
 	s.holdArrival(to, spot)
 	s.wakeArrivalChunk(to, spot)
 	register()
+	if exiting {
+		s.notePortalExit(nil, exitWho.UUID(), exitFrom, kind)
+	}
 	s.teleportSpectatorsOf(w, id, to, standingAt(spot))
 	s.broadcastWorld(w, protocol.IDPlayRemoveEntities, removeEntitiesPayload([]int32{id}))
 }

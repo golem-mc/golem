@@ -422,6 +422,7 @@ func (s *Server) tick() {
 	// The hulls and the carts step even frozen while a player rides them.
 	s.tickBoats()
 	s.tickMinecarts()
+	s.fireVehicleMoves()
 	if runs {
 		s.tickDragonCrystals()
 		s.tickMobs()
@@ -491,6 +492,7 @@ func (s *Server) tick() {
 	s.tickEffectTracking()
 	s.tickFixtureTracking()
 	s.flushDestroyed()
+	s.flushPortalNotes()
 	// After the entity passes and timed when it runs, so a ping is
 	// stamped just before the flush that sends it: one stamped at the
 	// tick's start would count a slow tick as the client's latency.

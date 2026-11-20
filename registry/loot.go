@@ -212,7 +212,9 @@ type LootEmpty struct {
 // LootReference is an entry that rolls another table whole, into this
 // roll's output.
 type LootReference struct {
-	Table      string
+	Table string
+	// Inline is a nested table written out in the entry; Table is empty.
+	Inline     *LootTable
 	Weight     int32
 	Quality    int32
 	Conditions []LootCondition
@@ -290,6 +292,9 @@ type LootEnchantedChance struct {
 	Unenchanted float64
 	Base        float64
 	PerLevel    float64
+	// Chance, when set, is the enchanted chance as any level-based value
+	// and replaces Base and PerLevel, which carry the linear form.
+	Chance *EnchLevelValue
 }
 
 // LootTableBonus passes on a chance indexed by a tool enchantment's level
@@ -924,20 +929,24 @@ type LootSetEnchantments struct {
 }
 
 // LootEnchantRandomly adds one enchantment from Options (nil for all) at a
-// random level; OnlyCompatible keeps to what the item supports.
+// random level; OnlyCompatible keeps to what the item supports. A non-empty
+// OptionsTag replaces Options with the tag's members as loaded.
 type LootEnchantRandomly struct {
 	Options               []string
+	OptionsTag            string
 	OnlyCompatible        bool
 	IncludeAdditionalCost bool
 	Conditions            []LootCondition
 }
 
 // LootEnchantWithLevels enchants as an enchanting table offer of the rolled
-// worth would, from Options (nil for all registered).
+// worth would, from Options (nil for all registered) or from OptionsTag's
+// members as loaded.
 type LootEnchantWithLevels struct {
 	IncludeAdditionalCost bool
 	Levels                LootNumber
 	Options               []string
+	OptionsTag            string
 	Conditions            []LootCondition
 }
 

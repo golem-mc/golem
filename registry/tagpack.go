@@ -197,6 +197,7 @@ func ApplyPackTags(packs PackTags) []string {
 			blocks = res.tags
 		}
 	}
+	itemTagsPacked.Store(len(packs["minecraft:item"]) > 0)
 	tagsNow.Store(newTagState(sync, builtin, blocks))
 	tagsGeneration.Add(1)
 	return problems

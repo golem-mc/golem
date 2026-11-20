@@ -4,9 +4,10 @@ package server_test
 // generated-table loaders and plugin adapters that must continue reading names.
 
 var registryNameAllowed = map[string]nameAllowance{
+	"internal/server/packregistries.go: string registry lookup":                     {count: 1, boundary: "data pack biome file name"},
 	"registry/sulfurarchetype.go: string registry lookup":                           {count: 1, boundary: "data pack items holder set tag name"},
 	"registry/stackitemprops.go: string registry lookup":                            {count: 2, boundary: "item tag names decoded from component data"},
-	"registry/sound.go: string registry lookup":                                     {count: 1, boundary: "sound name decoding"},
+	"registry/sound.go: string registry lookup":                                     {count: 2, boundary: "sound name decoding"},
 	"registry/biometagids.go: string registry lookup":                               {count: 1, boundary: "registry tag ID initialization"},
 	"registry/biometags.go: string registry lookup":                                 {count: 1, boundary: "registry table loading"},
 	"registry/blockgroup.go: string block lookup":                                   {count: 1, issue: 6380},
@@ -23,6 +24,7 @@ var registryNameAllowed = map[string]nameAllowance{
 	"registry/envcodec.go: string registry lookup":                                  {count: 2, boundary: "stored data decoding"},
 	"registry/equippable.go: string registry lookup":                                {count: 1, issue: 6380},
 	"registry/itemprops.go: string registry lookup":                                 {count: 1, issue: 6380},
+	"registry/itemprops.go: string block lookup":                                    {count: 1, boundary: "tool rule block tag names from data pack components"},
 	"registry/itemtagids.go: string registry lookup":                                {count: 1, boundary: "registry tag ID initialization"},
 	"registry/lootpack.go: comparison with an entity name":                          {count: 1, boundary: "registry tag decoding"},
 	"registry/registry.go: string block lookup":                                     {count: 2, issue: 6380},
@@ -33,6 +35,7 @@ var registryNameAllowed = map[string]nameAllowance{
 	"registry/stackvillager.go: string registry lookup":                             {count: 1, boundary: "entity type tag decoded from component data"},
 	"registry/stateset.go: name-keyed block states":                                 {count: 2, boundary: "registry table loading"},
 	"registry/tagpack.go: case on an entity name":                                   {count: 2, boundary: "registry table loading"},
+	"registry/variantspawns.go: string registry lookup":                             {count: 3, boundary: "data pack and generated variant spawn biome names and tag names"},
 	"internal/server/advancement/triggers.go: string block lookup":                  {count: 1, issue: 6380},
 	"internal/server/advancement/triggers.go: string registry lookup":               {count: 1, issue: 6380},
 	"internal/server/blocklogic/fire.go: string block lookup":                       {count: 2, issue: 6380},

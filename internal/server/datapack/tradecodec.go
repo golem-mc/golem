@@ -98,6 +98,9 @@ func DecodeVillagerTrade(data []byte) (trade registry.VillagerTrade, err error) 
 	}
 	if v, ok := t["double_trade_price_enchantments"]; ok {
 		trade.DoublePrice = holderSet(v, "enchantment", registry.EnchantmentTagMembers)
+		if tag, ok := v.(string); ok && strings.HasPrefix(tag, "#") {
+			trade.DoublePrice, trade.DoublePriceTag = nil, registry.Qualify(tag[1:])
+		}
 	}
 	return trade, nil
 }

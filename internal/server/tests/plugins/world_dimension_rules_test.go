@@ -123,6 +123,9 @@ func TestPluginWorldDimensionRules(t *testing.T) {
 		t.Fatal("failed to kill player")
 	}
 	c.Settle()
+	// Release ticks across respawn so the PlayerRespawnEvent listener runs on
+	// the tick loop while PerformRespawn waits for it.
+	servertest.ReleaseTicks(t, srv)
 	c.PerformRespawn()
 	_, noBlock := c.ExpectRespawnThroughTeleport()
 	if noBlock {
@@ -135,6 +138,7 @@ func TestPluginWorldDimensionRules(t *testing.T) {
 		t.Errorf("after respawn: anchor = %q charges=%q, want charges=0", name, props["charges"])
 	}
 	c.MarkLoaded()
+	servertest.HoldTicks(t, srv)
 
 	run(func() {
 		if respawns != 1 || !respawnAnchor || respawnBed || respawnWorld != netherKey {

@@ -76,34 +76,13 @@ func catGoals(m *Mob) []Goal {
 // isBabyTurtleAshore is Turtle.BABY_ON_LAND_SELECTOR.
 func isBabyTurtleAshore(o *Mob) bool { return o.Type == TypeTurtle && o.IsBaby() && !o.InWater() }
 
-// catVariants are the cat_variant entries; every one but all_black has an
-// unconditional priority-0 spawn condition.
-// vanilla: CatVariants.bootstrap
-var catVariants = func() []string {
-	r, _ := registry.Get("minecraft:cat_variant")
-	return r.Entries
-}()
-
-// allBlackMoon is the moon brightness all_black's priority-0 condition needs.
-// The structure condition (priority 1) is applied by the arrival caller.
-// vanilla: CatVariants.bootstrap, MoonBrightnessCheck
-const allBlackMoon = 0.9
-
-// finalizeCat rolls the variant among those whose spawn condition holds under
-// the moon brightness given, then the sound variant. blackCat is all_black's
-// priority-1 structure condition, which leaves it the only candidate.
-// vanilla: Cat.finalizeSpawn, VariantUtils.selectVariantToSpawn, Util.getRandomSafe
-func (m *Mob) finalizeCat(dice Dice, moon float32, blackCat bool) {
-	open := []string{"minecraft:all_black"}
-	if !blackCat {
-		open = open[:0]
-		for _, v := range catVariants {
-			if v != "minecraft:all_black" || moon >= allBlackMoon {
-				open = append(open, v)
-			}
-		}
+// finalizeCat rolls the variant from the cat_variant spawn conditions, then
+// the sound variant.
+// vanilla: Cat.finalizeSpawn, VariantUtils.selectVariantToSpawn
+func (m *Mob) finalizeCat(dice Dice, ctx rules.SpawnContext) {
+	if v, ok := rules.SelectVariantToSpawn("minecraft:cat_variant", ctx, dice); ok {
+		m.Variant = v
 	}
-	m.Variant = open[dice.NextIntN(int32(len(open)))]
 	m.SoundVariant = rules.RandomRegistryEntry("minecraft:cat_sound_variant", dice)
 }
 
@@ -123,31 +102,13 @@ func (m *Mob) BreedCat(baby, partner *Mob) {
 	}
 }
 
-// catSoundSet selects the adult variant or the shared baby sounds.
-// vanilla: Cat.getSoundSet
-func (m *Mob) catSoundSet() catSoundSet {
-	if m.IsBaby() {
-		return catSoundsBaby
-	}
-	if m.SoundVariant == "minecraft:royal" {
-		return catSoundsRoyal
-	}
-	return catSoundsClassic
-}
-
-type catSoundSet struct{ ambient, hurt, death, eat, strayAmbient, purr, purreow, begForFood, hiss registry.Sound }
-
-var catSoundsClassic = catSoundSet{registry.SoundEntityCatAmbient, registry.SoundEntityCatHurt, registry.SoundEntityCatDeath, registry.SoundEntityCatEat, registry.SoundEntityCatStrayAmbient, registry.SoundEntityCatPurr, registry.SoundEntityCatPurreow, registry.SoundEntityCatBegForFood, registry.SoundEntityCatHiss}
-var catSoundsRoyal = catSoundSet{registry.SoundEntityCatRoyalAmbient, registry.SoundEntityCatRoyalHurt, registry.SoundEntityCatRoyalDeath, registry.SoundEntityCatRoyalEat, registry.SoundEntityCatRoyalStrayAmbient, registry.SoundEntityCatRoyalPurr, registry.SoundEntityCatRoyalPurreow, registry.SoundEntityCatRoyalBegForFood, registry.SoundEntityCatRoyalHiss}
-var catSoundsBaby = catSoundSet{registry.SoundEntityBabyCatAmbient, registry.SoundEntityBabyCatHurt, registry.SoundEntityBabyCatDeath, registry.SoundEntityBabyCatEat, registry.SoundEntityBabyCatStrayAmbient, registry.SoundEntityBabyCatPurr, registry.SoundEntityBabyCatPurreow, registry.SoundEntityBabyCatBegForFood, registry.SoundEntityBabyCatHiss}
-
 // catSounds is the set the cat's sound variant speaks, with the stray
 // ambient while wild; AmbientVoice rolls the tame cat's idle sound.
 func (m *Mob) catSounds() MobSounds {
-	p := m.catSoundSet()
-	s := MobSounds{Hurt: p.hurt, Death: p.death, Eat: p.eat, Ambient: p.ambient}
+	p := m.variantSounds()
+	s := MobSounds{Hurt: p.Hurt, Death: p.Death, Eat: p.Eat, Ambient: p.Ambient}
 	if !m.Tamable.Tame {
-		s.Ambient = p.strayAmbient
+		s.Ambient = p.StrayAmbient
 	}
 	return s
 }
@@ -156,16 +117,16 @@ func (m *Mob) catSounds() MobSounds {
 // four, else its ambient; a wild cat's stray ambient.
 // vanilla: Cat.getAmbientSound
 func (m *Mob) catAmbient() registry.Sound {
-	p := m.catSoundSet()
+	p := m.variantSounds()
 	switch {
 	case !m.Tamable.Tame:
-		return p.strayAmbient
+		return p.StrayAmbient
 	case m.IsInLove():
-		return p.purr
+		return p.Purr
 	case m.Rand.Intn(4) == 0:
-		return p.purreow
+		return p.Purreow
 	}
-	return p.ambient
+	return p.Ambient
 }
 
 // catTick begs every 100 ticks while a stray is tempted and purrs every 5
@@ -173,11 +134,11 @@ func (m *Mob) catAmbient() registry.Sound {
 // vanilla: Cat.tick, Cat.handleLieDown
 func (m *Mob) catTick(t *tickView) {
 	if m.catTempt != nil && m.ai.isRunning(m.catTempt) && !m.Tamable.Tame && m.Age%100 == 0 {
-		t.events = append(t.events, MobEvent{Mob: m, Kind: MobSounded, SoundID: m.catSoundSet().begForFood, Volume: 1, Pitch: 1})
+		t.events = append(t.events, MobEvent{Mob: m, Kind: MobSounded, SoundID: m.variantSounds().BegForFood, Volume: 1, Pitch: 1})
 	}
 	if (m.Lying || m.RelaxStateOne) && m.Age%5 == 0 {
 		volume := 0.6 + 0.4*(m.Rand.Float32()-m.Rand.Float32())
-		t.events = append(t.events, MobEvent{Mob: m, Kind: MobSounded, SoundID: m.catSoundSet().purr, Volume: volume, Pitch: 1})
+		t.events = append(t.events, MobEvent{Mob: m, Kind: MobSounded, SoundID: m.variantSounds().Purr, Volume: volume, Pitch: 1})
 	}
 }
 

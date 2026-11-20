@@ -110,7 +110,11 @@ func runVillagerTrades(e *env) error {
 			out += ", Modifiers: []LootFunction{" + strings.Join(modifiers, ", ") + "}"
 		}
 		if v, ok := t["double_trade_price_enchantments"]; ok {
-			out += ", DoublePrice: []string{" + quotedList(lr.nameList("enchantment", v)) + "}"
+			if tag, ok := v.(string); ok && strings.HasPrefix(tag, "#") {
+				out += ", DoublePriceTag: " + gogen.Quote(lootQualified(tag[1:]))
+			} else {
+				out += ", DoublePrice: []string{" + quotedList(lr.nameList("enchantment", v)) + "}"
+			}
 		}
 		if unsupported {
 			out += ", Unsupported: true"

@@ -19,14 +19,16 @@ const wolfFoodHeal = 2.0
 var wolfGround = registry.BlockTagOf("minecraft:wolves_spawnable_on")
 
 // finalizeWolfVariant gives the wolf its pack's variant, the first member
-// choosing it by the biome for the rest.
+// choosing it by the spawn context for the rest.
 // vanilla: Wolf.finalizeSpawn
-func (m *Mob) finalizeWolfVariant(dice Dice, biome registry.Biome, group *SpawnGroup) {
+func (m *Mob) finalizeWolfVariant(dice Dice, ctx rules.SpawnContext, group *SpawnGroup) {
 	if group != nil && group.wolfVariant != "" {
 		m.Variant = group.wolfVariant
 		return
 	}
-	m.Variant = rules.WolfVariant(biome, dice)
+	if v, ok := rules.SelectVariantToSpawn("minecraft:wolf_variant", ctx, dice); ok {
+		m.Variant = v
+	}
 	if group != nil {
 		group.wolfVariant = m.Variant
 	}

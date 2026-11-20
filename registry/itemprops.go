@@ -159,10 +159,31 @@ type Tool struct {
 	CanDestroyBlocksInCreative bool
 }
 
-// ToolRule is one tool rule: its blocks (tags expanded at generation) and
-// what it says; a half left out falls to the next covering rule.
+// ToolBlocks is the blocks a tool rule covers: the members of its tags as
+// loaded (data packs may change them) and its inline blocks.
+type ToolBlocks struct {
+	Tags   []string
+	Blocks []Block
+}
+
+// Contains reports whether the block is inline or in one of the tags.
+// vanilla: BlockState.is(HolderSet)
+func (tb *ToolBlocks) Contains(b Block) bool {
+	if slices.Contains(tb.Blocks, b) {
+		return true
+	}
+	for _, tag := range tb.Tags {
+		if b.InTag(BlockTagOf(tag)) {
+			return true
+		}
+	}
+	return false
+}
+
+// ToolRule is one tool rule: its blocks and what it says; a half left out
+// falls to the next covering rule.
 type ToolRule struct {
-	Blocks *[BlockCount]bool
+	Blocks *ToolBlocks
 	// Speed is the rule's mining speed, zero when it carries none.
 	Speed float32
 	// CorrectForDrops and DeniesDrops are the rule's correct_for_drops
@@ -538,7 +559,7 @@ func CorrectForDrops(item int32, b Block) bool {
 		return false
 	}
 	for _, rule := range tool.Rules {
-		if (rule.CorrectForDrops || rule.DeniesDrops) && rule.Blocks[b] {
+		if (rule.CorrectForDrops || rule.DeniesDrops) && rule.Blocks.Contains(b) {
 			return rule.CorrectForDrops
 		}
 	}
@@ -557,7 +578,7 @@ func MiningSpeed(item int32, b Block) float32 {
 		return tool.DefaultMiningSpeed
 	}
 	for _, rule := range tool.Rules {
-		if rule.Speed != 0 && rule.Blocks[b] {
+		if rule.Speed != 0 && rule.Blocks.Contains(b) {
 			return rule.Speed
 		}
 	}

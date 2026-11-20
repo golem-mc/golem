@@ -207,6 +207,7 @@ func (s *Server) crossThrownPortalsLocked(fx *thrownEffects, gate entityGate) {
 			continue
 		}
 		state, kind, due := gate.stepPortal(it.w, it.throwable.X, it.throwable.Y, it.throwable.Z, &it.portal, projectileCooldownTicks)
+		s.notePortalTouch(nil, it.uuid, it.w, it.throwable.X, it.throwable.Y, it.throwable.Z, state)
 		if !due {
 			t := it.throwable
 			if state == rules.EndGatewayState {

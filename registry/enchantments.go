@@ -68,6 +68,8 @@ type EnchEffect struct {
 	// Value is the add's addend, the multiply's factor, the set value, or
 	// remove_binomial's per-point chance.
 	Value *EnchLevelValue
+	// Exponent is the exponential's exponent; Value is its base.
+	Exponent *EnchLevelValue
 	// Effects carries the minecraft:all_of variant's own list, each run on
 	// the value in order.
 	Effects []EnchEffect
@@ -84,6 +86,8 @@ const (
 	// EnchRemoveBinomial keeps each point of damage only where a roll
 	// against the chance keeps it (unbreaking).
 	EnchRemoveBinomial
+	// EnchExponential scales the value by base^exponent.
+	EnchExponential
 )
 
 // EnchCondition is an effect's "requirements" condition.

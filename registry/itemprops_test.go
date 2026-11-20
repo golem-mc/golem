@@ -29,3 +29,39 @@ func TestRequiresCorrectTool(t *testing.T) {
 		}
 	}
 }
+
+// A tool rule names its blocks by tag, so a pack's change to the tag changes
+// the mining speed and the drops of the item at once.
+// vanilla: Tool.getMiningSpeed, Tool.isCorrectForDrops
+func TestToolRulesFollowTheLoadedTags(t *testing.T) {
+	t.Cleanup(func() { ApplyPackTags(nil) })
+	axe, obsidian := int32(ItemDiamondAxe), BlockObsidian
+	if CorrectForDrops(axe, obsidian) {
+		t.Fatal("a diamond axe is the wrong tool for obsidian")
+	}
+	if got := MiningSpeed(axe, obsidian); got != 1 {
+		t.Fatalf("speed on obsidian before the pack = %v, want the default 1", got)
+	}
+	// A pack adds obsidian to #mineable/axe, and in one case to the tag that
+	// denies a diamond tool's drops.
+	ApplyPackTags(PackTags{"minecraft:block": {
+		"minecraft:mineable/axe":               {Entries: []PackTagEntry{{ID: "minecraft:obsidian"}}},
+		"minecraft:incorrect_for_diamond_tool": {Entries: []PackTagEntry{{ID: "minecraft:obsidian"}}},
+	}})
+	if got := MiningSpeed(axe, obsidian); got != 8 {
+		t.Errorf("diamond axe speed on obsidian in #mineable/axe = %v, want 8", got)
+	}
+	if CorrectForDrops(axe, obsidian) {
+		t.Error("a diamond axe is right for a block #incorrect_for_diamond_tool denies")
+	}
+	ApplyPackTags(PackTags{"minecraft:block": {
+		"minecraft:mineable/axe": {Entries: []PackTagEntry{{ID: "minecraft:obsidian"}}},
+	}})
+	if !CorrectForDrops(axe, obsidian) {
+		t.Error("a diamond axe is the right tool for obsidian in #mineable/axe")
+	}
+	ApplyPackTags(nil)
+	if got := MiningSpeed(axe, obsidian); got != 1 || CorrectForDrops(axe, obsidian) {
+		t.Errorf("after the pack unloads: speed %v, drops %v", got, CorrectForDrops(axe, obsidian))
+	}
+}

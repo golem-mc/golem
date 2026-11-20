@@ -14,6 +14,8 @@ import (
 // under it and applied by apply. A new behaviour adds a kind here and a
 // place in apply.
 type mobEffects struct {
+	// moves are the mobs that moved this tick while a plugin listens.
+	moves        []mobMove
 	dragonDeaths []dragonDeathEffect
 	// gateways are the mobs found in an end gateway.
 	gateways []gatewayTouch
@@ -281,6 +283,7 @@ func (fx *mobEffects) apply(s *Server, in *mobTickInputs) {
 	applyEach(s, fx.leashDrops, (*Server).finishMobLeashDrop)
 	applyEach(s, fx.petDeaths, (*Server).tellPetDeath)
 	s.fireMobDeaths(fx)
+	s.fireMobMoves(fx.moves)
 	applyEach(s, fx.deaths, (*Server).scatterDrops)
 	// The board's listener broadcasts, so this runs after the mob lock.
 	for _, gone := range fx.scoreDrops {

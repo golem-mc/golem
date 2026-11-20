@@ -13,6 +13,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/raid"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -35,6 +36,8 @@ type dimension struct {
 	here func() *dimension
 	gen  world.Generator
 	w    *world.World
+	// sleepStatus is the dimension's SleepStatus, guarded by Server.sleepMu.
+	sleepStatus sleepCounts
 	// plugin marks a plugin-created dimension, whose seed and spawn are its own.
 	plugin bool
 	// genSpec is the terrain a plugin world was asked for, kept for its
@@ -103,6 +106,10 @@ type dimension struct {
 	border *world.Border
 	// raids is the dimension's raids, guarded by the server's raidsMu.
 	raids *raid.Raids
+	// dragonFight is the dimension's ender dragon fight, nil when its
+	// dimension type has has_ender_dragon_fight false.
+	// vanilla: ServerLevel.dragonFight
+	dragonFight *dragonFight
 	// villages indexes the dimension's village points of interest; it has
 	// its own lock.
 	villages *rules.VillageIndex
@@ -137,6 +144,16 @@ func (s *Server) dimensionOfWorld(w *world.World) *dimension {
 	return s.allDims()[0]
 }
 
+// dragonFightOf returns w's dragon fight, or nil when w is unknown or has none.
+func (s *Server) dragonFightOf(w *world.World) *dragonFight {
+	for _, d := range s.allDims() {
+		if d.w == w {
+			return d.dragonFight
+		}
+	}
+	return nil
+}
+
 // makeDimensions builds the three worlds: the overworld first, because its
 // construction settles the level seed and writes the level.dat the other two
 // derive their generators from, then the nether and the end under its DIM
@@ -166,6 +183,11 @@ func (s *Server) makeDimensions(overworldGen world.Generator, shared sharedNethe
 	if !s.Config.GenerateStructures {
 		netherGen.DisableStructures()
 	}
+	if g, ok := vanillaStemGenerator(s.packStems, world.NetherName, func(gen nbt.Compound, shape world.DimensionShape) (world.Generator, error) {
+		return world.StemGenerator(gen, shape, netherSeed, s.Config.GenerateStructures)
+	}).(*world.NetherGenerator); ok {
+		netherGen, fixture = g, nil
+	}
 	netherGen.SetStructureMobFinalizer(s.structureMobFinalizer(world.NetherName))
 	nether := &dimension{
 		name:   world.NetherName,
@@ -178,6 +200,11 @@ func (s *Server) makeDimensions(overworldGen world.Generator, shared sharedNethe
 	}
 
 	endGen := world.NewEndGenerator(seed)
+	if g, ok := vanillaStemGenerator(s.packStems, world.EndName, func(gen nbt.Compound, shape world.DimensionShape) (world.Generator, error) {
+		return world.StemGenerator(gen, shape, seed, s.Config.GenerateStructures)
+	}).(*world.EndGenerator); ok {
+		endGen = g
+	}
 	end := &dimension{
 		name:   world.EndName,
 		typeID: registry.MustID("minecraft:dimension_type", world.EndType),
@@ -195,7 +222,6 @@ func (s *Server) makeDimensions(overworldGen world.Generator, shared sharedNethe
 			return err
 		}
 	}
-	s.loadDragonFight()
 	return nil
 }
 
@@ -254,6 +280,9 @@ func (s *Server) initDimension(d *dimension, followSpawn bool) error {
 	d.border.SetAbsoluteMax(int32(s.Config.MaxWorldSize))
 	d.w.SetBorder(d.border)
 	s.loadDimensionRaids(d)
+	if d.w.HasEnderDragonFight() {
+		d.dragonFight = s.loadDragonFight(d)
+	}
 	switch {
 	case d.plugin:
 		d.w.SetOwnLevel(s.world)

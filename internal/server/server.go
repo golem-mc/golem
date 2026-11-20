@@ -192,7 +192,6 @@ type Server struct {
 	spinStacks atomic.Uint64
 
 	nextEntityID atomic.Int32
-	dragonFight  *dragonFight
 
 	// Keep-alive timings in nanoseconds, per server so tests can shorten them;
 	// atomic so a test can do so once a player is in.
@@ -626,7 +625,10 @@ type Server struct {
 	// answer takes it alone outside the engine's own lock.
 	minecartsMu sync.Mutex
 	minecarts   []*minecartEntity
-	cartCols    *cartColumns
+	// vehicleMarks is each hull's and cart's transform at the last VehicleMoveEvent pass; tick goroutine only.
+	vehicleMarks map[uuid.UUID]markState
+	vehicleGen   uint32
+	cartCols     *cartColumns
 	// cartColBuffer retains storage between passes; cartCols is nil outside them.
 	cartColBuffer cartColumns
 	// pickupCands retains pickUpMobs' per-world storage between ticks.
@@ -716,8 +718,7 @@ type Server struct {
 	// night skip and sleeping message read, recounted when a sleep begins or
 	// ends or the overworld's players change. It is taken inside mu where both
 	// are needed, like itemsMu.
-	sleepMu     sync.Mutex
-	sleepStatus sleepCounts
+	sleepMu sync.Mutex
 
 	// bedMu makes claiming a bed one step: a sleep's occupied check and the
 	// occupancy it sets run under it, so of two clicks racing for a free bed
@@ -730,6 +731,8 @@ type Server struct {
 	// portalHoldsMu guards it, since a crossing holds its arrival chunk on the
 	// carrying goroutine, not the tick loop.
 	portalHoldsMu sync.Mutex
+	// portalNotes are the portal events the tick's passes queued for the plugins.
+	portalNotes portalNotes
 	// portalTripsDecided counts player nether trips that finished, crossed or
 	// refused; tests wait on it.
 	portalTripsDecided atomic.Int64
@@ -762,7 +765,7 @@ type Server struct {
 	pluginHelp pluginHelp
 }
 
-// sleepCounts is vanilla's SleepStatus: the overworld's players and how many
+// sleepCounts is vanilla's SleepStatus: a dimension's players and how many
 // sleep, as of the last recount. It recounts when a sleep begins or ends,
 // not every tick, so the night skip reads the share as of the last such
 // change, against which the hundred-tick sleepers are counted.
@@ -906,7 +909,9 @@ func newServerWith(cfg *config.Config, seed int64, shared sharedNether, plugins 
 		levelSeed = demoSeed
 	}
 	var gen world.Generator
-	if testNewGenerator != nil && cfg.LevelType == testLevelType {
+	if override := s.earlyOverworldGenerator(levelSeed); override != nil {
+		gen = override
+	} else if testNewGenerator != nil && cfg.LevelType == testLevelType {
 		// The test level-type also overrides the stored one, so a restarted test
 		// world (whose world_gen_settings.dat names the stored type) keeps the test
 		// ground.
@@ -943,6 +948,9 @@ func newServerWith(cfg *config.Config, seed int64, shared sharedNether, plugins 
 		// vanilla: Main.main logs this at WARN with the exception
 		slog.Warn("Failed to load datapacks, can't proceed with server load. You can either fix your datapacks or reset to vanilla with --safeMode", "error", err)
 		return nil, err
+	}
+	if og, ok := gen.(*world.OverworldGenerator); ok {
+		og.RefreshBiomeClimates()
 	}
 	s.world.ReloadClocks()
 	debugSetup := s.world.IsDebug() && !s.world.Existed()
@@ -2222,7 +2230,7 @@ func (s *Server) shutdown() {
 	// so they survive a restart.
 	s.saveBorders()
 	s.saveRaids()
-	s.saveDragonFight()
+	s.saveDragonFights()
 	s.storages.Save()
 	s.entityData.Save()
 	// And the maps, whose id counter stops a restart reusing a map id.

@@ -271,6 +271,7 @@ func (s *Server) tickItems() {
 			continue
 		}
 		state, kind, due := gate.stepPortal(it.w, it.item.X, it.item.Y, it.item.Z, &it.portal, portalCooldownTicks)
+		s.notePortalTouch(nil, it.uuid, it.w, it.item.X, it.item.Y, it.item.Z, state)
 		if !due {
 			if state == rules.EndGatewayState {
 				gatewayTouchAt(&gates, it.w, it.item.X, it.item.Y, it.item.Z, gatewayTouch{

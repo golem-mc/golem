@@ -592,6 +592,12 @@ func bindPluginVehicleEvents(event plugin.Event, host *pluginHost) {
 			e.Vehicle = bindPending(e.Vehicle, p.id, host)
 		}
 		e.Entity = bindPluginEntity(e.Entity, host)
+	case *plugin.VehicleMoveEvent:
+		if p, ok := e.Vehicle.(pendingVehicle); ok {
+			e.Vehicle = bindPending(e.Vehicle, p.id, host)
+		}
+	case *plugin.EntityMoveEvent:
+		e.Entity = bindPluginLiving(e.Entity, host)
 	case *plugin.EntityMountEvent:
 		e.Entity, e.Vehicle = bindPluginEntity(e.Entity, host), bindPluginEntity(e.Vehicle, host)
 	case *plugin.EntityDismountEvent:

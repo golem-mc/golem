@@ -751,6 +751,10 @@ func (r *lootRoller) expand(e *registry.LootEntry) (bool, []lootCandidate) {
 			return false, nil
 		}
 		return true, []lootCandidate{{weight: r.weight(k.Weight, k.Quality), create: func(out func(lootStack)) {
+			if k.Inline != nil {
+				r.rollTable(k.Inline, k.Functions, out)
+				return
+			}
 			r.subTable(k.Table, k.Functions, out)
 		}}}
 	case registry.LootSlots:
@@ -849,6 +853,12 @@ func (r *lootRoller) subTable(name string, funcs []registry.LootFunction, out fu
 	}
 	r.visited[name] = true
 	defer delete(r.visited, name)
+	r.rollTable(&sub, funcs, out)
+}
+
+// rollTable rolls a table's pools into out, running the table's functions
+// and then the entry's on each stack.
+func (r *lootRoller) rollTable(sub *registry.LootTable, funcs []registry.LootFunction, out func(lootStack)) {
 	inner := func(s lootStack) {
 		for _, f := range sub.Functions {
 			s = r.function(f, s)
@@ -895,6 +905,9 @@ func (r *lootRoller) condition(c registry.LootCondition) bool {
 		chance := k.Unenchanted
 		if level > 0 {
 			chance = k.Base + k.PerLevel*float64(level-1)
+			if k.Chance != nil {
+				chance = enchLevelValue(k.Chance, level)
+			}
 		}
 		return float64(r.rng.Float32()) < float64(float32(chance))
 	case registry.LootTableBonus:

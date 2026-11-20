@@ -1,0 +1,1 @@
+{"pools": [{"rolls": 1, "entries": [{"type": "minecraft:loot_table", "value": {"pools": [{"rolls": 2, "entries": [{"type": "minecraft:item", "name": "minecraft:stick"}]}]}}]}]}

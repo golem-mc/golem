@@ -382,6 +382,7 @@ func (s *Server) tickMinecarts() {
 		// a player aboard counts but stays: the player's crossing carries it
 		// (moveMinecartWithRider).
 		state := it.w.BlockAt(rules.BlockOf(it.cart.X), rules.BlockOf(it.cart.Y), rules.BlockOf(it.cart.Z))
+		s.notePortalTouch(nil, it.uuid, it.w, it.cart.X, it.cart.Y, it.cart.Z, state)
 		if kind, due := it.portal.Step(state, rules.PortalTransitionTime, vehiclePortalCooldownTicks); due && !ridden {
 			travels = append(travels, minecartPortalTravel{it: it, kind: kind})
 			continue

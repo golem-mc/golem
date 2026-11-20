@@ -419,6 +419,7 @@ func (t *mobDimTick) step(fx *mobEffects, in *mobTickInputs) {
 	// The buffer is kept for the next tick; cleared so it holds no mob alive.
 	clear(events)
 	t.h.events = events[:0]
+	t.noteMoves(fx)
 	t.scheduleMovement(fx, in)
 	t.countCorpses(fx, dyingCount)
 }
@@ -649,6 +650,7 @@ func (t *mobDimTick) crossPortals(fx *mobEffects) {
 			// cooldown and decay. vanilla: Entity.canUsePortal
 			state = 0
 		}
+		t.s.notePortalTouch(nil, ent.uuid, w, m.X, m.Y, m.Z, state)
 		kind, due := ent.portal.Step(state, rules.PortalTransitionTime, portalCooldownTicks)
 		if !due {
 			if !m.RidesVehicle && !m.Dead {

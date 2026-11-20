@@ -186,6 +186,7 @@ func (s *Server) tickOrbs() {
 			continue
 		}
 		state, kind, due := gate.stepPortal(it.w, it.orb.X, it.orb.Y, it.orb.Z, &it.portal, portalCooldownTicks)
+		s.notePortalTouch(nil, it.uuid, it.w, it.orb.X, it.orb.Y, it.orb.Z, state)
 		if !due {
 			if state == rules.EndGatewayState {
 				gatewayTouchAt(&gates, it.w, it.orb.X, it.orb.Y, it.orb.Z, gatewayTouch{

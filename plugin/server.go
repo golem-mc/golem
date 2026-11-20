@@ -185,6 +185,10 @@ type WorldOptions struct {
 	// when Generator is set. Bukkit:
 	// WorldCreator.biomeProvider (single biome)
 	Biome Key
+	// BonusChest places vanilla's bonus chest near the spawn when the world is
+	// first created; ignored for a world that already exists.
+	// Bukkit: WorldCreator.bonusChest
+	BonusChest bool
 }
 
 // WorldType is the terrain preset of a vanilla-generated world. Bukkit: WorldType

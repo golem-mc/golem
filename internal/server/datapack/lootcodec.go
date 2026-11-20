@@ -332,7 +332,9 @@ func (d lootDecoder) entry(o obj) registry.LootEntry {
 	case "minecraft:loot_table":
 		ref, ok := o["value"].(string)
 		if !ok {
-			fail("an inline loot table entry is not supported by this server")
+			// vanilla: NestedLootTable.CODEC, an Either of a key and a table
+			inline := d.lootTable(object(o["value"], "value"))
+			return registry.LootReference{Inline: &inline, Weight: weight, Quality: quality, Conditions: conds, Functions: d.modifiers(o)}
 		}
 		return registry.LootReference{Table: registry.Qualify(ref), Weight: weight, Quality: quality, Conditions: conds, Functions: d.modifiers(o)}
 	case "minecraft:tag":
@@ -457,13 +459,16 @@ func condition(c obj) registry.LootCondition {
 		return registry.LootRandomChance{Chance: floatAt(c, "chance")}
 	case "minecraft:random_chance_with_enchanted_bonus":
 		enchanted := object(c["enchanted_chance"], "enchanted_chance")
-		if registry.Qualify(str(enchanted["type"], "enchanted_chance type")) != "minecraft:linear" {
-			fail("an enchanted chance that is not linear is not supported by this server")
-		}
-		return registry.LootEnchantedChance{
+		out := registry.LootEnchantedChance{
 			Enchantment: registry.Qualify(requireStr(c, "enchantment")), Unenchanted: requireNum(c, "unenchanted_chance"),
-			Base: requireNum(enchanted, "base"), PerLevel: requireNum(enchanted, "per_level_above_first"),
 		}
+		// The linear form keeps its float64 numbers, as the generated tables do.
+		if registry.Qualify(optStr(enchanted, "type")) == "minecraft:linear" {
+			out.Base, out.PerLevel = requireNum(enchanted, "base"), requireNum(enchanted, "per_level_above_first")
+			return out
+		}
+		out.Chance = levelValueOf(c["enchanted_chance"])
+		return out
 	case "minecraft:table_bonus":
 		var chances []float64
 		for _, v := range list(c["chances"], "chances") {
@@ -1229,11 +1234,19 @@ func (d lootDecoder) modifierHolders(v any) []registry.LootFunction {
 	return out
 }
 
-func enchantOptions(f obj) []string {
-	if _, ok := f["options"]; !ok {
-		return nil
+func enchantOptions(f obj) (names []string, tag string) {
+	v, ok := f["options"]
+	if !ok {
+		return nil, ""
 	}
-	return holderSet(f["options"], "enchantment", registry.EnchantmentTagMembers)
+	names = holderSet(v, "enchantment", registry.EnchantmentTagMembers)
+	if s, isTag := v.(string); isTag {
+		if name, ok := strings.CutPrefix(s, "#"); ok {
+			// The members are read when the function runs, so a reload of the tag applies.
+			return nil, registry.Qualify(name)
+		}
+	}
+	return names, ""
 }
 
 // function reads one item function of the set tools/gen loot reads.
@@ -1394,9 +1407,11 @@ func (d lootDecoder) function(f obj) registry.LootFunction {
 		}
 		return registry.LootSetEnchantments{Enchantments: levels, Add: flag(f, "add", false), Conditions: conds}
 	case "minecraft:enchant_randomly":
-		return registry.LootEnchantRandomly{Options: enchantOptions(f), OnlyCompatible: flag(f, "only_compatible", true), IncludeAdditionalCost: flag(f, "include_additional_cost_component", false), Conditions: conds}
+		options, tag := enchantOptions(f)
+		return registry.LootEnchantRandomly{Options: options, OptionsTag: tag, OnlyCompatible: flag(f, "only_compatible", true), IncludeAdditionalCost: flag(f, "include_additional_cost_component", false), Conditions: conds}
 	case "minecraft:enchant_with_levels":
-		return registry.LootEnchantWithLevels{Levels: intAt(f, "levels"), Options: enchantOptions(f), IncludeAdditionalCost: flag(f, "include_additional_cost_component", false), Conditions: conds}
+		options, tag := enchantOptions(f)
+		return registry.LootEnchantWithLevels{Levels: intAt(f, "levels"), Options: options, OptionsTag: tag, IncludeAdditionalCost: flag(f, "include_additional_cost_component", false), Conditions: conds}
 	case "minecraft:filtered":
 		branch := func(key string) registry.LootFunction {
 			if v, ok := f[key]; ok {

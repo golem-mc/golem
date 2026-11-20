@@ -51,7 +51,40 @@ func loadPackRegistries(dirs []string, skip func(file string, err error)) error 
 	for _, problem := range registry.ApplyPackRegistries(packs) {
 		slog.Warn("Data pack registry entry skipped: " + problem)
 	}
+	if err := loadPackBiomes(dirs, skip); err != nil {
+		return err
+	}
 	return loadPackEnchantments(dirs, skip)
+}
+
+// loadPackBiomes decodes overridden built-in biome files into the climate and
+// natural spawning override tables. New biomes are ignored here because
+// ApplyPackRegistries already logged and skipped them; a file that fails
+// decoding keeps the built-in biome's climate and spawns.
+// vanilla: Biome.DIRECT_CODEC, MobSpawnSettings.CODEC
+func loadPackBiomes(dirs []string, skip func(file string, err error)) error {
+	files, err := datapack.LoadResources(dirs, "worldgen/biome", skip)
+	if err != nil {
+		return err
+	}
+	climates := make(map[registry.Biome]registry.BiomeClimate, len(files))
+	spawns := make(map[registry.Biome]datapack.BiomeOverride, len(files))
+	for name, data := range files {
+		biome, ok := registry.BiomeByName(name)
+		if !ok {
+			continue
+		}
+		ov, err := datapack.DecodeBiome(data)
+		if err != nil {
+			skip(name, err)
+			continue
+		}
+		climates[biome] = ov.Climate
+		spawns[biome] = ov
+	}
+	registry.ApplyPackBiomeClimates(climates)
+	entity.ApplyPackBiomeSpawns(spawns)
+	return nil
 }
 
 // loadPackEnchantments decodes the packs' enchantment files into the
@@ -64,9 +97,17 @@ func loadPackEnchantments(dirs []string, skip func(file string, err error)) erro
 	if err != nil {
 		return err
 	}
+	predicates, err := datapack.LoadResources(dirs, "predicate", skip)
+	if err != nil {
+		return err
+	}
+	predicate := func(name string) ([]byte, bool) {
+		data, ok := predicates[name]
+		return data, ok
+	}
 	defs := make(map[string]registry.EnchantmentDef, len(files))
 	for name, data := range files {
-		def, dropped, err := datapack.DecodeEnchantment(name, data)
+		def, dropped, err := datapack.DecodeEnchantmentWith(name, data, predicate)
 		if err != nil {
 			skip(name, err)
 			continue

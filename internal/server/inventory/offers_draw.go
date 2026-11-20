@@ -61,7 +61,7 @@ func offerOf(t registry.VillagerTrade, villagerType string, rng *rand.Rand, out 
 	}
 	for id := range result.StoredEnchantments {
 		name, _ := registry.EnchantmentName(id)
-		if slices.Contains(t.DoublePrice, name) {
+		if slices.Contains(t.DoublePrice, name) || t.DoublePriceTag != "" && registry.EnchantmentInTag(id, t.DoublePriceTag) {
 			additional *= 2
 			break
 		}

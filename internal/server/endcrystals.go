@@ -23,6 +23,7 @@ const endCrystalEntityID = "minecraft:end_crystal"
 type endCrystalEntity struct {
 	crystal *entity.EndCrystal
 	w       *world.World
+	fight   *dragonFight
 	uuid    uuid.UUID
 	// tags are the scoreboard tags, guarded by the end crystals lock.
 	tags   nbt.StringSet
@@ -112,7 +113,10 @@ func endCrystalMetadata(ent *endCrystalEntity, all bool) []byte {
 
 // registerEndCrystal puts a built crystal into the world and shows it to
 // every player in range.
-func (s *Server) registerEndCrystal(ent *endCrystalEntity) { endCrystalTracker.register(s, ent) }
+func (s *Server) registerEndCrystal(ent *endCrystalEntity) {
+	ent.fight = s.dragonFightOf(ent.w)
+	endCrystalTracker.register(s, ent)
+}
 
 func (s *Server) endCrystalByIDLocked(w *world.World, id int32) *endCrystalEntity {
 	for _, ent := range s.endCrystals {
@@ -139,14 +143,12 @@ func (s *Server) tickEndCrystals() {
 		x, y, z int32
 	}
 	var fires []spot
-	end := s.dimensionByName(world.EndName).w
 	s.lockTick(&s.endCrystalsMu)
 	for _, ent := range s.endCrystals {
-		c := ent.crystal
-		if ent.w != end {
+		if ent.fight == nil {
 			continue
 		}
-		x, y, z := c.FireCell()
+		x, y, z := ent.crystal.FireCell()
 		fires = append(fires, spot{ent.w, x, y, z})
 	}
 	s.unlockTick(&s.endCrystalsMu)
@@ -162,7 +164,7 @@ func (s *Server) tickEndCrystals() {
 // it is the shared tail of a hurt and of a blast that reached it.
 func (s *Server) destroyEndCrystal(ent *endCrystalEntity, sourceID int32) {
 	// vanilla: EnderDragonFight.onCrystalDestroyed
-	if f := s.dragonFight; f != nil && ent.w == s.dimensionByName(world.EndName).w {
+	if f := ent.fight; f != nil {
 		f.mu.Lock()
 		if f.ritual.Stage != "" && slices.Contains(f.ritual.Crystals, ent.uuid) {
 			s.abortDragonRespawn(ent.w, f)

@@ -67,12 +67,12 @@ depends = ["build", "test", "lint", "fmt:check", "fix:check", "tidy:check"]
 
 [tasks.release]
 description = "Build the release binaries with GoReleaser and attach them to the tagged release (the release workflow runs it)"
-tools = { goreleaser = "2.20.2" }
+tools = { goreleaser = "2.20.3" }
 run = "goreleaser release --clean"
 
 [tasks."release:snapshot"]
 description = "Build every release binary into dist/ locally, without publishing or signing"
-tools = { goreleaser = "2.20.2" }
+tools = { goreleaser = "2.20.3" }
 run = "goreleaser release --snapshot --clean --skip=publish,sign"
 
 [tasks.dev]
@@ -270,6 +270,14 @@ run = "go run ./tools/gen fuel"
 [tasks."gen:villagertrades"]
 description = "Regenerate registry/villagertrades_gen.go from the data pack's trade sets and trades"
 run = "go run ./tools/gen villagertrades"
+
+[tasks."gen:soundvariants"]
+description = "Regenerate registry/soundvariants_gen.go from the data pack's *_sound_variant entries"
+run = "go run ./tools/gen soundvariants"
+
+[tasks."gen:variantspawns"]
+description = "Regenerate registry/variantspawns_gen.go from the data pack's variant spawn_conditions"
+run = "go run ./tools/gen variantspawns"
 
 [tasks."gen:blocksupport"]
 description = "Regenerate registry/blocksupport_gen.go by asking the vanilla server's block states"

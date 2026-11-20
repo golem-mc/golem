@@ -2,6 +2,7 @@ package world
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -25,8 +26,8 @@ var builtinShapes = map[string]dimensionShape{
 }
 
 // ShapeOfType reads a dimension type's shape: a built-in type's, or a pack
-// type's min_y, height, logical_height, has_skylight, has_ceiling, has_fixed_time
-// and default_clock from data. It fails
+// type's min_y, height, logical_height, has_skylight, has_ceiling,
+// has_fixed_time, has_ender_dragon_fight and default_clock from data. It fails
 // for a band outside the chunk storage's -64..320.
 func ShapeOfType(name string, data nbt.Tag) (DimensionShape, error) {
 	if shape, ok := builtinShapes[name]; ok {
@@ -62,6 +63,7 @@ func ShapeOfType(name string, data nbt.Tag) (DimensionShape, error) {
 		skyLight:               nbt.BoolField(c, "has_skylight"),
 		ceiling:                nbt.BoolField(c, "has_ceiling"),
 		fixedTime:              nbt.BoolField(c, "has_fixed_time"),
+		dragonFight:            nbt.BoolField(c, "has_ender_dragon_fight"),
 		typ:                    name,
 		defaultClock:           defaultClock,
 		ambientLight:           ambientLight,
@@ -103,7 +105,9 @@ func monsterSpawnLightOf(tag nbt.Tag) (minVal, maxVal int) {
 
 // StemGenerator builds the generator a level stem's generator compound names,
 // for a dimension of shape: a flat generator, or a noise generator whose
-// settings are the overworld's, the nether's or the end's. structures false
+// settings are the overworld's (also large_biomes or amplified, with the
+// multi-noise overworld source or a fixed overworld biome), the nether's or
+// the end's. structures false
 // leaves the nether's fortresses and bastions out.
 // vanilla: LevelStem.CODEC
 func StemGenerator(gen nbt.Compound, shape DimensionShape, seed int64, structures bool) (Generator, error) {
@@ -123,20 +127,41 @@ func StemGenerator(gen nbt.Compound, shape DimensionShape, seed int64, structure
 		return flat, nil
 	case "minecraft:noise":
 		settings, _ := nbt.Get[nbt.String](gen, "settings")
-		if !vanillaBiomeSource(gen, settings) {
-			return nil, fmt.Errorf("noise settings %q with this biome_source are not supported", settings)
-		}
+		src, _ := nbt.Get[nbt.Compound](gen, "biome_source")
+		srcKind, _ := nbt.Get[nbt.String](src, "type")
 		switch settings {
-		case "minecraft:overworld":
-			return NewOverworldGeneratorFor(levelTypeNormal, seed), nil
-		case "minecraft:nether":
+		case "minecraft:overworld", levelTypeLargeBiomes, levelTypeAmplified:
+			g := &OverworldGenerator{preset: presetOf(string(settings))}
+			switch srcKind {
+			case "minecraft:fixed":
+				name, _ := nbt.Get[nbt.String](src, "biome")
+				biome, ok := overworldBiomeNamed(registry.Qualify(string(name)))
+				if !ok {
+					return nil, fmt.Errorf("biome %q is not an overworld biome", name)
+				}
+				g.single, g.hasSingle = biome, true
+				g.terrain, g.preset = g.preset, presetSingleBiome
+			case "minecraft:multi_noise":
+				if preset, _ := nbt.Get[nbt.String](src, "preset"); preset != "minecraft:overworld" {
+					return nil, fmt.Errorf("multi_noise preset %q is not supported", preset)
+				}
+			default:
+				return nil, fmt.Errorf("biome source %q is not supported", srcKind)
+			}
+			g.setSeed(seed)
+			return g, nil
+		case "minecraft:nether", "minecraft:end":
+			if !vanillaBiomeSource(gen, settings) {
+				return nil, fmt.Errorf("noise settings %q with this biome_source are not supported", settings)
+			}
+			if settings == "minecraft:end" {
+				return NewEndGenerator(seed), nil
+			}
 			g := NewNetherGenerator(seed)
 			if !structures {
 				g.DisableStructures()
 			}
 			return g, nil
-		case "minecraft:end":
-			return NewEndGenerator(seed), nil
 		}
 		return nil, fmt.Errorf("noise settings %q are not supported", settings)
 	}
@@ -144,20 +169,40 @@ func StemGenerator(gen nbt.Compound, shape DimensionShape, seed int64, structure
 }
 
 // vanillaBiomeSource reports whether gen's biome_source is the one vanilla's
-// world_preset/normal.json pairs with the noise settings.
+// world_preset/normal.json pairs with the nether or end noise settings.
 func vanillaBiomeSource(gen nbt.Compound, settings nbt.String) bool {
 	src, _ := nbt.Get[nbt.Compound](gen, "biome_source")
 	kind, _ := nbt.Get[nbt.String](src, "type")
 	preset, _ := nbt.Get[nbt.String](src, "preset")
-	switch settings {
-	case "minecraft:overworld":
-		return kind == "minecraft:multi_noise" && preset == "minecraft:overworld"
-	case "minecraft:nether":
+	if settings == "minecraft:nether" {
 		return kind == "minecraft:multi_noise" && preset == "minecraft:nether"
-	case "minecraft:end":
-		return kind == "minecraft:the_end"
 	}
-	return true
+	return kind == "minecraft:the_end"
+}
+
+// StemOverworld builds the generator of a stem that replaces minecraft:overworld
+// before the world is opened: StemGenerator's, with levelSeed settling the seed
+// like NewGenerator's (empty leaves it to NewWorld). It fails for a generator
+// that is not an overworld's.
+// vanilla: WorldDimensions.bake
+func StemOverworld(gen nbt.Compound, shape DimensionShape, levelSeed string, structures bool) (Generator, error) {
+	spec := strings.TrimSpace(levelSeed)
+	var seed int64
+	if spec != "" {
+		seed = ParseSeed(spec)
+	}
+	g, err := StemGenerator(gen, shape, seed, structures)
+	if err != nil {
+		return nil, err
+	}
+	switch t := g.(type) {
+	case *OverworldGenerator:
+		t.deferred = spec == ""
+		return t, nil
+	case *FlatGenerator:
+		return flatGenerator(t, spec), nil
+	}
+	return nil, fmt.Errorf("generator %T is not an overworld's", g)
 }
 
 // NewCustomDimensionWorld builds a pack's dimension attached to the world under
