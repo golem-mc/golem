@@ -183,3 +183,97 @@ func TestPluginAdvancementLookup(t *testing.T) {
 		t.Fatal("unknown advancement")
 	}
 }
+
+// vanilla: PackRepository.getAvailablePacks, PackRepository.getSelectedPacks, DataPackCommand
+func TestPluginDataPacks(t *testing.T) {
+	t.Parallel()
+	var host plugin.Server
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelName = t.TempDir()
+	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "packs", Plugin: &testPlugin{enable: func(s plugin.Server) error { host = s; return nil }}}}, servertest.OpsListing(t, "Tester"))
+	c := pluginJoin(t, srv, "Tester")
+
+	wantFresh := []plugin.DataPack{
+		{
+			ID:          "vanilla",
+			Title:       plugin.Translate("dataPack.vanilla.name"),
+			Description: plugin.Translate("dataPack.vanilla.description"),
+			Source:      plugin.DataPackBuiltIn,
+			Enabled:     true,
+		},
+		{
+			ID:          "minecart_improvements",
+			Title:       plugin.Translate("dataPack.minecart_improvements.name"),
+			Description: plugin.Translate("dataPack.minecart_improvements.description"),
+			Source:      plugin.DataPackFeature,
+			Enabled:     false,
+		},
+		{
+			ID:          "redstone_experiments",
+			Title:       plugin.Translate("dataPack.redstone_experiments.name"),
+			Description: plugin.Translate("dataPack.redstone_experiments.description"),
+			Source:      plugin.DataPackFeature,
+			Enabled:     false,
+		},
+		{
+			ID:          "trade_rebalance",
+			Title:       plugin.Translate("dataPack.trade_rebalance.name"),
+			Description: plugin.Translate("dataPack.trade_rebalance.description"),
+			Source:      plugin.DataPackFeature,
+			Enabled:     false,
+		},
+	}
+	got := host.DataPacks()
+	if len(got) != len(wantFresh) {
+		t.Fatalf("fresh DataPacks = %+v, want %+v", got, wantFresh)
+	}
+	for i, want := range wantFresh {
+		if got[i].ID != want.ID || got[i].Title.Translate != want.Title.Translate || got[i].Description.Translate != want.Description.Translate || got[i].Source != want.Source || got[i].Enabled != want.Enabled {
+			t.Fatalf("fresh DataPacks[%d] = %+v, want %+v", i, got[i], want)
+		}
+	}
+
+	servertest.WritePackFile(t, cfg, "custom", "x/function/f.mcfunction", "return 1\n")
+	c.ChatCommand("datapack list")
+	servertest.FeedbackComponent(t, c)
+	servertest.FeedbackComponent(t, c)
+
+	findPack := func(id string) (plugin.DataPack, int) {
+		for i, p := range host.DataPacks() {
+			if p.ID == id {
+				return p, i
+			}
+		}
+		t.Fatalf("pack %q not found in %+v", id, host.DataPacks())
+		return plugin.DataPack{}, -1
+	}
+
+	custom, idx := findPack("file/custom")
+	if custom.Source != plugin.DataPackWorld || custom.Enabled || custom.Title.Literal != "custom" || custom.Description.Literal != "custom" || idx == 0 {
+		t.Fatalf("available world pack = %+v at %d", custom, idx)
+	}
+
+	c.ChatCommand(`datapack enable "file/custom" first`)
+	servertest.FeedbackComponent(t, c)
+	custom, idx = findPack("file/custom")
+	if !custom.Enabled || idx != 0 {
+		t.Fatalf("enabled first world pack = %+v at %d, want index 0", custom, idx)
+	}
+	if _, vanillaIdx := findPack("vanilla"); vanillaIdx != 1 {
+		t.Fatalf("vanilla index = %d, want 1", vanillaIdx)
+	}
+
+	c.ChatCommand(`datapack disable "file/custom"`)
+	servertest.FeedbackComponent(t, c)
+	custom, idx = findPack("file/custom")
+	if custom.Enabled || idx == 0 {
+		t.Fatalf("disabled world pack = %+v at %d", custom, idx)
+	}
+
+	c.ChatCommand(`datapack enable "file/custom" last`)
+	servertest.FeedbackComponent(t, c)
+	custom, idx = findPack("file/custom")
+	if !custom.Enabled || idx != 1 {
+		t.Fatalf("enabled last world pack = %+v at %d, want index 1", custom, idx)
+	}
+}

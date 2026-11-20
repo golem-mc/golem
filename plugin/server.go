@@ -98,6 +98,9 @@ type Server interface {
 	Recipes() Recipes
 	// Advancement answers the advancement with this key.
 	Advancement(key Key) (Advancement, bool)
+	// DataPacks answers every known data pack, the enabled ones first in
+	// load order, then the rest. Paper: DatapackManager.getPacks
+	DataPacks() []DataPack
 	// Scoreboard answers the main scoreboard, the one /scoreboard and the
 	// world's save use.
 	Scoreboard() Scoreboard
@@ -377,3 +380,24 @@ type Advancement interface {
 	Criteria() []string
 	Parent() (Advancement, bool)
 }
+
+// DataPack is a data pack the server knows, enabled or not. Paper: Datapack
+type DataPack struct {
+	// ID is "vanilla", a bundled pack's name, or "file/<folder>", as
+	// /datapack shows it.
+	ID string
+	// Title and Description are the pack's, as /datapack list shows them
+	// (translatable for the bundled packs).
+	Title, Description Text
+	Source             DataPackSource
+	Enabled            bool
+}
+
+// DataPackSource is where a pack comes from. Paper: Datapack.Source
+type DataPackSource uint8
+
+const (
+	DataPackBuiltIn DataPackSource = iota // vanilla
+	DataPackFeature                       // bundled, gated by a feature flag
+	DataPackWorld                         // <world>/datapacks
+)
