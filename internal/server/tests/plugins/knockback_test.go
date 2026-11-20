@@ -1,8 +1,11 @@
 package plugins_test
 
 import (
+	"math"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/plugin"
@@ -139,5 +142,98 @@ func TestPluginEntityKnockbackArrowAndWindCharge(t *testing.T) {
 				t.Errorf("cancelled %s moved cow: (%v, %v, %v)", kind, vx, vy, vz)
 			}
 		})
+	}
+}
+
+// vanilla: Player.attack, AbstractArrow.onHitEntity, LivingEntity.knockback
+func TestPluginEntityKnockbackPlayer(t *testing.T) {
+	t.Parallel()
+	asked, cancel, wantPusher := 0, true, true
+	var custom *plugin.Vec3
+	var victimID, attackerID int32
+	cfg := servertest.SurvivalTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "kbplayer", Plugin: &testPlugin{enable: func(s plugin.Server) error {
+		plugin.Listen(s, func(e *plugin.EntityKnockbackEvent) {
+			asked++
+			if e.Entity.Type() != registry.EntityTypePlayer || e.Entity.ID() != victimID || e.Knockback == (plugin.Vec3{}) {
+				t.Errorf("entity %v (id %d) knockback %v", e.Entity.Type(), e.Entity.ID(), e.Knockback)
+			}
+			if wantPusher && (e.Pusher == nil || e.Pusher.ID() != attackerID) {
+				t.Errorf("pusher = %v, want attacker %d", e.Pusher, attackerID)
+			}
+			if custom != nil {
+				e.Knockback = *custom
+			}
+			e.SetCancelled(cancel)
+		})
+		return nil
+	}}}})
+	victim := servertest.DialServer(t, srv)
+	victim.ViewAsk = config.MinDistance
+	victimID = victim.JoinAs("Victim")
+	victim.MoveToGround(2.5, 64, 0.5, true)
+	victim.Settle()
+
+	attacker := servertest.DialServer(t, srv)
+	attacker.ViewAsk = config.MinDistance
+	attackerID = attacker.JoinAs("Attacker")
+	attacker.MoveToGround(0.5, 64, 0.5, true)
+	attacker.Settle()
+
+	servertest.HoldTicks(t, srv)
+	victimMotion := func() (v [3]float64, got bool) {
+		victim.SettleAndCollect(func(id int32, data []byte) {
+			if id != protocol.IDPlaySetEntityMotion {
+				return
+			}
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() == victimID {
+				v[0], v[1], v[2] = r.ReadLpVec3()
+				got = true
+			}
+		})
+		return v, got
+	}
+
+	victim.Settle()
+	attacker.Attack(victimID)
+	fired(t, srv, attacker, "player melee knockback cancel", &asked, 1)
+	if v, got := victimMotion(); got {
+		t.Fatalf("cancelled melee sent motion %v to player", v)
+	}
+	if vx, vy, vz := srv.PlayerVelocity("Victim"); vx != 0 || vy > 0 || vz != 0 {
+		t.Fatalf("cancelled melee moved player: (%v, %v, %v)", vx, vy, vz)
+	}
+
+	servertest.RunTicks(t, srv, 15)
+	victim.Settle()
+	cancel = false
+	want := plugin.Vec3{X: 0, Y: 0.75, Z: 0}
+	custom = &want
+	attacker.Attack(victimID)
+	fired(t, srv, attacker, "player melee knockback edit", &asked, 2)
+	if v, got := victimMotion(); !got || math.Abs(v[0]) > 1e-3 || v[1] < 0.6 || math.Abs(v[2]) > 1e-3 {
+		t.Errorf("edited melee knockback motion = %v (got=%v), want ~%v", v, got, want)
+	}
+
+	servertest.RunTicks(t, srv, 15)
+	victim.Settle()
+	wantPusher, cancel, custom = false, true, nil
+	srv.ShootArrow(1.0, 64.8, 0.5, 1.5, 0, 0)
+	for range 10 {
+		servertest.RunTicks(t, srv, 1)
+		if asked >= 3 {
+			break
+		}
+	}
+	if asked != 3 {
+		t.Fatalf("arrow knockback on player: asked %d, want 3", asked)
+	}
+	if v, got := victimMotion(); got {
+		t.Errorf("cancelled arrow sent motion %v to player", v)
+	}
+	if vx, vy, vz := srv.PlayerVelocity("Victim"); vx != 0 || vy > 0 || vz != 0 {
+		t.Errorf("cancelled arrow moved player: (%v, %v, %v)", vx, vy, vz)
 	}
 }

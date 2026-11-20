@@ -2552,10 +2552,10 @@ func (c *client) knockbackFromPointExtraBy(w *world.World, pusher uuid.UUID, x, 
 	vx, vy, vz := rules.KnockbackExtra(to.X-x, to.Z-z, 0, 0, scale, to.OnGround, c.srv.levelRng)
 	if c.srv.listeningKnockback() {
 		old := c.player.Velocity()
-		v := knockVelocityStep(old, vx, vy, vz, to.OnGround)
+		v := player.KnockStep(old, vx, vy, vz, to.OnGround)
 		if extra > 0 {
 			vx, vy, vz = rules.KnockbackExtraOnly(yaw, extra, scale, to.OnGround)
-			v = knockVelocityStep(v, vx, vy, vz, to.OnGround)
+			v = player.KnockStep(v, vx, vy, vz, to.OnGround)
 		}
 		c.applyPlayerKnockback(w, pusher, old, v, when)
 		return
@@ -2584,7 +2584,7 @@ func (c *client) knockbackFromPointExtraOnlyBy(w *world.World, pusher uuid.UUID,
 	vx, vy, vz := rules.KnockbackExtraOnly(yaw, extra, scale, onGround)
 	if c.srv.listeningKnockback() {
 		old := c.player.Velocity()
-		v := knockVelocityStep(old, vx, vy, vz, onGround)
+		v := player.KnockStep(old, vx, vy, vz, onGround)
 		c.applyPlayerKnockback(w, pusher, old, v, when)
 		return
 	}
@@ -2619,7 +2619,7 @@ func (c *client) arrowKnockbackBy(w *world.World, pusher uuid.UUID, flightVX, fl
 		old := c.player.Velocity()
 		v := old
 		if full {
-			v = knockVelocityStep(v, kx, ky, kz, onGround)
+			v = player.KnockStep(v, kx, ky, kz, onGround)
 		}
 		v.X += px
 		v.Y += py
@@ -2634,17 +2634,6 @@ func (c *client) arrowKnockbackBy(w *world.World, pusher uuid.UUID, flightVX, fl
 	}
 	c.player.AddVelocity(px, py, pz)
 	c.syncVelocity(w, c.player.Velocity(), when)
-}
-
-// knockVelocityStep is player.Player.Knock on a value copy so the delta can be
-// offered to EntityKnockbackEvent before mutating the player.
-func knockVelocityStep(v player.Velocity, x, y, z float64, onGround bool) player.Velocity {
-	v.X = v.X/2 + x
-	v.Z = v.Z/2 + z
-	if onGround {
-		v.Y = math.Min(0.4, v.Y/2+y)
-	}
-	return v
 }
 
 func (c *client) applyPlayerKnockback(w *world.World, pusher uuid.UUID, old, target player.Velocity, when velocitySync) {
