@@ -73,3 +73,20 @@ func overworldShapeForTest(t *testing.T) DimensionShape {
 	}
 	return shape
 }
+
+func TestPluginLargeBiomesAndAmplified(t *testing.T) {
+	shape := overworldShapeForTest(t)
+	for typ, want := range map[string]overworldPreset{"large_biomes": presetLargeBiomes, "amplified": presetAmplified} {
+		g, err := NewPluginOverworldGenerator(PluginGenSpec{Type: typ}, shape, 7)
+		if err != nil {
+			t.Fatalf("%s: %v", typ, err)
+		}
+		og, ok := g.(*OverworldGenerator)
+		if !ok {
+			t.Fatalf("%s: generator is %T", typ, g)
+		}
+		if og.preset != want {
+			t.Errorf("%s: preset = %v, want %v", typ, og.preset, want)
+		}
+	}
+}

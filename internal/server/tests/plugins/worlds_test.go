@@ -318,3 +318,39 @@ func TestPluginCreateWorldBiome(t *testing.T) {
 		}
 	})
 }
+
+// A reload with plain options rebuilds the world from the saved options.
+func TestPluginCreateWorldReloadKeepsOptions(t *testing.T) {
+	t.Parallel()
+	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	var w plugin.World
+	run(func() {
+		var err error
+		w, err = h.CreateWorld(plugin.WorldOptions{Key: flatKey, Dimension: plugin.MinecraftKey("overworld"), Type: plugin.WorldTypeFlat, NoStructures: true, Seed: 5,
+			GeneratorSettings: `{"layers":[{"block":"minecraft:stone","height":2},{"block":"minecraft:sand","height":1}],"biome":"minecraft:desert"}`})
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	if w == nil {
+		t.FailNow()
+	}
+	if err := unloadFlat(t, run, h, w, true); err != nil {
+		t.Fatal(err)
+	}
+	var loaded atomic.Bool
+	run(func() {
+		w, err := h.CreateWorld(plugin.WorldOptions{Key: flatKey, Dimension: plugin.MinecraftKey("overworld")})
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) { loaded.Store(true) })
+	})
+	awaitPluginIO(t, srv, "flat chunk", loaded.Load)
+	for y, want := range map[int32]registry.Block{-64: registry.BlockStone, -63: registry.BlockStone, -62: registry.BlockSand, -61: registry.BlockAir} {
+		if got := srv.LoadBlockInDimension("test:flat", 0, y, 0); got != uint16(want.DefaultState()) {
+			t.Errorf("y=%d = %d, want %v", y, got, want)
+		}
+	}
+}
