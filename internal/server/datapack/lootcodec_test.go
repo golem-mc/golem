@@ -100,15 +100,16 @@ func TestDecodeLootTableMatchesTheGeneratedTables(t *testing.T) {
 			continue
 		}
 		got, err := DecodeLootTable(data)
-		if err != nil && strings.Contains(err.Error(), "inline loot table") {
-			continue // the generator hoists inline tables into references
-		}
 		if err != nil {
 			t.Errorf("%s: %v", name, err)
 			continue
 		}
+		gotCanon := canon(reflect.ValueOf(got))
+		if strings.Contains(gotCanon, inlineMark) {
+			continue // the generator hoists inline tables into references
+		}
 		checked++
-		if canon(reflect.ValueOf(got)) != canon(reflect.ValueOf(want)) {
+		if gotCanon != canon(reflect.ValueOf(want)) {
 			t.Errorf("%s decodes differently from the generated table", name)
 		}
 	}
@@ -118,12 +119,19 @@ func TestDecodeLootTableMatchesTheGeneratedTables(t *testing.T) {
 	t.Logf("compared %d tables", checked)
 }
 
+const inlineMark = "<inline loot table>"
+
 // canon prints a value with nil and empty slices alike, so two tables that
 // differ only in that compare equal. It also prints what the generator
 // rewrites as the generator writes it: a predicate reference inlined,
 // match_block as any_of over block_state_property, and a number at the
 // float precision vanilla reads it with.
 func canon(v reflect.Value) string {
+	if v.CanInterface() {
+		if r, ok := v.Interface().(registry.LootReference); ok && r.Inline != nil {
+			return inlineMark
+		}
+	}
 	switch v.Kind() {
 	case reflect.Interface, reflect.Pointer:
 		if v.IsNil() {
