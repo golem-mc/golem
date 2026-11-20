@@ -76,34 +76,13 @@ func catGoals(m *Mob) []Goal {
 // isBabyTurtleAshore is Turtle.BABY_ON_LAND_SELECTOR.
 func isBabyTurtleAshore(o *Mob) bool { return o.Type == TypeTurtle && o.IsBaby() && !o.InWater() }
 
-// catVariants are the cat_variant entries; every one but all_black has an
-// unconditional priority-0 spawn condition.
-// vanilla: CatVariants.bootstrap
-var catVariants = func() []string {
-	r, _ := registry.Get("minecraft:cat_variant")
-	return r.Entries
-}()
-
-// allBlackMoon is the moon brightness all_black's priority-0 condition needs.
-// The structure condition (priority 1) is applied by the arrival caller.
-// vanilla: CatVariants.bootstrap, MoonBrightnessCheck
-const allBlackMoon = 0.9
-
-// finalizeCat rolls the variant among those whose spawn condition holds under
-// the moon brightness given, then the sound variant. blackCat is all_black's
-// priority-1 structure condition, which leaves it the only candidate.
-// vanilla: Cat.finalizeSpawn, VariantUtils.selectVariantToSpawn, Util.getRandomSafe
-func (m *Mob) finalizeCat(dice Dice, moon float32, blackCat bool) {
-	open := []string{"minecraft:all_black"}
-	if !blackCat {
-		open = open[:0]
-		for _, v := range catVariants {
-			if v != "minecraft:all_black" || moon >= allBlackMoon {
-				open = append(open, v)
-			}
-		}
+// finalizeCat rolls the variant from the cat_variant spawn conditions, then
+// the sound variant.
+// vanilla: Cat.finalizeSpawn, VariantUtils.selectVariantToSpawn
+func (m *Mob) finalizeCat(dice Dice, ctx rules.SpawnContext) {
+	if v, ok := rules.SelectVariantToSpawn("minecraft:cat_variant", ctx, dice); ok {
+		m.Variant = v
 	}
-	m.Variant = open[dice.NextIntN(int32(len(open)))]
 	m.SoundVariant = rules.RandomRegistryEntry("minecraft:cat_sound_variant", dice)
 }
 

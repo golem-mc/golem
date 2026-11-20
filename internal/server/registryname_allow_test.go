@@ -33,6 +33,7 @@ var registryNameAllowed = map[string]nameAllowance{
 	"registry/stackvillager.go: string registry lookup":                             {count: 1, boundary: "entity type tag decoded from component data"},
 	"registry/stateset.go: name-keyed block states":                                 {count: 2, boundary: "registry table loading"},
 	"registry/tagpack.go: case on an entity name":                                   {count: 2, boundary: "registry table loading"},
+	"registry/variantspawns.go: string registry lookup":                             {count: 3, boundary: "data pack and generated variant spawn biome names and tag names"},
 	"internal/server/advancement/triggers.go: string block lookup":                  {count: 1, issue: 6380},
 	"internal/server/advancement/triggers.go: string registry lookup":               {count: 1, issue: 6380},
 	"internal/server/blocklogic/fire.go: string block lookup":                       {count: 2, issue: 6380},

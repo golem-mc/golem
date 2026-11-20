@@ -4,6 +4,9 @@ package rules
 // place and dice.
 
 import (
+	"math"
+	"slices"
+
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -50,22 +53,77 @@ func SheepSpawnColour(biome registry.Biome, rng IntDice) string {
 	return "pink"
 }
 
-// FarmAnimalVariant picks a newborn cow, pig or chicken's variant from their
-// shared spawn conditions: warm and cold at priority 1 in their tag,
-// temperate at 0 anywhere, uniform among the top-priority matches.
-// vanilla: VariantUtils.selectVariantToSpawn
-func FarmAnimalVariant(biome registry.Biome, rng IntDice) string {
+// SpawnContext is the world state at a mob's spawn position that variant
+// spawn conditions inspect.
+// vanilla: SpawnContext
+type SpawnContext struct {
+	Biome          registry.Biome
+	MoonBrightness float32
+	// InStructure reports whether the spawn position is inside a piece of the
+	// named structure; nil means no structure.
+	// vanilla: StructureManager.getStructureWithPieceAt
+	InStructure func(structureID string) bool
+}
+
+// SelectVariantToSpawn chooses a variant entry from the named registry using
+// each entry's spawn_conditions, drawing uniformly among the matches of the
+// highest priority. Returns ("", false) without drawing when nothing matches.
+// vanilla: VariantUtils.selectVariantToSpawn, PriorityProvider.pick
+func SelectVariantToSpawn(registryName string, ctx SpawnContext, rng IntDice) (string, bool) {
+	entries := registry.VariantSpawns(registryName)
 	var matched []string
-	if biome.InTag(registry.BiomeTagIDSpawnsWarmVariantFarmAnimals) {
-		matched = append(matched, "minecraft:warm")
-	}
-	if biome.InTag(registry.BiomeTagIDSpawnsColdVariantFarmAnimals) {
-		matched = append(matched, "minecraft:cold")
+	best := math.MinInt
+	for _, entry := range entries {
+		for _, sel := range entry.Selectors {
+			if sel.Priority < best {
+				continue
+			}
+			if !matchesSpawnCondition(sel, ctx) {
+				continue
+			}
+			if sel.Priority > best {
+				best = sel.Priority
+				matched = matched[:0]
+			}
+			matched = append(matched, entry.Name)
+		}
 	}
 	if len(matched) == 0 {
-		matched = append(matched, "minecraft:temperate")
+		return "", false
 	}
-	return matched[rng.NextIntN(int32(len(matched)))]
+	return matched[rng.NextIntN(int32(len(matched)))], true
+}
+
+func matchesSpawnCondition(sel registry.VariantSpawnSelector, ctx SpawnContext) bool {
+	switch sel.Kind {
+	case registry.SpawnConditionAlways:
+		return true
+	case registry.SpawnConditionBiome:
+		return sel.MatchesBiome(ctx.Biome)
+	case registry.SpawnConditionMoonBrightness:
+		moon := float64(ctx.MoonBrightness)
+		if sel.HasMinMoon && moon < sel.MinMoon {
+			return false
+		}
+		if sel.HasMaxMoon && moon > sel.MaxMoon {
+			return false
+		}
+		return true
+	case registry.SpawnConditionStructure:
+		if ctx.InStructure == nil {
+			return false
+		}
+		if sel.StructureTag != "" {
+			members, ok := registry.StructureTagMembers(sel.StructureTag)
+			if !ok {
+				return false
+			}
+			return slices.ContainsFunc(members, ctx.InStructure)
+		}
+		return slices.ContainsFunc(sel.Structures, ctx.InStructure)
+	default:
+		return false
+	}
 }
 
 // RandomRegistryEntry draws one entry of a registry uniformly; "" for an
@@ -77,39 +135,4 @@ func RandomRegistryEntry(name string, rng IntDice) string {
 		return ""
 	}
 	return r.Entries[rng.NextIntN(int32(len(r.Entries)))]
-}
-
-// wolfBiomeVariants are the wolf variants whose spawn condition is a biome
-// or a biome tag at priority 1; the pale wolf is the priority-0 fallback.
-// vanilla: WolfVariants.bootstrap
-var wolfBiomeVariants = []struct {
-	variant string
-	biome   registry.Biome
-	tag     registry.BiomeTagID // the condition when biome is NoBiome
-}{
-	{"minecraft:spotted", registry.NoBiome, registry.BiomeTagIDIsSavanna},
-	{"minecraft:snowy", registry.BiomeGrove, 0},
-	{"minecraft:black", registry.BiomeOldGrowthPineTaiga, 0},
-	{"minecraft:ashen", registry.BiomeSnowyTaiga, 0},
-	{"minecraft:rusty", registry.NoBiome, registry.BiomeTagIDIsJungle},
-	{"minecraft:woods", registry.BiomeForest, 0},
-	{"minecraft:chestnut", registry.BiomeOldGrowthSpruceTaiga, 0},
-	{"minecraft:striped", registry.NoBiome, registry.BiomeTagIDIsBadlands},
-}
-
-// WolfVariant picks the variant a wolf spawned in the biome takes: a uniform
-// draw among the matches of the highest priority, the pale wolf where no
-// biome matches.
-// vanilla: VariantUtils.selectVariantToSpawn, WolfVariants.bootstrap
-func WolfVariant(biome registry.Biome, rng IntDice) string {
-	var matched []string
-	for _, v := range wolfBiomeVariants {
-		if (v.biome != registry.NoBiome && v.biome == biome) || (v.biome == registry.NoBiome && biome.InTag(v.tag)) {
-			matched = append(matched, v.variant)
-		}
-	}
-	if len(matched) == 0 {
-		matched = append(matched, "minecraft:pale")
-	}
-	return matched[rng.NextIntN(int32(len(matched)))]
 }

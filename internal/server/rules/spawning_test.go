@@ -127,24 +127,67 @@ func TestSheepSpawnColourFollowsTheBiome(t *testing.T) {
 	}
 }
 
-// TestFarmAnimalVariantFollowsTheBiome holds the variant pick to what a
+// TestSelectVariantToSpawnFollowsTheBiome holds the variant pick to what a
 // vanilla server chose for unsummoned cows, pigs and chickens: cold in
 // snowy plains, warm in the desert, temperate in plains.
-func TestFarmAnimalVariantFollowsTheBiome(t *testing.T) {
+func TestSelectVariantToSpawnFollowsTheBiome(t *testing.T) {
 	rng := levelgen.NewXoroshiroRandom(1)
-	for biome, want := range map[string]string{
-		"minecraft:snowy_plains":  "minecraft:cold",
-		"minecraft:taiga":         "minecraft:cold",
-		"minecraft:desert":        "minecraft:warm",
-		"minecraft:nether_wastes": "minecraft:warm",
-		"minecraft:plains":        "minecraft:temperate",
-		"minecraft:no_such_biome": "minecraft:temperate",
-	} {
-		for range 50 {
-			if got := FarmAnimalVariant(testBiome(biome), rng); got != want {
-				t.Fatalf("FarmAnimalVariant(%s) = %s, want %s", biome, got, want)
+	for _, reg := range []string{"minecraft:pig_variant", "minecraft:cow_variant", "minecraft:chicken_variant"} {
+		for biome, want := range map[string]string{
+			"minecraft:snowy_plains":  "minecraft:cold",
+			"minecraft:taiga":         "minecraft:cold",
+			"minecraft:desert":        "minecraft:warm",
+			"minecraft:nether_wastes": "minecraft:warm",
+			"minecraft:plains":        "minecraft:temperate",
+			"minecraft:no_such_biome": "minecraft:temperate",
+		} {
+			for range 20 {
+				got, ok := SelectVariantToSpawn(reg, SpawnContext{Biome: testBiome(biome)}, rng)
+				if !ok || got != want {
+					t.Fatalf("SelectVariantToSpawn(%s, %s) = (%s, %v), want (%s, true)", reg, biome, got, ok, want)
+				}
 			}
 		}
+	}
+}
+
+// TestSelectVariantToSpawnConditions checks moon_brightness and structure
+// conditions on cat_variant: swamp_hut forces all_black at priority 1, full
+// moon includes all_black at priority 0, and a dark moon excludes it.
+func TestSelectVariantToSpawnConditions(t *testing.T) {
+	rng := levelgen.NewXoroshiroRandom(7)
+	inHut := SpawnContext{
+		Biome:          testBiome("minecraft:swamp"),
+		MoonBrightness: 0,
+		InStructure:    func(id string) bool { return id == "minecraft:swamp_hut" },
+	}
+	for range 20 {
+		got, ok := SelectVariantToSpawn("minecraft:cat_variant", inHut, rng)
+		if !ok || got != "minecraft:all_black" {
+			t.Fatalf("hut cat = (%s, %v), want (minecraft:all_black, true)", got, ok)
+		}
+	}
+	darkMoon := SpawnContext{Biome: testBiome("minecraft:plains"), MoonBrightness: 0.5}
+	for range 200 {
+		got, ok := SelectVariantToSpawn("minecraft:cat_variant", darkMoon, rng)
+		if !ok || got == "minecraft:all_black" {
+			t.Fatalf("dark moon cat = (%s, %v), want non-all_black", got, ok)
+		}
+	}
+	fullMoon := SpawnContext{Biome: testBiome("minecraft:plains"), MoonBrightness: 1.0}
+	sawAllBlack := false
+	for range 200 {
+		got, ok := SelectVariantToSpawn("minecraft:cat_variant", fullMoon, rng)
+		if !ok {
+			t.Fatal("full moon cat returned no match")
+		}
+		if got == "minecraft:all_black" {
+			sawAllBlack = true
+			break
+		}
+	}
+	if !sawAllBlack {
+		t.Error("full moon never drew minecraft:all_black in 200 rolls")
 	}
 }
 

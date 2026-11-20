@@ -911,7 +911,14 @@ func OriginalMobs(w SpawnWorld, seed int64, pos ChunkPos, nextID func() int32, d
 		// Each animal's biome is read at its own block, so one across a biome
 		// edge takes its side; sheep colour and variants read it.
 		// vanilla: SpawnContext.create
-		m.FinalizeSpawn(r.Region, w.Biome(rules.BlockOf(r.X), rules.BlockOf(r.Y), rules.BlockOf(r.Z)), r.Group, difficulty(r.X, r.Z))
+		bx, by, bz := rules.BlockOf(r.X), rules.BlockOf(r.Y), rules.BlockOf(r.Z)
+		local := difficulty(r.X, r.Z)
+		ctx := rules.SpawnContext{
+			Biome:          w.Biome(bx, by, bz),
+			MoonBrightness: local.Moon,
+			InStructure:    StructurePredicate(w, bx, by, bz),
+		}
+		m.FinalizeSpawnAt(r.Region, ctx, r.Group, local)
 		herd = append(herd, m)
 	})
 	return herd

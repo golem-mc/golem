@@ -2720,14 +2720,29 @@ func (m *Mob) FedBy(stack protocol.ItemStack) bool {
 // are decided by the pack's SpawnGroupData or alone, and equipment rolls
 // read the local difficulty.
 func (m *Mob) FinalizeSpawn(dice Dice, biome registry.Biome, group *SpawnGroup, local rules.LocalDifficulty) {
-	m.finalizeSpawn(dice, biome, group, local, false, false)
+	m.finalizeSpawn(dice, rules.SpawnContext{Biome: biome, MoonBrightness: local.Moon}, group, local, false)
+}
+
+// FinalizeSpawnAt is FinalizeSpawn with the full spawn context (including
+// structure membership at the spawn block).
+func (m *Mob) FinalizeSpawnAt(dice Dice, ctx rules.SpawnContext, group *SpawnGroup, local rules.LocalDifficulty) {
+	m.finalizeSpawn(dice, ctx, group, local, false)
 }
 
 // FinalizeStructureSpawn finalizes a template mob with the STRUCTURE spawn
 // reason on dice, the WorldGenRegion's random at generation. blackCat is the
 // swamp hut's cat. vanilla: CatVariants, StructureCheck on #cats_spawn_as_black
 func (m *Mob) FinalizeStructureSpawn(dice Dice, biome registry.Biome, blackCat bool, local rules.LocalDifficulty) {
-	m.finalizeSpawn(dice, biome, nil, local, true, blackCat)
+	ctx := rules.SpawnContext{Biome: biome, MoonBrightness: local.Moon}
+	if blackCat {
+		ctx.InStructure = func(id string) bool { return id == "minecraft:swamp_hut" }
+	}
+	m.finalizeSpawn(dice, ctx, nil, local, true)
+}
+
+// FinalizeStructureSpawnAt is FinalizeStructureSpawn with the full spawn context.
+func (m *Mob) FinalizeStructureSpawnAt(dice Dice, ctx rules.SpawnContext, local rules.LocalDifficulty) {
+	m.finalizeSpawn(dice, ctx, nil, local, true)
 }
 
 // SpawnDice stands in for the level's random a finalize outside chunk
@@ -2743,7 +2758,8 @@ const spawnDiceSalt = 0x2545F4914F6CDD1D
 // finalizeSpawn runs each kind's own finalize, then AgeableMob's, then
 // Mob's. The overworld creatures, the zombie family and the vindicator draw
 // from dice; the other kinds keep their own streams.
-func (m *Mob) finalizeSpawn(dice Dice, biome registry.Biome, group *SpawnGroup, local rules.LocalDifficulty, structure, blackCat bool) {
+func (m *Mob) finalizeSpawn(dice Dice, ctx rules.SpawnContext, group *SpawnGroup, local rules.LocalDifficulty, structure bool) {
+	biome := ctx.Biome
 	if !structure && isRaiderType(m.Type) {
 		// vanilla: PatrollingMonster.finalizeSpawn, canBeLeader; the float is
 		// drawn for the witch and ravager too
@@ -2759,7 +2775,7 @@ func (m *Mob) finalizeSpawn(dice Dice, biome registry.Biome, group *SpawnGroup, 
 		if structure {
 			catDice = dice
 		}
-		defer m.finalizeCat(catDice, local.Moon, blackCat)
+		defer m.finalizeCat(catDice, ctx)
 	}
 	if m.Type == TypeVindicator {
 		// vanilla: Vindicator.finalizeSpawn rolls after Mob's, on the same dice
@@ -2791,7 +2807,7 @@ func (m *Mob) finalizeSpawn(dice Dice, biome registry.Biome, group *SpawnGroup, 
 	}
 	m.rollJockey(group)
 	if m.Type == TypeStrider {
-		m.finalizeStrider(dice, biome, local)
+		m.finalizeStrider(dice, ctx, local)
 	}
 	m.finalizeSpiderEffect(group, local)
 	if m.Type == TypePhantom {
@@ -2857,24 +2873,20 @@ func (m *Mob) finalizeSpawn(dice Dice, biome registry.Biome, group *SpawnGroup, 
 	// vanilla: Cow, Pig and Chicken.finalizeSpawn, the variant before the
 	// sound variant.
 	if m.Type == TypeFrog {
-		m.finalizeFrog(dice, biome)
+		m.finalizeFrog(dice, ctx)
 	} else if IsNautilus(m.Type) {
 		if m.Type == TypeZombieNautilus {
-			// vanilla: VariantUtils.selectVariantToSpawn draws among the one
-			// top-priority match
-			m.Variant = "minecraft:temperate"
-			if biome.InTag(registry.BiomeTagIDSpawnsCoralVariantZombieNautilus) {
-				m.Variant = "minecraft:warm"
+			if v, ok := rules.SelectVariantToSpawn("minecraft:zombie_nautilus_variant", ctx, dice); ok {
+				m.Variant = v
 			}
-			dice.NextIntN(1)
 		}
 		// vanilla: AbstractNautilus.finalizeSpawn, NautilusAi.initMemories (2400..3600)
 		m.nautilus.attackCooldown = 2400 + int(dice.NextIntN(1201))
-	} else if _, sounds, ok := VariantRegistries(m.Type); ok && m.Type != TypeCat { // the cat's is deferred above
+	} else if variants, sounds, ok := VariantRegistries(m.Type); ok && m.Type != TypeCat { // the cat's is deferred above
 		if m.Type == TypeWolf {
-			m.finalizeWolfVariant(dice, biome, group)
-		} else {
-			m.Variant = rules.FarmAnimalVariant(biome, dice)
+			m.finalizeWolfVariant(dice, ctx, group)
+		} else if v, ok := rules.SelectVariantToSpawn(variants, ctx, dice); ok {
+			m.Variant = v
 		}
 		m.SoundVariant = rules.RandomRegistryEntry(sounds, dice)
 	}

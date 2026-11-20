@@ -2315,14 +2315,16 @@ func (s *Server) finalizeMobSpawn(w *world.World, ent *mobEntity, group *entity.
 		minX, minY, minZ, maxX, maxY, maxZ := entity.CamelHuskSpawnBox(rules.BlockOf(x), rules.BlockOf(y), rules.BlockOf(z))
 		m.CamelHuskFits = !w.BoxCollides(minX, minY, minZ, maxX, maxY, maxZ)
 	}
-	hutCat := m.Type == entity.TypeCat && entity.CatInHut(w, rules.BlockOf(x), rules.BlockOf(y), rules.BlockOf(z))
+	bx, by, bz := rules.BlockOf(x), rules.BlockOf(y), rules.BlockOf(z)
+	ctx := rules.SpawnContext{
+		Biome:          biome,
+		MoonBrightness: local.Moon,
+		InStructure:    entity.StructurePredicate(w, bx, by, bz),
+	}
 	if structure {
-		m.FinalizeStructureSpawn(m.SpawnDice(), biome, hutCat, local)
+		m.FinalizeStructureSpawnAt(m.SpawnDice(), ctx, local)
 	} else {
-		m.FinalizeSpawn(m.SpawnDice(), biome, group, local)
-		if hutCat {
-			m.Variant = "minecraft:all_black"
-		}
+		m.FinalizeSpawnAt(m.SpawnDice(), ctx, group, local)
 	}
 	m.InitBruteHome(w.DimensionName())
 	m.SetSpawnSize(rules.SpecialMultiplier(effective))
