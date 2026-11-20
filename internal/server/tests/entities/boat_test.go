@@ -1098,6 +1098,62 @@ func TestABoatLeftRidingCarriesTheRiderBackIn(t *testing.T) {
 	}
 }
 
+// TestABoatLeftRidingWaitsForItsChunk: a rejoin whose load timeout runs out
+// before its chunks have come keeps the rider's hull in their file until the
+// chunk it stands in is theirs. Raised earlier, it would leave with that
+// unheld chunk on the next tick and come back empty when the chunk loads.
+func TestABoatLeftRidingWaitsForItsChunk(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SurvivalConfig()
+	cfg.LevelName = t.TempDir()
+
+	srv, connect := servertest.Start(t, cfg)
+	c := connect().Join("Ferry")
+	c.Settle()
+	boatID := srv.SpawnBoat(4.5, 64, 4.5, "minecraft:oak_boat")
+	if boatID == 0 {
+		t.Fatal("SpawnBoat came to nothing")
+	}
+	c.UseOn(boatID)
+	servertest.AwaitPassengersFor(c, boatID)
+	c.Disconnect()
+	servertest.WaitFor(t, srv, 200, func() bool {
+		return srv.BoatCount() == 0
+	})
+
+	// The rejoin's chunks are held back past the 60-tick load timeout, and
+	// a few ticks beyond it, which would sweep a hull raised in the meantime.
+	release := srv.HoldChunkSenders()
+	t.Cleanup(release)
+	c = connect()
+	c.Login("Ferry")
+	c.Configure()
+	servertest.UntilTicks(t, srv, 100, "the rejoin's load timeout", func() bool {
+		return srv.PlayerClientLoaded("Ferry")
+	})
+	servertest.RunTicks(t, srv, 3)
+	if n := srv.BoatCount(); n != 0 {
+		t.Errorf("boats standing before the rider's chunk came = %d, want the hull still in their file", n)
+	}
+	release()
+
+	var joined []servertest.PushedPacket
+	c.ReadJoin(func(id int32, data []byte) {
+		if id == protocol.IDPlayLogin && c.PlayerEntityID == 0 {
+			c.PlayerEntityID = protocol.NewReader(data).ReadI32()
+		}
+		joined = append(joined, servertest.PushedPacket{Id: id, Data: append([]byte(nil), data...)})
+	})
+	c.Unread(joined...)
+	rejoined := servertest.AwaitBoatSpawn(c, protocol.EntityTypeOakBoat)
+	if riders := servertest.AwaitPassengersFor(c, rejoined.EntityID); len(riders) != 1 || riders[0] != c.PlayerEntityID {
+		t.Errorf("passengers after the rejoin = %v, want the rejoining rider %d", riders, c.PlayerEntityID)
+	}
+	if rider, ok := srv.BoatRider(rejoined.EntityID); !ok || rider != "Ferry" {
+		t.Errorf("the rejoined boat's rider = %q (%v), want Ferry back aboard", rider, ok)
+	}
+}
+
 // TestABoatIsLaidOnWaterWithinTheLayingReach: the laying's reach is the
 // block interaction range read out of the eye — four and a half blocks in
 // survival — so a look whose water stands past that keeps the item.

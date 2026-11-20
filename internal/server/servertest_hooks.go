@@ -4800,6 +4800,28 @@ func (s *Server) WatchChunkStops(watch func()) {
 // counts starts rather than the senders still running.
 func (s *Server) ChunkSendersStarted() int { return int(s.chunkSenders.Load()) }
 
+// HoldChunkSenders keeps every chunk sender started from now on from
+// sending or loading anything until the release it returns is called: a
+// join then waits on its chunks for as long as the test likes.
+func (s *Server) HoldChunkSenders() (release func()) {
+	held := make(chan struct{})
+	s.chunkSenderHold.Store(&held)
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.chunkSenderHold.Store(nil)
+			close(held)
+		})
+	}
+}
+
+// PlayerClientLoaded reports whether the named player's client counts as
+// loaded: its Player Loaded came in, or the load timeout ran out.
+func (s *Server) PlayerClientLoaded(name string) bool {
+	c := s.playerClient(name)
+	return c != nil && c.clientLoaded()
+}
+
 // HoldFirstChunk holds back the first chunk the server sends, after its
 // batch has begun, until the release it returns is called. It has to be
 // taken before the server's first connection is.
