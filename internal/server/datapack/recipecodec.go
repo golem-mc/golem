@@ -40,8 +40,7 @@ var craftingCategories = map[string]int32{"building": 0, "redstone": 1, "equipme
 // builtInRecipeTypes are the types whose behaviour is built into this server
 // (or computed by the client) rather than read from a file.
 var builtInRecipeTypes = []string{
-	"minecraft:crafting_decorated_pot", "minecraft:crafting_dye", "minecraft:crafting_imbue",
-	"minecraft:crafting_transmute", "minecraft:crafting_special_",
+	"minecraft:crafting_decorated_pot", "minecraft:crafting_special_",
 }
 
 // ErrBuiltInRecipeType is the error of a recipe file whose type the server
@@ -60,6 +59,12 @@ func DecodeRecipe(id string, data []byte, into *registry.PackRecipes) (err error
 		into.Crafting = append(into.Crafting, shapedRecipe(id, o, into))
 	case "minecraft:crafting_shapeless":
 		into.Crafting = append(into.Crafting, shapelessRecipe(id, o, into))
+	case "minecraft:crafting_transmute":
+		into.Transmute = append(into.Transmute, transmuteRecipe(id, o, into))
+	case "minecraft:crafting_dye":
+		into.Dye = append(into.Dye, dyeRecipe(id, o, into))
+	case "minecraft:crafting_imbue":
+		into.Imbue = append(into.Imbue, imbueRecipe(id, o, into))
 	case "minecraft:brewing":
 		into.Brewing = append(into.Brewing, brewingRecipes(id, o)...)
 	case "minecraft:stonecutting":
@@ -112,7 +117,14 @@ func recipeItem(name string) int32 {
 // stored-stack reader refuses refuses the recipe.
 // vanilla: ItemStackTemplate.CODEC
 func recipeResult(o obj) (item, count int32, patch []registry.ResultComponent) {
-	switch r := required(o, "result").(type) {
+	return resultTemplate(required(o, "result"), true)
+}
+
+// resultTemplate reads a result; needID false allows an object without an id,
+// which makes item 0, the input's item.
+// vanilla: ItemStackTemplate.CODEC, TransmuteResult.CODEC
+func resultTemplate(v any, needID bool) (item, count int32, patch []registry.ResultComponent) {
+	switch r := v.(type) {
 	case string:
 		return recipeItem(r), 1, nil
 	case map[string]any:
@@ -127,6 +139,9 @@ func recipeResult(o obj) (item, count int32, patch []registry.ResultComponent) {
 			if count < 1 || count > 99 {
 				fail("result count %v is not in 1..99", r["count"])
 			}
+		}
+		if _, has := r["id"]; !has && !needID {
+			return 0, count, patch
 		}
 		return recipeItem(requireStr(r, "id")), count, patch
 	}

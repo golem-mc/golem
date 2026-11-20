@@ -391,25 +391,6 @@ func (g *tablesGen) dataTables() error {
 		return err
 	}
 	w.seq("pointOfInterestTypes", "string", quotedEach(poi))
-	recipes, err := g.objects("recipe")
-	if err != nil {
-		return err
-	}
-	dyeTargets := map[string]bool{}
-	for _, recipe := range recipes {
-		if recipe.str("type") == "minecraft:crafting_dye" {
-			target, ok := recipe["target"].(string)
-			if !ok || strings.HasPrefix(target, "#") {
-				return fmt.Errorf("a crafting_dye recipe targets %v, not one item", recipe["target"])
-			}
-			dyeTargets[target] = true
-		}
-	}
-	var dyeable []string
-	for _, n := range sortedKeys(dyeTargets) {
-		dyeable = append(dyeable, "MustItem("+gogen.Quote(n)+")")
-	}
-	w.seq("dyeableItems", "int32", dyeable)
 	fluids, err := g.entryNames("fluid")
 	if err != nil {
 		return err
