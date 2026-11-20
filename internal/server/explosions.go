@@ -334,15 +334,20 @@ func (s *Server) blastPlayers(b blast, in *blastInputs, fx *blastEffects) {
 // the herd. A charged creeper's blast keeps the first head a kill drops.
 func (s *Server) blastMobs(b blast, in *blastInputs, fx *blastEffects) {
 	w := b.w
+	pusher := b.directUUID
+	if pusher == uuid.Nil {
+		pusher = b.causeUUID
+	}
+	var pushes []*mobKnockback
 	s.mobsMu.Lock()
-	defer s.mobsMu.Unlock()
-	for _, m := range s.herdOf(w).herd {
+	herd := s.herdOf(w)
+	for _, m := range herd.herd {
 		// vanilla: ServerExplosion.hurtEntities leaves the source entity out
 		if b.directLiving && m.ID == b.directID {
 			continue
 		}
 		if m.Type == entity.TypeEnderDragon {
-			s.blastDragon(b, in, m)
+			s.blastDragon(b, in, m, herd.book[m], pusher, &pushes)
 			continue
 		}
 		dist, ok := in.at.Reach(m.X, m.Y, m.Z)
@@ -351,8 +356,12 @@ func (s *Server) blastMobs(b blast, in *blastInputs, fx *blastEffects) {
 		}
 		hit := in.at.Hit(in.blocks, dist, m.BlastBox, m.EyePosition).
 			Resisted(m.ExplosionKnockbackResistance())
+		oldVX, oldVY, oldVZ, oldImpulse := m.VX, m.VY, m.VZ, m.Impulse
 		if b.harmless || (in.sparedTeam != "" && m.Team == in.sparedTeam) {
 			m.PushByBlast(hit.KX, hit.KY, hit.KZ)
+			if kb := s.holdMobKnockback(herd.book[m], pusher, oldVX, oldVY, oldVZ, oldImpulse); kb != nil {
+				pushes = append(pushes, kb)
+			}
 			continue
 		}
 		wasAlive := m.Alive()
@@ -361,12 +370,19 @@ func (s *Server) blastMobs(b blast, in *blastInputs, fx *blastEffects) {
 			damage = entity.ReflectedFireballDamage
 		}
 		s.hurtByBlast(b, m, damage, hit.KX, hit.KY, hit.KZ, in.causeCreative)
+		if kb := s.holdMobKnockback(herd.book[m], pusher, oldVX, oldVY, oldVZ, oldImpulse); kb != nil {
+			pushes = append(pushes, kb)
+		}
 		if b.chargedHeads && wasAlive && m.Dead && w.BoolRule(world.RuleMobDrops) {
 			if stacks := m.RollChargedHead(s.lootLevelAt(w, m.X, m.Y, m.Z)); len(stacks) > 0 {
 				fx.heads = append(fx.heads, mobDrops{w: w, stacks: stacks, x: m.X, y: m.Y, z: m.Z})
 				b.chargedHeads = false
 			}
 		}
+	}
+	s.mobsMu.Unlock()
+	for _, kb := range pushes {
+		s.applyMobKnockback(kb)
 	}
 }
 
@@ -1114,7 +1130,7 @@ func (t *mobDimTick) creeperExploded(fx *mobEffects, ev entity.MobEvent) {
 // blastDragon measures each part independently, including parts beyond the
 // parent's reach. Part pushes belong to the parts, not their parent.
 // vanilla: ServerExplosion.hurtEntities, Level.getEntities
-func (s *Server) blastDragon(b blast, in *blastInputs, m *entity.Mob) {
+func (s *Server) blastDragon(b blast, in *blastInputs, m *entity.Mob, ent *mobEntity, pusher uuid.UUID, pushes *[]*mobKnockback) {
 	defer m.AimDragonPart(entity.DragonBody)
 	typ := int32(m.Type)
 	for part := -1; part < 8; part++ {
@@ -1135,7 +1151,11 @@ func (s *Server) blastDragon(b blast, in *blastInputs, m *entity.Mob) {
 		hit := in.at.Hit(in.blocks, dist, box, aim)
 		if part == -1 {
 			hit = hit.Resisted(m.ExplosionKnockbackResistance())
+			oldVX, oldVY, oldVZ, oldImpulse := m.VX, m.VY, m.VZ, m.Impulse
 			m.PushByBlast(hit.KX, hit.KY, hit.KZ)
+			if kb := s.holdMobKnockback(ent, pusher, oldVX, oldVY, oldVZ, oldImpulse); kb != nil {
+				*pushes = append(*pushes, kb)
+			}
 		}
 		if !b.harmless {
 			m.AimDragonPart(part)

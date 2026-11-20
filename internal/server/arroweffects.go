@@ -167,6 +167,9 @@ func (s *Server) arrowMeltedSnow(hit projectileBlockHit) {
 // the whole hurt's packets staying back. The effect a tip left in the body
 // rides the same way out.
 func (s *Server) tellArrowMobHit(hit arrowMobHit) {
+	if hit.kb != nil {
+		hit.vx, hit.vy, hit.vz = s.applyMobKnockback(hit.kb)
+	}
 	if !hit.softened {
 		s.tellWatchers(hit.w, hit.watchers, []outbound{
 			{id: protocol.IDPlayDamageEvent, data: damageEventPayload(hit.victimID, hit.damageType, hit.causeID, hit.directID)},
@@ -368,7 +371,7 @@ func (s *Server) arrowPlayerOutcome(hit arrowPlayerHit) arrowOutcome {
 	if hit.igniteTicks > 0 {
 		// The ignite runs ahead of the hurt; a refused hurt puts the
 		// burn back below.
-		hit.victim.igniteForTicks(hit.igniteTicks)
+		hit.victim.igniteForTicksBy(hit.igniteTicks, pluginEntity{id: hit.arrow.uuid})
 	}
 	// The shaft's own push follows the flight, not the arrow's position:
 	// a whole hit's default shove along it, and the Punch enchantment's
@@ -381,7 +384,7 @@ func (s *Server) arrowPlayerOutcome(hit arrowPlayerHit) arrowOutcome {
 	landedHit, softened := hit.victim.hurt(damage, damageType, cause)
 	switch {
 	case landedHit:
-		hit.victim.arrowKnockback(hit.w, hit.vx, hit.vz, punch, !softened, syncVelocityAfterTravel)
+		hit.victim.arrowKnockbackBy(hit.w, hit.arrow.uuid, hit.vx, hit.vz, punch, !softened, syncVelocityAfterTravel)
 		for _, in := range hit.effects {
 			hit.victim.effectCause = effect.CauseArrow
 			hit.victim.AddEffect(in)

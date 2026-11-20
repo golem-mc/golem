@@ -976,6 +976,7 @@ type thrownMobHit struct {
 	directID   int32
 	x, y, z    float64
 	vx, vy, vz float64
+	kb         *mobKnockback
 	health     []byte
 	// watchers are the players shown the mob, who alone are told of the hurt.
 	watchers []uuid.UUID

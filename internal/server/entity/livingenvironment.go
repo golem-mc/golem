@@ -1,13 +1,15 @@
 package entity
 
 import (
+	"math"
+
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
 )
 
 // livingFireContact applies the block bites shared by living bodies.
 // vanilla: BaseFireBlock.fireIgnite, CampfireBlock.entityInside
-func livingFireContact(w World, box AABB, fire *int, ignite func(int), hurt func(float64, registry.DamageType)) {
+func livingFireContact(w World, box AABB, fire *int, ignite func(ticks int, x, y, z int32), hurt func(float64, registry.DamageType)) {
 	ignited := false
 	box.insideCells(func(x, y, z int32) {
 		state := w.BlockAt(x, y, z)
@@ -25,7 +27,7 @@ func livingFireContact(w World, box AABB, fire *int, ignite func(int), hurt func
 		if !ignited {
 			ignited = true
 			if fireContactIgnites(fire) {
-				ignite(fireTicksFire)
+				ignite(fireTicksFire, x, y, z)
 			}
 		}
 		hurt(float64(damage), rules.DamageTypeInFire)
@@ -34,12 +36,25 @@ func livingFireContact(w World, box AABB, fire *int, ignite func(int), hurt func
 
 // livingLavaContact includes cauldrons, which the fluid tracker does not read.
 // vanilla: LavaFluid.entityInside, LavaCauldronBlock.entityInside
-func livingLavaContact(w World, box AABB, inLava bool, ignite func(int), hurt func(float64, registry.DamageType)) {
-	if !inLava {
-		box.insideCells(func(x, y, z int32) { inLava = inLava || rules.IsLavaCauldron(w.BlockAt(x, y, z)) })
-	}
+func livingLavaContact(w World, box AABB, inLava bool, ignite func(ticks int, x, y, z int32), hurt func(float64, registry.DamageType)) {
+	var lx, ly, lz int32
+	found := false
+	box.insideCells(func(x, y, z int32) {
+		state := w.BlockAt(x, y, z)
+		if rules.IsLava(state) || rules.IsLavaCauldron(state) {
+			inLava = true
+			if !found {
+				lx, ly, lz, found = x, y, z, true
+			}
+		}
+	})
 	if inLava {
-		ignite(fireTicksLava)
+		if !found {
+			lx = int32(math.Floor((box.minX + box.maxX) / 2))
+			ly = int32(math.Floor(box.minY))
+			lz = int32(math.Floor((box.minZ + box.maxZ) / 2))
+		}
+		ignite(fireTicksLava, lx, ly, lz)
 		hurt(float64(lavaDamage), rules.DamageTypeLava)
 	}
 }

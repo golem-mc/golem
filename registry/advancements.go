@@ -20,9 +20,13 @@ type Advancement struct {
 	// Telemetry is sends_telemetry_event, which the client reads off the
 	// wire.
 	Telemetry bool
-	// Experience is rewards.experience; the loot and function rewards are
-	// not carried: no vanilla advancement has one.
+	// Experience is rewards.experience.
 	Experience int32
+	// Loot is rewards.loot, the loot table ids rolled for the player.
+	Loot []string
+	// Function is rewards.function, the function run as the player; empty
+	// for none.
+	Function string
 	// Recipes is rewards.recipes, the recipe IDs completing it unlocks.
 	Recipes []string
 }

@@ -15,6 +15,30 @@ import (
 // under; omitted when SpawnDefault so unmodified saves stay vanilla-clean.
 const spawnReasonNBTKey = "Paper.SpawnReason"
 
+// originNBTKey is the NBT tag key Paper saves an entity's spawn origin under;
+// omitted on /data get (empty id) so commands stay vanilla-clean.
+const originNBTKey = "Paper.Origin"
+
+func putOrigin(tag nbt.CompoundTag, id string, o entityOrigin) {
+	if id == "" || !o.set {
+		return
+	}
+	tag.Set(originNBTKey, nbt.NewList([]nbt.Tag{nbt.Double(o.x), nbt.Double(o.y), nbt.Double(o.z)}))
+}
+
+func readOrigin(dst *entityOrigin, dim string, compound nbt.Compound) {
+	list, ok := nbt.Get[nbt.List](compound, originNBTKey)
+	if !ok || len(list.Items) != 3 {
+		return
+	}
+	x, okX := list.Items[0].(nbt.Double)
+	y, okY := list.Items[1].(nbt.Double)
+	z, okZ := list.Items[2].(nbt.Double)
+	if okX && okY && okZ {
+		*dst = entityOrigin{set: true, dim: dim, x: float64(x), y: float64(y), z: float64(z)}
+	}
+}
+
 func spawnReasonCode(r plugin.SpawnReason) uint8 { return uint8(r) + 1 }
 
 func spawnReasonOf(code uint8) plugin.SpawnReason {

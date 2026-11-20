@@ -435,6 +435,83 @@ func (s *Server) mobsLeashedToLocked(w *world.World, holder int32, cx, cy, cz fl
 	return mobs
 }
 
+// tieMobsAllowed moves each live mob held by from near (cx, cy, cz) (except
+// skip) onto to, asking PlayerLeashEntityEvent outside mobsMu when a listener
+// is registered. found reports whether any candidate existed before the veto.
+func (c *client) tieMobsAllowed(w *world.World, from int32, cx, cy, cz float64, to *entity.LeashHolder, ref leashRef, holderID uuid.UUID, skip *mobEntity) (moved []*mobEntity, found bool) {
+	s := c.srv
+	if !c.pluginListening(pluginruntime.PlayerLeashEntity) {
+		s.mobsMu.Lock()
+		led := s.mobsLeashedToLocked(w, from, cx, cy, cz)
+		if skip != nil {
+			led = slices.DeleteFunc(led, func(e *mobEntity) bool { return e == skip })
+		}
+		moved = tieMobsTo(led, to, ref)
+		s.mobsMu.Unlock()
+		return moved, len(moved) > 0
+	}
+	s.mobsMu.Lock()
+	var cands []*mobEntity
+	for _, ent := range s.mobsLeashedToLocked(w, from, cx, cy, cz) {
+		if ent != skip && !ent.mob.Dead && ent.mob.LeashHolderID != to.EntityID && entity.LeashableBy(ent.mob, to) {
+			cands = append(cands, ent)
+		}
+	}
+	s.mobsMu.Unlock()
+	if len(cands) == 0 {
+		return nil, false
+	}
+	cands = slices.DeleteFunc(cands, func(ent *mobEntity) bool { return !c.leashAllowed(ent.uuid, holderID, false) })
+	if len(cands) == 0 {
+		return nil, true
+	}
+	s.mobsMu.Lock()
+	for _, ent := range cands {
+		if ent.mob.Dead || ent.mob.LeashHolderID != from || ent.mob.LeashHolderID == to.EntityID || !entity.LeashableBy(ent.mob, to) {
+			continue
+		}
+		ent.tieLeash(to.EntityID, ref)
+		moved = append(moved, ent)
+	}
+	s.mobsMu.Unlock()
+	return moved, true
+}
+
+// tieBoatsAllowed is tieBoatsHeldTo with PlayerLeashEntityEvent asked outside
+// boatsMu when a listener is registered. found reports whether any candidate
+// existed before the veto.
+func (c *client) tieBoatsAllowed(w *world.World, from int32, cx, cy, cz float64, to *entity.LeashHolder, ref leashRef, holderID uuid.UUID) (moved []int32, found bool) {
+	s := c.srv
+	if !c.pluginListening(pluginruntime.PlayerLeashEntity) {
+		moved = s.tieBoatsHeldTo(w, from, cx, cy, cz, to, ref)
+		return moved, len(moved) > 0
+	}
+	s.boatsMu.Lock()
+	var cands []*boatEntity
+	for _, it := range s.boats {
+		if it.holder != to.EntityID && heldBoatWithin(it, w, from, cx, cy, cz, to) {
+			cands = append(cands, it)
+		}
+	}
+	s.boatsMu.Unlock()
+	if len(cands) == 0 {
+		return nil, false
+	}
+	cands = slices.DeleteFunc(cands, func(it *boatEntity) bool { return !c.leashAllowed(it.uuid, holderID, false) })
+	if len(cands) == 0 {
+		return nil, true
+	}
+	s.boatsMu.Lock()
+	for _, it := range cands {
+		if it.holder != to.EntityID && heldBoatWithin(it, w, from, cx, cy, cz, to) {
+			it.tie(to.EntityID, ref)
+			moved = append(moved, it.boat.ID)
+		}
+	}
+	s.boatsMu.Unlock()
+	return moved, true
+}
+
 // tieBoatsHeldTo moves the world's live boats the holder from holds, within
 // sixteen blocks every way of the centre given, onto the holder to where it
 // is within reach and does not hold them already; a save names to by ref.
@@ -521,7 +598,7 @@ func (c *client) useLeadOnFence(hand, x, y, z int32) (handled bool, err error) {
 		moved = append(moved, ent)
 	}
 	s.mobsMu.Unlock()
-	boats := s.tieBoatsHeldTo(w, c.player.EntityID, cx, cy, cz, &holder, leashRef{knot: [3]int32{x, y, z}, atKnot: true})
+	boats, _ := c.tieBoatsAllowed(w, c.player.EntityID, cx, cy, cz, &holder, leashRef{knot: [3]int32{x, y, z}, atKnot: true}, knot.uuid)
 	if len(moved) == 0 && len(boats) == 0 {
 		if created {
 			s.discardEmptiedKnot(knot)
@@ -579,20 +656,14 @@ func (c *client) useKnot(k *knotEntity, hand int32, sneaking bool) error {
 	// Each search's box is centred on its own holder.
 	// vanilla: Leashable.leashableInArea
 	selfY := holderSelf.Y + 0.5*holderSelf.Height
-	s.mobsMu.Lock()
-	if led := s.mobsLeashedToLocked(w, c.player.EntityID, holderSelf.X, selfY, holderSelf.Z); len(led) > 0 {
-		moved = tieMobsTo(led, &holderKnot, ref)
-	}
-	s.mobsMu.Unlock()
-	boats := s.tieBoatsHeldTo(w, c.player.EntityID, holderSelf.X, selfY, holderSelf.Z, &holderKnot, ref)
-	if len(moved) == 0 && len(boats) == 0 && !sneaking {
+	moved, hadMobs := c.tieMobsAllowed(w, c.player.EntityID, holderSelf.X, selfY, holderSelf.Z, &holderKnot, ref, k.uuid, nil)
+	boats, hadBoats := c.tieBoatsAllowed(w, c.player.EntityID, holderSelf.X, selfY, holderSelf.Z, &holderKnot, ref, k.uuid)
+	if len(moved) == 0 && len(boats) == 0 && !hadMobs && !hadBoats && !sneaking {
 		// The take-back: nothing of the player's came, so the knot's own go
 		// back to the player, whichever of them the player could hold.
 		knotY := tell.y + 0.5*knotHeight
-		s.mobsMu.Lock()
-		moved = tieMobsTo(s.mobsLeashedToLocked(w, tell.id, tell.x, knotY, tell.z), holderSelf, leashRef{holder: c.player.UUID})
-		s.mobsMu.Unlock()
-		boats = s.tieBoatsHeldTo(w, tell.id, tell.x, knotY, tell.z, holderSelf, leashRef{holder: c.player.UUID})
+		moved, _ = c.tieMobsAllowed(w, tell.id, tell.x, knotY, tell.z, holderSelf, leashRef{holder: c.player.UUID}, c.player.UUID, nil)
+		boats, _ = c.tieBoatsAllowed(w, tell.id, tell.x, knotY, tell.z, holderSelf, leashRef{holder: c.player.UUID}, c.player.UUID)
 		holding = holderSelf.EntityID
 		if len(moved) > 0 || len(boats) > 0 {
 			emptyKnot = k
@@ -636,22 +707,24 @@ func (c *client) tieLedOntoMob(ent *mobEntity, hand int32) bool {
 		Width: m.BbWidth(), Height: m.BbHeight(), Present: true,
 	}
 	cx, cy, cz := m.X, m.Y+0.5*m.BbHeight(), m.Z
-	led := slices.DeleteFunc(s.mobsLeashedToLocked(w, c.player.EntityID, cx, cy, cz),
-		func(e *mobEntity) bool { return e == ent })
+	s.mobsMu.Unlock()
 	ref := leashRef{holder: ent.uuid}
-	moved := tieMobsTo(led, &holder, ref)
+	moved, _ := c.tieMobsAllowed(w, c.player.EntityID, cx, cy, cz, &holder, ref, ent.uuid, ent)
 	for _, e := range moved {
-		if e.mob.RidesVehicle {
-			s.mobsMu.Unlock()
+		s.mobsMu.Lock()
+		rides := e.mob.RidesVehicle
+		s.mobsMu.Unlock()
+		if rides {
 			s.dismountMob(e)
-			if e.mob.RidesVehicle {
+			s.mobsMu.Lock()
+			stillRides := e.mob.RidesVehicle
+			s.mobsMu.Unlock()
+			if stillRides {
 				s.mobLeftItsVehicle(e)
 			}
-			s.mobsMu.Lock()
 		}
 	}
-	s.mobsMu.Unlock()
-	boats := s.tieBoatsHeldTo(w, c.player.EntityID, cx, cy, cz, &holder, ref)
+	boats, _ := c.tieBoatsAllowed(w, c.player.EntityID, cx, cy, cz, &holder, ref, ent.uuid)
 	if len(moved) == 0 && len(boats) == 0 {
 		return false
 	}

@@ -694,6 +694,7 @@ func (c *client) tickVitals() {
 	var changes []effect.Change
 	passenger := c.isPassenger()
 	var fellFrom *[3]float64
+	var preTickFire, postTickFire int
 	c.player.UpdateBody(func(v *player.Vitals, effects *effect.Set, a *player.Attributes) {
 		// A rider's fall is written off every tick, so none is left to land
 		// on after the dismount; a fall that began fires fall_from_height at
@@ -702,8 +703,10 @@ func (c *client) tickVitals() {
 			v.FallDistance = 0
 			fellFrom = fallEnded(v, pos)
 		}
+		preTickFire = v.FireTicks
 		event, hurts, douse, changes = rules.TickVitals(v, effects, a, difficulty, pos.Y < float64(voidY), around,
 			c.srv.envRng, a.Value(registry.AttributeOxygenBonus), c.theWorld().BoolRule(world.RuleNaturalRegen))
+		postTickFire = v.FireTicks
 		if in, ok := rules.TurtleHelmetBreathing(headArmor, around.EyesInWater); ok {
 			if change, ok := rules.AddEffect(v, effects, in); ok {
 				changes = append(changes, change)
@@ -716,7 +719,7 @@ func (c *client) tickVitals() {
 	if fellFrom != nil {
 		c.fellAdvancements(*fellFrom, pos)
 	}
-	c.pluginVitalsTick(before)
+	c.pluginVitalsTick(before, pos, preTickFire, postTickFire)
 	c.tellEffects(changes)
 	if !before.Dead && around.EyesInWater && !around.EyesInBubbleColumn && c.mountDismountsUnderwater() {
 		c.dismountMob(true)
@@ -2070,10 +2073,10 @@ func (c *client) attackClient(victim *client) {
 		// A window-only hit skipped default knockback; the attacker's extra shove
 		// still applies.
 		if extra > 0 {
-			victim.knockbackFromPointExtraOnly(c.theWorld(), float64(from.Yaw), extra, syncVelocityNow)
+			victim.knockbackFromPointExtraOnlyBy(c.theWorld(), c.player.UUID, float64(from.Yaw), extra, syncVelocityNow)
 		}
 	} else {
-		victim.knockbackFromPointExtra(c.theWorld(), from.X, from.Y, from.Z, float64(from.Yaw), extra, syncVelocityNow)
+		victim.knockbackFromPointExtraBy(c.theWorld(), c.player.UUID, from.X, from.Y, from.Z, float64(from.Yaw), extra, syncVelocityNow)
 	}
 	if blow.feedback.Sweep {
 		c.sweepHurt(c.theWorld(), held, blow.baseDamage, victim.player.EntityID,
@@ -2255,9 +2258,9 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 			continue
 		}
 		if softened {
-			v.knockbackFromPointExtraOnly(w, float64(from.Yaw), rules.SweepShove, syncVelocityNow)
+			v.knockbackFromPointExtraOnlyBy(w, c.player.UUID, float64(from.Yaw), rules.SweepShove, syncVelocityNow)
 		} else {
-			v.knockbackFromPointExtra(w, from.X, from.Y, from.Z, float64(from.Yaw), rules.SweepShove, syncVelocityNow)
+			v.knockbackFromPointExtraBy(w, c.player.UUID, from.X, from.Y, from.Z, float64(from.Yaw), rules.SweepShove, syncVelocityNow)
 		}
 		c.srv.postAttack(w, attackBody{player: c}, attackBody{player: v}, held, &ctx, syncVelocityNow)
 	}
@@ -2280,6 +2283,7 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 	}
 	attacker = c.sized(attacker)
 	var bodies []*mobHurt
+	var kbs []*mobKnockback
 	var inks []mobInk
 	var thorns []mobThorns
 	var pricks []guardianPrick
@@ -2299,8 +2303,10 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 		if m.ThornsOut() {
 			pricks = append(pricks, guardianPrick{id: m.ID, x: m.X, y: m.Y, z: m.Z, killer: c.srv.mobKiller(ent)})
 		}
+		oldVX, oldVY, oldVZ, oldImpulse := m.VX, m.VY, m.VZ, m.Impulse
 		hurt, ink, laid, _ := landMobHurt(ent, rules.EnchantedDamage(held, &mobCtx, sweep)*strength,
 			attacker, rules.SweepShove, held, mobCtx, nil)
+		kb := c.srv.holdMobKnockback(ent, c.player.UUID, oldVX, oldVY, oldVZ, oldImpulse)
 		if laid {
 			c.awardDamageStat(registry.CustomStatDamageDealtResisted, m.BlowResisted)
 			c.awardDamageStat(registry.CustomStatDamageDealtAbsorbed, m.BlowAbsorbed)
@@ -2308,6 +2314,10 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 		}
 		if hurt != nil {
 			bodies = append(bodies, hurt)
+			kbs = append(kbs, kb)
+		} else if kb != nil {
+			bodies = append(bodies, nil)
+			kbs = append(kbs, kb)
 		}
 		if ink != nil {
 			inks = append(inks, mobInk{w: w, kind: m.Type, cloud: ink})
@@ -2317,8 +2327,16 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 	for _, p := range pricks {
 		c.srv.guardianThorns(c, p.id, p.x, p.y, p.z, p.killer)
 	}
-	for _, body := range bodies {
-		c.srv.broadcastMobHurt(w, body)
+	for i, body := range bodies {
+		if kb := kbs[i]; kb != nil {
+			vx, vy, vz := c.srv.applyMobKnockback(kb)
+			if body != nil {
+				body.vx, body.vy, body.vz = vx, vy, vz
+			}
+		}
+		if body != nil {
+			c.srv.broadcastMobHurt(w, body)
+		}
 	}
 	for _, ink := range inks {
 		c.srv.sendInk(ink.w, ink.kind, ink.cloud)
@@ -2516,7 +2534,7 @@ func (c *client) knockVelocity(w *world.World, vx, vy, vz float64, when velocity
 // knockbackFromPoint pushes this player away from (x, y, z) in w; only the
 // victim's client is told, others see the movement.
 func (c *client) knockbackFromPoint(w *world.World, x, y, z float64, when velocitySync) {
-	c.knockbackFromPointExtra(w, x, y, z, 0, 0, when)
+	c.knockbackFromPointExtraBy(w, uuid.Nil, x, y, z, 0, 0, when)
 }
 
 // knockbackFromPointExtra adds the attack's extra strength along the
@@ -2524,6 +2542,10 @@ func (c *client) knockbackFromPoint(w *world.World, x, y, z float64, when veloci
 // halving the kept velocity, so the victim's old motion is quartered.
 // vanilla: LivingEntity.knockback, Player.causeExtraKnockback
 func (c *client) knockbackFromPointExtra(w *world.World, x, y, z, yaw, extra float64, when velocitySync) {
+	c.knockbackFromPointExtraBy(w, uuid.Nil, x, y, z, yaw, extra, when)
+}
+
+func (c *client) knockbackFromPointExtraBy(w *world.World, pusher uuid.UUID, x, y, z, yaw, extra float64, when velocitySync) {
 	var scale float64
 	c.player.Attributes(func(a *player.Attributes) { scale = rules.KnockbackScale(a) })
 	if scale == 0 {
@@ -2531,6 +2553,16 @@ func (c *client) knockbackFromPointExtra(w *world.World, x, y, z, yaw, extra flo
 	}
 	to := c.player.Position()
 	vx, vy, vz := rules.KnockbackExtra(to.X-x, to.Z-z, 0, 0, scale, to.OnGround, c.srv.levelRng)
+	if c.srv.listeningKnockback() {
+		old := c.player.Velocity()
+		v := player.KnockStep(old, vx, vy, vz, to.OnGround)
+		if extra > 0 {
+			vx, vy, vz = rules.KnockbackExtraOnly(yaw, extra, scale, to.OnGround)
+			v = player.KnockStep(v, vx, vy, vz, to.OnGround)
+		}
+		c.applyPlayerKnockback(w, pusher, old, v, when)
+		return
+	}
 	v := c.player.Knock(vx, vy, vz, to.OnGround)
 	if extra > 0 {
 		vx, vy, vz = rules.KnockbackExtraOnly(yaw, extra, scale, to.OnGround)
@@ -2542,12 +2574,23 @@ func (c *client) knockbackFromPointExtra(w *world.World, x, y, z, yaw, extra flo
 // knockbackFromPointExtraOnly pushes with only the attacker's extra shove,
 // what a window-only hit still deals after skipping default knockback.
 func (c *client) knockbackFromPointExtraOnly(w *world.World, yaw, extra float64, when velocitySync) {
+	c.knockbackFromPointExtraOnlyBy(w, uuid.Nil, yaw, extra, when)
+}
+
+func (c *client) knockbackFromPointExtraOnlyBy(w *world.World, pusher uuid.UUID, yaw, extra float64, when velocitySync) {
 	var scale float64
 	c.player.Attributes(func(a *player.Attributes) { scale = rules.KnockbackScale(a) })
 	if scale == 0 {
 		return
 	}
-	vx, vy, vz := rules.KnockbackExtraOnly(yaw, extra, scale, c.player.Position().OnGround)
+	onGround := c.player.Position().OnGround
+	vx, vy, vz := rules.KnockbackExtraOnly(yaw, extra, scale, onGround)
+	if c.srv.listeningKnockback() {
+		old := c.player.Velocity()
+		v := player.KnockStep(old, vx, vy, vz, onGround)
+		c.applyPlayerKnockback(w, pusher, old, v, when)
+		return
+	}
 	c.knockVelocity(w, vx, vy, vz, when)
 }
 
@@ -2557,6 +2600,10 @@ func (c *client) knockbackFromPointExtraOnly(w *world.World, yaw, extra float64,
 // Punch, per vanilla's tookFullDamage gate.
 // vanilla: Projectile.calculateHorizontalHurtKnockbackDirection, LivingEntity.hurtServer
 func (c *client) arrowKnockback(w *world.World, flightVX, flightVZ, punch float64, full bool, when velocitySync) {
+	c.arrowKnockbackBy(w, uuid.Nil, flightVX, flightVZ, punch, full, when)
+}
+
+func (c *client) arrowKnockbackBy(w *world.World, pusher uuid.UUID, flightVX, flightVZ, punch float64, full bool, when velocitySync) {
 	var scale float64
 	c.player.Attributes(func(a *player.Attributes) { scale = rules.KnockbackScale(a) })
 	if scale == 0 {
@@ -2564,35 +2611,53 @@ func (c *client) arrowKnockback(w *world.World, flightVX, flightVZ, punch float6
 	}
 	px, py, pz := rules.ArrowPunch(flightVX, flightVZ, punch, scale)
 	var kx, ky, kz float64
+	onGround := c.player.Position().OnGround
 	if full {
-		kx, ky, kz = rules.ArrowDefaultKnockback(flightVX, flightVZ, scale, c.player.Position().OnGround, c.srv.levelRng)
+		kx, ky, kz = rules.ArrowDefaultKnockback(flightVX, flightVZ, scale, onGround, c.srv.levelRng)
 	}
 	if kx == 0 && ky == 0 && kz == 0 && px == 0 && py == 0 && pz == 0 {
+		return
+	}
+	if c.srv.listeningKnockback() {
+		old := c.player.Velocity()
+		v := old
+		if full {
+			v = player.KnockStep(v, kx, ky, kz, onGround)
+		}
+		v.X += px
+		v.Y += py
+		v.Z += pz
+		c.applyPlayerKnockback(w, pusher, old, v, when)
 		return
 	}
 	// The default shove is a knockback, Punch a push on top.
 	// vanilla: AbstractArrow.doKnockback
 	if full {
-		c.player.Knock(kx, ky, kz, c.player.Position().OnGround)
+		c.player.Knock(kx, ky, kz, onGround)
 	}
 	c.player.AddVelocity(px, py, pz)
 	c.syncVelocity(w, c.player.Velocity(), when)
+}
+
+func (c *client) applyPlayerKnockback(w *world.World, pusher uuid.UUID, old, target player.Velocity, when velocitySync) {
+	dx, dy, dz := target.X-old.X, target.Y-old.Y, target.Z-old.Z
+	if dx == 0 && dy == 0 && dz == 0 {
+		return
+	}
+	kx, ky, kz, ok := c.srv.knockbackEvent(c.pluginSelf(), pusher, dx, dy, dz)
+	if !ok {
+		return
+	}
+	nv := player.Velocity{X: old.X + kx, Y: old.Y + ky, Z: old.Z + kz}
+	c.player.SetVelocity(nv)
+	c.syncVelocity(w, nv, when)
 }
 
 // igniteForTicks raises fire ticks to at least ticks (scaled by
 // burning_time) and thaws the body; an invulnerable mode holds the count at
 // one. vanilla: LivingEntity.igniteForTicks
 func (c *client) igniteForTicks(ticks int32) {
-	ticks = int32(rules.ScaledIgniteTicks(int(ticks), c.burningTime()))
-	if int(ticks) > c.player.Vitals().FireTicks {
-		ticks = int32(c.srv.combustTicks(pluginPlayer{c: c}, int(ticks)))
-		if ticks <= 0 {
-			return
-		}
-	}
-	c.player.UpdateVitals(func(v *player.Vitals) {
-		rules.IgniteForTicks(v, int(ticks))
-	})
+	c.igniteForTicksBy(ticks, nil)
 }
 
 // handleClientCommand handles Client Command: a respawn (after death or the

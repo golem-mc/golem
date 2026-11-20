@@ -505,6 +505,7 @@ type mobXpDrop struct {
 type mobStrike struct {
 	w             *world.World
 	mob           *entity.Mob
+	uuid          uuid.UUID
 	victimID      int32
 	damage        float64
 	x, y, z       float64
@@ -1345,9 +1346,9 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 			push *= 0.5
 		}
 		if landedHit && !softened {
-			victim.knockbackFromPointExtra(strike.w, strike.x, strike.y, strike.z, strike.ramYaw, push, syncVelocityAfterTravel)
+			victim.knockbackFromPointExtraBy(strike.w, strike.uuid, strike.x, strike.y, strike.z, strike.ramYaw, push, syncVelocityAfterTravel)
 		} else {
-			victim.knockbackFromPointExtraOnly(strike.w, strike.ramYaw, push, syncVelocityAfterTravel)
+			victim.knockbackFromPointExtraOnlyBy(strike.w, strike.uuid, strike.ramYaw, push, syncVelocityAfterTravel)
 		}
 	}
 	if landedHit {
@@ -1356,9 +1357,9 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 		if !strike.ram {
 			switch {
 			case !softened:
-				victim.knockbackFromPointExtra(strike.w, strike.x, strike.y, strike.z, float64(strike.mob.Yaw), extra, syncVelocityAfterTravel)
+				victim.knockbackFromPointExtraBy(strike.w, strike.uuid, strike.x, strike.y, strike.z, float64(strike.mob.Yaw), extra, syncVelocityAfterTravel)
 			case extra > 0:
-				victim.knockbackFromPointExtraOnly(strike.w, float64(strike.mob.Yaw), extra, syncVelocityAfterTravel)
+				victim.knockbackFromPointExtraOnlyBy(strike.w, strike.uuid, float64(strike.mob.Yaw), extra, syncVelocityAfterTravel)
 			}
 		}
 		if strike.roar {
@@ -1384,7 +1385,11 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 			victim.AddEffect(blowEffect(registry.MustMobEffect(name), ticks, 0))
 		}
 		if secs := entity.BlowIgniteSeconds(effective, strike.igniteRoll); strike.ignites && secs > 0 {
-			victim.igniteForTicks(secs * 20)
+			var by plugin.Entity
+			if ent := s.mobEntityOf(strike.mob); ent != nil {
+				by = pendingMob{id: ent.uuid}
+			}
+			victim.igniteForTicksBy(secs*20, by)
 		}
 		s.postAttack(strike.w, attackBody{mob: strike.mob}, attackBody{player: victim}, strike.mob.MainHand, &rules.EnchContext{
 			DamageType: rules.DamageTypeMobAttack, Direct: true,
@@ -1444,12 +1449,17 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 		s.mobsMu.Unlock()
 		return
 	}
+	oldVX, oldVY, oldVZ, oldImpulse := victim.VX, victim.VY, victim.VZ, victim.Impulse
 	if strike.dragonContact {
 		if strike.contactPush != [3]float64{} {
 			victim.Push(strike.contactPush[0], strike.contactPush[1], strike.contactPush[2])
 		}
 		if strike.damage == 0 {
+			kb := s.holdMobKnockback(h.book[victim], strike.uuid, oldVX, oldVY, oldVZ, oldImpulse)
 			s.mobsMu.Unlock()
+			if kb != nil {
+				s.applyMobKnockback(kb)
+			}
 			return
 		}
 	}
@@ -1489,7 +1499,11 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 			// vanilla: CaveSpider.doHurtTarget, Husk.doHurtTarget
 			effective := s.effectiveDifficultyAt(strike.w, strike.x, strike.z)
 			if secs := entity.BlowIgniteSeconds(effective, strike.mob.Rand.Float32()); strike.mob.IgnitesBlow() && secs > 0 {
-				victim.IgniteForTicks(int(secs) * 20)
+				var by plugin.Entity
+				if attacker := h.book[strike.mob]; attacker != nil {
+					by = pendingMob{id: attacker.uuid}
+				}
+				victim.IgniteForTicksBy(int(secs)*20, entity.CombustSource{By: by})
 			}
 			name, ticks, ok := strike.mob.BlowEffect(strike.w.Difficulty(), effective)
 			if strike.puff > 0 {
@@ -1507,7 +1521,11 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 	mx, my, mz := victim.X, victim.Y, victim.Z
 	vx, vy, vz := victim.VX, victim.VY, victim.VZ
 	yaw := mobHurtYaw(entity.Player{X: strike.x, Y: strike.y, Z: strike.z}, victim)
+	kb := s.holdMobKnockback(h.book[victim], strike.uuid, oldVX, oldVY, oldVZ, oldImpulse)
 	s.mobsMu.Unlock()
+	if kb != nil {
+		vx, vy, vz = s.applyMobKnockback(kb)
+	}
 	if thorns {
 		s.guardianThornsOnMob(strike.w, strike.mob, victim)
 	}
@@ -1571,7 +1589,7 @@ func (h *mobHerd) wake(pos world.ChunkPos, s *Server, known map[uuid.UUID]bool, 
 		for _, c := range h.w.TakeGeneratedEntities(pos) {
 			generatedTags = append(generatedTags, c)
 		}
-		woken := h.standUp(pos, generatedTags, s, known, forWrite)
+		woken := h.standUp(pos, generatedTags, s, known, forWrite, false)
 		if !forWrite {
 			woken.mobs = append(woken.mobs, generateNaturalMobs(s, h.w, pos)...)
 		}
@@ -1583,12 +1601,14 @@ func (h *mobHerd) wake(pos world.ChunkPos, s *Server, known map[uuid.UUID]bool, 
 		return woken
 	}
 	h.listed[pos] = len(tags) > 0
-	return h.standUp(pos, tags, s, known, forWrite)
+	return h.standUp(pos, tags, s, known, forWrite, true)
 }
 
 // standUp turns saved entity tags into entities, skipping known UUIDs;
 // mobsOnly carries the four kinds as tags, like every unsimulated kind.
-func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known map[uuid.UUID]bool, mobsOnly bool) wakeResult {
+// fromDisk marks loaded bodies of kinds that persist Paper.Origin so
+// registration does not invent one for vanilla saves that had none.
+func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known map[uuid.UUID]bool, mobsOnly, fromDisk bool) wakeResult {
 	var woken wakeResult
 	for _, tag := range tags {
 		compoundTag, ok := tag.(nbt.CompoundTag)
@@ -1740,6 +1760,15 @@ func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known m
 		h.carried[pos] = append(h.carried[pos], compoundTag)
 	}
 	linkMobRides(woken.mobs)
+	if fromDisk {
+		markOriginsLoaded(woken.mobs)
+		markOriginsLoaded(woken.items)
+		markOriginsLoaded(woken.tnts)
+		markOriginsLoaded(woken.fallings)
+		markOriginsLoaded(woken.boats)
+		markOriginsLoaded(woken.minecarts)
+		markOriginsLoaded(woken.armorStands)
+	}
 	return woken
 }
 
@@ -3311,7 +3340,9 @@ func (c *client) attackMob(target int32) {
 		pricks = c.srv.mobKiller(ent)
 	}
 	extra := rules.AttackKnockback(rules.EnchantedKnockback(held, &blow.context, c.attackKnockbackBase()), blow.feedback.Knockback)
+	oldVX, oldVY, oldVZ, oldImpulse := ent.mob.VX, ent.mob.VY, ent.mob.VZ, ent.mob.Impulse
 	hurt, ink, laid, softened := landMobHurt(ent, blow.damage, attacker, extra, held, blow.context, nil, int(target-ent.mob.ID-1))
+	kb := c.srv.holdMobKnockback(ent, c.player.UUID, oldVX, oldVY, oldVZ, oldImpulse)
 	var thorns mobThorns
 	if laid {
 		thorns = mobRetaliations(ent, &blow.context, held)
@@ -3324,6 +3355,12 @@ func (c *client) attackMob(target int32) {
 	dealt := healthBefore - ent.mob.Health
 	resisted, absorbed := ent.mob.BlowResisted, ent.mob.BlowAbsorbed
 	c.srv.mobsMu.Unlock()
+	if kb != nil {
+		vx, vy, vz := c.srv.applyMobKnockback(kb)
+		if hurt != nil {
+			hurt.vx, hurt.vy, hurt.vz = vx, vy, vz
+		}
+	}
 	if pricks != nil {
 		c.srv.guardianThorns(c, ent.mob.ID, mx, my, mz, pricks)
 	}

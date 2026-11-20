@@ -98,7 +98,7 @@ func (s *Server) fireHopperEvents(w *world.World, be *world.BlockEntity, g *hopp
 				return
 			}
 			far := containerInventory(pw, other)
-			e := &plugin.InventoryMoveItemEvent{Source: self, Destination: far, Item: pluginStack(m.stack)}
+			e := &plugin.InventoryMoveItemEvent{Source: self, Destination: far, Initiator: self, Item: pluginStack(m.stack)}
 			if pull {
 				e.Source, e.Destination = far, self
 			}

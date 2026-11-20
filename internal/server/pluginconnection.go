@@ -26,13 +26,13 @@ func pluginLoginResult(reason protocol.Text, refused bool) plugin.LoginResult {
 	}
 }
 
-func (c *client) pluginLogin(reason protocol.Text, refused bool) (protocol.Text, bool) {
+func (c *client) pluginLogin(hostname string, reason protocol.Text, refused bool) (protocol.Text, bool) {
 	if c.srv.plugins == nil || !c.srv.plugins.Has(pluginruntime.PlayerLogin) {
 		return reason, refused
 	}
 	original := pluginLoginResult(reason, refused)
 	text, _ := pluginText(reason)
-	e := &plugin.PlayerLoginEvent{Player: c.connectionPlayer(), Address: c.conn.RemoteAddr(), Result: original, Reason: text}
+	e := &plugin.PlayerLoginEvent{Player: c.connectionPlayer(), Address: c.conn.RemoteAddr(), Hostname: hostname, Result: original, Reason: text}
 	if !c.srv.plugins.Call(func() { c.srv.plugins.Fire(e) }) {
 		return errShutdownRefusal.reason, true
 	}

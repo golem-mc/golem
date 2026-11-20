@@ -26,7 +26,7 @@ func (s *Server) arrowMannequinOutcome(hit arrowMannequinHit) arrowOutcome {
 	m := ent.mannequin
 	priorFire := m.FireTicks
 	if ev.IgniteTicks > 0 {
-		m.IgniteForTicks(int(ev.IgniteTicks))
+		m.IgniteForTicksBy(int(ev.IgniteTicks), entity.CombustSource{By: pluginEntity{id: it.uuid}})
 	}
 	typ, direct := rules.DamageTypeArrow, int32(protocol.EntityTypeArrow)
 	if it.arrow.Trident {
