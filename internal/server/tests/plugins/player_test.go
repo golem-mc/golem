@@ -83,6 +83,22 @@ func TestPluginPlayerControlPackets(t *testing.T) {
 			t.Fatalf("title = %+v", actual)
 		}
 	}
+	p.SendTitle(plugin.Plain("t2"), plugin.Plain("s2"), -1, -1, -1)
+	got := map[int32]string{}
+	c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+		switch id {
+		case protocol.IDPlayTitlesAnimation:
+			t.Error("SendTitle with all-negative times sent a timings packet")
+		case protocol.IDPlaySubtitleText, protocol.IDPlayTitleText:
+			if actual, ok := protocol.ReadText(protocol.NewReader(data)); ok {
+				got[id] = actual.Plain()
+			}
+		}
+		return false
+	})
+	if got[protocol.IDPlaySubtitleText] != "s2" || got[protocol.IDPlayTitleText] != "t2" {
+		t.Fatalf("title texts = %v", got)
+	}
 	check(protocol.IDPlayClearTitles, p.ClearTitle, func(b *protocol.Buffer) { b.PutBool(false) })
 	check(protocol.IDPlayTabList, func() { p.SetListHeaderFooter(plugin.Plain("head"), plugin.Plain("foot")) }, func(b *protocol.Buffer) {
 		b.PutText(protocol.Text{Raw: nbt.Compound{"text": nbt.String("head")}})

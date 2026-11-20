@@ -92,7 +92,8 @@ type Player interface {
 	RunCommand(line string) bool
 	SendActionBar(msg Text)
 	// SendTitle shows a title and subtitle, fading in, staying and fading
-	// out over the ticks given.
+	// out over the ticks given. When all three are negative the client's
+	// current timings are kept.
 	SendTitle(title, subtitle Text, fadeIn, stay, fadeOut int)
 	ClearTitle()
 	// ShowDialog opens a dialog of the server's data packs.
