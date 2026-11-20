@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -350,6 +351,12 @@ func (s *Server) blastMobs(b blast, in *blastInputs, fx *blastEffects) {
 	w := b.w
 	pusher := s.blastPusher(b)
 	var pushes []*mobKnockback
+	type landed struct {
+		ent         *mobEntity
+		kind        entity.MobType
+		dealt, took float64
+	}
+	var hurts []landed
 	s.mobsMu.Lock()
 	herd := s.herdOf(w)
 	for _, m := range herd.herd {
@@ -380,7 +387,11 @@ func (s *Server) blastMobs(b blast, in *blastInputs, fx *blastEffects) {
 		if b.reflectedFireball && m.ReflectedFireballKills() {
 			damage = entity.ReflectedFireballDamage
 		}
+		healthBefore := m.Health
 		s.hurtByBlast(b, m, damage, hit.KX, hit.KY, hit.KZ, in.causeCreative)
+		if took := healthBefore - m.Health; took > 0 && b.causeID != 0 {
+			hurts = append(hurts, landed{herd.book[m], m.Type, damage, took})
+		}
 		if kb := s.holdMobKnockbackBy(herd.book[m], pusher, oldVX, oldVY, oldVZ, oldImpulse); kb != nil {
 			pushes = append(pushes, kb)
 		}
@@ -394,6 +405,23 @@ func (s *Server) blastMobs(b blast, in *blastInputs, fx *blastEffects) {
 	s.mobsMu.Unlock()
 	for _, kb := range pushes {
 		s.applyMobKnockback(kb)
+	}
+	// vanilla: LivingEntity.hurtServer fires player_hurt_entity for any
+	// damage whose causing entity is a player.
+	if len(hurts) > 0 {
+		if k := s.entityClient(b.causeID); k != nil {
+			cause := blastCause(b)
+			// The exploder is gone by now, so blowOf cannot look its Direct
+			// up; it is the type the blast carries.
+			direct := rules.LootEntity{Type: b.directType}
+			for _, h := range hurts {
+				blow := s.blowOf(b.w, b.damageType, cause, h.dealt, h.took, false)
+				if cause.directID != 0 {
+					blow.Direct = func() rules.LootEntity { return direct }
+				}
+				k.hurtEntityAdvancements(advancement.Entity{Type: h.kind.Name(), Loot: s.mobLoot(h.ent), Blow: &blow})
+			}
+		}
 	}
 }
 
