@@ -591,7 +591,7 @@ func (s *Server) WorldAge() int64 {
 // RunTick runs one whole turn of the main loop by hand, the gating and every
 // pass included, for the tests that stop the loop and drive the tick
 // themselves.
-func (s *Server) RunTick() { s.tick(s.loopClock().Now()) }
+func (s *Server) RunTick() { s.tick() }
 
 // TickSurvival runs one turn of the survival pass over every player - the
 // loading grace's countdown, the vitals' rhythms - the way the main tick's

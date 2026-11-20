@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/plugin"
@@ -51,14 +50,13 @@ func BenchmarkWholeTickShortLivedFrozen(b *testing.B) {
 				s.spawnFangs(fangsCast{w: s.world, x: x, y: -60, z: z})
 				s.spawnBolt(s.world, x, -60, z, true, plugin.LightningWeather)
 			}
-			now := time.Now()
 			for range 20 {
-				s.tick(now)
+				s.tick()
 			}
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				s.tick(now)
+				s.tick()
 			}
 			b.StopTimer()
 			if len(s.fangs.list) != count || len(s.bolts) != count {

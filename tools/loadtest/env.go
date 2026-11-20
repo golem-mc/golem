@@ -56,24 +56,35 @@ type summary struct {
 	Extra          map[string]any     `json:"extra"`
 	BotsLost       int                `json:"bots_lost"`
 	BotErrors      []string           `json:"bot_errors,omitempty"`
-	Error          string             `json:"error,omitempty"`
+	// ConnectedS is the shortest time any client stayed in play, to the
+	// end of the run or its connection's loss.
+	ConnectedS float64 `json:"connected_s_min"`
+	Error      string  `json:"error,omitempty"`
 }
 
 // window is what one measured interval saw.
 type window struct {
-	Seconds     float64        `json:"seconds"`
-	Ticks       int            `json:"ticks"`
-	TPS         float64        `json:"tps"`
-	MSPT        stats          `json:"mspt"`
-	TickQuery   []tickQuery    `json:"tick_query,omitempty"`
-	CPUCores    float64        `json:"cpu_cores"` // CPU seconds per wall second
-	RSSMiBMean  float64        `json:"rss_mib_mean"`
-	RSSMiBMax   float64        `json:"rss_mib_max"`
-	BytesIn     int64          `json:"bytes_in"` // wire bytes all clients received
-	BytesPerSec float64        `json:"bytes_per_s"`
-	Chunks      int64          `json:"chunks"` // chunk data packets all clients received
-	ChunksPerS  float64        `json:"chunks_per_s"`
-	ObserverPPS float64        `json:"observer_packets_per_s"`
+	Seconds     float64     `json:"seconds"`
+	Ticks       int         `json:"ticks"`
+	TPS         float64     `json:"tps"`
+	MSPT        stats       `json:"mspt"`
+	TickQuery   []tickQuery `json:"tick_query,omitempty"`
+	CPUCores    float64     `json:"cpu_cores"` // CPU seconds per wall second
+	RSSMiBMean  float64     `json:"rss_mib_mean"`
+	RSSMiBMax   float64     `json:"rss_mib_max"`
+	BytesIn     int64       `json:"bytes_in"` // wire bytes all clients received
+	BytesPerSec float64     `json:"bytes_per_s"`
+	Chunks      int64       `json:"chunks"` // chunk data packets all clients received
+	ChunksPerS  float64     `json:"chunks_per_s"`
+	ObserverPPS float64     `json:"observer_packets_per_s"`
+	// BytesPerTick is BytesIn over the window's ticks.
+	BytesPerTick float64 `json:"bytes_per_tick"`
+	// KeepAliveMS is the keep-alive round trip each client's tab list
+	// reported during the window (the server's smoothed figure); PingMS the
+	// round trip of the clients' own ping_request, queued behind the same
+	// packets a keep-alive waits on.
+	KeepAliveMS stats          `json:"keepalive_rtt_ms"`
+	PingMS      stats          `json:"ping_rtt_ms"`
 	Extra       map[string]any `json:"extra,omitempty"`
 }
 
@@ -344,13 +355,24 @@ func (e *env) measure(label string, d time.Duration, mo measureOpts) *window {
 		w.Chunks += chunks1[i] - chunks0[i]
 	}
 	w.BytesPerSec = float64(w.BytesIn) / w.Seconds
+	if w.Ticks > 0 {
+		w.BytesPerTick = float64(w.BytesIn) / float64(w.Ticks)
+	}
+	var keepAlive, pings []float64
+	for _, b := range all {
+		b.mu.Lock()
+		keepAlive = append(keepAlive, samplesIn(b.latency, start, end)...)
+		pings = append(pings, samplesIn(b.pings, start, end)...)
+		b.mu.Unlock()
+	}
+	w.KeepAliveMS, w.PingMS = statsOf(keepAlive), statsOf(pings)
 	w.ChunksPerS = float64(w.Chunks) / w.Seconds
 	if e.observer != nil {
 		w.ObserverPPS = float64(obs1-obs0) / w.Seconds
 	}
 	e.sum.Windows[label] = w
-	e.logf("%s: tps=%.1f mspt mean=%.2f p50=%.2f p95=%.2f p99=%.2f cpu=%.2f rss=%.0fMiB in=%.1fMB/s chunks/s=%.0f",
-		label, w.TPS, w.MSPT.Mean, w.MSPT.P50, w.MSPT.P95, w.MSPT.P99, w.CPUCores, w.RSSMiBMean, w.BytesPerSec/1e6, w.ChunksPerS)
+	e.logf("%s: tps=%.1f mspt mean=%.2f p50=%.2f p95=%.2f p99=%.2f cpu=%.2f rss=%.0fMiB in=%.1fMB/s (%.0f B/tick) chunks/s=%.0f keep-alive=%.0fms ping p95=%.0fms",
+		label, w.TPS, w.MSPT.Mean, w.MSPT.P50, w.MSPT.P95, w.MSPT.P99, w.CPUCores, w.RSSMiBMean, w.BytesPerSec/1e6, w.BytesPerTick, w.ChunksPerS, w.KeepAliveMS.Max, w.PingMS.P95)
 	return w
 }
 
@@ -397,11 +419,24 @@ func (e *env) capture(label string, d time.Duration) (cpuStart, cpuEnd time.Time
 	return
 }
 
-// botHealth notes the bots that were kicked or dropped.
+// botHealth notes the bots that were kicked or dropped, and how long the
+// shortest-lived stayed.
 func (e *env) botHealth() {
+	now := time.Now()
+	e.sum.ConnectedS = math.Inf(1)
 	for _, b := range append(append([]*bot{}, e.bots...), e.observer) {
 		if b == nil {
 			continue
+		}
+		b.mu.Lock()
+		joined := b.joinedAt
+		b.mu.Unlock()
+		end := now
+		if ns := b.lostAt.Load(); ns != 0 {
+			end = time.Unix(0, ns)
+		}
+		if !joined.IsZero() {
+			e.sum.ConnectedS = min(e.sum.ConnectedS, end.Sub(joined).Seconds())
 		}
 		if err := b.Err(); err != nil {
 			e.sum.BotsLost++
@@ -409,5 +444,8 @@ func (e *env) botHealth() {
 				e.sum.BotErrors = append(e.sum.BotErrors, b.name+": "+err.Error())
 			}
 		}
+	}
+	if math.IsInf(e.sum.ConnectedS, 1) {
+		e.sum.ConnectedS = 0
 	}
 }
