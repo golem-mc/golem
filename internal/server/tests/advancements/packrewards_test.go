@@ -1,6 +1,9 @@
 package advancements
 
 import (
+	"slices"
+
+	"github.com/golem-mc/golem/internal/protocol"
 	"path/filepath"
 	"testing"
 
@@ -72,5 +75,32 @@ func TestPackLootRewardGivesTheTableAndDropsWhatDoesNotFit(t *testing.T) {
 	}
 	if dropped != 1 {
 		t.Errorf("dropped diamonds = %d, want 1", dropped)
+	}
+}
+
+// TestPackRewardsGrantLootBeforeRecipes: one advancement's loot reaches the
+// inventory before its recipes reach the book. vanilla: AdvancementRewards.grant
+func TestPackRewardsGrantLootBeforeRecipes(t *testing.T) {
+	cfg, data := packConfig(t)
+	writePackFile(t, filepath.Join(data, "t", "advancement", "a.json"),
+		rewardAdvancement(`{"loot":["t:l"],"recipes":["minecraft:crafting_table"]}`))
+	writePackFile(t, filepath.Join(data, "t", "loot_table", "l.json"),
+		`{"type":"minecraft:advancement_reward","pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:diamond"}]}]}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.Settle()
+
+	c.WatchBook = true
+	c.ChatCommand("advancement grant @s only t:a")
+	var order []int32
+	c.ReadTicks(srv, 5, func(id int32, _ []byte) bool {
+		if id == protocol.IDPlayContainerSlot || id == protocol.IDPlayRecipeBookAdd {
+			order = append(order, id)
+		}
+		return false
+	})
+	book := slices.Index(order, protocol.IDPlayRecipeBookAdd)
+	slot := slices.Index(order, protocol.IDPlayContainerSlot)
+	if book < 0 || slot < 0 || slot > book {
+		t.Fatalf("packet order = %v, want a container slot before the recipe book add", order)
 	}
 }
