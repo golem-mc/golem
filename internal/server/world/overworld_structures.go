@@ -4,6 +4,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/world/terrain"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/golem-mc/golem/internal/server/world/levelgen"
 	"github.com/golem-mc/golem/nbt"
@@ -129,14 +130,31 @@ type overworldStructures struct {
 	types     map[string]structureType
 	readStart func(string, int32, int32) nbt.Compound
 	saved     map[[2]int32]nbt.Compound
-	once      sync.Once
-	sets      []*levelgen.StructureSet
-	mu        sync.Mutex
+	// current is the sets for one packGeneration, found on first use.
+	current atomic.Pointer[structureSetList]
+	mu      sync.Mutex
 	// starts holds the chunks that have a start.
 	starts map[[2]int32][]*structureStart
 	// noStarts holds chunks asked about that grew none, at most
 	// noStartsCacheMax of them.
 	noStarts map[[2]int32]struct{}
+}
+
+// typeOf returns the type that grows structure id, a data pack's included.
+func (s *overworldStructures) typeOf(id string) structureType {
+	if t := s.types[id]; t != nil {
+		return t
+	}
+	if p := packJigsaw.Load(); p != nil {
+		return p.types[id]
+	}
+	return nil
+}
+
+// structureSetList is the sets found for one packGeneration.
+type structureSetList struct {
+	gen  uint64
+	sets []*levelgen.StructureSet
 }
 
 func newOverworldStructures() *overworldStructures {
@@ -149,25 +167,35 @@ func newOverworldStructures() *overworldStructures {
 // vanilla: ChunkGeneratorStructureState.createForNormal, ChunkGeneratorStructureState.createForFlat
 func (g *OverworldGenerator) structureSets() []*levelgen.StructureSet {
 	s := g.structures
-	s.once.Do(func() {
-		biomes := g.possibleBiomes()
-		for i := range levelgen.StructureSets {
-			set := &levelgen.StructureSets[i]
-			if g.flat != nil && !g.flat.allStructureSets && !slices.Contains(g.flat.structureSets, set.Name) {
-				continue
-			}
-			if slices.ContainsFunc(set.Entries, func(e levelgen.StructureSetEntry) bool {
-				if s.types[e.Structure] == nil {
-					return false
-				}
-				tag := registry.BiomeTagOf(levelgen.StructureNamed(e.Structure).Biomes)
-				return slices.ContainsFunc(biomes, func(b registry.Biome) bool { return b.InTag(tag) })
-			}) {
-				s.sets = append(s.sets, set)
-			}
+	gen := packGeneration.Load()
+	if cur := s.current.Load(); cur != nil && cur.gen == gen {
+		return cur.sets
+	}
+	biomes := g.possibleBiomes()
+	all := levelgen.AllStructureSets()
+	var sets []*levelgen.StructureSet
+	for i := range all {
+		set := &all[i]
+		if g.flat != nil && !g.flat.allStructureSets && !slices.Contains(g.flat.structureSets, set.Name) {
+			continue
 		}
-	})
-	return s.sets
+		if slices.ContainsFunc(set.Entries, func(e levelgen.StructureSetEntry) bool {
+			if s.typeOf(e.Structure) == nil {
+				return false
+			}
+			def := levelgen.StructureNamed(e.Structure)
+			return slices.ContainsFunc(biomes, func(b registry.Biome) bool { return structureAllowsBiome(def, b) })
+		}) {
+			sets = append(sets, set)
+		}
+	}
+	// Starts found under the previous packs' sets no longer hold.
+	s.mu.Lock()
+	clear(s.starts)
+	clear(s.noStarts)
+	s.mu.Unlock()
+	s.current.Store(&structureSetList{gen, sets})
+	return sets
 }
 
 // inStrongholdRing reports whether chunk (x, z) is one of the stronghold
@@ -248,7 +276,7 @@ func (g *OverworldGenerator) structureStartsIn(cx, cz int32) []*structureStart {
 // has no type, finds no point, its point's biome refuses it or it has no
 // pieces. vanilla: Structure.generate
 func (g *OverworldGenerator) growStructure(id string, cx, cz int32) *structureStart {
-	typ := g.structures.types[id]
+	typ := g.structures.typeOf(id)
 	if typ == nil {
 		return nil
 	}
@@ -281,7 +309,7 @@ func (g *OverworldGenerator) buildStart(id string, typ structureType, cx, cz int
 	}
 	def := levelgen.StructureNamed(id)
 	// vanilla: Structure.isValidBiome
-	if biome := g.biomeSource.At(pos[0]>>2, pos[1]>>2, pos[2]>>2); checkBiome && !registry.Biome(g.biomeIDs[biome]).InTag(registry.BiomeTagOf(def.Biomes)) {
+	if biome := g.biomeSource.At(pos[0]>>2, pos[1]>>2, pos[2]>>2); checkBiome && !structureAllowsBiome(def, registry.Biome(g.biomeIDs[biome])) {
 		return nil
 	}
 	pieces := build()
@@ -349,8 +377,9 @@ func (r *decorRegion) placeStructures(reaching []*structureStart, decorationSeed
 	// The writable area leaves out the lowest layer.
 	// vanilla: ChunkGenerator.getWritableArea
 	chunk := jbox{nx * 16, r.minY + 1, nz * 16, nx*16 + 15, r.minY + r.height - 1, nz*16 + 15}
-	for i := range levelgen.Structures {
-		def := &levelgen.Structures[i]
+	all := levelgen.AllStructures()
+	for i := range all {
+		def := &all[i]
 		if def.Step != step {
 			continue
 		}

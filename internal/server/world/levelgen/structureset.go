@@ -1,5 +1,10 @@
 package levelgen
 
+import (
+	"slices"
+	"sync/atomic"
+)
+
 // SpreadType is how a random_spread placement draws a start's offset within
 // its cell. vanilla: RandomSpreadType
 type SpreadType uint8
@@ -127,11 +132,71 @@ var StructureSets = []StructureSet{
 	{"minecraft:woodland_mansions", entries("mansion"), spread(80, 20, SpreadTriangular, 10387319)},
 }
 
+// packWorldgen is the structure sets and structures with the data packs'
+// added: a pack's set replaces a vanilla set of its id, in the same place.
+type packWorldgen struct {
+	sets       []StructureSet
+	structures []StructureDef
+}
+
+var packStructures atomic.Pointer[packWorldgen]
+
+// SetPackStructures layers the data packs' structure sets and structures over
+// vanilla's, which a pack cannot remove; both nil clears them. A structure's
+// Index continues its step's count after vanilla's, in the order given.
+// vanilla: RegistryDataLoader (a later pack's file replaces the earlier by id)
+func SetPackStructures(sets []StructureSet, defs []StructureDef) {
+	if len(sets) == 0 && len(defs) == 0 {
+		packStructures.Store(nil)
+		return
+	}
+	p := &packWorldgen{sets: slices.Clone(StructureSets), structures: slices.Clone(Structures)}
+	for _, set := range sets {
+		if i := slices.IndexFunc(p.sets, func(s StructureSet) bool { return s.Name == set.Name }); i >= 0 {
+			p.sets[i] = set
+		} else {
+			p.sets = append(p.sets, set)
+		}
+	}
+	var next [DecorationSteps]int32
+	for _, d := range p.structures {
+		next[d.Step] = d.Index + 1
+	}
+	for _, d := range defs {
+		if slices.ContainsFunc(p.structures, func(o StructureDef) bool { return o.Name == d.Name }) {
+			continue
+		}
+		d.Index = next[d.Step]
+		next[d.Step]++
+		p.structures = append(p.structures, d)
+	}
+	packStructures.Store(p)
+}
+
+// AllStructureSets are vanilla's structure sets and the data packs', in
+// registry order. The result must not be modified.
+func AllStructureSets() []StructureSet {
+	if p := packStructures.Load(); p != nil {
+		return p.sets
+	}
+	return StructureSets
+}
+
+// AllStructures are vanilla's structures and the data packs', in registry
+// order. The result must not be modified.
+func AllStructures() []StructureDef {
+	if p := packStructures.Load(); p != nil {
+		return p.structures
+	}
+	return Structures
+}
+
 // StructureSetNamed returns the set of the name, or nil.
 func StructureSetNamed(name string) *StructureSet {
-	for i := range StructureSets {
-		if StructureSets[i].Name == name {
-			return &StructureSets[i]
+	sets := AllStructureSets()
+	for i := range sets {
+		if sets[i].Name == name {
+			return &sets[i]
 		}
 	}
 	return nil
@@ -273,6 +338,9 @@ type StructureDef struct {
 	Biomes     string
 	Step       int32
 	Adaptation TerrainAdjustment
+	// BiomeList names the biomes it may start in when the pack gave biomes
+	// rather than a tag; Biomes is then empty.
+	BiomeList []string
 	// Index is the structure's place among its step's structures, which
 	// seeds its placement random.
 	Index int32
@@ -337,9 +405,10 @@ var Structures = func() []StructureDef {
 
 // StructureNamed returns the structure of the name, or nil.
 func StructureNamed(name string) *StructureDef {
-	for i := range Structures {
-		if Structures[i].Name == name {
-			return &Structures[i]
+	all := AllStructures()
+	for i := range all {
+		if all[i].Name == name {
+			return &all[i]
 		}
 	}
 	return nil

@@ -30,7 +30,8 @@ func LoadRegistryEntries(packs []string, dir string, skip func(file string, err 
 }
 
 // UnloadedWorldgen names the packs that have JSON files under data/*/worldgen/
-// other than worldgen/biome, which the server does not load.
+// other than the ones the server loads: biome, structure, structure_set,
+// template_pool and processor_list.
 func UnloadedWorldgen(packs []string) ([]string, error) {
 	ignore := func(string, error) {}
 	var out []string
@@ -41,7 +42,7 @@ func UnloadedWorldgen(packs []string) ([]string, error) {
 			return nil, err
 		}
 		for id := range ids {
-			if !strings.HasPrefix(id[strings.IndexByte(id, ':')+1:], "biome/") {
+			if !loadedWorldgen(id[strings.IndexByte(id, ':')+1:]) {
 				found = true
 			}
 		}
@@ -50,4 +51,13 @@ func UnloadedWorldgen(packs []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+func loadedWorldgen(path string) bool {
+	for _, dir := range []string{"biome/", "structure/", "structure_set/", "template_pool/", "processor_list/"} {
+		if strings.HasPrefix(path, dir) {
+			return true
+		}
+	}
+	return false
 }
