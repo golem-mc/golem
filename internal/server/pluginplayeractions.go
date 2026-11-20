@@ -369,6 +369,16 @@ func (c *client) pluginLevelChange(was, now int) {
 	c.srv.pluginFireAny(&plugin.PlayerLevelChangeEvent{Player: c.pluginSelf(), Old: was, New: now})
 }
 
+// pluginCriterionVeto fires PlayerAdvancementCriterionGrantEvent and reports
+// whether a listener cancelled the grant. It runs under the progress's lock.
+func (c *client) pluginCriterionVeto(n *advancement.Node, criterion string) bool {
+	if !c.pluginListening(pluginruntime.PlayerAdvancementCriterionGrant) {
+		return false
+	}
+	e := &plugin.PlayerAdvancementCriterionGrantEvent{Player: c.pluginSelf(), Advancement: pluginAdvancement{n}, Criterion: criterion}
+	return c.srv.pluginFireAny(e) && e.Cancelled()
+}
+
 // pluginAdvancementDone fires PlayerAdvancementDoneEvent for a completed
 // advancement and returns the chat announcement to send: msg, which a
 // listener may replace or clear. msg is nil when nothing is announced.

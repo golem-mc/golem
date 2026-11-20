@@ -159,6 +159,18 @@ func (w pluginWorld) GameRule(id plugin.GameRule) int {
 	}
 	return 0
 }
+func (w pluginWorld) SpawnLimit(c registry.MobCategory) int {
+	return w.dim.spawnTuning.Limit(c)
+}
+func (w pluginWorld) SetSpawnLimit(c registry.MobCategory, n int) {
+	w.dim.spawnTuning.SetLimit(c, n)
+}
+func (w pluginWorld) TicksPerSpawn(c registry.MobCategory) int {
+	return w.dim.spawnTuning.Ticks(c)
+}
+func (w pluginWorld) SetTicksPerSpawn(c registry.MobCategory, n int) {
+	w.dim.spawnTuning.SetTicks(c, n)
+}
 func (w pluginWorld) SetGameRule(id plugin.GameRule, v int) {
 	if id < 0 || int(id) >= len(world.GameRuleTable) {
 		return
@@ -228,8 +240,16 @@ func (b pluginBorder) SetSize(size float64, d time.Duration) {
 		b.view.SetSize(size)
 	}
 }
-func (b pluginBorder) DamagePerBlock() float64       { damage, _ := b.view.DamageSettings(); return damage }
-func (b pluginBorder) SetDamagePerBlock(d float64)   { b.view.SetDamagePerBlock(d) }
-func (b pluginBorder) WarningDistance() int          { return int(b.view.State().WarningBlocks) }
-func (b pluginBorder) SetWarningDistance(n int)      { b.view.SetWarningBlocks(int32(n)) }
+func (b pluginBorder) DamagePerBlock() float64     { damage, _ := b.view.DamageSettings(); return damage }
+func (b pluginBorder) SetDamagePerBlock(d float64) { b.view.SetDamagePerBlock(d) }
+func (b pluginBorder) WarningDistance() int        { return int(b.view.State().WarningBlocks) }
+func (b pluginBorder) SetWarningDistance(n int)    { b.view.SetWarningBlocks(int32(n)) }
+func (b pluginBorder) DamageBuffer() float64       { _, buffer := b.view.DamageSettings(); return buffer }
+func (b pluginBorder) SetDamageBuffer(d float64)   { b.view.SetSafeZone(d) }
+func (b pluginBorder) WarningTime() time.Duration {
+	return time.Duration(b.view.State().WarningTime) * (time.Second / 20)
+}
+func (b pluginBorder) SetWarningTime(d time.Duration) {
+	b.view.SetWarningTime(int32(min(pluginDurationTicks(d), math.MaxInt32)))
+}
 func (b pluginBorder) Contains(pos plugin.Vec3) bool { return b.view.dim.border.Contains(pos.X, pos.Z) }

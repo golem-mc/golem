@@ -152,6 +152,16 @@ func initialPluginSpawn(plug plugin.Generator, gen world.Generator, handle plugi
 	return world.SpawnPos{Y: gen.SeaLevel() + 1}
 }
 
+// WorldFolder answers the folder of the world key names; the overworld's is
+// the level directory.
+func (h *pluginHost) WorldFolder(key plugin.Key) string {
+	name := key.String()
+	if name == world.DimensionName {
+		return h.srv.levelDir
+	}
+	return world.DimensionDir(h.srv.levelDir, name)
+}
+
 // UnloadWorld unloads a plugin-created world on the tick goroutine after
 // WorldUnloadEvent: its players go to the world spawn, its entities are
 // written (when save is set) and dropped, and its files close. The vanilla

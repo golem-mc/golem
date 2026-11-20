@@ -2,6 +2,7 @@ package entities
 
 import (
 	"math"
+	"sync/atomic"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
@@ -450,6 +451,25 @@ func TestAPearlLandingInAnotherDimensionCarriesItsOwner(t *testing.T) {
 
 	thrower := connect().Join("Thrower")
 
+	// step names the wait the test is in; a failure logs it with the state
+	// the waits cannot say themselves.
+	step := "joining"
+	var carried atomic.Bool
+	var crossed, removed bool
+	arrivalCooldown := int32(-1)
+	var spot server.TestItem
+	var arrival servertest.ThrownSpawn
+	srv.SetPearlCarryHook(func() { carried.Store(true) })
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		t.Logf("failed in step %q: spot=(%v, %v, %v) arrival pearl=(%v, %v, %v) crossed=%v removed=%v arrivalCooldown=%d carryRan=%v thrower in %q at %+v; overworld pearls %+v, nether pearls %+v",
+			step, spot.X, spot.Y, spot.Z, arrival.X, arrival.Y, arrival.Z, crossed, removed, arrivalCooldown, carried.Load(),
+			srv.PlayerDimension("Thrower"), srv.PlayerPosition("Thrower"),
+			srv.ThrownInDimension(world.DimensionName), srv.ThrownInDimension(world.NetherName))
+	})
+
 	servertest.LightPortal(t, srv, thrower)
 
 	// A stone dropped through first builds the nether portal the pearl is
@@ -461,16 +481,18 @@ func TestAPearlLandingInAnotherDimensionCarriesItsOwner(t *testing.T) {
 	thrower.SetCreativeSlot(36, protocol.ItemStack{ItemID: stone, Count: 1})
 	thrower.MoveTo(5.0, servertest.PortalFloorY, 5.5, 180, 0)
 	servertest.DropHeld(thrower, 5, servertest.PortalFloorY, 5)
-	servertest.WaitFor(t, srv, 400, func() bool {
+	step = "the dropped stone reaching the nether"
+	servertest.UntilTicks(t, srv, 400, step, func() bool {
 		return len(srv.ItemsInDimension(world.NetherName)) == 1 &&
 			len(srv.ItemsInDimension(world.DimensionName)) == 0
 	})
-	spot := srv.ItemsInDimension(world.NetherName)[0]
+	spot = srv.ItemsInDimension(world.NetherName)[0]
 
 	// The mover in the nether the arrival is shown to.
 	mover := connect().Join("Arrival")
 	srv.MovePlayerToDimension("Arrival", world.NetherName,
 		float64(int(spot.X)), float64(int(spot.Y)), float64(int(spot.Z))+2)
+	step = "the nether arriving for the mover"
 	if _, ok := servertest.ReadUntilViewSent(t, mover); !ok {
 		t.Fatal("the nether never arrived for the mover")
 	}
@@ -481,19 +503,20 @@ func TestAPearlLandingInAnotherDimensionCarriesItsOwner(t *testing.T) {
 	// The same spot again, the movement the throw rides nought.
 	thrower.MoveTo(5.0, servertest.PortalFloorY, 6.0, 180, 0)
 	servertest.UseHeld(thrower, 180, 0)
+	step = "the thrown pearl spawning for the thrower"
 	thrower.ExpectThrownSpawn(srv, protocol.EntityTypeEnderPearl)
 
 	// The crossing and the far-side landing, as the nether's standing
 	// player is told: the arrival's own spawn, then its flight ending. The
 	// thrower's own stream is drained throughout — its mailbox must not back
 	// up behind the Respawn that carries it across.
-	arrival := awaitPearlSpawn(t, srv, mover)
+	step = "the pearl's arrival spawning for the nether watcher"
+	arrival = awaitPearlSpawn(t, srv, mover)
 	// The Respawn carrying the thrower across says their portal cooldown:
 	// the pearl's, taken before the carry and still whole on arrival, so the
 	// nether portal the creative thrower is set down beside does not take
 	// them straight back.
-	crossed, removed := false, false
-	arrivalCooldown := int32(-1)
+	step = "the thrower crossing and the pearl's landing"
 	servertest.UntilTicks(t, srv, 400, "the thrower crossing, its Respawn and the pearl's landing reaching the nether watcher", func() bool {
 		thrower.ReadTicks(srv, 0, func(gotID int32, data []byte) bool {
 			if gotID == protocol.IDPlayRespawn && arrivalCooldown < 0 {

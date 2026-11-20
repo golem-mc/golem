@@ -160,7 +160,7 @@ func TestWorldLoadsVanillaChunk(t *testing.T) {
 		t.Fatalf("nbt.Encode: %v", err)
 	}
 	rx, rz := regionCoords(pos)
-	rf, err := openRegion(regionFilePath(dimensionDir(dir, DimensionName), rx, rz), defaultSaveFormat)
+	rf, err := openRegion(regionFilePath(DimensionDir(dir, DimensionName), rx, rz), defaultSaveFormat)
 	if err != nil {
 		t.Fatalf("openRegion: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestWorldRegeneratesUngeneratedChunks(t *testing.T) {
 		t.Fatalf("nbt.Encode: %v", err)
 	}
 	rx, rz := regionCoords(pos)
-	rf, err := openRegion(regionFilePath(dimensionDir(dir, DimensionName), rx, rz), defaultSaveFormat)
+	rf, err := openRegion(regionFilePath(DimensionDir(dir, DimensionName), rx, rz), defaultSaveFormat)
 	if err != nil {
 		t.Fatalf("openRegion: %v", err)
 	}

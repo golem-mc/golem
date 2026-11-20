@@ -161,6 +161,7 @@ const (
 	PlayerFish
 	PlayerArmorStandManipulate
 	PlayerEggThrow
+	PlayerAdvancementCriterionGrant
 )
 
 var pluginHookTypes = [...]reflect.Type{
@@ -313,6 +314,7 @@ var pluginHookTypes = [...]reflect.Type{
 	reflect.TypeFor[*plugin.PlayerFishEvent](),
 	reflect.TypeFor[*plugin.PlayerArmorStandManipulateEvent](),
 	reflect.TypeFor[*plugin.PlayerEggThrowEvent](),
+	reflect.TypeFor[*plugin.PlayerAdvancementCriterionGrantEvent](),
 }
 
 type pluginBus struct {

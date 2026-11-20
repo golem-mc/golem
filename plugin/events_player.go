@@ -380,6 +380,18 @@ type PlayerAdvancementDoneEvent struct {
 	Message     *Text
 }
 
+// PlayerAdvancementCriterionGrantEvent fires before a criterion is granted, by
+// a trigger, /advancement or a plugin; cancelling leaves it ungranted, with no
+// progress update, toast or reward. A listener runs while the player's
+// advancement progress is locked, so it must not read or change that progress.
+// Bukkit: PlayerAdvancementCriterionGrantEvent
+type PlayerAdvancementCriterionGrantEvent struct {
+	Cancellable
+	Player      Player
+	Advancement Advancement
+	Criterion   string
+}
+
 // PlayerResourcePackStatusEvent fires for each status a client reports for a
 // pack. Bukkit: PlayerResourcePackStatusEvent
 type PlayerResourcePackStatusEvent struct {

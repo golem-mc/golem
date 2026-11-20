@@ -13,6 +13,7 @@ package registry
 //go:generate go run ../tools/gen gameevents
 //go:generate go run ../tools/gen soundevents
 //go:generate go run ../tools/gen entitytypes
+//go:generate go run ../tools/gen entitycategories
 //go:generate go run ../tools/gen items
 //go:generate go run ../tools/gen ids
 //go:generate go run ../tools/gen blocks
