@@ -4,6 +4,7 @@ package server_test
 // generated-table loaders and plugin adapters that must continue reading names.
 
 var registryNameAllowed = map[string]nameAllowance{
+	"internal/server/packregistries.go: string registry lookup":                     {count: 1, boundary: "data pack biome file name"},
 	"registry/sulfurarchetype.go: string registry lookup":                           {count: 1, boundary: "data pack items holder set tag name"},
 	"registry/stackitemprops.go: string registry lookup":                            {count: 2, boundary: "item tag names decoded from component data"},
 	"registry/sound.go: string registry lookup":                                     {count: 1, boundary: "sound name decoding"},
