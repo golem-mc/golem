@@ -337,6 +337,10 @@ type LootContext struct {
 	// the one behind the blow, and what the blow rode (the swing, or the
 	// arrow). Looting and fire aspect read Attacker's main hand.
 	This, Attacker, DirectAttacker LootEntity
+	// Indirect is set when DirectAttacker is a projectile the Attacker
+	// launched, so is_direct fails.
+	// vanilla: DamageSource.isDirect
+	Indirect bool
 	// AttackingPlayer is the player a death credits (LAST_DAMAGE_PLAYER),
 	// whatever struck the blow, such as the player whose hit a fall or burn
 	// finished. An empty Type falls back to Attacker when a player is it.
@@ -940,10 +944,7 @@ func (r *lootRoller) condition(c registry.LootCondition) bool {
 		e := r.entity(k.Entity)
 		return e.Type != "" && entityPredicate(k.Predicate, e, r.ctx)
 	case registry.LootDamageSource:
-		if k.DamageTypes != nil {
-			return k.DamageTypes.Contains(r.ctx.DamageType) && (k.DirectType == "" || r.ctx.DirectAttacker.Type == k.DirectType)
-		}
-		return r.ctx.Attacker.Type == k.SourceType && (k.FrogVariant == "" || r.ctx.Attacker.FrogVariant == k.FrogVariant)
+		return r.damageSource(k)
 	case registry.LootReferenceCondition:
 		// A predicate that refers back to itself fails rather than recursing.
 		// vanilla: ConditionReference.test
@@ -1874,4 +1875,35 @@ func locationAt(k registry.LootLocationCheck, ctx *LootContext, x, y, z int32) b
 	dx, dy, dz := x-BlockOf(ctx.Origin[0]), y-BlockOf(ctx.Origin[1]), z-BlockOf(ctx.Origin[2])
 	return (k.Block == "" || blockAtMatches(ctx, k, dx, dy, dz)) &&
 		(len(k.Biomes) == 0 || biomeAtMatches(ctx, k, dx, dy, dz))
+}
+
+// damageSource tests every part of a damage source predicate; the generated
+// tables write only the first two shapes.
+// vanilla: DamageSourcePredicate.matches
+func (r *lootRoller) damageSource(k registry.LootDamageSource) bool {
+	if k.DamageTypes != nil {
+		if !k.DamageTypes.Contains(r.ctx.DamageType) || k.DirectType != "" && r.ctx.DirectAttacker.Type != k.DirectType {
+			return false
+		}
+	} else if k.SourceType != "" &&
+		(r.ctx.Attacker.Type != k.SourceType || k.FrogVariant != "" && r.ctx.Attacker.FrogVariant != k.FrogVariant) {
+		return false
+	}
+	for _, t := range k.Tags {
+		if t.Set.Contains(r.ctx.DamageType) != t.Expected {
+			return false
+		}
+	}
+	if k.IsDirect != nil && *k.IsDirect != !r.ctx.Indirect {
+		return false
+	}
+	for _, t := range []struct {
+		p *registry.LootEntityPredicate
+		e LootEntity
+	}{{k.Direct, r.ctx.DirectAttacker}, {k.Source, r.ctx.Attacker}} {
+		if t.p != nil && (t.e.Type == "" || !entityPredicate(*t.p, t.e, r.ctx)) {
+			return false
+		}
+	}
+	return true
 }

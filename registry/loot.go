@@ -353,6 +353,20 @@ type LootDamageSource struct {
 	DamageTypes *DamageTypeSet
 	// DirectType also demands the entity that carried the blow have this type.
 	DirectType string
+	// Tags are the TagPredicate terms; each must hold.
+	Tags []LootDamageTag
+	// Direct and Source test the entity that carried the blow and the one
+	// that caused it; a missing entity fails.
+	Direct, Source *LootEntityPredicate
+	// IsDirect asks whether the two are the same entity.
+	IsDirect *bool
+}
+
+// LootDamageTag is one damage-type tag term: the damage type is in Set
+// exactly when Expected.
+type LootDamageTag struct {
+	Set      *DamageTypeSet
+	Expected bool
 }
 
 // LootInverted is the condition that its term does not hold.

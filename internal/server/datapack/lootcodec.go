@@ -600,29 +600,29 @@ func contextRange(v any, provider func(any) registry.LootNumber) registry.LootRa
 }
 
 func damageSource(p obj) registry.LootCondition {
-	if tags := list(p["tags"], "tags"); len(tags) == 1 && (len(p) == 1 || len(p) == 2) {
+	unknownKeys(p, "damage source predicate", "tags", "direct_entity", "source_entity", "is_direct")
+	// The one-tag shape the generated tables write, kept as it is.
+	if tags := list(valueOr(p, "tags", []any{}), "tags"); len(tags) == 1 && len(p) == 1 {
 		tag := object(tags[0], "tag")
 		if expected, _ := tag["expected"].(bool); expected && len(tag) == 2 {
-			var direct string
-			if len(p) == 2 {
-				d, isObj := p["direct_entity"].(map[string]any)
-				if !isObj || len(d) != 1 {
-					fail("this damage source predicate is not supported by this server")
-				}
-				direct = registry.Qualify(requireStr(d, "minecraft:entity_type"))
-			}
-			return damageTypeSet(required(tag, "id"), direct)
+			return damageTypeSet(required(tag, "id"), "")
 		}
 	}
-	source, isObj := p["source_entity"].(map[string]any)
-	if !isObj || len(p) != 1 {
-		fail("this damage source predicate is not supported by this server")
+	var out registry.LootDamageSource
+	for _, x := range list(valueOr(p, "tags", []any{}), "tags") {
+		t := object(x, "a damage source tag")
+		out.Tags = append(out.Tags, registry.LootDamageTag{Set: damageHolderSet(required(t, "id")), Expected: requireFlag(t, "expected")})
 	}
-	unknownKeys(source, "source entity", "minecraft:entity_type", "minecraft:components")
-	components := object(valueOr(source, "minecraft:components", obj{}), "components")
-	unknownKeys(components, "source entity components", "minecraft:frog/variant")
-	variant, _ := components["minecraft:frog/variant"].(string)
-	return registry.LootDamageSource{SourceType: registry.Qualify(requireStr(source, "minecraft:entity_type")), FrogVariant: variant}
+	for key, dst := range map[string]**registry.LootEntityPredicate{"direct_entity": &out.Direct, "source_entity": &out.Source} {
+		if v, ok := p[key]; ok {
+			e := entityPredicate(object(v, key))
+			*dst = &e
+		}
+	}
+	if _, ok := p["is_direct"]; ok {
+		out.IsDirect = new(requireFlag(p, "is_direct"))
+	}
+	return out
 }
 
 func damageTypeSet(id any, direct string) registry.LootCondition {
