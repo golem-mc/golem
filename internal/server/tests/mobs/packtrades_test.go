@@ -19,6 +19,12 @@ type listedOffer struct {
 // whose level holds the pack files given, and reads the Merchant Offers it
 // sends. Not parallel: the trade sets are process-wide.
 func armorerOffers(t *testing.T, files map[string]string) []listedOffer {
+	offers, _ := armorerOfferStacks(t, files)
+	return offers
+}
+
+// armorerOfferStacks is armorerOffers with the result stack of each offer.
+func armorerOfferStacks(t *testing.T, files map[string]string) ([]listedOffer, []protocol.ItemStack) {
 	t.Helper()
 	cfg := servertest.MobTestConfig()
 	cfg.GameMode = "survival"
@@ -52,12 +58,14 @@ func armorerOffers(t *testing.T, files map[string]string) []listedOffer {
 	r.ReadVarInt() // window
 	count := r.ReadVarInt()
 	var out []listedOffer
+	var stacks []protocol.ItemStack
 	for range count {
 		o := listedOffer{cost: r.ReadVarInt()}
 		r.ReadVarInt() // cost count
 		r.ReadVarInt() // cost predicate
 		result, _ := r.ReadSlot()
 		o.result = result.ItemID
+		stacks = append(stacks, result)
 		if r.ReadBool() {
 			r.ReadVarInt()
 			r.ReadVarInt()
@@ -75,7 +83,7 @@ func armorerOffers(t *testing.T, files map[string]string) []listedOffer {
 	if r.Err() != nil {
 		t.Fatal(r.Err())
 	}
-	return out
+	return out, stacks
 }
 
 // TestPackTradesChangeAVillagersOffers checks that a pack's villager_trade,
