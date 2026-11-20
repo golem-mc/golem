@@ -1421,8 +1421,12 @@ func advBrewedPotion(c *registry.AdvancementCriterion, v any) {
 	if !ok {
 		return
 	}
+	if tag, ok := names.(string); ok && strings.HasPrefix(tag, "#") {
+		c.Unmodelled = true
+		return
+	}
 	c.Potions = []int32{}
-	for _, name := range holderSet(names, "potion", func(string) ([]string, bool) { return nil, false }) {
+	for _, name := range holderSet(names, "potion", nil) {
 		id, ok := registry.PotionID(registry.Qualify(name))
 		if !ok {
 			fail("unknown potion %s", name)

@@ -286,6 +286,7 @@ func TestDecodeAdvancementReadsItemPredicatesLevelsDurabilityAndPotions(t *testi
 		"c":{"trigger":"minecraft:enchanted_item","conditions":{"levels":{"min":30}}},
 		"d":{"trigger":"minecraft:brewed_potion","conditions":{"potion":{"potions":"minecraft:swiftness"}}},
 		"e":{"trigger":"minecraft:brewed_potion","conditions":{"potion":{"effects":{}}}},
+		"g":{"trigger":"minecraft:brewed_potion","conditions":{"potion":{"potions":"#minecraft:tradeable"}}},
 		"f":{"trigger":"minecraft:killed_by_arrow","conditions":{"fired_from_weapon":{"items":"minecraft:bow","count":2}}}}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -303,7 +304,7 @@ func TestDecodeAdvancementReadsItemPredicatesLevelsDurabilityAndPotions(t *testi
 	if want := registry.MustPotion("minecraft:swiftness"); c[3].Unmodelled || !reflect.DeepEqual(c[3].Potions, []int32{want}) {
 		t.Errorf("potion criterion: %+v", c[3])
 	}
-	if !c[4].Unmodelled || !c[5].Unmodelled {
+	if !c[4].Unmodelled || !c[5].Unmodelled || !c[6].Unmodelled || c[6].Potions != nil {
 		t.Error("an effects predicate, and a full predicate on a trigger that tests IDs only, stay unmodelled")
 	}
 }
