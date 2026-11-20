@@ -634,13 +634,7 @@ func (p *jigsawPiece) placeElement(el *jigsawElement, r *decorRegion, chunk jbox
 		if !ok {
 			continue
 		}
-		world := r.get(x, y, z)
-		for _, proc := range el.processors {
-			if state, tag, ok = applyProcessor(proc, state, world, x, y, z, ref[1], tag); !ok {
-				break
-			}
-		}
-		if !ok {
+		if state, tag, y, ok = runProcessors(el.processors, state, tag, x, y, z, blk.Pos[1], ref, r.get, r.heightOf); !ok {
 			continue
 		}
 		if el.legacy && registry.BlockOf(state).InTag(registry.TagIDAir) {
@@ -661,7 +655,7 @@ func (p *jigsawPiece) placeElement(el *jigsawElement, r *decorRegion, chunk jbox
 	}
 	for _, proc := range el.processors {
 		if cap, ok := proc.(cappedProcessor); ok {
-			cap.finalize(placed, r.worldSeed, p.pos, ref[1], r.get)
+			cap.finalize(placed, r.worldSeed, p.pos, ref, r.get)
 		}
 	}
 	for i, b := range placed.Changes {

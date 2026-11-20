@@ -51,7 +51,7 @@ func templateFeature(cfg jobj) featureFn {
 		dx, _, dz := TransformTemplatePos(-e.template.Size[0]/2, 0, -e.template.Size[2]/2, MirrorNone, rotation)
 		placed, ok := e.template.Place(TemplatePlacement{
 			Origin: [3]int32{p[0] + dx, p[1], p[2] + dz}, Rotation: rotation,
-			Integrity: 1, random: r.rng, process: r.featureProcess(procs, protected, p[1]),
+			Integrity: 1, random: r.rng, process: r.featureProcess(procs, protected, p),
 		})
 		if !ok {
 			return false
