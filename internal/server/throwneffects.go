@@ -200,6 +200,9 @@ func (s *Server) healSkullOwner(h skullHeal) {
 // tellThrownMobHit tells the mob's watchers of a mob hurt taken under the mob
 // lock; a blow that landed only its excess is told by its health alone.
 func (s *Server) tellThrownMobHit(hit thrownMobHit) {
+	if hit.kb != nil {
+		hit.vx, hit.vy, hit.vz = s.applyMobKnockback(hit.kb)
+	}
 	if !hit.softened {
 		s.tellWatchers(hit.w, hit.watchers, []outbound{
 			{id: protocol.IDPlayDamageEvent, data: damageEventPayload(hit.victimID, hit.damageType, hit.causeID, hit.directID)},
@@ -224,7 +227,7 @@ func (s *Server) windHitPlayer(hit windPlayerHit) {
 		entityID: hit.ownerID, directID: hit.id + 1, x: hit.x, y: hit.y, z: hit.z,
 		killer: killer, directName: s.directNameOf(killer, hit.kind.EntityType(), hit.uuid, hit.custom),
 		flying: true, flightVX: hit.vx, flightVZ: hit.vz}); landed {
-		hit.victim.arrowKnockback(w, hit.vx, hit.vz, 0, !softened, syncVelocityAfterTravel)
+		hit.victim.arrowKnockbackBy(w, hit.uuid, hit.vx, hit.vz, 0, !softened, syncVelocityAfterTravel)
 		s.thornsOnOwner(w, hit.victim, hit.ownerID, rules.DamageTypeWindCharge, -1)
 	}
 }

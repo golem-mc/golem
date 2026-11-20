@@ -12,6 +12,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
@@ -1825,6 +1826,15 @@ func (c *client) leashBoat(it *boatEntity, hand int32) (handled bool, err error)
 
 	if item == registry.ItemShears {
 		if drops, x, y, z := s.cutLeashesOfBoat(it); c.finishPlayerLeashShear(it.w, drops, x, y, z, hand) {
+			return true, nil
+		}
+	}
+	if c.pluginListening(pluginruntime.PlayerLeashEntity) {
+		s.boatsMu.Lock()
+		untie := !it.boat.Dead && it.holder == c.player.EntityID
+		tie := !untie && !it.boat.Dead && item == registry.ItemLead && !playerIDs[it.holder]
+		s.boatsMu.Unlock()
+		if (untie || tie) && !c.leashAllowed(it.uuid, c.player.UUID, untie) {
 			return true, nil
 		}
 	}

@@ -609,8 +609,13 @@ func (t *mobDimTick) attackedPlayer(fx *mobEffects, ev entity.MobEvent) {
 		// vanilla: Rabbit.playAttackSound
 		bunnyPitch = (ev.Mob.Rand.Float32()-ev.Mob.Rand.Float32())*0.2 + 1
 	}
+	var attackerUUID uuid.UUID
+	if ent := h.book[ev.Mob]; ent != nil {
+		attackerUUID = ent.uuid
+	}
 	fx.strikes = append(fx.strikes, mobStrike{
 		owner: ev.Mob.CreditOwner(),
+		uuid:  attackerUUID,
 		bunny: bunny, bunnyPitch: bunnyPitch,
 		ignites: ignites, igniteRoll: igniteRoll,
 		w:        w,

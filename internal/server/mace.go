@@ -135,20 +135,32 @@ func (c *client) smashKnockback(w *world.World, fall float64, v smashVictim) {
 		if !ok {
 			continue
 		}
+		kx, ky, kz, ok = c.srv.knockbackEvent(o.pluginSelf(), c.player.UUID, kx, ky, kz)
+		if !ok {
+			continue
+		}
 		o.addVelocity(w, kx, ky, kz)
 	}
 
+	var mobPushes []*mobKnockback
 	c.srv.mobsMu.Lock()
-	for m := range c.srv.herdOf(w).book {
+	for m, ent := range c.srv.herdOf(w).book {
 		if m.ID == v.id || m.Dead || alliedTo(c.player.UUID, myTeam, allies, m) ||
 			v.player != uuid.Nil && m.Tamable.Tame && m.Tamable.Owner == v.player {
 			continue
 		}
 		if kx, ky, kz, ok := rules.SmashKnockback(m.X-v.x, m.Y-v.y, m.Z-v.z, fall, m.KnockbackResistance()); ok {
+			oldVX, oldVY, oldVZ, oldImpulse := m.VX, m.VY, m.VZ, m.Impulse
 			m.Push(kx, ky, kz)
+			if kb := c.srv.holdMobKnockback(ent, c.player.UUID, oldVX, oldVY, oldVZ, oldImpulse); kb != nil {
+				mobPushes = append(mobPushes, kb)
+			}
 		}
 	}
 	c.srv.mobsMu.Unlock()
+	for _, kb := range mobPushes {
+		c.srv.applyMobKnockback(kb)
+	}
 
 	c.srv.armorStandsMu.Lock()
 	for _, ent := range c.srv.armorStands {

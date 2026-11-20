@@ -28,7 +28,7 @@ func (s *Server) landingStab(strike mobStrike, victim *client) {
 		}
 	}
 	if stab.Knockback {
-		victim.knockbackFromPointExtraOnly(strike.w, float64(strike.mob.Yaw), rules.StabKnockback, syncVelocityAfterTravel)
+		victim.knockbackFromPointExtraOnlyBy(strike.w, strike.uuid, float64(strike.mob.Yaw), rules.StabKnockback, syncVelocityAfterTravel)
 	}
 	if stab.Dismount {
 		victim.StopRiding()
