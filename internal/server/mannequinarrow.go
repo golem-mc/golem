@@ -73,6 +73,8 @@ func (s *Server) arrowMannequinOutcome(hit arrowMannequinHit) arrowOutcome {
 	s.arrowsMu.Lock()
 	killed := it.killedByArrow(hurt.died, mannequinEntityID)
 	s.arrowsMu.Unlock()
-	s.arrowHitAdvancements(s.entityClient(it.arrow.OwnerID), arrowTypeName(it), killed, it.arrow.Weapon, nil)
+	thrown := rules.LootEntity{Type: arrowTypeName(it)}
+	victim := s.mannequinVictim(ent, hurt, s.entityLoot(it.w, cause), func() rules.LootEntity { return thrown }, true)
+	s.arrowHitAdvancements(s.entityClient(it.arrow.OwnerID), arrowTypeName(it), killed, it.arrow.Weapon, &victim)
 	return landedOutcome(it)
 }

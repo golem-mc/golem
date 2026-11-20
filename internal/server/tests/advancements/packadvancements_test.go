@@ -766,3 +766,28 @@ func zombieVillagerType(t *testing.T) int32 {
 	}
 	return id
 }
+
+// TestPackHurtEntityFiresOnAMeleeHitOfAMannequin: a player_hurt_entity
+// criterion fires for a punched mannequin, and one that wants a zombie does not.
+// vanilla: LivingEntity.hurtServer
+func TestPackHurtEntityFiresOnAMeleeHitOfAMannequin(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "any", "player_hurt_entity", `{}`)
+	packCriterion(t, dir, "zombie", "player_hurt_entity",
+		`{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:zombie"}}]}`)
+	packCriterion(t, dir, "mannequin", "player_hurt_entity",
+		`{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:mannequin"}}]}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	id := srv.SpawnMannequinForTest(0.5, 64, 2.0)
+	c.Settle()
+	servertest.AwaitFullSwing(t, srv, "Packer")
+	c.AttackLanded(srv, "Packer", id)
+	servertest.UntilTicks(t, srv, 20, "the unconditioned criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:any", "c") })
+	servertest.UntilTicks(t, srv, 20, "the mannequin criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:mannequin", "c") })
+	if srv.AdvancementObtained("Packer", "pk:zombie", "c") {
+		t.Fatal("a mannequin's hit fired the zombie criterion")
+	}
+}
