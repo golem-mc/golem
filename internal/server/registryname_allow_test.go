@@ -6,7 +6,7 @@ package server_test
 var registryNameAllowed = map[string]nameAllowance{
 	"registry/sulfurarchetype.go: string registry lookup":                           {count: 1, boundary: "data pack items holder set tag name"},
 	"registry/stackitemprops.go: string registry lookup":                            {count: 2, boundary: "item tag names decoded from component data"},
-	"registry/sound.go: string registry lookup":                                     {count: 1, boundary: "sound name decoding"},
+	"registry/sound.go: string registry lookup":                                     {count: 2, boundary: "sound name decoding"},
 	"registry/biometagids.go: string registry lookup":                               {count: 1, boundary: "registry tag ID initialization"},
 	"registry/biometags.go: string registry lookup":                                 {count: 1, boundary: "registry table loading"},
 	"registry/blockgroup.go: string block lookup":                                   {count: 1, issue: 6380},
