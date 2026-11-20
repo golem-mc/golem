@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/google/uuid"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/plugin"
@@ -38,7 +39,7 @@ func (p pendingSplash) pluginHandle(s *Server) plugin.LivingEntity {
 // vanilla: ThrownSplashPotion.onHitAsPotion
 func (s *Server) resolveSplash(br thrownBreak) {
 	shl := br.potion
-	if !shl.splash || !s.plugins.Has(pluginruntime.PotionSplash) {
+	if !shl.splash || s.plugins == nil || !s.plugins.Has(pluginruntime.PotionSplash) {
 		return
 	}
 	pending := shl.pending
@@ -86,7 +87,7 @@ func (s *Server) resolveSplash(br thrownBreak) {
 // lingeringAllowed fires LingeringPotionSplashEvent and reports whether the
 // cloud may be left.
 func (s *Server) lingeringAllowed(br thrownBreak) bool {
-	if !s.plugins.Has(pluginruntime.LingeringPotionSplash) {
+	if s.plugins == nil || !s.plugins.Has(pluginruntime.LingeringPotionSplash) {
 		return true
 	}
 	e := &plugin.LingeringPotionSplashEvent{Potion: potionHandle(br), Item: pluginStack(br.potion.stack)}
@@ -122,3 +123,76 @@ func (p pluginPotion) Shooter() (plugin.Entity, bool) {
 }
 
 func (p pluginPotion) SetShooter(plugin.Entity) {}
+
+// heldCloudApply is a cloud's reach, its landing held back for
+// AreaEffectCloudApplyEvent: ids holds each reached mob's UUID (uuid.Nil for
+// a player or mannequin).
+type heldCloudApply struct {
+	it      *cloudEntity
+	dim     *dimension
+	wt      *cloudWorldTargets
+	reached []entity.CloudTarget
+	ids     []uuid.UUID
+}
+
+// holdCloudApply files a cloud's reach for the event. The mob lock is held.
+func (s *Server) holdCloudApply(it *cloudEntity, dim *dimension, wt *cloudWorldTargets, reached []entity.CloudTarget) heldCloudApply {
+	h := heldCloudApply{it: it, dim: dim, wt: wt, reached: reached, ids: make([]uuid.UUID, len(reached))}
+	for i, t := range reached {
+		if m := wt.mobsByID[t.EntityID]; m != nil {
+			if ent := dim.mobs.book[m]; ent != nil {
+				h.ids[i] = ent.uuid
+			}
+		}
+	}
+	return h
+}
+
+// applyHeldClouds asks AreaEffectCloudApplyEvent for each held reach and
+// lands it on the mobs and players the listeners left in, then on the
+// mannequins, which the event does not name. No lock may be held.
+// vanilla: AreaEffectCloud.serverTick
+func (s *Server) applyHeldClouds(held []heldCloudApply, lnd *cloudLanding) {
+	for _, h := range held {
+		var affected []plugin.LivingEntity
+		handles := make([]plugin.LivingEntity, len(h.reached))
+		for i, t := range h.reached {
+			if c := h.wt.clientsByID[t.EntityID]; c != nil {
+				handles[i] = pluginPlayer{host: s.pluginAdapter, c: c}
+			} else if h.ids[i] != uuid.Nil {
+				if body, ok := s.pluginAdapter.entityByUUID(h.ids[i], ""); ok {
+					handles[i], _ = s.pluginAdapter.pluginEntityOf(body).(plugin.LivingEntity)
+				}
+			}
+			if handles[i] != nil {
+				affected = append(affected, handles[i])
+			}
+		}
+		e := &plugin.AreaEffectCloudApplyEvent{Cloud: pluginEntity{host: s.pluginAdapter, id: h.it.uuid}, Affected: affected}
+		for _, in := range h.it.cloud.Effects {
+			e.Effects = append(e.Effects, *pluginEffectPtr(&in))
+		}
+		if h.it.ownerUUID != uuid.Nil {
+			e.Source = pluginEntity{host: s.pluginAdapter, id: h.it.ownerUUID}
+		}
+		s.firePluginEvent(e)
+		left := make(map[plugin.LivingEntity]bool, len(e.Affected))
+		if !e.Cancelled() {
+			for _, l := range e.Affected {
+				left[l] = true
+			}
+		}
+		s.lockTick(&s.mobsMu)
+		var kept []entity.CloudTarget
+		for i, t := range h.reached {
+			switch {
+			case t.Type == protocol.EntityTypeMannequin, handles[i] != nil && left[handles[i]]:
+				if m := h.wt.mobsByID[t.EntityID]; m == nil || m.Alive() {
+					kept = append(kept, t)
+				}
+			}
+		}
+		lnd.land(h.it, h.dim, h.wt, kept)
+		s.unlockTick(&s.mobsMu)
+	}
+}
