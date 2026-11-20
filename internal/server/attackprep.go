@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/registry"
 )
 
 type preparedAttack struct {
@@ -15,11 +16,11 @@ type preparedAttack struct {
 // prepareAttack spends the cooldown only after the caller's target and reach checks.
 // Enchantment damage scales with recovery, independently of the critical bonus.
 // vanilla: Player.attack
-func (c *client) prepareAttack(held protocol.ItemStack, targetType int32, living bool) (preparedAttack, bool) {
+func (c *client) prepareAttack(held protocol.ItemStack, targetType int32, living bool, victim func() *rules.LootEntity) (preparedAttack, bool) {
 	b := preparedAttack{baseDamage: c.attackDamage()}
 	b.strength = rules.AttackStrengthScale(int(c.attackStrengthTicks.Load()), c.attackSpeed())
 	c.attackStrengthTicks.Store(0)
-	b.context = attackEnchContext(meleeDamageType(held), targetType)
+	b.context = c.attackEnchContext(meleeDamageType(held), targetType, victim)
 	plain := rules.AttackDamage(b.baseDamage, false, 1)
 	bonus := rules.EnchantedDamage(held, &b.context, plain) - plain
 	critical := c.canCriticalAttack(living)
@@ -38,4 +39,25 @@ func (c *client) prepareAttack(held protocol.ItemStack, targetType int32, living
 	b.damage += magic
 	b.feedback = c.blowFeedback(held, b.strength, critical, magic)
 	return b, true
+}
+
+// bindLootBodies lets a data-pack effect's loot conditions read the blow's
+// bodies: the victim, and the player as both attacker and direct attacker.
+// The origin is the victim's position, the player's when the victim has none.
+// vanilla: Enchantment.damageContext
+func (c *client) bindLootBodies(ctx *rules.EnchContext, victim func() *rules.LootEntity) {
+	ctx.BodyOf = victim
+	if victim == nil {
+		typed := &rules.LootEntity{Type: registry.EntityType(ctx.Victim).Name()}
+		ctx.BodyOf = func() *rules.LootEntity { return typed }
+	}
+	self := func() *rules.LootEntity {
+		e := c.LootEntity()
+		return &e
+	}
+	ctx.AttackerOf, ctx.DirectAttackerOf = self, self
+	ctx.LootWorld = func(loot *rules.LootContext) {
+		pos := c.player.Position()
+		c.srv.fillBlowWorld(c.theWorld(), loot, [3]float64{pos.X, pos.Y, pos.Z})
+	}
 }

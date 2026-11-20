@@ -851,7 +851,7 @@ func componentTests(predicates obj) []registry.LootComponentTest {
 
 // locationPredicate reads a LocationPredicate's block and biomes.
 func locationPredicate(predicate obj) registry.LootLocationCheck {
-	unknownKeys(predicate, "location predicate", "block", "biomes")
+	unknownKeys(predicate, "location predicate", "block", "biomes", "dimension")
 	var out registry.LootLocationCheck
 	block := object(valueOr(predicate, "block", obj{}), "block predicate")
 	unknownKeys(block, "block predicate", "blocks", "state")
@@ -866,8 +866,11 @@ func locationPredicate(predicate obj) registry.LootLocationCheck {
 	if raw := predicate["biomes"]; raw != nil {
 		out.Biomes = holderSet(raw, "worldgen/biome", registry.BiomeTagMembers)
 	}
-	if out.Block == "" && len(out.Biomes) == 0 {
-		fail("a location predicate without a block or biomes is not supported by this server")
+	if dim, ok := predicate["dimension"]; ok {
+		out.Dimension = registry.Qualify(str(dim, "dimension"))
+	}
+	if out.Block == "" && len(out.Biomes) == 0 && out.Dimension == "" {
+		fail("a location predicate without a block, biomes or dimension is not supported by this server")
 	}
 	return out
 }

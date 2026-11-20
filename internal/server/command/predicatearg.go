@@ -17,6 +17,7 @@ import (
 type lootWorld interface {
 	BlockAt(x, y, z int32) uint16
 	BiomeAt(x, y, z int32) string
+	DimensionName() string
 	EnvironmentFloat(attribute string, x, y, z float64) float32
 	IsRaining() bool
 	IsThundering() bool
@@ -33,6 +34,7 @@ func fillLootWorld(ctx *rules.LootContext, w lootWorld, pos player.Position) {
 	ctx.BiomeAt = func(dx, dy, dz int32) string { return w.BiomeAt(x+dx, y+dy, z+dz) }
 	ctx.Origin, ctx.HasOrigin = [3]float64{pos.X, pos.Y, pos.Z}, true
 	ctx.Level = lootLevel(w, pos)
+	ctx.Dimension = w.DimensionName()
 }
 
 // lootLevel is w as the level of a roll at pos.

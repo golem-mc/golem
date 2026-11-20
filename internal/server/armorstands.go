@@ -557,7 +557,7 @@ func (c *client) attackArmorStand(target int32) bool {
 // vanilla: Player.attack
 func (c *client) standBlowFeedback(held protocol.ItemStack, standID int32, minX, minY, minZ, maxX, maxY, maxZ float64) {
 	strength := rules.AttackStrengthScale(int(c.attackStrengthTicks.Load()), c.attackSpeed())
-	ctx := attackEnchContext(meleeDamageType(held), protocol.EntityTypeArmorStand)
+	ctx := c.attackEnchContext(meleeDamageType(held), protocol.EntityTypeArmorStand, nil)
 	attackDamage := c.attackDamage()
 	plain := rules.AttackDamage(attackDamage, false, 1)
 	magic := (rules.EnchantedDamage(held, &ctx, plain) - plain) * strength
@@ -625,7 +625,7 @@ func (c *client) smashStand(v smashVictim) {
 	if smash {
 		c.landSmash(c.theWorld(), fall, v)
 	}
-	c.finishMeleeItemEffects(held, attackEnchContext(meleeDamageType(held), protocol.EntityTypeArmorStand), fall, smash)
+	c.finishMeleeItemEffects(held, c.attackEnchContext(meleeDamageType(held), protocol.EntityTypeArmorStand, nil), fall, smash)
 }
 
 // useOnArmorStand right-clicks a stand, vanilla ArmorStand.interact: a held

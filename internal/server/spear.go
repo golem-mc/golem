@@ -242,7 +242,7 @@ func (c *client) piercingBodies(w *world.World, ray entity.PiercingRay) []stabBo
 // use. vanilla: Player.stabAttack, Player.itemAttackInteraction
 func (c *client) stabBody(b stabBody, held protocol.ItemStack, pw registry.PiercingWeapon,
 	damageType registry.DamageType, attackDamage, strength float64) bool {
-	ctx := attackEnchContext(damageType, b.typeID)
+	ctx := c.attackEnchContext(damageType, b.typeID, nil)
 	damage, magic := rules.StabDamage(held, &ctx, attackDamage, strength)
 	landed := b.hurt(damage)
 	c.stabEndsSprint(pw)
@@ -310,7 +310,7 @@ type stabBlow struct {
 // that knocks back counts even if the hurt did not land.
 func (c *client) stabMob(ent *mobEntity, held protocol.ItemStack, pw registry.PiercingWeapon,
 	damageType registry.DamageType, attackDamage, strength float64, hurts bool) bool {
-	ctx := attackEnchContext(damageType, mobEntityType(ent.mob.Type))
+	ctx := c.attackEnchContext(damageType, mobEntityType(ent.mob.Type), func() *rules.LootEntity { return c.srv.mobAttackLoot(ent) })
 	damage, magic := rules.StabDamage(held, &ctx, attackDamage, strength)
 	if !hurts {
 		damage = 0
@@ -394,7 +394,7 @@ func (c *client) stabEndsSprint(pw registry.PiercingWeapon) {
 // stabPlayer lands a jab on a player, reporting a hit as stabMob does.
 func (c *client) stabPlayer(victim *client, held protocol.ItemStack, pw registry.PiercingWeapon,
 	damageType registry.DamageType, attackDamage, strength float64, hurts bool) bool {
-	ctx := attackEnchContext(damageType, protocol.EntityTypePlayer)
+	ctx := c.attackEnchContext(damageType, protocol.EntityTypePlayer, victimLoot(victim))
 	damage, magic := rules.StabDamage(held, &ctx, attackDamage, strength)
 	if !hurts {
 		damage = 0

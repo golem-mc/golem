@@ -183,7 +183,7 @@ func TestMobReadsCombatAttributes(t *testing.T) {
 		t.Errorf("KnockbackResistance = %v, want 0.5", got)
 	}
 	m.attrs.SetBase(registry.AttributeAttackKnockback, 2)
-	if _, k := m.BlowEnchantments(0, 1); k <= 0 {
+	if _, k := m.BlowEnchantments(0, 1, nil); k <= 0 {
 		t.Errorf("attack knockback ignored: %v", k)
 	}
 }
