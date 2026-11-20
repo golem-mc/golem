@@ -13,8 +13,10 @@ type StandBody struct {
 	VX, VY, VZ   float64
 	OnGround     bool
 	FallDistance float64
-	water, lava  fluidTracker
-	stuck        stuckFactor
+	// LandedFall is the fall a landing this tick ended, 0 when none.
+	LandedFall  float64
+	water, lava fluidTracker
+	stuck       stuckFactor
 }
 
 // Push is Entity.push for an explosion's knockback; the body's tick sends
@@ -189,10 +191,5 @@ func (s *StandBody) move(w World, box AABB, halfWidth, gravity float64) (bool, f
 	s.VX *= f
 	s.VZ *= f
 	s.stuck = stuckIn(w, box, s.X, s.Y, s.Z, true, false, false, false)
-	landed := 0.0
-	if onGround {
-		landed = s.FallDistance + max(0, startY-s.Y)
-	}
-	bankFall(&s.FallDistance, startY, s.Y, onGround)
-	return onGround, landed
+	return onGround, bankFall(&s.FallDistance, startY, s.Y, onGround)
 }

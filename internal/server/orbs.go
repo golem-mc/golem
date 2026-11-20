@@ -161,8 +161,9 @@ func (s *Server) tickOrbs() {
 		stepped []*orbEntity
 		// announced is the orbs whose death a packet is already on its
 		// way for, so the second pass does not send the removal twice.
-		announced = make(map[*orbEntity]bool)
-		splashes  []projectileSplash
+		announced    = make(map[*orbEntity]bool)
+		splashes     []projectileSplash
+		bodyLandings []bodyLanding
 	)
 
 	// Read solid bodies before taking the orb lock.
@@ -237,6 +238,10 @@ func (s *Server) tickOrbs() {
 		players, neighbours := views[it.w], orbsIn[it.w]
 
 		events := it.orb.Step(colliders[it.w], players, neighbours.query)
+		if it.orb.LandedFall > 0 {
+			it.orb.LandedFall = 0
+			bodyLandings = append(bodyLandings, bodyLanding{w: it.w, x: it.orb.X, y: it.orb.Y, z: it.orb.Z, halfWidth: entity.OrbHalfSize})
+		}
 		if sp := it.orb.Splash; sp != nil {
 			splashes = append(splashes, projectileSplash{w: it.w, x: sp.X, y: sp.Y, z: sp.Z, volume: sp.Volume, pitch: sp.Pitch})
 		}
@@ -308,6 +313,7 @@ func (s *Server) tickOrbs() {
 	}
 	s.orbs = alive
 	s.unlockTick(&s.orbsMu)
+	s.runBodyLandings(bodyLandings)
 
 	out.send()
 	applyEach(s, splashes, (*Server).splashProjectile)

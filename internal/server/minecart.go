@@ -307,24 +307,25 @@ func (s *Server) tickMinecarts() {
 		cx, cy, cz float64
 	}
 	var (
-		removals  = make(map[*world.World][]int32)
-		splashes  []projectileSplash
-		movements vehicleMovements
-		bounces   []bodyBounce
-		burns     []burnSpot
-		fizzles   []burnSpot
-		breaks    []minecartBreak
-		seats     []seat
-		news      []seatNews
-		suckers   []*minecartEntity
-		tntFx     tntCartEffects
-		falls     []cartFall
-		spawners  []*minecartEntity
-		gates     []gatewayTouch
-		travels   []minecartPortalTravel
-		flakes    []snowflakeSpot
-		mobSeats  []minecartMobSeat
-		pickups   []minecartPickup
+		removals     = make(map[*world.World][]int32)
+		splashes     []projectileSplash
+		movements    vehicleMovements
+		bounces      []bodyBounce
+		burns        []burnSpot
+		fizzles      []burnSpot
+		breaks       []minecartBreak
+		seats        []seat
+		news         []seatNews
+		suckers      []*minecartEntity
+		tntFx        tntCartEffects
+		falls        []cartFall
+		bodyLandings []bodyLanding
+		spawners     []*minecartEntity
+		gates        []gatewayTouch
+		travels      []minecartPortalTravel
+		flakes       []snowflakeSpot
+		mobSeats     []minecartMobSeat
+		pickups      []minecartPickup
 
 		commandRuns []*minecartEntity
 	)
@@ -427,6 +428,9 @@ func (s *Server) tickMinecarts() {
 			s.tntCartTick(it, &tntFx)
 		}
 		it.cart.LandedFall = 0
+		if landed > 0 && !it.cart.Dead {
+			bodyLandings = append(bodyLandings, bodyLanding{w: it.w, x: it.cart.X, y: it.cart.Y, z: it.cart.Z, halfWidth: entity.MinecartHalfWidth})
+		}
 		if landed > 0 && !it.cart.Dead && (len(it.passengers) > 0 || len(it.mobs) > 0) {
 			falls = append(falls, cartFall{
 				w: it.w, landed: landed,
@@ -492,6 +496,7 @@ func (s *Server) tickMinecarts() {
 	for _, f := range falls {
 		s.fallOntoCartRiders(f)
 	}
+	s.runBodyLandings(bodyLandings)
 
 	for w, ids := range removals {
 		s.broadcastWorld(w, protocol.IDPlayRemoveEntities, removeEntitiesPayload(ids))

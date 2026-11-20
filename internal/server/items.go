@@ -326,6 +326,7 @@ func (s *Server) tickItems() {
 		dampens bool
 	}
 	var gameEvents []itemGameEvent
+	var bodyLandings []bodyLanding
 	// spills are the contents of the destroyed containers, laid down once
 	// the lock is down.
 	var spills []itemSpill
@@ -386,6 +387,11 @@ func (s *Server) tickItems() {
 		asks.hearHurts(it)
 		events := it.item.Step(colliders[it.w], n.query)
 		it.item.HurtAsk = nil
+		if fall := it.item.LandedFall; fall > 0 {
+			it.item.LandedFall = 0
+			bodyLandings = append(bodyLandings, bodyLanding{w: it.w, x: it.item.X, y: it.item.Y - entity.ItemHalfSize, z: it.item.Z,
+				halfWidth: entity.ItemHalfSize, dampens: dampensVibrations(it.item.Stack)})
+		}
 		n.moved(slot[k])
 		for _, ev := range events {
 			switch ev.Kind {
@@ -499,6 +505,7 @@ func (s *Server) tickItems() {
 	for _, g := range gameEvents {
 		s.gameEvent(g.w, g.event, g.x, g.y, g.z, rules.GameEventContext{Dampens: g.dampens})
 	}
+	s.runBodyLandings(bodyLandings)
 	for _, c := range cauldrons {
 		s.cauldronDoused(c.w, c.x, c.y, c.z)
 	}

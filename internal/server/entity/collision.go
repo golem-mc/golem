@@ -48,14 +48,17 @@ func fallCtx(fallDistance float64) collideCtx {
 }
 
 // bankFall banks the drop from oldY to newY into *fall, or clears it when
-// the move ended on the ground.
+// the move ended on the ground. It returns the fall a landing ended (the
+// banked fall and this move's drop), 0 when the body did not land.
 // vanilla: Entity.checkFallDamage
-func bankFall(fall *float64, oldY, newY float64, onGround bool) {
+func bankFall(fall *float64, oldY, newY float64, onGround bool) (landed float64) {
 	if onGround {
+		landed = *fall + max(0, oldY-newY)
 		*fall = 0
 	} else if dy := newY - oldY; dy < -physicsEpsilon {
 		*fall += -dy
 	}
+	return landed
 }
 
 // CapFallAccumulation caps *fall at 1 for a body that is not falling fast.
