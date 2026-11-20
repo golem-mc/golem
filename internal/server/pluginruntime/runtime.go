@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -34,8 +33,11 @@ type Host struct {
 
 // Runtime owns the compiled-in plugins and their shared mechanisms.
 type Runtime struct {
-	current       atomic.Int64
-	tickGoroutine atomic.Int64
+	current atomic.Int64
+	// tickGoroutine is getg() of the tick loop's goroutine. Comparing g
+	// pointers is sound: a g is reused only after its goroutine exits, and
+	// the stored one belongs to the live tick loop.
+	tickGoroutine atomic.Uintptr
 	hosts         []*Host
 	order         []*Host
 	bus           pluginBus
@@ -326,7 +328,7 @@ func (r *Runtime) Current() int64 { return r.current.Load() }
 
 // StartTick runs due tasks before tick-start listeners.
 func (r *Runtime) StartTick() {
-	r.tickGoroutine.Store(goroutineID())
+	r.tickGoroutine.Store(getg())
 	r.current.Add(1)
 	r.runConnections()
 	r.runTasks()
@@ -338,11 +340,11 @@ func (r *Runtime) StartTick() {
 
 // BindTick makes the calling goroutine the tick goroutine, for a test that
 // drives ticks by hand with the main loop stopped.
-func (r *Runtime) BindTick() { r.tickGoroutine.Store(goroutineID()) }
+func (r *Runtime) BindTick() { r.tickGoroutine.Store(getg()) }
 
 // OnTick reports whether the caller is the tick goroutine, the one that last
 // ran StartTick.
-func (r *Runtime) OnTick() bool { return r.tickGoroutine.Load() == goroutineID() }
+func (r *Runtime) OnTick() bool { return r.tickGoroutine.Load() == getg() }
 
 // Has is the allocation-free hook gate.
 func (r *Runtime) Has(id int) bool { return r.bus.has(id) }
@@ -352,18 +354,3 @@ func (r *Runtime) Fire(event plugin.Event) { r.bus.fire(event) }
 
 // BindEvents installs the server boundary conversion for listener-owned handles.
 func (r *Runtime) BindEvents(bind func(plugin.Event, plugin.Server) func()) { r.bindEvent = bind }
-
-// goroutineID parses the running goroutine's number from its stack header.
-func goroutineID() int64 {
-	var buf [32]byte
-	b := buf[:runtime.Stack(buf[:], false)]
-	b = b[len("goroutine "):]
-	var id int64
-	for _, c := range b {
-		if c < '0' || c > '9' {
-			break
-		}
-		id = id*10 + int64(c-'0')
-	}
-	return id
-}

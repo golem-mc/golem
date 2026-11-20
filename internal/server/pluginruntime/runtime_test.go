@@ -45,3 +45,16 @@ func TestEnableErrorWithPanickingCleanup(t *testing.T) {
 		t.Fatal("plugin was not cleaned up")
 	}
 }
+
+func TestOnTickOnlyOnBoundGoroutine(t *testing.T) {
+	r := New(nil, func(*Host) plugin.Server { return nil })
+	r.BindTick()
+	if !r.OnTick() {
+		t.Fatal("OnTick false on the bound goroutine")
+	}
+	done := make(chan bool)
+	go func() { done <- r.OnTick() }()
+	if <-done {
+		t.Fatal("OnTick true on another goroutine")
+	}
+}
