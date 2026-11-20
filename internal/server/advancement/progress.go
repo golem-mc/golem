@@ -35,6 +35,17 @@ type Progress struct {
 	// held counts open Hold calls; the tick's FlushTick sends nothing while
 	// it is above zero.
 	held int
+	// veto, if set, is asked before a criterion is obtained and refuses it
+	// by returning true. It runs under mu and must not call back into p.
+	veto func(n *Node, criterion string) bool
+}
+
+// SetVeto installs the callback that may refuse a criterion before it is
+// obtained; it runs with p's lock held, so it must not reach p.
+func (p *Progress) SetVeto(veto func(n *Node, criterion string) bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.veto = veto
 }
 
 // NewProgress returns a player's progress with nothing obtained.
@@ -96,6 +107,9 @@ func (p *Progress) award(n *Node, criterion string, at time.Time) bool {
 	}
 	got := p.obtained[n.index]
 	if _, ok := got[criterion]; ok {
+		return false
+	}
+	if p.veto != nil && p.veto(n, criterion) {
 		return false
 	}
 	wasDone := p.isDone(n)
