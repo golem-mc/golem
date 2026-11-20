@@ -716,7 +716,7 @@ func (c *client) tickVitals() {
 	if fellFrom != nil {
 		c.fellAdvancements(*fellFrom, pos)
 	}
-	c.pluginVitalsTick(before)
+	c.pluginVitalsTick(before, pos)
 	c.tellEffects(changes)
 	if !before.Dead && around.EyesInWater && !around.EyesInBubbleColumn && c.mountDismountsUnderwater() {
 		c.dismountMob(true)
@@ -2583,16 +2583,7 @@ func (c *client) arrowKnockback(w *world.World, flightVX, flightVZ, punch float6
 // burning_time) and thaws the body; an invulnerable mode holds the count at
 // one. vanilla: LivingEntity.igniteForTicks
 func (c *client) igniteForTicks(ticks int32) {
-	ticks = int32(rules.ScaledIgniteTicks(int(ticks), c.burningTime()))
-	if int(ticks) > c.player.Vitals().FireTicks {
-		ticks = int32(c.srv.combustTicks(pluginPlayer{c: c}, int(ticks)))
-		if ticks <= 0 {
-			return
-		}
-	}
-	c.player.UpdateVitals(func(v *player.Vitals) {
-		rules.IgniteForTicks(v, int(ticks))
-	})
+	c.igniteForTicksBy(ticks, nil)
 }
 
 // handleClientCommand handles Client Command: a respawn (after death or the

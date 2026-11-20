@@ -1384,7 +1384,11 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 			victim.AddEffect(blowEffect(registry.MustMobEffect(name), ticks, 0))
 		}
 		if secs := entity.BlowIgniteSeconds(effective, strike.igniteRoll); strike.ignites && secs > 0 {
-			victim.igniteForTicks(secs * 20)
+			var by plugin.Entity
+			if ent := s.mobEntityOf(strike.mob); ent != nil {
+				by = pendingMob{id: ent.uuid}
+			}
+			victim.igniteForTicksBy(secs*20, by)
 		}
 		s.postAttack(strike.w, attackBody{mob: strike.mob}, attackBody{player: victim}, strike.mob.MainHand, &rules.EnchContext{
 			DamageType: rules.DamageTypeMobAttack, Direct: true,
@@ -1489,7 +1493,11 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 			// vanilla: CaveSpider.doHurtTarget, Husk.doHurtTarget
 			effective := s.effectiveDifficultyAt(strike.w, strike.x, strike.z)
 			if secs := entity.BlowIgniteSeconds(effective, strike.mob.Rand.Float32()); strike.mob.IgnitesBlow() && secs > 0 {
-				victim.IgniteForTicks(int(secs) * 20)
+				var by plugin.Entity
+				if attacker := h.book[strike.mob]; attacker != nil {
+					by = pendingMob{id: attacker.uuid}
+				}
+				victim.IgniteForTicksBy(int(secs)*20, entity.CombustSource{By: by})
 			}
 			name, ticks, ok := strike.mob.BlowEffect(strike.w.Difficulty(), effective)
 			if strike.puff > 0 {

@@ -75,10 +75,23 @@ func (m *Mob) freezeConversionStep() MobType {
 	return NoMobType
 }
 
+// CombustSource identifies the block or entity that set a mob alight.
+type CombustSource struct {
+	HasBlock bool
+	X, Y, Z  int32
+	By       any // opaque entity handle for the server callback
+}
+
 // IgniteForTicks raises the burn to at least ticks, scaled by its
 // burning_time, and thaws the body.
 // vanilla: LivingEntity.igniteForTicks
 func (m *Mob) IgniteForTicks(ticks int) {
+	m.IgniteForTicksBy(ticks, CombustSource{})
+}
+
+// IgniteForTicksBy is IgniteForTicks with the block or entity that caused it.
+// vanilla: LivingEntity.igniteForTicks
+func (m *Mob) IgniteForTicksBy(ticks int, src CombustSource) {
 	burning := 0.0
 	if m.attrs != nil {
 		burning = m.attrs.Value(rules.BurningTimeAttribute)
@@ -87,7 +100,7 @@ func (m *Mob) IgniteForTicks(ticks int) {
 	}
 	ticks = rules.ScaledIgniteTicks(ticks, burning)
 	if ticks > m.FireTicks && m.Combust != nil {
-		ticks = m.Combust(m, ticks)
+		ticks = m.Combust(m, ticks, src)
 	}
 	if ticks > m.FireTicks {
 		m.SetMetadataFireTicks(ticks)

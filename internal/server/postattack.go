@@ -19,6 +19,35 @@ type attackBody struct {
 	mannequin *mannequinEntity
 }
 
+func (s *Server) attackBodyEntity(b attackBody) plugin.Entity {
+	switch {
+	case b.player != nil:
+		return pluginPlayer{c: b.player}
+	case b.mob != nil:
+		if ent := s.mobEntityOf(b.mob); ent != nil {
+			return pendingMob{id: ent.uuid}
+		}
+	case b.mannequin != nil:
+		return pluginEntity{id: b.mannequin.uuid}
+	}
+	return nil
+}
+
+// attackBodyEntityLocked is attackBodyEntity with mobsMu held.
+func (s *Server) attackBodyEntityLocked(w *world.World, b attackBody) plugin.Entity {
+	switch {
+	case b.player != nil:
+		return pluginPlayer{c: b.player}
+	case b.mob != nil:
+		if ent := s.herdOf(w).book[b.mob]; ent != nil {
+			return pendingMob{id: ent.uuid}
+		}
+	case b.mannequin != nil:
+		return pluginEntity{id: b.mannequin.uuid}
+	}
+	return nil
+}
+
 func (b attackBody) cause(s *Server, w *world.World) *damageCause {
 	if b.player != nil {
 		return b.player.retaliationCause()
@@ -127,7 +156,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			c.AddEffect(in)
 		}
 		if e.Duration != nil {
-			c.igniteForTicks(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level))))
+			c.igniteForTicksBy(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level))), s.attackBodyEntity(owner))
 		}
 		c.exhaust(float64(rules.EnchLevelValueAt(e.ApplyExhaustion, a.Level)))
 		if i := e.ApplyImpulse; i != nil {
@@ -199,7 +228,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			}
 		}
 		if e.Duration != nil {
-			m.IgniteForTicks(int(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level)))))
+			m.IgniteForTicksBy(int(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level)))), entity.CombustSource{By: s.attackBodyEntityLocked(w, owner)})
 		}
 		if i := e.ApplyImpulse; i != nil {
 			impulse := rules.LookImpulse(float32(m.Yaw), float32(m.Pitch), i.CoordinateScale, float64(rules.EnchLevelValueAt(i.Magnitude, a.Level)))

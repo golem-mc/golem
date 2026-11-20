@@ -98,14 +98,13 @@ func (s *Server) transformAllowed(ent *mobEntity, into entity.MobType, reason pl
 }
 
 // combustTicks puts a body catching fire to EntityCombustEvent listeners and
-// returns the ticks it burns, 0 when cancelled. ByEntity and ByBlock stay nil:
-// the source is not carried to the ignition.
+// returns the ticks it burns, 0 when cancelled.
 // vanilla: Entity.igniteForTicks
-func (s *Server) combustTicks(who plugin.Entity, ticks int) int {
+func (s *Server) combustTicks(who plugin.Entity, ticks int, byEntity plugin.Entity, byBlock *plugin.Block) int {
 	if s.plugins == nil || !s.plugins.Has(pluginruntime.EntityCombust) {
 		return ticks
 	}
-	e := &plugin.EntityCombustEvent{Entity: who, Duration: ticks}
+	e := &plugin.EntityCombustEvent{Entity: who, Duration: ticks, ByEntity: byEntity, ByBlock: byBlock}
 	s.firePluginEvent(e)
 	if e.Cancelled() {
 		return 0
@@ -114,7 +113,7 @@ func (s *Server) combustTicks(who plugin.Entity, ticks int) int {
 }
 
 // askCombust is combustTicks for a mob, with every lock released.
-func (s *Server) askCombust(m *entity.Mob, ticks int) int {
+func (s *Server) askCombust(m *entity.Mob, ticks int, src entity.CombustSource) int {
 	if s.plugins == nil || !s.plugins.Has(pluginruntime.EntityCombust) {
 		return ticks
 	}
@@ -123,6 +122,16 @@ func (s *Server) askCombust(m *entity.Mob, ticks int) int {
 		return ticks
 	}
 	e := &plugin.EntityCombustEvent{Entity: pendingMob{id: ent.uuid}, Duration: ticks}
+	if src.HasBlock {
+		b := plugin.Block{
+			World: pluginWorld{srv: s, dim: s.dimensionOfWorld(ent.w), host: s.pluginAdapter},
+			Pos:   plugin.BlockPos{X: int(src.X), Y: int(src.Y), Z: int(src.Z)},
+		}
+		e.ByBlock = &b
+	}
+	if by, ok := src.By.(plugin.Entity); ok {
+		e.ByEntity = by
+	}
 	s.askUnlocked(func() { s.plugins.Fire(e) })
 	if e.Cancelled() || m.Dead {
 		return 0

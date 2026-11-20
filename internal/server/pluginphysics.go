@@ -69,7 +69,8 @@ func (h physicsHooks) fire(d *world.HookDecision) {
 		if d.Cause == world.HookCauseLava {
 			cause = plugin.IgniteLava
 		}
-		e := &plugin.BlockIgniteEvent{Block: at, Cause: cause}
+		src := h.blockAt(d.From)
+		e := &plugin.BlockIgniteEvent{Block: at, Cause: cause, Source: &src}
 		pl.Fire(e)
 		d.Cancel = e.Cancelled()
 	case world.HookSpread:

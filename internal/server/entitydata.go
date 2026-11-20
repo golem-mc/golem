@@ -170,6 +170,7 @@ func itemTagAs(ent *itemEntity, id string) *nbt.OrderedCompound {
 	}
 	tag.Set("Item", registry.StackTag(it.Stack))
 	putSpawnReason(tag, id, ent.spawnReason)
+	putOrigin(tag, id, ent.origin)
 	return tag
 }
 
@@ -302,6 +303,7 @@ func tntTagAs(ent *tntEntity, id string) *nbt.OrderedCompound {
 	if ent.ownerUUID != uuid.Nil {
 		tag.Set("owner", nbt.UUIDToIntArray(ent.ownerUUID))
 	}
+	putOrigin(tag, id, ent.origin)
 	return tag
 }
 
@@ -326,6 +328,7 @@ func fallingTagAs(ent *fallingEntity, id string) *nbt.OrderedCompound {
 	tag.Set("FallHurtMax", nbt.Int(f.FallHurtMax))
 	tag.Set("CancelDrop", boolTag(f.CancelDrop))
 	tag.Set("fall_distance", nbt.Double(f.FallDistance))
+	putOrigin(tag, id, ent.origin)
 	return tag
 }
 
@@ -550,6 +553,7 @@ func boatTagAs(ent *boatEntity, id string) *nbt.OrderedCompound {
 		tag.Set("Passengers", nbt.List{Elem: nbt.TypeCompound, Items: ent.carriedPassengers})
 	}
 	putSpawnReason(tag, id, ent.spawnReason)
+	putOrigin(tag, id, ent.origin)
 	return tag
 }
 
@@ -614,6 +618,9 @@ func applyItemTag(it *itemEntity, compound nbt.Compound) {
 	it.look = entityLookOf(compound)
 	it.thrower = entityUUIDFieldOf(compound, "Thrower")
 	readSpawnReason(&it.spawnReason, compound)
+	if it.w != nil {
+		readOrigin(&it.origin, it.w.DimensionName(), compound)
+	}
 }
 
 // applyItemTagCounters reads an item's age, health, invulnerable time and
@@ -921,6 +928,9 @@ func applyTNTTag(it *tntEntity, compound nbt.Compound) {
 	it.tags.Reset(tagsOfTag(compound))
 	it.custom = customNameOfTag(compound)
 	it.look = entityLookOf(compound)
+	if it.w != nil {
+		readOrigin(&it.origin, it.w.DimensionName(), compound)
+	}
 }
 
 // fallingOfTag loads a falling block, or returns nil for an out-of-world
@@ -988,6 +998,9 @@ func applyFallingTag(it *fallingEntity, compound nbt.Compound) {
 	it.tags.Reset(tagsOfTag(compound))
 	it.custom = customNameOfTag(compound)
 	it.look = entityLookOf(compound)
+	if it.w != nil {
+		readOrigin(&it.origin, it.w.DimensionName(), compound)
+	}
 }
 
 // fallingBlockStateOf reads the codec's string or compound, defaulting to sand.
@@ -1253,6 +1266,7 @@ func armorStandTagAs(ent *armorStandEntity, id string) *nbt.OrderedCompound {
 	}
 	tag.Set("Pose", armorStandPoseTag(s))
 	putSpawnReason(tag, id, ent.spawnReason)
+	putOrigin(tag, id, ent.origin)
 	return tag
 }
 
@@ -1471,6 +1485,9 @@ func applyBoatTag(it *boatEntity, compound nbt.Compound) {
 	}
 	it.tags.Reset(tagsOfTag(compound))
 	readSpawnReason(&it.spawnReason, compound)
+	if it.w != nil {
+		readOrigin(&it.origin, it.w.DimensionName(), compound)
+	}
 }
 
 // minecartTag writes a cart's compound: the base fields, the tags, and the
@@ -1526,6 +1543,7 @@ func minecartTagAs(ent *minecartEntity, id string) *nbt.OrderedCompound {
 		tag.Set("Passengers", nbt.List{Elem: nbt.TypeCompound, Items: ent.carriedPassengers})
 	}
 	putSpawnReason(tag, id, ent.spawnReason)
+	putOrigin(tag, id, ent.origin)
 	return tag
 }
 
@@ -1571,6 +1589,9 @@ func applyMinecartTag(it *minecartEntity, compound nbt.Compound) {
 	it.custom = customNameOfTag(compound)
 	it.look = entityLookOf(compound)
 	readSpawnReason(&it.spawnReason, compound)
+	if it.w != nil {
+		readOrigin(&it.origin, it.w.DimensionName(), compound)
+	}
 	m.Flipped = nbt.BoolField(compound, "FlippedRotation")
 	m.FirstTick = nbt.BoolField(compound, "HasTicked")
 	it.displayState = 0

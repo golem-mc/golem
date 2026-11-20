@@ -44,6 +44,18 @@ type toldBody[S any] struct {
 	own S
 }
 
+// entityOrigin records where an entity was first spawned, for Entity.Origin.
+// Paper: Entity.origin
+type entityOrigin struct {
+	set     bool
+	dim     string
+	x, y, z float64
+}
+
+type originHolder interface {
+	entityOrigin() entityOrigin
+}
+
 // bodyTrack is one body's tracking record: what each watcher was last told,
 // the movement schedule's counters, and the velocity last sent.
 // vanilla: ServerEntity.tickCount, teleportDelay, lastSentMovement
@@ -57,7 +69,10 @@ type bodyTrack[S any] struct {
 	needsSync bool
 
 	sentVX, sentVY, sentVZ float64
+	origin                 entityOrigin
 }
+
+func (t *bodyTrack[S]) entityOrigin() entityOrigin { return t.origin }
 
 // movementSchedule is ServerEntity's movement cadence, shared by every tracked
 // kind. vanilla: ServerEntity.tickCount, teleportDelay
@@ -532,6 +547,9 @@ func (k *trackedKind[B, S]) register(s *Server, b B) {
 	list := k.list(s)
 	*list = append(*list, b)
 	v := k.body(b)
+	if !v.t.origin.set {
+		v.t.origin = entityOrigin{set: true, dim: w.DimensionName(), x: v.p.x, y: v.p.y, z: v.p.z}
+	}
 	var recipients []*client
 	for _, sp := range spots {
 		if !k.sees(b, v.p, sp.x, sp.z, sp.chunkRadius, int(s.entityBroadcastRange.Load())) {
@@ -554,6 +572,9 @@ func (k *trackedKind[B, S]) register(s *Server, b B) {
 // The caller holds the kind's lock and sends the pairing after it.
 func (k *trackedKind[B, S]) showLocked(b B, watchers []trackingWatcher) []*client {
 	v := k.body(b)
+	if !v.t.origin.set {
+		v.t.origin = entityOrigin{set: true, dim: v.w.DimensionName(), x: v.p.x, y: v.p.y, z: v.p.z}
+	}
 	var shown []*client
 	for _, wh := range watchers {
 		if wh.c.theWorld() != v.w || !k.sees(b, v.p, wh.x, wh.z, wh.chunkRadius, int(wh.c.srv.entityBroadcastRange.Load())) {

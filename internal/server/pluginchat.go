@@ -257,6 +257,15 @@ func bindPluginEvent(event plugin.Event, api plugin.Server) func() {
 			e.Entity = bindPending(e.Entity, p.id, host)
 		}
 		e.Entity = bindPluginEntity(e.Entity, host)
+		if p, ok := e.ByEntity.(pendingMob); ok {
+			e.ByEntity = bindPending(e.ByEntity, p.id, host)
+		}
+		if e.ByEntity != nil {
+			e.ByEntity = bindPluginEntity(e.ByEntity, host)
+		}
+		if e.ByBlock != nil {
+			e.ByBlock.World = bindPluginWorld(e.ByBlock.World, host)
+		}
 	case *plugin.HangingBreakEvent:
 		if p, ok := e.Entity.(pendingHanging); ok {
 			e.Entity = bindPending[plugin.Hanging](e.Entity, p.id, host)

@@ -26,7 +26,7 @@ func (m *Mannequin) EnvironmentStep(w World, hurt func(float64, registry.DamageT
 	}
 	var scan contactScan
 	if scan.touches(w, box, contactFire) {
-		livingFireContact(w, box, &m.FireTicks, m.IgniteForTicks, hurt)
+		livingFireContact(w, box, &m.FireTicks, func(ticks int, _, _, _ int32) { m.IgniteForTicks(ticks) }, hurt)
 	}
 	if m.FireTicks != 0 {
 		extinguished = livingFireTick(&m.FireTicks, rainLandsOn(w, m.X, m.Y, m.Z, height) || m.water.height > 0, false, m.lava.height > 0, hurt)
@@ -42,7 +42,7 @@ func (m *Mannequin) EnvironmentStep(w World, hurt func(float64, registry.DamageT
 		hurt(drownDamage, rules.DamageTypeDrown)
 	}
 	if m.lava.height > 0 || scan.touches(w, box, contactLavaCauldron) {
-		livingLavaContact(w, box, m.lava.height > 0, m.IgniteForTicks, hurt)
+		livingLavaContact(w, box, m.lava.height > 0, func(ticks int, _, _, _ int32) { m.IgniteForTicks(ticks) }, hurt)
 	}
 	inSnow := scan.touches(w, box, contactPowderSnow)
 	if inSnow && m.FireTicks > 0 {

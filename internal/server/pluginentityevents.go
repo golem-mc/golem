@@ -319,12 +319,59 @@ func (c *client) totemAllowed(damageType registry.DamageType) bool {
 	return !e.Cancelled()
 }
 
-// pluginVitalsTick fires FoodLevelChangeEvent and EntityRegainHealthEvent for
-// what a tick of the food bar changed since before, and puts back or resizes
-// what a listener refused. The tick has already run, so a cancelled change
-// is undone here; its exhaustion and saturation stay spent.
+// igniteForTicksBy is igniteForTicks with the entity that set the player alight.
+func (c *client) igniteForTicksBy(ticks int32, by plugin.Entity) {
+	ticks = int32(rules.ScaledIgniteTicks(int(ticks), c.burningTime()))
+	if int(ticks) > c.player.Vitals().FireTicks {
+		ticks = int32(c.srv.combustTicks(pluginPlayer{c: c}, int(ticks), by, nil))
+		if ticks <= 0 {
+			return
+		}
+	}
+	c.player.UpdateVitals(func(v *player.Vitals) {
+		rules.IgniteForTicks(v, int(ticks))
+	})
+}
+
+// combustBlock finds the lava, lava cauldron or fire block overlapping pos.
+func (c *client) combustBlock(pos player.Position) *plugin.Block {
+	w := c.theWorld()
+	dims := c.dims(c.player.Appearance().Pose)
+	halfW := dims.Width / 2
+	minX, maxX := rules.CellRange(pos.X-halfW, pos.X+halfW)
+	minY, maxY := rules.CellRange(pos.Y, pos.Y+dims.Height)
+	minZ, maxZ := rules.CellRange(pos.Z-halfW, pos.Z+halfW)
+	var firePos [3]int32
+	hasFire := false
+	pw := pluginWorld{srv: c.srv, dim: c.srv.dimensionOfWorld(w), host: c.srv.pluginAdapter}
+	for y := minY; y <= maxY; y++ {
+		for z := minZ; z <= maxZ; z++ {
+			for x := minX; x <= maxX; x++ {
+				state := w.BlockAt(x, y, z)
+				if rules.IsLava(state) || rules.IsLavaCauldron(state) {
+					b := plugin.Block{World: pw, Pos: plugin.BlockPos{X: int(x), Y: int(y), Z: int(z)}}
+					return &b
+				}
+				if !hasFire && rules.IsFire(state) {
+					firePos, hasFire = [3]int32{x, y, z}, true
+				}
+			}
+		}
+	}
+	if hasFire {
+		b := plugin.Block{World: pw, Pos: plugin.BlockPos{X: int(firePos[0]), Y: int(firePos[1]), Z: int(firePos[2])}}
+		return &b
+	}
+	return nil
+}
+
+// pluginVitalsTick fires FoodLevelChangeEvent, EntityAirChangeEvent,
+// EntityRegainHealthEvent and EntityCombustEvent for what a tick changed since
+// before, and puts back or resizes what a listener refused. The tick has
+// already run, so a cancelled change is undone here; its exhaustion and
+// saturation stay spent.
 // vanilla: FoodData.tick
-func (c *client) pluginVitalsTick(before player.Vitals) {
+func (c *client) pluginVitalsTick(before player.Vitals, pos player.Position) {
 	r := c.srv.plugins
 	if r == nil || before.Dead {
 		return
@@ -368,6 +415,17 @@ func (c *client) pluginVitalsTick(before player.Vitals) {
 		var maxHealth float64
 		c.player.Attributes(func(a *player.Attributes) { maxHealth = a.Value(registry.AttributeMaxHealth) })
 		c.player.UpdateVitals(func(v *player.Vitals) { v.Health = min(health, maxHealth) })
+	}
+	if r.Has(pluginruntime.EntityCombust) && after.FireTicks > before.FireTicks && after.FireTicks > 0 {
+		e := &plugin.EntityCombustEvent{Entity: pluginPlayer{c: c}, Duration: after.FireTicks, ByBlock: c.combustBlock(pos)}
+		r.Fire(e)
+		fire := max(e.Duration, 0)
+		if e.Cancelled() {
+			fire = before.FireTicks
+		}
+		if fire != after.FireTicks {
+			c.player.UpdateVitals(func(v *player.Vitals) { v.FireTicks = fire })
+		}
 	}
 }
 
