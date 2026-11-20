@@ -158,7 +158,34 @@ type WorldOptions struct {
 	// Generator generates the world's chunks; nil uses vanilla's generator
 	// for Dimension.
 	Generator Generator
+	// Type is the terrain of a vanilla-generated world; the zero value is
+	// WorldTypeNormal. Only the overworld dimension type and flat worlds take
+	// anything else. Ignored when Generator is set. Bukkit: WorldCreator.type
+	Type WorldType
+	// GeneratorSettings is a flat world's generator-settings JSON (a layers
+	// list, optionally biome and structure_overrides); empty is vanilla's
+	// default flat preset. CreateWorld fails for text that is not such JSON.
+	// Bukkit: WorldCreator.generatorSettings
+	GeneratorSettings string
+	// NoStructures stops the world from generating structures; ignored when
+	// Generator is set. Bukkit:
+	// WorldCreator.generateStructures(false)
+	NoStructures bool
+	// Biome, when set, makes the whole world that overworld biome; ignored
+	// when Generator is set. Bukkit:
+	// WorldCreator.biomeProvider (single biome)
+	Biome Key
 }
+
+// WorldType is the terrain preset of a vanilla-generated world. Bukkit: WorldType
+type WorldType string
+
+const (
+	WorldTypeNormal      WorldType = ""
+	WorldTypeFlat        WorldType = "flat"
+	WorldTypeLargeBiomes WorldType = "large_biomes"
+	WorldTypeAmplified   WorldType = "amplified"
+)
 
 // Ticks is the tick loop. Bukkit: Server.getServerTickManager (Paper)
 type Ticks interface {

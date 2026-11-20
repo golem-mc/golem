@@ -36,7 +36,10 @@ type dimension struct {
 	gen  world.Generator
 	w    *world.World
 	// plugin marks a plugin-created dimension, whose seed and spawn are its own.
-	plugin  bool
+	plugin bool
+	// genSpec is the terrain a plugin world was asked for, kept for its
+	// plugin_world.dat.
+	genSpec world.PluginGenSpec
 	physics *world.Physics
 	// listCounter numbers the players as they join this dimension's player
 	// list, a player who crosses in appended. It is the order a world-limited

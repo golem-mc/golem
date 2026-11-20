@@ -211,7 +211,7 @@ func (w pluginWorld) SetSpawnPoint(loc plugin.Location) {
 		spot := world.SpawnPos{X: int32(p.X), Y: int32(p.Y), Z: int32(p.Z), Yaw: world.WrapDegrees(loc.Yaw), Pitch: max(min(loc.Pitch, 90), -90)}
 		prev, _ := w.dim.w.SpawnIn()
 		w.dim.w.SetOwnSeedAndSpawn(w.dim.w.SeedValue(), spot)
-		w.dim.w.SavePluginMeta(world.PluginMeta{Seed: w.dim.w.SeedValue(), Spawn: spot})
+		w.dim.w.SavePluginMeta(world.PluginMeta{Seed: w.dim.w.SeedValue(), Spawn: spot, Gen: w.dim.genSpec})
 		w.srv.fireSpawnChange(w.dim, prev)
 		return
 	}
