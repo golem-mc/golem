@@ -912,6 +912,28 @@ func SummonCowNear(t *testing.T, c *Client, x, z float64) CapturedEntity {
 // teleport confirmation has to answer.
 func (c *Client) PendTeleport(pos player.Position) { c.pendingTeleport = &pos }
 
+// RespawnPortalCooldown decodes a Respawn packet's portal cooldown, in ticks.
+func RespawnPortalCooldown(t *testing.T, data []byte) int32 {
+	t.Helper()
+	r := protocol.NewReader(data)
+	r.ReadVarInt() // dimension type
+	r.ReadString(32767)
+	r.ReadI64()    // hashed seed
+	r.ReadVarInt() // game mode
+	r.ReadVarInt() // previous game mode
+	r.ReadBool()   // debug world
+	r.ReadBool()   // flat world
+	if r.ReadBool() {
+		r.ReadString(32767) // death dimension
+		r.ReadI64()         // death position
+	}
+	cooldown := r.ReadVarInt()
+	if err := r.Err(); err != nil {
+		t.Fatalf("respawn: %v", err)
+	}
+	return cooldown
+}
+
 // RespawnPreviousGameMode decodes a Respawn packet's previous game mode: -1
 // for none, else the mode's id.
 func RespawnPreviousGameMode(t *testing.T, data []byte) int32 {

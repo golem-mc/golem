@@ -93,6 +93,7 @@ func (s *Server) landPearl(land pearlLanding) {
 		s.spawnPearlEndermite(land, owner, pos)
 		pos.X, pos.Y, pos.Z = land.x, land.y, land.z
 		if owner.theWorld() == land.w {
+			pearlCoolOwner(land, owner)
 			owner.leaveVehicleForTeleport()
 			owner.teleport(command.Move{Pos: pos})
 			// The teleport is told to everyone watching at once, as /teleport does.
@@ -131,10 +132,19 @@ func (s *Server) carryPearlOwner(land pearlLanding, owner *client, pos player.Po
 		hook()
 	}
 	// The owner may die between the tick's check and this goroutine.
-	if !pearlMayCarryOwner(owner, land.w) {
+	dim := s.dimensionOfWorld(land.w)
+	if !pearlMayCarryOwner(owner, land.w) || dim == owner.dimension() {
 		return
 	}
-	if err := owner.enterDimension(s.dimensionOfWorld(land.w), command.Move{Pos: pos}, respawnNone, false); err != nil {
+	// The cooldown is taken under the traveling flag, which holds it whole
+	// until the arrival: a portal beside the landing then cannot take the
+	// owner back on the crossing's first ticks.
+	if !owner.traveling.CompareAndSwap(false, true) {
+		return
+	}
+	defer owner.traveling.Store(false)
+	pearlCoolOwner(land, owner)
+	if err := owner.enterDimensionHeld(dim, command.Move{Pos: pos}, respawnNone, false); err != nil {
 		slog.Warn("an ender pearl could not carry its owner across",
 			"owner", owner.player.Name, "error", err)
 		return
@@ -143,17 +153,11 @@ func (s *Server) carryPearlOwner(land pearlLanding, owner *client, pos player.Po
 }
 
 // pearlLandingTelling applies a landing to an owner in the pearl's
-// dimension: portal cooldown, fall reset, hurt and teleport sound. It runs
-// on the tick for a same-dimension landing, on the crossing goroutine
-// otherwise.
+// dimension: fall reset, hurt and teleport sound. It runs on the tick for a
+// same-dimension landing, on the crossing goroutine otherwise.
 func (s *Server) pearlLandingTelling(land pearlLanding, owner *client) {
 	if owner.theWorld() != land.w {
 		return
-	}
-	// A pearl still on portal cooldown gives the owner one too, so a portal
-	// beside the landing does not take them. vanilla: ThrownEnderpearl.onHit
-	if land.it.portal.Cooldown > 0 {
-		owner.portalCooldown.Store(playerPortalCooldownTicks)
 	}
 	owner.player.UpdateVitals(func(v *player.Vitals) {
 		v.FallDistance = 0
@@ -163,6 +167,15 @@ func (s *Server) pearlLandingTelling(land pearlLanding, owner *client) {
 	// vanilla: ThrownEnderpearl.playSound
 	s.broadcastSoundID(land.w, registry.SoundEntityPlayerTeleport, protocol.SoundCategoryPlayer,
 		land.x, land.y, land.z, 1, 1)
+}
+
+// pearlCoolOwner gives the owner a portal cooldown if the pearl is still on
+// its own, before the teleport, so a portal beside the landing does not take
+// them. vanilla: ThrownEnderpearl.onHit
+func pearlCoolOwner(land pearlLanding, owner *client) {
+	if land.it.portal.Cooldown > 0 {
+		owner.portalCooldown.Store(playerPortalCooldownTicks)
+	}
 }
 
 // pearlMayCarryOwner reports whether a landing may carry the owner: alive
