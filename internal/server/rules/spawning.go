@@ -99,10 +99,7 @@ func matchesSpawnCondition(sel registry.VariantSpawnSelector, ctx SpawnContext) 
 	case registry.SpawnConditionAlways:
 		return true
 	case registry.SpawnConditionBiome:
-		if sel.BiomeTag != "" {
-			return ctx.Biome.InTag(registry.BiomeTagOf(sel.BiomeTag))
-		}
-		return slices.Contains(sel.Biomes, ctx.Biome)
+		return sel.MatchesBiome(ctx.Biome)
 	case registry.SpawnConditionMoonBrightness:
 		moon := float64(ctx.MoonBrightness)
 		if sel.HasMinMoon && moon < sel.MinMoon {

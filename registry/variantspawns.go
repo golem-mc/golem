@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -29,6 +30,14 @@ type VariantSpawnSelector struct {
 	MinMoon, MaxMoon       float64
 	StructureTag           string
 	Structures             []string
+}
+
+// MatchesBiome reports whether biome is in the selector's biome holder set.
+func (s VariantSpawnSelector) MatchesBiome(biome Biome) bool {
+	if s.BiomeTag != "" {
+		return biome.InTag(BiomeTagOf(s.BiomeTag))
+	}
+	return slices.Contains(s.Biomes, biome)
 }
 
 // VariantSpawnEntry pairs a variant registry entry name with its selectors.
