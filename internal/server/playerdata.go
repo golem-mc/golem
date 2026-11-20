@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -132,6 +133,35 @@ func (s *playerStore) loadAdvancements(id uuid.UUID) (*advancement.Progress, err
 // path is a player's file with one of the three suffixes.
 func (s *playerStore) path(id uuid.UUID, suffix string) string {
 	return filepath.Join(s.dir, id.String()+suffix)
+}
+
+// list answers the UUID of every player data file in the player data directory.
+func (s *playerStore) list() ([]uuid.UUID, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	ids := make([]uuid.UUID, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		stem, ok := strings.CutSuffix(entry.Name(), playerFileSuffix)
+		if !ok {
+			continue
+		}
+		id, err := uuid.Parse(stem)
+		if err != nil || id.String() != stem {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 // load reads a player's file. A missing current file (the crash window

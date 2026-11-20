@@ -590,24 +590,28 @@ func (level *LevelData) stamped() nbt.Compound {
 const maxLevelDat = 1 << 20
 
 // Difficulty is level.dat's Difficulty: 0 peaceful, 1 easy, 2 normal, 3 hard.
+// A plugin world has its own; the other dimensions answer the overworld's.
 func (w *World) Difficulty() uint8 {
-	w.timeMu.Lock()
-	defer w.timeMu.Unlock()
-	return w.level.Difficulty
+	t := w.timeWorld()
+	t.timeMu.Lock()
+	defer t.timeMu.Unlock()
+	return t.level.Difficulty
 }
 
 // DifficultyLocked reports whether the difficulty is pinned (the options menu's
 // lock).
 func (w *World) DifficultyLocked() bool {
-	w.timeMu.Lock()
-	defer w.timeMu.Unlock()
-	return w.level.DifficultyLocked
+	t := w.timeWorld()
+	t.timeMu.Lock()
+	defer t.timeMu.Unlock()
+	return t.level.DifficultyLocked
 }
 
 // ChangeDifficulty is SetDifficulty for the options menu, refused while locked
 // (/difficulty ignores the lock); it reports whether it went through.
 // vanilla: MinecraftServer.setDifficulty
 func (w *World) ChangeDifficulty(d uint8) bool {
+	w = w.timeWorld()
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
 	if w.level.DifficultyLocked {
@@ -619,6 +623,7 @@ func (w *World) ChangeDifficulty(d uint8) bool {
 
 // SetDifficultyLocked pins or frees the difficulty, saved with level.dat.
 func (w *World) SetDifficultyLocked(locked bool) {
+	w = w.timeWorld()
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
 	w.level.DifficultyLocked = locked
@@ -627,6 +632,7 @@ func (w *World) SetDifficultyLocked(locked bool) {
 // SetDifficulty sets the difficulty (/difficulty), at once for every player and
 // persisted by the next save.
 func (w *World) SetDifficulty(d uint8) {
+	w = w.timeWorld()
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
 	w.applyDifficulty(d)

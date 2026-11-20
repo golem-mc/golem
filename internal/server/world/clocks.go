@@ -108,6 +108,13 @@ func readClockEntry(entry nbt.Compound, state *clockState) {
 // same clock, building the compound under the setters' lock.
 func (w *World) saveClocks() error {
 	w.timeMu.Lock()
+	data := w.clocksCompound()
+	w.timeMu.Unlock()
+	return writeSavedData(w.dir, worldClocksFile, data)
+}
+
+// clocksCompound is the world_clocks.dat compound; timeMu must be held.
+func (w *World) clocksCompound() nbt.Compound {
 	data := make(nbt.Compound, len(w.clocks))
 	for _, c := range w.clocks {
 		data[c.name] = nbt.Compound{
@@ -116,8 +123,7 @@ func (w *World) saveClocks() error {
 			"paused":      nbt.Byte(boolByte(c.state.paused)),
 		}
 	}
-	w.timeMu.Unlock()
-	return writeSavedData(w.dir, worldClocksFile, data)
+	return data
 }
 
 // clockByName is the named clock of a list, or nil.
@@ -154,7 +160,7 @@ func (w *World) TickTime() {
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
 	w.level.WorldAge++
-	if !w.ruleBool(RuleAdvanceTime) {
+	if !w.ruleOf(RuleAdvanceTime) {
 		return
 	}
 	for i := range w.clocks {
@@ -295,7 +301,7 @@ func (w *World) ClockViews(clocks ...string) (worldAge int64, views []ClockView)
 	w = w.timeWorld()
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
-	advance := w.ruleBool(RuleAdvanceTime)
+	advance := w.ruleOf(RuleAdvanceTime)
 	for _, name := range clocks {
 		c := w.clock(name)
 		if c == nil {

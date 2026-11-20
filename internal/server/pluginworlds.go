@@ -122,18 +122,24 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 	}
 	d := &dimension{name: name, typeID: typeID, gen: gen, plugin: true, genSpec: spec, w: world.NewCustomDimensionWorld(s.levelDir, name, shape, gen)}
 	d.w.UseOwnRules(s.world)
+	d.w.SetPluginGen(spec)
 	if err := s.initDimension(d, false); err != nil {
 		return nil, err
 	}
 	d.w.HoldForcedChunks()
 	spawn := meta.Spawn
 	d.w.SetOwnSeedAndSpawn(seed, spawn)
+	if existed {
+		d.w.RestoreLevel(meta)
+	} else {
+		d.w.SetDifficulty(s.world.Difficulty())
+	}
 	s.addDimension(d)
 	handle := pluginWorld{srv: s, dim: d, host: h}
 	if !existed {
 		spawn = initialPluginSpawn(opts.Generator, gen, handle)
 		d.w.SetOwnSeedAndSpawn(seed, spawn)
-		d.w.SavePluginMeta(world.PluginMeta{Seed: seed, Spawn: spawn, Gen: spec})
+		d.w.SavePluginMeta()
 	}
 	s.fireWorldLoad(d)
 	return handle, nil

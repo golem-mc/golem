@@ -313,10 +313,11 @@ func NewTestServerWithPlugins(t *testing.T, cfg *config.Config, plugins []plugin
 	// Players leaving release their chunks, which queues the dirty ones for
 	// an async save. Wait for those saves before the temporary world
 	// directory is removed, or its removal races a region file being written.
-	// Registered here, the cleanup runs after every connection's and before
-	// the directory's - and after the loop's stop, registered next and so
-	// run first, so no tick queues a save behind the flush.
+	// Registered in reverse of shutdown order: StopTick runs first, then
+	// DisablePlugins (so plugins release tickets and other resources before
+	// saves flush), then FlushSaves, then CloseWorlds.
 	t.Cleanup(func() { held.FlushSaves() })
+	t.Cleanup(func() { held.DisablePlugins() })
 	t.Cleanup(func() { held.StopTick() })
 	return srv
 }

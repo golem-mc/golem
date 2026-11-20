@@ -23,6 +23,11 @@ func loadWeather(dir string, level *LevelData) {
 		}
 		return
 	}
+	applyWeather(data, level)
+}
+
+// applyWeather sets the weather fields data carries on level.
+func applyWeather(data nbt.Compound, level *LevelData) {
 	if v, ok := nbt.Get[nbt.Int](data, "clear_weather_time"); ok {
 		level.ClearWeatherTime = int32(v)
 	}
@@ -45,15 +50,20 @@ func loadWeather(dir string, level *LevelData) {
 // vanilla: WeatherData.CODEC
 func (w *World) saveWeather() error {
 	w.timeMu.Lock()
-	data := nbt.Compound{
+	data := w.weatherCompound()
+	w.timeMu.Unlock()
+	return writeSavedData(w.dir, weatherFile, data)
+}
+
+// weatherCompound is the weather.dat compound; timeMu must be held.
+func (w *World) weatherCompound() nbt.Compound {
+	return nbt.Compound{
 		"clear_weather_time": nbt.Int(w.level.ClearWeatherTime),
 		"rain_time":          nbt.Int(w.level.RainTime),
 		"thunder_time":       nbt.Int(w.level.ThunderTime),
 		"raining":            nbt.Byte(boolByte(w.level.Raining)),
 		"thundering":         nbt.Byte(boolByte(w.level.Thundering)),
 	}
-	w.timeMu.Unlock()
-	return writeSavedData(w.dir, weatherFile, data)
 }
 
 // Dice is a UniformInt: a roll from Min to Max inclusive.
@@ -143,7 +153,7 @@ func (w *World) TickWeather() SkyChange {
 	t.timeMu.Lock()
 	defer t.timeMu.Unlock()
 	wasRaining := w.sky.raining()
-	if t.ruleBool(RuleAdvanceWeather) {
+	if t.ruleOf(RuleAdvanceWeather) {
 		w.advanceWeatherTimers(t.level)
 	}
 	sky := &w.sky

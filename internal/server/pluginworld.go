@@ -63,7 +63,7 @@ func (w pluginWorld) DayTime() int64 {
 func (w pluginWorld) SetDayTime(t int64) {
 	clock, ok := w.dim.w.DefaultClock()
 	if ok && w.srv.skipClock(w.dim.w, plugin.SkipPlugin, func() bool { return w.dim.w.SetClockTime(clock, t) }) {
-		w.srv.broadcastTime(clock)
+		w.srv.broadcastTimeOf(w.dim.w, clock)
 	}
 }
 func (w pluginWorld) Weather() plugin.Weather {
@@ -96,16 +96,16 @@ func (w pluginWorld) SetWeather(weather plugin.Weather, rain, thunder time.Durat
 	if rain > 0 {
 		rainTime = ticks(rain)
 	} else {
-		rainTime = dice.Roll(w.srv.world)
+		rainTime = dice.Roll(w.dim.w)
 	}
 	thunderTime := rainTime
 	if thunder > 0 {
 		thunderTime = ticks(thunder)
 	}
 	if weather == plugin.WeatherClear {
-		w.srv.setWeatherAllowed(false, false, 0, 0, rainTime)
+		w.srv.setWeatherAllowed(w.dim, false, false, 0, 0, rainTime)
 	} else {
-		w.srv.setWeatherAllowed(true, weather == plugin.WeatherThunder, rainTime, thunderTime, 0)
+		w.srv.setWeatherAllowed(w.dim, true, weather == plugin.WeatherThunder, rainTime, thunderTime, 0)
 	}
 }
 
@@ -116,11 +116,11 @@ func (w pluginWorld) SetThundering(on bool, d time.Duration) {
 	case d > 0:
 		thunderTime = int32(min(max(pluginDurationTicks(d), 1), math.MaxInt32))
 	case on:
-		thunderTime = world.ThunderDuration.Roll(w.srv.world)
+		thunderTime = world.ThunderDuration.Roll(w.dim.w)
 	default:
-		thunderTime = world.ThunderDelay.Roll(w.srv.world)
+		thunderTime = world.ThunderDelay.Roll(w.dim.w)
 	}
-	w.srv.setThunderAllowed(on, thunderTime)
+	w.srv.setThunderAllowed(w.dim, on, thunderTime)
 }
 
 // vanilla: ServerLevelData.setRaining, setRainTime; the roll is advanceWeatherTimers'.
@@ -130,22 +130,32 @@ func (w pluginWorld) SetStorm(on bool, d time.Duration) {
 	case d > 0:
 		rainTime = int32(min(max(pluginDurationTicks(d), 1), math.MaxInt32))
 	case on:
-		rainTime = world.RainDuration.Roll(w.srv.world)
+		rainTime = world.RainDuration.Roll(w.dim.w)
 	default:
-		rainTime = world.RainDelay.Roll(w.srv.world)
+		rainTime = world.RainDelay.Roll(w.dim.w)
 	}
-	w.srv.setRainAllowed(on, rainTime)
+	w.srv.setRainAllowed(w.dim, on, rainTime)
 }
 func (w pluginWorld) RainDuration() time.Duration {
-	rain, _ := w.srv.world.WeatherTimers()
+	rain, _ := w.dim.w.WeatherTimers()
 	return time.Duration(rain) * (time.Second / 20)
 }
 func (w pluginWorld) ThunderDuration() time.Duration {
-	_, thunder := w.srv.world.WeatherTimers()
+	_, thunder := w.dim.w.WeatherTimers()
 	return time.Duration(thunder) * (time.Second / 20)
 }
 func (w pluginWorld) Difficulty() plugin.Difficulty {
 	return plugin.Difficulty(w.dim.w.Difficulty())
+}
+
+// vanilla: MinecraftServer.setDifficulty. The vanilla dimensions share the
+// overworld's, which every player of them is told.
+func (w pluginWorld) SetDifficulty(d plugin.Difficulty) {
+	if d > plugin.DifficultyHard {
+		return
+	}
+	w.dim.w.SetDifficulty(uint8(d))
+	w.srv.broadcastDifficultyOf(w.dim.w)
 }
 func (w pluginWorld) GameRule(id plugin.GameRule) int {
 	if id < 0 || int(id) >= len(world.GameRuleTable) {
@@ -211,7 +221,7 @@ func (w pluginWorld) SetSpawnPoint(loc plugin.Location) {
 		spot := world.SpawnPos{X: int32(p.X), Y: int32(p.Y), Z: int32(p.Z), Yaw: world.WrapDegrees(loc.Yaw), Pitch: max(min(loc.Pitch, 90), -90)}
 		prev, _ := w.dim.w.SpawnIn()
 		w.dim.w.SetOwnSeedAndSpawn(w.dim.w.SeedValue(), spot)
-		w.dim.w.SavePluginMeta(world.PluginMeta{Seed: w.dim.w.SeedValue(), Spawn: spot, Gen: w.dim.genSpec})
+		w.dim.w.SavePluginMeta()
 		w.srv.fireSpawnChange(w.dim, prev)
 		return
 	}

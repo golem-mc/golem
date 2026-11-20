@@ -69,13 +69,15 @@ type World interface {
 	// drop is.
 	DropItem(pos Vec3, s ItemStack, naturally bool) ItemEntity
 
-	// Time is the shared game time in ticks. DayTime is the dimension type's
+	// Time is the game time in ticks, shared by the vanilla dimensions and
+	// counted separately by each plugin world. DayTime is the dimension type's
 	// default clock's total ticks (0 with no clock); SetDayTime changes that
 	// clock, doing nothing for a dimension type without one.
 	Time() int64
 	DayTime() int64
 	SetDayTime(t int64)
-	// Weather answers the shared weather flags; SetWeather sets them as
+	// Weather answers the weather flags, which the vanilla dimensions share
+	// and each plugin world keeps its own; SetWeather sets them as
 	// /weather does. rain is how long the rain lasts (how long the sky stays
 	// clear for WeatherClear), thunder how long the thunder lasts; 0 is
 	// vanilla's random length for rain, and the rain's length for thunder.
@@ -93,7 +95,13 @@ type World interface {
 	// RainDuration and ThunderDuration answer the time left on each timer.
 	RainDuration() time.Duration
 	ThunderDuration() time.Duration
+	// Difficulty answers the world's difficulty, shared by the vanilla
+	// dimensions and kept by each plugin world, which starts at the
+	// overworld's. SetDifficulty changes it and tells the players concerned;
+	// a value past DifficultyHard is ignored.
+	// vanilla: MinecraftServer.setDifficulty
 	Difficulty() Difficulty
+	SetDifficulty(d Difficulty)
 	// GameRule answers a shared rule's value: an int, or 0 and 1 for a boolean.
 	GameRule(r GameRule) int
 	SetGameRule(r GameRule, v int)
