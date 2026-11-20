@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -536,23 +537,72 @@ func (c *client) sendAdvancementUpdate(progress *advancement.Progress, show bool
 // AnnounceAdvancements rewards and announces newly done advancements in
 // chat, before the update showing them. vanilla: PlayerAdvancements.award
 func (c *client) AnnounceAdvancements() {
+	// Loot and functions are granted with the dispatch lock released: giving
+	// a stack broadcasts item changes and a function may revoke an
+	// advancement, both of which announce again.
+	for _, r := range c.announceAdvancements() {
+		c.giveAdvancementLoot(r.Loot)
+		if r.Function != "" {
+			c.runAdvancementFunction(r.Function)
+		}
+	}
+}
+
+// advancementRewards is the loot and function of one completed advancement.
+type advancementRewards struct {
+	Loot     []string
+	Function string
+}
+
+// runAdvancementFunction runs a reward function as the player, silently at
+// gamemaster level; an unknown function is skipped.
+// vanilla: AdvancementRewards.grant
+func (c *client) runAdvancementFunction(id string) {
+	s := c.srv
+	if _, ok := s.funcs.Load().lib.Get(id); !ok {
+		return
+	}
+	s.runEnchantLine(c.theWorld(), fmt.Sprintf("execute as %s at %s run function %s", c.player.UUID, c.player.UUID, id))
+}
+
+// giveAdvancementLoot rolls each reward table for the player and gives the
+// stacks. vanilla: AdvancementRewards.grant, LootContextParamSets.ADVANCEMENT_REWARD
+func (c *client) giveAdvancementLoot(tables []string) {
+	w := c.theWorld()
+	pos := c.player.Position()
+	for _, table := range tables {
+		ctx := &rules.LootContext{Level: c.srv.lootLevelAt(w, pos.X, pos.Y, pos.Z), This: c.LootEntity(),
+			Origin: [3]float64{pos.X, pos.Y, pos.Z}, HasOrigin: true}
+		stacks, _ := c.srv.rollLootWith(ctx, table, 0)
+		for _, st := range stacks {
+			c.GiveItem(st)
+		}
+	}
+}
+
+// announceAdvancements does AnnounceAdvancements' work under the dispatch
+// lock and returns the loot and functions to grant after it.
+func (c *client) announceAdvancements() (rewards []advancementRewards) {
 	// A caller must wait for completions another caller already drained to
 	// finish dispatching before it sends command feedback or progress.
 	c.advancementAnnounceMu.Lock()
 	defer c.advancementAnnounceMu.Unlock()
 	progress := c.advancements.Load()
 	if progress == nil {
-		return
+		return nil
 	}
 	for {
 		completed := progress.TakeCompleted()
 		if len(completed) == 0 {
-			return
+			return rewards
 		}
 		var recipes []string
 		for _, n := range completed {
 			if n.Experience > 0 {
 				c.GiveExperiencePoints(int(n.Experience))
+			}
+			if len(n.Loot) > 0 || n.Function != "" {
+				rewards = append(rewards, advancementRewards{n.Loot, n.Function})
 			}
 			for _, name := range n.Recipes {
 				if _, ok := registry.RecipeDisplayIDOfName(name); ok {

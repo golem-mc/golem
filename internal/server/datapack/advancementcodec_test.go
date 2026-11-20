@@ -51,7 +51,6 @@ func TestDecodeAdvancementRefusesWhatVanillaRefuses(t *testing.T) {
 		"no criteria":          `{"criteria":{}}`,
 		"requirement unknown":  `{` + crit + `,"requirements":[["a","b"]]}`,
 		"criterion unrequired": `{"criteria":{"a":{"trigger":"minecraft:tick"},"b":{"trigger":"minecraft:tick"}},"requirements":[["a"]]}`,
-		"function reward":      `{` + crit + `,"rewards":{"function":"x:y"}}`,
 		"unknown trigger":      `{"criteria":{"a":{"trigger":"mod:x"}}}`,
 		"spear count zero":     `{"criteria":{"a":{"trigger":"minecraft:spear_mobs","conditions":{"count":0}}}}`,
 		"invalid trigger id":   `{"criteria":{"a":{"trigger":"Not A Trigger"}}}`,
@@ -61,6 +60,22 @@ func TestDecodeAdvancementRefusesWhatVanillaRefuses(t *testing.T) {
 	} {
 		if _, err := DecodeAdvancement("pk:x", []byte(body)); err == nil {
 			t.Errorf("%s: decoded, want an error", name)
+		}
+	}
+}
+
+func TestDecodeAdvancementReadsLootAndFunctionRewards(t *testing.T) {
+	const crit = `"criteria":{"a":{"trigger":"minecraft:tick"}}`
+	for body, want := range map[string][]string{
+		`{` + crit + `,"rewards":{"loot":"l","function":"x:y"}}`:         {"minecraft:l"},
+		`{` + crit + `,"rewards":{"loot":["x:l","m"],"function":"x:y"}}`: {"x:l", "minecraft:m"},
+	} {
+		adv, err := DecodeAdvancement("pk:x", []byte(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(adv.Loot, want) || adv.Function != "x:y" {
+			t.Errorf("loot %v function %q, want %v and x:y", adv.Loot, adv.Function, want)
 		}
 	}
 }
