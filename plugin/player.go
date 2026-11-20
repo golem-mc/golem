@@ -197,6 +197,14 @@ type Player interface {
 	SetScoreboard(Scoreboard)
 
 	Advancements(a Advancement) AdvancementProgress
+	// Recipes answers the keys of the recipes the player has unlocked.
+	// Bukkit: getDiscoveredRecipes
+	Recipes() []Key
+	// UnlockRecipes and LockRecipes change the recipe book as /recipe give
+	// and take do, answering how many changed; with silent set the client
+	// shows no "new recipe" toast. Bukkit: discoverRecipes, undiscoverRecipes
+	UnlockRecipes(keys []Key, silent bool) int
+	LockRecipes(keys []Key) int
 	Statistic(s Statistic) int
 	SetStatistic(s Statistic, v int)
 	// Spectating answers the entity a spectator views through.

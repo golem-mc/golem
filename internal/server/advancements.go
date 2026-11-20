@@ -573,7 +573,7 @@ func (c *client) AnnounceAdvancements() {
 		// Recipe rewards can complete recipe_unlocked criteria. Drain those
 		// here too, without recursively taking the dispatch lock.
 		if len(recipes) > 0 {
-			c.giveRecipes(recipes)
+			c.giveRecipes(recipes, true)
 		}
 	}
 }

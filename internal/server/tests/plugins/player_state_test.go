@@ -1,6 +1,7 @@
 package plugins_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
@@ -390,4 +391,129 @@ func TestPluginPlayerHideShow(t *testing.T) {
 	if !p.CanSee(target) {
 		t.Fatal("CanSee after Show")
 	}
+}
+
+// vanilla: ServerPlayer.awardRecipes, resetRecipes; ClientboundRecipeBookAddPacket,
+// ClientboundRecipeBookRemovePacket
+func TestPluginPlayerRecipeBook(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	cfg.LevelName = t.TempDir()
+	var host plugin.Server
+	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{
+		{Name: "recipes", Plugin: &testPlugin{enable: func(s plugin.Server) error { host = s; return nil }}},
+	})
+	c := servertest.DialServer(t, srv)
+	c.ViewAsk = config.MinDistance
+	c.WatchBook = true
+	c.Join("Crafter")
+	servertest.HoldTicks(t, srv)
+	run := func(f func()) {
+		t.Helper()
+		ran := false
+		host.Scheduler().RunTask(func() { f(); ran = true })
+		servertest.RunTicks(t, srv, 1)
+		if !ran {
+			t.Fatal("plugin task did not complete")
+		}
+	}
+	c.ReadTicks(srv, 2, func(int32, []byte) bool { return false })
+
+	p := handle(t, host, "Crafter")
+	oakPlanks := plugin.MinecraftKey("oak_planks")
+	oakBoat := plugin.MinecraftKey("oak_boat")
+	unknown := plugin.MinecraftKey("no_such_recipe")
+	oakPlanksID := registry.CraftingDisplayOfName(oakPlanks.String()).ID
+	oakBoatID := registry.CraftingDisplayOfName(oakBoat.String()).ID
+
+	if slices.Contains(p.Recipes(), oakPlanks) {
+		t.Fatal("new player already knows oak_planks")
+	}
+
+	// Silent unlock: returns 1, Recipes() contains it, toast flag (0x01) is off.
+	var added int
+	run(func() { added = p.UnlockRecipes([]plugin.Key{oakPlanks}, true) })
+	if added != 1 {
+		t.Fatalf("UnlockRecipes(oak_planks, silent=true) = %d, want 1", added)
+	}
+	if !slices.Contains(p.Recipes(), oakPlanks) {
+		t.Fatal("Recipes() missing oak_planks after unlock")
+	}
+	addPkt := c.ExpectWithinTicks(srv, 0, protocol.IDPlayRecipeBookAdd)
+	r := protocol.NewReader(addPkt)
+	if n, id := r.ReadVarInt(), r.ReadVarInt(); n != 1 || id != oakPlanksID {
+		t.Fatalf("add = %d entries, first display %d, want 1 entry for %d", n, id, oakPlanksID)
+	}
+	if replace := addPkt[len(addPkt)-1]; replace != 0 {
+		t.Errorf("add replace flag = %d, want 0", replace)
+	}
+	if flags := addPkt[len(addPkt)-2]; flags&0x01 != 0 {
+		t.Errorf("silent unlock entry flags = %#x, want toast bit 0x01 off", flags)
+	}
+
+	// Repeated unlock and unknown keys change nothing and send no packet.
+	run(func() { added = p.UnlockRecipes([]plugin.Key{oakPlanks, unknown}, true) })
+	if added != 0 {
+		t.Fatalf("repeated/unknown UnlockRecipes = %d, want 0", added)
+	}
+	if slices.Contains(p.Recipes(), unknown) {
+		t.Fatal("unknown recipe was added to Recipes()")
+	}
+	c.ExpectNoneWithinTicks(srv, 0, servertest.PacketIs(protocol.IDPlayRecipeBookAdd))
+
+	// Non-silent unlock: toast flag (0x01) is on.
+	run(func() { added = p.UnlockRecipes([]plugin.Key{oakBoat}, false) })
+	if added != 1 {
+		t.Fatalf("UnlockRecipes(oak_boat, silent=false) = %d, want 1", added)
+	}
+	addPkt = c.ExpectWithinTicks(srv, 0, protocol.IDPlayRecipeBookAdd)
+	r = protocol.NewReader(addPkt)
+	if n, id := r.ReadVarInt(), r.ReadVarInt(); n != 1 || id != oakBoatID {
+		t.Fatalf("add = %d entries, first display %d, want 1 entry for %d", n, id, oakBoatID)
+	}
+	if flags := addPkt[len(addPkt)-2]; flags&0x01 == 0 {
+		t.Errorf("non-silent unlock entry flags = %#x, want toast bit 0x01 on", flags)
+	}
+
+	// Lock removes it, returns 1, sends Recipe Book Remove; second Lock returns 0.
+	var removed int
+	run(func() { removed = p.LockRecipes([]plugin.Key{oakPlanks}) })
+	if removed != 1 {
+		t.Fatalf("LockRecipes(oak_planks) = %d, want 1", removed)
+	}
+	if slices.Contains(p.Recipes(), oakPlanks) {
+		t.Fatal("Recipes() still contains oak_planks after lock")
+	}
+	remPkt := c.ExpectWithinTicks(srv, 0, protocol.IDPlayRecipeBookRemove)
+	r = protocol.NewReader(remPkt)
+	if n, id := r.ReadVarInt(), r.ReadVarInt(); n != 1 || id != oakPlanksID {
+		t.Fatalf("remove = %d entries, first display %d, want 1 entry for %d", n, id, oakPlanksID)
+	}
+	run(func() { removed = p.LockRecipes([]plugin.Key{oakPlanks}) })
+	if removed != 0 {
+		t.Fatalf("second LockRecipes(oak_planks) = %d, want 0", removed)
+	}
+	c.ExpectNoneWithinTicks(srv, 0, servertest.PacketIs(protocol.IDPlayRecipeBookRemove))
+
+	// Unlock oak_planks again and verify unlocked recipes survive rejoin.
+	run(func() { added = p.UnlockRecipes([]plugin.Key{oakPlanks}, true) })
+	if added != 1 {
+		t.Fatalf("re-unlock oak_planks = %d, want 1", added)
+	}
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlayRecipeBookAdd)
+	c.Disconnect()
+
+	// Release ticks for rejoin and verify unlocked recipes survive.
+	servertest.ReleaseTicks(t, srv)
+	c2 := servertest.DialServer(t, srv)
+	c2.ViewAsk = config.MinDistance
+	c2.WatchBook = true
+	c2.Join("Crafter")
+	p2 := handle(t, host, "Crafter")
+	got := p2.Recipes()
+	if !slices.Contains(got, oakPlanks) || !slices.Contains(got, oakBoat) {
+		t.Fatalf("rejoined Recipes() = %v, want oak_planks and oak_boat", got)
+	}
+	c2.Disconnect()
 }
