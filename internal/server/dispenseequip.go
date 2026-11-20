@@ -279,13 +279,21 @@ func (s *Server) equipStandsIn(cell equipCell, targets []equipTarget) []equipTar
 }
 
 // dispenseEquipTarget is the identity of the body the dispenser would dress with the piece, or
-// false when the piece is no equipment behaviour or nobody takes it.
+// false when the piece is no equipment behaviour, is placed on a base or nobody takes it.
 func (s *Server) dispenseEquipTarget(w *world.World, visit dispenseVisit, d world.Dispense) (uuid.UUID, bool) {
 	if visit.behaviour != inventory.DispenseEquipment && visit.behaviour != inventory.DispenseOptionalEquipment {
 		return uuid.UUID{}, false
 	}
-	if it := registry.Item(visit.taken.ItemID); it == registry.ItemWitherSkeletonSkull || it == registry.ItemCarvedPumpkin {
-		return uuid.UUID{}, false
+	// Placed on a base instead of worn.
+	switch registry.Item(visit.taken.ItemID) {
+	case registry.ItemWitherSkeletonSkull:
+		if s.witherSkullPlaces(w, d) {
+			return uuid.UUID{}, false
+		}
+	case registry.ItemCarvedPumpkin:
+		if carvedPumpkinPlaces(w, d) {
+			return uuid.UUID{}, false
+		}
 	}
 	for _, target := range s.equipTargets(w, visit.taken, d) {
 		if target.fits() {
