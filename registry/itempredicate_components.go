@@ -139,6 +139,27 @@ func optionalBounds(fields nbt.Compound, key string) (lo, hi int64, ok bool) {
 	return parseBounds(fields[key])
 }
 
+// ComponentPredicateTest compiles the '~' predicate of a component that has a
+// predicate type of its own; false for a component or value it cannot read.
+// vanilla: DataComponentPredicates
+func ComponentPredicateTest(name string, value nbt.Tag) (func(protocol.ItemStack) bool, bool) {
+	return decodeComponentPredicate(name, value)
+}
+
+// HasPredicateType reports whether vanilla tests the component's '~' value
+// with a predicate type of its own rather than by presence.
+// vanilla: DataComponentPredicates
+func HasPredicateType(name string) bool {
+	switch name {
+	case "minecraft:enchantments", "minecraft:stored_enchantments", "minecraft:potion_contents",
+		"minecraft:firework_explosion", "minecraft:fireworks", "minecraft:trim", "minecraft:jukebox_playable",
+		"minecraft:villager/variant", "minecraft:writable_book_content", "minecraft:written_book_content",
+		"minecraft:attribute_modifiers", "minecraft:container", "minecraft:bundle_contents":
+		return true
+	}
+	return false
+}
+
 // decodeComponentPredicate reads one entry of DataComponentMatchers' partial
 // predicates for the types modelled here; false for a type or value it cannot
 // read.
