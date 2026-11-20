@@ -2200,12 +2200,13 @@ func (c *client) attackBoat(target int32) {
 	pos := c.player.Position()
 	c.srv.boatsMu.Lock()
 	minX, minY, minZ, maxX, maxY, maxZ := it.boat.Box()
+	snap := c.srv.boatSnapshot(it, nil)
 	c.srv.boatsMu.Unlock()
 	if !c.withinAttackRange(minX, minY, minZ, maxX, maxY, maxZ) {
 		return
 	}
 	held := c.heldItem(protocol.HandMain)
-	blow, ok := c.prepareAttack(held, it.entityTypeID(), false, nil)
+	blow, ok := c.prepareAttack(held, it.entityTypeID(), false, snapshotLoot(snap))
 	if !ok {
 		return
 	}

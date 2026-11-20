@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
 )
@@ -39,6 +40,20 @@ func (c *client) prepareAttack(held protocol.ItemStack, targetType int32, living
 	b.damage += magic
 	b.feedback = c.blowFeedback(held, b.strength, critical, magic)
 	return b, true
+}
+
+// snapshotLoot is a non-mob victim's snapshot as a loot body, built when a
+// predicate asks and so after the caller has released the kind's lock, which
+// the snapshot's saved compound takes; nil for a victim with no snapshot, which
+// then reads by type.
+func snapshotLoot(snap *entitySnapshot) func() *rules.LootEntity {
+	if snap == nil {
+		return nil
+	}
+	return func() *rules.LootEntity {
+		e := command.LootEntityOf(snap)
+		return &e
+	}
 }
 
 // bindLootBodies lets a data-pack effect's loot conditions read the blow's

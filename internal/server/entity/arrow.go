@@ -287,6 +287,10 @@ type Arrow struct {
 
 	// Weapon is firedFromWeapon: a player's bow or a skeleton's.
 	Weapon protocol.ItemStack
+	// BindLoot fills the bodies a data-pack effect's loot conditions read
+	// into a hit's damage context; nil leaves it type-only. The server sets
+	// it for each step.
+	BindLoot func(ctx *rules.EnchContext, target *ArrowTarget)
 
 	// PickupStack is the stack a pickup returns when not the plain arrow; empty
 	// means the arrow type decides.
@@ -862,8 +866,8 @@ func (a *Arrow) RestoreLeftOwner(left bool) { a.leftOwner = left }
 // hitDamage is onHitEntity's damage: base damage (after
 // EnchantmentHelper.modifyDamage on the weapon, in the hit's context:
 // victim, direct attacker, no tool) times speed, clamped and ceiled, plus
-// random.nextInt(damage / 2 + 2) when critical. The shooter's type is not
-// carried; no bow damage enchantment asks about it. Tridents use
+// random.nextInt(damage / 2 + 2) when critical. The shooter's body is
+// bound by BindLoot for loot conditions. Tridents use
 // tridentHitDamage's fixed 8 instead.
 func (a *Arrow) hitDamage(target *ArrowTarget) float64 {
 	if a.Trident {
@@ -871,12 +875,14 @@ func (a *Arrow) hitDamage(target *ArrowTarget) float64 {
 	}
 	base := a.BaseDamage
 	if len(a.Weapon.Enchantments) > 0 {
-		base = rules.EnchantedDamage(a.Weapon, &rules.EnchContext{
+		ctx := &rules.EnchContext{
 			DamageType:     rules.DamageTypeArrow,
 			Direct:         false,
 			Victim:         target.Type,
 			DirectAttacker: protocol.EntityTypeArrow,
-		}, base)
+		}
+		a.bindLoot(ctx, target)
+		base = rules.EnchantedDamage(a.Weapon, ctx, base)
 	}
 	velocity := math.Sqrt(a.VX*a.VX + a.VY*a.VY + a.VZ*a.VZ)
 	damage := math.Ceil(velocity * base)
@@ -890,6 +896,12 @@ func (a *Arrow) hitDamage(target *ArrowTarget) float64 {
 		damage += float64(a.Rand.Intn(int(damage)/2 + 2))
 	}
 	return damage
+}
+
+func (a *Arrow) bindLoot(ctx *rules.EnchContext, target *ArrowTarget) {
+	if a.BindLoot != nil {
+		a.BindLoot(ctx, target)
+	}
 }
 
 // waterInertia is the velocity kept in water: 0.6 for an arrow, 0.99 for a

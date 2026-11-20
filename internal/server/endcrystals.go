@@ -356,10 +356,19 @@ func (c *client) attackEndCrystal(target int32) bool {
 	attackDamage := c.attackDamage()
 	strength := rules.AttackStrengthScale(int(c.attackStrengthTicks.Load()), c.attackSpeed())
 	c.attackStrengthTicks.Store(0)
-	ctx := c.attackEnchContext(meleeDamageType(held), protocol.EntityTypeEndCrystal, nil)
+	// The conditions read the crystal's body, which takes the lock, so they
+	// run with it released and the crystal is found again after.
+	snap := s.endCrystalSnapshot(ent, nil)
+	s.endCrystalsMu.Unlock()
+	ctx := c.attackEnchContext(meleeDamageType(held), protocol.EntityTypeEndCrystal, snapshotLoot(snap))
 	plain := rules.AttackDamage(attackDamage, false, 1)
 	magic := (rules.EnchantedDamage(held, &ctx, plain) - plain) * strength
 	falling := c.canCriticalAttack(false)
+	s.endCrystalsMu.Lock()
+	if ent = s.endCrystalByIDLocked(c.theWorld(), target); ent == nil {
+		s.endCrystalsMu.Unlock()
+		return true
+	}
 	if rules.AttackDamage(attackDamage, falling, strength) <= 0 && magic <= 0 {
 		s.endCrystalsMu.Unlock()
 		return true

@@ -105,9 +105,11 @@ func (s *Server) postAttack(w *world.World, attacker, victim attackBody, weapon 
 		})
 		actions = rules.PostAttackEffects(weapon, pieces[:], ctx, c.ownDice())
 	} else if victim.mannequin != nil {
+		// The conditions read the mannequin's body, which takes its lock.
 		s.mannequinsMu.Lock()
-		actions = rules.PostAttackEffects(weapon, victim.mannequin.mannequin.EnchEquipment(), ctx, s.levelRng)
+		pieces := victim.mannequin.mannequin.EnchEquipment()
 		s.mannequinsMu.Unlock()
+		actions = rules.PostAttackEffects(weapon, pieces, ctx, s.levelRng)
 	} else {
 		s.mobsMu.Lock()
 		actions = rules.PostAttackEffects(weapon, victim.mob.EnchEquipment(), ctx, victim.mob.Rand)
@@ -341,15 +343,25 @@ func (s *Server) wearPostAttack(w *world.World, owner attackBody, piece int, amo
 // bindBlowLoot gives ctx the bodies of a blow for a data-pack effect's loot
 // conditions, with the victim's position as the origin. mobsHeld says the
 // caller holds mobsMu while the conditions run; a mob body is then read
-// without taking it, and none is given when the victim is a mannequin, whose
-// lock may not nest with mobsMu.
+// without taking it. A mannequin body takes mannequinsMu, so the caller holds
+// none of its own while the conditions run.
 // vanilla: Enchantment.damageContext
 func (s *Server) bindBlowLoot(w *world.World, ctx *rules.EnchContext, attacker, victim attackBody, mobsHeld bool) {
 	body := func(b attackBody) func() *rules.LootEntity {
 		switch {
 		case b.player != nil:
 			return victimLoot(b.player)
-		case b.mob != nil && victim.mannequin == nil:
+		case b.mannequin != nil:
+			return func() *rules.LootEntity {
+				s.mannequinsMu.Lock()
+				snap := s.mannequinSnapshot(b.mannequin, nil)
+				s.mannequinsMu.Unlock()
+				if snap == nil {
+					return nil
+				}
+				return snapshotLoot(snap)()
+			}
+		case b.mob != nil:
 			return func() *rules.LootEntity {
 				if !mobsHeld {
 					s.mobsMu.Lock()

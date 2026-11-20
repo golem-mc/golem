@@ -1059,12 +1059,13 @@ func (c *client) attackMinecart(target int32) {
 	pos := c.player.Position()
 	c.srv.minecartsMu.Lock()
 	minX, minY, minZ, maxX, maxY, maxZ := it.cart.Box()
+	snap := c.srv.minecartSnapshot(it, nil)
 	c.srv.minecartsMu.Unlock()
 	if !c.withinAttackRange(minX, minY, minZ, maxX, maxY, maxZ) {
 		return
 	}
 	held := c.heldItem(protocol.HandMain)
-	blow, ok := c.prepareAttack(held, it.entityTypeID(), false, nil)
+	blow, ok := c.prepareAttack(held, it.entityTypeID(), false, snapshotLoot(snap))
 	if !ok {
 		return
 	}

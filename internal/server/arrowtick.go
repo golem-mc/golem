@@ -2,6 +2,7 @@ package server
 
 import (
 	"slices"
+	"sync"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
@@ -353,6 +354,11 @@ func (s *Server) stepArrow(fx *arrowEffects, in *arrowTickInputs, hv *arrowHangi
 	if asking {
 		before = *it.arrow
 		rollMark = it.arrow.RandSrc.Mark()
+	}
+	// Only an enchanted weapon asks for loot conditions (hitDamage).
+	it.arrow.BindLoot = nil
+	if len(it.arrow.Weapon.Enchantments) > 0 {
+		it.arrow.BindLoot = s.arrowLootBinder(it, &bodies)
 	}
 	events := it.arrow.Step(it.w, owner, targets)
 	if asking {
@@ -828,6 +834,51 @@ func (s *Server) arrowHitTarget(fx *arrowEffects, in *arrowTickInputs, hv *arrow
 			fx.tridentBounces = append(fx.tridentBounces, it)
 		} else {
 			it.arrow.Bounce(it.w)
+		}
+	}
+}
+
+// arrowLootBinder lets a data-pack effect's loot conditions read a hit's
+// bodies: the victim when it is a mob or player, the shooter as attacker, and
+// the arrow itself as direct attacker. The arrow and mob locks are held.
+// vanilla: Enchantment.damageContext
+func (s *Server) arrowLootBinder(it *arrowEntity, bodies *arrowBodies) func(*rules.EnchContext, *entity.ArrowTarget) {
+	book := s.herdOf(it.w).book
+	mobLoot := func(m *entity.Mob) *rules.LootEntity {
+		if ent := book[m]; ent != nil {
+			return s.mobLootLocked(ent)
+		}
+		e := mobLootEntity(m)
+		return &e
+	}
+	return func(ctx *rules.EnchContext, target *entity.ArrowTarget) {
+		typed := func(t int32) func() *rules.LootEntity {
+			return func() *rules.LootEntity { return &rules.LootEntity{Type: registry.EntityType(t).Name()} }
+		}
+		ctx.BodyOf = typed(ctx.Victim)
+		if m := bodies.mobs[target.EntityID]; m != nil {
+			ctx.BodyOf = func() *rules.LootEntity { return mobLoot(m) }
+		} else if c := bodies.clients[target.EntityID]; c != nil {
+			ctx.BodyOf = victimLoot(c)
+		}
+		if c := bodies.clients[it.arrow.OwnerID]; c != nil {
+			ctx.AttackerOf = victimLoot(c)
+		} else if m := bodies.mobs[it.arrow.OwnerID]; m != nil {
+			ctx.AttackerOf = func() *rules.LootEntity { return mobLoot(m) }
+		}
+		ctx.DirectAttackerOf = func() *rules.LootEntity {
+			snap := s.arrowSnapshot(it, nil)
+			if snap == nil {
+				return typed(ctx.DirectAttacker)()
+			}
+			// The arrow lock is held by this step and the snapshot's saved
+			// compound would take it again. The snapshot is read-only and
+			// local to this call, so a private lock stands in for it.
+			snap.mu = new(sync.Mutex)
+			return snapshotLoot(snap)()
+		}
+		ctx.LootWorld = func(loot *rules.LootContext) {
+			s.fillBlowWorld(it.w, loot, [3]float64{it.arrow.X, it.arrow.Y, it.arrow.Z})
 		}
 	}
 }
