@@ -472,4 +472,36 @@ func (o arrowOps) SetPickup(p plugin.ArrowPickup) {
 		o.e.merge(nbt.Compound{"pickup": nbt.Byte(int8(p))})
 	}
 }
+func (o arrowOps) Potion() (plugin.Key, []plugin.EffectInstance, bool) {
+	item, _ := nbt.Get[nbt.Compound](o.e.saved(), "item")
+	stack, ok := registry.StoredStack(item)
+	if !ok {
+		return plugin.Key{}, nil, false
+	}
+	contents, ok := stack.PotionContentsOf()
+	if !ok || contents.Potion == protocol.NoPotion {
+		return plugin.Key{}, nil, false
+	}
+	name, ok := registry.PotionName(contents.Potion)
+	if !ok {
+		return plugin.Key{}, nil, false
+	}
+	key, _ := plugin.ParseKey(name)
+	// The effects are the shot's own: a tipped arrow's durations are scaled.
+	// vanilla: Arrow.getPotionContents, PotionContents.forEachEffect
+	e := pickupEffect(stack)
+	var out []plugin.EffectInstance
+	add := func(name string, ticks, amp int32) {
+		if id, ok := registry.MobEffectID(name); ok {
+			out = append(out, plugin.EffectInstance{Effect: plugin.Effect(id), Duration: int(ticks), Amplifier: int(amp), Particles: true, Icon: true})
+		}
+	}
+	if e.Name != "" {
+		add(e.Name, e.Ticks, e.Amplifier)
+	}
+	for _, m := range e.More {
+		add(m.Name, m.Ticks, m.Amplifier)
+	}
+	return key, out, true
+}
 func (o arrowOps) InGround() bool { return o.e.flag("inGround") }

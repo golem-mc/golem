@@ -443,6 +443,9 @@ type Arrow interface {
 	Pickup() ArrowPickup
 	SetPickup(ArrowPickup)
 	InGround() bool
+	// Potion is the tipped arrow's potion and the effects it applies on a
+	// hit; ok is false for a plain or spectral arrow.
+	Potion() (Key, []EffectInstance, bool)
 }
 
 // ArrowPickup is who may pick up an arrow.

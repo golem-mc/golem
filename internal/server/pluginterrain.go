@@ -49,6 +49,12 @@ func (w pluginWorld) Light(p plugin.BlockPos) (sky, block int) {
 	}
 	return int(w.dim.w.SkyLightAt(int32(p.X), int32(p.Y), int32(p.Z))), int(w.dim.w.BlockLightAt(int32(p.X), int32(p.Y), int32(p.Z)))
 }
+func (w pluginWorld) Power(p plugin.BlockPos) int {
+	if !pluginPositionFits(p) {
+		return 0
+	}
+	return w.srv.physicsFor(w.dim.w).NeighborSignal(int32(p.X), int32(p.Y), int32(p.Z))
+}
 func (w pluginWorld) Chunk(p plugin.ChunkPos) (plugin.Chunk, bool) {
 	if int(int32(p.X)) != p.X || int(int32(p.Z)) != p.Z {
 		return nil, false
