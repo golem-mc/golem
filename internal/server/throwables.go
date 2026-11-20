@@ -12,6 +12,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
@@ -686,6 +687,17 @@ type potionBreak struct {
 	// cloud reports back.
 	ownerUUID uuid.UUID
 
+	// stack is the thrown potion's item, for the plugin events.
+	stack protocol.ItemStack
+	// splash is an effect splash; while a PotionSplashEvent listener is
+	// registered its bodies wait in pending, the instances unlanded, for
+	// the event to spare or weaken them. brewed and durationScale are what
+	// each one's instances are made from.
+	splash        bool
+	pending       []pendingSplash
+	brewed        []effect.Instance
+	durationScale float32
+
 	// cloudX, cloudY, cloudZ is where a lingering potion's cloud is left: the
 	// struck body's position, or the break point off a block.
 	// vanilla: ThrownLingeringPotion.onHitAsPotion
@@ -820,6 +832,7 @@ func (s *Server) potionBreakOf(it *thrownEntity, dim *dimension, mobsByID map[in
 	clientsByID map[int32]*client, targets []entity.ArrowTarget, mannequinsByID map[int32]*mannequinEntity) *potionBreak {
 	contents, _ := it.stack.PotionContentsOf()
 	shl := &potionBreak{
+		stack:     it.stack,
 		instant:   rules.InstantBrewing(contents),
 		colour:    rules.PotionColour(contents),
 		contents:  contents,
@@ -866,15 +879,10 @@ func (s *Server) potionBreakOf(it *thrownEntity, dim *dimension, mobsByID map[in
 		return shl
 	}
 	durationScale := it.stack.PotionDurationScaleOf()
+	deferred := s.plugins != nil && s.plugins.Has(pluginruntime.PotionSplash)
+	shl.splash, shl.brewed, shl.durationScale = true, brewed, durationScale
 	for _, hit := range it.throwable.SplashHits(it.throwable.X, it.throwable.Y, it.throwable.Z, targets) {
-		var landing []effect.Instance
-		for _, in := range brewed {
-			if registry.MobEffectOf(in.ID).Instant {
-				landing = append(landing, in)
-			} else if scaled, ok := rules.SplashInstance(in, hit.Scale, durationScale); ok {
-				landing = append(landing, effect.Clone(scaled))
-			}
-		}
+		landing := splashLanding(brewed, hit.Scale, durationScale)
 		if len(landing) == 0 {
 			continue
 		}
@@ -888,6 +896,10 @@ func (s *Server) potionBreakOf(it *thrownEntity, dim *dimension, mobsByID map[in
 		}
 		if m := mobsByID[hit.Target.EntityID]; m != nil {
 			shl.splashed = append(shl.splashed, m.ID)
+			if ent := dim.mobs.book[m]; deferred && ent != nil {
+				shl.pending = append(shl.pending, pendingSplash{mob: m.ID, id: ent.uuid, scale: hit.Scale, src: src})
+				continue
+			}
 			hits, changes := landMobEffects(dim, it.w, m, landing, hit.Scale, it.throwable.X, it.throwable.Z, src)
 			shl.instantHurts = append(shl.instantHurts, hits...)
 			if tell, ok := mobEffectTell(dim, m, changes); ok {
@@ -900,10 +912,29 @@ func (s *Server) potionBreakOf(it *thrownEntity, dim *dimension, mobsByID map[in
 		// of the lists already; the player's vitals answer for theirs.
 		// vanilla: isAffectedByPotions, !isDeadOrDying
 		if c := clientsByID[hit.Target.EntityID]; c != nil && !c.player.Vitals().Dead {
+			if deferred {
+				shl.pending = append(shl.pending, pendingSplash{c: c, scale: hit.Scale, src: src})
+				continue
+			}
 			shl.players = append(shl.players, splashPlayerTell{c: c, effects: landing, scale: hit.Scale, src: src})
 		}
 	}
 	return shl
+}
+
+// splashLanding is the potion's instances as a body at the given scale
+// gets them: timed ones scaled and cloned, instant ones as brewed.
+// vanilla: ThrownSplashPotion.onHitAsPotion
+func splashLanding(brewed []effect.Instance, scale float64, durationScale float32) []effect.Instance {
+	var landing []effect.Instance
+	for _, in := range brewed {
+		if registry.MobEffectOf(in.ID).Instant {
+			landing = append(landing, in)
+		} else if scaled, ok := rules.SplashInstance(in, scale, durationScale); ok {
+			landing = append(landing, effect.Clone(scaled))
+		}
+	}
+	return landing
 }
 
 // dowseWaterFire puts out the fire a water splash fell on, walking the

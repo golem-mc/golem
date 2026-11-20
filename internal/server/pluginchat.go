@@ -300,7 +300,7 @@ func bindPluginEvent(event plugin.Event, api plugin.Server) func() {
 		e.Player = bindPluginPlayer(e.Player, host)
 		e.Entity = e.Player
 		bindPluginSource(&e.Source, host)
-	case *plugin.ProjectileLaunchEvent, *plugin.ProjectileHitEvent, *plugin.EntityTargetEvent, *plugin.EntitySpawnEvent, *plugin.EntityInteractEvent, *plugin.EntityPotionEffectEvent, *plugin.PlayerLeashEntityEvent, *plugin.EntityKnockbackEvent, *plugin.EntityToggleGlideEvent, *plugin.EntityMountEvent, *plugin.EntityDismountEvent, *plugin.VehicleEvent, *plugin.VehicleMoveEvent, *plugin.EntityMoveEvent, *plugin.SheepDyeWoolEvent, *plugin.ExpBottleEvent, *plugin.EntityEnterLoveModeEvent, *plugin.EntityAirChangeEvent, *plugin.EntityShootBowEvent, *plugin.EntityTameEvent, *plugin.SlimeSplitEvent, *plugin.CreeperPowerEvent:
+	case *plugin.ProjectileLaunchEvent, *plugin.ProjectileHitEvent, *plugin.EntityTargetEvent, *plugin.EntitySpawnEvent, *plugin.EntityInteractEvent, *plugin.EntityPotionEffectEvent, *plugin.PlayerLeashEntityEvent, *plugin.EntityKnockbackEvent, *plugin.PotionSplashEvent, *plugin.LingeringPotionSplashEvent, *plugin.EntityToggleGlideEvent, *plugin.EntityMountEvent, *plugin.EntityDismountEvent, *plugin.VehicleEvent, *plugin.VehicleMoveEvent, *plugin.EntityMoveEvent, *plugin.SheepDyeWoolEvent, *plugin.ExpBottleEvent, *plugin.EntityEnterLoveModeEvent, *plugin.EntityAirChangeEvent, *plugin.EntityShootBowEvent, *plugin.EntityTameEvent, *plugin.SlimeSplitEvent, *plugin.CreeperPowerEvent:
 		bindPluginVehicleEvents(event, host)
 	case *plugin.PlayerJoinEvent:
 		e.Player = bindPluginPlayer(e.Player, host)
