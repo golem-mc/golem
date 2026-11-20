@@ -41,7 +41,7 @@ func instrumentOf(r Registry, name string) (Instrument, bool) {
 	sound := soundEventName(data["sound_event"])
 	use, uok := nbt.FloatField(data, "use_duration")
 	rng, rok := nbt.FloatField(data, "range")
-	if sound == "" || !uok || !rok || use <= 0 || rng <= 0 || math.IsNaN(float64(use)) || math.IsNaN(float64(rng)) || math.IsInf(float64(use), 0) || math.IsInf(float64(rng), 0) {
+	if sound == "" || !uok || !rok || use < 0 || rng <= 0 || math.IsNaN(float64(use)) || math.IsNaN(float64(rng)) || math.IsInf(float64(use), 0) || math.IsInf(float64(rng), 0) {
 		return Instrument{}, false
 	}
 	return Instrument{Sound: SoundByName(sound), UseSeconds: use, RangeBlocks: rng}, true
