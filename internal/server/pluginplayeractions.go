@@ -254,10 +254,17 @@ func (c *client) pluginGameMode(mode int32) bool {
 // vanilla: PlayerList.respawn
 func (c *client) pluginRespawn(pos player.Position, dest *dimension, point *respawnPos, missing bool) (player.Position, *dimension) {
 	w := pluginWorld{srv: c.srv, dim: dest, host: c.srv.pluginAdapter}
+	var bed, anchor bool
+	if point != nil && !missing {
+		if pointDim := c.srv.findDimension(point.dim); pointDim != nil {
+			anchor = pointDim.w.RespawnAnchorWorks()
+			bed = !anchor
+		}
+	}
 	e := &plugin.PlayerRespawnEvent{Player: c.pluginSelf(),
 		Location: plugin.Location{World: w, Pos: plugin.Vec3{X: pos.X, Y: pos.Y, Z: pos.Z}, Yaw: pos.Yaw, Pitch: pos.Pitch},
-		Bed:      point != nil && !missing && point.dim != world.NetherName,
-		Anchor:   point != nil && !missing && point.dim == world.NetherName}
+		Bed:      bed,
+		Anchor:   anchor}
 	if !c.pluginFire(e, false) {
 		return pos, dest
 	}

@@ -91,20 +91,9 @@ func monsterSpawnLightOf(tag nbt.Tag) (minVal, maxVal int) {
 		v, _ := nbt.IntField(c, "value")
 		return int(v), int(v)
 	case "minecraft:uniform":
-		src := c
-		if inner, ok := nbt.CompoundView(c["value"]); ok {
-			src = inner
-		}
-		lo, _ := nbt.IntField(src, "min_inclusive")
-		hi, _ := nbt.IntField(src, "max_inclusive")
+		lo, _ := nbt.IntField(c, "min_inclusive")
+		hi, _ := nbt.IntField(c, "max_inclusive")
 		if hi < lo {
-			hi = lo
-		}
-		return int(lo), int(hi)
-	}
-	if lo, okLo := nbt.IntField(c, "min_inclusive"); okLo {
-		hi, okHi := nbt.IntField(c, "max_inclusive")
-		if !okHi || hi < lo {
 			hi = lo
 		}
 		return int(lo), int(hi)

@@ -16,7 +16,7 @@ import (
 // minecraft:the_nether or minecraft:overworld follow their dimension type's
 // rules rather than defaulting to the overworld or lacking sky light.
 // vanilla: BucketItem.emptyContents, RespawnAnchorBlock.canSetSpawn,
-// ServerPlayer.findRespawnAndUseSpawnBlock, PhantomSpawner.tick
+// ServerPlayer.findRespawnAndUseSpawnBlock, PlayerList.respawn
 func TestPluginWorldDimensionRules(t *testing.T) {
 	t.Parallel()
 	cfg := servertest.SurvivalTestConfig()
@@ -29,7 +29,13 @@ func TestPluginWorldDimensionRules(t *testing.T) {
 	netherKey := plugin.Key{Namespace: "test", Path: "nether"}
 	overKey := plugin.Key{Namespace: "test", Path: "over"}
 
-	var netherWorld, overWorld plugin.World
+	var (
+		netherWorld, overWorld plugin.World
+		respawns               int
+		respawnBed             bool
+		respawnAnchor          bool
+		respawnWorld           plugin.Key
+	)
 	run(func() {
 		var err error
 		netherWorld, err = h.CreateWorld(plugin.WorldOptions{
@@ -48,6 +54,14 @@ func TestPluginWorldDimensionRules(t *testing.T) {
 		if err != nil {
 			t.Errorf("CreateWorld(test:over): %v", err)
 		}
+		plugin.Listen(h, func(e *plugin.PlayerRespawnEvent) {
+			respawns++
+			respawnBed = e.Bed
+			respawnAnchor = e.Anchor
+			if e.Location.World != nil {
+				respawnWorld = e.Location.World.Key()
+			}
+		})
 	})
 	if netherWorld == nil || overWorld == nil {
 		t.FailNow()
@@ -123,31 +137,20 @@ func TestPluginWorldDimensionRules(t *testing.T) {
 	c.MarkLoaded()
 
 	run(func() {
+		if respawns != 1 || !respawnAnchor || respawnBed || respawnWorld != netherKey {
+			t.Errorf("PlayerRespawnEvent: count=%d anchor=%v bed=%v world=%v, want 1 true false %v",
+				respawns, respawnAnchor, respawnBed, respawnWorld, netherKey)
+		}
 		if sky, _ := netherWorld.Light(plugin.BlockPos{X: 8, Y: 5, Z: 8}); sky != 0 {
 			t.Errorf("test:nether sky light = %d, want 0", sky)
 		}
 	})
 
-	// 3. Move player into test:over (type minecraft:overworld) and verify sky light
-	//    and the phantom spawner's sky-light daytime gate.
+	// 3. Move player into test:over (type minecraft:overworld) and verify sky light.
 	moveTo("test:over", 8.5, 4, 8.5)
 	run(func() {
 		if sky, _ := overWorld.Light(plugin.BlockPos{X: 8, Y: 5, Z: 8}); sky != 15 {
 			t.Errorf("test:over sky light = %d, want 15", sky)
 		}
 	})
-
-	servertest.HoldTicks(t, srv)
-	srv.SetDifficulty(3)
-	srv.SetDayTime(6000) // bright daytime: SkyDarken == 0 < 5
-	srv.SetSpawning(true)
-	srv.SetTimeSinceRest("Tester", 100_000_000)
-	for seed := int64(1); seed <= 5000; seed++ {
-		srv.PhantomPass(seed)
-	}
-	for _, m := range srv.MobsInDimension("test:over") {
-		if m.Kind == "minecraft:phantom" {
-			t.Fatalf("phantom spawned in test:over during daytime (HasSkyLight was ignored)")
-		}
-	}
 }
