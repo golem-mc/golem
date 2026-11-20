@@ -804,8 +804,13 @@ type LootFurnaceSmelt struct {
 }
 
 // LootCopyComponents copies components off the roll's block entity (a
-// chest's name, a shulker box's contents and lock, a pot's decorations).
+// chest's name, a shulker box's contents and lock, a pot's decorations), the
+// tool, or a context entity.
 type LootCopyComponents struct {
+	// Source is the context parameter's name: block_entity (also the empty
+	// default), tool, this, attacker, direct_attacker, attacking_player,
+	// target_entity or interacting_entity.
+	Source     string
 	Include    []string
 	Exclude    []string
 	Conditions []LootCondition

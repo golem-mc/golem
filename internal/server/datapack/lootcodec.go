@@ -1477,10 +1477,16 @@ func (d lootDecoder) function(f obj) registry.LootFunction {
 	case "minecraft:furnace_smelt":
 		return registry.LootFurnaceSmelt{UseInputCount: flag(f, "use_input_count", true), Conditions: conds}
 	case "minecraft:copy_components":
-		if src, _ := f["source"].(string); src != "block_entity" {
-			fail("copy_components from %q is not supported by this server", src)
+		src := requireStr(f, "source")
+		switch src {
+		case "block_entity", "tool", "this", "attacker", "direct_attacker", "attacking_player", "target_entity", "interacting_entity":
+		default:
+			fail("Unknown loot context parameter: %s", src)
 		}
-		return registry.LootCopyComponents{Include: stringList(f["include"]), Exclude: stringList(f["exclude"]), Conditions: conds}
+		if src == "block_entity" {
+			src = "" // the generated tables leave the default source empty
+		}
+		return registry.LootCopyComponents{Source: src, Include: includeList(f), Exclude: stringList(f["exclude"]), Conditions: conds}
 	case "minecraft:set_random_dyes":
 		return registry.LootSetRandomDyes{Count: intAt(f, "number_of_dyes"), Conditions: conds}
 	case "minecraft:set_random_potion":
@@ -1736,6 +1742,15 @@ func attributeModifier(m obj) registry.LootAttributeModifier {
 		out.Slots = append(out.Slots, id)
 	}
 	return out
+}
+
+// includeList reads copy_components' optional include: nil when absent
+// (copy everything), non-nil when present, even if empty.
+func includeList(f obj) []string {
+	if _, ok := f["include"]; !ok {
+		return nil
+	}
+	return append([]string{}, stringList(f["include"])...)
 }
 
 func stringList(v any) []string {
