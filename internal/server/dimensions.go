@@ -13,6 +13,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/raid"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -182,6 +183,11 @@ func (s *Server) makeDimensions(overworldGen world.Generator, shared sharedNethe
 	if !s.Config.GenerateStructures {
 		netherGen.DisableStructures()
 	}
+	if g, ok := vanillaStemGenerator(s.packStems, world.NetherName, func(gen nbt.Compound, shape world.DimensionShape) (world.Generator, error) {
+		return world.StemGenerator(gen, shape, netherSeed, s.Config.GenerateStructures)
+	}).(*world.NetherGenerator); ok {
+		netherGen, fixture = g, nil
+	}
 	netherGen.SetStructureMobFinalizer(s.structureMobFinalizer(world.NetherName))
 	nether := &dimension{
 		name:   world.NetherName,
@@ -194,6 +200,11 @@ func (s *Server) makeDimensions(overworldGen world.Generator, shared sharedNethe
 	}
 
 	endGen := world.NewEndGenerator(seed)
+	if g, ok := vanillaStemGenerator(s.packStems, world.EndName, func(gen nbt.Compound, shape world.DimensionShape) (world.Generator, error) {
+		return world.StemGenerator(gen, shape, seed, s.Config.GenerateStructures)
+	}).(*world.EndGenerator); ok {
+		endGen = g
+	}
 	end := &dimension{
 		name:   world.EndName,
 		typeID: registry.MustID("minecraft:dimension_type", world.EndType),

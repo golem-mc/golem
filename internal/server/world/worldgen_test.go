@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/server/world/terrain"
 	"github.com/golem-mc/golem/nbt"
 )
 
@@ -304,5 +305,19 @@ func TestASingleBiomeWorldReopensAsItsPreset(t *testing.T) {
 	defer w.Close()
 	if got := g.PossibleBiomes(); len(got) != 1 || got[0] != "minecraft:plains" {
 		t.Errorf("PossibleBiomes = %v, want only plains", got)
+	}
+}
+
+// TestWorldGenSettingsKeepAFixedBiomeAndItsTerrain checks that a single-biome
+// generator is saved with its own biome and noise settings.
+func TestWorldGenSettingsKeepAFixedBiomeAndItsTerrain(t *testing.T) {
+	g := &OverworldGenerator{preset: presetSingleBiome, terrain: presetAmplified, single: terrain.OverworldDesert, hasSingle: true}
+	gen := overworldNoiseGenerator(g.preset, g.singleBiome(), g.terrain)
+	src, _ := nbt.Get[nbt.Compound](gen, "biome_source")
+	if biome, _ := nbt.Get[nbt.String](src, "biome"); biome != "minecraft:desert" {
+		t.Errorf("saved biome = %q, want minecraft:desert", biome)
+	}
+	if settings, _ := nbt.Get[nbt.String](gen, "settings"); settings != levelTypeAmplified {
+		t.Errorf("saved settings = %q, want %s", settings, levelTypeAmplified)
 	}
 }

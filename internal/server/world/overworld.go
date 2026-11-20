@@ -69,6 +69,10 @@ type OverworldGenerator struct {
 	// otherwise.
 	single    terrain.OverworldBiome
 	hasSingle bool
+
+	// terrain is the noise settings of a single-biome world built from a data
+	// pack stem; the zero value is the normal ones.
+	terrain overworldPreset
 	// noStructures writes generate_structures=false into a new world's
 	// world_gen_settings.dat.
 	noStructures bool
@@ -232,7 +236,7 @@ func (g *OverworldGenerator) minY() int32 {
 // NewWorld for a deferred seed, always before the first chunk.
 func (g *OverworldGenerator) setSeed(seed int64) {
 	g.seed, g.deferred = seed, false
-	g.state = terrain.NewRandomState(g.preset.dimension(), seed)
+	g.state = terrain.NewRandomState(g.terrainPreset().dimension(), seed)
 	g.heights = map[[2]int32]*columnHeights{}
 	g.rings = g.ringsFor(seed)
 	g.structures = newOverworldStructures()

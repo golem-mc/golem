@@ -1593,6 +1593,11 @@ func (s *Server) BlockInDimension(dimension string, x, y, z int32) uint16 {
 	return s.dimensionByName(dimension).w.BlockAt(x, y, z)
 }
 
+// BiomeInDimension is the biome name at the given block of the named dimension.
+func (s *Server) BiomeInDimension(dimension string, x, y, z int32) string {
+	return s.dimensionByName(dimension).w.BiomeAt(x, y, z)
+}
+
 // RainingAtInDimension is the named dimension's RainingAt.
 func (s *Server) RainingAtInDimension(dimension string, x, y, z int32) bool {
 	return s.dimensionByName(dimension).w.RainingAt(x, y, z)

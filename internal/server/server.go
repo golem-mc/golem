@@ -909,7 +909,9 @@ func newServerWith(cfg *config.Config, seed int64, shared sharedNether, plugins 
 		levelSeed = demoSeed
 	}
 	var gen world.Generator
-	if testNewGenerator != nil && cfg.LevelType == testLevelType {
+	if override := s.earlyOverworldGenerator(levelSeed); override != nil {
+		gen = override
+	} else if testNewGenerator != nil && cfg.LevelType == testLevelType {
 		// The test level-type also overrides the stored one, so a restarted test
 		// world (whose world_gen_settings.dat names the stored type) keeps the test
 		// ground.
