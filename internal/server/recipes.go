@@ -518,16 +518,22 @@ func (c *client) handleRecipeBookChangeSettings(r *protocol.Reader) error {
 // Add for new ones, and returns how many were new.
 // vanilla: ServerPlayer.awardRecipes
 func (c *client) GiveRecipes(names []string) int {
+	return c.giveRecipesAndAnnounce(names, true)
+}
+
+// giveRecipesAndAnnounce unlocks named recipes (showing a toast when notify is
+// set) and drains any advancement rewards triggered by the unlock.
+func (c *client) giveRecipesAndAnnounce(names []string, notify bool) int {
 	// The recipe advancements the grant completes give their rewards once the
 	// book is unlocked, not at the tick's flush: a take before that flush
 	// would get the recipe back. vanilla: PlayerAdvancements.award
 	defer c.AnnounceAdvancements()
-	return c.giveRecipes(names)
+	return c.giveRecipes(names, notify)
 }
 
 // giveRecipes unlocks recipes without dispatching advancement rewards; the
 // caller must drain completions after it returns and releases bookMu.
-func (c *client) giveRecipes(names []string) int {
+func (c *client) giveRecipes(names []string, notify bool) int {
 	c.bookMu.Lock()
 	defer c.bookMu.Unlock()
 	next, added := c.recipeBookState().Award(names)
@@ -539,13 +545,15 @@ func (c *client) giveRecipes(names []string) int {
 	var entries protocol.Buffer
 	count := 0
 	for _, name := range added {
-		count += putNamedRecipeBookEntry(&entries, name, true, true)
+		count += putNamedRecipeBookEntry(&entries, name, notify, true)
 	}
-	var b protocol.Buffer
-	b.PutVarInt(int32(count))
-	b.PutRaw(entries.Bytes())
-	b.PutBool(false)
-	c.send(protocol.IDPlayRecipeBookAdd, b.Bytes())
+	if count > 0 {
+		var b protocol.Buffer
+		b.PutVarInt(int32(count))
+		b.PutRaw(entries.Bytes())
+		b.PutBool(false)
+		c.send(protocol.IDPlayRecipeBookAdd, b.Bytes())
+	}
 	c.refreshLimitedCraftingResult()
 	return count
 }
@@ -567,17 +575,18 @@ func (c *client) TakeRecipes(names []string) int {
 			for _, d := range displays {
 				ids = append(ids, d.ID)
 			}
-		} else {
-			id, _ := registry.RecipeDisplayIDOfName(name)
+		} else if id, ok := registry.RecipeDisplayIDOfName(name); ok {
 			ids = append(ids, id)
 		}
 	}
-	var b protocol.Buffer
-	b.PutVarInt(int32(len(ids)))
-	for _, id := range ids {
-		b.PutVarInt(id)
+	if len(ids) > 0 {
+		var b protocol.Buffer
+		b.PutVarInt(int32(len(ids)))
+		for _, id := range ids {
+			b.PutVarInt(id)
+		}
+		c.send(protocol.IDPlayRecipeBookRemove, b.Bytes())
 	}
-	c.send(protocol.IDPlayRecipeBookRemove, b.Bytes())
 	c.refreshLimitedCraftingResult()
 	return len(ids)
 }

@@ -367,6 +367,57 @@ func (p pluginPlayer) Advancements(a plugin.Advancement) plugin.AdvancementProgr
 	return pluginProgress{c: p.c, node: adv}
 }
 
+// Recipes answers the keys of the recipes the player has unlocked.
+// vanilla: ServerRecipeBook.known
+func (p pluginPlayer) Recipes() []plugin.Key {
+	if !p.IsValid() {
+		return nil
+	}
+	known := p.c.recipeBookState().Known
+	out := make([]plugin.Key, 0, len(known))
+	for _, name := range known {
+		if k, err := plugin.ParseKey(name); err == nil {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// UnlockRecipes adds known server recipes to the player's recipe book,
+// omitting the "new recipe" toast when silent is set, and returns how many
+// changed. Unknown keys are ignored.
+// vanilla: ServerPlayer.awardRecipes
+func (p pluginPlayer) UnlockRecipes(keys []plugin.Key, silent bool) int {
+	if !p.IsValid() || len(keys) == 0 {
+		return 0
+	}
+	names := make([]string, 0, len(keys))
+	for _, k := range keys {
+		name := k.String()
+		if _, ok := registry.RecipeDisplayIDOfName(name); ok {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return 0
+	}
+	return p.c.giveRecipesAndAnnounce(names, !silent)
+}
+
+// LockRecipes removes recipes from the player's recipe book and returns how
+// many changed.
+// vanilla: ServerPlayer.resetRecipes
+func (p pluginPlayer) LockRecipes(keys []plugin.Key) int {
+	if !p.IsValid() || len(keys) == 0 {
+		return 0
+	}
+	names := make([]string, 0, len(keys))
+	for _, k := range keys {
+		names = append(names, k.String())
+	}
+	return p.c.TakeRecipes(names)
+}
+
 func (p pluginPlayer) Statistic(s plugin.Statistic) int {
 	if !p.IsValid() {
 		return 0
