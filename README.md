@@ -81,7 +81,7 @@ Options for the server go after `--`; they are the vanilla server's options:
 Some plugins come with optional modules, each added the same way by its package path:
 
 - essentials: `spawn`, `chat`, `protect`, `antibuild`, e.g. `golem-launcher plugin add github.com/golem-mc/essentials/spawn`
-- multiverse: `portals`, `inventories`, e.g. `golem-launcher plugin add github.com/golem-mc/multiverse/portals`
+- multiverse: `portals`, `netherportals`, `inventories`, e.g. `golem-launcher plugin add github.com/golem-mc/multiverse/portals`
 
 See [Installing plugins](#installing-plugins) for versions and `launcher.json`.
 
