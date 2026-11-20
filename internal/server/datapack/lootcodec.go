@@ -849,30 +849,86 @@ func componentTests(predicates obj) []registry.LootComponentTest {
 	return out
 }
 
-// locationPredicate reads a LocationPredicate's block and biomes.
+// locationPredicate reads a LocationPredicate; an empty one matches every
+// loaded position.
+// vanilla: LocationPredicate.CODEC
 func locationPredicate(predicate obj) registry.LootLocationCheck {
-	unknownKeys(predicate, "location predicate", "block", "biomes", "dimension")
+	unknownKeys(predicate, "location predicate", "position", "biomes", "structures", "dimension", "smokey", "light", "block", "fluid", "can_see_sky")
 	var out registry.LootLocationCheck
-	block := object(valueOr(predicate, "block", obj{}), "block predicate")
-	unknownKeys(block, "block predicate", "blocks", "state")
-	if blocks, ok := block["blocks"].(string); ok {
-		if tag, isTag := strings.CutPrefix(blocks, "#"); isTag {
-			out.Block = "#" + registry.Qualify(tag)
-		} else {
-			out.Block = registry.Qualify(blocks)
+	if v, ok := predicate["position"]; ok {
+		position := object(v, "position")
+		unknownKeys(position, "position predicate", "x", "y", "z")
+		out.Position = &[3]registry.AdvancementRange{doubleRange(position, "x"), doubleRange(position, "y"), doubleRange(position, "z")}
+	}
+	if v, ok := predicate["block"]; ok {
+		block := object(v, "block predicate")
+		unknownKeys(block, "block predicate", "blocks", "state", "nbt")
+		switch blocks := block["blocks"].(type) {
+		case nil:
+		case string:
+			if tag, isTag := strings.CutPrefix(blocks, "#"); isTag {
+				out.Block = "#" + registry.Qualify(tag)
+			} else {
+				out.Block = registry.Qualify(blocks)
+			}
+		default:
+			fail("a block predicate with a list of blocks is not supported by this server")
 		}
-		out.Properties = stateProperties(block["state"])
+		if out.Block != "" {
+			out.Properties = stateProperties(block["state"])
+		} else if _, has := block["state"]; has {
+			fail("a block predicate with a state but no blocks is not supported by this server")
+		}
+		if text, has := block["nbt"]; has {
+			compound, err := nbt.ParseOrderedSNBT(str(text, "block nbt"))
+			if err != nil {
+				fail("Failed to parse block nbt: %v", err)
+			}
+			out.BlockNBT = compound
+		}
 	}
 	if raw := predicate["biomes"]; raw != nil {
 		out.Biomes = holderSet(raw, "worldgen/biome", registry.BiomeTagMembers)
 	}
-	if dim, ok := predicate["dimension"]; ok {
-		out.Dimension = registry.Qualify(str(dim, "dimension"))
+	if raw := predicate["structures"]; raw != nil {
+		out.Structures = holderSet(raw, "worldgen/structure", registry.StructureTagMembers)
 	}
-	if out.Block == "" && len(out.Biomes) == 0 && out.Dimension == "" {
-		fail("a location predicate without a block, biomes or dimension is not supported by this server")
+	if raw, ok := predicate["dimension"]; ok {
+		out.Dimension = registry.Qualify(str(raw, "dimension"))
+	}
+	if _, ok := predicate["smokey"]; ok {
+		out.Smokey = new(requireFlag(predicate, "smokey"))
+	}
+	if _, ok := predicate["can_see_sky"]; ok {
+		out.CanSeeSky = new(requireFlag(predicate, "can_see_sky"))
+	}
+	if v, ok := predicate["light"]; ok {
+		light := object(v, "light predicate")
+		unknownKeys(light, "light predicate", "light")
+		r := doubleRange(light, "light")
+		out.Light = &r
+	}
+	if v, ok := predicate["fluid"]; ok {
+		fluid := object(v, "fluid predicate")
+		unknownKeys(fluid, "fluid predicate", "fluids", "state")
+		out.Fluid = &registry.LootFluidCheck{Properties: stateProperties(fluid["state"])}
+		if raw := fluid["fluids"]; raw != nil {
+			out.Fluid.Fluids = holderSet(raw, "fluid", fluidTagMembers)
+		}
 	}
 	return out
+}
+
+// fluidTagMembers lists the fluids of the two fluid tags.
+// vanilla: FluidTags.WATER, FluidTags.LAVA
+func fluidTagMembers(tag string) ([]string, bool) {
+	switch registry.Qualify(tag) {
+	case "minecraft:water":
+		return []string{"minecraft:water", "minecraft:flowing_water"}, true
+	case "minecraft:lava":
+		return []string{"minecraft:lava", "minecraft:flowing_lava"}, true
+	}
+	return nil, false
 }
 
 // playerPredicate reads PlayerPredicate.

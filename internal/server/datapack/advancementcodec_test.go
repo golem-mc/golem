@@ -140,7 +140,7 @@ func TestStructureLocationPredicatesDecode(t *testing.T) {
 		{"empty", `"structures":[]`, []string{}, false},
 		{"tag", `"structures":"#minecraft:eye_of_ender_located"`, []string{"minecraft:stronghold"}, false},
 		{"combined", `"structures":"fortress","biomes":"plains"`, []string{"minecraft:fortress"}, false},
-		{"unsupported", `"structures":"fortress","light":{"light":7}`, nil, true},
+		{"light is modelled", `"structures":"fortress","light":{"light":7}`, nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := `{"criteria":{"here":{"trigger":"minecraft:location","conditions":{"player":[{
