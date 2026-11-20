@@ -159,6 +159,9 @@ func TestPluginPermissionAttachments(t *testing.T) {
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	var hostA, hostB plugin.Server
 	var ran int
+	var pRejoinedA, pRejoinedB plugin.Player
+	var attDisable plugin.PermissionAttachment
+	var checkedDisable bool
 	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{
 		{Name: "attachA", Plugin: &testPlugin{enable: func(s plugin.Server) error {
 			hostA = s
@@ -181,8 +184,28 @@ func TestPluginPermissionAttachments(t *testing.T) {
 				return err
 			}
 			return nil
+		}, disable: func() {
+			// attachB depends on attachA, so attachB is already disabled and
+			// cleaned up here while Regular is still online.
+			checkedDisable = true
+			if !pRejoinedB.IsValid() {
+				t.Error("player was no longer online when attachA disabled")
+			}
+			if pRejoinedA.HasPermission("parent") || pRejoinedA.PermissionSet("parent") {
+				t.Error("disabled plugin's grant attachment was not released")
+			}
+			if !pRejoinedA.HasPermission("everyone") || pRejoinedA.PermissionSet("everyone") {
+				t.Error("disabled plugin's deny attachment was not released")
+			}
+			if pRejoinedB.AddAttachment() != nil {
+				t.Error("AddAttachment on closed plugin handle returned non-nil")
+			}
+			attDisable.Set("parent", true)
+			if len(attDisable.Permissions()) != 0 || pRejoinedA.HasPermission("parent") {
+				t.Error("released attachment still mutated permissions")
+			}
 		}}},
-		{Name: "attachB", Plugin: &testPlugin{enable: func(s plugin.Server) error {
+		{Name: "attachB", Depends: []string{"attachA"}, Plugin: &testPlugin{enable: func(s plugin.Server) error {
 			hostB = s
 			return nil
 		}}},
@@ -346,14 +369,32 @@ func TestPluginPermissionAttachments(t *testing.T) {
 	cRejoin.ViewAsk = config.MinDistance
 	cRejoin.Join("Regular")
 	run(func() {
-		pRejoined, ok := hostA.PlayerNamed("Regular")
+		var ok bool
+		pRejoinedA, ok = hostA.PlayerNamed("Regular")
 		if !ok {
-			t.Fatal("rejoined player not found")
+			t.Fatal("rejoined player not found on hostA")
 		}
-		if pRejoined.HasPermission("parent") || pRejoined.PermissionSet("parent") || !pRejoined.HasPermission("everyone") || pRejoined.PermissionSet("everyone") {
+		pRejoinedB, ok = hostB.PlayerNamed("Regular")
+		if !ok {
+			t.Fatal("rejoined player not found on hostB")
+		}
+		if pRejoinedA.HasPermission("parent") || pRejoinedA.PermissionSet("parent") || !pRejoinedA.HasPermission("everyone") || pRejoinedA.PermissionSet("everyone") {
 			t.Error("rejoined player inherited stale attachments from previous session")
 		}
+		attDisable = pRejoinedB.AddAttachment()
+		if attDisable == nil {
+			t.Fatal("AddAttachment returned nil for rejoined player")
+		}
+		attDisable.Set("parent", true)
+		attDisable.Set("everyone", false)
+		if !pRejoinedA.HasPermission("parent") || !pRejoinedA.PermissionSet("parent") || pRejoinedA.HasPermission("everyone") || !pRejoinedA.PermissionSet("everyone") {
+			t.Error("attachment before plugin disable did not take effect")
+		}
 	})
+	srv.Shutdown()
+	if !checkedDisable {
+		t.Fatal("plugin disable check did not run")
+	}
 }
 
 func joinCommandTree(t *testing.T, srv *server.Server, name string) []byte {

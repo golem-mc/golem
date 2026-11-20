@@ -194,6 +194,7 @@ func (p pluginPlayer) HasPermission(node string) bool {
 func (p pluginPlayer) PermissionSet(node string) bool {
 	return p.IsValid() && p.c.srv.plugins.PermissionSet(p, node)
 }
+
 func (p pluginPlayer) AttachedPermission(node string) (bool, bool) {
 	if !p.IsValid() {
 		return false, false
@@ -273,14 +274,9 @@ func (a *pluginPermissionAttachment) Unset(node string) {
 	delete(a.values, node)
 }
 
-func (a *pluginPermissionAttachment) Remove() {
-	if a.host != nil && a.host.host != nil {
-		a.host.attachMu.Lock()
-		defer a.host.attachMu.Unlock()
-		delete(a.host.attachments, a)
-	}
-	a.c.pluginMu.Lock()
-	defer a.c.pluginMu.Unlock()
+// detachLocked marks the attachment removed, clears its values, and drops it
+// from c.pluginAttachments. Caller holds a.c.pluginMu.
+func (a *pluginPermissionAttachment) detachLocked() {
 	if a.removed {
 		return
 	}
@@ -291,6 +287,22 @@ func (a *pluginPermissionAttachment) Remove() {
 	})
 }
 
+func (a *pluginPermissionAttachment) untrackHost() {
+	if a.host == nil || a.host.host == nil {
+		return
+	}
+	a.host.attachMu.Lock()
+	delete(a.host.attachments, a)
+	a.host.attachMu.Unlock()
+}
+
+func (a *pluginPermissionAttachment) Remove() {
+	a.untrackHost()
+	a.c.pluginMu.Lock()
+	defer a.c.pluginMu.Unlock()
+	a.detachLocked()
+}
+
 func (h *pluginHost) releaseAttachments() {
 	h.attachMu.Lock()
 	defer h.attachMu.Unlock()
@@ -299,13 +311,7 @@ func (h *pluginHost) releaseAttachments() {
 	h.attachments = nil
 	for att := range all {
 		att.c.pluginMu.Lock()
-		if !att.removed {
-			att.removed = true
-			clear(att.values)
-			att.c.pluginAttachments = slices.DeleteFunc(att.c.pluginAttachments, func(other *pluginPermissionAttachment) bool {
-				return other == att
-			})
-		}
+		att.detachLocked()
 		att.c.pluginMu.Unlock()
 	}
 }
@@ -315,16 +321,11 @@ func (c *client) clearPluginAttachments() {
 	atts := c.pluginAttachments
 	c.pluginAttachments = nil
 	for _, att := range atts {
-		att.removed = true
-		clear(att.values)
+		att.detachLocked()
 	}
 	c.pluginMu.Unlock()
 	for _, att := range atts {
-		if att.host != nil && att.host.host != nil {
-			att.host.attachMu.Lock()
-			delete(att.host.attachments, att)
-			att.host.attachMu.Unlock()
-		}
+		att.untrackHost()
 	}
 }
 func (p pluginPlayer) SendMessage(msg plugin.Text) {
