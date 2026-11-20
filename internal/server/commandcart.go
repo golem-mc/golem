@@ -12,7 +12,7 @@ import (
 // vanilla: BaseCommandBlock.performCommand
 func (s *Server) runCommandCart(it *minecartEntity) {
 	gameTime, _ := s.world.Time()
-	enabled := s.world.BoolRule(world.RuleCommandBlocksWork)
+	enabled := it.w.BoolRule(world.RuleCommandBlocksWork)
 	s.minecartsMu.Lock()
 	cc := it.command
 	if cc == nil || it.cart.Dead {
@@ -93,7 +93,7 @@ func (c *client) handleSetCommandMinecart(r *protocol.Reader) error {
 	if it == nil {
 		return nil
 	}
-	enabled := c.srv.world.BoolRule(world.RuleCommandBlocksWork)
+	enabled := c.theWorld().BoolRule(world.RuleCommandBlocksWork)
 	c.srv.minecartsMu.Lock()
 	cc := it.command
 	if cc != nil {

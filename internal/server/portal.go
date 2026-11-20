@@ -236,7 +236,7 @@ func (c *client) useEnderEye(hand, x, y, z int32) (bool, error) {
 // plain event within 64 blocks.
 // vanilla: ServerLevel.globalLevelEvent
 func (s *Server) tellGlobalLevelEvent(w *world.World, event, x, y, z, data int32) {
-	if !s.world.BoolRule(world.RuleGlobalSoundEvents) {
+	if !w.BoolRule(world.RuleGlobalSoundEvents) {
 		s.broadcastNear(w, float64(x), float64(y), float64(z), 64,
 			protocol.IDPlayWorldEvent,
 			worldEvent(event, x, y, z, data))
@@ -416,7 +416,7 @@ func (c *client) tickPortal() {
 		// The count is compared before this tick's add, so survival crosses on the
 		// 81st tick inside and creative on the first (vanilla:
 		// PortalProcessor.processPortalTeleportation, portalTime++ >= 80).
-		needed := rules.PlayerPortalWait(c.player.GameMode(), c.ridingMinecart() || c.ridingBoat(), c.srv.world.IntRule)
+		needed := rules.PlayerPortalWait(c.player.GameMode(), c.ridingMinecart() || c.ridingBoat(), c.theWorld().IntRule)
 		if c.portalIn.Add(1) <= needed {
 			return
 		}
@@ -841,7 +841,7 @@ func (s *Server) findPortalNear(dim *dimension, at world.SpawnPos, radius int32)
 // built when asked.
 // vanilla: ServerLevel.isAllowedToEnterPortal
 func (s *Server) portalEntryAllowed(to *dimension) bool {
-	return to.name != world.NetherName || s.world.BoolRule(world.RuleAllowEnteringNether)
+	return to.name != world.NetherName || to.w.BoolRule(world.RuleAllowEnteringNether)
 }
 
 // endPortalDestination is the world spawn column, in its dimension, at its
@@ -1063,7 +1063,7 @@ const portalPiglinDie = 2000
 func (s *Server) portalSpawnsPiglin(dim *dimension, t world.PortalTick) {
 	w := dim.w
 	difficulty := w.Difficulty()
-	if !s.spawningMonsters() || difficulty == 0 || w.DimensionName() != world.DimensionName {
+	if !spawningMonsters(w) || difficulty == 0 || w.DimensionName() != world.DimensionName {
 		return
 	}
 	if s.levelRng.Intn(portalPiglinDie) >= int(difficulty) {

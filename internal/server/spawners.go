@@ -46,7 +46,7 @@ func (h *spawnerHost) World() entity.SpawnWorld { return h.dim.w }
 
 func (h *spawnerHost) Rand() *rand.Rand { return h.s.levelRng }
 
-func (h *spawnerHost) SpawnersWork() bool { return h.s.world.BoolRule(world.RuleSpawnerBlocks) }
+func (h *spawnerHost) SpawnersWork() bool { return h.dim.w.BoolRule(world.RuleSpawnerBlocks) }
 
 func (h *spawnerHost) Players() []entity.SpawnPlayer {
 	if !h.read {

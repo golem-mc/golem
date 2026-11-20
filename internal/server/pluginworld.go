@@ -162,9 +162,9 @@ func (w pluginWorld) GameRule(id plugin.GameRule) int {
 		return 0
 	}
 	if world.GameRuleTable[id].Kind == world.RuleInt {
-		return int(w.srv.world.IntRule(world.GameRuleIndex(id)))
+		return int(w.dim.w.IntRule(world.GameRuleIndex(id)))
 	}
-	if w.srv.world.BoolRule(world.GameRuleIndex(id)) {
+	if w.dim.w.BoolRule(world.GameRuleIndex(id)) {
 		return 1
 	}
 	return 0
@@ -187,11 +187,11 @@ func (w pluginWorld) SetGameRule(id plugin.GameRule, v int) {
 	}
 	r := world.GameRuleTable[id]
 	if r.Kind == world.RuleInt {
-		w.srv.world.SetIntRule(world.GameRuleIndex(id), int32(min(max(int64(v), int64(r.Min)), int64(r.Max))))
+		w.dim.w.SetIntRule(world.GameRuleIndex(id), int32(min(max(int64(v), int64(r.Min)), int64(r.Max))))
 	} else {
-		w.srv.world.SetBoolRule(world.GameRuleIndex(id), v != 0)
+		w.dim.w.SetBoolRule(world.GameRuleIndex(id), v != 0)
 	}
-	(worldScope{srv: w.srv}).RuleChanged(r.ID)
+	(worldScope{srv: w.srv, in: w.dim.here}).RuleChanged(r.ID)
 }
 func (w pluginWorld) SpawnPoint() plugin.Location {
 	// Return the stored spawn; the client receives the border-adjusted one.

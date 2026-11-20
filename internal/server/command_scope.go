@@ -297,16 +297,52 @@ func (s *Server) broadcastTimeOf(w *world.World, clocks ...string) {
 }
 
 // /gamerule's rules, on the overworld, whose level.dat holds the table.
-func (ws worldScope) BoolRule(id world.GameRuleIndex) bool { return ws.srv.world.BoolRule(id) }
+// A plugin world's own rules answer for a scope in it.
+func (ws worldScope) rules() *world.World {
+	if ws.in != nil {
+		if d := ws.in(); d != nil && d.plugin {
+			return d.w
+		}
+	}
+	return ws.srv.world
+}
 
-func (ws worldScope) IntRule(id world.GameRuleIndex) int32 { return ws.srv.world.IntRule(id) }
+// ownsRules reports whether the scope runs in a plugin world with its own rules.
+func (ws worldScope) ownsRules() bool { return ws.rules() != ws.srv.world }
+
+// ruleAudience is the players a rule change reaches: those in the plugin world
+// owning the rule, else everyone outside plugin worlds.
+func (ws worldScope) ruleAudience() ruleAudience {
+	if ws.ownsRules() {
+		return ruleAudience(ws.srv.playerClientsIn(ws.in().name))
+	}
+	var out ruleAudience
+	for _, c := range ws.srv.playerClients() {
+		if !c.dimension().plugin {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+type ruleAudience []*client
+
+func (a ruleAudience) send(packetID int32, data []byte) {
+	for _, c := range a {
+		c.send(packetID, data)
+	}
+}
+
+func (ws worldScope) BoolRule(id world.GameRuleIndex) bool { return ws.rules().BoolRule(id) }
+
+func (ws worldScope) IntRule(id world.GameRuleIndex) int32 { return ws.rules().IntRule(id) }
 
 func (ws worldScope) SetBoolRule(id world.GameRuleIndex, value bool) {
-	ws.srv.world.SetBoolRule(id, value)
+	ws.rules().SetBoolRule(id, value)
 }
 
 func (ws worldScope) SetIntRule(id world.GameRuleIndex, value int32) {
-	ws.srv.world.SetIntRule(id, value)
+	ws.rules().SetIntRule(id, value)
 }
 
 // RuleChanged sends the packets a /gamerule change owes players, like
@@ -315,38 +351,37 @@ func (ws worldScope) RuleChanged(id string) {
 	s := ws.srv
 	// vanilla: MinecraftServer.onGameRuleChanged, for /gamerule, the Set Game
 	// Rule packet and the management API alike
-	if r, ok := world.RuleByID(id); ok && !r.FeatureGated {
-		s.mgmt.GameRuleChanged(s.managementRule(r))
+	if !ws.ownsRules() {
+		if r, ok := world.RuleByID(id); ok && !r.FeatureGated {
+			s.mgmt.GameRuleChanged(s.managementRule(r))
+		}
 	}
+	rules := ws.rules()
+	audience := ws.ruleAudience()
 	switch world.RuleIndex(id) {
 	case world.RuleAdvanceTime:
-		s.broadcastTime()
-		for _, d := range s.allDims() {
-			if d.plugin {
-				s.broadcastTimeOf(d.w)
-			}
-		}
+		s.broadcastTimeOf(rules)
 	case world.RuleImmediateRespawn:
 		value := float32(0)
-		if s.world.BoolRule(world.RuleImmediateRespawn) {
+		if rules.BoolRule(world.RuleImmediateRespawn) {
 			value = 1
 		}
-		s.broadcast(protocol.IDPlayGameEvent, gameEventPayload(protocol.GameEventImmediateRespawn, value))
+		audience.send(protocol.IDPlayGameEvent, gameEventPayload(protocol.GameEventImmediateRespawn, value))
 	case world.RuleLimitedCrafting:
 		value := float32(0)
-		if s.world.BoolRule(world.RuleLimitedCrafting) {
+		if rules.BoolRule(world.RuleLimitedCrafting) {
 			value = 1
 		}
-		s.broadcast(protocol.IDPlayGameEvent, gameEventPayload(protocol.GameEventLimitedCrafting, value))
-		for _, c := range s.playerClients() {
+		audience.send(protocol.IDPlayGameEvent, gameEventPayload(protocol.GameEventLimitedCrafting, value))
+		for _, c := range audience {
 			c.refreshCraftingResult()
 		}
 	case world.RuleReducedDebug:
 		status := protocol.EntityStatusReducedDebugOff
-		if s.world.BoolRule(world.RuleReducedDebug) {
+		if rules.BoolRule(world.RuleReducedDebug) {
 			status = protocol.EntityStatusReducedDebugOn
 		}
-		for _, other := range s.playerClients() {
+		for _, other := range audience {
 			other.send(protocol.IDPlayEntityEvent,
 				entityEventPayload(other.player.EntityID, uint8(status)))
 		}

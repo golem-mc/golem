@@ -175,7 +175,7 @@ func (s *Server) tickCreakingHeart(w *world.World, be *world.BlockEntity) {
 		return
 	}
 	awake := registry.StateValue(state, registry.PropCreakingHeartState) == "awake"
-	if rules.CreakingMaySpawn(awake, s.spawningMonsters(), w.Difficulty() == rules.DifficultyPeaceful) &&
+	if rules.CreakingMaySpawn(awake, spawningMonsters(w), w.Difficulty() == rules.DifficultyPeaceful) &&
 		s.creakingPlayerNear(w, be) {
 		s.creakingSpawnProtector(w, be)
 	}

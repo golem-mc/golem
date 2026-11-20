@@ -97,7 +97,7 @@ func inPiercingRange(r entity.PiercingRay, b entity.AABB) bool {
 func (c *client) piercingTargets(w *world.World, ray entity.PiercingRay) (players []*client, mobs []*mobEntity, hits []int) {
 	// Candidate boxes are read under their locks and the ray walked after, so
 	// no world read happens under the mob lock.
-	pvp := c.srv.world.BoolRule(world.RulePvp)
+	pvp := c.theWorld().BoolRule(world.RulePvp)
 	mount, boat, cart := c.mount.Load(), c.vehicle.Load(), c.minecart.Load()
 	var boxes []entity.AABB
 	c.srv.mu.RLock()

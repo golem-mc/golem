@@ -593,13 +593,13 @@ func (c *client) TakeRecipes(names []string) int {
 
 // canCraftRecipe reads the live rule and immutable recipe book snapshot.
 func (c *client) canCraftRecipe(id string) bool {
-	return !c.srv.world.BoolRule(world.RuleLimitedCrafting) || c.recipeBookState().Knows(id)
+	return !c.theWorld().BoolRule(world.RuleLimitedCrafting) || c.recipeBookState().Knows(id)
 }
 
 // refreshLimitedCraftingResult is refreshCraftingResult after the book
 // changed, which gates crafting only under limitedCrafting.
 func (c *client) refreshLimitedCraftingResult() {
-	if c.srv.world.BoolRule(world.RuleLimitedCrafting) {
+	if c.theWorld().BoolRule(world.RuleLimitedCrafting) {
 		c.refreshCraftingResult()
 	}
 }

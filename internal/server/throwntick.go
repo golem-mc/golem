@@ -231,7 +231,7 @@ func (s *Server) stepThrown(fx *thrownEffects, in *thrownTickInputs, it *thrownE
 	// flies on. vanilla: ThrownEnderpearl.tick
 	if t.Kind == entity.ThrownEnderPearl {
 		if owner := in.clientByUUID(it.ownerUUID); owner != nil && owner.player.Vitals().Dead &&
-			s.world.BoolRule(world.RuleEnderPearlsVanishOnDeath) {
+			it.w.BoolRule(world.RuleEnderPearlsVanishOnDeath) {
 			return fx.vanish(it)
 		}
 	}

@@ -949,7 +949,7 @@ func (c *client) restore() {
 		// health stays empty and effects are not restored; the respawn replaces
 		// both. vanilla: LivingEntity.readAdditionalSaveData
 		hurtTime, frozen := v.HurtTime, v.TicksFrozen
-		keepInv := c.srv.world.BoolRule(world.RuleKeepInventory)
+		keepInv := c.theWorld().BoolRule(world.RuleKeepInventory)
 		v, _ = rules.RespawnVitalsKeeping(v, keepInv, keepInv)
 		v.HurtTime, v.TicksFrozen = hurtTime, frozen
 		v.Health = 0

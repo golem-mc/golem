@@ -361,7 +361,43 @@ func (w *World) saveGameRules() error {
 	}
 	data := rulesToCompound(w.rules)
 	w.timeMu.Unlock()
+	if w.ownRules {
+		return writeSavedData(w.storage, gameRulesFile, data)
+	}
 	return writeSavedData(w.dir, gameRulesFile, data)
+}
+
+// rulesWorld is the world holding w's rules: itself for a plugin world with its
+// own table, else the overworld every other dimension shares.
+func (w *World) rulesWorld() *World {
+	if w.ownRules {
+		return w
+	}
+	return w.timeWorld()
+}
+
+// UseOwnRules gives a world without a level.dat its own rule table, read from
+// its data/ folder or else copied from base on first creation, and saved there
+// by Save. A vanilla dimension keeps sharing the overworld's table.
+func (w *World) UseOwnRules(base *World) {
+	var values *ruleValues
+	if stored, err := readSavedData(w.storage, gameRulesFile); err == nil {
+		values = ruleTable()
+		rulesFromCompound(values, stored)
+	} else {
+		if !errors.Is(err, errNoSavedData) {
+			slog.Warn("could not read game_rules.dat, copying the overworld's", "error", err)
+		}
+		base.timeMu.Lock()
+		copied := *base.rules
+		base.timeMu.Unlock()
+		values = &copied
+	}
+	w.timeMu.Lock()
+	w.rules, w.ownRules = values, true
+	w.refreshFeedbackRules()
+	w.refreshSpawnEnemies()
+	w.timeMu.Unlock()
 }
 
 // writeGameRules writes dir's rule file as vanilla reads it: a gzipped unnamed
@@ -394,6 +430,7 @@ func rulesToCompound(values *ruleValues) nbt.Compound {
 // holds a table (the server has one set), so other worlds read defaults; every
 // reader asks the overworld.
 func (w *World) BoolRule(id GameRuleIndex) bool {
+	w = w.rulesWorld()
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
 	return w.ruleBool(id)
@@ -449,7 +486,9 @@ func (w *World) refreshSpawnEnemies() {
 	enemies := w.ruleOf(RuleSpawnMobs) && w.ruleOf(RuleSpawnMonsters)
 	w.spawnEnemies.Store(enemies)
 	for _, dim := range w.spawnWorlds {
-		dim.spawnEnemies.Store(enemies)
+		if !dim.ownRules {
+			dim.spawnEnemies.Store(enemies)
+		}
 	}
 }
 
@@ -458,6 +497,7 @@ func (w *World) IntRule(id GameRuleIndex) int32 {
 	if id >= ruleCount {
 		return 0
 	}
+	w = w.rulesWorld()
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
 	if w.rules == nil {
@@ -469,6 +509,7 @@ func (w *World) IntRule(id GameRuleIndex) int32 {
 // SetBoolRule sets a boolean rule for /gamerule without clamping (the parser
 // already refused bad values); saved by the next save.
 func (w *World) SetBoolRule(id GameRuleIndex, value bool) {
+	w = w.rulesWorld()
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
 	if w.rules == nil || id >= ruleCount {
@@ -484,6 +525,7 @@ func (w *World) SetBoolRule(id GameRuleIndex, value bool) {
 // SetIntRule sets an integer rule for /gamerule, clamped to its row's range as
 // the parser clamps.
 func (w *World) SetIntRule(id GameRuleIndex, value int32) {
+	w = w.rulesWorld()
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
 	if w.rules == nil || id >= ruleCount {

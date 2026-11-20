@@ -13,7 +13,7 @@ func (s *execSource) WantsFeedback() bool {
 	if w, ok := s.Source.(command.FeedbackWanter); !ok || w.WantsFeedback() {
 		return true
 	}
-	send, _, logAdmin := s.srv.world.FeedbackRules()
+	send, _, logAdmin := s.rules().FeedbackRules()
 	return send || logAdmin
 }
 
@@ -23,6 +23,6 @@ func (src *commandBlockSource) WantsFeedback() bool {
 	if !src.trackOutput {
 		return false
 	}
-	send, output, _ := src.srv.world.FeedbackRules()
+	send, output, _ := src.rules().FeedbackRules()
 	return send || output
 }

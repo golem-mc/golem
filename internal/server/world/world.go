@@ -247,6 +247,8 @@ type World struct {
 	// reader asks the overworld, whose accessors fall back to defaults. Guarded
 	// by timeMu with the clock and weather the rules gate.
 	rules *ruleValues
+	// ownRules marks a plugin world whose rules live in its own data/ folder.
+	ownRules bool
 	// feedbackOff has a bit set per feedback rule that is false, so the zero
 	// value is the all-true defaults of a world without a table; see
 	// FeedbackRules.
@@ -578,27 +580,32 @@ func (w *World) SetTimeSource(overworld *World) {
 	w.timeSource = overworld
 	overworld.timeMu.Lock()
 	overworld.spawnWorlds = append(overworld.spawnWorlds, w)
-	w.spawnEnemies.Store(overworld.spawnEnemies.Load())
+	if !w.ownRules {
+		w.spawnEnemies.Store(overworld.spawnEnemies.Load())
+	}
 	overworld.timeMu.Unlock()
 	w.prepareWeather()
 }
 
 // SetOwnLevel gives a plugin dimension its own age, clocks, weather and
-// difficulty, which timeWorld then answers with the dimension itself; the game
-// rules stay the overworld's. Lock order: a plugin world's timeMu before the
+// difficulty, which timeWorld then answers with the dimension itself. A world
+// without UseOwnRules still reads game rules from overworld and mirrors its
+// latched spawn-enemies gate. Lock order: a plugin world's timeMu before the
 // overworld's.
 func (w *World) SetOwnLevel(overworld *World) {
 	w.ruleSource = overworld
-	overworld.timeMu.Lock()
-	overworld.spawnWorlds = append(overworld.spawnWorlds, w)
-	w.spawnEnemies.Store(overworld.spawnEnemies.Load())
-	overworld.timeMu.Unlock()
+	if !w.ownRules {
+		overworld.timeMu.Lock()
+		overworld.spawnWorlds = append(overworld.spawnWorlds, w)
+		w.spawnEnemies.Store(overworld.spawnEnemies.Load())
+		overworld.timeMu.Unlock()
+	}
 }
 
 // ruleOf is ruleBool for a world that may take its rules from ruleSource, with
 // w.timeMu held.
 func (w *World) ruleOf(id GameRuleIndex) bool {
-	if w.ruleSource != nil {
+	if w.ruleSource != nil && !w.ownRules {
 		return w.ruleSource.BoolRule(id)
 	}
 	return w.ruleBool(id)
@@ -1816,6 +1823,12 @@ func (w *World) Save() {
 		}
 		if err := w.ensureWorldGen(); err != nil {
 			slog.Error("could not save world_gen_settings.dat", "error", err)
+		}
+	}
+
+	if w.ownRules {
+		if err := w.saveGameRules(); err != nil {
+			slog.Error("could not save game_rules.dat", "dimension", w.dimName, "error", err)
 		}
 	}
 

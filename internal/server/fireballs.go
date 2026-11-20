@@ -202,7 +202,7 @@ func (s *Server) finishFireballs(pass *fireballPass) {
 // struck; a mob's fireball does so only while mob_griefing allows it.
 // vanilla: SmallFireball.onHitBlock
 func (s *Server) fireballLight(land fireballLanding) {
-	if !land.onBlock || (land.ownerMob && !s.world.BoolRule(world.RuleMobGriefing)) {
+	if !land.onBlock || (land.ownerMob && !land.w.BoolRule(world.RuleMobGriefing)) {
 		return
 	}
 	dx, dy, dz := faceStep(land.block.Face)
@@ -220,7 +220,7 @@ func (s *Server) fireballLight(land fireballLanding) {
 func (s *Server) fireballExplode(land fireballLanding) {
 	radius, fire := 1.0, false
 	if land.kind == entity.ThrownLargeFireball {
-		radius, fire = float64(land.power), s.world.BoolRule(world.RuleMobGriefing)
+		radius, fire = float64(land.power), land.w.BoolRule(world.RuleMobGriefing)
 	}
 	directType, directTypeID := "minecraft:fireball", int32(protocol.EntityTypeFireball)
 	if land.kind == entity.ThrownWitherSkull {

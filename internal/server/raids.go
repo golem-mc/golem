@@ -371,10 +371,9 @@ func (s *Server) tickRaidsLocked() {
 	for _, c := range clients {
 		s.tickOmens(c)
 	}
-	enabled := s.world.BoolRule(world.RuleRaids)
 	for _, dim := range s.allDims() {
 		if dim.raids != nil {
-			dim.raids.Tick(enabled)
+			dim.raids.Tick(dim.w.BoolRule(world.RuleRaids))
 		}
 	}
 	s.tickRaiderViews(tick)
@@ -432,7 +431,7 @@ func (s *Server) tickOmens(c *client) {
 		return
 	}
 	// vanilla: Raids.createOrExtendRaid (CAN_START_RAID is false in the nether)
-	if s.world.BoolRule(world.RuleRaids) && dim.name != world.NetherName {
+	if dim.w.BoolRule(world.RuleRaids) && dim.name != world.NetherName {
 		p := raid.Player{UUID: c.player.UUID, Alive: c.Alive(), X: pos.X, Y: pos.Y, Z: pos.Z}
 		dim.raids.CreateOrExtend(p, int(in.Amplifier), at, s.villagePOIsAround(dim, at, 64))
 	}

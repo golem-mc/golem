@@ -121,6 +121,7 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 		}
 	}
 	d := &dimension{name: name, typeID: typeID, gen: gen, plugin: true, genSpec: spec, w: world.NewCustomDimensionWorld(s.levelDir, name, shape, gen)}
+	d.w.UseOwnRules(s.world)
 	d.w.SetPluginGen(spec)
 	if err := s.initDimension(d, false); err != nil {
 		return nil, err

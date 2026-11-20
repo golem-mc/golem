@@ -53,7 +53,7 @@ func (c *client) useSpawnEgg(hand, x, y, z, face int32) bool {
 	if block == registry.BlockSpawner || block == registry.BlockTrialSpawner {
 		// A Spawner block entity: with the game rule off, vanilla's refusal
 		// message.
-		if !c.srv.world.BoolRule(world.RuleSpawnerBlocks) {
+		if !c.theWorld().BoolRule(world.RuleSpawnerBlocks) {
 			c.useSwing = swingNone
 			c.send(protocol.IDPlaySystemChat,
 				systemChatPayload(protocol.Text{Translate: "advMode.notEnabled.spawner"}, false))

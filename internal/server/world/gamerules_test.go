@@ -262,3 +262,41 @@ func TestRuleBounds(t *testing.T) {
 		t.Error("RuleBounds(nonsense) = ok, want false")
 	}
 }
+
+// TestUseOwnRulesKeepsSpawnEnemiesAcrossSetOwnLevel checks that a plugin world
+// loaded with its own game_rules.dat keeps its latched spawn-enemies gate after
+// SetOwnLevel and does not register in the overworld's spawnWorlds slice.
+func TestUseOwnRulesKeepsSpawnEnemiesAcrossSetOwnLevel(t *testing.T) {
+	t.Parallel()
+	over := newTestWorld(t, NewFlatGenerator())
+	dir := t.TempDir()
+
+	pw, err := NewWorld(dir, NewFlatGenerator())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pw.UseOwnRules(over)
+	pw.SetBoolRule(RuleSpawnMonsters, false)
+	pw.Save()
+	pw.Close()
+
+	pw2, err := NewWorld(dir, NewFlatGenerator())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pw2.Close()
+	pw2.UseOwnRules(over)
+	pw2.SetOwnLevel(over)
+
+	if pw2.SpawnEnemies() {
+		t.Error("SpawnEnemies after reload + SetOwnLevel = true, want false")
+	}
+	if len(over.spawnWorlds) != 0 {
+		t.Errorf("overworld.spawnWorlds = %d entries, want 0", len(over.spawnWorlds))
+	}
+	over.SetBoolRule(RuleSpawnMonsters, false)
+	over.SetBoolRule(RuleSpawnMonsters, true)
+	if pw2.SpawnEnemies() {
+		t.Error("overworld spawn_monsters change clobbered plugin world's SpawnEnemies")
+	}
+}

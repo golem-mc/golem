@@ -26,7 +26,7 @@ func (s *Server) rollTrapHorse(dim *dimension, x, y, z int32) bool {
 	if s.trapOdds > 0 {
 		odds = s.trapOdds
 	}
-	trap := s.world.BoolRule(world.RuleSpawnMobs) && s.levelRng.Float64() < odds && !w.LightningRodAt(x, y-1, z)
+	trap := w.BoolRule(world.RuleSpawnMobs) && s.levelRng.Float64() < odds && !w.LightningRodAt(x, y-1, z)
 	if trap {
 		s.spawnMobArriving(dim, entity.TypeSkeletonHorse, float64(x), float64(y), float64(z), 0, nil, false, "", false,
 			func(ent *mobEntity) { ent.mob.Horse.Trap = true })

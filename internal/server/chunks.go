@@ -36,7 +36,7 @@ func (c *client) chunkLoadRadius() int32 {
 // vanilla: ChunkMap.skipPlayer
 func (c *client) skipsGeneration() bool {
 	return c.player.GameMode() == protocol.GameModeSpectator &&
-		!c.srv.world.BoolRule(world.RuleSpectatorsGenerateChunks)
+		!c.theWorld().BoolRule(world.RuleSpectatorsGenerateChunks)
 }
 
 // holdsChunks is false once a dead player has lain corpseTicks, which drops

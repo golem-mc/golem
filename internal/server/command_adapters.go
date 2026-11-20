@@ -34,7 +34,7 @@ func (c *client) Feedback(key string, with ...protocol.Text) error {
 }
 
 func (c *client) FeedbackText(text protocol.Text) error {
-	if !c.srv.world.BoolRule(world.RuleSendFeedback) {
+	if !c.theWorld().BoolRule(world.RuleSendFeedback) {
 		return nil
 	}
 	var b protocol.Buffer
