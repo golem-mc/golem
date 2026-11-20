@@ -490,11 +490,6 @@ func (s *Server) tick() {
 	// Stationary effects still track command moves while their lifetimes are frozen.
 	s.tickEffectTracking()
 	s.tickFixtureTracking()
-	// After the world's passes and timed when it runs, so a ping's round
-	// trip leaves out the tick it was sent in.
-	// vanilla: MinecraftServer.tickChildren (tickConnection after the levels),
-	// ServerCommonPacketListenerImpl.keepConnectionAlive (Util.getMillis)
-	s.tickKeepAlives(s.keepAliveClock())
 	s.flushDestroyed()
 	// After the entity passes and timed when it runs, so a ping is
 	// stamped just before the flush that sends it: one stamped at the
