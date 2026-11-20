@@ -251,13 +251,17 @@ func (s *Server) tickBoats() {
 		if !c.clientLoaded() {
 			continue // still behind the loading screen; a later tick takes it
 		}
-		saved := c.vehicleOnJoin.Load()
-		if saved == nil || !c.savedVehicleChunkSent(*saved) {
+		if saved := c.vehicleOnJoin.Load(); saved == nil || !c.savedVehicleChunkSent(*saved) {
 			continue
 		}
-		if c.vehicleOnJoin.CompareAndSwap(saved, nil) {
+		// Under saveMu, so a save sees the file's copy or the seat, never
+		// the gap between; a departure's save that took the copy leaves
+		// nothing to raise.
+		c.saveMu.Lock()
+		if saved := c.vehicleOnJoin.Swap(nil); saved != nil {
 			s.remountSavedVehicle(c, c.dimension(), *saved)
 		}
+		c.saveMu.Unlock()
 	}
 
 	gate := s.newEntityGate()
@@ -2451,6 +2455,15 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 	boat := c.vehicle.Load()
 	var root *mobEntity
 	var attach uuid.UUID
+	// A file's vehicle not yet raised is saved as the file had it, the seat
+	// still empty; a departure takes it so the tick raises nothing.
+	// vanilla: PlayerList.placeNewPlayer seats the rider before any save
+	if pending := c.vehicleOnJoin.Load(); pending != nil {
+		if take {
+			c.vehicleOnJoin.Store(nil)
+		}
+		return *pending
+	}
 	if seat := c.cushion.Load(); seat != nil {
 		return c.savedCushion(seat, take)
 	}
