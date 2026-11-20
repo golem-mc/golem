@@ -22,6 +22,7 @@ const (
 	HookCauldron
 	HookFertilize
 	HookStructure
+	HookMoisture
 )
 
 // Causes of HookIgnite.

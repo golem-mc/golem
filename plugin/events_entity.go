@@ -555,3 +555,58 @@ const (
 	RaidLoss
 	RaidStopped
 )
+
+// PotionSplashEvent fires when a splash potion breaks, with the mobs and
+// players it reaches and how strongly (0 to 1; 0 spares one). A cancel spares
+// all. Bukkit: PotionSplashEvent
+type PotionSplashEvent struct {
+	Cancellable
+	// Potion is the thrown potion; its Shooter is the thrower.
+	Potion   Projectile
+	Item     ItemStack
+	Affected map[LivingEntity]float64
+}
+
+// LingeringPotionSplashEvent fires when a lingering potion breaks into its
+// cloud; a cancel leaves no cloud. Bukkit: LingeringPotionSplashEvent
+type LingeringPotionSplashEvent struct {
+	Cancellable
+	Potion Projectile
+	Item   ItemStack
+	// Cloud is nil: the cloud does not exist until the event is done.
+	Cloud Entity
+}
+
+// AreaEffectCloudApplyEvent fires, with no lock held, when a cloud applies
+// its effects; a listener may trim Affected, and a cancel spares all.
+// Bukkit: AreaEffectCloudApplyEvent
+type AreaEffectCloudApplyEvent struct {
+	Cancellable
+	Cloud Entity
+	// Source is who made the cloud, nil when unknown.
+	Source   Entity
+	Effects  []EffectInstance
+	Affected []LivingEntity
+}
+
+// PlayerLeashEntityEvent fires when a player leashes a mob or ties it to a
+// fence, and with Unleash set when a player takes one off. Bukkit:
+// PlayerLeashEntityEvent, PlayerUnleashEntityEvent
+type PlayerLeashEntityEvent struct {
+	Cancellable
+	Player Player
+	Entity Entity
+	// Holder is the player or the knot the mob is tied to.
+	Holder  Entity
+	Unleash bool
+}
+
+// EntityKnockbackEvent fires when an entity is pushed by another's blow or a
+// wind charge, before the push lands; Knockback may be changed, and a cancel
+// leaves the entity unmoved. Paper: EntityPushedByEntityAttackEvent
+type EntityKnockbackEvent struct {
+	Cancellable
+	Entity, Pusher Entity
+	// Knockback is the velocity added to the entity.
+	Knockback Vec3
+}

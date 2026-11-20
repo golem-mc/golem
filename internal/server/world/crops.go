@@ -306,7 +306,9 @@ func farmlandMoistureOf(state uint16) (int, bool) {
 // woken, the shape pass still telling an observer.
 func (p *Physics) setFarmlandMoisture(x, y, z int32, moisture int, changes *[]BlockChange) {
 	if next, ok := registry.WithInt(p.w.BlockAt(x, y, z), registry.PropMoisture, moisture); ok {
-		p.setClientShaped(x, y, z, next, changes)
+		if next, ok = p.veto(HookMoisture, x, y, z, next, [3]int32{}); ok {
+			p.setClientShaped(x, y, z, next, changes)
+		}
 	}
 }
 

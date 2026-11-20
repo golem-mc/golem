@@ -321,3 +321,38 @@ func TestPluginFireBurnIgniteSpread(t *testing.T) {
 		})
 	}
 }
+
+// vanilla: FarmlandBlock.randomTick
+func TestPluginMoistureChangeCancel(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"dry", "wet"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			var asked int
+			srv, _ := physicsScene(t, func(s plugin.Server) {
+				plugin.Listen(s, func(e *plugin.MoistureChangeEvent) {
+					asked++
+					if e.Block.Pos != pos(6, 63, 0) {
+						t.Errorf("moisture at %v", e.Block.Pos)
+					}
+					e.SetCancelled(true)
+				})
+			})
+			srv.SetGameRuleValue(world.RuleRandomTickSpeed.String(), servertest.CropsTickSpeed)
+			start := "3"
+			if mode == "wet" {
+				start = "0"
+				srv.SetBlockAndTell(6, 63, 2, stateOf(t, "minecraft:water", map[string]string{"level": "0"}))
+			}
+			farmland := stateOf(t, "minecraft:farmland", map[string]string{"moisture": start})
+			srv.SetBlockAndTell(6, 63, 0, farmland)
+			srv.TickRandomTicks(3000, world.ChunkPos{})
+			if asked == 0 {
+				t.Fatal("no MoistureChangeEvent")
+			}
+			if got := srv.BlockAt(6, 63, 0); got != farmland {
+				t.Errorf("a cancelled change left state %d, want %d", got, farmland)
+			}
+		})
+	}
+}

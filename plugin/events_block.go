@@ -300,3 +300,12 @@ type GenericGameEvent struct {
 	Entity Entity
 	Radius int
 }
+
+// MoistureChangeEvent fires when farmland's moisture changes in a random
+// tick; NewState may be edited and a cancel keeps the moisture. Bukkit:
+// MoistureChangeEvent
+type MoistureChangeEvent struct {
+	Cancellable
+	Block    Block
+	NewState BlockState
+}
