@@ -562,6 +562,9 @@ func bindPluginVehicleEvents(event plugin.Event, host *pluginHost) {
 		}
 	case *plugin.EntityPotionEffectEvent:
 		e.Entity = bindPluginLiving(e.Entity, host)
+	case *plugin.EntityKnockbackEvent:
+		e.Entity = bindPluginEntity(e.Entity, host)
+		e.Pusher = bindPluginEntity(e.Pusher, host)
 	case *plugin.PlayerLeashEntityEvent:
 		e.Player = bindPluginPlayer(e.Player, host)
 		e.Entity = bindPluginEntity(e.Entity, host)

@@ -313,6 +313,13 @@ func (s *Server) blastPlayers(b blast, in *blastInputs, fx *blastEffects) {
 		hit := in.at.Hit(in.blocks, dist, c.Box, func() (x, y, z float64) { return pos.X, eyeY, pos.Z }).Resisted(resist)
 		fx.players[i] = playerBlast{c: c, kx: hit.KX, ky: hit.KY, kz: hit.KZ,
 			pushable: rules.ExplosionPushesPlayer(c.player.GameMode(), c.flying.Load()), reached: true}
+		if p := &fx.players[i]; p.pushable {
+			pusher := b.directUUID
+			if pusher == uuid.Nil {
+				pusher = b.causeUUID
+			}
+			p.kx, p.ky, p.kz, p.pushable = s.knockbackEvent(c.pluginSelf(), pusher, p.kx, p.ky, p.kz)
+		}
 		if in.sparedTeam != "" && in.teams[c.player.Name] == in.sparedTeam {
 			continue
 		}
