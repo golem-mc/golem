@@ -730,6 +730,8 @@ type Server struct {
 	// portalHoldsMu guards it, since a crossing holds its arrival chunk on the
 	// carrying goroutine, not the tick loop.
 	portalHoldsMu sync.Mutex
+	// portalNotes are the portal events the tick's passes queued for the plugins.
+	portalNotes portalNotes
 	// portalTripsDecided counts player nether trips that finished, crossed or
 	// refused; tests wait on it.
 	portalTripsDecided atomic.Int64
