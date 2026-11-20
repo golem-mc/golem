@@ -352,3 +352,32 @@ func TestDecodePredicateLevelAndValueChecks(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeLootTableInlineNestedAndEnchantedLookup(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile("testdata/loot/inline_nested.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err := DecodeLootTable(data)
+	if err != nil {
+		t.Fatalf("inline: %v", err)
+	}
+	ref, ok := table.Pools[0].Entries[0].(registry.LootReference)
+	if !ok || ref.Inline == nil || len(ref.Inline.Pools) != 1 {
+		t.Fatalf("entry = %+v", table.Pools[0].Entries[0])
+	}
+	data, err = os.ReadFile("testdata/loot/enchanted_lookup.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err = DecodeLootTable(data)
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	item := table.Pools[0].Entries[0].(registry.LootItemEntry)
+	c, ok := item.Conditions[0].(registry.LootEnchantedChance)
+	if !ok || c.Chance == nil || c.Chance.Kind != registry.EnchValueLookup {
+		t.Errorf("condition = %+v", item.Conditions[0])
+	}
+}

@@ -143,3 +143,41 @@ func TestDecodeEnchantmentDamageHolderSets(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeEnchantmentExponentialAndPredicateReference(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile("testdata/enchantment/exponential.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, dropped, err := DecodeEnchantment("pk:exp", data)
+	if err != nil || len(dropped) != 0 {
+		t.Fatalf("exponential: %v, dropped %v", err, dropped)
+	}
+	all := def.Effects.FishingLuckBonus[0].Effect
+	if len(all.Effects) != 2 || all.Effects[1].Kind != registry.EnchExponential || all.Effects[1].Exponent == nil {
+		t.Errorf("exponential effect = %+v", all)
+	}
+
+	data, err = os.ReadFile("testdata/enchantment/predicate_ref.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, dropped, err = DecodeEnchantment("pk:ref", data); err != nil || len(dropped) == 0 {
+		t.Errorf("without the pack's predicates the reference is dropped: %v, %v", err, dropped)
+	}
+	pred, err := os.ReadFile("testdata/enchantment/arrow_ammo_predicate.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, dropped, err = DecodeEnchantmentWith("pk:ref", data, func(name string) ([]byte, bool) {
+		return pred, name == "pack:arrow_ammo"
+	})
+	if err != nil || len(dropped) != 0 {
+		t.Fatalf("reference: %v, dropped %v", err, dropped)
+	}
+	req := def.Effects.ProjectilePiercing[0].Requires
+	if req == nil || req.Kind != registry.EnchCondAllOf || len(req.Terms) != 1 || req.Terms[0].Kind != registry.EnchCondMatchTool {
+		t.Errorf("resolved requirement = %+v", req)
+	}
+}

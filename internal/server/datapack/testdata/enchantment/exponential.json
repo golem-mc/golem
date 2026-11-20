@@ -1,0 +1,21 @@
+{
+  "description": {"text": "Exponential"},
+  "supported_items": "#minecraft:enchantable/fishing",
+  "max_level": 3,
+  "weight": 1,
+  "anvil_cost": 1,
+  "min_cost": {"base": 1, "per_level_above_first": 0},
+  "max_cost": {"base": 50, "per_level_above_first": 0},
+  "slots": ["mainhand"],
+  "effects": {
+    "minecraft:fishing_luck_bonus": [{
+      "effect": {
+        "type": "minecraft:all_of",
+        "effects": [
+          {"type": "minecraft:set", "value": 3},
+          {"type": "minecraft:exponential", "base": 2, "exponent": {"type": "minecraft:linear", "base": 1, "per_level_above_first": 1}}
+        ]
+      }
+    }]
+  }
+}

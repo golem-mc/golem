@@ -64,9 +64,17 @@ func loadPackEnchantments(dirs []string, skip func(file string, err error)) erro
 	if err != nil {
 		return err
 	}
+	predicates, err := datapack.LoadResources(dirs, "predicate", skip)
+	if err != nil {
+		return err
+	}
+	predicate := func(name string) ([]byte, bool) {
+		data, ok := predicates[name]
+		return data, ok
+	}
 	defs := make(map[string]registry.EnchantmentDef, len(files))
 	for name, data := range files {
-		def, dropped, err := datapack.DecodeEnchantment(name, data)
+		def, dropped, err := datapack.DecodeEnchantmentWith(name, data, predicate)
 		if err != nil {
 			skip(name, err)
 			continue

@@ -158,6 +158,9 @@ func enchProcessValue(e registry.EnchEffect, level int32, rng *rand.Rand, value 
 		return value + enchLevelValue(e.Value, level)
 	case registry.EnchMultiply:
 		return value * enchLevelValue(e.Value, level)
+	case registry.EnchExponential:
+		// vanilla: ScaleExponentially.process computes in double, returns float
+		return float64(float32(value * math.Pow(enchLevelValue(e.Value, level), enchLevelValue(e.Exponent, level))))
 	case registry.EnchSet:
 		return enchLevelValue(e.Value, level)
 	case registry.EnchAllOf:

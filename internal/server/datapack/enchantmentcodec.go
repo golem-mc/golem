@@ -9,7 +9,13 @@ import (
 )
 
 // enchantmentDecoder collects what DecodeEnchantment leaves out.
-type enchantmentDecoder struct{ dropped []string }
+type enchantmentDecoder struct {
+	dropped []string
+	// predicates answers a reference to a predicate file with its JSON; nil
+	// leaves every reference unresolved.
+	predicates func(name string) ([]byte, bool)
+	refDepth   int
+}
 
 // DecodeEnchantment reads one data/<ns>/enchantment file into the tree the
 // server evaluates, the runtime twin of tools/gen's enchantments generator.
@@ -18,9 +24,16 @@ type enchantmentDecoder struct{ dropped []string }
 // malformed required field, is an error. An omitted weight, cost or
 // anvil_cost reads as 1, 0 and 1: vanilla refuses such a file.
 // vanilla: Enchantment.DIRECT_CODEC
-func DecodeEnchantment(id string, data []byte) (def registry.EnchantmentDef, dropped []string, err error) {
+func DecodeEnchantment(id string, data []byte) (registry.EnchantmentDef, []string, error) {
+	return DecodeEnchantmentWith(id, data, nil)
+}
+
+// DecodeEnchantmentWith is DecodeEnchantment with the data pack's predicate
+// files, which a "minecraft:reference" requirement names: predicates returns
+// a predicate's JSON by qualified name.
+func DecodeEnchantmentWith(id string, data []byte, predicates func(name string) ([]byte, bool)) (def registry.EnchantmentDef, dropped []string, err error) {
 	defer recoverLoot(&err)
-	d := &enchantmentDecoder{}
+	d := &enchantmentDecoder{predicates: predicates}
 	o := object(parseJSON(data), "enchantment")
 	def = registry.EnchantmentDef{
 		Name:      id,
@@ -139,7 +152,7 @@ func (d *enchantmentDecoder) effects(e *registry.EnchantmentEffects, o obj) {
 		*into = entries(d, name, o[name], func(entry obj) registry.EnchConditional {
 			return registry.EnchConditional{
 				Effect:   valueEffect(object(required(entry, "effect"), "an effect")),
-				Requires: requirements(entry),
+				Requires: d.requirements(entry),
 			}
 		})
 	}
@@ -147,7 +160,7 @@ func (d *enchantmentDecoder) effects(e *registry.EnchantmentEffects, o obj) {
 		*into = entries(d, name, o[name], func(entry obj) registry.EnchSpawned {
 			return registry.EnchSpawned{
 				Effect:   nonEmpty(d.entityEffect(object(required(entry, "effect"), "an effect"), name)),
-				Requires: requirements(entry),
+				Requires: d.requirements(entry),
 			}
 		})
 	}
@@ -197,7 +210,7 @@ func (d *enchantmentDecoder) effects(e *registry.EnchantmentEffects, o obj) {
 					Enchanted: requireStr(entry, "enchanted"),
 					Affected:  "victim",
 					Effect:    valueEffect(object(required(entry, "effect"), "an effect")),
-					Requires:  requirements(entry),
+					Requires:  d.requirements(entry),
 				}
 			})
 		case "minecraft:prevent_equipment_drop":
@@ -206,7 +219,7 @@ func (d *enchantmentDecoder) effects(e *registry.EnchantmentEffects, o obj) {
 			e.PreventArmorChange = true
 		case "minecraft:damage_immunity":
 			e.DamageImmunity = entries(d, name, o[name], func(entry obj) registry.EnchImmunity {
-				return registry.EnchImmunity{Requires: requirements(entry)}
+				return registry.EnchImmunity{Requires: d.requirements(entry)}
 			})
 		case "minecraft:crossbow_charging_sounds":
 			e.CrossbowChargingSounds = entries(d, name, o[name], func(entry obj) registry.EnchChargingSounds {
@@ -235,7 +248,7 @@ func (d *enchantmentDecoder) effects(e *registry.EnchantmentEffects, o obj) {
 					Enchanted: requireStr(entry, "enchanted"),
 					Affected:  requireStr(entry, "affected"),
 					Effect:    nonEmpty(d.entityEffect(object(required(entry, "effect"), "an effect"), name)),
-					Requires:  requirements(entry),
+					Requires:  d.requirements(entry),
 				}
 			})
 		case "minecraft:location_changed", "minecraft:tick":
@@ -247,7 +260,7 @@ func (d *enchantmentDecoder) effects(e *registry.EnchantmentEffects, o obj) {
 				d.keep(name, func() {
 					entry := object(x, name)
 					eff := object(required(entry, "effect"), "an effect")
-					requires := requirements(entry)
+					requires := d.requirements(entry)
 					if name == "minecraft:location_changed" {
 						if attrs, ok := attributeEffects(eff); ok {
 							for _, a := range attrs {
@@ -327,12 +340,12 @@ func levelValueOf(v any) *registry.EnchLevelValue {
 	return value
 }
 
-func requirements(entry obj) *registry.EnchCondition {
+func (d *enchantmentDecoder) requirements(entry obj) *registry.EnchCondition {
 	v, ok := entry["requirements"]
 	if !ok {
 		return nil
 	}
-	return enchCondition(v)
+	return d.enchCondition(v)
 }
 
 func valueEffect(e obj) registry.EnchEffect {
@@ -342,6 +355,8 @@ func valueEffect(e obj) registry.EnchEffect {
 		return registry.EnchEffect{Kind: registry.EnchAdd, Value: levelValueOf(required(e, "value"))}
 	case "minecraft:multiply":
 		return registry.EnchEffect{Kind: registry.EnchMultiply, Value: levelValueOf(required(e, "factor"))}
+	case "minecraft:exponential":
+		return registry.EnchEffect{Kind: registry.EnchExponential, Value: levelValueOf(required(e, "base")), Exponent: levelValueOf(required(e, "exponent"))}
 	case "minecraft:set":
 		return registry.EnchEffect{Kind: registry.EnchSet, Value: levelValueOf(required(e, "value"))}
 	case "minecraft:remove_binomial":
@@ -508,12 +523,40 @@ func optStr(o obj, key string) string {
 	return str(v, key)
 }
 
+// predicateRef reads the pack predicate a requirement names; a list file is
+// the conjunction of its conditions.
+// vanilla: LootItemConditions.reference (ConditionReference)
+func (d *enchantmentDecoder) predicateRef(name string) *registry.EnchCondition {
+	name = registry.Qualify(name)
+	if d.predicates == nil {
+		fail("a predicate reference %s is not supported by this server", name)
+	}
+	data, ok := d.predicates(name)
+	if !ok {
+		fail("unknown predicate %s", name)
+	}
+	if d.refDepth >= 16 {
+		fail("a predicate reference loop at %s", name)
+	}
+	d.refDepth++
+	defer func() { d.refDepth-- }()
+	v := parseJSON(data)
+	if terms, ok := v.([]any); ok {
+		out := &registry.EnchCondition{Kind: registry.EnchCondAllOf}
+		for _, t := range terms {
+			out.Terms = append(out.Terms, d.enchCondition(t))
+		}
+		return out
+	}
+	return d.enchCondition(v)
+}
+
 // enchCondition reads an "requirements" condition: the variants the tree
-// carries, inline only (a reference to a predicate file is not followed).
+// carries, with a predicate reference resolved through d.predicates.
 // vanilla: LootItemCondition
-func enchCondition(v any) *registry.EnchCondition {
-	if _, isRef := v.(string); isRef {
-		fail("a predicate reference %s is not supported by this server", v)
+func (d *enchantmentDecoder) enchCondition(v any) *registry.EnchCondition {
+	if name, isRef := v.(string); isRef {
+		return d.predicateRef(name)
 	}
 	c := object(v, "a loot condition")
 	kind := optStr(c, "condition")
@@ -523,6 +566,8 @@ func enchCondition(v any) *registry.EnchCondition {
 	kind = registry.Qualify(kind)
 	predicate, _ := optObject(c, "predicate")
 	switch kind {
+	case "minecraft:reference":
+		return d.predicateRef(requireStr(c, "name"))
 	case "minecraft:match_tool":
 		unknownKeys(predicate, "a match_tool predicate", "items")
 		out := &registry.EnchCondition{Kind: registry.EnchCondMatchTool}
@@ -582,14 +627,14 @@ func enchCondition(v any) *registry.EnchCondition {
 		unknownKeys(c, "an enchantment active check", "condition", "type", "active")
 		return &registry.EnchCondition{Kind: registry.EnchCondActive, Active: requireFlag(c, "active")}
 	case "minecraft:inverted":
-		return &registry.EnchCondition{Kind: registry.EnchCondInverted, Term: enchCondition(required(c, "term"))}
+		return &registry.EnchCondition{Kind: registry.EnchCondInverted, Term: d.enchCondition(required(c, "term"))}
 	case "minecraft:all_of", "minecraft:any_of":
 		out := &registry.EnchCondition{Kind: registry.EnchCondAnyOf}
 		if kind == "minecraft:all_of" {
 			out.Kind = registry.EnchCondAllOf
 		}
 		for _, x := range list(required(c, "terms"), "terms") {
-			out.Terms = append(out.Terms, enchCondition(x))
+			out.Terms = append(out.Terms, d.enchCondition(x))
 		}
 		return out
 	}
