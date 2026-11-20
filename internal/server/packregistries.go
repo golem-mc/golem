@@ -68,7 +68,7 @@ func loadPackBiomes(dirs []string, skip func(file string, err error)) error {
 		return err
 	}
 	climates := make(map[registry.Biome]registry.BiomeClimate, len(files))
-	spawns := make(map[registry.Biome]entity.BiomeSpawnOverride, len(files))
+	spawns := make(map[registry.Biome]datapack.BiomeOverride, len(files))
 	for name, data := range files {
 		biome, ok := registry.BiomeByName(name)
 		if !ok {
@@ -80,28 +80,7 @@ func loadPackBiomes(dirs []string, skip func(file string, err error)) error {
 			continue
 		}
 		climates[biome] = ov.Climate
-		var s entity.BiomeSpawnOverride
-		s.CreatureProbability = ov.CreatureProbability
-		for cat := range entity.SpawnCategoryCount {
-			if src := ov.Spawners[cat]; len(src) > 0 {
-				dst := make([]entity.BiomeSpawnEntry, len(src))
-				for i, e := range src {
-					dst[i] = entity.BiomeSpawnEntry{
-						Mob: e.Type, Weight: e.Weight, MinCount: e.MinCount, MaxCount: e.MaxCount,
-					}
-				}
-				s.Spawners[cat] = dst
-			}
-		}
-		if len(ov.SpawnCosts) > 0 {
-			s.SpawnCosts = make([]entity.BiomeSpawnCostEntry, len(ov.SpawnCosts))
-			for i, c := range ov.SpawnCosts {
-				s.SpawnCosts[i] = entity.BiomeSpawnCostEntry{
-					Mob: c.Type, Charge: c.Charge, Budget: c.Budget,
-				}
-			}
-		}
-		spawns[biome] = s
+		spawns[biome] = ov
 	}
 	registry.ApplyPackBiomeClimates(climates)
 	entity.ApplyPackBiomeSpawns(spawns)

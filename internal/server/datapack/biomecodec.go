@@ -115,8 +115,8 @@ func DecodeBiome(data []byte) (BiomeOverride, error) {
 }
 
 // decodeBiomeMobSpawns reads the natural_mob_spawns attribute entry, either a
-// direct MobSpawnSettings object or a modifier wrapper (override or overlay).
-// vanilla: EnvironmentAttributeMap.Entry.createCodec, MobSpawnSettingsModifier
+// direct MobSpawnSettings object or an overlay modifier wrapper.
+// vanilla: EnvironmentAttributeMap.Entry.createCodec, AttributeModifier.MOB_SPAWN_SETTINGS_LIBRARY
 func decodeBiomeMobSpawns(raw json.RawMessage) ([registry.MobCategoryCount][]BiomeSpawner, []BiomeSpawnCost, error) {
 	var wrap struct {
 		Modifier *string         `json:"modifier"`
@@ -127,9 +127,7 @@ func decodeBiomeMobSpawns(raw json.RawMessage) ([registry.MobCategoryCount][]Bio
 	}
 	body := raw
 	if wrap.Modifier != nil {
-		switch *wrap.Modifier {
-		case "override", "overlay":
-		default:
+		if *wrap.Modifier != "overlay" {
 			return [registry.MobCategoryCount][]BiomeSpawner{}, nil, fmt.Errorf("unknown modifier %q", *wrap.Modifier)
 		}
 		if len(wrap.Argument) == 0 || bytes.Equal(bytes.TrimSpace(wrap.Argument), []byte("null")) {

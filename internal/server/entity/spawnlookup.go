@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sync/atomic"
 
+	"github.com/golem-mc/golem/internal/server/datapack"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
@@ -37,26 +38,6 @@ func (l *spawnList) pick(rng *rand.Rand) *spawnData {
 		}
 	}
 	return nil
-}
-
-// BiomeSpawnEntry is one entry of a biome's natural spawn list override.
-type BiomeSpawnEntry struct {
-	Mob                MobType
-	Weight             int
-	MinCount, MaxCount int
-}
-
-// BiomeSpawnCostEntry is one entry of a biome's spawn_costs override.
-type BiomeSpawnCostEntry struct {
-	Mob            MobType
-	Charge, Budget float64
-}
-
-// BiomeSpawnOverride is a data pack's spawn settings for one built-in biome.
-type BiomeSpawnOverride struct {
-	Spawners            [SpawnCategoryCount][]BiomeSpawnEntry
-	SpawnCosts          []BiomeSpawnCostEntry
-	CreatureProbability float32
 }
 
 // biomeSpawnTable holds the active per-biome spawn lists, representatives,
@@ -94,7 +75,7 @@ func currentBiomeSpawns() *biomeSpawnTable {
 
 // ApplyPackBiomeSpawns layers the data packs' biome spawn overrides over the
 // built-in generated tables; nil or empty restores the built-in tables.
-func ApplyPackBiomeSpawns(overrides map[registry.Biome]BiomeSpawnOverride) {
+func ApplyPackBiomeSpawns(overrides map[registry.Biome]datapack.BiomeOverride) {
 	if len(overrides) == 0 {
 		activeBiomeSpawns.Store(nil)
 		return
@@ -102,7 +83,7 @@ func ApplyPackBiomeSpawns(overrides map[registry.Biome]BiomeSpawnOverride) {
 	activeBiomeSpawns.Store(buildBiomeSpawnTable(overrides))
 }
 
-func buildBiomeSpawnTable(overrides map[registry.Biome]BiomeSpawnOverride) *biomeSpawnTable {
+func buildBiomeSpawnTable(overrides map[registry.Biome]datapack.BiomeOverride) *biomeSpawnTable {
 	t := &biomeSpawnTable{
 		spawnCosts: biomeSpawnCosts,
 	}
@@ -135,7 +116,7 @@ func buildBiomeSpawnTable(overrides map[registry.Biome]BiomeSpawnOverride) *biom
 				if len(src) > 0 {
 					dst = make([]spawnData, len(src))
 					for i, e := range src {
-						dst[i] = spawnData{e.Mob, e.Weight, e.MinCount, e.MaxCount}
+						dst[i] = spawnData{e.Type, e.Weight, e.MinCount, e.MaxCount}
 					}
 				}
 				t.lists[c][b] = describeSpawnList(dst)
@@ -143,7 +124,7 @@ func buildBiomeSpawnTable(overrides map[registry.Biome]BiomeSpawnOverride) *biom
 			if len(ov.SpawnCosts) > 0 {
 				costs := make([]spawnCost, len(ov.SpawnCosts))
 				for i, c := range ov.SpawnCosts {
-					costs[i] = spawnCost{c.Mob, c.Charge, c.Budget}
+					costs[i] = spawnCost{c.Type, c.Charge, c.Budget}
 				}
 				t.spawnCosts[b] = costs
 			} else {

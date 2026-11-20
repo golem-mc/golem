@@ -137,6 +137,7 @@ func TestDecodeBiomeRejectsInvalid(t *testing.T) {
 		{"inverted uniform count", `{` + base + `,"attributes":{"minecraft:gameplay/natural_mob_spawns":{"spawns_by_category":{"monster":[{"type":"minecraft:zombie","weight":10,"count":{"type":"minecraft:uniform","min_inclusive":5,"max_inclusive":2}}]},"spawn_costs":{}}}}`, "count"},
 		{"missing spawns_by_category", `{` + base + `,"attributes":{"minecraft:gameplay/natural_mob_spawns":{"spawn_costs":{}}}}`, "spawns_by_category"},
 		{"missing spawn_costs", `{` + base + `,"attributes":{"minecraft:gameplay/natural_mob_spawns":{"spawns_by_category":{}}}}`, "spawn_costs"},
+		{"override modifier", `{` + base + `,"attributes":{"minecraft:gameplay/natural_mob_spawns":{"modifier":"override","argument":{"spawns_by_category":{},"spawn_costs":{}}}}}`, "unknown modifier"},
 		{"unknown modifier", `{` + base + `,"attributes":{"minecraft:gameplay/natural_mob_spawns":{"modifier":"append","argument":{"spawns_by_category":{},"spawn_costs":{}}}}}`, "unknown modifier"},
 		{"unknown category", `{` + base + `,"attributes":{"minecraft:gameplay/natural_mob_spawns":{"spawns_by_category":{"bogus":[]},"spawn_costs":{}}}}`, "unknown mob category"},
 	} {

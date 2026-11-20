@@ -53,16 +53,16 @@ func TestDecodeVanillaPlainsMatchesGeneratedTables(t *testing.T) {
 func TestApplyPackBiomeSpawnsOverridesListsCostsAndProbability(t *testing.T) {
 	t.Cleanup(func() { ApplyPackBiomeSpawns(nil) })
 
-	ov := BiomeSpawnOverride{
-		SpawnCosts: []BiomeSpawnCostEntry{
-			{Mob: registry.EntityTypeCow, Charge: 0.8, Budget: 0.2},
+	ov := datapack.BiomeOverride{
+		SpawnCosts: []datapack.BiomeSpawnCost{
+			{Type: registry.EntityTypeCow, Charge: 0.8, Budget: 0.2},
 		},
 		CreatureProbability: 0,
 	}
-	ov.Spawners[CategoryCreature] = []BiomeSpawnEntry{
-		{Mob: registry.EntityTypeCow, Weight: 10, MinCount: 2, MaxCount: 2},
+	ov.Spawners[CategoryCreature] = []datapack.BiomeSpawner{
+		{Type: registry.EntityTypeCow, Weight: 10, MinCount: 2, MaxCount: 2},
 	}
-	ApplyPackBiomeSpawns(map[registry.Biome]BiomeSpawnOverride{
+	ApplyPackBiomeSpawns(map[registry.Biome]datapack.BiomeOverride{
 		registry.BiomePlains: ov,
 	})
 
