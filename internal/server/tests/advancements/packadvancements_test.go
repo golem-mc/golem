@@ -10,6 +10,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/registry"
 )
 
 // The pack layer is process-wide, so these tests are not parallel with each
@@ -133,5 +134,44 @@ func TestReloadKeepsProgressAndDropsRemovedAdvancements(t *testing.T) {
 	awaitUpdate(t, srv, c)
 	if !srv.AdvancementObtained("Packer", "pk:new", "got") {
 		t.Error("the advancement added by the reload is not awarded")
+	}
+}
+
+// TestPackRecipeAdvancementUnlocksItsRecipe: a pack's recipes/ advancement is
+// loaded and fired like vanilla's, so holding its ingredient adds the pack
+// recipe to the recipe book, and a pack overriding a vanilla recipe
+// advancement with an impossible criterion stops it unlocking.
+// vanilla: ServerAdvancementManager.apply, AdvancementRewards.grant
+func TestPackRecipeAdvancementUnlocksItsRecipe(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackRecipes(registry.PackRecipes{}) })
+	cfg, data := packConfig(t)
+	writePackFile(t, filepath.Join(data, "t", "recipe", "wand.json"),
+		`{"type":"minecraft:crafting_shaped","pattern":["a","b"],"key":{"a":"minecraft:stick","b":"minecraft:diamond"},`+
+			`"result":{"id":"minecraft:diamond","count":1}}`)
+	writePackFile(t, filepath.Join(data, "t", "advancement", "recipes", "misc", "wand.json"),
+		`{"criteria":{"x":{"trigger":"minecraft:inventory_changed","conditions":{"items":[{"items":"minecraft:diamond"}]}}},`+
+			`"rewards":{"recipes":["t:wand"]}}`)
+	writePackFile(t, filepath.Join(data, "minecraft", "advancement", "recipes", "misc", "stick.json"),
+		`{"criteria":{"x":{"trigger":"minecraft:impossible"}},"rewards":{"recipes":["minecraft:stick"]}}`)
+	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Packer"))
+	c := connect()
+	c.WatchBook = true
+	c.Login("Packer")
+	c.Configure()
+	c.ReadJoin(func(int32, []byte) {})
+	c.MarkLoaded()
+	c.Settle()
+
+	give(srv, t, "Packer", "oak_planks")
+	servertest.RunTicks(t, srv, 3)
+	c.Settle()
+	if srv.RecipeKnown("Packer", "minecraft:stick") {
+		t.Error("oak planks unlocked the stick recipe despite the impossible override")
+	}
+	give(srv, t, "Packer", "diamond")
+	servertest.RunTicks(t, srv, 3)
+	c.Settle()
+	if !srv.RecipeKnown("Packer", "t:wand") {
+		t.Error("holding a diamond did not unlock the pack recipe")
 	}
 }
