@@ -270,6 +270,7 @@ the `plugin` package (`go doc github.com/golem-mc/golem/plugin`).
 | Bukkit | Here |
 |---|---|
 | `JavaPlugin` `onLoad`/`onEnable`/`onDisable`, plugin.yml's `depend`, `softdepend`, `loadbefore` | `Plugin`, `Loader`, `Register` with `Depends`, `SoftDepends`, `LoadBefore` |
+| `JavaPlugin.getDefaultWorldGenerator`, a world manager's `plugin:id` generator string | `GeneratorProvider`, `Server.Generator`, `Info.Generators` |
 | `Server`, `Bukkit.*` | `Server`, one handle per plugin, so whatever a plugin registers is removed when it is disabled |
 | `Listener`, `@EventHandler(priority, ignoreCancelled)`, `Cancellable` | `Listen(s, func(*E))` with `ListenOptions`; events embed `Cancellable` |
 | event classes | `*Event` structs with Bukkit's names, fields instead of getters and setters |
