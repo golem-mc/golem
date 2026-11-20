@@ -330,9 +330,11 @@ type LootMatchBlock struct {
 // table left empty asks after nothing. Block is a block name, or "#" and a
 // block tag's name.
 type LootLocationCheck struct {
-	Block                     string
-	Properties                []LootStateProperty
-	Biomes                    []string
+	Block      string
+	Properties []LootStateProperty
+	Biomes     []string
+	// Dimension is the dimension's name the roll must happen in; empty asks after none.
+	Dimension                 string
 	OffsetX, OffsetY, OffsetZ int32
 }
 

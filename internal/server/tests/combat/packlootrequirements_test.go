@@ -12,7 +12,7 @@ import (
 )
 
 func lootDamageEnchant(requirements string) string {
-	return `{"anvil_cost":1,"description":{"text":"Loot"},"max_level":1,"weight":1,
+	return `{"anvil_cost":1,"description":{"text":"Loot"},"max_level":2,"weight":1,
 	"min_cost":{"base":1,"per_level_above_first":0},"max_cost":{"base":50,"per_level_above_first":0},
 	"slots":["mainhand"],"supported_items":"#minecraft:enchantable/weapon",
 	"effects":{"minecraft:damage":[{"effect":{"type":"minecraft:add","value":10},"requirements":` + requirements + `}]}}`
@@ -33,6 +33,12 @@ func TestPackEnchantmentLootRequirements(t *testing.T) {
 			`{"condition":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`),
 		"data/pk/enchantment/tagged.json": lootDamageEnchant(
 			`{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}`),
+		"data/pk/enchantment/level.json": lootDamageEnchant(
+			`{"condition":"minecraft:float_value_check","value":{"type":"minecraft:enchantment_level","amount":{"type":"minecraft:linear","base":1,"per_level_above_first":1}},"test":{"min":2}}`),
+		"data/pk/enchantment/overworld.json": lootDamageEnchant(
+			`{"condition":"minecraft:location_check","predicate":{"dimension":"minecraft:overworld"}}`),
+		"data/pk/enchantment/nether.json": lootDamageEnchant(
+			`{"condition":"minecraft:location_check","predicate":{"dimension":"minecraft:the_nether"}}`),
 	} {
 		path := filepath.Join(pack, file)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -51,9 +57,13 @@ func TestPackEnchantmentLootRequirements(t *testing.T) {
 	servertest.HoldTicks(t, srv)
 	iron := servertest.MustItemID(t, "minecraft:iron_sword")
 	base := 1 + float64(registry.AttackDamage(iron))
-	hit := func(enchantment string) float64 {
+	hit := func(enchantment string, level ...int32) float64 {
 		t.Helper()
-		srv.GiveSlot(name, player.HotbarSlot, servertest.EnchantedStack(t, "minecraft:iron_sword", enchantment, 1))
+		lv := int32(1)
+		if len(level) > 0 {
+			lv = level[0]
+		}
+		srv.GiveSlot(name, player.HotbarSlot, servertest.EnchantedStack(t, "minecraft:iron_sword", enchantment, lv))
 		srv.SetMobHealth(zombieID, 20)
 		servertest.AwaitFullSwing(t, srv, name)
 		c.Attack(zombieID)
@@ -78,4 +88,8 @@ func TestPackEnchantmentLootRequirements(t *testing.T) {
 	c.ChatCommand("tag @e[type=zombie] add a")
 	c.Settle()
 	check("tagged victim", hit("pk:tagged"), base+10)
+	check("enchantment level 1", hit("pk:level", 1), base)
+	check("enchantment level 2", hit("pk:level", 2), base+10)
+	check("dimension overworld", hit("pk:overworld"), base+10)
+	check("dimension nether", hit("pk:nether"), base)
 }

@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/registry"
 )
 
 type preparedAttack struct {
@@ -19,8 +20,7 @@ func (c *client) prepareAttack(held protocol.ItemStack, targetType int32, living
 	b := preparedAttack{baseDamage: c.attackDamage()}
 	b.strength = rules.AttackStrengthScale(int(c.attackStrengthTicks.Load()), c.attackSpeed())
 	c.attackStrengthTicks.Store(0)
-	b.context = attackEnchContext(meleeDamageType(held), targetType)
-	c.bindLootBodies(&b.context, victim)
+	b.context = c.attackEnchContext(meleeDamageType(held), targetType, victim)
 	plain := rules.AttackDamage(b.baseDamage, false, 1)
 	bonus := rules.EnchantedDamage(held, &b.context, plain) - plain
 	critical := c.canCriticalAttack(living)
@@ -43,10 +43,14 @@ func (c *client) prepareAttack(held protocol.ItemStack, targetType int32, living
 
 // bindLootBodies lets a data-pack effect's loot conditions read the blow's
 // bodies: the victim, and the player as both attacker and direct attacker.
-// The origin is the player's position, not the victim's.
+// The origin is the victim's position, the player's when the victim has none.
 // vanilla: Enchantment.damageContext
 func (c *client) bindLootBodies(ctx *rules.EnchContext, victim func() *rules.LootEntity) {
 	ctx.BodyOf = victim
+	if victim == nil {
+		typed := &rules.LootEntity{Type: registry.EntityType(ctx.Victim).Name()}
+		ctx.BodyOf = func() *rules.LootEntity { return typed }
+	}
 	self := func() *rules.LootEntity {
 		e := c.LootEntity()
 		return &e
@@ -54,10 +58,6 @@ func (c *client) bindLootBodies(ctx *rules.EnchContext, victim func() *rules.Loo
 	ctx.AttackerOf, ctx.DirectAttackerOf = self, self
 	ctx.LootWorld = func(loot *rules.LootContext) {
 		pos := c.player.Position()
-		x, y, z := rules.BlockOf(pos.X), rules.BlockOf(pos.Y), rules.BlockOf(pos.Z)
-		w := c.theWorld()
-		loot.BlockAt = func(dx, dy, dz int32) uint16 { return w.BlockAt(x+dx, y+dy, z+dz) }
-		loot.Origin, loot.HasOrigin = [3]float64{pos.X, pos.Y, pos.Z}, true
-		loot.Level = c.srv.lootLevelAt(w, pos.X, pos.Y, pos.Z)
+		c.srv.fillBlowWorld(c.theWorld(), loot, [3]float64{pos.X, pos.Y, pos.Z})
 	}
 }

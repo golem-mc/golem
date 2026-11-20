@@ -352,6 +352,11 @@ type LootContext struct {
 	// EnchantmentActive is an enchantment effect's ENCHANTMENT_ACTIVE; nil
 	// outside one, where enchantment_active_check fails.
 	EnchantmentActive *bool
+	// Dimension is the name of the dimension the roll happens in, which a
+	// location check's dimension tests; empty where the caller does not know it.
+	Dimension string
+	// EnchantmentLevel is an enchantment effect's ENCHANTMENT_LEVEL.
+	EnchantmentLevel int32
 	// KilledByPlayer says a player's kill is what this death was: the
 	// hundred-tick memory of the last player's blow, which is what the
 	// vanilla tables' killed_by_player asks after.
@@ -938,7 +943,7 @@ func (r *lootRoller) condition(c registry.LootCondition) bool {
 		if len(k.Biomes) > 0 && !r.locationBiomeMatches(k) {
 			return false
 		}
-		return true
+		return k.Dimension == "" || k.Dimension == r.ctx.Dimension
 	case registry.LootEntityProperties:
 		e := r.entity(k.Entity)
 		return e.Type != "" && entityPredicate(k.Predicate, e, r.ctx)

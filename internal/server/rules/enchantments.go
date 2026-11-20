@@ -340,6 +340,7 @@ func TridentHitEffects(weapon protocol.ItemStack, ctx *EnchContext, block bool) 
 // effect whose condition passes takes the value the one before left, the
 // component's list being the chain vanilla's applyEffects walks.
 func enchValueEffects(list []registry.EnchConditional, level int32, rng *rand.Rand, ctx *EnchContext, value float64) float64 {
+	ctx.Level = level
 	for _, conditional := range list {
 		if !enchCondition(conditional.Requires, ctx) {
 			continue
@@ -940,23 +941,14 @@ func (a LocatedAction) MobEffects(rng *rand.Rand) []effect.Instance {
 // enchLootConditions tests loot conditions against the effect's context.
 // vanilla: Enchantment.damageContext, itemContext, locationContext
 func enchLootConditions(conds []registry.LootCondition, ctx *EnchContext) bool {
-	loot := LootContext{Tool: ToolOf(ctx.Tool), DamageType: ctx.DamageType, EnchantmentActive: ctx.Active}
+	loot := LootContext{Tool: ToolOf(ctx.Tool), DamageType: ctx.DamageType, EnchantmentActive: ctx.Active, EnchantmentLevel: ctx.Level}
 	if ctx.Body == nil && ctx.BodyOf != nil {
 		ctx.Body = ctx.BodyOf()
 	}
-	if ctx.Body != nil {
-		loot.This = *ctx.Body
-	}
-	if ctx.AttackerOf != nil {
-		if e := ctx.AttackerOf(); e != nil {
-			loot.Attacker = *e
-		}
-	}
-	if ctx.DirectAttackerOf != nil {
-		if e := ctx.DirectAttackerOf(); e != nil {
-			loot.DirectAttacker = *e
-		}
-	}
+	// A body the caller gave no snapshot is known by its type alone.
+	loot.This = bodyOrType(ctx.Body, ctx.Victim)
+	loot.Attacker = bodyOrType(callBody(ctx.AttackerOf), ctx.Attacker)
+	loot.DirectAttacker = bodyOrType(callBody(ctx.DirectAttackerOf), ctx.DirectAttacker)
 	if ctx.LootWorld != nil {
 		ctx.LootWorld(&loot)
 	}
@@ -970,4 +962,22 @@ func enchLootConditions(conds []registry.LootCondition, ctx *EnchContext) bool {
 		}
 	}
 	return true
+}
+
+func callBody(f func() *LootEntity) *LootEntity {
+	if f == nil {
+		return nil
+	}
+	return f()
+}
+
+// bodyOrType is e, or a body of the entity type typeID (-1 for none) when e is nil.
+func bodyOrType(e *LootEntity, typeID int32) LootEntity {
+	switch {
+	case e != nil:
+		return *e
+	case typeID >= 0:
+		return LootEntity{Type: registry.EntityType(typeID).Name()}
+	}
+	return LootEntity{}
 }

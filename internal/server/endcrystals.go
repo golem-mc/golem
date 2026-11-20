@@ -356,7 +356,7 @@ func (c *client) attackEndCrystal(target int32) bool {
 	attackDamage := c.attackDamage()
 	strength := rules.AttackStrengthScale(int(c.attackStrengthTicks.Load()), c.attackSpeed())
 	c.attackStrengthTicks.Store(0)
-	ctx := attackEnchContext(meleeDamageType(held), protocol.EntityTypeEndCrystal)
+	ctx := c.attackEnchContext(meleeDamageType(held), protocol.EntityTypeEndCrystal, nil)
 	plain := rules.AttackDamage(attackDamage, false, 1)
 	magic := (rules.EnchantedDamage(held, &ctx, plain) - plain) * strength
 	falling := c.canCriticalAttack(false)
