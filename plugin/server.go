@@ -68,6 +68,14 @@ type Server interface {
 	// moved to the overworld's spawn. The overworld cannot be unloaded.
 	UnloadWorld(w World, save bool) error
 
+	// WorldFolder answers the folder of the world with this dimension key,
+	// <level>/dimensions/<namespace>/<path>, or the level directory for the
+	// overworld, whether or not the world is loaded or exists yet. Once
+	// UnloadWorld returns, golem holds nothing under the folder, so a plugin
+	// may delete or replace it before a following CreateWorld. Bukkit:
+	// getWorldFolder
+	WorldFolder(key Key) string
+
 	// Console answers the server console as a command sender.
 	Console() CommandSender
 	// Dispatch runs a command line, without its slash, as sender; the

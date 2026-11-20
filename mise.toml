@@ -567,3 +567,8 @@ run = "go run ./tools/gen poplar-golden"
 [tasks."gen:endcity"]
 description = "Pack vanilla end city templates"
 run = "go run ./tools/gen endcity"
+
+[tasks."gen:entitycategories"]
+description = "Regenerate registry/entitycategories_gen.go, the MobCategory of every entity type, from the vanilla client jar"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen entitycategories"

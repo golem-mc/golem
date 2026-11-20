@@ -8,6 +8,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/registry"
 )
 
 // The server half of natural spawning: each tick, every dimension with a
@@ -77,10 +78,7 @@ func (s *Server) tickNaturalSpawning() {
 			continue
 		}
 
-		// Creatures join every 400 game ticks, with their own cap of 10 and
-		// their own grass-and-light rule.
 		worldAge, _ := w.Time()
-		creatures := worldAge%400 == 0
 
 		// Each mob spawns and is finalized as the pass emits it, before the
 		// walk's next roll: the pass reads what finalizing wrote to the pack's
@@ -90,22 +88,23 @@ func (s *Server) tickNaturalSpawning() {
 		spawnable := spawnableChunkCount(players)
 		bodies := s.spawnBodies(dim, players)
 		counts, potential := s.spawnCountsAll(dim, players)
-		// MobCategory order. The water categories are friendly but not
-		// persistent: they spawn every tick, not every 400th, and ignore
-		// spawn_monsters, so squid spawn in peaceful like animals.
+		// MobCategory order. Creatures join every 400 game ticks; the water
+		// categories are friendly but not persistent: they spawn every tick,
+		// not every 400th, and ignore spawn_monsters, so squid spawn in
+		// peaceful like animals. The world's tuning overrides cap and rate.
 		var passes []entity.SpawnPass
-		if monsters {
-			passes = append(passes, entity.MonsterPass(counts[entity.CategoryMonster]))
+		for _, c := range [...]registry.MobCategory{
+			registry.MobCategoryMonster, registry.MobCategoryCreature, registry.MobCategoryAmbient,
+			registry.MobCategoryAxolotls, registry.MobCategoryUndergroundWaterCreature,
+			registry.MobCategoryWaterCreature, registry.MobCategoryWaterAmbient,
+		} {
+			if c == registry.MobCategoryMonster && !monsters {
+				continue
+			}
+			if dim.spawnTuning.Runs(c, worldAge, c == registry.MobCategoryCreature) {
+				passes = append(passes, entity.NewSpawnPass(c, counts[c], dim.spawnTuning.Limit(c)))
+			}
 		}
-		if creatures {
-			passes = append(passes, entity.CreaturePass(counts[entity.CategoryCreature]))
-		}
-		passes = append(passes,
-			entity.AmbientPass(counts[entity.CategoryAmbient]),
-			entity.AxolotlPass(counts[entity.CategoryAxolotls]),
-			entity.UndergroundWaterPass(counts[entity.CategoryUndergroundWater]),
-			entity.WaterCreaturePass(counts[entity.CategoryWaterCreature]),
-			entity.WaterAmbientPass(counts[entity.CategoryWaterAmbient]))
 		entity.SpawnNaturally(w, s.spawnRng, chunks, players, bodies, potential, passes, spawnable, spawn)
 	}
 }

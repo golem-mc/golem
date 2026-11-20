@@ -395,7 +395,7 @@ func newWorld(dir string, gen Generator, name string, shape dimensionShape, leve
 		dir:        dir,
 		gen:        gen,
 		level:      level,
-		storage:    dimensionDir(dir, name),
+		storage:    DimensionDir(dir, name),
 		dim:        shape,
 		dimName:    name,
 		levelDat:   levelDat,
