@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 func loadProcs(t *testing.T, list string) []structureProcessor {
@@ -82,6 +83,10 @@ func TestProcessorLavaSubmergedAndBlackstone(t *testing.T) {
 	if got, _, _, _ := run(t, procs, stone, nil, 70, 0, lava, 0); got != stone {
 		t.Fatal("full block in lava changed")
 	}
+	// soul sand's collision shape is short but its outline is a full cube.
+	if got, _, _, _ := run(t, procs, blockState(t, "minecraft:soul_sand"), nil, 70, 0, lava, 0); got != blockState(t, "minecraft:soul_sand") {
+		t.Fatal("soul sand in lava changed")
+	}
 	if got, _, _, _ := run(t, procs, torch, nil, 70, 0, 0, 0); got != torch {
 		t.Fatal("torch in air changed")
 	}
@@ -149,5 +154,40 @@ func TestRuleProcessorMoreTestsAndModifiers(t *testing.T) {
 	tag := mod(`{"type":"minecraft:append_static","data":"{b:2,n:{y:2}}"}`)
 	if len(tag) != 3 || len(tag["n"].(nbt.Compound)) != 2 {
 		t.Fatalf("append_static: %v", tag)
+	}
+}
+
+// The expectations were recorded from the vanilla server's own
+// BlockAgeProcessor(0.5) and BlockRotProcessor(0.5) over the positions below,
+// with the default position-seeded random.
+func TestProcessorBlockAgeAndRotMatchVanilla(t *testing.T) {
+	t.Parallel()
+	pos := func(procs []structureProcessor, state uint16, i int32, dz int32) (uint16, bool) {
+		got, _, _, ok := runProcessors(procs, state, nil, 3+i, 70, 5+dz*i, 0, [3]int32{0, 60, 0},
+			func(_, _, _ int32) uint16 { return 0 }, func(_ heightmapKind, _, _ int32) int32 { return 0 })
+		return got, ok
+	}
+	age := loadProcs(t, `{"processor_type":"minecraft:block_age","mossiness":0.5}`)
+	for _, c := range []struct {
+		block string
+		want  [8]string
+	}{
+		{"minecraft:stone_bricks", [8]string{"stone_bricks", "stone_bricks", "stone_bricks", "stone_bricks", "mossy_stone_bricks", "cracked_stone_bricks", "stone_bricks", "stone_bricks"}},
+		{"minecraft:obsidian", [8]string{"obsidian", "obsidian", "obsidian", "obsidian", "crying_obsidian", "crying_obsidian", "obsidian", "obsidian"}},
+	} {
+		for i := range int32(8) {
+			got, _ := pos(age, blockState(t, c.block), i, -1)
+			if name := registry.BlockOf(got).Name(); name != "minecraft:"+c.want[i] {
+				t.Errorf("%s at %d: %s, want %s", c.block, i, name, c.want[i])
+			}
+		}
+	}
+	rot := loadProcs(t, `{"processor_type":"minecraft:block_rot","integrity":0.5}`)
+	const want = "011000010000001111000001" // 1 = kept
+	for i := range int32(len(want)) {
+		_, ok := pos(rot, blockState(t, "minecraft:stone"), i, 0)
+		if ok != (want[i] == '1') {
+			t.Errorf("block_rot at %d: kept=%v, want %c", i, ok, want[i])
+		}
 	}
 }
