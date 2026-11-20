@@ -93,7 +93,7 @@ func (it *Item) ThunderHit() bool {
 // a creeper is charged unless the caller asks to charge it itself (a
 // listener may refuse). It reports how the hurt went.
 // vanilla: Entity.thunderHit, Creeper.thunderHit
-func (m *Mob) ThunderHit(holdCharge bool, bolt ...any) (landed, softened bool) {
+func (m *Mob) ThunderHit(holdCharge bool, by CombustSource) (landed, softened bool) {
 	if m.Type == TypeTurtle {
 		// vanilla: Turtle.thunderHit, a blow that nothing survives
 		return m.HurtByWorld(math.MaxFloat32, rules.DamageTypeLightningBolt)
@@ -101,11 +101,7 @@ func (m *Mob) ThunderHit(holdCharge bool, bolt ...any) (landed, softened bool) {
 	fire, ignite := rules.LightningThunderHitFire(m.FireTicks)
 	m.SetMetadataFireTicks(fire)
 	if ignite {
-		var src CombustSource
-		if len(bolt) > 0 {
-			src.By = bolt[0]
-		}
-		m.IgniteForTicksBy(rules.LightningIgniteTicks, src)
+		m.IgniteForTicksBy(rules.LightningIgniteTicks, by)
 	}
 	landed, softened = m.HurtByWorld(rules.LightningDamage, rules.DamageTypeLightningBolt)
 	if Family(m.Type) == TypeCreeper && !holdCharge {

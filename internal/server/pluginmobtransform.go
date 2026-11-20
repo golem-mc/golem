@@ -1,6 +1,8 @@
 package server
 
 import (
+	"slices"
+
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -112,6 +114,21 @@ func (s *Server) combustTicks(who plugin.Entity, ticks int, byEntity plugin.Enti
 	return max(e.Duration, 0)
 }
 
+func (s *Server) combustEvent(who plugin.Entity, w *world.World, ticks int, src entity.CombustSource) *plugin.EntityCombustEvent {
+	e := &plugin.EntityCombustEvent{Entity: who, Duration: ticks}
+	if src.HasBlock {
+		b := plugin.Block{
+			World: pluginWorld{srv: s, dim: s.dimensionOfWorld(w), host: s.pluginAdapter},
+			Pos:   plugin.BlockPos{X: int(src.X), Y: int(src.Y), Z: int(src.Z)},
+		}
+		e.ByBlock = &b
+	}
+	if by, ok := src.By.(plugin.Entity); ok {
+		e.ByEntity = by
+	}
+	return e
+}
+
 // askCombust is combustTicks for a mob, with every lock released.
 func (s *Server) askCombust(m *entity.Mob, ticks int, src entity.CombustSource) int {
 	if s.plugins == nil || !s.plugins.Has(pluginruntime.EntityCombust) {
@@ -121,19 +138,32 @@ func (s *Server) askCombust(m *entity.Mob, ticks int, src entity.CombustSource) 
 	if ent == nil {
 		return ticks
 	}
-	e := &plugin.EntityCombustEvent{Entity: pendingMob{id: ent.uuid}, Duration: ticks}
-	if src.HasBlock {
-		b := plugin.Block{
-			World: pluginWorld{srv: s, dim: s.dimensionOfWorld(ent.w), host: s.pluginAdapter},
-			Pos:   plugin.BlockPos{X: int(src.X), Y: int(src.Y), Z: int(src.Z)},
-		}
-		e.ByBlock = &b
-	}
-	if by, ok := src.By.(plugin.Entity); ok {
-		e.ByEntity = by
-	}
+	e := s.combustEvent(pendingMob{id: ent.uuid}, ent.w, ticks, src)
 	s.askUnlocked(func() { s.plugins.Fire(e) })
 	if e.Cancelled() || m.Dead {
+		return 0
+	}
+	return max(e.Duration, 0)
+}
+
+// askMannequinCombust is combustTicks for a mannequin, with mannequinsMu released.
+func (s *Server) askMannequinCombust(ent *mannequinEntity, ticks int, src entity.CombustSource) int {
+	if s.plugins == nil || !s.plugins.Has(pluginruntime.EntityCombust) {
+		return ticks
+	}
+	e := s.combustEvent(pluginEntity{id: ent.uuid}, ent.w, ticks, src)
+	if !s.plugins.OnTick() {
+		s.mannequinsMu.Unlock()
+		defer s.mannequinsMu.Lock()
+		s.plugins.Call(func() { s.plugins.Fire(e) })
+	} else if !slices.Contains(s.tickLocks, &s.mannequinsMu) {
+		s.mannequinsMu.Unlock()
+		defer s.mannequinsMu.Lock()
+		s.askBody(func() { s.plugins.Fire(e) })
+	} else {
+		s.askBody(func() { s.plugins.Fire(e) })
+	}
+	if e.Cancelled() || ent.mannequin.Dead {
 		return 0
 	}
 	return max(e.Duration, 0)

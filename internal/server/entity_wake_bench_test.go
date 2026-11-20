@@ -18,7 +18,7 @@ func BenchmarkEntityChunkWake(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		woken := h.standUp(world.ChunkPos{}, tags, s, make(map[uuid.UUID]bool), false)
+		woken := h.standUp(world.ChunkPos{}, tags, s, make(map[uuid.UUID]bool), false, true)
 		if len(woken.arrows) != 1 {
 			b.Fatal("arrow did not wake")
 		}

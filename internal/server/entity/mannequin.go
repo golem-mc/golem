@@ -63,6 +63,9 @@ type Mannequin struct {
 	// Label is the custom label, nil for the default; HideLabel drops it.
 	Label     *protocol.Text
 	HideLabel bool
+	// Combust is asked before the body catches fire for ticks and answers the
+	// ticks it burns, 0 when cancelled.
+	Combust func(ticks int, src CombustSource) int
 }
 
 // NewMannequin is a mannequin standing at the given feet position.

@@ -6,10 +6,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
@@ -19,22 +17,6 @@ import (
 
 func blockPosOf(v plugin.Vec3) plugin.BlockPos {
 	return plugin.BlockPos{X: int(math.Floor(v.X)), Y: int(math.Floor(v.Y)), Z: int(math.Floor(v.Z))}
-}
-
-// waitPacket paces ticks in real time so the connection read goroutine can
-// deliver a client packet even under GOMAXPROCS=1.
-func waitPacket(t *testing.T, srv *server.Server, what string, ready func() bool) {
-	t.Helper()
-	for range 500 {
-		if ready() {
-			return
-		}
-		servertest.RunTicks(t, srv, 1)
-		time.Sleep(2 * time.Millisecond)
-	}
-	if !ready() {
-		t.Fatalf("timed out waiting for %s", what)
-	}
 }
 
 func TestPluginBlockIgniteSource(t *testing.T) {
@@ -157,6 +139,9 @@ func TestPluginEntityCombustSources(t *testing.T) {
 	c := servertest.DialServer(t, srv)
 	c.Join("Tester")
 	c.Settle()
+	victim := servertest.DialServer(t, srv)
+	victim.Join("Victim")
+	victim.Settle()
 	servertest.HoldTicks(t, srv)
 
 	var mu sync.Mutex
@@ -250,13 +235,56 @@ func TestPluginEntityCombustSources(t *testing.T) {
 		t.Fatalf("setup fire aspect: %v", spawnErr)
 	}
 	servertest.RunTicks(t, srv, 2)
+	servertest.ReleaseTicks(t, srv)
 	c.Attack(targetID)
-	waitPacket(t, srv, "fire aspect EntityCombustEvent", func() bool {
-		return hasEvent(func(ev *plugin.EntityCombustEvent) bool {
-			return ev.Entity != nil && ev.Entity.UUID() == targetCow.UUID() && ev.ByEntity != nil && ev.ByEntity.UUID() == attackerUUID && ev.ByBlock == nil
-		})
-	})
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+	if !hasEvent(func(ev *plugin.EntityCombustEvent) bool {
+		return ev.Entity != nil && ev.Entity.UUID() == targetCow.UUID() && ev.ByEntity != nil && ev.ByEntity.UUID() == attackerUUID && ev.ByBlock == nil
+	}) {
+		t.Errorf("fire aspect on cow: no EntityCombustEvent with ByEntity=%s; got %+v", attackerUUID, snapshotEvents())
+	}
 	run(func() { targetCow.Remove() })
+	clearEvents()
+
+	// 3b. Fire Aspect melee hit on a player -> exactly one EntityCombustEvent
+	// (no duplicate from pluginVitalsTick in the same tick).
+	var victimID int32
+	var victimUUID plugin.UUID
+	run(func() {
+		vp, ok := h.PlayerNamed("Victim")
+		if !ok {
+			t.Fatal("Victim player not found")
+		}
+		victimID, victimUUID = vp.ID(), vp.UUID()
+		vp.SetGameMode(plugin.Survival)
+		vp.SetFireTicks(0)
+		vp.Teleport(plugin.Location{World: h.Overworld(), Pos: plugin.Vec3{X: 2.0, Y: 64, Z: 0.5}}, plugin.TeleportPlugin)
+	})
+	servertest.RunTicks(t, srv, 2)
+	servertest.ReleaseTicks(t, srv)
+	c.Attack(victimID)
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+	servertest.RunTicks(t, srv, 3)
+	var victimEvents []*plugin.EntityCombustEvent
+	for _, ev := range snapshotEvents() {
+		if ev.Entity != nil && ev.Entity.UUID() == victimUUID {
+			victimEvents = append(victimEvents, ev)
+		}
+	}
+	if len(victimEvents) != 1 {
+		t.Fatalf("fire aspect on player: got %d EntityCombustEvents, want 1 (%+v)", len(victimEvents), victimEvents)
+	}
+	if victimEvents[0].ByEntity == nil || victimEvents[0].ByEntity.UUID() != attackerUUID || victimEvents[0].ByBlock != nil {
+		t.Errorf("fire aspect on player: event = %+v, want ByEntity=%s ByBlock=nil", victimEvents[0], attackerUUID)
+	}
+	run(func() {
+		if vp, ok := h.PlayerNamed("Victim"); ok {
+			vp.SetFireTicks(0)
+			vp.Teleport(plugin.Location{World: h.Overworld(), Pos: plugin.Vec3{X: -10.5, Y: 64, Z: 0.5}}, plugin.TeleportPlugin)
+		}
+	})
 	clearEvents()
 
 	// 4. Burning arrow -> ByEntity is the arrow.
@@ -319,6 +347,26 @@ func TestPluginEntityCombustSources(t *testing.T) {
 	}) {
 		t.Errorf("player in lava: no EntityCombustEvent with ByBlock=(2,64,4); got %+v", snapshotEvents())
 	}
+	srv.SetBlockAndTell(2, 64, 4, servertest.BlockState(t, "minecraft:air"))
+	clearEvents()
+
+	// 7. Mannequin in fire -> ByBlock at the fire cell.
+	srv.SetBlockAndTell(6, 63, 4, servertest.BlockState(t, "minecraft:netherrack"))
+	srv.SetBlockAndTell(6, 64, 4, servertest.BlockState(t, "minecraft:fire"))
+	var fireMannequin plugin.Entity
+	run(func() {
+		fireMannequin, spawnErr = h.Overworld().Spawn(registry.EntityTypeMannequin, plugin.Location{World: h.Overworld(), Pos: plugin.Vec3{X: 6.5, Y: 64, Z: 4.5}}, nil)
+	})
+	if spawnErr != nil {
+		t.Fatalf("spawn mannequin in fire: %v", spawnErr)
+	}
+	servertest.RunTicks(t, srv, 3)
+	if !hasEvent(func(ev *plugin.EntityCombustEvent) bool {
+		return ev.Entity != nil && ev.Entity.UUID() == fireMannequin.UUID() && ev.ByBlock != nil && ev.ByBlock.Pos == (plugin.BlockPos{X: 6, Y: 64, Z: 4}) && ev.ByEntity == nil
+	}) {
+		t.Errorf("mannequin in fire: no EntityCombustEvent with ByBlock=(6,64,4); got %+v", snapshotEvents())
+	}
+	run(func() { fireMannequin.Remove() })
 }
 
 func TestPluginEntityOrigin(t *testing.T) {
@@ -353,7 +401,8 @@ func TestPluginEntityOrigin(t *testing.T) {
 		b.PutVarInt(1)
 	})
 	// Wait for the client packet to prime the TNT, then tick so it hops away.
-	waitPacket(t, srv, "TNT block to be primed", func() bool {
+	c.Settle()
+	servertest.UntilTicks(t, srv, 5, "TNT block to be primed", func() bool {
 		return srv.BlockAt(3, 64, 0) != servertest.BlockState(t, "minecraft:tnt")
 	})
 	servertest.RunTicks(t, srv, 10)
@@ -414,5 +463,74 @@ func TestPluginEntityOrigin(t *testing.T) {
 	}
 	if fbPos.Y >= fbOrigin.Pos.Y {
 		t.Errorf("falling block did not fall: pos.Y=%v origin.Y=%v", fbPos.Y, fbOrigin.Pos.Y)
+	}
+}
+
+func TestPluginEntityOriginPersistence(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	cfg1 := servertest.BlockTestConfig()
+	cfg1.LevelName = dir
+	srv1, h1, run1 := worldPlugin(t, cfg1)
+	c1 := servertest.DialServer(t, srv1)
+	c1.Join("Saver")
+	c1.Settle()
+	servertest.HoldTicks(t, srv1)
+
+	var tntUUID, standUUID plugin.UUID
+	var spawnErr error
+	run1(func() {
+		var tnt, stand plugin.Entity
+		tnt, spawnErr = h1.Overworld().Spawn(registry.EntityTypeTnt, plugin.Location{World: h1.Overworld(), Pos: plugin.Vec3{X: 3.5, Y: 64, Z: 0.5}}, nil)
+		if spawnErr != nil {
+			return
+		}
+		tntUUID = tnt.UUID()
+		tnt.Teleport(plugin.Location{World: h1.Overworld(), Pos: plugin.Vec3{X: 5.5, Y: 66, Z: 2.5}}, plugin.TeleportPlugin)
+
+		stand, spawnErr = h1.Overworld().Spawn(registry.EntityTypeArmorStand, plugin.Location{World: h1.Overworld(), Pos: plugin.Vec3{X: 4.5, Y: 64, Z: 1.5}}, nil)
+		if spawnErr != nil {
+			return
+		}
+		standUUID = stand.UUID()
+		stand.Teleport(plugin.Location{World: h1.Overworld(), Pos: plugin.Vec3{X: 7.5, Y: 64, Z: 3.5}}, plugin.TeleportPlugin)
+	})
+	if spawnErr != nil {
+		t.Fatalf("spawn entities: %v", spawnErr)
+	}
+	servertest.ReleaseTicks(t, srv1)
+	srv1.Shutdown()
+
+	cfg2 := servertest.BlockTestConfig()
+	cfg2.LevelName = dir
+	srv2, h2, run2 := worldPlugin(t, cfg2)
+	c2 := servertest.DialServer(t, srv2)
+	c2.Join("Loader")
+	c2.Settle()
+	servertest.HoldTicks(t, srv2)
+	servertest.RunTicks(t, srv2, 2)
+
+	var gotTNT, gotStand plugin.Location
+	var okTNT, okStand bool
+	run2(func() {
+		if e, ok := h2.Overworld().Entity(tntUUID); ok {
+			gotTNT, okTNT = e.Origin()
+		}
+		if e, ok := h2.Overworld().Entity(standUUID); ok {
+			gotStand, okStand = e.Origin()
+		}
+	})
+	if !okTNT {
+		t.Fatal("reloaded TNT Origin() returned false")
+	}
+	if want := (plugin.BlockPos{X: 3, Y: 64, Z: 0}); blockPosOf(gotTNT.Pos) != want {
+		t.Errorf("reloaded TNT Origin() = %v, want %v", blockPosOf(gotTNT.Pos), want)
+	}
+	if !okStand {
+		t.Fatal("reloaded armor stand Origin() returned false")
+	}
+	if want := (plugin.BlockPos{X: 4, Y: 64, Z: 1}); blockPosOf(gotStand.Pos) != want {
+		t.Errorf("reloaded armor stand Origin() = %v, want %v", blockPosOf(gotStand.Pos), want)
 	}
 }

@@ -177,6 +177,10 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			}
 		}
 	} else if ent := target.mannequin; ent != nil {
+		var igniteBy entity.Combuster
+		if e.Duration != nil {
+			igniteBy = s.attackBodyEntity(owner)
+		}
 		s.mannequinsMu.Lock()
 		m := ent.mannequin
 		if m.Dead {
@@ -190,7 +194,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			m.AddEffect(in)
 		}
 		if e.Duration != nil {
-			m.IgniteForTicks(int(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level)))))
+			m.IgniteForTicksBy(int(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level)))), entity.CombustSource{By: igniteBy})
 		}
 		if i := e.ApplyImpulse; i != nil {
 			impulse := rules.LookImpulse(m.Yaw, m.Pitch, i.CoordinateScale, float64(rules.EnchLevelValueAt(i.Magnitude, a.Level)))

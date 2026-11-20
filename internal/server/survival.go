@@ -694,6 +694,7 @@ func (c *client) tickVitals() {
 	var changes []effect.Change
 	passenger := c.isPassenger()
 	var fellFrom *[3]float64
+	var preTickFire, postTickFire int
 	c.player.UpdateBody(func(v *player.Vitals, effects *effect.Set, a *player.Attributes) {
 		// A rider's fall is written off every tick, so none is left to land
 		// on after the dismount; a fall that began fires fall_from_height at
@@ -702,8 +703,10 @@ func (c *client) tickVitals() {
 			v.FallDistance = 0
 			fellFrom = fallEnded(v, pos)
 		}
+		preTickFire = v.FireTicks
 		event, hurts, douse, changes = rules.TickVitals(v, effects, a, difficulty, pos.Y < float64(voidY), around,
 			c.srv.envRng, a.Value(registry.AttributeOxygenBonus), c.theWorld().BoolRule(world.RuleNaturalRegen))
+		postTickFire = v.FireTicks
 		if in, ok := rules.TurtleHelmetBreathing(headArmor, around.EyesInWater); ok {
 			if change, ok := rules.AddEffect(v, effects, in); ok {
 				changes = append(changes, change)
@@ -716,7 +719,7 @@ func (c *client) tickVitals() {
 	if fellFrom != nil {
 		c.fellAdvancements(*fellFrom, pos)
 	}
-	c.pluginVitalsTick(before, pos)
+	c.pluginVitalsTick(before, pos, preTickFire, postTickFire)
 	c.tellEffects(changes)
 	if !before.Dead && around.EyesInWater && !around.EyesInBubbleColumn && c.mountDismountsUnderwater() {
 		c.dismountMob(true)

@@ -1579,7 +1579,7 @@ func (h *mobHerd) wake(pos world.ChunkPos, s *Server, known map[uuid.UUID]bool, 
 		for _, c := range h.w.TakeGeneratedEntities(pos) {
 			generatedTags = append(generatedTags, c)
 		}
-		woken := h.standUp(pos, generatedTags, s, known, forWrite)
+		woken := h.standUp(pos, generatedTags, s, known, forWrite, false)
 		if !forWrite {
 			woken.mobs = append(woken.mobs, generateNaturalMobs(s, h.w, pos)...)
 		}
@@ -1591,14 +1591,14 @@ func (h *mobHerd) wake(pos world.ChunkPos, s *Server, known map[uuid.UUID]bool, 
 		return woken
 	}
 	h.listed[pos] = len(tags) > 0
-	woken := h.standUp(pos, tags, s, known, forWrite)
-	woken.markLoaded()
-	return woken
+	return h.standUp(pos, tags, s, known, forWrite, true)
 }
 
 // standUp turns saved entity tags into entities, skipping known UUIDs;
 // mobsOnly carries the four kinds as tags, like every unsimulated kind.
-func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known map[uuid.UUID]bool, mobsOnly bool) wakeResult {
+// fromDisk marks loaded bodies of kinds that persist Paper.Origin so
+// registration does not invent one for vanilla saves that had none.
+func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known map[uuid.UUID]bool, mobsOnly, fromDisk bool) wakeResult {
 	var woken wakeResult
 	for _, tag := range tags {
 		compoundTag, ok := tag.(nbt.CompoundTag)
@@ -1750,6 +1750,15 @@ func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known m
 		h.carried[pos] = append(h.carried[pos], compoundTag)
 	}
 	linkMobRides(woken.mobs)
+	if fromDisk {
+		markOriginsLoaded(woken.mobs)
+		markOriginsLoaded(woken.items)
+		markOriginsLoaded(woken.tnts)
+		markOriginsLoaded(woken.fallings)
+		markOriginsLoaded(woken.boats)
+		markOriginsLoaded(woken.minecarts)
+		markOriginsLoaded(woken.armorStands)
+	}
 	return woken
 }
 

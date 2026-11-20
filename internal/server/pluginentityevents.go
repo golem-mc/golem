@@ -371,7 +371,7 @@ func (c *client) combustBlock(pos player.Position) *plugin.Block {
 // already run, so a cancelled change is undone here; its exhaustion and
 // saturation stay spent.
 // vanilla: FoodData.tick
-func (c *client) pluginVitalsTick(before player.Vitals, pos player.Position) {
+func (c *client) pluginVitalsTick(before player.Vitals, pos player.Position, preTickFire, postTickFire int) {
 	r := c.srv.plugins
 	if r == nil || before.Dead {
 		return
@@ -416,15 +416,22 @@ func (c *client) pluginVitalsTick(before player.Vitals, pos player.Position) {
 		c.player.Attributes(func(a *player.Attributes) { maxHealth = a.Value(registry.AttributeMaxHealth) })
 		c.player.UpdateVitals(func(v *player.Vitals) { v.Health = min(health, maxHealth) })
 	}
-	if r.Has(pluginruntime.EntityCombust) && after.FireTicks > before.FireTicks && after.FireTicks > 0 {
-		e := &plugin.EntityCombustEvent{Entity: pluginPlayer{c: c}, Duration: after.FireTicks, ByBlock: c.combustBlock(pos)}
+	// preTickFire and postTickFire bracket rules.TickVitals under the vitals
+	// lock so a rise from igniteForTicksBy (Fire Aspect, burning arrows,
+	// lightning, mob blows) cannot trigger a second event here.
+	if r.Has(pluginruntime.EntityCombust) && postTickFire > preTickFire && postTickFire > 0 {
+		e := &plugin.EntityCombustEvent{Entity: pluginPlayer{c: c}, Duration: postTickFire, ByBlock: c.combustBlock(pos)}
 		r.Fire(e)
 		fire := max(e.Duration, 0)
 		if e.Cancelled() {
-			fire = before.FireTicks
+			fire = preTickFire
 		}
-		if fire != after.FireTicks {
-			c.player.UpdateVitals(func(v *player.Vitals) { v.FireTicks = fire })
+		if fire != postTickFire {
+			c.player.UpdateVitals(func(v *player.Vitals) {
+				if v.FireTicks == postTickFire {
+					v.FireTicks = fire
+				}
+			})
 		}
 	}
 }

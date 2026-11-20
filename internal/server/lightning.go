@@ -397,7 +397,7 @@ func (s *Server) boltHurt(it *boltEffect) {
 			continue
 		}
 		holdCharge := listening && entity.Family(m.Type) == entity.TypeCreeper
-		landed, softened := m.ThunderHit(holdCharge, pluginEntity{id: it.uuid})
+		landed, softened := m.ThunderHit(holdCharge, entity.CombustSource{By: pluginEntity{id: it.uuid}})
 		if holdCharge {
 			charges = append(charges, h.book[m])
 		}

@@ -1,11 +1,13 @@
 package entity
 
 import (
+	"math"
+	"math/rand"
+
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
-	"math"
-	"math/rand"
+	"github.com/google/uuid"
 )
 
 // Powder snow freezing: vanilla's FREEZE inside-block counter and
@@ -75,11 +77,17 @@ func (m *Mob) freezeConversionStep() MobType {
 	return NoMobType
 }
 
-// CombustSource identifies the block or entity that set a mob alight.
+// Combuster is an entity that set a body alight, carried through
+// CombustSource without importing package plugin.
+type Combuster interface {
+	UUID() uuid.UUID
+}
+
+// CombustSource identifies the block or entity that set a body alight.
 type CombustSource struct {
 	HasBlock bool
 	X, Y, Z  int32
-	By       any // opaque entity handle for the server callback
+	By       Combuster
 }
 
 // IgniteForTicks raises the burn to at least ticks, scaled by its

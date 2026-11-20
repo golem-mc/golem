@@ -1405,6 +1405,9 @@ func applyArmorStandTag(ent *armorStandEntity, compound nbt.Compound) {
 	ent.tags.Reset(tagsOfTag(compound))
 	ent.custom = customNameOfTag(compound)
 	readSpawnReason(&ent.spawnReason, compound)
+	if ent.w != nil {
+		readOrigin(&ent.origin, ent.w.DimensionName(), compound)
+	}
 	applyArmorStandFields(ent, compound)
 }
 

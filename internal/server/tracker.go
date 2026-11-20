@@ -548,9 +548,7 @@ func (k *trackedKind[B, S]) register(s *Server, b B) {
 	list := k.list(s)
 	*list = append(*list, b)
 	v := k.body(b)
-	if !v.t.origin.set && !v.t.origin.loaded {
-		v.t.origin = entityOrigin{set: true, dim: w.DimensionName(), x: v.p.x, y: v.p.y, z: v.p.z}
-	}
+	v.t.origin.stamp(w, v.p.x, v.p.y, v.p.z)
 	var recipients []*client
 	for _, sp := range spots {
 		if !k.sees(b, v.p, sp.x, sp.z, sp.chunkRadius, int(s.entityBroadcastRange.Load())) {
@@ -568,14 +566,28 @@ func (k *trackedKind[B, S]) register(s *Server, b B) {
 	sendPacketsToAll(w, recipients, shown)
 }
 
+// stamp records the body's initial spawn position unless it already has one or
+// was loaded from a save without one.
+func (o *entityOrigin) stamp(w *world.World, x, y, z float64) {
+	if !o.set && !o.loaded {
+		*o = entityOrigin{set: true, dim: w.DimensionName(), x: x, y: y, z: z}
+	}
+}
+
+func (b *bodyTrack[S]) markOriginLoaded() { b.origin.loaded = true }
+
+func markOriginsLoaded[T interface{ markOriginLoaded() }](ents []T) {
+	for _, e := range ents {
+		e.markOriginLoaded()
+	}
+}
+
 // showLocked marks b told for every watcher of its world in range and
 // returns them, for a registration that holds more than the kind's lock.
 // The caller holds the kind's lock and sends the pairing after it.
 func (k *trackedKind[B, S]) showLocked(b B, watchers []trackingWatcher) []*client {
 	v := k.body(b)
-	if !v.t.origin.set && !v.t.origin.loaded {
-		v.t.origin = entityOrigin{set: true, dim: v.w.DimensionName(), x: v.p.x, y: v.p.y, z: v.p.z}
-	}
+	v.t.origin.stamp(v.w, v.p.x, v.p.y, v.p.z)
 	var shown []*client
 	for _, wh := range watchers {
 		if wh.c.theWorld() != v.w || !k.sees(b, v.p, wh.x, wh.z, wh.chunkRadius, int(wh.c.srv.entityBroadcastRange.Load())) {
