@@ -10,6 +10,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/advancement"
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
@@ -812,5 +813,78 @@ func TestPackHurtEntityFiresOnAnArrowHitOfAMannequin(t *testing.T) {
 	servertest.UntilTicks(t, srv, 20, "the mannequin criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:mannequin", "c") })
 	if srv.AdvancementObtained("Packer", "pk:zombie", "c") {
 		t.Fatal("a mannequin's arrow hit fired the zombie criterion")
+	}
+}
+
+// TestPackHurtEntityFiresOnASweepsSecondaryTarget: a sword's sweep that hurts a
+// pig beside the cow it struck fires player_hurt_entity for the pig too.
+// vanilla: Player.doSweepAttack, LivingEntity.hurtServer
+func TestPackHurtEntityFiresOnASweepsSecondaryTarget(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "pig", "player_hurt_entity",
+		`{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:pig"}}]}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	give(srv, t, "Packer", "iron_sword")
+	cow := srv.SpawnMob("minecraft:cow", 0.5, 64, 2.0)
+	srv.SpawnMob("minecraft:pig", 1.5, 64, 2.0)
+	c.Settle()
+	servertest.AwaitFullSwing(t, srv, "Packer")
+	c.AttackLanded(srv, "Packer", cow)
+	servertest.UntilTicks(t, srv, 20, "the pig criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:pig", "c") })
+}
+
+// TestPackHurtEntityFiresOnASpearJab: a charged jab that hurts a zombie fires
+// player_hurt_entity, and one with the wrong victim type does not.
+// vanilla: Player.stabAttack, LivingEntity.hurtServer
+func TestPackHurtEntityFiresOnASpearJab(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "zombie", "player_hurt_entity",
+		`{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:zombie"}}]}`)
+	packCriterion(t, dir, "pig", "player_hurt_entity",
+		`{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:pig"}}]}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.FacePlayer(0.5, 64, 0.5, 0, 0)
+	c.Settle()
+	srv.StopTick()
+	srv.GiveSlot("Packer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:wooden_spear", 1))
+	srv.TickSurvival()
+	srv.SpawnMob("minecraft:zombie", 0.5, 64, 3.5)
+	for i := 0; srv.AttackTicks("Packer") < 13; i++ {
+		if i > 26 {
+			t.Fatal("the spear never charged")
+		}
+		srv.TickSurvival()
+	}
+	c.Stab()
+	c.Settle()
+	srv.TickSurvival()
+	servertest.UntilTicks(t, srv, 20, "the zombie criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:zombie", "c") })
+	if srv.AdvancementObtained("Packer", "pk:pig", "c") {
+		t.Fatal("a jab of a zombie fired the pig criterion")
+	}
+}
+
+// TestPackHurtEntityFiresOnAnInteractionHit: a player's hit on an interaction
+// entity fires player_hurt_entity with a generic blow of 1.
+// vanilla: Interaction.skipAttackInteraction
+func TestPackHurtEntityFiresOnAnInteractionHit(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "interaction", "player_hurt_entity",
+		`{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:interaction"}}]}`)
+	packCriterion(t, dir, "two", "player_hurt_entity", `{"damage":{"dealt":{"min":2}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.ChatCommand("summon interaction 0.5 64 2 {width:1f,height:1f}")
+	c.Settle()
+	id := srv.FixtureIDForTest(entity.FixtureInteraction)
+	c.Attack(id)
+	servertest.UntilTicks(t, srv, 20, "the interaction criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:interaction", "c") })
+	if srv.AdvancementObtained("Packer", "pk:two", "c") {
+		t.Fatal("an interaction's 1-damage blow fired the dealt.min 2 criterion")
 	}
 }

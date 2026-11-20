@@ -327,6 +327,9 @@ func (c *client) attackInteraction(target int32) bool {
 	minX, minY, minZ, maxX, maxY, maxZ := s.fixtureBox(ent)
 	if c.withinAttackRange(minX, minY, minZ, maxX, maxY, maxZ) {
 		s.recordInteraction(ent, "attack", c.player.UUID)
+		// vanilla: Interaction.skipAttackInteraction, a generic 1-damage blow
+		c.hurtEntityAdvancements(advancement.Entity{Type: "minecraft:interaction", Loot: s.fixtureLoot(ent), Blow: &advancement.Blow{
+			Dealt: 1, Taken: 1, Type: rules.DamageTypeGeneric, Attacker: c.LootEntity, Direct: c.LootEntity}})
 	}
 	return true
 }
