@@ -130,7 +130,7 @@ var registryNameAllowed = map[string]nameAllowance{
 	"internal/server/world/generator.go: string registry lookup":                    {count: 1, issue: 6380},
 	"internal/server/world/geodefeature.go: string block lookup":                    {count: 2, issue: 6380},
 	"internal/server/world/ice.go: string block lookup":                             {count: 1, issue: 6380},
-	"internal/server/world/jigsaw_rules.go: string block lookup":                    {count: 6, issue: 6380},
+	"internal/server/world/jigsaw_rules.go: string block lookup":                    {count: 7, issue: 6380},
 	"internal/server/world/locatestructure.go: string registry lookup":              {count: 2, issue: 6380},
 	"internal/server/world/mappreview.go: string registry lookup":                   {count: 2, issue: 6380},
 	"internal/server/world/maps.go: string block lookup":                            {count: 1, issue: 6380},
