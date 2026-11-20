@@ -1,5 +1,17 @@
 package pluginruntime
 
+import "time"
+
+const (
+	// callFollowUp is how long a tick's start waits for a connection it just
+	// released to hand in its next call: reading an already received packet
+	// takes microseconds, so a longer wait means the connection has none.
+	callFollowUp = time.Millisecond
+	// callDrainBudget bounds the follow-up calls a tick's start runs, so a
+	// flooding client cannot stall the tick.
+	callDrainBudget = 10 * time.Millisecond
+)
+
 type tickCall struct {
 	fn   func()
 	done chan struct{}
@@ -58,17 +70,60 @@ func (r *Runtime) RunCallsBetweenTicks() {
 	r.runCalls()
 }
 
-func (r *Runtime) runCalls() {
-	if !r.callsPending.Load() {
+// drainCalls runs the queued calls, then the calls the connections they
+// released hand in next, until none arrives within callFollowUp or the
+// budget is spent. A connection waits on each event it fires, so running
+// one call per connection per tick lets a client that sends faster than
+// the ticks run build an unbounded backlog behind its listeners.
+// vanilla: MinecraftServer.tickServer, which runs every packet received
+// since the last tick
+func (r *Runtime) drainCalls() {
+	if !r.runCalls() {
 		return
+	}
+	deadline := time.Now().Add(callDrainBudget)
+	for {
+		// A signal left from before the last batch says nothing new.
+		select {
+		case <-r.callsQueued:
+		default:
+		}
+		if !r.callsPending.Load() {
+			wait := min(callFollowUp, time.Until(deadline))
+			if wait <= 0 {
+				return
+			}
+			timer := time.NewTimer(wait)
+			select {
+			case <-r.callsQueued:
+				timer.Stop()
+			case <-timer.C:
+				return
+			case <-r.stopped:
+				timer.Stop()
+				return
+			}
+		}
+		if time.Now().After(deadline) || !r.runCalls() {
+			return
+		}
+	}
+}
+
+// runCalls runs the calls queued so far; true means one of them released a
+// waiting connection.
+func (r *Runtime) runCalls() (released bool) {
+	if !r.callsPending.Load() {
+		return false
 	}
 	r.callsMu.Lock()
 	calls := r.calls
 	r.calls = nil
 	r.callsPending.Store(false)
 	r.callsMu.Unlock()
-	// A callback's new work belongs to the next tick, bounding this batch.
+	// A callback's new work belongs to the next batch, bounding this one.
 	for _, call := range calls {
+		released = released || call.done != nil
 		func() {
 			if call.done != nil {
 				defer close(call.done)
@@ -76,6 +131,7 @@ func (r *Runtime) runCalls() {
 			call.fn()
 		}()
 	}
+	return released
 }
 
 func (r *Runtime) stopCalls() {
