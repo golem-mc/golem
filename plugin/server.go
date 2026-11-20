@@ -45,12 +45,12 @@ type Server interface {
 	// or not, from usercache.json and the player data.
 	OfflinePlayer(id UUID) (OfflinePlayer, bool)
 	// OfflinePlayers answers every player who has played on the server,
-	// online or not: one per player data file in the overworld's playerdata
-	// directory plus any online player not yet saved, with the name from
-	// the online players or usercache.json (empty when neither knows it).
-	// The list is a snapshot, in no particular order. Reads the directory
-	// each call and is safe from any goroutine; call off the tick goroutine
-	// on a large server. Bukkit: getOfflinePlayers
+	// online or not: one per player data file in players/data under the
+	// level directory plus any online player not yet saved, with the name
+	// from the online players or usercache.json (empty when neither knows
+	// it). The list is a snapshot, in no particular order. Reads the
+	// directory each call and is safe from any goroutine; call off the tick
+	// goroutine on a large server. Bukkit: getOfflinePlayers
 	OfflinePlayers() []OfflinePlayer
 	// OfflinePlayerNamed answers a player who has played on the server by
 	// name, from the online players and usercache.json, case-insensitively.

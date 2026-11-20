@@ -298,9 +298,13 @@ type pluginOfflinePlayer struct {
 	spawn       *respawnPos
 }
 
-func (p *pluginOfflinePlayer) load() {
+func (p *pluginOfflinePlayer) loadOnce() (nbt.Compound, error) {
+	var (
+		root nbt.Compound
+		err  error
+	)
 	p.once.Do(func() {
-		root, err := p.host.srv.players.load(uuid.UUID(p.id))
+		root, err = p.host.srv.players.load(uuid.UUID(p.id))
 		if err != nil {
 			p.host.Logger().Warn("could not load player data", "uuid", uuid.UUID(p.id), "error", err)
 		}
@@ -312,6 +316,11 @@ func (p *pluginOfflinePlayer) load() {
 		}
 		p.first, p.last = p.host.srv.pluginPlayedTimes(uuid.UUID(p.id), root)
 	})
+	return root, err
+}
+
+func (p *pluginOfflinePlayer) load() {
+	_, _ = p.loadOnce()
 }
 
 func (h *pluginHost) OfflinePlayer(id plugin.UUID) (plugin.OfflinePlayer, bool) {
@@ -319,24 +328,12 @@ func (h *pluginHost) OfflinePlayer(id plugin.UUID) (plugin.OfflinePlayer, bool) 
 		return p, true
 	}
 	name, cached := h.srv.usercache.nameOf(uuid.UUID(id))
-	root, err := h.srv.players.load(uuid.UUID(id))
-	if err != nil {
-		h.Logger().Warn("could not load player data", "uuid", uuid.UUID(id), "error", err)
-		// load can return usable backup data alongside a recovery warning.
-		if root == nil {
-			return nil, false
-		}
-	}
-	if !cached && root == nil {
+	p := &pluginOfflinePlayer{host: h, id: id, name: name}
+	root, err := p.loadOnce()
+	// load can return usable backup data alongside a recovery warning.
+	if (err != nil || !cached) && root == nil {
 		return nil, false
 	}
-	fixPlayerRespawn(root)
-	first, last := h.srv.pluginPlayedTimes(uuid.UUID(id), root)
-	p := &pluginOfflinePlayer{host: h, id: id, name: name, first: first, last: last}
-	if r, ok := storedRespawn(root); ok {
-		p.spawn = &r
-	}
-	p.once.Do(func() {})
 	return p, true
 }
 
