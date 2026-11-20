@@ -15,13 +15,8 @@ import (
 // included; level.dat and the server-wide data/ stay at the root.
 // vanilla: DimensionType.getStorageFolder
 
-// dimensionDir returns the folder of the dimension called name in the world
+// DimensionDir returns the folder of the dimension called name in the world
 // under root.
-func dimensionDir(root, name string) string {
-	return DimensionDir(root, name)
-}
-
-// DimensionDir is dimensionDir for callers outside the package.
 func DimensionDir(root, name string) string {
 	namespace, path, ok := strings.Cut(name, ":")
 	if !ok {
@@ -48,7 +43,7 @@ var legacyMoves = func() [][2]string {
 	for _, d := range []struct{ old, name string }{
 		{"", DimensionName}, {"DIM-1", NetherName}, {"DIM1", EndName},
 	} {
-		dst := dimensionDir("", d.name)
+		dst := DimensionDir("", d.name)
 		for _, folder := range []string{"region", "entities", "poi"} {
 			moves = append(moves, [2]string{filepath.Join(d.old, folder), filepath.Join(dst, folder)})
 		}
