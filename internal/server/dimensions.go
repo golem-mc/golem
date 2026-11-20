@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"github.com/golem-mc/golem/nbt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -166,6 +167,11 @@ func (s *Server) makeDimensions(overworldGen world.Generator, shared sharedNethe
 	if !s.Config.GenerateStructures {
 		netherGen.DisableStructures()
 	}
+	if g, ok := vanillaStemGenerator(s.packStems, world.NetherName, func(gen nbt.Compound, shape world.DimensionShape) (world.Generator, error) {
+		return world.StemGenerator(gen, shape, netherSeed, s.Config.GenerateStructures)
+	}).(*world.NetherGenerator); ok {
+		netherGen, fixture = g, nil
+	}
 	netherGen.SetStructureMobFinalizer(s.structureMobFinalizer(world.NetherName))
 	nether := &dimension{
 		name:   world.NetherName,
@@ -178,6 +184,11 @@ func (s *Server) makeDimensions(overworldGen world.Generator, shared sharedNethe
 	}
 
 	endGen := world.NewEndGenerator(seed)
+	if g, ok := vanillaStemGenerator(s.packStems, world.EndName, func(gen nbt.Compound, shape world.DimensionShape) (world.Generator, error) {
+		return world.StemGenerator(gen, shape, seed, s.Config.GenerateStructures)
+	}).(*world.EndGenerator); ok {
+		endGen = g
+	}
 	end := &dimension{
 		name:   world.EndName,
 		typeID: registry.MustID("minecraft:dimension_type", world.EndType),

@@ -91,7 +91,7 @@ func (g *OverworldGenerator) ringsFor(seed int64) *strongholdRings {
 	if g.flat != nil {
 		return sharedRingsOf(ringsKey{0, g.preset, g.flat.biome})
 	}
-	return ringsOf(seed, g.preset)
+	return ringsOf(seed, g.terrainPreset())
 }
 
 func sharedRingsOf(key ringsKey) *strongholdRings {

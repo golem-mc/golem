@@ -83,3 +83,12 @@ func (p overworldPreset) dimension() terrain.Dimension {
 	}
 	return terrain.Overworld
 }
+
+// terrainPreset is the preset whose noise settings shape the terrain: a
+// single-biome world's own, else the preset.
+func (g *OverworldGenerator) terrainPreset() overworldPreset {
+	if g.preset == presetSingleBiome {
+		return g.terrain
+	}
+	return g.preset
+}

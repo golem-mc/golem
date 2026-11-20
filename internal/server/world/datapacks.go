@@ -47,3 +47,17 @@ func stringTags(ids []string) nbt.List {
 	}
 	return nbt.List{Elem: nbt.TypeString, Items: items}
 }
+
+// SavedDataPacks is the pack selection level.dat under dir lists, ok false for
+// a new world or a level.dat without one; the world is not opened.
+func SavedDataPacks(dir string) (enabled, disabled []string, ok bool) {
+	level, err := LoadLevel(dir)
+	if err != nil || !level.existed {
+		return nil, nil, false
+	}
+	packs, ok := nbt.Get[nbt.Compound](level.raw, "DataPacks")
+	if !ok {
+		return nil, nil, false
+	}
+	return stringList(packs, "Enabled"), stringList(packs, "Disabled"), true
+}

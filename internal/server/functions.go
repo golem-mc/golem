@@ -84,6 +84,16 @@ type loadedFunctions struct {
 	tick []*command.Function
 }
 
+// openRepository scans the world's packs and selects those of enabled and the
+// automatic ones not in disabled; safe mode selects vanilla alone.
+func (s *Server) openRepository(enabled, disabled []string, skip func(file string, err error)) (*datapack.Repository, error) {
+	if s.Config.SafeMode {
+		slog.Warn("Safe mode active, only vanilla datapack will be loaded")
+		return datapack.OpenOnly(s.levelDir, []string{"vanilla"}, skip)
+	}
+	return datapack.Open(s.levelDir, enabled, disabled, skip)
+}
+
 // openDataPacks selects the world's packs from level.dat, or for a world
 // with none from server.properties' initial-enabled-packs and
 // initial-disabled-packs (or, in safe mode, vanilla alone), and loads their registry entries and functions.
@@ -96,14 +106,7 @@ func (s *Server) openDataPacks() error {
 	skip := func(file string, err error) {
 		slog.Warn("Skipping data pack file " + file + ": " + err.Error())
 	}
-	var repo *datapack.Repository
-	var err error
-	if s.Config.SafeMode {
-		slog.Warn("Safe mode active, only vanilla datapack will be loaded")
-		repo, err = datapack.OpenOnly(s.levelDir, []string{"vanilla"}, skip)
-	} else {
-		repo, err = datapack.Open(s.levelDir, enabled, disabled, skip)
-	}
+	repo, err := s.openRepository(enabled, disabled, skip)
 	if err != nil {
 		return err
 	}
