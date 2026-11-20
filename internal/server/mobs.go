@@ -1591,7 +1591,9 @@ func (h *mobHerd) wake(pos world.ChunkPos, s *Server, known map[uuid.UUID]bool, 
 		return woken
 	}
 	h.listed[pos] = len(tags) > 0
-	return h.standUp(pos, tags, s, known, forWrite)
+	woken := h.standUp(pos, tags, s, known, forWrite)
+	woken.markLoaded()
+	return woken
 }
 
 // standUp turns saved entity tags into entities, skipping known UUIDs;

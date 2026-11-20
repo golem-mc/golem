@@ -48,6 +48,7 @@ type toldBody[S any] struct {
 // Paper: Entity.origin
 type entityOrigin struct {
 	set     bool
+	loaded  bool // loaded from saved NBT: leave unset when Paper.Origin was absent
 	dim     string
 	x, y, z float64
 }
@@ -547,7 +548,7 @@ func (k *trackedKind[B, S]) register(s *Server, b B) {
 	list := k.list(s)
 	*list = append(*list, b)
 	v := k.body(b)
-	if !v.t.origin.set {
+	if !v.t.origin.set && !v.t.origin.loaded {
 		v.t.origin = entityOrigin{set: true, dim: w.DimensionName(), x: v.p.x, y: v.p.y, z: v.p.z}
 	}
 	var recipients []*client
@@ -572,7 +573,7 @@ func (k *trackedKind[B, S]) register(s *Server, b B) {
 // The caller holds the kind's lock and sends the pairing after it.
 func (k *trackedKind[B, S]) showLocked(b B, watchers []trackingWatcher) []*client {
 	v := k.body(b)
-	if !v.t.origin.set {
+	if !v.t.origin.set && !v.t.origin.loaded {
 		v.t.origin = entityOrigin{set: true, dim: v.w.DimensionName(), x: v.p.x, y: v.p.y, z: v.p.z}
 	}
 	var shown []*client

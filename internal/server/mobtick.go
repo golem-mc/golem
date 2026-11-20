@@ -610,6 +610,7 @@ func (t *mobDimTick) wakeLoadedChunks(fx *mobEffects, in *mobTickInputs) {
 			carried := h.carried[pos]
 			delete(h.carried, pos)
 			woken = h.standUp(pos, carried, s, t.known, false)
+			woken.markLoaded()
 		} else {
 			continue
 		}

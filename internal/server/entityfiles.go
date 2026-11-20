@@ -744,6 +744,65 @@ func (r *wakeResult) add(o wakeResult) {
 	r.seats = append(r.seats, o.seats...)
 }
 
+// markLoaded marks every woken entity as loaded from saved NBT so registration
+// does not invent a Paper.Origin for vanilla saves that had none.
+func (r *wakeResult) markLoaded() {
+	for _, e := range r.mobs {
+		e.origin.loaded = true
+	}
+	for _, e := range r.items {
+		e.origin.loaded = true
+	}
+	for _, e := range r.arrows {
+		e.origin.loaded = true
+	}
+	for _, e := range r.orbs {
+		e.origin.loaded = true
+	}
+	for _, e := range r.tnts {
+		e.origin.loaded = true
+	}
+	for _, e := range r.fallings {
+		e.origin.loaded = true
+	}
+	for _, e := range r.paintings {
+		e.origin.loaded = true
+	}
+	for _, e := range r.frames {
+		e.origin.loaded = true
+	}
+	for _, e := range r.boats {
+		e.origin.loaded = true
+	}
+	for _, e := range r.minecarts {
+		e.origin.loaded = true
+	}
+	for _, e := range r.armorStands {
+		e.origin.loaded = true
+	}
+	for _, e := range r.endCrystals {
+		e.origin.loaded = true
+	}
+	for _, e := range r.mannequins {
+		e.origin.loaded = true
+	}
+	for _, e := range r.fixtures {
+		e.origin.loaded = true
+	}
+	for _, e := range r.thrown {
+		e.origin.loaded = true
+	}
+	for _, e := range r.clouds {
+		e.origin.loaded = true
+	}
+	for _, e := range r.fireworks {
+		e.origin.loaded = true
+	}
+	for _, e := range r.eyes {
+		e.origin.loaded = true
+	}
+}
+
 // wasWritten reports whether d's chunk was in the landed unload write,
 // meaning d has left rather than waiting for a retry.
 func wasWritten(d departure, written map[*world.World]map[world.ChunkPos]struct{}) bool {
