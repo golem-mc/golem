@@ -63,6 +63,17 @@ type Loader interface {
 	Load(Server) error
 }
 
+// GeneratorProvider is a Plugin that publishes world generators under ids,
+// for a world manager to resolve a "<plugin>[:<id>]" string with
+// Server.Generator. Bukkit: JavaPlugin.getDefaultWorldGenerator
+type GeneratorProvider interface {
+	Plugin
+	// Generator answers the generator id names for the world key, and an
+	// error for an id the plugin does not know. id is empty for a bare
+	// plugin name.
+	Generator(world Key, id string) (Generator, error)
+}
+
 // Registration is a registered plugin, its name and its ordering options.
 type Registration struct {
 	Name   string
@@ -134,6 +145,8 @@ type Info struct {
 	// the binary's build information.
 	Module, Version string
 	Enabled         bool
+	// Generators reports whether the plugin is a GeneratorProvider.
+	Generators bool
 }
 
 // Logger is what Server.Logger answers, kept as its own type so the
