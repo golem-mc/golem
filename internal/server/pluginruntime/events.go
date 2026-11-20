@@ -470,45 +470,85 @@ func (b *pluginBus) fire(event plugin.Event) {
 func clonePluginValue(v reflect.Value) reflect.Value {
 	c := reflect.New(v.Type()).Elem()
 	c.Set(v)
-	switch v.Kind() {
+	deepen(c)
+	return c
+}
+
+// deepen replaces what the addressable copy c still shares with its source:
+// exported pointers, slices, maps and map, slice or array interface values.
+func deepen(c reflect.Value) {
+	t := c.Type()
+	if flatType(t) {
+		return
+	}
+	switch c.Kind() {
 	case reflect.Struct:
-		for i := 0; i < v.NumField(); i++ {
-			if c.Field(i).CanSet() && v.Type().Field(i).IsExported() {
-				c.Field(i).Set(clonePluginValue(v.Field(i)))
+		for i := 0; i < c.NumField(); i++ {
+			if t.Field(i).IsExported() && !flatType(t.Field(i).Type) {
+				deepen(c.Field(i))
 			}
 		}
 	case reflect.Pointer:
-		if !v.IsNil() {
-			c.Set(reflect.New(v.Type().Elem()))
-			c.Elem().Set(clonePluginValue(v.Elem()))
+		if !c.IsNil() {
+			p := reflect.New(t.Elem())
+			p.Elem().Set(c.Elem())
+			deepen(p.Elem())
+			c.Set(p)
 		}
 	case reflect.Slice:
-		if !v.IsNil() {
-			c.Set(reflect.MakeSlice(v.Type(), v.Len(), v.Len()))
-			for i := 0; i < v.Len(); i++ {
-				c.Index(i).Set(clonePluginValue(v.Index(i)))
+		if !c.IsNil() {
+			s := reflect.MakeSlice(t, c.Len(), c.Len())
+			reflect.Copy(s, c)
+			if !flatType(t.Elem()) {
+				for i := 0; i < s.Len(); i++ {
+					deepen(s.Index(i))
+				}
 			}
+			c.Set(s)
 		}
 	case reflect.Map:
-		if !v.IsNil() {
-			c.Set(reflect.MakeMapWithSize(v.Type(), v.Len()))
-			for it := v.MapRange(); it.Next(); {
-				c.SetMapIndex(it.Key(), clonePluginValue(it.Value()))
+		if !c.IsNil() {
+			m := reflect.MakeMapWithSize(t, c.Len())
+			for it := c.MapRange(); it.Next(); {
+				m.SetMapIndex(it.Key(), clonePluginValue(it.Value()))
 			}
+			c.Set(m)
 		}
 	case reflect.Interface:
-		if !v.IsNil() {
-			switch v.Elem().Kind() {
+		if !c.IsNil() {
+			switch c.Elem().Kind() {
 			case reflect.Map, reflect.Slice, reflect.Array:
-				c.Set(clonePluginValue(v.Elem()))
+				c.Set(clonePluginValue(c.Elem()))
 			}
 		}
 	case reflect.Array:
-		for i := 0; i < v.Len(); i++ {
-			c.Index(i).Set(clonePluginValue(v.Index(i)))
+		for i := 0; i < c.Len(); i++ {
+			deepen(c.Index(i))
 		}
 	}
-	return c
+}
+
+var flatTypes sync.Map // reflect.Type -> bool
+
+// flatType reports whether a value of t shares no memory through its exported
+// fields, so a plain copy is a deep copy.
+func flatType(t reflect.Type) bool {
+	if f, ok := flatTypes.Load(t); ok {
+		return f.(bool)
+	}
+	flat := true
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Interface:
+		flat = false
+	case reflect.Array:
+		flat = flatType(t.Elem())
+	case reflect.Struct:
+		for i := 0; i < t.NumField() && flat; i++ {
+			flat = !t.Field(i).IsExported() || flatType(t.Field(i).Type)
+		}
+	}
+	flatTypes.Store(t, flat)
+	return flat
 }
 
 // CloneText snapshots an API component, including nested style and item data.
