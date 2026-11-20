@@ -642,13 +642,17 @@ func TestAnExplosionBreaksAFrameAndDropsBothItems(t *testing.T) {
 		t.Fatal("the frame's slot stayed empty after the use")
 	}
 
+	// The actor stands in pickup reach of the drops, so they live only
+	// until their pickup delay runs out (10 ticks): hold the loop so the
+	// drops are read after every tick, not after a backlog's burst.
+	servertest.HoldTicks(t, srv)
 	if id := srv.SpawnTNT(4.5, 64, 1.5, 1); id == 0 {
 		t.Fatal("the TNT never stood up")
 	}
 	// The frame leaves the count the moment it is removed, before the
 	// drops are laid, so wait on the drops themselves, not the count.
 	var drops map[string]bool
-	servertest.WaitForTicks(t, srv, 20, func() bool {
+	servertest.WaitForTicks(t, srv, 5, func() bool {
 		drops = map[string]bool{}
 		for _, it := range srv.ItemsInDimension("minecraft:overworld") {
 			if it.Item == "minecraft:glow_item_frame" || it.Item == "minecraft:diamond" {

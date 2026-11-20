@@ -134,8 +134,11 @@ under `internal/server/world/testdata` were recorded with it.
 ## loadtest
 
 Starts a server, golem or vanilla, drives it with bot clients through a
-scenario and writes `summary.json` with tick time, CPU, memory and bytes
-received. `loadtest scenarios` lists the scenarios.
+scenario and writes `summary.json` with tick time, CPU, memory, bytes
+received (per second and per tick), the clients' keep-alive round trip (the
+tab list's latency), the round trip of a ping each client sends once a
+second, and how long the shortest-lived client stayed connected.
+`loadtest scenarios` lists the scenarios.
 
 ```bash
 mise exec -- go build -o /tmp/golem . && mise exec -- go build -o /tmp/loadtest ./tools/loadtest

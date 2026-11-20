@@ -1,0 +1,38 @@
+$ golem-launcher outdated
+-- stdout --
+NAME               PINNED  LATEST
+server             v1.0.0  v1.5.0
+example.com/warps  v1.0.0  v1.1.0
+example.com/shops  v1.0.0  v1.2.0
+-- stderr --
+✓ finding the latest versions (0.0s)
+
+$ golem-launcher update warps
+-- stderr --
+✓ finding the latest versions (0.0s)
+✓ downloading golem v1.0.0 (0.0s)
+✓ resolving 2 plugins (0.0s)
+✗ checking the server version
+error: $DIR/launcher.json is unchanged: launcher.json names server v1.0.0, but a plugin needs v1.5.0 (example.com/warps@v1.1.0); run `golem-launcher server v1.5.0` to raise it, or use an older plugin
+-- exit: 1 --
+
+$ golem-launcher update
+-- stdout --
+updated $DIR/launcher.json:
+  server v1.0.0 → v1.5.0
+  example.com/warps v1.0.0 → v1.1.0
+  example.com/shops v1.0.0 → v1.2.0
+-- stderr --
+✓ finding the latest versions (0.0s)
+✓ downloading golem v1.5.0 (0.0s)
+✓ resolving 2 plugins (0.0s)
+✓ checking the server version (0.0s)
+✓ checking the plugins' imports (0.0s)
+✓ checking dependency upgrades (0.0s)
+
+$ golem-launcher outdated
+-- stdout --
+everything is up to date
+-- stderr --
+✓ finding the latest versions (0.0s)
+

@@ -191,14 +191,13 @@ const idleBenchPlayers = 100
 // BenchmarkWholeTickIdle runs the whole tick over a hundred idle players.
 func BenchmarkWholeTickIdle(b *testing.B) {
 	s, _ := newIdlePlayersBenchServer(b, idleBenchPlayers)
-	now := time.Now()
 	for range 200 {
-		s.tick(now)
+		s.tick()
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		s.tick(now)
+		s.tick()
 	}
 }
 

@@ -591,7 +591,7 @@ func (s *Server) WorldAge() int64 {
 // RunTick runs one whole turn of the main loop by hand, the gating and every
 // pass included, for the tests that stop the loop and drive the tick
 // themselves.
-func (s *Server) RunTick() { s.tick(s.loopClock().Now()) }
+func (s *Server) RunTick() { s.tick() }
 
 // TickSurvival runs one turn of the survival pass over every player - the
 // loading grace's countdown, the vitals' rhythms - the way the main tick's
@@ -4799,6 +4799,28 @@ func (s *Server) WatchChunkStops(watch func()) {
 // whose client is gone ends itself on its first failed write, so a test
 // counts starts rather than the senders still running.
 func (s *Server) ChunkSendersStarted() int { return int(s.chunkSenders.Load()) }
+
+// HoldChunkSenders keeps every chunk sender started from now on from
+// sending or loading anything until the release it returns is called: a
+// join then waits on its chunks for as long as the test likes.
+func (s *Server) HoldChunkSenders() (release func()) {
+	held := make(chan struct{})
+	s.chunkSenderHold.Store(&held)
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.chunkSenderHold.Store(nil)
+			close(held)
+		})
+	}
+}
+
+// PlayerClientLoaded reports whether the named player's client counts as
+// loaded: its Player Loaded came in, or the load timeout ran out.
+func (s *Server) PlayerClientLoaded(name string) bool {
+	c := s.playerClient(name)
+	return c != nil && c.clientLoaded()
+}
 
 // HoldFirstChunk holds back the first chunk the server sends, after its
 // batch has begun, until the release it returns is called. It has to be

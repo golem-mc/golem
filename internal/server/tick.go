@@ -233,7 +233,7 @@ func (s *Server) tickLoop(done, exited chan struct{}) {
 		now := time.Now()
 		s.sendTickSamples(now)
 		start := time.Now()
-		if !s.runTick(clock.Now()) {
+		if !s.runTick() {
 			return
 		}
 		s.metrics.Tick(start, time.Now())
@@ -280,7 +280,7 @@ func (s *Server) waitForTick(clock tickClock, next time.Time, done <-chan struct
 // still saves the world and disconnects the players; false means the tick
 // panicked and the loop must end.
 // vanilla: MinecraftServer.runServer (catch Throwable, then stopServer)
-func (s *Server) runTick(now time.Time) (ok bool) {
+func (s *Server) runTick() (ok bool) {
 	defer func() {
 		p := recover()
 		if p == nil {
@@ -294,7 +294,7 @@ func (s *Server) runTick(now time.Time) (ok bool) {
 		s.RequestStop()
 		ok = false
 	}()
-	s.tick(now)
+	s.tick()
 	return true
 }
 
@@ -354,7 +354,7 @@ func (s *Server) Crashed() bool { return s.crashed.Load() }
 // in. The sleeping runs after the weather the night's passing may take down
 // and before the clock the waking jump moves.
 // vanilla: MinecraftServer.tickServer, tickChildren, ServerLevel.tick
-func (s *Server) tick(now time.Time) {
+func (s *Server) tick() {
 	var pluginTickStart time.Time
 	if s.plugins != nil {
 		if s.plugins.Has(pluginruntime.ServerTickEnd) {
@@ -496,6 +496,11 @@ func (s *Server) tick(now time.Time) {
 	// ServerCommonPacketListenerImpl.keepConnectionAlive (Util.getMillis)
 	s.tickKeepAlives(s.keepAliveClock())
 	s.flushDestroyed()
+	// After the entity passes and timed when it runs, so a ping is
+	// stamped just before the flush that sends it: one stamped at the
+	// tick's start would count a slow tick as the client's latency.
+	// vanilla: MinecraftServer.tickChildren (tickConnection after the levels)
+	s.tickKeepAlives(s.loopClock().Now())
 	s.ticksRun.Add(1)
 	s.wakeMailboxes()
 	s.endPluginTick(pluginTickStart)

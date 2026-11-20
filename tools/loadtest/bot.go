@@ -67,9 +67,32 @@ type bot struct {
 	markAfter bool // a teleport after mark() resets markTime to its arrival
 	chunksIn  atomic.Int64
 	dead      atomic.Bool
+	// latency is the server's keep-alive round trip for this bot, as the tab
+	// list reports it (every 600 ticks on both servers); pings are the round
+	// trips of the bot's own ping_request, answered behind every packet
+	// already queued for it, once a second.
+	latency, pings []timedSample
+	joinedAt       time.Time
+	lostAt         atomic.Int64 // unix nanoseconds the connection failed, 0 while it plays
 
 	err  atomic.Pointer[error]
 	done chan struct{}
+}
+
+type timedSample struct {
+	at time.Time
+	v  float64 // milliseconds
+}
+
+// samplesIn returns the values of samples taken from start to end.
+func samplesIn(samples []timedSample, start, end time.Time) []float64 {
+	var v []float64
+	for _, s := range samples {
+		if !s.at.Before(start) && !s.at.After(end) {
+			v = append(v, s.v)
+		}
+	}
+	return v
 }
 
 type chunkArrival struct {
@@ -118,7 +141,9 @@ func (b *bot) send(id int32, fill func(*protocol.Buffer)) {
 }
 
 func (b *bot) fail(err error) {
-	b.err.CompareAndSwap(nil, &err)
+	if b.err.CompareAndSwap(nil, &err) {
+		b.lostAt.Store(time.Now().UnixNano())
+	}
 	b.raw.Close()
 }
 
@@ -215,7 +240,11 @@ func (b *bot) configure() error {
 // run reads the play state until the connection closes, and ticks the
 // behaviour at 20 Hz.
 func (b *bot) run() {
+	b.mu.Lock()
+	b.joinedAt = time.Now()
+	b.mu.Unlock()
 	go b.tickLoop()
+	go b.pingLoop()
 	defer close(b.done)
 	for {
 		id, data, err := b.conn.ReadPacket()
@@ -238,6 +267,15 @@ func (b *bot) run() {
 		switch id {
 		case protocol.IDPlayKeepAlive:
 			b.send(protocol.IDPlayKeepAliveIn, func(w *protocol.Buffer) { w.PutRaw(data) })
+		case protocol.IDPlayPingResponse:
+			if sent := protocol.NewReader(data).ReadI64(); sent > 0 {
+				now := time.Now()
+				b.mu.Lock()
+				b.pings = append(b.pings, timedSample{now, float64(now.UnixNano()-sent) / 1e6})
+				b.mu.Unlock()
+			}
+		case protocol.IDPlayPlayerInfoUpdate:
+			b.playerInfo(data)
 		case protocol.IDPlayPing:
 			b.send(protocol.IDPlayPong, func(w *protocol.Buffer) { w.PutRaw(data) })
 		case protocol.IDPlaySyncPosition:
@@ -284,6 +322,43 @@ func (b *bot) run() {
 			b.fail(fmt.Errorf("kicked: %q", data))
 			return
 		}
+	}
+}
+
+// playerInfo records the bot's own latency from a latency-only update.
+func (b *bot) playerInfo(data []byte) {
+	const updateLatency = 0x10 // the actions bit set of only UPDATE_LATENCY
+	r := protocol.NewReader(data)
+	if r.ReadU8() != updateLatency {
+		return
+	}
+	self := protocol.OfflineUUID(b.name)
+	n := r.ReadVarInt()
+	for i := int32(0); i < n && r.Err() == nil; i++ {
+		id, ms := r.ReadUUID(), r.ReadVarInt()
+		if r.Err() == nil && id == self {
+			b.mu.Lock()
+			b.latency = append(b.latency, timedSample{time.Now(), float64(ms)})
+			b.mu.Unlock()
+			return
+		}
+	}
+}
+
+// pingLoop sends a ping_request carrying the send time once a second.
+func (b *bot) pingLoop() {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-b.done:
+			return
+		case <-t.C:
+		}
+		if b.Err() != nil {
+			return
+		}
+		b.send(protocol.IDPlayPingRequest, func(w *protocol.Buffer) { w.PutI64(time.Now().UnixNano()) })
 	}
 }
 

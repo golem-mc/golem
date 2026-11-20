@@ -1,0 +1,9 @@
+$ golem-launcher -- --port 25566
+-- stderr --
+✓ resolving 1 plugin (0.0s)
+✓ checking the server version (0.0s)
+✓ checking the plugins' imports (0.0s)
+✓ checking dependency upgrades (0.0s)
+✓ building golem ./srv with 1 plugin (0.0s)
+✓ golem ./srv · 1 plugin · ready in 0.0s
+

@@ -488,9 +488,19 @@ func TestAPearlLandingInAnotherDimensionCarriesItsOwner(t *testing.T) {
 	// thrower's own stream is drained throughout — its mailbox must not back
 	// up behind the Respawn that carries it across.
 	arrival := awaitPearlSpawn(t, srv, mover)
+	// The Respawn carrying the thrower across says their portal cooldown:
+	// the pearl's, taken before the carry and still whole on arrival, so the
+	// nether portal the creative thrower is set down beside does not take
+	// them straight back.
 	crossed, removed := false, false
-	servertest.UntilTicks(t, srv, 400, "the thrower crossing and the pearl's landing reaching the nether watcher", func() bool {
-		thrower.ReadTicks(srv, 0, func(int32, []byte) bool { return false })
+	arrivalCooldown := int32(-1)
+	servertest.UntilTicks(t, srv, 400, "the thrower crossing, its Respawn and the pearl's landing reaching the nether watcher", func() bool {
+		thrower.ReadTicks(srv, 0, func(gotID int32, data []byte) bool {
+			if gotID == protocol.IDPlayRespawn && arrivalCooldown < 0 {
+				arrivalCooldown = servertest.RespawnPortalCooldown(t, data)
+			}
+			return false
+		})
 		mover.ReadTicks(srv, 0, func(gotID int32, data []byte) bool {
 			if gotID != protocol.IDPlayRemoveEntities {
 				return false
@@ -507,8 +517,11 @@ func TestAPearlLandingInAnotherDimensionCarriesItsOwner(t *testing.T) {
 		if srv.PlayerDimension("Thrower") == world.NetherName {
 			crossed = true
 		}
-		return crossed && removed
+		return crossed && removed && arrivalCooldown >= 0
 	})
+	if want := int32(10); arrivalCooldown != want { // vanilla: Player.getDimensionChangingDelay
+		t.Errorf("the thrower arrived with portal cooldown %d, want %d", arrivalCooldown, want)
+	}
 	if !crossed {
 		t.Fatalf("the thrower stayed in %q, want carried to the pearl in %q",
 			srv.PlayerDimension("Thrower"), world.NetherName)

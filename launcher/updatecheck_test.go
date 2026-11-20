@@ -131,15 +131,49 @@ func newStartFixture(t *testing.T, launcherJSON, launcherVersion, latest string)
 	return f
 }
 
-// start runs the launcher's default command and answers what it printed.
+// cli answers a command line of the fixture with plain output.
+func (f *startFixture) cli() *cli {
+	c := &cli{configPath: f.config, out: &bytes.Buffer{}, errw: io.Discard}
+	if err := c.setColor("never"); err != nil {
+		f.t.Fatal(err)
+	}
+	c.l = newLauncher(f.cache, c.ui)
+	return c
+}
+
+// start runs the launcher's default command and answers what it printed
+// besides the steps and the summary: the update notices.
 func (f *startFixture) start() string {
 	f.t.Helper()
 	n := len(f.started)
-	out := f.must()
-	if len(f.started) != n+1 {
-		f.t.Fatalf("run did not hand over to the server; printed %q", out)
+	out, errw, err := f.run()
+	if err != nil || len(f.started) != n+1 {
+		f.t.Fatalf("run did not hand over to the server: %v; printed %q", err, out+errw)
 	}
-	return out
+	if out != "" {
+		f.t.Errorf("run printed %q on standard output", out)
+	}
+	return withoutSteps(errw)
+}
+
+// withoutSteps answers plain output with the lines of finished steps left out.
+func withoutSteps(s string) string {
+	var b strings.Builder
+	for line := range strings.Lines(s) {
+		if !strings.HasPrefix(line, "✓ ") {
+			b.WriteString(line)
+		}
+	}
+	return b.String()
+}
+
+// noticeLines answers ns as plain mode prints them.
+func noticeLines(ns []notice) []string {
+	var lines []string
+	for _, n := range ns {
+		lines = append(lines, n.String())
+	}
+	return lines
 }
 
 const (
@@ -189,8 +223,8 @@ func TestStartNoticesTimeout(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		out, _, err := f.run()
-		done <- result{out, err}
+		out, errw, err := f.run()
+		done <- result{out + withoutSteps(errw), err}
 	}()
 	<-f.clock.armed
 	f.clock.Advance(updateCheckTimeout)
@@ -214,7 +248,7 @@ func TestStartNoticesFinishedBeforeSlowBuild(t *testing.T) {
 	finished := make(chan struct{}, 1)
 	updateCheckDone = func() { finished <- struct{}{} }
 	t.Cleanup(func() { updateCheckDone = func() {} })
-	c := &cli{l: newLauncher(f.cache), configPath: f.config, out: &bytes.Buffer{}}
+	c := f.cli()
 	st, err := c.load(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -232,7 +266,7 @@ func TestStartNoticesFinishedBeforeSlowBuild(t *testing.T) {
 		// Lets the expiry goroutine mark the check expired, so that both
 		// answers are ready; the test passes without it but misses a lost one.
 		time.Sleep(5 * time.Millisecond)
-		if got := notices(); !slices.Equal(got, want) {
+		if got := noticeLines(notices()); !slices.Equal(got, want) {
 			t.Fatalf("notices = %q, want %q", got, want)
 		}
 	}
@@ -288,7 +322,7 @@ func TestUpdateNoticesPluginsAndLocal(t *testing.T) {
 	f := newStartFixture(t, `{"server": "./srv", "plugins": ["example.com/shops@v1.0.0", "example.com/warps@v1.0.0", "./mine"]}`, "", "v1.5.0")
 	writeMod(t, filepath.Join(f.dir, "srv"), serverModule)
 	writeMod(t, filepath.Join(f.dir, "mine"), "example.com/mine")
-	c := &cli{l: newLauncher(f.cache), configPath: f.config, out: &bytes.Buffer{}}
+	c := f.cli()
 	st, err := c.load(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -298,7 +332,7 @@ func TestUpdateNoticesPluginsAndLocal(t *testing.T) {
 		"↑ example.com/warps v1.1.0 is out (you run v1.0.0)",
 		strings.TrimSuffix(updateHint, "\n"),
 	}
-	if got := c.updateNotices(context.Background(), st, ""); !slices.Equal(got, want) {
+	if got := noticeLines(c.updateNotices(context.Background(), st, "")); !slices.Equal(got, want) {
 		t.Errorf("notices = %q, want %q", got, want)
 	}
 	if f.releases.count() != 0 {
@@ -308,11 +342,11 @@ func TestUpdateNoticesPluginsAndLocal(t *testing.T) {
 	// proxy; after it, a failed lookup is silent.
 	t.Setenv("GOPROXY", "off")
 	f.clock.Advance(versionCacheTTL - time.Minute)
-	if got := c.updateNotices(context.Background(), st, ""); !slices.Equal(got, want) {
+	if got := noticeLines(c.updateNotices(context.Background(), st, "")); !slices.Equal(got, want) {
 		t.Errorf("cached notices = %q, want %q", got, want)
 	}
 	f.clock.Advance(time.Minute)
-	c.l = newLauncher(f.cache) // a new command: no remembered queries
+	c.l = newLauncher(f.cache, c.ui) // a new command: no remembered queries
 	if got := c.updateNotices(context.Background(), st, ""); len(got) != 0 {
 		t.Errorf("notices with the proxy off = %q", got)
 	}

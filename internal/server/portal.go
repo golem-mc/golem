@@ -359,9 +359,11 @@ func (s *Server) tickPortals() {
 }
 
 // tickPortal counts a player's cooldown down and nether portal time up; an
-// end portal takes them at once.
+// end portal takes them at once. A crossing in flight holds the cooldown:
+// vanilla sets it and changes dimension in one tick, so all of it runs after
+// the arrival.
 func (c *client) tickPortal() {
-	if cooldown := c.portalCooldown.Load(); cooldown > 0 {
+	if cooldown := c.portalCooldown.Load(); cooldown > 0 && !c.traveling.Load() {
 		c.portalCooldown.Store(cooldown - 1)
 	}
 	if c.player.Vitals().Dead {

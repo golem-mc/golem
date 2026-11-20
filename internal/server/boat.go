@@ -251,9 +251,17 @@ func (s *Server) tickBoats() {
 		if !c.clientLoaded() {
 			continue // still behind the loading screen; a later tick takes it
 		}
+		if saved := c.vehicleOnJoin.Load(); saved == nil || !c.savedVehicleChunkSent(*saved) {
+			continue
+		}
+		// Under saveMu, so a save sees the file's copy or the seat, never
+		// the gap between; a departure's save that took the copy leaves
+		// nothing to raise.
+		c.saveMu.Lock()
 		if saved := c.vehicleOnJoin.Swap(nil); saved != nil {
 			s.remountSavedVehicle(c, c.dimension(), *saved)
 		}
+		c.saveMu.Unlock()
 	}
 
 	gate := s.newEntityGate()
@@ -2447,6 +2455,15 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 	boat := c.vehicle.Load()
 	var root *mobEntity
 	var attach uuid.UUID
+	// A file's vehicle not yet raised is saved as the file had it, the seat
+	// still empty; a departure takes it so the tick raises nothing.
+	// vanilla: PlayerList.placeNewPlayer seats the rider before any save
+	if pending := c.vehicleOnJoin.Load(); pending != nil {
+		if take {
+			c.vehicleOnJoin.Store(nil)
+		}
+		return *pending
+	}
 	if seat := c.cushion.Load(); seat != nil {
 		return c.savedCushion(seat, take)
 	}
@@ -2653,6 +2670,23 @@ func (s *Server) remountSavedVehicle(c *client, dim *dimension, saved nbt.Compou
 		return
 	}
 	s.seatOnSavedMob(c, dim.w, attach)
+}
+
+// savedVehicleChunkSent reports whether the rider was sent the chunk their
+// file's RootVehicle stands in. The load timeout can run out before the
+// chunk is even loaded, and a hull raised in a chunk nobody holds leaves
+// with it on the next tick, dropping the rider; a sent chunk is one the
+// rider holds. A root without a position passes, for the remount to refuse.
+func (c *client) savedVehicleChunkSent(saved nbt.Compound) bool {
+	root, ok := nbt.Get[nbt.Compound](saved, "Entity")
+	if !ok {
+		return true
+	}
+	x, _, z, ok := entityPositionOfTag(root)
+	if !ok {
+		return true
+	}
+	return c.tracks(c.dimension().w, world.ChunkPos{X: world.ChunkOf(x), Z: world.ChunkOf(z)})
 }
 
 // sendBoatEntities shows a joining or arriving client every boat in its

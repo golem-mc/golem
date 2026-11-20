@@ -457,6 +457,9 @@ type Server struct {
 	// chunkStopSeam, test-only, runs in a chunk sender's stop after its stop
 	// channel closes, before the wait for the sender.
 	chunkStopSeam func()
+	// chunkSenderHold, test-only, holds every chunk sender started while set
+	// until the channel closes, before its first pass.
+	chunkSenderHold atomic.Pointer[chan struct{}]
 	// chunkSenders counts the chunk senders ever started.
 	chunkSenders atomic.Int64
 

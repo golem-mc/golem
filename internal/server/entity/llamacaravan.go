@@ -61,22 +61,32 @@ func (g *caravanGoal) CanStart(t *tickView) bool {
 		return false
 	}
 	// The nearest unfollowed llama already in a caravan wins; failing that,
-	// the nearest leashed one.
+	// the nearest leashed one. Ties go to the later in herd order: the
+	// whole herd is scanned in that order, the grid's gather in none.
 	var inCaravan, leashed *Mob
 	bestC, bestL := math.MaxFloat64, math.MaxFloat64
-	for _, o := range t.others {
-		if o == m || !IsLlama(o.Type) || !o.Alive() || o.Horse.tail != nil {
+	scan, ordered := t.others, true
+	if m.push != nil && len(t.others) > villagerGridMinHerd {
+		scan, ordered = m.push.gather(m, llamaCaravanScanXZ+1e-6), false
+	}
+	later := func(d, best float64, o, cur *Mob) bool {
+		return d < best || d == best && (ordered || o.pushIdx > cur.pushIdx)
+	}
+	// Only a llama in a caravan or on a leash can be picked, so that cheap
+	// test goes before the box.
+	scanW, scanH := m.width()+2*llamaCaravanScanXZ, m.height()+2*llamaCaravanScanY
+	for _, o := range scan {
+		if o == m || !o.inCaravan() && !o.leashed() || o.Horse.tail != nil || !IsLlama(o.Type) || !o.Alive() {
 			continue
 		}
-		if !boxesOverlap(m.X, m.Y-llamaCaravanScanY, m.Z, m.width()+2*llamaCaravanScanXZ, m.height()+2*llamaCaravanScanY,
-			o.X, o.Y, o.Z, o.width(), o.height()) {
+		if !boxesOverlap(m.X, m.Y-llamaCaravanScanY, m.Z, scanW, scanH, o.X, o.Y, o.Z, o.width(), o.height()) {
 			continue
 		}
 		d := Dist2(m.X, m.Y, m.Z, o.X, o.Y, o.Z)
-		if o.inCaravan() && d <= bestC {
+		if o.inCaravan() && later(d, bestC, o, inCaravan) {
 			bestC, inCaravan = d, o
 		}
-		if o.leashed() && d <= bestL {
+		if o.leashed() && later(d, bestL, o, leashed) {
 			bestL, leashed = d, o
 		}
 	}
