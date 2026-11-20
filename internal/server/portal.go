@@ -485,15 +485,13 @@ func (c *client) travelByNetherPortal(from *dimension) {
 		}
 		c.srv.boatsMu.Unlock()
 	}
-	to, spot, exitAxis, ok := c.srv.entityPortalArrival(rules.PortalNether, from, pos, spectator)
+	var who command.Entity = c
+	if spectator {
+		who = nil
+	}
+	to, spot, exitAxis, ok := c.srv.entityPortalArrival(who, rules.PortalNether, from, pos, spectator)
 	if !ok {
 		return
-	}
-	if moved, at, allowed := c.srv.pluginPortal(c, pos, to, spot, plugin.TeleportNetherPortal); !allowed {
-		return
-	} else if moved != to || at != spot {
-		to, spot = moved, at
-		exitAxis = rules.NetherPortalAxis(to.w.BlockAt(spot.X, spot.Y, spot.Z))
 	}
 	// Hold the exit before reading its opening and collisions: the portal
 	// search releases its chunks, and the client has not loaded them yet.
@@ -658,7 +656,7 @@ func (c *client) spectatorUsePortal(x, y, z int32, state uint16) (bool, error) {
 	switch {
 	case rules.IsPortalState(state):
 		from := c.dimension()
-		to, spot, _, ok := c.srv.entityPortalArrival(rules.PortalNether, from, c.player.Position(), true)
+		to, spot, _, ok := c.srv.entityPortalArrival(nil, rules.PortalNether, from, c.player.Position(), true)
 		if !ok {
 			cannot()
 			return true, nil
@@ -788,10 +786,10 @@ func (s *Server) applyChanges(dim *dimension, changes []world.BlockChange) {
 // buildPortalAt builds the missing exit portal near at along axis and
 // returns its bottom cell at the low end of the axis; false when the
 // dimension has no room in its logical height.
-func (s *Server) buildPortalAt(dim *dimension, at world.SpawnPos, axis [2]int32) (world.SpawnPos, bool) {
+func (s *Server) buildPortalAt(dim *dimension, at world.SpawnPos, radius int32, axis [2]int32) (world.SpawnPos, bool) {
 	w := dim.w
 	// The site's reads load and generate its chunks, as vanilla's do.
-	reach := rules.PortalSearch{At: at, Radius: rules.PortalBuildReach}
+	reach := rules.PortalSearch{At: at, Radius: radius + rules.PortalBuildMargin}
 	chunks := slices.Collect(reach.Chunks())
 	for range w.AcquireMany(chunks) {
 	}
@@ -802,7 +800,7 @@ func (s *Server) buildPortalAt(dim *dimension, at world.SpawnPos, axis [2]int32)
 	}()
 	minY := w.MinY()
 	maxPlaceableY := min(minY+w.Height(), minY+w.LogicalHeight()) - 1
-	corner, changes, ok := rules.BuildNetherPortal(w, dim.border, at, axis, minY, maxPlaceableY)
+	corner, changes, ok := rules.BuildNetherPortal(w, dim.border, at, radius, axis, minY, maxPlaceableY)
 	if !ok {
 		return world.SpawnPos{}, false
 	}
@@ -871,21 +869,32 @@ func (s *Server) endPortalDestination(from *dimension) (to *dimension, spot worl
 // nether portal, the arrival axis; false when a nether crossing found no
 // portal and builds none, a spectator never building one (vanilla's nil
 // getExitPortal), so the body stays.
-func (s *Server) entityPortalArrival(kind rules.PortalKind, from *dimension, pos player.Position, spectator bool) (to *dimension, spot world.SpawnPos, axis [2]int32, ok bool) {
+//
+// who is the crossing body, told to plugins before the exit is searched for
+// (nil for none): a listener may retarget the search and its radii.
+func (s *Server) entityPortalArrival(who command.Entity, kind rules.PortalKind, from *dimension, pos player.Position, spectator bool) (to *dimension, spot world.SpawnPos, axis [2]int32, ok bool) {
 	switch kind {
 	case rules.PortalNether:
-		toNether, at, radius := rules.NetherPortalExit(from.name == world.NetherName, pos.X, pos.Y, pos.Z)
+		toNether, at, radius := rules.NetherPortalExit(from.w.DimensionTypeName() == world.NetherType, pos.X, pos.Y, pos.Z)
 		to = s.dimensionByName(world.DimensionName)
 		if toNether {
 			to = s.dimensionByName(world.NetherName)
 		}
 		at.X, at.Z = to.border.ClampBlock(at.X, at.Z)
+		createRadius, canCreate := int32(rules.PortalBuildRadius), !spectator
+		if who != nil {
+			var allowed bool
+			if to, at, radius, createRadius, canCreate, allowed = s.pluginNetherPortal(who, pos, to, at, radius, createRadius); !allowed {
+				return nil, world.SpawnPos{}, [2]int32{}, false
+			}
+			at.X, at.Z = to.border.ClampBlock(at.X, at.Z)
+		}
 		if spot, ok = s.findPortalNear(to, at, radius); !ok {
-			if spectator {
+			if !canCreate {
 				return nil, world.SpawnPos{}, [2]int32{}, false
 			}
 			sourceAxis := rules.NetherPortalAxis(from.w.BlockAt(rules.BlockOf(pos.X), rules.BlockOf(pos.Y), rules.BlockOf(pos.Z)))
-			if spot, ok = s.buildPortalAt(to, at, sourceAxis); !ok {
+			if spot, ok = s.buildPortalAt(to, at, createRadius, sourceAxis); !ok {
 				slog.Warn("no room for a nether portal at the destination",
 					"x", at.X, "z", at.Z, "dimension", to.name)
 				return nil, world.SpawnPos{}, [2]int32{}, false
@@ -917,13 +926,9 @@ func (s *Server) entityPortalArrival(kind rules.PortalKind, from *dimension, pos
 // returns the body to its list.
 func (s *Server) crossPortal(w *world.World, id int32, pos player.Position, kind rules.PortalKind,
 	arrive func(to *dimension, spot world.SpawnPos, exitAxis [2]int32) (register func()), putBack func()) {
-	to, spot, exitAxis, ok := s.entityPortalArrival(kind, s.dimensionOfWorld(w), pos, false)
-	if ok {
-		cause := plugin.TeleportNetherPortal
-		if kind == rules.PortalEnd {
-			cause = plugin.TeleportEndPortal
-		}
-		moved, at, allowed := s.pluginPortal(s.relatedByID(w, id), pos, to, spot, cause)
+	to, spot, exitAxis, ok := s.entityPortalArrival(s.relatedByID(w, id), kind, s.dimensionOfWorld(w), pos, false)
+	if ok && kind == rules.PortalEnd {
+		moved, at, allowed := s.pluginPortal(s.relatedByID(w, id), pos, to, spot, plugin.TeleportEndPortal)
 		if ok = allowed; allowed && (moved != to || at != spot) {
 			to, spot = moved, at
 			exitAxis = rules.NetherPortalAxis(to.w.BlockAt(spot.X, spot.Y, spot.Z))

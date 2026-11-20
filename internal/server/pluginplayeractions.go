@@ -640,7 +640,7 @@ func (c *client) pluginFish(state plugin.FishState, it *bobberEntity, caught plu
 	return true
 }
 
-// pluginPortal fires EntityPortalEvent for a body about to cross a portal to
+// pluginPortal fires EntityPortalEvent for a body about to cross an end portal to
 // spot in to, and returns the destination to use: a listener's To names the
 // block the body is put at, in its world. It reports false when cancelled.
 // vanilla: Entity.teleportCrossDimension, Entity.handlePortal
@@ -666,4 +666,33 @@ func (s *Server) pluginPortal(who command.Entity, pos player.Position, to *dimen
 		to = w.dim
 	}
 	return to, spot, true
+}
+
+// pluginNetherPortal fires EntityPortalEvent for a body about to cross a
+// nether portal, before the exit is searched for. at is the scaled target in
+// to; it returns the target, radii and whether a missing exit may be built
+// as the listeners left them, false when cancelled.
+// vanilla: Entity.handlePortal, PortalForcer.findClosestPortalPosition
+func (s *Server) pluginNetherPortal(who command.Entity, pos player.Position, to *dimension, at world.SpawnPos, search, create int32) (*dimension, world.SpawnPos, int32, int32, bool, bool) {
+	if s.plugins == nil || !s.plugins.Has(pluginruntime.EntityPortal) {
+		return to, at, search, create, true, true
+	}
+	h := s.pluginAdapter
+	dest := plugin.Location{World: pluginWorld{srv: s, dim: to, host: h},
+		Pos: plugin.Vec3{X: float64(at.X), Y: float64(at.Y), Z: float64(at.Z)}, Yaw: pos.Yaw, Pitch: pos.Pitch}
+	e := &plugin.EntityPortalEvent{Entity: h.pluginEntityOf(who), From: h.entityLocation(who), To: dest, Cause: plugin.TeleportNetherPortal,
+		SearchRadius: int(search), CreationRadius: int(create), CanCreatePortal: true}
+	if !s.pluginFireAny(e) {
+		return to, at, search, create, true, true
+	}
+	if e.Cancelled() {
+		return to, at, search, create, false, false
+	}
+	if e.To.Pos != dest.Pos {
+		at = world.SpawnPos{X: int32(math.Floor(e.To.Pos.X)), Y: int32(math.Floor(e.To.Pos.Y)), Z: int32(math.Floor(e.To.Pos.Z))}
+	}
+	if w, ok := e.To.World.(pluginWorld); ok && w.srv == s && w.dim != nil {
+		to = w.dim
+	}
+	return to, at, int32(max(e.SearchRadius, 0)), int32(max(e.CreationRadius, 0)), e.CanCreatePortal, true
 }

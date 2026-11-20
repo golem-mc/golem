@@ -335,8 +335,8 @@ type PortalBorder interface {
 // the frame tests read: the frame's width -1..2 along the axis and one
 // column either side across it.
 const (
-	portalBuildRadius = 16
-	PortalBuildReach  = portalBuildRadius + 2
+	PortalBuildRadius = 16
+	PortalBuildMargin = 2
 )
 
 // BuildNetherPortal chooses where the missing exit portal near origin stands
@@ -348,9 +348,9 @@ const (
 // 70..maxPlaceableY-9. corner is the portal's bottom cell at the low end of
 // the axis; false only when that band is empty. minY and maxPlaceableY bound
 // the walk: maxPlaceableY is the top of the logical height. The caller keeps
-// the chunks within PortalBuildReach loaded.
+// the chunks within PortalBuildRadius+PortalBuildMargin loaded.
 // vanilla: PortalForcer.createPortal
-func BuildNetherPortal(w PortalSiteWorld, border PortalBorder, origin world.SpawnPos, axis [2]int32, minY, maxPlaceableY int32) (corner world.SpawnPos, changes []world.BlockChange, ok bool) {
+func BuildNetherPortal(w PortalSiteWorld, border PortalBorder, origin world.SpawnPos, radius int32, axis [2]int32, minY, maxPlaceableY int32) (corner world.SpawnPos, changes []world.BlockChange, ok bool) {
 	dx, dz := axis[0], axis[1]
 	cwx, cwz := -dz, dx // the axis' direction turned clockwise
 	canReplace := func(x, y, z int32) bool { return canPortalReplace(w.BlockAt(x, y, z)) }
@@ -373,7 +373,7 @@ func BuildNetherPortal(w PortalSiteWorld, border PortalBorder, origin world.Spaw
 
 	var full, partial world.SpawnPos
 	fullDist, partialDist := int64(-1), int64(-1)
-	for x, z := range spiralAround(origin.X, origin.Z, portalBuildRadius) {
+	for x, z := range spiralAround(origin.X, origin.Z, radius) {
 		if !border.ContainsBlock(x, z) || !border.ContainsBlock(x+dx, z+dz) {
 			continue
 		}

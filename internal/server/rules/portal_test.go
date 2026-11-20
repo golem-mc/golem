@@ -193,7 +193,7 @@ func newSiteWorld(floor int32) siteWorld {
 // applies its changes to w.
 func buildIn(t *testing.T, w siteWorld, axis [2]int32) world.SpawnPos {
 	t.Helper()
-	corner, changes, ok := BuildNetherPortal(w, w, world.SpawnPos{X: 0, Y: 64, Z: 0}, axis, 0, 127)
+	corner, changes, ok := BuildNetherPortal(w, w, world.SpawnPos{X: 0, Y: 64, Z: 0}, PortalBuildRadius, axis, 0, 127)
 	if !ok {
 		t.Fatal("BuildNetherPortal found no site and built no platform")
 	}
