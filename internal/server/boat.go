@@ -430,6 +430,7 @@ func (s *Server) tickBoats() {
 		// a player aboard counts but stays: the player's crossing carries it
 		// (moveBoatWithRiders).
 		state := it.w.BlockAt(rules.BlockOf(it.boat.X), rules.BlockOf(it.boat.Y), rules.BlockOf(it.boat.Z))
+		s.notePortalTouch(nil, it.uuid, it.w, it.boat.X, it.boat.Y, it.boat.Z, state)
 		if kind, due := it.portal.Step(state, rules.PortalTransitionTime, vehiclePortalCooldownTicks); due && driver == nil {
 			fx.travels = append(fx.travels, boatPortalTravel{it: it, kind: kind})
 			continue

@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -768,5 +769,48 @@ func TestPluginCreateWorldBonusChest(t *testing.T) {
 	})
 	if chests, _, _ = scanSpawnChunk(w); len(chests) != 0 {
 		t.Fatalf("reloaded non-bonus world chests = %v, want 0", chests)
+	}
+}
+
+// A bed in a plugin-created overworld-type world passes the night for the
+// sleepers there, though an awake player in the main overworld has no bearing.
+// vanilla: ServerLevel.tick (sleepStatus), ServerLevel.updateSleepingPlayerList
+func TestPluginWorldSleepSkipsNight(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, h, run := worldPlugin(t, cfg)
+	servertest.ReleaseTicks(t, srv)
+	sleeper := servertest.DialServer(t, srv)
+	sleeper.ViewAsk = config.MinDistance
+	sleeper.Join("Sleeper")
+	other := servertest.DialServer(t, srv)
+	other.ViewAsk = config.MinDistance
+	other.Join("Awake")
+	servertest.HoldTicks(t, srv)
+
+	w := createFlat(t, run, h, &flatGen{})
+	srv.MovePlayerToDimension("Sleeper", "test:flat", 8.5, 4, 8.5)
+	servertest.RunTicks(t, srv, 2)
+	sleeper.Settle()
+	servertest.UntilTicks(t, srv, 60, "the bed stands", func() bool {
+		return srv.SetBlockInDimension("test:flat", 10, 4, 9, servertest.BedStateName("red", "head", "south")) &&
+			srv.SetBlockInDimension("test:flat", 10, 4, 8, servertest.BedStateName("red", "foot", "south"))
+	})
+	run(func() { w.SetDayTime(servertest.TestMidnight) })
+
+	sleeper.UseBlock(10, 4, 8)
+	sleeper.Settle()
+	if !srv.Sleeping("Sleeper") {
+		t.Fatal("the click did not put the player to sleep")
+	}
+	servertest.UntilTicks(t, srv, 100+20, "the sleeper wakes", func() bool { return !srv.Sleeping("Sleeper") })
+	var day int64
+	run(func() { day = w.DayTime() })
+	if day%24000 > 1000 || day < 24000 {
+		t.Errorf("the plugin world's day time = %d, want the next morning", day)
+	}
+	if got := srv.PlayerDimension("Awake"); got != "minecraft:overworld" {
+		t.Errorf("the awake player is in %q", got)
 	}
 }

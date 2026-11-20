@@ -205,6 +205,7 @@ func (s *Server) crossArrowPortalsLocked(fx *arrowEffects, gate entityGate) {
 			continue
 		}
 		state, kind, due := gate.stepPortal(it.w, it.arrow.X, it.arrow.Y, it.arrow.Z, &it.portal, projectileCooldownTicks)
+		s.notePortalTouch(nil, it.uuid, it.w, it.arrow.X, it.arrow.Y, it.arrow.Z, state)
 		if !due {
 			a := it.arrow
 			if state == rules.EndGatewayState {

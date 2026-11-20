@@ -35,6 +35,8 @@ type dimension struct {
 	here func() *dimension
 	gen  world.Generator
 	w    *world.World
+	// sleepStatus is the dimension's SleepStatus, guarded by Server.sleepMu.
+	sleepStatus sleepCounts
 	// plugin marks a plugin-created dimension, whose seed and spawn are its own.
 	plugin bool
 	// genSpec is the terrain a plugin world was asked for, kept for its

@@ -929,15 +929,15 @@ func (w *World) AmbientLight() float32 {
 	}
 }
 
-// WakeUpFromSleep jumps the overworld clock to the next wake_up_from_sleep
+// WakeUpFromSleep jumps the named clock to the next wake_up_from_sleep
 // marker (tick 0 of the day), ServerLevel.moveToTimeMarker(WAKE_UP_FROM_SLEEP).
 // The jump is durationToNext: always positive, a full day when already on the
 // marker. A rate below one's fractional ticks are dropped, since a jump sets
 // the clock absolutely.
-func (w *World) WakeUpFromSleep() {
+func (w *World) WakeUpFromSleep(clock string) {
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
-	overworld := w.clock(OverworldClock)
+	overworld := w.clock(clock)
 	overworld.total += ticksPerDay - overworld.total%ticksPerDay
 	overworld.fractional = 0
 }

@@ -164,6 +164,8 @@ const (
 	PlayerAdvancementCriterionGrant
 	VehicleMove
 	EntityMove
+	EntityPortalEnter
+	EntityPortalExit
 )
 
 var pluginHookTypes = [...]reflect.Type{
@@ -319,6 +321,8 @@ var pluginHookTypes = [...]reflect.Type{
 	reflect.TypeFor[*plugin.PlayerAdvancementCriterionGrantEvent](),
 	reflect.TypeFor[*plugin.VehicleMoveEvent](),
 	reflect.TypeFor[*plugin.EntityMoveEvent](),
+	reflect.TypeFor[*plugin.EntityPortalEnterEvent](),
+	reflect.TypeFor[*plugin.EntityPortalExitEvent](),
 }
 
 type pluginBus struct {

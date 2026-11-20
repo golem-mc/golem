@@ -650,6 +650,7 @@ func (t *mobDimTick) crossPortals(fx *mobEffects) {
 			// cooldown and decay. vanilla: Entity.canUsePortal
 			state = 0
 		}
+		t.s.notePortalTouch(nil, ent.uuid, w, m.X, m.Y, m.Z, state)
 		kind, due := ent.portal.Step(state, rules.PortalTransitionTime, portalCooldownTicks)
 		if !due {
 			if !m.RidesVehicle && !m.Dead {
