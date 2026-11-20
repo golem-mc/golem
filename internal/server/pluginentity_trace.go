@@ -128,6 +128,9 @@ func (e pluginEntity) LaunchProjectile(t registry.EntityType, v plugin.Vec3) (pl
 		spawned.Remove()
 		return nil, errors.New("plugin: entity type " + t.Name() + " is not a projectile")
 	}
+	if !e.host.srv.projectileLaunched(proj.UUID()) {
+		return nil, errors.New("plugin: projectile launch was cancelled")
+	}
 	return proj, nil
 }
 

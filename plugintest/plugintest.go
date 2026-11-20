@@ -169,6 +169,18 @@ func (s *Server) Console(line string) []string {
 	return plainLines(s.srv.RunLine(line))
 }
 
+// Run calls f on the tick goroutine, where a plugin's handles may be used,
+// and returns once it has run, after one tick.
+func (s *Server) Run(f func()) {
+	s.t.Helper()
+	ran := false
+	s.host.Scheduler().RunTask(func() { f(); ran = true })
+	s.RunTicks(1)
+	if !ran {
+		s.t.Fatal("plugintest: the task did not run in a tick")
+	}
+}
+
 // RunTicks returns after n whole ticks have run.
 func (s *Server) RunTicks(n int) {
 	s.t.Helper()

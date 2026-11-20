@@ -450,6 +450,9 @@ type Arrow interface {
 	// hit; the key is zero for an arrow with only custom effects, and ok is
 	// false for a plain arrow, a spectral arrow or a trident.
 	Potion() (Key, []EffectInstance, bool)
+	// SetPotion makes the arrow a tipped arrow of the potion; false for an
+	// unknown potion and for a spectral arrow or trident.
+	SetPotion(Key) bool
 }
 
 // ArrowPickup is who may pick up an arrow.

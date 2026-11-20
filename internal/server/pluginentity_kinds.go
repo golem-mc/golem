@@ -510,4 +510,20 @@ func (o arrowOps) Potion() (plugin.Key, []plugin.EffectInstance, bool) {
 	}
 	return key, out, true
 }
+
+// SetPotion turns the arrow into a tipped arrow of the potion; false for a
+// potion this version lacks or a kind that is not a plain arrow.
+// vanilla: Arrow.setPotionContents
+func (o arrowOps) SetPotion(key plugin.Key) bool {
+	if o.e.Type() != registry.EntityTypeArrow {
+		return false
+	}
+	id, ok := registry.PotionID(key.String())
+	if !ok {
+		return false
+	}
+	stack := protocol.ItemStack{ItemID: int32(registry.ItemTippedArrow), Count: 1}
+	stack.SetPotion(id)
+	return o.e.merge(nbt.Compound{"item": registry.StackTag(stack)})
+}
 func (o arrowOps) InGround() bool { return o.e.flag("inGround") }

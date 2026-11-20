@@ -465,3 +465,41 @@ func TestDefaultGameMode(t *testing.T) {
 		t.Fatalf("out-of-range Set changed the mode to %d", got)
 	}
 }
+
+// vanilla: Arrow.getPotionContents, Projectile.spawnProjectile
+func TestTippedArrowAndLaunchRefusal(t *testing.T) {
+	srv := plugintest.Start(t, plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}))
+	srv.HoldTicks()
+	bob := srv.Join("Bob")
+
+	var launched atomic.Int32
+	var cancel atomic.Bool
+	plugin.Listen(srv.Host(), func(e *plugin.ProjectileLaunchEvent) {
+		launched.Add(1)
+		e.SetCancelled(cancel.Load())
+	})
+
+	arrow, err := bob.ShootTippedArrow(plugin.Key{Namespace: "minecraft", Path: "poison"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launched.Load() != 1 {
+		t.Fatalf("ProjectileLaunchEvent fired %d times, want 1", launched.Load())
+	}
+	key, effects, ok := arrow.Potion()
+	if !ok || key.String() != "minecraft:poison" || len(effects) != 1 || effects[0].Duration <= 0 {
+		t.Fatalf("Potion() = %v %v %v, want poison with one effect", key, effects, ok)
+	}
+
+	if _, err := bob.ShootTippedArrow(plugin.Key{Namespace: "minecraft", Path: "nonsense"}); err == nil {
+		t.Fatal("an unknown potion tipped an arrow")
+	}
+
+	cancel.Store(true)
+	if _, err := bob.ShootTippedArrow(plugin.Key{Namespace: "minecraft", Path: "poison"}); err == nil {
+		t.Fatal("a cancelled launch returned an arrow")
+	}
+	if launched.Load() != 3 {
+		t.Fatalf("ProjectileLaunchEvent fired %d times, want 3", launched.Load())
+	}
+}
