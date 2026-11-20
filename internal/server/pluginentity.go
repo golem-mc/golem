@@ -87,7 +87,7 @@ func (h *pluginHost) pluginEntities(list []command.Entity, keep func(command.Ent
 
 // entityByUUID finds the live body with the identity, in any dimension.
 func (h *pluginHost) entityByUUID(id uuid.UUID, dim string) (command.Entity, bool) {
-	list := (worldScope{srv: h.srv}).Entities(command.EntityQuery{UUID: &id, Dimension: dim, Limit: 1})
+	list := (worldScope{srv: h.srv}).Entities(command.EntityQuery{UUID: &id, Dimension: dim})
 	if len(list) == 0 {
 		return nil, false
 	}
