@@ -166,9 +166,9 @@ type Outcome struct {
 	// MerchantUpdated is set when the result was recomputed from the payments,
 	// changed or not.
 	MerchantUpdated bool
-	// BrewedPotions is how many potions a brewing stand's bottle slots gave
-	// up this click. vanilla: BrewingStandMenu.PotionSlot.onTake
-	BrewedPotions int
+	// BrewedPotions is the potion ID of each potion a brewing stand's bottle
+	// slots gave up this click, protocol.NoPotion for one without. vanilla: BrewingStandMenu.PotionSlot.onTake
+	BrewedPotions []int32
 	// replaced is the stack the last write to a brewing stand's bottle slot
 	// displaced.
 	replaced protocol.ItemStack
@@ -190,8 +190,8 @@ func (o *Outcome) touchedInv(v View, invSlot int) {
 // smelting experience is paid; only the furnace window has one.
 func (o *Outcome) tookFurnaceResult(view View, slot int32) {
 	if view.Kind == KindBrewingStand && slot < brewingBottleSlots {
-		if _, ok := o.replaced.PotionContentsOf(); ok {
-			o.BrewedPotions++
+		if contents, ok := o.replaced.PotionContentsOf(); ok {
+			o.BrewedPotions = append(o.BrewedPotions, contents.Potion)
 		}
 		o.replaced = protocol.ItemStack{}
 	}

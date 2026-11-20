@@ -492,7 +492,7 @@ func (c *client) checkTotemDeathProtection(damageType registry.DamageType) bool 
 		return false
 	}
 	c.awardItemStat(registry.StatTypeUsed, totem.ItemID, 1)
-	c.usedTotemAdvancements(totem.ItemID)
+	c.usedTotemAdvancements(totem)
 	// The spent totem's copy posts it. vanilla: LivingEntity.checkTotemDeathProtection
 	c.useVibration(totem, rules.GameEventItemInteractFinish)
 	c.send(protocol.IDPlayContainerSlot, payload)

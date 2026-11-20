@@ -157,7 +157,7 @@ func (c *client) finishEating(hand int32, use registry.Consumable) []rules.Hurt 
 
 	// vanilla: Consumable.onConsume
 	c.awardItemStat(registry.StatTypeUsed, held.ItemID, 1)
-	c.consumedItemAdvancements(held.ItemID)
+	c.consumedItemAdvancements(held)
 	// The use_cooldown starts when the use finishes, in any game mode.
 	// vanilla: ItemStack.applyAfterUseComponentSideEffects, UseCooldown.apply
 	c.startUseCooldown(held)
