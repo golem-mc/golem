@@ -1,6 +1,8 @@
 package plugins_test
 
 import (
+	"slices"
+	"sync"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -135,4 +137,166 @@ func TestPluginEntityInteractEvent(t *testing.T) {
 	if srv.BlockAt(5, 63, 5) == farmland {
 		t.Error("an allowed landing left the farmland")
 	}
+}
+
+// vanilla: SpawnEggItem.useOn, BaseSpawner.serverTick, Animal.spawnChildFromBreeding
+func TestPluginEntitySpawnReasonsAndPersistence(t *testing.T) {
+	t.Parallel()
+	type spawnRecord struct {
+		kind        registry.EntityType
+		id          plugin.UUID
+		eventReason plugin.SpawnReason
+		entityProp  plugin.SpawnReason
+	}
+	var (
+		mu          sync.Mutex
+		spawns      []spawnRecord
+		cancelSheep bool
+		host        plugin.Server
+	)
+	cfg := servertest.BlockTestConfig()
+	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{
+		Name: "spawnreasons",
+		Plugin: &testPlugin{enable: func(s plugin.Server) error {
+			host = s
+			plugin.Listen(s, func(e *plugin.EntitySpawnEvent) {
+				mu.Lock()
+				spawns = append(spawns, spawnRecord{
+					kind:        e.Entity.Type(),
+					id:          e.Entity.UUID(),
+					eventReason: e.Reason,
+					entityProp:  e.Entity.SpawnReason(),
+				})
+				cancel := cancelSheep && e.Entity.Type() == registry.EntityTypeSheep
+				mu.Unlock()
+				if cancel {
+					e.SetCancelled(true)
+				}
+			})
+			return nil
+		}},
+	}})
+	takeLast := func(kind registry.EntityType) (spawnRecord, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, spawn := range slices.Backward(spawns) {
+			if spawn.kind == kind {
+				return spawn, true
+			}
+		}
+		return spawnRecord{}, false
+	}
+	c := servertest.DialServer(t, srv)
+	c.JoinAs("Rancher")
+
+	// 1. Spawn egg used on a block -> SpawnSpawnerEgg (before HoldTicks so the
+	// client goroutine's EntitySpawnEvent runs on the tick loop).
+	srv.RunLine("give Rancher minecraft:cow_spawn_egg 1")
+	c.Settle()
+	c.PlaceBlock(2, 63, 3, protocol.FaceTop)
+	c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.ExpectBlockAck()
+	eggCow, ok := takeLast(registry.EntityTypeCow)
+	if !ok || eggCow.eventReason != plugin.SpawnSpawnerEgg || eggCow.entityProp != plugin.SpawnSpawnerEgg {
+		t.Fatalf("spawn-egg cow: ok=%v event=%v entity=%v, want SpawnSpawnerEgg", ok, eggCow.eventReason, eggCow.entityProp)
+	}
+
+	servertest.HoldTicks(t, srv)
+	run := func(f func()) {
+		t.Helper()
+		ran := false
+		host.Scheduler().RunTask(func() { f(); ran = true })
+		servertest.RunTicks(t, srv, 1)
+		if !ran {
+			t.Fatal("plugin task did not complete")
+		}
+	}
+
+	// 2. Monster spawner -> SpawnSpawner.
+	srv.RunLine("time set noon")
+	srv.RunLine("fill 2 63 2 6 63 6 minecraft:grass_block")
+	srv.RunLine(`setblock 4 64 2 minecraft:spawner{Delay:0s,MinSpawnDelay:1s,MaxSpawnDelay:2s,SpawnCount:1s,SpawnData:{entity:{id:"minecraft:pig"}}}`)
+	servertest.UntilTicks(t, srv, 40, "pig spawner spawns", func() bool {
+		_, found := takeLast(registry.EntityTypePig)
+		return found
+	})
+	spawnerPig, _ := takeLast(registry.EntityTypePig)
+	if spawnerPig.eventReason != plugin.SpawnSpawner || spawnerPig.entityProp != plugin.SpawnSpawner {
+		t.Fatalf("spawner pig: event=%v entity=%v, want SpawnSpawner", spawnerPig.eventReason, spawnerPig.entityProp)
+	}
+	// Remove the spawner so it does not keep spawning while we test breeding.
+	srv.RunLine("setblock 4 64 2 minecraft:air")
+
+	// 3. Breeding -> SpawnBreeding.
+	var cowA, cowB int32
+	run(func() {
+		cowA = srv.SpawnMob("minecraft:cow", 5.5, 64, 5.5)
+		cowB = srv.SpawnMob("minecraft:cow", 6.0, 64, 5.5)
+	})
+	srv.SetMobInLove(cowA, 600)
+	srv.SetMobInLove(cowB, 600)
+	beforeCows := len(srv.MobIDsOfKind("minecraft:cow"))
+	servertest.UntilTicks(t, srv, 120, "calf is born", func() bool {
+		return len(srv.MobIDsOfKind("minecraft:cow")) > beforeCows
+	})
+	bredCalf, ok := takeLast(registry.EntityTypeCow)
+	if !ok || bredCalf.eventReason != plugin.SpawnBreeding || bredCalf.entityProp != plugin.SpawnBreeding {
+		t.Fatalf("bred calf: ok=%v event=%v entity=%v, want SpawnBreeding", ok, bredCalf.eventReason, bredCalf.entityProp)
+	}
+
+	// 4. World.Spawn -> SpawnPlugin (and cancel discards it).
+	var sheepID plugin.UUID
+	run(func() {
+		w := host.Overworld()
+		loc := plugin.Location{World: w, Pos: plugin.Vec3{X: 3.5, Y: 64, Z: 5.5}}
+		mu.Lock()
+		cancelSheep = true
+		mu.Unlock()
+		if refused, err := w.Spawn(registry.EntityTypeSheep, loc, nil); err == nil || refused != nil {
+			t.Fatalf("cancelled World.Spawn succeeded: entity=%v err=%v", refused, err)
+		}
+		mu.Lock()
+		cancelSheep = false
+		mu.Unlock()
+		sheep, err := w.Spawn(registry.EntityTypeSheep, loc, nil)
+		if err != nil || sheep == nil {
+			t.Fatalf("World.Spawn sheep: %v", err)
+		}
+		sheepID = sheep.UUID()
+		pluginSheep, ok := takeLast(registry.EntityTypeSheep)
+		if !ok || pluginSheep.eventReason != plugin.SpawnPlugin || sheep.SpawnReason() != plugin.SpawnPlugin {
+			t.Fatalf("World.Spawn sheep: ok=%v event=%v entity=%v, want SpawnPlugin", ok, pluginSheep.eventReason, sheep.SpawnReason())
+		}
+	})
+
+	// 5. Persistence across chunk unload and reload.
+	c.Disconnect()
+	servertest.UntilTicks(t, srv, 100, "chunks unload", func() bool { return srv.MobCount() == 0 })
+	servertest.ReleaseTicks(t, srv)
+	c2 := servertest.DialServer(t, srv)
+	c2.JoinAs("Rancher")
+	servertest.HoldTicks(t, srv)
+	servertest.UntilTicks(t, srv, 40, "mobs reload", func() bool { return srv.MobCount() > 0 })
+
+	run(func() {
+		for _, tc := range []struct {
+			name string
+			id   plugin.UUID
+			want plugin.SpawnReason
+		}{
+			{"spawn-egg cow", eggCow.id, plugin.SpawnSpawnerEgg},
+			{"spawner pig", spawnerPig.id, plugin.SpawnSpawner},
+			{"bred calf", bredCalf.id, plugin.SpawnBreeding},
+			{"plugin sheep", sheepID, plugin.SpawnPlugin},
+		} {
+			ent, found := host.Overworld().Entity(tc.id)
+			if !found {
+				t.Errorf("%s not found after chunk reload", tc.name)
+				continue
+			}
+			if got := ent.SpawnReason(); got != tc.want {
+				t.Errorf("%s SpawnReason() after reload = %v, want %v", tc.name, got, tc.want)
+			}
+		}
+	})
 }

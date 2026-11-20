@@ -4,6 +4,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -35,6 +36,7 @@ func (s *Server) laySnifferEgg(birth mobBirth) {
 // vanilla: SnifferEggBlock.tick
 func (s *Server) hatchSniffer(dim *dimension, h world.SnifferHatch) {
 	s.spawnMobArriving(dim, entity.TypeSniffer, float64(h.X)+0.5, float64(h.Y)+0.5, float64(h.Z)+0.5, 0, nil, true, "", false, func(ent *mobEntity) {
+		ent.spawnReason = spawnReasonCode(plugin.SpawnEgg)
 		ent.mob.Yaw, ent.mob.HeadYaw = h.Yaw, h.Yaw
 	})
 }

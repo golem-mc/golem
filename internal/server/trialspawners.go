@@ -15,6 +15,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -103,6 +104,7 @@ func (h *trialHost) Mob(id uuid.UUID) (entity.TrialMob, bool) {
 
 func (h *trialHost) StandUp(kind entity.MobType, x, y, z float64, yaw float32, tag nbt.Compound, plain bool, equip func(*entity.Mob)) (uuid.UUID, bool) {
 	face := func(ent *mobEntity) {
+		ent.spawnReason = spawnReasonCode(plugin.SpawnTrialSpawner)
 		ent.mob.Yaw, ent.mob.HeadYaw, ent.mob.Pitch = yaw, yaw, 0
 		// vanilla: TrialSpawner.spawnMob, Mob.setPersistenceRequired
 		ent.mob.Persistence = true

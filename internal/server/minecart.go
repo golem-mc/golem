@@ -170,7 +170,7 @@ func (s *Server) spawnMinecartFromItem(w *world.World, kind string, x, y, z floa
 // position the one it stands at. A load that comes to nothing and a tag whose
 // UUID is already a live body's are the two refusals.
 // vanilla: SummonCommand.createEntity
-func (s *Server) summonMinecart(w *world.World, kind string, x, y, z float64, tag nbt.Compound) (*minecartEntity, error) {
+func (s *Server) summonMinecart(w *world.World, kind string, x, y, z float64, tag nbt.Compound, reason plugin.SpawnReason) (*minecartEntity, error) {
 	compound := summonTag(tag, kind, x, y, z)
 	pos := world.ChunkPos{X: world.ChunkOf(x), Z: world.ChunkOf(z)}
 	if woken, fresh := s.wakeChunkOnce(s.dimensionOfWorld(w), pos); fresh {
@@ -186,7 +186,7 @@ func (s *Server) summonMinecart(w *world.World, kind string, x, y, z float64, ta
 		return nil, command.ErrDuplicateUUID
 	}
 	it.cart.X, it.cart.Y, it.cart.Z = x, y, z
-	if err := s.registerSummonedVehicle(w, compound, vehicleSeat{cart: it}); err != nil {
+	if err := s.registerSummonedVehicle(w, compound, vehicleSeat{cart: it}, reason); err != nil {
 		return nil, err
 	}
 	return it, nil

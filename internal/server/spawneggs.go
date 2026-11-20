@@ -7,6 +7,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
@@ -151,7 +152,7 @@ func (c *client) handleUseSpawnEgg(hand int32) bool {
 // outside creative. The event goes at the resolved spawn cell (cx, cy, cz),
 // not the spawn point, which SpawnYOffset may move.
 func (c *client) spawnFromEgg(hand int32, egg protocol.ItemStack, kind entity.MobType, x, y, z float64, cx, cy, cz int32) {
-	c.srv.standEggMob(c.dimension(), egg, kind, x, y, z)
+	c.srv.standEggMob(c.dimension(), egg, kind, x, y, z, plugin.SpawnSpawnerEgg)
 	c.gameEventAtCell(rules.GameEventEntityPlace, cx, cy, cz)
 	// vanilla: SpawnEggItem.useOn, SpawnEggItem.use
 	c.awardItemStat(registry.StatTypeUsed, egg.ItemID, 1)
@@ -160,7 +161,7 @@ func (c *client) spawnFromEgg(hand int32, egg protocol.ItemStack, kind entity.Mo
 
 // standEggMob is EntityType.spawn with the egg: random facing, finalize,
 // the egg's custom name, ambient sound.
-func (s *Server) standEggMob(dim *dimension, egg protocol.ItemStack, kind entity.MobType, x, y, z float64) {
+func (s *Server) standEggMob(dim *dimension, egg protocol.ItemStack, kind entity.MobType, x, y, z float64, reason plugin.SpawnReason) {
 	var sound registry.Sound
 	var volume, pitch float32
 	var identity uuid.UUID
@@ -186,6 +187,7 @@ func (s *Server) standEggMob(dim *dimension, egg protocol.ItemStack, kind entity
 			forEntityDataKeys(data, func(k string, v nbt.Tag) { tag[k] = v })
 			applyMobTag(m, ent, tag)
 		}
+		ent.spawnReason = spawnReasonCode(reason)
 		// Mob.makeSound plays nothing for a kind without an ambient event.
 		if entity.MobSoundsOf(kind).Ambient != registry.SoundNone {
 			sound, volume, pitch = m.AmbientVoice()
@@ -293,6 +295,7 @@ func (c *client) spawnEggOnMob(ent *mobEntity, hand int32) bool {
 		return false
 	}
 	s.spawnMobArriving(c.dimension(), kind, x, y, z, 0, nil, true, "", false, func(ent *mobEntity) {
+		ent.spawnReason = spawnReasonCode(plugin.SpawnSpawnerEgg)
 		s.mobsMu.Lock()
 		parent.InheritInto(ent.mob)
 		applyEggComponents(ent.mob, held)

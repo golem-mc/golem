@@ -64,6 +64,10 @@ type Entity interface {
 	Remove()
 	// Data is the plugins' data saved with the entity.
 	Data() Data
+	// SpawnReason answers why the entity spawned, saved with it; SpawnDefault
+	// for an entity whose reason was not recorded.
+	// Paper: Entity.getEntitySpawnReason
+	SpawnReason() SpawnReason
 }
 
 // LivingEntity is a mob, an armour stand or a player. Bukkit: LivingEntity
@@ -651,4 +655,7 @@ const (
 	SpawnJockey
 	SpawnTriggered
 	SpawnDefault
+	// SpawnSpawnerEgg is a spawn egg used on a block, liquid or mob.
+	// Bukkit: SPAWNER_EGG
+	SpawnSpawnerEgg
 )

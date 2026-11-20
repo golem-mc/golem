@@ -36,7 +36,7 @@ func (w pluginWorld) spawnWith(t registry.EntityType, loc plugin.Location, extra
 		"Rotation": nbt.NewList([]nbt.Tag{nbt.Float(loc.Yaw), nbt.Float(loc.Pitch)}),
 	}
 	maps.Copy(tag, extra)
-	ws := worldScope{srv: w.srv, in: func() *dimension { return target.dim }, quiet: true}
+	ws := worldScope{srv: w.srv, in: func() *dimension { return target.dim }, quiet: true, spawnReason: spawnReasonCode(plugin.SpawnPlugin)}
 	command.PlaceTemplateEntities(ws, []world.PlacedEntity{{ID: t.Name(), Pos: [3]float64{loc.Pos.X, loc.Pos.Y, loc.Pos.Z}, Tag: tag}}, func(string, ...any) {})
 	body, ok := w.host.entityByUUID(id, target.dim.name)
 	if !ok {
@@ -197,4 +197,14 @@ func (e pluginEntity) Dismount() {
 	if r, ok := e.rider(); ok {
 		r.StopRiding()
 	}
+}
+
+func (e pluginEntity) SpawnReason() plugin.SpawnReason {
+	if m, ok := e.mobBody(); ok {
+		e.host.srv.mobsMu.Lock()
+		code := m.spawnReason
+		e.host.srv.mobsMu.Unlock()
+		return mobSpawnReason(code)
+	}
+	return plugin.SpawnDefault
 }

@@ -2,10 +2,9 @@ package plugin
 
 import "github.com/golem-mc/golem/registry"
 
-// EntitySpawnEvent fires when a mob, item, projectile, boat or minecart is added to the world, with why it
-// spawned; a cancel discards it again in the same tick. Reason is
-// SpawnCommand for /summon, SpawnNatural for a spawn group, SpawnEgg for an
-// egg's chick and SpawnDefault for the rest. Other kinds do not fire it.
+// EntitySpawnEvent fires when a mob, item, projectile, boat or minecart is
+// added to the world, with why it spawned; a cancel discards it again in the
+// same tick. Other kinds do not fire it.
 // Bukkit: EntitySpawnEvent, CreatureSpawnEvent
 type EntitySpawnEvent struct {
 	Cancellable

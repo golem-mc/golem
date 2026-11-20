@@ -746,7 +746,7 @@ func (s *Server) dispenseSpawnEgg(w *world.World, visit dispenseVisit, d world.D
 	}
 	width, _ := entity.KindDims(kind)
 	px, py, pz := rules.DispenserEggPosition(w, d.X, d.Y, d.Z, int32(d.Dir), width/2)
-	s.standEggMob(s.dimensionOfWorld(w), visit.taken, kind, px, py, pz)
+	s.standEggMob(s.dimensionOfWorld(w), visit.taken, kind, px, py, pz, plugin.SpawnDispenser)
 	return dispenseAct{}
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
@@ -277,6 +278,7 @@ func (s *Server) breakThrown(br thrownBreak) {
 	dim := s.dimensionOfWorld(br.w)
 	for range chicks {
 		s.spawnMobArriving(dim, entity.TypeChicken, br.x, br.y, br.z, 0, nil, true, br.variant, false, func(e *mobEntity) {
+			e.spawnReason = spawnReasonCode(plugin.SpawnEgg)
 			e.mob.Yaw, e.mob.Pitch = br.yaw, 0
 		})
 	}

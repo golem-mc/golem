@@ -9,6 +9,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
@@ -45,6 +46,11 @@ func mobTagAs(ent *mobEntity, book map[*entity.Mob]*mobEntity, id string) *nbt.O
 	putTags(tag, ent.tags.Values())
 	if ent.locatorIcon.HasData() {
 		tag.Set("locator_bar_icon", ent.locatorIcon.Tag())
+	}
+	if id != "" && ent.spawnReason != 0 {
+		if r := mobSpawnReason(ent.spawnReason); r != plugin.SpawnDefault && int(r) < len(spawnReasonNames) && spawnReasonNames[r] != "" {
+			tag.Set(spawnReasonNBTKey, nbt.String(spawnReasonNames[r]))
+		}
 	}
 	// Unmodelled fields have no native writer; known fields below replace them.
 	for _, key := range nbt.HashOrderedKeys(ent.saved) {
@@ -214,6 +220,11 @@ func applyMobTag(m *entity.Mob, ent *mobEntity, compound nbt.Compound) {
 		ent.locatorIcon = player.LocatorIconFromTag(icon)
 	}
 	ent.tags.Reset(tagsOfTag(compound))
+	if raw, ok := nbt.Get[nbt.String](compound, spawnReasonNBTKey); ok {
+		if r, known := spawnReasonByName[string(raw)]; known {
+			ent.spawnReason = spawnReasonCode(r)
+		}
+	}
 	// vanilla: Mob.readAdditionalSaveData
 	ent.readLeash(leashOfTag(compound))
 	ent.saved = maps.Clone(compound)
@@ -243,7 +254,7 @@ func applyMobTag(m *entity.Mob, ent *mobEntity, compound nbt.Compound) {
 // excluded from what a load keeps for the same reason.
 var mobEntityTags = []string{
 	"id", "Pos", "Motion", "Rotation", "Fire", "OnGround", "NoGravity", "PortalCooldown", "UUID",
-	"Passengers", "CustomName", "CustomNameVisible", "Tags", "Wave", "CanJoinRaid", "RaidId", "locator_bar_icon", leashKey,
+	"Passengers", "CustomName", "CustomNameVisible", "Tags", "Wave", "CanJoinRaid", "RaidId", "locator_bar_icon", leashKey, spawnReasonNBTKey,
 }
 
 // resolveVexOwners points loaded vexes at the evoker their saved owner names,

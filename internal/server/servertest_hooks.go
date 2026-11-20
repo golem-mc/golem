@@ -4047,7 +4047,7 @@ func (s *Server) TickArmorStands(n int) {
 // SpawnArmorStand stands a plain armor stand at the given position of the
 // overworld and returns its entity ID.
 func (s *Server) SpawnArmorStand(x, y, z float64) int32 {
-	ent, err := s.summonArmorStand(s.world, x, y, z, nil)
+	ent, err := s.summonArmorStand(s.world, x, y, z, nil, plugin.SpawnCommand)
 	if err != nil {
 		panic(err)
 	}
