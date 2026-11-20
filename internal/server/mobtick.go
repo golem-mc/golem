@@ -419,6 +419,7 @@ func (t *mobDimTick) step(fx *mobEffects, in *mobTickInputs) {
 	// The buffer is kept for the next tick; cleared so it holds no mob alive.
 	clear(events)
 	t.h.events = events[:0]
+	t.noteMoves(fx)
 	t.scheduleMovement(fx, in)
 	t.countCorpses(fx, dyingCount)
 }

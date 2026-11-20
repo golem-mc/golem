@@ -505,6 +505,24 @@ type VehicleEvent struct {
 	Damage float32
 }
 
+// VehicleMoveEvent fires after a tick in which a boat or minecart changed
+// position or rotation, once per vehicle; a driver's moves between
+// ticks are folded into the next one. Bukkit: VehicleMoveEvent
+type VehicleMoveEvent struct {
+	Base
+	Vehicle  Vehicle
+	From, To Location
+}
+
+// EntityMoveEvent fires after a tick in which a mob changed position or
+// rotation, once per mob. Cancelling puts the mob back at From. Players
+// fire PlayerMoveEvent instead; a teleport fires none. Paper: EntityMoveEvent
+type EntityMoveEvent struct {
+	Cancellable
+	Entity   LivingEntity
+	From, To Location
+}
+
 // VehicleAction is what happened to a vehicle.
 type VehicleAction uint8
 

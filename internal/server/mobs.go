@@ -242,6 +242,8 @@ type mobHerd struct {
 	// events is the previous tick's event buffer, reused to avoid a fresh slice per tick.
 	events []entity.MobEvent
 	book   map[*entity.Mob]*mobEntity
+	// moveMarks is each mob's transform at the last EntityMoveEvent pass; nil while nothing listens.
+	moveMarks map[*entity.Mob]moveMark
 	// lootExtra builds each remembered mob's Mob.LootExtra; nil leaves it unset.
 	lootExtra func(*mobHerd, *mobEntity) func(*rules.LootEntity)
 	// records uses stable, one-based slots independent of herd compaction;
