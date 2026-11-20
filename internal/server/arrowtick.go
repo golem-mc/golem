@@ -355,7 +355,11 @@ func (s *Server) stepArrow(fx *arrowEffects, in *arrowTickInputs, hv *arrowHangi
 		before = *it.arrow
 		rollMark = it.arrow.RandSrc.Mark()
 	}
-	it.arrow.BindLoot = s.arrowLootBinder(it, &bodies)
+	// Only an enchanted weapon asks for loot conditions (hitDamage).
+	it.arrow.BindLoot = nil
+	if len(it.arrow.Weapon.Enchantments) > 0 {
+		it.arrow.BindLoot = s.arrowLootBinder(it, &bodies)
+	}
 	events := it.arrow.Step(it.w, owner, targets)
 	if asking {
 		if ask, held := s.arrowHitAskOf(it, &bodies, before.HitAllowed, events); held {
@@ -867,8 +871,9 @@ func (s *Server) arrowLootBinder(it *arrowEntity, bodies *arrowBodies) func(*rul
 			if snap == nil {
 				return typed(ctx.DirectAttacker)()
 			}
-			// The arrow lock is held by this step, which the snapshot's saved
-			// compound would take again.
+			// The arrow lock is held by this step and the snapshot's saved
+			// compound would take it again. The snapshot is read-only and
+			// local to this call, so a private lock stands in for it.
 			snap.mu = new(sync.Mutex)
 			return snapshotLoot(snap)()
 		}
