@@ -1,6 +1,7 @@
 package plugintest_test
 
 import (
+	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -264,6 +265,114 @@ func TestSchedulerOnTick(t *testing.T) {
 	}
 	if asyncOnTick.Load() {
 		t.Error("OnTick = true inside a RunAsync task, want false")
+	}
+}
+
+type enableFunc func(plugin.Server) error
+
+func (f enableFunc) Enable(s plugin.Server) error { return f(s) }
+func (enableFunc) Disable()                       {}
+
+func TestCommandFallbackPrefixWhenNameTaken(t *testing.T) {
+	say := func(msg string) func(*plugin.CommandContext) (int, error) {
+		return func(ctx *plugin.CommandContext) (int, error) {
+			if arg := plugin.Arg[string](ctx, "arg"); arg != "" {
+				ctx.Sender.SendMessage(plugin.Plain(msg + ":" + arg))
+				return 1, nil
+			}
+			ctx.Sender.SendMessage(plugin.Plain(msg))
+			return 1, nil
+		}
+	}
+	godCmd := func(msg string, aliases ...string) plugin.Command {
+		return plugin.Command{
+			Name:     "god",
+			Aliases:  aliases,
+			Run:      say(msg),
+			Children: []plugin.Node{{Arg: plugin.WordArg("arg"), Run: say(msg)}},
+		}
+	}
+
+	var bErr, cErr, dupErr, vanillaErr error
+	srv := plugintest.Start(t, plugintest.WithPlugins(
+		plugin.Registration{Name: "a", Plugin: enableFunc(func(s plugin.Server) error {
+			if err := s.Commands().Register(godCmd("from-a")); err != nil {
+				return err
+			}
+			// Registering the same command again from the same plugin leaves no free name.
+			dupErr = s.Commands().Register(godCmd("from-a-again"))
+			return nil
+		})},
+		plugin.Registration{Name: "b", Plugin: enableFunc(func(s plugin.Server) error {
+			bErr = s.Commands().Register(godCmd("from-b", "godmode"))
+			vanillaErr = s.Commands().Register(plugin.Command{Name: "seed", Run: say("b-seed")})
+			return nil
+		})},
+		plugin.Registration{Name: "c", Plugin: enableFunc(func(s plugin.Server) error {
+			cErr = s.Commands().Register(godCmd("from-c"))
+			return cErr
+		})},
+		plugin.Registration{Name: "d", Plugin: enableFunc(func(s plugin.Server) error {
+			_ = s.Commands().Register(plugin.Command{Name: "dcmd", Run: say("from-d")})
+			return errors.New("unrelated enable failure")
+		})},
+	))
+
+	if !errors.Is(bErr, plugin.ErrNameTaken) || !strings.Contains(bErr.Error(), "god") {
+		t.Fatalf("plugin b Register(god) = %v, want ErrNameTaken naming god", bErr)
+	}
+	if !errors.Is(cErr, plugin.ErrNameTaken) || !strings.Contains(cErr.Error(), "god") {
+		t.Fatalf("plugin c Register(god) = %v, want ErrNameTaken naming god", cErr)
+	}
+	if dupErr == nil || errors.Is(dupErr, plugin.ErrNameTaken) {
+		t.Fatalf("duplicate Register(god) by same plugin = %v, want non-ErrNameTaken failure", dupErr)
+	}
+	if !errors.Is(vanillaErr, plugin.ErrNameTaken) || !strings.Contains(vanillaErr.Error(), "seed") {
+		t.Fatalf("plugin b Register(seed) = %v, want ErrNameTaken naming seed", vanillaErr)
+	}
+
+	enabled := make(map[string]bool)
+	for _, info := range srv.Host().Plugins() {
+		enabled[info.Name] = info.Enabled
+	}
+	for _, name := range []string{"a", "b", "c"} {
+		if !enabled[name] {
+			t.Errorf("plugin %q Enabled = false, want true", name)
+		}
+	}
+	if isEnabled, ok := enabled["d"]; !ok || isEnabled {
+		t.Errorf("plugin d enabled=%v (present=%v), want false (present=true)", isEnabled, ok)
+	}
+	for _, cmd := range srv.Host().Commands().All() {
+		if cmd.Plugin == "d" {
+			t.Errorf("disabled plugin d still has registered command %q", cmd.Name)
+		}
+	}
+
+	alice := srv.Join("Alice")
+	for _, tc := range []struct {
+		cmd  string
+		want string
+	}{
+		{"/god", "from-a"},
+		{"/a:god", "from-a"},
+		{"/b:god", "from-b"},
+		{"/b:god on", "from-b:on"},
+		{"/godmode", "from-b"},
+		{"/godmode on", "from-b:on"},
+		{"/b:godmode", "from-b"},
+		{"/b:seed", "b-seed"},
+		{"/c:god", "from-c"},
+		{"/c:god on", "from-c:on"},
+	} {
+		alice.Run(tc.cmd)
+		if msgs := alice.Messages(2); len(msgs) != 1 || msgs[0] != tc.want {
+			t.Errorf("%s -> %q, want [%q]", tc.cmd, msgs, tc.want)
+		}
+	}
+	// Vanilla /seed stays untouched.
+	if out := srv.Console("seed"); !strings.Contains(strings.Join(out, "\n"), "Seed:") {
+		t.Errorf("console seed = %q, want vanilla Seed output", out)
 	}
 }
 
