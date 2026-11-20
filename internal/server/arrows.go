@@ -1,12 +1,12 @@
 package server
 
 import (
-	"github.com/golem-mc/golem/internal/server/advancement"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/entity"

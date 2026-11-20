@@ -303,3 +303,11 @@ func TestDecodeAdvancementReadsStyledTextAndIconComponents(t *testing.T) {
 		t.Errorf("list display = %+v, want TitleText, DescriptionText and nil IconStack", adv2.Display)
 	}
 }
+
+func TestDecodeAdvancementRefusesMalformedVictims(t *testing.T) {
+	_, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
+		"arrow":{"trigger":"minecraft:killed_by_arrow","conditions":{"victims":{}}}}}`))
+	if err == nil {
+		t.Error("a victims object decoded without an error")
+	}
+}

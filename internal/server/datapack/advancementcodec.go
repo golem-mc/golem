@@ -539,7 +539,11 @@ func advLootContexts(name, trigger string, conditions obj, unmodelled registry.A
 	for _, key := range keys {
 		switch key {
 		case "victims":
-			for _, victim := range conditions[key].([]any) {
+			victims, isList := conditions[key].([]any)
+			if !isList {
+				return unmodelled
+			}
+			for _, victim := range victims {
 				conds, ok := advLootConditions(victim)
 				if !ok {
 					return unmodelled
@@ -590,7 +594,7 @@ func advLootKeys(trigger string) []string {
 	case "minecraft:cured_zombie_villager":
 		return []string{"player", "zombie", "villager"}
 	case "minecraft:effects_changed":
-		return []string{"player", "source"}
+		return []string{"player"}
 	case "minecraft:killed_by_arrow", "minecraft:channeled_lightning":
 		return []string{"player", "victims"}
 	}
@@ -795,7 +799,9 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 			c.Effects = append(c.Effects, registry.Qualify(name))
 		}
 		if len(effects) > 0 {
-			c.EffectStates = lootEffects(conditions["effects"])
+			if states := lootEffects(conditions["effects"]); slices.ContainsFunc(slices.Collect(maps.Values(states)), func(e registry.LootEffectPredicate) bool { return e != (registry.LootEffectPredicate{}) }) {
+				c.EffectStates = states
+			}
 		}
 		source, ok := advEntityPredicate(conditions["source"], true)
 		c.Entity = source.typ

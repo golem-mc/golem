@@ -1,7 +1,6 @@
 package server
 
 import (
-	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"math"
 	"math/rand"
@@ -9,6 +8,7 @@ import (
 	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
