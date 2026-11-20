@@ -18,19 +18,39 @@ type SpawnTuning struct {
 	ticks  [registry.MobCategoryCount]atomic.Int32
 }
 
-// Limit answers the category's spawn limit, -1 for the default.
-func (t *SpawnTuning) Limit(c registry.MobCategory) int { return int(t.limits[c].Load()) - 1 }
+// Limit answers the category's spawn limit, -1 for the default and for a
+// category out of range.
+func (t *SpawnTuning) Limit(c registry.MobCategory) int {
+	if c >= registry.MobCategoryCount {
+		return -1
+	}
+	return int(t.limits[c].Load()) - 1
+}
 
 // SetLimit sets the category's spawn limit; a negative n restores the default.
+// A category out of range is ignored.
 func (t *SpawnTuning) SetLimit(c registry.MobCategory, n int) {
+	if c >= registry.MobCategoryCount {
+		return
+	}
 	t.limits[c].Store(int32(max(n, -1)) + 1)
 }
 
-// Ticks answers the category's spawn tick rate, -1 for the default.
-func (t *SpawnTuning) Ticks(c registry.MobCategory) int { return int(t.ticks[c].Load()) - 1 }
+// Ticks answers the category's spawn tick rate, -1 for the default and for a
+// category out of range.
+func (t *SpawnTuning) Ticks(c registry.MobCategory) int {
+	if c >= registry.MobCategoryCount {
+		return -1
+	}
+	return int(t.ticks[c].Load()) - 1
+}
 
 // SetTicks sets the category's spawn tick rate; a negative n restores the default.
+// A category out of range is ignored.
 func (t *SpawnTuning) SetTicks(c registry.MobCategory, n int) {
+	if c >= registry.MobCategoryCount {
+		return
+	}
 	t.ticks[c].Store(int32(max(n, -1)) + 1)
 }
 

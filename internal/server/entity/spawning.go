@@ -125,23 +125,18 @@ type SpawnRequest struct {
 	Region Dice
 }
 
-// Pass numbers: MobCategory.MONSTER's cap of 70; MAGIC_NUMBER, the 17x17
+// Pass numbers: MAGIC_NUMBER, the 17x17
 // chunks of one player's spawn distance (17^2); the minimum player distance,
 // isRightDistanceToPlayerAndSpawnPoint's 24 blocks squared (576.0); the
 // despawn distance, 128 for every category but WATER_AMBIENT's 64; and
 // getMaxSpawnClusterSize's 4 (fish 8 or 5), the most one pass spawns in a
 // chunk.
 const (
-	spawnMagicNumber         = 17 * 17
-	spawnMinDistanceSq       = 576.0
-	monsterCategoryMax       = 70
-	creatureCategoryMax      = 10
-	waterCreatureCategoryMax = 5
-	ambientCategoryMax       = 15 // vanilla: MobCategory.AMBIENT
-	waterAmbientCategoryMax  = 20 // vanilla: MobCategory.WATER_AMBIENT
-	waterAmbientDespawnDist  = 64 // vanilla: MobCategory.WATER_AMBIENT
-	monsterDespawnDistanceI  = 128
-	spawnClusterSize         = 4
+	spawnMagicNumber        = 17 * 17
+	spawnMinDistanceSq      = 576.0
+	waterAmbientDespawnDist = 64 // vanilla: MobCategory.WATER_AMBIENT
+	monsterDespawnDistanceI = 128
+	spawnClusterSize        = 4
 )
 
 // SpawnableBelow reports whether the block under a spawn position supports
@@ -498,23 +493,23 @@ var axolotlGround = registry.BlockTagOf("minecraft:axolotls_spawnable_on")
 
 // SpawnCategory is vanilla's MobCategory, naming the biome lists and spawn
 // rules a pass uses.
-type SpawnCategory uint8
+type SpawnCategory = registry.MobCategory
 
 const (
-	CategoryMonster          SpawnCategory = iota // MobCategory.MONSTER
-	CategoryCreature                              // MobCategory.CREATURE
-	CategoryWaterCreature                         // MobCategory.WATER_CREATURE
-	CategoryUndergroundWater                      // MobCategory.UNDERGROUND_WATER_CREATURE
-	CategoryAmbient                               // MobCategory.AMBIENT
-	CategoryWaterAmbient                          // MobCategory.WATER_AMBIENT
-	CategoryAxolotls                              // MobCategory.AXOLOTLS
+	CategoryMonster          = registry.MobCategoryMonster
+	CategoryCreature         = registry.MobCategoryCreature
+	CategoryWaterCreature    = registry.MobCategoryWaterCreature
+	CategoryUndergroundWater = registry.MobCategoryUndergroundWaterCreature
+	CategoryAmbient          = registry.MobCategoryAmbient
+	CategoryWaterAmbient     = registry.MobCategoryWaterAmbient
+	CategoryAxolotls         = registry.MobCategoryAxolotls
 
 	// SpawnCategoryCount is the number of categories, for arrays indexed by one.
-	SpawnCategoryCount = iota
+	SpawnCategoryCount = int(registry.MobCategoryCount)
 )
 
-// lists are the biome spawn lists a category is rolled from.
-func (c SpawnCategory) lists() *[registry.BiomeCount][]spawnData {
+// spawnListsOf are the biome spawn lists a category is rolled from.
+func spawnListsOf(c SpawnCategory) *[registry.BiomeCount][]spawnData {
 	switch c {
 	case CategoryCreature:
 		return &biomeCreatureSpawns
@@ -644,7 +639,7 @@ func spawnListFor(category SpawnCategory, biome registry.Biome) []spawnData {
 	if biome < 0 || biome >= registry.BiomeCount {
 		return nil
 	}
-	return category.lists()[biome]
+	return spawnListsOf(category)[biome]
 }
 
 // canSpawnMobAt tests value membership (NaturalSpawner.canSpawnMobAt).
@@ -746,27 +741,10 @@ func WaterAmbientKind(t MobType) bool { return FishKind(t) }
 func AmbientKind(t MobType) bool { return kindOf(t).ambient }
 
 // SpawnCategoryOf is the category whose cap a mob type counts toward, false
-// for a type in none (MISC). It agrees with the *Kind predicates, which are
-// disjoint but for MonsterKind first, with one kinds lookup.
+// for a type in none (MISC).
 func SpawnCategoryOf(t MobType) (SpawnCategory, bool) {
-	k := lookupKind(t)
-	switch {
-	case k != nil && k.hostile:
-		return CategoryMonster, true
-	case AxolotlKind(t):
-		return CategoryAxolotls, true
-	case UndergroundWaterKind(t):
-		return CategoryUndergroundWater, true
-	case WaterCreatureKind(t):
-		return CategoryWaterCreature, true
-	case WaterAmbientKind(t):
-		return CategoryWaterAmbient, true
-	case k != nil && k.ambient:
-		return CategoryAmbient, true
-	case k != nil && !k.water && !golemKind(t) && t != TypeVillager:
-		return CategoryCreature, true
-	}
-	return 0, false
+	c := t.Category()
+	return c, c != registry.MobCategoryMisc
 }
 
 // KnownMobKind reports whether this package simulates the type, as /summon
@@ -1013,55 +991,15 @@ type SpawnPass struct {
 	category SpawnCategory
 }
 
-// WithMax replaces the category's spawn cap; a negative n keeps vanilla's.
-func (p SpawnPass) WithMax(n int) SpawnPass {
-	if n >= 0 {
-		p.max = n
+// NewSpawnPass is the pass of a category, capped at limit when it is not
+// negative, else at the vanilla cap (MobCategory.max). The category selects
+// the biome list and spawn rules; the server runs a persistent category
+// (creature) every 400 ticks, the others every tick.
+func NewSpawnPass(c SpawnCategory, counts *SpawnCounts, limit int) SpawnPass {
+	if limit < 0 {
+		limit = c.Max()
 	}
-	return p
-}
-
-// MonsterPass is the monster category: cap 70, the monster list and
-// darkness rules.
-func MonsterPass(counts *SpawnCounts) SpawnPass {
-	return SpawnPass{counts, monsterCategoryMax, CategoryMonster}
-}
-
-// CreaturePass is the creature category: cap 10 and Animal.checkAnimalSpawnRules
-// (grass underfoot, raw brightness above 8, no difficulty gate). The server
-// runs it every 400 ticks (tickChunks' gameTime % 400 for persistent categories).
-func CreaturePass(counts *SpawnCounts) SpawnPass {
-	return SpawnPass{counts, creatureCategoryMax, CategoryCreature}
-}
-
-// AmbientPass is the AMBIENT category: cap 15 and the bat's rule. Not
-// persistent, so it runs every tick.
-func AmbientPass(counts *SpawnCounts) SpawnPass {
-	return SpawnPass{counts, ambientCategoryMax, CategoryAmbient}
-}
-
-// AxolotlPass is the AXOLOTLS category: cap 5, every tick.
-func AxolotlPass(counts *SpawnCounts) SpawnPass {
-	return SpawnPass{counts, waterCreatureCategoryMax, CategoryAxolotls}
-}
-
-// UndergroundWaterPass is the UNDERGROUND_WATER_CREATURE category: cap 5,
-// the glow squid list of every overworld biome and its dark deep water rule.
-func UndergroundWaterPass(counts *SpawnCounts) SpawnPass {
-	return SpawnPass{counts, waterCreatureCategoryMax, CategoryUndergroundWater}
-}
-
-// WaterCreaturePass is the WATER_CREATURE category: cap 5. Water categories
-// are friendly but not persistent, so they run every tick with no difficulty
-// gate: squid spawn on peaceful.
-func WaterCreaturePass(counts *SpawnCounts) SpawnPass {
-	return SpawnPass{counts, waterCreatureCategoryMax, CategoryWaterCreature}
-}
-
-// WaterAmbientPass is the WATER_AMBIENT (fish) category: cap 20 and the
-// squid's surface water rule.
-func WaterAmbientPass(counts *SpawnCounts) SpawnPass {
-	return SpawnPass{counts, waterAmbientCategoryMax, CategoryWaterAmbient}
+	return SpawnPass{counts, limit, c}
 }
 
 // SpawnNaturally shuffles chunks once, trying open passes in order with shared bodies/potential.

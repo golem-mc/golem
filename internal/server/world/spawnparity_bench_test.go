@@ -27,7 +27,7 @@ func BenchmarkNaturalSpawnPass(b *testing.B) {
 						}
 					}
 					var counts [entity.SpawnCategoryCount]entity.SpawnCounts
-					passes := []entity.SpawnPass{entity.MonsterPass(&counts[0]), entity.CreaturePass(&counts[1]), entity.WaterCreaturePass(&counts[2]), entity.UndergroundWaterPass(&counts[3]), entity.AmbientPass(&counts[4]), entity.WaterAmbientPass(&counts[5]), entity.AxolotlPass(&counts[6])}
+					passes := []entity.SpawnPass{entity.NewSpawnPass(entity.CategoryMonster, &counts[entity.CategoryMonster], -1), entity.NewSpawnPass(entity.CategoryCreature, &counts[entity.CategoryCreature], -1), entity.NewSpawnPass(entity.CategoryWaterCreature, &counts[entity.CategoryWaterCreature], -1), entity.NewSpawnPass(entity.CategoryUndergroundWater, &counts[entity.CategoryUndergroundWater], -1), entity.NewSpawnPass(entity.CategoryAmbient, &counts[entity.CategoryAmbient], -1), entity.NewSpawnPass(entity.CategoryWaterAmbient, &counts[entity.CategoryWaterAmbient], -1), entity.NewSpawnPass(entity.CategoryAxolotls, &counts[entity.CategoryAxolotls], -1)}
 					var potential entity.SpawnPotential
 					potential.Add(0, 30, 0, 0.7)
 					entity.SpawnNaturally(w, rng, chunks, players, nil, &potential, passes, 289, func(r entity.SpawnRequest) {

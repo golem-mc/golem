@@ -3,6 +3,7 @@ package mobs
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -40,5 +41,29 @@ func TestSpawnTuningStopsCreatures(t *testing.T) {
 	srv.SetSpawnTuning(creature, -1, -1)
 	if passes() == 0 {
 		t.Error("default tuning: no creature spawned")
+	}
+}
+
+// TestSpawnTuningStopsMonsters checks that a monster tick rate of 0 stops the
+// natural monsters a night's passes grow by default.
+func TestSpawnTuningStopsMonsters(t *testing.T) {
+	t.Parallel()
+	srv, _ := zombieTests(t, servertest.SpawningTestConfig())
+	srv.SetDayTime(midnight)
+	monster := registry.MobCategoryMonster
+
+	srv.SetSpawnTuning(monster, -1, 0)
+	for seed := int64(1); seed <= spawnPasses; seed++ {
+		srv.SpawnPass(seed)
+	}
+	if n := len(srv.Mobs()); n != 0 {
+		t.Fatalf("tick rate 0: %d monsters spawned, want none", n)
+	}
+	srv.SetSpawnTuning(monster, -1, -1)
+	for seed := int64(1); seed <= spawnPasses; seed++ {
+		srv.SpawnPass(seed)
+	}
+	if len(srv.Mobs()) == 0 {
+		t.Error("default tuning: no monster spawned")
 	}
 }

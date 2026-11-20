@@ -3,14 +3,16 @@ package entity
 import (
 	"math/rand"
 	"testing"
+
+	"github.com/golem-mc/golem/registry"
 )
 
 // TestWaterAmbientCategoryNumbers pins the category's cap, despawn distance
 // and the fish's cluster sizes.
 // vanilla: MobCategory.WATER_AMBIENT, AbstractFish.getMaxSpawnClusterSize
 func TestWaterAmbientCategoryNumbers(t *testing.T) {
-	if waterAmbientCategoryMax != 20 {
-		t.Errorf("the cap is %d, want 20", waterAmbientCategoryMax)
+	if registry.MobCategoryWaterAmbient.Max() != 20 {
+		t.Errorf("the cap is %d, want 20", registry.MobCategoryWaterAmbient.Max())
 	}
 	if got := despawnDistanceOf(TypeCod); got != 64 {
 		t.Errorf("a cod's spawn distance is %v, want 64", got)

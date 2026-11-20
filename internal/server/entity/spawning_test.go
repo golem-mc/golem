@@ -157,7 +157,7 @@ func seedOpeningAParrotHerd() int64 {
 		if f.NextFloat() >= creatureSpawnProbability {
 			continue
 		}
-		if data := pickFromList(CategoryCreature.lists()[registry.BiomeJungle], f); data != nil && data.mob == TypeParrot {
+		if data := pickFromList(spawnListsOf(CategoryCreature)[registry.BiomeJungle], f); data != nil && data.mob == TypeParrot {
 			return seed
 		}
 	}
@@ -178,7 +178,7 @@ func seedOpeningAHerd() int64 {
 		if f.NextFloat() >= creatureSpawnProbability {
 			continue
 		}
-		if data := pickFromList(CategoryCreature.lists()[registry.BiomePlains], f); data == nil || !KnownMobKind(data.mob) || data.minCount != 4 || data.maxCount != 4 {
+		if data := pickFromList(spawnListsOf(CategoryCreature)[registry.BiomePlains], f); data == nil || !KnownMobKind(data.mob) || data.minCount != 4 || data.maxCount != 4 {
 			continue
 		}
 		return seed
@@ -227,7 +227,7 @@ func TestBiomeSpawnListsCoverTheVanillaBiomes(t *testing.T) {
 		{"minecraft:dark_forest", CategoryUndergroundWater, TypeGlowSquid},
 		{"minecraft:warm_ocean", CategoryWaterCreature, registry.EntityTypeSquid},
 	} {
-		if !has(c.cat.lists()[testBiome(c.biome)], c.mob) {
+		if !has(spawnListsOf(c.cat)[testBiome(c.biome)], c.mob) {
 			t.Errorf("%s has no %s in category %d, want vanilla's entry", c.biome, c.mob, c.cat)
 		}
 	}

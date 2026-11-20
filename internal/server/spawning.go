@@ -93,20 +93,18 @@ func (s *Server) tickNaturalSpawning() {
 		// not every 400th, and ignore spawn_monsters, so squid spawn in
 		// peaceful like animals. The world's tuning overrides cap and rate.
 		var passes []entity.SpawnPass
-		add := func(c registry.MobCategory, persistent bool, p entity.SpawnPass) {
-			if dim.spawnTuning.Runs(c, worldAge, persistent) {
-				passes = append(passes, p.WithMax(dim.spawnTuning.Limit(c)))
+		for _, c := range [...]registry.MobCategory{
+			registry.MobCategoryMonster, registry.MobCategoryCreature, registry.MobCategoryAmbient,
+			registry.MobCategoryAxolotls, registry.MobCategoryUndergroundWaterCreature,
+			registry.MobCategoryWaterCreature, registry.MobCategoryWaterAmbient,
+		} {
+			if c == registry.MobCategoryMonster && !monsters {
+				continue
+			}
+			if dim.spawnTuning.Runs(c, worldAge, c == registry.MobCategoryCreature) {
+				passes = append(passes, entity.NewSpawnPass(c, counts[c], dim.spawnTuning.Limit(c)))
 			}
 		}
-		if monsters {
-			add(registry.MobCategoryMonster, false, entity.MonsterPass(counts[entity.CategoryMonster]))
-		}
-		add(registry.MobCategoryCreature, true, entity.CreaturePass(counts[entity.CategoryCreature]))
-		add(registry.MobCategoryAmbient, false, entity.AmbientPass(counts[entity.CategoryAmbient]))
-		add(registry.MobCategoryAxolotls, false, entity.AxolotlPass(counts[entity.CategoryAxolotls]))
-		add(registry.MobCategoryUndergroundWaterCreature, false, entity.UndergroundWaterPass(counts[entity.CategoryUndergroundWater]))
-		add(registry.MobCategoryWaterCreature, false, entity.WaterCreaturePass(counts[entity.CategoryWaterCreature]))
-		add(registry.MobCategoryWaterAmbient, false, entity.WaterAmbientPass(counts[entity.CategoryWaterAmbient]))
 		entity.SpawnNaturally(w, s.spawnRng, chunks, players, bodies, potential, passes, spawnable, spawn)
 	}
 }

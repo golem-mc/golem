@@ -7981,7 +7981,7 @@ func (s *Server) DouseCauldronAt(x, y, z int32) { s.cauldronDoused(s.world, x, y
 // SetSpawnTuning sets the overworld's natural spawn limit and tick rate of a
 // category, as a plugin does through plugin.World.
 func (s *Server) SetSpawnTuning(c registry.MobCategory, limit, ticks int) {
-	t := &s.allDims()[0].spawnTuning
-	t.SetLimit(c, limit)
-	t.SetTicks(c, ticks)
+	w := pluginWorld{srv: s, dim: s.allDims()[0], host: s.pluginAdapter}
+	w.SetSpawnLimit(c, limit)
+	w.SetTicksPerSpawn(c, ticks)
 }

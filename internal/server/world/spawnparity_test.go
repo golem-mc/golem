@@ -23,7 +23,7 @@ func spawnParityRun(sw entity.SpawnWorld, seed int64, players []entity.SpawnPlay
 		}
 	}
 	var counts [entity.SpawnCategoryCount]entity.SpawnCounts
-	passes := []entity.SpawnPass{entity.MonsterPass(&counts[0]), entity.CreaturePass(&counts[1]), entity.WaterCreaturePass(&counts[2]), entity.UndergroundWaterPass(&counts[3]), entity.AmbientPass(&counts[4]), entity.WaterAmbientPass(&counts[5]), entity.AxolotlPass(&counts[6])}
+	passes := []entity.SpawnPass{entity.NewSpawnPass(entity.CategoryMonster, &counts[entity.CategoryMonster], -1), entity.NewSpawnPass(entity.CategoryCreature, &counts[entity.CategoryCreature], -1), entity.NewSpawnPass(entity.CategoryWaterCreature, &counts[entity.CategoryWaterCreature], -1), entity.NewSpawnPass(entity.CategoryUndergroundWater, &counts[entity.CategoryUndergroundWater], -1), entity.NewSpawnPass(entity.CategoryAmbient, &counts[entity.CategoryAmbient], -1), entity.NewSpawnPass(entity.CategoryWaterAmbient, &counts[entity.CategoryWaterAmbient], -1), entity.NewSpawnPass(entity.CategoryAxolotls, &counts[entity.CategoryAxolotls], -1)}
 	if capped {
 		for i := range counts {
 			counts[i].PerPlayer = map[int32]int{1: 70, 2: 0}
@@ -37,7 +37,10 @@ func spawnParityRun(sw entity.SpawnWorld, seed int64, players []entity.SpawnPlay
 		m.FinalizeSpawn(entity.GoDice{Rand: rng}, sw.Biome(int32(r.X), int32(r.Y), int32(r.Z)), r.Group, rules.LocalDifficulty{})
 		result += fmt.Sprintf("%s %g %g %g %g %t %v\n", r.Type.Name(), r.X, r.Y, r.Z, r.Yaw, m.IsBaby(), r.Group.Natural())
 	})
-	return fmt.Sprintf("%snext %d counts %v potential %v\n", result, rng.Int63(), counts, potential)
+	// The digest lists the counts in the order the passes run, without MISC.
+	ordered := []entity.SpawnCounts{counts[entity.CategoryMonster], counts[entity.CategoryCreature], counts[entity.CategoryWaterCreature],
+		counts[entity.CategoryUndergroundWater], counts[entity.CategoryAmbient], counts[entity.CategoryWaterAmbient], counts[entity.CategoryAxolotls]}
+	return fmt.Sprintf("%snext %d counts %v potential %v\n", result, rng.Int63(), ordered, potential)
 }
 
 func TestNaturalSpawnPlayerParity(t *testing.T) {
