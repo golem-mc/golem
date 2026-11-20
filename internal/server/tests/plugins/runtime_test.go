@@ -326,3 +326,47 @@ func TestPluginLoadBeforeOrdering(t *testing.T) {
 		t.Fatalf("LoadBefore order: %v", order)
 	}
 }
+
+type testEconomy struct{ balance float64 }
+
+func (e *testEconomy) Balance(plugin.UUID) (float64, bool) { return e.balance, true }
+func (e *testEconomy) Has(_ plugin.UUID, a float64) bool   { return e.balance >= a }
+func (e *testEconomy) Withdraw(_ plugin.UUID, a float64) error {
+	if e.balance < a {
+		return errors.New("insufficient funds")
+	}
+	e.balance -= a
+	return nil
+}
+func (e *testEconomy) Deposit(_ plugin.UUID, a float64) error { e.balance += a; return nil }
+func (e *testEconomy) Format(a float64) string                { return fmt.Sprintf("$%.2f", a) }
+func (e *testEconomy) CurrencyName() (string, string)         { return "dollar", "dollars" }
+
+func TestEconomyServiceFoundAcrossPluginsAndRemovedOnDisable(t *testing.T) {
+	t.Parallel()
+	var user plugin.Server
+	eco := &testEconomy{balance: 10}
+	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{
+		{Name: "bank", Plugin: &testPlugin{enable: func(s plugin.Server) error {
+			plugin.Provide[plugin.Economy](s, eco, 0)
+			return nil
+		}}},
+		{Name: "shop", Plugin: &testPlugin{enable: func(s plugin.Server) error { user = s; return nil }}},
+	})
+	servertest.HoldTicks(t, srv)
+	got, ok := plugin.Service[plugin.Economy](user)
+	if !ok {
+		t.Fatal("economy not found")
+	}
+	var id plugin.UUID
+	if err := got.Withdraw(id, 4); err != nil || eco.balance != 6 {
+		t.Fatalf("withdraw: %v, balance %v", err, eco.balance)
+	}
+	if err := got.Withdraw(id, 7); err == nil {
+		t.Error("overdraft allowed")
+	}
+	srv.Shutdown()
+	if _, ok := plugin.Service[plugin.Economy](user); ok {
+		t.Error("economy survived its plugin's disable")
+	}
+}

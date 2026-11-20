@@ -339,6 +339,25 @@ type PermissionProvider interface {
 	Has(sender CommandSender, node string) (has, decided bool)
 }
 
+// Economy is the server's economy, provided by an economy plugin and used by
+// others through Service[Economy]. Amounts are in the currency's units, as
+// float64 so that no decimal library is forced on plugins. Bukkit: Vault's
+// Economy
+type Economy interface {
+	// Balance answers the balance of the account id, and false for no account.
+	Balance(id UUID) (float64, bool)
+	// Has answers whether the account id holds at least amount.
+	Has(id UUID, amount float64) bool
+	// Withdraw takes amount from the account id; an error leaves it unchanged.
+	Withdraw(id UUID, amount float64) error
+	// Deposit adds amount to the account id; an error leaves it unchanged.
+	Deposit(id UUID, amount float64) error
+	// Format writes amount as the economy shows it, with the currency symbol.
+	Format(amount float64) string
+	// CurrencyName answers the currency's singular and plural names.
+	CurrencyName() (singular, plural string)
+}
+
 // BanList is a ban list of players or addresses. Bukkit: BanList
 type BanList interface {
 	// Ban bans target (a UUID or a name for players, an address for IPs) with
