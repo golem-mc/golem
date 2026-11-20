@@ -1445,7 +1445,7 @@ func (d lootDecoder) function(f obj) registry.LootFunction {
 		default:
 			fail("Unknown loot context parameter: %s", src)
 		}
-		return registry.LootCopyComponents{Source: src, Include: stringList(f["include"]), Exclude: stringList(f["exclude"]), Conditions: conds}
+		return registry.LootCopyComponents{Source: src, Include: includeList(f), Exclude: stringList(f["exclude"]), Conditions: conds}
 	case "minecraft:set_random_dyes":
 		return registry.LootSetRandomDyes{Count: intAt(f, "number_of_dyes"), Conditions: conds}
 	case "minecraft:set_random_potion":
@@ -1701,6 +1701,15 @@ func attributeModifier(m obj) registry.LootAttributeModifier {
 		out.Slots = append(out.Slots, id)
 	}
 	return out
+}
+
+// includeList reads copy_components' optional include: nil when absent
+// (copy everything), non-nil when present, even if empty.
+func includeList(f obj) []string {
+	if _, ok := f["include"]; !ok {
+		return nil
+	}
+	return append([]string{}, stringList(f["include"])...)
 }
 
 func stringList(v any) []string {

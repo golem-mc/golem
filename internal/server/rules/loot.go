@@ -1600,9 +1600,6 @@ func (r *lootRoller) copyComponentsFrom(k registry.LootCopyComponents, s lootSta
 		entity = r.ctx.DirectAttacker
 	case "attacking_player":
 		entity = r.ctx.AttackingPlayer
-		if entity.Type == "" && r.ctx.Attacker.Player != nil {
-			entity = r.ctx.Attacker
-		}
 	case "target_entity":
 		entity = r.ctx.Target
 	case "interacting_entity":
@@ -1615,7 +1612,15 @@ func (r *lootRoller) copyComponentsFrom(k registry.LootCopyComponents, s lootSta
 	if k.Source == "tool" {
 		held = registry.StackComponents(r.ctx.Tool.Stack)
 	}
-	for _, name := range k.Include {
+	include := k.Include
+	if include == nil && k.Source == "tool" {
+		// An absent include copies every component of the tool.
+		for name := range held {
+			include = append(include, name)
+		}
+		slices.Sort(include)
+	}
+	for _, name := range include {
 		name = registry.Qualify(name)
 		if slices.ContainsFunc(k.Exclude, func(x string) bool { return registry.Qualify(x) == name }) {
 			continue
@@ -1625,13 +1630,15 @@ func (r *lootRoller) copyComponentsFrom(k registry.LootCopyComponents, s lootSta
 			tag = held[name]
 		} else if name == "minecraft:custom_name" && entity.Name != nil {
 			tag = protocol.TextTag(*entity.Name)
-		} else if value, ok := "", false; entity.Component != nil {
-			if value, ok = entity.Component(name); ok {
-				tag = nbt.String(value)
+		} else {
+			if entity.Component != nil {
+				if value, ok := entity.Component(name); ok {
+					tag = nbt.String(value)
+				}
 			}
-		}
-		if tag == nil && k.Source != "tool" {
-			tag, _ = entityTagComponent(entity, name)
+			if tag == nil {
+				tag, _ = entityTagComponent(entity, name)
+			}
 		}
 		if tag == nil {
 			continue
