@@ -22,13 +22,11 @@ type PluginMeta struct {
 
 // pluginLevel is the level state a plugin dimension keeps of its own.
 type pluginLevel struct {
-	age                   int64
-	difficulty            uint8
-	locked                bool
-	raining, thundering   bool
-	rainTime, thunderTime int32
-	clearTime             int32
-	clocks                nbt.Compound
+	age        int64
+	difficulty uint8
+	locked     bool
+	weather    nbt.Compound
+	clocks     nbt.Compound
 }
 
 // ReadPluginMeta reads the dimension's plugin_world.dat under the world in dir,
@@ -50,16 +48,10 @@ func ReadPluginMeta(dir, name string) (m PluginMeta, ok bool) {
 		age, _ := nbt.Get[nbt.Long](lv, "age")
 		d, _ := nbt.Get[nbt.Byte](lv, "difficulty")
 		locked, _ := nbt.Get[nbt.Byte](lv, "difficulty_locked")
-		rain, _ := nbt.Get[nbt.Byte](lv, "raining")
-		thunder, _ := nbt.Get[nbt.Byte](lv, "thundering")
-		rainTime, _ := nbt.Get[nbt.Int](lv, "rain_time")
-		thunderTime, _ := nbt.Get[nbt.Int](lv, "thunder_time")
-		clearTime, _ := nbt.Get[nbt.Int](lv, "clear_weather_time")
 		clocks, _ := nbt.Get[nbt.Compound](lv, "clocks")
 		m.Level = &pluginLevel{
 			age: int64(age), difficulty: min(uint8(d), DifficultyHard), locked: locked != 0,
-			raining: rain != 0, thundering: thunder != 0,
-			rainTime: int32(rainTime), thunderTime: int32(thunderTime), clearTime: int32(clearTime), clocks: clocks,
+			weather: lv, clocks: clocks,
 		}
 	}
 	return m, true
@@ -70,28 +62,13 @@ func ReadPluginMeta(dir, name string) (m PluginMeta, ok bool) {
 func (w *World) SavePluginMeta() {
 	w.timeMu.Lock()
 	l := w.level
-	clocks := make(nbt.Compound, len(w.clocks))
-	for _, c := range w.clocks {
-		clocks[c.name] = nbt.Compound{
-			"total_ticks": nbt.Long(c.state.total),
-			"rate":        nbt.Float(c.state.rate),
-			"paused":      nbt.Byte(boolByte(c.state.paused)),
-		}
-	}
+	level := w.weatherCompound()
+	level["age"], level["difficulty"] = nbt.Long(l.WorldAge), nbt.Byte(l.Difficulty)
+	level["difficulty_locked"], level["clocks"] = nbt.Byte(boolByte(l.DifficultyLocked)), w.clocksCompound()
 	data := nbt.Compound{
 		"seed": nbt.Long(l.Seed), "spawn": nbt.IntArray{l.Spawn.X, l.Spawn.Y, l.Spawn.Z},
 		"yaw": nbt.Float(l.Spawn.Yaw), "pitch": nbt.Float(l.Spawn.Pitch),
-		"level": nbt.Compound{
-			"age":                nbt.Long(l.WorldAge),
-			"difficulty":         nbt.Byte(l.Difficulty),
-			"difficulty_locked":  nbt.Byte(boolByte(l.DifficultyLocked)),
-			"raining":            nbt.Byte(boolByte(l.Raining)),
-			"thundering":         nbt.Byte(boolByte(l.Thundering)),
-			"rain_time":          nbt.Int(l.RainTime),
-			"thunder_time":       nbt.Int(l.ThunderTime),
-			"clear_weather_time": nbt.Int(l.ClearWeatherTime),
-			"clocks":             clocks,
-		},
+		"level": level,
 	}
 	w.timeMu.Unlock()
 	if err := writeSavedData(w.storage, pluginMetaFile, data); err != nil {
@@ -118,8 +95,7 @@ func (w *World) RestoreLevel(m PluginMeta) {
 	}
 	w.timeMu.Lock()
 	w.level.WorldAge, w.level.Difficulty, w.level.DifficultyLocked = l.age, l.difficulty, l.locked
-	w.level.Raining, w.level.Thundering = l.raining, l.thundering
-	w.level.RainTime, w.level.ThunderTime, w.level.ClearWeatherTime = l.rainTime, l.thunderTime, l.clearTime
+	applyWeather(l.weather, w.level)
 	for i := range w.clocks {
 		if entry, ok := nbt.Get[nbt.Compound](l.clocks, w.clocks[i].name); ok {
 			readClockEntry(entry, &w.clocks[i].state)
