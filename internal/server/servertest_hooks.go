@@ -1336,6 +1336,13 @@ func (s *Server) AdvancementObtained(name, id, criterion string) bool {
 	return progress != nil && n != nil && progress.Obtained(n, criterion)
 }
 
+// RecipeKnown reports whether the named online player's recipe book holds
+// the recipe.
+func (s *Server) RecipeKnown(name, recipe string) bool {
+	c := s.playerClient(name)
+	return c != nil && c.recipeBookState().Knows(recipe)
+}
+
 // Places and dimensions. The three dimensions have no commands to reach them
 // by — vanilla has none either, the /execute run tp form included — so the
 // tests reach them through these: the same enterDimension a nether portal's
