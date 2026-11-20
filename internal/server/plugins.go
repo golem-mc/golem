@@ -66,6 +66,7 @@ func (h *pluginHost) Plugins() []plugin.Info { return h.host.Plugins() }
 func (*pluginHost) Version() (string, int)   { return protocol.GameVersion, protocol.Version }
 func (h *pluginHost) MaxPlayers() int        { return int(h.srv.maxPlayers.Load()) }
 func (h *pluginHost) SetMaxPlayers(n int)    { h.srv.maxPlayers.Store(int32(max(n, 0))) }
+func (h *pluginHost) SpawnProtection() int   { return int(h.srv.spawnProtection.Load()) }
 func (h *pluginHost) DefaultGameMode() plugin.GameMode {
 	return plugin.GameMode(h.srv.defaultGameMode.Load())
 }

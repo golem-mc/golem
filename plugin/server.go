@@ -33,6 +33,10 @@ type Server interface {
 	// the server stops.
 	MaxPlayers() int
 	SetMaxPlayers(n int)
+	// SpawnProtection answers server.properties' spawn-protection: the
+	// radius around the overworld's spawn that only operators may change,
+	// 0 when off. Bukkit: Server.getSpawnRadius
+	SpawnProtection() int
 	// DefaultGameMode answers the game mode new players start in, which
 	// /defaultgamemode changes; SetDefaultGameMode does the same, and with
 	// force-gamemode on moves every online player into it. A mode past
