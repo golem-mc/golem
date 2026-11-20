@@ -204,6 +204,27 @@ func TestTwoTasksAndALineAbove(t *testing.T) {
 	}
 }
 
+func TestUpdateAboveSpinner(t *testing.T) {
+	u, term, clock := newLive(t, true)
+	u.Step("building golem v1.0.0")
+	clock.Advance(3 * frameInterval)
+	u.Update("golem %s is out (you run %s)", "v1.5.0", "v1.0.0")
+	u.Hint("run `golem-launcher update` to update the server and plugins")
+	want := "↑ golem v1.5.0 is out (you run v1.0.0)\n  run `golem-launcher update` to update the server and plugins"
+	if got := term.screen(); got != want {
+		t.Errorf("after the notice:\n%s\nwant:\n%s", got, want)
+	}
+	clock.Advance(frameInterval)
+	if got := term.screen(); got != want+"\n⠼ building golem v1.0.0 0.4s" {
+		t.Errorf("next frame:\n%s", got)
+	}
+	for _, code := range []string{"\x1b[33m↑ golem v1.5.0", "  \x1b[2mrun `golem-launcher update`"} {
+		if !strings.Contains(term.raw.String(), code) {
+			t.Errorf("output lacks %q:\n%q", code, term.raw.String())
+		}
+	}
+}
+
 func TestCloseClearsBeforeExec(t *testing.T) {
 	u, term, clock := newLive(t, true)
 	u.OK("golem v1.0.0 · no plugins · ready in 0.2s")

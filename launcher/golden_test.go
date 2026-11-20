@@ -31,7 +31,7 @@ func plainGolden(t *testing.T, f *fixture, name string, commands ...string) {
 	var b strings.Builder
 	for _, line := range commands {
 		stdout, stderr, err := f.run(strings.Fields(line)...)
-		b.WriteString("$ golem-launcher " + line + "\n")
+		b.WriteString(strings.TrimRight("$ golem-launcher "+line, " ") + "\n")
 		if stdout != "" {
 			b.WriteString("-- stdout --\n" + stdout)
 		}
@@ -169,5 +169,15 @@ func TestColorFlag(t *testing.T) {
 		if out, errw, _ := f.run(args...); strings.Contains(out+errw, "\x1b[") {
 			t.Errorf("%q painted: %q %q", args, out, errw)
 		}
+	}
+}
+
+// TestGoldenRunOutdated starts with a newer server and plugin out: the
+// notices print after the steps, before the summary.
+func TestGoldenRunOutdated(t *testing.T) {
+	f := newStartFixture(t, `{"server": "v1.0.0", "plugins": ["example.com/shops@v1.0.0"]}`, "v1.5.0", "v1.5.0")
+	plainGolden(t, f.fixture, "run-outdated", "")
+	if len(f.started) != 1 {
+		t.Error("run did not hand over to the server")
 	}
 }

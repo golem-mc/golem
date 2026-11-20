@@ -551,10 +551,8 @@ func (c *cli) run(ctx context.Context, rebuild bool, serverArgs []string) error 
 	if err != nil {
 		return err
 	}
+	printNotices(c.ui, notices())
 	c.ui.OK("golem %s · %s · ready in %s", st.cfg.Server, plural(len(st.plugins), "plugin"), ui.Duration(c.ui.Since(c.start)))
-	for _, n := range notices() {
-		fmt.Fprintln(c.out, n)
-	}
 	c.stop()
 	// The server's console starts on a clean line.
 	c.ui.Close()
