@@ -23,7 +23,8 @@ type Server interface {
 	// Generator resolves spec, "<plugin>[:<id>]" with the plugin's name
 	// matched ignoring case, to the generator that plugin publishes for the
 	// world key (GeneratorProvider). It fails for a missing plugin, one that
-	// provides no generators, or an id the plugin rejects.
+	// is not enabled, provides no generators, or an id the plugin
+	// rejects or answers nil for.
 	Generator(world Key, spec string) (Generator, error)
 
 	// Version answers the Minecraft version and protocol the server speaks.

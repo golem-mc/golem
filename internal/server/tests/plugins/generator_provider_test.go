@@ -16,11 +16,19 @@ type genPlugin struct {
 }
 
 func (*genPlugin) Generator(world plugin.Key, id string) (plugin.Generator, error) {
+	if id == "nil" {
+		return nil, nil
+	}
 	if id != "" && id != "testgen" {
 		return nil, errors.New("unknown generator " + id)
 	}
 	return &flatGen{}, nil
 }
+
+// offPlugin fails to enable, so it stays disabled.
+type offPlugin struct{ genPlugin }
+
+func (*offPlugin) Enable(plugin.Server) error { return errors.New("no") }
 
 func TestPluginGeneratorProvider(t *testing.T) {
 	// Not parallel: the generated chunk flakes under the CPU contention of the parallel tests.
@@ -30,6 +38,7 @@ func TestPluginGeneratorProvider(t *testing.T) {
 	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{
 		{Name: "Gens", Plugin: gp},
 		{Name: "plain", Plugin: &testPlugin{}},
+		{Name: "off", Plugin: &offPlugin{}},
 	})
 	servertest.HoldTicks(t, srv)
 	var w plugin.World
@@ -49,7 +58,7 @@ func TestPluginGeneratorProvider(t *testing.T) {
 				t.Errorf("Generator(%q) = %v, %v", spec, g, err)
 			}
 		}
-		for _, spec := range []string{"gens:nope", "plain", "plain:x", "missing:testgen", ""} {
+		for _, spec := range []string{"gens:nope", "gens:nil", "off:testgen", "plain", "plain:x", "missing:testgen", ""} {
 			if g, err := h.Generator(flatKey, spec); err == nil {
 				t.Errorf("Generator(%q) = %v, want an error", spec, g)
 			}
@@ -62,7 +71,7 @@ func TestPluginGeneratorProvider(t *testing.T) {
 		}
 		w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) { generated.Store(true) })
 		for _, info := range h.Plugins() {
-			if info.Generators != (info.Name == "Gens") {
+			if info.Generators != (info.Name == "Gens" || info.Name == "off") {
 				t.Errorf("Generators of %s = %v", info.Name, info.Generators)
 			}
 		}

@@ -300,7 +300,14 @@ func (h *Host) Generator(world plugin.Key, spec string) (plugin.Generator, error
 		if !ok {
 			return nil, fmt.Errorf("plugin %s provides no generators", p.Name())
 		}
-		return gp.Generator(world, id)
+		if !p.enabled.Load() {
+			return nil, fmt.Errorf("plugin %s is not enabled", p.Name())
+		}
+		g, err := gp.Generator(world, id)
+		if err == nil && g == nil {
+			return nil, fmt.Errorf("plugin %s has no generator %q", p.Name(), id)
+		}
+		return g, err
 	}
 	return nil, fmt.Errorf("no plugin named %q", name)
 }

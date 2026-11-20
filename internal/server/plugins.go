@@ -56,12 +56,12 @@ func (h *pluginHost) Logger() *slog.Logger   { return h.host.Logger() }
 func (h *pluginHost) Name() string           { return h.host.Name() }
 func (h *pluginHost) DataDir() string        { return h.host.DataDir() }
 func (h *pluginHost) Plugins() []plugin.Info { return h.host.Plugins() }
+func (*pluginHost) Version() (string, int)   { return protocol.GameVersion, protocol.Version }
+func (h *pluginHost) MaxPlayers() int        { return int(h.srv.maxPlayers.Load()) }
+func (h *pluginHost) SetMaxPlayers(n int)    { h.srv.maxPlayers.Store(int32(max(n, 0))) }
 func (h *pluginHost) Generator(world plugin.Key, spec string) (plugin.Generator, error) {
 	return h.host.Generator(world, spec)
 }
-func (*pluginHost) Version() (string, int) { return protocol.GameVersion, protocol.Version }
-func (h *pluginHost) MaxPlayers() int      { return int(h.srv.maxPlayers.Load()) }
-func (h *pluginHost) SetMaxPlayers(n int)  { h.srv.maxPlayers.Store(int32(max(n, 0))) }
 func (h *pluginHost) MOTD() plugin.Text {
 	text, _ := pluginText(*h.srv.motd.Load())
 	return text
