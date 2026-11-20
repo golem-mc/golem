@@ -51,6 +51,9 @@ type World interface {
 	SetBiome(pos BlockPos, b registry.Biome) bool
 	// Light answers the sky and block light at pos, 0 to 15.
 	Light(pos BlockPos) (sky, block int)
+	// Power is the redstone signal, 0 to 15, the block at pos receives from
+	// its neighbours.
+	Power(pos BlockPos) int
 
 	// Chunk answers the loaded chunk at pos.
 	Chunk(pos ChunkPos) (Chunk, bool)

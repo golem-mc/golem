@@ -313,6 +313,13 @@ func (p *Physics) bestNeighborSignal(x, y, z int32) int {
 	return best
 }
 
+// NeighborSignal is bestNeighborSignal for callers outside the engine.
+func (p *Physics) NeighborSignal(x, y, z int32) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.bestNeighborSignal(x, y, z)
+}
+
 // HasOwnOrNeighborSignal includes a source occupying the queried cell.
 // vanilla: SignalGetter.getBestOwnOrNeighbourSignal
 func (p *Physics) HasOwnOrNeighborSignal(x, y, z int32) bool {
