@@ -947,6 +947,9 @@ func newServerWith(cfg *config.Config, seed int64, shared sharedNether, plugins 
 		slog.Warn("Failed to load datapacks, can't proceed with server load. You can either fix your datapacks or reset to vanilla with --safeMode", "error", err)
 		return nil, err
 	}
+	if og, ok := gen.(*world.OverworldGenerator); ok {
+		og.RefreshBiomeClimates()
+	}
 	s.world.ReloadClocks()
 	debugSetup := s.world.IsDebug() && !s.world.Existed()
 	if debugSetup {

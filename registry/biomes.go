@@ -1,5 +1,7 @@
 package registry
 
+import "sync/atomic"
+
 // BiomeClimate is the part of a biome's climate the rain reads: whether the
 // biome precipitates at all, its base temperature before the height adjustment
 // Biome.getHeightAdjustedTemperature applies, and whether the frozen
@@ -41,11 +43,34 @@ var biomeByName = func() map[string]Biome {
 	return m
 }()
 
+// packBiomeClimates holds biomeClimates with data pack overrides applied; nil
+// means no pack overrides any biome's climate.
+var packBiomeClimates atomic.Pointer[[BiomeCount]BiomeClimate]
+
+// ApplyPackBiomeClimates layers the data packs' biome climates over the
+// built-in table; nil or empty restores the built-in climates.
+func ApplyPackBiomeClimates(overrides map[Biome]BiomeClimate) {
+	if len(overrides) == 0 {
+		packBiomeClimates.Store(nil)
+		return
+	}
+	table := biomeClimates
+	for b, c := range overrides {
+		if b >= 0 && b < BiomeCount {
+			table[b] = c
+		}
+	}
+	packBiomeClimates.Store(&table)
+}
+
 // Climate returns the biome's climate. Outside the registry it answers the
 // vanilla biome defaults: precipitation at a temperate 0.5.
 func (b Biome) Climate() BiomeClimate {
 	if b < 0 || b >= BiomeCount {
 		return BiomeClimate{Precipitation: true, Temperature: 0.5}
+	}
+	if p := packBiomeClimates.Load(); p != nil {
+		return p[b]
 	}
 	return biomeClimates[b]
 }
