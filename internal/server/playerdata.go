@@ -756,6 +756,7 @@ func (c *client) restore() {
 		c.log.Warn("could not load player advancements", "error", err)
 	}
 	progress.SetVeto(c.pluginCriterionVeto)
+	progress.SetPlayerContext(c.advancementContext)
 	c.advancements.Store(progress)
 
 	root, err := c.srv.players.load(c.player.UUID)
