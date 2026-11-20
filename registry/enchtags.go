@@ -72,31 +72,11 @@ func EnchantmentInTag(id int32, tag string) bool {
 	return tagsNow.Load().enchantment[tag][name]
 }
 
-// enchantingTableIDs is EnchantingTableOrder as numeric IDs, built once since
-// every offer walks it; unknown names are skipped.
-var enchantingTableIDs = func() []int32 {
-	ids := make([]int32, 0, len(EnchantingTableOrder))
-	for _, name := range EnchantingTableOrder {
-		if id, ok := EnchantmentID(name); ok {
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}()
-
 // EnchantingTableIDs is the enchanting table's pool by numeric ID, in the
 // loaded minecraft:in_enchanting_table tag's order: the registry's alphabetical
 // order would land every weighted draw elsewhere.
 func EnchantingTableIDs() []int32 {
-	if st := tagsNow.Load(); st != nil {
-		if ids, ok := st.enchantmentIDs["minecraft:in_enchanting_table"]; ok {
-			return ids
-		}
-		if tagsGeneration.Load() > 0 {
-			return nil
-		}
-	}
-	return enchantingTableIDs
+	return EnchantmentTagIDs("minecraft:in_enchanting_table")
 }
 
 // enchantmentTagIDs resolves every enchantment tag to member IDs in tag

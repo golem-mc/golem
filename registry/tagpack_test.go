@@ -109,8 +109,8 @@ func TestPackTagsOfSynchronizedRegistry(t *testing.T) {
 
 func TestEnchantingTableIDsFollowsPackTags(t *testing.T) {
 	builtin := slices.Clone(EnchantingTableIDs())
-	if len(builtin) != len(EnchantingTableOrder) {
-		t.Fatalf("default EnchantingTableIDs has %d entries, want %d", len(builtin), len(EnchantingTableOrder))
+	if len(builtin) == 0 {
+		t.Fatal("default EnchantingTableIDs is empty")
 	}
 	unbreaking, _ := EnchantmentID("minecraft:unbreaking")
 	mending, _ := EnchantmentID("minecraft:mending")
