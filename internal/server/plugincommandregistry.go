@@ -40,7 +40,9 @@ func (p pluginCommands) Register(c plugin.Command) error {
 		}
 	}
 	for _, name := range names {
-		if name == "" || strings.ContainsAny(name, " :/\\\t\n\r") {
+		// A single leading slash is allowed so a plugin can register "/set"
+		// and have the client type "//set".
+		if body := strings.TrimPrefix(name, "/"); body == "" || strings.ContainsAny(body, " :/\\\t\n\r") {
 			return fmt.Errorf("plugin: invalid command name %q", name)
 		}
 	}
