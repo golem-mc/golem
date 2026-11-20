@@ -999,12 +999,20 @@ func (g *pushGrid) refresh(m *Mob) {
 	}
 }
 
-// candidates gathers mobs in the cells m's inflated box can reach,
-// keeps those overlapping the box, and sorts them into snapshot order so pushes
-// land as the whole-herd scan would. Positions do not change during a push
-// step, so pushStep's own overlap test passes exactly these; sorting after
-// the cut keeps the sort small. The result is scratch valid until the next query.
+// candidates is gather sorted into snapshot order so pushes land as the
+// whole-herd scan would. Positions do not change during a push step, so
+// pushStep's own overlap test passes exactly these; sorting after the cut
+// keeps the sort small. The result is scratch valid until the next query.
 func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
+	g.gather(m, inflate)
+	slices.SortFunc(g.near, func(a, b *Mob) int { return cmp.Compare(a.pushIdx, b.pushIdx) })
+	return g.near
+}
+
+// gather collects the mobs in the cells m's inflated box can reach that
+// overlap the box, in no set order (pushIdx is each one's snapshot order).
+// The result is scratch valid until the next query.
+func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 	g.near = g.near[:0]
 	hw := m.kind().width * m.scale() / 2
 	r := int(math.Ceil((hw + g.wide + inflate) / pushCellSide))
@@ -1040,7 +1048,6 @@ func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
 			}
 		}
 	}
-	slices.SortFunc(g.near, func(a, b *Mob) int { return cmp.Compare(a.pushIdx, b.pushIdx) })
 	if g.gathered != nil {
 		*g.gathered += seen
 	}
