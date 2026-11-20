@@ -5,6 +5,7 @@ import (
 	"math/bits"
 	"math/rand"
 	"slices"
+	"sync/atomic"
 
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -38,47 +39,176 @@ func (l *spawnList) pick(rng *rand.Rand) *spawnData {
 	return nil
 }
 
-var naturalBiomeLists = func() (lists [SpawnCategoryCount][registry.BiomeCount]spawnList) {
-	for c := range SpawnCategory(SpawnCategoryCount) {
-		for b, entries := range spawnListsOf(c) {
-			lists[c][b] = describeSpawnList(entries)
+// BiomeSpawnEntry is one entry of a biome's natural spawn list override.
+type BiomeSpawnEntry struct {
+	Mob                MobType
+	Weight             int
+	MinCount, MaxCount int
+}
+
+// BiomeSpawnCostEntry is one entry of a biome's spawn_costs override.
+type BiomeSpawnCostEntry struct {
+	Mob            MobType
+	Charge, Budget float64
+}
+
+// BiomeSpawnOverride is a data pack's spawn settings for one built-in biome.
+type BiomeSpawnOverride struct {
+	Spawners            [SpawnCategoryCount][]BiomeSpawnEntry
+	SpawnCosts          []BiomeSpawnCostEntry
+	CreatureProbability float32
+}
+
+// biomeSpawnTable holds the active per-biome spawn lists, representatives,
+// spawn costs, chunk-generation creature probabilities and max pack bound.
+type biomeSpawnTable struct {
+	lists                 [SpawnCategoryCount][registry.BiomeCount]spawnList
+	representatives       [SpawnCategoryCount][registry.BiomeCount]registry.Biome
+	spawnCosts            [registry.BiomeCount][]spawnCost
+	spawnCostTypes        [registry.EntityTypeCount]bool
+	creatureProbabilities [registry.BiomeCount]float32
+	maxPack               int64
+}
+
+func (t *biomeSpawnTable) costAt(biome registry.Biome, mob MobType) (spawnCost, bool) {
+	if biome < 0 || biome >= registry.BiomeCount {
+		return spawnCost{}, false
+	}
+	for _, c := range t.spawnCosts[biome] {
+		if c.mob == mob {
+			return c, true
 		}
 	}
-	return
-}()
+	return spawnCost{}, false
+}
 
-// naturalBiomeRepresentatives maps each biome to the lowest biome of its
-// equivalence class: equal ordered list and equal ordered spawn costs. Only
-// list lookup and cost lookup may read the representative. Water ambient keeps identity: its
-// suppression reads the reloadable biome tag, which a data pack can change.
-var naturalBiomeRepresentatives = func() (reps [SpawnCategoryCount][registry.BiomeCount]registry.Biome) {
+var builtinBiomeSpawns = buildBiomeSpawnTable(nil)
+var activeBiomeSpawns atomic.Pointer[biomeSpawnTable]
+
+func currentBiomeSpawns() *biomeSpawnTable {
+	if t := activeBiomeSpawns.Load(); t != nil {
+		return t
+	}
+	return builtinBiomeSpawns
+}
+
+// ApplyPackBiomeSpawns layers the data packs' biome spawn overrides over the
+// built-in generated tables; nil or empty restores the built-in tables.
+func ApplyPackBiomeSpawns(overrides map[registry.Biome]BiomeSpawnOverride) {
+	if len(overrides) == 0 {
+		activeBiomeSpawns.Store(nil)
+		return
+	}
+	activeBiomeSpawns.Store(buildBiomeSpawnTable(overrides))
+}
+
+func buildBiomeSpawnTable(overrides map[registry.Biome]BiomeSpawnOverride) *biomeSpawnTable {
+	t := &biomeSpawnTable{
+		spawnCosts: biomeSpawnCosts,
+	}
+	for c := range SpawnCategory(SpawnCategoryCount) {
+		lists := spawnListsOf(c)
+		if lists == nil {
+			continue
+		}
+		for b, entries := range lists {
+			t.lists[c][b] = describeSpawnList(entries)
+		}
+	}
+	for b := range t.creatureProbabilities {
+		if p := biomeCreatureProbabilities[b]; p != 0 {
+			t.creatureProbabilities[b] = p
+		} else {
+			t.creatureProbabilities[b] = creatureSpawnProbability
+		}
+	}
+	if len(overrides) == 0 {
+		t.spawnCostTypes = spawnCostTypes
+	} else {
+		for b, ov := range overrides {
+			if b < 0 || b >= registry.BiomeCount {
+				continue
+			}
+			for c := range SpawnCategory(SpawnCategoryCount) {
+				src := ov.Spawners[c]
+				var dst []spawnData
+				if len(src) > 0 {
+					dst = make([]spawnData, len(src))
+					for i, e := range src {
+						dst[i] = spawnData{e.Mob, e.Weight, e.MinCount, e.MaxCount}
+					}
+				}
+				t.lists[c][b] = describeSpawnList(dst)
+			}
+			if len(ov.SpawnCosts) > 0 {
+				costs := make([]spawnCost, len(ov.SpawnCosts))
+				for i, c := range ov.SpawnCosts {
+					costs[i] = spawnCost{c.Mob, c.Charge, c.Budget}
+				}
+				t.spawnCosts[b] = costs
+			} else {
+				t.spawnCosts[b] = nil
+			}
+			t.creatureProbabilities[b] = ov.CreatureProbability
+		}
+		for _, costs := range t.spawnCosts {
+			for _, c := range costs {
+				if c.mob >= 0 && c.mob < registry.EntityTypeCount {
+					t.spawnCostTypes[c.mob] = true
+				}
+			}
+		}
+	}
+	// representatives maps each biome to the lowest biome of its equivalence
+	// class: equal ordered list and equal ordered spawn costs. Only list lookup
+	// and cost lookup may read the representative. Water ambient keeps identity:
+	// its suppression reads the reloadable biome tag, which a data pack can change.
 	for c := range SpawnCategory(SpawnCategoryCount) {
 		for b := range registry.Biome(registry.BiomeCount) {
-			reps[c][b] = b
+			t.representatives[c][b] = b
 			if c == CategoryWaterAmbient {
 				continue
 			}
 			for r := range b {
-				if reps[c][r] == r && naturalBiomesEquivalent(c, r, b) {
-					reps[c][b] = r
+				if t.representatives[c][r] == r &&
+					slices.Equal(t.lists[c][r].entries, t.lists[c][b].entries) &&
+					slices.Equal(t.spawnCosts[r], t.spawnCosts[b]) {
+					t.representatives[c][b] = r
 					break
 				}
 			}
 		}
 	}
-	return
-}()
+	// maxPack bounds both the initial walk and every selected list entry.
+	m := int64(4)
+	for _, lists := range t.lists {
+		for _, list := range lists {
+			for _, e := range list.entries {
+				m = max(m, int64(e.maxCount))
+			}
+		}
+	}
+	for _, list := range append([]spawnList{naturalFortressList}, naturalOverrideLists...) {
+		for _, e := range list.entries {
+			m = max(m, int64(e.maxCount))
+		}
+	}
+	t.maxPack = m
+	return t
+}
 
-func naturalBiomesEquivalent(c SpawnCategory, a, b registry.Biome) bool {
-	return slices.Equal(naturalBiomeLists[c][a].entries, naturalBiomeLists[c][b].entries) &&
-		slices.Equal(biomeSpawnCosts[a], biomeSpawnCosts[b])
+func (c *naturalSpawnContext) spawns() *biomeSpawnTable {
+	if c.table == nil {
+		c.table = currentBiomeSpawns()
+	}
+	return c.table
 }
 
 // spawnBiome is the actual biome, or its category representative where the
 // origin chunk is held.
 func (c *naturalSpawnContext) spawnBiome(category SpawnCategory, x, y, z int32) registry.Biome {
 	if c.chunk != nil {
-		return c.chunk.SpawnBiome(x, y, z, &naturalBiomeRepresentatives[category])
+		return c.chunk.SpawnBiome(x, y, z, &c.spawns().representatives[category])
 	}
 	return c.w.Biome(x, y, z)
 }
@@ -103,6 +233,7 @@ var emptyNaturalList spawnList
 type naturalSpawnContext struct {
 	w               SpawnWorld
 	chunk           *world.SpawnChunk
+	table           *biomeSpawnTable
 	references      uint16
 	referencesRead  bool
 	origin          ChunkPos
@@ -173,7 +304,7 @@ func (c *naturalSpawnContext) listAt(x, y, z int32, category SpawnCategory, biom
 	if biome < 0 || biome >= registry.BiomeCount {
 		return &emptyNaturalList
 	}
-	return &naturalBiomeLists[category][biome]
+	return &c.spawns().lists[category][biome]
 }
 
 // spawnTerrainPossible rejects terrain without dice; full placement follows list membership.
@@ -204,31 +335,14 @@ func spawnWalkDie(rng interface{ Int31() int32 }) int32 {
 	}
 }
 
-// naturalMaxPack bounds both the initial walk and every selected list entry.
-var naturalMaxPack = func() int64 {
-	m := int64(4)
-	for _, lists := range naturalBiomeLists {
-		for _, list := range lists {
-			for _, e := range list.entries {
-				m = max(m, int64(e.maxCount))
-			}
-		}
-	}
-	for _, list := range append([]spawnList{naturalFortressList}, naturalOverrideLists...) {
-		for _, e := range list.entries {
-			m = max(m, int64(e.maxCount))
-		}
-	}
-	return m
-}()
-
 // preparePlayers bounds every reachable walk before filtering distant observers.
 // Unusual coordinates retain the unbounded oracle, including its overflow rules.
 func (c *naturalSpawnContext) preparePlayers(pos ChunkPos, players []SpawnPlayer) {
 	c.origin, c.query, c.anyPlayer = pos, false, false
 	c.closePlayers, c.nearPlayers = c.closePlayers[:0], c.nearPlayers[:0]
-	minX, minZ := int64(pos.X)*16-5*naturalMaxPack, int64(pos.Z)*16-5*naturalMaxPack
-	maxX, maxZ := int64(pos.X)*16+15+5*naturalMaxPack, int64(pos.Z)*16+15+5*naturalMaxPack
+	maxPack := c.spawns().maxPack
+	minX, minZ := int64(pos.X)*16-5*maxPack, int64(pos.Z)*16-5*maxPack
+	maxX, maxZ := int64(pos.X)*16+15+5*maxPack, int64(pos.Z)*16+15+5*maxPack
 	if minX < math.MinInt32 || minZ < math.MinInt32 || maxX > math.MaxInt32 || maxZ > math.MaxInt32 {
 		return
 	}

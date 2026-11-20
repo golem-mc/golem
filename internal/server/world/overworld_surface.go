@@ -73,14 +73,20 @@ func (g *OverworldGenerator) temperatureAt(b terrain.OverworldBiome, x, y, z int
 	return heightAdjustedTemperature(g.SeaLevel(), x, y, z, g.biomeClimates[b])
 }
 
+// RefreshBiomeClimates reloads the cached biome climates after data packs
+// have applied biome overrides.
+func (g *OverworldGenerator) RefreshBiomeClimates() {
+	for i := range g.biomeClimates {
+		g.biomeClimates[i] = registry.Biome(g.biomeIDs[i]).Climate()
+	}
+}
+
 // setSurface resolves the material rules' blocks and biome climates once per seed.
 func (g *OverworldGenerator) setSurface(seed int64) {
 	g.zoomSeed = levelgen.BiomeZoomSeed(seed)
 	g.surfaceMu = &sync.Mutex{}
 	g.cellCache = map[[2]int32]*biomeCells{}
-	for i := range g.biomeClimates {
-		g.biomeClimates[i] = registry.Biome(g.biomeIDs[i]).Climate()
-	}
+	g.RefreshBiomeClimates()
 	for m := terrain.Air; m <= terrain.Calcite; m++ {
 		state, ok := registry.FindState("minecraft:"+m.Name(), nil)
 		if !ok {

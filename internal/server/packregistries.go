@@ -51,7 +51,61 @@ func loadPackRegistries(dirs []string, skip func(file string, err error)) error 
 	for _, problem := range registry.ApplyPackRegistries(packs) {
 		slog.Warn("Data pack registry entry skipped: " + problem)
 	}
+	if err := loadPackBiomes(dirs, skip); err != nil {
+		return err
+	}
 	return loadPackEnchantments(dirs, skip)
+}
+
+// loadPackBiomes decodes overridden built-in biome files into the climate and
+// natural spawning override tables. New biomes are ignored here because
+// ApplyPackRegistries already logged and skipped them; a file that fails
+// decoding keeps the built-in biome's climate and spawns.
+// vanilla: Biome.DIRECT_CODEC, MobSpawnSettings.CODEC
+func loadPackBiomes(dirs []string, skip func(file string, err error)) error {
+	files, err := datapack.LoadResources(dirs, "worldgen/biome", skip)
+	if err != nil {
+		return err
+	}
+	climates := make(map[registry.Biome]registry.BiomeClimate, len(files))
+	spawns := make(map[registry.Biome]entity.BiomeSpawnOverride, len(files))
+	for name, data := range files {
+		biome, ok := registry.BiomeByName(name)
+		if !ok {
+			continue
+		}
+		ov, err := datapack.DecodeBiome(data)
+		if err != nil {
+			skip(name, err)
+			continue
+		}
+		climates[biome] = ov.Climate
+		var s entity.BiomeSpawnOverride
+		s.CreatureProbability = ov.CreatureProbability
+		for cat := range entity.SpawnCategoryCount {
+			if src := ov.Spawners[cat]; len(src) > 0 {
+				dst := make([]entity.BiomeSpawnEntry, len(src))
+				for i, e := range src {
+					dst[i] = entity.BiomeSpawnEntry{
+						Mob: e.Type, Weight: e.Weight, MinCount: e.MinCount, MaxCount: e.MaxCount,
+					}
+				}
+				s.Spawners[cat] = dst
+			}
+		}
+		if len(ov.SpawnCosts) > 0 {
+			s.SpawnCosts = make([]entity.BiomeSpawnCostEntry, len(ov.SpawnCosts))
+			for i, c := range ov.SpawnCosts {
+				s.SpawnCosts[i] = entity.BiomeSpawnCostEntry{
+					Mob: c.Type, Charge: c.Charge, Budget: c.Budget,
+				}
+			}
+		}
+		spawns[biome] = s
+	}
+	registry.ApplyPackBiomeClimates(climates)
+	entity.ApplyPackBiomeSpawns(spawns)
+	return nil
 }
 
 // loadPackEnchantments decodes the packs' enchantment files into the
