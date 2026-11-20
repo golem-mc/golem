@@ -2,7 +2,10 @@ package plugins_test
 
 import (
 	"testing"
+	"time"
 
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 )
@@ -105,5 +108,121 @@ func TestPluginEntityMoveEvent(t *testing.T) {
 	// The mob steps only on its own update ticks; each step it takes is told.
 	if moves < 2 {
 		t.Errorf("cancelled zombie fired %d events in %d ticks", moves, ticks)
+	}
+}
+
+// vanilla: ServerGamePacketListenerImpl.handleMoveVehicle
+func TestPluginVehicleMoveEventSteeredBoat(t *testing.T) {
+	t.Parallel()
+	var moves, playerMoves int
+	var last plugin.VehicleMoveEvent
+	srv, c := tickScene(t, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.VehicleMoveEvent) { moves++; last = *e })
+		plugin.Listen(s, func(*plugin.PlayerMoveEvent) { playerMoves++ })
+	})
+	srv.RunTick()
+	boatID := srv.SpawnBoat(4.5, 64, 4.5, "minecraft:oak_boat")
+	for range 40 {
+		srv.RunTick()
+	}
+	c.UseOn(boatID)
+	servertest.AwaitPassengersFor(c, boatID)
+	for range 5 {
+		srv.RunTick()
+	}
+	_, y, _, _, _, _ := srv.BoatState(boatID)
+	steer := func(x float64, yaw float32) {
+		c.Send(protocol.IDPlayMoveVehicleIn, func(b *protocol.Buffer) {
+			b.PutF64(x)
+			b.PutF64(y)
+			b.PutF64(4.5)
+			b.PutF32(yaw)
+			b.PutF32(0)
+			b.PutBool(true)
+		})
+		time.Sleep(50 * time.Millisecond)
+		srv.RunTick()
+		srv.RunTick()
+	}
+	moves = 0
+	steer(5.5, 0)
+	if moves == 0 || last.To.Pos.X != 5.5 {
+		t.Fatalf("steered boat: %d events, To %v", moves, last.To.Pos)
+	}
+	// Turning in place is a move too.
+	moves = 0
+	steer(5.5, 30)
+	if moves != 1 || last.To.Pos.X != last.From.Pos.X || last.To.Yaw == last.From.Yaw {
+		t.Errorf("turning boat: %d events, From %+v To %+v", moves, last.From, last.To)
+	}
+	// Nothing changed: nothing fired.
+	moves = 0
+	steer(5.5, 30)
+	if moves != 0 {
+		t.Errorf("unchanged boat fired %d events", moves)
+	}
+}
+
+// vanilla: ServerEntity.sendChanges
+func TestPluginEntityMoveEventWalkingZombie(t *testing.T) {
+	t.Parallel()
+	var moves, vehicle int
+	var first, last plugin.EntityMoveEvent
+	srv, _ := tickScene(t, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.EntityMoveEvent) {
+			if moves == 0 {
+				first = *e
+			}
+			moves++
+			last = *e
+		})
+		plugin.Listen(s, func(*plugin.VehicleMoveEvent) { vehicle++ })
+	})
+	srv.RunTick()
+	pos := srv.PlayerPosition("Victim")
+	id := srv.SpawnMob("minecraft:zombie", pos.X+8, pos.Y, pos.Z)
+	// Settle any fall, then count only what the walk fires.
+	for range 40 {
+		srv.RunTick()
+	}
+	if !srv.SetMobTargetPlayer(id, "Victim") {
+		t.Fatal("no target set")
+	}
+	moves = 0
+	x0, _, z0, _ := srv.MobPos(id)
+	for range 60 {
+		srv.RunTick()
+	}
+	x1, _, z1, _ := srv.MobPos(id)
+	if x0 == x1 && z0 == z1 {
+		t.Fatal("zombie did not walk")
+	}
+	if moves == 0 || first.From.Pos == first.To.Pos && first.From.Yaw == first.To.Yaw {
+		t.Fatalf("walking zombie: %d events, first %+v", moves, first)
+	}
+	if last.To.Pos.X != x1 || last.To.Pos.Z != z1 {
+		t.Errorf("last event To %v, zombie at %v %v", last.To.Pos, x1, z1)
+	}
+	if vehicle != 0 {
+		t.Errorf("%d vehicle events", vehicle)
+	}
+}
+
+// A moving player fires PlayerMoveEvent and neither of the entity events.
+// vanilla: ServerGamePacketListenerImpl.handleMovePlayer
+func TestPluginPlayerMoveFiresOnlyPlayerMoveEvent(t *testing.T) {
+	t.Parallel()
+	var player, entity, vehicle int
+	srv, c := tickScene(t, func(s plugin.Server) {
+		plugin.Listen(s, func(*plugin.PlayerMoveEvent) { player++ })
+		plugin.Listen(s, func(*plugin.EntityMoveEvent) { entity++ })
+		plugin.Listen(s, func(*plugin.VehicleMoveEvent) { vehicle++ })
+	})
+	srv.RunTick()
+	p := srv.PlayerPosition("Victim")
+	c.SendPosition(p.X+0.3, p.Y, p.Z, true)
+	ticksUntil(t, srv, "player move event", func() bool { return player > 0 })
+	if player == 0 || entity != 0 || vehicle != 0 {
+		t.Fatalf("player %d, entity %d, vehicle %d events", player, entity, vehicle)
 	}
 }
