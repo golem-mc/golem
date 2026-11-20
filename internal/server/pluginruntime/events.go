@@ -458,16 +458,37 @@ func (e *pluginEvents) Fire(ev plugin.Event) {
 	e.host.runtime.bus.fire(ev)
 }
 
-func (b *pluginBus) fire(event plugin.Event) {
+func (e *pluginEvents) FireTraced(ev plugin.Event) []plugin.ListenerChange {
+	if !e.host.runtime.bus.known(reflect.TypeOf(ev)) {
+		panic("plugin: fired value must be a pointer to a plugin event")
+	}
+	return e.host.runtime.bus.fireTraced(ev)
+}
+
+func (b *pluginBus) fire(event plugin.Event) { b.dispatch(event, nil) }
+
+func (b *pluginBus) fireTraced(event plugin.Event) []plugin.ListenerChange {
+	var changes []plugin.ListenerChange
+	b.dispatch(event, &changes)
+	return changes
+}
+
+func (b *pluginBus) dispatch(event plugin.Event, changes *[]plugin.ListenerChange) {
 	b.mu.Lock()
 	listeners := slices.Clone(b.listeners[reflect.TypeOf(event)])
 	b.mu.Unlock()
+	cancellable, isCancellable := event.(interface{ Cancelled() bool })
 	for _, l := range listeners {
 		if l.removed.Load() {
 			continue
 		}
-		if c, ok := event.(interface{ Cancelled() bool }); ok && c.Cancelled() && l.opts.IgnoreCancelled {
+		if isCancellable && cancellable.Cancelled() && l.opts.IgnoreCancelled {
 			continue
+		}
+
+		var wasCancelled bool
+		if changes != nil && isCancellable {
+			wasCancelled = cancellable.Cancelled()
 		}
 
 		var finish func()
@@ -484,6 +505,17 @@ func (b *pluginBus) fire(event plugin.Event) {
 		}
 		if finish != nil {
 			finish()
+		}
+
+		if changes != nil && isCancellable {
+			if after := cancellable.Cancelled(); after != wasCancelled {
+				*changes = append(*changes, plugin.ListenerChange{
+					Plugin:   l.host.Name(),
+					Priority: l.opts.Priority,
+					Before:   wasCancelled,
+					After:    after,
+				})
+			}
 		}
 	}
 }

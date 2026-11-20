@@ -245,6 +245,19 @@ type Events interface {
 	// (Cancelled, changed fields). It panics for a type that is neither
 	// one of this package's events nor defined (Define). Bukkit: PluginManager.callEvent
 	Fire(e Event)
+	// FireTraced is Fire, returning each listener that changed e's
+	// cancelled state, in the order they ran. A non-cancellable event or
+	// one whose cancelled state never changes returns nil.
+	FireTraced(e Event) []ListenerChange
+}
+
+// ListenerChange records one listener changing an event's cancelled state.
+type ListenerChange struct {
+	// Plugin is the name of the plugin that registered the listener.
+	Plugin   string
+	Priority Priority
+	Before   bool
+	After    bool
 }
 
 // Scheduler runs a plugin's tasks. Every task is cancelled when its plugin

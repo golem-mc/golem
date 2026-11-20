@@ -1,6 +1,7 @@
 package plugins_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -41,6 +42,100 @@ func TestPluginEventsFire(t *testing.T) {
 	if want := []string{"normal", "high", "monitor"}; len(order) != 3 || order[0] != want[0] || order[1] != want[1] || order[2] != want[2] {
 		t.Errorf("order = %v", order)
 	}
+}
+
+func TestPluginEventsFireTraced(t *testing.T) {
+	t.Parallel()
+	var caller, blocker, allower, observer plugin.Server
+	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{
+		{Name: "caller", Plugin: &testPlugin{enable: func(s plugin.Server) error { caller = s; return nil }}},
+		{Name: "blocker", Plugin: &testPlugin{enable: func(s plugin.Server) error { blocker = s; return nil }}},
+		{Name: "allower", Plugin: &testPlugin{enable: func(s plugin.Server) error { allower = s; return nil }}},
+		{Name: "observer", Plugin: &testPlugin{enable: func(s plugin.Server) error { observer = s; return nil }}},
+	})
+	servertest.HoldTicks(t, srv)
+	run := func(f func()) {
+		t.Helper()
+		ran := false
+		caller.Scheduler().RunTask(func() { f(); ran = true })
+		servertest.RunTicks(t, srv, 1)
+		if !ran {
+			t.Fatal("plugin task did not complete")
+		}
+	}
+
+	var nonCancelSeen bool
+	run(func() {
+		// Unchanged state is not recorded.
+		plugin.Listen(observer, func(e *plugin.ThunderChangeEvent) {},
+			plugin.ListenOptions{Priority: plugin.Lowest})
+		// First plugin cancels at Low.
+		plugin.Listen(blocker, func(e *plugin.ThunderChangeEvent) { e.SetCancelled(true) },
+			plugin.ListenOptions{Priority: plugin.Low})
+		// Redundant set to the same state is not recorded.
+		plugin.Listen(blocker, func(e *plugin.ThunderChangeEvent) { e.SetCancelled(true) },
+			plugin.ListenOptions{Priority: plugin.Normal})
+		// IgnoreCancelled listener is skipped.
+		plugin.Listen(observer, func(e *plugin.ThunderChangeEvent) { e.SetCancelled(false) },
+			plugin.ListenOptions{Priority: plugin.Normal, IgnoreCancelled: true})
+		// Panicking listener is rolled back and not recorded.
+		plugin.Listen(observer, func(e *plugin.ThunderChangeEvent) {
+			e.SetCancelled(false)
+			panic("boom")
+		}, plugin.ListenOptions{Priority: plugin.Normal})
+		// Second plugin uncancels at High.
+		plugin.Listen(allower, func(e *plugin.ThunderChangeEvent) { e.SetCancelled(false) },
+			plugin.ListenOptions{Priority: plugin.High})
+		// Monitor mutation is rolled back and not recorded.
+		plugin.Listen(observer, func(e *plugin.ThunderChangeEvent) { e.SetCancelled(true) },
+			plugin.ListenOptions{Priority: plugin.Monitor})
+		// Non-cancellable event listener.
+		plugin.Listen(observer, func(e *plugin.ServerLoadEvent) { nonCancelSeen = true })
+	})
+
+	run(func() {
+		e := &plugin.ThunderChangeEvent{World: caller.Overworld(), Thundering: true}
+		got := caller.Events().FireTraced(e)
+		want := []plugin.ListenerChange{
+			{Plugin: "blocker", Priority: plugin.Low, Before: false, After: true},
+			{Plugin: "allower", Priority: plugin.High, Before: true, After: false},
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("FireTraced = %+v, want %+v", got, want)
+		}
+		if e.Cancelled() {
+			t.Error("expected event to end uncancelled")
+		}
+
+		// Pre-cancelled event: blocker's SetCancelled(true) is a no-op, only allower changes it.
+		pre := &plugin.ThunderChangeEvent{World: caller.Overworld(), Thundering: true}
+		pre.SetCancelled(true)
+		gotPre := caller.Events().FireTraced(pre)
+		wantPre := []plugin.ListenerChange{
+			{Plugin: "allower", Priority: plugin.High, Before: true, After: false},
+		}
+		if !slices.Equal(gotPre, wantPre) {
+			t.Errorf("FireTraced (pre-cancelled) = %+v, want %+v", gotPre, wantPre)
+		}
+
+		// Non-cancellable event runs listeners and returns nil.
+		if gotNon := caller.Events().FireTraced(&plugin.ServerLoadEvent{}); gotNon != nil {
+			t.Errorf("FireTraced (non-cancellable) = %+v, want nil", gotNon)
+		}
+		if !nonCancelSeen {
+			t.Error("non-cancellable listener did not run")
+		}
+
+		// Unknown event type panics.
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("FireTraced on a non-event did not panic")
+				}
+			}()
+			caller.Events().FireTraced(&plugin.Cancellable{})
+		}()
+	})
 }
 
 // A blast's hurt of an item, frame or end crystal is put to listeners.
