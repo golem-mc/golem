@@ -47,6 +47,10 @@ type AdvancementDisplay struct {
 // trigger this server tests.
 type AdvancementCriterion struct {
 	Name, Trigger string
+	// Player is the trigger's player condition, loot conditions that must all
+	// hold of the player; empty for none.
+	// vanilla: SimpleCriterionTrigger.SimpleInstance.player
+	Player []LootCondition
 	// Items is an inventory_changed criterion's item predicates, or the
 	// one predicate of a consume_item, filled_bucket, item_used_on_block
 	// or any_block_use (the tool), allay_drop_item_on_block (the item dropped) or

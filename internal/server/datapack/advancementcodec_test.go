@@ -114,7 +114,7 @@ func TestDecodeAdvancementIgnoresWhatVanillaIgnoresAndNeverFiresWhatItCannotTest
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, wantUnmodelled := range []bool{true, true, true, false} {
+	for i, wantUnmodelled := range []bool{false, true, false, false} {
 		if got := adv.Criteria[i].Unmodelled; got != wantUnmodelled {
 			t.Errorf("criterion %s unmodelled = %v, want %v", adv.Criteria[i].Name, got, wantUnmodelled)
 		}
