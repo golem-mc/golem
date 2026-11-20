@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -158,35 +157,16 @@ func advRequirements(v any, names []string) [][]string {
 
 func advDisplay(id string, o obj) *registry.AdvancementDisplay {
 	ignoreKeys(id, "display", o, "icon", "title", "description", "frame", "background", "show_toast", "announce_to_chat", "hidden")
-	var item, count int32
+	stack := tradeResult(required(o, "icon"))
 	var iconStack *protocol.ItemStack
-	switch v := required(o, "icon").(type) {
-	case string:
-		item, count = advItemID(v), 1
-	case map[string]any:
-		icon := obj(v)
+	if icon, ok := o["icon"].(obj); ok {
 		ignoreKeys(id, "icon", icon, "id", "count", "components")
-		item = advItemID(requireStr(icon, "id"))
-		count = int32(optNum(icon, "count", 1))
-		if comps, ok := icon["components"]; ok {
-			cm := object(comps, "components")
-			if len(cm) > 0 {
-				stack := protocol.ItemStack{ItemID: item, Count: count}
-				for _, key := range sortedKeys(cm) {
-					raw := snbt(cm[key])
-					tag, n, err := nbt.ParseValueTag(raw)
-					if err != nil || n == 0 || !registry.ReadComponent(&stack, key, tag) {
-						fail("Failed to decode %s: %s", key, raw)
-					}
-				}
-				iconStack = &stack
-			}
+		if comps, _ := icon["components"].(obj); len(comps) > 0 {
+			iconStack = &stack
 		}
-	default:
-		fail("icon is not an item or an object")
 	}
 	d := &registry.AdvancementDisplay{
-		Icon: item, IconCount: count, IconStack: iconStack,
+		Icon: stack.ItemID, IconCount: stack.Count, IconStack: iconStack,
 		ShowToast: flag(o, "show_toast", true), AnnounceChat: flag(o, "announce_to_chat", true), Hidden: flag(o, "hidden", false),
 	}
 	d.Title, d.TitleLiteral, d.TitleText = advText(required(o, "title"))
@@ -204,15 +184,6 @@ func advDisplay(id string, o obj) *registry.AdvancementDisplay {
 		d.Background = requireStr(o, "background")
 	}
 	return d
-}
-
-func advItemID(s string) int32 {
-	name := registry.Qualify(s)
-	item, ok := registry.ItemID(name)
-	if !ok {
-		fail("unknown item %s", name)
-	}
-	return item
 }
 
 // advText reads a text component: a bare translation key or literal text stays

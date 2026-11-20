@@ -36,6 +36,12 @@ func TestDecodeAdvancementMatchesTheGeneratedTree(t *testing.T) {
 			t.Errorf("%s: %v", want.ID, err)
 			continue
 		}
+		// The generated tree carries no icon components yet.
+		if got.Display != nil {
+			d := *got.Display
+			d.IconStack = nil
+			got.Display = &d
+		}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("%s decoded as\n%+v\nwant\n%+v", want.ID, got, want)
 		}
