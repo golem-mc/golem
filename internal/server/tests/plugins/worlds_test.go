@@ -252,3 +252,66 @@ func TestPluginWorldTravelAndUnload(t *testing.T) {
 		t.Errorf("player is in %q after the unload", got)
 	}
 }
+
+// vanilla: WorldPresets.Bootstrap (FLAT), FlatLevelGeneratorSettings.getDefault
+func TestPluginCreateWorldFlatType(t *testing.T) {
+	t.Parallel()
+	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	opts := plugin.WorldOptions{Key: flatKey, Dimension: plugin.MinecraftKey("overworld"), Type: plugin.WorldTypeFlat, Seed: 5}
+	run(func() {
+		for _, bad := range []string{"not json", `{"biome":"minecraft:plains"}`} {
+			o := opts
+			o.GeneratorSettings = bad
+			if _, err := h.CreateWorld(o); err == nil {
+				t.Errorf("settings %q were accepted", bad)
+			}
+		}
+		w, err := h.CreateWorld(opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) {})
+	})
+	awaitPluginIO(t, srv, "flat chunk", func() bool { return srv.ChunkLoadedInDimension("test:flat", 0, 0) })
+	for y, want := range map[int32]registry.Block{-64: registry.BlockBedrock, -63: registry.BlockDirt, -62: registry.BlockDirt, -61: registry.BlockGrassBlock, -60: registry.BlockAir} {
+		if got := srv.LoadBlockInDimension("test:flat", 0, y, 0); got != uint16(want.DefaultState()) {
+			t.Errorf("y=%d = %d, want %v", y, got, want)
+		}
+	}
+}
+
+// vanilla: FlatLevelGeneratorSettings.CODEC
+func TestPluginCreateWorldFlatSettings(t *testing.T) {
+	t.Parallel()
+	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	run(func() {
+		w, err := h.CreateWorld(plugin.WorldOptions{Key: flatKey, Dimension: plugin.MinecraftKey("overworld"), Type: plugin.WorldTypeFlat, NoStructures: true,
+			GeneratorSettings: `{"layers":[{"block":"minecraft:stone","height":2},{"block":"minecraft:sand","height":1}],"biome":"minecraft:desert"}`})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) {})
+	})
+	awaitPluginIO(t, srv, "flat chunk", func() bool { return srv.ChunkLoadedInDimension("test:flat", 0, 0) })
+	for y, want := range map[int32]registry.Block{-64: registry.BlockStone, -63: registry.BlockStone, -62: registry.BlockSand, -61: registry.BlockAir} {
+		if got := srv.LoadBlockInDimension("test:flat", 0, y, 0); got != uint16(want.DefaultState()) {
+			t.Errorf("y=%d = %d, want %v", y, got, want)
+		}
+	}
+}
+
+// vanilla: FixedBiomeSource
+func TestPluginCreateWorldBiome(t *testing.T) {
+	t.Parallel()
+	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	run(func() {
+		w, err := h.CreateWorld(plugin.WorldOptions{Key: flatKey, Dimension: plugin.MinecraftKey("overworld"), Biome: plugin.MinecraftKey("desert")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, _ := registry.BiomeByName("minecraft:desert")
+		if got := w.Biome(plugin.BlockPos{X: 1000, Y: 70, Z: -2000}); got != want {
+			t.Errorf("biome = %v, want desert", got)
+		}
+	})
+}
