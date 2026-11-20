@@ -796,16 +796,16 @@ func explodeEffect(e obj) *registry.EnchExplode {
 	default:
 		fail("an explode effect with block_interaction %q", out.BlockInteraction)
 	}
-	small, smallID := particleOf(required(e, "small_particle"))
-	large, largeID := particleOf(required(e, "large_particle"))
-	look := &registry.EnchExplosionLook{Small: smallID, Large: largeID, Sound: soundOf(required(e, "sound"))}
+	smallID, smallOpts := particleOf(required(e, "small_particle"))
+	largeID, largeOpts := particleOf(required(e, "large_particle"))
+	look := &registry.EnchExplosionLook{Small: smallID, Large: largeID, SmallOptions: smallOpts, LargeOptions: largeOpts, Sound: soundOf(required(e, "sound"))}
 	for _, x := range list(e["block_particles"], "block_particles") {
 		entry := object(x, "a block particle entry")
 		unknownKeys(entry, "a block particle entry", "data", "weight")
 		data := object(required(entry, "data"), "a block particle")
 		unknownKeys(data, "a block particle", "particle", "scaling", "speed")
-		_, id := particleOf(required(data, "particle"))
-		look.Blocks = append(look.Blocks, registry.EnchBlockParticle{Particle: id, Scaling: float32(optNum(data, "scaling", 1)),
+		id, opts := particleOf(required(data, "particle"))
+		look.Blocks = append(look.Blocks, registry.EnchBlockParticle{Particle: id, Options: opts, Scaling: float32(optNum(data, "scaling", 1)),
 			Speed: float32(optNum(data, "speed", 1)), Weight: int32(optNum(entry, "weight", 1))})
 	}
 	if v, ok := e["immune_blocks"]; ok {
@@ -834,7 +834,7 @@ func explodeEffect(e obj) *registry.EnchExplode {
 			out.Offset[i] = float64(f)
 		}
 	}
-	windLook := small == "minecraft:gust_emitter_small" && large == "minecraft:gust_emitter_large" && len(look.Blocks) == 0 &&
+	windLook := smallID == protocol.ParticleGustEmitterSmall && largeID == protocol.ParticleGustEmitterLarge && len(look.Blocks) == 0 &&
 		look.Sound == registry.SoundHolderByName("minecraft:entity.wind_charge.wind_burst")
 	if !out.WindBurst() || !windLook {
 		out.Look = look

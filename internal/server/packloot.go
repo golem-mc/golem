@@ -3,8 +3,11 @@ package server
 import (
 	"log/slog"
 	"maps"
+	"slices"
+	"strings"
 
 	"github.com/golem-mc/golem/internal/server/datapack"
+	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -54,15 +57,40 @@ func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]
 	return tables, predicates, modifiers, nil
 }
 
+// hiddenLoot returns the built-in loot tables a pack's filter hides. A
+// hand-written fishing table cannot be absent, so a hidden one is replaced by
+// a table that rolls nothing in tables.
+// vanilla: MultiPackResourceManager
+func hiddenLoot(dirs []string, tables map[string]registry.LootTable) map[string]bool {
+	filters := datapack.LoadFilters(dirs)
+	if !filters.Any() {
+		return nil
+	}
+	hidden := map[string]bool{}
+	for _, name := range append(registry.BuiltinLootTableNames(), rules.FishingTableNames...) {
+		ns, path, _ := strings.Cut(name, ":")
+		if _, packed := tables[name]; packed || !filters.Builtin(ns, "loot_table/"+path+".json") {
+			continue
+		}
+		if slices.Contains(rules.FishingTableNames, name) {
+			tables[name] = registry.LootTable{}
+		} else {
+			hidden[name] = true
+		}
+	}
+	return hidden
+}
+
 // applyPackLoot layers pack loot over the built-ins. The layer is
 // process-wide, so a server without pack loot leaves it alone unless it
 // changed it itself.
-func (s *Server) applyPackLoot(tables map[string]registry.LootTable, predicates map[string]registry.LootCondition, modifiers map[string]registry.LootFunction) {
-	if len(tables) == 0 && len(predicates) == 0 && len(modifiers) == 0 && !s.packLootApplied {
+func (s *Server) applyPackLoot(tables map[string]registry.LootTable, predicates map[string]registry.LootCondition, modifiers map[string]registry.LootFunction, hidden map[string]bool) {
+	layered := len(tables) > 0 || len(predicates) > 0 || len(modifiers) > 0 || len(hidden) > 0
+	if !layered && !s.packLootApplied {
 		return
 	}
-	s.packLootApplied = len(tables) > 0 || len(predicates) > 0 || len(modifiers) > 0
-	registry.ApplyPackLoot(tables, predicates, modifiers)
+	s.packLootApplied = layered
+	registry.ApplyPackLootHiding(tables, predicates, modifiers, hidden)
 }
 
 // loadPackSlotSources reads the enabled packs' slot sources into the

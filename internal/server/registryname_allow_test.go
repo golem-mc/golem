@@ -8,6 +8,9 @@ var registryNameAllowed = map[string]nameAllowance{
 	"registry/itempredicate.go: string registry lookup":                             {count: 1, boundary: "item tag name decoded from data pack predicate"},
 	"registry/sulfurarchetype.go: string registry lookup":                           {count: 1, boundary: "data pack items holder set tag name"},
 	"registry/stackitemprops.go: string registry lookup":                            {count: 2, boundary: "item tag names decoded from component data"},
+	"registry/particleoptions.go: string registry lookup":                           {count: 2, boundary: "particle type name decoded from data-pack NBT"},
+	"registry/particleoptions.go: case on an entity name":                           {count: 1, boundary: "particle type names decoded from data-pack NBT"},
+	"registry/particleoptions.go: string block lookup":                              {count: 2, boundary: "block state decoded from data-pack NBT"},
 	"registry/sound.go: string registry lookup":                                     {count: 2, boundary: "sound name decoding"},
 	"registry/biometagids.go: string registry lookup":                               {count: 1, boundary: "registry tag ID initialization"},
 	"registry/biometags.go: string registry lookup":                                 {count: 1, boundary: "registry table loading"},
@@ -131,7 +134,7 @@ var registryNameAllowed = map[string]nameAllowance{
 	"internal/server/world/generator.go: string registry lookup":                    {count: 1, issue: 6380},
 	"internal/server/world/geodefeature.go: string block lookup":                    {count: 2, issue: 6380},
 	"internal/server/world/ice.go: string block lookup":                             {count: 1, issue: 6380},
-	"internal/server/world/jigsaw_rules.go: string block lookup":                    {count: 6, issue: 6380},
+	"internal/server/world/jigsaw_rules.go: string block lookup":                    {count: 7, issue: 6380},
 	"internal/server/world/locatestructure.go: string registry lookup":              {count: 2, issue: 6380},
 	"internal/server/world/mappreview.go: string registry lookup":                   {count: 2, issue: 6380},
 	"internal/server/world/maps.go: string block lookup":                            {count: 1, issue: 6380},
@@ -188,6 +191,7 @@ var registryBlockNameAllowed = map[string]nameAllowance{
 }
 
 var registryItemNameAllowed = map[string]nameAllowance{
+	"registry/particleoptions.go: comparison with an item name literal":               {count: 1, boundary: "particle type name decoded from data-pack NBT"},
 	"registry/craftingremainders.go: string item lookup":                              {count: 1, issue: 6380},
 	"registry/itemnametables.go: string item lookup":                                  {count: 4, boundary: "registry table loading: damage resistance, mob visibility and equippable defaults"},
 	"registry/stackvillager.go: string item lookup":                                   {count: 1, boundary: "registry table loading"},

@@ -17,6 +17,7 @@ import (
 	"math"
 	"math/rand"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -241,6 +242,25 @@ type LootLevel interface {
 	Storage(id string) nbt.Compound
 }
 
+// LocationReader is the part of a dimension a location predicate reads at an
+// absolute block position. A LevelWorld that also implements it lets a roll's
+// level answer the dimension, structure, light, sky, fluid, smoke and block
+// entity parts.
+type LocationReader interface {
+	DimensionName() string
+	// ChunkLoadedAt is whether the chunk holding the block column is loaded.
+	ChunkLoadedAt(x, z int32) bool
+	// MaxLocalRawLightAt is LevelReader.getMaxLocalRawBrightness.
+	MaxLocalRawLightAt(x, y, z int32) uint8
+	CanSeeSky(x, y, z int32) bool
+	// FluidAt is the fluid state's name, amount and falling flag.
+	FluidAt(x, y, z int32) (id string, amount int, falling bool)
+	SmokeyAt(x, y, z int32) bool
+	StructureHasPieceAt(x, y, z int32, ids []string) bool
+	// BlockEntityData is the block entity's saved compound, false at none.
+	BlockEntityData(x, y, z int32) (nbt.CompoundTag, bool)
+}
+
 // LevelWorld is the part of a dimension LevelAt reads.
 type LevelWorld interface {
 	IsRaining() bool
@@ -279,6 +299,13 @@ type lootLevelAt struct {
 	reads   LevelReads
 	x, y, z float64
 	origin  bool
+}
+
+// Location is the level's dimension read at absolute positions, nil when w
+// cannot.
+func (l lootLevelAt) Location() LocationReader {
+	r, _ := l.w.(LocationReader)
+	return r
 }
 
 func (l lootLevelAt) IsRaining() bool    { return l.w.IsRaining() }
@@ -942,15 +969,7 @@ func (r *lootRoller) condition(c registry.LootCondition) bool {
 		return (k.Blocks == nil || slices.Contains(k.Blocks, registry.BlockOf(r.ctx.BlockState).Name())) &&
 			propertiesMatch(r.ctx.BlockState, k.Properties)
 	case registry.LootLocationCheck:
-		// The parts the table asked after must every one hold; a part
-		// left empty asks after nothing.
-		if k.Block != "" && !r.locationBlockMatches(k) {
-			return false
-		}
-		if len(k.Biomes) > 0 && !r.locationBiomeMatches(k) {
-			return false
-		}
-		return k.Dimension == "" || k.Dimension == r.ctx.Dimension
+		return r.locationMatches(k)
 	case registry.LootEntityProperties:
 		e := r.entity(k.Entity)
 		return e.Type != "" && entityPredicate(k.Predicate, e, r.ctx)
@@ -1041,33 +1060,23 @@ func (r *lootRoller) floatInRange(rg registry.LootRange, v float32) bool {
 	return (rg.Min == nil || v >= float32(r.numFloat(rg.Min))) && (rg.Max == nil || v <= float32(r.numFloat(rg.Max)))
 }
 
-// locationBlockMatches answers the block part of a location check; a zero
-// offset reads the block in play itself, an offset the world at that place. A roll with no block in play reads the
-// world at the origin too.
-func (r *lootRoller) locationBlockMatches(k registry.LootLocationCheck) bool {
-	if k.OffsetX == 0 && k.OffsetY == 0 && k.OffsetZ == 0 && (r.ctx.HasBlock || r.ctx.BlockAt == nil) {
-		return r.blockMatches(k.Block, k.Properties)
-	}
-	return blockAtMatches(r.ctx, k, k.OffsetX, k.OffsetY, k.OffsetZ)
-}
-
 // blockAtMatches tests the block part of k against the world at an offset
 // from the roll's origin; a roll without a world fails it.
 func blockAtMatches(ctx *LootContext, k registry.LootLocationCheck, dx, dy, dz int32) bool {
 	return ctx.BlockAt != nil && stateMatches(ctx.BlockAt(dx, dy, dz), k.Block, k.Properties)
 }
 
-// biomeAtMatches tests the biome part of k against the world at an offset
-// from the roll's origin; a roll without a world fails it.
-func biomeAtMatches(ctx *LootContext, k registry.LootLocationCheck, dx, dy, dz int32) bool {
-	return ctx.BiomeAt != nil && slices.Contains(k.Biomes, ctx.BiomeAt(dx, dy, dz))
-}
-
-// locationBiomeMatches answers the biome part of a location check, which a
-// roll without a world behind it fails, such as a death this server did not
-// watch.
-func (r *lootRoller) locationBiomeMatches(k registry.LootLocationCheck) bool {
-	return biomeAtMatches(r.ctx, k, k.OffsetX, k.OffsetY, k.OffsetZ)
+// locationMatches tests a location check against the position at its offset
+// from the roll's origin; a zero offset reads the block in play itself.
+// vanilla: LocationCheck.test
+func (r *lootRoller) locationMatches(k registry.LootLocationCheck) bool {
+	o := r.ctx.Origin
+	if !r.ctx.HasOrigin {
+		o = [3]float64{}
+	}
+	inPlay := r.ctx.HasBlock && k.OffsetX == 0 && k.OffsetY == 0 && k.OffsetZ == 0
+	return locationAt(k, r.ctx, o[0]+float64(k.OffsetX), o[1]+float64(k.OffsetY), o[2]+float64(k.OffsetZ),
+		[3]int32{k.OffsetX, k.OffsetY, k.OffsetZ}, inPlay)
 }
 
 // entity is the body an entity condition names, empty when the roll
@@ -1194,7 +1203,7 @@ func entityPredicate(p registry.LootEntityPredicate, e LootEntity, ctx *LootCont
 	if !entityFlagsMatch(p, facts.Flags) || !entityEquipmentMatch(p, e) || !entityRelatedMatch(p, e, ctx) {
 		return false
 	}
-	if len(p.Effects) > 0 && !effectsMatch(p.Effects, facts.Effects) {
+	if len(p.Effects) > 0 && !EffectsMatch(p.Effects, facts.Effects) {
 		return false
 	}
 	if p.NBT != nil {
@@ -1282,10 +1291,10 @@ func entityEquipmentMatch(p registry.LootEntityPredicate, e LootEntity) bool {
 	return true
 }
 
-// effectsMatch says whether every effect the predicate lists is active and
+// EffectsMatch says whether every effect the predicate lists is active and
 // inside its ranges.
 // vanilla: MobEffectsPredicate.matches
-func effectsMatch(want map[string]registry.LootEffectPredicate, have []LootEffect) bool {
+func EffectsMatch(want map[string]registry.LootEffectPredicate, have []LootEffect) bool {
 	inRange := func(v int32, lo, hi *float64) bool {
 		return (lo == nil || float64(v) >= *lo) && (hi == nil || float64(v) <= *hi)
 	}
@@ -1840,13 +1849,13 @@ func entityPlaceMatch(p registry.LootEntityPredicate, e LootEntity, facts LootFa
 		if pl == nil {
 			return false
 		}
-		if p.Location != nil && !locationAt(*p.Location, ctx, int32(math.Floor(pl.X)), int32(math.Floor(pl.Y)), int32(math.Floor(pl.Z))) {
+		if p.Location != nil && !locationAtBlock(*p.Location, ctx, pl.X, pl.Y, pl.Z) {
 			return false
 		}
-		if p.SteppingOn != nil && (!pl.OnGround || !locationAt(*p.SteppingOn, ctx, pl.OnPos[0], pl.OnPos[1], pl.OnPos[2])) {
+		if p.SteppingOn != nil && (!pl.OnGround || !locationAtBlock(*p.SteppingOn, ctx, float64(pl.OnPos[0]), float64(pl.OnPos[1]), float64(pl.OnPos[2]))) {
 			return false
 		}
-		if p.MovementAffectedBy != nil && !locationAt(*p.MovementAffectedBy, ctx, pl.AffectingPos[0], pl.AffectingPos[1], pl.AffectingPos[2]) {
+		if p.MovementAffectedBy != nil && !locationAtBlock(*p.MovementAffectedBy, ctx, float64(pl.AffectingPos[0]), float64(pl.AffectingPos[1]), float64(pl.AffectingPos[2])) {
 			return false
 		}
 		if p.Distance != nil {
@@ -1877,16 +1886,114 @@ func entityPlaceMatch(p registry.LootEntityPredicate, e LootEntity, facts LootFa
 	return true
 }
 
-// locationAt tests a location predicate against the block at an absolute
-// position; a roll without a world fails it.
+// locationAt tests every part k asks after at the double position (x, y, z),
+// whose block is the offset off from the roll's origin; a roll without a
+// world fails the parts that read it. inPlay reads the block part from the
+// block being looted.
 // vanilla: LocationPredicate.matches
-func locationAt(k registry.LootLocationCheck, ctx *LootContext, x, y, z int32) bool {
-	if ctx == nil || !ctx.HasOrigin || ctx.BlockAt == nil {
+func locationAt(k registry.LootLocationCheck, ctx *LootContext, x, y, z float64, off [3]int32, inPlay bool) bool {
+	if ctx == nil {
 		return false
 	}
-	dx, dy, dz := x-BlockOf(ctx.Origin[0]), y-BlockOf(ctx.Origin[1]), z-BlockOf(ctx.Origin[2])
-	return (k.Block == "" || blockAtMatches(ctx, k, dx, dy, dz)) &&
-		(len(k.Biomes) == 0 || biomeAtMatches(ctx, k, dx, dy, dz))
+	if k.Position != nil && !(k.Position[0].Matches(x) && k.Position[1].Matches(y) && k.Position[2].Matches(z)) {
+		return false
+	}
+	var loc LocationReader
+	if at, ok := ctx.Level.(interface{ Location() LocationReader }); ok {
+		loc = at.Location()
+	}
+	if k.Dimension != "" && (loc == nil || loc.DimensionName() != k.Dimension) {
+		return false
+	}
+	bx, by, bz := BlockOf(x), BlockOf(y), BlockOf(z)
+	// loaded is false for a roll with no world; each part that vanilla tests
+	// only in a loaded chunk then fails.
+	loaded := loc != nil && loc.ChunkLoadedAt(bx, bz)
+	if len(k.Biomes) > 0 && (ctx.BiomeAt == nil || !slices.Contains(k.Biomes, ctx.BiomeAt(off[0], off[1], off[2]))) {
+		return false
+	}
+	if len(k.Structures) > 0 && (!loaded || !loc.StructureHasPieceAt(bx, by, bz, k.Structures)) {
+		return false
+	}
+	if k.Smokey != nil && (!loaded || loc.SmokeyAt(bx, by, bz) != *k.Smokey) {
+		return false
+	}
+	if k.Light != nil && !(loaded && k.Light.Matches(float64(loc.MaxLocalRawLightAt(bx, by, bz)))) {
+		return false
+	}
+	if (k.Block != "" || k.BlockNBT != nil) && !blockPartMatches(k, ctx, loc, loaded, [3]int32{bx, by, bz}, off, inPlay) {
+		return false
+	}
+	if k.Fluid != nil && (!loaded || !fluidMatches(*k.Fluid, loc, bx, by, bz)) {
+		return false
+	}
+	return k.CanSeeSky == nil || (loc != nil && loc.CanSeeSky(bx, by, bz) == *k.CanSeeSky)
+}
+
+// blockPartMatches tests the block predicate of k: the block and its state,
+// then the block entity's data. A loaded chunk is required when the world is
+// readable.
+// vanilla: BlockPredicate.matches
+func blockPartMatches(k registry.LootLocationCheck, ctx *LootContext, loc LocationReader, loaded bool, pos, off [3]int32, inPlay bool) bool {
+	if loc != nil && !loaded {
+		return false
+	}
+	if k.Block != "" {
+		if inPlay {
+			if !stateMatches(ctx.BlockState, k.Block, k.Properties) {
+				return false
+			}
+		} else if !blockAtMatches(ctx, k, off[0], off[1], off[2]) {
+			return false
+		}
+	}
+	if k.BlockNBT == nil {
+		return true
+	}
+	if loc == nil {
+		return false
+	}
+	data, ok := loc.BlockEntityData(pos[0], pos[1], pos[2])
+	return ok && nbt.Matches(k.BlockNBT, data)
+}
+
+// fluidMatches tests a fluid predicate against the fluid state at a block:
+// the fluid name, then each exact property, which a source has none of but
+// falling.
+// vanilla: FluidPredicate.matches
+func fluidMatches(k registry.LootFluidCheck, loc LocationReader, x, y, z int32) bool {
+	id, amount, falling := loc.FluidAt(x, y, z)
+	if k.Fluids != nil && !slices.Contains(k.Fluids, id) {
+		return false
+	}
+	for _, p := range k.Properties {
+		switch p.Key {
+		case "falling":
+			if p.Value != strconv.FormatBool(falling) {
+				return false
+			}
+		case "level":
+			if id == "minecraft:empty" || id == "minecraft:water" || id == "minecraft:lava" || p.Value != strconv.Itoa(amount) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// locationAtBlock tests k at an absolute position; the block and biome parts
+// read the world through the roll's origin-relative lookups.
+func locationAtBlock(k registry.LootLocationCheck, ctx *LootContext, x, y, z float64) bool {
+	if ctx == nil {
+		return false
+	}
+	off := [3]int32{BlockOf(x) - BlockOf(ctx.Origin[0]), BlockOf(y) - BlockOf(ctx.Origin[1]), BlockOf(z) - BlockOf(ctx.Origin[2])}
+	if !ctx.HasOrigin && (k.Block != "" || len(k.Biomes) > 0) {
+		return false
+	}
+	return locationAt(k, ctx, x, y, z, off, false)
 }
 
 // damageSource tests every part of a damage source predicate; the generated

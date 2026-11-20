@@ -249,6 +249,20 @@ func (s *Server) fixtureSnapshot(ent *fixtureEntity, q *entityQuery) *entitySnap
 	return e
 }
 
+// fixtureLoot builds a fixture's loot entity for a criterion's entity
+// condition, taking the fixture lock when called.
+func (s *Server) fixtureLoot(ent *fixtureEntity) func() rules.LootEntity {
+	return func() rules.LootEntity {
+		s.fixturesMu.Lock()
+		snap := s.fixtureSnapshot(ent, nil)
+		s.fixturesMu.Unlock()
+		if snap == nil {
+			return rules.LootEntity{Type: ent.kind}
+		}
+		return command.LootEntityOf(snap)
+	}
+}
+
 // fixtureEnglishName is the name a selector's name option matches.
 func fixtureEnglishName(kind string) string {
 	switch kind {
@@ -332,7 +346,7 @@ func (c *client) useInteraction(target, hand int32) bool {
 		pos.X, pos.Y+c.dims(c.player.Appearance().Pose).EyeHeight, pos.Z,
 		minX, minY, minZ, maxX, maxY, maxZ) {
 		s.recordInteraction(ent, "interaction", c.player.UUID)
-		c.interactedWithEntityAdvancements(advancement.EntityInteraction{Type: "minecraft:interaction"}, held)
+		c.interactedWithEntityAdvancements(advancement.EntityInteraction{Type: "minecraft:interaction", Loot: s.fixtureLoot(ent)}, held)
 	}
 	return true
 }

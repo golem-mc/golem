@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -14,9 +15,6 @@ func TestEmptyGridCraftsNothing(t *testing.T) {
 		}
 		if _, result, ok := stewResult(cells); ok {
 			t.Errorf("an empty %dx%d grid makes stew %+v", width, width, result)
-		}
-		if _, result, ok := imbueResult(cells); ok {
-			t.Errorf("an empty %dx%d grid imbues %+v", width, width, result)
 		}
 		if result := specialCraftResult(cells); !result.Empty() {
 			t.Errorf("an empty %dx%d grid makes special %+v", width, width, result)
@@ -75,5 +73,40 @@ func BenchmarkCraftMatch(b *testing.B) {
 				CraftMatch(cells, 3)
 			}
 		})
+	}
+}
+
+// vanilla: TransmuteRecipe, DyeRecipe, ImbueRecipe
+func TestBuiltInRewritingRecipes(t *testing.T) {
+	stack := func(name string, n int32) protocol.ItemStack {
+		id, ok := ItemID(name)
+		if !ok {
+			t.Fatalf("no item %s", name)
+		}
+		return protocol.ItemStack{ItemID: id, Count: n}
+	}
+	for _, c := range []struct {
+		name  string
+		cells []protocol.ItemStack
+		id    string
+		want  protocol.ItemStack
+	}{
+		{"bundle dye", []protocol.ItemStack{stack("minecraft:bundle", 1), stack("minecraft:blue_dye", 1)}, "minecraft:blue_bundle", stack("minecraft:blue_bundle", 1)},
+		{"same colour", []protocol.ItemStack{stack("minecraft:blue_bundle", 1), stack("minecraft:blue_dye", 1)}, "", protocol.ItemStack{}},
+		{"map clone", []protocol.ItemStack{stack("minecraft:filled_map", 1), stack("minecraft:map", 1), stack("minecraft:map", 1)}, "minecraft:map_cloning", stack("minecraft:filled_map", 3)},
+		{"eight maps", append([]protocol.ItemStack{stack("minecraft:filled_map", 1)}, slices.Repeat([]protocol.ItemStack{stack("minecraft:map", 1)}, 8)...), "minecraft:map_cloning", stack("minecraft:filled_map", 9)},
+		{"tipped arrow", append(slices.Repeat([]protocol.ItemStack{stack("minecraft:arrow", 1)}, 4), append([]protocol.ItemStack{stack("minecraft:lingering_potion", 1)}, slices.Repeat([]protocol.ItemStack{stack("minecraft:arrow", 1)}, 4)...)...), "minecraft:tipped_arrow", stack("minecraft:tipped_arrow", 8)},
+		{"wolf armour", []protocol.ItemStack{stack("minecraft:wolf_armor", 1), stack("minecraft:red_dye", 1)}, "minecraft:wolf_armor_dyed", func() protocol.ItemStack {
+			s := stack("minecraft:wolf_armor", 1)
+			s.SetDyedColor(0xB02E26)
+			return s
+		}()},
+	} {
+		width := int32(3)
+		cells := append(slices.Clone(c.cells), make([]protocol.ItemStack, 9-len(c.cells))...)
+		id, got := CraftMatch(cells, width)
+		if id != c.id || !got.Equal(c.want) {
+			t.Errorf("%s: crafted %q %+v, want %q %+v", c.name, id, got, c.id, c.want)
+		}
 	}
 }

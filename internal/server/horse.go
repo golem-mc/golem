@@ -487,7 +487,7 @@ func (s *Server) finishHorseEvents(events []horseNews) {
 		}
 		s.broadcastWorld(ev.w, protocol.IDPlayEntityEvent, entityEventPayload(ev.id, status))
 		if ev.tamer != nil {
-			ev.tamer.tameAnimalAdvancements(ev.animal, "")
+			ev.tamer.tameAnimalAdvancements(ev.animal, "", s.mobLootByEntityID(ev.w, ev.id))
 		}
 		if ev.threw && ev.rider != nil {
 			ev.rider.dismountMob(true)

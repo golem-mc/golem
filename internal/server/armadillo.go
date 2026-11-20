@@ -15,7 +15,7 @@ func (c *client) brushArmadillo(ent *mobEntity, hand int32, held protocol.ItemSt
 		return nil
 	}
 	c.srv.mobsMu.Lock()
-	after := bodyInteraction(ent.mob)
+	after := c.srv.bodyInteraction(ent)
 	c.srv.mobsMu.Unlock()
 	c.wearHeld(hand, 16)
 	c.interactedWithEntityAdvancements(after, held.ItemID)

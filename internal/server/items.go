@@ -646,7 +646,7 @@ func (s *Server) giveItemPickups(candidates []*itemPickup) {
 			s.entityDestroyedBy(it.uuid, plugin.RemovePickup)
 			s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities, removeEntitiesPayload([]int32{p.item}))
 		}
-		s.thrownItemPickedUpAdvancements(it.w, thrower, given.ItemID, c, advancement.Entity{Type: playerEntityType})
+		s.thrownItemPickedUpAdvancements(it.w, thrower, given.ItemID, c, advancement.Entity{Type: playerEntityType, Loot: c.LootEntity})
 	}
 }
 

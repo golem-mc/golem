@@ -329,13 +329,34 @@ type LootMatchBlock struct {
 // grass halves check each other, the mineshaft disc its cave); a part the
 // table left empty asks after nothing. Block is a block name, or "#" and a
 // block tag's name.
+//
+// The rest of vanilla's LocationPredicate is each part present asked after:
+// Position (x, y, z on the double position), Dimension, Structures (a piece
+// of one), Smokey, Light (the raw brightness at the block), Fluid, CanSeeSky
+// and BlockNBT (the block entity's saved data, with or without Block).
 type LootLocationCheck struct {
-	Block      string
-	Properties []LootStateProperty
-	Biomes     []string
-	// Dimension is the dimension's name the roll must happen in; empty asks after none.
-	Dimension                 string
+	Block                     string
+	Properties                []LootStateProperty
+	Biomes                    []string
 	OffsetX, OffsetY, OffsetZ int32
+
+	Position *[3]AdvancementRange
+	// Dimension is the dimension's name the roll must happen in; empty asks after none.
+	Dimension  string
+	Structures []string
+	Smokey     *bool
+	Light      *AdvancementRange
+	Fluid      *LootFluidCheck
+	CanSeeSky  *bool
+	BlockNBT   nbt.CompoundTag
+}
+
+// LootFluidCheck is a FluidPredicate: Fluids are the fluid names accepted
+// (nil any) and Properties the exact fluid state properties required.
+// vanilla: FluidPredicate
+type LootFluidCheck struct {
+	Fluids     []string
+	Properties []LootStateProperty
 }
 
 // LootEntityProperties requires a context entity (the dying body, the
@@ -1214,6 +1235,9 @@ var LootTables map[string]LootTable
 func FindLootTable(name string) (LootTable, bool) {
 	if t, ok := PackLootTable(name); ok {
 		return t, true
+	}
+	if st := packLoot.Load(); st != nil && st.hidden[name] {
+		return LootTable{}, false
 	}
 	t, ok := LootTables[name]
 	return t, ok

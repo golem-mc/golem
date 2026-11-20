@@ -12,10 +12,23 @@ import (
 // vanilla: TagLoader.loadTagsForRegistry
 func loadPackTags(dirs []string, skip func(file string, err error)) (registry.PackTags, error) {
 	out := registry.PackTags{}
+	filters := datapack.LoadFilters(dirs)
 	for _, reg := range registry.PackTagRegistries() {
-		raw, err := datapack.LoadTags(dirs, strings.TrimPrefix(reg, "minecraft:"), skip)
+		dir := strings.TrimPrefix(reg, "minecraft:")
+		raw, err := datapack.LoadTags(dirs, dir, skip)
 		if err != nil {
 			return nil, err
+		}
+		// A built-in tag file a filter hides is gone: the tag starts empty.
+		if filters.Any() {
+			for _, name := range builtinTagNames(reg) {
+				ns, path, _ := strings.Cut(name, ":")
+				if filters.Builtin(ns, "tags/"+dir+"/"+path+".json") {
+					tag := raw[name]
+					tag.Replace = true
+					raw[name] = tag
+				}
+			}
 		}
 		if len(raw) == 0 {
 			continue
@@ -56,4 +69,24 @@ func (s *Server) applyPackTags(tags registry.PackTags) {
 	for _, problem := range registry.ApplyPackTags(tags) {
 		slog.Error("Couldn't load tag " + problem)
 	}
+}
+
+// builtinTagNames lists the built-in tags of a registry.
+func builtinTagNames(reg string) []string {
+	var names []string
+	for _, r := range registry.Tags {
+		if r.Registry == reg {
+			for _, t := range r.Tags {
+				names = append(names, t.Name)
+			}
+		}
+	}
+	for _, r := range registry.BuiltinTags {
+		if r.Registry == reg {
+			for _, t := range r.Tags {
+				names = append(names, t.Name)
+			}
+		}
+	}
+	return names
 }

@@ -177,14 +177,10 @@ func (m *Mob) RollDrops(killer rules.LootKiller, level rules.LootLevel) []protoc
 	if attacker.Type != "" {
 		ctx.Attacker = attacker
 		ctx.DirectAttacker = attacker
-		if player && !killer.Melee || m.lastDamageSource() == rules.DamageTypeArrow {
+		if direct := projectileOf(m.lastDamageSource(), killer.AttackerType); direct != "" {
+			ctx.DirectAttacker, ctx.Indirect = rules.LootEntity{Type: direct}, true
+		} else if player && !killer.Melee {
 			ctx.DirectAttacker, ctx.Indirect = rules.LootEntity{Type: "minecraft:arrow"}, true
-		}
-		// A player's fireball is a large one; small fireballs never have a
-		// player owner.
-		// vanilla: LargeFireball.onHitEntity
-		if player && m.lastDamageSource() == rules.DamageTypeFireball {
-			ctx.DirectAttacker, ctx.Indirect = rules.LootEntity{Type: "minecraft:fireball"}, true
 		}
 	}
 	// Built here, not at spawn or load, so only a death pays for the second
@@ -434,4 +430,26 @@ func lootSeed(seed int64) int64 {
 // lootLevel is w as the level of a roll at the mob's position.
 func (m *Mob) lootLevel(w World) rules.LootLevel {
 	return rules.LevelAt(w, w.LootReads(), m.X, m.Y, m.Z)
+}
+
+// projectileOf is the entity type of the projectile that carries a damage
+// type; "" where the type names none. A fireball is a small one from a blaze
+// and a large one from anyone else (small fireballs never have a player
+// owner).
+// vanilla: LargeFireball.onHitEntity, SmallFireball.onHitEntity
+func projectileOf(damage registry.DamageType, attacker registry.EntityType) string {
+	switch damage {
+	case rules.DamageTypeArrow:
+		return "minecraft:arrow"
+	case rules.DamageTypeTrident:
+		return "minecraft:trident"
+	case rules.DamageTypeWitherSkull:
+		return "minecraft:wither_skull"
+	case rules.DamageTypeFireball:
+		if attacker == TypeBlaze {
+			return "minecraft:small_fireball"
+		}
+		return "minecraft:fireball"
+	}
+	return ""
 }

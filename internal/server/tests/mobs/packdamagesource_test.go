@@ -72,3 +72,62 @@ func TestAPackLootTableReadsDamageSourcePredicates(t *testing.T) {
 		c.Settle()
 	}), "emerald", "stick")
 }
+
+// TestAPackLootTableSeesTheProjectileOfATridentAndAGhastFireball kills
+// zombies by a player's trident and by a ghast's fireball: the direct entity
+// is the trident or the fireball, and is_direct is false for both.
+// vanilla: DamageSource.isDirect, ThrownTrident.onHitEntity, LargeFireball.onHitEntity
+func TestAPackLootTableSeesTheProjectileOfATridentAndAGhastFireball(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackLoot(nil, nil, nil) })
+	cfg := servertest.MobTestConfig()
+	cfg.LevelName = t.TempDir()
+	pool := func(predicate, item string) string {
+		return `{"rolls":1,"conditions":[{"condition":"minecraft:damage_source_properties","predicate":{` +
+			predicate + `}}],"entries":[{"type":"minecraft:item","name":"minecraft:` + item + `"}]}`
+	}
+	servertest.WritePackFile(t, cfg, "ds", "minecraft/loot_table/entities/zombie.json", `{"pools":[`+
+		pool(`"direct_entity":{"minecraft:entity_type":"minecraft:arrow"}`, "gold_ingot")+`,`+
+		pool(`"direct_entity":{"minecraft:entity_type":"minecraft:trident"}`, "iron_ingot")+`,`+
+		pool(`"direct_entity":{"minecraft:entity_type":"minecraft:fireball"}`, "coal")+`,`+
+		pool(`"is_direct":false`, "stick")+`]}`)
+	const name = "Slayer"
+	srv, c := servertest.Join(t, cfg, name, servertest.OpsListing(t, name))
+	servertest.HoldTicks(t, srv)
+	c.MoveToGround(2.5, 64, 5.5, true)
+	c.Settle()
+
+	kill := func(blow func(id int32)) map[string]int32 {
+		srv.RunLine("kill @e[type=minecraft:item]")
+		c.Settle()
+		srv.RunLine(`summon minecraft:zombie 4.5 64 5.5 {NoAI:1b,Health:0.5f}`)
+		id := c.ExpectMobSpawn(protocol.EntityTypeZombie).EntityID
+		blow(id)
+		servertest.RunTicks(t, srv, 5)
+		c.Settle()
+		got := map[string]int32{}
+		for _, it := range srv.ItemsInDimension("minecraft:overworld") {
+			got[it.Item] += it.Count
+		}
+		return got
+	}
+	check := func(what string, got map[string]int32, want ...string) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Errorf("%s dropped %v, want %v", what, got, want)
+			return
+		}
+		for _, item := range want {
+			if got["minecraft:"+item] != 1 {
+				t.Errorf("%s dropped %v, want %v", what, got, want)
+			}
+		}
+	}
+	check("a trident kill", kill(func(id int32) {
+		srv.HurtMobByPlayerProjectile(id, name, 5, "minecraft:trident")
+	}), "iron_ingot", "stick")
+	check("a ghast fireball kill", kill(func(id int32) {
+		srv.RunLine(`summon minecraft:ghast 4.5 70 9.5 {NoAI:1b}`)
+		ghast := c.ExpectMobSpawn(protocol.EntityTypeGhast).EntityID
+		srv.HurtMobByMob(id, ghast, 5, "minecraft:fireball")
+	}), "coal", "stick")
+}

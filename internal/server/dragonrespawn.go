@@ -336,7 +336,7 @@ func (s *Server) applyDragonRitual(fx dragonRitualEffect) {
 			c := s.clients[id]
 			s.mu.RUnlock()
 			if c != nil {
-				c.summonedEntityAdvancements(entity.TypeEnderDragon.Name())
+				c.summonedEntityAdvancements(entity.TypeEnderDragon.Name(), nil)
 			}
 		}
 	}

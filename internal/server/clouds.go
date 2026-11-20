@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
@@ -137,7 +136,7 @@ func cloudMetadataTable(it *cloudEntity, told cloudShown, particle bool, name cu
 	if particle {
 		it.custom.putMetadata(&b, name)
 		b.PutMetadata(protocol.MetadataIndexCloudParticle, protocol.MetadataParticle)
-		if id, data, ok := command.ParticleOptions(it.customParticle); ok {
+		if id, data, ok := registry.ParticleOptions(it.customParticle); ok {
 			b.PutVarInt(id)
 			b.PutRaw(data)
 		} else {
@@ -269,7 +268,7 @@ func applyCloudTag(it *cloudEntity, compound nbt.Compound) {
 	it.custom = customNameOfTag(compound)
 	it.customParticle = nil
 	if tag := compound["custom_particle"]; tag != nil {
-		if _, _, ok := command.ParticleOptions(tag); ok {
+		if _, _, ok := registry.ParticleOptions(tag); ok {
 			it.customParticle = tag
 		}
 	}

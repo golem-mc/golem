@@ -2128,6 +2128,7 @@ func (s *Server) shutdown() {
 	// the bytes intact, "saved chunks" would be logged twice.
 	s.stopTick()
 	s.disablePlugins()
+	command.StopJfrOnExit(filepath.Dir(s.configPath))
 
 	// A relight still queued would install after the save and be lost.
 	s.relightWG.Wait()

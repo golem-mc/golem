@@ -139,22 +139,26 @@ func optionalBounds(fields nbt.Compound, key string) (lo, hi int64, ok bool) {
 	return parseBounds(fields[key])
 }
 
-// decodeComponentPredicate reads one entry of DataComponentMatchers' partial
-// predicates for the types modelled here; false for a type or value it cannot
-// read.
+// DecodeComponentPredicate reads one entry of DataComponentMatchers' partial
+// predicates. typed reports whether vanilla tests the component's '~' value
+// with a predicate type of its own rather than by presence; ok is false when
+// the value cannot be read (always, for a typed component this package does
+// not model).
 // vanilla: DataComponentPredicates
-func decodeComponentPredicate(name string, value nbt.Tag) (stackTest, bool) {
+func DecodeComponentPredicate(name string, value nbt.Tag) (test func(protocol.ItemStack) bool, typed, ok bool) {
 	switch name {
 	case "minecraft:enchantments", "minecraft:stored_enchantments":
-		return decodeEnchantmentsTest(name == "minecraft:stored_enchantments", value)
+		test, ok = decodeEnchantmentsTest(name == "minecraft:stored_enchantments", value)
+		return test, true, ok
 	case "minecraft:firework_explosion", "minecraft:fireworks", "minecraft:trim", "minecraft:jukebox_playable",
 		"minecraft:villager/variant", "minecraft:writable_book_content", "minecraft:written_book_content",
 		"minecraft:attribute_modifiers", "minecraft:potion_contents":
-		return decodeMorePredicate(name, value)
+		test, ok = decodeMorePredicate(name, value)
+		return test, true, ok
 	case "minecraft:container", "minecraft:bundle_contents":
-		fields, ok := nbt.CompoundView(value)
-		if !ok {
-			return nil, false
+		fields, isCompound := nbt.CompoundView(value)
+		if !isCompound {
+			return nil, true, false
 		}
 		contents := func(hand protocol.ItemStack) ([]protocol.ItemStack, bool) {
 			if name == "minecraft:container" {
@@ -179,16 +183,16 @@ func decodeComponentPredicate(name string, value nbt.Tag) (stackTest, bool) {
 				return DecodeItemPredicate(entry).Matches, true
 			})
 			if !ok {
-				return nil, false
+				return nil, true, false
 			}
 			coll = &c
 		}
 		return func(hand protocol.ItemStack) bool {
 			items, present := contents(hand)
 			return present && (coll == nil || coll.test(items))
-		}, true
+		}, true, true
 	}
-	return nil, false
+	return nil, false, false
 }
 
 // decodeEnchantmentsTest reads the list of EnchantmentPredicate: each needs a

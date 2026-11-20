@@ -1,8 +1,6 @@
 package server
 
 import (
-	"time"
-
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -34,16 +32,19 @@ func (s *Server) zombieVillagerCured(cv mobConversion, m *entity.Mob) {
 	drops := m.CuredFrom(old)
 	// CONVERSION finalizes the villager type without the zombie attribute roll.
 	m.FinalizeSpawn(m.SpawnDice(), cv.w.Biome(rules.BlockOf(old.X), rules.BlockOf(old.Y), rules.BlockOf(old.Z)), nil, rules.NewLocalDifficulty(cv.w.Difficulty(), s.effectiveDifficultyAt(cv.w, old.X, old.Z)))
-	if c := s.clientByUUID(old.CurePlayer()); c != nil && c.theWorld() == cv.w {
-		m.OnReputationEvent(entity.ReputationZombieVillagerCured, c.player.UUID)
-		if progress := c.advancements.Load(); progress != nil {
-			progress.CuredZombieVillager(time.Now())
-		}
+	curer := s.clientByUUID(old.CurePlayer())
+	if curer != nil && curer.theWorld() == cv.w {
+		m.OnReputationEvent(entity.ReputationZombieVillagerCured, curer.player.UUID)
+	} else {
+		curer = nil
 	}
 	for _, stack := range drops {
 		s.spawnItemAtFeet(cv.w, stack, old.X, old.Y, old.Z)
 	}
 	s.addRiddenConversion(cv.old, ent)
+	if curer != nil {
+		curer.curedZombieVillagerAdvancements(s.mobLoot(cv.old), s.mobLoot(ent))
+	}
 	if !old.Silent {
 		s.broadcastLevelEvent(cv.w, protocol.WorldEventZombieVillagerCured, rules.BlockOf(old.X), rules.BlockOf(old.Y), rules.BlockOf(old.Z), 0)
 	}

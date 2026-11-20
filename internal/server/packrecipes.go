@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
+	"strings"
 
 	"github.com/golem-mc/golem/internal/server/datapack"
 	"github.com/golem-mc/golem/registry"
@@ -31,6 +32,12 @@ func loadPackRecipes(dirs []string, skip func(file string, err error)) (registry
 			if !errors.Is(err, datapack.ErrBuiltInRecipeType) {
 				recipes.Dropped = append(recipes.Dropped, id)
 			}
+		}
+	}
+	if filters := datapack.LoadFilters(dirs); filters.Any() {
+		recipes.Hidden = func(id string) bool {
+			ns, path, _ := strings.Cut(id, ":")
+			return filters.Builtin(ns, "recipe/"+path+".json")
 		}
 	}
 	return recipes, nil

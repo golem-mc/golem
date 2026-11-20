@@ -274,16 +274,6 @@ func clearComponentFilter(name string, op byte, value string) (ItemFilter, bool)
 	return genericComponentFilter(name, op, value)
 }
 
-// predicateTypeComponents are the components vanilla tests with a predicate
-// type of their own, whose '~' value this server does not decode.
-var predicateTypeComponents = map[string]bool{
-	"minecraft:container": true, "minecraft:bundle_contents": true,
-	"minecraft:firework_explosion": true, "minecraft:fireworks": true,
-	"minecraft:writable_book_content": true, "minecraft:written_book_content": true,
-	"minecraft:attribute_modifiers": true, "minecraft:trim": true,
-	"minecraft:jukebox_playable": true, "minecraft:villager/variant": true,
-}
-
 // genericComponentFilter tests any component the stack serialises: presence
 // for a bare name or a '~' on a component without a predicate type, and the
 // codec's value for '='. A value equal to the item's default is not one the
@@ -292,8 +282,15 @@ var predicateTypeComponents = map[string]bool{
 func genericComponentFilter(name string, op byte, value string) (ItemFilter, bool) {
 	switch op {
 	case 0, '~':
-		if op == '~' && predicateTypeComponents[name] {
-			return nil, false
+		if op == '~' {
+			tag, _ := valueTag(value)
+			test, typed, ok := registry.DecodeComponentPredicate(name, tag)
+			if ok {
+				return test, true
+			}
+			if typed {
+				return nil, false
+			}
 		}
 		if _, known := registry.ComponentID(name); !known {
 			return nil, false
