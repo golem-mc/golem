@@ -687,11 +687,17 @@ type reinforcementCall struct {
 	seed   int64
 }
 
+// spawningMonsters reports whether w's spawn_mobs and spawn_monsters both
+// allow monsters. vanilla: ServerLevel.isSpawningMonsters
+func spawningMonsters(w *world.World) bool {
+	return w.BoolRule(world.RuleSpawnMobs) && w.BoolRule(world.RuleSpawnMonsters)
+}
+
 // finishReinforcement places the called zombie hunting the caller's
 // target; only a call that found a place costs the caller its 0.05.
 // vanilla: Zombie.hurtServer
 func (s *Server) finishReinforcement(call reinforcementCall) {
-	if !call.w.SpawnEnemies() {
+	if !spawningMonsters(call.w) {
 		return
 	}
 	dim := s.dimensionOfWorld(call.w)
@@ -2299,7 +2305,7 @@ func (s *Server) finalizeMobSpawn(w *world.World, ent *mobEntity, group *entity.
 	local.Moon = rules.MoonBrightness(s.world.MoonPhase())
 	biome := w.Biome(rules.BlockOf(x), rules.BlockOf(y), rules.BlockOf(z))
 	if m.Type == entity.TypeStrider {
-		m.MonsterJockeysDisabled = !w.SpawnEnemies()
+		m.MonsterJockeysDisabled = !spawningMonsters(w)
 	}
 	if m.Type == entity.TypeHusk {
 		minX, minY, minZ, maxX, maxY, maxZ := entity.CamelHuskSpawnBox(rules.BlockOf(x), rules.BlockOf(y), rules.BlockOf(z))

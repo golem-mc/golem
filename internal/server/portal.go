@@ -1059,7 +1059,7 @@ const portalPiglinDie = 2000
 func (s *Server) portalSpawnsPiglin(dim *dimension, t world.PortalTick) {
 	w := dim.w
 	difficulty := s.world.Difficulty()
-	if !w.SpawnEnemies() || difficulty == 0 || w.DimensionName() != world.DimensionName {
+	if !spawningMonsters(w) || difficulty == 0 || w.DimensionName() != world.DimensionName {
 		return
 	}
 	if s.levelRng.Intn(portalPiglinDie) >= int(difficulty) {
