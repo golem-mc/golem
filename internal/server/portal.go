@@ -1062,7 +1062,7 @@ const portalPiglinDie = 2000
 // vanilla: NetherPortalBlock.randomTick
 func (s *Server) portalSpawnsPiglin(dim *dimension, t world.PortalTick) {
 	w := dim.w
-	difficulty := s.world.Difficulty()
+	difficulty := w.Difficulty()
 	if !s.spawningMonsters() || difficulty == 0 || w.DimensionName() != world.DimensionName {
 		return
 	}

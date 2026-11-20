@@ -12,7 +12,7 @@ import (
 // ticks a puff state.
 func (s *Server) pufferStingPlayer(strike mobStrike, victim *client) {
 	cause := &damageCause{entityID: strike.mob.ID, x: strike.x, y: strike.y, z: strike.z, killer: strike.killer, shove: true}
-	damage := rules.MobAttackAfterDifficulty(strike.damage, s.world.Difficulty())
+	damage := rules.MobAttackAfterDifficulty(strike.damage, strike.w.Difficulty())
 	landed, softened := victim.hurt(damage, rules.DamageTypeMobAttack, cause)
 	if !landed {
 		return

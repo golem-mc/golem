@@ -1304,7 +1304,7 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 	if strike.roar {
 		extra = 0
 	}
-	scaled := rules.MobAttackAfterDifficulty(dealt, s.world.Difficulty())
+	scaled := rules.MobAttackAfterDifficulty(dealt, strike.w.Difficulty())
 	if scaled <= 0 {
 		return
 	}
@@ -1376,7 +1376,7 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 				registry.SoundEntitySlimeAttack, 1.0, strike.pitch)
 		}
 		effective := s.effectiveDifficultyAt(strike.w, strike.x, strike.z)
-		if name, ticks, ok := strike.mob.BlowEffect(s.world.Difficulty(), effective); ok {
+		if name, ticks, ok := strike.mob.BlowEffect(strike.w.Difficulty(), effective); ok {
 			victim.AddEffect(blowEffect(registry.MustMobEffect(name), ticks, 0))
 		}
 		if secs := entity.BlowIgniteSeconds(effective, strike.igniteRoll); strike.ignites && secs > 0 {
@@ -1487,7 +1487,7 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 			if secs := entity.BlowIgniteSeconds(effective, strike.mob.Rand.Float32()); strike.mob.IgnitesBlow() && secs > 0 {
 				victim.IgniteForTicks(int(secs) * 20)
 			}
-			name, ticks, ok := strike.mob.BlowEffect(s.world.Difficulty(), effective)
+			name, ticks, ok := strike.mob.BlowEffect(strike.w.Difficulty(), effective)
 			if strike.puff > 0 {
 				name, ticks, ok = "minecraft:poison", int32(60*strike.puff), true
 			}
@@ -1537,14 +1537,13 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 }
 
 // effectiveDifficultyAt is ServerLevel.getCurrentDifficultyAt: difficulty
-// scaled by the overworld clock and moon and the chunk's inhabited time
-// (zero if unloaded). Clock, moon and difficulty are the overworld's since
-// level.dat holds them. vanilla: DifficultyInstance.calculateDifficulty
+// scaled by the level's clock and moon and the chunk's inhabited time
+// (zero if unloaded). vanilla: DifficultyInstance.calculateDifficulty
 func (s *Server) effectiveDifficultyAt(w *world.World, x, z float64) float32 {
-	_, clock := s.world.Time()
-	return rules.EffectiveDifficulty(s.world.Difficulty(), clock,
+	_, clock := w.Time()
+	return rules.EffectiveDifficulty(w.Difficulty(), clock,
 		w.InhabitedTime(rules.BlockOf(x), rules.BlockOf(z)),
-		rules.MoonBrightness(s.world.MoonPhase()))
+		rules.MoonBrightness(w.MoonPhase()))
 }
 
 // wake returns a chunk's mobs, once per chunk per load: read from its entity
@@ -2300,9 +2299,9 @@ func (s *Server) finalizeMobSpawn(w *world.World, ent *mobEntity, group *entity.
 	w.Acquire(pos)
 	defer w.Release(pos)
 	effective := s.effectiveDifficultyAt(w, x, z)
-	local := rules.NewLocalDifficulty(s.world.Difficulty(), effective)
+	local := rules.NewLocalDifficulty(w.Difficulty(), effective)
 	local.Halloween = rules.IsHalloween(s.spawnTime())
-	local.Moon = rules.MoonBrightness(s.world.MoonPhase())
+	local.Moon = rules.MoonBrightness(w.MoonPhase())
 	biome := w.Biome(rules.BlockOf(x), rules.BlockOf(y), rules.BlockOf(z))
 	if m.Type == entity.TypeStrider {
 		m.MonsterJockeysDisabled = !s.spawningMonsters()

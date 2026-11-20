@@ -674,7 +674,7 @@ func (c *client) tickVitals() {
 			c.removeEntitiesOnShoulder()
 		}
 	}
-	difficulty := c.srv.world.Difficulty()
+	difficulty := c.theWorld().Difficulty()
 	voidY := c.theWorld().VoidY()
 	around := c.habitat(pos)
 	c.bubbleSurfaceSplash(pos)

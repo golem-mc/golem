@@ -351,7 +351,7 @@ func (s *Server) arrowPlayerOutcome(hit arrowPlayerHit) arrowOutcome {
 	// Only a living non-player shooter scales the blow.
 	// vanilla: DamageSource.scalesWithDifficulty
 	if shooterClient == nil && shooterID != 0 && s.mobByEntityID(hit.w, shooterID) != nil {
-		damage = rules.ScaledWithDifficulty(damage, s.world.Difficulty())
+		damage = rules.ScaledWithDifficulty(damage, hit.w.Difficulty())
 	}
 	directType := int32(protocol.EntityTypeArrow)
 	if hit.arrow.arrow.Trident {

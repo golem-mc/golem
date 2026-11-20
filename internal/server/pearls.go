@@ -118,7 +118,7 @@ func (s *Server) landPearl(land pearlLanding) {
 // spawn_monsters off refuse it. vanilla: ThrownEnderpearl.onHit
 func (s *Server) spawnPearlEndermite(land pearlLanding, owner *client, pos player.Position) {
 	if !land.endermite || !s.spawningMonsters() ||
-		s.world.Difficulty() == rules.DifficultyPeaceful {
+		land.w.Difficulty() == rules.DifficultyPeaceful {
 		return
 	}
 	s.spawnMobArriving(s.dimensionOfWorld(land.w), entity.TypeEndermite, pos.X, pos.Y, pos.Z, 0, nil,

@@ -20,7 +20,7 @@ func (s *Server) landingStab(strike mobStrike, victim *client) {
 	}
 	affected := false
 	if stab.DealsDamage {
-		if scaled := rules.MobAttackAfterDifficulty(strike.damage, s.world.Difficulty()); scaled > 0 {
+		if scaled := rules.MobAttackAfterDifficulty(strike.damage, strike.w.Difficulty()); scaled > 0 {
 			affected, _ = victim.hurt(scaled, registry.DamageTypeSpear, &damageCause{
 				entityID: strike.mob.ID, x: strike.x, y: strike.y, z: strike.z, killer: strike.killer, weapon: strike.mob.MainHand,
 				shove: shovesOnBlock(strike.mob.Type),
