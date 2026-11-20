@@ -166,6 +166,9 @@ func (p pluginPlayer) RayTrace(max float64, fluids bool) (plugin.RayHit, bool) {
 func (p pluginPlayer) LaunchProjectile(t registry.EntityType, v plugin.Vec3) (plugin.Projectile, error) {
 	return p.entity().LaunchProjectile(t, v)
 }
+func (p pluginPlayer) LaunchTippedArrow(potion plugin.Key, v plugin.Vec3) (plugin.Arrow, error) {
+	return p.entity().LaunchTippedArrow(potion, v)
+}
 func (p pluginPlayer) Swing(h plugin.Hand) {
 	if p.IsValid() {
 		p.c.Swing(h == plugin.OffHand, registry.DefaultSwingAnimation)

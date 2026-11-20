@@ -385,3 +385,14 @@ func (p *Player) noteSound(r *protocol.Reader) {
 		p.seen.sounds = append(p.seen.sounds, s)
 	}
 }
+
+// ShootTippedArrow launches an arrow from the player's eyes along their look
+// direction, tipped with the potion before ProjectileLaunchEvent fires; an
+// error means a listener cancelled the launch or the potion is unknown.
+func (p *Player) ShootTippedArrow(potion plugin.Key) (plugin.Arrow, error) {
+	p.s.t.Helper()
+	var arrow plugin.Arrow
+	var err error
+	p.s.Run(func() { arrow, err = p.Handle().LaunchTippedArrow(potion, plugin.Vec3{}) })
+	return arrow, err
+}

@@ -140,6 +140,10 @@ type LivingEntity interface {
 	// LaunchProjectile launches a projectile of type t as the entity
 	// shooting it, with velocity v (zero for the kind's own).
 	LaunchProjectile(t registry.EntityType, v Vec3) (Projectile, error)
+	// LaunchTippedArrow launches an arrow already tipped with the potion, so
+	// ProjectileLaunchEvent sees it; an unknown potion is an error and
+	// launches nothing.
+	LaunchTippedArrow(potion Key, v Vec3) (Arrow, error)
 }
 
 // AttributeInstance is an entity's attribute.
@@ -450,6 +454,9 @@ type Arrow interface {
 	// hit; the key is zero for an arrow with only custom effects, and ok is
 	// false for a plain arrow, a spectral arrow or a trident.
 	Potion() (Key, []EffectInstance, bool)
+	// SetPotion makes the arrow a tipped arrow of the potion; false for an
+	// unknown potion and for a spectral arrow or trident.
+	SetPotion(Key) bool
 }
 
 // ArrowPickup is who may pick up an arrow.
