@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -106,7 +107,7 @@ func TestDecodeLootTableMatchesTheGeneratedTables(t *testing.T) {
 		}
 		gotCanon := canon(reflect.ValueOf(got))
 		if strings.Contains(gotCanon, inlineMark) {
-			continue // the generator hoists inline tables into references
+			continue // the generator hoists an inline table into a named one
 		}
 		checked++
 		if gotCanon != canon(reflect.ValueOf(want)) {
@@ -124,7 +125,8 @@ const inlineMark = "<inline loot table>"
 // canon prints a value with nil and empty slices alike, so two tables that
 // differ only in that compare equal. It also prints what the generator
 // rewrites as the generator writes it: a predicate reference inlined,
-// match_block as any_of over block_state_property, and a number at the
+// match_block as any_of over block_state_property, the sheep, mooshroom and
+// chicken components as their own fields, and a number at the
 // float precision vanilla reads it with.
 func canon(v reflect.Value) string {
 	if v.CanInterface() {
@@ -159,6 +161,19 @@ func canon(v reflect.Value) string {
 			if p, ok := registry.FindPredicate(c.Name); ok {
 				return canon(reflect.ValueOf(p))
 			}
+		case registry.LootEntityPredicate:
+			c.Components = maps.Clone(c.Components)
+			for name, field := range map[string]*string{
+				"minecraft:sheep/color":       &c.SheepColour,
+				"minecraft:mooshroom/variant": &c.Mooshroom,
+				"minecraft:chicken/variant":   &c.ChickenVariant,
+			} {
+				if val, ok := c.Components[name]; ok {
+					*field = val
+					delete(c.Components, name)
+				}
+			}
+			return canonFields(reflect.ValueOf(c))
 		case registry.LootMatchBlock:
 			if c.Blocks != nil {
 				var terms []registry.LootCondition
@@ -168,13 +183,17 @@ func canon(v reflect.Value) string {
 				return canon(reflect.ValueOf(registry.LootAnyOf{Terms: terms}))
 			}
 		}
-		parts := make([]string, v.NumField())
-		for i := range parts {
-			parts[i] = canon(v.Field(i))
-		}
-		return v.Type().Name() + "(" + strings.Join(parts, ",") + ")"
+		return canonFields(v)
 	}
 	return fmt.Sprint(v.Interface())
+}
+
+func canonFields(v reflect.Value) string {
+	parts := make([]string, v.NumField())
+	for i := range parts {
+		parts[i] = canon(v.Field(i))
+	}
+	return v.Type().Name() + "(" + strings.Join(parts, ",") + ")"
 }
 
 func TestDecodeLootTableRefusesWhatItDoesNotKnow(t *testing.T) {
