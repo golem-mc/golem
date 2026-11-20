@@ -46,11 +46,11 @@ func TestPackConditionsReadWeatherTimeAndScores(t *testing.T) {
 			t.Errorf("%q answered % X, want the conditional failure", command, got)
 		}
 	}
-	const raining = `execute if predicate {condition:"minecraft:weather_check",raining:true}`
+	const raining = `execute if predicate {type:"minecraft:weather_check",raining:true}`
 
 	// A fresh level starts clear, its rain level at zero.
 	says(raining, false)
-	says(`execute if predicate {condition:"minecraft:weather_check"} run say hi`, true)
+	says(`execute if predicate {type:"minecraft:weather_check"} run say hi`, true)
 	expectGave(t, c, "loot give @s loot pk:rainy", "minecraft:stick", 1)
 	c.ChatCommand("weather rain 100000")
 	servertest.FeedbackComponent(t, c)
@@ -60,10 +60,10 @@ func TestPackConditionsReadWeatherTimeAndScores(t *testing.T) {
 		t.Fatal("not raining 25 ticks after /weather rain")
 	}
 	says(raining+" run say hi", true)
-	says(`execute if predicate {condition:"minecraft:weather_check",raining:true,thundering:true}`, false)
+	says(`execute if predicate {type:"minecraft:weather_check",raining:true,thundering:true}`, false)
 	expectGave(t, c, "loot give @s loot pk:rainy", "minecraft:diamond", 1)
 
-	const daytime = `execute if predicate {condition:"minecraft:time_check",clock:"minecraft:overworld",period:24000,value:{min:0,max:12000}}`
+	const daytime = `execute if predicate {type:"minecraft:time_check",clock:"minecraft:overworld",period:24000,value:{min:0,max:12000}}`
 	c.ChatCommand("time set 30000")
 	servertest.FeedbackComponent(t, c)
 	says(daytime+" run say hi", true)
@@ -73,18 +73,18 @@ func TestPackConditionsReadWeatherTimeAndScores(t *testing.T) {
 
 	c.ChatCommand("scoreboard objectives add pts dummy")
 	servertest.FeedbackComponent(t, c)
-	const scored = `execute if predicate {condition:"minecraft:entity_scores",entity:"this",scores:{pts:{min:3,max:7}}}`
+	const scored = `execute if predicate {type:"minecraft:entity_scores",entity:"this",scores:{pts:{min:3,max:7}}}`
 	says(scored, false) // no score yet
 	c.ChatCommand("scoreboard players set @s pts 5")
 	servertest.FeedbackComponent(t, c)
 	says(scored+" run say hi", true)
-	says(`execute if predicate {condition:"minecraft:entity_scores",entity:"this",scores:{pts:5}} run say hi`, true)
-	says(`execute if predicate {condition:"minecraft:entity_scores",entity:"this",scores:{pts:5,nope:{}}}`, false)
+	says(`execute if predicate {type:"minecraft:entity_scores",entity:"this",scores:{pts:5}} run say hi`, true)
+	says(`execute if predicate {type:"minecraft:entity_scores",entity:"this",scores:{pts:5,nope:{}}}`, false)
 	c.ChatCommand("scoreboard players set @s pts 9")
 	servertest.FeedbackComponent(t, c)
 	says(scored, false)
 
-	says(`execute if predicate {condition:"minecraft:int_value_check",value:4,test:{min:1,max:{type:"minecraft:uniform",min:4,max:6}}} run say hi`, true)
-	says(`execute if predicate {condition:"minecraft:float_value_check",value:0.5,test:0.25}`, false)
-	says(`execute if predicate {condition:"minecraft:enchantment_active_check",active:true}`, false)
+	says(`execute if predicate {type:"minecraft:int_value_check",value:4,test:{min:1,max:{type:"minecraft:uniform",min:4,max:6}}} run say hi`, true)
+	says(`execute if predicate {type:"minecraft:float_value_check",value:0.5,test:0.25}`, false)
+	says(`execute if predicate {type:"minecraft:enchantment_active_check",active:true}`, false)
 }

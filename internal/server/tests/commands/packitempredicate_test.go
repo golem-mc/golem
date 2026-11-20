@@ -32,7 +32,7 @@ func TestInlineItemPredicatesReadCountComponentsAndPredicates(t *testing.T) {
 	}
 	answers := func(item string, want bool) {
 		t.Helper()
-		const head = `execute if predicate {condition:"minecraft:entity_properties",entity:"this",predicate:{"minecraft:equipment":{mainhand:`
+		const head = `execute if predicate {type:"minecraft:entity_properties",entity:"this",predicate:{"minecraft:equipment":{mainhand:`
 		command := head + item + `}}}`
 		if want {
 			command += " run say hi"
