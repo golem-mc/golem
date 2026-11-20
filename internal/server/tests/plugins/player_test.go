@@ -84,6 +84,15 @@ func TestPluginPlayerControlPackets(t *testing.T) {
 		}
 	}
 	p.SendTitle(plugin.Plain("t2"), plugin.Plain("s2"), -1, -1, -1)
+	for _, v := range []struct {
+		id   int32
+		text string
+	}{{protocol.IDPlaySubtitleText, "s2"}, {protocol.IDPlayTitleText, "t2"}} {
+		actual, ok := protocol.ReadText(protocol.NewReader(c.ExpectWithinTicks(srv, 0, v.id)))
+		if !ok || actual.Plain() != v.text {
+			t.Fatalf("title = %+v", actual)
+		}
+	}
 	c.ExpectNoneWithinTicks(srv, 1, servertest.PacketIs(protocol.IDPlayTitlesAnimation))
 	check(protocol.IDPlayClearTitles, p.ClearTitle, func(b *protocol.Buffer) { b.PutBool(false) })
 	check(protocol.IDPlayTabList, func() { p.SetListHeaderFooter(plugin.Plain("head"), plugin.Plain("foot")) }, func(b *protocol.Buffer) {
