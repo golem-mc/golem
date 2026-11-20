@@ -12,7 +12,7 @@ import (
 
 // TestInlineLocationPredicateReadsEveryPart checks that /execute if predicate
 // answers a location predicate's position, dimension, light, sky, fluid,
-// smoke, structure and block nbt parts as vanilla does, and that an empty one
+// smoke, structure and block nbt parts, and that an empty one
 // matches a loaded position.
 // vanilla: LocationPredicate.matches
 func TestInlineLocationPredicateReadsEveryPart(t *testing.T) {
