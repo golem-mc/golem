@@ -2291,6 +2291,25 @@ func (s *Server) broadcastExcept(except *client, packetID int32, data []byte) {
 	sendToAll(nil, recipients, outbound{id: packetID, data: data})
 }
 
+// broadcastLevel sends a packet about w's level state (time, weather,
+// difficulty) to the players it concerns: those in w for a plugin world, and
+// for the vanilla dimensions, which share one level, those in any of them.
+func (s *Server) broadcastLevel(w *world.World, packetID int32, data []byte) {
+	if d := s.dimensionOfWorld(w); d != nil && d.plugin {
+		s.broadcastWorld(w, packetID, data)
+		return
+	}
+	s.mu.RLock()
+	recipients := make([]*client, 0, len(s.clients))
+	for _, c := range s.clients {
+		if d := c.dimension(); d == nil || !d.plugin {
+			recipients = append(recipients, c)
+		}
+	}
+	s.mu.RUnlock()
+	sendToAll(nil, recipients, outbound{id: packetID, data: data})
+}
+
 // broadcastWorld sends a packet to every player in one dimension, for its
 // own business (block changes, bodies, items). The payload is shared, so it
 // must not be changed afterwards.

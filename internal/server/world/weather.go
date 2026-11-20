@@ -143,7 +143,7 @@ func (w *World) TickWeather() SkyChange {
 	t.timeMu.Lock()
 	defer t.timeMu.Unlock()
 	wasRaining := w.sky.raining()
-	if t.ruleBool(RuleAdvanceWeather) {
+	if t.ruleOf(RuleAdvanceWeather) {
 		w.advanceWeatherTimers(t.level)
 	}
 	sky := &w.sky

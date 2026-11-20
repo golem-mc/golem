@@ -154,7 +154,7 @@ func (w *World) TickTime() {
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
 	w.level.WorldAge++
-	if !w.ruleBool(RuleAdvanceTime) {
+	if !w.ruleOf(RuleAdvanceTime) {
 		return
 	}
 	for i := range w.clocks {
@@ -295,7 +295,7 @@ func (w *World) ClockViews(clocks ...string) (worldAge int64, views []ClockView)
 	w = w.timeWorld()
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
-	advance := w.ruleBool(RuleAdvanceTime)
+	advance := w.ruleOf(RuleAdvanceTime)
 	for _, name := range clocks {
 		c := w.clock(name)
 		if c == nil {

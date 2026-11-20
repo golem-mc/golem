@@ -109,12 +109,17 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 	d.w.HoldForcedChunks()
 	spawn := meta.Spawn
 	d.w.SetOwnSeedAndSpawn(seed, spawn)
+	if existed {
+		d.w.RestoreLevel(meta)
+	} else {
+		d.w.SetDifficulty(s.world.Difficulty())
+	}
 	s.addDimension(d)
 	handle := pluginWorld{srv: s, dim: d, host: h}
 	if !existed {
 		spawn = initialPluginSpawn(opts.Generator, gen, handle)
 		d.w.SetOwnSeedAndSpawn(seed, spawn)
-		d.w.SavePluginMeta(world.PluginMeta{Seed: seed, Spawn: spawn})
+		d.w.SavePluginMeta()
 	}
 	s.fireWorldLoad(d)
 	return handle, nil

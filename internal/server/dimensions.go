@@ -226,7 +226,7 @@ func (s *Server) removeDimension(d *dimension) {
 // makes its SpawnPoint answer from the overworld's level.dat. A dimension
 // other than the overworld reads the overworld's age, so a container change
 // there is stamped with the tick the physics runs on rather than their own
-// never-advancing age.
+// never-advancing age; a plugin dimension keeps its own.
 func (s *Server) initDimension(d *dimension, followSpawn bool) error {
 	if followSpawn {
 		d.w.FollowSpawnOf(s.world)
@@ -249,7 +249,10 @@ func (s *Server) initDimension(d *dimension, followSpawn bool) error {
 	d.border.SetAbsoluteMax(int32(s.Config.MaxWorldSize))
 	d.w.SetBorder(d.border)
 	s.loadDimensionRaids(d)
-	if d.w != s.world {
+	switch {
+	case d.plugin:
+		d.w.SetOwnLevel(s.world)
+	case d.w != s.world:
 		d.w.SetTimeSource(s.world)
 	}
 	return d.w.SetSaveFormat(s.Config.RegionFileCompression, s.Config.SyncChunkWrites)

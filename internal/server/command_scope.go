@@ -149,8 +149,11 @@ func (ws worldScope) SetDifficulty(d uint8) { ws.srv.world.SetDifficulty(d) }
 func (ws worldScope) BroadcastDifficulty() { ws.srv.broadcastDifficulty() }
 
 // broadcastDifficulty sends every player the difficulty and lock.
-func (s *Server) broadcastDifficulty() {
-	s.broadcast(protocol.IDPlayDifficulty, difficultyPayload(s.world.Difficulty(), s.world.DifficultyLocked()))
+func (s *Server) broadcastDifficulty() { s.broadcastDifficultyOf(s.world) }
+
+// broadcastDifficultyOf sends the players of w's level its difficulty and lock.
+func (s *Server) broadcastDifficultyOf(w *world.World) {
+	s.broadcastLevel(w, protocol.IDPlayDifficulty, difficultyPayload(w.Difficulty(), w.DifficultyLocked()))
 }
 
 // difficultyPayload builds the Change Difficulty packet.
@@ -163,7 +166,7 @@ func difficultyPayload(d uint8, locked bool) []byte {
 
 // SetWeather backs /weather; the sky fades toward it on the ticks after.
 func (ws worldScope) SetWeather(raining, thundering bool, rainTime, thunderTime, clearTime int32) {
-	ws.srv.setWeatherAllowed(raining, thundering, rainTime, thunderTime, clearTime)
+	ws.srv.setWeatherAllowed(ws.srv.allDims()[0], raining, thundering, rainTime, thunderTime, clearTime)
 }
 
 func (ws worldScope) RollDice(dice world.Dice) int32 { return dice.Roll(ws.srv.world) }
@@ -258,13 +261,16 @@ func (ws worldScope) changedClock(clock string, changed bool) bool {
 	return changed
 }
 
-// broadcastTime sends every player the named clocks; naming none sends all
-// of them, as the join and an advance_time change do.
-func (s *Server) broadcastTime(clocks ...string) {
+// broadcastTime sends the overworld's players the named clocks; naming none
+// sends all of them, as the join and an advance_time change do.
+func (s *Server) broadcastTime(clocks ...string) { s.broadcastTimeOf(s.world, clocks...) }
+
+// broadcastTimeOf is broadcastTime for the players of w's level.
+func (s *Server) broadcastTimeOf(w *world.World, clocks ...string) {
 	if len(clocks) == 0 {
-		clocks = s.world.Clocks()
+		clocks = w.Clocks()
 	}
-	s.broadcast(protocol.IDPlayUpdateTime, updateTimePayload(s.world, clocks...))
+	s.broadcastLevel(w, protocol.IDPlayUpdateTime, updateTimePayload(w, clocks...))
 }
 
 // /gamerule's rules, on the overworld, whose level.dat holds the table.

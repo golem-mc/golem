@@ -220,6 +220,10 @@ type World struct {
 	// the overworld.
 	timeSource *World
 
+	// ruleSource is the overworld whose game rules a plugin world with its own
+	// level state (SetOwnLevel) obeys; nil for every other world.
+	ruleSource *World
+
 	// zoomSeed is levelgen.BiomeZoomSeed of the level seed, set when the seed
 	// settles; a nether or end world reads its timeSource's.
 	zoomSeed int64
@@ -575,6 +579,27 @@ func (w *World) SetTimeSource(overworld *World) {
 	w.spawnEnemies.Store(overworld.spawnEnemies.Load())
 	overworld.timeMu.Unlock()
 	w.prepareWeather()
+}
+
+// SetOwnLevel gives a plugin dimension its own age, clocks, weather and
+// difficulty, which timeWorld then answers with the dimension itself; the game
+// rules stay the overworld's. Lock order: a plugin world's timeMu before the
+// overworld's.
+func (w *World) SetOwnLevel(overworld *World) {
+	w.ruleSource = overworld
+	overworld.timeMu.Lock()
+	overworld.spawnWorlds = append(overworld.spawnWorlds, w)
+	w.spawnEnemies.Store(overworld.spawnEnemies.Load())
+	overworld.timeMu.Unlock()
+}
+
+// ruleOf is ruleBool for a world that may take its rules from ruleSource, with
+// w.timeMu held.
+func (w *World) ruleOf(id GameRuleIndex) bool {
+	if w.ruleSource != nil {
+		return w.ruleSource.BoolRule(id)
+	}
+	return w.ruleBool(id)
 }
 
 // SetWorldAge sets the age counter without touching the clocks: the counter the
@@ -1792,6 +1817,9 @@ func (w *World) Save() {
 		}
 	}
 
+	if w.ruleSource != nil {
+		w.SavePluginMeta()
+	}
 	w.saveForcedChunks()
 
 	w.mu.Lock()
