@@ -51,6 +51,9 @@ func TestPluginHopperMoveEvents(t *testing.T) {
 		}
 		var push, pull bool
 		for _, e := range moves {
+			if e.Initiator == nil || e.Initiator.Holder() != hopper.Holder() {
+				t.Errorf("initiator wrong: got %v, want hopper %v", e.Initiator, hopper.Holder())
+			}
 			if e.Source.Holder() == below.Holder() || e.Destination.Holder() == above.Holder() {
 				t.Errorf("event direction wrong: %+v", e)
 			}

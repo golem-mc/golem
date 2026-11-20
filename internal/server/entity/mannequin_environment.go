@@ -26,7 +26,9 @@ func (m *Mannequin) EnvironmentStep(w World, hurt func(float64, registry.DamageT
 	}
 	var scan contactScan
 	if scan.touches(w, box, contactFire) {
-		livingFireContact(w, box, &m.FireTicks, m.IgniteForTicks, hurt)
+		livingFireContact(w, box, &m.FireTicks, func(ticks int, x, y, z int32) {
+			m.IgniteForTicksBy(ticks, CombustSource{HasBlock: true, X: x, Y: y, Z: z})
+		}, hurt)
 	}
 	if m.FireTicks != 0 {
 		extinguished = livingFireTick(&m.FireTicks, rainLandsOn(w, m.X, m.Y, m.Z, height) || m.water.height > 0, false, m.lava.height > 0, hurt)
@@ -42,7 +44,9 @@ func (m *Mannequin) EnvironmentStep(w World, hurt func(float64, registry.DamageT
 		hurt(drownDamage, rules.DamageTypeDrown)
 	}
 	if m.lava.height > 0 || scan.touches(w, box, contactLavaCauldron) {
-		livingLavaContact(w, box, m.lava.height > 0, m.IgniteForTicks, hurt)
+		livingLavaContact(w, box, m.lava.height > 0, func(ticks int, x, y, z int32) {
+			m.IgniteForTicksBy(ticks, CombustSource{HasBlock: true, X: x, Y: y, Z: z})
+		}, hurt)
 	}
 	inSnow := scan.touches(w, box, contactPowderSnow)
 	if inSnow && m.FireTicks > 0 {
@@ -67,7 +71,19 @@ func (m *Mannequin) EnvironmentStep(w World, hurt func(float64, registry.DamageT
 // IgniteForTicks applies the body's burning-time multiplier and clears frost.
 // vanilla: LivingEntity.igniteForTicks
 func (m *Mannequin) IgniteForTicks(ticks int) {
-	m.FireTicks = max(m.FireTicks, rules.ScaledIgniteTicks(ticks, m.Attributes.Value(registry.AttributeBurningTime)))
+	m.IgniteForTicksBy(ticks, CombustSource{})
+}
+
+// IgniteForTicksBy is IgniteForTicks with the block or entity that caused it.
+// vanilla: LivingEntity.igniteForTicks
+func (m *Mannequin) IgniteForTicksBy(ticks int, src CombustSource) {
+	ticks = rules.ScaledIgniteTicks(ticks, m.Attributes.Value(registry.AttributeBurningTime))
+	if ticks > m.FireTicks && m.Combust != nil {
+		ticks = m.Combust(ticks, src)
+	}
+	if ticks > m.FireTicks {
+		m.FireTicks = ticks
+	}
 	m.TicksFrozen = 0
 }
 

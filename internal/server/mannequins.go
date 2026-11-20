@@ -75,7 +75,12 @@ func mannequinPairing(ent *mannequinEntity) []outbound {
 
 // registerMannequin puts a built mannequin into the world and shows it to
 // every player in range.
-func (s *Server) registerMannequin(ent *mannequinEntity) { mannequinTracker.register(s, ent) }
+func (s *Server) registerMannequin(ent *mannequinEntity) {
+	ent.mannequin.Combust = func(ticks int, src entity.CombustSource) int {
+		return s.askMannequinCombust(ent, ticks, src)
+	}
+	mannequinTracker.register(s, ent)
+}
 
 // tickMannequins reads push inputs, steps under the mannequin lock, then applies
 // damage, removals and movement broadcasts with the lock released.

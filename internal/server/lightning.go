@@ -359,7 +359,7 @@ func (s *Server) boltHurt(it *boltEffect) {
 			v.FireTicks, ignite = rules.LightningThunderHitFire(v.FireTicks)
 		})
 		if ignite {
-			c.igniteForTicks(rules.LightningIgniteTicks)
+			c.igniteForTicksBy(rules.LightningIgniteTicks, pluginEntity{id: it.uuid})
 		}
 		c.hurt(rules.LightningDamage, rules.DamageTypeLightningBolt, nil)
 	}
@@ -397,7 +397,7 @@ func (s *Server) boltHurt(it *boltEffect) {
 			continue
 		}
 		holdCharge := listening && entity.Family(m.Type) == entity.TypeCreeper
-		landed, softened := m.ThunderHit(holdCharge)
+		landed, softened := m.ThunderHit(holdCharge, entity.CombustSource{By: pluginEntity{id: it.uuid}})
 		if holdCharge {
 			charges = append(charges, h.book[m])
 		}

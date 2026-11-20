@@ -1,11 +1,13 @@
 package entity
 
 import (
+	"math"
+	"math/rand"
+
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
-	"math"
-	"math/rand"
+	"github.com/google/uuid"
 )
 
 // Powder snow freezing: vanilla's FREEZE inside-block counter and
@@ -75,10 +77,29 @@ func (m *Mob) freezeConversionStep() MobType {
 	return NoMobType
 }
 
+// Combuster is an entity that set a body alight, carried through
+// CombustSource without importing package plugin.
+type Combuster interface {
+	UUID() uuid.UUID
+}
+
+// CombustSource identifies the block or entity that set a body alight.
+type CombustSource struct {
+	HasBlock bool
+	X, Y, Z  int32
+	By       Combuster
+}
+
 // IgniteForTicks raises the burn to at least ticks, scaled by its
 // burning_time, and thaws the body.
 // vanilla: LivingEntity.igniteForTicks
 func (m *Mob) IgniteForTicks(ticks int) {
+	m.IgniteForTicksBy(ticks, CombustSource{})
+}
+
+// IgniteForTicksBy is IgniteForTicks with the block or entity that caused it.
+// vanilla: LivingEntity.igniteForTicks
+func (m *Mob) IgniteForTicksBy(ticks int, src CombustSource) {
 	burning := 0.0
 	if m.attrs != nil {
 		burning = m.attrs.Value(rules.BurningTimeAttribute)
@@ -87,7 +108,7 @@ func (m *Mob) IgniteForTicks(ticks int) {
 	}
 	ticks = rules.ScaledIgniteTicks(ticks, burning)
 	if ticks > m.FireTicks && m.Combust != nil {
-		ticks = m.Combust(m, ticks)
+		ticks = m.Combust(m, ticks, src)
 	}
 	if ticks > m.FireTicks {
 		m.SetMetadataFireTicks(ticks)

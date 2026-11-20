@@ -82,6 +82,9 @@ type BlockIgniteEvent struct {
 	Cause  IgniteCause
 	Player Player // nil when no player lit it
 	Entity Entity // the igniting entity, if any
+	// Source is the fire that spread or the lava that set this one; nil
+	// for another cause. Bukkit: getIgnitingBlock
+	Source *Block
 }
 
 // IgniteCause is what set a block on fire.

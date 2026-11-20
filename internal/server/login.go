@@ -123,7 +123,8 @@ func (c *client) runLogin(handshake protocol.Handshake) error {
 	// and arrivals at a full server are refused before login is confirmed.
 	// vanilla: PlayerList.canPlayerLogin
 	reason, refused := c.srv.loginRefusal(c.profile, c.remoteIP())
-	if reason, refused = c.pluginLogin(reason, refused); refused {
+	hostname := fmt.Sprintf("%s:%d", handshake.ServerAddress, handshake.ServerPort)
+	if reason, refused = c.pluginLogin(hostname, reason, refused); refused {
 		return c.rejectLoginComponent(reason)
 	}
 

@@ -68,6 +68,9 @@ type Entity interface {
 	// for an entity whose reason was not recorded.
 	// Paper: Entity.getEntitySpawnReason
 	SpawnReason() SpawnReason
+	// Origin answers where the entity was spawned, false when unknown.
+	// Paper: Entity.getOrigin
+	Origin() (Location, bool)
 }
 
 // LivingEntity is a mob, an armour stand or a player. Bukkit: LivingEntity

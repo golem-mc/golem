@@ -234,3 +234,32 @@ func (e pluginEntity) SpawnReason() plugin.SpawnReason {
 	}
 	return spawnReasonOf(code)
 }
+
+func (e pluginEntity) Origin() (plugin.Location, bool) {
+	b, ok := e.live()
+	if !ok {
+		return plugin.Location{}, false
+	}
+	snap, ok := b.(*entitySnapshot)
+	if !ok || snap.mu == nil {
+		return plugin.Location{}, false
+	}
+	holder, ok := snap.ref.(originHolder)
+	if !ok {
+		return plugin.Location{}, false
+	}
+	snap.mu.Lock()
+	o := holder.entityOrigin()
+	snap.mu.Unlock()
+	if !o.set {
+		return plugin.Location{}, false
+	}
+	dim := e.host.srv.dimensionByName(o.dim)
+	if dim == nil {
+		return plugin.Location{}, false
+	}
+	return plugin.Location{
+		World: pluginWorld{srv: e.host.srv, dim: dim, host: e.host},
+		Pos:   plugin.Vec3{X: o.x, Y: o.y, Z: o.z},
+	}, true
+}

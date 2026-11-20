@@ -22,7 +22,10 @@ type PlayerLoginEvent struct {
 	Base
 	Player  Player
 	Address net.Addr
-	Result  LoginResult
+	// Hostname is the server address from the client's handshake, as
+	// sent (host and port). Bukkit: getHostname
+	Hostname string
+	Result   LoginResult
 	// Reason is the disconnect message for a result other than Allowed.
 	Reason Text
 }
