@@ -87,11 +87,13 @@ type PackRecipes struct {
 	// Dropped lists the IDs of pack files that do not decode: the file
 	// shadows the built-in recipe of that ID, so that recipe goes too.
 	Dropped []string
+	// Hidden reports a built-in recipe ID a pack's filter hides; nil hides none.
+	Hidden func(id string) bool
 }
 
 // Empty reports whether no pack defines a recipe.
 func (p PackRecipes) Empty() bool {
-	if len(p.Crafting)+len(p.Transmute)+len(p.Dye)+len(p.Imbue)+len(p.Stonecutting)+len(p.SmithingTransform)+len(p.SmithingTrim)+len(p.Brewing)+len(p.Dropped) > 0 {
+	if p.Hidden != nil || len(p.Crafting)+len(p.Transmute)+len(p.Dye)+len(p.Imbue)+len(p.Stonecutting)+len(p.SmithingTransform)+len(p.SmithingTrim)+len(p.Brewing)+len(p.Dropped) > 0 {
 		return false
 	}
 	for _, c := range p.Cooking {
@@ -291,6 +293,13 @@ func layerRecipes(p PackRecipes) *recipeSet {
 	for i := range p.Brewing {
 		replaced[p.Brewing[i].ID] = true
 	}
+	if p.Hidden != nil {
+		for _, id := range builtinRecipeIDs() {
+			if p.Hidden(id) {
+				replaced[id] = true
+			}
+		}
+	}
 	kept := func(id string) bool { return !replaced[id] }
 
 	// One list per kind, sorted as vanilla's recipe map is, so the first
@@ -343,6 +352,60 @@ func layerRecipes(p PackRecipes) *recipeSet {
 	s.craftOrder = craftRefs(s)
 	s.propertySets = propertySetsOf(s)
 	return newRecipeSet(s)
+}
+
+// builtinRecipeIDs lists the ID of every built-in recipe: the matcher's and
+// every display's, which also names the recipes computed from the grid.
+func builtinRecipeIDs() []string {
+	var ids []string
+	for _, d := range CraftingDisplays {
+		ids = append(ids, d.Name)
+	}
+	for _, d := range FurnaceDisplays {
+		ids = append(ids, d.Name)
+	}
+	for _, d := range StonecutterDisplays {
+		ids = append(ids, d.Name)
+	}
+	for _, d := range SmithingDisplays {
+		ids = append(ids, d.Name)
+	}
+	for _, r := range builtinRecipes.shaped {
+		ids = append(ids, r.ID)
+	}
+	for _, r := range builtinRecipes.shapeless {
+		ids = append(ids, r.ID)
+	}
+	for _, r := range builtinRecipes.stew {
+		ids = append(ids, r.ID)
+	}
+	for _, r := range builtinRecipes.transmute {
+		ids = append(ids, r.ID)
+	}
+	for _, r := range builtinRecipes.dye {
+		ids = append(ids, r.ID)
+	}
+	for _, r := range builtinRecipes.imbue {
+		ids = append(ids, r.ID)
+	}
+	for _, kind := range builtinRecipes.cooking {
+		for _, r := range kind {
+			ids = append(ids, r.ID)
+		}
+	}
+	for _, r := range builtinRecipes.smithing {
+		ids = append(ids, r.ID)
+	}
+	for _, r := range builtinRecipes.trim {
+		ids = append(ids, r.ID)
+	}
+	for _, r := range builtinRecipes.brewing {
+		ids = append(ids, r.ID)
+	}
+	for _, r := range builtinRecipes.stonecutting {
+		ids = append(ids, r.ID)
+	}
+	return ids
 }
 
 // craftRefs lists the crafting recipes of s sorted by ID, as vanilla's recipe

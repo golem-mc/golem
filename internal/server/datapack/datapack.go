@@ -32,7 +32,9 @@ type Functions map[string][]string
 // vanilla: ServerFunctionLibrary.reload
 func LoadFunctions(packs []string, skip func(file string, err error)) (Functions, error) {
 	out := Functions{}
-	for _, pack := range packs {
+	filters := LoadFilters(packs)
+	for i, pack := range packs {
+		dropHidden(out, filters[i], "function/", functionExt)
 		if err := withPack(pack, func(fsys fs.FS) error { return loadPackFunctions(fsys, out, skip) }); err != nil {
 			return nil, fmt.Errorf("data pack %s: %w", filepath.Base(pack), err)
 		}

@@ -1236,6 +1236,9 @@ func FindLootTable(name string) (LootTable, bool) {
 	if t, ok := PackLootTable(name); ok {
 		return t, true
 	}
+	if st := packLoot.Load(); st != nil && st.hidden[name] {
+		return LootTable{}, false
+	}
 	t, ok := LootTables[name]
 	return t, ok
 }
