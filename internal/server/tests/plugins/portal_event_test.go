@@ -78,10 +78,16 @@ func portalBlocksNear(w plugin.World, cx, cz, r int32) (n int) {
 func TestPluginPortalEventRetargetsExitSearch(t *testing.T) {
 	t.Parallel()
 	srv, h, run, c, hell := portalPlugin(t)
-	var seen *plugin.EntityPortalEvent
+	// The listener runs on the tick goroutine; it records the event as it
+	// arrived, before changing it.
+	var seen atomic.Pointer[plugin.EntityPortalEvent]
+	var from, to atomic.Pointer[plugin.Location]
 	run(func() {
 		plugin.Listen(h, func(e *plugin.EntityPortalEvent) {
-			seen = e
+			f, t := e.From, e.To
+			from.Store(&f)
+			to.Store(&t)
+			seen.Store(e)
 			e.To.World = hell
 		})
 	})
@@ -90,11 +96,18 @@ func TestPluginPortalEventRetargetsExitSearch(t *testing.T) {
 	if got := srv.PlayerDimension("Portaler"); got != hellKey.String() {
 		t.Fatalf("dimension = %q, want %q", got, hellKey)
 	}
-	if seen == nil || seen.SearchRadius != 16 || seen.CreationRadius != 16 || !seen.CanCreatePortal {
-		t.Fatalf("event = %+v", seen)
+	ev, f, tl := seen.Load(), from.Load(), to.Load()
+	if ev == nil || ev.SearchRadius != 16 || ev.CreationRadius != 16 || !ev.CanCreatePortal {
+		t.Fatalf("event = %+v", ev)
 	}
-	if seen.To.World.Key() != plugin.MinecraftKey("the_nether") && seen.To.Pos.X != 0 {
-		t.Errorf("To = %+v, want the scaled target in the nether", seen.To)
+	if tl.World.Key() != plugin.MinecraftKey("the_nether") {
+		t.Errorf("To world = %v, want the vanilla nether", tl.World.Key())
+	}
+	if f.World.Key() != plugin.MinecraftKey("overworld") {
+		t.Errorf("From world = %v, want the overworld", f.World.Key())
+	}
+	if math.Abs(tl.Pos.X-math.Floor(f.Pos.X/8)) > 1 || math.Abs(tl.Pos.Z-math.Floor(f.Pos.Z/8)) > 1 {
+		t.Errorf("To = %v, want From %v / 8", tl.Pos, f.Pos)
 	}
 	pos := srv.PlayerPosition("Portaler")
 	if math.Abs(pos.X) > 24 || math.Abs(pos.Z) > 24 {
@@ -109,6 +122,28 @@ func TestPluginPortalEventRetargetsExitSearch(t *testing.T) {
 			t.Errorf("%d portal blocks in the vanilla nether", n)
 		}
 	})
+}
+
+// With SearchRadius 0 and creation off, the listener's radii are honoured: the body stays.
+func TestPluginPortalEventSearchRadius(t *testing.T) {
+	t.Parallel()
+	srv, h, run, c, _ := portalPlugin(t)
+	var fired atomic.Int32
+	run(func() {
+		plugin.Listen(h, func(e *plugin.EntityPortalEvent) {
+			fired.Add(1)
+			e.SearchRadius = 0
+			e.CanCreatePortal = false
+		})
+	})
+	lightFrameAndStand(t, srv, c)
+	for deadline := time.Now().Add(10 * time.Second); fired.Load() == 0 && time.Now().Before(deadline); {
+		servertest.RunTicks(t, srv, 1)
+	}
+	servertest.RunTicks(t, srv, 20)
+	if got := srv.PlayerDimension("Portaler"); got != world.DimensionName {
+		t.Errorf("dimension = %q, want the overworld", got)
+	}
 }
 
 func TestPluginPortalEventCannotCreate(t *testing.T) {

@@ -485,11 +485,7 @@ func (c *client) travelByNetherPortal(from *dimension) {
 		}
 		c.srv.boatsMu.Unlock()
 	}
-	var who command.Entity = c
-	if spectator {
-		who = nil
-	}
-	to, spot, exitAxis, ok := c.srv.entityPortalArrival(who, rules.PortalNether, from, pos, spectator)
+	to, spot, exitAxis, ok := c.srv.entityPortalArrival(c, rules.PortalNether, from, pos, spectator)
 	if !ok {
 		return
 	}
@@ -883,10 +879,11 @@ func (s *Server) entityPortalArrival(who command.Entity, kind rules.PortalKind, 
 		at.X, at.Z = to.border.ClampBlock(at.X, at.Z)
 		createRadius, canCreate := int32(rules.PortalBuildRadius), !spectator
 		if who != nil {
-			var allowed bool
-			if to, at, radius, createRadius, canCreate, allowed = s.pluginNetherPortal(who, pos, to, at, radius, createRadius); !allowed {
+			var allowed, pluginCreate bool
+			if to, at, radius, createRadius, pluginCreate, allowed = s.pluginNetherPortal(who, pos, to, at, radius, createRadius); !allowed {
 				return nil, world.SpawnPos{}, [2]int32{}, false
 			}
+			canCreate = canCreate && pluginCreate
 			at.X, at.Z = to.border.ClampBlock(at.X, at.Z)
 		}
 		if spot, ok = s.findPortalNear(to, at, radius); !ok {
