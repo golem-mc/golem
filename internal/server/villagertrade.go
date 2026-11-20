@@ -97,7 +97,7 @@ func (c *client) useOnVillager(ent *mobEntity, hand int32) (bool, error) {
 	s.mobsMu.Unlock()
 	// A click that opens the trades or shakes the head both consume it.
 	// vanilla: ServerGamePacketListenerImpl.handleInteract
-	c.interactedWithEntityAdvancements(after, c.heldItem(hand).ItemID)
+	c.interactedWithEntityAdvancements(after, c.heldItem(hand))
 
 	if !baby && hand == protocol.HandMain {
 		c.awardStat(player.Custom(registry.CustomStatTalkedToVillager), 1)

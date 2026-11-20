@@ -26,6 +26,6 @@ func (c *client) equipOnInteract(ent *mobEntity, hand int32, held protocol.ItemS
 	s.equipFeedback(ent.w, item, fx)
 	s.gameEvent(ent.w, rules.GameEventEntityInteract, fx.x, fx.y, fx.z, c.gameEventContext(0))
 	c.spendHeld(hand)
-	c.interactedWithEntityAdvancements(after, held.ItemID)
+	c.interactedWithEntityAdvancements(after, held)
 	return true
 }

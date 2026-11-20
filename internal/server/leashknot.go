@@ -784,7 +784,7 @@ func (c *client) bindLeadToMob(ent *mobEntity, held protocol.ItemStack, hand int
 		s.broadcastSoundID(w,
 			knotSoundUntied, protocol.SoundCategoryNeutral, x, y, z, 1.0, 1.0)
 		// The untie is SUCCESS.withoutItem: awarded for no item.
-		c.interactedWithEntityAdvancements(after, 0)
+		c.interactedWithEntityAdvancements(after, protocol.ItemStack{})
 		return true, nil
 	}
 	// The tie: only a mob held by nobody or by a knot takes a player's
@@ -834,7 +834,7 @@ func (c *client) bindLeadToMob(ent *mobEntity, held protocol.ItemStack, hand int
 			s.discardEmptiedKnot(knot)
 		}
 	}
-	c.interactedWithEntityAdvancements(after, held.ItemID)
+	c.interactedWithEntityAdvancements(after, held)
 	return true, nil
 }
 

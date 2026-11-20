@@ -354,7 +354,7 @@ func blocksAround(w *world.World, x, y, z int32) advancement.Blocks {
 
 // placedBlockAdvancements fires placed_block for a block the player placed.
 // vanilla: BlockItem.place
-func (c *client) placedBlockAdvancements(w *world.World, x, y, z, tool int32) {
+func (c *client) placedBlockAdvancements(w *world.World, x, y, z int32, tool protocol.ItemStack) {
 	if progress := c.advancements.Load(); progress != nil {
 		progress.PlacedBlock(blocksAround(w, x, y, z), tool, time.Now())
 	}
@@ -362,7 +362,7 @@ func (c *client) placedBlockAdvancements(w *world.World, x, y, z, tool int32) {
 
 // itemUsedOnBlockAdvancements fires item_used_on_block for a successful
 // use, with the item held at its start. vanilla: ServerPlayerGameMode.useItemOn
-func (c *client) itemUsedOnBlockAdvancements(w *world.World, x, y, z, tool int32) {
+func (c *client) itemUsedOnBlockAdvancements(w *world.World, x, y, z int32, tool protocol.ItemStack) {
 	if progress := c.advancements.Load(); progress != nil {
 		progress.ItemUsedOnBlock(blocksAround(w, x, y, z), tool, w.BiomeAt(x, y, z), time.Now())
 	}
@@ -372,7 +372,7 @@ func (c *client) itemUsedOnBlockAdvancements(w *world.World, x, y, z, tool int32
 // use answered, then any_block_use for one any use consumed, with the hand's
 // item as the use left it.
 // vanilla: ServerPlayerGameMode.useItemOn, ServerGamePacketListenerImpl.handleUseItemOn
-func (c *client) blockUseAdvancements(w *world.World, x, y, z, tool int32) {
+func (c *client) blockUseAdvancements(w *world.World, x, y, z int32, tool protocol.ItemStack) {
 	progress := c.advancements.Load()
 	if progress == nil {
 		return
@@ -406,7 +406,7 @@ func (c *client) tameAnimalAdvancements(animal, variant string, ent func() rules
 // interactedWithEntityAdvancements fires player_interacted_with_entity;
 // held is the item the interaction used, 0 for none.
 // vanilla: ServerGamePacketListenerImpl.handleInteract
-func (c *client) interactedWithEntityAdvancements(e advancement.EntityInteraction, held int32) {
+func (c *client) interactedWithEntityAdvancements(e advancement.EntityInteraction, held protocol.ItemStack) {
 	if progress := c.advancements.Load(); progress != nil {
 		progress.InteractedWithEntity(e, held, c.wornArmourIDs(), time.Now())
 	}
@@ -414,7 +414,7 @@ func (c *client) interactedWithEntityAdvancements(e advancement.EntityInteractio
 
 // shearedEquipmentAdvancements fires player_sheared_equipment for the item
 // taken off. vanilla: Mob.shearItem
-func (c *client) shearedEquipmentAdvancements(e advancement.EntityInteraction, item int32) {
+func (c *client) shearedEquipmentAdvancements(e advancement.EntityInteraction, item protocol.ItemStack) {
 	if progress := c.advancements.Load(); progress != nil {
 		progress.ShearedEquipment(e, item, c.wornArmourIDs(), time.Now())
 	}
@@ -425,7 +425,7 @@ func (c *client) shearedEquipmentAdvancements(e advancement.EntityInteraction, i
 // with collector who picked it up, then thrown_item_picked_up_by_player for
 // collecting, the collector when a player (nil for a mob). No lock may be
 // held. vanilla: LivingEntity.onItemPickup, ServerPlayer.onItemPickup
-func (s *Server) thrownItemPickedUpAdvancements(w *world.World, thrower uuid.UUID, item int32, collecting *client, collector advancement.Entity) {
+func (s *Server) thrownItemPickedUpAdvancements(w *world.World, thrower uuid.UUID, item protocol.ItemStack, collecting *client, collector advancement.Entity) {
 	if thrower == uuid.Nil {
 		return
 	}
@@ -454,7 +454,7 @@ const playerEntityType = "minecraft:player"
 
 // pickedUpAdvancements fires thrown_item_picked_up_by_entity (byEntity) or
 // thrown_item_picked_up_by_player with the other side of the pickup.
-func (c *client) pickedUpAdvancements(byEntity bool, item int32, other advancement.Entity) {
+func (c *client) pickedUpAdvancements(byEntity bool, item protocol.ItemStack, other advancement.Entity) {
 	progress := c.advancements.Load()
 	if progress == nil {
 		return
@@ -485,13 +485,13 @@ func (s *Server) allayDropAdvancements(w *world.World, ev entity.MobEvent) {
 		return
 	}
 	if progress := c.advancements.Load(); progress != nil {
-		progress.AllayDropItemOnBlock(blocksAround(w, ev.DropOn[0], ev.DropOn[1], ev.DropOn[2]), ev.Stack.ItemID, time.Now())
+		progress.AllayDropItemOnBlock(blocksAround(w, ev.DropOn[0], ev.DropOn[1], ev.DropOn[2]), ev.Stack, time.Now())
 	}
 }
 
 // filledBucketAdvancements fires filled_bucket for the bucket a scoop gave.
 // vanilla: BucketItem.use
-func (c *client) filledBucketAdvancements(item int32) {
+func (c *client) filledBucketAdvancements(item protocol.ItemStack) {
 	if progress := c.advancements.Load(); progress != nil {
 		progress.FilledBucket(item, time.Now())
 	}
@@ -558,7 +558,7 @@ func (c *client) brewedPotionAdvancements(potions []int32) {
 
 // fishingRodHookedAdvancements fires fishing_rod_hooked for a reel's catch.
 // vanilla: FishingHook.retrieve
-func (c *client) fishingRodHookedAdvancements(caught []int32) {
+func (c *client) fishingRodHookedAdvancements(caught []protocol.ItemStack) {
 	if progress := c.advancements.Load(); progress != nil {
 		progress.FishingRodHooked(caught, time.Now())
 	}

@@ -430,6 +430,33 @@ func TestPackInteractionTestsItsEntityConditions(t *testing.T) {
 	servertest.UntilTicks(t, srv, 20, "the tagged villager's criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:shop", "c") })
 }
 
+// TestPackInteractionTestsItsItemPredicate: a player_interacted_with_entity
+// criterion whose item asks for custom_data fires when the villager is used
+// with the marked stick and not a plain one.
+// vanilla: PlayerInteractTrigger.TriggerInstance.matches, ItemPredicate.test
+func TestPackInteractionTestsItsItemPredicate(t *testing.T) {
+	cfg, data := packConfig(t)
+	packCriterion(t, filepath.Join(data, "pk", "advancement"), "marked", "player_interacted_with_entity",
+		`{"item":{"items":"minecraft:stick","predicates":{"minecraft:custom_data":"{a:1b}"}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	villager := srv.SpawnMob("minecraft:villager", 1.5, 64, 0.5)
+	c.Settle()
+
+	srv.GiveSlot("Packer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:stick", 1))
+	c.Settle()
+	c.UseOn(villager)
+	c.Settle()
+	if srv.AdvancementObtained("Packer", "pk:marked", "c") {
+		t.Fatal("a plain stick fired the custom_data criterion")
+	}
+	srv.GiveSlot("Packer", player.HotbarSlot, stackWithData(t, "stick"))
+	c.Settle()
+	c.UseOn(villager)
+	servertest.UntilTicks(t, srv, 20, "the marked stick's criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:marked", "c") })
+}
+
 // TestPackBreedingTestsItsChildCondition: a bred_animals criterion whose
 // child is a baby fires for two cows breeding.
 // vanilla: BredAnimalsTrigger.TriggerInstance.matches

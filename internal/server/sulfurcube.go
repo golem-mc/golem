@@ -27,7 +27,7 @@ func (c *client) feedSulfurCube(ent *mobEntity, hand int32, held protocol.ItemSt
 		s.broadcastSoundID(ent.w, registry.SoundEntitySulfurCubeAbsorb, protocol.SoundCategoryNeutral, x, y, z, 1, 1)
 	}
 	c.useSwing = swingServer
-	c.interactedWithEntityAdvancements(after, held.ItemID)
+	c.interactedWithEntityAdvancements(after, held)
 	if c.player.GameMode() != protocol.GameModeCreative {
 		return true, c.consumeHeld(hand)
 	}

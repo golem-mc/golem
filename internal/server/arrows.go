@@ -358,7 +358,7 @@ type arrowMobHit struct {
 	direct  string
 	killed  []string
 	// weapon is the item the shaft was fired from.
-	weapon int32
+	weapon protocol.ItemStack
 	// thorns is what the body's pieces hit a player shooter back with.
 	thorns mobThorns
 	// ink is the ink cloud a struck squid's landed blow squeezed out, nil
@@ -477,7 +477,7 @@ func (s *Server) arrowHurtMob(it *arrowEntity, dim *dimension, m *entity.Mob, ev
 		shaftSound: shaftSound,
 		shooter:    it.arrow.OwnerID,
 		direct:     arrowTypeName(it),
-		weapon:     it.arrow.Weapon.ItemID,
+		weapon:     it.arrow.Weapon,
 	}
 	if shooterWasPlayer && ent != nil {
 		// vanilla: AbstractArrow.onHitEntity, ThrownTrident.onHitEntity
@@ -954,7 +954,7 @@ func (it *arrowEntity) killedByArrow(died bool, victim string) []string {
 // arrowHitAdvancements fires player_hurt_entity and, for non-nil killed,
 // killed_by_arrow for a player's shaft that hurt a body; shooter may be nil.
 // vanilla: LivingEntity.hurtServer, AbstractArrow.onHitEntity
-func (s *Server) arrowHitAdvancements(shooter *client, direct string, killed []string, weapon int32) {
+func (s *Server) arrowHitAdvancements(shooter *client, direct string, killed []string, weapon protocol.ItemStack) {
 	if shooter == nil {
 		return
 	}
