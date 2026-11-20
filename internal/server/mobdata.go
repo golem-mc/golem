@@ -9,7 +9,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
@@ -47,11 +46,7 @@ func mobTagAs(ent *mobEntity, book map[*entity.Mob]*mobEntity, id string) *nbt.O
 	if ent.locatorIcon.HasData() {
 		tag.Set("locator_bar_icon", ent.locatorIcon.Tag())
 	}
-	if id != "" && ent.spawnReason != 0 {
-		if r := mobSpawnReason(ent.spawnReason); r != plugin.SpawnDefault && int(r) < len(spawnReasonNames) && spawnReasonNames[r] != "" {
-			tag.Set(spawnReasonNBTKey, nbt.String(spawnReasonNames[r]))
-		}
-	}
+	putSpawnReason(tag, id, ent.spawnReason)
 	// Unmodelled fields have no native writer; known fields below replace them.
 	for _, key := range nbt.HashOrderedKeys(ent.saved) {
 		if key != "attributes" {
@@ -220,11 +215,7 @@ func applyMobTag(m *entity.Mob, ent *mobEntity, compound nbt.Compound) {
 		ent.locatorIcon = player.LocatorIconFromTag(icon)
 	}
 	ent.tags.Reset(tagsOfTag(compound))
-	if raw, ok := nbt.Get[nbt.String](compound, spawnReasonNBTKey); ok {
-		if r, known := spawnReasonByName[string(raw)]; known {
-			ent.spawnReason = spawnReasonCode(r)
-		}
-	}
+	readSpawnReason(&ent.spawnReason, compound)
 	// vanilla: Mob.readAdditionalSaveData
 	ent.readLeash(leashOfTag(compound))
 	ent.saved = maps.Clone(compound)

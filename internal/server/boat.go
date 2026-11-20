@@ -57,6 +57,7 @@ type boatEntity struct {
 
 	cargo        []protocol.ItemStack
 	cargoVersion uint64 // slot writes, guarded by boatsMu
+	spawnReason  uint8  // plugin.SpawnReason+1; 0 means SpawnDefault
 
 	// lootTable is the table a chest boat's cargo is still to be rolled
 	// from, with the seed the roll takes (0 for none); both are guarded by
@@ -1179,6 +1180,7 @@ func (s *Server) summonBoat(w *world.World, kind string, x, y, z float64, tag nb
 		return nil, command.ErrDuplicateUUID
 	}
 	it.boat.X, it.boat.Y, it.boat.Z = x, y, z
+	it.spawnReason = spawnReasonCode(reason)
 	if err := s.registerSummonedVehicle(w, compound, vehicleSeat{boat: it}, reason); err != nil {
 		return nil, err
 	}

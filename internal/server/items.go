@@ -58,7 +58,9 @@ type itemEntity struct {
 	tags nbt.StringSet
 	// custom is the custom name, guarded like tags.
 	custom customName
-	look   entityLook
+	// spawnReason is plugin.SpawnReason+1 when recorded; 0 means SpawnDefault.
+	spawnReason uint8
+	look        entityLook
 
 	// sentFire is the on-fire bit the watchers were last told.
 	sentFire bool

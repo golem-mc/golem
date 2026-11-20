@@ -2387,10 +2387,19 @@ func (s *Server) spawnSummonedMobFacing(dim *dimension, kind entity.MobType, x, 
 	}
 	giveRidersUUIDs(compound)
 	var riders wakeResult
-	if !s.addMobCore(true, s.standWithRiders(s.herdOf(dim.w), ent, compound, &riders)...) {
+	mobs := s.standWithRiders(s.herdOf(dim.w), ent, compound, &riders)
+	for _, r := range mobs[1:] {
+		if r.spawnReason == 0 {
+			r.spawnReason = ent.spawnReason
+		}
+	}
+	if !s.addMobCore(true, mobs...) {
 		return 0, errDuplicateUUID
 	}
 	if !s.spawnAllowed(ent) {
+		for _, r := range mobs[1:] {
+			s.discardSpawned(r)
+		}
 		return ent.mob.ID, nil
 	}
 	// A summoned vex may name an evoker already live, and a tagged summon

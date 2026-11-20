@@ -1682,8 +1682,10 @@ func (ws worldScope) SummonItem(x, y, z float64, stack protocol.ItemStack, picku
 	it.custom = customNameOfTag(tag)
 	it.look = entityLookOf(tag)
 	it.thrower = entityUUIDFieldOf(tag, "Thrower")
+	reason := ws.summonReason()
+	it.spawnReason = spawnReasonCode(reason)
 	ws.srv.registerItem(it)
-	ws.srv.itemsSpawned(ws.summonReason(), it)
+	ws.srv.itemsSpawned(reason, it)
 	ws.logSummon("item summoned", "item", stack.ItemID, "count", stack.Count, "x", x, "y", y, "z", z)
 	return it.item.ID, it.uuid, nil
 }

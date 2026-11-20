@@ -51,10 +51,11 @@ type minecartEntity struct {
 	// empty cart in a chunk the riders have yet to load would otherwise go
 	// to its chunk file, the riders then seated on a cart no longer in the
 	// world. Guarded by the cart lock.
-	boarding bool
-	tags     nbt.StringSet
-	custom   customName
-	look     entityLook
+	boarding    bool
+	tags        nbt.StringSet
+	custom      customName
+	look        entityLook
+	spawnReason uint8 // plugin.SpawnReason+1; 0 means SpawnDefault
 
 	// kind is the cart's entity type and item name; cargo is the container
 	// of a kind that holds one, guarded by the cart lock.
@@ -148,20 +149,21 @@ func (s *Server) newMinecart(w *world.World, kind string, identity uuid.UUID, x,
 // spawnMinecart stands a cart of the kind given in the world at the spot
 // given and shows it to everyone in range, the way a laid one begins.
 func (s *Server) spawnMinecart(w *world.World, kind string, x, y, z float64) *minecartEntity {
-	return s.spawnMinecartFromItem(w, kind, x, y, z, protocol.ItemStack{})
+	return s.spawnMinecartFromItem(w, kind, x, y, z, protocol.ItemStack{}, plugin.SpawnDefault)
 }
 
 // spawnMinecartFromItem applies stack components before the cart is shown.
 // vanilla: AbstractMinecart.createMinecart
-func (s *Server) spawnMinecartFromItem(w *world.World, kind string, x, y, z float64, stack protocol.ItemStack) *minecartEntity {
+func (s *Server) spawnMinecartFromItem(w *world.World, kind string, x, y, z float64, stack protocol.ItemStack, reason plugin.SpawnReason) *minecartEntity {
 	it := s.newMinecart(w, kind, uuid.New(), x, y, z)
 	if stack.CustomName != nil || len(stack.Raw) != 0 {
 		if tag := itemEntityTag(minecartTag(it).Entries(), stack, it.entityTypeID()); tag != nil {
 			applyMinecartTag(it, tag)
 		}
 	}
+	it.spawnReason = spawnReasonCode(reason)
 	s.registerMinecart(it)
-	s.bodySpawned(it.uuid, plugin.SpawnDefault)
+	s.bodySpawned(it.uuid, reason)
 	return it
 }
 
@@ -186,6 +188,7 @@ func (s *Server) summonMinecart(w *world.World, kind string, x, y, z float64, ta
 		return nil, command.ErrDuplicateUUID
 	}
 	it.cart.X, it.cart.Y, it.cart.Z = x, y, z
+	it.spawnReason = spawnReasonCode(reason)
 	if err := s.registerSummonedVehicle(w, compound, vehicleSeat{cart: it}, reason); err != nil {
 		return nil, err
 	}
@@ -1131,7 +1134,7 @@ func (c *client) placeMinecart(hand, x, y, z int32) (bool, error) {
 	if (kind == entity.MinecartCommand || kind == entity.MinecartSpawner) && !c.srv.ops.listed(c.player.UUID) {
 		held.Raw = nil
 	}
-	c.srv.spawnMinecartFromItem(w, kind, sx, sy, sz, held)
+	c.srv.spawnMinecartFromItem(w, kind, sx, sy, sz, held, plugin.SpawnDefault)
 	c.gameEventAt(rules.GameEventEntityPlace, float64(x)+0.5, float64(y)+0.5, float64(z)+0.5, w.BlockAt(x, y-1, z))
 	slog.Info("minecart stood", "kind", kind, "x", sx, "y", sy, "z", sz, "by", c.player.Name)
 	return true, nil

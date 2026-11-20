@@ -5,6 +5,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
@@ -16,11 +17,28 @@ const spawnReasonNBTKey = "Paper.SpawnReason"
 
 func spawnReasonCode(r plugin.SpawnReason) uint8 { return uint8(r) + 1 }
 
-func mobSpawnReason(code uint8) plugin.SpawnReason {
+func spawnReasonOf(code uint8) plugin.SpawnReason {
 	if code == 0 {
 		return plugin.SpawnDefault
 	}
 	return plugin.SpawnReason(code - 1)
+}
+
+func putSpawnReason(tag nbt.CompoundTag, id string, code uint8) {
+	if id == "" || code == 0 {
+		return
+	}
+	if r := spawnReasonOf(code); r != plugin.SpawnDefault && int(r) < len(spawnReasonNames) && spawnReasonNames[r] != "" {
+		tag.Set(spawnReasonNBTKey, nbt.String(spawnReasonNames[r]))
+	}
+}
+
+func readSpawnReason(dst *uint8, compound nbt.Compound) {
+	if raw, ok := nbt.Get[nbt.String](compound, spawnReasonNBTKey); ok {
+		if r, known := spawnReasonByName[string(raw)]; known {
+			*dst = spawnReasonCode(r)
+		}
+	}
 }
 
 var spawnReasonNames = [...]string{
@@ -68,7 +86,7 @@ func (s *Server) spawnAllowed(ent *mobEntity) bool {
 	if s.plugins == nil || !s.plugins.Has(pluginruntime.EntitySpawn) {
 		return true
 	}
-	e := &plugin.EntitySpawnEvent{Entity: pluginEntity{id: ent.uuid}, Reason: mobSpawnReason(ent.spawnReason)}
+	e := &plugin.EntitySpawnEvent{Entity: pluginEntity{id: ent.uuid}, Reason: spawnReasonOf(ent.spawnReason)}
 	s.firePluginEvent(e)
 	if !e.Cancelled() {
 		return true

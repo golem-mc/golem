@@ -56,7 +56,8 @@ type armorStandEntity struct {
 	// Entity.load changes Fire and HasVisualFire without changing the shared
 	// fire flag; only an entity tick refreshes it.
 	// vanilla: Entity.load, Entity.setSharedFlagOnFire
-	onFire bool
+	onFire      bool
+	spawnReason uint8 // plugin.SpawnReason+1; 0 means SpawnDefault
 
 	// Immutable metadata snapshots are shared by watchers under the stands lock.
 	metadata *armorStandMeta
@@ -1032,6 +1033,7 @@ func (s *Server) summonArmorStand(w *world.World, x, y, z float64, tag nbt.Compo
 	if dup {
 		return nil, command.ErrDuplicateUUID
 	}
+	ent.spawnReason = spawnReasonCode(reason)
 	s.registerArmorStand(ent)
 	s.bodySpawned(ent.uuid, reason)
 	return ent, nil

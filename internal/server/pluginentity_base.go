@@ -200,11 +200,37 @@ func (e pluginEntity) Dismount() {
 }
 
 func (e pluginEntity) SpawnReason() plugin.SpawnReason {
-	if m, ok := e.mobBody(); ok {
-		e.host.srv.mobsMu.Lock()
-		code := m.spawnReason
-		e.host.srv.mobsMu.Unlock()
-		return mobSpawnReason(code)
+	b, ok := e.live()
+	if !ok {
+		return plugin.SpawnDefault
 	}
-	return plugin.SpawnDefault
+	snap, ok := b.(*entitySnapshot)
+	if !ok {
+		return plugin.SpawnDefault
+	}
+	srv := e.host.srv
+	var code uint8
+	switch ref := snap.ref.(type) {
+	case *mobEntity:
+		srv.mobsMu.Lock()
+		code = ref.spawnReason
+		srv.mobsMu.Unlock()
+	case *itemEntity:
+		srv.itemsMu.Lock()
+		code = ref.spawnReason
+		srv.itemsMu.Unlock()
+	case *boatEntity:
+		srv.boatsMu.Lock()
+		code = ref.spawnReason
+		srv.boatsMu.Unlock()
+	case *minecartEntity:
+		srv.minecartsMu.Lock()
+		code = ref.spawnReason
+		srv.minecartsMu.Unlock()
+	case *armorStandEntity:
+		srv.armorStandsMu.Lock()
+		code = ref.spawnReason
+		srv.armorStandsMu.Unlock()
+	}
+	return spawnReasonOf(code)
 }

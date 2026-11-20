@@ -767,7 +767,7 @@ func (s *Server) dispenseMinecart(w *world.World, visit dispenseVisit, d world.D
 	if kind == entity.MinecartCommand || kind == entity.MinecartSpawner {
 		stack.Raw = nil
 	}
-	s.spawnMinecartFromItem(w, kind, px, py, pz, stack)
+	s.spawnMinecartFromItem(w, kind, px, py, pz, stack, plugin.SpawnDispenser)
 	s.dispenseDefaultSound(w, d)
 	s.dispenseAnimation(w, d)
 }
@@ -785,6 +785,7 @@ func (s *Server) dispenseBoat(w *world.World, visit dispenseVisit, d world.Dispe
 	name, _ := entity.HeldBoat(visit.taken)
 	px, py, pz, yaw := inventory.DispenseBoatSpot(d.X, d.Y, d.Z, int32(d.Dir), 2*entity.BoatHalfWidth, inWater)
 	dispensed := s.newBoatFromItem(w, name, px, py, pz, yaw, visit.taken)
+	dispensed.spawnReason = spawnReasonCode(plugin.SpawnDispenser)
 	s.registerBoat(dispensed)
 	s.bodySpawned(dispensed.uuid, plugin.SpawnDispenser)
 	s.dispenseDefaultSound(w, d)
