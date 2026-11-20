@@ -431,7 +431,7 @@ func (s *Server) tickEndGateways(w *world.World, ticks func(world.ChunkPos) bool
 func (s *Server) gatewayDestination(w *world.World, x, y, z int32) (px, py, pz float64, ok bool) {
 	tag, _ := w.BlockEntityTag(x, y, z)
 	ex, ey, ez, exact, found := rules.EndGatewayExit(tag)
-	if !found && s.dimensionOfWorld(w).name == world.EndName {
+	if !found && w.DimensionTypeName() == world.EndType {
 		s.gateways.creating.Lock()
 		defer s.gateways.creating.Unlock()
 		tag, _ = w.BlockEntityTag(x, y, z)

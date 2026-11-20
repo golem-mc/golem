@@ -1119,7 +1119,7 @@ func (s *Server) finishThrownTravel(it *thrownEntity, kind rules.PortalKind) {
 	// The body is put back to fly on where it is, the portal cooldown
 	// already spent.
 	// vanilla: ThrownEnderpearl.canTeleport
-	if kind == rules.PortalEnd && from.name == world.EndName && it.throwable.Kind == entity.ThrownEnderPearl {
+	if kind == rules.PortalEnd && from.w.DimensionTypeName() == world.EndType && it.throwable.Kind == entity.ThrownEnderPearl {
 		if owner := s.clientByUUID(it.ownerUUID); owner != nil && !owner.player.SeenCredits() {
 			s.arrowsMu.Lock()
 			s.thrown = append(s.thrown, it)
