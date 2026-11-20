@@ -3,7 +3,6 @@ package server
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestCheckChat(t *testing.T) {
@@ -43,7 +42,7 @@ func TestCheckChat(t *testing.T) {
 func TestSpamThrottler(t *testing.T) {
 	t.Parallel()
 	var th spamThrottler
-	base := time.Unix(0, 0)
+	var base uint64
 	for range spamThreshold(10)/spamStep - 1 {
 		if th.hit(base, spamThreshold(10)) {
 			t.Fatalf("%d messages at once cross the threshold", spamThreshold(10)/spamStep-1)
@@ -59,7 +58,7 @@ func TestSpamThrottler(t *testing.T) {
 	}
 	// Ten seconds wear the counter down to nothing, so the next message
 	// alone is far under the kick.
-	if th.hit(base.Add(time.Duration(spamThreshold(10))*tickInterval), spamThreshold(10)) {
+	if th.hit(base+uint64(spamThreshold(10)), spamThreshold(10)) {
 		t.Fatal("a burst ten seconds worn off is still the kick")
 	}
 }

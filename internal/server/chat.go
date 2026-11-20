@@ -479,37 +479,33 @@ const spamStep = 20
 // getCommandSpamThresholdSeconds), TickThrottler.isUnderThreshold
 func spamThreshold(seconds int) int { return 20 * seconds }
 
-// spamThrottler is vanilla's per-connection spam counter with decay counted
-// by the clock: chat runs on the connection's goroutine, never the tick
-// loop, so only elapsed time between hits decays it.
+// spamThrottler is vanilla's per-connection spam counter. Chat runs on the
+// connection's goroutine, not the tick loop, so it wears down by the server
+// ticks run since the last hit, as vanilla's once-a-tick decay does.
 // vanilla: TickThrottler
 type spamThrottler struct {
 	count int
-	last  time.Time // when the counter was last worn down
+	last  uint64 // tick count when the counter was last worn down
+	set   bool
 }
 
-// wear applies the whole ticks elapsed since the last decay, carrying the
-// fraction to the next hit.
-func (t *spamThrottler) wear(now time.Time) {
-	if t.last.IsZero() {
-		t.last = now
+// wear applies the ticks run since the last hit.
+func (t *spamThrottler) wear(tick uint64) {
+	if !t.set {
+		t.last, t.set = tick, true
 		return
 	}
-	decay := int(now.Sub(t.last) / tickInterval)
-	if decay <= 0 {
+	if tick <= t.last {
 		return
 	}
-	t.count -= decay
-	if t.count < 0 {
-		t.count = 0
-	}
-	t.last = t.last.Add(time.Duration(decay) * tickInterval)
+	t.count -= int(min(tick-t.last, uint64(t.count)))
+	t.last = tick
 }
 
 // hit steps the counter for a message and reports whether it reached
 // threshold; 0 or less never does.
-func (t *spamThrottler) hit(now time.Time, threshold int) bool {
-	t.wear(now)
+func (t *spamThrottler) hit(tick uint64, threshold int) bool {
+	t.wear(tick)
 	t.count += spamStep
 	return threshold > 0 && t.count >= threshold
 }
@@ -517,8 +513,8 @@ func (t *spamThrottler) hit(now time.Time, threshold int) bool {
 // allow steps the counter and reports whether it was still under limit. It
 // stops at limit, refusing further hits, so a burst passes limit/spamStep
 // hits.
-func (t *spamThrottler) allow(now time.Time, limit int) bool {
-	t.wear(now)
+func (t *spamThrottler) allow(tick uint64, limit int) bool {
+	t.wear(tick)
 	if t.count >= limit {
 		return false
 	}
@@ -526,11 +522,14 @@ func (t *spamThrottler) allow(now time.Time, limit int) bool {
 	return true
 }
 
-// spamTime is the clock for spam counters and the idle timeout: the main
-// loop's, so a held loop advances it 50 ms a tick.
+// spamTime is the clock for the idle timeout: the main loop's, so a held
+// loop advances it 50 ms a tick.
 func (c *client) spamTime() time.Time {
 	return c.srv.loopClock().Now()
 }
+
+// spamTick is the server tick count the spam counters wear by.
+func (c *client) spamTick() uint64 { return c.srv.ticksRun.Load() }
 
 // detectChatRateSpam and detectCommandRateSpam step their counter and kick
 // once it crosses the threshold, operators exempt. A dedicated server has
@@ -550,7 +549,7 @@ func (c *client) detectCommandRateSpam() {
 // level, which a level-0 entry leaves at 0.
 // vanilla: ServerGamePacketListenerImpl.detectRateSpam, PlayerList.isOp
 func (c *client) detectRateSpam(counter *spamThrottler, threshold int) {
-	if !counter.hit(c.spamTime(), threshold) || c.srv.ops.listed(c.player.UUID) {
+	if !counter.hit(c.spamTick(), threshold) || c.srv.ops.listed(c.player.UUID) {
 		return
 	}
 	// The kick goes via the mailbox behind everything owed, and the read loop

@@ -71,3 +71,50 @@ func TestSpamThresholdZeroNeverKicks(t *testing.T) {
 	}
 	c.Disconnect()
 }
+
+// commandsEvery sends one /list every gap ticks, count times, and reports
+// whether the spam kick arrived. The counter wears down once per server tick,
+// so the gap, not the wall time, decides it.
+// vanilla: ServerGamePacketListenerImpl.tick, TickThrottler.tick
+func commandsEvery(t *testing.T, gap, count int) bool {
+	t.Helper()
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.CommandSpamThresholdSeconds = 10
+	srv, c := servertest.Join(t, cfg, "Testificate")
+	servertest.HoldTicks(t, srv)
+	defer c.Disconnect()
+	kicked := false
+	for range count {
+		c.ChatCommand("list")
+		c.ReadTicks(srv, gap, func(got int32, data []byte) bool {
+			if got == protocol.IDPlayDisconnect {
+				kicked = true
+			}
+			return kicked
+		})
+		if kicked {
+			return true
+		}
+	}
+	return false
+}
+
+// TestCommandsEveryFewTicksKick sends a command every 10 ticks, as a player
+// does on a server running at half speed: 20 added, 10 worn, so the counter
+// passes the threshold.
+func TestCommandsEveryFewTicksKick(t *testing.T) {
+	t.Parallel()
+	if !commandsEvery(t, 10, 40) {
+		t.Fatal("a command every 10 ticks never brought disconnect.spam")
+	}
+}
+
+// TestCommandsEverySecondAtFullSpeedStay sends a command every 20 ticks, a
+// second at 20 TPS: the counter wears off as fast as it grows.
+func TestCommandsEverySecondAtFullSpeedStay(t *testing.T) {
+	t.Parallel()
+	if commandsEvery(t, 20, 30) {
+		t.Fatal("a command every 20 ticks was kicked")
+	}
+}

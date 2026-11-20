@@ -61,7 +61,7 @@ func (c *client) handleCreativeSlot(r *protocol.Reader) error {
 	// throttled so a client with a full inventory cannot flood the world.
 	if slot == -1 {
 		if ok && !stack.Empty() {
-			if !c.dropSpam.allow(c.spamTime(), dropSpamThreshold) {
+			if !c.dropSpam.allow(c.spamTick(), dropSpamThreshold) {
 				c.log.Warn("refused a creative drop past the drop throttle",
 					"player", c.player.Name, "threshold", dropSpamThreshold)
 				return nil
