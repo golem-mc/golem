@@ -16,6 +16,8 @@ func (h *pluginHost) DataPacks() []plugin.DataPack {
 	if p == nil {
 		return nil
 	}
+	h.srv.packReloadMu.Lock()
+	defer h.srv.packReloadMu.Unlock()
 	selected := p.Selected()
 	available := p.Available()
 	out := make([]plugin.DataPack, 0, len(available))
