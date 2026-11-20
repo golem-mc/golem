@@ -23,6 +23,7 @@ var registryNameAllowed = map[string]nameAllowance{
 	"registry/envcodec.go: string registry lookup":                                  {count: 2, boundary: "stored data decoding"},
 	"registry/equippable.go: string registry lookup":                                {count: 1, issue: 6380},
 	"registry/itemprops.go: string registry lookup":                                 {count: 1, issue: 6380},
+	"registry/itemprops.go: string block lookup":                                    {count: 1, boundary: "tool rule block tag names from data pack components"},
 	"registry/itemtagids.go: string registry lookup":                                {count: 1, boundary: "registry tag ID initialization"},
 	"registry/lootpack.go: comparison with an entity name":                          {count: 1, boundary: "registry tag decoding"},
 	"registry/registry.go: string block lookup":                                     {count: 2, issue: 6380},
