@@ -149,12 +149,12 @@ func enchParticleAxis(pos, vel obj) string {
 	unknownKeys(vel, "a velocity source", "movement_scale", "base")
 	scale := pos.numOr("scale", 1)
 	inBox := false
-	switch qualified(pos.str("type")) {
-	case "minecraft:entity_position":
+	switch pos.str("type") {
+	case "entity_position":
 		if scale != 1 {
 			noShape("a scaled entity position coordinate source")
 		}
-	case "minecraft:in_bounding_box":
+	case "in_bounding_box":
 		inBox = true
 	default:
 		noShape("position source %s", pos.str("type"))
