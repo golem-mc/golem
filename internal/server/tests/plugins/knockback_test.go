@@ -6,6 +6,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/plugin"
@@ -235,5 +236,58 @@ func TestPluginEntityKnockbackPlayer(t *testing.T) {
 	}
 	if vx, vy, vz := srv.PlayerVelocity("Victim"); vx != 0 || vy > 0 || vz != 0 {
 		t.Errorf("cancelled arrow moved player: (%v, %v, %v)", vx, vy, vz)
+	}
+}
+
+// vanilla: AbstractWindCharge.explode, ServerExplosion.hurtEntities
+func TestPluginEntityKnockbackWindChargeBurstPusher(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"thrown", "burst", "breeze"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			want := registry.EntityTypeWindCharge
+			var types []registry.EntityType
+			var pos []plugin.Vec3
+			listen := func(s plugin.Server) {
+				plugin.Listen(s, func(e *plugin.EntityKnockbackEvent) {
+					if e.Entity.Type() != registry.EntityTypeCow || e.Pusher == nil {
+						return
+					}
+					types = append(types, e.Pusher.Type())
+					pos = append(pos, e.Pusher.Location().Pos)
+				})
+			}
+			var srv *server.Server
+			if kind == "thrown" {
+				srv, _, _ = blockScene(t, "minecraft:stick", false, listen)
+			} else {
+				srv, _ = tickScene(t, listen)
+			}
+			cow := srv.SpawnMob("minecraft:cow", 10.5, 64, 0.5)
+			srv.SetMobNoAI(cow)
+			switch kind {
+			case "thrown":
+				srv.ThrowThrown(entity.ThrownWindCharge, 9.0, 64.8, 0.5, -90, 0, 0, 1)
+			case "burst":
+				srv.RunWindBurst(10.5, 64, 1.5)
+			case "breeze":
+				want = registry.EntityTypeBreezeWindCharge
+				srv.RunBreezeWindBurst(10.5, 64, 1.5)
+			}
+			if kind == "thrown" {
+				servertest.RunTicks(t, srv, 20)
+			}
+			if len(types) == 0 {
+				t.Fatal("no EntityKnockbackEvent with a pusher")
+			}
+			for i, typ := range types {
+				if typ != want {
+					t.Errorf("pusher %d type = %v, want %v", i, typ, want)
+				}
+				if pos[i] == (plugin.Vec3{}) {
+					t.Errorf("pusher %d has no location", i)
+				}
+			}
+		})
 	}
 }

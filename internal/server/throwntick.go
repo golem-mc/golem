@@ -9,6 +9,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
@@ -571,7 +572,13 @@ func (s *Server) thrownHurtMob(fx *thrownEffects, tw *thrownWorld, it *thrownEnt
 		fx.skullHeals = append(fx.skullHeals, skullHealOf(tw, it))
 	}
 	hit := thrownMobHitOf(tw.dim, it, m, damageType, softened, ev.Damage > 0)
-	hit.kb = s.holdMobKnockback(tw.dim.mobs.book[m], it.uuid, oldVX, oldVY, oldVZ, oldImpulse)
+	var pusher plugin.Entity = pluginEntity{host: s.pluginAdapter, id: it.uuid}
+	if t.Kind.IsWindCharge() {
+		// the charge bursts in this same tick, so it is gone when the event fires
+		pusher = pluginRemoved{host: s.pluginAdapter, id: it.uuid, typ: registry.EntityType(t.Kind.EntityType()),
+			at: plugin.Location{World: pluginWorld{srv: s, dim: tw.dim, host: s.pluginAdapter}, Pos: plugin.Vec3{X: t.X, Y: t.Y, Z: t.Z}}}
+	}
+	hit.kb = s.holdMobKnockbackBy(tw.dim.mobs.book[m], pusher, oldVX, oldVY, oldVZ, oldImpulse)
 	fx.mobHits = append(fx.mobHits, hit)
 }
 

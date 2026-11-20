@@ -31,13 +31,20 @@ func (s *Server) listeningKnockback() bool {
 // pusher (uuid.Nil for none) and returns the velocity to add, false when a
 // listener cancelled it. No lock may be held.
 func (s *Server) knockbackEvent(victim plugin.Entity, pusher uuid.UUID, kx, ky, kz float64) (x, y, z float64, ok bool) {
+	var by plugin.Entity
+	if pusher != uuid.Nil {
+		by = pluginEntity{host: s.pluginAdapter, id: pusher}
+	}
+	return s.knockbackEventBy(victim, by, kx, ky, kz)
+}
+
+// knockbackEventBy is knockbackEvent with the pusher as a handle, for a
+// pusher already removed (nil for none).
+func (s *Server) knockbackEventBy(victim, pusher plugin.Entity, kx, ky, kz float64) (x, y, z float64, ok bool) {
 	if !s.listeningKnockback() {
 		return kx, ky, kz, true
 	}
-	e := &plugin.EntityKnockbackEvent{Entity: victim, Knockback: plugin.Vec3{X: kx, Y: ky, Z: kz}}
-	if pusher != uuid.Nil {
-		e.Pusher = pluginEntity{host: s.pluginAdapter, id: pusher}
-	}
+	e := &plugin.EntityKnockbackEvent{Entity: victim, Knockback: plugin.Vec3{X: kx, Y: ky, Z: kz}, Pusher: pusher}
 	s.firePluginEvent(e)
 	return e.Knockback.X, e.Knockback.Y, e.Knockback.Z, !e.Cancelled()
 }
@@ -46,7 +53,7 @@ func (s *Server) knockbackEvent(victim plugin.Entity, pusher uuid.UUID, kx, ky, 
 // EntityKnockbackEvent can fire outside the lock.
 type mobKnockback struct {
 	ent                 *mobEntity
-	pusher              uuid.UUID
+	pusher              plugin.Entity
 	oldVX, oldVY, oldVZ float64
 	dx, dy, dz          float64
 }
@@ -56,6 +63,15 @@ type mobKnockback struct {
 // EntityKnockbackEvent outside mobsMu. Returns nil when nobody listens or
 // nothing moved. The caller holds mobsMu.
 func (s *Server) holdMobKnockback(ent *mobEntity, pusher uuid.UUID, oldVX, oldVY, oldVZ float64, oldImpulse bool) *mobKnockback {
+	var by plugin.Entity
+	if pusher != uuid.Nil {
+		by = pluginEntity{host: s.pluginAdapter, id: pusher}
+	}
+	return s.holdMobKnockbackBy(ent, by, oldVX, oldVY, oldVZ, oldImpulse)
+}
+
+// holdMobKnockbackBy is holdMobKnockback with the pusher as a handle.
+func (s *Server) holdMobKnockbackBy(ent *mobEntity, pusher plugin.Entity, oldVX, oldVY, oldVZ float64, oldImpulse bool) *mobKnockback {
 	if !s.listeningKnockback() || ent == nil {
 		return nil
 	}
@@ -73,7 +89,7 @@ func (s *Server) holdMobKnockback(ent *mobEntity, pusher uuid.UUID, oldVX, oldVY
 // the surviving velocity, returning the mob's resulting velocity. No lock may
 // be held.
 func (s *Server) applyMobKnockback(kb *mobKnockback) (vx, vy, vz float64) {
-	kx, ky, kz, ok := s.knockbackEvent(pluginEntity{id: kb.ent.uuid}, kb.pusher, kb.dx, kb.dy, kb.dz)
+	kx, ky, kz, ok := s.knockbackEventBy(pluginEntity{id: kb.ent.uuid}, kb.pusher, kb.dx, kb.dy, kb.dz)
 	if !ok {
 		return kb.oldVX, kb.oldVY, kb.oldVZ
 	}

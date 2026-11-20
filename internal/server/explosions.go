@@ -48,6 +48,10 @@ type blast struct {
 	// directUUID is the exploding entity, asked of the plugin listeners; the
 	// zero UUID for a blast without one.
 	directUUID uuid.UUID
+	// directRemoved is the exploding entity's handle when it is gone before
+	// the blast and no entity event asks about it (a wind charge); the
+	// pusher of its knockback.
+	directRemoved *removedBody
 	// directName names the carrier for a death message when no living entity
 	// caused the blast.
 	directName *protocol.Text
@@ -314,11 +318,7 @@ func (s *Server) blastPlayers(b blast, in *blastInputs, fx *blastEffects) {
 		fx.players[i] = playerBlast{c: c, kx: hit.KX, ky: hit.KY, kz: hit.KZ,
 			pushable: rules.ExplosionPushesPlayer(c.player.GameMode(), c.flying.Load()), reached: true}
 		if p := &fx.players[i]; p.pushable {
-			pusher := b.directUUID
-			if pusher == uuid.Nil {
-				pusher = b.causeUUID
-			}
-			p.kx, p.ky, p.kz, p.pushable = s.knockbackEvent(c.pluginSelf(), pusher, p.kx, p.ky, p.kz)
+			p.kx, p.ky, p.kz, p.pushable = s.knockbackEventBy(c.pluginSelf(), s.blastPusher(b), p.kx, p.ky, p.kz)
 		}
 		if in.sparedTeam != "" && in.teams[c.player.Name] == in.sparedTeam {
 			continue
@@ -329,15 +329,26 @@ func (s *Server) blastPlayers(b blast, in *blastInputs, fx *blastEffects) {
 	}
 }
 
+// blastPusher is the entity EntityKnockbackEvent names as pushing: the
+// exploder, else the cause; nil for neither.
+func (s *Server) blastPusher(b blast) plugin.Entity {
+	switch {
+	case b.directRemoved != nil:
+		return pluginRemoved{host: s.pluginAdapter, id: b.directRemoved.id, typ: b.directRemoved.typ, at: s.blastLocation(b)}
+	case b.directUUID != uuid.Nil:
+		return pluginEntity{host: s.pluginAdapter, id: b.directUUID}
+	case b.causeUUID != uuid.Nil:
+		return pluginEntity{host: s.pluginAdapter, id: b.causeUUID}
+	}
+	return nil
+}
+
 // blastMobs hurts and pushes the mobs in reach: raw damage, difficulty
 // scaling being player-only. The exploding creeper was already removed from
 // the herd. A charged creeper's blast keeps the first head a kill drops.
 func (s *Server) blastMobs(b blast, in *blastInputs, fx *blastEffects) {
 	w := b.w
-	pusher := b.directUUID
-	if pusher == uuid.Nil {
-		pusher = b.causeUUID
-	}
+	pusher := s.blastPusher(b)
 	var pushes []*mobKnockback
 	s.mobsMu.Lock()
 	herd := s.herdOf(w)
@@ -359,7 +370,7 @@ func (s *Server) blastMobs(b blast, in *blastInputs, fx *blastEffects) {
 		oldVX, oldVY, oldVZ, oldImpulse := m.VX, m.VY, m.VZ, m.Impulse
 		if b.harmless || (in.sparedTeam != "" && m.Team == in.sparedTeam) {
 			m.PushByBlast(hit.KX, hit.KY, hit.KZ)
-			if kb := s.holdMobKnockback(herd.book[m], pusher, oldVX, oldVY, oldVZ, oldImpulse); kb != nil {
+			if kb := s.holdMobKnockbackBy(herd.book[m], pusher, oldVX, oldVY, oldVZ, oldImpulse); kb != nil {
 				pushes = append(pushes, kb)
 			}
 			continue
@@ -370,7 +381,7 @@ func (s *Server) blastMobs(b blast, in *blastInputs, fx *blastEffects) {
 			damage = entity.ReflectedFireballDamage
 		}
 		s.hurtByBlast(b, m, damage, hit.KX, hit.KY, hit.KZ, in.causeCreative)
-		if kb := s.holdMobKnockback(herd.book[m], pusher, oldVX, oldVY, oldVZ, oldImpulse); kb != nil {
+		if kb := s.holdMobKnockbackBy(herd.book[m], pusher, oldVX, oldVY, oldVZ, oldImpulse); kb != nil {
 			pushes = append(pushes, kb)
 		}
 		if b.chargedHeads && wasAlive && m.Dead && w.BoolRule(world.RuleMobDrops) {
@@ -1133,7 +1144,7 @@ func (t *mobDimTick) creeperExploded(fx *mobEffects, ev entity.MobEvent) {
 // blastDragon measures each part independently, including parts beyond the
 // parent's reach. Part pushes belong to the parts, not their parent.
 // vanilla: ServerExplosion.hurtEntities, Level.getEntities
-func (s *Server) blastDragon(b blast, in *blastInputs, m *entity.Mob, ent *mobEntity, pusher uuid.UUID, pushes *[]*mobKnockback) {
+func (s *Server) blastDragon(b blast, in *blastInputs, m *entity.Mob, ent *mobEntity, pusher plugin.Entity, pushes *[]*mobKnockback) {
 	defer m.AimDragonPart(entity.DragonBody)
 	typ := int32(m.Type)
 	for part := -1; part < 8; part++ {
@@ -1156,7 +1167,7 @@ func (s *Server) blastDragon(b blast, in *blastInputs, m *entity.Mob, ent *mobEn
 			hit = hit.Resisted(m.ExplosionKnockbackResistance())
 			oldVX, oldVY, oldVZ, oldImpulse := m.VX, m.VY, m.VZ, m.Impulse
 			m.PushByBlast(hit.KX, hit.KY, hit.KZ)
-			if kb := s.holdMobKnockback(ent, pusher, oldVX, oldVY, oldVZ, oldImpulse); kb != nil {
+			if kb := s.holdMobKnockbackBy(ent, pusher, oldVX, oldVY, oldVZ, oldImpulse); kb != nil {
 				*pushes = append(*pushes, kb)
 			}
 		}
