@@ -192,7 +192,7 @@ func decodePredicateCount(pred *ItemPredicate, count nbt.Tag) {
 func (pred ItemPredicate) Matches(hand protocol.ItemStack) bool {
 	if pred.hasItems {
 		if pred.tag != "" {
-			if !ItemHasTag(hand.ItemID, pred.tag) {
+			if !Item(hand.ItemID).InTag(ItemTagOf(pred.tag)) {
 				return false
 			}
 		} else if !slices.Contains(pred.items, hand.ItemID) {

@@ -207,6 +207,5 @@ var registryItemNameAllowed = map[string]nameAllowance{
 	"internal/server/rules/blockuse.go: string item lookup":                           {count: 2, issue: 6380},
 	"internal/server/servertest_hooks.go: string item lookup":                         {count: 1, boundary: "test inputs"},
 	"internal/server/world/blockentity.go: comparison with an item name literal":      {count: 1, boundary: "stored compound IDs"},
-	"internal/server/world/blockentity.go: string item tag lookup":                    {count: 1, issue: 6380},
 	"internal/server/world/templatefix_26_3.go: comparison with an item name literal": {count: 2, boundary: "stored item data fixing"},
 }
