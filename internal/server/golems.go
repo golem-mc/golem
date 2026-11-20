@@ -38,8 +38,9 @@ func (s *Server) trySpawnGolem(w *world.World, x, y, z int32, oldState uint16) {
 	}
 	dim := s.dimensionOfWorld(w)
 	gx, gy, gz := float64(spawn.Feet[0])+0.5, float64(spawn.Feet[1])+0.05, float64(spawn.Feet[2])+0.5
-	golem := s.spawnBuiltGolem(dim, entity.MobTypeOf(string(spawn.Kind)), gx, gy, gz, spawn.Weather)
-	s.summonedBuildAdvancements(w, entity.MobTypeOf(string(spawn.Kind)), gx, gy, gz, 5)
+	builtGolem := s.spawnBuiltGolem(dim, entity.MobTypeOf(string(spawn.Kind)), gx, gy, gz, spawn.Weather)
+	golem := builtGolem.mob.ID
+	s.summonedBuildAdvancements(w, builtGolem, gx, gy, gz, 5)
 	if spawn.Kind == rules.CopperGolem {
 		// The chest goes in after the golem is placed, over the copper block's
 		// cell, with flag 2.
@@ -55,8 +56,10 @@ func (s *Server) trySpawnGolem(w *world.World, x, y, z int32, oldState uint16) {
 // summonedBuildAdvancements fires summoned_entity for every player whose box
 // (by its pose and scale) meets a built mob's box grown by reach.
 // vanilla: CarvedPumpkinBlock.trySpawnGolem, WitherSkullBlock.checkSpawn
-func (s *Server) summonedBuildAdvancements(w *world.World, kind entity.MobType, x, y, z, reach float64) {
+func (s *Server) summonedBuildAdvancements(w *world.World, built *mobEntity, x, y, z, reach float64) {
+	kind := built.mob.Type
 	width, height := entity.KindDims(kind)
+	loot := s.mobLoot(built)
 	s.mu.RLock()
 	clients := s.clientsLocked()
 	s.mu.RUnlock()
@@ -68,7 +71,7 @@ func (s *Server) summonedBuildAdvancements(w *world.World, kind entity.MobType, 
 		d := c.dims(c.player.Appearance().Pose)
 		if math.Abs(p.X-x) < (width+d.Width)/2+reach && math.Abs(p.Z-z) < (width+d.Width)/2+reach &&
 			p.Y < y+height+reach && p.Y+d.Height > y-reach {
-			c.summonedEntityAdvancements(kind.Name())
+			c.summonedEntityAdvancements(kind.Name(), loot)
 		}
 	}
 }
@@ -91,8 +94,8 @@ func (s *Server) clearGolemCell(w *world.World, x, y, z int32) {
 // rolls, an iron golem getting the player-created bit and a copper golem its
 // weathering stage.
 // vanilla: CarvedPumpkinBlock.trySpawnGolem
-func (s *Server) spawnBuiltGolem(dim *dimension, kind entity.MobType, x, y, z float64, weather int) int32 {
-	return s.spawnMobArriving(dim, kind, x, y, z, 0, nil, false, "", false, func(ent *mobEntity) {
+func (s *Server) spawnBuiltGolem(dim *dimension, kind entity.MobType, x, y, z float64, weather int) *mobEntity {
+	return s.standMobArriving(dim, kind, x, y, z, 0, nil, false, "", false, func(ent *mobEntity) {
 		if kind == entity.TypeIronGolem {
 			// vanilla: CarvedPumpkinBlock.trySpawnGolem's setPlayerCreated
 			ent.mob.SetMetadataPlayerCreated(true)

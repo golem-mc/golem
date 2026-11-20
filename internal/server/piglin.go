@@ -40,7 +40,7 @@ func (c *client) offerGoldToPiglin(ent *mobEntity, hand int32, held protocol.Ite
 	s := c.srv
 	s.mobsMu.Lock()
 	taken := ent.mob.AdmireGold(held)
-	after := bodyInteraction(ent.mob)
+	after := s.bodyInteraction(ent)
 	s.mobsMu.Unlock()
 	if !taken {
 		return false, nil

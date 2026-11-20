@@ -17,7 +17,7 @@ func (c *client) equipOnInteract(ent *mobEntity, hand int32, held protocol.ItemS
 	item, equipped := m.EquipOnInteract(held)
 	fx := equipFx{x: m.X, y: m.Y, z: m.Z, category: mobSoundCategory(m.Type), silent: m.Silent, event: true,
 		sound: m.EquipSoundOverride(item.Slot), ctx: rules.GameEventContext{Mob: ent.uuid}}
-	after := bodyInteraction(m)
+	after := s.bodyInteraction(ent)
 	s.mobsMu.Unlock()
 	if !equipped {
 		return false

@@ -75,13 +75,31 @@ const (
 // advancement not done, that match passes; it reports whether any was.
 // vanilla: SimpleCriterionTrigger.trigger, PlayerAdvancements.registerListeners
 func (p *Progress) trigger(trigger string, at time.Time, match func(c *registry.AdvancementCriterion) bool) bool {
+	return p.triggerWith(trigger, at, nil, match)
+}
+
+// Subjects are the entities of a trigger's context besides the player, by
+// the condition key that tests each, built only when a criterion asks.
+// vanilla: EntityPredicate.createContext
+type Subjects struct {
+	// By maps entity, parent, partner, child, zombie, villager, source,
+	// lightning or bystander to its entity.
+	By map[string]func() rules.LootEntity
+	// Victims are the entities a victims condition list chooses among.
+	Victims []func() rules.LootEntity
+	// Distinct makes each victims entry take a victim of its own.
+	Distinct bool
+}
+
+// triggerWith is trigger for a context with entities of its own.
+func (p *Progress) triggerWith(trigger string, at time.Time, subj *Subjects, match func(c *registry.AdvancementCriterion) bool) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.fire(p.tree.byTrigger[trigger], at, match)
+	return p.fire(p.tree.byTrigger[trigger], at, subj, match)
 }
 
 // fire is trigger over the given criteria, with p.mu held.
-func (p *Progress) fire(refs []criterionRef, at time.Time, match func(c *registry.AdvancementCriterion) bool) bool {
+func (p *Progress) fire(refs []criterionRef, at time.Time, subj *Subjects, match func(c *registry.AdvancementCriterion) bool) bool {
 	awarded := false
 	var ctx *rules.LootContext
 	var rng rules.LootRand
@@ -96,14 +114,14 @@ func (p *Progress) fire(refs []criterionRef, at time.Time, match func(c *registr
 		if !match(c) {
 			continue
 		}
-		if len(c.Player) > 0 {
+		if len(c.Player) > 0 || len(c.Contexts) > 0 || len(c.VictimConds) > 0 {
 			if p.playerContext == nil {
 				continue
 			}
 			if ctx == nil {
 				ctx, rng = p.playerContext()
 			}
-			if !playerHolds(c.Player, ctx, rng) {
+			if !playerHolds(c.Player, ctx, rng) || !subj.hold(c, ctx, rng) {
 				continue
 			}
 		}
@@ -120,6 +138,68 @@ func playerHolds(conditions []registry.LootCondition, ctx *rules.LootContext, rn
 	for _, cond := range conditions {
 		if !rules.TestLootCondition(cond, ctx, rng) {
 			return false
+		}
+	}
+	return true
+}
+
+// hold reports whether the criterion's entity conditions pass for the
+// entities, each in the player's context with THIS replaced by it. A condition
+// on an entity the trigger did not give fails.
+// vanilla: ContextAwarePredicate.matches, EntityPredicate.createContext
+func (s *Subjects) hold(c *registry.AdvancementCriterion, player *rules.LootContext, rng rules.LootRand) bool {
+	in := func(build func() rules.LootEntity) (*rules.LootContext, bool) {
+		if build == nil {
+			return nil, false
+		}
+		ec := *player
+		ec.This = build()
+		return &ec, true
+	}
+	for key, conds := range c.Contexts {
+		var build func() rules.LootEntity
+		if s != nil {
+			build = s.By[key]
+		}
+		ec, ok := in(build)
+		if !ok {
+			// An absent child, as of a turtle's egg, passes no condition.
+			// vanilla: BredAnimalsTrigger.matches
+			return false
+		}
+		if !playerHolds(conds, ec, rng) {
+			return false
+		}
+	}
+	if len(c.VictimConds) == 0 {
+		return true
+	}
+	if s == nil {
+		return false
+	}
+	// Each victims entry needs a victim; with Distinct, one no entry before
+	// it took.
+	// vanilla: ChanneledLightningTrigger.matches, KilledByArrowTrigger.matches
+	var taken []bool
+	if s.Distinct {
+		taken = make([]bool, len(s.Victims))
+	}
+	for _, conds := range c.VictimConds {
+		i := -1
+		for j, build := range s.Victims {
+			if s.Distinct && taken[j] {
+				continue
+			}
+			if ec, ok := in(build); ok && playerHolds(conds, ec, rng) {
+				i = j
+				break
+			}
+		}
+		if i < 0 {
+			return false
+		}
+		if s.Distinct {
+			taken[i] = true
 		}
 	}
 	return true
@@ -190,9 +270,9 @@ func (p *Progress) InventoryChanged(inv Inventory, at time.Time) bool {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	awarded := p.fire(p.tree.heldAny, at, match)
+	awarded := p.fire(p.tree.heldAny, at, nil, match)
 	for _, id := range inv.Changed {
-		if p.fire(p.tree.heldBy[id], at, match) {
+		if p.fire(p.tree.heldBy[id], at, nil, match) {
 			awarded = true
 		}
 	}
@@ -218,6 +298,13 @@ type Entity struct {
 	Baby bool
 	// Distance is the horizontal distance in blocks from the killing player.
 	Distance float64
+	// Loot builds the entity for a data pack's loot conditions; nil for none.
+	Loot func() rules.LootEntity
+}
+
+// subjects is the entity as a trigger's entity condition.
+func (e Entity) subjects() *Subjects {
+	return &Subjects{By: map[string]func() rules.LootEntity{"entity": e.Loot}}
 }
 
 // typeMatches reports whether an entity type name passes a criterion's
@@ -331,8 +418,8 @@ func (p *Progress) EnchantedItem(at time.Time) bool {
 // is empty for a breeding without one (the turtle's egg), which no child
 // condition accepts.
 // vanilla: BredAnimalsTrigger.TriggerInstance.matches
-func (p *Progress) BredAnimals(parent, partner, child string, at time.Time) bool {
-	return p.trigger(TriggerBredAnimals, at, func(c *registry.AdvancementCriterion) bool {
+func (p *Progress) BredAnimals(parent, partner, child string, subj *Subjects, at time.Time) bool {
+	return p.triggerWith(TriggerBredAnimals, at, subj, func(c *registry.AdvancementCriterion) bool {
 		if c.Child != "" && !typeMatches(c.Child, child) {
 			return false
 		}
@@ -479,7 +566,7 @@ func (p *Progress) ThrownItemPickedUp(byEntity bool, item int32, other Entity, w
 	if byEntity {
 		trigger = TriggerThrownPickedUpByEntity
 	}
-	return p.trigger(trigger, at, func(c *registry.AdvancementCriterion) bool {
+	return p.triggerWith(trigger, at, other.subjects(), func(c *registry.AdvancementCriterion) bool {
 		return (len(c.Items) == 0 || slices.Contains(c.Items[0], item)) && typeMatches(c.Entity, other.Type) &&
 			(!c.Adult || !other.Baby) && !slices.ContainsFunc(worn, func(id int32) bool { return slices.Contains(c.NotWearing, id) })
 	})
@@ -488,8 +575,8 @@ func (p *Progress) ThrownItemPickedUp(byEntity bool, item int32, other Entity, w
 // TameAnimal fires tame_animal for a tamed entity type; variant is its
 // cat_variant or wolf_variant entry, empty for an animal without one.
 // vanilla: TameAnimalTrigger.TriggerInstance.matches
-func (p *Progress) TameAnimal(animal, variant string, at time.Time) bool {
-	return p.trigger(TriggerTameAnimal, at, func(c *registry.AdvancementCriterion) bool {
+func (p *Progress) TameAnimal(animal, variant string, subj *Subjects, at time.Time) bool {
+	return p.triggerWith(TriggerTameAnimal, at, subj, func(c *registry.AdvancementCriterion) bool {
 		return typeMatches(c.Entity, animal) && (c.Variant == "" || c.Variant == variant)
 	})
 }
@@ -504,6 +591,13 @@ type EntityInteraction struct {
 	Variant    string
 	Body       int32
 	BodyDamage int32
+	// Loot builds the entity for a data pack's loot conditions.
+	Loot func() rules.LootEntity
+}
+
+// subjects is the entity as a trigger's entity condition.
+func (e EntityInteraction) subjects() *Subjects {
+	return &Subjects{By: map[string]func() rules.LootEntity{"entity": e.Loot}}
 }
 
 // matches is PlayerInteractTrigger.TriggerInstance.matches for the held or
@@ -520,7 +614,7 @@ func (e EntityInteraction) matches(c *registry.AdvancementCriterion, item int32,
 // use it, and worn the item IDs of the player's armour.
 // vanilla: ServerGamePacketListenerImpl.handleInteract
 func (p *Progress) InteractedWithEntity(e EntityInteraction, held int32, worn []int32, at time.Time) bool {
-	return p.trigger(TriggerInteractedEntity, at, func(c *registry.AdvancementCriterion) bool {
+	return p.triggerWith(TriggerInteractedEntity, at, e.subjects(), func(c *registry.AdvancementCriterion) bool {
 		return e.matches(c, held, worn)
 	})
 }
@@ -528,7 +622,7 @@ func (p *Progress) InteractedWithEntity(e EntityInteraction, held int32, worn []
 // ShearedEquipment fires player_sheared_equipment for the item taken off;
 // worn is the item IDs of the player's armour. vanilla: Mob.shearItem
 func (p *Progress) ShearedEquipment(e EntityInteraction, item int32, worn []int32, at time.Time) bool {
-	return p.trigger(TriggerShearedEquipment, at, func(c *registry.AdvancementCriterion) bool {
+	return p.triggerWith(TriggerShearedEquipment, at, e.subjects(), func(c *registry.AdvancementCriterion) bool {
 		return e.matches(c, item, worn)
 	})
 }
@@ -541,31 +635,27 @@ func (p *Progress) FilledBucket(item int32, at time.Time) bool {
 	})
 }
 
-// EffectsChanged fires effects_changed for the effect names the player now
-// has. vanilla: EffectsChangedTrigger.TriggerInstance.matches
-func (p *Progress) EffectsChanged(active []string, at time.Time) bool {
-	return p.EffectsChangedFrom(active, "", at)
-}
-
-// EffectsChangedFrom tests effects_changed with the entity that supplied the effect.
-func (p *Progress) EffectsChangedFrom(active []string, source string, at time.Time) bool {
-	return p.trigger(TriggerEffectsChanged, at, func(c *registry.AdvancementCriterion) bool {
+// EffectsChanged fires effects_changed for the effects the player now has and
+// the entity that supplied the change, empty for none.
+// vanilla: EffectsChangedTrigger.TriggerInstance.matches
+func (p *Progress) EffectsChanged(active []rules.LootEffect, source string, subj *Subjects, at time.Time) bool {
+	return p.triggerWith(TriggerEffectsChanged, at, subj, func(c *registry.AdvancementCriterion) bool {
 		if c.Entity != "" && (source == "" || !typeMatches(c.Entity, source)) {
 			return false
 		}
 		for _, want := range c.Effects {
-			if !slices.Contains(active, want) {
+			if !slices.ContainsFunc(active, func(e rules.LootEffect) bool { return e.Name == want }) {
 				return false
 			}
 		}
-		return true
+		return rules.EffectsMatch(c.EffectStates, active)
 	})
 }
 
 // SummonedEntity fires summoned_entity for a golem or boss the player built.
 // vanilla: SummonedEntityTrigger.TriggerInstance.matches
-func (p *Progress) SummonedEntity(kind string, at time.Time) bool {
-	return p.trigger(TriggerSummonedEntity, at, func(c *registry.AdvancementCriterion) bool {
+func (p *Progress) SummonedEntity(kind string, subj *Subjects, at time.Time) bool {
+	return p.triggerWith(TriggerSummonedEntity, at, subj, func(c *registry.AdvancementCriterion) bool {
 		return typeMatches(c.Entity, kind)
 	})
 }
@@ -600,8 +690,8 @@ func (p *Progress) VillagerTrade(playerY float64, at time.Time) bool {
 
 // CuredZombieVillager fires cured_zombie_villager after a successful cure.
 // vanilla: CuredZombieVillagerTrigger.TriggerInstance.matches
-func (p *Progress) CuredZombieVillager(at time.Time) bool {
-	return p.trigger(TriggerCuredZombieVillager, at, func(*registry.AdvancementCriterion) bool { return true })
+func (p *Progress) CuredZombieVillager(subj *Subjects, at time.Time) bool {
+	return p.triggerWith(TriggerCuredZombieVillager, at, subj, func(*registry.AdvancementCriterion) bool { return true })
 }
 
 // ConstructBeacon fires construct_beacon for a beacon that came alive with
@@ -648,12 +738,12 @@ func (p *Progress) PlayerHurtSmash(held int32, damage float64, at time.Time) boo
 
 // KilledByArrow fires killed_by_arrow for the entity types an arrow killed,
 // fired from the weapon item. vanilla: KilledByArrowTrigger.TriggerInstance.matches
-func (p *Progress) KilledByArrow(victims []string, weapon int32, at time.Time) bool {
+func (p *Progress) KilledByArrow(victims []string, weapon int32, subj *Subjects, at time.Time) bool {
 	unique := map[string]bool{}
 	for _, v := range victims {
 		unique[v] = true
 	}
-	return p.trigger(TriggerKilledByArrow, at, func(c *registry.AdvancementCriterion) bool {
+	return p.triggerWith(TriggerKilledByArrow, at, subj, func(c *registry.AdvancementCriterion) bool {
 		if len(c.Items) > 0 && !slices.Contains(c.Items[0], weapon) {
 			return false
 		}
@@ -670,11 +760,20 @@ func (p *Progress) KilledByArrow(victims []string, weapon int32, at time.Time) b
 	})
 }
 
+// TypeOnly is the entities of the given type names, known by type alone.
+func TypeOnly(names []string) []func() rules.LootEntity {
+	out := make([]func() rules.LootEntity, len(names))
+	for i, name := range names {
+		out[i] = func() rules.LootEntity { return rules.LootEntity{Type: name} }
+	}
+	return out
+}
+
 // ChanneledLightning fires channeled_lightning for the entity types one tick
 // of a player's channeling bolt struck; each victim predicate needs one struck
 // entity, and two may share one. vanilla: ChanneledLightningTrigger.TriggerInstance.matches
-func (p *Progress) ChanneledLightning(struck []string, at time.Time) bool {
-	return p.trigger(TriggerChanneledLightning, at, func(c *registry.AdvancementCriterion) bool {
+func (p *Progress) ChanneledLightning(struck []string, subj *Subjects, at time.Time) bool {
+	return p.triggerWith(TriggerChanneledLightning, at, subj, func(c *registry.AdvancementCriterion) bool {
 		for _, want := range c.Victims {
 			if !slices.ContainsFunc(struck, func(got string) bool { return typeMatches(want, got) }) {
 				return false

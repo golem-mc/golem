@@ -46,7 +46,7 @@ func (c *client) useOnCat(ent *mobEntity, hand int32, held protocol.ItemStack) (
 		status := uint8(protocol.EntityEventTameFailed)
 		if tamed {
 			status = protocol.EntityEventTamed
-			c.tameAnimalAdvancements(m.Type.Name(), variant)
+			c.tameAnimalAdvancements(m.Type.Name(), variant, s.mobLoot(ent))
 		}
 		s.broadcastWorld(ent.w, protocol.IDPlayEntityEvent, entityEventPayload(m.ID, status))
 		return true, nil

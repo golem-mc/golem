@@ -281,11 +281,56 @@ func (c *client) enchantedItemAdvancements() {
 	}
 }
 
+// mobLoot builds the loot entity of a mob for a criterion's entity condition,
+// taking the mob lock when called: it runs under the advancement lock, with no
+// mob lock held.
+// vanilla: EntityPredicate.createContext
+func (s *Server) mobLoot(ent *mobEntity) func() rules.LootEntity {
+	return func() rules.LootEntity {
+		s.mobsMu.Lock()
+		snap := s.mobSnapshot(ent, ent.w.Name(), nil)
+		s.mobsMu.Unlock()
+		if snap == nil {
+			return rules.LootEntity{Type: ent.mob.Type.Name()}
+		}
+		return command.LootEntityOf(snap)
+	}
+}
+
+// mobLootByEntityID is mobLoot for the mob with a protocol ID in w; nil when
+// there is none.
+func (s *Server) mobLootByEntityID(w *world.World, id int32) func() rules.LootEntity {
+	s.mobsMu.Lock()
+	ent := s.mobByEntityIDLocked(w, id)
+	s.mobsMu.Unlock()
+	if ent == nil {
+		return nil
+	}
+	return s.mobLoot(ent)
+}
+
+// mobLootOf is mobLoot for a mob in w; nil when it has no body there.
+func (s *Server) mobLootOf(w *world.World, m *entity.Mob) func() rules.LootEntity {
+	s.mobsMu.Lock()
+	ent := s.herdOf(w).book[m]
+	s.mobsMu.Unlock()
+	if ent == nil {
+		return nil
+	}
+	return s.mobLoot(ent)
+}
+
+// subjects names the entities of a trigger's context by their condition keys.
+func subjects(by map[string]func() rules.LootEntity) *advancement.Subjects {
+	return &advancement.Subjects{By: by}
+}
+
 // bredAnimalsAdvancements fires bred_animals for the player whose feeding
-// caused love. vanilla: Animal.finalizeSpawnChildFromBreeding
-func (c *client) bredAnimalsAdvancements(parent, partner, child string) {
+// caused love; child is nil for a breeding without one.
+// vanilla: Animal.finalizeSpawnChildFromBreeding
+func (c *client) bredAnimalsAdvancements(parent, partner, child string, ents map[string]func() rules.LootEntity) {
 	if progress := c.advancements.Load(); progress != nil {
-		progress.BredAnimals(parent, partner, child, time.Now())
+		progress.BredAnimals(parent, partner, child, subjects(ents), time.Now())
 	}
 }
 
@@ -339,9 +384,9 @@ func (c *client) recipeUnlockedAdvancements(names []string) {
 
 // tameAnimalAdvancements fires tame_animal; variant is a cat's or wolf's,
 // empty otherwise. vanilla: TamableAnimal.tame, AbstractHorse.tameWithName
-func (c *client) tameAnimalAdvancements(animal, variant string) {
+func (c *client) tameAnimalAdvancements(animal, variant string, ent func() rules.LootEntity) {
 	if progress := c.advancements.Load(); progress != nil {
-		progress.TameAnimal(animal, variant, time.Now())
+		progress.TameAnimal(animal, variant, subjects(map[string]func() rules.LootEntity{"entity": ent}), time.Now())
 	}
 }
 
@@ -374,13 +419,13 @@ func (s *Server) thrownItemPickedUpAdvancements(w *world.World, thrower uuid.UUI
 	var by advancement.Entity
 	throwing := s.clientByUUID(thrower)
 	if throwing != nil && throwing.theWorld() == w {
-		by.Type = playerEntityType
+		by.Type, by.Loot = playerEntityType, throwing.LootEntity
 		throwing.pickedUpAdvancements(true, item, collector)
 	} else {
 		throwing = nil
 		s.mobsMu.Lock()
 		if m := s.dimensionOfWorld(w).mobs.byUUID[thrower]; m != nil {
-			by = advancement.Entity{Type: m.Type.Name(), Baby: m.IsBaby()}
+			by = advancement.Entity{Type: m.Type.Name(), Baby: m.IsBaby(), Loot: s.mobLoot(s.dimensionOfWorld(w).mobs.book[m])}
 		}
 		s.mobsMu.Unlock()
 	}
@@ -446,19 +491,14 @@ func (c *client) effectsChangedAdvancements(source string) {
 	if progress == nil {
 		return
 	}
-	active := c.player.Effects()
-	names := make([]string, len(active))
-	for i, in := range active {
-		names[i] = registry.MobEffectName(in.ID)
-	}
-	progress.EffectsChangedFrom(names, source, time.Now())
+	progress.EffectsChanged(entity.LootEffects(c.player.Effects()), source, nil, time.Now())
 }
 
 // summonedEntityAdvancements fires summoned_entity for a golem the player's
 // block built. vanilla: CarvedPumpkinBlock.trySpawnGolem
-func (c *client) summonedEntityAdvancements(kind string) {
+func (c *client) summonedEntityAdvancements(kind string, ent func() rules.LootEntity) {
 	if progress := c.advancements.Load(); progress != nil {
-		progress.SummonedEntity(kind, time.Now())
+		progress.SummonedEntity(kind, subjects(map[string]func() rules.LootEntity{"entity": ent}), time.Now())
 	}
 }
 
@@ -1045,3 +1085,11 @@ func (c *client) lookedAtType() string {
 // lookingAtRange is the length of the view ray a looking_at predicate casts.
 // vanilla: PlayerPredicate.LOOKING_AT_RANGE
 const lookingAtRange = 100
+
+// curedZombieVillagerAdvancements fires cured_zombie_villager with the zombie
+// and the villager it became. vanilla: ZombieVillager.finishConversion
+func (c *client) curedZombieVillagerAdvancements(zombie, villager func() rules.LootEntity) {
+	if progress := c.advancements.Load(); progress != nil {
+		progress.CuredZombieVillager(subjects(map[string]func() rules.LootEntity{"zombie": zombie, "villager": villager}), time.Now())
+	}
+}

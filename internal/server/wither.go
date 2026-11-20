@@ -48,11 +48,11 @@ func (s *Server) trySummonWither(w *world.World, x, y, z int32) {
 		yaw = 0
 	}
 	wx, wy, wz := float64(spawn.Feet[0])+0.5, float64(spawn.Feet[1])+0.55, float64(spawn.Feet[2])+0.5
-	s.spawnMobArriving(s.dimensionOfWorld(w), entity.TypeWither, wx, wy, wz, 0, nil, false, "", false, func(ent *mobEntity) {
+	wither := s.standMobArriving(s.dimensionOfWorld(w), entity.TypeWither, wx, wy, wz, 0, nil, false, "", false, func(ent *mobEntity) {
 		ent.mob.Yaw, ent.mob.HeadYaw = yaw, yaw
 		ent.mob.MakeInvulnerable()
 	})
-	s.summonedBuildAdvancements(w, entity.TypeWither, wx, wy, wz, witherSummonReach)
+	s.summonedBuildAdvancements(w, wither, wx, wy, wz, witherSummonReach)
 }
 
 // witherSkullPlaces reports whether dispenseWitherSkull would place the skull.
