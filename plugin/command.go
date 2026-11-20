@@ -6,9 +6,13 @@ import "errors"
 // command joins it, so clients get its suggestions and syntax colours like a
 // vanilla command's. Bukkit: CommandMap, with Brigadier's tree (Paper)
 type Commands interface {
-	// Register adds a command. It fails when the name or an alias is
-	// taken, unless Command.Override replaces a vanilla command. Each name
-	// is also registered as plugin:name.
+	// Register adds a command. A name or alias another command holds is
+	// registered only as plugin:name, and an error wrapping ErrNameTaken
+	// (naming the skipped bare names) is returned; the command still runs
+	// under those and any free aliases. It fails without registering only
+	// when nothing could be registered (or the command is invalid).
+	// Command.Override replaces a vanilla command's bare name.
+	// Bukkit: CommandMap.register
 	Register(c Command) error
 	// Unregister removes a command this plugin registered.
 	Unregister(name string)
@@ -50,9 +54,10 @@ type Command struct {
 	// alias) as Bukkit does: the bare name runs this command, in the tree
 	// the client gets and for /execute run, functions, command blocks and
 	// the console, and the vanilla one stays reachable as minecraft:name.
-	// Without it a taken name fails Register. Two overrides of one name
-	// fail; when this one is unregistered or its plugin disabled, vanilla's
-	// command returns.
+	// Without it a taken bare name is registered only as plugin:name and
+	// Register returns ErrNameTaken. A second override of one name does
+	// the same; when the first is unregistered or its plugin disabled,
+	// vanilla's command returns.
 	Override bool
 	Node
 }
@@ -150,6 +155,11 @@ func Arg[T any](ctx *CommandContext, name string) T {
 // ErrHandled is what a command's Run answers when it has already told the
 // sender why it failed; the command fails without a message of its own.
 var ErrHandled = errors.New("plugin: command failure already reported")
+
+// ErrNameTaken is wrapped by Commands.Register's error when one or more bare
+// names were already held and registered only as plugin:name; the command
+// still runs under those and any free aliases.
+var ErrNameTaken = errors.New("plugin: command name taken")
 
 // RegisterAlias registers name as another command line: /name args runs
 // "line args" as the same sender, as Bukkit's commands.yml aliases do. It

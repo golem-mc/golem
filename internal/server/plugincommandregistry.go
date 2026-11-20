@@ -50,29 +50,46 @@ func (p pluginCommands) Register(c plugin.Command) error {
 	if err != nil {
 		return err
 	}
-	root.Type, root.Name, root.Plugin, root.Override = command.NodeLiteral, c.Name, true, c.Override
-	roots := []*command.Node{root}
-	for _, name := range names {
-		if name != c.Name {
-			roots = append(roots, &command.Node{Type: command.NodeLiteral, Plugin: true, Override: c.Override, Name: name, Permission: root.Permission, Redirect: root, Executable: root.Executable, Handler: root.Handler})
-		}
-		roots = append(roots, &command.Node{Type: command.NodeLiteral, Plugin: true, Name: strings.ToLower(p.host.Name()) + ":" + name, Permission: root.Permission, Redirect: root, Executable: root.Executable, Handler: root.Handler})
-	}
+	prefix := strings.ToLower(p.host.Name()) + ":"
 	r := &p.host.srv.pluginCommands
 	r.mu.Lock()
-	for _, n := range roots {
-		if !n.Override && command.FindLiteralChild(command.ForLevel(command.PermLevelOwners), n.Name) != nil {
-			r.mu.Unlock()
-			return fmt.Errorf("plugin: command %q is taken", n.Name)
+	isTaken := func(name string, override bool) bool {
+		if !override && command.FindLiteralChild(command.ForLevel(command.PermLevelOwners), name) != nil {
+			return true
 		}
 		for _, entry := range r.roots {
 			for _, other := range entry.roots {
-				if other.Name == n.Name {
-					r.mu.Unlock()
-					return fmt.Errorf("plugin: command %q is taken", n.Name)
+				if other.Name == name {
+					return true
 				}
 			}
 		}
+		return false
+	}
+	type candidate struct {
+		name     string
+		override bool
+	}
+	var candidates []candidate
+	var skipped []string
+	for _, name := range names {
+		if isTaken(name, c.Override) {
+			skipped = append(skipped, name)
+		} else {
+			candidates = append(candidates, candidate{name: name, override: c.Override})
+		}
+		if prefixed := prefix + name; !isTaken(prefixed, false) {
+			candidates = append(candidates, candidate{name: prefixed})
+		}
+	}
+	if len(candidates) == 0 {
+		r.mu.Unlock()
+		return fmt.Errorf("plugin: command %q is taken", c.Name)
+	}
+	root.Type, root.Name, root.Plugin, root.Override = command.NodeLiteral, candidates[0].name, true, candidates[0].override
+	roots := []*command.Node{root}
+	for _, cand := range candidates[1:] {
+		roots = append(roots, &command.Node{Type: command.NodeLiteral, Plugin: true, Override: cand.override, Name: cand.name, Permission: root.Permission, Redirect: root, Executable: root.Executable, Handler: root.Handler})
 	}
 	targets := make(map[string]*command.Node)
 	for _, n := range command.ForLevel(command.PermLevelOwners).Children {
@@ -99,6 +116,9 @@ func (p pluginCommands) Register(c plugin.Command) error {
 	p.host.srv.refreshPluginCommands()
 	if !retained {
 		return errors.New("plugin: command owner is disabled")
+	}
+	if len(skipped) > 0 {
+		return fmt.Errorf("%w: %s", plugin.ErrNameTaken, strings.Join(skipped, ", "))
 	}
 	return nil
 }

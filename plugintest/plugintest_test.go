@@ -1,14 +1,14 @@
 package plugintest_test
 
 import (
-	"sync/atomic"
-
-	"github.com/golem-mc/golem/registry"
+	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/plugintest"
+	"github.com/golem-mc/golem/registry"
 )
 
 func TestOpRunsCommandsAndHandleIsLive(t *testing.T) {
@@ -263,5 +263,82 @@ func TestSchedulerOnTick(t *testing.T) {
 	}
 	if asyncOnTick.Load() {
 		t.Error("OnTick = true inside a RunAsync task, want false")
+	}
+}
+
+type enableFunc func(plugin.Server) error
+
+func (f enableFunc) Enable(s plugin.Server) error { return f(s) }
+func (enableFunc) Disable()                       {}
+
+func TestCommandFallbackPrefixWhenNameTaken(t *testing.T) {
+	say := func(msg string) func(*plugin.CommandContext) (int, error) {
+		return func(ctx *plugin.CommandContext) (int, error) {
+			if arg := plugin.Arg[string](ctx, "arg"); arg != "" {
+				ctx.Sender.SendMessage(plugin.Plain(msg + ":" + arg))
+				return 1, nil
+			}
+			ctx.Sender.SendMessage(plugin.Plain(msg))
+			return 1, nil
+		}
+	}
+	godCmd := func(msg string, aliases ...string) plugin.Command {
+		return plugin.Command{
+			Name:     "god",
+			Aliases:  aliases,
+			Run:      say(msg),
+			Children: []plugin.Node{{Arg: plugin.WordArg("arg"), Run: say(msg)}},
+		}
+	}
+
+	var bErr, dupErr, vanillaErr error
+	srv := plugintest.Start(t, plugintest.WithPlugins(
+		plugin.Registration{Name: "a", Plugin: enableFunc(func(s plugin.Server) error {
+			if err := s.Commands().Register(godCmd("from-a")); err != nil {
+				return err
+			}
+			// Registering the same command again from the same plugin leaves no free name.
+			dupErr = s.Commands().Register(godCmd("from-a-again"))
+			return nil
+		})},
+		plugin.Registration{Name: "b", Plugin: enableFunc(func(s plugin.Server) error {
+			bErr = s.Commands().Register(godCmd("from-b", "godmode"))
+			vanillaErr = s.Commands().Register(plugin.Command{Name: "seed", Run: say("b-seed")})
+			return nil
+		})},
+	))
+
+	if !errors.Is(bErr, plugin.ErrNameTaken) || !strings.Contains(bErr.Error(), "god") {
+		t.Fatalf("plugin b Register(god) = %v, want ErrNameTaken naming god", bErr)
+	}
+	if dupErr == nil || errors.Is(dupErr, plugin.ErrNameTaken) {
+		t.Fatalf("duplicate Register(god) by same plugin = %v, want non-ErrNameTaken failure", dupErr)
+	}
+	if !errors.Is(vanillaErr, plugin.ErrNameTaken) || !strings.Contains(vanillaErr.Error(), "seed") {
+		t.Fatalf("plugin b Register(seed) = %v, want ErrNameTaken naming seed", vanillaErr)
+	}
+
+	alice := srv.Join("Alice")
+	for _, tc := range []struct {
+		cmd  string
+		want string
+	}{
+		{"/god", "from-a"},
+		{"/a:god", "from-a"},
+		{"/b:god", "from-b"},
+		{"/b:god on", "from-b:on"},
+		{"/godmode", "from-b"},
+		{"/godmode on", "from-b:on"},
+		{"/b:godmode", "from-b"},
+		{"/b:seed", "b-seed"},
+	} {
+		alice.Run(tc.cmd)
+		if msgs := alice.Messages(2); len(msgs) != 1 || msgs[0] != tc.want {
+			t.Errorf("%s -> %q, want [%q]", tc.cmd, msgs, tc.want)
+		}
+	}
+	// Vanilla /seed stays untouched.
+	if out := srv.Console("seed"); !strings.Contains(strings.Join(out, "\n"), "Seed:") {
+		t.Errorf("console seed = %q, want vanilla Seed output", out)
 	}
 }
