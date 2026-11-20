@@ -2,8 +2,10 @@ package server
 
 import (
 	"errors"
+	"maps"
 	"math"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -101,6 +103,27 @@ func (e pluginEntity) HasLineOfSight(other plugin.Entity) bool {
 // moving along its look direction at the kind's launch speed, or v when set.
 // vanilla: Projectile.shootFromRotation, ThrowableProjectile
 func (e pluginEntity) LaunchProjectile(t registry.EntityType, v plugin.Vec3) (plugin.Projectile, error) {
+	return e.launch(t, v, nil)
+}
+
+// LaunchTippedArrow launches an arrow whose item is set before the launch
+// event fires.
+// vanilla: Projectile.spawnProjectile (the item is set in the factory callback)
+func (e pluginEntity) LaunchTippedArrow(potion plugin.Key, v plugin.Vec3) (plugin.Arrow, error) {
+	id, ok := registry.PotionID(potion.String())
+	if !ok {
+		return nil, errors.New("plugin: unknown potion " + potion.String())
+	}
+	stack := protocol.ItemStack{ItemID: int32(registry.ItemTippedArrow), Count: 1}
+	stack.SetPotion(id)
+	proj, err := e.launch(registry.EntityTypeArrow, v, nbt.Compound{"item": registry.StackTag(stack)})
+	if err != nil {
+		return nil, err
+	}
+	return proj.(plugin.Arrow), nil
+}
+
+func (e pluginEntity) launch(t registry.EntityType, v plugin.Vec3, tip nbt.Compound) (plugin.Projectile, error) {
 	b, ok := e.live()
 	if !ok {
 		return nil, errors.New("plugin: entity is not valid")
@@ -119,6 +142,7 @@ func (e pluginEntity) LaunchProjectile(t registry.EntityType, v plugin.Vec3) (pl
 	loc := e.host.entityLocation(b)
 	loc.Pos = plugin.Vec3{X: from.X, Y: from.Y - .1, Z: from.Z}
 	extra := nbt.Compound{"Owner": nbt.UUIDToIntArray(e.id), "Motion": nbt.NewList([]nbt.Tag{nbt.Double(v.X), nbt.Double(v.Y), nbt.Double(v.Z)})}
+	maps.Copy(extra, tip)
 	spawned, err := e.host.pluginWorldOf(b).(pluginWorld).spawnWith(t, loc, extra, nil)
 	if err != nil {
 		return nil, err

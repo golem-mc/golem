@@ -140,6 +140,10 @@ type LivingEntity interface {
 	// LaunchProjectile launches a projectile of type t as the entity
 	// shooting it, with velocity v (zero for the kind's own).
 	LaunchProjectile(t registry.EntityType, v Vec3) (Projectile, error)
+	// LaunchTippedArrow launches an arrow already tipped with the potion, so
+	// ProjectileLaunchEvent sees it; an unknown potion is an error and
+	// launches nothing.
+	LaunchTippedArrow(potion Key, v Vec3) (Arrow, error)
 }
 
 // AttributeInstance is an entity's attribute.

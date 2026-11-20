@@ -8,7 +8,6 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/plugin"
-	"github.com/golem-mc/golem/registry"
 )
 
 // Player is a connected test client.
@@ -388,25 +387,12 @@ func (p *Player) noteSound(r *protocol.Reader) {
 }
 
 // ShootTippedArrow launches an arrow from the player's eyes along their look
-// direction, tipped with the potion. ProjectileLaunchEvent fires before the
-// tipping, so a listener sees a plain arrow; an error means a listener
-// cancelled the launch or the potion is unknown.
+// direction, tipped with the potion before ProjectileLaunchEvent fires; an
+// error means a listener cancelled the launch or the potion is unknown.
 func (p *Player) ShootTippedArrow(potion plugin.Key) (plugin.Arrow, error) {
 	p.s.t.Helper()
 	var arrow plugin.Arrow
 	var err error
-	p.s.Run(func() {
-		var proj plugin.Projectile
-		if proj, err = p.Handle().LaunchProjectile(registry.EntityTypeArrow, plugin.Vec3{}); err != nil {
-			return
-		}
-		a, ok := proj.(plugin.Arrow)
-		if !ok || !a.SetPotion(potion) {
-			proj.Remove()
-			err = errors.New("plugintest: unknown potion " + potion.String())
-			return
-		}
-		arrow = a
-	})
+	p.s.Run(func() { arrow, err = p.Handle().LaunchTippedArrow(potion, plugin.Vec3{}) })
 	return arrow, err
 }

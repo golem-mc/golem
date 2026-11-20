@@ -476,7 +476,10 @@ func TestTippedArrowAndLaunchRefusal(t *testing.T) {
 	var cancel atomic.Bool
 	plugin.Listen(srv.Host(), func(e *plugin.ProjectileLaunchEvent) {
 		launched.Add(1)
-		e.SetCancelled(cancel.Load())
+		if a, ok := e.Projectile.(plugin.Arrow); ok {
+			_, _, tipped := a.Potion()
+			e.SetCancelled(cancel.Load() && tipped)
+		}
 	})
 
 	arrow, err := bob.ShootTippedArrow(plugin.Key{Namespace: "minecraft", Path: "poison"})
@@ -498,6 +501,11 @@ func TestTippedArrowAndLaunchRefusal(t *testing.T) {
 	cancel.Store(true)
 	if _, err := bob.ShootTippedArrow(plugin.Key{Namespace: "minecraft", Path: "poison"}); err == nil {
 		t.Fatal("a cancelled launch returned an arrow")
+	}
+	var plain error
+	srv.Run(func() { _, plain = bob.Handle().LaunchProjectile(registry.EntityTypeArrow, plugin.Vec3{}) })
+	if plain != nil {
+		t.Fatalf("a plain arrow was refused: %v", plain)
 	}
 	if launched.Load() != 3 {
 		t.Fatalf("ProjectileLaunchEvent fired %d times, want 3", launched.Load())
