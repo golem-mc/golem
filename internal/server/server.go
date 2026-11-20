@@ -952,6 +952,9 @@ func newServerWith(cfg *config.Config, seed int64, shared sharedNether, plugins 
 	}
 	if og, ok := gen.(*world.OverworldGenerator); ok {
 		og.RefreshBiomeClimates()
+		if world.PackWorldgenActive() {
+			og.ForgetGenerated()
+		}
 	}
 	s.world.ReloadClocks()
 	debugSetup := s.world.IsDebug() && !s.world.Existed()

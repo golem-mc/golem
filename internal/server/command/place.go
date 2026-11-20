@@ -250,7 +250,7 @@ func runPlaceJigsaw(src Source, args []string) error {
 
 func runPlaceStructure(src Source, args []string) error {
 	id := registry.Qualify(args[0])
-	if !registry.StructureKeys[id] {
+	if !registry.StructureKeys[id] && !registry.StructureExists(id) {
 		return refuse(src, placeStructureInvalidKey, protocol.Text{Text: id})
 	}
 	x, y, z, ok, err := placePos(src, args[1:])

@@ -28,7 +28,7 @@ func (w *World) PlaceStructure(id string, seed int64, x, z int32) ([]BlockChange
 		g.preset = og.preset
 	}
 	g.setSeed(w.SeedValue())
-	typ := g.structures.types[id]
+	typ := g.structures.typeOf(id)
 	if typ == nil {
 		return nil, PlacementExtras{}, StructureNoStart
 	}

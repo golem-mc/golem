@@ -120,7 +120,7 @@ func (g *FlatGenerator) setStructureSets(ids []string, present bool) {
 			return
 		}
 		id = withNamespace(id)
-		if !slices.ContainsFunc(levelgen.StructureSets, func(s levelgen.StructureSet) bool { return s.Name == id }) {
+		if !slices.ContainsFunc(levelgen.AllStructureSets(), func(s levelgen.StructureSet) bool { return s.Name == id }) {
 			slog.Warn("Unknown structure set in a flat world's structure_overrides, placing every set", "set", id)
 			g.allStructureSets = true
 			return

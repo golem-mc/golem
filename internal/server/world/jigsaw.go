@@ -303,6 +303,9 @@ func buildJigsawStart(def *jigsawStructure, seed int64, cx, cz, minY, maxY int32
 // valid only after expand.
 // vanilla: Structure.GenerationStub
 func planJigsawStart(def *jigsawStructure, seed int64, cx, cz, minY, maxY int32, ground func(x, z int32) int32) (*jigsawStart, func()) {
+	if def == nil {
+		return nil, nil
+	}
 	rng := levelgen.NewLegacyRandom(0)
 	rng.SetLargeFeatureSeed(seed, cx, cz)
 	height := def.startHeight

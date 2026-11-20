@@ -6,6 +6,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/datapack"
 	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -55,6 +56,31 @@ func loadPackRegistries(dirs []string, skip func(file string, err error)) error 
 		return err
 	}
 	return loadPackEnchantments(dirs, skip)
+}
+
+// loadPackJigsaw hands the packs' structure, structure set, template pool and
+// processor list files, and their templates, to world generation.
+// vanilla: RegistryDataLoader.WORLD_REGISTRIES
+func loadPackJigsaw(levelDir string, dirs []string, skip func(file string, err error)) error {
+	var p world.PackWorldgen
+	for dir, out := range map[string]*map[string][]byte{
+		"worldgen/structure": &p.Structures, "worldgen/structure_set": &p.StructureSets,
+		"worldgen/template_pool": &p.TemplatePools, "worldgen/processor_list": &p.ProcessorLists,
+	} {
+		files, err := datapack.LoadResources(dirs, dir, skip)
+		if err != nil {
+			return err
+		}
+		*out = files
+	}
+	templates := &datapack.TemplateFiles{WorldDir: levelDir}
+	templates.SetPacks(dirs)
+	p.Template = func(id string) ([]byte, bool) {
+		data, ok, err := templates.ReadTemplate(id)
+		return data, ok && err == nil
+	}
+	world.ApplyPackWorldgen(p)
+	return nil
 }
 
 // loadPackBiomes decodes overridden built-in biome files into the climate and

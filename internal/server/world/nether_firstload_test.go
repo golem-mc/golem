@@ -5,18 +5,6 @@ import (
 	"testing"
 )
 
-// resetJigsawCaches forgets every loaded structure, pool graph and template,
-// so the next use parses them again. Only tests that run alone call it.
-func resetJigsawCaches() {
-	jigsawStructureLoaders = newJigsawStructureLoaders()
-	jigsawPoolGraphs.mu.Lock()
-	jigsawPoolGraphs.m = nil
-	jigsawPoolGraphs.mu.Unlock()
-	jigsawTemplateCache.mu.Lock()
-	jigsawTemplateCache.m = nil
-	jigsawTemplateCache.mu.Unlock()
-}
-
 // TestJigsawStructuresLoadOnDemand checks that a Nether structure parses
 // only the templates its own pools reach.
 func TestJigsawStructuresLoadOnDemand(t *testing.T) {

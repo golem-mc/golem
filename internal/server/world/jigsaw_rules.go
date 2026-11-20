@@ -234,7 +234,7 @@ type processorRuleJSON struct {
 func loadStructureProcessors(raw json.RawMessage, read func(string) ([]byte, error)) (procs []structureProcessor, protected bool, err error) {
 	var id string
 	if json.Unmarshal(raw, &id) == nil {
-		b, err := read("minecraft/worldgen/processor_list/" + strings.TrimPrefix(registry.Qualify(id), "minecraft:") + ".json")
+		b, err := read(jigsawDataPath("worldgen/processor_list", id, ".json"))
 		if err != nil {
 			return nil, false, err
 		}

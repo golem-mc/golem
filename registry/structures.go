@@ -1,12 +1,35 @@
 package registry
 
-import "slices"
+import (
+	"slices"
+	"sync/atomic"
+)
 
 // The structure registry and its tags (data/minecraft/tags/worldgen/structure
 // in the server jar). The client holds no copy, so the names never travel.
 
-// StructureExists reports whether the structure registry holds the id.
-func StructureExists(id string) bool { return slices.Contains(structureIDs, id) }
+// packStructures holds the ids of the structures the data packs add to the
+// registry.
+var packStructures atomic.Pointer[[]string]
+
+// ApplyPackStructures sets the structures the data packs add; nil clears them.
+func ApplyPackStructures(ids []string) {
+	if len(ids) == 0 {
+		packStructures.Store(nil)
+		return
+	}
+	packStructures.Store(&ids)
+}
+
+// StructureExists reports whether the structure registry holds the id,
+// whether built in or from a data pack.
+func StructureExists(id string) bool {
+	if slices.Contains(structureIDs, id) {
+		return true
+	}
+	p := packStructures.Load()
+	return p != nil && slices.Contains(*p, id)
+}
 
 // StructureTagMembers returns the structures a tag holds, nested tags
 // expanded, and false for a tag that does not exist.

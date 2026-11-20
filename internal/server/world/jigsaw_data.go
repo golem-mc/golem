@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"path"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -148,6 +148,10 @@ type jigsawStructure struct {
 	// pieces' boxes upward.
 	// vanilla: JigsawStructure.projectStartToHeightmap, useExpansionHack
 	projectStart, expansionHack bool
+	// biomes, step and adaptation are the settings fields as written; only a
+	// data pack's structure reads them, vanilla's are in levelgen.Structures.
+	biomes           json.RawMessage
+	step, adaptation string
 }
 
 // poolAlias is a pool alias binding, resolved once per start.
@@ -207,6 +211,17 @@ var jigsawZip = func() *zip.Reader {
 // name, on its first use. vanilla: StructureTemplateManager.get loads lazily.
 var jigsawStructureLoaders = newJigsawStructureLoaders()
 
+// resetJigsawCaches drops what was read under the previous data packs.
+func resetJigsawCaches() {
+	jigsawStructureLoaders = newJigsawStructureLoaders()
+	jigsawTemplateCache.mu.Lock()
+	jigsawTemplateCache.m = nil
+	jigsawTemplateCache.mu.Unlock()
+	jigsawPoolGraphs.mu.Lock()
+	jigsawPoolGraphs.m = nil
+	jigsawPoolGraphs.mu.Unlock()
+}
+
 func newJigsawStructureLoaders() map[string]func() *jigsawStructure {
 	m := map[string]func() *jigsawStructure{}
 	const prefix = "minecraft/worldgen/structure/"
@@ -223,6 +238,11 @@ func newJigsawStructureLoaders() map[string]func() *jigsawStructure {
 				err = l.drain(false)
 			}
 			if err != nil {
+				// A data pack's pool or template can be what fails.
+				if packJigsaw.Load() != nil {
+					slog.Warn("Structure " + file + " skipped: " + err.Error())
+					return nil
+				}
 				panic("jigsaw data: " + file + ": " + err.Error())
 			}
 			return s
@@ -326,7 +346,21 @@ func (l *jigsawLoader) drain(skipMissing bool) error {
 	return nil
 }
 
+// jigsawDataPath is the path of a resource of kind (e.g. "worldgen/template_pool",
+// "structure") by id, in the archive's layout.
+func jigsawDataPath(kind, id, ext string) string {
+	ns, name, _ := strings.Cut(registry.Qualify(id), ":")
+	return ns + "/" + kind + "/" + name + ext
+}
+
+// read returns the file the data packs have under the archive path name, else
+// the archive's.
 func (l *jigsawLoader) read(name string) ([]byte, error) {
+	if p := packJigsaw.Load(); p != nil {
+		if b, ok := p.read(name); ok {
+			return b, nil
+		}
+	}
 	f, err := l.zr.Open(name)
 	if err != nil {
 		return nil, err
@@ -345,7 +379,7 @@ func (l *jigsawLoader) structure(name string) (*jigsawStructure, error) {
 	}
 	var j struct {
 		Type             string            `json:"type"`
-		Biomes           string            `json:"biomes"`
+		Biomes           json.RawMessage   `json:"biomes"`
 		MaxDistance      int32             `json:"max_distance_from_center"`
 		Size             int               `json:"size"`
 		SpawnOverride    map[string]any    `json:"spawn_overrides"`
@@ -386,7 +420,8 @@ func (l *jigsawLoader) structure(name string) (*jigsawStructure, error) {
 	if err != nil {
 		return nil, err
 	}
-	def := &jigsawStructure{startPool: pool, pools: l.pools, maxDepth: j.Size, maxDistance: j.MaxDistance}
+	def := &jigsawStructure{startPool: pool, pools: l.pools, maxDepth: j.Size, maxDistance: j.MaxDistance,
+		biomes: j.Biomes, step: j.Step, adaptation: j.TerrainAdapt}
 	h := j.StartHeight
 	switch {
 	case h.Abs != nil:
@@ -476,7 +511,7 @@ func (l *jigsawLoader) pool(id string) (*jigsawPool, error) {
 	if p, ok := l.pools[id]; ok {
 		return p, nil
 	}
-	b, err := l.read("minecraft/worldgen/template_pool/" + strings.TrimPrefix(id, "minecraft:") + ".json")
+	b, err := l.read(jigsawDataPath("worldgen/template_pool", id, ".json"))
 	if err != nil {
 		return nil, err
 	}
@@ -616,7 +651,7 @@ func (l *jigsawLoader) parseTemplate(id string) (*jigsawTemplate, error) {
 	if id == absentTemplate {
 		return &jigsawTemplate{Template: &Template{Palettes: [][]TemplateBlock{nil}}, id: id}, nil
 	}
-	b, err := l.read(path.Join("minecraft/structure", strings.TrimPrefix(id, "minecraft:")+".nbt"))
+	b, err := l.read(jigsawDataPath("structure", id, ".nbt"))
 	if err != nil {
 		return nil, err
 	}

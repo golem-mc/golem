@@ -47,7 +47,7 @@ func (g *OverworldGenerator) loadStructureStart(loader structureStartLoader, tag
 	}
 	cx, _ := nbt.IntField(tag, "ChunkX")
 	cz, _ := nbt.IntField(tag, "ChunkZ")
-	return &structureStart{def: def, typ: g.structures.types[string(id)], chunkX: cx, chunkZ: cz, pieces: pieces, box: box}
+	return &structureStart{def: def, typ: g.structures.typeOf(string(id)), chunkX: cx, chunkZ: cz, pieces: pieces, box: box}
 }
 
 const structureProtosFile = "structure_starts.dat"
@@ -69,7 +69,7 @@ func (g *OverworldGenerator) OpenProtos(dir string) {
 	for _, entry := range starts.Items {
 		tag, _ := nbt.CompoundView(entry)
 		id, _ := nbt.Get[nbt.String](tag, "id")
-		if _, ok := g.structures.types[string(id)].(structureStartLoader); !ok {
+		if _, ok := g.structures.typeOf(string(id)).(structureStartLoader); !ok {
 			continue
 		}
 		cx, _ := nbt.IntField(tag, "ChunkX")

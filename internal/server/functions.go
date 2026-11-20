@@ -121,6 +121,9 @@ func (s *Server) openDataPacks() error {
 	if err := loadPackRegistries(s.packs.Dirs(), skip); err != nil {
 		return err
 	}
+	if err := loadPackJigsaw(s.templateFiles.WorldDir, s.packs.Dirs(), skip); err != nil {
+		return err
+	}
 	if err := loadPackTrades(s.packs.Dirs(), skip); err != nil {
 		return err
 	}
