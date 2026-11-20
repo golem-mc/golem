@@ -47,6 +47,8 @@ type dimension struct {
 	// of which mobs have been woken into the world. It is guarded by the
 	// server's mobsMu, the way the item entities are by itemsMu.
 	mobs *mobHerd
+	// spawnTuning is the plugin-set natural spawn limits and tick rates.
+	spawnTuning entity.SpawnTuning
 	// colliders belongs to each dimension/pass on the tick goroutine; grids
 	// and per-mover exclusions must never be queried concurrently.
 	colliders [collisionPassCount]mobCollisionWorld
