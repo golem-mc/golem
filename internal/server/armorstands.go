@@ -918,6 +918,7 @@ func (s *Server) tickArmorStands() {
 		if !ent.stand.Marker && !ent.stand.NoGravity {
 			state = ent.w.BlockAt(rules.BlockOf(ent.stand.X), rules.BlockOf(ent.stand.Y), rules.BlockOf(ent.stand.Z))
 		}
+		s.notePortalTouch(nil, ent.uuid, ent.w, ent.stand.X, ent.stand.Y, ent.stand.Z, state)
 		if kind, due := ent.portal.Step(state, rules.PortalTransitionTime, portalCooldownTicks); due {
 			travels = append(travels, armorStandPortalTravel{ent: ent, kind: kind})
 			continue

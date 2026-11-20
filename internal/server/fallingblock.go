@@ -223,6 +223,7 @@ func (s *Server) tickFallingBlocks() {
 			continue
 		}
 		state, kind, due := gate.stepPortal(it.w, it.fb.X, it.fb.Y, it.fb.Z, &it.portal, portalCooldownTicks)
+		s.notePortalTouch(nil, it.uuid, it.w, it.fb.X, it.fb.Y, it.fb.Z, state)
 		if !due {
 			if state == rules.EndGatewayState {
 				gatewayTouchAt(&gates, it.w, it.fb.X, it.fb.Y, it.fb.Z, gatewayTouch{
