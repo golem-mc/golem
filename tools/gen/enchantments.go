@@ -561,30 +561,6 @@ func (w *enchantmentWriter) targeted(entry obj, component string) (string, bool)
 		entry.str("enchanted"), entry.str("affected"), effect, enchCondition(requirements)), true
 }
 
-// enchantmentTagMembers lists the enchantments of an enchantment tag,
-// following the # references inside it, in the order the files list them: the
-// order WeightedRandom walks, and so the order the offers come out in.
-func enchantmentTagMembers(tagFiles map[string]obj, name string, seen []string) []string {
-	if slices.Contains(seen, name) {
-		fail("the enchantment tag %s contains itself", name)
-	}
-	seen = append(slices.Clone(seen), name)
-	file, ok := tagFiles[name]
-	if !ok {
-		fail("the enchantment tag %s has no file in the data pack", name)
-	}
-	var members []string
-	for _, v := range file.list("values") {
-		value := asStr(v, "a tag value")
-		if strings.HasPrefix(value, "#") {
-			members = append(members, enchantmentTagMembers(tagFiles, value[1:], seen)...)
-		} else {
-			members = append(members, qualified(value))
-		}
-	}
-	return members
-}
-
 // enchItems is the item registry's names, set by runEnchantments for the
 // match_tool check; nil skips it.
 var enchItems map[string]bool
@@ -627,10 +603,6 @@ func runEnchantments(e *env) error {
 	if err != nil {
 		return err
 	}
-	tagFiles, err := readAll("minecraft/tags/enchantment")
-	if err != nil {
-		return err
-	}
 	for _, name := range registered {
 		if _, ok := byName[name]; !ok {
 			return fmt.Errorf("%s is registered but the data pack has no file for it", name)
@@ -643,11 +615,6 @@ func runEnchantments(e *env) error {
 		}
 	}
 	slices.Sort(skippedFiles)
-
-	// The enchantments a vanilla enchanting table draws its offers from, in
-	// the order the tag names them: EnchantmentHelper walks the tag's stream
-	// and the first entries win the weighted draws.
-	enchantingTableOrder := enchantmentTagMembers(tagFiles, "minecraft:in_enchanting_table", nil)
 
 	w := &enchantmentWriter{codec: lootCodec{dp}, sounds: registeredSoundHolders(registries)}
 	var body []string
@@ -853,19 +820,6 @@ func runEnchantments(e *env) error {
 	f.WriteString("\nvar EnchantmentEffectsTable = []EnchantmentDef{\n")
 	for _, line := range body {
 		f.WriteString(line + "\n")
-	}
-	f.WriteString("}\n")
-	f.WriteString(`
-// EnchantingTableOrder is the minecraft:in_enchanting_table enchantment tag
-// resolved to its members, in the order the tag's own files list them: the
-// stream EnchantmentHelper.selectEnchantment walks when a table works out
-// what it offers, the order deciding who the weighted draws land on and so
-// the whole of what a table makes of a seed. It is not the registry's
-// alphabetical order and must not be sorted.
-var EnchantingTableOrder = []string{
-`)
-	for _, name := range enchantingTableOrder {
-		f.Printf("\t\"%s\",\n", name)
 	}
 	f.WriteString("}\n")
 	e.logf("enchantments: %d enchantments, %d files unregistered, %d effects left out",

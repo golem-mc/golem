@@ -107,6 +107,34 @@ func TestPackTagsOfSynchronizedRegistry(t *testing.T) {
 	}
 }
 
+func TestEnchantingTableIDsFollowsPackTags(t *testing.T) {
+	builtin := slices.Clone(EnchantingTableIDs())
+	if len(builtin) == 0 {
+		t.Fatal("default EnchantingTableIDs is empty")
+	}
+	unbreaking, _ := EnchantmentID("minecraft:unbreaking")
+	mending, _ := EnchantmentID("minecraft:mending")
+
+	applyForTest(t, PackTags{"minecraft:enchantment": {
+		"minecraft:in_enchanting_table": {Replace: true, Entries: []PackTagEntry{req("minecraft:unbreaking"), req("minecraft:mending")}},
+	}})
+	if got := EnchantingTableIDs(); !slices.Equal(got, []int32{unbreaking, mending}) {
+		t.Errorf("replaced EnchantingTableIDs = %v, want [%d %d]", got, unbreaking, mending)
+	}
+
+	ApplyPackTags(PackTags{"minecraft:enchantment": {
+		"minecraft:in_enchanting_table": {Replace: true, Entries: []PackTagEntry{}},
+	}})
+	if got := EnchantingTableIDs(); len(got) != 0 {
+		t.Errorf("empty EnchantingTableIDs = %v, want empty", got)
+	}
+
+	ApplyPackTags(nil)
+	if got := EnchantingTableIDs(); !slices.Equal(got, builtin) {
+		t.Errorf("restored EnchantingTableIDs = %v, want built-in order", got)
+	}
+}
+
 // A pack that touches a registry makes every built-in tag of it resolve from
 // the unflattened definitions; none may change unless the pack reaches it.
 func TestResolvingDefinitionsReproducesTheBuiltinTables(t *testing.T) {
