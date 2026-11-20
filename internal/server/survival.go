@@ -979,24 +979,6 @@ func (c *client) respawnPlacement(own *respawnPos, consumeAnchor bool) (respawnP
 		return c.worldSpawnFallback(false)
 	}
 
-	// A nether point is only an anchor's; another block drops it unless the
-	// point is forced.
-	if own.dim == world.NetherName {
-		place, answer := c.anchorRespawn(own, consumeAnchor)
-		switch answer {
-		case anchorHosted:
-			return place, c.srv.dimensionByName(world.NetherName), false
-		case anchorRefused:
-			return c.worldSpawnFallback(true)
-		case anchorAbsent:
-			// Neither anchor nor bed: vanilla drops the point.
-			// vanilla: ServerPlayer.findRespawnPositionAndUseSpawnBlock
-			if !own.forced {
-				return c.worldSpawnFallback(true)
-			}
-		}
-	}
-
 	// A point outside the world or in an unknown dimension uses the world
 	// spawn, keeping the point.
 	pointDim := c.srv.findDimension(own.dim)
@@ -1005,6 +987,20 @@ func (c *client) respawnPlacement(own *respawnPos, consumeAnchor bool) (respawnP
 	}
 	if !inWorld(float64(own.pos.X), float64(own.pos.Y), float64(own.pos.Z)) {
 		return c.worldSpawnFallback(false)
+	}
+
+	// An anchor point in a dimension where respawn anchors work.
+	// vanilla: RespawnAnchorBlock.canSetSpawn, ServerPlayer.findRespawnAndUseSpawnBlock
+	if pointDim.w.RespawnAnchorWorks() {
+		place, answer := c.anchorRespawn(pointDim.w, own, consumeAnchor)
+		switch answer {
+		case anchorHosted:
+			return place, pointDim, false
+		case anchorRefused:
+			return c.worldSpawnFallback(true)
+		case anchorAbsent:
+			// Not an anchor; fall through to bed or forced-point checks.
+		}
 	}
 	// The end has no bed or anchor, so an unforced point there has nothing to
 	// stand on. vanilla: ServerPlayer.findRespawnAndUseSpawnBlock

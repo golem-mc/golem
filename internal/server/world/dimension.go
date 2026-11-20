@@ -54,6 +54,14 @@ type dimensionShape struct {
 	defaultClock string
 	// dragonFight is the type's has_ender_dragon_fight.
 	dragonFight bool
+	// ambientLight is DimensionType.ambientLight.
+	ambientLight float32
+	// monsterBlockLightLimit is DimensionType.monsterSpawnBlockLightLimit.
+	monsterBlockLightLimit int
+	// monsterLightMin and monsterLightMax are the inclusive range of
+	// DimensionType.monsterSpawnLightTest (equal for a constant provider).
+	monsterLightMin int
+	monsterLightMax int
 }
 
 // dimensionShapes holds each dimension's shape by wire name, from vanilla's
@@ -61,9 +69,9 @@ type dimensionShape struct {
 // height of 128; the chunk format follows height, and a client sent fewer
 // sections than that drops the connection.
 var dimensionShapes = map[string]dimensionShape{
-	DimensionName: {minY: worldMinY, height: worldHeight, logicalHeight: worldHeight, skyLight: true, typ: DimensionType, defaultClock: OverworldClock},
-	NetherName:    {minY: 0, height: 256, logicalHeight: 128, skyLight: false, ceiling: true, fixedTime: true, typ: NetherType},
-	EndName:       {minY: 0, height: 256, logicalHeight: 256, skyLight: true, fixedTime: true, typ: EndType, defaultClock: TheEndClock, dragonFight: true},
+	DimensionName: {minY: worldMinY, height: worldHeight, logicalHeight: worldHeight, skyLight: true, typ: DimensionType, defaultClock: OverworldClock, monsterLightMin: 0, monsterLightMax: 7},
+	NetherName:    {minY: 0, height: 256, logicalHeight: 128, skyLight: false, ceiling: true, fixedTime: true, typ: NetherType, ambientLight: 0.1, monsterBlockLightLimit: 15, monsterLightMin: 7, monsterLightMax: 7},
+	EndName:       {minY: 0, height: 256, logicalHeight: 256, skyLight: true, fixedTime: true, typ: EndType, defaultClock: TheEndClock, dragonFight: true, monsterLightMin: 15, monsterLightMax: 15},
 }
 
 // NewDimensionWorld builds the nether or end attached to the world under dir:
@@ -291,27 +299,40 @@ func (w *World) VoidY() int32 {
 	return w.dim.minY - 64
 }
 
-// FastLava reports the dimension type's minecraft:gameplay/fast_lava (the
-// nether only), which the fluid current reads: nether lava pushes a floating
-// body three times as hard.
+// FastLava reports the dimension type's minecraft:gameplay/fast_lava, which
+// the fluid current reads: nether lava pushes a floating body three times as
+// hard.
+// vanilla: EnvironmentAttributes.FAST_LAVA
 func (w *World) FastLava() bool {
-	return w.dimName == NetherName
+	return w.environmentGlobal(envFastLava) != 0
 }
 
-// WaterEvaporates reports the WATER_EVAPORATES attribute (the nether only),
-// which a bucket's pour checks.
+// WaterEvaporates reports the WATER_EVAPORATES attribute, which a bucket's
+// pour, ice melting, sponge drying and dripstone mud check.
 // vanilla: BucketItem.emptyContents, EnvironmentAttributes.WATER_EVAPORATES
 func (w *World) WaterEvaporates() bool {
-	return w.dimName == NetherName
+	return w.environmentGlobal(envWaterEvaporates) != 0
 }
 
-// RespawnAnchorWorks reports the RESPAWN_ANCHOR_WORKS attribute (the nether
-// only); elsewhere a charged anchor's use explodes and an uncharged one does
-// nothing.
+// RespawnAnchorWorks reports the RESPAWN_ANCHOR_WORKS attribute; where false,
+// a charged anchor's use explodes and an uncharged one does nothing.
 // vanilla: RespawnAnchorBlock.canSetSpawn,
 // EnvironmentAttributes.RESPAWN_ANCHOR_WORKS
 func (w *World) RespawnAnchorWorks() bool {
-	return w.dimName == NetherName
+	return w.environmentGlobal(envRespawnAnchorWorks) != 0
+}
+
+// CanStartRaid reports the CAN_START_RAID attribute.
+// vanilla: Raids.createOrExtendRaid, EnvironmentAttributes.CAN_START_RAID
+func (w *World) CanStartRaid() bool {
+	return w.environmentGlobal(envCanStartRaid) != 0
+}
+
+// MonsterSpawnLight returns the dimension type's monster_spawn_block_light_limit
+// and monster_spawn_light_level inclusive [min, max] range.
+// vanilla: DimensionType.monsterSpawnBlockLightLimit, monsterSpawnLightTest
+func (w *World) MonsterSpawnLight() (blockLimit, lightMin, lightMax int) {
+	return w.dim.monsterBlockLightLimit, w.dim.monsterLightMin, w.dim.monsterLightMax
 }
 
 // HasChunk reports whether the chunk is in memory or saved, without generating

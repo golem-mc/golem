@@ -145,13 +145,12 @@ const (
 	anchorRefused
 )
 
-// anchorRespawn resolves a nether spawn point at an anchor: the first free
+// anchorRespawn resolves a spawn point at an anchor in w: the first free
 // cell around it, facing it, spending a charge when the respawn consumes
 // its block and the point is not forced. No charges, or no free cell,
 // refuses without spending.
 // vanilla: ServerPlayer.findRespawnAndUseSpawnBlock
-func (c *client) anchorRespawn(own *respawnPos, consume bool) (respawnPlacement, anchorAnswer) {
-	w := c.srv.dimensionByName(world.NetherName).w
+func (c *client) anchorRespawn(w *world.World, own *respawnPos, consume bool) (respawnPlacement, anchorAnswer) {
 	// Hold the chunks before reading the anchor: BlockAt reads air for an
 	// unloaded chunk, so an anchor unloaded by walking away would look gone.
 	// The walk reaches one cell out.

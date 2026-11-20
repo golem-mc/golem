@@ -94,7 +94,7 @@ func renderMapFace(w *World, data *MapData, holderX, holderZ float64, due func(i
 	playerImgX := int(math.Floor(holderX-float64(centerX)))/scale + 64
 	playerImgY := int(math.Floor(holderZ-float64(centerZ)))/scale + 64
 	radius := MapSide / scale
-	ceiling := w.Name() == NetherName
+	ceiling := w.HasCeiling()
 	if ceiling {
 		radius /= 2
 	}
