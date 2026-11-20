@@ -5,7 +5,6 @@ import (
 	"maps"
 	"math"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -110,13 +109,11 @@ func (e pluginEntity) LaunchProjectile(t registry.EntityType, v plugin.Vec3) (pl
 // event fires.
 // vanilla: Projectile.spawnProjectile (the item is set in the factory callback)
 func (e pluginEntity) LaunchTippedArrow(potion plugin.Key, v plugin.Vec3) (plugin.Arrow, error) {
-	id, ok := registry.PotionID(potion.String())
+	item, ok := tippedArrowItem(potion)
 	if !ok {
 		return nil, errors.New("plugin: unknown potion " + potion.String())
 	}
-	stack := protocol.ItemStack{ItemID: int32(registry.ItemTippedArrow), Count: 1}
-	stack.SetPotion(id)
-	proj, err := e.launch(registry.EntityTypeArrow, v, nbt.Compound{"item": registry.StackTag(stack)})
+	proj, err := e.launch(registry.EntityTypeArrow, v, item)
 	if err != nil {
 		return nil, err
 	}

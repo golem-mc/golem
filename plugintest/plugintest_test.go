@@ -511,3 +511,61 @@ func TestTippedArrowAndLaunchRefusal(t *testing.T) {
 		t.Fatalf("ProjectileLaunchEvent fired %d times, want 3", launched.Load())
 	}
 }
+
+// vanilla: Arrow.setPotionContents
+func TestArrowSetPotion(t *testing.T) {
+	srv := plugintest.Start(t, plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}))
+	srv.HoldTicks()
+	bob := srv.Join("Bob")
+
+	launch := func(kind registry.EntityType) plugin.Arrow {
+		var a plugin.Arrow
+		srv.Run(func() {
+			p, err := bob.Handle().LaunchProjectile(kind, plugin.Vec3{})
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			a, _ = p.(plugin.Arrow)
+		})
+		return a
+	}
+	poison := plugin.Key{Namespace: "minecraft", Path: "poison"}
+
+	arrow := launch(registry.EntityTypeArrow)
+	if arrow == nil {
+		t.Fatal("a launched arrow is not a plugin.Arrow")
+	}
+	var set, bad bool
+	var potion plugin.Key
+	var tipped, tippedAfterBad bool
+	srv.Run(func() {
+		set = arrow.SetPotion(poison)
+		potion, _, tipped = arrow.Potion()
+	})
+	if !set || !tipped || potion.String() != "minecraft:poison" {
+		t.Fatalf("SetPotion(poison) = %v, Potion() = %v %v", set, potion, tipped)
+	}
+
+	plain := launch(registry.EntityTypeArrow)
+	srv.Run(func() {
+		bad = plain.SetPotion(plugin.Key{Namespace: "minecraft", Path: "nonsense"})
+		_, _, tippedAfterBad = plain.Potion()
+	})
+	if bad || tippedAfterBad {
+		t.Fatalf("unknown potion: SetPotion = %v, tipped = %v", bad, tippedAfterBad)
+	}
+
+	for _, kind := range []registry.EntityType{registry.EntityTypeSpectralArrow, registry.EntityTypeTrident} {
+		a := launch(kind)
+		if a == nil {
+			t.Logf("entity type %v is not an Arrow handle", kind)
+			continue
+		}
+		var ok bool
+		srv.Run(func() { ok = a.SetPotion(poison) })
+		if ok {
+			t.Fatalf("SetPotion succeeded on entity type %v", kind)
+		}
+	}
+}
