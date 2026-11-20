@@ -628,7 +628,7 @@ func TestWorldKeepsChunksItCannotUpgrade(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
 			rx, rz := regionCoords(pos)
-			path := regionFilePath(dimensionDir(dir, DimensionName), rx, rz)
+			path := regionFilePath(DimensionDir(dir, DimensionName), rx, rz)
 			encoded, err := nbt.Encode("", tc.root)
 			if err != nil {
 				t.Fatal(err)

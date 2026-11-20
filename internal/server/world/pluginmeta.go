@@ -20,7 +20,7 @@ type PluginMeta struct {
 // ReadPluginMeta reads the dimension's plugin_world.dat under the world in dir,
 // before the world is opened; ok is false when the dimension is new.
 func ReadPluginMeta(dir, name string) (m PluginMeta, ok bool) {
-	data, err := readSavedData(dimensionDir(dir, name), pluginMetaFile)
+	data, err := readSavedData(DimensionDir(dir, name), pluginMetaFile)
 	if err != nil {
 		return m, false
 	}
