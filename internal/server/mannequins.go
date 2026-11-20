@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -182,13 +183,26 @@ type mannequinKnockback struct {
 }
 
 func (s *Server) hurtMannequinBy(ent *mannequinEntity, amount float64, damageType registry.DamageType, causeID, directID int32, at *[3]float64, creative bool, shove *mannequinKnockback) bool {
+	_, landed := s.hurtMannequinFx(ent, amount, damageType, causeID, directID, at, creative, shove)
+	return landed
+}
+
+// hurtMannequinFx is hurtMannequinBy that also returns the hurt it told.
+func (s *Server) hurtMannequinFx(ent *mannequinEntity, amount float64, damageType registry.DamageType, causeID, directID int32, at *[3]float64, creative bool, shove *mannequinKnockback) (mannequinHurt, bool) {
 	s.mannequinsMu.Lock()
 	fx, landed := s.hurtMannequinLocked(ent, amount, damageType, causeID, directID, at, creative, shove)
 	s.mannequinsMu.Unlock()
 	if landed {
 		s.tellMannequinHurt(fx)
 	}
-	return landed
+	return fx, landed
+}
+
+// mannequinVictim is the mannequin as a player_hurt_entity victim.
+func (s *Server) mannequinVictim(ent *mannequinEntity, fx mannequinHurt, attacker, direct func() rules.LootEntity, indirect bool) advancement.Entity {
+	return advancement.Entity{Type: mannequinEntityID, Loot: func() rules.LootEntity {
+		return rules.LootEntity{Type: mannequinEntityID, ScoreHolder: ent.uuid.String()}
+	}, Blow: &advancement.Blow{Dealt: fx.dealt, Taken: fx.taken, Type: fx.typ, Attacker: attacker, Direct: direct, Indirect: indirect}}
 }
 
 type mannequinHurt struct {
@@ -200,6 +214,8 @@ type mannequinHurt struct {
 	at                *[3]float64
 	x, y, z           float64
 	softened, died    bool
+	// dealt is the blow before armour, taken the health it removed.
+	dealt, taken float64
 }
 
 // hurtMannequinLocked changes the body; tellMannequinHurt sends after unlocking.
@@ -208,6 +224,7 @@ func (s *Server) hurtMannequinLocked(ent *mannequinEntity, amount float64, damag
 	if m.InvulnerableTo(damageType, creative) {
 		return mannequinHurt{}, false
 	}
+	before := m.Health
 	landed, softened, died := m.HurtBy(amount, damageType, damageType.InTag(registry.DamageTypeTagIDBypassesCooldown))
 	if !landed {
 		return mannequinHurt{}, false
@@ -220,7 +237,7 @@ func (s *Server) hurtMannequinLocked(ent *mannequinEntity, amount float64, damag
 	if died {
 		metadata = dyingMetadataPayload(m.ID)
 	}
-	return mannequinHurt{w: ent.w, watchers: trackedWatchers(ent.tracked), metadata: metadata, id: m.ID, cause: causeID, direct: directID, typ: damageType, at: at, x: m.X, y: m.Y, z: m.Z, softened: softened, died: died}, true
+	return mannequinHurt{w: ent.w, watchers: trackedWatchers(ent.tracked), metadata: metadata, id: m.ID, cause: causeID, direct: directID, typ: damageType, at: at, x: m.X, y: m.Y, z: m.Z, softened: softened, died: died, dealt: amount, taken: before - m.Health}, true
 }
 
 func (s *Server) tellMannequinHurt(fx mannequinHurt) {
@@ -275,11 +292,13 @@ func (c *client) attackMannequin(target int32) bool {
 	}
 	pos := c.player.Position()
 	extra := rules.AttackKnockback(rules.EnchantedKnockback(held, &blow.context, c.attackKnockbackBase()), blow.feedback.Knockback)
-	if !s.hurtMannequinBy(ent, blow.damage, blow.context.DamageType, c.player.EntityID+1, c.player.EntityID+1, nil,
-		c.player.GameMode() == protocol.GameModeCreative, &mannequinKnockback{x: pos.X, z: pos.Z, yaw: float64(pos.Yaw), extra: extra}) {
+	fx, landed := s.hurtMannequinFx(ent, blow.damage, blow.context.DamageType, c.player.EntityID+1, c.player.EntityID+1, nil,
+		c.player.GameMode() == protocol.GameModeCreative, &mannequinKnockback{x: pos.X, z: pos.Z, yaw: float64(pos.Yaw), extra: extra})
+	if !landed {
 		c.attackSound(soundAttackNoDamage)
 		return true
 	}
+	c.hurtEntityAdvancements(s.mannequinVictim(ent, fx, c.LootEntity, c.LootEntity, false))
 	c.endSprintAfterKnockback(extra)
 	w := c.theWorld()
 	if blow.feedback.Sweep {
