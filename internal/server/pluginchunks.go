@@ -5,6 +5,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
+	"github.com/golem-mc/golem/registry"
 	"math"
 )
 
@@ -189,4 +190,48 @@ func (w pluginWorld) StrikeLightning(pos plugin.Vec3, effectOnly bool) plugin.En
 		return w.host.pluginEntityOf(e)
 	}
 	return nil
+}
+
+// SetBiome writes b into the 4x4x4 biome cell holding p and resends the
+// chunk's biomes to the players tracking it.
+// vanilla: ChunkAccess.fillBiomesFromNoise, ChunkMap.resendBiomesForChunks
+func (w pluginWorld) SetBiome(p plugin.BlockPos, b registry.Biome) bool {
+	if !pluginPositionFits(p) || b < 0 || b >= registry.BiomeCount ||
+		p.Y < w.MinY() || p.Y >= w.MinY()+w.Height() || !rules.InWorldBoundsHorizontal(int32(p.X), int32(p.Z)) {
+		return false
+	}
+	box := world.BiomeBox{MinX: int32(p.X) &^ 3, MinY: int32(p.Y) &^ 3, MinZ: int32(p.Z) &^ 3}
+	box.MaxX, box.MaxY, box.MaxZ = box.MinX, box.MinY, box.MinZ
+	_, chunks, ok := w.dim.w.FillBiomes(box, int32(b), nil)
+	if ok {
+		w.srv.resendBiomes(w.dim.w, chunks)
+	}
+	return ok
+}
+
+// Regenerate replaces the loaded chunk's blocks and biomes with what the
+// world's generator makes of it, and sends the difference to its viewers.
+// Block entities and entities of the old terrain are not regenerated.
+func (w pluginWorld) Regenerate(pos plugin.ChunkPos) bool {
+	p, ok := ticketPos(pos)
+	if !ok {
+		return false
+	}
+	lw, s := w.dim.w, w.srv
+	changes, biomes, ok := lw.Regenerate(p)
+	if !ok {
+		return false
+	}
+	if biomes {
+		s.resendBiomes(lw, []world.ChunkPos{p})
+	}
+	applied := lw.SetBlocks(changes)
+	for _, a := range applied {
+		s.replaceBlockEntity(lw, a.X, a.Y, a.Z, a.State, lw.BlockAt(a.X, a.Y, a.Z))
+		s.markChanged(lw, a.X, a.Y, a.Z)
+	}
+	if len(applied) > 0 {
+		s.relightAreaAsync(lw, p.X<<4, p.Z<<4, p.X<<4|15, p.Z<<4|15)
+	}
+	return true
 }
