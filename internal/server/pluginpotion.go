@@ -108,7 +108,7 @@ func potionHandle(br thrownBreak) pluginPotion {
 	if br.kind == entity.ThrownLingeringPotion {
 		typ = registry.EntityTypeLingeringPotion
 	}
-	return pluginPotion{pluginRemoved: pluginRemoved{pluginEntity: pluginEntity{id: br.uuid}, typ: typ}, owner: br.owner}
+	return pluginPotion{id: br.uuid, typ: typ, owner: br.owner}
 }
 
 func (p pluginPotion) Shooter() (plugin.Entity, bool) {
