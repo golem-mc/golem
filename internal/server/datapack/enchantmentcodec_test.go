@@ -212,3 +212,17 @@ func TestDecodeEnchantmentLootRequirements(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeEnchantmentPositionSourceNames(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		typ string
+		ok  bool
+	}{{"entity_position", true}, {"in_bounding_box", true}, {"minecraft:entity_position", false}, {"minecraft:in_bounding_box", false}} {
+		raw := fmt.Sprintf(`{"supported_items":"minecraft:trident","max_level":3,"effects":{"minecraft:post_piercing_attack":[{"effect":{"type":"minecraft:spawn_particles","particle":"minecraft:flame","horizontal_position":{"type":%q},"vertical_position":{"type":%q},"horizontal_velocity":{},"vertical_velocity":{}}}]}}`, tc.typ, tc.typ)
+		_, dropped, err := DecodeEnchantment("example:pos", []byte(raw))
+		if (err == nil && len(dropped) == 0) != tc.ok {
+			t.Errorf("%s: err %v, dropped %v, want ok=%t", tc.typ, err, dropped, tc.ok)
+		}
+	}
+}

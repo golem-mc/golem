@@ -62,6 +62,8 @@ func (c *client) inventoryChangedAdvancements(progress *advancement.Progress) {
 	c.player.Inventory(func(pi *player.Inventory) {
 		slots := pi.Slots[player.ArmorSlot:]
 		changedItems := c.changedScratch[:0]
+		var changedStacks []protocol.ItemStack
+		wantStacks := progress.TestsStacks()
 		changed = len(slots) != len(c.lastInventory)
 		for i, stack := range slots {
 			if i < len(c.lastInventory) {
@@ -73,6 +75,9 @@ func (c *client) inventoryChangedAdvancements(progress *advancement.Progress) {
 			changed = true
 			if !stack.Empty() {
 				changedItems = append(changedItems, stack.ItemID)
+				if wantStacks {
+					changedStacks = append(changedStacks, stack)
+				}
 			}
 		}
 		if changed {
@@ -81,6 +86,14 @@ func (c *client) inventoryChangedAdvancements(progress *advancement.Progress) {
 			inv.Changed = changedItems
 			c.heldScratch = inv.Held
 			c.changedScratch = inv.Changed
+			if wantStacks {
+				inv.ChangedStacks = changedStacks
+				for _, stack := range slots {
+					if !stack.Empty() {
+						inv.Stacks = append(inv.Stacks, stack)
+					}
+				}
+			}
 		}
 	})
 	if changed {
@@ -267,7 +280,7 @@ func (c *client) tickLocationAdvancements() {
 
 // consumedItemAdvancements fires consume_item for a finished eat or drink.
 // vanilla: Consumable.onConsume
-func (c *client) consumedItemAdvancements(item int32) {
+func (c *client) consumedItemAdvancements(item protocol.ItemStack) {
 	if progress := c.advancements.Load(); progress != nil {
 		progress.ConsumeItem(item, time.Now())
 	}
@@ -275,9 +288,9 @@ func (c *client) consumedItemAdvancements(item int32) {
 
 // enchantedItemAdvancements fires enchanted_item for a successful table
 // press. vanilla: EnchantmentMenu.clickMenuButton
-func (c *client) enchantedItemAdvancements() {
+func (c *client) enchantedItemAdvancements(item protocol.ItemStack, levels int32) {
 	if progress := c.advancements.Load(); progress != nil {
-		progress.EnchantedItem(time.Now())
+		progress.EnchantedItem(item, levels, time.Now())
 	}
 }
 
@@ -511,7 +524,7 @@ func (c *client) sleptInBedAdvancements() {
 
 // shotCrossbowAdvancements fires shot_crossbow for a crossbow's shot.
 // vanilla: CrossbowItem.performShooting
-func (c *client) shotCrossbowAdvancements(item int32) {
+func (c *client) shotCrossbowAdvancements(item protocol.ItemStack) {
 	if progress := c.advancements.Load(); progress != nil {
 		progress.ShotCrossbow(item, time.Now())
 	}
@@ -535,9 +548,11 @@ func (c *client) constructBeaconAdvancements(level int32) {
 
 // brewedPotionAdvancements fires brewed_potion for potions taken from a
 // stand. vanilla: BrewingStandMenu.PotionSlot.onTake
-func (c *client) brewedPotionAdvancements() {
+func (c *client) brewedPotionAdvancements(potions []int32) {
 	if progress := c.advancements.Load(); progress != nil {
-		progress.BrewedPotion(time.Now())
+		for _, potion := range potions {
+			progress.BrewedPotion(potion, time.Now())
+		}
 	}
 }
 
@@ -973,7 +988,7 @@ func startedRidingAdvancements(riders []*client) {
 
 // usedTotemAdvancements fires used_totem for the item that saved the
 // player. vanilla: LivingEntity.checkTotemDeathProtection
-func (c *client) usedTotemAdvancements(item int32) {
+func (c *client) usedTotemAdvancements(item protocol.ItemStack) {
 	if progress := c.advancements.Load(); progress != nil {
 		progress.UsedTotem(item, time.Now())
 	}
@@ -1043,9 +1058,9 @@ func (c *client) targetHitAdvancements(signal int32, hit [3]float64) {
 // woreItemAdvancements fires item_durability_changed for wear put on the
 // player's item. Call it with no lock held.
 // vanilla: ItemStack.applyDamage
-func (c *client) woreItemAdvancements(item int32) {
+func (c *client) woreItemAdvancements(item protocol.ItemStack, durability, delta int32) {
 	if progress := c.advancements.Load(); progress != nil {
-		progress.ItemDurabilityChanged(item, c.advancementRider(), time.Now())
+		progress.ItemDurabilityChanged(item, durability, delta, c.advancementRider(), time.Now())
 	}
 }
 
@@ -1109,7 +1124,7 @@ func (s *Server) crafterRecipeAdvancements(w *world.World, x, y, z int32, craft 
 
 // usingItemAdvancements fires using_item for a tick of using item.
 // vanilla: LivingEntity.updatingUsingItem
-func (c *client) usingItemAdvancements(item int32) {
+func (c *client) usingItemAdvancements(item protocol.ItemStack) {
 	if progress := c.advancements.Load(); progress != nil {
 		progress.UsingItem(item, c.lookedAtType, time.Now())
 	}

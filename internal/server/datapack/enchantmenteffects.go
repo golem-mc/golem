@@ -271,12 +271,12 @@ func particleAxis(pos, vel obj) registry.EnchParticleAxis {
 	unknownKeys(vel, "a velocity source", "movement_scale", "base")
 	out := registry.EnchParticleAxis{Offset: float32(optNum(pos, "offset", 0)), Scale: float32(optNum(pos, "scale", 1)),
 		Movement: float32(optNum(vel, "movement_scale", 0)), Base: floatRange(vel["base"])}
-	switch registry.Qualify(requireStr(pos, "type")) {
-	case "minecraft:entity_position":
+	switch requireStr(pos, "type") {
+	case "entity_position":
 		if out.Scale != 1 {
 			fail("Cannot scale an entity position coordinate source")
 		}
-	case "minecraft:in_bounding_box":
+	case "in_bounding_box":
 		out.InBox = true
 	default:
 		fail("position source %s", requireStr(pos, "type"))

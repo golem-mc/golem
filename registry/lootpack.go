@@ -12,6 +12,8 @@ type lootState struct {
 	tables     map[string]LootTable
 	predicates map[string]LootCondition
 	modifiers  map[string]LootFunction
+	// hidden holds the built-in table names a pack's filter hides.
+	hidden map[string]bool
 }
 
 var packLoot atomic.Pointer[lootState]
@@ -28,11 +30,26 @@ func (LootReferenceCondition) isLootCondition() {}
 // by name and makes the predicates and item modifiers available to
 // FindPredicate and FindItemModifier. Nil maps clear the layer.
 func ApplyPackLoot(tables map[string]LootTable, predicates map[string]LootCondition, modifiers map[string]LootFunction) {
-	if len(tables) == 0 && len(predicates) == 0 && len(modifiers) == 0 {
+	ApplyPackLootHiding(tables, predicates, modifiers, nil)
+}
+
+// ApplyPackLootHiding is ApplyPackLoot with the built-in tables in hidden
+// absent, as if their files did not exist.
+func ApplyPackLootHiding(tables map[string]LootTable, predicates map[string]LootCondition, modifiers map[string]LootFunction, hidden map[string]bool) {
+	if len(tables) == 0 && len(predicates) == 0 && len(modifiers) == 0 && len(hidden) == 0 {
 		packLoot.Store(nil)
 		return
 	}
-	packLoot.Store(&lootState{tables: tables, predicates: predicates, modifiers: modifiers})
+	packLoot.Store(&lootState{tables: tables, predicates: predicates, modifiers: modifiers, hidden: hidden})
+}
+
+// BuiltinLootTableNames lists the built-in loot tables, in no order.
+func BuiltinLootTableNames() []string {
+	names := make([]string, 0, len(LootTables))
+	for name := range LootTables {
+		names = append(names, name)
+	}
+	return names
 }
 
 // FindItemModifier returns the item modifier a data pack defines under the
@@ -117,7 +134,9 @@ func LootTableNames() []string {
 	st := packLoot.Load()
 	names := make([]string, 0, len(LootTables))
 	for name := range LootTables {
-		names = append(names, name)
+		if st == nil || !st.hidden[name] {
+			names = append(names, name)
+		}
 	}
 	if st != nil {
 		for name := range st.tables {

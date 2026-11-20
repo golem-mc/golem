@@ -147,7 +147,7 @@ func (c *client) handleContainerButtonClick(r *protocol.Reader) error {
 		return nil
 	}
 	c.awardStat(player.Custom(registry.CustomStatEnchantItem), 1)
-	c.enchantedItemAdvancements()
+	c.enchantedItemAdvancements(enchanted, plan.Cost)
 
 	// The client cannot predict the enchantment, so both slots are corrected.
 	var sendErr error

@@ -204,7 +204,12 @@ func (r *removedBody) handle() plugin.Entity {
 type pluginRemoved struct {
 	pluginEntity
 	typ registry.EntityType
+	// at is where the body was, when the handle is built with a place.
+	at plugin.Location
 }
+
+func (r pluginRemoved) Location() plugin.Location { return r.at }
+func (r pluginRemoved) Pos() plugin.Vec3          { return r.at.Pos }
 
 func (r pluginRemoved) Type() registry.EntityType { return r.typ }
 

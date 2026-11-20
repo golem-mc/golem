@@ -122,7 +122,7 @@ func TestDecodeAdvancementIgnoresWhatVanillaIgnoresAndNeverFiresWhatItCannotTest
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, wantUnmodelled := range []bool{false, true, false, false} {
+	for i, wantUnmodelled := range []bool{false, false, false, false} {
 		if got := adv.Criteria[i].Unmodelled; got != wantUnmodelled {
 			t.Errorf("criterion %s unmodelled = %v, want %v", adv.Criteria[i].Name, got, wantUnmodelled)
 		}
@@ -140,7 +140,7 @@ func TestStructureLocationPredicatesDecode(t *testing.T) {
 		{"empty", `"structures":[]`, []string{}, false},
 		{"tag", `"structures":"#minecraft:eye_of_ender_located"`, []string{"minecraft:stronghold"}, false},
 		{"combined", `"structures":"fortress","biomes":"plains"`, []string{"minecraft:fortress"}, false},
-		{"unsupported", `"structures":"fortress","light":{"light":7}`, nil, true},
+		{"light is modelled", `"structures":"fortress","light":{"light":7}`, nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := `{"criteria":{"here":{"trigger":"minecraft:location","conditions":{"player":[{
@@ -301,6 +301,36 @@ func TestDecodeAdvancementReadsStyledTextAndIconComponents(t *testing.T) {
 	}
 	if adv2.Display == nil || adv2.Display.TitleText == nil || adv2.Display.DescriptionText == nil || adv2.Display.IconStack != nil {
 		t.Errorf("list display = %+v, want TitleText, DescriptionText and nil IconStack", adv2.Display)
+	}
+}
+
+func TestDecodeAdvancementReadsItemPredicatesLevelsDurabilityAndPotions(t *testing.T) {
+	adv, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
+		"a":{"trigger":"minecraft:inventory_changed","conditions":{"items":[{"items":"minecraft:stick","count":2}]}},
+		"b":{"trigger":"minecraft:item_durability_changed","conditions":{"durability":{"max":1},"delta":-1}},
+		"c":{"trigger":"minecraft:enchanted_item","conditions":{"levels":{"min":30}}},
+		"d":{"trigger":"minecraft:brewed_potion","conditions":{"potion":{"potions":"minecraft:swiftness"}}},
+		"e":{"trigger":"minecraft:brewed_potion","conditions":{"potion":{"effects":{}}}},
+		"g":{"trigger":"minecraft:brewed_potion","conditions":{"potion":{"potions":"#minecraft:tradeable"}}},
+		"f":{"trigger":"minecraft:killed_by_arrow","conditions":{"fired_from_weapon":{"items":"minecraft:bow","count":2}}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := adv.Criteria
+	if c[0].Unmodelled || len(c[0].ItemTests) != 1 || c[0].ItemTests[0] == nil {
+		t.Errorf("count predicate: %+v", c[0])
+	}
+	if c[1].Unmodelled || !c[1].Durability.Matches(1) || c[1].Durability.Matches(2) || !c[1].Delta.Matches(-1) || c[1].Delta.Matches(0) {
+		t.Errorf("durability criterion: %+v", c[1])
+	}
+	if c[2].Unmodelled || !c[2].Levels.Matches(30) || c[2].Levels.Matches(29) {
+		t.Errorf("levels criterion: %+v", c[2])
+	}
+	if want := registry.MustPotion("minecraft:swiftness"); c[3].Unmodelled || !reflect.DeepEqual(c[3].Potions, []int32{want}) {
+		t.Errorf("potion criterion: %+v", c[3])
+	}
+	if !c[4].Unmodelled || !c[5].Unmodelled || !c[6].Unmodelled || c[6].Potions != nil {
+		t.Error("an effects predicate, and a full predicate on a trigger that tests IDs only, stay unmodelled")
 	}
 }
 

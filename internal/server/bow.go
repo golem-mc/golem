@@ -108,11 +108,11 @@ func (c *client) tickBowDraw() {
 		return
 	}
 	// vanilla: LivingEntity.updatingUsingItem
-	var inHand int32
+	var inHand protocol.ItemStack
 	c.player.Inventory(func(inv *player.Inventory) {
-		inHand = inv.Slots[rules.SlotOfHand(inv, c.bow.hand)].ItemID
+		inHand = inv.Slots[rules.SlotOfHand(inv, c.bow.hand)]
 	})
-	if inHand != c.bow.item {
+	if inHand.ItemID != c.bow.item {
 		c.bow = bowSession{}
 		c.bowMu.Unlock()
 		c.updateAppearance(func(a *player.Appearance) { a.Eating = false })
@@ -122,7 +122,7 @@ func (c *client) tickBowDraw() {
 	hand, item, ticks := c.bow.hand, c.bow.item, c.bow.ticks
 	defer func() {
 		if isSpyglassItem(item) {
-			c.usingItemAdvancements(item)
+			c.usingItemAdvancements(inHand)
 		}
 	}()
 	// vanilla: LivingEntity.completeUsingItem

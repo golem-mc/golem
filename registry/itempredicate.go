@@ -96,7 +96,7 @@ func DecodeItemPredicate(lock nbt.Compound) ItemPredicate {
 			default:
 				name := Qualify(key)
 				// A type or value that does not read drops its entry.
-				if test, ok := decodeComponentPredicate(name, value); ok {
+				if test, _, ok := DecodeComponentPredicate(name, value); ok {
 					pred.tests = append(pred.tests, test)
 				}
 			}

@@ -902,7 +902,7 @@ func killingBlow(k *client, m *entity.Mob) *advancement.Blow {
 	attacker := func() rules.LootEntity { return player }
 	if direct := m.BlowDirectType(); m.HurtByPlayer() && direct != "" {
 		typ := registry.DamageTypeArrow
-		if direct == "minecraft:trident" {
+		if id, _ := registry.EntityTypeID(direct); registry.EntityType(id) == registry.EntityTypeTrident {
 			typ = registry.DamageTypeTrident
 		}
 		thrown := rules.LootEntity{Type: direct}
