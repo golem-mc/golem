@@ -33,6 +33,12 @@ type behaviour interface {
 	step(b *bot, tick int) (x, y, z float64, yaw float32, onGround, moved bool)
 }
 
+// observer is a behaviour that also sees every play packet, on the bot's
+// reading goroutine.
+type observer interface {
+	observe(id int32, data []byte)
+}
+
 // bot is one offline-mode client in the play state.
 type bot struct {
 	name     string
@@ -220,6 +226,9 @@ func (b *bot) run() {
 		b.packets.Add(1)
 		if b.trace {
 			b.traceOf(id, data)
+		}
+		if o, ok := b.behave.(observer); ok {
+			o.observe(id, data)
 		}
 		if b.idCounts != nil {
 			b.mu.Lock()
