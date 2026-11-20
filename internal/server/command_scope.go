@@ -328,16 +328,16 @@ func (ws worldScope) RuleChanged(id string) {
 	s := ws.srv
 	// vanilla: MinecraftServer.onGameRuleChanged, for /gamerule, the Set Game
 	// Rule packet and the management API alike
-	if r, ok := world.RuleByID(id); ok && !r.FeatureGated {
-		s.mgmt.GameRuleChanged(s.managementRule(r))
+	if !ws.ownsRules() {
+		if r, ok := world.RuleByID(id); ok && !r.FeatureGated {
+			s.mgmt.GameRuleChanged(s.managementRule(r))
+		}
 	}
 	rules := ws.rules()
 	audience := ws.ruleAudience()
 	switch world.RuleIndex(id) {
 	case world.RuleAdvanceTime:
-		if !ws.ownsRules() {
-			s.broadcastTime()
-		}
+		s.broadcastTimeOf(rules)
 	case world.RuleImmediateRespawn:
 		value := float32(0)
 		if rules.BoolRule(world.RuleImmediateRespawn) {

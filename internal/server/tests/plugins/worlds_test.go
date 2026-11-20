@@ -337,6 +337,149 @@ func TestPluginWorldDeathKeepsOwnRule(t *testing.T) {
 	}
 }
 
+// /gamerule and execute-in target a plugin world's own table, reach only its
+// players, and dimension switches sync the three client-side rule flags.
+// vanilla: GameRuleCommand, MinecraftServer.onGameRuleChanged
+func TestPluginWorldGameRuleCommandAndClientFlags(t *testing.T) {
+	t.Parallel()
+	var h plugin.Server
+	cfg := servertest.BlockTestConfig()
+	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "world", Plugin: &testPlugin{enable: func(s plugin.Server) error {
+		h = s
+		return nil
+	}}}}, servertest.OpsListing(t, "Op"))
+	servertest.HoldTicks(t, srv)
+	run := func(f func()) {
+		t.Helper()
+		h.Scheduler().RunTask(f)
+		servertest.RunTicks(t, srv, 1)
+	}
+
+	op := servertest.DialServer(t, srv)
+	op.Join("Op")
+	over := servertest.DialServer(t, srv)
+	over.Join("Over")
+	op.Settle()
+	over.Settle()
+
+	w := createFlat(t, run, h, &flatGen{})
+
+	// execute in <plugin world> reads and writes that world's rules alone.
+	op.ChatCommand("execute in test:flat run gamerule keep_inventory true")
+	servertest.AwaitCommandFeedback(t, op, "commands.gamerule.set", "keep_inventory", "true")
+	op.ChatCommand("execute in test:flat run gamerule keep_inventory")
+	servertest.AwaitCommandFeedback(t, op, "commands.gamerule.query", "keep_inventory", "true")
+	op.ChatCommand("gamerule keep_inventory")
+	servertest.AwaitCommandFeedback(t, op, "commands.gamerule.query", "keep_inventory", "false")
+
+	// Set all three client-side rules on the plugin world while both players
+	// are in the overworld, then move Op into the plugin world.
+	run(func() {
+		for _, name := range []string{"immediate_respawn", "limited_crafting", "reduced_debug_info"} {
+			id, ok := h.Registries().GameRule(plugin.MinecraftKey(name))
+			if !ok {
+				t.Fatalf("missing rule %s", name)
+			}
+			w.SetGameRule(id, 1)
+		}
+	})
+	over.SettleAndCollect(func(id int32, _ []byte) {
+		if id == protocol.IDPlayGameEvent || id == protocol.IDPlayEntityEvent {
+			t.Errorf("overworld player received rule packet %d for plugin world change", id)
+		}
+	})
+
+	srv.MovePlayerToDimension("Op", "test:flat", 8.5, 4, 8.5)
+	var gotRespawn, gotCrafting, gotDebug bool
+	op.SettleAndCollect(func(id int32, data []byte) {
+		switch id {
+		case protocol.IDPlayGameEvent:
+			r := protocol.NewReader(data)
+			ev, val := r.ReadU8(), r.ReadF32()
+			if ev == protocol.GameEventImmediateRespawn && val == 1 {
+				gotRespawn = true
+			}
+			if ev == protocol.GameEventLimitedCrafting && val == 1 {
+				gotCrafting = true
+			}
+		case protocol.IDPlayEntityEvent:
+			r := protocol.NewReader(data)
+			_ = r.ReadI32()
+			if r.ReadU8() == protocol.EntityStatusReducedDebugOn {
+				gotDebug = true
+			}
+		}
+	})
+	if !gotRespawn || !gotCrafting || !gotDebug {
+		t.Errorf("entering plugin world flags: immediate_respawn=%v limited_crafting=%v reduced_debug=%v; want all true",
+			gotRespawn, gotCrafting, gotDebug)
+	}
+
+	// /gamerule run inside the plugin world updates its own clock and audience.
+	op.ChatCommand("gamerule advance_time false")
+	op.ExpectPlay(protocol.IDPlayUpdateTime)
+	servertest.AwaitCommandFeedback(t, op, "commands.gamerule.set", "advance_time", "false")
+	over.Send(protocol.IDPlayPingRequest, func(b *protocol.Buffer) { b.PutI64(servertest.SettlePing) })
+	for id, data := range over.Packets(servertest.ExpectTimeout) {
+		if servertest.IsPingAnswer(id, data, servertest.SettlePing) {
+			break
+		}
+		if id == protocol.IDPlayUpdateTime {
+			t.Error("overworld player received Update Time for plugin world's advance_time change")
+		}
+	}
+
+	op.ChatCommand("gamerule immediate_respawn false")
+	var clearedRespawn bool
+	op.SettleAndCollect(func(id int32, data []byte) {
+		if id == protocol.IDPlayGameEvent {
+			r := protocol.NewReader(data)
+			if r.ReadU8() == protocol.GameEventImmediateRespawn && r.ReadF32() == 0 {
+				clearedRespawn = true
+			}
+		}
+	})
+	if !clearedRespawn {
+		t.Error("immediate_respawn=false in plugin world did not notify its player")
+	}
+	over.SettleAndCollect(func(id int32, _ []byte) {
+		if id == protocol.IDPlayGameEvent {
+			t.Error("overworld player received Game Event for plugin world's immediate_respawn change")
+		}
+	})
+
+	// Returning to the overworld resets the two flags that still differ and
+	// skips immediate_respawn, which now matches.
+	srv.MovePlayerToDimension("Op", "minecraft:overworld", 0.5, 4, 0.5)
+	var resetRespawn, resetCrafting, resetDebug bool
+	op.SettleAndCollect(func(id int32, data []byte) {
+		switch id {
+		case protocol.IDPlayGameEvent:
+			r := protocol.NewReader(data)
+			ev, val := r.ReadU8(), r.ReadF32()
+			if ev == protocol.GameEventImmediateRespawn {
+				resetRespawn = true
+			}
+			if ev == protocol.GameEventLimitedCrafting && val == 0 {
+				resetCrafting = true
+			}
+		case protocol.IDPlayEntityEvent:
+			r := protocol.NewReader(data)
+			_ = r.ReadI32()
+			if r.ReadU8() == protocol.EntityStatusReducedDebugOff {
+				resetDebug = true
+			}
+		}
+	})
+	if resetRespawn {
+		t.Error("returning to overworld sent immediate_respawn even though both worlds are false")
+	}
+	if !resetCrafting || !resetDebug {
+		t.Errorf("returning to overworld reset flags: limited_crafting=%v reduced_debug=%v; want both true",
+			resetCrafting, resetDebug)
+	}
+}
+
 // vanilla: WorldPresets.Bootstrap (FLAT), FlatLevelGeneratorSettings.getDefault
 func TestPluginCreateWorldFlatType(t *testing.T) {
 	t.Parallel()

@@ -416,7 +416,7 @@ func (c *client) tickPortal() {
 		// The count is compared before this tick's add, so survival crosses on the
 		// 81st tick inside and creative on the first (vanilla:
 		// PortalProcessor.processPortalTeleportation, portalTime++ >= 80).
-		needed := rules.PlayerPortalWait(c.player.GameMode(), c.ridingMinecart() || c.ridingBoat(), c.srv.world.IntRule)
+		needed := rules.PlayerPortalWait(c.player.GameMode(), c.ridingMinecart() || c.ridingBoat(), c.theWorld().IntRule)
 		if c.portalIn.Add(1) <= needed {
 			return
 		}

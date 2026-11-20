@@ -599,6 +599,9 @@ func (c *client) enterDimensionHeld(dim *dimension, move command.Move, respawn r
 			return err
 		}
 	}
+	if err := c.sendClientRules(old.w, dim.w); err != nil {
+		return err
+	}
 
 	// The Respawn takes the client's view of the slots with the world, so
 	// the whole inventory goes back in, then the held slot. A living
@@ -690,4 +693,39 @@ func gameEventStartWaitingPayload() []byte {
 	b.PutU8(protocol.GameEventStartWaitingForChunks)
 	b.PutF32(0)
 	return b.Bytes()
+}
+
+// sendClientRules updates the three client-side game-rule flags whenever the
+// destination world's value differs from the world the player just left.
+// Respawn carries none of them, so vanilla leaves them unchanged across a
+// dimension switch.
+func (c *client) sendClientRules(old, dst *world.World) error {
+	if v := dst.BoolRule(world.RuleImmediateRespawn); v != old.BoolRule(world.RuleImmediateRespawn) {
+		val := float32(0)
+		if v {
+			val = 1
+		}
+		if err := c.writePacket(protocol.IDPlayGameEvent, "game event", gameEventPayload(protocol.GameEventImmediateRespawn, val)); err != nil {
+			return err
+		}
+	}
+	if v := dst.BoolRule(world.RuleLimitedCrafting); v != old.BoolRule(world.RuleLimitedCrafting) {
+		val := float32(0)
+		if v {
+			val = 1
+		}
+		if err := c.writePacket(protocol.IDPlayGameEvent, "game event", gameEventPayload(protocol.GameEventLimitedCrafting, val)); err != nil {
+			return err
+		}
+	}
+	if v := dst.BoolRule(world.RuleReducedDebug); v != old.BoolRule(world.RuleReducedDebug) {
+		status := protocol.EntityStatusReducedDebugOff
+		if v {
+			status = protocol.EntityStatusReducedDebugOn
+		}
+		if err := c.writePacket(protocol.IDPlayEntityEvent, "entity event", entityEventPayload(c.player.EntityID, uint8(status))); err != nil {
+			return err
+		}
+	}
+	return nil
 }

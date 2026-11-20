@@ -588,15 +588,18 @@ func (w *World) SetTimeSource(overworld *World) {
 }
 
 // SetOwnLevel gives a plugin dimension its own age, clocks, weather and
-// difficulty, which timeWorld then answers with the dimension itself; the game
-// rules stay the overworld's. Lock order: a plugin world's timeMu before the
+// difficulty, which timeWorld then answers with the dimension itself. A world
+// without UseOwnRules still reads game rules from overworld and mirrors its
+// latched spawn-enemies gate. Lock order: a plugin world's timeMu before the
 // overworld's.
 func (w *World) SetOwnLevel(overworld *World) {
 	w.ruleSource = overworld
-	overworld.timeMu.Lock()
-	overworld.spawnWorlds = append(overworld.spawnWorlds, w)
-	w.spawnEnemies.Store(overworld.spawnEnemies.Load())
-	overworld.timeMu.Unlock()
+	if !w.ownRules {
+		overworld.timeMu.Lock()
+		overworld.spawnWorlds = append(overworld.spawnWorlds, w)
+		w.spawnEnemies.Store(overworld.spawnEnemies.Load())
+		overworld.timeMu.Unlock()
+	}
 }
 
 // ruleOf is ruleBool for a world that may take its rules from ruleSource, with
