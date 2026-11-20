@@ -59,7 +59,10 @@ func (s *Server) killDragon(ent *mobEntity) {
 		return
 	}
 	s.gameEvent(ent.w, rules.GameEventEntityDie, x, y, z, rules.GameEventContext{})
-	f := s.dragonFight
+	f := s.dimensionOfWorld(ent.w).dragonFight
+	if f == nil {
+		return
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	s.setDragonKilled(ent.w, f, ent.uuid)
@@ -77,12 +80,13 @@ func (t *mobDimTick) dragonDeath(fx *mobEffects, ev entity.MobEvent) {
 // applyDragonDeath runs after mobsMu; the fight mutex precedes that lock.
 // vanilla: EnderDragon.tickDeath, EnderDragonFight.setDragonKilled
 func (s *Server) applyDragonDeath(d dragonDeathEffect) {
-	f := s.dragonFight
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	linked := d.w == s.dimensionByName(world.EndName).w && d.id == f.dragon
+	f := s.dimensionOfWorld(d.w).dragonFight
+	if f != nil {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
 	xp := 500
-	if linked && !nbt.BoolField(f.data, "previously_killed") {
+	if f != nil && d.id == f.dragon && !nbt.BoolField(f.data, "previously_killed") {
 		xp = 12000
 	}
 	if d.time >= 180 && d.time <= 200 {
@@ -99,7 +103,7 @@ func (s *Server) applyDragonDeath(d dragonDeathEffect) {
 			s.spawnOrbs(d.w, d.x, d.y+float64(float32(0.1)), d.z, xp/5)
 		}
 	}
-	if d.time == 200 {
+	if d.time == 200 && f != nil {
 		s.setDragonKilled(d.w, f, d.id)
 	}
 }
@@ -107,7 +111,7 @@ func (s *Server) applyDragonDeath(d dragonDeathEffect) {
 // setDragonKilled completes only the fight's linked dragon; f.mu is held.
 // vanilla: EnderDragonFight.setDragonKilled
 func (s *Server) setDragonKilled(w *world.World, f *dragonFight, id uuid.UUID) {
-	if w != s.dimensionByName(world.EndName).w || id != f.dragon {
+	if id != f.dragon {
 		return
 	}
 	f.killed, f.bar.Value = true, 0
@@ -180,8 +184,8 @@ func (s *Server) placeDragonPodium(w *world.World, f *dragonFight, active bool) 
 // tryRespawnDragon tests the four unit boxes above the podium rim.
 // vanilla: EndCrystalItem.useOn, EnderDragonFight.tryRespawn
 func (s *Server) tryRespawnDragon(w *world.World) {
-	f := s.dragonFight
-	if f == nil || w != s.dimensionByName(world.EndName).w {
+	f := s.dimensionOfWorld(w).dragonFight
+	if f == nil {
 		return
 	}
 	f.mu.Lock()
@@ -213,6 +217,7 @@ func (s *Server) tryRespawnDragon(w *world.World) {
 
 type dragonRitualEffect struct {
 	w        *world.World
+	f        *dragonFight
 	spike    int
 	finish   bool
 	crystals []*endCrystalEntity
@@ -223,7 +228,7 @@ type dragonRitualEffect struct {
 // after it releases because a blast calls back into onCrystalDestroyed.
 // vanilla: DragonRespawnStage
 func (s *Server) stepDragonRespawn(w *world.World, f *dragonFight) dragonRitualEffect {
-	fx := dragonRitualEffect{w: w, spike: -1}
+	fx := dragonRitualEffect{w: w, f: f, spike: -1}
 	s.lockTick(&s.endCrystalsMu)
 	for _, ent := range s.endCrystals {
 		if ent.w == w && !ent.crystal.Dead && slices.Contains(f.ritual.Crystals, ent.uuid) {
@@ -235,7 +240,7 @@ func (s *Server) stepDragonRespawn(w *world.World, f *dragonFight) dragonRitualE
 		s.abortDragonRespawn(w, f)
 		return dragonRitualEffect{}
 	}
-	step := f.ritual.Step(s.world.SeedValue())
+	step := f.ritual.Step(s.dimensionSeed(w))
 	if step.Beam != nil {
 		s.setDragonCrystalBeams(fx.crystals, step.Beam)
 	}
@@ -266,8 +271,8 @@ func (s *Server) setDragonCrystalBeams(crystals []*endCrystalEntity, beam *[3]in
 	}
 }
 
-func (s *Server) resetDragonSpikeCrystals(w *world.World) {
-	boxes := s.dragonFight.spikeBoxes
+func (s *Server) resetDragonSpikeCrystals(w *world.World, f *dragonFight) {
+	boxes := f.spikeBoxes
 	var crystals []*endCrystalEntity
 	lockedDo(&s.endCrystalsMu, func() {
 		for _, ent := range s.endCrystals {
@@ -288,7 +293,7 @@ func (s *Server) resetDragonSpikeCrystals(w *world.World) {
 
 func (s *Server) abortDragonRespawn(w *world.World, f *dragonFight) {
 	f.ritual.Abort()
-	s.resetDragonSpikeCrystals(w)
+	s.resetDragonSpikeCrystals(w, f)
 	s.placeDragonPodium(w, f, true)
 }
 
@@ -297,7 +302,7 @@ func (s *Server) applyDragonRitual(fx dragonRitualEffect) {
 		return
 	}
 	if fx.spike >= 0 {
-		changes, p := world.EndSpikeRebuild(s.world.SeedValue(), fx.spike)
+		changes, p := world.EndSpikeRebuild(s.dimensionSeed(fx.w), fx.spike)
 		var clear []world.BlockChange
 		for x := p[0] - 10; x <= p[0]+10; x++ {
 			for y := p[1] - 11; y <= p[1]+9; y++ {
@@ -307,7 +312,7 @@ func (s *Server) applyDragonRitual(fx dragonRitualEffect) {
 			}
 		}
 		s.writeBatch(fx.w, clear)
-		s.runExplosion(blast{w: fx.w, x: float64(p[0]) + 0.5, y: float64(p[1] - 1), z: float64(p[2]) + 0.5, radius: 5, rng: s.lootRng, interaction: rules.BlockExplosionInteraction(s.world), damageType: rules.DamageTypeExplosion})
+		s.runExplosion(blast{w: fx.w, x: float64(p[0]) + 0.5, y: float64(p[1] - 1), z: float64(p[2]) + 0.5, radius: 5, rng: s.lootRng, interaction: rules.BlockExplosionInteraction(fx.w), damageType: rules.DamageTypeExplosion})
 		s.writeBatch(fx.w, changes)
 		crystal := s.newEndCrystalEntity(fx.w, float64(p[0])+0.5, float64(p[1]), float64(p[2])+0.5)
 		crystal.crystal.Invulnerable = true
@@ -315,7 +320,7 @@ func (s *Server) applyDragonRitual(fx dragonRitualEffect) {
 		s.registerEndCrystal(crystal)
 	}
 	if fx.finish {
-		s.resetDragonSpikeCrystals(fx.w)
+		s.resetDragonSpikeCrystals(fx.w, fx.f)
 		// Remove all ritual crystals before the blasts so they cannot set each other off.
 		s.lockTick(&s.endCrystalsMu)
 		for _, ent := range fx.crystals {

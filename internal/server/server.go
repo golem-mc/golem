@@ -192,7 +192,6 @@ type Server struct {
 	spinStacks atomic.Uint64
 
 	nextEntityID atomic.Int32
-	dragonFight  *dragonFight
 
 	// Keep-alive timings in nanoseconds, per server so tests can shorten them;
 	// atomic so a test can do so once a player is in.
@@ -2226,7 +2225,7 @@ func (s *Server) shutdown() {
 	// so they survive a restart.
 	s.saveBorders()
 	s.saveRaids()
-	s.saveDragonFight()
+	s.saveDragonFights()
 	s.storages.Save()
 	s.entityData.Save()
 	// And the maps, whose id counter stops a restart reusing a map id.

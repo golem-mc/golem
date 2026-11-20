@@ -40,8 +40,16 @@ type arenaChunk struct {
 	ch  <-chan *world.Chunk
 }
 
-func (s *Server) loadDragonFight() {
-	w := s.dimensionByName(world.EndName).w
+func (s *Server) dimensionSeed(w *world.World) int64 {
+	if w.HasSeed() {
+		return w.SeedValue()
+	}
+	return s.world.SeedValue()
+}
+
+func (s *Server) loadDragonFight(dim *dimension) *dragonFight {
+	w := dim.w
+	seed := s.dimensionSeed(w)
 	data := w.ReadDragonFight()
 	if data == nil {
 		data = nbt.Compound{}
@@ -63,7 +71,7 @@ func (s *Server) loadDragonFight() {
 		for i := range order {
 			order[i] = i
 		}
-		rng := levelgen.NewLegacyRandom(s.world.SeedValue())
+		rng := levelgen.NewLegacyRandom(seed)
 		for i := len(order); i > 1; i-- {
 			j := int(rng.NextIntN(int32(i)))
 			order[i-1], order[j] = order[j], order[i-1]
@@ -75,12 +83,12 @@ func (s *Server) loadDragonFight() {
 		data["gateways"] = list
 	}
 	f.ritual.Load(data)
-	f.spikeBoxes = world.EndSpikeBoxes(s.world.SeedValue())
-	s.dragonFight = f
+	f.spikeBoxes = world.EndSpikeBoxes(seed)
+	return f
 }
 
-func (s *Server) saveDragonFight() {
-	f := s.dragonFight
+func (s *Server) saveDragonFight(dim *dimension) {
+	f := dim.dragonFight
 	if f == nil {
 		return
 	}
@@ -92,18 +100,44 @@ func (s *Server) saveDragonFight() {
 	if f.dragon != uuid.Nil {
 		f.data["dragon_uuid"] = nbt.UUIDToIntArray(f.dragon)
 	}
-	s.dimensionByName(world.EndName).w.WriteDragonFight(f.data)
+	dim.w.WriteDragonFight(f.data)
+}
+
+func (s *Server) saveDragonFights() {
+	for _, dim := range s.allDims() {
+		s.saveDragonFight(dim)
+	}
+}
+
+// dropDragonFight clears the fight's boss bar from any remaining watchers
+// before its dimension is unloaded.
+func (s *Server) dropDragonFight(dim *dimension) {
+	f := dim.dragonFight
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	visible, bar := f.bar.Visible, f.bar
+	f.bar.Visible, f.bar.Players = false, nil
+	f.mu.Unlock()
+	if visible && len(bar.Players) > 0 {
+		s.sendBossEvent(bar.Players, bar, protocol.BossEventRemove)
+	}
 }
 
 // tickDragonFight updates membership every second and reconciles the boss
 // with its saved identity. No players means no fight work or arena ticket.
 // vanilla: EnderDragonFight.tick, updatePlayers, scanState, findOrCreateDragon
 func (s *Server) tickDragonFight() {
-	f := s.dragonFight
-	if f == nil {
-		return
+	for _, dim := range s.allDims() {
+		if dim.dragonFight != nil {
+			s.tickDragonFightDim(dim)
+		}
 	}
-	dim := s.dimensionByName(world.EndName)
+}
+
+func (s *Server) tickDragonFightDim(dim *dimension) {
+	f := dim.dragonFight
 	f.mu.Lock()
 	var ritual dragonRitualEffect
 	defer func() { f.mu.Unlock(); s.applyDragonRitual(ritual) }()
@@ -259,28 +293,29 @@ func (s *Server) tickDragonFight() {
 	}
 }
 
-// tickDragonCrystals reads the crystal list before taking mobsMu. An End
+// tickDragonCrystals reads the crystal list before taking mobsMu. A dimension
 // without a dragon costs one atomic read.
 func (s *Server) tickDragonCrystals() {
-	dim := s.dimensionByName(world.EndName)
-	if dim.mobs.dragons.Load() == 0 {
-		return
-	}
-	s.lockTick(&s.endCrystalsMu)
-	var crystals []entity.EndCrystal
-	for _, ent := range s.endCrystals {
-		if ent.w == dim.w && !ent.crystal.Dead {
-			crystals = append(crystals, *ent.crystal)
+	for _, dim := range s.allDims() {
+		if dim.mobs.dragons.Load() == 0 {
+			continue
 		}
-	}
-	s.unlockTick(&s.endCrystalsMu)
-	s.lockTick(&s.mobsMu)
-	for _, m := range dim.mobs.herd {
-		if m.Type == entity.TypeEnderDragon && !m.Dead {
-			m.DragonCrystals(crystals)
+		s.lockTick(&s.endCrystalsMu)
+		var crystals []entity.EndCrystal
+		for _, ent := range s.endCrystals {
+			if ent.w == dim.w && !ent.crystal.Dead {
+				crystals = append(crystals, *ent.crystal)
+			}
 		}
+		s.unlockTick(&s.endCrystalsMu)
+		s.lockTick(&s.mobsMu)
+		for _, m := range dim.mobs.herd {
+			if m.Type == entity.TypeEnderDragon && !m.Dead {
+				m.DragonCrystals(crystals)
+			}
+		}
+		s.unlockTick(&s.mobsMu)
 	}
-	s.unlockTick(&s.mobsMu)
 }
 
 // countDragonCrystals runs only while an observed fight's arena is loaded.

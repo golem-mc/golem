@@ -123,12 +123,12 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 	d := &dimension{name: name, typeID: typeID, gen: gen, plugin: true, genSpec: spec, w: world.NewCustomDimensionWorld(s.levelDir, name, shape, gen)}
 	d.w.UseOwnRules(s.world)
 	d.w.SetPluginGen(spec)
+	spawn := meta.Spawn
+	d.w.SetOwnSeedAndSpawn(seed, spawn)
 	if err := s.initDimension(d, false); err != nil {
 		return nil, err
 	}
 	d.w.HoldForcedChunks()
-	spawn := meta.Spawn
-	d.w.SetOwnSeedAndSpawn(seed, spawn)
 	if existed {
 		d.w.RestoreLevel(meta)
 	} else {
@@ -224,7 +224,9 @@ func (h *pluginHost) UnloadWorld(w plugin.World, save bool) error {
 		if d.raids.Dirty() {
 			d.w.WriteRaids(d.raids.Encode())
 		}
+		s.saveDragonFight(d)
 	}
+	s.dropDragonFight(d)
 	d.w.DrainSaves()
 	s.dropEntitiesIn(d.w)
 	if err := d.w.Close(); err != nil {
