@@ -80,21 +80,23 @@ func (l *latencies) summary(of *[]time.Duration) map[string]any {
 	return map[string]any{"n": len(d), "p50": ms(0.5), "p95": ms(0.95), "max": ms(1)}
 }
 
-// timedWalker walks every tick (20 moves a second) and sends a command and
-// a ping once a second each, half a second apart.
+// timedWalker walks every tick (20 moves a second), sends a ping once a
+// second and a command every 5 s: vanilla's spam throttle adds 20 a command
+// and takes 1 a tick, so a command a second gets the bot kicked once ticks
+// fall below 20 a second.
 type timedWalker struct {
 	walker
 	lat *latencies
 }
 
 func (w *timedWalker) step(b *bot, tick int) (float64, float64, float64, float32, bool, bool) {
-	switch tick % 20 {
-	case 0:
+	switch {
+	case tick%100 == 0:
 		w.lat.mu.Lock()
 		w.lat.commandSent = append(w.lat.commandSent, time.Now())
 		w.lat.mu.Unlock()
 		b.send(protocol.IDPlayChatCommand, func(p *protocol.Buffer) { p.PutString("list") })
-	case 10:
+	case tick%20 == 10:
 		b.send(protocol.IDPlayPingRequest, func(p *protocol.Buffer) { p.PutI64(time.Now().UnixNano()) })
 	}
 	return w.walker.step(b, tick)

@@ -281,7 +281,7 @@ func (b *bot) run() {
 				}
 			}
 		case protocol.IDPlayDisconnect:
-			b.fail(errors.New("kicked"))
+			b.fail(fmt.Errorf("kicked: %q", data))
 			return
 		}
 	}
