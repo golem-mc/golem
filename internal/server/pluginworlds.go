@@ -90,7 +90,7 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 			seed = s.world.SeedValue()
 		}
 	}
-	spec := world.PluginGenSpec{Type: string(opts.Type), Settings: opts.GeneratorSettings, Biome: opts.Biome.String(), NoStructures: opts.NoStructures}
+	spec := world.PluginGenSpec{Type: string(opts.Type), Settings: opts.GeneratorSettings, Biome: opts.Biome.String(), NoStructures: opts.NoStructures, BonusChest: opts.BonusChest}
 	if opts.Biome == (plugin.Key{}) {
 		spec.Biome = ""
 	}
@@ -139,6 +139,9 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 	if !existed {
 		spawn = initialPluginSpawn(opts.Generator, gen, handle)
 		d.w.SetOwnSeedAndSpawn(seed, spawn)
+		if spec.BonusChest {
+			d.w.PlaceBonusChest(s.levelRng)
+		}
 		d.w.SavePluginMeta()
 	}
 	s.fireWorldLoad(d)
