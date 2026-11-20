@@ -44,9 +44,11 @@ func (s *Server) applyPackRecipes(packs registry.PackRecipes) {
 	s.packRecipes = packs
 	s.pluginRecipeMu.Unlock()
 	recipes := s.layerPluginRecipes(packs)
-	if recipes.Empty() && !s.packRecipesApplied {
+	// Item tags re-resolve the built-in recipes, so they count as a layer.
+	layered := !recipes.Empty() || s.packTagsApplied
+	if !layered && !s.packRecipesApplied {
 		return
 	}
-	s.packRecipesApplied = !recipes.Empty()
+	s.packRecipesApplied = layered
 	registry.ApplyPackRecipes(recipes)
 }
