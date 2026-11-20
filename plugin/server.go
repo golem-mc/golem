@@ -258,12 +258,26 @@ type Registries interface {
 	Sound(key Key) (Sound, bool)
 	Particle(key Key) (ParticleType, bool)
 	GameRule(key Key) (GameRule, bool)
+	// GameRules lists every game rule in registry order, so a rule's index is
+	// its GameRule ID.
+	GameRules() []GameRuleInfo
 	// Statistic resolves a custom statistic's key. Construct typed counters
 	// with Statistic{Type, Value}, since a block or item key alone does not
 	// identify which counter (mined, used, crafted, ...) it names.
 	Statistic(key Key) (Statistic, bool)
 	// KeyOf answers the key of any of the IDs above.
 	KeyOf(id any) (Key, bool)
+}
+
+// GameRuleInfo describes one game rule. Default is the registered default
+// (0 or 1 for a boolean), not the current value; read that with World.GameRule.
+type GameRuleInfo struct {
+	ID      GameRule
+	Key     Key
+	Boolean bool
+	Default int
+	// Min and Max bound an integer rule; a boolean has 0 and 1.
+	Min, Max int
 }
 
 // Registry IDs share the types used by the server; Sound and DamageType

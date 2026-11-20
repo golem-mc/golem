@@ -53,6 +53,22 @@ func (pluginRegistries) GameRule(k plugin.Key) (plugin.GameRule, bool) {
 	id := world.RuleIndex(k.Path)
 	return plugin.GameRule(id), id != world.RuleUnknown
 }
+func (pluginRegistries) GameRules() []plugin.GameRuleInfo {
+	out := make([]plugin.GameRuleInfo, len(world.GameRuleTable))
+	for i, r := range world.GameRuleTable {
+		info := plugin.GameRuleInfo{ID: plugin.GameRule(i), Key: plugin.MinecraftKey(r.ID)}
+		if r.Kind == world.RuleBool {
+			info.Boolean, info.Max = true, 1
+			if r.DefBool {
+				info.Default = 1
+			}
+		} else {
+			info.Default, info.Min, info.Max = int(r.DefInt), int(r.Min), int(r.Max)
+		}
+		out[i] = info
+	}
+	return out
+}
 func (pluginRegistries) Statistic(k plugin.Key) (plugin.Statistic, bool) {
 	t, v, ok := registry.StatID(registry.StatCustom, k.String())
 	return plugin.Statistic{Type: registry.StatType(t), Value: v}, ok
