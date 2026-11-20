@@ -126,6 +126,51 @@ func TestTeleportMovesMinecartsBySelector(t *testing.T) {
 	c.Disconnect()
 }
 
+// TestATeleportedCartKeepsItsRiderThroughASweep: a tick's departure sweep
+// landing between the twin's registration and the rider's seating, with the
+// arrival chunk not yet loaded by the rider, leaves the twin in the world
+// for the rider to sit in.
+// vanilla: Entity.teleportCrossDimension
+func TestATeleportedCartKeepsItsRiderThroughASweep(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.CrossingTestConfig(t), "Ferryman", servertest.OpsListing(t, "Ferryman"))
+
+	servertest.CartRails(t, srv, 3, 6)
+	cartID := srv.SpawnMinecart(3.5, 64.0625, 1.5)
+	if cartID == 0 {
+		t.Fatal("SpawnMinecart came to nothing")
+	}
+	c.MoveTo(3.5, 64, 2.5, 0, 60)
+	c.Settle()
+	c.UseOn(cartID)
+	if riders := servertest.AwaitPassengersFor(c, cartID); len(riders) != 1 {
+		t.Fatalf("the cart holds %v, want the rider aboard", riders)
+	}
+
+	// The rider's nether chunks are held back, and ticks run inside the window.
+	release := srv.HoldChunkSenders()
+	t.Cleanup(release)
+	srv.CartBoardBetween(func() {
+		for range 3 {
+			select {
+			case <-srv.TickEnded():
+			case <-time.After(servertest.ExpectTimeout):
+				return
+			}
+		}
+	})
+	c.ChatCommand("execute as @e[type=minecraft:minecart] in minecraft:the_nether run tp @s 8 40 8")
+	servertest.UntilTicks(t, srv, 100, "the rider seated on the nether's cart", func() bool {
+		nether := srv.MinecartsInDimension(world.NetherName)
+		if len(nether) != 1 {
+			return false
+		}
+		_, seated := srv.MinecartRider(nether[0].ID)
+		return seated
+	})
+	release()
+}
+
 // TestATeleportedCartCarriesItsRiderAcross: a cart named by /tp's selector
 // is carried over as a twin, and Entity.teleportCrossDimension carries the
 // riders over with it, remounting them on the far side and keeping the

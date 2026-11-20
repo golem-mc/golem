@@ -309,8 +309,8 @@ func (s *Server) sweepDepartingEntities() []departure {
 	s.minecarts = sweepSaved(s.minecarts, func(it *minecartEntity) bool {
 		pos := world.ChunkPos{X: world.ChunkOf(it.cart.X), Z: world.ChunkOf(it.cart.Z)}
 		// A dead cart stays until the tick serves it, like a boat; a ridden one
-		// stays with its rider.
-		if it.cart.Dead || len(it.passengers) > 0 || it.w.ChunkLoaded(pos) {
+		// stays with its rider, and a crossing's twin with the riders it seats.
+		if it.cart.Dead || len(it.passengers) > 0 || it.boarding || it.w.ChunkLoaded(pos) {
 			return true
 		}
 		out = append(out, departure{

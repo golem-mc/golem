@@ -519,6 +519,9 @@ type Server struct {
 	// after copying its riders and before carrying each, which a rider's own
 	// crossing on another goroutine can win.
 	minecartCrossSeam func()
+	// minecartBoardSeam, test-only, opens the window between a crossing
+	// twin's registration and the seating of its riders.
+	minecartBoardSeam func()
 
 	// tntCartBlastSeam, test-only, sees each TNT cart blast's radius.
 	tntCartBlastSeam func(radius float64)
