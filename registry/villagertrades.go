@@ -24,6 +24,7 @@ type VillagerTrade struct {
 	Variants            []string
 	Modifiers           []LootFunction
 	DoublePrice         []string // enchantments that double the additional cost
+	DoublePriceTag      string   // enchantment tag read at draw time; replaces DoublePrice
 	Unsupported         bool
 }
 
