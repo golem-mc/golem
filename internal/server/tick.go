@@ -408,7 +408,6 @@ func (s *Server) tick(now time.Time) {
 	s.tickPortals()
 	s.tickPortalHolds()
 	s.tickAutoSave()
-	s.tickKeepAlives(now)
 	s.tickPlayerLatency()
 	s.tickTimeSync()
 	if runs {
@@ -491,6 +490,11 @@ func (s *Server) tick(now time.Time) {
 	// Stationary effects still track command moves while their lifetimes are frozen.
 	s.tickEffectTracking()
 	s.tickFixtureTracking()
+	// After the world's passes and timed when it runs, so a ping's round
+	// trip leaves out the tick it was sent in.
+	// vanilla: MinecraftServer.tickChildren (tickConnection after the levels),
+	// ServerCommonPacketListenerImpl.keepConnectionAlive (Util.getMillis)
+	s.tickKeepAlives(s.keepAliveClock())
 	s.flushDestroyed()
 	s.ticksRun.Add(1)
 	s.wakeMailboxes()
