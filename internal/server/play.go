@@ -250,6 +250,7 @@ func (c *client) leave() {
 		clear(c.pluginCookies)
 		clear(c.pluginPacks)
 		c.pluginMu.Unlock()
+		c.clearPluginAttachments()
 	}
 	c.leaving.Store(true)
 	c.saveMu.Lock()

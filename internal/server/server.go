@@ -1195,6 +1195,7 @@ type client struct {
 	pluginMu                sync.Mutex
 	pluginCookies           map[string][]pluginCookieRequest
 	pluginPacks             map[uuid.UUID]bool
+	pluginAttachments       []*pluginPermissionAttachment
 	// pluginReady permits handles during the initial tree event, before mailbox release.
 	pluginReady atomic.Bool
 

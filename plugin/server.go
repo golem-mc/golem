@@ -37,6 +37,13 @@ type Server interface {
 	// radius around the overworld's spawn that only operators may change,
 	// 0 when off. Bukkit: Server.getSpawnRadius
 	SpawnProtection() int
+	// DefaultGameMode answers the game mode new players start in, which
+	// /defaultgamemode changes; SetDefaultGameMode does the same, and with
+	// force-gamemode on moves every online player into it. A mode past
+	// Spectator is ignored. Bukkit: Server.getDefaultGameMode,
+	// Server.setDefaultGameMode
+	DefaultGameMode() GameMode
+	SetDefaultGameMode(GameMode)
 	// MOTD answers the server list message; SetMOTD changes it until the
 	// server stops.
 	MOTD() Text
@@ -432,6 +439,21 @@ type PermissionProvider interface {
 	// Has answers whether sender has the node, and false for decided to
 	// leave it to the default.
 	Has(sender CommandSender, node string) (has, decided bool)
+}
+
+// PermissionAttachment holds transient permission values attached to an
+// online player by a plugin. Its values last until unset, the attachment is
+// removed, the plugin is disabled, or the player leaves.
+// Bukkit: PermissionAttachment
+type PermissionAttachment interface {
+	// Permissions answers a copy of the attachment's current node values.
+	Permissions() map[string]bool
+	// Set sets node to value on this attachment.
+	Set(node string, value bool)
+	// Unset removes node from this attachment.
+	Unset(node string)
+	// Remove detaches this attachment from the player.
+	Remove()
 }
 
 // BanList is a ban list of players or addresses. Bukkit: BanList

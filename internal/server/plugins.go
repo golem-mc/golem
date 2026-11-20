@@ -21,6 +21,13 @@ type pluginHost struct {
 	ticketMu     sync.Mutex
 	held         map[pluginTicket]int
 	ticketClosed bool
+
+	attachOnce sync.Once
+	// attachMu orders attachment changes against the release when the plugin
+	// closes. Lock order: attachMu before client.pluginMu.
+	attachMu     sync.Mutex
+	attachments  map[*pluginPermissionAttachment]struct{}
+	attachClosed bool
 }
 
 func (s *Server) loadPlugins(registrations []plugin.Registration) {
@@ -60,6 +67,17 @@ func (*pluginHost) Version() (string, int)   { return protocol.GameVersion, prot
 func (h *pluginHost) MaxPlayers() int        { return int(h.srv.maxPlayers.Load()) }
 func (h *pluginHost) SetMaxPlayers(n int)    { h.srv.maxPlayers.Store(int32(max(n, 0))) }
 func (h *pluginHost) SpawnProtection() int   { return int(h.srv.spawnProtection.Load()) }
+func (h *pluginHost) DefaultGameMode() plugin.GameMode {
+	return plugin.GameMode(h.srv.defaultGameMode.Load())
+}
+
+func (h *pluginHost) SetDefaultGameMode(mode plugin.GameMode) {
+	if mode <= plugin.Spectator {
+		h.srv.setDefaultGameMode(int32(mode))
+		h.srv.enforceGameMode()
+	}
+}
+
 func (h *pluginHost) Generator(world plugin.Key, spec string) (plugin.Generator, error) {
 	return h.host.Generator(world, spec)
 }
