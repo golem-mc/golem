@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/golem-mc/golem/internal/server/world/terrain"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -168,11 +169,19 @@ func flatSettingsOf(preset nbt.Compound) (*FlatGenerator, bool) {
 // worldGenSettings is a fresh noise world's world_gen_settings.dat: vanilla's
 // for the preset, which this overworld generator only approximates.
 func worldGenSettings(seed int64, preset overworldPreset) nbt.Compound {
-	gen := noiseGenerator("minecraft:overworld", preset.settings())
-	if preset == presetSingleBiome {
-		gen["biome_source"] = nbt.Compound{"type": nbt.String("minecraft:fixed"), "biome": nbt.String("minecraft:plains")}
+	return worldGenSettingsFor(seed, overworldNoiseGenerator(preset, terrain.OverworldPlains, presetNormal), true)
+}
+
+// overworldNoiseGenerator is the overworld's noise generator compound: the
+// preset's settings, or for a single-biome preset the fixed biome over the
+// noise settings of noise.
+func overworldNoiseGenerator(preset overworldPreset, biome terrain.OverworldBiome, noise overworldPreset) nbt.Compound {
+	if preset != presetSingleBiome {
+		return noiseGenerator("minecraft:overworld", preset.settings())
 	}
-	return worldGenSettingsFor(seed, gen, true)
+	gen := noiseGenerator("minecraft:overworld", noise.settings())
+	gen["biome_source"] = nbt.Compound{"type": nbt.String("minecraft:fixed"), "biome": nbt.String("minecraft:" + biome.Name())}
+	return gen
 }
 
 // flatWorldGenSettings is a fresh flat world's world_gen_settings.dat: its flat
@@ -291,11 +300,11 @@ func (w *World) ensureWorldGen() error {
 	case g != nil && g.flat != nil:
 		out = flatWorldGenSettings(seed, g.flat, !g.noStructures)
 	default:
-		var preset overworldPreset
+		gen := overworldNoiseGenerator(presetNormal, terrain.OverworldPlains, presetNormal)
 		if g != nil {
-			preset = g.preset
+			gen = overworldNoiseGenerator(g.preset, g.singleBiome(), g.terrain)
 		}
-		out = worldGenSettings(seed, preset)
+		out = worldGenSettingsFor(seed, gen, true)
 		if g != nil && g.noStructures {
 			out["generate_structures"] = nbt.Byte(0)
 		}

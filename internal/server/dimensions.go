@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"github.com/golem-mc/golem/nbt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -14,6 +13,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/raid"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 

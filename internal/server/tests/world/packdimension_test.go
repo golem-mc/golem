@@ -9,7 +9,9 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -277,5 +279,49 @@ func TestAPackReplacesTheVanillaOverworld(t *testing.T) {
 	}
 	if got := srv.BlockAt(x, -63, z); got != registry.BlockStates["minecraft:air"] {
 		t.Errorf("block at y=-63 under spawn = %d, want air", got)
+	}
+}
+
+// netherBedrockFloorAfterPack joins on the shared-nether test world with a
+// pack holding stem as minecraft:the_nether, crosses into the nether and
+// reports whether bedrock lies at y=0 under the player, which only a nether
+// generator makes there (a flat stem's layers would not).
+func netherBedrockFloorAfterPack(t *testing.T, stem string) bool {
+	t.Helper()
+	servertest.LimitGeneration(t)
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelName = t.TempDir()
+	cfg.LevelType = server.TestFlatLevelType
+	writePack(t, cfg.LevelName, map[string]string{"data/minecraft/dimension/the_nether.json": stem})
+	srv, c := servertest.Join(t, cfg, "Voyager")
+	srv.MovePlayerToDimension("Voyager", world.NetherName, 8, 77, 8)
+	c.Settle()
+	servertest.PollUntil(t, servertest.ChunksSettledTimeout, func() bool {
+		return srv.ChunkLoadedInDimension(world.NetherName, 0, 0)
+	})
+	return srv.BlockInDimension(world.NetherName, 8, 0, 8) == registry.BlockStates["minecraft:bedrock"]
+}
+
+// TestAPackReplacesTheNetherWithANoiseStem checks that a stem named
+// minecraft:the_nether with the nether's type and noise generator is applied,
+// and the nether still generates when it drops the shared fixture.
+// vanilla: WorldDimensions.bake
+func TestAPackReplacesTheNetherWithANoiseStem(t *testing.T) {
+	t.Parallel()
+	if !netherBedrockFloorAfterPack(t, `{"type":"minecraft:the_nether","generator":{"type":"minecraft:noise","settings":"minecraft:nether",
+		"biome_source":{"type":"minecraft:multi_noise","preset":"minecraft:nether"}}}`) {
+		t.Error("no bedrock at nether y=0: the replaced nether did not generate")
+	}
+}
+
+// TestAPackNetherStemOfAnotherTypeKeepsTheVanillaGenerator checks that a stem
+// named minecraft:the_nether whose dimension type is the overworld's is
+// skipped with a warning, so the vanilla nether generates.
+// vanilla: WorldDimensions.bake
+func TestAPackNetherStemOfAnotherTypeKeepsTheVanillaGenerator(t *testing.T) {
+	t.Parallel()
+	if !netherBedrockFloorAfterPack(t, `{"type":"minecraft:overworld","generator":{"type":"minecraft:flat",
+		"settings":{"biome":"minecraft:plains","layers":[{"block":"minecraft:glass","height":1}]}}}`) {
+		t.Error("no bedrock at nether y=0: the wrong-type stem replaced the vanilla nether")
 	}
 }
