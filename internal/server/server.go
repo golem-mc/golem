@@ -716,8 +716,7 @@ type Server struct {
 	// night skip and sleeping message read, recounted when a sleep begins or
 	// ends or the overworld's players change. It is taken inside mu where both
 	// are needed, like itemsMu.
-	sleepMu     sync.Mutex
-	sleepStatus sleepCounts
+	sleepMu sync.Mutex
 
 	// bedMu makes claiming a bed one step: a sleep's occupied check and the
 	// occupancy it sets run under it, so of two clicks racing for a free bed
@@ -762,7 +761,7 @@ type Server struct {
 	pluginHelp pluginHelp
 }
 
-// sleepCounts is vanilla's SleepStatus: the overworld's players and how many
+// sleepCounts is vanilla's SleepStatus: a dimension's players and how many
 // sleep, as of the last recount. It recounts when a sleep begins or ends,
 // not every tick, so the night skip reads the share as of the last such
 // change, against which the hundred-tick sleepers are counted.

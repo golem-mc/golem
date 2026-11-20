@@ -32,10 +32,9 @@ const sleepTicksToSkip = 100
 const sleepTicksAfterWake = 110
 
 // sleepingPercentage is the share of players that must sleep to pass the
-// night (GameRules.PLAYERS_SLEEPING_PERCENTAGE), read from the overworld,
-// which keeps the rule.
-func (s *Server) sleepingPercentage() int {
-	return int(s.world.IntRule(world.RulePlayersSleeping))
+// night (GameRules.PLAYERS_SLEEPING_PERCENTAGE), read from the sleeping world.
+func sleepingPercentage(w *world.World) int {
+	return int(w.IntRule(world.RulePlayersSleeping))
 }
 
 // sleepersNeeded is vanilla's SleepStatus.sleepersNeeded: the percentage of
@@ -46,22 +45,24 @@ func sleepersNeeded(active, percentage int) int {
 	return needed
 }
 
-// updateSleepingPlayerList recounts the overworld's sleepers and sends the
-// players-sleeping message if it changed. It runs when a sleep starts or
+// updateSleepingPlayerList recounts every dimension's sleepers and sends the
+// players-sleeping message where it changed. It runs when a sleep starts or
 // ends and on join, leave, dimension change or game mode change; the tick
 // reads the cached count between.
 // vanilla: ServerLevel.updateSleepingPlayerList
 func (s *Server) updateSleepingPlayerList() {
-	if s.recountSleepers() {
-		s.announceSleepStatus()
+	for _, d := range s.allDims() {
+		if s.recountSleepers(d) {
+			s.announceSleepStatus(d)
+		}
 	}
 }
 
-// recountSleepers counts the overworld's players and sleepers into the
+// recountSleepers counts the dimension's players and sleepers into the
 // cache and reports whether the message has news: someone slept before or
-// now, and a count changed. An empty overworld is not recounted.
+// now, and a count changed. An empty dimension is not recounted.
 // vanilla: SleepStatus.update, ServerLevel.updateSleepingPlayerList
-func (s *Server) recountSleepers() bool {
+func (s *Server) recountSleepers(d *dimension) bool {
 	s.mu.RLock()
 	clients := s.clientsLocked()
 	s.mu.RUnlock()
@@ -72,7 +73,7 @@ func (s *Server) recountSleepers() bool {
 	defer s.sleepMu.Unlock()
 	active, sleeping, present := 0, 0, 0
 	for _, c := range clients {
-		if c.keepAlive == nil || c.theWorld() != s.world {
+		if c.keepAlive == nil || c.theWorld() != d.w {
 			continue
 		}
 		present++
@@ -88,8 +89,8 @@ func (s *Server) recountSleepers() bool {
 		return false
 	}
 
-	wasActive, wasSleeping := s.sleepStatus.active, s.sleepStatus.sleeping
-	s.sleepStatus = sleepCounts{active: active, sleeping: sleeping}
+	wasActive, wasSleeping := d.sleepStatus.active, d.sleepStatus.sleeping
+	d.sleepStatus = sleepCounts{active: active, sleeping: sleeping}
 
 	if wasSleeping <= 0 && sleeping <= 0 {
 		return false
@@ -97,17 +98,17 @@ func (s *Server) recountSleepers() bool {
 	return wasActive != active || wasSleeping != sleeping
 }
 
-// announceSleepStatus sends the overworld's players the sleeping message
+// announceSleepStatus sends the dimension's players the sleeping message
 // over the hotbar (vanilla's ServerLevel.announceSleepStatus): the night
 // will pass when enough sleep, else how many more are needed. A share above
 // 100, the rule's way of never passing, sends nothing.
-func (s *Server) announceSleepStatus() {
-	pct := s.sleepingPercentage()
+func (s *Server) announceSleepStatus(d *dimension) {
+	pct := sleepingPercentage(d.w)
 	if pct > 100 {
 		return
 	}
 	s.sleepMu.Lock()
-	active, sleeping := s.sleepStatus.active, s.sleepStatus.sleeping
+	active, sleeping := d.sleepStatus.active, d.sleepStatus.sleeping
 	s.sleepMu.Unlock()
 
 	var message protocol.Text
@@ -122,7 +123,7 @@ func (s *Server) announceSleepStatus() {
 			},
 		}
 	}
-	s.broadcastWorld(s.world, protocol.IDPlaySystemChat, systemChatPayload(message, true))
+	s.broadcastWorld(d.w, protocol.IDPlaySystemChat, systemChatPayload(message, true))
 }
 
 // startSleeping lays the body down (the tail of vanilla's
@@ -151,7 +152,7 @@ func (c *client) startSleeping(w *world.World, x, y, z int32, bed registry.Block
 
 	// Read the share before lookMu and bedMu, so the rule's lock is never held
 	// under the sleep's.
-	cannotPass := c.srv.sleepingPercentage() > 100
+	cannotPass := sleepingPercentage(c.theWorld()) > 100
 	pos := c.player.Position()
 	pos.X, pos.Y, pos.Z = float64(x)+0.5, float64(y)+0.6875, float64(z)+0.5
 	c.lookMu.Lock()
@@ -345,53 +346,18 @@ func (c *client) monsterNearBed(w *world.World, x, y, z int32) bool {
 }
 
 // tickSleeping is the tick's sleep work (vanilla's
-// ServerLevel.tickSleeping): first the night-pass check (the cached share
-// from the last start or end, and a live count of sleepers past 100 ticks),
-// then every sleeper's counter and dawn rule. Passing the night moves the
-// clock to the wake marker, wakes every sleeper, and clears the rain they
-// slept through.
+// ServerLevel.tickSleeping): first each dimension's night-pass check (the
+// cached share from the last start or end, and a live count of sleepers past
+// 100 ticks), then every sleeper's counter and dawn rule. Passing the night
+// moves the dimension's default clock to the wake marker, wakes its sleepers,
+// and clears the rain they slept through.
 func (s *Server) tickSleeping() {
 	s.mu.RLock()
 	clients := s.clientsLocked()
 	s.mu.RUnlock()
 
-	// The skip check: the cached share says whether there are enough sleepers,
-	// and those past 100 ticks are counted live this tick.
-	pct := s.sleepingPercentage()
-	s.sleepMu.Lock()
-	enough := s.sleepStatus.sleeping >= sleepersNeeded(s.sleepStatus.active, pct)
-	s.sleepMu.Unlock()
-	if enough {
-		deep := 0
-		for _, c := range clients {
-			if c.theWorld() != s.world {
-				continue
-			}
-			if c.player.GameMode() == protocol.GameModeSpectator {
-				continue
-			}
-			if sl := c.player.Sleep(); sl.Lying && sl.Ticks >= sleepTicksToSkip {
-				deep++
-			}
-		}
-		s.sleepMu.Lock()
-		needed := sleepersNeeded(s.sleepStatus.active, pct)
-		s.sleepMu.Unlock()
-		if deep >= needed {
-			// The wake marker is a clock move, gated by advance_time; the waking and
-			// weather reset are not. vanilla: ServerLevel.tick, moveToTimeMarker(WAKE_UP_FROM_SLEEP)
-			if s.world.BoolRule(world.RuleAdvanceTime) {
-				// Send the jump at once, before the wakes, in vanilla's order (the clock
-				// broadcast, then the wakes' packets).
-				s.skipClock(s.world, plugin.SkipNight, func() bool { s.world.WakeUpFromSleep(); return true })
-				s.broadcast(protocol.IDPlayUpdateTime, updateTimePayload(s.world, world.OverworldClock))
-			}
-			s.wakeUpAllPlayers(clients)
-			// vanilla: resetWeatherCycle behind ADVANCE_WEATHER and isRaining.
-			if s.world.BoolRule(world.RuleAdvanceWeather) && s.world.IsRaining() && s.resetWeatherAllowed() {
-				s.world.ResetWeatherCycle()
-			}
-		}
+	for _, d := range s.allDims() {
+		s.passNight(d, clients)
 	}
 
 	// A wake's residue counts up to the 110 reset (vanilla's Player.tick) for
@@ -419,14 +385,15 @@ func (s *Server) tickSleeping() {
 	// checkBedExists), as vanilla's stopSleeping does: silently, the counter
 	// discarded.
 	for _, c := range clients {
-		if c.keepAlive == nil || c.theWorld() != s.world {
+		if c.keepAlive == nil {
 			continue
 		}
+		w := c.theWorld()
 		sl := c.player.Sleep()
 		if !sl.Lying {
 			continue
 		}
-		if !rules.BedHoldsSleeper(s.world, sl.X, sl.Y, sl.Z) {
+		if !rules.BedHoldsSleeper(w, sl.X, sl.Y, sl.Z) {
 			c.stopSleeping(true, true)
 			continue
 		}
@@ -435,9 +402,55 @@ func (s *Server) tickSleeping() {
 				s.Ticks++
 			}
 		})
-		if s.world.BrightOutside() {
+		if w.BrightOutside() {
 			c.stopSleeping(false, true)
 		}
+	}
+}
+
+// passNight is the dimension's skip check: the cached share says whether
+// there are enough sleepers, and those past 100 ticks are counted live.
+// vanilla: ServerLevel.tick
+func (s *Server) passNight(d *dimension, clients []*client) {
+	w := d.w
+	pct := sleepingPercentage(w)
+	s.sleepMu.Lock()
+	enough := d.sleepStatus.sleeping >= sleepersNeeded(d.sleepStatus.active, pct)
+	s.sleepMu.Unlock()
+	if !enough {
+		return
+	}
+	deep := 0
+	for _, c := range clients {
+		if c.theWorld() != w {
+			continue
+		}
+		if c.player.GameMode() == protocol.GameModeSpectator {
+			continue
+		}
+		if sl := c.player.Sleep(); sl.Lying && sl.Ticks >= sleepTicksToSkip {
+			deep++
+		}
+	}
+	s.sleepMu.Lock()
+	needed := sleepersNeeded(d.sleepStatus.active, pct)
+	s.sleepMu.Unlock()
+	if deep < needed {
+		return
+	}
+	// The wake marker is a clock move, gated by advance_time and by the
+	// dimension type having a default clock; the waking and weather reset are
+	// not. vanilla: ServerLevel.tick, moveToTimeMarker(WAKE_UP_FROM_SLEEP)
+	if clock, ok := w.DefaultClock(); ok && w.BoolRule(world.RuleAdvanceTime) {
+		// Send the jump at once, before the wakes, in vanilla's order (the clock
+		// broadcast, then the wakes' packets).
+		s.skipClock(w, plugin.SkipNight, func() bool { w.WakeUpFromSleep(clock); return true })
+		s.broadcastLevel(w, protocol.IDPlayUpdateTime, updateTimePayload(w, clock))
+	}
+	s.wakeUpAllPlayers(d, clients)
+	// vanilla: resetWeatherCycle behind ADVANCE_WEATHER and isRaining.
+	if w.BoolRule(world.RuleAdvanceWeather) && w.IsRaining() && s.resetWeatherAllowed(d) {
+		w.ResetWeatherCycle()
 	}
 }
 
@@ -445,12 +458,12 @@ func (s *Server) tickSleeping() {
 // ServerLevel.wakeUpAllPlayers): the cached count empties and the wakes
 // run, announcing nothing since the message already said the night would
 // pass.
-func (s *Server) wakeUpAllPlayers(clients []*client) {
+func (s *Server) wakeUpAllPlayers(d *dimension, clients []*client) {
 	s.sleepMu.Lock()
-	s.sleepStatus.sleeping = 0
+	d.sleepStatus.sleeping = 0
 	s.sleepMu.Unlock()
 	for _, c := range clients {
-		if c.player.Sleep().Lying {
+		if c.theWorld() == d.w && c.player.Sleep().Lying {
 			// The night passing does not restart the sleep: the residue is 100,
 			// vanilla's stopSleepInBed(false, false).
 			c.stopSleeping(false, false)

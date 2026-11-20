@@ -108,8 +108,8 @@ func (s *Server) setRainAllowed(dim *dimension, raining bool, rainTime int32) {
 }
 
 // resetWeatherAllowed reports whether the plugins let the sky clear.
-func (s *Server) resetWeatherAllowed() bool {
-	rain, thunder := s.weatherAllowed(s.allDims()[0], false, false)
+func (s *Server) resetWeatherAllowed(d *dimension) bool {
+	rain, thunder := s.weatherAllowed(d, false, false)
 	return !rain && !thunder
 }
 
