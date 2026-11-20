@@ -195,12 +195,13 @@ func (s *Server) tickFallingBlocks() {
 		silent bool
 	}
 	var (
-		landings    []landing
-		drops       []drop
-		hurts       []fallingHurt
-		spawnBreaks []landing
-		ores        []cellSpot
-		spawnCells  []entity.Waypoint
+		landings     []landing
+		bodyLandings []bodyLanding
+		drops        []drop
+		hurts        []fallingHurt
+		spawnBreaks  []landing
+		ores         []cellSpot
+		spawnCells   []entity.Waypoint
 	)
 
 	colliders := s.collidersByWorld(fallingCollisions)
@@ -247,6 +248,10 @@ func (s *Server) tickFallingBlocks() {
 			continue
 		}
 		events := it.fb.Step(colliders[it.w])
+		if it.fb.LandedFall > 0 {
+			it.fb.LandedFall = 0
+			bodyLandings = append(bodyLandings, bodyLanding{w: it.w, x: it.fb.X, y: it.fb.Y, z: it.fb.Z, halfWidth: entity.FallingHalfWidth})
+		}
 		spawnCells = it.fb.FrogspawnInside(it.w, spawnCells)
 		for _, p := range spawnCells {
 			spawnBreaks = append(spawnBreaks, landing{w: it.w, x: p.X, y: p.Y, z: p.Z})
@@ -296,6 +301,7 @@ func (s *Server) tickFallingBlocks() {
 	}
 	s.fallings = alive
 	s.unlockTick(&s.fallingMu)
+	s.runBodyLandings(bodyLandings)
 
 	for _, p := range spawnBreaks {
 		if registry.BlockOf(p.w.BlockAt(p.x, p.y, p.z)) == registry.BlockFrogspawn {

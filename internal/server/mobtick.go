@@ -760,7 +760,7 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 		}
 	}
 	t.dim.villageView.updateOccupied(h.herd)
-	gameTime, dayTime := s.world.Time()
+	gameTime, dayTime := w.Time()
 	for m, ent := range h.book {
 		m.SetMetadataGameTime(gameTime)
 		m.DayTime = dayTime

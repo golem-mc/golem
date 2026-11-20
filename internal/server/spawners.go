@@ -11,6 +11,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -86,16 +87,22 @@ func (h *spawnerHost) MobBodies(kind entity.MobType) []entity.SpawnBody {
 func (h *spawnerHost) StandUp(kind entity.MobType, x, y, z float64, yaw float32, tag nbt.Compound, plain bool, equip func(*entity.Mob)) (int32, bool) {
 	s := h.s
 	face := func(ent *mobEntity) {
+		ent.spawnReason = spawnReasonCode(plugin.SpawnSpawner)
 		ent.mob.Yaw, ent.mob.HeadYaw, ent.mob.Pitch = yaw, yaw, 0
 		if equip != nil {
 			equip(ent.mob)
 		}
 	}
+	var id int32
 	if plain {
-		return s.spawnMobArriving(h.dim, kind, x, y, z, 0, nil, false, "", true, face), true
+		id = s.spawnMobArriving(h.dim, kind, x, y, z, 0, nil, false, "", true, face)
+	} else {
+		var err error
+		if id, err = s.spawnSummonedMobFacing(h.dim, kind, x, y, z, tag, face); err != nil {
+			return 0, false
+		}
 	}
-	id, err := s.spawnSummonedMobFacing(h.dim, kind, x, y, z, tag, face)
-	return id, err == nil
+	return id, s.mobByEntityID(h.dim.w, id) != nil
 }
 
 // Loot rolls in the spawner's level with no origin, as trialHost.Loot does.

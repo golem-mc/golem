@@ -56,7 +56,8 @@ type armorStandEntity struct {
 	// Entity.load changes Fire and HasVisualFire without changing the shared
 	// fire flag; only an entity tick refreshes it.
 	// vanilla: Entity.load, Entity.setSharedFlagOnFire
-	onFire bool
+	onFire      bool
+	spawnReason uint8 // plugin.SpawnReason+1; 0 means SpawnDefault
 
 	// Immutable metadata snapshots are shared by watchers under the stands lock.
 	metadata *armorStandMeta
@@ -903,6 +904,7 @@ func (s *Server) tickArmorStands() {
 		travels []armorStandPortalTravel
 	)
 	var located []standLocated
+	var bodyLandings []bodyLanding
 
 	s.lockTick(&s.armorStandsMu)
 	alive := s.armorStands[:0]
@@ -941,6 +943,11 @@ func (s *Server) tickArmorStands() {
 				continue
 			}
 		}
+		if fall := ent.stand.LandedFall; fall > 0 {
+			ent.stand.LandedFall = 0
+			bodyLandings = append(bodyLandings, bodyLanding{w: ent.w, x: ent.stand.X, y: ent.stand.Y, z: ent.stand.Z,
+				halfWidth: ent.stand.HalfWidth(), stand: true, silent: ent.look.silent, fall: fall})
+		}
 		ent.onFire = ent.stand.FireTicks > 0 || ent.look.visualFire
 		// ArmorStand.hasPhysics gates all inside-block effects.
 		if !ent.stand.Marker && !ent.stand.NoGravity {
@@ -958,6 +965,7 @@ func (s *Server) tickArmorStands() {
 	}
 	s.armorStands = alive
 	s.unlockTick(&s.armorStandsMu)
+	s.runBodyLandings(bodyLandings)
 
 	var disks []mobDisk
 	for _, l := range located {
@@ -1004,7 +1012,7 @@ func (s *Server) finishArmorStandTravel(ent *armorStandEntity, kind rules.Portal
 // way — and a bare one at its defaults. A tag whose UUID is already a
 // live stand's is refused, the caller answering with vanilla's
 // duplicate-UUID message.
-func (s *Server) summonArmorStand(w *world.World, x, y, z float64, tag nbt.Compound) (*armorStandEntity, error) {
+func (s *Server) summonArmorStand(w *world.World, x, y, z float64, tag nbt.Compound, reason plugin.SpawnReason) (*armorStandEntity, error) {
 	if woken, fresh := s.wakeChunkOnce(s.dimensionOfWorld(w),
 		world.ChunkPos{X: world.ChunkOf(x), Z: world.ChunkOf(z)}); fresh {
 		s.registerWake(woken)
@@ -1032,8 +1040,9 @@ func (s *Server) summonArmorStand(w *world.World, x, y, z float64, tag nbt.Compo
 	if dup {
 		return nil, command.ErrDuplicateUUID
 	}
+	ent.spawnReason = spawnReasonCode(reason)
 	s.registerArmorStand(ent)
-	s.bodySpawned(ent.uuid, plugin.SpawnCommand)
+	s.bodySpawned(ent.uuid, reason)
 	return ent, nil
 }
 

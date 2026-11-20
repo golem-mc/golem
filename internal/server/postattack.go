@@ -138,7 +138,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 		if e.DamageEntity != nil {
 			hit := a.Retaliation(c.ownDice())
 			if owner.mob != nil {
-				hit.Damage = rules.ScaledWithDifficulty(hit.Damage, s.world.Difficulty())
+				hit.Damage = rules.ScaledWithDifficulty(hit.Damage, w.Difficulty())
 			}
 			if landed, softened := c.hurt(hit.Damage, hit.DamageType, cause); landed && !softened {
 				c.knockbackFromPoint(w, cause.x, cause.y, cause.z, when)

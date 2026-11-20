@@ -32,6 +32,12 @@ func (s *Server) discardMob(ent *mobEntity) (x, y, z float64, ok bool) {
 		return 0, 0, 0, false
 	}
 	m := ent.mob
+	if m.Vehicle != nil {
+		entity.Dismount(m.Vehicle, m)
+	}
+	for len(m.Passengers) > 0 {
+		entity.Dismount(m, m.Passengers[0])
+	}
 	m.Kill()
 	h.remove(m)
 	h.forget(m)

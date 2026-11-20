@@ -58,6 +58,19 @@ func TestEnableErrorWithPanickingCleanup(t *testing.T) {
 	}
 }
 
+func TestOnTickOnlyOnBoundGoroutine(t *testing.T) {
+	r := New(nil, func(*Host) plugin.Server { return nil })
+	r.BindTick()
+	if !r.OnTick() {
+		t.Fatal("OnTick false on the bound goroutine")
+	}
+	done := make(chan bool)
+	go func() { done <- r.OnTick() }()
+	if <-done {
+		t.Fatal("OnTick true on another goroutine")
+	}
+}
+
 // Calling Disable more than once runs each plugin's Disable once and does not
 // panic on the second call.
 func TestDisableIsIdempotent(t *testing.T) {

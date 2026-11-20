@@ -36,7 +36,7 @@ func (w pluginWorld) spawnWith(t registry.EntityType, loc plugin.Location, extra
 		"Rotation": nbt.NewList([]nbt.Tag{nbt.Float(loc.Yaw), nbt.Float(loc.Pitch)}),
 	}
 	maps.Copy(tag, extra)
-	ws := worldScope{srv: w.srv, in: func() *dimension { return target.dim }, quiet: true}
+	ws := worldScope{srv: w.srv, in: func() *dimension { return target.dim }, quiet: true, spawnReason: spawnReasonCode(plugin.SpawnPlugin)}
 	command.PlaceTemplateEntities(ws, []world.PlacedEntity{{ID: t.Name(), Pos: [3]float64{loc.Pos.X, loc.Pos.Y, loc.Pos.Z}, Tag: tag}}, func(string, ...any) {})
 	body, ok := w.host.entityByUUID(id, target.dim.name)
 	if !ok {
@@ -197,4 +197,40 @@ func (e pluginEntity) Dismount() {
 	if r, ok := e.rider(); ok {
 		r.StopRiding()
 	}
+}
+
+func (e pluginEntity) SpawnReason() plugin.SpawnReason {
+	b, ok := e.live()
+	if !ok {
+		return plugin.SpawnDefault
+	}
+	snap, ok := b.(*entitySnapshot)
+	if !ok {
+		return plugin.SpawnDefault
+	}
+	srv := e.host.srv
+	var code uint8
+	switch ref := snap.ref.(type) {
+	case *mobEntity:
+		srv.mobsMu.Lock()
+		code = ref.spawnReason
+		srv.mobsMu.Unlock()
+	case *itemEntity:
+		srv.itemsMu.Lock()
+		code = ref.spawnReason
+		srv.itemsMu.Unlock()
+	case *boatEntity:
+		srv.boatsMu.Lock()
+		code = ref.spawnReason
+		srv.boatsMu.Unlock()
+	case *minecartEntity:
+		srv.minecartsMu.Lock()
+		code = ref.spawnReason
+		srv.minecartsMu.Unlock()
+	case *armorStandEntity:
+		srv.armorStandsMu.Lock()
+		code = ref.spawnReason
+		srv.armorStandsMu.Unlock()
+	}
+	return spawnReasonOf(code)
 }

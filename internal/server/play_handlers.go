@@ -736,10 +736,11 @@ func (c *client) handleChangeDifficulty(r *protocol.Reader) error {
 	// Difficulty.BY_ID wraps ids outside 0..3.
 	// vanilla: Difficulty.BY_ID
 	d = ((d % 4) + 4) % 4
-	if !c.srv.world.ChangeDifficulty(uint8(d)) {
+	w := c.theWorld()
+	if !w.ChangeDifficulty(uint8(d)) {
 		return nil
 	}
-	c.srv.broadcastDifficulty()
+	c.srv.broadcastDifficultyOf(w)
 	return nil
 }
 
@@ -753,8 +754,9 @@ func (c *client) handleLockDifficulty(r *protocol.Reader) error {
 	if c.PermLevel() < command.PermLevelGamemasters {
 		return nil
 	}
-	c.srv.world.SetDifficultyLocked(locked)
-	c.srv.broadcastDifficulty()
+	w := c.theWorld()
+	w.SetDifficultyLocked(locked)
+	c.srv.broadcastDifficultyOf(w)
 	return nil
 }
 

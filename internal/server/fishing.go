@@ -637,6 +637,7 @@ func (s *Server) tickBobbers() {
 		fishing        []bobberFishing
 		splashes       []projectileSplash
 		landings       []projectileLanding
+		bodyLandings   []bodyLanding
 		shots          []projectileShot
 	)
 
@@ -698,6 +699,10 @@ func (s *Server) tickBobbers() {
 		it.queue(&shots, it.w, it.hook.X, it.hook.Y, it.hook.Z, it.owner)
 		nibbling := it.hook.Nibble > 0
 		events := it.hook.Step(it.w, owner, targets)
+		if it.hook.LandedFall > 0 {
+			it.hook.LandedFall = 0
+			bodyLandings = append(bodyLandings, bodyLanding{w: it.w, x: it.hook.X, y: it.hook.Y, z: it.hook.Z, halfWidth: entity.BobberHalfSize})
+		}
 		if nibbling && it.hook.Nibble <= 0 && !it.hook.Dead && listening {
 			fishing = append(fishing, bobberFishing{it: it, state: plugin.FishFailed})
 		}
@@ -796,6 +801,7 @@ func (s *Server) tickBobbers() {
 	s.hitProjectileBlocks(projectileHits)
 	applyEach(s, shots, (*Server).projectileShootEvent)
 	applyEach(s, landings, (*Server).projectileLandEvent)
+	s.runBodyLandings(bodyLandings)
 
 	sendShows(out.shows, out.showTos)
 	metas.send()

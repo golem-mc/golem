@@ -17,6 +17,7 @@ func (s *Server) dispenseArmorStand(w *world.World, stack protocol.ItemStack, d 
 	ent := s.newArmorStandEntity(w, float64(x)+0.5, float64(y), float64(z)+0.5)
 	ent.stand.Yaw = inventory.DispenseArmorStandYaw(int32(d.Dir))
 	s.applyArmorStandItemData(ent, stack)
+	ent.spawnReason = spawnReasonCode(plugin.SpawnDispenser)
 	s.registerArmorStand(ent)
 	s.bodySpawned(ent.uuid, plugin.SpawnDispenser)
 	s.dispenseDefaultSound(w, d)

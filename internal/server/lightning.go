@@ -216,7 +216,7 @@ func (fx boltEffects) apply(s *Server) {
 	for i := range fx {
 		it := &fx[i]
 		step := it.step
-		if step.Strike && rules.LightningFiresAtStrike(s.world.Difficulty()) {
+		if step.Strike && rules.LightningFiresAtStrike(it.w.Difficulty()) {
 			s.boltFire(it, 4)
 		}
 		if step.Strike {
@@ -377,7 +377,7 @@ func (s *Server) boltHurt(it *boltEffect) {
 		struck = append(struck, m.Type.Name())
 		// vanilla: Pig.thunderHit, Villager.thunderHit, which skip
 		// Entity.thunderHit when they convert
-		if (m.Type == entity.TypePig || m.Type == entity.TypeVillager) && s.world.Difficulty() != 0 {
+		if (m.Type == entity.TypePig || m.Type == entity.TypeVillager) && w.Difficulty() != 0 {
 			converts = append(converts, h.book[m])
 			continue
 		}
@@ -576,7 +576,7 @@ func (s *Server) convertStruck(ent *mobEntity) {
 		// runs after the conversion, so its left-handed roll stands.
 		m.SetMetadataBabyAge(0)
 		effective := s.effectiveDifficultyAt(ent.w, m.X, m.Z)
-		local := rules.NewLocalDifficulty(s.world.Difficulty(), effective)
+		local := rules.NewLocalDifficulty(ent.w.Difficulty(), effective)
 		m.FinalizeSpawn(m.SpawnDice(), ent.w.Biome(rules.BlockOf(m.X), rules.BlockOf(m.Y), rules.BlockOf(m.Z)), nil, local)
 	}
 	converted := convertedEntity(ent, m, ent.w, pig)

@@ -95,6 +95,8 @@ type FallingBlock struct {
 	FallHurtAmount float64
 	CancelDrop     bool
 	FallDistance   float64
+	// LandedFall is the fall a landing this tick ended, 0 when none.
+	LandedFall float64
 	// vanilla: Entity.isNoGravity
 	NoGravity bool
 
@@ -266,7 +268,9 @@ func (f *FallingBlock) Step(w World) []FallingEvent {
 	}
 	// The landing's hurt of the bodies under it, kept to ride out with
 	// the landing or the drop the same tick reaches.
+	f.LandedFall = 0
 	if f.OnGround {
+		f.LandedFall = f.FallDistance
 		events = append(events, f.causeFallDamage()...)
 		f.FallDistance = 0
 	}

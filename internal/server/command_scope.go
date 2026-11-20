@@ -36,6 +36,16 @@ type worldScope struct {
 	// quiet drops summon log lines and never reads by: a structure template
 	// places many entities for no player.
 	quiet bool
+	// spawnReason is plugin.SpawnReason+1 when a caller overrides /summon's
+	// SpawnCommand (e.g. World.Spawn sets SpawnPlugin).
+	spawnReason uint8
+}
+
+func (ws worldScope) summonReason() plugin.SpawnReason {
+	if ws.spawnReason != 0 {
+		return plugin.SpawnReason(ws.spawnReason - 1)
+	}
+	return plugin.SpawnCommand
 }
 
 // logSummon logs a summon the source made.
@@ -106,7 +116,17 @@ func (ws worldScope) Seed() int64 {
 	return 0
 }
 
-func (ws worldScope) Difficulty() uint8 { return ws.srv.world.Difficulty() }
+// levelDim is the dimension holding the runner's level state (difficulty,
+// weather, clocks): the dimension itself for a plugin world, else the
+// overworld shared by the vanilla dimensions.
+func (ws worldScope) levelDim() *dimension {
+	if d := ws.in(); d.plugin {
+		return d
+	}
+	return ws.srv.allDims()[0]
+}
+
+func (ws worldScope) Difficulty() uint8 { return ws.levelDim().w.Difficulty() }
 
 // SetDefaultGameMode sets new players' mode and, with force-gamemode on,
 // moves every online player into it. It returns how many players changed
@@ -142,11 +162,11 @@ func (s *Server) enforceGameMode() int32 {
 }
 
 // SetDifficulty changes the difficulty; the next save persists it.
-func (ws worldScope) SetDifficulty(d uint8) { ws.srv.world.SetDifficulty(d) }
+func (ws worldScope) SetDifficulty(d uint8) { ws.levelDim().w.SetDifficulty(d) }
 
 // BroadcastDifficulty sends the world's difficulty, which is hard on a
 // hardcore world whatever was asked.
-func (ws worldScope) BroadcastDifficulty() { ws.srv.broadcastDifficulty() }
+func (ws worldScope) BroadcastDifficulty() { ws.srv.broadcastDifficultyOf(ws.levelDim().w) }
 
 // broadcastDifficulty sends every player the difficulty and lock.
 func (s *Server) broadcastDifficulty() { s.broadcastDifficultyOf(s.world) }
@@ -166,10 +186,10 @@ func difficultyPayload(d uint8, locked bool) []byte {
 
 // SetWeather backs /weather; the sky fades toward it on the ticks after.
 func (ws worldScope) SetWeather(raining, thundering bool, rainTime, thunderTime, clearTime int32) {
-	ws.srv.setWeatherAllowed(ws.srv.allDims()[0], raining, thundering, rainTime, thunderTime, clearTime)
+	ws.srv.setWeatherAllowed(ws.levelDim(), raining, thundering, rainTime, thunderTime, clearTime)
 }
 
-func (ws worldScope) RollDice(dice world.Dice) int32 { return dice.Roll(ws.srv.world) }
+func (ws worldScope) RollDice(dice world.Dice) int32 { return dice.Roll(ws.levelDim().w) }
 
 // RandomSequence returns the named stream, fetched before the range is
 // read (vanilla's order); each draw marks the sequences' file dirty, as
@@ -217,46 +237,49 @@ func (ws worldScope) DefaultClock() (string, bool) { return ws.in().w.DefaultClo
 // /time's clocks. Each setter broadcasts its clock at once rather than at
 // the next periodic sync.
 func (ws worldScope) ClockTime(clock string) (worldAge, total int64, ok bool) {
-	return ws.srv.world.ClockTime(clock)
+	return ws.levelDim().w.ClockTime(clock)
 }
 
 func (ws worldScope) GameTime() int64 {
-	age, _ := ws.srv.world.Time()
+	age, _ := ws.levelDim().w.Time()
 	return age
 }
 
 func (ws worldScope) SetClockTime(clock string, ticks int64) bool {
-	return ws.changedClock(clock, ws.skipClock(plugin.SkipCommand, func() bool { return ws.srv.world.SetClockTime(clock, ticks) }))
+	w := ws.levelDim().w
+	return ws.changedClock(clock, ws.skipClock(plugin.SkipCommand, func() bool { return w.SetClockTime(clock, ticks) }))
 }
 
 func (ws worldScope) AddClockTime(clock string, ticks int64) {
-	ws.skipClock(plugin.SkipCommand, func() bool { ws.srv.world.AddClockTime(clock, ticks); return true })
-	ws.srv.broadcastTime(clock)
+	w := ws.levelDim().w
+	ws.skipClock(plugin.SkipCommand, func() bool { w.AddClockTime(clock, ticks); return true })
+	ws.srv.broadcastTimeOf(w, clock)
 }
 
 // MoveClockToMarker is /time set <marker>, told to every player at once.
 func (ws worldScope) MoveClockToMarker(clock string, ticks, period int64) bool {
-	return ws.changedClock(clock, ws.skipClock(plugin.SkipCommand, func() bool { return ws.srv.world.MoveClockToMarker(clock, ticks, period) }))
+	w := ws.levelDim().w
+	return ws.changedClock(clock, ws.skipClock(plugin.SkipCommand, func() bool { return w.MoveClockToMarker(clock, ticks, period) }))
 }
 
 // skipClock runs a clock move that /time asked for past the plugins.
 func (ws worldScope) skipClock(reason plugin.TimeSkipReason, apply func() bool) bool {
-	return ws.srv.skipClock(ws.srv.world, reason, apply)
+	return ws.srv.skipClock(ws.levelDim().w, reason, apply)
 }
 
 func (ws worldScope) SetClockPaused(clock string, paused bool) bool {
-	return ws.changedClock(clock, ws.srv.world.SetClockPaused(clock, paused))
+	return ws.changedClock(clock, ws.levelDim().w.SetClockPaused(clock, paused))
 }
 
 func (ws worldScope) SetClockRate(clock string, rate float32) bool {
-	return ws.changedClock(clock, ws.srv.world.SetClockRate(clock, rate))
+	return ws.changedClock(clock, ws.levelDim().w.SetClockRate(clock, rate))
 }
 
 // changedClock broadcasts the clock if a setter changed it, and passes the
 // setter's answer on.
 func (ws worldScope) changedClock(clock string, changed bool) bool {
 	if changed {
-		ws.srv.broadcastTime(clock)
+		ws.srv.broadcastTimeOf(ws.levelDim().w, clock)
 	}
 	return changed
 }
@@ -1565,12 +1588,13 @@ func (ws worldScope) summonMob(kind string, x, y, z float64, tag nbt.Compound) (
 		return 0, nil, errNotSimulated
 	}
 	s, dim := ws.srv, ws.in()
+	reason := ws.summonReason()
 	var id int32
 	if tag == nil {
 		// A summon loads even an empty tag, so a bat reads BatFlags 0 and flies.
 		// vanilla: SummonCommand's EntityType.loadEntityRecursive
 		id = s.spawnMobArriving(dim, entity.MobTypeOf(kind), x, y, z, 0, nil, false, "", true, func(ent *mobEntity) {
-			ent.spawnReason = uint8(plugin.SpawnCommand) + 1
+			ent.spawnReason = spawnReasonCode(reason)
 			if ent.mob.Type == entity.TypeBat {
 				ent.mob.SetMetadataResting(false)
 			}
@@ -1578,7 +1602,9 @@ func (ws worldScope) summonMob(kind string, x, y, z float64, tag nbt.Compound) (
 		ws.logSummon("mob summoned", "kind", kind, "x", x, "y", y, "z", z)
 	} else {
 		var err error
-		id, err = s.spawnSummonedMobInDim(dim, entity.MobTypeOf(kind), x, y, z, tag)
+		id, err = s.spawnSummonedMobFacing(dim, entity.MobTypeOf(kind), x, y, z, tag, func(ent *mobEntity) {
+			ent.spawnReason = spawnReasonCode(reason)
+		})
 		if err != nil {
 			if errors.Is(err, errDuplicateUUID) {
 				return 0, nil, command.ErrDuplicateUUID
@@ -1715,15 +1741,17 @@ func (ws worldScope) SummonItem(x, y, z float64, stack protocol.ItemStack, picku
 	it.custom = customNameOfTag(tag)
 	it.look = entityLookOf(tag)
 	it.thrower = entityUUIDFieldOf(tag, "Thrower")
+	reason := ws.summonReason()
+	it.spawnReason = spawnReasonCode(reason)
 	ws.srv.registerItem(it)
-	ws.srv.itemsSpawned(plugin.SpawnCommand, it)
+	ws.srv.itemsSpawned(reason, it)
 	ws.logSummon("item summoned", "item", stack.ItemID, "count", stack.Count, "x", x, "y", y, "z", z)
 	return it.item.ID, it.uuid, nil
 }
 
 // SummonArmorStand spawns a stand from the tag, or at defaults with none.
 func (ws worldScope) SummonArmorStand(x, y, z float64, tag nbt.Compound) (int32, uuid.UUID, error) {
-	ent, err := ws.srv.summonArmorStand(ws.in().w, x, y, z, tag)
+	ent, err := ws.srv.summonArmorStand(ws.in().w, x, y, z, tag, ws.summonReason())
 	if err != nil {
 		return 0, uuid.Nil, err
 	}
@@ -1809,7 +1837,7 @@ func (ws worldScope) SummonSaved(name string, x, y, z float64, tag nbt.Compound)
 // SummonBoat spawns the named hull at the command's position, with any
 // cargo from the tag.
 func (ws worldScope) SummonBoat(kind string, x, y, z float64, tag nbt.Compound) (int32, uuid.UUID, error) {
-	it, err := ws.srv.summonBoat(ws.in().w, kind, x, y, z, tag)
+	it, err := ws.srv.summonBoat(ws.in().w, kind, x, y, z, tag, ws.summonReason())
 	if err != nil {
 		return 0, uuid.Nil, err
 	}
@@ -1820,7 +1848,7 @@ func (ws worldScope) SummonBoat(kind string, x, y, z float64, tag nbt.Compound) 
 // SummonMinecart spawns the named cart at the command's position, with any
 // contents from the tag.
 func (ws worldScope) SummonMinecart(kind string, x, y, z float64, tag nbt.Compound) (int32, uuid.UUID, error) {
-	it, err := ws.srv.summonMinecart(ws.in().w, kind, x, y, z, tag)
+	it, err := ws.srv.summonMinecart(ws.in().w, kind, x, y, z, tag, ws.summonReason())
 	if err != nil {
 		return 0, uuid.Nil, err
 	}

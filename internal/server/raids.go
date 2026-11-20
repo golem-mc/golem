@@ -132,7 +132,7 @@ type raidLevel struct {
 	dim *dimension
 }
 
-func (l raidLevel) Difficulty() uint8 { return l.s.world.Difficulty() }
+func (l raidLevel) Difficulty() uint8 { return l.dim.w.Difficulty() }
 
 func (l raidLevel) ChunkLoaded(x, z int) bool { return l.dim.w.ChunkLoadedAt(int32(x), int32(z)) }
 
@@ -412,7 +412,7 @@ func (s *Server) tickOmens(c *client) {
 	block := raid.Pos{X: int(rules.BlockOf(pos.X)), Y: int(rules.BlockOf(pos.Y)), Z: int(rules.BlockOf(pos.Z))}
 	level := raidLevel{s: s, dim: dim}
 	if in, ok := c.player.Effect(badOmen); ok {
-		if raid.BadOmenTurns(s.world.Difficulty(), level.IsVillage(block.X, block.Y, block.Z), dim.raids.RaidAt(block)) {
+		if raid.BadOmenTurns(dim.w.Difficulty(), level.IsVillage(block.X, block.Y, block.Z), dim.raids.RaidAt(block)) {
 			c.AddEffect(effect.New(raidOmen, raidOmenTicks, in.Amplifier, false, true, true))
 			c.RemoveEffect(badOmen)
 			s.setRaidOmenPosition(c.player.UUID, block)

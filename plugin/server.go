@@ -120,6 +120,8 @@ type Server interface {
 	Recipes() Recipes
 	// Advancement answers the advancement with this key.
 	Advancement(key Key) (Advancement, bool)
+	// Advancements answers every advancement, one entry per tree node.
+	Advancements() []Advancement
 	// DataPacks answers every known data pack, the enabled ones first in
 	// load order, then the rest. Paper: DatapackManager.getPacks
 	DataPacks() []DataPack
