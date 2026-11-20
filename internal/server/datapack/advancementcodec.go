@@ -90,17 +90,25 @@ func DecodeAdvancement(id string, data []byte) (adv registry.Advancement, err er
 	}
 	if r, ok := o["rewards"]; ok {
 		ro := object(r, "rewards")
-		for _, k := range []string{"loot", "function"} {
-			if _, ok := ro[k]; ok {
-				fail("reward %q is not supported by this server", k)
-			}
-		}
-		ignoreKeys(id, "rewards", ro, "experience", "recipes")
+		ignoreKeys(id, "rewards", ro, "experience", "recipes", "loot", "function")
 		adv.Experience = int32(optNum(ro, "experience", 0))
 		if v, ok := ro["recipes"]; ok {
 			for _, r := range list(v, "recipes") {
 				adv.Recipes = append(adv.Recipes, qualifiedID(str(r, "a recipe"), "recipe"))
 			}
+		}
+		// vanilla: LootTable.LIST_CODEC reads one id or a list
+		if v, ok := ro["loot"]; ok {
+			if _, isList := v.([]any); isList {
+				for _, t := range list(v, "loot") {
+					adv.Loot = append(adv.Loot, qualifiedID(str(t, "a loot table"), "loot table"))
+				}
+			} else {
+				adv.Loot = append(adv.Loot, qualifiedID(str(v, "a loot table"), "loot table"))
+			}
+		}
+		if _, ok := ro["function"]; ok {
+			adv.Function = qualifiedID(requireStr(ro, "function"), "function")
 		}
 	}
 	criteria := object(required(o, "criteria"), "criteria")
