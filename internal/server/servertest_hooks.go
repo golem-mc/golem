@@ -8015,3 +8015,21 @@ func (s *Server) SetSpawnTuning(c registry.MobCategory, limit, ticks int) {
 	w.SetSpawnLimit(c, limit)
 	w.SetTicksPerSpawn(c, ticks)
 }
+
+// HurtMobByPlayerProjectile lands a projectile hurt of the type on the
+// overworld mob victim, credited to the named online player, as their
+// trident would.
+func (s *Server) HurtMobByPlayerProjectile(victim int32, name string, amount float64, typ any) {
+	c := s.playerClient(name)
+	if c == nil {
+		return
+	}
+	damageType := testDamageType(typ)
+	s.mobsMu.Lock()
+	defer s.mobsMu.Unlock()
+	for m := range s.herdOf(s.world).book {
+		if m.ID == victim {
+			m.HurtByProjectile(amount, damageType, 0, 0, c.player.EntityID, false, false)
+		}
+	}
+}
