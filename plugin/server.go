@@ -33,6 +33,13 @@ type Server interface {
 	// the server stops.
 	MaxPlayers() int
 	SetMaxPlayers(n int)
+	// DefaultGameMode answers the game mode new players start in, which
+	// /defaultgamemode changes; SetDefaultGameMode does the same, and with
+	// force-gamemode on moves every online player into it. A mode past
+	// Spectator is ignored. Bukkit: Server.getDefaultGameMode,
+	// Server.setDefaultGameMode
+	DefaultGameMode() GameMode
+	SetDefaultGameMode(GameMode)
 	// MOTD answers the server list message; SetMOTD changes it until the
 	// server stops.
 	MOTD() Text

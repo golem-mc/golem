@@ -265,3 +265,24 @@ func TestSchedulerOnTick(t *testing.T) {
 		t.Error("OnTick = true inside a RunAsync task, want false")
 	}
 }
+
+func TestDefaultGameMode(t *testing.T) {
+	srv := plugintest.Start(t, plugintest.WithGameMode("creative"), plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}))
+	srv.HoldTicks()
+	h := srv.Host()
+	if got := h.DefaultGameMode(); got != plugin.Creative {
+		t.Fatalf("DefaultGameMode = %d, want creative", got)
+	}
+	srv.Console("defaultgamemode adventure")
+	if got := h.DefaultGameMode(); got != plugin.Adventure {
+		t.Fatalf("after /defaultgamemode = %d, want adventure", got)
+	}
+	h.SetDefaultGameMode(plugin.Spectator)
+	if got := h.DefaultGameMode(); got != plugin.Spectator {
+		t.Fatalf("after Set = %d, want spectator", got)
+	}
+	h.SetDefaultGameMode(plugin.GameMode(9))
+	if got := h.DefaultGameMode(); got != plugin.Spectator {
+		t.Fatalf("out-of-range Set changed the mode to %d", got)
+	}
+}
