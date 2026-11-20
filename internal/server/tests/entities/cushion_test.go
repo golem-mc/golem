@@ -68,16 +68,30 @@ func TestAPunchedCushionDropsItsItem(t *testing.T) {
 }
 
 // TestACushionFallsWithTheBlockUnderIt removes the stone a cushion rests
-// on: the survives poll, every 101st tick, breaks it and lays its item.
+// on: the survives poll, on the 101st tick of the cushion's life, breaks it
+// and lays its item. The loop is held from before the placement: on a free
+// loop the placement can land after the tick's cushion pass, and the poll
+// then falls on the last tick end a 101-tick wait counts, so one tick of
+// skew fails it.
 // vanilla: BlockAttachedEntity.tick, Cushion.wouldSurviveAt
 func TestACushionFallsWithTheBlockUnderIt(t *testing.T) {
 	t.Parallel()
 	srv, c := joinCushionPlacer(t, 1)
+	servertest.HoldTicks(t, srv)
 	placeRedCushion(c)
 
-	srv.SetBlock(3, 63, 3, 0)
-	servertest.UntilTicks(t, srv, 101, "the unsupported cushion's removal", func() bool { return srv.FixtureCount() == 0 })
-	awaitRedCushionDrop(t, srv, 20)
+	if !srv.SetBlock(3, 63, 3, 0) {
+		t.Fatal("the stone under the cushion was not removed")
+	}
+	servertest.RunTicks(t, srv, 100)
+	if n := srv.FixtureCount(); n != 1 {
+		t.Fatalf("fixtures after 100 ticks = %d, want the cushion until its poll", n)
+	}
+	servertest.RunTicks(t, srv, 1)
+	if n := srv.FixtureCount(); n != 0 {
+		t.Fatalf("fixtures after the 101st tick = %d, want the unsupported cushion gone", n)
+	}
+	awaitRedCushionDrop(t, srv, 1)
 }
 
 // TestAnArrowBreaksACushion shoots a plain arrow into a placed cushion
