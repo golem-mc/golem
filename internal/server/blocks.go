@@ -865,6 +865,13 @@ func (s *Server) destroyBlockContents(w *world.World, x, y, z int32, old uint16)
 // entity type as the loot's this_entity ("" for none).
 // vanilla: Level.destroyBlock
 func (s *Server) destroyBlockContentsBy(w *world.World, x, y, z int32, old uint16, entityType string) bool {
+	return s.destroyBlockContentsLoot(w, x, y, z, old, entityType, true)
+}
+
+// destroyBlockContentsLoot is destroyBlockContentsBy with drops false
+// skipping the loot roll and infestation; containers still spill.
+// vanilla: Level.destroyBlock(pos, dropResources)
+func (s *Server) destroyBlockContentsLoot(w *world.World, x, y, z int32, old uint16, entityType string, drops bool) bool {
 	if old == airBlockState {
 		return false
 	}
@@ -884,6 +891,9 @@ func (s *Server) destroyBlockContentsBy(w *world.World, x, y, z int32, old uint1
 	ctx.Container = container
 	if customName != nil {
 		ctx.CustomName = customName
+	}
+	if !drops {
+		return world.RemovalLeaves(old) != old
 	}
 	s.rollBlockLoot(w, x, y, z, old, &ctx)
 	if rules.IsInfestedBlock(registry.BlockOf(old)) {
