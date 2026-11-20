@@ -1622,12 +1622,15 @@ func (r *lootRoller) copyComponentsFrom(k registry.LootCopyComponents, s lootSta
 		held = registry.StackComponents(r.ctx.Tool.Stack)
 	}
 	include := k.Include
-	if include == nil && k.Source == "tool" {
-		// An absent include copies every component of the tool.
-		for name := range held {
-			include = append(include, name)
+	if include == nil {
+		// An absent include copies every component of the source; for an
+		// entity, the ones this server models (Component's values are not
+		// enumerable).
+		if k.Source == "tool" {
+			include = slices.Sorted(maps.Keys(held))
+		} else {
+			include = slices.Sorted(maps.Keys(registry.LootEntityTagComponents))
 		}
-		slices.Sort(include)
 	}
 	for _, name := range include {
 		name = registry.Qualify(name)
@@ -1661,6 +1664,12 @@ func (r *lootRoller) copyComponentsFrom(k registry.LootCopyComponents, s lootSta
 			s.customName = scratch.CustomName
 		case "minecraft:container":
 			s.container = scratch.Container
+		case "minecraft:enchantments":
+			s.enchantments = scratch.Enchantments
+		case "minecraft:stored_enchantments":
+			s.stored = scratch.StoredEnchantments
+		case "minecraft:damage":
+			s.damage = scratch.Damage
 		default:
 			s.components = append(s.components, scratch.Raw...)
 		}
