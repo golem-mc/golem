@@ -769,25 +769,36 @@ func zombieVillagerType(t *testing.T) int32 {
 }
 
 // TestPackHurtEntityFiresOnAPlayerLitTNTBlast: a player_hurt_entity criterion
-// fires for a mob hurt by a TNT the player lit, whose damage type is an
-// explosion and whose direct entity is the TNT; a TNT nobody lit does not.
-// vanilla: LivingEntity.hurtServer, PlayerHurtEntityTrigger
+// fires for a mob hurt by a TNT the player lit, with damage above zero before
+// and after armor; a TNT nobody lit does not, and a criterion wanting far
+// more damage does not.
+// vanilla: LivingEntity.hurtServer, PlayerHurtEntityTrigger, DamagePredicate
 func TestPackHurtEntityFiresOnAPlayerLitTNTBlast(t *testing.T) {
 	cfg, data := packConfig(t)
 	dir := filepath.Join(data, "pk", "advancement")
-	packCriterion(t, dir, "any", "player_hurt_entity", `{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:cow"}}]}`)
+	cow := `{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:cow"}}`
+	packCriterion(t, dir, "any", "player_hurt_entity", `{"entity":[`+cow+`]}`)
+	packCriterion(t, dir, "dealt", "player_hurt_entity", `{"entity":[`+cow+`],"damage":{"dealt":{"min":1},"taken":{"min":1}}}`)
+	packCriterion(t, dir, "huge", "player_hurt_entity", `{"entity":[`+cow+`],"damage":{"dealt":{"min":1000}}}`)
 	srv, c := joinOp(t, cfg, "Packer")
 	c.MoveToGround(0.5, 64, 0.5, true)
 	c.Settle()
+	servertest.HoldTicks(t, srv)
 	srv.SpawnMob("minecraft:cow", 20.5, 64, 4.5)
 	srv.SpawnTNT(20.5, 64, 4.5, 1)
-	servertest.RunTicks(t, srv, 10)
+	servertest.RunTicks(t, srv, 3)
 	if srv.AdvancementObtained("Packer", "pk:any", "c") {
 		t.Fatal("a TNT nobody lit fired the player's player_hurt_entity")
 	}
 	srv.SpawnMob("minecraft:cow", 20.5, 64, 4.5)
 	srv.SpawnPlayerTNT("Packer", 20.5, 64, 4.5, 1)
-	servertest.UntilTicks(t, srv, 20, "the player-lit blast's hurt", func() bool { return srv.AdvancementObtained("Packer", "pk:any", "c") })
+	servertest.UntilTicks(t, srv, 5, "the player-lit blast's hurt", func() bool { return srv.AdvancementObtained("Packer", "pk:any", "c") })
+	if !srv.AdvancementObtained("Packer", "pk:dealt", "c") {
+		t.Error("the blast's damage before and after armor did not match a range above zero")
+	}
+	if srv.AdvancementObtained("Packer", "pk:huge", "c") {
+		t.Error("a criterion wanting 1000 damage fired for a TNT blast")
+	}
 }
 
 // TestPackHurtEntityFiresOnAMeleeHitOfAMannequin: a player_hurt_entity

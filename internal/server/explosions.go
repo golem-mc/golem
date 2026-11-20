@@ -410,10 +410,15 @@ func (s *Server) blastMobs(b blast, in *blastInputs, fx *blastEffects) {
 	// damage whose causing entity is a player.
 	if len(hurts) > 0 {
 		if k := s.entityClient(b.causeID); k != nil {
+			cause := blastCause(b)
+			// The exploder is gone by now, so blowOf cannot look its Direct
+			// up; it is the type the blast carries.
 			direct := rules.LootEntity{Type: b.directType}
 			for _, h := range hurts {
-				blow := advancement.Blow{Dealt: h.dealt, Taken: h.took, Type: b.damageType, Indirect: b.directID != b.causeID,
-					Attacker: k.LootEntity, Direct: func() rules.LootEntity { return direct }}
+				blow := s.blowOf(b.w, b.damageType, cause, h.dealt, h.took, false)
+				if cause.directID != 0 {
+					blow.Direct = func() rules.LootEntity { return direct }
+				}
 				k.hurtEntityAdvancements(advancement.Entity{Type: h.kind.Name(), Loot: s.mobLoot(h.ent), Blow: &blow})
 			}
 		}
