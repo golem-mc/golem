@@ -297,7 +297,7 @@ func (m *Mob) phantomSweepContinues(t *tickView, target *Player) bool {
 			if o.Type == TypeCat && o.Alive() && m.boxNear(o, 16) {
 				ph.scaredOfCat = true
 				// vanilla: Cat.hiss
-				t.events = append(t.events, MobEvent{Mob: o, Kind: MobSounded, SoundID: o.catSoundSet().hiss, Volume: o.SoundVolume(), Pitch: o.VoicePitch()})
+				t.events = append(t.events, MobEvent{Mob: o, Kind: MobSounded, SoundID: o.variantSounds().Hiss, Volume: o.SoundVolume(), Pitch: o.VoicePitch()})
 			}
 		}
 	}

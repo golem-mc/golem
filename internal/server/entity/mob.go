@@ -3237,8 +3237,8 @@ func (m *Mob) Sounds() MobSounds {
 			s.Ambient = registry.SoundNone
 		}
 	}
-	if variant, ok := soundVariantSounds(m.Type, m.SoundVariant); ok {
-		s = variant
+	if m.Type == TypeCow || m.Type == TypePig || m.Type == TypeChicken {
+		s = m.farmSounds(s)
 	}
 	if m.Type == TypeGoat && m.Goat.Screaming {
 		s = screamingGoatSounds
@@ -3350,71 +3350,40 @@ var cubeVoiceSounds = [registry.EntityTypeCount]struct{ hurt, death, smallHurt, 
 	TypeSulfurCube: {registry.SoundEntitySulfurCubeHurt, registry.SoundEntitySulfurCubeDeath, registry.SoundEntitySmallSulfurCubeHurt, registry.SoundEntitySmallSulfurCubeDeath},
 }
 
-// soundVariantSounds is a farm animal's sound variant set; false for kinds
-// without variants and for the classic variant (the kind's own events).
-// vanilla: CowSoundVariant, PigSoundVariant, ChickenSoundVariant
-func soundVariantSounds(t MobType, variant string) (MobSounds, bool) {
-	switch t {
-	case TypeCow:
-		if variant == "minecraft:moody" {
-			return MobSounds{
-				Ambient: registry.SoundEntityCowMoodyAmbient,
-				Hurt:    registry.SoundEntityCowMoodyHurt,
-				Death:   registry.SoundEntityCowMoodyDeath,
-				Step:    registry.SoundEntityCowMoodyStep,
-			}, true
-		}
-	case TypePig:
-		switch variant {
-		case "minecraft:big":
-			return MobSounds{
-				Ambient: registry.SoundEntityPigBigAmbient,
-				Hurt:    registry.SoundEntityPigBigHurt,
-				Death:   registry.SoundEntityPigBigDeath,
-				Eat:     registry.SoundEntityPigBigEat,
-				Step:    registry.SoundEntityPigStep,
-			}, true
-		case "minecraft:mini":
-			return MobSounds{
-				Ambient: registry.SoundEntityPigMiniAmbient,
-				Hurt:    registry.SoundEntityPigMiniHurt,
-				Death:   registry.SoundEntityPigMiniDeath,
-				Eat:     registry.SoundEntityPigMiniEat,
-				Step:    registry.SoundEntityPigStep,
-			}, true
-		}
-	case TypeChicken:
-		if variant == "minecraft:picky" {
-			return MobSounds{
-				Ambient: registry.SoundEntityChickenPickyAmbient,
-				Hurt:    registry.SoundEntityChickenPickyHurt,
-				Death:   registry.SoundEntityChickenPickyDeath,
-				Step:    registry.SoundEntityChickenStep,
-			}, true
+// variantSounds is the *_sound_variant set the mob speaks: its variant's
+// adult sounds, or the baby ones while it is a baby. A variant the registry
+// lacks speaks as classic.
+// vanilla: Wolf.getSoundSet, Cat.getSoundSet, Pig.getSoundSet
+func (m *Mob) variantSounds() registry.SoundVariantSet {
+	_, regName, _ := VariantRegistries(m.Type)
+	if set, ok := registry.SoundVariantOf(regName, m.SoundVariant, m.IsBaby()); ok {
+		return set
+	}
+	set, _ := registry.SoundVariantOf(regName, "minecraft:classic", m.IsBaby())
+	return set
+}
+
+// farmSounds is a cow's, pig's or chicken's variant set as the mob's sounds,
+// each left at the kind's own where the set has none.
+func (m *Mob) farmSounds(s MobSounds) MobSounds {
+	p := m.variantSounds()
+	for _, f := range [...]struct {
+		dst *registry.Sound
+		src registry.Sound
+	}{
+		{&s.Ambient, p.Ambient}, {&s.Hurt, p.Hurt}, {&s.Death, p.Death}, {&s.Eat, p.Eat}, {&s.Step, p.Step},
+	} {
+		if f.src != registry.SoundNone {
+			*f.dst = f.src
 		}
 	}
-	return MobSounds{}, false
+	return s
 }
 
 // babySounds is a kind's own baby set (getSoundSet's babySounds while
 // isBaby); false for kinds whose babies use the grown or variant set.
 func babySounds(t MobType) (MobSounds, bool) {
 	switch t {
-	case TypePig:
-		return MobSounds{
-			Ambient: registry.SoundEntityBabyPigAmbient,
-			Hurt:    registry.SoundEntityBabyPigHurt,
-			Death:   registry.SoundEntityBabyPigDeath,
-			Eat:     registry.SoundEntityBabyPigEat,
-			Step:    registry.SoundEntityBabyPigStep,
-		}, true
-	case TypeChicken:
-		return MobSounds{
-			Ambient: registry.SoundEntityBabyChickenAmbient,
-			Hurt:    registry.SoundEntityBabyChickenHurt,
-			Death:   registry.SoundEntityBabyChickenDeath,
-			Step:    registry.SoundEntityBabyChickenStep,
-		}, true
 	case TypeTurtle:
 		return MobSounds{
 			Hurt:  registry.SoundEntityTurtleHurtBaby,

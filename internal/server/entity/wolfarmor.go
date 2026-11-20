@@ -98,50 +98,12 @@ func (m *Mob) wolfArmorStep(events []MobEvent) []MobEvent {
 	return events
 }
 
-type wolfSoundSet struct{ ambient, hurt, death, growl, whine, pant registry.Sound }
-
-// wolfSoundSet selects the adult variant or the shared baby sounds.
-// vanilla: Wolf.getSoundSet, SoundEvents.registerWolfSoundVariants
-func (m *Mob) wolfSoundSet() wolfSoundSet {
-	if m.IsBaby() {
-		return wolfSoundsBaby
-	}
-	switch m.SoundVariant {
-	case "minecraft:puglin":
-		return wolfSoundsPuglin
-	case "minecraft:sad":
-		return wolfSoundsSad
-	case "minecraft:angry":
-		return wolfSoundsAngry
-	case "minecraft:grumpy":
-		return wolfSoundsGrumpy
-	case "minecraft:big":
-		return wolfSoundsBig
-	case "minecraft:cute":
-		return wolfSoundsCute
-	default:
-		return wolfSoundsClassic
-	}
-}
-
-var wolfSoundsClassic = wolfSoundSet{registry.SoundEntityWolfAmbient, registry.SoundEntityWolfHurt, registry.SoundEntityWolfDeath, registry.SoundEntityWolfGrowl, registry.SoundEntityWolfWhine, registry.SoundEntityWolfPant}
-var wolfSoundsBaby = wolfSoundSet{registry.SoundEntityBabyWolfAmbient, registry.SoundEntityBabyWolfHurt, registry.SoundEntityBabyWolfDeath, registry.SoundEntityBabyWolfGrowl, registry.SoundEntityBabyWolfWhine, registry.SoundEntityBabyWolfPant}
-var wolfSoundsPuglin = wolfSoundSet{registry.SoundEntityWolfPuglinAmbient, registry.SoundEntityWolfPuglinHurt, registry.SoundEntityWolfPuglinDeath, registry.SoundEntityWolfPuglinGrowl, registry.SoundEntityWolfPuglinWhine, registry.SoundEntityWolfPuglinPant}
-var wolfSoundsSad = wolfSoundSet{registry.SoundEntityWolfSadAmbient, registry.SoundEntityWolfSadHurt, registry.SoundEntityWolfSadDeath, registry.SoundEntityWolfSadGrowl, registry.SoundEntityWolfSadWhine, registry.SoundEntityWolfSadPant}
-var wolfSoundsAngry = wolfSoundSet{registry.SoundEntityWolfAngryAmbient, registry.SoundEntityWolfAngryHurt, registry.SoundEntityWolfAngryDeath, registry.SoundEntityWolfAngryGrowl, registry.SoundEntityWolfAngryWhine, registry.SoundEntityWolfAngryPant}
-var wolfSoundsGrumpy = wolfSoundSet{registry.SoundEntityWolfGrumpyAmbient, registry.SoundEntityWolfGrumpyHurt, registry.SoundEntityWolfGrumpyDeath, registry.SoundEntityWolfGrumpyGrowl, registry.SoundEntityWolfGrumpyWhine, registry.SoundEntityWolfGrumpyPant}
-var wolfSoundsBig = wolfSoundSet{registry.SoundEntityWolfBigAmbient, registry.SoundEntityWolfBigHurt, registry.SoundEntityWolfBigDeath, registry.SoundEntityWolfBigGrowl, registry.SoundEntityWolfBigWhine, registry.SoundEntityWolfBigPant}
-var wolfSoundsCute = wolfSoundSet{registry.SoundEntityWolfCuteAmbient, registry.SoundEntityWolfCuteHurt, registry.SoundEntityWolfCuteDeath, registry.SoundEntityWolfCuteGrowl, registry.SoundEntityWolfCuteWhine, registry.SoundEntityWolfCutePant}
-
 // wolfSounds is the set the wolf speaks; armor that takes the blow answers
 // a hurt with its own sound.
 // vanilla: Wolf.getHurtSound, getDeathSound
 func (m *Mob) wolfSounds() MobSounds {
-	p := m.wolfSoundSet()
-	s := MobSounds{Ambient: p.ambient, Hurt: p.hurt, Death: p.death, Step: registry.SoundEntityWolfStep}
-	if m.IsBaby() {
-		s.Step = registry.SoundEntityBabyWolfStep
-	}
+	p := m.variantSounds()
+	s := MobSounds{Ambient: p.Ambient, Hurt: p.Hurt, Death: p.Death, Step: p.Step}
 	if m.WearsWolfArmor() && !m.lastDamageType.InTag(registry.DamageTypeTagIDBypassesWolfArmor) {
 		s.Hurt = registry.SoundItemWolfArmorDamage
 	}
@@ -152,17 +114,17 @@ func (m *Mob) wolfSounds() MobSounds {
 // time a whine (a hurt tame wolf) or a pant, else the plain ambient.
 // vanilla: Wolf.getAmbientSound
 func (m *Mob) wolfAmbient() registry.Sound {
-	p := m.wolfSoundSet()
+	p := m.variantSounds()
 	if m.Angry() {
-		return p.growl
+		return p.Growl
 	}
 	if m.Rand.Intn(3) == 0 {
 		if m.Tamable.Tame && m.Health < wolfWhineHealth {
-			return p.whine
+			return p.Whine
 		}
-		return p.pant
+		return p.Pant
 	}
-	return p.ambient
+	return p.Ambient
 }
 
 // begGoal is BegGoal: while a player within eight blocks holds a bone or

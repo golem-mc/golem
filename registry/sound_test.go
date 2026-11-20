@@ -29,3 +29,17 @@ func TestComponentSoundDefaultsAreResolved(t *testing.T) {
 		}
 	}
 }
+
+func TestSoundByNameKeepsAPackSoundInline(t *testing.T) {
+	built := SoundByName("minecraft:entity.cat.ambient")
+	if built.IsPack() || built.Holder().Name != "" {
+		t.Errorf("a built-in sound travels by ID, got %+v", built.Holder())
+	}
+	pack := SoundByName("test:horn.loud")
+	if !pack.IsPack() || pack != SoundByName("test:horn.loud") {
+		t.Fatalf("a pack sound is interned once, got %d", pack)
+	}
+	if h := pack.Holder(); h.ID != -1 || h.Name != "test:horn.loud" {
+		t.Errorf("a pack sound's holder = %+v, want the inline name", h)
+	}
+}

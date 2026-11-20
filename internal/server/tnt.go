@@ -535,10 +535,20 @@ func soundEffectHolderAt(sound protocol.SoundHolder, category int32, x, y, z flo
 	return soundEffectTail(&b, category, x, y, z, volume, pitch)
 }
 
+// putSound writes a sound holder: the registry ID, or the name inline for a
+// pack's sound the built-in registry lacks.
+func putSound(b *protocol.Buffer, sound registry.Sound) {
+	if sound.IsPack() {
+		protocol.PutSoundHolder(b, sound.Holder())
+		return
+	}
+	b.PutVarInt(int32(sound))
+}
+
 // soundEffectIDAt sends a registered holder without resolving a name.
 func soundEffectIDAt(sound registry.Sound, category int32, x, y, z float64, volume, pitch float32) []byte {
 	var b protocol.Buffer
-	b.PutVarInt(int32(sound))
+	putSound(&b, sound)
 	return soundEffectTail(&b, category, x, y, z, volume, pitch)
 }
 
@@ -557,7 +567,7 @@ func soundEffectTail(b *protocol.Buffer, category int32, x, y, z float64, volume
 // entitySoundEffectID builds an entity sound using a registered holder.
 func entitySoundEffectID(sound registry.Sound, category, entityID int32, volume, pitch float32) []byte {
 	var b protocol.Buffer
-	b.PutVarInt(int32(sound))
+	putSound(&b, sound)
 	return entitySoundEffectTail(&b, category, entityID, volume, pitch)
 }
 
