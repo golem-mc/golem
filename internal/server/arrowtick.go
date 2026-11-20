@@ -2,6 +2,7 @@ package server
 
 import (
 	"slices"
+	"sync"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
@@ -835,7 +836,7 @@ func (s *Server) arrowHitTarget(fx *arrowEffects, in *arrowTickInputs, hv *arrow
 
 // arrowLootBinder lets a data-pack effect's loot conditions read a hit's
 // bodies: the victim when it is a mob or player, the shooter as attacker, and
-// the arrow as direct attacker by type. The arrow and mob locks are held.
+// the arrow itself as direct attacker. The arrow and mob locks are held.
 // vanilla: Enchantment.damageContext
 func (s *Server) arrowLootBinder(it *arrowEntity, bodies *arrowBodies) func(*rules.EnchContext, *entity.ArrowTarget) {
 	book := s.herdOf(it.w).book
@@ -861,7 +862,16 @@ func (s *Server) arrowLootBinder(it *arrowEntity, bodies *arrowBodies) func(*rul
 		} else if m := bodies.mobs[it.arrow.OwnerID]; m != nil {
 			ctx.AttackerOf = func() *rules.LootEntity { return mobLoot(m) }
 		}
-		ctx.DirectAttackerOf = typed(ctx.DirectAttacker)
+		ctx.DirectAttackerOf = func() *rules.LootEntity {
+			snap := s.arrowSnapshot(it, nil)
+			if snap == nil {
+				return typed(ctx.DirectAttacker)()
+			}
+			// The arrow lock is held by this step, which the snapshot's saved
+			// compound would take again.
+			snap.mu = new(sync.Mutex)
+			return snapshotLoot(snap)()
+		}
 		ctx.LootWorld = func(loot *rules.LootContext) {
 			s.fillBlowWorld(it.w, loot, [3]float64{it.arrow.X, it.arrow.Y, it.arrow.Z})
 		}

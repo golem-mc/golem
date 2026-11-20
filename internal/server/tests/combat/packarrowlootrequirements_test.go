@@ -19,6 +19,8 @@ func TestPackArrowLootRequirements(t *testing.T) {
 		{"standing shooter", `{"condition":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`, false, false, false},
 		{"sneaking shooter", `{"condition":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`, true, false, true},
 		{"untagged target", `{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}`, false, false, false},
+		{"arrow's own saved data", `{"condition":"minecraft:entity_properties","entity":"direct_attacker","predicate":{"minecraft:nbt":"{pickup:1b}"}}`, false, false, true},
+		{"arrow without that data", `{"condition":"minecraft:entity_properties","entity":"direct_attacker","predicate":{"minecraft:nbt":"{pickup:2b}"}}`, false, false, false},
 		{"tagged target", `{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}`, false, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

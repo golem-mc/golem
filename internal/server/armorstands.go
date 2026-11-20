@@ -513,7 +513,7 @@ func (c *client) attackArmorStand(target int32) bool {
 	}
 	outcome := ent.stand.Punch(int64(s.ticksRun.Load()), creative)
 	victim := smashVictim{id: ent.stand.ID, x: ent.stand.X, y: ent.stand.Y, z: ent.stand.Z,
-		onGround: ent.stand.OnGround}
+		onGround: ent.stand.OnGround, loot: snapshotLoot(s.armorStandSnapshot(ent, nil))}
 	bx0, by0, bz0, bx1, by1, bz1 := ent.stand.BlastBox()
 	victim.halfWidth = (bx1 - bx0) / 2
 	var shake []byte
@@ -530,7 +530,7 @@ func (c *client) attackArmorStand(target int32) bool {
 		c.attackSound(soundAttackNoDamage)
 		return true
 	}
-	c.standBlowFeedback(held, victim.id, bx0, by0, bz0, bx1, by1, bz1)
+	c.standBlowFeedback(held, victim.id, victim.loot, bx0, by0, bz0, bx1, by1, bz1)
 	if outcome == entity.PunchBroke {
 		// A creative hand's punch leaves the burst and the sound behind
 		// but no drops; a survival break lays the item and the equipment.
@@ -555,9 +555,9 @@ func (c *client) attackArmorStand(target int32) bool {
 // standBlowFeedback plays a landed blow's knockback, sweep and sounds on a
 // stand; the swing packet spends the cooldown, and smashStand the smash.
 // vanilla: Player.attack
-func (c *client) standBlowFeedback(held protocol.ItemStack, standID int32, minX, minY, minZ, maxX, maxY, maxZ float64) {
+func (c *client) standBlowFeedback(held protocol.ItemStack, standID int32, loot func() *rules.LootEntity, minX, minY, minZ, maxX, maxY, maxZ float64) {
 	strength := rules.AttackStrengthScale(int(c.attackStrengthTicks.Load()), c.attackSpeed())
-	ctx := c.attackEnchContext(meleeDamageType(held), protocol.EntityTypeArmorStand, nil)
+	ctx := c.attackEnchContext(meleeDamageType(held), protocol.EntityTypeArmorStand, loot)
 	attackDamage := c.attackDamage()
 	plain := rules.AttackDamage(attackDamage, false, 1)
 	magic := (rules.EnchantedDamage(held, &ctx, plain) - plain) * strength
@@ -625,7 +625,7 @@ func (c *client) smashStand(v smashVictim) {
 	if smash {
 		c.landSmash(c.theWorld(), fall, v)
 	}
-	c.finishMeleeItemEffects(held, c.attackEnchContext(meleeDamageType(held), protocol.EntityTypeArmorStand, nil), fall, smash)
+	c.finishMeleeItemEffects(held, c.attackEnchContext(meleeDamageType(held), protocol.EntityTypeArmorStand, v.loot), fall, smash)
 }
 
 // useOnArmorStand right-clicks a stand, vanilla ArmorStand.interact: a held

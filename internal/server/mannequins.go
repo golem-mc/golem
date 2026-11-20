@@ -280,13 +280,14 @@ func (c *client) attackMannequin(target int32) bool {
 		return false
 	}
 	minX, minY, minZ, maxX, maxY, maxZ := ent.mannequin.BlastBox()
+	snap := s.mannequinSnapshot(ent, nil)
 	s.mannequinsMu.Unlock()
 	// Out of reach spends nothing.
 	if !c.withinAttackRange(minX, minY, minZ, maxX, maxY, maxZ) {
 		return true
 	}
 	held := c.attackWeapon()
-	blow, ok := c.prepareAttack(held, protocol.EntityTypeMannequin, true, nil)
+	blow, ok := c.prepareAttack(held, protocol.EntityTypeMannequin, true, snapshotLoot(snap))
 	if !ok {
 		return true
 	}

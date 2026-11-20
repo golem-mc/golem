@@ -41,6 +41,9 @@ type smashVictim struct {
 	damage float64
 	// player is a struck player's UUID, uuid.Nil for a mob or stand.
 	player uuid.UUID
+	// loot is a stand's body for a data-pack effect's loot conditions; nil for
+	// every other victim.
+	loot func() *rules.LootEntity
 }
 
 // landSmash is a landed smash's aftermath: attacker bounce, smash sound,

@@ -202,12 +202,13 @@ func (c *client) attackBullet(it *thrownEntity) {
 	t := it.throwable
 	minX, minY, minZ, maxX, maxY, maxZ := t.BlastBox()
 	dead := t.Dead
+	snap := s.thrownSnapshot(it, nil)
 	s.arrowsMu.Unlock()
 	if dead || !c.withinAttackRange(minX, minY, minZ, maxX, maxY, maxZ) {
 		return
 	}
 	held := c.heldItem(protocol.HandMain)
-	blow, ok := c.prepareAttack(held, protocol.EntityTypeShulkerBullet, false, nil)
+	blow, ok := c.prepareAttack(held, protocol.EntityTypeShulkerBullet, false, snapshotLoot(snap))
 	if !ok {
 		return
 	}
