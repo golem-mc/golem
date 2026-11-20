@@ -475,3 +475,140 @@ func TestPackEffectsChangedTestsAmplifier(t *testing.T) {
 	c.ChatCommand("effect give Packer minecraft:speed 100 1")
 	servertest.UntilTicks(t, srv, 20, "Speed II", func() bool { return srv.AdvancementObtained("Packer", "pk:fast", "c") })
 }
+
+// entityCond is an entity_properties condition on this with the predicate.
+func entityCond(predicate string) string {
+	return `{"condition":"minecraft:entity_properties","entity":"this","predicate":` + predicate + `}`
+}
+
+// tagCond is an entity nbt predicate that wants the tag.
+func tagCond(tag string) string {
+	return entityCond(`{"minecraft:nbt":"{Tags:[\"` + tag + `\"]}"}`)
+}
+
+// TestPackTameAnimalTestsItsEntityCondition: a tame_animal criterion with an
+// entity nbt predicate fires for a wolf carrying the tag, not another tag.
+// vanilla: TameAnimalTrigger.TriggerInstance.matches
+func TestPackTameAnimalTestsItsEntityCondition(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "right", "tame_animal", `{"entity":[`+tagCond("pet")+`]}`)
+	packCriterion(t, dir, "wrong", "tame_animal", `{"entity":[`+tagCond("other")+`]}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	servertest.HoldTicks(t, srv)
+	c.MoveToGround(0.5, 64, 0.5, true)
+	srv.GiveSlot("Packer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:bone", 64))
+	c.Settle()
+	id := srv.SpawnMob("minecraft:wolf", 1.5, 64, 0.5)
+	srv.SetMobNoAI(id)
+	c.ChatCommand("tag @e[type=minecraft:wolf] add pet")
+	c.Settle()
+	for range 64 {
+		if srv.AdvancementObtained("Packer", "pk:right", "c") {
+			break
+		}
+		c.UseOn(id)
+		c.Settle()
+	}
+	if !srv.AdvancementObtained("Packer", "pk:right", "c") {
+		t.Fatal("the tagged wolf's taming did not fire the criterion")
+	}
+	if srv.AdvancementObtained("Packer", "pk:wrong", "c") {
+		t.Error("a criterion wanting another tag fired")
+	}
+}
+
+// TestPackSummonedEntityTestsItsEntityCondition: a summoned_entity criterion
+// with a location predicate fires for a golem built in the overworld, not one
+// wanting the nether.
+// vanilla: SummonedEntityTrigger.TriggerInstance.matches
+func TestPackSummonedEntityTestsItsEntityCondition(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "here", "summoned_entity",
+		`{"entity":[`+entityCond(`{"minecraft:entity_type":"minecraft:iron_golem","minecraft:location":{"dimension":"minecraft:overworld"}}`)+`]}`)
+	packCriterion(t, dir, "nether", "summoned_entity",
+		`{"entity":[`+entityCond(`{"minecraft:entity_type":"minecraft:iron_golem","minecraft:location":{"dimension":"minecraft:the_nether"}}`)+`]}`)
+	cfg.GameMode = "creative"
+	srv, c := joinOp(t, cfg, "Packer")
+	srv.GiveSlot("Packer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:carved_pumpkin", 1))
+	c.Settle()
+	iron := servertest.MustState(t, "minecraft:iron_block", nil)
+	for _, at := range [][3]int32{{-3, 64, 3}, {-4, 65, 3}, {-3, 65, 3}, {-2, 65, 3}} {
+		srv.SetBlock(at[0], at[1], at[2], iron)
+	}
+	c.PlaceBlock(-3, 65, 3, protocol.FaceTop)
+	c.Settle()
+	servertest.UntilTicks(t, srv, 20, "the golem's criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:here", "c") })
+	if srv.AdvancementObtained("Packer", "pk:nether", "c") {
+		t.Error("a nether location fired for an overworld golem")
+	}
+}
+
+// TestPackCuredZombieVillagerTestsItsConditions: a cured_zombie_villager
+// criterion tests the zombie's tag and the villager's profession.
+// vanilla: CuredZombieVillagerTrigger.TriggerInstance.matches
+func TestPackCuredZombieVillagerTestsItsConditions(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	profession := func(p string) string {
+		return entityCond(`{"minecraft:nbt":"{VillagerData:{profession:\"minecraft:` + p + `\"}}"}`)
+	}
+	packCriterion(t, dir, "right", "cured_zombie_villager",
+		`{"zombie":[`+tagCond("patient")+`],"villager":[`+profession("librarian")+`]}`)
+	packCriterion(t, dir, "wrongzombie", "cured_zombie_villager", `{"zombie":[`+tagCond("other")+`]}`)
+	packCriterion(t, dir, "wrongvillager", "cured_zombie_villager", `{"villager":[`+profession("farmer")+`]}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	servertest.HoldTicks(t, srv)
+	c.MoveToGround(0.5, 64, 0.5, true)
+	srv.GiveSlot("Packer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:golden_apple", 1))
+	c.ChatCommand(`summon minecraft:zombie_villager 1.5 64 0.5 {NoAI:1b,Tags:["patient"],VillagerData:{profession:"minecraft:librarian",level:1,type:"minecraft:plains"}}`)
+	id := c.AwaitSpawn(zombieVillagerType(t)).EntityID
+	c.ChatCommand(`effect give @e[type=minecraft:zombie_villager] minecraft:weakness 60`)
+	c.Settle()
+	c.UseOn(id)
+	c.AwaitEntityEvent(id, protocol.EntityStatusZombieVillagerCure)
+	c.ChatCommand(`data merge entity @e[type=minecraft:zombie_villager,limit=1] {ConversionTime:2}`)
+	c.Settle()
+	servertest.UntilTicks(t, srv, 60, "the cure's criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:right", "c") })
+	for _, wrong := range []string{"wrongzombie", "wrongvillager"} {
+		if srv.AdvancementObtained("Packer", "pk:"+wrong, "c") {
+			t.Errorf("%s fired", wrong)
+		}
+	}
+}
+
+// TestPackStartedRidingTestsItsVehicle: a started_riding criterion whose
+// player predicate holds a vehicle nbt fires for the tagged vehicle only.
+// vanilla: StartRidingTrigger, EntityPredicate vehicle
+func TestPackStartedRidingTestsItsVehicle(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	vehicle := func(tag string) string {
+		return `{"player":[` + entityCond(`{"minecraft:vehicle":{"minecraft:nbt":"{Tags:[\"`+tag+`\"]}"}}`) + `]}`
+	}
+	packCriterion(t, dir, "wrong", "started_riding", vehicle("other"))
+	packCriterion(t, dir, "right", "started_riding", vehicle("mount"))
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+	boat := srv.SpawnBoat(2.5, 64, 0.5, "minecraft:oak_boat")
+	c.ChatCommand("tag @e[type=minecraft:oak_boat] add mount")
+	c.Settle()
+	c.UseOn(boat)
+	servertest.AwaitPassengersFor(c, boat)
+	servertest.UntilTicks(t, srv, 20, "the vehicle's criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:right", "c") })
+	if srv.AdvancementObtained("Packer", "pk:wrong", "c") {
+		t.Error("a criterion wanting another vehicle tag fired")
+	}
+}
+
+func zombieVillagerType(t *testing.T) int32 {
+	t.Helper()
+	id, ok := registry.EntityTypeID("minecraft:zombie_villager")
+	if !ok {
+		t.Fatal("no zombie_villager entity type")
+	}
+	return id
+}
