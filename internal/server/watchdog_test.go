@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -166,4 +167,72 @@ func TestWatchdogIsOffAtMaxTickTimeZero(t *testing.T) {
 	if stopRequested(s) {
 		t.Fatal("a stop was requested with max-tick-time 0")
 	}
+}
+
+// TestWatchdogReportGroupsIdenticalGoroutines checks that a crash with many
+// goroutines parked in one place prints the tickLoop stack first, folds the
+// identical stacks into one counted entry and writes that same text to disk.
+func TestWatchdogReportGroupsIdenticalGoroutines(t *testing.T) {
+	s, clock, start := startHungTick(t, 100)
+	release := make(chan struct{})
+	var ready sync.WaitGroup
+	const n = 40
+	for range n {
+		ready.Add(1)
+		go func() {
+			ready.Done()
+			<-release
+		}()
+	}
+	defer close(release)
+	ready.Wait()
+	// Let every goroutine reach its receive before the dump.
+	time.Sleep(50 * time.Millisecond)
+
+	dir := t.TempDir()
+	var out strings.Builder
+	exited := make(chan int, 1)
+	s.StartWatchdog(dir, &syncWriter{w: &out}, func(code int) { exited <- code })
+	clock.set(start.Add(101 * time.Millisecond))
+	<-s.StopRequested()
+	clock.set(clock.Now().Add(watchdogExitDelay))
+	<-exited
+
+	entries, err := os.ReadDir(filepath.Join(dir, "crash-reports"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("crash-reports: %v, %v", entries, err)
+	}
+	file, err := os.ReadFile(filepath.Join(dir, "crash-reports", entries[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := string(file)
+	first := strings.Index(report, "\n\n") + 2
+	if !strings.HasPrefix(report[first:], "goroutine ") || !strings.Contains(strings.SplitN(report[first:], "\n\n", 2)[0], "tickLoop") {
+		t.Errorf("the first stack is not tickLoop's:\n%.400s", report[first:])
+	}
+	m := regexp.MustCompile(`(\d+) goroutines \[chan receive\]:`).FindStringSubmatch(report)
+	if m == nil {
+		t.Fatalf("no grouped chan receive entry in the report")
+	}
+	if c, _ := strconv.Atoi(m[1]); c < n {
+		t.Errorf("group count = %d, want at least %d", c, n)
+	}
+	if strings.Count(report, "TestWatchdogReportGroupsIdenticalGoroutines.func") > 2 {
+		t.Errorf("the identical stacks are not folded:\n%s", report)
+	}
+	if !strings.Contains(out.String(), report) {
+		t.Error("the console does not show the report that was written to disk")
+	}
+}
+
+type syncWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (w *syncWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.w.Write(p)
 }

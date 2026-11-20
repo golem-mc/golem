@@ -141,7 +141,7 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 	// An enchantment's damage_immunity (Frost Walker's hot floor) is an
 	// immunity of its own beside fire resistance.
 	// vanilla: EnchantmentHelper.isImmuneToDamage, LivingEntity.isInvulnerableTo
-	if rules.ImmuneToDamage(c.enchPieces(), &rules.EnchContext{DamageType: damageType, Direct: damageIsDirect(cause), Victim: protocol.EntityTypePlayer}) {
+	if rules.ImmuneToDamage(c.enchPieces(), c.hurtEnchContext(damageType, damageIsDirect(cause))) {
 		return false, false
 	}
 	// With pvp off, or a teammate's blow on a team without friendly fire, a
@@ -535,16 +535,26 @@ func meleeDamageType(held protocol.ItemStack) registry.DamageType {
 	return rules.DamageTypePlayerAttack
 }
 
+// hurtEnchContext is the context of a blow on this player, whose worn
+// enchantments run.
+func (c *client) hurtEnchContext(damageType registry.DamageType, direct bool) *rules.EnchContext {
+	return &rules.EnchContext{DamageType: damageType, Direct: direct, Victim: protocol.EntityTypePlayer, BodyOf: victimLoot(c)}
+}
+
 // attackEnchContext is the enchantment context of a player's melee blow on
 // a victim of victimType.
-func attackEnchContext(damageType registry.DamageType, victimType int32) rules.EnchContext {
-	return rules.EnchContext{
+// victim is the hurt body's loot snapshot for a data-pack effect's loot
+// conditions; nil gives one that knows only the type.
+func (c *client) attackEnchContext(damageType registry.DamageType, victimType int32, victim func() *rules.LootEntity) rules.EnchContext {
+	ctx := rules.EnchContext{
 		DamageType:     damageType,
 		Direct:         true,
 		Victim:         victimType,
 		Attacker:       protocol.EntityTypePlayer,
 		DirectAttacker: protocol.EntityTypePlayer,
 	}
+	c.bindLootBodies(&ctx, victim)
+	return ctx
 }
 
 // causeWeapon is the item the blow's source weapon is, empty for none.
@@ -612,7 +622,7 @@ func (c *client) armourAbsorb(damage float64, damageType registry.DamageType, di
 	}
 	if points > 0 && !bypassed {
 		damage = rules.DamageAfterArmourEffective(damage, points, toughness,
-			rules.ArmourEffectiveness(weapon, &rules.EnchContext{DamageType: damageType, Direct: direct, Victim: protocol.EntityTypePlayer}))
+			rules.ArmourEffectiveness(weapon, c.hurtEnchContext(damageType, direct)))
 	}
 	resisted := damage
 	damage = rules.Resist(effects, damageType, damage)
@@ -627,11 +637,7 @@ func (c *client) armourAbsorb(damage float64, damageType registry.DamageType, di
 	}
 	// Protection is capped at 20 points.
 	// vanilla: CombatRules.getDamageAfterMagicAbsorb
-	ctx := &rules.EnchContext{
-		DamageType: damageType,
-		Direct:     direct,
-		Victim:     protocol.EntityTypePlayer,
-	}
+	ctx := c.hurtEnchContext(damageType, direct)
 	if protection := rules.DamageProtection(enchPieces, ctx, c.ownDice()); protection > 0 {
 		damage = rules.DamageAfterEnchantmentProtection(damage, protection)
 	}
@@ -694,6 +700,7 @@ func (c *client) tickVitals() {
 	var changes []effect.Change
 	passenger := c.isPassenger()
 	var fellFrom *[3]float64
+	var preTickFire, postTickFire int
 	c.player.UpdateBody(func(v *player.Vitals, effects *effect.Set, a *player.Attributes) {
 		// A rider's fall is written off every tick, so none is left to land
 		// on after the dismount; a fall that began fires fall_from_height at
@@ -702,8 +709,10 @@ func (c *client) tickVitals() {
 			v.FallDistance = 0
 			fellFrom = fallEnded(v, pos)
 		}
+		preTickFire = v.FireTicks
 		event, hurts, douse, changes = rules.TickVitals(v, effects, a, difficulty, pos.Y < float64(voidY), around,
 			c.srv.envRng, a.Value(registry.AttributeOxygenBonus), c.theWorld().BoolRule(world.RuleNaturalRegen))
+		postTickFire = v.FireTicks
 		if in, ok := rules.TurtleHelmetBreathing(headArmor, around.EyesInWater); ok {
 			if change, ok := rules.AddEffect(v, effects, in); ok {
 				changes = append(changes, change)
@@ -716,7 +725,7 @@ func (c *client) tickVitals() {
 	if fellFrom != nil {
 		c.fellAdvancements(*fellFrom, pos)
 	}
-	c.pluginVitalsTick(before)
+	c.pluginVitalsTick(before, pos, preTickFire, postTickFire)
 	c.tellEffects(changes)
 	if !before.Dead && around.EyesInWater && !around.EyesInBubbleColumn && c.mountDismountsUnderwater() {
 		c.dismountMob(true)
@@ -2037,7 +2046,7 @@ func (c *client) attackClient(victim *client) {
 		return
 	}
 	held := c.attackWeapon()
-	blow, ok := c.prepareAttack(held, protocol.EntityTypePlayer, true)
+	blow, ok := c.prepareAttack(held, protocol.EntityTypePlayer, true, victimLoot(victim))
 	if !ok {
 		return
 	}
@@ -2232,7 +2241,7 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 	}
 	c.srv.mu.RUnlock()
 	myTeam, allies := c.alliesAmong(inWorld)
-	ctx := attackEnchContext(meleeDamageType(held), protocol.EntityTypePlayer)
+	ctx := c.attackEnchContext(meleeDamageType(held), protocol.EntityTypePlayer, nil)
 	cause := &damageCause{entityID: c.player.EntityID, x: from.X, y: from.Y, z: from.Z,
 		weapon: held, killer: &rules.Killer{Name: c.DisplayName(), Weapon: held}, shove: true}
 	for _, v := range players {
@@ -2249,6 +2258,7 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 		}
 		// Enchantments apply against each swept body's kind, as against the
 		// victim's.
+		ctx.Body, ctx.BodyOf = nil, victimLoot(v)
 		landed, softened := v.hurt(rules.EnchantedDamage(held, &ctx, sweep)*strength,
 			ctx.DamageType, cause)
 		if !landed {
@@ -2295,7 +2305,7 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 			[3]float64{bMinX, bMinY, bMinZ}, [3]float64{bMaxX, bMaxY, bMaxZ}) {
 			continue
 		}
-		mobCtx := attackEnchContext(meleeDamageType(held), mobEntityType(m.Type))
+		mobCtx := c.attackEnchContext(meleeDamageType(held), mobEntityType(m.Type), func() *rules.LootEntity { return c.srv.mobLootLocked(ent) })
 		// The spikes are read before the blow lands. vanilla: Guardian.hurtServer
 		if m.ThornsOut() {
 			pricks = append(pricks, guardianPrick{id: m.ID, x: m.X, y: m.Y, z: m.Z, killer: c.srv.mobKiller(ent)})
@@ -2654,16 +2664,7 @@ func (c *client) applyPlayerKnockback(w *world.World, pusher uuid.UUID, old, tar
 // burning_time) and thaws the body; an invulnerable mode holds the count at
 // one. vanilla: LivingEntity.igniteForTicks
 func (c *client) igniteForTicks(ticks int32) {
-	ticks = int32(rules.ScaledIgniteTicks(int(ticks), c.burningTime()))
-	if int(ticks) > c.player.Vitals().FireTicks {
-		ticks = int32(c.srv.combustTicks(pluginPlayer{c: c}, int(ticks)))
-		if ticks <= 0 {
-			return
-		}
-	}
-	c.player.UpdateVitals(func(v *player.Vitals) {
-		rules.IgniteForTicks(v, int(ticks))
-	})
+	c.igniteForTicksBy(ticks, nil)
 }
 
 // handleClientCommand handles Client Command: a respawn (after death or the

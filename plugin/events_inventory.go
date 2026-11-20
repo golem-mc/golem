@@ -80,7 +80,10 @@ type InventoryDragEvent struct {
 type InventoryMoveItemEvent struct {
 	Cancellable
 	Source, Destination Inventory
-	Item                ItemStack
+	// Initiator is the inventory whose holder moves the item: Source for a
+	// push, Destination for a hopper pulling. Bukkit: getInitiator
+	Initiator Inventory
+	Item      ItemStack
 }
 
 // InventoryPickupItemEvent fires when a hopper block picks up an item entity.

@@ -19,6 +19,7 @@ type lootWorld interface {
 	BiomeAt(x, y, z int32) string
 	// LocationReader reads the world at absolute positions.
 	LocationReader() rules.LocationReader
+	DimensionName() string
 	EnvironmentFloat(attribute string, x, y, z float64) float32
 	IsRaining() bool
 	IsThundering() bool
@@ -35,6 +36,7 @@ func fillLootWorld(ctx *rules.LootContext, w lootWorld, pos player.Position) {
 	ctx.BiomeAt = func(dx, dy, dz int32) string { return w.BiomeAt(x+dx, y+dy, z+dz) }
 	ctx.Origin, ctx.HasOrigin = [3]float64{pos.X, pos.Y, pos.Z}, true
 	ctx.Level = lootLevel(w, pos)
+	ctx.Dimension = w.DimensionName()
 }
 
 // lootLevel is w as the level of a roll at pos.
@@ -152,4 +154,9 @@ func parsePredicate(text string) (registry.LootCondition, *ParseError) {
 func checkPredicateArgument(text string) *ParseError {
 	_, err := parsePredicate(text)
 	return err
+}
+
+// FillLootWorld points ctx's location and level reads at src, at pos.
+func FillLootWorld(ctx *rules.LootContext, src Source, pos player.Position) {
+	fillLootWorld(ctx, src, pos)
 }

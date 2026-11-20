@@ -19,6 +19,35 @@ type attackBody struct {
 	mannequin *mannequinEntity
 }
 
+func (s *Server) attackBodyEntity(b attackBody) plugin.Entity {
+	switch {
+	case b.player != nil:
+		return pluginPlayer{c: b.player}
+	case b.mob != nil:
+		if ent := s.mobEntityOf(b.mob); ent != nil {
+			return pendingMob{id: ent.uuid}
+		}
+	case b.mannequin != nil:
+		return pluginEntity{id: b.mannequin.uuid}
+	}
+	return nil
+}
+
+// attackBodyEntityLocked is attackBodyEntity with mobsMu held.
+func (s *Server) attackBodyEntityLocked(w *world.World, b attackBody) plugin.Entity {
+	switch {
+	case b.player != nil:
+		return pluginPlayer{c: b.player}
+	case b.mob != nil:
+		if ent := s.herdOf(w).book[b.mob]; ent != nil {
+			return pendingMob{id: ent.uuid}
+		}
+	case b.mannequin != nil:
+		return pluginEntity{id: b.mannequin.uuid}
+	}
+	return nil
+}
+
 func (b attackBody) cause(s *Server, w *world.World) *damageCause {
 	if b.player != nil {
 		return b.player.retaliationCause()
@@ -63,6 +92,8 @@ func (s *Server) postAttack(w *world.World, attacker, victim attackBody, weapon 
 	ctx.Thundering = w.IsThundering()
 	ctx.CanSeeSky = w.SkyLightAt(bx, by, bz) == 15
 	ctx.Block = registry.BlockOf(w.BlockAt(bx, by, bz))
+	ctx.Body = nil
+	s.bindBlowLoot(w, ctx, attacker, victim, victim.mob != nil)
 	var actions []rules.PostAttackAction
 	if c := victim.player; c != nil {
 		var pieces [len(player.EquipmentSlots)]rules.EnchPiece
@@ -127,7 +158,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			c.AddEffect(in)
 		}
 		if e.Duration != nil {
-			c.igniteForTicks(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level))))
+			c.igniteForTicksBy(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level))), s.attackBodyEntity(owner))
 		}
 		c.exhaust(float64(rules.EnchLevelValueAt(e.ApplyExhaustion, a.Level)))
 		if i := e.ApplyImpulse; i != nil {
@@ -148,6 +179,10 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			}
 		}
 	} else if ent := target.mannequin; ent != nil {
+		var igniteBy entity.Combuster
+		if e.Duration != nil {
+			igniteBy = s.attackBodyEntity(owner)
+		}
 		s.mannequinsMu.Lock()
 		m := ent.mannequin
 		if m.Dead {
@@ -161,7 +196,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			m.AddEffect(in)
 		}
 		if e.Duration != nil {
-			m.IgniteForTicks(int(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level)))))
+			m.IgniteForTicksBy(int(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level)))), entity.CombustSource{By: igniteBy})
 		}
 		if i := e.ApplyImpulse; i != nil {
 			impulse := rules.LookImpulse(m.Yaw, m.Pitch, i.CoordinateScale, float64(rules.EnchLevelValueAt(i.Magnitude, a.Level)))
@@ -199,7 +234,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			}
 		}
 		if e.Duration != nil {
-			m.IgniteForTicks(int(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level)))))
+			m.IgniteForTicksBy(int(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level)))), entity.CombustSource{By: s.attackBodyEntityLocked(w, owner)})
 		}
 		if i := e.ApplyImpulse; i != nil {
 			impulse := rules.LookImpulse(float32(m.Yaw), float32(m.Pitch), i.CoordinateScale, float64(rules.EnchLevelValueAt(i.Magnitude, a.Level)))
@@ -301,4 +336,52 @@ func (s *Server) wearPostAttack(w *world.World, owner attackBody, piece int, amo
 			s.broadcastWorld(w, protocol.IDPlayEntityEvent, entityEventPayload(id, status))
 		}
 	}
+}
+
+// bindBlowLoot gives ctx the bodies of a blow for a data-pack effect's loot
+// conditions, with the victim's position as the origin. mobsHeld says the
+// caller holds mobsMu while the conditions run; a mob body is then read
+// without taking it, and none is given when the victim is a mannequin, whose
+// lock may not nest with mobsMu.
+// vanilla: Enchantment.damageContext
+func (s *Server) bindBlowLoot(w *world.World, ctx *rules.EnchContext, attacker, victim attackBody, mobsHeld bool) {
+	body := func(b attackBody) func() *rules.LootEntity {
+		switch {
+		case b.player != nil:
+			return victimLoot(b.player)
+		case b.mob != nil && victim.mannequin == nil:
+			return func() *rules.LootEntity {
+				if !mobsHeld {
+					s.mobsMu.Lock()
+					defer s.mobsMu.Unlock()
+				}
+				if ent := s.herdOf(w).book[b.mob]; ent != nil {
+					return s.mobLootLocked(ent)
+				}
+				return nil
+			}
+		}
+		return nil
+	}
+	ctx.Body, ctx.BodyOf = nil, body(victim)
+	ctx.AttackerOf = body(attacker)
+	ctx.DirectAttackerOf = nil
+	if ctx.Direct {
+		ctx.DirectAttackerOf = ctx.AttackerOf
+	}
+	ctx.LootWorld = func(loot *rules.LootContext) { s.fillBlowWorld(w, loot, [3]float64{}) }
+}
+
+// fillBlowWorld sets the level and origin of a blow's loot context: the
+// victim's position, or at when the victim's snapshot has none.
+func (s *Server) fillBlowWorld(w *world.World, loot *rules.LootContext, at [3]float64) {
+	if p := loot.This.Place; p != nil {
+		at = [3]float64{p.X, p.Y, p.Z}
+	}
+	x, y, z := rules.BlockOf(at[0]), rules.BlockOf(at[1]), rules.BlockOf(at[2])
+	loot.BlockAt = func(dx, dy, dz int32) uint16 { return w.BlockAt(x+dx, y+dy, z+dz) }
+	loot.BiomeAt = func(dx, dy, dz int32) string { return w.BiomeAt(x+dx, y+dy, z+dz) }
+	loot.Dimension = w.DimensionName()
+	loot.Origin, loot.HasOrigin = at, true
+	loot.Level = s.lootLevelAt(w, at[0], at[1], at[2])
 }

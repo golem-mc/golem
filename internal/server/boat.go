@@ -2205,7 +2205,7 @@ func (c *client) attackBoat(target int32) {
 		return
 	}
 	held := c.heldItem(protocol.HandMain)
-	blow, ok := c.prepareAttack(held, it.entityTypeID(), false)
+	blow, ok := c.prepareAttack(held, it.entityTypeID(), false, nil)
 	if !ok {
 		return
 	}

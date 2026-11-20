@@ -1517,7 +1517,7 @@ type Mob struct {
 	Convert func(m *Mob, into MobType) bool
 	// Combust is asked before the body catches fire for ticks and answers the
 	// ticks it burns, 0 for none; nil when the server has none.
-	Combust func(m *Mob, ticks int) int
+	Combust func(m *Mob, ticks int, src CombustSource) int
 	// GameTime is the world's age, stamped by the server ahead of each tick;
 	// anger end times are measured on it.
 	GameTime int64
@@ -4748,7 +4748,9 @@ func (m *Mob) lavaContact(w World, scan *contactScan, events []MobEvent) []MobEv
 		return events
 	}
 	if m.InLava() || m.touches(w, scan, contactLavaCauldron) {
-		livingLavaContact(w, m.mobBox(), m.InLava(), m.IgniteForTicks, func(amount float64, typ registry.DamageType) { events = m.burnBite(amount, typ, events) })
+		livingLavaContact(w, m.mobBox(), m.InLava(), func(ticks int, x, y, z int32) {
+			m.IgniteForTicksBy(ticks, CombustSource{HasBlock: true, X: x, Y: y, Z: z})
+		}, func(amount float64, typ registry.DamageType) { events = m.burnBite(amount, typ, events) })
 	}
 	return events
 }
@@ -4933,9 +4935,9 @@ func (m *Mob) fireContact(w World, scan *contactScan, events []MobEvent) []MobEv
 		return events
 	}
 	fire := m.FireTicks
-	livingFireContact(w, m.mobBox(), &fire, func(ticks int) {
+	livingFireContact(w, m.mobBox(), &fire, func(ticks int, x, y, z int32) {
 		m.SetMetadataFireTicks(fire)
-		m.IgniteForTicks(ticks)
+		m.IgniteForTicksBy(ticks, CombustSource{HasBlock: true, X: x, Y: y, Z: z})
 		fire = m.FireTicks
 	}, func(amount float64, typ registry.DamageType) {
 		m.SetMetadataFireTicks(fire)

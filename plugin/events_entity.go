@@ -168,10 +168,13 @@ type EntityCombustEvent struct {
 	Cancellable
 	Entity   Entity
 	Duration int
-	// By is the block or entity that set it alight; both are nil unless the
-	// host knows the source, which it does not yet.
+	// ByEntity is the entity that set it alight (a Fire Aspect attacker, a
+	// burning arrow, a small fireball, a burning mob or lightning), nil when
+	// none. Bukkit: EntityCombustByEntityEvent.getCombuster
 	ByEntity Entity
-	ByBlock  *Block
+	// ByBlock is the fire, lava or lava cauldron block that set it alight,
+	// nil when none. Bukkit: EntityCombustByBlockEvent.getCombuster
+	ByBlock *Block
 }
 
 // EntityChangeBlockEvent fires when an entity changes a block: an enderman

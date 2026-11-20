@@ -181,3 +181,34 @@ func TestDecodeEnchantmentExponentialAndPredicateReference(t *testing.T) {
 		t.Errorf("resolved requirement = %+v", req)
 	}
 }
+
+// TestDecodeEnchantmentLootRequirements keeps a requirement the enchantment
+// codec has no variant for as a loot condition, and still drops one the loot
+// codec refuses.
+func TestDecodeEnchantmentLootRequirements(t *testing.T) {
+	t.Parallel()
+	effect := func(requirements string) []byte {
+		return []byte(`{"description":{"text":"x"},"max_level":1,"weight":1,"anvil_cost":1,
+		"min_cost":{"base":1,"per_level_above_first":0},"max_cost":{"base":9,"per_level_above_first":0},
+		"slots":["mainhand"],"supported_items":"#minecraft:enchantable/weapon",
+		"effects":{"minecraft:damage":[{"effect":{"type":"minecraft:add","value":1},"requirements":` + requirements + `}]}}`)
+	}
+	for _, tc := range []struct {
+		requirements string
+		kept         bool
+	}{
+		{`{"condition":"minecraft:entity_scores","entity":"this","scores":{"x":1}}`, true},
+		{`{"condition":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`, true},
+		{`{"condition":"minecraft:inverted","term":{"condition":"minecraft:entity_scores","entity":"this","scores":{"x":1}}}`, true},
+		{`{"condition":"minecraft:location_check","predicate":{"dimension":"minecraft:the_end"}}`, true},
+		{`{"condition":"minecraft:no_such_condition"}`, false},
+	} {
+		def, dropped, err := DecodeEnchantment("pk:loot", effect(tc.requirements))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if kept := len(def.Effects.Damage) == 1 && len(dropped) == 0; kept != tc.kept {
+			t.Errorf("%s: kept = %v, dropped %v", tc.requirements, kept, dropped)
+		}
+	}
+}

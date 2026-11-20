@@ -59,6 +59,12 @@ type EnchContext struct {
 	// BodyOf builds Body on the first predicate that reads it, so a walk
 	// whose entries never test the body does not snapshot it.
 	BodyOf func() *LootEntity
+	// AttackerOf and DirectAttackerOf build the blow's ATTACKING_ENTITY and
+	// DIRECT_ATTACKING_ENTITY for a loot condition; nil leaves them absent.
+	AttackerOf, DirectAttackerOf func() *LootEntity
+	// LootWorld fills the level and origin of a loot condition's context;
+	// nil leaves them unset.
+	LootWorld func(*LootContext)
 }
 
 // EnchUser is the state an entity_properties "this" test reads on the body
@@ -211,6 +217,8 @@ func enchCondition(c *registry.EnchCondition, ctx *EnchContext) bool {
 		return c.ToolTag != "" && registry.Item(ctx.Tool.ItemID).InTag(registry.ItemTagOf(c.ToolTag))
 	case registry.EnchCondActive:
 		return ctx.Active != nil && *ctx.Active == c.Active
+	case registry.EnchCondLoot:
+		return enchLootConditions(c.Loot, ctx)
 	case registry.EnchCondBody:
 		if ctx.Body == nil && ctx.BodyOf != nil {
 			ctx.Body = ctx.BodyOf()
@@ -332,6 +340,7 @@ func TridentHitEffects(weapon protocol.ItemStack, ctx *EnchContext, block bool) 
 // effect whose condition passes takes the value the one before left, the
 // component's list being the chain vanilla's applyEffects walks.
 func enchValueEffects(list []registry.EnchConditional, level int32, rng *rand.Rand, ctx *EnchContext, value float64) float64 {
+	ctx.Level = level
 	for _, conditional := range list {
 		if !enchCondition(conditional.Requires, ctx) {
 			continue
@@ -927,4 +936,48 @@ func (a LocatedAction) LocatedAttributeModifier() (registry.AttributeModifier, b
 // MobEffects rolls the entry's apply_mob_effect on the dice.
 func (a LocatedAction) MobEffects(rng *rand.Rand) []effect.Instance {
 	return PostAttackAction{Level: a.Level, Effect: a.Entry.Effect}.MobEffects(rng)
+}
+
+// enchLootConditions tests loot conditions against the effect's context.
+// vanilla: Enchantment.damageContext, itemContext, locationContext
+func enchLootConditions(conds []registry.LootCondition, ctx *EnchContext) bool {
+	loot := LootContext{Tool: ToolOf(ctx.Tool), DamageType: ctx.DamageType, EnchantmentActive: ctx.Active, EnchantmentLevel: ctx.Level}
+	if ctx.Body == nil && ctx.BodyOf != nil {
+		ctx.Body = ctx.BodyOf()
+	}
+	// A body the caller gave no snapshot is known by its type alone.
+	loot.This = bodyOrType(ctx.Body, ctx.Victim)
+	loot.Attacker = bodyOrType(callBody(ctx.AttackerOf), ctx.Attacker)
+	loot.DirectAttacker = bodyOrType(callBody(ctx.DirectAttackerOf), ctx.DirectAttacker)
+	if ctx.LootWorld != nil {
+		ctx.LootWorld(&loot)
+	}
+	rng := ctx.Rand
+	if rng == nil {
+		rng = rand.New(rand.NewSource(0))
+	}
+	for _, c := range conds {
+		if !TestLootCondition(c, &loot, rng) {
+			return false
+		}
+	}
+	return true
+}
+
+func callBody(f func() *LootEntity) *LootEntity {
+	if f == nil {
+		return nil
+	}
+	return f()
+}
+
+// bodyOrType is e, or a body of the entity type typeID (-1 for none) when e is nil.
+func bodyOrType(e *LootEntity, typeID int32) LootEntity {
+	switch {
+	case e != nil:
+		return *e
+	case typeID >= 0:
+		return LootEntity{Type: registry.EntityType(typeID).Name()}
+	}
+	return LootEntity{}
 }

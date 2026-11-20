@@ -683,9 +683,10 @@ func (m *Mob) attackDamage() float64 {
 
 // BlowEnchantments applies the main-hand enchantments to a blow on
 // victimType: the damage after damage effects, the knockback strength
-// (already halved, like the player's extra).
+// (already halved, like the player's extra). bind, when not nil, gives the
+// context the blow's bodies for loot conditions.
 // vanilla: Mob.doHurtTarget
-func (m *Mob) BlowEnchantments(victimType int32, damage float64) (dealt, knockback float64) {
+func (m *Mob) BlowEnchantments(victimType int32, damage float64, bind func(*rules.EnchContext)) (dealt, knockback float64) {
 	// vanilla: IronGolem.doHurtTarget bypasses Mob.doHurtTarget.
 	if m.Type == TypeIronGolem && len(m.MainHand.Enchantments) == 0 {
 		return damage, 0
@@ -702,6 +703,9 @@ func (m *Mob) BlowEnchantments(victimType int32, damage float64) (dealt, knockba
 	ctx := rules.EnchContext{
 		DamageType: rules.DamageTypeMobAttack, Direct: true,
 		Victim: victimType, Attacker: self, DirectAttacker: self,
+	}
+	if bind != nil {
+		bind(&ctx)
 	}
 	if m.Type == TypeIronGolem {
 		return damage, 0

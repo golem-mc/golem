@@ -2581,22 +2581,36 @@ func (s *Server) relightAsync(w *world.World, x, z int32) {
 // follow the block it belongs to; a stopped loop sends it at once.
 // vanilla: ChunkHolder.broadcastChanges
 func (s *Server) relightAreaAsync(w *world.World, minX, minZ, maxX, maxZ int32) {
-	// Safe to skip: the caller's write set the mark before this call, so an
-	// unmarked box was already relit, and a relight running now covers any
-	// mark it clears. A write that keeps its light (a fence arm, a stair
-	// shape) never marks.
-	if !w.LightMarkedIn(minX, minZ, maxX, maxZ) {
+	s.relightBoxesAsync(w, []changeBox{{minX, minZ, maxX, maxZ}})
+}
+
+// relightBoxesAsync books the boxes' relights together and collects their
+// results on one goroutine, so a batch parks one waiter however many chunks it
+// touches. A box needs no relight when its columns carry no light mark: the
+// caller's write set the mark before this call, so an unmarked box was already
+// relit, and a relight running now covers any mark it clears. A write that
+// keeps its light (a fence arm, a stair shape) never marks.
+func (s *Server) relightBoxesAsync(w *world.World, boxes []changeBox) {
+	var chs []<-chan []world.LightChange
+	for _, b := range boxes {
+		if !w.LightMarkedIn(b.minX, b.minZ, b.maxX, b.maxZ) {
+			continue
+		}
+		s.relightsRun.Add(1)
+		chs = append(chs, w.RelightAreaAsync(b.minX, b.minZ, b.maxX, b.maxZ))
+	}
+	if len(chs) == 0 {
 		return
 	}
-	s.relightsRun.Add(1)
-	ch := w.RelightAreaAsync(minX, minZ, maxX, maxZ)
 	s.relightWG.Go(func() {
-		changed := <-ch
-		if !s.loopRunning() {
-			s.broadcastLight(w, changed)
-			return
+		for _, ch := range chs {
+			changed := <-ch
+			if !s.loopRunning() {
+				s.broadcastLight(w, changed)
+				continue
+			}
+			w.MarkLightChanged(changed)
 		}
-		w.MarkLightChanged(changed)
 	})
 }
 

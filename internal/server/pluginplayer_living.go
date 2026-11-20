@@ -123,6 +123,7 @@ func (p pluginPlayer) entity() pluginEntity {
 
 func (p pluginPlayer) Data() plugin.Data               { return p.entity().Data() }
 func (p pluginPlayer) SpawnReason() plugin.SpawnReason { return plugin.SpawnDefault }
+func (p pluginPlayer) Origin() (plugin.Location, bool) { return plugin.Location{}, false }
 
 func (p pluginPlayer) Vehicle() (plugin.Entity, bool) {
 	if !p.IsValid() {

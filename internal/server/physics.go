@@ -885,10 +885,7 @@ func (s *Server) relightChanges(w *world.World, changes []world.BlockChange) {
 		at[key] = len(boxes)
 		boxes = append(boxes, changeBox{minX: ch.X, minZ: ch.Z, maxX: ch.X, maxZ: ch.Z})
 	}
-	for i := range boxes {
-		b := &boxes[i]
-		s.relightAreaAsync(w, b.minX, b.minZ, b.maxX, b.maxZ)
-	}
+	s.relightBoxesAsync(w, boxes)
 	if s.relightSeam != nil {
 		s.relightSeam(len(boxes), changes)
 	}

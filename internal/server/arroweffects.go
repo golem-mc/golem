@@ -371,7 +371,7 @@ func (s *Server) arrowPlayerOutcome(hit arrowPlayerHit) arrowOutcome {
 	if hit.igniteTicks > 0 {
 		// The ignite runs ahead of the hurt; a refused hurt puts the
 		// burn back below.
-		hit.victim.igniteForTicks(hit.igniteTicks)
+		hit.victim.igniteForTicksBy(hit.igniteTicks, pluginEntity{id: hit.arrow.uuid})
 	}
 	// The shaft's own push follows the flight, not the arrow's position:
 	// a whole hit's default shove along it, and the Punch enchantment's

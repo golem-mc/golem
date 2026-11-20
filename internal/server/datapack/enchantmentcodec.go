@@ -551,10 +551,28 @@ func (d *enchantmentDecoder) predicateRef(name string) *registry.EnchCondition {
 	return d.enchCondition(v)
 }
 
-// enchCondition reads an "requirements" condition: the variants the tree
-// carries, with a predicate reference resolved through d.predicates.
+// enchCondition reads a "requirements" condition: the variants the tree
+// carries, and any other condition the loot codec reads as a loot condition.
 // vanilla: LootItemCondition
-func (d *enchantmentDecoder) enchCondition(v any) *registry.EnchCondition {
+func (d *enchantmentDecoder) enchCondition(v any) (out *registry.EnchCondition) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		c, isObject := v.(map[string]any)
+		// A reference stays an error here: the pack's predicates are all read before it.
+		if _, failed := r.(lootFailure); !failed || !isObject || registry.Qualify(optStr(c, "condition")) == "minecraft:reference" {
+			panic(r)
+		}
+		out = &registry.EnchCondition{Kind: registry.EnchCondLoot, Loot: []registry.LootCondition{condition(c)}}
+	}()
+	return d.nativeCondition(v)
+}
+
+// nativeCondition reads the variants the tree carries, with a predicate
+// reference resolved through d.predicates.
+func (d *enchantmentDecoder) nativeCondition(v any) *registry.EnchCondition {
 	if name, isRef := v.(string); isRef {
 		return d.predicateRef(name)
 	}

@@ -99,10 +99,7 @@ func updateRecipesPayload() []byte {
 		b.PutVarInt(2)
 		b.PutVarInt(recipe.Input)
 		b.PutVarInt(slotDisplayItemStack)
-		b.PutVarInt(recipe.ResultID)
-		b.PutVarInt(recipe.ResultCount)
-		b.PutVarInt(0) // no added components
-		b.PutVarInt(0) // no removed components
+		b.PutItemTemplate(registry.RecipeResult(recipe.ID, protocol.ItemStack{ItemID: recipe.ResultID, Count: recipe.ResultCount}))
 	}
 	return b.Bytes()
 }
@@ -171,7 +168,7 @@ func putNamedRecipeBookEntry(b *protocol.Buffer, name string, notify, highlight 
 		b.PutVarInt(d.ID)
 		b.PutVarInt(recipeDisplayStonecutter)
 		putSquareDisplay(b, d.Ingredient)
-		putBookResult(b, d.ResultID, d.ResultCount)
+		putBookResult(b, registry.RecipeResult(d.Name, protocol.ItemStack{ItemID: d.ResultID, Count: d.ResultCount}))
 		putBookStation(b, registry.ItemStonecutter)
 		putEntryTail(b, d.Group, d.Category, []registry.BookIngredient{d.Ingredient}, notify, highlight)
 		return 1
@@ -189,7 +186,7 @@ func putNamedRecipeBookEntry(b *protocol.Buffer, name string, notify, highlight 
 			putSquareDisplay(b, d.Addition)
 			b.PutVarInt(d.Pattern + 1)
 		} else {
-			putBookResult(b, d.ResultID, d.ResultCount)
+			putBookResult(b, registry.RecipeResult(d.Name, protocol.ItemStack{ItemID: d.ResultID, Count: d.ResultCount}))
 		}
 		putBookStation(b, registry.ItemSmithingTable)
 		putEntryTail(b, d.Group, d.Category, []registry.BookIngredient{d.Template, d.Base, d.Addition}, notify, highlight)
@@ -254,7 +251,7 @@ func putCraftingDisplay(b *protocol.Buffer, display *registry.CraftingDisplay) {
 		for _, square := range display.Squares {
 			putSquareDisplay(b, square)
 		}
-		putBookResult(b, display.ResultID, display.ResultCount, display.ResultComponents...)
+		putBookResult(b, registry.RecipeResult(display.Name, protocol.ItemStack{ItemID: display.ResultID, Count: display.ResultCount, Raw: display.ResultComponents}))
 	}
 	putBookStation(b, registry.ItemCraftingTable)
 }
@@ -265,7 +262,7 @@ func putBookSlot(b *protocol.Buffer, slot registry.BookSlot) {
 	case registry.BookSlotIngredient:
 		putSquareDisplay(b, slot.Ingredient)
 	case registry.BookSlotStack:
-		putBookResult(b, slot.ItemID, slot.Count)
+		putBookResult(b, protocol.ItemStack{ItemID: slot.ItemID, Count: slot.Count})
 	case registry.BookSlotPotion:
 		b.PutVarInt(slotDisplayPotion)
 		putBookSlot(b, slot.Children[0])
@@ -321,7 +318,7 @@ func putFurnaceDisplay(b *protocol.Buffer, display *registry.FurnaceDisplay) {
 	b.PutVarInt(recipeDisplayFurnace)
 	putSquareDisplay(b, display.Ingredient)
 	b.PutVarInt(slotDisplayAnyFuel)
-	putBookResult(b, display.ResultID, display.ResultCount)
+	putBookResult(b, registry.RecipeResult(display.Name, protocol.ItemStack{ItemID: display.ResultID, Count: display.ResultCount}))
 	putBookStation(b, furnaceStations[display.Kind])
 	b.PutVarInt(display.Duration)
 	b.PutF32(display.Experience)
@@ -618,9 +615,9 @@ func (c *client) refreshCraftingResult() {
 }
 
 // putBookResult writes an item-stack slot display.
-func putBookResult(b *protocol.Buffer, item, count int32, components ...protocol.RawComponent) {
+func putBookResult(b *protocol.Buffer, result protocol.ItemStack) {
 	b.PutVarInt(slotDisplayItemStack)
-	b.PutItemTemplate(protocol.ItemStack{ItemID: item, Count: count, Raw: components})
+	b.PutItemTemplate(result)
 }
 
 // putBookStation writes the station's item slot display.

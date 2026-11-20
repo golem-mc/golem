@@ -1,6 +1,10 @@
 package registry
 
-import "math"
+import (
+	"math"
+
+	"github.com/golem-mc/golem/internal/protocol"
+)
 
 // Advancement is one advancement of the vanilla data pack as
 // advancements_gen.go carries it. vanilla: Advancement
@@ -16,9 +20,13 @@ type Advancement struct {
 	// Telemetry is sends_telemetry_event, which the client reads off the
 	// wire.
 	Telemetry bool
-	// Experience is rewards.experience; the loot and function rewards are
-	// not carried: no vanilla advancement has one.
+	// Experience is rewards.experience.
 	Experience int32
+	// Loot is rewards.loot, the loot table ids rolled for the player.
+	Loot []string
+	// Function is rewards.function, the function run as the player; empty
+	// for none.
+	Function string
 	// Recipes is rewards.recipes, the recipe IDs completing it unlocks.
 	Recipes []string
 }
@@ -27,11 +35,16 @@ type Advancement struct {
 // vanilla: DisplayInfo
 type AdvancementDisplay struct {
 	// Title and Description are translation keys, or literal text when the
-	// matching Literal flag is set.
+	// matching Literal flag is set. TitleText and DescriptionText, when
+	// non-nil, carry a full text component from a data pack and take
+	// precedence over the string fields.
 	Title, Description               string
 	TitleLiteral, DescriptionLiteral bool
-	// Icon is an item ID; the data pack's icon components are not carried.
+	TitleText, DescriptionText       *protocol.Text
+	// Icon is an item ID; IconStack, when non-nil, carries the full icon
+	// template including its component patch.
 	Icon, IconCount int32
+	IconStack       *protocol.ItemStack
 	// Frame is AdvancementType's ordinal: 0 task, 1 challenge, 2 goal.
 	Frame int32
 	// Background is the tab's texture, set on the roots alone.
@@ -43,6 +56,10 @@ type AdvancementDisplay struct {
 // trigger this server tests.
 type AdvancementCriterion struct {
 	Name, Trigger string
+	// Player is the trigger's player condition, loot conditions that must all
+	// hold of the player; empty for none.
+	// vanilla: SimpleCriterionTrigger.SimpleInstance.player
+	Player []LootCondition
 	// Items is an inventory_changed criterion's item predicates, or the
 	// one predicate of a consume_item, filled_bucket, item_used_on_block
 	// or any_block_use (the tool), allay_drop_item_on_block (the item dropped) or

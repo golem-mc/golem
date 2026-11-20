@@ -677,7 +677,7 @@ func (s *Server) arrowHitTarget(fx *arrowEffects, in *arrowTickInputs, hv *arrow
 		priorFire := m.FireTicks
 		// vanilla: AbstractArrow.onHitEntity skips an enderman
 		if ev.IgniteTicks > 0 && m.Type != entity.TypeEnderman {
-			m.IgniteForTicks(int(ev.IgniteTicks))
+			m.IgniteForTicksBy(int(ev.IgniteTicks), entity.CombustSource{By: pluginEntity{id: it.uuid}})
 		}
 		hit := s.arrowHurtMob(it, dim, m, ev, shooterIsPlayer(it.arrow.OwnerID, bodies.clients), shooterCreative(it.arrow.OwnerID, bodies.clients), shooterHitSource(it.arrow.OwnerID, bodies, m))
 		// A projectile dodge can teleport the mob before the next arrow's query.

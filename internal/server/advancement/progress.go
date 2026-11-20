@@ -1,6 +1,7 @@
 package advancement
 
 import (
+	"github.com/golem-mc/golem/internal/server/rules"
 	"slices"
 	"sync"
 	"time"
@@ -38,6 +39,17 @@ type Progress struct {
 	// veto, if set, is asked before a criterion is obtained and refuses it
 	// by returning true. It runs under mu and must not call back into p.
 	veto func(n *Node, criterion string) bool
+	// playerContext, if set, builds the loot context a criterion's player
+	// conditions are tested in. It runs under mu and must not call back into p.
+	playerContext func() (*rules.LootContext, rules.LootRand)
+}
+
+// SetPlayerContext installs the callback that builds the loot context of the
+// player; it runs with p's lock held, so it must not reach p.
+func (p *Progress) SetPlayerContext(f func() (*rules.LootContext, rules.LootRand)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.playerContext = f
 }
 
 // SetVeto installs the callback that may refuse a criterion before it is

@@ -340,7 +340,8 @@ type LootLocationCheck struct {
 	Biomes                    []string
 	OffsetX, OffsetY, OffsetZ int32
 
-	Position   *[3]AdvancementRange
+	Position *[3]AdvancementRange
+	// Dimension is the dimension's name the roll must happen in; empty asks after none.
 	Dimension  string
 	Structures []string
 	Smokey     *bool
@@ -375,6 +376,20 @@ type LootDamageSource struct {
 	DamageTypes *DamageTypeSet
 	// DirectType also demands the entity that carried the blow have this type.
 	DirectType string
+	// Tags are the TagPredicate terms; each must hold.
+	Tags []LootDamageTag
+	// Direct and Source test the entity that carried the blow and the one
+	// that caused it; a missing entity fails.
+	Direct, Source *LootEntityPredicate
+	// IsDirect asks whether the two are the same entity.
+	IsDirect *bool
+}
+
+// LootDamageTag is one damage-type tag term: the damage type is in Set
+// exactly when Expected.
+type LootDamageTag struct {
+	Set      *DamageTypeSet
+	Expected bool
 }
 
 // LootInverted is the condition that its term does not hold.
@@ -482,14 +497,18 @@ type LootStateProperty struct {
 	Key, Value string
 }
 
-// LootItemPredicate matches items, enchantments and dyed colour presence;
-// other component predicates are generator errors.
+// LootItemPredicate matches items, enchantments and dyed colour presence, and
+// with Full any other part of an item predicate.
 type LootItemPredicate struct {
 	Items              []string // empty: any item
 	Enchantments       []LootEnchantments
 	StoredEnchantments []LootEnchantments
 	HasDyedColor       bool
 	HasMapID           bool
+	// Full is the whole item predicate, set when it asks for more than the
+	// fields above (count, components, other component predicates); it is
+	// tested on the stack itself in addition to them.
+	Full *ItemPredicate
 }
 
 // LootEnchantments requires one enchantment (named, from a tag, or any)

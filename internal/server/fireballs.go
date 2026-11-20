@@ -97,7 +97,7 @@ func (s *Server) fireballHitMob(pass *fireballPass, dim *dimension, it *thrownEn
 	}
 	prior := m.FireTicks
 	if t.Kind == entity.ThrownSmallFireball {
-		m.IgniteForTicks(entity.SmallFireballBurnTicks)
+		m.IgniteForTicksBy(entity.SmallFireballBurnTicks, entity.CombustSource{By: pluginEntity{id: it.uuid}})
 	}
 	landed, softened = m.HurtByProjectile(damage, damageType, t.VX, t.VZ, t.OwnerID, shooterPlayer, shooterCreative, from...)
 	if !landed {
@@ -132,7 +132,7 @@ func (s *Server) finishFireballs(pass *fireballPass) {
 		}
 		prior := hit.victim.player.Vitals().FireTicks
 		if hit.kind == entity.ThrownSmallFireball {
-			hit.victim.igniteForTicks(entity.SmallFireballBurnTicks)
+			hit.victim.igniteForTicksBy(entity.SmallFireballBurnTicks, pluginEntity{id: hit.uuid})
 		}
 		killer := s.entityKiller(w, hit.ownerID)
 		landed, softened := hit.victim.hurt(damage, damageType, &damageCause{
