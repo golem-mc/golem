@@ -3,6 +3,7 @@ package redstone
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
@@ -55,14 +56,73 @@ func TestALooseBodyLandingActivatesASculkSensor(t *testing.T) {
 }
 
 // TestAnArmorStandLandingMakesItsFallSound: a stand dropped six blocks says
-// entity.armor_stand.fall.
-// vanilla: LivingEntity.causeFallDamage, ArmorStand.getFallSounds
+// entity.armor_stand.fall, while a 3.5-block drop (below floor threshold), a
+// landing on a hay bale (damageModifier 0.2), and a Silent stand stay quiet.
+// vanilla: LivingEntity.causeFallDamage, LivingEntity.calculateFallDamage,
+// ArmorStand.getFallSounds
 func TestAnArmorStandLandingMakesItsFallSound(t *testing.T) {
 	t.Parallel()
-	srv, c, _ := servertest.BoatPlayer(t, "creative", "Watcher", 0)
-	if srv.SpawnArmorStand(0.5, 70, 2.5) == 0 {
-		t.Fatal("spawn came to nothing")
+	cases := []struct {
+		name      string
+		setup     func(t *testing.T, srv *server.Server)
+		wantSound bool
+	}{
+		{
+			name: "six_blocks",
+			setup: func(t *testing.T, srv *server.Server) {
+				if srv.SpawnArmorStand(0.5, 70, 2.5) == 0 {
+					t.Fatal("spawn came to nothing")
+				}
+			},
+			wantSound: true,
+		},
+		{
+			name: "three_point_five_blocks",
+			setup: func(t *testing.T, srv *server.Server) {
+				if srv.SpawnArmorStand(0.5, 67.5, 2.5) == 0 {
+					t.Fatal("spawn came to nothing")
+				}
+			},
+		},
+		{
+			name: "hay_bale",
+			setup: func(t *testing.T, srv *server.Server) {
+				srv.SetBlock(0, 63, 2, servertest.MustState(t, "minecraft:hay_block", nil))
+				if srv.SpawnArmorStand(0.5, 70, 2.5) == 0 {
+					t.Fatal("spawn came to nothing")
+				}
+			},
+		},
+		{
+			name: "silent",
+			setup: func(t *testing.T, srv *server.Server) {
+				srv.RunRconLine("summon minecraft:armor_stand 0.5 70 2.5 {Silent:1b}")
+			},
+		},
 	}
-	servertest.RunTicks(t, srv, 60)
-	c.AwaitSoundNamed("minecraft:entity.armor_stand.fall")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c, _ := servertest.BoatPlayer(t, "creative", "Watcher", 0)
+			servertest.HoldTicks(t, srv)
+			tc.setup(t, srv)
+			var heard []string
+			c.ReadTicks(srv, 60, func(id int32, data []byte) bool {
+				if id == protocol.IDPlaySoundEffect {
+					name, _, _, _, _, _, _ := servertest.ReadAmbient(t, data)
+					heard = append(heard, name)
+				}
+				return false
+			})
+			got := false
+			for _, name := range heard {
+				if name == "minecraft:entity.armor_stand.fall" {
+					got = true
+				}
+			}
+			if got != tc.wantSound {
+				t.Fatalf("heard sounds %v; armor_stand.fall = %v, want %v", heard, got, tc.wantSound)
+			}
+		})
+	}
 }

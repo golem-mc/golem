@@ -945,7 +945,7 @@ func (s *Server) tickArmorStands() {
 		if fall := ent.stand.LandedFall; fall > 0 {
 			ent.stand.LandedFall = 0
 			bodyLandings = append(bodyLandings, bodyLanding{w: ent.w, x: ent.stand.X, y: ent.stand.Y, z: ent.stand.Z,
-				halfWidth: ent.stand.HalfWidth(), stand: true, fall: fall})
+				halfWidth: ent.stand.HalfWidth(), stand: true, silent: ent.look.silent, fall: fall})
 		}
 		ent.onFire = ent.stand.FireTicks > 0 || ent.look.visualFire
 		// ArmorStand.hasPhysics gates all inside-block effects.

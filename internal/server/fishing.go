@@ -701,7 +701,7 @@ func (s *Server) tickBobbers() {
 		events := it.hook.Step(it.w, owner, targets)
 		if it.hook.LandedFall > 0 {
 			it.hook.LandedFall = 0
-			bodyLandings = append(bodyLandings, bodyLanding{w: it.w, x: it.hook.X, y: it.hook.Y, z: it.hook.Z, halfWidth: bobberHalfWidth})
+			bodyLandings = append(bodyLandings, bodyLanding{w: it.w, x: it.hook.X, y: it.hook.Y, z: it.hook.Z, halfWidth: entity.BobberHalfSize})
 		}
 		if nibbling && it.hook.Nibble <= 0 && !it.hook.Dead && listening {
 			fishing = append(fishing, bobberFishing{it: it, state: plugin.FishFailed})
