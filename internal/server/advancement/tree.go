@@ -50,6 +50,8 @@ type Tree struct {
 	// the criteria a changed item can pass.
 	heldBy  map[int32][]criterionRef
 	heldAny []criterionRef
+	// stackTests is set when an inventory_changed criterion tests whole stacks.
+	stackTests bool
 }
 
 // criterionRef is one criterion of a node, by its index in n.Criteria.
@@ -146,6 +148,9 @@ func NewTree(advancements []registry.Advancement) *Tree {
 			ref := criterionRef{n, i}
 			switch {
 			case c.Unmodelled:
+			case c.Trigger == TriggerInventoryChanged && c.ItemTests != nil:
+				t.heldAny = append(t.heldAny, ref)
+				t.stackTests = true
 			case c.Trigger == TriggerInventoryChanged && len(c.Items) == 1:
 				for _, item := range c.Items[0] {
 					if refs := t.heldBy[item]; len(refs) == 0 || refs[len(refs)-1] != ref {

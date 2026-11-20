@@ -1093,8 +1093,8 @@ func (c *client) handleClickContainer(r *protocol.Reader) error {
 			c.GiveRecipes(names)
 		}
 	}
-	if outcome.BrewedPotions > 0 {
-		c.brewedPotionAdvancements()
+	if len(outcome.BrewedPotions) > 0 {
+		c.brewedPotionAdvancements(outcome.BrewedPotions)
 	}
 
 	if fullResync {

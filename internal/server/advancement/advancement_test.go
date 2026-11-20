@@ -2,6 +2,7 @@ package advancement
 
 import (
 	"encoding/json"
+	"github.com/golem-mc/golem/internal/protocol"
 	"slices"
 	"strings"
 	"testing"
@@ -181,13 +182,13 @@ func TestLocationConsumeAndEnchantedMatchTheirConditions(t *testing.T) {
 	)
 	now := time.Now()
 	p.Location("minecraft:desert", nil, Standing{}, now)
-	p.ConsumeItem(8, now)
+	p.ConsumeItem(protocol.ItemStack{ItemID: 8, Count: 1}, now)
 	if _, ok := p.obtained[0]["bread"]; ok || len(p.obtained[0]) != 1 {
 		t.Fatalf("after another biome and another food: %v", p.obtained[0])
 	}
 	p.Location("minecraft:plains", nil, Standing{}, now)
-	p.ConsumeItem(7, now)
-	p.EnchantedItem(now)
+	p.ConsumeItem(protocol.ItemStack{ItemID: 7, Count: 1}, now)
+	p.EnchantedItem(protocol.ItemStack{ItemID: 7, Count: 1}, 1, now)
 	for _, name := range []string{"plains", "bread", "any", "enchant"} {
 		if _, ok := p.obtained[0][name]; !ok {
 			t.Errorf("%s was not obtained: %v", name, p.obtained[0])

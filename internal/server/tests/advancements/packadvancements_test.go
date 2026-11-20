@@ -264,3 +264,94 @@ func TestPackTickAdvancementTestsItsPlayerConditions(t *testing.T) {
 	c.ChatCommand("scoreboard players set Packer x 1")
 	servertest.UntilTicks(t, srv, 20, "the score advancement", func() bool { return srv.AdvancementObtained("Packer", "pk:score", "c") })
 }
+
+// stackWithData is an item carrying custom_data {a:1b}.
+func stackWithData(t *testing.T, item string) protocol.ItemStack {
+	t.Helper()
+	stack := servertest.ItemStack(t, "minecraft:"+item, 1)
+	stack.SetCustomData(nbt.Compound{"a": nbt.Byte(1)})
+	return stack
+}
+
+// TestPackInventoryChangedTestsCustomData: a criterion whose item predicate
+// asks for custom_data is obtained by the marked stick and not a plain one.
+// vanilla: InventoryChangeTrigger.TriggerInstance.matches, ItemPredicate.test
+func TestPackInventoryChangedTestsCustomData(t *testing.T) {
+	cfg, data := packConfig(t)
+	writePackFile(t, filepath.Join(data, "pk", "advancement", "marked.json"),
+		`{"criteria":{"got":{"trigger":"minecraft:inventory_changed","conditions":{"items":[`+
+			`{"items":"minecraft:stick","predicates":{"minecraft:custom_data":"{a:1b}"}}]}}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+
+	give(srv, t, "Packer", "stick")
+	c.Settle()
+	if srv.AdvancementObtained("Packer", "pk:marked", "got") {
+		t.Fatal("a plain stick obtained the custom_data advancement")
+	}
+	srv.GiveSlot("Packer", player.HotbarSlot, stackWithData(t, "stick"))
+	c.Settle()
+	servertest.UntilTicks(t, srv, 40, "the marked stick obtains it", func() bool {
+		return srv.AdvancementObtained("Packer", "pk:marked", "got")
+	})
+}
+
+// TestPackConsumeItemTestsCustomData: eating a bread with custom_data obtains
+// the criterion, eating a plain one does not.
+// vanilla: ConsumeItemTrigger.TriggerInstance.matches
+func TestPackConsumeItemTestsCustomData(t *testing.T) {
+	cfg, data := packConfig(t)
+	writePackFile(t, filepath.Join(data, "pk", "advancement", "meal.json"),
+		`{"criteria":{"ate":{"trigger":"minecraft:consume_item","conditions":{"item":`+
+			`{"items":"minecraft:bread","predicates":{"minecraft:custom_data":"{a:1b}"}}}}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	servertest.HoldTicks(t, srv)
+
+	eat := func(stack protocol.ItemStack) {
+		srv.SetFood("Packer", 10)
+		srv.GiveSlot("Packer", player.HotbarSlot, stack)
+		c.UseItemRightClicks(protocol.HandMain)
+		c.Settle()
+		if !srv.Eating("Packer") {
+			t.Fatal("the meal begins")
+		}
+		servertest.UntilTicks(t, srv, 100, "the meal is eaten", func() bool { return !srv.Eating("Packer") })
+	}
+	eat(servertest.ItemStack(t, "minecraft:bread", 1))
+	if srv.AdvancementObtained("Packer", "pk:meal", "ate") {
+		t.Fatal("a plain bread obtained the custom_data advancement")
+	}
+	eat(stackWithData(t, "bread"))
+	if !srv.AdvancementObtained("Packer", "pk:meal", "ate") {
+		t.Error("the marked bread did not obtain the advancement")
+	}
+}
+
+// TestPackItemDurabilityTestsRemainingUses: durability {max:1} is obtained
+// when a hit leaves the sword one use from breaking, not before.
+// vanilla: ItemDurabilityTrigger.TriggerInstance.matches
+func TestPackItemDurabilityTestsRemainingUses(t *testing.T) {
+	cfg, data := packConfig(t)
+	writePackFile(t, filepath.Join(data, "pk", "advancement", "worn.json"),
+		`{"criteria":{"worn":{"trigger":"minecraft:item_durability_changed","conditions":{"durability":{"max":1}}}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.ChatCommand("summon minecraft:zombie 1.5 64 2.5 {NoAI:1b}")
+	mob := c.ExpectMobSpawn(protocol.EntityTypeZombie)
+	servertest.HoldTicks(t, srv)
+
+	hit := func(damage int32) {
+		sword := servertest.ItemStack(t, "minecraft:iron_sword", 1)
+		sword.Damage = damage
+		srv.GiveSlot("Packer", player.HotbarSlot, sword)
+		servertest.AwaitFullSwing(t, srv, "Packer")
+		c.Attack(mob.EntityID)
+		c.Settle()
+	}
+	hit(100)
+	if srv.AdvancementObtained("Packer", "pk:worn", "worn") {
+		t.Fatal("wear leaving 149 uses obtained durability max 1")
+	}
+	hit(248)
+	servertest.UntilTicks(t, srv, 40, "the hit leaving one use obtains it", func() bool {
+		return srv.AdvancementObtained("Packer", "pk:worn", "worn")
+	})
+}

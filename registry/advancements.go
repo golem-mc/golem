@@ -65,6 +65,16 @@ type AdvancementCriterion struct {
 	// or any_block_use (the tool), allay_drop_item_on_block (the item dropped) or
 	// shot_crossbow criterion, each the item IDs it accepts.
 	Items [][]int32
+	// ItemTests is parallel to Items, or nil when no predicate needs more than
+	// the item IDs: the full predicate of each entry that tests count,
+	// components or predicates, nil for a plain one.
+	ItemTests []*ItemPredicate
+	// Durability, Delta and Levels are an item_durability_changed
+	// criterion's remaining uses and change in them, and an enchanted_item
+	// criterion's levels spent; Potions the potion IDs a brewed_potion
+	// criterion accepts, nil for any.
+	Durability, Delta, Levels AdvancementRange
+	Potions                   []int32
 	// From and To are a changed_dimension criterion's dimensions; empty
 	// matches any.
 	From, To string
