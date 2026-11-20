@@ -1346,10 +1346,11 @@ func (ws worldScope) Entities(filters command.EntityQuery) []command.Entity {
 		}
 	}
 	// Each step takes only its own lock; thrown bodies and clouds share the arrow lock.
+	// Mobs come first because their UUID lookup is a map.
 	kinds := []func([]command.Entity) []command.Entity{
+		func(out []command.Entity) []command.Entity { return s.appendMobSnapshots(out, &q) },
 		snapshotAppender(s, &q, &s.itemsMu, &s.items, itemTracker.id, (*Server).itemSnapshot),
 		snapshotAppender(s, &q, &s.orbsMu, &s.orbs, orbTracker.id, (*Server).orbSnapshot),
-		func(out []command.Entity) []command.Entity { return s.appendMobSnapshots(out, &q) },
 		snapshotAppender(s, &q, &s.arrowsMu, &s.arrows, arrowTracker.id, (*Server).arrowSnapshot),
 		snapshotAppender(s, &q, &s.arrowsMu, &s.thrown, thrownTracker.id, (*Server).thrownSnapshot),
 		snapshotAppender(s, &q, &s.tntMu, &s.tnts, tntTracker.id, (*Server).tntSnapshot),
