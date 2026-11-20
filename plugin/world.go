@@ -26,6 +26,11 @@ type World interface {
 	// SetBlockState sets the state at pos with vanilla's update flags,
 	// as /setblock does; false when the chunk is not loaded.
 	SetBlockState(pos BlockPos, s BlockState, flags UpdateFlags) bool
+	// BreakBlock breaks the block at pos as if mined without a tool: it plays
+	// the break effect, spills container contents, rolls the block's loot when
+	// drops is true and leaves air or the block's fluid. False for air, an
+	// unloaded chunk or a position outside the world.
+	BreakBlock(pos BlockPos, drops bool) bool
 	// Block answers the block at pos, a handle for the methods on Block.
 	Block(pos BlockPos) Block
 	// BlockEntity answers the block entity at pos, if one is there; assert
@@ -231,6 +236,10 @@ func (b Block) State() BlockState { return b.World.BlockState(b.Pos) }
 
 // Set sets the state with UpdateAll.
 func (b Block) Set(s BlockState) bool { return b.World.SetBlockState(b.Pos, s, UpdateAll) }
+
+// BreakNaturally breaks the block as World.BreakBlock does, with drops.
+// Bukkit: Block.breakNaturally
+func (b Block) BreakNaturally() bool { return b.World.BreakBlock(b.Pos, true) }
 
 // Relative answers the block n blocks away on face f.
 func (b Block) Relative(f BlockFace, n int) Block { return Block{b.World, b.Pos.Offset(f, n)} }
