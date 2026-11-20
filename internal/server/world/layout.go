@@ -18,6 +18,11 @@ import (
 // dimensionDir returns the folder of the dimension called name in the world
 // under root.
 func dimensionDir(root, name string) string {
+	return DimensionDir(root, name)
+}
+
+// DimensionDir is dimensionDir for callers outside the package.
+func DimensionDir(root, name string) string {
 	namespace, path, ok := strings.Cut(name, ":")
 	if !ok {
 		namespace, path = "minecraft", name

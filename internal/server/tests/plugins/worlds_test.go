@@ -252,3 +252,46 @@ func TestPluginWorldTravelAndUnload(t *testing.T) {
 		t.Errorf("player is in %q after the unload", got)
 	}
 }
+
+func TestPluginWorldFolder(t *testing.T) {
+	cfg := servertest.BlockTestConfig()
+	srv, h, run := worldPlugin(t, cfg)
+	var overworld, flat string
+	run(func() {
+		overworld = h.WorldFolder(plugin.MinecraftKey("overworld"))
+		flat = h.WorldFolder(flatKey)
+	})
+	if overworld != cfg.LevelName {
+		t.Errorf("overworld folder = %q, want %q", overworld, cfg.LevelName)
+	}
+	if want := filepath.Join(cfg.LevelName, "dimensions", "test", "flat"); flat != want {
+		t.Fatalf("flat folder = %q, want %q", flat, want)
+	}
+	w := createFlat(t, run, h, &flatGen{})
+	run(func() { w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) {}) })
+	awaitPluginIO(t, srv, "flat chunk", func() bool { return srv.ChunkLoadedInDimension("test:flat", 0, 0) })
+	run(func() { w.SetSpawnPoint(plugin.Location{World: w, Pos: plugin.Vec3{X: 3, Y: 5, Z: 3}}) })
+	if err := unloadFlat(t, run, h, w, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(flat, "region")); err != nil {
+		t.Fatalf("region folder: %v", err)
+	}
+	if err := os.RemoveAll(flat); err != nil {
+		t.Fatal(err)
+	}
+	opts := flatOptions(&flatGen{})
+	opts.Seed = 7
+	run(func() {
+		var err error
+		if w, err = h.CreateWorld(opts); err != nil {
+			t.Fatalf("CreateWorld: %v", err)
+		}
+		if w.Seed() != 7 {
+			t.Errorf("seed = %d, want 7", w.Seed())
+		}
+		if sp := w.SpawnPoint(); sp.Pos.Block() == (plugin.BlockPos{X: 3, Y: 5, Z: 3}) {
+			t.Error("the removed world's spawn came back")
+		}
+	})
+}
