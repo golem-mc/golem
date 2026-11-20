@@ -14,7 +14,8 @@
 // this package. Code on any other goroutine (an async task, a goroutine the
 // plugin starts, an async event) may call only the methods documented as
 // safe from any goroutine; for anything else it schedules a tick task with
-// Scheduler.RunTask. This is Bukkit's main-thread rule.
+// Scheduler.RunTask. Scheduler.OnTick reports whether the caller is on the
+// tick goroutine. This is Bukkit's main-thread rule.
 //
 // # Handles
 //
@@ -61,6 +62,17 @@ type Plugin interface {
 type Loader interface {
 	Plugin
 	Load(Server) error
+}
+
+// GeneratorProvider is a Plugin that publishes world generators under ids,
+// for a world manager to resolve a "<plugin>[:<id>]" string with
+// Server.Generator. Bukkit: JavaPlugin.getDefaultWorldGenerator
+type GeneratorProvider interface {
+	Plugin
+	// Generator answers the generator id names for the world key, and an
+	// error for an id the plugin does not know. id is empty for a bare
+	// plugin name.
+	Generator(world Key, id string) (Generator, error)
 }
 
 // Registration is a registered plugin, its name and its ordering options.
@@ -134,6 +146,8 @@ type Info struct {
 	// the binary's build information.
 	Module, Version string
 	Enabled         bool
+	// Generators reports whether the plugin is a GeneratorProvider.
+	Generators bool
 }
 
 // Logger is what Server.Logger answers, kept as its own type so the

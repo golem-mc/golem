@@ -257,6 +257,7 @@ func (h *Host) DataDir() string {
 }
 func (h *Host) info() plugin.Info {
 	info := plugin.Info{Name: h.Name(), Enabled: h.enabled.Load()}
+	_, info.Generators = h.registration.Plugin.(plugin.GeneratorProvider)
 	t := reflect.TypeOf(h.registration.Plugin)
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -286,6 +287,29 @@ func (r *Runtime) Plugins() []plugin.Info {
 		infos = append(infos, p.info())
 	}
 	return infos
+}
+
+// Generator resolves a "<plugin>[:<id>]" spec to a plugin's generator.
+func (h *Host) Generator(world plugin.Key, spec string) (plugin.Generator, error) {
+	name, id, _ := strings.Cut(spec, ":")
+	for _, p := range h.runtime.hosts {
+		if !strings.EqualFold(p.Name(), name) {
+			continue
+		}
+		gp, ok := p.registration.Plugin.(plugin.GeneratorProvider)
+		if !ok {
+			return nil, fmt.Errorf("plugin %s provides no generators", p.Name())
+		}
+		if !p.enabled.Load() {
+			return nil, fmt.Errorf("plugin %s is not enabled", p.Name())
+		}
+		g, err := gp.Generator(world, id)
+		if err == nil && g == nil {
+			return nil, fmt.Errorf("plugin %s has no generator %q", p.Name(), id)
+		}
+		return g, err
+	}
+	return nil, fmt.Errorf("no plugin named %q", name)
 }
 
 // Events answers this plugin's event registrations.

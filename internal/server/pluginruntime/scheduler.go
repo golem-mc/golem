@@ -65,6 +65,7 @@ func (s *pluginScheduler) task(fn func()) *pluginTask {
 	r.all[t] = struct{}{}
 	return t
 }
+func (s *pluginScheduler) OnTick() bool                              { return s.host.runtime.OnTick() }
 func (s *pluginScheduler) RunTask(fn func()) plugin.Task             { return s.RunLater(1, fn) }
 func (s *pluginScheduler) RunLater(delay int, fn func()) plugin.Task { return s.RunTimer(delay, 0, fn) }
 func (s *pluginScheduler) RunTimer(delay, period int, fn func()) plugin.Task {
