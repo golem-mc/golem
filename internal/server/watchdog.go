@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -111,7 +112,80 @@ func watchdogReport(now time.Time, serverID string) string {
 		b.WriteString("Server Id: " + serverID + "\n")
 	}
 	b.WriteString("\n")
-	b.Write(buf)
+	b.WriteString(groupStacks(string(buf)))
+	return b.String()
+}
+
+var (
+	goroutineHeader = regexp.MustCompile(`^goroutine \d+ \[([^\],]*)(?:, [^\]]*)?\]:$`)
+	frameArgs       = regexp.MustCompile(`\(.*\)$`)
+	frameOffset     = regexp.MustCompile(` \+0x[0-9a-f]+$`)
+	createdByID     = regexp.MustCompile(` in goroutine \d+$`)
+)
+
+// groupStacks rewrites a runtime.Stack(all) dump: the goroutine running
+// tickLoop first, then one entry per distinct state and frames, headed by
+// its count when more than one goroutine shares it. A grouped entry shows the
+// first goroutine's stack and no goroutine ID.
+func groupStacks(dump string) string {
+	type group struct {
+		text  string
+		count int
+		tick  bool
+	}
+	var groups []*group
+	index := map[string]*group{}
+	for block := range strings.SplitSeq(strings.TrimSpace(dump), "\n\n") {
+		lines := strings.Split(block, "\n")
+		m := goroutineHeader.FindStringSubmatch(lines[0])
+		if m == nil {
+			// Not a goroutine block: keep it as it is.
+			groups = append(groups, &group{text: block, count: 1})
+			continue
+		}
+		// The key leaves out what differs between goroutines doing the same
+		// thing: IDs, argument values, pc offsets and wait times.
+		key := []string{m[1]}
+		for _, l := range lines[1:] {
+			if !strings.HasPrefix(l, "\t") {
+				l = frameArgs.ReplaceAllString(l, "")
+			}
+			l = frameOffset.ReplaceAllString(l, "")
+			key = append(key, createdByID.ReplaceAllString(l, ""))
+		}
+		k := strings.Join(key, "\n")
+		if g := index[k]; g != nil {
+			g.count++
+			continue
+		}
+		g := &group{text: block, count: 1, tick: strings.Contains(block, ".tickLoop(")}
+		index[k] = g
+		groups = append(groups, g)
+	}
+	var b strings.Builder
+	write := func(g *group) {
+		text := g.text
+		if g.count > 1 {
+			lines := strings.SplitN(text, "\n", 2)
+			state := goroutineHeader.FindStringSubmatch(lines[0])[1]
+			rest := ""
+			if len(lines) > 1 {
+				rest = "\n" + lines[1]
+			}
+			text = fmt.Sprintf("%d goroutines [%s]:%s", g.count, state, rest)
+		}
+		b.WriteString(text + "\n\n")
+	}
+	for _, g := range groups {
+		if g.tick {
+			write(g)
+		}
+	}
+	for _, g := range groups {
+		if !g.tick {
+			write(g)
+		}
+	}
 	return b.String()
 }
 
