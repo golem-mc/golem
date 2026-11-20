@@ -490,3 +490,12 @@ type EntityPortalExitEvent struct {
 	From, To Location
 	Cause    TeleportCause
 }
+
+// PlayerTakeLecternBookEvent fires when a player takes a lectern's book; a
+// cancel leaves it there. Bukkit: PlayerTakeLecternBookEvent
+type PlayerTakeLecternBookEvent struct {
+	Cancellable
+	Player Player
+	Block  Block
+	Book   ItemStack
+}

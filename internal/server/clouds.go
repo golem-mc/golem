@@ -10,6 +10,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
@@ -351,25 +352,14 @@ func (s *Server) tickClouds() {
 	defer releaseNearbyWorlds(near)
 
 	mannequins := s.mannequinTargets()
-	var mannequinTells []mannequinEffectTell
+	lnd := &cloudLanding{mannequins: mannequins, byUUID: byUUID}
 	var (
 		// out's moves are the metadata deltas, sent after the pairings.
-		out         trackSends
-		mobTells    []splashMobTell
-		tellWorlds  []*world.World
-		playerTells []splashPlayerTell
-		// instantHurts are the blows the clouds' instant harm landed on mobs.
-		instantHurts []thrownMobHit
-		drops        []cloudDrop
+		out   trackSends
+		drops []cloudDrop
+		// held are the clouds whose reach waits for AreaEffectCloudApplyEvent.
+		held []heldCloudApply
 	)
-	// cloudWorldTargets is one world's living mobs and players, built when
-	// a cloud there first steps; index is a mob's entry by entity ID.
-	type cloudWorldTargets struct {
-		targets     []entity.CloudTarget
-		index       map[int32]int
-		mobsByID    map[int32]*entity.Mob
-		clientsByID map[int32]*client
-	}
 	worldTargets := make(map[*world.World]*cloudWorldTargets)
 	s.lockTick(&s.arrowsMu)
 	s.lockTick(&s.mobsMu)
@@ -420,45 +410,12 @@ func (s *Server) tickClouds() {
 			}
 			worldTargets[it.w] = wt
 		}
-		mobsByID, clientsByID := wt.mobsByID, wt.clientsByID
 
-		// Each body gets its own copy of the instances, with separate countdowns.
 		reached := it.cloud.Step(wt.targets)
-		var src instantSource
-		for i, target := range reached {
-			var landing []effect.Instance
-			for _, in := range it.cloud.Effects {
-				if registry.MobEffectOf(in.ID).Instant {
-					landing = append(landing, in)
-				} else {
-					landing = append(landing, effect.Clone(in))
-				}
-			}
-			if i == 0 {
-				src = cloudInstantSource(it, dim, byUUID[it.ownerUUID])
-			}
-			if target.Type == protocol.EntityTypeMannequin {
-				mannequinTells = append(mannequinTells, mannequinEffectTell{w: it.w, ent: mannequins.byID[target.EntityID], effects: landing, scale: rules.CloudInstantScale, src: src})
-				continue
-			}
-			if m := mobsByID[target.EntityID]; m != nil {
-				hits, changes := landMobEffects(dim, it.w, m, landing, rules.CloudInstantScale, it.cloud.X, it.cloud.Z, src)
-				instantHurts = append(instantHurts, hits...)
-				// An ownerless instant harm can teleport an enderman, and the
-				// next cloud passes a body this one killed by.
-				// vanilla: Enderman.hurtServer
-				entry := entity.CloudTarget{ArrowTarget: entity.MobTarget(m.ID, mobEntityType(m.Type), m), FeetX: m.X, FeetZ: m.Z}
-				entry.Unhittable = entry.Unhittable || !m.Alive()
-				wt.targets[wt.index[m.ID]] = entry
-				if tell, ok := mobEffectTell(dim, m, changes); ok {
-					mobTells = append(mobTells, tell)
-					tellWorlds = append(tellWorlds, it.w)
-				}
-				continue
-			}
-			if c := clientsByID[target.EntityID]; c != nil {
-				playerTells = append(playerTells, splashPlayerTell{c: c, effects: landing, scale: rules.CloudInstantScale, src: src})
-			}
+		if s.plugins != nil && s.plugins.Has(pluginruntime.AreaEffectCloudApply) && len(reached) > 0 {
+			held = append(held, s.holdCloudApply(it, dim, wt, reached))
+		} else {
+			lnd.land(it, dim, wt, reached)
 		}
 
 		body := cloudTracker.body(it)
@@ -505,20 +462,85 @@ func (s *Server) tickClouds() {
 	s.unlockTick(&s.arrowsMu)
 
 	out.send()
-	applyEach(s, mannequinTells, (*Server).landMannequinEffects)
-	for i, tell := range mobTells {
-		s.tellSplashMob(tellWorlds[i], tell)
+	s.applyHeldClouds(held, lnd)
+	applyEach(s, lnd.mannequinTells, (*Server).landMannequinEffects)
+	for i, tell := range lnd.mobTells {
+		s.tellSplashMob(lnd.tellWorlds[i], tell)
 	}
-	for _, hit := range instantHurts {
+	for _, hit := range lnd.instantHurts {
 		s.tellThrownMobHit(hit)
 	}
-	for _, tell := range playerTells {
+	for _, tell := range lnd.playerTells {
 		s.landPlayerTell(tell)
 	}
 	for _, drop := range drops {
 		for _, c := range drop.paired {
 			c.sendIn(drop.it.w, protocol.IDPlayRemoveEntities,
 				removeEntitiesPayload([]int32{drop.it.cloud.ID}))
+		}
+	}
+}
+
+// cloudWorldTargets is one world's living mobs and players, built when a
+// cloud there first steps; index is a mob's entry by entity ID.
+type cloudWorldTargets struct {
+	targets     []entity.CloudTarget
+	index       map[int32]int
+	mobsByID    map[int32]*entity.Mob
+	clientsByID map[int32]*client
+}
+
+// cloudLanding collects what the clouds' effects did, to tell once the locks
+// are released; byUUID maps each player.
+type cloudLanding struct {
+	mannequins     mannequinTargetSnapshot
+	byUUID         map[uuid.UUID]*client
+	mannequinTells []mannequinEffectTell
+	mobTells       []splashMobTell
+	tellWorlds     []*world.World
+	playerTells    []splashPlayerTell
+	// instantHurts are the blows the clouds' instant harm landed on mobs.
+	instantHurts []thrownMobHit
+}
+
+// land gives each body the cloud reached its own copy of the instances, with
+// separate countdowns. The mob lock is held.
+func (l *cloudLanding) land(it *cloudEntity, dim *dimension, wt *cloudWorldTargets, reached []entity.CloudTarget) {
+	mobsByID, clientsByID := wt.mobsByID, wt.clientsByID
+	var src instantSource
+	for i, target := range reached {
+		var landing []effect.Instance
+		for _, in := range it.cloud.Effects {
+			if registry.MobEffectOf(in.ID).Instant {
+				landing = append(landing, in)
+			} else {
+				landing = append(landing, effect.Clone(in))
+			}
+		}
+		if i == 0 {
+			src = cloudInstantSource(it, dim, l.byUUID[it.ownerUUID])
+		}
+		if target.Type == protocol.EntityTypeMannequin {
+			l.mannequinTells = append(l.mannequinTells, mannequinEffectTell{w: it.w, ent: l.mannequins.byID[target.EntityID], effects: landing, scale: rules.CloudInstantScale, src: src})
+			continue
+		}
+		if m := mobsByID[target.EntityID]; m != nil {
+			hits, changes := landMobEffects(dim, it.w, m, landing, rules.CloudInstantScale, it.cloud.X, it.cloud.Z, src)
+			l.instantHurts = append(l.instantHurts, hits...)
+			// An ownerless instant harm can teleport an enderman, and the
+			// next cloud passes a body this one killed by.
+			// vanilla: Enderman.hurtServer
+			entry := entity.CloudTarget{ArrowTarget: entity.MobTarget(m.ID, mobEntityType(m.Type), m), FeetX: m.X, FeetZ: m.Z}
+			entry.Unhittable = entry.Unhittable || !m.Alive()
+			wt.targets[wt.index[m.ID]] = entry
+			if tell, ok := mobEffectTell(dim, m, changes); ok {
+				l.mobTells = append(l.mobTells, tell)
+				l.tellWorlds = append(l.tellWorlds, it.w)
+			}
+			continue
+		}
+		if c := clientsByID[target.EntityID]; c != nil {
+			l.playerTells = append(l.playerTells, splashPlayerTell{c: c, effects: landing, scale: rules.CloudInstantScale, src: src})
 		}
 	}
 }

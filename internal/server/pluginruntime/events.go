@@ -166,6 +166,13 @@ const (
 	EntityMove
 	EntityPortalEnter
 	EntityPortalExit
+	PotionSplash
+	LingeringPotionSplash
+	AreaEffectCloudApply
+	PlayerLeashEntity
+	PlayerTakeLecternBook
+	MoistureChange
+	EntityKnockback
 )
 
 var pluginHookTypes = [...]reflect.Type{
@@ -323,6 +330,13 @@ var pluginHookTypes = [...]reflect.Type{
 	reflect.TypeFor[*plugin.EntityMoveEvent](),
 	reflect.TypeFor[*plugin.EntityPortalEnterEvent](),
 	reflect.TypeFor[*plugin.EntityPortalExitEvent](),
+	reflect.TypeFor[*plugin.PotionSplashEvent](),
+	reflect.TypeFor[*plugin.LingeringPotionSplashEvent](),
+	reflect.TypeFor[*plugin.AreaEffectCloudApplyEvent](),
+	reflect.TypeFor[*plugin.PlayerLeashEntityEvent](),
+	reflect.TypeFor[*plugin.PlayerTakeLecternBookEvent](),
+	reflect.TypeFor[*plugin.MoistureChangeEvent](),
+	reflect.TypeFor[*plugin.EntityKnockbackEvent](),
 }
 
 type pluginBus struct {

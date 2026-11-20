@@ -289,6 +289,7 @@ func (s *Server) breakThrown(br thrownBreak) {
 // client plays the shatter from. vanilla: AbstractThrownPotion.onHit
 func (s *Server) shatterPotion(br thrownBreak) {
 	shl := br.potion
+	s.resolveSplash(br)
 	applyEach(s, shl.mannequins, (*Server).landMannequinEffects)
 	for _, ent := range shl.waterMannequins {
 		s.douseMannequin(br.w, ent)
@@ -314,7 +315,7 @@ func (s *Server) shatterPotion(br thrownBreak) {
 	if shl.water && br.onBlock {
 		s.dowseWaterFire(br.w, br.blockHit.X, br.blockHit.Y, br.blockHit.Z, br.blockHit.Face)
 	}
-	if shl.cloud != nil {
+	if shl.cloud != nil && s.lingeringAllowed(br) {
 		s.spawnCloud(br.w, shl.cloudX, shl.cloudY, shl.cloudZ, shl.cloud, shl.colour, shl.contents, shl.ownerUUID)
 	}
 	event, sound := int32(protocol.WorldEventPotionSplash), int32(protocol.WorldEventPotionBreakSound)

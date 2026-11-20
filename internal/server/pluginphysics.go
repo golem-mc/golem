@@ -32,6 +32,7 @@ var physicsHookIDs = [...]int{
 	world.HookCauldron:  pluginruntime.CauldronLevelChange,
 	world.HookFertilize: pluginruntime.BlockFertilize,
 	world.HookStructure: pluginruntime.StructureGrow,
+	world.HookMoisture:  pluginruntime.MoistureChange,
 }
 
 func (h physicsHooks) Listening(kind world.HookKind) bool {
@@ -136,6 +137,10 @@ func (h physicsHooks) fire(d *world.HookDecision) {
 		h.setPlayer(&e.Player, d.Actor)
 		pl.Fire(e)
 		d.Cancel, d.Cells = e.Cancelled(), h.cells(e.Blocks)
+	case world.HookMoisture:
+		e := &plugin.MoistureChangeEvent{Block: at, NewState: plugin.BlockState(d.New)}
+		pl.Fire(e)
+		d.Cancel, d.New = e.Cancelled(), uint16(e.NewState)
 	case world.HookNote:
 		e := &plugin.NotePlayEvent{Block: at, Instrument: d.Instrument, Note: d.Note}
 		pl.Fire(e)

@@ -5,8 +5,10 @@ import (
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/inventory"
+	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -150,6 +152,17 @@ func (s *Server) lecternPageSent(w *world.World, x, y, z, page int32) {
 // vanilla: LecternMenu.clickMenuButton
 func (c *client) takeLecternBook(view windowView) error {
 	w, x, y, z := view.w.w, view.w.x, view.w.y, view.w.z
+	if c.pluginListening(pluginruntime.PlayerTakeLecternBook) {
+		var shown protocol.ItemStack
+		view.be.Use(func(b *world.BlockEntity) { shown = b.Slots[0] })
+		e := &plugin.PlayerTakeLecternBookEvent{Player: c.pluginSelf(), Block: c.pluginBlockAt(x, y, z), Book: pluginStack(shown)}
+		if !c.pluginFire(e, false) || e.Cancelled() {
+			return nil
+		}
+		if !lecternHasBookAt(w, x, y, z) {
+			return nil // a listener took the lectern's book itself
+		}
+	}
 	var book protocol.ItemStack
 	view.be.Use(func(b *world.BlockEntity) {
 		book = b.Slots[0]
