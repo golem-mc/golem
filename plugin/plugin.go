@@ -14,7 +14,8 @@
 // this package. Code on any other goroutine (an async task, a goroutine the
 // plugin starts, an async event) may call only the methods documented as
 // safe from any goroutine; for anything else it schedules a tick task with
-// Scheduler.RunTask. This is Bukkit's main-thread rule.
+// Scheduler.RunTask. Scheduler.OnTick reports whether the caller is on the
+// tick goroutine. This is Bukkit's main-thread rule.
 //
 // # Handles
 //
