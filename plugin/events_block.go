@@ -197,12 +197,15 @@ type BlockPistonEvent struct {
 
 // BlockDispenseEvent fires when a dispenser or dropper fires; Item and
 // Velocity may be changed. Cancelling returns the item to its slot. Velocity
-// aims a launched projectile; a plain item drop keeps its own motion. Bukkit: BlockDispenseEvent
+// aims a launched projectile; a plain item drop keeps its own motion. Target
+// is the player, mob or armor stand an equipment piece goes onto, nil for any
+// other dispense. Bukkit: BlockDispenseEvent, BlockDispenseArmorEvent
 type BlockDispenseEvent struct {
 	Cancellable
 	Block    Block
 	Item     ItemStack
 	Velocity Vec3
+	Target   LivingEntity
 }
 
 // BlockExplodeEvent fires when a block explodes (a bed or respawn anchor

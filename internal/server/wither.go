@@ -55,15 +55,21 @@ func (s *Server) trySummonWither(w *world.World, x, y, z int32) {
 	s.summonedBuildAdvancements(w, entity.TypeWither, wx, wy, wz, witherSummonReach)
 }
 
+// witherSkullPlaces reports whether dispenseWitherSkull would place the skull.
+func (s *Server) witherSkullPlaces(w *world.World, d world.Dispense) bool {
+	tx, ty, tz := faceOffset(d.X, d.Y, d.Z, int32(d.Dir))
+	return world.IsKnownAirState(w.BlockAt(tx, ty, tz)) && ty >= w.MinY()+2 && w.Difficulty() != rules.DifficultyPeaceful &&
+		rules.WitherBaseAt(w, tx, ty, tz)
+}
+
 // dispenseWitherSkull places the skull on the face's cell when the T stands
 // there, which then summons like a player's. It reports whether it did.
 // vanilla: DispenseItemBehavior (wither skeleton skull), WitherSkullBlock.canSpawnMob
 func (s *Server) dispenseWitherSkull(w *world.World, d world.Dispense) bool {
-	tx, ty, tz := faceOffset(d.X, d.Y, d.Z, int32(d.Dir))
-	if !world.IsKnownAirState(w.BlockAt(tx, ty, tz)) || ty < w.MinY()+2 || w.Difficulty() == rules.DifficultyPeaceful ||
-		!rules.WitherBaseAt(w, tx, ty, tz) {
+	if !s.witherSkullPlaces(w, d) {
 		return false
 	}
+	tx, ty, tz := faceOffset(d.X, d.Y, d.Z, int32(d.Dir))
 	// A skull faces opposite the dispenser, a vertical one rotation 0.
 	// vanilla: SkullBlock.ROTATION, Direction.get2DDataValue
 	rotation := 0

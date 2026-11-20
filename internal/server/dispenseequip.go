@@ -2,6 +2,7 @@ package server
 
 import (
 	"cmp"
+	"github.com/google/uuid"
 	"math"
 	"slices"
 
@@ -44,8 +45,10 @@ type equipCell struct {
 // equipTarget is a body a dispenser may dress; id orders the candidates, and
 // try dresses it, reporting false when the piece does not fit.
 type equipTarget struct {
-	id  int32
-	try func() (equipFx, bool)
+	id   int32
+	uuid uuid.UUID
+	fits func() bool // whether try would succeed, changing nothing
+	try  func() (equipFx, bool)
 }
 
 // equipFx is what a dressed body tells the world: where, in which sound
@@ -79,19 +82,7 @@ func (s *Server) dispenseEquipment(w *world.World, visit dispenseVisit, d world.
 		return dispenseAct{}
 	}
 	item, _ := registry.StackEquippable(visit.taken)
-	tx, ty, tz := faceOffset(d.X, d.Y, d.Z, int32(d.Dir))
-	cell := equipCell{
-		w: w, box: entity.NewAABB(float64(tx), float64(ty), float64(tz), float64(tx+1), float64(ty+1), float64(tz+1)),
-		x: float64(tx) + 0.5, z: float64(tz) + 0.5, stack: visit.taken, item: item,
-	}
-	var targets []equipTarget
-	// vanilla: LivingEntity.canEquipWithDispenser (dispensable)
-	if item.Dispensable {
-		targets = s.equipPlayersIn(cell)
-		targets = s.equipMobsIn(cell, targets)
-		targets = s.equipStandsIn(cell, targets)
-	}
-	slices.SortStableFunc(targets, func(a, b equipTarget) int { return cmp.Compare(a.id, b.id) })
+	targets := s.equipTargets(w, visit.taken, d)
 	for _, target := range targets {
 		if fx, ok := target.try(); ok {
 			s.equipFeedback(w, item, fx)
@@ -109,6 +100,26 @@ func (s *Server) dispenseEquipment(w *world.World, visit dispenseVisit, d world.
 	s.dispenseDefaultSound(w, d)
 	s.dispenseAnimation(w, d)
 	return dispenseAct{}
+}
+
+// equipTargets lists the bodies in the face's cell that a dispenser may dress
+// with the piece, in entity ID order.
+func (s *Server) equipTargets(w *world.World, taken protocol.ItemStack, d world.Dispense) []equipTarget {
+	item, _ := registry.StackEquippable(taken)
+	tx, ty, tz := faceOffset(d.X, d.Y, d.Z, int32(d.Dir))
+	cell := equipCell{
+		w: w, box: entity.NewAABB(float64(tx), float64(ty), float64(tz), float64(tx+1), float64(ty+1), float64(tz+1)),
+		x: float64(tx) + 0.5, z: float64(tz) + 0.5, stack: taken, item: item,
+	}
+	var targets []equipTarget
+	// vanilla: LivingEntity.canEquipWithDispenser (dispensable)
+	if item.Dispensable {
+		targets = s.equipPlayersIn(cell)
+		targets = s.equipMobsIn(cell, targets)
+		targets = s.equipStandsIn(cell, targets)
+	}
+	slices.SortStableFunc(targets, func(a, b equipTarget) int { return cmp.Compare(a.id, b.id) })
+	return targets
 }
 
 // equipFeedback plays the item's equip sound and posts the equip event.
@@ -189,12 +200,16 @@ func (s *Server) equipPlayersIn(cell equipCell) []equipTarget {
 			pos.X+d.Width/2, pos.Y+d.Height, pos.Z+d.Width/2)) {
 			continue
 		}
-		targets = append(targets, equipTarget{id: c.player.EntityID, try: func() (equipFx, bool) {
+		put := func(commit bool) bool {
 			equipped := false
 			c.UpdateItemIn(slot, func(worn protocol.ItemStack) (protocol.ItemStack, bool) {
 				equipped = worn.Empty()
-				return one, equipped
+				return one, equipped && commit
 			})
+			return equipped
+		}
+		targets = append(targets, equipTarget{id: c.player.EntityID, uuid: c.UUID(), fits: func() bool { return put(false) }, try: func() (equipFx, bool) {
+			equipped := put(true)
 			at := c.player.Position()
 			// UpdateItemIn emits armor feedback; other slots still need it here.
 			armor := slot >= command.ItemSlotFeet && slot < command.ItemSlotFeet+player.ArmorSlots
@@ -215,7 +230,13 @@ func (s *Server) equipMobsIn(cell equipCell, targets []equipTarget) []equipTarge
 		if math.Abs(m.X-cell.x) > equipReach || math.Abs(m.Z-cell.z) > equipReach || !cell.box.Crosses(entity.NewAABB(m.BlastBox())) {
 			continue
 		}
-		targets = append(targets, equipTarget{id: m.ID, try: func() (equipFx, bool) {
+		ent := h.book[m]
+		targets = append(targets, equipTarget{id: m.ID, uuid: ent.uuid, fits: func() bool {
+			s.mobsMu.Lock()
+			defer s.mobsMu.Unlock()
+			_, live := h.book[m]
+			return live && m.CanDispenserEquip(cell.stack)
+		}, try: func() (equipFx, bool) {
 			s.mobsMu.Lock()
 			defer s.mobsMu.Unlock()
 			if _, live := h.book[m]; !live || !m.DispenserEquip(cell.stack) {
@@ -237,7 +258,11 @@ func (s *Server) equipStandsIn(cell equipCell, targets []equipTarget) []equipTar
 		if ent.w != cell.w || !cell.box.Crosses(entity.NewAABB(ent.stand.BlastBox())) {
 			continue
 		}
-		targets = append(targets, equipTarget{id: ent.stand.ID, try: func() (equipFx, bool) {
+		targets = append(targets, equipTarget{id: ent.stand.ID, uuid: ent.uuid, fits: func() bool {
+			s.armorStandsMu.Lock()
+			defer s.armorStandsMu.Unlock()
+			return ent.stand.CanDispenserEquip(cell.stack)
+		}, try: func() (equipFx, bool) {
 			s.armorStandsMu.Lock()
 			if !ent.stand.DispenserEquip(cell.stack) {
 				s.armorStandsMu.Unlock()
@@ -251,6 +276,31 @@ func (s *Server) equipStandsIn(cell equipCell, targets []equipTarget) []equipTar
 		}})
 	}
 	return targets
+}
+
+// dispenseEquipTarget is the identity of the body the dispenser would dress with the piece, or
+// false when the piece is no equipment behaviour, is placed on a base or nobody takes it.
+func (s *Server) dispenseEquipTarget(w *world.World, visit dispenseVisit, d world.Dispense) (uuid.UUID, bool) {
+	if visit.behaviour != inventory.DispenseEquipment && visit.behaviour != inventory.DispenseOptionalEquipment {
+		return uuid.UUID{}, false
+	}
+	// Placed on a base instead of worn.
+	switch registry.Item(visit.taken.ItemID) {
+	case registry.ItemWitherSkeletonSkull:
+		if s.witherSkullPlaces(w, d) {
+			return uuid.UUID{}, false
+		}
+	case registry.ItemCarvedPumpkin:
+		if carvedPumpkinPlaces(w, d) {
+			return uuid.UUID{}, false
+		}
+	}
+	for _, target := range s.equipTargets(w, visit.taken, d) {
+		if target.fits() {
+			return target.uuid, true
+		}
+	}
+	return uuid.UUID{}, false
 }
 
 // dispenseHoneycomb waxes the copper block the face opens onto, spending the

@@ -119,15 +119,21 @@ func (s *Server) mobLaidSnow(lay mobGraze) {
 	}
 }
 
+// carvedPumpkinPlaces reports whether dispenseCarvedPumpkin would place the pumpkin.
+func carvedPumpkinPlaces(w *world.World, d world.Dispense) bool {
+	tx, ty, tz := faceOffset(d.X, d.Y, d.Z, int32(d.Dir))
+	return world.IsKnownAirState(w.BlockAt(tx, ty, tz)) && rules.GolemBaseNear(w, tx, ty, tz)
+}
+
 // dispenseCarvedPumpkin sets the pumpkin into the air cell in front of the
 // dispenser when a golem base stands near it, and reports whether it did.
 // The write's wake builds the golem.
 // vanilla: DispenseItemBehavior.bootStrap (Blocks.CARVED_PUMPKIN)
 func (s *Server) dispenseCarvedPumpkin(w *world.World, d world.Dispense) bool {
-	tx, ty, tz := faceOffset(d.X, d.Y, d.Z, int32(d.Dir))
-	if !world.IsKnownAirState(w.BlockAt(tx, ty, tz)) || !rules.GolemBaseNear(w, tx, ty, tz) {
+	if !carvedPumpkinPlaces(w, d) {
 		return false
 	}
+	tx, ty, tz := faceOffset(d.X, d.Y, d.Z, int32(d.Dir))
 	state := registry.BlockCarvedPumpkin.DefaultState()
 	s.setBlockAndTell(w, tx, ty, tz, state)
 	s.gameEvent(w, rules.GameEventBlockPlace, float64(tx)+0.5, float64(ty)+0.5, float64(tz)+0.5, rules.GameEventContext{Affected: state})

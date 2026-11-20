@@ -7,6 +7,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/plugin"
@@ -270,4 +271,116 @@ func facing(t *testing.T, b registry.Block, dir string) uint16 {
 		t.Fatalf("%v has no facing", b)
 	}
 	return state
+}
+
+// TestPluginBlockDispenseTarget checks Target names the armor stand a helmet
+// goes onto (cancelling leaves the slot bare and the item in the dispenser)
+// and is nil when the dispenser shoots an arrow.
+// vanilla: EquipmentDispenseItemBehavior.dispenseEquipment
+func TestPluginBlockDispenseTarget(t *testing.T) {
+	t.Parallel()
+	var targets []plugin.LivingEntity
+	var cancel bool
+	srv, host, _ := blockScene(t, "minecraft:stick", false, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.BlockDispenseEvent) {
+			targets = append(targets, e.Target)
+			e.SetCancelled(cancel)
+		})
+	})
+	host.Scheduler().RunTask(func() {
+		host.Overworld().SetBlockState(plugin.BlockPos{X: 5, Y: 64, Z: 4}, plugin.BlockState(facing(t, registry.BlockDispenser, "south")), plugin.UpdateAll)
+	})
+	servertest.RunTicks(t, srv, 1)
+	stand := srv.SpawnArmorStand(5.5, 64, 5.5)
+	dispense := func(item string) {
+		if !srv.SetInventoryAt(5, 64, 4, 0, servertest.ItemStack(t, item, 1)) {
+			t.Fatal("missing dispenser")
+		}
+		srv.Dispense(5, 64, 4, protocol.FaceSouth)
+	}
+
+	cancel = true
+	dispense("minecraft:iron_helmet")
+	if len(targets) != 1 || targets[0] == nil || targets[0].Type() != registry.EntityTypeArmorStand {
+		t.Fatalf("cancelled equip target = %v", targets)
+	}
+	if !srv.ArmorStandStack(stand, entity.StandHead).Empty() || srv.InventoryAt(5, 64, 4)[0].Count != 1 {
+		t.Fatal("cancelled dispense equipped the stand or lost the item")
+	}
+
+	cancel = false
+	dispense("minecraft:iron_helmet")
+	if targets[1] == nil || srv.ArmorStandStack(stand, entity.StandHead).Empty() {
+		t.Fatalf("equip target=%v head=%+v", targets[1], srv.ArmorStandStack(stand, entity.StandHead))
+	}
+
+	dispense("minecraft:arrow")
+	if len(targets) != 3 || targets[2] != nil {
+		t.Fatalf("arrow target = %v, want nil", targets)
+	}
+}
+
+// TestPluginBlockDispenseTargetEntities checks Target names a player or mob a
+// helmet goes onto, is nil when the slot is taken, and still names the entity
+// for a carved pumpkin or wither skull with no golem or wither base to place on.
+// vanilla: EquipmentDispenseItemBehavior.dispenseEquipment, DispenseItemBehavior
+func TestPluginBlockDispenseTargetEntities(t *testing.T) {
+	t.Parallel()
+	var targets []plugin.LivingEntity
+	var cancel bool
+	srv, host, _ := blockScene(t, "minecraft:stick", false, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.BlockDispenseEvent) {
+			targets = append(targets, e.Target)
+			e.SetCancelled(cancel)
+		})
+	})
+	host.Scheduler().RunTask(func() {
+		host.Overworld().SetBlockState(plugin.BlockPos{X: 0, Y: 64, Z: -1}, plugin.BlockState(facing(t, registry.BlockDispenser, "south")), plugin.UpdateAll)
+		host.Overworld().SetBlockState(plugin.BlockPos{X: 5, Y: 64, Z: 4}, plugin.BlockState(facing(t, registry.BlockDispenser, "south")), plugin.UpdateAll)
+	})
+	servertest.RunTicks(t, srv, 1)
+	dispense := func(x, z int32, item string) {
+		if !srv.SetInventoryAt(x, 64, z, 0, servertest.ItemStack(t, item, 1)) {
+			t.Fatal("missing dispenser")
+		}
+		srv.Dispense(x, 64, z, protocol.FaceSouth)
+	}
+	last := func(want int) plugin.LivingEntity {
+		t.Helper()
+		if len(targets) != want {
+			t.Fatalf("%d events, want %d", len(targets), want)
+		}
+		return targets[want-1]
+	}
+
+	// A player: cancelling leaves the head bare and the helmet in the dispenser.
+	cancel = true
+	dispense(0, -1, "minecraft:iron_helmet")
+	if e := last(1); e == nil || e.Type() != registry.EntityTypePlayer {
+		t.Fatalf("player target = %v", e)
+	}
+	if !srv.InventorySlot("Miner", player.ArmorSlot).Empty() || srv.InventoryAt(0, 64, -1)[0].Count != 1 {
+		t.Fatal("cancelled dispense dressed the player or lost the item")
+	}
+	cancel = false
+	dispense(0, -1, "minecraft:carved_pumpkin")
+	if e := last(2); e == nil || e.Type() != registry.EntityTypePlayer {
+		t.Fatalf("carved pumpkin target = %v, want the player", e)
+	}
+	if srv.InventorySlot("Miner", player.ArmorSlot).Empty() {
+		t.Fatal("the pumpkin did not go on the player's head")
+	}
+	// The head is taken now.
+	dispense(0, -1, "minecraft:wither_skeleton_skull")
+	if e := last(3); e != nil {
+		t.Fatalf("occupied slot target = %v, want nil", e)
+	}
+
+	// A mob that takes loot.
+	zombie := srv.SpawnMob("minecraft:zombie", 5.5, 64, 5.5)
+	srv.SetMobCanPickUpLoot(zombie)
+	dispense(5, 4, "minecraft:iron_helmet")
+	if e := last(4); e == nil || e.Type() != registry.EntityTypeZombie {
+		t.Fatalf("mob target = %v", e)
+	}
 }

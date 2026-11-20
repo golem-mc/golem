@@ -11,7 +11,12 @@ import (
 // tamed equines and nautiluses, grown happy ghasts' harnesses, and pigs' and
 // striders' saddles bypass it.
 // vanilla: LivingEntity.canEquipWithDispenser, EquipmentDispenseItemBehavior.dispenseEquipment
-func (m *Mob) DispenserEquip(stack protocol.ItemStack) bool {
+func (m *Mob) DispenserEquip(stack protocol.ItemStack) bool { return m.dispenserEquip(stack, true) }
+
+// CanDispenserEquip reports whether DispenserEquip would fit the piece, changing nothing.
+func (m *Mob) CanDispenserEquip(stack protocol.ItemStack) bool { return m.dispenserEquip(stack, false) }
+
+func (m *Mob) dispenserEquip(stack protocol.ItemStack, commit bool) bool {
 	if !m.Alive() {
 		return false
 	}
@@ -32,25 +37,33 @@ func (m *Mob) DispenserEquip(stack protocol.ItemStack) bool {
 		if !m.CanUseSlot("body") || !m.Body.Empty() || (!m.NautilusCanEquip() && !m.canTakeHarness() && !tamedHorse && !m.CanPickUpLoot) {
 			return false
 		}
-		m.SetEquipment(6, one)
+		if commit {
+			m.SetEquipment(6, one)
+		}
 	case "saddle":
 		// vanilla: Strider.canDispenserEquipIntoSlot and
 		// AbstractHorse.canDispenserEquipIntoSlot skip the loot check
 		if (!m.NautilusCanEquip() || !m.Horse.Saddle.Empty()) && !m.StriderCanTakeSaddle() && !m.CanTakeSaddle() {
 			return false
 		}
-		m.SetMetadataHorseSaddle(one)
+		if commit {
+			m.SetMetadataHorseSaddle(one)
+		}
 	default:
 		// vanilla: Fox.canDispenserEquipIntoSlot takes the main hand alone
 		slot := lootSlotIndex(item.Slot)
 		if slot < 0 || !m.CanPickUpLoot || m.Type == TypeFox || !m.slotStack(slot).Empty() {
 			return false
 		}
-		m.setSlotStack(slot, one)
-		m.DropChances[slot] = guaranteedDropChance
+		if commit {
+			m.setSlotStack(slot, one)
+			m.DropChances[slot] = guaranteedDropChance
+		}
 	}
 	// vanilla: Mob.setPersistenceRequired
-	m.Persistence = true
+	if commit {
+		m.Persistence = true
+	}
 	return true
 }
 
