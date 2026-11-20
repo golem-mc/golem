@@ -517,7 +517,7 @@ func (w *World) SetBoolRule(id GameRuleIndex, value bool) {
 	}
 	w.rules[id] = ruleValue{b: value, i: w.rules[id].i}
 	w.refreshFeedbackRules()
-	if id == RuleSpawnMonsters {
+	if id == RuleSpawnMonsters || id == RuleSpawnMobs {
 		w.refreshSpawnEnemies()
 	}
 }
