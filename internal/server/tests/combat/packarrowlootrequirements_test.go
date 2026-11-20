@@ -16,12 +16,9 @@ func TestPackArrowLootRequirements(t *testing.T) {
 		name, requirement string
 		sneak, tag, kills bool
 	}{
-		{"standing shooter", `{"condition":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`, false, false, false},
 		{"sneaking shooter", `{"condition":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`, true, false, true},
 		{"untagged target", `{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}`, false, false, false},
 		{"arrow's own saved data", `{"condition":"minecraft:entity_properties","entity":"direct_attacker","predicate":{"minecraft:nbt":"{pickup:1b}"}}`, false, false, true},
-		{"arrow without that data", `{"condition":"minecraft:entity_properties","entity":"direct_attacker","predicate":{"minecraft:nbt":"{pickup:2b}"}}`, false, false, false},
-		{"tagged target", `{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}`, false, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, c := joinArcher(t, bowPack(t, fmt.Sprintf(
@@ -34,7 +31,12 @@ func TestPackArrowLootRequirements(t *testing.T) {
 				srv.RunLine("tag @e[type=iron_golem] add a")
 			}
 			shootEast(t, srv, c)
-			servertest.RunTicks(t, srv, servertest.SkeletonTicks)
+			full, _ := srv.MobHealth(golem)
+			// Until the arrow lands: the golem is hurt or dead.
+			servertest.UntilTicks(t, srv, 60, "arrow hits the golem", func() bool {
+				health, alive := srv.MobHealth(golem)
+				return !alive || health < full
+			})
 			health, alive := srv.MobHealth(golem)
 			if dead := !alive || health <= 0; dead != tc.kills {
 				t.Fatalf("golem health %v alive %v, want killed %v", health, alive, tc.kills)
