@@ -929,20 +929,24 @@ type LootSetEnchantments struct {
 }
 
 // LootEnchantRandomly adds one enchantment from Options (nil for all) at a
-// random level; OnlyCompatible keeps to what the item supports.
+// random level; OnlyCompatible keeps to what the item supports. A non-empty
+// OptionsTag replaces Options with the tag's members as loaded.
 type LootEnchantRandomly struct {
 	Options               []string
+	OptionsTag            string
 	OnlyCompatible        bool
 	IncludeAdditionalCost bool
 	Conditions            []LootCondition
 }
 
 // LootEnchantWithLevels enchants as an enchanting table offer of the rolled
-// worth would, from Options (nil for all registered).
+// worth would, from Options (nil for all registered) or from OptionsTag's
+// members as loaded.
 type LootEnchantWithLevels struct {
 	IncludeAdditionalCost bool
 	Levels                LootNumber
 	Options               []string
+	OptionsTag            string
 	Conditions            []LootCondition
 }
 

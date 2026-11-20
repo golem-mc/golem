@@ -131,3 +131,33 @@ func TestDrawOffersFromComponentTradesKeepsTheirComponents(t *testing.T) {
 		})
 	}
 }
+
+func TestDrawOffersDoublesThePriceForTheLoadedDoublePriceTag(t *testing.T) {
+	tr := trade("emerald", "book")
+	tr.Wants.Count = 1
+	tr.DoublePriceTag = "minecraft:double_trade_price"
+	tr.Modifiers = []registry.LootFunction{registry.LootEnchantRandomly{
+		Options: []string{"minecraft:mending"}, IncludeAdditionalCost: true,
+	}}
+	cost := func() int32 {
+		tag := DrawOffers(nil, registry.TradeSet{Amount: 1, Trades: []registry.VillagerTrade{tr}}, "minecraft:plains", tradeRandom(), nil)
+		offers, _ := OffersFromTag(tag)
+		if len(offers) != 1 {
+			t.Fatalf("offers %v", offers)
+		}
+		return offers[0].CostA.Count
+	}
+	replace := func(member string) {
+		registry.ApplyPackTags(registry.PackTags{"minecraft:enchantment": {
+			"minecraft:double_trade_price": {Replace: true, Entries: []registry.PackTagEntry{{ID: member, Required: true}}},
+		}})
+	}
+	t.Cleanup(func() { registry.ApplyPackTags(nil) })
+
+	replace("minecraft:unbreaking")
+	plain := cost()
+	replace("minecraft:mending")
+	if doubled := cost(); doubled != 1+2*(plain-1) {
+		t.Errorf("cost with mending in the tag %d, want %d", doubled, 1+2*(plain-1))
+	}
+}

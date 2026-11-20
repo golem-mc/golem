@@ -326,7 +326,7 @@ func (r *lootRoller) setContents(k registry.LootSetContents, s protocol.ItemStac
 func (r *lootRoller) enchantRandomly(k registry.LootEnchantRandomly, s protocol.ItemStack) protocol.ItemStack {
 	book := isPlainBook(s)
 	var pool []int32
-	for _, id := range enchantmentOptions(k.Options) {
+	for _, id := range enchantmentOptions(k.Options, k.OptionsTag) {
 		def, ok := registry.EnchantmentEffectsByID(id)
 		if !ok {
 			continue
@@ -360,7 +360,7 @@ func (r *lootRoller) enchantRandomly(k registry.LootEnchantRandomly, s protocol.
 // vanilla: EnchantmentHelper.enchantItem
 func (r *lootRoller) enchantWithLevels(k registry.LootEnchantWithLevels, s protocol.ItemStack) protocol.ItemStack {
 	cost := int(r.numInt(k.Levels))
-	s = EnchantWithLevels(lootEnchantRand{r.rng}, s, cost, enchantmentOptions(k.Options))
+	s = EnchantWithLevels(lootEnchantRand{r.rng}, s, cost, enchantmentOptions(k.Options, k.OptionsTag))
 	if k.IncludeAdditionalCost && r.additionalCost != nil && !s.Empty() && cost > 0 {
 		*r.additionalCost = int32(cost)
 	}
@@ -382,8 +382,12 @@ func EnchantWithLevels(r EnchantRandom, s protocol.ItemStack, cost int, candidat
 }
 
 // enchantmentOptions resolves an options list to enchantment IDs, every
-// enchantment in registry order for none.
-func enchantmentOptions(names []string) []int32 {
+// enchantment in registry order for none; a tag is read from the loaded
+// tags, in tag order. vanilla: RegistryCodecs.homogeneousList
+func enchantmentOptions(names []string, tag string) []int32 {
+	if tag != "" {
+		return registry.EnchantmentTagIDs(tag)
+	}
 	var ids []int32
 	if names == nil {
 		for id := int32(0); ; id++ {
