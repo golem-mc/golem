@@ -2,6 +2,7 @@ package plugins_test
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -168,12 +169,7 @@ func TestPluginEntityCombustSources(t *testing.T) {
 	hasEvent := func(match func(*plugin.EntityCombustEvent) bool) bool {
 		mu.Lock()
 		defer mu.Unlock()
-		for _, ev := range events {
-			if match(ev) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(events, match)
 	}
 	snapshotEvents := func() []*plugin.EntityCombustEvent {
 		mu.Lock()
