@@ -1020,7 +1020,7 @@ func (b blast) payload(blockCount int32, kx, ky, kz float64, pushed bool) []byte
 // creeperExploded takes a creeper out of the world and queues its blast,
 // and the death effects its removal fires.
 func (t *mobDimTick) creeperExploded(fx *mobEffects, ev entity.MobEvent) {
-	s, h, w := t.s, t.h, t.w
+	h, w := t.h, t.w
 	// A creeper went up: out of the world like a despawn —
 	// no corpse, no death sound, no drops — and the blast,
 	// whose own sound is its telling, is the tick's to run.
@@ -1056,11 +1056,11 @@ func (t *mobDimTick) creeperExploded(fx *mobEffects, ev entity.MobEvent) {
 			killed: true, height: maxY - minY,
 		})
 	}
-	interaction := rules.MobExplosionInteraction(s.world)
+	interaction := rules.MobExplosionInteraction(w)
 	if ev.Mob.Type == entity.TypeSulfurCube {
 		// vanilla: SulfurCube.tickFuse, TNT interaction unless mob_griefing is off
-		interaction = rules.TNTExplosionInteraction(s.world)
-		if !s.world.BoolRule(world.RuleMobGriefing) {
+		interaction = rules.TNTExplosionInteraction(w)
+		if !w.BoolRule(world.RuleMobGriefing) {
 			interaction = rules.ExplosionKeep
 		}
 	}

@@ -1443,7 +1443,7 @@ func (c *client) trackMovement(was, now player.Position) {
 
 	water := c.waterAt(now)
 	climbing := c.climbableAt(was)
-	netherPortalInstant := c.srv.world.IntRule(world.RulePlayersNetherPortalDefaultDelay) == 0
+	netherPortalInstant := c.theWorld().IntRule(world.RulePlayersNetherPortalDefaultDelay) == 0
 	swept := rules.FallResetSweep(c.theWorld(), c.player.Vitals().FallDistance, was, now, true, netherPortalInstant)
 	landing := c.landingAt(now, was)
 	var safeFall, fallMultiplier float64

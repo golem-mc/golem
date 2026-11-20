@@ -59,7 +59,7 @@ func (s *Server) tickNaturalSpawning() {
 			return int(a.Z) - int(b.Z)
 		})
 		w.InhabitTime(spawning)
-		if s.spawnDisabled.Load() || !s.world.BoolRule(world.RuleSpawnMobs) {
+		if s.spawnDisabled.Load() || !w.BoolRule(world.RuleSpawnMobs) {
 			continue
 		}
 		monsters := w.SpawnEnemies()

@@ -85,7 +85,7 @@ func (s *Server) applyDragonDeath(d dragonDeathEffect) {
 	if d.time == 1 && !d.silent {
 		s.tellGlobalLevelEvent(d.w, 1028, int32(math.Floor(d.x)), int32(math.Floor(d.y)), int32(math.Floor(d.z)), 0)
 	}
-	if s.world.BoolRule(world.RuleMobDrops) {
+	if d.w.BoolRule(world.RuleMobDrops) {
 		if d.time > 150 && d.time%5 == 0 {
 			s.spawnOrbs(d.w, d.x, d.y, d.z, xp*8/100)
 		}

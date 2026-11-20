@@ -560,7 +560,7 @@ func (c *client) AnnounceAdvancements() {
 				}
 			}
 			var msg *protocol.Text
-			if n.Display != nil && n.Display.AnnounceChat && c.srv.world.BoolRule(world.RuleShowAdvancementMsgs) {
+			if n.Display != nil && n.Display.AnnounceChat && c.theWorld().BoolRule(world.RuleShowAdvancementMsgs) {
 				msg = &protocol.Text{
 					Translate: "chat.type.advancement." + advancementFrames[n.Display.Frame],
 					With:      []protocol.Text{c.DisplayName(), command.AdvancementName(n)},

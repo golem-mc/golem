@@ -687,17 +687,11 @@ type reinforcementCall struct {
 	seed   int64
 }
 
-// spawningMonsters reports whether spawn_mobs and spawn_monsters both
-// allow monsters. vanilla: ServerLevel.isSpawningMonsters
-func (s *Server) spawningMonsters() bool {
-	return s.world.BoolRule(world.RuleSpawnMobs) && s.world.BoolRule(world.RuleSpawnMonsters)
-}
-
 // finishReinforcement places the called zombie hunting the caller's
 // target; only a call that found a place costs the caller its 0.05.
 // vanilla: Zombie.hurtServer
 func (s *Server) finishReinforcement(call reinforcementCall) {
-	if !s.spawningMonsters() {
+	if !call.w.SpawnEnemies() {
 		return
 	}
 	dim := s.dimensionOfWorld(call.w)
@@ -761,7 +755,7 @@ func (s *Server) finishBreeding(birth mobBirth) {
 		s.broadcastWorld(birth.w, protocol.IDPlayEntityEvent,
 			entityEventPayload(birth.mother.ID, protocol.EntityStatusLoveHearts))
 	}
-	if birth.amount > 0 && s.world.BoolRule(world.RuleMobDrops) {
+	if birth.amount > 0 && birth.w.BoolRule(world.RuleMobDrops) {
 		// The orb is added whole (vanilla's addFreshEntity, not a death's award),
 		// so it does not merge, with the constructor's fresh-orb pop.
 		vx, vy, vz := s.orbPopVector()
@@ -895,7 +889,7 @@ func (s *Server) fireMobEffectTrigger(tr mobEffectTrigger) {
 			count := requested
 			// The near-slime search runs only for a rule of 1 or more; below that the
 			// count is uncapped. vanilla: OozingMobEffect.numberOfSlimesToSpawn
-			if maxCramming := int(s.world.IntRule(world.RuleMaxCramming)); maxCramming >= 1 {
+			if maxCramming := int(tr.w.IntRule(world.RuleMaxCramming)); maxCramming >= 1 {
 				count = rules.OozingSlimesToSpawn(maxCramming, s.nearbySlimeCount(tr.w, tr.body, tr.box, maxCramming), requested)
 			}
 			for i := 0; i < count; i++ {
@@ -933,7 +927,7 @@ func (s *Server) fireMobEffectTrigger(tr mobEffectTrigger) {
 		case effectWeaving:
 			// vanilla: WeavingMobEffect.onMobRemoved; a player's own webs ignore
 			// mob_griefing.
-			if tr.player || s.world.BoolRule(world.RuleMobGriefing) {
+			if tr.player || tr.w.BoolRule(world.RuleMobGriefing) {
 				s.weaveCobwebs(tr)
 			}
 		}
@@ -2305,7 +2299,7 @@ func (s *Server) finalizeMobSpawn(w *world.World, ent *mobEntity, group *entity.
 	local.Moon = rules.MoonBrightness(s.world.MoonPhase())
 	biome := w.Biome(rules.BlockOf(x), rules.BlockOf(y), rules.BlockOf(z))
 	if m.Type == entity.TypeStrider {
-		m.MonsterJockeysDisabled = !s.spawningMonsters()
+		m.MonsterJockeysDisabled = !w.SpawnEnemies()
 	}
 	if m.Type == entity.TypeHusk {
 		minX, minY, minZ, maxX, maxY, maxZ := entity.CamelHuskSpawnBox(rules.BlockOf(x), rules.BlockOf(y), rules.BlockOf(z))

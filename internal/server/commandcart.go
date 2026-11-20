@@ -93,7 +93,7 @@ func (c *client) handleSetCommandMinecart(r *protocol.Reader) error {
 	if it == nil {
 		return nil
 	}
-	enabled := c.srv.world.BoolRule(world.RuleCommandBlocksWork)
+	enabled := c.theWorld().BoolRule(world.RuleCommandBlocksWork)
 	c.srv.minecartsMu.Lock()
 	cc := it.command
 	if cc != nil {

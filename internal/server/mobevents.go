@@ -435,7 +435,7 @@ func (t *mobDimTick) died(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent)
 		h.dying = append(h.dying, body)
 	}
 	// vanilla: TamableAnimal.die
-	if tame := ev.Mob.Tamable; tame.Tame && tame.Owner != (uuid.UUID{}) && s.world.BoolRule(world.RuleShowDeathMsg) {
+	if tame := ev.Mob.Tamable; tame.Tame && tame.Owner != (uuid.UUID{}) && w.BoolRule(world.RuleShowDeathMsg) {
 		killerOf := func(id int32) *rules.Killer {
 			if k, ok := in.clientByEntityID[id]; ok {
 				return &rules.Killer{Name: k.DisplayName(), Weapon: k.heldItem(protocol.HandMain)}
@@ -514,7 +514,7 @@ func (t *mobDimTick) died(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent)
 	// off skips the loot table, the other mobs' equipment and experience.
 	note := mobDeathNote{uuid: ent.uuid, w: w, x: ev.Mob.X, y: ev.Mob.Y, z: ev.Mob.Z,
 		damageType: ev.Mob.LastDamageType(), causeID: ev.Mob.AttackerID(), drops: -1, xp: -1}
-	if s.world.BoolRule(world.RuleMobDrops) {
+	if w.BoolRule(world.RuleMobDrops) {
 		killer.ThisHasRaid = mobHasLootRaid(ent, t.raidCenters)
 		drops := mobDrops{
 			w:      w,
@@ -810,7 +810,7 @@ func (t *mobDimTick) chickenLaid(fx *mobEffects, m *entity.Mob) {
 // turtleGrew drops the turtle_grow gift while MOB_DROPS allows it.
 // vanilla: Turtle.ageBoundaryReached
 func (t *mobDimTick) turtleGrew(fx *mobEffects, m *entity.Mob) {
-	if !t.s.world.BoolRule(world.RuleMobDrops) {
+	if !t.w.BoolRule(world.RuleMobDrops) {
 		return
 	}
 	ctx := rules.LootContext{This: mobLootEntity(m), Level: t.s.lootLevelAt(t.w, m.X, m.Y, m.Z)}

@@ -489,9 +489,9 @@ func (c *client) sendLoginPlay() error {
 		// it builds the packet: the reduced debug screen the
 		// reduced_debug_info rule asks for, and the respawn screen shown
 		// unless the immediate_respawn rule has the death skip it.
-		b.PutBool(c.srv.world.BoolRule(world.RuleReducedDebug))
-		b.PutBool(!c.srv.world.BoolRule(world.RuleImmediateRespawn))
-		b.PutBool(c.srv.world.BoolRule(world.RuleLimitedCrafting))
+		b.PutBool(c.theWorld().BoolRule(world.RuleReducedDebug))
+		b.PutBool(!c.theWorld().BoolRule(world.RuleImmediateRespawn))
+		b.PutBool(c.theWorld().BoolRule(world.RuleLimitedCrafting))
 		b.PutVarInt(dim.typeID)
 		b.PutString(dim.name)
 		putSpawnInfo(b, c.srv.world, c.player.Vitals())

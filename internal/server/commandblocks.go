@@ -137,7 +137,7 @@ func (c *client) handleSetCommandBlock(r *protocol.Reader) error {
 
 	if input != "" {
 		key := "advMode.setCommand.success"
-		if !c.srv.world.BoolRule(world.RuleCommandBlocksWork) {
+		if !c.theWorld().BoolRule(world.RuleCommandBlocksWork) {
 			key = "advMode.setCommand.disabled"
 		}
 		_ = c.Message(protocol.Text{Translate: key, With: []protocol.Text{{Text: input}}})
@@ -183,7 +183,7 @@ func (c *client) commandBlockPlaced(w *world.World, block registry.Block, x, y, 
 	var book bool
 	be.Use(func(b *world.BlockEntity) {
 		if !hasData {
-			b.TrackOutput = c.srv.world.BoolRule(world.RuleSendFeedback)
+			b.TrackOutput = c.theWorld().BoolRule(world.RuleSendFeedback)
 			b.Automatic = chain
 		}
 		if powered != b.Powered {
@@ -274,7 +274,7 @@ func (s *Server) runCommandBlock(w *world.World, r world.CommandRun) {
 // success count and, while tracking output, its last line are the block's.
 // vanilla: BaseCommandBlock.performCommand
 func (s *Server) performCommandBlock(w *world.World, be *world.BlockEntity, gameTime int64) bool {
-	enabled := s.world.BoolRule(world.RuleCommandBlocksWork)
+	enabled := w.BoolRule(world.RuleCommandBlocksWork)
 	var step commandblock.Step
 	var src *commandBlockSource
 	var line string
@@ -313,7 +313,7 @@ func (s *Server) performCommandBlock(w *world.World, be *world.BlockEntity, game
 func (s *Server) executeCommandChain(w *world.World, startX, startY, startZ int32, startState uint16) {
 	dir := registry.StateFacing(startState)
 	gameTime, _ := s.world.Time()
-	limit := int(s.world.IntRule(world.RuleMaxCommandSequence))
+	limit := int(w.IntRule(world.RuleMaxCommandSequence))
 	x, y, z := startX, startY, startZ
 	steps := limit
 	for steps > 0 {
@@ -512,7 +512,7 @@ func (src *commandBlockSource) Feedback(key string, with ...protocol.Text) error
 }
 
 func (src *commandBlockSource) FeedbackText(text protocol.Text) error {
-	if !src.srv.world.BoolRule(world.RuleSendFeedback) {
+	if !src.rules().BoolRule(world.RuleSendFeedback) {
 		return nil
 	}
 	src.record(text)
@@ -562,7 +562,7 @@ func (src *commandBlockSource) InformAdmins(message protocol.Text) {
 }
 
 func (src *commandBlockSource) informAdminsAs(name, message protocol.Text) {
-	if !src.trackOutput || !src.srv.world.BoolRule(world.RuleCommandBlockOutput) {
+	if !src.trackOutput || !src.rules().BoolRule(world.RuleCommandBlockOutput) {
 		return
 	}
 	src.srv.informAdmins(uuid.Nil, false, name, message)
