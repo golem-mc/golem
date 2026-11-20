@@ -178,13 +178,13 @@ func (m *Mob) RollDrops(killer rules.LootKiller, level rules.LootLevel) []protoc
 		ctx.Attacker = attacker
 		ctx.DirectAttacker = attacker
 		if player && !killer.Melee || m.lastDamageSource() == rules.DamageTypeArrow {
-			ctx.DirectAttacker = rules.LootEntity{Type: "minecraft:arrow"}
+			ctx.DirectAttacker, ctx.Indirect = rules.LootEntity{Type: "minecraft:arrow"}, true
 		}
 		// A player's fireball is a large one; small fireballs never have a
 		// player owner.
 		// vanilla: LargeFireball.onHitEntity
 		if player && m.lastDamageSource() == rules.DamageTypeFireball {
-			ctx.DirectAttacker = rules.LootEntity{Type: "minecraft:fireball"}
+			ctx.DirectAttacker, ctx.Indirect = rules.LootEntity{Type: "minecraft:fireball"}, true
 		}
 	}
 	// Built here, not at spawn or load, so only a death pays for the second

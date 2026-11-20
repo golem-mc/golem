@@ -408,3 +408,22 @@ func TestDecodeLootTableInlineNestedAndEnchantedLookup(t *testing.T) {
 		t.Errorf("condition = %+v", item.Conditions[0])
 	}
 }
+
+// TestDecodeLootDamageSourceReadsEveryField checks that a damage source
+// predicate keeps all its tag terms, both entity predicates and is_direct.
+// vanilla: DamageSourcePredicate.CODEC
+func TestDecodeLootDamageSourceReadsEveryField(t *testing.T) {
+	table, err := DecodeLootTable([]byte(`{"pools":[{"rolls":1,"entries":[],"conditions":[{"condition":"minecraft:damage_source_properties",` +
+		`"predicate":{"tags":[{"id":"minecraft:is_fire","expected":true},{"id":"minecraft:is_explosion","expected":false}],` +
+		`"is_direct":false,"direct_entity":{"minecraft:entity_type":"minecraft:arrow"},` +
+		`"source_entity":{"minecraft:flags":{"is_sneaking":true}}}}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, ok := table.Pools[0].Conditions[0].(registry.LootDamageSource)
+	if !ok || len(k.Tags) != 2 || !k.Tags[0].Expected || k.Tags[1].Expected ||
+		k.IsDirect == nil || *k.IsDirect || k.Direct == nil || k.Direct.Type != "minecraft:arrow" ||
+		k.Source == nil || k.Source.Sneaking == nil || !*k.Source.Sneaking {
+		t.Errorf("condition = %#v, want both tags, is_direct false, an arrow and a sneaking source", table.Pools[0].Conditions[0])
+	}
+}
