@@ -37,6 +37,9 @@ type LootTool struct {
 	StoredEnchantments map[string]int32
 	HasDyedColor       bool
 	HasMapID           bool
+	// Stack is the stack itself, for the item predicates that read its
+	// components.
+	Stack protocol.ItemStack
 }
 
 // ToolOf reads a stack's item and enchantments by table name; an empty or
@@ -50,7 +53,7 @@ func ToolOf(stack protocol.ItemStack) LootTool {
 	}
 	name := registry.Item(stack.ItemID).Name()
 	_, hasMapID := stack.MapIDOf()
-	tool := LootTool{HasMapID: hasMapID, Item: name, Count: stack.Count, HasDyedColor: stack.HasDyedColor(), Enchantments: map[string]int32{}}
+	tool := LootTool{Stack: stack, HasMapID: hasMapID, Item: name, Count: stack.Count, HasDyedColor: stack.HasDyedColor(), Enchantments: map[string]int32{}}
 	for id, level := range stack.Enchantments {
 		if ench, ok := registry.EnchantmentName(id); ok {
 			tool.Enchantments[ench] = level
@@ -1096,6 +1099,9 @@ func propertiesMatch(state uint16, props []registry.LootStateProperty) bool {
 // itemPredicate says whether a stack answers an item predicate: the item
 // it names, and every enchantment predicate the predicate carries.
 func itemPredicate(p registry.LootItemPredicate, stack LootTool) bool {
+	if p.Full != nil && !p.Full.Matches(stack.Stack) {
+		return false
+	}
 	if p.HasMapID && !stack.HasMapID {
 		return false
 	}

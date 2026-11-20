@@ -668,14 +668,18 @@ func damageHolderSet(id any) *registry.DamageTypeSet {
 }
 
 func itemPredicate(p obj) registry.LootItemPredicate {
-	unknownKeys(p, "item predicate", "items", "predicates")
+	unknownKeys(p, "item predicate", "items", "count", "components", "predicates")
 	var out registry.LootItemPredicate
+	if needsFullItemPredicate(p) {
+		full := registry.DecodeItemPredicate(nbtOf(p))
+		out.Full = &full
+	}
 	if items, ok := p["items"]; ok {
 		out.Items = holderSet(items, "item", registry.ItemTagMembers)
 	}
 	if preds, ok := p["predicates"]; ok {
 		po := object(preds, "predicates")
-		unknownKeys(po, "item predicates", "minecraft:enchantments", "minecraft:stored_enchantments", "minecraft:dyed_color", "minecraft:map_id")
+		unknownKeys(po, "item predicates", componentPredicateTypes...)
 		// An empty object asks only that the component be there.
 		// vanilla: AnyValue
 		for _, presence := range []struct {
@@ -717,6 +721,64 @@ func itemPredicate(p obj) registry.LootItemPredicate {
 		}
 	}
 	return out
+}
+
+// componentPredicateTypes are the partial component predicate types an item
+// predicate names.
+// vanilla: DataComponentPredicates
+var componentPredicateTypes = []string{
+	"minecraft:damage", "minecraft:enchantments", "minecraft:stored_enchantments", "minecraft:potion_contents",
+	"minecraft:custom_data", "minecraft:container", "minecraft:bundle_contents", "minecraft:firework_explosion",
+	"minecraft:fireworks", "minecraft:writable_book_content", "minecraft:written_book_content",
+	"minecraft:attribute_modifiers", "minecraft:trim", "minecraft:jukebox_playable", "minecraft:villager/variant",
+	"minecraft:dyed_color", "minecraft:map_id",
+}
+
+// needsFullItemPredicate reports an item predicate that asks for more than the
+// item set, enchantments and component presence the loot tables read, which
+// registry.ItemPredicate then answers. It checks the shapes vanilla's codec
+// rejects the whole file for.
+// vanilla: ItemPredicate.CODEC, DataComponentMatchers.CODEC
+func needsFullItemPredicate(p obj) bool {
+	full := false
+	if c, ok := p["count"]; ok {
+		switch c.(type) {
+		case json.Number:
+		case map[string]any:
+			unknownKeys(object(c, "count"), "count", "min", "max")
+		default:
+			fail("count is not a number or a range")
+		}
+		full = true
+	}
+	if c, ok := p["components"]; ok {
+		for key := range object(c, "components") {
+			if _, known := registry.ComponentID(registry.Qualify(key)); !known {
+				fail("Unknown registry key in ResourceKey[minecraft:root / minecraft:data_component_type]: %s", registry.Qualify(key))
+			}
+		}
+		full = true
+	}
+	if preds, ok := p["predicates"]; ok {
+		for key := range object(preds, "predicates") {
+			if !slices.Contains(componentPredicateTypes, key) || key == "minecraft:enchantments" ||
+				key == "minecraft:stored_enchantments" || key == "minecraft:dyed_color" || key == "minecraft:map_id" {
+				continue
+			}
+			full = true
+		}
+	}
+	return full
+}
+
+// nbtOf converts a JSON object to the NBT the stored form of the same value
+// has, which the codecs of components and predicates read.
+func nbtOf(v obj) nbt.Compound {
+	compound, err := nbt.ParseOrderedSNBT(snbt(map[string]any(v)))
+	if err != nil {
+		fail("Failed to convert the item predicate: %v", err)
+	}
+	return compound.Entries()
 }
 
 // componentTests reads an entity's partial component predicates. Only

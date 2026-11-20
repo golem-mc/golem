@@ -5,6 +5,9 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/nbt"
 )
 
 // Cooking recipe kinds, the index of recipeSet.cooking and of PackRecipes.Cooking.
@@ -48,6 +51,10 @@ type PackRecipes struct {
 	SmithingTransform []SmithingTransformRecipe
 	SmithingTrim      []SmithingTrimRecipe
 	Brewing           []BrewingRecipe
+	// Results holds, by recipe ID, the component patch of each recipe whose
+	// result carries one.
+	// vanilla: ItemStackTemplate.CODEC
+	Results map[string][]ResultComponent
 	// Dropped lists the IDs of pack files that do not decode: the file
 	// shadows the built-in recipe of that ID, so that recipe goes too.
 	Dropped []string
@@ -80,6 +87,7 @@ type recipeSet struct {
 	trim              []SmithingTrimRecipe
 	brewing           []BrewingRecipe
 	stonecutting      []StonecutterRecipe
+	results           map[string][]ResultComponent
 	displays          []CraftingDisplay
 	displayByID       map[int32]int
 	displayByName     map[string]int
@@ -232,8 +240,9 @@ func layerRecipes(p PackRecipes) *recipeSet {
 	// recipe that matches is the one it finds.
 	// vanilla: RecipeManager.prepare, Identifier.compareTo
 	s := &recipeSet{
-		stew:  filterRecipes(StewRecipes, func(r StewRecipe) bool { return kept(r.ID) }),
-		imbue: filterRecipes(ImbueRecipes, func(r ImbueRecipe) bool { return kept(r.ID) }),
+		results: p.Results,
+		stew:    filterRecipes(StewRecipes, func(r StewRecipe) bool { return kept(r.ID) }),
+		imbue:   filterRecipes(ImbueRecipes, func(r ImbueRecipe) bool { return kept(r.ID) }),
 		brewing: mergeRecipes(p.Brewing, BrewingRecipes, kept,
 			func(r BrewingRecipe) string { return r.ID }),
 		smithing: mergeRecipes(p.SmithingTransform, SmithingTransformRecipes, kept,
@@ -495,3 +504,36 @@ func StonecutterDisplaysNow() []StonecutterDisplay { return recipes().stonecutte
 
 // SmithingDisplaysNow returns every smithing recipe the book can show.
 func SmithingDisplaysNow() []SmithingDisplay { return recipes().smithingDisplays }
+
+// ResultComponent is one entry of a recipe result's component patch: a
+// component name (a "!" prefix removes it) and its value in the codec's NBT shape.
+type ResultComponent struct {
+	Name  string
+	Value nbt.Tag
+}
+
+// ApplyResultPatch lays a recipe result's component patch on a stack, false
+// when a component is refused.
+// vanilla: ItemStackTemplate.apply
+func ApplyResultPatch(stack *protocol.ItemStack, patch []ResultComponent) bool {
+	for _, c := range patch {
+		if !ReadComponent(stack, c.Name, c.Value) {
+			return false
+		}
+	}
+	return true
+}
+
+// RecipeResult returns the recipe's result: the stack with the patch a data
+// pack gave the recipe laid over its components.
+func RecipeResult(id string, stack protocol.ItemStack) protocol.ItemStack {
+	if patch := recipes().results[id]; patch != nil {
+		ApplyResultPatch(&stack, patch)
+	}
+	return stack
+}
+
+// CookingResult is what one cook of the recipe produces.
+func CookingResult(r *CookingRecipe) protocol.ItemStack {
+	return RecipeResult(r.ID, protocol.ItemStack{ItemID: r.ResultID, Count: r.ResultCount})
+}

@@ -659,7 +659,8 @@ func (s *Server) payFurnaceSmelts(be *world.BlockEntity, w *world.World, x, y, z
 		// experience, which it may change.
 		total += xp
 		if made.Count == 0 {
-			made.ItemID = recipe.ResultID
+			made = registry.CookingResult(recipe)
+			made.Count = 0
 		}
 		made.Count += int32(count) * recipe.ResultCount
 	}
@@ -1133,8 +1134,12 @@ func (b *furnaceBurn) advance(entity *world.BlockEntity) bool {
 	result := registry.CookingMatch(entity.Kind.Name(), input)
 	// Smeltable: a recipe matches and the output is empty or the same item
 	// with room for one more.
+	var cooked protocol.ItemStack
+	if result != nil {
+		cooked = registry.CookingResult(result)
+	}
 	canSmelt := result != nil && (entity.Slots[2].Empty() ||
-		(entity.Slots[2].ItemID == result.ResultID &&
+		(entity.Slots[2].Same(cooked) &&
 			entity.Slots[2].Count+result.ResultCount <= registry.StackMaxStackSize(entity.Slots[2])))
 
 	lit := entity.LitRemaining > 0
@@ -1184,14 +1189,14 @@ func (b *furnaceBurn) advance(entity *world.BlockEntity) bool {
 						// vanilla: AbstractFurnaceBlockEntity.setRecipeUsed
 						entity.CookingSpent = 0
 						entity.CookingTotal = entity.CookTotalOf(result)
-						produced, cooked := protocol.ItemStack{ItemID: result.ResultID, Count: result.ResultCount}, true
+						produced, cooked := registry.CookingResult(result), true
 						if b.events != nil {
 							produced, cooked = b.events.cook(entity, input, produced)
 						}
 						if cooked {
 							if entity.Slots[2].Empty() {
 								entity.Put(2, produced)
-							} else if entity.Slots[2].ItemID == produced.ItemID {
+							} else if entity.Slots[2].Same(produced) {
 								output := entity.Slots[2]
 								output.Count += produced.Count
 								entity.Put(2, output)

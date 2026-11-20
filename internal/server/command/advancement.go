@@ -1,11 +1,15 @@
 package command
 
 import (
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/advancement"
+	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // Advancement is the /advancement command.
@@ -123,21 +127,89 @@ func AdvancementName(n *advancement.Node) protocol.Text {
 		return protocol.Text{Text: n.ID}
 	}
 	color := [...]string{"green", "dark_purple", "green"}[d.Frame]
-	tooltip := DisplayText(d.Title, d.TitleLiteral)
-	tooltip.Color = color
-	tooltip.Extra = []protocol.Text{{Text: "\n"}, DisplayText(d.Description, d.DescriptionLiteral)}
-	title := DisplayText(d.Title, d.TitleLiteral)
+	title := DisplayTitle(d)
+	desc := DisplayDescription(d)
+	if title.Raw != nil {
+		base := rawTextCompound(title.Raw)
+		tooltip := maps.Clone(base)
+		if _, hasColor := tooltip["color"]; !hasColor {
+			tooltip["color"] = nbt.String(color)
+		}
+		tooltip["extra"] = appendRawExtra(tooltip["extra"], nbt.String("\n"), protocol.TextTag(desc))
+		hovered := maps.Clone(base)
+		hovered["hover_event"] = nbt.Compound{
+			"action": nbt.String("show_text"),
+			"value":  tooltip,
+		}
+		return protocol.Text{
+			Translate: "chat.square_brackets",
+			Color:     color,
+			With:      []protocol.Text{{Raw: hovered}},
+		}
+	}
+	tooltip := title
+	if tooltip.Color == "" {
+		tooltip.Color = color
+	}
+	tooltip.Extra = append(slices.Clone(tooltip.Extra), protocol.Text{Text: "\n"}, desc)
 	title.HoverText = &tooltip
 	return protocol.Text{Translate: "chat.square_brackets", Color: color, With: []protocol.Text{title}}
 }
 
-// DisplayText is a display's title or description: a translation key, or
-// literal text when literal is set.
-func DisplayText(s string, literal bool) protocol.Text {
+// DisplayTitle is a display's title component.
+func DisplayTitle(d *registry.AdvancementDisplay) protocol.Text {
+	return advancementDisplayText(d.Title, d.TitleLiteral, d.TitleText)
+}
+
+// DisplayDescription is a display's description component.
+func DisplayDescription(d *registry.AdvancementDisplay) protocol.Text {
+	return advancementDisplayText(d.Description, d.DescriptionLiteral, d.DescriptionText)
+}
+
+func advancementDisplayText(s string, literal bool, full *protocol.Text) protocol.Text {
+	if full != nil {
+		return *full
+	}
 	if literal {
 		return protocol.Text{Text: s}
 	}
 	return protocol.Text{Translate: s}
+}
+
+// rawTextCompound copies a raw component tag into a mutable compound, unfolding
+// a list component into its head with the remaining elements appended to extra.
+// vanilla: ComponentSerialization.createFromList
+func rawTextCompound(tag nbt.Tag) nbt.Compound {
+	if fields, ok := nbt.CompoundView(tag); ok {
+		return maps.Clone(fields)
+	}
+	if s, ok := tag.(nbt.String); ok {
+		return nbt.Compound{"text": s}
+	}
+	if list, ok := tag.(nbt.List); ok && len(list.Items) > 0 {
+		head := rawTextCompound(nbt.ListElement(list.Items[0]))
+		if len(list.Items) > 1 {
+			rest := make([]nbt.Tag, len(list.Items)-1)
+			for i, item := range list.Items[1:] {
+				rest[i] = nbt.ListElement(item)
+			}
+			head["extra"] = appendRawExtra(head["extra"], rest...)
+		}
+		return head
+	}
+	return nbt.Compound{"text": nbt.String("")}
+}
+
+func appendRawExtra(existing nbt.Tag, added ...nbt.Tag) nbt.List {
+	var items []nbt.Tag
+	if list, ok := existing.(nbt.List); ok {
+		items = make([]nbt.Tag, 0, len(list.Items)+len(added))
+		for _, item := range list.Items {
+			items = append(items, nbt.ListElement(item))
+		}
+	}
+	items = append(items, added...)
+	return nbt.NewList(items)
 }
 
 // advancementAction is the grant or revoke half of an /advancement.

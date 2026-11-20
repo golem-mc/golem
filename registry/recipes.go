@@ -41,10 +41,10 @@ func CraftMatch(cells []protocol.ItemStack, width int32) (string, protocol.ItemS
 		}
 		if ref.shaped {
 			if r := &set.shaped[ref.index]; shapedIn(r, ref.symmetric, cells, width, grid) {
-				return r.ID, protocol.ItemStack{ItemID: r.ResultID, Count: r.ResultCount}
+				return r.ID, RecipeResult(r.ID, protocol.ItemStack{ItemID: r.ResultID, Count: r.ResultCount})
 			}
 		} else if r := &set.shapeless[ref.index]; shapelessFits(r, cells) {
-			return r.ID, protocol.ItemStack{ItemID: r.ResultID, Count: r.ResultCount}
+			return r.ID, RecipeResult(r.ID, protocol.ItemStack{ItemID: r.ResultID, Count: r.ResultCount})
 		}
 	}
 	if id, result, ok := stewResult(cells); ok {
@@ -340,7 +340,7 @@ func SmeltingResult(stack protocol.ItemStack) protocol.ItemStack {
 	if recipe == nil {
 		return protocol.ItemStack{}
 	}
-	return protocol.ItemStack{ItemID: recipe.ResultID, Count: recipe.ResultCount}
+	return CookingResult(recipe)
 }
 
 // SmeltingMatch returns the smelting recipe a stack smelts under, or nil
@@ -408,10 +408,10 @@ func SmithingMatch(template, base, addition protocol.ItemStack) (string, protoco
 			!smithingFits(recipe.Base, base) || !smithingFits(recipe.Addition, addition) {
 			continue
 		}
-		return recipe.ID, smithingCarriedComponents(protocol.ItemStack{
+		return recipe.ID, RecipeResult(recipe.ID, smithingCarriedComponents(protocol.ItemStack{
 			ItemID: recipe.ResultID,
 			Count:  recipe.ResultCount,
-		}, base)
+		}, base))
 	}
 	for i := range set.trim {
 		recipe := &set.trim[i]
