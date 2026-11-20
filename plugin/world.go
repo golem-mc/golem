@@ -43,6 +43,12 @@ type World interface {
 	// or MinY()-1 for an empty column or unloaded chunk.
 	HighestBlockY(x, z int, h Heightmap) int
 	Biome(pos BlockPos) registry.Biome
+	// SetBiome sets the biome of the 4x4x4 cell holding pos in a loaded chunk
+	// and resends the chunk's biomes to its viewers; false for an unloaded
+	// chunk or a position outside the world. Biome reads a zoomed neighbour
+	// cell near a border, so a single cell may not read back as set.
+	// Bukkit: World.setBiome
+	SetBiome(pos BlockPos, b registry.Biome) bool
 	// Light answers the sky and block light at pos, 0 to 15.
 	Light(pos BlockPos) (sky, block int)
 
@@ -54,6 +60,12 @@ type World interface {
 	// calling done on the tick goroutine when it is ready (nil on failure).
 	// The chunk unloads again as usual unless a ticket holds it.
 	LoadChunk(pos ChunkPos, generate bool, done func(Chunk))
+	// Regenerate replaces the blocks and biomes of the loaded chunk with what
+	// the world's generator makes of it from the same seed and sends the
+	// change to its viewers; false when the chunk is not loaded. Block
+	// entities and entities of the old terrain are not regenerated.
+	// Bukkit: World.regenerateChunk
+	Regenerate(pos ChunkPos) bool
 	// AddTicket keeps the chunks within radius of pos loaded, and those
 	// within radius-1 ticking, until RemoveTicket: /forceload for a plugin.
 	// The plugin's remaining tickets are released when it disables.

@@ -612,6 +612,13 @@ func (ws worldScope) FillBiomes(box world.BiomeBox, biome string, filter func(st
 	if !ok {
 		return 0, false
 	}
+	s.resendBiomes(w, chunks)
+	return count, true
+}
+
+// resendBiomes sends each player the biomes of the listed chunks they track.
+// vanilla: ChunkMap.resendBiomesForChunks
+func (s *Server) resendBiomes(w *world.World, chunks []world.ChunkPos) {
 	s.mu.RLock()
 	var recipients []*client
 	for _, c := range s.clients {
@@ -631,7 +638,6 @@ func (ws worldScope) FillBiomes(box world.BiomeBox, biome string, filter func(st
 			c.sendIn(w, protocol.IDPlayChunksBiomes, w.BiomesPacket(tracked))
 		}
 	}
-	return count, true
 }
 
 // FindClosestBiome searches the dimension's generator for the biome.
