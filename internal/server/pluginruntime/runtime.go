@@ -309,7 +309,7 @@ func (r *Runtime) StartTick() {
 	if r.Has(ServerTickStart) {
 		r.Fire(&plugin.ServerTickStartEvent{Tick: r.Current()})
 	}
-	r.runCalls()
+	r.drainCalls()
 }
 
 // BindTick makes the calling goroutine the tick goroutine, for a test that

@@ -149,6 +149,11 @@ mise exec -- go build -o /tmp/golem . && mise exec -- go build -o /tmp/loadtest 
 Each run picks free ports and a fresh temporary directory, so runs can share
 a machine. `-profile` also captures a CPU profile.
 
+`llamas-latency-2000` times a walking bot's command, ping and keep-alive round trips
+(`command_rtt_ms`, `ping_rtt_ms`, `keepalive_rtt_ms` in `summary.json`). Build
+golem from `./tools/loadtest/movelistener` instead of `.` to put a plugin
+listener behind every move, as an AFK-detecting plugin does.
+
 ## checktranslations
 
 Every chat message the server sends is a translation key. This checks that
