@@ -111,6 +111,21 @@ type World interface {
 	SetSpawnPoint(Location)
 	Border() WorldBorder
 
+	// SpawnLimit answers this world's natural spawn cap for a category, -1
+	// for the vanilla default (MobCategory.max, scaled by the loaded area).
+	// 0 stops the category spawning naturally; a negative n given to
+	// SetSpawnLimit restores the default.
+	// Bukkit: getSpawnLimit, setSpawnLimit
+	SpawnLimit(c registry.MobCategory) int
+	SetSpawnLimit(c registry.MobCategory, n int)
+	// TicksPerSpawn answers how often the natural spawn pass of a category
+	// runs in this world: every n game ticks, never for 0, and -1 for the
+	// vanilla default (every 400 ticks for creatures, else every tick). A
+	// negative n given to SetTicksPerSpawn restores the default.
+	// Bukkit: getTicksPerAnimalSpawns and its siblings
+	TicksPerSpawn(c registry.MobCategory) int
+	SetTicksPerSpawn(c registry.MobCategory, n int)
+
 	// Explode makes an explosion at pos as a source entity would (nil for
 	// none), with the block interaction a TNT, mob or block explosion has.
 	Explode(pos Vec3, power float32, fire bool, blocks ExplosionBlocks, source Entity)

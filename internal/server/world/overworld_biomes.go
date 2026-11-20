@@ -19,13 +19,22 @@ func (g *OverworldGenerator) setBiomeSource(_ int64) {
 		return
 	}
 	if g.preset == presetSingleBiome {
-		g.biomeSource = terrain.NewFixedOverworldBiomeSourceFor(g.state, terrain.OverworldPlains)
+		g.biomeSource = terrain.NewFixedOverworldBiomeSourceFor(g.state, g.singleBiome())
 	} else {
 		g.biomeSource = terrain.NewOverworldBiomeSource(g.state)
 	}
 	for i := range g.biomeIDs {
 		g.biomeIDs[i] = int32(overworldBiomeIDs[i])
 	}
+}
+
+// singleBiome is the biome of a single-biome world: the one a plugin chose,
+// else plains.
+func (g *OverworldGenerator) singleBiome() terrain.OverworldBiome {
+	if g.hasSingle {
+		return g.single
+	}
+	return terrain.OverworldPlains
 }
 
 // fixedBiome is the one biome a flat or single-biome world's source answers,
@@ -35,7 +44,7 @@ func (g *OverworldGenerator) fixedBiome() (registry.Biome, bool) {
 	case g.flat != nil:
 		return registry.Biome(g.flat.biome), true
 	case g.preset == presetSingleBiome:
-		return overworldBiomeIDs[terrain.OverworldPlains], true
+		return overworldBiomeIDs[g.singleBiome()], true
 	}
 	return 0, false
 }

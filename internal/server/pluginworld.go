@@ -169,6 +169,18 @@ func (w pluginWorld) GameRule(id plugin.GameRule) int {
 	}
 	return 0
 }
+func (w pluginWorld) SpawnLimit(c registry.MobCategory) int {
+	return w.dim.spawnTuning.Limit(c)
+}
+func (w pluginWorld) SetSpawnLimit(c registry.MobCategory, n int) {
+	w.dim.spawnTuning.SetLimit(c, n)
+}
+func (w pluginWorld) TicksPerSpawn(c registry.MobCategory) int {
+	return w.dim.spawnTuning.Ticks(c)
+}
+func (w pluginWorld) SetTicksPerSpawn(c registry.MobCategory, n int) {
+	w.dim.spawnTuning.SetTicks(c, n)
+}
 func (w pluginWorld) SetGameRule(id plugin.GameRule, v int) {
 	if id < 0 || int(id) >= len(world.GameRuleTable) {
 		return

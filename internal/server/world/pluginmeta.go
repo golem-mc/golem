@@ -17,6 +17,8 @@ const pluginMetaFile = "data/minecraft/plugin_world.dat"
 type PluginMeta struct {
 	Seed  int64
 	Spawn SpawnPos
+	// Gen is how the world's terrain was asked for, so a reload rebuilds it.
+	Gen   PluginGenSpec
 	Level *pluginLevel
 }
 
@@ -32,7 +34,7 @@ type pluginLevel struct {
 // ReadPluginMeta reads the dimension's plugin_world.dat under the world in dir,
 // before the world is opened; ok is false when the dimension is new.
 func ReadPluginMeta(dir, name string) (m PluginMeta, ok bool) {
-	data, err := readSavedData(dimensionDir(dir, name), pluginMetaFile)
+	data, err := readSavedData(DimensionDir(dir, name), pluginMetaFile)
 	if err != nil {
 		return m, false
 	}
@@ -43,7 +45,12 @@ func ReadPluginMeta(dir, name string) (m PluginMeta, ok bool) {
 	}
 	yaw, _ := nbt.Get[nbt.Float](data, "yaw")
 	pitch, _ := nbt.Get[nbt.Float](data, "pitch")
-	m = PluginMeta{Seed: int64(seed), Spawn: SpawnPos{X: pos[0], Y: pos[1], Z: pos[2], Yaw: float32(yaw), Pitch: float32(pitch)}}
+	typ, _ := nbt.Get[nbt.String](data, "type")
+	settings, _ := nbt.Get[nbt.String](data, "generator_settings")
+	biome, _ := nbt.Get[nbt.String](data, "biome")
+	noStructures, _ := nbt.Get[nbt.Byte](data, "no_structures")
+	m = PluginMeta{Seed: int64(seed), Spawn: SpawnPos{X: pos[0], Y: pos[1], Z: pos[2], Yaw: float32(yaw), Pitch: float32(pitch)},
+		Gen: PluginGenSpec{Type: string(typ), Settings: string(settings), Biome: string(biome), NoStructures: noStructures != 0}}
 	if lv, ok := nbt.Get[nbt.Compound](data, "level"); ok {
 		age, _ := nbt.Get[nbt.Long](lv, "age")
 		d, _ := nbt.Get[nbt.Byte](lv, "difficulty")
@@ -57,8 +64,16 @@ func ReadPluginMeta(dir, name string) (m PluginMeta, ok bool) {
 	return m, true
 }
 
-// SavePluginMeta writes the world's plugin_world.dat: its seed, spawn and
-// level state as they stand.
+// SetPluginGen records how the world's terrain was asked for, which
+// SavePluginMeta writes.
+func (w *World) SetPluginGen(gen PluginGenSpec) {
+	w.timeMu.Lock()
+	w.pluginGen = gen
+	w.timeMu.Unlock()
+}
+
+// SavePluginMeta writes the world's plugin_world.dat: its seed, spawn, terrain
+// spec and level state as they stand.
 func (w *World) SavePluginMeta() {
 	w.timeMu.Lock()
 	l := w.level
@@ -69,6 +84,10 @@ func (w *World) SavePluginMeta() {
 		"seed": nbt.Long(l.Seed), "spawn": nbt.IntArray{l.Spawn.X, l.Spawn.Y, l.Spawn.Z},
 		"yaw": nbt.Float(l.Spawn.Yaw), "pitch": nbt.Float(l.Spawn.Pitch),
 		"level": level,
+		"type":  nbt.String(w.pluginGen.Type), "generator_settings": nbt.String(w.pluginGen.Settings), "biome": nbt.String(w.pluginGen.Biome),
+	}
+	if w.pluginGen.NoStructures {
+		data["no_structures"] = nbt.Byte(1)
 	}
 	w.timeMu.Unlock()
 	if err := writeSavedData(w.storage, pluginMetaFile, data); err != nil {

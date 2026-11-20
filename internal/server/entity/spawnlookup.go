@@ -40,7 +40,7 @@ func (l *spawnList) pick(rng *rand.Rand) *spawnData {
 
 var naturalBiomeLists = func() (lists [SpawnCategoryCount][registry.BiomeCount]spawnList) {
 	for c := range SpawnCategory(SpawnCategoryCount) {
-		for b, entries := range c.lists() {
+		for b, entries := range spawnListsOf(c) {
 			lists[c][b] = describeSpawnList(entries)
 		}
 	}

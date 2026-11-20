@@ -67,12 +67,12 @@ depends = ["build", "test", "lint", "fmt:check", "fix:check", "tidy:check"]
 
 [tasks.release]
 description = "Build the release binaries with GoReleaser and attach them to the tagged release (the release workflow runs it)"
-tools = { goreleaser = "2.20.0" }
+tools = { goreleaser = "2.20.2" }
 run = "goreleaser release --clean"
 
 [tasks."release:snapshot"]
 description = "Build every release binary into dist/ locally, without publishing or signing"
-tools = { goreleaser = "2.20.0" }
+tools = { goreleaser = "2.20.2" }
 run = "goreleaser release --snapshot --clean --skip=publish,sign"
 
 [tasks.dev]
@@ -567,3 +567,8 @@ run = "go run ./tools/gen poplar-golden"
 [tasks."gen:endcity"]
 description = "Pack vanilla end city templates"
 run = "go run ./tools/gen endcity"
+
+[tasks."gen:entitycategories"]
+description = "Regenerate registry/entitycategories_gen.go, the MobCategory of every entity type, from the vanilla client jar"
+tools = { java = "temurin-25" }
+run = "go run ./tools/gen entitycategories"

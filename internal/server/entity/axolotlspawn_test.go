@@ -53,5 +53,5 @@ func TestAxolotlNaturalSpawnPlacementAndCategory(t *testing.T) {
 	}
 	// A full cap stops the pass before it reads chunks or attempts placement.
 	SpawnNaturally(w, rng, []ChunkPos{{}}, []SpawnPlayer{{EntityID: 1}}, nil, nil,
-		[]SpawnPass{AxolotlPass(&SpawnCounts{Global: 5})}, spawnMagicNumber, func(SpawnRequest) { t.Fatal("spawned past the category cap") })
+		[]SpawnPass{NewSpawnPass(CategoryAxolotls, &SpawnCounts{Global: 5}, -1)}, spawnMagicNumber, func(SpawnRequest) { t.Fatal("spawned past the category cap") })
 }

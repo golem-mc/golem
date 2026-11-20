@@ -65,6 +65,10 @@ type OverworldGenerator struct {
 	deferred bool
 	// preset is the world preset whose noise settings shape the terrain.
 	preset overworldPreset
+	// single is the biome of a single-biome world when hasSingle; plains
+	// otherwise.
+	single    terrain.OverworldBiome
+	hasSingle bool
 	// noStructures writes generate_structures=false into a new world's
 	// world_gen_settings.dat.
 	noStructures bool

@@ -392,7 +392,7 @@ func (g *OverworldGenerator) overworldFeatures() []terrain.OverworldFeature {
 	var out []terrain.OverworldFeature
 	next := map[int32]int32{}
 	for _, f := range terrain.OverworldFeatures {
-		if f.Biomes&(1<<terrain.OverworldPlains) == 0 {
+		if f.Biomes&(1<<g.singleBiome()) == 0 {
 			continue
 		}
 		f.Slot.Index = next[f.Slot.Step]

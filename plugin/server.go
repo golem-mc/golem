@@ -20,6 +20,12 @@ type Server interface {
 	Name() string
 	// Plugins answers every plugin built into the server.
 	Plugins() []Info
+	// Generator resolves spec, "<plugin>[:<id>]" with the plugin's name
+	// matched ignoring case, to the generator that plugin publishes for the
+	// world key (GeneratorProvider). It fails for a missing plugin, one that
+	// is not enabled, provides no generators, or an id the plugin
+	// rejects or answers nil for.
+	Generator(world Key, spec string) (Generator, error)
 
 	// Version answers the Minecraft version and protocol the server speaks.
 	Version() (name string, protocol int)
@@ -67,6 +73,14 @@ type Server interface {
 	// UnloadWorld saves (when save is set) and unloads w; its players are
 	// moved to the overworld's spawn. The overworld cannot be unloaded.
 	UnloadWorld(w World, save bool) error
+
+	// WorldFolder answers the folder of the world with this dimension key,
+	// <level>/dimensions/<namespace>/<path>, or the level directory for the
+	// overworld, whether or not the world is loaded or exists yet. Once
+	// UnloadWorld returns, golem holds nothing under the folder, so a plugin
+	// may delete or replace it before a following CreateWorld. Bukkit:
+	// getWorldFolder
+	WorldFolder(key Key) string
 
 	// Console answers the server console as a command sender.
 	Console() CommandSender
@@ -144,7 +158,34 @@ type WorldOptions struct {
 	// Generator generates the world's chunks; nil uses vanilla's generator
 	// for Dimension.
 	Generator Generator
+	// Type is the terrain of a vanilla-generated world; the zero value is
+	// WorldTypeNormal. Only the overworld dimension type and flat worlds take
+	// anything else. Ignored when Generator is set. Bukkit: WorldCreator.type
+	Type WorldType
+	// GeneratorSettings is a flat world's generator-settings JSON (a layers
+	// list, optionally biome and structure_overrides); empty is vanilla's
+	// default flat preset. CreateWorld fails for text that is not such JSON.
+	// Bukkit: WorldCreator.generatorSettings
+	GeneratorSettings string
+	// NoStructures stops the world from generating structures; ignored when
+	// Generator is set. Bukkit:
+	// WorldCreator.generateStructures(false)
+	NoStructures bool
+	// Biome, when set, makes the whole world that overworld biome; ignored
+	// when Generator is set. Bukkit:
+	// WorldCreator.biomeProvider (single biome)
+	Biome Key
 }
+
+// WorldType is the terrain preset of a vanilla-generated world. Bukkit: WorldType
+type WorldType string
+
+const (
+	WorldTypeNormal      WorldType = ""
+	WorldTypeFlat        WorldType = "flat"
+	WorldTypeLargeBiomes WorldType = "large_biomes"
+	WorldTypeAmplified   WorldType = "amplified"
+)
 
 // Ticks is the tick loop. Bukkit: Server.getServerTickManager (Paper)
 type Ticks interface {
@@ -200,6 +241,10 @@ type Scheduler interface {
 	// RunAsyncTimer runs fn on another goroutine after delay, then every
 	// period.
 	RunAsyncTimer(delay, period time.Duration, fn func()) Task
+	// OnTick reports whether the caller runs on the tick goroutine: in a
+	// listener, a command executor or a tick task. Safe from any goroutine.
+	// Bukkit: Server.isPrimaryThread
+	OnTick() bool
 }
 
 // Task is a scheduled task.
@@ -217,6 +262,18 @@ type Services interface {
 	Provide(t reflect.Type, impl any, priority int)
 	// Lookup answers the highest-priority implementation of t.
 	Lookup(t reflect.Type) (any, bool)
+	// Providers answers a snapshot of every implementation of t, highest
+	// priority first, equal priorities in the order they were provided; empty
+	// when there is none. Bukkit: ServicesManager.getRegistrations
+	Providers(t reflect.Type) []ServiceProvider
+}
+
+// ServiceProvider is one registered implementation of a service type.
+type ServiceProvider struct {
+	// Plugin is the name of the plugin that provided Impl.
+	Plugin   string
+	Priority int
+	Impl     any
 }
 
 // Provide registers impl as the plugin's implementation of the interface
@@ -235,6 +292,23 @@ func Service[S any](s Server) (S, bool) {
 		return zero, false
 	}
 	return v.(S), true
+}
+
+// Provider is one implementation of S and the plugin providing it.
+type Provider[S any] struct {
+	Plugin   string
+	Service  S
+	Priority int
+}
+
+// Providers answers every implementation of S, highest priority first.
+func Providers[S any](s Server) []Provider[S] {
+	all := s.Services().Providers(reflect.TypeFor[S]())
+	out := make([]Provider[S], len(all))
+	for i, p := range all {
+		out[i] = Provider[S]{Plugin: p.Plugin, Service: p.Impl.(S), Priority: p.Priority}
+	}
+	return out
 }
 
 // Messenger is the plugin channels: custom payload packets on a channel

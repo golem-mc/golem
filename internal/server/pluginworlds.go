@@ -90,19 +90,38 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 			seed = s.world.SeedValue()
 		}
 	}
+	spec := world.PluginGenSpec{Type: string(opts.Type), Settings: opts.GeneratorSettings, Biome: opts.Biome.String(), NoStructures: opts.NoStructures}
+	if opts.Biome == (plugin.Key{}) {
+		spec.Biome = ""
+	}
+	if existed {
+		spec = meta.Gen
+	}
 	var gen world.Generator
 	if opts.Generator != nil {
 		gen = &pluginGenerator{gen: opts.Generator, seed: seed, minY: int(shape.MinY()), height: int(shape.Height()), seaLevel: pluginSeaLevel(shape), dimensionN: name}
 	} else {
 		stem, ok := vanillaStem(typeName)
-		if !ok {
+		if !ok && spec.Type != "flat" {
 			return nil, fmt.Errorf("dimension type %s has no vanilla generator, give the world a Generator", typeName)
 		}
-		if gen, err = world.StemGenerator(stem, shape, seed, s.Config.GenerateStructures); err != nil {
+		switch {
+		case spec.Type == "flat" || (!spec.Plain() && typeName == world.DimensionType):
+			gen, err = world.NewPluginOverworldGenerator(spec, shape, seed)
+		case !spec.Plain():
+			err = fmt.Errorf("world type, generator settings and biome only apply to flat worlds and the overworld type")
+		default:
+			gen, err = world.StemGenerator(stem, shape, seed, s.Config.GenerateStructures && !spec.NoStructures)
+			if og, ok := gen.(*world.OverworldGenerator); ok && spec.NoStructures {
+				og.DisableStructures()
+			}
+		}
+		if err != nil {
 			return nil, err
 		}
 	}
-	d := &dimension{name: name, typeID: typeID, gen: gen, plugin: true, w: world.NewCustomDimensionWorld(s.levelDir, name, shape, gen)}
+	d := &dimension{name: name, typeID: typeID, gen: gen, plugin: true, genSpec: spec, w: world.NewCustomDimensionWorld(s.levelDir, name, shape, gen)}
+	d.w.SetPluginGen(spec)
 	if err := s.initDimension(d, false); err != nil {
 		return nil, err
 	}
@@ -137,6 +156,16 @@ func initialPluginSpawn(plug plugin.Generator, gen world.Generator, handle plugi
 		return og.FindSpawn()
 	}
 	return world.SpawnPos{Y: gen.SeaLevel() + 1}
+}
+
+// WorldFolder answers the folder of the world key names; the overworld's is
+// the level directory.
+func (h *pluginHost) WorldFolder(key plugin.Key) string {
+	name := key.String()
+	if name == world.DimensionName {
+		return h.srv.levelDir
+	}
+	return world.DimensionDir(h.srv.levelDir, name)
 }
 
 // UnloadWorld unloads a plugin-created world on the tick goroutine after

@@ -212,6 +212,8 @@ type World struct {
 	// tick and read for Update Time. It is separate from mu so the tick does
 	// not contend with chunk loads and saves.
 	timeMu sync.Mutex
+	// pluginGen is a plugin world's terrain spec, guarded by timeMu.
+	pluginGen PluginGenSpec
 
 	// timeSource is the overworld whose age, clocks and weather flags this
 	// world reads, set for every other dimension by the server: vanilla
@@ -397,7 +399,7 @@ func newWorld(dir string, gen Generator, name string, shape dimensionShape, leve
 		dir:        dir,
 		gen:        gen,
 		level:      level,
-		storage:    dimensionDir(dir, name),
+		storage:    DimensionDir(dir, name),
 		dim:        shape,
 		dimName:    name,
 		levelDat:   levelDat,

@@ -874,10 +874,10 @@ func TestLoadChunkStoredAtWrongPositionIsRelocated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("nbt.Encode: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(dimensionDir(dir, DimensionName), "region"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(DimensionDir(dir, DimensionName), "region"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	rf, err := openRegion(regionFilePath(dimensionDir(dir, DimensionName), 1, 0), defaultSaveFormat)
+	rf, err := openRegion(regionFilePath(DimensionDir(dir, DimensionName), 1, 0), defaultSaveFormat)
 	if err != nil {
 		t.Fatalf("openRegion: %v", err)
 	}
