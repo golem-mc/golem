@@ -64,8 +64,10 @@ func (g *caravanGoal) CanStart(t *tickView) bool {
 	// the nearest leashed one.
 	var inCaravan, leashed *Mob
 	bestC, bestL := math.MaxFloat64, math.MaxFloat64
-	for _, o := range t.others {
-		if o == m || !IsLlama(o.Type) || !o.Alive() || o.Horse.tail != nil {
+	for _, o := range m.herdNear(t, llamaCaravanScanXZ) {
+		// Only a caravan's tail or a leashed llama can be joined; testing
+		// that first keeps a crowded pen's scan off the box sums.
+		if o == m || o.Horse.tail != nil || !o.inCaravan() && !o.leashed() || !IsLlama(o.Type) || !o.Alive() {
 			continue
 		}
 		if !boxesOverlap(m.X, m.Y-llamaCaravanScanY, m.Z, m.width()+2*llamaCaravanScanXZ, m.height()+2*llamaCaravanScanY,
