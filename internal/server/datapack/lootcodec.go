@@ -1439,10 +1439,13 @@ func (d lootDecoder) function(f obj) registry.LootFunction {
 	case "minecraft:furnace_smelt":
 		return registry.LootFurnaceSmelt{UseInputCount: flag(f, "use_input_count", true), Conditions: conds}
 	case "minecraft:copy_components":
-		if src, _ := f["source"].(string); src != "block_entity" {
-			fail("copy_components from %q is not supported by this server", src)
+		src := requireStr(f, "source")
+		switch src {
+		case "block_entity", "tool", "this", "attacker", "direct_attacker", "attacking_player", "target_entity", "interacting_entity":
+		default:
+			fail("Unknown loot context parameter: %s", src)
 		}
-		return registry.LootCopyComponents{Include: stringList(f["include"]), Exclude: stringList(f["exclude"]), Conditions: conds}
+		return registry.LootCopyComponents{Source: src, Include: stringList(f["include"]), Exclude: stringList(f["exclude"]), Conditions: conds}
 	case "minecraft:set_random_dyes":
 		return registry.LootSetRandomDyes{Count: intAt(f, "number_of_dyes"), Conditions: conds}
 	case "minecraft:set_random_potion":

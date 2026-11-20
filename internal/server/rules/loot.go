@@ -1447,6 +1447,9 @@ func (r *lootRoller) function(f registry.LootFunction, s lootStack) lootStack {
 		}
 	case registry.LootCopyComponents:
 		// vanilla: CopyComponentsFunction.run
+		if k.Source != "" && k.Source != "block_entity" {
+			return r.copyComponentsFrom(k, s)
+		}
 		for _, name := range k.Include {
 			switch name {
 			case "minecraft:container":
@@ -1574,6 +1577,76 @@ func (r *lootRoller) function(f registry.LootFunction, s lootStack) lootStack {
 		name := k.Options[r.rng.Int31n(int32(len(k.Options)))]
 		if id, ok := registry.InstrumentID(name); ok {
 			s.instrument, s.hasInstrument = id, true
+		}
+	}
+	return s
+}
+
+// copyComponentsFrom copies the included components of the tool or a context
+// entity onto the stack. A source that is not in play leaves it unchanged.
+// vanilla: CopyComponentsFunction.run, LootContextArg
+func (r *lootRoller) copyComponentsFrom(k registry.LootCopyComponents, s lootStack) lootStack {
+	var entity LootEntity
+	switch k.Source {
+	case "tool":
+		if r.ctx.Tool.Item == "" {
+			return s
+		}
+	case "this":
+		entity = r.ctx.This
+	case "attacker":
+		entity = r.ctx.Attacker
+	case "direct_attacker":
+		entity = r.ctx.DirectAttacker
+	case "attacking_player":
+		entity = r.ctx.AttackingPlayer
+		if entity.Type == "" && r.ctx.Attacker.Player != nil {
+			entity = r.ctx.Attacker
+		}
+	case "target_entity":
+		entity = r.ctx.Target
+	case "interacting_entity":
+		entity = r.ctx.Interacting
+	}
+	if k.Source != "tool" && entity.Type == "" {
+		return s
+	}
+	var held nbt.Compound
+	if k.Source == "tool" {
+		held = registry.StackComponents(r.ctx.Tool.Stack)
+	}
+	for _, name := range k.Include {
+		name = registry.Qualify(name)
+		if slices.ContainsFunc(k.Exclude, func(x string) bool { return registry.Qualify(x) == name }) {
+			continue
+		}
+		var tag nbt.Tag
+		if k.Source == "tool" {
+			tag = held[name]
+		} else if name == "minecraft:custom_name" && entity.Name != nil {
+			tag = protocol.TextTag(*entity.Name)
+		} else if value, ok := "", false; entity.Component != nil {
+			if value, ok = entity.Component(name); ok {
+				tag = nbt.String(value)
+			}
+		}
+		if tag == nil && k.Source != "tool" {
+			tag, _ = entityTagComponent(entity, name)
+		}
+		if tag == nil {
+			continue
+		}
+		var scratch protocol.ItemStack
+		if !registry.ReadComponent(&scratch, name, tag) {
+			continue
+		}
+		switch name {
+		case "minecraft:custom_name":
+			s.customName = scratch.CustomName
+		case "minecraft:container":
+			s.container = scratch.Container
+		default:
+			s.components = append(s.components, scratch.Raw...)
 		}
 	}
 	return s
