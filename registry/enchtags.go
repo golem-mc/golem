@@ -85,9 +85,19 @@ var enchantingTableIDs = func() []int32 {
 }()
 
 // EnchantingTableIDs is the enchanting table's pool by numeric ID, in the
-// in_enchanting_table tag's order: the registry's alphabetical order would
-// land every weighted draw elsewhere.
-func EnchantingTableIDs() []int32 { return enchantingTableIDs }
+// loaded minecraft:in_enchanting_table tag's order: the registry's alphabetical
+// order would land every weighted draw elsewhere.
+func EnchantingTableIDs() []int32 {
+	if st := tagsNow.Load(); st != nil {
+		if ids, ok := st.enchantmentIDs["minecraft:in_enchanting_table"]; ok {
+			return ids
+		}
+		if tagsGeneration.Load() > 0 {
+			return nil
+		}
+	}
+	return enchantingTableIDs
+}
 
 // enchantmentTagIDs resolves every enchantment tag to member IDs in tag
 // order, once per tag load: a treasure roll reads on_random_loot per catch.
