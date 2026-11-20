@@ -13,7 +13,7 @@ import (
 func TestPackSpawnParticlesDustOptions(t *testing.T) {
 	cfg := servertest.MobTestConfig()
 	effect := `{"type":"minecraft:spawn_particles","particle":{"type":"minecraft:dust","color":[1.0,0.0,0.0],"scale":1.0},
-		"horizontal_position":{"type":"minecraft:entity_position"},"vertical_position":{"type":"minecraft:entity_position"},
+		"horizontal_position":{"type":"entity_position"},"vertical_position":{"type":"entity_position"},
 		"horizontal_velocity":{},"vertical_velocity":{}}`
 	cfg.LevelName = postAttackPack(t, "mainhand", "#minecraft:enchantable/weapon", packPostAttack("attacker", "victim", effect))
 	const name = "Striker"

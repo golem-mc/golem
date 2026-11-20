@@ -32,7 +32,8 @@ import java.util.List;
 // each mask a bit per direction in Direction ordinal order, flags bit 0
 // isSolid, bit 1 the collision shape's top face full, bit 2 isSolidRender,
 // bit 3 the collision shape's bottom face full, bit 4 isShapeFullBlock of
-// the collision shape, vanilla's isCollisionShapeFullBlock.
+// the collision shape, vanilla's isCollisionShapeFullBlock, bit 5 the same
+// of the outline shape (getShape).
 public class BlockSupport {
     private static final VoxelShape[] WALL_TESTS = {
         Shapes.box(7 / 16.0, 0, 7 / 16.0, 9 / 16.0, 1, 9 / 16.0),
@@ -86,6 +87,9 @@ public class BlockSupport {
                 }
                 if (Block.isShapeFullBlock(collision)) {
                     flags |= 16;
+                }
+                if (Block.isShapeFullBlock(state.getShape(level, pos))) {
+                    flags |= 32;
                 }
                 double top = collision.isEmpty() ? 0.0 : collision.max(Direction.Axis.Y);
                 List<AABB> boxes = collision.toAabbs();

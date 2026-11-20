@@ -249,7 +249,8 @@ func (s *Server) burstWindCharge(b windBurst) {
 		directType: directType, directName: s.directNameOf(killer, typeID, b.uuid, b.custom),
 		// vanilla: Level.ExplosionInteraction.TRIGGER
 		interaction: rules.ExplosionTrigger, damageType: rules.DamageTypePlayerExplosion, rng: b.rng,
-		breezeBurst: b.breeze, harmless: true, knockbackScale: knockback, burst: true, blockResist: windChargeResistanceOf(b.w)})
+		directRemoved: &removedBody{id: b.uuid, typ: registry.EntityType(typeID)},
+		breezeBurst:   b.breeze, harmless: true, knockbackScale: knockback, burst: true, blockResist: windChargeResistanceOf(b.w)})
 }
 
 // breakThrown tells one body's break, its removal after the break's own

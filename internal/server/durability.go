@@ -39,6 +39,11 @@ type slotWear struct {
 	slot           int
 	visible, broke bool
 	item           int32
+	// before is the stack as it was, and durability and delta what
+	// item_durability_changed tests.
+	// vanilla: ItemDurabilityTrigger.TriggerInstance.matches
+	before            protocol.ItemStack
+	durability, delta int32
 }
 
 // wearUnder puts n wear on the slot's stack under the caller's inventory
@@ -49,7 +54,8 @@ func (c *client) wearUnder(inv *player.Inventory, slot int, n int32) slotWear {
 	if worn.Damage == was.Damage && worn.Count == was.Count {
 		return slotWear{slot: slot}
 	}
-	w := slotWear{slot: slot, broke: breaks, item: was.ItemID}
+	w := slotWear{slot: slot, broke: breaks, item: was.ItemID,
+		before: was, durability: registry.StackMaxDamage(was) - (was.Damage + n), delta: -n}
 	w.payload, w.visible = c.setSlotUnder(inv, slot, worn)
 	if breaks {
 		// vanilla: ServerPlayer.onEquippedItemBroken
@@ -66,7 +72,7 @@ func (c *client) tellWear(w slotWear) {
 		return
 	}
 	if w.item != 0 {
-		c.woreItemAdvancements(w.item)
+		c.woreItemAdvancements(w.before, w.durability, w.delta)
 	}
 	if w.broke {
 		if status, ok := rules.BreakStatus(w.slot); ok {

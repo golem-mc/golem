@@ -256,35 +256,71 @@ func advItems(v any) []int32 {
 	return slices.Compact(ids)
 }
 
-// advItemPredicates reads the item predicates of conditions["items"], or
-// false for one that tests more than the item.
-func advItemPredicates(conditions obj) ([][]int32, bool) {
-	var out [][]int32
-	for _, p := range list(conditions["items"], "items") {
+// advItemPredicates reads the item predicates of conditions["items"]: the
+// item IDs each accepts, and the full predicate of each that tests more than
+// the item, nil for the others. It is false for a predicate with a key this
+// model does not read.
+// vanilla: ItemPredicate.CODEC
+func advItemPredicates(conditions obj) (ids [][]int32, tests []*registry.ItemPredicate, ok bool) {
+	for i, p := range list(conditions["items"], "items") {
 		predicate := object(p, "an item predicate")
-		if !keysAre(predicate, "items") {
-			return nil, false
+		if !keysWithin(predicate, "items", "count", "components", "predicates") {
+			return nil, nil, false
 		}
-		out = append(out, advItems(predicate["items"]))
+		var test *registry.ItemPredicate
+		if !keysAre(predicate, "items") && len(predicate) > 0 {
+			needsFullItemPredicate(predicate)
+			full := registry.DecodeItemPredicate(nbtOf(predicate))
+			test = &full
+			if tests == nil {
+				tests = make([]*registry.ItemPredicate, i, len(list(conditions["items"], "items")))
+			}
+		}
+		if tests != nil {
+			tests = append(tests, test)
+		}
+		var accepted []int32
+		if v, has := predicate["items"]; has {
+			accepted = advItems(v)
+		}
+		ids = append(ids, accepted)
 	}
-	return out, true
+	return ids, tests, true
 }
 
 // advSetItems fills c.Items from conditions["items"], or marks c
 // unmodelled for a predicate that tests more than the item.
 func advSetItems(c *registry.AdvancementCriterion, conditions obj) {
-	items, ok := advItemPredicates(conditions)
-	if !ok {
+	items, tests, ok := advItemPredicates(conditions)
+	if !ok || tests != nil {
 		c.Unmodelled = true
 		return
 	}
 	c.Items = items
 }
 
+// advSetTestedItems is advSetItems for a trigger that tests whole stacks: a
+// predicate beyond the item IDs lands in c.ItemTests.
+func advSetTestedItems(c *registry.AdvancementCriterion, conditions obj) {
+	items, tests, ok := advItemPredicates(conditions)
+	if !ok {
+		c.Unmodelled = true
+		return
+	}
+	c.Items, c.ItemTests = items, tests
+}
+
 // advSetSingleItem is advSetItems for the one item predicate under key.
 func advSetSingleItem(c *registry.AdvancementCriterion, conditions obj, key string) {
 	if _, ok := conditions[key]; ok {
 		advSetItems(c, obj{"items": []any{conditions[key]}})
+	}
+}
+
+// advSetTestedItem is advSetTestedItems for the one item predicate under key.
+func advSetTestedItem(c *registry.AdvancementCriterion, conditions obj, key string) {
+	if _, ok := conditions[key]; ok {
+		advSetTestedItems(c, obj{"items": []any{conditions[key]}})
 	}
 }
 
@@ -633,12 +669,15 @@ func advTrigger(name, trigger string, conditions obj) registry.AdvancementCriter
 	c := registry.AdvancementCriterion{Name: name, Trigger: trigger}
 	only := func(keys ...string) { advOnly(&c, conditions, keys...) }
 	switch trigger {
-	case "minecraft:consume_item", "minecraft:filled_bucket", "minecraft:shot_crossbow", "minecraft:fishing_rod_hooked":
+	case "minecraft:consume_item", "minecraft:shot_crossbow":
+		only("item")
+		advSetTestedItem(&c, conditions, "item")
+	case "minecraft:filled_bucket", "minecraft:fishing_rod_hooked":
 		only("item")
 		advSetSingleItem(&c, conditions, "item")
 	case "minecraft:inventory_changed":
 		only("items", "slots")
-		advSetItems(&c, conditions)
+		advSetTestedItems(&c, conditions)
 		slots := asObjOr(conditions["slots"])
 		advOnly(&c, slots, "occupied", "full", "empty")
 		for key, bound := range map[string]*registry.AdvancementRange{"occupied": &c.Occupied, "full": &c.Full, "empty": &c.Empty} {
@@ -646,9 +685,18 @@ func advTrigger(name, trigger string, conditions obj) registry.AdvancementCriter
 				*bound = advDoubleRange("slots "+key, v)
 			}
 		}
-	case "minecraft:enchanted_item", "minecraft:slept_in_bed":
+	case "minecraft:enchanted_item":
+		only("item", "levels")
+		advSetTestedItem(&c, conditions, "item")
+		if v, ok := conditions["levels"]; ok {
+			c.Levels = advDoubleRange("levels", v)
+		}
+	case "minecraft:brewed_potion":
+		only("potion")
+		advBrewedPotion(&c, conditions["potion"])
+	case "minecraft:slept_in_bed":
 		only()
-	case "minecraft:entity_killed_player", "minecraft:brewed_potion", "minecraft:cured_zombie_villager", "minecraft:tick":
+	case "minecraft:entity_killed_player", "minecraft:cured_zombie_villager", "minecraft:tick":
 		c.Unmodelled = len(conditions) > 0
 	case "minecraft:changed_dimension":
 		only("from", "to")
@@ -864,7 +912,7 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 		advFallAfterExplosion(c, conditions)
 	case "minecraft:used_totem":
 		only("item")
-		advSetSingleItem(c, conditions, "item")
+		advSetTestedItem(c, conditions, "item")
 	case "minecraft:entity_hurt_player":
 		advHurtPlayer(c, conditions)
 	case "minecraft:target_hit":
@@ -904,7 +952,7 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 		}
 	case "minecraft:using_item":
 		only("item", "player")
-		advSetSingleItem(c, conditions, "item")
+		advSetTestedItem(c, conditions, "item")
 		if player, ok := conditions["player"]; ok {
 			looking, ok := advLookingAt(player)
 			c.LookingAt, c.Unmodelled = looking, c.Unmodelled || !ok
@@ -1447,12 +1495,52 @@ func advTargetHit(c *registry.AdvancementCriterion, conditions obj) {
 	advDistance(c, asObjOr(predicate["minecraft:distance"]))
 }
 
+// advBrewedPotion reads brewed_potion's potion predicate: the potions it
+// accepts, or unmodelled for one that tests the effects or a tag.
+// vanilla: PotionsPredicate.CODEC
+func advBrewedPotion(c *registry.AdvancementCriterion, v any) {
+	if v == nil {
+		return
+	}
+	predicate := object(v, "a potions predicate")
+	if !keysWithin(predicate, "potions") {
+		c.Unmodelled = true
+		return
+	}
+	names, ok := predicate["potions"]
+	if !ok {
+		return
+	}
+	if tag, ok := names.(string); ok && strings.HasPrefix(tag, "#") {
+		c.Unmodelled = true
+		return
+	}
+	c.Potions = []int32{}
+	for _, name := range holderSet(names, "potion", nil) {
+		id, ok := registry.PotionID(registry.Qualify(name))
+		if !ok {
+			fail("unknown potion %s", name)
+		}
+		c.Potions = append(c.Potions, id)
+	}
+}
+
 // advRiding reads started_riding, item_durability_changed and
 // ride_entity_in_lava: a held item, a distance and a player condition on
 // the dimension, the vehicle's type and one of its passengers' types.
 func advRiding(c *registry.AdvancementCriterion, conditions obj) {
-	advOnly(c, conditions, "player", "item", "distance")
-	advSetSingleItem(c, conditions, "item")
+	if c.Trigger == "minecraft:item_durability_changed" {
+		advOnly(c, conditions, "player", "item", "durability", "delta")
+		advSetTestedItem(c, conditions, "item")
+		for key, bound := range map[string]*registry.AdvancementRange{"durability": &c.Durability, "delta": &c.Delta} {
+			if v, ok := conditions[key]; ok {
+				*bound = advDoubleRange(key, v)
+			}
+		}
+	} else {
+		advOnly(c, conditions, "player", "item", "distance")
+		advSetSingleItem(c, conditions, "item")
+	}
 	advDistance(c, asObjOr(conditions["distance"]))
 	v, ok := conditions["player"]
 	if !ok {

@@ -230,7 +230,7 @@ func (c *client) fireCrossbow(hand int32) {
 		}
 	}
 	// vanilla: CrossbowItem.performShooting
-	c.shotCrossbowAdvancements(crossbow.ItemID)
+	c.shotCrossbowAdvancements(crossbow)
 	c.awardItemStat(registry.StatTypeUsed, crossbow.ItemID, 1)
 }
 

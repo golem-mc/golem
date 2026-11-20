@@ -209,8 +209,11 @@ func (s *Subjects) hold(c *registry.AdvancementCriterion, player *rules.LootCont
 // item IDs held and changed, and the counts of occupied, full and empty slots.
 // vanilla: InventoryChangeTrigger.trigger
 type Inventory struct {
-	Held                  []int32
-	Changed               []int32
+	Held    []int32
+	Changed []int32
+	// Stacks and ChangedStacks are the stacks behind Held and Changed, read
+	// only for the criteria whose predicate tests more than the item.
+	Stacks, ChangedStacks []protocol.ItemStack
 	Occupied, Full, Empty int32
 }
 
@@ -247,6 +250,10 @@ func (i Inventory) Same(o Inventory) bool {
 	return slices.Equal(i.Held, o.Held) && slices.Equal(i.Changed, o.Changed) && i.Occupied == o.Occupied && i.Full == o.Full
 }
 
+// TestsStacks reports whether an inventory_changed criterion needs the
+// stacks of an Inventory, so the caller can skip reading them otherwise.
+func (p *Progress) TestsStacks() bool { return p.tree.stackTests }
+
 // InventoryChanged fires inventory_changed: a criterion passes when the slot
 // counts are within its bounds and each item predicate accepts a held item,
 // or a changed stack when there is just one predicate.
@@ -257,12 +264,17 @@ func (p *Progress) InventoryChanged(inv Inventory, at time.Time) bool {
 			!c.Empty.Matches(float64(inv.Empty)) {
 			return false
 		}
-		items := inv.Held
+		items, stacks := inv.Held, inv.Stacks
 		if len(c.Items) == 1 {
-			items = inv.Changed
+			items, stacks = inv.Changed, inv.ChangedStacks
 		}
-		for _, predicate := range c.Items {
-			if !slices.ContainsFunc(items, func(id int32) bool { return slices.Contains(predicate, id) }) {
+		for i, predicate := range c.Items {
+			if i < len(c.ItemTests) && c.ItemTests[i] != nil {
+				test := c.ItemTests[i]
+				if !slices.ContainsFunc(stacks, test.Matches) {
+					return false
+				}
+			} else if !slices.ContainsFunc(items, func(id int32) bool { return slices.Contains(predicate, id) }) {
 				return false
 			}
 		}
@@ -402,16 +414,19 @@ func (p *Progress) Location(biome string, inStructure func([]string) bool, s Sta
 
 // ConsumeItem fires consume_item for a finished eat or drink of the item.
 // vanilla: ConsumeItemTrigger.TriggerInstance.matches
-func (p *Progress) ConsumeItem(item int32, at time.Time) bool {
+func (p *Progress) ConsumeItem(item protocol.ItemStack, at time.Time) bool {
 	return p.trigger(TriggerConsumeItem, at, func(c *registry.AdvancementCriterion) bool {
-		return len(c.Items) == 0 || slices.Contains(c.Items[0], item)
+		return itemPasses(c, item)
 	})
 }
 
 // EnchantedItem fires enchanted_item for an item enchanted at an enchanting
-// table. vanilla: EnchantedItemTrigger.TriggerInstance.matches
-func (p *Progress) EnchantedItem(at time.Time) bool {
-	return p.trigger(TriggerEnchantedItem, at, func(*registry.AdvancementCriterion) bool { return true })
+// table, the stack as enchanted and levels the levels it cost.
+// vanilla: EnchantedItemTrigger.TriggerInstance.matches
+func (p *Progress) EnchantedItem(item protocol.ItemStack, levels int32, at time.Time) bool {
+	return p.trigger(TriggerEnchantedItem, at, func(c *registry.AdvancementCriterion) bool {
+		return itemPasses(c, item) && c.Levels.Matches(float64(levels))
+	})
 }
 
 // BredAnimals fires bred_animals, the parents matching in either order. child
@@ -674,9 +689,9 @@ func (p *Progress) Tick(at time.Time) bool {
 
 // ShotCrossbow fires shot_crossbow for the crossbow item that was fired.
 // vanilla: ShotCrossbowTrigger.TriggerInstance.matches
-func (p *Progress) ShotCrossbow(item int32, at time.Time) bool {
+func (p *Progress) ShotCrossbow(item protocol.ItemStack, at time.Time) bool {
 	return p.trigger(TriggerShotCrossbow, at, func(c *registry.AdvancementCriterion) bool {
-		return len(c.Items) == 0 || slices.Contains(c.Items[0], item)
+		return itemPasses(c, item)
 	})
 }
 
@@ -703,9 +718,12 @@ func (p *Progress) ConstructBeacon(level int32, at time.Time) bool {
 }
 
 // BrewedPotion fires brewed_potion for a potion taken out of a brewing
-// stand. vanilla: BrewedPotionTrigger.TriggerInstance.matches
-func (p *Progress) BrewedPotion(at time.Time) bool {
-	return p.trigger(TriggerBrewedPotion, at, func(*registry.AdvancementCriterion) bool { return true })
+// stand; potion is the potion ID of the one taken, protocol.NoPotion for none.
+// vanilla: BrewedPotionTrigger.TriggerInstance.matches
+func (p *Progress) BrewedPotion(potion int32, at time.Time) bool {
+	return p.trigger(TriggerBrewedPotion, at, func(c *registry.AdvancementCriterion) bool {
+		return c.Potions == nil || slices.Contains(c.Potions, potion)
+	})
 }
 
 // FishingRodHooked fires fishing_rod_hooked for the items a reel brought up,
@@ -833,10 +851,10 @@ func (p *Progress) recipeCrafted(trigger, recipe string, used []int32, at time.T
 // UsingItem fires using_item for an item being used; lookingAt names the
 // entity type the player's look meets and is asked only for a criterion that
 // wants one, at most once. vanilla: UsingItemTrigger.TriggerInstance.matches
-func (p *Progress) UsingItem(item int32, lookingAt func() string, at time.Time) bool {
+func (p *Progress) UsingItem(item protocol.ItemStack, lookingAt func() string, at time.Time) bool {
 	var looked *string
 	return p.trigger(TriggerUsingItem, at, func(c *registry.AdvancementCriterion) bool {
-		if len(c.Items) > 0 && !slices.Contains(c.Items[0], item) {
+		if !itemPasses(c, item) {
 			return false
 		}
 		if c.LookingAt == "" {
@@ -893,13 +911,23 @@ func (p *Progress) EnterBlock(at Blocks, when time.Time) bool {
 
 // itemPasses reports whether item passes a criterion's one item predicate,
 // any item when it has none.
-func itemPasses(c *registry.AdvancementCriterion, item int32) bool {
-	return len(c.Items) == 0 || slices.Contains(c.Items[0], item)
+func itemPasses(c *registry.AdvancementCriterion, stack protocol.ItemStack) bool {
+	return len(c.Items) == 0 || predicateAccepts(c, 0, stack)
+}
+
+// predicateAccepts reports whether the stack passes the criterion's item
+// predicate i, the full one when it has one.
+// vanilla: ItemPredicate.test
+func predicateAccepts(c *registry.AdvancementCriterion, i int, stack protocol.ItemStack) bool {
+	if i < len(c.ItemTests) && c.ItemTests[i] != nil {
+		return c.ItemTests[i].Matches(stack)
+	}
+	return slices.Contains(c.Items[i], stack.ItemID)
 }
 
 // UsedTotem fires used_totem for the item that saved the player from death.
 // vanilla: UsedTotemTrigger.TriggerInstance.matches
-func (p *Progress) UsedTotem(item int32, at time.Time) bool {
+func (p *Progress) UsedTotem(item protocol.ItemStack, at time.Time) bool {
 	return p.trigger(TriggerUsedTotem, at, func(c *registry.AdvancementCriterion) bool {
 		return itemPasses(c, item)
 	})
@@ -950,10 +978,11 @@ func (p *Progress) StartedRiding(who Rider, at time.Time) bool {
 }
 
 // ItemDurabilityChanged fires item_durability_changed for wear put on the
-// player's item. vanilla: ItemDurabilityTrigger.TriggerInstance.matches
-func (p *Progress) ItemDurabilityChanged(item int32, who Rider, at time.Time) bool {
+// player's item: durability is the uses left and delta the change from the
+// old damage to the new one. vanilla: ItemDurabilityTrigger.TriggerInstance.matches
+func (p *Progress) ItemDurabilityChanged(item protocol.ItemStack, durability, delta int32, who Rider, at time.Time) bool {
 	return p.trigger(TriggerItemDurability, at, func(c *registry.AdvancementCriterion) bool {
-		return itemPasses(c, item) && who.holds(c)
+		return itemPasses(c, item) && c.Durability.Matches(float64(durability)) && c.Delta.Matches(float64(delta)) && who.holds(c)
 	})
 }
 
