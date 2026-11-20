@@ -104,7 +104,7 @@ func runParticle(src Source, input string, args []string) (int32, error) {
 			return 0, nil
 		}
 		var err error
-		if data, err = particleOptions(name, opts); err != nil {
+		if data, err = registry.ParticleData(name, opts); err != nil {
 			return 0, refuse(src, "particle.invalidOptions", protocol.Text{Text: err.Error()})
 		}
 	}

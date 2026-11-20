@@ -39,13 +39,13 @@ func TestRuleProcessorProbability(t *testing.T) {
 	gold, cracked, stone := blockState(t, "minecraft:gold_block"), blockState(t, "minecraft:cracked_polished_blackstone_bricks"), blockState(t, "minecraft:stone")
 	always, never := rulesFor(t, fmt.Sprintf(rule, "1.0")), rulesFor(t, fmt.Sprintf(rule, "0.0"))
 	for x := range int32(40) {
-		if got := always.process(gold, 0, x, 50, -x, 0); got != cracked {
+		if got := always.process(gold, 0, x, 50, -x, [3]int32{}); got != cracked {
 			t.Fatalf("probability 1 at %d left %d", x, got)
 		}
-		if got := never.process(gold, 0, x, 50, -x, 0); got != gold {
+		if got := never.process(gold, 0, x, 50, -x, [3]int32{}); got != gold {
 			t.Fatalf("probability 0 at %d gave %d", x, got)
 		}
-		if got := always.process(stone, 0, x, 50, -x, 0); got != stone {
+		if got := always.process(stone, 0, x, 50, -x, [3]int32{}); got != stone {
 			t.Fatalf("a block the rule does not name changed at %d", x)
 		}
 	}
@@ -62,13 +62,13 @@ func TestRuleProcessorPositionChance(t *testing.T) {
 	stone, air := blockState(t, "minecraft:stone"), blockState(t, "minecraft:air")
 	sure, none := rulesFor(t, fmt.Sprintf(rule, "1.0")), rulesFor(t, fmt.Sprintf(rule, "0.0"))
 	for x := range int32(30) {
-		if got := sure.process(stone, 0, x, 150, 7, 50); got != air {
+		if got := sure.process(stone, 0, x, 150, 7, [3]int32{0, 50, 0}); got != air {
 			t.Fatalf("100 above the reference with chance 1 kept the block at %d", x)
 		}
-		if got := sure.process(stone, 0, x, 250, 7, 50); got != air {
+		if got := sure.process(stone, 0, x, 250, 7, [3]int32{0, 50, 0}); got != air {
 			t.Fatalf("200 above the reference with chance 1 kept the block at %d", x)
 		}
-		if got := none.process(stone, 0, x, 150, 7, 50); got != stone {
+		if got := none.process(stone, 0, x, 150, 7, [3]int32{0, 50, 0}); got != stone {
 			t.Fatalf("chance 0 replaced the block at %d", x)
 		}
 	}

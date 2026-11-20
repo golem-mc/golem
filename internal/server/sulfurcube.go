@@ -15,7 +15,7 @@ func (c *client) feedSulfurCube(ent *mobEntity, hand int32, held protocol.ItemSt
 	dropped, ok := m.AbsorbSulfurBlock(held)
 	x, y, z, silent := m.X, m.Y, m.Z, m.Silent
 	dropY := y + m.BbHeight()
-	after := bodyInteraction(m)
+	after := s.bodyInteraction(ent)
 	s.mobsMu.Unlock()
 	if !ok {
 		return false, nil

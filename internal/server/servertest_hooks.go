@@ -1336,6 +1336,13 @@ func (s *Server) AdvancementObtained(name, id, criterion string) bool {
 	return progress != nil && n != nil && progress.Obtained(n, criterion)
 }
 
+// RecipeKnown reports whether the named online player's recipe book holds
+// the recipe.
+func (s *Server) RecipeKnown(name, recipe string) bool {
+	c := s.playerClient(name)
+	return c != nil && c.recipeBookState().Knows(recipe)
+}
+
 // Places and dimensions. The three dimensions have no commands to reach them
 // by — vanilla has none either, the /execute run tp form included — so the
 // tests reach them through these: the same enterDimension a nether portal's
@@ -8007,4 +8014,22 @@ func (s *Server) SetSpawnTuning(c registry.MobCategory, limit, ticks int) {
 	w := pluginWorld{srv: s, dim: s.allDims()[0], host: s.pluginAdapter}
 	w.SetSpawnLimit(c, limit)
 	w.SetTicksPerSpawn(c, ticks)
+}
+
+// HurtMobByPlayerProjectile lands a projectile hurt of the type on the
+// overworld mob victim, credited to the named online player, as their
+// trident would.
+func (s *Server) HurtMobByPlayerProjectile(victim int32, name string, amount float64, typ any) {
+	c := s.playerClient(name)
+	if c == nil {
+		return
+	}
+	damageType := testDamageType(typ)
+	s.mobsMu.Lock()
+	defer s.mobsMu.Unlock()
+	for m := range s.herdOf(s.world).book {
+		if m.ID == victim {
+			m.HurtByProjectile(amount, damageType, 0, 0, c.player.EntityID, false, false)
+		}
+	}
 }

@@ -72,6 +72,7 @@ var defaultCookTime = map[string]int{
 // skipped as not implemented.
 var keptRecipes = []string{
 	"minecraft:crafting_shaped", "minecraft:crafting_shapeless", "minecraft:crafting_imbue",
+	"minecraft:crafting_transmute", "minecraft:crafting_dye",
 	"minecraft:smelting", "minecraft:blasting", "minecraft:smoking", "minecraft:campfire_cooking",
 	"minecraft:smithing_transform", "minecraft:smithing_trim", "minecraft:brewing",
 }
@@ -216,6 +217,69 @@ type smithingIngredients struct {
 	hasTemplate, hasAddition bool
 }
 
+// imbue is a row of ImbueRecipes.
+type imbue struct {
+	id               string
+	source, material []int
+	result, count    int
+}
+
+// transmute and dye are the rows of TransmuteRecipes and DyeRecipes.
+type transmute struct {
+	id              string
+	input, material []int
+	lo, hi          int
+	result, count   int
+	addCount        bool
+}
+type dye struct {
+	id            string
+	target, dye   []int
+	result, count int
+}
+
+// writeRewriting writes the imbue, transmute and dye tables.
+func writeRewriting(f *gogen.File, imbues []imbue, transmutes []transmute, dyes []dye) {
+	f.WriteString("// ImbueRecipes holds every crafting_imbue recipe of the data pack.\n")
+	f.WriteString("var ImbueRecipes = []ImbueRecipe{\n")
+	for _, s := range imbues {
+		f.Printf("\t{%q, Ingredient%s, Ingredient%s, %d, %d},\n", s.id, goInts(s.source), goInts(s.material), s.result, s.count)
+	}
+	f.WriteString("}\n\n")
+	f.WriteString("// TransmuteRecipes holds every crafting_transmute recipe of the data pack.\n")
+	f.WriteString("var TransmuteRecipes = []TransmuteRecipe{\n")
+	for _, s := range transmutes {
+		f.Printf("\t{%q, Ingredient%s, Ingredient%s, %d, %d, %d, %d, %t},\n", s.id, goInts(s.input), goInts(s.material), s.lo, s.hi, s.result, s.count, s.addCount)
+	}
+	f.WriteString("}\n\n")
+	f.WriteString("// DyeRecipes holds every crafting_dye recipe of the data pack.\n")
+	f.WriteString("var DyeRecipes = []DyeRecipe{\n")
+	for _, s := range dyes {
+		f.Printf("\t{%q, Ingredient%s, Ingredient%s, %d, %d},\n", s.id, goInts(s.target), goInts(s.dye), s.result, s.count)
+	}
+	f.WriteString("}\n\n")
+}
+
+// rewriting reads a crafting_transmute or crafting_dye recipe. A result with
+// components is not modelled, and an empty id keeps the input's item (0).
+// vanilla: TransmuteResult.MAP_CODEC
+func (r ingredientResolver) rewriting(file, id, kind string, recipe, result obj) (transmute, dye, error) {
+	if result.has("components") {
+		return transmute{}, dye{}, fmt.Errorf("%s: a %s result with components is not modelled", file, kind)
+	}
+	resultID := 0
+	if result.has("id") {
+		resultID = r.itemID(result.str("id"))
+	}
+	count := result.intOr("count", 1)
+	if kind == "minecraft:crafting_dye" {
+		return transmute{}, dye{id, r.ingredient(recipe.field("target")), r.ingredient(recipe.field("dye")), resultID, count}, nil
+	}
+	lo, hi := materialBounds(recipe)
+	return transmute{id, r.ingredient(recipe.field("input")), r.ingredient(recipe.field("material")),
+		lo, hi, resultID, count, recipe.boolOr("add_material_count_to_result", false)}, dye{}, nil
+}
+
 func runRecipes(e *env) error {
 	registries, err := e.ref.Registries()
 	if err != nil {
@@ -299,11 +363,6 @@ func runRecipes(e *env) error {
 		effect        string
 		duration      int
 	}
-	type imbue struct {
-		id               string
-		source, material []int
-		result, count    int
-	}
 	type cooking struct {
 		id            string
 		ingredient    []int
@@ -326,6 +385,8 @@ func runRecipes(e *env) error {
 		shapelessRecipes []shapeless
 		stew             []stewRecipe
 		imbues           []imbue
+		transmutes       []transmute
+		dyes             []dye
 		transforms       []smithingTransform
 		trims            []smithingTrim
 		brews            []brewing
@@ -392,6 +453,18 @@ func runRecipes(e *env) error {
 		if kind == "minecraft:crafting_imbue" {
 			imbues = append(imbues, imbue{id, r.ingredient(recipe.field("source")), r.ingredient(recipe.field("material")),
 				r.itemID(result.str("id")), result.intOr("count", 1)})
+			continue
+		}
+		if kind == "minecraft:crafting_transmute" || kind == "minecraft:crafting_dye" {
+			t, d, err := r.rewriting(file, id, kind, recipe, result)
+			if err != nil {
+				return err
+			}
+			if kind == "minecraft:crafting_dye" {
+				dyes = append(dyes, d)
+			} else {
+				transmutes = append(transmutes, t)
+			}
 			continue
 		}
 		if kind == "minecraft:crafting_shapeless" && result.has("components") {
@@ -469,12 +542,7 @@ func runRecipes(e *env) error {
 		f.Printf("\t{%q, []Ingredient{%s}, %d, %d, \"%s\", %d},\n", s.id, ingredientLists(s.ingredients), s.result, s.count, s.effect, s.duration)
 	}
 	f.WriteString("}\n\n")
-	f.WriteString("// ImbueRecipes holds every crafting_imbue recipe of the data pack.\n")
-	f.WriteString("var ImbueRecipes = []ImbueRecipe{\n")
-	for _, s := range imbues {
-		f.Printf("\t{%q, Ingredient%s, Ingredient%s, %d, %d},\n", s.id, goInts(s.source), goInts(s.material), s.result, s.count)
-	}
-	f.WriteString("}\n\n")
+	writeRewriting(f, imbues, transmutes, dyes)
 	for i, kind := range cookingKinds {
 		variable := []string{"SmeltingRecipes", "BlastingRecipes", "SmokingRecipes", "CampfireCookingRecipes"}[i]
 		f.Printf("// %s holds every %s recipe of the data pack.\n", variable, kind)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -474,7 +475,7 @@ func (s *Server) boltHurt(it *boltEffect) {
 	if cause != uuid.Nil && len(struck) > 0 {
 		if c := s.clientByUUID(cause); c != nil {
 			if progress := c.advancements.Load(); progress != nil {
-				progress.ChanneledLightning(struck, time.Now())
+				progress.ChanneledLightning(struck, &advancement.Subjects{Victims: advancement.TypeOnly(struck)}, time.Now())
 			}
 		}
 	}

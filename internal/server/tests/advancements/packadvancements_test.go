@@ -12,6 +12,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // The pack layer is process-wide, so these tests are not parallel with each
@@ -135,6 +136,45 @@ func TestReloadKeepsProgressAndDropsRemovedAdvancements(t *testing.T) {
 	awaitUpdate(t, srv, c)
 	if !srv.AdvancementObtained("Packer", "pk:new", "got") {
 		t.Error("the advancement added by the reload is not awarded")
+	}
+}
+
+// TestPackRecipeAdvancementUnlocksItsRecipe: a pack's recipes/ advancement is
+// loaded and fired like vanilla's, so holding its ingredient adds the pack
+// recipe to the recipe book, and a pack overriding a vanilla recipe
+// advancement with an impossible criterion stops it unlocking.
+// vanilla: ServerAdvancementManager.apply, AdvancementRewards.grant
+func TestPackRecipeAdvancementUnlocksItsRecipe(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackRecipes(registry.PackRecipes{}) })
+	cfg, data := packConfig(t)
+	writePackFile(t, filepath.Join(data, "t", "recipe", "wand.json"),
+		`{"type":"minecraft:crafting_shaped","pattern":["a","b"],"key":{"a":"minecraft:stick","b":"minecraft:diamond"},`+
+			`"result":{"id":"minecraft:diamond","count":1}}`)
+	writePackFile(t, filepath.Join(data, "t", "advancement", "recipes", "misc", "wand.json"),
+		`{"criteria":{"x":{"trigger":"minecraft:inventory_changed","conditions":{"items":[{"items":"minecraft:diamond"}]}}},`+
+			`"rewards":{"recipes":["t:wand"]}}`)
+	writePackFile(t, filepath.Join(data, "minecraft", "advancement", "recipes", "misc", "stick.json"),
+		`{"criteria":{"x":{"trigger":"minecraft:impossible"}},"rewards":{"recipes":["minecraft:stick"]}}`)
+	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Packer"))
+	c := connect()
+	c.WatchBook = true
+	c.Login("Packer")
+	c.Configure()
+	c.ReadJoin(func(int32, []byte) {})
+	c.MarkLoaded()
+	c.Settle()
+
+	give(srv, t, "Packer", "oak_planks")
+	servertest.RunTicks(t, srv, 3)
+	c.Settle()
+	if srv.RecipeKnown("Packer", "minecraft:stick") {
+		t.Error("oak planks unlocked the stick recipe despite the impossible override")
+	}
+	give(srv, t, "Packer", "diamond")
+	servertest.RunTicks(t, srv, 3)
+	c.Settle()
+	if !srv.RecipeKnown("Packer", "t:wand") {
+		t.Error("holding a diamond did not unlock the pack recipe")
 	}
 }
 
@@ -354,4 +394,84 @@ func TestPackItemDurabilityTestsRemainingUses(t *testing.T) {
 	servertest.UntilTicks(t, srv, 40, "the hit leaving one use obtains it", func() bool {
 		return srv.AdvancementObtained("Packer", "pk:worn", "worn")
 	})
+}
+
+// packCriterion writes an advancement of one criterion of the trigger with
+// conditions, in the pack at dir.
+func packCriterion(t *testing.T, dir, name, trigger, conditions string) {
+	t.Helper()
+	writePackFile(t, filepath.Join(dir, name+".json"),
+		`{"criteria":{"c":{"trigger":"minecraft:`+trigger+`","conditions":`+conditions+`}}}`)
+}
+
+// TestPackInteractionTestsItsEntityConditions: a player_interacted_with_entity
+// criterion with an entity nbt predicate fires for the tagged villager only.
+// vanilla: PlayerInteractTrigger.TriggerInstance.matches, Villager.mobInteract
+func TestPackInteractionTestsItsEntityConditions(t *testing.T) {
+	cfg, data := packConfig(t)
+	packCriterion(t, filepath.Join(data, "pk", "advancement"), "shop", "player_interacted_with_entity",
+		`{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{`+
+			`"minecraft:entity_type":"minecraft:villager","minecraft:nbt":"{Tags:[\"shop\"]}"}}]}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	plain := srv.SpawnMob("minecraft:villager", 1.5, 64, 0.5)
+	tagged := srv.SpawnMob("minecraft:villager", -1.5, 64, 0.5)
+	c.Settle()
+
+	c.UseOn(plain)
+	c.Settle()
+	if srv.AdvancementObtained("Packer", "pk:shop", "c") {
+		t.Fatal("an untagged villager fired the criterion")
+	}
+	c.ChatCommand("tag @e[type=minecraft:villager,x=-1.5,y=64,z=0.5,distance=..0.5] add shop")
+	c.Settle()
+	c.UseOn(tagged)
+	servertest.UntilTicks(t, srv, 20, "the tagged villager's criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:shop", "c") })
+}
+
+// TestPackBreedingTestsItsChildCondition: a bred_animals criterion whose
+// child is a baby fires for two cows breeding.
+// vanilla: BredAnimalsTrigger.TriggerInstance.matches
+func TestPackBreedingTestsItsChildCondition(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "baby", "bred_animals",
+		`{"child":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:flags":{"is_baby":true}}}]}`)
+	packCriterion(t, dir, "adult", "bred_animals",
+		`{"child":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:flags":{"is_baby":false}}}]}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	srv.GiveSlot("Packer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:wheat", 4))
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	srv.SpawnMob("minecraft:cow", 2.5, 64, 2.5)
+	cow1 := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	cow2 := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.UseOn(cow1.EntityID)
+	c.AwaitEntityEvent(cow1.EntityID, 18)
+	c.UseOn(cow2.EntityID)
+	c.AwaitEntityEvent(cow2.EntityID, 18)
+	servertest.UntilTicks(t, srv, 700, "the cows breed", func() bool { return srv.AdvancementObtained("Packer", "pk:baby", "c") })
+	if srv.AdvancementObtained("Packer", "pk:adult", "c") {
+		t.Error("the child is not a baby")
+	}
+}
+
+// TestPackEffectsChangedTestsAmplifier: an effects_changed criterion with an
+// amplifier range is obtained for Speed II and not Speed I.
+// vanilla: MobEffectsPredicate.MobEffectInstancePredicate.matches
+func TestPackEffectsChangedTestsAmplifier(t *testing.T) {
+	cfg, data := packConfig(t)
+	packCriterion(t, filepath.Join(data, "pk", "advancement"), "fast", "effects_changed",
+		`{"effects":{"minecraft:speed":{"amplifier":{"min":1}}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.ChatCommand("effect give Packer minecraft:speed 100 0")
+	c.Settle()
+	servertest.RunTicks(t, srv, 5)
+	if srv.AdvancementObtained("Packer", "pk:fast", "c") {
+		t.Fatal("Speed I obtained a criterion that wants amplifier 1 or more")
+	}
+	c.ChatCommand("effect give Packer minecraft:speed 100 1")
+	servertest.UntilTicks(t, srv, 20, "Speed II", func() bool { return srv.AdvancementObtained("Packer", "pk:fast", "c") })
 }

@@ -201,7 +201,7 @@ func (s *Server) tickMobLoot() {
 	for _, t := range claimed {
 		if t.thrower != uuid.Nil && t.take.Mob.Alive() {
 			thrown = append(thrown, mobThrownPickup{w: t.w, thrower: t.thrower, item: t.stack.ItemID,
-				collector: advancement.Entity{Type: t.take.Mob.Type.Name(), Baby: t.take.Mob.IsBaby()}})
+				collector: advancement.Entity{Type: t.take.Mob.Type.Name(), Baby: t.take.Mob.IsBaby(), Loot: s.mobLoot(s.herdOf(t.w).book[t.take.Mob])}})
 		}
 		m := t.take.Mob
 		before, worn := m.LootSlotStack(t.take.Slot)

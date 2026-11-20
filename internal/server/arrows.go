@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/entity"
@@ -961,7 +962,7 @@ func (s *Server) arrowHitAdvancements(shooter *client, direct string, killed []s
 		now := time.Now()
 		progress.PlayerHurtProjectile(direct, now)
 		if killed != nil {
-			progress.KilledByArrow(killed, weapon, now)
+			progress.KilledByArrow(killed, weapon, &advancement.Subjects{Victims: advancement.TypeOnly(killed), Distinct: true}, now)
 		}
 	}
 }

@@ -80,8 +80,7 @@ func specialCraftResult(cells []protocol.ItemStack) protocol.ItemStack {
 	}
 	for _, recipe := range []func([]protocol.ItemStack) (protocol.ItemStack, bool){
 		fireworkRocket, fireworkStar, fireworkStarFade, shieldDecoration, bannerDuplicateResult,
-		bookCloneResult, mapClone, mapExtend, decoratedPot,
-		transmuteDyed, dyedArmour, repairItem,
+		bookCloneResult, mapExtend, decoratedPot, repairItem,
 	} {
 		if result, ok := recipe(cells); ok {
 			return result

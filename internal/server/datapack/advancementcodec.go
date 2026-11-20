@@ -550,30 +550,91 @@ func advCriterion(id, name string, value obj) registry.AdvancementCriterion {
 	if !c.Unmodelled {
 		return c
 	}
-	if player, ok := conditions["player"]; ok {
-		rest := maps.Clone(conditions)
-		delete(rest, "player")
-		if second := advTrigger(name, trigger, rest); !second.Unmodelled {
-			if conds, ok := advPlayerConditions(player); ok {
-				second.Player = conds
-				return second
-			}
+	return advLootContexts(name, trigger, conditions, c)
+}
+
+// advLootContexts re-reads a criterion the bespoke readers left unmodelled
+// without its entity conditions, which it keeps as the loot codec's decoding,
+// or returns unmodelled when it still is without them or the codec refuses one.
+func advLootContexts(name, trigger string, conditions obj, unmodelled registry.AdvancementCriterion) registry.AdvancementCriterion {
+	rest := maps.Clone(conditions)
+	var keys []string
+	for _, key := range advLootKeys(trigger) {
+		if _, ok := conditions[key]; ok {
+			delete(rest, key)
+			keys = append(keys, key)
 		}
+	}
+	if len(keys) == 0 {
+		return unmodelled
+	}
+	c := advTrigger(name, trigger, rest)
+	if c.Unmodelled {
+		return unmodelled
+	}
+	for _, key := range keys {
+		switch key {
+		case "victims":
+			victims, isList := conditions[key].([]any)
+			if !isList {
+				return unmodelled
+			}
+			for _, victim := range victims {
+				conds, ok := advLootConditions(victim)
+				if !ok {
+					return unmodelled
+				}
+				c.VictimConds = append(c.VictimConds, conds)
+			}
+			continue
+		}
+		conds, ok := advLootConditions(conditions[key])
+		if !ok {
+			return unmodelled
+		}
+		if key == "player" {
+			c.Player = conds
+			continue
+		}
+		if c.Contexts == nil {
+			c.Contexts = map[string][]registry.LootCondition{}
+		}
+		c.Contexts[key] = conds
 	}
 	return c
 }
 
-// advPlayerConditions decodes a criterion's player conditions with the loot
+// advLootConditions decodes one context condition's conjuncts with the loot
 // codec, or false for one it refuses.
-func advPlayerConditions(player any) (out []registry.LootCondition, ok bool) {
+func advLootConditions(terms any) (out []registry.LootCondition, ok bool) {
 	var err error
 	func() {
 		defer recoverLoot(&err)
-		for _, term := range player.([]any) {
+		for _, term := range terms.([]any) {
 			out = append(out, conditionHolder(term))
 		}
 	}()
 	return out, err == nil
+}
+
+// advLootKeys are the context conditions of a trigger that can be tested
+// as loot conditions with the trigger's entities.
+// vanilla: the ContextAwarePredicate fields of each *Trigger.TriggerInstance
+func advLootKeys(trigger string) []string {
+	switch trigger {
+	case "minecraft:player_interacted_with_entity", "minecraft:player_sheared_equipment", "minecraft:tame_animal",
+		"minecraft:summoned_entity", "minecraft:thrown_item_picked_up_by_entity", "minecraft:thrown_item_picked_up_by_player":
+		return []string{"player", "entity"}
+	case "minecraft:bred_animals":
+		return []string{"player", "parent", "partner", "child"}
+	case "minecraft:cured_zombie_villager":
+		return []string{"player", "zombie", "villager"}
+	case "minecraft:effects_changed":
+		return []string{"player"}
+	case "minecraft:killed_by_arrow", "minecraft:channeled_lightning":
+		return []string{"player", "victims"}
+	}
+	return []string{"player"}
 }
 
 // advTrigger reads the conditions the server tests of one trigger.
@@ -626,7 +687,7 @@ func advTrigger(name, trigger string, conditions obj) registry.AdvancementCriter
 
 // advContextKeys are the trigger conditions that hold a loot condition over
 // the trigger's context.
-var advContextKeys = []string{"source", "player", "entity", "child", "parent", "partner", "projectile", "lightning", "bystander", "cause", "location"}
+var advContextKeys = []string{"source", "player", "entity", "child", "parent", "partner", "projectile", "lightning", "bystander", "cause", "location", "zombie", "villager"}
 
 // advContexts returns conditions with each context condition as the list of
 // conjuncts the readers below take, matching tools/gen's lootCodec.context.
@@ -784,8 +845,10 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 		effects := asObjOr(conditions["effects"])
 		for _, name := range sortedKeys(effects) {
 			c.Effects = append(c.Effects, registry.Qualify(name))
-			if len(asObjOr(effects[name])) > 0 {
-				c.Unmodelled = true
+		}
+		if len(effects) > 0 {
+			if states := lootEffects(conditions["effects"]); slices.ContainsFunc(slices.Collect(maps.Values(states)), func(e registry.LootEffectPredicate) bool { return e != (registry.LootEffectPredicate{}) }) {
+				c.EffectStates = states
 			}
 		}
 		source, ok := advEntityPredicate(conditions["source"], true)

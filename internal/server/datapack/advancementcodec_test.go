@@ -225,6 +225,31 @@ func TestDecodeAdvancementReads263Conditions(t *testing.T) {
 	}
 }
 
+func TestDecodeAdvancementKeepsEntityConditionsAsLootConditions(t *testing.T) {
+	adv, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
+		"tame":{"trigger":"minecraft:tame_animal","conditions":{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}]}},
+		"bred":{"trigger":"minecraft:bred_animals","conditions":{"child":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:flags":{"is_baby":true}}}]}},
+		"cure":{"trigger":"minecraft:cured_zombie_villager","conditions":{"villager":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:villager"}}]}},
+		"fx":{"trigger":"minecraft:effects_changed","conditions":{"effects":{"minecraft:speed":{"amplifier":{"min":1}}}}},
+		"arrow":{"trigger":"minecraft:killed_by_arrow","conditions":{"victims":[[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}]]}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]registry.AdvancementCriterion{}
+	for _, c := range adv.Criteria {
+		if c.Unmodelled {
+			t.Errorf("criterion %s is unmodelled", c.Name)
+		}
+		by[c.Name] = c
+	}
+	if len(by["tame"].Contexts["entity"]) != 1 || len(by["bred"].Contexts["child"]) != 1 || len(by["cure"].Contexts["villager"]) != 1 {
+		t.Errorf("entity conditions not kept: %+v %+v %+v", by["tame"].Contexts, by["bred"].Contexts, by["cure"].Contexts)
+	}
+	if by["fx"].EffectStates["minecraft:speed"].AmplifierMin == nil || len(by["arrow"].VictimConds) != 1 {
+		t.Errorf("effect or victims conditions not kept: %+v %+v", by["fx"].EffectStates, by["arrow"].VictimConds)
+	}
+}
+
 func TestDecodeAdvancementReadsStyledTextAndIconComponents(t *testing.T) {
 	adv, err := DecodeAdvancement("pk:styled", []byte(`{
 		"display": {
@@ -306,5 +331,13 @@ func TestDecodeAdvancementReadsItemPredicatesLevelsDurabilityAndPotions(t *testi
 	}
 	if !c[4].Unmodelled || !c[5].Unmodelled || !c[6].Unmodelled || c[6].Potions != nil {
 		t.Error("an effects predicate, and a full predicate on a trigger that tests IDs only, stay unmodelled")
+	}
+}
+
+func TestDecodeAdvancementRefusesMalformedVictims(t *testing.T) {
+	_, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
+		"arrow":{"trigger":"minecraft:killed_by_arrow","conditions":{"victims":{}}}}}`))
+	if err == nil {
+		t.Error("a victims object decoded without an error")
 	}
 }

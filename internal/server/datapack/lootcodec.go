@@ -1030,25 +1030,7 @@ func entityPredicate(p obj) registry.LootEntityPredicate {
 		slices.SortFunc(out.Slots, func(a, b registry.LootSlotPredicate) int { return strings.Compare(a.Slots, b.Slots) })
 	}
 	if v, ok := p["minecraft:effects"]; ok {
-		out.Effects = map[string]registry.LootEffectPredicate{}
-		for name, ev := range object(v, "effects") {
-			name = registry.Qualify(name)
-			if _, known := registry.MobEffectID(name); !known {
-				fail("unknown mob effect %s", name)
-			}
-			eo := object(ev, "effect predicate")
-			unknownKeys(eo, "effect predicate", "amplifier", "duration", "ambient", "visible")
-			var ep registry.LootEffectPredicate
-			ep.AmplifierMin, ep.AmplifierMax = intRange(eo["amplifier"])
-			ep.DurationMin, ep.DurationMax = intRange(eo["duration"])
-			if _, has := eo["ambient"]; has {
-				ep.Ambient = new(flag(eo, "ambient", false))
-			}
-			if _, has := eo["visible"]; has {
-				ep.Visible = new(flag(eo, "visible", false))
-			}
-			out.Effects[name] = ep
-		}
+		out.Effects = lootEffects(v)
 	}
 	if v, ok := p["minecraft:nbt"]; ok {
 		text, isStr := v.(string)
@@ -1772,4 +1754,30 @@ func lootItems(names []string) []registry.Item {
 		}
 	}
 	return items
+}
+
+// lootEffects reads a MobEffectsPredicate: effect name to the tests of its
+// active instance.
+// vanilla: MobEffectsPredicate.CODEC
+func lootEffects(v any) map[string]registry.LootEffectPredicate {
+	out := map[string]registry.LootEffectPredicate{}
+	for name, ev := range object(v, "effects") {
+		name = registry.Qualify(name)
+		if _, known := registry.MobEffectID(name); !known {
+			fail("unknown mob effect %s", name)
+		}
+		eo := object(ev, "effect predicate")
+		unknownKeys(eo, "effect predicate", "amplifier", "duration", "ambient", "visible")
+		var ep registry.LootEffectPredicate
+		ep.AmplifierMin, ep.AmplifierMax = intRange(eo["amplifier"])
+		ep.DurationMin, ep.DurationMax = intRange(eo["duration"])
+		if _, has := eo["ambient"]; has {
+			ep.Ambient = new(flag(eo, "ambient", false))
+		}
+		if _, has := eo["visible"]; has {
+			ep.Visible = new(flag(eo, "visible", false))
+		}
+		out[name] = ep
+	}
+	return out
 }

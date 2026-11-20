@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -282,30 +284,36 @@ func particleAxis(pos, vel obj) registry.EnchParticleAxis {
 	return out
 }
 
-// particleOf reads a particle with no data, given as a name or {type}.
-func particleOf(v any) (name string, id int32) {
+// particleOf reads a particle given as a name or as an object with its
+// options, and returns its ID and encoded options.
+// vanilla: ParticleTypes.CODEC
+func particleOf(v any) (id int32, options []byte) {
+	var tag nbt.Tag
 	switch p := v.(type) {
 	case string:
-		name = p
+		tag = nbt.Compound{"type": nbt.String(p)}
 	case obj:
-		unknownKeys(p, "a particle", "type")
-		name = requireStr(p, "type")
+		var err error
+		if tag, err = protocol.JSONValueTag(p); err != nil {
+			fail("particle: %v", err)
+		}
 	default:
 		fail("a particle that is neither a name nor an object")
 	}
-	id, withData, ok := registry.ParticleID(registry.Qualify(name))
-	if !ok || withData {
-		fail("particle %s is not supported by this server", name)
+	id, options, ok := registry.ParticleOptions(tag)
+	if !ok {
+		fail("particle %v is not supported by this server", v)
 	}
-	return registry.Qualify(name), id
+	return id, options
 }
 
 func particlesEffect(e obj) *registry.EnchParticles {
 	unknownKeys(e, "a spawn_particles effect", "type", "particle", "horizontal_position", "vertical_position",
 		"horizontal_velocity", "vertical_velocity", "speed")
-	_, id := particleOf(required(e, "particle"))
+	id, options := particleOf(required(e, "particle"))
 	return &registry.EnchParticles{
 		Particle:   id,
+		Options:    options,
 		Horizontal: particleAxis(object(required(e, "horizontal_position"), "a position source"), object(required(e, "horizontal_velocity"), "a velocity source")),
 		Vertical:   particleAxis(object(required(e, "vertical_position"), "a position source"), object(required(e, "vertical_velocity"), "a velocity source")),
 		Speed:      floatRange(e["speed"]),

@@ -775,7 +775,7 @@ func (c *client) bindLeadToMob(ent *mobEntity, held protocol.ItemStack, hand int
 		x, y, z := ent.mob.X, ent.mob.Y, ent.mob.Z
 		id := ent.mob.ID
 		ent.mob.RemoveLeash()
-		after := bodyInteraction(ent.mob)
+		after := s.bodyInteraction(ent)
 		s.mobsMu.Unlock()
 		if c.player.GameMode() != protocol.GameModeCreative {
 			s.dropLeadItem(w, x, y, z)
@@ -802,7 +802,7 @@ func (c *client) bindLeadToMob(ent *mobEntity, held protocol.ItemStack, hand int
 	leftKnot := ent.mob.LeashHolderID
 	riding := ent.mob.RidesVehicle
 	ent.tieLeash(holder.EntityID, leashRef{holder: c.player.UUID})
-	after := bodyInteraction(ent.mob)
+	after := s.bodyInteraction(ent)
 	s.mobsMu.Unlock()
 	if riding {
 		// A tied body seated somewhere is set off it, vanilla's
