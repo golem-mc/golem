@@ -93,7 +93,11 @@ func (c *client) useOnVillager(ent *mobEntity, hand int32) (bool, error) {
 		m.Trading = true
 		m.TradingPlayer = c.player.UUID
 	}
+	after := s.bodyInteraction(ent)
 	s.mobsMu.Unlock()
+	// A click that opens the trades or shakes the head both consume it.
+	// vanilla: ServerGamePacketListenerImpl.handleInteract
+	c.interactedWithEntityAdvancements(after, c.heldItem(hand).ItemID)
 
 	if !baby && hand == protocol.HandMain {
 		c.awardStat(player.Custom(registry.CustomStatTalkedToVillager), 1)

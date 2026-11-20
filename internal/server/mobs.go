@@ -751,13 +751,16 @@ func (s *Server) finishBreeding(birth mobBirth) {
 	if !s.askBreed(&birth) {
 		return
 	}
-	if c := s.clientByUUID(birth.cause); birth.cause != (uuid.UUID{}) && c != nil {
-		// Frog, turtle and sniffer breeding credit no child entity.
-		child := (birth.mother.OffspringType(birth.partner)).Name()
-		if birth.mother.Type == entity.TypeTurtle || birth.mother.Type == entity.TypeFrog || birth.mother.Type == entity.TypeSniffer {
-			child = ""
-		}
-		c.bredAnimalsAdvancements(birth.mother.Type.Name(), birth.partner.Type.Name(), child)
+	c := s.clientByUUID(birth.cause)
+	if birth.cause == (uuid.UUID{}) {
+		c = nil
+	}
+	// Frog, turtle and sniffer breeding credit no child entity.
+	childless := birth.mother.Type == entity.TypeTurtle || birth.mother.Type == entity.TypeFrog || birth.mother.Type == entity.TypeSniffer
+	if c != nil && childless {
+		c.bredAnimalsAdvancements(birth.mother.Type.Name(), birth.partner.Type.Name(), "", s.breedingParents(birth))
+	}
+	if c != nil {
 		c.awardStat(player.Custom(registry.CustomStatAnimalsBred), 1)
 	}
 	villager := birth.mother.Type == entity.TypeVillager
@@ -780,7 +783,7 @@ func (s *Server) finishBreeding(birth mobBirth) {
 		return
 	}
 	biome := birth.w.Biome(rules.BlockOf(birth.x), rules.BlockOf(birth.y), rules.BlockOf(birth.z))
-	child := s.spawnMobArriving(s.dimensionOfWorld(birth.w), birth.mother.OffspringType(birth.partner),
+	born := s.standMobArriving(s.dimensionOfWorld(birth.w), birth.mother.OffspringType(birth.partner),
 		birth.x, birth.y, birth.z, 0, nil, true, "", false, func(ent *mobEntity) {
 			ent.spawnReason = spawnReasonCode(plugin.SpawnBreeding)
 			// Read the parents under the mob lock: their dice share the goal's stream.
@@ -803,9 +806,23 @@ func (s *Server) finishBreeding(birth mobBirth) {
 			}
 			s.mobsMu.Unlock()
 		})
+	child := born.mob.ID
+	if c != nil {
+		ents := s.breedingParents(birth)
+		ents["child"] = s.mobLoot(born)
+		c.bredAnimalsAdvancements(birth.mother.Type.Name(), birth.partner.Type.Name(), born.mob.Type.Name(), ents)
+	}
 	if villager {
 		// vanilla: VillagerMakeLove.breed sends the hearts on the child
 		s.broadcastWorld(birth.w, protocol.IDPlayEntityEvent, entityEventPayload(child, protocol.EntityStatusVillagerHearts))
+	}
+}
+
+// breedingParents are the loot entities of a mating's parents.
+func (s *Server) breedingParents(birth mobBirth) map[string]func() rules.LootEntity {
+	return map[string]func() rules.LootEntity{
+		"parent":  s.mobLootOf(birth.w, birth.mother),
+		"partner": s.mobLootOf(birth.w, birth.partner),
 	}
 }
 
@@ -3775,7 +3792,7 @@ func (c *client) shearMob(ent *mobEntity, hand int32) error {
 	s.gameEvent(ent.w, rules.GameEventShear, take.x, take.y, take.z, c.gameEventContext(0))
 	if ent.mob.Type == entity.TypeSulfurCube && len(take.drops) > 0 {
 		s.mobsMu.Lock()
-		after := bodyInteraction(ent.mob)
+		after := s.bodyInteraction(ent)
 		s.mobsMu.Unlock()
 		c.shearedEquipmentAdvancements(after, take.drops[0].ItemID)
 	}
@@ -4170,7 +4187,7 @@ func (c *client) feedMob(ent *mobEntity, hand int32) (bool, error) {
 		return false, nil
 	}
 	loved, grew := m.Feed()
-	after := bodyInteraction(m)
+	after := s.bodyInteraction(ent)
 	x, y, z := m.X, m.Y, m.Z
 	kind := m.Type
 	ticks := m.InLove
@@ -4280,7 +4297,7 @@ func (s *Server) hatchTadpole(dim *dimension, h world.TadpoleHatch) {
 func (c *client) shearEquipment(ent *mobEntity, hand, shears int32) bool {
 	s := c.srv
 	s.mobsMu.Lock()
-	after := bodyInteraction(ent.mob)
+	after := s.bodyInteraction(ent)
 	taken, ok := ent.mob.ShearEquipment(c.player.UUID, c.player.Vitals().GameMode == protocol.GameModeCreative)
 	x, y, z, silent := ent.mob.X, ent.mob.Y, ent.mob.Z, ent.mob.Silent
 	s.mobsMu.Unlock()

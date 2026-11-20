@@ -51,6 +51,18 @@ type AdvancementCriterion struct {
 	// hold of the player; empty for none.
 	// vanilla: SimpleCriterionTrigger.SimpleInstance.player
 	Player []LootCondition
+	// Contexts holds the loot conditions over the other entities of the
+	// trigger's context (entity, parent, partner, child, zombie, villager,
+	// source, lightning, bystander), each list of which must all hold of that
+	// entity; VictimConds is one condition list per victims entry. They are set
+	// instead of the bespoke fields the criterion would otherwise use.
+	// vanilla: ContextAwarePredicate
+	Contexts    map[string][]LootCondition
+	VictimConds [][]LootCondition
+	// EffectStates is the amplifier, duration, ambient and visible tests of
+	// an effects_changed effect, by name.
+	// vanilla: MobEffectsPredicate.MobEffectInstancePredicate
+	EffectStates map[string]LootEffectPredicate
 	// Items is an inventory_changed criterion's item predicates, or the
 	// one predicate of a consume_item, filled_bucket, item_used_on_block
 	// or any_block_use (the tool), allay_drop_item_on_block (the item dropped) or

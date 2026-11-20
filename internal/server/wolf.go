@@ -40,7 +40,7 @@ func (c *client) useOnWolf(ent *mobEntity, hand int32, held protocol.ItemStack, 
 		equipped := !healed && m.EquipWolfArmor(held, owner)
 		repaired := !healed && !equipped && m.RepairWolfArmor(held.ItemID, owner)
 		x, y, z := m.X, m.Y, m.Z
-		after := bodyInteraction(m)
+		after := s.bodyInteraction(ent)
 		s.mobsMu.Unlock()
 		switch {
 		case healed:
@@ -101,7 +101,7 @@ func (c *client) useOnWolf(ent *mobEntity, hand int32, held protocol.ItemStack, 
 	status := uint8(protocol.EntityEventTameFailed)
 	if tamed {
 		status = protocol.EntityEventTamed
-		c.tameAnimalAdvancements(m.Type.Name(), variant)
+		c.tameAnimalAdvancements(m.Type.Name(), variant, s.mobLoot(ent))
 	}
 	s.broadcastWorld(ent.w, protocol.IDPlayEntityEvent, entityEventPayload(m.ID, status))
 	c.useSwing = swingServer
@@ -110,8 +110,9 @@ func (c *client) useOnWolf(ent *mobEntity, hand int32, held protocol.ItemStack, 
 
 // bodyInteraction is a mob, its variant and its body slot as an advancement
 // criterion reads it.
-func bodyInteraction(m *entity.Mob) advancement.EntityInteraction {
-	e := advancement.EntityInteraction{Type: m.Type.Name(), Baby: m.IsBaby(), Variant: m.Variant}
+func (s *Server) bodyInteraction(ent *mobEntity) advancement.EntityInteraction {
+	m := ent.mob
+	e := advancement.EntityInteraction{Type: m.Type.Name(), Baby: m.IsBaby(), Variant: m.Variant, Loot: s.mobLoot(ent)}
 	if !m.Body.Empty() {
 		e.Body, e.BodyDamage = m.Body.ItemID, m.Body.Damage
 	}

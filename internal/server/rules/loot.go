@@ -1181,7 +1181,7 @@ func entityPredicate(p registry.LootEntityPredicate, e LootEntity, ctx *LootCont
 	if !entityFlagsMatch(p, facts.Flags) || !entityEquipmentMatch(p, e) || !entityRelatedMatch(p, e, ctx) {
 		return false
 	}
-	if len(p.Effects) > 0 && !effectsMatch(p.Effects, facts.Effects) {
+	if len(p.Effects) > 0 && !EffectsMatch(p.Effects, facts.Effects) {
 		return false
 	}
 	if p.NBT != nil {
@@ -1269,10 +1269,10 @@ func entityEquipmentMatch(p registry.LootEntityPredicate, e LootEntity) bool {
 	return true
 }
 
-// effectsMatch says whether every effect the predicate lists is active and
+// EffectsMatch says whether every effect the predicate lists is active and
 // inside its ranges.
 // vanilla: MobEffectsPredicate.matches
-func effectsMatch(want map[string]registry.LootEffectPredicate, have []LootEffect) bool {
+func EffectsMatch(want map[string]registry.LootEffectPredicate, have []LootEffect) bool {
 	inRange := func(v int32, lo, hi *float64) bool {
 		return (lo == nil || float64(v) >= *lo) && (hi == nil || float64(v) <= *hi)
 	}

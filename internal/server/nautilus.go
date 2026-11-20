@@ -56,7 +56,7 @@ func (c *client) useOnNautilus(ent *mobEntity, hand int32, held protocol.ItemSta
 			s.broadcastWorld(ent.w, protocol.IDPlayEntityEvent, entityEventPayload(id, status))
 		}
 		if tamed {
-			c.tameAnimalAdvancements(m.Type.Name(), "")
+			c.tameAnimalAdvancements(m.Type.Name(), "", s.mobLoot(ent))
 		}
 		if !silent {
 			s.broadcastSoundHolder(ent.w, sound, protocol.SoundCategoryNeutral, x, y, z, volume, pitch)

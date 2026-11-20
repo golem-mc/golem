@@ -154,18 +154,18 @@ func TestBredAnimalsMatchesParentsInEitherOrderAndTheChild(t *testing.T) {
 	)
 	now := time.Now()
 	// The wolf criterion wants a child, which a turtle's egg is not.
-	p.BredAnimals("minecraft:turtle", "minecraft:turtle", "", now)
+	p.BredAnimals("minecraft:turtle", "minecraft:turtle", "", nil, now)
 	if _, ok := p.obtained[0]["turtle"]; !ok {
 		t.Error("two turtles with no child did not pass the turtle criterion")
 	}
 	if _, ok := p.obtained[0]["wolf"]; ok {
 		t.Error("a breeding with no child passed a child condition")
 	}
-	p.BredAnimals("minecraft:donkey", "minecraft:horse", "minecraft:mule", now)
+	p.BredAnimals("minecraft:donkey", "minecraft:horse", "minecraft:mule", nil, now)
 	if _, ok := p.obtained[0]["mix"]; !ok {
 		t.Error("the parents swapped did not pass")
 	}
-	p.BredAnimals("minecraft:wolf", "minecraft:wolf", "minecraft:wolf", now)
+	p.BredAnimals("minecraft:wolf", "minecraft:wolf", "minecraft:wolf", nil, now)
 	if _, ok := p.obtained[0]["wolf"]; !ok {
 		t.Error("a wolf child did not pass the wolf criterion")
 	}
@@ -342,13 +342,13 @@ func TestArrowCriteriaWantTheShaftTheWeaponAndTheVictims(t *testing.T) {
 	)
 	now := time.Now()
 	p.PlayerHurtProjectile("minecraft:spectral_arrow", now)
-	p.KilledByArrow([]string{"minecraft:phantom"}, 5, now)
-	p.KilledByArrow([]string{"minecraft:phantom", "minecraft:phantom"}, 4, now)
+	p.KilledByArrow([]string{"minecraft:phantom"}, 5, nil, now)
+	p.KilledByArrow([]string{"minecraft:phantom", "minecraft:phantom"}, 4, nil, now)
 	if len(p.obtained[0]) != 1 || p.obtained[0]["arrow"].IsZero() {
 		t.Fatalf("after a spectral arrow, one phantom and a bow's pair: %v", p.obtained[0])
 	}
-	p.KilledByArrow([]string{"minecraft:phantom", "minecraft:cow", "minecraft:phantom"}, 5, now)
-	p.KilledByArrow([]string{"a", "b", "c", "d", "e", "e"}, 4, now)
+	p.KilledByArrow([]string{"minecraft:phantom", "minecraft:cow", "minecraft:phantom"}, 5, nil, now)
+	p.KilledByArrow([]string{"a", "b", "c", "d", "e", "e"}, 4, nil, now)
 	for _, name := range []string{"pair", "five"} {
 		if _, ok := p.obtained[0][name]; !ok {
 			t.Errorf("%s was not obtained: %v", name, p.obtained[0])

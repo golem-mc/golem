@@ -40,7 +40,7 @@ func (c *client) useOnParrot(ent *mobEntity, hand int32, held protocol.ItemStack
 		status := uint8(protocol.EntityEventTameFailed)
 		if tamed {
 			status = protocol.EntityEventTamed
-			c.tameAnimalAdvancements(m.Type.Name(), "")
+			c.tameAnimalAdvancements(m.Type.Name(), "", s.mobLoot(ent))
 		}
 		s.broadcastWorld(ent.w, protocol.IDPlayEntityEvent, entityEventPayload(m.ID, status))
 	case item.InTag(registry.ItemTagIDParrotPoisonousFood):
