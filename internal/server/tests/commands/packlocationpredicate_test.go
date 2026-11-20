@@ -44,7 +44,7 @@ func TestInlineLocationPredicateReadsEveryPart(t *testing.T) {
 
 	says := func(at string, predicate string, want bool) {
 		t.Helper()
-		command := "execute positioned " + at + " if predicate {condition:\"minecraft:location_check\",predicate:{" + predicate + "}}"
+		command := "execute positioned " + at + " if predicate {type:\"minecraft:location_check\",predicate:{" + predicate + "}}"
 		if want {
 			command += " run say hi"
 		}
@@ -82,7 +82,7 @@ func TestInlineLocationPredicateReadsEveryPart(t *testing.T) {
 	// A dimension without sky light never does, even above its roof.
 	c.ChatCommand("execute in minecraft:the_nether run setblock 0 200 0 minecraft:stone")
 	c.ExpectPlay(protocol.IDPlaySystemChat)
-	c.ChatCommand("execute in minecraft:the_nether positioned 0.5 201 0.5 unless predicate {condition:\"minecraft:location_check\",predicate:{can_see_sky:true}} run say hi")
+	c.ChatCommand("execute in minecraft:the_nether positioned 0.5 201 0.5 unless predicate {type:\"minecraft:location_check\",predicate:{can_see_sky:true}} run say hi")
 	if got := c.ExpectPlay(protocol.IDPlayDisguisedChat); !bytes.Equal(got, sayPayloadForTest("Testificate", "hi")) {
 		t.Errorf("nether can_see_sky said % X, want the tail's say", got)
 	}
@@ -107,7 +107,7 @@ func TestInlineLocationPredicateReadsEveryPart(t *testing.T) {
 	says("200000.5 150 20.5", `dimension:"minecraft:overworld"`, true)
 
 	// The usual "player is in the End" predicate, as an entity predicate.
-	c.ChatCommand(`execute if predicate {condition:"minecraft:entity_properties",entity:"this",predicate:{"minecraft:location":{dimension:"minecraft:overworld"}}} run say hi`)
+	c.ChatCommand(`execute if predicate {type:"minecraft:entity_properties",entity:"this",predicate:{"minecraft:location":{dimension:"minecraft:overworld"}}} run say hi`)
 	if got := c.ExpectPlay(protocol.IDPlayDisguisedChat); !bytes.Equal(got, sayPayloadForTest("Testificate", "hi")) {
 		t.Errorf("entity location dimension said % X, want the tail's say", got)
 	}
