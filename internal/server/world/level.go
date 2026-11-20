@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
 
 // levelDatFile is the world's metadata (spawn, game type, seed, generator,
@@ -862,7 +861,7 @@ func (w *World) MonstersBurn() bool {
 
 // PiglinsZombify is gameplay/piglins_zombify: true by default, false in the
 // Nether's dimension type.
-func (w *World) PiglinsZombify() bool { return w.dimName != NetherName }
+func (w *World) PiglinsZombify() bool { return w.environmentGlobal(envPiglinsZombify) != 0 }
 
 // SkyDarken is Level.getSkyDarken: 15 less the dimension's sky_light_level,
 // truncated. In the overworld's type a clear day darkens 0 and a clear night
@@ -873,9 +872,10 @@ func (w *World) SkyDarken() int {
 	return int(float32(15) - w.envValue(&w.skyLight, ""))
 }
 
-// HasSkyLight is the dimension type's has_skylight: the overworld only.
+// HasSkyLight is the dimension type's has_skylight.
+// vanilla: DimensionType.hasSkyLight
 func (w *World) HasSkyLight() bool {
-	return w.dimName == DimensionName
+	return w.dim.skyLight
 }
 
 // BrightOutside is Level.isBrightOutside: the clock runs and the sky is
@@ -917,16 +917,12 @@ func (w *World) MoonPhase() int {
 	return int(dayTime / ticksPerDay % 8)
 }
 
-// AmbientLight is the dimension type's minecraft:ambient_light: 0 for the
-// overworld and end, 0.1 for the nether. It is the base the light-dependent
-// magic value lerps from, so the same light reads a tenth brighter there.
+// AmbientLight is the dimension type's ambient_light: 0 for the overworld and
+// end, 0.1 for the nether. It is the base the light-dependent magic value
+// lerps from, so the same light reads a tenth brighter there.
+// vanilla: DimensionType.ambientLight
 func (w *World) AmbientLight() float32 {
-	switch w.dimName {
-	case NetherName:
-		return 0.1
-	default:
-		return 0
-	}
+	return w.dim.ambientLight
 }
 
 // WakeUpFromSleep jumps the overworld clock to the next wake_up_from_sleep
@@ -967,28 +963,11 @@ func (w *World) syncLevelData() nbt.Compound {
 	return w.level.stamped()
 }
 
-// snowGolemMeltBiomes set gameplay/snow_golem_melts: desert, savannas and
-// badlands.
-// vanilla: OverworldBiomes.desert, savanna, badlands
-var snowGolemMeltBiomes = [registry.BiomeCount]bool{
-	registry.BiomeDesert:           true,
-	registry.BiomeSavanna:          true,
-	registry.BiomeSavannaPlateau:   true,
-	registry.BiomeWindsweptSavanna: true,
-	registry.BiomeBadlands:         true,
-	registry.BiomeErodedBadlands:   true,
-	registry.BiomeWoodedBadlands:   true,
-}
-
-// SnowGolemMelts is gameplay/snow_golem_melts at the cell: everywhere in the
-// nether (its dimension type), elsewhere by biome.
+// SnowGolemMelts is gameplay/snow_golem_melts at the cell: the dimension type's
+// layer, then the biome's.
 // vanilla: DimensionTypes, SnowGolem.aiStep
 func (w *World) SnowGolemMelts(x, y, z int32) bool {
-	if w.dimName == NetherName {
-		return true
-	}
-	b := w.NoiseBiome(x, y, z)
-	return b >= 0 && b < registry.BiomeCount && snowGolemMeltBiomes[b]
+	return w.envValue(w.tickEnvLayers(envSnowGolemMelts), w.NoiseBiome(x, y, z).Name()) != 0
 }
 
 // SnowLayerSurvives is SnowLayerBlock.canSurvive for one layer, checked before

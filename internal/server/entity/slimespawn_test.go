@@ -141,6 +141,16 @@ func (w spawnTestWorld) SpawnPoint() (int32, int32, int32, bool) {
 // on.
 func (w spawnTestWorld) HasCeiling() bool { return w.ceiling }
 
+func (w spawnTestWorld) MonsterSpawnLight() (blockLimit, lightMin, lightMax int) {
+	switch w.DimensionName() {
+	case "minecraft:the_nether":
+		return 15, 7, 7
+	case "minecraft:the_end":
+		return 0, 15, 15
+	}
+	return 0, 0, 7
+}
+
 func (w spawnTestWorld) SkyDarken() int { return w.darken }
 
 // SeedValue is the world seed the test set.

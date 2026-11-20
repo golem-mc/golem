@@ -18,6 +18,12 @@ const (
 	envEyeblossomOpen
 	envCloudHeight
 	envSunAngle
+	envFastLava
+	envWaterEvaporates
+	envRespawnAnchorWorks
+	envPiglinsZombify
+	envSnowGolemMelts
+	envCanStartRaid
 	envCount
 )
 
@@ -30,6 +36,12 @@ var tickEnvironmentNames = [envCount]string{
 	envEyeblossomOpen:       "minecraft:gameplay/eyeblossom_open",
 	envCloudHeight:          "minecraft:visual/cloud_height",
 	envSunAngle:             "minecraft:visual/sun_angle",
+	envFastLava:             "minecraft:gameplay/fast_lava",
+	envWaterEvaporates:      "minecraft:gameplay/water_evaporates",
+	envRespawnAnchorWorks:   "minecraft:gameplay/respawn_anchor_works",
+	envPiglinsZombify:       "minecraft:gameplay/piglins_zombify",
+	envSnowGolemMelts:       "minecraft:gameplay/snow_golem_melts",
+	envCanStartRaid:         "minecraft:gameplay/can_start_raid",
 }
 
 // LoadEnvironment resolves pack layers once, after registries and tags load.

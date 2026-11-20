@@ -430,8 +430,8 @@ func (s *Server) tickOmens(c *client) {
 	if !has {
 		return
 	}
-	// vanilla: Raids.createOrExtendRaid (CAN_START_RAID is false in the nether)
-	if dim.w.BoolRule(world.RuleRaids) && dim.name != world.NetherName {
+	// vanilla: Raids.createOrExtendRaid (CAN_START_RAID)
+	if dim.w.BoolRule(world.RuleRaids) && dim.w.CanStartRaid() {
 		p := raid.Player{UUID: c.player.UUID, Alive: c.Alive(), X: pos.X, Y: pos.Y, Z: pos.Z}
 		dim.raids.CreateOrExtend(p, int(in.Amplifier), at, s.villagePOIsAround(dim, at, 64))
 	}

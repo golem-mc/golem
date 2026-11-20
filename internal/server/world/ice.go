@@ -72,7 +72,7 @@ func (p *Physics) frostedIceFewerNeighboursThan(x, y, z int32, limit int) bool {
 // with no event where the dimension evaporates water.
 // vanilla: IceBlock.melt
 func (p *Physics) meltIce(x, y, z int32, state uint16, changes *[]BlockChange, effects *[]Effect) {
-	if p.w.DimensionName() == NetherName {
+	if p.w.WaterEvaporates() {
 		if air, ok := p.veto(HookFade, x, y, z, airState, [3]int32{}); ok {
 			p.setShaped(x, y, z, air, changes)
 		}

@@ -52,8 +52,64 @@ func ShapeOfType(name string, data nbt.Tag) (DimensionShape, error) {
 	if clock != "" {
 		defaultClock = registry.Qualify(string(clock))
 	}
-	return DimensionShape{minY: minY, height: height, logicalHeight: logical, skyLight: nbt.BoolField(c, "has_skylight"), ceiling: nbt.BoolField(c, "has_ceiling"),
-		fixedTime: nbt.BoolField(c, "has_fixed_time"), typ: name, defaultClock: defaultClock}, nil
+	ambientLight, _ := nbt.FloatField(c, "ambient_light")
+	blockLightLimit, _ := nbt.IntField(c, "monster_spawn_block_light_limit")
+	lightMin, lightMax := monsterSpawnLightOf(c["monster_spawn_light_level"])
+	return DimensionShape{
+		minY:                   minY,
+		height:                 height,
+		logicalHeight:          logical,
+		skyLight:               nbt.BoolField(c, "has_skylight"),
+		ceiling:                nbt.BoolField(c, "has_ceiling"),
+		fixedTime:              nbt.BoolField(c, "has_fixed_time"),
+		typ:                    name,
+		defaultClock:           defaultClock,
+		ambientLight:           ambientLight,
+		monsterBlockLightLimit: int(blockLightLimit),
+		monsterLightMin:        lightMin,
+		monsterLightMax:        lightMax,
+	}, nil
+}
+
+// monsterSpawnLightOf decodes a dimension type's monster_spawn_light_level
+// (an integer or an IntProvider compound) into an inclusive [min, max] range.
+// vanilla: IntProvider.codec(0, 15)
+func monsterSpawnLightOf(tag nbt.Tag) (minVal, maxVal int) {
+	if tag == nil {
+		return 0, 0
+	}
+	if v, ok := nbt.IntValue(tag); ok {
+		return int(v), int(v)
+	}
+	c, ok := nbt.CompoundView(tag)
+	if !ok {
+		return 0, 0
+	}
+	kind, _ := nbt.Get[nbt.String](c, "type")
+	switch registry.Qualify(string(kind)) {
+	case "minecraft:constant":
+		v, _ := nbt.IntField(c, "value")
+		return int(v), int(v)
+	case "minecraft:uniform":
+		src := c
+		if inner, ok := nbt.CompoundView(c["value"]); ok {
+			src = inner
+		}
+		lo, _ := nbt.IntField(src, "min_inclusive")
+		hi, _ := nbt.IntField(src, "max_inclusive")
+		if hi < lo {
+			hi = lo
+		}
+		return int(lo), int(hi)
+	}
+	if lo, okLo := nbt.IntField(c, "min_inclusive"); okLo {
+		hi, okHi := nbt.IntField(c, "max_inclusive")
+		if !okHi || hi < lo {
+			hi = lo
+		}
+		return int(lo), int(hi)
+	}
+	return 0, 0
 }
 
 // StemGenerator builds the generator a level stem's generator compound names,

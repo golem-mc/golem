@@ -45,6 +45,11 @@ type SpawnWorld interface {
 	// HasCeiling is DimensionType.hasCeiling (the Nether).
 	HasCeiling() bool
 
+	// MonsterSpawnLight returns the dimension type's
+	// monster_spawn_block_light_limit and monster_spawn_light_level inclusive
+	// [min, max] range.
+	MonsterSpawnLight() (blockLimit, lightMin, lightMax int)
+
 	// MinY is the dimension's bottom y, the floor of the spawn's height roll.
 	MinY() int32
 
@@ -311,7 +316,7 @@ func isDarkEnoughToSpawn(w SpawnWorld, x, y, z int32, rng Dice) bool {
 	if int32(w.SkyLightAt(x, y, z)) > rng.NextIntN(32) {
 		return false
 	}
-	blockLimit, lightLevel := monsterSpawnLight(w)
+	blockLimit, lightMin, lightMax := w.MonsterSpawnLight()
 	if blockLimit < 15 && int(w.BlockLightAt(x, y, z)) > blockLimit {
 		return false
 	}
@@ -319,23 +324,10 @@ func isDarkEnoughToSpawn(w SpawnWorld, x, y, z int32, rng Dice) bool {
 	if b := int(w.BlockLightAt(x, y, z)); b > bright {
 		bright = b
 	}
-	if lightLevel < 0 {
-		// minecraft:uniform over 0..7, both ends included.
-		return int32(bright) <= rng.NextIntN(8)
+	if lightMin < lightMax {
+		return int32(bright) <= int32(lightMin)+rng.NextIntN(int32(lightMax-lightMin+1))
 	}
-	return bright <= lightLevel
-}
-
-// monsterSpawnLight is the dimension type's monster_spawn_block_light_limit
-// and fixed monster_spawn_light_level, -1 for the overworld's uniform 0..7.
-func monsterSpawnLight(w SpawnWorld) (blockLimit, lightLevel int) {
-	switch w.DimensionName() {
-	case world.NetherName:
-		return 15, 7
-	case world.EndName:
-		return 0, 15
-	}
-	return 0, -1
+	return bright <= lightMin
 }
 
 // slimeChunkSalt is the salt WorldgenRandom.seedSlimeChunk folds the world's
