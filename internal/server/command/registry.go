@@ -145,6 +145,7 @@ func init() {
 		Op,
 		Pardon,
 		PardonIP,
+		JfrCommand,
 		PerfCommand,
 		SaveAll,
 		SaveOff,
