@@ -7977,3 +7977,11 @@ func (s *Server) PrimeTNTAt(x, y, z int32) bool {
 
 // DouseCauldronAt lowers the cauldron at x, y, z as a burning body would.
 func (s *Server) DouseCauldronAt(x, y, z int32) { s.cauldronDoused(s.world, x, y, z) }
+
+// SetSpawnTuning sets the overworld's natural spawn limit and tick rate of a
+// category, as a plugin does through plugin.World.
+func (s *Server) SetSpawnTuning(c registry.MobCategory, limit, ticks int) {
+	t := &s.allDims()[0].spawnTuning
+	t.SetLimit(c, limit)
+	t.SetTicks(c, ticks)
+}

@@ -1013,6 +1013,14 @@ type SpawnPass struct {
 	category SpawnCategory
 }
 
+// WithMax replaces the category's spawn cap; a negative n keeps vanilla's.
+func (p SpawnPass) WithMax(n int) SpawnPass {
+	if n >= 0 {
+		p.max = n
+	}
+	return p
+}
+
 // MonsterPass is the monster category: cap 70, the monster list and
 // darkness rules.
 func MonsterPass(counts *SpawnCounts) SpawnPass {
