@@ -50,6 +50,7 @@ type Runtime struct {
 	callsPending  atomic.Bool
 	callsQueued   chan struct{} // holds one signal while calls wait
 	stopped       chan struct{}
+	disableOnce   sync.Once
 	connections   connectionTasks
 	bindEvent     func(plugin.Event, plugin.Server) func()
 }
@@ -164,20 +165,23 @@ func (r *Runtime) Enable() {
 }
 
 // Disable stops plugins in reverse dependency order and joins workers.
+// Calling it more than once is safe.
 func (r *Runtime) Disable() {
-	defer r.stopCalls()
-	for _, h := range slices.Backward(r.order) {
-		if h.enabled.Load() {
-			if r.bus.has(PluginDisable) {
-				r.bus.fire(&plugin.PluginDisableEvent{Plugin: h.info()})
+	r.disableOnce.Do(func() {
+		defer r.stopCalls()
+		for _, h := range slices.Backward(r.order) {
+			if h.enabled.Load() {
+				if r.bus.has(PluginDisable) {
+					r.bus.fire(&plugin.PluginDisableEvent{Plugin: h.info()})
+				}
+				if err := h.guard(func() error { h.registration.Plugin.Disable(); return nil }); err != nil {
+					h.Logger().Error("Error disabling plugin", "error", err)
+				}
 			}
-			if err := h.guard(func() error { h.registration.Plugin.Disable(); return nil }); err != nil {
-				h.Logger().Error("Error disabling plugin", "error", err)
-			}
+			h.cleanup()
 		}
-		h.cleanup()
-	}
-	r.tasks.stop()
+		r.tasks.stop()
+	})
 }
 
 // cleanup releases the plugin's resources. A panic in one release is logged
