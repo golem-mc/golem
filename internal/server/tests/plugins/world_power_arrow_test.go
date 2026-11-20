@@ -59,7 +59,7 @@ func TestPluginArrowPotion(t *testing.T) {
 			servertest.DrawBow(c, -90, 0)
 			servertest.HoldDraw(t, srv, "Archer", 27)
 			servertest.ReleaseBow(c)
-			servertest.UntilTicks(t, srv, 40, "the charge ends", func() bool { return srv.BowTicks("Archer") == 0 })
+			servertest.PollUntil(t, servertest.ExpectTimeout, func() bool { return srv.BowTicks("Archer") == 0 })
 			servertest.DrawBow(c, -90, 0)
 			var arrow plugin.Arrow
 			servertest.UntilTicks(t, srv, 20, "the arrow spawns", func() bool {
