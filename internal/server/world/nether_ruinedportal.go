@@ -326,15 +326,16 @@ func (r *decorRegion) processPortalBlock(p *ruinedPortal, state uint16, x, y, z 
 	} else if p.cold {
 		rules = &coldPortalRules
 	}
-	state = rules.process(state, world, x, y, z, 0)
+	state = rules.process(state, world, x, y, z, [3]int32{})
 	state = ruinedPortalAge(state, levelgen.NewLegacyRandom(blockPosSeed(x, y, z)), p.setup.Mossiness)
 	// vanilla: ProtectedBlockProcessor
 	if stateInTag(world, registry.TagIDFeaturesCannotReplace) {
 		return 0, false
 	}
 	// vanilla: LavaSubmergedBlockProcessor
-	if registry.BlockOf(world) == registry.BlockLava && !registry.CollisionShapeFull(state) {
-		return registry.BlockLava.DefaultState(), true
+	state, _ = lavaSubmerged{}.apply(state, world, x, y, z, [3]int32{})
+	if registry.BlockOf(state) == registry.BlockLava {
+		return state, true
 	}
 	if p.setup.Blackstone {
 		state = blackstoneReplace(state)

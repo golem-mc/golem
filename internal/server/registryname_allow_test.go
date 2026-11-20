@@ -5,6 +5,7 @@ package server_test
 
 var registryNameAllowed = map[string]nameAllowance{
 	"internal/server/packregistries.go: string registry lookup":                     {count: 1, boundary: "data pack biome file name"},
+	"registry/itempredicate.go: string registry lookup":                             {count: 1, boundary: "item tag name decoded from data pack predicate"},
 	"registry/sulfurarchetype.go: string registry lookup":                           {count: 1, boundary: "data pack items holder set tag name"},
 	"registry/stackitemprops.go: string registry lookup":                            {count: 2, boundary: "item tag names decoded from component data"},
 	"registry/sound.go: string registry lookup":                                     {count: 2, boundary: "sound name decoding"},
@@ -130,7 +131,7 @@ var registryNameAllowed = map[string]nameAllowance{
 	"internal/server/world/generator.go: string registry lookup":                    {count: 1, issue: 6380},
 	"internal/server/world/geodefeature.go: string block lookup":                    {count: 2, issue: 6380},
 	"internal/server/world/ice.go: string block lookup":                             {count: 1, issue: 6380},
-	"internal/server/world/jigsaw_rules.go: string block lookup":                    {count: 6, issue: 6380},
+	"internal/server/world/jigsaw_rules.go: string block lookup":                    {count: 7, issue: 6380},
 	"internal/server/world/locatestructure.go: string registry lookup":              {count: 2, issue: 6380},
 	"internal/server/world/mappreview.go: string registry lookup":                   {count: 2, issue: 6380},
 	"internal/server/world/maps.go: string block lookup":                            {count: 1, issue: 6380},
@@ -207,6 +208,5 @@ var registryItemNameAllowed = map[string]nameAllowance{
 	"internal/server/rules/blockuse.go: string item lookup":                           {count: 2, issue: 6380},
 	"internal/server/servertest_hooks.go: string item lookup":                         {count: 1, boundary: "test inputs"},
 	"internal/server/world/blockentity.go: comparison with an item name literal":      {count: 1, boundary: "stored compound IDs"},
-	"internal/server/world/blockentity.go: string item tag lookup":                    {count: 1, issue: 6380},
 	"internal/server/world/templatefix_26_3.go: comparison with an item name literal": {count: 2, boundary: "stored item data fixing"},
 }

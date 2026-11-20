@@ -1,11 +1,10 @@
-package world
+package registry
 
 import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
 
 // TestLockPredicatesTestComponents runs each partial component predicate
@@ -14,7 +13,7 @@ import (
 func TestLockPredicatesTestComponents(t *testing.T) {
 	t.Parallel()
 	stack := func(item, component, snbt string) protocol.ItemStack {
-		id, ok := registry.ItemID(item)
+		id, ok := ItemID(item)
 		if !ok {
 			t.Fatalf("item %s", item)
 		}
@@ -23,7 +22,7 @@ func TestLockPredicatesTestComponents(t *testing.T) {
 			t.Fatal(err)
 		}
 		s := protocol.ItemStack{ItemID: id, Count: 1}
-		if !registry.ReadComponent(&s, component, value.Entries()["v"]) {
+		if !ReadComponent(&s, component, value.Entries()["v"]) {
 			t.Fatalf("component %s %s did not read", component, snbt)
 		}
 		return s
@@ -65,15 +64,15 @@ func TestLockPredicatesTestComponents(t *testing.T) {
 		if err != nil {
 			t.Fatal(c.name, err)
 		}
-		pred := decodeItemPredicate(lock.Entries())
+		pred := DecodeItemPredicate(lock.Entries())
 		if len(pred.tests) != 1 {
 			t.Errorf("%s: predicate did not decode", c.name)
 			continue
 		}
-		if !pred.matches(c.ok) {
+		if !pred.Matches(c.ok) {
 			t.Errorf("%s: matching stack refused", c.name)
 		}
-		if pred.matches(c.bad) {
+		if pred.Matches(c.bad) {
 			t.Errorf("%s: nonmatching stack accepted", c.name)
 		}
 	}

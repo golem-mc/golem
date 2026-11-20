@@ -921,3 +921,12 @@ func (c *client) ShowDialog(dialog command.DialogRef) {
 
 // ClearDialog closes the dialog screen the player has open.
 func (c *client) ClearDialog() { c.send(protocol.IDPlayClearDialog, nil) }
+
+// advancementContext is the loot context a criterion's player conditions are
+// tested in: THIS_ENTITY and ORIGIN are the player.
+// vanilla: SimpleCriterionTrigger.trigger, EntityPredicate.createContext
+func (c *client) advancementContext() (*rules.LootContext, rules.LootRand) {
+	ctx := &rules.LootContext{This: c.LootEntity()}
+	command.FillLootWorld(ctx, c, c.Position())
+	return ctx, c.Random()
+}

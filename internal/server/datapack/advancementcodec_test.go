@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -35,6 +36,12 @@ func TestDecodeAdvancementMatchesTheGeneratedTree(t *testing.T) {
 			t.Errorf("%s: %v", want.ID, err)
 			continue
 		}
+		// The generated tree carries no icon components yet.
+		if got.Display != nil {
+			d := *got.Display
+			d.IconStack = nil
+			got.Display = &d
+		}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("%s decoded as\n%+v\nwant\n%+v", want.ID, got, want)
 		}
@@ -48,15 +55,16 @@ func TestDecodeAdvancementMatchesTheGeneratedTree(t *testing.T) {
 func TestDecodeAdvancementRefusesWhatVanillaRefuses(t *testing.T) {
 	const crit = `"criteria":{"a":{"trigger":"minecraft:tick"}}`
 	for name, body := range map[string]string{
-		"no criteria":          `{"criteria":{}}`,
-		"requirement unknown":  `{` + crit + `,"requirements":[["a","b"]]}`,
-		"criterion unrequired": `{"criteria":{"a":{"trigger":"minecraft:tick"},"b":{"trigger":"minecraft:tick"}},"requirements":[["a"]]}`,
-		"unknown trigger":      `{"criteria":{"a":{"trigger":"mod:x"}}}`,
-		"spear count zero":     `{"criteria":{"a":{"trigger":"minecraft:spear_mobs","conditions":{"count":0}}}}`,
-		"invalid trigger id":   `{"criteria":{"a":{"trigger":"Not A Trigger"}}}`,
-		"invalid parent id":    `{"parent":"Bad Id",` + crit + `}`,
-		"unknown item":         `{` + crit + `,"display":{"icon":{"id":"minecraft:nope"},"title":"t","description":"d"}}`,
-		"formatted title":      `{` + crit + `,"display":{"icon":{"id":"minecraft:stick"},"title":{"text":"t","bold":true},"description":"d"}}`,
+		"no criteria":            `{"criteria":{}}`,
+		"requirement unknown":    `{` + crit + `,"requirements":[["a","b"]]}`,
+		"criterion unrequired":   `{"criteria":{"a":{"trigger":"minecraft:tick"},"b":{"trigger":"minecraft:tick"}},"requirements":[["a"]]}`,
+		"unknown trigger":        `{"criteria":{"a":{"trigger":"mod:x"}}}`,
+		"spear count zero":       `{"criteria":{"a":{"trigger":"minecraft:spear_mobs","conditions":{"count":0}}}}`,
+		"invalid trigger id":     `{"criteria":{"a":{"trigger":"Not A Trigger"}}}`,
+		"invalid parent id":      `{"parent":"Bad Id",` + crit + `}`,
+		"unknown item":           `{` + crit + `,"display":{"icon":{"id":"minecraft:nope"},"title":"t","description":"d"}}`,
+		"invalid title":          `{` + crit + `,"display":{"icon":{"id":"minecraft:stick"},"title":{},"description":"d"}}`,
+		"invalid icon component": `{` + crit + `,"display":{"icon":{"id":"minecraft:stick","components":{"minecraft:enchantment_glint_override":"nope"}},"title":"t","description":"d"}}`,
 	} {
 		if _, err := DecodeAdvancement("pk:x", []byte(body)); err == nil {
 			t.Errorf("%s: decoded, want an error", name)
@@ -114,7 +122,7 @@ func TestDecodeAdvancementIgnoresWhatVanillaIgnoresAndNeverFiresWhatItCannotTest
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, wantUnmodelled := range []bool{true, true, true, false} {
+	for i, wantUnmodelled := range []bool{false, true, false, false} {
 		if got := adv.Criteria[i].Unmodelled; got != wantUnmodelled {
 			t.Errorf("criterion %s unmodelled = %v, want %v", adv.Criteria[i].Name, got, wantUnmodelled)
 		}
@@ -214,5 +222,59 @@ func TestDecodeAdvancementReads263Conditions(t *testing.T) {
 	}
 	if !adv.Criteria[0].Unmodelled {
 		t.Errorf("a match_block without blocks = %+v, want unmodelled", adv.Criteria[0])
+	}
+}
+
+func TestDecodeAdvancementReadsStyledTextAndIconComponents(t *testing.T) {
+	adv, err := DecodeAdvancement("pk:styled", []byte(`{
+		"display": {
+			"icon": {
+				"id": "minecraft:stone",
+				"components": {
+					"minecraft:enchantment_glint_override": true,
+					"minecraft:item_model": "minecraft:diamond"
+				}
+			},
+			"title": {"text": "Gold", "color": "gold", "bold": true},
+			"description": {"translate": "pk.desc", "with": ["stone"], "fallback": "Find stone"}
+		},
+		"criteria": {"a": {"trigger": "minecraft:tick"}}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := adv.Display
+	if d == nil || d.TitleText == nil || d.DescriptionText == nil || d.IconStack == nil {
+		t.Fatalf("display = %+v, want TitleText, DescriptionText and IconStack", d)
+	}
+	titleFields, ok := nbt.CompoundView(protocol.TextTag(*d.TitleText))
+	if !ok || titleFields["text"] != nbt.String("Gold") || titleFields["color"] != nbt.String("gold") || !protocol.FlagOn(titleFields["bold"]) {
+		t.Errorf("title tag = %v, want Gold in gold bold", titleFields)
+	}
+	descFields, ok := nbt.CompoundView(protocol.TextTag(*d.DescriptionText))
+	if !ok || descFields["translate"] != nbt.String("pk.desc") || descFields["fallback"] != nbt.String("Find stone") {
+		t.Errorf("description tag = %v, want translate pk.desc with fallback", descFields)
+	}
+	if d.IconStack.GlintOverride != protocol.GlintShown {
+		t.Errorf("icon glint = %v, want GlintShown", d.IconStack.GlintOverride)
+	}
+	if model, ok := d.IconStack.ItemModelOf(); !ok || model != "minecraft:diamond" {
+		t.Errorf("icon item_model = %q (%v), want minecraft:diamond", model, ok)
+	}
+
+	// Bare string icon and JSON list title are both valid codec shapes.
+	adv2, err := DecodeAdvancement("pk:list", []byte(`{
+		"display": {
+			"icon": "minecraft:player_head",
+			"title": [{"text": "A", "color": "red"}, {"text": "B"}],
+			"description": {"text": "Desc", "italic": true}
+		},
+		"criteria": {"a": {"trigger": "minecraft:tick"}}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adv2.Display == nil || adv2.Display.TitleText == nil || adv2.Display.DescriptionText == nil || adv2.Display.IconStack != nil {
+		t.Errorf("list display = %+v, want TitleText, DescriptionText and nil IconStack", adv2.Display)
 	}
 }

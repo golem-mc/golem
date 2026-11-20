@@ -6,10 +6,13 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // The pack layer is process-wide, so these tests are not parallel with each
@@ -134,4 +137,170 @@ func TestReloadKeepsProgressAndDropsRemovedAdvancements(t *testing.T) {
 	if !srv.AdvancementObtained("Packer", "pk:new", "got") {
 		t.Error("the advancement added by the reload is not awarded")
 	}
+}
+
+// TestPackRecipeAdvancementUnlocksItsRecipe: a pack's recipes/ advancement is
+// loaded and fired like vanilla's, so holding its ingredient adds the pack
+// recipe to the recipe book, and a pack overriding a vanilla recipe
+// advancement with an impossible criterion stops it unlocking.
+// vanilla: ServerAdvancementManager.apply, AdvancementRewards.grant
+func TestPackRecipeAdvancementUnlocksItsRecipe(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackRecipes(registry.PackRecipes{}) })
+	cfg, data := packConfig(t)
+	writePackFile(t, filepath.Join(data, "t", "recipe", "wand.json"),
+		`{"type":"minecraft:crafting_shaped","pattern":["a","b"],"key":{"a":"minecraft:stick","b":"minecraft:diamond"},`+
+			`"result":{"id":"minecraft:diamond","count":1}}`)
+	writePackFile(t, filepath.Join(data, "t", "advancement", "recipes", "misc", "wand.json"),
+		`{"criteria":{"x":{"trigger":"minecraft:inventory_changed","conditions":{"items":[{"items":"minecraft:diamond"}]}}},`+
+			`"rewards":{"recipes":["t:wand"]}}`)
+	writePackFile(t, filepath.Join(data, "minecraft", "advancement", "recipes", "misc", "stick.json"),
+		`{"criteria":{"x":{"trigger":"minecraft:impossible"}},"rewards":{"recipes":["minecraft:stick"]}}`)
+	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Packer"))
+	c := connect()
+	c.WatchBook = true
+	c.Login("Packer")
+	c.Configure()
+	c.ReadJoin(func(int32, []byte) {})
+	c.MarkLoaded()
+	c.Settle()
+
+	give(srv, t, "Packer", "oak_planks")
+	servertest.RunTicks(t, srv, 3)
+	c.Settle()
+	if srv.RecipeKnown("Packer", "minecraft:stick") {
+		t.Error("oak planks unlocked the stick recipe despite the impossible override")
+	}
+	give(srv, t, "Packer", "diamond")
+	servertest.RunTicks(t, srv, 3)
+	c.Settle()
+	if !srv.RecipeKnown("Packer", "t:wand") {
+		t.Error("holding a diamond did not unlock the pack recipe")
+	}
+}
+
+// TestPackAdvancementStyledTitleAndIconComponents: a data-pack advancement
+// with a styled text component title/description and icon components is loaded,
+// sent with its full text components and icon patch in Update Advancements, and
+// announced in chat with the styled title and tooltip.
+// vanilla: DisplayInfo.CODEC, DisplayInfo.serializeToNetwork, Advancement.decorateName
+func TestPackAdvancementStyledTitleAndIconComponents(t *testing.T) {
+	cfg, data := packConfig(t)
+	writePackFile(t, filepath.Join(data, "pk", "advancement", "gold.json"), `{
+		"display": {
+			"icon": {
+				"id": "minecraft:stone",
+				"components": {"minecraft:enchantment_glint_override": true}
+			},
+			"title": {"text": "Gold", "color": "gold", "bold": true},
+			"description": {"translate": "pk.desc", "with": ["stone"], "fallback": "Find stone"},
+			"background": "minecraft:gui/advancements/backgrounds/stone"
+		},
+		"criteria": {
+			"got": {
+				"trigger": "minecraft:inventory_changed",
+				"conditions": {"items": [{"items": "minecraft:stone"}]}
+			}
+		}
+	}`)
+	srv, c := joinOp(t, cfg, "Packer")
+
+	give(srv, t, "Packer", "stone")
+	var update *sentUpdate
+	var announceTag nbt.Tag
+	c.ReadTicks(srv, 40, func(id int32, payload []byte) bool {
+		switch id {
+		case protocol.IDPlayUpdateAdvancements:
+			u := parseUpdate(t, payload)
+			if _, ok := u.added["pk:gold"]; ok {
+				update = &u
+			}
+		case protocol.IDPlaySystemChat:
+			tag, _, err := nbt.DecodeNetwork(payload)
+			if err != nil {
+				t.Fatalf("system chat: %v", err)
+			}
+			if fields, ok := nbt.CompoundView(tag); ok && fields["translate"] == nbt.String("chat.type.advancement.task") {
+				announceTag = tag
+			}
+		}
+		return update != nil && announceTag != nil
+	})
+	if update == nil {
+		t.Fatal("Update Advancements for pk:gold did not arrive")
+	}
+	added := update.added["pk:gold"]
+	titleFields, ok := nbt.CompoundView(added.titleTag)
+	if !ok || titleFields["text"] != nbt.String("Gold") || titleFields["color"] != nbt.String("gold") || !protocol.FlagOn(titleFields["bold"]) {
+		t.Errorf("Update Advancements title = %v, want text Gold, color gold, bold true", added.titleTag)
+	}
+	descFields, ok := nbt.CompoundView(added.descTag)
+	if !ok || descFields["translate"] != nbt.String("pk.desc") || descFields["fallback"] != nbt.String("Find stone") {
+		t.Errorf("Update Advancements description = %v, want translate pk.desc with fallback", added.descTag)
+	}
+	if added.icon != servertest.ItemIDOrDie(t, "minecraft:stone") || added.iconStack.GlintOverride != protocol.GlintShown {
+		t.Errorf("Update Advancements icon = %d (glint=%v), want stone with GlintShown", added.icon, added.iconStack.GlintOverride)
+	}
+
+	if announceTag == nil {
+		t.Fatal("completion chat announcement did not arrive")
+	}
+	msgFields, _ := nbt.CompoundView(announceTag)
+	with, _ := msgFields["with"].(nbt.List)
+	if len(with.Items) != 2 {
+		t.Fatalf("announcement with = %v, want [player, advancement]", with)
+	}
+	brackets, ok := nbt.CompoundView(nbt.ListElement(with.Items[1]))
+	if !ok || brackets["translate"] != nbt.String("chat.square_brackets") || brackets["color"] != nbt.String("green") {
+		t.Fatalf("announcement advancement = %v, want green chat.square_brackets", with.Items[1])
+	}
+	bracketWith, _ := brackets["with"].(nbt.List)
+	if len(bracketWith.Items) != 1 {
+		t.Fatalf("chat.square_brackets with = %v, want 1 item", bracketWith)
+	}
+	chatTitle, ok := nbt.CompoundView(nbt.ListElement(bracketWith.Items[0]))
+	if !ok || chatTitle["text"] != nbt.String("Gold") || chatTitle["color"] != nbt.String("gold") || !protocol.FlagOn(chatTitle["bold"]) {
+		t.Errorf("chat title = %v, want text Gold, color gold, bold true", bracketWith.Items[0])
+	}
+	hover, ok := nbt.CompoundView(chatTitle["hover_event"])
+	if !ok || hover["action"] != nbt.String("show_text") {
+		t.Fatalf("chat title hover_event = %v, want show_text", chatTitle["hover_event"])
+	}
+	tip, ok := nbt.CompoundView(hover["value"])
+	if !ok || tip["text"] != nbt.String("Gold") || tip["color"] != nbt.String("gold") || !protocol.FlagOn(tip["bold"]) {
+		t.Errorf("tooltip = %v, want Gold in gold bold", hover["value"])
+	}
+	extra, _ := tip["extra"].(nbt.List)
+	if len(extra.Items) != 2 || nbt.ListElement(extra.Items[0]) != nbt.String("\n") {
+		t.Errorf("tooltip extra = %v, want newline and description", extra)
+	}
+}
+
+// TestPackTickAdvancementTestsItsPlayerConditions: a tick criterion with a
+// player predicate is obtained only while the predicate holds of the player.
+// vanilla: SimpleCriterionTrigger.SimpleInstance.player
+func TestPackTickAdvancementTestsItsPlayerConditions(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	tick := func(player string) string {
+		return `{"criteria":{"c":{"trigger":"minecraft:tick","conditions":{"player":[` + player + `]}}}}`
+	}
+	writePackFile(t, filepath.Join(dir, "sneak.json"), tick(
+		`{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:flags":{"is_sneaking":true}}}`))
+	writePackFile(t, filepath.Join(dir, "score.json"), tick(
+		`{"condition":"minecraft:entity_scores","entity":"this","scores":{"x":1}}`))
+	srv, c := joinOp(t, cfg, "Packer")
+	c.ChatCommand("scoreboard objectives add x dummy")
+	c.Settle()
+
+	servertest.RunTicks(t, srv, 5)
+	if srv.AdvancementObtained("Packer", "pk:sneak", "c") || srv.AdvancementObtained("Packer", "pk:score", "c") {
+		t.Fatal("a tick advancement was obtained while its player condition fails")
+	}
+	c.SendSneak(true)
+	servertest.UntilTicks(t, srv, 20, "the sneak advancement", func() bool { return srv.AdvancementObtained("Packer", "pk:sneak", "c") })
+	if srv.AdvancementObtained("Packer", "pk:score", "c") {
+		t.Fatal("the score advancement was obtained with the score unset")
+	}
+	c.ChatCommand("scoreboard players set Packer x 1")
+	servertest.UntilTicks(t, srv, 20, "the score advancement", func() bool { return srv.AdvancementObtained("Packer", "pk:score", "c") })
 }

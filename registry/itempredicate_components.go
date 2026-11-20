@@ -1,4 +1,4 @@
-package world
+package registry
 
 import (
 	"slices"
@@ -6,7 +6,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
 
 // stackTest is one decoded test of a stack's component.
@@ -165,10 +164,10 @@ func decodeComponentPredicate(name string, value nbt.Tag) (stackTest, bool) {
 						items = append(items, s)
 					}
 				}
-				return items, hand.Container != nil || registry.ItemHasComponentDefault(hand.ItemID, name)
+				return items, hand.Container != nil || ItemHasComponentDefault(hand.ItemID, name)
 			}
 			items := hand.BundleContents()
-			return items, items != nil || registry.ItemHasComponentDefault(hand.ItemID, name)
+			return items, items != nil || ItemHasComponentDefault(hand.ItemID, name)
 		}
 		var coll *collectionTest[protocol.ItemStack]
 		if raw, ok := fields["items"]; ok {
@@ -177,7 +176,7 @@ func decodeComponentPredicate(name string, value nbt.Tag) (stackTest, bool) {
 				if !ok {
 					return nil, false
 				}
-				return decodeItemPredicate(entry).matches, true
+				return DecodeItemPredicate(entry).Matches, true
 			})
 			if !ok {
 				return nil, false
@@ -230,7 +229,7 @@ func decodeEnchantmentsTest(stored bool, value nbt.Tag) (stackTest, bool) {
 		have := hand.Enchantments
 		if stored {
 			have = hand.StoredEnchantments
-			if have == nil && !registry.ItemHasComponentDefault(hand.ItemID, "minecraft:stored_enchantments") {
+			if have == nil && !ItemHasComponentDefault(hand.ItemID, "minecraft:stored_enchantments") {
 				return false
 			}
 		}
@@ -268,13 +267,13 @@ func decodeEnchantmentsTest(stored bool, value nbt.Tag) (stackTest, bool) {
 func decodeEnchantmentSet(tag nbt.Tag) ([]int32, bool) {
 	one := func(s string) ([]int32, bool) {
 		if tagName, isTag := strings.CutPrefix(s, "#"); isTag {
-			tagName = registry.Qualify(tagName)
-			if _, ok := registry.EnchantmentTagMembers(tagName); !ok {
+			tagName = Qualify(tagName)
+			if _, ok := EnchantmentTagMembers(tagName); !ok {
 				return nil, false
 			}
-			return registry.EnchantmentTagIDs(tagName), true
+			return EnchantmentTagIDs(tagName), true
 		}
-		id, ok := registry.EnchantmentID(registry.Qualify(s))
+		id, ok := EnchantmentID(Qualify(s))
 		return []int32{id}, ok
 	}
 	if s, ok := tag.(nbt.String); ok {
@@ -301,14 +300,14 @@ func decodeEnchantmentSet(tag nbt.Tag) ([]int32, bool) {
 // vanilla: DataComponentExactPredicate.test
 func exactComponentMatches(hand protocol.ItemStack, name string, want nbt.Tag) bool {
 	probe := protocol.ItemStack{ItemID: hand.ItemID, Count: 1}
-	if !registry.ReadComponent(&probe, name, want) {
+	if !ReadComponent(&probe, name, want) {
 		return true
 	}
-	wanted, ok := registry.StackComponents(probe)[name]
-	have, held := registry.StackComponents(hand)[name]
+	wanted, ok := StackComponents(probe)[name]
+	have, held := StackComponents(hand)[name]
 	if name == "minecraft:lore" && ok {
 		// Every item's lore defaults to empty, which a patch of no lines equals.
-		_, removed := registry.StackComponents(hand)["!"+name]
+		_, removed := StackComponents(hand)["!"+name]
 		wantedList, _ := wanted.(nbt.List)
 		haveList, _ := have.(nbt.List)
 		if len(wantedList.Items) == 0 {
@@ -318,6 +317,6 @@ func exactComponentMatches(hand protocol.ItemStack, name string, want nbt.Tag) b
 	if ok {
 		return held && nbt.Equal(wanted, have)
 	}
-	_, removed := registry.StackComponents(hand)["!"+name]
-	return !held && !removed && registry.ItemHasComponentDefault(hand.ItemID, name)
+	_, removed := StackComponents(hand)["!"+name]
+	return !held && !removed && ItemHasComponentDefault(hand.ItemID, name)
 }

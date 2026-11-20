@@ -193,7 +193,7 @@ func (p *oceanRuinPiece) place(r *decorRegion, chunk jbox, _ [3]int32) {
 func (p *oceanRuinPiece) process(seed int64) *PlacedTemplate {
 	placed, _ := p.template.Place(TemplatePlacement{Origin: p.pos, Rotation: p.rotation, Integrity: 1, Seed: 1, IgnoreEntities: true,
 		process: func(state uint16, tag nbt.Compound, pos [3]int32) (uint16, nbt.Compound, bool) {
-			if _, ok := (blockRot{integrity: p.integrity}).apply(state, 0, pos[0], pos[1], pos[2], 0); !ok {
+			if _, ok := (blockRot{integrity: p.integrity}).apply(state, 0, pos[0], pos[1], pos[2], [3]int32{}); !ok {
 				return state, tag, false
 			}
 			return state, tag, registry.BlockOf(state) != registry.BlockAir && registry.BlockOf(state) != registry.BlockStructureBlock
@@ -202,8 +202,8 @@ func (p *oceanRuinPiece) process(seed int64) *PlacedTemplate {
 	if p.cold {
 		candidate, replacement, loot = registry.BlockGravel, registry.BlockSuspiciousGravel, "minecraft:archaeology/ocean_ruin_cold"
 	}
-	cap := cappedProcessor{delegate: ruleProcessor{rules: []processorRule{{kind: inputBlock, input: candidate, output: replacement.DefaultState(), loot: loot}}}, min: 5, max: 5}
-	cap.finalize(placed, seed, p.pos, 0, nil)
+	cap := cappedProcessor{delegate: ruleProcessor{rules: []processorRule{{kind: inputBlock, input: candidate, output: replacement.DefaultState(), modifier: lootModifier(loot)}}}, min: 5, max: 5}
+	cap.finalize(placed, seed, p.pos, [3]int32{}, nil)
 	for i, tag := range placed.Tags {
 		if registry.BlockOf(placed.Changes[i].State) == replacement {
 			tag["id"] = nbt.String(KindBrushable.Name())

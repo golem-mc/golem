@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -17,8 +18,7 @@ import (
 // ignores ignored with a log line. A file is refused where vanilla refuses
 // it (malformed shape, unknown trigger, item or frame, bad parent id, bad
 // requirements) and where the shapes cannot carry it (loot and function
-// rewards, text components beyond a translation key or literal text). An
-// icon's components are not carried.
+// rewards).
 // vanilla: Advancement.CODEC
 
 // advancementTriggers are the registered trigger types; a criterion naming
@@ -165,47 +165,53 @@ func advRequirements(v any, names []string) [][]string {
 
 func advDisplay(id string, o obj) *registry.AdvancementDisplay {
 	ignoreKeys(id, "display", o, "icon", "title", "description", "frame", "background", "show_toast", "announce_to_chat", "hidden")
-	icon := object(required(o, "icon"), "icon")
-	ignoreKeys(id, "icon", icon, "id", "count", "components")
-	name := registry.Qualify(requireStr(icon, "id"))
-	item, ok := registry.ItemID(name)
-	if !ok {
-		fail("unknown item %s", name)
+	stack := tradeResult(required(o, "icon"))
+	var iconStack *protocol.ItemStack
+	if icon, ok := o["icon"].(obj); ok {
+		ignoreKeys(id, "icon", icon, "id", "count", "components")
+		if comps, _ := icon["components"].(obj); len(comps) > 0 {
+			iconStack = &stack
+		}
 	}
 	d := &registry.AdvancementDisplay{
-		Icon: item, IconCount: int32(optNum(icon, "count", 1)),
+		Icon: stack.ItemID, IconCount: stack.Count, IconStack: iconStack,
 		ShowToast: flag(o, "show_toast", true), AnnounceChat: flag(o, "announce_to_chat", true), Hidden: flag(o, "hidden", false),
 	}
-	d.Title, d.TitleLiteral = advText(required(o, "title"))
-	d.Description, d.DescriptionLiteral = advText(required(o, "description"))
+	d.Title, d.TitleLiteral, d.TitleText = advText(required(o, "title"))
+	d.Description, d.DescriptionLiteral, d.DescriptionText = advText(required(o, "description"))
 	frame := "task"
 	if f, ok := o["frame"]; ok {
 		frame = str(f, "frame")
 	}
-	if d.Frame, ok = advancementFrames[frame]; !ok {
+	frameID, ok := advancementFrames[frame]
+	if !ok {
 		fail("unknown frame %q", frame)
 	}
+	d.Frame = frameID
 	if _, ok := o["background"]; ok {
 		d.Background = requireStr(o, "background")
 	}
 	return d
 }
 
-// advText reads a text component as a translation key, or as literal text
-// when it is a plain string or has only "text".
-func advText(v any) (text string, literal bool) {
+// advText reads a text component: a bare translation key or literal text stays
+// in the string fields so vanilla advancements match the generated tree; any
+// richer component is returned in full.
+// vanilla: ComponentSerialization.CODEC
+func advText(v any) (text string, literal bool, full *protocol.Text) {
 	if s, ok := v.(string); ok {
-		return s, true
+		return s, true, nil
 	}
-	o := object(v, "a text component")
-	switch {
-	case keysAre(o, "translate"):
-		return requireStr(o, "translate"), false
-	case keysAre(o, "text"):
-		return requireStr(o, "text"), true
+	if o, ok := v.(map[string]any); ok {
+		switch {
+		case keysAre(o, "translate"):
+			return requireStr(o, "translate"), false, nil
+		case keysAre(o, "text"):
+			return requireStr(o, "text"), true, nil
+		}
 	}
-	fail("a text component other than a translation key or plain text is not supported")
-	return "", false
+	parsed := textComponent(v)
+	return "", false, &parsed
 }
 
 // qualifyRef gives a name, or a #tag, its namespace.
@@ -504,6 +510,38 @@ func advCriterion(id, name string, value obj) registry.AdvancementCriterion {
 		fail("unknown trigger %s", trigger)
 	}
 	conditions := advContexts(asObjOr(value["conditions"]))
+	c := advTrigger(name, trigger, conditions)
+	if !c.Unmodelled {
+		return c
+	}
+	if player, ok := conditions["player"]; ok {
+		rest := maps.Clone(conditions)
+		delete(rest, "player")
+		if second := advTrigger(name, trigger, rest); !second.Unmodelled {
+			if conds, ok := advPlayerConditions(player); ok {
+				second.Player = conds
+				return second
+			}
+		}
+	}
+	return c
+}
+
+// advPlayerConditions decodes a criterion's player conditions with the loot
+// codec, or false for one it refuses.
+func advPlayerConditions(player any) (out []registry.LootCondition, ok bool) {
+	var err error
+	func() {
+		defer recoverLoot(&err)
+		for _, term := range player.([]any) {
+			out = append(out, conditionHolder(term))
+		}
+	}()
+	return out, err == nil
+}
+
+// advTrigger reads the conditions the server tests of one trigger.
+func advTrigger(name, trigger string, conditions obj) registry.AdvancementCriterion {
 	c := registry.AdvancementCriterion{Name: name, Trigger: trigger}
 	only := func(keys ...string) { advOnly(&c, conditions, keys...) }
 	switch trigger {

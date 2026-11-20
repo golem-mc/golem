@@ -1305,7 +1305,9 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 	if strike.beam > 0 {
 		s.guardianBeam(strike, victim)
 	}
-	dealt, extra := strike.mob.BlowEnchantments(protocol.EntityTypePlayer, strike.damage)
+	dealt, extra := strike.mob.BlowEnchantments(protocol.EntityTypePlayer, strike.damage, func(ctx *rules.EnchContext) {
+		s.bindBlowLoot(strike.w, ctx, attackBody{mob: strike.mob}, attackBody{player: victim}, false)
+	})
 	if strike.roar {
 		extra = 0
 	}
@@ -1463,7 +1465,9 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 			return
 		}
 	}
-	dealt, extra := strike.mob.BlowEnchantments(victim.TypeID(), strike.damage)
+	dealt, extra := strike.mob.BlowEnchantments(victim.TypeID(), strike.damage, func(ctx *rules.EnchContext) {
+		s.bindBlowLoot(strike.w, ctx, attackBody{mob: strike.mob}, attackBody{mob: victim}, true)
+	})
 	// The spikes are read before the blow lands. vanilla: Guardian.hurtServer
 	thorns := strike.beam == 0 && victim.ThornsOut()
 	damageType := rules.DamageTypeMobAttack
@@ -3319,7 +3323,9 @@ func (c *client) attackMob(target int32) {
 		return
 	}
 	held := c.attackWeapon()
-	blow, ok := c.prepareAttack(held, mobEntityType(ent.mob.Type), true)
+	blow, ok := c.prepareAttack(held, mobEntityType(ent.mob.Type), true, func() *rules.LootEntity {
+		return c.srv.mobAttackLoot(ent)
+	})
 	if !ok {
 		return
 	}
@@ -4296,4 +4302,32 @@ func (c *client) shearEquipment(ent *mobEntity, hand, shears int32) bool {
 	c.shearedEquipmentAdvancements(after, taken.Stack.ItemID)
 	c.interactedWithEntityAdvancements(after, shears)
 	return true
+}
+
+// mobAttackLoot is the loot snapshot of a mob under attack, for the loot
+// conditions of a data-pack effect; the caller holds no mob lock.
+func (s *Server) mobAttackLoot(ent *mobEntity) *rules.LootEntity {
+	s.mobsMu.Lock()
+	defer s.mobsMu.Unlock()
+	return s.mobLootLocked(ent)
+}
+
+// mobLootLocked is mobAttackLoot for a caller that holds mobsMu; the saved
+// compound is built when a predicate asks, under the same lock.
+func (s *Server) mobLootLocked(ent *mobEntity) *rules.LootEntity {
+	e := mobLootEntity(ent.mob)
+	m := ent.mob
+	e.Place = &rules.LootPlace{X: m.X, Y: m.Y, Z: m.Z, OnGround: m.OnGround,
+		OnPos: [3]int32{rules.BlockOf(m.X), int32(math.Floor(m.Y - 1e-5)), rules.BlockOf(m.Z)}}
+	book := s.herdOf(ent.w).book
+	e.NBT = func() nbt.Compound { return mobTagAs(ent, book, "").Entries() }
+	return &e
+}
+
+// victimLoot is a player victim's loot snapshot for a data-pack effect.
+func victimLoot(v *client) func() *rules.LootEntity {
+	return func() *rules.LootEntity {
+		e := v.LootEntity()
+		return &e
+	}
 }

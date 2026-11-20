@@ -269,7 +269,7 @@ func (c *client) attackMannequin(target int32) bool {
 		return true
 	}
 	held := c.attackWeapon()
-	blow, ok := c.prepareAttack(held, protocol.EntityTypeMannequin, true)
+	blow, ok := c.prepareAttack(held, protocol.EntityTypeMannequin, true, nil)
 	if !ok {
 		return true
 	}

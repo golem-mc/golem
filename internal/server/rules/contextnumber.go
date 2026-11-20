@@ -277,8 +277,7 @@ func (r *lootRoller) floatOf(n registry.LootNumber) (float64, error) {
 		}
 		return float64(r.ctx.Level.EnvironmentFloat(k.Attribute)), nil
 	case registry.LootEnchantmentLevel:
-		// No context this server rolls carries an enchantment level.
-		return float64(EnchLevelValueAt(k.Amount, 0)), nil
+		return float64(EnchLevelValueAt(k.Amount, r.ctx.EnchantmentLevel)), nil
 	case registry.LootProviderRef:
 		var v float64
 		err := r.ref(k, func(n registry.LootNumber) (err error) {

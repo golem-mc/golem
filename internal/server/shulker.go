@@ -207,7 +207,7 @@ func (c *client) attackBullet(it *thrownEntity) {
 		return
 	}
 	held := c.heldItem(protocol.HandMain)
-	blow, ok := c.prepareAttack(held, protocol.EntityTypeShulkerBullet, false)
+	blow, ok := c.prepareAttack(held, protocol.EntityTypeShulkerBullet, false, nil)
 	if !ok {
 		return
 	}

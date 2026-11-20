@@ -541,16 +541,23 @@ func (c *client) AnnounceAdvancements() {
 	// a stack broadcasts item changes and a function may revoke an
 	// advancement, both of which announce again.
 	for _, r := range c.announceAdvancements() {
-		c.giveAdvancementLoot(r.Loot)
+		if len(r.Loot) > 0 {
+			c.giveAdvancementLoot(r.Loot)
+		}
+		if len(r.Recipes) > 0 {
+			c.giveRecipesAndAnnounce(r.Recipes, true)
+		}
 		if r.Function != "" {
 			c.runAdvancementFunction(r.Function)
 		}
 	}
 }
 
-// advancementRewards is the loot and function of one completed advancement.
+// advancementRewards is the loot, recipes and function of one completed
+// advancement, granted in that order. vanilla: AdvancementRewards.grant
 type advancementRewards struct {
 	Loot     []string
+	Recipes  []string
 	Function string
 }
 
@@ -606,7 +613,7 @@ func (c *client) addRewardStack(stack protocol.ItemStack) (added bool) {
 }
 
 // announceAdvancements does AnnounceAdvancements' work under the dispatch
-// lock and returns the loot and functions to grant after it.
+// lock and returns the loot, recipes and functions to grant after it.
 func (c *client) announceAdvancements() (rewards []advancementRewards) {
 	// A caller must wait for completions another caller already drained to
 	// finish dispatching before it sends command feedback or progress.
@@ -621,18 +628,18 @@ func (c *client) announceAdvancements() (rewards []advancementRewards) {
 		if len(completed) == 0 {
 			return rewards
 		}
-		var recipes []string
 		for _, n := range completed {
 			if n.Experience > 0 {
 				c.GiveExperiencePoints(int(n.Experience))
 			}
-			if len(n.Loot) > 0 || n.Function != "" {
-				rewards = append(rewards, advancementRewards{n.Loot, n.Function})
-			}
+			var recipes []string
 			for _, name := range n.Recipes {
 				if _, ok := registry.RecipeDisplayIDOfName(name); ok {
 					recipes = append(recipes, name)
 				}
+			}
+			if len(n.Loot) > 0 || len(recipes) > 0 || n.Function != "" {
+				rewards = append(rewards, advancementRewards{n.Loot, recipes, n.Function})
 			}
 			var msg *protocol.Text
 			if n.Display != nil && n.Display.AnnounceChat && c.theWorld().BoolRule(world.RuleShowAdvancementMsgs) {
@@ -644,11 +651,6 @@ func (c *client) announceAdvancements() (rewards []advancementRewards) {
 			if msg = c.pluginAdvancementDone(n, msg); msg != nil {
 				c.srv.broadcastSystemMessage(*msg)
 			}
-		}
-		// Recipe rewards can complete recipe_unlocked criteria. Drain those
-		// here too, without recursively taking the dispatch lock.
-		if len(recipes) > 0 {
-			c.giveRecipes(recipes, true)
 		}
 	}
 }
@@ -740,14 +742,13 @@ func putAdvancement(b *protocol.Buffer, n *advancement.Node) {
 	d := n.Display
 	b.PutBool(d != nil)
 	if d != nil {
-		b.PutText(command.DisplayText(d.Title, d.TitleLiteral))
-		b.PutText(command.DisplayText(d.Description, d.DescriptionLiteral))
-		// The icon is an ItemStackTemplate: item, count, then an empty component
-		// patch's two counts.
-		b.PutVarInt(d.Icon)
-		b.PutVarInt(d.IconCount)
-		b.PutVarInt(0)
-		b.PutVarInt(0)
+		b.PutText(command.DisplayTitle(d))
+		b.PutText(command.DisplayDescription(d))
+		icon := protocol.ItemStack{ItemID: d.Icon, Count: d.IconCount}
+		if d.IconStack != nil {
+			icon = *d.IconStack
+		}
+		b.PutItemTemplate(icon)
 		b.PutVarInt(d.Frame)
 		var flags int32
 		if d.Background != "" {

@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
-	"strings"
 
 	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/datapack"
@@ -12,8 +11,7 @@ import (
 )
 
 // loadPackAdvancements reads the enabled packs' advancements; a file that
-// fails to decode is logged and skipped, leaving the built-in one. The recipe
-// unlock advancements under recipes/ are not read: none is shown or fired.
+// fails to decode is logged and skipped, leaving the built-in one.
 // vanilla: ServerAdvancementManager.apply
 func loadPackAdvancements(dirs []string, skip func(file string, err error)) (packed []registry.Advancement, hidden map[string]bool, err error) {
 	raw, err := datapack.LoadResources(dirs, "advancement", skip)
@@ -31,9 +29,6 @@ func loadPackAdvancements(dirs []string, skip func(file string, err error)) (pac
 	}
 	var out []registry.Advancement
 	for _, id := range slices.Sorted(maps.Keys(raw)) {
-		if strings.HasPrefix(id[strings.IndexByte(id, ':')+1:], "recipes/") {
-			continue
-		}
 		adv, err := datapack.DecodeAdvancement(id, raw[id])
 		if err != nil {
 			slog.Error("Couldn't parse element advancement/" + id + ": " + err.Error())

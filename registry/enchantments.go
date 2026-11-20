@@ -129,6 +129,8 @@ type EnchCondition struct {
 	Body *LootEntityPredicate
 	// Active is EnchCondActive's expected value.
 	Active bool
+	// Loot is EnchCondLoot's condition, which every entry must pass.
+	Loot []LootCondition
 }
 
 // EnchConditionKind names which condition a node is.
@@ -147,6 +149,7 @@ const (
 	EnchCondEntityState // minecraft:entity_properties with vehicle, flags or player data
 	EnchCondBody        // minecraft:entity_properties on "this" asking after movement, ground contact or age
 	EnchCondActive      // minecraft:enchantment_active_check
+	EnchCondLoot        // any other loot condition, tested with rules.TestLootCondition
 )
 
 // EnchEntityState is the user-state half of an entity_properties predicate:
