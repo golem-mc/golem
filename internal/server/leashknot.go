@@ -8,6 +8,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
@@ -506,6 +507,7 @@ func (c *client) useLeadOnFence(hand, x, y, z int32) (handled bool, err error) {
 
 	knot, tell, created := s.tieKnot(w, x, y, z)
 	holder.EntityID = tell.id
+	binding = slices.DeleteFunc(binding, func(ent *mobEntity) bool { return !c.leashAllowed(ent.uuid, knot.uuid, false) })
 	s.mobsMu.Lock()
 	// The hold is re-read under the lock the knot was stood up without: a
 	// mob the player let go of in between is not moved, and a knot it
@@ -679,6 +681,17 @@ func (c *client) bindLeadToMob(ent *mobEntity, held protocol.ItemStack, hand int
 	// mob lock may not be taken while mu is.
 	playerIDs := s.playerEntityIDs()
 	holder := c.playerHolderSnapshot()
+
+	if c.pluginListening(pluginruntime.PlayerLeashEntity) {
+		s.mobsMu.Lock()
+		untie := !ent.mob.Dead && ent.mob.LeashHolderID == c.player.EntityID
+		tie := !untie && !ent.mob.Dead && item == registry.ItemLead && entity.Leashable(ent.mob.Type) &&
+			!playerIDs[ent.mob.LeashHolderID] && entity.LeashableBy(ent.mob, holder)
+		s.mobsMu.Unlock()
+		if (untie || tie) && !c.leashAllowed(ent.uuid, c.player.UUID, untie) {
+			return true, nil // the lead stays in hand
+		}
+	}
 
 	s.mobsMu.Lock()
 	if !ent.mob.Dead && ent.mob.LeashHolderID == c.player.EntityID {
