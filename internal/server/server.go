@@ -627,7 +627,8 @@ type Server struct {
 	minecartsMu sync.Mutex
 	minecarts   []*minecartEntity
 	// vehicleMarks is each hull's and cart's transform at the last VehicleMoveEvent pass; tick goroutine only.
-	vehicleMarks map[uuid.UUID]moveMark
+	vehicleMarks map[uuid.UUID]markState
+	vehicleGen   uint32
 	cartCols     *cartColumns
 	// cartColBuffer retains storage between passes; cartCols is nil outside them.
 	cartColBuffer cartColumns

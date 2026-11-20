@@ -46,7 +46,7 @@ func TestPluginVehicleMoveEvent(t *testing.T) {
 		_, y, _, _, _ := srv.MinecartState(cart)
 		return y < 70
 	})
-	for range 100 {
+	for range 20 {
 		srv.RunTick()
 	}
 	before := cartMoves + boatMoves
@@ -90,13 +90,20 @@ func TestPluginEntityMoveEvent(t *testing.T) {
 	if moves != settled {
 		t.Fatalf("a standing zombie fired %d events", moves-settled)
 	}
-	// A cancelled fall keeps the mob where it stood.
+	// A cancelled fall keeps the mob at its spawn point, and every step it
+	// tries fires an event.
 	cancel = true
 	id = srv.SpawnMob("minecraft:zombie", 6.5, 90, 6.5)
-	for range 6 {
+	moves = 0
+	const ticks = 8
+	for range ticks {
 		srv.RunTick()
+		if x, y, z, _ := srv.MobPos(id); x != 6.5 || y != 90 || z != 6.5 {
+			t.Fatalf("cancelled zombie at %v %v %v, want 6.5 90 6.5", x, y, z)
+		}
 	}
-	if _, y, _, _ := srv.MobPos(id); y < 89 {
-		t.Errorf("cancelled zombie fell to y %v", y)
+	// The mob steps only on its own update ticks; each step it takes is told.
+	if moves < 2 {
+		t.Errorf("cancelled zombie fired %d events in %d ticks", moves, ticks)
 	}
 }

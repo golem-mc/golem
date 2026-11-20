@@ -17,6 +17,15 @@ type moveMark struct {
 	yaw, pitch float32
 }
 
+// markState is a moveMark plus the pass that last saw the body, so a pass
+// prunes stale marks without a second map, and whether a plugin put the
+// body back.
+type markState struct {
+	moveMark
+	gen  uint32
+	held bool
+}
+
 func (m moveMark) location(s *Server, w *world.World) plugin.Location {
 	return plugin.Location{
 		World: pluginWorld{srv: s, dim: s.dimensionOfWorld(w), host: s.pluginAdapter},
@@ -35,27 +44,47 @@ type mobMove struct {
 }
 
 // noteMoves records the mobs whose position or rotation changed since the
-// last pass. A mob with a teleport still to be told is not a move.
+// last pass. A mob with another teleport still to be told is not a move;
+// one a plugin put back is, so a cancel holds on every tick.
 // vanilla: ServerEntity.sendChanges
 func (t *mobDimTick) noteMoves(fx *mobEffects) {
+	h := t.h
 	if t.s.plugins == nil || !t.s.plugins.Has(pluginruntime.EntityMove) {
-		t.h.moveMarks = nil
+		h.moveMarks = nil
 		return
 	}
-	next := make(map[*entity.Mob]moveMark, len(t.h.herd))
-	for _, m := range t.h.herd {
-		now := moveMark{m.X, m.Y, m.Z, m.Yaw, m.Pitch}
-		next[m] = now
-		was, ok := t.h.moveMarks[m]
-		if !ok || was == now {
-			continue
-		}
-		if ent := t.h.record(m); ent == nil || ent.teleported {
-			continue
-		}
-		fx.moves = append(fx.moves, mobMove{w: t.w, h: t.h, m: m, id: t.h.MobUUID(m), from: was, to: now})
+	if h.moveMarks == nil {
+		h.moveMarks = make(map[*entity.Mob]markState, len(h.herd))
 	}
-	t.h.moveMarks = next
+	h.moveGen++
+	for _, m := range h.herd {
+		now := moveMark{m.X, m.Y, m.Z, m.Yaw, m.Pitch}
+		st, ok := h.moveMarks[m]
+		next := markState{moveMark: now, gen: h.moveGen}
+		if !ok || st.moveMark == now {
+			if ok {
+				next.held = st.held
+			}
+			h.moveMarks[m] = next
+			continue
+		}
+		ent := h.record(m)
+		if ent != nil {
+			next.held = st.held && ent.teleported
+		}
+		h.moveMarks[m] = next
+		if ent == nil || ent.teleported && !st.held {
+			continue
+		}
+		fx.moves = append(fx.moves, mobMove{w: t.w, h: h, m: m, id: h.MobUUID(m), from: st.moveMark, to: now})
+	}
+	if len(h.moveMarks) > len(h.herd) {
+		for m, st := range h.moveMarks {
+			if st.gen != h.moveGen {
+				delete(h.moveMarks, m)
+			}
+		}
+	}
 }
 
 // fireMobMoves fires EntityMoveEvent for each noted move; a cancelled one
@@ -79,7 +108,7 @@ func (s *Server) fireMobMoves(moves []mobMove) {
 		s.teleportMob(ent, player.Position{X: mv.from.x, Y: mv.from.y, Z: mv.from.z}, mv.from.yaw, mv.from.pitch, "plugin")
 		s.mobsMu.Lock()
 		if mv.h.moveMarks != nil {
-			mv.h.moveMarks[mv.m] = mv.from
+			mv.h.moveMarks[mv.m] = markState{moveMark: mv.from, gen: mv.h.moveGen, held: true}
 		}
 		s.mobsMu.Unlock()
 	}
@@ -98,17 +127,22 @@ func (s *Server) fireVehicleMoves() {
 		s.vehicleMarks = nil
 		return
 	}
-	next := make(map[uuid.UUID]moveMark, len(s.vehicleMarks))
+	if s.vehicleMarks == nil {
+		s.vehicleMarks = make(map[uuid.UUID]markState)
+	}
+	s.vehicleGen++
 	var moves []vehicleMove
 	note := func(w *world.World, id uuid.UUID, now moveMark) {
-		next[id] = now
-		if was, ok := s.vehicleMarks[id]; ok && was != now {
-			moves = append(moves, vehicleMove{w: w, id: id, from: was, to: now})
+		if was, ok := s.vehicleMarks[id]; ok && was.moveMark != now {
+			moves = append(moves, vehicleMove{w: w, id: id, from: was.moveMark, to: now})
 		}
+		s.vehicleMarks[id] = markState{moveMark: now, gen: s.vehicleGen}
 	}
+	n := 0
 	s.lockTick(&s.boatsMu)
 	for _, it := range s.boats {
 		if !it.boat.Dead {
+			n++
 			note(it.w, it.uuid, moveMark{it.boat.X, it.boat.Y, it.boat.Z, it.boat.Yaw, 0})
 		}
 	}
@@ -116,11 +150,18 @@ func (s *Server) fireVehicleMoves() {
 	s.lockTick(&s.minecartsMu)
 	for _, it := range s.minecarts {
 		if !it.cart.Dead {
+			n++
 			note(it.w, it.uuid, moveMark{it.cart.X, it.cart.Y, it.cart.Z, it.cart.Yaw, 0})
 		}
 	}
 	s.unlockTick(&s.minecartsMu)
-	s.vehicleMarks = next
+	if len(s.vehicleMarks) > n {
+		for id, st := range s.vehicleMarks {
+			if st.gen != s.vehicleGen {
+				delete(s.vehicleMarks, id)
+			}
+		}
+	}
 	for _, mv := range moves {
 		s.plugins.Fire(&plugin.VehicleMoveEvent{
 			Vehicle: pendingVehicle{id: mv.id},
