@@ -254,9 +254,55 @@ func TestPluginSetAwardedIsSilent(t *testing.T) {
 	}
 	adv, _ := h.Advancement(plugin.MinecraftKey("story/mine_stone"))
 	progress := p.Advancements(adv)
+	events := 0
+	// Only the two advancements SetAwarded touches: standing in a biome
+	// grants adventuring_time on its own.
+	ours := func(a plugin.Advancement) bool {
+		k := a.Key().String()
+		return k == "minecraft:story/mine_stone" || k == "minecraft:adventure/arbalistic"
+	}
+	plugin.Listen(h, func(e *plugin.PlayerAdvancementDoneEvent) {
+		if ours(e.Advancement) {
+			events++
+		}
+	})
+	plugin.Listen(h, func(e *plugin.PlayerAdvancementCriterionGrantEvent) {
+		if ours(e.Advancement) {
+			events++
+		}
+	})
+	rich, ok := h.Advancement(plugin.MinecraftKey("adventure/arbalistic"))
+	if !ok {
+		t.Fatal("adventure/arbalistic")
+	}
+	richProgress := p.Advancements(rich)
+	c.WatchAdvancements = true
+	c.ReadTicks(srv, 2, func(int32, []byte) bool { return false })
+	var shows []bool
+	collect := func(id int32, data []byte) bool {
+		if id == protocol.IDPlayUpdateAdvancements && len(data) > 0 {
+			shows = append(shows, data[len(data)-1] == 1)
+		}
+		return id == protocol.IDPlaySystemChat || id == protocol.IDPlaySetExperience
+	}
 	run(func() { progress.SetAwarded([]string{"get_stone"}) })
-	if !progress.Done() {
+	run(func() { richProgress.SetAwarded(rich.Criteria()) })
+	if !progress.Done() || !richProgress.Done() {
 		t.Fatal("not done after SetAwarded")
+	}
+	if c.ReadTicks(srv, 3, collect) {
+		t.Fatal("SetAwarded sent chat or experience")
+	}
+	if len(shows) == 0 {
+		t.Fatal("SetAwarded sent no advancement update")
+	}
+	for _, show := range shows {
+		if show {
+			t.Fatal("SetAwarded update has show advancements set")
+		}
+	}
+	if events != 0 {
+		t.Fatalf("SetAwarded fired %d plugin events", events)
 	}
 	run(func() { progress.SetAwarded(nil) })
 	if progress.Done() {
@@ -269,6 +315,9 @@ func TestPluginSetAwardedIsSilent(t *testing.T) {
 	c.ExpectNoneWithinTicks(srv, 5, func(id int32, _ []byte) bool {
 		return id == protocol.IDPlaySystemChat || id == protocol.IDPlaySetExperience
 	})
+	if events != 0 {
+		t.Fatalf("SetAwarded fired %d plugin events", events)
+	}
 }
 
 // vanilla: ServerPlayer.setCamera

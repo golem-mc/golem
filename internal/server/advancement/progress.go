@@ -150,6 +150,9 @@ func (p *Progress) Revoke(n *Node, criterion string) bool {
 func (p *Progress) SetAwarded(n *Node, criteria []string, at time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if len(criteria) == 0 && len(p.obtained[n.index]) == 0 {
+		return
+	}
 	wasDone := p.isDone(n)
 	want := map[string]time.Time{}
 	for _, c := range criteria {
