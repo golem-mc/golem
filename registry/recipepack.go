@@ -188,10 +188,11 @@ func newRecipeSet(s *recipeSet) *recipeSet {
 
 // ApplyPackRecipes layers the data packs' recipes over the built-in ones and
 // makes the result what crafting, cooking, smithing, the stonecutter and the
-// recipe book use. An empty set restores the built-in recipes.
+// recipe book use. The built-in recipes' tag ingredients follow the item tags
+// in force. An empty set with no item tag changed restores the built-in recipes.
 // vanilla: RecipeManager.prepare, RecipeManager.apply
 func ApplyPackRecipes(p PackRecipes) {
-	if p.Empty() {
+	if p.Empty() && !itemTagsPacked.Load() {
 		recipesNow.Store(nil)
 		return
 	}
@@ -261,6 +262,7 @@ func layerRecipes(p PackRecipes) *recipeSet {
 	}
 	s.shaped = append(s.shaped, filterRecipes(ShapedRecipes, func(r ShapedRecipe) bool { return kept(r.ID) })...)
 	s.shapeless = append(s.shapeless, filterRecipes(ShapelessRecipes, func(r ShapelessRecipe) bool { return kept(r.ID) })...)
+	retagBuiltins(s, replaced)
 	for i := range s.shaped {
 		s.craftOrder = append(s.craftOrder, craftRef{shaped: true, index: i})
 	}
