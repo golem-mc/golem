@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/golem-mc/golem/launcher/ui"
 )
 
 const (
@@ -154,9 +156,9 @@ func updateCheckOn(cfg config) bool {
 // plugins and of the launcher, and answers a function that waits for the
 // notices to print. They are none when the check is off or fails, and when it
 // has not finished updateCheckTimeout after it started.
-func (c *cli) startUpdateCheck(ctx context.Context, st state) func() []string {
+func (c *cli) startUpdateCheck(ctx context.Context, st state) func() []notice {
 	if !updateCheckOn(st.cfg) {
-		return func() []string { return nil }
+		return func() []notice { return nil }
 	}
 	expiry := c.l.clock.After(updateCheckTimeout)
 	ctx, cancel := context.WithCancel(ctx)
@@ -171,12 +173,12 @@ func (c *cli) startUpdateCheck(ctx context.Context, st state) func() []string {
 	}()
 	// Read before the goroutine: a check cut short outlives the start.
 	own, finished := ownVersion(), updateCheckDone
-	done := make(chan []string, 1)
+	done := make(chan []notice, 1)
 	go func() {
 		done <- c.updateNotices(ctx, st, own)
 		finished()
 	}()
-	return func() []string {
+	return func() []notice {
 		defer cancel()
 		// An answer that is in wins over an expiry that is also due.
 		select {
@@ -194,10 +196,36 @@ func (c *cli) startUpdateCheck(ctx context.Context, st state) func() []string {
 	}
 }
 
-// updateNotices answers one line per outdated item, using the version cache,
+// notice is one line of a start's update notices: a newer version, or the
+// hint how to update.
+type notice struct {
+	text string
+	hint bool
+}
+
+// String answers the notice as plain mode prints it.
+func (n notice) String() string {
+	if n.hint {
+		return "  " + n.text
+	}
+	return "↑ " + n.text
+}
+
+// printNotices prints ns through u, above any live lines.
+func printNotices(u *ui.UI, ns []notice) {
+	for _, n := range ns {
+		if n.hint {
+			u.Hint(n.text)
+		} else {
+			u.Update("%s", n.text)
+		}
+	}
+}
+
+// updateNotices answers one notice per outdated item, using the version cache,
 // with own the launcher's version; none once ctx is done, so a check cut short
 // reports nothing.
-func (c *cli) updateNotices(ctx context.Context, st state, own string) []string {
+func (c *cli) updateNotices(ctx context.Context, st state, own string) []notice {
 	var launcherLatest string
 	var wg sync.WaitGroup
 	if own != "" { // a build from a checkout has no version to compare
@@ -217,19 +245,19 @@ func (c *cli) updateNotices(ctx context.Context, st state, own string) []string 
 	if ctx.Err() != nil {
 		return nil
 	}
-	var lines []string
+	var lines []notice
 	for _, it := range items {
 		name := it.path
 		if name == serverModule {
 			name = "golem"
 		}
-		lines = append(lines, fmt.Sprintf("↑ %s %s is out (you run %s)", name, it.latest, it.current))
+		lines = append(lines, notice{text: fmt.Sprintf("%s %s is out (you run %s)", name, it.latest, it.current)})
 	}
 	if launcherLatest != "" && newer(own, launcherLatest) {
-		lines = append(lines, fmt.Sprintf("↑ %s %s is out (you run %s): https://%s/releases/latest", launcherKey, launcherLatest, own, serverModule))
+		lines = append(lines, notice{text: fmt.Sprintf("%s %s is out (you run %s): https://%s/releases/latest", launcherKey, launcherLatest, own, serverModule)})
 	}
 	if len(items) > 0 {
-		lines = append(lines, "  run `golem-launcher update` to update the server and plugins")
+		lines = append(lines, notice{text: "run `golem-launcher update` to update the server and plugins", hint: true})
 	}
 	return lines
 }

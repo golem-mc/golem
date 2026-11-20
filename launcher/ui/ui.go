@@ -241,6 +241,16 @@ func (u *UI) Warn(format string, args ...any) {
 	u.print(st.Paint(Yellow, "! "+fmt.Sprintf(format, args...)) + "\n")
 }
 
+// Update prints a newer version: ↑ and the message, in yellow.
+func (u *UI) Update(format string, args ...any) {
+	u.print(u.Err().Paint(Yellow, "↑ "+fmt.Sprintf(format, args...)) + "\n")
+}
+
+// Hint prints msg indented and dimmed, under the line it belongs to.
+func (u *UI) Hint(msg string) {
+	u.print("  " + u.Err().Paint(Dim, msg) + "\n")
+}
+
 // Error prints a red "error:" and msg, then hint, dimmed, when there is one.
 func (u *UI) Error(msg, hint string) {
 	st := u.Err()
