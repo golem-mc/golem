@@ -328,7 +328,32 @@ func (s *Server) writeBatch(w *world.World, changes []world.BlockChange) {
 // its frame (vanilla: NetherPortalBlock.updateShape). Single portal blocks,
 // as /setblock places, are left.
 func (s *Server) updatePortalNear(w *world.World, x, y, z int32) {
-	for _, cell := range rules.CollapsingPortals(w, x, y, z) {
+	collapsing := rules.CollapsingPortals(w, x, y, z)
+	if len(collapsing) == 0 {
+		return
+	}
+	var hooks physicsHooks
+	ask := s.plugins != nil && s.plugins.Has(pluginruntime.BlockPhysics)
+	if ask {
+		hooks = physicsHooks{s: s, dim: s.dimensionOfWorld(w)}
+	}
+	for _, cell := range collapsing {
+		if ask {
+			state := w.BlockAt(cell[0], cell[1], cell[2])
+			if !rules.IsPortalState(state) {
+				continue
+			}
+			d := world.HookDecision{
+				Kind: world.HookPhysics,
+				X:    cell[0], Y: cell[1], Z: cell[2],
+				Old:  state,
+				From: [3]int32{x, y, z},
+			}
+			hooks.Decide(&d)
+			if d.Cancel || w.BlockAt(cell[0], cell[1], cell[2]) != state {
+				continue
+			}
+		}
 		if cleared := rules.CollapsedPortal(w, cell[0], cell[1], cell[2]); len(cleared) > 0 {
 			s.writeBatch(w, cleared)
 			slog.Info("nether portal collapsed", "x", cell[0], "y", cell[1], "z", cell[2])
