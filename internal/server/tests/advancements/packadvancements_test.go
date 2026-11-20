@@ -135,3 +135,33 @@ func TestReloadKeepsProgressAndDropsRemovedAdvancements(t *testing.T) {
 		t.Error("the advancement added by the reload is not awarded")
 	}
 }
+
+// TestPackTickAdvancementTestsItsPlayerConditions: a tick criterion with a
+// player predicate is obtained only while the predicate holds of the player.
+// vanilla: SimpleCriterionTrigger.SimpleInstance.player
+func TestPackTickAdvancementTestsItsPlayerConditions(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	tick := func(player string) string {
+		return `{"criteria":{"c":{"trigger":"minecraft:tick","conditions":{"player":[` + player + `]}}}}`
+	}
+	writePackFile(t, filepath.Join(dir, "sneak.json"), tick(
+		`{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:flags":{"is_sneaking":true}}}`))
+	writePackFile(t, filepath.Join(dir, "score.json"), tick(
+		`{"condition":"minecraft:entity_scores","entity":"this","scores":{"x":1}}`))
+	srv, c := joinOp(t, cfg, "Packer")
+	c.ChatCommand("scoreboard objectives add x dummy")
+	c.Settle()
+
+	servertest.RunTicks(t, srv, 5)
+	if srv.AdvancementObtained("Packer", "pk:sneak", "c") || srv.AdvancementObtained("Packer", "pk:score", "c") {
+		t.Fatal("a tick advancement was obtained while its player condition fails")
+	}
+	c.SendSneak(true)
+	servertest.UntilTicks(t, srv, 20, "the sneak advancement", func() bool { return srv.AdvancementObtained("Packer", "pk:sneak", "c") })
+	if srv.AdvancementObtained("Packer", "pk:score", "c") {
+		t.Fatal("the score advancement was obtained with the score unset")
+	}
+	c.ChatCommand("scoreboard players set Packer x 1")
+	servertest.UntilTicks(t, srv, 20, "the score advancement", func() bool { return srv.AdvancementObtained("Packer", "pk:score", "c") })
+}

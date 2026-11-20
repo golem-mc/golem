@@ -83,6 +83,8 @@ func (p *Progress) trigger(trigger string, at time.Time, match func(c *registry.
 // fire is trigger over the given criteria, with p.mu held.
 func (p *Progress) fire(refs []criterionRef, at time.Time, match func(c *registry.AdvancementCriterion) bool) bool {
 	awarded := false
+	var ctx *rules.LootContext
+	var rng rules.LootRand
 	for _, ref := range refs {
 		n, c := ref.n, &ref.n.Criteria[ref.i]
 		if p.isDone(n) {
@@ -91,11 +93,36 @@ func (p *Progress) fire(refs []criterionRef, at time.Time, match func(c *registr
 		if _, ok := p.obtained[n.index][c.Name]; ok {
 			continue
 		}
-		if match(c) && p.award(n, c.Name, at) {
+		if !match(c) {
+			continue
+		}
+		if len(c.Player) > 0 {
+			if p.playerContext == nil {
+				continue
+			}
+			if ctx == nil {
+				ctx, rng = p.playerContext()
+			}
+			if !playerHolds(c.Player, ctx, rng) {
+				continue
+			}
+		}
+		if p.award(n, c.Name, at) {
 			awarded = true
 		}
 	}
 	return awarded
+}
+
+// playerHolds reports whether every player condition passes in ctx.
+// vanilla: SimpleCriterionTrigger.SimpleInstance.player, ContextAwarePredicate.matches
+func playerHolds(conditions []registry.LootCondition, ctx *rules.LootContext, rng rules.LootRand) bool {
+	for _, cond := range conditions {
+		if !rules.TestLootCondition(cond, ctx, rng) {
+			return false
+		}
+	}
+	return true
 }
 
 // Inventory is what inventory_changed reads of the player's inventory: the
