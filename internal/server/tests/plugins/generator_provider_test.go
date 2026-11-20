@@ -22,7 +22,7 @@ func (*genPlugin) Generator(world plugin.Key, id string) (plugin.Generator, erro
 }
 
 func TestPluginGeneratorProvider(t *testing.T) {
-	t.Parallel()
+	// Not parallel: the generated chunk flakes under the CPU contention of the parallel tests.
 	var h plugin.Server
 	gp := &genPlugin{}
 	gp.enable = func(s plugin.Server) error { h = s; return nil }
