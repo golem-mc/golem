@@ -322,6 +322,14 @@ type WorldBorder interface {
 	SetDamagePerBlock(float64)
 	WarningDistance() int
 	SetWarningDistance(int)
+	// DamageBuffer is how far past the edge a player stands unhurt, in
+	// blocks (default 5).
+	DamageBuffer() float64
+	SetDamageBuffer(float64)
+	// WarningTime is how long before a moving border reaches a player that
+	// the client starts tinting; the server keeps it in whole ticks.
+	WarningTime() time.Duration
+	SetWarningTime(time.Duration)
 	Contains(pos Vec3) bool
 }
 
