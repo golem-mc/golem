@@ -1,10 +1,11 @@
 package pluginruntime
 
 import (
-	"github.com/golem-mc/golem/plugin"
 	"reflect"
 	"slices"
 	"sync"
+
+	"github.com/golem-mc/golem/plugin"
 )
 
 type pluginServices struct{ host *Host }

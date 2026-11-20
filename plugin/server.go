@@ -249,6 +249,23 @@ func Service[S any](s Server) (S, bool) {
 	return v.(S), true
 }
 
+// Provider is one implementation of S and the plugin providing it.
+type Provider[S any] struct {
+	Plugin   string
+	Service  S
+	Priority int
+}
+
+// Providers answers every implementation of S, highest priority first.
+func Providers[S any](s Server) []Provider[S] {
+	all := s.Services().Providers(reflect.TypeFor[S]())
+	out := make([]Provider[S], len(all))
+	for i, p := range all {
+		out[i] = Provider[S]{Plugin: p.Plugin, Service: p.Impl.(S), Priority: p.Priority}
+	}
+	return out
+}
+
 // Messenger is the plugin channels: custom payload packets on a channel
 // key, between the server and client mods or proxies. Bukkit: Messenger
 type Messenger interface {
