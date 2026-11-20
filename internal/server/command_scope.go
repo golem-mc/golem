@@ -683,6 +683,8 @@ func (ws worldScope) NearestPOI(types []string, x, y, z int32, radius int) (int3
 }
 
 // BiomeAt is the biome there, empty in an unloaded chunk.
+func (ws worldScope) LocationReader() rules.LocationReader { return ws.in().w }
+
 func (ws worldScope) BiomeAt(x, y, z int32) string { return ws.in().w.BiomeAt(x, y, z) }
 
 // EnvironmentFloat is the attribute's value there.

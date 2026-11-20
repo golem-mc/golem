@@ -490,6 +490,9 @@ type Source interface {
 
 	// BiomeAt is the biome's wire name at a position, "" when unloaded.
 	BiomeAt(x, y, z int32) string
+	// LocationReader reads the runner's world at absolute positions, for a
+	// location predicate.
+	LocationReader() rules.LocationReader
 
 	// EnvironmentFloat is a float-convertible environment attribute's value
 	// at a position in the source's dimension.

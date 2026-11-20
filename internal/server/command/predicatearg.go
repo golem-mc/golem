@@ -17,6 +17,8 @@ import (
 type lootWorld interface {
 	BlockAt(x, y, z int32) uint16
 	BiomeAt(x, y, z int32) string
+	// LocationReader reads the world at absolute positions.
+	LocationReader() rules.LocationReader
 	EnvironmentFloat(attribute string, x, y, z float64) float32
 	IsRaining() bool
 	IsThundering() bool
@@ -37,7 +39,14 @@ func fillLootWorld(ctx *rules.LootContext, w lootWorld, pos player.Position) {
 
 // lootLevel is w as the level of a roll at pos.
 func lootLevel(w lootWorld, pos player.Position) rules.LootLevel {
-	return rules.LevelAt(w, lootReads{w}, pos.X, pos.Y, pos.Z)
+	return rules.LevelAt(locatedWorld{w, w.LocationReader()}, lootReads{w}, pos.X, pos.Y, pos.Z)
+}
+
+// locatedWorld is a lootWorld that also answers the location predicate's
+// reads, which makes it a rules.LocationReader.
+type locatedWorld struct {
+	lootWorld
+	rules.LocationReader
 }
 
 type lootReads struct{ w lootWorld }
