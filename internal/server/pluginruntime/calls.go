@@ -66,7 +66,7 @@ func (r *Runtime) CallsQueued() <-chan struct{} { return r.callsQueued }
 // goroutine for them. vanilla: MinecraftServer.waitUntilNextTick, which
 // runs the server thread's queued packet tasks while it waits
 func (r *Runtime) RunCallsBetweenTicks() {
-	r.tickGoroutine.Store(goroutineID())
+	r.tickGoroutine.Store(getg())
 	r.runCalls()
 }
 

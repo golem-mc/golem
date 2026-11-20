@@ -39,6 +39,24 @@ type noop struct{}
 func (noop) Enable(plugin.Server) error { return nil }
 func (noop) Disable()                   {}
 
+type disableRecorder struct{ calls *atomic.Int32 }
+
+func (disableRecorder) Enable(plugin.Server) error { return nil }
+func (r disableRecorder) Disable()                 { r.calls.Add(1) }
+
+func TestDisableOnCleanup(t *testing.T) {
+	var calls atomic.Int32
+	t.Run("server", func(t *testing.T) {
+		plugintest.Start(t, plugintest.WithPlugins(plugin.Registration{Name: "rec", Plugin: disableRecorder{&calls}}))
+		if calls.Load() != 0 {
+			t.Fatal("disabled while running")
+		}
+	})
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("Disable called %d times on cleanup, want 1", got)
+	}
+}
+
 func TestClientActionsReachPlugins(t *testing.T) {
 	srv := plugintest.Start(t, plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}), plugintest.Ops("Alice"), plugintest.WithGameMode("creative"))
 	alice := srv.Join("Alice")

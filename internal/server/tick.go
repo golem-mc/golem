@@ -635,6 +635,12 @@ func (s *Server) tickTime() {
 	s.world.TickTime()
 	now, _ := s.world.Time()
 	for _, dim := range s.allDims() {
+		if dim.plugin {
+			dim.w.TickTime()
+			dimNow, _ := dim.w.Time()
+			dim.w.ExpireTickets(dimNow)
+			continue
+		}
 		dim.w.ExpireTickets(now)
 	}
 	s.tickScheduled()
@@ -661,7 +667,12 @@ func (s *Server) tickTimeSync() {
 		return
 	}
 	s.lastTimeSync = n
-	s.broadcast(protocol.IDPlayUpdateTime, updateTimePayload(s.world))
+	s.broadcastLevel(s.world, protocol.IDPlayUpdateTime, updateTimePayload(s.world))
+	for _, d := range s.allDims() {
+		if d.plugin {
+			s.broadcastLevel(d.w, protocol.IDPlayUpdateTime, updateTimePayload(d.w))
+		}
+	}
 }
 
 // tickPlayerLatency broadcasts every player's latency to the whole tab list

@@ -61,3 +61,12 @@ func BenchmarkFireOneListener(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkOnTick is the tick-goroutine check hot paths make per event.
+func BenchmarkOnTick(b *testing.B) {
+	r := benchRuntime()
+	r.BindTick()
+	for b.Loop() {
+		r.OnTick()
+	}
+}
