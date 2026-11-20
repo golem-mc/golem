@@ -4,8 +4,8 @@
   "max_level": 1,
   "effects": {
     "minecraft:projectile_piercing": [
-      {"effect": {"type": "minecraft:add", "value": 2}, "requirements": {"condition": "minecraft:reference", "name": "pack:arrow_ammo"}},
-      {"effect": {"type": "minecraft:add", "value": 1}, "requirements": {"condition": "minecraft:inverted", "term": {"condition": "minecraft:reference", "name": "pack:arrow_ammo"}}}
+      {"effect": {"type": "minecraft:add", "value": 2}, "requirements": {"type":"minecraft:reference", "name": "pack:arrow_ammo"}},
+      {"effect": {"type": "minecraft:add", "value": 1}, "requirements": {"type":"minecraft:inverted", "term": {"type":"minecraft:reference", "name": "pack:arrow_ammo"}}}
     ]
   }
 }

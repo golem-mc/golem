@@ -144,7 +144,7 @@ func TestStructureLocationPredicatesDecode(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := `{"criteria":{"here":{"trigger":"minecraft:location","conditions":{"player":[{
-				"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:location":{` + tc.location + `}}}]}}}}`
+				"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:location":{` + tc.location + `}}}]}}}}`
 			adv, err := DecodeAdvancement("pk:here", []byte(body))
 			if err != nil {
 				t.Fatal(err)

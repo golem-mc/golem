@@ -197,11 +197,12 @@ func TestDecodeEnchantmentLootRequirements(t *testing.T) {
 		requirements string
 		kept         bool
 	}{
-		{`{"condition":"minecraft:entity_scores","entity":"this","scores":{"x":1}}`, true},
-		{`{"condition":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`, true},
-		{`{"condition":"minecraft:inverted","term":{"condition":"minecraft:entity_scores","entity":"this","scores":{"x":1}}}`, true},
-		{`{"condition":"minecraft:location_check","predicate":{"dimension":"minecraft:the_end"}}`, true},
-		{`{"condition":"minecraft:no_such_condition"}`, false},
+		{`{"type":"minecraft:entity_scores","entity":"this","scores":{"x":1}}`, true},
+		{`{"type":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`, true},
+		{`{"type":"minecraft:inverted","term":{"type":"minecraft:entity_scores","entity":"this","scores":{"x":1}}}`, true},
+		{`{"type":"minecraft:location_check","predicate":{"dimension":"minecraft:the_end"}}`, true},
+		{`{"type":"minecraft:no_such_condition"}`, false},
+		{`{"condition":"minecraft:entity_scores","entity":"this","scores":{"x":1}}`, false},
 	} {
 		def, dropped, err := DecodeEnchantment("pk:loot", effect(tc.requirements))
 		if err != nil {
@@ -210,5 +211,19 @@ func TestDecodeEnchantmentLootRequirements(t *testing.T) {
 		if kept := len(def.Effects.Damage) == 1 && len(dropped) == 0; kept != tc.kept {
 			t.Errorf("%s: kept = %v, dropped %v", tc.requirements, kept, dropped)
 		}
+	}
+}
+
+func TestEnchantmentLegacyConditionKeyRefused(t *testing.T) {
+	def, dropped, err := DecodeEnchantment("pk:legacy", []byte(`{"description":{"text":"x"},"max_level":1,"weight":1,"anvil_cost":1,
+		"min_cost":{"base":1,"per_level_above_first":0},"max_cost":{"base":9,"per_level_above_first":0},
+		"slots":["mainhand"],"supported_items":"#minecraft:enchantable/weapon",
+		"effects":{"minecraft:damage":[{"effect":{"type":"minecraft:add","value":1},
+		"requirements":{"condition":"minecraft:entity_scores","entity":"this","scores":{"x":1}}}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(def.Effects.Damage) != 0 || len(dropped) != 1 || !strings.Contains(dropped[0], "No key type in MapLike[") {
+		t.Fatalf("effects %v, dropped %v: want the entry refused with No key type", def.Effects.Damage, dropped)
 	}
 }

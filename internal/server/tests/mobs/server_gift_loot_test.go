@@ -15,7 +15,7 @@ func TestPackChickenVariantChoosesGift(t *testing.T) {
 	cfg := servertest.MobTestConfig()
 	cfg.LevelName = t.TempDir()
 	servertest.WritePackFile(t, cfg, "gifts", "minecraft/loot_table/gameplay/chicken_lay.json",
-		`{"type":"minecraft:gift","pools":[{"rolls":1,"conditions":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:components":{"minecraft:chicken/variant":"cold"}}}],"entries":[{"type":"minecraft:item","name":"minecraft:diamond"}]}]}`)
+		`{"type":"minecraft:gift","pools":[{"rolls":1,"conditions":[{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:components":{"minecraft:chicken/variant":"cold"}}}],"entries":[{"type":"minecraft:item","name":"minecraft:diamond"}]}]}`)
 	srv, c, _ := servertest.JoinAs(t, cfg, "Farmer", servertest.OpsListing(t, "Farmer"))
 	servertest.HoldTicks(t, srv)
 	c.ChatCommand(`summon chicken ~2 ~ ~ {variant:"minecraft:cold",EggLayTime:1}`)

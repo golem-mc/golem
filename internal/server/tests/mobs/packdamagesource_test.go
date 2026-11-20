@@ -19,7 +19,7 @@ func TestAPackLootTableReadsDamageSourcePredicates(t *testing.T) {
 	cfg := servertest.MobTestConfig()
 	cfg.LevelName = t.TempDir()
 	pool := func(predicate, item string) string {
-		return `{"rolls":1,"conditions":[{"condition":"minecraft:damage_source_properties","predicate":{` +
+		return `{"rolls":1,"conditions":[{"type":"minecraft:damage_source_properties","predicate":{` +
 			predicate + `}}],"entries":[{"type":"minecraft:item","name":"minecraft:` + item + `"}]}`
 	}
 	servertest.WritePackFile(t, cfg, "ds", "minecraft/loot_table/entities/zombie.json", `{"pools":[`+

@@ -17,7 +17,7 @@ func TestMobDeathLootSeesTheKilledMobsFacts(t *testing.T) {
 	cfg := packWorld(t)
 	tables := filepath.Join(cfg.LevelName, "datapacks", "a", "data", "x", "loot_table")
 	pool := func(predicate, item string) string {
-		return `{"rolls":1,"conditions":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{` +
+		return `{"rolls":1,"conditions":[{"type":"minecraft:entity_properties","entity":"this","predicate":{` +
 			predicate + `}}],"entries":[{"type":"minecraft:item","name":"` + item + `"}]}`
 	}
 	writeFile(t, filepath.Join(tables, "gate.json"), `{"pools":[`+

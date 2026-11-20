@@ -116,7 +116,7 @@ func valueEffectPack(t *testing.T, name, effects string) string {
 // vanilla: EnchantmentHelper.processProjectileCount, ProjectileWeaponItem.draw
 func TestPackMultishotFiresFiveArrows(t *testing.T) {
 	cfg := servertest.BowTestConfig()
-	cfg.LevelName = valueEffectPack(t, "multishot", `{"minecraft:projectile_count":[{"effect":{"type":"minecraft:add","value":{"type":"minecraft:linear","base":4,"per_level_above_first":4}},"requirements":{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:player"}}}]}`)
+	cfg.LevelName = valueEffectPack(t, "multishot", `{"minecraft:projectile_count":[{"effect":{"type":"minecraft:add","value":{"type":"minecraft:linear","base":4,"per_level_above_first":4}},"requirements":{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:player"}}}]}`)
 	srv, c, _ := servertest.JoinAs(t, cfg, "Archer")
 	servertest.HoldTicks(t, srv)
 	srv.GiveSlot("Archer", 36, servertest.EnchantedStack(t, "minecraft:crossbow", "minecraft:multishot", 1))

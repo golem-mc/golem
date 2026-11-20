@@ -201,7 +201,7 @@ func TestDecodeLootTableRefusesWhatItDoesNotKnow(t *testing.T) {
 		"syntax":         `{"pools":[`,
 		"unknown item":   `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:nope"}]}]}`,
 		"unknown entry":  `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:mystery"}]}]}`,
-		"unknown cond":   `{"pools":[{"rolls":1,"entries":[],"conditions":[{"condition":"minecraft:time_check"}]}]}`,
+		"unknown cond":   `{"pools":[{"rolls":1,"entries":[],"conditions":[{"type":"minecraft:time_check"}]}]}`,
 		"refused func":   `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:stick","functions":[{"function":"minecraft:set_book_cover","generation":4}]}]}]}`,
 		"unknown number": `{"pools":[{"rolls":{"type":"minecraft:score"},"entries":[]}]}`,
 	} {
@@ -221,12 +221,12 @@ func TestDecodeLootTableRefusesWhatItDoesNotKnow(t *testing.T) {
 
 func ghastRecord(tag string) string {
 	return `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:music_disc_tears"}],` +
-		`"conditions":[{"condition":"minecraft:damage_source_properties","predicate":{"direct_entity":` +
+		`"conditions":[{"type":"minecraft:damage_source_properties","predicate":{"direct_entity":` +
 		`{"minecraft:entity_type":"minecraft:fireball"},"tags":[{"id":"` + tag + `","expected":true}]}}]}]}`
 }
 
 func damageSourceRecord(id string) string {
-	return `{"pools":[{"rolls":1,"entries":[],"conditions":[{"condition":"minecraft:damage_source_properties",` +
+	return `{"pools":[{"rolls":1,"entries":[],"conditions":[{"type":"minecraft:damage_source_properties",` +
 		`"predicate":{"tags":[{"id":` + id + `,"expected":true}]}}]}]}`
 }
 
@@ -354,25 +354,25 @@ func TestDecodeItemModifierComponentFunctions(t *testing.T) {
 
 func TestDecodePredicateLevelAndValueChecks(t *testing.T) {
 	for _, in := range []string{
-		`{"condition":"minecraft:time_check","clock":"overworld","period":24000,"value":{"min":0,"max":12000}}`,
-		`{"condition":"minecraft:weather_check","raining":true}`,
-		`{"condition":"minecraft:entity_scores","entity":"attacker","scores":{"a":1,"b":{"min":{"type":"minecraft:uniform","min":0,"max":2}}}}`,
-		`{"condition":"minecraft:enchantment_active_check","active":false}`,
-		`{"condition":"minecraft:environment_attribute_check","attribute":"minecraft:gameplay/sky_light_level","value":15}`,
-		`{"condition":"minecraft:int_value_check","value":{"type":"minecraft:constant","value":3},"test":{"max":4}}`,
-		`{"condition":"minecraft:float_value_check","value":0.5,"test":0.5}`,
-		`{"condition":"minecraft:int_value_check","value":{"type":"minecraft:score","target":"this","score":"a"},"test":1}`,
+		`{"type":"minecraft:time_check","clock":"overworld","period":24000,"value":{"min":0,"max":12000}}`,
+		`{"type":"minecraft:weather_check","raining":true}`,
+		`{"type":"minecraft:entity_scores","entity":"attacker","scores":{"a":1,"b":{"min":{"type":"minecraft:uniform","min":0,"max":2}}}}`,
+		`{"type":"minecraft:enchantment_active_check","active":false}`,
+		`{"type":"minecraft:environment_attribute_check","attribute":"minecraft:gameplay/sky_light_level","value":15}`,
+		`{"type":"minecraft:int_value_check","value":{"type":"minecraft:constant","value":3},"test":{"max":4}}`,
+		`{"type":"minecraft:float_value_check","value":0.5,"test":0.5}`,
+		`{"type":"minecraft:int_value_check","value":{"type":"minecraft:score","target":"this","score":"a"},"test":1}`,
 	} {
 		if _, err := DecodePredicate([]byte(in)); err != nil {
 			t.Errorf("%s: %v", in, err)
 		}
 	}
 	for in, want := range map[string]string{
-		`{"condition":"minecraft:environment_attribute_check","attribute":"minecraft:gameplay/can_start_raid","value":true}`: "environment attribute minecraft:gameplay/can_start_raid is not supported by this server",
-		`{"condition":"minecraft:entity_scores","entity":"nobody","scores":{}}`:                                              "Unknown entity target: nobody",
-		`{"condition":"minecraft:int_value_check","value":{"type":"minecraft:nope"},"test":1}`:                               "Failed to parse either. First: Not a number; Second: Unknown registry key in ResourceKey[minecraft:root / minecraft:context_int_provider_type]: minecraft:nope",
-		`{"condition":"minecraft:time_check","clock":"minecraft:overworld"}`:                                                 `No key value in MapLike[{clock:"minecraft:overworld",condition:"minecraft:time_check"}]`,
-		`{"condition":"minecraft:time_check","clock":"minecraft:x","value":1}`:                                               "Failed to get element minecraft:x from registry minecraft:world_clock",
+		`{"type":"minecraft:environment_attribute_check","attribute":"minecraft:gameplay/can_start_raid","value":true}`: "environment attribute minecraft:gameplay/can_start_raid is not supported by this server",
+		`{"type":"minecraft:entity_scores","entity":"nobody","scores":{}}`:                                              "Unknown entity target: nobody",
+		`{"type":"minecraft:int_value_check","value":{"type":"minecraft:nope"},"test":1}`:                               "Failed to parse either. First: Not a number; Second: Unknown registry key in ResourceKey[minecraft:root / minecraft:context_int_provider_type]: minecraft:nope",
+		`{"type":"minecraft:time_check","clock":"minecraft:overworld"}`:                                                 `No key value in MapLike[{clock:"minecraft:overworld",type:"minecraft:time_check"}]`,
+		`{"type":"minecraft:time_check","clock":"minecraft:x","value":1}`:                                               "Failed to get element minecraft:x from registry minecraft:world_clock",
 	} {
 		if _, err := DecodePredicate([]byte(in)); err == nil || err.Error() != want {
 			t.Errorf("%s: got %v, want %q", in, err, want)
@@ -413,7 +413,7 @@ func TestDecodeLootTableInlineNestedAndEnchantedLookup(t *testing.T) {
 // predicate keeps all its tag terms, both entity predicates and is_direct.
 // vanilla: DamageSourcePredicate.CODEC
 func TestDecodeLootDamageSourceReadsEveryField(t *testing.T) {
-	table, err := DecodeLootTable([]byte(`{"pools":[{"rolls":1,"entries":[],"conditions":[{"condition":"minecraft:damage_source_properties",` +
+	table, err := DecodeLootTable([]byte(`{"pools":[{"rolls":1,"entries":[],"conditions":[{"type":"minecraft:damage_source_properties",` +
 		`"predicate":{"tags":[{"id":"minecraft:is_fire","expected":true},{"id":"minecraft:is_explosion","expected":false}],` +
 		`"is_direct":false,"direct_entity":{"minecraft:entity_type":"minecraft:arrow"},` +
 		`"source_entity":{"minecraft:flags":{"is_sneaking":true}}}}]}]}`))

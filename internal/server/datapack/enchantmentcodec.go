@@ -562,7 +562,7 @@ func (d *enchantmentDecoder) enchCondition(v any) (out *registry.EnchCondition) 
 		}
 		c, isObject := v.(map[string]any)
 		// A reference stays an error here: the pack's predicates are all read before it.
-		if _, failed := r.(lootFailure); !failed || !isObject || registry.Qualify(optStr(c, "condition")) == "minecraft:reference" {
+		if _, failed := r.(lootFailure); !failed || !isObject || registry.Qualify(optStr(c, "type")) == "minecraft:reference" {
 			panic(r)
 		}
 		out = &registry.EnchCondition{Kind: registry.EnchCondLoot, Loot: []registry.LootCondition{condition(c)}}
@@ -577,11 +577,7 @@ func (d *enchantmentDecoder) nativeCondition(v any) *registry.EnchCondition {
 		return d.predicateRef(name)
 	}
 	c := object(v, "a loot condition")
-	kind := optStr(c, "condition")
-	if t, ok := c["type"]; ok {
-		kind = str(t, "type")
-	}
-	kind = registry.Qualify(kind)
+	kind := registry.Qualify(requireStr(c, "type"))
 	predicate, _ := optObject(c, "predicate")
 	switch kind {
 	case "minecraft:reference":
@@ -607,10 +603,10 @@ func (d *enchantmentDecoder) nativeCondition(v any) *registry.EnchCondition {
 		}
 		return out
 	case "minecraft:weather_check":
-		unknownKeys(c, "a weather check", "condition", "type", "thundering")
+		unknownKeys(c, "a weather check", "type", "thundering")
 		return &registry.EnchCondition{Kind: registry.EnchCondWeatherCheck, Thundering: new(requireFlag(c, "thundering"))}
 	case "minecraft:location_check":
-		unknownKeys(c, "a location check", "condition", "type", "predicate")
+		unknownKeys(c, "a location check", "type", "predicate")
 		out := &registry.EnchCondition{Kind: registry.EnchCondLocationCheck}
 		enchLocation(out, predicate)
 		return out
@@ -642,7 +638,7 @@ func (d *enchantmentDecoder) nativeCondition(v any) *registry.EnchCondition {
 		}
 		return &registry.EnchCondition{Kind: registry.EnchCondRandomChance, Chance: levelValueOf(chance)}
 	case "minecraft:enchantment_active_check":
-		unknownKeys(c, "an enchantment active check", "condition", "type", "active")
+		unknownKeys(c, "an enchantment active check", "type", "active")
 		return &registry.EnchCondition{Kind: registry.EnchCondActive, Active: requireFlag(c, "active")}
 	case "minecraft:inverted":
 		return &registry.EnchCondition{Kind: registry.EnchCondInverted, Term: d.enchCondition(required(c, "term"))}
