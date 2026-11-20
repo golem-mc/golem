@@ -19,6 +19,7 @@ type PluginGenSpec struct {
 	// Biome is a biome name (minecraft:plains) that fills the whole world.
 	Biome        string
 	NoStructures bool
+	BonusChest   bool
 }
 
 // Plain reports whether the spec asks for nothing beyond the dimension's own

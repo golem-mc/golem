@@ -8,6 +8,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 )
@@ -396,4 +397,149 @@ func TestPluginWorldFolder(t *testing.T) {
 			t.Error("the removed world's spawn came back")
 		}
 	})
+}
+
+// vanilla: MinecraftServer.setInitialSpawn, BonusChestFeature.place
+func TestPluginCreateWorldBonusChest(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	srv, h, run := worldPlugin(t, cfg)
+
+	scanSpawnChunk := func(w plugin.World) (chests []plugin.BlockPos, torches int, loot plugin.Key) {
+		t.Helper()
+		var sp plugin.BlockPos
+		var loaded atomic.Bool
+		run(func() {
+			sp = w.SpawnPoint().Pos.Block()
+			cp := plugin.ChunkPos{X: sp.X >> 4, Z: sp.Z >> 4}
+			w.AddTicket(cp, 0)
+			w.LoadChunk(cp, true, func(plugin.Chunk) { loaded.Store(true) })
+		})
+		awaitPluginIO(t, srv, "spawn chunk", loaded.Load)
+		run(func() {
+			cp := plugin.ChunkPos{X: sp.X >> 4, Z: sp.Z >> 4}
+			defer w.RemoveTicket(cp, 0)
+			x0, z0 := cp.X*16, cp.Z*16
+			for x := x0; x < x0+16; x++ {
+				for z := z0; z < z0+16; z++ {
+					for y := w.MinY(); y < w.MinY()+128; y++ {
+						p := plugin.BlockPos{X: x, Y: y, Z: z}
+						switch w.BlockState(p).Block() {
+						case registry.BlockChest:
+							chests = append(chests, p)
+						case registry.BlockTorch:
+							torches++
+						}
+					}
+				}
+			}
+			if len(chests) == 1 {
+				if be, ok := w.BlockEntity(chests[0]); ok {
+					if c, ok := be.(plugin.Container); ok {
+						loot, _ = c.LootTable()
+					}
+				}
+			}
+		})
+		return chests, torches, loot
+	}
+
+	bonusKey := plugin.Key{Namespace: "test", Path: "bonus"}
+	var w plugin.World
+	run(func() {
+		var err error
+		w, err = h.CreateWorld(plugin.WorldOptions{
+			Key: bonusKey, Dimension: plugin.MinecraftKey("overworld"),
+			Type: plugin.WorldTypeFlat, Seed: 11, BonusChest: true,
+		})
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	if w == nil {
+		t.FailNow()
+	}
+	chests, torches, loot := scanSpawnChunk(w)
+	if len(chests) != 1 {
+		t.Fatalf("bonus world chests = %v, want 1", chests)
+	}
+	if want := plugin.MinecraftKey("chests/spawn_bonus_chest"); loot != want {
+		t.Errorf("bonus chest loot table = %v, want %v", loot, want)
+	}
+	if torches == 0 {
+		t.Error("no torch in spawn chunk, want at least one beside the bonus chest")
+	}
+	if meta, ok := world.ReadPluginMeta(cfg.LevelName, bonusKey.String()); !ok || !meta.Gen.BonusChest {
+		t.Errorf("plugin_world.dat BonusChest = %v (ok=%v), want true", meta.Gen.BonusChest, ok)
+	}
+
+	// Reloading an existing world with BonusChest: true must not add a second chest,
+	// and reloading with BonusChest: false preserves the saved meta flag.
+	if err := unloadFlat(t, run, h, w, true); err != nil {
+		t.Fatal(err)
+	}
+	run(func() {
+		var err error
+		w, err = h.CreateWorld(plugin.WorldOptions{
+			Key: bonusKey, Dimension: plugin.MinecraftKey("overworld"), BonusChest: true,
+		})
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	if chests, _, _ = scanSpawnChunk(w); len(chests) != 1 {
+		t.Fatalf("reloaded bonus world chests = %v, want 1", chests)
+	}
+	if err := unloadFlat(t, run, h, w, true); err != nil {
+		t.Fatal(err)
+	}
+	run(func() {
+		var err error
+		w, err = h.CreateWorld(plugin.WorldOptions{
+			Key: bonusKey, Dimension: plugin.MinecraftKey("overworld"),
+		})
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	if err := unloadFlat(t, run, h, w, true); err != nil {
+		t.Fatal(err)
+	}
+	if meta, ok := world.ReadPluginMeta(cfg.LevelName, bonusKey.String()); !ok || !meta.Gen.BonusChest {
+		t.Errorf("plugin_world.dat BonusChest after plain reload = %v (ok=%v), want true", meta.Gen.BonusChest, ok)
+	}
+
+	// A new world without BonusChest gets no chest, and reloading it with BonusChest: true adds none.
+	plainKey := plugin.Key{Namespace: "test", Path: "nobonus"}
+	run(func() {
+		var err error
+		w, err = h.CreateWorld(plugin.WorldOptions{
+			Key: plainKey, Dimension: plugin.MinecraftKey("overworld"),
+			Type: plugin.WorldTypeFlat, Seed: 11,
+		})
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	if chests, _, _ = scanSpawnChunk(w); len(chests) != 0 {
+		t.Fatalf("non-bonus world chests = %v, want 0", chests)
+	}
+	if meta, ok := world.ReadPluginMeta(cfg.LevelName, plainKey.String()); !ok || meta.Gen.BonusChest {
+		t.Errorf("plugin_world.dat BonusChest = %v (ok=%v), want false", meta.Gen.BonusChest, ok)
+	}
+	if err := unloadFlat(t, run, h, w, true); err != nil {
+		t.Fatal(err)
+	}
+	run(func() {
+		var err error
+		w, err = h.CreateWorld(plugin.WorldOptions{
+			Key: plainKey, Dimension: plugin.MinecraftKey("overworld"), BonusChest: true,
+		})
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	if chests, _, _ = scanSpawnChunk(w); len(chests) != 0 {
+		t.Fatalf("reloaded non-bonus world chests = %v, want 0", chests)
+	}
 }
