@@ -141,6 +141,16 @@ func (s *Server) dimensionOfWorld(w *world.World) *dimension {
 	return s.allDims()[0]
 }
 
+// dragonFightOf returns w's dragon fight, or nil when w is unknown or has none.
+func (s *Server) dragonFightOf(w *world.World) *dragonFight {
+	for _, d := range s.allDims() {
+		if d.w == w {
+			return d.dragonFight
+		}
+	}
+	return nil
+}
+
 // makeDimensions builds the three worlds: the overworld first, because its
 // construction settles the level seed and writes the level.dat the other two
 // derive their generators from, then the nether and the end under its DIM
