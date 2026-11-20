@@ -123,10 +123,11 @@ func TestPluginWorldSaveReload(t *testing.T) {
 	cfg := servertest.BlockTestConfig()
 	srv, h, run := worldPlugin(t, cfg)
 	w := createFlat(t, run, h, &flatGen{})
+	var loaded atomic.Bool
 	run(func() {
-		w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) {})
+		w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) { loaded.Store(true) })
 	})
-	awaitPluginIO(t, srv, "flat chunk", func() bool { return srv.ChunkLoadedInDimension("test:flat", 0, 0) })
+	awaitPluginIO(t, srv, "flat chunk", loaded.Load)
 	if got := srv.LoadBlockInDimension("test:flat", 1, 3, 1); got != uint16(registry.BlockStone.DefaultState()) {
 		t.Fatalf("y=3 = %d, want stone", got)
 	}
@@ -258,6 +259,7 @@ func TestPluginCreateWorldFlatType(t *testing.T) {
 	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	opts := plugin.WorldOptions{Key: flatKey, Dimension: plugin.MinecraftKey("overworld"), Type: plugin.WorldTypeFlat, Seed: 5}
+	var loaded atomic.Bool
 	run(func() {
 		for _, bad := range []string{"not json", `{"biome":"minecraft:plains"}`} {
 			o := opts
@@ -270,9 +272,9 @@ func TestPluginCreateWorldFlatType(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) {})
+		w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) { loaded.Store(true) })
 	})
-	awaitPluginIO(t, srv, "flat chunk", func() bool { return srv.ChunkLoadedInDimension("test:flat", 0, 0) })
+	awaitPluginIO(t, srv, "flat chunk", loaded.Load)
 	for y, want := range map[int32]registry.Block{-64: registry.BlockBedrock, -63: registry.BlockDirt, -62: registry.BlockDirt, -61: registry.BlockGrassBlock, -60: registry.BlockAir} {
 		if got := srv.LoadBlockInDimension("test:flat", 0, y, 0); got != uint16(want.DefaultState()) {
 			t.Errorf("y=%d = %d, want %v", y, got, want)
@@ -284,15 +286,16 @@ func TestPluginCreateWorldFlatType(t *testing.T) {
 func TestPluginCreateWorldFlatSettings(t *testing.T) {
 	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	var loaded atomic.Bool
 	run(func() {
 		w, err := h.CreateWorld(plugin.WorldOptions{Key: flatKey, Dimension: plugin.MinecraftKey("overworld"), Type: plugin.WorldTypeFlat, NoStructures: true,
 			GeneratorSettings: `{"layers":[{"block":"minecraft:stone","height":2},{"block":"minecraft:sand","height":1}],"biome":"minecraft:desert"}`})
 		if err != nil {
 			t.Fatal(err)
 		}
-		w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) {})
+		w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) { loaded.Store(true) })
 	})
-	awaitPluginIO(t, srv, "flat chunk", func() bool { return srv.ChunkLoadedInDimension("test:flat", 0, 0) })
+	awaitPluginIO(t, srv, "flat chunk", loaded.Load)
 	for y, want := range map[int32]registry.Block{-64: registry.BlockStone, -63: registry.BlockStone, -62: registry.BlockSand, -61: registry.BlockAir} {
 		if got := srv.LoadBlockInDimension("test:flat", 0, y, 0); got != uint16(want.DefaultState()) {
 			t.Errorf("y=%d = %d, want %v", y, got, want)

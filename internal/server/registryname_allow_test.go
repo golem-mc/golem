@@ -171,6 +171,7 @@ var registryNameAllowed = map[string]nameAllowance{
 	"internal/server/world/tree_cfg.go: string block lookup":                        {count: 2, issue: 6380},
 	"internal/server/world/turtleegg.go: string block lookup":                       {count: 1, issue: 6380},
 	"internal/server/world/world.go: string registry lookup":                        {count: 1, issue: 6380},
+	"internal/server/world/plugingen.go: string registry lookup":                    {count: 1, boundary: "biome name given by a plugin"},
 }
 
 var registryBlockNameAllowed = map[string]nameAllowance{
