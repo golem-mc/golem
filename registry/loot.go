@@ -212,7 +212,9 @@ type LootEmpty struct {
 // LootReference is an entry that rolls another table whole, into this
 // roll's output.
 type LootReference struct {
-	Table      string
+	Table string
+	// Inline is a nested table written out in the entry; Table is empty.
+	Inline     *LootTable
 	Weight     int32
 	Quality    int32
 	Conditions []LootCondition
@@ -290,6 +292,9 @@ type LootEnchantedChance struct {
 	Unenchanted float64
 	Base        float64
 	PerLevel    float64
+	// Chance, when set, is the enchanted chance as any level-based value
+	// and replaces Base and PerLevel, which carry the linear form.
+	Chance *EnchLevelValue
 }
 
 // LootTableBonus passes on a chance indexed by a tool enchantment's level
