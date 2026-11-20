@@ -1,4 +1,4 @@
-package command
+package registry
 
 import (
 	"errors"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
 
 // ParticleOptions encodes a saved particle's type and options for entity metadata.
@@ -21,12 +20,12 @@ func ParticleOptions(tag nbt.Tag) (int32, []byte, bool) {
 	if !ok {
 		return 0, nil, false
 	}
-	qualified := registry.Qualify(string(name))
-	id, _, ok := registry.ParticleID(qualified)
+	qualified := Qualify(string(name))
+	id, _, ok := ParticleID(qualified)
 	if !ok {
 		return 0, nil, false
 	}
-	data, err := particleOptions(qualified, opts)
+	data, err := ParticleData(qualified, opts)
 	return id, data, err == nil
 }
 
@@ -37,10 +36,10 @@ const (
 	particleMaxScale = 4.0
 )
 
-// particleOptions encodes the SNBT options of a particle type that carries
+// ParticleData encodes the SNBT options of a particle type that carries
 // data into the bytes that follow its type ID in the Level Particles packet.
 // vanilla: ParticleType.codec, ParticleType.streamCodec
-func particleOptions(name string, opts nbt.Compound) ([]byte, error) {
+func ParticleData(name string, opts nbt.Compound) ([]byte, error) {
 	var b protocol.Buffer
 	var err error
 	switch name {
@@ -95,7 +94,7 @@ func particleOptions(name string, opts nbt.Compound) ([]byte, error) {
 	default:
 		// A type without data decodes any map and ignores it.
 		// vanilla: SimpleParticleType.codec (MapCodec.unit)
-		if _, withData, _ := registry.ParticleID(name); withData {
+		if _, withData, _ := ParticleID(name); withData {
 			err = fmt.Errorf("%s has no option reader", name)
 		}
 	}
@@ -187,7 +186,7 @@ func putItem(b *protocol.Buffer, opts nbt.Compound) error {
 			return fmt.Errorf("Value must be within range [1;99]: %d", n) //nolint:staticcheck // shown to the player as vanilla words it
 		}
 	}
-	stack, ok := registry.StoredStack(entry)
+	stack, ok := StoredStack(entry)
 	if !ok || stack.Empty() || stack.ItemID == 0 {
 		return errors.New("not a valid item")
 	}
@@ -249,7 +248,7 @@ func putVibration(b *protocol.Buffer, opts nbt.Compound) error {
 	if !ok {
 		return errors.New("no key type")
 	}
-	switch registry.Qualify(string(kind)) {
+	switch Qualify(string(kind)) {
 	case "minecraft:block":
 	case "minecraft:entity":
 		return errors.New("entity position sources are not allowed")
@@ -434,7 +433,7 @@ func optionBlockState(opts nbt.Compound, key string) (uint16, error) {
 	var props map[string]string
 	switch t := tag.(type) {
 	case nbt.String:
-		name = registry.Qualify(string(t))
+		name = Qualify(string(t))
 	case nbt.CompoundTag:
 		idKey, propsKey := "id", "properties"
 		n, ok := nbt.Get[nbt.String](t.Entries(), idKey)
@@ -445,23 +444,23 @@ func optionBlockState(opts nbt.Compound, key string) (uint16, error) {
 		if !ok {
 			return 0, errors.New("no key id")
 		}
-		name = registry.Qualify(string(n))
+		name = Qualify(string(n))
 		if p, has := t.Entries()[propsKey]; has {
-			if props, ok = registry.BlockStatePropertiesTag(p); !ok {
+			if props, ok = BlockStatePropertiesTag(p); !ok {
 				return 0, errors.New("not a map of strings: " + propsKey)
 			}
 		}
 	default:
 		return 0, fmt.Errorf("not a block state: %s", key)
 	}
-	if _, known := registry.FindState(name, nil); !known {
+	if _, known := FindState(name, nil); !known {
 		return 0, fmt.Errorf("unknown registry key: %s", name)
 	}
 	for prop, value := range props {
-		if values, ok := registry.BlockPropertyValues(name, prop); !ok || !values[value] {
+		if values, ok := BlockPropertyValues(name, prop); !ok || !values[value] {
 			return 0, fmt.Errorf("unknown property %s=%s", prop, value)
 		}
 	}
-	id, _ := registry.FindState(name, props)
+	id, _ := FindState(name, props)
 	return id, nil
 }

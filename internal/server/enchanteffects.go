@@ -446,5 +446,5 @@ func (s *Server) spawnEnchantParticles(w *world.World, p *registry.EnchParticles
 	if math.IsNaN(speed) {
 		speed = 0
 	}
-	s.sendParticles(w, p.Particle, x, y, z, float32(vx), float32(vy), float32(vz), float32(speed), 0)
+	s.sendParticlePayload(w, particleDataPayload(p.Particle, p.Options, false, x, y, z, float32(vx), float32(vy), float32(vz), float32(speed), 0), x, y, z)
 }

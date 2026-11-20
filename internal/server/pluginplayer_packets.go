@@ -245,9 +245,9 @@ func pluginParticleOptions(particle plugin.Particle) (int32, []byte, bool) {
 		if particle.Item != nil {
 			opts["item"], _ = pluginValueTag(map[string]any{"id": particle.Item.Item.Name(), "count": particle.Item.Count, "components": pluginItemComponents(particle.Item.Patch)})
 		}
-		_, data, ok = command.ParticleOptions(opts)
+		_, data, ok = registry.ParticleOptions(opts)
 	default:
-		_, data, ok = command.ParticleOptions(opts)
+		_, data, ok = registry.ParticleOptions(opts)
 	}
 	return id, data, ok
 }
