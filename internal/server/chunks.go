@@ -124,8 +124,16 @@ func (c *client) startChunkSender() {
 	done := make(chan struct{})
 	c.chunkStop, c.chunkDone = sync.OnceFunc(func() { close(stop) }), done
 	c.srv.chunkSenders.Add(1)
+	hold := c.srv.chunkSenderHold.Load()
 	go func() {
 		defer close(done)
+		if hold != nil {
+			select {
+			case <-*hold:
+			case <-stop:
+				return
+			}
+		}
 		c.chunkSender(stop, trigger)
 	}()
 }
