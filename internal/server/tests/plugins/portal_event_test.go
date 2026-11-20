@@ -2,7 +2,9 @@ package plugins_test
 
 import (
 	"math"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
@@ -18,9 +20,23 @@ var hellKey = plugin.Key{Namespace: "test", Path: "hell"}
 func portalPlugin(t *testing.T) (*server.Server, plugin.Server, func(func()), *servertest.Client, plugin.World) {
 	t.Helper()
 	cfg := servertest.BlockTestConfig()
-	srv, h, run := worldPlugin(t, cfg)
+	var h plugin.Server
+	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "portal", Plugin: &testPlugin{enable: func(s plugin.Server) error { h = s; return nil }}}})
 	c := servertest.DialServer(t, srv)
 	c.Join("Portaler")
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+	// A joining player has a portal cooldown, which standing in a portal renews.
+	servertest.RunTicks(t, srv, 15)
+	run := func(f func()) {
+		t.Helper()
+		ran := false
+		h.Scheduler().RunTask(func() { f(); ran = true })
+		servertest.RunTicks(t, srv, 1)
+		if !ran {
+			t.Fatal("plugin task did not complete")
+		}
+	}
 	var hell plugin.World
 	run(func() {
 		var err error
@@ -42,6 +58,7 @@ func lightFrameAndStand(t *testing.T, srv *server.Server, c *servertest.Client) 
 	c.PlaceBlock(servertest.PortalInnerX0, servertest.PortalFloorY-1, servertest.PortalInnerZ, 1)
 	c.Settle()
 	c.MoveTo(float64(servertest.PortalInnerX0)+0.5, servertest.PortalFloorY, servertest.PortalInnerZ+0.5, 0, 0)
+	c.Settle()
 }
 
 func portalBlocksNear(w plugin.World, cx, cz, r int32) (n int) {
@@ -69,7 +86,10 @@ func TestPluginPortalEventRetargetsExitSearch(t *testing.T) {
 		})
 	})
 	lightFrameAndStand(t, srv, c)
-	servertest.WaitFor(t, srv, 400, func() bool { return srv.PlayerDimension("Portaler") == hellKey.String() })
+	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
+	if got := srv.PlayerDimension("Portaler"); got != hellKey.String() {
+		t.Fatalf("dimension = %q, want %q", got, hellKey)
+	}
 	if seen == nil || seen.SearchRadius != 16 || seen.CreationRadius != 16 || !seen.CanCreatePortal {
 		t.Fatalf("event = %+v", seen)
 	}
@@ -94,15 +114,20 @@ func TestPluginPortalEventRetargetsExitSearch(t *testing.T) {
 func TestPluginPortalEventCannotCreate(t *testing.T) {
 	t.Parallel()
 	srv, h, run, c, _ := portalPlugin(t)
-	fired := 0
+	var fired atomic.Int32
 	run(func() {
 		plugin.Listen(h, func(e *plugin.EntityPortalEvent) {
-			fired++
+			fired.Add(1)
 			e.CanCreatePortal = false
 		})
 	})
 	lightFrameAndStand(t, srv, c)
-	servertest.WaitFor(t, srv, 100, func() bool { return fired > 0 })
+	for deadline := time.Now().Add(10 * time.Second); fired.Load() == 0 && time.Now().Before(deadline); {
+		servertest.RunTicks(t, srv, 1)
+	}
+	if fired.Load() == 0 {
+		t.Fatal("the portal event never fired")
+	}
 	servertest.RunTicks(t, srv, 20)
 	if got := srv.PlayerDimension("Portaler"); got != world.DimensionName {
 		t.Errorf("dimension = %q, want the overworld", got)
@@ -124,10 +149,15 @@ func TestPluginNetherTypedWorldPortalLeadsToOverworld(t *testing.T) {
 	servertest.WaitFor(t, srv, 100, func() bool { return srv.PlayerDimension("Portaler") == hellKey.String() })
 	c.ExpectWithinTicks(srv, 200, protocol.IDPlayRespawn)
 	c.Settle()
-	servertest.RunTicks(t, srv, 40)
+	// The arrival's chunks load on their own time.
+	for deadline, ready := time.Now().Add(10*time.Second), false; !ready && time.Now().Before(deadline); {
+		run(func() {
+			ready = hell.SetBlockState(plugin.BlockPos{X: 3, Y: servertest.PortalFloorY, Z: servertest.PortalInnerZ}, plugin.BlockState(obsidian), plugin.UpdateClients|plugin.UpdateKnownShape)
+		})
+	}
 	run(func() {
 		set := func(x, y, z int32, s uint16) {
-			if !hell.SetBlockState(plugin.BlockPos{X: int(x), Y: int(y), Z: int(z)}, plugin.BlockState(s), plugin.UpdateClients|plugin.UpdateKnownShape) {
+			if !hell.SetBlockState(plugin.BlockPos{X: int(x), Y: int(y), Z: int(z)}, plugin.BlockState(s), plugin.UpdateClients|plugin.UpdateKnownShape) && uint16(hell.BlockState(plugin.BlockPos{X: int(x), Y: int(y), Z: int(z)})) != s {
 				t.Errorf("set (%d, %d, %d) failed", x, y, z)
 			}
 		}
@@ -143,14 +173,13 @@ func TestPluginNetherTypedWorldPortalLeadsToOverworld(t *testing.T) {
 			set(6, servertest.PortalFloorY+y, servertest.PortalInnerZ, obsidian)
 		}
 	})
-	// The arrival inside the portal arms the cooldown; step out, let it run
-	// down, and step back in.
-	c.MoveTo(10.5, servertest.PortalFloorY, 4.5, 0, 0)
-	servertest.RunTicks(t, srv, 15)
-	c.MoveTo(4.5, servertest.PortalFloorY, 4.5, 0, 0)
-	c.Settle()
-	servertest.WaitFor(t, srv, 400, func() bool { return srv.PlayerDimension("Portaler") == world.DimensionName })
+	// The player stands in the portal as it appears, and crosses.
+	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
+	servertest.WaitFor(t, srv, 100, func() bool { return srv.PlayerPosition("Portaler").X > 10 })
 	pos := srv.PlayerPosition("Portaler")
+	if got := srv.PlayerDimension("Portaler"); got != world.DimensionName {
+		t.Errorf("dimension = %q, want the overworld", got)
+	}
 	if math.Abs(pos.X-36) > 20 || math.Abs(pos.Z-36) > 20 {
 		t.Errorf("arrival = (%v, %v), want near (36, 36)", pos.X, pos.Z)
 	}
