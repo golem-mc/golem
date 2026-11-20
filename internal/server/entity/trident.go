@@ -155,12 +155,14 @@ func (a *Arrow) RestoreDealtDamage(dealt bool) {
 func tridentHitDamage(a *Arrow, target *ArrowTarget) float64 {
 	damage := TridentBaseDamage
 	if len(a.Weapon.Enchantments) > 0 {
-		damage = rules.EnchantedDamage(a.Weapon, &rules.EnchContext{
+		ctx := &rules.EnchContext{
 			DamageType:     rules.DamageTypeTrident,
 			Direct:         false,
 			Victim:         target.Type,
 			DirectAttacker: protocol.EntityTypeTrident,
-		}, damage)
+		}
+		a.bindLoot(ctx, target)
+		damage = rules.EnchantedDamage(a.Weapon, ctx, damage)
 	}
 	return damage
 }
