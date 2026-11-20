@@ -241,6 +241,8 @@ type World struct {
 	// reader asks the overworld, whose accessors fall back to defaults. Guarded
 	// by timeMu with the clock and weather the rules gate.
 	rules *ruleValues
+	// ownRules marks a plugin world whose rules live in its own data/ folder.
+	ownRules bool
 	// feedbackOff has a bit set per feedback rule that is false, so the zero
 	// value is the all-true defaults of a world without a table; see
 	// FeedbackRules.
@@ -572,7 +574,9 @@ func (w *World) SetTimeSource(overworld *World) {
 	w.timeSource = overworld
 	overworld.timeMu.Lock()
 	overworld.spawnWorlds = append(overworld.spawnWorlds, w)
-	w.spawnEnemies.Store(overworld.spawnEnemies.Load())
+	if !w.ownRules {
+		w.spawnEnemies.Store(overworld.spawnEnemies.Load())
+	}
 	overworld.timeMu.Unlock()
 	w.prepareWeather()
 }
@@ -1789,6 +1793,12 @@ func (w *World) Save() {
 		}
 		if err := w.ensureWorldGen(); err != nil {
 			slog.Error("could not save world_gen_settings.dat", "error", err)
+		}
+	}
+
+	if w.ownRules {
+		if err := w.saveGameRules(); err != nil {
+			slog.Error("could not save game_rules.dat", "dimension", w.dimName, "error", err)
 		}
 	}
 

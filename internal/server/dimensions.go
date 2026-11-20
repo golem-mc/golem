@@ -240,7 +240,7 @@ func (s *Server) initDimension(d *dimension, followSpawn bool) error {
 	d.physics.SetMaxChainedNeighborUpdates(s.Config.MaxChainedNeighborUpdates)
 	d.physics.SetBlockHooks(physicsHooks{s: s, dim: d})
 	d.physics.SetCopperChestViewers(copperChestViewers{s: s, w: d.w})
-	d.physics.SetVineSpreadRule(func() bool { return s.world.BoolRule(world.RuleSpreadVines) })
+	d.physics.SetVineSpreadRule(func() bool { return d.w.BoolRule(world.RuleSpreadVines) })
 	d.mobs = newMobHerd(d.w)
 	d.mobs.lootExtra = s.mobLootExtra
 	d.w.SetSaveFailureHook(s.sendLowDiskSpaceWarning)

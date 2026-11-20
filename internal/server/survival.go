@@ -131,7 +131,7 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 	}
 	// Damage game rules (fall, drowning, fire) apply to players only.
 	// vanilla: ServerPlayer.isInvulnerableTo
-	if gate := rules.DamageRuleGate(damageType); gate != world.RuleUnknown && !c.srv.world.BoolRule(gate) {
+	if gate := rules.DamageRuleGate(damageType); gate != world.RuleUnknown && !c.theWorld().BoolRule(gate) {
 		return false, false
 	}
 	effects := c.player.Effects()
@@ -148,7 +148,7 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 	// hurt a player caused (a blow, their arrow, their TNT) is refused before
 	// the shield or window. vanilla: ServerPlayer.hurtServer
 	if attacker := c.playerBlow(cause); attacker != nil &&
-		(!c.srv.world.BoolRule(world.RulePvp) || !c.srv.scoreboard.CanHarm(c.player.Name, attacker.player.Name)) {
+		(!c.theWorld().BoolRule(world.RulePvp) || !c.srv.scoreboard.CanHarm(c.player.Name, attacker.player.Name)) {
 		return false, false
 	}
 	// vanilla: Player.hurtServer
@@ -703,7 +703,7 @@ func (c *client) tickVitals() {
 			fellFrom = fallEnded(v, pos)
 		}
 		event, hurts, douse, changes = rules.TickVitals(v, effects, a, difficulty, pos.Y < float64(voidY), around,
-			c.srv.envRng, a.Value(registry.AttributeOxygenBonus), c.srv.world.BoolRule(world.RuleNaturalRegen))
+			c.srv.envRng, a.Value(registry.AttributeOxygenBonus), c.theWorld().BoolRule(world.RuleNaturalRegen))
 		if in, ok := rules.TurtleHelmetBreathing(headArmor, around.EyesInWater); ok {
 			if change, ok := rules.AddEffect(v, effects, in); ok {
 				changes = append(changes, change)

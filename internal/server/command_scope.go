@@ -268,16 +268,26 @@ func (s *Server) broadcastTime(clocks ...string) {
 }
 
 // /gamerule's rules, on the overworld, whose level.dat holds the table.
-func (ws worldScope) BoolRule(id world.GameRuleIndex) bool { return ws.srv.world.BoolRule(id) }
+// A plugin world's own rules answer for a scope in it.
+func (ws worldScope) rules() *world.World {
+	if ws.in != nil {
+		if d := ws.in(); d != nil && d.plugin {
+			return d.w
+		}
+	}
+	return ws.srv.world
+}
 
-func (ws worldScope) IntRule(id world.GameRuleIndex) int32 { return ws.srv.world.IntRule(id) }
+func (ws worldScope) BoolRule(id world.GameRuleIndex) bool { return ws.rules().BoolRule(id) }
+
+func (ws worldScope) IntRule(id world.GameRuleIndex) int32 { return ws.rules().IntRule(id) }
 
 func (ws worldScope) SetBoolRule(id world.GameRuleIndex, value bool) {
-	ws.srv.world.SetBoolRule(id, value)
+	ws.rules().SetBoolRule(id, value)
 }
 
 func (ws worldScope) SetIntRule(id world.GameRuleIndex, value int32) {
-	ws.srv.world.SetIntRule(id, value)
+	ws.rules().SetIntRule(id, value)
 }
 
 // RuleChanged sends the packets a /gamerule change owes players, like

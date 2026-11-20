@@ -26,7 +26,7 @@ func (c *client) takeDeathKeeps() deathKeeps {
 	if k := c.deathKeeps.Swap(nil); k != nil {
 		return *k
 	}
-	rule := c.srv.world.BoolRule(world.RuleKeepInventory)
+	rule := c.theWorld().BoolRule(world.RuleKeepInventory)
 	return deathKeeps{inventory: rule, level: rule}
 }
 
@@ -109,8 +109,8 @@ type deathPlan struct {
 // the death does. With no listener it is the game rules' answer.
 // vanilla: ServerPlayer.die, Player.dropEquipment
 func (c *client) deathPlan(message protocol.Text, damageType registry.DamageType, cause *damageCause) deathPlan {
-	rule := c.srv.world.BoolRule(world.RuleKeepInventory)
-	plan := deathPlan{message: message, showMessage: c.srv.world.BoolRule(world.RuleShowDeathMsg), keepInventory: rule, keepLevel: rule}
+	rule := c.theWorld().BoolRule(world.RuleKeepInventory)
+	plan := deathPlan{message: message, showMessage: c.theWorld().BoolRule(world.RuleShowDeathMsg), keepInventory: rule, keepLevel: rule}
 	r := c.srv.plugins
 	if r == nil || !r.Has(pluginruntime.PlayerDeath) {
 		if !rule {

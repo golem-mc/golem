@@ -403,7 +403,7 @@ func (s *Server) randomTickChunks(dim *dimension, gameTime int64, chunks []world
 		return
 	}
 	s.rollThunder(dim, chunks)
-	changes, decays := dim.physics.RandomTick(gameTime, chunks, s.randomTickSpeed(), s.snowAccumulationHeight())
+	changes, decays := dim.physics.RandomTick(gameTime, chunks, randomTickSpeed(dim.w), snowAccumulationHeight(dim.w))
 	for _, e := range dim.physics.TakeRandomEffects() {
 		s.tellEffect(dim.w, e)
 	}
@@ -421,8 +421,8 @@ func (s *Server) randomTickChunks(dim *dimension, gameTime int64, chunks []world
 
 // randomTickSpeed is random_tick_speed clamped to 0 or more: random block
 // picks per ticking section per tick.
-func (s *Server) randomTickSpeed() int {
-	speed := s.world.IntRule(world.RuleRandomTickSpeed)
+func randomTickSpeed(w *world.World) int {
+	speed := w.IntRule(world.RuleRandomTickSpeed)
 	if speed < 0 {
 		return 0
 	}
@@ -430,10 +430,9 @@ func (s *Server) randomTickSpeed() int {
 }
 
 // snowAccumulationHeight is max_snow_accumulation_height, the layers
-// snowfall may stack to. Every dimension gets this one value because the
-// rules table lives only in the overworld.
-func (s *Server) snowAccumulationHeight() int {
-	return int(s.world.IntRule(world.RuleMaxSnowHeight))
+// snowfall may stack to.
+func snowAccumulationHeight(w *world.World) int {
+	return int(w.IntRule(world.RuleMaxSnowHeight))
 }
 
 // decayDrops rolls a decayed leaf's loot with no tool, as an explosion
@@ -1189,7 +1188,7 @@ type fireSpreadChecker struct {
 }
 
 func (t fireSpreadChecker) FireCanSpread(x, y, z int32) bool {
-	radius := t.s.world.IntRule(world.RuleFireSpread)
+	radius := t.dim.w.IntRule(world.RuleFireSpread)
 	if radius < 0 {
 		// -1 means fire ticks everywhere.
 		return true

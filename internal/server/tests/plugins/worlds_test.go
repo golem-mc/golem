@@ -252,3 +252,86 @@ func TestPluginWorldTravelAndUnload(t *testing.T) {
 		t.Errorf("player is in %q after the unload", got)
 	}
 }
+
+func keepInventoryRule(t *testing.T, h plugin.Server) plugin.GameRule {
+	t.Helper()
+	id, ok := h.Registries().GameRule(plugin.MinecraftKey("keep_inventory"))
+	if !ok {
+		t.Fatal("no keep_inventory rule")
+	}
+	return id
+}
+
+// A rule set on a plugin world is that world's alone, and survives an unload.
+// vanilla: GameRules (per-world table here, copied from the overworld on creation)
+func TestPluginWorldOwnGameRules(t *testing.T) {
+	t.Parallel()
+	_, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	rule := keepInventoryRule(t, h)
+	w := createFlat(t, run, h, &flatGen{})
+	run(func() {
+		if w.GameRule(rule) != 0 {
+			t.Error("a new world did not copy the overworld's keep_inventory")
+		}
+		w.SetGameRule(rule, 1)
+		if w.GameRule(rule) != 1 {
+			t.Error("rule not set on the plugin world")
+		}
+		if h.Overworld().GameRule(rule) != 0 {
+			t.Error("the overworld saw the plugin world's rule")
+		}
+		nether, _ := h.World(plugin.MinecraftKey("the_nether"))
+		if nether.GameRule(rule) != 0 {
+			t.Error("the nether saw the plugin world's rule")
+		}
+		h.Overworld().SetGameRule(rule, 1)
+		if nether.GameRule(rule) != 1 {
+			t.Error("the nether does not share the level's rules")
+		}
+		h.Overworld().SetGameRule(rule, 0)
+		w.SetGameRule(rule, 1)
+	})
+	if err := unloadFlat(t, run, h, w, true); err != nil {
+		t.Fatal(err)
+	}
+	w = createFlat(t, run, h, &flatGen{})
+	run(func() {
+		if w.GameRule(rule) != 1 {
+			t.Error("the rule did not survive UnloadWorld and CreateWorld")
+		}
+	})
+}
+
+// A death in a plugin world follows that world's keep_inventory.
+// vanilla: ServerPlayer.die
+func TestPluginWorldDeathKeepsOwnRule(t *testing.T) {
+	t.Parallel()
+	var h plugin.Server
+	var got *plugin.PlayerDeathEvent
+	cfg := servertest.SurvivalTestConfig()
+	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "world", Plugin: &testPlugin{enable: func(s plugin.Server) error {
+		h = s
+		plugin.Listen(s, func(e *plugin.PlayerDeathEvent) { got = e })
+		return nil
+	}}}})
+	servertest.HoldTicks(t, srv)
+	run := func(f func()) {
+		t.Helper()
+		h.Scheduler().RunTask(f)
+		servertest.RunTicks(t, srv, 1)
+	}
+	c := servertest.DialServer(t, srv)
+	c.Join("Victim")
+	c.Settle()
+	w := createFlat(t, run, h, &flatGen{})
+	rule := keepInventoryRule(t, h)
+	run(func() { w.SetGameRule(rule, 1) })
+	srv.MovePlayerToDimension("Victim", "test:flat", 8.5, 4, 8.5)
+	srv.SetHealth("Victim", 5)
+	if !srv.Hurt("Victim", 50) || got == nil {
+		t.Fatal("no death")
+	}
+	if !got.KeepInventory || !got.KeepLevel {
+		t.Errorf("death in the plugin world: keep inventory %v, level %v; want both", got.KeepInventory, got.KeepLevel)
+	}
+}
