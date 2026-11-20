@@ -217,6 +217,18 @@ type Services interface {
 	Provide(t reflect.Type, impl any, priority int)
 	// Lookup answers the highest-priority implementation of t.
 	Lookup(t reflect.Type) (any, bool)
+	// Providers answers a snapshot of every implementation of t, highest
+	// priority first, equal priorities in the order they were provided; empty
+	// when there is none. Bukkit: ServicesManager.getRegistrations
+	Providers(t reflect.Type) []ServiceProvider
+}
+
+// ServiceProvider is one registered implementation of a service type.
+type ServiceProvider struct {
+	// Plugin is the name of the plugin that provided Impl.
+	Plugin   string
+	Priority int
+	Impl     any
 }
 
 // Provide registers impl as the plugin's implementation of the interface

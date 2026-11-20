@@ -1,6 +1,7 @@
 package pluginruntime
 
 import (
+	"github.com/golem-mc/golem/plugin"
 	"reflect"
 	"slices"
 	"sync"
@@ -52,6 +53,16 @@ func (runtime *Runtime) lookupService(t reflect.Type) (any, bool) {
 		return p[0].impl, true
 	}
 	return nil, false
+}
+func (s *pluginServices) Providers(t reflect.Type) []plugin.ServiceProvider {
+	r := &s.host.runtime.services
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]plugin.ServiceProvider, 0, len(r.providers[t]))
+	for _, p := range r.providers[t] {
+		out = append(out, plugin.ServiceProvider{Plugin: p.host.registration.Name, Priority: p.priority, Impl: p.impl})
+	}
+	return out
 }
 func (s *pluginServices) remove() {
 	r := &s.host.runtime.services
