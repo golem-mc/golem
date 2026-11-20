@@ -27,7 +27,12 @@ func (s *Server) RunRconLine(line string) []protocol.Text {
 // runLine runs one line as src. A blank line is refused as vanilla's
 // dispatcher does, at the cursor with no input. vanilla: Commands.performCommand
 func (s *Server) runLine(src *consoleSource, line string) []protocol.Text {
-	line = strings.TrimPrefix(line, "/")
+	return s.runStrippedLine(src, strings.TrimPrefix(line, "/"))
+}
+
+// runStrippedLine is runLine for a line whose one leading slash is already
+// removed, so "//set" reaches the command "/set" once.
+func (s *Server) runStrippedLine(src *consoleSource, line string) []protocol.Text {
 	if _, err := runSourceCommand(src, line, command.Tokenize(line), src.failure); err != nil && !errors.Is(err, command.ErrRefused) {
 		slog.Error("console command failed", "input", line, "error", err)
 	}

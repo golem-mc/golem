@@ -141,7 +141,7 @@ func (s *Server) runPluginCommandLine(src *consoleSource, line string, address n
 				line = e.Command
 			}
 		}
-		s.runLine(src, line)
+		s.runStrippedLine(src, line)
 	})
 	return src.out
 }
