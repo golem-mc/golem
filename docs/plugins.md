@@ -37,6 +37,9 @@ with no plugins, pinned to the launcher's own version:
   which makes it the loop for developing a plugin.
 - `allow-dependency-upgrades` (default false) is described under
   [What the launcher refuses](#what-the-launcher-refuses).
+- `updateCheck` (default true): false stops the launcher from printing, on
+  start, a line for each newer server, plugin or launcher release
+  (`GOLEM_NO_UPDATE_CHECK=1` does the same).
 
 The file always holds exact versions, never "latest", so a server builds the
 same way every time.

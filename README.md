@@ -135,6 +135,21 @@ every start: that is how to try a plugin while writing it.
 `./golem-launcher server v0.2.0` moves to a specific one. The launcher won't
 switch to a version your plugins don't work with.
 
+On start, the launcher also tells you when a newer server, plugin or
+launcher is out, with one line each:
+
+```
+↑ golem v0.2.0 is out (you run v0.1.0)
+  run `golem-launcher update` to update the server and plugins
+```
+
+It never holds up the start for more than about two seconds, says nothing
+when it is offline, and asks at most once a day (`outdated` and `update`
+always ask). Local server checkouts and plugin directories are not checked.
+To turn it off, add `"updateCheck": false` to `launcher.json` or set
+`GOLEM_NO_UPDATE_CHECK=1`; `GOLEM_LAUNCHER_DEBUG=1` shows why a check said
+nothing.
+
 ## Launcher reference
 
 ```

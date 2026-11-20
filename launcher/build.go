@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/mod/modfile"
@@ -40,13 +41,26 @@ type launcher struct {
 	cache string
 	http  *http.Client
 	ui    *ui.UI
+	clock clock
+	// versionsMu guards the version cache file (versionCachePath).
+	versionsMu sync.Mutex
 	// queries holds queryModule's answers, so a command asks go once per
-	// module query however many plugins share the module.
-	queries map[string]queryAnswer
+	// module query however many plugins share the module; queriesMu guards
+	// it, as the update check asks in parallel.
+	queriesMu sync.Mutex
+	queries   map[string]queryAnswer
 }
 
+// testLauncher, when set, adjusts every new launcher; tests give it a fake
+// clock or HTTP transport.
+var testLauncher func(*launcher)
+
 func newLauncher(cache string, u *ui.UI) *launcher {
-	return &launcher{cache: cache, http: &http.Client{Timeout: 15 * time.Minute}, ui: u}
+	l := &launcher{cache: cache, http: &http.Client{Timeout: 15 * time.Minute}, ui: u, clock: realClock{}}
+	if testLauncher != nil {
+		testLauncher(l)
+	}
+	return l
 }
 
 // step runs f as the step name: a spinner while it runs, then ✓, or ✗ and

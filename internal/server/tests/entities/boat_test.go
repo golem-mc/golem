@@ -1072,20 +1072,8 @@ func TestABoatLeftRidingCarriesTheRiderBackIn(t *testing.T) {
 	})
 
 	// Back: the rejoin stands the file's copy back up and seats the rider
-	// on it. The boat's spawn can go out before the join's last chunk batch,
-	// which Join reads past, so the join's packets are kept for the read.
-	c = connect()
-	c.Login("Ferry")
-	c.Configure()
-	var joined []servertest.PushedPacket
-	c.ReadJoin(func(id int32, data []byte) {
-		if id == protocol.IDPlayLogin && c.PlayerEntityID == 0 {
-			c.PlayerEntityID = protocol.NewReader(data).ReadI32()
-		}
-		joined = append(joined, servertest.PushedPacket{Id: id, Data: append([]byte(nil), data...)})
-	})
-	c.MarkLoaded()
-	c.Unread(joined...)
+	// on it.
+	c = connect().JoinKeeping("Ferry")
 	rejoined := servertest.AwaitBoatSpawn(c, protocol.EntityTypeOakBoat)
 	if riders := servertest.AwaitPassengersFor(c, rejoined.EntityID); len(riders) != 1 || riders[0] != c.PlayerEntityID {
 		t.Errorf("passengers after the rejoin = %v, want the rejoining rider %d", riders, c.PlayerEntityID)

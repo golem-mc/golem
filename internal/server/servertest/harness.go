@@ -467,6 +467,27 @@ func (c *Client) Join(name string) *Client {
 	return c
 }
 
+// JoinKeeping is Join with every packet of the join kept for the reads
+// after, for a test awaiting what the server sends once it treats the client
+// as loaded (a file's RootVehicle remounted): on a loaded machine the
+// join's read can outlast clientLoadedTimeoutTimer's 60 ticks, so that
+// arrives before the join's last chunk batch.
+func (c *Client) JoinKeeping(name string) *Client {
+	c.T.Helper()
+	c.Login(name)
+	c.Configure()
+	var joined []PushedPacket
+	c.ReadJoin(func(id int32, data []byte) {
+		if id == protocol.IDPlayLogin && c.PlayerEntityID == 0 {
+			c.PlayerEntityID = protocol.NewReader(data).ReadI32()
+		}
+		joined = append(joined, PushedPacket{Id: id, Data: append([]byte(nil), data...)})
+	})
+	c.MarkLoaded()
+	c.Unread(joined...)
+	return c
+}
+
 // JoinAs runs Login, Configure and EnterWorldAs under one name and returns
 // the player's own entity ID.
 func (c *Client) JoinAs(name string) int32 {

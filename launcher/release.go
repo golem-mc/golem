@@ -93,7 +93,7 @@ func (l *launcher) release(ctx context.Context, version string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return bin, writeExecutable(bin, data)
+	return bin, writeFileAtomic(bin, data, 0o755)
 }
 
 // verifyRelease checks sig over sums with the base64 public key key, then
@@ -193,9 +193,9 @@ func (l *launcher) get(ctx context.Context, url string, binary bool, name string
 	return data, nil
 }
 
-// writeExecutable writes data to path through a temporary file, so a
-// launcher stopped halfway leaves no partial binary behind.
-func writeExecutable(path string, data []byte) error {
+// writeFileAtomic writes data to path with mode perm through a temporary
+// file, so a launcher stopped halfway leaves no partial file behind.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -211,7 +211,7 @@ func writeExecutable(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
+	if err := os.Chmod(tmp.Name(), perm); err != nil {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)

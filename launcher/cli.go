@@ -546,19 +546,20 @@ func (c *cli) run(ctx context.Context, rebuild bool, serverArgs []string) error 
 	if err != nil {
 		return err
 	}
+	notices := c.startUpdateCheck(ctx, st)
 	bin, err := c.l.server(ctx, st.cfg, st.srvDir, st.plugins, rebuild)
 	if err != nil {
 		return err
 	}
 	c.ui.OK("golem %s · %s · ready in %s", st.cfg.Server, plural(len(st.plugins), "plugin"), ui.Duration(c.ui.Since(c.start)))
+	for _, n := range notices() {
+		fmt.Fprintln(c.out, n)
+	}
 	c.stop()
 	// The server's console starts on a clean line.
 	c.ui.Close()
 	return startServer(bin, serverArgs)
 }
-
-// startServer hands over to the server; tests replace it.
-var startServer = runServer
 
 func (c *cli) build(ctx context.Context, outFile string) error {
 	st, err := c.load(ctx)
@@ -574,7 +575,7 @@ func (c *cli) build(ctx context.Context, outFile string) error {
 		if err != nil {
 			return err
 		}
-		if err := writeExecutable(outFile, data); err != nil {
+		if err := writeFileAtomic(outFile, data, 0o755); err != nil {
 			return err
 		}
 		bin = outFile
@@ -895,38 +896,25 @@ func (c *cli) outdated(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var rows [][]ui.Cell
-	add := func(name, pinned, latest string) {
-		if newer(pinned, latest) {
-			rows = append(rows, []ui.Cell{{Text: name}, {Text: pinned, Paint: ui.Yellow}, {Text: latest, Paint: ui.Green}})
-		}
-	}
-	err = c.l.step("finding the latest versions", func() error {
-		if st.srvDir == "" {
-			latest, err := c.l.latestServer(ctx)
-			if err != nil {
-				return err
-			}
-			add("server", st.cfg.Server, latest)
-		}
-		for _, p := range st.plugins {
-			if p.Dir != "" {
-				continue
-			}
-			_, latest, err := c.l.latestPlugin(ctx, p.Path)
-			if err != nil {
-				return err
-			}
-			add(p.Path, p.Version, latest)
-		}
-		return nil
+	var items []outdatedItem
+	err = c.l.step("finding the latest versions", func() (err error) {
+		items, err = c.outdatedItems(ctx, st, false)
+		return err
 	})
 	if err != nil {
 		return err
 	}
-	if len(rows) == 0 {
+	if len(items) == 0 {
 		fmt.Fprintln(c.out, c.ui.Out().Paint(ui.Green, "everything is up to date"))
 		return nil
+	}
+	rows := make([][]ui.Cell, 0, len(items))
+	for _, it := range items {
+		name := it.path
+		if name == serverModule {
+			name = "server"
+		}
+		rows = append(rows, []ui.Cell{{Text: name}, {Text: it.current, Paint: ui.Yellow}, {Text: it.latest, Paint: ui.Green}})
 	}
 	return ui.Table(c.out, c.ui.Out(), []string{"NAME", "PINNED", "LATEST"}, rows)
 }
@@ -954,7 +942,7 @@ func (c *cli) update(ctx context.Context, server bool, names []string) error {
 	}
 	err = c.l.step("finding the latest versions", func() error {
 		if server && st.srvDir == "" {
-			latest, err := c.l.latestServer(ctx)
+			latest, err := c.l.latestOf(ctx, serverModule, false)
 			if err != nil {
 				return err
 			}
@@ -966,9 +954,14 @@ func (c *cli) update(ctx context.Context, server bool, names []string) error {
 			if !pick[i] || p.Dir != "" {
 				continue
 			}
+			latest, err := c.l.latestOf(ctx, p.Path, false)
+			if err != nil {
+				return err
+			}
 			// Every package of the module moves, so one build has one
-			// version of it.
-			mod, latest, err := c.l.latestPlugin(ctx, p.Path)
+			// version of it. latestOf's query is remembered, so this asks
+			// go nothing more.
+			mod, _, err := c.l.latestPlugin(ctx, p.Path)
 			if err != nil {
 				return err
 			}
