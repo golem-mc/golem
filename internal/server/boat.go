@@ -251,7 +251,7 @@ func (s *Server) tickBoats() {
 		if !c.clientLoaded() {
 			continue // still behind the loading screen; a later tick takes it
 		}
-		if c.vehicleOnJoin.Load() == nil {
+		if saved := c.vehicleOnJoin.Load(); saved == nil || !c.savedVehicleChunkSent(*saved) {
 			continue
 		}
 		// Under saveMu, so a save sees the file's copy or the seat, never
@@ -2670,6 +2670,23 @@ func (s *Server) remountSavedVehicle(c *client, dim *dimension, saved nbt.Compou
 		return
 	}
 	s.seatOnSavedMob(c, dim.w, attach)
+}
+
+// savedVehicleChunkSent reports whether the rider was sent the chunk their
+// file's RootVehicle stands in. The load timeout can run out before the
+// chunk is even loaded, and a hull raised in a chunk nobody holds leaves
+// with it on the next tick, dropping the rider; a sent chunk is one the
+// rider holds. A root without a position passes, for the remount to refuse.
+func (c *client) savedVehicleChunkSent(saved nbt.Compound) bool {
+	root, ok := nbt.Get[nbt.Compound](saved, "Entity")
+	if !ok {
+		return true
+	}
+	x, _, z, ok := entityPositionOfTag(root)
+	if !ok {
+		return true
+	}
+	return c.tracks(c.dimension().w, world.ChunkPos{X: world.ChunkOf(x), Z: world.ChunkOf(z)})
 }
 
 // sendBoatEntities shows a joining or arriving client every boat in its
