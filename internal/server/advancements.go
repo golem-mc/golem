@@ -565,8 +565,8 @@ func (c *client) runAdvancementFunction(id string) {
 	s.runEnchantLine(c.theWorld(), fmt.Sprintf("execute as %s at %s run function %s", c.player.UUID, c.player.UUID, id))
 }
 
-// giveAdvancementLoot rolls each reward table for the player and gives the
-// stacks. vanilla: AdvancementRewards.grant, LootContextParamSets.ADVANCEMENT_REWARD
+// giveAdvancementLoot rolls each reward table for the player and adds the
+// stacks, then broadcasts the inventory once. vanilla: AdvancementRewards.grant, LootContextParamSets.ADVANCEMENT_REWARD
 func (c *client) giveAdvancementLoot(tables []string) {
 	w := c.theWorld()
 	pos := c.player.Position()
@@ -575,9 +575,34 @@ func (c *client) giveAdvancementLoot(tables []string) {
 			Origin: [3]float64{pos.X, pos.Y, pos.Z}, HasOrigin: true}
 		stacks, _ := c.srv.rollLootWith(ctx, table, 0)
 		for _, st := range stacks {
-			c.GiveItem(st)
+			if c.addRewardStack(st) {
+				c.playPickupSound()
+			}
 		}
 	}
+	c.BroadcastItemChanges()
+}
+
+// addRewardStack adds a stack one max stack at a time with no fake item,
+// dropping what does not fit as the player's own leftover, and reports
+// whether any went in.
+// vanilla: AdvancementRewards.grant
+func (c *client) addRewardStack(stack protocol.ItemStack) (added bool) {
+	maxStack := registry.StackMaxStackSize(stack)
+	for remaining := stack.Count; remaining > 0; {
+		piece := stack
+		piece.Count = min(maxStack, remaining)
+		remaining -= piece.Count
+		left := c.addToInventory(piece)
+		if left < piece.Count {
+			added = true
+		}
+		if left > 0 {
+			piece.Count = left
+			c.dropLeftover(piece)
+		}
+	}
+	return added
 }
 
 // announceAdvancements does AnnounceAdvancements' work under the dispatch
