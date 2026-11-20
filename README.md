@@ -67,6 +67,22 @@ Options for the server go after `--`; they are the vanilla server's options:
 ./golem-launcher -- --port 25566
 ```
 
+## Plugins
+
+Unofficial ports of well-known Bukkit plugins, each its own repository:
+
+| Plugin | What it does | Status | Install |
+|---|---|---|---|
+| [essentials](https://github.com/golem-mc/essentials) | [EssentialsX](https://essentialsx.net/): about 150 commands (homes, warps, teleports, kits, economy, mail, bans, jails), with optional spawn, chat, protect and antibuild modules | Unofficial port; keeps EssentialsX's commands, permission nodes, messages and config files | `golem-launcher plugin add github.com/golem-mc/essentials@6601330` |
+| [perms](https://github.com/golem-mc/perms) | [LuckPerms](https://luckperms.net/): permission engine, groups and tracks, contexts, meta, many storage backends, multi-server messaging, Web Editor | Unofficial port; replaces the permission system and keeps the `/lp` commands, storage formats and Web Editor | `golem-launcher plugin add github.com/golem-mc/perms@3e35aac` |
+| [worldedit](https://github.com/golem-mc/worldedit) | [FastAsyncWorldEdit](https://github.com/IntellectualSites/FastAsyncWorldEdit): selections, region operations, patterns and masks, clipboards and schematics, history, brushes | Unofficial port; keeps FAWE's commands, permission nodes, config, schematic formats and history | `golem-launcher plugin add github.com/golem-mc/worldedit@f916f59` |
+
+None of them has a release tag yet, so the commands above pin a commit hash
+as the version (`plugin add <path>@<commit>`); use a newer commit to get later
+changes. Each plugin's README lists everything it includes. See
+[Installing plugins](#installing-plugins) for the details, and
+[Writing plugins](#writing-plugins) to add your own.
+
 ## Installing plugins
 
 A plugin is named by its Go module path, usually its GitHub repository.
