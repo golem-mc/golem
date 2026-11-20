@@ -21,6 +21,13 @@ type pluginHost struct {
 	ticketMu     sync.Mutex
 	held         map[pluginTicket]int
 	ticketClosed bool
+
+	attachOnce sync.Once
+	// attachMu orders attachment changes against the release when the plugin
+	// closes. Lock order: attachMu before client.pluginMu.
+	attachMu     sync.Mutex
+	attachments  map[*pluginPermissionAttachment]struct{}
+	attachClosed bool
 }
 
 func (s *Server) loadPlugins(registrations []plugin.Registration) {

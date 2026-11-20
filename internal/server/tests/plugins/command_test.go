@@ -153,6 +153,209 @@ func TestPluginPermissionProviderAndChildren(t *testing.T) {
 	})
 }
 
+func TestPluginPermissionAttachments(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	var hostA, hostB plugin.Server
+	var ran int
+	srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{
+		{Name: "attachA", Plugin: &testPlugin{enable: func(s plugin.Server) error {
+			hostA = s
+			s.Permissions().Register(plugin.Permission{Name: "everyone", Default: plugin.PermissionDefault{OpLevel: 0}})
+			s.Permissions().Register(plugin.Permission{Name: "nobody", Default: plugin.PermissionDefault{OpLevel: 5}})
+			s.Permissions().Register(plugin.Permission{
+				Name:     "parent",
+				Default:  plugin.PermissionDefault{OpLevel: 5},
+				Children: map[string]bool{"child.grant": true, "child.deny": false},
+			})
+			s.Permissions().Register(plugin.Permission{Name: "child.deny", Default: plugin.PermissionDefault{OpLevel: 0}})
+			if err := s.Commands().Register(plugin.Command{
+				Name:       "gated",
+				Permission: "cmd.gated",
+				Run: func(*plugin.CommandContext) (int, error) {
+					ran++
+					return 1, nil
+				},
+			}); err != nil {
+				return err
+			}
+			return nil
+		}}},
+		{Name: "attachB", Plugin: &testPlugin{enable: func(s plugin.Server) error {
+			hostB = s
+			return nil
+		}}},
+	}, servertest.WriteOpsFile(t, servertest.OpRecord{UUID: protocol.OfflineUUID("OpPlayer").String(), Name: "OpPlayer", Level: 4}))
+	servertest.FreezeUntilHeld(t, srv)
+
+	cNonOp := servertest.DialServer(t, srv)
+	cNonOp.ViewAsk = config.MinDistance
+	cNonOp.Join("Regular")
+
+	cOp := servertest.DialServer(t, srv)
+	cOp.ViewAsk = config.MinDistance
+	cOp.Join("OpPlayer")
+
+	run := func(f func()) {
+		done := make(chan struct{})
+		hostA.Scheduler().RunTask(func() {
+			defer close(done)
+			f()
+		})
+		<-done
+	}
+
+	var attA, attB plugin.PermissionAttachment
+	var pRegularA, pRegularB, pOp plugin.Player
+	run(func() {
+		pRegularA, _ = hostA.PlayerNamed("Regular")
+		pRegularB, _ = hostB.PlayerNamed("Regular")
+		pOp, _ = hostA.PlayerNamed("OpPlayer")
+
+		// Baseline defaults before any attachment.
+		if pRegularA.HasPermission("nobody") || pRegularA.PermissionSet("nobody") {
+			t.Fatal("non-op unexpectedly has nobody")
+		}
+		if !pRegularA.HasPermission("everyone") || pRegularA.PermissionSet("everyone") {
+			t.Fatal("non-op baseline everyone mismatch")
+		}
+		if !pOp.HasPermission("unknown") || pOp.PermissionSet("unknown") {
+			t.Fatal("op baseline unknown mismatch")
+		}
+
+		// Attach true/false values and verify HasPermission, PermissionSet, and Permissions snapshot.
+		attA = pRegularA.AddAttachment()
+		if attA == nil {
+			t.Fatal("AddAttachment returned nil for online player")
+		}
+		attA.Set("nobody", true)
+		attA.Set("everyone", false)
+		attA.Set("cmd.gated", true)
+		if !pRegularA.HasPermission("nobody") || !pRegularA.PermissionSet("nobody") {
+			t.Error("attachment grant not honoured")
+		}
+		if pRegularA.HasPermission("everyone") || !pRegularA.PermissionSet("everyone") {
+			t.Error("attachment deny not honoured")
+		}
+		if !pRegularB.HasPermission("nobody") || !pRegularB.PermissionSet("nobody") {
+			t.Error("other plugin handle did not see attachment")
+		}
+		snap := attA.Permissions()
+		if len(snap) != 3 || !snap["nobody"] || snap["everyone"] || !snap["cmd.gated"] {
+			t.Errorf("unexpected Permissions snapshot: %v", snap)
+		}
+		snap["nobody"] = false
+		if !pRegularA.HasPermission("nobody") {
+			t.Error("mutating Permissions snapshot changed attachment")
+		}
+
+		// Command execution honours attached permission.
+		if !pRegularA.RunCommand("gated") || ran != 1 {
+			t.Errorf("gated command failed with attached permission: ran=%d", ran)
+		}
+
+		// Deny on an op player overrides op level.
+		opAtt := pOp.AddAttachment()
+		opAtt.Set("unknown", false)
+		if pOp.HasPermission("unknown") || !pOp.PermissionSet("unknown") {
+			t.Error("attachment deny did not override op level")
+		}
+		opAtt.Remove()
+		if !pOp.HasPermission("unknown") || pOp.PermissionSet("unknown") {
+			t.Error("removing op attachment did not restore op level")
+		}
+
+		// Parent inheritance and direct child override.
+		attA.Set("parent", true)
+		if !pRegularA.HasPermission("child.grant") || pRegularA.HasPermission("child.deny") {
+			t.Error("attached parent children not honoured")
+		}
+		attA.Set("child.deny", true)
+		if !pRegularA.HasPermission("child.deny") {
+			t.Error("direct child attachment did not override parent child deny")
+		}
+		attA.Unset("child.deny")
+		if pRegularA.HasPermission("child.deny") || pRegularA.PermissionSet("child.deny") {
+			t.Error("Unset child.deny did not revert to parent")
+		}
+
+		// Second attachment from another plugin overrides first; Unset and Remove reveal first.
+		attB = pRegularB.AddAttachment()
+		attB.Set("nobody", false)
+		if pRegularA.HasPermission("nobody") || !pRegularA.PermissionSet("nobody") {
+			t.Error("later attachment did not override earlier attachment")
+		}
+		attB.Unset("nobody")
+		if !pRegularA.HasPermission("nobody") || !pRegularA.PermissionSet("nobody") {
+			t.Error("unsetting later attachment did not reveal earlier attachment")
+		}
+		attB.Set("nobody", false)
+		attB.Remove()
+		attB.Remove() // idempotent
+		if !pRegularA.HasPermission("nobody") {
+			t.Error("removing later attachment did not reveal earlier attachment")
+		}
+		attB.Set("nobody", false)
+		if !pRegularA.HasPermission("nobody") || len(attB.Permissions()) != 0 {
+			t.Error("removed attachment still mutated permissions")
+		}
+
+		// Provider service takes precedence when it decides, and falls through when undecided.
+		plugin.Provide[plugin.PermissionProvider](hostB, permissionProvider(func(sender plugin.CommandSender, node string) (bool, bool) {
+			if node == "nobody" {
+				return false, true
+			}
+			return false, false
+		}), 1)
+		if pRegularA.HasPermission("nobody") {
+			t.Error("provider decision did not take precedence over attachment")
+		}
+		if pRegularA.HasPermission("everyone") || !pRegularA.PermissionSet("everyone") {
+			t.Error("undecided provider did not fall through to attachment")
+		}
+
+		// Unset reverts cmd.gated and command is refused.
+		attA.Unset("cmd.gated")
+		if pRegularA.HasPermission("cmd.gated") || pRegularA.PermissionSet("cmd.gated") {
+			t.Error("Unset did not clear cmd.gated")
+		}
+		if pRegularA.RunCommand("gated") || ran != 1 {
+			t.Errorf("gated command ran after Unset: ran=%d", ran)
+		}
+		// Keep "parent" and "everyone" attached until the player leaves.
+	})
+
+	// Leave clears attachments; old handle and attachment are inactive; rejoin starts clean.
+	cNonOp.Conn.Close()
+	cNonOp.AwaitServed()
+	run(func() {
+		if pRegularA.HasPermission("parent") || pRegularA.PermissionSet("parent") {
+			t.Error("left player still had attached permission")
+		}
+		if pRegularA.AddAttachment() != nil {
+			t.Error("AddAttachment on left player returned non-nil")
+		}
+		attA.Set("after.leave", true)
+		if len(attA.Permissions()) != 0 {
+			t.Error("attachment retained entries after player left")
+		}
+	})
+
+	cRejoin := servertest.DialServer(t, srv)
+	cRejoin.ViewAsk = config.MinDistance
+	cRejoin.Join("Regular")
+	run(func() {
+		pRejoined, ok := hostA.PlayerNamed("Regular")
+		if !ok {
+			t.Fatal("rejoined player not found")
+		}
+		if pRejoined.HasPermission("parent") || pRejoined.PermissionSet("parent") || !pRejoined.HasPermission("everyone") || pRejoined.PermissionSet("everyone") {
+			t.Error("rejoined player inherited stale attachments from previous session")
+		}
+	})
+}
+
 func joinCommandTree(t *testing.T, srv *server.Server, name string) []byte {
 	t.Helper()
 	c := servertest.DialServer(t, srv)
