@@ -2040,7 +2040,10 @@ func (c *client) attackClient(victim *client) {
 		return
 	}
 	held := c.attackWeapon()
-	blow, ok := c.prepareAttack(held, protocol.EntityTypePlayer, true)
+	blow, ok := c.prepareAttack(held, protocol.EntityTypePlayer, true, func() *rules.LootEntity {
+		e := victim.LootEntity()
+		return &e
+	})
 	if !ok {
 		return
 	}

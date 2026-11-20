@@ -3319,7 +3319,9 @@ func (c *client) attackMob(target int32) {
 		return
 	}
 	held := c.attackWeapon()
-	blow, ok := c.prepareAttack(held, mobEntityType(ent.mob.Type), true)
+	blow, ok := c.prepareAttack(held, mobEntityType(ent.mob.Type), true, func() *rules.LootEntity {
+		return c.srv.mobAttackLoot(ent, c.theWorld().DimensionName())
+	})
 	if !ok {
 		return
 	}
@@ -4296,4 +4298,17 @@ func (c *client) shearEquipment(ent *mobEntity, hand, shears int32) bool {
 	c.shearedEquipmentAdvancements(after, taken.Stack.ItemID)
 	c.interactedWithEntityAdvancements(after, shears)
 	return true
+}
+
+// mobAttackLoot is the loot snapshot of a mob under attack, for the loot
+// conditions of a data-pack effect.
+func (s *Server) mobAttackLoot(ent *mobEntity, dim string) *rules.LootEntity {
+	s.mobsMu.Lock()
+	snap := s.mobSnapshot(ent, dim, nil)
+	s.mobsMu.Unlock()
+	if snap == nil {
+		return nil
+	}
+	e := snap.LootEntity()
+	return &e
 }

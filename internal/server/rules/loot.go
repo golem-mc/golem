@@ -349,6 +349,9 @@ type LootContext struct {
 	// DamageType is the damage type of the killing blow, read by the
 	// damage_source_properties tag test.
 	DamageType registry.DamageType
+	// EnchantmentActive is an enchantment effect's ENCHANTMENT_ACTIVE; nil
+	// outside one, where enchantment_active_check fails.
+	EnchantmentActive *bool
 	// KilledByPlayer says a player's kill is what this death was: the
 	// hundred-tick memory of the last player's blow, which is what the
 	// vanilla tables' killed_by_player asks after.
@@ -988,9 +991,7 @@ func (r *lootRoller) condition(c registry.LootCondition) bool {
 		}
 		return true
 	case registry.LootEnchantmentActive:
-		// No roll this server makes is an enchantment effect's, so
-		// ENCHANTMENT_ACTIVE is always absent, which fails either way.
-		return false
+		return r.ctx.EnchantmentActive != nil && *r.ctx.EnchantmentActive == k.Active
 	case registry.LootEnvironmentCheck:
 		return r.ctx.Level != nil && r.ctx.Level.EnvironmentFloat(k.Attribute) == k.Value
 	case registry.LootValueCheck:
