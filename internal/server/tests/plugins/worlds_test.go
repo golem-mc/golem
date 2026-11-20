@@ -371,8 +371,9 @@ func TestPluginWorldFolder(t *testing.T) {
 		t.Fatalf("flat folder = %q, want %q", flat, want)
 	}
 	w := createFlat(t, run, h, &flatGen{})
-	run(func() { w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) {}) })
-	awaitPluginIO(t, srv, "flat chunk", func() bool { return srv.ChunkLoadedInDimension("test:flat", 0, 0) })
+	var loaded atomic.Bool
+	run(func() { w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) { loaded.Store(true) }) })
+	awaitPluginIO(t, srv, "flat chunk", loaded.Load)
 	run(func() { w.SetSpawnPoint(plugin.Location{World: w, Pos: plugin.Vec3{X: 3, Y: 5, Z: 3}}) })
 	if err := unloadFlat(t, run, h, w, true); err != nil {
 		t.Fatal(err)
