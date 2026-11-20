@@ -326,7 +326,7 @@ func (r *decorRegion) processPortalBlock(p *ruinedPortal, state uint16, x, y, z 
 	} else if p.cold {
 		rules = &coldPortalRules
 	}
-	state = rules.process(state, world, x, y, z, 0)
+	state = rules.process(state, world, x, y, z, [3]int32{})
 	state = ruinedPortalAge(state, levelgen.NewLegacyRandom(blockPosSeed(x, y, z)), p.setup.Mossiness)
 	// vanilla: ProtectedBlockProcessor
 	if stateInTag(world, registry.TagIDFeaturesCannotReplace) {

@@ -65,13 +65,18 @@ func loadFeatureProcessors(processors any) ([]structureProcessor, bool) {
 	if err != nil {
 		modelFail("feature processors: %v", err)
 	}
+	for _, p := range procs {
+		if _, ok := p.(gravityProcessor); ok {
+			modelFail("feature processors: gravity moves a block off its feature position")
+		}
+	}
 	return procs, protected
 }
 
 // featureProcess runs a feature's processors over each template block; refY
 // is the placement's Y.
 // vanilla: StructureTemplate.processBlockInfos, ProtectedBlockProcessor
-func (r *decorRegion) featureProcess(procs []structureProcessor, protected bool, refY int32) func(uint16, nbt.Compound, [3]int32) (uint16, nbt.Compound, bool) {
+func (r *decorRegion) featureProcess(procs []structureProcessor, protected bool, ref [3]int32) func(uint16, nbt.Compound, [3]int32) (uint16, nbt.Compound, bool) {
 	return func(state uint16, tag nbt.Compound, p [3]int32) (uint16, nbt.Compound, bool) {
 		world := r.get(p[0], p[1], p[2])
 		for _, proc := range procs {
@@ -79,7 +84,7 @@ func (r *decorRegion) featureProcess(procs []structureProcessor, protected bool,
 			if rot, ok := proc.(blockRot); ok {
 				state, keep = rot.applyRandom(state, r.rng.NextFloat)
 			} else {
-				state, tag, keep = applyProcessor(proc, state, world, p[0], p[1], p[2], refY, tag)
+				state, tag, keep = applyProcessor(proc, state, world, p[0], p[1], p[2], ref, tag)
 			}
 			if !keep {
 				return 0, nil, false
@@ -140,7 +145,7 @@ func fossilFeature(cfg jobj) featureFn {
 func (l fossilLayer) place(r *decorRegion, index int32, pos [3]int32, rotation Rotation, bounds jbox) {
 	placed, ok := l.templates[index].Place(TemplatePlacement{
 		Origin: pos, Rotation: rotation, Integrity: 1, IgnoreEntities: true, random: r.rng,
-		process: r.featureProcess(l.processors, l.protected, pos[1]),
+		process: r.featureProcess(l.processors, l.protected, pos),
 	})
 	if !ok {
 		return
