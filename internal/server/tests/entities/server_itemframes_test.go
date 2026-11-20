@@ -301,7 +301,12 @@ func TestASurvivalBlowPopsTheItemAndTheNextBreaksTheFrame(t *testing.T) {
 		t.Fatalf("the hand holds %+v after the use, want the one diamond left of two", held)
 	}
 
-	// The blow pops the diamond out and leaves the frame hung.
+	// The blow pops the diamond out and leaves the frame hung. The actor
+	// steps back out of pickup range first: a loaded run can reach the
+	// second blow after the ten-tick pickup delay, and the pickup's removal
+	// would reach the watcher before the frame's.
+	actor.MoveToGround(4.5, 64, 2.5, true)
+	actor.Settle()
 	actor.Attack(hung.EntityID)
 	if got := servertest.FrameItemSlot(t, watcher, hung.EntityID); !got.Empty() {
 		t.Fatalf("the blow left the frame holding %+v, want nothing", got)
