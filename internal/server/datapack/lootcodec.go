@@ -441,13 +441,7 @@ func sortedKeys[V any](m map[string]V) []string {
 // the weather, time, score, environment and value checks.
 // vanilla: LootItemConditions
 func condition(c obj) registry.LootCondition {
-	// The built-in 26.3 predicates key the type as "type"; packs written
-	// for earlier versions use "condition".
-	key := "condition"
-	if _, ok := c[key]; !ok {
-		key = "type"
-	}
-	kind := registry.Qualify(str(c[key], "condition type"))
+	kind := registry.Qualify(requireStr(c, "type"))
 	switch kind {
 	case "minecraft:survives_explosion":
 		return registry.LootSurvivesExplosion{}
@@ -485,7 +479,7 @@ func condition(c obj) registry.LootCondition {
 	case "minecraft:block_state_property":
 		return registry.LootBlockState{Block: registry.Qualify(requireStr(c, "block")), Properties: stateProperties(c["properties"])}
 	case "minecraft:match_block":
-		unknownKeys(c, "match_block", key, "blocks", "state")
+		unknownKeys(c, "match_block", "type", "blocks", "state")
 		out := registry.LootMatchBlock{Properties: stateProperties(c["state"])}
 		if raw := c["blocks"]; raw != nil {
 			out.Blocks = holderSet(raw, "block", registry.BlockTagMembers)

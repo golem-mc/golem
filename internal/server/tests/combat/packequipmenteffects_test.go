@@ -76,7 +76,7 @@ func TestPackDamageImmunityKeepsTheWearerOutOfLavaHarm(t *testing.T) {
 		"data/pk/enchantment/fireproof.json": `{"anvil_cost":1,"description":{"text":"Fireproof"},"max_level":1,"weight":1,
 			"min_cost":{"base":1,"per_level_above_first":0},"max_cost":{"base":50,"per_level_above_first":0},
 			"slots":["feet"],"supported_items":"#minecraft:enchantable/foot_armor",
-			"effects":{"minecraft:damage_immunity":[{"effect":{},"requirements":{"condition":"minecraft:damage_source_properties",
+			"effects":{"minecraft:damage_immunity":[{"effect":{},"requirements":{"type":"minecraft:damage_source_properties",
 			"predicate":{"tags":[{"id":"#minecraft:is_fire","expected":true}]}}}]}}`,
 	}
 	for _, tc := range []struct {

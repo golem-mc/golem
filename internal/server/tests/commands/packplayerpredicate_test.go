@@ -21,7 +21,7 @@ func TestPackPlayerPredicateReadsGamemodeLevelRecipesAndInput(t *testing.T) {
 	cfg := packWorld(t)
 	data := filepath.Join(cfg.LevelName, "datapacks", "a", "data", "pk", "predicate")
 	entity := func(predicate string) string {
-		return `{"condition":"minecraft:entity_properties","entity":"this","predicate":{` + predicate + `}}`
+		return `{"type":"minecraft:entity_properties","entity":"this","predicate":{` + predicate + `}}`
 	}
 	writeFile(t, filepath.Join(data, "creative.json"), entity(`"minecraft:type_specific/player":{"gamemode":["creative"]}`))
 	writeFile(t, filepath.Join(data, "lvl5.json"), entity(`"minecraft:type_specific/player":{"level":{"min":5}}`))

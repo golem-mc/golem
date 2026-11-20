@@ -98,17 +98,17 @@ func TestPackPredicatesAnswerExecuteAndSelectors(t *testing.T) {
 	cfg := packWorld(t)
 	data := filepath.Join(cfg.LevelName, "datapacks", "a", "data", "pk")
 	predicate := filepath.Join(data, "predicate", "gate.json")
-	writeFile(t, predicate, `{"condition":"minecraft:random_chance","chance":1}`)
-	writeFile(t, filepath.Join(data, "predicate", "never.json"), `[{"condition":"minecraft:random_chance","chance":0}]`)
+	writeFile(t, predicate, `{"type":"minecraft:random_chance","chance":1}`)
+	writeFile(t, filepath.Join(data, "predicate", "never.json"), `[{"type":"minecraft:random_chance","chance":0}]`)
 	writeFile(t, filepath.Join(data, "loot_table", "gated.json"),
 		`{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:clay_ball",`+
-			`"conditions":[{"condition":"minecraft:reference","name":"pk:gate"}]}]}]}`)
+			`"conditions":[{"type":"minecraft:reference","name":"pk:gate"}]}]}]}`)
 	// A holder set names a single holder without a list.
 	// vanilla: HolderSetCodec.directCodec
-	writeFile(t, filepath.Join(data, "predicate", "always.json"), `{"condition":"minecraft:random_chance","chance":1}`)
+	writeFile(t, filepath.Join(data, "predicate", "always.json"), `{"type":"minecraft:random_chance","chance":1}`)
 	writeFile(t, filepath.Join(data, "loot_table", "single_term.json"),
 		`{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:brick",`+
-			`"conditions":[{"condition":"minecraft:all_of","terms":"pk:always"}]}]}]}`)
+			`"conditions":[{"type":"minecraft:all_of","terms":"pk:always"}]}]}]}`)
 	_, c := joinPacks(t, cfg)
 
 	c.ChatCommand("execute if predicate pk:gate run say hi")
@@ -126,7 +126,7 @@ func TestPackPredicatesAnswerExecuteAndSelectors(t *testing.T) {
 	expectGave(t, c, "loot give @s loot pk:gated", "minecraft:clay_ball", 1)
 	expectGave(t, c, "loot give @s loot pk:single_term", "minecraft:brick", 1)
 
-	writeFile(t, predicate, `{"condition":"minecraft:random_chance","chance":0}`)
+	writeFile(t, predicate, `{"type":"minecraft:random_chance","chance":0}`)
 	c.ChatCommand("reload")
 	servertest.ExpectFeedbackSoon(t, c, nil, "commands.reload.success")
 	c.ChatCommand("execute if predicate pk:gate")

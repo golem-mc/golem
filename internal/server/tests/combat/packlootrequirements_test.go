@@ -30,15 +30,15 @@ func TestPackEnchantmentLootRequirements(t *testing.T) {
 	for file, body := range map[string]string{
 		"pack.mcmeta": `{"pack":{"description":"p"}}`,
 		"data/pk/enchantment/sneaky.json": lootDamageEnchant(
-			`{"condition":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`),
+			`{"type":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`),
 		"data/pk/enchantment/tagged.json": lootDamageEnchant(
-			`{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}`),
+			`{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}`),
 		"data/pk/enchantment/level.json": lootDamageEnchant(
-			`{"condition":"minecraft:float_value_check","value":{"type":"minecraft:enchantment_level","amount":{"type":"minecraft:linear","base":1,"per_level_above_first":1}},"test":{"min":2}}`),
+			`{"type":"minecraft:float_value_check","value":{"type":"minecraft:enchantment_level","amount":{"type":"minecraft:linear","base":1,"per_level_above_first":1}},"test":{"min":2}}`),
 		"data/pk/enchantment/overworld.json": lootDamageEnchant(
-			`{"condition":"minecraft:location_check","predicate":{"dimension":"minecraft:overworld"}}`),
+			`{"type":"minecraft:location_check","predicate":{"dimension":"minecraft:overworld"}}`),
 		"data/pk/enchantment/nether.json": lootDamageEnchant(
-			`{"condition":"minecraft:location_check","predicate":{"dimension":"minecraft:the_nether"}}`),
+			`{"type":"minecraft:location_check","predicate":{"dimension":"minecraft:the_nether"}}`),
 	} {
 		path := filepath.Join(pack, file)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

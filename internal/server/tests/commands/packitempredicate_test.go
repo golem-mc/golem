@@ -32,7 +32,7 @@ func TestInlineItemPredicatesReadCountComponentsAndPredicates(t *testing.T) {
 	}
 	answers := func(item string, want bool) {
 		t.Helper()
-		const head = `execute if predicate {condition:"minecraft:entity_properties",entity:"this",predicate:{"minecraft:equipment":{mainhand:`
+		const head = `execute if predicate {type:"minecraft:entity_properties",entity:"this",predicate:{"minecraft:equipment":{mainhand:`
 		command := head + item + `}}}`
 		if want {
 			command += " run say hi"
@@ -95,7 +95,7 @@ func TestPackMatchToolReadsCustomData(t *testing.T) {
 	cfg := packWorld(t)
 	writeFile(t, filepath.Join(cfg.LevelName, "datapacks", "a", "data", "minecraft", "loot_table", "blocks", "netherite_block.json"),
 		`{"pools":[{"rolls":1,"entries":[{"type":"minecraft:alternatives","children":[`+
-			`{"type":"minecraft:item","name":"minecraft:emerald","conditions":[{"condition":"minecraft:match_tool",`+
+			`{"type":"minecraft:item","name":"minecraft:emerald","conditions":[{"type":"minecraft:match_tool",`+
 			`"predicate":{"items":"minecraft:stick","predicates":{"minecraft:custom_data":"{a:1b}"}}}]},`+
 			`{"type":"minecraft:item","name":"minecraft:dirt"}]}]}]}`)
 	_, c := joinPacks(t, cfg)

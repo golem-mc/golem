@@ -1,1 +1,1 @@
-[{"condition": "minecraft:match_tool", "predicate": {"items": "minecraft:arrow"}}]
+[{"type":"minecraft:match_tool", "predicate": {"items": "minecraft:arrow"}}]

@@ -19,10 +19,10 @@ func TestPackItemValueEffectsUseComponentsAndContexts(t *testing.T) {
       "effects":{
         "minecraft:fishing_time_reduction":[{"effect":{"type":"minecraft:add","value":1.375}}],
         "minecraft:fishing_luck_bonus":[{"effect":{"type":"minecraft:add","value":2.75}}],
-        "minecraft:projectile_count":[{"effect":{"type":"minecraft:add","value":{"type":"minecraft:linear","base":2.5,"per_level_above_first":2}},"requirements":{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:player"}}}],
-        "minecraft:projectile_spread":[{"effect":{"type":"minecraft:add","value":12.5},"requirements":{"condition":"minecraft:random_chance","chance":{"type":"minecraft:enchantment_level","amount":{"type":"minecraft:linear","base":0,"per_level_above_first":1}}}}],
-        "minecraft:projectile_piercing":[{"effect":{"type":"minecraft:add","value":3.75},"requirements":{"condition":"minecraft:match_tool","predicate":{"items":"minecraft:arrow"}}}],
-        "minecraft:trident_return_acceleration":[{"effect":{"type":"minecraft:add","value":4.75},"requirements":{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:trident"}}}],
+        "minecraft:projectile_count":[{"effect":{"type":"minecraft:add","value":{"type":"minecraft:linear","base":2.5,"per_level_above_first":2}},"requirements":{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:player"}}}],
+        "minecraft:projectile_spread":[{"effect":{"type":"minecraft:add","value":12.5},"requirements":{"type":"minecraft:random_chance","chance":{"type":"minecraft:enchantment_level","amount":{"type":"minecraft:linear","base":0,"per_level_above_first":1}}}}],
+        "minecraft:projectile_piercing":[{"effect":{"type":"minecraft:add","value":3.75},"requirements":{"type":"minecraft:match_tool","predicate":{"items":"minecraft:arrow"}}}],
+        "minecraft:trident_return_acceleration":[{"effect":{"type":"minecraft:add","value":4.75},"requirements":{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:trident"}}}],
         "minecraft:crossbow_charge_time":{"type":"minecraft:all_of","effects":[{"type":"minecraft:multiply","factor":0.5},{"type":"minecraft:add","value":0.125}]},
         "minecraft:trident_spin_attack_strength":{"type":"minecraft:add","value":3.25}
       }} `))

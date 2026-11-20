@@ -22,9 +22,9 @@ func TestPackOverridesHiveAndRootedDirtHarvests(t *testing.T) {
 	} {
 		servertest.WritePackFile(t, cfg, "harvests", "minecraft/loot_table/"+harvest.table+".json",
 			`{"type":"minecraft:block_interact","pools":[{"rolls":1,"conditions":[`+
-				`{"condition":"minecraft:block_state_property","block":"minecraft:`+harvest.block+`"`+harvest.props+`},`+
-				`{"condition":"minecraft:match_tool","predicate":{"items":"minecraft:`+harvest.tool+`"}},`+
-				`{"condition":"minecraft:entity_properties","entity":"interacting_entity","predicate":{"minecraft:entity_type":"minecraft:player"}}`+
+				`{"type":"minecraft:block_state_property","block":"minecraft:`+harvest.block+`"`+harvest.props+`},`+
+				`{"type":"minecraft:match_tool","predicate":{"items":"minecraft:`+harvest.tool+`"}},`+
+				`{"type":"minecraft:entity_properties","entity":"interacting_entity","predicate":{"minecraft:entity_type":"minecraft:player"}}`+
 				`],"entries":[{"type":"minecraft:item","name":"minecraft:stick"}]}]}`)
 	}
 	srv, c := servertest.Join(t, cfg, "Gardener")

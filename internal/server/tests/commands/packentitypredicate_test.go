@@ -19,7 +19,7 @@ func TestPackEntityPredicatesReadFlagsEquipmentTagsAndEffects(t *testing.T) {
 	cfg := packWorld(t)
 	data := filepath.Join(cfg.LevelName, "datapacks", "a", "data", "pk", "predicate")
 	entity := func(predicate string) string {
-		return `{"condition":"minecraft:entity_properties","entity":"this","predicate":{` + predicate + `}}`
+		return `{"type":"minecraft:entity_properties","entity":"this","predicate":{` + predicate + `}}`
 	}
 	writeFile(t, filepath.Join(data, "sneaking.json"), entity(`"minecraft:flags":{"is_sneaking":true}`))
 	writeFile(t, filepath.Join(data, "helmet.json"), entity(`"minecraft:equipment":{"head":{"items":"minecraft:iron_helmet"}}`))
