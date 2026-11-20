@@ -41,10 +41,10 @@ type realClock struct{}
 func (realClock) Now() time.Time                         { return time.Now() }
 func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
 
-// debugf logs a line only when GOLEM_LAUNCHER_DEBUG is set.
-func debugf(format string, args ...any) {
+// debugf prints a note only when GOLEM_LAUNCHER_DEBUG is set.
+func (l *launcher) debugf(format string, args ...any) {
 	if os.Getenv("GOLEM_LAUNCHER_DEBUG") != "" {
-		logger.Printf("debug: "+format, args...)
+		l.ui.Info("debug: "+format, args...)
 	}
 }
 
@@ -62,7 +62,7 @@ func (l *launcher) readVersionCache() map[string]cachedVersion {
 	m := map[string]cachedVersion{}
 	if data, err := os.ReadFile(l.versionCachePath()); err == nil {
 		if err := json.Unmarshal(data, &m); err != nil {
-			debugf("ignoring %s: %v", l.versionCachePath(), err)
+			l.debugf("ignoring %s: %v", l.versionCachePath(), err)
 			return map[string]cachedVersion{}
 		}
 	}
@@ -92,7 +92,7 @@ func (l *launcher) latest(ctx context.Context, key string, cached bool, look fun
 	m[key] = cachedVersion{Version: v, Checked: now}
 	data, _ := json.MarshalIndent(m, "", "  ")
 	if err := writeFileAtomic(l.versionCachePath(), data, 0o644); err != nil {
-		debugf("write %s: %v", l.versionCachePath(), err)
+		l.debugf("write %s: %v", l.versionCachePath(), err)
 	}
 	return v, nil
 }
@@ -188,7 +188,7 @@ func (c *cli) startUpdateCheck(ctx context.Context, st state) func() []string {
 		case n := <-done:
 			return n
 		case <-expired:
-			debugf("update check: no answer within %v", updateCheckTimeout)
+			c.l.debugf("update check: no answer within %v", updateCheckTimeout)
 			return nil
 		}
 	}
@@ -204,7 +204,7 @@ func (c *cli) updateNotices(ctx context.Context, st state, own string) []string 
 		wg.Go(func() {
 			v, err := c.l.latest(ctx, launcherKey, true, c.l.latestRelease)
 			if err != nil {
-				debugf("update check: %s: %v", launcherKey, err)
+				c.l.debugf("update check: %s: %v", launcherKey, err)
 			}
 			launcherLatest = v
 		})
@@ -212,7 +212,7 @@ func (c *cli) updateNotices(ctx context.Context, st state, own string) []string 
 	items, err := c.outdatedItems(ctx, st, true)
 	wg.Wait()
 	if err != nil {
-		debugf("update check: %v", err)
+		c.l.debugf("update check: %v", err)
 	}
 	if ctx.Err() != nil {
 		return nil

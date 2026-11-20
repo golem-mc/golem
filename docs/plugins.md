@@ -61,9 +61,16 @@ golem-launcher check                       resolve and run every build check wit
 golem-launcher cache clean                 delete builds, releases and toolchains not needed
 ```
 
-`-config` (default `launcher.json`) and `-cache` (default: your user cache
-directory plus `golem`) work on every command. `golem-launcher --help` lists
-everything, and `<command> --help` shows one command.
+`-config` (default `launcher.json`), `-cache` (default: your user cache
+directory plus `golem`) and `-color` work on every command. `golem-launcher --help`
+lists everything, and `<command> --help` shows one command.
+
+On a terminal the launcher shows colour, progress bars for downloads and
+spinners for long steps, on standard error; standard output carries only a
+command's result (`build` prints only the binary's path). Piped, in CI, with
+`NO_COLOR` set or `TERM=dumb`, it prints one plain line per step instead.
+`-color=always` (or `FORCE_COLOR`) colours a pipe too; `-color=never` turns
+colour and progress off.
 
 The commands edit `launcher.json` for you and always write exact versions. A
 command that adds or changes something checks first that the result would

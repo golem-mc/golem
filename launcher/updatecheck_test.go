@@ -131,6 +131,16 @@ func newStartFixture(t *testing.T, launcherJSON, launcherVersion, latest string)
 	return f
 }
 
+// cli answers a command line of the fixture with plain output.
+func (f *startFixture) cli() *cli {
+	c := &cli{configPath: f.config, out: &bytes.Buffer{}, errw: io.Discard}
+	if err := c.setColor("never"); err != nil {
+		f.t.Fatal(err)
+	}
+	c.l = newLauncher(f.cache, c.ui)
+	return c
+}
+
 // start runs the launcher's default command and answers what it printed.
 func (f *startFixture) start() string {
 	f.t.Helper()
@@ -214,7 +224,7 @@ func TestStartNoticesFinishedBeforeSlowBuild(t *testing.T) {
 	finished := make(chan struct{}, 1)
 	updateCheckDone = func() { finished <- struct{}{} }
 	t.Cleanup(func() { updateCheckDone = func() {} })
-	c := &cli{l: newLauncher(f.cache), configPath: f.config, out: &bytes.Buffer{}}
+	c := f.cli()
 	st, err := c.load(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -288,7 +298,7 @@ func TestUpdateNoticesPluginsAndLocal(t *testing.T) {
 	f := newStartFixture(t, `{"server": "./srv", "plugins": ["example.com/shops@v1.0.0", "example.com/warps@v1.0.0", "./mine"]}`, "", "v1.5.0")
 	writeMod(t, filepath.Join(f.dir, "srv"), serverModule)
 	writeMod(t, filepath.Join(f.dir, "mine"), "example.com/mine")
-	c := &cli{l: newLauncher(f.cache), configPath: f.config, out: &bytes.Buffer{}}
+	c := f.cli()
 	st, err := c.load(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -312,7 +322,7 @@ func TestUpdateNoticesPluginsAndLocal(t *testing.T) {
 		t.Errorf("cached notices = %q, want %q", got, want)
 	}
 	f.clock.Advance(time.Minute)
-	c.l = newLauncher(f.cache) // a new command: no remembered queries
+	c.l = newLauncher(f.cache, c.ui) // a new command: no remembered queries
 	if got := c.updateNotices(context.Background(), st, ""); len(got) != 0 {
 		t.Errorf("notices with the proxy off = %q", got)
 	}

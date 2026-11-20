@@ -12,9 +12,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"text/tabwriter"
+	"time"
 
 	"golang.org/x/mod/semver"
+
+	"github.com/golem-mc/golem/launcher/ui"
 )
 
 // usageError is a command line that is wrong: main exits 2 for it, as Go's
@@ -28,8 +30,38 @@ type cli struct {
 	l          *launcher
 	configPath string
 	out, errw  io.Writer
+	ui         *ui.UI
+	color      string // the -color the ui was made for
+	start      time.Time
 	// stop releases the interrupt handler before the server takes over.
 	stop func()
+}
+
+// uiClock is the clock of the launcher's output; tests stop it.
+var uiClock ui.Clock = ui.RealClock{}
+
+// setColor makes the output for the -color flag's value.
+func (c *cli) setColor(color string) error {
+	if c.ui != nil && color == c.color {
+		return nil
+	}
+	outTerm, errTerm, width := false, false, 0
+	if f, ok := c.out.(*os.File); ok {
+		outTerm = ui.Terminal(f)
+	}
+	if f, ok := c.errw.(*os.File); ok {
+		errTerm, width = ui.Terminal(f), ui.Width(f)
+	}
+	s, err := ui.Detect(color, os.Getenv, outTerm, errTerm)
+	if err != nil && c.ui != nil {
+		return err
+	}
+	s.Width = width
+	if c.ui != nil {
+		c.ui.Close()
+	}
+	c.ui, c.color = ui.New(c.out, c.errw, s, uiClock), color
+	return err
 }
 
 type handler func(ctx context.Context, c *cli, args []string) error
@@ -45,13 +77,14 @@ type command struct {
 }
 
 type globals struct {
-	config, cache string
-	rebuild       bool
+	config, cache, color string
+	rebuild              bool
 }
 
 func (g *globals) register(fs *flag.FlagSet, rebuild bool) {
 	fs.StringVar(&g.config, "config", g.config, "launcher.json")
 	fs.StringVar(&g.cache, "cache", g.cache, "cache directory")
+	fs.StringVar(&g.color, "color", g.color, "auto, always or never")
 	if rebuild {
 		fs.BoolVar(&g.rebuild, "rebuild", g.rebuild, "rebuild")
 	}
@@ -60,6 +93,9 @@ func (g *globals) register(fs *flag.FlagSet, rebuild bool) {
 const globalFlagsHelp = `  -config file   the launcher's configuration (default launcher.json)
   -cache dir     where toolchains, releases and builds are kept
                  (default: the user cache directory + /golem)
+  -color when    colour and progress bars: auto, always or never (default
+                 auto: on a terminal, unless NO_COLOR is set; FORCE_COLOR
+                 forces colour)
 `
 
 const topHelp = `golem-launcher builds and runs a golem server with the plugins
@@ -261,13 +297,19 @@ func findCommand(name string) *command {
 	return nil
 }
 
+// commandLine is a command's line in a list of commands, its name
+// highlighted.
+func commandLine(st ui.Style, cmd command) string {
+	return "  " + st.Paint(ui.Cyan, cmd.name) + strings.Repeat(" ", 14-len(cmd.name)) + " " + cmd.short + "\n"
+}
+
 // topUsage is the top-level help text.
-func topUsage() string {
+func topUsage(st ui.Style) string {
 	var b strings.Builder
 	for _, cmd := range commands {
-		fmt.Fprintf(&b, "  %-14s %s\n", cmd.name, cmd.short)
+		b.WriteString(commandLine(st, cmd))
 	}
-	return fmt.Sprintf(topHelp, b.String())
+	return styleHelp(st, fmt.Sprintf(topHelp, b.String()))
 }
 
 func (cmd *command) usageText() string {
@@ -275,21 +317,49 @@ func (cmd *command) usageText() string {
 		cmd.help + "\n\nFlags on every command:\n" + globalFlagsHelp
 }
 
+// styleHelp makes help text's headings bold and highlights the flags it
+// describes.
+func styleHelp(st ui.Style, text string) string {
+	if !st.On() {
+		return text
+	}
+	var b strings.Builder
+	for line := range strings.Lines(text) {
+		body, nl := strings.CutSuffix(line, "\n")
+		switch {
+		case strings.HasPrefix(body, "Usage:"):
+			body = st.Paint(ui.Bold, "Usage:") + body[len("Usage:"):]
+		case body != "" && body[0] != ' ' && strings.HasSuffix(body, ":"):
+			body = st.Paint(ui.Bold, body)
+		case strings.HasPrefix(strings.TrimLeft(body, " "), "-"):
+			indent := len(body) - len(strings.TrimLeft(body, " "))
+			flag, rest, _ := strings.Cut(body[indent:], " ")
+			body = body[:indent] + st.Paint(ui.Cyan, flag) + " " + rest
+		}
+		b.WriteString(body)
+		if nl {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
 // helpFor prints the help of the command words names, or the top-level
 // help when there are none.
 func (c *cli) helpFor(words []string) error {
+	st := c.ui.Out()
 	if len(words) == 0 {
-		fmt.Fprint(c.out, topUsage())
+		fmt.Fprint(c.out, topUsage(st))
 		return nil
 	}
 	if cmd := findCommand(strings.Join(words, " ")); cmd != nil {
-		fmt.Fprint(c.out, cmd.usageText())
+		fmt.Fprint(c.out, styleHelp(st, cmd.usageText()))
 		return nil
 	}
 	if len(words) == 1 && (words[0] == "plugin" || words[0] == "cache") {
 		for _, cmd := range commands {
 			if strings.HasPrefix(cmd.name, words[0]+" ") {
-				fmt.Fprintf(c.out, "  %-14s %s\n", cmd.name, cmd.short)
+				fmt.Fprint(c.out, commandLine(st, cmd))
 			}
 		}
 		return nil
@@ -297,8 +367,21 @@ func (c *cli) helpFor(words []string) error {
 	return usageError{fmt.Sprintf("help: unknown command %q", strings.Join(words, " "))}
 }
 
-// execute runs the command line args and reports its usage errors on errw.
+// execute runs the command line args, with results on out and progress and
+// errors on errw.
 func execute(ctx context.Context, args []string, out, errw io.Writer, stop func()) error {
+	c := &cli{out: out, errw: errw, stop: stop}
+	_ = c.setColor("auto") // the flags may change it; auto never fails
+	defer func() { c.ui.Close() }()
+	c.start = c.ui.Now()
+	err := c.execute(ctx, args)
+	if _, ok := errors.AsType[usageError](err); err != nil && !ok {
+		c.ui.Error(err.Error(), "")
+	}
+	return err
+}
+
+func (c *cli) execute(ctx context.Context, args []string) error {
 	var serverArgs []string
 	if i := slices.Index(args, "--"); i >= 0 {
 		args, serverArgs = args[:i], args[i+1:]
@@ -306,12 +389,15 @@ func execute(ctx context.Context, args []string, out, errw io.Writer, stop func(
 			serverArgs = []string{}
 		}
 	}
-	g := &globals{config: "launcher.json"}
-	c := &cli{out: out, errw: errw, stop: stop}
+	g := &globals{config: "launcher.json", color: "auto"}
 	fs := flag.NewFlagSet("golem-launcher", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	g.register(fs, true)
 	rest, err := parseInterleavedLeading(fs, args)
+	// Apply -color even when parsing failed, so help and usage errors honour it.
+	if cerr := c.setColor(g.color); err == nil {
+		err = cerr
+	}
 	if errors.Is(err, flag.ErrHelp) {
 		return c.helpFor(nil)
 	}
@@ -354,6 +440,9 @@ func execute(ctx context.Context, args []string, out, errw io.Writer, stop func(
 		}
 	}
 	pos, err := parseInterleaved(cfs, rest)
+	if cerr := c.setColor(g.color); err == nil {
+		err = cerr
+	}
 	if errors.Is(err, flag.ErrHelp) {
 		return c.helpFor(strings.Fields(cmd.name))
 	}
@@ -367,7 +456,7 @@ func execute(ctx context.Context, args []string, out, errw io.Writer, stop func(
 		}
 		g.cache = filepath.Join(dir, "golem")
 	}
-	c.l = newLauncher(g.cache)
+	c.l = newLauncher(g.cache, c.ui)
 	c.configPath = g.config
 	if err := h(ctx, c, pos); err != nil {
 		if _, ok := errors.AsType[usageError](err); ok {
@@ -380,12 +469,11 @@ func execute(ctx context.Context, args []string, out, errw io.Writer, stop func(
 
 // usageFailure prints err and the usage to errw and answers it as a usageError.
 func (c *cli) usageFailure(cmd *command, err error) error {
-	fmt.Fprintln(c.errw, "golem-launcher:", err)
+	hint := "Run golem-launcher --help for the commands.\n"
 	if cmd != nil {
-		fmt.Fprint(c.errw, "\n", cmd.usageText())
-	} else {
-		fmt.Fprint(c.errw, "\nRun golem-launcher --help for the commands.\n")
+		hint = cmd.usageText()
 	}
+	c.ui.Error(err.Error(), hint)
 	return usageError{err.Error()}
 }
 
@@ -436,9 +524,19 @@ func (c *cli) parse(cfg config) (state, error) {
 }
 
 func (c *cli) load(ctx context.Context) (state, error) {
-	cfg, err := loadConfig(c.configPath, func() (string, error) { return c.l.latestRelease(ctx) })
+	existed := fileExists(c.configPath)
+	cfg, err := loadConfig(c.configPath, func() (v string, err error) {
+		err = c.l.step("finding the latest release", func() (err error) {
+			v, err = c.l.latestRelease(ctx)
+			return err
+		})
+		return v, err
+	})
 	if err != nil {
 		return state{}, err
+	}
+	if !existed {
+		c.ui.Info("wrote %s for server %s with no plugins", c.configPath, cfg.Server)
 	}
 	return c.parse(cfg)
 }
@@ -453,10 +551,13 @@ func (c *cli) run(ctx context.Context, rebuild bool, serverArgs []string) error 
 	if err != nil {
 		return err
 	}
+	c.ui.OK("golem %s · %s · ready in %s", st.cfg.Server, plural(len(st.plugins), "plugin"), ui.Duration(c.ui.Since(c.start)))
 	for _, n := range notices() {
 		fmt.Fprintln(c.out, n)
 	}
 	c.stop()
+	// The server's console starts on a clean line.
+	c.ui.Close()
 	return startServer(bin, serverArgs)
 }
 
@@ -506,15 +607,30 @@ func (c *cli) save(ctx context.Context, old state, cfg config, verify bool) erro
 	if err := os.WriteFile(c.configPath, append(data, '\n'), 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(c.out, "%s: %s\n", c.configPath, strings.Join(diff, "; "))
+	o := c.ui.Out()
+	fmt.Fprintf(c.out, "%s:\n", o.Paint(ui.Bold, "updated "+c.configPath))
+	for _, ch := range diff {
+		switch {
+		case ch.old == "":
+			fmt.Fprintf(c.out, "  %s %s\n", o.Paint(ui.Green, "added"), ch.name)
+		case ch.new == "":
+			fmt.Fprintf(c.out, "  %s %s\n", o.Paint(ui.Red, "removed"), ch.name)
+		default:
+			fmt.Fprintf(c.out, "  %s %s → %s\n", ch.name, o.Paint(ui.Yellow, ch.old), o.Paint(ui.Green, ch.new))
+		}
+	}
 	return nil
 }
 
-// diffConfig describes what differs between two configs, in one phrase each.
-func diffConfig(a, b config) []string {
-	var d []string
+// change is one difference between two configs: a version that changed
+// from old to new, or an entry added (no old) or removed (no new).
+type change struct{ name, old, new string }
+
+// diffConfig answers what differs between two configs.
+func diffConfig(a, b config) []change {
+	var d []change
 	if a.Server != b.Server {
-		d = append(d, "server "+a.Server+" -> "+b.Server)
+		d = append(d, change{"server", a.Server, b.Server})
 	}
 	key := func(s string) (string, string) {
 		if isLocalPath(s) {
@@ -533,14 +649,14 @@ func diffConfig(a, b config) []string {
 		p, v := key(s)
 		seen[p] = true
 		if ov, ok := old[p]; !ok {
-			d = append(d, "added "+s)
+			d = append(d, change{name: s, new: s})
 		} else if ov != v {
-			d = append(d, "plugin "+p+" "+ov+" -> "+v)
+			d = append(d, change{p, ov, v})
 		}
 	}
 	for _, s := range a.Plugins {
 		if p, _ := key(s); !seen[p] {
-			d = append(d, "removed "+s)
+			d = append(d, change{name: s, old: s})
 		}
 	}
 	return d
@@ -691,21 +807,44 @@ func (c *cli) pluginList(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	tw := tabwriter.NewWriter(c.out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "PLUGIN\tVERSION\tSOURCE\tLATEST")
-	for _, p := range st.plugins {
-		switch {
-		case p.Dir != "":
-			fmt.Fprintf(tw, "%s\t-\tlocal %s\t-\n", p.Path, p.Dir)
-		default:
-			_, latest, err := c.l.latestPlugin(ctx, p.Path)
-			if err != nil {
-				latest = "unknown"
+	latest := make([]string, len(st.plugins))
+	if remote := countRemote(st.plugins); remote > 0 {
+		_ = c.l.step("finding the latest versions of "+plural(remote, "plugin"), func() error {
+			for i, p := range st.plugins {
+				if p.Dir == "" {
+					_, latest[i], _ = c.l.latestPlugin(ctx, p.Path)
+				}
 			}
-			fmt.Fprintf(tw, "%s\t%s\tremote\t%s\n", p.Path, p.Version, latest)
+			return nil
+		})
+	}
+	var rows [][]ui.Cell
+	for i, p := range st.plugins {
+		if p.Dir != "" {
+			rows = append(rows, []ui.Cell{{Text: p.Path}, {Text: "-", Paint: ui.Dim}, {Text: "local " + st.cfg.Plugins[i], Paint: ui.Cyan}, {Text: "-", Paint: ui.Dim}})
+			continue
+		}
+		version, last := ui.Cell{Text: p.Version, Paint: ui.Green}, ui.Cell{Text: latest[i]}
+		switch {
+		case latest[i] == "":
+			version.Paint, last = ui.Dim, ui.Cell{Text: "unknown", Paint: ui.Dim}
+		case newer(p.Version, latest[i]):
+			version.Paint, last.Paint = ui.Yellow, ui.Green
+		}
+		rows = append(rows, []ui.Cell{{Text: p.Path}, version, {Text: "remote"}, last})
+	}
+	return ui.Table(c.out, c.ui.Out(), []string{"PLUGIN", "VERSION", "SOURCE", "LATEST"}, rows)
+}
+
+// countRemote answers how many of plugins are not local directories.
+func countRemote(plugins []pluginSpec) int {
+	n := 0
+	for _, p := range plugins {
+		if p.Dir == "" {
+			n++
 		}
 	}
-	return tw.Flush()
+	return n
 }
 
 func (c *cli) serverCmd(ctx context.Context, args []string) error {
@@ -724,7 +863,11 @@ func (c *cli) serverCmd(ctx context.Context, args []string) error {
 	v := args[0]
 	switch {
 	case v == "latest":
-		if v, err = c.l.latestServer(ctx); err != nil {
+		err := c.l.step("finding the latest golem version", func() (err error) {
+			v, err = c.l.latestServer(ctx)
+			return err
+		})
+		if err != nil {
 			return err
 		}
 	case isLocalPath(v):
@@ -753,24 +896,27 @@ func (c *cli) outdated(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	items, err := c.outdatedItems(ctx, st, false)
+	var items []outdatedItem
+	err = c.l.step("finding the latest versions", func() (err error) {
+		items, err = c.outdatedItems(ctx, st, false)
+		return err
+	})
 	if err != nil {
 		return err
 	}
 	if len(items) == 0 {
-		fmt.Fprintln(c.out, "everything is up to date")
+		fmt.Fprintln(c.out, c.ui.Out().Paint(ui.Green, "everything is up to date"))
 		return nil
 	}
-	tw := tabwriter.NewWriter(c.out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tPINNED\tLATEST")
+	rows := make([][]ui.Cell, 0, len(items))
 	for _, it := range items {
 		name := it.path
 		if name == serverModule {
 			name = "server"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", name, it.current, it.latest)
+		rows = append(rows, []ui.Cell{{Text: name}, {Text: it.current, Paint: ui.Yellow}, {Text: it.latest, Paint: ui.Green}})
 	}
-	return tw.Flush()
+	return ui.Table(c.out, c.ui.Out(), []string{"NAME", "PINNED", "LATEST"}, rows)
 }
 
 func (c *cli) update(ctx context.Context, server bool, names []string) error {
@@ -794,39 +940,45 @@ func (c *cli) update(ctx context.Context, server bool, names []string) error {
 			pick[i] = true
 		}
 	}
-	if server && st.srvDir == "" {
-		latest, err := c.l.latestOf(ctx, serverModule, false)
-		if err != nil {
-			return err
-		}
-		if newer(cfg.Server, latest) {
-			cfg.Server = latest
-		}
-	}
-	for i, p := range st.plugins {
-		if !pick[i] || p.Dir != "" {
-			continue
-		}
-		latest, err := c.l.latestOf(ctx, p.Path, false)
-		if err != nil {
-			return err
-		}
-		// Every package of the module moves, so one build has one
-		// version of it. latestOf's query is remembered, so this asks
-		// go nothing more.
-		mod, _, err := c.l.latestPlugin(ctx, p.Path)
-		if err != nil {
-			return err
-		}
-		same, err := c.moduleEntries(ctx, st.plugins, mod)
-		if err != nil {
-			return err
-		}
-		for _, j := range same {
-			if q := st.plugins[j]; newer(q.Version, latest) {
-				cfg.Plugins[j] = q.Path + "@" + latest
+	err = c.l.step("finding the latest versions", func() error {
+		if server && st.srvDir == "" {
+			latest, err := c.l.latestOf(ctx, serverModule, false)
+			if err != nil {
+				return err
+			}
+			if newer(cfg.Server, latest) {
+				cfg.Server = latest
 			}
 		}
+		for i, p := range st.plugins {
+			if !pick[i] || p.Dir != "" {
+				continue
+			}
+			latest, err := c.l.latestOf(ctx, p.Path, false)
+			if err != nil {
+				return err
+			}
+			// Every package of the module moves, so one build has one
+			// version of it. latestOf's query is remembered, so this asks
+			// go nothing more.
+			mod, _, err := c.l.latestPlugin(ctx, p.Path)
+			if err != nil {
+				return err
+			}
+			same, err := c.moduleEntries(ctx, st.plugins, mod)
+			if err != nil {
+				return err
+			}
+			for _, j := range same {
+				if q := st.plugins[j]; newer(q.Version, latest) {
+					cfg.Plugins[j] = q.Path + "@" + latest
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	return c.save(ctx, st, cfg, true)
 }
@@ -841,7 +993,7 @@ func (c *cli) check(ctx context.Context) error {
 	if _, err := c.l.resolve(ctx, filepath.Join(work, "src"), st.cfg, st.srvDir, st.plugins); err != nil {
 		return fmt.Errorf("check failed: %w", err)
 	}
-	fmt.Fprintf(c.out, "ok: server %s and %d plugins resolve and pass every check\n", st.cfg.Server, len(st.plugins))
+	fmt.Fprintf(c.out, "%s server %s and %s resolve and pass every check\n", c.ui.Out().Paint(ui.Green, "ok:"), st.cfg.Server, plural(len(st.plugins), "plugin"))
 	return nil
 }
 

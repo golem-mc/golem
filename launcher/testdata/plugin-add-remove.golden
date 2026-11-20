@@ -1,0 +1,69 @@
+$ golem-launcher plugin add example.com/warps
+-- stderr --
+✓ resolving example.com/warps@latest (0.0s)
+✓ downloading golem v1.0.0 (0.0s)
+✓ resolving 1 plugin (0.0s)
+✗ checking the server version
+error: $DIR/launcher.json is unchanged: launcher.json names server v1.0.0, but a plugin needs v1.5.0 (example.com/warps@v1.1.0); run `golem-launcher server v1.5.0` to raise it, or use an older plugin
+-- exit: 1 --
+
+$ golem-launcher plugin add example.com/warps@v1.0.0
+-- stdout --
+updated $DIR/launcher.json:
+  added example.com/warps@v1.0.0
+-- stderr --
+✓ downloading golem v1.0.0 (0.0s)
+✓ resolving 1 plugin (0.0s)
+✓ checking the server version (0.0s)
+✓ checking the plugins' imports (0.0s)
+✓ checking dependency upgrades (0.0s)
+
+$ golem-launcher plugin add example.com/shops@v1.2.0
+-- stdout --
+updated $DIR/launcher.json:
+  added example.com/shops@v1.2.0
+-- stderr --
+✓ downloading golem v1.0.0 (0.0s)
+✓ resolving 2 plugins (0.0s)
+✓ checking the server version (0.0s)
+✓ checking the plugins' imports (0.0s)
+✓ checking dependency upgrades (0.0s)
+
+$ golem-launcher plugin remove warps
+-- stdout --
+updated $DIR/launcher.json:
+  removed example.com/warps@v1.0.0
+
+$ golem-launcher plugin remove nothing
+-- stderr --
+error: no plugin "nothing" in launcher.json (see plugin list)
+-- exit: 1 --
+
+$ golem-launcher plugin add
+-- stderr --
+error: plugin add takes exactly one argument
+
+Usage: golem-launcher plugin add <path>[@version]
+
+Adds a plugin to launcher.json. Without a version the latest release tag
+(go's module query @latest) is looked up and written pinned. The path may be a
+package inside a module; the module's other listed packages move to the same
+version. A local package directory (./dir, in a module) is written as it is.
+Adding a listed plugin with a version changes its version. launcher.json is
+written only if the result builds.
+
+Example:
+  golem-launcher plugin add github.com/golem-mc/essentials
+  golem-launcher plugin add github.com/golem-mc/essentials@v1.3.0
+  golem-launcher plugin add github.com/golem-mc/essentials/spawn
+  golem-launcher plugin add ./my-plugin
+
+Flags on every command:
+  -config file   the launcher's configuration (default launcher.json)
+  -cache dir     where toolchains, releases and builds are kept
+                 (default: the user cache directory + /golem)
+  -color when    colour and progress bars: auto, always or never (default
+                 auto: on a terminal, unless NO_COLOR is set; FORCE_COLOR
+                 forces colour)
+-- exit: 2 --
+

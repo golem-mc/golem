@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -45,12 +44,15 @@ func (l *launcher) askModule(ctx context.Context, q string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var stderr bytes.Buffer
-	g := &goRun{ctx: ctx, bin: gobin, toolchain: "local", dir: os.TempDir(), stderr: &stderr}
+	g := &goRun{ctx: ctx, bin: gobin, toolchain: "local", dir: os.TempDir()}
 	out, err := g.run("list", "-m", "-json", q)
 	if err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return "", fmt.Errorf("%w: %s", err, msg)
+		// Not a goError, so a step does not print the complaint a
+		// second time.
+		if ge, ok := errors.AsType[*goError](err); ok {
+			if msg := strings.TrimSpace(ge.stderr); msg != "" {
+				return "", fmt.Errorf("go %s: %w: %s", strings.Join(ge.args, " "), ge.err, msg)
+			}
 		}
 		return "", err
 	}
@@ -113,7 +115,11 @@ func (l *launcher) pin(ctx context.Context, path, v string) (string, error) {
 	if isPinned(v) {
 		return v, nil
 	}
-	_, got, err := l.pluginModule(ctx, path, v)
+	var got string
+	err := l.step("resolving "+path+"@"+v, func() (err error) {
+		_, got, err = l.pluginModule(ctx, path, v)
+		return err
+	})
 	if err != nil {
 		return "", err
 	}
