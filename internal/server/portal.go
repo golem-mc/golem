@@ -146,7 +146,7 @@ func (c *client) lightWithFire(hand, x, y, z, face int32, placeEventAtFire bool,
 		} else {
 			c.gameEventAtCell(rules.GameEventBlockPlace, x, y, z)
 			// vanilla: FlintAndSteelItem.useOn; reads the resulting portal too.
-			c.placedBlockAdvancements(w, nx, ny, nz, held)
+			c.placedBlockAdvancements(w, nx, ny, nz, c.heldItem(hand))
 		}
 	}
 	// A complete frame lights whether or not fire could survive there.

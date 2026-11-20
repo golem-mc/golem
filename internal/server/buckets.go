@@ -143,7 +143,7 @@ func (c *client) handleUseBucket(hand int32) bool {
 	// vanilla: BucketItem.use
 	c.awardItemStat(registry.StatTypeUsed, held.ItemID, 1)
 	c.filledResult(hand, filled, true)
-	c.filledBucketAdvancements(filled.ItemID)
+	c.filledBucketAdvancements(filled)
 	return true
 }
 
@@ -220,7 +220,7 @@ func (c *client) pourBucket(w *world.World, pour fluidKind, fx, fy, fz, dx, dy, 
 		c.gameEventAtCell(rules.GameEventFluidPlace, nx, ny, nz)
 	}
 	// vanilla: BucketItem.use
-	c.placedBlockAdvancements(w, nx, ny, nz, held.ItemID)
+	c.placedBlockAdvancements(w, nx, ny, nz, held)
 	c.awardItemStat(registry.StatTypeUsed, held.ItemID, 1)
 	c.filledResult(hand, result, true)
 	return true

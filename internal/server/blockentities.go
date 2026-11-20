@@ -623,16 +623,16 @@ func (s *Server) breakBlockEntity(w *world.World, x, y, z int32, old uint16, pay
 // for a result take, the block centre for a break. One award per recipe
 // (vanilla: ExperienceOrb.award), spawned after the block entity's lock
 // since nothing is sent under a lock. It returns the recipes it found,
-// sorted by id, each with the item IDs of the furnace's non-empty slots after
+// sorted by id, each with the furnace's non-empty slots after
 // the payout's take as its ingredients (vanilla passes this.items).
 func (s *Server) payFurnaceSmelts(be *world.BlockEntity, w *world.World, x, y, z float64, extract func(item protocol.ItemStack, xp int) int) []inventory.RecipeCraft {
 	var used map[string]int
-	var slots []int32
+	var slots []protocol.ItemStack
 	be.Use(func(b *world.BlockEntity) {
 		used = b.TakeRecipesUsed()
 		for _, slot := range b.Slots {
 			if !slot.Empty() {
-				slots = append(slots, slot.ItemID)
+				slots = append(slots, slot)
 			}
 		}
 		// The click emptying the result marked the chunk before this, so a save in

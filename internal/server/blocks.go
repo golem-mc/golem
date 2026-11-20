@@ -1134,7 +1134,7 @@ func (c *client) placeHeldBlock(w *world.World, hand, x, y, z int32, ctx rules.P
 		if be := w.BlockEntity(nx, ny, nz); be != nil {
 			be.Use(func(b *world.BlockEntity) { b.ApplyLeftoverComponents(stack) })
 		}
-		solidBucket := c.finishBlockPlacement(w, registry.Item(stack.ItemID), state, nx, ny, nz, old)
+		solidBucket := c.finishBlockPlacement(w, stack, state, nx, ny, nz, old)
 		// vanilla: ItemStack.useOn
 		c.awardItemStat(registry.StatTypeUsed, stack.ItemID, 1)
 		// Confirm the client's predicted spend, including adventure placements.
@@ -1197,7 +1197,7 @@ func (c *client) wornArmour() [4]protocol.ItemStack {
 // placedBlockTail ends every player placement: the place sound for all but
 // the placer (who predicts it), neighbour shape updates, the wake, and the
 // block_place game event.
-func (c *client) placedBlockTail(w *world.World, tool int32, sound registry.Sound, volume, pitch float32, x, y, z int32, old uint16) {
+func (c *client) placedBlockTail(w *world.World, tool protocol.ItemStack, sound registry.Sound, volume, pitch float32, x, y, z int32, old uint16) {
 	c.srv.broadcastSoundIDExcept(w, c,
 		sound, protocol.SoundCategoryBlock,
 		float64(x)+0.5, float64(y)+0.5, float64(z)+0.5, volume, pitch)
@@ -1220,7 +1220,7 @@ func (s *Server) placePartner(w *world.World, x, y, z int32, state, old uint16) 
 	}
 }
 
-func (c *client) finishBlockPlacement(w *world.World, item registry.Item, state uint16, nx, ny, nz int32, old uint16) bool {
+func (c *client) finishBlockPlacement(w *world.World, stack protocol.ItemStack, state uint16, nx, ny, nz int32, old uint16) bool {
 	// The dried ghast's SoundType has an empty place event, so the broadcast is
 	// silent; its setPlacedBy plays its own arrival sound (wet or dry), to the
 	// placer too. vanilla: DriedGhastBlock.setPlacedBy
@@ -1235,14 +1235,14 @@ func (c *client) finishBlockPlacement(w *world.World, item registry.Item, state 
 
 	}
 	placeSound := rules.BlockPlaceSound(registry.BlockOf(state))
-	bucketSound, solidBucket := rules.SolidBucketPlaceSound(item)
+	bucketSound, solidBucket := rules.SolidBucketPlaceSound(registry.Item(stack.ItemID))
 	if solidBucket {
 		// BlockItem.place plays the override at pitch*0.8 like any block.
 		// vanilla: BlockItem.place, SolidBucketItem.getPlaceSound
 		placeSound = bucketSound
 	}
 	volume, pitch := rules.BlockPlaceSoundLevels(registry.BlockOf(state))
-	c.placedBlockTail(w, int32(item), placeSound, volume, pitch, nx, ny, nz, old)
+	c.placedBlockTail(w, stack, placeSound, volume, pitch, nx, ny, nz, old)
 	// vanilla: DiodeBlock.setPlacedBy
 	if block := registry.BlockOf(state); block == registry.BlockRepeater || block == registry.BlockComparator {
 		c.srv.physicsFor(w).DiodePlaced(nx, ny, nz)

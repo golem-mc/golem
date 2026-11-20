@@ -18,7 +18,7 @@ func (c *client) brushArmadillo(ent *mobEntity, hand int32, held protocol.ItemSt
 	after := c.srv.bodyInteraction(ent)
 	c.srv.mobsMu.Unlock()
 	c.wearHeld(hand, 16)
-	c.interactedWithEntityAdvancements(after, held.ItemID)
+	c.interactedWithEntityAdvancements(after, held)
 	return nil
 }
 

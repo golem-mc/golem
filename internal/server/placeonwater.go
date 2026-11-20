@@ -43,7 +43,7 @@ func (c *client) handleUsePlaceOnWater(hand int32) bool {
 	c.srv.markChanged(w, x, y, z)
 	c.srv.relightAsync(w, x, z)
 	volume, pitch := rules.BlockPlaceSoundLevels(registry.BlockOf(state))
-	c.placedBlockTail(w, held.ItemID, rules.BlockPlaceSound(registry.BlockOf(state)), volume, pitch, x, y, z, old)
+	c.placedBlockTail(w, held, rules.BlockPlaceSound(registry.BlockOf(state)), volume, pitch, x, y, z, old)
 	c.spendHeld(hand)
 	slog.Debug("placed on water", "block", block.Name(), "x", x, "y", y, "z", z, "by", c.player.Name)
 	return true

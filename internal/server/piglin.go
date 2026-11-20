@@ -50,7 +50,7 @@ func (c *client) offerGoldToPiglin(ent *mobEntity, hand int32, held protocol.Ite
 			return true, err
 		}
 	}
-	c.interactedWithEntityAdvancements(after, held.ItemID)
+	c.interactedWithEntityAdvancements(after, held)
 	c.useSwing = swingServer
 	return true, nil
 }

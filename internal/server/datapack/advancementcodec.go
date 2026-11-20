@@ -470,11 +470,7 @@ func advLocations(contexts []any, c *registry.AdvancementCriterion) {
 				c.Items = [][]int32{jukeboxPlayable()}
 				continue
 			}
-			if !keysAre(predicate, "items") {
-				c.Unmodelled = true
-				continue
-			}
-			advSetItems(c, obj{"items": []any{predicate}})
+			advSetTestedItems(c, obj{"items": []any{predicate}})
 			continue
 		}
 		// Only item_used_on_block reads WhereBiome; elsewhere a biome stays in
@@ -724,7 +720,7 @@ func advTrigger(name, trigger string, conditions obj) registry.AdvancementCriter
 		advSetTestedItem(&c, conditions, "item")
 	case "minecraft:filled_bucket", "minecraft:fishing_rod_hooked":
 		only("item")
-		advSetSingleItem(&c, conditions, "item")
+		advSetTestedItem(&c, conditions, "item")
 	case "minecraft:inventory_changed":
 		only("items", "slots")
 		advSetTestedItems(&c, conditions)
@@ -856,7 +852,7 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 		}
 	case "minecraft:player_interacted_with_entity", "minecraft:player_sheared_equipment":
 		only("item", "entity", "player")
-		advSetSingleItem(c, conditions, "item")
+		advSetTestedItem(c, conditions, "item")
 		e, baby, adult, body, undamaged, ok := advBodyPredicate(conditions["entity"])
 		c.Entity, c.Variant, c.Baby, c.Adult, c.Body, c.BodyUndamaged = e.typ, e.variant, baby, adult, body, undamaged
 		c.Unmodelled = c.Unmodelled || !ok
@@ -866,7 +862,7 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 		}
 	case "minecraft:thrown_item_picked_up_by_entity", "minecraft:thrown_item_picked_up_by_player":
 		only("item", "entity", "player")
-		advSetSingleItem(c, conditions, "item")
+		advSetTestedItem(c, conditions, "item")
 		e, adult, ok := advAdultPredicate(conditions["entity"])
 		c.Entity, c.Adult = e.typ, adult
 		c.Unmodelled = c.Unmodelled || !ok || e.dimension != ""
@@ -936,7 +932,7 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 		advHurtEntity(c, conditions)
 	case "minecraft:killed_by_arrow":
 		only("fired_from_weapon", "victims", "unique_entity_types")
-		advSetSingleItem(c, conditions, "fired_from_weapon")
+		advSetTestedItem(c, conditions, "fired_from_weapon")
 		advVictims(c, conditions)
 		if v, ok := conditions["unique_entity_types"]; ok {
 			c.UniqueMin, c.UniqueMax = advRange("unique entity types", v)
@@ -998,7 +994,7 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 		only("recipe_id", "recipes", "ingredients")
 		c.RecipeID = advRequiredName(c, conditions, "recipe_id", "recipes")
 		if ingredients, ok := conditions["ingredients"]; ok {
-			advSetItems(c, obj{"items": ingredients})
+			advSetTestedItems(c, obj{"items": ingredients})
 		}
 	case "minecraft:using_item":
 		only("item", "player")

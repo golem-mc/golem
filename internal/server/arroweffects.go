@@ -400,7 +400,7 @@ func (s *Server) arrowPlayerOutcome(hit arrowPlayerHit) arrowOutcome {
 			s.arrowsMu.Lock()
 			killed := hit.arrow.killedByArrow(hit.victim.player.Vitals().Health <= 0, "minecraft:player")
 			s.arrowsMu.Unlock()
-			s.arrowHitAdvancements(shooterClient, arrowTypeName(hit.arrow), killed, hit.arrow.arrow.Weapon.ItemID, nil)
+			s.arrowHitAdvancements(shooterClient, arrowTypeName(hit.arrow), killed, hit.arrow.arrow.Weapon, nil)
 		}
 		if hit.arrow.arrow.Trident {
 			// The trident flies on out of the hit, its deflection —
@@ -420,7 +420,7 @@ func (s *Server) arrowPlayerOutcome(hit arrowPlayerHit) arrowOutcome {
 	case cause.freshBlock:
 		// A fresh fully blocked hit still fires the shooter's
 		// player_hurt_entity. vanilla: LivingEntity.hurtServer
-		s.arrowHitAdvancements(shooterClient, arrowTypeName(hit.arrow), nil, 0, nil)
+		s.arrowHitAdvancements(shooterClient, arrowTypeName(hit.arrow), nil, protocol.ItemStack{}, nil)
 	}
 	if hit.arrow.arrow.Trident {
 		return arrowDeflects

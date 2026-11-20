@@ -548,18 +548,18 @@ func allHold(conds []registry.AdvancementCondition, at Blocks) bool {
 
 // PlacedBlock fires placed_block with the tool before placement consumes or damages it.
 // vanilla: ItemUsedOnLocationTrigger.trigger
-func (p *Progress) PlacedBlock(at Blocks, tool int32, when time.Time) bool {
+func (p *Progress) PlacedBlock(at Blocks, tool protocol.ItemStack, when time.Time) bool {
 	return p.trigger(TriggerPlacedBlock, when, func(c *registry.AdvancementCriterion) bool {
-		return (len(c.Items) == 0 || slices.Contains(c.Items[0], tool)) && allHold(c.Where, at)
+		return itemPasses(c, tool) && allHold(c.Where, at)
 	})
 }
 
 // ItemUsedOnBlock fires item_used_on_block for tool used on the block at, as
 // the use left it.
 // vanilla: ItemUsedOnLocationTrigger.trigger
-func (p *Progress) ItemUsedOnBlock(at Blocks, tool int32, biome string, when time.Time) bool {
+func (p *Progress) ItemUsedOnBlock(at Blocks, tool protocol.ItemStack, biome string, when time.Time) bool {
 	return p.trigger(TriggerItemUsedOnBlock, when, func(c *registry.AdvancementCriterion) bool {
-		return (len(c.Items) == 0 || slices.Contains(c.Items[0], tool)) && (c.WhereBiome == "" || c.WhereBiome == biome) &&
+		return itemPasses(c, tool) && (c.WhereBiome == "" || c.WhereBiome == biome) &&
 			allHold(c.Where, at)
 	})
 }
@@ -577,9 +577,9 @@ func (p *Progress) DefaultBlockUse(at Blocks, when time.Time) bool {
 // AnyBlockUse fires any_block_use for a click on the block at that the
 // block's or the item's use consumed, tool being the hand's item after it.
 // vanilla: AnyBlockInteractionTrigger.TriggerInstance.matches
-func (p *Progress) AnyBlockUse(at Blocks, tool int32, when time.Time) bool {
+func (p *Progress) AnyBlockUse(at Blocks, tool protocol.ItemStack, when time.Time) bool {
 	return p.trigger(TriggerAnyBlockUse, when, func(c *registry.AdvancementCriterion) bool {
-		return (len(c.Items) == 0 || slices.Contains(c.Items[0], tool)) && allHold(c.Where, at)
+		return itemPasses(c, tool) && allHold(c.Where, at)
 	})
 }
 
@@ -611,9 +611,9 @@ func (p *Progress) RaidOmen(at time.Time) bool {
 // AllayDropItemOnBlock fires allay_drop_item_on_block for the player an
 // allay likes, with the item it threw at the block at.
 // vanilla: AllayAi.throwItem, ItemUsedOnLocationTrigger.trigger
-func (p *Progress) AllayDropItemOnBlock(at Blocks, item int32, when time.Time) bool {
+func (p *Progress) AllayDropItemOnBlock(at Blocks, item protocol.ItemStack, when time.Time) bool {
 	return p.trigger(TriggerAllayDropItemOnBlock, when, func(c *registry.AdvancementCriterion) bool {
-		return (len(c.Items) == 0 || slices.Contains(c.Items[0], item)) && allHold(c.Where, at)
+		return itemPasses(c, item) && allHold(c.Where, at)
 	})
 }
 
@@ -622,13 +622,13 @@ func (p *Progress) AllayDropItemOnBlock(at Blocks, item int32, when time.Time) b
 // for the thrower whose item other picked up. worn is the player's armor item IDs.
 // vanilla: ServerPlayer.onItemPickup, LivingEntity.onItemPickup,
 // PickedUpItemTrigger.TriggerInstance.matches
-func (p *Progress) ThrownItemPickedUp(byEntity bool, item int32, other Entity, worn []int32, at time.Time) bool {
+func (p *Progress) ThrownItemPickedUp(byEntity bool, item protocol.ItemStack, other Entity, worn []int32, at time.Time) bool {
 	trigger := TriggerThrownPickedUpByPlayer
 	if byEntity {
 		trigger = TriggerThrownPickedUpByEntity
 	}
 	return p.triggerWith(trigger, at, other.subjects(), func(c *registry.AdvancementCriterion) bool {
-		return (len(c.Items) == 0 || slices.Contains(c.Items[0], item)) && typeMatches(c.Entity, other.Type) &&
+		return itemPasses(c, item) && typeMatches(c.Entity, other.Type) &&
 			(!c.Adult || !other.Baby) && !slices.ContainsFunc(worn, func(id int32) bool { return slices.Contains(c.NotWearing, id) })
 	})
 }
@@ -663,8 +663,8 @@ func (e EntityInteraction) subjects() *Subjects {
 
 // matches is PlayerInteractTrigger.TriggerInstance.matches for the held or
 // sheared item, the entity and the item IDs the player wears.
-func (e EntityInteraction) matches(c *registry.AdvancementCriterion, item int32, worn []int32) bool {
-	return (len(c.Items) == 0 || slices.Contains(c.Items[0], item)) && typeMatches(c.Entity, e.Type) &&
+func (e EntityInteraction) matches(c *registry.AdvancementCriterion, item protocol.ItemStack, worn []int32) bool {
+	return itemPasses(c, item) && typeMatches(c.Entity, e.Type) &&
 		(!c.Baby || e.Baby) && (!c.Adult || !e.Baby) && (c.Variant == "" || c.Variant == e.Variant) &&
 		(len(c.Body) == 0 || slices.Contains(c.Body, e.Body)) && (!c.BodyUndamaged || e.BodyDamage == 0) &&
 		!slices.ContainsFunc(worn, func(id int32) bool { return slices.Contains(c.NotWearing, id) })
@@ -674,7 +674,7 @@ func (e EntityInteraction) matches(c *registry.AdvancementCriterion, item int32,
 // interaction; held is the item in hand when it began, 0 for one that did not
 // use it, and worn the item IDs of the player's armour.
 // vanilla: ServerGamePacketListenerImpl.handleInteract
-func (p *Progress) InteractedWithEntity(e EntityInteraction, held int32, worn []int32, at time.Time) bool {
+func (p *Progress) InteractedWithEntity(e EntityInteraction, held protocol.ItemStack, worn []int32, at time.Time) bool {
 	return p.triggerWith(TriggerInteractedEntity, at, e.subjects(), func(c *registry.AdvancementCriterion) bool {
 		return e.matches(c, held, worn)
 	})
@@ -682,7 +682,7 @@ func (p *Progress) InteractedWithEntity(e EntityInteraction, held int32, worn []
 
 // ShearedEquipment fires player_sheared_equipment for the item taken off;
 // worn is the item IDs of the player's armour. vanilla: Mob.shearItem
-func (p *Progress) ShearedEquipment(e EntityInteraction, item int32, worn []int32, at time.Time) bool {
+func (p *Progress) ShearedEquipment(e EntityInteraction, item protocol.ItemStack, worn []int32, at time.Time) bool {
 	return p.triggerWith(TriggerShearedEquipment, at, e.subjects(), func(c *registry.AdvancementCriterion) bool {
 		return e.matches(c, item, worn)
 	})
@@ -690,9 +690,9 @@ func (p *Progress) ShearedEquipment(e EntityInteraction, item int32, worn []int3
 
 // FilledBucket fires filled_bucket for the bucket item a scoop produced.
 // vanilla: FilledBucketTrigger.TriggerInstance.matches
-func (p *Progress) FilledBucket(item int32, at time.Time) bool {
+func (p *Progress) FilledBucket(item protocol.ItemStack, at time.Time) bool {
 	return p.trigger(TriggerFilledBucket, at, func(c *registry.AdvancementCriterion) bool {
-		return len(c.Items) == 0 || slices.Contains(c.Items[0], item)
+		return itemPasses(c, item)
 	})
 }
 
@@ -774,12 +774,12 @@ func (p *Progress) BrewedPotion(potion int32, at time.Time) bool {
 
 // FishingRodHooked fires fishing_rod_hooked for the items a reel brought up,
 // or the item entity it pulled in. vanilla: FishingRodHookedTrigger.TriggerInstance.matches
-func (p *Progress) FishingRodHooked(caught []int32, at time.Time) bool {
+func (p *Progress) FishingRodHooked(caught []protocol.ItemStack, at time.Time) bool {
 	return p.trigger(TriggerFishingRodHooked, at, func(c *registry.AdvancementCriterion) bool {
 		if len(c.Items) == 0 {
 			return true
 		}
-		return slices.ContainsFunc(caught, func(id int32) bool { return slices.Contains(c.Items[0], id) })
+		return slices.ContainsFunc(caught, func(stack protocol.ItemStack) bool { return predicateAccepts(c, 0, stack) })
 	})
 }
 
@@ -811,13 +811,13 @@ func (p *Progress) PlayerHurtSmash(held int32, damage float64, at time.Time) boo
 
 // KilledByArrow fires killed_by_arrow for the entity types an arrow killed,
 // fired from the weapon item. vanilla: KilledByArrowTrigger.TriggerInstance.matches
-func (p *Progress) KilledByArrow(victims []string, weapon int32, subj *Subjects, at time.Time) bool {
+func (p *Progress) KilledByArrow(victims []string, weapon protocol.ItemStack, subj *Subjects, at time.Time) bool {
 	unique := map[string]bool{}
 	for _, v := range victims {
 		unique[v] = true
 	}
 	return p.triggerWith(TriggerKilledByArrow, at, subj, func(c *registry.AdvancementCriterion) bool {
-		if len(c.Items) > 0 && !slices.Contains(c.Items[0], weapon) {
+		if !itemPasses(c, weapon) {
 			return false
 		}
 		rest := slices.Clone(victims)
@@ -875,25 +875,25 @@ func (p *Progress) GeneratedContainerLoot(table string, at time.Time) bool {
 // RecipeCrafted fires recipe_crafted for a recipe a player took the result
 // of; a criterion's ingredient predicates each take one distinct used item.
 // vanilla: RecipeCraftedTrigger.TriggerInstance.matches
-func (p *Progress) RecipeCrafted(recipe string, used []int32, at time.Time) bool {
+func (p *Progress) RecipeCrafted(recipe string, used []protocol.ItemStack, at time.Time) bool {
 	return p.recipeCrafted(TriggerRecipeCrafted, recipe, used, at)
 }
 
 // CrafterRecipeCrafted fires crafter_recipe_crafted for a crafter's craft
 // near the player, matching like RecipeCrafted.
 // vanilla: CriteriaTriggers.CRAFTER_RECIPE_CRAFTED
-func (p *Progress) CrafterRecipeCrafted(recipe string, used []int32, at time.Time) bool {
+func (p *Progress) CrafterRecipeCrafted(recipe string, used []protocol.ItemStack, at time.Time) bool {
 	return p.recipeCrafted(TriggerCrafterRecipe, recipe, used, at)
 }
 
-func (p *Progress) recipeCrafted(trigger, recipe string, used []int32, at time.Time) bool {
+func (p *Progress) recipeCrafted(trigger, recipe string, used []protocol.ItemStack, at time.Time) bool {
 	return p.trigger(trigger, at, func(c *registry.AdvancementCriterion) bool {
 		if c.RecipeID != recipe {
 			return false
 		}
 		remaining := slices.Clone(used)
-		for _, predicate := range c.Items {
-			i := slices.IndexFunc(remaining, func(id int32) bool { return slices.Contains(predicate, id) })
+		for k := range c.Items {
+			i := slices.IndexFunc(remaining, func(stack protocol.ItemStack) bool { return predicateAccepts(c, k, stack) })
 			if i < 0 {
 				return false
 			}
