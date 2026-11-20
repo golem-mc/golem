@@ -460,14 +460,18 @@ type LootStateProperty struct {
 	Key, Value string
 }
 
-// LootItemPredicate matches items, enchantments and dyed colour presence;
-// other component predicates are generator errors.
+// LootItemPredicate matches items, enchantments and dyed colour presence, and
+// with Full any other part of an item predicate.
 type LootItemPredicate struct {
 	Items              []string // empty: any item
 	Enchantments       []LootEnchantments
 	StoredEnchantments []LootEnchantments
 	HasDyedColor       bool
 	HasMapID           bool
+	// Full is the whole item predicate, set when it asks for more than the
+	// fields above (count, components, other component predicates); it is
+	// tested on the stack itself in addition to them.
+	Full *ItemPredicate
 }
 
 // LootEnchantments requires one enchantment (named, from a tag, or any)
