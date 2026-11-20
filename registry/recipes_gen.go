@@ -56,6 +56,31 @@ type ImbueRecipe struct {
 	ResultCount int32
 }
 
+// TransmuteRecipe is one crafting_transmute recipe: one Input and Min to Max
+// Material stacks, nothing else. The result keeps the input's components; its
+// item is ResultID, or the input's when that is 0 (air, which no recipe names).
+// AddMaterialCount adds the number of materials to the result's count.
+type TransmuteRecipe struct {
+	ID               string
+	Input            Ingredient
+	Material         Ingredient
+	MinMaterial      int32
+	MaxMaterial      int32
+	ResultID         int32
+	ResultCount      int32
+	AddMaterialCount bool
+}
+
+// DyeRecipe is one crafting_dye recipe: one Target and at least one Dye. The
+// result is the target's item and components recoloured by the dyes.
+type DyeRecipe struct {
+	ID          string
+	Target      Ingredient
+	Dye         Ingredient
+	ResultID    int32
+	ResultCount int32
+}
+
 // CookingRecipe is one smelting, blasting, smoking or campfire cooking
 // recipe: the id the data pack saved it under - the name a vanilla server's
 // RecipesUsed block entity compound keys its smelt counts by - what goes in
@@ -1323,6 +1348,53 @@ var StewRecipes = []StewRecipe{
 // ImbueRecipes holds every crafting_imbue recipe of the data pack.
 var ImbueRecipes = []ImbueRecipe{
 	{"minecraft:tipped_arrow", Ingredient{1445}, Ingredient{1009}, 1444, 8},
+}
+
+// TransmuteRecipes holds every crafting_transmute recipe of the data pack.
+var TransmuteRecipes = []TransmuteRecipe{
+	{"minecraft:black_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1214}, 1, 1, 1169, 1, false},
+	{"minecraft:black_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1214}, 1, 1, 672, 1, false},
+	{"minecraft:blue_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1210}, 1, 1, 1165, 1, false},
+	{"minecraft:blue_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1210}, 1, 1, 668, 1, false},
+	{"minecraft:brown_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1211}, 1, 1, 1166, 1, false},
+	{"minecraft:brown_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1211}, 1, 1, 669, 1, false},
+	{"minecraft:cyan_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1208}, 1, 1, 1163, 1, false},
+	{"minecraft:cyan_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1208}, 1, 1, 666, 1, false},
+	{"minecraft:gray_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1206}, 1, 1, 1161, 1, false},
+	{"minecraft:gray_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1206}, 1, 1, 664, 1, false},
+	{"minecraft:green_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1212}, 1, 1, 1167, 1, false},
+	{"minecraft:green_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1212}, 1, 1, 670, 1, false},
+	{"minecraft:light_blue_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1202}, 1, 1, 1157, 1, false},
+	{"minecraft:light_blue_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1202}, 1, 1, 660, 1, false},
+	{"minecraft:light_gray_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1207}, 1, 1, 1162, 1, false},
+	{"minecraft:light_gray_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1207}, 1, 1, 665, 1, false},
+	{"minecraft:lime_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1204}, 1, 1, 1159, 1, false},
+	{"minecraft:lime_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1204}, 1, 1, 662, 1, false},
+	{"minecraft:magenta_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1201}, 1, 1, 1156, 1, false},
+	{"minecraft:magenta_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1201}, 1, 1, 659, 1, false},
+	{"minecraft:map_cloning", Ingredient{1238, 1239, 1240, 1241, 1242, 1243, 1244, 1245, 1246, 1247, 1248, 1249, 1250, 1251, 1252, 1253, 1254}, Ingredient{1382}, 1, 8, 0, 1, true},
+	{"minecraft:orange_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1200}, 1, 1, 1155, 1, false},
+	{"minecraft:orange_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1200}, 1, 1, 658, 1, false},
+	{"minecraft:pink_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1205}, 1, 1, 1160, 1, false},
+	{"minecraft:pink_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1205}, 1, 1, 663, 1, false},
+	{"minecraft:purple_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1209}, 1, 1, 1164, 1, false},
+	{"minecraft:purple_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1209}, 1, 1, 667, 1, false},
+	{"minecraft:red_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1213}, 1, 1, 1168, 1, false},
+	{"minecraft:red_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1213}, 1, 1, 671, 1, false},
+	{"minecraft:white_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1199}, 1, 1, 1154, 1, false},
+	{"minecraft:white_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1199}, 1, 1, 657, 1, false},
+	{"minecraft:yellow_bundle", Ingredient{1153, 1154, 1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169}, Ingredient{1203}, 1, 1, 1158, 1, false},
+	{"minecraft:yellow_shulker_box", Ingredient{656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672}, Ingredient{1203}, 1, 1, 661, 1, false},
+}
+
+// DyeRecipes holds every crafting_dye recipe of the data pack.
+var DyeRecipes = []DyeRecipe{
+	{"minecraft:leather_boots_dyed", Ingredient{1071}, Ingredient{1199, 1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211, 1212, 1213, 1214}, 1071, 1},
+	{"minecraft:leather_chestplate_dyed", Ingredient{1069}, Ingredient{1199, 1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211, 1212, 1213, 1214}, 1069, 1},
+	{"minecraft:leather_helmet_dyed", Ingredient{1068}, Ingredient{1199, 1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211, 1212, 1213, 1214}, 1068, 1},
+	{"minecraft:leather_horse_armor_dyed", Ingredient{1411}, Ingredient{1199, 1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211, 1212, 1213, 1214}, 1411, 1},
+	{"minecraft:leather_leggings_dyed", Ingredient{1070}, Ingredient{1199, 1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211, 1212, 1213, 1214}, 1070, 1},
+	{"minecraft:wolf_armor_dyed", Ingredient{1004}, Ingredient{1199, 1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211, 1212, 1213, 1214}, 1004, 1},
 }
 
 // SmeltingRecipes holds every minecraft:smelting recipe of the data pack.

@@ -2018,15 +2018,6 @@ var pointOfInterestTypes = []string{
 	"minecraft:lightning_rod",
 }
 
-var dyeableItems = []int32{
-	MustItem("minecraft:leather_boots"),
-	MustItem("minecraft:leather_chestplate"),
-	MustItem("minecraft:leather_helmet"),
-	MustItem("minecraft:leather_horse_armor"),
-	MustItem("minecraft:leather_leggings"),
-	MustItem("minecraft:wolf_armor"),
-}
-
 var fluidNames = []string{
 	"minecraft:empty",
 	"minecraft:flowing_water",

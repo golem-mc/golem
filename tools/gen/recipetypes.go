@@ -55,6 +55,31 @@ type ImbueRecipe struct {
 	ResultCount int32
 }
 
+// TransmuteRecipe is one crafting_transmute recipe: one Input and Min to Max
+// Material stacks, nothing else. The result keeps the input's components; its
+// item is ResultID, or the input's when that is 0 (air, which no recipe names).
+// AddMaterialCount adds the number of materials to the result's count.
+type TransmuteRecipe struct {
+	ID               string
+	Input            Ingredient
+	Material         Ingredient
+	MinMaterial      int32
+	MaxMaterial      int32
+	ResultID         int32
+	ResultCount      int32
+	AddMaterialCount bool
+}
+
+// DyeRecipe is one crafting_dye recipe: one Target and at least one Dye. The
+// result is the target's item and components recoloured by the dyes.
+type DyeRecipe struct {
+	ID          string
+	Target      Ingredient
+	Dye         Ingredient
+	ResultID    int32
+	ResultCount int32
+}
+
 // CookingRecipe is one smelting, blasting, smoking or campfire cooking
 // recipe: the id the data pack saved it under - the name a vanilla server's
 // RecipesUsed block entity compound keys its smelt counts by - what goes in

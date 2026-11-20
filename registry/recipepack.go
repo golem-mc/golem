@@ -28,6 +28,32 @@ type PackCrafting struct {
 	GroupName string
 }
 
+// PackDisplays are the book displays of a pack recipe that rewrites a stack,
+// a transmute recipe having one per material count. Their ID and Group are for
+// ApplyPackRecipes to assign, and GroupName is the recipe's group.
+type PackDisplays struct {
+	Displays  []CraftingDisplay
+	GroupName string
+}
+
+// PackTransmute is a crafting_transmute recipe a data pack defines.
+type PackTransmute struct {
+	TransmuteRecipe
+	PackDisplays
+}
+
+// PackDye is a crafting_dye recipe a data pack defines.
+type PackDye struct {
+	DyeRecipe
+	PackDisplays
+}
+
+// PackImbue is a crafting_imbue recipe a data pack defines.
+type PackImbue struct {
+	ImbueRecipe
+	PackDisplays
+}
+
 // PackCooking is a cooking recipe a data pack defines. Its FurnaceDisplay
 // carries the recipe in book form, Name its ID, and leaves ID, Kind and Group
 // for ApplyPackRecipes to assign.
@@ -46,6 +72,9 @@ func (p *PackCooking) recipe() CookingRecipe {
 // replaces the built-in one of the same ID, whatever its kind.
 type PackRecipes struct {
 	Crafting          []PackCrafting
+	Transmute         []PackTransmute
+	Dye               []PackDye
+	Imbue             []PackImbue
 	Cooking           [cookingKinds][]PackCooking
 	Stonecutting      []StonecutterRecipe
 	SmithingTransform []SmithingTransformRecipe
@@ -64,7 +93,7 @@ type PackRecipes struct {
 
 // Empty reports whether no pack defines a recipe.
 func (p PackRecipes) Empty() bool {
-	if p.Hidden != nil || len(p.Crafting)+len(p.Stonecutting)+len(p.SmithingTransform)+len(p.SmithingTrim)+len(p.Brewing)+len(p.Dropped) > 0 {
+	if p.Hidden != nil || len(p.Crafting)+len(p.Transmute)+len(p.Dye)+len(p.Imbue)+len(p.Stonecutting)+len(p.SmithingTransform)+len(p.SmithingTrim)+len(p.Brewing)+len(p.Dropped) > 0 {
 		return false
 	}
 	for _, c := range p.Cooking {
@@ -84,6 +113,8 @@ type recipeSet struct {
 	craftOrder        []craftRef
 	stew              []StewRecipe
 	imbue             []ImbueRecipe
+	transmute         []TransmuteRecipe
+	dye               []DyeRecipe
 	cooking           [cookingKinds][]CookingRecipe
 	smithing          []SmithingTransformRecipe
 	trim              []SmithingTrimRecipe
@@ -103,8 +134,6 @@ type recipeSet struct {
 	smithingByName    map[string]int
 	smithingByID      map[int32]int
 	propertySets      []RecipePropertySet
-	// replaced holds the built-in recipe IDs a pack replaces, drops or hides.
-	replaced map[string]bool
 }
 
 var (
@@ -113,6 +142,8 @@ var (
 		shapeless:        ShapelessRecipes,
 		stew:             StewRecipes,
 		imbue:            ImbueRecipes,
+		transmute:        TransmuteRecipes,
+		dye:              DyeRecipes,
 		cooking:          [cookingKinds][]CookingRecipe{SmeltingRecipes, BlastingRecipes, SmokingRecipes, CampfireCookingRecipes},
 		smithing:         SmithingTransformRecipes,
 		trim:             SmithingTrimRecipes,
@@ -125,15 +156,34 @@ var (
 		propertySets:     RecipePropertySets,
 	})
 	recipesNow atomic.Pointer[recipeSet]
+	// builtinDisplays is how many crafting displays each built-in recipe has.
+	builtinDisplays = func() map[string]int32 {
+		n := map[string]int32{}
+		for i := range CraftingDisplays {
+			n[CraftingDisplays[i].Name]++
+		}
+		return n
+	}()
 )
 
-// craftRef names a shaped or shapeless recipe of a recipeSet, in the order
-// crafting tries them. cells is the number of non-empty grid cells the
-// recipe matches, so a grid holding any other count skips it, and symmetric
-// says a shaped recipe's mirror is itself.
+// craftKind is the list of a recipeSet a craftRef indexes.
+type craftKind uint8
+
+const (
+	craftShapeless craftKind = iota
+	craftShaped
+	craftTransmute
+	craftDye
+	craftImbue
+)
+
+// craftRef names a crafting recipe of a recipeSet, in the order crafting
+// tries them. cells is the number of non-empty grid cells the recipe matches,
+// so a grid holding any other count skips it; 0 leaves the count to the
+// recipe. symmetric says a shaped recipe's mirror is itself.
 // vanilla: ShapedRecipePattern.matches, ShapelessRecipe.matches
 type craftRef struct {
-	shaped    bool
+	kind      craftKind
 	symmetric bool
 	cells     int8
 	index     int
@@ -149,23 +199,19 @@ func recipes() *recipeSet {
 
 func newRecipeSet(s *recipeSet) *recipeSet {
 	if s.craftOrder == nil {
-		for i := range s.shaped {
-			s.craftOrder = append(s.craftOrder, craftRef{shaped: true, index: i})
-		}
-		for i := range s.shapeless {
-			s.craftOrder = append(s.craftOrder, craftRef{index: i})
-		}
+		s.craftOrder = craftRefs(s)
 	}
 	for i := range s.craftOrder {
 		ref := &s.craftOrder[i]
-		if !ref.shaped {
+		switch ref.kind {
+		case craftShapeless:
 			ref.cells = int8(len(s.shapeless[ref.index].Ingredients))
-			continue
-		}
-		ref.symmetric = symmetric(&s.shaped[ref.index])
-		for _, ingredient := range s.shaped[ref.index].Pattern {
-			if len(ingredient) > 0 {
-				ref.cells++
+		case craftShaped:
+			ref.symmetric = symmetric(&s.shaped[ref.index])
+			for _, ingredient := range s.shaped[ref.index].Pattern {
+				if len(ingredient) > 0 {
+					ref.cells++
+				}
 			}
 		}
 	}
@@ -221,6 +267,15 @@ func layerRecipes(p PackRecipes) *recipeSet {
 	for i := range p.Crafting {
 		replaced[p.Crafting[i].Name] = true
 	}
+	for i := range p.Transmute {
+		replaced[p.Transmute[i].ID] = true
+	}
+	for i := range p.Dye {
+		replaced[p.Dye[i].ID] = true
+	}
+	for i := range p.Imbue {
+		replaced[p.Imbue[i].ID] = true
+	}
 	for _, kind := range p.Cooking {
 		for i := range kind {
 			replaced[kind[i].Name] = true
@@ -251,9 +306,11 @@ func layerRecipes(p PackRecipes) *recipeSet {
 	// recipe that matches is the one it finds.
 	// vanilla: RecipeManager.prepare, Identifier.compareTo
 	s := &recipeSet{
-		results: p.Results,
-		stew:    filterRecipes(StewRecipes, func(r StewRecipe) bool { return kept(r.ID) }),
-		imbue:   filterRecipes(ImbueRecipes, func(r ImbueRecipe) bool { return kept(r.ID) }),
+		results:   p.Results,
+		stew:      filterRecipes(StewRecipes, func(r StewRecipe) bool { return kept(r.ID) }),
+		imbue:     filterRecipes(ImbueRecipes, func(r ImbueRecipe) bool { return kept(r.ID) }),
+		transmute: filterRecipes(TransmuteRecipes, func(r TransmuteRecipe) bool { return kept(r.ID) }),
+		dye:       filterRecipes(DyeRecipes, func(r DyeRecipe) bool { return kept(r.ID) }),
 		brewing: mergeRecipes(p.Brewing, BrewingRecipes, kept,
 			func(r BrewingRecipe) string { return r.ID }),
 		smithing: mergeRecipes(p.SmithingTransform, SmithingTransformRecipes, kept,
@@ -271,6 +328,15 @@ func layerRecipes(p PackRecipes) *recipeSet {
 		s.cooking[kind] = mergeRecipes(pack, builtin, kept, func(r CookingRecipe) string { return r.ID })
 	}
 
+	for i := range p.Transmute {
+		s.transmute = append(s.transmute, p.Transmute[i].TransmuteRecipe)
+	}
+	for i := range p.Dye {
+		s.dye = append(s.dye, p.Dye[i].DyeRecipe)
+	}
+	for i := range p.Imbue {
+		s.imbue = append(s.imbue, p.Imbue[i].ImbueRecipe)
+	}
 	layerDisplays(s, p, replaced)
 	for i := range p.Crafting {
 		d := &p.Crafting[i]
@@ -283,21 +349,8 @@ func layerRecipes(p PackRecipes) *recipeSet {
 	s.shaped = append(s.shaped, filterRecipes(ShapedRecipes, func(r ShapedRecipe) bool { return kept(r.ID) })...)
 	s.shapeless = append(s.shapeless, filterRecipes(ShapelessRecipes, func(r ShapelessRecipe) bool { return kept(r.ID) })...)
 	retagBuiltins(s, replaced)
-	for i := range s.shaped {
-		s.craftOrder = append(s.craftOrder, craftRef{shaped: true, index: i})
-	}
-	for i := range s.shapeless {
-		s.craftOrder = append(s.craftOrder, craftRef{index: i})
-	}
-	id := func(c craftRef) string {
-		if c.shaped {
-			return s.shaped[c.index].ID
-		}
-		return s.shapeless[c.index].ID
-	}
-	slices.SortStableFunc(s.craftOrder, func(a, b craftRef) int { return compareID(id(a), id(b)) })
+	s.craftOrder = craftRefs(s)
 	s.propertySets = propertySetsOf(s)
-	s.replaced = replaced
 	return newRecipeSet(s)
 }
 
@@ -326,6 +379,12 @@ func builtinRecipeIDs() []string {
 	for _, r := range builtinRecipes.stew {
 		ids = append(ids, r.ID)
 	}
+	for _, r := range builtinRecipes.transmute {
+		ids = append(ids, r.ID)
+	}
+	for _, r := range builtinRecipes.dye {
+		ids = append(ids, r.ID)
+	}
 	for _, r := range builtinRecipes.imbue {
 		ids = append(ids, r.ID)
 	}
@@ -347,6 +406,35 @@ func builtinRecipeIDs() []string {
 		ids = append(ids, r.ID)
 	}
 	return ids
+}
+
+// craftRefs lists the crafting recipes of s sorted by ID, as vanilla's recipe
+// map is, so the first recipe that matches is the one it finds.
+// vanilla: RecipeManager.prepare, Identifier.compareTo
+func craftRefs(s *recipeSet) []craftRef {
+	var refs []craftRef
+	var ids []string
+	add := func(kind craftKind, n int, id func(int) string) {
+		for i := range n {
+			refs = append(refs, craftRef{kind: kind, index: i})
+			ids = append(ids, id(i))
+		}
+	}
+	add(craftShaped, len(s.shaped), func(i int) string { return s.shaped[i].ID })
+	add(craftShapeless, len(s.shapeless), func(i int) string { return s.shapeless[i].ID })
+	add(craftTransmute, len(s.transmute), func(i int) string { return s.transmute[i].ID })
+	add(craftDye, len(s.dye), func(i int) string { return s.dye[i].ID })
+	add(craftImbue, len(s.imbue), func(i int) string { return s.imbue[i].ID })
+	order := make([]int, len(refs))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(a, b int) int { return compareID(ids[a], ids[b]) })
+	sorted := make([]craftRef, len(refs))
+	for i, o := range order {
+		sorted[i] = refs[o]
+	}
+	return sorted
 }
 
 // compareID orders recipe IDs by path, then namespace.
@@ -408,40 +496,59 @@ func layerDisplays(s *recipeSet, p PackRecipes, replaced map[string]bool) {
 	nextID := int32(BuiltinRecipeDisplayCount)
 	ids := map[string]int32{}
 	var added []string
-	idOf := func(name string) {
+	// sizes is how many displays, so display IDs, a recipe takes.
+	sizes := map[string]int32{}
+	idOf := func(name string, size int) {
+		sizes[name] = int32(size)
 		if i, ok := builtinRecipes.displayByName[name]; ok {
-			ids[name] = CraftingDisplays[i].ID
+			if builtinDisplays[name] >= int32(size) {
+				ids[name] = CraftingDisplays[i].ID
+				return
+			}
 		} else if i, ok := builtinRecipes.furnaceByName[name]; ok {
 			ids[name] = FurnaceDisplays[i].ID
+			return
 		} else if i, ok := builtinRecipes.stonecutterByName[name]; ok {
 			ids[name] = StonecutterDisplays[i].ID
+			return
 		} else if i, ok := builtinRecipes.smithingByName[name]; ok {
 			ids[name] = SmithingDisplays[i].ID
-		} else if !slices.Contains(added, name) {
+			return
+		}
+		if !slices.Contains(added, name) {
 			added = append(added, name)
 		}
 	}
 	for i := range p.Crafting {
-		idOf(p.Crafting[i].Name)
+		idOf(p.Crafting[i].Name, 1)
+	}
+	for i := range p.Transmute {
+		idOf(p.Transmute[i].ID, len(p.Transmute[i].Displays))
+	}
+	for i := range p.Dye {
+		idOf(p.Dye[i].ID, len(p.Dye[i].Displays))
+	}
+	for i := range p.Imbue {
+		idOf(p.Imbue[i].ID, len(p.Imbue[i].Displays))
 	}
 	for _, kind := range p.Cooking {
 		for i := range kind {
-			idOf(kind[i].Name)
+			idOf(kind[i].Name, 1)
 		}
 	}
 	for _, r := range p.Stonecutting {
-		idOf(r.ID)
+		idOf(r.ID, 1)
 	}
 	for _, r := range p.SmithingTransform {
-		idOf(r.ID)
+		idOf(r.ID, 1)
 	}
 	for _, r := range p.SmithingTrim {
-		idOf(r.ID)
+		idOf(r.ID, 1)
 	}
 	slices.Sort(added)
 	for _, name := range added {
 		ids[name] = nextID
-		nextID++
+		nextID += sizes[name]
 	}
 
 	s.displays = filterRecipes(CraftingDisplays, func(d CraftingDisplay) bool { return !replaced[d.Name] })
@@ -452,6 +559,24 @@ func layerDisplays(s *recipeSet, p PackRecipes, replaced map[string]bool) {
 			d.Fresh = CraftingDisplays[old].Fresh
 		}
 		s.displays = append(s.displays, d)
+	}
+	packed := func(name, group string, displays []CraftingDisplay) {
+		for n, d := range displays {
+			d.ID, d.Group = ids[name]+int32(n), groupOf(group)
+			if old, ok := builtinRecipes.displayByName[name]; ok && n == 0 {
+				d.Fresh = CraftingDisplays[old].Fresh
+			}
+			s.displays = append(s.displays, d)
+		}
+	}
+	for i := range p.Transmute {
+		packed(p.Transmute[i].ID, p.Transmute[i].GroupName, p.Transmute[i].Displays)
+	}
+	for i := range p.Dye {
+		packed(p.Dye[i].ID, p.Dye[i].GroupName, p.Dye[i].Displays)
+	}
+	for i := range p.Imbue {
+		packed(p.Imbue[i].ID, p.Imbue[i].GroupName, p.Imbue[i].Displays)
 	}
 	slices.SortFunc(s.displays, func(a, b CraftingDisplay) int { return cmp.Compare(a.ID, b.ID) })
 
