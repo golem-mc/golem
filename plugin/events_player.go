@@ -129,12 +129,20 @@ type PlayerChangedWorldEvent struct {
 }
 
 // EntityPortalEvent fires before an entity uses a portal; To may be changed.
+// For a nether portal it fires before the exit is searched for, To being the
+// scaled target in the vanilla destination: the exit is then searched for
+// within SearchRadius of To, and built within CreationRadius of it when none
+// is found and CanCreatePortal is set. Cancelled, nothing is searched or built.
+// For an end portal To is the arrival.
 // Bukkit: PlayerPortalEvent and EntityPortalEvent
 type EntityPortalEvent struct {
 	Cancellable
 	Entity   Entity
 	From, To Location
 	Cause    TeleportCause
+	// SearchRadius and CreationRadius are in blocks; they apply to nether portals.
+	SearchRadius, CreationRadius int
+	CanCreatePortal              bool
 }
 
 // PlayerRespawnEvent fires as a player respawns; Location may be changed.
