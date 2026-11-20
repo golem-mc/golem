@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"iter"
 	"log/slog"
 	"maps"
@@ -3394,6 +3395,9 @@ func (c *client) attackMob(target int32) {
 	c.awardDamageStat(registry.CustomStatDamageDealtResisted, resisted)
 	c.awardDamageStat(registry.CustomStatDamageDealtAbsorbed, absorbed)
 	c.noteHurtMob(ent.mob.ID)
+	self := c.LootEntity
+	c.hurtEntityAdvancements(advancement.Entity{Type: kind.Name(), Loot: c.srv.mobLoot(ent), Blow: &advancement.Blow{
+		Dealt: blow.damage, Taken: dealt, Type: blow.context.DamageType, Attacker: self, Direct: self}})
 
 	w := c.theWorld()
 	if !softened {

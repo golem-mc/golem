@@ -241,9 +241,9 @@ func (c *client) killedNearSculkCatalystAdvancements() {
 
 // killedByEntityAdvancements fires entity_killed_player for a death credited
 // to an entity. vanilla: Entity.awardKillScore
-func (c *client) killedByEntityAdvancements() {
+func (c *client) killedByEntityAdvancements(killer advancement.Entity) {
 	if progress := c.advancements.Load(); progress != nil {
-		progress.EntityKilledPlayer(time.Now())
+		progress.EntityKilledPlayer(killer, time.Now())
 	}
 }
 
@@ -996,9 +996,65 @@ func (c *client) usedTotemAdvancements(item protocol.ItemStack) {
 
 // hurtAdvancements fires entity_hurt_player for a hurt the player took or a
 // shield blocked. vanilla: LivingEntity.hurtServer
-func (c *client) hurtAdvancements(damageType registry.DamageType, blocked bool) {
+func (c *client) hurtAdvancements(damageType registry.DamageType, cause *damageCause, original, taken float64, blocked bool) {
+	blow := c.srv.blowOf(c.theWorld(), damageType, cause, original, taken, blocked)
 	if progress := c.advancements.Load(); progress != nil {
-		progress.EntityHurtPlayer(damageType.InTag(registry.DamageTypeTagIDIsProjectile), blocked, time.Now())
+		progress.EntityHurtPlayer(blow, time.Now())
+	}
+	// A player's damage to the player, by a swing, a shaft or a thrown
+	// potion, fires the attacker's player_hurt_entity.
+	if id := causeEntityID(cause); id != 0 {
+		if k := c.srv.entityClient(id - 1); k != nil {
+			k.hurtEntityAdvancements(advancement.Entity{Type: "minecraft:player", Loot: c.LootEntity, Blow: &blow})
+		}
+	}
+}
+
+// hurtEntityAdvancements fires player_hurt_entity for a damage the player
+// caused to victim. vanilla: LivingEntity.hurtServer
+func (c *client) hurtEntityAdvancements(victim advancement.Entity) {
+	if progress := c.advancements.Load(); progress != nil {
+		progress.PlayerHurtEntity(victim, time.Now())
+	}
+}
+
+// blowOf describes a damage for a combat trigger: its type, the entities
+// behind and carrying it, and the damage before and after armor.
+// vanilla: DamageSource.getEntity, getDirectEntity, isDirect
+func (s *Server) blowOf(w *world.World, damageType registry.DamageType, cause *damageCause, original, taken float64, blocked bool) advancement.Blow {
+	b := advancement.Blow{Dealt: original, Taken: taken, Blocked: blocked, Type: damageType}
+	if cause == nil {
+		return b
+	}
+	b.Attacker = s.entityLoot(w, causeEntityID(cause))
+	b.Direct = b.Attacker
+	if cause.directID != 0 {
+		b.Direct = s.entityLoot(w, cause.directID)
+	}
+	b.Indirect = !damageIsDirect(cause)
+	return b
+}
+
+// entityLoot builds the loot entity of the player or mob with a protocol ID
+// plus one in w, nil for none. vanilla: EntityPredicate.createContext
+func (s *Server) entityLoot(w *world.World, id int32) func() rules.LootEntity {
+	if id == 0 {
+		return nil
+	}
+	if k := s.entityClient(id - 1); k != nil {
+		return k.LootEntity
+	}
+	return s.lazyMobLoot(w, id-1)
+}
+
+// lazyMobLoot is mobLootByEntityID resolved when the loot entity is read, so
+// a hurt no criterion reads takes no lock; the zero entity when the mob is gone.
+func (s *Server) lazyMobLoot(w *world.World, id int32) func() rules.LootEntity {
+	return func() rules.LootEntity {
+		if load := s.mobLootByEntityID(w, id); load != nil {
+			return load()
+		}
+		return rules.LootEntity{}
 	}
 }
 

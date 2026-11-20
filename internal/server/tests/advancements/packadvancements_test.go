@@ -503,6 +503,133 @@ func TestPackEffectsChangedTestsAmplifier(t *testing.T) {
 	servertest.UntilTicks(t, srv, 20, "Speed II", func() bool { return srv.AdvancementObtained("Packer", "pk:fast", "c") })
 }
 
+// meleeHit stands the player by a fresh mob, tagged "boss" or not, and lands
+// one full-strength blow with the held item.
+func meleeHit(t *testing.T, srv *server.Server, c *servertest.Client, name, kind string, boss bool) {
+	t.Helper()
+	var id int32
+	if boss {
+		id = srv.SpawnMobTagged(kind, 0.5, 64, 2.0, nbt.Compound{"Tags": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String("boss")}}})
+	} else {
+		id = srv.SpawnMob(kind, 0.5, 64, 2.0)
+	}
+	c.Settle()
+	servertest.AwaitFullSwing(t, srv, name)
+	c.AttackLanded(srv, name, id)
+}
+
+// TestPackHurtEntityFiresOnAMeleeHitAndTestsDealtDamage: a player_hurt_entity
+// criterion with no conditions fires for a melee hit, and one with
+// damage.dealt.min 5 only for a hit of that much before armor.
+// vanilla: LivingEntity.hurtServer, DamagePredicate.matches
+func TestPackHurtEntityFiresOnAMeleeHitAndTestsDealtDamage(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "any", "player_hurt_entity", `{}`)
+	packCriterion(t, dir, "five", "player_hurt_entity", `{"damage":{"dealt":{"min":5}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	meleeHit(t, srv, c, "Packer", "minecraft:zombie", false)
+	servertest.UntilTicks(t, srv, 20, "the unconditioned criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:any", "c") })
+	if srv.AdvancementObtained("Packer", "pk:five", "c") {
+		t.Fatal("a bare hand's hit of 1 fired the dealt.min 5 criterion")
+	}
+	give(srv, t, "Packer", "diamond_sword")
+	c.Settle()
+	meleeHit(t, srv, c, "Packer", "minecraft:zombie", false)
+	servertest.UntilTicks(t, srv, 20, "the dealt.min 5 criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:five", "c") })
+}
+
+// TestPackKilledEntityTestsEntityTags: a player_killed_entity criterion whose
+// victim must carry a /tag tag fires for the tagged chicken only.
+// vanilla: KilledTrigger.TriggerInstance.matches, EntityTypePredicate, EntityPredicate
+func TestPackKilledEntityTestsEntityTags(t *testing.T) {
+	cfg, data := packConfig(t)
+	packCriterion(t, filepath.Join(data, "pk", "advancement"), "boss", "player_killed_entity",
+		`{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_tags":{"all_of":["boss"]}}}]}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	give(srv, t, "Packer", "netherite_sword")
+	c.Settle()
+	meleeHit(t, srv, c, "Packer", "minecraft:chicken", false)
+	servertest.RunTicks(t, srv, 40)
+	if srv.AdvancementObtained("Packer", "pk:boss", "c") {
+		t.Fatal("an untagged chicken's kill fired the entity_tags criterion")
+	}
+	meleeHit(t, srv, c, "Packer", "minecraft:chicken", true)
+	servertest.UntilTicks(t, srv, 40, "the tagged chicken's kill", func() bool { return srv.AdvancementObtained("Packer", "pk:boss", "c") })
+}
+
+// TestPackEntityKilledPlayerTestsEntityType: an entity_killed_player
+// criterion with entity_type zombie fires when a zombie kills the player, and
+// one for a skeleton does not.
+// vanilla: Entity.awardKillScore, KilledTrigger.TriggerInstance.matches
+func TestPackEntityKilledPlayerTestsEntityType(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	for _, kind := range []string{"zombie", "skeleton"} {
+		packCriterion(t, dir, kind, "entity_killed_player",
+			`{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:`+kind+`"}}]}`)
+	}
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	srv.SetHealth("Packer", 1)
+	id := srv.SpawnMob("minecraft:zombie", 0.5, 64, 1.0)
+	srv.SetMobTargetPlayer(id, "Packer")
+	servertest.UntilTicks(t, srv, 400, "the zombie's kill", func() bool { return srv.AdvancementObtained("Packer", "pk:zombie", "c") })
+	if srv.AdvancementObtained("Packer", "pk:skeleton", "c") {
+		t.Error("a zombie's kill fired the skeleton criterion")
+	}
+}
+
+// TestPackEntityHurtPlayerTestsSourceEntityAndType: an entity_hurt_player
+// criterion fires for a zombie's hit when its damage.source_entity is a
+// zombie, not when it is a skeleton or when the damage must be a projectile.
+// vanilla: EntityHurtPlayerTrigger.TriggerInstance.matches, DamagePredicate.matches
+func TestPackEntityHurtPlayerTestsSourceEntityAndType(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "zombie", "entity_hurt_player", `{"damage":{"source_entity":{"minecraft:entity_type":"minecraft:zombie"}}}`)
+	packCriterion(t, dir, "skeleton", "entity_hurt_player", `{"damage":{"source_entity":{"minecraft:entity_type":"minecraft:skeleton"}}}`)
+	packCriterion(t, dir, "shot", "entity_hurt_player", `{"damage":{"type":{"tags":[{"id":"minecraft:is_projectile","expected":true}]}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	id := srv.SpawnMob("minecraft:zombie", 0.5, 64, 1.0)
+	srv.SetMobTargetPlayer(id, "Packer")
+	servertest.UntilTicks(t, srv, 400, "the zombie's hit", func() bool { return srv.AdvancementObtained("Packer", "pk:zombie", "c") })
+	if srv.AdvancementObtained("Packer", "pk:skeleton", "c") {
+		t.Error("a zombie's hit fired the skeleton source_entity criterion")
+	}
+	if srv.AdvancementObtained("Packer", "pk:shot", "c") {
+		t.Error("a zombie's melee hit fired the is_projectile criterion")
+	}
+}
+
+// TestPackKilledEntityTestsKillingBlow: a player_killed_entity criterion on
+// the killing blow's source entity fires for the player's melee kill when it
+// asks for a player, not when it asks for a zombie.
+// vanilla: KilledTrigger.TriggerInstance.matches, DamageSourcePredicate.matches
+func TestPackKilledEntityTestsKillingBlow(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "player", "player_killed_entity", `{"killing_blow":{"source_entity":{"minecraft:entity_type":"minecraft:player"}}}`)
+	packCriterion(t, dir, "zombie", "player_killed_entity", `{"killing_blow":{"source_entity":{"minecraft:entity_type":"minecraft:zombie"}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	give(srv, t, "Packer", "netherite_sword")
+	c.Settle()
+	meleeHit(t, srv, c, "Packer", "minecraft:chicken", false)
+	servertest.UntilTicks(t, srv, 40, "the melee kill", func() bool { return srv.AdvancementObtained("Packer", "pk:player", "c") })
+	if srv.AdvancementObtained("Packer", "pk:zombie", "c") {
+		t.Error("a player's kill fired the zombie killing_blow criterion")
+	}
+}
+
 // entityCond is an entity_properties condition on this with the predicate.
 func entityCond(predicate string) string {
 	return `{"condition":"minecraft:entity_properties","entity":"this","predicate":` + predicate + `}`

@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"math"
 	"math/rand/v2"
 	"slices"
@@ -120,6 +121,7 @@ func (c *client) hurt(amount float64, damageType registry.DamageType, cause *dam
 // hurtFalling is hurt for a body that fell fall blocks, recorded with the
 // hit in the combat tracker.
 func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cause *damageCause, fall float64) (landed, softened bool) {
+	original := amount
 	// Refuse before taking anything, so an unlandable hit wears no armour; the
 	// lock below decides and takes the hit.
 	if !c.clientLoaded() {
@@ -226,7 +228,7 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 			if cause != nil {
 				cause.freshBlock = true
 			}
-			c.hurtAdvancements(damageType, true)
+			c.hurtAdvancements(damageType, cause, original, 0, true)
 			c.playShieldBlock(blockSound)
 			c.playHurtSound(damageType.Info().Effects.PlayerHurtSound())
 		}
@@ -346,9 +348,14 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 		// vanilla: ServerPlayer.die, LivingEntity.getKillCredit,
 		// Entity.awardKillScore
 		credited := false
+		blow := c.srv.blowOf(c.theWorld(), damageType, cause, 0, 0, false)
+		var killer advancement.Entity
 		if k := credit; k != nil {
 			k.scoreKill(c.scoreHolder(), true)
-			k.killedEntityAdvancements(c.srv.advancementEntity("minecraft:player", c.theWorld()))
+			victim := c.srv.advancementEntity("minecraft:player", c.theWorld())
+			victim.Loot, victim.Blow = c.LootEntity, &blow
+			k.killedEntityAdvancements(victim)
+			killer = advancement.Entity{Type: "minecraft:player", Loot: k.LootEntity}
 			c.awardStat(player.Stat{Type: registry.StatTypeKilledBy, Key: int32(registry.EntityTypePlayer)}, 1)
 			credited = true
 		} else if mob := c.srv.mobByEntityID(c.theWorld(), creditID-1); creditID != 0 && mob != nil {
@@ -357,13 +364,15 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 				c.srv.witherRoseLeft(witherRose{w: c.theWorld(), x: pos.X, y: pos.Y, z: pos.Z})
 			}
 			c.awardStat(player.Stat{Type: registry.StatTypeKilledBy, Key: int32(mob.mob.Type)}, 1)
+			killer = advancement.Entity{Type: mob.mob.Type.Name(), Loot: c.srv.mobLoot(mob)}
 			credited = true
 		}
 		if credited {
-			c.killedByEntityAdvancements()
+			killer.Blow = &blow
+			c.killedByEntityAdvancements(killer)
 		}
 	}
-	c.hurtAdvancements(damageType, false)
+	c.hurtAdvancements(damageType, cause, original, amount, blocked > 0)
 	return true, softened
 }
 
