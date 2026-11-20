@@ -83,14 +83,14 @@ type pluginAdvancement struct{ node *advancement.Node }
 func (a pluginAdvancement) Key() plugin.Key { key, _ := plugin.ParseKey(a.node.ID); return key }
 func (a pluginAdvancement) Title() plugin.Text {
 	if d := a.node.Display; d != nil && !d.Hidden {
-		text, _ := pluginText(command.DisplayText(d.Title, d.TitleLiteral))
+		text, _ := pluginText(command.DisplayTitle(d))
 		return text
 	}
 	return plugin.Text{}
 }
 func (a pluginAdvancement) Description() plugin.Text {
 	if d := a.node.Display; d != nil && !d.Hidden {
-		text, _ := pluginText(command.DisplayText(d.Description, d.DescriptionLiteral))
+		text, _ := pluginText(command.DisplayDescription(d))
 		return text
 	}
 	return plugin.Text{}

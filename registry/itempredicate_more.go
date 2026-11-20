@@ -1,4 +1,4 @@
-package world
+package registry
 
 import (
 	"slices"
@@ -6,11 +6,10 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
 
 // The partial predicates below test a stack's component in the NBT shape it is
-// saved in (registry.StackComponents), so they read the components the stack
+// saved in (StackComponents), so they read the components the stack
 // holds only as raw bytes.
 
 // decodeNameSet reads a holder set of names: one name, a #tag or a list of
@@ -22,9 +21,9 @@ func decodeNameSet(tag nbt.Tag, exists func(string) bool, tagMembers func(string
 			if tagMembers == nil {
 				return nil, false
 			}
-			return tagMembers(registry.Qualify(name))
+			return tagMembers(Qualify(name))
 		}
-		name := registry.Qualify(s)
+		name := Qualify(s)
 		return []string{name}, exists(name)
 	}
 	if s, ok := tag.(nbt.String); ok {
@@ -47,7 +46,7 @@ func decodeNameSet(tag nbt.Tag, exists func(string) bool, tagMembers func(string
 
 func syncedEntry(name string) func(string) bool {
 	return func(entry string) bool {
-		r, ok := registry.Get(name)
+		r, ok := Get(name)
 		return ok && r.ID(entry) >= 0
 	}
 }
@@ -62,9 +61,9 @@ func optionalSet(fields nbt.Compound, key string, exists func(string) bool, tags
 	return set, true, ok
 }
 
-// optionalBool reads an optional codec boolean; a present nonnumeric tag fails.
+// predicateBool reads an optional codec boolean; a present nonnumeric tag fails.
 // vanilla: NbtOps.getBooleanValue
-func optionalBool(fields nbt.Compound, key string) (value *bool, ok bool) {
+func predicateBool(fields nbt.Compound, key string) (value *bool, ok bool) {
 	raw, present := fields[key]
 	if !present {
 		return nil, true
@@ -106,7 +105,7 @@ func listOf(tag nbt.Tag) []nbt.Tag {
 
 // componentTag is the saved form of a component the stack holds.
 func componentTag(hand protocol.ItemStack, name string) (nbt.Tag, bool) {
-	tag, ok := registry.StackComponents(hand)[name]
+	tag, ok := StackComponents(hand)[name]
 	return tag, ok
 }
 
@@ -125,8 +124,8 @@ func defaultedCompoundTest(name string, test func(nbt.Compound) bool) stackTest 
 	return func(hand protocol.ItemStack) bool {
 		tag, ok := componentTag(hand, name)
 		if !ok {
-			_, removed := registry.StackComponents(hand)["!"+name]
-			return !removed && registry.ItemHasComponentDefault(hand.ItemID, name) && test(nbt.Compound{})
+			_, removed := StackComponents(hand)["!"+name]
+			return !removed && ItemHasComponentDefault(hand.ItemID, name) && test(nbt.Compound{})
 		}
 		fields, isCompound := nbt.CompoundView(tag)
 		return isCompound && test(fields)
@@ -148,8 +147,8 @@ func decodeFireworkTest(tag nbt.Tag) (func(nbt.Compound) bool, bool) {
 		}
 		shape, hasShape = string(s), true
 	}
-	twinkle, ok1 := optionalBool(fields, "has_twinkle")
-	trail, ok2 := optionalBool(fields, "has_trail")
+	twinkle, ok1 := predicateBool(fields, "has_twinkle")
+	trail, ok2 := predicateBool(fields, "has_trail")
 	if !ok1 || !ok2 {
 		return nil, false
 	}
@@ -198,33 +197,33 @@ func decodeMorePredicate(name string, value nbt.Tag) (stackTest, bool) {
 		if !isCompound {
 			return nil, false
 		}
-		material, hasMaterial, ok1 := optionalSet(fields, "material", syncedEntry("minecraft:trim_material"), registry.SyncTagMembers("minecraft:trim_material"))
-		pattern, hasPattern, ok2 := optionalSet(fields, "pattern", syncedEntry("minecraft:trim_pattern"), registry.SyncTagMembers("minecraft:trim_pattern"))
+		material, hasMaterial, ok1 := optionalSet(fields, "material", syncedEntry("minecraft:trim_material"), SyncTagMembers("minecraft:trim_material"))
+		pattern, hasPattern, ok2 := optionalSet(fields, "pattern", syncedEntry("minecraft:trim_pattern"), SyncTagMembers("minecraft:trim_pattern"))
 		if !ok1 || !ok2 {
 			return nil, false
 		}
 		return compoundTest(name, func(c nbt.Compound) bool {
-			return (!hasMaterial || slices.Contains(material, registry.Qualify(tagString(c, "material", "")))) &&
-				(!hasPattern || slices.Contains(pattern, registry.Qualify(tagString(c, "pattern", ""))))
+			return (!hasMaterial || slices.Contains(material, Qualify(tagString(c, "material", "")))) &&
+				(!hasPattern || slices.Contains(pattern, Qualify(tagString(c, "pattern", ""))))
 		}), true
 	case "minecraft:jukebox_playable":
 		if !isCompound {
 			return nil, false
 		}
-		songs, has, ok := optionalSet(fields, "song", syncedEntry("minecraft:jukebox_song"), registry.SyncTagMembers("minecraft:jukebox_song"))
+		songs, has, ok := optionalSet(fields, "song", syncedEntry("minecraft:jukebox_song"), SyncTagMembers("minecraft:jukebox_song"))
 		if !ok {
 			return nil, false
 		}
 		return func(hand protocol.ItemStack) bool {
-			song, present := registry.JukeboxSongForStack(hand)
-			return present && (!has || slices.Contains(songs, registry.Qualify(song)))
+			song, present := JukeboxSongForStack(hand)
+			return present && (!has || slices.Contains(songs, Qualify(song)))
 		}, true
 	case "minecraft:villager/variant":
-		types, ok := decodeNameSet(value, syncedEntry("minecraft:villager_type"), registry.SyncTagMembers("minecraft:villager_type"))
+		types, ok := decodeNameSet(value, syncedEntry("minecraft:villager_type"), SyncTagMembers("minecraft:villager_type"))
 		return func(hand protocol.ItemStack) bool {
 			tag, present := componentTag(hand, name)
 			s, isString := tag.(nbt.String)
-			return present && isString && slices.Contains(types, registry.Qualify(string(s)))
+			return present && isString && slices.Contains(types, Qualify(string(s)))
 		}, ok
 	case "minecraft:writable_book_content":
 		return decodeBookTest(name, fields, isCompound, false)
@@ -290,7 +289,7 @@ func decodeBookTest(name string, fields nbt.Compound, isCompound, isWritten bool
 		}
 		var ok1, ok2 bool
 		lo, hi, ok1 = optionalBounds(fields, "generation")
-		resolved, ok2 = optionalBool(fields, "resolved")
+		resolved, ok2 = predicateBool(fields, "resolved")
 		if !ok1 || !ok2 {
 			return nil, false
 		}
@@ -330,7 +329,7 @@ func decodeAttributeTest(fields nbt.Compound, isCompound bool) (stackTest, bool)
 			if !ok {
 				return nil, false
 			}
-			attrs, hasAttrs, ok := optionalSet(e, "attribute", func(n string) bool { _, ok := registry.AttributeByName(n); return ok }, registry.EmptyTagMembers)
+			attrs, hasAttrs, ok := optionalSet(e, "attribute", func(n string) bool { _, ok := AttributeByName(n); return ok }, EmptyTagMembers)
 			if !ok {
 				return nil, false
 			}
@@ -340,7 +339,7 @@ func decodeAttributeTest(fields nbt.Compound, isCompound bool) (stackTest, bool)
 				if !isString {
 					return nil, false
 				}
-				id, hasID = registry.Qualify(string(s)), true
+				id, hasID = Qualify(string(s)), true
 			}
 			lo, hi, ok := optionalDoubleBounds(e, "amount")
 			if !ok {
@@ -352,7 +351,7 @@ func decodeAttributeTest(fields nbt.Compound, isCompound bool) (stackTest, bool)
 				if !isString {
 					return nil, false
 				}
-				if _, known := registry.AttributeOperationByName(string(s)); !known {
+				if _, known := AttributeOperationByName(string(s)); !known {
 					return nil, false
 				}
 				op, hasOp = string(s), true
@@ -360,15 +359,15 @@ func decodeAttributeTest(fields nbt.Compound, isCompound bool) (stackTest, bool)
 			slot, hasSlot := "", false
 			if raw, present := e["slot"]; present {
 				s, isString := raw.(nbt.String)
-				if _, known := registry.SlotGroupID(string(s)); !isString || !known {
+				if _, known := SlotGroupID(string(s)); !isString || !known {
 					return nil, false
 				}
 				slot, hasSlot = string(s), true
 			}
 			return func(m nbt.Compound) bool {
 				amount, _ := nbt.NumberValue(m["amount"])
-				return (!hasAttrs || slices.Contains(attrs, registry.Qualify(tagString(m, "type", "")))) &&
-					(!hasID || registry.Qualify(tagString(m, "id", "")) == id) &&
+				return (!hasAttrs || slices.Contains(attrs, Qualify(tagString(m, "type", "")))) &&
+					(!hasID || Qualify(tagString(m, "id", "")) == id) &&
 					amount >= lo && amount <= hi &&
 					(!hasOp || tagString(m, "operation", "") == op) &&
 					(!hasSlot || tagString(m, "slot", "any") == slot)
@@ -380,11 +379,11 @@ func decodeAttributeTest(fields nbt.Compound, isCompound bool) (stackTest, bool)
 		coll = &c
 	}
 	return func(hand protocol.ItemStack) bool {
-		if _, removed := registry.StackComponents(hand)["!minecraft:attribute_modifiers"]; removed {
+		if _, removed := StackComponents(hand)["!minecraft:attribute_modifiers"]; removed {
 			return false
 		}
 		var entries []nbt.Compound
-		for _, m := range registry.StackModifiers(hand) {
+		for _, m := range StackModifiers(hand) {
 			slot := m.Slot
 			if slot == "" {
 				slot = "any"
@@ -434,12 +433,12 @@ type potionEffect struct {
 
 // decodePotionTest reads PotionsPredicate: a potion set and a collection of
 // MobEffectsPredicate over the potion's own effects and the custom ones.
-// vanilla: PotionsPredicate.matches, PotionContents.getAllEffects
+// vanilla: PotionsPredicate.Matches, PotionContents.getAllEffects
 func decodePotionTest(fields nbt.Compound, isCompound bool) (stackTest, bool) {
 	if !isCompound {
 		return nil, false
 	}
-	potions, hasPotions, ok := optionalSet(fields, "potions", func(n string) bool { _, ok := registry.PotionID(n); return ok }, registry.PotionTagMembers)
+	potions, hasPotions, ok := optionalSet(fields, "potions", func(n string) bool { _, ok := PotionID(n); return ok }, PotionTagMembers)
 	if !ok {
 		return nil, false
 	}
@@ -456,7 +455,7 @@ func decodePotionTest(fields nbt.Compound, isCompound bool) (stackTest, bool) {
 			}
 			tests := map[string]instanceTest{}
 			for name, value := range entries {
-				if _, known := registry.MobEffectID(registry.Qualify(name)); !known {
+				if _, known := MobEffectID(Qualify(name)); !known {
 					return nil, false
 				}
 				f, ok := nbt.CompoundView(value)
@@ -467,12 +466,12 @@ func decodePotionTest(fields nbt.Compound, isCompound bool) (stackTest, bool) {
 				var ok1, ok2, ok3, ok4 bool
 				it.aLo, it.aHi, ok1 = optionalBounds(f, "amplifier")
 				it.dLo, it.dHi, ok2 = optionalBounds(f, "duration")
-				it.ambient, ok3 = optionalBool(f, "ambient")
-				it.visible, ok4 = optionalBool(f, "visible")
+				it.ambient, ok3 = predicateBool(f, "ambient")
+				it.visible, ok4 = predicateBool(f, "visible")
 				if !ok1 || !ok2 || !ok3 || !ok4 {
 					return nil, false
 				}
-				tests[registry.Qualify(name)] = it
+				tests[Qualify(name)] = it
 			}
 			return func(e potionEffect) bool {
 				it, ok := tests[e.name]
@@ -490,27 +489,27 @@ func decodePotionTest(fields nbt.Compound, isCompound bool) (stackTest, bool) {
 		c, _ := nbt.CompoundView(tag)
 		if !present {
 			// The potions carry an empty potion_contents by default.
-			_, removed := registry.StackComponents(hand)["!minecraft:potion_contents"]
-			if removed || !registry.ItemHasComponentDefault(hand.ItemID, "minecraft:potion_contents") {
+			_, removed := StackComponents(hand)["!minecraft:potion_contents"]
+			if removed || !ItemHasComponentDefault(hand.ItemID, "minecraft:potion_contents") {
 				return false
 			}
 		}
 		potion := tagString(c, "potion", "")
-		if hasPotions && (potion == "" || !slices.Contains(potions, registry.Qualify(potion))) {
+		if hasPotions && (potion == "" || !slices.Contains(potions, Qualify(potion))) {
 			return false
 		}
 		if coll == nil {
 			return true
 		}
 		var effects []potionEffect
-		if id, ok := registry.PotionID(registry.Qualify(potion)); ok && potion != "" {
-			for _, e := range registry.PotionEffects(id) {
-				effects = append(effects, potionEffect{registry.Qualify(e.Effect), int64(e.Amplifier), int64(e.Duration), e.Ambient, e.ShowParticles})
+		if id, ok := PotionID(Qualify(potion)); ok && potion != "" {
+			for _, e := range PotionEffects(id) {
+				effects = append(effects, potionEffect{Qualify(e.Effect), int64(e.Amplifier), int64(e.Duration), e.Ambient, e.ShowParticles})
 			}
 		}
 		for _, item := range listOf(c["custom_effects"]) {
 			e, _ := nbt.CompoundView(item)
-			effects = append(effects, potionEffect{registry.Qualify(tagString(e, "id", "")), tagInt(e, "amplifier", 0),
+			effects = append(effects, potionEffect{Qualify(tagString(e, "id", "")), tagInt(e, "amplifier", 0),
 				tagInt(e, "duration", 0), tagBool(e, "ambient", false), tagBool(e, "show_particles", true)})
 		}
 		return coll.test(effects)
