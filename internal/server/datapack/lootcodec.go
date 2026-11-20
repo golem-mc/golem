@@ -1445,6 +1445,9 @@ func (d lootDecoder) function(f obj) registry.LootFunction {
 		default:
 			fail("Unknown loot context parameter: %s", src)
 		}
+		if src == "block_entity" {
+			src = "" // the generated tables leave the default source empty
+		}
 		return registry.LootCopyComponents{Source: src, Include: includeList(f), Exclude: stringList(f["exclude"]), Conditions: conds}
 	case "minecraft:set_random_dyes":
 		return registry.LootSetRandomDyes{Count: intAt(f, "number_of_dyes"), Conditions: conds}
