@@ -33,6 +33,10 @@ type Server interface {
 	// the server stops.
 	MaxPlayers() int
 	SetMaxPlayers(n int)
+	// SpawnProtection answers server.properties' spawn-protection: the
+	// radius around the overworld's spawn that only operators may change,
+	// 0 when off. Bukkit: Server.getSpawnRadius
+	SpawnProtection() int
 	// MOTD answers the server list message; SetMOTD changes it until the
 	// server stops.
 	MOTD() Text

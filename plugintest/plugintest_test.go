@@ -1,14 +1,15 @@
 package plugintest_test
 
 import (
-	"sync/atomic"
-
-	"github.com/golem-mc/golem/registry"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/plugintest"
+	"github.com/golem-mc/golem/registry"
 )
 
 func TestOpRunsCommandsAndHandleIsLive(t *testing.T) {
@@ -264,4 +265,73 @@ func TestSchedulerOnTick(t *testing.T) {
 	if asyncOnTick.Load() {
 		t.Error("OnTick = true inside a RunAsync task, want false")
 	}
+}
+
+type hostCapture struct{ host *plugin.Server }
+
+func (c hostCapture) Enable(s plugin.Server) error { *c.host = s; return nil }
+func (hostCapture) Disable()                       {}
+
+func TestSpawnProtection(t *testing.T) {
+	startWithConfig := func(t *testing.T, modify func(*config.Config)) plugin.Server {
+		t.Helper()
+		cfg := config.Default()
+		cfg.OnlineMode = false
+		cfg.LevelName = t.TempDir()
+		cfg.LevelType = server.TestFlatLevelType
+		cfg.SimulationDistance = 4
+		cfg.PauseWhenEmptySeconds = 0
+		cfg.SyncChunkWrites = false
+		if modify != nil {
+			modify(cfg)
+		}
+		var host plugin.Server
+		srv, err := server.NewSeededSharingNether(cfg, 0, server.SharedNetherSeed,
+			plugin.Registration{Name: "capture", Plugin: hostCapture{&host}},
+		)
+		if err != nil {
+			t.Fatalf("create server: %v", err)
+		}
+		t.Cleanup(func() {
+			if err := srv.CloseWorlds(); err != nil {
+				t.Errorf("close worlds: %v", err)
+			}
+		})
+		return host
+	}
+
+	t.Run("default properties", func(t *testing.T) {
+		host := startWithConfig(t, nil)
+		if got := host.SpawnProtection(); got != 16 {
+			t.Fatalf("SpawnProtection() = %d, want 16 (vanilla default)", got)
+		}
+	})
+
+	t.Run("disabled in properties", func(t *testing.T) {
+		host := startWithConfig(t, func(cfg *config.Config) { cfg.SpawnProtection = 0 })
+		if got := host.SpawnProtection(); got != 0 {
+			t.Fatalf("SpawnProtection() = %d, want 0", got)
+		}
+	})
+
+	t.Run("plugintest option", func(t *testing.T) {
+		srvDefault := plugintest.Start(t, plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}))
+		if got := srvDefault.Host().SpawnProtection(); got != 0 {
+			t.Fatalf("plugintest default SpawnProtection() = %d, want 0", got)
+		}
+		srvSet := plugintest.Start(t,
+			plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}),
+			plugintest.WithSpawnProtection(16),
+		)
+		if got := srvSet.Host().SpawnProtection(); got != 16 {
+			t.Fatalf("plugintest WithSpawnProtection(16) = %d, want 16", got)
+		}
+		srvOff := plugintest.Start(t,
+			plugintest.WithPlugins(plugin.Registration{Name: "none", Plugin: noop{}}),
+			plugintest.WithSpawnProtection(0),
+		)
+		if got := srvOff.Host().SpawnProtection(); got != 0 {
+			t.Fatalf("plugintest WithSpawnProtection(0) = %d, want 0", got)
+		}
+	})
 }
