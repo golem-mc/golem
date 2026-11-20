@@ -271,6 +271,10 @@ run = "go run ./tools/gen fuel"
 description = "Regenerate registry/villagertrades_gen.go from the data pack's trade sets and trades"
 run = "go run ./tools/gen villagertrades"
 
+[tasks."gen:soundvariants"]
+description = "Regenerate registry/soundvariants_gen.go from the data pack's *_sound_variant entries"
+run = "go run ./tools/gen soundvariants"
+
 [tasks."gen:variantspawns"]
 description = "Regenerate registry/variantspawns_gen.go from the data pack's variant spawn_conditions"
 run = "go run ./tools/gen variantspawns"

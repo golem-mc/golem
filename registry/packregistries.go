@@ -67,5 +67,6 @@ func ApplyPackRegistries(packs map[string]map[string]nbt.Tag) []string {
 	damageTypesNow.Store(newDamageTypeState())
 	reindexEnchantments()
 	reindexVariantSpawns()
+	reindexSoundVariants()
 	return problems
 }
