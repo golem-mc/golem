@@ -92,7 +92,14 @@ func TestPluginPortalEventRetargetsExitSearch(t *testing.T) {
 		})
 	})
 	lightFrameAndStand(t, srv, c)
+	// Portal travel runs off the tick loop; pace ticks while it finishes.
+	servertest.ReleaseTicks(t, srv)
 	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
+	servertest.WaitFor(t, srv, 200, func() bool {
+		_, _, traveling := srv.EndExitState("Portaler")
+		return !traveling && srv.PlayerDimension("Portaler") == hellKey.String()
+	})
+	servertest.HoldTicks(t, srv)
 	if got := srv.PlayerDimension("Portaler"); got != hellKey.String() {
 		t.Fatalf("dimension = %q, want %q", got, hellKey)
 	}
@@ -219,8 +226,13 @@ func TestPluginNetherTypedWorldPortalLeadsToOverworld(t *testing.T) {
 		}
 	})
 	// The player stands in the portal as it appears, and crosses.
+	servertest.ReleaseTicks(t, srv)
 	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
-	servertest.WaitFor(t, srv, 100, func() bool { return srv.PlayerPosition("Portaler").X > 10 })
+	servertest.WaitFor(t, srv, 100, func() bool {
+		_, _, traveling := srv.EndExitState("Portaler")
+		return !traveling && srv.PlayerPosition("Portaler").X > 10
+	})
+	servertest.HoldTicks(t, srv)
 	pos := srv.PlayerPosition("Portaler")
 	if got := srv.PlayerDimension("Portaler"); got != world.DimensionName {
 		t.Errorf("dimension = %q, want the overworld", got)
@@ -266,11 +278,18 @@ func TestPluginEndTypedWorldPortalAndGateway(t *testing.T) {
 	}
 	c.MoveTo(10.5, servertest.PortalFloorY-1, 10.5, 0, 0)
 	c.Settle()
+	// End-portal travel runs off the tick loop; pace ticks while it finishes
+	// and wait for traveling to clear before any subsequent dimension move.
+	servertest.ReleaseTicks(t, srv)
 	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
-	servertest.WaitFor(t, srv, 200, func() bool { return srv.PlayerDimension("Portaler") == endKey.String() })
+	servertest.WaitFor(t, srv, 200, func() bool {
+		_, _, traveling := srv.EndExitState("Portaler")
+		return !traveling && srv.PlayerDimension("Portaler") == endKey.String()
+	})
 	servertest.WaitFor(t, srv, 200, func() bool {
 		return srv.BlockInDimension(endKey.String(), arrival.X, arrival.Y-1, arrival.Z) == obsidian
 	})
+	servertest.HoldTicks(t, srv)
 	if got := srv.BlockInDimension(world.EndName, arrival.X, arrival.Y-1, arrival.Z); got == obsidian {
 		t.Error("arrival platform was built in vanilla minecraft:the_end")
 	}
@@ -281,19 +300,29 @@ func TestPluginEndTypedWorldPortalAndGateway(t *testing.T) {
 	if !srv.SetBlockInDimension(endKey.String(), arrival.X, arrival.Y, arrival.Z, endPortal) {
 		t.Fatal("placing custom end portal failed")
 	}
+	servertest.ReleaseTicks(t, srv)
 	servertest.ExpectEndCredits(t, c, srv)
 	c.PerformRespawn()
 	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
-	servertest.WaitFor(t, srv, 200, func() bool { return srv.PlayerDimension("Portaler") == world.DimensionName })
+	servertest.WaitFor(t, srv, 200, func() bool {
+		_, _, traveling := srv.EndExitState("Portaler")
+		return !traveling && srv.PlayerDimension("Portaler") == world.DimensionName
+	})
+	servertest.HoldTicks(t, srv)
 
 	// Once credits have been seen, an end portal in the custom end returns
 	// directly to the overworld without rolling credits again.
 	servertest.RunTicks(t, srv, 15)
 	srv.MovePlayerToDimension("Portaler", endKey.String(), float64(arrival.X)+0.5, float64(arrival.Y), float64(arrival.Z)+0.5)
-	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlayRespawn)
 	// The next respawn is the immediate return from the custom end to the overworld.
+	servertest.ReleaseTicks(t, srv)
 	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
-	servertest.WaitFor(t, srv, 200, func() bool { return srv.PlayerDimension("Portaler") == world.DimensionName })
+	servertest.WaitFor(t, srv, 200, func() bool {
+		_, _, traveling := srv.EndExitState("Portaler")
+		return !traveling && srv.PlayerDimension("Portaler") == world.DimensionName
+	})
+	servertest.HoldTicks(t, srv)
 
 	// An exit-less end gateway in the custom end creates an exit and teleports
 	// the player away, as in minecraft:the_end.
@@ -304,7 +333,7 @@ func TestPluginEndTypedWorldPortalAndGateway(t *testing.T) {
 	}
 	servertest.RunTicks(t, srv, 15)
 	srv.MovePlayerToDimension("Portaler", endKey.String(), 12.5, 65, 10.5)
-	c.ExpectWithinTicks(srv, 400, protocol.IDPlayRespawn)
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlayRespawn)
 	servertest.RunTicks(t, srv, 1)
 	srv.WaitGatewayMoves()
 	if p := srv.PlayerPosition("Portaler"); srv.PlayerDimension("Portaler") != endKey.String() || math.Hypot(p.X, p.Z) <= 100 {
