@@ -422,6 +422,7 @@ func (s *Server) tick() {
 	// The hulls and the carts step even frozen while a player rides them.
 	s.tickBoats()
 	s.tickMinecarts()
+	s.fireVehicleMoves()
 	if runs {
 		s.tickDragonCrystals()
 		s.tickMobs()

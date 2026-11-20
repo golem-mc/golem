@@ -162,6 +162,8 @@ const (
 	PlayerArmorStandManipulate
 	PlayerEggThrow
 	PlayerAdvancementCriterionGrant
+	VehicleMove
+	EntityMove
 	EntityPortalEnter
 	EntityPortalExit
 )
@@ -317,6 +319,8 @@ var pluginHookTypes = [...]reflect.Type{
 	reflect.TypeFor[*plugin.PlayerArmorStandManipulateEvent](),
 	reflect.TypeFor[*plugin.PlayerEggThrowEvent](),
 	reflect.TypeFor[*plugin.PlayerAdvancementCriterionGrantEvent](),
+	reflect.TypeFor[*plugin.VehicleMoveEvent](),
+	reflect.TypeFor[*plugin.EntityMoveEvent](),
 	reflect.TypeFor[*plugin.EntityPortalEnterEvent](),
 	reflect.TypeFor[*plugin.EntityPortalExitEvent](),
 }
