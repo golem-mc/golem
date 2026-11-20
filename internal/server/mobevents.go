@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/pluginruntime"
@@ -576,6 +577,9 @@ func (t *mobDimTick) killCredit(fx *mobEffects, in *mobTickInputs, ev entity.Mob
 			victim.Captain = ev.Mob.Captain()
 			at := k.Position()
 			victim.Distance = math.Hypot(at.X-ev.Mob.X, at.Z-ev.Mob.Z)
+			loot := frozenMobLoot(ev.Mob)
+			victim.Loot = func() rules.LootEntity { return *loot }
+			victim.Blow = killingBlow(k, ev.Mob)
 			k.killedEntityAdvancements(victim)
 		}
 	}
@@ -886,4 +890,23 @@ func landingDust(w *world.World, ev entity.MobEvent) mobSend {
 	return mobSend{w: w, id: protocol.IDPlayLevelParticles,
 		data: blockParticlesPayload(protocol.ParticleBlock, ev.BlockState, ev.X, ev.Y, ev.Z, 0, 0, 0, 0.15, ev.Count),
 		near: true, x: ev.X, y: ev.Y, z: ev.Z, radius: particleRange}
+}
+
+// killingBlow is the blow of the player k that killed m, read under the mob
+// lock: a projectile of the type the mob last took (an arrow, a trident or a
+// thrown thing), else the player's swing. The swing's damage type is the
+// player attack, as the weapon is no longer known.
+// vanilla: LivingEntity.die, DamageSource
+func killingBlow(k *client, m *entity.Mob) *advancement.Blow {
+	player := k.lootEntityLocked()
+	attacker := func() rules.LootEntity { return player }
+	if direct := m.BlowDirectType(); m.HurtByPlayer() && direct != "" {
+		typ := registry.DamageTypeArrow
+		if direct == "minecraft:trident" {
+			typ = registry.DamageTypeTrident
+		}
+		thrown := rules.LootEntity{Type: direct}
+		return &advancement.Blow{Type: typ, Attacker: attacker, Direct: func() rules.LootEntity { return thrown }, Indirect: true}
+	}
+	return &advancement.Blow{Type: rules.DamageTypePlayerAttack, Attacker: attacker, Direct: attacker}
 }

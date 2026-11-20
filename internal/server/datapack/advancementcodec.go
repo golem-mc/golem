@@ -514,7 +514,84 @@ func advCriterion(id, name string, value obj) registry.AdvancementCriterion {
 	if !c.Unmodelled {
 		return c
 	}
-	return advLootContexts(name, trigger, conditions, c)
+	if read := advLootContexts(name, trigger, conditions, c); !read.Unmodelled {
+		return read
+	}
+	if combat, ok := advCombat(name, trigger, conditions); ok {
+		return combat
+	}
+	return c
+}
+
+// advCombat reads a player_hurt_entity, entity_hurt_player,
+// player_killed_entity or entity_killed_player criterion in full, for the
+// shapes the bespoke readers leave unmodelled: the player and entity
+// conditions as loot conditions, and the damage or killing blow as an
+// AdvancementDamage. ok is false for another trigger or a condition outside
+// these or one the loot codec refuses.
+// vanilla: PlayerHurtEntityTrigger, EntityHurtPlayerTrigger, KilledTrigger
+func advCombat(name, trigger string, conditions obj) (c registry.AdvancementCriterion, ok bool) {
+	var blowKey string
+	var entity bool
+	switch trigger {
+	case "minecraft:player_hurt_entity":
+		blowKey, entity = "damage", true
+	case "minecraft:entity_hurt_player":
+		blowKey = "damage"
+	case "minecraft:player_killed_entity", "minecraft:entity_killed_player":
+		blowKey, entity = "killing_blow", true
+	default:
+		return c, false
+	}
+	if !keysWithin(conditions, "player", "entity", blowKey) || !entity && conditions["entity"] != nil {
+		return c, false
+	}
+	c = registry.AdvancementCriterion{Name: name, Trigger: trigger, Damage: &registry.AdvancementDamage{}}
+	if v, has := conditions["player"]; has {
+		if c.Player, ok = advLootConditions(v); !ok {
+			return c, false
+		}
+	}
+	if v, has := conditions["entity"]; has {
+		conds, ok := advLootConditions(v)
+		if !ok {
+			return c, false
+		}
+		c.Contexts = map[string][]registry.LootCondition{"entity": conds}
+	}
+	blow := asObjOr(conditions[blowKey])
+	if blowKey == "damage" {
+		if !keysWithin(blow, "dealt", "taken", "blocked", "type", "source_entity") {
+			return c, false
+		}
+		if v, has := blow["dealt"]; has {
+			c.Damage.Dealt = advDoubleRange("dealt", v)
+		}
+		if v, has := blow["taken"]; has {
+			c.Damage.Taken = advDoubleRange("taken", v)
+		}
+		if v, has := blow["blocked"]; has {
+			b, isBool := v.(bool)
+			if !isBool {
+				return c, false
+			}
+			c.Damage.Blocked = &b
+		}
+	}
+	// A killing blow is a damage source predicate alone.
+	var terms []any
+	source := blow
+	if blowKey == "damage" {
+		source = obj{"type": blow["type"]}
+		if se, has := blow["source_entity"]; has {
+			terms = append(terms, obj{"condition": "minecraft:entity_properties", "entity": "attacker", "predicate": se})
+		}
+	}
+	if blowKey == "killing_blow" || blow["type"] != nil {
+		terms = append(terms, obj{"condition": "minecraft:damage_source_properties", "predicate": map[string]any(source)})
+	}
+	c.Damage.Conds, ok = advLootConditions(terms)
+	return c, ok
 }
 
 // advLootContexts re-reads a criterion the bespoke readers left unmodelled

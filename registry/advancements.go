@@ -68,6 +68,10 @@ type AdvancementCriterion struct {
 	// vanilla: ContextAwarePredicate
 	Contexts    map[string][]LootCondition
 	VictimConds [][]LootCondition
+	// Damage is the damage test of a player_hurt_entity, entity_hurt_player,
+	// player_killed_entity or entity_killed_player criterion the bespoke
+	// fields do not model; nil for the criteria they do.
+	Damage *AdvancementDamage
 	// EffectStates is the amplifier, duration, ambient and visible tests of
 	// an effects_changed effect, by name.
 	// vanilla: MobEffectsPredicate.MobEffectInstancePredicate
@@ -201,6 +205,18 @@ type AdvancementCriterion struct {
 	// Unmodelled marks a criterion whose conditions go beyond the ones
 	// above; it never fires.
 	Unmodelled bool
+}
+
+// AdvancementDamage is a DamagePredicate (or a killing_blow): the damage
+// before and after armor and absorption, whether a shield blocked it, and the
+// loot conditions its source must pass, the damage source predicate and the
+// source_entity predicate on the attacker.
+// vanilla: DamagePredicate.matches
+type AdvancementDamage struct {
+	Dealt, Taken AdvancementRange
+	// Blocked is the wanted blocked flag; nil for either.
+	Blocked *bool
+	Conds   []LootCondition
 }
 
 // AdvancementRange bounds a number; an end without its Has flag is open.

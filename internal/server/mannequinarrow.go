@@ -73,6 +73,6 @@ func (s *Server) arrowMannequinOutcome(hit arrowMannequinHit) arrowOutcome {
 	s.arrowsMu.Lock()
 	killed := it.killedByArrow(hurt.died, mannequinEntityID)
 	s.arrowsMu.Unlock()
-	s.arrowHitAdvancements(s.entityClient(it.arrow.OwnerID), arrowTypeName(it), killed, it.arrow.Weapon.ItemID)
+	s.arrowHitAdvancements(s.entityClient(it.arrow.OwnerID), arrowTypeName(it), killed, it.arrow.Weapon.ItemID, nil)
 	return landedOutcome(it)
 }

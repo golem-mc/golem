@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
@@ -189,7 +190,11 @@ func (s *Server) tellArrowMobHit(hit arrowMobHit) {
 		s.tellSplashMob(hit.w, t)
 	}
 	if hit.victimID != 0 {
-		s.arrowHitAdvancements(s.entityClient(hit.shooter), hit.direct, hit.killed, hit.weapon)
+		thrown := rules.LootEntity{Type: hit.direct}
+		blow := advancement.Blow{Dealt: hit.dealt, Taken: hit.taken, Type: hit.damageType, Indirect: true,
+			Attacker: s.entityLoot(hit.w, hit.causeID), Direct: func() rules.LootEntity { return thrown }}
+		victim := advancement.Entity{Type: hit.kind.Name(), Loot: s.mobLootByEntityID(hit.w, hit.victimID), Blow: &blow}
+		s.arrowHitAdvancements(s.entityClient(hit.shooter), hit.direct, hit.killed, hit.weapon, &victim)
 	}
 	if hit.thorns.mob == nil {
 		return
@@ -395,7 +400,7 @@ func (s *Server) arrowPlayerOutcome(hit arrowPlayerHit) arrowOutcome {
 			s.arrowsMu.Lock()
 			killed := hit.arrow.killedByArrow(hit.victim.player.Vitals().Health <= 0, "minecraft:player")
 			s.arrowsMu.Unlock()
-			s.arrowHitAdvancements(shooterClient, arrowTypeName(hit.arrow), killed, hit.arrow.arrow.Weapon.ItemID)
+			s.arrowHitAdvancements(shooterClient, arrowTypeName(hit.arrow), killed, hit.arrow.arrow.Weapon.ItemID, nil)
 		}
 		if hit.arrow.arrow.Trident {
 			// The trident flies on out of the hit, its deflection —
@@ -415,7 +420,7 @@ func (s *Server) arrowPlayerOutcome(hit arrowPlayerHit) arrowOutcome {
 	case cause.freshBlock:
 		// A fresh fully blocked hit still fires the shooter's
 		// player_hurt_entity. vanilla: LivingEntity.hurtServer
-		s.arrowHitAdvancements(shooterClient, arrowTypeName(hit.arrow), nil, 0)
+		s.arrowHitAdvancements(shooterClient, arrowTypeName(hit.arrow), nil, 0, nil)
 	}
 	if hit.arrow.arrow.Trident {
 		return arrowDeflects

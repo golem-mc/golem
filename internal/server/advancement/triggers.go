@@ -89,6 +89,8 @@ type Subjects struct {
 	Victims []func() rules.LootEntity
 	// Distinct makes each victims entry take a victim of its own.
 	Distinct bool
+	// Blow is the damage of a combat trigger.
+	Blow *Blow
 }
 
 // triggerWith is trigger for a context with entities of its own.
@@ -114,7 +116,7 @@ func (p *Progress) fire(refs []criterionRef, at time.Time, subj *Subjects, match
 		if !match(c) {
 			continue
 		}
-		if len(c.Player) > 0 || len(c.Contexts) > 0 || len(c.VictimConds) > 0 {
+		if len(c.Player) > 0 || len(c.Contexts) > 0 || len(c.VictimConds) > 0 || c.Damage != nil {
 			if p.playerContext == nil {
 				continue
 			}
@@ -143,6 +145,29 @@ func playerHolds(conditions []registry.LootCondition, ctx *rules.LootContext, rn
 	return true
 }
 
+// blowHolds reports whether the trigger's damage passes d, its source tested
+// in the player's context with the blow's entities.
+// vanilla: DamagePredicate.matches
+func (s *Subjects) blowHolds(d *registry.AdvancementDamage, player *rules.LootContext, rng rules.LootRand) bool {
+	if s == nil || s.Blow == nil {
+		return false
+	}
+	b := s.Blow
+	if !d.Dealt.Matches(b.Dealt) || !d.Taken.Matches(b.Taken) || d.Blocked != nil && *d.Blocked != b.Blocked {
+		return false
+	}
+	ec := *player
+	ec.DamageType, ec.Indirect = b.Type, b.Indirect
+	ec.Attacker, ec.DirectAttacker = rules.LootEntity{}, rules.LootEntity{}
+	if b.Attacker != nil {
+		ec.Attacker = b.Attacker()
+	}
+	if b.Direct != nil {
+		ec.DirectAttacker = b.Direct()
+	}
+	return playerHolds(d.Conds, &ec, rng)
+}
+
 // hold reports whether the criterion's entity conditions pass for the
 // entities, each in the player's context with THIS replaced by it. A condition
 // on an entity the trigger did not give fails.
@@ -155,6 +180,9 @@ func (s *Subjects) hold(c *registry.AdvancementCriterion, player *rules.LootCont
 		ec := *player
 		ec.This = build()
 		return &ec, true
+	}
+	if c.Damage != nil && !s.blowHolds(c.Damage, player, rng) {
+		return false
 	}
 	for key, conds := range c.Contexts {
 		var build func() rules.LootEntity
@@ -300,11 +328,29 @@ type Entity struct {
 	Distance float64
 	// Loot builds the entity for a data pack's loot conditions; nil for none.
 	Loot func() rules.LootEntity
+	// Blow is the damage the entity was hurt or killed by, for a combat
+	// trigger; nil elsewhere.
+	Blow *Blow
+}
+
+// Blow is the damage of a combat trigger.
+// vanilla: DamagePredicate.matches, DamageSourcePredicate.matches
+type Blow struct {
+	// Dealt is the damage before armor and absorption, Taken what is left
+	// after them; both zero for a killing blow.
+	Dealt, Taken float64
+	Blocked      bool
+	Type         registry.DamageType
+	// Attacker is the entity behind the blow and Direct the one that struck
+	// it, each nil for none; Indirect is set when Direct is a projectile
+	// Attacker launched.
+	Attacker, Direct func() rules.LootEntity
+	Indirect         bool
 }
 
 // subjects is the entity as a trigger's entity condition.
 func (e Entity) subjects() *Subjects {
-	return &Subjects{By: map[string]func() rules.LootEntity{"entity": e.Loot}}
+	return &Subjects{By: map[string]func() rules.LootEntity{"entity": e.Loot}, Blow: e.Blow}
 }
 
 // typeMatches reports whether an entity type name passes a criterion's
@@ -325,7 +371,7 @@ func typeMatches(want, got string) bool {
 // PlayerKilledEntity fires player_killed_entity for the player's kill of
 // victim. vanilla: KilledTrigger.TriggerInstance.matches
 func (p *Progress) PlayerKilledEntity(victim Entity, at time.Time) bool {
-	return p.trigger(TriggerPlayerKilledEntity, at, func(c *registry.AdvancementCriterion) bool {
+	return p.triggerWith(TriggerPlayerKilledEntity, at, victim.subjects(), func(c *registry.AdvancementCriterion) bool {
 		return typeMatches(c.Entity, victim.Type) && (c.Dimension == "" || c.Dimension == victim.Dimension) &&
 			(c.Direct == "" || victim.Direct != "" && typeMatches(c.Direct, victim.Direct)) &&
 			(!c.Captain || victim.Captain) && (!c.Projectile || victim.Direct != "") &&
@@ -375,8 +421,8 @@ func (p *Progress) KillMobNearSculkCatalyst(at time.Time) bool {
 
 // EntityKilledPlayer fires entity_killed_player for a death at the hands of
 // an entity. vanilla: KilledTrigger.TriggerInstance.matches
-func (p *Progress) EntityKilledPlayer(at time.Time) bool {
-	return p.trigger(TriggerEntityKilledPlayer, at, func(*registry.AdvancementCriterion) bool { return true })
+func (p *Progress) EntityKilledPlayer(killer Entity, at time.Time) bool {
+	return p.triggerWith(TriggerEntityKilledPlayer, at, killer.subjects(), func(*registry.AdvancementCriterion) bool { return true })
 }
 
 // Standing is what a location criterion tests of the player besides where it
@@ -727,6 +773,15 @@ func (p *Progress) PlayerHurtProjectile(direct string, at time.Time) bool {
 	})
 }
 
+// PlayerHurtEntity fires player_hurt_entity for every damage the player
+// dealt to victim, to the criteria the bespoke shapes do not read.
+// vanilla: PlayerHurtEntityTrigger.TriggerInstance.matches
+func (p *Progress) PlayerHurtEntity(victim Entity, at time.Time) bool {
+	return p.triggerWith(TriggerPlayerHurtEntity, at, victim.subjects(), func(c *registry.AdvancementCriterion) bool {
+		return c.Damage != nil
+	})
+}
+
 // PlayerHurtSmash fires player_hurt_entity for a mace smash that dealt damage
 // before armor, with held in the main hand. vanilla: PlayerHurtEntityTrigger.TriggerInstance.matches
 func (p *Progress) PlayerHurtSmash(held int32, damage float64, at time.Time) bool {
@@ -906,11 +961,12 @@ func (p *Progress) UsedTotem(item int32, at time.Time) bool {
 }
 
 // EntityHurtPlayer fires entity_hurt_player for a hurt the player took or a
-// shield blocked; projectile is a damage type of the is_projectile tag.
+// shield blocked.
 // vanilla: EntityHurtPlayerTrigger.TriggerInstance.matches, DamagePredicate.matches
-func (p *Progress) EntityHurtPlayer(projectile, blocked bool, at time.Time) bool {
-	return p.trigger(TriggerEntityHurtPlayer, at, func(c *registry.AdvancementCriterion) bool {
-		return (!c.Projectile || projectile) && (!c.Blocked || blocked)
+func (p *Progress) EntityHurtPlayer(b Blow, at time.Time) bool {
+	projectile := b.Type.InTag(registry.DamageTypeTagIDIsProjectile)
+	return p.triggerWith(TriggerEntityHurtPlayer, at, &Subjects{Blow: &b}, func(c *registry.AdvancementCriterion) bool {
+		return c.Damage != nil || (!c.Projectile || projectile) && (!c.Blocked || b.Blocked)
 	})
 }
 

@@ -339,11 +339,14 @@ type arrowMobHit struct {
 	// damageType is the blow's own — the arrow's, or the trident's for a
 	// trident's hit — which the damage event names the hurt by.
 	damageType registry.DamageType
-	x, y, z    float64
-	yaw        float32
-	vx, vy, vz float64
-	kb         *mobKnockback
-	health     []byte
+	// dealt is the shaft's damage before armor and taken the health the
+	// body lost to it.
+	dealt, taken float64
+	x, y, z      float64
+	yaw          float32
+	vx, vy, vz   float64
+	kb           *mobKnockback
+	health       []byte
 	// softened is a blow that landed only its excess through the mob's
 	// invulnerability window: its health alone is told of, none of a whole
 	// hurt's damage event, flinch, shove or hurt sound.
@@ -417,6 +420,7 @@ func (s *Server) arrowHurtMob(it *arrowEntity, dim *dimension, m *entity.Mob, ev
 		DirectAttacker: directType,
 	}, 0)
 	var landed, softened bool
+	healthBefore := m.Health
 	if it.arrow.FireTicks > 0 {
 		m.PrimeSulfurByFireArrow()
 	}
@@ -469,7 +473,8 @@ func (s *Server) arrowHurtMob(it *arrowEntity, dim *dimension, m *entity.Mob, ev
 		causeID:    causeEntityID(&damageCause{entityID: it.arrow.OwnerID}),
 		directID:   it.arrow.ID + 1,
 		damageType: damageType,
-		x:          ev.X, y: ev.Y, z: ev.Z,
+		dealt:      ev.Damage, taken: healthBefore - m.Health,
+		x: ev.X, y: ev.Y, z: ev.Z,
 		yaw: mobHurtYaw(entity.Player{X: ev.X, Y: ev.Y, Z: ev.Z}, m),
 		vx:  m.VX, vy: m.VY, vz: m.VZ,
 		kb:         s.holdMobKnockback(ent, it.uuid, oldVX, oldVY, oldVZ, oldImpulse),
@@ -954,13 +959,16 @@ func (it *arrowEntity) killedByArrow(died bool, victim string) []string {
 // arrowHitAdvancements fires player_hurt_entity and, for non-nil killed,
 // killed_by_arrow for a player's shaft that hurt a body; shooter may be nil.
 // vanilla: LivingEntity.hurtServer, AbstractArrow.onHitEntity
-func (s *Server) arrowHitAdvancements(shooter *client, direct string, killed []string, weapon int32) {
+func (s *Server) arrowHitAdvancements(shooter *client, direct string, killed []string, weapon int32, victim *advancement.Entity) {
 	if shooter == nil {
 		return
 	}
 	if progress := shooter.advancements.Load(); progress != nil {
 		now := time.Now()
 		progress.PlayerHurtProjectile(direct, now)
+		if victim != nil {
+			progress.PlayerHurtEntity(*victim, now)
+		}
 		if killed != nil {
 			progress.KilledByArrow(killed, weapon, &advancement.Subjects{Victims: advancement.TypeOnly(killed), Distinct: true}, now)
 		}
