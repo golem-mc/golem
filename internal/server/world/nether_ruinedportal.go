@@ -333,8 +333,9 @@ func (r *decorRegion) processPortalBlock(p *ruinedPortal, state uint16, x, y, z 
 		return 0, false
 	}
 	// vanilla: LavaSubmergedBlockProcessor
-	if registry.BlockOf(world) == registry.BlockLava && !registry.CollisionShapeFull(state) {
-		return registry.BlockLava.DefaultState(), true
+	state, _ = lavaSubmerged{}.apply(state, world, x, y, z, [3]int32{})
+	if registry.BlockOf(state) == registry.BlockLava {
+		return state, true
 	}
 	if p.setup.Blackstone {
 		state = blackstoneReplace(state)

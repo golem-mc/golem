@@ -531,13 +531,19 @@ func applyProcessor(p structureProcessor, state, world uint16, x, y, z int32, re
 // vanilla: StructureTemplate.processBlockInfos
 func runProcessors(procs []structureProcessor, state uint16, tag nbt.Compound, x, y, z, tmplY int32, ref [3]int32,
 	world func(x, y, z int32) uint16, height func(kind heightmapKind, x, z int32) int32) (uint16, nbt.Compound, int32, bool) {
+	var w uint16
+	loaded := false
 	for _, proc := range procs {
 		if g, ok := proc.(gravityProcessor); ok {
 			y = height(g.kind, x, z) + g.offset + tmplY
+			loaded = false
 			continue
 		}
+		if !loaded {
+			w, loaded = world(x, y, z), true
+		}
 		var ok bool
-		if state, tag, ok = applyProcessor(proc, state, world(x, y, z), x, y, z, ref, tag); !ok {
+		if state, tag, ok = applyProcessor(proc, state, w, x, y, z, ref, tag); !ok {
 			return 0, nil, y, false
 		}
 	}
