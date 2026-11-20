@@ -69,19 +69,21 @@ Options for the server go after `--`; they are the vanilla server's options:
 
 ## Plugins
 
-Unofficial ports of well-known Bukkit plugins, each its own repository:
+| Plugin | What it does | Install |
+|---|---|---|
+| [essentials](https://github.com/golem-mc/essentials) | Essential server commands, ported from [EssentialsX](https://essentialsx.net/) | `golem-launcher plugin add github.com/golem-mc/essentials` |
+| [perms](https://github.com/golem-mc/perms) | Permissions and groups, ported from [LuckPerms](https://luckperms.net/) | `golem-launcher plugin add github.com/golem-mc/perms` |
+| [worldedit](https://github.com/golem-mc/worldedit) | In-game world editor, ported from [FastAsyncWorldEdit](https://github.com/IntellectualSites/FastAsyncWorldEdit) | `golem-launcher plugin add github.com/golem-mc/worldedit` |
+| [spark](https://github.com/golem-mc/spark) | Performance profiler, ported from [spark](https://spark.lucko.me/) | `golem-launcher plugin add github.com/golem-mc/spark` |
+| [multiverse](https://github.com/golem-mc/multiverse) | Multi-world manager, ported from [Multiverse](https://github.com/Multiverse/Multiverse-Core) | `golem-launcher plugin add github.com/golem-mc/multiverse` |
+| [vault](https://github.com/golem-mc/vault) | Economy, permission and chat API, ported from [Vault](https://github.com/MilkBowl/Vault) | `golem-launcher plugin add github.com/golem-mc/vault/vaultplugin` |
 
-| Plugin | What it does | Status | Install |
-|---|---|---|---|
-| [essentials](https://github.com/golem-mc/essentials) | [EssentialsX](https://essentialsx.net/): about 150 commands (homes, warps, teleports, kits, economy, mail, bans, jails), with optional spawn, chat, protect and antibuild modules | Unofficial port; keeps EssentialsX's commands, permission nodes, messages and config files | `golem-launcher plugin add github.com/golem-mc/essentials@6601330` |
-| [perms](https://github.com/golem-mc/perms) | [LuckPerms](https://luckperms.net/): permission engine, groups and tracks, contexts, meta, many storage backends, multi-server messaging, Web Editor | Unofficial port; replaces the permission system and keeps the `/lp` commands, storage formats and Web Editor | `golem-launcher plugin add github.com/golem-mc/perms@3e35aac` |
-| [worldedit](https://github.com/golem-mc/worldedit) | [FastAsyncWorldEdit](https://github.com/IntellectualSites/FastAsyncWorldEdit): selections, region operations, patterns and masks, clipboards and schematics, history, brushes | Unofficial port; keeps FAWE's commands, permission nodes, config, schematic formats and history | `golem-launcher plugin add github.com/golem-mc/worldedit@f916f59` |
+Some plugins come with optional modules, each added the same way by its package path:
 
-None of them has a release tag yet, so the commands above pin a commit hash
-as the version (`plugin add <path>@<commit>`); use a newer commit to get later
-changes. Each plugin's README lists everything it includes. See
-[Installing plugins](#installing-plugins) for the details, and
-[Writing plugins](#writing-plugins) to add your own.
+- essentials: `spawn`, `chat`, `protect`, `antibuild`, e.g. `golem-launcher plugin add github.com/golem-mc/essentials/spawn`
+- multiverse: `portals`, `inventories`, e.g. `golem-launcher plugin add github.com/golem-mc/multiverse/portals`
+
+See [Installing plugins](#installing-plugins) for versions and `launcher.json`.
 
 ## Installing plugins
 
