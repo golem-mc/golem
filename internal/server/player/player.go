@@ -383,21 +383,26 @@ func (p *Player) AddVelocity(x, y, z float64) {
 // vanilla: LivingEntity.knockback
 const knockbackLiftCap = 0.4
 
-// Knock folds a knockback into the delta movement and returns it: half the
-// old horizontal plus the shove; on the ground half the old lift plus y,
-// capped at 0.4; in the air the vertical stays.
+// KnockStep folds a knockback into velocity v: half the old horizontal plus the
+// shove; on the ground half the old lift plus y, capped at 0.4; in the air the
+// vertical stays.
 // vanilla: LivingEntity.knockback
-func (p *Player) Knock(x, y, z float64, onGround bool) Velocity {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	v := p.velocity
+func KnockStep(v Velocity, x, y, z float64, onGround bool) Velocity {
 	v.X = v.X/2 + x
 	v.Z = v.Z/2 + z
 	if onGround {
 		v.Y = math.Min(knockbackLiftCap, v.Y/2+y)
 	}
-	p.velocity = v
 	return v
+}
+
+// Knock folds a knockback into the delta movement and returns it.
+// vanilla: LivingEntity.knockback
+func (p *Player) Knock(x, y, z float64, onGround bool) Velocity {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.velocity = KnockStep(p.velocity, x, y, z, onGround)
+	return p.velocity
 }
 
 // Per-tick decay of the server-side delta movement.

@@ -505,6 +505,7 @@ type mobXpDrop struct {
 type mobStrike struct {
 	w             *world.World
 	mob           *entity.Mob
+	uuid          uuid.UUID
 	victimID      int32
 	damage        float64
 	x, y, z       float64
@@ -1345,9 +1346,9 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 			push *= 0.5
 		}
 		if landedHit && !softened {
-			victim.knockbackFromPointExtra(strike.w, strike.x, strike.y, strike.z, strike.ramYaw, push, syncVelocityAfterTravel)
+			victim.knockbackFromPointExtraBy(strike.w, strike.uuid, strike.x, strike.y, strike.z, strike.ramYaw, push, syncVelocityAfterTravel)
 		} else {
-			victim.knockbackFromPointExtraOnly(strike.w, strike.ramYaw, push, syncVelocityAfterTravel)
+			victim.knockbackFromPointExtraOnlyBy(strike.w, strike.uuid, strike.ramYaw, push, syncVelocityAfterTravel)
 		}
 	}
 	if landedHit {
@@ -1356,9 +1357,9 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 		if !strike.ram {
 			switch {
 			case !softened:
-				victim.knockbackFromPointExtra(strike.w, strike.x, strike.y, strike.z, float64(strike.mob.Yaw), extra, syncVelocityAfterTravel)
+				victim.knockbackFromPointExtraBy(strike.w, strike.uuid, strike.x, strike.y, strike.z, float64(strike.mob.Yaw), extra, syncVelocityAfterTravel)
 			case extra > 0:
-				victim.knockbackFromPointExtraOnly(strike.w, float64(strike.mob.Yaw), extra, syncVelocityAfterTravel)
+				victim.knockbackFromPointExtraOnlyBy(strike.w, strike.uuid, float64(strike.mob.Yaw), extra, syncVelocityAfterTravel)
 			}
 		}
 		if strike.roar {
@@ -1444,12 +1445,17 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 		s.mobsMu.Unlock()
 		return
 	}
+	oldVX, oldVY, oldVZ, oldImpulse := victim.VX, victim.VY, victim.VZ, victim.Impulse
 	if strike.dragonContact {
 		if strike.contactPush != [3]float64{} {
 			victim.Push(strike.contactPush[0], strike.contactPush[1], strike.contactPush[2])
 		}
 		if strike.damage == 0 {
+			kb := s.holdMobKnockback(h.book[victim], strike.uuid, oldVX, oldVY, oldVZ, oldImpulse)
 			s.mobsMu.Unlock()
+			if kb != nil {
+				s.applyMobKnockback(kb)
+			}
 			return
 		}
 	}
@@ -1507,7 +1513,11 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 	mx, my, mz := victim.X, victim.Y, victim.Z
 	vx, vy, vz := victim.VX, victim.VY, victim.VZ
 	yaw := mobHurtYaw(entity.Player{X: strike.x, Y: strike.y, Z: strike.z}, victim)
+	kb := s.holdMobKnockback(h.book[victim], strike.uuid, oldVX, oldVY, oldVZ, oldImpulse)
 	s.mobsMu.Unlock()
+	if kb != nil {
+		vx, vy, vz = s.applyMobKnockback(kb)
+	}
 	if thorns {
 		s.guardianThornsOnMob(strike.w, strike.mob, victim)
 	}
@@ -3311,7 +3321,9 @@ func (c *client) attackMob(target int32) {
 		pricks = c.srv.mobKiller(ent)
 	}
 	extra := rules.AttackKnockback(rules.EnchantedKnockback(held, &blow.context, c.attackKnockbackBase()), blow.feedback.Knockback)
+	oldVX, oldVY, oldVZ, oldImpulse := ent.mob.VX, ent.mob.VY, ent.mob.VZ, ent.mob.Impulse
 	hurt, ink, laid, softened := landMobHurt(ent, blow.damage, attacker, extra, held, blow.context, nil, int(target-ent.mob.ID-1))
+	kb := c.srv.holdMobKnockback(ent, c.player.UUID, oldVX, oldVY, oldVZ, oldImpulse)
 	var thorns mobThorns
 	if laid {
 		thorns = mobRetaliations(ent, &blow.context, held)
@@ -3324,6 +3336,12 @@ func (c *client) attackMob(target int32) {
 	dealt := healthBefore - ent.mob.Health
 	resisted, absorbed := ent.mob.BlowResisted, ent.mob.BlowAbsorbed
 	c.srv.mobsMu.Unlock()
+	if kb != nil {
+		vx, vy, vz := c.srv.applyMobKnockback(kb)
+		if hurt != nil {
+			hurt.vx, hurt.vy, hurt.vz = vx, vy, vz
+		}
+	}
 	if pricks != nil {
 		c.srv.guardianThorns(c, ent.mob.ID, mx, my, mz, pricks)
 	}

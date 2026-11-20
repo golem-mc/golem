@@ -544,6 +544,7 @@ func (s *Server) thrownHurtMob(fx *thrownEffects, tw *thrownWorld, it *thrownEnt
 	from := shooterHitSource(t.OwnerID, &tw.bodies, m)
 	damageType := rules.DamageTypeThrown
 	var landed, softened bool
+	oldVX, oldVY, oldVZ, oldImpulse := m.VX, m.VY, m.VZ, m.Impulse
 	switch {
 	case t.Kind.IsFireball():
 		landed, softened, damageType = s.fireballHitMob(&fx.fireballs, tw.dim, it, m, player, creative,
@@ -569,7 +570,9 @@ func (s *Server) thrownHurtMob(fx *thrownEffects, tw *thrownWorld, it *thrownEnt
 	if t.Kind == entity.ThrownWitherSkull && !m.Alive() {
 		fx.skullHeals = append(fx.skullHeals, skullHealOf(tw, it))
 	}
-	fx.mobHits = append(fx.mobHits, thrownMobHitOf(tw.dim, it, m, damageType, softened, ev.Damage > 0))
+	hit := thrownMobHitOf(tw.dim, it, m, damageType, softened, ev.Damage > 0)
+	hit.kb = s.holdMobKnockback(tw.dim.mobs.book[m], it.uuid, oldVX, oldVY, oldVZ, oldImpulse)
+	fx.mobHits = append(fx.mobHits, hit)
 }
 
 // thrownMobHitOf is what a landed blow of the body on the mob tells. The

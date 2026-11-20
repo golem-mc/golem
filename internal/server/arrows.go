@@ -341,6 +341,7 @@ type arrowMobHit struct {
 	x, y, z    float64
 	yaw        float32
 	vx, vy, vz float64
+	kb         *mobKnockback
 	health     []byte
 	// softened is a blow that landed only its excess through the mob's
 	// invulnerability window: its health alone is told of, none of a whole
@@ -418,6 +419,7 @@ func (s *Server) arrowHurtMob(it *arrowEntity, dim *dimension, m *entity.Mob, ev
 	if it.arrow.FireTicks > 0 {
 		m.PrimeSulfurByFireArrow()
 	}
+	oldVX, oldVY, oldVZ, oldImpulse := m.VX, m.VY, m.VZ, m.Impulse
 	if it.arrow.Trident {
 		landed, softened = m.HurtByTridentFrom(ev.Damage, ev.VX, ev.VZ, punch, it.arrow.OwnerID, shooterWasPlayer, shooterWasCreative, from)
 	} else {
@@ -469,6 +471,7 @@ func (s *Server) arrowHurtMob(it *arrowEntity, dim *dimension, m *entity.Mob, ev
 		x:          ev.X, y: ev.Y, z: ev.Z,
 		yaw: mobHurtYaw(entity.Player{X: ev.X, Y: ev.Y, Z: ev.Z}, m),
 		vx:  m.VX, vy: m.VY, vz: m.VZ,
+		kb:         s.holdMobKnockback(ent, it.uuid, oldVX, oldVY, oldVZ, oldImpulse),
 		softened:   softened,
 		shaftSound: shaftSound,
 		shooter:    it.arrow.OwnerID,

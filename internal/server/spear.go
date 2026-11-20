@@ -336,8 +336,10 @@ func (c *client) stabMob(ent *mobEntity, held protocol.ItemStack, pw registry.Pi
 		pricks = c.srv.mobKiller(ent)
 	}
 	extra := rules.AttackKnockback(rules.EnchantedKnockback(held, &ctx, c.attackKnockbackBase()), false)
+	oldVX, oldVY, oldVZ, oldImpulse := ent.mob.VX, ent.mob.VY, ent.mob.VZ, ent.mob.Impulse
 	hurt, ink, laid, softened := landMobHurt(ent, damage, attacker, extra, held, ctx,
 		&stabBlow{damageType: damageType, knockback: pw.DealsKnockback})
+	kb := c.srv.holdMobKnockback(ent, c.player.UUID, oldVX, oldVY, oldVZ, oldImpulse)
 	var thorns mobThorns
 	if laid && hurts {
 		// vanilla: Player.stabAttack's wasHurt needs dealsDamage
@@ -349,6 +351,12 @@ func (c *client) stabMob(ent *mobEntity, held protocol.ItemStack, pw registry.Pi
 	dealt := healthBefore - ent.mob.Health
 	resisted, absorbed := ent.mob.BlowResisted, ent.mob.BlowAbsorbed
 	c.srv.mobsMu.Unlock()
+	if kb != nil {
+		vx, vy, vz := c.srv.applyMobKnockback(kb)
+		if hurt != nil {
+			hurt.vx, hurt.vy, hurt.vz = vx, vy, vz
+		}
+	}
 	if pricks != nil {
 		c.srv.guardianThorns(c, ent.mob.ID, mx, my, mz, pricks)
 	}
@@ -412,7 +420,7 @@ func (c *client) stabPlayer(victim *client, held protocol.ItemStack, pw registry
 	// never reaches the victim.
 	// vanilla: Player.stabAttack, Player.causeExtraKnockback, LivingEntity.hurtServer
 	if pw.DealsKnockback && landed && !softened {
-		victim.knockbackFromPointExtraOnly(w, float64(from.Yaw), rules.StabKnockback, syncVelocityNow)
+		victim.knockbackFromPointExtraOnlyBy(w, c.player.UUID, float64(from.Yaw), rules.StabKnockback, syncVelocityNow)
 	}
 	if landed {
 		// The victim's pieces answer before the weapon's own effects.
