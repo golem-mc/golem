@@ -28,7 +28,7 @@ func matchesAny(patterns []*regexp.Regexp, s string) bool {
 
 // hides reports whether the filter hides the resource of the packs below
 // it. The namespace and the path are tested against the whole list apart,
-// not pattern by pattern, as vanilla does, and a pattern matches anywhere
+// not pattern by pattern, and a pattern matches anywhere
 // in the text (Pattern.asPredicate).
 // vanilla: ResourceFilterSection.isNamespaceFiltered, isPathFiltered
 func (f filterSection) hides(namespace, path string) bool {
