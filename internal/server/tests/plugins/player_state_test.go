@@ -266,7 +266,9 @@ func TestPluginSetAwardedIsSilent(t *testing.T) {
 	if !progress.Done() {
 		t.Fatal("not done again")
 	}
-	c.ExpectNoneWithinTicks(srv, 5, func(id int32, _ []byte) bool { return id == protocol.IDPlaySystemChat || id == protocol.IDPlaySetExperience })
+	c.ExpectNoneWithinTicks(srv, 5, func(id int32, _ []byte) bool {
+		return id == protocol.IDPlaySystemChat || id == protocol.IDPlaySetExperience
+	})
 }
 
 // vanilla: ServerPlayer.setCamera
