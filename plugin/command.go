@@ -9,12 +9,13 @@ type Commands interface {
 	// Register adds a command. A name or alias another command holds is
 	// registered only as plugin:name, and an error wrapping ErrNameTaken
 	// (naming the skipped bare names) is returned; the command still runs
-	// under those and any free aliases. Callers should check
-	// errors.Is(err, ErrNameTaken) and not return it from Enable so later
-	// setup still runs (though returning it from Enable leaves the plugin
-	// enabled). It fails without registering only when nothing could be
-	// registered (or the command is invalid). Command.Override replaces a
-	// vanilla command's bare name. Bukkit: CommandMap.register
+	// under those and any free aliases. Returning ErrNameTaken from Enable
+	// is fine: the runtime logs it as a warning and keeps the plugin
+	// enabled; check errors.Is(err, ErrNameTaken) only if Enable has more
+	// setup to run after Register. It fails without registering only when
+	// nothing could be registered (or the command is invalid).
+	// Command.Override replaces a vanilla command's bare name.
+	// Bukkit: CommandMap.register
 	Register(c Command) error
 	// Unregister removes a command this plugin registered.
 	Unregister(name string)
@@ -160,8 +161,8 @@ var ErrHandled = errors.New("plugin: command failure already reported")
 
 // ErrNameTaken is wrapped by Commands.Register's error when one or more bare
 // names were already held and registered only as plugin:name; the command
-// still runs under those and any free aliases. Callers should test with
-// errors.Is and not return it from Enable.
+// still runs under those and any free aliases. Returning it from Enable is
+// fine: the runtime logs it as a warning and keeps the plugin enabled.
 var ErrNameTaken = errors.New("plugin: command name taken")
 
 // RegisterAlias registers name as another command line: /name args runs

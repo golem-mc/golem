@@ -293,7 +293,7 @@ func TestCommandFallbackPrefixWhenNameTaken(t *testing.T) {
 		}
 	}
 
-	var bErr, dupErr, vanillaErr error
+	var bErr, cErr, dupErr, vanillaErr error
 	srv := plugintest.Start(t, plugintest.WithPlugins(
 		plugin.Registration{Name: "a", Plugin: enableFunc(func(s plugin.Server) error {
 			if err := s.Commands().Register(godCmd("from-a")); err != nil {
@@ -309,12 +309,20 @@ func TestCommandFallbackPrefixWhenNameTaken(t *testing.T) {
 			return nil
 		})},
 		plugin.Registration{Name: "c", Plugin: enableFunc(func(s plugin.Server) error {
-			return s.Commands().Register(godCmd("from-c"))
+			cErr = s.Commands().Register(godCmd("from-c"))
+			return cErr
+		})},
+		plugin.Registration{Name: "d", Plugin: enableFunc(func(s plugin.Server) error {
+			_ = s.Commands().Register(plugin.Command{Name: "dcmd", Run: say("from-d")})
+			return errors.New("unrelated enable failure")
 		})},
 	))
 
 	if !errors.Is(bErr, plugin.ErrNameTaken) || !strings.Contains(bErr.Error(), "god") {
 		t.Fatalf("plugin b Register(god) = %v, want ErrNameTaken naming god", bErr)
+	}
+	if !errors.Is(cErr, plugin.ErrNameTaken) || !strings.Contains(cErr.Error(), "god") {
+		t.Fatalf("plugin c Register(god) = %v, want ErrNameTaken naming god", cErr)
 	}
 	if dupErr == nil || errors.Is(dupErr, plugin.ErrNameTaken) {
 		t.Fatalf("duplicate Register(god) by same plugin = %v, want non-ErrNameTaken failure", dupErr)
@@ -330,6 +338,14 @@ func TestCommandFallbackPrefixWhenNameTaken(t *testing.T) {
 	for _, name := range []string{"a", "b", "c"} {
 		if !enabled[name] {
 			t.Errorf("plugin %q Enabled = false, want true", name)
+		}
+	}
+	if isEnabled, ok := enabled["d"]; !ok || isEnabled {
+		t.Errorf("plugin d enabled=%v (present=%v), want false (present=true)", isEnabled, ok)
+	}
+	for _, cmd := range srv.Host().Commands().All() {
+		if cmd.Plugin == "d" {
+			t.Errorf("disabled plugin d still has registered command %q", cmd.Name)
 		}
 	}
 
