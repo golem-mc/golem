@@ -1,6 +1,10 @@
 package registry
 
-import "math"
+import (
+	"math"
+
+	"github.com/golem-mc/golem/internal/protocol"
+)
 
 // Advancement is one advancement of the vanilla data pack as
 // advancements_gen.go carries it. vanilla: Advancement
@@ -27,11 +31,16 @@ type Advancement struct {
 // vanilla: DisplayInfo
 type AdvancementDisplay struct {
 	// Title and Description are translation keys, or literal text when the
-	// matching Literal flag is set.
+	// matching Literal flag is set. TitleText and DescriptionText, when
+	// non-nil, carry a full text component from a data pack and take
+	// precedence over the string fields.
 	Title, Description               string
 	TitleLiteral, DescriptionLiteral bool
-	// Icon is an item ID; the data pack's icon components are not carried.
+	TitleText, DescriptionText       *protocol.Text
+	// Icon is an item ID; IconStack, when non-nil, carries the full icon
+	// template including its component patch.
 	Icon, IconCount int32
+	IconStack       *protocol.ItemStack
 	// Frame is AdvancementType's ordinal: 0 task, 1 challenge, 2 goal.
 	Frame int32
 	// Background is the tab's texture, set on the roots alone.

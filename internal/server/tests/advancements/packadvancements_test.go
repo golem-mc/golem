@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
 )
 
 // The pack layer is process-wide, so these tests are not parallel with each
@@ -133,5 +135,102 @@ func TestReloadKeepsProgressAndDropsRemovedAdvancements(t *testing.T) {
 	awaitUpdate(t, srv, c)
 	if !srv.AdvancementObtained("Packer", "pk:new", "got") {
 		t.Error("the advancement added by the reload is not awarded")
+	}
+}
+
+// TestPackAdvancementStyledTitleAndIconComponents: a data-pack advancement
+// with a styled text component title/description and icon components is loaded,
+// sent with its full text components and icon patch in Update Advancements, and
+// announced in chat with the styled title and tooltip.
+// vanilla: DisplayInfo.CODEC, DisplayInfo.serializeToNetwork, Advancement.decorateName
+func TestPackAdvancementStyledTitleAndIconComponents(t *testing.T) {
+	cfg, data := packConfig(t)
+	writePackFile(t, filepath.Join(data, "pk", "advancement", "gold.json"), `{
+		"display": {
+			"icon": {
+				"id": "minecraft:stone",
+				"components": {"minecraft:enchantment_glint_override": true}
+			},
+			"title": {"text": "Gold", "color": "gold", "bold": true},
+			"description": {"translate": "pk.desc", "with": ["stone"], "fallback": "Find stone"},
+			"background": "minecraft:gui/advancements/backgrounds/stone"
+		},
+		"criteria": {
+			"got": {
+				"trigger": "minecraft:inventory_changed",
+				"conditions": {"items": [{"items": "minecraft:stone"}]}
+			}
+		}
+	}`)
+	srv, c := joinOp(t, cfg, "Packer")
+
+	give(srv, t, "Packer", "stone")
+	var update *sentUpdate
+	var announceTag nbt.Tag
+	c.ReadTicks(srv, 40, func(id int32, payload []byte) bool {
+		switch id {
+		case protocol.IDPlayUpdateAdvancements:
+			u := parseUpdate(t, payload)
+			if _, ok := u.added["pk:gold"]; ok {
+				update = &u
+			}
+		case protocol.IDPlaySystemChat:
+			tag, _, err := nbt.DecodeNetwork(payload)
+			if err != nil {
+				t.Fatalf("system chat: %v", err)
+			}
+			if fields, ok := nbt.CompoundView(tag); ok && fields["translate"] == nbt.String("chat.type.advancement.task") {
+				announceTag = tag
+			}
+		}
+		return update != nil && announceTag != nil
+	})
+	if update == nil {
+		t.Fatal("Update Advancements for pk:gold did not arrive")
+	}
+	added := update.added["pk:gold"]
+	titleFields, ok := nbt.CompoundView(added.titleTag)
+	if !ok || titleFields["text"] != nbt.String("Gold") || titleFields["color"] != nbt.String("gold") || !protocol.FlagOn(titleFields["bold"]) {
+		t.Errorf("Update Advancements title = %v, want text Gold, color gold, bold true", added.titleTag)
+	}
+	descFields, ok := nbt.CompoundView(added.descTag)
+	if !ok || descFields["translate"] != nbt.String("pk.desc") || descFields["fallback"] != nbt.String("Find stone") {
+		t.Errorf("Update Advancements description = %v, want translate pk.desc with fallback", added.descTag)
+	}
+	if added.icon != servertest.ItemIDOrDie(t, "minecraft:stone") || added.iconStack.GlintOverride != protocol.GlintShown {
+		t.Errorf("Update Advancements icon = %d (glint=%v), want stone with GlintShown", added.icon, added.iconStack.GlintOverride)
+	}
+
+	if announceTag == nil {
+		t.Fatal("completion chat announcement did not arrive")
+	}
+	msgFields, _ := nbt.CompoundView(announceTag)
+	with, _ := msgFields["with"].(nbt.List)
+	if len(with.Items) != 2 {
+		t.Fatalf("announcement with = %v, want [player, advancement]", with)
+	}
+	brackets, ok := nbt.CompoundView(nbt.ListElement(with.Items[1]))
+	if !ok || brackets["translate"] != nbt.String("chat.square_brackets") || brackets["color"] != nbt.String("green") {
+		t.Fatalf("announcement advancement = %v, want green chat.square_brackets", with.Items[1])
+	}
+	bracketWith, _ := brackets["with"].(nbt.List)
+	if len(bracketWith.Items) != 1 {
+		t.Fatalf("chat.square_brackets with = %v, want 1 item", bracketWith)
+	}
+	chatTitle, ok := nbt.CompoundView(nbt.ListElement(bracketWith.Items[0]))
+	if !ok || chatTitle["text"] != nbt.String("Gold") || chatTitle["color"] != nbt.String("gold") || !protocol.FlagOn(chatTitle["bold"]) {
+		t.Errorf("chat title = %v, want text Gold, color gold, bold true", bracketWith.Items[0])
+	}
+	hover, ok := nbt.CompoundView(chatTitle["hover_event"])
+	if !ok || hover["action"] != nbt.String("show_text") {
+		t.Fatalf("chat title hover_event = %v, want show_text", chatTitle["hover_event"])
+	}
+	tip, ok := nbt.CompoundView(hover["value"])
+	if !ok || tip["text"] != nbt.String("Gold") || tip["color"] != nbt.String("gold") || !protocol.FlagOn(tip["bold"]) {
+		t.Errorf("tooltip = %v, want Gold in gold bold", hover["value"])
+	}
+	extra, _ := tip["extra"].(nbt.List)
+	if len(extra.Items) != 2 || nbt.ListElement(extra.Items[0]) != nbt.String("\n") {
+		t.Errorf("tooltip extra = %v, want newline and description", extra)
 	}
 }

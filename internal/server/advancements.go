@@ -665,14 +665,13 @@ func putAdvancement(b *protocol.Buffer, n *advancement.Node) {
 	d := n.Display
 	b.PutBool(d != nil)
 	if d != nil {
-		b.PutText(command.DisplayText(d.Title, d.TitleLiteral))
-		b.PutText(command.DisplayText(d.Description, d.DescriptionLiteral))
-		// The icon is an ItemStackTemplate: item, count, then an empty component
-		// patch's two counts.
-		b.PutVarInt(d.Icon)
-		b.PutVarInt(d.IconCount)
-		b.PutVarInt(0)
-		b.PutVarInt(0)
+		b.PutText(command.DisplayTitle(d))
+		b.PutText(command.DisplayDescription(d))
+		icon := protocol.ItemStack{ItemID: d.Icon, Count: d.IconCount}
+		if d.IconStack != nil {
+			icon = *d.IconStack
+		}
+		b.PutItemTemplate(icon)
 		b.PutVarInt(d.Frame)
 		var flags int32
 		if d.Background != "" {
