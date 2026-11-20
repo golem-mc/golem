@@ -16,9 +16,9 @@ func TestPackArrowLootRequirements(t *testing.T) {
 		name, requirement string
 		sneak, tag, kills bool
 	}{
-		{"sneaking shooter", `{"condition":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`, true, false, true},
-		{"untagged target", `{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}`, false, false, false},
-		{"arrow's own saved data", `{"condition":"minecraft:entity_properties","entity":"direct_attacker","predicate":{"minecraft:nbt":"{pickup:1b}"}}`, false, false, true},
+		{"sneaking shooter", `{"type":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`, true, false, true},
+		{"untagged target", `{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}`, false, false, false},
+		{"arrow's own saved data", `{"type":"minecraft:entity_properties","entity":"direct_attacker","predicate":{"minecraft:nbt":"{pickup:1b}"}}`, false, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, c := joinArcher(t, bowPack(t, fmt.Sprintf(

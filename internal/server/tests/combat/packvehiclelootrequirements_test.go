@@ -27,7 +27,7 @@ func TestPackLootRequirementsReadVehicleVictims(t *testing.T) {
 	"min_cost":{"base":1,"per_level_above_first":0},"max_cost":{"base":50,"per_level_above_first":0},
 	"slots":["mainhand"],"supported_items":"minecraft:stick",
 	"effects":{"minecraft:damage":[{"effect":{"type":"minecraft:add","value":10},
-	"requirements":{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}}]}}`,
+	"requirements":{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}}]}}`,
 	} {
 		file = filepath.Join(path, file)
 		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
