@@ -139,11 +139,10 @@ func (s *Server) tickEndCrystals() {
 		x, y, z int32
 	}
 	var fires []spot
-	end := s.dimensionByName(world.EndName).w
 	s.lockTick(&s.endCrystalsMu)
 	for _, ent := range s.endCrystals {
 		c := ent.crystal
-		if ent.w != end {
+		if s.dimensionOfWorld(ent.w).dragonFight == nil {
 			continue
 		}
 		x, y, z := c.FireCell()
@@ -162,7 +161,7 @@ func (s *Server) tickEndCrystals() {
 // it is the shared tail of a hurt and of a blast that reached it.
 func (s *Server) destroyEndCrystal(ent *endCrystalEntity, sourceID int32) {
 	// vanilla: EnderDragonFight.onCrystalDestroyed
-	if f := s.dragonFight; f != nil && ent.w == s.dimensionByName(world.EndName).w {
+	if f := s.dimensionOfWorld(ent.w).dragonFight; f != nil {
 		f.mu.Lock()
 		if f.ritual.Stage != "" && slices.Contains(f.ritual.Crystals, ent.uuid) {
 			s.abortDragonRespawn(ent.w, f)

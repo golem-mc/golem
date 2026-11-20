@@ -103,6 +103,10 @@ type dimension struct {
 	border *world.Border
 	// raids is the dimension's raids, guarded by the server's raidsMu.
 	raids *raid.Raids
+	// dragonFight is the dimension's ender dragon fight, nil when its
+	// dimension type has has_ender_dragon_fight false.
+	// vanilla: ServerLevel.dragonFight
+	dragonFight *dragonFight
 	// villages indexes the dimension's village points of interest; it has
 	// its own lock.
 	villages *rules.VillageIndex
@@ -195,7 +199,6 @@ func (s *Server) makeDimensions(overworldGen world.Generator, shared sharedNethe
 			return err
 		}
 	}
-	s.loadDragonFight()
 	return nil
 }
 
@@ -254,6 +257,9 @@ func (s *Server) initDimension(d *dimension, followSpawn bool) error {
 	d.border.SetAbsoluteMax(int32(s.Config.MaxWorldSize))
 	d.w.SetBorder(d.border)
 	s.loadDimensionRaids(d)
+	if d.w.HasEnderDragonFight() {
+		d.dragonFight = s.loadDragonFight(d)
+	}
 	switch {
 	case d.plugin:
 		d.w.SetOwnLevel(s.world)

@@ -52,6 +52,8 @@ type dimensionShape struct {
 	typ string
 	// defaultClock is absent for a type without default_clock.
 	defaultClock string
+	// dragonFight is the type's has_ender_dragon_fight.
+	dragonFight bool
 }
 
 // dimensionShapes holds each dimension's shape by wire name, from vanilla's
@@ -61,7 +63,7 @@ type dimensionShape struct {
 var dimensionShapes = map[string]dimensionShape{
 	DimensionName: {minY: worldMinY, height: worldHeight, logicalHeight: worldHeight, skyLight: true, typ: DimensionType, defaultClock: OverworldClock},
 	NetherName:    {minY: 0, height: 256, logicalHeight: 128, skyLight: false, ceiling: true, fixedTime: true, typ: NetherType},
-	EndName:       {minY: 0, height: 256, logicalHeight: 256, skyLight: true, fixedTime: true, typ: EndType, defaultClock: TheEndClock},
+	EndName:       {minY: 0, height: 256, logicalHeight: 256, skyLight: true, fixedTime: true, typ: EndType, defaultClock: TheEndClock, dragonFight: true},
 }
 
 // NewDimensionWorld builds the nether or end attached to the world under dir:
@@ -102,6 +104,9 @@ func (w *World) DefaultClock() (string, bool) {
 
 // HasCeiling is DimensionType.hasCeiling.
 func (w *World) HasCeiling() bool { return w.dim.ceiling }
+
+// HasEnderDragonFight is DimensionType.hasEnderDragonFight.
+func (w *World) HasEnderDragonFight() bool { return w.dim.dragonFight }
 
 // CanHaveWeather is Level.canHaveWeather: sky light, no ceiling, and not the
 // end. Such a world fades its own rain and thunder levels toward the

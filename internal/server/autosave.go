@@ -148,7 +148,7 @@ func (s *Server) saveServerData() {
 		// skips under /save-off. vanilla: ServerLevel.save(noSave)
 		s.saveBorders()
 		s.saveRaids()
-		s.saveDragonFight()
+		s.saveDragonFights()
 	}
 	s.storages.Save()
 	s.entityData.Save()
@@ -224,7 +224,7 @@ func (s *Server) SaveAll(flush bool) bool {
 	}
 	s.saveBorders()
 	s.saveRaids()
-	s.saveDragonFight()
+	s.saveDragonFights()
 	s.storages.Save()
 	s.entityData.Save()
 	s.maps.Save()

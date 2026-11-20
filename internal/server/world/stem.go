@@ -25,8 +25,8 @@ var builtinShapes = map[string]dimensionShape{
 }
 
 // ShapeOfType reads a dimension type's shape: a built-in type's, or a pack
-// type's min_y, height, logical_height, has_skylight, has_ceiling, has_fixed_time
-// and default_clock from data. It fails
+// type's min_y, height, logical_height, has_skylight, has_ceiling,
+// has_fixed_time, has_ender_dragon_fight and default_clock from data. It fails
 // for a band outside the chunk storage's -64..320.
 func ShapeOfType(name string, data nbt.Tag) (DimensionShape, error) {
 	if shape, ok := builtinShapes[name]; ok {
@@ -53,7 +53,7 @@ func ShapeOfType(name string, data nbt.Tag) (DimensionShape, error) {
 		defaultClock = registry.Qualify(string(clock))
 	}
 	return DimensionShape{minY: minY, height: height, logicalHeight: logical, skyLight: nbt.BoolField(c, "has_skylight"), ceiling: nbt.BoolField(c, "has_ceiling"),
-		fixedTime: nbt.BoolField(c, "has_fixed_time"), typ: name, defaultClock: defaultClock}, nil
+		fixedTime: nbt.BoolField(c, "has_fixed_time"), dragonFight: nbt.BoolField(c, "has_ender_dragon_fight"), typ: name, defaultClock: defaultClock}, nil
 }
 
 // StemGenerator builds the generator a level stem's generator compound names,
