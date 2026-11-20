@@ -21,6 +21,7 @@ const (
 	supportSolidRender = 1 << 26
 	supportBottomFull  = 1 << 27
 	supportShapeFull   = 1 << 28
+	supportOutlineFull = 1 << 29
 )
 
 var blockSupport [65536]uint32
@@ -106,6 +107,11 @@ func CollisionBottomFull(state uint16) bool { return blockSupport[state]&support
 // CollisionShapeFull reports whether the state's collision shape is the whole
 // unit cube, vanilla's isCollisionShapeFullBlock.
 func CollisionShapeFull(state uint16) bool { return blockSupport[state]&supportShapeFull != 0 }
+
+// OutlineShapeFull reports whether the state's outline shape is the whole unit
+// cube (soul sand's collision is shorter, its outline is full).
+// vanilla: Block.isShapeFullBlock(getShape)
+func OutlineShapeFull(state uint16) bool { return blockSupport[state]&supportOutlineFull != 0 }
 
 // IsSolidRender is BlockState.isSolidRender.
 func IsSolidRender(state uint16) bool { return blockSupport[state]&supportSolidRender != 0 }

@@ -591,7 +591,7 @@ func (nopProcessor) apply(state, _ uint16, _, _, _ int32, _ [3]int32) (uint16, b
 type lavaSubmerged struct{}
 
 func (lavaSubmerged) apply(state, world uint16, _, _, _ int32, _ [3]int32) (uint16, bool) {
-	if registry.BlockOf(world) == registry.BlockLava && !registry.CollisionShapeFull(state) {
+	if registry.BlockOf(world) == registry.BlockLava && !registry.OutlineShapeFull(state) {
 		return registry.BlockLava.DefaultState(), true
 	}
 	return state, true
