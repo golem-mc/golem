@@ -348,7 +348,12 @@ func playerState(loaded nbt.Compound, p *player.Player, flying bool, dimension s
 	return orderedPlayerState(loaded, p, flying, dimension, xpSeed, spawn, vehicle, items, book, portalCooldown, deathTime, playerSaveExtras{}).Entries()
 }
 
-type playerSaveExtras struct{ warden, raid, post nbt.Tag }
+// playerSaveExtras carries tags built outside the player; speeds, when set,
+// replace the fly and walk speeds kept from the loaded file.
+type playerSaveExtras struct {
+	warden, raid, post nbt.Tag
+	speeds             *pluginAbilities
+}
 
 // orderedPlayerState follows Entity, LivingEntity, Player and ServerPlayer save order.
 // vanilla: Entity.saveWithoutId, Player.addAdditionalSaveData, ServerPlayer.addAdditionalSaveData
@@ -451,6 +456,9 @@ func orderedPlayerState(loaded nbt.Compound, p *player.Player, flying bool, dime
 		value := previous[speed.key]
 		if value == nil {
 			value = speed.fallback
+		}
+		if extra.speeds != nil {
+			value = nbt.Float(map[string]float32{"flySpeed": extra.speeds.flySpeed, "walkSpeed": extra.speeds.walkSpeed}[speed.key])
 		}
 		abilities.Set(speed.key, value)
 	}
@@ -795,7 +803,20 @@ func (c *client) restore() {
 	}
 
 	// The join's abilities packet reads the restored flying flag.
+	// mayfly stays reset, as the game mode sets it.
 	if abilities, ok := nbt.Get[nbt.Compound](root, "abilities"); ok {
+		saved := c.abilityState()
+		fly, hasFly := nbt.Get[nbt.Float](abilities, "flySpeed")
+		walk, hasWalk := nbt.Get[nbt.Float](abilities, "walkSpeed")
+		if hasFly {
+			saved.flySpeed = float32(fly)
+		}
+		if hasWalk {
+			saved.walkSpeed = float32(walk)
+		}
+		if hasFly || hasWalk {
+			c.abilities.Store(&saved)
+		}
 		if flying, ok := nbt.Get[nbt.Byte](abilities, "flying"); ok {
 			c.flying.Store(flying != 0)
 		}
@@ -964,6 +985,10 @@ func (c *client) restore() {
 			}
 			if list, ok := nbt.Get[nbt.List](root, "attributes"); ok {
 				a.Load(list)
+			}
+			// vanilla: Player.readAdditionalSaveData
+			if st := c.abilities.Load(); st != nil {
+				a.SetBase(registry.AttributeMovementSpeed, float64(st.walkSpeed))
 			}
 			rules.ClampHealth(v, effects, a)
 		})
