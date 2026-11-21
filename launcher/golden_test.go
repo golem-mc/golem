@@ -152,7 +152,7 @@ func TestColorFlag(t *testing.T) {
 		t.Errorf("stderr: %q", errw)
 	}
 	out, _, _ = f.run("-color=always", "help")
-	for _, want := range []string{"\x1b[1mCommands:\x1b[0m", "  \x1b[36mplugin add\x1b[0m     add a plugin", "  \x1b[36m-config\x1b[0m file"} {
+	for _, want := range []string{"\x1b[1mCommands:\x1b[0m", "  \x1b[36mplugin add\x1b[0m     add plugins", "  \x1b[36m-config\x1b[0m file"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help lacks %q", want)
 		}

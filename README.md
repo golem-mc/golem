@@ -95,6 +95,11 @@ Add it with the launcher, then start the server as usual:
 ./golem-launcher
 ```
 
+`plugin add` takes several paths and adds them in one step, after one build
+check; if one fails, nothing is written. On a terminal,
+`./golem-launcher plugin add` with no argument opens a list of the plugins
+above: move with the arrow keys, tick with space, install with enter.
+
 Without a version, `plugin add` picks the plugin's latest release and pins
 it. To choose a version, add it after `@`:
 
@@ -111,7 +116,7 @@ Managing plugins:
 
 | Command | What it does |
 |---|---|
-| `plugin add <path>[@version]` | add a plugin, or change its version |
+| `plugin add [<path>[@version]...]` | add plugins, or change their versions; no path opens a list |
 | `plugin remove <name>` | remove a plugin |
 | `plugin list` | list plugins with their versions and the latest available |
 | `outdated` | show which plugins, and the server, have newer versions |
@@ -173,7 +178,7 @@ nothing.
 ```
 golem-launcher [run] [-rebuild] [-- server options]   build if needed, then run (the default)
 golem-launcher build [-o file]                         build only, print the binary's path
-golem-launcher plugin add <path>[@version]             add a plugin
+golem-launcher plugin add [<path>[@version]...]         add plugins
 golem-launcher plugin remove <path|name>               remove a plugin
 golem-launcher plugin list                             list plugins
 golem-launcher server [version|latest]                 show or set the server version

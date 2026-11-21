@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/mod/semver"
@@ -160,11 +161,15 @@ Example:
 		},
 	},
 	{
-		name: "plugin add", usage: "<path>[@version]",
-		short: "add a plugin, pinned (no version: the latest release tag)",
-		help: `Adds a plugin to launcher.json. Without a version the latest release tag
-(go's module query @latest) is looked up and written pinned. The path may be a
-package inside a module; the module's other listed packages move to the same
+		name: "plugin add", usage: "[<path>[@version]...]",
+		short: "add plugins, pinned (no version: the latest release tag)",
+		help: `Adds plugins to launcher.json, all in one write after one build check: if
+one fails, nothing is written and the failing path is named. With no argument,
+on a terminal, a list of the known plugins opens: space ticks, enter installs,
+q cancels.
+
+Without a version the latest release tag (go's module query @latest) is looked
+up and written pinned. The path may be a package inside a module; the module's other listed packages move to the same
 version. A local package directory (./dir, in a module) is written as it is.
 Adding a listed plugin with a version changes its version. launcher.json is
 written only if the result builds.
@@ -173,8 +178,20 @@ Example:
   golem-launcher plugin add github.com/golem-mc/essentials
   golem-launcher plugin add github.com/golem-mc/essentials@v1.3.0
   golem-launcher plugin add github.com/golem-mc/essentials/spawn
-  golem-launcher plugin add ./my-plugin`,
-		flags: oneArg("plugin add", (*cli).pluginAdd),
+  golem-launcher plugin add github.com/golem-mc/essentials github.com/golem-mc/perms
+  golem-launcher plugin add ./my-plugin
+  golem-launcher plugin add`,
+		flags: func(*flag.FlagSet) handler {
+			return func(ctx context.Context, c *cli, args []string) error {
+				if len(args) == 0 {
+					if !c.canPick() {
+						return usageError{"plugin add takes exactly one argument"}
+					}
+					return c.pickPlugins(ctx)
+				}
+				return c.pluginAdd(ctx, args)
+			}
+		},
 	},
 	{
 		name: "plugin remove", usage: "<path|name>",
@@ -682,48 +699,86 @@ func (c *cli) localEntry(arg string) string {
 	return rel
 }
 
-func (c *cli) pluginAdd(ctx context.Context, arg string) error {
+// addition is one plugin argument of plugin add, resolved.
+type addition struct {
+	entry, pkg string
+	same       []int // indexes of the listed plugins of its module, which move with it
+	version    string
+}
+
+// resolveAdd resolves one plugin add argument against the listed plugins.
+func (c *cli) resolveAdd(ctx context.Context, st state, arg string) (addition, error) {
+	if isLocalPath(arg) {
+		entry := c.localEntry(arg)
+		one, err := (config{Plugins: []string{entry}}).pluginSpecs(c.base())
+		if err != nil {
+			return addition{}, err
+		}
+		return addition{entry: entry, pkg: one[0].Path}, nil
+	}
+	p, v, _ := strings.Cut(arg, "@")
+	if v == "" {
+		v = "latest"
+	}
+	v, err := c.l.pin(ctx, p, v)
+	if err != nil {
+		return addition{}, err
+	}
+	// A build has one version of a module, so the module's other
+	// packages move with this one.
+	mod, _, err := c.l.latestPlugin(ctx, p)
+	if err != nil {
+		return addition{}, err
+	}
+	same, err := c.moduleEntries(ctx, st.plugins, mod)
+	if err != nil {
+		return addition{}, err
+	}
+	return addition{entry: p + "@" + v, pkg: p, same: same, version: v}, nil
+}
+
+// pluginAdd looks every argument up at once and writes them to launcher.json
+// together, after one build check; if any fails nothing is written.
+func (c *cli) pluginAdd(ctx context.Context, args []string) error {
 	st, err := c.load(ctx)
 	if err != nil {
 		return err
 	}
+	adds := make([]addition, len(args))
+	errs := make([]error, len(args))
+	var wg sync.WaitGroup
+	for i, arg := range args {
+		wg.Go(func() {
+			if adds[i], errs[i] = c.resolveAdd(ctx, st, arg); errs[i] != nil && len(args) > 1 {
+				errs[i] = fmt.Errorf("%s: %w", arg, errs[i])
+			}
+		})
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		if len(args) > 1 {
+			err = fmt.Errorf("%w\n%s is unchanged", err, c.configPath)
+		}
+		return err
+	}
 	cfg := st.cfg
 	cfg.Plugins = slices.Clone(cfg.Plugins)
-	var entry, pkg string
-	if isLocalPath(arg) {
-		entry = c.localEntry(arg)
-		one, err := (config{Plugins: []string{entry}}).pluginSpecs(c.base())
-		if err != nil {
-			return err
+	for _, a := range adds {
+		for _, i := range a.same {
+			cfg.Plugins[i] = st.plugins[i].Path + "@" + a.version
 		}
-		pkg = one[0].Path
-	} else {
-		p, v, _ := strings.Cut(arg, "@")
-		if v == "" {
-			v = "latest"
+		i := slices.IndexFunc(st.plugins, func(s pluginSpec) bool { return s.Path == a.pkg })
+		if i < 0 { // not listed before: it may be one of this command's
+			i = slices.Index(cfg.Plugins[len(st.plugins):], a.entry)
+			if i >= 0 {
+				i += len(st.plugins)
+			}
 		}
-		if v, err = c.l.pin(ctx, p, v); err != nil {
-			return err
+		if i >= 0 {
+			cfg.Plugins[i] = a.entry
+		} else {
+			cfg.Plugins = append(cfg.Plugins, a.entry)
 		}
-		pkg, entry = p, p+"@"+v
-		// A build has one version of a module, so the module's other
-		// packages move with this one.
-		mod, _, err := c.l.latestPlugin(ctx, p)
-		if err != nil {
-			return err
-		}
-		same, err := c.moduleEntries(ctx, st.plugins, mod)
-		if err != nil {
-			return err
-		}
-		for _, i := range same {
-			cfg.Plugins[i] = st.plugins[i].Path + "@" + v
-		}
-	}
-	if i := slices.IndexFunc(st.plugins, func(s pluginSpec) bool { return s.Path == pkg }); i >= 0 {
-		cfg.Plugins[i] = entry
-	} else {
-		cfg.Plugins = append(cfg.Plugins, entry)
 	}
 	return c.save(ctx, st, cfg, true)
 }

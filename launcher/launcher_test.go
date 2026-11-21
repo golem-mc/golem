@@ -661,7 +661,7 @@ Usage:
 Commands:
   run            build if needed, then run the server (the default)
   build          build only and print the binary's path (for CI or a Docker image)
-  plugin add     add a plugin, pinned (no version: the latest release tag)
+  plugin add     add plugins, pinned (no version: the latest release tag)
   plugin remove  remove a plugin
   plugin list    list plugins: pinned version, local or remote, latest available
   server         show the server version, or set it
