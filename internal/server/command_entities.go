@@ -1449,6 +1449,12 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 		mu.Lock()
 		defer mu.Unlock()
 		list := k.list(s)
+		var ix *entity.ChunkIndex[E]
+		if q.chunk != nil {
+			if ix = k.chunks(s); !ix.Has(*q.chunk) {
+				return out
+			}
+		}
 		if q.candidates != nil {
 			if len(*list) == 0 {
 				return out
@@ -1461,8 +1467,8 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 				return snap(s, body, query)
 			}}
 			bodies := slices.Values(*list)
-			if q.chunk != nil {
-				bodies = k.chunks(s).In(*q.chunk)
+			if ix != nil {
+				bodies = ix.In(*q.chunk)
 			}
 			for body := range bodies {
 				if !q.skipCandidate(k.id(body)) {
@@ -1471,8 +1477,8 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 			}
 			return out
 		}
-		if q.chunk != nil {
-			for body := range k.chunks(s).In(*q.chunk) {
+		if ix != nil {
+			for body := range ix.In(*q.chunk) {
 				if v := snap(s, body, q); v != nil {
 					out = append(out, v)
 				}

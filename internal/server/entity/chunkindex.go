@@ -136,6 +136,9 @@ func (ix *ChunkIndex[T]) In(pos world.ChunkPos) iter.Seq[T] {
 	}
 }
 
+// Has reports whether any body is filed under the chunk.
+func (ix *ChunkIndex[T]) Has(pos world.ChunkPos) bool { return len(ix.cells[pos]) != 0 }
+
 // Len is the number of bodies filed.
 func (ix *ChunkIndex[T]) Len() int {
 	n := 0
