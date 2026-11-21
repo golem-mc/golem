@@ -76,6 +76,8 @@ var itemTracker = trackedKind[*itemEntity, struct{}]{
 	frozenSchedule: true,
 	lock:           func(s *Server) *sync.Mutex { return &s.itemsMu },
 	list:           func(s *Server) *[]*itemEntity { return &s.items },
+	chunks:         func(s *Server) *entity.ChunkIndex[*itemEntity] { return &s.itemChunks },
+	filing:         func(it *itemEntity) *entity.Filing { return &it.item.Filing },
 	track:          func(it *itemEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:          func(it *itemEntity) *world.World { return it.w },
 	id:             func(it *itemEntity) int32 { return it.item.ID },
@@ -264,6 +266,7 @@ func (s *Server) tickItems() {
 	portalAlive := s.items[:0]
 	for _, it := range s.items {
 		if it.item.Dead {
+			itemTracker.unfile(it)
 			continue // a pickup consumed it last tick
 		}
 		if it.skipStep {
@@ -282,6 +285,7 @@ func (s *Server) tickItems() {
 			portalAlive = append(portalAlive, it)
 			continue
 		}
+		itemTracker.unfile(it)
 		travels = append(travels, itemPortalTravel{it: it, kind: kind})
 	}
 	s.items = portalAlive
@@ -339,6 +343,7 @@ func (s *Server) tickItems() {
 	var flakes []snowflakeSpot
 	for k, it := range live {
 		if it.item.Dead {
+			itemTracker.unfile(it)
 			continue // a merge took it into a neighbour earlier in the pass
 		}
 		if it.skipStep {
@@ -438,6 +443,8 @@ func (s *Server) tickItems() {
 		if it.item.Dead {
 			if asks.hasHurts(it) {
 				alive = append(alive, it)
+			} else {
+				itemTracker.unfile(it)
 			}
 			continue
 		}
@@ -463,6 +470,7 @@ func (s *Server) tickItems() {
 			}
 			despawns[it.w] = append(despawns[it.w], it.item.ID)
 			s.entityDestroyedBy(it.uuid, plugin.RemoveDespawn)
+			itemTracker.unfile(it)
 			continue
 		}
 		alive = append(alive, it)
@@ -734,6 +742,7 @@ func (s *Server) placeItems(w *world.World, its []*itemEntity, show, add bool) {
 		if add {
 			it.skipStep = it.skipStep || s.deferItemSteps
 			s.items = append(s.items, it)
+			itemTracker.file(s, it)
 			if s.itemCols != nil {
 				s.itemCols.add(it)
 			}
@@ -1517,7 +1526,7 @@ func (s *Server) killItem(it *itemEntity) {
 func (s *Server) teleportItem(it *itemEntity, to player.Position, by string) {
 	itemTracker.teleport(s, it, func() {
 		// The simulation runs the box's middle.
-		it.item.X, it.item.Y, it.item.Z = to.X, to.Y+entity.ItemHalfSize, to.Z
+		it.item.SetPos(to.X, to.Y+entity.ItemHalfSize, to.Z)
 		it.item.VX, it.item.VY, it.item.VZ = 0, 0, 0
 		if s.itemCols != nil {
 			s.itemCols.add(it)
@@ -1546,7 +1555,7 @@ func (s *Server) itemTwinAt(it *itemEntity, to *dimension, pos player.Position) 
 	if twin == nil {
 		return nil
 	}
-	twin.item.X, twin.item.Y, twin.item.Z = pos.X, pos.Y+entity.ItemHalfSize, pos.Z
+	twin.item.SetPos(pos.X, pos.Y+entity.ItemHalfSize, pos.Z)
 	return twin
 }
 
@@ -1568,6 +1577,7 @@ func (s *Server) finishItemTravel(it *itemEntity, kind rules.PortalKind) {
 	}, func() {
 		s.itemsMu.Lock()
 		s.items = append(s.items, it)
+		itemTracker.file(s, it)
 		if s.itemCols != nil {
 			s.itemCols.add(it)
 		}

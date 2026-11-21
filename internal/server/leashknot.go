@@ -48,6 +48,7 @@ func knotSliverOf(k *knotEntity) entitySliver {
 
 // knotEntity is one leash knot, at its fence's cell.
 type knotEntity struct {
+	entity.Filing
 	id      int32
 	uuid    uuid.UUID
 	w       *world.World
@@ -74,6 +75,9 @@ var knotTracker = trackedKind[*knotEntity, struct{}]{
 	rangeChunks: knotTracking,
 	lock:        func(s *Server) *sync.Mutex { return &s.knotsMu },
 	list:        func(s *Server) *[]*knotEntity { return &s.knots },
+	chunks:      func(s *Server) *entity.ChunkIndex[*knotEntity] { return &s.knotChunks },
+	filing:      func(it *knotEntity) *entity.Filing { return &it.Filing },
+	anchor:      func(it *knotEntity) (float64, float64) { return knotX(it), knotZ(it) },
 	track:       func(k *knotEntity) *bodyTrack[struct{}] { return &k.bodyTrack },
 	world:       func(k *knotEntity) *world.World { return k.w },
 	id:          func(k *knotEntity) int32 { return k.id },
@@ -196,6 +200,7 @@ func (s *Server) tieKnot(w *world.World, x, y, z int32) (k *knotEntity, tell kno
 			w: w, x: x, y: y, z: z,
 		}
 		s.knots = append(s.knots, k)
+		knotTracker.file(s, k)
 		created = true
 	}
 	shown := knotPairing(k)
@@ -260,6 +265,7 @@ func knotBox(k *knotEntity) (minX, minY, minZ, maxX, maxY, maxZ float64) {
 // removal and whatever its end is heard as.
 func (s *Server) destroyKnot(k *knotEntity) {
 	s.knotsMu.Lock()
+	knotTracker.unfile(k)
 	s.knots = slices.DeleteFunc(s.knots, func(o *knotEntity) bool { return o == k })
 	s.knotsMu.Unlock()
 	s.entityDestroyed(k.uuid)
@@ -279,6 +285,7 @@ func (s *Server) killKnot(k *knotEntity) {
 func (s *Server) teleportKnot(k *knotEntity, to player.Position, by string) {
 	knotTracker.teleport(s, k, func() {
 		k.x, k.y, k.z = int32(math.Floor(to.X)), int32(math.Floor(to.Y)), int32(math.Floor(to.Z))
+		k.Refile(entity.ChunkAt(knotX(k), knotZ(k)))
 	})
 }
 
@@ -305,6 +312,7 @@ func (s *Server) registerKnot(k *knotEntity) {
 
 	s.knotsMu.Lock()
 	s.knots = append(s.knots, k)
+	knotTracker.file(s, k)
 	watching := knotTracker.showLocked(k, watchers)
 	shown := knotPairing(k)
 	s.knotsMu.Unlock()
@@ -319,7 +327,11 @@ func (s *Server) registerKnot(k *knotEntity) {
 func (s *Server) downKnot(tell knotTell) {
 	s.knotsMu.Lock()
 	s.knots = slices.DeleteFunc(s.knots, func(o *knotEntity) bool {
-		return o.id == tell.id && o.w == tell.w
+		if o.id == tell.id && o.w == tell.w {
+			knotTracker.unfile(o)
+			return true
+		}
+		return false
 	})
 	s.knotsMu.Unlock()
 	s.broadcastWorld(tell.w, protocol.IDPlayRemoveEntities, removeEntitiesPayload([]int32{tell.id}))
@@ -952,6 +964,7 @@ func (s *Server) tickKnots() {
 			k.checkInterval = 0
 			if !knotSurvives(k.w, k.x, k.y, k.z) {
 				downed = append(downed, knotTellOf(k))
+				knotTracker.unfile(k)
 				continue
 			}
 		}

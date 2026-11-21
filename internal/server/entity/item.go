@@ -128,7 +128,7 @@ type Item struct {
 	// with the health it was about to spend; the caller may undo it later.
 	HurtAsk func(damage float32, damageType registry.DamageType, health int)
 
-	X, Y, Z    float64
+	Place
 	VX, VY, VZ float64
 	OnGround   bool
 	// fallDistance is the fall banked since the item last stood on the ground.
@@ -473,9 +473,7 @@ func (it *Item) Step(w World, near func(*Item) []*Item) []ItemEvent {
 	if !it.OnGround || it.VX*it.VX+it.VZ*it.VZ > restThreshold || (it.tickCount+int(it.ID))%4 == 0 {
 		fx, fy, fz, ax, az := it.X, it.Y, it.Z, it.VX, it.VZ
 		if stuck {
-			it.X += it.VX
-			it.Y += it.VY
-			it.Z += it.VZ
+			it.SetPos(it.X+it.VX, it.Y+it.VY, it.Z+it.VZ)
 		} else {
 			it.move(w)
 			if it.bouncedOff {
@@ -633,7 +631,8 @@ func (it *Item) move(w World) {
 	}
 	if dx != 0 || dz != 0 {
 		box, _, blockedX, blockedZ := collideHorizontal(w, ctx, it.itemBox(), dx, dz)
-		it.X, it.Z = box.centerXZ()
+		cx, cz := box.centerXZ()
+		it.SetPos(cx, it.Y, cz)
 		if blockedX {
 			it.VX = 0
 		}

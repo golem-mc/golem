@@ -69,6 +69,8 @@ var tntTracker = trackedKind[*tntEntity, int]{
 	interval:    entity.TNTUpdateInterval,
 	lock:        func(s *Server) *sync.Mutex { return &s.tntMu },
 	list:        func(s *Server) *[]*tntEntity { return &s.tnts },
+	chunks:      func(s *Server) *entity.ChunkIndex[*tntEntity] { return &s.tntChunks },
+	filing:      func(it *tntEntity) *entity.Filing { return &it.tnt.Filing },
 	track:       func(it *tntEntity) *bodyTrack[int] { return &it.bodyTrack },
 	world:       func(it *tntEntity) *world.World { return it.w },
 	id:          func(it *tntEntity) int32 { return it.tnt.ID },
@@ -131,6 +133,7 @@ func (s *Server) tickTNT() {
 	portalAlive := s.tnts[:0]
 	for _, it := range s.tnts {
 		if it.tnt.Dead {
+			tntTracker.unfile(it)
 			continue
 		}
 		state, kind, due := gate.stepPortal(it.w, it.tnt.X, it.tnt.Y, it.tnt.Z, &it.portal, portalCooldownTicks)
@@ -145,6 +148,7 @@ func (s *Server) tickTNT() {
 			portalAlive = append(portalAlive, it)
 			continue
 		}
+		tntTracker.unfile(it)
 		travels = append(travels, tntPortalTravel{it: it, kind: kind})
 	}
 	s.tnts = portalAlive
@@ -157,6 +161,7 @@ func (s *Server) tickTNT() {
 	limit := s.Config.MaxTNTPerTick
 	for _, it := range s.tnts {
 		if it.tnt.Dead {
+			tntTracker.unfile(it)
 			continue // the fuse ran out before this tick
 		}
 		if limit > 0 {
@@ -197,6 +202,7 @@ func (s *Server) tickTNT() {
 			}
 			removals[it.w] = append(removals[it.w], it.tnt.ID)
 			s.entityDestroyed(it.uuid)
+			tntTracker.unfile(it)
 			continue
 		}
 
@@ -240,7 +246,9 @@ func (s *Server) tickTNT() {
 		for _, ev := range events {
 			blasts = s.tntBlast(it, ev, blasts)
 		}
-		if !it.tnt.Dead {
+		if it.tnt.Dead {
+			tntTracker.unfile(it)
+		} else {
 			alive = append(alive, it)
 		}
 	}
@@ -506,7 +514,7 @@ func (s *Server) killTNT(it *tntEntity) {
 // vanilla: Entity.teleportTo
 func (s *Server) teleportTNT(it *tntEntity, to player.Position, by string) {
 	tntTracker.teleport(s, it, func() {
-		it.tnt.X, it.tnt.Y, it.tnt.Z = to.X, to.Y, to.Z
+		it.tnt.SetPos(to.X, to.Y, to.Z)
 		it.tnt.VX, it.tnt.VY, it.tnt.VZ = 0, 0, 0
 		it.usedPortal = true
 	})
@@ -524,7 +532,7 @@ func (s *Server) tntTwinAt(it *tntEntity, to *dimension, pos player.Position) *t
 	if twin == nil {
 		return nil
 	}
-	twin.tnt.X, twin.tnt.Y, twin.tnt.Z = pos.X, pos.Y, pos.Z
+	twin.tnt.SetPos(pos.X, pos.Y, pos.Z)
 	twin.usedPortal = true
 	return twin
 }
@@ -548,6 +556,7 @@ func (s *Server) finishTNTTravel(it *tntEntity, kind rules.PortalKind) {
 	}, func() {
 		s.tntMu.Lock()
 		s.tnts = append(s.tnts, it)
+		tntTracker.file(s, it)
 		s.tntMu.Unlock()
 	})
 }

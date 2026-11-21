@@ -96,8 +96,8 @@ type Boat struct {
 	// bounced marks a landing that sent the boat back up; TakeBounce reads it.
 	bounced bool
 
-	ID         int32
-	X, Y, Z    float64
+	ID int32
+	Place
 	VX, VY, VZ float64
 	Yaw        float32
 	OnGround   bool
@@ -565,8 +565,7 @@ func (b *Boat) move(w World, ridden bool) bool {
 	}
 	if dx != 0 || dz != 0 {
 		out, _, blockedX, blockedZ := collideHorizontal(w, ctx, b.boatBox(), dx, dz)
-		b.X = out.minX + BoatHalfWidth
-		b.Z = out.minZ + BoatHalfWidth
+		b.SetPos(out.minX+BoatHalfWidth, b.Y, out.minZ+BoatHalfWidth)
 		if blockedX {
 			b.VX = 0
 		}

@@ -474,7 +474,7 @@ func (s *Server) collectMinecartsPistonPush(dim *dimension, pp *world.PistonPush
 			defer s.minecartsMu.Unlock()
 			// The client predicts piston carries; retain ordinary tracking.
 			// vanilla: PistonMovingBlockEntity.moveEntityByPiston
-			it.cart.X, it.cart.Y, it.cart.Z = to.X, to.Y, to.Z
+			it.cart.SetPos(to.X, to.Y, to.Z)
 			minecartTracker.invalidatePistonGrid(s, it)
 			s.cartCols = nil
 		})
@@ -495,7 +495,7 @@ func (s *Server) collectEndCrystalsPistonPush(dim *dimension, pp *world.PistonPu
 				// The client applies the piston move too; forcing a teleport
 				// here can move it a second time. Commanded teleports still sync.
 				// vanilla: EntityTypes.END_CRYSTAL, ServerEntity.sendChanges
-				ent.crystal.X, ent.crystal.Y, ent.crystal.Z = to.X, to.Y, to.Z
+				ent.crystal.SetPos(to.X, to.Y, to.Z)
 				endCrystalTracker.invalidatePistonGrid(s, ent)
 			}
 		})

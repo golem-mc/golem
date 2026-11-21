@@ -19,8 +19,8 @@ const boltStartLife = 2
 // Bolt is a lightning bolt. The client plays its flash and thunder itself;
 // the body only owns the lifetime and when the strike's effects are due.
 type Bolt struct {
-	ID      int32
-	X, Y, Z float64
+	ID int32
+	Place
 	// VisualOnly is a bolt that hurts and ignites nothing, the one a
 	// skeleton trap comes with.
 	VisualOnly bool

@@ -44,6 +44,7 @@ func (s *Server) tickArrows() {
 	alive := s.arrows[:0]
 	for _, it := range s.arrows {
 		if it.arrow.Dead {
+			arrowTracker.unfile(it)
 			continue // hit, picked up, or expired before this tick
 		}
 		if !gate.ticks(it.w, it.arrow.X, it.arrow.Z) {
@@ -56,6 +57,7 @@ func (s *Server) tickArrows() {
 		if it.arrow.Dead {
 			removals[it.w] = append(removals[it.w], it.arrow.ID)
 			s.entityDestroyed(it.uuid)
+			arrowTracker.unfile(it)
 		} else {
 			alive = append(alive, it)
 		}
@@ -203,6 +205,7 @@ func (s *Server) crossArrowPortalsLocked(fx *arrowEffects, gate entityGate) {
 	portalAlive := s.arrows[:0]
 	for _, it := range s.arrows {
 		if it.arrow.Dead {
+			arrowTracker.unfile(it)
 			continue
 		}
 		state, kind, due := gate.stepPortal(it.w, it.arrow.X, it.arrow.Y, it.arrow.Z, &it.portal, projectileCooldownTicks)
@@ -219,6 +222,7 @@ func (s *Server) crossArrowPortalsLocked(fx *arrowEffects, gate entityGate) {
 			continue
 		}
 		fx.travels = append(fx.travels, arrowPortalTravel{it: it, kind: kind})
+		arrowTracker.unfile(it)
 	}
 	s.arrows = portalAlive
 }

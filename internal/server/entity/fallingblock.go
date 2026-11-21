@@ -81,8 +81,8 @@ type FallingEvent struct {
 // velocity and age, whether an unsurvivable landing drops it as an item, the
 // hurt it deals, and the fall distance that hurt and anvil wear use.
 type FallingBlock struct {
-	ID         int32
-	X, Y, Z    float64
+	ID int32
+	Place
 	VX, VY, VZ float64
 	OnGround   bool
 	stuck      stuckFactor
@@ -413,7 +413,10 @@ func fallingFree(state uint16) bool {
 // first then horizontal larger first, as vanilla's MoverType walk does. It
 // reports whether it ended on the ground.
 func (f *FallingBlock) move(w World) bool {
-	return moveBox(w, f.collideCtx(), &f.X, &f.Y, &f.Z, &f.VX, &f.VY, &f.VZ, &f.stuck, FallingHalfWidth, FallingHeight)
+	x, y, z := f.X, f.Y, f.Z
+	onGround := moveBox(w, f.collideCtx(), &x, &y, &z, &f.VX, &f.VY, &f.VZ, &f.stuck, FallingHalfWidth, FallingHeight)
+	f.SetPos(x, y, z)
+	return onGround
 }
 
 // BlastOrigin is where a blast measures this body from and pushes it away

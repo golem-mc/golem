@@ -9,7 +9,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
-	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
@@ -1427,7 +1426,7 @@ type Mob struct {
 	ID   int32
 	Type MobType
 
-	X, Y, Z             float64
+	Place
 	VX, VY, VZ          float64
 	Yaw, Pitch, HeadYaw float32
 	OnGround            bool
@@ -1438,10 +1437,6 @@ type Mob struct {
 	damagedEvent bool
 	// recordSlot fits the padding before LivingEffects, preserving the hot field offsets.
 	recordSlot int32
-	// chunks, chunk and chunkSlot file the mob in its herd's ChunkIndex.
-	chunks    *ChunkIndex
-	chunk     world.ChunkPos
-	chunkSlot int32
 	LivingEffects
 	// AirSupply is the breath left in ticks: rules.MaxAirSupply out of water,
 	// spent a tick at a time with the eyes under it. Metadata index 1.

@@ -92,7 +92,7 @@ func (t *Thrown) stepSpit(w World, owner *ArrowTarget, targets []ArrowTarget) []
 		t.Dead = true
 		return events
 	}
-	t.X, t.Y, t.Z = t.X+mx, t.Y+my, t.Z+mz
+	t.SetPos(t.X+mx, t.Y+my, t.Z+mz)
 	t.VX *= llamaSpitDrag
 	t.VY = t.VY*llamaSpitDrag - llamaSpitGravity
 	t.VZ *= llamaSpitDrag

@@ -18,6 +18,8 @@ var fangsTracker = trackedKind[*fangsEntity, struct{}]{
 	rangeChunks: entity.FangsTracking,
 	lock:        func(s *Server) *sync.Mutex { return &s.fangs.mu },
 	list:        func(s *Server) *[]*fangsEntity { return &s.fangs.list },
+	chunks:      func(s *Server) *entity.ChunkIndex[*fangsEntity] { return &s.fangs.chunks },
+	filing:      func(it *fangsEntity) *entity.Filing { return &it.fangs.Filing },
 	track:       func(it *fangsEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:       func(it *fangsEntity) *world.World { return it.w },
 	id:          func(it *fangsEntity) int32 { return it.fangs.ID },
@@ -34,6 +36,8 @@ var boltTracker = trackedKind[*boltEntity, struct{}]{
 	rangeChunks: entity.LightningTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.boltMu },
 	list:        func(s *Server) *[]*boltEntity { return &s.bolts },
+	chunks:      func(s *Server) *entity.ChunkIndex[*boltEntity] { return &s.boltChunks },
+	filing:      func(it *boltEntity) *entity.Filing { return &it.bolt.Filing },
 	track:       func(it *boltEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:       func(it *boltEntity) *world.World { return it.w },
 	id:          func(it *boltEntity) int32 { return it.bolt.ID },
@@ -50,7 +54,7 @@ var boltTracker = trackedKind[*boltEntity, struct{}]{
 func (s *Server) teleportFangs(it *fangsEntity, move command.Move) {
 	to := move.Pos
 	fangsTracker.teleport(s, it, func() {
-		it.fangs.X, it.fangs.Y, it.fangs.Z = to.X, to.Y, to.Z
+		it.fangs.SetPos(to.X, to.Y, to.Z)
 		it.teleport(move)
 		it.fangs.Yaw = it.yaw
 	})
@@ -61,7 +65,7 @@ func (s *Server) teleportEye(it *eyeEntity, move command.Move) {
 	var motion []byte
 	var watchers []uuid.UUID
 	eyeTracker.teleport(s, it, func() {
-		it.eye.X, it.eye.Y, it.eye.Z = to.X, to.Y, to.Z
+		it.eye.SetPos(to.X, to.Y, to.Z)
 		vx, vy, vz := it.eye.VX, it.eye.VY, it.eye.VZ
 		it.vx, it.vy, it.vz = vx, vy, vz
 		it.teleport(move)
@@ -79,7 +83,7 @@ func (s *Server) teleportEye(it *eyeEntity, move command.Move) {
 func (s *Server) teleportBolt(it *boltEntity, move command.Move) {
 	to := move.Pos
 	boltTracker.teleport(s, it, func() {
-		it.bolt.X, it.bolt.Y, it.bolt.Z = to.X, to.Y, to.Z
+		it.bolt.SetPos(to.X, to.Y, to.Z)
 		it.teleport(move)
 	})
 }
@@ -109,7 +113,7 @@ func (d *effectData) transition(move command.Move) {
 // vanilla: EvokerFangs.readAdditionalSaveData
 func applyFangsTag(it *fangsEntity, tag nbt.Compound, owner int32) {
 	if x, y, z, ok := entityPositionOfTag(tag); ok {
-		it.fangs.X, it.fangs.Y, it.fangs.Z = x, y, z
+		it.fangs.SetPos(x, y, z)
 	}
 	it.load(tag)
 	it.fangs.Yaw = it.yaw
@@ -122,7 +126,7 @@ func applyFangsTag(it *fangsEntity, tag nbt.Compound, owner int32) {
 // vanilla: EyeOfEnder.readAdditionalSaveData, EyeOfEnder.setItem
 func applyEyeTag(it *eyeEntity, tag nbt.Compound) {
 	if x, y, z, ok := entityPositionOfTag(tag); ok {
-		it.eye.X, it.eye.Y, it.eye.Z = x, y, z
+		it.eye.SetPos(x, y, z)
 	}
 	it.load(tag)
 	it.eye.VX, it.eye.VY, it.eye.VZ = it.vx, it.vy, it.vz
@@ -136,7 +140,7 @@ func applyEyeTag(it *eyeEntity, tag nbt.Compound) {
 
 func applyBoltTag(it *boltEntity, tag nbt.Compound) {
 	if x, y, z, ok := entityPositionOfTag(tag); ok {
-		it.bolt.X, it.bolt.Y, it.bolt.Z = x, y, z
+		it.bolt.SetPos(x, y, z)
 	}
 	it.load(tag)
 	it.tags.Reset(tagsOfTag(tag))
@@ -176,12 +180,13 @@ func (s *Server) teleportFangsAcross(ref *fangsEntity, to *dimension, move comma
 	if alive = !ref.fangs.Dead && slices.Contains(s.fangs.list, ref); alive {
 		tag = fangsTag(ref).Entries()
 		ref.fangs.Dead = true
+		fangsTracker.unfile(ref)
 		s.fangs.list = slices.DeleteFunc(s.fangs.list, func(it *fangsEntity) bool { return it == ref })
 	}
 	s.fangs.mu.Unlock()
 	if tag != nil {
 		twin := s.summonFangs(to.w, tag)
-		twin.fangs.X, twin.fangs.Y, twin.fangs.Z = at.X, at.Y, at.Z
+		twin.fangs.SetPos(at.X, at.Y, at.Z)
 		twin.transition(move)
 		twin.fangs.Yaw = at.Yaw
 		from, oldID = ref.w, ref.fangs.ID
@@ -198,12 +203,13 @@ func (s *Server) teleportEyeAcross(ref *eyeEntity, to *dimension, move command.M
 	if alive = !ref.eye.Dead && slices.Contains(s.eyes, ref); alive {
 		tag = eyeTag(ref).Entries()
 		ref.eye.Dead = true
+		eyeTracker.unfile(ref)
 		s.eyes = slices.DeleteFunc(s.eyes, func(it *eyeEntity) bool { return it == ref })
 	}
 	s.eyesMu.Unlock()
 	if tag != nil {
 		twin := s.eyeOfTag(to.w, tag)
-		twin.eye.X, twin.eye.Y, twin.eye.Z = at.X, at.Y, at.Z
+		twin.eye.SetPos(at.X, at.Y, at.Z)
 		twin.transition(move)
 		twin.eye.VX, twin.eye.VY, twin.eye.VZ = twin.vx, twin.vy, twin.vz
 		from, oldID = ref.w, ref.eye.ID
@@ -219,12 +225,13 @@ func (s *Server) teleportBoltAcross(ref *boltEntity, to *dimension, move command
 	var tag nbt.Compound
 	if alive = slices.Contains(s.bolts, ref); alive {
 		tag = boltTag(ref).Entries()
+		boltTracker.unfile(ref)
 		s.bolts = slices.DeleteFunc(s.bolts, func(it *boltEntity) bool { return it == ref })
 	}
 	s.boltMu.Unlock()
 	if tag != nil {
 		twin := s.boltOfTag(to.w, tag)
-		twin.bolt.X, twin.bolt.Y, twin.bolt.Z = at.X, at.Y, at.Z
+		twin.bolt.SetPos(at.X, at.Y, at.Z)
 		twin.transition(move)
 		from, oldID = ref.w, ref.bolt.ID
 		register = func() { s.registerBolt(twin) }

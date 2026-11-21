@@ -281,7 +281,7 @@ type mobHerd struct {
 	// version counts changes to herd's membership, guarded by mobsMu.
 	version uint64
 	// chunks files the live mobs (book) by feet chunk, guarded by mobsMu.
-	chunks        entity.ChunkIndex
+	chunks        entity.ChunkIndex[*entity.Mob]
 	pistonGrid    bodyPistonGrid[*entity.Mob]
 	pistonVersion uint64
 }
@@ -321,7 +321,7 @@ func (h *mobHerd) remember(ent *mobEntity) {
 	h.records[slot-1] = ent
 	ent.mob.SetRecordSlot(slot)
 	h.book[ent.mob] = ent
-	h.chunks.Add(ent.mob)
+	h.chunks.Add(ent.mob, &ent.mob.Filing, entity.ChunkAt(ent.mob.X, ent.mob.Z))
 	if h.lootExtra != nil {
 		ent.mob.LootExtra = h.lootExtra(h, ent)
 	}
@@ -340,7 +340,7 @@ func (h *mobHerd) forget(m *entity.Mob) {
 		m.SetRecordSlot(0)
 		delete(h.byUUID, ent.uuid)
 		delete(h.book, m)
-		h.chunks.Remove(m)
+		m.Unfile()
 	}
 }
 

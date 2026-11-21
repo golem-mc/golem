@@ -41,8 +41,11 @@ func (s *Server) tickThrowables() {
 			held = append(held, it)
 		} else if !it.throwable.Dead && s.stepThrown(&fx, &in, it) {
 			alive = append(alive, it)
-		} else if it.throwable.Dead {
-			s.entityDestroyed(it.uuid)
+		} else {
+			if it.throwable.Dead {
+				s.entityDestroyed(it.uuid)
+			}
+			thrownTracker.unfile(it)
 		}
 	}
 	s.thrown = alive
@@ -205,6 +208,7 @@ func (s *Server) crossThrownPortalsLocked(fx *thrownEffects, gate entityGate) {
 	portalAlive := s.thrown[:0]
 	for _, it := range s.thrown {
 		if it.throwable.Dead {
+			thrownTracker.unfile(it)
 			continue
 		}
 		state, kind, due := gate.stepPortal(it.w, it.throwable.X, it.throwable.Y, it.throwable.Z, &it.portal, projectileCooldownTicks)
@@ -220,6 +224,7 @@ func (s *Server) crossThrownPortalsLocked(fx *thrownEffects, gate entityGate) {
 			portalAlive = append(portalAlive, it)
 			continue
 		}
+		thrownTracker.unfile(it)
 		fx.travels = append(fx.travels, thrownPortalTravel{it: it, kind: kind})
 	}
 	s.thrown = portalAlive

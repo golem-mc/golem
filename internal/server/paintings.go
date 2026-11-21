@@ -33,6 +33,7 @@ func paintingCandidate(variant int32) (rules.PaintingCandidate, bool) {
 // hangs in, in front of the wall (vanilla's block_pos), and dir the way it
 // faces in the packets' numbering. The box is its variant's sliver there.
 type paintingEntity struct {
+	entity.Filing
 	id      int32
 	uuid    uuid.UUID
 	w       *world.World
@@ -65,6 +66,9 @@ var paintingTracker = trackedKind[*paintingEntity, struct{}]{
 	rangeChunks: entity.PaintingTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.paintingsMu },
 	list:        func(s *Server) *[]*paintingEntity { return &s.paintings },
+	chunks:      func(s *Server) *entity.ChunkIndex[*paintingEntity] { return &s.paintingChunks },
+	filing:      func(it *paintingEntity) *entity.Filing { return &it.Filing },
+	anchor:      func(it *paintingEntity) (float64, float64) { return paintingCentreX(it), paintingCentreZ(it) },
 	track:       func(p *paintingEntity) *bodyTrack[struct{}] { return &p.bodyTrack },
 	world:       func(p *paintingEntity) *world.World { return p.w },
 	id:          func(p *paintingEntity) int32 { return p.id },
@@ -264,6 +268,7 @@ func (s *Server) registerPainting(p *paintingEntity) {
 // registerPaintingLocked adds p to the list. The painting lock is held.
 func (s *Server) registerPaintingLocked(p *paintingEntity) {
 	s.paintings = append(s.paintings, p)
+	paintingTracker.file(s, p)
 }
 
 // paintingsOfWorldExceptLocked collects the world's paintings not in
@@ -393,6 +398,7 @@ func (s *Server) paintingByIDLocked(w *world.World, id int32) *paintingEntity {
 // keeping its scores for a twin that carries its UUID on. The painting lock is
 // held.
 func (s *Server) unlistPaintingLocked(p *paintingEntity) {
+	paintingTracker.unfile(p)
 	s.paintings = slices.DeleteFunc(s.paintings, func(o *paintingEntity) bool { return o == p })
 }
 
@@ -421,6 +427,7 @@ func (s *Server) teleportPainting(p *paintingEntity, to player.Position, by stri
 	paintingTracker.teleport(s, p, func() {
 		p.x, p.y, p.z = x, y, z
 		p.minX, p.minY, p.minZ, p.maxX, p.maxY, p.maxZ = rules.PaintingBox(x, y, z, p.dir, p.width, p.height)
+		p.Refile(entity.ChunkAt(paintingCentreX(p), paintingCentreZ(p)))
 	})
 }
 

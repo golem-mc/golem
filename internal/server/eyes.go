@@ -46,6 +46,8 @@ var eyeTracker = trackedKind[*eyeEntity, struct{}]{
 	rangeChunks: entity.EyeTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.eyesMu },
 	list:        func(s *Server) *[]*eyeEntity { return &s.eyes },
+	chunks:      func(s *Server) *entity.ChunkIndex[*eyeEntity] { return &s.eyeChunks },
+	filing:      func(it *eyeEntity) *entity.Filing { return &it.eye.Filing },
 	track:       func(ent *eyeEntity) *bodyTrack[struct{}] { return &ent.bodyTrack },
 	world:       func(ent *eyeEntity) *world.World { return ent.w },
 	id:          func(ent *eyeEntity) int32 { return ent.eye.ID },
@@ -252,6 +254,7 @@ func (s *Server) tickEyes() {
 	s.eyes = slices.DeleteFunc(s.eyes, func(ent *eyeEntity) bool {
 		if ent.eye.Dead {
 			s.entityDestroyed(ent.uuid)
+			eyeTracker.unfile(ent)
 		}
 		return ent.eye.Dead
 	})
@@ -308,6 +311,7 @@ func (s *Server) eyeSnapshot(it *eyeEntity, q *entityQuery) *entitySnapshot {
 func (s *Server) killEye(it *eyeEntity) {
 	s.eyesMu.Lock()
 	it.eye.Dead = true
+	eyeTracker.unfile(it)
 	s.eyes = slices.DeleteFunc(s.eyes, func(o *eyeEntity) bool { return o == it })
 	s.eyesMu.Unlock()
 	s.entityDestroyed(it.uuid)

@@ -114,8 +114,8 @@ type BobberOwner struct {
 // cannot hit until clear. Dead marks a discarded hook: reeled in, the angler
 // gone, or its ground life spent.
 type Bobber struct {
-	ID         int32
-	X, Y, Z    float64
+	ID int32
+	Place
 	VX, VY, VZ float64
 	Yaw, Pitch float32
 
@@ -297,9 +297,7 @@ func (b *Bobber) Step(w World, owner *BobberOwner, targets []ArrowTarget) []Bobb
 	case BobberHookedInEntity:
 		if body := bobberTargetByID(b.HookedID, targets); body != nil {
 			// vanilla: FishingHook.tick
-			b.X = (body.MinX + body.MaxX) / 2
-			b.Z = (body.MinZ + body.MaxZ) / 2
-			b.Y = body.MinY + 0.8*(body.MaxY-body.MinY)
+			b.SetPos((body.MinX+body.MaxX)/2, body.MinY+0.8*(body.MaxY-body.MinY), (body.MinZ+body.MaxZ)/2)
 			return splash
 		}
 		// The body it held is gone from the world; the hook flies on.
@@ -687,7 +685,7 @@ func (b *Bobber) move(w World) {
 	box, _, bx, bz := collideHorizontal(w, fallCtx(b.fallDistance), box, b.VX, b.VZ)
 	b.horizontalBlocked = bx || bz
 	x, z := box.centerXZ()
-	b.X, b.Y, b.Z = x, box.minY, z
+	b.SetPos(x, box.minY, z)
 	b.LandedFall = bankFall(&b.fallDistance, oldY, b.Y, b.OnGround)
 }
 

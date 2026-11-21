@@ -1144,6 +1144,7 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 			if twin = s.thrownTwinAt(ref, to, at); twin != nil {
 				ref.throwable.Dead = true
 				// The tick's sweep of dead bodies would forget the twin's scores.
+				thrownTracker.unfile(ref)
 				s.thrown = slices.DeleteFunc(s.thrown, func(o *thrownEntity) bool { return o == ref })
 			}
 		}
@@ -1177,6 +1178,7 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 			at.Yaw, at.Pitch = yaw, pitch
 			if twin = s.mannequinTwinAt(ref, to, at); twin != nil {
 				ref.mannequin.Dead = true
+				mannequinTracker.unfile(ref)
 				s.mannequins = slices.DeleteFunc(s.mannequins, func(o *mannequinEntity) bool { return o == ref })
 			}
 		}
@@ -1191,6 +1193,7 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 		if alive = !ref.cloud.Dead && slices.Contains(s.clouds, ref); alive {
 			if twin = s.cloudTwinAt(ref, to, at); twin != nil {
 				ref.cloud.Dead = true
+				cloudTracker.unfile(ref)
 				s.clouds = slices.DeleteFunc(s.clouds, func(o *cloudEntity) bool { return o == ref })
 			}
 		}
@@ -1211,6 +1214,7 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 		if alive = !ref.rocket.Dead && slices.Contains(s.fireworks, ref); alive {
 			if twin = s.fireworkTwinAt(ref, to, at); twin != nil {
 				ref.rocket.Dead = true
+				fireworkTracker.unfile(ref)
 				s.fireworks = slices.DeleteFunc(s.fireworks, func(o *fireworkEntity) bool { return o == ref })
 			}
 		}
@@ -1227,6 +1231,7 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 		if alive = !ref.hook.Dead && slices.Contains(s.bobbers, ref); alive {
 			if twin = s.bobberTwinAt(ref, to, at); twin != nil {
 				ref.hook.Dead = true
+				bobberTracker.unfile(ref)
 				s.bobbers = slices.DeleteFunc(s.bobbers, func(o *bobberEntity) bool { return o == ref })
 			}
 		}
@@ -1241,6 +1246,7 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 		var twin *knotEntity
 		if alive = slices.Contains(s.knots, ref); alive {
 			if twin = s.knotTwinAt(ref, to, at); twin != nil {
+				knotTracker.unfile(ref)
 				s.knots = slices.DeleteFunc(s.knots, func(o *knotEntity) bool { return o == ref })
 			}
 		}
@@ -1353,32 +1359,32 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 	// Mobs come first because their UUID lookup is a map.
 	kinds := []func([]command.Entity) []command.Entity{
 		func(out []command.Entity) []command.Entity { return s.appendMobSnapshots(out, &q) },
-		snapshotAppender(s, &q, &s.itemsMu, &s.items, itemTracker.id, (*Server).itemSnapshot),
-		snapshotAppender(s, &q, &s.orbsMu, &s.orbs, orbTracker.id, (*Server).orbSnapshot),
-		snapshotAppender(s, &q, &s.arrowsMu, &s.arrows, arrowTracker.id, (*Server).arrowSnapshot),
-		snapshotAppender(s, &q, &s.arrowsMu, &s.thrown, thrownTracker.id, (*Server).thrownSnapshot),
-		snapshotAppender(s, &q, &s.tntMu, &s.tnts, tntTracker.id, (*Server).tntSnapshot),
-		snapshotAppender(s, &q, &s.boatsMu, &s.boats, boatTracker.id, (*Server).boatSnapshot),
-		snapshotAppender(s, &q, &s.minecartsMu, &s.minecarts, minecartTracker.id, (*Server).minecartSnapshot),
-		snapshotAppender(s, &q, &s.armorStandsMu, &s.armorStands, standTracker.id, (*Server).armorStandSnapshot),
-		snapshotAppender(s, &q, &s.mannequinsMu, &s.mannequins, mannequinTracker.id, (*Server).mannequinSnapshot),
-		snapshotAppender(s, &q, &s.endCrystalsMu, &s.endCrystals, endCrystalTracker.id, (*Server).endCrystalSnapshot),
-		snapshotAppender(s, &q, &s.arrowsMu, &s.clouds, cloudTracker.id, (*Server).cloudSnapshot),
-		snapshotAppender(s, &q, &s.fangs.mu, &s.fangs.list, fangsTracker.id, (*Server).fangsSnapshot),
-		snapshotAppender(s, &q, &s.eyesMu, &s.eyes, eyeTracker.id, (*Server).eyeSnapshot),
-		snapshotAppender(s, &q, &s.boltMu, &s.bolts, boltTracker.id, (*Server).boltSnapshot),
-		snapshotAppender(s, &q, &s.fireworksMu, &s.fireworks, fireworkTracker.id, (*Server).fireworkSnapshot),
-		snapshotAppender(s, &q, &s.bobbersMu, &s.bobbers, bobberTracker.id, (*Server).bobberSnapshot),
-		snapshotAppender(s, &q, &s.knotsMu, &s.knots, knotTracker.id, (*Server).knotSnapshot),
-		snapshotAppender(s, &q, &s.paintingsMu, &s.paintings, paintingTracker.id, (*Server).paintingSnapshot),
-		snapshotAppender(s, &q, &s.framesMu, &s.frames, frameTracker.id, (*Server).frameSnapshot),
+		snapshotAppender(s, &q, &itemTracker, (*Server).itemSnapshot),
+		snapshotAppender(s, &q, &orbTracker, (*Server).orbSnapshot),
+		snapshotAppender(s, &q, &arrowTracker, (*Server).arrowSnapshot),
+		snapshotAppender(s, &q, &thrownTracker, (*Server).thrownSnapshot),
+		snapshotAppender(s, &q, &tntTracker, (*Server).tntSnapshot),
+		snapshotAppender(s, &q, &boatTracker, (*Server).boatSnapshot),
+		snapshotAppender(s, &q, &minecartTracker, (*Server).minecartSnapshot),
+		snapshotAppender(s, &q, &standTracker, (*Server).armorStandSnapshot),
+		snapshotAppender(s, &q, &mannequinTracker, (*Server).mannequinSnapshot),
+		snapshotAppender(s, &q, &endCrystalTracker, (*Server).endCrystalSnapshot),
+		snapshotAppender(s, &q, &cloudTracker, (*Server).cloudSnapshot),
+		snapshotAppender(s, &q, &fangsTracker, (*Server).fangsSnapshot),
+		snapshotAppender(s, &q, &eyeTracker, (*Server).eyeSnapshot),
+		snapshotAppender(s, &q, &boltTracker, (*Server).boltSnapshot),
+		snapshotAppender(s, &q, &fireworkTracker, (*Server).fireworkSnapshot),
+		snapshotAppender(s, &q, &bobberTracker, (*Server).bobberSnapshot),
+		snapshotAppender(s, &q, &knotTracker, (*Server).knotSnapshot),
+		snapshotAppender(s, &q, &paintingTracker, (*Server).paintingSnapshot),
+		snapshotAppender(s, &q, &frameTracker, (*Server).frameSnapshot),
 		func(out []command.Entity) []command.Entity {
 			if q.Type == "" || entity.FixtureKind(q.Type) {
-				return snapshotAppender(s, &q, &s.fixturesMu, &s.fixtures, fixtureTracker.id, (*Server).fixtureSnapshot)(out)
+				return snapshotAppender(s, &q, &fixtureTracker, (*Server).fixtureSnapshot)(out)
 			}
 			return out
 		},
-		snapshotAppender(s, &q, &s.fallingMu, &s.fallings, fallingTracker.id, (*Server).fallingSnapshot),
+		snapshotAppender(s, &q, &fallingTracker, (*Server).fallingSnapshot),
 	}
 	for {
 		for _, appendKind := range kinds {
@@ -1435,11 +1441,20 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 }
 
 // snapshotAppender binds a kind's query step; the slice header is read under
-// its lock because the tick reassigns it.
-func snapshotAppender[E comparable](s *Server, q *entityQuery, mu *sync.Mutex, list *[]E, id func(E) int32, snap func(*Server, E, *entityQuery) *entitySnapshot) func([]command.Entity) []command.Entity {
+// its lock because the tick reassigns it. A chunk query walks only the
+// bodies filed under that chunk.
+func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *trackedKind[E, S], snap func(*Server, E, *entityQuery) *entitySnapshot) func([]command.Entity) []command.Entity {
 	return func(out []command.Entity) []command.Entity {
+		mu := k.lock(s)
 		mu.Lock()
 		defer mu.Unlock()
+		list := k.list(s)
+		var ix *entity.ChunkIndex[E]
+		if q.chunk != nil {
+			if ix = k.chunks(s); !ix.Has(*q.chunk) {
+				return out
+			}
+		}
 		if q.candidates != nil {
 			if len(*list) == 0 {
 				return out
@@ -1451,9 +1466,21 @@ func snapshotAppender[E comparable](s *Server, q *entityQuery, mu *sync.Mutex, l
 				}
 				return snap(s, body, query)
 			}}
-			for _, body := range *list {
-				if !q.skipCandidate(id(body)) {
+			bodies := slices.Values(*list)
+			if ix != nil {
+				bodies = ix.In(*q.chunk)
+			}
+			for body := range bodies {
+				if !q.skipCandidate(k.id(body)) {
 					snap(s, body, q)
+				}
+			}
+			return out
+		}
+		if ix != nil {
+			for body := range ix.In(*q.chunk) {
+				if v := snap(s, body, q); v != nil {
+					out = append(out, v)
 				}
 			}
 			return out
@@ -1514,7 +1541,7 @@ func (s *Server) appendMobSnapshots(out []command.Entity, q *entityQuery) []comm
 				appendMob(ent, dim.name)
 			}
 		} else if q.chunk != nil {
-			for _, m := range dim.mobs.chunks.In(*q.chunk) {
+			for m := range dim.mobs.chunks.In(*q.chunk) {
 				if ent := dim.mobs.record(m); ent != nil {
 					appendMob(ent, dim.name)
 				}

@@ -26,8 +26,8 @@ const (
 
 // EvokerFangs is one fangs entity.
 type EvokerFangs struct {
-	ID      int32
-	X, Y, Z float64
+	ID int32
+	Place
 	// Yaw is the facing in degrees.
 	Yaw     float32
 	OwnerID int32

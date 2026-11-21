@@ -80,8 +80,8 @@ type FireworkEvent struct {
 type Firework struct {
 	waterEntry
 
-	ID         int32
-	X, Y, Z    float64
+	ID int32
+	Place
 	VX, VY, VZ float64
 	Yaw, Pitch float32
 
@@ -204,7 +204,7 @@ func (f *Firework) step(w World, owner *ArrowTarget, carrier *FireworkCarrier, t
 		// arm's side), moving with it.
 		// vanilla: Entity.getHandHoldingItemAngle
 		hx, _, hz := lookVector(carrier.Yaw+80, 0)
-		f.X, f.Y, f.Z = carrier.X+hx*0.5, carrier.Y, carrier.Z+hz*0.5
+		f.SetPos(carrier.X+hx*0.5, carrier.Y, carrier.Z+hz*0.5)
 		f.VX, f.VY, f.VZ = carrier.VX, carrier.VY, carrier.VZ
 	case f.AttachedTo != 0:
 		// A boost rocket whose carrier is gone waits where it last was, bursting
@@ -312,7 +312,7 @@ func (f *Firework) move(w World, x, y, z float64) {
 		}
 		nx, ny, nz := f.X+dx, f.Y+dy, f.Z+dz
 		if !f.blocked(w, nx, ny, nz) {
-			f.X, f.Y, f.Z = nx, ny, nz
+			f.SetPos(nx, ny, nz)
 			continue
 		}
 		switch axis {

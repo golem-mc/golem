@@ -38,8 +38,8 @@ type EyeTargets interface {
 type EyeOfEnder struct {
 	waterEntry
 
-	ID         int32
-	X, Y, Z    float64
+	ID int32
+	Place
 	VX, VY, VZ float64
 	Dead       bool
 
@@ -91,7 +91,7 @@ func (e *EyeOfEnder) Step(w World) (ended bool, splash *WaterSplash) {
 	if e.hasTarget {
 		e.VX, e.VY, e.VZ = e.steer(nx, ny, nz)
 	}
-	e.X, e.Y, e.Z = nx, ny, nz
+	e.SetPos(nx, ny, nz)
 	e.life++
 	if e.life > eyeLifeTicks {
 		e.Dead = true

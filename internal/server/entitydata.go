@@ -368,7 +368,7 @@ func thrownTagAs(ent *thrownEntity, id string) *nbt.OrderedCompound {
 func applyThrownTag(it *thrownEntity, compound nbt.Compound) {
 	t := it.throwable
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		t.X, t.Y, t.Z = x, y, z
+		t.SetPos(x, y, z)
 	}
 	t.VX, t.VY, t.VZ = entityMotionOfTag(compound)
 	it.ownerUUID = entityUUIDFieldOf(compound, "Owner")
@@ -603,7 +603,7 @@ func applyItemTag(it *itemEntity, compound nbt.Compound) {
 	}
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
 		// Files store the bottom of the box; the item runs on its centre.
-		it.item.X, it.item.Y, it.item.Z = x, y+entity.ItemHalfSize, z
+		it.item.SetPos(x, y+entity.ItemHalfSize, z)
 	}
 	it.item.VX, it.item.VY, it.item.VZ = entityMotionOfTag(compound)
 	it.item.PickupDelay = int(shortFieldOf(compound, "PickupDelay"))
@@ -724,7 +724,7 @@ func applyArrowTag(it *arrowEntity, compound nbt.Compound) {
 	it.shot = nbt.BoolField(compound, "HasBeenShot")
 	a.RestoreLeftOwner(nbt.BoolField(compound, "LeftOwner"))
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		a.X, a.Y, a.Z = x, y, z
+		a.SetPos(x, y, z)
 	}
 	a.VX, a.VY, a.VZ = entityMotionOfTag(compound)
 	a.Yaw, a.Pitch = entityRotationOfTag(compound)
@@ -841,7 +841,7 @@ func applyOrbTag(it *orbEntity, compound nbt.Compound) {
 	it.look = entityLookOf(compound)
 	o := it.orb
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		o.X, o.Y, o.Z = x, y, z
+		o.SetPos(x, y, z)
 	}
 	o.VX, o.VY, o.VZ = entityMotionOfTag(compound)
 	if value, ok := nbt.ShortField(compound, "Value"); ok && value >= 0 {
@@ -907,7 +907,7 @@ func tntPowerOfTag(compound nbt.Compound) float32 {
 func applyTNTTag(it *tntEntity, compound nbt.Compound) {
 	t := it.tnt
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		t.X, t.Y, t.Z = x, y, z
+		t.SetPos(x, y, z)
 	}
 	t.VX, t.VY, t.VZ = entityMotionOfTag(compound)
 	t.Fuse = shortFieldOr(compound, "fuse", entity.TNTDefaultFuse)
@@ -978,7 +978,7 @@ func applyFallingTag(it *fallingEntity, compound nbt.Compound) {
 		f.BlockState = state
 	}
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		f.X, f.Y, f.Z = x, y, z
+		f.SetPos(x, y, z)
 	}
 	f.VX, f.VY, f.VZ = entityMotionOfTag(compound)
 	f.Time = max(intFieldOf(compound, "Time"), 0)
@@ -1107,6 +1107,7 @@ func applyPaintingTag(p *paintingEntity, compound nbt.Compound) {
 	p.custom = customNameOfTag(compound)
 	p.invulnerable = nbt.BoolField(compound, "Invulnerable")
 	p.minX, p.minY, p.minZ, p.maxX, p.maxY, p.maxZ = rules.PaintingBox(p.x, p.y, p.z, p.dir, p.width, p.height)
+	p.Refile(entity.ChunkAt(paintingCentreX(p), paintingCentreZ(p)))
 }
 
 // frameTag writes a frame's compound: the anchor cell as block_pos, the
@@ -1396,7 +1397,7 @@ func applyArmorStandTag(ent *armorStandEntity, compound nbt.Compound) {
 	ent.portal.Cooldown = portalCooldownOf(compound)
 	s := ent.stand
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		s.X, s.Y, s.Z = x, y, z
+		s.SetPos(x, y, z)
 	}
 	s.VX, s.VY, s.VZ = entityMotionOfTag(compound)
 	s.Yaw, _ = entityRotationOfTag(compound)
@@ -1450,7 +1451,7 @@ func applyBoatTag(it *boatEntity, compound nbt.Compound) {
 	it.portal.Cooldown = portalCooldownOf(compound)
 	b := it.boat
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		b.X, b.Y, b.Z = x, y, z
+		b.SetPos(x, y, z)
 	}
 	b.VX, b.VY, b.VZ = entityMotionOfTag(compound)
 	b.Yaw, _ = entityRotationOfTag(compound)
@@ -1579,7 +1580,7 @@ func applyMinecartTag(it *minecartEntity, compound nbt.Compound) {
 	m := it.cart
 	it.needsSync = true
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		m.X, m.Y, m.Z = x, y, z
+		m.SetPos(x, y, z)
 	}
 	m.VX, m.VY, m.VZ = entityMotionOfTag(compound)
 	m.Yaw, _ = entityRotationOfTag(compound)

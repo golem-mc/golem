@@ -78,6 +78,8 @@ var cloudTracker = trackedKind[*cloudEntity, cloudShown]{
 	rangeChunks: entity.CloudTracking,
 	lock:        func(s *Server) *sync.Mutex { return &s.arrowsMu },
 	list:        func(s *Server) *[]*cloudEntity { return &s.clouds },
+	chunks:      func(s *Server) *entity.ChunkIndex[*cloudEntity] { return &s.cloudChunks },
+	filing:      func(it *cloudEntity) *entity.Filing { return &it.cloud.Filing },
 	track:       func(it *cloudEntity) *bodyTrack[cloudShown] { return &it.bodyTrack },
 	world:       func(it *cloudEntity) *world.World { return it.w },
 	id:          func(it *cloudEntity) int32 { return it.cloud.ID },
@@ -233,7 +235,7 @@ func (s *Server) cloudOfTag(w *world.World, compound nbt.Compound) *cloudEntity 
 func applyCloudTag(it *cloudEntity, compound nbt.Compound) {
 	it.look = entityLookOf(compound)
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		it.cloud.X, it.cloud.Y, it.cloud.Z = x, y, z
+		it.cloud.SetPos(x, y, z)
 	}
 	contents := protocol.PotionContents{Potion: protocol.NoPotion}
 	if saved, ok := compound["potion_contents"]; ok {
@@ -281,6 +283,7 @@ func (s *Server) registerCloud(it *cloudEntity) { cloudTracker.register(s, it) }
 func (s *Server) killCloud(it *cloudEntity) {
 	s.arrowsMu.Lock()
 	it.cloud.Dead = true
+	cloudTracker.unfile(it)
 	s.clouds = slices.DeleteFunc(s.clouds, func(o *cloudEntity) bool { return o == it })
 	s.arrowsMu.Unlock()
 	s.entityDestroyed(it.uuid)
@@ -291,7 +294,7 @@ func (s *Server) killCloud(it *cloudEntity) {
 // teleportCloud moves a cloud; the tick tells its viewers.
 // vanilla: Entity.teleportTo, ServerEntity.sendChanges
 func (s *Server) teleportCloud(it *cloudEntity, to player.Position, by string) {
-	cloudTracker.teleport(s, it, func() { it.cloud.X, it.cloud.Y, it.cloud.Z = to.X, to.Y, to.Z })
+	cloudTracker.teleport(s, it, func() { it.cloud.SetPos(to.X, to.Y, to.Z) })
 }
 
 // cloudTwinAt builds the cloud continuing this one in another dimension at
@@ -301,7 +304,7 @@ func (s *Server) teleportCloud(it *cloudEntity, to player.Position, by string) {
 func (s *Server) cloudTwinAt(it *cloudEntity, to *dimension, pos player.Position) *cloudEntity {
 	body := *it.cloud
 	body.ID = s.nextEntity()
-	body.X, body.Y, body.Z = pos.X, pos.Y, pos.Z
+	body.SetPos(pos.X, pos.Y, pos.Z)
 	twin := *it
 	twin.cloud, twin.w = &body, to.w
 	twin.bodyTrack = bodyTrack[cloudShown]{}
@@ -365,6 +368,7 @@ func (s *Server) tickClouds() {
 	alive := s.clouds[:0]
 	for _, it := range s.clouds {
 		if it.cloud.Dead {
+			cloudTracker.unfile(it)
 			continue
 		}
 		if it.fresh {
@@ -452,6 +456,7 @@ func (s *Server) tickClouds() {
 			}
 			drops = append(drops, cloudDrop{it: it, paired: paired})
 			s.entityDestroyed(it.uuid)
+			cloudTracker.unfile(it)
 			continue
 		}
 		alive = append(alive, it)

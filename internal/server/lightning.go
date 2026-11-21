@@ -201,7 +201,9 @@ func (s *Server) tickBolts() {
 			fx = append(fx, boltEffect{live: it, step: step, w: it.w, uuid: it.uuid, cause: it.cause,
 				x: b.X, y: b.Y, z: b.Z, id: b.ID, visualOnly: b.VisualOnly, fires: it.fires, hit: it.hit})
 		}
-		if !step.Done {
+		if step.Done {
+			boltTracker.unfile(it)
+		} else {
 			alive = append(alive, it)
 		}
 	}
@@ -624,6 +626,7 @@ func (s *Server) boltSnapshot(it *boltEntity, q *entityQuery) *entitySnapshot {
 // vanilla: Entity.kill
 func (s *Server) killBolt(it *boltEntity) {
 	s.boltMu.Lock()
+	boltTracker.unfile(it)
 	s.bolts = slices.DeleteFunc(s.bolts, func(o *boltEntity) bool { return o == it })
 	s.boltMu.Unlock()
 	s.entityDestroyed(it.uuid)

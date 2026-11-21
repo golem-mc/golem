@@ -54,6 +54,8 @@ var fireworkTracker = trackedKind[*fireworkEntity, struct{}]{
 	interval:    entity.FireworkUpdateInterval,
 	lock:        func(s *Server) *sync.Mutex { return &s.fireworksMu },
 	list:        func(s *Server) *[]*fireworkEntity { return &s.fireworks },
+	chunks:      func(s *Server) *entity.ChunkIndex[*fireworkEntity] { return &s.fireworkChunks },
+	filing:      func(it *fireworkEntity) *entity.Filing { return &it.rocket.Filing },
 	track:       func(it *fireworkEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:       func(it *fireworkEntity) *world.World { return it.w },
 	id:          func(it *fireworkEntity) int32 { return it.rocket.ID },
@@ -200,7 +202,7 @@ func (s *Server) fireworkOfTag(w *world.World, compound nbt.Compound) *fireworkE
 // vanilla: FireworkRocketEntity.readAdditionalSaveData, Projectile.readAdditionalSaveData
 func applyFireworkTag(it *fireworkEntity, compound nbt.Compound) {
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		it.rocket.X, it.rocket.Y, it.rocket.Z = x, y, z
+		it.rocket.SetPos(x, y, z)
 	}
 	// A missing or empty FireworksItem loads the default rocket.
 	// vanilla: FireworkRocketEntity.getDefaultItem
@@ -249,6 +251,7 @@ func fireworkPairing(it *fireworkEntity) []outbound {
 // vanilla: Entity.kill
 func (s *Server) killFirework(it *fireworkEntity) {
 	s.fireworksMu.Lock()
+	fireworkTracker.unfile(it)
 	s.fireworks = slices.DeleteFunc(s.fireworks, func(o *fireworkEntity) bool { return o == it })
 	s.fireworksMu.Unlock()
 	s.entityDestroyed(it.uuid)
@@ -261,7 +264,7 @@ func (s *Server) killFirework(it *fireworkEntity) {
 // vanilla: Entity.teleportTo
 func (s *Server) teleportFirework(it *fireworkEntity, to player.Position, by string) {
 	fireworkTracker.teleport(s, it, func() {
-		it.rocket.X, it.rocket.Y, it.rocket.Z = to.X, to.Y, to.Z
+		it.rocket.SetPos(to.X, to.Y, to.Z)
 		it.rocket.VX, it.rocket.VY, it.rocket.VZ = 0, 0, 0
 	})
 	logTeleported("firework", to, by)
@@ -274,7 +277,7 @@ func (s *Server) teleportFirework(it *fireworkEntity, to player.Position, by str
 func (s *Server) fireworkTwinAt(it *fireworkEntity, to *dimension, pos player.Position) *fireworkEntity {
 	body := *it.rocket
 	body.ID = s.nextEntity()
-	body.X, body.Y, body.Z = pos.X, pos.Y, pos.Z
+	body.SetPos(pos.X, pos.Y, pos.Z)
 	twin := *it
 	twin.rocket, twin.w = &body, to.w
 	twin.tracked = nil
@@ -435,6 +438,7 @@ func (s *Server) tickFireworks() {
 	alive := s.fireworks[:0]
 	for _, it := range s.fireworks {
 		if it.rocket.Dead {
+			fireworkTracker.unfile(it)
 			continue // the life ran out before this tick
 		}
 		if !gate.ticks(it.w, it.rocket.X, it.rocket.Z) {
@@ -545,6 +549,7 @@ func (s *Server) tickFireworks() {
 				}
 			}
 			bursts = append(bursts, burst)
+			fireworkTracker.unfile(it)
 			removals[it.w] = append(removals[it.w], it.rocket.ID)
 			s.entityDestroyed(it.uuid)
 			continue

@@ -100,6 +100,8 @@ var minecartTracker = trackedKind[*minecartEntity, minecartMeta]{
 	interval: entity.MinecartUpdateInterval,
 	lock:     func(s *Server) *sync.Mutex { return &s.minecartsMu },
 	list:     func(s *Server) *[]*minecartEntity { return &s.minecarts },
+	chunks:   func(s *Server) *entity.ChunkIndex[*minecartEntity] { return &s.minecartChunks },
+	filing:   func(it *minecartEntity) *entity.Filing { return &it.cart.Filing },
 	track:    func(it *minecartEntity) *bodyTrack[minecartMeta] { return &it.bodyTrack },
 	world:    func(it *minecartEntity) *world.World { return it.w },
 	id:       func(it *minecartEntity) int32 { return it.cart.ID },
@@ -187,7 +189,7 @@ func (s *Server) summonMinecart(w *world.World, kind string, x, y, z float64, ta
 	if s.summonDuplicate(it.uuid) {
 		return nil, command.ErrDuplicateUUID
 	}
-	it.cart.X, it.cart.Y, it.cart.Z = x, y, z
+	it.cart.SetPos(x, y, z)
 	it.spawnReason = spawnReasonCode(reason)
 	if err := s.registerSummonedVehicle(w, compound, vehicleSeat{cart: it}, reason); err != nil {
 		return nil, err
@@ -362,6 +364,7 @@ func (s *Server) tickMinecarts() {
 		if it.cart.Dead {
 			// Broken since the last tick — a blow's end, a /kill, the
 			// world's bottom — and gone with the drop its break leaves.
+			minecartTracker.unfile(it)
 			served(it)
 			continue
 		}
@@ -384,6 +387,7 @@ func (s *Server) tickMinecarts() {
 		state := it.w.BlockAt(rules.BlockOf(it.cart.X), rules.BlockOf(it.cart.Y), rules.BlockOf(it.cart.Z))
 		s.notePortalTouch(nil, it.uuid, it.w, it.cart.X, it.cart.Y, it.cart.Z, state)
 		if kind, due := it.portal.Step(state, rules.PortalTransitionTime, vehiclePortalCooldownTicks); due && !ridden {
+			minecartTracker.unfile(it)
 			travels = append(travels, minecartPortalTravel{it: it, kind: kind})
 			continue
 		}
@@ -443,6 +447,7 @@ func (s *Server) tickMinecarts() {
 			spawners = append(spawners, it)
 		}
 		if it.cart.Dead {
+			minecartTracker.unfile(it)
 			served(it)
 			continue
 		}
@@ -579,7 +584,8 @@ func (s *Server) finishMinecartTravel(it *minecartEntity, kind rules.PortalKind)
 		}
 		twin.carriedPassengers = it.carriedPassengers
 		turn = at.Yaw - twin.cart.Yaw
-		twin.cart.X, twin.cart.Y, twin.cart.Z, twin.cart.Yaw = at.X, at.Y, at.Z, at.Yaw
+		twin.cart.SetPos(at.X, at.Y, at.Z)
+		twin.cart.Yaw = at.Yaw
 		return twin, true
 	})
 }
@@ -656,7 +662,7 @@ func (s *Server) killMinecart(it *minecartEntity) {
 func (s *Server) teleportMinecart(it *minecartEntity, to player.Position, yaw float32, by string) {
 	var riders []*client
 	minecartTracker.teleport(s, it, func() {
-		it.cart.X, it.cart.Y, it.cart.Z = to.X, to.Y, to.Z
+		it.cart.SetPos(to.X, to.Y, to.Z)
 		it.cart.Yaw = yaw
 		it.cart.VX, it.cart.VY, it.cart.VZ = 0, 0, 0
 		riders = slices.Clone(it.passengers)
@@ -928,7 +934,7 @@ func (s *Server) moveMinecartWithRider(it *minecartEntity, to *dimension, pos pl
 	s.minecartsMu.Lock()
 	old := it.w
 	it.w = to.w
-	it.cart.X, it.cart.Y, it.cart.Z = pos.X, pos.Y, pos.Z
+	it.cart.SetPos(pos.X, pos.Y, pos.Z)
 	minecartTracker.invalidatePistonGrid(s, it)
 	it.tracked = nil
 	s.minecartsMu.Unlock()

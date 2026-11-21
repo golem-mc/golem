@@ -120,8 +120,8 @@ type Minecart struct {
 	// bounceFx is bounced for the tick that moved the cart; TakeBounceEffect reads it.
 	bounceFx bool
 
-	ID         int32
-	X, Y, Z    float64
+	ID int32
+	Place
 	VX, VY, VZ float64
 	Yaw        float32
 	OnGround   bool
@@ -522,7 +522,7 @@ func (m *Minecart) moveAlongTrack(w World, posX, posY, posZ int32, state uint16,
 	default:
 		progress = ((x-x0)*spanX + (z-z0)*spanZ) * 2
 	}
-	m.X, m.Y, m.Z = x0+spanX*progress, y, z0+spanZ*progress
+	m.SetPos(x0+spanX*progress, y, z0+spanZ*progress)
 
 	// The step: a rider takes a quarter off, capped for water or land. A
 	// wall stops its axis.
@@ -537,7 +537,7 @@ func (m *Minecart) moveAlongTrack(w World, posX, posY, posZ int32, state uint16,
 	}
 	fromX, fromZ := m.X, m.Z
 	box, _, xBlocked, zBlocked := collideHorizontal(w, fallCtx(m.fallDistance), m.cartBox(), dx, dz)
-	m.X, m.Z = (box.minX+box.maxX)/2, (box.minZ+box.maxZ)/2
+	m.SetPos((box.minX+box.maxX)/2, m.Y, (box.minZ+box.maxZ)/2)
 	// Emit before the lane projection changes Y and the supporting block.
 	m.Movement = m.stride.vehicleEvent(w, bodyMove{fx: fromX, fy: m.Y, fz: fromZ, tx: m.X, ty: m.Y, tz: m.Z}, MinecartHalfWidth, false, true, inWater)
 	m.HorizontalCollision = xBlocked || zBlocked
@@ -679,8 +679,7 @@ func (m *Minecart) comeOffTrack(w World, inWater bool) {
 	}
 	box, _, yBlocked := clipMove(w, ctx, m.cartBox(), axisY, dy)
 	box, _, xBlocked, zBlocked := collideHorizontal(w, ctx, box, dx, dz)
-	m.X, m.Y = (box.minX+box.maxX)/2, box.minY
-	m.Z = (box.minZ + box.maxZ) / 2
+	m.SetPos((box.minX+box.maxX)/2, box.minY, (box.minZ+box.maxZ)/2)
 	m.OnGround = yBlocked && dy < 0
 	m.Movement = m.stride.vehicleEvent(w, bodyMove{fx: fromX, fy: startY, fz: fromZ, tx: m.X, ty: m.Y, tz: m.Z}, MinecartHalfWidth, m.OnGround, false, inWater)
 	m.HorizontalCollision = xBlocked || zBlocked

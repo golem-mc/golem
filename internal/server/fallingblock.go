@@ -58,6 +58,8 @@ var fallingTracker = trackedKind[*fallingEntity, struct{}]{
 	interval:    entity.FallingBlockUpdateInterval,
 	lock:        func(s *Server) *sync.Mutex { return &s.fallingMu },
 	list:        func(s *Server) *[]*fallingEntity { return &s.fallings },
+	chunks:      func(s *Server) *entity.ChunkIndex[*fallingEntity] { return &s.fallingChunks },
+	filing:      func(it *fallingEntity) *entity.Filing { return &it.fb.Filing },
 	track:       func(it *fallingEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:       func(it *fallingEntity) *world.World { return it.w },
 	id:          func(it *fallingEntity) int32 { return it.fb.ID },
@@ -220,6 +222,7 @@ func (s *Server) tickFallingBlocks() {
 	portalAlive := s.fallings[:0]
 	for _, it := range s.fallings {
 		if it.fb.Dead {
+			fallingTracker.unfile(it)
 			continue
 		}
 		state, kind, due := gate.stepPortal(it.w, it.fb.X, it.fb.Y, it.fb.Z, &it.portal, portalCooldownTicks)
@@ -234,6 +237,7 @@ func (s *Server) tickFallingBlocks() {
 			portalAlive = append(portalAlive, it)
 			continue
 		}
+		fallingTracker.unfile(it)
 		travels = append(travels, fallingPortalTravel{it: it, kind: kind})
 	}
 	s.fallings = portalAlive
@@ -241,6 +245,7 @@ func (s *Server) tickFallingBlocks() {
 	alive := s.fallings[:0]
 	for _, it := range s.fallings {
 		if it.fb.Dead {
+			fallingTracker.unfile(it)
 			continue // the landing happened before this tick
 		}
 		if !gate.ticks(it.w, it.fb.X, it.fb.Z) {
@@ -281,6 +286,7 @@ func (s *Server) tickFallingBlocks() {
 			}
 			removals[it.w] = append(removals[it.w], it.fb.ID)
 			s.entityDestroyed(it.uuid)
+			fallingTracker.unfile(it)
 			continue
 		}
 
@@ -296,7 +302,9 @@ func (s *Server) tickFallingBlocks() {
 				body.moveTold(was, c, mt, &out)
 			}
 		}
-		if !it.fb.Dead {
+		if it.fb.Dead {
+			fallingTracker.unfile(it)
+		} else {
 			alive = append(alive, it)
 		}
 	}
@@ -446,7 +454,7 @@ func (s *Server) summonFallingBlock(w *world.World, x, y, z float64, tag nbt.Com
 	if s.summonDuplicate(it.uuid) {
 		return nil, command.ErrDuplicateUUID
 	}
-	it.fb.X, it.fb.Y, it.fb.Z = x, y, z
+	it.fb.SetPos(x, y, z)
 	s.registerFalling(it)
 	return it, nil
 }
@@ -585,7 +593,7 @@ func (s *Server) killFallingBlock(it *fallingEntity) {
 // vanilla: Entity.teleportTo
 func (s *Server) teleportFallingBlock(it *fallingEntity, to player.Position, by string) {
 	fallingTracker.teleport(s, it, func() {
-		it.fb.X, it.fb.Y, it.fb.Z = to.X, to.Y, to.Z
+		it.fb.SetPos(to.X, to.Y, to.Z)
 		it.fb.VX, it.fb.VY, it.fb.VZ = 0, 0, 0
 	})
 	logTeleported("falling block", to, by)
@@ -602,7 +610,7 @@ func (s *Server) fallingTwinAt(it *fallingEntity, to *dimension, pos player.Posi
 	if twin == nil {
 		return nil
 	}
-	twin.fb.X, twin.fb.Y, twin.fb.Z = pos.X, pos.Y, pos.Z
+	twin.fb.SetPos(pos.X, pos.Y, pos.Z)
 	return twin
 }
 
@@ -624,6 +632,7 @@ func (s *Server) finishFallingTravel(it *fallingEntity, kind rules.PortalKind) {
 	}, func() {
 		s.fallingMu.Lock()
 		s.fallings = append(s.fallings, it)
+		fallingTracker.file(s, it)
 		s.fallingMu.Unlock()
 	})
 }

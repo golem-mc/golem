@@ -157,6 +157,8 @@ var boatTracker = trackedKind[*boatEntity, boatShown]{
 	interval: entity.BoatUpdateInterval,
 	lock:     func(s *Server) *sync.Mutex { return &s.boatsMu },
 	list:     func(s *Server) *[]*boatEntity { return &s.boats },
+	chunks:   func(s *Server) *entity.ChunkIndex[*boatEntity] { return &s.boatChunks },
+	filing:   func(it *boatEntity) *entity.Filing { return &it.boat.Filing },
 	track:    func(it *boatEntity) *bodyTrack[boatShown] { return &it.bodyTrack },
 	world:    func(it *boatEntity) *world.World { return it.w },
 	id:       func(it *boatEntity) int32 { return it.boat.ID },
@@ -341,6 +343,7 @@ func (s *Server) tickBoats() {
 	// seat told to everyone.
 	var unseat func(it *boatEntity)
 	served := func(it *boatEntity) {
+		boatTracker.unfile(it)
 		fx.removals[it.w] = append(fx.removals[it.w], it.boat.ID)
 		if !it.scoresSettled {
 			s.entityDestroyed(it.uuid)
@@ -1181,7 +1184,7 @@ func (s *Server) summonBoat(w *world.World, kind string, x, y, z float64, tag nb
 	if s.summonDuplicate(it.uuid) {
 		return nil, command.ErrDuplicateUUID
 	}
-	it.boat.X, it.boat.Y, it.boat.Z = x, y, z
+	it.boat.SetPos(x, y, z)
 	it.spawnReason = spawnReasonCode(reason)
 	if err := s.registerSummonedVehicle(w, compound, vehicleSeat{boat: it}, reason); err != nil {
 		return nil, err
@@ -2130,7 +2133,7 @@ func (s *Server) moveBoat(rider *client, it *boatEntity, x, y, z float64, yaw fl
 	}
 	fromX, fromY, fromZ := it.boat.X, it.boat.Y, it.boat.Z
 	rider.noteMovement(x-it.boat.X, y-it.boat.Y, z-it.boat.Z)
-	it.boat.X, it.boat.Y, it.boat.Z = x, y, z
+	it.boat.SetPos(x, y, z)
 	boatTracker.invalidatePistonGrid(s, it)
 	it.boat.Yaw = yaw
 	it.boat.OnGround = onGround
@@ -2408,7 +2411,7 @@ func (s *Server) teleportBoat(it *boatEntity, to player.Position, yaw float32, b
 		s.minecartsMu.Lock()
 		s.cartCols = nil
 		s.minecartsMu.Unlock()
-		it.boat.X, it.boat.Y, it.boat.Z = to.X, to.Y, to.Z
+		it.boat.SetPos(to.X, to.Y, to.Z)
 		it.boat.Yaw = yaw
 		it.boat.VX, it.boat.VY, it.boat.VZ = 0, 0, 0
 		it.firstX, it.firstY, it.firstZ = to.X, to.Y, to.Z

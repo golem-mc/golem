@@ -207,26 +207,26 @@ func gatewayLanding(w *world.World, ex, ey, ez int32, exact bool) (px, py, pz fl
 // gatewayMoveItem puts an item at a gateway's landing, its box's middle there.
 func (s *Server) gatewayMoveItem(it *itemEntity, to player.Position) {
 	itemTracker.teleport(s, it, func() {
-		it.item.X, it.item.Y, it.item.Z = to.X, to.Y+entity.ItemHalfSize, to.Z
+		it.item.SetPos(to.X, to.Y+entity.ItemHalfSize, to.Z)
 	})
 }
 
 // gatewayMoveOrb puts an orb at a gateway's landing.
 func (s *Server) gatewayMoveOrb(it *orbEntity, to player.Position) {
-	orbTracker.teleport(s, it, func() { it.orb.X, it.orb.Y, it.orb.Z = to.X, to.Y, to.Z })
+	orbTracker.teleport(s, it, func() { it.orb.SetPos(to.X, to.Y, to.Z) })
 }
 
 // gatewayMoveTNT puts a primed TNT at a gateway's landing.
 func (s *Server) gatewayMoveTNT(it *tntEntity, to player.Position) {
 	tntTracker.teleport(s, it, func() {
-		it.tnt.X, it.tnt.Y, it.tnt.Z = to.X, to.Y, to.Z
+		it.tnt.SetPos(to.X, to.Y, to.Z)
 		it.usedPortal = true
 	})
 }
 
 // gatewayMoveFalling puts a falling block at a gateway's landing.
 func (s *Server) gatewayMoveFalling(it *fallingEntity, to player.Position) {
-	fallingTracker.teleport(s, it, func() { it.fb.X, it.fb.Y, it.fb.Z = to.X, to.Y, to.Z })
+	fallingTracker.teleport(s, it, func() { it.fb.SetPos(to.X, to.Y, to.Z) })
 }
 
 // gatewayMoveMob puts a mob at a gateway's landing.
@@ -247,7 +247,7 @@ func (s *Server) gatewayMoveThrown(it *thrownEntity, to player.Position) {
 		if t.Dead {
 			return
 		}
-		t.X, t.Y, t.Z = to.X, to.Y, to.Z
+		t.SetPos(to.X, to.Y, to.Z)
 		if t.Kind == entity.ThrownEnderPearl {
 			t.VX, t.VY, t.VZ, t.Yaw, t.Pitch = 0, 0, 0, 0, 0
 		}
@@ -258,7 +258,7 @@ func (s *Server) gatewayMoveThrown(it *thrownEntity, to player.Position) {
 func (s *Server) gatewayMoveArrow(it *arrowEntity, to player.Position) {
 	arrowTracker.teleport(s, it, func() {
 		if !it.arrow.Dead {
-			it.arrow.X, it.arrow.Y, it.arrow.Z = to.X, to.Y, to.Z
+			it.arrow.SetPos(to.X, to.Y, to.Z)
 		}
 	})
 }
@@ -267,7 +267,7 @@ func (s *Server) gatewayMoveArrow(it *arrowEntity, to player.Position) {
 func (s *Server) gatewayMoveFirework(it *fireworkEntity, to player.Position) {
 	fireworkTracker.teleport(s, it, func() {
 		if !it.rocket.Dead {
-			it.rocket.X, it.rocket.Y, it.rocket.Z = to.X, to.Y, to.Z
+			it.rocket.SetPos(to.X, to.Y, to.Z)
 		}
 	})
 }
@@ -276,7 +276,7 @@ func (s *Server) gatewayMoveFirework(it *fireworkEntity, to player.Position) {
 func (s *Server) gatewayMoveArmorStand(ent *armorStandEntity, to player.Position) {
 	s.armorStandsMu.Lock()
 	if !ent.stand.Dead {
-		ent.stand.X, ent.stand.Y, ent.stand.Z = to.X, to.Y, to.Z
+		ent.stand.SetPos(to.X, to.Y, to.Z)
 		standTracker.invalidatePistonGrid(s, ent)
 		ent.teleported = true
 	}
@@ -375,7 +375,7 @@ func (s *Server) gatewayMoveBoat(it *boatEntity, to player.Position) {
 			return
 		}
 		g.delta = player.Position{X: to.X - b.X, Y: to.Y - b.Y, Z: to.Z - b.Z}
-		b.X, b.Y, b.Z = to.X, to.Y, to.Z
+		b.SetPos(to.X, to.Y, to.Z)
 		it.firstX, it.firstY, it.firstZ = to.X, to.Y, to.Z
 		for _, p := range it.passengers {
 			if p.c != nil {
@@ -404,7 +404,7 @@ func (s *Server) gatewayMoveMinecart(it *minecartEntity, to player.Position) {
 			return
 		}
 		g.delta = player.Position{X: to.X - m.X, Y: to.Y - m.Y, Z: to.Z - m.Z}
-		m.X, m.Y, m.Z = to.X, to.Y, to.Z
+		m.SetPos(to.X, to.Y, to.Z)
 		g.riders = slices.Clone(it.passengers)
 		g.mobs = slices.Clone(it.mobs)
 		g.packet = gatewayVehiclePacket(m.ID, bodyPose{x: m.X, y: m.Y, z: m.Z, vx: m.VX, vy: m.VY, vz: m.VZ, yaw: m.Yaw, onGround: m.OnGround}, false)

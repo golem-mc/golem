@@ -86,6 +86,8 @@ var thrownTracker = trackedKind[*thrownEntity, struct{}]{
 	intervalOf:  func(it *thrownEntity) int { return it.throwable.Kind.UpdateInterval() },
 	lock:        func(s *Server) *sync.Mutex { return &s.arrowsMu },
 	list:        func(s *Server) *[]*thrownEntity { return &s.thrown },
+	chunks:      func(s *Server) *entity.ChunkIndex[*thrownEntity] { return &s.thrownChunks },
+	filing:      func(it *thrownEntity) *entity.Filing { return &it.throwable.Filing },
 	track:       func(it *thrownEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:       func(it *thrownEntity) *world.World { return it.w },
 	id:          func(it *thrownEntity) int32 { return it.throwable.ID },
@@ -1073,7 +1075,7 @@ func (s *Server) killThrown(it *thrownEntity) {
 // vanilla: Entity.teleportTo
 func (s *Server) teleportThrown(it *thrownEntity, to player.Position, by string) {
 	thrownTracker.teleport(s, it, func() {
-		it.throwable.X, it.throwable.Y, it.throwable.Z = to.X, to.Y, to.Z
+		it.throwable.SetPos(to.X, to.Y, to.Z)
 		it.throwable.VX, it.throwable.VY, it.throwable.VZ = 0, 0, 0
 	})
 	logTeleported("thrown body", to, by)
@@ -1155,6 +1157,7 @@ func (s *Server) finishThrownTravel(it *thrownEntity, kind rules.PortalKind) {
 		if owner := s.clientByUUID(it.ownerUUID); owner != nil && !owner.player.SeenCredits() {
 			s.arrowsMu.Lock()
 			s.thrown = append(s.thrown, it)
+			thrownTracker.file(s, it)
 			s.arrowsMu.Unlock()
 			return
 		}
@@ -1170,6 +1173,7 @@ func (s *Server) finishThrownTravel(it *thrownEntity, kind rules.PortalKind) {
 		s.arrowsMu.Lock()
 		defer s.arrowsMu.Unlock()
 		s.thrown = append(s.thrown, it)
+		thrownTracker.file(s, it)
 	})
 }
 
