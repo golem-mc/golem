@@ -49,6 +49,9 @@ type launcher struct {
 	// it, as the update check asks in parallel.
 	queriesMu sync.Mutex
 	queries   map[string]queryAnswer
+	// toolchainMu serialises toolchain's download: concurrent queries share
+	// its zip and unpack directory.
+	toolchainMu sync.Mutex
 }
 
 // testLauncher, when set, adjusts every new launcher; tests give it a fake

@@ -61,6 +61,12 @@ func (l *launcher) toolchain(ctx context.Context, v string) (string, error) {
 	if _, err := os.Stat(gobin); err == nil {
 		return gobin, nil
 	}
+	l.toolchainMu.Lock()
+	defer l.toolchainMu.Unlock()
+	// Another caller may have fetched it while this one waited.
+	if _, err := os.Stat(gobin); err == nil {
+		return gobin, nil
+	}
 	escPath, _ := module.EscapePath(m.Path)
 	escVer, _ := module.EscapeVersion(m.Version)
 	data, err := l.get(ctx, goProxy()+"/"+escPath+"/@v/"+escVer+".zip", false, "Go toolchain "+v)
