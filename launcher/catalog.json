@@ -1,0 +1,51 @@
+{
+  "plugins": [
+    {
+      "name": "Essentials",
+      "description": "Homes, warps, kits, teleports and other everyday commands",
+      "path": "github.com/golem-mc/essentials",
+      "modules": [
+        {"path": "github.com/golem-mc/essentials/antibuild", "description": "Stop players without permission from building"},
+        {"path": "github.com/golem-mc/essentials/chat", "description": "Chat formatting and channels"},
+        {"path": "github.com/golem-mc/essentials/protect", "description": "Protect blocks and areas from damage"},
+        {"path": "github.com/golem-mc/essentials/spawn", "description": "Spawn point and /spawn"}
+      ]
+    },
+    {
+      "name": "Perms",
+      "description": "Groups and permissions",
+      "path": "github.com/golem-mc/perms"
+    },
+    {
+      "name": "WorldEdit",
+      "description": "In-game map editing",
+      "path": "github.com/golem-mc/worldedit"
+    },
+    {
+      "name": "Spark",
+      "description": "Performance profiler",
+      "path": "github.com/golem-mc/spark"
+    },
+    {
+      "name": "Vault",
+      "description": "Economy, permission and chat API for plugins",
+      "path": "github.com/golem-mc/vault/vaultplugin"
+    },
+    {
+      "name": "Multiverse",
+      "description": "Several worlds on one server",
+      "path": "github.com/golem-mc/multiverse",
+      "modules": [
+        {"path": "github.com/golem-mc/multiverse/inventories", "description": "Separate inventories per world"},
+        {"path": "github.com/golem-mc/multiverse/netherportals", "description": "Nether portals between worlds"},
+        {"path": "github.com/golem-mc/multiverse/portals", "description": "Portals to other worlds"}
+      ]
+    },
+    {
+      "name": "WorldGuard",
+      "description": "Region protection and flags",
+      "path": "github.com/golem-mc/worldguard/worldguardplugin",
+      "requires": ["github.com/golem-mc/worldedit"]
+    }
+  ]
+}

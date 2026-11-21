@@ -51,7 +51,7 @@ Server options follow `--`: `golem-launcher -- --port 25566`.
 ```
 golem-launcher [run] [-rebuild] [-- server options]   build if needed, then run (the default)
 golem-launcher build [-o file]             build only, print the binary's path
-golem-launcher plugin add <path>[@version] add a plugin; no version means the latest release tag
+golem-launcher plugin add [<path>[@version]...] add plugins; no version means the latest release tag
 golem-launcher plugin remove <path|name>
 golem-launcher plugin list                 pinned version, local or remote, latest available
 golem-launcher server [version|latest]     show the server version, or set it
@@ -60,6 +60,13 @@ golem-launcher update [--server] [plugin...]  move them to their latest versions
 golem-launcher check                       resolve and run every build check without building
 golem-launcher cache clean                 delete builds, releases and toolchains not needed
 ```
+
+`plugin add` takes several paths and adds them together: it looks them all up
+at once, runs the build check once, and writes launcher.json only if every one
+succeeds, naming the failing path otherwise. With no path, on a terminal, it
+opens a checkbox list of the golem-mc plugins (arrows or j/k move, space
+ticks, enter installs, q or Esc cancels); a plugin that needs another ticks it
+too.
 
 `-config` (default `launcher.json`), `-cache` (default: your user cache
 directory plus `golem`) and `-color` work on every command. `golem-launcher --help`
