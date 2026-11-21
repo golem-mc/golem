@@ -63,8 +63,6 @@ func (s *Server) tickMobs() {
 		t.navChanges, dim.navChanges = dim.navChanges, dim.navSpare[:0]
 		dim.navChangesMu.Unlock()
 		t.step(&fx, in)
-		// Safety net for a position written without Mob.SetPos.
-		dim.mobs.chunks.Resync()
 		dim.navSpare = t.navChanges[:0]
 	}
 	s.unlockTick(&s.mobsMu)
