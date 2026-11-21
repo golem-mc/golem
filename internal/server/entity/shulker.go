@@ -122,9 +122,7 @@ func (m *Mob) ShulkerClosed() bool { return m.IsShulker() && m.shulker.peek == 0
 // snapShulker puts the shulker on the centre of its block cell.
 // vanilla: Shulker.setPos
 func (m *Mob) snapShulker() {
-	m.X = math.Floor(m.X) + 0.5
-	m.Y = math.Floor(m.Y + 0.5)
-	m.Z = math.Floor(m.Z) + 0.5
+	m.SetPos(math.Floor(m.X)+0.5, math.Floor(m.Y+0.5), math.Floor(m.Z)+0.5)
 }
 
 // setPeek opens or shuts the shell, with the sound and game event that go
@@ -458,7 +456,7 @@ func (m *Mob) teleportShulker(w World, t *tickView) bool {
 		m.RidesVehicle = false
 		ev := MobEvent{Mob: m, Kind: MobShulkerTeleported, X: m.X, Y: m.Y, Z: m.Z}
 		m.SetMetadataShulkerFace(face)
-		m.X, m.Y, m.Z = float64(to.X)+0.5, float64(to.Y), float64(to.Z)+0.5
+		m.SetPos(float64(to.X)+0.5, float64(to.Y), float64(to.Z)+0.5)
 		ev.VX, ev.VY, ev.VZ = m.X, m.Y, m.Z
 		t.events = append(t.events, ev)
 		m.SetMetadataShulkerPeek(0)

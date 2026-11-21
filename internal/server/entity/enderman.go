@@ -444,11 +444,11 @@ func (m *Mob) teleportTo(w World, x, y, z float64, avoidTag registry.BlockTagID,
 		return events
 	}
 	oldX, oldY, oldZ := m.X, m.Y, m.Z
-	m.X, m.Y, m.Z = x, y, z
+	m.SetPos(x, y, z)
 	b := m.mobBox()
 	if m.BoxBlocked(w) || rules.AnyBlockIn(w, b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ,
 		func(s uint16) bool { return world.HoldsFluid(s) || avoid(s) }) {
-		m.X, m.Y, m.Z = oldX, oldY, oldZ
+		m.SetPos(oldX, oldY, oldZ)
 		return events
 	}
 	m.stopSeeking()

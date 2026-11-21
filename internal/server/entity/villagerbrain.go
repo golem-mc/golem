@@ -534,7 +534,7 @@ func (m *Mob) startSleeping(bed Waypoint) {
 	m.SetMetadataSleeping(true)
 	m.vb.sleepPos = bed
 	m.InvalidateMetadataVbSleepPos()
-	m.X, m.Y, m.Z = float64(bed.X)+0.5, float64(bed.Y)+0.6875, float64(bed.Z)+0.5
+	m.SetPos(float64(bed.X)+0.5, float64(bed.Y)+0.6875, float64(bed.Z)+0.5)
 	m.VX, m.VY, m.VZ = 0, 0, 0
 	m.stopSeeking()
 	m.vb.lastSlept = m.GameTime
@@ -556,7 +556,7 @@ func (m *Mob) WakeSleeper() {
 		return
 	}
 	m.vb.bedOps = append(m.vb.bedOps, BedOp{X: bed.X, Y: bed.Y, Z: bed.Z})
-	m.X, m.Y, m.Z = m.Village.BedStandUp(bed.X, bed.Y, bed.Z, m.Yaw)
+	m.SetPos(m.Village.BedStandUp(bed.X, bed.Y, bed.Z, m.Yaw))
 	m.Pitch = 0
 }
 

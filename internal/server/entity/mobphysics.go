@@ -493,12 +493,12 @@ func (m *Mob) moveHorizontal(w World, ctx collideCtx, dx, dz float64) {
 			rx, rz := rbox.centerXZ()
 			// The lifted move wins if it got further along the asked-for way.
 			if math.Hypot(rx-startX, rz-startZ) > math.Hypot(nextX-startX, nextZ-startZ) {
-				m.X, m.Y, m.Z = rx, obstacle, rz
+				m.SetPos(rx, obstacle, rz)
 				return
 			}
 		}
 	}
-	m.X, m.Z = nextX, nextZ
+	m.SetPos(nextX, m.Y, nextZ)
 	m.horizontalCollision = blockedX || blockedZ
 	// As in Entity.move, a clipped velocity axis is zeroed rather than
 	// carried into the next tick.

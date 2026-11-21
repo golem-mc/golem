@@ -1796,7 +1796,7 @@ func (s *Server) MoveMob(id int32, x, z float64) {
 	defer s.mobsMu.Unlock()
 	for m := range s.herdOf(s.world).book {
 		if m.ID == id {
-			m.X, m.Z = x, z
+			m.SetPos(x, m.Y, z)
 		}
 	}
 }
@@ -7526,7 +7526,7 @@ func (s *Server) PlaceMob(id int32, x, y, z float64) {
 	defer s.mobsMu.Unlock()
 	for m := range s.herdOf(s.world).book {
 		if m.ID == id {
-			m.X, m.Y, m.Z = x, y, z
+			m.SetPos(x, y, z)
 			m.VX, m.VY, m.VZ = 0, 0, 0
 		}
 	}

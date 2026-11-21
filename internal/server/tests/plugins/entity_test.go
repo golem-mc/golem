@@ -247,3 +247,39 @@ func TestPluginDropItem(t *testing.T) {
 		}
 	})
 }
+
+func TestPluginChunkEntitiesFollowMobs(t *testing.T) {
+	t.Parallel()
+	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	w := srv.OverworldWorld()
+	chunks := []world.ChunkPos{{X: 0, Z: 0}, {X: 1, Z: 0}}
+	for _, p := range chunks {
+		w.Acquire(p)
+	}
+	w.InhabitTime(chunks)
+	srv.RunLine("summon minecraft:cow 15.99 80 8.5 {NoAI:1b,Tags:[\"a\"]}")
+	srv.RunLine("summon minecraft:cow 16.0 80 9.5 {NoAI:1b,Tags:[\"b\"]}")
+	// tags lists the cows in chunk (x, 0), in order.
+	tags := func(x int) []string {
+		c, _ := h.Overworld().Chunk(plugin.ChunkPos{X: x, Z: 0})
+		var out []string
+		for _, e := range c.Entities() {
+			out = append(out, e.Tags()...)
+		}
+		return out
+	}
+	check := func(want0, want1 []string) {
+		t.Helper()
+		if got := tags(0); !slices.Equal(got, want0) {
+			t.Errorf("chunk 0 = %v, want %v", got, want0)
+		}
+		if got := tags(1); !slices.Equal(got, want1) {
+			t.Errorf("chunk 1 = %v, want %v", got, want1)
+		}
+	}
+	run(func() { check([]string{"a"}, []string{"b"}) })
+	srv.RunLine("tp @e[tag=a] 16.5 80 8.5")
+	run(func() { check(nil, []string{"a", "b"}) })
+	srv.RunLine("data merge entity @e[tag=a,limit=1] {Pos:[3.5d,80d,8.5d]}")
+	run(func() { check([]string{"a"}, []string{"b"}) })
+}

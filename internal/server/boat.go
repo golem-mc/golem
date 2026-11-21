@@ -1682,7 +1682,7 @@ func (s *Server) removeMobFromBoat(ent *mobEntity, reposition bool) {
 		m := ent.mob
 		x, y, z := rules.BoatDismountSpot(w, bx, by, bz, m.Yaw,
 			[]rules.DismountPose{{Dims: rules.PlayerDimensions{Width: m.BbWidth(), Height: m.BbHeight()}}})
-		m.X, m.Y, m.Z = x, y, z
+		m.SetPos(x, y, z)
 	}
 	s.mobsMu.Unlock()
 	if !found {

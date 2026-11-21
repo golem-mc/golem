@@ -229,7 +229,7 @@ func (s *Server) seatMobOnBoat(ent *mobEntity, it *boatEntity, sendEvent bool) b
 		drop = mobLeashDrop{w: ent.w, mobID: m.ID, holder: holder, x: m.X, y: m.Y, z: m.Z}
 		dropped = true
 	}
-	m.X, m.Y, m.Z = x, y, z
+	m.SetPos(x, y, z)
 	s.mobsMu.Unlock()
 
 	if dropped {

@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/golem-mc/golem/internal/server/command"
+	"github.com/golem-mc/golem/internal/server/world"
 )
 
 // entityQuery collects identities through the same filters as full snapshots.
@@ -20,6 +21,8 @@ type entityQuery struct {
 	// Exclusive int64 bounds can contain the complete int32 ID range.
 	before, after int64
 	kind          *entityQueryKind
+	// chunk, when set, keeps only bodies whose feet are in that chunk.
+	chunk *world.ChunkPos
 }
 
 func newEntityQuery(filters *command.EntityQuery) entityQuery {

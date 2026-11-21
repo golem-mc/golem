@@ -37,7 +37,7 @@ func (s *Server) registerSummonedVehicle(w *world.World, compound nbt.Compound, 
 			return command.ErrDuplicateUUID
 		}
 		// The command's post-load processor applies to every nested body.
-		ent.mob.X, ent.mob.Y, ent.mob.Z = x, y, z
+		ent.mob.SetPos(x, y, z)
 	}
 	if seat.boat != nil {
 		seat.boat.carriedPassengers = carried

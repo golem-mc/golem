@@ -189,7 +189,7 @@ func (s *Server) respawnShoulder(c *client, tag nbt.CompoundTag) {
 	m := ent.mob
 	m.SetMetadataTamableTame(true)
 	m.SetMetadataTamableOwner(c.player.UUID)
-	m.X, m.Y, m.Z = pos.X, pos.Y+shoulderRespawnLift, pos.Z
+	m.SetPos(pos.X, pos.Y+shoulderRespawnLift, pos.Z)
 	s.addMobCore(true, ent)
 }
 

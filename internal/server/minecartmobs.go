@@ -40,10 +40,10 @@ func (s *Server) seatMinecartMobs(seats []minecartMobSeat) {
 			ent.cart = nil
 			m.RidesVehicle = false
 			m.BoardingCooldown = boardingCooldown
-			m.X, m.Y, m.Z = minecartMobDismountSpot(m, st.w, st.x, st.y, st.z, st.dx, st.dz)
+			m.SetPos(minecartMobDismountSpot(m, st.w, st.x, st.y, st.z, st.dx, st.dz))
 			continue
 		}
-		m.X, m.Y, m.Z = entity.MinecartMobSeat(m, st.x, st.y, st.z)
+		m.SetPos(entity.MinecartMobSeat(m, st.x, st.y, st.z))
 		m.VX, m.VY, m.VZ = 0, 0, 0
 		m.FallDistance = 0
 	}
@@ -97,7 +97,7 @@ func (s *Server) seatMobOnMinecart(ent *mobEntity, it *minecartEntity, force, se
 		drop = mobLeashDrop{w: ent.w, mobID: m.ID, holder: holder, x: m.X, y: m.Y, z: m.Z}
 		dropped = true
 	}
-	m.X, m.Y, m.Z = entity.MinecartMobSeat(m, x, y, z)
+	m.SetPos(entity.MinecartMobSeat(m, x, y, z))
 	s.mobsMu.Unlock()
 
 	if dropped {
@@ -148,7 +148,7 @@ func (s *Server) removeMobFromMinecart(ent *mobEntity, reposition bool) {
 	}
 	if found && reposition {
 		m := ent.mob
-		m.X, m.Y, m.Z = minecartMobDismountSpot(m, w, cx, cy, cz, dx, dz)
+		m.SetPos(minecartMobDismountSpot(m, w, cx, cy, cz, dx, dz))
 	}
 	s.mobsMu.Unlock()
 	if found {

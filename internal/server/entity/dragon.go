@@ -345,9 +345,7 @@ func (m *Mob) dragonStep(w World) {
 		if d.inWall {
 			move = 0.8
 		} // vanilla: EnderDragon.aiStep
-		m.X += m.VX * move
-		m.Y += m.VY * move
-		m.Z += m.VZ * move
+		m.SetPos(m.X+m.VX*move, m.Y+m.VY*move, m.Z+m.VZ*move)
 		vx, vy, vz := dragonNormalize(m.VX, m.VY, m.VZ)
 		drag := 0.8 + 0.15*(vx*dx+vy*dy+vz*dz+1)/2
 		m.VX *= drag

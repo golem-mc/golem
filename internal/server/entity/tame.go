@@ -264,7 +264,7 @@ func (m *Mob) teleportAround(w World, owner *Player) {
 		if !walkableAt(w, foot, x, y, z) || !safeToTeleportTo(w, x, y, z) {
 			continue
 		}
-		m.X, m.Y, m.Z = float64(x)+0.5, float64(y), float64(z)+0.5
+		m.SetPos(float64(x)+0.5, float64(y), float64(z)+0.5)
 		m.stopSeeking()
 		return
 	}
