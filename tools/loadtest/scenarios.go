@@ -441,7 +441,7 @@ func fluids(e *env) error {
 }
 
 func tnt(e *env) error {
-	return tntCube(e, 6, 16)
+	return tntCube(e, 16, 16)
 }
 
 // tntHuge lights a 35x35x35 cube, some 43000 primed TNT.
