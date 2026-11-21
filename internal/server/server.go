@@ -583,6 +583,9 @@ type Server struct {
 	// needed, like itemsMu, and by nothing else holding another server lock.
 	tntMu sync.Mutex
 	tnts  []*tntEntity
+	// tntBlasts indexes tnts by position while tickTNT runs its blasts, so
+	// one blast reads the bodies near it and not the whole list.
+	tntBlasts tntBlastIndex
 
 	// boltMu guards bolts, the lightning bolts. It is taken alone.
 	boltMu sync.Mutex

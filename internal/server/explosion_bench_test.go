@@ -286,3 +286,22 @@ func BenchmarkTNTStoneExplosion(b *testing.B) {
 		site.w.FlushLighting()
 	}
 }
+
+// BenchmarkTNTBlastCrowd is one blast among many primed TNT spread over a
+// plane, as in a chain through a large cube.
+func BenchmarkTNTBlastCrowd(b *testing.B) {
+	site := newBlastSite(b, [6]int32{0, 16, 56, 72, 0, 16})
+	for i := range 20000 {
+		site.s.tnts = append(site.s.tnts, site.s.newTNTEntity(site.w, float64(i%200)+0.5, 64, float64(i/200)+0.5, 80, 0, uuid.Nil, false))
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		b.StopTimer()
+		site.rebuild()
+		site.s.tntBlasts.build(site.s.tnts)
+		b.StartTimer()
+		site.runBlast(8.5, 8.5)
+		site.s.tntBlasts.drop()
+	}
+}

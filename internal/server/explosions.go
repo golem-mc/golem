@@ -718,7 +718,7 @@ func (s *Server) blastPushed(b blast, in *blastInputs, fx *blastEffects) {
 	// shove. A falling block sends no motion: its next position packet
 	// carries it.
 	s.tntMu.Lock()
-	for _, it := range s.tnts {
+	for _, it := range s.tntBlasts.near(s.tnts, b.x, b.y, b.z, b.radius*2) {
 		if it.tnt.Dead || it.w != b.w {
 			continue
 		}
