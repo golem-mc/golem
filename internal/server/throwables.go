@@ -1164,7 +1164,7 @@ func (s *Server) finishThrownTravel(it *thrownEntity, kind rules.PortalKind) {
 		return func() {
 			twin.throwable.OwnerID = s.resolveOwner(twin.ownerUUID)
 			s.registerThrown(twin)
-			slog.Info("thrown body travelled through a portal", "to", to.name, "x", twin.throwable.X, "y", twin.throwable.Y, "z", twin.throwable.Z)
+			slog.Debug("thrown body travelled through a portal", "to", to.name, "x", twin.throwable.X, "y", twin.throwable.Y, "z", twin.throwable.Z)
 		}
 	}, func() {
 		s.arrowsMu.Lock()
