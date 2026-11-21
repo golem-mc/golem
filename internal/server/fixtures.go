@@ -414,6 +414,7 @@ func (s *Server) setFixtureData(ent *fixtureEntity, data nbt.Compound) {
 func (s *Server) teleportFixture(ent *fixtureEntity, to player.Position) {
 	fixtureTracker.teleport(s, ent, func() {
 		ent.x, ent.y, ent.z, ent.yaw, ent.pitch = to.X, to.Y, to.Z, to.Yaw, to.Pitch
+		ent.Refile(entity.ChunkAt(to.X, to.Z))
 	})
 }
 

@@ -297,6 +297,7 @@ func TestPluginChunkEntitiesFollowBodies(t *testing.T) {
 	srv.RunLine("summon minecraft:armor_stand 16.0 80 9.5 {NoGravity:1b,Tags:[\"b\"]}")
 	srv.RunLine("summon minecraft:item 15.99 80 10.5 {NoGravity:1b,PickupDelay:32767s,Age:-32768s,Item:{id:\"minecraft:stone\"},Tags:[\"c\"]}")
 	srv.RunLine("summon minecraft:item 16.0 80 11.5 {NoGravity:1b,PickupDelay:32767s,Age:-32768s,Item:{id:\"minecraft:stone\"},Tags:[\"d\"]}")
+	srv.RunLine("summon minecraft:marker 15.5 80 12.5 {Tags:[\"m\"]}")
 	// tags lists the tagged bodies in chunk (x, 0), sorted.
 	tags := func(x int) []string {
 		c, _ := h.Overworld().Chunk(plugin.ChunkPos{X: x, Z: 0})
@@ -316,14 +317,15 @@ func TestPluginChunkEntitiesFollowBodies(t *testing.T) {
 			t.Errorf("chunk 1 = %v, want %v", got, want1)
 		}
 	}
-	run(func() { check([]string{"a", "c"}, []string{"b", "d"}) })
+	run(func() { check([]string{"a", "c", "m"}, []string{"b", "d"}) })
 	srv.RunLine("tp @e[tag=a] 16.5 80 8.5")
+	srv.RunLine("tp @e[tag=m] 16.5 80 12.5")
 	srv.RunLine("tp @e[tag=c] 16.5 80 8.5")
-	run(func() { check(nil, []string{"a", "b", "c", "d"}) })
+	run(func() { check(nil, []string{"a", "b", "c", "d", "m"}) })
 	srv.RunLine("data merge entity @e[tag=a,limit=1] {Pos:[3.5d,80d,8.5d]}")
 	srv.RunLine("data merge entity @e[tag=c,limit=1] {Pos:[3.5d,80d,8.5d]}")
-	run(func() { check([]string{"a", "c"}, []string{"b", "d"}) })
+	run(func() { check([]string{"a", "c"}, []string{"b", "d", "m"}) })
 	srv.RunLine("kill @e[tag=a]")
 	srv.RunLine("kill @e[tag=d]")
-	run(func() { check([]string{"c"}, []string{"b"}) })
+	run(func() { check([]string{"c"}, []string{"b", "m"}) })
 }
