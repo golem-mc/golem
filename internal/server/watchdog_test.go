@@ -1,10 +1,13 @@
 package server
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
@@ -235,4 +238,44 @@ func (w *syncWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.w.Write(p)
+}
+
+func TestGroupStacksSeparatesLabelledGoroutines(t *testing.T) {
+	dump := strings.Join([]string{
+		"goroutine 1 [chan receive]:\nmain.f()\n\t/a.go:1 +0x1",
+		"goroutine 2 [chan receive]:\nmain.f()\n\t/a.go:1 +0x1",
+		"goroutine 3 [chan receive] {\"k\": \"v\"}:\nmain.f()\n\t/a.go:1 +0x1",
+		"goroutine 4 [chan receive] {\"k\": \"v\"}:\nmain.f()\n\t/a.go:1 +0x1",
+		"goroutine 5 [chan receive] {\"k\": \"w\"}:\nmain.f()\n\t/a.go:1 +0x1",
+	}, "\n\n")
+	out := groupStacks(dump)
+	for _, want := range []string{
+		"2 goroutines [chan receive]:\n",
+		"2 goroutines [chan receive] {\"k\": \"v\"}:\n",
+		"goroutine 5 [chan receive] {\"k\": \"w\"}:\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestGroupStacksGroupsRealLabelledGoroutines(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	var ready sync.WaitGroup
+	for range 5 {
+		ready.Add(1)
+		go pprof.Do(context.Background(), pprof.Labels("zzkind", "parked"), func(context.Context) {
+			ready.Done()
+			<-release
+		})
+	}
+	ready.Wait()
+	time.Sleep(50 * time.Millisecond)
+	buf := make([]byte, 1<<20)
+	out := groupStacks(string(buf[:runtime.Stack(buf, true)]))
+	if !regexp.MustCompile(`\d+ goroutines \[chan receive\] \{zzkind: parked\}:`).MatchString(out) {
+		t.Errorf("labelled goroutines are not grouped:\n%s", out)
+	}
 }
