@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.0](https://github.com/golem-mc/golem/compare/v0.1.0...v0.2.0) (2026-11-21)
+
+
+### Features
+
+* **launcher:** pick several plugins from a checkbox list and install them at once ([#253](https://github.com/golem-mc/golem/issues/253)) ([c224440](https://github.com/golem-mc/golem/commit/c224440ae1e47a03075744ecb8f19fc3cdae0cda))
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/golem-mc/golem to v0.1.0 ([#250](https://github.com/golem-mc/golem/issues/250)) ([3bc172d](https://github.com/golem-mc/golem/commit/3bc172d8b5046bf17b3423f415a5bbe67dd89967))
+* **deps:** update module github.com/pierrec/lz4/v4 to v4.1.34 ([#254](https://github.com/golem-mc/golem/issues/254)) ([44f3fe2](https://github.com/golem-mc/golem/commit/44f3fe2074a5eeafad1d08e0a74dd809eddfd814))
+
+
+### Performance Improvements
+
+* **launcher:** resolve a plugin's module in one round of proxy queries ([#249](https://github.com/golem-mc/golem/issues/249)) ([2bbfa28](https://github.com/golem-mc/golem/commit/2bbfa284a2e3f01407a2b8518a73767d910bb9f7))
+
 ## 0.1.0 (2026-11-21)
 
 
