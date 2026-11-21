@@ -613,6 +613,10 @@ func (b blast) sparesItems() bool {
 	return !b.w.BoolRule(world.RuleMobGriefing) && !b.interaction.RemovesBlocks()
 }
 
+// tntSightCacheMin is the count of primed TNT near a blast from which its
+// exposure rays read a cell cache; below it the cache's reset costs more.
+const tntSightCacheMin = 64
+
 // blastPushed hurts and pushes the items and orbs in reach, and pushes the
 // arrows, thrown bodies, primed TNT and falling blocks; a hurt does nothing
 // else to those.
@@ -718,12 +722,19 @@ func (s *Server) blastPushed(b blast, in *blastInputs, fx *blastEffects) {
 	// shove. A falling block sends no motion: its next position packet
 	// carries it.
 	s.tntMu.Lock()
-	for _, it := range s.tntBlasts.near(s.tnts, b.x, b.y, b.z, b.radius*2) {
+	near := s.tntBlasts.near(s.tnts, b.x, b.y, b.z, b.radius*2)
+	var sight rules.BlockReader = in.blocks
+	if len(near) >= tntSightCacheMin {
+		cache := rules.NewCachedBlocks(in.blocks, b.x, b.y, b.z, b.radius*2+1)
+		defer cache.Release()
+		sight = cache
+	}
+	for _, it := range near {
 		if it.tnt.Dead || it.w != b.w {
 			continue
 		}
 		if dist, ok := in.at.Reach(it.tnt.X, it.tnt.Y, it.tnt.Z); ok {
-			hit := in.at.Hit(in.blocks, dist, it.tnt.BlastBox, it.tnt.BlastOrigin)
+			hit := in.at.Hit(sight, dist, it.tnt.BlastBox, it.tnt.BlastOrigin)
 			it.tnt.Push(hit.KX, hit.KY, hit.KZ)
 			queueMotion(fx, &it.bodyTrack, it.tnt.ID, it.tnt.VX, it.tnt.VY, it.tnt.VZ)
 		}
