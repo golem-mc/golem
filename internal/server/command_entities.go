@@ -1307,8 +1307,12 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 // Results follow entity ID order; limited queries snapshot non-players only
 // until enough entities pass Accept.
 func (ws worldScope) Entities(filters command.EntityQuery) []command.Entity {
+	return ws.query(newEntityQuery(&filters))
+}
+
+// query answers q for every kind of body.
+func (ws worldScope) query(q entityQuery) []command.Entity {
 	s := ws.srv
-	q := newEntityQuery(&filters)
 	// Bound maintenance is linear in the batch size; larger limits collect once.
 	if q.Limit > 0 && q.Limit <= 16 {
 		q.batch = q.Limit
@@ -1497,6 +1501,9 @@ func (s *Server) appendMobSnapshots(out []command.Entity, q *entityQuery) []comm
 			if q.candidates != nil && q.skipCandidate(ent.mob.ID) {
 				return
 			}
+			if q.chunk != nil && !ent.mob.InChunk(*q.chunk) {
+				return
+			}
 			if e := s.mobSnapshot(ent, dim, q); e != nil {
 				out = append(out, e)
 			}
@@ -1505,6 +1512,12 @@ func (s *Server) appendMobSnapshots(out []command.Entity, q *entityQuery) []comm
 			// vanilla: EntityLookup.getEntity(UUID)
 			if ent := dim.mobs.book[dim.mobs.byUUID[*q.UUID]]; ent != nil {
 				appendMob(ent, dim.name)
+			}
+		} else if q.chunk != nil {
+			for _, m := range dim.mobs.chunks.In(*q.chunk) {
+				if ent := dim.mobs.record(m); ent != nil {
+					appendMob(ent, dim.name)
+				}
 			}
 		} else {
 			for _, ent := range dim.mobs.book {

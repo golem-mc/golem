@@ -221,7 +221,7 @@ func (m *Mob) waterConversionStep() MobType {
 // fall and player memory. NoAI and persistence come through the caller's
 // convertedEntity.
 func (m *Mob) ConvertedFrom(old *Mob) {
-	m.X, m.Y, m.Z = old.X, old.Y, old.Z
+	m.SetPos(old.X, old.Y, old.Z)
 	m.VX, m.VY, m.VZ = old.VX, old.VY, old.VZ
 	m.Yaw, m.Pitch, m.HeadYaw = old.Yaw, old.Pitch, old.HeadYaw
 	m.OnGround, m.FallDistance = old.OnGround, old.FallDistance

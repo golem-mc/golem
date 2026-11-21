@@ -279,7 +279,9 @@ type mobHerd struct {
 	// mob tick re-ties to their holder or lets go after the grace.
 	leashWaits []*mobEntity
 	// version counts changes to herd's membership, guarded by mobsMu.
-	version       uint64
+	version uint64
+	// chunks files the live mobs (book) by feet chunk, guarded by mobsMu.
+	chunks        entity.ChunkIndex
 	pistonGrid    bodyPistonGrid[*entity.Mob]
 	pistonVersion uint64
 }
@@ -319,6 +321,7 @@ func (h *mobHerd) remember(ent *mobEntity) {
 	h.records[slot-1] = ent
 	ent.mob.SetRecordSlot(slot)
 	h.book[ent.mob] = ent
+	h.chunks.Add(ent.mob)
 	if h.lootExtra != nil {
 		ent.mob.LootExtra = h.lootExtra(h, ent)
 	}
@@ -337,6 +340,7 @@ func (h *mobHerd) forget(m *entity.Mob) {
 		m.SetRecordSlot(0)
 		delete(h.byUUID, ent.uuid)
 		delete(h.book, m)
+		h.chunks.Remove(m)
 	}
 }
 
@@ -2431,7 +2435,7 @@ func (s *Server) spawnSummonedMobFacing(dim *dimension, kind entity.MobType, x, 
 	if ent == nil {
 		return 0, errNotSimulated
 	}
-	ent.mob.X, ent.mob.Y, ent.mob.Z = x, y, z
+	ent.mob.SetPos(x, y, z)
 	// An explicit ground flag survives loading, even when NoAI prevents travel.
 	// vanilla: Entity.load, LivingEntity.aiStep
 	if _, ok := nbt.ByteField(compound, "OnGround"); !ok {
@@ -2592,7 +2596,7 @@ func (s *Server) killMob(ent *mobEntity) {
 func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch float32, by string) {
 	s.mobsMu.Lock()
 	m := ent.mob
-	m.X, m.Y, m.Z = to.X, to.Y, to.Z
+	m.SetPos(to.X, to.Y, to.Z)
 	// Stop the vertical fall; horizontal motion is kept. The ground flag is
 	// left to the next movement tick, as vanilla's teleportSetPosition does.
 	m.VY = 0
@@ -2648,7 +2652,7 @@ func (s *Server) mobTwinAt(ent *mobEntity, to *dimension, pos player.Position) *
 	if twin == nil {
 		return nil
 	}
-	twin.mob.X, twin.mob.Y, twin.mob.Z = pos.X, pos.Y, pos.Z
+	twin.mob.SetPos(pos.X, pos.Y, pos.Z)
 	return twin
 }
 

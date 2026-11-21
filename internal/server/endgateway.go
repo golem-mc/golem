@@ -232,7 +232,7 @@ func (s *Server) gatewayMoveFalling(it *fallingEntity, to player.Position) {
 // gatewayMoveMob puts a mob at a gateway's landing.
 func (s *Server) gatewayMoveMob(ent *mobEntity, to player.Position) {
 	s.mobsMu.Lock()
-	ent.mob.X, ent.mob.Y, ent.mob.Z = to.X, to.Y, to.Z
+	ent.mob.SetPos(to.X, to.Y, to.Z)
 	ent.teleported = true
 	s.herdOf(ent.w).pistonGrid.built = false
 	s.mobsMu.Unlock()
@@ -308,9 +308,7 @@ func (g gatewayVehicleMove) apply(s *Server) {
 			}
 			var carry func(*entity.Mob)
 			carry = func(m *entity.Mob) {
-				m.X += g.delta.X
-				m.Y += g.delta.Y
-				m.Z += g.delta.Z
+				m.SetPos(m.X+g.delta.X, m.Y+g.delta.Y, m.Z+g.delta.Z)
 				if body := s.dimensionOfWorld(g.w).mobs.book[m]; body != nil {
 					body.teleported = true
 				}

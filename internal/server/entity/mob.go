@@ -9,6 +9,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
@@ -1437,6 +1438,10 @@ type Mob struct {
 	damagedEvent bool
 	// recordSlot fits the padding before LivingEffects, preserving the hot field offsets.
 	recordSlot int32
+	// chunks, chunk and chunkSlot file the mob in its herd's ChunkIndex.
+	chunks    *ChunkIndex
+	chunk     world.ChunkPos
+	chunkSlot int32
 	LivingEffects
 	// AirSupply is the breath left in ticks: rules.MaxAirSupply out of water,
 	// spent a tick at a time with the eyes under it. Metadata index 1.
@@ -2543,13 +2548,13 @@ func (m *Mob) fudgePositionAfterSizeChange(w World, oldWidth, oldHeight, newWidt
 	heightDelta := max(0, newHeight-oldHeight) + 1e-6
 	allowed := boxOfSize(oldCenter, widthDelta, heightDelta, widthDelta)
 	if c, ok := findFreePosition(w, allowed, oldCenter, newWidth, newHeight, newWidth); ok {
-		m.X, m.Y, m.Z = c[0], c[1]-newHeight/2, c[2]
+		m.SetPos(c[0], c[1]-newHeight/2, c[2])
 		return
 	}
 	if newWidth > oldWidth && newHeight > oldHeight {
 		allowed = boxOfSize(oldCenter, widthDelta, 1e-6, widthDelta)
 		if c, ok := findFreePosition(w, allowed, oldCenter, newWidth, oldHeight, newWidth); ok {
-			m.X, m.Y, m.Z = c[0], c[1]-oldHeight/2+1e-6, c[2]
+			m.SetPos(c[0], c[1]-oldHeight/2+1e-6, c[2])
 		}
 	}
 }

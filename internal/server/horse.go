@@ -341,7 +341,7 @@ func (s *Server) moveHorse(rider *client, ent *mobEntity, x, y, z float64, yaw, 
 		return
 	}
 	fromX, fromY, fromZ := m.X, m.Y, m.Z
-	m.X, m.Y, m.Z = x, y, z
+	m.SetPos(x, y, z)
 	m.Yaw, m.Pitch, m.HeadYaw = yaw, pitch, yaw
 	m.OnGround = onGround
 	m.Impulse = true

@@ -5,6 +5,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
@@ -245,7 +246,10 @@ func (c pluginChunk) Entities() []plugin.Entity {
 	zlo, zhi := float64(pos.Z*16), float64(pos.Z*16+16)
 	// The box query matches by overlap; a body belongs to the chunk its position is in.
 	q := [6]float64{lo - 4, float64(w.MinY()) - 4, zlo - 4, hi + 4, float64(w.MinY()+w.Height()) + 4, zhi + 4}
-	list := (worldScope{srv: w.srv}).Entities(command.EntityQuery{Dimension: w.dim.name, Box: &q})
+	filters := command.EntityQuery{Dimension: w.dim.name, Box: &q}
+	eq := newEntityQuery(&filters)
+	eq.chunk = &world.ChunkPos{X: c.chunk.X(), Z: c.chunk.Z()}
+	list := (worldScope{srv: w.srv}).query(eq)
 	return w.host.pluginEntities(list, func(e command.Entity) bool {
 		p := e.Position()
 		return p.X >= lo && p.X < hi && p.Z >= zlo && p.Z < zhi

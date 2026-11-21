@@ -177,7 +177,7 @@ func mobGameTime(ent *mobEntity) int64 {
 // unreadable fields left alone; shared by a load and /data.
 func applyMobTag(m *entity.Mob, ent *mobEntity, compound nbt.Compound) {
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		m.X, m.Y, m.Z = x, y, z
+		m.SetPos(x, y, z)
 	}
 	m.VX, m.VY, m.VZ = entityMotionOfTag(compound)
 	yaw, pitch := entityRotationOfTag(compound)

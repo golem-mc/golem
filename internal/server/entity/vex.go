@@ -181,9 +181,7 @@ func (m *Mob) vexMoveStep(t *tickView) {
 	// vanilla: LivingEntity.travelInWater, LivingEntity.travelInLava
 	m.jumpStep(t.w)
 	m.jump = false
-	m.X += m.VX
-	m.Y += m.VY
-	m.Z += m.VZ
+	m.SetPos(m.X+m.VX, m.Y+m.VY, m.Z+m.VZ)
 	m.OnGround = false
 	switch {
 	case m.InWater():

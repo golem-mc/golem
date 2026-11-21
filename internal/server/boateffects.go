@@ -104,10 +104,10 @@ func (fx *boatEffects) apply(s *Server) {
 					w: seat.w, mobID: m.ID, holder: holder, x: m.X, y: m.Y, z: m.Z,
 				})
 			}
-			seat.ent.mob.X, seat.ent.mob.Y, seat.ent.mob.Z = seat.x, seat.y, seat.z
+			seat.ent.mob.SetPos(seat.x, seat.y, seat.z)
 		}
 		for _, seat := range fx.carries {
-			seat.ent.mob.X, seat.ent.mob.Y, seat.ent.mob.Z = seat.x, seat.y, seat.z
+			seat.ent.mob.SetPos(seat.x, seat.y, seat.z)
 		}
 		for _, seat := range fx.offboards {
 			seat.ent.vehicle = nil
@@ -121,7 +121,7 @@ func (fx *boatEffects) apply(s *Server) {
 				x, y, z = rules.BoatDismountSpot(seat.w, seat.bx, seat.by, seat.bz, m.Yaw,
 					[]rules.DismountPose{{Dims: rules.PlayerDimensions{Width: m.BbWidth(), Height: m.BbHeight()}}})
 			}
-			m.X, m.Y, m.Z = x, y, z
+			m.SetPos(x, y, z)
 		}
 		s.unlockTick(&s.mobsMu)
 	}

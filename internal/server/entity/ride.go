@@ -65,7 +65,7 @@ func Ride(vehicle, passenger *Mob) {
 	passenger.StartRiding()
 	vehicle.Passengers = append(vehicle.Passengers, passenger)
 	x, y, z := riderSeat(vehicle, passenger)
-	passenger.X, passenger.Y, passenger.Z = x, y, z
+	passenger.SetPos(x, y, z)
 	passenger.VX, passenger.VY, passenger.VZ = 0, 0, 0
 	passenger.FallDistance = 0
 }
@@ -127,10 +127,10 @@ func DismountMob(w rules.BoatWorld, vehicle, passenger *Mob) (ok bool) {
 	}
 	dims := rules.PlayerDimensions{Width: passenger.width(), Height: passenger.height()}
 	if x, y, z, found := animalDismountSpot(w, vehicle, []rules.DismountPose{{Dims: dims}}); found {
-		passenger.X, passenger.Y, passenger.Z = x, y, z
+		passenger.SetPos(x, y, z)
 		return true
 	}
-	passenger.X, passenger.Y, passenger.Z = vehicle.X, vehicle.Y+vehicle.height(), vehicle.Z
+	passenger.SetPos(vehicle.X, vehicle.Y+vehicle.height(), vehicle.Z)
 	return true
 }
 
@@ -382,7 +382,7 @@ func riderVehiclePoint(m *Mob) (x, y, z float64) {
 // seatPassenger places p at the vehicle's current seat for it.
 // vanilla: Entity.positionRider
 func (m *Mob) seatPassenger(p *Mob) {
-	p.X, p.Y, p.Z = riderSeat(m, p)
+	p.SetPos(riderSeat(m, p))
 	p.FallDistance = 0
 }
 
