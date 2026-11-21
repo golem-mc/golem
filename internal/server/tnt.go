@@ -149,14 +149,31 @@ func (s *Server) tickTNT() {
 	s.tnts = portalAlive
 
 	alive := s.tnts[:0]
+	// ticked counts the TNT stepped per world against max-tnt-per-tick; a
+	// TNT past it keeps its place in the list, so the earliest-primed go on
+	// first and none starves.
+	var ticked map[*world.World]int
+	limit := s.Config.MaxTNTPerTick
 	for _, it := range s.tnts {
 		if it.tnt.Dead {
 			continue // the fuse ran out before this tick
+		}
+		if limit > 0 {
+			if ticked == nil {
+				ticked = make(map[*world.World]int)
+			}
+			if ticked[it.w] >= limit {
+				alive = append(alive, it)
+				continue
+			}
 		}
 		if !gate.ticks(it.w, it.tnt.X, it.tnt.Z) {
 			held = append(held, it)
 			alive = append(alive, it)
 			continue
+		}
+		if limit > 0 {
+			ticked[it.w]++
 		}
 		events := it.tnt.Step(colliders[it.w])
 		if it.tnt.LandedFall > 0 {
