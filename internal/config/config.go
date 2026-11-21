@@ -181,6 +181,11 @@ type Config struct {
 	// before the watchdog ends the process; 0 or less turns the watchdog off.
 	// vanilla: DedicatedServerProperties.maxTickTime
 	MaxTickTime int64
+	// MaxTNTPerTick caps how many primed TNT of one world tick in one game
+	// tick; the rest wait, fuse and all, for a later tick. 0 or less is no
+	// limit. A golem addition, as in Spigot's max-tnt-per-tick; vanilla's
+	// PrimedTnt has none.
+	MaxTNTPerTick int
 
 	// ManagementServerEnabled runs the Server Management Protocol listener
 	// (JSON-RPC over WebSocket) on ManagementServerHost and
@@ -291,7 +296,8 @@ func Default() *Config {
 		EnableQuery:             false,
 		QueryPort:               25565,
 		// vanilla: TimeUnit.MINUTES.toMillis(1)
-		MaxTickTime: 60000,
+		MaxTickTime:   60000,
+		MaxTNTPerTick: 100,
 
 		// vanilla: DedicatedServerProperties.managementServer*
 		ManagementServerHost:       "localhost",
@@ -696,6 +702,20 @@ var fields = []field{
 				return fmt.Errorf("not a number: %q", v)
 			}
 			c.MaxTickTime = n
+			return nil
+		},
+	},
+	{
+		key: "max-tnt-per-tick",
+		comment: "Most primed TNT of one world that tick in one game tick; the rest wait with their " +
+			"fuse stopped and go on in a later tick. 0 or less is no limit. Not in vanilla.",
+		get: func(c *Config) string { return strconv.Itoa(c.MaxTNTPerTick) },
+		set: func(c *Config, v string) error {
+			n, err := strconv.Atoi(strings.TrimSpace(v))
+			if err != nil {
+				return fmt.Errorf("not a number: %q", v)
+			}
+			c.MaxTNTPerTick = n
 			return nil
 		},
 	},

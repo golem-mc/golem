@@ -125,6 +125,7 @@ func TestLoadExistingFile(t *testing.T) {
 		SpawnProtection:             16,
 		WhiteList:                   true,
 		MaxTickTime:                 60000,
+		MaxTNTPerTick:               100,
 		ManagementServerHost:        "localhost",
 		ManagementServerTLSEnabled:  true,
 		// A file without the key gets a fresh one, checked by
