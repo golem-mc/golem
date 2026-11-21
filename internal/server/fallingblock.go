@@ -618,7 +618,7 @@ func (s *Server) finishFallingTravel(it *fallingEntity, kind rules.PortalKind) {
 		}
 		return func() {
 			s.registerFalling(twin)
-			slog.Info("falling block travelled through a portal",
+			slog.Debug("falling block travelled through a portal",
 				"to", to.name, "x", twin.fb.X, "y", twin.fb.Y, "z", twin.fb.Z)
 		}
 	}, func() {

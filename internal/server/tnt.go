@@ -350,7 +350,7 @@ func (s *Server) spawnTNT(w *world.World, x, y, z float64, fuse int, ownerID int
 	if it == nil {
 		return nil
 	}
-	slog.Info("primed tnt lit", "fuse", fuse, "by", ownerName)
+	slog.Debug("primed tnt lit", "fuse", fuse, "by", ownerName)
 	s.registerTNT(it)
 	return it
 }
@@ -518,7 +518,7 @@ func (s *Server) finishTNTTravel(it *tntEntity, kind rules.PortalKind) {
 		return func() {
 			twin.tnt.OwnerID = s.resolveOwner(twin.ownerUUID)
 			s.registerTNT(twin)
-			slog.Info("primed tnt travelled through a portal",
+			slog.Debug("primed tnt travelled through a portal",
 				"to", to.name, "x", twin.tnt.X, "y", twin.tnt.Y, "z", twin.tnt.Z)
 		}
 	}, func() {
