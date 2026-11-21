@@ -1143,7 +1143,7 @@ func (c *client) placeMinecart(hand, x, y, z int32) (bool, error) {
 	}
 	c.srv.spawnMinecartFromItem(w, kind, sx, sy, sz, held, plugin.SpawnDefault)
 	c.gameEventAt(rules.GameEventEntityPlace, float64(x)+0.5, float64(y)+0.5, float64(z)+0.5, w.BlockAt(x, y-1, z))
-	slog.Info("minecart stood", "kind", kind, "x", sx, "y", sy, "z", sz, "by", c.player.Name)
+	slog.Debug("minecart stood", "kind", kind, "x", sx, "y", sy, "z", sz, "by", c.player.Name)
 	return true, nil
 }
 

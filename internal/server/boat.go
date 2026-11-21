@@ -1409,7 +1409,7 @@ func (c *client) handleUseBoat(hand int32) bool {
 	c.srv.bodySpawned(it.uuid, plugin.SpawnDefault)
 	c.gameEventAt(rules.GameEventEntityPlace, x, y, z, 0)
 	c.awardItemStat(registry.StatTypeUsed, held.ItemID, 1)
-	slog.Info("boat laid", "kind", name, "x", x, "y", y, "z", z, "by", c.player.Name)
+	slog.Debug("boat laid", "kind", name, "x", x, "y", y, "z", z, "by", c.player.Name)
 	return true
 }
 

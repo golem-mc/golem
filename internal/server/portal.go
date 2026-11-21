@@ -1030,7 +1030,7 @@ func (k *trackedKind[B, S]) crossPortal(s *Server, b B, kind rules.PortalKind, r
 			return func() {
 				register(twin)
 				at := k.pose(twin)
-				slog.Info("body travelled through a portal", "to", to.name, "x", at.x, "y", at.y, "z", at.z)
+				slog.Debug("body travelled through a portal", "to", to.name, "x", at.x, "y", at.y, "z", at.z)
 			}
 		}, func() {
 			mu := k.lock(s)

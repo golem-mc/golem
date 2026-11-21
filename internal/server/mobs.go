@@ -2706,7 +2706,7 @@ func (s *Server) finishMobTravel(tr mobPortalTravel) {
 			if len(stack) > 1 {
 				s.broadcastWorld(ent.w, protocol.IDPlayRemoveEntities, removeEntitiesPayload(riderIDs(tr.riders, nil)))
 			}
-			slog.Info("mob travelled through a portal", "kind", ent.mob.Type, "to", to.name, "x", twin.mob.X, "y", twin.mob.Y, "z", twin.mob.Z)
+			slog.Debug("mob travelled through a portal", "kind", ent.mob.Type, "to", to.name, "x", twin.mob.X, "y", twin.mob.Y, "z", twin.mob.Z)
 		}
 	}, func() {
 		s.mobsMu.Lock()

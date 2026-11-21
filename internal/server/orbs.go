@@ -625,7 +625,7 @@ func (s *Server) finishOrbTravel(it *orbEntity, kind rules.PortalKind) {
 		}
 		return func() {
 			s.registerOrb(twin)
-			slog.Info("orb travelled through a portal",
+			slog.Debug("orb travelled through a portal",
 				"to", to.name, "x", twin.orb.X, "y", twin.orb.Y, "z", twin.orb.Z)
 		}
 	}, func() {

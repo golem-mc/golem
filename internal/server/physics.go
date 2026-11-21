@@ -475,7 +475,7 @@ func (s *Server) physicsResults(dim *dimension, changes []world.BlockChange, fal
 	for _, t := range primes {
 		s.primeTNT(dim.w, t)
 
-		slog.Info("fire primed a tnt block", "x", t.X, "y", t.Y, "z", t.Z)
+		slog.Debug("fire primed a tnt block", "x", t.X, "y", t.Y, "z", t.Z)
 	}
 	// Ghastlings last, after the block changes, so clients see the block go
 	// first.

@@ -908,7 +908,7 @@ func (s *Server) finishArrowTravel(it *arrowEntity, kind rules.PortalKind) {
 		return func() {
 			twin.arrow.OwnerID = s.resolveOwner(twin.ownerUUID)
 			s.registerArrow(twin)
-			slog.Info("arrow travelled through a portal",
+			slog.Debug("arrow travelled through a portal",
 				"to", to.name, "x", twin.arrow.X, "y", twin.arrow.Y, "z", twin.arrow.Z)
 		}
 	}, func() {

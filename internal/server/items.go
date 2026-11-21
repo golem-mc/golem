@@ -1562,7 +1562,7 @@ func (s *Server) finishItemTravel(it *itemEntity, kind rules.PortalKind) {
 		}
 		return func() {
 			s.registerItem(twin)
-			slog.Info("item travelled through a portal",
+			slog.Debug("item travelled through a portal",
 				"to", to.name, "x", twin.item.X, "y", twin.item.Y, "z", twin.item.Z)
 		}
 	}, func() {
