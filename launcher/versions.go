@@ -67,21 +67,41 @@ func (l *launcher) askModule(ctx context.Context, q string) (string, error) {
 // version v, and the version v resolves to: the longest prefix of path that
 // is a module at v (go's own choice when modules nest).
 func (l *launcher) pluginModule(ctx context.Context, path, v string) (mod, version string, err error) {
+	// Every candidate is asked at once: a cold miss costs the proxy a round
+	// trip upstream. The longest answer wins, so the rest are cancelled as
+	// soon as one longer than them has answered.
+	var mods []string
+	for m := path; ; m = m[:strings.LastIndex(m, "/")] {
+		mods = append(mods, m)
+		if !strings.Contains(m, "/") {
+			break
+		}
+	}
+	type answer struct {
+		version string
+		err     error
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make([]chan answer, len(mods))
+	for i, m := range mods {
+		done[i] = make(chan answer, 1)
+		go func() {
+			ver, err := l.queryModule(ctx, m+"@"+v)
+			done[i] <- answer{ver, err}
+		}()
+	}
 	var first error
-	for mod = path; ; {
-		version, err := l.queryModule(ctx, mod+"@"+v)
-		if err == nil {
-			return mod, version, nil
+	for i, m := range mods {
+		a := <-done[i]
+		if a.err == nil {
+			return m, a.version, nil
 		}
 		if first == nil {
-			first = err
+			first = a.err
 		}
-		i := strings.LastIndex(mod, "/")
-		if i < 0 {
-			return "", "", fmt.Errorf("%s@%s: no module provides it: %w", path, v, first)
-		}
-		mod = mod[:i]
 	}
+	return "", "", fmt.Errorf("%s@%s: no module provides it: %w", path, v, first)
 }
 
 // latestServerOverride replaces latestServer's lookup; tests set it.
