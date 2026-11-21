@@ -178,7 +178,8 @@ func (s *Server) finishBoatTravel(it *boatEntity, kind rules.PortalKind) {
 		}
 		twin.carriedPassengers = it.carriedPassengers
 		turn = at.Yaw - twin.boat.Yaw
-		twin.boat.X, twin.boat.Y, twin.boat.Z, twin.boat.Yaw = at.X, at.Y, at.Z, at.Yaw
+		twin.boat.SetPos(at.X, at.Y, at.Z)
+		twin.boat.Yaw = at.Yaw
 		twin.firstX, twin.firstY, twin.firstZ = at.X, at.Y, at.Z
 		return twin, true
 	})
@@ -204,7 +205,7 @@ func (s *Server) moveBoatWithRiders(it *boatEntity, to *dimension, move command.
 			return
 		}
 		it.w = to.w
-		it.boat.X, it.boat.Y, it.boat.Z = pos.X, pos.Y, pos.Z
+		it.boat.SetPos(pos.X, pos.Y, pos.Z)
 		// The client takes a freshly seated rider's yaw from the hull.
 		// vanilla: ClientPacketListener.handleSetEntityPassengersPacket
 		it.boat.Yaw += turn

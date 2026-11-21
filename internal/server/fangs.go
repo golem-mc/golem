@@ -36,8 +36,9 @@ type fangsEntity struct {
 // fangSet is every dimension's fangs; registration takes mu inside s.mu,
 // never inside another entity lock.
 type fangSet struct {
-	mu   sync.Mutex
-	list []*fangsEntity
+	mu     sync.Mutex
+	list   []*fangsEntity
+	chunks entity.ChunkIndex[*fangsEntity]
 	// effects is scratch owned by the tick goroutine; records are cleared after applying.
 	effects fangsEffects
 }
@@ -135,6 +136,7 @@ func (s *Server) tickFangs() {
 		if it.fangs.Dead {
 			f := it.fangs
 			fx.gone = append(fx.gone, fangsEffect{w: it.w, id: f.ID, x: f.X, y: f.Y, z: f.Z})
+			fangsTracker.unfile(it)
 			continue
 		}
 		alive = append(alive, it)
@@ -314,6 +316,7 @@ func (s *Server) fangsSnapshot(it *fangsEntity, q *entityQuery) *entitySnapshot 
 func (s *Server) killFangs(it *fangsEntity) {
 	s.fangs.mu.Lock()
 	it.fangs.Dead = true
+	fangsTracker.unfile(it)
 	s.fangs.list = slices.DeleteFunc(s.fangs.list, func(o *fangsEntity) bool { return o == it })
 	s.fangs.mu.Unlock()
 	s.entityDestroyed(it.uuid)

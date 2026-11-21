@@ -1671,7 +1671,7 @@ func (ws worldScope) SummonOrb(x, y, z float64, value int, noGravity bool, tag n
 	if tagged {
 		it.uuid = identity
 	}
-	it.orb.X, it.orb.Y, it.orb.Z = x, y, z
+	it.orb.SetPos(x, y, z)
 	it.orb.Value = value
 	it.orb.NoGravity = noGravity
 	it.sentVX, it.sentVY, it.sentVZ = it.orb.VX, it.orb.VY, it.orb.VZ
@@ -1694,7 +1694,7 @@ func (ws worldScope) SummonTNT(x, y, z float64, fuse int, noGravity bool, tag nb
 	if tagged {
 		it.uuid = identity
 	}
-	it.tnt.X, it.tnt.Y, it.tnt.Z = x, y, z
+	it.tnt.SetPos(x, y, z)
 	it.tnt.Fuse = fuse
 	it.tnt.NoGravity = noGravity
 	ws.srv.registerTNT(it)

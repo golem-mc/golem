@@ -72,6 +72,8 @@ var standTracker = trackedKind[*armorStandEntity, *armorStandMeta]{
 	rangeChunks: entity.ArmorStandTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.armorStandsMu },
 	list:        func(s *Server) *[]*armorStandEntity { return &s.armorStands },
+	chunks:      func(s *Server) *entity.ChunkIndex[*armorStandEntity] { return &s.standChunks },
+	filing:      func(it *armorStandEntity) *entity.Filing { return &it.stand.Filing },
 	track:       func(ent *armorStandEntity) *bodyTrack[*armorStandMeta] { return &ent.bodyTrack },
 	world:       func(ent *armorStandEntity) *world.World { return ent.w },
 	id:          func(ent *armorStandEntity) int32 { return ent.stand.ID },
@@ -100,6 +102,7 @@ func (s *Server) registerArmorStand(ent *armorStandEntity) { standTracker.regist
 // removeArmorStandLocked takes a stand out of the list. The stands lock is
 // held.
 func (s *Server) removeArmorStandLocked(ent *armorStandEntity) {
+	standTracker.unfile(ent)
 	s.armorStands = slices.DeleteFunc(s.armorStands, func(o *armorStandEntity) bool { return o == ent })
 	s.entityDestroyed(ent.uuid)
 }
@@ -910,6 +913,7 @@ func (s *Server) tickArmorStands() {
 	alive := s.armorStands[:0]
 	for _, ent := range s.armorStands {
 		if ent.stand.Dead {
+			standTracker.unfile(ent)
 			continue // a punch or a blast took it out; its tail ran there
 		}
 		// The portal pass runs ahead of the step, as for items; only a stand
@@ -920,6 +924,7 @@ func (s *Server) tickArmorStands() {
 		}
 		s.notePortalTouch(nil, ent.uuid, ent.w, ent.stand.X, ent.stand.Y, ent.stand.Z, state)
 		if kind, due := ent.portal.Step(state, rules.PortalTransitionTime, portalCooldownTicks); due {
+			standTracker.unfile(ent)
 			travels = append(travels, armorStandPortalTravel{ent: ent, kind: kind})
 			continue
 		}
@@ -941,6 +946,7 @@ func (s *Server) tickArmorStands() {
 				}
 			}
 			if torn {
+				standTracker.unfile(ent)
 				continue
 			}
 		}
@@ -1002,7 +1008,8 @@ func (s *Server) finishArmorStandTravel(ent *armorStandEntity, kind rules.Portal
 		if twin == nil {
 			return nil, false
 		}
-		twin.stand.X, twin.stand.Y, twin.stand.Z, twin.stand.Yaw = at.X, at.Y, at.Z, at.Yaw
+		twin.stand.SetPos(at.X, at.Y, at.Z)
+		twin.stand.Yaw = at.Yaw
 		return twin, true
 	})
 }
@@ -1028,7 +1035,7 @@ func (s *Server) summonArmorStand(w *world.World, x, y, z float64, tag nbt.Compo
 	if ent == nil {
 		return nil, errNotSimulated
 	}
-	ent.stand.X, ent.stand.Y, ent.stand.Z = x, y, z
+	ent.stand.SetPos(x, y, z)
 	s.armorStandsMu.Lock()
 	dup := false
 	for _, live := range s.armorStands {
@@ -1069,7 +1076,7 @@ func (s *Server) armorStandTwinAt(ent *armorStandEntity, to *dimension, pos play
 	if twin == nil {
 		return nil
 	}
-	twin.stand.X, twin.stand.Y, twin.stand.Z = pos.X, pos.Y, pos.Z
+	twin.stand.SetPos(pos.X, pos.Y, pos.Z)
 	return twin
 }
 
@@ -1078,7 +1085,7 @@ func (s *Server) armorStandTwinAt(ent *armorStandEntity, to *dimension, pos play
 // vanilla: Entity.teleportTo, ServerEntity.sendChanges
 func (s *Server) teleportArmorStand(ent *armorStandEntity, to player.Position, by string) {
 	standTracker.teleport(s, ent, func() {
-		ent.stand.X, ent.stand.Y, ent.stand.Z = to.X, to.Y, to.Z
+		ent.stand.SetPos(to.X, to.Y, to.Z)
 		ent.stand.VX, ent.stand.VY, ent.stand.VZ = 0, 0, 0
 		ent.stand.Yaw = to.Yaw
 	})

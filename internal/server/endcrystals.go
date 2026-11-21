@@ -40,6 +40,8 @@ var endCrystalTracker = trackedKind[*endCrystalEntity, struct{}]{
 	rangeChunks: entity.EndCrystalTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.endCrystalsMu },
 	list:        func(s *Server) *[]*endCrystalEntity { return &s.endCrystals },
+	chunks:      func(s *Server) *entity.ChunkIndex[*endCrystalEntity] { return &s.crystalChunks },
+	filing:      func(it *endCrystalEntity) *entity.Filing { return &it.crystal.Filing },
 	track:       func(ent *endCrystalEntity) *bodyTrack[struct{}] { return &ent.bodyTrack },
 	world:       func(ent *endCrystalEntity) *world.World { return ent.w },
 	id:          func(ent *endCrystalEntity) int32 { return ent.crystal.ID },
@@ -129,6 +131,7 @@ func (s *Server) endCrystalByIDLocked(w *world.World, id int32) *endCrystalEntit
 
 func (s *Server) removeEndCrystalLocked(ent *endCrystalEntity) {
 	ent.crystal.Dead = true
+	endCrystalTracker.unfile(ent)
 	s.endCrystals = slices.DeleteFunc(s.endCrystals, func(o *endCrystalEntity) bool { return o == ent })
 	s.entityDestroyed(ent.uuid)
 }
@@ -522,7 +525,7 @@ func endCrystalOfTag(s *Server, w *world.World, compound nbt.Compound) *endCryst
 // vanilla: Entity.load, EndCrystal.readAdditionalSaveData
 func applyEndCrystalTag(ent *endCrystalEntity, compound nbt.Compound) {
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		ent.crystal.X, ent.crystal.Y, ent.crystal.Z = x, y, z
+		ent.crystal.SetPos(x, y, z)
 	}
 	ent.crystal.VX, ent.crystal.VY, ent.crystal.VZ = entityMotionOfTag(compound)
 	ent.crystal.FallDistance = nbt.DoubleFieldOr(compound, "fall_distance", 0)
@@ -557,7 +560,7 @@ func (s *Server) killEndCrystal(ent *endCrystalEntity) {
 // teleportEndCrystal moves a crystal and marks it for the next tracking pass.
 // vanilla: Entity.teleportTo
 func (s *Server) teleportEndCrystal(ent *endCrystalEntity, to player.Position, by string) {
-	endCrystalTracker.teleport(s, ent, func() { ent.crystal.X, ent.crystal.Y, ent.crystal.Z = to.X, to.Y, to.Z })
+	endCrystalTracker.teleport(s, ent, func() { ent.crystal.SetPos(to.X, to.Y, to.Z) })
 }
 
 func (s *Server) endCrystalSnapshot(ent *endCrystalEntity, q *entityQuery) *entitySnapshot {

@@ -64,8 +64,8 @@ type TNTEvent struct {
 // none. BlockState is the drawn block, TNT for every one this server
 // lights. Dead marks one whose fuse ran out, awaiting removal.
 type TNT struct {
-	ID         int32
-	X, Y, Z    float64
+	ID int32
+	Place
 	VX, VY, VZ float64
 	OnGround   bool
 	// bounced marks a landing that sent the body back up; TakeBounce reads it.
@@ -191,7 +191,9 @@ func (t *TNT) move(w World) bool {
 	if _, _, _, slowed := spent.scale(0, 0, 0); slowed {
 		landingVY = 0
 	}
-	onGround := moveBox(w, fallCtx(t.fallDistance), &t.X, &t.Y, &t.Z, &t.VX, &t.VY, &t.VZ, &t.stuck, TNTHalfWidth, TNTHeight)
+	x, y, z := t.X, t.Y, t.Z
+	onGround := moveBox(w, fallCtx(t.fallDistance), &x, &y, &z, &t.VX, &t.VY, &t.VZ, &t.stuck, TNTHalfWidth, TNTHeight)
+	t.SetPos(x, y, z)
 	t.LandedFall = bankFall(&t.fallDistance, oldY, t.Y, onGround)
 	if onGround && landingVY < 0 {
 		// moveBox zeroed the velocity; restitute it instead.

@@ -108,8 +108,8 @@ type Orb struct {
 	// Splash is the water entry of the last Step, nil for none.
 	Splash *WaterSplash
 
-	ID         int32
-	X, Y, Z    float64
+	ID int32
+	Place
 	VX, VY, VZ float64
 	Value      int
 	Count      int
@@ -578,7 +578,8 @@ func (o *Orb) move(w World) bool {
 	}
 	if dx != 0 || dz != 0 {
 		box, _, blockedX, blockedZ := collideHorizontal(w, ctx, o.orbBox(), dx, dz)
-		o.X, o.Z = box.centerXZ()
+		cx, cz := box.centerXZ()
+		o.SetPos(cx, o.Y, cz)
 		if blockedX {
 			o.VX = 0
 		}

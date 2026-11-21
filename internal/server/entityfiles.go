@@ -137,7 +137,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: itemTag(it), item: it,
 		})
 		return false
-	})
+	}, itemTracker.unfile)
 	s.unlockTick(&s.itemsMu)
 
 	s.lockTick(&s.arrowsMu)
@@ -154,7 +154,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: arrowTag(it), arrow: it,
 		})
 		return false
-	})
+	}, arrowTracker.unfile)
 
 	s.thrown = sweepSaved(s.thrown, func(it *thrownEntity) bool {
 		pos := world.ChunkPos{X: world.ChunkOf(it.throwable.X), Z: world.ChunkOf(it.throwable.Z)}
@@ -166,7 +166,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: thrownTag(it), thrown: it,
 		})
 		return false
-	})
+	}, thrownTracker.unfile)
 
 	s.clouds = sweepSaved(s.clouds, func(it *cloudEntity) bool {
 		pos := world.ChunkPos{X: world.ChunkOf(it.cloud.X), Z: world.ChunkOf(it.cloud.Z)}
@@ -178,7 +178,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: cloudTag(it), cloud: it,
 		})
 		return false
-	})
+	}, cloudTracker.unfile)
 	s.unlockTick(&s.arrowsMu)
 
 	s.lockTick(&s.fireworksMu)
@@ -192,7 +192,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: fireworkTag(it), firework: it,
 		})
 		return false
-	})
+	}, fireworkTracker.unfile)
 	s.unlockTick(&s.fireworksMu)
 
 	s.lockTick(&s.eyesMu)
@@ -206,7 +206,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: eyeTag(it), eye: it,
 		})
 		return false
-	})
+	}, eyeTracker.unfile)
 	s.unlockTick(&s.eyesMu)
 
 	s.lockTick(&s.orbsMu)
@@ -223,7 +223,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: orbTag(it), orb: it,
 		})
 		return false
-	})
+	}, orbTracker.unfile)
 	s.unlockTick(&s.orbsMu)
 
 	s.lockTick(&s.tntMu)
@@ -240,7 +240,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: tntTag(it), tnt: it,
 		})
 		return false
-	})
+	}, tntTracker.unfile)
 	s.unlockTick(&s.tntMu)
 
 	s.lockTick(&s.fallingMu)
@@ -257,7 +257,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: fallingTag(it), falling: it,
 		})
 		return false
-	})
+	}, fallingTracker.unfile)
 	s.unlockTick(&s.fallingMu)
 
 	s.lockTick(&s.paintingsMu)
@@ -271,7 +271,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: paintingTag(p), painting: p,
 		})
 		return false
-	})
+	}, paintingTracker.unfile)
 	s.unlockTick(&s.paintingsMu)
 
 	s.lockTick(&s.framesMu)
@@ -286,7 +286,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 		})
 		s.removeFrameCellsLocked(f)
 		return false
-	})
+	}, frameTracker.unfile)
 	s.unlockTick(&s.framesMu)
 
 	s.lockTick(&s.boatsMu)
@@ -302,7 +302,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: boatTag(it), boat: it,
 		})
 		return false
-	})
+	}, boatTracker.unfile)
 	s.unlockTick(&s.boatsMu)
 
 	s.lockTick(&s.minecartsMu)
@@ -318,7 +318,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: minecartTag(it), minecart: it,
 		})
 		return false
-	})
+	}, minecartTracker.unfile)
 	s.unlockTick(&s.minecartsMu)
 
 	s.lockTick(&s.armorStandsMu)
@@ -336,7 +336,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: armorStandTag(ent), armorStand: ent,
 		})
 		return false
-	})
+	}, standTracker.unfile)
 	s.unlockTick(&s.armorStandsMu)
 
 	s.lockTick(&s.endCrystalsMu)
@@ -353,7 +353,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: endCrystalTag(ent), endCrystal: ent,
 		})
 		return false
-	})
+	}, endCrystalTracker.unfile)
 	s.unlockTick(&s.endCrystalsMu)
 
 	s.lockTick(&s.mannequinsMu)
@@ -370,7 +370,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: mannequinTag(ent), mannequin: ent,
 		})
 		return false
-	})
+	}, mannequinTracker.unfile)
 	s.unlockTick(&s.mannequinsMu)
 
 	s.lockTick(&s.fixturesMu)
@@ -387,7 +387,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: fixtureTag(ent), fixture: ent,
 		})
 		return false
-	})
+	}, fixtureTracker.unfile)
 	s.unlockTick(&s.fixturesMu)
 
 	return out
@@ -644,13 +644,13 @@ func (s *Server) summonDuplicate(identity uuid.UUID) bool {
 func (s *Server) readd(d departure) {
 	switch d.kind {
 	case departingItem:
-		restoreSaved(&s.itemsMu, &s.items, d.item)
+		restoreSaved(s, &itemTracker, d.item)
 	case departingArrow:
-		restoreSaved(&s.arrowsMu, &s.arrows, d.arrow)
+		restoreSaved(s, &arrowTracker, d.arrow)
 	case departingOrb:
-		restoreSaved(&s.orbsMu, &s.orbs, d.orb)
+		restoreSaved(s, &orbTracker, d.orb)
 	case departingFalling:
-		restoreSaved(&s.fallingMu, &s.fallings, d.falling)
+		restoreSaved(s, &fallingTracker, d.falling)
 	case departingPainting:
 		s.paintingsMu.Lock()
 		s.registerPaintingLocked(d.painting)
@@ -660,27 +660,27 @@ func (s *Server) readd(d departure) {
 		s.registerFrameLocked(d.frame)
 		s.framesMu.Unlock()
 	case departingBoat:
-		restoreSaved(&s.boatsMu, &s.boats, d.boat)
+		restoreSaved(s, &boatTracker, d.boat)
 	case departingMinecart:
-		restoreSaved(&s.minecartsMu, &s.minecarts, d.minecart)
+		restoreSaved(s, &minecartTracker, d.minecart)
 	case departingArmorStand:
-		restoreSaved(&s.armorStandsMu, &s.armorStands, d.armorStand)
+		restoreSaved(s, &standTracker, d.armorStand)
 	case departingEndCrystal:
-		restoreSaved(&s.endCrystalsMu, &s.endCrystals, d.endCrystal)
+		restoreSaved(s, &endCrystalTracker, d.endCrystal)
 	case departingMannequin:
-		restoreSaved(&s.mannequinsMu, &s.mannequins, d.mannequin)
+		restoreSaved(s, &mannequinTracker, d.mannequin)
 	case departingFixture:
-		restoreSaved(&s.fixturesMu, &s.fixtures, d.fixture)
+		restoreSaved(s, &fixtureTracker, d.fixture)
 	case departingThrown:
-		restoreSaved(&s.arrowsMu, &s.thrown, d.thrown)
+		restoreSaved(s, &thrownTracker, d.thrown)
 	case departingCloud:
-		restoreSaved(&s.arrowsMu, &s.clouds, d.cloud)
+		restoreSaved(s, &cloudTracker, d.cloud)
 	case departingFirework:
-		restoreSaved(&s.fireworksMu, &s.fireworks, d.firework)
+		restoreSaved(s, &fireworkTracker, d.firework)
 	case departingEye:
-		restoreSaved(&s.eyesMu, &s.eyes, d.eye)
+		restoreSaved(s, &eyeTracker, d.eye)
 	default:
-		restoreSaved(&s.tntMu, &s.tnts, d.tnt)
+		restoreSaved(s, &tntTracker, d.tnt)
 	}
 }
 

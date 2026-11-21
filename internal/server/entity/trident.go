@@ -120,9 +120,7 @@ func (a *Arrow) tridentReturnTick(w World, owner *ArrowTarget) []ArrowEvent {
 	a.Yaw = lerpRotation(a.Yaw, arrowTargetYaw(-a.VX, -a.VZ))
 	a.Pitch = lerpRotation(a.Pitch, arrowTargetPitch(a.VY, a.VX, a.VZ))
 
-	a.X += a.VX
-	a.Y += a.VY
-	a.Z += a.VZ
+	a.SetPos(a.X+a.VX, a.Y+a.VY, a.Z+a.VZ)
 	// Air drag still applies on the return; gravity does not.
 	a.VX *= arrowAirDrag
 	a.VY *= arrowAirDrag

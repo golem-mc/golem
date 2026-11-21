@@ -5,13 +5,17 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/plugin"
+	"github.com/golem-mc/golem/registry"
 )
 
-// BenchmarkPluginChunkEntities times Chunk.Entities with 2000 mobs over 1024
-// loaded chunks.
-func BenchmarkPluginChunkEntities(b *testing.B) {
+// pluginChunkBench builds a server with 1024 loaded chunks and returns it with
+// its dimension, the chunks and the plugin's world handle.
+func pluginChunkBench(b *testing.B) (*Server, *dimension, []world.ChunkPos, pluginWorld) {
+	b.Helper()
 	cfg := config.Default()
 	cfg.OnlineMode = false
 	cfg.LevelName = b.TempDir()
@@ -37,6 +41,25 @@ func BenchmarkPluginChunkEntities(b *testing.B) {
 		}
 		s.Shutdown()
 	})
+	return s, dim, chunks, pluginWorld{srv: s, dim: dim, host: &pluginHost{srv: s}}
+}
+
+// benchChunkEntities times Chunk.Entities over the chunks.
+func benchChunkEntities(b *testing.B, w *world.World, pw pluginWorld, chunks []world.ChunkPos) {
+	b.ReportAllocs()
+	i := 0
+	for b.Loop() {
+		c := pluginChunk{world: pw, chunk: w.LoadedChunk(chunks[i%1024])}
+		_ = c.Entities()
+		i++
+	}
+}
+
+// BenchmarkPluginChunkEntities times Chunk.Entities with 2000 mobs over 1024
+// loaded chunks.
+func BenchmarkPluginChunkEntities(b *testing.B) {
+	s, dim, chunks, pw := pluginChunkBench(b)
+	w := dim.w
 	rng := rand.New(rand.NewSource(264))
 	for range 2000 {
 		x, z := (rng.Float64()-0.5)*512, (rng.Float64()-0.5)*512
@@ -47,13 +70,25 @@ func BenchmarkPluginChunkEntities(b *testing.B) {
 		}
 		s.mobsMu.Unlock()
 	}
-	host := &pluginHost{srv: s}
-	pw := pluginWorld{srv: s, dim: dim, host: host}
-	b.ReportAllocs()
-	i := 0
-	for b.Loop() {
-		c := pluginChunk{world: pw, chunk: w.LoadedChunk(chunks[i%1024])}
-		_ = c.Entities()
-		i++
+	benchChunkEntities(b, w, pw, chunks)
+}
+
+// BenchmarkPluginChunkEntitiesBodies times Chunk.Entities with 1000 items and
+// 1000 armor stands over 1024 loaded chunks and no mobs.
+func BenchmarkPluginChunkEntitiesBodies(b *testing.B) {
+	s, dim, chunks, pw := pluginChunkBench(b)
+	w := dim.w
+	rng := rand.New(rand.NewSource(267))
+	stone, _ := registry.ItemID("minecraft:stone")
+	for range 1000 {
+		x, z := (rng.Float64()-0.5)*512, (rng.Float64()-0.5)*512
+		s.spawnItem(w, protocol.ItemStack{ItemID: stone, Count: 1}, x, float64(world.GroundLevel), z, 0, 0, 0, entity.BreakPickupDelay)
 	}
+	for range 1000 {
+		x, z := (rng.Float64()-0.5)*512, (rng.Float64()-0.5)*512
+		if _, err := s.summonArmorStand(w, x, float64(world.GroundLevel), z, nil, plugin.SpawnCommand); err != nil {
+			b.Fatal(err)
+		}
+	}
+	benchChunkEntities(b, w, pw, chunks)
 }

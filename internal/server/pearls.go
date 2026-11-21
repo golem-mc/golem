@@ -235,6 +235,7 @@ func (s *Server) takePearlsForLeave(c *client) []nbt.Tag {
 			it.ownerUUID == c.player.UUID {
 			leaving = append(leaving, it)
 			saved = append(saved, s.pearlSavedTag(it))
+			thrownTracker.unfile(it)
 			continue
 		}
 		taken = append(taken, it)

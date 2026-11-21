@@ -1,0 +1,151 @@
+package entity
+
+import (
+	"iter"
+
+	"github.com/golem-mc/golem/internal/server/world"
+)
+
+// Filing is a body's entry in a ChunkIndex; the zero value is unfiled.
+type Filing struct {
+	ix    filer
+	chunk world.ChunkPos
+	slot  int32
+}
+
+type filer interface {
+	refile(f *Filing, to world.ChunkPos)
+	remove(f *Filing)
+}
+
+// Refile moves the body to another chunk of its index. It does nothing when
+// the body is unfiled or the chunk is unchanged.
+func (f *Filing) Refile(to world.ChunkPos) {
+	if f.ix != nil && f.chunk != to {
+		f.ix.refile(f, to)
+	}
+}
+
+// Unfile takes the body out of its index. It does nothing when unfiled.
+func (f *Filing) Unfile() {
+	if f.ix != nil {
+		f.ix.remove(f)
+	}
+}
+
+// Place is a body's position. Write X and Z only through SetPos: the chunk
+// index depends on it.
+type Place struct {
+	X, Y, Z float64
+	Filing
+}
+
+// SetPos moves the body and re-files it when it crossed a chunk border.
+func (p *Place) SetPos(x, y, z float64) {
+	p.X, p.Y, p.Z = x, y, z
+	p.Refile(ChunkAt(x, z))
+}
+
+// InChunk reports whether the body's X and Z are in the chunk.
+func (p *Place) InChunk(pos world.ChunkPos) bool { return ChunkAt(p.X, p.Z) == pos }
+
+// ChunkAt is the chunk holding the horizontal position.
+func ChunkAt(x, z float64) world.ChunkPos {
+	return world.ChunkPos{X: world.ChunkOf(x), Z: world.ChunkOf(z)}
+}
+
+// ChunkIndex files bodies by chunk. The lock guarding the bodies' list guards
+// it. The zero value is ready to use.
+type ChunkIndex[T any] struct {
+	cells map[world.ChunkPos][]chunkEntry[T]
+}
+
+type chunkEntry[T any] struct {
+	body T
+	f    *Filing
+}
+
+// Add files body under pos. A body already in ix is moved; one in another
+// index leaves it first.
+func (ix *ChunkIndex[T]) Add(body T, f *Filing, pos world.ChunkPos) {
+	if f.ix != nil {
+		if f.ix == filer(ix) && ix.owns(f) {
+			f.Refile(pos)
+			return
+		}
+		f.Unfile()
+	}
+	ix.insert(body, f, pos)
+}
+
+func (ix *ChunkIndex[T]) insert(body T, f *Filing, pos world.ChunkPos) {
+	if ix.cells == nil {
+		ix.cells = make(map[world.ChunkPos][]chunkEntry[T])
+	}
+	cell := ix.cells[pos]
+	f.ix, f.chunk, f.slot = ix, pos, int32(len(cell))
+	ix.cells[pos] = append(cell, chunkEntry[T]{body, f})
+}
+
+// owns reports whether f's own entry is in ix. A struct copy carries the
+// original's Filing, which points at an entry that is not the copy's.
+func (ix *ChunkIndex[T]) owns(f *Filing) bool {
+	cell := ix.cells[f.chunk]
+	return f.slot >= 0 && int(f.slot) < len(cell) && cell[f.slot].f == f
+}
+
+func (ix *ChunkIndex[T]) refile(f *Filing, to world.ChunkPos) {
+	if !ix.owns(f) {
+		*f = Filing{}
+		return
+	}
+	body := ix.cells[f.chunk][f.slot].body
+	ix.remove(f)
+	ix.insert(body, f, to)
+}
+
+// remove takes f's entry out in constant time.
+func (ix *ChunkIndex[T]) remove(f *Filing) {
+	if !ix.owns(f) {
+		*f = Filing{}
+		return
+	}
+	cell := ix.cells[f.chunk]
+	last := len(cell) - 1
+	moved := cell[last]
+	cell[f.slot] = moved
+	moved.f.slot = f.slot
+	cell[last] = chunkEntry[T]{}
+	if last == 0 {
+		delete(ix.cells, f.chunk)
+	} else {
+		ix.cells[f.chunk] = cell[:last]
+	}
+	*f = Filing{}
+}
+
+// In yields the bodies filed under the chunk. The cell is live: move or
+// remove nothing while ranging, and do not keep it past the lock.
+func (ix *ChunkIndex[T]) In(pos world.ChunkPos) iter.Seq[T] {
+	return func(yield func(T) bool) {
+		for _, e := range ix.cells[pos] {
+			if !yield(e.body) {
+				return
+			}
+		}
+	}
+}
+
+// Len is the number of bodies filed.
+func (ix *ChunkIndex[T]) Len() int {
+	n := 0
+	for _, cell := range ix.cells {
+		n += len(cell)
+	}
+	return n
+}
+
+// Holds reports whether f is filed in ix under pos.
+func (ix *ChunkIndex[T]) Holds(f *Filing, pos world.ChunkPos) bool {
+	return f.ix == filer(ix) && f.chunk == pos && ix.owns(f)
+}

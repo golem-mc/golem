@@ -1,11 +1,13 @@
 package server
 
 import (
+	"fmt"
 	"iter"
 	"slices"
 	"sync"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/world"
 )
 
@@ -162,6 +164,59 @@ type trackedKind[B any, S any] struct {
 	// all, if not nil, walks the bodies in place of list, for a kind kept
 	// in more than one list.
 	all func(*Server) iter.Seq[B]
+	// chunks and filing give the kind's chunk index and a body's entry in it,
+	// both nil for a kind the index does not cover.
+	chunks func(*Server) *entity.ChunkIndex[B]
+	filing func(B) *entity.Filing
+	// anchor, if not nil, is the point a block-anchored body is filed under
+	// and queried at, in place of pose: where its snapshot reports it.
+	anchor func(B) (x, z float64)
+}
+
+// chunkOf is the chunk the index files b under.
+func (k *trackedKind[B, S]) chunkOf(b B) world.ChunkPos {
+	if k.anchor != nil {
+		return entity.ChunkAt(k.anchor(b))
+	}
+	p := k.pose(b)
+	return entity.ChunkAt(p.x, p.z)
+}
+
+// file puts a body in the kind's chunk index under its pose. The caller holds
+// the kind's lock.
+func (k *trackedKind[B, S]) file(s *Server, b B) {
+	if k.chunks == nil {
+		return
+	}
+	k.chunks(s).Add(b, k.filing(b), k.chunkOf(b))
+}
+
+// unfile takes a body out of the chunk index. The caller holds the kind's lock.
+func (k *trackedKind[B, S]) unfile(b B) {
+	if k.chunks != nil {
+		k.filing(b).Unfile()
+	}
+}
+
+// chunkDrift reports a body missing from the index or filed in the wrong
+// chunk.
+func (k *trackedKind[B, S]) chunkDrift(s *Server) error {
+	if k.chunks == nil {
+		return nil
+	}
+	mu := k.lock(s)
+	mu.Lock()
+	defer mu.Unlock()
+	ix, list := k.chunks(s), *k.list(s)
+	if ix.Len() != len(list) {
+		return fmt.Errorf("%T: %d bodies, %d filed", *new(B), len(list), ix.Len())
+	}
+	for _, b := range list {
+		if !ix.Holds(k.filing(b), k.chunkOf(b)) {
+			return fmt.Errorf("%T id %d not filed under its chunk", b, k.id(b))
+		}
+	}
+	return nil
 }
 
 // trackedBody is one body as the tracker reads it, once for all its
@@ -547,6 +602,7 @@ func (k *trackedKind[B, S]) register(s *Server, b B) {
 	mu.Lock()
 	list := k.list(s)
 	*list = append(*list, b)
+	k.file(s, b)
 	v := k.body(b)
 	v.t.origin.stamp(w, v.p.x, v.p.y, v.p.z)
 	var recipients []*client

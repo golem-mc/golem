@@ -797,7 +797,7 @@ func (s *Server) collectThrownToPush(w *world.World, sh bodyShove) []func() {
 			x, y, z := it.throwable.X+sh.dx, it.throwable.Y+sh.dy, it.throwable.Z+sh.dz
 			// A shell displaces the flight without stopping its velocity.
 			return func() {
-				thrownTracker.teleport(s, it, func() { it.throwable.X, it.throwable.Y, it.throwable.Z = x, y, z })
+				thrownTracker.teleport(s, it, func() { it.throwable.SetPos(x, y, z) })
 			}
 		})
 }
@@ -847,7 +847,7 @@ func (s *Server) collectMinecartsToPush(w *world.World, sh bodyShove) []func() {
 		func(it *minecartEntity, sh bodyShove) func() {
 			x, y, z := it.cart.X+sh.dx, it.cart.Y+sh.dy, it.cart.Z+sh.dz
 			return func() {
-				minecartTracker.teleport(s, it, func() { it.cart.X, it.cart.Y, it.cart.Z = x, y, z })
+				minecartTracker.teleport(s, it, func() { it.cart.SetPos(x, y, z) })
 			}
 		})
 }

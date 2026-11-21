@@ -251,8 +251,8 @@ type ArrowEvent struct {
 // cannot hit in its first ticks (Projectile's leftOwner rule). Dead marks a
 // discarded arrow: hit, picked up or despawned.
 type Arrow struct {
-	ID         int32
-	X, Y, Z    float64
+	ID int32
+	Place
 	VX, VY, VZ float64
 	Yaw, Pitch float32
 
@@ -577,9 +577,7 @@ func (a *Arrow) step(w World, owner *ArrowTarget, targets []ArrowTarget) []Arrow
 	// sweep for bodies; the first met decides. The return's noclip meets
 	// neither.
 	if a.NoPhysics {
-		a.X += mx
-		a.Y += my
-		a.Z += mz
+		a.SetPos(a.X+mx, a.Y+my, a.Z+mz)
 		if !a.inWater {
 			a.VX *= arrowAirDrag
 			a.VY *= arrowAirDrag
@@ -608,7 +606,7 @@ func (a *Arrow) step(w World, owner *ArrowTarget, targets []ArrowTarget) []Arrow
 		// piercing arrow's refused hit on an earlier body bounces at the final
 		// position instead of that body's, which no client can tell apart within
 		// one tick.
-		a.X, a.Y, a.Z = hitX, hitY, hitZ
+		a.SetPos(hitX, hitY, hitZ)
 		hits = a.insideBlocks(w, sx, sy, sz, hits)
 		if deflectsProjectile(hit, false) {
 			// A deflection, or the same body's second contact, ends the
@@ -648,7 +646,7 @@ func (a *Arrow) step(w World, owner *ArrowTarget, targets []ArrowTarget) []Arrow
 	// The last leg runs to the end or the block's crossing, its block effects
 	// before the block hit stops the arrow.
 	// vanilla: AbstractArrow.stepMoveAndHit
-	a.X, a.Y, a.Z = endX, endY, endZ
+	a.SetPos(endX, endY, endZ)
 	hits = a.insideBlocks(w, sx, sy, sz, hits)
 	if clip.border {
 		// vanilla: Projectile.hitTargetOrDeflectSelf
@@ -671,9 +669,7 @@ func (a *Arrow) step(w World, owner *ArrowTarget, targets []ArrowTarget) []Arrow
 			State: blockState,
 			Speed: math.Sqrt(a.VX*a.VX + a.VY*a.VY + a.VZ*a.VZ),
 		}
-		a.X = endX - arrowStuckOffset*signum(a.VX)
-		a.Y = endY - arrowStuckOffset*signum(a.VY)
-		a.Z = endZ - arrowStuckOffset*signum(a.VZ)
+		a.SetPos(endX-arrowStuckOffset*signum(a.VX), endY-arrowStuckOffset*signum(a.VY), endZ-arrowStuckOffset*signum(a.VZ))
 		a.VX, a.VY, a.VZ = 0, 0, 0
 		a.InGround = true
 		a.LastState = blockState

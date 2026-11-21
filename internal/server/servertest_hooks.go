@@ -7,6 +7,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"math"
@@ -2947,7 +2948,7 @@ func (s *Server) MoveArrow(id int32, x, y, z float64) {
 	defer s.arrowsMu.Unlock()
 	for _, it := range s.arrows {
 		if it.arrow.ID == id {
-			it.arrow.X, it.arrow.Y, it.arrow.Z = x, y, z
+			it.arrow.SetPos(x, y, z)
 		}
 	}
 }
@@ -7823,7 +7824,10 @@ func (s *Server) PlaceBobberForTest(name string, x, y, z, fall float64) (int32, 
 	for _, it := range s.bobbers {
 		if it.owner == c.player.UUID && !it.hook.Dead {
 			h := it.hook
-			h.X, h.Y, h.Z, h.VX, h.VY, h.VZ = x, y, z, 0, 0, 0
+			h.SetPos(x, y, z)
+			h.VX = 0
+			h.VY = 0
+			h.VZ = 0
 			h.SetFallDistance(fall)
 			return h.ID, true
 		}
@@ -8045,4 +8049,31 @@ func (s *Server) HurtMobByPlayerProjectile(victim int32, name string, amount flo
 			m.HurtByProjectile(amount, damageType, 0, 0, c.player.EntityID, false, false)
 		}
 	}
+}
+
+// ChunkIndexDrift reports a body whose chunk index entry is missing or filed
+// under another chunk than its position. A test's cleanup runs it once the
+// loop has stopped.
+func (s *Server) ChunkIndexDrift() error {
+	for _, k := range observerTrackers() {
+		if d, ok := k.(interface{ chunkDrift(*Server) error }); ok {
+			if err := d.chunkDrift(s); err != nil {
+				return err
+			}
+		}
+	}
+	s.mobsMu.Lock()
+	defer s.mobsMu.Unlock()
+	for _, dim := range s.allDims() {
+		h := dim.mobs
+		if h.chunks.Len() != len(h.book) {
+			return fmt.Errorf("%s mobs: %d live, %d filed", dim.name, len(h.book), h.chunks.Len())
+		}
+		for m := range h.book {
+			if !h.chunks.Holds(&m.Filing, entity.ChunkAt(m.X, m.Z)) {
+				return fmt.Errorf("%s mob %d not filed under its chunk", dim.name, m.ID)
+			}
+		}
+	}
+	return nil
 }

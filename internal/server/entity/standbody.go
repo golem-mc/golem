@@ -9,7 +9,7 @@ import (
 
 // StandBody is the shared LivingEntity travel state of armor stands and mannequins.
 type StandBody struct {
-	X, Y, Z      float64
+	Place
 	VX, VY, VZ   float64
 	OnGround     bool
 	FallDistance float64
@@ -165,8 +165,8 @@ func (s *StandBody) move(w World, box AABB, halfWidth, gravity float64) (bool, f
 		}
 		var blocked bool
 		box, _, blocked = clipMove(w, ctx, box, axis, d)
-		s.X, s.Z = box.centerXZ()
-		s.Y = box.minY
+		cx, cz := box.centerXZ()
+		s.SetPos(cx, box.minY, cz)
 		if !blocked {
 			if axis == axisY {
 				onGround = false

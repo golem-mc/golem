@@ -37,6 +37,8 @@ var mannequinTracker = trackedKind[*mannequinEntity, struct{}]{
 	interval:    1,
 	lock:        func(s *Server) *sync.Mutex { return &s.mannequinsMu },
 	list:        func(s *Server) *[]*mannequinEntity { return &s.mannequins },
+	chunks:      func(s *Server) *entity.ChunkIndex[*mannequinEntity] { return &s.mannequinChunks },
+	filing:      func(it *mannequinEntity) *entity.Filing { return &it.mannequin.Filing },
 	track:       func(ent *mannequinEntity) *bodyTrack[struct{}] { return &ent.bodyTrack },
 	world:       func(ent *mannequinEntity) *world.World { return ent.w },
 	id:          func(ent *mannequinEntity) int32 { return ent.mannequin.ID },
@@ -318,6 +320,7 @@ func (c *client) attackMannequin(target int32) bool {
 func (s *Server) killMannequin(ent *mannequinEntity) {
 	s.mannequinsMu.Lock()
 	ent.mannequin.Dead = true
+	mannequinTracker.unfile(ent)
 	s.mannequins = slices.DeleteFunc(s.mannequins, func(o *mannequinEntity) bool { return o == ent })
 	s.mannequinsMu.Unlock()
 	s.entityDestroyed(ent.uuid)
@@ -381,7 +384,9 @@ func (s *Server) mannequinTwinAt(ent *mannequinEntity, to *dimension, pos player
 		return nil
 	}
 	m := twin.mannequin
-	m.X, m.Y, m.Z, m.Yaw, m.Pitch = pos.X, pos.Y, pos.Z, pos.Yaw, pos.Pitch
+	m.SetPos(pos.X, pos.Y, pos.Z)
+	m.Yaw = pos.Yaw
+	m.Pitch = pos.Pitch
 	return twin
 }
 
@@ -397,7 +402,9 @@ func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by 
 	mannequinTracker.teleport(s, ent, func() {
 		m := ent.mannequin
 		turned = encodeAngle(m.Yaw) != encodeAngle(to.Yaw)
-		m.X, m.Y, m.Z, m.Yaw, m.Pitch = to.X, to.Y, to.Z, to.Yaw, to.Pitch
+		m.SetPos(to.X, to.Y, to.Z)
+		m.Yaw = to.Yaw
+		m.Pitch = to.Pitch
 		id = m.ID
 		watchers = trackedWatchers(ent.tracked)
 	})

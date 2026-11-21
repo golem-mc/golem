@@ -272,10 +272,10 @@ type ThrownEvent struct {
 // it cannot hit in its first ticks (Projectile's leftOwner). Dead marks a
 // discarded one.
 type Thrown struct {
-	ID         int32
-	Silent     bool
-	Kind       ThrownKind
-	X, Y, Z    float64
+	ID     int32
+	Silent bool
+	Kind   ThrownKind
+	Place
 	VX, VY, VZ float64
 	Yaw, Pitch float32
 
@@ -466,9 +466,9 @@ func (t *Thrown) Step(w World, owner *ArrowTarget, targets []ArrowTarget) []Thro
 	}
 	hit, hitX, hitY, hitZ := sweepThrownTargets(t, targets, margin, ownerVehicle, t.X, t.Y, t.Z, endX, endY, endZ)
 	fromX, fromY, fromZ := t.X, t.Y, t.Z
-	t.X, t.Y, t.Z = endX, endY, endZ
+	t.SetPos(endX, endY, endZ)
 	if hit != nil {
-		t.X, t.Y, t.Z = hitX, hitY, hitZ
+		t.SetPos(hitX, hitY, hitZ)
 	}
 	if !bullet {
 		splash = t.touchWater(w)

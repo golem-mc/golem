@@ -318,6 +318,11 @@ func NewTestServerWithPlugins(t *testing.T, cfg *config.Config, plugins []plugin
 	// saves flush), then FlushSaves, then CloseWorlds.
 	t.Cleanup(func() { held.FlushSaves() })
 	t.Cleanup(func() { held.DisablePlugins() })
+	t.Cleanup(func() {
+		if err := held.ChunkIndexDrift(); err != nil {
+			t.Errorf("chunk index: %v", err)
+		}
+	})
 	t.Cleanup(func() { held.StopTick() })
 	return srv
 }

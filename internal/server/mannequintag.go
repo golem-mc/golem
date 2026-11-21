@@ -138,7 +138,7 @@ func mannequinOfTag(s *Server, w *world.World, compound nbt.Compound) *mannequin
 func applyMannequinTag(ent *mannequinEntity, compound nbt.Compound) bool {
 	m := ent.mannequin
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
-		m.X, m.Y, m.Z = x, y, z
+		m.SetPos(x, y, z)
 	}
 	m.Yaw, m.Pitch = entityRotationOfTag(compound)
 	m.VX, m.VY, m.VZ = entityMotionOfTag(compound)

@@ -52,6 +52,8 @@ var orbTracker = trackedKind[*orbEntity, struct{}]{
 	interval:    entity.OrbInterval,
 	lock:        func(s *Server) *sync.Mutex { return &s.orbsMu },
 	list:        func(s *Server) *[]*orbEntity { return &s.orbs },
+	chunks:      func(s *Server) *entity.ChunkIndex[*orbEntity] { return &s.orbChunks },
+	filing:      func(it *orbEntity) *entity.Filing { return &it.orb.Filing },
 	track:       func(it *orbEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:       func(it *orbEntity) *world.World { return it.w },
 	id:          func(it *orbEntity) int32 { return it.orb.ID },
@@ -183,6 +185,7 @@ func (s *Server) tickOrbs() {
 	portalAlive := s.orbs[:0]
 	for _, it := range s.orbs {
 		if it.orb.Dead {
+			orbTracker.unfile(it)
 			continue
 		}
 		state, kind, due := gate.stepPortal(it.w, it.orb.X, it.orb.Y, it.orb.Z, &it.portal, portalCooldownTicks)
@@ -197,6 +200,7 @@ func (s *Server) tickOrbs() {
 			portalAlive = append(portalAlive, it)
 			continue
 		}
+		orbTracker.unfile(it)
 		travels = append(travels, orbPortalTravel{it: it, kind: kind})
 	}
 	s.orbs = portalAlive
@@ -300,7 +304,9 @@ func (s *Server) tickOrbs() {
 				flakes = append(flakes, snowflakeSpot{it.w, it.orb.X, float64(ev.Y + 1), it.orb.Z})
 			}
 		}
-		if !it.orb.Dead {
+		if it.orb.Dead {
+			orbTracker.unfile(it)
+		} else {
 			alive = append(alive, it)
 		}
 	}
@@ -592,7 +598,7 @@ func (s *Server) killOrb(it *orbEntity) {
 // vanilla: Entity.teleportTo
 func (s *Server) teleportOrb(it *orbEntity, to player.Position, by string) {
 	orbTracker.teleport(s, it, func() {
-		it.orb.X, it.orb.Y, it.orb.Z = to.X, to.Y, to.Z
+		it.orb.SetPos(to.X, to.Y, to.Z)
 		it.orb.VX, it.orb.VY, it.orb.VZ = 0, 0, 0
 	})
 	logTeleported("orb", to, by)
@@ -609,7 +615,7 @@ func (s *Server) orbTwinAt(it *orbEntity, to *dimension, pos player.Position) *o
 	if twin == nil {
 		return nil
 	}
-	twin.orb.X, twin.orb.Y, twin.orb.Z = pos.X, pos.Y, pos.Z
+	twin.orb.SetPos(pos.X, pos.Y, pos.Z)
 	return twin
 }
 
@@ -631,6 +637,7 @@ func (s *Server) finishOrbTravel(it *orbEntity, kind rules.PortalKind) {
 	}, func() {
 		s.orbsMu.Lock()
 		s.orbs = append(s.orbs, it)
+		orbTracker.file(s, it)
 		s.orbsMu.Unlock()
 	})
 }

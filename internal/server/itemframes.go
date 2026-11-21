@@ -23,6 +23,7 @@ import (
 // comparator reads through the block behind it.
 
 type frameEntity struct {
+	entity.Filing
 	id   int32
 	uuid uuid.UUID
 	w    *world.World
@@ -69,6 +70,9 @@ var frameTracker = trackedKind[*frameEntity, struct{}]{
 	rangeChunks: entity.ItemFrameTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.framesMu },
 	list:        func(s *Server) *[]*frameEntity { return &s.frames },
+	chunks:      func(s *Server) *entity.ChunkIndex[*frameEntity] { return &s.frameChunks },
+	filing:      func(it *frameEntity) *entity.Filing { return &it.Filing },
+	anchor:      func(it *frameEntity) (float64, float64) { return frameCentreX(it), frameCentreZ(it) },
 	track:       func(f *frameEntity) *bodyTrack[struct{}] { return &f.bodyTrack },
 	world:       func(f *frameEntity) *world.World { return f.w },
 	id:          func(f *frameEntity) int32 { return f.id },
@@ -167,6 +171,7 @@ func (f *frameEntity) setItem(stack protocol.ItemStack) {
 func (f *frameEntity) reshape() {
 	_, framedMap := f.item.MapIDOf()
 	f.minX, f.minY, f.minZ, f.maxX, f.maxY, f.maxZ = rules.ItemFrameBox(f.x, f.y, f.z, f.dir, framedMap)
+	f.Refile(entity.ChunkAt(frameCentreX(f), frameCentreZ(f)))
 }
 
 // frameSurvives reports whether a frame survives in the cell given: nothing
@@ -296,6 +301,7 @@ func (s *Server) registerFrame(f *frameEntity) {
 // lock is held.
 func (s *Server) registerFrameLocked(f *frameEntity) {
 	s.frames = append(s.frames, f)
+	frameTracker.file(s, f)
 	s.addFrameCellsLocked(f)
 }
 
@@ -321,6 +327,7 @@ func (s *Server) rehangFrameLocked(f *frameEntity, x, y, z, dir int32) {
 // unlistFrameLocked takes a frame out of the list and the cell index, keeping
 // its scores for a twin that carries its UUID on. The frame lock is held.
 func (s *Server) unlistFrameLocked(f *frameEntity) {
+	frameTracker.unfile(f)
 	s.frames = slices.DeleteFunc(s.frames, func(o *frameEntity) bool { return o == f })
 	s.removeFrameCellsLocked(f)
 }

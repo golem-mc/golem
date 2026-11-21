@@ -74,6 +74,8 @@ var arrowTracker = trackedKind[*arrowEntity, arrowMetadataState]{
 	alwaysPosition: true,
 	lock:           func(s *Server) *sync.Mutex { return &s.arrowsMu },
 	list:           func(s *Server) *[]*arrowEntity { return &s.arrows },
+	chunks:         func(s *Server) *entity.ChunkIndex[*arrowEntity] { return &s.arrowChunks },
+	filing:         func(it *arrowEntity) *entity.Filing { return &it.arrow.Filing },
 	track:          func(it *arrowEntity) *bodyTrack[arrowMetadataState] { return &it.bodyTrack },
 	world:          func(it *arrowEntity) *world.World { return it.w },
 	id:             func(it *arrowEntity) int32 { return it.arrow.ID },
@@ -688,7 +690,7 @@ func (s *Server) summonArrow(w *world.World, name string, x, y, z float64, tag n
 		return nil, command.ErrDuplicateUUID
 	}
 	it.arrow.OwnerID = s.resolveOwner(it.ownerUUID)
-	it.arrow.X, it.arrow.Y, it.arrow.Z = x, y, z
+	it.arrow.SetPos(x, y, z)
 	s.registerArrow(it)
 	return it, nil
 }
@@ -858,7 +860,7 @@ func (s *Server) spendArrow(it *arrowEntity) {
 // vanilla: Entity.teleportTo
 func (s *Server) teleportArrow(it *arrowEntity, to player.Position, by string) {
 	arrowTracker.teleport(s, it, func() {
-		it.arrow.X, it.arrow.Y, it.arrow.Z = to.X, to.Y, to.Z
+		it.arrow.SetPos(to.X, to.Y, to.Z)
 		it.arrow.VX, it.arrow.VY, it.arrow.VZ = 0, 0, 0
 	})
 	logTeleported("arrow", to, by)
@@ -875,7 +877,7 @@ func (s *Server) arrowTwinAt(it *arrowEntity, to *dimension, pos player.Position
 	if twin == nil {
 		return nil
 	}
-	twin.arrow.X, twin.arrow.Y, twin.arrow.Z = pos.X, pos.Y, pos.Z
+	twin.arrow.SetPos(pos.X, pos.Y, pos.Z)
 	return twin
 }
 
@@ -914,6 +916,7 @@ func (s *Server) finishArrowTravel(it *arrowEntity, kind rules.PortalKind) {
 	}, func() {
 		s.arrowsMu.Lock()
 		s.arrows = append(s.arrows, it)
+		arrowTracker.file(s, it)
 		s.arrowsMu.Unlock()
 	})
 }

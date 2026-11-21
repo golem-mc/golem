@@ -22,6 +22,7 @@ import (
 // by the fixtures lock, which its registration takes inside s.mu and
 // nothing takes inside another lock.
 type fixtureEntity struct {
+	entity.Filing
 	id      int32
 	w       *world.World
 	uuid    uuid.UUID
@@ -51,6 +52,8 @@ var fixtureTracker = trackedKind[*fixtureEntity, struct{}]{
 	rangeOf: func(ent *fixtureEntity) int { return entity.FixtureTrackingRange(ent.kind) },
 	lock:    func(s *Server) *sync.Mutex { return &s.fixturesMu },
 	list:    func(s *Server) *[]*fixtureEntity { return &s.fixtures },
+	chunks:  func(s *Server) *entity.ChunkIndex[*fixtureEntity] { return &s.fixtureChunks },
+	filing:  func(it *fixtureEntity) *entity.Filing { return &it.Filing },
 	track:   func(ent *fixtureEntity) *bodyTrack[struct{}] { return &ent.bodyTrack },
 	world:   func(ent *fixtureEntity) *world.World { return ent.w },
 	id:      func(ent *fixtureEntity) int32 { return ent.id },
@@ -387,6 +390,7 @@ func (s *Server) setFixtureData(ent *fixtureEntity, data nbt.Compound) {
 	fixtureTracker.invalidatePistonGrid(s, ent)
 	if x, y, z, ok := entityPositionOfTag(data); ok && (x != ent.x || y != ent.y || z != ent.z) {
 		ent.x, ent.y, ent.z = x, y, z
+		ent.Refile(entity.ChunkAt(x, z))
 		ent.teleported = true
 	}
 	if _, has := data["Rotation"]; has {
@@ -432,6 +436,7 @@ func (s *Server) unlistFixtureLocked(ent *fixtureEntity) {
 	// the list keeps spawn order for selector ties.
 	for i, v := range slices.Backward(s.fixtures) {
 		if v == ent {
+			fixtureTracker.unfile(ent)
 			s.fixtures = slices.Delete(s.fixtures, i, i+1)
 			break
 		}

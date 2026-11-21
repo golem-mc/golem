@@ -414,9 +414,10 @@ type Server struct {
 	// broadcasts the spawn, so this lock keeps a physics step from racing an
 	// arrival. It is taken inside mu where both are needed, which is only
 	// spawnItem and the tick's copy of the recipients.
-	itemsMu  sync.Mutex
-	items    []*itemEntity
-	itemCols *itemColumns
+	itemsMu    sync.Mutex
+	items      []*itemEntity
+	itemChunks entity.ChunkIndex[*itemEntity]
+	itemCols   *itemColumns
 	// itemColBuffer retains storage between passes; itemCols is nil outside them.
 	itemColBuffer itemColumns
 	// deferItemSteps excludes arrivals during the entity passes ahead of
@@ -556,10 +557,13 @@ type Server struct {
 	// a skeleton's shot only adds. It is taken inside mu and around mobsMu
 	// (projectile ticks read mob bodies with the mob lock beneath), and by
 	// nothing else holding another server lock.
-	arrowsMu sync.Mutex
-	arrows   []*arrowEntity
-	thrown   []*thrownEntity
-	clouds   []*cloudEntity
+	arrowsMu     sync.Mutex
+	arrows       []*arrowEntity
+	arrowChunks  entity.ChunkIndex[*arrowEntity]
+	thrown       []*thrownEntity
+	thrownChunks entity.ChunkIndex[*thrownEntity]
+	clouds       []*cloudEntity
+	cloudChunks  entity.ChunkIndex[*cloudEntity]
 
 	// fangs are the evoker fangs of every dimension, under their own lock.
 	fangs fangSet
@@ -569,27 +573,31 @@ type Server struct {
 	// removes, a use reads. It is taken around mobsMu like the projectile
 	// pass's lock, by the jump's sends and observer bookkeeping removals, and
 	// by nothing else holding another server lock.
-	bobbersMu sync.Mutex
-	bobbers   []*bobberEntity
+	bobbersMu    sync.Mutex
+	bobbers      []*bobberEntity
+	bobberChunks entity.ChunkIndex[*bobberEntity]
 
 	// orbsMu guards the experience orbs: the main loop ticks them under it; an
 	// award, summon or death only adds. It is taken inside mu where both are
 	// needed, like itemsMu.
-	orbsMu sync.Mutex
-	orbs   []*orbEntity
+	orbsMu    sync.Mutex
+	orbs      []*orbEntity
+	orbChunks entity.ChunkIndex[*orbEntity]
 
 	// tntMu guards tnts, the primed TNT: the main loop ticks them under it; a
 	// lit block or chain spawn only adds. It is taken inside mu where both are
 	// needed, like itemsMu, and by nothing else holding another server lock.
-	tntMu sync.Mutex
-	tnts  []*tntEntity
+	tntMu     sync.Mutex
+	tnts      []*tntEntity
+	tntChunks entity.ChunkIndex[*tntEntity]
 	// tntBlasts indexes tnts by position while tickTNT runs its blasts, so
 	// one blast reads the bodies near it and not the whole list.
 	tntBlasts tntBlastIndex
 
 	// boltMu guards bolts, the lightning bolts. It is taken alone.
-	boltMu sync.Mutex
-	bolts  []*boltEntity
+	boltMu     sync.Mutex
+	bolts      []*boltEntity
+	boltChunks entity.ChunkIndex[*boltEntity]
 	// boltTickEffects is scratch owned by the tick goroutine; records are cleared after applying.
 	boltTickEffects boltEffects
 	// lightningOdds is the denominator of a chunk's strike die; 0 is
@@ -602,8 +610,9 @@ type Server struct {
 	// under it; a launch only adds. It is taken inside mu where both are
 	// needed, like itemsMu, and with the mob lock by the tick reading bodies a
 	// flight may meet.
-	fireworksMu sync.Mutex
-	fireworks   []*fireworkEntity
+	fireworksMu    sync.Mutex
+	fireworks      []*fireworkEntity
+	fireworkChunks entity.ChunkIndex[*fireworkEntity]
 
 	// boatsMu guards boats: the main loop ticks them under it; placing,
 	// mounting, driving or striking one only adds or amends. It is taken inside
@@ -614,6 +623,7 @@ type Server struct {
 	// the boat tick touches it.
 	boatScratch map[*world.World]*boatWorldBodies
 	boats       []*boatEntity
+	boatChunks  entity.ChunkIndex[*boatEntity]
 	// cartPushScratch holds the cart tick's push inputs between ticks; only
 	// the cart tick touches it.
 	cartPushScratch *cartPushes
@@ -626,8 +636,9 @@ type Server struct {
 	// boarding, casting off or striking one only adds or amends. It is taken
 	// inside mu and boatsMu where both are needed. The engine's detector-rail
 	// answer takes it alone outside the engine's own lock.
-	minecartsMu sync.Mutex
-	minecarts   []*minecartEntity
+	minecartsMu    sync.Mutex
+	minecarts      []*minecartEntity
+	minecartChunks entity.ChunkIndex[*minecartEntity]
 	// vehicleMarks is each hull's and cart's transform at the last VehicleMoveEvent pass; tick goroutine only.
 	vehicleMarks map[uuid.UUID]markState
 	vehicleGen   uint32
@@ -641,13 +652,15 @@ type Server struct {
 	// them under it; the physics engine's hand-off only adds. It is taken
 	// inside mu where both are needed, like itemsMu, and by nothing else
 	// holding another server lock.
-	fallingMu sync.Mutex
-	fallings  []*fallingEntity
+	fallingMu     sync.Mutex
+	fallings      []*fallingEntity
+	fallingChunks entity.ChunkIndex[*fallingEntity]
 
 	// paintingsMu guards paintings. It is taken inside mu where both are
 	// needed, like itemsMu, and before framesMu for a survival check.
-	paintingsMu sync.Mutex
-	paintings   []*paintingEntity
+	paintingsMu    sync.Mutex
+	paintings      []*paintingEntity
+	paintingChunks entity.ChunkIndex[*paintingEntity]
 
 	// framesMu guards frames and frameCells, the frames indexed by the two
 	// cells whose change might unhang them (their own and the support behind).
@@ -655,42 +668,49 @@ type Server struct {
 	// index. It is taken inside mu where both are needed, after paintingsMu
 	// when a survives check asks both, and by nothing else holding another
 	// server lock.
-	framesMu   sync.Mutex
-	frames     []*frameEntity
-	frameCells map[frameCell][]*frameEntity
+	framesMu    sync.Mutex
+	frames      []*frameEntity
+	frameChunks entity.ChunkIndex[*frameEntity]
+	frameCells  map[frameCell][]*frameEntity
 
 	// knotsMu guards knots, leash knots on fences. The main loop polls them
 	// under it; a lead used on a fence, a use on the knot or a blow adds,
 	// removes or breaks one. It is taken inside mu where both are needed, and
 	// after mobsMu where both are (the leash-drop pass reads leashed mobs under
 	// both).
-	knotsMu sync.Mutex
-	knots   []*knotEntity
+	knotsMu    sync.Mutex
+	knots      []*knotEntity
+	knotChunks entity.ChunkIndex[*knotEntity]
 
 	// armorStandsMu guards armorStands: the main loop ticks them under it; a
 	// placement, summon or wake only adds. It is taken inside mu where both are
 	// needed, like itemsMu, and by nothing else holding another server lock.
 	armorStandsMu sync.Mutex
 	armorStands   []*armorStandEntity
+	standChunks   entity.ChunkIndex[*armorStandEntity]
 
 	// endCrystalsMu guards endCrystals, the end crystals standing in the worlds.
 	endCrystalsMu sync.Mutex
 	endCrystals   []*endCrystalEntity
+	crystalChunks entity.ChunkIndex[*endCrystalEntity]
 
 	// mannequinsMu guards mannequins, the mannequins standing in the worlds.
-	mannequinsMu sync.Mutex
-	mannequins   []*mannequinEntity
+	mannequinsMu    sync.Mutex
+	mannequins      []*mannequinEntity
+	mannequinChunks entity.ChunkIndex[*mannequinEntity]
 
 	// eyesMu guards eyes, the eyes of ender in flight.
-	eyesMu sync.Mutex
-	eyes   []*eyeEntity
+	eyesMu    sync.Mutex
+	eyes      []*eyeEntity
+	eyeChunks entity.ChunkIndex[*eyeEntity]
 
 	// eyeTargets overrides the current world's structure locator in tests.
 	eyeTargets entity.EyeTargets
 
 	// fixturesMu guards fixtures: displays, interactions and markers.
-	fixturesMu sync.Mutex
-	fixtures   []*fixtureEntity
+	fixturesMu    sync.Mutex
+	fixtures      []*fixtureEntity
+	fixtureChunks entity.ChunkIndex[*fixtureEntity]
 	// cushionsMade is set once any cushion is built and never cleared, so
 	// a piston move skips the fixture scan on a server that never had one.
 	cushionsMade atomic.Bool

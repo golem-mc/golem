@@ -70,6 +70,8 @@ var bobberTracker = trackedKind[*bobberEntity, bobberTold]{
 	interval:    entity.BobberInterval,
 	lock:        func(s *Server) *sync.Mutex { return &s.bobbersMu },
 	list:        func(s *Server) *[]*bobberEntity { return &s.bobbers },
+	chunks:      func(s *Server) *entity.ChunkIndex[*bobberEntity] { return &s.bobberChunks },
+	filing:      func(it *bobberEntity) *entity.Filing { return &it.hook.Filing },
 	track:       func(it *bobberEntity) *bodyTrack[bobberTold] { return &it.bodyTrack },
 	world:       func(it *bobberEntity) *world.World { return it.w },
 	id:          func(it *bobberEntity) int32 { return it.hook.ID },
@@ -136,6 +138,8 @@ func (s *Server) takeBobber(it *bobberEntity) []*client {
 	for _, other := range s.bobbers {
 		if other != it {
 			alive = append(alive, other)
+		} else {
+			bobberTracker.unfile(other)
 		}
 	}
 	s.bobbers = alive
@@ -166,7 +170,7 @@ func (s *Server) killBobber(it *bobberEntity) {
 // vanilla: Entity.teleportTo
 func (s *Server) teleportBobber(it *bobberEntity, to player.Position, by string) {
 	bobberTracker.teleport(s, it, func() {
-		it.hook.X, it.hook.Y, it.hook.Z = to.X, to.Y, to.Z
+		it.hook.SetPos(to.X, to.Y, to.Z)
 		it.hook.VX, it.hook.VY, it.hook.VZ = 0, 0, 0
 	})
 	logTeleported("bobber", to, by)
@@ -180,7 +184,7 @@ func (s *Server) teleportBobber(it *bobberEntity, to player.Position, by string)
 func (s *Server) bobberTwinAt(it *bobberEntity, to *dimension, pos player.Position) *bobberEntity {
 	body := *it.hook
 	body.ID = s.nextEntity()
-	body.X, body.Y, body.Z = pos.X, pos.Y, pos.Z
+	body.SetPos(pos.X, pos.Y, pos.Z)
 	body.HookedID = 0
 	twin := *it
 	twin.hook, twin.w = &body, to.w
@@ -648,6 +652,7 @@ func (s *Server) tickBobbers() {
 	alive := s.bobbers[:0]
 	for _, it := range s.bobbers {
 		if it.hook.Dead {
+			bobberTracker.unfile(it)
 			continue
 		}
 
@@ -786,6 +791,7 @@ func (s *Server) tickBobbers() {
 					gone.showTos = append(gone.showTos, showTo{a.c, it.w})
 				}
 			}
+			bobberTracker.unfile(it)
 			continue
 		}
 		alive = append(alive, it)

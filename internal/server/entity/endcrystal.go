@@ -19,8 +19,8 @@ const (
 // EndCrystal is one end crystal: it never moves and has no health, any hurt
 // removes it.
 type EndCrystal struct {
-	ID      int32
-	X, Y, Z float64
+	ID int32
+	Place
 	// VX, VY and VZ are retained for block effects and saving, but never integrated.
 	VX, VY, VZ   float64
 	FallDistance float64

@@ -32,8 +32,8 @@ const CloudTracking = 10
 
 // Cloud is one area effect cloud of a world.
 type Cloud struct {
-	ID      int32
-	X, Y, Z float64
+	ID int32
+	Place
 
 	// TickCount is the age of the cloud in ticks, one counted before
 	// each step's own body runs.
