@@ -517,3 +517,53 @@ func TestPluginPlayerRecipeBook(t *testing.T) {
 	}
 	c2.Disconnect()
 }
+
+// vanilla: Abilities.addSaveData/loadSaveData, Player.readAdditionalSaveData
+func TestPluginAbilitySpeedsSurviveRejoin(t *testing.T) {
+	t.Parallel()
+	srv, h, run, cs := statePlugin(t, "Flyer")
+	run(func() {
+		p := handle(t, h, "Flyer")
+		p.SetGameMode(plugin.Survival)
+		p.SetFlySpeed(0.4)
+		p.SetWalkSpeed(0.6)
+	})
+	// The second round keeps what the file holds when nobody touches the speeds.
+	for range 2 {
+		cs[0].Conn.Close()
+		cs[0].AwaitServed()
+		servertest.RunTicks(t, srv, 1)
+		c := servertest.DialServer(t, srv)
+		c.ViewAsk = config.MinDistance
+		var abilities []byte
+		c.JoinKeeping("Flyer")
+		cs[0] = c
+		servertest.HoldTicks(t, srv)
+		c.ReadTicks(srv, 2, func(id int32, data []byte) bool {
+			if id == protocol.IDPlayAbilities {
+				abilities = data
+			}
+			return false
+		})
+		p := handle(t, h, "Flyer")
+		if p.FlySpeed() != 0.4 || p.WalkSpeed() != 0.6 {
+			t.Fatalf("rejoined fly %v walk %v, want 0.4 and 0.6", p.FlySpeed(), p.WalkSpeed())
+		}
+		var base float64
+		run(func() {
+			if a, ok := p.Attribute(registry.AttributeMovementSpeed); ok {
+				base = a.Base()
+			}
+		})
+		if base != float64(float32(0.3)) {
+			t.Fatalf("movement speed base %v, want 0.3", base)
+		}
+		r := protocol.NewReader(abilities)
+		if flags := r.ReadU8(); flags&protocol.AbilityAllowFlying != 0 {
+			t.Fatalf("mayfly restored: flags %x", flags)
+		}
+		if fly, walk := r.ReadF32(), r.ReadF32(); fly != 0.2 || walk != 0.3 {
+			t.Fatalf("join abilities fly %v walk %v, want 0.2 and 0.3", fly, walk)
+		}
+	}
+}
