@@ -1,6 +1,7 @@
 package explosions
 
 import (
+	"maps"
 	"testing"
 	"time"
 
@@ -43,9 +44,7 @@ func stepCubeOfTNT(t *testing.T, limit int) (maxAdvanced, ticks int) {
 	}
 	for ticks < 200 && len(srv.TNTsInDimension(world.DimensionName)) > 0 {
 		before := map[int32]int{}
-		for id, f := range fuses {
-			before[id] = f
-		}
+		maps.Copy(before, fuses)
 		servertest.StepTicks(t, srv, clock, 1)
 		ticks++
 		advanced := 0
