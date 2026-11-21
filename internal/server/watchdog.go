@@ -117,7 +117,7 @@ func watchdogReport(now time.Time, serverID string) string {
 }
 
 var (
-	goroutineHeader = regexp.MustCompile(`^goroutine \d+ \[([^\],]*)(?:, [^\]]*)?\]:$`)
+	goroutineHeader = regexp.MustCompile(`^goroutine \d+ \[([^\],]*)(?:, [^\]]*)?\](?: (\{.*\}))?:$`)
 	frameArgs       = regexp.MustCompile(`\(.*\)$`)
 	frameOffset     = regexp.MustCompile(` \+0x[0-9a-f]+$`)
 	createdByID     = regexp.MustCompile(` in goroutine \d+$`)
@@ -125,7 +125,8 @@ var (
 
 // groupStacks rewrites a runtime.Stack(all) dump: the goroutine running
 // tickLoop first, then one entry per distinct state and frames, headed by
-// its count when more than one goroutine shares it. A grouped entry shows the
+// its count when more than one goroutine shares it. Goroutines with different
+// pprof label sets stay apart. A grouped entry shows the
 // first goroutine's stack and no goroutine ID.
 func groupStacks(dump string) string {
 	type group struct {
@@ -145,7 +146,7 @@ func groupStacks(dump string) string {
 		}
 		// The key leaves out what differs between goroutines doing the same
 		// thing: IDs, argument values, pc offsets and wait times.
-		key := []string{m[1]}
+		key := []string{m[1], m[2]}
 		for _, l := range lines[1:] {
 			if !strings.HasPrefix(l, "\t") {
 				l = frameArgs.ReplaceAllString(l, "")
@@ -167,12 +168,16 @@ func groupStacks(dump string) string {
 		text := g.text
 		if g.count > 1 {
 			lines := strings.SplitN(text, "\n", 2)
-			state := goroutineHeader.FindStringSubmatch(lines[0])[1]
+			hm := goroutineHeader.FindStringSubmatch(lines[0])
+			state, labels := hm[1], hm[2]
+			if labels != "" {
+				labels = " " + labels
+			}
 			rest := ""
 			if len(lines) > 1 {
 				rest = "\n" + lines[1]
 			}
-			text = fmt.Sprintf("%d goroutines [%s]:%s", g.count, state, rest)
+			text = fmt.Sprintf("%d goroutines [%s]%s:%s", g.count, state, labels, rest)
 		}
 		b.WriteString(text + "\n\n")
 	}
