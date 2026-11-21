@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"math"
 	"math/rand"
+	"slices"
 	"sync"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -244,6 +245,9 @@ func (s *Server) tickTNT() {
 		}
 	}
 	s.tnts = alive
+	if len(blasts) > 1 {
+		s.tntBlasts.build(s.tnts)
+	}
 	s.unlockTick(&s.tntMu)
 
 	// The bodies whose fuse ran out go out of every view ahead of the
@@ -264,6 +268,9 @@ func (s *Server) tickTNT() {
 	for _, b := range blasts {
 		s.runExplosion(b)
 	}
+	s.lockTick(&s.tntMu)
+	s.tntBlasts.drop()
+	s.unlockTick(&s.tntMu)
 
 	out.send()
 	motions.send()
@@ -613,4 +620,55 @@ func playSoundEffect(name string, category int32, x, y, z float64, volume, pitch
 	b.PutF32(pitch)
 	b.PutI64(seed)
 	return b.Bytes()
+}
+
+// tntBlastIndex files the primed TNT by position for the blasts of one
+// tickTNT, after the step has moved them. The TNT lock guards it.
+type tntBlastIndex struct {
+	grid   entity.BoxGrid
+	bodies []*tntEntity
+	hits   []int32
+	active bool
+}
+
+// build indexes list; a blast only changes velocities, so positions hold.
+func (x *tntBlastIndex) build(list []*tntEntity) {
+	x.grid.Cell = 8
+	x.grid.Reset()
+	clear(x.bodies)
+	x.bodies = x.bodies[:0]
+	for _, it := range list {
+		i := int32(len(x.bodies))
+		x.bodies = append(x.bodies, it)
+		x.grid.Add(i, entity.NewAABB(it.tnt.X, it.tnt.Y, it.tnt.Z, it.tnt.X, it.tnt.Y, it.tnt.Z))
+	}
+	x.active = true
+}
+
+// drop ends the index's use and releases the bodies it holds.
+func (x *tntBlastIndex) drop() {
+	x.active = false
+	x.grid.Reset()
+	clear(x.bodies)
+	x.bodies = x.bodies[:0]
+}
+
+// near returns the bodies of list within radius of the point, in list
+// order, or list itself when no index applies. A body added since build is
+// appended; a list that no longer starts with the indexed bodies is scanned
+// whole. The slice is reused by the next call.
+func (x *tntBlastIndex) near(list []*tntEntity, cx, cy, cz, radius float64) []*tntEntity {
+	n := len(x.bodies)
+	if !x.active || n == 0 || len(list) < n || list[n-1] != x.bodies[n-1] || list[0] != x.bodies[0] {
+		return list
+	}
+	x.hits = x.hits[:0]
+	x.grid.QueryPoints(entity.NewAABB(cx-radius, cy-radius, cz-radius, cx+radius, cy+radius, cz+radius),
+		func(i int32) { x.hits = append(x.hits, i) })
+	slices.Sort(x.hits)
+	out := make([]*tntEntity, 0, len(x.hits)+len(list)-n)
+	for _, i := range x.hits {
+		out = append(out, x.bodies[i])
+	}
+	return append(out, list[n:]...)
 }

@@ -50,6 +50,7 @@ var scenarios = map[string]scenario{
 	"hoppers":             {flat, hoppers},
 	"fluids":              {flat, fluids},
 	"tnt":                 {flat, tnt},
+	"tnt-huge":            {flat, tntHuge},
 }
 
 // setup runs build commands and logs their replies, so a command one server
@@ -440,13 +441,27 @@ func fluids(e *env) error {
 }
 
 func tnt(e *env) error {
+	return tntCube(e, 16, 16)
+}
+
+// tntHuge lights a 35x35x35 cube, some 43000 primed TNT.
+func tntHuge(e *env) error {
+	return tntCube(e, 35, 35)
+}
+
+// tntCube lights a cube of TNT, side wide and tall high at most, and counts
+// the primed bodies while it burns.
+func tntCube(e *env, side, high int) error {
 	if err := e.flatStart("6000", ground+10); err != nil {
 		return err
 	}
 	// A 6x6x6 warm-up block, 60 blocks away from the measured one.
 	e.setup(fmt.Sprintf("fill 60 %d 60 65 %d 65 tnt", ground, ground+5), fmt.Sprintf("setblock 66 %d 60 redstone_block", ground))
 	time.Sleep(e.o.warmup)
-	e.setup(fmt.Sprintf("fill -8 %d 24 7 %d 39 tnt", ground, ground+15))
+	// /fill takes at most 32768 blocks, so the cube goes up a layer at a time.
+	for y := ground; y < ground+high; y++ {
+		e.setup(fmt.Sprintf("fill -8 %d 24 %d %d %d tnt", y, -8+side-1, y, 24+side-1))
+	}
 	var mu sync.Mutex
 	var counts []string
 	e.measure("main", e.o.measure, measureOpts{profile: true, during: func(stop <-chan struct{}) {
