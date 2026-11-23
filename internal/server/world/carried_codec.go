@@ -1,8 +1,10 @@
 package world
 
 import (
+	"maps"
 	"slices"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -14,9 +16,23 @@ import (
 // the ties of its display order.
 // vanilla: BlockEntity.loadWithComponents, BlockEntity.saveWithFullMetadata
 type carriedKind struct {
-	fields []string
-	read   func(nbt.Compound)
+	fields      []string
+	records     map[string][]string
+	read        func(nbt.Compound)
+	readInPlace func(entry, previous nbt.Compound)
 }
+
+// vanilla: TrialSpawnerConfig.DIRECT_CODEC, VaultConfig.CODEC
+var (
+	trialConfigFields = []string{
+		"spawn_range", "total_mobs", "simultaneous_mobs", "total_mobs_added_per_player",
+		"simultaneous_mobs_added_per_player", "ticks_between_spawn", "spawn_potentials",
+		"loot_tables_to_eject", "items_to_drop_when_ominous",
+	}
+	vaultConfigFields = []string{
+		"loot_table", "activation_range", "deactivation_range", "key_item", "override_loot_table_to_display",
+	}
+)
 
 var carriedKinds = map[string]carriedKind{
 	"minecraft:banner": {fields: []string{"patterns", "CustomName"}, read: func(e nbt.Compound) {
@@ -54,14 +70,21 @@ var carriedKinds = map[string]carriedKind{
 		"registered_players", "current_mobs", "cooldown_ends_at", "next_mob_spawns_at", "total_mobs_spawned",
 		"spawn_data", "ejecting_loot_table", "normal_config", "ominous_config", "target_cooldown_length",
 		"required_player_range",
-	}, read: func(e nbt.Compound) {
+	}, records: map[string][]string{"normal_config": trialConfigFields, "ominous_config": trialConfigFields}, read: func(e nbt.Compound) {
 		for _, key := range []string{"normal_config", "ominous_config"} {
 			if config, ok := nbt.Get[nbt.CompoundTag](e, key); ok {
-				config = blockRecord(config, "spawn_range", "total_mobs", "simultaneous_mobs", "total_mobs_added_per_player",
-					"simultaneous_mobs_added_per_player", "ticks_between_spawn", "spawn_potentials", "loot_tables_to_eject",
-					"items_to_drop_when_ominous")
+				config = blockRecord(config, trialConfigFields...)
 				if list, ok := beSpawnPotentials.read(config.Entries(), "spawn_potentials"); ok {
 					config.Set("spawn_potentials", list)
+				}
+				if list, ok := nbt.Get[nbt.List](config.Entries(), "loot_tables_to_eject"); ok {
+					list = nbt.Copy(list).(nbt.List)
+					for _, tag := range list.Items {
+						if weighted, ok := tag.(nbt.CompoundTag); ok {
+							qualifyString(weighted, "data")
+						}
+					}
+					config.Set("loot_tables_to_eject", list)
 				}
 				qualifyString(config, "items_to_drop_when_ominous")
 				e[key] = config
@@ -74,24 +97,18 @@ var carriedKinds = map[string]carriedKind{
 			e["ejecting_loot_table"] = nbt.String(s)
 		}
 	}},
-	"minecraft:vault": {fields: []string{"config", "shared_data", "server_data"}, read: func(e nbt.Compound) {
-		if config, ok := nbt.Get[nbt.CompoundTag](e, "config"); ok {
-			config = nbt.ShallowCopyCompound(config)
-			if key, ok := config.Entries()["key_item"]; ok {
-				config.Set("key_item", registry.CodecStackTag(key))
-			}
-			qualifyString(config, "loot_table")
-			qualifyString(config, "override_loot_table_to_display")
-			e["config"] = config
-		}
-	}},
+	"minecraft:vault": {
+		fields:  []string{"config", "shared_data", "server_data"},
+		records: map[string][]string{"config": vaultConfigFields},
+		read:    readVaultConfig,
+	},
 	"minecraft:brushable_block": {fields: []string{"LootTable", "LootTableSeed", "item"}, read: func(e nbt.Compound) {
 		if item, ok := e["item"]; ok {
 			e["item"] = registry.CodecStackTag(item)
 		}
 		qualifyString(e, "LootTable")
 	}},
-	"minecraft:test_instance_block": {fields: []string{"data", "errors"}},
+	"minecraft:test_instance_block": {fields: []string{"data", "errors"}, readInPlace: readTestInstanceBlock},
 	"minecraft:end_gateway":         {fields: []string{"Age", "exit_portal", "ExactTeleport"}},
 	"minecraft:beehive":             {fields: []string{"bees", "flower_pos"}},
 }
@@ -100,10 +117,19 @@ var carriedKinds = map[string]carriedKind{
 var testBlockModes = []string{"start", "log", "fail", "accept"}
 
 // readCarried normalises a command's tag in place as the type's codecs read it.
-func readCarried(entry nbt.Compound) {
+func readCarried(chunk *Chunk, entry nbt.Compound) {
 	id, _ := nbt.Get[nbt.String](entry, "id")
-	if kind, ok := carriedKinds[string(id)]; ok && kind.read != nil {
+	kind := carriedKinds[string(id)]
+	if kind.read != nil {
 		kind.read(entry)
+	}
+	if kind.readInPlace != nil {
+		x, y, z := carriedPos(entry)
+		previous, _ := chunk.carriedBlockEntityAt(x, y, z)
+		if previous["id"] != id {
+			previous = nil
+		}
+		kind.readInPlace(entry, previous)
 	}
 }
 
@@ -112,7 +138,67 @@ func readCarried(entry nbt.Compound) {
 // fields follow.
 func orderedCarried(entry nbt.Compound) nbt.CompoundTag {
 	id, _ := nbt.Get[nbt.String](entry, "id")
-	return blockRecord(entry, slices.Concat(carriedKinds[string(id)].fields, []string{"components", "id", "x", "y", "z"})...)
+	kind := carriedKinds[string(id)]
+	if kind.readInPlace != nil {
+		// Old chunk files may still carry the original command input.
+		entry = maps.Clone(entry)
+		kind.readInPlace(entry, nil)
+	}
+	tag := blockRecord(entry, slices.Concat(kind.fields, []string{"components", "id", "x", "y", "z"})...)
+	for key, fields := range kind.records {
+		if record, ok := nbt.Get[nbt.CompoundTag](entry, key); ok {
+			tag.Set(key, blockRecord(record, fields...))
+		}
+	}
+	return tag
+}
+
+func readTestInstanceBlock(entry, previous nbt.Compound) {
+	data, ok := ReadTestInstanceData(entry["data"])
+	if !ok {
+		data, _ = ReadTestInstanceData(previous["data"])
+	}
+	entry["data"] = data.Tag()
+}
+
+// vanilla: VaultConfig.CODEC, VaultConfig.validate
+func readVaultConfig(entry nbt.Compound) {
+	config, ok := nbt.Get[nbt.Compound](entry, "config")
+	if !ok {
+		return
+	}
+	out := nbt.NewOrderedCompound(len(vaultConfigFields))
+	for _, key := range vaultConfigFields {
+		switch key {
+		case "activation_range", "deactivation_range":
+			if value, ok := nbt.NumberValue(config[key]); ok {
+				out.Set(key, nbt.Double(value))
+			}
+		case "key_item":
+			if stack, ok := nbt.Get[nbt.CompoundTag](config, key); ok {
+				if item, ok := registry.StoredStack(stack); ok && !item.Empty() {
+					out.Set(key, registry.StackTag(item))
+				}
+			}
+		default:
+			if value, ok := nbt.Get[nbt.String](config, key); ok && protocol.ValidIdentifier(string(value)) {
+				out.Set(key, nbt.String(registry.Qualify(string(value))))
+			}
+		}
+	}
+	activation, hasActivation := nbt.Get[nbt.Double](out.Entries(), "activation_range")
+	if !hasActivation {
+		activation = 4
+	}
+	deactivation, hasDeactivation := nbt.Get[nbt.Double](out.Entries(), "deactivation_range")
+	if !hasDeactivation {
+		deactivation = 4.5
+	}
+	if activation > deactivation {
+		delete(entry, "config")
+	} else {
+		entry["config"] = out
+	}
 }
 
 // structureBlockFields are the keys StructureBlock.save writes, in its order.

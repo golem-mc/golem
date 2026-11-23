@@ -3,6 +3,7 @@ package inventory
 import (
 	"maps"
 
+	"github.com/golem-mc/golem/internal/server/merchant"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -56,22 +57,12 @@ func offerFromTag(recipe nbt.Compound) (Offer, bool) {
 }
 
 func offerFieldsFromTag(recipe nbt.Compound) Offer {
-	offer := Offer{
-		MaxUses:         intOf(recipe, "maxUses", 4),
-		Uses:            intOf(recipe, "uses", 0),
-		XP:              intOf(recipe, "xp", 1),
-		SpecialPrice:    intOf(recipe, "specialPrice", 0),
-		Demand:          intOf(recipe, "demand", 0),
-		PriceMultiplier: 0,
-		RewardExp:       true,
+	state := merchant.ReadState(recipe)
+	return Offer{
+		Uses: state.Uses, MaxUses: state.MaxUses, XP: state.XP,
+		SpecialPrice: state.SpecialPrice, Demand: state.Demand,
+		PriceMultiplier: state.PriceMultiplier, RewardExp: state.RewardExp,
 	}
-	if b, ok := nbt.NumberValue(recipe["rewardExp"]); ok {
-		offer.RewardExp = b != 0
-	}
-	if m, ok := nbt.NumberValue(recipe["priceMultiplier"]); ok {
-		offer.PriceMultiplier = float32(m)
-	}
-	return offer
 }
 
 // costFromTag reads an ItemCost: an item id and a count that defaults to 1.
@@ -117,8 +108,8 @@ func UpdateOfferState(tag nbt.Compound, update func(uses, maxUses, demand int32)
 	}
 	out, items := copyOfferRecipes(tag)
 	for i, item := range items {
-		if recipe, ok := nbt.CompoundView(item); ok {
-			offer := offerFieldsFromTag(recipe)
+		if recipe, ok := item.(nbt.CompoundTag); ok {
+			offer := offerFieldsFromTag(recipe.Entries())
 			offer.Uses, offer.Demand = update(offer.Uses, offer.MaxUses, offer.Demand)
 			items[i] = updatedOfferRecipe(recipe, offer)
 		}
@@ -134,7 +125,7 @@ func WriteOfferState(tag nbt.Compound, offers []Offer, saved []int) nbt.Compound
 		if i < 0 || i >= len(items) || n >= len(offers) {
 			continue
 		}
-		if recipe, ok := nbt.CompoundView(items[i]); ok {
+		if recipe, ok := items[i].(nbt.CompoundTag); ok {
 			items[i] = updatedOfferRecipe(recipe, offers[n])
 		}
 	}
@@ -151,42 +142,36 @@ func copyOfferRecipes(tag nbt.Compound) (nbt.Compound, []nbt.Tag) {
 	return out, items
 }
 
-func updatedOfferRecipe(recipe nbt.Compound, offer Offer) nbt.Compound {
-	updated := make(nbt.Compound, len(recipe)+3)
-	maps.Copy(updated, recipe)
+func updatedOfferRecipe(recipe nbt.CompoundTag, offer Offer) nbt.CompoundTag {
+	entry := recipe.Entries()
+	var updated nbt.CompoundTag
+	if plain, ok := recipe.(nbt.Compound); ok {
+		copy := make(nbt.Compound, len(plain)+3)
+		maps.Copy(copy, plain)
+		updated = copy
+	} else {
+		// Reinsert the fields so a value returning from its default enters its
+		// original codec slot.
+		updated = nbt.NewOrderedCompound(len(entry))
+	}
 	// vanilla: ItemCost.CODEC always writes count, including its default of 1.
 	for _, key := range [...]string{"buy", "buyB"} {
-		if cost, ok := recipe[key]; ok {
-			updated[key] = registry.ItemCostTag(cost)
+		if cost, ok := entry[key]; ok {
+			updated.Set(key, registry.ItemCostTag(cost))
 		}
+	}
+	if sell, ok := entry["sell"]; ok {
+		updated.Set("sell", sell)
 	}
 	writeOfferFields(updated, offer)
 	return updated
 }
 
-// writeOfferFields removes keys too, since a saved value can return to its default.
-// vanilla: MerchantOffer.CODEC
-func writeOfferFields(recipe nbt.Compound, offer Offer) {
-	reward := nbt.Byte(0)
-	if offer.RewardExp {
-		reward = 1
+func writeOfferFields(recipe nbt.CompoundTag, offer Offer) {
+	state := merchant.State{
+		Uses: offer.Uses, MaxUses: offer.MaxUses, XP: offer.XP,
+		SpecialPrice: offer.SpecialPrice, Demand: offer.Demand,
+		PriceMultiplier: offer.PriceMultiplier, RewardExp: offer.RewardExp,
 	}
-	for _, field := range [...]struct {
-		key        string
-		value, def nbt.Tag
-	}{
-		{"uses", nbt.Int(offer.Uses), nbt.Int(0)},
-		{"maxUses", nbt.Int(offer.MaxUses), nbt.Int(4)},
-		{"rewardExp", reward, nbt.Byte(1)},
-		{"specialPrice", nbt.Int(offer.SpecialPrice), nbt.Int(0)},
-		{"demand", nbt.Int(offer.Demand), nbt.Int(0)},
-		{"priceMultiplier", nbt.Float(offer.PriceMultiplier), nbt.Float(0)},
-		{"xp", nbt.Int(offer.XP), nbt.Int(1)},
-	} {
-		if field.value == field.def {
-			delete(recipe, field.key)
-		} else {
-			recipe[field.key] = field.value
-		}
-	}
+	state.WriteTo(recipe)
 }

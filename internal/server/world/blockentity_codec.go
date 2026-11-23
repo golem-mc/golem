@@ -344,19 +344,11 @@ var (
 func (b *BlockEntity) codec(c *beCodec) {
 	if !c.updateTag {
 		field(c, "plugins", &b.pluginData, bePluginData, nil)
-		if b.Kind != KindCopperGolemStatue {
-			field(c, "components", &b.Components, bePluginData, nil)
-		}
 	}
 	if lockableKind(b.Kind) && b.Kind != KindBeacon {
 		field(c, "lock", &b.Lock, beCompound, nil)
 	}
-	if b.Kind == KindCopperGolemStatue {
-		field(c, "components", &b.CustomName, beComponentName, nil)
-		if c.load {
-			b.Components = leftoverNamed(c.in)
-		}
-	} else if b.Kind != KindBeacon {
+	if b.Kind != KindCopperGolemStatue && b.Kind != KindBeacon {
 		field(c, "CustomName", &b.CustomName, beText, nil)
 	}
 	// Furnaces, brewing stands, crafters and pots write their contents between
@@ -519,6 +511,17 @@ func (b *BlockEntity) codec(c *beCodec) {
 		b.pistonRide(c)
 	case KindCommandBlock:
 		b.commandBlockFields(c)
+	}
+	// vanilla: BlockEntity.saveWithoutMetadata appends components after saveAdditional.
+	if !c.updateTag {
+		if b.Kind == KindCopperGolemStatue {
+			field(c, "components", &b.CustomName, beComponentName, nil)
+			if c.load {
+				b.Components = leftoverNamed(c.in)
+			}
+		} else {
+			field(c, "components", &b.Components, bePluginData, nil)
+		}
 	}
 }
 

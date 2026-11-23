@@ -48,7 +48,7 @@ type gameTest struct {
 	pos  [3]int32 // the test instance block
 	id   string
 	test datapack.TestInstance
-	data testInstanceData // the block's data as the runner set it
+	data world.TestInstanceData // the block's data as the runner set it
 	// tick counts up from minus the setup ticks; the test starts at 0.
 	tick         int32
 	started      bool
@@ -115,20 +115,20 @@ func (s *Server) gameTestScope(w *world.World) worldScope {
 // block's new data. tries is the attempts so far of the test a rerun
 // repeats, nil for a first run.
 // vanilla: GameTestInfo.prepareTestStructure, GameTestInfo.placeStructure, StructureSpawner.IN_PLACE
-func (s *Server) prepareGameTest(w *world.World, x, y, z int32, data testInstanceData, test datapack.TestInstance, tries *gameTestTries) (*gameTest, testInstanceData) {
+func (s *Server) prepareGameTest(w *world.World, x, y, z int32, data world.TestInstanceData, test datapack.TestInstance, tries *gameTestTries) (*gameTest, world.TestInstanceData) {
 	// vanilla: GameTestInfo.createTestInstanceBlock
 	size := [3]int32{1, 1, 1}
 	if t, ok := s.structures.Get(test.Structure); ok {
 		size = t.Size
 	}
-	data = testInstanceData{test: data.test, size: size, rotation: data.rotation}
+	data = world.TestInstanceData{Test: data.Test, Size: size, Rotation: data.Rotation}
 	if tries == nil {
 		tries = &gameTestTries{}
 	}
-	gt := &gameTest{w: w, pos: [3]int32{x, y, z}, id: data.test, test: test, data: data, tries: tries, prepared: true}
+	gt := &gameTest{w: w, pos: [3]int32{x, y, z}, id: data.Test, test: test, data: data, tries: tries, prepared: true}
 	ws := s.gameTestScope(w)
 	if !ws.placeTestStructure(w, x, y, z, data, test) {
-		gt.failAt(protocol.Text{Translate: "test.error.structure.failure", With: []protocol.Text{{Text: data.test}}})
+		gt.failAt(protocol.Text{Translate: "test.error.structure.failure", With: []protocol.Text{{Text: data.Test}}})
 	}
 	// vanilla: TestInstanceBlockEntity.encaseStructure
 	barrier := registry.BlockBarrier.DefaultState()
@@ -188,7 +188,7 @@ func batchGameTests(tests []*gameTest) [][]*gameTest {
 		}
 		k := key{w: t.w, env: env, rotation: -1}
 		if t.verify {
-			k.env, k.rotation = t.id, t.data.rotation
+			k.env, k.rotation = t.id, t.data.Rotation
 		}
 		if _, has := groups[k]; !has {
 			order = append(order, k)
@@ -207,7 +207,7 @@ func batchGameTests(tests []*gameTest) [][]*gameTest {
 			for _, t := range group[:n] {
 				t.batch = i
 				if t.verify {
-					t.batch = int(t.data.rotation)
+					t.batch = int(t.data.Rotation)
 				}
 			}
 			out = append(out, group[:n])
@@ -370,7 +370,7 @@ func (s *Server) rerunGameTest(t *gameTest) *gameTest {
 	if registry.BlockOf(t.w.BlockAt(x, y, z)) != registry.BlockTestInstanceBlock {
 		s.gameTestScope(t.w).SetBlock(x, y, z, registry.BlockTestInstanceBlock.DefaultState())
 	}
-	again, data := s.prepareGameTest(t.w, x, y, z, testInstanceData{test: t.id, rotation: t.data.rotation}, t.test, t.tries)
+	again, data := s.prepareGameTest(t.w, x, y, z, world.TestInstanceData{Test: t.id, Rotation: t.data.Rotation}, t.test, t.tries)
 	again.retries, again.batch = t.retries, t.batch
 	again.grid, again.verify = t.grid, t.verify
 	tag, ok := t.w.BlockEntityTag(x, y, z)
@@ -379,7 +379,7 @@ func (s *Server) rerunGameTest(t *gameTest) *gameTest {
 	} else {
 		tag = nbt.Compound{}
 	}
-	tag["data"] = data.tag()
+	tag["data"] = data.Tag()
 	s.storeTestInstanceTag(t.w, x, y, z, tag)
 	return again
 }
@@ -659,17 +659,9 @@ func (s *Server) setTestInstanceStatus(w *world.World, pos [3]int32, status int3
 		return
 	}
 	tag = maps.Clone(tag)
-	data, ok := nbt.Get[nbt.Compound](tag, "data")
-	if !ok {
-		data = testInstanceData{}.tag()
-	}
-	data = maps.Clone(data)
-	data["status"] = nbt.String(testInstanceStatuses[status])
-	delete(data, "error_message")
-	if errorMessage != nil {
-		data["error_message"] = protocol.TextTag(*errorMessage)
-	}
-	tag["data"] = data
+	data, _ := world.ReadTestInstanceData(tag["data"])
+	data.Status, data.ErrorMessage = status, errorMessage
+	tag["data"] = data.Tag()
 	s.storeTestInstanceTag(w, x, y, z, tag)
 }
 

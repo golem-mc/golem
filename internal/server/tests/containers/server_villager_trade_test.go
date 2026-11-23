@@ -282,7 +282,7 @@ func TestMerchantsSoundOnceWhenTakingATrade(t *testing.T) {
 			if len(recipes.Items) != 1 {
 				t.Fatalf("saved recipes = %v, want one", recipes)
 			}
-			recipe, _ := recipes.Items[0].(nbt.Compound)
+			recipe, _ := nbt.CompoundView(recipes.Items[0])
 			if uses, _ := nbt.Get[nbt.Int](recipe, "uses"); int32(uses) != tc.trades {
 				t.Errorf("completed %d trades, want %d", uses, tc.trades)
 			}
