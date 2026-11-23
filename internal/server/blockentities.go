@@ -1021,12 +1021,13 @@ func (s *Server) tickBlockEntities() {
 		// Only a hopper's pull reads the item index; be.Kind is fixed for life.
 		if slices.ContainsFunc(dim.tickingBuf, func(be *world.BlockEntity) bool { return be.Kind == world.KindHopper }) {
 			s.indexItemColumns(dim.w)
+			s.indexCartColumns(dim.w)
 		} else {
 			// The previous dimension's index must not answer for this one.
 			s.dropItemColumns()
+			s.dropCartColumns()
 		}
 		dim.sulfur.reset()
-		s.indexCartColumns(dim.w)
 		for _, be := range dim.tickingBuf {
 			if seam := s.blockEntityTickSeam; seam != nil {
 				seam(be)
