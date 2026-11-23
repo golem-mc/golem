@@ -1,6 +1,35 @@
 package nbt
 
-import "slices"
+import (
+	"iter"
+	"slices"
+)
+
+// CollectionValues iterates the elements of a list or typed array, or returns nil for other tags.
+// vanilla: NbtOps.getList
+func CollectionValues(tag Tag) iter.Seq[Tag] {
+	switch v := tag.(type) {
+	case List:
+		return collectionValues(v.Items, ListElement)
+	case ByteArray:
+		return collectionValues(v, func(n byte) Tag { return Byte(n) })
+	case IntArray:
+		return collectionValues(v, func(n int32) Tag { return Int(n) })
+	case LongArray:
+		return collectionValues(v, func(n int64) Tag { return Long(n) })
+	}
+	return nil
+}
+
+func collectionValues[T any](values []T, tag func(T) Tag) iter.Seq[Tag] {
+	return func(yield func(Tag) bool) {
+		for _, v := range values {
+			if !yield(tag(v)) {
+				return
+			}
+		}
+	}
+}
 
 // NewList builds a homogeneous list, copying the input slice only when mixed
 // entries need compound wrappers. Entries must be non-nil.

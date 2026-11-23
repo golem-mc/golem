@@ -5,13 +5,16 @@ import (
 	"github.com/golem-mc/golem/nbt"
 )
 
+// vanilla: AttackRange.CODEC
+var attackRangeDefaults = protocol.AttackRangeComponent{MaxReach: 3, MaxCreativeReach: 5, HitboxMargin: 0.3, MobFactor: 1}
+
 // attackRangeOf reads the optional fields and bounds of AttackRange.CODEC.
 func attackRangeOf(value nbt.Tag) (protocol.AttackRangeComponent, bool) {
 	entry, ok := nbt.CompoundView(value)
 	if !ok {
 		return protocol.AttackRangeComponent{}, false
 	}
-	a := protocol.AttackRangeComponent{MaxReach: 3, MaxCreativeReach: 5, HitboxMargin: 0.3, MobFactor: 1}
+	a := attackRangeDefaults
 	for _, f := range []struct {
 		key string
 		dst *float32
@@ -35,15 +38,25 @@ func attackRangeOf(value nbt.Tag) (protocol.AttackRangeComponent, bool) {
 	return a, true
 }
 
-// attackRangeTag writes every field in AttackRange.CODEC's stored shape.
+// attackRangeTag writes the fields that differ from the codec defaults.
 func attackRangeTag(a protocol.AttackRangeComponent) *nbt.OrderedCompound {
+	d := attackRangeDefaults
 	out := nbt.NewOrderedCompound(6)
-	out.Set("min_reach", nbt.Float(a.MinReach))
-	out.Set("max_reach", nbt.Float(a.MaxReach))
-	out.Set("min_creative_reach", nbt.Float(a.MinCreativeReach))
-	out.Set("max_creative_reach", nbt.Float(a.MaxCreativeReach))
-	out.Set("hitbox_margin", nbt.Float(a.HitboxMargin))
-	out.Set("mob_factor", nbt.Float(a.MobFactor))
+	for _, f := range []struct {
+		key                 string
+		value, defaultValue float32
+	}{
+		{"min_reach", a.MinReach, d.MinReach},
+		{"max_reach", a.MaxReach, d.MaxReach},
+		{"min_creative_reach", a.MinCreativeReach, d.MinCreativeReach},
+		{"max_creative_reach", a.MaxCreativeReach, d.MaxCreativeReach},
+		{"hitbox_margin", a.HitboxMargin, d.HitboxMargin},
+		{"mob_factor", a.MobFactor, d.MobFactor},
+	} {
+		if f.value != f.defaultValue {
+			out.Set(f.key, nbt.Float(f.value))
+		}
+	}
 	return out
 }
 

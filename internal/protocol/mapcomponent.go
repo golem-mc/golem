@@ -104,8 +104,8 @@ type MapDecoration struct {
 	Rotation float32
 }
 
-// MapDecorationKnown validates marker registry names; registry installs it.
-var MapDecorationKnown func(string) bool
+// ResolveMapDecorationType qualifies and validates marker registry names; registry installs it.
+var ResolveMapDecorationType func(string) (string, bool)
 
 func mapDecorationsTag(entries map[string]MapDecoration, keys []string) *nbt.OrderedCompound {
 	out := nbt.NewOrderedCompound(len(entries))
@@ -134,7 +134,11 @@ func MapDecorationsOf(value nbt.Tag) (map[string]MapDecoration, bool) {
 			return nil, false
 		}
 		name, ok := nbt.Get[nbt.String](d, "type")
-		if !ok || MapDecorationKnown == nil || !MapDecorationKnown(string(name)) {
+		if !ok || ResolveMapDecorationType == nil {
+			return nil, false
+		}
+		qualified, ok := ResolveMapDecorationType(string(name))
+		if !ok {
 			return nil, false
 		}
 		_, xok := nbt.FloatField(d, "x")
@@ -143,7 +147,7 @@ func MapDecorationsOf(value nbt.Tag) (map[string]MapDecoration, bool) {
 		if !xok || !zok || !rok {
 			return nil, false
 		}
-		decorations[key] = MapDecoration{Type: string(name), X: nbt.DoubleFieldOr(d, "x", 0), Z: nbt.DoubleFieldOr(d, "z", 0), Rotation: rot}
+		decorations[key] = MapDecoration{Type: qualified, X: nbt.DoubleFieldOr(d, "x", 0), Z: nbt.DoubleFieldOr(d, "z", 0), Rotation: rot}
 	}
 	return decorations, true
 }
