@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -188,6 +189,7 @@ func runSetblock(src Source, input string, args []string) error {
 		src.Debug("setblock block did not parse", "block", block)
 		return blockParseError(input, args[3], fail)
 	}
+	dropInvalidBlockStates(tag, world.BlockStateNBTKeys, false)
 	// Outside the world is refused before keep reads the cell, with
 	// vanilla's loaded-check key. Deliberately unlike vanilla's
 	// argument.pos.unloaded, an unloaded chunk inside the world is loaded

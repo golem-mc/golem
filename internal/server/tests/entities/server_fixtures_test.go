@@ -158,7 +158,7 @@ func TestASummonedBlockAndItemDisplayShowTheirContent(t *testing.T) {
 	t.Parallel()
 	_, c := servertest.Join(t, servertest.BlockTestConfig(), "Mapper", servertest.OpsListing(t, "Mapper"))
 
-	c.ChatCommand(`summon minecraft:block_display 3.5 70 4.5 {block_state:{Name:"minecraft:stone"}}`)
+	c.ChatCommand(`summon minecraft:block_display 3.5 70 4.5 {block_state:{id:"minecraft:stone"}}`)
 	blockType, _ := registry.EntityTypeID("minecraft:block_display")
 	spawn := c.AwaitSpawn(blockType)
 	stone, _ := registry.FindState("minecraft:stone", nil)

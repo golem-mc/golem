@@ -152,6 +152,7 @@ func runFill(src Source, input string, args []string) (int32, error) {
 		src.Debug("fill block did not parse", "block", args[6])
 		return 0, blockParseError(input, args[6], fail)
 	}
+	dropInvalidBlockStates(tag, world.BlockStateNBTKeys, false)
 
 	mode := fillReplace
 	if len(args) > 7 {
