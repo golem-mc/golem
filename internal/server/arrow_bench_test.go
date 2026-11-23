@@ -203,8 +203,8 @@ func benchTickArrows(b *testing.B, cows int, motion arrowsMotion, mannequins int
 	}
 	b.StopTimer()
 	for _, a := range grounded {
-		if a.Life == -1<<30 {
-			b.Fatal("grounded arrow's life counter did not advance: arrows are dormant")
+		if !a.InGround || a.Life != -1<<30+b.N {
+			b.Fatalf("grounded arrow: InGround=%v Life=%d, want lodged with Life %d", a.InGround, a.Life, -1<<30+b.N)
 		}
 	}
 	for i, a := range flying {
