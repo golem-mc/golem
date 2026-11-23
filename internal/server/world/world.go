@@ -1078,10 +1078,18 @@ func (w *World) SetBlock(x, y, z int32, state uint16) bool {
 	return ok
 }
 
+// inBuildHeight reports whether y is within this dimension's build height and
+// the in-memory chunk span.
+// vanilla: LevelHeightAccessor.isOutsideBuildHeight
+func (w *World) inBuildHeight(y int32) bool {
+	return contains(y) && y >= w.dim.minY && y < w.dim.minY+w.dim.height
+}
+
 // SwapBlock is SetBlock that also returns the cell's previous state, read
 // under the same lock as the write.
+// vanilla: Level.setBlock
 func (w *World) SwapBlock(x, y, z int32, state uint16) (old uint16, changed bool) {
-	if w.IsDebug() {
+	if w.IsDebug() || !w.inBuildHeight(y) {
 		return 0, false
 	}
 	pos := ChunkPos{X: ChunkOf(float64(x)), Z: ChunkOf(float64(z))}
@@ -1198,6 +1206,9 @@ func (w *World) SetBlocks(changes []BlockChange) []BlockChange {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for _, ch := range changes {
+		if !w.inBuildHeight(ch.Y) {
+			continue
+		}
 		pos := ChunkPos{X: ChunkOf(float64(ch.X)), Z: ChunkOf(float64(ch.Z))}
 		loaded, ok := w.chunks[pos]
 		if !ok {

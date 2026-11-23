@@ -486,6 +486,100 @@ func TestAReleaseSaveRacingAGiveBackSavesTheChange(t *testing.T) {
 	}
 }
 
+func TestBlockWritesOutsideBuildHeight(t *testing.T) {
+	t.Parallel()
+	plate := registry.BlockLightWeightedPressurePlate.DefaultState()
+	cases := []struct {
+		name  string
+		world func(t *testing.T) *World
+	}{
+		{"overworld", func(t *testing.T) *World { return newTestWorld(t, NewFlatGenerator()) }},
+		{"nether", func(t *testing.T) *World {
+			w := NewDimensionWorld(t.TempDir(), true, NewFlatGenerator())
+			t.Cleanup(w.FlushSaves)
+			return w
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := tc.world(t)
+			pos := ChunkPos{X: 0, Z: 0}
+			_, _ = w.Acquire(pos)
+			defer w.Release(pos)
+			// Save clears dirty so any write bookkeeping afterwards stands out.
+			w.Save()
+
+			w.mu.RLock()
+			loaded := w.chunks[pos]
+			writesBefore := loaded.chunk.writes
+			genBefore := loaded.containerGen.Load()
+			w.mu.RUnlock()
+
+			outOfBounds := []int32{w.MinY() - 1, w.MaxY()}
+			w.JournalStart()
+			for _, y := range outOfBounds {
+				before := w.BlockAt(1, y, 2)
+				if old, changed := w.SwapBlock(1, y, 2, plate); old != 0 || changed {
+					t.Errorf("SwapBlock(1, %d, 2) = (%d, %v), want (0, false)", y, old, changed)
+				}
+				if w.SetBlock(1, y, 2, plate) {
+					t.Errorf("SetBlock(1, %d, 2) = true, want false", y)
+				}
+				if got := w.BlockAt(1, y, 2); got != before {
+					t.Errorf("BlockAt(1, %d, 2) = %d, want unchanged %d", y, got, before)
+				}
+			}
+			if cells, _, _ := w.JournalStop(); len(cells) != 0 {
+				t.Errorf("journal recorded %d out-of-bounds writes, want 0", len(cells))
+			}
+
+			batch := []BlockChange{
+				{X: 2, Y: w.MinY() - 1, Z: 3, State: plate},
+				{X: 2, Y: w.MaxY(), Z: 3, State: stoneState},
+			}
+			if applied := w.SetBlocks(batch); len(applied) != 0 {
+				t.Errorf("SetBlocks out of bounds applied %d entries, want 0", len(applied))
+			}
+			if got := w.LoadedTouchBlocks(); got != 0 {
+				t.Errorf("LoadedTouchBlocks = %d, want 0", got)
+			}
+			if w.ChunkDirty(pos) {
+				t.Error("chunk marked dirty by out-of-bounds writes")
+			}
+			w.mu.RLock()
+			if loaded.chunk.stale {
+				t.Error("chunk marked stale by out-of-bounds writes")
+			}
+			if loaded.chunk.writes != writesBefore {
+				t.Errorf("chunk writes = %d, want %d", loaded.chunk.writes, writesBefore)
+			}
+			if got := loaded.containerGen.Load(); got != genBefore {
+				t.Errorf("containerGen = %d, want %d", got, genBefore)
+			}
+			w.mu.RUnlock()
+
+			// A mixed batch applies only the in-bounds write.
+			inY := w.MaxY() - 1
+			mixed := []BlockChange{
+				{X: 4, Y: w.MinY() - 1, Z: 5, State: stoneState},
+				{X: 4, Y: inY, Z: 5, State: stoneState},
+				{X: 4, Y: w.MaxY(), Z: 5, State: stoneState},
+			}
+			applied := w.SetBlocks(mixed)
+			if len(applied) != 1 || applied[0].Y != inY {
+				t.Fatalf("mixed SetBlocks applied %+v, want only y=%d", applied, inY)
+			}
+			if got := w.BlockAt(4, inY, 5); got != stoneState {
+				t.Errorf("BlockAt(4, %d, 5) = %d, want stone", inY, got)
+			}
+			if !w.ChunkDirty(pos) {
+				t.Error("chunk not marked dirty by in-bounds write")
+			}
+		})
+	}
+}
+
 // newTestWorld makes a world in a fresh temporary directory that waits for
 // its queued chunk saves before the directory is removed: a released chunk
 // is saved asynchronously, and the test's own cleanup would otherwise race
