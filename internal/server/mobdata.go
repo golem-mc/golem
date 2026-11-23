@@ -96,16 +96,17 @@ func (ent *mobEntity) saveRaid(tag nbt.CompoundTag) {
 
 // saveAttributes writes every instantiated attribute over the attributes
 // list, defaults included; a body with no map yet saves the instances its kind
-// creates natively. The instances the map makes for pairing and equipment are
-// vanilla's first-tick ones, so a body that has not ticked leaves them out
-// unless something instantiated them.
+// creates natively, and after its first tick its first-tick instances too. The
+// instances the map makes for pairing and equipment are vanilla's first-tick
+// ones, so a body that has not ticked leaves them out unless something
+// instantiated them.
 // vanilla: LivingEntity.addAdditionalSaveData, AttributeMap.pack,
 // LivingEntity.removeFrost
 func (ent *mobEntity) saveAttributes(tag nbt.CompoundTag) {
 	m := ent.mob
 	a := m.Attributes()
 	if a == nil {
-		if !m.NativeAttributeInstances() {
+		if !m.NativeAttributeInstances() && !m.Ticked() {
 			return
 		}
 		a = m.BuildAttributes(savedAttributes(ent.saved))
