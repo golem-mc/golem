@@ -1360,7 +1360,6 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 		}
 	}
 	// Each step takes only its own lock; thrown bodies and clouds share the arrow lock.
-	// Mobs come first because their UUID lookup is a map.
 	kinds := []func([]command.Entity) []command.Entity{
 		func(out []command.Entity) []command.Entity { return s.appendMobSnapshots(out, &q) },
 		snapshotAppender(s, &q, &itemTracker, (*Server).itemSnapshot),
@@ -1444,20 +1443,45 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 	return entities
 }
 
-// snapshotAppender binds a kind's query step; the slice header is read under
-// its lock because the tick reassigns it.
+// snapshotAppender binds a kind's query step and uses its index for chunk
+// and UUID queries.
 func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *trackedKind[E, S], snap func(*Server, E, *entityQuery) *entitySnapshot) func([]command.Entity) []command.Entity {
 	return func(out []command.Entity) []command.Entity {
 		mu := k.lock(s)
 		mu.Lock()
 		defer mu.Unlock()
+		if q.UUID != nil && k.chunks != nil {
+			// vanilla: EntityLookup.getEntity(UUID)
+			ix := k.chunks(s)
+			id := *q.UUID
+			body, ok := ix.ByUUID(id)
+			if !ok || q.chunk != nil && !ix.Holds(k.filing(body), *q.chunk) {
+				return out
+			}
+			if q.candidates != nil {
+				if q.skipCandidate(k.id(body)) {
+					return out
+				}
+				q.kind = &entityQueryKind{mu: mu, snapshot: func(ref any, query *entityQuery) *entitySnapshot {
+					current, ok := ix.ByUUID(id)
+					if !ok || current != ref.(E) {
+						return nil
+					}
+					return snap(s, current, query)
+				}}
+			}
+			if v := snap(s, body, q); v != nil {
+				out = append(out, v)
+			}
+			return out
+		}
 		list := k.list(s)
 		if len(*list) == 0 {
 			return out
 		}
 		var ix *entity.ChunkIndex[E]
 		var indexed iter.Seq[E]
-		if q.chunk != nil || q.area != nil {
+		if k.chunks != nil && (q.chunk != nil || q.area != nil) {
 			ix = k.chunks(s)
 			if q.chunk != nil && !ix.Has(*q.chunk) {
 				return out
@@ -1488,12 +1512,14 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 			return out
 		}
 		if indexed != nil {
+			// Keep the slice captured by the iterator local to chunk queries.
+			found := out
 			for body := range indexed {
 				if v := snap(s, body, q); v != nil {
-					out = append(out, v)
+					found = append(found, v)
 				}
 			}
-			return out
+			return found
 		}
 		for i := range len(*list) {
 			// UUIDs are unique; newest first reaches a just-summoned body at once.

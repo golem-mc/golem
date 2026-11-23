@@ -9,6 +9,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/google/uuid"
 )
 
 // One generic tracker for the bodies a kind lock guards: who is shown a
@@ -164,10 +165,10 @@ type trackedKind[B any, S any] struct {
 	// all, if not nil, walks the bodies in place of list, for a kind kept
 	// in more than one list.
 	all func(*Server) iter.Seq[B]
-	// chunks and filing give the kind's chunk index and a body's entry in it,
-	// both nil for a kind the index does not cover.
+	// chunks, filing and uuid are set for kinds covered by a chunk index.
 	chunks func(*Server) *entity.ChunkIndex[B]
 	filing func(B) *entity.Filing
+	uuid   func(B) uuid.UUID
 	// anchor, if not nil, is the point a block-anchored body is filed under
 	// and queried at, in place of pose: where its snapshot reports it.
 	anchor func(B) (x, z float64)
@@ -188,7 +189,7 @@ func (k *trackedKind[B, S]) file(s *Server, b B) {
 	if k.chunks == nil {
 		return
 	}
-	k.chunks(s).Add(b, k.filing(b), k.chunkOf(b))
+	k.chunks(s).Add(b, k.filing(b), k.chunkOf(b), k.uuid(b))
 }
 
 // unfile takes a body out of the chunk index. The caller holds the kind's lock.
@@ -198,8 +199,7 @@ func (k *trackedKind[B, S]) unfile(b B) {
 	}
 }
 
-// chunkDrift reports a body missing from the index or filed in the wrong
-// chunk.
+// chunkDrift checks that each body can be found by chunk and UUID.
 func (k *trackedKind[B, S]) chunkDrift(s *Server) error {
 	if k.chunks == nil {
 		return nil
@@ -212,8 +212,12 @@ func (k *trackedKind[B, S]) chunkDrift(s *Server) error {
 		return fmt.Errorf("%T: %d bodies, %d filed", *new(B), len(list), ix.Len())
 	}
 	for _, b := range list {
-		if !ix.Holds(k.filing(b), k.chunkOf(b)) {
+		f := k.filing(b)
+		if !ix.Holds(f, k.chunkOf(b)) {
 			return fmt.Errorf("%T id %d not filed under its chunk", b, k.id(b))
+		}
+		if got, ok := ix.ByUUID(k.uuid(b)); !ok || k.filing(got) != f {
+			return fmt.Errorf("%T id %d not filed under its UUID", b, k.id(b))
 		}
 	}
 	return nil

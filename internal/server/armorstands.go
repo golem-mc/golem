@@ -74,6 +74,7 @@ var standTracker = trackedKind[*armorStandEntity, *armorStandMeta]{
 	list:        func(s *Server) *[]*armorStandEntity { return &s.armorStands },
 	chunks:      func(s *Server) *entity.ChunkIndex[*armorStandEntity] { return &s.standChunks },
 	filing:      func(it *armorStandEntity) *entity.Filing { return &it.stand.Filing },
+	uuid:        func(it *armorStandEntity) uuid.UUID { return it.uuid },
 	track:       func(ent *armorStandEntity) *bodyTrack[*armorStandMeta] { return &ent.bodyTrack },
 	world:       func(ent *armorStandEntity) *world.World { return ent.w },
 	id:          func(ent *armorStandEntity) int32 { return ent.stand.ID },

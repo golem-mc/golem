@@ -72,6 +72,7 @@ var frameTracker = trackedKind[*frameEntity, struct{}]{
 	list:        func(s *Server) *[]*frameEntity { return &s.frames },
 	chunks:      func(s *Server) *entity.ChunkIndex[*frameEntity] { return &s.frameChunks },
 	filing:      func(it *frameEntity) *entity.Filing { return &it.Filing },
+	uuid:        func(it *frameEntity) uuid.UUID { return it.uuid },
 	anchor:      func(it *frameEntity) (float64, float64) { return frameCentreX(it), frameCentreZ(it) },
 	track:       func(f *frameEntity) *bodyTrack[struct{}] { return &f.bodyTrack },
 	world:       func(f *frameEntity) *world.World { return f.w },

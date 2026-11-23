@@ -118,3 +118,40 @@ func BenchmarkPluginChunkEntitiesBodies(b *testing.B) {
 	}
 	benchChunkEntities(b, w, pw, chunks)
 }
+
+// BenchmarkPluginEntityHandle times IsValid beside 2000 cows and 2000 items.
+func BenchmarkPluginEntityHandle(b *testing.B) {
+	s, dim, _, pw := pluginChunkBench(b)
+	spawnPluginBenchCows(s, dim, rand.New(rand.NewSource(264)))
+	w := dim.w
+	rng := rand.New(rand.NewSource(283))
+	for range 2000 {
+		x, z := (rng.Float64()-0.5)*512, (rng.Float64()-0.5)*512
+		s.spawnItem(w, protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1},
+			x, float64(world.GroundLevel), z, 0, 0, 0, entity.BreakPickupDelay)
+	}
+	stand, err := s.summonArmorStand(w, 1, world.GroundLevel, 1, nil, plugin.SpawnCommand)
+	if err != nil {
+		b.Fatal(err)
+	}
+	live := pluginEntity{host: pw.host, id: stand.uuid}
+	gone := live
+	gone.id[0] ^= 1
+	for _, tc := range []struct {
+		name   string
+		handle pluginEntity
+		valid  bool
+	}{
+		{"live", live, true},
+		{"gone", gone, false},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if got := tc.handle.IsValid(); got != tc.valid {
+					b.Fatalf("IsValid() = %t, want %t", got, tc.valid)
+				}
+			}
+		})
+	}
+}

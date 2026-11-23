@@ -102,6 +102,7 @@ var minecartTracker = trackedKind[*minecartEntity, minecartMeta]{
 	list:     func(s *Server) *[]*minecartEntity { return &s.minecarts },
 	chunks:   func(s *Server) *entity.ChunkIndex[*minecartEntity] { return &s.minecartChunks },
 	filing:   func(it *minecartEntity) *entity.Filing { return &it.cart.Filing },
+	uuid:     func(it *minecartEntity) uuid.UUID { return it.uuid },
 	track:    func(it *minecartEntity) *bodyTrack[minecartMeta] { return &it.bodyTrack },
 	world:    func(it *minecartEntity) *world.World { return it.w },
 	id:       func(it *minecartEntity) int32 { return it.cart.ID },

@@ -4,6 +4,7 @@ import (
 	"iter"
 
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/google/uuid"
 )
 
 // Filing is a body's entry in a ChunkIndex; the zero value is unfiled.
@@ -11,6 +12,7 @@ type Filing struct {
 	ix    filer
 	chunk world.ChunkPos
 	slot  int32
+	id    uuid.UUID
 }
 
 type filer interface {
@@ -54,10 +56,11 @@ func ChunkAt(x, z float64) world.ChunkPos {
 	return world.ChunkPos{X: world.ChunkOf(x), Z: world.ChunkOf(z)}
 }
 
-// ChunkIndex files bodies by chunk. The lock guarding the bodies' list guards
-// it. The zero value is ready to use.
+// ChunkIndex files bodies by chunk and UUID. The lock guarding the bodies'
+// list guards it. The zero value is ready to use.
 type ChunkIndex[T any] struct {
 	cells map[world.ChunkPos][]chunkEntry[T]
+	byID  map[uuid.UUID]*Filing
 }
 
 type chunkEntry[T any] struct {
@@ -65,25 +68,32 @@ type chunkEntry[T any] struct {
 	f    *Filing
 }
 
-// Add files body under pos. A body already in ix is moved; one in another
-// index leaves it first.
-func (ix *ChunkIndex[T]) Add(body T, f *Filing, pos world.ChunkPos) {
+// Add files body under pos and id. A body already in ix is moved; one in
+// another index leaves it first.
+func (ix *ChunkIndex[T]) Add(body T, f *Filing, pos world.ChunkPos, id uuid.UUID) {
 	if f.ix != nil {
-		if f.ix == filer(ix) && ix.owns(f) {
+		if f.ix == filer(ix) && f.id == id && ix.owns(f) {
 			f.Refile(pos)
 			return
 		}
 		f.Unfile()
 	}
-	ix.insert(body, f, pos)
+	ix.insert(body, f, pos, id)
 }
 
-func (ix *ChunkIndex[T]) insert(body T, f *Filing, pos world.ChunkPos) {
+func (ix *ChunkIndex[T]) insert(body T, f *Filing, pos world.ChunkPos, id uuid.UUID) {
 	if ix.cells == nil {
 		ix.cells = make(map[world.ChunkPos][]chunkEntry[T])
+		ix.byID = make(map[uuid.UUID]*Filing)
 	}
+	f.ix, f.id = ix, id
+	ix.byID[id] = f
+	ix.place(body, f, pos)
+}
+
+func (ix *ChunkIndex[T]) place(body T, f *Filing, pos world.ChunkPos) {
 	cell := ix.cells[pos]
-	f.ix, f.chunk, f.slot = ix, pos, int32(len(cell))
+	f.chunk, f.slot = pos, int32(len(cell))
 	ix.cells[pos] = append(cell, chunkEntry[T]{body, f})
 }
 
@@ -99,9 +109,8 @@ func (ix *ChunkIndex[T]) refile(f *Filing, to world.ChunkPos) {
 		*f = Filing{}
 		return
 	}
-	body := ix.cells[f.chunk][f.slot].body
-	ix.remove(f)
-	ix.insert(body, f, to)
+	body := ix.detach(f)
+	ix.place(body, f, to)
 }
 
 // remove takes f's entry out in constant time.
@@ -110,7 +119,17 @@ func (ix *ChunkIndex[T]) remove(f *Filing) {
 		*f = Filing{}
 		return
 	}
+	if ix.byID[f.id] == f {
+		delete(ix.byID, f.id)
+	}
+	ix.detach(f)
+	*f = Filing{}
+}
+
+// detach releases f's slot while leaving its UUID entry in place.
+func (ix *ChunkIndex[T]) detach(f *Filing) T {
 	cell := ix.cells[f.chunk]
+	body := cell[f.slot].body
 	last := len(cell) - 1
 	moved := cell[last]
 	cell[f.slot] = moved
@@ -121,7 +140,16 @@ func (ix *ChunkIndex[T]) remove(f *Filing) {
 	} else {
 		ix.cells[f.chunk] = cell[:last]
 	}
-	*f = Filing{}
+	return body
+}
+
+// ByUUID finds the body filed under id.
+func (ix *ChunkIndex[T]) ByUUID(id uuid.UUID) (T, bool) {
+	if f := ix.byID[id]; f != nil && ix.owns(f) {
+		return ix.cells[f.chunk][f.slot].body, true
+	}
+	var zero T
+	return zero, false
 }
 
 // In yields the bodies filed under the chunk. The cell is live: move or

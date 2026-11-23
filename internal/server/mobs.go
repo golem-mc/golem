@@ -321,7 +321,7 @@ func (h *mobHerd) remember(ent *mobEntity) {
 	h.records[slot-1] = ent
 	ent.mob.SetRecordSlot(slot)
 	h.book[ent.mob] = ent
-	h.chunks.Add(ent.mob, &ent.mob.Filing, entity.ChunkAt(ent.mob.X, ent.mob.Z))
+	h.chunks.Add(ent.mob, &ent.mob.Filing, entity.ChunkAt(ent.mob.X, ent.mob.Z), ent.uuid)
 	if h.lootExtra != nil {
 		ent.mob.LootExtra = h.lootExtra(h, ent)
 	}

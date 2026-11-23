@@ -159,6 +159,7 @@ var boatTracker = trackedKind[*boatEntity, boatShown]{
 	list:     func(s *Server) *[]*boatEntity { return &s.boats },
 	chunks:   func(s *Server) *entity.ChunkIndex[*boatEntity] { return &s.boatChunks },
 	filing:   func(it *boatEntity) *entity.Filing { return &it.boat.Filing },
+	uuid:     func(it *boatEntity) uuid.UUID { return it.uuid },
 	track:    func(it *boatEntity) *bodyTrack[boatShown] { return &it.bodyTrack },
 	world:    func(it *boatEntity) *world.World { return it.w },
 	id:       func(it *boatEntity) int32 { return it.boat.ID },

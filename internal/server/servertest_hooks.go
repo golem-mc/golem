@@ -8051,9 +8051,7 @@ func (s *Server) HurtMobByPlayerProjectile(victim int32, name string, amount flo
 	}
 }
 
-// ChunkIndexDrift reports a body whose chunk index entry is missing or filed
-// under another chunk than its position. A test's cleanup runs it once the
-// loop has stopped.
+// ChunkIndexDrift checks each body's chunk and UUID entries after the loop stops.
 func (s *Server) ChunkIndexDrift() error {
 	for _, k := range observerTrackers() {
 		if d, ok := k.(interface{ chunkDrift(*Server) error }); ok {
@@ -8069,9 +8067,12 @@ func (s *Server) ChunkIndexDrift() error {
 		if h.chunks.Len() != len(h.book) {
 			return fmt.Errorf("%s mobs: %d live, %d filed", dim.name, len(h.book), h.chunks.Len())
 		}
-		for m := range h.book {
+		for m, ent := range h.book {
 			if !h.chunks.Holds(&m.Filing, entity.ChunkAt(m.X, m.Z)) {
 				return fmt.Errorf("%s mob %d not filed under its chunk", dim.name, m.ID)
+			}
+			if got, ok := h.chunks.ByUUID(ent.uuid); !ok || got != m {
+				return fmt.Errorf("%s mob %d not filed under its UUID", dim.name, m.ID)
 			}
 		}
 	}
