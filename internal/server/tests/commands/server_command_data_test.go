@@ -177,6 +177,35 @@ func TestCommandDataStoragePersistsOverARestart(t *testing.T) {
 	_ = srv2
 }
 
+func TestCommandDataStorageMixedListAppendsPersistOverARestart(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.LevelName = t.TempDir()
+	ops := servertest.OpsListing(t, "Testificate")
+	srv, c := servertest.Join(t, cfg, "Testificate", ops)
+
+	c.ChatCommand("data modify storage test:mixed values set value [1b]")
+	c.ExpectCommandFeedback("commands.data.storage.modified", "test:mixed")
+	for _, value := range []string{"2s", "3L", "4.9d"} {
+		c.ChatCommand("data modify storage test:mixed values append value " + value)
+		c.ExpectCommandFeedback("commands.data.storage.modified", "test:mixed")
+	}
+
+	const want = "[1b, 2s, 3L, 4.9d]"
+	c.ChatCommand("data get storage test:mixed values")
+	c.ExpectCommandFeedback("commands.data.storage.query", "test:mixed", want)
+	c.Disconnect()
+	srv.Shutdown()
+
+	restarted := *cfg
+	_, reconnect := servertest.Start(t, &restarted, ops)
+	c = reconnect().Join("Testificate")
+	c.ChatCommand("data get storage test:mixed values")
+	c.ExpectCommandFeedback("commands.data.storage.query", "test:mixed", want)
+	c.Disconnect()
+}
+
 // TestCommandDataGetEntityNamesItsHealth checks the entity get: the scoped
 // query of a summoned cow's Health names the cow and its health the way
 // vanilla writes the tag.
