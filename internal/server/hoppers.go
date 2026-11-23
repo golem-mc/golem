@@ -411,19 +411,13 @@ func (s *Server) hopperEject(w *world.World, self blockEntitySlots, gate *hopper
 	tx, ty, tz := faceOffset(b.X, b.Y, b.Z, face)
 	cache := &b.HopperTargets.Push
 	hopperRefresh(w, cache, tx, ty, tz)
-	if hopperKnownFailure(cache, b, gate != nil) {
-		return nil
-	}
-	target := s.hopperTarget(w, cache, tx, ty, tz)
-	if target == nil {
-		return nil
-	}
 	move := containerMove{self: self, face: oppositeFace(face)}
+	var slot *moveGate
 	if gate != nil {
-		gate.push.target = target
-		move.gate = &gate.push
+		slot = &gate.push
 	}
-	if !hopperMove(w, cache, target, move) {
+	target, moved, _ := s.hopperMove(w, cache, tx, ty, tz, move, slot)
+	if !moved {
 		return nil
 	}
 	return target
@@ -440,20 +434,17 @@ func (s *Server) hopperSuck(w *world.World, self blockEntitySlots, gate *hopperG
 	b := self.be
 	cache := &b.HopperTargets.Pull
 	hopperRefresh(w, cache, b.X, b.Y+1, b.Z)
-	if hopperKnownFailure(cache, b, gate != nil) {
-		return false, nil, false, nil, nil
+	move := containerMove{self: self, pull: true}
+	var slot *moveGate
+	if gate != nil {
+		slot = &gate.pull
 	}
-	if above := s.hopperTarget(w, cache, b.X, b.Y+1, b.Z); above != nil {
-		move := containerMove{self: self, pull: true}
-		if gate != nil {
-			gate.pull.target = above
-			move.gate = &gate.pull
-		}
-		moved = hopperMove(w, cache, above, move)
-		if moved {
-			pulled = above
-		}
-		return moved, pulled, false, nil, nil
+	above, moved, skipped := s.hopperMove(w, cache, b.X, b.Y+1, b.Z, move, slot)
+	if moved {
+		return true, above, false, nil, nil
+	}
+	if skipped || above != nil {
+		return false, nil, false, nil, nil
 	}
 
 	state := w.BlockAt(b.X, b.Y+1, b.Z)

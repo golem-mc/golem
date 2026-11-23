@@ -34,24 +34,6 @@ func hopperRefresh(w *world.World, cache *world.HopperTargetCache, x, y, z int32
 	}
 }
 
-// hopperKnownFailure reports that the refreshed block container's last move failed and
-// neither inventory changed since, so no target needs building. A gated move is never
-// skipped: a listener's refusal is not a fact about the inventories.
-func hopperKnownFailure(cache *world.HopperTargetCache, self *world.BlockEntity, gated bool) bool {
-	if gated || !cache.Failed || (cache.Entities[0] == nil && !cache.Composter) || cache.SelfVersion != self.InventoryVersion() {
-		return false
-	}
-	for i, be := range cache.Entities {
-		if be != nil && cache.Versions[i] != be.InventoryVersion() {
-			return false
-		}
-		if be == nil && cache.Versions[i] != 0 {
-			return false
-		}
-	}
-	return true
-}
-
 // hopperTarget materializes the container of a refreshed cache.
 func (s *Server) hopperTarget(w *world.World, cache *world.HopperTargetCache, x, y, z int32) containerTarget {
 	if cache.Composter {
@@ -67,35 +49,47 @@ func (s *Server) hopperTarget(w *world.World, cache *world.HopperTargetCache, x,
 	return s.entityContainerAt(w, float64(x)+0.5, float64(y)+0.5, float64(z)+0.5, nil)
 }
 
-// hopperMove remembers failures only for block inventories. Vehicles must still
-// consume the random selection draw.
-func hopperMove(w *world.World, cache *world.HopperTargetCache, target containerTarget, move containerMove) bool {
-	if move.gate != nil {
-		// A refusal by a listener is not a fact about the inventories.
-		return target.use(w, move)
-	}
-	if cache.Entities[0] == nil && !cache.Composter {
-		move.cache = cache
-		return target.use(w, move)
-	}
-	self := move.self.be.InventoryVersion()
+// hopperMove builds the refreshed cache's target and runs the move. Failures are
+// remembered only for block inventories; vehicles must still consume the random
+// selection draw. target is nil when there is no container; skipped reports a known
+// failure, where no target is built and the caller must not fall back to loose items.
+// A gated move is never skipped: a listener's refusal is not a fact about the inventories.
+func (s *Server) hopperMove(w *world.World, cache *world.HopperTargetCache, x, y, z int32, move containerMove, slot *moveGate) (target containerTarget, moved, skipped bool) {
+	blockContainer := cache.Entities[0] != nil || cache.Composter
 	var versions [2]uint64
-	for i, be := range cache.Entities {
-		if be != nil {
-			versions[i] = be.InventoryVersion()
+	var self uint64
+	if blockContainer && slot == nil {
+		// Read before the locked attempt: a concurrent write after it must force
+		// another attempt rather than be recorded as a failure for the new contents.
+		self = move.self.be.InventoryVersion()
+		for i, be := range cache.Entities {
+			if be != nil {
+				versions[i] = be.InventoryVersion()
+			}
+		}
+		if cache.Failed && cache.SelfVersion == self && cache.Versions == versions {
+			return nil, false, true
 		}
 	}
-	if cache.Failed && cache.SelfVersion == self && cache.Versions == versions {
-		return false
+	target = s.hopperTarget(w, cache, x, y, z)
+	if target == nil {
+		return nil, false, false
+	}
+	if slot != nil {
+		slot.target = target
+		move.gate = slot
+		return target, target.use(w, move), false
+	}
+	if !blockContainer {
+		move.cache = cache
+		return target, target.use(w, move), false
 	}
 	if target.use(w, move) {
 		cache.Failed = false
-		return true
+		return target, true, false
 	}
-	// Read before the locked attempt: a concurrent write after it must force
-	// another attempt rather than be recorded as a failure for the new contents.
 	cache.Failed, cache.SelfVersion, cache.Versions = true, self, versions
-	return false
+	return target, false, false
 }
 
 // cachedVehicleMove runs after selection, under the vehicle lock: random draws
