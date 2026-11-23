@@ -1,11 +1,43 @@
 package registry
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
 )
+
+func TestJukeboxSongDefaultPatch(t *testing.T) {
+	t.Parallel()
+	plain := protocol.ItemStack{ItemID: int32(ItemMusicDiscCat), Count: 1}
+	var want protocol.Buffer
+	want.PutSlot(plain)
+	claim := protocol.HashedSlot{Stack: plain}
+
+	for _, remove := range []bool{false, true} {
+		stack := plain
+		if remove {
+			stack.Remove(protocol.DataComponentJukeboxPlayable)
+		} else if !ReadComponent(&stack, "minecraft:jukebox_playable", nbt.String("blocks")) {
+			t.Fatal("song override refused")
+		}
+		if !ReadComponent(&stack, "minecraft:jukebox_playable", nbt.String("cat")) {
+			t.Fatal("default song refused")
+		}
+		if song, ok := JukeboxSongForStack(stack); !ok || song != "minecraft:cat" {
+			t.Fatalf("song = %q, %v", song, ok)
+		}
+		var got protocol.Buffer
+		got.PutSlot(stack)
+		if !bytes.Equal(got.Bytes(), want.Bytes()) {
+			t.Errorf("slot = %x, want %x", got.Bytes(), want.Bytes())
+		}
+		if !claim.Matches(stack) {
+			t.Error("default disc's hashed slot claim did not match")
+		}
+	}
+}
 
 func TestJukeboxSongStackCodec(t *testing.T) {
 	for _, item := range []Item{ItemStick, ItemMusicDisc13} {

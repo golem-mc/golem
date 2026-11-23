@@ -7,6 +7,17 @@ import (
 	"github.com/golem-mc/golem/nbt"
 )
 
+// vanilla: BlocksAttacks.CODEC, DamageReduction.CODEC
+const (
+	defaultBlockingAngle   = 90
+	defaultDisableCooldown = 1
+)
+
+var (
+	defaultDamageReduction = protocol.DamageReductionComponent{Angle: defaultBlockingAngle, Factor: 1}
+	defaultItemDamage      = [3]float32{1, 0, 1} // vanilla: BlocksAttacks.ItemDamageFunction.DEFAULT
+)
+
 // StackBlocksAttacks returns the stack's blocks_attacks: its own component
 // when it carries one, else the item's default. False for a stack that
 // blocks nothing, including one whose patch removes the component.
@@ -93,15 +104,14 @@ func resolveDamageSet(own protocol.DamageSetComponent) (*DamageTypeSet, bool) {
 	return set, true
 }
 
-// blocksAttacksOf reads a minecraft:blocks_attacks value in the codec's
-// shape: every field optional but a reduction's and the item damage's own.
+// blocksAttacksOf reads the optional blocking fields and fills their defaults.
 // vanilla: BlocksAttacks.CODEC
 func blocksAttacksOf(value nbt.Tag) (protocol.BlocksAttacksComponent, bool) {
 	entry, ok := nbt.CompoundView(value)
 	if !ok {
 		return protocol.BlocksAttacksComponent{}, false
 	}
-	b := protocol.BlocksAttacksComponent{DisableCooldownScale: 1, ItemDamage: [3]float32{1, 0, 1}}
+	b := protocol.BlocksAttacksComponent{DisableCooldownScale: defaultDisableCooldown, ItemDamage: defaultItemDamage}
 	for _, f := range []struct {
 		key string
 		dst *float32
@@ -127,7 +137,7 @@ func blocksAttacksOf(value nbt.Tag) (protocol.BlocksAttacksComponent, bool) {
 			b.Reductions = append(b.Reductions, d)
 		}
 	} else {
-		b.Reductions = []protocol.DamageReductionComponent{{Angle: 90, Factor: 1}}
+		b.Reductions = []protocol.DamageReductionComponent{defaultDamageReduction}
 	}
 	if field, has := entry["item_damage"]; has {
 		fn, ok := nbt.CompoundView(field)
@@ -164,7 +174,7 @@ func damageReductionOf(value nbt.Tag) (protocol.DamageReductionComponent, bool) 
 	if !ok {
 		return protocol.DamageReductionComponent{}, false
 	}
-	d := protocol.DamageReductionComponent{Angle: 90}
+	d := protocol.DamageReductionComponent{Angle: defaultBlockingAngle}
 	if field, has := entry["horizontal_blocking_angle"]; has {
 		if d.Angle, ok = floatOf(field); !ok || d.Angle <= 0 {
 			return protocol.DamageReductionComponent{}, false
@@ -212,29 +222,41 @@ func damageSetOf(value nbt.Tag) (protocol.DamageSetComponent, bool) {
 	return set, true
 }
 
-// blocksAttacksTag writes a minecraft:blocks_attacks in the shape
-// blocksAttacksOf reads, every field spelled out.
+// blocksAttacksTag omits optional fields equal to their codec defaults.
 func blocksAttacksTag(b protocol.BlocksAttacksComponent) *nbt.OrderedCompound {
-	reductions := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{}}
-	for _, d := range b.Reductions {
-		entry := nbt.NewOrderedCompound(4)
-		entry.Set("horizontal_blocking_angle", nbt.Float(d.Angle))
-		if d.Type.Present {
-			entry.Set("type", damageSetTag(d.Type))
-		}
-		entry.Set("base", nbt.Float(d.Base))
-		entry.Set("factor", nbt.Float(d.Factor))
-		reductions.Items = append(reductions.Items, entry)
-	}
 	out := nbt.NewOrderedCompound(7)
-	out.Set("block_delay_seconds", nbt.Float(b.BlockDelaySeconds))
-	out.Set("disable_cooldown_scale", nbt.Float(b.DisableCooldownScale))
-	out.Set("damage_reductions", reductions)
-	damage := nbt.NewOrderedCompound(3)
-	damage.Set("threshold", nbt.Float(b.ItemDamage[0]))
-	damage.Set("base", nbt.Float(b.ItemDamage[1]))
-	damage.Set("factor", nbt.Float(b.ItemDamage[2]))
-	out.Set("item_damage", damage)
+	if b.BlockDelaySeconds != 0 {
+		out.Set("block_delay_seconds", nbt.Float(b.BlockDelaySeconds))
+	}
+	if b.DisableCooldownScale != defaultDisableCooldown {
+		out.Set("disable_cooldown_scale", nbt.Float(b.DisableCooldownScale))
+	}
+	def := defaultDamageReduction
+	hasDefaultReduction := len(b.Reductions) == 1 && b.Reductions[0].Angle == def.Angle &&
+		!b.Reductions[0].Type.Present && b.Reductions[0].Base == def.Base && b.Reductions[0].Factor == def.Factor
+	if !hasDefaultReduction {
+		items := make([]nbt.Tag, 0, len(b.Reductions))
+		for _, d := range b.Reductions {
+			entry := nbt.NewOrderedCompound(4)
+			if d.Angle != defaultBlockingAngle {
+				entry.Set("horizontal_blocking_angle", nbt.Float(d.Angle))
+			}
+			if d.Type.Present {
+				entry.Set("type", damageSetTag(d.Type))
+			}
+			entry.Set("base", nbt.Float(d.Base))
+			entry.Set("factor", nbt.Float(d.Factor))
+			items = append(items, entry)
+		}
+		out.Set("damage_reductions", nbt.NewList(items))
+	}
+	if b.ItemDamage != defaultItemDamage {
+		damage := nbt.NewOrderedCompound(3)
+		damage.Set("threshold", nbt.Float(b.ItemDamage[0]))
+		damage.Set("base", nbt.Float(b.ItemDamage[1]))
+		damage.Set("factor", nbt.Float(b.ItemDamage[2]))
+		out.Set("item_damage", damage)
+	}
 	if b.BypassedBy.Present {
 		out.Set("bypassed_by", damageSetTag(b.BypassedBy))
 	}

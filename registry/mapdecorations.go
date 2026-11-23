@@ -3,7 +3,11 @@ package registry
 import "github.com/golem-mc/golem/internal/protocol"
 
 func init() {
-	protocol.MapDecorationKnown = func(name string) bool { _, _, ok := MapDecorationType(name); return ok }
+	protocol.ResolveMapDecorationType = func(name string) (string, bool) {
+		name = Qualify(name)
+		_, _, ok := MapDecorationType(name)
+		return name, ok
+	}
 }
 
 // MapDecorationIsExploration reports whether a marker type is an exploration

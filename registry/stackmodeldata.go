@@ -49,11 +49,11 @@ func customModelDataOf(value nbt.Tag) (protocol.CustomModelData, bool) {
 		if !present {
 			return true
 		}
-		l, isList := v.(nbt.List)
-		if !isList {
+		items := nbt.CollectionValues(v)
+		if items == nil {
 			return false
 		}
-		for _, item := range l.Items {
+		for item := range items {
 			if !read(item) {
 				return false
 			}
@@ -87,17 +87,22 @@ func RGBColorOf(value nbt.Tag) (int32, bool) {
 	if c, ok := nbt.IntValue(value); ok {
 		return c, true
 	}
-	l, ok := value.(nbt.List)
-	if !ok || len(l.Items) != 3 {
+	items := nbt.CollectionValues(value)
+	if items == nil {
 		return 0, false
 	}
 	rgb := int32(-1 << 24) // opaque: colorFromFloat's alpha of 1
-	for i, item := range l.Items {
+	i := 0
+	for item := range items {
 		f, ok := floatOf(item)
-		if !ok {
+		if !ok || i == 3 {
 			return 0, false
 		}
 		rgb |= int32(math.Floor(float64(f*255))) & 0xFF << (16 - 8*i) // vanilla: ARGB.as8BitChannel
+		i++
+	}
+	if i != 3 {
+		return 0, false
 	}
 	return rgb, true
 }

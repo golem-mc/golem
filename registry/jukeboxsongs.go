@@ -94,9 +94,14 @@ func readJukeboxPlayable(stack *protocol.ItemStack, value nbt.Tag) bool {
 	if !ok {
 		return false
 	}
-	id := JukeboxSongID(Qualify(string(name)))
+	song := Qualify(string(name))
+	id := JukeboxSongID(song)
 	if id < 0 {
 		return false
+	}
+	if defaultSong, _ := JukeboxSongForItem(stack.ItemID); song == defaultSong {
+		stack.ResetComponent(protocol.DataComponentJukeboxPlayable)
+		return true
 	}
 	stack.SetJukeboxPlayable(id)
 	return true
