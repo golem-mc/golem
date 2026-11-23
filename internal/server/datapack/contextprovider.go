@@ -202,6 +202,18 @@ func fieldOf(c nbt.Compound, key string) (nbt.Tag, string) {
 	return t, ""
 }
 
+// missingKeys reports every absent required key, in the order given (the
+// order the record codec lists them in).
+func missingKeys(c nbt.Compound, keys ...string) string {
+	var msgs []string
+	for _, k := range keys {
+		if _, ok := c[k]; !ok {
+			msgs = append(msgs, "No key "+k+" in "+mapLike(c))
+		}
+	}
+	return strings.Join(msgs, "; ")
+}
+
 // nestedInt reads a holder field: an identifier names a registry entry,
 // anything else is an inline provider.
 func nestedInt(c nbt.Compound, key string) (registry.LootNumber, string) {
@@ -516,6 +528,9 @@ func init() {
 			return registry.LootConstant{Value: float64(v)}, ""
 		},
 		"uniform": func(c nbt.Compound) (registry.LootNumber, string) {
+			if msg := missingKeys(c, "max", "min"); msg != "" {
+				return nil, msg
+			}
 			lo, msg := nestedInt(c, "min")
 			if msg != "" {
 				return nil, msg
@@ -631,6 +646,9 @@ func init() {
 			return registry.LootConstant{Value: float64(v)}, ""
 		},
 		"uniform": func(c nbt.Compound) (registry.LootNumber, string) {
+			if msg := missingKeys(c, "max", "min"); msg != "" {
+				return nil, msg
+			}
 			lo, msg := nestedFloat(c, "min")
 			if msg != "" {
 				return nil, msg

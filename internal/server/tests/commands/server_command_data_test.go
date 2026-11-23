@@ -381,7 +381,7 @@ func TestCommandDataModifyCompute(t *testing.T) {
 	c.ChatCommand("data get storage t:s v")
 	c.ExpectCommandFeedback("commands.data.storage.query", "t:s", "5")
 
-	c.ChatCommand("data modify storage t:s f set compute default float 1.5")
+	c.ChatCommand("data modify storage t:s f set compute default float {type:\"minecraft:constant\",value:1.5}")
 	c.ExpectCommandFeedback("commands.data.storage.modified", "t:s")
 	c.ChatCommand("data get storage t:s f")
 	c.ExpectCommandFeedback("commands.data.storage.query", "t:s", "1.5f")

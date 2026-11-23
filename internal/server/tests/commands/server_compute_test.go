@@ -33,7 +33,7 @@ func TestComputeStoresItsValue(t *testing.T) {
 	c.ChatCommand("scoreboard objectives add x dummy")
 	expectScoreboardFeedback(t, c, "commands.scoreboard.objectives.add.success")
 
-	c.ChatCommand("execute store result score @s x run compute default integer 7")
+	c.ChatCommand("execute store result score @s x run compute default integer {type:\"minecraft:constant\",value:7}")
 	if with := expectCompute(t, c, "command.compute.result.unnamed.exact").With; len(with) != 1 || with[0].Number == nil || *with[0].Number != 7 {
 		t.Errorf("exact feedback arguments = %+v, want 7", with)
 	}
@@ -115,4 +115,40 @@ func TestComputeTreeIsSent(t *testing.T) {
 		}
 	}
 	t.Error("the command tree carries no compute node")
+}
+
+// TestComputeProviderThatReadsAsIdIsReference checks that a bare number is an
+// identifier and so a registry lookup that fails, and that an inline uniform
+// provider reports every missing key.
+// vanilla: ResourceOrIdArgument.createGrammar
+func TestComputeProviderThatReadsAsIdIsReference(t *testing.T) {
+	t.Parallel()
+	c := dataWorld(t, "Testificate")
+
+	const uniform = `{type:"minecraft:uniform",min_inclusive:3,max_exclusive:3.0001}`
+	for _, tc := range []struct {
+		input, name, registry string
+		failure               string
+	}{
+		{"compute default integer 5", "minecraft:5", "minecraft:context_int_provider", ""},
+		{"compute default float 2.5", "minecraft:2.5", "minecraft:context_float_provider", ""},
+		{"compute block 0 -61 0 integer 3", "minecraft:3", "minecraft:context_int_provider", ""},
+		{"compute entity @s float 1.5", "minecraft:1.5", "minecraft:context_float_provider", ""},
+		{"compute default float " + uniform + " 1", "", "",
+			"Failed to parse either. First: Not a number; Second: No key max in MapLike[" +
+				"{max_exclusive:3.0001d,min_inclusive:3,type:\"minecraft:uniform\"}]; No key min in MapLike[" +
+				"{max_exclusive:3.0001d,min_inclusive:3,type:\"minecraft:uniform\"}]"},
+	} {
+		c.ChatCommand(tc.input)
+		if tc.failure != "" {
+			c.ExpectCommandError(
+				servertest.CommandErrorMessageForTest("argument.resource_or_id.failed_to_parse", tc.failure),
+				servertest.CommandErrorContextForTest(tc.input, len(tc.input)-2))
+			continue
+		}
+		c.ExpectCommandError(
+			servertest.CommandErrorMessageForTest("argument.resource_or_id.no_such_element", tc.name, tc.registry),
+			servertest.CommandErrorContextForTest(tc.input, len(tc.input)))
+	}
+	c.Disconnect()
 }

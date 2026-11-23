@@ -87,20 +87,11 @@ func computeSources(scale bool) []*Node {
 }
 
 // parseProviderArg reads a provider argument: an identifier names a data
-// registry entry, a number is the constant, anything else is an inline
-// provider's SNBT.
+// registry entry (so a bare number is a lookup that fails), anything else is
+// an inline provider's SNBT.
 // vanilla: ResourceOrIdArgument.parse
 func parseProviderArg(text, registryName string, decode func(nbt.Tag) (registry.LootNumber, string), ref func(string) (registry.LootNumber, string)) (registry.LootNumber, *ParseError) {
 	var zero registry.LootNumber
-	tag, n, pe := nbt.ParseValueTag(text)
-	if pe == nil && n == len(text) {
-		if _, isNumber := nbt.NumberValue(tag); isNumber {
-			p, msg := decode(tag)
-			if msg == "" {
-				return p, nil
-			}
-		}
-	}
 	if name, n, ok := readIdentifier(text); ok && n == len(text) {
 		if p, msg := ref(name); msg == "" {
 			return p, nil
@@ -111,6 +102,7 @@ func parseProviderArg(text, registryName string, decode func(nbt.Tag) (registry.
 			Cursor: len(text),
 		}
 	}
+	tag, n, pe := nbt.ParseValueTag(text)
 	if pe != nil {
 		return zero, snbtRefusal(pe, joinSelector([]Token{{Text: text}}), pe.Offset)
 	}
