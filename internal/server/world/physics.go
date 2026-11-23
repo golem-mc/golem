@@ -2210,15 +2210,20 @@ const spreadSide = 2*spreadReach + 1
 // square they are read uncached.
 // vanilla: FlowingFluid.SpreadContext
 type spreadContext struct {
-	p           *Physics
-	y           int32
-	ox, oz      int32
-	kind        fluidKind
-	flowingType fluidState
+	p *Physics
 	// A spread uses one tag snapshot throughout its slope search.
-	holdFlags *[registry.StateCount]uint8
-	states    [spreadSide * spreadSide]uint16
-	flags     [spreadSide * spreadSide]uint8
+	holdFlags     *[registry.StateCount]uint8
+	y             int32
+	ox, oz        int32
+	kind          fluidKind
+	flowingType   fluidState
+	lastState     uint16
+	lastHoleTop   uint16
+	lastHoleBelow uint16
+	lastFlags     uint8
+	lastHoleFlags uint8
+	states        [spreadSide * spreadSide]uint16
+	flags         [spreadSide * spreadSide]uint8
 }
 
 func (p *Physics) newSpreadContext(x, y, z int32, kind fluidKind) spreadContext {
@@ -2274,7 +2279,14 @@ func (c *spreadContext) load(i int) {
 	z := c.oz + int32(i/spreadSide) - spreadReach
 	state := c.p.w.BlockAt(x, c.y, z)
 	c.states[i] = state
-	c.flags[i] = c.cellFlags(state) | cellKnown
+	if c.lastFlags&cellKnown != 0 && state == c.lastState {
+		c.flags[i] = c.lastFlags
+		return
+	}
+	flags := c.cellFlags(state) | cellKnown
+	c.lastState = state
+	c.lastFlags = flags
+	c.flags[i] = flags
 }
 
 // cell reads a cached state and its slope-search classification.
@@ -2296,12 +2308,25 @@ func (c *spreadContext) state(x, z int32) uint16 {
 	return state
 }
 
+// isHolePair classifies whether topState opens downward onto belowState under
+// this spread's fluid and tag snapshot.
+// vanilla: FlowingFluid.isWaterHole
+func (c *spreadContext) isHolePair(topState, belowState uint16) bool {
+	if !passWall(topState, 1, false, belowState) {
+		return false
+	}
+	if fluidHolding(belowState).kind == c.kind {
+		return true
+	}
+	return int(belowState) < len(c.holdFlags) && c.holdFlags[belowState]&holdsAny != 0 && canHoldSpecific(belowState, c.flowingType)
+}
+
 // isHole reports, cached, whether a cell hangs over ground the fluid would pour
 // through.
 func (c *spreadContext) isHole(x, z int32) bool {
 	i, ok := c.index(x, z)
 	if !ok {
-		return c.p.isWaterHole(c.state(x, z), c.p.w.BlockAt(x, c.y-1, z), c.kind)
+		return c.isHolePair(c.state(x, z), c.p.w.BlockAt(x, c.y-1, z))
 	}
 	if c.flags[i]&cellKnown == 0 {
 		c.load(i)
@@ -2314,10 +2339,21 @@ func (c *spreadContext) holeAt(i int) bool {
 	if c.flags[i]&cellHoleKnown == 0 {
 		x := c.ox + int32(i%spreadSide) - spreadReach
 		z := c.oz + int32(i/spreadSide) - spreadReach
-		if c.p.isWaterHole(c.states[i], c.p.w.BlockAt(x, c.y-1, z), c.kind) {
-			c.flags[i] |= cellHole
+		top := c.states[i]
+		below := c.p.w.BlockAt(x, c.y-1, z)
+		var holeFlags uint8
+		if c.lastHoleFlags&cellHoleKnown != 0 && top == c.lastHoleTop && below == c.lastHoleBelow {
+			holeFlags = c.lastHoleFlags
+		} else {
+			holeFlags = cellHoleKnown
+			if c.isHolePair(top, below) {
+				holeFlags |= cellHole
+			}
+			c.lastHoleTop = top
+			c.lastHoleBelow = below
+			c.lastHoleFlags = holeFlags
 		}
-		c.flags[i] |= cellHoleKnown
+		c.flags[i] |= holeFlags
 	}
 	return c.flags[i]&cellHole != 0
 }

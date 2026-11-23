@@ -94,3 +94,74 @@ func (c *spreadContext) slopeDistanceRef(i, pass, from, reach int) int {
 	}
 	return lowest
 }
+
+func TestFluidSlopeTagReload(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackTags(nil) })
+
+	w := newTestWorld(t, NewFlatGenerator())
+	t.Cleanup(func() { w.Close() })
+	for cx := int32(-1); cx <= 0; cx++ {
+		for cz := int32(-1); cz <= 0; cz++ {
+			w.Acquire(ChunkPos{X: cx, Z: cz})
+		}
+	}
+	water := registry.MustState("minecraft:water", nil)
+	torch := registry.MustState("minecraft:torch", nil)
+	for x := int32(-spreadReach); x <= spreadReach; x++ {
+		for z := int32(-spreadReach); z <= spreadReach; z++ {
+			w.SetBlock(x, 63, z, stoneState)
+			w.SetBlock(x, 64, z, airState)
+		}
+	}
+	w.SetBlock(0, 64, 0, water)
+	// Two adjacent cells share the same (air, torch) top/bottom state pair.
+	w.SetBlock(0, 63, 2, torch)
+	w.SetBlock(1, 63, 2, torch)
+
+	p := NewPhysics(w)
+	reach := p.behaviourOf(fluidWater).slopeFindDistance
+	searchSouth := func(c *spreadContext) int {
+		c.state(0, 1)
+		ti, _ := c.index(0, 1)
+		return c.slopeDistance(ti, 1, 0, reach)
+	}
+
+	// Built-in tags include torch in washed_away_by_fluids.
+	before := p.newSpreadContext(0, 64, 0, fluidWater)
+	if !before.isHole(0, 2) || !before.isHole(1, 2) {
+		t.Fatal("torch floor not classified as a hole under built-in tags")
+	}
+	if got := searchSouth(&before); got != 1 {
+		t.Fatalf("slope distance before reload = %d, want 1", got)
+	}
+
+	// Removing torch from washed_away_by_fluids changes hole classification for
+	// the next spread while the earlier spread keeps its tag snapshot.
+	registry.ApplyPackTags(registry.PackTags{"minecraft:block": {
+		"minecraft:washed_away_by_fluids": {Replace: true, Entries: []registry.PackTagEntry{
+			{ID: "minecraft:oak_stairs", Required: true},
+		}},
+	}})
+	after := p.newSpreadContext(0, 64, 0, fluidWater)
+	if after.isHole(0, 2) || after.isHole(1, 2) {
+		t.Fatal("torch floor still classified as a hole after removal from washed_away_by_fluids")
+	}
+	if got := searchSouth(&after); got != 1000 {
+		t.Fatalf("slope distance after reload = %d, want 1000", got)
+	}
+	// Earlier spread context retains its pre-reload snapshot on an unvisited cell.
+	w.SetBlock(-5, 63, -5, torch)
+	if !before.isHole(-5, -5) {
+		t.Fatal("earlier spread did not keep its tag snapshot")
+	}
+
+	// Restoring built-in tags makes a fresh spread see the hole again.
+	registry.ApplyPackTags(nil)
+	restored := p.newSpreadContext(0, 64, 0, fluidWater)
+	if !restored.isHole(0, 2) || !restored.isHole(1, 2) {
+		t.Fatal("torch floor not classified as a hole after restoring built-in tags")
+	}
+	if got := searchSouth(&restored); got != 1 {
+		t.Fatalf("slope distance after restore = %d, want 1", got)
+	}
+}
