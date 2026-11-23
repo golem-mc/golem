@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
@@ -63,10 +64,17 @@ func TestComputeStoresItsValue(t *testing.T) {
 }
 
 // TestComputeRefusals checks the arithmetic a provider throws, the
-// registry entry no pack defines and a provider the codec refuses.
+// registry entry no pack defines and a provider the codec refuses: every
+// missing key of a record is reported, in DFU's order (the reverse of the
+// codec's group(...)).
+// vanilla: RecordCodecBuilder, EitherCodec.decode, ListCodec.decode
 func TestComputeRefusals(t *testing.T) {
 	t.Parallel()
-	c := dataWorld(t, "Testificate")
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
 
 	c.ChatCommand(`compute default integer {type:"minecraft:div",left:1,right:0}`)
 	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.unnamed.invalid", "/ by zero"))
@@ -75,9 +83,49 @@ func TestComputeRefusals(t *testing.T) {
 	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.unnamed.invalid", "Infinity"))
 
 	c.ChatCommand("compute default integer pk:none")
-	if got := c.ExpectPlay(protocol.IDPlaySystemChat); !bytes.Equal(got,
+	if got := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat); !bytes.Equal(got,
 		servertest.CommandErrorMessageForTest("argument.resource_or_id.no_such_element", "pk:none", "minecraft:context_int_provider")) {
 		t.Errorf("an unknown provider answered % X, want the no such element refusal", got)
+	}
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+
+	// A refusal's wording: the typed branch of the number-or-provider codec,
+	// or the case list's own error where an element failed.
+	const either = "Failed to parse either. First: Not a number; Second: "
+	missing := func(key, of string) string { return "No key " + key + " in MapLike[" + of + "]" }
+	for _, tc := range []struct{ command, failure string }{
+		{`compute default float {type:"minecraft:uniform",min_inclusive:3,max_exclusive:3.0001} 1`,
+			either + missing("max", `{max_exclusive:3.0001d,min_inclusive:3,type:"minecraft:uniform"}`) + "; " +
+				missing("min", `{max_exclusive:3.0001d,min_inclusive:3,type:"minecraft:uniform"}`)},
+		{`compute default integer {type:"minecraft:sub"}`,
+			either + missing("right", `{type:"minecraft:sub"}`) + "; " + missing("left", `{type:"minecraft:sub"}`)},
+		{`compute default integer {type:"minecraft:sub",left:{type:"minecraft:constant"}}`,
+			either + missing("right", `{left:{type:"minecraft:constant"},type:"minecraft:sub"}`) + "; " + either +
+				missing("value", `{type:"minecraft:constant"}`)},
+		{`compute default integer {type:"minecraft:binomial"}`,
+			either + missing("p", `{type:"minecraft:binomial"}`) + "; " + missing("n", `{type:"minecraft:binomial"}`)},
+		{`compute default integer {type:"minecraft:score"}`,
+			either + missing("score", `{type:"minecraft:score"}`) + "; " + missing("target", `{type:"minecraft:score"}`)},
+		{`compute default integer {type:"minecraft:storage"}`,
+			either + missing("path", `{type:"minecraft:storage"}`) + "; " + missing("storage", `{type:"minecraft:storage"}`)},
+		{`compute default integer {type:"minecraft:conditional"}`,
+			either + missing("on_true", `{type:"minecraft:conditional"}`) + "; " + missing("condition", `{type:"minecraft:conditional"}`)},
+		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{}]}`,
+			missing("value", "{}") + "; " + missing("condition", "{}")},
+	} {
+		c.ChatCommand(tc.command)
+		suffix := 0
+		if strings.HasSuffix(tc.command, " 1") {
+			suffix = 2
+		}
+		data := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorMessageForTest("argument.resource_or_id.failed_to_parse", tc.failure); !bytes.Equal(data, want) {
+			t.Errorf("%s: refusal = % X, want % X", tc.command, data, want)
+		}
+		data = c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorContextForTest(tc.command, len(tc.command)-suffix); !bytes.Equal(data, want) {
+			t.Errorf("%s: context = % X, want % X", tc.command, data, want)
+		}
 	}
 	c.Disconnect()
 }
@@ -118,37 +166,21 @@ func TestComputeTreeIsSent(t *testing.T) {
 }
 
 // TestComputeProviderThatReadsAsIdIsReference checks that a bare number is an
-// identifier and so a registry lookup that fails, and that an inline uniform
-// provider and a binary provider report every missing key.
+// identifier and so a registry lookup that fails.
 // vanilla: ResourceOrIdArgument.createGrammar
 func TestComputeProviderThatReadsAsIdIsReference(t *testing.T) {
 	t.Parallel()
 	c := dataWorld(t, "Testificate")
 
-	const uniform = `{type:"minecraft:uniform",min_inclusive:3,max_exclusive:3.0001}`
 	for _, tc := range []struct {
 		input, name, registry string
-		failure               string
 	}{
-		{"compute default integer 5", "minecraft:5", "minecraft:context_int_provider", ""},
-		{"compute default float 2.5", "minecraft:2.5", "minecraft:context_float_provider", ""},
-		{"compute block 0 -61 0 integer 3", "minecraft:3", "minecraft:context_int_provider", ""},
-		{"compute entity @s float 1.5", "minecraft:1.5", "minecraft:context_float_provider", ""},
-		{"compute default float " + uniform + " 1", "", "",
-			"Failed to parse either. First: Not a number; Second: No key max in MapLike[" +
-				"{max_exclusive:3.0001d,min_inclusive:3,type:\"minecraft:uniform\"}]; No key min in MapLike[" +
-				"{max_exclusive:3.0001d,min_inclusive:3,type:\"minecraft:uniform\"}]"},
-		{`compute default integer {type:"minecraft:sub"} 1`, "", "",
-			"Failed to parse either. First: Not a number; Second: No key right in MapLike[" +
-				`{type:"minecraft:sub"}]; No key left in MapLike[{type:"minecraft:sub"}]`},
+		{"compute default integer 5", "minecraft:5", "minecraft:context_int_provider"},
+		{"compute default float 2.5", "minecraft:2.5", "minecraft:context_float_provider"},
+		{"compute block 0 -61 0 integer 3", "minecraft:3", "minecraft:context_int_provider"},
+		{"compute entity @s float 1.5", "minecraft:1.5", "minecraft:context_float_provider"},
 	} {
 		c.ChatCommand(tc.input)
-		if tc.failure != "" {
-			c.ExpectCommandError(
-				servertest.CommandErrorMessageForTest("argument.resource_or_id.failed_to_parse", tc.failure),
-				servertest.CommandErrorContextForTest(tc.input, len(tc.input)-2))
-			continue
-		}
 		c.ExpectCommandError(
 			servertest.CommandErrorMessageForTest("argument.resource_or_id.no_such_element", tc.name, tc.registry),
 			servertest.CommandErrorContextForTest(tc.input, len(tc.input)))

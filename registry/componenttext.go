@@ -43,21 +43,21 @@ func textTypedContentDiagnostic(name string, fields nbt.Compound) (string, bool)
 						if !partial {
 							msg = profileEitherMalformed("This value needs to be parsed as component", msg)
 						}
-						args = joinFieldErrors(msg, args)
+						args = JoinFieldErrors(msg, args)
 					}
 				}
 			} else {
 				args = "Not a list: " + nbt.Stringify(value)
 			}
 		}
-		return joinFieldErrors(args, required), required == ""
+		return JoinFieldErrors(args, required), required == ""
 	case "selector":
 		required := textFieldMalformed(fields, "selector", textSelectorMalformed)
 		sep := ""
 		if value, present := fields["separator"]; present {
 			sep = TextComponentMalformed(value)
 		}
-		return joinFieldErrors(sep, required), required == ""
+		return JoinFieldErrors(sep, required), required == ""
 	case "score":
 		tag, present := fields["score"]
 		if !present {
@@ -71,7 +71,7 @@ func textTypedContentDiagnostic(name string, fields nbt.Compound) (string, bool)
 		if holder == "Not a string" {
 			holder = profileEitherMalformed(holder, holder)
 		}
-		msg := joinFieldErrors(textFieldMalformed(score, "objective", textStringMalformed), holder)
+		msg := JoinFieldErrors(textFieldMalformed(score, "objective", textStringMalformed), holder)
 		return msg, msg == ""
 	case "nbt":
 		path := textFieldMalformed(fields, "nbt", func(tag nbt.Tag) string {
@@ -85,7 +85,7 @@ func textTypedContentDiagnostic(name string, fields nbt.Compound) (string, bool)
 			return ""
 		})
 		source := textDataSourceMalformed(fields)
-		msg := joinFieldErrors(source, path)
+		msg := JoinFieldErrors(source, path)
 		if msg == "" && protocol.FlagOn(fields["interpret"]) && protocol.FlagOn(fields["plain"]) {
 			msg = "'interpret' and 'plain' flags can't be both on"
 		}
@@ -96,7 +96,7 @@ func textTypedContentDiagnostic(name string, fields nbt.Compound) (string, bool)
 		if tag, present := fields["fallback"]; present {
 			fallback = TextComponentMalformed(tag)
 		}
-		return joinFieldErrors(fallback, msg), partial
+		return JoinFieldErrors(fallback, msg), partial
 	}
 	return "Unknown element id: " + name, false
 }
@@ -189,7 +189,7 @@ func textObjectFieldsDiagnostic(kind string, fields nbt.Compound) (string, bool)
 		required := textFieldMalformed(fields, "sprite", resourceLocationMalformed)
 		msg := required
 		if atlas, present := fields["atlas"]; present {
-			msg = joinFieldErrors(msg, resourceLocationMalformed(atlas))
+			msg = JoinFieldErrors(msg, resourceLocationMalformed(atlas))
 		}
 		return msg, required == ""
 	case "player":
@@ -198,7 +198,7 @@ func textObjectFieldsDiagnostic(kind string, fields nbt.Compound) (string, bool)
 			msg = textNumberMalformed(hat)
 		}
 		required := textFieldMalformed(fields, "player", ProfileComponentMalformed)
-		return joinFieldErrors(msg, required), required == ""
+		return JoinFieldErrors(msg, required), required == ""
 	default:
 		return "Unknown element id: " + kind, false
 	}

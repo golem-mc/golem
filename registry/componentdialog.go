@@ -34,20 +34,20 @@ func dialogDiagnostic(c nbt.Compound) (string, bool) {
 	common, partial := dialogCommonDiagnostic(c)
 	switch DialogKind(c) {
 	case "notice":
-		return joinFieldErrors(optionalButton(c, "action"), common), partial
+		return JoinFieldErrors(optionalButton(c, "action"), common), partial
 	case "confirmation":
-		return joinFieldErrors(requiredButton(c, "no"), requiredButton(c, "yes"), common),
+		return JoinFieldErrors(requiredButton(c, "no"), requiredButton(c, "yes"), common),
 			partial && buttonHasPartial(c["no"]) && buttonHasPartial(c["yes"])
 	case "multi_action":
 		msg, has := codecFieldDiagnostic(c, "actions", func(tag nbt.Tag) (string, bool) {
 			return codecListDiagnostic(tag, buttonDiagnostic, true)
 		})
-		return joinFieldErrors(dialogListTail(c, false), msg, common), partial && has
+		return JoinFieldErrors(dialogListTail(c, false), msg, common), partial && has
 	case "server_links":
-		return joinFieldErrors(dialogListTail(c, true), common), partial
+		return JoinFieldErrors(dialogListTail(c, true), common), partial
 	case "dialog_list":
 		msg, has := codecFieldDiagnostic(c, "dialogs", dialogHoldersDiagnostic)
-		return joinFieldErrors(dialogListTail(c, true), msg, common), partial && has
+		return JoinFieldErrors(dialogListTail(c, true), msg, common), partial && has
 	}
 	return common, partial
 }
@@ -71,7 +71,7 @@ func dialogCommonDiagnostic(c nbt.Compound) (string, bool) {
 		}
 	}
 	title, partial := codecFieldDiagnostic(c, "title", textComponentDiagnostic)
-	msg := joinFieldErrors(dialogInputs(c), dialogBodies(c), afterError,
+	msg := JoinFieldErrors(dialogInputs(c), dialogBodies(c), afterError,
 		optionalBool(c, "pause"), optionalBool(c, "can_close_with_escape"),
 		optionalComponent(c, "external_title"), title)
 	pause := true
@@ -79,7 +79,7 @@ func dialogCommonDiagnostic(c nbt.Compound) (string, bool) {
 		pause = b
 	}
 	if partial && pause && after == "none" {
-		return joinFieldErrors(msg, "Dialogs that pause the game must use after_action values that unpause it after user action!"), false
+		return JoinFieldErrors(msg, "Dialogs that pause the game must use after_action values that unpause it after user action!"), false
 	}
 	return msg, partial
 }
@@ -113,14 +113,14 @@ func dialogBodyDiagnostic(tag nbt.Tag) (string, bool) {
 	if value, present := b["description"]; present {
 		description = plainMessageCheck(value)
 	}
-	return joinFieldErrors(optionalRange(b, "height", 1, 256), optionalRange(b, "width", 1, 256),
+	return JoinFieldErrors(optionalRange(b, "height", 1, 256), optionalRange(b, "width", 1, 256),
 		optionalBool(b, "show_tooltip"), optionalBool(b, "show_decorations"), description, required), partial
 }
 
 // vanilla: PlainMessage.MAP_CODEC
 func plainMessageMapDiagnostic(b nbt.Compound) (string, bool) {
 	msg, partial := codecFieldDiagnostic(b, "contents", textComponentDiagnostic)
-	return joinFieldErrors(optionalRange(b, "width", 1, 1024), msg), partial
+	return JoinFieldErrors(optionalRange(b, "width", 1, 1024), msg), partial
 }
 
 // vanilla: PlainMessage.CODEC
@@ -157,7 +157,7 @@ func dialogInputs(c nbt.Compound) string {
 			return ""
 		})
 		control := inputControlCheck(in)
-		return joinFieldErrors(control, key), key == "" && control == ""
+		return JoinFieldErrors(control, key), key == "" && control == ""
 	}, false)
 	return msg
 }
@@ -251,7 +251,7 @@ func dialogListTail(c nbt.Compound, buttonWidth bool) string {
 	if buttonWidth {
 		width = optionalRange(c, "button_width", 1, 1024)
 	}
-	return joinFieldErrors(width, columns, optionalButton(c, "exit_action"))
+	return JoinFieldErrors(width, columns, optionalButton(c, "exit_action"))
 }
 
 func positiveIntMalformed(tag nbt.Tag) string {
@@ -287,7 +287,7 @@ func buttonCheck(tag nbt.Tag) string {
 			actionError = actionPayloadCheck(kind, a)
 		}
 	}
-	return joinFieldErrors(actionError, optionalRange(b, "width", 1, 1024),
+	return JoinFieldErrors(actionError, optionalRange(b, "width", 1, 1024),
 		optionalComponent(b, "tooltip"), requiredComponent(b, "label"))
 }
 
@@ -312,7 +312,7 @@ func actionPayloadCheck(kind string, a nbt.Compound) string {
 				additions = "Not a compound tag: " + nbt.Stringify(tag)
 			}
 		}
-		return joinFieldErrors(additions, textFieldMalformed(a, "id", resourceLocationMalformed))
+		return JoinFieldErrors(additions, textFieldMalformed(a, "id", resourceLocationMalformed))
 	default:
 		return clickActionMalformed(kind, a)
 	}

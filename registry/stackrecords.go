@@ -186,7 +186,7 @@ func recordMalformed(fields []protocol.RecordField, tag nbt.Tag) string {
 		} else if f.Mode == protocol.FieldRequired {
 			failure = "No key " + f.Key + " in MapLike[" + nbt.Stringify(tag) + "]"
 		}
-		msg = joinFieldErrors(failure, msg)
+		msg = JoinFieldErrors(failure, msg)
 	}
 	return msg
 }

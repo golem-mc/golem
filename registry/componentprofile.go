@@ -30,7 +30,7 @@ func ProfileComponentMalformed(tag nbt.Tag) string {
 		nameErr = profileNameMalformed(name)
 	}
 	propertiesErr := profilePropertiesMalformed(fields["properties"])
-	fieldErr := joinFieldErrors(propertiesErr, nameErr)
+	fieldErr := JoinFieldErrors(propertiesErr, nameErr)
 	id, hasID := fields["id"]
 	idErr := ""
 	if hasID {
@@ -117,7 +117,7 @@ func profileSkinMalformed(fields nbt.Compound) string {
 	if model, present := fields["model"]; present {
 		modelErr = profileModelMalformed(model)
 	}
-	return joinFieldErrors(
+	return JoinFieldErrors(
 		modelErr,
 		profileSkinLocationMalformed(fields["elytra"]),
 		profileSkinLocationMalformed(fields["cape"]),
@@ -230,8 +230,8 @@ func tooLongStringMalformed(s string, limit int) string {
 		", expected range [0-" + strconv.Itoa(limit) + "]"
 }
 
-// joinFieldErrors preserves field order while omitting absent errors.
-func joinFieldErrors(errs ...string) string {
+// JoinFieldErrors preserves field order while omitting absent errors.
+func JoinFieldErrors(errs ...string) string {
 	var parts []string
 	for _, err := range errs {
 		if err != "" {
