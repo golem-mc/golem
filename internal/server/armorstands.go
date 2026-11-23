@@ -37,11 +37,6 @@ type armorStandEntity struct {
 	bodyTrack[*armorStandMeta]
 	portal rules.EntityPortal
 
-	// teleported marks a teleport the watchers have not been told of yet,
-	// told by the next tracking pass, however many came in the tick.
-	// Guarded by the stands lock.
-	teleported bool
-
 	// tags are the scoreboard tags, what the tag selector option matches
 	// and /tag edits. Guarded by the stands lock, like the rest of a
 	// stand's own fields.
@@ -922,6 +917,14 @@ func (s *Server) tickArmorStands() {
 			standTracker.unfile(ent)
 			continue // a punch or a blast took it out; its tail ran there
 		}
+		// A pending teleport is told before the step moves the stand, and
+		// the step's move on the next tick, so a /tp's ground flag reaches
+		// the watchers. vanilla: ServerChunkCache.tick, ServerLevel.tick
+		toldTeleport := ent.teleported
+		if toldTeleport {
+			trackStand(ent, watchers, near, &out)
+			ent.teleported = false
+		}
 		// The portal pass runs ahead of the step, as for items; only a stand
 		// with physics is inside a block. vanilla: ArmorStand.hasPhysics
 		state := airBlockState
@@ -973,11 +976,14 @@ func (s *Server) tickArmorStands() {
 			}
 		}
 		alive = append(alive, ent)
-		trackStand(ent, watchers, near, &out)
-		ent.teleported = false
+		if !toldTeleport {
+			trackStand(ent, watchers, near, &out)
+		}
 	}
 	s.armorStands = alive
 	s.unlockTick(&s.armorStandsMu)
+	// Before the removals: a stand told its teleport may break this tick.
+	out.send()
 	s.runBodyLandings(bodyLandings)
 
 	var disks []mobDisk
@@ -993,7 +999,6 @@ func (s *Server) tickArmorStands() {
 		s.broadcastWorld(ent.w, protocol.IDPlayRemoveEntities,
 			removeEntitiesPayload([]int32{ent.stand.ID}))
 	}
-	out.send()
 	s.touchGateways(gates)
 	for _, tr := range travels {
 		s.finishArmorStandTravel(tr.ent, tr.kind)

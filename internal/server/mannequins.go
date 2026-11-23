@@ -91,22 +91,14 @@ func (s *Server) registerMannequin(ent *mannequinEntity) {
 func (s *Server) tickMannequins() {
 	s.lockTick(&s.mannequinsMu)
 	none := len(s.mannequins) == 0
-	teleported := false
-	for _, ent := range s.mannequins {
-		if mannequinTracker.track(ent).teleported {
-			teleported = true
-			break
-		}
-	}
 	s.unlockTick(&s.mannequinsMu)
 	if none {
 		return
 	}
-	// A pending teleport is told before the body ticks.
+	// Tracking runs before the bodies step, so a /tp pose is told before the
+	// step moves it, and a step's move on the next tick.
 	// vanilla: ServerChunkCache.tick, ServerLevel.tick
-	if teleported {
-		mannequinTracker.frozenPass(s, s.trackingWatchers())
-	}
+	mannequinTracker.pass(s, s.trackingWatchers(), true)
 	teams := s.pushTeams()
 	pushes := s.mannequinPushInputs(teams)
 	var effects []mannequinTickEffect
@@ -168,7 +160,6 @@ func (s *Server) tickMannequins() {
 			s.hurtMannequin(fx.ent, fx.step.Damage, fx.step.DamageType, 0, 0, nil, false)
 		}
 	}
-	mannequinTracker.pass(s, s.trackingWatchers(), true)
 }
 
 type mannequinTickEffect struct {
