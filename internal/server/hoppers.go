@@ -410,6 +410,10 @@ func (s *Server) hopperEject(w *world.World, self blockEntitySlots, gate *hopper
 	face := blockFacing(w, b.X, b.Y, b.Z)
 	tx, ty, tz := faceOffset(b.X, b.Y, b.Z, face)
 	cache := &b.HopperTargets.Push
+	hopperRefresh(w, cache, tx, ty, tz)
+	if hopperKnownFailure(cache, b, gate != nil) {
+		return nil
+	}
 	target := s.hopperTarget(w, cache, tx, ty, tz)
 	if target == nil {
 		return nil
@@ -435,6 +439,10 @@ func (s *Server) hopperEject(w *world.World, self blockEntitySlots, gate *hopper
 func (s *Server) hopperSuck(w *world.World, self blockEntitySlots, gate *hopperGate) (moved bool, pulled containerTarget, partial bool, taken, shrunk []*itemEntity) {
 	b := self.be
 	cache := &b.HopperTargets.Pull
+	hopperRefresh(w, cache, b.X, b.Y+1, b.Z)
+	if hopperKnownFailure(cache, b, gate != nil) {
+		return false, nil, false, nil, nil
+	}
 	if above := s.hopperTarget(w, cache, b.X, b.Y+1, b.Z); above != nil {
 		move := containerMove{self: self, pull: true}
 		if gate != nil {

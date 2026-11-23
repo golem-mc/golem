@@ -6,10 +6,11 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// hopperTarget reuses block containers until a block or container is replaced. Chest halves
-// also watch the partner's chunk, even when that half has no entity yet.
+// hopperRefresh revalidates the cached block container at the position until a block or
+// container is replaced. Chest halves also watch the partner's chunk, even when that half
+// has no entity yet.
 // vanilla: HopperBlockEntity.getContainerAt; Lithium: cacheInsertBlockInventory
-func (s *Server) hopperTarget(w *world.World, cache *world.HopperTargetCache, x, y, z int32) containerTarget {
+func hopperRefresh(w *world.World, cache *world.HopperTargetCache, x, y, z int32) {
 	stamp := w.ContainerStamp(x, z)
 	tags := registry.TagsGeneration()
 	if !cache.Known || cache.Position != [3]int32{x, y, z} || cache.Stamp != stamp || cache.Tags != tags ||
@@ -31,6 +32,28 @@ func (s *Server) hopperTarget(w *world.World, cache *world.HopperTargetCache, x,
 			cache.Composter = true
 		}
 	}
+}
+
+// hopperKnownFailure reports that the refreshed block container's last move failed and
+// neither inventory changed since, so no target needs building. A gated move is never
+// skipped: a listener's refusal is not a fact about the inventories.
+func hopperKnownFailure(cache *world.HopperTargetCache, self *world.BlockEntity, gated bool) bool {
+	if gated || !cache.Failed || (cache.Entities[0] == nil && !cache.Composter) || cache.SelfVersion != self.InventoryVersion() {
+		return false
+	}
+	for i, be := range cache.Entities {
+		if be != nil && cache.Versions[i] != be.InventoryVersion() {
+			return false
+		}
+		if be == nil && cache.Versions[i] != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// hopperTarget materializes the container of a refreshed cache.
+func (s *Server) hopperTarget(w *world.World, cache *world.HopperTargetCache, x, y, z int32) containerTarget {
 	if cache.Composter {
 		// Each view carries the effects of exactly one attempt.
 		return &composterTarget{x: x, y: y, z: z}
