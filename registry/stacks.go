@@ -1224,7 +1224,7 @@ func lodestoneTargetOf(value nbt.Tag) (*protocol.LodestoneTarget, bool) {
 			if !ok || !protocol.ValidIdentifier(string(text)) {
 				return nil, false
 			}
-			dimension, named = string(text), true
+			dimension, named = Qualify(string(text)), true
 		case "pos":
 			values, ok := intArrayOf3(field)
 			if !ok {

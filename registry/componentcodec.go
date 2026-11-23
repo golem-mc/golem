@@ -31,6 +31,35 @@ func ComponentValueMalformed(key string, tag nbt.Tag) string {
 		if n < 0 {
 			return "Value must be non-negative: " + strconv.FormatInt(int64(n), 10)
 		}
+	case "minecraft:max_stack_size":
+		// vanilla: DataComponents.MAX_STACK_SIZE, ExtraCodecs.intRange
+		n, ok := nbt.IntValue(tag)
+		if !ok {
+			return "Not a number"
+		}
+		if n < protocol.MinMaxStackSize || n > protocol.MaxMaxStackSize {
+			return fmt.Sprintf("Value must be within range [%d;%d]: %d", protocol.MinMaxStackSize, protocol.MaxMaxStackSize, n)
+		}
+	case "minecraft:dyed_color":
+		// vanilla: ExtraCodecs.RGB_COLOR_CODEC
+		if ComponentRefused(key, tag) {
+			switch tag.(type) {
+			case nbt.List, nbt.ByteArray, nbt.IntArray, nbt.LongArray:
+				return componentCodecRefusal
+			default:
+				return "Failed to parse either. First: Not a number; Second: Not a list: " + nbt.Stringify(tag)
+			}
+		}
+	case "minecraft:entity_data", "minecraft:block_entity_data":
+		// vanilla: TypedEntityData.codec
+		if ComponentRefused(key, tag) {
+			if data, ok := compoundTagOrSNBT(tag); ok {
+				if _, hasID := data.Entries()["id"]; !hasID {
+					return "Expected 'id' field in " + nbt.Stringify(tag)
+				}
+			}
+			return componentCodecRefusal
+		}
 	case "minecraft:unbreakable":
 		if _, ok := nbt.CompoundView(tag); !ok {
 			return "Not a map: " + nbt.Stringify(tag)
