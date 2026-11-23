@@ -54,29 +54,48 @@ func TestAPufferfishStingsAnOpenShulkerShellAmongAWholeHerd(t *testing.T) {
 }
 
 // TestAPufferfishStingsAScaledMobAmongAWholeHerd: the grid query reaches a mob
-// whose scale attribute puts its box in reach from beyond its cell.
-// vanilla: Pufferfish.aiStep, LivingEntity.getScale
+// whose scale attribute puts its box in reach from beyond its cell, unless the
+// mob is filed in a section past the ones vanilla's walk visits.
+// vanilla: Pufferfish.aiStep, LivingEntity.getScale,
+// EntitySectionStorage.forEachAccessibleNonEmptySection
 func TestAPufferfishStingsAScaledMobAmongAWholeHerd(t *testing.T) {
-	w := shulkerFloor(t)
-	var mobs Mobs
-	fish := NewMob(TypePufferfish, 1, 3.9, 64, 0.5, 1)
-	fish.NoAI = true
-	fish.SetPuffState(PuffFull)
-	pig := NewMob(TypePig, 2, 8.1, 64, 0.5, 2)
-	pig.NoAI = true
-	pig.SetAttributes(pig.BuildAttributes(nbt.List{}))
-	pig.attrs.SetBase(registry.AttributeScale, 16)
-	mobs = append(mobs, fish, pig)
-	for i := range villagerGridMinHerd {
-		mobs = append(mobs, NewMob(TypePig, int32(i+10), float64(i%8)*2-11, 64, float64(i/8)*2+4, int64(i+10)))
-	}
-	stung := 0
-	for _, ev := range mobs.Tick(w, nil, nil) {
-		if ev.Kind == MobAttackedPlayer && ev.Mob == fish && ev.Player.EntityID == pig.ID {
-			stung++
-		}
-	}
-	if stung != 1 {
-		t.Errorf("the scaled pig was stung %d times, want 1", stung)
+	for _, tc := range []struct {
+		name        string
+		fishX, pigX float64
+		wantStung   int
+	}{
+		{"same section", 3.9, 8.1, 1},
+		{"pig a section past the walk", 11.9, 16.1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := shulkerFloor(t)
+			stone := defaultState(t, "minecraft:stone")
+			for x := int32(13); x <= 24; x++ {
+				for z := int32(-12); z <= 12; z++ {
+					w.set(x, 63, z, stone)
+				}
+			}
+			var mobs Mobs
+			fish := NewMob(TypePufferfish, 1, tc.fishX, 64, 0.5, 1)
+			fish.NoAI = true
+			fish.SetPuffState(PuffFull)
+			pig := NewMob(TypePig, 2, tc.pigX, 64, 0.5, 2)
+			pig.NoAI = true
+			pig.SetAttributes(pig.BuildAttributes(nbt.List{}))
+			pig.attrs.SetBase(registry.AttributeScale, 16)
+			mobs = append(mobs, fish, pig)
+			for i := range villagerGridMinHerd {
+				mobs = append(mobs, NewMob(TypePig, int32(i+10), float64(i%8)*2-11, 64, float64(i/8)*2+4, int64(i+10)))
+			}
+			stung := 0
+			for _, ev := range mobs.Tick(w, nil, nil) {
+				if ev.Kind == MobAttackedPlayer && ev.Mob == fish && ev.Player.EntityID == pig.ID {
+					stung++
+				}
+			}
+			if stung != tc.wantStung {
+				t.Errorf("the scaled pig was stung %d times, want %d", stung, tc.wantStung)
+			}
+		})
 	}
 }

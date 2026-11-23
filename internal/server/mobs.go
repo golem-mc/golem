@@ -663,7 +663,7 @@ func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 			if ent == nil {
 				continue
 			}
-			if touch, ok := s.pufferTouchOf(dim.w, m, ent); ok {
+			if touch, ok := pufferTouchOf(dim.w, m, ent); ok {
 				pufferTouches = append(pufferTouches, touch)
 			}
 			body := mobTracker.body(ent)

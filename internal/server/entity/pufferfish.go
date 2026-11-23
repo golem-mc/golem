@@ -1,6 +1,10 @@
 package entity
 
-import "github.com/golem-mc/golem/registry"
+import (
+	"math"
+
+	"github.com/golem-mc/golem/registry"
+)
 
 // The pufferfish: a fish that puffs up near anything scary and stings what it
 // touches while puffed.
@@ -66,30 +70,47 @@ func scaryTo(o *Mob) bool {
 // vanilla: Shulker.sanitizeScale, Shulker.getPhysicalPeek
 const maxShulkerShell = 3
 
-// scaryMobs lists the scary mobs whose boxes meet the fish's box grown by
-// grow.
-func (m *Mob) scaryMobs(t *tickView, grow float64) []*Mob {
-	box := m.mobBox()
-	var out []*Mob
+// scaryCandidates is the herd a reach grown by grow around the fish can meet.
+func (m *Mob) scaryCandidates(t *tickView, grow float64) []*Mob {
 	near := grow
 	if m.push != nil && m.push.shulkers {
 		near += maxShulkerShell
 	}
-	for _, o := range m.herdNear(t, near) {
-		if o == m {
-			continue
-		}
-		b := o.mobBox()
-		if b.maxX <= box.minX-grow || b.minX >= box.maxX+grow ||
-			b.maxY <= box.minY-grow || b.minY >= box.maxY+grow ||
-			b.maxZ <= box.minZ-grow || b.minZ >= box.maxZ+grow {
-			continue
-		}
-		if scaryTo(o) {
-			out = append(out, o)
+	return m.herdNear(t, near)
+}
+
+// scaryIn reports whether o is a scary mob other than the fish whose box
+// crosses reach and whose section vanilla's walk for reach visits.
+// vanilla: EntityGetter.getEntitiesOfClass, EntitySection.getEntities
+func (m *Mob) scaryIn(reach AABB, o *Mob) bool {
+	return o != m && inSectionWalk(reach, o) && o.mobBox().Crosses(reach) && scaryTo(o)
+}
+
+// inSectionWalk reports whether o, filed by its block position, stands in a
+// section the walk for box visits: 2 blocks past it sideways, 4 below, 0
+// above, so a chonky box filed farther off is missed.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection,
+// PersistentEntitySectionManager.addEntity
+func inSectionWalk(box AABB, o *Mob) bool {
+	x, y, z := sectionCoord(o.X), sectionCoord(o.Y), sectionCoord(o.Z)
+	return x >= sectionCoord(box.minX-2) && x <= sectionCoord(box.maxX+2) &&
+		y >= sectionCoord(box.minY-4) && y <= sectionCoord(box.maxY) &&
+		z >= sectionCoord(box.minZ-2) && z <= sectionCoord(box.maxZ+2)
+}
+
+// sectionCoord is the 16-block section holding coordinate v.
+// vanilla: SectionPos.posToSectionCoord
+func sectionCoord(v float64) int { return int(math.Floor(v)) >> 4 }
+
+// scaryMobNear reports whether a scary mob is in the fish's box grown by grow.
+func (m *Mob) scaryMobNear(t *tickView, grow float64) bool {
+	reach := m.mobBox().Inflate(grow)
+	for _, o := range m.scaryCandidates(t, grow) {
+		if m.scaryIn(reach, o) {
+			return true
 		}
 	}
-	return out
+	return false
 }
 
 // scaryPlayerNear reports whether a player that is neither creative nor a
@@ -151,9 +172,12 @@ func (m *Mob) pufferStings(t *tickView, events []MobEvent) []MobEvent {
 		return events
 	}
 	damage := float64(1 + p.state)
-	for _, o := range m.scaryMobs(t, puffStingGrow) {
-		events = append(events, MobEvent{Mob: m, Kind: MobAttackedPlayer, Damage: damage,
-			Player: o.asTarget(), Touch: true, Puff: p.state})
+	reach := m.mobBox().Inflate(puffStingGrow)
+	for _, o := range m.scaryCandidates(t, puffStingGrow) {
+		if m.scaryIn(reach, o) {
+			events = append(events, MobEvent{Mob: m, Kind: MobAttackedPlayer, Damage: damage,
+				Player: o.asTarget(), Touch: true, Puff: p.state})
+		}
 	}
 	return events
 }
@@ -166,7 +190,7 @@ func (g *pufferGoal) Priority() int    { return 1 }
 func (g *pufferGoal) Flags() GoalFlags { return 0 }
 
 func (g *pufferGoal) CanStart(t *tickView) bool {
-	return g.m.scaryPlayerNear(t, puffScanGrow) || len(g.m.scaryMobs(t, puffScanGrow)) > 0
+	return g.m.scaryPlayerNear(t, puffScanGrow) || g.m.scaryMobNear(t, puffScanGrow)
 }
 
 func (g *pufferGoal) Start(*tickView) {

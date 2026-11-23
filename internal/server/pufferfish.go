@@ -13,8 +13,9 @@ type pufferTouch struct {
 	strike mobStrike
 }
 
-// pufferTouchOf is the touch a puffed living pufferfish makes on players.
-func (s *Server) pufferTouchOf(w *world.World, m *entity.Mob, ent *mobEntity) (pufferTouch, bool) {
+// pufferTouchOf is the touch a puffed living pufferfish makes on players; its
+// killer is resolved on contact (touchPuffers).
+func pufferTouchOf(w *world.World, m *entity.Mob, ent *mobEntity) (pufferTouch, bool) {
 	puff := m.PuffState()
 	if m.Type != entity.TypePufferfish || puff == 0 || !m.Alive() {
 		return pufferTouch{}, false
@@ -22,7 +23,7 @@ func (s *Server) pufferTouchOf(w *world.World, m *entity.Mob, ent *mobEntity) (p
 	return pufferTouch{
 		box: entity.NewAABB(m.BlastBox()),
 		strike: mobStrike{
-			w: w, mob: m, uuidText: ent.uuidText, killer: s.mobKiller(ent),
+			w: w, mob: m, uuidText: ent.uuidText,
 			x: m.X, y: m.Y, z: m.Z, damage: float64(1 + puff), touch: true, puff: puff,
 		},
 	}, true
@@ -68,6 +69,7 @@ func (s *Server) touchPuffers(c *client, touches []pufferTouch) {
 		}
 		strike := touch.strike
 		strike.victimID = c.player.EntityID
+		strike.killer, _ = s.mobKillerByID(strike.w, strike.mob.ID)
 		s.landingBlow(strike, []*client{c})
 	}
 }

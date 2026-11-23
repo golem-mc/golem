@@ -865,7 +865,7 @@ func (t *mobDimTick) scheduleMovement(fx *mobEffects, in *mobTickInputs) {
 		if ent == nil {
 			continue
 		}
-		if touch, ok := t.s.pufferTouchOf(w, m, ent); ok {
+		if touch, ok := pufferTouchOf(w, m, ent); ok {
 			fx.pufferTouches = append(fx.pufferTouches, touch)
 		}
 		body := mobTracker.body(ent)
