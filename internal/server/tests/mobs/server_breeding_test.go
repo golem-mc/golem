@@ -547,3 +547,22 @@ func TestMergedShortListLoveCauseIsKept(t *testing.T) {
 	c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
 	expectLoveCause(c, cow, uuid.UUID{0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4})
 }
+
+// TestAppendedMixedListLoveCauseIsKept: a list of shorts with a double
+// appended is a LoveCause once copied from storage, each element narrowed
+// to an int.
+// vanilla: ListTag.addTag, NbtOps.getIntStream, UUIDUtil.CODEC
+func TestAppendedMixedListLoveCauseIsKept(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:wheat", 64, servertest.OpsListing(t, "Rancher"))
+	servertest.HoldTicks(t, srv)
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.ChatCommand("data merge storage review:uuid {words:[1s,2s,3s]}")
+	c.ExpectCommandFeedback("commands.data.storage.modified", "review:uuid")
+	c.ChatCommand("data modify storage review:uuid words append value 4.9d")
+	c.ExpectCommandFeedback("commands.data.storage.modified", "review:uuid")
+	c.ChatCommand("data modify entity " + cow.Uuid.String() + " LoveCause set from storage review:uuid words")
+	c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
+	expectLoveCause(c, cow, uuid.UUID{0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4})
+}
