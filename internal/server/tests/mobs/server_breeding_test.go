@@ -1,7 +1,11 @@
 package mobs
 
 import (
+	"encoding/binary"
+	"fmt"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
+	"strings"
 
 	"math"
 	"testing"
@@ -367,5 +371,48 @@ func TestBreedingCreditsTheFeeder(t *testing.T) {
 				t.Errorf("animals_bred = %d, want %d", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestFedCowSavesItsLoveCause: feeding stores the feeder's UUID as LoveCause.
+// vanilla: Animal.addAdditionalSaveData
+func TestFedCowSavesItsLoveCause(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:wheat", 64)
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.UseOn(cow.EntityID)
+	c.AwaitEntityEvent(cow.EntityID, loveHearts)
+	tag, ok := srv.MobSaveTag(cow.EntityID)
+	if !ok {
+		t.Fatal("no save tag for the cow")
+	}
+	got, ok := nbt.UUIDField(tag, "LoveCause")
+	if !ok || got != protocol.OfflineUUID("Rancher") {
+		t.Errorf("LoveCause = %v (present %v), want the feeder %v", got, ok, protocol.OfflineUUID("Rancher"))
+	}
+}
+
+// TestMergedLoveCauseCreditsTheBreeder: a LoveCause set by /data merge is
+// credited with animals_bred when the pair breeds.
+// vanilla: Animal.readAdditionalSaveData, finalizeSpawnChildFromBreeding
+func TestMergedLoveCauseCreditsTheBreeder(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "", 0, servertest.OpsListing(t, "Rancher"))
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	srv.SpawnMob("minecraft:cow", 2.5, 64, 2.5)
+	cows := []servertest.SpawnedMob{c.ExpectMobSpawn(protocol.EntityTypeCow), c.ExpectMobSpawn(protocol.EntityTypeCow)}
+	id := protocol.OfflineUUID("Rancher")
+	words := make([]string, 4)
+	for i := range words {
+		words[i] = fmt.Sprint(int32(binary.BigEndian.Uint32(id[4*i:])))
+	}
+	for _, cow := range cows {
+		c.ChatCommand(fmt.Sprintf(`data merge entity %s {InLove:600,LoveCause:[I;%s]}`, cow.Uuid, strings.Join(words, ",")))
+		c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
+	}
+	servertest.UntilTicks(t, srv, 400, "calf", func() bool { return srv.MobCount() == 3 })
+	if got := srv.StatValue("Rancher", registry.StatCustom, "minecraft:animals_bred"); got != 1 {
+		t.Errorf("animals_bred = %d, want 1", got)
 	}
 }

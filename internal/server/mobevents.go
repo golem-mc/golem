@@ -780,7 +780,6 @@ func (t *mobDimTick) bred(fx *mobEffects, ev entity.MobEvent) {
 			if cause == (uuid.UUID{}) {
 				cause = ent.loveCause
 			}
-			ent.loveCause = uuid.UUID{}
 		}
 	}
 	fx.births = append(fx.births, mobBirth{
