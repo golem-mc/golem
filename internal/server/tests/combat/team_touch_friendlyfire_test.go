@@ -47,7 +47,7 @@ func TestTeamFriendlyFireGatesMobTouches(t *testing.T) {
 					srv.RunLine("team join t " + player)
 					srv.RunLine("team join t @e[type=minecraft:" + tc.selector + ",limit=1]")
 				}
-				for i := 0; i < 30; i++ {
+				for range 30 {
 					srv.MoveMob(id, 0.5, 0.5)
 					servertest.RunTicks(t, srv, 2)
 					if !teamed && srv.PlayerHealth(player) < 20 {
