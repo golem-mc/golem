@@ -1422,11 +1422,7 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 			})
 			victim.addVelocity(strike.w, 0, rules.IronGolemLift(resistance), 0)
 		}
-		if strike.touch {
-			// vanilla: AbstractCubeMob.dealDamage
-			s.broadcastVoiceID(strike.w, strike.mob.Type, strike.mob.Silent, strike.x, strike.y, strike.z,
-				registry.SoundEntitySlimeAttack, 1.0, strike.pitch)
-		}
+		s.cubeTouchSound(strike)
 		effective := s.effectiveDifficultyAt(strike.w, strike.x, strike.z)
 		if name, ticks, ok := strike.mob.BlowEffect(strike.w.Difficulty(), effective); ok {
 			victim.AddEffect(blowEffect(registry.MustMobEffect(name), ticks, 0))
@@ -1467,6 +1463,15 @@ func (s *Server) killerBunnyBite(strike mobStrike) {
 	}
 	s.broadcastSoundID(strike.w, registry.SoundEntityRabbitAttack, protocol.SoundCategoryHostile,
 		strike.x, strike.y, strike.z, 1, strike.bunnyPitch)
+}
+
+// vanilla: AbstractCubeMob.dealDamage
+func (s *Server) cubeTouchSound(strike mobStrike) {
+	// A pufferfish sting is also a touch strike and has its own sound.
+	if strike.touch && strike.puff == 0 {
+		s.broadcastVoiceID(strike.w, strike.mob.Type, strike.mob.Silent, strike.x, strike.y, strike.z,
+			registry.SoundEntitySlimeAttack, 1, strike.pitch)
+	}
 }
 
 // landingMobBlow runs a monster's blow on another mob found under the mob
@@ -1613,6 +1618,7 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 		entityVelocityPayload(strike.victimID, vx, vy, vz))
 	s.broadcastWorld(strike.w, protocol.IDPlayEntityMetadata, health)
 	s.broadcastSoundHolder(strike.w, sound, mobSoundCategory(kind), mx, my, mz, volume, 1.0)
+	s.cubeTouchSound(strike)
 
 	s.tellSplashMob(strike.w, effectTell)
 }
