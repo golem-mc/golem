@@ -54,14 +54,53 @@ func TestLavaSpreadReachByDimension(t *testing.T) {
 	}
 }
 
+// newFluidBookingWorld is a flat world with the one chunk holding (0, 0).
+func newFluidBookingWorld(t *testing.T) (*World, *Physics) {
+	t.Helper()
+	t.Parallel()
+	w := newTestWorld(t, NewFlatGenerator())
+	t.Cleanup(func() { w.Close() })
+	w.Acquire(ChunkPos{})
+	return w, NewPhysics(w)
+}
+
 // TestClearTicksInForgetsFluidBookings checks that a cleared fluid visit leaves
 // no booking behind to block the next one.
 func TestClearTicksInForgetsFluidBookings(t *testing.T) {
-	w, p := newPhysicsWorld(t)
+	w, p := newFluidBookingWorld(t)
 	w.SetBlock(0, GroundLevel, 0, waterByLevel[0])
 	p.scheduleFluid(0, GroundLevel, 0)
+	if len(p.fluidBooked) != 1 {
+		t.Fatalf("%d fluid bookings before the clear, want 1", len(p.fluidBooked))
+	}
 	p.ClearTicksIn(0, GroundLevel, 0, 0, GroundLevel, 0)
 	if len(p.fluidBooked) != 0 {
 		t.Errorf("%d fluid bookings after the clear, want none", len(p.fluidBooked))
+	}
+}
+
+// TestSavedFluidVisitsReloadWithTheirType saves a lava and a water visit at one
+// cell, reloads them while the cell holds water, and expects both bookings back.
+// vanilla: LevelChunkTicks.<init>, ServerLevel.tickFluid
+func TestSavedFluidVisitsReloadWithTheirType(t *testing.T) {
+	w, p := newFluidBookingWorld(t)
+	setBlock(t, w, p, 0, GroundLevel, 0, lavaByLevel[0])
+	setBlock(t, w, p, 0, GroundLevel, 0, waterByLevel[0])
+	saved := p.chunkTicks(ChunkPos{}).fluid
+	if len(saved) != 2 {
+		t.Fatalf("%d fluid visits saved, want lava and water", len(saved))
+	}
+	p.ClearTicksIn(0, GroundLevel, 0, 0, GroundLevel, 0)
+	if len(p.fluidBooked) != 0 {
+		t.Fatalf("%d bookings after the clear", len(p.fluidBooked))
+	}
+	for _, st := range saved {
+		w.pendingLoaded = append(w.pendingLoaded, loadedTick{savedTick: st, fluid: true})
+	}
+	p.mu.Lock()
+	p.adoptLoadedTicks()
+	p.mu.Unlock()
+	if len(p.fluidBooked) != 2 {
+		t.Errorf("%d fluid bookings after the reload, want 2", len(p.fluidBooked))
 	}
 }

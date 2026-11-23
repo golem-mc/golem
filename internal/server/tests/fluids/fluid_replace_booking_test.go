@@ -23,6 +23,8 @@ func TestWaterBesideDiagonalLavaFlowsAtItsOwnDelay(t *testing.T) {
 	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
 	servertest.HoldTicks(t, srv)
 	servertest.Setblock(t, c, 5, replaceY, 5, "lava")
+	// A lava visit pending at the water's position, replaced at once.
+	servertest.Setblock(t, c, 4, replaceY, 4, "lava")
 	servertest.Setblock(t, c, 4, replaceY, 4, "water")
 	servertest.RunTicks(t, srv, 4)
 	for _, p := range [][2]int32{{5, 4}, {4, 5}} {

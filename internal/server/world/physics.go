@@ -1356,25 +1356,38 @@ func (p *Physics) scheduleFluid(x, y, z int32) {
 }
 
 func (p *Physics) scheduleFluidAt(x, y, z int32, fs fluidState, due int64, priority int) {
-	p.discardUnloadedTicks(p.w.prepareTick(x, z, true))
-	book := fluidBook{blockKey{x, y, z}, fluidTypeOf(fs)}
-	if _, ok := p.fluidBooked[book]; ok {
-		return
-	}
-	p.fluidBooked[book] = struct{}{}
-	p.seq++
-	p.queue.push(scheduledTick{pos: book.pos, due: due, priority: priority, seq: p.seq, fluid: book.typ})
+	p.bookTick(x, y, z, fluidTypeOf(fs), due, priority)
+}
+
+// bookFluid books the visit of fs, the fluid the caller read at the cell.
+func (p *Physics) bookFluid(x, y, z int32, fs fluidState) {
+	p.scheduleFluidAt(x, y, z, fs, p.now+p.tickDelayOf(fs.kind), tickPriorityNormal)
 }
 
 func (p *Physics) schedulePriority(x, y, z int32, due int64, priority int) {
+	p.bookTick(x, y, z, 0, due, priority)
+}
+
+// bookTick queues a visit unless one is waiting for the same position and
+// fluid type (zero for a block tick). Runs under p.mu.
+// vanilla: LevelChunkTicks.schedule
+func (p *Physics) bookTick(x, y, z int32, typ fluidType, due int64, priority int) {
 	p.discardUnloadedTicks(p.w.prepareTick(x, z, true))
 	key := blockKey{x, y, z}
-	if p.pending[key] {
-		return
+	if typ != 0 {
+		book := fluidBook{key, typ}
+		if _, ok := p.fluidBooked[book]; ok {
+			return
+		}
+		p.fluidBooked[book] = struct{}{}
+	} else {
+		if p.pending[key] {
+			return
+		}
+		p.pending[key] = true
 	}
-	p.pending[key] = true
 	p.seq++
-	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq})
+	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ})
 	if priority == tickPriorityFinalize {
 		p.finalizeSeq[key] = p.seq
 	}
@@ -1776,7 +1789,7 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 		if fs.kind == fluidLava && !p.shouldSpreadLiquid(x, y, z, changes) {
 			return // the lava met water: obsidian, cobblestone or basalt at once
 		}
-		p.scheduleFluid(x, y, z)
+		p.bookFluid(x, y, z, fs)
 		return
 	}
 	// A block's own placement leaves it standing (BlockInput.place keeps a
@@ -1800,7 +1813,7 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	// SpeleothemBlock.updateShape
 	if fs.kind != fluidNone && fluidContainer(state) {
 		if registry.BlockOf(state) != registry.BlockScaffolding {
-			p.scheduleFluid(x, y, z)
+			p.bookFluid(x, y, z, fs)
 		}
 	}
 	block := registry.BlockOf(state)

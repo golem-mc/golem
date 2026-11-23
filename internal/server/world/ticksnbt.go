@@ -245,9 +245,11 @@ func (p *Physics) adoptLoadedTicks() {
 		state := p.w.BlockAt(t.x, t.y, t.z)
 		due := p.now + int64(t.delay)
 		if t.fluid {
-			// vanilla: ServerLevel.tickFluid needs the exact fluid type.
-			if fs := fluidHolding(state); fs.kind != fluidNone && fluidTypeOf(fs) == fluidTypeNamed(t.id) {
-				p.scheduleFluidAt(t.x, t.y, t.z, fs, due, int(t.priority))
+			// The booking keeps its saved type whatever the cell holds now;
+			// dispatch checks the cell.
+			// vanilla: LevelChunkTicks.<init>, ServerLevel.tickFluid
+			if typ := fluidTypeNamed(t.id); typ != 0 {
+				p.bookTick(t.x, t.y, t.z, typ, due, int(t.priority))
 			}
 			continue
 		}
