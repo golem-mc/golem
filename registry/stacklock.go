@@ -62,6 +62,10 @@ func qualifiedHolderSet(tag nbt.Tag) nbt.Tag {
 		if v.Elem != nbt.TypeString {
 			return tag
 		}
+		// vanilla: ExtraCodecs.compactListCodec writes a one-element list as the element.
+		if len(v.Items) == 1 {
+			return qualifiedHolderSet(v.Items[0])
+		}
 		items := make([]nbt.Tag, len(v.Items))
 		for i, item := range v.Items {
 			items[i] = qualifiedHolderSet(item)

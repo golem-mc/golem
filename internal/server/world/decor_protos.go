@@ -150,7 +150,9 @@ func (c *Chunk) placeGeneratedBlockEntity(entry nbt.Compound) {
 // vanilla: BlockEntity.saveWithoutMetadata, VaultBlockEntity.saveAdditional,
 // BeehiveBlockEntity.saveAdditional, TrialSpawnerBlockEntity.saveAdditional
 func asSaved(entry nbt.Compound) nbt.Compound {
-	canonicalCarried(entry)
+	if _, ok := entry["components"]; !ok {
+		entry["components"] = nbt.Compound{}
+	}
 	id, _ := nbt.Get[nbt.String](entry, "id")
 	if id == "minecraft:beehive" {
 		if _, ok := entry["bees"]; !ok {

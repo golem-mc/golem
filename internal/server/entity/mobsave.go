@@ -952,8 +952,8 @@ func (m *Mob) loadFreezeConversion(compound nbt.Compound) {
 	}
 }
 
-// qualifiedOffers returns the offers with the item id of each recipe's buy,
-// buyB and sell namespaced, as their item codecs read them.
+// qualifiedOffers returns the offers with each recipe's buy, buyB and sell
+// written as their item codecs do.
 // vanilla: MerchantOffers.CODEC, MerchantOffer.CODEC
 func qualifiedOffers(offers nbt.Compound) nbt.Compound {
 	recipes, ok := nbt.Get[nbt.List](offers, "Recipes")
@@ -966,10 +966,13 @@ func qualifiedOffers(offers nbt.Compound) nbt.Compound {
 		if !ok {
 			continue
 		}
-		for _, key := range []string{"buy", "buyB", "sell"} {
-			if stack, ok := recipe.Entries()[key]; ok {
-				recipe.Set(key, registry.QualifiedStackTag(stack))
+		for _, key := range []string{"buy", "buyB"} {
+			if cost, ok := recipe.Entries()[key]; ok {
+				recipe.Set(key, registry.ItemCostTag(cost))
 			}
+		}
+		if sell, ok := recipe.Entries()["sell"]; ok {
+			recipe.Set("sell", registry.CodecStackTag(sell))
 		}
 	}
 	out := make(nbt.Compound, len(offers))

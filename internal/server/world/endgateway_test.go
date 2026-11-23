@@ -49,13 +49,14 @@ func TestEndGatewayTickPreservesCarriedSnapshotsAndSlots(t *testing.T) {
 				t.Fatal("tick replaced the carried list's storage")
 			}
 			for i, item := range c.carriedBlockEntities.Items {
-				entry := item.(nbt.Compound)
+				entry, _ := nbt.CompoundView(item)
 				x, y, z := carriedPos(entry)
 				if x != int32(i%16) || y != 80 || z != int32(i/16) {
 					t.Fatalf("slot %d moved to %d/%d/%d", i, x, y, z)
 				}
 				want := nbt.Long(2399 + (i/8)%2)
-				if old := savedEntities.Items[i].(nbt.Compound)["Age"]; old != want {
+				saved, _ := nbt.CompoundView(savedEntities.Items[i])
+				if old := saved["Age"]; old != want {
 					t.Errorf("pending save's age at slot %d changed to %v", i, old)
 				}
 				if i%8 == 0 {

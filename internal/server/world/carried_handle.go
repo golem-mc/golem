@@ -104,10 +104,11 @@ func (b *CarriedBlockEntity) Edit(edit func(nbt.Compound)) bool {
 		return false
 	}
 	for i, item := range b.chunk.carriedBlockEntities.Items {
-		old, ok := nbt.CompoundView(item)
+		oldTag, ok := item.(nbt.CompoundTag)
 		if !ok {
 			continue
 		}
+		old := oldTag.Entries()
 		x, y, z := carriedPos(old)
 		if [3]int32{x, y, z} != b.pos {
 			continue
@@ -115,7 +116,20 @@ func (b *CarriedBlockEntity) Edit(edit func(nbt.Compound)) bool {
 		entry := maps.Clone(old)
 		edit(entry)
 		// Replace in place: private data must not reorder carried tickers.
-		b.chunk.carriedBlockEntities.Items[i] = entry
+		if _, ordered := oldTag.(*nbt.OrderedCompound); ordered {
+			// Keep the saved order; fields the edit added follow.
+			next := nbt.NewOrderedCompound(len(entry))
+			for _, key := range append(nbt.HashOrderedKeys(oldTag), nbt.HashOrderedKeys(entry)...) {
+				if v, ok := entry[key]; ok {
+					if _, done := next.Entries()[key]; !done {
+						next.Set(key, v)
+					}
+				}
+			}
+			b.chunk.carriedBlockEntities.Items[i] = next
+		} else {
+			b.chunk.carriedBlockEntities.Items[i] = entry
+		}
 		l.markDirty()
 		return true
 	}

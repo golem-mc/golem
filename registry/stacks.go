@@ -1876,14 +1876,18 @@ func attributeModifiersOf(value nbt.Tag) ([]protocol.AttributeModifierEntry, boo
 	return entries, true
 }
 
-// QualifiedStackTag returns a copy of a stack compound with its item id
-// namespaced as the item codec writes it; anything but a compound with a
-// string id comes back as is.
+// CodecStackTag returns a stack compound as ItemStack.CODEC writes it: a stack
+// this server models is read and written back whole (count always, components
+// in codec form); any other with a string id keeps its fields with the id
+// namespaced; anything else comes back as is.
 // vanilla: ItemStack.CODEC, Item.CODEC
-func QualifiedStackTag(tag nbt.Tag) nbt.Tag {
+func CodecStackTag(tag nbt.Tag) nbt.Tag {
 	stack, ok := tag.(nbt.CompoundTag)
 	if !ok {
 		return tag
+	}
+	if item, ok := StoredStack(stack); ok {
+		return StackTag(item)
 	}
 	id, ok := nbt.Get[nbt.String](stack.Entries(), "id")
 	if !ok {
@@ -1897,5 +1901,31 @@ func QualifiedStackTag(tag nbt.Tag) nbt.Tag {
 		out = nbt.OrderedCopy(stack).(nbt.CompoundTag)
 	}
 	out.Set("id", nbt.String(Qualify(string(id))))
+	return out
+}
+
+// ItemCostTag returns an item cost with its id namespaced and its count
+// written, as ItemCost.CODEC does even for the default of 1; a cost that has
+// both is returned as is.
+// vanilla: ItemCost.CODEC
+func ItemCostTag(tag nbt.Tag) nbt.Tag {
+	cost, ok := tag.(nbt.CompoundTag)
+	if !ok {
+		return tag
+	}
+	count := nbt.Int(1)
+	if v, ok := nbt.IntValue(cost.Entries()["count"]); ok {
+		count = nbt.Int(v)
+	}
+	id, hasID := nbt.Get[nbt.String](cost.Entries(), "id")
+	qualified := nbt.String(Qualify(string(id)))
+	if cost.Entries()["count"] == count && (!hasID || id == qualified) {
+		return tag
+	}
+	out := nbt.ShallowCopyCompound(cost)
+	out.Set("count", count)
+	if hasID {
+		out.Set("id", qualified)
+	}
 	return out
 }
