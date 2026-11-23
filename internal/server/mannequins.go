@@ -395,7 +395,7 @@ func (s *Server) mannequinTwinAt(ent *mannequinEntity, to *dimension, pos player
 // leaves the move to the tracking pass. The head turns with the body, so a
 // changed yaw also sends a Rotate Head, without which the player model keeps
 // looking the old way. A /tp (command) also lands it on the ground, gravity
-// or not.
+// or not, and stops its fall.
 // vanilla: Entity.teleportSetPosition, Entity.forceSetRotation, TeleportCommand.performTeleport, ServerEntity.sendChanges
 func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by string, command bool) {
 	var watchers []uuid.UUID
@@ -408,6 +408,7 @@ func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by 
 		m.Yaw = to.Yaw
 		m.Pitch = to.Pitch
 		if command {
+			m.VY = 0
 			m.OnGround = true
 		}
 		id = m.ID

@@ -34,3 +34,27 @@ func TestTeleportCommandSetsStandAndMannequinOnGround(t *testing.T) {
 		})
 	}
 }
+
+// A /tp of a falling mannequin lands it at the destination with the ground
+// flag, instead of letting the tick carry on the fall first.
+// vanilla: TeleportCommand.performTeleport
+func TestTeleportCommandStopsFallingMannequin(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
+	servertest.HoldTicks(t, srv)
+	srv.RunLine(`summon mannequin 0.5 150 0.5 {Tags:[b]}`)
+	servertest.RunTicks(t, srv, 8)
+	c.Settle()
+	srv.RunLine(`tp @e[tag=b,limit=1] 0.5 155 0.5`)
+	var sync servertest.EntityPositionSync
+	seen := c.ReadTicks(srv, 5, func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlayTeleportEntity {
+			return false
+		}
+		sync = servertest.ParseEntityPositionSync(data)
+		return true
+	})
+	if !seen || sync.Y != 155 || !sync.OnGround {
+		t.Errorf("seen %v, sync %+v, want a position sync at y 155 with onGround", seen, sync)
+	}
+}
