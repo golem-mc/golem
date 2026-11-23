@@ -394,9 +394,10 @@ func (s *Server) mannequinTwinAt(ent *mannequinEntity, to *dimension, pos player
 // teleportMannequin puts a mannequin somewhere else, facing to's angles, and
 // leaves the move to the tracking pass. The head turns with the body, so a
 // changed yaw also sends a Rotate Head, without which the player model keeps
-// looking the old way.
-// vanilla: Entity.teleportSetPosition, Entity.forceSetRotation, ServerEntity.sendChanges
-func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by string) {
+// looking the old way. A /tp (command) also lands it on the ground, gravity
+// or not.
+// vanilla: Entity.teleportSetPosition, Entity.forceSetRotation, TeleportCommand.performTeleport, ServerEntity.sendChanges
+func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by string, command bool) {
 	var watchers []uuid.UUID
 	var turned bool
 	var id int32
@@ -406,6 +407,9 @@ func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by 
 		m.SetPos(to.X, to.Y, to.Z)
 		m.Yaw = to.Yaw
 		m.Pitch = to.Pitch
+		if command {
+			m.OnGround = true
+		}
 		id = m.ID
 		watchers = trackedWatchers(ent.tracked)
 	})
