@@ -37,7 +37,7 @@ func (s *Server) tickArrows() {
 	s.lockTick(&s.mobsMu)
 	s.crossArrowPortalsLocked(&fx, gate)
 	var hv arrowHangingView
-	if len(s.arrows) > 0 {
+	if anyArrowFlying(s.arrows) {
 		hv = newArrowHangingView()
 		s.readArrowHanging(&hv)
 	}
@@ -69,6 +69,17 @@ func (s *Server) tickArrows() {
 	fx.apply(s, removals)
 	s.resolveHitAsks(fx.hitAsks)
 	s.fireBlockHits(fx.blockHits)
+}
+
+// anyArrowFlying reports whether a live arrow is not lodged in a block, the
+// only kind whose step reads the hanging-entity view.
+func anyArrowFlying(arrows []*arrowEntity) bool {
+	for _, it := range arrows {
+		if !it.arrow.Dead && !it.arrow.InGround {
+			return true
+		}
+	}
+	return false
 }
 
 // arrowWatcher is one player as the arrow tick sees them, read before any
@@ -430,6 +441,11 @@ func arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInputs, hv *arro
 	targets = wt.targets[:len(wt.targets):len(wt.targets)]
 	if i, ok := wt.index[it.arrow.OwnerID]; ok {
 		owner = &targets[i]
+	}
+	// A lodged arrow's step never sweeps entities (vanilla:
+	// AbstractArrow.tick, inGround branch), so it needs no slivers.
+	if it.arrow.InGround {
+		return targets, owner
 	}
 	// The frames and the paintings of the dimension whose slivers the
 	// flight line can reach, their boxes what a shaft meets as
