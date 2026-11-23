@@ -184,6 +184,7 @@ func (m *Mob) AbsorbSulfurBlock(stack protocol.ItemStack) (protocol.ItemStack, b
 	old := m.Body
 	stack.Count = 1
 	m.SetEquipment(6, stack)
+	m.BodyDropChance = guaranteedDropChance
 	return old, true
 }
 

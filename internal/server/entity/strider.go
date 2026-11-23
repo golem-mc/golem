@@ -264,6 +264,7 @@ func (m *Mob) StriderUseItem(held protocol.ItemStack, sneaking bool) StriderClic
 	if !held.Empty() && IsSaddle(held) && m.StriderCanTakeSaddle() {
 		held.Count = 1
 		m.SetMetadataHorseSaddle(held)
+		m.SaddleDropChance = guaranteedDropChance
 		return StriderClickSaddle
 	}
 	return StriderClickNone
@@ -448,6 +449,7 @@ func (m *Mob) finalizeStrider(dice Dice, ctx rules.SpawnContext, local rules.Loc
 		rider.finalizeSpawn(dice, ctx, group, local, false)
 		rider.SetEquipment(protocol.EquipMainHand, protocol.ItemStack{ItemID: int32(registry.ItemWarpedFungusOnAStick), Count: 1})
 		m.SetMetadataHorseSaddle(protocol.ItemStack{ItemID: int32(registry.ItemSaddle), Count: 1})
+		m.SaddleDropChance = guaranteedDropChance
 	} else if dice.NextIntN(striderBabyJockeyOdds) == 0 {
 		rider = m.striderRider(TypeStrider)
 		rider.SetBaby(true)

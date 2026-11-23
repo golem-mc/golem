@@ -33,6 +33,7 @@ func (m *Mob) EquipWolfArmor(stack protocol.ItemStack, owner bool) bool {
 	}
 	stack.Count = 1
 	m.SetEquipment(6, stack)
+	m.BodyDropChance = guaranteedDropChance
 	return true
 }
 

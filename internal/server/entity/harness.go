@@ -34,6 +34,7 @@ func (m *Mob) EquipHarness(stack protocol.ItemStack) bool {
 	}
 	stack.Count = 1
 	m.SetEquipment(6, stack)
+	m.BodyDropChance = guaranteedDropChance
 	return true
 }
 

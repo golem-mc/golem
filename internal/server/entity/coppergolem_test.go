@@ -53,7 +53,8 @@ func TestACopperGolemTurningIntoAStatueDropsItsHandAndAntenna(t *testing.T) {
 	cobble := protocol.ItemStack{ItemID: int32(registry.ItemCobblestone), Count: 7}
 	poppy := protocol.ItemStack{ItemID: int32(registry.ItemPoppy), Count: 1}
 	m.MainHand, m.Antenna = cobble, poppy
-	m.DropChances[0] = 2 // transport's guaranteed drop
+	m.DropChances[0] = guaranteedDropChance   // transport's guaranteed drop
+	m.SaddleDropChance = guaranteedDropChance // iron golem gift's guaranteed drop
 	events := stepToStatue(t, m)
 	if len(events) != 3 || events[2].Kind != MobTurnedToStatue {
 		t.Fatalf("events = %v, want two drops then the statue", events)

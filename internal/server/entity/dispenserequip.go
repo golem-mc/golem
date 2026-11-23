@@ -39,6 +39,7 @@ func (m *Mob) dispenserEquip(stack protocol.ItemStack, commit bool) bool {
 		}
 		if commit {
 			m.SetEquipment(6, one)
+			m.BodyDropChance = guaranteedDropChance
 		}
 	case "saddle":
 		// vanilla: Strider.canDispenserEquipIntoSlot and
@@ -48,6 +49,7 @@ func (m *Mob) dispenserEquip(stack protocol.ItemStack, commit bool) bool {
 		}
 		if commit {
 			m.SetMetadataHorseSaddle(one)
+			m.SaddleDropChance = guaranteedDropChance
 		}
 	default:
 		// vanilla: Fox.canDispenserEquipIntoSlot takes the main hand alone
@@ -110,6 +112,7 @@ func (m *Mob) EquipOnInteract(stack protocol.ItemStack) (registry.EquippableItem
 			return item, false
 		}
 		m.SetEquipment(6, one)
+		m.BodyDropChance = guaranteedDropChance
 		return item, true
 	}
 	if item.Slot == "saddle" {
@@ -121,6 +124,7 @@ func (m *Mob) EquipOnInteract(stack protocol.ItemStack) (registry.EquippableItem
 		} else {
 			m.SetMetadataHorseSaddle(one)
 		}
+		m.SaddleDropChance = guaranteedDropChance
 		return item, true
 	}
 	i := lootSlotIndex(item.Slot)

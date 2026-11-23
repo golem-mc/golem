@@ -104,6 +104,9 @@ func (s *Server) releaseBucketMob(dim *dimension, bucket protocol.ItemStack, x, 
 		if kind == entity.TypeSulfurCube {
 			body, _ := bucket.SulfurCubeContent()
 			m.SetEquipment(6, body)
+			if !body.Empty() {
+				m.BodyDropChance = entity.GuaranteedDropChance
+			}
 		}
 		if v, ok := bucket.AxolotlVariant(); ok && kind == entity.TypeAxolotl {
 			m.SetAxolotlVariant(int(v))

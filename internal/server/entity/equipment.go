@@ -396,9 +396,11 @@ func (mobs Mobs) TakeLoot(items []LootItem) []LootTake {
 // hands, then armour feet to head.
 var LootSlotNames = [6]string{"mainhand", "offhand", "feet", "legs", "chest", "head"}
 
-// guaranteedDropChance is DropChances.PRESERVE_ITEM_DROP_CHANCE: above 1, so
-// a picked-up piece drops without a player kill.
-const guaranteedDropChance = 2
+// GuaranteedDropChance is DropChances.PRESERVE_ITEM_DROP_CHANCE: above 1, so
+// a player-fitted or picked-up piece drops without a player kill.
+const GuaranteedDropChance = 2
+
+const guaranteedDropChance = GuaranteedDropChance
 
 // lootSlotIndex is a slot name's equipment index, -1 for a non-mob slot.
 func lootSlotIndex(slot string) int {
