@@ -153,15 +153,17 @@ func (c *client) startSleeping(w *world.World, x, y, z int32, bed registry.Block
 	// Read the share before lookMu and bedMu, so the rule's lock is never held
 	// under the sleep's.
 	cannotPass := sleepingPercentage(c.theWorld()) > 100
-	pos := c.player.Position()
-	pos.X, pos.Y, pos.Z = float64(x)+0.5, float64(y)+0.6875, float64(z)+0.5
 	c.lookMu.Lock()
 	c.srv.bedMu.Lock()
-	if bedOccupiedNow(w, x, y, z) {
+	height, ok := rules.BedSleepHeight(w, x, y, z)
+	if !ok || bedOccupiedNow(w, x, y, z) {
 		c.srv.bedMu.Unlock()
 		c.lookMu.Unlock()
 		return false
 	}
+	pos := c.player.Position()
+	// vanilla: LivingEntity.setPosToBed offsets the body above the bed's shape.
+	pos.X, pos.Y, pos.Z = float64(x)+0.5, float64(y)+height+0.125, float64(z)+0.5
 	c.player.SetSleep(player.Sleep{Lying: true, X: x, Y: y, Z: z})
 	// vanilla: ServerPlayer.startSleeping
 	c.resetStat(player.Custom(registry.CustomStatTimeSinceRest))
@@ -393,7 +395,7 @@ func (s *Server) tickSleeping() {
 		if !sl.Lying {
 			continue
 		}
-		if !rules.BedHoldsSleeper(w, sl.X, sl.Y, sl.Z) {
+		if _, ok := rules.BedSleepHeight(w, sl.X, sl.Y, sl.Z); !ok {
 			c.stopSleeping(true, true)
 			continue
 		}
