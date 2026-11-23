@@ -182,13 +182,9 @@ func stackComponentsMap(stack protocol.ItemStack) nbt.Compound {
 		if components == nil {
 			components = nbt.Compound{}
 		}
-		// Written either way (1 shown, 0 hidden): its absence would leave a
+		// Written either way (1b shown, 0b hidden): its absence would leave a
 		// default glint standing.
-		shown := nbt.Byte(0)
-		if stack.GlintOverride == protocol.GlintShown {
-			shown = 1
-		}
-		components["minecraft:enchantment_glint_override"] = shown
+		components["minecraft:enchantment_glint_override"] = protocol.BoolTag(stack.GlintOverride == protocol.GlintShown)
 	}
 	if stack.Lock != nil {
 		if components == nil {
@@ -824,12 +820,13 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 		}
 		stack.RepairCost = int32(cost)
 	case "minecraft:enchantment_glint_override":
-		glint, ok := nbt.IntValue(value)
+		// vanilla: NbtOps.getBooleanValue tests doubleValue() != 0.0
+		glint, ok := nbt.NumberValue(value)
 		if !ok {
 			return false, true
 		}
-		// Exactly 2 is golem's earlier encoding of hidden; keep such saved items hidden.
-		if glint != 0 && glint != 2 {
+		// A byte 2 is golem's earlier encoding of hidden; keep such saved items hidden.
+		if b, isByte := value.(nbt.Byte); glint != 0 && (!isByte || b != 2) {
 			stack.GlintOverride = protocol.GlintShown
 		} else {
 			stack.GlintOverride = protocol.GlintHidden

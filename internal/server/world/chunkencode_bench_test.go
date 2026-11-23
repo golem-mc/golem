@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -30,6 +31,25 @@ func BenchmarkChunkPacket(b *testing.B) {
 		w.EnsureBlockEntity(x, GroundLevel, z, KindChest)
 	}
 	b.Run("10blockentities", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			w.ChunkPacket(loaded)
+		}
+	})
+
+	// A campfire's update tag carries its items, glint override included.
+	for i := range 4 {
+		x := int32(i)
+		w.SetBlock(x, GroundLevel+1, 5, registry.BlockStates["minecraft:campfire"])
+		w.EnsureBlockEntity(x, GroundLevel+1, 5, KindCampfire).Use(func(be *BlockEntity) {
+			for slot := range be.Slots {
+				be.Slots[slot] = protocol.ItemStack{
+					ItemID: int32(registry.ItemPorkchop), Count: 1, GlintOverride: protocol.GlintHidden,
+				}
+			}
+		})
+	}
+	b.Run("4campfiresglint", func(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {
 			w.ChunkPacket(loaded)
