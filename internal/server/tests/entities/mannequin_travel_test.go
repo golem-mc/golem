@@ -41,10 +41,10 @@ func checkMannequinLanding(t *testing.T, c *servertest.Client, srv *server.Serve
 	var moved, damaged, fallSound bool
 	c.ReadTicks(srv, 40, func(packet int32, data []byte) bool {
 		r := protocol.NewReader(data)
-		if packet == protocol.IDPlayTeleportEntity && r.ReadVarInt() == id {
-			r.ReadVarInt()
-			r.ReadF64()
-			moved = moved || r.ReadF64() == 64
+		if packet == protocol.IDPlayTeleportEntity {
+			if sync := servertest.ParseEntityPositionSync(data); sync.ID == id {
+				moved = moved || sync.Y == 64
+			}
 		}
 		if packet == protocol.IDPlayDamageEvent && r.ReadVarInt() == id {
 			damaged = true
