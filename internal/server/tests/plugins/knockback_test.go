@@ -291,3 +291,34 @@ func TestPluginEntityKnockbackWindChargeBurstPusher(t *testing.T) {
 		})
 	}
 }
+
+// A dragon wing's push on a mob still asks EntityKnockbackEvent when the
+// team refuses its damage. vanilla: EnderDragon.knockBack, Entity.doTeamsAllowDamage
+func TestPluginEntityKnockbackDragonWingTeamed(t *testing.T) {
+	t.Parallel()
+	asked := 0
+	srv, _ := tickScene(t, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.EntityKnockbackEvent) {
+			if e.Entity.Type() == registry.EntityTypeCow {
+				asked++
+				e.SetCancelled(true)
+			}
+		})
+	})
+	srv.RunLine("team add t")
+	srv.RunLine("team modify t friendlyFire false")
+	srv.RunLine("summon minecraft:cow 14.5 64 12 {NoAI:1b}")
+	// A fresh body is inside the wing's hurt grace window, which deals no damage.
+	for range 5 {
+		srv.RunTick()
+	}
+	srv.RunLine("summon minecraft:ender_dragon 8 64 12 {DragonPhase:0,Rotation:[0f,0f]}")
+	srv.RunLine("team join t @e[type=minecraft:ender_dragon,limit=1]")
+	srv.RunLine("team join t @e[type=minecraft:cow,limit=1]")
+	cow := srv.MobIDsOfKind("minecraft:cow")[0]
+	srv.RunTick()
+	vx, vy, vz, _ := srv.MobVelocity(cow)
+	if hp, _ := srv.MobHealth(cow); hp != 10 || asked != 1 || vx != 0 || vy != 0 || vz != 0 {
+		t.Errorf("teamed cow under a wing: health %v, asked %d, v (%v, %v, %v)", hp, asked, vx, vy, vz)
+	}
+}

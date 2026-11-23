@@ -614,12 +614,13 @@ func (t *mobDimTick) attackedPlayer(fx *mobEffects, ev entity.MobEvent) {
 		bunnyPitch = (ev.Mob.Rand.Float32()-ev.Mob.Rand.Float32())*0.2 + 1
 	}
 	var attackerUUID uuid.UUID
+	var attackerText string
 	if ent := h.book[ev.Mob]; ent != nil {
-		attackerUUID = ent.uuid
+		attackerUUID, attackerText = ent.uuid, ent.uuidText
 	}
 	fx.strikes = append(fx.strikes, mobStrike{
 		owner: ev.Mob.CreditOwner(),
-		uuid:  attackerUUID,
+		uuid:  attackerUUID, uuidText: attackerText,
 		bunny: bunny, bunnyPitch: bunnyPitch,
 		ignites: ignites, igniteRoll: igniteRoll,
 		w:        w,

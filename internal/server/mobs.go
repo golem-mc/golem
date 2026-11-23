@@ -508,9 +508,11 @@ type mobXpDrop struct {
 // outside the mob lock, so the killer named in a death message is the one
 // read under it.
 type mobStrike struct {
-	w             *world.World
-	mob           *entity.Mob
-	uuid          uuid.UUID
+	w    *world.World
+	mob  *entity.Mob
+	uuid uuid.UUID
+	// uuidText is the attacker's scoreboard member name.
+	uuidText      string
 	victimID      int32
 	damage        float64
 	x, y, z       float64
@@ -1278,6 +1280,12 @@ func mobSwingArm(entityID int32) []byte {
 	return swingAnimationPayload(entityID, protocol.HandMain)
 }
 
+// teamGated reports whether the blow is a cube touch, a pufferfish sting or a
+// dragon contact, which vanilla checks Entity.doTeamsAllowDamage for.
+func (m mobStrike) teamGated() bool {
+	return m.touch || m.puff > 0 || m.dragonContact
+}
+
 // landingBlow runs a monster's blow through the player damage pipeline,
 // difficulty-scaled (vanilla: Player.hurt), with the monster named in the
 // death message.
@@ -1291,11 +1299,16 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 	}
 	if strike.dragonContact && victim != nil {
 		if strike.contactPush != [3]float64{} {
-			victim.addVelocity(strike.w, strike.contactPush[0], strike.contactPush[1], strike.contactPush[2])
+			// Server-side only; a landed hurt syncs it. vanilla: Entity.push
+			victim.player.AddVelocity(strike.contactPush[0], strike.contactPush[1], strike.contactPush[2])
 		}
 		if strike.damage == 0 {
 			return
 		}
+	}
+	// vanilla: Entity.doTeamsAllowDamage
+	if victim != nil && strike.teamGated() && !s.scoreboard.CanHarm(victim.player.Name, strike.uuidText) {
+		return
 	}
 	if strike.sonic != nil {
 		s.sonicBoom(strike, victim)
@@ -1376,6 +1389,9 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 		}
 	}
 	if landedHit {
+		if strike.dragonContact && !softened {
+			victim.velocityDirty = true
+		}
 		// A hit that landed only through the invulnerability window skips default
 		// knockback but keeps the weapon's extra.
 		if !strike.ram {
@@ -1474,11 +1490,17 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 		return
 	}
 	oldVX, oldVY, oldVZ, oldImpulse := victim.VX, victim.VY, victim.VZ, victim.Impulse
+	var ent *mobEntity
+	refused := false
+	if strike.teamGated() {
+		ent = h.book[victim]
+		refused = ent != nil && !s.scoreboard.CanHarm(ent.uuidText, strike.uuidText)
+	}
 	if strike.dragonContact {
 		if strike.contactPush != [3]float64{} {
 			victim.Push(strike.contactPush[0], strike.contactPush[1], strike.contactPush[2])
 		}
-		if strike.damage == 0 {
+		if strike.damage == 0 || refused {
 			kb := s.holdMobKnockback(h.book[victim], strike.uuid, oldVX, oldVY, oldVZ, oldImpulse)
 			s.mobsMu.Unlock()
 			if kb != nil {
@@ -1486,6 +1508,10 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 			}
 			return
 		}
+	}
+	if refused {
+		s.mobsMu.Unlock()
+		return
 	}
 	dealt, extra := strike.mob.BlowEnchantments(victim.TypeID(), strike.damage, func(ctx *rules.EnchContext) {
 		s.bindBlowLoot(strike.w, ctx, attackBody{mob: strike.mob}, attackBody{mob: victim}, true)

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -41,5 +42,69 @@ func BenchmarkEnchantedMobBlow(b *testing.B) {
 	b.StopTimer()
 	if health := victim.player.Vitals().Health; health >= 20 {
 		b.Fatalf("mob blow never reached the player: health %v", health)
+	}
+}
+
+// BenchmarkMobContactStrike measures landingBlow for a slime's touch on a
+// player and on a cow, with the victim's team allowing or refusing the damage
+// (friendlyFire on or off).
+func BenchmarkMobContactStrike(b *testing.B) {
+	for _, victimKind := range []string{"player", "mob"} {
+		for _, refused := range []bool{false, true} {
+			name := victimKind + "/allowed"
+			if refused {
+				name = victimKind + "/refused"
+			}
+			b.Run(name, func(b *testing.B) {
+				s, clients := newIdlePlayersBenchServer(b, 1)
+				player0 := clients[0]
+				player0.player.UpdateVitals(func(v *player.Vitals) { v.GameMode = protocol.GameModeSurvival })
+				dim := s.allDims()[0]
+				slimeID := s.spawnMobInDim(dim, entity.TypeSlime, 2, 64, 0, 1, nil)
+				cowID := s.spawnMobInDim(dim, entity.TypeCow, 4, 64, 0, 2, nil)
+				s.mobsMu.Lock()
+				slime := s.mobByEntityIDLocked(s.world, slimeID)
+				cow := s.mobByEntityIDLocked(s.world, cowID)
+				s.mobsMu.Unlock()
+				cowHealth := cow.mob.Health
+				s.RunLine("team add t")
+				s.RunLine("team modify t friendlyFire " + strconv.FormatBool(!refused))
+				s.RunLine("team join t " + slime.uuid.String())
+				member := player0.player.Name
+				strike := mobStrike{w: s.world, mob: slime.mob, uuid: slime.uuid, uuidText: slime.uuidText, damage: 2, x: 2, y: 64,
+					touch: true, killer: &rules.Killer{}}
+				if victimKind == "player" {
+					strike.victimID = player0.player.EntityID
+				} else {
+					strike.victimID = cow.mob.ID
+					member = cow.uuidText
+				}
+				s.RunLine("team join t " + member)
+				b.ReportAllocs()
+				b.ResetTimer()
+				for range b.N {
+					player0.player.UpdateVitals(func(v *player.Vitals) {
+						v.Health = 20
+						v.InvulnerableTicks = 0
+					})
+					s.mobsMu.Lock()
+					cow.mob.Health, cow.mob.HurtTime, cow.mob.InvulnTicks = cowHealth, 0, 0
+					s.mobsMu.Unlock()
+					s.landingBlow(strike, clients)
+				}
+				b.StopTimer()
+				var hurt bool
+				if victimKind == "player" {
+					hurt = player0.player.Vitals().Health < 20
+				} else {
+					s.mobsMu.Lock()
+					hurt = cow.mob.Health < cowHealth
+					s.mobsMu.Unlock()
+				}
+				if hurt == refused {
+					b.Fatalf("victim hurt = %v with refused = %v", hurt, refused)
+				}
+			})
+		}
 	}
 }
