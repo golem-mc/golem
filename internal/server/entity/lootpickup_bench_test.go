@@ -1,11 +1,38 @@
 package entity
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/registry"
 )
+
+func BenchmarkDistantLoot(b *testing.B) {
+	items := make([]LootItem, 2048)
+	for i := range items {
+		items[i] = LootItem{
+			X: float64(500 + i%64), Y: 64, Z: float64(i / 64),
+			Stack: protocol.ItemStack{ItemID: int32(registry.ItemIronHelmet), Count: 1},
+		}
+	}
+	for _, n := range []int{1, 64, 256} {
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			mobs := make(Mobs, n)
+			for i := range mobs {
+				m := NewMob(TypeZombie, int32(i+1), float64(i%16*4), 64, float64(i/16*4), int64(i+1))
+				m.CanPickUpLoot = true
+				mobs[i] = m
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				if takes := mobs.TakeLoot(items); len(takes) != 0 {
+					b.Fatalf("distant loot yielded %d takes, want zero", len(takes))
+				}
+			}
+		})
+	}
+}
 
 func BenchmarkPillagerLootPickup(b *testing.B) {
 	m := NewMob(TypePillager, 1, 0.5, 64, 0.5, 1)
