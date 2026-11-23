@@ -54,6 +54,7 @@ var fixtureTracker = trackedKind[*fixtureEntity, struct{}]{
 	list:    func(s *Server) *[]*fixtureEntity { return &s.fixtures },
 	chunks:  func(s *Server) *entity.ChunkIndex[*fixtureEntity] { return &s.fixtureChunks },
 	filing:  func(it *fixtureEntity) *entity.Filing { return &it.Filing },
+	uuid:    func(it *fixtureEntity) uuid.UUID { return it.uuid },
 	track:   func(ent *fixtureEntity) *bodyTrack[struct{}] { return &ent.bodyTrack },
 	world:   func(ent *fixtureEntity) *world.World { return ent.w },
 	id:      func(ent *fixtureEntity) int32 { return ent.id },

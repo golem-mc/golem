@@ -81,6 +81,7 @@ var cloudTracker = trackedKind[*cloudEntity, cloudShown]{
 	list:        func(s *Server) *[]*cloudEntity { return &s.clouds },
 	chunks:      func(s *Server) *entity.ChunkIndex[*cloudEntity] { return &s.cloudChunks },
 	filing:      func(it *cloudEntity) *entity.Filing { return &it.cloud.Filing },
+	uuid:        func(it *cloudEntity) uuid.UUID { return it.uuid },
 	track:       func(it *cloudEntity) *bodyTrack[cloudShown] { return &it.bodyTrack },
 	world:       func(it *cloudEntity) *world.World { return it.w },
 	id:          func(it *cloudEntity) int32 { return it.cloud.ID },

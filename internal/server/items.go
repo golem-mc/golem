@@ -78,6 +78,7 @@ var itemTracker = trackedKind[*itemEntity, struct{}]{
 	list:           func(s *Server) *[]*itemEntity { return &s.items },
 	chunks:         func(s *Server) *entity.ChunkIndex[*itemEntity] { return &s.itemChunks },
 	filing:         func(it *itemEntity) *entity.Filing { return &it.item.Filing },
+	uuid:           func(it *itemEntity) uuid.UUID { return it.uuid },
 	track:          func(it *itemEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:          func(it *itemEntity) *world.World { return it.w },
 	id:             func(it *itemEntity) int32 { return it.item.ID },

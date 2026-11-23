@@ -274,6 +274,25 @@ func TestKillSelectorTakesAUUID(t *testing.T) {
 	c.Disconnect()
 }
 
+func TestExecuteAsArmorStandByUUID(t *testing.T) {
+	t.Parallel()
+	_, c := servertest.Join(t, servertest.BlockTestConfig(), "Keeper", servertest.OpsListing(t, "Keeper"))
+	const id = "00000001-0000-0002-0000-000300000004"
+	name := namedDisplay("minecraft:armor_stand", "Indexed", 4)
+	c.ChatCommand(`summon armor_stand 3.5 64 0.5 {UUID:[I;1,2,3,4],CustomName:"Indexed",NoGravity:1b}`)
+	servertest.AwaitCommandFeedbackText(t, c, "commands.summon.success", name)
+
+	c.ChatCommand("execute as " + id + " run tag @s add indexed")
+	servertest.AwaitCommandFeedbackText(t, c, "commands.tag.add.success.single", protocol.Text{Text: "indexed"}, name)
+	c.ChatCommand("kill " + id)
+	servertest.AwaitCommandFeedbackText(t, c, "commands.kill.success.single", name)
+	c.ChatCommand("kill " + id)
+	if got := c.ExpectSystemChatPastMobs(); !bytes.Equal(got, servertest.CommandErrorMessageForTest("argument.entity.notfound.entity")) {
+		t.Errorf("kill after removal = % X, want no entity found", got)
+	}
+	c.Disconnect()
+}
+
 // TestTheRandomPlayerSelectorPicksByTheSeededShuffle checks @r: the pick
 // goes through the source's Random, which is the level dice the server's
 // root seed seeded, so the one seed picks the one player. Four players

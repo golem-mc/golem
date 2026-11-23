@@ -71,6 +71,7 @@ var tntTracker = trackedKind[*tntEntity, int]{
 	list:        func(s *Server) *[]*tntEntity { return &s.tnts },
 	chunks:      func(s *Server) *entity.ChunkIndex[*tntEntity] { return &s.tntChunks },
 	filing:      func(it *tntEntity) *entity.Filing { return &it.tnt.Filing },
+	uuid:        func(it *tntEntity) uuid.UUID { return it.uuid },
 	track:       func(it *tntEntity) *bodyTrack[int] { return &it.bodyTrack },
 	world:       func(it *tntEntity) *world.World { return it.w },
 	id:          func(it *tntEntity) int32 { return it.tnt.ID },

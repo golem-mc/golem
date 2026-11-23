@@ -60,6 +60,7 @@ var fallingTracker = trackedKind[*fallingEntity, struct{}]{
 	list:        func(s *Server) *[]*fallingEntity { return &s.fallings },
 	chunks:      func(s *Server) *entity.ChunkIndex[*fallingEntity] { return &s.fallingChunks },
 	filing:      func(it *fallingEntity) *entity.Filing { return &it.fb.Filing },
+	uuid:        func(it *fallingEntity) uuid.UUID { return it.uuid },
 	track:       func(it *fallingEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:       func(it *fallingEntity) *world.World { return it.w },
 	id:          func(it *fallingEntity) int32 { return it.fb.ID },

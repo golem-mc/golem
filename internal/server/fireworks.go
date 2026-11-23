@@ -55,6 +55,7 @@ var fireworkTracker = trackedKind[*fireworkEntity, struct{}]{
 	list:        func(s *Server) *[]*fireworkEntity { return &s.fireworks },
 	chunks:      func(s *Server) *entity.ChunkIndex[*fireworkEntity] { return &s.fireworkChunks },
 	filing:      func(it *fireworkEntity) *entity.Filing { return &it.rocket.Filing },
+	uuid:        func(it *fireworkEntity) uuid.UUID { return it.uuid },
 	track:       func(it *fireworkEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:       func(it *fireworkEntity) *world.World { return it.w },
 	id:          func(it *fireworkEntity) int32 { return it.rocket.ID },

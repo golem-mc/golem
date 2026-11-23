@@ -42,6 +42,7 @@ var endCrystalTracker = trackedKind[*endCrystalEntity, struct{}]{
 	list:        func(s *Server) *[]*endCrystalEntity { return &s.endCrystals },
 	chunks:      func(s *Server) *entity.ChunkIndex[*endCrystalEntity] { return &s.crystalChunks },
 	filing:      func(it *endCrystalEntity) *entity.Filing { return &it.crystal.Filing },
+	uuid:        func(it *endCrystalEntity) uuid.UUID { return it.uuid },
 	track:       func(ent *endCrystalEntity) *bodyTrack[struct{}] { return &ent.bodyTrack },
 	world:       func(ent *endCrystalEntity) *world.World { return ent.w },
 	id:          func(ent *endCrystalEntity) int32 { return ent.crystal.ID },
