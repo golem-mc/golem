@@ -176,7 +176,8 @@ func mobStackRange(m *entity.Mob) int {
 // mobTracker tracks the mobs, kept in each dimension's herd. A mob's
 // Teleport Entity carries no velocity: the motion packets tell it.
 var mobTracker = trackedKind[*mobEntity, mobShown]{
-	rangeOf: func(ent *mobEntity) int { return entity.MobTrackingRange(ent.mob.Type) },
+	steppedPath: true,
+	rangeOf:     func(ent *mobEntity) int { return entity.MobTrackingRange(ent.mob.Type) },
 	passengerRange: func(ent *mobEntity) int {
 		r := 0
 		if ent.rider != nil || len(ent.extra) > 0 {
@@ -663,17 +664,23 @@ func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 			}
 			body := mobTracker.body(ent)
 			motion := mobMovement{seated: ent.seated()}
+			// The cadence runs on, so a teleport waits for the next gate.
+			// vanilla: ServerEntity.sendChanges
+			mt := body.t.ride(body.t.stepDue(m.UpdateInterval(), false), motion.seated)
+			mt.teleported = ent.teleported
 			for _, i := range body.watchers(near) {
 				wt := watchers[i]
 				if wt.c.theWorld() != dim.w {
 					continue // crossed to another dimension since the snapshot
 				}
 				_, told := ent.tracked.get(wt.c)
-				if was, seen := mobSettle(&body, wt.c, wt.x, wt.z, wt.chunkRadius, &sends); seen && told && ent.teleported {
-					motion.move(&body, was, wt.c, moveTick{teleported: true}, &sends)
+				if was, seen := mobSettle(&body, wt.c, wt.x, wt.z, wt.chunkRadius, &sends); seen && told && mt.gate && mt.teleported {
+					motion.move(&body, was, wt.c, mt, &sends)
 				}
 			}
-			ent.teleported = false
+			if mt.gate {
+				ent.teleported = false
+			}
 		}
 	}
 	s.unlockTick(&s.mobsMu)
@@ -2621,6 +2628,27 @@ func (s *Server) killMob(ent *mobEntity) {
 // vanilla: Entity.teleportTo, ServerEntity.sendChanges
 func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch float32, by string) {
 	s.mobsMu.Lock()
+	s.placeMob(ent, to, yaw, pitch)
+	s.mobsMu.Unlock()
+	logTeleported("mob", to, by, "kind", ent.mob.Type)
+}
+
+// commandTeleportMob is teleportMob that also lands a mob that is not gliding.
+// vanilla: TeleportCommand.performTeleport
+func (s *Server) commandTeleportMob(ent *mobEntity, to player.Position, by string) {
+	s.mobsMu.Lock()
+	s.placeMob(ent, to, to.Yaw, to.Pitch)
+	// Under the same lock, so no tick tells the teleport without the flag.
+	// vanilla: LivingEntity.isFallFlying
+	if !ent.mob.FallFlying {
+		ent.mob.OnGround = true
+	}
+	s.mobsMu.Unlock()
+	logTeleported("mob", to, by, "kind", ent.mob.Type)
+}
+
+// placeMob moves the mob; the caller holds mobsMu.
+func (s *Server) placeMob(ent *mobEntity, to player.Position, yaw, pitch float32) {
 	m := ent.mob
 	m.SetPos(to.X, to.Y, to.Z)
 	// Stop the vertical fall; horizontal motion is kept. The ground flag is
@@ -2633,8 +2661,6 @@ func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch floa
 	m.Trading = false
 	ent.teleported = true
 	s.herdOf(ent.w).pistonGrid.built = false
-	s.mobsMu.Unlock()
-	logTeleported("mob", to, by, "kind", m.Type)
 }
 
 // rotateMob turns a mob in place, head with body, and tells watchers with

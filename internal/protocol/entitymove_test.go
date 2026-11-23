@@ -36,4 +36,17 @@ func TestEntityPositionSyncEncoding(t *testing.T) {
 	if !bytes.Equal(b.Bytes(), want) {
 		t.Errorf("sync = % x, want % x", b.Bytes(), want)
 	}
+	b = Buffer{}
+	PutEntityPositionSyncStepped(&b, 7, 1, 0, -2, 3, 1, 0, true)
+	want = []byte{7, 1, 1,
+		0x3f, 0xf0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0,
+		0xc0, 0, 0, 0, 0, 0, 0, 0,
+		3,
+		0x3f, 0x80, 0, 0,
+		0, 0, 0, 0,
+		1}
+	if !bytes.Equal(b.Bytes(), want) {
+		t.Errorf("stepped sync = % x, want % x", b.Bytes(), want)
+	}
 }

@@ -75,14 +75,12 @@ func testTeleportsToldOncePerTick(t *testing.T, frozen bool) {
 		if id != protocol.IDPlayTeleportEntity {
 			return false
 		}
-		r := protocol.NewReader(data)
-		eid := r.ReadVarInt()
+		sync := servertest.ParseEntityPositionSync(data)
+		eid, x := sync.ID, sync.X
 		if !ids[eid] {
 			return false
 		}
 		told[eid]++
-		r.ReadVarInt() // position path
-		x := r.ReadF64()
 		want := stand.X + 5
 		if eid == cow.EntityID {
 			want = cow.X + 5

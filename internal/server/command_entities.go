@@ -915,7 +915,11 @@ func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
 	}
 	switch ref := e.ref.(type) {
 	case *mobEntity:
-		e.srv.teleportMob(ref, to, to.Yaw, to.Pitch, by)
+		if move.Command {
+			e.srv.commandTeleportMob(ref, to, by)
+		} else {
+			e.srv.teleportMob(ref, to, to.Yaw, to.Pitch, by)
+		}
 	case *itemEntity:
 		e.srv.teleportItem(ref, to, by)
 	case *arrowEntity:

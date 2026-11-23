@@ -133,7 +133,9 @@ type Move struct {
 	DeltaZ       bool
 	RotateDelta  bool
 	KeepRotation bool
-	LookAt       *player.Position
+	// Command marks a /teleport, which also lands the target (vanilla: TeleportCommand.performTeleport).
+	Command bool
+	LookAt  *player.Position
 
 	LookAtFromEyes   bool
 	LookAtEntity     int32

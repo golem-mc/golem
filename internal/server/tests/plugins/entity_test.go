@@ -329,3 +329,30 @@ func TestPluginChunkEntitiesFollowBodies(t *testing.T) {
 	srv.RunLine("kill @e[tag=d]")
 	run(func() { check([]string{"c"}, []string{"b", "m"}) })
 }
+
+// A plugin teleport leaves the ground flag to the movement tick; only /tp lands.
+// vanilla: Entity.teleportTo
+func TestPluginTeleportDoesNotLandMob(t *testing.T) {
+	t.Parallel()
+	srv, h, run := worldPlugin(t, servertest.HostileTestConfig())
+	srv.OverworldWorld().Acquire(world.ChunkPos{X: 0, Z: 0})
+	srv.RunLine("tick freeze")
+	srv.RunLine("summon minecraft:magma_cube 0.5 100 0.5 {NoAI:1b,Size:1}")
+	id := srv.MobIDsOfKind("minecraft:magma_cube")[0]
+	run(func() {
+		pw := h.Overworld()
+		for e := range pw.Entities() {
+			if e.Type() == registry.EntityTypeMagmaCube {
+				if !e.Teleport(plugin.Location{World: pw, Pos: plugin.Vec3{X: 0.5, Y: 105, Z: 0.5}}, plugin.TeleportPlugin) {
+					t.Error("teleport refused")
+				}
+			}
+		}
+	})
+	if _, y, _, _ := srv.MobPos(id); y != 105 {
+		t.Fatalf("cube at y %v after the plugin teleport, want 105", y)
+	}
+	if srv.MobOnGround(id) {
+		t.Error("a plugin teleport landed the cube")
+	}
+}
