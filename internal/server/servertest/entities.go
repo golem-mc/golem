@@ -2340,3 +2340,35 @@ func (c *Client) MetaEntryWithinTicks(srv *server.Server, n int, entityID int32,
 	})
 	return found, ok
 }
+
+// EntityPositionSync is a decoded Teleport Entity packet.
+type EntityPositionSync struct {
+	ID        int32
+	X, Y, Z   float64
+	Yaw       float32
+	Pitch     float32
+	OnGround  bool
+	Stepped   bool
+	StepTicks int32
+}
+
+// ParseEntityPositionSync decodes a Teleport Entity packet with either path
+// type; a stepped path yields its last step.
+// vanilla: ClientboundEntityPositionSyncPacket, PositionPath
+func ParseEntityPositionSync(data []byte) EntityPositionSync {
+	r := protocol.NewReader(data)
+	p := EntityPositionSync{ID: r.ReadVarInt()}
+	p.Stepped = r.ReadVarInt() == 1
+	steps := int32(1)
+	if p.Stepped {
+		steps = r.ReadVarInt()
+	}
+	for range steps {
+		p.X, p.Y, p.Z = r.ReadF64(), r.ReadF64(), r.ReadF64()
+		if p.Stepped {
+			p.StepTicks = r.ReadVarInt()
+		}
+	}
+	p.Yaw, p.Pitch, p.OnGround = r.ReadF32(), r.ReadF32(), r.ReadBool()
+	return p
+}

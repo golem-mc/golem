@@ -51,3 +51,19 @@ func PutEntityPositionSync(b *Buffer, id int32, x, y, z float64, yaw, pitch floa
 	b.PutF32(pitch)
 	b.PutBool(onGround)
 }
+
+// PutEntityPositionSyncStepped writes entity_position_sync with a STEPPED
+// path of one step that takes stepTicks ticks to reach the position.
+// vanilla: ClientboundEntityPositionSyncPacket, PositionPath, PositionStep
+func PutEntityPositionSyncStepped(b *Buffer, id int32, x, y, z float64, stepTicks int32, yaw, pitch float32, onGround bool) {
+	b.PutVarInt(id)
+	b.PutVarInt(1)
+	b.PutVarInt(1)
+	b.PutF64(x)
+	b.PutF64(y)
+	b.PutF64(z)
+	b.PutVarInt(stepTicks)
+	b.PutF32(yaw)
+	b.PutF32(pitch)
+	b.PutBool(onGround)
+}

@@ -52,13 +52,6 @@ func testTeleportsToldOncePerTick(t *testing.T, frozen bool) {
 		t.Fatalf("selected %d bodies, want the stand and the cow", len(selected))
 	}
 
-	// A command teleport sets a mob's ground flag, which is itself a change
-	// to tell; let that one pass before counting.
-	for _, e := range selected {
-		e.Teleport(command.Move{Pos: e.Position()}, world.DimensionName, "test")
-	}
-	c.ReadTicks(srv, 10, func(int32, []byte) bool { return false })
-
 	// Twenty teleports onto the spot each body already stands on.
 	for _, e := range selected {
 		for range 20 {
@@ -82,14 +75,12 @@ func testTeleportsToldOncePerTick(t *testing.T, frozen bool) {
 		if id != protocol.IDPlayTeleportEntity {
 			return false
 		}
-		r := protocol.NewReader(data)
-		eid := r.ReadVarInt()
+		sync := servertest.ParseEntityPositionSync(data)
+		eid, x := sync.ID, sync.X
 		if !ids[eid] {
 			return false
 		}
 		told[eid]++
-		r.ReadVarInt() // position path
-		x := r.ReadF64()
 		want := stand.X + 5
 		if eid == cow.EntityID {
 			want = cow.X + 5

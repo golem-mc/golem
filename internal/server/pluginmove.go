@@ -105,7 +105,7 @@ func (s *Server) fireMobMoves(moves []mobMove) {
 		if ent == nil {
 			continue
 		}
-		s.teleportMob(ent, player.Position{X: mv.from.x, Y: mv.from.y, Z: mv.from.z}, mv.from.yaw, mv.from.pitch, "plugin", false)
+		s.teleportMob(ent, player.Position{X: mv.from.x, Y: mv.from.y, Z: mv.from.z}, mv.from.yaw, mv.from.pitch, "plugin")
 		s.mobsMu.Lock()
 		if mv.h.moveMarks != nil {
 			mv.h.moveMarks[mv.m] = markState{moveMark: mv.from, gen: mv.h.moveGen, held: true}

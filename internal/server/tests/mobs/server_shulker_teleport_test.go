@@ -63,15 +63,8 @@ func TestHurtShulkerTeleportsOutOfVehicle(t *testing.T) {
 					}
 				}
 				if pid == protocol.IDPlayTeleportEntity {
-					r := protocol.NewReader(data)
-					if r.ReadVarInt() == id {
-						if path := r.ReadVarInt(); path != 0 {
-							t.Fatalf("position path = %d, want linear", path)
-						}
-						px, py, pz := r.ReadF64(), r.ReadF64(), r.ReadF64()
-						if err := r.Err(); err != nil {
-							t.Fatal(err)
-						}
+					if sync := servertest.ParseEntityPositionSync(data); sync.ID == id {
+						px, py, pz := sync.X, sync.Y, sync.Z
 						told = px == x && py == y && pz == z
 					}
 				}

@@ -90,6 +90,9 @@ type movementSchedule struct {
 	// wasRiding marks a passenger's movement tick; the first one off the
 	// seat is owed absolute. vanilla: ServerEntity.wasRiding
 	wasRiding bool
+	// sinceStep is vanilla's ticksSinceLastStep plus one, so the zero value
+	// is its initial -1; a gated tick resets it. vanilla: SteppedInterpolationTracker
+	sinceStep int32
 }
 
 // takeSync reports and clears needsSync.
@@ -117,6 +120,10 @@ func (t *bodyTrack[S]) motionDue(vx, vy, vz float64, stopping bool) bool {
 // each keep S.
 type trackedKind[B any, S any] struct {
 	rangeChunks int
+	// steppedPath sends an absolute position as a stepped path over the ticks
+	// since the last movement tick, for a LivingEntity.
+	// vanilla: SteppedInterpolationTracker
+	steppedPath bool
 	// rangeOf, if not nil, is each body's own range in chunks in place of
 	// rangeChunks; a body of range 0 is never shown.
 	// vanilla: ChunkMap.addEntity
@@ -324,6 +331,9 @@ func (v *trackedBody[B, S]) record() toldBody[S] {
 // absolute as the client's base stayed where the body boarded.
 type moveTick struct {
 	gate, forced, resync, teleported, rotationOnly, dismounted bool
+	// stepTicks is the ticks since the previous gated tick, for a stepped
+	// absolute path; 0 sends a linear one.
+	stepTicks int32
 }
 
 // schedule advances the body's movement schedule one tick. synced, if not
@@ -359,8 +369,11 @@ func (m *movementSchedule) advance(due bool) moveTick {
 		forced: m.tickCount%forcedPosPeriod == 0,
 	}
 	m.tickCount++
+	m.sinceStep++
 	mt.teleported = m.teleported
 	if mt.gate {
+		mt.stepTicks = m.sinceStep - 1
+		m.sinceStep = 1
 		m.teleported = false
 		m.teleportDelay++
 		if m.teleportDelay > teleportResyncAfter {
@@ -502,6 +515,9 @@ func (v *trackedBody[B, S]) moveTold(was *toldBody[S], c *client, mt moveTick, o
 // movePacket updates the baseline and returns the movement, if one is owed.
 func (v *trackedBody[B, S]) movePacket(was *toldBody[S], mt moveTick) (outbound, bool) {
 	mt.forced = mt.forced || v.k.alwaysPosition
+	if !v.k.steppedPath {
+		mt.stepTicks = 0
+	}
 	position := v.position()
 	if !mt.forced && !mt.resync && !mt.dismounted && !mt.teleported && !mt.rotationOnly && position == was.trackedPosition {
 		return outbound{}, false
@@ -550,7 +566,11 @@ func moveDiff(id int32, was, now trackedPosition, abs bodyPose, mt moveTick) (to
 		now.onGround != was.onGround || !inOneStep(dx, dy, dz):
 		packetID = protocol.IDPlayTeleportEntity
 		buf.Grow(teleportEntityLen)
-		protocol.PutEntityPositionSync(&buf, id, abs.x, abs.y, abs.z, abs.yaw, abs.pitch, now.onGround)
+		if mt.stepTicks > 0 {
+			protocol.PutEntityPositionSyncStepped(&buf, id, abs.x, abs.y, abs.z, mt.stepTicks, abs.yaw, abs.pitch, now.onGround)
+		} else {
+			protocol.PutEntityPositionSync(&buf, id, abs.x, abs.y, abs.z, abs.yaw, abs.pitch, now.onGround)
+		}
 	case moved || mt.forced:
 		buf.Grow(entityPositionRotLen)
 		if turned {

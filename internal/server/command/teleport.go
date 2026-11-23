@@ -224,7 +224,7 @@ func runTeleport(src Source, input string, words []string) (int32, error) {
 		// destination's level, not the source's.
 		move := Move{Pos: destination[0].Position()}
 		for _, target := range targets {
-			target.Teleport(resolvedMove(move, target), destination[0].DimensionName(), src.Name())
+			target.Teleport(commandMove(resolvedMove(move, target)), destination[0].DimensionName(), src.Name())
 		}
 		return resultOf(int32(len(targets)), teleportFeedback(src, targets, player.Position{}, destination[0].DisplayName()))
 	}
@@ -300,7 +300,7 @@ func runTeleport(src Source, input string, words []string) (int32, error) {
 	move.RelYaw, move.RelPitch = relYaw, relPitch
 	move.KeepRotation = keepRotation
 	for _, target := range targets {
-		target.Teleport(resolvedMove(move, target), src.DimensionName(), src.Name())
+		target.Teleport(commandMove(resolvedMove(move, target)), src.DimensionName(), src.Name())
 	}
 	return resultOf(int32(len(targets)), teleportFeedback(src, targets, to, protocol.Text{}))
 }
@@ -431,4 +431,9 @@ func teleportFeedback(src Source, targets []Entity, to player.Position, dest pro
 		}
 	}
 	return feedbackToAdmins(src, key, with...)
+}
+
+func commandMove(move Move) Move {
+	move.Command = true
+	return move
 }
