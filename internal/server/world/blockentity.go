@@ -1539,7 +1539,7 @@ func (w *World) SetBlockEntityTag(x, y, z int32, entityType string, data nbt.Com
 		return be.Kind, true
 	}
 	if BlockEntityTypeID(entityType) >= 0 {
-		readCarried(entry)
+		readCarried(loaded.chunk, entry)
 		entry = asSaved(entry)
 	}
 	loaded.chunk.setCarriedBlockEntity(entry)

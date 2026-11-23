@@ -16,20 +16,10 @@ import (
 
 // testInstanceDataOf reads the saved settings, leaving status and errors cleared.
 // vanilla: TestInstanceBlockEntity.Data.CODEC
-func testInstanceDataOf(tag nbt.Compound) testInstanceData {
-	var d testInstanceData
-	data, _ := nbt.Get[nbt.Compound](tag, "data")
-	if test, ok := nbt.Get[nbt.String](data, "test"); ok {
-		d.test = string(test)
-	}
-	if size, ok := nbt.Get[nbt.IntArray](data, "size"); ok && len(size) == 3 {
-		d.size = [3]int32{size[0], size[1], size[2]}
-	}
-	if rotation, ok := nbt.Get[nbt.String](data, "rotation"); ok {
-		d.rotation = max(0, int32(slices.Index(testInstanceRotations[:], string(rotation))))
-	}
-	d.ignoreEntities = nbt.BoolField(data, "ignore_entities")
-	return d
+func testInstanceDataOf(tag nbt.Compound) world.TestInstanceData {
+	data, _ := world.ReadTestInstanceData(tag["data"])
+	data.Status, data.ErrorMessage = 0, nil
+	return data
 }
 
 // TestInstanceBlocks lists the test instance blocks within radius blocks
@@ -63,14 +53,14 @@ func (ws worldScope) TestInstanceBlocks(x, y, z int32, radius int, everyDimensio
 						continue
 					}
 					data := testInstanceDataOf(c.Tag)
-					test, registered := registeredTest(data.test)
+					test, registered := registeredTest(data.Test)
 					structure := ""
 					if registered {
 						structure = test.Structure
 					}
 					rot, lo, hi := testStructureBox(p[0], p[1], p[2], data, test)
 					out = append(out, command.TestInstanceBlock{
-						Dimension: dim.name, X: p[0], Y: p[1], Z: p[2], Test: data.test, Structure: structure, Rotation: int32(rot),
+						Dimension: dim.name, X: p[0], Y: p[1], Z: p[2], Test: data.Test, Structure: structure, Rotation: int32(rot),
 						StructurePos: testStructurePos(p[0], p[1], p[2], test.Padding), Lo: lo, Hi: hi,
 					})
 				}
@@ -90,12 +80,12 @@ func (ws worldScope) ResetTest(x, y, z int32) bool {
 		return false
 	}
 	data := testInstanceDataOf(tag)
-	test, registered := registeredTest(data.test)
+	test, registered := registeredTest(data.Test)
 	ws.removeTestBarriers(w, x, y, z, data, test)
 	placed := registered && ws.placeTestStructure(w, x, y, z, data, test)
 	tag = maps.Clone(tag)
 	delete(tag, "errors")
-	tag["data"] = data.tag()
+	tag["data"] = data.Tag()
 	ws.srv.storeTestInstanceTag(w, x, y, z, tag)
 	return placed
 }
@@ -106,7 +96,7 @@ func (ws worldScope) ClearTest(x, y, z int32) {
 	w := ws.in().w
 	tag, _ := w.BlockEntityTag(x, y, z)
 	data := testInstanceDataOf(tag)
-	test, _ := registeredTest(data.test)
+	test, _ := registeredTest(data.Test)
 	_, lo, hi := testStructureBox(x, y, z, data, test)
 	for i := range lo {
 		lo[i] -= test.Padding
@@ -150,7 +140,7 @@ func (ws worldScope) RunTests(request command.TestRun) {
 			continue
 		}
 		tests = append(tests, &gameTest{w: ws.in().w, pos: [3]int32{b.X, b.Y, b.Z}, id: b.Test, test: test,
-			data: testInstanceData{test: b.Test, rotation: b.Rotation}, retries: &request.Retries})
+			data: world.TestInstanceData{Test: b.Test, Rotation: b.Rotation}, retries: &request.Retries})
 	}
 	for _, id := range request.Tests {
 		test, ok := registeredTest(id)
@@ -165,7 +155,7 @@ func (ws worldScope) RunTests(request command.TestRun) {
 		for rotation := range rotations {
 			for range copies {
 				tests = append(tests, &gameTest{w: dim.w, id: id, test: test, grid: true, verify: request.Verify,
-					data: testInstanceData{test: id, rotation: (request.Rotation + rotation) & 3}, retries: &request.Retries})
+					data: world.TestInstanceData{Test: id, Rotation: (request.Rotation + rotation) & 3}, retries: &request.Retries})
 			}
 		}
 	}
@@ -201,11 +191,11 @@ func (ws worldScope) FailedTests(onlyRequired bool) []string {
 // vanilla: StructureUtils.createNewEmptyTest, TestCommand.createNewStructure
 func (ws worldScope) CreateTest(id string, x, y, z int32, size [3]int32) {
 	w := ws.in().w
-	data := testInstanceData{test: id, size: size}
+	data := world.TestInstanceData{Test: id, Size: size}
 	box := testStructurePos(x, y, z, 0)
 	ws.clearTestSpace(w, box, [3]int32{box[0] + size[0] - 1, box[1] + size[1] - 1, box[2] + size[2] - 1})
 	ws.SetBlock(x, y, z, registry.BlockTestInstanceBlock.DefaultState())
-	ws.srv.storeTestInstanceTag(w, x, y, z, nbt.Compound{"data": data.tag()})
+	ws.srv.storeTestInstanceTag(w, x, y, z, nbt.Compound{"data": data.Tag()})
 	test, _ := registeredTest(id)
 	low := testStructurePos(x, y, z, test.Padding)
 	bedrock := registry.BlockBedrock.DefaultState()

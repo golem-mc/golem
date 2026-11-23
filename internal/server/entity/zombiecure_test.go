@@ -61,15 +61,22 @@ func TestZombieCuringRoundTripsCountdownTradesXpAndGossip(t *testing.T) {
 	m := NewMob(TypeZombieVillager, 1, 0, 64, 0, 1)
 	m.VillagerXp = 42
 	m.Villager = VillagerData{Type: "minecraft:desert", Profession: "minecraft:librarian", Level: 3, Finalized: true}
-	m.Offers = nbt.Compound{"Recipes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"uses": nbt.Int(3)}}}}
+	m.Offers = nbt.Compound{"Recipes": nbt.NewList([]nbt.Tag{nbt.Compound{
+		"buy":  nbt.Compound{"id": nbt.String("minecraft:paper"), "count": nbt.Int(24)},
+		"sell": nbt.Compound{"id": nbt.String("minecraft:emerald"), "count": nbt.Int(1)},
+		"uses": nbt.Int(3),
+	}})}
 	m.vg.gossips = Gossips{gossipA: {0, 25}}
 	m.startCuring(gossipB, 123, w.Difficulty())
 	tag := nbt.Compound{}
 	m.SaveTo(tag, func() int64 { return 0 })
 	back := NewMob(TypeZombieVillager, 2, 0, 64, 0, 2)
 	back.LoadFrom(tag, w, func() int64 { return 0 })
-	if back.cure != m.cure || back.Villager != m.Villager || back.VillagerXp != 42 || !reflect.DeepEqual(back.vg.gossips, m.vg.gossips) || !reflect.DeepEqual(back.Offers, m.Offers) {
+	if back.cure != m.cure || back.Villager != m.Villager || back.VillagerXp != 42 || !reflect.DeepEqual(back.vg.gossips, m.vg.gossips) {
 		t.Fatalf("round trip: cure %+v, villager %+v, xp %d, gossip %v", back.cure, back.Villager, back.VillagerXp, back.vg.gossips)
+	}
+	if !nbt.Equal(back.Offers, m.Offers) {
+		t.Fatalf("round trip offers: got %s, want %s", nbt.Stringify(back.Offers), nbt.Stringify(m.Offers))
 	}
 	if _, ok := back.effects.Get(cureStrength); !ok {
 		t.Fatal("loading did not restore strength")

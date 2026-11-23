@@ -72,75 +72,33 @@ const (
 	testInstanceBlockRun
 )
 
-// testInstanceStatuses and testInstanceRotations are the saved names in wire
-// order.
-// vanilla: TestInstanceBlockEntity.Status, Rotation
-var (
-	testInstanceStatuses  = [...]string{"cleared", "running", "finished"}
-	testInstanceRotations = [...]string{"none", "clockwise_90", "180", "counterclockwise_90"}
-)
-
-// testInstanceData is the block's settings as the client sends them.
-// vanilla: TestInstanceBlockEntity.Data
-type testInstanceData struct {
-	test           string // qualified test id, "" for none
-	size           [3]int32
-	rotation       int32
-	ignoreEntities bool
-	status         int32
-	errorMessage   *protocol.Text
-}
-
 // readTestInstanceData reads the data, failing on a test id that is no
 // identifier or an error message the component codec refuses.
 // vanilla: TestInstanceBlockEntity.Data.STREAM_CODEC
-func readTestInstanceData(r *protocol.Reader) (testInstanceData, error) {
-	var d testInstanceData
+func readTestInstanceData(r *protocol.Reader) (world.TestInstanceData, error) {
+	var d world.TestInstanceData
 	if r.ReadBool() {
 		id := r.ReadString(32767)
 		if r.Err() == nil && !protocol.ValidIdentifier(id) {
 			return d, errors.New("test instance data carries an invalid test id")
 		}
-		d.test = registry.Qualify(id)
+		d.Test = registry.Qualify(id)
 	}
-	for i := range d.size {
-		d.size[i] = r.ReadVarInt()
+	for i := range d.Size {
+		d.Size[i] = r.ReadVarInt()
 	}
 	// vanilla: Rotation.BY_ID wraps, Status.ID_MAP falls back to the first
-	d.rotation = protocol.IDWrap(r.ReadVarInt(), int32(len(testInstanceRotations)))
-	d.ignoreEntities = r.ReadBool()
-	if d.status = r.ReadVarInt(); d.status < 0 || int(d.status) >= len(testInstanceStatuses) {
-		d.status = 0
-	}
+	d.Rotation = protocol.IDWrap(r.ReadVarInt(), 4)
+	d.IgnoreEntities = r.ReadBool()
+	d.Status = r.ReadVarInt()
 	if r.ReadBool() {
 		text, ok := protocol.ReadText(r)
 		if !ok && r.Err() == nil {
 			return d, errors.New("test instance data carries an unreadable error message")
 		}
-		d.errorMessage = &text
+		d.ErrorMessage = &text
 	}
 	return d, r.Err()
-}
-
-// tag is the data's saved form.
-// vanilla: TestInstanceBlockEntity.Data.CODEC
-func (d testInstanceData) tag() nbt.Compound {
-	tag := nbt.Compound{
-		"size":            nbt.IntArray{d.size[0], d.size[1], d.size[2]},
-		"rotation":        nbt.String(testInstanceRotations[d.rotation]),
-		"ignore_entities": nbt.Byte(0),
-		"status":          nbt.String(testInstanceStatuses[d.status]),
-	}
-	if d.ignoreEntities {
-		tag["ignore_entities"] = nbt.Byte(1)
-	}
-	if d.test != "" {
-		tag["test"] = nbt.String(d.test)
-	}
-	if d.errorMessage != nil {
-		tag["error_message"] = protocol.TextTag(*d.errorMessage)
-	}
-	return tag
 }
 
 // alwaysPassTest is the core pack's one test instance, which vanilla builds in
@@ -224,7 +182,7 @@ func (c *client) handleTestInstanceBlockAction(r *protocol.Reader) error {
 	if !c.canUseGameMasterBlocks() || registry.BlockOf(w.BlockAt(x, y, z)) != registry.BlockTestInstanceBlock {
 		return nil
 	}
-	test, registered := registeredTest(data.test)
+	test, registered := registeredTest(data.Test)
 	if action == testInstanceBlockInit || action == testInstanceBlockQuery {
 		var b protocol.Buffer
 		if registered {
@@ -257,10 +215,10 @@ func (c *client) handleTestInstanceBlockAction(r *protocol.Reader) error {
 		clearErrors = true
 		if registered && c.placeTestStructure(w, x, y, z, data, test) {
 			_ = c.Message(protocol.Text{Translate: "test_instance_block.reset_success", Color: "green",
-				With: []protocol.Text{{Text: data.test}}})
+				With: []protocol.Text{{Text: data.Test}}})
 		}
 		// vanilla: TestInstanceBlockEntity.Data.withStatus
-		data.status, data.errorMessage = 0, nil
+		data.Status, data.ErrorMessage = 0, nil
 	case testInstanceBlockSave, testInstanceBlockExport:
 		// Outside the game test server there is nowhere to export to.
 		// vanilla: TestInstanceBlockEntity.export
@@ -276,7 +234,7 @@ func (c *client) handleTestInstanceBlockAction(r *protocol.Reader) error {
 			_ = c.Message(protocol.Text{Translate: "test_instance_block.error.no_test_structure", Color: "red", With: pos})
 		default:
 			clearErrors = true
-			_ = c.Message(protocol.Text{Translate: "test_instance_block.starting", With: []protocol.Text{{Text: data.test}}})
+			_ = c.Message(protocol.Text{Translate: "test_instance_block.starting", With: []protocol.Text{{Text: data.Test}}})
 			started, data = c.srv.prepareGameTest(w, x, y, z, data, test, nil)
 		}
 	}
@@ -284,7 +242,7 @@ func (c *client) handleTestInstanceBlockAction(r *protocol.Reader) error {
 	if !ok {
 		tag = nbt.Compound{}
 	}
-	tag["data"] = data.tag()
+	tag["data"] = data.Tag()
 	if clearErrors {
 		delete(tag, "errors")
 	}
@@ -306,8 +264,8 @@ func testStructurePos(x, y, z int32, padding int32) [3]int32 {
 // or as the test id for an unregistered test, reporting false when the block
 // has no test.
 // vanilla: TestInstanceBlockEntity.saveTest
-func (c *client) saveTestInstance(w *world.World, x, y, z int32, data testInstanceData, test datapack.TestInstance, registered bool) bool {
-	id := data.test
+func (c *client) saveTestInstance(w *world.World, x, y, z int32, data world.TestInstanceData, test datapack.TestInstance, registered bool) bool {
+	id := data.Test
 	if registered {
 		id = test.Structure
 	}
@@ -317,7 +275,7 @@ func (c *client) saveTestInstance(w *world.World, x, y, z int32, data testInstan
 		}})
 		return false
 	}
-	world.SaveTemplate(w, c.srv.structures, id, testStructurePos(x, y, z, test.Padding), data.size, data.ignoreEntities, "", true,
+	world.SaveTemplate(w, c.srv.structures, id, testStructurePos(x, y, z, test.Padding), data.Size, data.IgnoreEntities, "", true,
 		func(b registry.Block) bool { return b == registry.BlockAir || b == registry.BlockStructureVoid }, c.srv.entitiesToSave(w))
 	return true
 }
@@ -325,9 +283,9 @@ func (c *client) saveTestInstance(w *world.World, x, y, z int32, data testInstan
 // testStructureBox is the rotated structure's rotation and its lowest and
 // highest cells, without the padding.
 // vanilla: TestInstanceBlockEntity.getStructureBoundingBox, Rotation.getRotated
-func testStructureBox(x, y, z int32, data testInstanceData, test datapack.TestInstance) (rot world.Rotation, lo, hi [3]int32) {
-	rot = world.Rotation((test.Rotation + data.rotation) % 4)
-	size := data.size
+func testStructureBox(x, y, z int32, data world.TestInstanceData, test datapack.TestInstance) (rot world.Rotation, lo, hi [3]int32) {
+	rot = world.Rotation((test.Rotation + data.Rotation) % 4)
+	size := data.Size
 	if rot == world.RotateClockwise90 || rot == world.RotateCounterclockwise90 {
 		size[0], size[2] = size[2], size[0]
 	}
@@ -343,7 +301,7 @@ func testStructureBox(x, y, z int32, data testInstanceData, test datapack.TestIn
 // around the structure box: its floor, its walls and, unless the test has
 // sky access, its ceiling.
 // vanilla: TestInstanceBlockEntity.processStructureBoundary
-func forTestBoundary(x, y, z int32, data testInstanceData, test datapack.TestInstance, f func(x, y, z int32)) {
+func forTestBoundary(x, y, z int32, data world.TestInstanceData, test datapack.TestInstance, f func(x, y, z int32)) {
 	_, lo, hi := testStructureBox(x, y, z, data, test)
 	for i := range lo {
 		lo[i], hi[i] = lo[i]-1, hi[i]+1
@@ -363,7 +321,7 @@ func forTestBoundary(x, y, z int32, data testInstanceData, test datapack.TestIns
 // removeTestBarriers turns the barriers in the test's barrier shell to air.
 // An unregistered test reads as padding 0 without sky access.
 // vanilla: TestInstanceBlockEntity.removeBarriers
-func (ws worldScope) removeTestBarriers(w *world.World, x, y, z int32, data testInstanceData, test datapack.TestInstance) {
+func (ws worldScope) removeTestBarriers(w *world.World, x, y, z int32, data world.TestInstanceData, test datapack.TestInstance) {
 	air := registry.BlockAir.DefaultState()
 	var cells []world.BlockChange
 	forTestBoundary(x, y, z, data, test, func(cx, cy, cz int32) {
@@ -400,7 +358,7 @@ func (ws worldScope) discardEntitiesIn(box [6]float64) {
 // placeTestStructure clears the registered test's padded box and places its
 // structure there, reporting false when its template is missing.
 // vanilla: TestInstanceBlockEntity.placeStructure, StructureUtils.clearSpaceForStructure
-func (ws worldScope) placeTestStructure(w *world.World, x, y, z int32, data testInstanceData, test datapack.TestInstance) bool {
+func (ws worldScope) placeTestStructure(w *world.World, x, y, z int32, data world.TestInstanceData, test datapack.TestInstance) bool {
 	t, ok := ws.srv.structures.Get(test.Structure)
 	if !ok {
 		return false
@@ -421,14 +379,14 @@ func (ws worldScope) placeTestStructure(w *world.World, x, y, z int32, data test
 	origin := corner
 	switch rot {
 	case world.RotateClockwise90:
-		origin[0] += data.size[2] - 1
+		origin[0] += data.Size[2] - 1
 	case world.Rotate180:
-		origin[0] += data.size[0] - 1
-		origin[2] += data.size[2] - 1
+		origin[0] += data.Size[0] - 1
+		origin[2] += data.Size[2] - 1
 	case world.RotateCounterclockwise90:
-		origin[2] += data.size[0] - 1
+		origin[2] += data.Size[0] - 1
 	}
-	placed, ok := t.Place(world.TemplatePlacement{Origin: origin, Rotation: rot, Integrity: 1, IgnoreEntities: data.ignoreEntities})
+	placed, ok := t.Place(world.TemplatePlacement{Origin: origin, Rotation: rot, Integrity: 1, IgnoreEntities: data.IgnoreEntities})
 	if ok {
 		ws.PlaceTemplate(placed, true)
 		command.PlaceTemplateEntities(ws, placed.Entities, slog.Debug)

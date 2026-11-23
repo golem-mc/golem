@@ -1,12 +1,12 @@
 package entity
 
 import (
-	"maps"
 	"math"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/effect"
+	"github.com/golem-mc/golem/internal/server/merchant"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -573,8 +573,9 @@ func (m *Mob) LoadFrom(compound nbt.Compound, w World, gameTime func() int64) {
 		m.loadSleepingPos(compound)
 		m.loadFood(compound)
 	}
-	if offers, ok := nbt.Get[nbt.Compound](compound, "Offers"); ok && (m.Type == TypeVillager || m.Type == TypeZombieVillager || m.Type == TypeWanderingTrader) {
-		m.Offers = qualifiedOffers(offers)
+	if m.Type == TypeVillager || m.Type == TypeZombieVillager || m.Type == TypeWanderingTrader {
+		offers, _ := nbt.Get[nbt.CompoundTag](compound, "Offers")
+		m.Offers = merchant.ReadOffers(offers)
 	}
 	if m.IsCreaking() {
 		// vanilla: Creaking.readAdditionalSaveData
@@ -950,33 +951,4 @@ func (m *Mob) loadFreezeConversion(compound nbt.Compound) {
 	if t, ok := nbt.IntField(compound, "FreezingTime"); ok {
 		m.inPowderSnowTime = int(t)
 	}
-}
-
-// qualifiedOffers returns the offers with each recipe's buy, buyB and sell
-// written as their item codecs do.
-// vanilla: MerchantOffers.CODEC, MerchantOffer.CODEC
-func qualifiedOffers(offers nbt.Compound) nbt.Compound {
-	recipes, ok := nbt.Get[nbt.List](offers, "Recipes")
-	if !ok || recipes.Elem != nbt.TypeCompound {
-		return offers
-	}
-	recipes = nbt.Copy(recipes).(nbt.List)
-	for _, item := range recipes.Items {
-		recipe, ok := item.(nbt.CompoundTag)
-		if !ok {
-			continue
-		}
-		for _, key := range []string{"buy", "buyB"} {
-			if cost, ok := recipe.Entries()[key]; ok {
-				recipe.Set(key, registry.ItemCostTag(cost))
-			}
-		}
-		if sell, ok := recipe.Entries()["sell"]; ok {
-			recipe.Set("sell", registry.CodecStackTag(sell))
-		}
-	}
-	out := make(nbt.Compound, len(offers))
-	maps.Copy(out, offers)
-	out["Recipes"] = recipes
-	return out
 }
