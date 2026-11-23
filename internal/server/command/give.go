@@ -254,16 +254,17 @@ func applyComponent(stack *protocol.ItemStack, item int32, key, value string) bo
 		}
 		stack.SetRepairCost(int32(cost))
 	case "minecraft:enchantment_glint_override":
-		switch value {
-		case "true":
-			if registry.GlintByDefault(item) {
-				return true
-			}
-			stack.GlintOverride = protocol.GlintShown
-		case "false":
-			stack.GlintOverride = protocol.GlintHidden
-		default:
+		tag, end, err := nbt.ParseValueTag(value)
+		glint, numeric := nbt.NumberValue(tag)
+		if err != nil || end != len(value) || !numeric {
 			return false
+		}
+		// The legacy 2b marker applies only to stored stacks.
+		// vanilla: NbtOps.getBooleanValue
+		if glint == 0 {
+			stack.GlintOverride = protocol.GlintHidden
+		} else if !registry.GlintByDefault(item) {
+			stack.GlintOverride = protocol.GlintShown
 		}
 	case "minecraft:profile":
 		profile, ok := parseProfile(value)
