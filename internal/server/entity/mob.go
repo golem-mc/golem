@@ -1536,6 +1536,11 @@ type Mob struct {
 	// body seeks a mate. Only a grown body at age zero holds it (the tick clears
 	// it otherwise), and a hurt clears it.
 	InLove int
+	// LoveCause is the player whose feeding caused love, credited with
+	// the birth; HasLoveCause tells a stored all-zero UUID from none.
+	// vanilla: Animal.loveCause
+	LoveCause    uuid.UUID
+	HasLoveCause bool
 	// Persistence is PersistenceRequired, which spares a mob the distance and
 	// idleness despawns.
 	Persistence bool
@@ -2418,6 +2423,9 @@ func NewMob(t MobType, id int32, x, y, z float64, seed int64) *Mob {
 	}
 	return m
 }
+
+// SetLoveCause records the player whose feeding caused love.
+func (m *Mob) SetLoveCause(id uuid.UUID) { m.LoveCause, m.HasLoveCause = id, true }
 
 // RecordSlot is the server's unsaved record index, or zero when unfiled.
 // The server's mob lock guards it.

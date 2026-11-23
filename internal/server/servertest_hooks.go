@@ -6690,7 +6690,7 @@ func (s *Server) SetMobInLoveBy(id int32, ticks int, name string) {
 	defer s.mobsMu.Unlock()
 	if ent := s.mobByEntityIDLocked(s.world, id); ent != nil && c != nil {
 		ent.mob.InLove = ticks
-		ent.loveCause = c.player.UUID
+		ent.mob.SetLoveCause(c.player.UUID)
 	}
 }
 
