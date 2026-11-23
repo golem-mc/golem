@@ -923,13 +923,13 @@ func (s *Server) tickArmorStands() {
 			standTracker.unfile(ent)
 			continue // a punch or a blast took it out; its tail ran there
 		}
-		// A pending teleport is told before the step moves the stand, and
-		// the step's move on the next tick, so a /tp's ground flag reaches
-		// the watchers. vanilla: ServerChunkCache.tick, ServerLevel.tick
+		// A stand with a pending teleport is tracked before its step, so a
+		// gate tick tells the /tp pose and ground flag before the step moves
+		// it; the schedule takes the mark on that gate.
+		// vanilla: ServerChunkCache.tick, ServerLevel.tick
 		toldTeleport := ent.teleported
 		if toldTeleport {
 			trackStand(ent, watchers, near, &out)
-			ent.teleported = false
 		}
 		// The portal pass runs ahead of the step, as for items; only a stand
 		// with physics is inside a block. vanilla: ArmorStand.hasPhysics

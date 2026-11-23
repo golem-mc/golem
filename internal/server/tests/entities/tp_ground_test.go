@@ -9,25 +9,30 @@ import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
-// A /tp sets the ground flag of a body in the air, gravity or not, and the
-// destination sync carries it before the next step moves the body.
+// A /tp sets the ground flag of a body in the air, gravity or not, and a
+// command on the eve of a movement tick tells that flag before the step moves
+// the body. setup puts the command on that eve; interval is the kind's.
 // vanilla: TeleportCommand.performTeleport, ServerChunkCache.tick
 func TestTeleportCommandSetsStandAndMannequinOnGround(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct{ name, kind, nbt string }{
-		{"armor_stand", "armor_stand", "NoGravity:1b"},
-		{"mannequin", "mannequin", "NoGravity:1b"},
+	for _, tc := range []struct {
+		name, kind, nbt string
+		setup, interval int
+	}{
+		{"armor_stand", "armor_stand", "NoGravity:1b", 3, 3},
+		{"mannequin", "mannequin", "NoGravity:1b", 2, 2},
+		{"falling_armor_stand", "armor_stand", "NoGravity:0b", 3, 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			srv, c := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
 			servertest.HoldTicks(t, srv)
 			srv.RunLine(`summon ` + tc.kind + ` 0.5 150 0.5 {Tags:[b],` + tc.nbt + `}`)
-			servertest.RunTicks(t, srv, 2)
+			servertest.RunTicks(t, srv, tc.setup)
 			c.Settle()
 			srv.RunLine(`tp @e[tag=b,limit=1] 0.5 155 0.5`)
 			var sync servertest.EntityPositionSync
-			seen := c.ReadTicks(srv, 2, func(pid int32, data []byte) bool {
+			seen := c.ReadTicks(srv, 1, func(pid int32, data []byte) bool {
 				if pid != protocol.IDPlayTeleportEntity {
 					return false
 				}
@@ -38,6 +43,31 @@ func TestTeleportCommandSetsStandAndMannequinOnGround(t *testing.T) {
 				t.Errorf("seen %v, sync %+v, want a position sync at y 155 with onGround", seen, sync)
 			}
 		})
+	}
+}
+
+// A teleport between a stand's movement ticks, however short, is told on its
+// next movement tick.
+// vanilla: ServerEntity.sendChanges
+func TestTeleportedStandShortHopIsToldOnItsNextGate(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
+	servertest.HoldTicks(t, srv)
+	srv.RunLine(`summon armor_stand 0.5 150 0.5 {Tags:[b],NoGravity:1b}`)
+	// 4 ticks: the command lands just after a movement tick (every 3rd).
+	servertest.RunTicks(t, srv, 4)
+	c.Settle()
+	srv.RunLine(`tp @e[tag=b,limit=1] 0.5005 150 0.5`)
+	var sync servertest.EntityPositionSync
+	seen := c.ReadTicks(srv, 3, func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlayTeleportEntity {
+			return false
+		}
+		sync = servertest.ParseEntityPositionSync(data)
+		return true
+	})
+	if !seen || sync.X != 0.5005 || !sync.OnGround {
+		t.Errorf("seen %v, sync %+v, want a position sync at x 0.5005 with onGround", seen, sync)
 	}
 }
 
@@ -61,8 +91,9 @@ func TestTeleportCommandStopsFallingMannequin(t *testing.T) {
 	t.Parallel()
 	srv, c := joinMannequinOp(t, "Watcher")
 	srv.RunLine(`summon mannequin 0.5 150 0.5 {Tags:[b]}`)
-	// 11 ticks fall about 4 blocks, enough for fall damage on a landing.
-	servertest.RunTicks(t, srv, 11)
+	// 12 ticks fall about 4.5 blocks, enough for fall damage on a landing,
+	// and put the command on the eve of a movement tick (every 2nd).
+	servertest.RunTicks(t, srv, 12)
 	c.Settle()
 	if got := mannequinDataNow(t, srv, "Motion[1]"); !strings.HasPrefix(got, "-") {
 		t.Fatalf("Motion[1] before /tp = %s, want a falling (negative) value", got)
@@ -73,20 +104,30 @@ func TestTeleportCommandStopsFallingMannequin(t *testing.T) {
 	}
 	health := mannequinDataNow(t, srv, "Health")
 	var syncs []servertest.EntityPositionSync
-	// The sync waits for the next gate tick (every 2nd), so read two.
-	c.ReadTicks(srv, 2, func(pid int32, data []byte) bool {
+	c.ReadTicks(srv, 1, func(pid int32, data []byte) bool {
 		if pid == protocol.IDPlayTeleportEntity {
 			syncs = append(syncs, servertest.ParseEntityPositionSync(data))
 		}
 		return false
 	})
-	if len(syncs) != 1 || syncs[0].Y < 154.9 || syncs[0].Y > 155 {
-		t.Errorf("syncs after the /tp = %+v, want one at y 155", syncs)
+	if len(syncs) != 1 || syncs[0].X != 0.5 || syncs[0].Y != 155 || syncs[0].Z != 0.5 || !syncs[0].OnGround {
+		t.Errorf("syncs in the /tp tick = %+v, want one at 0.5 155 0.5 with onGround", syncs)
 	}
 	if got := mannequinDataNow(t, srv, "Health"); got != health {
-		t.Errorf("Health after the first tick = %s, want %s (no fall damage)", got, health)
+		t.Errorf("Health after one tick = %s, want %s (no fall damage)", got, health)
 	}
 	if got := mannequinDataNow(t, srv, "OnGround"); got != "0b" {
 		t.Errorf("OnGround after a midair tick = %s, want 0b", got)
+	}
+	var next servertest.EntityPositionSync
+	seen := c.ReadTicks(srv, 2, func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlayTeleportEntity {
+			return false
+		}
+		next = servertest.ParseEntityPositionSync(data)
+		return true
+	})
+	if !seen || next.OnGround {
+		t.Errorf("seen %v, next sync %+v, want one without onGround", seen, next)
 	}
 }
