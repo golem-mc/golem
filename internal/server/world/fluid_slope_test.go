@@ -35,19 +35,27 @@ func TestFluidSlopeDistanceBound(t *testing.T) {
 				w.SetBlock(x, 63, z, states[rng.Intn(2)])
 			}
 		}
+		// Keep the oracle's cell cache independent of the candidate's search cache.
 		ctx := p.newSpreadContext(0, 64, 0, fluidWater)
+		bounded := p.newSpreadContext(0, 64, 0, fluidWater)
 		for start, d := range horizontal4 {
 			ctx.state(d[0], d[1])
+			bounded.state(d[0], d[1])
 			i, _ := ctx.index(d[0], d[1])
 			for from := range horizontal4 {
 				ref := ctx.slopeDistanceRef(i, 1, from, reach)
-				for r := 0; r <= reach; r++ {
-					// Use an independent cache so the reference cannot pre-load the bounded walk.
-					bounded := p.newSpreadContext(0, 64, 0, fluidWater)
-					bounded.state(d[0], d[1])
+				for step := 0; step <= reach; step++ {
+					r := step
+					if plane%2 != 0 {
+						r = reach - step
+					}
+					want := ref
+					if ref > max(r, 1) {
+						want = 1000
+					}
 					got := bounded.slopeDistance(i, 1, from, r)
-					if (ref <= r && got != ref) || (ref > r && got <= r) {
-						t.Fatalf("plane=%d start=%d from=%d bound=%d: got %d, unbounded %d", plane, start, from, r, got, ref)
+					if got != want {
+						t.Fatalf("plane=%d start=%d from=%d bound=%d: got %d, want %d (unbounded %d)", plane, start, from, r, got, want, ref)
 					}
 				}
 			}
