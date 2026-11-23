@@ -278,10 +278,8 @@ func TestATeleportedMannequinMovesForItsWatcher(t *testing.T) {
 		}
 		hr := protocol.NewReader(turned)
 		hr.ReadVarInt()
-		r := protocol.NewReader(moved)
-		r.ReadVarInt()
-		r.ReadVarInt() // position path
-		return r.ReadF64(), r.ReadF64(), r.ReadF64(), r.ReadF32(), r.ReadF32(), hr.ReadU8()
+		sync := servertest.ParseEntityPositionSync(moved)
+		return sync.X, sync.Y, sync.Z, sync.Yaw, sync.Pitch, hr.ReadU8()
 	}
 
 	if x, y, z, yaw, pitch, head := readMove("teleport", `tp @e[type=mannequin,limit=1] 3.5 64 1.5 90 30`); x != 3.5 || y != 64 || z != 1.5 || yaw != 90 || pitch != 30 || head != 64 {

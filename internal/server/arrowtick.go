@@ -35,9 +35,9 @@ func (s *Server) tickArrows() {
 	defer func() { arrowTracker.dormantPass(s, held) }()
 	s.lockTick(&s.arrowsMu)
 	s.lockTick(&s.mobsMu)
-	s.crossArrowPortalsLocked(&fx, gate)
+	flying := s.crossArrowPortalsLocked(&fx, gate)
 	var hv arrowHangingView
-	if len(s.arrows) > 0 {
+	if flying {
 		hv = newArrowHangingView()
 		s.readArrowHanging(&hv)
 	}
@@ -200,8 +200,10 @@ type arrowPortalTravel struct {
 
 // crossArrowPortalsLocked runs the portal pass ahead of the tick, as for
 // items: an arrow the portal is sending across leaves the list here, its
-// arrival left to fx. The arrow lock is held.
-func (s *Server) crossArrowPortalsLocked(fx *arrowEffects, gate entityGate) {
+// arrival left to fx. It reports whether a retained arrow is not lodged in a
+// block, the only kind whose step reads the hanging-entity view. The arrow
+// lock is held.
+func (s *Server) crossArrowPortalsLocked(fx *arrowEffects, gate entityGate) (flying bool) {
 	portalAlive := s.arrows[:0]
 	for _, it := range s.arrows {
 		if it.arrow.Dead {
@@ -219,12 +221,14 @@ func (s *Server) crossArrowPortalsLocked(fx *arrowEffects, gate entityGate) {
 				})
 			}
 			portalAlive = append(portalAlive, it)
+			flying = flying || !it.arrow.InGround
 			continue
 		}
 		fx.travels = append(fx.travels, arrowPortalTravel{it: it, kind: kind})
 		arrowTracker.unfile(it)
 	}
 	s.arrows = portalAlive
+	return flying
 }
 
 // arrowHangingView is the frames, the paintings and the leash knots of each
@@ -430,6 +434,11 @@ func arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInputs, hv *arro
 	targets = wt.targets[:len(wt.targets):len(wt.targets)]
 	if i, ok := wt.index[it.arrow.OwnerID]; ok {
 		owner = &targets[i]
+	}
+	// A lodged arrow's step never sweeps entities (vanilla:
+	// AbstractArrow.tick, inGround branch), so it needs no slivers.
+	if it.arrow.InGround {
+		return targets, owner
 	}
 	// The frames and the paintings of the dimension whose slivers the
 	// flight line can reach, their boxes what a shaft meets as

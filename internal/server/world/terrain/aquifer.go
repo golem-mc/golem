@@ -77,7 +77,10 @@ type Aquifer struct {
 	status                       []FluidStatus
 	haveStatus                   []bool
 	location                     []int64
-	surfaceCache                 map[int64]int32
+	minSurfaceQX, minSurfaceQZ   int32
+	surfaceWidth, surfaceDepth   int32
+	surfaceLevels                []int32
+	surfaceCache                 map[int64]int32 // Samples outside the precomputed rectangle.
 	neighbors                    aquiferNeighbors
 }
 
@@ -120,7 +123,7 @@ func NewDisabledAquifer(global FluidPicker) *Aquifer { return &Aquifer{global: g
 // NewAquifer is vanilla: Aquifer.Config.create. It samples the surface level
 // over the volume through ctx, as the constructor does.
 func NewAquifer(ctx *Context, cfg *AquiferConfig, random levelgen.PositionalRandomFactory, v Volume, global FluidPicker) *Aquifer {
-	a := &Aquifer{ctx: ctx, global: global, cfg: cfg, random: random, surfaceCache: map[int64]int32{}}
+	a := &Aquifer{ctx: ctx, global: global, cfg: cfg, random: random}
 	a.minGridX = gridXZ(v.MinX + aquiferSampleX)
 	maxGridX := gridXZ(v.BlockX(v.SizeX-1)+aquiferSampleX) + 1
 	a.gridSizeX = maxGridX - a.minGridX + 1
@@ -148,13 +151,20 @@ func chunkPosKey(x, z int32) int64 { return int64(uint32(x)) | int64(uint32(z))<
 
 // surfaceLevel is vanilla: NoiseBasedAquifer.surfaceLevel.
 func (a *Aquifer) surfaceLevel(blockX, blockZ int32) int32 {
-	qx := (blockX >> 2) << 2
-	qz := (blockZ >> 2) << 2
-	key := chunkPosKey(qx, qz)
+	qx, qz := blockX>>2, blockZ>>2
+	x, z := qx-a.minSurfaceQX, qz-a.minSurfaceQZ
+	if x >= 0 && x < a.surfaceWidth && z >= 0 && z < a.surfaceDepth {
+		return a.surfaceLevels[z*a.surfaceWidth+x]
+	}
+	bx, bz := qx<<2, qz<<2
+	key := chunkPosKey(bx, bz)
 	if v, ok := a.surfaceCache[key]; ok {
 		return v
 	}
-	v := floorInt(float64(a.cfg.SurfaceLevel.Sample(a.ctx, qx, 0, qz)))
+	v := floorInt(float64(a.cfg.SurfaceLevel.Sample(a.ctx, bx, 0, bz)))
+	if a.surfaceCache == nil {
+		a.surfaceCache = make(map[int64]int32)
+	}
 	a.surfaceCache[key] = v
 	return v
 }
@@ -166,11 +176,14 @@ func (a *Aquifer) maxSurfaceLevel(minBlockX, minBlockZ, maxBlockX, maxBlockZ int
 	v := Volume{maxQX - minQX + 1, 1, maxQZ - minQZ + 1, minQX << 2, 0, minQZ << 2, 4, 1, 4}
 	buf := a.ctx.acquire(v.Size())
 	a.cfg.SurfaceLevel.SampleVolume(a.ctx, buf, v)
+	a.minSurfaceQX, a.minSurfaceQZ = minQX, minQZ
+	a.surfaceWidth, a.surfaceDepth = v.SizeX, v.SizeZ
+	a.surfaceLevels = make([]int32, v.Size())
 	maxY := int32(math.MinInt32)
 	for z := range v.SizeZ {
 		for x := range v.SizeX {
 			s := floorInt(float64(buf[v.Index(x, 0, z)]))
-			a.surfaceCache[chunkPosKey(v.BlockX(x), v.BlockZ(z))] = s
+			a.surfaceLevels[z*v.SizeX+x] = s
 			if s > maxY {
 				maxY = s
 			}

@@ -121,6 +121,24 @@ func BenchmarkTickArmorStandsTracked(b *testing.B) {
 	}
 }
 
+// BenchmarkTickArmorStandsMoving is BenchmarkTickArmorStandsTracked with every
+// stand moved a block each tick, so each movement tick sends a position.
+func BenchmarkTickArmorStandsMoving(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	spawnBenchStands(s, w)
+	for range 40 {
+		s.tickArmorStands()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		for _, ent := range s.armorStands {
+			ent.stand.Y = float64(world.GroundLevel) + float64(i%2)
+		}
+		s.tickArmorStands()
+	}
+}
+
 // BenchmarkFrozenTrackingItems runs the frozen world's item tracking pass,
 // with every player in range of every stack.
 func BenchmarkFrozenTrackingItems(b *testing.B) {

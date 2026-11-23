@@ -443,7 +443,7 @@ type Server struct {
 	relightsRun atomic.Int64
 	// relightWG counts relight results not yet handed to the broadcast or the
 	// flush queue, for WaitRelights.
-	relightWG sync.WaitGroup
+	relightWG world.RelightCompletion
 	// gatewayWG counts gateway moves running off the tick.
 	gatewayWG sync.WaitGroup
 
@@ -673,6 +673,7 @@ type Server struct {
 	frames      []*frameEntity
 	frameChunks entity.ChunkIndex[*frameEntity]
 	frameCells  map[frameCell][]*frameEntity
+	frameOrder  uint64
 
 	// knotsMu guards knots, leash knots on fences. The main loop polls them
 	// under it; a lead used on a fence, a use on the knot or a blow adds,
@@ -848,12 +849,14 @@ func newServerWith(cfg *config.Config, seed int64, shared sharedNether, plugins 
 		timeSyncTicks:   defaultTimeSyncTicks,
 		lids:            make(map[lidRecheck]int32),
 		frameCells:      make(map[frameCell][]*frameEntity),
+		frameChunks:     entity.NewRegionalChunkIndex[*frameEntity](),
 		stopReq:         make(chan struct{}),
 		mgmtBound:       make(chan struct{}),
 		stopping:        make(chan struct{}),
 		metrics:         metrics.NewRecorder(tickInterval),
 		tickRate:        tickrate.New(),
 	}
+	s.relightWG.Handle = s.publishRelight
 	s.maxPlayers.Store(int32(cfg.MaxPlayers))
 	s.spawnProtection.Store(int32(cfg.SpawnProtection))
 	motd := protocol.Text{Text: cfg.MOTD}
@@ -2614,34 +2617,28 @@ func (s *Server) relightAreaAsync(w *world.World, minX, minZ, maxX, maxZ int32) 
 	s.relightBoxesAsync(w, []changeBox{{minX, minZ, maxX, maxZ}})
 }
 
-// relightBoxesAsync books the boxes' relights together and collects their
-// results on one goroutine, so a batch parks one waiter however many chunks it
-// touches. A box needs no relight when its columns carry no light mark: the
-// caller's write set the mark before this call, so an unmarked box was already
-// relit, and a relight running now covers any mark it clears. A write that
-// keeps its light (a fence arm, a stair shape) never marks.
+// relightBoxesAsync books the boxes' relights and handles their results on the
+// light drain. An unmarked box was already relit or the write kept its light.
 func (s *Server) relightBoxesAsync(w *world.World, boxes []changeBox) {
-	var chs []<-chan []world.LightChange
 	for _, b := range boxes {
 		if !w.LightMarkedIn(b.minX, b.minZ, b.maxX, b.maxZ) {
 			continue
 		}
-		s.relightsRun.Add(1)
-		chs = append(chs, w.RelightAreaAsync(b.minX, b.minZ, b.maxX, b.maxZ))
+		s.bookRelight(w, b)
 	}
-	if len(chs) == 0 {
+}
+
+func (s *Server) bookRelight(w *world.World, b changeBox) {
+	s.relightsRun.Add(1)
+	w.RelightAreaTracked(b.minX, b.minZ, b.maxX, b.maxZ, &s.relightWG)
+}
+
+func (s *Server) publishRelight(w *world.World, changed []world.LightChange) {
+	if !s.loopRunning() {
+		s.broadcastLight(w, changed)
 		return
 	}
-	s.relightWG.Go(func() {
-		for _, ch := range chs {
-			changed := <-ch
-			if !s.loopRunning() {
-				s.broadcastLight(w, changed)
-				continue
-			}
-			w.MarkLightChanged(changed)
-		}
-	})
+	w.MarkLightChanged(changed)
 }
 
 // physicsFor returns the world's block-update engine, to which block

@@ -11,11 +11,12 @@ import (
 )
 
 // The mannequin's numbers.
-// vanilla: EntityTypes.MANNEQUIN sized(0.6F, 1.8F), clientTrackingRange(32)
+// vanilla: EntityTypes.MANNEQUIN sized(0.6F, 1.8F), clientTrackingRange(32), updateInterval(2)
 const (
 	MannequinWidth         = 0.6
 	MannequinHeight        = 1.8
 	MannequinTrackingRange = 32
+	MannequinInterval      = 2
 	// MannequinHealth is the LivingEntity default max health.
 	MannequinHealth = 20
 	// MannequinAllLayers is every PlayerModelPart bit, the layers a fresh
