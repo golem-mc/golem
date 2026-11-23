@@ -7,6 +7,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
 
@@ -94,9 +95,13 @@ func (r *wakeResult) collectTeam(compound nbt.Compound) {
 
 // withoutTeam drops Team from a compound carried for write-back, and from
 // its nested riders: it was joined once at the wake, and a save never
-// writes it. vanilla: Entity.saveWithoutId
+// writes it. Its id is written with the minecraft namespace.
+// vanilla: Entity.saveWithoutId
 func withoutTeam(compound nbt.CompoundTag) nbt.CompoundTag {
 	compound.Delete("Team")
+	if id, ok := nbt.Get[nbt.String](compound.Entries(), "id"); ok {
+		compound.Set("id", nbt.String(registry.Qualify(string(id))))
+	}
 	list, _ := nbt.Get[nbt.List](compound.Entries(), "Passengers")
 	for _, item := range list.Items {
 		if c, ok := item.(nbt.CompoundTag); ok {
