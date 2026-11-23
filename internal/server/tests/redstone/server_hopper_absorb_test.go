@@ -80,15 +80,15 @@ func TestAHopperRemovesAnAbsorbedItemForItsWatchers(t *testing.T) {
 	}
 }
 
-// TestAHopperPicksUpStraddlingDropsInRegistrationOrder places a hopper on the
-// west edge of chunk (1,0) with room for one stack, spawns one drop outside the
-// box, spawns a second drop in chunk (0,0) straddling into the hopper's suck
-// box, then moves the first drop into the box in chunk (1,0). The hopper must
-// take the first-registered drop despite chunk (0,0) being visited first, and
-// then take the straddling drop once space opens.
+// TestAHopperPicksUpStraddlingDropsInRegistrationOrder registers the diamond
+// before the straddling emerald and moves it into the eastern chunk so
+// registration order differs from chunk-visit order.
 func TestAHopperPicksUpStraddlingDropsInRegistrationOrder(t *testing.T) {
 	t.Parallel()
-	srv, _, _ := absorbedItemWatcher(t)
+	srv := servertest.NewTestServer(t, servertest.BlockTestConfig())
+	srv.StopTick()
+	t.Cleanup(srv.HoldChunk(15, 0))
+	t.Cleanup(srv.HoldChunk(16, 0))
 
 	if !srv.PlaceContainer(16, 64, 0, "minecraft:hopper") {
 		t.Fatal("the hopper would not stand")
@@ -119,12 +119,11 @@ func TestAHopperPicksUpStraddlingDropsInRegistrationOrder(t *testing.T) {
 		t.Fatalf("remaining items = %+v, want only straddling emerald %d", rem, secondID)
 	}
 
-	// Free slot 4 and advance past the 8-tick cooldown so the straddling drop
-	// centred in chunk (0,0) is picked up by the hopper in chunk (1,0).
+	// Free slot 4; the 8-tick cooldown reaches zero on the eighth turn.
 	if !srv.SetInventoryAt(16, 64, 0, 4, protocol.ItemStack{}) {
 		t.Fatal("could not clear hopper slot 4")
 	}
-	servertest.TickBlockEntitiesByHand(srv, 9)
+	servertest.TickBlockEntitiesByHand(srv, 8)
 
 	if got := srv.InventoryAt(16, 64, 0)[4]; got.ItemID != emerald || got.Count != 1 {
 		t.Fatalf("hopper slot 4 holds %+v, want straddling emerald (%d)", got, emerald)
