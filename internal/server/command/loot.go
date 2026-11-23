@@ -1,7 +1,6 @@
 package command
 
 import (
-	"slices"
 	"strconv"
 	"strings"
 
@@ -54,14 +53,6 @@ type DeathLootOwner interface {
 	// DeathLootTable is the table its death rolls instead of the kind's, ""
 	// for none.
 	DeathLootTable() string
-}
-
-// lootTableNames is every loot table the server knows, sorted, for tab
-// completion.
-func lootTableNames() []string {
-	names := append(registry.LootTableNames(), rules.FishingTableNames...)
-	slices.Sort(names)
-	return slices.Compact(names)
 }
 
 // lootNode builds the /loot command tree, matching the vanilla report:
@@ -147,7 +138,7 @@ func lootTail(executable bool) []*Node {
 			Check:      checkLootTableArgument,
 			Suggests:   AskServerSuggestion,
 			Completions: func(ctx any, partial string) (int, []string) {
-				return 0, Suggestions(partial, lootTableNames()...)
+				return 0, Suggestions(partial, registry.LootTableNames()...)
 			},
 			Children: children,
 		}
@@ -377,7 +368,7 @@ func lootRollSource(src Source, input string, words []string) (lootDrop, bool, e
 		// place; the fishing tables read the runner's own biome.
 		ctx.BiomeAt = func(dx, dy, dz int32) string { return src.BiomeAt(x+dx, y+dy, z+dz) }
 		ctx.Level = lootLevel(src, pos)
-		return lootDrop{stacks: rollLootTable(src, ref, &ctx, src.BiomeAt(x, y, z))}, true, nil
+		return lootDrop{stacks: rollLootTable(src, ref, &ctx)}, true, nil
 	case lootSourceKill:
 		word, tail := splitTargets(input, words[1:])
 		if word == "" || len(tail) != 0 {
@@ -422,17 +413,12 @@ func lootTableWords(src Source, input string, words []string) (lootTableRef, int
 	return ref, span, true
 }
 
-// rollLootTable rolls a table against the context. The fishing table is
-// rolled by its own rules, its treasure gated on a fishing hook that no
-// command carries; biome is the biome its junk reads.
+// rollLootTable rolls a registered or inline table against the context.
 // vanilla: LootTable.getRandomItems
-func rollLootTable(src Source, ref lootTableRef, ctx *rules.LootContext, biome string) []protocol.ItemStack {
-	switch {
-	case ref.inline != nil:
+func rollLootTable(src Source, ref lootTableRef, ctx *rules.LootContext) []protocol.ItemStack {
+	if ref.inline != nil {
+		ctx.Random = src.Random()
 		return rules.RollLootTable(ref.name, *ref.inline, ctx, src.Random())
-	}
-	if stacks, ok := rules.FishingTableLoot(ref.name, src.Random(), biome, ctx.Level); ok {
-		return stacks
 	}
 	return rules.RollLoot(ref.name, ctx, src.Random())
 }
@@ -510,15 +496,12 @@ func lootFish(src Source, input string, ref lootTableRef, words []string) (lootD
 	if !ok || err != nil {
 		return lootDrop{}, false, err
 	}
-	ctx := rules.LootContext{
-		Tool:    rules.ToolOf(tool),
-		BlockAt: func(dx, dy, dz int32) uint16 { return src.BlockAt(x+dx, y+dy, z+dz) },
-		Level:   lootLevel(src, blockCenter(x, y, z)),
-	}
+	ctx := rules.LootContext{Tool: rules.ToolOf(tool)}
+	fillLootWorld(&ctx, src, blockCenter(x, y, z))
 	if self := src.SelfEntity(); self != nil {
 		ctx.This = lootEntityOf(self)
 	}
-	return lootDrop{stacks: rollLootTable(src, ref, &ctx, src.BiomeAt(x, y, z))}, true, nil
+	return lootDrop{stacks: rollLootTable(src, ref, &ctx)}, true, nil
 }
 
 // lootMine rolls the block at a position as a break with the tool would,

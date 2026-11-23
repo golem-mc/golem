@@ -191,7 +191,6 @@ func TestRemovingTheFarmlandBreaksTheAttachedStem(t *testing.T) {
 	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Camper", servertest.OpsListing(t, "Camper"))
 
 	srv.StopTick()
-	srv.LootSeed(2)
 
 	servertest.SetFarmBlock(t, c, srv, 4, 63, 0, "minecraft:farmland", map[string]string{"moisture": "7"})
 	servertest.SetFarmBlock(t, c, srv, 4, 64, 0, "minecraft:attached_melon_stem", map[string]string{"facing": "north"})
@@ -403,7 +402,6 @@ func TestCactusBreaksBesideASolidBlock(t *testing.T) {
 	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Camper", servertest.OpsListing(t, "Camper"))
 
 	srv.StopTick()
-	srv.LootSeed(servertest.CropsSeed)
 
 	servertest.SetFarmBlock(t, c, srv, 5, 63, 0, "minecraft:sand", nil)
 	servertest.SetFarmBlock(t, c, srv, 5, 64, 0, "minecraft:cactus", nil)

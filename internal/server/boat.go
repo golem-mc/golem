@@ -1053,20 +1053,16 @@ func (c *client) lootOpener() lootOpener {
 }
 
 // fillContainerLoot rolls a pending table for a block container, minecart or
-// chest boat at (x, y, z) for opener, its THIS and luck; a zero seed draws
-// from the server's loot source.
+// chest boat at (x, y, z) for opener, its THIS and luck.
 // vanilla: LootTable.fill
 func (s *Server) fillContainerLoot(w *world.World, x, y, z int32, table string, seed int64, slots []protocol.ItemStack, opener lootOpener) bool {
-	var rng rules.LootRand = s.lootRng
-	if seed != 0 {
-		rng = rules.NewJavaRandom(seed)
-	}
 	// The world answers the location checks the table makes around the
 	// container's own place; a roll without it fails those.
 	ctx := s.mapLootContext(w, x, y, z)
 	ctx.BiomeAt = func(dx, dy, dz int32) string { return w.BiomeAt(x+dx, y+dy, z+dz) }
 	ctx.This, ctx.Luck = opener.this, opener.luck
-	return rules.FillLootReviewed(table, ctx, rng, slots, s.lootReview(w, table, x, y, z))
+	ctx.Random = rules.SeededLootRandom(seed)
+	return rules.FillLootReviewed(table, ctx, s.levelRng, slots, s.lootReview(w, table, x, y, z))
 }
 
 // lootFillFor is the world's container roll made for opener.
@@ -1077,24 +1073,23 @@ func (s *Server) lootFillFor(opener lootOpener) world.LootFill {
 }
 
 // rollLoot is the roll a block entity hiding one item uses, made for opener
-// with tool; a zero seed draws from the server's loot source.
+// with tool.
 // vanilla: BrushableBlockEntity.unpackLootTable, VaultBlockEntity.Server.resolveItemsToEject
 func (s *Server) rollLoot(w *world.World, x, y, z int32, table string, seed int64, opener lootOpener, tool protocol.ItemStack) ([]protocol.ItemStack, bool) {
 	return s.rollLootWith(&rules.LootContext{Level: s.lootLevelAtBlock(w, x, y, z), Tool: rules.ToolOf(tool), This: opener.this, Luck: opener.luck}, table, seed)
 }
 
-// rollLootWith rolls table against ctx; a zero seed draws from the server's
-// loot source, and ok is false for an unknown table.
+// rollLootWith rolls table against ctx, returning false for an unknown table.
 // vanilla: LootTable.getRandomItems
 func (s *Server) rollLootWith(ctx *rules.LootContext, table string, seed int64) ([]protocol.ItemStack, bool) {
-	if _, known := registry.FindLootTable(table); !known {
+	data, known := registry.FindLootTable(table)
+	if !known {
 		return nil, false
 	}
-	var rng rules.LootRand = s.lootRng
 	if seed != 0 {
-		rng = rules.NewJavaRandom(seed)
+		ctx.Random = rules.SeededLootRandom(seed)
 	}
-	return rules.RollLoot(table, ctx, rng), true
+	return rules.RollLootTable(table, data, ctx, s.levelRng), true
 }
 
 // breakBoat lays what a broken boat leaves where it broke — the cargo a

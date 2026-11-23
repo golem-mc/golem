@@ -17,7 +17,7 @@ import (
 // loot's dice are pinned beside the engine's so the roll is one the test
 // knows.
 
-// leafSeed is the seed the leaf tests pin the dice with.
+// leafSeed pins the random ticks that visit the leaf.
 const leafSeed = int64(9)
 
 // leafStateProps reads the properties of a leaf state for the test to
@@ -144,7 +144,7 @@ func TestDecayingLeafDropsItsLoot(t *testing.T) {
 
 	// The loot's dice pinned before the passes run, so the roll the decay
 	// makes is the seed's.
-	srv.LootSeed(leafSeed)
+	srv.LootSequenceSeed("minecraft:blocks/oak_leaves", 123)
 
 	// The passes, driven by hand: the leaf rots the first pass that lands
 	// on it, and the passes after that find air.
@@ -193,7 +193,6 @@ func TestWaterloggedLeafUpdatesItsDistanceAndDecays(t *testing.T) {
 
 	srv.StopTick()
 	srv.SetPhysicsSeed(leafSeed)
-	srv.LootSeed(leafSeed)
 
 	// A log with a waterlogged non-persistent leaf beside it, set the way
 	// an operator sets a state exactly.

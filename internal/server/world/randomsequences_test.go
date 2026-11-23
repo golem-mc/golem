@@ -1,10 +1,23 @@
 package world
 
 import (
+	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
 )
+
+func TestRandomSequenceVanillaFloat(t *testing.T) {
+	t.Parallel()
+	// Float.floatToRawIntBits on the 26.3 XoroshiroRandomSource.nextFloat.
+	const id = "minecraft:entities/zombie"
+	seq := NewRandomSequence(12345, id)
+	for i, want := range []uint32{0x3f5fb36c, 0x3f6c3e90, 0x3ed48cd4, 0x3f0d3769, 0x3f788bf2} {
+		if got := math.Float32bits(seq.Float32()); got != want {
+			t.Errorf("float draw %d bits = %#08x, want %#08x", i, got, want)
+		}
+	}
+}
 
 // oneVanilla walks a stream through the draws the vanilla classes made
 // of it — new RandomSequence(seed, id) drawn through nextInt and
@@ -107,15 +120,17 @@ func TestRandomSequencesRoundTrip(t *testing.T) {
 	// The first draw of a name creates the stream and the draws advance it;
 	// the save owes the file the state they left.
 	kdice := s.Get("minecraft:kdice", seed)
+	s.Save()
 	for range 3 {
-		kdice.NextIntBetween(0, 1<<30)
+		kdice.IntBetween(0, 1<<30)
 	}
-	wantLo, wantHi := kdice.State()
-	s.MarkDirty()
+	kdice.Float32()
+	kdice.NextBoolean()
+	wantLo, wantHi := kdice.sequence.State()
 	s.Save()
 
 	reopened := NewRandomSequences(dir)
-	if lo, hi := reopened.Get("minecraft:kdice", seed).State(); lo != wantLo || hi != wantHi {
+	if lo, hi := reopened.Get("minecraft:kdice", seed).sequence.State(); lo != wantLo || hi != wantHi {
 		t.Fatalf("the reopened kdice stands at %d, %d, want %d, %d", lo, hi, wantLo, wantHi)
 	}
 
@@ -125,7 +140,7 @@ func TestRandomSequencesRoundTrip(t *testing.T) {
 	reopened.ResetAll(42, true, false, true)
 	afterwards := reopened.Get("minecraft:afterwards", seed)
 	want2Lo, want2Hi := NewRandomSequence(42, "minecraft:afterwards").State()
-	if lo, hi := afterwards.State(); lo != want2Lo || hi != want2Hi {
+	if lo, hi := afterwards.sequence.State(); lo != want2Lo || hi != want2Hi {
 		t.Errorf("after the reset a new sequence stands at %d, %d, want %d, %d",
 			lo, hi, want2Lo, want2Hi)
 	}

@@ -7,15 +7,11 @@ package rules
 // one-in-the-radius survival and its decay twin, LootItemRandomChance, and
 // the uniform and binomial providers with Mth.nextInt's inclusive roll.
 //
-// One caller-supplied *rand.Rand (the world's for a break, the blast's for an
-// explosion, the mob's for a death) serves a whole roll. Distributions match
-// vanilla, streams do not: Go's math/rand stands in for RandomSource.
 // vanilla: LootContext
 
 import (
 	"maps"
 	"math"
-	"math/rand"
 	"slices"
 	"strconv"
 	"strings"
@@ -348,6 +344,8 @@ func (l lootLevelAt) Storage(id string) nbt.Compound {
 // the blast, a death's bodies, and the tool. Fields the table does not read
 // stay zero.
 type LootContext struct {
+	// Random is an explicit source, taking precedence over the table's sequence.
+	Random LootRand
 	// ExplorationMap searches from the roll's origin and, when it finds the
 	// destination, gives the stack a map leading there and reports true.
 	// Absence or a failed search leaves the input unchanged.
@@ -611,10 +609,26 @@ func RollLoot(name string, ctx *LootContext, rng LootRand) []protocol.ItemStack 
 // command carries; name is the table's own, which a reference entry may not
 // loop back to.
 func RollLootTable(name string, table registry.LootTable, ctx *LootContext, rng LootRand) []protocol.ItemStack {
+	return rollLootTable(name, table, ctx, ctx.lootRandom(table.RandomSequence, rng))
+}
+
+// vanilla: LootContext.Builder.create
+func (ctx *LootContext) lootRandom(sequence string, fallback LootRand) LootRand {
+	if ctx.Random != nil {
+		return ctx.Random
+	}
+	if level, ok := ctx.Level.(lootLevelAt); ok {
+		if reads, ok := level.reads.(interface{ LootRandom(string) LootRand }); ok {
+			return reads.LootRandom(sequence)
+		}
+	}
+	return fallback
+}
+
+func rollLootTable(name string, table registry.LootTable, ctx *LootContext, rng LootRand) []protocol.ItemStack {
 	r := lootRoller{ctx: ctx, rng: rng, visited: map[string]bool{name: true}}
 	var stacks []lootStack
-	// The table's own functions run last of all, after the pool's and the
-	// entry's.
+	// Wrapping this callback with the subtable's emitter makes both escape.
 	// vanilla: LootTable.getRandomItemsRaw
 	emit := func(s lootStack) {
 		for _, f := range table.Functions {
@@ -875,19 +889,6 @@ func (r *lootRoller) subTable(name string, funcs []registry.LootFunction, out fu
 	if r.visited[name] {
 		// A table that loops back on itself stops here.
 		return
-	}
-	// Fishing tables are rolled by rules.FishingTableLoot, without a biome,
-	// so a jungle's bamboo junk stays out. A pack's table of that name takes
-	// the generic path, where the visited set stops reference loops.
-	// A seeded roll (a JavaRandom) has no hand-written fishing path.
-	goRng, isGo := r.rng.(*rand.Rand)
-	if _, packed := registry.PackLootTable(name); !packed && isGo {
-		if stacks, ok := FishingTableLoot(name, goRng, "", r.ctx.Level); ok {
-			for i := range stacks {
-				out(lootStack{ready: &stacks[i], count: stacks[i].Count})
-			}
-			return
-		}
 	}
 	sub, ok := registry.FindLootTable(name)
 	if !ok {

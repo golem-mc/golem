@@ -240,6 +240,9 @@ func unknownKeys(o obj, what string, known ...string) {
 
 func (d lootDecoder) lootTable(o obj) registry.LootTable {
 	var t registry.LootTable
+	if sequence, ok := o["random_sequence"]; ok {
+		t.RandomSequence = qualifiedID(str(sequence, "random_sequence"), "random_sequence")
+	}
 	for _, p := range list(o["pools"], "pools") {
 		t.Pools = append(t.Pools, d.lootPool(object(p, "pool")))
 	}

@@ -45,6 +45,15 @@ func (r lootReads) StorageNumber(storage, path string) (nbt.Tag, bool) {
 
 func (r lootReads) Storage(id string) nbt.Compound { return command.Storage(r.s.storages.Read, id) }
 
+// LootRandom returns the server's named sequence or the level random when
+// the loot table has no sequence ID.
+func (r lootReads) LootRandom(id string) rules.LootRand {
+	if id == "" {
+		return r.s.levelRng
+	}
+	return r.s.randomSequences.Get(id, r.s.world.SeedValue())
+}
+
 // blockInteractLootContext reads the block before an interaction changes it.
 // vanilla: Block.dropFromBlockInteractLootTable
 func (s *Server) blockInteractLootContext(w *world.World, x, y, z int32, state uint16, tool protocol.ItemStack, interacting rules.LootEntity) rules.LootContext {
