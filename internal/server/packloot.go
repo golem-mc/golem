@@ -3,11 +3,9 @@ package server
 import (
 	"log/slog"
 	"maps"
-	"slices"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/server/datapack"
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -57,9 +55,7 @@ func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]
 	return tables, predicates, modifiers, nil
 }
 
-// hiddenLoot returns the built-in loot tables a pack's filter hides. A
-// hand-written fishing table cannot be absent, so a hidden one is replaced by
-// a table that rolls nothing in tables.
+// hiddenLoot returns the built-in loot tables a pack's filter hides.
 // vanilla: MultiPackResourceManager
 func hiddenLoot(dirs []string, tables map[string]registry.LootTable) map[string]bool {
 	filters := datapack.LoadFilters(dirs)
@@ -67,16 +63,12 @@ func hiddenLoot(dirs []string, tables map[string]registry.LootTable) map[string]
 		return nil
 	}
 	hidden := map[string]bool{}
-	for _, name := range append(registry.BuiltinLootTableNames(), rules.FishingTableNames...) {
+	for _, name := range registry.BuiltinLootTableNames() {
 		ns, path, _ := strings.Cut(name, ":")
 		if _, packed := tables[name]; packed || !filters.Builtin(ns, "loot_table/"+path+".json") {
 			continue
 		}
-		if slices.Contains(rules.FishingTableNames, name) {
-			tables[name] = registry.LootTable{}
-		} else {
-			hidden[name] = true
-		}
+		hidden[name] = true
 	}
 	return hidden
 }

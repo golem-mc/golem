@@ -1,12 +1,13 @@
 package containers
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 )
 
@@ -63,6 +64,30 @@ func TestAChestRollsItsLootTableOnFirstOpen(t *testing.T) {
 	if _, ok := nbt.Get[nbt.List](tag, "Items"); !ok {
 		t.Error("the opened chest saves no Items")
 	}
+	w.ChatCommand("random reset *")
+	w.ExpectCommandFeedbackText("commands.random.reset.all.success", servertest.ItemNumber(0))
+}
+
+func TestUnseededChestFillsFromItsLootSequence(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelSeed = "12345"
+	_, w := servertest.OpenWindowedOps(t, cfg)
+	defer w.Disconnect()
+	servertest.Setblock(t, w.Client, 4, 64, 0, `minecraft:chest{LootTable:"`+lootTable+`"}`)
+	w.UseBlock(4, 64, 0)
+	got := w.ExpectContainerOpen(protocol.MenuGeneric9x3, true, 4, 64, 0)
+	want := make([]protocol.ItemStack, 27)
+	if !rules.FillLoot(lootTable, &rules.LootContext{}, world.NewRandomSequence(12345, lootTable), want) {
+		t.Fatal("the table is unknown")
+	}
+	for i, stack := range want {
+		if !got[i].Equal(stack) {
+			t.Errorf("slot %d = %+v, want %+v from the named sequence", i, got[i], stack)
+		}
+	}
+	w.ChatCommand("random reset *")
+	w.ExpectCommandFeedbackText("commands.random.reset.all.success", servertest.ItemNumber(1))
 }
 
 // TestBreakingAnUnopenedTableChestDropsTheRolledContents: the break rolls the

@@ -17,9 +17,13 @@ import (
 // wide enough that a mis-weighted kind shows.
 func fishingRolls(n int, luck float64, openWater bool) map[string]int {
 	rng := rand.New(rand.NewSource(11))
+	ctx := LootContext{
+		Luck: float32(luck),
+		This: LootEntity{Type: "minecraft:fishing_bobber", FishingHook: &LootFishingHook{OpenWater: openWater}},
+	}
 	caught := map[string]int{}
 	for range n {
-		for _, stack := range FishingLoot(rng, luck, openWater, "", nil) {
+		for _, stack := range RollLoot(FishingLootTable, &ctx, rng) {
 			name, _ := registry.ItemName(stack.ItemID)
 			caught[name]++
 		}
@@ -105,7 +109,7 @@ func TestTheTreasureIsEnchanted(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
 	seen := map[string]int{}
 	for range 2000 {
-		for _, stack := range fishingTreasure(rng) {
+		for _, stack := range RollLoot(FishingLootTable+"/treasure", &LootContext{}, rng) {
 			name, _ := registry.ItemName(stack.ItemID)
 			switch name {
 			case "minecraft:bow", "minecraft:fishing_rod":

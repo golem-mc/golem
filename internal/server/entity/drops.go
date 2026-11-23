@@ -188,14 +188,12 @@ func (m *Mob) RollDrops(killer rules.LootKiller, level rules.LootLevel) []protoc
 	if m.lootRand == nil {
 		m.lootRand = rand.New(rand.NewSource(m.lootSeed))
 	}
-	table, rng := rules.EntityLootTable(m.Type.Name()), m.lootRand
+	table := rules.EntityLootTable(m.Type.Name())
 	if m.DeathLootTable != "" {
 		table = m.DeathLootTable
 	}
-	if m.DeathLootTableSeed != 0 {
-		rng = rand.New(rand.NewSource(m.DeathLootTableSeed))
-	}
-	drops := rules.RollLoot(table, &ctx, rng)
+	ctx.Random = rules.SeededLootRandom(m.DeathLootTableSeed)
+	drops := rules.RollLoot(table, &ctx, m.lootRand)
 	m.DeathLootTable = ""
 	drops = append(drops, m.carriedDrops(level)...)
 	if m.Type != TypeAllay { // the allay drops its inventory in TakeDeathEquipment

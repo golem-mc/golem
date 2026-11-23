@@ -12,8 +12,7 @@ import (
 
 // The loot tables at the wire: what a break or a death lays down, driven
 // the way every black-box test here is — a real connection, real packets —
-// with the tables' own dice seeded through the server's LootSeed so a
-// failing chance is reproducible. The engine's formulas have their unit
+// with fixed seeds to make chance failures reproducible. The engine's formulas have their unit
 // tests in internal/server/rules; these pin the wiring: the tool in the breaking
 // hand reaching the table, the enchantments on it reaching its conditions
 // and functions, and the killer's weapon reaching a mob's.
@@ -121,9 +120,8 @@ func TestAFortunePickaxeWidensTheDiamonds(t *testing.T) {
 // with shears, where the table's match_tool keeps the leaves themselves;
 // bare-handed, where the chances are the only thing that falls and nothing
 // else ever does; and with a fortune III hoe, whose table bonus lifts the
-// sapling's chance to its top entry. The dice are seeded through the
-// server's LootSeed, so the chances that come up come up the same every
-// run.
+// sapling's chance to its top entry. A fixed sequence gives repeatable
+// samples for the bare-handed and enchanted breaks.
 func TestOakLeavesDropTheirChances(t *testing.T) {
 	t.Parallel()
 	srv, c := servertest.Dial(t, servertest.SurvivalConfig(), func(s *server.Server) { s.SetAllowFlight(true) })
@@ -138,7 +136,7 @@ func TestOakLeavesDropTheirChances(t *testing.T) {
 		t.Fatal("the block registry has no persistent oak leaves")
 	}
 	leafID, _ := registry.ItemID("minecraft:oak_leaves")
-	srv.LootSeed(7602)
+	srv.LootSequenceSeed("minecraft:blocks/oak_leaves", 123)
 	servertest.HoldTicks(t, srv)
 
 	// The shears: every leaf comes out a leaf, and nothing beside it.

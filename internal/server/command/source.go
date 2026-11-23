@@ -518,6 +518,8 @@ type Source interface {
 	// draw does.
 	// vanilla: RandomSequences.get
 	RandomSequence(id string) RandomSequence
+	// LootRandom fetches a table's named stream, or the level random for an empty ID.
+	LootRandom(id string) rules.LootRand
 	// ResetRandomSequence restarts a sequence with the given salt and flags,
 	// or the current defaults where none were given.
 	// vanilla: RandomSequences.reset

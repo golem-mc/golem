@@ -1,17 +1,14 @@
 package advancements
 
 import (
-	"math/rand"
 	"testing"
 	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
-	"github.com/golem-mc/golem/registry"
 )
 
 // The triggers the player's dealings with mobs and containers fire: the
@@ -181,37 +178,6 @@ func tameVariant(t *testing.T, kind, food, variant, advancement string) (obtaine
 		t.Fatalf("64 meals did not tame the %s", kind)
 	}
 	return func(criterion string) bool { return srv.AdvancementObtained("Owner", advancement, criterion) }
-}
-
-// reelSeeded casts a rod into a pool, puts the hook in its bite window with
-// the loot roll seeded, and reels the catch in.
-func reelSeeded(t *testing.T, srv *server.Server, c *servertest.Client, name string, seed int64) {
-	t.Helper()
-	servertest.UseHeld(c, 0, 40)
-	c.Settle()
-	if !srv.BiteBobber(name, seed) {
-		t.Fatal("no hook was out to bite")
-	}
-	servertest.UseHeld(c, 0, 40)
-	c.Settle()
-}
-
-// seedCatching finds the first seed whose catch in the pool is exactly the
-// item, or, with none named, a catch that is no fish at all.
-func seedCatching(t *testing.T, item string) int64 {
-	t.Helper()
-	for seed := int64(1); seed < 10000; seed++ {
-		loot := rules.FishingLoot(rand.New(rand.NewSource(seed)), 0, false, "minecraft:plains", nil)
-		if len(loot) != 1 {
-			continue
-		}
-		name, _ := registry.ItemName(loot[0].ItemID)
-		if item == "" && !registry.Item(loot[0].ItemID).InTag(registry.ItemTagIDFishes) || item != "" && name == item {
-			return seed
-		}
-	}
-	t.Fatalf("no seed catches %q", item)
-	return 0
 }
 
 // armoredWolfScene joins "Owner" beside a still wolf of theirs in wolf armor

@@ -25,6 +25,7 @@ type lootWorld interface {
 	ClockTime(clock string) (worldAge, total int64, ok bool)
 	Scoreboard() Scoreboard
 	ReadCommandStorage(id string, fn func(storage nbt.CompoundTag))
+	LootRandom(id string) rules.LootRand
 }
 
 // fillLootWorld points the context's location checks at the block pos is in
@@ -62,6 +63,8 @@ func (r lootReads) StorageNumber(storage, path string) (nbt.Tag, bool) {
 }
 
 func (r lootReads) Storage(id string) nbt.Compound { return Storage(r.w.ReadCommandStorage, id) }
+
+func (r lootReads) LootRandom(id string) rules.LootRand { return r.w.LootRandom(id) }
 
 // Storage is a copy of the storage use opens, read under its lock.
 // vanilla: CommandStorage.get

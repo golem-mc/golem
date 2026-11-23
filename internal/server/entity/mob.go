@@ -1654,10 +1654,8 @@ type Mob struct {
 	RiderKind MobType
 	Rider     *Mob
 	Rand      *rand.Rand
-	// lootSeed seeds the death's loot roll, splitmix64 apart from Rand so the
-	// wander's draws never move it; lootRand is built on first use.
-	// vanilla: LootContext.Builder.create (table random_sequence, else the
-	// level random)
+	// lootSeed seeds the equipment drops, split apart from Rand so wandering
+	// draws never move it; lootRand is built on first use.
 	lootSeed int64
 	lootRand *rand.Rand
 	// DeathLootTable names the table the death rolls instead of the kind's

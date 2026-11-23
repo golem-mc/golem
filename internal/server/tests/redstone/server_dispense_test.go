@@ -352,9 +352,8 @@ func TestADispenserLightsItsNetherPortalsFrameWithFlintAndSteel(t *testing.T) {
 // dispensed at a non-solid block empties: the pour's canBeReplaced(Fluid)
 // takes every non-solid block as well as the replaceable tag's, so a poppy
 // and a torch - neither replaceable - are washed out where the placement
-// rule would leave them, and the block's loot is dropped. Short grass,
-// replaceable already, is dropped too; the seed makes its one-in-eight seeds
-// land. Lava has no LiquidBlockContainer answer, so the rail it faces is
+// rule would leave them, and the block's loot is dropped.
+// Lava has no LiquidBlockContainer answer, so the rail it faces is
 // washed out where the water case would waterlog it.
 // vanilla: DispenserBlock's bucket behavior, BucketItem.emptyContents,
 // BlockBehaviour.canBeReplaced(BlockState, Fluid)
@@ -369,7 +368,6 @@ func TestADispenserWashesOutTheBlockItFaces(t *testing.T) {
 	}
 	for _, tc := range cases {
 		srv, _ := servertest.Dispensing(t)
-		srv.LootSeed(9)
 
 		state, ok := registry.FindState(tc.block, nil)
 		if !ok {
