@@ -75,3 +75,22 @@ func TestPostEffectCommandSendsTheSet(t *testing.T) {
 	step("posteffect clear @s")
 	silent("posteffect clear @s")
 }
+
+func TestPostEffectFeedbackNamesTheIdentifier(t *testing.T) {
+	t.Parallel()
+	_, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "DJ", servertest.OpsListing(t, "DJ"))
+	c.Settle()
+	for _, verb := range []string{"add", "remove"} {
+		c.ChatCommand("posteffect " + verb + " @s minecraft:creeper")
+		var got protocol.Text
+		c.SettleAndCollect(func(id int32, data []byte) {
+			if id == protocol.IDPlaySystemChat {
+				got, _ = protocol.ReadText(protocol.NewReader(data))
+			}
+		})
+		if got.Translate != "commands.posteffect."+verb+".success.single" || len(got.With) != 2 ||
+			got.With[0].Text != "minecraft:creeper" || got.With[0].Translate != "" {
+			t.Errorf("%s feedback = %+v, want the plain identifier as first argument", verb, got)
+		}
+	}
+}

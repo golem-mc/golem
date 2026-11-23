@@ -43,11 +43,11 @@ func postEffectNode() *Node {
 	}
 }
 
-// postEffectArg is the id as translationArg shows it: the key
-// "namespace.path".
-// vanilla: Identifier.toLanguageKey
+// postEffectArg is the id as translationArg shows it: the literal
+// "namespace:path".
+// vanilla: Component.translationArg(Identifier)
 func postEffectArg(id string) protocol.Text {
-	return protocol.Text{Translate: strings.Replace(id, ":", ".", 1)}
+	return protocol.Text{Text: id}
 }
 
 // runPostEffect runs /posteffect add|remove <targets> <id>, clear <targets>
