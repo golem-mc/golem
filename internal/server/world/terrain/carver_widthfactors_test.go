@@ -34,10 +34,9 @@ func TestFillWidthFactorsOversizeDepth(t *testing.T) {
 // A canyon in a 500-block range carves at heights past the 384-entry stack
 // buffer, so doCarve must take the heap fallback.
 func TestDoCarveOversizeDepth(t *testing.T) {
-	const_ := func(v float32) floatProvider { return func(*carverRandom) float32 { return v } }
 	c := &canyonCarver{
 		widthSmoothness:             3,
-		horizontalRadiusFactor:      const_(1),
+		horizontalRadiusFactor:      constantFloat(1),
 		verticalRadiusDefaultFactor: 1,
 	}
 	g := carveRange{minY: 0, depth: 500}
