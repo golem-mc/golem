@@ -167,6 +167,8 @@ func BenchmarkVehicleColumnDispatch(b *testing.B) {
 			if hoppers == 1 {
 				w.SetBlock(0, 64, 0, registry.MustState("minecraft:hopper", map[string]string{"facing": "down", "enabled": "true"}))
 				w.EnsureBlockEntity(0, 64, 0, world.KindHopper)
+				// Without the hold the block entity pass skips the hopper.
+				b.Cleanup(w.HoldEntityTicking(world.ChunkPos{}))
 			}
 			s.tickBlockEntities()
 			b.ReportAllocs()
