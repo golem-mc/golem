@@ -801,7 +801,7 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 		if !ok {
 			return false, true
 		}
-		stack.Recipes = recipes
+		stack.SetRecipes(recipes)
 	case "minecraft:enchantments", "minecraft:stored_enchantments":
 		levels, ok := enchantmentsOf(value)
 		if !ok {
@@ -827,16 +827,16 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 		}
 		// A byte 2 is golem's earlier encoding of hidden; keep such saved items hidden.
 		if b, isByte := value.(nbt.Byte); glint != 0 && (!isByte || b != 2) {
-			stack.GlintOverride = protocol.GlintShown
+			stack.SetGlintOverride(protocol.GlintShown)
 		} else {
-			stack.GlintOverride = protocol.GlintHidden
+			stack.SetGlintOverride(protocol.GlintHidden)
 		}
 	case "minecraft:container":
 		contents, ok := containerOf(value)
 		if !ok {
 			return false, true
 		}
-		stack.Container = contents
+		stack.SetContainer(contents)
 	case "minecraft:bundle_contents":
 		contents, ok := bundleContentsOf(value)
 		if !ok {

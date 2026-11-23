@@ -22,6 +22,9 @@ func (c *client) handleUseInstrument(hand int32) {
 	if c.player.Vitals().Dead || c.player.GameMode() == protocol.GameModeSpectator {
 		return
 	}
+	if held.Removes(protocol.DataComponentInstrument) {
+		return
+	}
 	instrument := registry.DefaultInstrumentData()
 	if id, ok := held.InstrumentOf(); ok {
 		if in, known := registry.InstrumentByID(id); known {

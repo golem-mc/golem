@@ -187,7 +187,7 @@ func (r *lootRoller) apply(fn registry.LootFunction, s protocol.ItemStack, patch
 		}
 	case registry.LootSetEnchantments:
 		s = transmuteBook(s)
-		if !isEnchantedBook(s) && s.Removes(protocol.DataComponentEnchantments) {
+		if !canStoreEnchantments(s) {
 			return s
 		}
 		levels := enchantLevels(&s)
@@ -313,7 +313,7 @@ func (r *lootRoller) setContents(k registry.LootSetContents, s protocol.ItemStac
 	contents := splitStacks(made)
 	switch k.Component {
 	case "minecraft:container":
-		s.Container = contents
+		s.SetContainer(contents)
 	case "minecraft:bundle_contents":
 		s.SetBundleContents(contents)
 	case "minecraft:charged_projectiles":
@@ -459,7 +459,7 @@ func setEnchantTarget(s *protocol.ItemStack, levels map[int32]int32) {
 // higher one already there.
 // vanilla: ItemEnchantments.Mutable.upgrade
 func upgradeEnchantment(s *protocol.ItemStack, id, level int32) {
-	if level <= 0 || !isEnchantedBook(*s) && s.Removes(protocol.DataComponentEnchantments) {
+	if level <= 0 || !canStoreEnchantments(*s) {
 		return
 	}
 	levels := enchantLevels(s)

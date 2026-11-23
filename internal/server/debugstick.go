@@ -35,6 +35,9 @@ func (c *client) debugStick(hand, x, y, z int32, cycle bool) bool {
 		c.sendDebugStickLine("item.minecraft.debug_stick.empty", name)
 		return false
 	}
+	if held.Removes(protocol.DataComponentDebugStickState) {
+		return false
+	}
 	if cycle {
 		newState, prop, value, ok := rules.DebugStickCycle(state, selected, backward)
 		if !ok {

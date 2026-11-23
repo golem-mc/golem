@@ -158,7 +158,9 @@ func pickupEffect(stack protocol.ItemStack) entity.ArrowEffect {
 		return entity.ArrowEffect{}
 	}
 	scale := float32(1)
-	if registry.Item(stack.ItemID) == registry.ItemTippedArrow {
+	if rawScale, ok := stack.PotionDurationScale(); ok {
+		scale = rawScale
+	} else if registry.Item(stack.ItemID) == registry.ItemTippedArrow && !stack.Removes(protocol.DataComponentPotionDurationScale) {
 		scale = tippedArrowScale
 	}
 	out := entity.ArrowEffect{

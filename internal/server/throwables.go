@@ -256,7 +256,7 @@ func (c *client) handleUseThrown(hand int32) bool {
 		pos.X, pos.Y+c.dims(c.player.Appearance().Pose).EyeHeight-spawnBelow, pos.Z,
 		pos.Yaw, pos.Pitch, rideX, rideY, rideZ,
 		c.player.EntityID, c.player.UUID, seed,
-		protocol.ItemStack{ItemID: held.ItemID, Count: 1, Raw: held.Raw})
+		held)
 	// The throw's own sound, played to the players within earshot of the
 	// thrower's feet, at the pitch the item's own roll gives it — the
 	// player's random in vanilla, and one of the server's own here.
@@ -374,12 +374,16 @@ func thrownShell(thrown *entity.Thrown, w *world.World, ownerUUID uuid.UUID, sta
 		return nil
 	}
 	stack.Count = 1
+	variant := ""
+	if !stack.Removes(protocol.DataComponentChickenVariant) {
+		variant = eggVariantOfItem(registry.Item(stack.ItemID))
+	}
 	return &thrownEntity{
 		throwable: thrown,
 		w:         w,
 		uuid:      uuid.New(),
 		stack:     stack,
-		variant:   eggVariantOfItem(registry.Item(stack.ItemID)),
+		variant:   variant,
 		firstPass: true,
 		ownerUUID: ownerUUID,
 	}
@@ -874,11 +878,18 @@ func (s *Server) potionBreakOf(it *thrownEntity, dim *dimension, mobsByID map[in
 		return shl
 	}
 	if it.throwable.Kind == entity.ThrownLingeringPotion {
+		scale := float32(rules.LingeringDurationScale)
+		if rawScale, ok := it.stack.PotionDurationScale(); ok {
+			scale = rawScale
+		} else if it.stack.Removes(protocol.DataComponentPotionDurationScale) {
+			scale = 1
+		}
 		cloud := make([]effect.Instance, 0, len(brewed))
 		for _, in := range brewed {
-			cloud = append(cloud, rules.LingeringInstance(effect.Clone(in), rules.LingeringDurationScale))
+			cloud = append(cloud, rules.LingeringInstance(effect.Clone(in), float64(scale)))
 		}
 		shl.cloud = cloud
+		shl.durationScale = scale
 		return shl
 	}
 	durationScale := it.stack.PotionDurationScaleOf()

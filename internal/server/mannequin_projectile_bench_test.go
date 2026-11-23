@@ -75,7 +75,7 @@ func benchMannequinProjectiles(b *testing.B, kind string, recipients int) {
 		thrown = s.thrown[0]
 		thrownStart = *thrown.throwable
 	case "cloud":
-		s.spawnCloud(w, 0.875, y, 0.875, rules.PotionInstances(contents), 0, contents, uuid.Nil)
+		s.spawnCloud(w, 0.875, y, 0.875, rules.PotionInstances(contents), 0, contents, rules.LingeringDurationScale, uuid.Nil)
 		it := s.clouds[0]
 		it.fresh = false
 		it.cloud.Duration, it.cloud.WaitTime, it.cloud.Reapplication, it.cloud.RadiusOnUse = -1, 0, 1, 0

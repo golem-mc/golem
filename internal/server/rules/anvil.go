@@ -74,6 +74,16 @@ func enchantmentComponent(stack *protocol.ItemStack) *map[int32]int32 {
 	return &stack.Enchantments
 }
 
+// canStoreEnchantments reports whether stack still has the component its kind
+// stores enchantments in.
+// vanilla: EnchantmentHelper.canStoreEnchantments
+func canStoreEnchantments(stack protocol.ItemStack) bool {
+	if isEnchantedBook(stack) {
+		return !stack.Removes(protocol.DataComponentStoredEnchantments)
+	}
+	return !stack.Removes(protocol.DataComponentEnchantments)
+}
+
 // anvilCanEnchant is Enchantment.canEnchant's supported-items half: the
 // supported tag holds the item. No tag accepts everything, like vanilla's
 // empty holder.
@@ -152,8 +162,7 @@ func javaStringLength(s string) int {
 // supported tags refuse costs a level and goes nowhere. The extra's magic is walked in registry ID order, since
 // vanilla's map order is unspecified.
 func AnvilCombine(base, extra protocol.ItemStack, name string, creative bool) AnvilAnswer {
-	// vanilla: EnchantmentHelper.canStoreEnchantments
-	if base.Empty() || (!isEnchantedBook(base) && base.Removes(protocol.DataComponentEnchantments)) {
+	if base.Empty() || !canStoreEnchantments(base) {
 		return AnvilAnswer{}
 	}
 	// work counts a level per change beyond the first (a mended quarter, a

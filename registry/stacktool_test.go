@@ -43,6 +43,15 @@ func TestEveryKeptRemovalSurvivesAFileRoundTrip(t *testing.T) {
 		protocol.DataComponentAttributeModifiers, protocol.DataComponentBreakSound, protocol.DataComponentDamage,
 		protocol.DataComponentEnchantments, protocol.DataComponentItemModel, protocol.DataComponentItemName,
 		protocol.DataComponentLore, protocol.DataComponentRarity, protocol.DataComponentRepairCost, protocol.DataComponentTooltipDisplay,
+		protocol.DataComponentBannerPatterns, protocol.DataComponentBees, protocol.DataComponentBlockState,
+		protocol.DataComponentBucketEntityData, protocol.DataComponentBundleContents, protocol.DataComponentChargedProjectiles,
+		protocol.DataComponentChickenVariant, protocol.DataComponentContainer, protocol.DataComponentCushionColor,
+		protocol.DataComponentDebugStickState, protocol.DataComponentEnchantmentGlintOverride, protocol.DataComponentEntityData,
+		protocol.DataComponentFireworks, protocol.DataComponentInstrument, protocol.DataComponentMapDecorations,
+		protocol.DataComponentPotDecorations, protocol.DataComponentPotionContents, protocol.DataComponentPotionDurationScale,
+		protocol.DataComponentProvidesPotteryPattern, protocol.DataComponentRecipes, protocol.DataComponentSignTextBack,
+		protocol.DataComponentSignTextFront, protocol.DataComponentStoredEnchantments, protocol.DataComponentSuspiciousStew,
+		protocol.DataComponentWritableBookContent,
 	} {
 		if !stack.Remove(c) {
 			t.Fatalf("component %d is not a kept removal", c)

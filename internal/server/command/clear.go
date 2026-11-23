@@ -299,6 +299,9 @@ func genericComponentFilter(name string, op byte, value string) (ItemFilter, boo
 			return nil, false
 		}
 		return func(stack protocol.ItemStack) bool {
+			if id, ok := registry.ComponentID(name); ok && stack.Removes(id) {
+				return false
+			}
 			_, inPatch := registry.StackComponents(stack)[name]
 			return inPatch || registry.ItemHasComponentDefault(stack.ItemID, name)
 		}, true

@@ -440,6 +440,15 @@ func (b *Buffer) putRemovedComponents(s ItemStack) {
 	if s.Removed == (Removals{}) {
 		return
 	}
+	// A single removal has nothing to order; emit it directly to skip zeroing
+	// the full removable-length buffer.
+	if w0, w1 := s.Removed[0], s.Removed[1]; w1 == 0 && w0&(w0-1) == 0 {
+		b.PutVarInt(removable[bits.TrailingZeros64(w0)].Type)
+		return
+	} else if w0 == 0 && w1&(w1-1) == 0 {
+		b.PutVarInt(removable[64+bits.TrailingZeros64(w1)].Type)
+		return
+	}
 	var buf [len(removable)]int32
 	types := buf[:0]
 	for i, word := range s.Removed {
@@ -660,12 +669,6 @@ func readRemovedComponents(r *Reader, stack *ItemStack, remove int32) bool {
 			stack.Unbreakable = false
 		case DataComponentCustomName:
 			stack.CustomName = nil
-		case DataComponentEnchantmentGlintOverride:
-			stack.GlintOverride = GlintUnset
-		case DataComponentStoredEnchantments:
-			stack.SetEnchantments(true, nil)
-		case DataComponentContainer:
-			stack.Container = nil
 		default:
 			stack.clearRaw(component)
 		}

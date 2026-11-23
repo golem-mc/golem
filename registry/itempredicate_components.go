@@ -168,10 +168,10 @@ func DecodeComponentPredicate(name string, value nbt.Tag) (test func(protocol.It
 						items = append(items, s)
 					}
 				}
-				return items, hand.Container != nil || ItemHasComponentDefault(hand.ItemID, name)
+				return items, hand.Container != nil || (!hand.Removes(protocol.DataComponentContainer) && ItemHasComponentDefault(hand.ItemID, name))
 			}
 			items := hand.BundleContents()
-			return items, items != nil || ItemHasComponentDefault(hand.ItemID, name)
+			return items, items != nil || (!hand.Removes(protocol.DataComponentBundleContents) && ItemHasComponentDefault(hand.ItemID, name))
 		}
 		var coll *collectionTest[protocol.ItemStack]
 		if raw, ok := fields["items"]; ok {
@@ -233,7 +233,7 @@ func decodeEnchantmentsTest(stored bool, value nbt.Tag) (stackTest, bool) {
 		have := hand.Enchantments
 		if stored {
 			have = hand.StoredEnchantments
-			if have == nil && !ItemHasComponentDefault(hand.ItemID, "minecraft:stored_enchantments") {
+			if have == nil && (hand.Removes(protocol.DataComponentStoredEnchantments) || !ItemHasComponentDefault(hand.ItemID, "minecraft:stored_enchantments")) {
 				return false
 			}
 		}

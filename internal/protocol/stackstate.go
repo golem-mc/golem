@@ -116,6 +116,7 @@ func fastutilStringHash(key string) uint32 {
 // SetDebugStickState replaces the codec's selections, retaining their traversal.
 func (s *ItemStack) SetDebugStickState(entries map[string]string, keys []string) {
 	s.DebugStick, s.debugStickOrder = maps.Clone(entries), slices.Clone(keys)
+	s.clearRemoval(DataComponentDebugStickState)
 	s.NotePatch(DataComponentDebugStickState)
 }
 
@@ -150,5 +151,6 @@ func (s *ItemStack) SetDebugStickProperty(block, property string) {
 	}
 	next[block] = property
 	s.DebugStick, s.debugStickOrder = next, nbt.HashOrderedKeys(tag)
+	s.clearRemoval(DataComponentDebugStickState)
 	s.NotePatch(DataComponentDebugStickState)
 }

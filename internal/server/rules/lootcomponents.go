@@ -229,7 +229,7 @@ func setFireworkExplosion(k registry.LootSetFireworkExplosion, s protocol.ItemSt
 // vanilla: SetFireworksFunction.run
 func setFireworks(k registry.LootSetFireworks, s protocol.ItemStack) protocol.ItemStack {
 	flight, explosions, ok := s.FireworksComponentOf()
-	if !ok && registry.Item(s.ItemID) == registry.ItemFireworkRocket {
+	if !ok && registry.Item(s.ItemID) == registry.ItemFireworkRocket && !s.Removes(protocol.DataComponentFireworks) {
 		flight = 1
 	}
 	if k.Flight != nil {

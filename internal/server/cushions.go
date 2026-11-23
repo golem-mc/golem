@@ -77,6 +77,9 @@ func (c *client) placeCushion(hand, x, y, z int32, ctx rules.PlacementContext) (
 		s.cushionOverlaps(w, minX, minY, minZ, maxX, maxY, maxZ) {
 		return true, nil
 	}
+	if stack.Removes(protocol.DataComponentCushionColor) {
+		color = 0 // vanilla: Cushion.DEFAULT_COLOR
+	}
 	tag := nbt.Compound{"color": nbt.String(registry.DyeNames[color])}
 	cushionItemData(tag, stack)
 	ent := fixtureOfTag(s, w, summonTag(tag, entity.FixtureCushion, ex, clickY, ez))

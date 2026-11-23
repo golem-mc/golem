@@ -247,6 +247,17 @@ func TestAnvilRefusesRemovedEnchantments(t *testing.T) {
 	if !rename.Result.Empty() || rename.Cost != 0 {
 		t.Errorf("rename: %+v, want empty result and zero cost", rename)
 	}
+
+	strippedBook := aBook(t, nil)
+	strippedBook.Remove(protocol.DataComponentStoredEnchantments)
+	bookCombine := AnvilCombine(strippedBook, book, "", false)
+	if !bookCombine.Result.Empty() || bookCombine.Cost != 0 {
+		t.Errorf("stripped book combine: %+v, want empty result and zero cost", bookCombine)
+	}
+	bookRename := AnvilCombine(strippedBook, protocol.ItemStack{}, "Renamed", false)
+	if !bookRename.Result.Empty() || bookRename.Cost != 0 {
+		t.Errorf("stripped book rename: %+v, want empty result and zero cost", bookRename)
+	}
 }
 
 func TestAnvilRestoresRemovedRepairCost(t *testing.T) {
