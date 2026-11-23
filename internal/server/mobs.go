@@ -2592,14 +2592,18 @@ func (s *Server) killMob(ent *mobEntity) {
 }
 
 // teleportMob moves the mob, leaving the telling to the movement tick.
-// vanilla: Entity.teleportTo, ServerEntity.sendChanges
-func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch float32, by string) {
+// A command teleport sets the ground flag; the other callers leave it to the
+// next movement tick, as vanilla's teleportSetPosition does.
+// vanilla: Entity.teleportTo, TeleportCommand.performTeleport, ServerEntity.sendChanges
+func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch float32, by string, onGround bool) {
 	s.mobsMu.Lock()
 	m := ent.mob
 	m.SetPos(to.X, to.Y, to.Z)
-	// Stop the vertical fall; horizontal motion is kept. The ground flag is
-	// left to the next movement tick, as vanilla's teleportSetPosition does.
+	// Stop the vertical fall; horizontal motion is kept.
 	m.VY = 0
+	if onGround {
+		m.OnGround = true
+	}
 	m.Yaw, m.Pitch = yaw, clampBodyPitch(pitch)
 	// vanilla: Entity.teleportSetPosition
 	m.HeadYaw = yaw
