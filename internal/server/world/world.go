@@ -125,6 +125,8 @@ type World struct {
 	mu      sync.RWMutex
 	chunks  map[ChunkPos]*loadedChunk
 	packets chunkPacketRetention
+	// touchBlocks is the total in w.chunks, guarded by mu.
+	touchBlocks int
 	// tickingChunks holds the loaded chunks with a trial spawner or vault, so a
 	// tick without any walks nothing. Guarded by mu.
 	tickingChunks map[ChunkPos]struct{}
@@ -764,6 +766,7 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	w.queueGeneratedTicks(c)
 	w.queueLoadedTicks(c)
 	w.chunks[pos] = loaded
+	w.touchBlocks += c.touchBlockCount()
 	w.chunkSet.Add(1)
 	w.syncTickingChunk(pos, c)
 	// Shared before the slot is stored: from the store on, BlockAt may read
@@ -866,6 +869,7 @@ func (w *World) release(pos ChunkPos, done *sync.WaitGroup) {
 		w.dropChunkTicks(pos)
 		w.dropNear(pos, loaded)
 		delete(w.chunks, pos)
+		w.touchBlocks -= loaded.chunk.touchBlockCount()
 		w.chunkSet.Add(1)
 		delete(w.tickingChunks, pos)
 		w.chunkUnloaded(pos, loaded.chunk)
@@ -943,6 +947,7 @@ func (w *World) unloadSaved(pos ChunkPos, chunk *Chunk, gen uint64) {
 			w.dropChunkTicks(pos)
 			w.dropNear(pos, l)
 			delete(w.chunks, pos)
+			w.touchBlocks -= chunk.touchBlockCount()
 			w.chunkSet.Add(1)
 			delete(w.tickingChunks, pos)
 			w.chunkUnloaded(pos, chunk)
@@ -1086,6 +1091,7 @@ func (w *World) SwapBlock(x, y, z int32, state uint16) (old uint16, changed bool
 		return old, false
 	}
 	loaded.chunk.SetBlock(x&15, y, z&15, state)
+	w.updateTouchBlockCount(y, old, state)
 	if w.journaling {
 		w.journal = append(w.journal, journalEntry{x, y, z, old, state})
 	}
@@ -1202,6 +1208,7 @@ func (w *World) SetBlocks(changes []BlockChange) []BlockChange {
 			touched = append(touched, loaded)
 		}
 		loaded.chunk.SetBlock(ch.X&15, ch.Y, ch.Z&15, ch.State)
+		w.updateTouchBlockCount(ch.Y, old, ch.State)
 		if be := loaded.chunk.blockEntity(ch.X, ch.Y, ch.Z); be != nil {
 			be.Wake()
 		}
