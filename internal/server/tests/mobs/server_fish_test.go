@@ -408,8 +408,15 @@ func TestAFullPufferfishHurtsAndPoisonsATouchingPlayer(t *testing.T) {
 	srv.TickMobs(1)
 	var stung bool
 	var poison servertest.MobEffect
+	var shove []float64
 	c.SettleAndCollect(func(packetID int32, data []byte) {
 		switch packetID {
+		case protocol.IDPlaySetEntityMotion:
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() != id {
+				x, y, z := r.ReadLpVec3()
+				shove = []float64{x, y, z}
+			}
 		case protocol.IDPlayGameEvent:
 			if protocol.NewReader(data).ReadU8() == protocol.GameEventPufferFishSting {
 				stung = true
@@ -427,5 +434,13 @@ func TestAFullPufferfishHurtsAndPoisonsATouchingPlayer(t *testing.T) {
 	}
 	if want := registry.MustMobEffect("minecraft:poison"); poison.Effect != want || poison.Duration != 120 || poison.Amplifier != 0 {
 		t.Errorf("the effect update = %+v, want poison for 120 ticks at amplifier 0", poison)
+	}
+	// The touch runs in the player's own tick, so the shove goes out whole:
+	// the default knockback's 0.4, not aged by a travel step first.
+	if len(shove) != 3 {
+		t.Fatal("no motion packet reached the stung player")
+	}
+	if h := math.Hypot(shove[0], shove[2]); math.Abs(h-0.4) > 1e-3 {
+		t.Errorf("the sting's horizontal shove is %.4f, want 0.4", h)
 	}
 }

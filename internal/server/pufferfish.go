@@ -9,7 +9,8 @@ import (
 // pufferStingPlayer is Pufferfish.playerTouch for a hurt player: the damage
 // scales with difficulty (none on Peaceful, so no poison), a landed sting
 // tells that player alone (unless the fish is silent) and poisons for 60
-// ticks a puff state.
+// ticks a puff state. The touch runs in the player's own tick, so the shove
+// goes out unaged by travel.
 func (s *Server) pufferStingPlayer(strike mobStrike, victim *client) {
 	cause := &damageCause{entityID: strike.mob.ID, x: strike.x, y: strike.y, z: strike.z, killer: strike.killer, shove: true}
 	damage := rules.MobAttackAfterDifficulty(strike.damage, strike.w.Difficulty())
@@ -18,7 +19,7 @@ func (s *Server) pufferStingPlayer(strike mobStrike, victim *client) {
 		return
 	}
 	if !softened {
-		victim.knockbackFromPoint(strike.w, strike.x, strike.y, strike.z, syncVelocityAfterTravel)
+		victim.knockbackFromPoint(strike.w, strike.x, strike.y, strike.z, syncVelocityNow)
 	}
 	if !strike.mob.Silent {
 		victim.send(protocol.IDPlayGameEvent, gameEventPayload(protocol.GameEventPufferFishSting, 0))
