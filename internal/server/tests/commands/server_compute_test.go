@@ -114,7 +114,12 @@ func TestComputeRefusals(t *testing.T) {
 			missing("value", "{}") + "; " + missing("condition", "{}")},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[B;1b,2b]}`, "Not a map: 2b; Not a map: 1b"},
 		{`compute default integer {type:"minecraft:weighted_list",distribution:[B;1b,2b]}`,
-			"Not a map: 2b; Not a map: 1b; Weighted list must contain at least one entry with non-zero weight"},
+			either + "Not a map: 2b; Not a map: 1b; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[L;]}`,
+			either + "Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[1,{data:5,weight:0}]}`,
+			either + "Not a map: 1; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[1,{data:5,weight:1}]}`, "Not a map: 1"},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[L;1L,2L]}`, "Not a map: 2L; Not a map: 1L"},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{},{}]}`,
 			missing("value", "{}") + "; " + missing("condition", "{}") + "; " +

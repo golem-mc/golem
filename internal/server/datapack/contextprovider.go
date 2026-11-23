@@ -145,25 +145,18 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 		if !ok {
 			return nil, "Not a list: " + nbt.Stringify(casesTag)
 		}
-		var cases []registry.LootDispatchCase
-		var caseMsgs []string
-		for _, e := range items {
+		cases, caseMsgs := decodeEach(items, func(e nbt.Tag) (registry.LootDispatchCase, string) {
 			cc, ok := e.(nbt.Compound)
 			if !ok {
-				caseMsgs = append(caseMsgs, "Not a map: "+nbt.Stringify(e))
-				continue
+				return registry.LootDispatchCase{}, "Not a map: " + nbt.Stringify(e)
 			}
 			test, testMsg := condField(cc)
 			v, valueMsg := required(cc, "value")
 			if msg := registry.JoinFieldErrors(valueMsg, testMsg); msg != "" {
-				caseMsgs = append(caseMsgs, msg)
-				continue
+				return registry.LootDispatchCase{}, msg
 			}
-			cases = append(cases, registry.LootDispatchCase{Condition: test, Value: v})
-		}
-		// vanilla: ListCodec.decode keeps going and merges every element's error,
-		// DataResult.apply2stable prepending the newest, so cases report last first.
-		slices.Reverse(caseMsgs)
+			return registry.LootDispatchCase{Condition: test, Value: v}, ""
+		})
 		if msg := registry.JoinFieldErrors(caseMsgs...); msg != "" {
 			return nil, partialMark + msg
 		}
@@ -252,6 +245,23 @@ func listItems(t nbt.Tag) ([]nbt.Tag, bool) {
 	return slices.Collect(seq), true
 }
 
+// decodeEach decodes every element, keeping the successes in order and every
+// failure's message, newest first.
+// vanilla: ListCodec.decode, DataResult.apply2stable
+func decodeEach[T any](items []nbt.Tag, one func(nbt.Tag) (T, string)) ([]T, []string) {
+	var out []T
+	var msgs []string
+	for _, item := range items {
+		if v, msg := one(item); msg != "" {
+			msgs = append(msgs, msg)
+		} else {
+			out = append(out, v)
+		}
+	}
+	slices.Reverse(msgs)
+	return out, msgs
+}
+
 // listOf decodes the elements of a list field with one decoder.
 func listOf[T any](c nbt.Compound, key string, one func(nbt.Tag) (T, string)) ([]T, string) {
 	t, msg := fieldOf(c, key)
@@ -327,25 +337,25 @@ func weightedChoice(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt
 		if !ok {
 			return nil, "Not a list: " + nbt.Stringify(t)
 		}
-		if len(items) == 0 {
-			return nil, "List must have contents"
+		type entry struct {
+			value  registry.LootNumber
+			weight int32
 		}
-		var out registry.LootWeightedList
-		var msgs []string
-		for _, item := range items {
+		entries, msgs := decodeEach(items, func(item nbt.Tag) (entry, string) {
 			v, weight, msg := weightedEntry(item, nested)
-			if msg != "" {
-				msgs = append(msgs, msg)
-				continue
-			}
-			out.Values = append(out.Values, v)
-			out.Weights = append(out.Weights, int64(weight))
+			return entry{v, weight}, msg
+		})
+		var out registry.LootWeightedList
+		positive := false
+		for _, e := range entries {
+			out.Values = append(out.Values, e.value)
+			out.Weights = append(out.Weights, int64(e.weight))
+			positive = positive || e.weight > 0
 		}
-		// vanilla: ListCodec.decode merges every element's error, newest first;
-		// WeightedList's non-zero check then runs on the partial list.
-		slices.Reverse(msgs)
-		if len(out.Values) == 0 {
-			msgs = append(msgs, "Weighted list must contain at least one entry with non-zero weight")
+		// vanilla: WeightedList's non-zero check runs on the partial list.
+		if !positive {
+			msg := registry.JoinFieldErrors(append(msgs, "Weighted list must contain at least one entry with non-zero weight")...)
+			return nil, msg
 		}
 		if msg := registry.JoinFieldErrors(msgs...); msg != "" {
 			return nil, partialMark + msg
@@ -374,8 +384,8 @@ func weightedEntry(item nbt.Tag, nested func(nbt.Tag) (registry.LootNumber, stri
 		if weight, ok = nbt.IntValue(w); !ok {
 			return nil, 0, "Not a number: " + nbt.Stringify(w)
 		}
-		if weight < 1 {
-			return nil, 0, fmt.Sprintf("Value %d outside of range [1:2147483647]", weight)
+		if weight < 0 {
+			return nil, 0, fmt.Sprintf("Value %d outside of range [0:2147483647]", weight)
 		}
 	}
 	return v, weight, ""
