@@ -81,3 +81,25 @@ func TestPackBlockUseAndEnderEyeAdvancements(t *testing.T) {
 		t.Error("an eye thrown 40 blocks from its structure passed a distance of at least 1000")
 	}
 }
+
+// TestPackLocationCheckSmokeyFalse: smokey:false passes a block that no lit
+// campfire's smoke reaches and fails one it does.
+// vanilla: LocationPredicate.matches, CampfireBlock.isSmokeyPos
+func TestPackLocationCheckSmokeyFalse(t *testing.T) {
+	cfg, data := packConfig(t)
+	writePackFile(t, filepath.Join(data, "pk", "advancement", "unsmoked.json"), `{"criteria":{"used":{"trigger":"minecraft:default_block_use",`+
+		`"conditions":{"location":[{"condition":"minecraft:location_check","predicate":{"block":{"blocks":"minecraft:chest"},"smokey":false}}]}}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	pos := srv.PlayerPosition("Packer")
+	x, y, z := rules.BlockOf(pos.X)+2, rules.BlockOf(pos.Y), rules.BlockOf(pos.Z)
+	servertest.Setblock(t, c, x, y-2, z, "minecraft:campfire[lit=true]")
+	servertest.Setblock(t, c, x, y, z, "minecraft:chest")
+	c.UseBlock(x, y, z)
+	c.Settle()
+	if srv.AdvancementObtained("Packer", "pk:unsmoked", "used") {
+		t.Fatal("a hive in a campfire's smoke passed smokey:false")
+	}
+	servertest.Setblock(t, c, x, y-2, z, "minecraft:air")
+	c.UseBlock(x, y, z)
+	servertest.UntilTicks(t, srv, 20, "pk:unsmoked obtained", func() bool { return srv.AdvancementObtained("Packer", "pk:unsmoked", "used") })
+}

@@ -516,7 +516,7 @@ func holds(cond *registry.AdvancementCondition, at Blocks) bool {
 	if !blockNamed(cond.Blocks, state) {
 		return false
 	}
-	if cond.Smokey && !rules.HiveSedated(at.reader(cond.Offset), 0, 0, 0) {
+	if cond.Smokey != nil && rules.HiveSedated(at.reader(cond.Offset), 0, 0, 0) != *cond.Smokey {
 		return false
 	}
 	for key, want := range cond.State {

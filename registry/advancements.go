@@ -275,6 +275,6 @@ type AdvancementCondition struct {
 	State  map[string]string
 	// Offset is relative to the trigger's position.
 	Offset [3]int32
-	// Smokey requires a lit campfire's smoke to reach the cell.
-	Smokey bool
+	// Smokey, when set, is whether a lit campfire's smoke must reach the cell.
+	Smokey *bool
 }
