@@ -384,10 +384,11 @@ func (b *Buffer) PutComponentData(s ItemStack, component int32) {
 			b.PutBool(true)
 			b.PutVarInt(entry.ItemID)
 			b.PutVarInt(entry.Count)
+			entry.Removed = entry.removals()
 			components := componentsOf(entry)
 			entry.orderPatch(components)
 			b.PutVarInt(int32(len(components)))
-			b.PutVarInt(entry.removedCount())
+			b.PutVarInt(entry.Removed.count())
 			for _, component := range components {
 				b.PutVarInt(component)
 				b.PutComponentData(entry, component)
@@ -437,13 +438,12 @@ func componentsOf(s ItemStack) []int32 {
 // putRemovedComponents writes only the removed IDs, after the added values.
 // vanilla: DataComponentPatch.createStreamCodec
 func (b *Buffer) putRemovedComponents(s ItemStack) {
-	removed := s.removals()
-	if removed == (Removals{}) {
+	if s.Removed == (Removals{}) {
 		return
 	}
 	var buf [len(removable)]int32
 	types := buf[:0]
-	for i, word := range removed {
+	for i, word := range s.Removed {
 		for word != 0 {
 			types = append(types, removable[i*64+bits.TrailingZeros64(word)].Type)
 			word &= word - 1
@@ -465,10 +465,11 @@ func (b *Buffer) PutSlot(s ItemStack) {
 	}
 	b.PutVarInt(s.Count)
 	b.PutVarInt(s.ItemID)
+	s.Removed = s.removals()
 	components := componentsOf(s)
 	s.orderPatch(components)
 	b.PutVarInt(int32(len(components)))
-	b.PutVarInt(s.removedCount())
+	b.PutVarInt(s.Removed.count())
 	for _, component := range components {
 		b.PutVarInt(component)
 		b.PutComponentData(s, component)
@@ -486,10 +487,11 @@ func (b *Buffer) PutUntrustedSlot(s ItemStack) {
 	}
 	b.PutVarInt(s.Count)
 	b.PutVarInt(s.ItemID)
+	s.Removed = s.removals()
 	components := componentsOf(s)
 	s.orderPatch(components)
 	b.PutVarInt(int32(len(components)))
-	b.PutVarInt(s.removedCount())
+	b.PutVarInt(s.Removed.count())
 	for _, component := range components {
 		var value Buffer
 		value.PutComponentData(s, component)

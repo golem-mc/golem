@@ -126,11 +126,6 @@ func (s ItemStack) removals() Removals {
 	return s.Removed
 }
 
-// removedCount is the number of removals the patch writes.
-func (s ItemStack) removedCount() int32 {
-	return s.removals().count()
-}
-
 // Remove takes component away entirely, the removal rather than a return to
 // its item's default; false, leaving the stack as it was, for a component
 // whose removal the stack cannot keep.
