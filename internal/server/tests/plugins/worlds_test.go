@@ -814,3 +814,44 @@ func TestPluginWorldSleepSkipsNight(t *testing.T) {
 		t.Errorf("the awake player is in %q", got)
 	}
 }
+
+// A write made in the tick that unloads its world is relit before the save.
+// vanilla: ServerLevel.save, ThreadedLevelLightEngine.runUpdate
+// Not parallel: it flakes under the CPU contention of the parallel tests.
+func TestPluginUnloadRelightsPendingWrites(t *testing.T) {
+	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	w := createFlat(t, run, h, &flatGen{})
+	var loaded atomic.Bool
+	load := func() {
+		loaded.Store(false)
+		run(func() {
+			w.AddTicket(plugin.ChunkPos{}, 0)
+			w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) { loaded.Store(true) })
+		})
+		awaitPluginIO(t, srv, "flat chunk", loaded.Load)
+	}
+	load()
+	glow := plugin.BlockPos{X: 5, Y: 20, Z: 5}
+	before := srv.RelightsRun()
+	var unloadErr error
+	run(func() {
+		w.SetBlockState(glow, plugin.DefaultState(registry.BlockGlowstone), plugin.UpdateAll)
+		if got := srv.RelightsRun(); got != before {
+			t.Errorf("%d relights submitted by the write", got-before)
+		}
+		unloadErr = h.UnloadWorld(w, true)
+	})
+	if unloadErr != nil {
+		t.Fatal(unloadErr)
+	}
+	if got := srv.RelightsRun() - before; got != 1 {
+		t.Fatalf("unload submitted %d relights, want 1", got)
+	}
+	w = createFlat(t, run, h, &flatGen{})
+	load()
+	run(func() {
+		if _, block := w.Light(glow.Offset(plugin.Up, 1)); block != 14 {
+			t.Errorf("block light above the glowstone after reload = %d, want 14", block)
+		}
+	})
+}

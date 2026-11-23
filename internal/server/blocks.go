@@ -487,7 +487,7 @@ func (c *client) flushBlockAck() {
 		}
 		// A handler may have changed a block since the tick's flush; send it ahead
 		// of the ack. vanilla: MinecraftServer.tickChildren (broadcastChangedChunks)
-		c.srv.flushBlockChanges(c.theWorld())
+		c.srv.flushDimBlockChanges(c.dimension())
 		c.send(protocol.IDPlayAckBlockChange, ackBlockChange(seq))
 	}
 }
@@ -656,7 +656,8 @@ func (c *client) destroyProgress(state uint16) float32 {
 // the delayed destroy call it; reach and ack are the handler's, as vanilla's
 // destroyBlock knows no sequence. vanilla: ServerPlayerGameMode.destroyBlock
 func (c *client) destroyBlock(x, y, z int32, onTick bool) {
-	w := c.theWorld()
+	dim := c.dimension()
+	w := dim.w
 	// The debug stick breaks nothing in any mode: its canDestroyBlock treats
 	// the click as a property selection.
 	// vanilla: DebugStickItem.canDestroyBlock, ServerPlayerGameMode.destroyAndAck
@@ -843,7 +844,7 @@ func (c *client) destroyBlock(x, y, z int32, onTick bool) {
 	// Bodies spawn after the block change clearing their cell, so the queue
 	// goes out first.
 	if len(spawns) > 0 {
-		c.srv.flushBlockChanges(w)
+		c.srv.flushDimBlockChanges(dim)
 	}
 	for _, spawn := range spawns {
 		if spawn != nil {

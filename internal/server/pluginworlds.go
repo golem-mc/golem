@@ -217,6 +217,10 @@ func (h *pluginHost) UnloadWorld(w plugin.World, save bool) error {
 	for _, pos := range d.w.LoadedChunkPositions() {
 		d.w.HoldIfLoaded(pos)
 	}
+	// A write queued this tick is relit before the save, which would
+	// otherwise miss its light.
+	s.relightPending(d)
+	s.relightWG.Wait()
 	if save {
 		s.saveMobs()
 		d.w.Save()

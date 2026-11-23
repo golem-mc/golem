@@ -342,3 +342,64 @@ func TestPluginBlockWriteRelightsAtFlush(t *testing.T) {
 		t.Errorf("sky light after removal %d, want 15", got)
 	}
 }
+
+// An empty, paused server skips the tick's flush, so the pause path books the
+// plugin's pending relights itself.
+// vanilla: MinecraftServer.tickServer, ThreadedLevelLightEngine.runUpdate
+func TestPluginBlockWriteRelightsOnPausedTick(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.PauseWhenEmptySeconds = 1
+	srv, h, run := worldPlugin(t, cfg)
+	w := srv.OverworldWorld()
+	p := world.ChunkPos{X: 0, Z: 0}
+	w.Acquire(p)
+	defer w.Release(p)
+	servertest.RunTicks(t, srv, 25)
+	age := srv.WorldAge()
+	servertest.RunTicks(t, srv, 1)
+	if srv.WorldAge() != age {
+		t.Fatal("the empty server did not pause")
+	}
+	cell := plugin.BlockPos{X: 8, Y: 200, Z: 8}
+	before := srv.RelightsRun()
+	run(func() {
+		h.Overworld().SetBlockState(cell, plugin.DefaultState(registry.BlockGlowstone), plugin.UpdateAll)
+	})
+	if got := srv.RelightsRun() - before; got != 1 {
+		t.Fatalf("paused tick submitted %d relights, want 1", got)
+	}
+	srv.WaitRelights()
+	run(func() {
+		if srv.WorldAge() != age {
+			t.Error("the server resumed")
+		}
+		if _, block := h.Overworld().Light(cell.Offset(plugin.Up, 1)); block != 14 {
+			t.Errorf("block light above the glowstone = %d, want 14", block)
+		}
+	})
+}
+
+// A write from the last tick-end event is relit before shutdown waits for the
+// workers.
+func TestPluginBlockWriteRelightsAtShutdown(t *testing.T) {
+	t.Parallel()
+	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	w := srv.OverworldWorld()
+	p := world.ChunkPos{X: 0, Z: 0}
+	w.Acquire(p)
+	defer w.Release(p)
+	cell := plugin.BlockPos{X: 8, Y: 200, Z: 8}
+	plugin.Listen(h, func(*plugin.ServerTickEndEvent) {
+		h.Overworld().SetBlockState(cell, plugin.DefaultState(registry.BlockGlowstone), plugin.UpdateAll)
+	})
+	before := srv.RelightsRun()
+	run(func() {})
+	if got := srv.RelightsRun(); got != before {
+		t.Fatalf("%d relights submitted before shutdown", got-before)
+	}
+	srv.Shutdown()
+	if got := srv.RelightsRun() - before; got != 1 {
+		t.Errorf("shutdown submitted %d relights, want 1", got)
+	}
+}
