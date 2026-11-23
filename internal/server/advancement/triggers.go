@@ -516,7 +516,7 @@ func holds(cond *registry.AdvancementCondition, at Blocks) bool {
 	if !blockNamed(cond.Blocks, state) {
 		return false
 	}
-	if cond.Smokey != nil && rules.HiveSedated(at.reader(cond.Offset), 0, 0, 0) != *cond.Smokey {
+	if cond.Smokey != nil && rules.HiveSedated(at, cond.Offset[0], cond.Offset[1], cond.Offset[2]) != *cond.Smokey {
 		return false
 	}
 	for key, want := range cond.State {
@@ -526,16 +526,6 @@ func holds(cond *registry.AdvancementCondition, at Blocks) bool {
 	}
 	return true
 }
-
-// reader views the cells around the position as a rules.BlockReader at an
-// origin offset from it.
-func (at Blocks) reader(origin [3]int32) rules.BlockReader {
-	return blockReader(func(x, y, z int32) uint16 { return at(origin[0]+x, origin[1]+y, origin[2]+z) })
-}
-
-type blockReader func(x, y, z int32) uint16
-
-func (r blockReader) BlockAt(x, y, z int32) uint16 { return r(x, y, z) }
 
 func allHold(conds []registry.AdvancementCondition, at Blocks) bool {
 	for i := range conds {
