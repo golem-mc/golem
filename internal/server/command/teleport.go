@@ -220,14 +220,13 @@ func runTeleport(src Source, input string, words []string) (int32, error) {
 		if err != nil {
 			return 0, err
 		}
-		dest := destination[0].DisplayName()
 		// vanilla: TeleportCommand.teleportToEntity arrives in the
 		// destination's level, not the source's.
 		move := Move{Pos: destination[0].Position()}
 		for _, target := range targets {
 			target.Teleport(resolvedMove(move, target), destination[0].DimensionName(), src.Name())
 		}
-		return resultOf(int32(len(targets)), teleportFeedback(src, targets, player.Position{}, &dest))
+		return resultOf(int32(len(targets)), teleportFeedback(src, targets, player.Position{}, destination[0]))
 	}
 
 	// A position, resolved once against the runner, and whatever aims the
@@ -403,7 +402,7 @@ func teleportFacingPoint(src Source, input string, words []string) (facingPoint,
 // and to where or to whom. A position move names the coordinates as three
 // separate arguments, a move onto someone names that one by its display
 // name; the multiple forms name the count as a number.
-func teleportFeedback(src Source, targets []Entity, to player.Position, dest *protocol.Text) error {
+func teleportFeedback(src Source, targets []Entity, to player.Position, dest Entity) error {
 	if !wantsFeedback(src) {
 		return nil
 	}
@@ -413,15 +412,19 @@ func teleportFeedback(src Source, targets []Entity, to player.Position, dest *pr
 		{Text: formatCoord(to.Y)},
 		{Text: formatCoord(to.Z)},
 	}
+	// The destination's name is read here, after the moves, so a teleport
+	// callback that renames it is seen (vanilla: TeleportCommand.java:70).
+	var destName protocol.Text
 	if dest != nil {
+		destName = dest.DisplayName()
 		key = "commands.teleport.success.entity.single"
-		with = []protocol.Text{formatDisplayNames(targets), *dest}
+		with = []protocol.Text{formatDisplayNames(targets), destName}
 	}
 	if len(targets) > 1 {
 		count := entityCount(len(targets))
 		if dest != nil {
 			key = "commands.teleport.success.entity.multiple"
-			with = []protocol.Text{count, *dest}
+			with = []protocol.Text{count, destName}
 		} else {
 			key = "commands.teleport.success.location.multiple"
 			with = []protocol.Text{count,

@@ -121,27 +121,46 @@ func TestTeleportToAPlayer(t *testing.T) {
 }
 
 // TestTeleportToTeamedPlayerNamesTeamFormattedDestination checks that the
-// entity-destination feedback carries the destination's team-formatted name.
+// entity-destination feedback, single and multiple, carries the destination's
+// team-formatted name.
 func TestTeleportToTeamedPlayerNamesTeamFormattedDestination(t *testing.T) {
 	t.Parallel()
 	cfg := config.Default()
 	cfg.OnlineMode = false
 	cfg.GameMode = "creative"
-	_, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Mover"))
+	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Mover"))
 
-	helper := connect().Join("Helper")
 	mover := connect().Join("Mover")
-	helper.ExpectPlayerAdded("Mover")
-	helper.ExpectAnnouncement("multiplayer.player.joined", "Mover")
+	servertest.HoldTicks(t, srv)
 
-	for _, line := range []string{"team add red", "team modify red color red", "team join red Helper"} {
-		mover.ChatCommand(line)
+	// run sends a command and reads, with no tick run, the feedback it names.
+	run := func(command, key string, with ...protocol.Text) {
+		t.Helper()
+		var want protocol.Buffer
+		want.PutText(protocol.Text{Translate: key, With: with})
+		want.PutBool(false)
+		mover.ChatCommand(command)
+		if !mover.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+			return id == protocol.IDPlaySystemChat && bytes.Equal(data, want.Bytes())
+		}) {
+			t.Fatalf("%q: no %s feedback", command, key)
+		}
 	}
-	mover.ChatCommand("tp Mover Helper")
-	servertest.AwaitCommandFeedbackText(t, mover, "commands.teleport.success.entity.single",
-		servertest.PlayerDisplayComponent("Mover"), servertest.TeamPlayerDisplayComponent("Helper", "", "red"))
+	setup := func(command string) {
+		t.Helper()
+		mover.ChatCommand(command)
+		mover.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+	}
+	for _, line := range []string{"team add red", "team modify red color red", "team join red Mover", "tag @s add t"} {
+		setup(line)
+	}
+	setup("summon armor_stand 0 64 0 {Tags:[\"t\"]}")
+
+	dest := servertest.TeamPlayerDisplayComponent("Mover", "", "red")
+	run("tp @s", "commands.teleport.success.entity.single", dest, dest)
+	two := int64(2)
+	run("tp @e[tag=t] @s", "commands.teleport.success.entity.multiple", protocol.Text{Number: &two}, dest)
 	mover.Disconnect()
-	helper.Disconnect()
 }
 
 // TestTeleportTargetsMovesEveryone checks the form that names who moves:
