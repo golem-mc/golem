@@ -180,8 +180,27 @@ func (t cartTarget) settle(*Server, *world.World) {}
 // Guarded by minecartsMu.
 type cartColumns struct {
 	w     *world.World
-	cols  map[[2]int32][]*minecartEntity
-	boats map[[2]int32][]*boatEntity
+	cols  map[[2]int32]vehicleBucket[*minecartEntity]
+	boats map[[2]int32]vehicleBucket[*boatEntity]
+}
+
+// vehicleBucket holds a column's first vehicle inline so a lone vehicle
+// costs no slice; more holds the rest in encounter order.
+type vehicleBucket[T any] struct {
+	first T
+	more  []T
+	used  bool
+}
+
+// each calls f for the first vehicle, then the rest, in insertion order.
+func (b vehicleBucket[T]) each(f func(T)) {
+	if !b.used {
+		return
+	}
+	f(b.first)
+	for _, it := range b.more {
+		f(it)
+	}
 }
 
 func (c *cartColumns) add(it *minecartEntity) {
@@ -201,11 +220,17 @@ func (c *cartColumns) addBoat(it *boatEntity) {
 }
 
 // addContainerColumns includes every column whose unit query box can overlap the hull.
-func addContainerColumns[T any](cols map[[2]int32][]T, it T, minX, minZ, maxX, maxZ float64) {
+func addContainerColumns[T any](cols map[[2]int32]vehicleBucket[T], it T, minX, minZ, maxX, maxZ float64) {
 	for x := int32(math.Floor(minX - 0.5)); x <= int32(math.Floor(maxX+0.5)); x++ {
 		for z := int32(math.Floor(minZ - 0.5)); z <= int32(math.Floor(maxZ+0.5)); z++ {
 			k := [2]int32{x, z}
-			cols[k] = append(cols[k], it)
+			b := cols[k]
+			if b.used {
+				b.more = append(b.more, it)
+			} else {
+				b.first, b.used = it, true
+			}
+			cols[k] = b
 		}
 	}
 }
@@ -219,7 +244,7 @@ func (s *Server) indexCartColumns(w *world.World) {
 	idx := &s.cartColBuffer
 	idx.w = w
 	if idx.cols == nil {
-		idx.cols = make(map[[2]int32][]*minecartEntity)
+		idx.cols = make(map[[2]int32]vehicleBucket[*minecartEntity])
 	} else {
 		clear(idx.cols)
 	}
@@ -227,7 +252,7 @@ func (s *Server) indexCartColumns(w *world.World) {
 		idx.add(it)
 	}
 	if idx.boats == nil {
-		idx.boats = make(map[[2]int32][]*boatEntity)
+		idx.boats = make(map[[2]int32]vehicleBucket[*boatEntity])
 	} else {
 		clear(idx.boats)
 	}
@@ -240,6 +265,12 @@ func (s *Server) indexCartColumns(w *world.World) {
 func (s *Server) dropCartColumns() {
 	s.minecartsMu.Lock()
 	s.cartCols = nil
+	// Release the vehicles and world the last pass buffered; published
+	// overflow slices stay with their readers.
+	idx := &s.cartColBuffer
+	idx.w = nil
+	clear(idx.cols)
+	clear(idx.boats)
 	s.minecartsMu.Unlock()
 }
 
@@ -248,8 +279,8 @@ func (s *Server) dropCartColumns() {
 // vanilla: HopperBlockEntity.getEntityContainer
 func (s *Server) entityContainerAt(w *world.World, cx, cy, cz float64, except *minecartEntity) containerTarget {
 	s.minecartsMu.Lock()
-	carts := s.minecarts
-	var boats []*boatEntity
+	carts := vehicleBucket[*minecartEntity]{}
+	var boats vehicleBucket[*boatEntity]
 	indexed := false
 	if idx := s.cartCols; idx != nil && idx.w == w {
 		if len(idx.cols) == 0 && len(idx.boats) == 0 {
@@ -258,38 +289,47 @@ func (s *Server) entityContainerAt(w *world.World, cx, cy, cz float64, except *m
 		}
 		key := [2]int32{int32(math.Floor(cx)), int32(math.Floor(cz))}
 		carts = idx.cols[key]
-		if len(idx.boats) > 0 {
-			boats = idx.boats[key]
-		}
-		if len(carts) == 0 && len(boats) == 0 {
+		boats = idx.boats[key]
+		if !carts.used && !boats.used {
 			s.minecartsMu.Unlock()
 			return nil
 		}
 		indexed = true
 	}
 	var found []containerTarget
-	for _, it := range carts {
+	visitCart := func(it *minecartEntity) {
 		if it == except || it.w != w || it.cart.Dead || it.cargo.slots == nil {
-			continue
+			return
 		}
 		minX, minY, minZ, maxX, maxY, maxZ := it.cart.Box()
 		if boxMeets(minX, minY, minZ, maxX, maxY, maxZ, cx, cy, cz) {
 			found = append(found, cartTarget{s: s, it: it})
 		}
 	}
-	s.minecartsMu.Unlock()
-	if !indexed || len(boats) > 0 {
-		s.boatsMu.Lock()
-		if !indexed {
-			boats = s.boats
+	if indexed {
+		carts.each(visitCart)
+	} else {
+		for _, it := range s.minecarts {
+			visitCart(it)
 		}
-		for _, it := range boats {
+	}
+	s.minecartsMu.Unlock()
+	if !indexed || boats.used {
+		s.boatsMu.Lock()
+		visitBoat := func(it *boatEntity) {
 			if it.w != w || it.boat.Dead || it.cargo == nil {
-				continue
+				return
 			}
 			minX, minY, minZ, maxX, maxY, maxZ := it.boat.Box()
 			if boxMeets(minX, minY, minZ, maxX, maxY, maxZ, cx, cy, cz) {
 				found = append(found, boatTarget{s: s, it: it})
+			}
+		}
+		if indexed {
+			boats.each(visitBoat)
+		} else {
+			for _, it := range s.boats {
+				visitBoat(it)
 			}
 		}
 		s.boatsMu.Unlock()

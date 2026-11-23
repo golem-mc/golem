@@ -150,3 +150,30 @@ func BenchmarkIdleHoppers(b *testing.B) {
 		run(b, s)
 	})
 }
+
+// BenchmarkVehicleColumnDispatch is one block entity tick over 200 spaced
+// chest boats, without and with one hopper.
+func BenchmarkVehicleColumnDispatch(b *testing.B) {
+	for _, hoppers := range []int{0, 1} {
+		name := "no_hopper"
+		if hoppers == 1 {
+			name = "one_hopper"
+		}
+		b.Run(name, func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 0)
+			for i := range 200 {
+				s.spawnBoat(w, "minecraft:oak_chest_boat", float64((i%20)*4), 64, float64(10+(i/20)*4), 0, customName{})
+			}
+			if hoppers == 1 {
+				w.SetBlock(0, 64, 0, registry.MustState("minecraft:hopper", map[string]string{"facing": "down", "enabled": "true"}))
+				w.EnsureBlockEntity(0, 64, 0, world.KindHopper)
+			}
+			s.tickBlockEntities()
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				s.tickBlockEntities()
+			}
+		})
+	}
+}
