@@ -110,8 +110,8 @@ func (m *Mob) setPuff(state int, sound registry.Sound, events []MobEvent) []MobE
 		Volume: m.SoundVolume(), Pitch: m.VoicePitch()})
 }
 
-// pufferStep is the pufferfish's tick and aiStep: the puff counters, then a
-// sting on every scary mob in reach and every player touched.
+// pufferStep is the pufferfish's tick and aiStep: the puff counters (only
+// with AI), then the stings.
 // vanilla: Pufferfish.tick, Pufferfish.aiStep, Pufferfish.playerTouch
 func (m *Mob) pufferStep(t *tickView, events []MobEvent) []MobEvent {
 	p := &m.puffer
@@ -130,6 +130,13 @@ func (m *Mob) pufferStep(t *tickView, events []MobEvent) []MobEvent {
 		}
 		p.deflate++
 	}
+	return m.pufferStings(t, events)
+}
+
+// pufferStings is Pufferfish.aiStep's sting on every scary mob in reach and
+// Pufferfish.playerTouch on every player touched; both run without AI.
+func (m *Mob) pufferStings(t *tickView, events []MobEvent) []MobEvent {
+	p := &m.puffer
 	if p.state == PuffSmall {
 		return events
 	}

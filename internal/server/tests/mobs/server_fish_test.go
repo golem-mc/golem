@@ -520,3 +520,30 @@ func TestAFullPufferfishHurtsAndPoisonsATouchingPlayer(t *testing.T) {
 		t.Errorf("the sting's horizontal shove is %.4f, want 0.4", h)
 	}
 }
+
+// TestANoAIFullPufferfishHurtsAndPoisonsATouchingPlayer: the touch runs from
+// the player and the fish's aiStep, neither of which needs AI.
+// vanilla: Pufferfish.playerTouch, Mob.isEffectiveAi
+func TestANoAIFullPufferfishHurtsAndPoisonsATouchingPlayer(t *testing.T) {
+	t.Parallel()
+	srv, c := squidTests(t)
+	srv.SetDifficulty(rules.DifficultyNormal)
+	summonSquidTagged(t, c, "minecraft:pufferfish", fishType(t, "minecraft:pufferfish"), pondCentreX, pondNorth, "{PuffState:2,NoAI:1b,Silent:1b}")
+	c.Settle()
+	before := srv.PlayerHealth("Striker")
+	c.MoveTo(pondCentreX, 62, pondNorth, 0, 0)
+	c.Settle()
+	srv.TickMobs(2)
+	c.Settle()
+	if lost := before - srv.PlayerHealth("Striker"); lost != 3 {
+		t.Errorf("the player lost %.1f health, want 3", lost)
+	}
+	if !poisoned(srv) {
+		t.Error("the player is not poisoned")
+	}
+}
+
+func poisoned(srv *server.Server) bool {
+	_, _, ok := srv.PlayerEffect("Striker", "minecraft:poison")
+	return ok
+}
