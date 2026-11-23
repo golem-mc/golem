@@ -3,6 +3,7 @@ package server
 import (
 	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
@@ -42,6 +43,52 @@ func pluginChunkBench(b *testing.B) (*Server, *dimension, []world.ChunkPos, plug
 		s.Shutdown()
 	})
 	return s, dim, chunks, pluginWorld{srv: s, dim: dim, host: &pluginHost{srv: s}}
+}
+
+func BenchmarkPluginSetBlockCube(b *testing.B) {
+	for _, tc := range []struct {
+		name  string
+		flags plugin.UpdateFlags
+	}{
+		{"UpdateAll", plugin.UpdateAll},
+		{"Fast", plugin.UpdateClients | plugin.UpdateKnownShape | plugin.UpdateSkipOnPlace | plugin.UpdateSuppressDrops},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			s, dim, _, pw := pluginChunkBench(b)
+			s.backstopMu.Lock()
+			s.tickRunning = true
+			s.backstopMu.Unlock()
+			b.Cleanup(func() {
+				s.backstopMu.Lock()
+				s.tickRunning = false
+				s.backstopMu.Unlock()
+			})
+
+			const side = 32
+			state, next := plugin.DefaultState(registry.BlockAir), plugin.DefaultState(registry.BlockStone)
+			var writes time.Duration
+			b.ReportAllocs()
+			for b.Loop() {
+				start := time.Now()
+				for x := range side {
+					for z := range side {
+						for y := -50; y < -50+side; y++ {
+							if !pw.SetBlockState(plugin.BlockPos{X: x, Y: y, Z: z}, state, tc.flags) {
+								b.Fatalf("write at %d,%d,%d failed", x, y, z)
+							}
+						}
+					}
+				}
+				writes += time.Since(start)
+				s.relightWG.Wait()
+				s.flushBlockChanges(dim.w)
+				state, next = next, state
+			}
+			blocks := float64(b.N * side * side * side)
+			b.ReportMetric(float64(b.Elapsed().Nanoseconds())/blocks, "ns/block")
+			b.ReportMetric(float64(writes.Nanoseconds())/blocks, "write-ns/block")
+		})
+	}
 }
 
 // benchChunkEntities times Chunk.Entities over the chunks.
