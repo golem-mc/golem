@@ -69,14 +69,12 @@ func TestOverworldBiomeGolden(t *testing.T) {
 			got = source(number(v[1])).At(int32(number(v[2])), int32(number(v[3])), int32(number(v[4]))).Name()
 			want = v[5]
 		case "biomechunk":
-			h := sha256.New()
 			chunkSource := *source(number(v[1]))
 			r := &chunkSource.router
 			for _, field := range []*Sampler{&r.Temperature, &r.Vegetation, &r.Continents, &r.Erosion, &r.Depth, &r.Ridges} {
 				*field = volumeOnlyClimate{*field}
 			}
-			chunkSource.FillChunk(int32(number(v[2])), int32(number(v[3])), func(_, _, _ int32, b OverworldBiome) { h.Write([]byte(b.Name() + "\n")) })
-			got, want = hex.EncodeToString(h.Sum(nil)), v[4]
+			got, want = fillChunkHash(&chunkSource, int32(number(v[2])), int32(number(v[3]))), v[4]
 		default:
 			t.Fatalf("line %d: unknown record %s", line, v[0])
 		}
@@ -109,72 +107,90 @@ func (volumeOnlyClimate) Sample(*Context, int32, int32, int32) float32 {
 	panic("chunk climate must be sampled as a volume")
 }
 
-func fillChunkFresh(s *OverworldBiomeSource, cx, cz int32) [4 * 96 * 4]OverworldBiome {
-	v := NewVolume(4, 96, 4, cx*16, -64, cz*16)
-	v.StepX, v.StepY, v.StepZ = 4, 4, 4
-	ctx := &Context{caches: []cacheCell{}}
-	var values [6][]float32
-	for i, sampler := range [...]Sampler{s.router.Temperature, s.router.Vegetation, s.router.Continents, s.router.Erosion, s.router.Depth, s.router.Ridges} {
-		values[i] = make([]float32, v.Size())
-		sampler.SampleVolume(ctx, values[i], v)
-	}
-	var out [4 * 96 * 4]OverworldBiome
-	search := overworldIndex().NewSearch()
-	for section := range int32(24) {
-		for x := range int32(4) {
-			for y := section * 4; y < section*4+4; y++ {
-				for z := range int32(4) {
-					i := v.Index(x, y, z)
-					var target [6]int64
-					for axis := range target {
-						target[axis] = quantizeClimate(values[axis][i])
-					}
-					out[i] = OverworldBiome(search.Find(target))
-				}
-			}
-		}
-	}
-	return out
+type biomeChunkFixture struct {
+	seed   int64
+	cx, cz int32
+	hash   string
 }
 
-func fillChunkCollect(s *OverworldBiomeSource, cx, cz int32) [4 * 96 * 4]OverworldBiome {
-	v := NewVolume(4, 96, 4, cx*16, -64, cz*16)
-	var out [4 * 96 * 4]OverworldBiome
-	s.FillChunk(cx, cz, func(x, y, z int32, b OverworldBiome) {
-		out[v.Index(x, y, z)] = b
+func fillChunkHash(s *OverworldBiomeSource, cx, cz int32) string {
+	h := sha256.New()
+	s.FillChunk(cx, cz, func(_, _, _ int32, b OverworldBiome) {
+		h.Write([]byte(b.Name() + "\n"))
 	})
-	return out
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func loadBiomeChunkFixtures(t *testing.T) []biomeChunkFixture {
+	t.Helper()
+	f, err := os.Open("testdata/overworld_biome_golden.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	var fixtures []biomeChunkFixture
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		v := strings.Fields(sc.Text())
+		if len(v) != 5 || v[0] != "biomechunk" {
+			continue
+		}
+		seed, err := strconv.ParseInt(v[1], 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cx, err := strconv.ParseInt(v[2], 10, 32)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cz, err := strconv.ParseInt(v[3], 10, 32)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixtures = append(fixtures, biomeChunkFixture{seed: seed, cx: int32(cx), cz: int32(cz), hash: v[4]})
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return fixtures
 }
 
 func TestOverworldBiomeFillChunkReuse(t *testing.T) {
-	seeds := []int64{12345, -987654321}
-	sources := make([]*OverworldBiomeSource, len(seeds))
-	for i, seed := range seeds {
-		sources[i] = NewOverworldBiomeSource(NewRandomState(Overworld, seed))
+	bySeed := map[int64][]biomeChunkFixture{}
+	var seeds []int64
+	for _, fx := range loadBiomeChunkFixtures(t) {
+		list := bySeed[fx.seed]
+		if len(list) == 0 {
+			seeds = append(seeds, fx.seed)
+		}
+		if len(list) >= 2 || (len(list) == 1 && list[0].hash == fx.hash) {
+			continue
+		}
+		bySeed[fx.seed] = append(list, fx)
 	}
-	type job struct {
-		sourceIdx int
-		cx, cz    int32
+	var jobs []biomeChunkFixture
+	for round := range 2 {
+		for _, seed := range seeds {
+			if round < len(bySeed[seed]) {
+				jobs = append(jobs, bySeed[seed][round])
+			}
+		}
 	}
-	jobs := []job{
-		{0, 0, 0},
-		{1, 0, 0},
-		{0, -3, 7},
-		{1, 14, -9},
-		{0, 60, 62},
-		{1, -70, 5},
+	if len(jobs) < 4 {
+		t.Fatalf("expected at least 4 biomechunk fixtures, got %d", len(jobs))
 	}
-	want := make([][4 * 96 * 4]OverworldBiome, len(jobs))
-	for i, j := range jobs {
-		want[i] = fillChunkFresh(sources[j.sourceIdx], j.cx, j.cz)
+
+	sources := make(map[int64]*OverworldBiomeSource, len(seeds))
+	for _, seed := range seeds {
+		sources[seed] = NewOverworldBiomeSource(NewRandomState(Overworld, seed))
 	}
 
 	// Sequential alternating fills reuse recycled contexts across chunks and seeds.
 	for range 3 {
 		for i, j := range jobs {
-			got := fillChunkCollect(sources[j.sourceIdx], j.cx, j.cz)
-			if got != want[i] {
-				t.Fatalf("sequential job %d (seed=%d chunk=%d,%d) mismatched fresh context", i, seeds[j.sourceIdx], j.cx, j.cz)
+			got := fillChunkHash(sources[j.seed], j.cx, j.cz)
+			if got != j.hash {
+				t.Fatalf("sequential job %d (seed=%d chunk=%d,%d) got %s, want %s", i, j.seed, j.cx, j.cz, got, j.hash)
 			}
 		}
 	}
@@ -188,9 +204,9 @@ func TestOverworldBiomeFillChunkReuse(t *testing.T) {
 			for round := range 4 {
 				idx := (offset + round) % len(jobs)
 				j := jobs[idx]
-				got := fillChunkCollect(sources[j.sourceIdx], j.cx, j.cz)
-				if got != want[idx] {
-					t.Errorf("concurrent goroutine %d job %d (seed=%d chunk=%d,%d) mismatched fresh context", offset, idx, seeds[j.sourceIdx], j.cx, j.cz)
+				got := fillChunkHash(sources[j.seed], j.cx, j.cz)
+				if got != j.hash {
+					t.Errorf("concurrent goroutine %d job %d (seed=%d chunk=%d,%d) got %s, want %s", offset, idx, j.seed, j.cx, j.cz, got, j.hash)
 					return
 				}
 			}
