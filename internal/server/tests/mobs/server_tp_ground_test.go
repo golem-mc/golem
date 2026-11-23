@@ -1,6 +1,7 @@
 package mobs
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
@@ -92,8 +93,9 @@ func TestTeleportCommandKeepsFallFlyingMobOffGround(t *testing.T) {
 	}
 }
 
-// A /tp while ticking is frozen still reaches the client on a stepped path,
-// timed from the last movement gate: idle frozen gates keep resetting it.
+// A /tp while ticking is frozen waits for the cube's next movement gate and
+// reaches the client on a stepped path over the whole gate interval, wherever
+// between gates it was issued.
 // vanilla: ServerEntity.sendChanges, SteppedInterpolationTracker
 func TestFrozenTeleportCommandSendsSteppedPath(t *testing.T) {
 	t.Parallel()
@@ -105,17 +107,22 @@ func TestFrozenTeleportCommandSendsSteppedPath(t *testing.T) {
 	srv.RunLine(`tick freeze`)
 	servertest.RunTicks(t, srv, 12)
 	c.Settle()
-	srv.RunLine(`tp @e[type=magma_cube,limit=1] 0.5 101 0.5`)
-	var sync servertest.EntityPositionSync
-	seen := c.ReadTicks(srv, 5, func(pid int32, data []byte) bool {
-		if pid != protocol.IDPlayTeleportEntity {
-			return false
+	// Three teleports, each one tick further from the previous sync's gate,
+	// so at least one is issued between gates.
+	for i, y := range []float64{101, 103, 102} {
+		servertest.RunTicks(t, srv, i)
+		srv.RunLine(fmt.Sprintf(`tp @e[type=magma_cube,limit=1] 0.5 %v 0.5`, y))
+		var sync servertest.EntityPositionSync
+		seen := c.ReadTicks(srv, 5, func(pid int32, data []byte) bool {
+			if pid != protocol.IDPlayTeleportEntity {
+				return false
+			}
+			sync = servertest.ParseEntityPositionSync(data)
+			return sync.ID == id
+		})
+		// A cube's update interval is 3 ticks. vanilla: EntityTypes.MAGMA_CUBE
+		if !seen || !sync.Stepped || sync.StepTicks != 3 || sync.Y != y {
+			t.Fatalf("teleport %d: seen %v, sync = %+v, want stepped at y %v over 3 ticks", i, seen, sync, y)
 		}
-		sync = servertest.ParseEntityPositionSync(data)
-		return sync.ID == id
-	})
-	// A cube's update interval is 3 ticks. vanilla: EntityTypes.MAGMA_CUBE
-	if !seen || !sync.Stepped || sync.StepTicks < 1 || sync.StepTicks > 3 || sync.Y != 101 {
-		t.Errorf("seen %v, sync = %+v, want stepped at y 101 over 1-3 ticks", seen, sync)
 	}
 }

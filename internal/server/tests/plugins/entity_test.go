@@ -335,6 +335,7 @@ func TestPluginChunkEntitiesFollowBodies(t *testing.T) {
 func TestPluginTeleportDoesNotLandMob(t *testing.T) {
 	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.HostileTestConfig())
+	srv.OverworldWorld().Acquire(world.ChunkPos{X: 0, Z: 0})
 	srv.RunLine("tick freeze")
 	srv.RunLine("summon minecraft:magma_cube 0.5 100 0.5 {NoAI:1b,Size:1}")
 	id := srv.MobIDsOfKind("minecraft:magma_cube")[0]
@@ -348,7 +349,9 @@ func TestPluginTeleportDoesNotLandMob(t *testing.T) {
 			}
 		}
 	})
-	servertest.RunTicks(t, srv, 1)
+	if _, y, _, _ := srv.MobPos(id); y != 105 {
+		t.Fatalf("cube at y %v after the plugin teleport, want 105", y)
+	}
 	if srv.MobOnGround(id) {
 		t.Error("a plugin teleport landed the cube")
 	}

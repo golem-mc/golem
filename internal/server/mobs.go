@@ -662,18 +662,23 @@ func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 			}
 			body := mobTracker.body(ent)
 			motion := mobMovement{seated: ent.seated()}
-			frozen := moveTick{teleported: true, stepTicks: body.t.frozenStep(m.UpdateInterval(), ent.teleported)}
+			// The cadence runs on, so a teleport waits for the next gate.
+			// vanilla: ServerEntity.sendChanges
+			mt := body.t.ride(body.t.stepDue(m.UpdateInterval(), false), motion.seated)
+			mt.teleported = ent.teleported
 			for _, i := range body.watchers(near) {
 				wt := watchers[i]
 				if wt.c.theWorld() != dim.w {
 					continue // crossed to another dimension since the snapshot
 				}
 				_, told := ent.tracked.get(wt.c)
-				if was, seen := mobSettle(&body, wt.c, wt.x, wt.z, wt.chunkRadius, &sends); seen && told && ent.teleported {
-					motion.move(&body, was, wt.c, frozen, &sends)
+				if was, seen := mobSettle(&body, wt.c, wt.x, wt.z, wt.chunkRadius, &sends); seen && told && mt.gate && mt.teleported {
+					motion.move(&body, was, wt.c, mt, &sends)
 				}
 			}
-			ent.teleported = false
+			if mt.gate {
+				ent.teleported = false
+			}
 		}
 	}
 	s.unlockTick(&s.mobsMu)
