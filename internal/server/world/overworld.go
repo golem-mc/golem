@@ -486,6 +486,7 @@ func (g *OverworldGenerator) shapeTerrain(c *Chunk) {
 // flat world's is the flat spawn.
 // vanilla: MinecraftServer.setInitialSpawn, PlayerSpawnFinder.getSpawnPosInChunk
 func (g *OverworldGenerator) FindSpawn() SpawnPos {
+	findSpawnCalls.Add(1)
 	if g.flat != nil {
 		return SpawnPos{X: 0, Y: g.flat.spawnY(), Z: 0}
 	}
@@ -503,6 +504,9 @@ func (g *OverworldGenerator) FindSpawn() SpawnPos {
 		return SpawnPos{}, false
 	})
 }
+
+// findSpawnCalls counts FindSpawn searches, for tests.
+var findSpawnCalls atomic.Int64
 
 // vanilla: MinecraftServer.setInitialSpawn
 func findSpawnNear(cx, cz int32, scan func(cx, cz int32) (SpawnPos, bool)) SpawnPos {

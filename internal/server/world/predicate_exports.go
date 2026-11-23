@@ -47,3 +47,6 @@ func NewStateProviderPicker(raw any, seed int64) (pick StateProviderPicker, err 
 		return provider(region, [3]int32{x, y, z})
 	}, nil
 }
+
+// FindSpawnCalls is how many overworld spawn searches have run.
+func FindSpawnCalls() int64 { return findSpawnCalls.Load() }

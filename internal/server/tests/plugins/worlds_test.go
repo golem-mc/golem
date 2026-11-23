@@ -814,3 +814,43 @@ func TestPluginWorldSleepSkipsNight(t *testing.T) {
 		t.Errorf("the awake player is in %q", got)
 	}
 }
+
+// Opening a plugin world runs no overworld spawn search of its own: creation
+// searches once, a reopen not at all and keeps the plugin's spawn.
+func TestPluginNormalWorldReopenSkipsSpawnSearch(t *testing.T) {
+	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	_ = srv
+	key := plugin.Key{Namespace: "test", Path: "normal"}
+	opts := plugin.WorldOptions{Key: key, Dimension: plugin.MinecraftKey("overworld"), Seed: 7070}
+	create := func() (w plugin.World) {
+		run(func() {
+			var err error
+			if w, err = h.CreateWorld(opts); err != nil {
+				t.Errorf("CreateWorld: %v", err)
+			}
+		})
+		if w == nil {
+			t.FailNow()
+		}
+		return w
+	}
+	before := world.FindSpawnCalls()
+	w := create()
+	if n := world.FindSpawnCalls() - before; n != 1 {
+		t.Errorf("creating searched for a spawn %d times, want 1", n)
+	}
+	run(func() { w.SetSpawnPoint(plugin.Location{World: w, Pos: plugin.Vec3{X: 3, Y: 70, Z: 3}}) })
+	if err := unloadFlat(t, run, h, w, true); err != nil {
+		t.Fatal(err)
+	}
+	before = world.FindSpawnCalls()
+	w = create()
+	if n := world.FindSpawnCalls() - before; n != 0 {
+		t.Errorf("reopening searched for a spawn %d times, want 0", n)
+	}
+	run(func() {
+		if sp := w.SpawnPoint(); sp.Pos.Block() != (plugin.BlockPos{X: 3, Y: 70, Z: 3}) {
+			t.Errorf("reopened spawn = %v", sp.Pos)
+		}
+	})
+}
