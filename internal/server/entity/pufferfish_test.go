@@ -21,3 +21,31 @@ func TestPufferfishScaryMobsAndPuffScale(t *testing.T) {
 		t.Errorf("widths by state = %v, want 0.7 scaled by 0.5, 0.7, 1 and a clamp to 1", widths)
 	}
 }
+
+// TestAPufferfishStingsAnOpenShulkerShellAmongAWholeHerd: the grid query
+// still hands over a shulker whose open shell, not its cell, is in reach.
+// vanilla: Pufferfish.aiStep, Shulker.getProgressAabb
+func TestAPufferfishStingsAnOpenShulkerShellAmongAWholeHerd(t *testing.T) {
+	w := shulkerFloor(t)
+	var mobs Mobs
+	shulker := NewMob(TypeShulker, 1, 0.5, 64, 0.5, 1)
+	shulker.NoAI = true
+	shulker.shulker.face, shulker.shulker.peekNow = faceDown, 1
+	// The shell reaches y 66; the fish's box starts above the cell (y 65).
+	fish := NewMob(TypePufferfish, 2, 0.5, 66.1, 0.5, 2)
+	fish.NoAI = true
+	fish.SetPuffState(PuffFull)
+	mobs = append(mobs, shulker, fish)
+	for i := range villagerGridMinHerd {
+		mobs = append(mobs, NewMob(TypePig, int32(i+10), float64(i%8)*2+5, 64, float64(i/8)*2-8, int64(i+10)))
+	}
+	stung := 0
+	for _, ev := range mobs.Tick(w, nil, nil) {
+		if ev.Kind == MobAttackedPlayer && ev.Mob == fish && ev.Player.EntityID == shulker.ID {
+			stung++
+		}
+	}
+	if stung != 1 {
+		t.Errorf("the shulker was stung %d times, want 1", stung)
+	}
+}

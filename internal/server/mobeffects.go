@@ -15,8 +15,10 @@ import (
 // place in apply.
 type mobEffects struct {
 	// moves are the mobs that moved this tick while a plugin listens.
-	moves        []mobMove
-	dragonDeaths []dragonDeathEffect
+	moves []mobMove
+	// pufferTouches are the puffed pufferfish a player may touch, applied after the mob lock.
+	pufferTouches []pufferTouch
+	dragonDeaths  []dragonDeathEffect
 	// gateways are the mobs found in an end gateway.
 	gateways []gatewayTouch
 	// raiderDeaths are raiders that died this tick, removed from their raids
@@ -295,6 +297,9 @@ func (fx *mobEffects) apply(s *Server, in *mobTickInputs) {
 	applyEach(s, fx.xpDrops, (*Server).spawnMobXp)
 	applyEach(s, fx.dragonDeaths, (*Server).applyDragonDeath)
 	applyEach(s, fx.strikes, func(s *Server, strike mobStrike) { s.landingBlow(strike, in.inWorld[strike.w]) })
+	if len(fx.pufferTouches) > 0 {
+		s.applyPufferTouches(s.trackingWatchers(), fx.pufferTouches)
+	}
 	applyEach(s, fx.contacts, func(s *Server, hurt mobContact) {
 		if c := in.clientByEntityID[hurt.victimID]; c != nil && c.theWorld() == hurt.w {
 			s.sulfurBurnPlayer(c, hurt)

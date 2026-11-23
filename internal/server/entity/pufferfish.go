@@ -61,12 +61,21 @@ func scaryTo(o *Mob) bool {
 	return o.Alive() && !registry.EntityType(o.TypeID()).InTag(registry.EntityTypeTagIDNotScaryForPufferfish)
 }
 
+// maxShulkerShell is how far an open shulker's shell reaches past its cell:
+// the largest scale (3) at a full peek.
+// vanilla: Shulker.sanitizeScale, Shulker.getPhysicalPeek
+const maxShulkerShell = 3
+
 // scaryMobs lists the scary mobs whose boxes meet the fish's box grown by
 // grow.
 func (m *Mob) scaryMobs(t *tickView, grow float64) []*Mob {
 	box := m.mobBox()
 	var out []*Mob
-	for _, o := range m.herdNear(t, grow) {
+	near := grow
+	if m.push != nil && m.push.shulkers {
+		near += maxShulkerShell
+	}
+	for _, o := range m.herdNear(t, near) {
 		if o == m {
 			continue
 		}
@@ -110,9 +119,9 @@ func (m *Mob) setPuff(state int, sound registry.Sound, events []MobEvent) []MobE
 		Volume: m.SoundVolume(), Pitch: m.VoicePitch()})
 }
 
-// pufferStep is the pufferfish's tick and aiStep: the puff counters (only
-// with AI), then the stings.
-// vanilla: Pufferfish.tick, Pufferfish.aiStep, Pufferfish.playerTouch
+// pufferStep is the pufferfish's tick and aiStep: the puff counters, then
+// the stings.
+// vanilla: Pufferfish.tick, Pufferfish.aiStep
 func (m *Mob) pufferStep(t *tickView, events []MobEvent) []MobEvent {
 	p := &m.puffer
 	if p.inflateCounter > 0 {
@@ -133,21 +142,9 @@ func (m *Mob) pufferStep(t *tickView, events []MobEvent) []MobEvent {
 	return m.pufferStings(t, events)
 }
 
-// touchesReach reports whether the fish's box meets the player's Reach box,
-// falling back to touchesPlayer when none was read.
-// vanilla: Pufferfish.playerTouch
-func (m *Mob) touchesReach(p *Player) bool {
-	if p.Reach == (AABB{}) {
-		return m.touchesPlayer(p)
-	}
-	b, r := m.mobBox(), p.Reach
-	return r.maxX > b.minX && r.minX < b.maxX && r.maxY > b.minY && r.minY < b.maxY &&
-		r.maxZ > b.minZ && r.minZ < b.maxZ
-}
-
-// pufferStings is the sting on every scary mob in reach and every player
-// touched; both run without AI.
-// vanilla: Pufferfish.aiStep, Pufferfish.playerTouch
+// pufferStings is the sting on every scary mob in reach, which runs without
+// AI; a player's touch is the server's (applyPufferTouches).
+// vanilla: Pufferfish.aiStep
 func (m *Mob) pufferStings(t *tickView, events []MobEvent) []MobEvent {
 	p := &m.puffer
 	if p.state == PuffSmall {
@@ -157,12 +154,6 @@ func (m *Mob) pufferStings(t *tickView, events []MobEvent) []MobEvent {
 	for _, o := range m.scaryMobs(t, puffStingGrow) {
 		events = append(events, MobEvent{Mob: m, Kind: MobAttackedPlayer, Damage: damage,
 			Player: o.asTarget(), Touch: true, Puff: p.state})
-	}
-	for i := range t.players {
-		if pl := &t.players[i]; pl.Huntable && m.touchesReach(pl) {
-			events = append(events, MobEvent{Mob: m, Kind: MobAttackedPlayer, Damage: damage,
-				Player: *pl, Touch: true, Puff: p.state})
-		}
 	}
 	return events
 }

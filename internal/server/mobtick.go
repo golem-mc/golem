@@ -232,7 +232,6 @@ func (s *Server) readMobTickInputs(in *mobTickInputs) (known map[uuid.UUID]bool)
 			Poisoned: hasEffect(c, effectPoison),
 			Weakened: hasEffect(c, effectWeakness),
 			Hero:     hasEffect(c, effectHeroOfTheVillage),
-			Reach:    c.pickupBox(),
 		}
 		dims := c.dims(c.player.Appearance().Pose)
 		snapshot.Width, snapshot.Height, snapshot.EyeHeight = dims.Width, dims.Height, dims.EyeHeight
@@ -865,6 +864,9 @@ func (t *mobDimTick) scheduleMovement(fx *mobEffects, in *mobTickInputs) {
 		ent := h.record(m)
 		if ent == nil {
 			continue
+		}
+		if touch, ok := t.s.pufferTouchOf(w, m, ent); ok {
+			fx.pufferTouches = append(fx.pufferTouches, touch)
 		}
 		body := mobTracker.body(ent)
 		body.broadcastPct, body.broadcastRead = broadcastPct, true

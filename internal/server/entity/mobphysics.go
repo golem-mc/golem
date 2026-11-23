@@ -813,6 +813,9 @@ type pushGrid struct {
 	// wide is the widest fully grown half-width in the herd, which widens the
 	// scanned ring so pairs stay exact with a chonky cube present.
 	wide float64
+	// shulkers is whether the herd holds a shulker, whose open shell reaches
+	// past the box the cells hold.
+	shulkers bool
 	// near is the candidates' scratch, reused gathering to gathering.
 	near []*Mob
 	// gathered, when set, adds up the candidates handed out.
@@ -932,7 +935,7 @@ func (g *pushGrid) reset() {
 	clear(g.byID)
 	clear(g.near[:cap(g.near)])
 	g.near = g.near[:0]
-	g.wide, g.gathered, g.crammingSet, g.crowd = 0, nil, false, nil
+	g.wide, g.shulkers, g.gathered, g.crammingSet, g.crowd = 0, false, nil, false, nil
 }
 
 // file appends e to cell and returns its slot.
@@ -970,6 +973,9 @@ func (g *pushGrid) add(m *Mob, idx int) {
 	hw := m.kind().width * m.scale() / 2
 	if hw > g.wide {
 		g.wide = hw
+	}
+	if m.Type == TypeShulker {
+		g.shulkers = true
 	}
 }
 

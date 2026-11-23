@@ -3,7 +3,8 @@ package entity
 import "testing"
 
 // BenchmarkPufferfishNoAIStings ticks full NoAI pufferfish in a water tank
-// with a player and a herd of pigs around them.
+// each with a pig in reach and a herd of pigs around them. The player contact
+// is the server's (applyPufferTouches).
 func BenchmarkPufferfishNoAIStings(b *testing.B) {
 	w := newTestWorld()
 	stone, water := defaultState(b, "minecraft:stone"), defaultState(b, "minecraft:water")
@@ -14,23 +15,33 @@ func BenchmarkPufferfishNoAIStings(b *testing.B) {
 	}
 	mobs := make(Mobs, 0, 80)
 	for i := range 16 {
-		m := NewMob(TypePufferfish, int32(i+1), float64(i%4)*4-6, 4, float64(i/4)*4-6, int64(i+1))
+		x, z := float64(i%4)*4-6, float64(i/4)*4-6
+		m := NewMob(TypePufferfish, int32(i+1), x, 4, z, int64(i+1))
 		m.NoAI = true
 		m.SetPuffState(PuffFull)
 		mobs = append(mobs, m)
+		// A pig NoAI in each fish's reach, so every tick queues a sting.
+		pig := NewMob(TypePig, int32(i+100), x, 4, z, int64(i+100))
+		pig.NoAI = true
+		mobs = append(mobs, pig)
 	}
-	for i := range 64 {
-		mobs = append(mobs, NewMob(TypePig, int32(i+100), float64(i%8)*4-14, 1, float64(i/8)*4-14, int64(i+100)))
+	for i := range 48 {
+		mobs = append(mobs, NewMob(TypePig, int32(i+200), float64(i%8)*4-14, 1, float64(i/8)*4-14, int64(i+200)))
 	}
-	players := []Player{{EntityID: 200, X: 0.5, Y: 4, Z: 0.5, Huntable: true, Pushable: true}}
+	stings := func() (n int) {
+		for _, ev := range mobs.Tick(w, nil, nil) {
+			if ev.Kind == MobAttackedPlayer && ev.Mob.Type == TypePufferfish {
+				n++
+			}
+		}
+		return n
+	}
+	if n := stings(); n < 16 {
+		b.Fatalf("%d stings in a tick, want one per fish", n)
+	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		for i, m := range mobs {
-			if i < 16 {
-				m.X, m.Y, m.Z = float64(i%4)*4-6, 4, float64(i/4)*4-6
-			}
-		}
-		mobs.Tick(w, players, nil)
+		mobs.Tick(w, nil, nil)
 	}
 }
