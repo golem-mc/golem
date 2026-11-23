@@ -53,6 +53,8 @@ type frameEntity struct {
 	invisible    bool
 	dropChance   float32
 
+	order uint64 // registration order survives refiling across chunks
+
 	// checkInterval counts ticks toward the periodic survives poll.
 	checkInterval int
 	bodyTrack[struct{}]
@@ -301,6 +303,8 @@ func (s *Server) registerFrame(f *frameEntity) {
 // registerFrameLocked adds f to the list and the cell index. The frame
 // lock is held.
 func (s *Server) registerFrameLocked(f *frameEntity) {
+	s.frameOrder++
+	f.order = s.frameOrder
 	s.frames = append(s.frames, f)
 	frameTracker.file(s, f)
 	s.addFrameCellsLocked(f)
