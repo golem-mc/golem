@@ -19,7 +19,7 @@ func blockEffectBodies() map[string]blockEffectBody {
 	return map[string]blockEffectBody{
 		"TNT":           {func(w World) { tnt.move(w) }, &tnt.X, &tnt.VX, &tnt.VY, &tnt.VZ, false},
 		"falling block": {func(w World) { falling.move(w) }, &falling.X, &falling.VX, &falling.VY, &falling.VZ, false},
-		"armor stand":   {func(w World) { stand.StandBody.move(w, stand.Box(), stand.halfWidth(), ArmorStandGravity) }, &stand.X, &stand.VX, &stand.VY, &stand.VZ, true},
+		"armor stand":   {func(w World) { stand.StandBody.move(w, stand.Box(), stand.HalfWidth(), ArmorStandGravity) }, &stand.X, &stand.VX, &stand.VY, &stand.VZ, true},
 	}
 }
 

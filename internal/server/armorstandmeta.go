@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/registry"
 )
 
 // armorStandMeta is an immutable synched state shared by watchers.
@@ -21,9 +22,13 @@ type armorStandMeta struct {
 func armorStandMetaOf(ent *armorStandEntity) *armorStandMeta {
 	s := ent.stand
 	flags := ent.look.glowFlags()
+	if s.HasEffect(registry.MobEffectGlowing) {
+		flags |= protocol.EntityFlagGlowing
+	}
 	if ent.onFire {
 		flags |= protocol.EntityFlagOnFire
 	}
+	// ArmorStand.updateInvisibilityStatus uses only the stand's saved flag.
 	if s.Invisible {
 		flags |= protocol.EntityFlagInvisible
 	}

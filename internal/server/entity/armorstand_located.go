@@ -2,7 +2,6 @@ package entity
 
 import (
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
 )
 
@@ -18,17 +17,6 @@ type standLocated struct {
 // EnchEquipment is the armor and hands whose enchantments act on the stand.
 func (s *ArmorStand) EnchEquipment() []rules.EnchPiece {
 	return enchEquipment(s.Worn, s.MainHand, s.OffHand)
-}
-
-// Attributes is the stand's attribute map, nil until a pack effect needs it.
-func (s *ArmorStand) Attributes() *player.Attributes { return s.attrs }
-
-// EnsureAttributes makes the attribute map when the stand has none.
-func (s *ArmorStand) EnsureAttributes() *player.Attributes {
-	if s.attrs == nil {
-		s.attrs = player.NewAttributes(mannequinAttributeSupplier)
-	}
-	return s.attrs
 }
 
 // Located is the set of location_changed entries active on the stand.

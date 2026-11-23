@@ -230,6 +230,11 @@ func UpdateEffectAttributes(a *player.Attributes, active []effect.Instance) {
 	updateEffectAttributes(a, active, func(effectModifier) bool { return true })
 }
 
+// UpdateSupportedEffectAttributes applies effect modifiers to attributes in the body's supplier.
+func UpdateSupportedEffectAttributes(a *player.Attributes, active []effect.Instance) {
+	updateEffectAttributes(a, active, func(em effectModifier) bool { return a.Has(em.attribute) })
+}
+
 // UpdateEffectAttributesOf is UpdateEffectAttributes for the modifiers on one
 // attribute.
 func UpdateEffectAttributesOf(a *player.Attributes, active []effect.Instance, attribute registry.AttributeID) {

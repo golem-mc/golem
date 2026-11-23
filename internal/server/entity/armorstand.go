@@ -60,6 +60,7 @@ var standSlotNames = [...]string{"mainhand", "offhand", "feet", "legs", "chest",
 // ArmorStand is one armor stand of a world.
 type ArmorStand struct {
 	LivingState
+	LivingEffects
 	ID int32
 	StandBody
 	// Yaw is the whole of the stand's rotation, snapped to the 45 degrees
@@ -85,7 +86,9 @@ type ArmorStand struct {
 	Worn              [4]protocol.ItemStack // feet, legs, chest, head
 
 	attrs   *player.Attributes
+	scale   float64
 	located standLocated
+	age     int32
 
 	Health    float64
 	FireTicks int
@@ -104,7 +107,7 @@ type ArmorStand struct {
 // NewArmorStand places a stand at full health with no equipment and client
 // defaults for the rest.
 func NewArmorStand(id int32, x, y, z float64) *ArmorStand {
-	s := &ArmorStand{ID: id, X: x, Y: y, Z: z, Health: ArmorStandHealth}
+	s := &ArmorStand{ID: id, X: x, Y: y, Z: z, Health: ArmorStandHealth, scale: 1, attrs: player.NewAttributes(armorStandAttributeSupplier)}
 	s.Pose[2] = [3]float32{-10, 0, -10} // LeftArm
 	s.Pose[3] = [3]float32{-15, 0, 10}  // RightArm
 	s.Pose[4] = [3]float32{-1, 0, -1}   // LeftLeg
@@ -136,23 +139,19 @@ type ArmorStandEvent struct {
 	Level   int32
 }
 
-// halfWidth is half the bounding box's horizontal span, and boxHeight its
-// height, the small stand's own half of each and the marker's nothing.
 // HalfWidth is half the stand's box width.
-func (s *ArmorStand) HalfWidth() float64 { return s.halfWidth() }
+func (s *ArmorStand) HalfWidth() float64 { return ArmorStandWidth / 2 * s.dimensionScale() }
 
-func (s *ArmorStand) halfWidth() float64 {
+// vanilla: LivingEntity.getScale, ArmorStand.getDimensionsMarker
+func (s *ArmorStand) dimensionScale() float64 {
 	if s.Small {
-		return ArmorStandWidth / 4
+		return s.scale * 0.5
 	}
-	return ArmorStandWidth / 2
+	return s.scale
 }
 
 func (s *ArmorStand) boxHeight() float64 {
-	if s.Small {
-		return ArmorStandHeight / 2
-	}
-	return ArmorStandHeight
+	return ArmorStandHeight * s.dimensionScale()
 }
 
 // Box is the stand's box about its feet, for the fluid walk and inside-block
@@ -161,10 +160,14 @@ func (s *ArmorStand) Box() AABB {
 	if s.Marker {
 		return AABB{minX: s.X, minY: s.Y, minZ: s.Z, maxX: s.X, maxY: s.Y, maxZ: s.Z}
 	}
-	hw := s.halfWidth()
+	return s.boxAtScale(s.dimensionScale())
+}
+
+func (s *ArmorStand) boxAtScale(scale float64) AABB {
+	hw := ArmorStandWidth / 2 * scale
 	return AABB{
 		minX: s.X - hw, minY: s.Y, minZ: s.Z - hw,
-		maxX: s.X + hw, maxY: s.Y + s.boxHeight(), maxZ: s.Z + hw,
+		maxX: s.X + hw, maxY: s.Y + ArmorStandHeight*scale, maxZ: s.Z + hw,
 	}
 }
 
@@ -178,18 +181,18 @@ func (s *ArmorStand) BlastBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
 // eyeHeight is EntityDimensions.eyeHeight: 0.9 of the full box, the whole
 // small box.
 // vanilla: Entity.getEyeHeight
-func (s *ArmorStand) eyeHeight() float64 {
+func (s *ArmorStand) eyeHeight(scale float64) float64 {
 	if s.Small {
-		return s.boxHeight()
+		return ArmorStandHeight * scale
 	}
-	return s.boxHeight() * 0.9
+	return ArmorStandHeight * 0.9 * scale
 }
 
 // EyePosition is Entity.getEyePosition, where an explosion's knockback is
 // directed from.
 // vanilla: Entity.getEyePosition
 func (s *ArmorStand) EyePosition() (x, y, z float64) {
-	return s.X, s.Y + s.eyeHeight(), s.Z
+	return s.X, s.Y + s.eyeHeight(s.dimensionScale()), s.Z
 }
 
 // Step advances the stand one tick: fire cells light it, the burn bites,
@@ -213,13 +216,16 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 		s.Dead = true
 		return append(events, ArmorStandEvent{Kind: ArmorStandVoided})
 	}
+	s.tickEffects()
 	if s.Marker {
 		return events
 	}
 
 	// The fluids about the box first: the burn below skips while in lava,
 	// and the current's push is part of the tick's movement.
-	s.updateFluids(w, s.Box(), s.eyeHeight())
+	scale := s.dimensionScale()
+	box := s.boxAtScale(scale)
+	s.updateFluids(w, box, s.eyeHeight(scale))
 	inLava := s.lava.height > 0
 
 	// The burn: 4 damage on every 20th fire tick while health is above 0.5,
@@ -239,7 +245,7 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 		s.settleVelocity()
 	} else {
 		wasOnGround, fell := s.OnGround, s.FallDistance
-		s.LandedFall = s.travel(w, s.Box(), s.halfWidth(), ArmorStandGravity)
+		s.LandedFall = s.travel(w, box, ArmorStandWidth/2*scale, ArmorStandGravity)
 		if !wasOnGround && fell > 0 && s.OnGround && s.locatedActive() {
 			events = append(events, ArmorStandEvent{Kind: ArmorStandLocated, X: s.X, Y: s.Y, Z: s.Z,
 				Level: LocatedMoved | LocatedLanded})
@@ -526,11 +532,7 @@ func (s *ArmorStand) SwapItem(slot int, held protocol.ItemStack, creative bool) 
 // off hand holds something.
 // vanilla: ArmorStand.getClickedSlot
 func (s *ArmorStand) ClickedSlot(ox, oy, oz float64) int {
-	scale := 1.0
-	if s.Small {
-		scale = 0.5
-	}
-	y := oy / scale
+	y := oy / s.dimensionScale()
 	if y >= 0.1 {
 		d := 0.45
 		if s.Small {

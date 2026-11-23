@@ -1248,9 +1248,15 @@ func armorStandTagAs(ent *armorStandEntity, id string) *nbt.OrderedCompound {
 	putEntityOptions(tag, ent.custom, ent.look.silent, s.NoGravity, ent.look, ent.tags)
 	tag.Set("Health", nbt.Float(s.Health))
 	// vanilla: LivingEntity.addAdditionalSaveData
-	s.SaveWithAttributes(tag, func() {
-		tag.Set("attributes", nbt.List{Elem: nbt.TypeEnd})
-		if active := effect.Encode(ent.effects.All()); active != nil {
+	living := s.LivingState
+	living.AbsorptionAmount = float32(s.Absorption)
+	living.SaveWithAttributes(tag, func() {
+		attrs := s.Attributes().SaveInstances(nil, true)
+		if attrs == nil {
+			attrs = &nbt.List{Elem: nbt.TypeEnd}
+		}
+		tag.Set("attributes", *attrs)
+		if active := effect.Encode(s.AllEffects()); active != nil {
 			tag.Set("active_effects", *active)
 		}
 	})
@@ -1357,12 +1363,20 @@ func applyArmorStandFields(ent *armorStandEntity, compound nbt.Compound) {
 	if slots, named := nbt.IntField(compound, "DisabledSlots"); named {
 		stand.DisabledSlots = slots
 	}
-	if health, named := nbt.FloatField(compound, "Health"); named && health > 0 {
-		stand.Health = min(float64(health), entity.ArmorStandHealth)
-	}
 	ent.look = entityLookOf(compound)
+	if attrs, ok := nbt.Get[nbt.List](compound, "attributes"); ok {
+		stand.Attributes().Load(attrs)
+		stand.OnAttributeUpdated()
+	}
 	list, _ := nbt.Get[nbt.List](compound, "active_effects")
-	ent.effects = effect.Decode(list)
+	stand.RestoreEffects(effect.Decode(list))
+	stand.Absorption = max(0, float64(stand.AbsorptionAmount))
+	stand.SyncEffectAttributes()
+	if health, named := nbt.FloatField(compound, "Health"); !named {
+		stand.Health = stand.HealthCap()
+	} else if health > 0 {
+		stand.Health = min(float64(health), stand.HealthCap())
+	}
 	stand.Pose = armorStandDefaultPose
 	if pose, named := nbt.Get[nbt.Compound](compound, "Pose"); named {
 		for part, name := range armorStandPoseParts {
