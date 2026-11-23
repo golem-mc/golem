@@ -1363,14 +1363,11 @@ func (s *Server) writeBlock(w *world.World, x, y, z int32, state uint16, defined
 }
 
 func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint16, defined map[string]string, policy blockWritePolicy, updates *world.BlockUpdates) bool {
-	var old uint16
-	if updates != nil || policy&(writeEntity|writeWake) != 0 {
-		old = w.BlockAt(x, y, z)
-	}
 	if policy&writeShape != 0 {
 		state = rules.WithDefinedProperties(rules.NeighborShapedState(w, s.levelRng, state, x, y, z), defined)
 	}
-	if !w.SetBlock(x, y, z, state) {
+	old, changed := w.SwapBlock(x, y, z, state)
+	if !changed {
 		return false
 	}
 	if policy&writeCrafter != 0 {
@@ -1382,7 +1379,13 @@ func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint
 		s.replaceBlockEntity(w, x, y, z, old, w.BlockAt(x, y, z))
 	}
 	if policy&(writeLight|writeLightAfter) == writeLight {
-		s.relightAsync(w, x, z)
+		if updates == nil {
+			s.relightAsync(w, x, z)
+		} else if !registry.SameLight(old, state) {
+			// SwapBlock already marked this column. Book the whole chunk so
+			// the lane can coalesce its writes without rescanning light marks.
+			s.bookRelight(w, changeBox{x &^ 15, z &^ 15, x | 15, z | 15})
+		}
 	}
 	if policy&writeNow != 0 {
 		s.broadcastBlockUpdate(w, x, y, z, state)

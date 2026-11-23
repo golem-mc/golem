@@ -2,6 +2,7 @@ package plugins_test
 
 import (
 	"fmt"
+	"runtime"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -289,4 +290,47 @@ func TestPluginBlockWriteSaveReloadAndLight(t *testing.T) {
 			t.Error("block writes lost on reload")
 		}
 	})
+}
+
+func TestPluginCubeEditKeepsRelightWaitersBounded(t *testing.T) {
+	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	w, pw := srv.OverworldWorld(), h.Overworld()
+	for x := int32(-1); x < 1; x++ {
+		for z := range int32(2) {
+			pos := world.ChunkPos{X: x, Z: z}
+			w.Acquire(pos)
+			defer w.Release(pos)
+		}
+	}
+	const side, baseY = 32, world.GroundLevel + 16
+	below := plugin.BlockPos{X: -1, Y: baseY - 1, Z: 15}
+	if sky, _ := pw.Light(below); sky != 15 {
+		t.Fatalf("initial sky light = %d, want 15", sky)
+	}
+
+	for _, block := range []registry.Block{registry.BlockStone, registry.BlockAir} {
+		run(func() {
+			before := runtime.NumGoroutine()
+			state := plugin.DefaultState(block)
+			for x := -16; x < -16+side; x++ {
+				for z := range side {
+					for y := baseY; y < baseY+side; y++ {
+						pos := plugin.BlockPos{X: x, Y: y, Z: z}
+						if !pw.SetBlockState(pos, state, plugin.UpdateAll) {
+							t.Errorf("write %v at %v failed", block, pos)
+							return
+						}
+					}
+				}
+			}
+			if added := runtime.NumGoroutine() - before; added >= 64 {
+				t.Errorf("cube edit with %v added %d goroutines, want fewer than 64", block, added)
+			}
+		})
+		srv.WaitRelights()
+		sky, _ := pw.Light(below)
+		if block == registry.BlockStone && sky >= 15 || block == registry.BlockAir && sky != 15 {
+			t.Errorf("sky light after cube edit with %v = %d, want below 15 after placement and 15 after removal", block, sky)
+		}
+	}
 }

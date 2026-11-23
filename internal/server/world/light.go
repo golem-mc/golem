@@ -1144,6 +1144,7 @@ func (w *World) relightBox(minX, minZ, maxX, maxZ int32) {
 func (w *World) lightAlone(c *Chunk) {
 	c.lightDirty = [sectionSize]uint16{}
 	c.lightCells, c.lightOverflow = nil, false
+	c.lightBands = 0
 	c.skyLight = [lightSections]*[lightArrayLen]byte{}
 	c.blockLight = [lightSections]*[lightArrayLen]byte{}
 	minX, minZ := c.x*16, c.z*16

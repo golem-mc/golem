@@ -184,6 +184,7 @@ type Chunk struct {
 	// a write did not fit and the marks no longer name every cell.
 	lightCells    []uint32
 	lightOverflow bool
+	lightBands    uint32 // section mask, retained even when lightCells overflows
 }
 
 // X returns the chunk's X coordinate.
