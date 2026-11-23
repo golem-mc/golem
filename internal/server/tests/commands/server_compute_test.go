@@ -60,6 +60,24 @@ func TestComputeStoresItsValue(t *testing.T) {
 		t.Errorf("rounded feedback arguments = %+v, want 14 and 7", with)
 	}
 
+	// Array and zero-weight lists the shared list decoder accepts.
+	for _, tc := range []struct {
+		command string
+		want    int64
+	}{
+		{`compute default integer {type:"minecraft:add",inputs:[B;1b,2b]}`, 3},
+		{`compute default float {type:"minecraft:add",inputs:[L;2L,3L]} 1`, 5},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:5,weight:1},{data:9,weight:0}]}`, 5},
+	} {
+		c.ChatCommand(tc.command)
+		with := expectCompute(t, c, "command.compute.result.unnamed.exact").With
+		if len(with) != 1 || with[0].Number == nil && with[0].Float == nil {
+			t.Errorf("%s: feedback arguments = %+v, want %d", tc.command, with, tc.want)
+		} else if with[0].Number != nil && *with[0].Number != tc.want || with[0].Float != nil && int64(*with[0].Float) != tc.want {
+			t.Errorf("%s: feedback arguments = %+v, want %d", tc.command, with, tc.want)
+		}
+	}
+
 	c.Disconnect()
 }
 
@@ -120,6 +138,10 @@ func TestComputeRefusals(t *testing.T) {
 		{`compute default integer {type:"minecraft:weighted_list",distribution:[1,{data:5,weight:0}]}`,
 			either + "Not a map: 1; Weighted list must contain at least one entry with non-zero weight"},
 		{`compute default integer {type:"minecraft:weighted_list",distribution:[1,{data:5,weight:1}]}`, "Not a map: 1"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:9,weight:0},{data:5}]}`,
+			either + missing("weight", "{data:5}") + "; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:5,weight:-1}]}`,
+			either + "Value must be non-negative: -1; Weighted list must contain at least one entry with non-zero weight"},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[L;1L,2L]}`, "Not a map: 2L; Not a map: 1L"},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{},{}]}`,
 			missing("value", "{}") + "; " + missing("condition", "{}") + "; " +

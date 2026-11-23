@@ -371,22 +371,23 @@ func weightedEntry(item nbt.Tag, nested func(nbt.Tag) (registry.LootNumber, stri
 	if !ok {
 		return nil, 0, "Not a map: " + nbt.Stringify(item)
 	}
-	data, msg := fieldOf(entry, "data")
-	if msg != "" {
-		return nil, 0, msg
+	var v registry.LootNumber
+	data, dataMsg := fieldOf(entry, "data")
+	if dataMsg == "" {
+		v, dataMsg = nested(data)
 	}
-	v, msg := nested(data)
-	if msg != "" {
-		return nil, 0, msg
-	}
-	weight := int32(1)
-	if w, present := entry["weight"]; present {
+	var weight int32
+	w, weightMsg := fieldOf(entry, "weight")
+	if weightMsg == "" {
+		var ok bool
 		if weight, ok = nbt.IntValue(w); !ok {
-			return nil, 0, "Not a number: " + nbt.Stringify(w)
+			weightMsg = "Not a number: " + nbt.Stringify(w)
+		} else if weight < 0 {
+			weightMsg = fmt.Sprintf("Value must be non-negative: %d", weight)
 		}
-		if weight < 0 {
-			return nil, 0, fmt.Sprintf("Value %d outside of range [0:2147483647]", weight)
-		}
+	}
+	if msg := registry.JoinFieldErrors(weightMsg, dataMsg); msg != "" {
+		return nil, 0, msg
 	}
 	return v, weight, ""
 }
