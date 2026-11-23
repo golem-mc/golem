@@ -110,9 +110,9 @@ func TestALockedChestKeepsItsLockThroughAChunkSave(t *testing.T) {
 	if !ok {
 		t.Fatal("the reloaded chest lost its lock")
 	}
-	items, ok := nbt.Get[nbt.List](lock, "items")
-	if !ok || len(items.Items) != 1 || items.Items[0] != nbt.String(lockKey) {
-		t.Errorf("the reloaded lock names %v, want the single %s", items.Items, lockKey)
+	// vanilla: ExtraCodecs.compactListCodec writes a one-element list as the element.
+	if items := lock["items"]; items != nbt.String(lockKey) {
+		t.Errorf("the reloaded lock names %v, want the single %s", items, lockKey)
 	}
 
 	w2.UseBlock(3, 64, 0)
