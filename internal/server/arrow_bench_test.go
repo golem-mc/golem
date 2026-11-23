@@ -124,18 +124,17 @@ func benchTickArrows(b *testing.B, cows int, motion arrowsMotion, mannequins int
 	}
 	dim := s.allDims()[0]
 	w := dim.w
-	var holds []world.ChunkPos
+	var releases []func()
+	// Entity-ticking holds: a bare Acquire leaves the entity gate closed with
+	// no player in the world, and the arrows would stay dormant.
 	for cx := int32(-2); cx < 2; cx++ {
 		for cz := int32(-2); cz < 2; cz++ {
-			holds = append(holds, world.ChunkPos{X: cx, Z: cz})
+			releases = append(releases, w.HoldEntityTicking(world.ChunkPos{X: cx, Z: cz}))
 		}
 	}
-	for _, pos := range holds {
-		w.Acquire(pos)
-	}
 	b.Cleanup(func() {
-		for _, pos := range holds {
-			w.Release(pos)
+		for _, release := range releases {
+			release()
 		}
 		s.Shutdown()
 	})
@@ -156,7 +155,7 @@ func benchTickArrows(b *testing.B, cows int, motion arrowsMotion, mannequins int
 		})
 	}
 	type start struct{ x, z float64 }
-	var flying []*entity.Arrow
+	var flying, grounded []*entity.Arrow
 	var starts []start
 	for i := range 300 {
 		x, z := float64(i%20)*1.5-15+0.25, float64(i/20)*1.5-11+0.25
@@ -171,6 +170,7 @@ func benchTickArrows(b *testing.B, cows int, motion arrowsMotion, mannequins int
 			// Stuck in the air whose state it last met, so the tick
 			// finds nothing changed under it and does not let it fall.
 			it.arrow.InGround = true
+			grounded = append(grounded, it.arrow)
 			it.arrow.LastState = w.BlockAt(int32(math.Floor(x)), world.GroundLevel+10, int32(math.Floor(z)))
 		} else {
 			it.arrow.NoGravity = true
@@ -202,6 +202,16 @@ func benchTickArrows(b *testing.B, cows int, motion arrowsMotion, mannequins int
 		s.tickArrows()
 	}
 	b.StopTimer()
+	for _, a := range grounded {
+		if a.Life == -1<<30 {
+			b.Fatal("grounded arrow's life counter did not advance: arrows are dormant")
+		}
+	}
+	for i, a := range flying {
+		if a.X == starts[i].x && a.Z == starts[i].z {
+			b.Fatal("flying arrow did not move: arrows are dormant")
+		}
+	}
 	s.arrowsMu.Lock()
 	n := len(s.arrows)
 	s.arrowsMu.Unlock()
