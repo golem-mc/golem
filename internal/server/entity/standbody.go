@@ -143,8 +143,7 @@ func (s *StandBody) travel(w World, box AABB, halfWidth, gravity float64) (lande
 
 // move moves the stand along its velocity as far as blocks allow, axis by
 // axis in vanilla's Y, X, Z order, zeroing stopped axes. It reports whether
-// it ended on the ground; a standing body with no velocity keeps its
-// ground.
+// it ended on the ground, which only a downward collision this move gives.
 func (s *StandBody) move(w World, box AABB, halfWidth, gravity float64) (bool, float64) {
 	onGround := s.OnGround
 	// grounded is the actual downward collision; the carried flag (a /tp sets
@@ -165,6 +164,9 @@ func (s *StandBody) move(w World, box AABB, halfWidth, gravity float64) (bool, f
 			d = dz
 		}
 		if d == 0 {
+			if axis == axisY {
+				onGround = false // no downward collision without downward motion
+			}
 			continue
 		}
 		var blocked bool

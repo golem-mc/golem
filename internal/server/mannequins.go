@@ -95,6 +95,9 @@ func (s *Server) tickMannequins() {
 	if none {
 		return
 	}
+	// A pending teleport is told before the body ticks.
+	// vanilla: ServerChunkCache.tick, ServerLevel.tick
+	mannequinTracker.frozenPass(s, s.trackingWatchers())
 	teams := s.pushTeams()
 	pushes := s.mannequinPushInputs(teams)
 	var effects []mannequinTickEffect

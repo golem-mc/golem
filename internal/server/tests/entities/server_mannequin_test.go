@@ -264,6 +264,7 @@ func TestATeleportedMannequinMovesForItsWatcher(t *testing.T) {
 			}
 			return moved != nil && turned != nil
 		}
+		c.Settle() // a late sync of the previous command is not this one's
 		c.ChatCommand(command)
 		c.SettleAndCollect(func(id int32, data []byte) { record(id, data) })
 		if moved == nil || turned == nil {

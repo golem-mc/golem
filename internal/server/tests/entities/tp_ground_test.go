@@ -68,4 +68,7 @@ func TestTeleportCommandStopsFallingMannequin(t *testing.T) {
 	if got := dataOfMannequin(t, c, srv, "Health"); got != health {
 		t.Errorf("Health after the first tick = %s, want %s (no fall damage)", got, health)
 	}
+	if got := dataOfMannequin(t, c, srv, "OnGround"); got != "0b" {
+		t.Errorf("OnGround after a midair tick = %s, want 0b", got)
+	}
 }
