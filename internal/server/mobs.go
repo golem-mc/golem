@@ -648,19 +648,29 @@ func (s *Server) sendMobSends(sends []mobSend) {
 	}
 }
 
-// tickMobTracking updates mob visibility in a frozen world: mobs do not
-// tick, but players still see mobs enter and leave range and teleports.
+// tickMobTracking updates frozen mob visibility and collects pufferfish
+// contacts for players whose own ticks still run.
 // vanilla: ChunkMap.tick
 func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 	near := nearbyTracking(watchers)
 	defer near.release()
 	var sends []mobSend
+	var pufferTouches []pufferTouch
 	s.lockTick(&s.mobsMu)
 	for _, dim := range s.allDims() {
 		for _, m := range dim.mobs.herd {
 			ent := dim.mobs.book[m]
 			if ent == nil {
 				continue
+			}
+			if puff := m.PuffState(); m.Type == entity.TypePufferfish && puff > 0 && m.Alive() {
+				pufferTouches = append(pufferTouches, pufferTouch{
+					box: entity.NewAABB(m.BlastBox()),
+					strike: mobStrike{
+						w: dim.w, mob: m, uuidText: ent.uuidText, killer: s.mobKiller(ent),
+						x: m.X, y: m.Y, z: m.Z, damage: float64(1 + puff), touch: true, puff: puff,
+					},
+				})
 			}
 			body := mobTracker.body(ent)
 			motion := mobMovement{seated: ent.seated()}
@@ -685,6 +695,7 @@ func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 	}
 	s.unlockTick(&s.mobsMu)
 	s.sendMobSends(sends)
+	s.applyPufferTouches(watchers, pufferTouches)
 }
 
 // mobConversion is a body a conversion replaces, with its new kind.

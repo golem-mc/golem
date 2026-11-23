@@ -389,6 +389,71 @@ func TestAPufferfishPuffsUpNearAPlayerAndDeflatesAfter(t *testing.T) {
 	}
 }
 
+// vanilla: Player.aiStep, Pufferfish.playerTouch, TickRateManager.isEntityFrozen
+func TestAFullPufferfishStingsWhileTheWorldIsFrozen(t *testing.T) {
+	t.Parallel()
+	const name = "Striker"
+	srv, c := servertest.Join(t, servertest.HostileTestConfig(), name, servertest.OpsListing(t, name))
+	servertest.HoldTicks(t, srv)
+	srv.SetDifficulty(rules.DifficultyNormal)
+	release := srv.HoldChunk(3, 172)
+	t.Cleanup(release)
+	stone := servertest.BlockState(t, "minecraft:stone")
+	for z := int32(170); z <= 175; z++ {
+		if !srv.SetBlock(3, 249, z, stone) {
+			t.Fatal("the stone platform's chunk is not loaded")
+		}
+	}
+	c.ChatCommand("tick freeze")
+	servertest.AwaitSystemChatSaying(t, c, "commands.tick.status.frozen")
+	c.ChatCommand("tp @s 3.5 250 172.5")
+	servertest.ExpectTeleport(t, c)
+	servertest.AwaitSystemChatSaying(t, c, "commands.teleport.success.location.single")
+	c.MoveToGround(3.5, 250, 172.5, true)
+	c.ChatCommand("summon minecraft:pufferfish 3.5 250 171 {PuffState:2}")
+	servertest.AwaitSummonFeedback(t, c, "minecraft:pufferfish", "entity.minecraft.pufferfish")
+	age, _ := srv.Time()
+	before := srv.PlayerHealth(name)
+	var order []string
+	var poison servertest.MobEffect
+	var shoveX, shoveZ float64
+	c.ReadTicks(srv, 3, func(id int32, data []byte) bool {
+		r := protocol.NewReader(data)
+		switch id {
+		case protocol.IDPlayGameEvent:
+			if r.ReadU8() == protocol.GameEventPufferFishSting {
+				order = append(order, "sting")
+			}
+		case protocol.IDPlayUpdateMobEffect:
+			if entityID, effect := r.ReadVarInt(), r.ReadVarInt(); entityID == c.PlayerEntityID && effect == int32(registry.MobEffectPoison) {
+				order = append(order, "poison")
+				poison.Amplifier, poison.Duration = r.ReadVarInt(), r.ReadVarInt()
+			}
+		case protocol.IDPlaySetEntityMotion:
+			if r.ReadVarInt() == c.PlayerEntityID {
+				order = append(order, "motion")
+				shoveX, _, shoveZ = r.ReadLpVec3()
+			}
+		}
+		return false
+	})
+	if now, _ := srv.Time(); now != age {
+		t.Errorf("world age advanced from %d to %d while frozen", age, now)
+	}
+	if lost := before - srv.PlayerHealth(name); lost != 3 {
+		t.Errorf("the player lost %.1f health, want 3", lost)
+	}
+	if got := strings.Join(order, ","); got != "sting,poison,motion" {
+		t.Errorf("packet order = %q, want sting,poison,motion", got)
+	}
+	if poison.Duration != 120 || poison.Amplifier != 0 {
+		t.Errorf("poison lasted %d ticks at amplifier %d, want 120 ticks at amplifier 0", poison.Duration, poison.Amplifier)
+	}
+	if math.Abs(shoveX) > 1e-3 || math.Abs(shoveZ-0.4) > 1e-3 {
+		t.Errorf("horizontal shove = (%.4f, %.4f), want (0, 0.4)", shoveX, shoveZ)
+	}
+}
+
 // TestAFullPufferfishHurtsAndPoisonsATouchingPlayer: the player in a state-2
 // fish's box loses 3 health, is told game event 9 and is poisoned for 120
 // ticks.
