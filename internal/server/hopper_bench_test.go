@@ -199,3 +199,31 @@ func BenchmarkHopperItemBox(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkHopperItemBoxMany measures a hopper item-box query that finds N
+// items straddling a chunk border, so the section ordering sorts them.
+func BenchmarkHopperItemBoxMany(b *testing.B) {
+	stone := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
+	for _, n := range []int{2, 16, 64} {
+		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 1)
+			for i := range n {
+				// Alternate sides of the x=0 chunk border inside the box.
+				x := 0.2 + 0.5*float64(i%2)
+				if i%2 == 0 {
+					x = -x
+				}
+				s.spawnItem(w, stone, x, 65, 0.5, 0, 0, 0, 0)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				got := s.itemEntitiesIn(w, -1, 64.5, 0, 1, 66, 1)
+				if len(got) != n {
+					b.Fatalf("itemEntitiesIn returned %d items, want %d", len(got), n)
+				}
+			}
+			b.StopTimer()
+		})
+	}
+}
