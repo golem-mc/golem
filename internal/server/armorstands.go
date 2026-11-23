@@ -844,6 +844,9 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 		}
 		_, shown := ent.tracked.get(wh.c)
 		if told, seen := body.settle(wh.c, wh.x, wh.z, wh.chunkRadius, &out.trackSends); seen && shown {
+			if mt.gate {
+				standMove(&body, told, wh.c, mt, out)
+			}
 			if now != told.own {
 				data := armorStandMetadataTable(body.id, now, told.own, armorStandMetaTick)
 				out.told = append(out.told, outbound{id: protocol.IDPlayEntityMetadata, data: data})
@@ -853,9 +856,6 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 			if attributes != nil {
 				out.told = append(out.told, outbound{id: protocol.IDPlayUpdateAttributes, data: attributes})
 				out.toldTo = append(out.toldTo, showTo{wh.c, body.w})
-			}
-			if mt.gate {
-				standMove(&body, told, wh.c, mt, out)
 			}
 		}
 	}

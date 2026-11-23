@@ -19,7 +19,7 @@ func TestMannequinLodgedArrowRemoval(t *testing.T) {
 			id := awaitMannequin(t, c, srv).id
 			c.ChatCommand("summon " + kind + " 3.5 65 2 {Motion:[0d,0d,1.5d],NoGravity:1b}")
 			c.Settle()
-			if got := servertest.StuckArrows(t, c, srv, id, 1); !slices.Equal(got, []int32{1}) {
+			if got := servertest.StuckArrows(t, c, srv, id, 2); !slices.Equal(got, []int32{1}) {
 				t.Fatalf("arrow counts after hit = %v, want [1]", got)
 			}
 			c.ChatCommand("data merge entity @e[type=mannequin,limit=1] {Silent:1b}")
@@ -27,7 +27,7 @@ func TestMannequinLodgedArrowRemoval(t *testing.T) {
 				t.Fatalf("arrow count after /data = %v, want [1]", got)
 			}
 			// Mannequins step before arrows, so the countdown starts after the hit tick.
-			if got := servertest.StuckArrows(t, c, srv, id, 579); len(got) != 0 {
+			if got := servertest.StuckArrows(t, c, srv, id, 578); len(got) != 0 {
 				t.Fatalf("arrow counts before 580 ticks = %v, want none", got)
 			}
 			if got := servertest.StuckArrows(t, c, srv, id, 1); !slices.Equal(got, []int32{0}) {

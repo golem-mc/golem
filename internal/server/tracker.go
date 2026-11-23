@@ -361,7 +361,8 @@ func (v *trackedBody[B, S]) teleportTick() moveTick {
 // step advances one movement tick and reports what this one owes. synced, if
 // not nil, is asked for a movement tick off the period.
 func (m *movementSchedule) step(interval int, synced func() bool) moveTick {
-	return m.advance(m.tickCount%interval == 0 || (synced != nil && synced()))
+	pending := synced != nil && synced() // taken on a scheduled tick too
+	return m.advance(m.tickCount%interval == 0 || pending)
 }
 
 // stepDue takes an already available sync flag without a callback dispatch.

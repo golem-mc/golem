@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"github.com/golem-mc/golem/registry"
+	"hash/fnv"
 	"math"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -52,7 +53,7 @@ var mannequinFields = []mannequinField{
 					b.PutI32(p.Color)
 				}
 			}
-		}, func(m *mannequinEntity) bool { p, _ := effect.Particles(m.mannequin.AllEffects()); return len(p) == 0 }, mannequinEffectRevision},
+		}, func(m *mannequinEntity) bool { p, _ := effect.Particles(m.mannequin.AllEffects()); return len(p) == 0 }, mannequinParticlesKey},
 	{protocol.MetadataIndexEffectAmbient, protocol.MetadataBoolean,
 		func(b *protocol.Buffer, m *mannequinEntity) {
 			_, ambient := effect.Particles(m.mannequin.AllEffects())
@@ -61,7 +62,7 @@ var mannequinFields = []mannequinField{
 		func(m *mannequinEntity) bool {
 			_, ambient := effect.Particles(m.mannequin.AllEffects())
 			return !ambient
-		}, mannequinEffectRevision},
+		}, mannequinAmbientKey},
 	{protocol.MetadataIndexCustomName, protocol.MetadataOptionalText,
 		func(b *protocol.Buffer, m *mannequinEntity) { m.custom.putName(b) },
 		func(m *mannequinEntity) bool { return m.custom.wire == "" }, nil},
@@ -198,4 +199,35 @@ func mannequinTickMetadata(ent *mannequinEntity) []byte {
 	})
 }
 
-func mannequinEffectRevision(ent *mannequinEntity) uint64 { return ent.mannequin.EffectRevision() }
+// mannequinParticlesKey identifies the shown particle list by value, so an
+// effect refresh that leaves it alone is no change.
+func mannequinParticlesKey(ent *mannequinEntity) uint64 {
+	particles, _ := effect.Particles(ent.mannequin.AllEffects())
+	h := fnv.New64a()
+	for _, p := range particles {
+		h.Write([]byte(p.Type))
+		h.Write([]byte{byte(p.Color), byte(p.Color >> 8), byte(p.Color >> 16), byte(p.Color >> 24)})
+	}
+	return h.Sum64() ^ uint64(len(particles))
+}
+
+func mannequinAmbientKey(ent *mannequinEntity) uint64 {
+	if _, ambient := effect.Particles(ent.mannequin.AllEffects()); ambient {
+		return 1
+	}
+	return 0
+}
+
+// mannequinMetadataDirty reports whether a ticking field differs from the
+// last one sent, without advancing it. The mannequin lock is held.
+func mannequinMetadataDirty(ent *mannequinEntity) bool {
+	for _, f := range mannequinFields {
+		if f.tick == nil {
+			continue
+		}
+		if old, known := ent.metadata[f.index]; known && old != f.tick(ent) {
+			return true
+		}
+	}
+	return false
+}

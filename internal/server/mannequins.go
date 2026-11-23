@@ -140,10 +140,6 @@ func (s *Server) tickMannequins() {
 		for _, hurt := range fx.hurts {
 			s.tellMannequinHurt(hurt)
 		}
-		// Hurt snapshots precede healing and other final changes in this tick.
-		if fx.metadata != nil {
-			s.sendEntityMetadata(fx.ent.w, fx.watchers, fx.metadata)
-		}
 		if fx.step.Remove {
 			s.broadcastWorld(fx.ent.w, protocol.IDPlayEntityEvent,
 				entityEventPayload(fx.ent.mannequin.ID, protocol.EntityStatusDeathPoof))
@@ -160,6 +156,20 @@ func (s *Server) tickMannequins() {
 		}
 	}
 	mannequinTracker.pass(s, s.trackingWatchers(), true)
+	// Hurt snapshots precede healing and other final changes in this tick;
+	// the delta follows the movement.
+	// vanilla: ServerEntity.sendChanges
+	for _, fx := range effects {
+		if fx.metadata == nil {
+			continue
+		}
+		s.mannequinsMu.Lock()
+		gone := fx.ent.mannequin.Dead
+		s.mannequinsMu.Unlock()
+		if !gone {
+			s.sendEntityMetadata(fx.ent.w, fx.watchers, fx.metadata)
+		}
+	}
 }
 
 type mannequinTickEffect struct {
@@ -240,6 +250,9 @@ func (s *Server) hurtMannequinLocked(ent *mannequinEntity, amount float64, damag
 		m.KnockbackAlong(shove.yaw, shove.extra)
 	}
 	metadata := mannequinHealthPayload(ent)
+	// The send advances the cached health, so the change is marked here.
+	// vanilla: SynchedEntityData.set (isDirty)
+	ent.needsSync = ent.needsSync || metadata != nil
 	if died {
 		metadata = dyingMetadataPayload(m.ID)
 	}
