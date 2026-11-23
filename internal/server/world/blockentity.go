@@ -1538,7 +1538,7 @@ func (w *World) SetBlockEntityTag(x, y, z int32, entityType string, data nbt.Com
 		loaded.markDirty()
 		return be.Kind, true
 	}
-	if entityType == KindBeehive.Name() || entityType == KindVault.Name() || entityType == KindTrialSpawner.Name() {
+	if BlockEntityTypeID(entityType) >= 0 {
 		entry = asSaved(entry)
 	}
 	loaded.chunk.setCarriedBlockEntity(entry)

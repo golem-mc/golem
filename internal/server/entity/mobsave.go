@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"maps"
 	"math"
 	"strings"
 
@@ -573,7 +574,7 @@ func (m *Mob) LoadFrom(compound nbt.Compound, w World, gameTime func() int64) {
 		m.loadFood(compound)
 	}
 	if offers, ok := nbt.Get[nbt.Compound](compound, "Offers"); ok && (m.Type == TypeVillager || m.Type == TypeZombieVillager || m.Type == TypeWanderingTrader) {
-		m.Offers = offers
+		m.Offers = qualifiedOffers(offers)
 	}
 	if m.IsCreaking() {
 		// vanilla: Creaking.readAdditionalSaveData
@@ -949,4 +950,30 @@ func (m *Mob) loadFreezeConversion(compound nbt.Compound) {
 	if t, ok := nbt.IntField(compound, "FreezingTime"); ok {
 		m.inPowderSnowTime = int(t)
 	}
+}
+
+// qualifiedOffers returns the offers with the item id of each recipe's buy,
+// buyB and sell namespaced, as their item codecs read them.
+// vanilla: MerchantOffers.CODEC, MerchantOffer.CODEC
+func qualifiedOffers(offers nbt.Compound) nbt.Compound {
+	recipes, ok := nbt.Get[nbt.List](offers, "Recipes")
+	if !ok || recipes.Elem != nbt.TypeCompound {
+		return offers
+	}
+	recipes = nbt.Copy(recipes).(nbt.List)
+	for _, item := range recipes.Items {
+		recipe, ok := item.(nbt.CompoundTag)
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"buy", "buyB", "sell"} {
+			if stack, ok := recipe.Entries()[key]; ok {
+				recipe.Set(key, registry.QualifiedStackTag(stack))
+			}
+		}
+	}
+	out := make(nbt.Compound, len(offers))
+	maps.Copy(out, offers)
+	out["Recipes"] = recipes
+	return out
 }

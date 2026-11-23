@@ -1875,3 +1875,27 @@ func attributeModifiersOf(value nbt.Tag) ([]protocol.AttributeModifierEntry, boo
 	}
 	return entries, true
 }
+
+// QualifiedStackTag returns a copy of a stack compound with its item id
+// namespaced as the item codec writes it; anything but a compound with a
+// string id comes back as is.
+// vanilla: ItemStack.CODEC, Item.CODEC
+func QualifiedStackTag(tag nbt.Tag) nbt.Tag {
+	stack, ok := tag.(nbt.CompoundTag)
+	if !ok {
+		return tag
+	}
+	id, ok := nbt.Get[nbt.String](stack.Entries(), "id")
+	if !ok {
+		return tag
+	}
+	// A plain compound stays plain, an ordered one keeps its order.
+	var out nbt.CompoundTag
+	if _, plain := tag.(nbt.Compound); plain {
+		out = nbt.Copy(stack).(nbt.CompoundTag)
+	} else {
+		out = nbt.OrderedCopy(stack).(nbt.CompoundTag)
+	}
+	out.Set("id", nbt.String(Qualify(string(id))))
+	return out
+}
