@@ -358,10 +358,16 @@ func TestStoredStacksQualifyIDAndDefaultCount(t *testing.T) {
 // and reads it back.
 func TestALockSurvivesTheStackCodec(t *testing.T) {
 	id, _ := ItemID("minecraft:chest")
-	lock := nbt.Compound{"items": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String("minecraft:tripwire_hook")}}}
+	lock := nbt.Compound{"items": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String("minecraft:tripwire_hook"), nbt.String("minecraft:chest")}}}
 	got, ok := StoredStack(StackTag(protocol.ItemStack{ItemID: id, Count: 1, Lock: lock}))
 	if !ok || !nbt.Equal(got.Lock, lock) {
 		t.Errorf("stored stack lock = %v (ok %v), want %v", got.Lock, ok, lock)
+	}
+	// A one-element list is written as the element.
+	single := nbt.Compound{"items": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String("diamond")}}}
+	got, ok = StoredStack(StackTag(protocol.ItemStack{ItemID: id, Count: 1, Lock: single}))
+	if want := (nbt.Compound{"items": nbt.String("minecraft:diamond")}); !ok || !nbt.Equal(got.Lock, want) {
+		t.Errorf("stored singleton lock = %v (ok %v), want %v", got.Lock, ok, want)
 	}
 }
 

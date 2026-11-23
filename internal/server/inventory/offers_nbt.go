@@ -156,13 +156,8 @@ func updatedOfferRecipe(recipe nbt.Compound, offer Offer) nbt.Compound {
 	maps.Copy(updated, recipe)
 	// vanilla: ItemCost.CODEC always writes count, including its default of 1.
 	for _, key := range [...]string{"buy", "buyB"} {
-		if cost, ok := nbt.Get[nbt.Compound](recipe, key); ok {
-			count := nbt.Int(intOf(cost, "count", 1))
-			if cost["count"] != count {
-				copy := nbt.ShallowCopyCompound(recipe[key].(nbt.CompoundTag))
-				copy.Set("count", count)
-				updated[key] = copy
-			}
+		if cost, ok := recipe[key]; ok {
+			updated[key] = registry.ItemCostTag(cost)
 		}
 	}
 	writeOfferFields(updated, offer)

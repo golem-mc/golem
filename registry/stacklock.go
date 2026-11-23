@@ -1,6 +1,10 @@
 package registry
 
-import "github.com/golem-mc/golem/nbt"
+import (
+	"strings"
+
+	"github.com/golem-mc/golem/nbt"
+)
 
 // LockTag writes the shared item predicate codec used by stacks and containers.
 // Unchanged children are borrowed, as in StackTag; rebuilt records own their roots.
@@ -12,6 +16,9 @@ func LockTag(value nbt.CompoundTag) *nbt.OrderedCompound {
 	out := nbt.NewOrderedCompound(4)
 	for _, key := range []string{"items", "count", "components", "predicates"} {
 		if field, ok := value.Entries()[key]; ok {
+			if key == "items" {
+				field = qualifiedHolderSet(field)
+			}
 			out.Set(key, field)
 		}
 	}
@@ -39,4 +46,32 @@ func LockTag(value nbt.CompoundTag) *nbt.OrderedCompound {
 		out.Set(key, copy)
 	}
 	return out
+}
+
+// qualifiedHolderSet namespaces an item holder set: an id, a #tag or a list of
+// ids; anything else is kept.
+// vanilla: RegistryCodecs.homogeneousList
+func qualifiedHolderSet(tag nbt.Tag) nbt.Tag {
+	switch v := tag.(type) {
+	case nbt.String:
+		if name, isTag := strings.CutPrefix(string(v), "#"); isTag {
+			return nbt.String("#" + Qualify(name))
+		}
+		return nbt.String(Qualify(string(v)))
+	case nbt.List:
+		if v.Elem != nbt.TypeString {
+			return tag
+		}
+		// vanilla: ExtraCodecs.compactListCodec writes a one-element list as the element.
+		if len(v.Items) == 1 {
+			return qualifiedHolderSet(v.Items[0])
+		}
+		items := make([]nbt.Tag, len(v.Items))
+		for i, item := range v.Items {
+			items[i] = qualifiedHolderSet(item)
+		}
+		v.Items = items
+		return v
+	}
+	return tag
 }

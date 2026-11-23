@@ -87,7 +87,7 @@ func ParseStructureBlock(c nbt.Compound) StructureBlock {
 	s := NewStructureBlock(StructureData)
 	str := func(k string) string { v, _ := nbt.Get[nbt.String](c, k); return string(v) }
 	flag := func(k string, def bool) bool {
-		if v, ok := nbt.Get[nbt.Byte](c, k); ok {
+		if v, ok := nbt.ByteField(c, k); ok {
 			return v != 0
 		}
 		return def
@@ -112,8 +112,8 @@ func ParseStructureBlock(c nbt.Compound) StructureBlock {
 	s.Powered = flag("powered", false)
 	s.ShowAir = flag("showair", false)
 	s.ShowBox = flag("showboundingbox", true)
-	if v, ok := nbt.Get[nbt.Float](c, "integrity"); ok {
-		s.Integrity = float32(v)
+	if v, ok := nbt.FloatField(c, "integrity"); ok {
+		s.Integrity = v
 	}
 	if v, ok := nbt.LongValue(c["seed"]); ok {
 		s.Seed = v
@@ -122,24 +122,40 @@ func ParseStructureBlock(c nbt.Compound) StructureBlock {
 }
 
 // Compound is the entity's saved form, without the id and position.
-// vanilla: StructureBlockEntity.saveAdditional
 func (s StructureBlock) Compound() nbt.Compound {
+	c := nbt.Compound{}
+	s.save(func(k string, v nbt.Tag) { c[k] = v })
+	return c
+}
+
+// save sets the entity's fields in the order saveAdditional writes them.
+// vanilla: StructureBlockEntity.saveAdditional
+func (s StructureBlock) save(set func(string, nbt.Tag)) {
 	b := func(v bool) nbt.Byte {
 		if v {
 			return 1
 		}
 		return 0
 	}
-	return nbt.Compound{
-		"name": nbt.String(s.Name), "author": nbt.String(s.Author), "metadata": nbt.String(s.Metadata),
-		"posX": nbt.Int(s.Pos[0]), "posY": nbt.Int(s.Pos[1]), "posZ": nbt.Int(s.Pos[2]),
-		"sizeX": nbt.Int(s.Size[0]), "sizeY": nbt.Int(s.Size[1]), "sizeZ": nbt.Int(s.Size[2]),
-		"rotation": nbt.String(rotationLegacy[s.Rotation]), "mirror": nbt.String(mirrorLegacy[s.Mirror]),
-		"mode":           nbt.String(structureModeNames[s.Mode]),
-		"ignoreEntities": b(s.IgnoreEntities), "strict": b(s.Strict), "powered": b(s.Powered),
-		"showair": b(s.ShowAir), "showboundingbox": b(s.ShowBox),
-		"integrity": nbt.Float(s.Integrity), "seed": nbt.Long(s.Seed),
-	}
+	set("name", nbt.String(s.Name))
+	set("author", nbt.String(s.Author))
+	set("metadata", nbt.String(s.Metadata))
+	set("posX", nbt.Int(s.Pos[0]))
+	set("posY", nbt.Int(s.Pos[1]))
+	set("posZ", nbt.Int(s.Pos[2]))
+	set("sizeX", nbt.Int(s.Size[0]))
+	set("sizeY", nbt.Int(s.Size[1]))
+	set("sizeZ", nbt.Int(s.Size[2]))
+	set("rotation", nbt.String(rotationLegacy[s.Rotation]))
+	set("mirror", nbt.String(mirrorLegacy[s.Mirror]))
+	set("mode", nbt.String(structureModeNames[s.Mode]))
+	set("ignoreEntities", b(s.IgnoreEntities))
+	set("strict", b(s.Strict))
+	set("powered", b(s.Powered))
+	set("showair", b(s.ShowAir))
+	set("showboundingbox", b(s.ShowBox))
+	set("integrity", nbt.Float(s.Integrity))
+	set("seed", nbt.Long(s.Seed))
 }
 
 // ParseStructureName returns the qualified template id of a structure block

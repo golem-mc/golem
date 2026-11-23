@@ -114,6 +114,19 @@ var (
 	}
 	// beOptString is beString, left out while empty.
 	beOptString = beValue[string]{read: readString, write: func(v string) (nbt.Tag, bool) { return nbt.String(v), v != "" }}
+	// beLootTable reads a loot table's key as an Identifier, a bare name being
+	// minecraft's, and is left out while empty.
+	// vanilla: LootTable.KEY_CODEC
+	beLootTable = beValue[string]{
+		read: func(c nbt.Compound, key string) (string, bool) {
+			v, ok := readString(c, key)
+			if v != "" {
+				v = registry.Qualify(v)
+			}
+			return v, ok
+		},
+		write: beOptString.write,
+	}
 	// beSeed reads any number (LongValue) and writes a long, left out while 0.
 	beSeed = beValue[int64]{read: readLongValue, write: func(v int64) (nbt.Tag, bool) { return nbt.Long(v), v != 0 }}
 	// beLong reads any number (LongValue, getLong) and writes a long.
@@ -525,7 +538,7 @@ func (b *BlockEntity) contents(c *beCodec) {
 	// names no table, and a save writes the table only while no stack is in.
 	// A seed is saved only beside its table.
 	if lootTableKind(b.Kind) && !stacked {
-		field(c, "LootTable", &b.LootTable, beOptString, "")
+		field(c, "LootTable", &b.LootTable, beLootTable, "")
 		if c.load || b.LootTable != "" {
 			field(c, "LootTableSeed", &b.LootTableSeed, beSeed, 0)
 		}
