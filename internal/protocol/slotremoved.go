@@ -77,9 +77,6 @@ func removalIndex(component int32) int {
 }
 
 func (r Removals) has(index int) bool {
-	if index < 0 {
-		return false
-	}
 	return r[index/64]&(uint64(1)<<(index%64)) != 0
 }
 
@@ -113,17 +110,8 @@ func (s ItemStack) RemovedNames() []string {
 // Removes reports whether the stack's patch removes component from its
 // item's defaults.
 func (s ItemStack) Removes(component int32) bool {
-	return s.removals().has(removalIndex(component))
-}
-
-// removals is Removed as the patch carries it: a worn stack has a damage
-// value, which replaces a removal of it.
-func (s ItemStack) removals() Removals {
-	if s.Damage > 0 {
-		index := removalIndex(DataComponentDamage)
-		s.Removed[index/64] &^= uint64(1) << (index % 64)
-	}
-	return s.Removed
+	index := removalIndex(component)
+	return index >= 0 && s.Removed.has(index)
 }
 
 // Remove takes component away entirely, the removal rather than a return to

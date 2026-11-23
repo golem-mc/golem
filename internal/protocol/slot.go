@@ -174,7 +174,7 @@ func (s ItemStack) Same(other ItemStack) bool {
 	if s.Damage != other.Damage || s.RepairCost != other.RepairCost ||
 		s.GlintOverride != other.GlintOverride || s.Unbreakable != other.Unbreakable ||
 		s.Intangible != other.Intangible || !slices.Equal(s.intangibleLoaded, other.intangibleLoaded) ||
-		s.removals() != other.removals() {
+		s.Removed != other.Removed {
 		return false
 	}
 	if s.CustomName == nil || other.CustomName == nil {
@@ -384,7 +384,6 @@ func (b *Buffer) PutComponentData(s ItemStack, component int32) {
 			b.PutBool(true)
 			b.PutVarInt(entry.ItemID)
 			b.PutVarInt(entry.Count)
-			entry.Removed = entry.removals()
 			components := componentsOf(entry)
 			entry.orderPatch(components)
 			b.PutVarInt(int32(len(components)))
@@ -465,7 +464,6 @@ func (b *Buffer) PutSlot(s ItemStack) {
 	}
 	b.PutVarInt(s.Count)
 	b.PutVarInt(s.ItemID)
-	s.Removed = s.removals()
 	components := componentsOf(s)
 	s.orderPatch(components)
 	b.PutVarInt(int32(len(components)))
@@ -487,7 +485,6 @@ func (b *Buffer) PutUntrustedSlot(s ItemStack) {
 	}
 	b.PutVarInt(s.Count)
 	b.PutVarInt(s.ItemID)
-	s.Removed = s.removals()
 	components := componentsOf(s)
 	s.orderPatch(components)
 	b.PutVarInt(int32(len(components)))

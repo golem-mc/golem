@@ -62,7 +62,6 @@ func (b *Buffer) PutBundleContents(items []ItemStack) {
 func (b *Buffer) PutItemTemplate(item ItemStack) {
 	b.PutVarInt(item.ItemID)
 	b.PutVarInt(item.Count)
-	item.Removed = item.removals()
 	components := componentsOf(item)
 	item.orderPatch(components)
 	b.PutVarInt(int32(len(components)))
