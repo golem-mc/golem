@@ -233,23 +233,38 @@ func TestAnvilTake(t *testing.T) {
 	}
 }
 
-func TestAnvilRestoresRemovedRepairCostAndEnchantments(t *testing.T) {
-	sword := aSword(t, 0, 1, 25)
-	sword.SetEnchantment(false, smite, 3)
-	sword.Remove(protocol.DataComponentRepairCost)
+func TestAnvilRefusesRemovedEnchantments(t *testing.T) {
+	sword := aSword(t, 0, 1, 0)
 	sword.Remove(protocol.DataComponentEnchantments)
 
 	book := aBook(t, map[int32]int32{sharpness: 1})
+	combine := AnvilCombine(sword, book, "", false)
+	if !combine.Result.Empty() || combine.Cost != 0 {
+		t.Errorf("combine: %+v, want empty result and zero cost", combine)
+	}
+
+	rename := AnvilCombine(sword, protocol.ItemStack{}, "Renamed", false)
+	if !rename.Result.Empty() || rename.Cost != 0 {
+		t.Errorf("rename: %+v, want empty result and zero cost", rename)
+	}
+}
+
+func TestAnvilRestoresRemovedRepairCost(t *testing.T) {
+	sword := aSword(t, 0, 1, 25)
+	sword.Remove(protocol.DataComponentRepairCost)
+
+	book := aBook(t, map[int32]int32{sharpness: 1})
 	answer := AnvilCombine(sword, book, "", false)
-	if answer.Cost != 1 || answer.Result.RepairCost != 1 || answer.Result.Enchantments[sharpness] != 1 ||
+	if answer.Result.Empty() || answer.Cost != 1 || answer.Result.RepairCost != 1 || answer.Result.Enchantments[sharpness] != 1 ||
 		len(answer.Result.Enchantments) != 1 || len(answer.Result.RemovedNames()) != 0 {
 		t.Fatalf("combine = cost %d, repair cost %d, enchantments %v, removals %v, want 1, 1, Sharpness I, no removals",
 			answer.Cost, answer.Result.RepairCost, answer.Result.Enchantments, answer.Result.RemovedNames())
 	}
 
 	rename := AnvilCombine(sword, protocol.ItemStack{}, "Renamed", false)
-	if rename.Cost != 1 || rename.Result.RepairCost != 0 || len(rename.Result.RemovedNames()) != 0 {
-		t.Errorf("rename = cost %d, repair cost %d, removals %v, want 1, 0, no removals",
-			rename.Cost, rename.Result.RepairCost, rename.Result.RemovedNames())
+	if rename.Result.Empty() || rename.Cost != 1 || !rename.OnlyRenaming ||
+		rename.Result.CustomName == nil || rename.Result.CustomName.Text != "Renamed" ||
+		rename.Result.RepairCost != 0 || len(rename.Result.RemovedNames()) != 0 {
+		t.Errorf("rename: %+v, want renamed sword with cost 1, repair cost 0 and no removals", rename)
 	}
 }

@@ -152,7 +152,8 @@ func javaStringLength(s string) int {
 // supported tags refuse costs a level and goes nowhere. The extra's magic is walked in registry ID order, since
 // vanilla's map order is unspecified.
 func AnvilCombine(base, extra protocol.ItemStack, name string, creative bool) AnvilAnswer {
-	if base.Empty() {
+	// vanilla: EnchantmentHelper.canStoreEnchantments
+	if base.Empty() || (!isEnchantedBook(base) && base.Removes(protocol.DataComponentEnchantments)) {
 		return AnvilAnswer{}
 	}
 	// work counts a level per change beyond the first (a mended quarter, a
