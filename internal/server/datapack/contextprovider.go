@@ -148,7 +148,7 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 		var cases []registry.LootDispatchCase
 		var caseMsgs []string
 		for _, e := range items {
-			cc, ok := nbt.ListElement(e).(nbt.Compound)
+			cc, ok := entryOf(items, e).(nbt.Compound)
 			if !ok {
 				caseMsgs = append(caseMsgs, "Not a map: "+nbt.Stringify(e))
 				continue
@@ -269,6 +269,16 @@ func listItems(t nbt.Tag) ([]nbt.Tag, bool) {
 	return nil, false
 }
 
+// entryOf is a list entry as its element: only a list of two or more entries
+// can hold wrappers, so a lone {"": x} is a literal compound.
+// vanilla: JsonOps.getStream keeps every element as it is
+func entryOf(items []nbt.Tag, item nbt.Tag) nbt.Tag {
+	if len(items) < 2 {
+		return item
+	}
+	return nbt.ListElement(item)
+}
+
 // listOf decodes the elements of a list field with one decoder.
 func listOf[T any](c nbt.Compound, key string, one func(nbt.Tag) (T, string)) ([]T, string) {
 	t, msg := fieldOf(c, key)
@@ -281,7 +291,7 @@ func listOf[T any](c nbt.Compound, key string, one func(nbt.Tag) (T, string)) ([
 	}
 	out := make([]T, 0, len(items))
 	for _, item := range items {
-		v, msg := one(nbt.ListElement(item))
+		v, msg := one(entryOf(items, item))
 		if msg != "" {
 			return nil, msg
 		}
