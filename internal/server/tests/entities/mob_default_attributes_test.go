@@ -80,6 +80,47 @@ func TestMobSavesDefaultValuedAttributeInstances(t *testing.T) {
 	}
 }
 
+// vanilla: AbstractCow.createAttributes, LivingEntity.removeFrost, AttributeMap.pack
+func TestTickedNoAICowSavesDefaultMovementSpeed(t *testing.T) {
+	t.Parallel()
+	cfg := livingSavedConfig()
+	srv, c := servertest.Join(t, cfg, "Herder", servertest.OpsListing(t, "Herder"))
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand(`summon cow ~ ~ ~3 {NoAI:1b}`)
+	servertest.AwaitSystemChatSaying(t, c, "commands.summon.success")
+	const selector = "@e[type=cow,limit=1]"
+	if before := equineAttributes(t, c, selector); len(before) != 0 {
+		t.Fatalf("unticked cow attributes = %v, want empty", before)
+	}
+	servertest.RunTicks(t, srv, 1)
+	c.Settle()
+	const wantEntry = `{id: "minecraft:movement_speed", base: 0.20000000298023224d}`
+	if full := livingData(t, c, selector, ""); !strings.Contains(full, "attributes: ["+wantEntry+"]") {
+		t.Errorf("full cow data missing default movement_speed: %s", full)
+	}
+	got := equineAttributes(t, c, selector)
+	wantSpeed, err := nbt.ParseSNBT(wantEntry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]nbt.Compound{"minecraft:movement_speed": wantSpeed}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ticked cow attributes = %v, want %v", got, want)
+	}
+	srv.FlushMobs()
+	c.Disconnect()
+	srv.Shutdown()
+	again, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Herder"))
+	servertest.FreezeUntilHeld(t, again)
+	c = connect().Join("Herder")
+	servertest.HoldTicks(t, again)
+	servertest.UntilTicks(t, again, 20, "saved cow wakes", func() bool { return again.MobCount() == 1 })
+	c.Settle()
+	if reloaded := equineAttributes(t, c, selector); !reflect.DeepEqual(reloaded, want) {
+		t.Errorf("reloaded cow attributes = %v, want %v", reloaded, want)
+	}
+}
+
 func checkMobAttributeFixtures(t *testing.T, c *servertest.Client, stage string) {
 	t.Helper()
 	data, err := os.ReadFile("testdata/mob_attribute_instances.tsv")
