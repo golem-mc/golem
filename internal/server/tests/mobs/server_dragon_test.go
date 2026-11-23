@@ -74,7 +74,12 @@ func TestTeamFriendlyFireGatesDragonContacts(t *testing.T) {
 		{"wing", 0, 14.5, 12, true},
 	}
 	for _, tc := range cases {
-		for _, mode := range []string{"control", "teamed", "friendly"} {
+		modes := []string{"control", "teamed", "friendly"}
+		if tc.wing {
+			// A hit inside the invulnerability window lands only its excess damage and sends no motion.
+			modes = append(modes, "cooldown")
+		}
+		for _, mode := range modes {
 			t.Run(tc.name+"/"+mode, func(t *testing.T) {
 				t.Parallel()
 				cfg := servertest.HostileTestConfig()
@@ -86,10 +91,13 @@ func TestTeamFriendlyFireGatesDragonContacts(t *testing.T) {
 				c.MoveTo(tc.x, 128, tc.z, 0, 0)
 				c.Settle()
 				// A fresh player's hurt stamp is still inside the wing's grace window.
+				if mode == "cooldown" {
+					srv.RunLine("damage Explorer 1 minecraft:generic")
+				}
 				servertest.RunTicks(t, srv, 5)
 				c.ChatCommand(fmt.Sprintf("summon minecraft:ender_dragon 8.0 128.0 12.0 {DragonPhase:%d,Rotation:[0f,0f]}", tc.phase))
 				c.Settle()
-				if mode != "control" {
+				if mode == "teamed" || mode == "friendly" {
 					srv.RunLine("team add t")
 					srv.RunLine("team modify t friendlyFire " + fmt.Sprint(mode == "friendly"))
 					srv.RunLine("team join t Explorer")
@@ -110,10 +118,14 @@ func TestTeamFriendlyFireGatesDragonContacts(t *testing.T) {
 				})
 				hurt := srv.PlayerHealth("Explorer") < 20
 				// The impulse is server-side; only a landed hurt tells the client.
-				if tc.wing && motion != hurt {
+				if tc.wing && motion != (hurt && mode != "cooldown") {
 					t.Errorf("mode %s: client told of motion = %v, hurt = %v", mode, motion, hurt)
 				}
-				if hurt != (mode != "teamed") {
+				if mode == "cooldown" {
+					if h := srv.PlayerHealth("Explorer"); h != 15 {
+						t.Errorf("cooldown: health %v, want 15", h)
+					}
+				} else if hurt != (mode != "teamed") {
 					t.Errorf("health %v with mode %s", srv.PlayerHealth("Explorer"), mode)
 				}
 				if tc.wing && !moved {

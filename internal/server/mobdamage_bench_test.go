@@ -88,9 +88,21 @@ func BenchmarkMobContactStrike(b *testing.B) {
 						v.InvulnerableTicks = 0
 					})
 					s.mobsMu.Lock()
-					cow.mob.Health, cow.mob.HurtTime = cowHealth, 0
+					cow.mob.Health, cow.mob.HurtTime, cow.mob.InvulnTicks = cowHealth, 0, 0
 					s.mobsMu.Unlock()
 					s.landingBlow(strike, clients)
+				}
+				b.StopTimer()
+				var hurt bool
+				if victimKind == "player" {
+					hurt = player0.player.Vitals().Health < 20
+				} else {
+					s.mobsMu.Lock()
+					hurt = cow.mob.Health < cowHealth
+					s.mobsMu.Unlock()
+				}
+				if hurt == refused {
+					b.Fatalf("victim hurt = %v with refused = %v", hurt, refused)
 				}
 			})
 		}

@@ -1389,7 +1389,7 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 		}
 	}
 	if landedHit {
-		if strike.dragonContact {
+		if strike.dragonContact && !softened {
 			victim.velocityDirty = true
 		}
 		// A hit that landed only through the invulnerability window skips default

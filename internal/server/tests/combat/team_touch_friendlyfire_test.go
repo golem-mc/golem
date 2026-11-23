@@ -3,6 +3,7 @@ package combat
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -30,7 +31,9 @@ func TestTeamFriendlyFireGatesMobTouches(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 				const player = "Target"
-				srv, c := servertest.Join(t, servertest.MobTestConfig(), player, servertest.WriteOpsFile(t, servertest.OpRecord{
+				cfg := servertest.MobTestConfig()
+				cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+				srv, c := servertest.Join(t, cfg, player, servertest.WriteOpsFile(t, servertest.OpRecord{
 					UUID: protocol.OfflineUUID(player).String(), Name: player, Level: 4,
 				}))
 				c.MoveToGround(0.5, 64, 0.5, true)
