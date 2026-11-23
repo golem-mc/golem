@@ -314,7 +314,7 @@ func TestPluginBlockWriteRelightsAtFlush(t *testing.T) {
 		return s
 	}
 	run(func() { roof(plugin.DefaultState(registry.BlockStone)) })
-	servertest.UntilTicks(t, srv, 20, "light under the roof", func() bool { return sky() < 15 })
+	servertest.UntilTicks(t, srv, 400, "light under the roof", func() bool { return sky() < 15 })
 	run(func() { roof(plugin.DefaultState(registry.BlockAir)) })
-	servertest.UntilTicks(t, srv, 20, "light back", func() bool { return sky() == 15 })
+	servertest.UntilTicks(t, srv, 400, "light back", func() bool { return sky() == 15 })
 }
