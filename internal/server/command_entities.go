@@ -1888,11 +1888,9 @@ func (s *Server) cloudSnapshot(it *cloudEntity, q *entityQuery) *entitySnapshot 
 	if c.Dead {
 		return nil
 	}
-	r := float64(c.Radius())
 	pos := player.Position{X: c.X, Y: c.Y, Z: c.Z}
 	e := s.snapshot(q, it.tags, it, c.ID, typ, "Area Effect Cloud", it.uuid,
-		s.dimensionOfWorld(it.w).name, pos,
-		box6(c.X-r, c.Y, c.Z-r, c.X+r, c.Y+0.5, c.Z+r))
+		s.dimensionOfWorld(it.w).name, pos, box6(c.Box().Corners()))
 	if e == nil {
 		return nil
 	}
