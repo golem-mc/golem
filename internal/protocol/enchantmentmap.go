@@ -41,6 +41,7 @@ func (s *ItemStack) SetEnchantments(stored bool, levels map[int32]int32, order .
 	if stored {
 		component = DataComponentStoredEnchantments
 	}
+	s.clearRemoval(component)
 	if len(levels) > 0 {
 		s.NotePatch(component)
 	} else {

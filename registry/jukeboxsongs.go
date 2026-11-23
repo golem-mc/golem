@@ -68,7 +68,7 @@ func JukeboxSongForItem(itemID int32) (string, bool) {
 // JukeboxSongForStack returns the stack's song component over its item default.
 // vanilla: JukeboxSong.fromStack
 func JukeboxSongForStack(stack protocol.ItemStack) (string, bool) {
-	if stack.Empty() || stack.Removed != 0 && stack.Removes(protocol.DataComponentJukeboxPlayable) {
+	if stack.Empty() || stack.Removes(protocol.DataComponentJukeboxPlayable) {
 		return "", false
 	}
 	if id, ok := stack.JukeboxPlayableOf(); ok {

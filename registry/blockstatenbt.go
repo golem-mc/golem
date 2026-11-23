@@ -49,28 +49,56 @@ func BlockStateCodecTag(state uint16) nbt.Tag {
 // BlockStateOf reads a block state tag's name and its string-valued
 // properties, the shape FindState takes. It accepts id/properties, the legacy
 // Name/Properties, and a bare string (a default state, as BlockState.CODEC
-// writes it). A missing name reads as "", and the map is never nil.
+// writes it). A missing name reads as "", and absent property overrides read
+// as nil.
 // vanilla: BlockState.CODEC
 func BlockStateOf(tag nbt.Tag) (string, map[string]string) {
-	props := map[string]string{}
+	name, props, _ := blockStateOf(tag, true)
+	return name, props
+}
+
+// BlockStateOfCodec reads a 26.3 BlockState.CODEC tag: a bare block name
+// string, or a compound carrying a string id and an optional properties
+// compound. It rejects the legacy Name/Properties form; a malformed
+// properties field or non-string property value is ignored so FindState
+// leaves those properties at the block's default.
+// vanilla: BlockState.CODEC
+func BlockStateOfCodec(tag nbt.Tag) (string, map[string]string, bool) {
+	return blockStateOf(tag, false)
+}
+
+func blockStateOf(tag nbt.Tag, legacy bool) (string, map[string]string, bool) {
 	if s, ok := tag.(nbt.String); ok {
-		return string(s), props
+		return string(s), nil, true
 	}
-	block, _ := nbt.CompoundView(tag)
+	block, ok := nbt.CompoundView(tag)
+	if !ok {
+		return "", nil, false
+	}
 	name, ok := nbt.Get[nbt.String](block, "id")
 	key := "properties"
 	if !ok {
-		name, _ = nbt.Get[nbt.String](block, "Name")
+		if !legacy {
+			return "", nil, false
+		}
+		name, ok = nbt.Get[nbt.String](block, "Name")
+		if !ok {
+			return "", nil, false
+		}
 		key = "Properties"
 	}
-	if properties, ok := nbt.Get[nbt.Compound](block, key); ok {
+	var props map[string]string
+	if properties, ok := nbt.Get[nbt.Compound](block, key); ok && len(properties) > 0 {
 		for k, value := range properties {
 			if s, ok := value.(nbt.String); ok {
+				if props == nil {
+					props = make(map[string]string, len(properties))
+				}
 				props[k] = string(s)
 			}
 		}
 	}
-	return string(name), props
+	return string(name), props, true
 }
 
 // StateOfTag decodes a block state tag (see BlockStateOf) to a state ID;

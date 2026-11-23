@@ -99,8 +99,7 @@ func ApproximateAttributeWith(stack protocol.ItemStack, attribute registry.Attri
 
 // broken is ItemStack.isBroken: worn to its max damage.
 func broken(stack protocol.ItemStack) bool {
-	limit := registry.StackMaxDamage(stack)
-	return limit > 0 && !stack.Unbreakable && stack.Damage >= limit
+	return registry.StackDamageable(stack) && stack.Damage >= registry.StackMaxDamage(stack)
 }
 
 // UpdateEquipmentAttributes moves the modifiers of every equipment slot whose

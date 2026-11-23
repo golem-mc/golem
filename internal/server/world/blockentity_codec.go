@@ -693,6 +693,14 @@ func (b *BlockEntity) vibrationData(c *beCodec) {
 	}
 }
 
+// BlockStateKeyPiston is the moving-piston block entity's moved state key.
+const BlockStateKeyPiston = "blockState"
+
+// BlockStateNBTKeys lists every block-entity NBT key decoded with BlockState.CODEC.
+var BlockStateNBTKeys = []string{
+	BlockStateKeyPiston,
+}
+
 // pistonRide walks a moving piston's ride in vanilla's shape: the block state
 // as its codec writes it, the facing as the legacy direction byte. The
 // progress is written finished and never read: the engine holds a move for
@@ -701,7 +709,7 @@ func (b *BlockEntity) vibrationData(c *beCodec) {
 // carries, so a reloaded move is old.
 // vanilla: PistonMovingBlockEntity.loadAdditional, saveAdditional
 func (b *BlockEntity) pistonRide(c *beCodec) {
-	field(c, "blockState", &b.MovedState, beMovedState, 0)
+	field(c, BlockStateKeyPiston, &b.MovedState, beMovedState, 0)
 	field(c, "facing", &b.PistonDir, beLegacyDirection, 0)
 	if c.load {
 		b.CreatedTick = -1

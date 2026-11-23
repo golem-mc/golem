@@ -23,6 +23,25 @@ const (
 	FixtureMarker       = "minecraft:marker"
 )
 
+// Entity NBT keys decoded through BlockState.CODEC.
+// vanilla: BlockDisplay, EnderMan, AbstractArrow, FallingBlockEntity, PrimedTnt, AbstractMinecart
+const (
+	BlockStateKeyDisplay  = "block_state"
+	BlockStateKeyCarried  = "carriedBlockState"
+	BlockStateKeyInBlock  = "inBlockState"
+	BlockStateKeyFalling  = "BlockState"
+	BlockStateKeyMinecart = "DisplayState"
+)
+
+// BlockStateNBTKeys lists every entity NBT key decoded with BlockState.CODEC.
+var BlockStateNBTKeys = []string{
+	BlockStateKeyDisplay,
+	BlockStateKeyCarried,
+	BlockStateKeyInBlock,
+	BlockStateKeyFalling,
+	BlockStateKeyMinecart,
+}
+
 // The metadata indexes of Display and its subtypes.
 // vanilla: Display.defineSynchedData and the subtypes' own
 const (
@@ -265,7 +284,7 @@ func (f *fieldSet) putDisplay(tag nbt.Compound) {
 // putBlockState sends the displayed block when the tag names a state.
 func (f *fieldSet) putBlockState(tag nbt.Compound) {
 	var state int32
-	if block, ok := tag["block_state"]; ok {
+	if block, ok := tag[BlockStateKeyDisplay]; ok {
 		name, props := registry.BlockStateOf(block)
 		if s, ok := registry.FindState(registry.Qualify(name), props); ok {
 			state = int32(s)
@@ -518,9 +537,9 @@ func FixtureSaved(kind string, source nbt.Compound, tag nbt.CompoundTag) {
 	set("brightness", nil)
 	switch kind {
 	case FixtureBlockDisplay:
-		name, props := registry.BlockStateOf(source["block_state"])
+		name, props := registry.BlockStateOf(source[BlockStateKeyDisplay])
 		state, _ := registry.FindState(registry.Qualify(name), props)
-		tag.Set("block_state", registry.BlockStateCodecTag(state))
+		tag.Set(BlockStateKeyDisplay, registry.BlockStateCodecTag(state))
 	case FixtureItemDisplay:
 		setItem()
 		set("item_display", nbt.String("none"))

@@ -35,11 +35,23 @@ func TestPluginItemsParseFormat(t *testing.T) {
 		if !items.Similar(s, again) || items.Similar(s, plugin.NewStack(registry.ItemDiamondSword, 2)) {
 			t.Error("Similar wrong")
 		}
+		for _, glint := range []bool{false, true} {
+			sword := plugin.NewStack(registry.ItemDiamondSword, 1)
+			sword.Patch.GlintOverride = &glint
+			text := items.Format(sword)
+			parsed, err := items.Parse(text, sword.Count)
+			if err != nil || !reflect.DeepEqual(parsed, sword) {
+				t.Errorf("glint %t: parsing %q = %+v, %v", glint, text, parsed, err)
+			}
+		}
 		if _, err := items.Parse("not_an_item", 1); err == nil {
 			t.Error("unknown item parsed")
 		}
 		if _, err := items.Parse("diamond_sword[bogus=1]", 1); err == nil {
 			t.Error("unknown component parsed")
+		}
+		if _, err := items.Parse("diamond_sword[enchantment_glint_override=1:bad]", 1); err == nil {
+			t.Error("resource location parsed as a glint override")
 		}
 		if got := items.MaxStackSize(plugin.NewStack(registry.ItemEnderPearl, 1)); got != 16 {
 			t.Errorf("ender pearl max %d", got)

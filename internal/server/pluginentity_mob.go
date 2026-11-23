@@ -3,9 +3,9 @@ package server
 import (
 	"maps"
 
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/plugin"
-	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
 
@@ -54,28 +54,6 @@ type (
 	}
 )
 
-// pluginKindHandle picks the handle type a body's saved form calls for: the
-// keys a kind always writes tell which interfaces it has. A zombie has no
-// Age but is an Ageable through IsBaby.
-// vanilla: Mob.addAdditionalSaveData, AgeableMob, Animal, TamableAnimal
-func pluginKindHandle(base pluginEntity, saved nbt.Compound) plugin.Entity {
-	has := func(k string) bool { _, ok := saved[k]; return ok }
-	if h := pluginVariantOf(base, saved); h != nil && has("PersistenceRequired") {
-		return h
-	}
-	switch {
-	case !has("PersistenceRequired"):
-		return pluginLivingEntity{pluginEntity: base, livingOps: livingOps{base}}
-	case has("Sitting") && base.Type() != registry.EntityTypeFox, has("Tame"):
-		return pluginTameableEntity{pluginEntity: base, livingOps: livingOps{base}, mobOps: mobOps{base}, ageOps: ageOps{base}, loveOps: loveOps{base}, tameOps: tameOps{base}}
-	case has("InLove"):
-		return pluginBreedableEntity{pluginEntity: base, livingOps: livingOps{base}, mobOps: mobOps{base}, ageOps: ageOps{base}, loveOps: loveOps{base}}
-	case has("Age") || has("IsBaby"):
-		return pluginAgeableEntity{pluginEntity: base, livingOps: livingOps{base}, mobOps: mobOps{base}, ageOps: ageOps{base}}
-	}
-	return pluginMobEntity{pluginEntity: base, livingOps: livingOps{base}, mobOps: mobOps{base}}
-}
-
 func (e pluginEntity) uuidField(key string) (plugin.UUID, bool) {
 	id, ok := nbt.UUIDField(e.saved(), key)
 	return plugin.UUID(id), ok && id != uuid.Nil
@@ -92,16 +70,28 @@ func (e pluginEntity) setUUID(key string, id plugin.UUID) {
 
 func uuidOf(id plugin.UUID) uuid.UUID { return uuid.UUID(id) }
 
-func (e mobOps) AI() bool     { return !e.e.flag("NoAI") }
+func (e mobOps) AI() bool {
+	var noAI bool
+	if e.e.readMob(func(m *entity.Mob) { noAI = m.NoAI }) {
+		return !noAI
+	}
+	return !e.e.flag("NoAI")
+}
 func (e mobOps) SetAI(v bool) { e.e.setFlag("NoAI", !v) }
 func (e mobOps) SavedData() nbt.Compound {
 	return maps.Clone(e.e.saved())
 }
 func (e mobOps) MergeData(fields nbt.Compound) bool { return e.e.merge(fields) }
-func (e mobOps) Persistent() bool                   { return e.e.flag("PersistenceRequired") }
-func (e mobOps) SetPersistent(v bool)               { e.e.setFlag("PersistenceRequired", v) }
-func (e mobOps) LeftHanded() bool                   { return e.e.flag("LeftHanded") }
-func (e mobOps) SetLeftHanded(v bool)               { e.e.setFlag("LeftHanded", v) }
+func (e mobOps) Persistent() bool {
+	var persistent bool
+	if e.e.readMob(func(m *entity.Mob) { persistent = m.Persistence }) {
+		return persistent
+	}
+	return e.e.flag("PersistenceRequired")
+}
+func (e mobOps) SetPersistent(v bool) { e.e.setFlag("PersistenceRequired", v) }
+func (e mobOps) LeftHanded() bool     { return e.e.flag("LeftHanded") }
+func (e mobOps) SetLeftHanded(v bool) { e.e.setFlag("LeftHanded", v) }
 
 func (e mobOps) Loot() (plugin.Key, int64) {
 	saved := e.e.saved()

@@ -10,19 +10,12 @@ import (
 // hit, armour's turned blow) comes through here, damaged per the item's
 // components and ended by its max damage.
 
-// damageable is ItemStack.isDamageableItem: a stack of an item carrying a max
-// damage of its own that is not unbreakable.
-// vanilla: ItemStack.isDamageableItem
-func damageable(stack protocol.ItemStack) bool {
-	return registry.StackMaxDamage(stack) > 0 && !stack.Unbreakable
-}
-
 // Wear adds n to the stack's wear, returning it empty and broke when the wear
 // reaches max damage (vanilla removes the item rather than leaving it one use
 // past). An empty stack, one without max damage, or an unbreakable one is
 // returned unchanged.
 func Wear(stack protocol.ItemStack, n int32) (after protocol.ItemStack, broke bool) {
-	if n <= 0 || stack.Damage < 0 || !damageable(stack) {
+	if n <= 0 || stack.Damage < 0 || !registry.StackDamageable(stack) {
 		return stack, false
 	}
 	max := registry.StackMaxDamage(stack)
@@ -37,7 +30,7 @@ func Wear(stack protocol.ItemStack, n int32) (after protocol.ItemStack, broke bo
 // gate a nearly spent trident's charge and release both check.
 // vanilla: ItemStack.nextDamageWillBreak
 func NextWearBreaks(stack protocol.ItemStack) bool {
-	return damageable(stack) && stack.Damage >= registry.StackMaxDamage(stack)-1
+	return registry.StackDamageable(stack) && stack.Damage >= registry.StackMaxDamage(stack)-1
 }
 
 // BreakStatus is the equipment-break Entity Event status for an inventory

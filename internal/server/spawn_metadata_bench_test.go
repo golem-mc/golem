@@ -18,6 +18,7 @@ func BenchmarkCloudMetadataSpawn(b *testing.B) {
 		{"potion", nil},
 		{"dragon-breath", nbt.Compound{"type": nbt.String("minecraft:dragon_breath"), "power": nbt.Float(1)}},
 		{"dust", nbt.Compound{"type": nbt.String("minecraft:dust"), "color": nbt.Int(0xff0000), "scale": nbt.Float(1)}},
+		{"block", nbt.Compound{"type": nbt.String("minecraft:block"), "block_state": nbt.String("minecraft:stone")}},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			it := &cloudEntity{cloud: entity.NewCloud(7, 0.5, 70, 0.5, nil), colour: -65536, customParticle: tc.particle}

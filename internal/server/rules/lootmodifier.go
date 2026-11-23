@@ -155,10 +155,10 @@ func (r *lootRoller) apply(fn registry.LootFunction, s protocol.ItemStack, patch
 		// An item without durability, or an unbreakable one, keeps its
 		// wear. The fraction is float32 arithmetic.
 		// vanilla: SetItemDamageFunction.run
-		maxDamage := registry.StackMaxDamage(s)
-		if maxDamage <= 0 || s.Unbreakable {
+		if !registry.StackDamageable(s) {
 			return s
 		}
+		maxDamage := registry.StackMaxDamage(s)
 		base := float32(0)
 		if k.Add {
 			base = 1 - float32(s.Damage)/float32(maxDamage)
@@ -187,6 +187,9 @@ func (r *lootRoller) apply(fn registry.LootFunction, s protocol.ItemStack, patch
 		}
 	case registry.LootSetEnchantments:
 		s = transmuteBook(s)
+		if !isEnchantedBook(s) && s.Removes(protocol.DataComponentEnchantments) {
+			return s
+		}
 		levels := enchantLevels(&s)
 		for _, enchName := range slices.Sorted(maps.Keys(k.Enchantments)) {
 			id, ok := registry.EnchantmentID(enchName)
@@ -456,7 +459,7 @@ func setEnchantTarget(s *protocol.ItemStack, levels map[int32]int32) {
 // higher one already there.
 // vanilla: ItemEnchantments.Mutable.upgrade
 func upgradeEnchantment(s *protocol.ItemStack, id, level int32) {
-	if level <= 0 {
+	if level <= 0 || !isEnchantedBook(*s) && s.Removes(protocol.DataComponentEnchantments) {
 		return
 	}
 	levels := enchantLevels(s)

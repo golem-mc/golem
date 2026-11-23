@@ -561,7 +561,7 @@ func (c *client) pluginItemBreak(item int32) {
 // vanilla: ArmorStand.interact, swapItem
 func (c *client) pluginStandManipulate(id uuid.UUID, slot int, held, onStand protocol.ItemStack) bool {
 	base := pluginEntity{host: c.srv.pluginAdapter, id: id}
-	stand, ok := pluginTypedHandle(base, registry.EntityTypeArmorStand, nil).(plugin.ArmorStand)
+	stand, ok := pluginTypedHandle(base, registry.EntityTypeArmorStand).(plugin.ArmorStand)
 	if !ok {
 		return true
 	}

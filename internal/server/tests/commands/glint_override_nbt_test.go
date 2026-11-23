@@ -70,3 +70,46 @@ func TestGlintOverrideNBT(t *testing.T) {
 		}
 	}
 }
+
+// vanilla: ItemParser.State.readComponent, NbtOps.getBooleanValue
+func TestNumericGlintOverrideItemArguments(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.ItemCreativeConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
+	sword := servertest.MustItem("minecraft:diamond_sword")
+
+	for _, command := range []string{"give @s", "item replace entity @s hotbar.8 with"} {
+		for _, tc := range []struct {
+			value string
+			want  int8
+		}{
+			{"0b", protocol.GlintHidden},
+			{"1b", protocol.GlintShown},
+			{"-0.0d", protocol.GlintHidden},
+			{"2b", protocol.GlintShown},
+			{"0s", protocol.GlintHidden},
+			{"-0.5f", protocol.GlintShown},
+			{"0", protocol.GlintHidden},
+			{"4294967296L", protocol.GlintShown},
+		} {
+			c.ChatCommand(command + " diamond_sword[enchantment_glint_override=" + tc.value + "]")
+			var got protocol.ItemStack
+			found := c.ReadTicks(srv, 3, func(id int32, data []byte) bool {
+				if id != protocol.IDPlayContainerSlot {
+					return false
+				}
+				r := protocol.NewReader(data)
+				r.ReadVarInt()
+				r.ReadVarInt()
+				r.ReadI16()
+				got = servertest.MustReadSlot(t, r)
+				return got.ItemID == sword
+			})
+			if !found || got.GlintOverride != tc.want {
+				t.Errorf("%s, value %s: glint = %d (sword arrived %v), want %d", command, tc.value, got.GlintOverride, found, tc.want)
+			}
+		}
+	}
+}
