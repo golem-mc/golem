@@ -91,3 +91,28 @@ func TestTeleportCommandKeepsFallFlyingMobOffGround(t *testing.T) {
 		t.Error("a gliding zombie is on the ground after /tp")
 	}
 }
+
+// A /tp while ticking is frozen still reaches the client on a stepped path.
+// vanilla: ServerEntity.sendChanges, SteppedInterpolationTracker
+func TestFrozenTeleportCommandSendsSteppedPath(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, tpGroundConfig(), "Watcher")
+	servertest.HoldTicks(t, srv)
+	srv.RunLine(`summon magma_cube 0.5 106 0.5 {Size:1,NoAI:1b}`)
+	id := srv.MobIDsOfKind("minecraft:magma_cube")[0]
+	servertest.RunTicks(t, srv, 1)
+	srv.RunLine(`tick freeze`)
+	c.Settle()
+	srv.RunLine(`tp @e[type=magma_cube,limit=1] 0.5 101 0.5`)
+	var sync servertest.EntityPositionSync
+	seen := c.ReadTicks(srv, 5, func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlayTeleportEntity {
+			return false
+		}
+		sync = servertest.ParseEntityPositionSync(data)
+		return sync.ID == id
+	})
+	if !seen || !sync.Stepped || sync.StepTicks < 1 || sync.Y != 101 {
+		t.Errorf("seen %v, sync = %+v, want stepped at y 101", seen, sync)
+	}
+}

@@ -662,6 +662,7 @@ func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 			}
 			body := mobTracker.body(ent)
 			motion := mobMovement{seated: ent.seated()}
+			frozen := moveTick{teleported: true, stepTicks: body.t.frozenStep(ent.teleported)}
 			for _, i := range body.watchers(near) {
 				wt := watchers[i]
 				if wt.c.theWorld() != dim.w {
@@ -669,7 +670,7 @@ func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 				}
 				_, told := ent.tracked.get(wt.c)
 				if was, seen := mobSettle(&body, wt.c, wt.x, wt.z, wt.chunkRadius, &sends); seen && told && ent.teleported {
-					motion.move(&body, was, wt.c, moveTick{teleported: true}, &sends)
+					motion.move(&body, was, wt.c, frozen, &sends)
 				}
 			}
 			ent.teleported = false

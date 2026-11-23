@@ -412,6 +412,19 @@ func (m *movementSchedule) takeTeleport() moveTick {
 	return mt
 }
 
+// frozenStep counts one tick of a body that does not tick while frozen and,
+// when it is teleported, takes the ticks since the previous gated tick.
+// vanilla: SteppedInterpolationTracker
+func (m *movementSchedule) frozenStep(gated bool) int32 {
+	m.sinceStep++
+	if !gated {
+		return 0
+	}
+	n := m.sinceStep - 1
+	m.sinceStep = 1
+	return n
+}
+
 // trackSends is what a tick's tracking gathers: pairings and removals, then
 // movements, sent in that order once the kind's lock is down.
 type trackSends struct {
