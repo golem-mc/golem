@@ -49,6 +49,38 @@ func TestAddItemMergesThenFillsAndReportsIntoEmpty(t *testing.T) {
 	if !left.Empty() || intoEmpty || hopper.slots[0].Count != 64 || hopper.slots[1].Count != 2 {
 		t.Fatalf("second pour: left %v, intoEmpty %v, slots %v", left, intoEmpty, hopper.slots[:2])
 	}
+
+	custom := &testBlock{kind: KindHopper, slots: make([]protocol.ItemStack, 5)}
+	custom.slots[0] = item(t, "minecraft:stone", 3)
+	custom.slots[0].SetMaxStackSize(4)
+	in := item(t, "minecraft:stone", 3)
+	in.SetMaxStackSize(4)
+	left, intoEmpty = AddItem(custom, in, 0, false)
+	if left.Count != 0 || intoEmpty || custom.slots[0].Count != 4 || custom.slots[1].Count != 2 {
+		t.Fatalf("custom maximum: left %v, intoEmpty %v, slots %v", left, intoEmpty, custom.slots[:2])
+	}
+
+	worn := &testBlock{kind: KindHopper, slots: make([]protocol.ItemStack, 5)}
+	worn.slots[0] = item(t, "minecraft:stone", 5)
+	other := item(t, "minecraft:stone", 1)
+	other.Damage = 1
+	left, _ = AddItem(worn, other, 0, false)
+	if worn.slots[0].Count != 5 || worn.slots[1].Count != 1 || !left.Empty() {
+		t.Fatalf("different components merged: left %v, slots %v", left, worn.slots[:2])
+	}
+}
+
+func BenchmarkAddOneToOccupiedHopper(b *testing.B) {
+	hopper := &testBlock{kind: KindHopper, slots: make([]protocol.ItemStack, 5)}
+	one, full := item(b, "minecraft:stone", 1), item(b, "minecraft:stone", 32)
+	b.ReportAllocs()
+	for b.Loop() {
+		hopper.slots[0] = full
+		left, intoEmpty := AddItem(hopper, one, protocol.FaceTop, false)
+		if !left.Empty() || intoEmpty || hopper.slots[0].Count != 33 {
+			b.Fatalf("left %v, intoEmpty %v, slot %v", left, intoEmpty, hopper.slots[0])
+		}
+	}
 }
 
 func TestFurnaceFacesAndShulkerRefusal(t *testing.T) {
