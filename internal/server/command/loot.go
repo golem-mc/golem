@@ -417,7 +417,6 @@ func lootTableWords(src Source, input string, words []string) (lootTableRef, int
 // vanilla: LootTable.getRandomItems
 func rollLootTable(src Source, ref lootTableRef, ctx *rules.LootContext) []protocol.ItemStack {
 	if ref.inline != nil {
-		ctx.Random = src.Random()
 		return rules.RollLootTable(ref.name, *ref.inline, ctx, src.Random())
 	}
 	return rules.RollLoot(ref.name, ctx, src.Random())

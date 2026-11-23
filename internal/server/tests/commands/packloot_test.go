@@ -38,12 +38,21 @@ func TestPackLootUsesOnlyTheOuterSequence(t *testing.T) {
 	}
 	resetAll(1)
 
-	for _, table := range []string{"pk:unsequenced", `{random_sequence:"pk:inline",` + reference + "}"} {
+	for _, table := range []string{"pk:unsequenced", "{" + reference + "}"} {
 		if got := giveStack(t, c, "loot give @s loot "+table); got.ItemID != servertest.MustItem("minecraft:gold_ingot") {
 			t.Errorf("%s gave %+v, want gold ingots", table, got)
 		}
 	}
 	resetAll(0)
+
+	// Vanilla 26.3 on seed 12345 rolls four stacks, then draws 863 from the same sequence.
+	c.ChatCommand(`loot give @s loot {random_sequence:"minecraft:inline_test",pools:[{rolls:{type:"minecraft:uniform",min:1,max:20},entries:[{type:"minecraft:item",name:"minecraft:gold_ingot"}]}]}`)
+	_, chats := servertest.AwaitSlotUpdates(t, c, 4)
+	servertest.ExpectFeedbackSoon(t, c, chats, "commands.drop.success.multiple", servertest.ItemNumber(4))
+	c.ChatCommand("random value 0..1000 minecraft:inline_test")
+	if got := expectSample(t, c); got != 863 {
+		t.Errorf("draw after inline loot = %d, want 863 from minecraft:inline_test", got)
+	}
 }
 
 // itemLootTable is a one-pool table that always gives count of item.
