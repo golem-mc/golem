@@ -47,6 +47,33 @@ func BenchmarkTickMobsTracked(b *testing.B) {
 	}
 }
 
+// BenchmarkTickMagmaCubesTracked includes takeoff and landing updates for
+// 64 jumping cubes watched by the players around the grid.
+func BenchmarkTickMagmaCubesTracked(b *testing.B) {
+	const cubes = 64
+	s, _ := newTrackerBenchServer(b)
+	dim := s.allDims()[0]
+	for i := range cubes {
+		x, z := trackerBenchSpot(i)
+		s.spawnMobArriving(dim, entity.TypeMagmaCube, x, float64(world.GroundLevel), z, int64(i+1), nil, false, "", false, func(ent *mobEntity) {
+			ent.mob.SetSize(2, true)
+			ent.mob.Persistence = true
+		})
+	}
+	for range 20 {
+		s.tickMobs()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.tickMobs()
+	}
+	b.StopTimer()
+	if n := len(dim.mobs.herd); n != cubes {
+		b.Fatalf("%d magma cubes in the herd after the run, want %d", n, cubes)
+	}
+}
+
 // BenchmarkTickMobsSwimming runs the whole mob tick over a school of cod
 // pathing round stone pillars in a pond, every one watched by every player.
 func BenchmarkTickMobsSwimming(b *testing.B) {

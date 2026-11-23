@@ -1854,9 +1854,8 @@ type Mob struct {
 	// its mushrooms.
 	Sheared bool
 
-	// Impulse says the velocity was changed from outside the walk (a hit's
-	// shove), so the next step is worth sending at once. Whoever reads it
-	// clears it.
+	// Impulse requests a movement update off cadence, such as for a shove
+	// or a magma cube's takeoff. Whoever reads it clears it.
 	Impulse bool
 
 	// TargetID is the entity ID of the player the mob targets (Mob.setTarget),
