@@ -56,7 +56,7 @@ func (s *Server) hopperListening() bool {
 // askHopper probes one hopper's turn and fires the move and pickup events for
 // what it would do, outside the hopper's lock. A cancelled pickup is probed
 // again, since the hopper then tries the next item entity.
-func (s *Server) askHopper(w *world.World, be *world.BlockEntity, age int64) *hopperGate {
+func (s *Server) askHopper(w *world.World, be *world.BlockEntity) *hopperGate {
 	g := &hopperGate{pickup: map[*itemEntity]bool{}}
 	for {
 		g.probing, g.pending = true, nil

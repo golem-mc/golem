@@ -334,12 +334,24 @@ func pourInto[B inventory.Block](src, into *world.BlockEntity, dest B, stack pro
 // after the hopper's lock: a sync takes that lock again, which would stall
 // the tick, and a settle's composter block change takes the engine's lock.
 func (s *Server) tickHopper(w *world.World, be *world.BlockEntity, age int64) {
-	var synced [1]*world.BlockEntity
-	var turn hopperTurn
 	var gate *hopperGate
 	if s.hopperListening() {
-		gate = s.askHopper(w, be, age)
+		var due bool
+		be.Tick(func(b *world.BlockEntity) bool {
+			// The commit owns the countdown on turns that may transfer items.
+			due = b.Cooldown <= 1
+			if !due {
+				b.HopperReady(age)
+			}
+			return false
+		})
+		if !due {
+			return
+		}
+		gate = s.askHopper(w, be)
 	}
+	var synced [1]*world.BlockEntity
+	var turn hopperTurn
 	// The list was read before locking, and a break since has already
 	// spilled the hopper, so it must not move those items again.
 	be.Tick(func(b *world.BlockEntity) bool {

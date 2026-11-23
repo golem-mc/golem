@@ -144,9 +144,12 @@ const (
 // Integer.MAX_VALUE (it never moves).
 const PaintingTrackingRange = 10
 
-// EntityTypes.ARMOR_STAND: clientTrackingRange(10), updateInterval
-// Integer.MAX_VALUE (moved only by water or blasts).
-const ArmorStandTrackingRange = 10
+// EntityTypes.ARMOR_STAND: clientTrackingRange(10), the builder's default
+// updateInterval of 3.
+const (
+	ArmorStandTrackingRange = 10
+	ArmorStandInterval      = 3
+)
 
 // EntityTypes.ITEM_FRAME and GLOW_ITEM_FRAME: the painting's
 // clientTrackingRange(10) and updateInterval Integer.MAX_VALUE.

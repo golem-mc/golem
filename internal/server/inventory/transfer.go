@@ -344,14 +344,6 @@ func isCompostable(stack protocol.ItemStack) bool {
 	return ok
 }
 
-// canMergeItems is vanilla's canMergeItems.
-func canMergeItems(a, b protocol.ItemStack) bool {
-	if a.Count > registry.StackMaxStackSize(a) {
-		return false
-	}
-	return a.Same(b)
-}
-
 // Full is vanilla's isFullContainer over the slots a face reads.
 func Full[B Block](b B, face int32) bool {
 	for _, slot := range slotsForFace(b, face) {
@@ -412,7 +404,9 @@ func tryMoveInItem[B Block](dest B, stack protocol.ItemStack, slot int) (protoco
 	}
 	item := dest.Slot(slot)
 	move := min(registry.StackMaxStackSize(item)-item.Count, stack.Count)
-	if move <= 0 || !canMergeItems(item, stack) {
+	// move > 0 means item.Count is under its maximum, vanilla's canMergeItems
+	// capacity check.
+	if move <= 0 || !item.Same(stack) {
 		return stack, false
 	}
 	stack.Count -= move

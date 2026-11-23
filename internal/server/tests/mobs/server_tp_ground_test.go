@@ -267,3 +267,42 @@ func TestMagmaCubeLandingMovement(t *testing.T) {
 		}
 	}
 }
+
+// A lava kick is told on the tick it happens, between the movement gates.
+// vanilla: MagmaCube.jumpInLiquid, ServerEntity.sendChanges
+func TestMagmaCubeLavaKickMovement(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, tpGroundConfig(), "Watcher")
+	servertest.HoldTicks(t, srv)
+	srv.RunLine(`gamemode creative Watcher`)
+	srv.RunLine(`fill -3 200 -3 3 200 3 stone`)
+	srv.RunLine(`fill -1 201 -1 1 203 1 lava`)
+	srv.RunLine(`tp Watcher 0.5 201 4.5`)
+	srv.RunLine(`summon magma_cube 0.5 202 0.5 {Size:1}`)
+	id := srv.MobIDsOfKind("minecraft:magma_cube")[0]
+	servertest.RunTicks(t, srv, 1)
+	c.Settle()
+
+	_, lastVY, _, _ := srv.MobVelocity(id)
+	// The first kick comes on tick 8 of this fixture, before the second
+	// movement gate would have carried the position.
+	for range 12 {
+		seen := c.ReadTicks(srv, 1, func(pid int32, data []byte) bool {
+			switch pid {
+			case protocol.IDPlayTeleportEntity, protocol.IDPlayEntityPosition, protocol.IDPlayEntityPositionRot:
+				return protocol.NewReader(data).ReadVarInt() == id
+			}
+			return false
+		})
+		_, y, _, _ := srv.MobPos(id)
+		_, vy, _, _ := srv.MobVelocity(id)
+		if vy > lastVY+0.1 {
+			if !seen {
+				t.Fatalf("kick (vy %g -> %g) at y %g sent no movement that tick", lastVY, vy, y)
+			}
+			return
+		}
+		lastVY = vy
+	}
+	t.Fatal("the cube never kicked in the lava")
+}

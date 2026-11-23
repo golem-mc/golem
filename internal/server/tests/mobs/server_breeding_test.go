@@ -2,6 +2,8 @@ package mobs
 
 import (
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
+	"github.com/google/uuid"
 
 	"math"
 	"testing"
@@ -368,4 +370,199 @@ func TestBreedingCreditsTheFeeder(t *testing.T) {
 			}
 		})
 	}
+}
+
+// loveCauseArg is the UUID as /data prints a LoveCause int array.
+func loveCauseArg(id uuid.UUID) protocol.Text {
+	return servertest.NBTArg(nbt.Stringify(nbt.UUIDToIntArray(id)))
+}
+
+// expectNoLoveCause queries the mob's LoveCause and expects the no-match failure.
+func expectNoLoveCause(c *servertest.Client, id uuid.UUID) {
+	c.T.Helper()
+	c.ChatCommand("data get entity " + id.String() + " LoveCause")
+	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("arguments.nbtpath.nothing_found", "LoveCause"))
+}
+
+// expectLoveCause queries the cow's LoveCause and expects the cause's UUID.
+func expectLoveCause(c *servertest.Client, cow servertest.SpawnedMob, cause uuid.UUID) {
+	c.T.Helper()
+	c.ChatCommand("data get entity " + cow.Uuid.String() + " LoveCause")
+	c.ExpectCommandFeedbackText("commands.data.entity.query",
+		servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid), loveCauseArg(cause))
+}
+
+// TestFedCowSavesItsLoveCause: feeding stores the feeder's UUID as LoveCause,
+// which /data get reports.
+// vanilla: Animal.addAdditionalSaveData
+func TestFedCowSavesItsLoveCause(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:wheat", 64, servertest.OpsListing(t, "Rancher"))
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.UseOn(cow.EntityID)
+	c.Settle()
+	c.ChatCommand("data get entity " + cow.Uuid.String() + " LoveCause")
+	c.ExpectCommandFeedbackText("commands.data.entity.query",
+		servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid), loveCauseArg(protocol.OfflineUUID("Rancher")))
+}
+
+// TestRemovedLoveCauseClears: /data remove of LoveCause reloads the compound
+// without it, so the cause is gone.
+// vanilla: DataCommands.removeData, Animal.readAdditionalSaveData
+func TestRemovedLoveCauseClears(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:wheat", 64, servertest.OpsListing(t, "Rancher"))
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.UseOn(cow.EntityID)
+	c.Settle()
+	expectLoveCause(c, cow, protocol.OfflineUUID("Rancher"))
+	c.ChatCommand("data remove entity " + cow.Uuid.String() + " LoveCause")
+	c.ExpectCommandFeedbackText("commands.data.entity.modified",
+		servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
+	expectNoLoveCause(c, cow.Uuid)
+}
+
+// TestVillagerHasNoLoveCause: only Animal kinds hold the field.
+// vanilla: Animal.addAdditionalSaveData, AbstractVillager
+func TestVillagerHasNoLoveCause(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "", 0, servertest.OpsListing(t, "Rancher"))
+	srv.StopTick()
+	id := protocol.OfflineUUID("Rancher")
+	c.ChatCommand("summon villager 1.5 64 2.5 {LoveCause:" + nbt.Stringify(nbt.UUIDToIntArray(id)) + "}")
+	villager := c.AwaitSpawn(protocol.EntityTypeVillager)
+	c.Settle()
+	expectNoLoveCause(c, villager.Uuid)
+}
+
+// setLoveCauses summons two cows in love whose causes are the given UUIDs
+// (zero for none), returning them once spawned.
+func setLoveCauses(t *testing.T, srv *server.Server, c *servertest.Client, causes [2]uuid.UUID) [2]servertest.SpawnedMob {
+	t.Helper()
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	srv.SpawnMob("minecraft:cow", 2.5, 64, 2.5)
+	cows := [2]servertest.SpawnedMob{c.ExpectMobSpawn(protocol.EntityTypeCow), c.ExpectMobSpawn(protocol.EntityTypeCow)}
+	for i, cow := range cows {
+		compound := "{InLove:600"
+		if causes[i] != (uuid.UUID{}) {
+			compound += ",LoveCause:" + nbt.Stringify(nbt.UUIDToIntArray(causes[i]))
+		}
+		c.ChatCommand("data merge entity " + cow.Uuid.String() + " " + compound + "}")
+		c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
+	}
+	return cows
+}
+
+// TestMergedLoveCauseCreditsTheBreeder: a LoveCause set by /data merge is
+// credited with animals_bred when the pair breeds, and breeding resets only
+// InLove, so the parents keep the cause.
+// vanilla: Animal.readAdditionalSaveData, finalizeSpawnChildFromBreeding
+func TestMergedLoveCauseCreditsTheBreeder(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "", 0, servertest.OpsListing(t, "Rancher"))
+	servertest.HoldTicks(t, srv)
+	id := protocol.OfflineUUID("Rancher")
+	cows := setLoveCauses(t, srv, c, [2]uuid.UUID{id, id})
+	servertest.UntilTicks(t, srv, 400, "calf", func() bool { return srv.MobCount() == 3 })
+	if got := srv.StatValue("Rancher", registry.StatCustom, "minecraft:animals_bred"); got != 1 {
+		t.Errorf("animals_bred = %d, want 1", got)
+	}
+	for _, cow := range cows {
+		expectLoveCause(c, cow, id)
+	}
+}
+
+// TestBreedingCreditsThePartnersBreeder: when the first parent's cause is
+// not online, the partner's cause is credited.
+// vanilla: Animal.getLoveCause, finalizeSpawnChildFromBreeding
+func TestBreedingCreditsThePartnersBreeder(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "", 0, servertest.OpsListing(t, "Rancher"))
+	servertest.HoldTicks(t, srv)
+	setLoveCauses(t, srv, c, [2]uuid.UUID{protocol.OfflineUUID("Absent"), protocol.OfflineUUID("Rancher")})
+	servertest.UntilTicks(t, srv, 400, "calf", func() bool { return srv.MobCount() == 3 })
+	if got := srv.StatValue("Rancher", registry.StatCustom, "minecraft:animals_bred"); got != 1 {
+		t.Errorf("animals_bred = %d, want 1", got)
+	}
+}
+
+// TestFoxKitTrustsOnlyOnlineCauses: a parent's cause that is no online player
+// is not trusted by the kit.
+// vanilla: Fox.FoxBreedGoal.breed
+func TestFoxKitTrustsOnlyOnlineCauses(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "", 0, servertest.OpsListing(t, "Rancher"))
+	servertest.HoldTicks(t, srv)
+	var foxes [2]servertest.SpawnedMob
+	causes := [2]uuid.UUID{protocol.OfflineUUID("Absent"), protocol.OfflineUUID("Rancher")}
+	for i := range foxes {
+		srv.SpawnMob(foxType, 1.5+float64(i), 64, 2.5)
+		foxes[i] = c.ExpectMobSpawn(protocol.EntityTypeFox)
+		c.ChatCommand("data merge entity " + foxes[i].Uuid.String() + " {InLove:600,LoveCause:" + nbt.Stringify(nbt.UUIDToIntArray(causes[i])) + "}")
+		c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:fox", "entity.minecraft.fox", foxes[i].Uuid))
+	}
+	servertest.UntilTicks(t, srv, 400, "kit", func() bool { return srv.MobCount() == 3 })
+	checked := 0
+	for _, id := range srv.MobIDsOfKind(foxType) {
+		if id == foxes[0].EntityID || id == foxes[1].EntityID {
+			continue
+		}
+		checked++
+		kit, _ := srv.MobUUID(id)
+		want := nbt.List{Elem: nbt.TypeIntArray, Items: []nbt.Tag{nbt.UUIDToIntArray(protocol.OfflineUUID("Rancher"))}}
+		c.ChatCommand("data get entity " + kit + " Trusted")
+		c.ExpectCommandFeedbackText("commands.data.entity.query",
+			servertest.EntityDisplayComponent("minecraft:fox", "entity.minecraft.fox", uuid.MustParse(kit)), servertest.NBTArg(nbt.Stringify(want)))
+	}
+	if checked != 1 {
+		t.Errorf("found %d kits, want 1", checked)
+	}
+}
+
+// TestMergedZeroLoveCauseIsKept: an all-zero LoveCause is a stored cause.
+// vanilla: Animal.readAdditionalSaveData, UUIDUtil.CODEC
+func TestMergedZeroLoveCauseIsKept(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:wheat", 64, servertest.OpsListing(t, "Rancher"))
+	servertest.HoldTicks(t, srv)
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.ChatCommand("data merge entity " + cow.Uuid.String() + " {LoveCause:[I;0,0,0,0]}")
+	c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
+	expectLoveCause(c, cow, uuid.UUID{})
+}
+
+// TestMergedShortListLoveCauseIsKept: a four-element list of shorts is a
+// LoveCause, each element narrowed to an int.
+// vanilla: UUIDUtil.CODEC, DynamicOps.getIntStream
+func TestMergedShortListLoveCauseIsKept(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:wheat", 64, servertest.OpsListing(t, "Rancher"))
+	servertest.HoldTicks(t, srv)
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.ChatCommand("data merge entity " + cow.Uuid.String() + " {LoveCause:[1s,2s,3s,4s]}")
+	c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
+	expectLoveCause(c, cow, uuid.UUID{0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4})
+}
+
+// TestAppendedMixedListLoveCauseIsKept: a list of shorts with a double
+// appended is a LoveCause once copied from storage, each element narrowed
+// to an int.
+// vanilla: ListTag.addTag, NbtOps.getIntStream, UUIDUtil.CODEC
+func TestAppendedMixedListLoveCauseIsKept(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:wheat", 64, servertest.OpsListing(t, "Rancher"))
+	servertest.HoldTicks(t, srv)
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.ChatCommand("data merge storage review:uuid {words:[1s,2s,3s]}")
+	c.ExpectCommandFeedback("commands.data.storage.modified", "review:uuid")
+	c.ChatCommand("data modify storage review:uuid words append value 4.9d")
+	c.ExpectCommandFeedback("commands.data.storage.modified", "review:uuid")
+	c.ChatCommand("data modify entity " + cow.Uuid.String() + " LoveCause set from storage review:uuid words")
+	c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
+	expectLoveCause(c, cow, uuid.UUID{0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4})
 }

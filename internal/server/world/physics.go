@@ -2228,6 +2228,7 @@ type spreadContext struct {
 	lastHoleFlags uint8
 	states        [spreadSide * spreadSide]uint16
 	flags         [spreadSide * spreadSide]uint8
+	failedDepth   [spreadSide * spreadSide][4]uint8
 }
 
 func (p *Physics) newSpreadContext(x, y, z int32, kind fluidKind) spreadContext {
@@ -2417,6 +2418,12 @@ var spreadStep = [4]int{-spreadSide, 1, spreadSide, -1}
 // which the exact result no longer matters; exhausting it returns 1000.
 // vanilla: FlowingFluid.getSlopeDistance
 func (c *spreadContext) slopeDistance(i, pass, from, reach int) int {
+	// Even at the bound, the search checks the adjacent cells for holes.
+	depth := uint8(1 + max(reach-pass, 0))
+	failedDepth := &c.failedDepth[i][from]
+	if *failedDepth >= depth {
+		return 1000
+	}
 	lowest := 1000
 	flags := c.flags[i]
 	for d, step := range spreadStep {
@@ -2452,6 +2459,9 @@ func (c *spreadContext) slopeDistance(i, pass, from, reach int) int {
 			lowest = v
 			reach = min(reach, v-1)
 		}
+	}
+	if lowest == 1000 {
+		*failedDepth = depth
 	}
 	return lowest
 }

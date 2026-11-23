@@ -141,9 +141,9 @@ func (m *Mob) jumpStep(w World) {
 		inWater := m.InWater() && fluidHeight > 0
 		threshold := m.fluidJumpThreshold()
 		if inWater && (!m.OnGround || fluidHeight > threshold) {
-			m.jumpInLiquid()
+			m.jumpInLiquid(fluidWater)
 		} else if m.InLava() && (!m.OnGround || m.lavaFluid.height > threshold) {
-			m.jumpInLiquid()
+			m.jumpInLiquid(fluidLava)
 		} else if (m.OnGround || inWater && fluidHeight <= threshold) && m.noJumpDelay == 0 {
 			m.jumpFromGround(blockJumpFactor(w, m.X, m.Y, m.Z))
 			m.noJumpDelay = 10

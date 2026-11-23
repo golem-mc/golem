@@ -31,9 +31,9 @@ func TestUUIDIntArrayRoundTrip(t *testing.T) {
 }
 
 // TestUUIDFieldReadsBothShapes checks that a UUID field reads from the int
-// array and from a list of four ints, that the zero UUID is a real UUID, and
-// that a missing field, a wrong length, a list holding anything but ints and
-// any other tag read as absent.
+// array, a list of four numbers (narrowed to int) and a byte or long array,
+// that the zero UUID is a real UUID, and that a missing field, a wrong
+// length, a list holding a non-number and any other tag read as absent.
 func TestUUIDFieldReadsBothShapes(t *testing.T) {
 	t.Parallel()
 	id := uuid.MustParse("f81d4fae-7dec-11d0-a765-00a0c91e6bf6")
@@ -49,8 +49,11 @@ func TestUUIDFieldReadsBothShapes(t *testing.T) {
 		"short":     IntArray{1, 2, 3},
 		"long":      IntArray{1, 2, 3, 4, 5},
 		"emptyList": List{Elem: TypeInt},
-		"mixedList": List{Items: []Tag{Int(1), Int(2), Long(3), Int(4)}},
-		"longArray": LongArray{1, 2},
+		"mixedList": List{Items: []Tag{Byte(1), Short(2), Long(3), Double(4.9)}},
+		"byteArray": ByteArray{1, 2, 3, 0xff},
+		"longArray": LongArray{1, 2, 3, 1<<32 | 4},
+		"shortLong": LongArray{1, 2},
+		"textList":  List{Items: []Tag{Int(1), Int(2), String("3"), Int(4)}},
 		"string":    String(id.String()),
 	}
 	for _, key := range []string{"array", "list"} {
@@ -61,9 +64,25 @@ func TestUUIDFieldReadsBothShapes(t *testing.T) {
 	if got, ok := UUIDField(c, "zero"); !ok || got != uuid.Nil {
 		t.Errorf("UUIDField(zero) = %s/%v, want the nil UUID and true", got, ok)
 	}
-	for _, key := range []string{"missing", "short", "long", "emptyList", "mixedList", "longArray", "string"} {
+	numeric := map[string]uuid.UUID{
+		"mixedList": uuidOfWords(1, 2, 3, 4),
+		"byteArray": uuidOfWords(1, 2, 3, -1),
+		"longArray": uuidOfWords(1, 2, 3, 4),
+	}
+	for key, want := range numeric {
+		if got, ok := UUIDField(c, key); !ok || got != want {
+			t.Errorf("UUIDField(%q) = %s/%v, want %s/true", key, got, ok, want)
+		}
+	}
+	for _, key := range []string{"missing", "short", "long", "emptyList", "shortLong", "textList", "string"} {
 		if got, ok := UUIDField(c, key); ok || got != uuid.Nil {
 			t.Errorf("UUIDField(%q) = %s/%v, want the nil UUID and false", key, got, ok)
 		}
 	}
+}
+
+// uuidOfWords is the UUID of four big-endian ints.
+func uuidOfWords(words ...int32) uuid.UUID {
+	id, _ := UUIDFromIntArray(words)
+	return id
 }

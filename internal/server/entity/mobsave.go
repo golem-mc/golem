@@ -94,6 +94,9 @@ func (m *Mob) SaveWith(tag nbt.CompoundTag, gameTime func() int64, keptAttribute
 	}
 	if IsAnimal(m.Type) {
 		tag.Set("InLove", nbt.Int(m.InLove))
+		if m.HasLoveCause {
+			tag.Set("LoveCause", nbt.UUIDToIntArray(m.LoveCause))
+		}
 	}
 	if m.Size > 0 {
 		// vanilla: AbstractCubeMob.addAdditionalSaveData, the size less one
@@ -629,6 +632,8 @@ func (m *Mob) LoadFrom(compound nbt.Compound, w World, gameTime func() int64) {
 		if love, ok := nbt.IntField(compound, "InLove"); ok {
 			m.InLove = int(love)
 		}
+		// A missing or unreadable key clears the reference.
+		m.LoveCause, m.HasLoveCause = nbt.UUIDField(compound, "LoveCause")
 	}
 	m.scalarFields(compound, true)
 	if m.Type == TypeTadpole {
@@ -741,7 +746,7 @@ var MobSavedKeys = []string{
 	"Air", "NoGravity", "TicksFrozen", "Health", "AbsorptionAmount", "PersistenceRequired",
 	"CanPickUpLoot", "DeathLootTable", "DeathLootTableSeed",
 	"home_pos", "home_radius", "has_egg", "Color", "Sheared", "EggLayTime", "IsChickenJockey",
-	"IsBaby", "CanBreakDoors", "Age", "ForcedAge", "AgeLocked", "InLove", "variant", "sound_variant", "NoAI", "Silent", "Glowing", "LeftHanded",
+	"IsBaby", "CanBreakDoors", "Age", "ForcedAge", "AgeLocked", "InLove", "LoveCause", "variant", "sound_variant", "NoAI", "Silent", "Glowing", "LeftHanded",
 	"RabbitType", "MoreCarrotTicks", "IsScreamingGoat", "HasLeftHorn", "HasRightHorn", "GotFish", "Moistness", "Trusting",
 	"CollarColor", "PuffState", "anchor_pos", "size",
 	"Invulnerable", "FromBucket", "from_bucket", "pickup_timer", "fuse", "type", "HasNectar", "HasStung",

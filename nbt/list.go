@@ -38,6 +38,16 @@ func NewList(items []Tag) List {
 	return normalizedList(items, true)
 }
 
+// ListOf builds a list holding items as they are, a mixed list's entries
+// unwrapped as the SNBT reader holds them; the encoder wraps them on write.
+// vanilla: ListTag.addTag
+func ListOf(items []Tag) List {
+	if len(items) == 0 {
+		return List{Elem: TypeEnd}
+	}
+	return List{Elem: listElem(items, items[0].Type()), Items: items}
+}
+
 // wrapIfNeeded wraps a mixed list's entry under the empty name unless it is
 // a compound that does not itself look like a wrapper.
 // vanilla: ListTag.wrapIfNeeded

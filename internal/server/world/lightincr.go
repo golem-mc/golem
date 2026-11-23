@@ -20,6 +20,7 @@ type lightCell struct{ x, y, z int32 }
 // markLightCell records a write at section-local x, z and y counted from the
 // world's bottom.
 func (c *Chunk) markLightCell(x, y, z int32) {
+	c.lightBands |= 1 << (y/sectionSize + 1)
 	if len(c.lightCells) >= maxLightCells {
 		c.lightOverflow = true
 		return
@@ -36,6 +37,7 @@ func (c *Chunk) dropLightCells(lx0, lx1, lz0, lz1 int32) {
 	})
 	if c.lightDirty == ([sectionSize]uint16{}) {
 		c.lightCells, c.lightOverflow = nil, false
+		c.lightBands = 0
 	}
 }
 
@@ -343,10 +345,17 @@ func (ctx *lightCtx) runIncreases(iq *lightQueue) {
 		if held != e.v {
 			continue
 		}
+		if e.v <= 1 {
+			continue
+		}
 		fromState, _ := ctx.blockAt(e.x, e.y, e.z)
 		for _, n := range lightNeighbors {
 			nx, ny, nz := e.x+n.dx, e.y+n.dy, e.z+n.dz
 			if !contains(ny) || int(e.layer)&dirBit(n.dir) == 0 {
+				continue
+			}
+			// A neighbour holding e.v-1 or more cannot be raised: spread gives at most e.v-1.
+			if ctx.getLight(layer, nx, ny, nz) >= e.v-1 {
 				continue
 			}
 			nbState, loaded := ctx.blockAt(nx, ny, nz)
@@ -357,7 +366,8 @@ func (ctx *lightCtx) runIncreases(iq *lightQueue) {
 			if cand == 0 {
 				continue
 			}
-			if ctx.setLight(layer, nx, ny, nz, cand) {
+			// A level-1 cell spreads nothing, so it is written but not queued.
+			if ctx.setLight(layer, nx, ny, nz, cand) && cand > 1 {
 				iq.push(nx, ny, nz, cand, layer|allDirs&^dirBit(n.dir^1))
 			}
 		}

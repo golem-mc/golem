@@ -122,7 +122,8 @@ func (t *bodyTrack[S]) motionDue(vx, vy, vz float64, stopping bool) bool {
 type trackedKind[B any, S any] struct {
 	rangeChunks int
 	// steppedPath sends positions as a stepped path over the ticks
-	// since the last movement tick, for a LivingEntity.
+	// since the last movement tick, for a LivingEntity; a teleport waits for
+	// the next movement tick.
 	// vanilla: SteppedInterpolationTracker
 	steppedPath bool
 	// rangeOf, if not nil, is each body's own range in chunks in place of
@@ -539,6 +540,16 @@ func (v *trackedBody[B, S]) movePacket(was *toldBody[S], mt moveTick) (outbound,
 	return packet, ok
 }
 
+// putAbsolute writes an absolute position sync, a stepped path over stepTicks
+// ticks when that is above 0.
+func putAbsolute(buf *protocol.Buffer, id int32, abs bodyPose, stepTicks int32, onGround bool) {
+	if stepTicks > 0 {
+		protocol.PutEntityPositionSyncStepped(buf, id, abs.x, abs.y, abs.z, stepTicks, abs.yaw, abs.pitch, onGround)
+	} else {
+		protocol.PutEntityPositionSync(buf, id, abs.x, abs.y, abs.z, abs.yaw, abs.pitch, onGround)
+	}
+}
+
 // moveDiff builds the packet a watcher last told of was is owed for a body now
 // at now: an absolute Teleport Entity carrying abs when the step does not fit
 // the relative packets, the on-ground flag has flipped, the body has left a seat
@@ -571,11 +582,7 @@ func moveDiff(id int32, was, now trackedPosition, abs bodyPose, mt moveTick, del
 		now.onGround != was.onGround || !inOneStep(dx, dy, dz):
 		packetID = protocol.IDPlayTeleportEntity
 		buf.Grow(teleportEntityLen)
-		if mt.stepTicks > 0 {
-			protocol.PutEntityPositionSyncStepped(&buf, id, abs.x, abs.y, abs.z, mt.stepTicks, abs.yaw, abs.pitch, now.onGround)
-		} else {
-			protocol.PutEntityPositionSync(&buf, id, abs.x, abs.y, abs.z, abs.yaw, abs.pitch, now.onGround)
-		}
+		putAbsolute(&buf, id, abs, mt.stepTicks, now.onGround)
 	case moved || mt.forced:
 		buf.Grow(entityPositionRotLen)
 		if turned {
@@ -809,7 +816,7 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 		if wt.c.theWorld() != v.w {
 			continue // crossed to another dimension since the snapshot
 		}
-		if was, seen := v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out); seen && (mt.teleported || mt.gate) {
+		if was, seen := v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out); seen && (mt.gate || mt.teleported && !v.k.steppedPath) {
 			v.moveTold(was, wt.c, mt, out)
 		}
 	}
