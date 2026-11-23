@@ -72,10 +72,6 @@ type mobEntity struct {
 	// one absolute sync, so many teleports in a tick cost one packet. Guarded
 	// by the mob lock.
 	teleported bool
-	// loveCause is the player whose feeding caused love, credited with
-	// bred_animals; zero for none. Guarded by the mob lock.
-	// vanilla: Animal.loveCause
-	loveCause uuid.UUID
 	// equipSounds are the equip sounds of pieces a mount screen fitted, played
 	// once the click's locks are released. Guarded by the mob lock.
 	equipSounds []protocol.SoundHolder
@@ -748,13 +744,26 @@ type mobBirth struct {
 	partner *entity.Mob
 	x, y, z float64
 	amount  int
-	// cause is the player credited with bred_animals, zero for none.
-	cause uuid.UUID
 	// motherID and partnerID are the parents' identities, for EntityBreedEvent.
 	motherID, partnerID uuid.UUID
-	// parentCauses are the parents' own love causes, whom a fox kit trusts.
+	// parentCauses are the parents' own love causes in parent order, whom a
+	// fox kit trusts and the first online one is credited.
 	// vanilla: Fox.FoxBreedGoal.breed
 	parentCauses [2]uuid.UUID
+}
+
+// birthBreeder is the first online player among the parents' love causes, in
+// parent order. vanilla: Animal.getLoveCause
+func (s *Server) birthBreeder(birth mobBirth) *client {
+	for _, id := range birth.parentCauses {
+		if id == (uuid.UUID{}) {
+			continue
+		}
+		if c := s.clientByUUID(id); c != nil {
+			return c
+		}
+	}
+	return nil
 }
 
 // finishBreeding spawns a mating's results in finalizeSpawnChildFromBreeding
@@ -765,10 +774,7 @@ func (s *Server) finishBreeding(birth mobBirth) {
 	if !s.askBreed(&birth) {
 		return
 	}
-	c := s.clientByUUID(birth.cause)
-	if birth.cause == (uuid.UUID{}) {
-		c = nil
-	}
+	c := s.birthBreeder(birth)
 	// Frog, turtle and sniffer breeding credit no child entity.
 	childless := birth.mother.Type == entity.TypeTurtle || birth.mother.Type == entity.TypeFrog || birth.mother.Type == entity.TypeSniffer
 	if c != nil && childless {
@@ -4297,7 +4303,7 @@ func (c *client) feedMob(ent *mobEntity, hand int32) (bool, error) {
 	// vanilla: setInLove's event 18 goes out ahead of playEatingSound.
 	if loved {
 		s.mobsMu.Lock()
-		ent.loveCause = c.player.UUID
+		ent.mob.LoveCause = c.player.UUID
 		s.mobsMu.Unlock()
 		s.broadcastWorld(ent.w, protocol.IDPlayEntityEvent,
 			entityEventPayload(m.ID, protocol.EntityStatusLoveHearts))

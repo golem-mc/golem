@@ -1536,6 +1536,9 @@ type Mob struct {
 	// body seeks a mate. Only a grown body at age zero holds it (the tick clears
 	// it otherwise), and a hurt clears it.
 	InLove int
+	// LoveCause is the player whose feeding caused love, credited with
+	// the birth. vanilla: Animal.loveCause
+	LoveCause uuid.UUID
 	// Persistence is PersistenceRequired, which spares a mob the distance and
 	// idleness despawns.
 	Persistence bool

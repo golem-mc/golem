@@ -1,11 +1,10 @@
 package mobs
 
 import (
-	"encoding/binary"
-	"fmt"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
-	"strings"
+	"github.com/google/uuid"
+	"reflect"
 
 	"math"
 	"testing"
@@ -374,43 +373,112 @@ func TestBreedingCreditsTheFeeder(t *testing.T) {
 	}
 }
 
-// TestFedCowSavesItsLoveCause: feeding stores the feeder's UUID as LoveCause.
+// loveCauseArg is the UUID as /data prints a LoveCause int array.
+func loveCauseArg(id uuid.UUID) protocol.Text {
+	return servertest.NBTArg(nbt.Stringify(nbt.UUIDToIntArray(id)))
+}
+
+// loveCauseOf reads the first mob of the kind's LoveCause through /data get;
+// ok is false when the key reads as absent.
+func loveCauseOf(srv *server.Server, selector string) (arg protocol.Text, ok bool) {
+	for _, text := range srv.RunLine("data get entity " + selector + " LoveCause") {
+		if text.Translate == "commands.data.entity.query" && len(text.With) == 2 {
+			return text.With[1], true
+		}
+	}
+	return protocol.Text{}, false
+}
+
+// TestFedCowSavesItsLoveCause: feeding stores the feeder's UUID as LoveCause,
+// which /data get reports.
 // vanilla: Animal.addAdditionalSaveData
 func TestFedCowSavesItsLoveCause(t *testing.T) {
 	t.Parallel()
-	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:wheat", 64)
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:wheat", 64, servertest.OpsListing(t, "Rancher"))
 	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
 	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
 	c.UseOn(cow.EntityID)
-	c.AwaitEntityEvent(cow.EntityID, loveHearts)
-	tag, ok := srv.MobSaveTag(cow.EntityID)
-	if !ok {
-		t.Fatal("no save tag for the cow")
+	c.Settle()
+	c.ChatCommand("data get entity " + cow.Uuid.String() + " LoveCause")
+	c.ExpectCommandFeedbackText("commands.data.entity.query",
+		servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid), loveCauseArg(protocol.OfflineUUID("Rancher")))
+}
+
+// TestRemovedLoveCauseClears: /data remove of LoveCause reloads the compound
+// without it, so the cause is gone.
+// vanilla: DataCommands.removeData, Animal.readAdditionalSaveData
+func TestRemovedLoveCauseClears(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:wheat", 64, servertest.OpsListing(t, "Rancher"))
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.UseOn(cow.EntityID)
+	c.Settle()
+	c.ChatCommand("data remove entity " + cow.Uuid.String() + " LoveCause")
+	c.ExpectCommandFeedbackText("commands.data.entity.modified",
+		servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
+	if _, ok := loveCauseOf(srv, "@e[type=cow,limit=1]"); ok {
+		t.Error("LoveCause still readable after /data remove")
 	}
-	got, ok := nbt.UUIDField(tag, "LoveCause")
-	if !ok || got != protocol.OfflineUUID("Rancher") {
-		t.Errorf("LoveCause = %v (present %v), want the feeder %v", got, ok, protocol.OfflineUUID("Rancher"))
+}
+
+// TestVillagerHasNoLoveCause: only Animal kinds hold the field.
+// vanilla: Animal.addAdditionalSaveData, AbstractVillager
+func TestVillagerHasNoLoveCause(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "", 0, servertest.OpsListing(t, "Rancher"))
+	id := protocol.OfflineUUID("Rancher")
+	c.ChatCommand("summon villager 1.5 64 2.5 {LoveCause:" + nbt.Stringify(nbt.UUIDToIntArray(id)) + "}")
+	c.Settle()
+	if _, ok := loveCauseOf(srv, "@e[type=villager,limit=1]"); ok {
+		t.Error("a villager reports LoveCause")
+	}
+}
+
+// setLoveCauses summons two cows in love whose causes are the given UUIDs
+// (zero for none), returning them once spawned.
+func setLoveCauses(t *testing.T, srv *server.Server, c *servertest.Client, causes [2]uuid.UUID) {
+	t.Helper()
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	srv.SpawnMob("minecraft:cow", 2.5, 64, 2.5)
+	cows := []servertest.SpawnedMob{c.ExpectMobSpawn(protocol.EntityTypeCow), c.ExpectMobSpawn(protocol.EntityTypeCow)}
+	for i, cow := range cows {
+		compound := "{InLove:600"
+		if causes[i] != (uuid.UUID{}) {
+			compound += ",LoveCause:" + nbt.Stringify(nbt.UUIDToIntArray(causes[i]))
+		}
+		c.ChatCommand("data merge entity " + cow.Uuid.String() + " " + compound + "}")
+		c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
 	}
 }
 
 // TestMergedLoveCauseCreditsTheBreeder: a LoveCause set by /data merge is
-// credited with animals_bred when the pair breeds.
+// credited with animals_bred when the pair breeds, and breeding resets only
+// InLove, so the parents keep the cause.
 // vanilla: Animal.readAdditionalSaveData, finalizeSpawnChildFromBreeding
 func TestMergedLoveCauseCreditsTheBreeder(t *testing.T) {
 	t.Parallel()
 	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "", 0, servertest.OpsListing(t, "Rancher"))
-	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
-	srv.SpawnMob("minecraft:cow", 2.5, 64, 2.5)
-	cows := []servertest.SpawnedMob{c.ExpectMobSpawn(protocol.EntityTypeCow), c.ExpectMobSpawn(protocol.EntityTypeCow)}
+	servertest.HoldTicks(t, srv)
 	id := protocol.OfflineUUID("Rancher")
-	words := make([]string, 4)
-	for i := range words {
-		words[i] = fmt.Sprint(int32(binary.BigEndian.Uint32(id[4*i:])))
+	setLoveCauses(t, srv, c, [2]uuid.UUID{id, id})
+	servertest.UntilTicks(t, srv, 400, "calf", func() bool { return srv.MobCount() == 3 })
+	if got := srv.StatValue("Rancher", registry.StatCustom, "minecraft:animals_bred"); got != 1 {
+		t.Errorf("animals_bred = %d, want 1", got)
 	}
-	for _, cow := range cows {
-		c.ChatCommand(fmt.Sprintf(`data merge entity %s {InLove:600,LoveCause:[I;%s]}`, cow.Uuid, strings.Join(words, ",")))
-		c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
+	if got, ok := loveCauseOf(srv, "@e[type=cow,limit=1]"); !ok || !reflect.DeepEqual(got, loveCauseArg(id)) {
+		t.Errorf("a parent's LoveCause after the birth = %v (present %v), want the breeder", got, ok)
 	}
+}
+
+// TestBreedingCreditsThePartnersBreeder: when the first parent's cause is
+// not online, the partner's cause is credited.
+// vanilla: Animal.getLoveCause, finalizeSpawnChildFromBreeding
+func TestBreedingCreditsThePartnersBreeder(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "", 0, servertest.OpsListing(t, "Rancher"))
+	servertest.HoldTicks(t, srv)
+	setLoveCauses(t, srv, c, [2]uuid.UUID{protocol.OfflineUUID("Absent"), protocol.OfflineUUID("Rancher")})
 	servertest.UntilTicks(t, srv, 400, "calf", func() bool { return srv.MobCount() == 3 })
 	if got := srv.StatValue("Rancher", registry.StatCustom, "minecraft:animals_bred"); got != 1 {
 		t.Errorf("animals_bred = %d, want 1", got)

@@ -42,10 +42,6 @@ func mobTagAs(ent *mobEntity, book map[*entity.Mob]*mobEntity, id string) *nbt.O
 		tag.Set("CustomNameVisible", boolTag(true))
 	}
 	m.SaveEntityFields(tag)
-	if ent.loveCause != (uuid.UUID{}) {
-		// vanilla: Animal.addAdditionalSaveData
-		tag.Set("LoveCause", nbt.UUIDToIntArray(ent.loveCause))
-	}
 	putTags(tag, ent.tags.Values())
 	if ent.locatorIcon.HasData() {
 		tag.Set("locator_bar_icon", ent.locatorIcon.Tag())
@@ -226,9 +222,6 @@ func applyMobTag(m *entity.Mob, ent *mobEntity, compound nbt.Compound) {
 	}
 	// vanilla: Mob.readAdditionalSaveData
 	ent.readLeash(leashOfTag(compound))
-	if cause, ok := nbt.UUIDField(compound, "LoveCause"); ok {
-		ent.loveCause = cause
-	}
 	ent.saved = maps.Clone(compound)
 	for _, key := range mobEntityTags {
 		delete(ent.saved, key)
@@ -256,7 +249,7 @@ func applyMobTag(m *entity.Mob, ent *mobEntity, compound nbt.Compound) {
 // excluded from what a load keeps for the same reason.
 var mobEntityTags = []string{
 	"id", "Pos", "Motion", "Rotation", "Fire", "OnGround", "NoGravity", "PortalCooldown", "UUID",
-	"Passengers", "CustomName", "CustomNameVisible", "Tags", "Wave", "CanJoinRaid", "RaidId", "locator_bar_icon", "LoveCause", leashKey, spawnReasonNBTKey, originNBTKey,
+	"Passengers", "CustomName", "CustomNameVisible", "Tags", "Wave", "CanJoinRaid", "RaidId", "locator_bar_icon", leashKey, spawnReasonNBTKey, originNBTKey,
 }
 
 // resolveVexOwners points loaded vexes at the evoker their saved owner names,

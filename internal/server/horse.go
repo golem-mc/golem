@@ -168,7 +168,7 @@ func (c *client) feedHorse(ent *mobEntity, hand int32, held protocol.ItemStack) 
 	m := ent.mob
 	ate, loved := m.FeedHorse(ent.w, held.ItemID)
 	if loved {
-		ent.loveCause = c.player.UUID
+		ent.mob.LoveCause = c.player.UUID
 	}
 	sound, pitch := protocol.SoundHolder{ID: -1}, float32(0)
 	if ate && !m.Silent {

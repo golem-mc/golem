@@ -772,14 +772,10 @@ func (t *mobDimTick) bred(fx *mobEffects, ev entity.MobEvent) {
 	h, w := t.h, t.w
 	// The goal already did the parents' cooldown and love's end; place and
 	// dice are read under the lock, as only the tick moves a mob meanwhile.
-	var cause uuid.UUID
 	var parentCauses [2]uuid.UUID
 	for i, parent := range []*entity.Mob{ev.Mob, ev.Partner} {
 		if ent := h.book[parent]; ent != nil {
-			parentCauses[i] = ent.loveCause
-			if cause == (uuid.UUID{}) {
-				cause = ent.loveCause
-			}
+			parentCauses[i] = ent.mob.LoveCause
 		}
 	}
 	fx.births = append(fx.births, mobBirth{
@@ -788,7 +784,6 @@ func (t *mobDimTick) bred(fx *mobEffects, ev entity.MobEvent) {
 		partner:      ev.Partner,
 		motherID:     t.h.MobUUID(ev.Mob),
 		partnerID:    t.h.MobUUID(ev.Partner),
-		cause:        cause,
 		parentCauses: parentCauses,
 		x:            ev.Mob.X, y: ev.Mob.Y, z: ev.Mob.Z,
 		amount: ev.Amount,
