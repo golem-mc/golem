@@ -2,7 +2,6 @@ package server
 
 import (
 	"math"
-	"math/rand/v2"
 	"slices"
 	"sync"
 
@@ -223,11 +222,6 @@ func applyFireworkTag(it *fireworkEntity, compound nbt.Compound) {
 	rocket.Yaw, rocket.Pitch = entityRotationOfTag(compound)
 	rocket.Restore(intFieldOf(compound, "Life"), intFieldOf(compound, "LifeTime"), nbt.BoolField(compound, "ShotAtAngle"), nbt.BoolField(compound, "LeftOwner"))
 	rocket.Explosions = int(explosions)
-	if _, ok := compound["LifeTime"]; !ok {
-		// A rocket made without a life (a plugin's spawn) rolls one from its stack.
-		flight, _ := fireworkFlight(carried)
-		rocket.Lifetime = entity.FireworkLifetime(flight, rand.IntN)
-	}
 	it.stack = carried
 	it.ownerUUID = entityUUIDFieldOf(compound, "Owner")
 	it.shot = nbt.BoolField(compound, "HasBeenShot")

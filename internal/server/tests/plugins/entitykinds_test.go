@@ -114,3 +114,18 @@ func TestPluginEntityDataSaveReload(t *testing.T) {
 		}
 	})
 }
+
+// A plugin's rocket rolls a life as CraftBukkit's item constructor does.
+// vanilla: FireworkRocketEntity.<init>(Level, double, double, double, ItemStack)
+func TestPluginSpawnedFireworkRocketFlies(t *testing.T) {
+	t.Parallel()
+	srv, w, run, _, _ := kindsFixture(t)
+	var rocket plugin.Entity
+	run(func() { rocket = spawnAt(t, w, registry.EntityTypeFireworkRocket, nil) })
+	servertest.RunTicks(t, srv, 5)
+	run(func() {
+		if !rocket.IsValid() {
+			t.Error("rocket gone 5 ticks after spawn")
+		}
+	})
+}

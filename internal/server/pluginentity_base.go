@@ -3,9 +3,11 @@ package server
 import (
 	"errors"
 	"maps"
+	"math/rand/v2"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/command"
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/plugin"
@@ -36,6 +38,15 @@ func (w pluginWorld) spawnWith(t registry.EntityType, loc plugin.Location, extra
 		"Rotation": nbt.NewList([]nbt.Tag{nbt.Float(loc.Yaw), nbt.Float(loc.Pitch)}),
 	}
 	maps.Copy(tag, extra)
+	if t == registry.EntityTypeFireworkRocket {
+		// A saved rocket without LifeTime bursts at once; CraftBukkit builds
+		// the rocket with its item constructor, which rolls a life.
+		// vanilla: FireworkRocketEntity.<init>(Level, double, double, double, ItemStack)
+		if _, ok := tag["LifeTime"]; !ok {
+			flight, _ := fireworkFlight(protocol.ItemStack{ItemID: int32(registry.ItemFireworkRocket), Count: 1})
+			tag["LifeTime"] = nbt.Int(int32(entity.FireworkLifetime(flight, rand.IntN)))
+		}
+	}
 	ws := worldScope{srv: w.srv, in: func() *dimension { return target.dim }, quiet: true, spawnReason: spawnReasonCode(plugin.SpawnPlugin)}
 	command.PlaceTemplateEntities(ws, []world.PlacedEntity{{ID: t.Name(), Pos: [3]float64{loc.Pos.X, loc.Pos.Y, loc.Pos.Z}, Tag: tag}}, func(string, ...any) {})
 	body, ok := w.host.entityByUUID(id, target.dim.name)
