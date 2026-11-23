@@ -80,10 +80,10 @@ func TestAHopperRemovesAnAbsorbedItemForItsWatchers(t *testing.T) {
 	}
 }
 
-// TestAHopperPicksUpStraddlingDropsInRegistrationOrder registers the diamond
-// before the straddling emerald and moves it into the eastern chunk so
-// registration order differs from chunk-visit order.
-func TestAHopperPicksUpStraddlingDropsInRegistrationOrder(t *testing.T) {
+// TestAHopperPicksUpTheLowerXSectionFirst registers the diamond before the
+// straddling emerald and moves it into the eastern chunk: vanilla visits the
+// lower-X section first, so the emerald wins the one free slot.
+func TestAHopperPicksUpTheLowerXSectionFirst(t *testing.T) {
 	t.Parallel()
 	srv := servertest.NewTestServer(t, servertest.BlockTestConfig())
 	srv.StopTick()
@@ -109,26 +109,12 @@ func TestAHopperPicksUpStraddlingDropsInRegistrationOrder(t *testing.T) {
 
 	servertest.TickBlockEntitiesByHand(srv, 1)
 
-	diamond := servertest.MustItemID(t, "minecraft:diamond")
 	emerald := servertest.MustItemID(t, "minecraft:emerald")
-	if got := srv.InventoryAt(16, 64, 0)[4]; got.ItemID != diamond || got.Count != 1 {
-		t.Fatalf("hopper slot 4 holds %+v, want first-registered diamond (%d)", got, diamond)
-	}
-	rem := srv.ItemsInDimension(world.DimensionName)
-	if len(rem) != 1 || rem[0].ID != secondID {
-		t.Fatalf("remaining items = %+v, want only straddling emerald %d", rem, secondID)
-	}
-
-	// Free slot 4; the 8-tick cooldown reaches zero on the eighth turn.
-	if !srv.SetInventoryAt(16, 64, 0, 4, protocol.ItemStack{}) {
-		t.Fatal("could not clear hopper slot 4")
-	}
-	servertest.TickBlockEntitiesByHand(srv, 8)
-
 	if got := srv.InventoryAt(16, 64, 0)[4]; got.ItemID != emerald || got.Count != 1 {
 		t.Fatalf("hopper slot 4 holds %+v, want straddling emerald (%d)", got, emerald)
 	}
-	if rem := srv.ItemsInDimension(world.DimensionName); len(rem) != 0 {
-		t.Errorf("remaining items = %+v, want none", rem)
+	rem := srv.ItemsInDimension(world.DimensionName)
+	if len(rem) != 1 || rem[0].ID != firstID {
+		t.Fatalf("remaining items = %+v, want only diamond %d", rem, firstID)
 	}
 }

@@ -522,7 +522,9 @@ func (s *Server) notifyItemsAbsorbed(w *world.World, taken, shrunk []*itemEntity
 }
 
 // itemEntitiesIn gathers w's live item entities whose boxes reach into the
-// box, in s.items registration order, under the items lock.
+// box under the items lock, in the order vanilla visits entity sections
+// (lower X first, then Z, then Y) and by registration within a section.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
 func (s *Server) itemEntitiesIn(w *world.World, minX, minY, minZ, maxX, maxY, maxZ float64) []*itemEntity {
 	if minX >= maxX || minY >= maxY || minZ >= maxZ {
 		return nil
@@ -550,10 +552,20 @@ func (s *Server) itemEntitiesIn(w *world.World, minX, minY, minZ, maxX, maxY, ma
 	}
 	if len(found) > 1 {
 		slices.SortFunc(found, func(a, b *itemEntity) int {
-			return cmp.Compare(a.order, b.order)
+			ax, ay, az := sectionSortKey(a)
+			bx, by, bz := sectionSortKey(b)
+			return cmp.Or(cmp.Compare(ax, bx), cmp.Compare(az, bz), cmp.Compare(ay, by), cmp.Compare(a.order, b.order))
 		})
 	}
 	return found
+}
+
+// sectionSortKey is an item's section coordinates in vanilla's visiting
+// order: the section set is sorted by the packed long, whose Z and Y fields
+// compare as unsigned, so negative sections come after positive ones.
+func sectionSortKey(it *itemEntity) (x int32, y, z uint32) {
+	fx, fy, fz := it.item.FeetPosition()
+	return world.ChunkOf(fx), uint32(world.ChunkOf(fy)) & 0xFFFFF, uint32(world.ChunkOf(fz)) & 0x3FFFFF
 }
 
 // syncContainerViewers tells each viewer of the container at a position
