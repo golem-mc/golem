@@ -450,7 +450,8 @@ func newWorld(dir string, gen Generator, name string, shape dimensionShape, leve
 	if g, ok := gen.(ProtoGenerator); ok {
 		g.OpenProtos(filepath.Join(w.storage, "proto"))
 	}
-	if overworld, ok := gen.(*OverworldGenerator); ok {
+	// A level-less dimension has no level.dat to finish; its creator picks the spawn.
+	if overworld, ok := gen.(*OverworldGenerator); ok && levelDat {
 		w.initOverworld(overworld)
 	}
 	if flat, ok := gen.(*FlatGenerator); ok && levelDat && !w.level.existed {
