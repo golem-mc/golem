@@ -112,6 +112,9 @@ func TestComputeRefusals(t *testing.T) {
 			either + missing("on_true", `{type:"minecraft:conditional"}`) + "; " + missing("condition", `{type:"minecraft:conditional"}`)},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{}]}`,
 			missing("value", "{}") + "; " + missing("condition", "{}")},
+		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{},{}]}`,
+			missing("value", "{}") + "; " + missing("condition", "{}") + "; " +
+				missing("value", "{}") + "; " + missing("condition", "{}")},
 	} {
 		c.ChatCommand(tc.command)
 		suffix := 0

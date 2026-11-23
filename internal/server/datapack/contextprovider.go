@@ -146,17 +146,24 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 			return nil, "Not a list: " + nbt.Stringify(casesTag)
 		}
 		var cases []registry.LootDispatchCase
+		var caseMsgs []string
 		for _, e := range items {
 			cc, ok := nbt.ListElement(e).(nbt.Compound)
 			if !ok {
-				return nil, partialMark + "Not a map: " + nbt.Stringify(e)
+				caseMsgs = append(caseMsgs, "Not a map: "+nbt.Stringify(e))
+				continue
 			}
 			test, testMsg := condField(cc)
 			v, valueMsg := required(cc, "value")
 			if msg := registry.JoinFieldErrors(valueMsg, testMsg); msg != "" {
-				return nil, partialMark + msg
+				caseMsgs = append(caseMsgs, msg)
+				continue
 			}
 			cases = append(cases, registry.LootDispatchCase{Condition: test, Value: v})
+		}
+		// vanilla: ListCodec.decode keeps going and merges every element's error.
+		if msg := registry.JoinFieldErrors(caseMsgs...); msg != "" {
+			return nil, partialMark + msg
 		}
 		def, msg := optional(c, "default")
 		if msg != "" {
