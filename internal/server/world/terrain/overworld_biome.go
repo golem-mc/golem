@@ -121,9 +121,10 @@ func (s *OverworldBiomeSource) FillChunk(cx, cz int32, set func(x, y, z int32, b
 	v := NewVolume(4, 96, 4, cx*16, -64, cz*16)
 	v.StepX, v.StepY, v.StepZ = 4, 4, 4
 	ctx := NewContext(nil)
+	defer ctx.recycle()
 	var values [6][]float32
 	for i, sampler := range [...]Sampler{s.router.Temperature, s.router.Vegetation, s.router.Continents, s.router.Erosion, s.router.Depth, s.router.Ridges} {
-		values[i] = make([]float32, v.Size())
+		values[i] = ctx.acquire(v.Size())
 		sampler.SampleVolume(ctx, values[i], v)
 	}
 	search := overworldIndex().NewSearch()
@@ -140,5 +141,8 @@ func (s *OverworldBiomeSource) FillChunk(cx, cz int32, set func(x, y, z int32, b
 				}
 			}
 		}
+	}
+	for _, buf := range values {
+		ctx.release(buf)
 	}
 }
