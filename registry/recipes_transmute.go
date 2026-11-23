@@ -38,50 +38,10 @@ func dropMeaninglessRemovals(stack *protocol.ItemStack) {
 		return
 	}
 	for _, name := range stack.RemovedNames() {
-		if typ, ok := protocol.RemovableType(name); ok && !itemHasRemovableDefault(stack.ItemID, typ) {
+		if typ, ok := protocol.RemovableType(name); ok && !ItemHasComponentDefault(stack.ItemID, name) {
 			stack.ResetComponent(typ)
 		}
 	}
-}
-
-// itemHasRemovableDefault reports whether the item's default components carry
-// a removable component. A component this server does not model per item is
-// taken to be there, so its removal is kept.
-func itemHasRemovableDefault(item, component int32) bool {
-	props := propsOf(item)
-	switch component {
-	case protocol.DataComponentMaxDamage:
-		return props.MaxDamage > 0
-	case protocol.DataComponentTool:
-		return props.Tool != nil
-	case protocol.DataComponentFood:
-		return props.Food != nil
-	case protocol.DataComponentConsumable:
-		_, ok := ConsumableOf(item)
-		return ok
-	case protocol.DataComponentWeapon:
-		return props.Weapon != nil
-	case protocol.DataComponentBlocksAttacks:
-		return props.BlocksAttacks != nil
-	case protocol.DataComponentGlider:
-		return props.Glider
-	case protocol.DataComponentDeathProtection:
-		return props.DeathProtection != nil
-	case protocol.DataComponentAttackRange:
-		return props.AttackRange != nil
-	case protocol.DataComponentPiercingWeapon:
-		return props.PiercingWeapon != nil
-	case protocol.DataComponentKineticWeapon:
-		return props.KineticWeapon != nil
-	case protocol.DataComponentEnchantable:
-		return props.Enchantable > 0
-	case protocol.DataComponentRepairable:
-		return props.Repairable != ""
-	case protocol.DataComponentEquippable:
-		_, ok := Item(item).Equippable()
-		return ok
-	}
-	return true
 }
 
 // result matches a crafting_transmute recipe: one input stack and

@@ -35,14 +35,21 @@ func TestSmithingKeepsOnlyRemovalsTheResultHasDefaultsFor(t *testing.T) {
 }
 
 // TestResultFromDropsRemovalsOfAbsentDefaults turns a pickaxe removing
-// max_damage into a stick, which has no max_damage.
+// max_damage, damage and attack_animation into a stick, which has only an
+// attack_animation default.
 func TestResultFromDropsRemovalsOfAbsentDefaults(t *testing.T) {
 	t.Parallel()
 	base := smithingStack(t, "minecraft:diamond_pickaxe")
-	base.Remove(protocol.DataComponentMaxDamage)
+	for _, c := range []int32{protocol.DataComponentMaxDamage, protocol.DataComponentDamage, protocol.DataComponentAttackAnimation} {
+		if !base.Remove(c) {
+			t.Fatalf("component %d not removable", c)
+		}
+	}
 	stick := smithingStack(t, "minecraft:stick")
-	if got := resultFrom("none", base, stick.ItemID, 1); got.Removes(protocol.DataComponentMaxDamage) {
-		t.Errorf("the stick removes %v", got.RemovedNames())
+	got := resultFrom("none", base, stick.ItemID, 1)
+	if got.Removes(protocol.DataComponentMaxDamage) || got.Removes(protocol.DataComponentDamage) ||
+		!got.Removes(protocol.DataComponentAttackAnimation) {
+		t.Errorf("the stick removes %v, want only attack_animation", got.RemovedNames())
 	}
 }
 
