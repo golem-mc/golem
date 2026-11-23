@@ -80,6 +80,40 @@ func TestKillSelectorDistanceKeepsTheFarCow(t *testing.T) {
 	c.Disconnect()
 }
 
+func TestExecuteEntitySelectorAcrossChunkBorder(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance = config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
+
+	for _, line := range []string{
+		`summon item 15.5 80 0 {Item:{id:"minecraft:stone",count:1},PickupDelay:32767s}`,
+		`summon item 16.0625 80 0 {Item:{id:"minecraft:stone",count:1},PickupDelay:32767s,Tags:["edge"]}`,
+		`summon cow 15.75 80 0 {NoAI:1b}`,
+	} {
+		if out := srv.RunLine(line); len(out) != 1 || out[0].Translate != "commands.summon.success" {
+			t.Fatalf("%s: %v", line, out)
+		}
+		c.ExpectPlay(protocol.IDPlaySystemChat) // Console feedback is copied to operators.
+	}
+
+	for _, tc := range []struct {
+		query string
+		count int64
+	}{
+		{"17 80 0 if entity @e[type=item,distance=..2]", 2},
+		{"14.95 80 0 if entity @e[type=item,dx=0,tag=edge,limit=1]", 1},
+		{"16.0 80 0 if entity @e[type=cow,dx=0]", 1},
+	} {
+		c.Run(t, tc.query, func(t *testing.T) {
+			c.ChatCommand("execute positioned " + tc.query)
+			c.ExpectCommandFeedbackText("commands.execute.conditional.pass_count", protocol.Text{Number: &tc.count})
+		})
+	}
+	c.Disconnect()
+}
+
 // TestTeleportSelectorMovesTheNearestCow checks the limit and sort options
 // on a command that moves what it names: of two cows at different
 // distances, the nearest one is the one /tp carries, to where the runner

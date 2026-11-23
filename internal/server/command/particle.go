@@ -76,6 +76,41 @@ func particleNode() *Node {
 	return &Node{Type: NodeLiteral, Name: "particle", Required: PermLevelGamemasters, Children: []*Node{name}}
 }
 
+// parseParticleArgument validates a particle argument during the command walk:
+// the particle ID, then an SNBT compound when '{' follows directly (otherwise
+// an empty compound), decoded through registry.ParticleData before coordinates
+// are read.
+// vanilla: ParticleArgument.readParticle
+func parseParticleArgument(tokens []Token) *ParseError {
+	span := joinSelector(tokens)
+	name, n, ok := readIdentifier(span.text)
+	if !ok {
+		return &ParseError{Key: keyIDInvalid, Cursor: span.absolute(0)}
+	}
+	if _, _, known := registry.ParticleID(name); !known {
+		return &ParseError{Key: "particle.notFound", With: []string{name}, Cursor: span.absolute(n)}
+	}
+	opts := nbt.Compound{}
+	end := n
+	if n < len(span.text) && span.text[n] == '{' {
+		tag, consumed, pe := nbt.ParseOrderedValueTag(span.text[n:])
+		if pe != nil {
+			return snbtRefusal(pe, span, n+pe.Offset)
+		}
+		if c, ok := nbt.CompoundView(tag); ok {
+			opts = c
+		}
+		end = n + consumed
+	}
+	if _, err := registry.ParticleData(name, opts); err != nil {
+		return &ParseError{Key: "particle.invalidOptions", With: []string{err.Error()}, NoContext: true}
+	}
+	if end < len(span.text) {
+		return &ParseError{Key: keyExpectedSeparator, Cursor: span.absolute(end)}
+	}
+	return nil
+}
+
 // runParticle sends the particle to the viewers within range of its position
 // and answers how many it was sent to.
 // A particle type with data reads its options off the name as SNBT.

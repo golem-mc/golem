@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/binary"
+	"iter"
 	"log/slog"
 	"math"
 	"reflect"
@@ -1319,6 +1320,9 @@ func (ws worldScope) Entities(filters command.EntityQuery) []command.Entity {
 // query answers q for every kind of body.
 func (ws worldScope) query(q entityQuery) []command.Entity {
 	s := ws.srv
+	if q.Box != nil && q.chunk == nil && q.UUID == nil {
+		q.area = smallChunkArea(q.Box)
+	}
 	// Bound maintenance is linear in the batch size; larger limits collect once.
 	if q.Limit > 0 && q.Limit <= 16 {
 		q.batch = q.Limit
@@ -1441,34 +1445,40 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 }
 
 // snapshotAppender binds a kind's query step; the slice header is read under
-// its lock because the tick reassigns it. A chunk query walks only the
-// bodies filed under that chunk.
+// its lock because the tick reassigns it.
 func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *trackedKind[E, S], snap func(*Server, E, *entityQuery) *entitySnapshot) func([]command.Entity) []command.Entity {
 	return func(out []command.Entity) []command.Entity {
 		mu := k.lock(s)
 		mu.Lock()
 		defer mu.Unlock()
 		list := k.list(s)
+		if len(*list) == 0 {
+			return out
+		}
 		var ix *entity.ChunkIndex[E]
-		if q.chunk != nil {
-			if ix = k.chunks(s); !ix.Has(*q.chunk) {
+		var indexed iter.Seq[E]
+		if q.chunk != nil || q.area != nil {
+			ix = k.chunks(s)
+			if q.chunk != nil && !ix.Has(*q.chunk) {
 				return out
 			}
+			indexed = bodiesInChunks(ix, q)
 		}
 		if q.candidates != nil {
-			if len(*list) == 0 {
-				return out
-			}
 			q.kind = &entityQueryKind{mu: mu, snapshot: func(ref any, query *entityQuery) *entitySnapshot {
 				body := ref.(E)
-				if !slices.Contains(*list, body) {
+				if ix != nil {
+					if !ix.Holds(k.filing(body), k.chunkOf(body)) {
+						return nil
+					}
+				} else if !slices.Contains(*list, body) {
 					return nil
 				}
 				return snap(s, body, query)
 			}}
-			bodies := slices.Values(*list)
-			if ix != nil {
-				bodies = ix.In(*q.chunk)
+			bodies := indexed
+			if bodies == nil {
+				bodies = slices.Values(*list)
 			}
 			for body := range bodies {
 				if !q.skipCandidate(k.id(body)) {
@@ -1477,8 +1487,8 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 			}
 			return out
 		}
-		if ix != nil {
-			for body := range ix.In(*q.chunk) {
+		if indexed != nil {
+			for body := range indexed {
 				if v := snap(s, body, q); v != nil {
 					out = append(out, v)
 				}
@@ -1540,8 +1550,8 @@ func (s *Server) appendMobSnapshots(out []command.Entity, q *entityQuery) []comm
 			if ent := dim.mobs.book[dim.mobs.byUUID[*q.UUID]]; ent != nil {
 				appendMob(ent, dim.name)
 			}
-		} else if q.chunk != nil {
-			for m := range dim.mobs.chunks.In(*q.chunk) {
+		} else if q.chunk != nil || q.area != nil {
+			for m := range bodiesInChunks(&dim.mobs.chunks, q) {
 				if ent := dim.mobs.record(m); ent != nil {
 					appendMob(ent, dim.name)
 				}

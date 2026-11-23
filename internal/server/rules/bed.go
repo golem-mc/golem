@@ -230,24 +230,28 @@ func SleptInBedStat(b registry.Block) registry.CustomStat {
 	return registry.CustomStatSleepInBed
 }
 
-// BedHoldsSleeper reports whether the bed half at (x, y, z) still has a
-// sleep height: any bed block does, but a straw bed head only with its foot
-// behind it. vanilla: AbstractBedBlock.getSleepHeight, StrawBedBlock.getSleepHeight
-func BedHoldsSleeper(w BlockReader, x, y, z int32) bool {
+// BedSleepHeight returns the bed shape's top, using the foot for a straw bed head.
+// vanilla: AbstractBedBlock.getSleepHeight, StrawBedBlock.getSleepHeight
+func BedSleepHeight(w BlockReader, x, y, z int32) (float64, bool) {
 	state := w.BlockAt(x, y, z)
 	b := registry.BlockOf(state)
 	if !b.InGroup(registry.GroupBed) {
-		return false
+		return 0, false
 	}
-	if b != registry.BlockStrawBed || registry.StateValue(state, registry.PropPart) != "head" {
-		return true
+	if b != registry.BlockStrawBed {
+		return 9.0 / 16, true // BedBlock's mattress top.
 	}
-	d, known := horizontalSteps[registry.StateValue(state, registry.PropFacing)]
-	if !known {
-		return false
+	if registry.StateValue(state, registry.PropPart) == "head" {
+		d, known := horizontalSteps[registry.StateValue(state, registry.PropFacing)]
+		if !known {
+			return 0, false
+		}
+		foot := w.BlockAt(x-d[0], y, z-d[1])
+		if registry.BlockOf(foot) != b || registry.StateValue(foot, registry.PropPart) != "foot" {
+			return 0, false
+		}
 	}
-	foot := w.BlockAt(x-d[0], y, z-d[1])
-	return registry.BlockOf(foot) == b && registry.StateValue(foot, registry.PropPart) == "foot"
+	return 4.0 / 16, true // StrawBedBlock's foot shape top.
 }
 
 // BedFreeAt reports whether the sleep space is free: freeAt tests
