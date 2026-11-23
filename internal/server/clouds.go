@@ -320,6 +320,17 @@ func upgradeLegacyCloudParticle(tag nbt.Tag) nbt.Tag {
 // registerCloud adds a built cloud and shows it to players in range.
 func (s *Server) registerCloud(it *cloudEntity) { cloudTracker.register(s, it) }
 
+func (s *Server) cloudBoxTaken(w *world.World, box entity.AABB) bool {
+	s.arrowsMu.Lock()
+	defer s.arrowsMu.Unlock()
+	for _, it := range s.clouds {
+		if it.w == w && !it.cloud.Dead && box.Crosses(it.cloud.Box()) {
+			return true
+		}
+	}
+	return false
+}
+
 // killCloud discards a cloud. vanilla: Entity.kill
 func (s *Server) killCloud(it *cloudEntity) {
 	s.arrowsMu.Lock()
