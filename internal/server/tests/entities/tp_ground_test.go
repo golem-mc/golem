@@ -1,6 +1,7 @@
 package entities
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -35,17 +36,23 @@ func TestTeleportCommandSetsStandAndMannequinOnGround(t *testing.T) {
 	}
 }
 
-// A /tp of a falling mannequin lands it at the destination with the ground
-// flag, instead of letting the tick carry on the fall first.
+// A /tp of a falling mannequin zeroes its vertical velocity and lands it at
+// the destination with the ground flag, instead of letting the tick carry on
+// the fall first.
 // vanilla: TeleportCommand.performTeleport
 func TestTeleportCommandStopsFallingMannequin(t *testing.T) {
 	t.Parallel()
-	srv, c := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
-	servertest.HoldTicks(t, srv)
+	srv, c := joinMannequinOp(t, "Watcher")
 	srv.RunLine(`summon mannequin 0.5 150 0.5 {Tags:[b]}`)
-	servertest.RunTicks(t, srv, 8)
+	servertest.RunTicks(t, srv, 2)
 	c.Settle()
+	if got := dataOfMannequin(t, c, srv, "Motion[1]"); !strings.HasPrefix(got, "-") {
+		t.Fatalf("Motion[1] before /tp = %s, want a falling (negative) value", got)
+	}
 	srv.RunLine(`tp @e[tag=b,limit=1] 0.5 155 0.5`)
+	if got := dataOfMannequin(t, c, srv, "Motion[1]"); got != "0.0d" {
+		t.Errorf("Motion[1] after /tp = %s, want 0.0d", got)
+	}
 	var sync servertest.EntityPositionSync
 	seen := c.ReadTicks(srv, 5, func(pid int32, data []byte) bool {
 		if pid != protocol.IDPlayTeleportEntity {
