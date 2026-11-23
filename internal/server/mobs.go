@@ -752,16 +752,26 @@ type mobBirth struct {
 	parentCauses [2]uuid.UUID
 }
 
-// birthBreeder is the first online player among the parents' love causes, in
-// parent order. vanilla: Animal.getLoveCause
-func (s *Server) birthBreeder(birth mobBirth) *client {
+// onlineCauses are the distinct online players among the parents' love causes,
+// in parent order. vanilla: Animal.getLoveCause, Fox.FoxBreedGoal.breed
+func (s *Server) onlineCauses(birth mobBirth) []*client {
+	var out []*client
 	for _, id := range birth.parentCauses {
 		if id == (uuid.UUID{}) {
 			continue
 		}
-		if c := s.clientByUUID(id); c != nil {
-			return c
+		if c := s.clientByUUID(id); c != nil && !slices.Contains(out, c) {
+			out = append(out, c)
 		}
+	}
+	return out
+}
+
+// birthBreeder is the first online player among the parents' love causes, in
+// parent order, or nil.
+func (s *Server) birthBreeder(birth mobBirth) *client {
+	if online := s.onlineCauses(birth); len(online) > 0 {
+		return online[0]
 	}
 	return nil
 }
@@ -774,7 +784,11 @@ func (s *Server) finishBreeding(birth mobBirth) {
 	if !s.askBreed(&birth) {
 		return
 	}
-	c := s.birthBreeder(birth)
+	online := s.onlineCauses(birth)
+	var c *client
+	if len(online) > 0 {
+		c = online[0]
+	}
 	// Frog, turtle and sniffer breeding credit no child entity.
 	childless := birth.mother.Type == entity.TypeTurtle || birth.mother.Type == entity.TypeFrog || birth.mother.Type == entity.TypeSniffer
 	if c != nil && childless {
@@ -819,9 +833,8 @@ func (s *Server) finishBreeding(birth mobBirth) {
 				birth.mother.BreedVillager(ent.mob, birth.partner, biome)
 			}
 			if birth.mother.Type == entity.TypeFox {
-				ent.mob.FoxTrust(birth.parentCauses[0])
-				if birth.parentCauses[1] != birth.parentCauses[0] {
-					ent.mob.FoxTrust(birth.parentCauses[1])
+				for _, p := range online {
+					ent.mob.FoxTrust(p.UUID())
 				}
 			}
 			s.mobsMu.Unlock()

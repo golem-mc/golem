@@ -4,7 +4,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/google/uuid"
-	"reflect"
 
 	"math"
 	"testing"
@@ -378,15 +377,19 @@ func loveCauseArg(id uuid.UUID) protocol.Text {
 	return servertest.NBTArg(nbt.Stringify(nbt.UUIDToIntArray(id)))
 }
 
-// loveCauseOf reads the first mob of the kind's LoveCause through /data get;
-// ok is false when the key reads as absent.
-func loveCauseOf(srv *server.Server, selector string) (arg protocol.Text, ok bool) {
-	for _, text := range srv.RunLine("data get entity " + selector + " LoveCause") {
-		if text.Translate == "commands.data.entity.query" && len(text.With) == 2 {
-			return text.With[1], true
-		}
-	}
-	return protocol.Text{}, false
+// expectNoLoveCause queries the mob's LoveCause and expects the no-match failure.
+func expectNoLoveCause(c *servertest.Client, id uuid.UUID) {
+	c.T.Helper()
+	c.ChatCommand("data get entity " + id.String() + " LoveCause")
+	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("arguments.nbtpath.nothing_found", "LoveCause"))
+}
+
+// expectLoveCause queries the cow's LoveCause and expects the cause's UUID.
+func expectLoveCause(c *servertest.Client, cow servertest.SpawnedMob, cause uuid.UUID) {
+	c.T.Helper()
+	c.ChatCommand("data get entity " + cow.Uuid.String() + " LoveCause")
+	c.ExpectCommandFeedbackText("commands.data.entity.query",
+		servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid), loveCauseArg(cause))
 }
 
 // TestFedCowSavesItsLoveCause: feeding stores the feeder's UUID as LoveCause,
@@ -414,12 +417,11 @@ func TestRemovedLoveCauseClears(t *testing.T) {
 	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
 	c.UseOn(cow.EntityID)
 	c.Settle()
+	expectLoveCause(c, cow, protocol.OfflineUUID("Rancher"))
 	c.ChatCommand("data remove entity " + cow.Uuid.String() + " LoveCause")
 	c.ExpectCommandFeedbackText("commands.data.entity.modified",
 		servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
-	if _, ok := loveCauseOf(srv, "@e[type=cow,limit=1]"); ok {
-		t.Error("LoveCause still readable after /data remove")
-	}
+	expectNoLoveCause(c, cow.Uuid)
 }
 
 // TestVillagerHasNoLoveCause: only Animal kinds hold the field.
@@ -427,21 +429,21 @@ func TestRemovedLoveCauseClears(t *testing.T) {
 func TestVillagerHasNoLoveCause(t *testing.T) {
 	t.Parallel()
 	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "", 0, servertest.OpsListing(t, "Rancher"))
+	srv.StopTick()
 	id := protocol.OfflineUUID("Rancher")
 	c.ChatCommand("summon villager 1.5 64 2.5 {LoveCause:" + nbt.Stringify(nbt.UUIDToIntArray(id)) + "}")
+	villager := c.AwaitSpawn(protocol.EntityTypeVillager)
 	c.Settle()
-	if _, ok := loveCauseOf(srv, "@e[type=villager,limit=1]"); ok {
-		t.Error("a villager reports LoveCause")
-	}
+	expectNoLoveCause(c, villager.Uuid)
 }
 
 // setLoveCauses summons two cows in love whose causes are the given UUIDs
 // (zero for none), returning them once spawned.
-func setLoveCauses(t *testing.T, srv *server.Server, c *servertest.Client, causes [2]uuid.UUID) {
+func setLoveCauses(t *testing.T, srv *server.Server, c *servertest.Client, causes [2]uuid.UUID) [2]servertest.SpawnedMob {
 	t.Helper()
 	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
 	srv.SpawnMob("minecraft:cow", 2.5, 64, 2.5)
-	cows := []servertest.SpawnedMob{c.ExpectMobSpawn(protocol.EntityTypeCow), c.ExpectMobSpawn(protocol.EntityTypeCow)}
+	cows := [2]servertest.SpawnedMob{c.ExpectMobSpawn(protocol.EntityTypeCow), c.ExpectMobSpawn(protocol.EntityTypeCow)}
 	for i, cow := range cows {
 		compound := "{InLove:600"
 		if causes[i] != (uuid.UUID{}) {
@@ -450,6 +452,7 @@ func setLoveCauses(t *testing.T, srv *server.Server, c *servertest.Client, cause
 		c.ChatCommand("data merge entity " + cow.Uuid.String() + " " + compound + "}")
 		c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
 	}
+	return cows
 }
 
 // TestMergedLoveCauseCreditsTheBreeder: a LoveCause set by /data merge is
@@ -461,13 +464,13 @@ func TestMergedLoveCauseCreditsTheBreeder(t *testing.T) {
 	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "", 0, servertest.OpsListing(t, "Rancher"))
 	servertest.HoldTicks(t, srv)
 	id := protocol.OfflineUUID("Rancher")
-	setLoveCauses(t, srv, c, [2]uuid.UUID{id, id})
+	cows := setLoveCauses(t, srv, c, [2]uuid.UUID{id, id})
 	servertest.UntilTicks(t, srv, 400, "calf", func() bool { return srv.MobCount() == 3 })
 	if got := srv.StatValue("Rancher", registry.StatCustom, "minecraft:animals_bred"); got != 1 {
 		t.Errorf("animals_bred = %d, want 1", got)
 	}
-	if got, ok := loveCauseOf(srv, "@e[type=cow,limit=1]"); !ok || !reflect.DeepEqual(got, loveCauseArg(id)) {
-		t.Errorf("a parent's LoveCause after the birth = %v (present %v), want the breeder", got, ok)
+	for _, cow := range cows {
+		expectLoveCause(c, cow, id)
 	}
 }
 
@@ -482,5 +485,36 @@ func TestBreedingCreditsThePartnersBreeder(t *testing.T) {
 	servertest.UntilTicks(t, srv, 400, "calf", func() bool { return srv.MobCount() == 3 })
 	if got := srv.StatValue("Rancher", registry.StatCustom, "minecraft:animals_bred"); got != 1 {
 		t.Errorf("animals_bred = %d, want 1", got)
+	}
+}
+
+// TestFoxKitTrustsOnlyOnlineCauses: a parent's cause that is no online player
+// is not trusted by the kit.
+// vanilla: Fox.FoxBreedGoal.breed
+func TestFoxKitTrustsOnlyOnlineCauses(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "", 0, servertest.OpsListing(t, "Rancher"))
+	servertest.HoldTicks(t, srv)
+	var foxes [2]servertest.SpawnedMob
+	causes := [2]uuid.UUID{protocol.OfflineUUID("Absent"), protocol.OfflineUUID("Rancher")}
+	for i := range foxes {
+		srv.SpawnMob(foxType, 1.5+float64(i), 64, 2.5)
+		foxes[i] = c.ExpectMobSpawn(protocol.EntityTypeFox)
+		c.ChatCommand("data merge entity " + foxes[i].Uuid.String() + " {InLove:600,LoveCause:" + nbt.Stringify(nbt.UUIDToIntArray(causes[i])) + "}")
+		c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:fox", "entity.minecraft.fox", foxes[i].Uuid))
+	}
+	servertest.UntilTicks(t, srv, 400, "kit", func() bool { return srv.MobCount() == 3 })
+	checked := 0
+	for _, id := range srv.MobIDsOfKind(foxType) {
+		if id == foxes[0].EntityID || id == foxes[1].EntityID {
+			continue
+		}
+		checked++
+		if got := srv.FoxTrustCount(id); got != 1 {
+			t.Errorf("kit trusts %d players, want 1", got)
+		}
+	}
+	if checked != 1 {
+		t.Errorf("found %d kits, want 1", checked)
 	}
 }
