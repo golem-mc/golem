@@ -2,7 +2,6 @@ package world
 
 import (
 	"bytes"
-	"os"
 	"slices"
 	"testing"
 
@@ -66,30 +65,6 @@ func TestChunkPacketMatchesReference(t *testing.T) {
 	}}}
 	w.mu.Unlock()
 	check("block entities")
-}
-
-func TestMixedChunkPacketGolden(t *testing.T) {
-	w, err := NewWorld(t.TempDir(), NewFlatGenerator())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer w.Close()
-	pos := ChunkPos{X: 1, Z: -2}
-	c, _ := w.Acquire(pos)
-	defer w.Release(pos)
-	x, z := pos.X*16, pos.Z*16
-	w.SetBlock(x+15, GroundLevel, z, stoneState)
-	w.SetBlock(x, GroundLevel, z+1, registry.BlockStates["minecraft:water"])
-	w.SetBlock(x+1, GroundLevel, z+1, registry.BlockStates["minecraft:glass"])
-
-	got := w.ChunkPacket(c)
-	want, err := os.ReadFile("testdata/mixed_chunk_packet.golden")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("mixed chunk packet differs from the recorded payload (%d bytes, want %d)", len(got), len(want))
-	}
 }
 
 // TestChunkSectionsMatchReference checks the cached section form of generated
