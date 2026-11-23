@@ -157,6 +157,7 @@ func (s *ItemStack) SetMapDecorations(value nbt.Tag) bool {
 	tag, _ := value.(nbt.CompoundTag)
 	s.MapDecorations = entries
 	s.mapDecorationOrder = nbt.HashOrderedKeys(tag)
+	s.clearRemoval(DataComponentMapDecorations)
 	s.NotePatch(DataComponentMapDecorations)
 	return true
 }
@@ -196,5 +197,6 @@ func (s *ItemStack) SetMapDecoration(key string, value MapDecoration) {
 	maps.Copy(entries, s.MapDecorations)
 	entries[key] = value
 	s.MapDecorations, s.mapDecorationOrder = entries, keys
+	s.clearRemoval(DataComponentMapDecorations)
 	s.NotePatch(DataComponentMapDecorations)
 }

@@ -153,7 +153,8 @@ func javaStringLength(s string) int {
 // vanilla's map order is unspecified.
 func AnvilCombine(base, extra protocol.ItemStack, name string, creative bool) AnvilAnswer {
 	// vanilla: EnchantmentHelper.canStoreEnchantments
-	if base.Empty() || (!isEnchantedBook(base) && base.Removes(protocol.DataComponentEnchantments)) {
+	if base.Empty() || (isEnchantedBook(base) && base.Removes(protocol.DataComponentStoredEnchantments)) ||
+		(!isEnchantedBook(base) && base.Removes(protocol.DataComponentEnchantments)) {
 		return AnvilAnswer{}
 	}
 	// work counts a level per change beyond the first (a mended quarter, a

@@ -24,6 +24,9 @@ func heldSpawnEgg(stack protocol.ItemStack) (kind entity.MobType, simulated, egg
 	if !ok {
 		return entity.NoMobType, false, false
 	}
+	if stack.Removes(protocol.DataComponentEntityData) {
+		return entity.NoMobType, false, true
+	}
 	if id, has := itemEntityType(stack); has {
 		if id < 0 || int(id) >= len(registry.EntityTypes) {
 			return entity.NoMobType, false, true

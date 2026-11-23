@@ -99,3 +99,77 @@ func TestItemCommandsRemoveDefaultComponents(t *testing.T) {
 		}
 	}
 }
+
+func TestItemCommandsRemoveAllRemainingDefaults(t *testing.T) {
+	t.Parallel()
+	const name = "Tester"
+	srv, c := servertest.Join(t, servertest.CombatTestConfig(), name, servertest.OpsListing(t, name))
+	servertest.HoldTicks(t, srv)
+	c.FacePlayer(5.5, 64, 5.5, 0, 0)
+	c.Settle()
+
+	for _, tc := range []struct {
+		spec    string
+		item    registry.Item
+		removed []string
+	}{
+		{"shulker_box[!container]", registry.ItemShulkerBox, []string{"minecraft:container"}},
+		{"bundle[!bundle_contents]", registry.ItemBundle, []string{"minecraft:bundle_contents"}},
+		{"white_banner[!banner_patterns]", registry.ItemWhiteBanner, []string{"minecraft:banner_patterns"}},
+		{"potion[!potion_contents]", registry.ItemPotion, []string{"minecraft:potion_contents"}},
+		{"light[!block_state]", registry.ItemLight, []string{"minecraft:block_state"}},
+		{"chicken_spawn_egg[!entity_data]", registry.ItemChickenSpawnEgg, []string{"minecraft:entity_data"}},
+		{"beehive[!bees]", registry.ItemBeehive, []string{"minecraft:bees"}},
+		{"cod_bucket[!bucket_entity_data]", registry.ItemCodBucket, []string{"minecraft:bucket_entity_data"}},
+		{"crossbow[!charged_projectiles]", registry.ItemCrossbow, []string{"minecraft:charged_projectiles"}},
+		{"blue_egg[!chicken/variant]", registry.ItemBlueEgg, []string{"minecraft:chicken/variant"}},
+		{"red_cushion[!cushion/color]", registry.ItemRedCushion, []string{"minecraft:cushion/color"}},
+		{"debug_stick[!debug_stick_state]", registry.ItemDebugStick, []string{"minecraft:debug_stick_state"}},
+		{"enchanted_golden_apple[!enchantment_glint_override]", registry.ItemEnchantedGoldenApple, []string{"minecraft:enchantment_glint_override"}},
+		{"firework_rocket[!fireworks]", registry.ItemFireworkRocket, []string{"minecraft:fireworks"}},
+		{"goat_horn[!instrument]", registry.ItemGoatHorn, []string{"minecraft:instrument"}},
+		{"filled_map[!map_decorations]", registry.ItemFilledMap, []string{"minecraft:map_decorations"}},
+		{"decorated_pot[!pot_decorations]", registry.ItemDecoratedPot, []string{"minecraft:pot_decorations"}},
+		{"tipped_arrow[!potion_duration_scale]", registry.ItemTippedArrow, []string{"minecraft:potion_duration_scale"}},
+		{"angler_pottery_sherd[!provides_pottery_pattern]", registry.ItemAnglerPotterySherd, []string{"minecraft:provides_pottery_pattern"}},
+		{"knowledge_book[!recipes]", registry.ItemKnowledgeBook, []string{"minecraft:recipes"}},
+		{"oak_sign[!sign_text_front,!sign_text_back]", registry.ItemOakSign, []string{"minecraft:sign_text_back", "minecraft:sign_text_front"}},
+		{"enchanted_book[!stored_enchantments]", registry.ItemEnchantedBook, []string{"minecraft:stored_enchantments"}},
+		{"suspicious_stew[!suspicious_stew_effects]", registry.ItemSuspiciousStew, []string{"minecraft:suspicious_stew_effects"}},
+		{"writable_book[!writable_book_content]", registry.ItemWritableBook, []string{"minecraft:writable_book_content"}},
+	} {
+		line := "item replace entity @s hotbar.0 with " + tc.spec
+		c.ChatCommand(line)
+		updates, chats := servertest.AwaitSlotUpdates(t, c, 1)
+		if !slices.ContainsFunc(chats, func(chat []byte) bool { return bytes.Contains(chat, []byte(itemEntitySetSingleKey)) }) {
+			servertest.AwaitSystemChatSaying(t, c, itemEntitySetSingleKey)
+		}
+		got := updates[0].Stack
+		removed := got.RemovedNames()
+		slices.Sort(removed)
+		if updates[0].Slot != 36 || got.ItemID != int32(tc.item) || got.Count != 1 || !slices.Equal(removed, tc.removed) {
+			t.Errorf("%s: slot=%d item=%d count=%d removed=%v, want 36/%d/1/%v",
+				tc.spec, updates[0].Slot, got.ItemID, got.Count, removed, tc.item, tc.removed)
+		}
+	}
+
+	// Verify saved inventory NBT carries a removal from word 1 and that a
+	// spawn egg with !entity_data spawns nothing when used on the ground.
+	c.ChatCommand("item replace entity @s hotbar.0 with chicken_spawn_egg[!entity_data]")
+	servertest.AwaitSlotUpdates(t, c, 1)
+	servertest.AwaitSystemChatSaying(t, c, itemEntitySetSingleKey)
+	c.ChatCommand("data get entity @s Inventory[{Slot:0b}].components")
+	components := servertest.FeedbackComponent(t, c)
+	if components.Translate != "commands.data.entity.query" || len(components.With) != 2 ||
+		!strings.Contains(components.With[1].Plain(), `"!minecraft:entity_data": {}`) {
+		t.Fatalf("spawn egg components = %s, want !minecraft:entity_data", components.Plain())
+	}
+	c.PlaceBlock(5, 63, 5, protocol.FaceTop)
+	c.Settle()
+	if got := srv.InventorySlot(name, 36); got.ItemID != int32(registry.ItemChickenSpawnEgg) || got.Count != 1 {
+		t.Errorf("spawn egg after use = %+v, want unconsumed chicken_spawn_egg", got)
+	}
+	if len(srv.Mobs()) != 0 {
+		t.Errorf("mobs spawned by chicken_spawn_egg[!entity_data] = %d, want 0", len(srv.Mobs()))
+	}
+}

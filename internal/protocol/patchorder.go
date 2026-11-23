@@ -68,6 +68,9 @@ func (s ItemStack) orderPatch(ids []int32) {
 	}
 }
 
-// DataComponentDebugStickState is minecraft:debug_stick_state, a component
-// with no network codec.
-const DataComponentDebugStickState = 59
+// DataComponentDebugStickState and DataComponentRecipes have no network codec
+// for their values, though removals still travel by component ID.
+const (
+	DataComponentDebugStickState = 59
+	DataComponentRecipes         = 68
+)

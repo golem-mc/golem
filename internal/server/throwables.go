@@ -373,12 +373,16 @@ func thrownShell(thrown *entity.Thrown, w *world.World, ownerUUID uuid.UUID, sta
 		return nil
 	}
 	stack.Count = 1
+	variant := ""
+	if !stack.Removes(protocol.DataComponentChickenVariant) {
+		variant = eggVariantOfItem(registry.Item(stack.ItemID))
+	}
 	return &thrownEntity{
 		throwable: thrown,
 		w:         w,
 		uuid:      uuid.New(),
 		stack:     stack,
-		variant:   eggVariantOfItem(registry.Item(stack.ItemID)),
+		variant:   variant,
 		firstPass: true,
 		ownerUUID: ownerUUID,
 	}
@@ -873,9 +877,15 @@ func (s *Server) potionBreakOf(it *thrownEntity, dim *dimension, mobsByID map[in
 		return shl
 	}
 	if it.throwable.Kind == entity.ThrownLingeringPotion {
+		scale := rules.LingeringDurationScale
+		if rawScale, ok := it.stack.PotionDurationScale(); ok {
+			scale = float64(rawScale)
+		} else if it.stack.Removes(protocol.DataComponentPotionDurationScale) {
+			scale = 1
+		}
 		cloud := make([]effect.Instance, 0, len(brewed))
 		for _, in := range brewed {
-			cloud = append(cloud, rules.LingeringInstance(effect.Clone(in), rules.LingeringDurationScale))
+			cloud = append(cloud, rules.LingeringInstance(effect.Clone(in), scale))
 		}
 		shl.cloud = cloud
 		return shl

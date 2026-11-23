@@ -196,8 +196,6 @@ func parseItemStackComponents(text string) (protocol.ItemStack, bool) {
 				continue // vanilla: PatchedDataComponentMap.applyPatch
 			}
 			component, _ := registry.ComponentID(name)
-			// Defaults such as container, potion_contents and entity_data
-			// still need removal support in their stack readers.
 			if !stack.Remove(component) {
 				return protocol.ItemStack{}, false
 			}
@@ -262,9 +260,11 @@ func applyComponent(stack *protocol.ItemStack, item int32, key, value string) bo
 		// The legacy 2b marker applies only to stored stacks.
 		// vanilla: NbtOps.getBooleanValue
 		if glint == 0 {
-			stack.GlintOverride = protocol.GlintHidden
+			stack.SetGlintOverride(protocol.GlintHidden)
 		} else if !registry.GlintByDefault(item) {
-			stack.GlintOverride = protocol.GlintShown
+			stack.SetGlintOverride(protocol.GlintShown)
+		} else {
+			stack.ResetComponent(protocol.DataComponentEnchantmentGlintOverride)
 		}
 	case "minecraft:profile":
 		profile, ok := parseProfile(value)

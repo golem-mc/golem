@@ -56,6 +56,31 @@ var removable = [...]struct {
 	{DataComponentRepairCost, "minecraft:repair_cost"},
 	{DataComponentTooltipDisplay, "minecraft:tooltip_display"},
 	{DataComponentDamage, "minecraft:damage"},
+	{DataComponentBannerPatterns, "minecraft:banner_patterns"},
+	{DataComponentBees, "minecraft:bees"},
+	{DataComponentBlockState, "minecraft:block_state"},
+	{DataComponentBucketEntityData, "minecraft:bucket_entity_data"},
+	{DataComponentBundleContents, "minecraft:bundle_contents"},
+	{DataComponentChargedProjectiles, "minecraft:charged_projectiles"},
+	{DataComponentChickenVariant, "minecraft:chicken/variant"},
+	{DataComponentContainer, "minecraft:container"},
+	{DataComponentCushionColor, "minecraft:cushion/color"},
+	{DataComponentDebugStickState, "minecraft:debug_stick_state"},
+	{DataComponentEnchantmentGlintOverride, "minecraft:enchantment_glint_override"},
+	{DataComponentEntityData, "minecraft:entity_data"},
+	{DataComponentFireworks, "minecraft:fireworks"},
+	{DataComponentInstrument, "minecraft:instrument"},
+	{DataComponentMapDecorations, "minecraft:map_decorations"},
+	{DataComponentPotDecorations, "minecraft:pot_decorations"},
+	{DataComponentPotionContents, "minecraft:potion_contents"},
+	{DataComponentPotionDurationScale, "minecraft:potion_duration_scale"},
+	{DataComponentProvidesPotteryPattern, "minecraft:provides_pottery_pattern"},
+	{DataComponentRecipes, "minecraft:recipes"},
+	{DataComponentSignTextBack, "minecraft:sign_text_back"},
+	{DataComponentSignTextFront, "minecraft:sign_text_front"},
+	{DataComponentStoredEnchantments, "minecraft:stored_enchantments"},
+	{DataComponentSuspiciousStew, "minecraft:suspicious_stew_effects"},
+	{DataComponentWritableBookContent, "minecraft:writable_book_content"},
 }
 
 var _ [len(Removals{})*64 - len(removable)]struct{}
@@ -144,6 +169,18 @@ func (s *ItemStack) clearComponent(component int32) {
 		s.RepairCost = 0
 	case DataComponentEnchantments:
 		s.Enchantments, s.enchantmentOrder = nil, nil
+	case DataComponentStoredEnchantments:
+		s.StoredEnchantments, s.storedEnchantmentOrder = nil, nil
+	case DataComponentEnchantmentGlintOverride:
+		s.GlintOverride = GlintUnset
+	case DataComponentContainer:
+		s.Container = nil
+	case DataComponentDebugStickState:
+		s.DebugStick, s.debugStickOrder = nil, nil
+	case DataComponentRecipes:
+		s.Recipes = nil
+	case DataComponentMapDecorations:
+		s.MapDecorations, s.mapDecorationOrder = nil, nil
 	}
 	s.clearRaw(component)
 }
@@ -173,5 +210,41 @@ func (s *ItemStack) SetRepairCost(cost int32) {
 		s.NotePatch(DataComponentRepairCost)
 	} else {
 		s.ForgetPatch(DataComponentRepairCost)
+	}
+}
+
+// SetGlintOverride writes the enchantment glint override, restoring the
+// component if it was removed.
+func (s *ItemStack) SetGlintOverride(override int8) {
+	s.GlintOverride = override
+	s.clearRemoval(DataComponentEnchantmentGlintOverride)
+	if override != GlintUnset {
+		s.NotePatch(DataComponentEnchantmentGlintOverride)
+	} else {
+		s.ForgetPatch(DataComponentEnchantmentGlintOverride)
+	}
+}
+
+// SetContainer writes the container contents, restoring the component if it was
+// removed.
+func (s *ItemStack) SetContainer(contents []ItemStack) {
+	s.Container = contents
+	s.clearRemoval(DataComponentContainer)
+	if len(contents) > 0 {
+		s.NotePatch(DataComponentContainer)
+	} else {
+		s.ForgetPatch(DataComponentContainer)
+	}
+}
+
+// SetRecipes writes the knowledge book recipes, restoring the component if it
+// was removed.
+func (s *ItemStack) SetRecipes(recipes []string) {
+	s.Recipes = recipes
+	s.clearRemoval(DataComponentRecipes)
+	if len(recipes) > 0 {
+		s.NotePatch(DataComponentRecipes)
+	} else {
+		s.ForgetPatch(DataComponentRecipes)
 	}
 }

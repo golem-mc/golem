@@ -28,7 +28,7 @@ func bundleWeight(stack protocol.ItemStack) (*big.Rat, bool) {
 	if stack.Empty() || isShulkerBoxItem(stack) {
 		return nil, false
 	}
-	if isBundle(stack) {
+	if isBundle(stack) && !stack.Removes(protocol.DataComponentBundleContents) {
 		inner := bundleItemsWeight(stack.BundleContents())
 		return inner.Add(inner, big.NewRat(1, 16)), true
 	}
@@ -96,7 +96,7 @@ func bundleInsert(items []protocol.ItemStack, stack protocol.ItemStack) ([]proto
 // reports whether the bundle handled the click.
 // vanilla: BundleItem.overrideStackedOnOther
 func bundleStackedOnOther(s *Session, view View, inv *player.Inventory, button, slot int32, creative bool, xpLevel int32, outcome *Outcome) bool {
-	if !isBundle(s.Carried) {
+	if !isBundle(s.Carried) || s.Carried.Removes(protocol.DataComponentBundleContents) {
 		return false
 	}
 	other := view.Stack(inv, slot)
@@ -164,7 +164,7 @@ func bundleStackedOnOther(s *Session, view View, inv *player.Inventory, button, 
 // vanilla: BundleItem.overrideOtherStackedOnMe
 func bundleOtherStackedOnMe(s *Session, view View, inv *player.Inventory, button, slot int32, creative bool, xpLevel int32, outcome *Outcome) bool {
 	bundle := view.Stack(inv, slot)
-	if !isBundle(bundle) {
+	if !isBundle(bundle) || bundle.Removes(protocol.DataComponentBundleContents) {
 		return false
 	}
 	switch button {

@@ -148,7 +148,11 @@ func (s *Server) spawnFirework(w *world.World, stack protocol.ItemStack, x, y, z
 }
 
 // fireworkFlight is a rocket stack's flight duration and star count.
+// vanilla: FireworkRocketEntity.<init>
 func fireworkFlight(stack protocol.ItemStack) (flight, explosions int32) {
+	if stack.Removes(protocol.DataComponentFireworks) {
+		return 0, 0
+	}
 	// No fireworks component is the item's default of one flight.
 	// vanilla: the item report's firework_rocket components
 	flight = 1

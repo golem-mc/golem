@@ -660,12 +660,6 @@ func readRemovedComponents(r *Reader, stack *ItemStack, remove int32) bool {
 			stack.Unbreakable = false
 		case DataComponentCustomName:
 			stack.CustomName = nil
-		case DataComponentEnchantmentGlintOverride:
-			stack.GlintOverride = GlintUnset
-		case DataComponentStoredEnchantments:
-			stack.SetEnchantments(true, nil)
-		case DataComponentContainer:
-			stack.Container = nil
 		default:
 			stack.clearRaw(component)
 		}
@@ -761,16 +755,16 @@ func readComponentData(r *Reader, stack *ItemStack, component int32, depth int) 
 	case DataComponentEnchantmentGlintOverride:
 		switch r.ReadBool() {
 		case true:
-			stack.GlintOverride = GlintShown
+			stack.SetGlintOverride(GlintShown)
 		default:
-			stack.GlintOverride = GlintHidden
+			stack.SetGlintOverride(GlintHidden)
 		}
 	case DataComponentContainer:
 		contents, ok := readContainerContents(r, depth)
 		if !ok {
 			return false
 		}
-		stack.Container = contents
+		stack.SetContainer(contents)
 	default:
 		return readRawComponent(r, stack, component, depth)
 	}

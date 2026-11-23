@@ -187,7 +187,8 @@ func (r *lootRoller) apply(fn registry.LootFunction, s protocol.ItemStack, patch
 		}
 	case registry.LootSetEnchantments:
 		s = transmuteBook(s)
-		if !isEnchantedBook(s) && s.Removes(protocol.DataComponentEnchantments) {
+		if (isEnchantedBook(s) && s.Removes(protocol.DataComponentStoredEnchantments)) ||
+			(!isEnchantedBook(s) && s.Removes(protocol.DataComponentEnchantments)) {
 			return s
 		}
 		levels := enchantLevels(&s)
@@ -459,7 +460,8 @@ func setEnchantTarget(s *protocol.ItemStack, levels map[int32]int32) {
 // higher one already there.
 // vanilla: ItemEnchantments.Mutable.upgrade
 func upgradeEnchantment(s *protocol.ItemStack, id, level int32) {
-	if level <= 0 || !isEnchantedBook(*s) && s.Removes(protocol.DataComponentEnchantments) {
+	if level <= 0 || (isEnchantedBook(*s) && s.Removes(protocol.DataComponentStoredEnchantments)) ||
+		(!isEnchantedBook(*s) && s.Removes(protocol.DataComponentEnchantments)) {
 		return
 	}
 	levels := enchantLevels(s)
