@@ -45,12 +45,14 @@ func (s *Server) tickNaturalSpawning() {
 			continue
 		}
 
-		var spawning []world.ChunkPos
-		for _, pos := range w.LoadedChunkPositions() {
+		loaded := w.AppendLoadedChunkPositions(dim.spawningPositions[:0])
+		spawning := loaded[:0]
+		for _, pos := range loaded {
 			if chunkIsSpawning(players, pos) {
 				spawning = append(spawning, pos)
 			}
 		}
+		dim.spawningPositions = spawning
 		// The loaded set is a map, so its order changes per call; a fixed order
 		// keeps a seeded pass over mixed biomes reproducible.
 		slices.SortFunc(spawning, func(a, b world.ChunkPos) int {
@@ -65,15 +67,16 @@ func (s *Server) tickNaturalSpawning() {
 		}
 		monsters := w.SpawnEnemies()
 
-		var chunks []entity.ChunkPos
+		chunks := dim.spawnablePositions[:0]
 		for _, pos := range spawning {
 			// A chunk whose light is still building reads as pitch dark, so wait
 			// (vanilla walks only FULL-status chunks).
 			// vanilla: ServerLevel.canSpawnEntitiesInChunk
-			if w.ChunkLightReady(pos) && entity.ChunkInBorder(w, entity.ChunkPos{X: pos.X, Z: pos.Z}) {
-				chunks = append(chunks, entity.ChunkPos{X: pos.X, Z: pos.Z})
+			if w.ChunkLightReady(pos) && entity.ChunkInBorder(w, entity.ChunkPos(pos)) {
+				chunks = append(chunks, entity.ChunkPos(pos))
 			}
 		}
+		dim.spawnablePositions = chunks
 		if len(chunks) == 0 {
 			continue
 		}

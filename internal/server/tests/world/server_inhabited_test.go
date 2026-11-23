@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -155,6 +156,37 @@ func TestInhabitedTimeAdvancesAChunkAPlayerStandsIn(t *testing.T) {
 
 	if got := savedInhabitedTime(t, servertest.ChunkRegionPath(restarted.LevelName, near), near); got != 40 {
 		t.Errorf("InhabitedTime after the second run = %d, want 40: the 25 the reload read and the 15 the run added", got)
+	}
+}
+
+// vanilla: ServerChunkCache.tickSpawningChunk ages the chunk even with no spawning categories.
+func TestInhabitedTimeRefreshesLoadedChunksWithSpawningDisabled(t *testing.T) {
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance = 2
+	srv, _ := servertest.Join(t, cfg, "Alice", func(srv *server.Server) {
+		servertest.FreezeUntilHeld(t, srv)
+		srv.OverworldWorld().SetBoolRule(world.RuleSpawnMobs, false)
+	})
+	servertest.HoldTicks(t, srv)
+	w := srv.OverworldWorld()
+	servertest.RunTicks(t, srv, 1)
+
+	for _, pos := range []world.ChunkPos{{X: 6}, {Z: 6}} {
+		if w.ChunkLoaded(pos) {
+			t.Fatalf("chunk %v is already loaded", pos)
+		}
+		w.Acquire(pos)
+		x, z := pos.X*16, pos.Z*16
+		before := w.InhabitedTime(x, z)
+		servertest.RunTicks(t, srv, 1)
+		if got := w.InhabitedTime(x, z); got != before+1 {
+			t.Errorf("inhabited time in %v after one tick = %d, want %d", pos, got, before+1)
+		}
+		w.Release(pos)
+		w.FlushSaves()
+		if w.ChunkLoaded(pos) {
+			t.Fatalf("released chunk %v stayed loaded", pos)
+		}
 	}
 }
 
