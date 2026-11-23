@@ -26,21 +26,21 @@ func (h *pluginHost) pluginEntityOf(e command.Entity) plugin.Entity {
 		return pluginPlayer{host: h, c: c}
 	}
 	base := pluginEntity{host: h, id: e.UUID()}
-	if pluginEntityType(e) == registry.EntityTypeItem {
+	typ := pluginEntityType(e)
+	if typ == registry.EntityTypeItem {
 		return pluginItemEntity{pluginEntity: base}
 	}
 	if h := pluginVehicleOf(base, e); h != nil {
 		return h
 	}
-	if h := pluginVillagerOf(base, pluginEntityType(e)); h != nil {
+	if h := pluginVillagerOf(base, typ); h != nil {
 		return h
 	}
-	if h := pluginTypedHandle(base, pluginEntityType(e), base.saved()); h != nil {
-		return h
-	}
-	if pluginEntityType(e) == registry.EntityTypeExperienceOrb {
+	if typ == registry.EntityTypeExperienceOrb {
 		return pluginOrbEntity{pluginEntity: base, orbOps: orbOps{base}}
 	}
+	// Only mobs and mannequins reach this branch. Read their saved form
+	// once from the snapshot, without resolving the handle again.
 	if a, ok := e.(command.AttributeTarget); ok && a.HasAttributes() {
 		if t, ok := e.(command.DataTarget); ok {
 			if tag, ok := t.DataTag(); ok {
@@ -48,6 +48,9 @@ func (h *pluginHost) pluginEntityOf(e command.Entity) plugin.Entity {
 			}
 		}
 		return pluginLivingEntity{pluginEntity: base, livingOps: livingOps{base}}
+	}
+	if h := pluginTypedHandle(base, typ, base.saved()); h != nil {
+		return h
 	}
 	return pluginPlainEntity{pluginEntity: base}
 }
