@@ -49,7 +49,7 @@ func BenchmarkEnchantedMobBlow(b *testing.B) {
 // player and on a cow, with the victim's team allowing or refusing the damage
 // (friendlyFire on or off).
 func BenchmarkMobContactStrike(b *testing.B) {
-	for _, victimKind := range []string{"player", "mob"} {
+	for _, victimKind := range []string{"player", "sting", "mob"} {
 		for _, refused := range []bool{false, true} {
 			name := victimKind + "/allowed"
 			if refused {
@@ -73,7 +73,10 @@ func BenchmarkMobContactStrike(b *testing.B) {
 				member := player0.player.Name
 				strike := mobStrike{w: s.world, mob: slime.mob, uuid: slime.uuid, uuidText: slime.uuidText, damage: 2, x: 2, y: 64,
 					touch: true, killer: &rules.Killer{}}
-				if victimKind == "player" {
+				if victimKind == "sting" {
+					strike.puff = 2
+				}
+				if victimKind != "mob" {
 					strike.victimID = player0.player.EntityID
 				} else {
 					strike.victimID = cow.mob.ID
@@ -91,10 +94,13 @@ func BenchmarkMobContactStrike(b *testing.B) {
 					cow.mob.Health, cow.mob.HurtTime, cow.mob.InvulnTicks = cowHealth, 0, 0
 					s.mobsMu.Unlock()
 					s.landingBlow(strike, clients)
+					if victimKind == "sting" {
+						player0.stepVelocity(s.world, true) // the flush a sting leaves pending
+					}
 				}
 				b.StopTimer()
 				var hurt bool
-				if victimKind == "player" {
+				if victimKind != "mob" {
 					hurt = player0.player.Vitals().Health < 20
 				} else {
 					s.mobsMu.Lock()
