@@ -18,7 +18,7 @@ func StackKineticWeapon(stack protocol.ItemStack) *KineticWeapon {
 			return k
 		}
 	}
-	if stack.Removed != 0 && stack.Removes(protocol.DataComponentKineticWeapon) {
+	if stack.Removes(protocol.DataComponentKineticWeapon) {
 		return nil
 	}
 	return KineticWeaponOf(stack.ItemID)
@@ -39,7 +39,7 @@ func StackPiercingWeapon(stack protocol.ItemStack) (PiercingWeapon, bool) {
 			}, true
 		}
 	}
-	if stack.Removed != 0 && stack.Removes(protocol.DataComponentPiercingWeapon) {
+	if stack.Removes(protocol.DataComponentPiercingWeapon) {
 		return PiercingWeapon{}, false
 	}
 	return PiercingWeaponOf(stack.ItemID)

@@ -138,9 +138,8 @@ func runEnchant(src Source, input string, args []string) (int32, error) {
 			case !rules.CanEnchant(stack, id):
 				failKey, failWith = enchantFailedIncompatibleKey, []protocol.Text{{Text: rules.ItemName(stack).Plain()}}
 			default:
-				// A zero level writes nothing: vanilla's upgrade merge
-				// of a zero leaves the stack carrying what it did.
-				if level <= 0 {
+				// vanilla: EnchantmentHelper.updateEnchantments skips a missing component.
+				if level <= 0 || stack.Removes(protocol.DataComponentEnchantments) {
 					return stack, false
 				}
 				stack.SetEnchantment(false, id, int32(level))

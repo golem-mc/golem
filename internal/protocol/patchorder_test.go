@@ -49,14 +49,16 @@ func TestPatchOrderRemoveThenSetAppends(t *testing.T) {
 }
 
 // TestPatchOrderWithoutHistoryKeepsWireBytes compares captures from 0c799c182,
-// before patch-root history. Literal fields leave even the nested history empty.
+// before patch-root history.
 func TestPatchOrderWithoutHistoryKeepsWireBytes(t *testing.T) {
 	stack := ItemStack{
 		ItemID: 1050, Count: 1, Damage: 3, Unbreakable: true,
 		RepairCost: 2, GlintOverride: GlintShown,
-		Removed: removalBit(DataComponentFood) | removalBit(DataComponentTool),
-		Raw:     []RawComponent{{Type: DataComponentDyedColor, Data: []byte{0, 0x12, 0x34, 0x56}}},
+		Raw: []RawComponent{{Type: DataComponentDyedColor, Data: []byte{0, 0x12, 0x34, 0x56}}},
 	}
+	stack.Remove(DataComponentFood)
+	stack.Remove(DataComponentTool)
+	stack.patchOrder = nil
 	container := ItemStack{ItemID: 1, Count: 1, Container: []ItemStack{{}, stack}}
 	for _, tc := range []struct {
 		name  string

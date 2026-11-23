@@ -14,7 +14,7 @@ func StackMaxStackSize(stack protocol.ItemStack) int32 {
 			return n
 		}
 	}
-	if stack.Removed != 0 && stack.Removes(protocol.DataComponentMaxStackSize) {
+	if stack.Removes(protocol.DataComponentMaxStackSize) {
 		return 1
 	}
 	return MaxStackSize(stack.ItemID)

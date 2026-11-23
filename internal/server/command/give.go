@@ -190,21 +190,24 @@ func parseItemStackComponents(text string) (protocol.ItemStack, bool) {
 	// span, and a component may be either. They apply in typed order, which
 	// the stack's patch keeps.
 	for _, key := range order {
+		if removed, isRemoval := strings.CutPrefix(key, "!"); isRemoval {
+			name := registry.Qualify(removed)
+			if !registry.ItemHasComponentDefault(itemID, name) {
+				continue // vanilla: PatchedDataComponentMap.applyPatch
+			}
+			component, _ := registry.ComponentID(name)
+			// Defaults such as container, potion_contents and entity_data
+			// still need removal support in their stack readers.
+			if !stack.Remove(component) {
+				return protocol.ItemStack{}, false
+			}
+			continue
+		}
 		// A scalar's whole value is its raw text; a compound's or a
 		// list's is only its span. The one text to read is the non-empty one.
 		value := entries[key]
 		if value == "" {
 			value = spans[key]
-		}
-		if removed, isRemoval := strings.CutPrefix(key, "!"); isRemoval {
-			// A removal the stack cannot keep is a stack this server cannot give.
-			component, ok := protocol.RemovableType(registry.Qualify(removed))
-			if !ok {
-				return protocol.ItemStack{}, false
-			}
-			stack.Remove(component)
-			stack.NotePatch(component)
-			continue
 		}
 		if !applyComponent(&stack, itemID, registry.Qualify(key), value) {
 			return protocol.ItemStack{}, false
@@ -229,10 +232,7 @@ func applyComponent(stack *protocol.ItemStack, item int32, key, value string) bo
 		if !ok || wear < 0 || wear > maxVarInt {
 			return false
 		}
-		if wear == 0 {
-			return true
-		}
-		stack.Damage = int32(wear)
+		stack.SetDamage(int32(wear))
 	case "minecraft:unbreakable":
 		if value != "{}" {
 			return false
@@ -252,10 +252,7 @@ func applyComponent(stack *protocol.ItemStack, item int32, key, value string) bo
 		if !ok || cost < 0 || cost > maxVarInt {
 			return false
 		}
-		if cost == 0 {
-			return true
-		}
-		stack.RepairCost = int32(cost)
+		stack.SetRepairCost(int32(cost))
 	case "minecraft:enchantment_glint_override":
 		switch value {
 		case "true":

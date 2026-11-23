@@ -7,7 +7,7 @@ import (
 
 // StackCompostable returns the stack's effective composting layer provider.
 func StackCompostable(stack protocol.ItemStack) (LootNumber, bool) {
-	if stack.Empty() || stack.Removed != 0 && stack.Removes(protocol.DataComponentCompostable) {
+	if stack.Empty() || stack.Removes(protocol.DataComponentCompostable) {
 		return nil, false
 	}
 	if len(stack.Raw) != 0 {

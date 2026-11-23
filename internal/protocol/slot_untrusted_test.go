@@ -121,16 +121,15 @@ func TestUntrustedSlotRefuses(t *testing.T) {
 	}
 }
 
-// TestUntrustedSlotRemovesComponents checks the component lists the
-// untrusted shape carries besides the added values: a removed component is a
-// type alone, taken back to its item's default, and a stack may add one and
-// take another away in the same packet.
+// TestUntrustedSlotRemovesComponents checks that a removal replaces an
+// added value of the same type in the same packet.
 func TestUntrustedSlotRemovesComponents(t *testing.T) {
 	data, err := hex.DecodeString("019a08020103010a040003")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := ItemStack{ItemID: 1050, Count: 1, Unbreakable: true}
+	want.Remove(DataComponentDamage)
 	got, ok := NewReader(data).ReadUntrustedSlot()
 	if !ok || !got.Equal(want) {
 		t.Errorf("ReadUntrustedSlot = %+v (%v), want %+v", got, ok, want)
