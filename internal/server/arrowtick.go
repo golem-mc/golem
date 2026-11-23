@@ -18,6 +18,13 @@ import (
 // against the tracking range of the arrow type, its hits, sticks and pickups
 // collected; the effects applied after them.
 func (s *Server) tickArrows() {
+	// Nothing to step: skip every snapshot. Released before they are read.
+	s.lockTick(&s.arrowsMu)
+	loaded := len(s.arrows) > 0
+	s.unlockTick(&s.arrowsMu)
+	if !loaded {
+		return
+	}
 	in := newArrowTickInputs()
 	s.readArrowTickInputs(&in)
 	in.nearby = nearbyWorlds(in.watchers, func(w arrowWatcher) trackingWatcher {
@@ -150,15 +157,10 @@ func (s *Server) readArrowTickInputs(in *arrowTickInputs) {
 	}
 	in.boatsByWorld, in.boatsByID, in.boatRoots = s.boatSnapshots()
 	in.standsByWorld = s.armorStandSnapshots()
-	s.lockTick(&s.arrowsMu)
-	flying := len(s.arrows) > 0
-	s.unlockTick(&s.arrowsMu)
-	if flying {
-		in.mannequins = s.mannequinTargets()
-		in.crystalsByWorld = s.endCrystalSnapshots()
-		in.cushionsByWorld = s.cushionSnapshots()
-		in.spareByOwner = s.teamSpares(clients)
-	}
+	in.mannequins = s.mannequinTargets()
+	in.crystalsByWorld = s.endCrystalSnapshots()
+	in.cushionsByWorld = s.cushionSnapshots()
+	in.spareByOwner = s.teamSpares(clients)
 }
 
 // teamSpares groups the online players by their team, keeping the teams
