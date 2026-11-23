@@ -3,6 +3,7 @@ package plugins_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -314,7 +315,16 @@ func TestPluginBlockWriteRelightsAtFlush(t *testing.T) {
 		return s
 	}
 	run(func() { roof(plugin.DefaultState(registry.BlockStone)) })
-	servertest.UntilTicks(t, srv, 400, "light under the roof", func() bool { return sky() < 15 })
+	// The relight runs on the worker pool, so the wait is wall-clock bound.
+	until := func(what string, cond func() bool) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); !cond(); time.Sleep(time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: sky light %d", what, sky())
+			}
+		}
+	}
+	until("light under the roof", func() bool { return sky() < 15 })
 	run(func() { roof(plugin.DefaultState(registry.BlockAir)) })
-	servertest.UntilTicks(t, srv, 400, "light back", func() bool { return sky() == 15 })
+	until("light back", func() bool { return sky() == 15 })
 }
