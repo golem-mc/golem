@@ -162,14 +162,14 @@ func (it *cloudEntity) cloudState() cloudShown {
 
 // spawnCloud spawns a lingering potion's cloud raining its effects, in the
 // world event's colour, keeping the stack's contents for its NBT.
-func (s *Server) spawnCloud(w *world.World, x, y, z float64, effects []effect.Instance, colour int32, contents protocol.PotionContents, ownerUUID uuid.UUID) {
+func (s *Server) spawnCloud(w *world.World, x, y, z float64, effects []effect.Instance, colour int32, contents protocol.PotionContents, durationScale float32, ownerUUID uuid.UUID) {
 	it := &cloudEntity{
 		cloud:         entity.NewCloud(s.nextEntity(), x, y, z, effects),
 		w:             w,
 		uuid:          uuid.New(),
 		colour:        colour,
 		contents:      contents,
-		durationScale: rules.LingeringDurationScale,
+		durationScale: durationScale,
 		ownerUUID:     ownerUUID,
 		fresh:         true,
 	}

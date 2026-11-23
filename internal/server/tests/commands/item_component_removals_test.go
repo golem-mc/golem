@@ -153,17 +153,18 @@ func TestItemCommandsRemoveAllRemainingDefaults(t *testing.T) {
 		}
 	}
 
-	// Verify saved inventory NBT carries a removal from word 1 and that a
-	// spawn egg with !entity_data spawns nothing when used on the ground.
-	c.ChatCommand("item replace entity @s hotbar.0 with chicken_spawn_egg[!entity_data]")
-	servertest.AwaitSlotUpdates(t, c, 1)
-	servertest.AwaitSystemChatSaying(t, c, itemEntitySetSingleKey)
+	// Verify saved inventory NBT carries a removal from word 1 (bit 68).
 	c.ChatCommand("data get entity @s Inventory[{Slot:0b}].components")
 	components := servertest.FeedbackComponent(t, c)
 	if components.Translate != "commands.data.entity.query" || len(components.With) != 2 ||
-		!strings.Contains(components.With[1].Plain(), `"!minecraft:entity_data": {}`) {
-		t.Fatalf("spawn egg components = %s, want !minecraft:entity_data", components.Plain())
+		!strings.Contains(components.With[1].Plain(), `"!minecraft:writable_book_content": {}`) {
+		t.Fatalf("writable book components = %s, want !minecraft:writable_book_content", components.Plain())
 	}
+
+	// Verify a spawn egg with !entity_data spawns nothing when used on the ground.
+	c.ChatCommand("item replace entity @s hotbar.0 with chicken_spawn_egg[!entity_data]")
+	servertest.AwaitSlotUpdates(t, c, 1)
+	servertest.AwaitSystemChatSaying(t, c, itemEntitySetSingleKey)
 	c.PlaceBlock(5, 63, 5, protocol.FaceTop)
 	c.Settle()
 	if got := srv.InventorySlot(name, 36); got.ItemID != int32(registry.ItemChickenSpawnEgg) || got.Count != 1 {
@@ -171,5 +172,155 @@ func TestItemCommandsRemoveAllRemainingDefaults(t *testing.T) {
 	}
 	if len(srv.Mobs()) != 0 {
 		t.Errorf("mobs spawned by chicken_spawn_egg[!entity_data] = %d, want 0", len(srv.Mobs()))
+	}
+}
+
+func TestRemovedDefaultConsumers(t *testing.T) {
+	t.Parallel()
+	const name = "Tester"
+	srv, c := servertest.Join(t, servertest.CombatTestConfig(), name, servertest.OpsListing(t, name))
+	servertest.HoldTicks(t, srv)
+	c.FacePlayer(5.5, 64, 5.5, 0, 90)
+	c.Settle()
+
+	replaceSlot := func(slot, spec string) protocol.ItemStack {
+		t.Helper()
+		c.ChatCommand("item replace entity @s " + slot + " with " + spec)
+		updates, chats := servertest.AwaitSlotUpdates(t, c, 1)
+		if !slices.ContainsFunc(chats, func(chat []byte) bool { return bytes.Contains(chat, []byte(itemEntitySetSingleKey)) }) {
+			servertest.AwaitSystemChatSaying(t, c, itemEntitySetSingleKey)
+		}
+		return updates[0].Stack
+	}
+	queryData := func(cmd string) string {
+		t.Helper()
+		c.ChatCommand(cmd)
+		line := servertest.FeedbackComponent(t, c)
+		if line.Translate != "commands.data.entity.query" || len(line.With) != 2 {
+			t.Fatalf("%s = %s, want commands.data.entity.query", cmd, line.Plain())
+		}
+		return line.With[1].Plain()
+	}
+
+	// 1. Thrown blue_egg[!chicken/variant] keeps its removal on the projectile.
+	replaceSlot("hotbar.0", "blue_egg[!chicken/variant]")
+	servertest.UseHeld(c, 0, 0)
+	c.Settle()
+	eggComps := queryData("data get entity @e[type=egg,limit=1] Item.components")
+	if !strings.Contains(eggComps, `"!minecraft:chicken/variant": {}`) {
+		t.Errorf("thrown egg Item.components = %s, want !minecraft:chicken/variant", eggComps)
+	}
+	c.ChatCommand("kill @e[type=egg]")
+	servertest.AwaitSystemChatSaying(t, c, "commands.kill.success.single")
+
+	// 2. Thrown lingering potion preserves both removed (!potion_duration_scale -> 1.0,
+	// omitted from cloud NBT) and explicit (0.5f) duration scales in the spawned cloud.
+	replaceSlot("hotbar.0", `lingering_potion[potion_contents={potion:"minecraft:slowness"},!potion_duration_scale]`)
+	servertest.UseHeld(c, 0, 0)
+	c.Settle()
+	servertest.RunTicks(t, srv, 15)
+	cloudData := queryData("data get entity @e[type=area_effect_cloud,limit=1]")
+	if strings.Contains(cloudData, "potion_duration_scale") {
+		t.Errorf("stripped lingering potion cloud NBT = %s, want potion_duration_scale omitted (default 1.0)", cloudData)
+	}
+	c.ChatCommand("kill @e[type=area_effect_cloud]")
+	servertest.AwaitSystemChatSaying(t, c, "commands.kill.success.single")
+
+	replaceSlot("hotbar.0", `lingering_potion[potion_contents={potion:"minecraft:slowness"},potion_duration_scale=0.5f]`)
+	servertest.UseHeld(c, 0, 0)
+	c.Settle()
+	servertest.RunTicks(t, srv, 15)
+	cloudScale := queryData("data get entity @e[type=area_effect_cloud,limit=1] potion_duration_scale")
+	if cloudScale != "0.5f" {
+		t.Errorf("explicit lingering potion cloud potion_duration_scale = %s, want 0.5f", cloudScale)
+	}
+	c.ChatCommand("kill @e[type=area_effect_cloud]")
+	servertest.AwaitSystemChatSaying(t, c, "commands.kill.success.single")
+
+	// 3. set_contents restores minecraft:container on shulker_box[!container].
+	replaceSlot("hotbar.0", "shulker_box[!container]")
+	c.ChatCommand(`item modify entity @s hotbar.0 {type:"minecraft:set_contents",component:"minecraft:container",entries:[{type:"minecraft:item",name:"minecraft:stick"}]}`)
+	updates, chats := servertest.AwaitSlotUpdates(t, c, 1)
+	if !slices.ContainsFunc(chats, func(chat []byte) bool { return bytes.Contains(chat, []byte(itemEntitySingleModifyKey)) }) {
+		servertest.AwaitSystemChatSaying(t, c, itemEntitySingleModifyKey)
+	}
+	if got := updates[0].Stack; got.Removes(protocol.DataComponentContainer) || len(got.Container) != 1 || got.Container[0].ItemID != int32(registry.ItemStick) {
+		t.Errorf("restored shulker_box = %+v, want stick in container with no removal", got)
+	}
+	shulkerComps := queryData("data get entity @s Inventory[{Slot:0b}].components")
+	if !strings.Contains(shulkerComps, `"minecraft:container"`) || !strings.Contains(shulkerComps, `"minecraft:stick"`) ||
+		strings.Contains(shulkerComps, `"!minecraft:container"`) {
+		t.Errorf("restored shulker_box components = %s, want minecraft:container with stick and no removal", shulkerComps)
+	}
+
+	// 4. set_fireworks on firework_rocket[!fireworks] starts from flight 0, not 1.
+	replaceSlot("hotbar.0", "firework_rocket[!fireworks]")
+	c.ChatCommand(`item modify entity @s hotbar.0 {type:"minecraft:set_fireworks"}`)
+	updates, chats = servertest.AwaitSlotUpdates(t, c, 1)
+	if !slices.ContainsFunc(chats, func(chat []byte) bool { return bytes.Contains(chat, []byte(itemEntitySingleModifyKey)) }) {
+		servertest.AwaitSystemChatSaying(t, c, itemEntitySingleModifyKey)
+	}
+	if got := updates[0].Stack; got.Removes(protocol.DataComponentFireworks) {
+		t.Errorf("modified firework_rocket still removes fireworks: %+v", got)
+	}
+	rocketComps := queryData("data get entity @s Inventory[{Slot:0b}].components")
+	if !strings.Contains(rocketComps, `"minecraft:fireworks": {}`) || strings.Contains(rocketComps, "flight_duration") {
+		t.Errorf("modified firework_rocket components = %s, want empty minecraft:fireworks (flight 0)", rocketComps)
+	}
+
+	// 5. Bare and typed /clear predicates match ordinary defaults and skip stripped ones.
+	for _, tc := range []struct {
+		ordinary, stripped string
+		predicates         []string
+	}{
+		{"shulker_box", "shulker_box[!container]", []string{"shulker_box[container]", "shulker_box[container~{}]"}},
+		{"bundle", "bundle[!bundle_contents]", []string{"bundle[bundle_contents]", "bundle[bundle_contents~{}]"}},
+		{"enchanted_book", "enchanted_book[!stored_enchantments]", []string{"enchanted_book[stored_enchantments]", "enchanted_book[stored_enchantments~[]]"}},
+	} {
+		replaceSlot("hotbar.0", tc.stripped)
+		for _, pred := range tc.predicates {
+			c.ChatCommand("clear @s " + pred + " 0")
+			servertest.AwaitCommandErrorText(t, c, "clear.failed.single", servertest.PlayerDisplayComponent(name))
+		}
+		replaceSlot("hotbar.0", tc.ordinary)
+		for _, pred := range tc.predicates {
+			c.ChatCommand("clear @s " + pred + " 0")
+			if line := servertest.FeedbackComponent(t, c); line.Translate != "commands.clear.test.single" {
+				t.Errorf("clear %s on %s = %s, want commands.clear.test.single", pred, tc.ordinary, line.Plain())
+			}
+		}
+	}
+
+	// 6. Clicking a stripped bundle with stone on the cursor swaps instead of inserting.
+	replaceSlot("hotbar.0", "bundle[!bundle_contents]")
+	replaceSlot("hotbar.1", "stone")
+	w := &servertest.WindowedClient{Client: c}
+	w.Click(37, 0, protocol.ClickModePickup)
+	c.Settle()
+	w.Click(36, 0, protocol.ClickModePickup)
+	c.Settle()
+	w.Click(37, 0, protocol.ClickModePickup)
+	c.Settle()
+	if got := srv.InventorySlot(name, 36); got.ItemID != int32(registry.ItemStone) || got.Count != 1 {
+		t.Errorf("slot 36 after clicking stripped bundle = %+v, want stone", got)
+	}
+	if got := srv.InventorySlot(name, 37); got.ItemID != int32(registry.ItemBundle) || !got.Removes(protocol.DataComponentBundleContents) || len(got.BundleContents()) != 0 {
+		t.Errorf("slot 37 after clicking stripped bundle = %+v, want empty bundle[!bundle_contents]", got)
+	}
+
+	// 7. Using goat_horn[!instrument] triggers neither horn sound nor cooldown.
+	replaceSlot("hotbar.0", "goat_horn[!instrument]")
+	servertest.UseHeld(c, 0, 0)
+	var sounds, cooldowns int
+	c.SettleAndCollect(func(id int32, _ []byte) {
+		switch id {
+		case protocol.IDPlayEntitySoundEffect:
+			sounds++
+		case protocol.IDPlayCooldown:
+			cooldowns++
+		}
+	})
+	if sounds != 0 || cooldowns != 0 {
+		t.Errorf("goat_horn[!instrument] use sent sounds=%d cooldowns=%d, want 0/0", sounds, cooldowns)
 	}
 }

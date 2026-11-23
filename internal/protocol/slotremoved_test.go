@@ -81,6 +81,90 @@ func BenchmarkPutMixedComponentSlot(b *testing.B) {
 	}
 }
 
+func BenchmarkReadSlotContainerAndGlint(b *testing.B) {
+	var nameVal Buffer
+	nameVal.PutText(Text{Text: "probe"})
+	var emptyContainerVal Buffer
+	emptyContainerVal.PutVarInt(0)
+	var glintVal Buffer
+	glintVal.PutBool(true)
+
+	encode := func(untrusted bool, comps ...struct {
+		id  int32
+		val []byte
+	}) []byte {
+		var wire Buffer
+		wire.PutVarInt(1) // count
+		wire.PutVarInt(1) // item
+		wire.PutVarInt(int32(len(comps)))
+		wire.PutVarInt(0) // removals
+		for _, c := range comps {
+			wire.PutVarInt(c.id)
+			if untrusted {
+				wire.PutVarInt(int32(len(c.val)))
+			}
+			wire.PutRaw(c.val)
+		}
+		return wire.Bytes()
+	}
+
+	cases := []struct {
+		name  string
+		comps []struct {
+			id  int32
+			val []byte
+		}
+	}{
+		{
+			name: "empty_container_after_name",
+			comps: []struct {
+				id  int32
+				val []byte
+			}{
+				{DataComponentCustomName, nameVal.Bytes()},
+				{DataComponentContainer, emptyContainerVal.Bytes()},
+			},
+		},
+		{
+			name: "glint_after_name",
+			comps: []struct {
+				id  int32
+				val []byte
+			}{
+				{DataComponentCustomName, nameVal.Bytes()},
+				{DataComponentEnchantmentGlintOverride, glintVal.Bytes()},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		for _, untrusted := range []bool{false, true} {
+			raw := encode(untrusted, tc.comps...)
+			r := NewReader(raw)
+			var ok bool
+			if untrusted {
+				_, ok = r.ReadUntrustedSlot()
+			} else {
+				_, ok = r.ReadSlot()
+			}
+			if !ok || r.Err() != nil || r.Remaining() != 0 {
+				b.Fatalf("%s untrusted=%v setup decode failed: ok=%v err=%v rem=%d", tc.name, untrusted, ok, r.Err(), r.Remaining())
+			}
+			b.Run(fmt.Sprintf("%s/untrusted=%v", tc.name, untrusted), func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					rd := NewReader(raw)
+					if untrusted {
+						_, _ = rd.ReadUntrustedSlot()
+					} else {
+						_, _ = rd.ReadSlot()
+					}
+				}
+			})
+		}
+	}
+}
+
 // TestItemTemplateCountsRemovalsAboveBit31: a template removing
 // provides_banner_patterns (bit 32) and writable_book_content (bit 68, word 1)
 // writes a removal count matching its IDs and round-trips through slots.

@@ -320,7 +320,7 @@ func (s *Server) shatterPotion(br thrownBreak) {
 		s.dowseWaterFire(br.w, br.blockHit.X, br.blockHit.Y, br.blockHit.Z, br.blockHit.Face)
 	}
 	if shl.cloud != nil && s.lingeringAllowed(br) {
-		s.spawnCloud(br.w, shl.cloudX, shl.cloudY, shl.cloudZ, shl.cloud, shl.colour, shl.contents, shl.ownerUUID)
+		s.spawnCloud(br.w, shl.cloudX, shl.cloudY, shl.cloudZ, shl.cloud, shl.colour, shl.contents, shl.durationScale, shl.ownerUUID)
 	}
 	event, sound := int32(protocol.WorldEventPotionSplash), int32(protocol.WorldEventPotionBreakSound)
 	if shl.instant {

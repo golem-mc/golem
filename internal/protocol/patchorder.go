@@ -22,14 +22,21 @@ func (s *ItemStack) ForgetPatch(types ...int32) {
 	if len(s.patchOrder) == 0 {
 		return
 	}
-	kept := make([]int32, 0, len(s.patchOrder))
+	has := false
+	for _, t := range s.patchOrder {
+		if slices.Contains(types, t) {
+			has = true
+			break
+		}
+	}
+	if !has {
+		return
+	}
+	kept := make([]int32, 0, len(s.patchOrder)-1)
 	for _, t := range s.patchOrder {
 		if !slices.Contains(types, t) {
 			kept = append(kept, t)
 		}
-	}
-	if len(kept) == len(s.patchOrder) {
-		return
 	}
 	s.patchOrder = kept
 }

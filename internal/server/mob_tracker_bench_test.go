@@ -6,6 +6,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
@@ -133,7 +134,7 @@ func BenchmarkTickCloudsTracked(b *testing.B) {
 	s, w := newTrackerBenchServer(b)
 	for i := range trackerBenchBodies {
 		x, z := trackerBenchSpot(i)
-		s.spawnCloud(w, x, float64(world.GroundLevel), z, nil, 0, protocol.PotionContents{}, uuid.Nil)
+		s.spawnCloud(w, x, float64(world.GroundLevel), z, nil, 0, protocol.PotionContents{}, rules.LingeringDurationScale, uuid.Nil)
 	}
 	s.arrowsMu.Lock()
 	for _, it := range s.clouds {
@@ -167,7 +168,7 @@ func BenchmarkTickCloudsInstants(b *testing.B) {
 		x, z := trackerBenchSpot(i)
 		s.spawnCloud(w, x, float64(world.GroundLevel), z, []effect.Instance{
 			effect.New(health, 1, 0, false, true, true), effect.New(slow, 200, 0, false, true, true),
-		}, 0, protocol.PotionContents{}, uuid.Nil)
+		}, 0, protocol.PotionContents{}, rules.LingeringDurationScale, uuid.Nil)
 	}
 	s.arrowsMu.Lock()
 	for _, it := range s.clouds {

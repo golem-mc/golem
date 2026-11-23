@@ -3820,7 +3820,7 @@ func (s *Server) FireworkCount() int {
 // no effects of its own, carrying the poison contents a shatter would have.
 func (s *Server) SpawnCloudEntity(x, y, z float64) TestTrackedBody {
 	poison, _ := registry.PotionID("minecraft:poison")
-	s.spawnCloud(s.world, x, y, z, nil, 0, protocol.PotionContents{Potion: poison}, uuid.Nil)
+	s.spawnCloud(s.world, x, y, z, nil, 0, protocol.PotionContents{Potion: poison}, rules.LingeringDurationScale, uuid.Nil)
 	s.arrowsMu.Lock()
 	defer s.arrowsMu.Unlock()
 	if len(s.clouds) == 0 {
@@ -3837,7 +3837,7 @@ func (s *Server) SpawnOwnerlessCloud(x, y, z float64, specs []protocol.PotionEff
 	for _, spec := range specs {
 		effects = append(effects, effect.FromWireSpec(spec))
 	}
-	s.spawnCloud(s.world, x, y, z, effects, 0, protocol.PotionContents{}, uuid.Nil)
+	s.spawnCloud(s.world, x, y, z, effects, 0, protocol.PotionContents{}, rules.LingeringDurationScale, uuid.Nil)
 	s.arrowsMu.Lock()
 	defer s.arrowsMu.Unlock()
 	it := s.clouds[len(s.clouds)-1]
