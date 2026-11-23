@@ -1297,7 +1297,8 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 	}
 	if strike.dragonContact && victim != nil {
 		if strike.contactPush != [3]float64{} {
-			victim.addVelocity(strike.w, strike.contactPush[0], strike.contactPush[1], strike.contactPush[2])
+			// Server-side only; a landed hurt syncs it. vanilla: Entity.push
+			victim.player.AddVelocity(strike.contactPush[0], strike.contactPush[1], strike.contactPush[2])
 		}
 		if strike.damage == 0 {
 			return
@@ -1386,6 +1387,9 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 		}
 	}
 	if landedHit {
+		if strike.dragonContact {
+			victim.velocityDirty = true
+		}
 		// A hit that landed only through the invulnerability window skips default
 		// knockback but keeps the weapon's extra.
 		if !strike.ram {
@@ -1484,11 +1488,17 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 		return
 	}
 	oldVX, oldVY, oldVZ, oldImpulse := victim.VX, victim.VY, victim.VZ, victim.Impulse
+	var ent *mobEntity
+	refused := false
+	if strike.teamGated() {
+		ent = h.book[victim]
+		refused = ent != nil && !s.scoreboard.CanHarm(ent.uuid.String(), strike.uuid.String())
+	}
 	if strike.dragonContact {
 		if strike.contactPush != [3]float64{} {
 			victim.Push(strike.contactPush[0], strike.contactPush[1], strike.contactPush[2])
 		}
-		if strike.damage == 0 {
+		if strike.damage == 0 || refused {
 			kb := s.holdMobKnockback(h.book[victim], strike.uuid, oldVX, oldVY, oldVZ, oldImpulse)
 			s.mobsMu.Unlock()
 			if kb != nil {
@@ -1497,7 +1507,7 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 			return
 		}
 	}
-	if ent := h.book[victim]; strike.teamGated() && ent != nil && !s.scoreboard.CanHarm(ent.uuid.String(), strike.uuid.String()) {
+	if refused {
 		s.mobsMu.Unlock()
 		return
 	}
