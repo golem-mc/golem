@@ -92,3 +92,47 @@ func BenchmarkPluginChunkEntitiesBodies(b *testing.B) {
 	}
 	benchChunkEntities(b, w, pw, chunks)
 }
+
+// BenchmarkPluginSetBlockCube times writing a 32x32x32 cube through
+// SetBlockState with the loop running, relight and flush included.
+func BenchmarkPluginSetBlockCube(b *testing.B) {
+	for _, tc := range []struct {
+		name  string
+		flags plugin.UpdateFlags
+	}{
+		{"UpdateAll", plugin.UpdateAll},
+		{"Fast", plugin.UpdateClients | plugin.UpdateKnownShape | plugin.UpdateSkipOnPlace | plugin.UpdateSkipBlockEntitySideEffects},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			s, dim, _, pw := pluginChunkBench(b)
+			s.backstopMu.Lock()
+			s.tickRunning = true
+			s.backstopMu.Unlock()
+			b.Cleanup(func() {
+				s.backstopMu.Lock()
+				s.tickRunning = false
+				s.backstopMu.Unlock()
+			})
+			stone, air := plugin.BlockState(registry.BlockStone.DefaultState()), plugin.BlockState(registry.BlockAir.DefaultState())
+			b.ReportAllocs()
+			i := 0
+			for b.Loop() {
+				state := stone
+				if i%2 == 1 {
+					state = air
+				}
+				for x := range 32 {
+					for y := -50; y < -18; y++ {
+						for z := range 32 {
+							pw.SetBlockState(plugin.BlockPos{X: x, Y: y, Z: z}, state, tc.flags)
+						}
+					}
+				}
+				s.relightWG.Wait()
+				s.flushBlockChanges(dim.w)
+				i++
+			}
+			b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(i)/32768, "ns/block")
+		})
+	}
+}

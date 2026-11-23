@@ -22,7 +22,51 @@ func (w pluginWorld) SetBlockState(p plugin.BlockPos, state plugin.BlockState, f
 	}
 	// Flags 4 and 8 affect client rendering only. Flag 32 is cleared before
 	// neighbour shapes; it does not suppress preRemoveSideEffects.
-	return w.srv.writeBlockWithUpdates(w.dim.w, int32(p.X), int32(p.Y), int32(p.Z), uint16(state), nil, writeLight, &updates)
+	x, y, z := int32(p.X), int32(p.Y), int32(p.Z)
+	if !w.srv.loopRunning() {
+		return w.srv.writeBlockWithUpdates(w.dim.w, x, y, z, uint16(state), nil, writeLight, &updates)
+	}
+	// A running loop relights once per chunk at the next flush.
+	if !w.srv.writeBlockWithUpdates(w.dim.w, x, y, z, uint16(state), nil, 0, &updates) {
+		return false
+	}
+	w.srv.deferRelight(w.dim, x, z)
+	return true
+}
+
+// deferRelight grows the pending relight box of the column's chunk.
+func (s *Server) deferRelight(dim *dimension, x, z int32) {
+	key := [2]int32{world.ChunkOf(float64(x)), world.ChunkOf(float64(z))}
+	dim.pendingRelightMu.Lock()
+	defer dim.pendingRelightMu.Unlock()
+	b, ok := dim.pendingRelight[key]
+	if !ok {
+		if dim.pendingRelight == nil {
+			dim.pendingRelight = make(map[[2]int32]changeBox)
+		}
+		dim.pendingRelightOrder = append(dim.pendingRelightOrder, key)
+		b = changeBox{x, z, x, z}
+	}
+	b.minX, b.minZ = min(b.minX, x), min(b.minZ, z)
+	b.maxX, b.maxZ = max(b.maxX, x), max(b.maxZ, z)
+	dim.pendingRelight[key] = b
+}
+
+// relightPending books the relights deferRelight collected.
+func (s *Server) relightPending(dim *dimension) {
+	dim.pendingRelightMu.Lock()
+	if len(dim.pendingRelightOrder) == 0 {
+		dim.pendingRelightMu.Unlock()
+		return
+	}
+	boxes := make([]changeBox, 0, len(dim.pendingRelightOrder))
+	for _, k := range dim.pendingRelightOrder {
+		boxes = append(boxes, dim.pendingRelight[k])
+	}
+	clear(dim.pendingRelight)
+	dim.pendingRelightOrder = dim.pendingRelightOrder[:0]
+	dim.pendingRelightMu.Unlock()
+	s.relightBoxesAsync(dim.w, boxes)
 }
 
 // BreakBlock breaks the block as if mined without a tool.

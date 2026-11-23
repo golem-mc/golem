@@ -560,6 +560,7 @@ func (s *Server) markChanged(w *world.World, x, y, z int32) {
 // player with the chunk gets it, the one who changed the block included.
 // vanilla: ChunkHolder.broadcastChanges
 func (s *Server) flushBlockChanges(w *world.World) {
+	s.relightPending(s.dimensionOfWorld(w))
 	s.broadcastLight(w, w.TakeLightChanged())
 	var changes []world.BlockChange
 	for _, sc := range w.TakeChanged() {

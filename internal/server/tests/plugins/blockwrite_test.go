@@ -290,3 +290,31 @@ func TestPluginBlockWriteSaveReloadAndLight(t *testing.T) {
 		}
 	})
 }
+
+// A running loop relights a plugin's writes at the tick's flush.
+// vanilla: LevelChunk.setBlockState, ThreadedLevelLightEngine.runUpdate.
+func TestPluginBlockWriteRelightsAtFlush(t *testing.T) {
+	t.Parallel()
+	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	w := srv.OverworldWorld()
+	p := world.ChunkPos{X: 0, Z: 0}
+	w.Acquire(p)
+	defer w.Release(p)
+	cell := plugin.BlockPos{X: 8, Y: 200, Z: 8}
+	roof := func(state plugin.BlockState) {
+		pw := h.Overworld()
+		for dx := -1; dx <= 1; dx++ {
+			for dz := -1; dz <= 1; dz++ {
+				pw.SetBlockState(plugin.BlockPos{X: cell.X + dx, Y: cell.Y + 1, Z: cell.Z + dz}, state, plugin.UpdateAll)
+			}
+		}
+	}
+	sky := func() (s int) {
+		run(func() { s, _ = h.Overworld().Light(cell) })
+		return s
+	}
+	run(func() { roof(plugin.DefaultState(registry.BlockStone)) })
+	servertest.UntilTicks(t, srv, 20, "light under the roof", func() bool { return sky() < 15 })
+	run(func() { roof(plugin.DefaultState(registry.BlockAir)) })
+	servertest.UntilTicks(t, srv, 20, "light back", func() bool { return sky() == 15 })
+}
