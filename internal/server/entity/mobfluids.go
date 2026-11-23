@@ -90,6 +90,7 @@ func (m *Mob) jumpInLiquid() {
 	if m.Type == TypeMagmaCube && m.InLava() {
 		// vanilla: MagmaCube.jumpInLiquid
 		m.VY = float64(0.22 + float32(m.Size)*0.05)
+		m.Impulse = true
 		return
 	}
 	if m.canFloat {
