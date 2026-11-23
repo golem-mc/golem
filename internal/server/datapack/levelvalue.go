@@ -9,7 +9,7 @@ import (
 // with a type.
 // vanilla: LevelBasedValue.CODEC
 func decodeLevelValue(tag nbt.Tag) (*registry.EnchLevelValue, string) {
-	if v, ok := tagFloat(tag); ok {
+	if v, ok := nbt.FloatValue(tag); ok {
 		return &registry.EnchLevelValue{Kind: registry.EnchValueConstant, Constant: v}, ""
 	}
 	c, ok := tag.(nbt.Compound)
@@ -29,7 +29,7 @@ func decodeLevelValue(tag nbt.Tag) (*registry.EnchLevelValue, string) {
 		if msg != "" {
 			return 0, msg
 		}
-		v, ok := tagFloat(t)
+		v, ok := nbt.FloatValue(t)
 		if !ok {
 			return 0, "Not a number: " + nbt.Stringify(t)
 		}
@@ -70,7 +70,7 @@ func decodeLevelValue(tag nbt.Tag) (*registry.EnchLevelValue, string) {
 	case "minecraft:lookup":
 		out.Kind = registry.EnchValueLookup
 		out.Values, msg = listOf(c, "values", func(t nbt.Tag) (float32, string) {
-			v, ok := tagFloat(t)
+			v, ok := nbt.FloatValue(t)
 			if !ok {
 				return 0, "Not a number: " + nbt.Stringify(t)
 			}

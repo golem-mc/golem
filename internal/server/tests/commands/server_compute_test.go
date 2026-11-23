@@ -98,6 +98,7 @@ func TestComputeRefusals(t *testing.T) {
 	}{
 		{`compute default integer {type:"minecraft:add",inputs:[B;1b,2b]}`, 3},
 		{`compute default float {type:"minecraft:add",inputs:[L;2L,3L]} 1`, 5},
+		{`compute default float {type:"minecraft:add",inputs:[L;9007199791611905L,-9007199254740992L]} 1`, 1073741824},
 		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:5,weight:1},{data:9,weight:0}]}`, 5},
 	} {
 		c.ChatCommand(tc.command)

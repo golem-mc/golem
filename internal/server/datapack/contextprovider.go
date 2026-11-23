@@ -72,7 +72,7 @@ func DecodeFloatProvider(tag nbt.Tag) (registry.LootNumber, string) {
 }
 
 func decodeFloatProvider(tag nbt.Tag) (registry.LootNumber, string) {
-	if v, ok := tagFloat(tag); ok {
+	if v, ok := nbt.FloatValue(tag); ok {
 		return registry.LootConstant{Value: float64(v)}, ""
 	}
 	return eitherNumberOr(decodeTyped(tag, "context_float_provider_type", floatTypes))
@@ -313,14 +313,6 @@ func listOf[T any](c nbt.Compound, key string, one func(nbt.Tag) (T, string)) ([
 		out = append(out, v)
 	}
 	return out, ""
-}
-
-// tagFloat reads a number the way Codec.FLOAT does.
-func tagFloat(tag nbt.Tag) (float32, bool) {
-	if v, ok := nbt.NumberValue(tag); ok {
-		return float32(v), true
-	}
-	return 0, false
 }
 
 func unary(nested func(nbt.Compound, string) (registry.LootNumber, string), op string) func(nbt.Compound) (registry.LootNumber, string) {
@@ -680,7 +672,7 @@ func init() {
 			if msg != "" {
 				return nil, msg
 			}
-			v, ok := tagFloat(t)
+			v, ok := nbt.FloatValue(t)
 			if !ok {
 				return nil, "Not a number: " + nbt.Stringify(t)
 			}
