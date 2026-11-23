@@ -7,6 +7,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/advancement"
+	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -379,27 +380,32 @@ func (s *Server) setMannequinData(ent *mannequinEntity, data nbt.Compound) {
 	s.tellWatchers(w, watchers, packets)
 }
 
-// mannequinTwinAt is a copy of ent, a new entity with the same UUID, at pos
+// mannequinTwinAt is a copy of ent, a new entity with the same UUID, at move.Pos
 // in another dimension; nil when the round trip fails.
-func (s *Server) mannequinTwinAt(ent *mannequinEntity, to *dimension, pos player.Position) *mannequinEntity {
+func (s *Server) mannequinTwinAt(ent *mannequinEntity, to *dimension, move command.Move) *mannequinEntity {
 	twin := mannequinOfTag(s, to.w, mannequinTag(ent).Entries())
 	if twin == nil {
 		return nil
 	}
+	pos := move.Pos
 	m := twin.mannequin
 	m.SetPos(pos.X, pos.Y, pos.Z)
 	m.Yaw = pos.Yaw
 	m.Pitch = pos.Pitch
+	if move.Command {
+		m.VX, m.VZ = mannequinTeleportMotion(ent.mannequin, move)
+	}
 	return twin
 }
 
 // teleportMannequin puts a mannequin somewhere else, facing to's angles, and
 // leaves the move to the tracking pass. The head turns with the body, so a
 // changed yaw also sends a Rotate Head, without which the player model keeps
-// looking the old way. A /tp (command) also lands it on the ground, gravity
+// looking the old way. A /tp also lands it on the ground, gravity
 // or not.
 // vanilla: Entity.teleportSetPosition, Entity.forceSetRotation, TeleportCommand.performTeleport, ServerEntity.sendChanges
-func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by string, command bool) {
+func (s *Server) teleportMannequin(ent *mannequinEntity, move command.Move, by string) {
+	to := move.Pos
 	var watchers []uuid.UUID
 	var turned bool
 	var id int32
@@ -409,7 +415,8 @@ func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by 
 		m.SetPos(to.X, to.Y, to.Z)
 		m.Yaw = to.Yaw
 		m.Pitch = to.Pitch
-		if command {
+		if move.Command {
+			m.VX, m.VZ = mannequinTeleportMotion(m, move)
 			m.OnGround = true
 		}
 		id = m.ID
@@ -419,6 +426,17 @@ func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by 
 		s.tellWatchers(ent.w, watchers, []outbound{{id: protocol.IDPlayHeadRotation, data: mannequinHeadPayload(id, to.Yaw)}})
 	}
 	logTeleported("mannequin", to, by)
+}
+
+// vanilla: PositionMoveRotation.calculateDelta
+func mannequinTeleportMotion(m *entity.Mannequin, move command.Move) (vx, vz float64) {
+	if move.DeltaX {
+		vx = m.VX
+	}
+	if move.DeltaZ {
+		vz = m.VZ
+	}
+	return vx, vz
 }
 
 // mannequinHeadPayload is a Rotate Head turning the mannequin's head to yaw.
