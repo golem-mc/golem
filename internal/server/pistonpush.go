@@ -424,7 +424,7 @@ func (s *Server) collectArmorStandsPistonPush(dim *dimension, pp *world.PistonPu
 			to := player.Position{X: ent.stand.X + m.dx, Y: ent.stand.Y + m.dy, Z: ent.stand.Z + m.dz, Yaw: ent.stand.Yaw}
 			return keepVelocity(&s.armorStandsMu, pp.Dir, m, ent.stand.VX, ent.stand.VY, ent.stand.VZ,
 				func(vx, vy, vz float64) { ent.stand.VX, ent.stand.VY, ent.stand.VZ = vx, vy, vz },
-				func() { s.teleportArmorStand(ent, to, "piston") })
+				func() { s.teleportArmorStand(ent, to, "piston", false) })
 		})
 }
 

@@ -866,7 +866,7 @@ func (s *Server) collectArmorStandsToPush(w *world.World, sh bodyShove) []func()
 		func(ent *armorStandEntity) (minX, minY, minZ, maxX, maxY, maxZ float64) { return ent.stand.BlastBox() },
 		func(ent *armorStandEntity, sh bodyShove) func() {
 			to := player.Position{X: ent.stand.X + sh.dx, Y: ent.stand.Y + sh.dy, Z: ent.stand.Z + sh.dz, Yaw: ent.stand.Yaw}
-			return func() { s.teleportArmorStand(ent, to, "push") }
+			return func() { s.teleportArmorStand(ent, to, "push", false) }
 		})
 }
 

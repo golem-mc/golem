@@ -948,9 +948,9 @@ func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
 	case *thrownEntity:
 		e.srv.teleportThrown(ref, to, by)
 	case *armorStandEntity:
-		e.srv.teleportArmorStand(ref, to, by)
+		e.srv.teleportArmorStand(ref, to, by, move.Command)
 	case *mannequinEntity:
-		e.srv.teleportMannequin(ref, to, by)
+		e.srv.teleportMannequin(ref, to, by, move.Command)
 	case *cloudEntity:
 		e.srv.teleportCloud(ref, to, by)
 	case *fangsEntity:
@@ -1003,9 +1003,9 @@ func (e *entitySnapshot) Rotate(yaw, pitch float32) {
 		e.srv.armorStandsMu.Lock()
 		ref.stand.Yaw = yaw
 		e.srv.armorStandsMu.Unlock()
-		e.srv.teleportArmorStand(ref, to, "rotate")
+		e.srv.teleportArmorStand(ref, to, "rotate", false)
 	case *mannequinEntity:
-		e.srv.teleportMannequin(ref, to, "rotate")
+		e.srv.teleportMannequin(ref, to, "rotate", false)
 	case *fixtureEntity:
 		e.srv.teleportFixture(ref, to)
 	}

@@ -1087,13 +1087,17 @@ func (s *Server) armorStandTwinAt(ent *armorStandEntity, to *dimension, pos play
 }
 
 // teleportArmorStand puts a stand somewhere else, facing to.Yaw, and leaves
-// the telling to the tracking pass.
-// vanilla: Entity.teleportTo, ServerEntity.sendChanges
-func (s *Server) teleportArmorStand(ent *armorStandEntity, to player.Position, by string) {
+// the telling to the tracking pass. A /tp (command) also lands it on the
+// ground, gravity or not.
+// vanilla: Entity.teleportTo, TeleportCommand.performTeleport, ServerEntity.sendChanges
+func (s *Server) teleportArmorStand(ent *armorStandEntity, to player.Position, by string, command bool) {
 	standTracker.teleport(s, ent, func() {
 		ent.stand.SetPos(to.X, to.Y, to.Z)
 		ent.stand.VX, ent.stand.VY, ent.stand.VZ = 0, 0, 0
 		ent.stand.Yaw = to.Yaw
+		if command {
+			ent.stand.OnGround = true
+		}
 	})
 	logTeleported("armor stand", to, by)
 }
