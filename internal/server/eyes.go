@@ -48,6 +48,7 @@ var eyeTracker = trackedKind[*eyeEntity, struct{}]{
 	list:        func(s *Server) *[]*eyeEntity { return &s.eyes },
 	chunks:      func(s *Server) *entity.ChunkIndex[*eyeEntity] { return &s.eyeChunks },
 	filing:      func(it *eyeEntity) *entity.Filing { return &it.eye.Filing },
+	uuid:        func(it *eyeEntity) uuid.UUID { return it.uuid },
 	track:       func(ent *eyeEntity) *bodyTrack[struct{}] { return &ent.bodyTrack },
 	world:       func(ent *eyeEntity) *world.World { return ent.w },
 	id:          func(ent *eyeEntity) int32 { return ent.eye.ID },

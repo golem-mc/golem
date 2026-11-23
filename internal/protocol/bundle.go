@@ -1,9 +1,6 @@
 package protocol
 
-import (
-	"math/bits"
-	"slices"
-)
+import "slices"
 
 // The minecraft:bundle_contents component is one of the unmodelled ones this
 // server keeps as the bytes it arrived in, but the click path has to fill and
@@ -68,7 +65,7 @@ func (b *Buffer) PutItemTemplate(item ItemStack) {
 	components := componentsOf(item)
 	item.orderPatch(components)
 	b.PutVarInt(int32(len(components)))
-	b.PutVarInt(int32(bits.OnesCount64(uint64(item.Removed))))
+	b.PutVarInt(item.Removed.count())
 	for _, component := range components {
 		b.PutVarInt(component)
 		b.PutComponentData(item, component)

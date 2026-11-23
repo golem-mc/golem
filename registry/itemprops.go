@@ -304,42 +304,12 @@ func MaxDamage(item int32) int32 {
 	return propsOf(item).MaxDamage
 }
 
-// ItemHasComponentDefault reports whether the item's default components
-// carry the named one, an item predicate's prototype half: a default
-// component counts even where the stack's patch omits it. Unmodelled
-// components are never the item's own.
-// vanilla: Item.components, the item report's components
+// ItemHasComponentDefault reports whether the item prototype carries the named component.
+// vanilla: Item.components
 func ItemHasComponentDefault(item int32, name string) bool {
-	switch name {
-	case "minecraft:repair_cost", "minecraft:enchantments", "minecraft:lore":
-		// Every item carries all three, the repair cost at zero and the
-		// enchantments and lore empty.
-		return true
-	case "minecraft:container":
-		return Item(item).InTag(ItemTagIDShulkerBoxes)
-	case "minecraft:bundle_contents":
-		return IsBundle(item)
-	case "minecraft:damage":
-		return propsOf(item).MaxDamage > 0
-	case "minecraft:stored_enchantments":
-		// Only the enchanted book carries the component, with an empty map.
-		return Item(item) == ItemEnchantedBook
-	case "minecraft:enchantment_glint_override":
-		return GlintByDefault(item)
-	case "minecraft:potion_contents":
-		switch Item(item) {
-		case ItemPotion, ItemSplashPotion, ItemLingeringPotion, ItemTippedArrow:
-			return true
-		}
-		return false
-	case "minecraft:fireworks":
-		// The rocket defaults to flight 1 with no explosions.
-		return Item(item) == ItemFireworkRocket
-	case "minecraft:banner_patterns":
-		// Banners and the shield default to an empty list.
-		return Item(item) == ItemShield || IsBannerItem(item)
-	}
-	return false
+	id, ok := ComponentID(name)
+	return ok && item >= 0 && int(item) < len(itemComponentDefaults) &&
+		itemComponentDefaults[item][id/64]&(uint64(1)<<(id%64)) != 0
 }
 
 // Weapon is minecraft:weapon: the wear a landed hit costs and the seconds it
@@ -491,6 +461,9 @@ func ItemModifiers(item int32) []AttributeModifier {
 // otherwise.
 // vanilla: ItemStack.forEachModifier, getOrDefault(ATTRIBUTE_MODIFIERS)
 func StackModifiers(stack protocol.ItemStack) []AttributeModifier {
+	if stack.Removes(protocol.DataComponentAttributeModifiers) {
+		return nil
+	}
 	entries, ok := stack.AttributeModifiersEffective()
 	if !ok {
 		return ItemModifiers(stack.ItemID)

@@ -119,7 +119,7 @@ func TestAttackRangeOverride(t *testing.T) {
 	c.ChatCommand("attribute @s minecraft:entity_interaction_range base set 3")
 	c.Settle()
 	attack(7, false)
-	if !srv.InventorySlot("Reacher", player.HotbarSlot).Removes(protocol.DataComponentAttackRange) {
-		t.Error("the given sword lost its attack_range removal")
+	if srv.InventorySlot("Reacher", player.HotbarSlot).Removes(protocol.DataComponentAttackRange) {
+		t.Error("the sword has no default attack_range to remove")
 	}
 }

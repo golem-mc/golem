@@ -361,7 +361,8 @@ func (m *Mob) rollEquipment(killer rules.LootKiller, attacker int32) []protocol.
 			continue
 		}
 		stack := held.stack
-		if wear := registry.StackMaxDamage(stack); !held.sure && wear > 0 {
+		if !held.sure && registry.StackDamageable(stack) {
+			wear := registry.StackMaxDamage(stack)
 			stack.Damage = wear - int32(m.lootRand.Intn(1+m.lootRand.Intn(int(math.Max(float64(wear-3), 1)))))
 		}
 		drops = append(drops, stack)

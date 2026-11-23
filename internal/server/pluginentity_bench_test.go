@@ -13,6 +13,37 @@ import (
 // BenchmarkPluginEntityLocation times resolving a plugin entity handle's
 // location beside 2000 cows and 2000 item entities.
 func BenchmarkPluginEntityLocation(b *testing.B) {
+	mob, item := newPluginEntityBenchHandles(b)
+	for _, bc := range []struct {
+		name string
+		h    pluginEntity
+	}{
+		{"mob", mob},
+		{"item", item},
+	} {
+		b.Run(bc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if bc.h.Location().World == nil {
+					b.Fatal("handle did not resolve")
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkPluginMobHandleHealth(b *testing.B) {
+	mob, _ := newPluginEntityBenchHandles(b)
+	b.ReportAllocs()
+	for b.Loop() {
+		if mob.Health() <= 0 {
+			b.Fatal("handle did not resolve to a living mob")
+		}
+	}
+}
+
+func newPluginEntityBenchHandles(b *testing.B) (mob, item pluginEntity) {
+	b.Helper()
 	s, w := newTrackerBenchServer(b)
 	s.mu.Lock()
 	clear(s.clients)
@@ -43,21 +74,5 @@ func BenchmarkPluginEntityLocation(b *testing.B) {
 		b.Fatalf("unexpected bench scene: mobs=%d items=%d mob=%v item=%v", mobCount, itemCount, mobID, itemID)
 	}
 	host := &pluginHost{srv: s}
-	for _, bc := range []struct {
-		name string
-		id   uuid.UUID
-	}{
-		{"mob", mobID},
-		{"item", itemID},
-	} {
-		b.Run(bc.name, func(b *testing.B) {
-			h := pluginEntity{host: host, id: bc.id}
-			b.ReportAllocs()
-			for b.Loop() {
-				if h.Location().World == nil {
-					b.Fatal("handle did not resolve")
-				}
-			}
-		})
-	}
+	return pluginEntity{host: host, id: mobID}, pluginEntity{host: host, id: itemID}
 }

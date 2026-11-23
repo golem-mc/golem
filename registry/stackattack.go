@@ -15,7 +15,7 @@ func StackDamageType(stack protocol.ItemStack) DamageType {
 			return d
 		}
 	}
-	if stack.Removed != 0 && stack.Removes(protocol.DataComponentDamageType) {
+	if stack.Removes(protocol.DataComponentDamageType) {
 		return 0
 	}
 	return ItemDamageType(stack.ItemID)
@@ -31,7 +31,7 @@ func StackMinimumAttackCharge(stack protocol.ItemStack) float32 {
 			return v
 		}
 	}
-	if stack.Removed != 0 && stack.Removes(protocol.DataComponentMinimumAttackCharge) {
+	if stack.Removes(protocol.DataComponentMinimumAttackCharge) {
 		return 0
 	}
 	return MinimumAttackCharge(stack.ItemID)

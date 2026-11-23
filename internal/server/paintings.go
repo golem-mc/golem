@@ -68,6 +68,7 @@ var paintingTracker = trackedKind[*paintingEntity, struct{}]{
 	list:        func(s *Server) *[]*paintingEntity { return &s.paintings },
 	chunks:      func(s *Server) *entity.ChunkIndex[*paintingEntity] { return &s.paintingChunks },
 	filing:      func(it *paintingEntity) *entity.Filing { return &it.Filing },
+	uuid:        func(it *paintingEntity) uuid.UUID { return it.uuid },
 	anchor:      func(it *paintingEntity) (float64, float64) { return paintingCentreX(it), paintingCentreZ(it) },
 	track:       func(p *paintingEntity) *bodyTrack[struct{}] { return &p.bodyTrack },
 	world:       func(p *paintingEntity) *world.World { return p.w },

@@ -77,6 +77,7 @@ var knotTracker = trackedKind[*knotEntity, struct{}]{
 	list:        func(s *Server) *[]*knotEntity { return &s.knots },
 	chunks:      func(s *Server) *entity.ChunkIndex[*knotEntity] { return &s.knotChunks },
 	filing:      func(it *knotEntity) *entity.Filing { return &it.Filing },
+	uuid:        func(it *knotEntity) uuid.UUID { return it.uuid },
 	anchor:      func(it *knotEntity) (float64, float64) { return knotX(it), knotZ(it) },
 	track:       func(k *knotEntity) *bodyTrack[struct{}] { return &k.bodyTrack },
 	world:       func(k *knotEntity) *world.World { return k.w },

@@ -162,9 +162,13 @@ func toolTag(tool protocol.ToolComponent) *nbt.OrderedCompound {
 	return out
 }
 
+// vanilla: HolderSetCodec.directCodec, ExtraCodecs.compactListCodec
 func blockSetTag(set protocol.BlockPredicateSet) nbt.Tag {
 	if set.Tag != "" {
 		return nbt.String("#" + set.Tag)
+	}
+	if len(set.Inline) == 1 {
+		return nbt.String(blockNamesByID[set.Inline[0]])
 	}
 	names := nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{}}
 	for _, id := range set.Inline {

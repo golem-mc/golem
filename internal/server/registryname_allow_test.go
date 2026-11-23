@@ -10,7 +10,7 @@ var registryNameAllowed = map[string]nameAllowance{
 	"registry/stackitemprops.go: string registry lookup":                            {count: 2, boundary: "item tag names decoded from component data"},
 	"registry/particleoptions.go: string registry lookup":                           {count: 2, boundary: "particle type name decoded from data-pack NBT"},
 	"registry/particleoptions.go: case on an entity name":                           {count: 1, boundary: "particle type names decoded from data-pack NBT"},
-	"registry/particleoptions.go: string block lookup":                              {count: 2, boundary: "block state decoded from data-pack NBT"},
+	"registry/particleoptions.go: string block lookup":                              {count: 1, boundary: "block state decoded from data-pack NBT"},
 	"registry/sound.go: string registry lookup":                                     {count: 2, boundary: "sound name decoding"},
 	"registry/biometagids.go: string registry lookup":                               {count: 1, boundary: "registry tag ID initialization"},
 	"registry/biometags.go: string registry lookup":                                 {count: 1, boundary: "registry table loading"},

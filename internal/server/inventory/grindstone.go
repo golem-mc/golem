@@ -17,7 +17,7 @@ import (
 // enchanted in either component.
 // vanilla: ItemStack.isDamageableItem, EnchantmentHelper.hasAnyEnchantments
 func grindable(stack protocol.ItemStack) bool {
-	return (registry.StackMaxDamage(stack) > 0 && !stack.Unbreakable) ||
+	return registry.StackDamageable(stack) ||
 		len(stack.Enchantments) > 0 || len(stack.StoredEnchantments) > 0
 }
 

@@ -88,6 +88,7 @@ var thrownTracker = trackedKind[*thrownEntity, struct{}]{
 	list:        func(s *Server) *[]*thrownEntity { return &s.thrown },
 	chunks:      func(s *Server) *entity.ChunkIndex[*thrownEntity] { return &s.thrownChunks },
 	filing:      func(it *thrownEntity) *entity.Filing { return &it.throwable.Filing },
+	uuid:        func(it *thrownEntity) uuid.UUID { return it.uuid },
 	track:       func(it *thrownEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:       func(it *thrownEntity) *world.World { return it.w },
 	id:          func(it *thrownEntity) int32 { return it.throwable.ID },

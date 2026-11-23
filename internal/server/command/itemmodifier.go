@@ -145,6 +145,13 @@ func nbtJSON(tag nbt.Tag) any {
 // false is a component this server cannot carry or clear.
 // vanilla: PatchedDataComponentMap.applyPatch
 func patchComponent(stack *protocol.ItemStack, name, value string, remove bool) bool {
+	if component, kept := protocol.RemovableType(name); kept && remove {
+		if registry.ItemHasComponentDefault(stack.ItemID, name) {
+			return stack.Remove(component)
+		}
+		stack.ResetComponent(component)
+		return true
+	}
 	switch name {
 	case "minecraft:damage":
 		stack.Damage = 0
@@ -164,11 +171,6 @@ func patchComponent(stack *protocol.ItemStack, name, value string, remove bool) 
 		stack.RepairCost = 0
 	case "minecraft:enchantment_glint_override":
 		stack.GlintOverride = protocol.GlintUnset
-	case "minecraft:tool", "minecraft:attack_range":
-		if remove {
-			component, _ := protocol.RemovableType(name)
-			return stack.Remove(component)
-		}
 	default:
 		return false
 	}

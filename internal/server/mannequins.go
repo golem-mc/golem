@@ -39,6 +39,7 @@ var mannequinTracker = trackedKind[*mannequinEntity, struct{}]{
 	list:        func(s *Server) *[]*mannequinEntity { return &s.mannequins },
 	chunks:      func(s *Server) *entity.ChunkIndex[*mannequinEntity] { return &s.mannequinChunks },
 	filing:      func(it *mannequinEntity) *entity.Filing { return &it.mannequin.Filing },
+	uuid:        func(it *mannequinEntity) uuid.UUID { return it.uuid },
 	track:       func(ent *mannequinEntity) *bodyTrack[struct{}] { return &ent.bodyTrack },
 	world:       func(ent *mannequinEntity) *world.World { return ent.w },
 	id:          func(ent *mannequinEntity) int32 { return ent.mannequin.ID },

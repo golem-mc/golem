@@ -678,7 +678,7 @@ func (m *Mob) attackDamage() float64 {
 			base += rabbitEvilAttack
 		}
 	}
-	return m.effectAttackDamage(base + float64(registry.AttackDamage(m.MainHand.ItemID)))
+	return m.effectAttackDamage(rules.ApproximateAttributeWith(m.MainHand, registry.AttributeAttackDamage, "mainhand", base))
 }
 
 // BlowEnchantments applies the main-hand enchantments to a blow on

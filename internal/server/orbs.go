@@ -54,6 +54,7 @@ var orbTracker = trackedKind[*orbEntity, struct{}]{
 	list:        func(s *Server) *[]*orbEntity { return &s.orbs },
 	chunks:      func(s *Server) *entity.ChunkIndex[*orbEntity] { return &s.orbChunks },
 	filing:      func(it *orbEntity) *entity.Filing { return &it.orb.Filing },
+	uuid:        func(it *orbEntity) uuid.UUID { return it.uuid },
 	track:       func(it *orbEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:       func(it *orbEntity) *world.World { return it.w },
 	id:          func(it *orbEntity) int32 { return it.orb.ID },

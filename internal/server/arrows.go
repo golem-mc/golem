@@ -76,6 +76,7 @@ var arrowTracker = trackedKind[*arrowEntity, arrowMetadataState]{
 	list:           func(s *Server) *[]*arrowEntity { return &s.arrows },
 	chunks:         func(s *Server) *entity.ChunkIndex[*arrowEntity] { return &s.arrowChunks },
 	filing:         func(it *arrowEntity) *entity.Filing { return &it.arrow.Filing },
+	uuid:           func(it *arrowEntity) uuid.UUID { return it.uuid },
 	track:          func(it *arrowEntity) *bodyTrack[arrowMetadataState] { return &it.bodyTrack },
 	world:          func(it *arrowEntity) *world.World { return it.w },
 	id:             func(it *arrowEntity) int32 { return it.arrow.ID },

@@ -59,18 +59,68 @@ func benchChunkEntities(b *testing.B, w *world.World, pw pluginWorld, chunks []w
 // loaded chunks.
 func BenchmarkPluginChunkEntities(b *testing.B) {
 	s, dim, chunks, pw := pluginChunkBench(b)
-	w := dim.w
 	rng := rand.New(rand.NewSource(264))
+	spawnPluginBenchCows(s, dim, rng)
+	benchChunkEntities(b, dim.w, pw, chunks)
+}
+
+func spawnPluginBenchCows(s *Server, dim *dimension, rng *rand.Rand) {
 	for range 2000 {
 		x, z := (rng.Float64()-0.5)*512, (rng.Float64()-0.5)*512
 		id := s.spawnMobInDim(dim, entity.TypeCow, x, float64(world.GroundLevel), z, int64(rng.Uint32()), nil)
 		s.mobsMu.Lock()
-		if ent := s.mobByEntityIDLocked(w, id); ent != nil {
+		if ent := s.mobByEntityIDLocked(dim.w, id); ent != nil {
 			ent.mob.NoAI = true
 		}
 		s.mobsMu.Unlock()
 	}
-	benchChunkEntities(b, w, pw, chunks)
+}
+
+// BenchmarkPluginEntitiesIn times moving box queries over 2000 cows and 2000 items.
+func BenchmarkPluginEntitiesIn(b *testing.B) {
+	s, dim, _, pw := pluginChunkBench(b)
+	rng := rand.New(rand.NewSource(282))
+	spawnPluginBenchCows(s, dim, rng)
+	stone := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
+	for range 2000 {
+		x, z := (rng.Float64()-0.5)*512, (rng.Float64()-0.5)*512
+		s.spawnItem(dim.w, stone, x, float64(world.GroundLevel), z, 0, 0, 0, entity.BreakPickupDelay)
+	}
+
+	b.ReportAllocs()
+	i := 0
+	for b.Loop() {
+		x, z := float64(i%400-200), float64((i*7)%400-200)
+		_ = pw.EntitiesIn(plugin.Box{
+			Min: plugin.Vec3{X: x - 8, Y: float64(pw.MinY()), Z: z - 8},
+			Max: plugin.Vec3{X: x + 8, Y: float64(pw.MinY() + pw.Height()), Z: z + 8},
+		})
+		i++
+	}
+}
+
+// BenchmarkPluginBindLiving times binding one event handle beside 2000 mobs.
+func BenchmarkPluginBindLiving(b *testing.B) {
+	s, dim, _, pw := pluginChunkBench(b)
+	rng := rand.New(rand.NewSource(264))
+	var ent *mobEntity
+	for range 2000 {
+		x, z := (rng.Float64()-0.5)*512, (rng.Float64()-0.5)*512
+		id := s.spawnMobInDim(dim, entity.TypeZombie, x, float64(world.GroundLevel), z, int64(rng.Uint32()), nil)
+		s.mobsMu.Lock()
+		ent = s.mobByEntityIDLocked(dim.w, id)
+		if ent != nil {
+			ent.mob.NoAI = true
+		}
+		s.mobsMu.Unlock()
+		if ent == nil {
+			b.Fatal("summoned zombie did not resolve")
+		}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = bindPluginLiving(pluginLivingHandle(ent.uuid), pw.host)
+	}
 }
 
 // BenchmarkPluginChunkEntitiesBodies times Chunk.Entities with 1000 items and
@@ -133,6 +183,43 @@ func BenchmarkPluginSetBlockCube(b *testing.B) {
 				i++
 			}
 			b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(i)/32768, "ns/block")
+		})
+	}
+}
+
+// BenchmarkPluginEntityHandle times IsValid beside 2000 cows and 2000 items.
+func BenchmarkPluginEntityHandle(b *testing.B) {
+	s, dim, _, pw := pluginChunkBench(b)
+	spawnPluginBenchCows(s, dim, rand.New(rand.NewSource(264)))
+	w := dim.w
+	rng := rand.New(rand.NewSource(283))
+	for range 2000 {
+		x, z := (rng.Float64()-0.5)*512, (rng.Float64()-0.5)*512
+		s.spawnItem(w, protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1},
+			x, float64(world.GroundLevel), z, 0, 0, 0, entity.BreakPickupDelay)
+	}
+	stand, err := s.summonArmorStand(w, 1, world.GroundLevel, 1, nil, plugin.SpawnCommand)
+	if err != nil {
+		b.Fatal(err)
+	}
+	live := pluginEntity{host: pw.host, id: stand.uuid}
+	gone := live
+	gone.id[0] ^= 1
+	for _, tc := range []struct {
+		name   string
+		handle pluginEntity
+		valid  bool
+	}{
+		{"live", live, true},
+		{"gone", gone, false},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if got := tc.handle.IsValid(); got != tc.valid {
+					b.Fatalf("IsValid() = %t, want %t", got, tc.valid)
+				}
+			}
 		})
 	}
 }

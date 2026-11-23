@@ -5,20 +5,32 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/google/uuid"
 )
 
 func filed(ix *ChunkIndex[*Mob], pos world.ChunkPos) []*Mob {
 	return slices.Collect(ix.In(pos))
 }
 
+func checkChunkIndexUUID(t *testing.T, ix *ChunkIndex[*Mob], id uuid.UUID, want *Mob) {
+	t.Helper()
+	if got, ok := ix.ByUUID(id); got != want || ok != (want != nil) {
+		t.Errorf("ByUUID(%s) = (%p, %t), want (%p, %t)", id, got, ok, want, want != nil)
+	}
+}
+
 func TestChunkIndex(t *testing.T) {
 	var a, b ChunkIndex[*Mob]
 	m, other := &Mob{}, &Mob{}
+	mID, otherID := uuid.UUID{1}, uuid.UUID{2}
+	checkChunkIndexUUID(t, &a, mID, nil)
 	m.SetPos(15.99, 80, 3)
 	other.SetPos(1, 80, 1)
-	a.Add(m, &m.Filing, ChunkAt(m.X, m.Z))
-	a.Add(m, &m.Filing, ChunkAt(m.X, m.Z))
-	a.Add(other, &other.Filing, ChunkAt(other.X, other.Z))
+	a.Add(m, &m.Filing, ChunkAt(m.X, m.Z), mID)
+	a.Add(m, &m.Filing, ChunkAt(m.X, m.Z), mID)
+	a.Add(other, &other.Filing, ChunkAt(other.X, other.Z), otherID)
+	checkChunkIndexUUID(t, &a, mID, m)
+	checkChunkIndexUUID(t, &a, otherID, other)
 	c0, c1 := world.ChunkPos{}, world.ChunkPos{X: 1}
 	if len(filed(&a, c0)) != 2 || a.Len() != 2 {
 		t.Fatalf("chunk 0 = %d, want 2", len(filed(&a, c0)))
@@ -27,6 +39,8 @@ func TestChunkIndex(t *testing.T) {
 	if got := filed(&a, c0); len(got) != 1 || got[0] != other || len(filed(&a, c1)) != 1 || !a.Holds(&m.Filing, c1) {
 		t.Fatal("SetPos across the border did not re-file")
 	}
+	checkChunkIndexUUID(t, &a, mID, m)
+	checkChunkIndexUUID(t, &a, otherID, other)
 	m.SetPos(-0.01, 80, 3)
 	if got := filed(&a, world.ChunkPos{X: -1}); len(got) != 1 {
 		t.Fatalf("x=-0.01 not in chunk -1: %v", got)
@@ -38,43 +52,70 @@ func TestChunkIndex(t *testing.T) {
 	if len(filed(&a, world.ChunkPos{X: -1})) != 0 || a.Holds(&m.Filing, world.ChunkPos{X: -1}) {
 		t.Fatal("Unfile left the mob filed")
 	}
-	a.Add(other, &other.Filing, c0)
-	b.Add(other, &other.Filing, c0)
+	checkChunkIndexUUID(t, &a, mID, nil)
+	a.Add(other, &other.Filing, c0, otherID)
+	b.Add(other, &other.Filing, c0, otherID)
 	if a.Len() != 0 || len(filed(&b, c0)) != 1 {
 		t.Fatal("Add to a second index did not leave the first")
 	}
+	checkChunkIndexUUID(t, &a, otherID, nil)
+	checkChunkIndexUUID(t, &b, otherID, other)
 }
 
 func TestChunkIndexSwapFixup(t *testing.T) {
 	var ix ChunkIndex[*Mob]
 	ms := []*Mob{{}, {}, {}}
-	for _, m := range ms {
-		ix.Add(m, &m.Filing, world.ChunkPos{})
+	ids := []uuid.UUID{{1}, {2}, {3}}
+	for i, m := range ms {
+		ix.Add(m, &m.Filing, world.ChunkPos{}, ids[i])
 	}
 	ms[0].Unfile()
-	for _, m := range ms[1:] {
-		if !ix.Holds(&m.Filing, world.ChunkPos{}) {
+	checkChunkIndexUUID(t, &ix, ids[0], nil)
+	for i := 1; i < len(ms); i++ {
+		if !ix.Holds(&ms[i].Filing, world.ChunkPos{}) {
 			t.Fatal("swap left a stale slot")
 		}
+		checkChunkIndexUUID(t, &ix, ids[i], ms[i])
 	}
 	ms[2].SetPos(40, 0, 0)
 	ms[1].Unfile()
 	if ix.Len() != 1 || !ix.Holds(&ms[2].Filing, world.ChunkPos{X: 2}) {
 		t.Fatal("remove after move broke the index")
 	}
+	checkChunkIndexUUID(t, &ix, ids[1], nil)
+	checkChunkIndexUUID(t, &ix, ids[2], ms[2])
 }
 
 func TestChunkIndexStructCopy(t *testing.T) {
 	var ix ChunkIndex[*Mob]
 	m := &Mob{}
-	ix.Add(m, &m.Filing, world.ChunkPos{})
+	id := uuid.UUID{1}
+	ix.Add(m, &m.Filing, world.ChunkPos{}, id)
 	cp := *m
 	cp.SetPos(40, 0, 0)
 	if !ix.Holds(&m.Filing, world.ChunkPos{}) || ix.Len() != 1 {
 		t.Fatal("a copy's SetPos moved the original")
 	}
+	checkChunkIndexUUID(t, &ix, id, m)
+	cp = *m
 	cp.Unfile()
 	if !ix.Holds(&m.Filing, world.ChunkPos{}) || ix.Len() != 1 {
 		t.Fatal("a copy's Unfile removed the original")
 	}
+	checkChunkIndexUUID(t, &ix, id, m)
+}
+
+func TestChunkIndexReplacedUUID(t *testing.T) {
+	var ix ChunkIndex[*Mob]
+	first, second := &Mob{}, &Mob{}
+	id := uuid.UUID{1}
+	ix.Add(first, &first.Filing, world.ChunkPos{}, id)
+	ix.Add(second, &second.Filing, world.ChunkPos{}, id)
+	checkChunkIndexUUID(t, &ix, id, second)
+	first.SetPos(40, 0, 0)
+	checkChunkIndexUUID(t, &ix, id, second)
+	first.Unfile()
+	checkChunkIndexUUID(t, &ix, id, second)
+	second.Unfile()
+	checkChunkIndexUUID(t, &ix, id, nil)
 }

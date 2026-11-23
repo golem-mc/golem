@@ -452,45 +452,21 @@ func channel(v float32) int32 {
 }
 
 // optionBlockState reads a block state field: a block name, or a compound
-// with the name and the state's properties.
+// with id and optional properties.
 // vanilla: BlockParticleOption.BLOCK_STATE_CODEC
 func optionBlockState(opts nbt.Compound, key string) (uint16, error) {
 	tag, ok := opts[key]
 	if !ok {
 		return 0, missingKeyError(key, opts)
 	}
-	var name string
-	var props map[string]string
-	switch t := tag.(type) {
-	case nbt.String:
-		name = Qualify(string(t))
-	case nbt.CompoundTag:
-		idKey, propsKey := "id", "properties"
-		n, ok := nbt.Get[nbt.String](t.Entries(), idKey)
-		if !ok {
-			idKey, propsKey = "Name", "Properties"
-			n, ok = nbt.Get[nbt.String](t.Entries(), idKey)
-		}
-		if !ok {
-			return 0, errors.New("no key id")
-		}
-		name = Qualify(string(n))
-		if p, has := t.Entries()[propsKey]; has {
-			if props, ok = BlockStatePropertiesTag(p); !ok {
-				return 0, errors.New("not a map of strings: " + propsKey)
-			}
-		}
-	default:
+	raw, props, ok := BlockStateOfCodec(tag)
+	if !ok {
 		return 0, fmt.Errorf("not a block state: %s", key)
 	}
-	if _, known := FindState(name, nil); !known {
+	name := Qualify(raw)
+	id, known := FindState(name, props)
+	if !known {
 		return 0, fmt.Errorf("unknown registry key: %s", name)
 	}
-	for prop, value := range props {
-		if values, ok := BlockPropertyValues(name, prop); !ok || !values[value] {
-			return 0, fmt.Errorf("unknown property %s=%s", prop, value)
-		}
-	}
-	id, _ := FindState(name, props)
 	return id, nil
 }

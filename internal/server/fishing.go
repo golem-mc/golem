@@ -72,6 +72,7 @@ var bobberTracker = trackedKind[*bobberEntity, bobberTold]{
 	list:        func(s *Server) *[]*bobberEntity { return &s.bobbers },
 	chunks:      func(s *Server) *entity.ChunkIndex[*bobberEntity] { return &s.bobberChunks },
 	filing:      func(it *bobberEntity) *entity.Filing { return &it.hook.Filing },
+	uuid:        func(it *bobberEntity) uuid.UUID { return it.uuid },
 	track:       func(it *bobberEntity) *bodyTrack[bobberTold] { return &it.bodyTrack },
 	world:       func(it *bobberEntity) *world.World { return it.w },
 	id:          func(it *bobberEntity) int32 { return it.hook.ID },
