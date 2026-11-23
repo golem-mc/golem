@@ -137,7 +137,7 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 	s.addDimension(d)
 	handle := pluginWorld{srv: s, dim: d, host: h}
 	if !existed {
-		spawn = initialPluginSpawn(opts.Generator, gen, handle)
+		spawn = initialPluginSpawn(opts.Generator, gen, handle, d.w)
 		d.w.SetOwnSeedAndSpawn(seed, spawn)
 		if spec.BonusChest {
 			d.w.PlaceBonusChest(s.levelRng)
@@ -149,9 +149,9 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 }
 
 // initialPluginSpawn is where a new plugin world's players first spawn: the
-// plugin's own answer, else the overworld generator's search, else the origin
-// at sea level.
-func initialPluginSpawn(plug plugin.Generator, gen world.Generator, handle plugin.World) world.SpawnPos {
+// plugin's own answer, else the overworld generator's search, else the surface search
+// around the origin.
+func initialPluginSpawn(plug plugin.Generator, gen world.Generator, handle plugin.World, w *world.World) world.SpawnPos {
 	if plug != nil {
 		loc := plug.SpawnPoint(handle)
 		return world.SpawnPos{X: int32(loc.Pos.Block().X), Y: int32(loc.Pos.Block().Y), Z: int32(loc.Pos.Block().Z), Yaw: world.WrapDegrees(loc.Yaw), Pitch: max(min(loc.Pitch, 90), -90)}
@@ -159,7 +159,7 @@ func initialPluginSpawn(plug plugin.Generator, gen world.Generator, handle plugi
 	if og, ok := gen.(*world.OverworldGenerator); ok {
 		return og.FindSpawn()
 	}
-	return world.SpawnPos{Y: gen.SeaLevel() + 1}
+	return w.FindSurfaceSpawn()
 }
 
 // WorldFolder answers the folder of the world key names; the overworld's is
