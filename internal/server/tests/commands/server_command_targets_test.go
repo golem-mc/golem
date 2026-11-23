@@ -128,6 +128,7 @@ func TestTeleportToTeamedPlayerNamesTeamFormattedDestination(t *testing.T) {
 	cfg := config.Default()
 	cfg.OnlineMode = false
 	cfg.GameMode = "creative"
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Mover"))
 
 	mover := connect().Join("Mover")
