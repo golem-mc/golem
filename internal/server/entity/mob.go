@@ -27,8 +27,10 @@ type MobType = registry.EntityType
 const NoMobType MobType = 0
 
 // MobTypeOf returns the type of a registry name, or NoMobType when unknown.
+// A name without a namespace is a minecraft one.
+// vanilla: EntityType.by
 func MobTypeOf(name string) MobType {
-	if t, ok := registry.EntityTypeByName(name); ok {
+	if t, ok := registry.EntityTypeByName(registry.Qualify(name)); ok {
 		return t
 	}
 	return NoMobType
