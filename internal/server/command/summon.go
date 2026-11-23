@@ -245,7 +245,7 @@ func summonBody(src Source, name string, kind summonKind, x, y, z float64, compo
 		// the tag named none — read the way a saved fall's wake reads,
 		// falling from the position the command points.
 		displayKey = "entity.minecraft.falling_block_type"
-		block := protocol.Text{Translate: summonBlockKey(compound["BlockState"])}
+		block := protocol.Text{Translate: summonBlockKey(compound[entity.BlockStateKeyFalling])}
 		displayArg = &block
 		id, identity, err = src.SummonFallingBlock(x, y, z, compound)
 		ok = err == nil
@@ -348,14 +348,13 @@ func dropInvalidBlockStates(tag nbt.CompoundTag, keys []string, passengers bool)
 // to — the name a fall's display name carries beside its own key.
 // vanilla: FallingBlockEntity.getTypeName, DEFAULT_BLOCK_STATE
 func summonBlockKey(tag nbt.Tag) string {
-	name, props, ok := registry.BlockStateOfCodec(tag)
-	if !ok {
-		name = "minecraft:sand"
-	} else if _, ok := registry.FindState(registry.Qualify(name), props); !ok {
-		name = "minecraft:sand"
+	state := registry.BlockSand.DefaultState()
+	if name, props, ok := registry.BlockStateOfCodec(tag); ok {
+		if resolved, found := registry.FindState(registry.Qualify(name), props); found {
+			state = resolved
+		}
 	}
-	name = registry.Qualify(name)
-	namespace, path, _ := strings.Cut(name, ":")
+	namespace, path, _ := strings.Cut(registry.BlockOf(state).Name(), ":")
 	return "block." + namespace + "." + path
 }
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"maps"
 	"math"
 	"slices"
 	"sync"
@@ -216,6 +217,14 @@ func (s *Server) spawnCreeperCloud(c creeperCloud) {
 // duration scale; timing fields take vanilla's defaults.
 // vanilla: AreaEffectCloud.readAdditionalSaveData
 func (s *Server) cloudOfTag(w *world.World, compound nbt.Compound) *cloudEntity {
+	return s.buildCloudOfTag(w, compound, true)
+}
+
+// buildCloudOfTag builds a cloud from compound, optionally upgrading pre-26.3
+// block_state tags in custom_particle for disk loads while keeping command
+// inputs on the 26.3 codec.
+// vanilla: AreaEffectCloud.readAdditionalSaveData, BlockStateFieldNamesFix
+func (s *Server) buildCloudOfTag(w *world.World, compound nbt.Compound, upgradeLegacy bool) *cloudEntity {
 	x, y, z, ok := entityPositionOfTag(compound)
 	if !ok {
 		return nil
@@ -225,7 +234,7 @@ func (s *Server) cloudOfTag(w *world.World, compound nbt.Compound) *cloudEntity 
 		return nil
 	}
 	it := &cloudEntity{cloud: entity.NewCloud(s.nextEntity(), x, y, z, nil), w: w, uuid: identity}
-	applyCloudTag(it, compound)
+	applyCloudTagWith(it, compound, upgradeLegacy)
 	it.cloud.Restore(it.cloud.TickCount, it.cloud.Radius(), it.cloud.RadiusPerTick())
 	return it
 }
@@ -233,6 +242,10 @@ func (s *Server) cloudOfTag(w *world.World, compound nbt.Compound) *cloudEntity 
 // applyCloudTag reloads saved fields without replacing the cloud's victim cooldowns.
 // vanilla: AreaEffectCloud.readAdditionalSaveData
 func applyCloudTag(it *cloudEntity, compound nbt.Compound) {
+	applyCloudTagWith(it, compound, false)
+}
+
+func applyCloudTagWith(it *cloudEntity, compound nbt.Compound, upgradeLegacy bool) {
 	it.look = entityLookOf(compound)
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
 		it.cloud.SetPos(x, y, z)
@@ -270,10 +283,37 @@ func applyCloudTag(it *cloudEntity, compound nbt.Compound) {
 	it.custom = customNameOfTag(compound)
 	it.customParticle = nil
 	if tag := compound["custom_particle"]; tag != nil {
+		if upgradeLegacy {
+			tag = upgradeLegacyCloudParticle(tag)
+		}
 		if _, _, ok := registry.ParticleOptions(tag); ok {
 			it.customParticle = tag
 		}
 	}
+}
+
+// upgradeLegacyCloudParticle rewrites a pre-26.3 {Name, Properties} block_state
+// inside a saved cloud's custom_particle to the 26.3 codec tag.
+// vanilla: V4420, V3818_4, BlockStateFieldNamesFix
+func upgradeLegacyCloudParticle(tag nbt.Tag) nbt.Tag {
+	particle, ok := nbt.CompoundView(tag)
+	if !ok {
+		return tag
+	}
+	bs, has := particle["block_state"]
+	if !has {
+		return tag
+	}
+	if _, _, valid := registry.BlockStateOfCodec(bs); valid {
+		return tag
+	}
+	state, ok := registry.StateOfTag(bs)
+	if !ok {
+		return tag
+	}
+	upgraded := maps.Clone(particle)
+	upgraded["block_state"] = registry.BlockStateCodecTag(state)
+	return upgraded
 }
 
 // registerCloud adds a built cloud and shows it to players in range.

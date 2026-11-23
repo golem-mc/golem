@@ -127,6 +127,7 @@ func TestParticleCommandWritesOptions(t *testing.T) {
 
 	stone, _ := registry.FindState("minecraft:stone", nil)
 	furnace, _ := registry.FindState("minecraft:furnace", map[string]string{"facing": "east", "lit": "true"})
+	furnaceDefault, _ := registry.FindState("minecraft:furnace", nil)
 	stoneItem, _ := registry.ItemID("minecraft:stone")
 	argb := func(v uint32) int32 { return int32(v) }
 	build := func(f func(b *protocol.Buffer)) []byte {
@@ -141,6 +142,8 @@ func TestParticleCommandWritesOptions(t *testing.T) {
 		{"block name", `block{block_state:"stone"}`, build(func(b *protocol.Buffer) { b.PutVarInt(int32(stone)) })},
 		{"block_marker state", `block_marker{block_state:{id:"minecraft:furnace",properties:{facing:"east",lit:"true"}}}`,
 			build(func(b *protocol.Buffer) { b.PutVarInt(int32(furnace)) })},
+		{"block invalid property defaults", `block{block_state:{id:"furnace",properties:{lit:"maybe"}}}`,
+			build(func(b *protocol.Buffer) { b.PutVarInt(int32(furnaceDefault)) })},
 		{"falling_dust spaced", `falling_dust{ block_state : "stone" }`, build(func(b *protocol.Buffer) { b.PutVarInt(int32(stone)) })},
 		{"dust ints", `dust{color:16711680,scale:2f}`, build(func(b *protocol.Buffer) { b.PutI32(0xFF0000); b.PutF32(2) })},
 		{"dust floats", `dust{color:[1,0.5,0],scale:1}`, build(func(b *protocol.Buffer) { b.PutI32(argb(0xFFFF7F00)); b.PutF32(1) })},
@@ -195,7 +198,6 @@ func TestParticleCommandRefusesBadOptions(t *testing.T) {
 	for _, command := range []string{
 		"particle minecraft:block",
 		`particle block{block_state:"nothing"}`,
-		`particle block{block_state:{id:"furnace",properties:{lit:"maybe"}}}`,
 		`particle block{block_state:{Name:"minecraft:furnace",Properties:{facing:"east",lit:"true"}}}`,
 		"particle dust{color:1,scale:9}",
 		"particle dust{color:1,scale:0}",

@@ -35,7 +35,7 @@ func (s *Server) summonSaved(w *world.World, name string, x, y, z float64, tag n
 			id, identity, register = e.mannequin.ID, e.uuid, func() { s.registerMannequin(e) }
 		}
 	case cloudEntityID:
-		if e := s.cloudOfTag(w, compound); e != nil {
+		if e := s.buildCloudOfTag(w, compound, false); e != nil {
 			id, identity, register = e.cloud.ID, e.uuid, func() { s.registerCloud(e) }
 		}
 	case fireworkEntityID:

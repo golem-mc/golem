@@ -422,7 +422,7 @@ func channel(v float32) int32 {
 }
 
 // optionBlockState reads a block state field: a block name, or a compound
-// with id and optional string-valued properties.
+// with id and optional properties.
 // vanilla: BlockParticleOption.BLOCK_STATE_CODEC
 func optionBlockState(opts nbt.Compound, key string) (uint16, error) {
 	tag, ok := opts[key]
@@ -434,14 +434,9 @@ func optionBlockState(opts nbt.Compound, key string) (uint16, error) {
 		return 0, fmt.Errorf("not a block state: %s", key)
 	}
 	name := Qualify(raw)
-	if _, known := FindState(name, nil); !known {
+	id, known := FindState(name, props)
+	if !known {
 		return 0, fmt.Errorf("unknown registry key: %s", name)
 	}
-	for prop, value := range props {
-		if values, ok := BlockPropertyValues(name, prop); !ok || !values[value] {
-			return 0, fmt.Errorf("unknown property %s=%s", prop, value)
-		}
-	}
-	id, _ := FindState(name, props)
 	return id, nil
 }
