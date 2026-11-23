@@ -119,7 +119,7 @@ func TestComputeTreeIsSent(t *testing.T) {
 
 // TestComputeProviderThatReadsAsIdIsReference checks that a bare number is an
 // identifier and so a registry lookup that fails, and that an inline uniform
-// provider reports every missing key.
+// provider and a binary provider report every missing key.
 // vanilla: ResourceOrIdArgument.createGrammar
 func TestComputeProviderThatReadsAsIdIsReference(t *testing.T) {
 	t.Parallel()
@@ -138,6 +138,9 @@ func TestComputeProviderThatReadsAsIdIsReference(t *testing.T) {
 			"Failed to parse either. First: Not a number; Second: No key max in MapLike[" +
 				"{max_exclusive:3.0001d,min_inclusive:3,type:\"minecraft:uniform\"}]; No key min in MapLike[" +
 				"{max_exclusive:3.0001d,min_inclusive:3,type:\"minecraft:uniform\"}]"},
+		{`compute default integer {type:"minecraft:sub"} 1`, "", "",
+			"Failed to parse either. First: Not a number; Second: No key right in MapLike[" +
+				`{type:"minecraft:sub"}]; No key left in MapLike[{type:"minecraft:sub"}]`},
 	} {
 		c.ChatCommand(tc.input)
 		if tc.failure != "" {

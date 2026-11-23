@@ -120,6 +120,9 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 		return nested(t)
 	}
 	conditional = func(c nbt.Compound) (registry.LootNumber, string) {
+		if msg := missingKeys(c, "on_true", "condition"); msg != "" {
+			return nil, msg
+		}
 		test, msg := condField(c)
 		if msg != "" {
 			return nil, msg
@@ -148,6 +151,9 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 			cc, ok := nbt.ListElement(e).(nbt.Compound)
 			if !ok {
 				return nil, "Not a map: " + nbt.Stringify(e)
+			}
+			if msg := missingKeys(cc, "value", "condition"); msg != "" {
+				return nil, msg
 			}
 			test, msg := condField(cc)
 			if msg != "" {
@@ -202,8 +208,8 @@ func fieldOf(c nbt.Compound, key string) (nbt.Tag, string) {
 	return t, ""
 }
 
-// missingKeys reports every absent required key, in the order given (the
-// order the record codec lists them in).
+// missingKeys reports every absent required key, in the order given: callers
+// pass DFU's reported order, the reverse of the codec's group(...) order.
 func missingKeys(c nbt.Compound, keys ...string) string {
 	var msgs []string
 	for _, k := range keys {
@@ -304,6 +310,9 @@ func unary(nested func(nbt.Compound, string) (registry.LootNumber, string), op s
 
 func binary(nested func(nbt.Compound, string) (registry.LootNumber, string), op, leftKey, rightKey string) func(nbt.Compound) (registry.LootNumber, string) {
 	return func(c nbt.Compound) (registry.LootNumber, string) {
+		if msg := missingKeys(c, rightKey, leftKey); msg != "" {
+			return nil, msg
+		}
 		l, msg := nested(c, leftKey)
 		if msg != "" {
 			return nil, msg
@@ -451,6 +460,9 @@ func fallbackOf(c nbt.Compound, nested func(nbt.Tag) (registry.LootNumber, strin
 // vanilla: StoredNumberAccess
 func storage(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt.Compound) (registry.LootNumber, string) {
 	return func(c nbt.Compound) (registry.LootNumber, string) {
+		if msg := missingKeys(c, "path", "storage"); msg != "" {
+			return nil, msg
+		}
 		id, msg := identifierField(c, "storage")
 		if msg != "" {
 			return nil, msg
@@ -542,6 +554,9 @@ func init() {
 			return registry.LootUniform{Min: lo, Max: hi}, ""
 		},
 		"binomial": func(c nbt.Compound) (registry.LootNumber, string) {
+			if msg := missingKeys(c, "p", "n"); msg != "" {
+				return nil, msg
+			}
 			n, msg := nestedInt(c, "n")
 			if msg != "" {
 				return nil, msg
@@ -561,6 +576,9 @@ func init() {
 		},
 		"weighted_list": weightedChoice(nestedIntTag),
 		"score": func(c nbt.Compound) (registry.LootNumber, string) {
+			if msg := missingKeys(c, "score", "target"); msg != "" {
+				return nil, msg
+			}
 			holderTag, msg := fieldOf(c, "target")
 			if msg != "" {
 				return nil, msg
