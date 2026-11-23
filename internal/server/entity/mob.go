@@ -1855,7 +1855,7 @@ type Mob struct {
 	Sheared bool
 
 	// Impulse requests a movement update off cadence, such as for a shove
-	// or a magma cube's takeoff. Whoever reads it clears it.
+	// or a cube's takeoff. Whoever reads it clears it.
 	Impulse bool
 
 	// TargetID is the entity ID of the player the mob targets (Mob.setTarget),

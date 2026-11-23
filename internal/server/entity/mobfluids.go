@@ -110,11 +110,9 @@ func (m *Mob) jumpFromGround(factor float64) {
 	}
 	jumpPower := float64(float32(m.attrOr(registry.AttributeJumpStrength, 0.42))*float32(factor) + float32(rules.JumpBoostPower(m.effects.All())))
 	if m.isCube() {
-		// vanilla: AbstractCubeMob.jumpFromGround sets the rise outright
+		// vanilla: AbstractCubeMob.jumpFromGround, MagmaCube.jumpFromGround
 		m.VY = jumpPower + m.cubeJumpBonus()
-		if m.Type == TypeMagmaCube {
-			m.Impulse = true // vanilla: MagmaCube.jumpFromGround
-		}
+		m.Impulse = true
 		return
 	}
 	if jumpPower <= 1e-5 {

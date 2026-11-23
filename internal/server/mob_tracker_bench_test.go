@@ -50,12 +50,22 @@ func BenchmarkTickMobsTracked(b *testing.B) {
 // BenchmarkTickMagmaCubesTracked includes takeoff and landing updates for
 // 64 jumping cubes watched by the players around the grid.
 func BenchmarkTickMagmaCubesTracked(b *testing.B) {
+	benchmarkTickCubesTracked(b, entity.TypeMagmaCube)
+}
+
+// BenchmarkTickSlimeAndSulfurCubesTracked includes takeoff and landing updates
+// for 64 jumping slimes and sulfur cubes watched by the players around the grid.
+func BenchmarkTickSlimeAndSulfurCubesTracked(b *testing.B) {
+	benchmarkTickCubesTracked(b, entity.TypeSlime, entity.TypeSulfurCube)
+}
+
+func benchmarkTickCubesTracked(b *testing.B, kinds ...entity.MobType) {
 	const cubes = 64
 	s, _ := newTrackerBenchServer(b)
 	dim := s.allDims()[0]
 	for i := range cubes {
 		x, z := trackerBenchSpot(i)
-		s.spawnMobArriving(dim, entity.TypeMagmaCube, x, float64(world.GroundLevel), z, int64(i+1), nil, false, "", false, func(ent *mobEntity) {
+		s.spawnMobArriving(dim, kinds[i%len(kinds)], x, float64(world.GroundLevel), z, int64(i+1), nil, false, "", false, func(ent *mobEntity) {
 			ent.mob.SetSize(2, true)
 			ent.mob.Persistence = true
 		})
@@ -70,7 +80,7 @@ func BenchmarkTickMagmaCubesTracked(b *testing.B) {
 	}
 	b.StopTimer()
 	if n := len(dim.mobs.herd); n != cubes {
-		b.Fatalf("%d magma cubes in the herd after the run, want %d", n, cubes)
+		b.Fatalf("%d cubes in the herd after the run, want %d", n, cubes)
 	}
 }
 
