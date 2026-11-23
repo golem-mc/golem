@@ -1302,6 +1302,10 @@ type Player struct {
 	BoatDriver, NautilusDriver bool
 	// RideBox is the vehicle's min X/Y/Z followed by max X/Y/Z.
 	RideBox [6]float64
+	// Reach is the box the player touches mobs within, the vehicle's included
+	// while riding; the zero box means none was read.
+	// vanilla: Player.aiStep
+	Reach AABB
 
 	// Spectator is a spectator, left out of the despawn's nearest-player
 	// distance.
@@ -5650,7 +5654,7 @@ func (m *Mob) animalAIStep(t *tickView) {
 	}
 	if m.NoAI {
 		if m.Type == TypePufferfish && m.Alive() {
-			t.events = append(t.events, m.pufferStings(t, nil)...)
+			t.events = m.pufferStings(t, t.events)
 		}
 		return
 	}

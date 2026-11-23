@@ -232,6 +232,7 @@ func (s *Server) readMobTickInputs(in *mobTickInputs) (known map[uuid.UUID]bool)
 			Poisoned: hasEffect(c, effectPoison),
 			Weakened: hasEffect(c, effectWeakness),
 			Hero:     hasEffect(c, effectHeroOfTheVillage),
+			Reach:    c.pickupBox(),
 		}
 		dims := c.dims(c.player.Appearance().Pose)
 		snapshot.Width, snapshot.Height, snapshot.EyeHeight = dims.Width, dims.Height, dims.EyeHeight

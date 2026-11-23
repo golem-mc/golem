@@ -533,17 +533,53 @@ func TestANoAIFullPufferfishHurtsAndPoisonsATouchingPlayer(t *testing.T) {
 	before := srv.PlayerHealth("Striker")
 	c.MoveTo(pondCentreX, 62, pondNorth, 0, 0)
 	c.Settle()
-	srv.TickMobs(2)
-	c.Settle()
+	srv.TickMobs(1)
 	if lost := before - srv.PlayerHealth("Striker"); lost != 3 {
 		t.Errorf("the player lost %.1f health, want 3", lost)
 	}
-	if !poisoned(srv) {
-		t.Error("the player is not poisoned")
+	if d, a, ok := srv.PlayerEffect("Striker", "minecraft:poison"); !ok || d != 120 || a != 0 {
+		t.Errorf("poison = %d ticks at amplifier %d (present %v), want 120 at 0", d, a, ok)
 	}
 }
 
-func poisoned(srv *server.Server) bool {
-	_, _, ok := srv.PlayerEffect("Striker", "minecraft:poison")
-	return ok
+// TestANoAIFullPufferfishHurtsAndPoisonsANearbyMob: the aiStep sting reaches
+// a scary mob without AI.
+// vanilla: Pufferfish.aiStep
+func TestANoAIFullPufferfishHurtsAndPoisonsANearbyMob(t *testing.T) {
+	t.Parallel()
+	srv, c := squidTests(t)
+	srv.SetDifficulty(rules.DifficultyNormal)
+	summonSquidTagged(t, c, "minecraft:pufferfish", fishType(t, "minecraft:pufferfish"), pondCentreX, pondNorth, "{PuffState:2,NoAI:1b,Silent:1b}")
+	pig := summonSquidTagged(t, c, "minecraft:pig", fishType(t, "minecraft:pig"), pondCentreX, pondNorth, "{NoAI:1b,Silent:1b}")
+	c.Settle()
+	before, _ := srv.MobHealth(pig)
+	srv.TickMobs(1)
+	after, _ := srv.MobHealth(pig)
+	if before-after != 3 {
+		t.Errorf("the pig lost %.1f health, want 3", before-after)
+	}
+	if d, a, ok := srv.MobEffectOf(pig, "minecraft:poison"); !ok || d != 120 || a != 0 {
+		t.Errorf("poison = %d ticks at amplifier %d (present %v), want 120 at 0", d, a, ok)
+	}
+}
+
+// TestANoAIFullPufferfishStingsAPlayerRidingABoat: a rider touches within the
+// boat's box too, past the on-foot reach.
+// vanilla: Player.aiStep, Pufferfish.playerTouch
+func TestANoAIFullPufferfishStingsAPlayerRidingABoat(t *testing.T) {
+	t.Parallel()
+	srv, c := squidTests(t)
+	srv.SetDifficulty(rules.DifficultyNormal)
+	c.ChatCommand("summon oak_boat 8.5 64 -2.5")
+	c.Settle()
+	c.ChatCommand("ride @s mount @e[type=oak_boat,limit=1]")
+	c.Settle()
+	// 1.8 sideways of the boat's centre: outside the rider's own 1.3.
+	c.ChatCommand("summon minecraft:pufferfish 10.3 64 -2.5 {PuffState:2,NoAI:1b,Silent:1b}")
+	c.Settle()
+	before := srv.PlayerHealth("Striker")
+	srv.TickMobs(1)
+	if lost := before - srv.PlayerHealth("Striker"); lost != 3 {
+		t.Errorf("the rider lost %.1f health, want 3", lost)
+	}
 }
