@@ -2,12 +2,13 @@ package commands
 
 import (
 	"bytes"
-	"github.com/golem-mc/golem/internal/server/servertest"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/google/uuid"
 )
 
@@ -204,6 +205,66 @@ func TestSelectorNamesTheNearestPlayerByName(t *testing.T) {
 
 	alice.Disconnect()
 	bob.Disconnect()
+}
+
+func TestDroppedItemSelectorName(t *testing.T) {
+	t.Parallel()
+	const player = "Testificate"
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance = config.MinDistance
+	srv, c := servertest.Join(t, cfg, player, servertest.OpsListing(t, player))
+	servertest.HoldTicks(t, srv)
+	c.MoveToGround(8.5, 64, 8.5, true)
+	c.Settle()
+
+	for _, tc := range []struct {
+		tag, id, components, entityName, name, match, miss string
+	}{
+		{tag: "steak_test", id: "cooked_beef", name: "Steak", match: "Steak", miss: `"Cooked Beef"`},
+		{
+			tag: "item_name", id: "cooked_beef", name: "Trail Steak", match: `"Trail Steak"`, miss: `"Anvil Steak"`,
+			components: `,components:{"minecraft:item_name":{text:"Trail ",extra:[{translate:"item.minecraft.cooked_beef"}]},"minecraft:custom_name":"Anvil Steak"}`,
+		},
+		{
+			tag: "entity_name", id: "cooked_beef", name: "Entity Steak", match: `"Entity Steak"`, miss: `"Trail Steak"`,
+			components: `,components:{"minecraft:item_name":"Trail Steak"}`, entityName: `,CustomName:"Entity Steak"`,
+		},
+		{
+			tag: "written_book", id: "written_book", name: "Written Book", match: `"Written Book"`, miss: `"Journal"`,
+			components: `,components:{"minecraft:written_book_content":{title:"Journal",author:"Testificate"}}`,
+		},
+	} {
+		checkName := func(display protocol.Text) {
+			if display.Plain() != tc.name || display.HoverEntity == nil ||
+				display.HoverEntity.ID != "minecraft:item" || display.HoverEntity.Name.Plain() != tc.name {
+				t.Errorf("%s: display and show-entity hover = %+v, want both named %q", tc.tag, display, tc.name)
+			}
+		}
+		id := "minecraft:" + tc.id
+		c.ChatCommand(fmt.Sprintf(`summon item ~ ~1 ~3 {Item:{id:%q,count:1%s},PickupDelay:32767s,Tags:[%q]%s}`,
+			id, tc.components, tc.tag, tc.entityName))
+		line := servertest.FeedbackComponent(t, c)
+		if line.Translate != "commands.summon.success" || len(line.With) != 1 {
+			t.Fatalf("%s: summon feedback = %s", tc.tag, line.Plain())
+		}
+		checkName(line.With[0])
+
+		query := fmt.Sprintf("data get entity @e[type=item,tag=%s,name=%%s,limit=1] Item.id", tc.tag)
+		c.ChatCommand(fmt.Sprintf(query, tc.match))
+		line = servertest.FeedbackComponent(t, c)
+		if line.Translate != "commands.data.entity.query" || len(line.With) != 2 || line.With[1].Plain() != fmt.Sprintf("%q", id) {
+			t.Errorf("%s matched feedback = %s, want Item.id %q", tc.tag, line.Plain(), id)
+		} else {
+			checkName(line.With[0])
+		}
+
+		c.ChatCommand(fmt.Sprintf(query, tc.miss))
+		if data := c.ExpectPlay(protocol.IDPlaySystemChat); !bytes.Equal(data, servertest.CommandErrorMessageForTest("argument.entity.notfound.entity")) {
+			line, _ = protocol.ReadText(protocol.NewReader(data))
+			t.Errorf("%s rejected feedback = %s, want no entity found", tc.tag, line.Plain())
+		}
+	}
+	c.Disconnect()
 }
 
 // TestSelectorRefusesAnUnknownOption checks the refusal a selector gives an
