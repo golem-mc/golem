@@ -54,16 +54,14 @@ func TestLavaSpreadReachByDimension(t *testing.T) {
 	}
 }
 
-// TestWaterReplacingLavaFlowsAtItsOwnDelay checks that a lava visit still
-// pending does not hold back the visit of the water that replaced the lava.
-func TestWaterReplacingLavaFlowsAtItsOwnDelay(t *testing.T) {
+// TestClearTicksInForgetsFluidBookings checks that a cleared fluid visit leaves
+// no booking behind to block the next one.
+func TestClearTicksInForgetsFluidBookings(t *testing.T) {
 	w, p := newPhysicsWorld(t)
-	var clock int64
-	setBlock(t, w, p, 0, GroundLevel, 0, lavaByLevel[0])
-	runTicks(p, &clock, 1)
-	setBlock(t, w, p, 0, GroundLevel, 0, waterByLevel[0])
-	runTicks(p, &clock, 8)
-	if got := fluidHolding(w.BlockAt(1, GroundLevel, 0)); got.kind != fluidWater {
-		t.Errorf("water beside the source after 8 ticks = %v, want water", got.kind)
+	w.SetBlock(0, GroundLevel, 0, waterByLevel[0])
+	p.scheduleFluid(0, GroundLevel, 0)
+	p.ClearTicksIn(0, GroundLevel, 0, 0, GroundLevel, 0)
+	if len(p.fluidBooked) != 0 {
+		t.Errorf("%d fluid bookings after the clear, want none", len(p.fluidBooked))
 	}
 }

@@ -160,12 +160,12 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 			x: t.pos.x, y: t.pos.y, z: t.pos.z,
 			delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority),
 		}
-		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
-		if isFluidTick(t.event, state) {
-			st.id = fluidTickName(fluidHolding(state))
+		if t.fluid != 0 {
+			st.id = t.fluid.name()
 			out.fluid = append(out.fluid, st)
 			return
 		}
+		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
 		name, _, ok := registry.BlockStateName(state)
 		if !ok {
 			return
@@ -193,22 +193,45 @@ func isTickEvent(event uint8) bool {
 	return false
 }
 
-// isFluidTick reports whether a tick entry tagged event on a cell holding state
-// is a fluid tick: an untagged visit to a fluid-holding cell. A waterlogged
-// block's untagged block tick counts as one too.
-func isFluidTick(event uint8, state uint16) bool {
-	return event == 0 && fluidHolding(state).kind != fluidNone
+// fluidType is a fluid as vanilla's registry tells them apart: water and
+// flowing water are two, as are lava and flowing lava. Zero is none.
+type fluidType uint8
+
+// fluidBook is a fluid visit's booking: one per position and type.
+type fluidBook struct {
+	pos blockKey
+	typ fluidType
 }
 
-func fluidTickName(fs fluidState) string {
+func fluidTypeOf(fs fluidState) fluidType {
+	t := fluidType(fs.kind) << 1
+	if fs.isSource() {
+		t |= 1
+	}
+	return t
+}
+
+func (t fluidType) name() string {
 	name := "minecraft:water"
-	if fs.kind == fluidLava {
+	if fluidKind(t>>1) == fluidLava {
 		name = "minecraft:lava"
 	}
-	if fs.isSource() {
+	if t&1 != 0 {
 		return name
 	}
 	return "minecraft:flowing_" + name[len("minecraft:"):]
+}
+
+// fluidTypeNamed is the type a saved fluid tick names, zero for an unknown one.
+func fluidTypeNamed(name string) fluidType {
+	for _, kind := range []fluidKind{fluidWater, fluidLava} {
+		for _, src := range []fluidType{0, 1} {
+			if t := fluidType(kind)<<1 | src; t.name() == name {
+				return t
+			}
+		}
+	}
+	return 0
 }
 
 // adoptLoadedTicks drops the ticks of unloaded chunks and queues loaded ones; a
@@ -223,8 +246,8 @@ func (p *Physics) adoptLoadedTicks() {
 		due := p.now + int64(t.delay)
 		if t.fluid {
 			// vanilla: ServerLevel.tickFluid needs the exact fluid type.
-			if fs := fluidHolding(state); fs.kind != fluidNone && fluidTickName(fs) == t.id {
-				p.schedulePriority(t.x, t.y, t.z, due, int(t.priority))
+			if fs := fluidHolding(state); fs.kind != fluidNone && fluidTypeOf(fs) == fluidTypeNamed(t.id) {
+				p.scheduleFluidAt(t.x, t.y, t.z, fs, due, int(t.priority))
 			}
 			continue
 		}
@@ -336,6 +359,10 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 		delete(p.survivalBooked, t.pos)
 		delete(p.fallBooked, t.pos)
 	case 0:
+		if t.fluid != 0 {
+			delete(p.fluidBooked, fluidBook{t.pos, t.fluid})
+			return
+		}
 		delete(p.pending, t.pos)
 		if t.priority == tickPriorityFinalize {
 			delete(p.finalizeSeq, t.pos)
