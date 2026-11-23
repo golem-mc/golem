@@ -64,6 +64,7 @@ type armorStandEntity struct {
 // always by an absolute Teleport Entity (standMove), so the movement
 // schedule and its interval go unused.
 var standTracker = trackedKind[*armorStandEntity, *armorStandMeta]{
+	steppedPath:      true,
 	invalidatePiston: func(dim *dimension) { dim.pistons.armorStands.built = false },
 
 	rangeChunks: entity.ArmorStandTrackingRange,
@@ -828,6 +829,8 @@ func (o *standSends) send() {
 // already shown where it went and which metadata changed. The stands lock is held.
 func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyPlayers, out *standSends) {
 	body := standTracker.body(ent)
+	// A stand's update interval is Integer.MAX_VALUE: only a teleport gates.
+	mt := body.t.stepDue(math.MaxInt32, ent.teleported || body.t.teleported)
 	now := armorStandMetaOf(ent)
 	var attributes []byte
 	if dirty := ent.stand.Attributes().TakeDirty(); len(dirty) != 0 {
@@ -850,7 +853,7 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 				out.told = append(out.told, outbound{id: protocol.IDPlayUpdateAttributes, data: attributes})
 				out.toldTo = append(out.toldTo, showTo{wh.c, body.w})
 			}
-			standMove(&body, told, wh.c, out)
+			standMove(&body, told, wh.c, mt, out)
 		}
 	}
 }
@@ -859,17 +862,22 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 // when it moved past the movement threshold, turned, or was teleported
 // anywhere new, however short the step.
 // vanilla: ServerEntity.sendChanges
-func standMove(v *trackedBody[*armorStandEntity, *armorStandMeta], told *toldBody[*armorStandMeta], c *client, out *standSends) {
+func standMove(v *trackedBody[*armorStandEntity, *armorStandMeta], told *toldBody[*armorStandMeta], c *client, mt moveTick, out *standSends) {
 	now := v.position()
 	dx, dy, dz := now.x-told.x, now.y-told.y, now.z-told.z
-	jumped := v.b.teleported && (dx != 0 || dy != 0 || dz != 0)
+	jumped := (v.b.teleported || mt.teleported) && (dx != 0 || dy != 0 || dz != 0)
 	if dx*dx+dy*dy+dz*dz < movedThresholdSq && now.yaw == told.yaw && !jumped {
 		return
 	}
 	told.trackedPosition = now
 	st := v.b.stand
-	out.told = append(out.told, outbound{id: protocol.IDPlayTeleportEntity,
-		data: entityTeleportPayload(v.id, player.Position{X: st.X, Y: st.Y, Z: st.Z, Yaw: st.Yaw}, st.OnGround)})
+	data := entityTeleportPayload(v.id, player.Position{X: st.X, Y: st.Y, Z: st.Z, Yaw: st.Yaw}, st.OnGround)
+	if mt.stepTicks > 0 {
+		var buf protocol.Buffer
+		protocol.PutEntityPositionSyncStepped(&buf, v.id, st.X, st.Y, st.Z, mt.stepTicks, st.Yaw, 0, st.OnGround)
+		data = buf.Bytes()
+	}
+	out.told = append(out.told, outbound{id: protocol.IDPlayTeleportEntity, data: data})
 	out.toldTo = append(out.toldTo, showTo{c, v.w})
 }
 

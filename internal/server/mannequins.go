@@ -33,6 +33,7 @@ type mannequinEntity struct {
 
 // mannequinTracker tracks mannequin travel and commanded teleports.
 var mannequinTracker = trackedKind[*mannequinEntity, struct{}]{
+	steppedPath: true,
 	rangeChunks: entity.MannequinTrackingRange,
 	interval:    1,
 	lock:        func(s *Server) *sync.Mutex { return &s.mannequinsMu },
