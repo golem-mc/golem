@@ -915,6 +915,9 @@ func (s *Server) tickRedstoneTouch() {
 		if p.EntityOutputMissing() {
 			p.SetEntityAnalogOutput(frameAnalogOutputs{s: s, w: dim.w})
 		}
+		if dim.w.LoadedTouchBlocks() == 0 {
+			continue
+		}
 		var changes []world.BlockChange
 		var effects []world.Effect
 		var primes []world.TNTPrime

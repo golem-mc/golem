@@ -10,6 +10,36 @@ var isTouchBlock = registry.BlocksOf(func(b registry.Block) bool {
 	return isPressurePlate[b] || isButton[b] || isTripwire[b] || b == registry.BlockDetectorRail || b == registry.BlockBigDripleaf
 })
 
+// LoadedTouchBlocks counts the blocks in loaded chunks that the touch pass can react to.
+func (w *World) LoadedTouchBlocks() int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.touchBlocks
+}
+
+func (c *Chunk) touchBlockCount() int {
+	count := 0
+	for i := range c.sections {
+		count += int(c.sections[i].touches.Load())
+	}
+	return count
+}
+
+func (w *World) updateTouchBlockCount(y int32, old, state uint16) {
+	// Chunk.SetBlock ignores writes outside its height.
+	if !contains(y) {
+		return
+	}
+	before := isTouchBlock[registry.BlockOf(old)]
+	after := isTouchBlock[registry.BlockOf(state)]
+	switch {
+	case after && !before:
+		w.touchBlocks++
+	case before && !after:
+		w.touchBlocks--
+	}
+}
+
 // TouchBlocksIn reports whether a loaded section overlapping the inclusive
 // cell box contains a block the entity-inside touch pass reacts to.
 // Near-cache reads follow BlockAt: an unloading chunk reads as it left.
