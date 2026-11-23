@@ -23,6 +23,7 @@ func TestPerlinNoiseVolumeColumns(t *testing.T) {
 					{2, 33, 3, 16777210, 16777210, -16777220, 3, 1, 7},
 					{2, 17, 2, -17, 9, 29, 1, -3, 1},
 					{1, 0, 1, 0, 0, 0, 1, 1, 1},
+					{2, 385, 2, 5, -64, 7, 1, 1, 1}, // dynamic path above 384
 				} {
 					t.Run(fmt.Sprintf("%d/smeared=%t/scale=%g/%v", seed, smeared, scale, v), func(t *testing.T) {
 						out := make([]float32, v.Size())

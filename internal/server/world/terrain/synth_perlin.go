@@ -93,7 +93,15 @@ func (p *PerlinNoise) AddToVolume(out []float32, v Volume, xzScale, yScale float
 		count             uint16
 		alphaY, relativeY float32
 	}
-	ys := make([]yTerm, v.SizeY)
+	// Volumes up to the overworld height keep the terms on the stack; the
+	// array is local because generation shares PerlinNoise across goroutines.
+	var local [384]yTerm
+	var ys []yTerm
+	if int(v.SizeY) <= len(local) {
+		ys = local[:v.SizeY]
+	} else {
+		ys = make([]yTerm, v.SizeY)
+	}
 	cells, start := 0, 0
 	lastFloor := int32(-2147483648)
 	for iy := range ys {
