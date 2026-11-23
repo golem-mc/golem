@@ -284,18 +284,32 @@ func BenchmarkTickMobsPufferfishTouch(b *testing.B) {
 	fish.NoAI, fish.Silent = true, true
 	fish.SetPuffState(entity.PuffFull)
 	s.mobsMu.Unlock()
+	// tickMobs runs no player vitals tick, so the hurt cooldown the last
+	// sting opened is reset with the health; the fish, out of water, gets its
+	// air back so it never drowns.
 	refill := func() {
-		victim.player.UpdateVitals(func(v *player.Vitals) { v.Health, v.Dead = 20, false })
+		s.mobsMu.Lock()
+		fish.AirSupply = rules.MaxAirSupply
+		s.mobsMu.Unlock()
+		victim.player.UpdateVitals(func(v *player.Vitals) { v.Health, v.Dead, v.InvulnerableTicks = 20, false, 0 })
 	}
 	refill()
 	s.tickMobs()
 	if h := victim.player.Vitals().Health; h >= 20 {
 		b.Fatalf("health %v after a tick next to a puffed pufferfish, want a sting", h)
 	}
+	stung := 0
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
 		refill()
 		s.tickMobs()
+		if victim.player.Vitals().Health < 20 {
+			stung++
+		}
+	}
+	b.StopTimer()
+	if stung != b.N {
+		b.Fatalf("%d of %d measured ticks stung the player", stung, b.N)
 	}
 }

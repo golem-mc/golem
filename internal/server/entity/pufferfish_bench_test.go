@@ -28,8 +28,11 @@ func BenchmarkPufferfishNoAIStings(b *testing.B) {
 	for i := range 48 {
 		mobs = append(mobs, NewMob(TypePig, int32(i+200), float64(i%8)*4-14, 1, float64(i/8)*4-14, int64(i+200)))
 	}
+	// The event buffer is reused as the server's live tick does.
+	var events []MobEvent
 	stings := func() (n int) {
-		for _, ev := range mobs.Tick(w, nil, nil) {
+		events = mobs.TickInto(events, w, nil, nil, nil, nil)
+		for _, ev := range events {
 			if ev.Kind == MobAttackedPlayer && ev.Mob.Type == TypePufferfish {
 				n++
 			}
@@ -42,6 +45,6 @@ func BenchmarkPufferfishNoAIStings(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		mobs.Tick(w, nil, nil)
+		events = mobs.TickInto(events, w, nil, nil, nil, nil)
 	}
 }

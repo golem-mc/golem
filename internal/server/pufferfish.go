@@ -1,8 +1,6 @@
 package server
 
 import (
-	"slices"
-
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -42,16 +40,18 @@ func (s *Server) applyPufferTouches(watchers []trackingWatcher, touches []puffer
 }
 
 // applyLivePufferTouches applies the touches of the live mob pass to each
-// touched world's clients.
+// touched world's clients; scheduleMovement appends one world's touches as a
+// run, so each run goes to that world's clients alone.
 func (s *Server) applyLivePufferTouches(touches []pufferTouch, inWorld map[*world.World][]*client) {
-	for i := range touches {
-		w := touches[i].strike.w
-		if slices.ContainsFunc(touches[:i], func(t pufferTouch) bool { return t.strike.w == w }) {
-			continue
+	for len(touches) > 0 {
+		w, n := touches[0].strike.w, 1
+		for n < len(touches) && touches[n].strike.w == w {
+			n++
 		}
 		for _, c := range inWorld[w] {
-			s.touchPuffers(c, touches)
+			s.touchPuffers(c, touches[:n])
 		}
+		touches = touches[n:]
 	}
 }
 
