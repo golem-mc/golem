@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"math"
 	"slices"
 
@@ -101,6 +102,59 @@ func (c *client) handleUseMap(hand int32) bool {
 // vanilla: MapItemSavedData.HoldingPlayer.nextUpdatePacket
 const mapUpdateInterval = 5
 
+// mapFrameMarks imports item decorations and collects visible frame markers in registration order.
+func (s *Server) mapFrameMarks(w *world.World, x, z float64, radius int32) map[int32][]frameMark {
+	s.framesMu.Lock()
+	defer s.framesMu.Unlock()
+	if len(s.frames) == 0 {
+		return nil
+	}
+
+	pct := int(s.entityBroadcastRange.Load())
+	visible := func(f *frameEntity) bool {
+		return registry.Item(f.item.ItemID).IsMap() && f.w == w && frameSees(f, x, z, radius, pct)
+	}
+	var marks map[int32][]frameMark
+	add := func(f *frameEntity) {
+		if id, ok := filledMapID(f.item); ok {
+			s.maps.AddItemDecorations(id, f.item.MapDecorations)
+			if marks == nil {
+				marks = make(map[int32][]frameMark)
+			}
+			marks[id] = append(marks[id], frameMark{x: f.x, z: f.z, dir: f.dir})
+		}
+	}
+
+	// frameSees uses the hanging cell's corner. The index uses the frame's centre.
+	bound := float64(trackingRangeBlocks(frameTracker.rangeChunks, pct, radius) + 1)
+	minX, maxX := world.ChunkOf(x-bound), world.ChunkOf(x+bound)
+	minZ, maxZ := world.ChunkOf(z-bound), world.ChunkOf(z+bound)
+	if int(maxX-minX+1)*int(maxZ-minZ+1) > len(s.frames) {
+		for _, f := range s.frames {
+			if visible(f) {
+				add(f)
+			}
+		}
+		return marks
+	}
+
+	var matched []*frameEntity
+	from, to := world.ChunkPos{X: minX, Z: minZ}, world.ChunkPos{X: maxX, Z: maxZ}
+	for pos := range s.frameChunks.ChunksIn(from, to) {
+		for f := range s.frameChunks.In(pos) {
+			if visible(f) {
+				matched = append(matched, f)
+			}
+		}
+	}
+	// Marker order goes on the wire, and the first item with a decoration key wins.
+	slices.SortFunc(matched, func(a, b *frameEntity) int { return cmp.Compare(a.order, b.order) })
+	for _, f := range matched {
+		add(f)
+	}
+	return marks
+}
+
 // tickMaps sends map data for maps the client newly holds: its inventory
 // stacks plus every visible frame, the union of vanilla's two scans. A map
 // in hand is redrawn a stripe at a time and its markers move, so changes
@@ -138,19 +192,7 @@ func (c *client) tickMaps() {
 			}
 		}
 	})
-	marks := map[int32][]frameMark{}
-	c.srv.framesMu.Lock()
-	for _, f := range c.srv.frames {
-		// Item first: almost no frame holds a map, and frameSees is the costly test.
-		if !registry.Item(f.item.ItemID).IsMap() || f.w != w || !frameSees(f, pos.X, pos.Z, radius, int(c.srv.entityBroadcastRange.Load())) {
-			continue
-		}
-		if id, ok := filledMapID(f.item); ok {
-			c.srv.maps.AddItemDecorations(id, f.item.MapDecorations)
-			marks[id] = append(marks[id], frameMark{x: f.x, z: f.z, dir: f.dir})
-		}
-	}
-	c.srv.framesMu.Unlock()
+	marks := c.srv.mapFrameMarks(w, pos.X, pos.Z, radius)
 
 	seen := map[int32]bool{}
 	for _, id := range held {

@@ -589,7 +589,7 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 	s.blocks.Store(blocks)
 	s.ticking, s.emitting, s.listening, s.rods, s.catalysts, s.eggs, s.portals, s.pois = 0, 0, 0, 0, 0, 0, 0, 0
 	s.touches.Store(0)
-	s.colliding = 0
+	s.colliding, s.comparators = 0, 0
 	// Invalid indices read as air, which contributes to none of these tallies.
 	for pIdx, state := range stateIDs {
 		n := int(counts[pIdx])
@@ -617,13 +617,17 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 		if IsTurtleEgg(state) {
 			s.eggs += n
 		}
-		if registry.BlockOf(state) == registry.BlockNetherPortal {
+		block := registry.BlockOf(state)
+		switch block {
+		case registry.BlockNetherPortal:
 			s.portals += n
+		case registry.BlockComparator:
+			s.comparators += int32(n)
 		}
 		if registry.IsPOI(state) {
 			s.pois += n
 		}
-		if isTouchBlock[registry.BlockOf(state)] {
+		if isTouchBlock[block] {
 			s.touches.Add(int32(n))
 		}
 	}

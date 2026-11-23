@@ -17,29 +17,6 @@ func (w *World) LoadedTouchBlocks() int {
 	return w.touchBlocks
 }
 
-func (c *Chunk) touchBlockCount() int {
-	count := 0
-	for i := range c.sections {
-		count += int(c.sections[i].touches.Load())
-	}
-	return count
-}
-
-func (w *World) updateTouchBlockCount(y int32, old, state uint16) {
-	// Chunk.SetBlock ignores writes outside its height.
-	if !contains(y) {
-		return
-	}
-	before := isTouchBlock[registry.BlockOf(old)]
-	after := isTouchBlock[registry.BlockOf(state)]
-	switch {
-	case after && !before:
-		w.touchBlocks++
-	case before && !after:
-		w.touchBlocks--
-	}
-}
-
 // TouchBlocksIn reports whether a loaded section overlapping the inclusive
 // cell box contains a block the entity-inside touch pass reacts to.
 // Near-cache reads follow BlockAt: an unloading chunk reads as it left.

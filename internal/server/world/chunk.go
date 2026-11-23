@@ -246,6 +246,8 @@ type section struct {
 	pois    int
 	// touches is read through the near cache without the world lock.
 	touches atomic.Int32
+	// comparators is guarded by the world lock once the chunk is shared.
+	comparators int32
 }
 
 // newChunk returns an empty chunk at the chunk coordinates for a generator to
@@ -490,11 +492,18 @@ func (s *section) set(i int, state uint16, shared bool) {
 	if IsTurtleEgg(old) {
 		s.eggs--
 	}
-	if registry.BlockOf(state) == registry.BlockNetherPortal {
+	block, oldBlock := registry.BlockOf(state), registry.BlockOf(old)
+	switch block {
+	case registry.BlockNetherPortal:
 		s.portals++
+	case registry.BlockComparator:
+		s.comparators++
 	}
-	if registry.BlockOf(old) == registry.BlockNetherPortal {
+	switch oldBlock {
+	case registry.BlockNetherPortal:
 		s.portals--
+	case registry.BlockComparator:
+		s.comparators--
 	}
 	if registry.IsPOI(state) {
 		s.pois++
@@ -502,10 +511,10 @@ func (s *section) set(i int, state uint16, shared bool) {
 	if registry.IsPOI(old) {
 		s.pois--
 	}
-	if isTouchBlock[registry.BlockOf(state)] {
+	if isTouchBlock[block] {
 		s.touches.Add(1)
 	}
-	if isTouchBlock[registry.BlockOf(old)] {
+	if isTouchBlock[oldBlock] {
 		s.touches.Add(-1)
 	}
 }
@@ -524,7 +533,7 @@ func (s *section) recalcCounts() {
 	s.tickMask.Store(nil)
 	s.ticking, s.emitting, s.listening, s.rods, s.catalysts, s.eggs, s.portals, s.pois = 0, 0, 0, 0, 0, 0, 0, 0
 	s.touches.Store(0)
-	s.colliding = 0
+	s.colliding, s.comparators = 0, 0
 	blocks := s.blocks.Load()
 	if blocks == nil {
 		if randomlyTicking(s.fill) {
@@ -548,13 +557,17 @@ func (s *section) recalcCounts() {
 		if IsTurtleEgg(s.fill) {
 			s.eggs = blocksPerSection
 		}
-		if registry.BlockOf(s.fill) == registry.BlockNetherPortal {
+		block := registry.BlockOf(s.fill)
+		switch block {
+		case registry.BlockNetherPortal:
 			s.portals = blocksPerSection
+		case registry.BlockComparator:
+			s.comparators = blocksPerSection
 		}
 		if registry.IsPOI(s.fill) {
 			s.pois = blocksPerSection
 		}
-		if isTouchBlock[registry.BlockOf(s.fill)] {
+		if isTouchBlock[block] {
 			s.touches.Store(blocksPerSection)
 		}
 		return
@@ -582,13 +595,17 @@ func (s *section) recalcCounts() {
 		if IsTurtleEgg(state) {
 			s.eggs++
 		}
-		if registry.BlockOf(state) == registry.BlockNetherPortal {
+		block := registry.BlockOf(state)
+		switch block {
+		case registry.BlockNetherPortal:
 			s.portals++
+		case registry.BlockComparator:
+			s.comparators++
 		}
 		if registry.IsPOI(state) {
 			s.pois++
 		}
-		if isTouchBlock[registry.BlockOf(state)] {
+		if isTouchBlock[block] {
 			s.touches.Add(1)
 		}
 	}
@@ -654,6 +671,19 @@ func putBlockStates(b *protocol.Buffer, states *[blocksPerSection]uint16) {
 		b.PutVarInt(int32(len(palette)))
 		for _, state := range palette {
 			b.PutVarInt(int32(state))
+		}
+		if entryBits == 4 {
+			const entriesPerWord = 64 / 4
+			for i := 0; i < len(states); i += entriesPerWord {
+				group := states[i : i+entriesPerWord]
+				var word uint64
+				// Build backwards so the first cell occupies the low nibble.
+				for _, g := range slices.Backward(group) {
+					word = word<<4 | uint64(slots[g]-1)
+				}
+				b.PutI64(int64(word))
+			}
+			return
 		}
 		putPacked(b, entryBits, blocksPerSection, func(i int) uint64 { return uint64(slots[states[i]] - 1) })
 	default:

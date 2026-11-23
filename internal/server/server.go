@@ -673,6 +673,7 @@ type Server struct {
 	frames      []*frameEntity
 	frameChunks entity.ChunkIndex[*frameEntity]
 	frameCells  map[frameCell][]*frameEntity
+	frameOrder  uint64
 
 	// knotsMu guards knots, leash knots on fences. The main loop polls them
 	// under it; a lead used on a fence, a use on the knot or a blow adds,
@@ -848,6 +849,7 @@ func newServerWith(cfg *config.Config, seed int64, shared sharedNether, plugins 
 		timeSyncTicks:   defaultTimeSyncTicks,
 		lids:            make(map[lidRecheck]int32),
 		frameCells:      make(map[frameCell][]*frameEntity),
+		frameChunks:     entity.NewRegionalChunkIndex[*frameEntity](),
 		stopReq:         make(chan struct{}),
 		mgmtBound:       make(chan struct{}),
 		stopping:        make(chan struct{}),

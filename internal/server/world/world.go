@@ -125,8 +125,9 @@ type World struct {
 	mu      sync.RWMutex
 	chunks  map[ChunkPos]*loadedChunk
 	packets chunkPacketRetention
-	// touchBlocks is the total in w.chunks, guarded by mu.
-	touchBlocks int
+	// Block counts in w.chunks, guarded by mu.
+	touchBlocks      int
+	comparatorBlocks int
 	// tickingChunks holds the loaded chunks with a trial spawner or vault, so a
 	// tick without any walks nothing. Guarded by mu.
 	tickingChunks map[ChunkPos]struct{}
@@ -767,7 +768,9 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	w.queueGeneratedTicks(c)
 	w.queueLoadedTicks(c)
 	w.chunks[pos] = loaded
-	w.touchBlocks += c.touchBlockCount()
+	touches, comparators := c.redstoneBlockCounts()
+	w.touchBlocks += touches
+	w.comparatorBlocks += comparators
 	w.chunkSet.Add(1)
 	w.syncTickingChunk(pos, c)
 	// Shared before the slot is stored: from the store on, BlockAt may read
@@ -866,14 +869,7 @@ func (w *World) release(pos ChunkPos, done *sync.WaitGroup) {
 		return
 	}
 	if !loaded.dirty {
-		w.removeChunkBlockEntities(loaded.chunk)
-		w.dropChunkTicks(pos)
-		w.dropNear(pos, loaded)
-		delete(w.chunks, pos)
-		w.touchBlocks -= loaded.chunk.touchBlockCount()
-		w.chunkSet.Add(1)
-		delete(w.tickingChunks, pos)
-		w.chunkUnloaded(pos, loaded.chunk)
+		w.removeChunk(pos, loaded)
 		w.mu.Unlock()
 		w.forgetChunkPacket(loaded.chunk)
 		return
@@ -944,14 +940,7 @@ func (w *World) unloadSaved(pos ChunkPos, chunk *Chunk, gen uint64) {
 			return
 		}
 		if l.dirtyGen == gen {
-			w.removeChunkBlockEntities(l.chunk)
-			w.dropChunkTicks(pos)
-			w.dropNear(pos, l)
-			delete(w.chunks, pos)
-			w.touchBlocks -= chunk.touchBlockCount()
-			w.chunkSet.Add(1)
-			delete(w.tickingChunks, pos)
-			w.chunkUnloaded(pos, chunk)
+			w.removeChunk(pos, l)
 			w.mu.Unlock()
 			w.forgetChunkPacket(chunk)
 			return
@@ -960,6 +949,28 @@ func (w *World) unloadSaved(pos ChunkPos, chunk *Chunk, gen uint64) {
 		gen = l.dirtyGen
 		w.mu.Unlock()
 	}
+}
+
+// removeChunk drops a chunk from the loaded world. The caller holds mu.
+func (w *World) removeChunk(pos ChunkPos, loaded *loadedChunk) {
+	w.removeChunkBlockEntities(loaded.chunk)
+	w.dropChunkTicks(pos)
+	w.dropNear(pos, loaded)
+	delete(w.chunks, pos)
+	touches, comparators := loaded.chunk.redstoneBlockCounts()
+	w.touchBlocks -= touches
+	w.comparatorBlocks -= comparators
+	w.chunkSet.Add(1)
+	delete(w.tickingChunks, pos)
+	w.chunkUnloaded(pos, loaded.chunk)
+}
+
+func (c *Chunk) redstoneBlockCounts() (touches, comparators int) {
+	for i := range c.sections {
+		touches += int(c.sections[i].touches.Load())
+		comparators += int(c.sections[i].comparators)
+	}
+	return touches, comparators
 }
 
 // LoadedChunks is how many chunks are currently in memory and held by players.
@@ -1105,7 +1116,7 @@ func (w *World) SwapBlock(x, y, z int32, state uint16) (old uint16, changed bool
 		return old, false
 	}
 	loaded.chunk.SetBlock(x&15, y, z&15, state)
-	w.updateTouchBlockCount(y, old, state)
+	w.updateRedstoneBlockCounts(old, state)
 	if w.journaling {
 		w.journal = append(w.journal, journalEntry{x, y, z, old, state})
 	}
@@ -1225,7 +1236,7 @@ func (w *World) SetBlocks(changes []BlockChange) []BlockChange {
 			touched = append(touched, loaded)
 		}
 		loaded.chunk.SetBlock(ch.X&15, ch.Y, ch.Z&15, ch.State)
-		w.updateTouchBlockCount(ch.Y, old, ch.State)
+		w.updateRedstoneBlockCounts(old, ch.State)
 		if be := loaded.chunk.blockEntity(ch.X, ch.Y, ch.Z); be != nil {
 			be.Wake()
 		}
@@ -1237,6 +1248,26 @@ func (w *World) SetBlocks(changes []BlockChange) []BlockChange {
 		w.afterWrite(loaded)
 	}
 	return applied
+}
+
+func (w *World) updateRedstoneBlockCounts(old, state uint16) {
+	oldBlock, block := registry.BlockOf(old), registry.BlockOf(state)
+	if oldBlock == block {
+		return
+	}
+	before, after := isTouchBlock[oldBlock], isTouchBlock[block]
+	switch {
+	case after && !before:
+		w.touchBlocks++
+	case before && !after:
+		w.touchBlocks--
+	}
+	switch {
+	case block == registry.BlockComparator:
+		w.comparatorBlocks++
+	case oldBlock == registry.BlockComparator:
+		w.comparatorBlocks--
+	}
 }
 
 // Touch marks the block's chunk dirty without changing a block, vanilla's
@@ -1261,14 +1292,17 @@ func packPos(p posKey) uint64 {
 	return uint64(p[0]&0x3FFFFFF)<<38 | uint64(p[2]&0x3FFFFFF)<<12 | uint64(p[1]&0xFFF)
 }
 
-// takeContainerChanges returns and clears the moved containers, one entry each:
-// a hopper move can mark one several times, and its earliest tick is where the
-// comparator delay counts from.
+// takeContainerChanges drains the changes for loaded comparators, keeping the
+// earliest tick for each container as the start of its comparator delay.
 func (w *World) takeContainerChanges() []containerChange {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	changes := w.containerChanges
 	w.containerChanges, w.containerChangesSpare = w.containerChangesSpare[:0], changes
+	// Check at the drain: a comparator may have been placed since the touch.
+	if w.comparatorBlocks == 0 {
+		return nil
+	}
 	if len(changes) < 2 {
 		return changes
 	}

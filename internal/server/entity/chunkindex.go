@@ -59,8 +59,20 @@ func ChunkAt(x, z float64) world.ChunkPos {
 // ChunkIndex files bodies by chunk and UUID. The lock guarding the bodies'
 // list guards it. The zero value is ready to use.
 type ChunkIndex[T any] struct {
-	cells map[world.ChunkPos][]chunkEntry[T]
-	byID  map[uuid.UUID]*Filing
+	cells   map[world.ChunkPos][]chunkEntry[T]
+	byID    map[uuid.UUID]*Filing
+	regions map[world.ChunkPos]int // occupied chunks per region, when enabled
+}
+
+// NewRegionalChunkIndex allows rectangle queries to skip empty regions.
+func NewRegionalChunkIndex[T any]() ChunkIndex[T] {
+	return ChunkIndex[T]{regions: make(map[world.ChunkPos]int)}
+}
+
+const regionChunkShift = 5 // 32 chunks along each axis, the width of a region file
+
+func regionOf(pos world.ChunkPos) world.ChunkPos {
+	return world.ChunkPos{X: pos.X >> regionChunkShift, Z: pos.Z >> regionChunkShift}
 }
 
 type chunkEntry[T any] struct {
@@ -93,6 +105,9 @@ func (ix *ChunkIndex[T]) insert(body T, f *Filing, pos world.ChunkPos, id uuid.U
 
 func (ix *ChunkIndex[T]) place(body T, f *Filing, pos world.ChunkPos) {
 	cell := ix.cells[pos]
+	if ix.regions != nil && len(cell) == 0 {
+		ix.regions[regionOf(pos)]++
+	}
 	f.chunk, f.slot = pos, int32(len(cell))
 	ix.cells[pos] = append(cell, chunkEntry[T]{body, f})
 }
@@ -137,6 +152,14 @@ func (ix *ChunkIndex[T]) detach(f *Filing) T {
 	cell[last] = chunkEntry[T]{}
 	if last == 0 {
 		delete(ix.cells, f.chunk)
+		if ix.regions != nil {
+			region := regionOf(f.chunk)
+			if n := ix.regions[region]; n > 1 {
+				ix.regions[region] = n - 1
+			} else {
+				delete(ix.regions, region)
+			}
+		}
 	} else {
 		ix.cells[f.chunk] = cell[:last]
 	}
@@ -159,6 +182,30 @@ func (ix *ChunkIndex[T]) In(pos world.ChunkPos) iter.Seq[T] {
 		for _, e := range ix.cells[pos] {
 			if !yield(e.body) {
 				return
+			}
+		}
+	}
+}
+
+// ChunksIn yields chunks in the inclusive rectangle, skipping empty regions
+// when the index tracks them. The caller holds the index's lock.
+func (ix *ChunkIndex[T]) ChunksIn(from, to world.ChunkPos) iter.Seq[world.ChunkPos] {
+	return func(yield func(world.ChunkPos) bool) {
+		first, last := regionOf(from), regionOf(to)
+		for rx := first.X; rx <= last.X; rx++ {
+			for rz := first.Z; rz <= last.Z; rz++ {
+				if ix.regions != nil && ix.regions[world.ChunkPos{X: rx, Z: rz}] == 0 {
+					continue
+				}
+				x0, x1 := max(from.X, rx<<regionChunkShift), min(to.X, ((rx+1)<<regionChunkShift)-1)
+				z0, z1 := max(from.Z, rz<<regionChunkShift), min(to.Z, ((rz+1)<<regionChunkShift)-1)
+				for x := x0; x <= x1; x++ {
+					for z := z0; z <= z1; z++ {
+						if !yield(world.ChunkPos{X: x, Z: z}) {
+							return
+						}
+					}
+				}
 			}
 		}
 	}

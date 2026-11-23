@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// BenchmarkArrowFrameSweep ticks a hundred stuck arrows in a world holding
+// BenchmarkArrowFrameSweep ticks a hundred stuck arrows, their chunks entity-ticking, in a world holding
 // the frames given: the per-arrow sweep must not walk the world's whole
 // frame list, so the tick cost grows with the arrows, not the arrows times
 // the frames.
@@ -38,6 +38,8 @@ func BenchmarkArrowFrameSweep(b *testing.B) {
 			}
 			s.framesMu.Unlock()
 
+			var arrows []*arrowEntity
+			held := make(map[world.ChunkPos]bool)
 			// The arrows stand clear of every frame, so the fix's filter
 			// cuts each one's target list to nothing.
 			for i := range 100 {
@@ -45,6 +47,13 @@ func BenchmarkArrowFrameSweep(b *testing.B) {
 					false, entity.ArrowBaseDamage, entity.PickupDisallowed, 0, uuid.Nil,
 					protocol.ItemStack{}, 0)
 				it.arrow.InGround = true
+				it.arrow.LastState = w.BlockAt(int32(math.Floor(it.arrow.X)), world.GroundLevel+3, 100)
+				cp := world.ChunkPos{X: world.ChunkOf(it.arrow.X), Z: world.ChunkOf(it.arrow.Z)}
+				if !held[cp] {
+					held[cp] = true
+					defer w.HoldEntityTicking(cp)()
+				}
+				arrows = append(arrows, it)
 				// A stuck arrow counts its life to the discard; keep them
 				// out of reach so the arrows survive every iteration.
 				it.arrow.Life = -1 << 30
@@ -55,6 +64,12 @@ func BenchmarkArrowFrameSweep(b *testing.B) {
 			b.ResetTimer()
 			for range b.N {
 				s.tickArrows()
+			}
+			b.StopTimer()
+			for _, it := range arrows {
+				if !it.arrow.InGround || it.arrow.Life == -1<<30 {
+					b.Fatalf("arrow lodged=%v life=%d: not ticked as a lodged arrow", it.arrow.InGround, it.arrow.Life)
+				}
 			}
 		})
 	}
