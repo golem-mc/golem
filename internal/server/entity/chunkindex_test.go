@@ -86,6 +86,38 @@ func TestChunkIndexSwapFixup(t *testing.T) {
 	checkChunkIndexUUID(t, &ix, ids[2], ms[2])
 }
 
+func TestChunkIndexChunksInSkipsEmptyRegions(t *testing.T) {
+	ix := NewRegionalChunkIndex[*Mob]()
+	west, middle, east := world.ChunkPos{X: -1}, world.ChunkPos{}, world.ChunkPos{X: 1}
+	check := func(want ...world.ChunkPos) {
+		t.Helper()
+		if got := slices.Collect(ix.ChunksIn(west, east)); !slices.Equal(got, want) {
+			t.Errorf("chunks to probe = %v, want %v", got, want)
+		}
+	}
+	check()
+	m, other := &Mob{}, &Mob{}
+	ix.Add(m, &m.Filing, west, uuid.UUID{1})
+	ix.Add(other, &other.Filing, west, uuid.UUID{2})
+	check(west)
+	m.Refile(east)
+	check(west, middle, east)
+	other.Unfile()
+	check(middle, east)
+	m.Refile(world.ChunkPos{X: 32})
+	check()
+	otherChunk := world.ChunkPos{X: 33}
+	ix.Add(other, &other.Filing, otherChunk, uuid.UUID{2})
+	m.Unfile()
+	if got := slices.Collect(ix.ChunksIn(otherChunk, otherChunk)); !slices.Equal(got, []world.ChunkPos{otherChunk}) {
+		t.Errorf("chunks to probe after removing a neighboring chunk = %v, want %v", got, otherChunk)
+	}
+	other.Unfile()
+	if got := slices.Collect(ix.ChunksIn(otherChunk, otherChunk)); len(got) != 0 {
+		t.Errorf("chunks to probe after removing the last chunk = %v, want none", got)
+	}
+}
+
 func TestChunkIndexStructCopy(t *testing.T) {
 	var ix ChunkIndex[*Mob]
 	m := &Mob{}

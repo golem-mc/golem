@@ -1091,8 +1091,7 @@ const (
 // behind a fast walk.
 // vanilla: ChunkMap$TrackedEntity.getEffectiveRange, DedicatedServer.getScaledTrackingDistance
 func inTrackingRange(px, pz, ex, ez float64, rangeChunks, pct int, radius int32) bool {
-	// Integer division after the multiply, as vanilla's int arithmetic.
-	limit := min(int(radius)*16, pct*rangeChunks*16/100)
+	limit := trackingRangeBlocks(rangeChunks, pct, radius)
 	dx, dz := px-ex, pz-ez
 	if dx*dx+dz*dz > float64(limit*limit) {
 		return false
@@ -1100,6 +1099,11 @@ func inTrackingRange(px, pz, ex, ez float64, rangeChunks, pct int, radius int32)
 	entityChunk := world.ChunkPos{X: world.ChunkOf(ex), Z: world.ChunkOf(ez)}
 	playerChunk := world.ChunkPos{X: world.ChunkOf(px), Z: world.ChunkOf(pz)}
 	return world.InViewOf(entityChunk, playerChunk, radius)
+}
+
+func trackingRangeBlocks(rangeChunks, pct int, radius int32) int {
+	// Integer division after the multiply, as vanilla's int arithmetic.
+	return min(int(radius)*16, pct*rangeChunks*16/100)
 }
 
 // pairing is what shows one body to a client, vanilla
