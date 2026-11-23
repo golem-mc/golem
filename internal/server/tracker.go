@@ -412,16 +412,22 @@ func (m *movementSchedule) takeTeleport() moveTick {
 	return mt
 }
 
-// frozenStep counts one tick of a body that does not tick while frozen and,
-// when it is teleported, takes the ticks since the previous gated tick.
-// vanilla: SteppedInterpolationTracker
-func (m *movementSchedule) frozenStep(gated bool) int32 {
+// frozenStep keeps the cadence of a body that does not tick while frozen: a
+// gate resets the step clock even with nothing sent, and a teleport takes the
+// ticks since the previous gate or teleport.
+// vanilla: ServerEntity.sendChanges, SteppedInterpolationTracker
+func (m *movementSchedule) frozenStep(interval int, teleported bool) int32 {
+	gate := m.tickCount%interval == 0
+	m.tickCount++
 	m.sinceStep++
-	if !gated {
+	if !gate && !teleported {
 		return 0
 	}
 	n := m.sinceStep - 1
 	m.sinceStep = 1
+	if !teleported {
+		return 0
+	}
 	return n
 }
 

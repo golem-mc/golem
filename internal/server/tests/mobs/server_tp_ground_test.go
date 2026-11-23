@@ -92,7 +92,8 @@ func TestTeleportCommandKeepsFallFlyingMobOffGround(t *testing.T) {
 	}
 }
 
-// A /tp while ticking is frozen still reaches the client on a stepped path.
+// A /tp while ticking is frozen still reaches the client on a stepped path,
+// timed from the last movement gate: idle frozen gates keep resetting it.
 // vanilla: ServerEntity.sendChanges, SteppedInterpolationTracker
 func TestFrozenTeleportCommandSendsSteppedPath(t *testing.T) {
 	t.Parallel()
@@ -102,6 +103,7 @@ func TestFrozenTeleportCommandSendsSteppedPath(t *testing.T) {
 	id := srv.MobIDsOfKind("minecraft:magma_cube")[0]
 	servertest.RunTicks(t, srv, 1)
 	srv.RunLine(`tick freeze`)
+	servertest.RunTicks(t, srv, 12)
 	c.Settle()
 	srv.RunLine(`tp @e[type=magma_cube,limit=1] 0.5 101 0.5`)
 	var sync servertest.EntityPositionSync
@@ -112,7 +114,8 @@ func TestFrozenTeleportCommandSendsSteppedPath(t *testing.T) {
 		sync = servertest.ParseEntityPositionSync(data)
 		return sync.ID == id
 	})
-	if !seen || !sync.Stepped || sync.StepTicks < 1 || sync.Y != 101 {
-		t.Errorf("seen %v, sync = %+v, want stepped at y 101", seen, sync)
+	// A cube's update interval is 3 ticks. vanilla: EntityTypes.MAGMA_CUBE
+	if !seen || !sync.Stepped || sync.StepTicks < 1 || sync.StepTicks > 3 || sync.Y != 101 {
+		t.Errorf("seen %v, sync = %+v, want stepped at y 101 over 1-3 ticks", seen, sync)
 	}
 }

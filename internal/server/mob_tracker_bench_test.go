@@ -127,6 +127,45 @@ func BenchmarkFrozenMobTracking(b *testing.B) {
 	}
 }
 
+// hopTrackerBenchMobs moves every cow 10 blocks up or back down, too far for
+// a relative move, so the next movement tick tells it absolute.
+func hopTrackerBenchMobs(s *Server, i int) {
+	dim := s.allDims()[0]
+	y := float64(world.GroundLevel + 10*(i%2))
+	s.mobsMu.Lock()
+	for _, m := range dim.mobs.herd {
+		m.SetPos(m.X, y, m.Z)
+		dim.mobs.book[m].teleported = true
+	}
+	s.mobsMu.Unlock()
+}
+
+// BenchmarkTickMobsTeleported runs the mob tick over cows teleported every
+// tick, so each movement tick sends every watcher an absolute sync.
+func BenchmarkTickMobsTeleported(b *testing.B) {
+	s, _ := newTrackerBenchServer(b)
+	spawnTrackerBenchMobs(b, s)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		hopTrackerBenchMobs(s, i)
+		s.tickMobs()
+	}
+}
+
+// BenchmarkFrozenMobTeleports runs the frozen world's mob tracking pass over
+// cows teleported every tick, each told absolute to every watcher.
+func BenchmarkFrozenMobTeleports(b *testing.B) {
+	s, _ := newTrackerBenchServer(b)
+	spawnTrackerBenchMobs(b, s)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		hopTrackerBenchMobs(s, i)
+		s.tickMobTracking(s.trackingWatchers())
+	}
+}
+
 // BenchmarkTickCloudsTracked runs the whole cloud tick over clouds that
 // shrink every tick and never run out, every one watched by every player.
 func BenchmarkTickCloudsTracked(b *testing.B) {
