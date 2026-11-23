@@ -131,6 +131,7 @@ func TestUntrustedSlotRemovesComponents(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := ItemStack{ItemID: 1050, Count: 1, Unbreakable: true}
+	want.Remove(DataComponentDamage)
 	got, ok := NewReader(data).ReadUntrustedSlot()
 	if !ok || !got.Equal(want) {
 		t.Errorf("ReadUntrustedSlot = %+v (%v), want %+v", got, ok, want)

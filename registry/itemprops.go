@@ -634,3 +634,49 @@ func IsBundle(item int32) bool {
 	}
 	return false
 }
+
+// ItemLacksComponentDefault reports whether the item's prototype has no
+// value for a removable component, so a patch removal of it means nothing
+// and is dropped. A component without a per-item table here is assumed to
+// have a default: its removal is kept.
+// vanilla: PatchedDataComponentMap.set, fromPatch (a removal equal to an absent prototype value is dropped)
+func ItemLacksComponentDefault(item int32, component int32) bool {
+	props := propsOf(item)
+	switch component {
+	case protocol.DataComponentDamage:
+		return props.MaxDamage <= 0
+	case protocol.DataComponentTool:
+		return props.Tool == nil
+	case protocol.DataComponentFood:
+		return props.Food == nil
+	case protocol.DataComponentConsumable:
+		_, ok := ConsumableOf(item)
+		return !ok
+	case protocol.DataComponentWeapon:
+		return props.Weapon == nil
+	case protocol.DataComponentBlocksAttacks:
+		return props.BlocksAttacks == nil
+	case protocol.DataComponentGlider:
+		return !props.Glider
+	case protocol.DataComponentDeathProtection:
+		return props.DeathProtection == nil
+	case protocol.DataComponentAttackRange:
+		return props.AttackRange == nil
+	case protocol.DataComponentPiercingWeapon:
+		return props.PiercingWeapon == nil
+	case protocol.DataComponentKineticWeapon:
+		return props.KineticWeapon == nil
+	case protocol.DataComponentAttackAnimation:
+		return props.AttackAnimation == nil
+	case protocol.DataComponentEnchantable:
+		return props.Enchantable == 0
+	case protocol.DataComponentRepairable:
+		return props.Repairable == ""
+	case protocol.DataComponentMaxDamage:
+		return props.MaxDamage <= 0
+	case protocol.DataComponentEquippable:
+		_, ok := Item(item).Equippable()
+		return !ok
+	}
+	return false
+}

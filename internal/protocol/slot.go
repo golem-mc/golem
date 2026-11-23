@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math/bits"
 	"reflect"
 	"slices"
 
@@ -176,7 +175,7 @@ func (s ItemStack) Same(other ItemStack) bool {
 	if s.Damage != other.Damage || s.RepairCost != other.RepairCost ||
 		s.GlintOverride != other.GlintOverride || s.Unbreakable != other.Unbreakable ||
 		s.Intangible != other.Intangible || !slices.Equal(s.intangibleLoaded, other.intangibleLoaded) ||
-		s.Removed != other.Removed {
+		s.removals() != other.removals() {
 		return false
 	}
 	if s.CustomName == nil || other.CustomName == nil {
@@ -389,7 +388,7 @@ func (b *Buffer) PutComponentData(s ItemStack, component int32) {
 			components := componentsOf(entry)
 			entry.orderPatch(components)
 			b.PutVarInt(int32(len(components)))
-			b.PutVarInt(int32(bits.OnesCount64(uint64(entry.Removed))))
+			b.PutVarInt(entry.removedCount())
 			for _, component := range components {
 				b.PutVarInt(component)
 				b.PutComponentData(entry, component)
@@ -441,8 +440,9 @@ func componentsOf(s ItemStack) []int32 {
 func (b *Buffer) putRemovedComponents(s ItemStack) {
 	var buf [64]int32 // removable has at most 64 entries (Removed is a uint64)
 	types := buf[:0]
+	removed := s.removals()
 	for i, r := range removable {
-		if s.Removed&(1<<i) != 0 {
+		if removed&(1<<i) != 0 {
 			types = append(types, r.Type)
 		}
 	}
@@ -465,7 +465,7 @@ func (b *Buffer) PutSlot(s ItemStack) {
 	components := componentsOf(s)
 	s.orderPatch(components)
 	b.PutVarInt(int32(len(components)))
-	b.PutVarInt(int32(bits.OnesCount64(uint64(s.Removed))))
+	b.PutVarInt(s.removedCount())
 	for _, component := range components {
 		b.PutVarInt(component)
 		b.PutComponentData(s, component)
@@ -486,7 +486,7 @@ func (b *Buffer) PutUntrustedSlot(s ItemStack) {
 	components := componentsOf(s)
 	s.orderPatch(components)
 	b.PutVarInt(int32(len(components)))
-	b.PutVarInt(int32(bits.OnesCount64(uint64(s.Removed))))
+	b.PutVarInt(s.removedCount())
 	for _, component := range components {
 		var value Buffer
 		value.PutComponentData(s, component)
@@ -655,6 +655,7 @@ func readRemovedComponents(r *Reader, stack *ItemStack, remove int32) bool {
 		switch component {
 		case DataComponentDamage:
 			stack.Damage = 0
+			stack.Removed |= removalBit(component)
 		case DataComponentUnbreakable:
 			stack.Unbreakable = false
 		case DataComponentCustomName:

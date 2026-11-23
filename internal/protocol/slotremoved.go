@@ -1,5 +1,7 @@
 package protocol
 
+import "math/bits"
+
 // Removals is the set of item-default components a stack's patch removes,
 // one bit per entry of removable.
 type Removals uint64
@@ -11,6 +13,7 @@ var removable = [...]struct {
 	Type int32
 	Name string
 }{
+	{DataComponentDamage, "minecraft:damage"},
 	{DataComponentTool, "minecraft:tool"},
 	{DataComponentAttackRange, "minecraft:attack_range"},
 	{DataComponentEquippable, "minecraft:equippable"},
@@ -86,7 +89,21 @@ func (s ItemStack) RemovedNames() []string {
 // Removes reports whether the stack's patch removes component from its
 // item's defaults.
 func (s ItemStack) Removes(component int32) bool {
-	return s.Removed&removalBit(component) != 0
+	return s.removals()&removalBit(component) != 0
+}
+
+// removals is Removed as the patch carries it: a worn stack has a damage
+// value, which replaces a removal of it.
+func (s ItemStack) removals() Removals {
+	if s.Damage > 0 {
+		return s.Removed &^ removalBit(DataComponentDamage)
+	}
+	return s.Removed
+}
+
+// removedCount is the number of removals the patch writes.
+func (s ItemStack) removedCount() int32 {
+	return int32(bits.OnesCount64(uint64(s.removals())))
 }
 
 // Remove takes component away entirely, the removal rather than a return to

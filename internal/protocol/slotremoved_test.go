@@ -25,8 +25,8 @@ func TestRemovedComponentsAreWrittenInOrderAndReadBack(t *testing.T) {
 	if !ok || !got.Same(stack) {
 		t.Errorf("read back ok=%v removed=%b, want %b", ok, got.Removed, stack.Removed)
 	}
-	if stack.Remove(DataComponentDamage) || stack.Removes(DataComponentDamage) {
-		t.Error("a removal of minecraft:damage was kept")
+	if stack.Remove(DataComponentUnbreakable) {
+		t.Error("a removal of minecraft:unbreakable was kept")
 	}
 }
 

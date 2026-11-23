@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"math/bits"
 	"slices"
 )
 
@@ -68,7 +67,7 @@ func (b *Buffer) PutItemTemplate(item ItemStack) {
 	components := componentsOf(item)
 	item.orderPatch(components)
 	b.PutVarInt(int32(len(components)))
-	b.PutVarInt(int32(bits.OnesCount64(uint64(item.Removed))))
+	b.PutVarInt(item.removedCount())
 	for _, component := range components {
 		b.PutVarInt(component)
 		b.PutComponentData(item, component)

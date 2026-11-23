@@ -37,6 +37,7 @@ func (c *client) handleCreativeSlot(r *protocol.Reader) error {
 		return nil
 	}
 	if ok && !stack.Empty() {
+		dropRemovalsWithoutDefault(&stack)
 		// An unknown item would be saved and sent as equipment other clients cannot
 		// decode.
 		if _, known := registry.ItemName(stack.ItemID); !known || stack.ItemID == 0 {
@@ -233,4 +234,19 @@ func (c *client) sendHeldItem() error {
 	var selected int32
 	c.player.Inventory(func(inv *player.Inventory) { selected = inv.Selected })
 	return c.writePacket(protocol.IDPlayHeldItem, "set held item", player.HeldItem(selected))
+}
+
+// dropRemovalsWithoutDefault takes out the removals of components the
+// stack's item has no value for, as the decoded patch does in vanilla.
+// vanilla: PatchedDataComponentMap.fromPatch
+func dropRemovalsWithoutDefault(stack *protocol.ItemStack) {
+	if stack.Removed == 0 {
+		return
+	}
+	for _, name := range stack.RemovedNames() {
+		if component, ok := protocol.RemovableType(name); ok &&
+			registry.ItemLacksComponentDefault(stack.ItemID, component) {
+			stack.ResetComponent(component)
+		}
+	}
 }
