@@ -508,9 +508,11 @@ type mobXpDrop struct {
 // outside the mob lock, so the killer named in a death message is the one
 // read under it.
 type mobStrike struct {
-	w             *world.World
-	mob           *entity.Mob
-	uuid          uuid.UUID
+	w    *world.World
+	mob  *entity.Mob
+	uuid uuid.UUID
+	// uuidText is the attacker's scoreboard member name.
+	uuidText      string
 	victimID      int32
 	damage        float64
 	x, y, z       float64
@@ -1305,7 +1307,7 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 		}
 	}
 	// vanilla: Entity.doTeamsAllowDamage
-	if victim != nil && strike.teamGated() && !s.scoreboard.CanHarm(victim.player.Name, strike.uuid.String()) {
+	if victim != nil && strike.teamGated() && !s.scoreboard.CanHarm(victim.player.Name, strike.uuidText) {
 		return
 	}
 	if strike.sonic != nil {
@@ -1492,7 +1494,7 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 	refused := false
 	if strike.teamGated() {
 		ent = h.book[victim]
-		refused = ent != nil && !s.scoreboard.CanHarm(ent.uuid.String(), strike.uuid.String())
+		refused = ent != nil && !s.scoreboard.CanHarm(ent.uuidText, strike.uuidText)
 	}
 	if strike.dragonContact {
 		if strike.contactPush != [3]float64{} {

@@ -71,13 +71,13 @@ func BenchmarkMobContactStrike(b *testing.B) {
 				s.RunLine("team modify t friendlyFire " + strconv.FormatBool(!refused))
 				s.RunLine("team join t " + slime.uuid.String())
 				member := player0.player.Name
-				strike := mobStrike{w: s.world, mob: slime.mob, uuid: slime.uuid, damage: 2, x: 2, y: 64,
+				strike := mobStrike{w: s.world, mob: slime.mob, uuid: slime.uuid, uuidText: slime.uuidText, damage: 2, x: 2, y: 64,
 					touch: true, killer: &rules.Killer{}}
 				if victimKind == "player" {
 					strike.victimID = player0.player.EntityID
 				} else {
 					strike.victimID = cow.mob.ID
-					member = cow.uuid.String()
+					member = cow.uuidText
 				}
 				s.RunLine("team join t " + member)
 				b.ReportAllocs()
