@@ -37,6 +37,7 @@ func (c *client) handleCreativeSlot(r *protocol.Reader) error {
 		return nil
 	}
 	if ok && !stack.Empty() {
+		registry.DropRemovalsWithoutDefault(&stack)
 		// An unknown item would be saved and sent as equipment other clients cannot
 		// decode.
 		if _, known := registry.ItemName(stack.ItemID); !known || stack.ItemID == 0 {

@@ -13,6 +13,20 @@ func ComponentID(name string) (int32, bool) {
 	return id, ok
 }
 
+// DropRemovalsWithoutDefault takes out the stack's removals of components its
+// item prototype lacks, as a decoded patch does.
+// vanilla: PatchedDataComponentMap.fromPatch
+func DropRemovalsWithoutDefault(stack *protocol.ItemStack) {
+	if stack.Removed == (protocol.Removals{}) {
+		return
+	}
+	for _, name := range stack.RemovedNames() {
+		if id, ok := ComponentID(name); ok && !ItemHasComponentDefault(stack.ItemID, name) {
+			stack.ResetComponent(id)
+		}
+	}
+}
+
 // componentNames indexes ItemComponentIDs by ID once.
 var componentNames = func() map[int32]string {
 	names := make(map[int32]string, len(ItemComponentIDs))
