@@ -127,38 +127,55 @@ func TestFrozenTeleportCommandSendsSteppedPath(t *testing.T) {
 	}
 }
 
-// vanilla: MagmaCube.jumpFromGround, ServerEntity.sendChanges
-func TestMagmaCubeTakeoffMovement(t *testing.T) {
+// vanilla: AbstractCubeMob.jumpFromGround, MagmaCube.jumpFromGround, ServerEntity.sendChanges
+func TestCubeTakeoffMovement(t *testing.T) {
 	t.Parallel()
-	srv, c := servertest.Join(t, tpGroundConfig(), "Watcher")
-	servertest.HoldTicks(t, srv)
-	srv.RunLine(`gamemode creative Watcher`)
-	srv.RunLine(`fill -3 200 -3 3 200 3 stone`)
-	srv.RunLine(`tp Watcher 0.5 201 3.5`)
-	// Pair the cube as it lands on the first tracking tick, so its first
-	// AI hop falls between the three-tick movement gates.
-	srv.RunLine(`summon magma_cube 0.5 201.05 0.5 {Size:1,OnGround:0b,Motion:[0d,-0.1d,0d]}`)
-	id := srv.MobIDsOfKind("minecraft:magma_cube")[0]
-	servertest.RunTicks(t, srv, 1)
-	var sync servertest.EntityPositionSync
-	readSync := func(pid int32, data []byte) bool {
-		if pid != protocol.IDPlayTeleportEntity {
-			return false
-		}
-		sync = servertest.ParseEntityPositionSync(data)
-		return sync.ID == id
-	}
-	if !c.ReadTicks(srv, 0, readSync) || !sync.OnGround || sync.Y != 201 {
-		t.Fatalf("first movement sync = %+v, want grounded at y 201", sync)
-	}
+	for _, tc := range []struct {
+		kind string
+		rise float64
+	}{
+		{"slime", 0.42},
+		{"sulfur_cube", 0.42},
+		{"magma_cube", 0.62},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			t.Parallel()
+			srv, c := servertest.Join(t, tpGroundConfig(), "Watcher")
+			servertest.HoldTicks(t, srv)
+			srv.RunLine(`gamemode creative Watcher`)
+			srv.RunLine(`fill -3 200 -3 3 200 3 stone`)
+			srv.RunLine(`tp Watcher 0.5 201 3.5`)
+			// Land on the first tracking tick so the first hop falls
+			// between the three-tick movement gates.
+			srv.RunLine(fmt.Sprintf(`summon %s 0.5 201.05 0.5 {Size:1,OnGround:0b,Motion:[0d,-0.1d,0d]}`, tc.kind))
+			ids := srv.MobIDsOfKind("minecraft:" + tc.kind)
+			if len(ids) != 1 {
+				t.Fatalf("summoned cubes = %v, want one", ids)
+			}
+			id := ids[0]
+			servertest.RunTicks(t, srv, 1)
+			var sync servertest.EntityPositionSync
+			readSync := func(pid int32, data []byte) bool {
+				if pid != protocol.IDPlayTeleportEntity {
+					return false
+				}
+				sync = servertest.ParseEntityPositionSync(data)
+				return sync.ID == id
+			}
+			if !c.ReadTicks(srv, 0, readSync) || !sync.OnGround || sync.Y != 201 {
+				t.Fatalf("first movement sync = %+v, want grounded at y 201", sync)
+			}
 
-	seen := c.ReadTicks(srv, 1, readSync)
-	_, y, _, ok := srv.MobPos(id)
-	if !ok || y < 201.619 || y > 201.621 || srv.MobOnGround(id) {
-		t.Fatalf("cube did not take off on its second tick (y = %g)", y)
-	}
-	if !seen || sync.OnGround || sync.Y != y {
-		t.Errorf("takeoff sync seen = %v, sync = %+v, want airborne at y %g on the takeoff tick", seen, sync, y)
+			seen := c.ReadTicks(srv, 1, readSync)
+			x, y, z, ok := srv.MobPos(id)
+			wantY := 201 + tc.rise
+			if !ok || y < wantY-0.001 || y > wantY+0.001 || srv.MobOnGround(id) {
+				t.Fatalf("cube on its second tick: y = %g, want airborne at y %g", y, wantY)
+			}
+			if !seen || sync.OnGround || sync.X != x || sync.Y != y || sync.Z != z {
+				t.Errorf("takeoff sync seen = %v, sync = %+v, want airborne at (%g, %g, %g) on the takeoff tick", seen, sync, x, y, z)
+			}
+		})
 	}
 }
 
