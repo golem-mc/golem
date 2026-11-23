@@ -189,7 +189,7 @@ func ParseBannerPatterns(tag nbt.Tag) ([]protocol.BannerPatternLayer, string) {
 	for _, item := range list.Items {
 		layer, msg := bannerPatternLayerTagMalformed(nbt.ListElement(item), patterns)
 		if msg != "" {
-			refusal = joinFieldErrors(msg, refusal)
+			refusal = JoinFieldErrors(msg, refusal)
 			continue
 		}
 		layers = append(layers, layer)
@@ -210,7 +210,7 @@ func bannerPatternLayerTagMalformed(tag nbt.Tag, patterns Registry) (protocol.Ba
 	colorRefusal, dye := bannerDyeTagMalformed(fields)
 	patternRefusal, layer := bannerPatternTagMalformed(fields, patterns)
 	layer.Dye = dye
-	return layer, joinFieldErrors(colorRefusal, patternRefusal)
+	return layer, JoinFieldErrors(colorRefusal, patternRefusal)
 }
 
 // bannerDyeTagMalformed returns -1 when the dye name does not decode.
@@ -260,7 +260,7 @@ func bannerInlinePatternTagMalformed(tag nbt.Tag, layer protocol.BannerPatternLa
 	}
 	keyRefusal, translationKey := bannerTranslationKeyTagMalformed(fields)
 	assetRefusal, asset := bannerAssetTagMalformed(fields)
-	if msg := joinFieldErrors(keyRefusal, assetRefusal); msg != "" {
+	if msg := JoinFieldErrors(keyRefusal, assetRefusal); msg != "" {
 		return msg, layer
 	}
 	layer.AssetID = asset
@@ -338,7 +338,7 @@ func textComponentDiagnostic(tag nbt.Tag) (string, bool) {
 		if value, present := fields["extra"]; present {
 			extra, _ = textComponentListDiagnostic(value)
 		}
-		msg := joinFieldErrors(textStyleMalformed(fields), extra, content)
+		msg := JoinFieldErrors(textStyleMalformed(fields), extra, content)
 		if partial {
 			return msg, true
 		}
@@ -364,13 +364,13 @@ func codecListDiagnostic(tag nbt.Tag, read func(nbt.Tag) (string, bool), nonempt
 	msg, count := "", 0
 	for _, item := range items {
 		child, partial := read(nbt.ListElement(item))
-		msg = joinFieldErrors(child, msg)
+		msg = JoinFieldErrors(child, msg)
 		if partial {
 			count++
 		}
 	}
 	if nonempty && count == 0 {
-		msg = joinFieldErrors(msg, "List must have contents")
+		msg = JoinFieldErrors(msg, "List must have contents")
 	}
 	return msg, !nonempty || count > 0
 }
@@ -442,7 +442,7 @@ func textStyleMalformed(fields nbt.Compound) string {
 				field = hoverEventMalformed(event)
 			}
 		}
-		msg = joinFieldErrors(field, msg)
+		msg = JoinFieldErrors(field, msg)
 	}
 	return msg
 }
@@ -512,13 +512,13 @@ func shadowColorMalformed(tag nbt.Tag) string {
 	}
 	for _, item := range items {
 		if msg := textNumberMalformed(item); msg != "" {
-			listError = joinFieldErrors(msg, listError)
+			listError = JoinFieldErrors(msg, listError)
 		} else {
 			count++
 		}
 	}
 	if count != 4 {
-		listError = joinFieldErrors(listError, "Input is not a list of 4 elements")
+		listError = JoinFieldErrors(listError, "Input is not a list of 4 elements")
 	}
 	if listError == "" {
 		return ""
@@ -620,7 +620,7 @@ func hoverEventMalformed(fields nbt.Compound) string {
 		if name, present := fields["name"]; present {
 			msg = TextComponentMalformed(name)
 		}
-		return joinFieldErrors(msg,
+		return JoinFieldErrors(msg,
 			textFieldMalformed(fields, "uuid", textUUIDMalformed),
 			textFieldMalformed(fields, "id", func(tag nbt.Tag) string {
 				return textRegistryMalformed(tag, "minecraft:entity_type", func(n string) bool { _, ok := EntityTypeID(n); return ok })
@@ -641,7 +641,7 @@ func itemTemplateMapDiagnostic(fields nbt.Compound) (string, bool) {
 	if patch, present := fields["components"]; present {
 		msg = textPatchMalformed(patch)
 	}
-	return joinFieldErrors(msg, optionalRange(fields, "count", 1, 99), required), required == ""
+	return JoinFieldErrors(msg, optionalRange(fields, "count", 1, 99), required), required == ""
 }
 
 // vanilla: ItemStackTemplate.CODEC
@@ -706,10 +706,10 @@ func textPatchMalformed(tag nbt.Tag) string {
 		switch {
 		case !ItemComponents[name]:
 			failure = "No component with type: '" + name + "'"
-			failure = joinFieldErrors(failure, failure)
+			failure = JoinFieldErrors(failure, failure)
 		case TransientItemComponents[name]:
 			failure = "'" + name + "' is not a persistent component"
-			failure = joinFieldErrors(failure, failure)
+			failure = JoinFieldErrors(failure, failure)
 		case strings.HasPrefix(key, "!"):
 			if _, ok := nbt.CompoundView(value); !ok {
 				failure = "Not a map: " + nbt.Stringify(value)
@@ -717,7 +717,7 @@ func textPatchMalformed(tag nbt.Tag) string {
 		default:
 			failure = ComponentValueMalformed(name, value)
 		}
-		msg = joinFieldErrors(failure, msg)
+		msg = JoinFieldErrors(failure, msg)
 	}
 	if msg != "" {
 		msg += " missed input: " + nbt.Stringify(tag)

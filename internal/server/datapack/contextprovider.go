@@ -28,8 +28,16 @@ func init() {
 	}
 }
 
+// partialMark prefixes an error whose codec result is partial (a list element
+// failed): Codec.either forwards that error unwrapped.
+// vanilla: EitherCodec.decode, ListCodec.decode
+const partialMark = "\x00"
+
 // eitherNumberOr wraps the typed branch's error of Codec.either(number, typed).
 func eitherNumberOr(msg string) string {
+	if rest, ok := strings.CutPrefix(msg, partialMark); ok {
+		return rest
+	}
 	return "Failed to parse either. First: Not a number; Second: " + msg
 }
 
@@ -120,16 +128,10 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 		return nested(t)
 	}
 	conditional = func(c nbt.Compound) (registry.LootNumber, string) {
-		test, msg := condField(c)
-		if msg != "" {
-			return nil, msg
-		}
-		onTrue, msg := required(c, "on_true")
-		if msg != "" {
-			return nil, msg
-		}
-		onFalse, msg := optional(c, "on_false")
-		if msg != "" {
+		test, testMsg := condField(c)
+		onTrue, onTrueMsg := required(c, "on_true")
+		onFalse, onFalseMsg := optional(c, "on_false")
+		if msg := registry.JoinFieldErrors(onFalseMsg, onTrueMsg, testMsg); msg != "" {
 			return nil, msg
 		}
 		return registry.LootConditional{Condition: test, OnTrue: onTrue, OnFalse: onFalse}, ""
@@ -147,15 +149,12 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 		for _, e := range items {
 			cc, ok := nbt.ListElement(e).(nbt.Compound)
 			if !ok {
-				return nil, "Not a map: " + nbt.Stringify(e)
+				return nil, partialMark + "Not a map: " + nbt.Stringify(e)
 			}
-			test, msg := condField(cc)
-			if msg != "" {
-				return nil, msg
-			}
-			v, msg := required(cc, "value")
-			if msg != "" {
-				return nil, msg
+			test, testMsg := condField(cc)
+			v, valueMsg := required(cc, "value")
+			if msg := registry.JoinFieldErrors(valueMsg, testMsg); msg != "" {
+				return nil, partialMark + msg
 			}
 			cases = append(cases, registry.LootDispatchCase{Condition: test, Value: v})
 		}
@@ -292,12 +291,9 @@ func unary(nested func(nbt.Compound, string) (registry.LootNumber, string), op s
 
 func binary(nested func(nbt.Compound, string) (registry.LootNumber, string), op, leftKey, rightKey string) func(nbt.Compound) (registry.LootNumber, string) {
 	return func(c nbt.Compound) (registry.LootNumber, string) {
-		l, msg := nested(c, leftKey)
-		if msg != "" {
-			return nil, msg
-		}
-		r, msg := nested(c, rightKey)
-		if msg != "" {
+		l, lMsg := nested(c, leftKey)
+		r, rMsg := nested(c, rightKey)
+		if msg := registry.JoinFieldErrors(rMsg, lMsg); msg != "" {
 			return nil, msg
 		}
 		return registry.LootBinary{Op: op, Left: l, Right: r}, ""
@@ -439,20 +435,17 @@ func fallbackOf(c nbt.Compound, nested func(nbt.Tag) (registry.LootNumber, strin
 // vanilla: StoredNumberAccess
 func storage(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt.Compound) (registry.LootNumber, string) {
 	return func(c nbt.Compound) (registry.LootNumber, string) {
-		id, msg := identifierField(c, "storage")
-		if msg != "" {
-			return nil, msg
+		id, idMsg := identifierField(c, "storage")
+		var path nbt.String
+		pathTag, pathMsg := fieldOf(c, "path")
+		if pathMsg == "" {
+			var ok bool
+			if path, ok = pathTag.(nbt.String); !ok {
+				pathMsg = "Not a string: " + nbt.Stringify(pathTag)
+			}
 		}
-		pathTag, msg := fieldOf(c, "path")
-		if msg != "" {
-			return nil, msg
-		}
-		path, ok := pathTag.(nbt.String)
-		if !ok {
-			return nil, "Not a string: " + nbt.Stringify(pathTag)
-		}
-		fallback, msg := fallbackOf(c, nested)
-		if msg != "" {
+		fallback, fallbackMsg := fallbackOf(c, nested)
+		if msg := registry.JoinFieldErrors(fallbackMsg, pathMsg, idMsg); msg != "" {
 			return nil, msg
 		}
 		return registry.LootStorage{Storage: id, Path: string(path), Fallback: fallback}, ""
@@ -516,23 +509,17 @@ func init() {
 			return registry.LootConstant{Value: float64(v)}, ""
 		},
 		"uniform": func(c nbt.Compound) (registry.LootNumber, string) {
-			lo, msg := nestedInt(c, "min")
-			if msg != "" {
-				return nil, msg
-			}
-			hi, msg := nestedInt(c, "max")
-			if msg != "" {
+			lo, loMsg := nestedInt(c, "min")
+			hi, hiMsg := nestedInt(c, "max")
+			if msg := registry.JoinFieldErrors(hiMsg, loMsg); msg != "" {
 				return nil, msg
 			}
 			return registry.LootUniform{Min: lo, Max: hi}, ""
 		},
 		"binomial": func(c nbt.Compound) (registry.LootNumber, string) {
-			n, msg := nestedInt(c, "n")
-			if msg != "" {
-				return nil, msg
-			}
-			p, msg := nestedFloat(c, "p")
-			if msg != "" {
+			n, nMsg := nestedInt(c, "n")
+			p, pMsg := nestedFloat(c, "p")
+			if msg := registry.JoinFieldErrors(pMsg, nMsg); msg != "" {
 				return nil, msg
 			}
 			return registry.LootBinomial{N: n, P: p}, ""
@@ -546,24 +533,22 @@ func init() {
 		},
 		"weighted_list": weightedChoice(nestedIntTag),
 		"score": func(c nbt.Compound) (registry.LootNumber, string) {
-			holderTag, msg := fieldOf(c, "target")
-			if msg != "" {
-				return nil, msg
-			}
 			var out registry.LootScore
-			if msg := scoreHolder(holderTag, &out); msg != "" {
-				return nil, msg
+			holderTag, holderMsg := fieldOf(c, "target")
+			if holderMsg == "" {
+				holderMsg = scoreHolder(holderTag, &out)
 			}
-			objTag, msg := fieldOf(c, "score")
-			if msg != "" {
-				return nil, msg
+			var objMsg string
+			if objTag, msg := fieldOf(c, "score"); msg != "" {
+				objMsg = msg
+			} else if obj, ok := objTag.(nbt.String); ok {
+				out.Objective = string(obj)
+			} else {
+				objMsg = "Not a string: " + nbt.Stringify(objTag)
 			}
-			obj, ok := objTag.(nbt.String)
-			if !ok {
-				return nil, "Not a string: " + nbt.Stringify(objTag)
-			}
-			out.Objective = string(obj)
-			if out.Fallback, msg = fallbackOf(c, nestedIntTag); msg != "" {
+			var fallbackMsg string
+			out.Fallback, fallbackMsg = fallbackOf(c, nestedIntTag)
+			if msg := registry.JoinFieldErrors(fallbackMsg, objMsg, holderMsg); msg != "" {
 				return nil, msg
 			}
 			return out, ""
@@ -631,12 +616,9 @@ func init() {
 			return registry.LootConstant{Value: float64(v)}, ""
 		},
 		"uniform": func(c nbt.Compound) (registry.LootNumber, string) {
-			lo, msg := nestedFloat(c, "min")
-			if msg != "" {
-				return nil, msg
-			}
-			hi, msg := nestedFloat(c, "max")
-			if msg != "" {
+			lo, loMsg := nestedFloat(c, "min")
+			hi, hiMsg := nestedFloat(c, "max")
+			if msg := registry.JoinFieldErrors(hiMsg, loMsg); msg != "" {
 				return nil, msg
 			}
 			return registry.LootUniform{Min: lo, Max: hi}, ""
