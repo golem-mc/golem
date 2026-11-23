@@ -44,6 +44,10 @@ func TestAHopperBelowAFullComposterDrainsIt(t *testing.T) {
 		t.Fatalf("the composter carries a block entity: %+v", got)
 	}
 	srv.StopTick()
+
+	// Two ticks over the empty composter cache the failed pull and exercise
+	// its skip; the level rising must wake the hopper on the next tick.
+	servertest.TickBlockEntitiesByHand(srv, 2)
 	srv.SetLoadedBlock(4, 64, 0, composterLevel(t, "8"))
 
 	// The composter's one bone meal drains, and its level falls to none.

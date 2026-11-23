@@ -161,8 +161,11 @@ func TestAHopperSeesADoubleChestWhole(t *testing.T) {
 	if name, _ := servertest.StatePropsOf(t, srv, 5, 63, 0); name != "minecraft:hopper" {
 		t.Fatalf("the lower hopper stands as %s, want a hopper", name)
 	}
-	srv.StopTick()
+	servertest.HoldTicks(t, srv)
 
+	// Two ticks over the empty pair cache the lower hopper's failed pull and
+	// exercise its skip; filling a half must wake it on the next tick.
+	servertest.TickBlockEntitiesByHand(srv, 2)
 	stick := servertest.ItemStack(t, "minecraft:stick", 1)
 	if !srv.SetInventoryAt(4, 64, 0, 0, stick) {
 		t.Fatal("the left half has no block entity to fill")

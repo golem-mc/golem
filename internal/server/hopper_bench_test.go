@@ -128,6 +128,54 @@ func BenchmarkChainedHoppersWithChests(b *testing.B) {
 	}
 }
 
+// BenchmarkHopperCachedFailedPull measures a tick of an enabled, empty hopper whose pull
+// from an unchanged empty container above already failed once.
+func BenchmarkHopperCachedFailedPull(b *testing.B) {
+	hopper := registry.MustState("minecraft:hopper", map[string]string{"facing": "down", "enabled": "true"})
+	chest := func(typ string) uint16 {
+		return registry.MustState("minecraft:chest", map[string]string{"facing": "north", "type": typ})
+	}
+	cases := []struct {
+		name  string
+		build func(w *world.World)
+		pair  bool
+	}{
+		{"single_chest", func(w *world.World) {
+			w.SetBlock(1, 65, 1, chest("single"))
+			w.EnsureBlockEntity(1, 65, 1, world.KindChest)
+		}, false},
+		{"double_chest", func(w *world.World) {
+			w.SetBlock(1, 65, 1, chest("left"))
+			w.SetBlock(2, 65, 1, chest("right"))
+			w.EnsureBlockEntity(1, 65, 1, world.KindChest)
+			w.EnsureBlockEntity(2, 65, 1, world.KindChest)
+		}, true},
+		{"composter", func(w *world.World) {
+			w.SetBlock(1, 65, 1, registry.MustState("minecraft:composter", map[string]string{"level": "0"}))
+		}, false},
+	}
+	for _, c := range cases {
+		b.Run(c.name, func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 1)
+			w.SetBlock(1, 64, 1, hopper)
+			be := w.EnsureBlockEntity(1, 64, 1, world.KindHopper)
+			c.build(w)
+			w.FlushLighting()
+			age := int64(0)
+			s.tickHopper(w, be, age)
+			if c.pair && be.HopperTargets.Pull.Entities[1] == nil {
+				b.Fatal("double chest did not resolve")
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				age++
+				s.tickHopper(w, be, age)
+			}
+		})
+	}
+}
+
 // BenchmarkHopperItemBox measures hopper item-box queries with N unrelated
 // items in distant chunks.
 func BenchmarkHopperItemBox(b *testing.B) {
