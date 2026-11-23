@@ -72,14 +72,14 @@ func (w *World) ReplaceCarried(x, y, z int32, tag nbt.Compound) bool {
 	if !ok {
 		return false
 	}
-	old, found := loaded.chunk.carriedBlockEntityAt(x, y, z)
+	old, found := loaded.chunk.carriedTagAt(x, y, z)
 	if !found {
 		return false
 	}
 	entry := make(nbt.Compound, len(tag))
 	maps.Copy(entry, tag)
-	entry["id"], entry["x"], entry["y"], entry["z"] = old["id"], nbt.Int(x), nbt.Int(y), nbt.Int(z)
-	loaded.chunk.setCarriedBlockEntity(entry)
+	entry["id"], entry["x"], entry["y"], entry["z"] = old.Entries()["id"], nbt.Int(x), nbt.Int(y), nbt.Int(z)
+	loaded.chunk.setCarriedBlockEntity(keepCarriedOrder(old, entry))
 	w.syncTickingChunk(pos, loaded.chunk)
 	loaded.markDirty()
 	return true
@@ -97,13 +97,13 @@ func (w *World) SetCarriedField(x, y, z int32, key string, value nbt.Tag) bool {
 	if !ok {
 		return false
 	}
-	old, found := loaded.chunk.carriedBlockEntityAt(x, y, z)
+	old, found := loaded.chunk.carriedTagAt(x, y, z)
 	if !found {
 		return false
 	}
-	entry := maps.Clone(old)
+	entry := maps.Clone(old.Entries())
 	entry[key] = value
-	loaded.chunk.setCarriedBlockEntity(entry)
+	loaded.chunk.setCarriedBlockEntity(keepCarriedOrder(old, entry))
 	w.syncTickingChunk(pos, loaded.chunk)
 	loaded.markDirty()
 	return true

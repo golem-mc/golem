@@ -1,7 +1,6 @@
 package world
 
 import (
-	"maps"
 	"slices"
 
 	"github.com/golem-mc/golem/nbt"
@@ -12,20 +11,21 @@ import (
 // its codecs do to a command's tag: read normalises the values the way its
 // loadAdditional reads them and writes the fields saveAdditional always writes;
 // fields is the order saveAdditional writes them in, which a compound keeps for
-// the ties of its display order.
+// the ties of its display order; save, when set, writes them itself, in order.
 // vanilla: BlockEntity.loadWithComponents, BlockEntity.saveWithFullMetadata
 type carriedKind struct {
 	fields []string
 	read   func(nbt.Compound)
+	save   func(e nbt.Compound, set func(string, nbt.Tag))
 }
 
 var carriedKinds = map[string]carriedKind{
-	"minecraft:banner": {[]string{"patterns", "CustomName"}, func(e nbt.Compound) {
-		mapListEntries(e, "patterns", func(layer nbt.CompoundTag) {
-			qualifyString(layer, "pattern")
-		})
+	"minecraft:banner": {fields: []string{"patterns", "CustomName"}, read: func(e nbt.Compound) {
+		if layers, ok := bannerPatternsFromTag(e); ok {
+			e["patterns"] = registry.BannerPatternsTag(layers)
+		}
 	}},
-	"minecraft:skull": {[]string{"profile", "note_block_sound", "custom_name"}, func(e nbt.Compound) {
+	"minecraft:skull": {fields: []string{"profile", "note_block_sound", "custom_name"}, read: func(e nbt.Compound) {
 		// A name string is ResolvableProfile.CODEC's compact form.
 		if name, ok := nbt.Get[nbt.String](e, "profile"); ok {
 			if registry.ProfileComponentMalformed(name) == "" {
@@ -35,13 +35,10 @@ var carriedKinds = map[string]carriedKind{
 			}
 		}
 	}},
-	"minecraft:structure_block": {[]string{
-		"name", "author", "metadata", "posX", "posY", "posZ", "sizeX", "sizeY", "sizeZ", "rotation", "mirror",
-		"mode", "ignoreEntities", "strict", "powered", "showair", "showboundingbox", "integrity", "seed",
-	}, func(e nbt.Compound) {
-		maps.Copy(e, ParseStructureBlock(e).Compound())
+	"minecraft:structure_block": {save: func(e nbt.Compound, set func(string, nbt.Tag)) {
+		ParseStructureBlock(e).save(set)
 	}},
-	"minecraft:test_block": {[]string{"mode", "message", "powered"}, func(e nbt.Compound) {
+	"minecraft:test_block": {fields: []string{"mode", "message", "powered"}, read: func(e nbt.Compound) {
 		// vanilla: TestBlockMode.CODEC, getStringOr, getBooleanOr
 		mode, _ := nbt.Get[nbt.String](e, "mode")
 		if !slices.Contains(testBlockModes, string(mode)) {
@@ -54,11 +51,11 @@ var carriedKinds = map[string]carriedKind{
 		}
 		e["mode"], e["message"], e["powered"] = mode, message, powered
 	}},
-	"minecraft:trial_spawner": {[]string{
+	"minecraft:trial_spawner": {fields: []string{
 		"registered_players", "current_mobs", "cooldown_ends_at", "next_mob_spawns_at", "total_mobs_spawned",
 		"spawn_data", "ejecting_loot_table", "normal_config", "ominous_config", "target_cooldown_length",
 		"required_player_range",
-	}, func(e nbt.Compound) {
+	}, read: func(e nbt.Compound) {
 		for _, key := range []string{"normal_config", "ominous_config"} {
 			if config, ok := nbt.Get[nbt.CompoundTag](e, key); ok {
 				config = blockRecord(config, "spawn_range", "total_mobs", "simultaneous_mobs", "total_mobs_added_per_player",
@@ -78,7 +75,7 @@ var carriedKinds = map[string]carriedKind{
 			e["ejecting_loot_table"] = nbt.String(s)
 		}
 	}},
-	"minecraft:vault": {[]string{"config", "shared_data", "server_data"}, func(e nbt.Compound) {
+	"minecraft:vault": {fields: []string{"config", "shared_data", "server_data"}, read: func(e nbt.Compound) {
 		if config, ok := nbt.Get[nbt.CompoundTag](e, "config"); ok {
 			config = nbt.ShallowCopyCompound(config)
 			if key, ok := config.Entries()["key_item"]; ok {
@@ -89,7 +86,7 @@ var carriedKinds = map[string]carriedKind{
 			e["config"] = config
 		}
 	}},
-	"minecraft:brushable_block": {[]string{"LootTable", "LootTableSeed", "item"}, func(e nbt.Compound) {
+	"minecraft:brushable_block": {fields: []string{"LootTable", "LootTableSeed", "item"}, read: func(e nbt.Compound) {
 		if item, ok := e["item"]; ok {
 			e["item"] = registry.CodecStackTag(item)
 		}
@@ -116,8 +113,12 @@ func readCarried(entry nbt.Compound) {
 // other fields follow.
 func orderedCarried(entry nbt.Compound) *nbt.OrderedCompound {
 	id, _ := nbt.Get[nbt.String](entry, "id")
+	kind := carriedKinds[string(id)]
 	out := nbt.NewOrderedCompound(len(entry))
-	for _, key := range append(slices.Clone(carriedKinds[string(id)].fields), "components", "id", "x", "y", "z") {
+	if kind.save != nil {
+		kind.save(entry, out.Set)
+	}
+	for _, key := range append(slices.Clone(kind.fields), "components", "id", "x", "y", "z") {
 		if v, ok := entry[key]; ok {
 			out.Set(key, v)
 		}
@@ -130,25 +131,18 @@ func orderedCarried(entry nbt.Compound) *nbt.OrderedCompound {
 	return out
 }
 
+// keepCarriedOrder is entry in codec order when the compound it replaces was
+// kept so; an edit rewrites the map, which would lose the order.
+func keepCarriedOrder(old nbt.CompoundTag, entry nbt.Compound) nbt.CompoundTag {
+	if _, ordered := old.(*nbt.OrderedCompound); ordered {
+		return orderedCarried(entry)
+	}
+	return entry
+}
+
 // qualifyString namespaces the string at key, leaving any other tag.
 func qualifyString(c nbt.CompoundTag, key string) {
 	if v, ok := nbt.Get[nbt.String](c.Entries(), key); ok {
 		c.Set(key, nbt.String(registry.Qualify(string(v))))
 	}
-}
-
-// mapListEntries replaces e[key], a list of compounds, with a copy whose
-// compounds fn has edited.
-func mapListEntries(e nbt.Compound, key string, fn func(nbt.CompoundTag)) {
-	list, ok := nbt.Get[nbt.List](e, key)
-	if !ok || list.Elem != nbt.TypeCompound {
-		return
-	}
-	list = nbt.Copy(list).(nbt.List)
-	for _, item := range list.Items {
-		if entry, ok := item.(nbt.CompoundTag); ok {
-			fn(entry)
-		}
-	}
-	e[key] = list
 }

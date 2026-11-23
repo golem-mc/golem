@@ -59,6 +59,8 @@ func TestCommandDataBlockEntityKeepsVanillaCodecForm(t *testing.T) {
 	// then components, id and position.
 	for _, row := range []struct{ typed, want string }{
 		{`structure_block{mode:"SAVE",name:"x:y",sizeX:3,sizeY:3,sizeZ:3}`, `{metadata: "", mirror: "NONE", components: {}, ignoreEntities: 1b, powered: 0b, seed: 0L, author: "", rotation: "NONE", posX: 0, mode: "SAVE", posY: 1, sizeX: 3, posZ: 0, integrity: 1.0f, showair: 0b, name: "x:y", x: 40, y: 63, z: 1, id: "minecraft:structure_block", strict: 0b, sizeY: 3, sizeZ: 3, showboundingbox: 1b}`},
+		{`suspicious_sand{item:{id:"stick"}}`, `{item: {count: 1, id: "minecraft:stick"}, components: {}, x: 40, y: 63, z: 1, id: "minecraft:brushable_block"}`},
+		{`structure_block{mode:"SAVE",ignoreEntities:0,powered:1,integrity:0.5d,posX:90,sizeX:71}`, `{metadata: "", mirror: "NONE", components: {}, ignoreEntities: 0b, powered: 1b, seed: 0L, author: "", rotation: "NONE", posX: 48, mode: "SAVE", posY: 1, sizeX: 48, posZ: 0, integrity: 0.5f, showair: 0b, name: "", x: 40, y: 63, z: 1, id: "minecraft:structure_block", strict: 0b, sizeY: 0, sizeZ: 0, showboundingbox: 1b}`},
 		{`test_instance_block{data:{test:"x:y",size:[I;1,2,3],rotation:"180",ignore_entities:1b,status:"cleared"}}`, `{components: {}, data: {test: "x:y", size: [I; 1, 2, 3], ignore_entities: 1b, rotation: "180", status: "cleared"}, x: 40, y: 63, z: 1, id: "minecraft:test_instance_block"}`},
 	} {
 		srv.RunLine("setblock 40 63 1 minecraft:" + row.typed)
@@ -67,12 +69,18 @@ func TestCommandDataBlockEntityKeepsVanillaCodecForm(t *testing.T) {
 		}
 	}
 
-	// The trial spawner's ticker fills in the spawn data the load leaves out.
-	srv.RunLine(`setblock 42 63 1 minecraft:trial_spawner{normal_config:{spawn_potentials:[{data:{entity:{id:"zombie"}},weight:1}]}}`)
-	servertest.RunTicks(t, srv, 40)
-	got = plainQuery(t, srv, "data get block 42 63 1 spawn_data", "commands.data.block.query")
-	if want := servertest.NBTArg(`{entity:{id:"minecraft:zombie"}}`).Plain(); got != want {
-		t.Errorf("trial spawner spawn_data = %s, want %s", got, want)
+	// The trial spawner's ticker fills in the spawn data the load leaves out,
+	// and the root keeps its codec order through that write.
+	srv.RunLine(`setblock 44 63 1 minecraft:trial_spawner{target_cooldown_length:600,normal_config:{spawn_potentials:[{data:{entity:{id:"zombie"}},weight:1}]}}`)
+	before := plainQuery(t, srv, "data get block 44 63 1", "commands.data.block.query")
+	servertest.RunTicks(t, srv, 1)
+	after := plainQuery(t, srv, "data get block 44 63 1", "commands.data.block.query")
+	const base = `components: {}, normal_config: {spawn_potentials: [{data: {entity: {id: "minecraft:zombie"}}, weight: 1}]}, x: 44, `
+	if want := `{` + base + `y: 63, z: 1, target_cooldown_length: 600, id: "minecraft:trial_spawner"}`; before != want {
+		t.Errorf("trial spawner shows %s, want %s", before, want)
+	}
+	if want := `{` + base + `y: 63, spawn_data: {entity: {id: "minecraft:zombie"}}, z: 1, target_cooldown_length: 600, id: "minecraft:trial_spawner"}`; after != want {
+		t.Errorf("trial spawner after a tick shows %s, want %s", after, want)
 	}
 	c.Disconnect()
 }

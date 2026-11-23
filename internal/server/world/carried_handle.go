@@ -116,20 +116,7 @@ func (b *CarriedBlockEntity) Edit(edit func(nbt.Compound)) bool {
 		entry := maps.Clone(old)
 		edit(entry)
 		// Replace in place: private data must not reorder carried tickers.
-		if _, ordered := oldTag.(*nbt.OrderedCompound); ordered {
-			// Keep the saved order; fields the edit added follow.
-			next := nbt.NewOrderedCompound(len(entry))
-			for _, key := range append(nbt.HashOrderedKeys(oldTag), nbt.HashOrderedKeys(entry)...) {
-				if v, ok := entry[key]; ok {
-					if _, done := next.Entries()[key]; !done {
-						next.Set(key, v)
-					}
-				}
-			}
-			b.chunk.carriedBlockEntities.Items[i] = next
-		} else {
-			b.chunk.carriedBlockEntities.Items[i] = entry
-		}
+		b.chunk.carriedBlockEntities.Items[i] = keepCarriedOrder(oldTag, entry)
 		l.markDirty()
 		return true
 	}
