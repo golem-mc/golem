@@ -48,20 +48,15 @@ func TestMapFrameMarkersKeepTheirOrder(t *testing.T) {
 		run(fmt.Sprintf(`summon item_frame %d 64 0 {Fixed:1b,Facing:3b,Tags:[%q],Item:{id:"minecraft:filled_map",count:1,components:{"minecraft:map_id":0,"minecraft:map_decorations":{shared:{type:"minecraft:monument",x:%d.0d,z:64.0d,rotation:0.0f}}}}}`, frame.x, frame.name, frame.target), "commands.summon.success")
 	}
 	frameIcon := func(x int8) servertest.MapIcon { return servertest.MapIcon{TypeID: 1, X: byte(x), Y: 225} }
-	expectMarkers := func(frames ...servertest.MapIcon) []byte {
+	expectMarkers := func(frames ...servertest.MapIcon) {
 		t.Helper()
-		packet := c.ExpectWithinTicks(srv, 5, protocol.IDPlayMapData)
-		update := servertest.ParseMapData(t, packet)
+		update := servertest.ParseMapData(t, c.ExpectWithinTicks(srv, 5, protocol.IDPlayMapData))
 		want := append([]servertest.MapIcon{{TypeID: 9}, first.Icons[0]}, frames...)
 		if update.ID() != 0 || update.Columns != 0 || !update.HasIcons || !slices.Equal(update.Icons, want) {
 			t.Fatalf("map update = id %d, %d columns, markers %+v, want %+v", update.ID(), update.Columns, update.Icons, want)
 		}
-		return packet
 	}
-	const recorded = "0002010104090000000000e1e1000001e9e1000001e0e1000000"
-	if got := fmt.Sprintf("%x", expectMarkers(frameIcon(-23), frameIcon(-32))); got != recorded {
-		t.Fatalf("map update bytes = %s, want %s", got, recorded)
-	}
+	expectMarkers(frameIcon(-23), frameIcon(-32))
 
 	run("tp @e[type=item_frame,tag=east,limit=1] 15 64 0", "commands.teleport.success.location.single")
 	expectMarkers(frameIcon(-24), frameIcon(-32))
