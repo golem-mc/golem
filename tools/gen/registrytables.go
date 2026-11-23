@@ -399,6 +399,41 @@ func (g *tablesGen) dataTables() error {
 	return nil
 }
 
+// itemComponentDefaults writes the set of components in each item prototype.
+func (g *tablesGen) itemComponentDefaults(items []string, components map[string]obj) error {
+	names, err := g.entryNames("data_component_type")
+	if err != nil {
+		return err
+	}
+	ids := make(map[string]int, len(names))
+	for id, name := range names {
+		ids[name] = id
+	}
+	words := (len(names) + 63) / 64
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		prototype, ok := components[item]
+		if !ok {
+			return fmt.Errorf("item %s has no component report", item)
+		}
+		mask := make([]uint64, words)
+		for component := range prototype {
+			id, ok := ids[component]
+			if !ok {
+				return fmt.Errorf("item %s has an unregistered component %s", item, component)
+			}
+			mask[id/64] |= uint64(1) << (id % 64)
+		}
+		literal := make([]string, words)
+		for i, word := range mask {
+			literal[i] = fmt.Sprintf("%#x", word)
+		}
+		values = append(values, "{"+strings.Join(literal, ", ")+"}")
+	}
+	g.w.seq("itemComponentDefaults", fmt.Sprintf("[%d]uint64", words), values)
+	return nil
+}
+
 // itemTables writes the tables read from the per-item component reports.
 func (g *tablesGen) itemTables() error {
 	w, e := g.w, g.e
@@ -409,7 +444,10 @@ func (g *tablesGen) itemTables() error {
 		return err
 	}
 	for _, name := range itemFiles {
-		c, _ := readObj(path.Join(reportDir, name)).obj("components")
+		c, ok := readObj(path.Join(reportDir, name)).obj("components")
+		if !ok {
+			return fmt.Errorf("%s: missing item components", name)
+		}
 		components["minecraft:"+strings.TrimSuffix(name, ".json")] = c
 	}
 	itemNames, err := g.entryNames("item")
@@ -419,10 +457,8 @@ func (g *tablesGen) itemTables() error {
 	if len(components) != len(itemNames) {
 		return fmt.Errorf("%d item reports for %d items", len(components), len(itemNames))
 	}
-	for _, n := range itemNames {
-		if _, ok := components[n]; !ok {
-			return fmt.Errorf("item %s has no component report", n)
-		}
+	if err := g.itemComponentDefaults(itemNames, components); err != nil {
+		return err
 	}
 	for _, p := range []struct{ name, tag string }{
 		{"fireResistantItems", "#minecraft:is_fire"}, {"explosionResistantItems", "#minecraft:is_explosion"},

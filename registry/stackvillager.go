@@ -29,7 +29,7 @@ func StackVillagerFood(stack protocol.ItemStack) (int32, bool) {
 			return n, ok
 		}
 	}
-	if stack.Removed != 0 && stack.Removes(protocol.DataComponentVillagerFood) {
+	if stack.Removes(protocol.DataComponentVillagerFood) {
 		return 0, false
 	}
 	n, ok := villagerFoodItems[stack.ItemID]
@@ -58,7 +58,7 @@ func StackMobVisibility(stack protocol.ItemStack, entityType string) (float32, b
 			return share, slices.Contains(set.IDs, id)
 		}
 	}
-	if stack.Removed != 0 && stack.Removes(protocol.DataComponentMobVisibility) {
+	if stack.Removes(protocol.DataComponentMobVisibility) {
 		return 0, false
 	}
 	types, share, ok := Item(stack.ItemID).MobVisibility()

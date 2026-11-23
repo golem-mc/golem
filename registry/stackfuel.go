@@ -34,7 +34,7 @@ func StackBrewingFuel(stack protocol.ItemStack) (uses, speed LootNumber, own, re
 }
 
 func stackFuel(stack protocol.ItemStack, component int32) (count, speed LootNumber, own, removed bool) {
-	if stack.Removed != 0 && stack.Removes(component) {
+	if stack.Removes(component) {
 		return nil, nil, false, true
 	}
 	if len(stack.Raw) == 0 {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/bits"
 	"reflect"
 	"slices"
 
@@ -54,9 +55,13 @@ type ItemStack struct {
 	// a stack carrying it carries nothing with the component but the type.
 	Unbreakable bool
 
-	// Removed is the patch's removals of item defaults the server reads
-	// through the stack: the stack acts as one without the component rather
-	// than its item's default. Setting the component clears its removal.
+	// Intangible is minecraft:intangible_projectile, set on loaded ammo that
+	// was not taken from the shooter; the arrow it becomes is a creative-only
+	// pickup. No network codec, like Lock.
+	// vanilla: DataComponents.INTANGIBLE_PROJECTILE
+	Intangible bool
+
+	// Removed is the set of prototype components the stack's patch removes.
 	// vanilla: PatchedDataComponentMap.set, DataComponentPatch removed entries
 	Removed Removals
 
@@ -69,12 +74,6 @@ type ItemStack struct {
 	// the server's slots and saved files.
 	// vanilla: DataComponents.LOCK, LockCode.CODEC
 	Lock nbt.CompoundTag
-
-	// Intangible is minecraft:intangible_projectile, set on loaded ammo that
-	// was not taken from the shooter; the arrow it becomes is a creative-only
-	// pickup. No network codec, like Lock.
-	// vanilla: DataComponents.INTANGIBLE_PROJECTILE
-	Intangible bool
 
 	// intangibleLoaded marks, per charged projectile, the ones that carry
 	// Intangible, which the raw-held charged_projectiles bytes cannot; nil
@@ -438,12 +437,16 @@ func componentsOf(s ItemStack) []int32 {
 // putRemovedComponents writes only the removed IDs, after the added values.
 // vanilla: DataComponentPatch.createStreamCodec
 func (b *Buffer) putRemovedComponents(s ItemStack) {
-	var buf [64]int32 // removable has at most 64 entries (Removed is a uint64)
-	types := buf[:0]
 	removed := s.removals()
-	for i, r := range removable {
-		if removed&(1<<i) != 0 {
-			types = append(types, r.Type)
+	if removed == (Removals{}) {
+		return
+	}
+	var buf [len(removable)]int32
+	types := buf[:0]
+	for i, word := range removed {
+		for word != 0 {
+			types = append(types, removable[i*64+bits.TrailingZeros64(word)].Type)
+			word &= word - 1
 		}
 	}
 	s.orderPatch(types)
@@ -642,28 +645,22 @@ func readLengthPrefixedComponent(r *Reader, stack *ItemStack, component int32, d
 	return true
 }
 
-// readRemovedComponents reads the types a stack resets to its item's
-// defaults: a modelled one is cleared, an unmodelled one dropped from Raw,
-// and one never carried is a no-op (minecraft:food removed reads as the
-// plain stack). A type outside the registry is refused.
+// readRemovedComponents keeps supported removals and clears values for the
+// other known types. A type outside the registry is refused.
 func readRemovedComponents(r *Reader, stack *ItemStack, remove int32) bool {
 	for range remove {
 		component := r.ReadVarInt()
 		if r.Err() != nil || component < 0 || component >= DataComponentTypeCount {
 			return false
 		}
+		if stack.Remove(component) {
+			continue
+		}
 		switch component {
-		case DataComponentDamage:
-			stack.Damage = 0
-			stack.Removed |= removalBit(component)
 		case DataComponentUnbreakable:
 			stack.Unbreakable = false
 		case DataComponentCustomName:
 			stack.CustomName = nil
-		case DataComponentEnchantments:
-			stack.SetEnchantments(false, nil)
-		case DataComponentRepairCost:
-			stack.RepairCost = 0
 		case DataComponentEnchantmentGlintOverride:
 			stack.GlintOverride = GlintUnset
 		case DataComponentStoredEnchantments:
@@ -671,9 +668,7 @@ func readRemovedComponents(r *Reader, stack *ItemStack, remove int32) bool {
 		case DataComponentContainer:
 			stack.Container = nil
 		default:
-			if !stack.Remove(component) {
-				stack.clearRaw(component)
-			}
+			stack.clearRaw(component)
 		}
 		stack.NotePatch(component)
 	}
@@ -707,7 +702,7 @@ func (s *ItemStack) clearRaw(component int32) {
 func (s *ItemStack) putRaw(raw RawComponent) {
 	raw.decodeDamageComponents()
 	raw.decodeBlockStateProperties()
-	s.Removed &^= removalBit(raw.Type)
+	s.clearRemoval(raw.Type)
 	s.NotePatch(raw.Type)
 	for i := range s.Raw {
 		if s.Raw[i].Type == raw.Type {
@@ -743,7 +738,7 @@ func readComponentData(r *Reader, stack *ItemStack, component int32, depth int) 
 		if damage < 0 {
 			return false
 		}
-		stack.Damage = damage
+		stack.SetDamage(damage)
 	case DataComponentUnbreakable:
 		stack.Unbreakable = true
 	case DataComponentCustomName:
@@ -763,7 +758,7 @@ func readComponentData(r *Reader, stack *ItemStack, component int32, depth int) 
 		if cost < 0 {
 			return false
 		}
-		stack.RepairCost = cost
+		stack.SetRepairCost(cost)
 	case DataComponentEnchantmentGlintOverride:
 		switch r.ReadBool() {
 		case true:

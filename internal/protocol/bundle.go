@@ -1,8 +1,6 @@
 package protocol
 
-import (
-	"slices"
-)
+import "slices"
 
 // The minecraft:bundle_contents component is one of the unmodelled ones this
 // server keeps as the bytes it arrived in, but the click path has to fill and

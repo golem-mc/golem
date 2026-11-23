@@ -756,7 +756,7 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 		if !ok || wear < 0 {
 			return false, true
 		}
-		stack.Damage = int32(wear)
+		stack.SetDamage(int32(wear))
 	case "minecraft:unbreakable", "minecraft:intangible_projectile":
 		// A unit: an empty compound, whose presence is the whole value.
 		if unit, ok := nbt.CompoundView(value); !ok || len(unit) != 0 {
@@ -818,7 +818,7 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 		if !ok || cost < 0 {
 			return false, true
 		}
-		stack.RepairCost = int32(cost)
+		stack.SetRepairCost(int32(cost))
 	case "minecraft:enchantment_glint_override":
 		// vanilla: NbtOps.getBooleanValue tests doubleValue() != 0.0
 		glint, ok := nbt.NumberValue(value)
@@ -1224,7 +1224,7 @@ func lodestoneTargetOf(value nbt.Tag) (*protocol.LodestoneTarget, bool) {
 			if !ok || !protocol.ValidIdentifier(string(text)) {
 				return nil, false
 			}
-			dimension, named = string(text), true
+			dimension, named = Qualify(string(text)), true
 		case "pos":
 			values, ok := intArrayOf3(field)
 			if !ok {

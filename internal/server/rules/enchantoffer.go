@@ -278,5 +278,5 @@ func EnchantOffers(seed int32, bookcases int, stack protocol.ItemStack) (costs, 
 // the table makes enchantments, it does not add to them.
 // vanilla: ItemStack.isEnchantable
 func stackEnchantable(stack protocol.ItemStack) bool {
-	return itemEnchantable(stack) != 0 && len(stack.Enchantments) == 0
+	return itemEnchantable(stack) != 0 && !stack.Removes(protocol.DataComponentEnchantments) && len(stack.Enchantments) == 0
 }

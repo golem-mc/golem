@@ -434,7 +434,7 @@ func ScaledIgniteTicks(ticks int, scale float64) int {
 // int. A non-damageable stack takes 0.
 // vanilla: EnchantmentHelper.processDurabilityChange, ItemStack.isDamageableItem
 func ProcessDurabilityChange(stack protocol.ItemStack, n int32, rng *rand.Rand) int32 {
-	if !damageable(stack) {
+	if !registry.StackDamageable(stack) {
 		return 0
 	}
 	if n <= 0 || len(stack.Enchantments) == 0 {

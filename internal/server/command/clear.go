@@ -143,6 +143,9 @@ func neverClear(protocol.ItemStack) bool { return false }
 // default components underneath it.
 // vanilla: ItemStack.has
 func stackHasComponent(stack protocol.ItemStack, name string) bool {
+	if id, ok := registry.ComponentID(name); ok && stack.Removes(id) {
+		return false
+	}
 	switch name {
 	case "minecraft:damage":
 		if stack.Damage != 0 {

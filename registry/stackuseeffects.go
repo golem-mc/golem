@@ -10,7 +10,7 @@ func ownRecord(stack protocol.ItemStack, component int32) (values []any, own, re
 			return values, true, false
 		}
 	}
-	return nil, false, stack.Removed != 0 && stack.Removes(component)
+	return nil, false, stack.Removes(component)
 }
 
 // StackInteractVibrations reports whether a use of the stack posts its

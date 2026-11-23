@@ -240,7 +240,7 @@ func (c *client) sendHeldItem() error {
 // stack's item has no value for, as the decoded patch does in vanilla.
 // vanilla: PatchedDataComponentMap.fromPatch
 func dropRemovalsWithoutDefault(stack *protocol.ItemStack) {
-	if stack.Removed == 0 {
+	if stack.Removed == (protocol.Removals{}) {
 		return
 	}
 	for _, name := range stack.RemovedNames() {

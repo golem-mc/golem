@@ -33,13 +33,17 @@ func TestAToolComponentSurvivesTheStoredForm(t *testing.T) {
 	}
 }
 
-// TestEveryKeptRemovalSurvivesAFileRoundTrip: equippable, weapon and
-// blocks_attacks removals are stored as their removal keys and read back.
+// TestEveryKeptRemovalSurvivesAFileRoundTrip checks removal keys in saved stacks.
 func TestEveryKeptRemovalSurvivesAFileRoundTrip(t *testing.T) {
 	t.Parallel()
 	id, _ := ItemID("minecraft:shield")
 	stack := protocol.ItemStack{ItemID: id, Count: 1}
-	for _, c := range []int32{protocol.DataComponentEquippable, protocol.DataComponentWeapon, protocol.DataComponentBlocksAttacks} {
+	for _, c := range []int32{
+		protocol.DataComponentEquippable, protocol.DataComponentWeapon, protocol.DataComponentBlocksAttacks,
+		protocol.DataComponentAttributeModifiers, protocol.DataComponentBreakSound, protocol.DataComponentDamage,
+		protocol.DataComponentEnchantments, protocol.DataComponentItemModel, protocol.DataComponentItemName,
+		protocol.DataComponentLore, protocol.DataComponentRarity, protocol.DataComponentRepairCost, protocol.DataComponentTooltipDisplay,
+	} {
 		if !stack.Remove(c) {
 			t.Fatalf("component %d is not a kept removal", c)
 		}

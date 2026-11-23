@@ -17,7 +17,8 @@ func repairItem(cells []protocol.ItemStack) (protocol.ItemStack, bool) {
 	}
 	first, second := cells[i], cells[j]
 	firstMax, secondMax := StackMaxDamage(first), StackMaxDamage(second)
-	if first.ItemID != second.ItemID || first.Count != 1 || second.Count != 1 || firstMax <= 0 || secondMax <= 0 {
+	if first.ItemID != second.ItemID || first.Count != 1 || second.Count != 1 || firstMax <= 0 || secondMax <= 0 ||
+		first.Removes(protocol.DataComponentDamage) || second.Removes(protocol.DataComponentDamage) {
 		return protocol.ItemStack{}, false
 	}
 	maxDamage := max(firstMax, secondMax)
