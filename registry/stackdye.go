@@ -7,7 +7,7 @@ import "github.com/golem-mc/golem/internal/protocol"
 // dye tags still decide which items qualify; this decides the colour.
 // vanilla: DataComponents.DYE
 func StackDyeColour(stack protocol.ItemStack) (int32, bool) {
-	if stack.Empty() || stack.Removed != 0 && stack.Removes(protocol.DataComponentDye) {
+	if stack.Empty() || stack.Removes(protocol.DataComponentDye) {
 		return 0, false
 	}
 	if len(stack.Raw) != 0 {

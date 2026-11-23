@@ -171,7 +171,7 @@ func AnvilCombine(base, extra protocol.ItemStack, name string, creative bool) An
 	// vanilla: ItemStack.isDamageableItem - an unbreakable stack has no
 	// wear to mend, so the repair and durability merge treat it as undamageable.
 	maxDamage := registry.StackMaxDamage(base)
-	if base.Unbreakable {
+	if !registry.StackDamageable(base) {
 		maxDamage = 0
 	}
 	merged := cloneEnchantments(anvilEnchantmentsOf(base))
@@ -310,10 +310,11 @@ func AnvilCombine(base, extra protocol.ItemStack, name string, creative bool) An
 	// The repair cost rises by calculateIncreasedRepairCost unless the
 	// rename was the only work: vanilla skips it while the naming cost
 	// equals a non-zero work count, which only a lone rename produces.
+	repairCost := max(base.RepairCost, extra.RepairCost)
 	if !onlyRenaming {
-		k1 := max(copyOf.RepairCost, extra.RepairCost)
-		copyOf.RepairCost = IncreasedRepairCost(k1)
+		repairCost = IncreasedRepairCost(repairCost)
 	}
+	copyOf.SetRepairCost(repairCost)
 	// The magic the combine ends with goes back into the copy in the
 	// component its own kind keeps it in - the base's, not the extra's.
 	if isEnchantedBook(base) {

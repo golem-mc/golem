@@ -7,7 +7,7 @@ import "github.com/golem-mc/golem/internal/protocol"
 // An inline material has no registry ID and counts as none.
 // vanilla: SmithingTrimRecipe.applyTrim, DataComponents.PROVIDES_TRIM_MATERIAL
 func StackTrimMaterial(stack protocol.ItemStack) (int32, bool) {
-	if stack.Empty() || stack.Removed != 0 && stack.Removes(protocol.DataComponentProvidesTrimMaterial) {
+	if stack.Empty() || stack.Removes(protocol.DataComponentProvidesTrimMaterial) {
 		return 0, false
 	}
 	if data, ok := propBytes(stack, protocol.DataComponentProvidesTrimMaterial); ok {
@@ -24,7 +24,7 @@ func StackTrimMaterial(stack protocol.ItemStack) (int32, bool) {
 // item's default. The bool is false when the stack provides no set at all.
 // vanilla: LoomMenu.getSelectablePatterns, DataComponents.PROVIDES_BANNER_PATTERNS
 func StackBannerPatterns(stack protocol.ItemStack) ([]int32, bool) {
-	if stack.Empty() || stack.Removed != 0 && stack.Removes(protocol.DataComponentProvidesBannerPatterns) {
+	if stack.Empty() || stack.Removes(protocol.DataComponentProvidesBannerPatterns) {
 		return nil, false
 	}
 	data, ok := propBytes(stack, protocol.DataComponentProvidesBannerPatterns)

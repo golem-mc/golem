@@ -65,7 +65,7 @@ func grindstoneStripped(copy protocol.ItemStack) protocol.ItemStack {
 	}
 	// The cost starts over with the curses kept; what the inputs had
 	// paid before is gone with their magic.
-	copy.RepairCost = cost
+	copy.SetRepairCost(cost)
 	return copy
 }
 
@@ -78,7 +78,7 @@ func grindstoneMerge(input, additional protocol.ItemStack) protocol.ItemStack {
 	whole := registry.StackMaxDamage(input)
 	remaining := (whole - input.Damage) + (whole - additional.Damage) + whole*5/100
 	count := int32(1)
-	if !damageable(input) {
+	if !registry.StackDamageable(input) {
 		if registry.StackMaxStackSize(input) < 2 || !input.Equal(additional) {
 			return protocol.ItemStack{}
 		}
@@ -90,7 +90,7 @@ func grindstoneMerge(input, additional protocol.ItemStack) protocol.ItemStack {
 	// alias the caller's: the merge answers with copies of them.
 	merged.Enchantments = cloneEnchantments(input.Enchantments)
 	merged.StoredEnchantments = cloneEnchantments(input.StoredEnchantments)
-	if damageable(merged) {
+	if registry.StackDamageable(merged) {
 		merged.Damage = max(whole-remaining, 0)
 	}
 	grindstoneMergeCurses(&merged, additional)

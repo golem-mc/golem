@@ -19,7 +19,9 @@ func ItemText(stack protocol.ItemStack, count int32) protocol.Text {
 		}
 	}
 	rarity := registry.RarityOf(stack.ItemID)
-	if own, ok := stack.RarityOf(); ok && own >= int32(registry.RarityCommon) && own <= int32(registry.RarityEpic) {
+	if stack.Removes(protocol.DataComponentRarity) {
+		rarity = registry.RarityCommon
+	} else if own, ok := stack.RarityOf(); ok && own >= int32(registry.RarityCommon) && own <= int32(registry.RarityEpic) {
 		rarity = registry.Rarity(own)
 	}
 	if stack.Enchanted() {
@@ -97,6 +99,9 @@ func ItemName(stack protocol.ItemStack) protocol.Text {
 	}
 	if name, ok := stack.ItemNameOf(); ok {
 		return name
+	}
+	if stack.Removes(protocol.DataComponentItemName) {
+		return protocol.Text{}
 	}
 	return protocol.Text{Translate: key}
 }

@@ -270,10 +270,16 @@ func StackMaxDamage(stack protocol.ItemStack) int32 {
 	if n, ok := stackVarInt(stack, protocol.DataComponentMaxDamage); ok {
 		return n
 	}
-	if stack.Removed != 0 && stack.Removes(protocol.DataComponentMaxDamage) {
+	if stack.Removes(protocol.DataComponentMaxDamage) {
 		return 0
 	}
 	return MaxDamage(stack.ItemID)
+}
+
+// StackDamageable reports whether the stack can accumulate wear.
+// vanilla: ItemStack.isDamageableItem
+func StackDamageable(stack protocol.ItemStack) bool {
+	return !stack.Unbreakable && !stack.Removes(protocol.DataComponentDamage) && StackMaxDamage(stack) > 0
 }
 
 // StackEnchantable returns the stack's enchantability: its own, 0 when the
@@ -283,7 +289,7 @@ func StackEnchantable(stack protocol.ItemStack) int32 {
 	if n, ok := stackVarInt(stack, protocol.DataComponentEnchantable); ok {
 		return n
 	}
-	if stack.Removed != 0 && stack.Removes(protocol.DataComponentEnchantable) {
+	if stack.Removes(protocol.DataComponentEnchantable) {
 		return 0
 	}
 	return Enchantable(stack.ItemID)
@@ -295,7 +301,7 @@ func StackEnchantable(stack protocol.ItemStack) int32 {
 func StackRepairs(stack protocol.ItemStack, other int32) bool {
 	data, ok := propBytes(stack, protocol.DataComponentRepairable)
 	if !ok {
-		if stack.Removed != 0 && stack.Removes(protocol.DataComponentRepairable) {
+		if stack.Removes(protocol.DataComponentRepairable) {
 			return false
 		}
 		return RepairsWith(stack.ItemID, other)
