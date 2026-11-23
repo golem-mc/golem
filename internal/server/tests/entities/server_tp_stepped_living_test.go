@@ -62,3 +62,70 @@ func TestTeleportCommandSteppedPathLastsOneTrackingInterval(t *testing.T) {
 		}
 	}
 }
+
+// A change to an armor stand's or mannequin's synched data opens a movement
+// tick off the period, so a teleport commanded in that tick is sent on the
+// next one whatever the schedule's phase.
+// vanilla: ServerEntity.sendChanges
+func TestSyncedDataChangeOpensMovementTick(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"armor_stand", "mannequin"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			cfg := servertest.HostileTestConfig()
+			cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+			srv, c := servertest.Join(t, cfg, "Watcher")
+			servertest.HoldTicks(t, srv)
+			srv.RunLine(fmt.Sprintf(`summon %s 0.5 100 0.5 {Tags:[s],NoGravity:1b}`, kind))
+			servertest.RunTicks(t, srv, 1)
+			c.Settle()
+			// Every phase of both intervals.
+			for i := range 6 {
+				servertest.RunTicks(t, srv, 1)
+				y := float64(101 + i)
+				// Toggling the glow changes the entity flags each phase.
+				if i%2 == 0 {
+					srv.RunLine(`effect give @e[tag=s,limit=1] glowing infinite 0 true`)
+				} else {
+					srv.RunLine(`effect clear @e[tag=s,limit=1]`)
+				}
+				srv.RunLine(fmt.Sprintf(`tp @e[tag=s,limit=1] 0.5 %v 0.5`, y))
+				if !c.ReadTicks(srv, 1, func(pid int32, data []byte) bool {
+					return pid == protocol.IDPlayTeleportEntity && servertest.ParseEntityPositionSync(data).Y == y
+				}) {
+					t.Fatalf("phase %d: no Teleport Entity at y %v on the next tick", i, y)
+				}
+			}
+		})
+	}
+}
+
+// Loading entity data, with no synched value changing, also opens a movement
+// tick off the period.
+// vanilla: Entity.load, ServerEntity.sendChanges
+func TestDataLoadOpensMovementTick(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"armor_stand", "mannequin"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			cfg := servertest.HostileTestConfig()
+			cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+			srv, c := servertest.Join(t, cfg, "Watcher")
+			servertest.HoldTicks(t, srv)
+			srv.RunLine(fmt.Sprintf(`summon %s 0.5 100 0.5 {Tags:[s],NoGravity:1b}`, kind))
+			servertest.RunTicks(t, srv, 1)
+			c.Settle()
+			for i := range 6 {
+				servertest.RunTicks(t, srv, 1)
+				y := float64(101 + i)
+				srv.RunLine(fmt.Sprintf(`data merge entity @e[tag=s,limit=1] {Invulnerable:%db}`, (i+1)%2))
+				srv.RunLine(fmt.Sprintf(`tp @e[tag=s,limit=1] 0.5 %v 0.5`, y))
+				if !c.ReadTicks(srv, 1, func(pid int32, data []byte) bool {
+					return pid == protocol.IDPlayTeleportEntity && servertest.ParseEntityPositionSync(data).Y == y
+				}) {
+					t.Fatalf("phase %d: no Teleport Entity at y %v on the next tick", i, y)
+				}
+			}
+		})
+	}
+}

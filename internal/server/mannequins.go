@@ -110,6 +110,7 @@ func (s *Server) tickMannequins() {
 			}
 		})
 		metadata := mannequinTickMetadata(ent)
+		ent.needsSync = ent.needsSync || metadata != nil
 		attrs := ent.mannequin.Attributes.TakeDirty()
 		var attributes []byte
 		if len(attrs) > 0 {

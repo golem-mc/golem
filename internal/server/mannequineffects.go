@@ -46,6 +46,7 @@ func mannequinEffectPackets(ent *mannequinEntity) []outbound {
 	m.Health = min(m.Health, m.HealthCap())
 	var packets []outbound
 	if data := mannequinTickMetadata(ent); data != nil {
+		ent.needsSync = true
 		packets = append(packets, outbound{id: protocol.IDPlayEntityMetadata, data: data})
 	}
 	if attrs := m.Attributes.TakeDirty(); len(attrs) > 0 {

@@ -137,6 +137,7 @@ func mannequinOfTag(s *Server, w *world.World, compound nbt.Compound) *mannequin
 // vanilla: Entity.load, Mannequin.readAdditionalSaveData
 func applyMannequinTag(ent *mannequinEntity, compound nbt.Compound) bool {
 	m := ent.mannequin
+	ent.needsSync = true
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
 		m.SetPos(x, y, z)
 	}

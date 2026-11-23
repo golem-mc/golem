@@ -35,7 +35,9 @@ type armorStandEntity struct {
 	w     *world.World
 	uuid  uuid.UUID
 	bodyTrack[*armorStandMeta]
-	portal rules.EntityPortal
+	// metaSeen is the snapshot the last tracking pass saw.
+	metaSeen *armorStandMeta
+	portal   rules.EntityPortal
 
 	// tags are the scoreboard tags, what the tag selector option matches
 	// and /tag edits. Guarded by the stands lock, like the rest of a
@@ -823,8 +825,14 @@ func (o *standSends) send() {
 // already shown where it went and which metadata changed. The stands lock is held.
 func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyPlayers, out *standSends) {
 	body := standTracker.body(ent)
-	mt := body.t.stepDue(entity.ArmorStandInterval, false)
 	now := armorStandMetaOf(ent)
+	// A changed synched value asks for a movement tick off the period.
+	// vanilla: ServerEntity.sendChanges (SynchedEntityData.isDirty)
+	if ent.metaSeen != nil && ent.metaSeen != now {
+		ent.needsSync = true
+	}
+	ent.metaSeen = now
+	mt := body.t.stepDue(entity.ArmorStandInterval, ent.takeSync())
 	var attributes []byte
 	if dirty := ent.stand.Attributes().TakeDirty(); len(dirty) != 0 {
 		attributes = attributesPayload(body.id, dirty)
