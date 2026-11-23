@@ -20,9 +20,9 @@ import (
 func (s *Server) tickArrows() {
 	// Nothing to step: skip every snapshot. Released before they are read.
 	s.lockTick(&s.arrowsMu)
-	flying := len(s.arrows) > 0
+	loaded := len(s.arrows) > 0
 	s.unlockTick(&s.arrowsMu)
-	if !flying {
+	if !loaded {
 		return
 	}
 	in := newArrowTickInputs()
