@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -93,6 +94,21 @@ func TestSuckReadsTheFurnaceBottomOutputFirst(t *testing.T) {
 	if !moved || !intoEmpty || !hopper.slots[0].Equal(item(t, "minecraft:iron_ingot", 1)) ||
 		!hopper.slots[1].Empty() || furnace.slots[2].Count != 1 || furnace.slots[1].Count != 1 {
 		t.Fatalf("moved %v intoEmpty %v, hopper %v, furnace %v", moved, intoEmpty, hopper.slots[:2], furnace.slots)
+	}
+}
+
+func TestFullDoubleChestDoesNotAllocate(t *testing.T) {
+	full := item(t, "minecraft:stone", 64)
+	chest := Compound{
+		First:  &testBlock{kind: KindChest, slots: slices.Repeat([]protocol.ItemStack{full}, 27)},
+		Second: &testBlock{kind: KindChest, slots: slices.Repeat([]protocol.ItemStack{full}, 27)},
+	}
+	if allocations := testing.AllocsPerRun(5, func() {
+		if !Full(chest, protocol.FaceTop) {
+			t.Fatal("the double chest is full")
+		}
+	}); allocations != 0 {
+		t.Errorf("checking a full double chest allocated %g times, want 0", allocations)
 	}
 }
 

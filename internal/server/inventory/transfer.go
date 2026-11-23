@@ -355,7 +355,7 @@ func canMergeItems(a, b protocol.ItemStack) bool {
 // Full is vanilla's isFullContainer over the slots a face reads.
 func Full[B Block](b B, face int32) bool {
 	for _, slot := range slotsForFace(b, face) {
-		if _, count := b.Peek(slot); count <= 0 || count < registry.StackMaxStackSize(b.Stacks()[slot]) {
+		if _, count := b.Peek(slot); count <= 0 || count < registry.StackMaxStackSize(b.Slot(slot)) {
 			return false
 		}
 	}

@@ -190,6 +190,53 @@ func TestAHopperSeesADoubleChestWhole(t *testing.T) {
 	}
 }
 
+func TestAHopperFillsACustomStackInTheSecondChestHalf(t *testing.T) {
+	t.Parallel()
+	srv, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
+	servertest.PlaceChestPair(t, w, "minecraft:chest", 4, 64, 0)
+	w.SetCreativeSlot(36, servertest.ItemStack(t, "minecraft:hopper", 1))
+	w.Sneak(true)
+	w.PlaceBlock(5, 64, 0, protocol.FaceTop)
+	w.Sneak(false)
+	w.SettleKeeping()
+	servertest.HoldTicks(t, srv)
+
+	stone := servertest.ItemStack(t, "minecraft:stone", 64)
+	custom := stone
+	custom.SetMaxStackSize(65)
+	for _, x := range []int32{4, 5} {
+		for slot := range 27 {
+			stack := stone
+			if x == 4 && slot == 26 { // slot 53 in the double chest
+				stack = custom
+			}
+			if !srv.SetInventoryAt(x, 64, 0, slot, stack) {
+				t.Fatalf("could not fill chest at x=%d, slot %d", x, slot)
+			}
+		}
+	}
+	supply := custom
+	supply.Count = 2
+	if !srv.SetInventoryAt(5, 65, 0, 0, supply) {
+		t.Fatal("the hopper has no block entity to fill")
+	}
+	servertest.RunTicks(t, srv, 9) // one push and the next attempt after its cooldown
+
+	w.UseBlock(5, 64, 0)
+	slots := w.ExpectContainerOpen(protocol.MenuGeneric9x6, true, 5, 64, 0)
+	custom.Count = 65
+	if len(slots) != 54+36 {
+		t.Fatalf("the double chest opened with %d slots, want 54 chest and 36 player slots", len(slots))
+	}
+	if got := slots[53]; !got.Equal(custom) {
+		t.Errorf("the second half's last slot holds %+v, want %+v", got, custom)
+	}
+	supply.Count = 1
+	if got := srv.InventoryAt(5, 65, 0); len(got) == 0 || !got[0].Equal(supply) {
+		t.Errorf("the hopper holds %+v, want one custom stone left", got)
+	}
+}
+
 // TestATrappedChestPowersRedstoneWhileOpen checks the trapped chest: its
 // own block entity and lid block, and a signal of as many players as look
 // in, which a wire beside it carries.
