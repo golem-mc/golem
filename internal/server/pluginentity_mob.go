@@ -3,6 +3,7 @@ package server
 import (
 	"maps"
 
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/google/uuid"
@@ -69,16 +70,28 @@ func (e pluginEntity) setUUID(key string, id plugin.UUID) {
 
 func uuidOf(id plugin.UUID) uuid.UUID { return uuid.UUID(id) }
 
-func (e mobOps) AI() bool     { return !e.e.flag("NoAI") }
+func (e mobOps) AI() bool {
+	var noAI bool
+	if e.e.readMob(func(m *entity.Mob) { noAI = m.NoAI }) {
+		return !noAI
+	}
+	return !e.e.flag("NoAI")
+}
 func (e mobOps) SetAI(v bool) { e.e.setFlag("NoAI", !v) }
 func (e mobOps) SavedData() nbt.Compound {
 	return maps.Clone(e.e.saved())
 }
 func (e mobOps) MergeData(fields nbt.Compound) bool { return e.e.merge(fields) }
-func (e mobOps) Persistent() bool                   { return e.e.flag("PersistenceRequired") }
-func (e mobOps) SetPersistent(v bool)               { e.e.setFlag("PersistenceRequired", v) }
-func (e mobOps) LeftHanded() bool                   { return e.e.flag("LeftHanded") }
-func (e mobOps) SetLeftHanded(v bool)               { e.e.setFlag("LeftHanded", v) }
+func (e mobOps) Persistent() bool {
+	var persistent bool
+	if e.e.readMob(func(m *entity.Mob) { persistent = m.Persistence }) {
+		return persistent
+	}
+	return e.e.flag("PersistenceRequired")
+}
+func (e mobOps) SetPersistent(v bool) { e.e.setFlag("PersistenceRequired", v) }
+func (e mobOps) LeftHanded() bool     { return e.e.flag("LeftHanded") }
+func (e mobOps) SetLeftHanded(v bool) { e.e.setFlag("LeftHanded", v) }
 
 func (e mobOps) Loot() (plugin.Key, int64) {
 	saved := e.e.saved()
