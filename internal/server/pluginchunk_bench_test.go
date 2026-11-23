@@ -99,6 +99,30 @@ func BenchmarkPluginEntitiesIn(b *testing.B) {
 	}
 }
 
+// BenchmarkPluginBindLiving times binding one event handle beside 2000 mobs.
+func BenchmarkPluginBindLiving(b *testing.B) {
+	s, dim, _, pw := pluginChunkBench(b)
+	rng := rand.New(rand.NewSource(264))
+	var ent *mobEntity
+	for range 2000 {
+		x, z := (rng.Float64()-0.5)*512, (rng.Float64()-0.5)*512
+		id := s.spawnMobInDim(dim, entity.TypeZombie, x, float64(world.GroundLevel), z, int64(rng.Uint32()), nil)
+		s.mobsMu.Lock()
+		ent = s.mobByEntityIDLocked(dim.w, id)
+		if ent != nil {
+			ent.mob.NoAI = true
+		}
+		s.mobsMu.Unlock()
+		if ent == nil {
+			b.Fatal("summoned zombie did not resolve")
+		}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = bindPluginLiving(pluginLivingHandle(ent.uuid), pw.host)
+	}
+}
+
 // BenchmarkPluginChunkEntitiesBodies times Chunk.Entities with 1000 items and
 // 1000 armor stands over 1024 loaded chunks and no mobs.
 func BenchmarkPluginChunkEntitiesBodies(b *testing.B) {
