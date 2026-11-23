@@ -923,7 +923,7 @@ func (s *Server) relightChanges(w *world.World, changes []world.BlockChange) {
 		set.add(ch.X, ch.Z)
 	}
 	boxes := set.boxes
-	s.relightBoxesAsync(w, boxes, false)
+	s.relightBoxesAsync(w, boxes, nil)
 	if s.relightSeam != nil {
 		s.relightSeam(len(boxes), changes)
 	}
@@ -1379,10 +1379,6 @@ const (
 	// writeNeighborShapes is the shape pass of a flag-2 write: the rules
 	// reshape and the engine's shape pass, no neighbour update.
 	writeNeighborShapes
-	// writeLightDeferred relights at the next flush, holding the chunk until
-	// the relight lands; it is booked before any callback can drop the
-	// chunk's last ticket.
-	writeLightDeferred
 	commandBlockWrite = writeShape | writeEntity | writeLight | writeWake
 	strictBlockWrite  = writeEntity | writeLight
 )
@@ -1392,10 +1388,13 @@ const (
 // order; a queued write's light goes ahead of its block at the flush.
 // vanilla: Level.setBlock, ServerLevel.updateNeighboursOnBlockSet
 func (s *Server) writeBlock(w *world.World, x, y, z int32, state uint16, defined map[string]string, policy blockWritePolicy) bool {
-	return s.writeBlockWithUpdates(w, x, y, z, state, defined, policy, nil)
+	return s.writeBlockWithUpdates(w, x, y, z, state, defined, policy, nil, nil)
 }
 
-func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint16, defined map[string]string, policy blockWritePolicy, updates *world.BlockUpdates) bool {
+// writeBlockWithUpdates is writeBlock with a plugin's update flags. A non-nil
+// deferTo books the relight at deferTo's next flush instead, holding the chunk
+// from the write until the relight lands.
+func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint16, defined map[string]string, policy blockWritePolicy, updates *world.BlockUpdates, deferTo *dimension) bool {
 	var old uint16
 	if updates != nil || policy&(writeEntity|writeWake) != 0 {
 		old = w.BlockAt(x, y, z)
@@ -1403,11 +1402,13 @@ func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint
 	if policy&writeShape != 0 {
 		state = rules.WithDefinedProperties(rules.NeighborShapedState(w, s.levelRng, state, x, y, z), defined)
 	}
-	if !w.SetBlock(x, y, z, state) {
+	if deferTo != nil {
+		if !w.SetBlockBooked(x, y, z, state, deferTo) {
+			return false
+		}
+		policy &^= writeLight
+	} else if !w.SetBlock(x, y, z, state) {
 		return false
-	}
-	if policy&writeLightDeferred != 0 {
-		s.deferRelight(s.dimensionOfWorld(w), x, z)
 	}
 	if policy&writeCrafter != 0 {
 		s.physicsFor(w).ScheduleCrafter(x, y, z)

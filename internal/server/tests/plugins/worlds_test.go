@@ -854,16 +854,20 @@ func TestPluginUnloadRelightsPendingWrites(t *testing.T) {
 func TestPluginReleaseTicketKeepsPendingRelight(t *testing.T) {
 	obsidian := plugin.DefaultState(registry.BlockObsidian)
 	for _, tc := range []struct {
-		name  string
+		name string
+		// frame builds an obsidian portal frame in an earlier tick.
+		frame bool
 		write func(srv *server.Server, h plugin.Server, w plugin.World) plugin.BlockPos
 	}{
-		{"after the write", func(_ *server.Server, _ plugin.Server, w plugin.World) plugin.BlockPos {
+		{"after the write", false, func(srv *server.Server, _ plugin.Server, w plugin.World) plugin.BlockPos {
 			glow := plugin.BlockPos{X: 5, Y: 20, Z: 5}
 			w.SetBlockState(glow, plugin.DefaultState(registry.BlockGlowstone), plugin.UpdateAll)
 			w.RemoveTicket(plugin.ChunkPos{}, 0)
+			// Lets a save the release queued finish and unload the chunk.
+			srv.FlushSaves()
 			return glow
 		}},
-		{"during the write", func(srv *server.Server, h plugin.Server, w plugin.World) plugin.BlockPos {
+		{"during the write", true, func(srv *server.Server, h plugin.Server, w plugin.World) plugin.BlockPos {
 			fired := false
 			plugin.Listen(h, func(e *plugin.PortalCreateEvent) {
 				fired = true
@@ -886,6 +890,9 @@ func TestPluginReleaseTicketKeepsPendingRelight(t *testing.T) {
 			w := createFlat(t, run, h, &flatGen{})
 			run(func() {
 				w.AddTicket(plugin.ChunkPos{}, 0)
+				if !tc.frame {
+					return
+				}
 				// Fire in this frame reaches PortalCreateEvent from its
 				// placement. vanilla: BaseFireBlock.onPlace
 				for x := 4; x <= 7; x++ {
@@ -899,11 +906,9 @@ func TestPluginReleaseTicketKeepsPendingRelight(t *testing.T) {
 			// The frame's relight lands, so the case's write is the first of
 			// its chunk since a flush.
 			srv.WaitRelights()
-			run(func() {})
 			var lit plugin.BlockPos
 			run(func() { lit = tc.write(srv, h, w) })
 			srv.WaitRelights()
-			run(func() {})
 			if err := unloadFlat(t, run, h, w, true); err != nil {
 				t.Fatal(err)
 			}

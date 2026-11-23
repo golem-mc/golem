@@ -2609,7 +2609,7 @@ func (s *Server) relightAsync(w *world.World, x, z int32) {
 // follow the block it belongs to; a stopped loop sends it at once.
 // vanilla: ChunkHolder.broadcastChanges
 func (s *Server) relightAreaAsync(w *world.World, minX, minZ, maxX, maxZ int32) {
-	s.relightBoxesAsync(w, []changeBox{{minX, minZ, maxX, maxZ}}, false)
+	s.relightBoxesAsync(w, []changeBox{{minX, minZ, maxX, maxZ}}, nil)
 }
 
 // relightBoxesAsync books the boxes' relights together and collects their
@@ -2617,8 +2617,11 @@ func (s *Server) relightAreaAsync(w *world.World, minX, minZ, maxX, maxZ int32) 
 // touches. A box needs no relight when its columns carry no light mark: the
 // caller's write set the mark before this call, so an unmarked box was already
 // relit, and a relight running now covers any mark it clears. A write that
-// keeps its light (a fence arm, a stair shape) never marks.
-func (s *Server) relightBoxesAsync(w *world.World, boxes []changeBox, held bool) {
+// keeps its light (a fence arm, a stair shape) never marks. A non-nil landed
+// means each box's chunk is held for it: the holds are released and landed
+// closed once the light is installed.
+func (s *Server) relightBoxesAsync(w *world.World, boxes []changeBox, landed chan struct{}) {
+	held := landed != nil
 	var chs []<-chan []world.LightChange
 	var holds []world.ChunkPos
 	for _, b := range boxes {
@@ -2636,6 +2639,9 @@ func (s *Server) relightBoxesAsync(w *world.World, boxes []changeBox, held bool)
 		chs = append(chs, w.RelightAreaAsync(b.minX, b.minZ, b.maxX, b.maxZ))
 	}
 	if len(chs) == 0 {
+		if held {
+			close(landed)
+		}
 		return
 	}
 	s.relightWG.Go(func() {
@@ -2650,6 +2656,9 @@ func (s *Server) relightBoxesAsync(w *world.World, boxes []changeBox, held bool)
 		// The hold keeps a chunk from saving with the old light.
 		for _, pos := range holds {
 			w.Release(pos)
+		}
+		if held {
+			close(landed)
 		}
 	})
 }

@@ -22,36 +22,45 @@ func (w pluginWorld) SetBlockState(p plugin.BlockPos, state plugin.BlockState, f
 	}
 	// Flags 4 and 8 affect client rendering only. Flag 32 is cleared before
 	// neighbour shapes; it does not suppress preRemoveSideEffects.
-	x, y, z := int32(p.X), int32(p.Y), int32(p.Z)
 	// A running loop relights once per chunk at the next flush.
-	policy := writeLight
+	var deferTo *dimension
 	if w.srv.loopRunning() {
-		policy = writeLightDeferred
+		deferTo = w.dim
 	}
-	return w.srv.writeBlockWithUpdates(w.dim.w, x, y, z, uint16(state), nil, policy, &updates)
+	return w.srv.writeBlockWithUpdates(w.dim.w, int32(p.X), int32(p.Y), int32(p.Z), uint16(state), nil, writeLight, &updates, deferTo)
 }
 
-// deferRelight grows the pending relight box of the column's chunk.
-func (s *Server) deferRelight(dim *dimension, x, z int32) {
-	dim.pendingRelightMu.Lock()
-	fresh := dim.pendingRelight.add(x, z)
-	dim.pendingRelightMu.Unlock()
-	if fresh {
-		// Released once the chunk's relight result is installed; the chunk is
-		// loaded, as the write just changed it.
-		dim.w.HoldIfLoaded(world.ChunkPos{X: world.ChunkOf(float64(x)), Z: world.ChunkOf(float64(z))})
-	}
+// BookWrite grows the pending relight box of the column's chunk and reports
+// whether the chunk is new to it, for the world to hold until the relight
+// lands. The world's write lock is held.
+func (d *dimension) BookWrite(x, z int32) bool {
+	d.pendingRelightMu.Lock()
+	defer d.pendingRelightMu.Unlock()
+	return d.pendingRelight.add(x, z)
 }
 
-// relightPending books the relights deferRelight collected.
+// relightPending books the relights BookWrite collected.
 func (s *Server) relightPending(dim *dimension) {
 	dim.pendingRelightMu.Lock()
 	boxes := dim.pendingRelight.take()
-	dim.pendingRelightMu.Unlock()
 	if len(boxes) == 0 {
+		dim.pendingRelightMu.Unlock()
 		return
 	}
-	s.relightBoxesAsync(dim.w, boxes, true)
+	// Registered with the take, so a save draining the set waits for it.
+	live := dim.relightsLanding[:0]
+	for _, ch := range dim.relightsLanding {
+		select {
+		case <-ch:
+		default:
+			live = append(live, ch)
+		}
+	}
+	clear(dim.relightsLanding[len(live):])
+	landed := make(chan struct{})
+	dim.relightsLanding = append(live, landed)
+	dim.pendingRelightMu.Unlock()
+	s.relightBoxesAsync(dim.w, boxes, landed)
 	dim.pendingRelightMu.Lock()
 	dim.pendingRelight.recycle(boxes)
 	dim.pendingRelightMu.Unlock()
@@ -62,6 +71,24 @@ func (s *Server) relightPending(dim *dimension) {
 func (s *Server) relightPendingAll() {
 	for _, dim := range s.allDims() {
 		s.relightPending(dim)
+	}
+}
+
+// relightPendingForSave books every pending relight and returns a wait for
+// those and the batches already taken, for a save that must not write a
+// plugin-written chunk ahead of its light. The wait may run on any goroutine.
+func (s *Server) relightPendingForSave() (wait func()) {
+	var landing []chan struct{}
+	for _, dim := range s.allDims() {
+		s.relightPending(dim)
+		dim.pendingRelightMu.Lock()
+		landing = append(landing, dim.relightsLanding...)
+		dim.pendingRelightMu.Unlock()
+	}
+	return func() {
+		for _, ch := range landing {
+			<-ch
+		}
 	}
 }
 

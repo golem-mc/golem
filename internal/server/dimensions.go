@@ -65,9 +65,13 @@ type dimension struct {
 	// swaps in. navChangesMu is a leaf lock, taken with nothing else.
 	navChangesMu sync.Mutex
 	// pendingRelight is the relight box per chunk of the plugin writes since
-	// the last flush; pendingRelightMu is a leaf lock.
+	// the last flush, and relightsLanding a channel per taken batch, closed
+	// once its light is installed (pruned at the next take).
+	// pendingRelightMu is taken inside the world's write lock and takes
+	// nothing itself.
 	pendingRelightMu sync.Mutex
 	pendingRelight   changeBoxes
+	relightsLanding  []chan struct{}
 	navChanges       []entity.Waypoint
 	navSpare         []entity.Waypoint
 	// vehicles is the boats and minecarts the mob tick's cramming counts,

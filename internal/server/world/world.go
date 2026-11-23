@@ -1071,6 +1071,22 @@ func (w *World) SetBlock(x, y, z int32, state uint16) bool {
 // SwapBlock is SetBlock that also returns the cell's previous state, read
 // under the same lock as the write.
 func (w *World) SwapBlock(x, y, z int32, state uint16) (old uint16, changed bool) {
+	return w.swapBlock(x, y, z, state, nil)
+}
+
+// ChunkBooker is told of a block write under the world's write lock. When
+// BookWrite reports the chunk new to it, the world holds the chunk, so no
+// release between the write and the hold can unload it; the booker owes a
+// Release.
+type ChunkBooker interface{ BookWrite(x, z int32) bool }
+
+// SetBlockBooked is SetBlock that tells b of a change.
+func (w *World) SetBlockBooked(x, y, z int32, state uint16, b ChunkBooker) bool {
+	_, ok := w.swapBlock(x, y, z, state, b)
+	return ok
+}
+
+func (w *World) swapBlock(x, y, z int32, state uint16, b ChunkBooker) (old uint16, changed bool) {
 	if w.IsDebug() {
 		return 0, false
 	}
@@ -1096,6 +1112,9 @@ func (w *World) SwapBlock(x, y, z int32, state uint16) (old uint16, changed bool
 	w.updateMotion(loaded, x&15, z&15)
 	w.updateSurface(loaded, x&15, y, z&15, state)
 	w.afterWrite(loaded)
+	if b != nil && b.BookWrite(x, z) {
+		loaded.users.Add(1)
+	}
 	return old, true
 }
 

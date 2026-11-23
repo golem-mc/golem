@@ -125,13 +125,17 @@ func (s *Server) autoSaveSnapshot() (flush func()) {
 		writes = s.snapshotMobs()
 	}
 	dims := s.allDims()
+	relit := func() {}
 	if !off {
 		s.fireWorldSaves(dims)
+		// A plugin write, a save listener's included, waits for its light.
+		relit = s.relightPendingForSave()
 	}
 	return func() {
 		s.writePlayers(players)
 		if !off {
 			s.writeMobs(writes)
+			relit()
 			for _, dim := range dims {
 				dim.w.Save()
 			}
@@ -220,8 +224,7 @@ func (s *Server) SaveAll(flush bool) bool {
 	s.saveMobs()
 	s.fireWorldSaves(s.allDims())
 	// A plugin write still awaiting its flush would save without its light.
-	s.relightPendingAll()
-	s.relightWG.Wait()
+	s.relightPendingForSave()()
 	for _, dim := range s.allDims() {
 		dim.w.Save()
 	}

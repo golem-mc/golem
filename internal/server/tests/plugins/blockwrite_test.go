@@ -3,6 +3,7 @@ package plugins_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -422,6 +423,34 @@ func TestPluginBlockWriteRelightsBeforeSave(t *testing.T) {
 			t.Errorf("saved block light above the glowstone = %d, want 14", got)
 		}
 	})
+}
+
+// An auto-save relights a write from its own WorldSaveEvent, which comes
+// after the tick's flush, before it writes the chunk.
+// vanilla: MinecraftServer.autoSave, ServerChunkCache.save
+func TestPluginBlockWriteRelightsBeforeAutoSave(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	srv, h, run := worldPlugin(t, cfg)
+	run(func() { h.Overworld().AddTicket(plugin.ChunkPos{}, 0) })
+	cell := plugin.BlockPos{X: 8, Y: 200, Z: 8}
+	placed := false
+	plugin.Listen(h, func(e *plugin.WorldSaveEvent) {
+		if placed || e.World.Key() != h.Overworld().Key() {
+			return
+		}
+		placed = true
+		srv.SetAutoSave(0)
+		h.Overworld().SetBlockState(cell, plugin.DefaultState(registry.BlockGlowstone), plugin.UpdateAll)
+	})
+	srv.SetAutoSave(time.Second / 20)
+	servertest.RunTicks(t, srv, 1)
+	if !placed {
+		t.Fatal("the auto-save fired no WorldSaveEvent for the overworld")
+	}
+	if got := savedBlockLight(t, cfg.LevelName, 8, 201, 8); got != 14 {
+		t.Errorf("saved block light above the glowstone = %d, want 14", got)
+	}
 }
 
 // savedBlockLight reads the block light at (x, y, z) from a world opened
