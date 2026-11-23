@@ -3,6 +3,7 @@ package datapack
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -34,8 +35,20 @@ func init() {
 // vanilla: EitherCodec.decode, ListCodec.decode
 const partialMark = "\x00"
 
+// WeightOverflowMsg is the codec error of a weighted list whose total weight
+// overflows an int. Vanilla throws it from the list's constructor, so it
+// escapes every enclosing codec and fails the whole load or command parse.
+// vanilla: WeightedRandom.getTotalWeight
+const WeightOverflowMsg = "Sum of weights must be <= 2147483647"
+
+// ErrWeightOverflow is WeightOverflowMsg as an error.
+var ErrWeightOverflow = errors.New(WeightOverflowMsg) //nolint:staticcheck // vanilla's wording
+
 // eitherNumberOr wraps the typed branch's error of Codec.either(number, typed).
 func eitherNumberOr(msg string) string {
+	if strings.Contains(msg, WeightOverflowMsg) {
+		return WeightOverflowMsg
+	}
 	if rest, ok := strings.CutPrefix(msg, partialMark); ok {
 		return rest
 	}
@@ -377,7 +390,7 @@ func weightedChoice(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt
 			total += int64(weight)
 		}
 		if total > math.MaxInt32 {
-			return nil, "Sum of weights must be <= 2147483647"
+			return nil, WeightOverflowMsg
 		}
 		return out, ""
 	}

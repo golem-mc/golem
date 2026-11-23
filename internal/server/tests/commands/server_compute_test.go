@@ -2,6 +2,8 @@ package commands
 
 import (
 	"bytes"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -143,6 +145,36 @@ func TestComputeRefusals(t *testing.T) {
 		data = c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
 		if want := servertest.CommandErrorContextForTest(tc.command, len(tc.command)-suffix); !bytes.Equal(data, want) {
 			t.Errorf("%s: context = % X, want % X", tc.command, data, want)
+		}
+	}
+
+	// A weighted list whose total weight overflows an int is thrown from the
+	// list's constructor, so the command parse fails with no codec wrapping.
+	// vanilla: WeightedRandom.getTotalWeight, CommandDispatcher.parseNodes
+	weighted := func(w int32) string {
+		return `{type:"minecraft:weighted_list",distribution:[{data:1,weight:` + strconv.Itoa(int(w)) + `},{data:2,weight:1}]}`
+	}
+	for _, kind := range []string{"integer", "float"} {
+		suffix := ""
+		if kind == "float" {
+			suffix = " 1"
+		}
+		overflow := "compute default " + kind + " " + weighted(math.MaxInt32) + suffix
+		c.ChatCommand(overflow)
+		data := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); !bytes.Equal(data, want) {
+			t.Errorf("%s: refusal = % X, want % X", overflow, data, want)
+		}
+		data = c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorContextForTest(overflow, len(overflow)-len(suffix)); !bytes.Equal(data, want) {
+			t.Errorf("%s: context = % X, want % X", overflow, data, want)
+		}
+
+		// The exact limit parses and runs.
+		c.ChatCommand("compute default " + kind + " " + weighted(math.MaxInt32-1) + suffix)
+		data = c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if bytes.Contains(data, []byte("Sum of weights")) || bytes.Contains(data, []byte("Could not parse")) {
+			t.Errorf("%s weights at the limit refused: % X", kind, data)
 		}
 	}
 	c.Disconnect()

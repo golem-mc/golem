@@ -61,3 +61,26 @@ func TestReloadFailureKeepsOldState(t *testing.T) {
 	c.ChatCommand("datapack list enabled")
 	expectPackList(t, c, "commands.datapack.list.enabled.success", "vanilla", "file/a", "file/b")
 }
+
+// TestReloadRejectsOverflowingWeights checks that a pack whose loot table
+// holds a weighted provider with an overflowing total weight fails the
+// reload, which keeps the loaded functions and the enabled packs.
+// vanilla: WeightedRandom.getTotalWeight, ReloadCommand.reloadPacks
+func TestReloadRejectsOverflowingWeights(t *testing.T) {
+	t.Parallel()
+	cfg := packWorld(t)
+	_, c := joinPacks(t, cfg)
+	root := filepath.Join(cfg.LevelName, "datapacks")
+	writeFile(t, filepath.Join(root, "c", "pack.mcmeta"), `{"pack":{"description":"pack c"}}`)
+	writeFile(t, filepath.Join(root, "c", "data", "x", "function", "fromc.mcfunction"), "return 3\n")
+	writeFile(t, filepath.Join(root, "c", "data", "x", "loot_table", "t.json"), `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:stick",`+
+		`"functions":[{"function":"minecraft:set_count","count":{"type":"minecraft:weighted_list","distribution":[`+
+		`{"data":1,"weight":2147483647},{"data":2,"weight":1}]}}]}]}]}`)
+
+	c.ChatCommand("reload")
+	c.ExpectCommandFeedback("commands.reload.success")
+	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("commands.reload.failure"))
+	expectFunctionReturns(t, c, "x:fromc", 0)
+	c.ChatCommand("datapack list enabled")
+	expectPackList(t, c, "commands.datapack.list.enabled.success", "vanilla", "file/a", "file/b")
+}

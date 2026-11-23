@@ -26,6 +26,9 @@ type lootFailure struct {
 	msg string
 	// An optional field or list supplies a partial result to Codec.either.
 	partial bool
+	// overflow is a weighted list's total weight overflowing; the error is
+	// ErrWeightOverflow.
+	overflow bool
 }
 
 func fail(format string, args ...any) { panic(lootFailure{msg: fmt.Sprintf(format, args...)}) }
@@ -34,6 +37,10 @@ func recoverLoot(err *error) {
 	switch r := recover().(type) {
 	case nil:
 	case lootFailure:
+		if r.overflow {
+			*err = ErrWeightOverflow
+			return
+		}
 		*err = errors.New(r.msg)
 	default:
 		panic(r)
@@ -292,6 +299,9 @@ func providerOf(v any, decode func(nbt.Tag) (registry.LootNumber, string)) regis
 		fail("%s", err)
 	}
 	n, msg := decode(tag)
+	if msg == WeightOverflowMsg {
+		panic(lootFailure{msg: msg, overflow: true})
+	}
 	if msg != "" {
 		fail("%s", msg)
 	}

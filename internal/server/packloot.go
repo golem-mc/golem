@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"log/slog"
 	"maps"
 	"strings"
@@ -10,7 +11,8 @@ import (
 )
 
 // loadPackLoot reads the enabled packs' loot tables, predicates and item modifiers; a file
-// that fails to decode is logged and skipped, leaving the built-in one.
+// that fails to decode is logged and skipped, leaving the built-in one, except a
+// weighted list whose total weight overflows, which fails the whole load.
 // vanilla: ReloadableServerRegistries.reload, LootDataType
 func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]registry.LootTable, map[string]registry.LootCondition, map[string]registry.LootFunction, error) {
 	rawTables, err := datapack.LoadResources(dirs, "loot_table", skip)
@@ -21,6 +23,9 @@ func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]
 	for id, raw := range rawTables {
 		table, err := datapack.DecodeLootTable(raw)
 		if err != nil {
+			if errors.Is(err, datapack.ErrWeightOverflow) {
+				return nil, nil, nil, err
+			}
 			slog.Error("Couldn't parse element loot_table/" + id + ": " + err.Error())
 			continue
 		}
@@ -34,6 +39,9 @@ func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]
 	for id, raw := range rawPredicates {
 		cond, err := datapack.DecodePredicate(raw)
 		if err != nil {
+			if errors.Is(err, datapack.ErrWeightOverflow) {
+				return nil, nil, nil, err
+			}
 			slog.Error("Couldn't parse element predicate/" + id + ": " + err.Error())
 			continue
 		}
@@ -47,6 +55,9 @@ func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]
 	for id, raw := range rawModifiers {
 		fn, err := datapack.DecodeItemModifier(raw)
 		if err != nil {
+			if errors.Is(err, datapack.ErrWeightOverflow) {
+				return nil, nil, nil, err
+			}
 			slog.Error("Couldn't parse element item_modifier/" + id + ": " + err.Error())
 			continue
 		}
