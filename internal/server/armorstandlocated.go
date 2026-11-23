@@ -15,11 +15,8 @@ type standLocated struct {
 	changed int32 // the event's Level: entity.LocatedMoved and a bit per changed piece
 }
 
-// standLocated runs the location_changed entries of a worn pack
-// enchantment: its attribute modifiers go on the stand's attribute map, made
-// on first use, with the watchers told, and its other entity effects run at
-// the stand, a replace_disk one returned for the batch; the tick entries run
-// with them. A stand has no mob effects.
+// standLocated runs the stand's location_changed and tick enchantment effects
+// and returns replace_disk work for the batch.
 // vanilla: EnchantmentHelper.runLocationChangedEffects, tickEffects
 func (s *Server) standLocated(l standLocated) []mobDisk {
 	ent := l.ent
@@ -48,8 +45,11 @@ func (s *Server) standLocated(l standLocated) []mobDisk {
 	}
 	var data []byte
 	if len(apply)+len(remove) > 0 {
-		a := st.EnsureAttributes()
+		a := st.Attributes()
 		entity.ApplyLocatedMods(a, apply, remove)
+		if st.OnAttributeUpdated() {
+			standTracker.invalidatePistonGrid(s, ent)
+		}
 		if dirty := a.TakeDirty(); len(dirty) > 0 {
 			data = attributesPayload(st.ID, dirty)
 		}

@@ -849,6 +849,15 @@ type effectBody interface {
 // changeLivingEffects changes effects under the body lock and sends after unlocking.
 func (e *entitySnapshot) changeLivingEffects(change func(effectBody) []effect.Change) bool {
 	s := e.srv
+	if ref, ok := e.ref.(*armorStandEntity); ok {
+		s.armorStandsMu.Lock()
+		defer s.armorStandsMu.Unlock()
+		if ref.stand.Dead || len(change(ref.stand)) == 0 {
+			return false
+		}
+		ref.stand.SyncEffectAttributes()
+		return true
+	}
 	if ref, ok := e.ref.(*mannequinEntity); ok {
 		s.mannequinsMu.Lock()
 		changes := change(ref.mannequin)
@@ -2032,7 +2041,7 @@ func itemEnglishName(name string) string {
 // HasAttributes reports whether the entity has living attributes. vanilla: AttributeCommand.getAttributeInstance, LivingEntity
 func (e *entitySnapshot) HasAttributes() bool {
 	switch e.ref.(type) {
-	case *mobEntity, *mannequinEntity:
+	case *mobEntity, *mannequinEntity, *armorStandEntity:
 		return true
 	}
 	return false
@@ -2040,6 +2049,17 @@ func (e *entitySnapshot) HasAttributes() bool {
 
 // WithAttributes runs fn on a living body's map; its next tick sends changes.
 func (e *entitySnapshot) WithAttributes(fn func(a *player.Attributes)) {
+	if ref, ok := e.ref.(*armorStandEntity); ok {
+		s := e.srv
+		s.armorStandsMu.Lock()
+		defer s.armorStandsMu.Unlock()
+		stand := ref.stand
+		fn(stand.Attributes())
+		if stand.OnAttributeUpdated() {
+			standTracker.invalidatePistonGrid(s, ref)
+		}
+		return
+	}
 	if ref, ok := e.ref.(*mannequinEntity); ok {
 		e.srv.mannequinsMu.Lock()
 		defer e.srv.mannequinsMu.Unlock()

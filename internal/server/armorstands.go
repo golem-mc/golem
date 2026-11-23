@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/plugin"
 	"log/slog"
 	"math"
@@ -50,8 +49,6 @@ type armorStandEntity struct {
 
 	custom customName
 	look   entityLook
-	// effects are the saved active_effects; a stand applies none.
-	effects effect.Set
 
 	// Entity.load changes Fire and HasVisualFire without changing the shared
 	// fire flag; only an entity tick refreshes it.
@@ -201,11 +198,11 @@ func armorStandPairing(ent *armorStandEntity) []outbound {
 	packets := []outbound{
 		{id: protocol.IDPlaySpawnEntity, data: spawnArmorStandPayload(ent)},
 		{id: protocol.IDPlayEntityMetadata, data: armorStandMetadataPayload(ent, false)},
-		{id: protocol.IDPlayEntityEquipment, data: armorStandEquipment(ent)},
 	}
-	if a := ent.stand.Attributes(); a != nil {
-		packets = append(packets, outbound{id: protocol.IDPlayUpdateAttributes, data: attributesPayload(ent.stand.ID, a.Syncable())})
+	if attrs := ent.stand.Attributes().Syncable(); len(attrs) != 0 {
+		packets = append(packets, outbound{id: protocol.IDPlayUpdateAttributes, data: attributesPayload(ent.stand.ID, attrs)})
 	}
+	packets = append(packets, outbound{id: protocol.IDPlayEntityEquipment, data: armorStandEquipment(ent)})
 	return bundle(pairing(packets...))
 }
 
@@ -832,6 +829,10 @@ func (o *standSends) send() {
 func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyPlayers, out *standSends) {
 	body := standTracker.body(ent)
 	now := armorStandMetaOf(ent)
+	var attributes []byte
+	if dirty := ent.stand.Attributes().TakeDirty(); len(dirty) != 0 {
+		attributes = attributesPayload(body.id, dirty)
+	}
 	for _, i := range body.watchers(near) {
 		wh := watchers[i]
 		if wh.c.theWorld() != ent.w {
@@ -844,6 +845,10 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 				out.told = append(out.told, outbound{id: protocol.IDPlayEntityMetadata, data: data})
 				out.toldTo = append(out.toldTo, showTo{wh.c, body.w})
 				told.own = now
+			}
+			if attributes != nil {
+				out.told = append(out.told, outbound{id: protocol.IDPlayUpdateAttributes, data: attributes})
+				out.toldTo = append(out.toldTo, showTo{wh.c, body.w})
 			}
 			standMove(&body, told, wh.c, out)
 		}
