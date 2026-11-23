@@ -79,6 +79,10 @@ type dimension struct {
 	sulfur sulfurBodies
 	// tickingBuf is the block entity tick's list, reused across ticks.
 	tickingBuf []*world.BlockEntity
+	// Chunk positions are owned by their respective passes on the tick goroutine.
+	randomTickPositions []world.ChunkPos
+	spawningPositions   []world.ChunkPos
+	spawnablePositions  []entity.ChunkPos
 	// phantoms is the dimension's insomnia spawner, ticked on the main loop;
 	// nil outside the overworld.
 	// vanilla: MinecraftServer.createLevels, overworldCustomSpawners

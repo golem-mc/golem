@@ -1016,13 +1016,18 @@ func (w *World) ChunkSetVersion() uint64 { return w.chunkSet.Load() }
 // LoadedChunkPositions lists the chunks in memory; a simulation compares passes
 // to see arrivals and pairs it with ChunkLoaded for departures.
 func (w *World) LoadedChunkPositions() []ChunkPos {
+	return w.AppendLoadedChunkPositions([]ChunkPos{})
+}
+
+// AppendLoadedChunkPositions appends the current loaded chunk positions to dst.
+func (w *World) AppendLoadedChunkPositions(dst []ChunkPos) []ChunkPos {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	positions := make([]ChunkPos, 0, len(w.chunks))
+	dst = slices.Grow(dst, len(w.chunks))
 	for pos := range w.chunks {
-		positions = append(positions, pos)
+		dst = append(dst, pos)
 	}
-	return positions
+	return dst
 }
 
 // ChunkLightReady reports whether the chunk's light is computed. An

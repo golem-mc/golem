@@ -353,11 +353,16 @@ func (s *Server) setPistonGrid(dim *dimension, active bool) {
 // nobody online.
 // vanilla: ServerChunkCache.tickChunks, ChunkMap.forEachBlockTickingChunk
 func (s *Server) tickRandomTicks(dim *dimension, gameTime int64) {
-	s.randomTickChunks(dim, gameTime, s.randomTickSelection(dim))
+	dim.randomTickPositions = s.gatherRandomTickChunks(dim, dim.randomTickPositions[:0])
+	s.randomTickChunks(dim, gameTime, dim.randomTickPositions)
 }
 
-// randomTickSelection is the loaded chunks of dim that get random ticks.
+// randomTickSelection returns an independent slice for test hooks.
 func (s *Server) randomTickSelection(dim *dimension) []world.ChunkPos {
+	return s.gatherRandomTickChunks(dim, nil)
+}
+
+func (s *Server) gatherRandomTickChunks(dim *dimension, buf []world.ChunkPos) []world.ChunkPos {
 	s.mu.RLock()
 	clients := s.clientsLocked()
 	s.mu.RUnlock()
@@ -370,10 +375,11 @@ func (s *Server) randomTickSelection(dim *dimension) []world.ChunkPos {
 		centres = append(centres, world.ChunkPos{X: world.ChunkOf(pos.X), Z: world.ChunkOf(pos.Z)})
 	}
 	reach := s.simulationDistance.Load()
-	var chunks []world.ChunkPos
 	anyForced := dim.w.AnyChunkForced()
 	anyTicketed := dim.w.AnyChunkTicketed()
-	for _, pos := range dim.w.LoadedChunkPositions() {
+	loaded := dim.w.AppendLoadedChunkPositions(buf)
+	chunks := loaded[:0]
+	for _, pos := range loaded {
 		if chunkRandomTicks(centres, reach, pos) || anyForced && dim.w.ChunkForced(pos) ||
 			anyTicketed && dim.w.ChunkTicketed(pos) {
 			chunks = append(chunks, pos)
