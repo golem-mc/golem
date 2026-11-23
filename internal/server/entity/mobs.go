@@ -155,9 +155,6 @@ const (
 	MobArmourBroke
 	// MobBodyBroke: the sun wore through a zombie horse's body armour.
 	MobBodyBroke
-	// MobHandBroke: the main-hand item wore through and the slot is cleared;
-	// the server broadcasts the break.
-	MobHandBroke
 	// MobEffectChanged: a status effect was added, updated or removed, for the
 	// trackers' metadata particles.
 	MobEffectChanged
@@ -519,7 +516,7 @@ type MobEvent struct {
 	Crossbow bool
 	// Fire marks a MobExploded blast that sets the cleared ground alight.
 	Fire bool
-	// Stack rides a MobThrewItem.
+	// Stack is the item in MobThrewItem or the crossbow that fired MobShotArrow.
 	Stack protocol.ItemStack
 	// Owned marks a MobThrewItem whose item records the mob as its thrower.
 	// vanilla: BehaviorUtils.throwItem, Dolphin.PlayWithItemsGoal
