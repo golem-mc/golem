@@ -297,9 +297,7 @@ func (fx *mobEffects) apply(s *Server, in *mobTickInputs) {
 	applyEach(s, fx.xpDrops, (*Server).spawnMobXp)
 	applyEach(s, fx.dragonDeaths, (*Server).applyDragonDeath)
 	applyEach(s, fx.strikes, func(s *Server, strike mobStrike) { s.landingBlow(strike, in.inWorld[strike.w]) })
-	if len(fx.pufferTouches) > 0 {
-		s.applyPufferTouches(s.trackingWatchers(), fx.pufferTouches)
-	}
+	s.applyLivePufferTouches(fx.pufferTouches, in.inWorld)
 	applyEach(s, fx.contacts, func(s *Server, hurt mobContact) {
 		if c := in.clientByEntityID[hurt.victimID]; c != nil && c.theWorld() == hurt.w {
 			s.sulfurBurnPlayer(c, hurt)

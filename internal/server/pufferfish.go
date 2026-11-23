@@ -1,6 +1,8 @@
 package server
 
 import (
+	"slices"
+
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -28,26 +30,45 @@ func (s *Server) pufferTouchOf(w *world.World, m *entity.Mob, ent *mobEntity) (p
 	}, true
 }
 
+// applyPufferTouches applies the touches to the players of the frozen pass.
 // vanilla: Player.aiStep, TickRateManager.isEntityFrozen
 func (s *Server) applyPufferTouches(watchers []trackingWatcher, touches []pufferTouch) {
 	if len(touches) == 0 {
 		return
 	}
 	for _, watcher := range watchers {
-		c := watcher.c
-		if !canPickUp(c) || c.player.GameMode() == protocol.GameModeCreative {
+		s.touchPuffers(watcher.c, touches)
+	}
+}
+
+// applyLivePufferTouches applies the touches of the live mob pass to each
+// touched world's clients.
+func (s *Server) applyLivePufferTouches(touches []pufferTouch, inWorld map[*world.World][]*client) {
+	for i := range touches {
+		w := touches[i].strike.w
+		if slices.ContainsFunc(touches[:i], func(t pufferTouch) bool { return t.strike.w == w }) {
 			continue
 		}
-		reach := c.pickupBox()
-		for i := range touches {
-			touch := &touches[i]
-			if c.theWorld() != touch.strike.w || !reach.Crosses(touch.box) {
-				continue
-			}
-			strike := touch.strike
-			strike.victimID = c.player.EntityID
-			s.landingBlow(strike, []*client{c})
+		for _, c := range inWorld[w] {
+			s.touchPuffers(c, touches)
 		}
+	}
+}
+
+// touchPuffers stings c with every touch whose fish box it reaches in its world.
+func (s *Server) touchPuffers(c *client, touches []pufferTouch) {
+	if !canPickUp(c) || c.player.GameMode() == protocol.GameModeCreative {
+		return
+	}
+	reach := c.pickupBox()
+	for i := range touches {
+		touch := &touches[i]
+		if c.theWorld() != touch.strike.w || !reach.Crosses(touch.box) {
+			continue
+		}
+		strike := touch.strike
+		strike.victimID = c.player.EntityID
+		s.landingBlow(strike, []*client{c})
 	}
 }
 

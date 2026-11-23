@@ -3,6 +3,9 @@ package entity
 import (
 	"math"
 	"testing"
+
+	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 func TestPufferfishScaryMobsAndPuffScale(t *testing.T) {
@@ -47,5 +50,33 @@ func TestAPufferfishStingsAnOpenShulkerShellAmongAWholeHerd(t *testing.T) {
 	}
 	if stung != 1 {
 		t.Errorf("the shulker was stung %d times, want 1", stung)
+	}
+}
+
+// TestAPufferfishStingsAScaledMobAmongAWholeHerd: the grid query reaches a mob
+// whose scale attribute puts its box in reach from beyond its cell.
+// vanilla: Pufferfish.aiStep, LivingEntity.getScale
+func TestAPufferfishStingsAScaledMobAmongAWholeHerd(t *testing.T) {
+	w := shulkerFloor(t)
+	var mobs Mobs
+	fish := NewMob(TypePufferfish, 1, 3.9, 64, 0.5, 1)
+	fish.NoAI = true
+	fish.SetPuffState(PuffFull)
+	pig := NewMob(TypePig, 2, 8.1, 64, 0.5, 2)
+	pig.NoAI = true
+	pig.SetAttributes(pig.BuildAttributes(nbt.List{}))
+	pig.attrs.SetBase(registry.AttributeScale, 16)
+	mobs = append(mobs, fish, pig)
+	for i := range villagerGridMinHerd {
+		mobs = append(mobs, NewMob(TypePig, int32(i+10), float64(i%8)*2-11, 64, float64(i/8)*2+4, int64(i+10)))
+	}
+	stung := 0
+	for _, ev := range mobs.Tick(w, nil, nil) {
+		if ev.Kind == MobAttackedPlayer && ev.Mob == fish && ev.Player.EntityID == pig.ID {
+			stung++
+		}
+	}
+	if stung != 1 {
+		t.Errorf("the scaled pig was stung %d times, want 1", stung)
 	}
 }

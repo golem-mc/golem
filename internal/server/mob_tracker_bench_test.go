@@ -6,6 +6,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
@@ -259,5 +260,42 @@ func BenchmarkTickCloudsInstants(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		s.tickClouds()
+	}
+}
+
+// BenchmarkTickMobsPufferfishTouch runs the whole mob tick with a puffed NoAI
+// pufferfish standing in a player's box among the tracker cows, so every tick
+// collects a touch and walks the world's players for it.
+func BenchmarkTickMobsPufferfishTouch(b *testing.B) {
+	s, _ := newTrackerBenchServer(b)
+	spawnTrackerBenchMobs(b, s)
+	dim := s.allDims()[0]
+	var victim *client
+	s.mu.RLock()
+	for _, c := range s.clients {
+		victim = c
+		break
+	}
+	s.mu.RUnlock()
+	pos := victim.player.Position()
+	id := s.spawnMobInDim(dim, entity.TypePufferfish, pos.X, pos.Y, pos.Z, 1, nil)
+	s.mobsMu.Lock()
+	fish := s.mobByEntityIDLocked(dim.w, id).mob
+	fish.NoAI, fish.Silent = true, true
+	fish.SetPuffState(entity.PuffFull)
+	s.mobsMu.Unlock()
+	refill := func() {
+		victim.player.UpdateVitals(func(v *player.Vitals) { v.Health, v.Dead = 20, false })
+	}
+	refill()
+	s.tickMobs()
+	if h := victim.player.Vitals().Health; h >= 20 {
+		b.Fatalf("health %v after a tick next to a puffed pufferfish, want a sting", h)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		refill()
+		s.tickMobs()
 	}
 }
