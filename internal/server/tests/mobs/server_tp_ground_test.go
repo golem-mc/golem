@@ -127,6 +127,41 @@ func TestFrozenTeleportCommandSendsSteppedPath(t *testing.T) {
 	}
 }
 
+// vanilla: MagmaCube.jumpFromGround, ServerEntity.sendChanges
+func TestMagmaCubeTakeoffMovement(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, tpGroundConfig(), "Watcher")
+	servertest.HoldTicks(t, srv)
+	srv.RunLine(`gamemode creative Watcher`)
+	srv.RunLine(`fill -3 200 -3 3 200 3 stone`)
+	srv.RunLine(`tp Watcher 0.5 201 3.5`)
+	// Pair the cube as it lands on the first tracking tick, so its first
+	// AI hop falls between the three-tick movement gates.
+	srv.RunLine(`summon magma_cube 0.5 201.05 0.5 {Size:1,OnGround:0b,Motion:[0d,-0.1d,0d]}`)
+	id := srv.MobIDsOfKind("minecraft:magma_cube")[0]
+	servertest.RunTicks(t, srv, 1)
+	var sync servertest.EntityPositionSync
+	readSync := func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlayTeleportEntity {
+			return false
+		}
+		sync = servertest.ParseEntityPositionSync(data)
+		return sync.ID == id
+	}
+	if !c.ReadTicks(srv, 0, readSync) || !sync.OnGround || sync.Y != 201 {
+		t.Fatalf("first movement sync = %+v, want grounded at y 201", sync)
+	}
+
+	seen := c.ReadTicks(srv, 1, readSync)
+	_, y, _, ok := srv.MobPos(id)
+	if !ok || y < 201.619 || y > 201.621 || srv.MobOnGround(id) {
+		t.Fatalf("cube did not take off on its second tick (y = %g)", y)
+	}
+	if !seen || sync.OnGround || sync.Y != y {
+		t.Errorf("takeoff sync seen = %v, sync = %+v, want airborne at y %g on the takeoff tick", seen, sync, y)
+	}
+}
+
 // The client emits the ring at its interpolated position on the ground transition.
 // vanilla: ServerEntity.createMovePacket, AbstractCubeMob.tick
 func TestMagmaCubeLandingMovement(t *testing.T) {
