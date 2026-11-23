@@ -385,9 +385,8 @@ func TestPluginBlockWriteRelightsOnPausedTick(t *testing.T) {
 // is dropped on disable.
 func TestPluginBlockWriteRelightsAtShutdown(t *testing.T) {
 	t.Parallel()
-	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
-	w := srv.OverworldWorld()
-	p := world.ChunkPos{X: 0, Z: 0}
+	cfg := servertest.BlockTestConfig()
+	srv, h, run := worldPlugin(t, cfg)
 	run(func() { h.Overworld().AddTicket(plugin.ChunkPos{}, 0) })
 	cell := plugin.BlockPos{X: 8, Y: 200, Z: 8}
 	plugin.Listen(h, func(*plugin.ServerTickEndEvent) {
@@ -402,10 +401,40 @@ func TestPluginBlockWriteRelightsAtShutdown(t *testing.T) {
 	if got := srv.RelightsRun() - before; got != 1 {
 		t.Errorf("shutdown submitted %d relights, want 1", got)
 	}
-	w.DrainSaves()
-	w.Acquire(p)
-	defer w.Release(p)
-	if got := w.BlockLightAt(8, 201, 8); got != 14 {
+	if got := savedBlockLight(t, cfg.LevelName, 8, 201, 8); got != 14 {
 		t.Errorf("saved block light above the glowstone = %d, want 14", got)
 	}
+}
+
+// An explicit save relights the plugin's pending writes before it writes the
+// chunks, though the tick's flush has not run yet.
+// vanilla: MinecraftServer.saveEverything, ServerChunkCache.save
+func TestPluginBlockWriteRelightsBeforeSave(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	_, h, run := worldPlugin(t, cfg)
+	run(func() { h.Overworld().AddTicket(plugin.ChunkPos{}, 0) })
+	cell := plugin.BlockPos{X: 8, Y: 200, Z: 8}
+	run(func() {
+		h.Overworld().SetBlockState(cell, plugin.DefaultState(registry.BlockGlowstone), plugin.UpdateAll)
+		h.Overworld().Save(true)
+		if got := savedBlockLight(t, cfg.LevelName, 8, 201, 8); got != 14 {
+			t.Errorf("saved block light above the glowstone = %d, want 14", got)
+		}
+	})
+}
+
+// savedBlockLight reads the block light at (x, y, z) from a world opened
+// afresh on dir, so a chunk the server still holds is read from disk.
+func savedBlockLight(t *testing.T, dir string, x, y, z int32) uint8 {
+	t.Helper()
+	w, err := world.NewWorld(dir, world.NewFlatGenerator())
+	if err != nil {
+		t.Fatalf("reopen world: %v", err)
+	}
+	defer w.Close()
+	pos := world.ChunkPos{X: world.ChunkOf(float64(x)), Z: world.ChunkOf(float64(z))}
+	w.Acquire(pos)
+	defer w.Release(pos)
+	return w.BlockLightAt(x, y, z)
 }

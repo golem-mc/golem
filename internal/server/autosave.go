@@ -219,6 +219,9 @@ func (s *Server) SaveAll(flush bool) bool {
 	s.saveOnlinePlayers()
 	s.saveMobs()
 	s.fireWorldSaves(s.allDims())
+	// A plugin write still awaiting its flush would save without its light.
+	s.relightPendingAll()
+	s.relightWG.Wait()
 	for _, dim := range s.allDims() {
 		dim.w.Save()
 	}

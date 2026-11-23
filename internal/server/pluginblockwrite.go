@@ -23,15 +23,12 @@ func (w pluginWorld) SetBlockState(p plugin.BlockPos, state plugin.BlockState, f
 	// Flags 4 and 8 affect client rendering only. Flag 32 is cleared before
 	// neighbour shapes; it does not suppress preRemoveSideEffects.
 	x, y, z := int32(p.X), int32(p.Y), int32(p.Z)
-	if !w.srv.loopRunning() {
-		return w.srv.writeBlockWithUpdates(w.dim.w, x, y, z, uint16(state), nil, writeLight, &updates)
-	}
 	// A running loop relights once per chunk at the next flush.
-	if !w.srv.writeBlockWithUpdates(w.dim.w, x, y, z, uint16(state), nil, 0, &updates) {
-		return false
+	policy := writeLight
+	if w.srv.loopRunning() {
+		policy = writeLightDeferred
 	}
-	w.srv.deferRelight(w.dim, x, z)
-	return true
+	return w.srv.writeBlockWithUpdates(w.dim.w, x, y, z, uint16(state), nil, policy, &updates)
 }
 
 // deferRelight grows the pending relight box of the column's chunk.

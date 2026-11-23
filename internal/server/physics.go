@@ -1379,6 +1379,10 @@ const (
 	// writeNeighborShapes is the shape pass of a flag-2 write: the rules
 	// reshape and the engine's shape pass, no neighbour update.
 	writeNeighborShapes
+	// writeLightDeferred relights at the next flush, holding the chunk until
+	// the relight lands; it is booked before any callback can drop the
+	// chunk's last ticket.
+	writeLightDeferred
 	commandBlockWrite = writeShape | writeEntity | writeLight | writeWake
 	strictBlockWrite  = writeEntity | writeLight
 )
@@ -1401,6 +1405,9 @@ func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint
 	}
 	if !w.SetBlock(x, y, z, state) {
 		return false
+	}
+	if policy&writeLightDeferred != 0 {
+		s.deferRelight(s.dimensionOfWorld(w), x, z)
 	}
 	if policy&writeCrafter != 0 {
 		s.physicsFor(w).ScheduleCrafter(x, y, z)

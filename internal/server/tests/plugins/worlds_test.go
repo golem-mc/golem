@@ -8,6 +8,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
@@ -847,30 +848,75 @@ func TestPluginUnloadRelightsPendingWrites(t *testing.T) {
 	})
 }
 
-// Releasing the last ticket in the write tick does not save the chunk before
-// its relight lands.
+// Releasing the last ticket in the write tick, or from a callback inside the
+// write, does not save the chunk before its relight lands.
 // vanilla: ChunkHolder.broadcastChanges, ChunkMap.save
 func TestPluginReleaseTicketKeepsPendingRelight(t *testing.T) {
-	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
-	w := createFlat(t, run, h, &flatGen{})
-	run(func() { w.AddTicket(plugin.ChunkPos{}, 0) })
-	glow := plugin.BlockPos{X: 5, Y: 20, Z: 5}
-	run(func() {
-		w.SetBlockState(glow, plugin.DefaultState(registry.BlockGlowstone), plugin.UpdateAll)
-		w.RemoveTicket(plugin.ChunkPos{}, 0)
-	})
-	srv.WaitRelights()
-	run(func() {})
-	var unloadErr error
-	run(func() { unloadErr = h.UnloadWorld(w, true) })
-	if unloadErr != nil {
-		t.Fatal(unloadErr)
+	obsidian := plugin.DefaultState(registry.BlockObsidian)
+	for _, tc := range []struct {
+		name  string
+		write func(srv *server.Server, h plugin.Server, w plugin.World) plugin.BlockPos
+	}{
+		{"after the write", func(_ *server.Server, _ plugin.Server, w plugin.World) plugin.BlockPos {
+			glow := plugin.BlockPos{X: 5, Y: 20, Z: 5}
+			w.SetBlockState(glow, plugin.DefaultState(registry.BlockGlowstone), plugin.UpdateAll)
+			w.RemoveTicket(plugin.ChunkPos{}, 0)
+			return glow
+		}},
+		{"during the write", func(srv *server.Server, h plugin.Server, w plugin.World) plugin.BlockPos {
+			fired := false
+			plugin.Listen(h, func(e *plugin.PortalCreateEvent) {
+				fired = true
+				e.SetCancelled(true)
+				w.RemoveTicket(plugin.ChunkPos{}, 0)
+				// Lets a save the release queued finish and unload the chunk.
+				srv.FlushSaves()
+			})
+			fire := plugin.BlockPos{X: 5, Y: 5, Z: 5}
+			w.SetBlockState(fire, plugin.DefaultState(registry.BlockFire), plugin.UpdateAll)
+			if !fired {
+				t.Error("placing fire in the frame fired no PortalCreateEvent")
+			}
+			return fire
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+			w := createFlat(t, run, h, &flatGen{})
+			run(func() {
+				w.AddTicket(plugin.ChunkPos{}, 0)
+				// Fire in this frame reaches PortalCreateEvent from its
+				// placement. vanilla: BaseFireBlock.onPlace
+				for x := 4; x <= 7; x++ {
+					for y := 4; y <= 8; y++ {
+						if x == 4 || x == 7 || y == 4 || y == 8 {
+							w.SetBlockState(plugin.BlockPos{X: x, Y: y, Z: 5}, obsidian, plugin.UpdateAll)
+						}
+					}
+				}
+			})
+			// The frame's relight lands, so the case's write is the first of
+			// its chunk since a flush.
+			srv.WaitRelights()
+			run(func() {})
+			var lit plugin.BlockPos
+			run(func() { lit = tc.write(srv, h, w) })
+			srv.WaitRelights()
+			run(func() {})
+			if err := unloadFlat(t, run, h, w, true); err != nil {
+				t.Fatal(err)
+			}
+			w = createFlat(t, run, h, &flatGen{})
+			run(func() {
+				w.AddTicket(plugin.ChunkPos{}, 0)
+				if got := w.BlockState(lit); got == plugin.DefaultState(registry.BlockAir) {
+					t.Error("the light source did not survive reload")
+				}
+				if _, block := w.Light(lit.Offset(plugin.Up, 1)); block != 14 {
+					t.Errorf("block light above the light source after reload = %d, want 14", block)
+				}
+			})
+		})
 	}
-	w = createFlat(t, run, h, &flatGen{})
-	run(func() {
-		w.AddTicket(plugin.ChunkPos{}, 0)
-		if _, block := w.Light(glow.Offset(plugin.Up, 1)); block != 14 {
-			t.Errorf("block light above the glowstone after reload = %d, want 14", block)
-		}
-	})
 }
