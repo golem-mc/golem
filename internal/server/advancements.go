@@ -65,10 +65,11 @@ func (c *client) inventoryChangedAdvancements(progress *advancement.Progress) {
 		var changedStacks []protocol.ItemStack
 		wantStacks := progress.TestsStacks()
 		changed = len(slots) != len(c.lastInventory)
-		for i, stack := range slots {
+		for i := range slots {
+			stack := &slots[i]
 			if i < len(c.lastInventory) {
-				previous := c.lastInventory[i]
-				if stack.Empty() && previous.Empty() || stack.Equal(previous) {
+				previous := &c.lastInventory[i]
+				if stack.Count <= 0 && previous.Count <= 0 || stack.Equal(*previous) {
 					continue
 				}
 			}
@@ -76,7 +77,7 @@ func (c *client) inventoryChangedAdvancements(progress *advancement.Progress) {
 			if !stack.Empty() {
 				changedItems = append(changedItems, stack.ItemID)
 				if wantStacks {
-					changedStacks = append(changedStacks, stack)
+					changedStacks = append(changedStacks, *stack)
 				}
 			}
 		}
