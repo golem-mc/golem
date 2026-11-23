@@ -92,7 +92,10 @@ func TestComputeRefusals(t *testing.T) {
 	// A refusal's wording: the typed branch of the number-or-provider codec,
 	// or the case list's own error where an element failed.
 	const either = "Failed to parse either. First: Not a number; Second: "
+	const invalidDefault = `{type:"minecraft:constant"}`
 	missing := func(key, of string) string { return "No key " + key + " in MapLike[" + of + "]" }
+	defaultErr := either + missing("value", invalidDefault)
+	caseErr := missing("value", "{}") + "; " + missing("condition", "{}")
 	for _, tc := range []struct{ command, failure string }{
 		{`compute default float {type:"minecraft:uniform",min_inclusive:3,max_exclusive:3.0001} 1`,
 			either + missing("max", `{max_exclusive:3.0001d,min_inclusive:3,type:"minecraft:uniform"}`) + "; " +
@@ -108,6 +111,14 @@ func TestComputeRefusals(t *testing.T) {
 			either + missing("score", `{type:"minecraft:score"}`) + "; " + missing("target", `{type:"minecraft:score"}`)},
 		{`compute default integer {type:"minecraft:storage"}`,
 			either + missing("path", `{type:"minecraft:storage"}`) + "; " + missing("storage", `{type:"minecraft:storage"}`)},
+		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{}],default:` + invalidDefault + `}`,
+			defaultErr + "; " + caseErr},
+		{`compute default float {type:"minecraft:number_dispatcher",cases:[{}],default:` + invalidDefault + `} 1`,
+			defaultErr + "; " + caseErr},
+		{`compute default integer {type:"minecraft:number_dispatcher",cases:[],default:` + invalidDefault + `}`,
+			defaultErr},
+		{`compute default integer {type:"minecraft:number_dispatcher",cases:1,default:` + invalidDefault + `}`,
+			either + defaultErr + "; Not a list: 1"},
 		{`compute default integer {type:"minecraft:conditional"}`,
 			either + missing("on_true", `{type:"minecraft:conditional"}`) + "; " + missing("condition", `{type:"minecraft:conditional"}`)},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{}]}`,

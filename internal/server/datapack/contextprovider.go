@@ -28,8 +28,8 @@ func init() {
 	}
 }
 
-// partialMark prefixes an error whose codec result is partial (a list element
-// failed): Codec.either forwards that error unwrapped.
+// partialMark prefixes an error whose codec result has a partial value.
+// Codec.either forwards that error unwrapped.
 // vanilla: EitherCodec.decode, ListCodec.decode
 const partialMark = "\x00"
 
@@ -136,7 +136,7 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 		}
 		return registry.LootConditional{Condition: test, OnTrue: onTrue, OnFalse: onFalse}, ""
 	}
-	dispatcher = func(c nbt.Compound) (registry.LootNumber, string) {
+	decodeCases := func(c nbt.Compound) ([]registry.LootDispatchCase, string) {
 		casesTag, msg := fieldOf(c, "cases")
 		if msg != "" {
 			return nil, msg
@@ -158,8 +158,18 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 			}
 			cases = append(cases, registry.LootDispatchCase{Condition: test, Value: v})
 		}
-		def, msg := optional(c, "default")
-		if msg != "" {
+		return cases, ""
+	}
+	dispatcher = func(c nbt.Compound) (registry.LootNumber, string) {
+		cases, casesMsg := decodeCases(c)
+		def, defaultMsg := optional(c, "default")
+		casesErr, partial := strings.CutPrefix(casesMsg, partialMark)
+		if msg := registry.JoinFieldErrors(defaultMsg, casesErr); msg != "" {
+			// vanilla: OptionalFieldCodec.decode supplies a partial default on error,
+			// so only missing or non-list cases leave the record without a value.
+			if casesErr == "" || partial {
+				return nil, partialMark + msg
+			}
 			return nil, msg
 		}
 		return registry.LootDispatcher{Cases: cases, Default: def}, ""
