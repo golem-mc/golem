@@ -148,6 +148,7 @@ func runSummon(src Source, input string, args []string) error {
 			return refuse(src, summonFailedKey)
 		}
 		scalars, values, compound = entries, spans, tag
+		dropInvalidBlockStates(compound, entity.BlockStateNBTKeys, true)
 	}
 
 	// The bounds the vanilla command checks the block position against
@@ -310,18 +311,47 @@ func summonErr(src Source, err error, name string) error {
 	return nil
 }
 
+// dropInvalidBlockStates removes block-state NBT entries that fail the 26.3
+// BlockState.CODEC (such as the legacy {Name, Properties} form), so command
+// inputs leave the entity or block entity at its vanilla default while disk
+// loaders keep accepting legacy saves.
+// vanilla: BlockState.CODEC
+func dropInvalidBlockStates(tag nbt.CompoundTag, keys []string, passengers bool) {
+	if tag == nil {
+		return
+	}
+	entries := tag.Entries()
+	if entries == nil {
+		return
+	}
+	for _, key := range keys {
+		if val, ok := entries[key]; ok {
+			if _, _, valid := registry.BlockStateOfCodec(val); !valid {
+				tag.Delete(key)
+			}
+		}
+	}
+	if !passengers {
+		return
+	}
+	if list, ok := nbt.Get[nbt.List](entries, "Passengers"); ok {
+		for _, item := range list.Items {
+			if rider, ok := item.(nbt.CompoundTag); ok {
+				dropInvalidBlockStates(rider, keys, true)
+			}
+		}
+	}
+}
+
 // summonBlockKey is the translation key of the block a falling block's tag
 // named — sand where the tag named none or named a block no state answers
 // to — the name a fall's display name carries beside its own key.
 // vanilla: FallingBlockEntity.getTypeName, DEFAULT_BLOCK_STATE
 func summonBlockKey(tag nbt.Tag) string {
-	name, props := registry.BlockStateOf(tag)
-	if compound, ok := nbt.CompoundView(tag); ok {
-		if _, ok := nbt.Get[nbt.String](compound, "id"); !ok {
-			name = ""
-		}
-	}
-	if _, ok := registry.FindState(registry.Qualify(name), props); !ok {
+	name, props, ok := registry.BlockStateOfCodec(tag)
+	if !ok {
+		name = "minecraft:sand"
+	} else if _, ok := registry.FindState(registry.Qualify(name), props); !ok {
 		name = "minecraft:sand"
 	}
 	name = registry.Qualify(name)

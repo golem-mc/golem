@@ -10,7 +10,7 @@ import (
 func TestParticleOptionsAcceptOrderedCompounds(t *testing.T) {
 	for _, text := range []string{
 		`{type:"minecraft:smoke"}`,
-		`{type:"minecraft:block",block_state:{Name:"minecraft:furnace",Properties:{facing:"east",lit:"true"}}}`,
+		`{type:"minecraft:block",block_state:{id:"minecraft:furnace",properties:{facing:"east",lit:"true"}}}`,
 		`{type:"minecraft:item",item:{id:"minecraft:stone",count:3}}`,
 		`{type:"minecraft:vibration",destination:{type:"block",pos:[1,64,-3]},arrival_in_ticks:20}`,
 		`{type:"minecraft:trail",target:[1.5d,64,-2],color:255,duration:40}`,

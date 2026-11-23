@@ -755,7 +755,8 @@ func applyArrowTag(it *arrowEntity, compound nbt.Compound) {
 	// The block the shaft hit, saved as inBlockState: the arrow keeps it
 	// so a later removal is seen, and the file having none leaves
 	// ArrowNoLastState, vanilla's null.
-	if block, ok := compound["inBlockState"]; ok {
+	a.LastState = entity.ArrowNoLastState
+	if block, ok := compound[entity.BlockStateKeyInBlock]; ok {
 		name, props := registry.BlockStateOf(block)
 		if state, found := registry.FindState(name, props); found {
 			a.LastState = state
@@ -913,7 +914,8 @@ func applyTNTTag(it *tntEntity, compound nbt.Compound) {
 	t.Fuse = shortFieldOr(compound, "fuse", entity.TNTDefaultFuse)
 	t.Power = tntPowerOfTag(compound)
 	t.Silent = nbt.BoolField(compound, "Silent")
-	if block, ok := compound["block_state"]; ok {
+	t.BlockState = registry.BlockTnt.DefaultState()
+	if block, ok := compound[entity.BlockStateKeyDisplay]; ok {
 		name, props := registry.BlockStateOf(block)
 		if state, found := registry.FindState(name, props); found {
 			t.BlockState = state
@@ -1006,7 +1008,7 @@ func applyFallingTag(it *fallingEntity, compound nbt.Compound) {
 // fallingBlockStateOf reads the codec's string or compound, defaulting to sand.
 // vanilla: FallingBlockEntity.readAdditionalSaveData
 func fallingBlockStateOf(compound nbt.Compound) (string, map[string]string) {
-	tag, ok := compound["BlockState"]
+	tag, ok := compound[entity.BlockStateKeyFalling]
 	if !ok {
 		return "minecraft:sand", nil
 	}
@@ -1599,7 +1601,7 @@ func applyMinecartTag(it *minecartEntity, compound nbt.Compound) {
 	m.Flipped = nbt.BoolField(compound, "FlippedRotation")
 	m.FirstTick = nbt.BoolField(compound, "HasTicked")
 	it.displayState = 0
-	if block, ok := compound["DisplayState"]; ok {
+	if block, ok := compound[entity.BlockStateKeyMinecart]; ok {
 		name, props := registry.BlockStateOf(block)
 		if state, found := registry.FindState(name, props); found {
 			it.displayState = int32(state)

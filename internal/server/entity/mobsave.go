@@ -487,7 +487,7 @@ func (m *Mob) LoadFrom(compound nbt.Compound, w World, gameTime func() int64) {
 	if m.Type == TypeEnderman {
 		// vanilla: EnderMan.readAdditionalSaveData, NeutralMob.readPersistentAngerSaveData
 		m.SetCarriedBlock(0)
-		if block, ok := compound["carriedBlockState"]; ok {
+		if block, ok := compound[BlockStateKeyCarried]; ok {
 			name, props := registry.BlockStateOf(block)
 			if state, found := registry.FindState(registry.Qualify(name), props); found && state != 0 {
 				m.SetCarriedBlock(state)

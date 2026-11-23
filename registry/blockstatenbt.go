@@ -73,6 +73,36 @@ func BlockStateOf(tag nbt.Tag) (string, map[string]string) {
 	return string(name), props
 }
 
+// BlockStateOfCodec reads a 26.3 BlockState.CODEC tag: a bare block name
+// string, or a compound carrying a string id and an optional string-valued
+// properties compound. It rejects the legacy Name/Properties form and any
+// non-string property value.
+// vanilla: BlockState.CODEC
+func BlockStateOfCodec(tag nbt.Tag) (string, map[string]string, bool) {
+	if s, ok := tag.(nbt.String); ok {
+		return string(s), map[string]string{}, true
+	}
+	block, ok := nbt.CompoundView(tag)
+	if !ok {
+		return "", nil, false
+	}
+	name, ok := nbt.Get[nbt.String](block, "id")
+	if !ok {
+		return "", nil, false
+	}
+	props := map[string]string{}
+	if p, has := block["properties"]; has {
+		parsed, ok := BlockStatePropertiesTag(p)
+		if !ok {
+			return "", nil, false
+		}
+		if parsed != nil {
+			props = parsed
+		}
+	}
+	return string(name), props, true
+}
+
 // StateOfTag decodes a block state tag (see BlockStateOf) to a state ID;
 // false for an unknown block. A property the block lacks, or a value it does
 // not take, leaves that property at the block's default.

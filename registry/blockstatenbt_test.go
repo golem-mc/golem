@@ -28,3 +28,28 @@ func TestBlockStateTagRoundTrips(t *testing.T) {
 		t.Errorf("BlockStateTag(stone, \"\") = %v, want the name alone", bare)
 	}
 }
+
+func TestBlockStateOfCodec(t *testing.T) {
+	t.Parallel()
+	if name, props, ok := BlockStateOfCodec(nbt.String("minecraft:stone")); !ok || name != "minecraft:stone" || len(props) != 0 {
+		t.Errorf("bare string = (%q, %v, %t), want minecraft:stone {} true", name, props, ok)
+	}
+	codecTag := nbt.Compound{
+		"id":         nbt.String("minecraft:oak_log"),
+		"properties": nbt.Compound{"axis": nbt.String("x")},
+	}
+	if name, props, ok := BlockStateOfCodec(codecTag); !ok || name != "minecraft:oak_log" || !maps.Equal(props, map[string]string{"axis": "x"}) {
+		t.Errorf("codec compound = (%q, %v, %t), want minecraft:oak_log map[axis:x] true", name, props, ok)
+	}
+	for _, bad := range []nbt.Tag{
+		nbt.Compound{"Name": nbt.String("minecraft:oak_log"), "Properties": nbt.Compound{"axis": nbt.String("x")}},
+		nbt.Compound{"id": nbt.String("minecraft:oak_log"), "properties": nbt.Compound{"axis": nbt.Int(1)}},
+		nbt.Compound{"id": nbt.String("minecraft:oak_log"), "properties": nbt.String("axis=x")},
+		nbt.Int(1),
+		nil,
+	} {
+		if name, props, ok := BlockStateOfCodec(bad); ok {
+			t.Errorf("BlockStateOfCodec(%#v) = (%q, %v, true), want false", bad, name, props)
+		}
+	}
+}

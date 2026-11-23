@@ -139,7 +139,7 @@ func TestParticleCommandWritesOptions(t *testing.T) {
 		want          []byte
 	}{
 		{"block name", `block{block_state:"stone"}`, build(func(b *protocol.Buffer) { b.PutVarInt(int32(stone)) })},
-		{"block_marker state", `block_marker{block_state:{Name:"minecraft:furnace",Properties:{facing:"east",lit:"true"}}}`,
+		{"block_marker state", `block_marker{block_state:{id:"minecraft:furnace",properties:{facing:"east",lit:"true"}}}`,
 			build(func(b *protocol.Buffer) { b.PutVarInt(int32(furnace)) })},
 		{"falling_dust spaced", `falling_dust{ block_state : "stone" }`, build(func(b *protocol.Buffer) { b.PutVarInt(int32(stone)) })},
 		{"dust ints", `dust{color:16711680,scale:2f}`, build(func(b *protocol.Buffer) { b.PutI32(0xFF0000); b.PutF32(2) })},
@@ -195,7 +195,8 @@ func TestParticleCommandRefusesBadOptions(t *testing.T) {
 	for _, command := range []string{
 		"particle minecraft:block",
 		`particle block{block_state:"nothing"}`,
-		`particle block{block_state:{Name:"furnace",Properties:{lit:"maybe"}}}`,
+		`particle block{block_state:{id:"furnace",properties:{lit:"maybe"}}}`,
+		`particle block{block_state:{Name:"minecraft:furnace",Properties:{facing:"east",lit:"true"}}}`,
 		"particle dust{color:1,scale:9}",
 		"particle dust{color:1,scale:0}",
 		"particle dust{color:[1,0],scale:1}",

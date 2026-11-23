@@ -9,7 +9,9 @@ import (
 	"unicode/utf16"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 )
 
@@ -520,9 +522,11 @@ func (t dataTarget) modifyData(path nbtPath, fn func(nbtPath, nbt.CompoundTag) b
 func (t dataTarget) setData(data nbt.CompoundTag) error {
 	switch t.kind {
 	case dataTargetBlock:
+		dropInvalidBlockStates(data, world.BlockStateNBTKeys, false)
 		t.src.SetBlockTagged(t.x, t.y, t.z, t.src.BlockAt(t.x, t.y, t.z), nil, data, false, false)
 		return nil
 	case dataTargetEntity:
+		dropInvalidBlockStates(data, entity.BlockStateNBTKeys, true)
 		if t.writeEntity == nil || !t.writeEntity(data) {
 			return refuse(t.src, dataEntityInvalidKey)
 		}
