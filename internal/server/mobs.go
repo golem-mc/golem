@@ -1278,6 +1278,12 @@ func mobSwingArm(entityID int32) []byte {
 	return swingAnimationPayload(entityID, protocol.HandMain)
 }
 
+// teamGated reports whether the blow is a cube touch, a pufferfish sting or a
+// dragon contact, which vanilla checks Entity.doTeamsAllowDamage for.
+func (m mobStrike) teamGated() bool {
+	return m.touch || m.puff > 0 || m.dragonContact
+}
+
 // landingBlow runs a monster's blow through the player damage pipeline,
 // difficulty-scaled (vanilla: Player.hurt), with the monster named in the
 // death message.
@@ -1296,6 +1302,10 @@ func (s *Server) landingBlow(strike mobStrike, clients []*client) {
 		if strike.damage == 0 {
 			return
 		}
+	}
+	// vanilla: Entity.doTeamsAllowDamage
+	if victim != nil && strike.teamGated() && !s.scoreboard.CanHarm(victim.player.Name, strike.uuid.String()) {
+		return
 	}
 	if strike.sonic != nil {
 		s.sonicBoom(strike, victim)
@@ -1486,6 +1496,10 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 			}
 			return
 		}
+	}
+	if ent := h.book[victim]; strike.teamGated() && ent != nil && !s.scoreboard.CanHarm(ent.uuid.String(), strike.uuid.String()) {
+		s.mobsMu.Unlock()
+		return
 	}
 	dealt, extra := strike.mob.BlowEnchantments(victim.TypeID(), strike.damage, func(ctx *rules.EnchContext) {
 		s.bindBlowLoot(strike.w, ctx, attackBody{mob: strike.mob}, attackBody{mob: victim}, true)
