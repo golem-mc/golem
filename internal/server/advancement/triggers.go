@@ -516,7 +516,7 @@ func holds(cond *registry.AdvancementCondition, at Blocks) bool {
 	if !blockNamed(cond.Blocks, state) {
 		return false
 	}
-	if cond.Smokey && !rules.HiveSedated(at.column(cond.Offset), 0, 0, 0) {
+	if cond.Smokey && !rules.HiveSedated(at, cond.Offset[0], cond.Offset[1], cond.Offset[2]) {
 		return false
 	}
 	for key, want := range cond.State {
@@ -525,27 +525,6 @@ func holds(cond *registry.AdvancementCondition, at Blocks) bool {
 		}
 	}
 	return true
-}
-
-// column copies the six cells below an origin offset from the position, the
-// reach of HiveSedated, so that the Blocks closure itself does not escape to
-// the heap through the reader interface.
-func (at Blocks) column(origin [3]int32) blockColumn {
-	var c blockColumn
-	for i := range c {
-		c[i] = at(origin[0], origin[1]-int32(i)-1, origin[2])
-	}
-	return c
-}
-
-// blockColumn holds the states at y-1 .. y-6 of a column, read at x = z = 0.
-type blockColumn [6]uint16
-
-func (c blockColumn) BlockAt(x, y, z int32) uint16 {
-	if x != 0 || z != 0 || y > -1 || y < -6 {
-		return 0
-	}
-	return c[-y-1]
 }
 
 func allHold(conds []registry.AdvancementCondition, at Blocks) bool {

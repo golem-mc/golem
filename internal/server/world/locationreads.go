@@ -32,21 +32,35 @@ func (w *World) FluidAt(x, y, z int32) (id string, amount int, falling bool) {
 	return id, fs.amount, fs.falling
 }
 
-// SmokeyAt reports whether campfire smoke reaches the block: a lit campfire
-// within five blocks below, or just under the first block below that fills
-// the smoke column.
-// vanilla: CampfireBlock.isSmokeyPos
+// SmokeyAt reports whether campfire smoke reaches the block.
 func (w *World) SmokeyAt(x, y, z int32) bool {
+	return SmokeyColumn(w.BlockAt, x, y, z)
+}
+
+// SmokeyColumn reports whether a lit campfire sits within five blocks below
+// (x, y, z), or just under the first block below that fills the smoke column.
+// Cells are read in order and only as far as needed.
+// vanilla: CampfireBlock.isSmokeyPos
+func SmokeyColumn(blockAt func(x, y, z int32) uint16, x, y, z int32) bool {
 	for i := int32(1); i <= 5; i++ {
-		state := w.BlockAt(x, y-i, z)
+		state := blockAt(x, y-i, z)
 		if registry.IsLitCampfire(state) {
 			return true
 		}
-		// SHAPE_VIRTUAL_POST is the column from 6/16 to 10/16 on x and z.
-		for _, b := range CollisionBoxes(state) {
-			if b.MinX < 10.0/16 && b.MaxX > 6.0/16 && b.MinZ < 10.0/16 && b.MaxZ > 6.0/16 && b.MaxY > b.MinY {
-				return registry.IsLitCampfire(w.BlockAt(x, y-i-1, z))
-			}
+		if smokeBlocked(state) {
+			return registry.IsLitCampfire(blockAt(x, y-i-1, z))
+		}
+	}
+	return false
+}
+
+// smokeBlocked reports whether the state's collision meets the 4-wide post
+// the smoke rises through.
+// vanilla: CampfireBlock.SHAPE_VIRTUAL_POST
+func smokeBlocked(state uint16) bool {
+	for _, b := range CollisionBoxes(state) {
+		if b.MinX < 10.0/16 && b.MaxX > 6.0/16 && b.MinZ < 10.0/16 && b.MaxZ > 6.0/16 && b.MaxY > b.MinY {
+			return true
 		}
 	}
 	return false
