@@ -3,6 +3,7 @@ package mobs
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -405,17 +406,30 @@ func TestAFullPufferfishHurtsAndPoisonsATouchingPlayer(t *testing.T) {
 	before := srv.PlayerHealth("Striker")
 	c.MoveTo(pondCentreX, 62, pondNorth, 0, 0)
 	c.Settle()
-	srv.TickMobs(1)
+	srv.TickMobs(2) // the second tick's travel step flushes the pending shove
 	var stung bool
 	var poison servertest.MobEffect
+	var shove []float64
+	var order []string
 	c.SettleAndCollect(func(packetID int32, data []byte) {
 		switch packetID {
+		case protocol.IDPlaySetEntityMotion:
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() == c.PlayerEntityID {
+				order = append(order, "motion")
+				x, y, z := r.ReadLpVec3()
+				if shove == nil {
+					shove = []float64{x, y, z}
+				}
+			}
 		case protocol.IDPlayGameEvent:
 			if protocol.NewReader(data).ReadU8() == protocol.GameEventPufferFishSting {
 				stung = true
+				order = append(order, "sting")
 			}
 		case protocol.IDPlayUpdateMobEffect:
 			r := protocol.NewReader(data)
+			order = append(order, "effect")
 			poison = servertest.MobEffect{Entity: r.ReadVarInt(), Effect: r.ReadVarInt(), Amplifier: r.ReadVarInt(), Duration: r.ReadVarInt()}
 		}
 	})
@@ -427,5 +441,17 @@ func TestAFullPufferfishHurtsAndPoisonsATouchingPlayer(t *testing.T) {
 	}
 	if want := registry.MustMobEffect("minecraft:poison"); poison.Effect != want || poison.Duration != 120 || poison.Amplifier != 0 {
 		t.Errorf("the effect update = %+v, want poison for 120 ticks at amplifier 0", poison)
+	}
+	// The shove follows the sting and the poison, at full strength: the
+	// default knockback's 0.4.
+	// vanilla: ServerEntity.sendChanges
+	if got := strings.Join(order, ","); !strings.HasPrefix(got, "sting,effect,motion") {
+		t.Errorf("packet order = %s, want the sting and the poison before the motion", got)
+	}
+	if len(shove) != 3 {
+		t.Fatal("no motion packet reached the stung player")
+	}
+	if h := math.Hypot(shove[0], shove[2]); math.Abs(h-0.4) > 1e-3 {
+		t.Errorf("the sting's horizontal shove is %.4f, want 0.4", h)
 	}
 }

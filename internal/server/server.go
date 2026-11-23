@@ -1228,6 +1228,8 @@ type client struct {
 
 	// velocityDirty is an entity-tick shove awaiting the next travel step; tick loop only.
 	velocityDirty bool
+	// velocityFlushFirst sends the pending shove before travel ages it.
+	velocityFlushFirst bool
 
 	// transferred is set when the connection came in on the Transfer intent.
 	transferred bool

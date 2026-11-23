@@ -2503,15 +2503,23 @@ func (s *Server) damageIndicator(w *world.World, x, y, z, dealt float64) {
 	}
 }
 
-type velocitySync bool
+type velocitySync uint8
 
 const (
-	syncVelocityNow         velocitySync = false
-	syncVelocityAfterTravel velocitySync = true
+	syncVelocityNow velocitySync = iota
+	syncVelocityAfterTravel
+	// syncVelocityBeforeTravel holds the shove at full strength until the
+	// next travel step, so the sends queued after the hit go out first.
+	syncVelocityBeforeTravel
 )
 
 // stepVelocity ages the player's motion and sends an entity-tick shove.
 func (c *client) stepVelocity(w *world.World, onGround bool) {
+	if c.velocityFlushFirst {
+		c.velocityFlushFirst = false
+		c.sendVelocity(w, c.player.Velocity())
+		c.velocityDirty = false
+	}
 	c.player.StepVelocity(onGround)
 	if c.velocityDirty {
 		c.velocityDirty = false
@@ -2523,8 +2531,12 @@ func (c *client) stepVelocity(w *world.World, onGround bool) {
 // Packet-time hits reach tracking before travel in vanilla, so send those now.
 // vanilla: ServerLevel.tick, MinecraftServer.tickChildren, ServerEntity.sendChanges
 func (c *client) syncVelocity(w *world.World, v player.Velocity, when velocitySync) {
-	if when == syncVelocityAfterTravel {
+	switch when {
+	case syncVelocityAfterTravel:
 		c.velocityDirty = true
+		return
+	case syncVelocityBeforeTravel:
+		c.velocityDirty, c.velocityFlushFirst = true, true
 		return
 	}
 	c.sendVelocity(w, v)
