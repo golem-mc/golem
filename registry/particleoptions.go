@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
@@ -59,12 +60,9 @@ func ParticleData(name string, opts nbt.Compound) ([]byte, error) {
 	case "minecraft:dust_color_transition":
 		err = putDust(&b, opts, true)
 	case "minecraft:effect", "minecraft:instant_effect":
-		var color int32
-		var power float32
-		if color, err = optionColor(opts, "color", false, -1, true); err == nil {
-			power, err = optionFloat(opts, "power", false, 1)
-		}
-		if err == nil {
+		power, powerErr := optionFloat(opts, "power", false, 1)
+		color, colorErr := optionColor(opts, "color", false, -1, true)
+		if err = joinParticleErrors(powerErr, colorErr); err == nil {
 			b.PutI32(color)
 			b.PutF32(power)
 		}
@@ -104,29 +102,59 @@ func ParticleData(name string, opts nbt.Compound) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// missingKeyError formats DFU's FieldDecoder missing-key error.
+// vanilla: FieldDecoder.decode
+func missingKeyError(key string, opts nbt.Compound) error {
+	return fmt.Errorf("No key %s in MapLike[%s]", key, nbt.Stringify(opts)) //nolint:staticcheck // shown to the player as vanilla words it
+}
+
+// floatRangeError formats a range check error with Java float formatting.
+// vanilla: ScalableParticleOptionsBase.SCALE, ExtraCodecs.floatRange
+func floatRangeError(minVal, maxVal, val float32) error {
+	return fmt.Errorf("Value must be within range [%s;%s]: %s", //nolint:staticcheck // shown to the player as vanilla words it
+		nbt.JavaFloatText(float64(minVal), 32),
+		nbt.JavaFloatText(float64(maxVal), 32),
+		nbt.JavaFloatText(float64(val), 32))
+}
+
+// positiveIntError formats ExtraCodecs.POSITIVE_INT's error.
+// vanilla: ExtraCodecs.POSITIVE_INT
+func positiveIntError(val int32) error {
+	return fmt.Errorf("Value must be positive: %d", val) //nolint:staticcheck // shown to the player as vanilla words it
+}
+
+// joinParticleErrors joins non-nil record field errors with "; ", matching DFU's
+// RecordCodecBuilder / DataResult.Error.ap (which accumulates in reverse field order).
+func joinParticleErrors(errs ...error) error {
+	var parts []string
+	for _, err := range errs {
+		if err != nil {
+			parts = append(parts, err.Error())
+		}
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	return errors.New(strings.Join(parts, "; "))
+}
+
 // putDust writes a dust particle's colour (or colour pair) and scale.
-// vanilla: DustParticleOptions.STREAM_CODEC, DustColorTransitionOptions.STREAM_CODEC
+// vanilla: DustParticleOptions.CODEC, DustColorTransitionOptions.CODEC
 func putDust(b *protocol.Buffer, opts nbt.Compound, transition bool) error {
+	scale, scaleErr := optionFloat(opts, "scale", true, 0)
+	if scaleErr == nil && (scale < particleMinScale || scale > particleMaxScale) {
+		scaleErr = floatRangeError(particleMinScale, particleMaxScale, scale)
+	}
+	var to int32
+	var toErr error
 	key := "color"
 	if transition {
 		key = "from_color"
+		to, toErr = optionColor(opts, "to_color", true, 0, true)
 	}
-	from, err := optionColor(opts, key, true, 0, true)
-	if err != nil {
+	from, fromErr := optionColor(opts, key, true, 0, true)
+	if err := joinParticleErrors(scaleErr, toErr, fromErr); err != nil {
 		return err
-	}
-	var to int32
-	if transition {
-		if to, err = optionColor(opts, "to_color", true, 0, true); err != nil {
-			return err
-		}
-	}
-	scale, err := optionFloat(opts, "scale", true, 0)
-	if err != nil {
-		return err
-	}
-	if scale < particleMinScale || scale > particleMaxScale {
-		return fmt.Errorf("value must be within range [%g;%g]: %g", particleMinScale, particleMaxScale, scale)
 	}
 	b.PutI32(from)
 	if transition {
@@ -140,18 +168,17 @@ func putDust(b *protocol.Buffer, opts nbt.Compound, transition bool) error {
 // poof types, the burst impulse.
 // vanilla: GeyserParticleOptions, GeyserBaseParticleOptions
 func putGeyser(b *protocol.Buffer, opts nbt.Compound, base bool) error {
-	water, err := optionInt(opts, "water_blocks", true, 0)
-	if err != nil {
-		return err
-	}
-	if water < 1 {
-		return fmt.Errorf("value must be positive: %d", water)
-	}
 	var burst float32
+	var burstErr error
 	if base {
-		if burst, err = optionFloat(opts, "burst_impulse_base", true, 0); err != nil {
-			return err
-		}
+		burst, burstErr = optionFloat(opts, "burst_impulse_base", true, 0)
+	}
+	water, waterErr := optionInt(opts, "water_blocks", true, 0)
+	if waterErr == nil && water < 1 {
+		waterErr = positiveIntError(water)
+	}
+	if err := joinParticleErrors(burstErr, waterErr); err != nil {
+		return err
 	}
 	b.PutI32(water)
 	if base {
@@ -167,7 +194,7 @@ func putGeyser(b *protocol.Buffer, opts nbt.Compound, base bool) error {
 func putItem(b *protocol.Buffer, opts nbt.Compound) error {
 	tag, ok := opts["item"]
 	if !ok {
-		return errors.New("no key item")
+		return missingKeyError("item", opts)
 	}
 	entry, isCompound := nbt.CompoundView(tag)
 	if name, isString := tag.(nbt.String); isString {
@@ -203,26 +230,22 @@ func putItem(b *protocol.Buffer, opts nbt.Compound) error {
 }
 
 // putTrail writes a trail particle's target, colour and duration.
-// vanilla: TrailParticleOption.STREAM_CODEC
+// vanilla: TrailParticleOption.CODEC, TrailParticleOption.STREAM_CODEC
 func putTrail(b *protocol.Buffer, opts nbt.Compound) error {
-	tag, ok := opts["target"]
-	if !ok {
-		return errors.New("no key target")
+	duration, durationErr := optionInt(opts, "duration", true, 0)
+	if durationErr == nil && duration < 1 {
+		durationErr = positiveIntError(duration)
 	}
-	items, ok := numberList(tag, 3)
-	if !ok {
-		return errors.New("input does not contain a list of 3 numbers")
+	color, colorErr := optionColor(opts, "color", true, 0, true)
+	var items []float64
+	var targetErr error
+	if tag, ok := opts["target"]; !ok {
+		targetErr = missingKeyError("target", opts)
+	} else if items, ok = numberList(tag, 3); !ok {
+		targetErr = errors.New("input does not contain a list of 3 numbers")
 	}
-	color, err := optionColor(opts, "color", true, 0, true)
-	if err != nil {
+	if err := joinParticleErrors(durationErr, colorErr, targetErr); err != nil {
 		return err
-	}
-	duration, err := optionInt(opts, "duration", true, 0)
-	if err != nil {
-		return err
-	}
-	if duration < 1 {
-		return fmt.Errorf("value must be positive: %d", duration)
 	}
 	for _, v := range items {
 		b.PutF64(v)
@@ -236,41 +259,9 @@ func putTrail(b *protocol.Buffer, opts nbt.Compound) error {
 // time. An entity destination is refused.
 // vanilla: VibrationParticleOption.CODEC, PositionSourceType
 func putVibration(b *protocol.Buffer, opts nbt.Compound) error {
-	tag, ok := opts["destination"]
-	if !ok {
-		return errors.New("no key destination")
-	}
-	dest, ok := nbt.CompoundView(tag)
-	if !ok {
-		return errors.New("not a map")
-	}
-	kind, ok := nbt.Get[nbt.String](dest, "type")
-	if !ok {
-		return errors.New("no key type")
-	}
-	switch Qualify(string(kind)) {
-	case "minecraft:block":
-	case "minecraft:entity":
-		return errors.New("entity position sources are not allowed")
-	default:
-		return fmt.Errorf("unknown registry key: %s", kind)
-	}
-	pos, ok := dest["pos"]
-	if !ok {
-		return errors.New("no key pos")
-	}
-	items, ok := listItems(pos)
-	if !ok || len(items) != 3 {
-		return errors.New("input does not contain a list of 3 numbers")
-	}
-	var xyz [3]int32
-	for i, item := range items {
-		if xyz[i], ok = nbt.IntValue(item); !ok {
-			return errors.New("not a number")
-		}
-	}
-	arrival, err := optionInt(opts, "arrival_in_ticks", true, 0)
-	if err != nil {
+	arrival, arrivalErr := optionInt(opts, "arrival_in_ticks", true, 0)
+	xyz, destErr := optionVibrationDestination(opts)
+	if err := joinParticleErrors(arrivalErr, destErr); err != nil {
 		return err
 	}
 	b.PutVarInt(0) // minecraft:block in the position_source_type registry
@@ -279,12 +270,51 @@ func putVibration(b *protocol.Buffer, opts nbt.Compound) error {
 	return nil
 }
 
+// optionVibrationDestination reads a vibration particle's destination field.
+// vanilla: VibrationParticleOption.SAFE_POSITION_SOURCE_CODEC, BlockPositionSource.CODEC
+func optionVibrationDestination(opts nbt.Compound) ([3]int32, error) {
+	var xyz [3]int32
+	tag, ok := opts["destination"]
+	if !ok {
+		return xyz, missingKeyError("destination", opts)
+	}
+	dest, ok := nbt.CompoundView(tag)
+	if !ok {
+		return xyz, errors.New("not a map")
+	}
+	kind, ok := nbt.Get[nbt.String](dest, "type")
+	if !ok {
+		return xyz, missingKeyError("type", dest)
+	}
+	switch Qualify(string(kind)) {
+	case "minecraft:block":
+	case "minecraft:entity":
+		return xyz, errors.New("Entity position sources are not allowed") //nolint:staticcheck // shown to the player as vanilla words it
+	default:
+		return xyz, fmt.Errorf("unknown registry key: %s", kind)
+	}
+	pos, ok := dest["pos"]
+	if !ok {
+		return xyz, missingKeyError("pos", dest)
+	}
+	items, ok := listItems(pos)
+	if !ok || len(items) != 3 {
+		return xyz, errors.New("input does not contain a list of 3 numbers")
+	}
+	for i, item := range items {
+		if xyz[i], ok = nbt.IntValue(item); !ok {
+			return xyz, errors.New("not a number")
+		}
+	}
+	return xyz, nil
+}
+
 // optionInt reads an integer field; a missing one is def unless required.
 func optionInt(opts nbt.Compound, key string, required bool, def int32) (int32, error) {
 	tag, ok := opts[key]
 	if !ok {
 		if required {
-			return 0, fmt.Errorf("no key %s", key)
+			return 0, missingKeyError(key, opts)
 		}
 		return def, nil
 	}
@@ -300,7 +330,7 @@ func optionFloat(opts nbt.Compound, key string, required bool, def float32) (flo
 	tag, ok := opts[key]
 	if !ok {
 		if required {
-			return 0, fmt.Errorf("no key %s", key)
+			return 0, missingKeyError(key, opts)
 		}
 		return def, nil
 	}
@@ -379,7 +409,7 @@ func optionColor(opts nbt.Compound, key string, required bool, def int32, rgb bo
 	tag, ok := opts[key]
 	if !ok {
 		if required {
-			return 0, fmt.Errorf("no key %s", key)
+			return 0, missingKeyError(key, opts)
 		}
 		return def, nil
 	}
@@ -427,7 +457,7 @@ func channel(v float32) int32 {
 func optionBlockState(opts nbt.Compound, key string) (uint16, error) {
 	tag, ok := opts[key]
 	if !ok {
-		return 0, fmt.Errorf("no key %s", key)
+		return 0, missingKeyError(key, opts)
 	}
 	var name string
 	var props map[string]string
