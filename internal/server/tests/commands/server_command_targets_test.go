@@ -120,6 +120,50 @@ func TestTeleportToAPlayer(t *testing.T) {
 	helper.Disconnect()
 }
 
+// TestTeleportToTeamedPlayerNamesTeamFormattedDestination checks that the
+// entity-destination feedback, single and multiple, carries the destination's
+// team-formatted name.
+func TestTeleportToTeamedPlayerNamesTeamFormattedDestination(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.GameMode = "creative"
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Mover"))
+
+	mover := connect().Join("Mover")
+	servertest.HoldTicks(t, srv)
+
+	// run sends a command and reads, with no tick run, the feedback it names.
+	run := func(command, key string, with ...protocol.Text) {
+		t.Helper()
+		var want protocol.Buffer
+		want.PutText(protocol.Text{Translate: key, With: with})
+		want.PutBool(false)
+		mover.ChatCommand(command)
+		if !mover.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+			return id == protocol.IDPlaySystemChat && bytes.Equal(data, want.Bytes())
+		}) {
+			t.Fatalf("%q: no %s feedback", command, key)
+		}
+	}
+	setup := func(command string) {
+		t.Helper()
+		mover.ChatCommand(command)
+		mover.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+	}
+	for _, line := range []string{"team add red", "team modify red color red", "team join red Mover", "tag @s add t"} {
+		setup(line)
+	}
+	setup("summon armor_stand 0 64 0 {Tags:[\"t\"]}")
+
+	dest := servertest.TeamPlayerDisplayComponent("Mover", "", "red")
+	run("tp @s", "commands.teleport.success.entity.single", dest, dest)
+	two := int64(2)
+	run("tp @e[tag=t] @s", "commands.teleport.success.entity.multiple", protocol.Text{Number: &two}, dest)
+	mover.Disconnect()
+}
+
 // TestTeleportTargetsMovesEveryone checks the form that names who moves:
 // every player the selector names ends up where the command says, and the
 // feedback counts them.
