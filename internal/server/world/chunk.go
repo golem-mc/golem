@@ -672,6 +672,19 @@ func putBlockStates(b *protocol.Buffer, states *[blocksPerSection]uint16) {
 		for _, state := range palette {
 			b.PutVarInt(int32(state))
 		}
+		if entryBits == 4 {
+			const entriesPerWord = 64 / 4
+			for i := 0; i < len(states); i += entriesPerWord {
+				group := states[i : i+entriesPerWord]
+				var word uint64
+				// Build backwards so the first cell occupies the low nibble.
+				for _, g := range slices.Backward(group) {
+					word = word<<4 | uint64(slots[g]-1)
+				}
+				b.PutI64(int64(word))
+			}
+			return
+		}
 		putPacked(b, entryBits, blocksPerSection, func(i int) uint64 { return uint64(slots[states[i]] - 1) })
 	default:
 		b.PutU8(directBits)
