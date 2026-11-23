@@ -3,7 +3,6 @@ package plugins_test
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -314,17 +313,32 @@ func TestPluginBlockWriteRelightsAtFlush(t *testing.T) {
 		run(func() { s, _ = h.Overworld().Light(cell) })
 		return s
 	}
-	run(func() { roof(plugin.DefaultState(registry.BlockStone)) })
-	// The relight runs on the worker pool, so the wait is wall-clock bound.
-	until := func(what string, cond func() bool) {
-		t.Helper()
-		for deadline := time.Now().Add(5 * time.Second); !cond(); time.Sleep(time.Millisecond) {
-			if time.Now().After(deadline) {
-				t.Fatalf("%s: sky light %d", what, sky())
-			}
-		}
+	if got := sky(); got != 15 {
+		t.Fatalf("initial sky light %d, want 15", got)
 	}
-	until("light under the roof", func() bool { return sky() < 15 })
-	run(func() { roof(plugin.DefaultState(registry.BlockAir)) })
-	until("light back", func() bool { return sky() == 15 })
+	// The write callback submits no relight; the flush at the tick's end
+	// submits one for the chunk.
+	set := func(what string, state plugin.BlockState) {
+		t.Helper()
+		before := srv.RelightsRun()
+		run(func() {
+			roof(state)
+			if got := srv.RelightsRun(); got != before {
+				t.Errorf("%s: %d relights submitted by the writes", what, got-before)
+			}
+		})
+		if got := srv.RelightsRun() - before; got != 1 {
+			t.Errorf("%s: flush submitted %d relights, want 1", what, got)
+		}
+		srv.WaitRelights()
+	}
+	set("roof", plugin.DefaultState(registry.BlockStone))
+	// The workers' result is flushed by the next tick.
+	if got := sky(); got >= 15 {
+		t.Errorf("sky light under the roof %d, want below 15", got)
+	}
+	set("remove", plugin.DefaultState(registry.BlockAir))
+	if got := sky(); got != 15 {
+		t.Errorf("sky light after removal %d, want 15", got)
+	}
 }

@@ -151,7 +151,7 @@ func BenchmarkPluginSetBlockCube(b *testing.B) {
 		flags plugin.UpdateFlags
 	}{
 		{"UpdateAll", plugin.UpdateAll},
-		{"Fast", plugin.UpdateClients | plugin.UpdateKnownShape | plugin.UpdateSkipOnPlace | plugin.UpdateSkipBlockEntitySideEffects},
+		{"Fast", plugin.UpdateClients | plugin.UpdateKnownShape | plugin.UpdateSkipOnPlace | plugin.UpdateSuppressDrops},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			s, dim, _, pw := pluginChunkBench(b)
@@ -167,9 +167,9 @@ func BenchmarkPluginSetBlockCube(b *testing.B) {
 			b.ReportAllocs()
 			i := 0
 			for b.Loop() {
-				state := stone
+				state := air
 				if i%2 == 1 {
-					state = air
+					state = stone
 				}
 				for x := range 32 {
 					for y := -50; y < -18; y++ {
@@ -178,6 +178,7 @@ func BenchmarkPluginSetBlockCube(b *testing.B) {
 						}
 					}
 				}
+				s.flushBlockChanges(dim.w)
 				s.relightWG.Wait()
 				s.flushBlockChanges(dim.w)
 				i++

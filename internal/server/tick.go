@@ -367,6 +367,8 @@ func (s *Server) tick() {
 		(*fault)()
 	}
 	if paused, first := s.emptyPause.Tick(s.PlayerCount(), s.tickRate.Sprinting()); paused {
+		// Plugin tasks ran above, and the flush below is skipped.
+		s.relightPendingAll()
 		if first {
 			slog.Info(fmt.Sprintf("Server empty for %d seconds, pausing", s.emptyPause.Seconds()))
 			s.autoSave()

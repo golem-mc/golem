@@ -467,7 +467,7 @@ func (s *Server) physicsResults(dim *dimension, changes []world.BlockChange, fal
 	// Bodies spawn after the block change clearing their cell, so the queue
 	// goes out first.
 	if len(falls)+len(primes) > 0 {
-		s.flushBlockChanges(dim.w)
+		s.flushDimBlockChanges(dim)
 	}
 	for _, f := range falls {
 		s.spawnFallingBlock(dim.w, f)
@@ -481,21 +481,21 @@ func (s *Server) physicsResults(dim *dimension, changes []world.BlockChange, fal
 	// first.
 	tadpoles := dim.physics.TakeTadpoleHatches()
 	if len(tadpoles) > 0 {
-		s.flushBlockChanges(dim.w)
+		s.flushDimBlockChanges(dim)
 	}
 	for _, h := range tadpoles {
 		s.hatchTadpole(dim, h)
 	}
 	sniffers := dim.physics.TakeSnifferHatches()
 	if len(sniffers) > 0 {
-		s.flushBlockChanges(dim.w)
+		s.flushDimBlockChanges(dim)
 	}
 	for _, h := range sniffers {
 		s.hatchSniffer(dim, h)
 	}
 	ghastlings := dim.physics.TakeGhastlingSpawns()
 	if len(ghastlings) > 0 {
-		s.flushBlockChanges(dim.w)
+		s.flushDimBlockChanges(dim)
 	}
 	for _, g := range ghastlings {
 		s.spawnGhastling(dim, g)
@@ -560,7 +560,13 @@ func (s *Server) markChanged(w *world.World, x, y, z int32) {
 // player with the chunk gets it, the one who changed the block included.
 // vanilla: ChunkHolder.broadcastChanges
 func (s *Server) flushBlockChanges(w *world.World) {
-	s.relightPending(s.dimensionOfWorld(w))
+	s.flushDimBlockChanges(s.dimensionOfWorld(w))
+}
+
+// flushDimBlockChanges is flushBlockChanges for a dimension already at hand.
+func (s *Server) flushDimBlockChanges(dim *dimension) {
+	w := dim.w
+	s.relightPending(dim)
 	s.broadcastLight(w, w.TakeLightChanged())
 	var changes []world.BlockChange
 	for _, sc := range w.TakeChanged() {
@@ -575,7 +581,7 @@ func (s *Server) flushBlockChanges(w *world.World) {
 // flushAllBlockChanges is flushBlockChanges over every dimension.
 func (s *Server) flushAllBlockChanges() {
 	for _, dim := range s.allDims() {
-		s.flushBlockChanges(dim.w)
+		s.flushDimBlockChanges(dim)
 	}
 }
 
@@ -869,23 +875,51 @@ func (s *Server) collectArmorStandsToPush(w *world.World, sh bodyShove) []func()
 // the union of per-column boxes and is larger when they scatter.
 type changeBox struct{ minX, minZ, maxX, maxZ int32 }
 
-// relightChanges books one relight per touched chunk over the bounds of its
-// changes, in order of each chunk's first change so the order does not
-// depend on map iteration.
-func (s *Server) relightChanges(w *world.World, changes []world.BlockChange) {
-	at := make(map[[2]int32]int, len(changes))
-	var boxes []changeBox
-	for _, ch := range changes {
-		key := [2]int32{world.ChunkOf(float64(ch.X)), world.ChunkOf(float64(ch.Z))}
-		if i, ok := at[key]; ok {
-			b := &boxes[i]
-			b.minX, b.minZ = min(b.minX, ch.X), min(b.minZ, ch.Z)
-			b.maxX, b.maxZ = max(b.maxX, ch.X), max(b.maxZ, ch.Z)
-			continue
-		}
-		at[key] = len(boxes)
-		boxes = append(boxes, changeBox{minX: ch.X, minZ: ch.Z, maxX: ch.X, maxZ: ch.Z})
+// changeBoxes accumulates changeBox per chunk in order of each chunk's first
+// change, so the order does not depend on map iteration.
+type changeBoxes struct {
+	at    map[[2]int32]int
+	boxes []changeBox
+	spare []changeBox
+}
+
+func (c *changeBoxes) add(x, z int32) {
+	key := [2]int32{world.ChunkOf(float64(x)), world.ChunkOf(float64(z))}
+	if i, ok := c.at[key]; ok {
+		b := &c.boxes[i]
+		b.minX, b.minZ = min(b.minX, x), min(b.minZ, z)
+		b.maxX, b.maxZ = max(b.maxX, x), max(b.maxZ, z)
+		return
 	}
+	if c.at == nil {
+		c.at = make(map[[2]int32]int)
+	}
+	c.at[key] = len(c.boxes)
+	if c.boxes == nil {
+		c.boxes, c.spare = c.spare, nil
+	}
+	c.boxes = append(c.boxes, changeBox{minX: x, minZ: z, maxX: x, maxZ: z})
+}
+
+// take empties c and returns its boxes; recycle gives the slice back once
+// the caller is done with it.
+func (c *changeBoxes) take() []changeBox {
+	boxes := c.boxes
+	c.boxes = nil
+	clear(c.at)
+	return boxes
+}
+
+func (c *changeBoxes) recycle(boxes []changeBox) { c.spare = boxes[:0] }
+
+// relightChanges books one relight per touched chunk over the bounds of its
+// changes.
+func (s *Server) relightChanges(w *world.World, changes []world.BlockChange) {
+	var set changeBoxes
+	for _, ch := range changes {
+		set.add(ch.X, ch.Z)
+	}
+	boxes := set.boxes
 	s.relightBoxesAsync(w, boxes)
 	if s.relightSeam != nil {
 		s.relightSeam(len(boxes), changes)

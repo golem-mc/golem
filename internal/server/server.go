@@ -2157,6 +2157,7 @@ func (s *Server) shutdown() {
 	command.StopJfrOnExit(filepath.Dir(s.configPath))
 
 	// A relight still queued would install after the save and be lost.
+	s.relightPendingAll()
 	s.relightWG.Wait()
 
 	// Stop query before the world, so nothing answers a stat mid-save.

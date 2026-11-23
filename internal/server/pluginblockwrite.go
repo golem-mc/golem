@@ -36,37 +36,31 @@ func (w pluginWorld) SetBlockState(p plugin.BlockPos, state plugin.BlockState, f
 
 // deferRelight grows the pending relight box of the column's chunk.
 func (s *Server) deferRelight(dim *dimension, x, z int32) {
-	key := [2]int32{world.ChunkOf(float64(x)), world.ChunkOf(float64(z))}
 	dim.pendingRelightMu.Lock()
-	defer dim.pendingRelightMu.Unlock()
-	b, ok := dim.pendingRelight[key]
-	if !ok {
-		if dim.pendingRelight == nil {
-			dim.pendingRelight = make(map[[2]int32]changeBox)
-		}
-		dim.pendingRelightOrder = append(dim.pendingRelightOrder, key)
-		b = changeBox{x, z, x, z}
-	}
-	b.minX, b.minZ = min(b.minX, x), min(b.minZ, z)
-	b.maxX, b.maxZ = max(b.maxX, x), max(b.maxZ, z)
-	dim.pendingRelight[key] = b
+	dim.pendingRelight.add(x, z)
+	dim.pendingRelightMu.Unlock()
 }
 
 // relightPending books the relights deferRelight collected.
 func (s *Server) relightPending(dim *dimension) {
 	dim.pendingRelightMu.Lock()
-	if len(dim.pendingRelightOrder) == 0 {
-		dim.pendingRelightMu.Unlock()
+	boxes := dim.pendingRelight.take()
+	dim.pendingRelightMu.Unlock()
+	if len(boxes) == 0 {
 		return
 	}
-	boxes := make([]changeBox, 0, len(dim.pendingRelightOrder))
-	for _, k := range dim.pendingRelightOrder {
-		boxes = append(boxes, dim.pendingRelight[k])
-	}
-	clear(dim.pendingRelight)
-	dim.pendingRelightOrder = dim.pendingRelightOrder[:0]
-	dim.pendingRelightMu.Unlock()
 	s.relightBoxesAsync(dim.w, boxes)
+	dim.pendingRelightMu.Lock()
+	dim.pendingRelight.recycle(boxes)
+	dim.pendingRelightMu.Unlock()
+}
+
+// relightPendingAll books the pending relights of every dimension, for the
+// turns that skip the flush.
+func (s *Server) relightPendingAll() {
+	for _, dim := range s.allDims() {
+		s.relightPending(dim)
+	}
 }
 
 // BreakBlock breaks the block as if mined without a tool.
