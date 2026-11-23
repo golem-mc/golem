@@ -282,11 +282,8 @@ func (m *Mob) equipment() [8]heldStack {
 		slots[i].chance = m.DropChances[i]
 		slots[i].sure = m.DropChances[i] > 1
 	}
-	// A saddle is only fitted by a click that guarantees its drop.
-	// vanilla: Equippable.equipOnTarget, Mob.setGuaranteedDrop
-	slots[6].stack, slots[6].chance, slots[6].sure = m.SaddleSlot(), guaranteedDropChance, true
-	// vanilla: Wolf.mobInteract's setItemSlotAndDropWhenKilled
-	slots[7].stack, slots[7].chance, slots[7].sure = m.Body, guaranteedDropChance, true
+	slots[6].stack, slots[6].chance, slots[6].sure = m.SaddleSlot(), m.SaddleDropChance, m.SaddleDropChance > 1
+	slots[7].stack, slots[7].chance, slots[7].sure = m.Body, m.BodyDropChance, m.BodyDropChance > 1
 	return slots
 }
 

@@ -738,12 +738,14 @@ func (m *Mob) UseItem(held protocol.ItemStack, sneaking bool) (click HorseClick,
 		if !m.IsBaby() && IsSaddle(held) && m.CanTakeSaddle() {
 			held.Count = 1
 			m.SetMetadataHorseSaddle(held)
+			m.SaddleDropChance = guaranteedDropChance
 			return HorseClickSaddle, false
 		}
 		// vanilla: AbstractHorse.mobInteract's equipBodyArmor
 		if !m.IsBaby() && m.Body.Empty() && m.Wears("body", held) {
 			held.Count = 1
 			m.SetEquipment(6, held)
+			m.BodyDropChance = guaranteedDropChance
 			return HorseClickArmor, false
 		}
 	}

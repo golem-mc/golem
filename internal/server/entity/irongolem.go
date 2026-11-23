@@ -327,6 +327,7 @@ func (g *offerFlowerGoal) Stop(t *tickView) {
 		target.Antenna.Empty() &&
 		boxesOverlap(m.X, m.Y-2, m.Z, m.width()+12, m.height()+4, target.X, target.Y, target.Z, target.width(), target.height()) {
 		target.SetMetadataAntenna(protocol.ItemStack{ItemID: int32(registry.ItemPoppy), Count: 1})
+		target.SaddleDropChance = guaranteedDropChance
 	}
 	t.events = append(t.events, MobEvent{Mob: g.m, Kind: MobStatus, Status: protocol.EntityStatusIronGolemStopFlower})
 }

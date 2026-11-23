@@ -102,6 +102,67 @@ func TestEquipOnInteractSlotRules(t *testing.T) {
 			if !got.Equal(want) {
 				t.Errorf("slot = %+v, want %+v", got, want)
 			}
+			if tc.want {
+				gotChance := m.BodyDropChance
+				if tc.slot == "saddle" {
+					gotChance = m.SaddleDropChance
+				}
+				if gotChance != guaranteedDropChance {
+					t.Errorf("%s drop chance = %v, want %v", tc.slot, gotChance, guaranteedDropChance)
+				}
+			}
 		})
 	}
+}
+
+func TestSaddleAndBodyEquipGuaranteeDropChance(t *testing.T) {
+	t.Parallel()
+	saddle := protocol.ItemStack{ItemID: int32(registry.ItemSaddle), Count: 1}
+	horseArmor := protocol.ItemStack{ItemID: int32(registry.ItemIronHorseArmor), Count: 1}
+	wolfArmor := protocol.ItemStack{ItemID: int32(registry.ItemWolfArmor), Count: 1}
+	harness := protocol.ItemStack{ItemID: int32(registry.ItemBlueHarness), Count: 1}
+
+	t.Run("dispenser saddle and body", func(t *testing.T) {
+		h := NewMob(TypeHorse, 1, 0, 64, 0, 1)
+		h.Horse.Tame = true
+		if !h.DispenserEquip(saddle) || h.SaddleDropChance != guaranteedDropChance {
+			t.Fatalf("horse dispenser saddle chance = %v, want %v", h.SaddleDropChance, guaranteedDropChance)
+		}
+		if !h.DispenserEquip(horseArmor) || h.BodyDropChance != guaranteedDropChance {
+			t.Fatalf("horse dispenser body chance = %v, want %v", h.BodyDropChance, guaranteedDropChance)
+		}
+	})
+
+	t.Run("horse clicks", func(t *testing.T) {
+		h := NewMob(TypeHorse, 1, 0, 64, 0, 1)
+		h.Horse.Tame = true
+		if click, _ := h.UseItem(saddle, false); click != HorseClickSaddle || h.SaddleDropChance != guaranteedDropChance {
+			t.Fatalf("horse click saddle: click=%v chance=%v", click, h.SaddleDropChance)
+		}
+		if click, _ := h.UseItem(horseArmor, false); click != HorseClickArmor || h.BodyDropChance != guaranteedDropChance {
+			t.Fatalf("horse click armor: click=%v chance=%v", click, h.BodyDropChance)
+		}
+	})
+
+	t.Run("wolf armor", func(t *testing.T) {
+		w := NewMob(TypeWolf, 1, 0, 64, 0, 1)
+		if !w.EquipWolfArmor(wolfArmor, true) || w.BodyDropChance != guaranteedDropChance {
+			t.Fatalf("wolf armor chance = %v, want %v", w.BodyDropChance, guaranteedDropChance)
+		}
+	})
+
+	t.Run("happy ghast harness", func(t *testing.T) {
+		g := NewMob(TypeHappyGhast, 1, 0, 64, 0, 1)
+		if !g.EquipHarness(harness) || g.BodyDropChance != guaranteedDropChance {
+			t.Fatalf("happy ghast harness chance = %v, want %v", g.BodyDropChance, guaranteedDropChance)
+		}
+	})
+
+	t.Run("sulfur cube absorb", func(t *testing.T) {
+		c := NewMob(TypeSulfurCube, 1, 0, 64, 0, 1)
+		stone := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
+		if _, ok := c.AbsorbSulfurBlock(stone); !ok || c.BodyDropChance != guaranteedDropChance {
+			t.Fatalf("sulfur cube body chance = %v, want %v", c.BodyDropChance, guaranteedDropChance)
+		}
+	})
 }
