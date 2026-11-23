@@ -199,7 +199,7 @@ func (k *trackedKind[B, S]) unfile(b B) {
 	}
 }
 
-// chunkDrift checks that each body can be found by chunk and UUID.
+// chunkDrift checks chunk membership and UUID lookup for each indexed body.
 func (k *trackedKind[B, S]) chunkDrift(s *Server) error {
 	if k.chunks == nil {
 		return nil
@@ -216,7 +216,9 @@ func (k *trackedKind[B, S]) chunkDrift(s *Server) error {
 		if !ix.Holds(f, k.chunkOf(b)) {
 			return fmt.Errorf("%T id %d not filed under its chunk", b, k.id(b))
 		}
-		if got, ok := ix.ByUUID(k.uuid(b)); !ok || k.filing(got) != f {
+		// A cross-dimension twin can take over the UUID before the tick
+		// sweeps the dead original out of its chunk.
+		if got, ok := ix.ByUUID(k.uuid(b)); !ok || (k.filing(got) != f && !k.dead(b)) {
 			return fmt.Errorf("%T id %d not filed under its UUID", b, k.id(b))
 		}
 	}

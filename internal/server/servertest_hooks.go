@@ -8051,7 +8051,7 @@ func (s *Server) HurtMobByPlayerProjectile(victim int32, name string, amount flo
 	}
 }
 
-// ChunkIndexDrift checks each body's chunk and UUID entries after the loop stops.
+// ChunkIndexDrift checks chunk membership and UUID lookup after the loop stops.
 func (s *Server) ChunkIndexDrift() error {
 	for _, k := range observerTrackers() {
 		if d, ok := k.(interface{ chunkDrift(*Server) error }); ok {
