@@ -1,6 +1,7 @@
 package world
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -164,6 +165,88 @@ func TestSectionOfSeveralBlocksUsesAPalette(t *testing.T) {
 		if got != want {
 			t.Fatalf("block %d = %d, want %d", i, got, want)
 		}
+	}
+}
+
+func TestFourBitSectionMatchesGenericPacking(t *testing.T) {
+	t.Parallel()
+	choices := [...]uint16{
+		stoneState,
+		registry.BlockStates["minecraft:granite"],
+		registry.BlockStates["minecraft:diorite"],
+		registry.BlockStates["minecraft:andesite"],
+		registry.BlockStates["minecraft:deepslate"],
+		registry.BlockStates["minecraft:calcite"],
+		registry.BlockStates["minecraft:tuff"],
+		registry.BlockStates["minecraft:cobblestone"],
+		registry.BlockStates["minecraft:sandstone"],
+		registry.BlockStates["minecraft:red_sandstone"],
+		registry.BlockStates["minecraft:blackstone"],
+		registry.BlockStates["minecraft:netherrack"],
+		registry.BlockStates["minecraft:end_stone"],
+		registry.BlockStates["minecraft:obsidian"],
+		registry.BlockStates["minecraft:quartz_block"],
+		registry.BlockStates["minecraft:bricks"],
+	}
+	for size := 2; size <= len(choices); size++ {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			s := section{fill: stoneState}
+			var states [blocksPerSection]uint16
+			set := func(i int, state uint16) {
+				s.set(i, state, false)
+				states[i] = state
+			}
+			check := func(stage string) {
+				t.Helper()
+				var palette []uint16
+				slots := make(map[uint16]uint64, size)
+				for _, state := range states {
+					if _, ok := slots[state]; !ok {
+						slots[state] = uint64(len(palette))
+						palette = append(palette, state)
+					}
+				}
+				if len(palette) != size {
+					t.Fatalf("%s: fixture has %d states, want %d", stage, len(palette), size)
+				}
+
+				var got, want protocol.Buffer
+				s.encode(&got)
+				want.PutI16(blocksPerSection)
+				want.PutI16(0) // fluid count
+				want.PutU8(4)
+				want.PutVarInt(int32(len(palette)))
+				for _, state := range palette {
+					want.PutVarInt(int32(state))
+				}
+				putPacked(&want, 4, blocksPerSection, func(i int) uint64 { return slots[states[i]] })
+				want.PutU8(0) // uniform biome grid
+				want.PutVarInt(s.biome)
+				if got.Len() != want.Len() {
+					t.Fatalf("%s: section has %d bytes, want %d", stage, got.Len(), want.Len())
+				}
+				for i, wantByte := range want.Bytes() {
+					if gotByte := got.Bytes()[i]; gotByte != wantByte {
+						t.Fatalf("%s: byte %d = %02x, want %02x", stage, i, gotByte, wantByte)
+					}
+				}
+			}
+
+			// Keep an unused storage slot, forcing five-bit storage at size 16.
+			s.set(0, registry.BlockStates["minecraft:bedrock"], false)
+			for i := range states {
+				set(i, choices[(i+i/16)%size])
+			}
+			set(15, choices[size-1])
+			set(16, choices[0])
+			check("initial")
+
+			set(0, choices[1])
+			set(1, choices[0])
+			set(15, choices[0])
+			set(16, choices[size-1])
+			check("after replacements")
+		})
 	}
 }
 
