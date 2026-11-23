@@ -750,30 +750,29 @@ type mobBirth struct {
 	// fox kit trusts and the first online one is credited.
 	// vanilla: Fox.FoxBreedGoal.breed
 	parentCauses [2]uuid.UUID
+	// breeders are the online players of parentCauses, resolved once by
+	// resolveBreeders.
+	breeders [2]*client
 }
 
-// onlineCauses are the distinct online players among the parents' love causes,
-// in parent order. vanilla: Animal.getLoveCause, Fox.FoxBreedGoal.breed
-func (s *Server) onlineCauses(birth mobBirth) []*client {
-	var out []*client
-	for _, id := range birth.parentCauses {
-		if id == (uuid.UUID{}) {
+// resolveBreeders looks up the parents' love causes once, in parent order; a
+// cause that is no online player, or repeats the first parent's, is nil.
+// vanilla: Animal.getLoveCause, Fox.FoxBreedGoal.breed
+func (s *Server) resolveBreeders(birth *mobBirth) {
+	for i, id := range birth.parentCauses {
+		if id == (uuid.UUID{}) || (i == 1 && id == birth.parentCauses[0]) {
 			continue
 		}
-		if c := s.clientByUUID(id); c != nil && !slices.Contains(out, c) {
-			out = append(out, c)
-		}
+		birth.breeders[i] = s.clientByUUID(id)
 	}
-	return out
 }
 
-// birthBreeder is the first online player among the parents' love causes, in
-// parent order, or nil.
-func (s *Server) birthBreeder(birth mobBirth) *client {
-	if online := s.onlineCauses(birth); len(online) > 0 {
-		return online[0]
+// breeder is the first online parent cause, or nil.
+func (b *mobBirth) breeder() *client {
+	if b.breeders[0] != nil {
+		return b.breeders[0]
 	}
-	return nil
+	return b.breeders[1]
 }
 
 // finishBreeding spawns a mating's results in finalizeSpawnChildFromBreeding
@@ -781,14 +780,11 @@ func (s *Server) birthBreeder(birth mobBirth) *client {
 // the baby inheriting what getBreedOffspring takes. A villager's hearts are
 // its child's.
 func (s *Server) finishBreeding(birth mobBirth) {
+	s.resolveBreeders(&birth)
 	if !s.askBreed(&birth) {
 		return
 	}
-	online := s.onlineCauses(birth)
-	var c *client
-	if len(online) > 0 {
-		c = online[0]
-	}
+	c := birth.breeder()
 	// Frog, turtle and sniffer breeding credit no child entity.
 	childless := birth.mother.Type == entity.TypeTurtle || birth.mother.Type == entity.TypeFrog || birth.mother.Type == entity.TypeSniffer
 	if c != nil && childless {
@@ -833,8 +829,10 @@ func (s *Server) finishBreeding(birth mobBirth) {
 				birth.mother.BreedVillager(ent.mob, birth.partner, biome)
 			}
 			if birth.mother.Type == entity.TypeFox {
-				for _, p := range online {
-					ent.mob.FoxTrust(p.UUID())
+				for _, p := range birth.breeders {
+					if p != nil {
+						ent.mob.FoxTrust(p.UUID())
+					}
 				}
 			}
 			s.mobsMu.Unlock()
@@ -4316,7 +4314,7 @@ func (c *client) feedMob(ent *mobEntity, hand int32) (bool, error) {
 	// vanilla: setInLove's event 18 goes out ahead of playEatingSound.
 	if loved {
 		s.mobsMu.Lock()
-		ent.mob.LoveCause = c.player.UUID
+		ent.mob.SetLoveCause(c.player.UUID)
 		s.mobsMu.Unlock()
 		s.broadcastWorld(ent.w, protocol.IDPlayEntityEvent,
 			entityEventPayload(m.ID, protocol.EntityStatusLoveHearts))

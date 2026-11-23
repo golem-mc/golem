@@ -6688,18 +6688,6 @@ func (s *Server) FoxTrusts(id int32, name string) bool {
 	return false
 }
 
-// FoxTrustCount is how many players the overworld fox with the entity ID trusts.
-func (s *Server) FoxTrustCount(id int32) int {
-	s.mobsMu.Lock()
-	defer s.mobsMu.Unlock()
-	for mob := range s.herdOf(s.world).book {
-		if mob.ID == id {
-			return len(mob.Fox.Trusted)
-		}
-	}
-	return -1
-}
-
 // SetMobInLoveBy is SetMobInLove with the named player as the love cause.
 func (s *Server) SetMobInLoveBy(id int32, ticks int, name string) {
 	c := s.playerClient(name)
@@ -6707,7 +6695,7 @@ func (s *Server) SetMobInLoveBy(id int32, ticks int, name string) {
 	defer s.mobsMu.Unlock()
 	if ent := s.mobByEntityIDLocked(s.world, id); ent != nil && c != nil {
 		ent.mob.InLove = ticks
-		ent.mob.LoveCause = c.player.UUID
+		ent.mob.SetLoveCause(c.player.UUID)
 	}
 }
 

@@ -18,7 +18,7 @@ func (s *Server) askBreed(birth *mobBirth) bool {
 		return true
 	}
 	e := &plugin.EntityBreedEvent{Mother: pluginLivingHandle(birth.motherID), Father: pluginLivingHandle(birth.partnerID), Experience: birth.amount}
-	if c := s.birthBreeder(*birth); c != nil {
+	if c := birth.breeder(); c != nil {
 		e.Breeder = pluginPlayer{c: c}
 	}
 	s.plugins.Fire(e)

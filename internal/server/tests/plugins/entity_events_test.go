@@ -64,9 +64,14 @@ func TestPluginEntityRemoveEvent(t *testing.T) {
 func TestPluginEntityBreedEvent(t *testing.T) {
 	t.Parallel()
 	cancel, asked := true, 0
+	var breeder string
 	srv, _ := tickScene(t, func(s plugin.Server) {
 		plugin.Listen(s, func(e *plugin.EntityBreedEvent) {
 			asked++
+			breeder = ""
+			if e.Breeder != nil {
+				breeder = e.Breeder.Name()
+			}
 			_ = e.Mother.Health() // reads the parents: no lock may be held
 			_ = e.Father.Health()
 			e.SetCancelled(cancel)
@@ -82,8 +87,12 @@ func TestPluginEntityBreedEvent(t *testing.T) {
 	}
 	cancel = false
 	srv.SetMobInLove(a, 600)
-	srv.SetMobInLove(b, 600)
+	srv.SetMobInLoveBy(b, 600, "Victim")
 	ticksUntil(t, srv, "the calf is born", func() bool { srv.TickMobs(1); return srv.MobCount() == 3 })
+	// The first parent has no cause: the partner's online breeder is passed.
+	if breeder != "Victim" {
+		t.Errorf("breeder %q, want Victim", breeder)
+	}
 }
 
 // vanilla: PiglinAi.stopHoldingOffHandItem

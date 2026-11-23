@@ -94,7 +94,7 @@ func (m *Mob) SaveWith(tag nbt.CompoundTag, gameTime func() int64, keptAttribute
 	}
 	if IsAnimal(m.Type) {
 		tag.Set("InLove", nbt.Int(m.InLove))
-		if m.LoveCause != (uuid.UUID{}) {
+		if m.HasLoveCause {
 			tag.Set("LoveCause", nbt.UUIDToIntArray(m.LoveCause))
 		}
 	}
@@ -632,7 +632,7 @@ func (m *Mob) LoadFrom(compound nbt.Compound, w World, gameTime func() int64) {
 			m.InLove = int(love)
 		}
 		// A missing or unreadable key clears the reference.
-		m.LoveCause, _ = nbt.UUIDField(compound, "LoveCause")
+		m.LoveCause, m.HasLoveCause = nbt.UUIDField(compound, "LoveCause")
 	}
 	m.scalarFields(compound, true)
 	if m.Type == TypeTadpole {

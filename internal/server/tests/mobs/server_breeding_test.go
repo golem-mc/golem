@@ -510,11 +510,26 @@ func TestFoxKitTrustsOnlyOnlineCauses(t *testing.T) {
 			continue
 		}
 		checked++
-		if got := srv.FoxTrustCount(id); got != 1 {
-			t.Errorf("kit trusts %d players, want 1", got)
-		}
+		kit, _ := srv.MobUUID(id)
+		want := nbt.List{Elem: nbt.TypeIntArray, Items: []nbt.Tag{nbt.UUIDToIntArray(protocol.OfflineUUID("Rancher"))}}
+		c.ChatCommand("data get entity " + kit + " Trusted")
+		c.ExpectCommandFeedbackText("commands.data.entity.query",
+			servertest.EntityDisplayComponent("minecraft:fox", "entity.minecraft.fox", uuid.MustParse(kit)), servertest.NBTArg(nbt.Stringify(want)))
 	}
 	if checked != 1 {
 		t.Errorf("found %d kits, want 1", checked)
 	}
+}
+
+// TestMergedZeroLoveCauseIsKept: an all-zero LoveCause is a stored cause.
+// vanilla: Animal.readAdditionalSaveData, UUIDUtil.CODEC
+func TestMergedZeroLoveCauseIsKept(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:wheat", 64, servertest.OpsListing(t, "Rancher"))
+	servertest.HoldTicks(t, srv)
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.ChatCommand("data merge entity " + cow.Uuid.String() + " {LoveCause:[I;0,0,0,0]}")
+	c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
+	expectLoveCause(c, cow, uuid.UUID{})
 }
