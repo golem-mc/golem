@@ -60,7 +60,7 @@ func (m *Mob) CaptainBannerPickupEnabled() bool {
 // captain's banner here, independently of the navigation goal.
 // vanilla: Raider.pickUpItem, Mob.aiStep
 func (m *Mob) CanPickUpCaptainBanner(loot LootItem) bool {
-	return m.CaptainBannerPickupEnabled() && lootWithinReach(m, loot)
+	return m.CaptainBannerPickupEnabled() && lootWithinReach(lootPickupBox(m), &loot)
 }
 
 // BannerGrab returns the banner the raider reached since the last call.

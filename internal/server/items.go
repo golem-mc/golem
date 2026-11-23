@@ -64,6 +64,8 @@ type itemEntity struct {
 
 	// sentFire is the on-fire bit the watchers were last told.
 	sentFire bool
+	// order is the monotonic registration sequence, guarded by itemsMu.
+	order uint64
 }
 
 // itemTracker tracks the items. An item is told by the bottom of its box,
@@ -742,11 +744,7 @@ func (s *Server) placeItems(w *world.World, its []*itemEntity, show, add bool) {
 	for _, it := range its {
 		if add {
 			it.skipStep = it.skipStep || s.deferItemSteps
-			s.items = append(s.items, it)
-			itemTracker.file(s, it)
-			if s.itemCols != nil {
-				s.itemCols.add(it)
-			}
+			s.appendItemLocked(it)
 		}
 		body := itemTracker.body(it)
 		var pairing []outbound
@@ -1577,13 +1575,21 @@ func (s *Server) finishItemTravel(it *itemEntity, kind rules.PortalKind) {
 		}
 	}, func() {
 		s.itemsMu.Lock()
-		s.items = append(s.items, it)
-		itemTracker.file(s, it)
-		if s.itemCols != nil {
-			s.itemCols.add(it)
-		}
+		s.appendItemLocked(it)
 		s.itemsMu.Unlock()
 	})
+}
+
+// appendItemLocked appends it to s.items with the next registration order and
+// files it in the chunk and column indexes. Caller holds itemsMu.
+func (s *Server) appendItemLocked(it *itemEntity) {
+	s.itemOrder++
+	it.order = s.itemOrder
+	s.items = append(s.items, it)
+	itemTracker.file(s, it)
+	if s.itemCols != nil {
+		s.itemCols.add(it)
+	}
 }
 
 // dampensVibrations reports whether an item entity holding stack is silent to

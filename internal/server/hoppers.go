@@ -1,10 +1,12 @@
 package server
 
 import (
+	"cmp"
 	"math"
 	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/inventory"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -520,20 +522,36 @@ func (s *Server) notifyItemsAbsorbed(w *world.World, taken, shrunk []*itemEntity
 }
 
 // itemEntitiesIn gathers w's live item entities whose boxes reach into the
-// box, under the items lock.
+// box, in s.items registration order, under the items lock.
 func (s *Server) itemEntitiesIn(w *world.World, minX, minY, minZ, maxX, maxY, maxZ float64) []*itemEntity {
+	if minX >= maxX || minY >= maxY || minZ >= maxZ {
+		return nil
+	}
+	area := chunkArea{
+		minX: world.ChunkOf(minX - entity.ItemHalfSize),
+		minZ: world.ChunkOf(minZ - entity.ItemHalfSize),
+		maxX: world.ChunkOf(maxX + entity.ItemHalfSize),
+		maxZ: world.ChunkOf(maxZ + entity.ItemHalfSize),
+	}
 	s.itemsMu.Lock()
 	defer s.itemsMu.Unlock()
 	var found []*itemEntity
-	for _, it := range s.items {
-		if it.w != w || it.item.Dead {
-			continue
+	for pos := range area.each {
+		for it := range s.itemChunks.In(pos) {
+			if it.w != w || it.item.Dead {
+				continue
+			}
+			x0, y0, z0, x1, y1, z1 := it.item.BlastBox()
+			if x1 <= minX || x0 >= maxX || y1 <= minY || y0 >= maxY || z1 <= minZ || z0 >= maxZ {
+				continue
+			}
+			found = append(found, it)
 		}
-		x0, y0, z0, x1, y1, z1 := it.item.BlastBox()
-		if x1 <= minX || x0 >= maxX || y1 <= minY || y0 >= maxY || z1 <= minZ || z0 >= maxZ {
-			continue
-		}
-		found = append(found, it)
+	}
+	if len(found) > 1 {
+		slices.SortFunc(found, func(a, b *itemEntity) int {
+			return cmp.Compare(a.order, b.order)
+		})
 	}
 	return found
 }

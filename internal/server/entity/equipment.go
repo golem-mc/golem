@@ -292,19 +292,59 @@ type LootTake struct {
 // vanilla: Mob.aiStep's ITEM_PICKUP_REACH
 const lootReach = 1
 
-// lootWithinReach reports whether the item's box meets the body's box grown
-// by lootReach.
-func lootWithinReach(m *Mob, loot LootItem) bool {
+func lootPickupBox(m *Mob) AABB {
 	box := m.mobBox()
-	h := halfSize
 	// vanilla: Allay.getPickupReach is (1, 1, 1)
-	ry := 0.0
 	if m.Type == TypeAllay {
-		ry = 1
+		return box.Inflate(lootReach)
 	}
-	return box.minX-lootReach < loot.X+h && box.maxX+lootReach > loot.X-h &&
-		box.minY-ry < loot.Y+h && box.maxY+ry > loot.Y-h &&
-		box.minZ-lootReach < loot.Z+h && box.maxZ+lootReach > loot.Z-h
+	box.minX -= lootReach
+	box.maxX += lootReach
+	box.minZ -= lootReach
+	box.maxZ += lootReach
+	return box
+}
+
+func (loot *LootItem) box() AABB {
+	return AABB{
+		loot.X - halfSize, loot.Y - halfSize, loot.Z - halfSize,
+		loot.X + halfSize, loot.Y + halfSize, loot.Z + halfSize,
+	}
+}
+
+func lootWithinReach(box AABB, loot *LootItem) bool {
+	return box.Crosses(loot.box())
+}
+
+func (m *Mob) lootPickupEligible() bool {
+	return m.LootPickupEnabled() && m.Alive() &&
+		(m.Type != TypeSulfurCube || !m.IsBaby() && !m.NoAI && m.sulfur.pickupTimer <= 0)
+}
+
+func (mobs Mobs) lootGrid(items []LootItem) *BoxGrid {
+	const minPickers, minItems = 8, 32
+	if len(mobs) < minPickers || len(items) < minItems {
+		return nil
+	}
+	eligible := 0
+	for _, m := range mobs {
+		if m.lootPickupEligible() {
+			eligible++
+			if eligible == minPickers {
+				break
+			}
+		}
+	}
+	if eligible < minPickers {
+		return nil
+	}
+	grid := &BoxGrid{}
+	for i := range items {
+		if loot := &items[i]; !loot.Stack.Empty() {
+			grid.Add(int32(i), loot.box())
+		}
+	}
+	return grid
 }
 
 // TakeLoot decides one tick's pickups: each live body with CanPickUpLoot
@@ -313,30 +353,39 @@ func lootWithinReach(m *Mob, loot LootItem) bool {
 // equips nobody.
 // vanilla: Mob.aiStep's looting, pickUpItem, equipItemIfPossible
 func (mobs Mobs) TakeLoot(items []LootItem) []LootTake {
+	grid := mobs.lootGrid(items)
 	var takes []LootTake
 	for _, m := range mobs {
-		if !m.LootPickupEnabled() || !m.Alive() {
+		if !m.lootPickupEligible() {
 			continue
 		}
-		if m.Type == TypeSulfurCube {
-			if m.IsBaby() || m.NoAI || m.sulfur.pickupTimer > 0 {
-				continue
-			}
-			for i, loot := range items {
-				if !loot.Stack.Empty() && lootWithinReach(m, loot) && registry.Item(loot.Stack.ItemID).InTag(registry.ItemTagIDSulfurCubeSwallowable) {
-					takes = append(takes, LootTake{Mob: m, Item: i, Slot: "body", Count: 1})
-					break
-				}
-			}
-			continue
-		}
+		box := lootPickupBox(m)
 		staged := stagedSlots{main: m.MainHand, off: m.OffHand, worn: m.Worn}
-		for i, loot := range items {
-			if loot.Stack.Empty() || !lootWithinReach(m, loot) {
-				continue
+		swallowed := false
+		take := func(i int) {
+			loot := &items[i]
+			if swallowed || loot.Stack.Empty() || !lootWithinReach(box, loot) {
+				return
+			}
+			if m.Type == TypeSulfurCube {
+				if registry.Item(loot.Stack.ItemID).InTag(registry.ItemTagIDSulfurCubeSwallowable) {
+					takes = append(takes, LootTake{Mob: m, Item: i, Slot: "body", Count: 1})
+					swallowed = true
+				}
+				return
 			}
 			if slot, count, ok := staged.take(m, loot.Stack); ok {
 				takes = append(takes, LootTake{Mob: m, Item: i, Slot: slot, Count: count})
+			}
+		}
+		if grid != nil {
+			grid.Query(box, func(i int32) { take(int(i)) })
+			continue
+		}
+		for i := range items {
+			take(i)
+			if swallowed {
+				break
 			}
 		}
 	}

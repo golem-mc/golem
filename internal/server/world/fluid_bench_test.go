@@ -8,6 +8,7 @@ import (
 
 var fluidWallSink bool
 var fluidCollisionSink *fluidCollision
+var fluidSlopeSink int
 
 func BenchmarkFluidWall(b *testing.B) {
 	for _, tc := range []struct {
@@ -157,6 +158,69 @@ func BenchmarkFluidSpreadToSides(b *testing.B) {
 	for range b.N {
 		changes = changes[:0]
 		p.spreadToSides(0, 64, 0, src, fs, &changes)
+	}
+}
+
+// BenchmarkFluidSlopeLayouts measures the four first-step slope searches of a
+// water source at (0,64,0) on a 13x13 stone floor with no hole, a far hole at
+// (3,63,2), and a near hole at (0,63,2).
+func BenchmarkFluidSlopeLayouts(b *testing.B) {
+	water := registry.MustState("minecraft:water", nil)
+	for _, tc := range []struct {
+		name string
+		hole *[3]int32
+		want int
+	}{
+		{"flat", nil, 1000},
+		{"far_hole", &[3]int32{3, 63, 2}, 4},
+		{"near_hole", &[3]int32{0, 63, 2}, 1},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			w := newTestWorld(b, NewFlatGenerator())
+			b.Cleanup(func() { w.Close() })
+			for cx := int32(-1); cx <= 1; cx++ {
+				for cz := int32(-1); cz <= 1; cz++ {
+					w.Acquire(ChunkPos{X: cx, Z: cz})
+				}
+			}
+			for x := int32(-spreadReach); x <= spreadReach; x++ {
+				for z := int32(-spreadReach); z <= spreadReach; z++ {
+					w.SetBlock(x, 63, z, stoneState)
+					w.SetBlock(x, 64, z, airState)
+				}
+			}
+			w.SetBlock(0, 64, 0, water)
+			if tc.hole != nil {
+				w.SetBlock(tc.hole[0], tc.hole[1], tc.hole[2], airState)
+			}
+			p := NewPhysics(w)
+			reach := p.behaviourOf(fluidWater).slopeFindDistance
+			search := func() int {
+				ctx := p.newSpreadContext(0, 64, 0, fluidWater)
+				lowest := 1000
+				for i, d := range horizontal4 {
+					tx, tz := d[0], d[1]
+					ctx.state(tx, tz)
+					distance := 0
+					if !ctx.isHole(tx, tz) {
+						ti, _ := ctx.index(tx, tz)
+						distance = ctx.slopeDistance(ti, 1, i^2, min(reach, lowest))
+					}
+					if distance < lowest {
+						lowest = distance
+					}
+				}
+				return lowest
+			}
+			if got := search(); got != tc.want {
+				b.Fatalf("%s nearest distance = %d, want %d", tc.name, got, tc.want)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				fluidSlopeSink = search()
+			}
+		})
 	}
 }
 

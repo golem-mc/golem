@@ -79,3 +79,56 @@ func TestAHopperRemovesAnAbsorbedItemForItsWatchers(t *testing.T) {
 		t.Errorf("the world still holds %+v, want the item absorbed", got)
 	}
 }
+
+// TestAHopperPicksUpStraddlingDropsInRegistrationOrder registers the diamond
+// before the straddling emerald and moves it into the eastern chunk so
+// registration order differs from chunk-visit order.
+func TestAHopperPicksUpStraddlingDropsInRegistrationOrder(t *testing.T) {
+	t.Parallel()
+	srv := servertest.NewTestServer(t, servertest.BlockTestConfig())
+	srv.StopTick()
+	t.Cleanup(srv.HoldChunk(15, 0))
+	t.Cleanup(srv.HoldChunk(16, 0))
+
+	if !srv.PlaceContainer(16, 64, 0, "minecraft:hopper") {
+		t.Fatal("the hopper would not stand")
+	}
+	cobble := protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:cobblestone"), Count: 64}
+	for slot := range 4 {
+		if !srv.SetInventoryAt(16, 64, 0, slot, cobble) {
+			t.Fatalf("could not fill hopper slot %d", slot)
+		}
+	}
+
+	firstID := srv.SpawnItemEntity(14.5, 65.125, 0.5, "minecraft:diamond", 1)
+	secondID := srv.SpawnItemEntity(15.95, 65.125, 0.5, "minecraft:emerald", 1)
+	if firstID == 0 || secondID == 0 {
+		t.Fatalf("drops did not spawn: first=%d second=%d", firstID, secondID)
+	}
+	srv.RunLine("tp @e[type=item,x=14.5,y=65,z=0.5,distance=..1] 16.5 65 0.5")
+
+	servertest.TickBlockEntitiesByHand(srv, 1)
+
+	diamond := servertest.MustItemID(t, "minecraft:diamond")
+	emerald := servertest.MustItemID(t, "minecraft:emerald")
+	if got := srv.InventoryAt(16, 64, 0)[4]; got.ItemID != diamond || got.Count != 1 {
+		t.Fatalf("hopper slot 4 holds %+v, want first-registered diamond (%d)", got, diamond)
+	}
+	rem := srv.ItemsInDimension(world.DimensionName)
+	if len(rem) != 1 || rem[0].ID != secondID {
+		t.Fatalf("remaining items = %+v, want only straddling emerald %d", rem, secondID)
+	}
+
+	// Free slot 4; the 8-tick cooldown reaches zero on the eighth turn.
+	if !srv.SetInventoryAt(16, 64, 0, 4, protocol.ItemStack{}) {
+		t.Fatal("could not clear hopper slot 4")
+	}
+	servertest.TickBlockEntitiesByHand(srv, 8)
+
+	if got := srv.InventoryAt(16, 64, 0)[4]; got.ItemID != emerald || got.Count != 1 {
+		t.Fatalf("hopper slot 4 holds %+v, want straddling emerald (%d)", got, emerald)
+	}
+	if rem := srv.ItemsInDimension(world.DimensionName); len(rem) != 0 {
+		t.Errorf("remaining items = %+v, want none", rem)
+	}
+}

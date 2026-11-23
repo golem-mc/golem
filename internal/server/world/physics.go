@@ -2179,23 +2179,27 @@ func (p *Physics) spread(x, y, z int32, fs fluidState, changes *[]BlockChange) {
 			return
 		}
 	}
-	if !fs.isSource() && p.isWaterHole(state, belowState, fs.kind) {
+	if !fs.isSource() && isWaterHole(state, belowState, fluidState{kind: fs.kind, amount: 8, falling: true}, nil) {
 		return // a flow hanging over a hole pours instead of flooding
 	}
 	p.spreadToSides(x, y, z, state, fs, changes)
 }
 
 // isWaterHole reports whether the face down from a cell opens onto the same
-// fluid or something the flow can fill.
+// fluid or something the flow can fill. A nil holdFlags consults the live tag
+// table after the wall and same-fluid checks.
 // vanilla: FlowingFluid.isWaterHole
-func (p *Physics) isWaterHole(topState, belowState uint16, kind fluidKind) bool {
+func isWaterHole(topState, belowState uint16, flowing fluidState, holdFlags *[registry.StateCount]uint8) bool {
 	if !passWall(topState, 1, false, belowState) {
 		return false
 	}
-	if fluidHolding(belowState).kind == kind {
+	if fluidHolding(belowState).kind == flowing.kind {
 		return true
 	}
-	return canHoldAny(belowState) && canHoldSpecific(belowState, fluidState{kind: kind, amount: 8, falling: true})
+	if holdFlags == nil {
+		holdFlags = currentFluidHoldFlags()
+	}
+	return int(belowState) < len(holdFlags) && holdFlags[belowState]&holdsAny != 0 && canHoldSpecific(belowState, flowing)
 }
 
 // spreadReach is the cache's reach from the origin: the search starts one out,
@@ -2210,15 +2214,20 @@ const spreadSide = 2*spreadReach + 1
 // square they are read uncached.
 // vanilla: FlowingFluid.SpreadContext
 type spreadContext struct {
-	p           *Physics
-	y           int32
-	ox, oz      int32
-	kind        fluidKind
-	flowingType fluidState
+	p *Physics
 	// A spread uses one tag snapshot throughout its slope search.
-	holdFlags *[registry.StateCount]uint8
-	states    [spreadSide * spreadSide]uint16
-	flags     [spreadSide * spreadSide]uint8
+	holdFlags     *[registry.StateCount]uint8
+	y             int32
+	ox, oz        int32
+	kind          fluidKind
+	flowingType   fluidState
+	lastState     uint16
+	lastHoleTop   uint16
+	lastHoleBelow uint16
+	lastFlags     uint8
+	lastHoleFlags uint8
+	states        [spreadSide * spreadSide]uint16
+	flags         [spreadSide * spreadSide]uint8
 }
 
 func (p *Physics) newSpreadContext(x, y, z int32, kind fluidKind) spreadContext {
@@ -2274,7 +2283,14 @@ func (c *spreadContext) load(i int) {
 	z := c.oz + int32(i/spreadSide) - spreadReach
 	state := c.p.w.BlockAt(x, c.y, z)
 	c.states[i] = state
-	c.flags[i] = c.cellFlags(state) | cellKnown
+	if c.lastFlags&cellKnown != 0 && state == c.lastState {
+		c.flags[i] = c.lastFlags
+		return
+	}
+	flags := c.cellFlags(state) | cellKnown
+	c.lastState = state
+	c.lastFlags = flags
+	c.flags[i] = flags
 }
 
 // cell reads a cached state and its slope-search classification.
@@ -2301,7 +2317,7 @@ func (c *spreadContext) state(x, z int32) uint16 {
 func (c *spreadContext) isHole(x, z int32) bool {
 	i, ok := c.index(x, z)
 	if !ok {
-		return c.p.isWaterHole(c.state(x, z), c.p.w.BlockAt(x, c.y-1, z), c.kind)
+		return isWaterHole(c.state(x, z), c.p.w.BlockAt(x, c.y-1, z), c.flowingType, c.holdFlags)
 	}
 	if c.flags[i]&cellKnown == 0 {
 		c.load(i)
@@ -2314,10 +2330,21 @@ func (c *spreadContext) holeAt(i int) bool {
 	if c.flags[i]&cellHoleKnown == 0 {
 		x := c.ox + int32(i%spreadSide) - spreadReach
 		z := c.oz + int32(i/spreadSide) - spreadReach
-		if c.p.isWaterHole(c.states[i], c.p.w.BlockAt(x, c.y-1, z), c.kind) {
-			c.flags[i] |= cellHole
+		top := c.states[i]
+		below := c.p.w.BlockAt(x, c.y-1, z)
+		var holeFlags uint8
+		if c.lastHoleFlags&cellHoleKnown != 0 && top == c.lastHoleTop && below == c.lastHoleBelow {
+			holeFlags = c.lastHoleFlags
+		} else {
+			holeFlags = cellHoleKnown
+			if isWaterHole(top, below, c.flowingType, c.holdFlags) {
+				holeFlags |= cellHole
+			}
+			c.lastHoleTop = top
+			c.lastHoleBelow = below
+			c.lastHoleFlags = holeFlags
 		}
-		c.flags[i] |= cellHoleKnown
+		c.flags[i] |= holeFlags
 	}
 	return c.flags[i]&cellHole != 0
 }

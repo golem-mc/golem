@@ -416,6 +416,7 @@ type Server struct {
 	// spawnItem and the tick's copy of the recipients.
 	itemsMu    sync.Mutex
 	items      []*itemEntity
+	itemOrder  uint64
 	itemChunks entity.ChunkIndex[*itemEntity]
 	itemCols   *itemColumns
 	// itemColBuffer retains storage between passes; itemCols is nil outside them.

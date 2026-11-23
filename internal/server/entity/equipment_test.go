@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -157,6 +158,59 @@ func TestTheSunWearsTheHelmetOffBeforeItBurns(t *testing.T) {
 var lootRolling = []MobType{
 	TypeZombie, TypeHusk, TypeDrowned, TypeZombieVillager,
 	TypeSkeleton, TypeStray, TypeBogged,
+}
+
+func TestIndexedLootMatchesDirectPickupOrder(t *testing.T) {
+	mobs := make(Mobs, 8)
+	for i := range mobs {
+		mobs[i] = NewMob(TypeZombie, int32(i+1), 16, 64, 16, int64(i+1))
+		mobs[i].CanPickUpLoot = true
+		mobs[i].MainHand = stackOf(t, "minecraft:iron_sword")
+		if i >= 4 {
+			mobs[i].X = 400
+		}
+	}
+	cube := NewMob(TypeSulfurCube, 3, 16, 64, 32, 3)
+	allay := NewMob(TypeAllay, 4, 16, 64, 48, 4)
+	allay.MainHand = stackOf(t, "minecraft:stick")
+	mobs[2], mobs[3] = cube, allay
+
+	items := make([]LootItem, 32)
+	copy(items, []LootItem{
+		{X: 16.5, Y: 64, Z: 16.5, Stack: stackOf(t, "minecraft:leather_helmet")},
+		{X: 16, Y: 64, Z: 16},
+		{X: 15.5, Y: 64, Z: 15.5, Stack: stackOf(t, "minecraft:iron_helmet")},
+		{X: 16, Y: 64, Z: 16, Stack: stackOf(t, "minecraft:diamond_helmet")},
+		{X: 16, Y: 63.5, Z: 16, Stack: stackOf(t, "minecraft:netherite_helmet")},
+		{X: 25, Y: 64, Z: 16, Stack: stackOf(t, "minecraft:netherite_helmet")},
+		{X: 16, Y: 64, Z: 32, Stack: stackOf(t, "minecraft:iron_helmet")},
+		{X: 16.5, Y: 64, Z: 32.5, Stack: stackOf(t, "minecraft:stone")},
+		{X: 15.5, Y: 64, Z: 31.5, Stack: stackOf(t, "minecraft:dirt")},
+		{X: 16, Y: 63.25, Z: 48, Stack: allay.MainHand},
+		{X: 15.5, Y: 64, Z: 47.5, Stack: allay.MainHand},
+	})
+	// Both zombies can claim the same helmets. The caller arbitrates claims.
+	var want []LootTake
+	for _, m := range mobs[:2] {
+		for _, i := range []int{0, 2, 3} {
+			want = append(want, LootTake{Mob: m, Item: i, Slot: "head", Count: 1})
+		}
+	}
+	want = append(want,
+		LootTake{Mob: cube, Item: 7, Slot: "body", Count: 1},
+		LootTake{Mob: allay, Item: 9, Slot: "inventory", Count: 1},
+		LootTake{Mob: allay, Item: 10, Slot: "inventory", Count: 1},
+	)
+	var direct []LootTake
+	for _, m := range mobs {
+		direct = append(direct, (Mobs{m}).TakeLoot(items)...)
+	}
+	if !slices.Equal(direct, want) {
+		t.Fatalf("direct takes = %+v, want %+v", direct, want)
+	}
+	if indexed := mobs.TakeLoot(items); !slices.Equal(indexed, direct) {
+		t.Fatalf("indexed takes = %+v, want %+v", indexed, direct)
+	}
 }
 
 // TestTheLootTakesWearAndHoldWhatTheyBeat runs the loot decisions over

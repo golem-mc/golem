@@ -1,9 +1,6 @@
 package server
 
 import (
-	"slices"
-
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/world"
 )
 
@@ -25,12 +22,6 @@ func (t boatTarget) use(_ *world.World, move containerMove) bool {
 	return cachedVehicleMove(move, boatCargo{it: t.it}, t.it.cargoVersion)
 }
 
-func (t boatTarget) entity() *world.BlockEntity { return nil }
-func (t boatTarget) sync(s *Server, _ *world.World) {
-	s.syncVehicleViewers(func(w *openWindow) bool { return w.boat == t.it }, func() []protocol.ItemStack {
-		s.boatsMu.Lock()
-		defer s.boatsMu.Unlock()
-		return slices.Clone(t.it.cargo)
-	})
-}
-func (t boatTarget) settle(*Server, *world.World) {}
+func (t boatTarget) entity() *world.BlockEntity     { return nil }
+func (t boatTarget) sync(s *Server, _ *world.World) { s.syncBoatViewers(t.it) }
+func (t boatTarget) settle(*Server, *world.World)   {}
