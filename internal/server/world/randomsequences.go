@@ -16,16 +16,8 @@ import (
 // vanilla: RandomSequences.TYPE
 const randomSequencesFile = "data/minecraft/random_sequences.dat"
 
-// RandomSequence is the Xoroshiro128++ stream vanilla's /random draws a named
-// sequence from, seeded as RandomSequence.createSequence does: a number widened
-// to two longs, the resource id hashed over them when present, both halves
-// mixed with mixStafford13. It uses the JVM's arithmetic because /random values
-// and a reopened world's random_sequences.dat state must match the real stream
-// exactly.
-//
-// Go's int64 wraps and shifts like the JVM's. The stream takes no lock:
-// RandomSequences.Draw steps it under the sequences' lock, which the save also
-// reads under.
+// RandomSequence is a Xoroshiro128++ stream. The caller must synchronize
+// access to shared streams, as SequenceRandom does for world sequences.
 type RandomSequence struct{ lo, hi int64 }
 
 // The two ratios RandomSupport widens and escapes with. vanilla:
@@ -95,6 +87,20 @@ func (s *RandomSequence) nextLong() int64 {
 // vanilla: XoroshiroRandomSource.nextInt()
 func (s *RandomSequence) nextInt() int32 { return int32(s.nextLong()) }
 
+// Float32 is vanilla: XoroshiroRandomSource.nextFloat.
+func (s *RandomSequence) Float32() float32 {
+	return float32(uint64(s.nextLong())>>40) * (1.0 / (1 << 24))
+}
+
+// NextBoolean is vanilla: XoroshiroRandomSource.nextBoolean.
+func (s *RandomSequence) NextBoolean() bool { return s.nextLong()&1 != 0 }
+
+// Intn draws in [0, n).
+func (s *RandomSequence) Intn(n int) int { return int(s.NextIntBound(int32(n))) }
+
+// Int31n draws in [0, n).
+func (s *RandomSequence) Int31n(n int32) int32 { return s.NextIntBound(n) }
+
 // NextIntBound draws in [0, bound): one 32-bit draw scaled by bound, cut at the
 // low half, redrawn while the cut falls in the share of the 2^32 wrap the bound
 // cannot divide evenly. It is 64-bit arithmetic, wrapping where the JVM's
@@ -138,7 +144,7 @@ type RandomSequences struct {
 	salt              int32
 	includeWorldSeed  bool
 	includeSequenceID bool
-	sequences         map[string]*RandomSequence
+	sequences         map[string]*SequenceRandom
 	// dirty is set by a draw and, unlike vanilla, by a create or reset too, so
 	// a sequence made but never drawn from still reaches the file.
 	dirty bool
@@ -151,7 +157,7 @@ func NewRandomSequences(root string) *RandomSequences {
 		root:              root,
 		includeWorldSeed:  true,
 		includeSequenceID: true,
-		sequences:         map[string]*RandomSequence{},
+		sequences:         map[string]*SequenceRandom{},
 	}
 	data, err := readSavedData(root, randomSequencesFile)
 	switch {
@@ -185,44 +191,63 @@ func NewRandomSequences(root string) *RandomSequences {
 				slog.Warn("random sequence with no seed pair", "id", id)
 				continue
 			}
-			s.sequences[id] = RandomSequenceFromState(int64(source[0]), int64(source[1]))
+			s.sequences[id] = &SequenceRandom{owner: s, sequence: *RandomSequenceFromState(int64(source[0]), int64(source[1]))}
 		}
 	}
 	return s
 }
 
-// Get returns the named sequence, creating it from the world seed under the
-// current defaults if absent (vanilla's computeIfAbsent on a name's first
-// draw).
+// Get returns the named source, creating it from the world seed under the
+// current defaults if absent.
 // vanilla: RandomSequences.get
-func (s *RandomSequences) Get(id string, worldSeed int64) *RandomSequence {
+func (s *RandomSequences) Get(id string, worldSeed int64) *SequenceRandom {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.getLocked(id, worldSeed)
-}
-
-// getLocked is Get with s.mu held.
-func (s *RandomSequences) getLocked(id string, worldSeed int64) *RandomSequence {
-	if seq, ok := s.sequences[id]; ok {
-		return seq
+	seq, ok := s.sequences[id]
+	if !ok {
+		seq = s.create(id, worldSeed, s.salt, s.includeWorldSeed, s.includeSequenceID)
+		s.sequences[id] = seq
+		s.dirty = true
 	}
-	seq := s.create(id, worldSeed, s.salt, s.includeWorldSeed, s.includeSequenceID)
-	s.sequences[id] = seq
-	s.dirty = true
 	return seq
 }
 
-// Draw draws in [lo, hi] from the named sequence, creating it if absent, and
-// marks the sequences changed. It runs under the lock because commands run on
-// each client's read goroutine, so two players and a save could otherwise step
-// and read one state at once.
-// vanilla: RandomSequences.get, RandomSequences$DirtyMarkingRandomSource
-func (s *RandomSequences) Draw(id string, worldSeed int64, lo, hi int32) int32 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	seq := s.getLocked(id, worldSeed)
-	s.dirty = true
-	return seq.NextIntBetween(lo, hi)
+// SequenceRandom serializes draws with saves. A reset replaces the stream
+// for future rolls so an in-flight roll keeps using the stream it started with.
+// vanilla: RandomSequences.DirtyMarkingRandomSource
+type SequenceRandom struct {
+	owner    *RandomSequences
+	sequence RandomSequence
+}
+
+// IntBetween draws in [lo, hi].
+func (r *SequenceRandom) IntBetween(lo, hi int32) int32 { return lo + r.Int31n(hi-lo+1) }
+
+// Intn draws in [0, n).
+func (r *SequenceRandom) Intn(n int) int { return int(r.Int31n(int32(n))) }
+
+// Int31n draws in [0, n).
+func (r *SequenceRandom) Int31n(n int32) int32 {
+	r.owner.mu.Lock()
+	defer r.owner.mu.Unlock()
+	r.owner.dirty = true
+	return r.sequence.NextIntBound(n)
+}
+
+// Float32 draws in [0, 1).
+func (r *SequenceRandom) Float32() float32 {
+	r.owner.mu.Lock()
+	defer r.owner.mu.Unlock()
+	r.owner.dirty = true
+	return r.sequence.Float32()
+}
+
+// NextBoolean draws a bit for a loot fill's stack splits.
+func (r *SequenceRandom) NextBoolean() bool {
+	r.owner.mu.Lock()
+	defer r.owner.mu.Unlock()
+	r.owner.dirty = true
+	return r.sequence.NextBoolean()
 }
 
 // Reset restarts the named sequence with the salt and flags the command gave,
@@ -248,18 +273,9 @@ func (s *RandomSequences) ResetAll(salt int32, hasSalt bool, includeWorldSeed, i
 		s.salt, s.includeWorldSeed, s.includeSequenceID = salt, includeWorldSeed, includeSequenceID
 	}
 	count := len(s.sequences)
-	s.sequences = map[string]*RandomSequence{}
+	clear(s.sequences)
 	s.dirty = true
 	return count
-}
-
-// MarkDirty records a draw as a change the next save owes, as
-// DirtyMarkingRandomSource does.
-// vanilla: RandomSequences$DirtyMarkingRandomSource
-func (s *RandomSequences) MarkDirty() {
-	s.mu.Lock()
-	s.dirty = true
-	s.mu.Unlock()
 }
 
 // IDs lists the existing sequences, for the sequence argument's completion.
@@ -276,7 +292,7 @@ func (s *RandomSequences) IDs() []string {
 // create derives a sequence from its flags: the world seed folded in if
 // flagged, the salt xored over the seed, the name hashed in if flagged.
 // vanilla: RandomSequences.createSequence
-func (s *RandomSequences) create(id string, worldSeed int64, salt int32, includeWorldSeed, includeSequenceID bool) *RandomSequence {
+func (s *RandomSequences) create(id string, worldSeed int64, salt int32, includeWorldSeed, includeSequenceID bool) *SequenceRandom {
 	seed := int64(0)
 	if includeWorldSeed {
 		seed = worldSeed
@@ -284,7 +300,7 @@ func (s *RandomSequences) create(id string, worldSeed int64, salt int32, include
 	if !includeSequenceID {
 		id = ""
 	}
-	return NewRandomSequence(seed^int64(salt), id)
+	return &SequenceRandom{owner: s, sequence: *NewRandomSequence(seed^int64(salt), id)}
 }
 
 // Save writes the sequences if any changed since the last save.
@@ -306,7 +322,7 @@ func (s *RandomSequences) Save() {
 	}
 	sequences := nbt.Compound{}
 	for id, seq := range s.sequences {
-		lo, hi := seq.State()
+		lo, hi := seq.sequence.State()
 		sequences[id] = nbt.Compound{"source": nbt.LongArray{lo, hi}}
 	}
 	data["sequences"] = sequences

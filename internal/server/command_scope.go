@@ -196,24 +196,11 @@ func (ws worldScope) RollDice(dice world.Dice) int32 { return dice.Roll(ws.level
 // vanilla's wrapped sources do.
 // vanilla: RandomSequences.get, DirtyMarkingRandomSource
 func (ws worldScope) RandomSequence(id string) command.RandomSequence {
-	seed := ws.srv.world.SeedValue()
-	// The fetch creates the sequence, so even a refused range leaves it for
-	// completions and counts.
-	ws.srv.randomSequences.Get(id, seed)
-	return randomNumberDraws{sequences: ws.srv.randomSequences, id: id, seed: seed}
+	return ws.srv.randomSequences.Get(id, ws.srv.world.SeedValue())
 }
 
-// randomNumberDraws is a named sequence the command draws from, each draw
-// under the sequences' lock.
-type randomNumberDraws struct {
-	sequences *world.RandomSequences
-	id        string
-	seed      int64
-}
-
-// IntBetween draws a number between lo and hi, both ends included.
-func (d randomNumberDraws) IntBetween(lo, hi int32) int32 {
-	return d.sequences.Draw(d.id, d.seed, lo, hi)
+func (ws worldScope) LootRandom(id string) rules.LootRand {
+	return lootReads{ws.srv}.LootRandom(id)
 }
 
 // ResetRandomSequence restarts the named sequence on the world's seed.

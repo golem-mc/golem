@@ -113,6 +113,8 @@ func TestComputeRefusals(t *testing.T) {
 			either + missing("path", `{type:"minecraft:storage"}`) + "; " + missing("storage", `{type:"minecraft:storage"}`)},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{}],default:` + invalidDefault + `}`,
 			defaultErr + "; " + caseErr},
+		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{},1],default:` + invalidDefault + `}`,
+			defaultErr + "; Not a map: 1; " + caseErr},
 		{`compute default float {type:"minecraft:number_dispatcher",cases:[{}],default:` + invalidDefault + `} 1`,
 			defaultErr + "; " + caseErr},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[],default:` + invalidDefault + `}`,
@@ -123,6 +125,11 @@ func TestComputeRefusals(t *testing.T) {
 			either + missing("on_true", `{type:"minecraft:conditional"}`) + "; " + missing("condition", `{type:"minecraft:conditional"}`)},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{}]}`,
 			missing("value", "{}") + "; " + missing("condition", "{}")},
+		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{},{}]}`,
+			missing("value", "{}") + "; " + missing("condition", "{}") + "; " +
+				missing("value", "{}") + "; " + missing("condition", "{}")},
+		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{},1]}`,
+			"Not a map: 1; " + missing("value", "{}") + "; " + missing("condition", "{}")},
 	} {
 		c.ChatCommand(tc.command)
 		suffix := 0

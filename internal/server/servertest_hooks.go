@@ -1887,7 +1887,7 @@ func (s *Server) BiteBobber(name string, seed int64) bool {
 	for _, it := range s.bobbers {
 		if it.owner == c.player.UUID && !it.hook.Dead {
 			it.hook.Nibble = 1000
-			it.hook.Rand = rand.New(rand.NewSource(seed))
+			s.LootSequenceSeed(rules.FishingLootTable, seed)
 			return true
 		}
 	}
@@ -2617,14 +2617,9 @@ func (s *Server) SpawnCreaturePass(seed int64) {
 	s.tickNaturalSpawning()
 }
 
-// LootSeed replaces the loot tables' dice with a random source seeded by the
-// value given, which is what makes a drop reproducible: the same breaks, the
-// same seed, the same drops. The loot dice roll for every block break and
-// every death after the seed is set, in the order the rolls happen, so a
-// test that plants a seed before its first break sees the same chances land
-// every run.
-func (s *Server) LootSeed(seed int64) {
-	s.lootRng.Seed(seed)
+// LootSequenceSeed restarts a named loot sequence with a fixture's world seed.
+func (s *Server) LootSequenceSeed(id string, seed int64) {
+	s.randomSequences.Reset(id, seed, 0, true, true, true)
 }
 
 // DropSeed replaces the dice a container's contents spill with by one seeded

@@ -15,8 +15,9 @@ import (
 // LootTable is one loot table: its pools in order, and the functions every
 // stack they produce passes through after the pools' own.
 type LootTable struct {
-	Pools     []LootPool
-	Functions []LootFunction
+	RandomSequence string
+	Pools          []LootPool
+	Functions      []LootFunction
 }
 
 // LootPool is one roll of a table: its entries, its conditions, and the

@@ -269,6 +269,13 @@ func (r *lootReader) entityPredicate(p obj, where string) string {
 		}
 		fields = append(fields, fmt.Sprintf("Sheared: lootBool(%s)", lootBool(sheep["sheared"])))
 	}
+	if p.has("minecraft:type_specific/fishing_hook") {
+		hook := asObj(p["minecraft:type_specific/fishing_hook"], "a fishing hook predicate")
+		if !keysAre(hook, "in_open_water") {
+			fail("%s: fishing hook predicate %v is one the reading does not know", where, map[string]any(hook))
+		}
+		fields = append(fields, fmt.Sprintf("FishingHook: &LootFishingHookPredicate{InOpenWater: lootBool(%s)}", lootBool(hook["in_open_water"])))
+	}
 	if p.has("minecraft:type_specific/cube_mob") {
 		cube := asObj(p["minecraft:type_specific/cube_mob"], "a cube mob predicate")
 		if !keysAre(cube, "size") {
@@ -329,7 +336,7 @@ func (r *lootReader) entityPredicate(p obj, where string) string {
 	}
 	if !keysWithin(p, "minecraft:flags", "minecraft:vehicle", "minecraft:components", "minecraft:type_specific/sheep",
 		"minecraft:type_specific/cube_mob", "minecraft:type_specific/raider", "minecraft:entity_type", "minecraft:equipment",
-		"minecraft:periodic_tick", "minecraft:movement", "minecraft:movement_affected_by") {
+		"minecraft:periodic_tick", "minecraft:movement", "minecraft:movement_affected_by", "minecraft:type_specific/fishing_hook") {
 		fail("%s: entity predicate keys %v are ones the reading does not know", where, sortedKeys(p))
 	}
 	return "LootEntityPredicate{" + strings.Join(fields, ", ") + "}"
@@ -823,11 +830,15 @@ func (r *lootReader) pool(p obj, where string) string {
 }
 
 func (r *lootReader) tableData(table obj, name string) string {
+	var sequence string
+	if table.has("random_sequence") {
+		sequence = fmt.Sprintf("RandomSequence: %q, ", lootQualified(table.str("random_sequence")))
+	}
 	var pools []string
 	for _, p := range table.listOr("pools") {
 		pools = append(pools, r.pool(asObj(p, "a pool"), name))
 	}
-	return fmt.Sprintf("LootTable{Pools: []LootPool{%s}, Functions: %s}", strings.Join(pools, ", "), r.functions(lootCodec{r.dp}.functions(table), name))
+	return fmt.Sprintf("LootTable{%sPools: []LootPool{%s}, Functions: %s}", sequence, strings.Join(pools, ", "), r.functions(lootCodec{r.dp}.functions(table), name))
 }
 
 // nameQueue is a set of table names that hands out the smallest first, so the
@@ -880,7 +891,7 @@ func runLoot(e *env) error {
 	// The tables to write: every block's and entity's, and what they reference
 	// (the sheep's colours). The shearing table is asked for by name: nothing in the
 	// block or entity tables references it.
-	for _, name := range []string{"gameplay/chicken_lay", "gameplay/turtle_grow", "harvest/beehive", "till/rooted_dirt", "gameplay/armadillo_shed", "gameplay/panda_sneeze", "gameplay/sniffer_digging", "brush/armadillo", "shearing/sheep", "carve/pumpkin", "harvest/sweet_berry_bush", "harvest/cave_vine",
+	for _, name := range []string{"gameplay/fishing", "gameplay/chicken_lay", "gameplay/turtle_grow", "harvest/beehive", "till/rooted_dirt", "gameplay/armadillo_shed", "gameplay/panda_sneeze", "gameplay/sniffer_digging", "brush/armadillo", "shearing/sheep", "carve/pumpkin", "harvest/sweet_berry_bush", "harvest/cave_vine",
 		"shearing/bogged", "shearing/snow_golem", "charged_creeper/root", "shearing/mooshroom", "gameplay/piglin_bartering",
 		"gameplay/cat_morning_gift", "gameplay/hero_of_the_village/armorer_gift", "gameplay/hero_of_the_village/baby_gift", "gameplay/hero_of_the_village/butcher_gift", "gameplay/hero_of_the_village/cartographer_gift", "gameplay/hero_of_the_village/cleric_gift", "gameplay/hero_of_the_village/farmer_gift", "gameplay/hero_of_the_village/fisherman_gift", "gameplay/hero_of_the_village/fletcher_gift", "gameplay/hero_of_the_village/leatherworker_gift", "gameplay/hero_of_the_village/librarian_gift", "gameplay/hero_of_the_village/mason_gift", "gameplay/hero_of_the_village/shepherd_gift", "gameplay/hero_of_the_village/toolsmith_gift", "gameplay/hero_of_the_village/unemployed_gift", "gameplay/hero_of_the_village/weaponsmith_gift"} {
 		r.pending.add("minecraft:" + name)

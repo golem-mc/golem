@@ -1,10 +1,7 @@
 package command
 
 import (
-	"slices"
-
 	"github.com/golem-mc/golem/internal/server/datapack"
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -53,10 +50,8 @@ const inlineLootTableName = "minecraft:inline"
 
 // lootTableKnown says whether the server rolls a table by the name.
 func lootTableKnown(name string) bool {
-	if _, ok := registry.FindLootTable(name); ok {
-		return true
-	}
-	return slices.Contains(rules.FishingTableNames, name)
+	_, ok := registry.FindLootTable(name)
+	return ok
 }
 
 // decodeLootTable reads an inline loot table with the data-pack codec. The

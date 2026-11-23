@@ -109,7 +109,7 @@ func (c *client) handleUseFishingRod(hand int32) bool {
 		return false
 	}
 	if it := c.hookOf(); it != nil {
-		c.retrieveBobber(hand, it)
+		c.retrieveBobber(hand, it, held)
 	} else {
 		c.castBobber(hand)
 	}
@@ -234,7 +234,7 @@ func rodPitch(r *rand.Rand) float32 {
 // it before the retrieve reads it. Out of range or across a world, only the
 // hook comes back.
 // vanilla: FishingRodItem.use, FishingHook.retrieve
-func (c *client) retrieveBobber(hand int32, it *bobberEntity) {
+func (c *client) retrieveBobber(hand int32, it *bobberEntity, rod protocol.ItemStack) {
 	s := c.srv
 	pos := c.player.Position()
 	watchers := s.takeBobber(it)
@@ -274,8 +274,18 @@ func (c *client) retrieveBobber(hand int32, it *bobberEntity) {
 		wear = fishingWearCatch
 		lift := 0.08 * math.Sqrt(math.Sqrt(dx*dx+dy*dy+dz*dz))
 		luck := float64(hook.Luck) + c.luckAttribute()
-		biome := it.w.BiomeAt(int32(math.Floor(hook.X)), int32(math.Floor(hook.Y)), int32(math.Floor(hook.Z)))
-		loot := rules.FishingLoot(hook.Rand, luck, hook.OpenWater, biome, s.lootLevelAt(it.w, hook.X, hook.Y, hook.Z))
+		x, y, z := rules.BlockOf(hook.X), rules.BlockOf(hook.Y), rules.BlockOf(hook.Z)
+		ctx := rules.LootContext{
+			Level:     s.lootLevelAt(it.w, hook.X, hook.Y, hook.Z),
+			Origin:    [3]float64{hook.X, hook.Y, hook.Z},
+			HasOrigin: true,
+			Luck:      float32(luck),
+			Tool:      rules.ToolOf(rod),
+			This:      rules.LootEntity{Type: "minecraft:fishing_bobber", FishingHook: &rules.LootFishingHook{OpenWater: hook.OpenWater}},
+			BiomeAt:   func(dx, dy, dz int32) string { return it.w.BiomeAt(x+dx, y+dy, z+dz) },
+			BlockAt:   func(dx, dy, dz int32) uint16 { return it.w.BlockAt(x+dx, y+dy, z+dz) },
+		}
+		loot := rules.RollLoot(rules.FishingLootTable, &ctx, s.levelRng)
 		c.fishingRodHookedAdvancements(loot)
 		for _, stack := range loot {
 			item := s.newItemEntity(it.w, stack, hook.X, hook.Y, hook.Z,
