@@ -1558,7 +1558,7 @@ func (c *client) movementPackets(mt moveTick) []outbound {
 	}
 	pos := c.player.Position()
 	abs := bodyPose{x: pos.X, y: pos.Y, z: pos.Z, yaw: pos.Yaw, pitch: pos.Pitch}
-	now, packet, ok := moveDiff(c.player.EntityID, was, track(pos), abs, mt)
+	now, packet, ok := moveDiff(c.player.EntityID, was, track(pos), abs, mt, 0)
 	if !ok {
 		return nil
 	}

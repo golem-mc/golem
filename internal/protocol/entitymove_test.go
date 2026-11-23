@@ -7,14 +7,24 @@ import (
 
 func TestMoveEntityEncodings(t *testing.T) {
 	var b Buffer
-	PutMoveEntityPos(&b, 5, 1, -1, 256, true)
+	PutMoveEntityPos(&b, 5, 1, -1, 256, 0, true)
 	if want := []byte{5, 1, 0, 1, 0xff, 0xff, 1, 0}; !bytes.Equal(b.Bytes(), want) {
 		t.Errorf("Pos = % x, want % x", b.Bytes(), want)
 	}
 	b = Buffer{}
-	PutMoveEntityPosRot(&b, 5, 1, 0, 0, 0x40, 0x10, false)
+	PutMoveEntityPosRot(&b, 5, 1, 0, 0, 0x40, 0x10, 0, false)
 	if want := []byte{5, 0, 0, 1, 0, 0, 0, 0, 0x40, 0x10}; !bytes.Equal(b.Bytes(), want) {
 		t.Errorf("PosRot = % x, want % x", b.Bytes(), want)
+	}
+	b = Buffer{}
+	PutMoveEntityPos(&b, 5, 1, -1, 256, 3, true)
+	if want := []byte{5, 3, 3, 0, 1, 0xff, 0xff, 1, 0}; !bytes.Equal(b.Bytes(), want) {
+		t.Errorf("stepped Pos = % x, want % x", b.Bytes(), want)
+	}
+	b = Buffer{}
+	PutMoveEntityPosRot(&b, 5, 1, 0, 0, 0x40, 0x10, 2, false)
+	if want := []byte{5, 2, 2, 0, 1, 0, 0, 0, 0, 0x40, 0x10}; !bytes.Equal(b.Bytes(), want) {
+		t.Errorf("stepped PosRot = % x, want % x", b.Bytes(), want)
 	}
 	b = Buffer{}
 	PutMoveEntityRot(&b, 300, 0x40, 0x10, true)

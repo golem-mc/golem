@@ -1059,7 +1059,7 @@ func thrownMetadataPayload(it *thrownEntity, full bool) []byte {
 func thrownZeroDeltaPayload(it *thrownEntity) []byte {
 	var b protocol.Buffer
 	b.Grow(entityPositionRotLen)
-	protocol.PutMoveEntityPos(&b, it.throwable.ID, 0, 0, 0, false)
+	protocol.PutMoveEntityPos(&b, it.throwable.ID, 0, 0, 0, 0, false)
 	return b.Bytes()
 }
 

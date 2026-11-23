@@ -121,7 +121,7 @@ func (t *bodyTrack[S]) motionDue(vx, vy, vz float64, stopping bool) bool {
 // each keep S.
 type trackedKind[B any, S any] struct {
 	rangeChunks int
-	// steppedPath sends an absolute position as a stepped path over the ticks
+	// steppedPath sends positions as a stepped path over the ticks
 	// since the last movement tick, for a LivingEntity.
 	// vanilla: SteppedInterpolationTracker
 	steppedPath bool
@@ -337,8 +337,7 @@ func (v *trackedBody[B, S]) record() toldBody[S] {
 // absolute as the client's base stayed where the body boarded.
 type moveTick struct {
 	gate, forced, resync, teleported, rotationOnly, dismounted bool
-	// stepTicks is the ticks since the previous gated tick, for a stepped
-	// absolute path; 0 sends a linear one.
+	// stepTicks is the ticks since the previous gated tick; 0 sends a linear path.
 	stepTicks int32
 }
 
@@ -532,7 +531,7 @@ func (v *trackedBody[B, S]) movePacket(was *toldBody[S], mt moveTick) (outbound,
 	if v.k.tellPose != nil {
 		p = v.k.tellPose(v.b)
 	}
-	now, packet, ok := moveDiff(v.id, was.trackedPosition, position, p, mt)
+	now, packet, ok := moveDiff(v.id, was.trackedPosition, position, p, mt, mt.stepTicks)
 	if !ok && !mt.rotationOnly {
 		return outbound{}, false
 	}
@@ -548,9 +547,9 @@ func (v *trackedBody[B, S]) movePacket(was *toldBody[S], mt moveTick) (outbound,
 // has come; a rotation when it has only turned. told is the baseline after the
 // packet; ok is false when nothing is owed. A rotationOnly step (a passenger)
 // moves the position baseline to now whether or not a packet is owed, but
-// leaves onGround alone.
+// leaves onGround alone. A zero deltaTicks encodes linear relative movement.
 // vanilla: ServerEntity.sendChanges
-func moveDiff(id int32, was, now trackedPosition, abs bodyPose, mt moveTick) (told trackedPosition, packet outbound, ok bool) {
+func moveDiff(id int32, was, now trackedPosition, abs bodyPose, mt moveTick, deltaTicks int32) (told trackedPosition, packet outbound, ok bool) {
 	dx, dy, dz := now.x-was.x, now.y-was.y, now.z-was.z
 	moved := dx*dx+dy*dy+dz*dz >= movedThresholdSq
 	turned := now.yaw != was.yaw || now.pitch != was.pitch
@@ -581,10 +580,10 @@ func moveDiff(id int32, was, now trackedPosition, abs bodyPose, mt moveTick) (to
 		buf.Grow(entityPositionRotLen)
 		if turned {
 			packetID = protocol.IDPlayEntityPositionRot
-			protocol.PutMoveEntityPosRot(&buf, id, int16(dx), int16(dy), int16(dz), now.yaw, now.pitch, now.onGround)
+			protocol.PutMoveEntityPosRot(&buf, id, int16(dx), int16(dy), int16(dz), now.yaw, now.pitch, deltaTicks, now.onGround)
 		} else {
 			packetID = protocol.IDPlayEntityPosition
-			protocol.PutMoveEntityPos(&buf, id, int16(dx), int16(dy), int16(dz), now.onGround)
+			protocol.PutMoveEntityPos(&buf, id, int16(dx), int16(dy), int16(dz), deltaTicks, now.onGround)
 		}
 	case turned:
 		packetID = protocol.IDPlayEntityRotation
