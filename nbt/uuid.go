@@ -31,22 +31,35 @@ func UUIDFromIntArray(words IntArray) (uuid.UUID, bool) {
 	return id, true
 }
 
-// UUIDWords reads the ints of a UUID from either shape the codec's int stream
-// accepts: the int array, or a list of ints. ok is false for any other shape;
-// the count is left for UUIDFromIntArray to check.
-// vanilla: UUIDUtil.CODEC
+// UUIDWords reads the ints of a UUID from any shape the codec's int stream
+// accepts: an int array, a byte or long array, or a list of numbers, each
+// narrowed as Number.intValue does. ok is false for any other shape; the
+// count is left for UUIDFromIntArray to check.
+// vanilla: UUIDUtil.CODEC, NbtOps.getIntStream, DynamicOps.getIntStream
 func UUIDWords(tag Tag) (IntArray, bool) {
 	switch v := tag.(type) {
 	case IntArray:
 		return v, true
+	case ByteArray:
+		words := make(IntArray, len(v))
+		for i, b := range v {
+			words[i] = int32(int8(b))
+		}
+		return words, true
+	case LongArray:
+		words := make(IntArray, len(v))
+		for i, n := range v {
+			words[i] = int32(n)
+		}
+		return words, true
 	case List:
 		words := make(IntArray, len(v.Items))
 		for i, item := range v.Items {
-			n, ok := item.(Int)
+			n, ok := IntValue(item)
 			if !ok {
 				return nil, false
 			}
-			words[i] = int32(n)
+			words[i] = n
 		}
 		return words, true
 	}

@@ -533,3 +533,17 @@ func TestMergedZeroLoveCauseIsKept(t *testing.T) {
 	c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
 	expectLoveCause(c, cow, uuid.UUID{})
 }
+
+// TestMergedShortListLoveCauseIsKept: a four-element list of shorts is a
+// LoveCause, each element narrowed to an int.
+// vanilla: UUIDUtil.CODEC, DynamicOps.getIntStream
+func TestMergedShortListLoveCauseIsKept(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Rancher", "minecraft:wheat", 64, servertest.OpsListing(t, "Rancher"))
+	servertest.HoldTicks(t, srv)
+	srv.SpawnMob("minecraft:cow", 1.5, 64, 2.5)
+	cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.ChatCommand("data merge entity " + cow.Uuid.String() + " {LoveCause:[1s,2s,3s,4s]}")
+	c.ExpectCommandFeedbackText("commands.data.entity.modified", servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
+	expectLoveCause(c, cow, uuid.UUID{0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4})
+}
