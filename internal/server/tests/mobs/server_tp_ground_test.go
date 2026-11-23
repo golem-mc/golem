@@ -266,9 +266,10 @@ func TestMagmaCubeLavaKickMovement(t *testing.T) {
 	servertest.RunTicks(t, srv, 1)
 	c.Settle()
 
-	kicks := 0
 	_, lastVY, _, _ := srv.MobVelocity(id)
-	for range 80 {
+	// The first kick comes on tick 8 of this fixture, before the second
+	// movement gate would have carried the position.
+	for range 12 {
 		seen := c.ReadTicks(srv, 1, func(pid int32, data []byte) bool {
 			switch pid {
 			case protocol.IDPlayTeleportEntity, protocol.IDPlayEntityPosition, protocol.IDPlayEntityPositionRot:
@@ -279,14 +280,12 @@ func TestMagmaCubeLavaKickMovement(t *testing.T) {
 		_, y, _, _ := srv.MobPos(id)
 		_, vy, _, _ := srv.MobVelocity(id)
 		if vy > lastVY+0.1 {
-			kicks++
 			if !seen {
 				t.Fatalf("kick (vy %g -> %g) at y %g sent no movement that tick", lastVY, vy, y)
 			}
+			return
 		}
 		lastVY = vy
 	}
-	if kicks == 0 {
-		t.Fatal("the cube never kicked in the lava")
-	}
+	t.Fatal("the cube never kicked in the lava")
 }
