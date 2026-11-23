@@ -121,21 +121,31 @@ func (s *Server) syncCartViewers(it *minecartEntity) {
 }
 
 // syncVehicleViewers sends cargo changes after the vehicle lock is released.
+// vanilla: AbstractContainerMenu.broadcastChanges
 func (s *Server) syncVehicleViewers(matches func(*openWindow) bool, slots func() []protocol.ItemStack) {
+	if s.openContainerWindows.Load() == 0 {
+		return
+	}
+	type viewer struct {
+		c      *client
+		window *openWindow
+	}
+	var buf [8]viewer
+	recipients := buf[:0]
 	s.mu.RLock()
-	clients := slices.Collect(func(yield func(*client) bool) {
-		for _, c := range s.clients {
-			if !yield(c) {
-				return
-			}
-		}
-	})
-	s.mu.RUnlock()
-	for _, c := range clients {
+	for _, c := range s.clients {
 		window := c.openContainerWindow()
 		if window != nil && matches(window) {
-			c.sendContainerChanges(window, 0, slots())
+			recipients = append(recipients, viewer{c: c, window: window})
 		}
+	}
+	s.mu.RUnlock()
+	if len(recipients) == 0 {
+		return
+	}
+	snapshot := slots()
+	for _, r := range recipients {
+		r.c.sendContainerChanges(r.window, 0, snapshot)
 	}
 }
 
