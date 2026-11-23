@@ -91,13 +91,22 @@ func (s *Server) registerMannequin(ent *mannequinEntity) {
 func (s *Server) tickMannequins() {
 	s.lockTick(&s.mannequinsMu)
 	none := len(s.mannequins) == 0
+	teleported := false
+	for _, ent := range s.mannequins {
+		if mannequinTracker.track(ent).teleported {
+			teleported = true
+			break
+		}
+	}
 	s.unlockTick(&s.mannequinsMu)
 	if none {
 		return
 	}
 	// A pending teleport is told before the body ticks.
 	// vanilla: ServerChunkCache.tick, ServerLevel.tick
-	mannequinTracker.frozenPass(s, s.trackingWatchers())
+	if teleported {
+		mannequinTracker.frozenPass(s, s.trackingWatchers())
+	}
 	teams := s.pushTeams()
 	pushes := s.mannequinPushInputs(teams)
 	var effects []mannequinTickEffect
