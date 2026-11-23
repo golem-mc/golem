@@ -161,7 +161,9 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 			}
 			cases = append(cases, registry.LootDispatchCase{Condition: test, Value: v})
 		}
-		// vanilla: ListCodec.decode keeps going and merges every element's error.
+		// vanilla: ListCodec.decode keeps going and merges every element's error,
+		// DataResult.apply2stable prepending the newest, so cases report last first.
+		slices.Reverse(caseMsgs)
 		if msg := registry.JoinFieldErrors(caseMsgs...); msg != "" {
 			return nil, partialMark + msg
 		}
