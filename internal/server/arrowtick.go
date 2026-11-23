@@ -18,6 +18,13 @@ import (
 // against the tracking range of the arrow type, its hits, sticks and pickups
 // collected; the effects applied after them.
 func (s *Server) tickArrows() {
+	// Nothing to step: skip the player, hull and stand snapshots.
+	s.lockTick(&s.arrowsMu)
+	none := len(s.arrows) == 0
+	s.unlockTick(&s.arrowsMu)
+	if none {
+		return
+	}
 	in := newArrowTickInputs()
 	s.readArrowTickInputs(&in)
 	in.nearby = nearbyWorlds(in.watchers, func(w arrowWatcher) trackingWatcher {
