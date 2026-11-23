@@ -107,6 +107,40 @@ func TestTheSmithingTableUpgradesAnEnchantedPickaxe(t *testing.T) {
 	}
 }
 
+// TestTheSmithingTableKeepsTheBasesRemovedDefaults upgrades a diamond
+// pickaxe whose patch removes max_damage: the netherite pickaxe in the result
+// slot and the one taken carry the removal on the wire and in what a save
+// writes.
+func TestTheSmithingTableKeepsTheBasesRemovedDefaults(t *testing.T) {
+	t.Parallel()
+	srv, w := servertest.OpenWindowed(t, servertest.SurvivalTestConfig())
+	w.OpenSmithing(srv)
+	servertest.ForgetWindowProps(w)
+
+	template := servertest.ItemStack(t, "minecraft:netherite_upgrade_smithing_template", 1)
+	w.GiveAndLay(srv, template, smithTemplateSlot)
+	pickaxe := servertest.ItemStack(t, "minecraft:diamond_pickaxe", 1)
+	if !pickaxe.Remove(protocol.DataComponentMaxDamage) {
+		t.Fatal("max_damage is not a removable component")
+	}
+	w.GiveAndLay(srv, pickaxe, smithBaseSlot)
+	ingot := servertest.ItemStack(t, "minecraft:netherite_ingot", 1)
+	srv.GiveSlot("Testificate", player.HotbarSlot, ingot)
+	w.Drain()
+	w.Click(smithHotbar0, 0, protocol.ClickModePickup)
+	w.ExpectClickResult(map[int16]protocol.ItemStack{smithHotbar0: {}}, ingot)
+	w.Click(smithAdditionSlot, 0, protocol.ClickModePickup)
+	netherite := servertest.ItemStack(t, "minecraft:netherite_pickaxe", 1)
+	netherite.Remove(protocol.DataComponentMaxDamage)
+	w.ExpectClickResult(map[int16]protocol.ItemStack{
+		smithAdditionSlot: ingot,
+		smithResultSlot:   netherite,
+	}, protocol.ItemStack{})
+	if got := netherite.RemovedNames(); !slices.Equal(got, []string{"minecraft:max_damage"}) {
+		t.Errorf("the expected result removes %v, want max_damage", got)
+	}
+}
+
 // trimPatternOf looks the pattern the named armour trim's recipe gives its
 // base, by the template item the recipe asks for.
 func trimPatternOf(t *testing.T, template string) int32 {

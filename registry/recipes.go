@@ -478,6 +478,7 @@ func smithingCarriedComponents(result, base protocol.ItemStack) protocol.ItemSta
 	result.GlintOverride = base.GlintOverride
 	result.SetEnchantments(true, base.StoredEnchantments, base.EnchantmentIDs(true)...)
 	result.Container = base.Container
+	result.Removed = base.Removed
 	result.Raw = slices.Clone(base.Raw)
 	return result
 }
