@@ -51,6 +51,9 @@ var mannequinTracker = trackedKind[*mannequinEntity, struct{}]{
 		return bodyPose{x: m.X, y: m.Y, z: m.Z, yaw: m.Yaw, pitch: m.Pitch, onGround: m.OnGround}
 	},
 	pairing: mannequinPairing,
+	motion: func(ent *mannequinEntity) (float64, float64, float64) {
+		return ent.mannequin.VX, ent.mannequin.VY, ent.mannequin.VZ
+	},
 }
 
 // mannequinPairing introduces a mannequin with its metadata and equipment.
@@ -411,6 +414,7 @@ func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by 
 		m.Pitch = to.Pitch
 		if command {
 			m.OnGround = true
+			m.VY = 0
 		}
 		id = m.ID
 		watchers = trackedWatchers(ent.tracked)

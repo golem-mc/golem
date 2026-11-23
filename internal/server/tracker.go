@@ -145,6 +145,10 @@ type trackedKind[B any, S any] struct {
 	// frozenSchedule keeps the movement cadence running while physics is held,
 	// including the initial correction of a client's predicted birth step.
 	frozenSchedule bool
+	// motion, if not nil, is the body's velocity for the Set Entity Motion
+	// that goes ahead of each watcher's move on a movement tick.
+	// vanilla: ServerEntity.sendChanges
+	motion func(B) (vx, vy, vz float64)
 
 	lock  func(*Server) *sync.Mutex
 	list  func(*Server) *[]B
@@ -811,12 +815,21 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 	} else {
 		mt = v.teleportTick()
 	}
+	var motion []byte
+	if k.motion != nil && mt.gate {
+		if vx, vy, vz := k.motion(b); v.t.motionDue(vx, vy, vz, true) {
+			motion = entityVelocityPayload(k.id(b), vx, vy, vz)
+		}
+	}
 	for _, i := range v.watchers(near) {
 		wt := watchers[i]
 		if wt.c.theWorld() != v.w {
 			continue // crossed to another dimension since the snapshot
 		}
 		if was, seen := v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out); seen && (mt.gate || mt.teleported && !v.k.steppedPath) {
+			if motion != nil {
+				out.moves.add(wt.c, outbound{id: protocol.IDPlaySetEntityMotion, data: motion})
+			}
 			v.moveTold(was, wt.c, mt, out)
 		}
 	}

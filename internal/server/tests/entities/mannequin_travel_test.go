@@ -80,3 +80,38 @@ func TestAMannequinTakesAPunchKnockback(t *testing.T) {
 		t.Errorf("punch moved mannequin from %v to %v, want about two blocks along Z", start, pos)
 	}
 }
+
+// A /tp zeroes the vertical speed, so the watcher is told the reset velocity
+// ahead of the teleport sync instead of keeping the old fall speed.
+func TestACommandTeleportResetsAFallingMannequinMotionForItsWatcher(t *testing.T) {
+	t.Parallel()
+	srv, c := joinMannequinOp(t, "Stopping")
+	c.ChatCommand("summon mannequin 3.5 90 3.5")
+	id := awaitMannequin(t, c, srv).id
+	var last []byte
+	c.ReadTicks(srv, 10, func(packet int32, data []byte) bool {
+		if packet == protocol.IDPlaySetEntityMotion && protocol.NewReader(data).ReadVarInt() == id {
+			last = data
+		}
+		return false
+	})
+	if last == nil {
+		t.Fatal("no Set Entity Motion while the mannequin fell")
+	}
+	c.ChatCommand("tp @e[type=mannequin,limit=1] 3.5 120 3.5")
+	var reset, synced bool
+	c.ReadTicks(srv, 6, func(packet int32, data []byte) bool {
+		switch packet {
+		case protocol.IDPlaySetEntityMotion:
+			if protocol.NewReader(data).ReadVarInt() == id && !synced && string(data) != string(last) {
+				reset = true
+			}
+		case protocol.IDPlayTeleportEntity:
+			synced = synced || servertest.ParseEntityPositionSync(data).ID == id
+		}
+		return reset && synced
+	})
+	if !reset || !synced {
+		t.Errorf("reset motion before the teleport sync = %v, teleport sync = %v", reset, synced)
+	}
+}
