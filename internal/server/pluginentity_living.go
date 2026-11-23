@@ -5,11 +5,40 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/effect"
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 )
+
+// readMob calls f under the mob lock for a loaded mob, including its death animation.
+func (e pluginEntity) readMob(f func(m *entity.Mob)) bool {
+	s := e.host.srv
+	s.mobsMu.Lock()
+	defer s.mobsMu.Unlock()
+	read := func(dim *dimension, m *entity.Mob) bool {
+		if !dim.w.ChunkLoaded(entity.ChunkAt(m.X, m.Z)) {
+			return false
+		}
+		f(m)
+		return true
+	}
+	dims := s.allDims()
+	for _, dim := range dims {
+		if m := dim.mobs.byUUID[e.id]; m != nil && read(dim, m) {
+			return true
+		}
+	}
+	for _, dim := range dims {
+		for _, body := range dim.mobs.dying {
+			if body.ent.uuid == e.id && read(dim, body.ent.mob) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // saved reads the body's saved compound, the form /data shows; nil for a
 // stale handle or a kind with no save form.
@@ -55,6 +84,10 @@ func (e pluginEntity) setFlag(key string, v bool) {
 }
 
 func (e pluginEntity) Velocity() plugin.Vec3 {
+	var motion plugin.Vec3
+	if e.readMob(func(m *entity.Mob) { motion = plugin.Vec3{X: m.VX, Y: m.VY, Z: m.VZ} }) {
+		return motion
+	}
 	list, _ := nbt.Get[nbt.List](e.saved(), "Motion")
 	var v [3]float64
 	for i := 0; i < len(list.Items) && i < 3; i++ {
@@ -71,29 +104,70 @@ func (e pluginEntity) OnGround() bool {
 	b, ok := e.live()
 	return ok && b.Position().OnGround
 }
-func (e pluginEntity) NameVisible() bool      { return e.flag("CustomNameVisible") }
-func (e pluginEntity) SetNameVisible(v bool)  { e.setFlag("CustomNameVisible", v) }
-func (e pluginEntity) Glowing() bool          { return e.flag("Glowing") }
-func (e pluginEntity) SetGlowing(v bool)      { e.setFlag("Glowing", v) }
-func (e pluginEntity) Silent() bool           { return e.flag("Silent") }
-func (e pluginEntity) SetSilent(v bool)       { e.setFlag("Silent", v) }
-func (e pluginEntity) NoGravity() bool        { return e.flag("NoGravity") }
-func (e pluginEntity) SetNoGravity(v bool)    { e.setFlag("NoGravity", v) }
-func (e pluginEntity) Invulnerable() bool     { return e.flag("Invulnerable") }
+func (e pluginEntity) NameVisible() bool     { return e.flag("CustomNameVisible") }
+func (e pluginEntity) SetNameVisible(v bool) { e.setFlag("CustomNameVisible", v) }
+func (e pluginEntity) Glowing() bool         { return e.flag("Glowing") }
+func (e pluginEntity) SetGlowing(v bool)     { e.setFlag("Glowing", v) }
+func (e pluginEntity) Silent() bool          { return e.flag("Silent") }
+func (e pluginEntity) SetSilent(v bool)      { e.setFlag("Silent", v) }
+func (e pluginEntity) NoGravity() bool {
+	var noGravity bool
+	if e.readMob(func(m *entity.Mob) { noGravity = m.NoGravity }) {
+		return noGravity
+	}
+	return e.flag("NoGravity")
+}
+func (e pluginEntity) SetNoGravity(v bool) { e.setFlag("NoGravity", v) }
+func (e pluginEntity) Invulnerable() bool {
+	var invulnerable bool
+	if e.readMob(func(m *entity.Mob) { invulnerable = m.Invulnerable }) {
+		return invulnerable
+	}
+	return e.flag("Invulnerable")
+}
 func (e pluginEntity) SetInvulnerable(v bool) { e.setFlag("Invulnerable", v) }
-func (e pluginEntity) FireTicks() int         { n, _ := nbt.ShortField(e.saved(), "Fire"); return int(n) }
-func (e pluginEntity) SetFireTicks(n int)     { e.merge(nbt.Compound{"Fire": nbt.Short(clampInt16(n))}) }
+func (e pluginEntity) FireTicks() int {
+	var ticks int
+	if e.readMob(func(m *entity.Mob) { ticks = m.FireTicks }) {
+		return int(clampToShort(max(ticks, restingFire)))
+	}
+	n, _ := nbt.ShortField(e.saved(), "Fire")
+	return int(n)
+}
+func (e pluginEntity) SetFireTicks(n int) { e.merge(nbt.Compound{"Fire": nbt.Short(clampInt16(n))}) }
 func (e pluginEntity) FrozenTicks() int {
+	var ticks int
+	if e.readMob(func(m *entity.Mob) { ticks = m.TicksFrozen }) {
+		return int(int32(max(ticks, 0)))
+	}
 	n, _ := nbt.IntField(e.saved(), "TicksFrozen")
 	return int(n)
 }
 func (e pluginEntity) SetFrozenTicks(n int) {
 	e.merge(nbt.Compound{"TicksFrozen": nbt.Int(int32(max(n, 0)))})
 }
-func (e pluginEntity) Air() int        { n, _ := nbt.ShortField(e.saved(), "Air"); return int(n) }
-func (e pluginEntity) SetAir(n int)    { e.merge(nbt.Compound{"Air": nbt.Short(clampInt16(n))}) }
-func (e pluginEntity) Health() float32 { h, _ := nbt.FloatField(e.saved(), "Health"); return h }
+func (e pluginEntity) Air() int {
+	var air int
+	if e.readMob(func(m *entity.Mob) { air = m.AirSupply }) {
+		return int(clampToShort(air))
+	}
+	n, _ := nbt.ShortField(e.saved(), "Air")
+	return int(n)
+}
+func (e pluginEntity) SetAir(n int) { e.merge(nbt.Compound{"Air": nbt.Short(clampInt16(n))}) }
+func (e pluginEntity) Health() float32 {
+	var health float32
+	if e.readMob(func(m *entity.Mob) { health = float32(m.Health) }) {
+		return health
+	}
+	h, _ := nbt.FloatField(e.saved(), "Health")
+	return h
+}
 func (e pluginEntity) Absorption() float32 {
+	var absorption float32
+	if e.readMob(func(m *entity.Mob) { absorption = float32(m.Absorption) }) {
+		return absorption
+	}
 	h, _ := nbt.FloatField(e.saved(), "AbsorptionAmount")
 	return h
 }
