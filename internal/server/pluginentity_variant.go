@@ -75,27 +75,23 @@ type (
 	}
 )
 
-// pluginVariantOf wraps the mob kinds that have a typed setter, nil for any
-// other. It runs only for a mob's handle, so the Breedable and Tameable
-// families are as pluginKindHandle finds them.
-func pluginVariantOf(e pluginEntity, saved nbt.Compound) plugin.Entity {
-	l, m, a, lv := livingOps{e}, mobOps{e}, ageOps{e}, loveOps{e}
+func pluginVariantOf(t registry.EntityType, saved nbt.Compound) handleShape {
 	if _, cube := saved["Size"]; cube {
-		return pluginCubeEntity{e, l, m, cubeOps{e}}
+		return shapeCube
 	}
-	switch e.Type() {
+	switch t {
 	case registry.EntityTypeSheep:
-		return pluginSheepEntity{e, l, m, a, lv, sheepOps{e}}
+		return shapeSheep
 	case registry.EntityTypeWolf, registry.EntityTypeCat:
-		return pluginCollaredEntity{e, l, m, a, lv, tameOps{e}, variantOps{e}, collarOps{e}}
+		return shapeCollared
 	case registry.EntityTypeFrog, registry.EntityTypeCow, registry.EntityTypePig, registry.EntityTypeChicken:
-		return pluginVariantEntity{e, l, m, a, lv, variantOps{e}}
+		return shapeVariant
 	case registry.EntityTypeHorse:
-		return pluginHorseEntity{e, l, m, a, lv, tameOps{e}, horseOps{e}}
+		return shapeHorse
 	case registry.EntityTypeCreeper:
-		return pluginCreeperEntity{e, l, m, creeperOps{e}}
+		return shapeCreeper
 	}
-	return nil
+	return shapeUnknown
 }
 
 func (e pluginEntity) dye(key string) plugin.DyeColor {

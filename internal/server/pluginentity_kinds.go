@@ -10,7 +10,7 @@ import (
 )
 
 // Each kind's interface methods sit on a small type of their own, so a handle
-// has exactly the interfaces of its kind (see pluginKindHandle). The state
+// has exactly the interfaces of its kind. The state
 // they read is the saved compound's, and writes merge over it.
 type (
 	standOps     struct{ e pluginEntity }
@@ -80,7 +80,7 @@ type (
 
 // pluginTypedHandle answers the handle of the kinds whose interfaces follow
 // from the entity type, nil for the rest.
-func pluginTypedHandle(base pluginEntity, t registry.EntityType, saved nbt.Compound) plugin.Entity {
+func pluginTypedHandle(base pluginEntity, t registry.EntityType) plugin.Entity {
 	e := base
 	switch t {
 	case registry.EntityTypeArmorStand:
@@ -103,14 +103,6 @@ func pluginTypedHandle(base pluginEntity, t registry.EntityType, saved nbt.Compo
 		return pluginFireworkEntity{pluginEntity: e, projOps: projOps{e}, fireworkOps: fireworkOps{e}}
 	case registry.EntityTypeInteraction:
 		return pluginInteractionEntity{pluginEntity: e, interOps: interOps{e}}
-	}
-	// Projectile.addAdditionalSaveData always writes HasBeenShot; an arrow
-	// is the one with an inGround flag.
-	if _, ok := saved["HasBeenShot"]; ok {
-		if _, arrow := saved["inGround"]; arrow {
-			return pluginArrowEntity{pluginEntity: e, projOps: projOps{e}, arrowOps: arrowOps{e}}
-		}
-		return pluginProjectileEntity{pluginEntity: e, projOps: projOps{e}}
 	}
 	return nil
 }
