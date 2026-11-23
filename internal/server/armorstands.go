@@ -829,7 +829,11 @@ func (o *standSends) send() {
 // already shown where it went and which metadata changed. The stands lock is held.
 func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyPlayers, out *standSends) {
 	body := standTracker.body(ent)
-	mt := body.t.stepDue(entity.ArmorStandInterval, ent.teleported || body.t.teleported)
+	// A teleport waits for the next scheduled gate, which consumes the mark.
+	if ent.teleported {
+		body.t.teleported, ent.teleported = true, false
+	}
+	mt := body.t.stepDue(entity.ArmorStandInterval, false)
 	now := armorStandMetaOf(ent)
 	var attributes []byte
 	if dirty := ent.stand.Attributes().TakeDirty(); len(dirty) != 0 {
@@ -866,7 +870,7 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 func standMove(v *trackedBody[*armorStandEntity, *armorStandMeta], told *toldBody[*armorStandMeta], c *client, mt moveTick, out *standSends) {
 	now := v.position()
 	dx, dy, dz := now.x-told.x, now.y-told.y, now.z-told.z
-	jumped := (v.b.teleported || mt.teleported) && (dx != 0 || dy != 0 || dz != 0)
+	jumped := mt.teleported && (dx != 0 || dy != 0 || dz != 0)
 	if dx*dx+dy*dy+dz*dz < movedThresholdSq && now.yaw == told.yaw && !jumped {
 		return
 	}
@@ -892,7 +896,6 @@ func (s *Server) tickArmorStandTracking(watchers []trackingWatcher) {
 		if !ent.stand.Dead {
 			trackStand(ent, watchers, near, &out)
 		}
-		ent.teleported = false
 	}
 	s.unlockTick(&s.armorStandsMu)
 	out.send()
@@ -981,7 +984,6 @@ func (s *Server) tickArmorStands() {
 		}
 		alive = append(alive, ent)
 		trackStand(ent, watchers, near, &out)
-		ent.teleported = false
 	}
 	s.armorStands = alive
 	s.unlockTick(&s.armorStandsMu)

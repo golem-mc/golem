@@ -33,9 +33,12 @@ func TestTeleportCommandSteppedPathLastsOneTrackingInterval(t *testing.T) {
 					srv.RunLine(`tick freeze`)
 				}
 				var sync servertest.EntityPositionSync
-				for i, y := range []float64{103, 105} {
+				var id int32
+				for i, y := range []float64{103, 112} {
 					if i > 0 {
-						servertest.RunTicks(t, srv, 7)
+						// A multiple of both intervals, so the teleport lands
+						// between two scheduled gates.
+						servertest.RunTicks(t, srv, 6)
 					}
 					srv.RunLine(fmt.Sprintf(`tp @e[tag=s,limit=1] 0.5 %v 0.5`, y))
 					seen := c.ReadTicks(srv, 8, func(pid int32, data []byte) bool {
@@ -43,14 +46,17 @@ func TestTeleportCommandSteppedPathLastsOneTrackingInterval(t *testing.T) {
 							return false
 						}
 						sync = servertest.ParseEntityPositionSync(data)
-						return sync.Y == y
+						return sync.Y == y && (i == 0 || sync.ID == id)
 					})
+					if i == 0 {
+						id = sync.ID
+					}
 					if !seen {
 						t.Fatalf("teleport %d: no Teleport Entity at y %v", i, y)
 					}
 				}
-				if !sync.Stepped || sync.StepTicks < 1 || sync.StepTicks > kind.interval {
-					t.Errorf("second sync = %+v, want stepped over at most %d ticks", sync, kind.interval)
+				if !sync.Stepped || sync.StepTicks != kind.interval {
+					t.Errorf("second sync = %+v, want stepped over %d ticks", sync, kind.interval)
 				}
 			})
 		}
