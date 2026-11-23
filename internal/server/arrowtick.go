@@ -35,9 +35,9 @@ func (s *Server) tickArrows() {
 	defer func() { arrowTracker.dormantPass(s, held) }()
 	s.lockTick(&s.arrowsMu)
 	s.lockTick(&s.mobsMu)
-	s.crossArrowPortalsLocked(&fx, gate)
+	flying := s.crossArrowPortalsLocked(&fx, gate)
 	var hv arrowHangingView
-	if anyArrowFlying(s.arrows) {
+	if flying {
 		hv = newArrowHangingView()
 		s.readArrowHanging(&hv)
 	}
@@ -69,17 +69,6 @@ func (s *Server) tickArrows() {
 	fx.apply(s, removals)
 	s.resolveHitAsks(fx.hitAsks)
 	s.fireBlockHits(fx.blockHits)
-}
-
-// anyArrowFlying reports whether a live arrow is not lodged in a block, the
-// only kind whose step reads the hanging-entity view.
-func anyArrowFlying(arrows []*arrowEntity) bool {
-	for _, it := range arrows {
-		if !it.arrow.Dead && !it.arrow.InGround {
-			return true
-		}
-	}
-	return false
 }
 
 // arrowWatcher is one player as the arrow tick sees them, read before any
@@ -211,8 +200,10 @@ type arrowPortalTravel struct {
 
 // crossArrowPortalsLocked runs the portal pass ahead of the tick, as for
 // items: an arrow the portal is sending across leaves the list here, its
-// arrival left to fx. The arrow lock is held.
-func (s *Server) crossArrowPortalsLocked(fx *arrowEffects, gate entityGate) {
+// arrival left to fx. It reports whether a retained arrow is not lodged in a
+// block, the only kind whose step reads the hanging-entity view. The arrow
+// lock is held.
+func (s *Server) crossArrowPortalsLocked(fx *arrowEffects, gate entityGate) (flying bool) {
 	portalAlive := s.arrows[:0]
 	for _, it := range s.arrows {
 		if it.arrow.Dead {
@@ -230,12 +221,14 @@ func (s *Server) crossArrowPortalsLocked(fx *arrowEffects, gate entityGate) {
 				})
 			}
 			portalAlive = append(portalAlive, it)
+			flying = flying || !it.arrow.InGround
 			continue
 		}
 		fx.travels = append(fx.travels, arrowPortalTravel{it: it, kind: kind})
 		arrowTracker.unfile(it)
 	}
 	s.arrows = portalAlive
+	return flying
 }
 
 // arrowHangingView is the frames, the paintings and the leash knots of each
