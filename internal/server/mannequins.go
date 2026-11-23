@@ -33,18 +33,19 @@ type mannequinEntity struct {
 
 // mannequinTracker tracks mannequin travel and commanded teleports.
 var mannequinTracker = trackedKind[*mannequinEntity, struct{}]{
-	steppedPath: true,
-	rangeChunks: entity.MannequinTrackingRange,
-	interval:    1,
-	lock:        func(s *Server) *sync.Mutex { return &s.mannequinsMu },
-	list:        func(s *Server) *[]*mannequinEntity { return &s.mannequins },
-	chunks:      func(s *Server) *entity.ChunkIndex[*mannequinEntity] { return &s.mannequinChunks },
-	filing:      func(it *mannequinEntity) *entity.Filing { return &it.mannequin.Filing },
-	uuid:        func(it *mannequinEntity) uuid.UUID { return it.uuid },
-	track:       func(ent *mannequinEntity) *bodyTrack[struct{}] { return &ent.bodyTrack },
-	world:       func(ent *mannequinEntity) *world.World { return ent.w },
-	id:          func(ent *mannequinEntity) int32 { return ent.mannequin.ID },
-	dead:        func(ent *mannequinEntity) bool { return ent.mannequin.Dead },
+	steppedPath:    true,
+	frozenSchedule: true,
+	rangeChunks:    entity.MannequinTrackingRange,
+	interval:       entity.MannequinInterval,
+	lock:           func(s *Server) *sync.Mutex { return &s.mannequinsMu },
+	list:           func(s *Server) *[]*mannequinEntity { return &s.mannequins },
+	chunks:         func(s *Server) *entity.ChunkIndex[*mannequinEntity] { return &s.mannequinChunks },
+	filing:         func(it *mannequinEntity) *entity.Filing { return &it.mannequin.Filing },
+	uuid:           func(it *mannequinEntity) uuid.UUID { return it.uuid },
+	track:          func(ent *mannequinEntity) *bodyTrack[struct{}] { return &ent.bodyTrack },
+	world:          func(ent *mannequinEntity) *world.World { return ent.w },
+	id:             func(ent *mannequinEntity) int32 { return ent.mannequin.ID },
+	dead:           func(ent *mannequinEntity) bool { return ent.mannequin.Dead },
 	pose: func(ent *mannequinEntity) bodyPose {
 		m := ent.mannequin
 		return bodyPose{x: m.X, y: m.Y, z: m.Z, yaw: m.Yaw, pitch: m.Pitch, onGround: m.OnGround}
