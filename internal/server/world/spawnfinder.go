@@ -208,3 +208,27 @@ func (w *World) AdjustedSpawn(suggestion SpawnPos, boxClear, bodiesClear func(Sp
 	}
 	return w.FixupSpawnHeight(suggestion, bodiesClear)
 }
+
+// FindSurfaceSpawn chooses a new dimension's first spawn without a climate
+// search (the end, the nether, plugin shapes): the lowest block a body can
+// stand on with two free blocks above, in the chunks around the origin. The
+// scan runs bottom-up so a roof or sky layer is never taken for the floor.
+// vanilla: MinecraftServer.setInitialSpawn
+func (w *World) FindSurfaceSpawn() SpawnPos {
+	return findSpawnNear(0, 0, func(cx, cz int32) (SpawnPos, bool) {
+		pos := ChunkPos{X: cx, Z: cz}
+		c, _ := w.Acquire(pos)
+		defer w.Release(pos)
+		top := w.dim.minY + w.dim.height - 3
+		for lx := range int32(16) {
+			for lz := range int32(16) {
+				for y := w.dim.minY; y < top; y++ {
+					if faceFullUp(c.BlockAt(lx, y, lz)) && c.BlockAt(lx, y+1, lz) == airState && c.BlockAt(lx, y+2, lz) == airState {
+						return SpawnPos{X: cx*16 + lx, Y: y + 1, Z: cz*16 + lz}, true
+					}
+				}
+			}
+		}
+		return SpawnPos{}, false
+	})
+}
