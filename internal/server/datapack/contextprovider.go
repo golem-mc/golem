@@ -148,7 +148,7 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 		var cases []registry.LootDispatchCase
 		var caseMsgs []string
 		for _, e := range items {
-			cc, ok := nbt.ListElement(e).(nbt.Compound)
+			cc, ok := e.(nbt.Compound)
 			if !ok {
 				caseMsgs = append(caseMsgs, "Not a map: "+nbt.Stringify(e))
 				continue
@@ -264,7 +264,7 @@ func listOf[T any](c nbt.Compound, key string, one func(nbt.Tag) (T, string)) ([
 	}
 	out := make([]T, 0, len(items))
 	for _, item := range items {
-		v, msg := one(nbt.ListElement(item))
+		v, msg := one(item)
 		if msg != "" {
 			return nil, msg
 		}
@@ -331,33 +331,54 @@ func weightedChoice(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt
 			return nil, "List must have contents"
 		}
 		var out registry.LootWeightedList
+		var msgs []string
 		for _, item := range items {
-			entry, ok := nbt.ListElement(item).(nbt.Compound)
-			if !ok {
-				return nil, "Not a map: " + nbt.Stringify(item)
-			}
-			data, msg := fieldOf(entry, "data")
+			v, weight, msg := weightedEntry(item, nested)
 			if msg != "" {
-				return nil, msg
-			}
-			v, msg := nested(data)
-			if msg != "" {
-				return nil, msg
-			}
-			weight := int32(1)
-			if w, present := entry["weight"]; present {
-				if weight, ok = nbt.IntValue(w); !ok {
-					return nil, "Not a number: " + nbt.Stringify(w)
-				}
-				if weight < 1 {
-					return nil, fmt.Sprintf("Value %d outside of range [1:2147483647]", weight)
-				}
+				msgs = append(msgs, msg)
+				continue
 			}
 			out.Values = append(out.Values, v)
 			out.Weights = append(out.Weights, int64(weight))
 		}
+		// vanilla: ListCodec.decode merges every element's error, newest first;
+		// WeightedList's non-zero check then runs on the partial list.
+		slices.Reverse(msgs)
+		if len(out.Values) == 0 {
+			msgs = append(msgs, "Weighted list must contain at least one entry with non-zero weight")
+		}
+		if msg := registry.JoinFieldErrors(msgs...); msg != "" {
+			return nil, partialMark + msg
+		}
 		return out, ""
 	}
+}
+
+// weightedEntry decodes one data and weight entry of a weighted list.
+// vanilla: Weighted.codec
+func weightedEntry(item nbt.Tag, nested func(nbt.Tag) (registry.LootNumber, string)) (registry.LootNumber, int32, string) {
+	entry, ok := item.(nbt.Compound)
+	if !ok {
+		return nil, 0, "Not a map: " + nbt.Stringify(item)
+	}
+	data, msg := fieldOf(entry, "data")
+	if msg != "" {
+		return nil, 0, msg
+	}
+	v, msg := nested(data)
+	if msg != "" {
+		return nil, 0, msg
+	}
+	weight := int32(1)
+	if w, present := entry["weight"]; present {
+		if weight, ok = nbt.IntValue(w); !ok {
+			return nil, 0, "Not a number: " + nbt.Stringify(w)
+		}
+		if weight < 1 {
+			return nil, 0, fmt.Sprintf("Value %d outside of range [1:2147483647]", weight)
+		}
+	}
+	return v, weight, ""
 }
 
 var entityTargetNames = []string{"this", "attacker", "direct_attacker", "attacking_player", "target_entity", "interacting_entity"}
