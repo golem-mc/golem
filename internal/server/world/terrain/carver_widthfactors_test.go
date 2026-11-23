@@ -30,3 +30,28 @@ func TestFillWidthFactorsOversizeDepth(t *testing.T) {
 		t.Fatal("next draw differs")
 	}
 }
+
+// A canyon in a 500-block range carves at heights past the 384-entry stack
+// buffer, so doCarve must take the heap fallback.
+func TestDoCarveOversizeDepth(t *testing.T) {
+	const_ := func(v float32) floatProvider { return func(*carverRandom) float32 { return v } }
+	c := &canyonCarver{
+		widthSmoothness:             3,
+		horizontalRadiusFactor:      const_(1),
+		verticalRadiusDefaultFactor: 1,
+	}
+	g := carveRange{minY: 0, depth: 500}
+	out := NewCarvingMask(g.minY, g.minY+g.depth-1)
+	c.doCarve(g, 0, 0, 7, 8, 450, 8, 4, 0, 0, 10, 20, out)
+	found := false
+	for y := g.minY + 385; y < g.minY+g.depth; y++ { // width-factor index y-minY-1 >= 384
+		for x := range int32(16) {
+			for z := range int32(16) {
+				found = found || out.Get(x, y, z)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no block carved at a width-factor index of 384 or more")
+	}
+}
