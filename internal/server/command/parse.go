@@ -412,6 +412,13 @@ func walkNode(node *Node, input string, tokens []Token, idx int, allowSelectors 
 				errs = append(errs, err)
 				continue
 			}
+		case ParserParticle:
+			// A particle's type and SNBT options are read during the walk,
+			// before coordinates. vanilla: ParticleArgument.readParticle
+			if err := parseParticleArgument(tokens[idx : idx+arity]); err != nil {
+				errs = append(errs, err)
+				continue
+			}
 		case ParserMessage:
 			// A message reads its selectors during the walk: a refused
 			// selector letter is stepped over, any other refusal stops the
