@@ -25,7 +25,23 @@ func resultFrom(id string, input protocol.ItemStack, item, count int32) protocol
 	}
 	result.Count = count
 	result.Raw = slices.Clone(input.Raw)
+	dropMeaninglessRemovals(&result)
 	return RecipeResult(id, result)
+}
+
+// dropMeaninglessRemovals forgets the removals of components the stack's item
+// has no default of: they changed nothing on the input's item and a patch
+// applied to the result's defaults does not keep them.
+// vanilla: PatchedDataComponentMap.applyPatch, PatchedDataComponentMap.set
+func dropMeaninglessRemovals(stack *protocol.ItemStack) {
+	if stack.Removed == (protocol.Removals{}) {
+		return
+	}
+	for _, name := range stack.RemovedNames() {
+		if typ, ok := protocol.RemovableType(name); ok && !ItemHasComponentDefault(stack.ItemID, name) {
+			stack.ResetComponent(typ)
+		}
+	}
 }
 
 // result matches a crafting_transmute recipe: one input stack and

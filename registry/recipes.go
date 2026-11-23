@@ -423,10 +423,7 @@ func SmithingMatch(template, base, addition protocol.ItemStack) (string, protoco
 			!smithingFits(recipe.Base, base) || !smithingFits(recipe.Addition, addition) {
 			continue
 		}
-		return recipe.ID, RecipeResult(recipe.ID, smithingCarriedComponents(protocol.ItemStack{
-			ItemID: recipe.ResultID,
-			Count:  recipe.ResultCount,
-		}, base))
+		return recipe.ID, resultFrom(recipe.ID, base, recipe.ResultID, recipe.ResultCount)
 	}
 	for i := range set.trim {
 		recipe := &set.trim[i]
@@ -463,23 +460,6 @@ func smithingFits(ingredient Ingredient, stack protocol.ItemStack) bool {
 		return stack.Empty()
 	}
 	return slices.Contains(ingredient, stack.ItemID)
-}
-
-// smithingCarriedComponents copies the base's components (wear and
-// enchantments among them) onto the result. The raw slice is cloned so the
-// two stacks the menu holds never share one the result may rewrite.
-// vanilla: TransmuteRecipe.createWithOriginalComponents
-func smithingCarriedComponents(result, base protocol.ItemStack) protocol.ItemStack {
-	result.Damage = base.Damage
-	result.Unbreakable = base.Unbreakable
-	result.CustomName = base.CustomName
-	result.SetEnchantments(false, base.Enchantments, base.EnchantmentIDs(false)...)
-	result.RepairCost = base.RepairCost
-	result.GlintOverride = base.GlintOverride
-	result.SetEnchantments(true, base.StoredEnchantments, base.EnchantmentIDs(true)...)
-	result.Container = base.Container
-	result.Raw = slices.Clone(base.Raw)
-	return result
 }
 
 // StonecutterDisplayOf returns the stonecutting display of id, or nil.

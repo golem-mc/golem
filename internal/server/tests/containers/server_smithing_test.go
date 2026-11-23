@@ -8,6 +8,7 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -104,6 +105,63 @@ func TestTheSmithingTableUpgradesAnEnchantedPickaxe(t *testing.T) {
 	}, netherite)
 	if !slices.Contains(w.Events, protocol.WorldEventSmithingUse) {
 		t.Errorf("no smithing use event played; the events were %v", w.Events)
+	}
+}
+
+// TestTheSmithingTableKeepsTheBasesRemovedDefaults upgrades a diamond
+// pickaxe whose patch removes max_damage: the netherite pickaxe in the result
+// slot and the one taken carry the removal on the wire and in what a save
+// writes.
+func TestTheSmithingTableKeepsTheBasesRemovedDefaults(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SurvivalTestConfig()
+	cfg.LevelName = t.TempDir()
+	srv, w := servertest.OpenWindowed(t, cfg)
+	w.OpenSmithing(srv)
+	servertest.ForgetWindowProps(w)
+
+	template := servertest.ItemStack(t, "minecraft:netherite_upgrade_smithing_template", 1)
+	w.GiveAndLay(srv, template, smithTemplateSlot)
+	pickaxe := servertest.ItemStack(t, "minecraft:diamond_pickaxe", 1)
+	if !pickaxe.Remove(protocol.DataComponentMaxDamage) {
+		t.Fatal("max_damage is not a removable component")
+	}
+	w.GiveAndLay(srv, pickaxe, smithBaseSlot)
+	ingot := servertest.ItemStack(t, "minecraft:netherite_ingot", 1)
+	srv.GiveSlot("Testificate", player.HotbarSlot, ingot)
+	w.Drain()
+	w.Click(smithHotbar0, 0, protocol.ClickModePickup)
+	w.ExpectClickResult(map[int16]protocol.ItemStack{smithHotbar0: {}}, ingot)
+	w.Click(smithAdditionSlot, 0, protocol.ClickModePickup)
+	netherite := servertest.ItemStack(t, "minecraft:netherite_pickaxe", 1)
+	netherite.Remove(protocol.DataComponentMaxDamage)
+	w.ExpectClickResult(map[int16]protocol.ItemStack{
+		smithAdditionSlot: ingot,
+		smithResultSlot:   netherite,
+	}, protocol.ItemStack{})
+
+	// Take the upgrade into the inventory and save: the file keeps the removal.
+	w.Click(smithResultSlot, 0, protocol.ClickModePickup)
+	w.Drain()
+	w.Click(smithHotbar0, 0, protocol.ClickModePickup)
+	w.Drain()
+	w.Disconnect()
+	root := servertest.ReadPlayerFile(t, servertest.PlayerFile(cfg.LevelName, "Testificate"))
+	items, _ := nbt.Get[nbt.List](root, "Inventory")
+	found := false
+	for _, item := range items.Items {
+		entry := item.(nbt.Compound)
+		if id, _ := nbt.Get[nbt.String](entry, "id"); id != "minecraft:netherite_pickaxe" {
+			continue
+		}
+		found = true
+		components, _ := nbt.Get[nbt.Compound](entry, "components")
+		if _, ok := components["!minecraft:max_damage"]; !ok {
+			t.Errorf("saved netherite pickaxe components = %v, want !minecraft:max_damage", components)
+		}
+	}
+	if !found {
+		t.Errorf("no netherite pickaxe in the saved inventory %v", items)
 	}
 }
 
