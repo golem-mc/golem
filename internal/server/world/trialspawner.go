@@ -101,9 +101,18 @@ func (w *World) SetCarriedField(x, y, z int32, key string, value nbt.Tag) bool {
 	if !found {
 		return false
 	}
-	entry := maps.Clone(old.Entries())
-	entry[key] = value
-	loaded.chunk.setCarriedBlockEntity(keepCarriedOrder(old, entry))
+	var next nbt.CompoundTag
+	if _, exists := old.Entries()[key]; exists && isOrdered(old) {
+		// An overwrite keeps the key's place, so the copy keeps the order.
+		copied := nbt.ShallowCopyCompound(old)
+		copied.Set(key, value)
+		next = copied
+	} else {
+		entry := maps.Clone(old.Entries())
+		entry[key] = value
+		next = keepCarriedOrder(old, entry)
+	}
+	loaded.chunk.setCarriedBlockEntity(next)
 	w.syncTickingChunk(pos, loaded.chunk)
 	loaded.markDirty()
 	return true

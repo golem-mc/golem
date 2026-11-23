@@ -134,10 +134,15 @@ func orderedCarried(entry nbt.Compound) *nbt.OrderedCompound {
 // keepCarriedOrder is entry in codec order when the compound it replaces was
 // kept so; an edit rewrites the map, which would lose the order.
 func keepCarriedOrder(old nbt.CompoundTag, entry nbt.Compound) nbt.CompoundTag {
-	if _, ordered := old.(*nbt.OrderedCompound); ordered {
+	if isOrdered(old) {
 		return orderedCarried(entry)
 	}
 	return entry
+}
+
+func isOrdered(tag nbt.CompoundTag) bool {
+	_, ordered := tag.(*nbt.OrderedCompound)
+	return ordered
 }
 
 // qualifyString namespaces the string at key, leaving any other tag.
