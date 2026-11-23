@@ -233,21 +233,14 @@ func nestedFloatTag(t nbt.Tag) (registry.LootNumber, string) {
 	return DecodeFloatProvider(t)
 }
 
-// listItems is the elements of a list, or of an int array: a JSON list of
-// ints converts to one.
+// listItems is the elements of a list or typed array.
 // vanilla: NbtOps.getStream
 func listItems(t nbt.Tag) ([]nbt.Tag, bool) {
-	switch t := t.(type) {
-	case nbt.List:
-		return t.Items, true
-	case nbt.IntArray:
-		items := make([]nbt.Tag, len(t))
-		for i, v := range t {
-			items[i] = nbt.Int(v)
-		}
-		return items, true
+	seq := nbt.CollectionValues(t)
+	if seq == nil {
+		return nil, false
 	}
-	return nil, false
+	return slices.Collect(seq), true
 }
 
 // listOf decodes the elements of a list field with one decoder.
