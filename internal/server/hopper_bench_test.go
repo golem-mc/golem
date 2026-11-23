@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"log/slog"
 	"testing"
 
@@ -124,5 +125,29 @@ func BenchmarkChainedHoppersWithChests(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		s.tickBlockEntities()
+	}
+}
+
+// BenchmarkHopperItemBox measures hopper item-box queries with N unrelated
+// items in distant chunks.
+func BenchmarkHopperItemBox(b *testing.B) {
+	stone := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
+	for _, n := range []int{0, 1024, 8192} {
+		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 1)
+			s.spawnItem(w, stone, 2, 65, 2, 0, 0, 0, 0)
+			for i := range n {
+				s.spawnItem(w, stone, float64(100+i%64), 65, 2, 0, 0, 0, 0)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				got := s.itemEntitiesIn(w, 1.5, 64.5, 1.5, 2.5, 66, 2.5)
+				if len(got) != 1 {
+					b.Fatalf("itemEntitiesIn returned %d items, want 1", len(got))
+				}
+			}
+			b.StopTimer()
+		})
 	}
 }
