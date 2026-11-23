@@ -37,11 +37,6 @@ type armorStandEntity struct {
 	bodyTrack[*armorStandMeta]
 	portal rules.EntityPortal
 
-	// teleported marks a teleport the watchers have not been told of yet,
-	// told by the next tracking pass, however many came in the tick.
-	// Guarded by the stands lock.
-	teleported bool
-
 	// tags are the scoreboard tags, what the tag selector option matches
 	// and /tag edits. Guarded by the stands lock, like the rest of a
 	// stand's own fields.
@@ -61,8 +56,8 @@ type armorStandEntity struct {
 }
 
 // standTracker tracks the armor stands. A stand is told where it went on a
-// movement tick (every entity.ArmorStandInterval ticks, or a teleport's),
-// always by an absolute Teleport Entity (standMove).
+// movement tick (every entity.ArmorStandInterval ticks; a teleport waits for
+// the next one), always by an absolute Teleport Entity (standMove).
 var standTracker = trackedKind[*armorStandEntity, *armorStandMeta]{
 	steppedPath:      true,
 	invalidatePiston: func(dim *dimension) { dim.pistons.armorStands.built = false },
@@ -829,10 +824,6 @@ func (o *standSends) send() {
 // already shown where it went and which metadata changed. The stands lock is held.
 func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyPlayers, out *standSends) {
 	body := standTracker.body(ent)
-	// A teleport waits for the next scheduled gate, which consumes the mark.
-	if ent.teleported {
-		body.t.teleported, ent.teleported = true, false
-	}
 	mt := body.t.stepDue(entity.ArmorStandInterval, false)
 	now := armorStandMetaOf(ent)
 	var attributes []byte
