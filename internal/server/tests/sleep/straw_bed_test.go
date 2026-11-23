@@ -1,6 +1,7 @@
 package sleep
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -39,6 +40,51 @@ func awaitStrawBreak(t *testing.T, c *servertest.Client) (x, y, z int32) {
 func strawBedState(t *testing.T, part string) uint16 {
 	t.Helper()
 	return servertest.MustState(t, "minecraft:straw_bed", map[string]string{"part": part, "facing": "south"})
+}
+
+func TestSleepingPlayerSpawnsAtBedHeight(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		bed     string
+		offsetY float64
+	}{
+		{"straw_bed", 0.375},
+		{"red_bed", 0.6875},
+	} {
+		t.Run(tc.bed, func(t *testing.T) {
+			srv, sleeper := servertest.Join(t, servertest.BlockTestConfig(), "Actor", servertest.OpsListing(t, "Actor"))
+			servertest.HoldTicks(t, srv)
+			srv.SetGameRuleValue("players_sleeping_percentage", 101)
+			sleeper.ChatCommand(fmt.Sprintf("setblock %d %d %d %s[facing=south,part=foot] strict", sleepBedHeadX, sleepBedHeadY, sleepBedFootZ, tc.bed))
+			sleeper.ChatCommand(fmt.Sprintf("setblock %d %d %d %s[facing=south,part=head] strict", sleepBedHeadX, sleepBedHeadY, sleepBedHeadZ, tc.bed))
+			sleeper.ChatCommand("time set 13000")
+			sleeper.MoveTo(6.5, 64, 0.5, 0, 0)
+			sleeper.UseBlock(sleepBedHeadX, sleepBedHeadY, sleepBedHeadZ)
+			sleeper.Settle()
+			if !srv.Sleeping("Actor") {
+				t.Fatal("the bed did not put the player to sleep")
+			}
+
+			// A new viewer receives the absolute position in Spawn Entity.
+			servertest.ReleaseTicks(t, srv)
+			watcher := servertest.DialServer(t, srv).JoinKeeping("Watcher")
+			if !watcher.ReadTicks(srv, 5, func(id int32, data []byte) bool {
+				if id != protocol.IDPlaySpawnEntity {
+					return false
+				}
+				spawn := servertest.ReadThrownSpawn(watcher, data)
+				if spawn.EntityID != sleeper.PlayerEntityID {
+					return false
+				}
+				if wantY := sleepBedHeadY + tc.offsetY; spawn.X != 5.5 || spawn.Y != wantY || spawn.Z != 1.5 {
+					t.Errorf("sleeper spawn position = (%v, %v, %v), want (5.5, %v, 1.5)", spawn.X, spawn.Y, spawn.Z, wantY)
+				}
+				return true
+			}) {
+				t.Fatal("the watcher did not receive the sleeper's spawn packet")
+			}
+		})
+	}
 }
 
 // TestAStrawBedSleepsWithoutASpawnAndBreaksOnWaking sleeps in an overworld
