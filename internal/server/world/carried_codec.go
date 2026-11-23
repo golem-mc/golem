@@ -11,12 +11,11 @@ import (
 // its codecs do to a command's tag: read normalises the values the way its
 // loadAdditional reads them and writes the fields saveAdditional always writes;
 // fields is the order saveAdditional writes them in, which a compound keeps for
-// the ties of its display order; save, when set, writes them itself, in order.
+// the ties of its display order.
 // vanilla: BlockEntity.loadWithComponents, BlockEntity.saveWithFullMetadata
 type carriedKind struct {
 	fields []string
 	read   func(nbt.Compound)
-	save   func(e nbt.Compound, set func(string, nbt.Tag))
 }
 
 var carriedKinds = map[string]carriedKind{
@@ -35,8 +34,8 @@ var carriedKinds = map[string]carriedKind{
 			}
 		}
 	}},
-	"minecraft:structure_block": {save: func(e nbt.Compound, set func(string, nbt.Tag)) {
-		ParseStructureBlock(e).save(set)
+	"minecraft:structure_block": {fields: structureBlockFields(), read: func(e nbt.Compound) {
+		ParseStructureBlock(e).save(func(k string, v nbt.Tag) { e[k] = v })
 	}},
 	"minecraft:test_block": {fields: []string{"mode", "message", "powered"}, read: func(e nbt.Compound) {
 		// vanilla: TestBlockMode.CODEC, getStringOr, getBooleanOr
@@ -108,41 +107,19 @@ func readCarried(entry nbt.Compound) {
 	}
 }
 
-// orderedCarried writes a carried compound's fields once in the order
-// saveWithFullMetadata does: the type's own, components, then id and position;
-// other fields follow.
-func orderedCarried(entry nbt.Compound) *nbt.OrderedCompound {
+// orderedCarried is a carried compound in the order saveWithFullMetadata
+// writes it: the type's own fields, components, then id and position; other
+// fields follow.
+func orderedCarried(entry nbt.Compound) nbt.CompoundTag {
 	id, _ := nbt.Get[nbt.String](entry, "id")
-	kind := carriedKinds[string(id)]
-	out := nbt.NewOrderedCompound(len(entry))
-	if kind.save != nil {
-		kind.save(entry, out.Set)
-	}
-	for _, key := range append(slices.Clone(kind.fields), "components", "id", "x", "y", "z") {
-		if v, ok := entry[key]; ok {
-			out.Set(key, v)
-		}
-	}
-	for _, key := range nbt.HashOrderedKeys(entry) {
-		if _, done := out.Entries()[key]; !done {
-			out.Set(key, entry[key])
-		}
-	}
-	return out
+	return blockRecord(entry, slices.Concat(carriedKinds[string(id)].fields, []string{"components", "id", "x", "y", "z"})...)
 }
 
-// keepCarriedOrder is entry in codec order when the compound it replaces was
-// kept so; an edit rewrites the map, which would lose the order.
-func keepCarriedOrder(old nbt.CompoundTag, entry nbt.Compound) nbt.CompoundTag {
-	if isOrdered(old) {
-		return orderedCarried(entry)
-	}
-	return entry
-}
-
-func isOrdered(tag nbt.CompoundTag) bool {
-	_, ordered := tag.(*nbt.OrderedCompound)
-	return ordered
+// structureBlockFields are the keys StructureBlock.save writes, in its order.
+func structureBlockFields() []string {
+	var keys []string
+	NewStructureBlock(StructureData).save(func(k string, _ nbt.Tag) { keys = append(keys, k) })
+	return keys
 }
 
 // qualifyString namespaces the string at key, leaving any other tag.

@@ -72,14 +72,14 @@ func (w *World) ReplaceCarried(x, y, z int32, tag nbt.Compound) bool {
 	if !ok {
 		return false
 	}
-	old, found := loaded.chunk.carriedTagAt(x, y, z)
+	old, found := loaded.chunk.carriedBlockEntityAt(x, y, z)
 	if !found {
 		return false
 	}
 	entry := make(nbt.Compound, len(tag))
 	maps.Copy(entry, tag)
-	entry["id"], entry["x"], entry["y"], entry["z"] = old.Entries()["id"], nbt.Int(x), nbt.Int(y), nbt.Int(z)
-	loaded.chunk.setCarriedBlockEntity(keepCarriedOrder(old, entry))
+	entry["id"], entry["x"], entry["y"], entry["z"] = old["id"], nbt.Int(x), nbt.Int(y), nbt.Int(z)
+	loaded.chunk.setCarriedBlockEntity(entry)
 	w.syncTickingChunk(pos, loaded.chunk)
 	loaded.markDirty()
 	return true
@@ -97,22 +97,13 @@ func (w *World) SetCarriedField(x, y, z int32, key string, value nbt.Tag) bool {
 	if !ok {
 		return false
 	}
-	old, found := loaded.chunk.carriedTagAt(x, y, z)
+	old, found := loaded.chunk.carriedBlockEntityAt(x, y, z)
 	if !found {
 		return false
 	}
-	var next nbt.CompoundTag
-	if _, exists := old.Entries()[key]; exists && isOrdered(old) {
-		// An overwrite keeps the key's place, so the copy keeps the order.
-		copied := nbt.ShallowCopyCompound(old)
-		copied.Set(key, value)
-		next = copied
-	} else {
-		entry := maps.Clone(old.Entries())
-		entry[key] = value
-		next = keepCarriedOrder(old, entry)
-	}
-	loaded.chunk.setCarriedBlockEntity(next)
+	entry := maps.Clone(old)
+	entry[key] = value
+	loaded.chunk.setCarriedBlockEntity(entry)
 	w.syncTickingChunk(pos, loaded.chunk)
 	loaded.markDirty()
 	return true

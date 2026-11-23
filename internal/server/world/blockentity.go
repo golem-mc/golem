@@ -1161,17 +1161,17 @@ func carriedPos(entry nbt.Compound) (int32, int32, int32) {
 // setCarriedBlockEntity keeps an unmodelled block entity's compound, written
 // back as it came by the next save; one per position, a new one replacing the
 // old.
-func (c *Chunk) setCarriedBlockEntity(entry nbt.CompoundTag) {
-	x, y, z := carriedPos(entry.Entries())
+func (c *Chunk) setCarriedBlockEntity(entry nbt.Compound) {
+	x, y, z := carriedPos(entry)
 	key := entityKey(x, y, z)
 	handle := c.carriedHandles[key]
 	c.removeCarriedBlockEntity(x, y, z)
 	// Loading new data into the same kind keeps the live entity's identity.
-	if handle != nil && entry.Entries()["id"] == nbt.String(handle.kind) {
+	if handle != nil && entry["id"] == nbt.String(handle.kind) {
 		c.carriedHandles[key] = handle
 	}
 	c.carriedBlockEntities = nbt.List{Elem: nbt.TypeCompound, Items: append(c.carriedBlockEntities.Items, entry)}
-	if isCarriedTicking(entry.Entries()) {
+	if isCarriedTicking(entry) {
 		c.tickingCarried++
 	}
 }
@@ -1224,23 +1224,14 @@ func (c *Chunk) removeCarriedBlockEntity(x, y, z int32) int {
 // carriedBlockEntityAt returns the carried compound at the position, an
 // unmodelled kind's data.
 func (c *Chunk) carriedBlockEntityAt(x, y, z int32) (nbt.Compound, bool) {
-	tag, ok := c.carriedTagAt(x, y, z)
-	if !ok {
-		return nil, false
-	}
-	return tag.Entries(), true
-}
-
-// carriedTagAt is carriedBlockEntityAt keeping the compound's insertion order.
-func (c *Chunk) carriedTagAt(x, y, z int32) (nbt.CompoundTag, bool) {
 	for _, item := range c.carriedBlockEntities.Items {
-		tag, ok := item.(nbt.CompoundTag)
+		compound, ok := nbt.CompoundView(item)
 		if !ok {
 			continue
 		}
-		cx, cy, cz := carriedPos(tag.Entries())
+		cx, cy, cz := carriedPos(compound)
 		if cx == x && cy == y && cz == z {
-			return tag, true
+			return compound, true
 		}
 	}
 	return nil, false
@@ -1547,12 +1538,11 @@ func (w *World) SetBlockEntityTag(x, y, z int32, entityType string, data nbt.Com
 		loaded.markDirty()
 		return be.Kind, true
 	}
-	var carried nbt.CompoundTag = entry
 	if BlockEntityTypeID(entityType) >= 0 {
 		readCarried(entry)
-		carried = orderedCarried(asSaved(entry))
+		entry = asSaved(entry)
 	}
-	loaded.chunk.setCarriedBlockEntity(carried)
+	loaded.chunk.setCarriedBlockEntity(entry)
 	w.syncTickingChunk(pos, loaded.chunk)
 	loaded.markDirty()
 	return KindNone, false
@@ -1562,27 +1552,38 @@ func (w *World) SetBlockEntityTag(x, y, z int32, entityType string, data nbt.Com
 // modelled entity's compound (read under its lock) or an unmodelled kind's
 // carried compound; false when neither exists or the chunk is not loaded.
 func (w *World) BlockEntityTag(x, y, z int32) (nbt.Compound, bool) {
-	tag, ok := w.BlockEntityData(x, y, z)
+	tag, _, ok := w.savedBlockEntity(x, y, z)
 	if !ok {
 		return nil, false
 	}
 	return tag.Entries(), true
 }
 
-// BlockEntityData reads a block entity's saved compound without erasing its history.
+// BlockEntityData reads a block entity's saved compound without erasing its
+// history, a carried one in the order its type's codec writes it.
 func (w *World) BlockEntityData(x, y, z int32) (nbt.CompoundTag, bool) {
+	tag, carried, ok := w.savedBlockEntity(x, y, z)
+	if carried {
+		return orderedCarried(tag.Entries()), true
+	}
+	return tag, ok
+}
+
+// savedBlockEntity is the position's saved compound; carried reports an
+// unmodelled kind's.
+func (w *World) savedBlockEntity(x, y, z int32) (tag nbt.CompoundTag, carried, ok bool) {
 	pos := ChunkPos{X: x >> 4, Z: z >> 4}
 	w.mu.RLock()
 	loaded, ok := w.chunks[pos]
 	if !ok {
 		w.mu.RUnlock()
-		return nil, false
+		return nil, false, false
 	}
 	be := loaded.chunk.blockEntity(x, y, z)
 	if be == nil {
-		compound, found := loaded.chunk.carriedTagAt(x, y, z)
+		compound, found := loaded.chunk.carriedBlockEntityAt(x, y, z)
 		w.mu.RUnlock()
-		return compound, found
+		return compound, found, found
 	}
 	w.mu.RUnlock()
 	// Read under the entity's lock with the world's released (entity before
@@ -1590,7 +1591,7 @@ func (w *World) BlockEntityData(x, y, z int32) (nbt.CompoundTag, bool) {
 	// waiting on this reader.
 	var compound nbt.CompoundTag
 	be.Use(func(b *BlockEntity) { compound = b.SaveTag() })
-	return compound, true
+	return compound, false, true
 }
 
 // ItemComponents are what a ctrl-pick copies from a block entity onto its item:
