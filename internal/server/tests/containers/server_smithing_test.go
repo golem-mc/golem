@@ -8,6 +8,7 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -113,7 +114,9 @@ func TestTheSmithingTableUpgradesAnEnchantedPickaxe(t *testing.T) {
 // writes.
 func TestTheSmithingTableKeepsTheBasesRemovedDefaults(t *testing.T) {
 	t.Parallel()
-	srv, w := servertest.OpenWindowed(t, servertest.SurvivalTestConfig())
+	cfg := servertest.SurvivalTestConfig()
+	cfg.LevelName = t.TempDir()
+	srv, w := servertest.OpenWindowed(t, cfg)
 	w.OpenSmithing(srv)
 	servertest.ForgetWindowProps(w)
 
@@ -136,8 +139,29 @@ func TestTheSmithingTableKeepsTheBasesRemovedDefaults(t *testing.T) {
 		smithAdditionSlot: ingot,
 		smithResultSlot:   netherite,
 	}, protocol.ItemStack{})
-	if got := netherite.RemovedNames(); !slices.Equal(got, []string{"minecraft:max_damage"}) {
-		t.Errorf("the expected result removes %v, want max_damage", got)
+
+	// Take the upgrade into the inventory and save: the file keeps the removal.
+	w.Click(smithResultSlot, 0, protocol.ClickModePickup)
+	w.Drain()
+	w.Click(smithHotbar0, 0, protocol.ClickModePickup)
+	w.Drain()
+	w.Disconnect()
+	root := servertest.ReadPlayerFile(t, servertest.PlayerFile(cfg.LevelName, "Testificate"))
+	items, _ := nbt.Get[nbt.List](root, "Inventory")
+	found := false
+	for _, item := range items.Items {
+		entry := item.(nbt.Compound)
+		if id, _ := nbt.Get[nbt.String](entry, "id"); id != "minecraft:netherite_pickaxe" {
+			continue
+		}
+		found = true
+		components, _ := nbt.Get[nbt.Compound](entry, "components")
+		if _, ok := components["!minecraft:max_damage"]; !ok {
+			t.Errorf("saved netherite pickaxe components = %v, want !minecraft:max_damage", components)
+		}
+	}
+	if !found {
+		t.Errorf("no netherite pickaxe in the saved inventory %v", items)
 	}
 }
 
