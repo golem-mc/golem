@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -348,6 +349,7 @@ func weightedChoice(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt
 			return nil, "List must have contents"
 		}
 		var out registry.LootWeightedList
+		var total int64
 		for _, item := range items {
 			entry, ok := nbt.ListElement(item).(nbt.Compound)
 			if !ok {
@@ -369,6 +371,10 @@ func weightedChoice(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt
 				if weight < 1 {
 					return nil, fmt.Sprintf("Value %d outside of range [1:2147483647]", weight)
 				}
+			}
+			// vanilla: WeightedRandom.getTotalWeight
+			if total += int64(weight); total > math.MaxInt32 {
+				return nil, "Sum of weights must be <= 2147483647"
 			}
 			out.Values = append(out.Values, v)
 			out.Weights = append(out.Weights, int64(weight))
