@@ -45,3 +45,18 @@ func TestResultFromDropsRemovalsOfAbsentDefaults(t *testing.T) {
 		t.Errorf("the stick removes %v", got.RemovedNames())
 	}
 }
+
+// TestSmithingKeepsAttackAnimationRemoval: every item has an attack_animation
+// default, whether or not its props carry one.
+func TestSmithingKeepsAttackAnimationRemoval(t *testing.T) {
+	t.Parallel()
+	base := smithingStack(t, "minecraft:diamond_pickaxe")
+	if !base.Remove(protocol.DataComponentAttackAnimation) {
+		t.Fatal("component not removable")
+	}
+	result := SmithingResult(smithingStack(t, "minecraft:netherite_upgrade_smithing_template"), base,
+		smithingStack(t, "minecraft:netherite_ingot"))
+	if !result.Removes(protocol.DataComponentAttackAnimation) {
+		t.Errorf("result removes %v, want attack_animation", result.RemovedNames())
+	}
+}

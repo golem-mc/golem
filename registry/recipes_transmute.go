@@ -73,8 +73,6 @@ func itemHasRemovableDefault(item, component int32) bool {
 		return props.PiercingWeapon != nil
 	case protocol.DataComponentKineticWeapon:
 		return props.KineticWeapon != nil
-	case protocol.DataComponentAttackAnimation:
-		return props.AttackAnimation != nil
 	case protocol.DataComponentEnchantable:
 		return props.Enchantable > 0
 	case protocol.DataComponentRepairable:
