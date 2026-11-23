@@ -147,6 +147,10 @@ func (s *StandBody) travel(w World, box AABB, halfWidth, gravity float64) (lande
 // ground.
 func (s *StandBody) move(w World, box AABB, halfWidth, gravity float64) (bool, float64) {
 	onGround := s.OnGround
+	// grounded is the actual downward collision; the carried flag (a /tp sets
+	// it) must not count as a landing for fall damage.
+	// vanilla: Entity.move, Entity.checkFallDamage
+	var grounded bool
 	ctx, startY := fallCtx(s.FallDistance), s.Y
 	dx, dy, dz, stuck := s.stuck.scale(s.VX, s.VY, s.VZ)
 	if stuck {
@@ -176,6 +180,7 @@ func (s *StandBody) move(w World, box AABB, halfWidth, gravity float64) (bool, f
 		switch axis {
 		case axisY:
 			onGround = d < 0
+			grounded = onGround
 			if onGround {
 				s.VY = bounceOffGround(w, s.X, s.Y, s.Z, halfWidth, s.VY, s.Y-startY, gravity, airDragFloat, true)
 			} else {
@@ -191,5 +196,5 @@ func (s *StandBody) move(w World, box AABB, halfWidth, gravity float64) (bool, f
 	s.VX *= f
 	s.VZ *= f
 	s.stuck = stuckIn(w, box, s.X, s.Y, s.Z, true, false, false, false)
-	return onGround, bankFall(&s.FallDistance, startY, s.Y, onGround)
+	return onGround, bankFall(&s.FallDistance, startY, s.Y, grounded)
 }
