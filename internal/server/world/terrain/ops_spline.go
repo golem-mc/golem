@@ -78,8 +78,18 @@ func (b *splineBuilder) build() *splineNode {
 // lerpF32 is vanilla: Mth.lerp(float, float, float).
 func lerpF32(alpha, p0, p1 float32) float32 { return lerp(alpha, p0, p1) }
 
-// splineInput hands a spline its coordinates' values.
-type splineInput interface{ coordinate(i int) float32 }
+// splineInput lets the recursive sampler use either input without making it escape.
+type splineInput struct {
+	point  *pointInput
+	buffer *bufferInput
+}
+
+func (in *splineInput) coordinate(i int) float32 {
+	if in.point != nil {
+		return in.point.coordinate(i)
+	}
+	return in.buffer.coordinate(i)
+}
 
 func (n *splineNode) linearExtend(input, value float32, index int) float32 {
 	d := n.derivatives[index]
@@ -90,7 +100,7 @@ func (n *splineNode) linearExtend(input, value float32, index int) float32 {
 }
 
 // sample is vanilla: CubicSpline.sample.
-func (n *splineNode) sample(in splineInput) float32 {
+func (n *splineNode) sample(in *splineInput) float32 {
 	if n.coord < 0 {
 		return n.constant
 	}
@@ -150,11 +160,12 @@ func (p *pointInput) coordinate(i int) float32 {
 }
 
 func (s *splineSampler) Sample(c *Context, x, y, z int32) float32 {
-	in := pointInput{s: s, c: c, x: x, y: y, z: z}
+	point := pointInput{s: s, c: c, x: x, y: y, z: z}
 	nan := float32(math.NaN())
-	for i := range in.cached {
-		in.cached[i] = nan
+	for i := range point.cached {
+		point.cached[i] = nan
 	}
+	in := splineInput{point: &point}
 	return s.root.sample(&in)
 }
 
@@ -175,12 +186,13 @@ func (b *bufferInput) coordinate(i int) float32 {
 }
 
 func (s *splineSampler) SampleVolume(c *Context, out []float32, v Volume) {
-	in := bufferInput{s: s, c: c, v: v, bufs: make([][]float32, len(s.coords))}
+	buffer := bufferInput{s: s, c: c, v: v, bufs: make([][]float32, len(s.coords))}
+	in := splineInput{buffer: &buffer}
 	for i := range out {
-		in.index = i
+		buffer.index = i
 		out[i] = s.root.sample(&in)
 	}
-	for _, b := range in.bufs {
+	for _, b := range buffer.bufs {
 		if b != nil {
 			c.release(b)
 		}
