@@ -120,6 +120,30 @@ func TestTeleportToAPlayer(t *testing.T) {
 	helper.Disconnect()
 }
 
+// TestTeleportToTeamedPlayerNamesTeamFormattedDestination checks that the
+// entity-destination feedback carries the destination's team-formatted name.
+func TestTeleportToTeamedPlayerNamesTeamFormattedDestination(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.GameMode = "creative"
+	_, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Mover"))
+
+	helper := connect().Join("Helper")
+	mover := connect().Join("Mover")
+	helper.ExpectPlayerAdded("Mover")
+	helper.ExpectAnnouncement("multiplayer.player.joined", "Mover")
+
+	for _, line := range []string{"team add red", "team modify red color red", "team join red Helper"} {
+		mover.ChatCommand(line)
+	}
+	mover.ChatCommand("tp Mover Helper")
+	servertest.AwaitCommandFeedbackText(t, mover, "commands.teleport.success.entity.single",
+		servertest.PlayerDisplayComponent("Mover"), servertest.TeamPlayerDisplayComponent("Helper", "", "red"))
+	mover.Disconnect()
+	helper.Disconnect()
+}
+
 // TestTeleportTargetsMovesEveryone checks the form that names who moves:
 // every player the selector names ends up where the command says, and the
 // feedback counts them.
