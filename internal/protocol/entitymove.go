@@ -1,20 +1,20 @@
 package protocol
 
-// moveProperties is the properties varint of a move_entity_pos packet:
-// onGround in bit 0, the interpolation step count above it. The server always
-// sends step count 0, the plain three-delta form.
-func moveProperties(onGround bool) int32 {
-	if onGround {
-		return 1
-	}
-	return 0
-}
-
-// PutMoveEntityPos writes move_entity_pos: three i16 deltas in 1/4096 blocks.
-// vanilla: ClientboundMoveEntityPacket.Pos
-func PutMoveEntityPos(b *Buffer, id int32, dx, dy, dz int16, onGround bool) {
+// PutMoveEntityPos writes move_entity_pos with three i16 deltas in 1/4096 blocks.
+// A positive stepTicks encodes a one-step VecDelta with that tick offset.
+// vanilla: ClientboundMoveEntityPacket.Pos, VecDelta.write
+func PutMoveEntityPos(b *Buffer, id int32, dx, dy, dz int16, stepTicks int32, onGround bool) {
 	b.PutVarInt(id)
-	b.PutVarInt(moveProperties(onGround))
+	var properties int32
+	if onGround {
+		properties = 1
+	}
+	if stepTicks > 0 {
+		b.PutVarInt(properties | 1<<1)
+		b.PutVarInt(stepTicks)
+	} else {
+		b.PutVarInt(properties)
+	}
 	b.PutI16(dx)
 	b.PutI16(dy)
 	b.PutI16(dz)
@@ -22,8 +22,8 @@ func PutMoveEntityPos(b *Buffer, id int32, dx, dy, dz int16, onGround bool) {
 
 // PutMoveEntityPosRot writes move_entity_pos_rot: the Pos layout, then the angles.
 // vanilla: ClientboundMoveEntityPacket.PosRot
-func PutMoveEntityPosRot(b *Buffer, id int32, dx, dy, dz int16, yaw, pitch uint8, onGround bool) {
-	PutMoveEntityPos(b, id, dx, dy, dz, onGround)
+func PutMoveEntityPosRot(b *Buffer, id int32, dx, dy, dz int16, yaw, pitch uint8, stepTicks int32, onGround bool) {
+	PutMoveEntityPos(b, id, dx, dy, dz, stepTicks, onGround)
 	b.PutU8(yaw)
 	b.PutU8(pitch)
 }

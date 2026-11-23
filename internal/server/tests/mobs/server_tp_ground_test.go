@@ -126,3 +126,92 @@ func TestFrozenTeleportCommandSendsSteppedPath(t *testing.T) {
 		}
 	}
 }
+
+// The client emits the ring at its interpolated position on the ground transition.
+// vanilla: ServerEntity.createMovePacket, AbstractCubeMob.tick
+func TestMagmaCubeLandingMovement(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, tpGroundConfig(), "Watcher")
+	servertest.HoldTicks(t, srv)
+	srv.RunLine(`gamemode creative Watcher`)
+	srv.RunLine(`fill -3 200 -3 3 200 3 stone`)
+	srv.RunLine(`tp Watcher 0.5 201 3.5`)
+	// Start the cube's first hop so its jump delay is running for both drops.
+	srv.RunLine(`summon magma_cube 0.5 201 0.5 {Size:1,Tags:[drop],OnGround:1b}`)
+	id := srv.MobIDsOfKind("minecraft:magma_cube")[0]
+	servertest.RunTicks(t, srv, 3)
+	c.Settle()
+	if !c.ReadTicks(srv, 30, func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlayTeleportEntity {
+			return false
+		}
+		sync := servertest.ParseEntityPositionSync(data)
+		return sync.ID == id && sync.OnGround && sync.Y == 201
+	}) {
+		t.Fatal("the tracked cube never landed from its first hop")
+	}
+
+	onGround := true
+	for _, direct := range []bool{false, true} {
+		srv.RunLine(`tp @e[tag=drop,limit=1] 0.5 204 0.5`)
+		var descents, landings int
+		read := func(pid int32, data []byte) bool {
+			r := protocol.NewReader(data)
+			switch pid {
+			case protocol.IDPlayEntityPosition, protocol.IDPlayEntityPositionRot:
+				if r.ReadVarInt() != id {
+					break
+				}
+				props := r.ReadVarInt()
+				if props>>1 != 1 {
+					t.Fatalf("relative movement has %d steps, want 1", props>>1)
+				}
+				if ground := props&1 != 0; ground != onGround {
+					t.Errorf("relative movement set onGround to %v, want %v", ground, onGround)
+				}
+				ticks := r.ReadVarInt()
+				if ticks != 3 {
+					t.Errorf("relative movement takes %d ticks, want 3", ticks)
+				}
+				r.ReadI16()
+				if dy := r.ReadI16(); dy < 0 && props&1 == 0 {
+					descents++
+				}
+			case protocol.IDPlayTeleportEntity:
+				sync := servertest.ParseEntityPositionSync(data)
+				if sync.ID != id {
+					break
+				}
+				if sync.OnGround && !onGround {
+					landings++
+					if !sync.Stepped || sync.StepTicks != 3 || sync.Y != 201 {
+						t.Errorf("landing sync = %+v, want a 3-tick step to the stone", sync)
+					}
+				}
+				onGround = sync.OnGround
+			case protocol.IDPlayEntityRotation:
+				if r.ReadVarInt() == id && r.ReadBool() != onGround {
+					t.Error("rotation changed the cube's ground flag")
+				}
+			case protocol.IDPlayLevelParticles:
+				if r.ReadVarInt() == protocol.ParticleFlame {
+					t.Error("the client already draws the flame ring")
+				}
+			}
+			return false
+		}
+		if direct {
+			c.ReadTicks(srv, 6, read)
+			if onGround {
+				t.Fatal("client never saw the cube above the platform")
+			}
+			srv.RunLine(`tp @e[tag=drop,limit=1] 0.5 201 0.5`)
+			c.ReadTicks(srv, 7, read)
+		} else {
+			c.ReadTicks(srv, 13, read)
+		}
+		if descents == 0 || landings != 1 {
+			t.Errorf("direct teleport %v: got %d relative descents and %d ground transitions, want a descent and one landing", direct, descents, landings)
+		}
+	}
+}
