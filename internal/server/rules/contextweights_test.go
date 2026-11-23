@@ -1,8 +1,8 @@
 package rules_test
 
 import (
+	"errors"
 	"math/rand"
-	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/datapack"
@@ -23,10 +23,10 @@ func weightedProvider(weights ...int32) nbt.Tag {
 
 func TestWeightedProviderTotalWeight(t *testing.T) {
 	const max = 1<<31 - 1
-	if _, msg := datapack.DecodeIntProvider(weightedProvider(max, 1)); !strings.Contains(msg, "Sum of weights must be <= 2147483647") {
-		t.Errorf("sum above max: msg = %q", msg)
+	if _, msg, err := datapack.DecodeIntProvider(weightedProvider(max, 1)); !errors.Is(err, datapack.ErrWeightOverflow) || msg != "" {
+		t.Errorf("sum above max: msg = %q, err = %v", msg, err)
 	}
-	p, msg := datapack.DecodeIntProvider(weightedProvider(max-1, 1))
+	p, msg, _ := datapack.DecodeIntProvider(weightedProvider(max-1, 1))
 	if msg != "" {
 		t.Fatalf("sum at max: %s", msg)
 	}

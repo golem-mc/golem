@@ -14,6 +14,19 @@ import (
 // loadFunctions loads the enabled packs' functions for /function; one that
 // fails is logged and skipped. vanilla: ServerFunctionLibrary.reload
 func (s *Server) loadFunctions() error {
+	loaded, err := s.publishPacks()
+	if err != nil {
+		return err
+	}
+	s.funcs.Store(loaded)
+	s.loadPending.Store(true)
+	return nil
+}
+
+// publishPacks reads the enabled packs and publishes their resources, but not
+// the function library, which it returns for the caller to store. A failure
+// can leave some of the resources published.
+func (s *Server) publishPacks() (*loadedFunctions, error) {
 	skip := func(file string, err error) {
 		slog.Warn("Skipping data pack file " + file + ": " + err.Error())
 	}
@@ -22,49 +35,49 @@ func (s *Server) loadFunctions() error {
 	s.structures.Clear()
 	files, err := datapack.LoadFunctions(dirs, skip)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fns := command.CompileFunctions(files, s.Config.FunctionPermissionLevel, func(id string, err error) {
 		slog.Error("Failed to load function " + id + ": " + err.Error())
 	})
 	tags, err := datapack.LoadFunctionTags(dirs, skip)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fns.LoadTags(tags, func(id string, err error) {
 		slog.Error("Couldn't load tag " + id + " as it is missing following references: " + err.Error())
 	})
 	packTags, err := loadPackTags(dirs, skip)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	s.applyPackTags(packTags)
 	// Advancement criteria resolve item tags against the loaded tags.
 	packAdvancements, hiddenAdvancements, err := loadPackAdvancements(dirs, skip)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	s.applyPackAdvancements(packAdvancements, hiddenAdvancements)
 	// Before the loot: a table's context provider names resolve against them.
 	ints, floats, err := loadPackContextProviders(dirs, skip)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	registry.ApplyPackContextProviders(ints, floats)
 	// Before the loot: a slots entry's source names resolve against them.
 	if err := loadPackSlotSources(dirs, skip); err != nil {
-		return err
+		return nil, err
 	}
 	// After the tags: a table's tag entries resolve against the loaded tags.
 	tables, predicates, modifiers, err := loadPackLoot(dirs, skip)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	s.applyPackLoot(tables, predicates, modifiers, hiddenLoot(dirs, tables))
 	// After the tags too: an ingredient's tag resolves against the loaded tags.
 	recipes, err := loadPackRecipes(dirs, skip)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	s.applyPackRecipes(recipes)
 	// A new recipe or ingredient tag can make unchanged contents tickable.
@@ -73,9 +86,7 @@ func (s *Server) loadFunctions() error {
 			be.Wake()
 		}
 	}
-	s.funcs.Store(&loadedFunctions{lib: fns, tick: fns.Tag("minecraft:tick")})
-	s.loadPending.Store(true)
-	return nil
+	return &loadedFunctions{lib: fns, tick: fns.Tag("minecraft:tick")}, nil
 }
 
 // loadedFunctions is one load's function library and its minecraft:tick tag.
@@ -154,7 +165,7 @@ type serverPacks struct {
 // across change too: vanilla reads and replaces the selection on the server
 // thread, so two /datapack commands never interleave. A failed reload
 // restores the old selection, in memory and level.dat, and the old
-// functions. vanilla: MinecraftServer.reloadResources
+// resources. vanilla: MinecraftServer.reloadResources
 func (p *serverPacks) Edit(change func() (ids []string, ok bool)) error {
 	p.srv.packReloadMu.Lock()
 	defer p.srv.packReloadMu.Unlock()
@@ -171,10 +182,21 @@ func (p *serverPacks) selectLocked(ids []string) error {
 	p.apply(ids)
 	if err := p.srv.loadFunctions(); err != nil {
 		p.apply(prev)
+		p.srv.restoreFunctions()
 		return err
 	}
 	p.srv.resendResources()
 	return nil
+}
+
+// restoreFunctions publishes the restored selection's resources again after a
+// failed reload, which may have published some of its own (tags, advancements,
+// context providers, loot) before failing. The function library and its load
+// tag are left alone: the old ones never stopped being live.
+func (s *Server) restoreFunctions() {
+	if _, err := s.publishPacks(); err != nil {
+		slog.Error("Failed to restore the data packs after a failed reload: " + err.Error())
+	}
 }
 
 func (p *serverPacks) apply(ids []string) {

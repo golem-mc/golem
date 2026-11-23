@@ -299,9 +299,6 @@ func providerOf(v any, decode func(nbt.Tag) (registry.LootNumber, string)) regis
 		fail("%s", err)
 	}
 	n, msg := decode(tag)
-	if msg == WeightOverflowMsg {
-		panic(lootFailure{msg: msg, overflow: true})
-	}
 	if msg != "" {
 		fail("%s", msg)
 	}
@@ -1335,7 +1332,7 @@ func modifierAlternatives(v any, direct bool) {
 	if !ok {
 		panic(r)
 	}
-	if failure.partial {
+	if failure.partial || failure.overflow {
 		panic(failure)
 	}
 	if _, list := v.([]any); list {

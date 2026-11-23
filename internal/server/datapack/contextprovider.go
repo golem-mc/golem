@@ -23,10 +23,15 @@ func init() {
 		if err != nil {
 			return nil, err.Error()
 		}
+		decode := DecodeIntProvider
 		if float {
-			return DecodeFloatProvider(tag)
+			decode = DecodeFloatProvider
 		}
-		return DecodeIntProvider(tag)
+		n, msg, err := decode(tag)
+		if err != nil {
+			return nil, err.Error()
+		}
+		return n, msg
 	}
 }
 
@@ -46,9 +51,6 @@ var ErrWeightOverflow = errors.New(WeightOverflowMsg) //nolint:staticcheck // va
 
 // eitherNumberOr wraps the typed branch's error of Codec.either(number, typed).
 func eitherNumberOr(msg string) string {
-	if strings.Contains(msg, WeightOverflowMsg) {
-		return WeightOverflowMsg
-	}
 	if rest, ok := strings.CutPrefix(msg, partialMark); ok {
 		return rest
 	}
@@ -56,30 +58,38 @@ func eitherNumberOr(msg string) string {
 }
 
 // DecodeIntProvider reads a context int provider: a bare number or a
-// compound with a type.
+// compound with a type. The error is ErrWeightOverflow, which no codec
+// message carries; the message is the codec's refusal otherwise.
 // vanilla: ContextIntProviders.DIRECT_CODEC
-func DecodeIntProvider(tag nbt.Tag) (registry.LootNumber, string) {
-	if v, ok := nbt.IntValue(tag); ok {
-		return registry.LootConstant{Value: float64(v)}, ""
-	}
-	p, msg := decodeTyped(tag, "context_int_provider_type", intTypes)
-	if msg != "" {
-		return nil, eitherNumberOr(msg)
-	}
-	return p, ""
+func DecodeIntProvider(tag nbt.Tag) (registry.LootNumber, string, error) {
+	return decodeProvider(tag, func(tag nbt.Tag) (registry.LootNumber, string) {
+		if v, ok := nbt.IntValue(tag); ok {
+			return registry.LootConstant{Value: float64(v)}, ""
+		}
+		return decodeTyped(tag, "context_int_provider_type", intTypes)
+	})
 }
 
 // DecodeFloatProvider reads a context float provider.
 // vanilla: ContextFloatProviders.DIRECT_CODEC
-func DecodeFloatProvider(tag nbt.Tag) (registry.LootNumber, string) {
-	if v, ok := tagFloat(tag); ok {
-		return registry.LootConstant{Value: float64(v)}, ""
+func DecodeFloatProvider(tag nbt.Tag) (registry.LootNumber, string, error) {
+	return decodeProvider(tag, func(tag nbt.Tag) (registry.LootNumber, string) {
+		if v, ok := tagFloat(tag); ok {
+			return registry.LootConstant{Value: float64(v)}, ""
+		}
+		return decodeTyped(tag, "context_float_provider_type", floatTypes)
+	})
+}
+
+// decodeProvider runs decode, whose typed branch's error is wrapped as
+// Codec.either's. A weight overflow panics out of the nested decoders, as
+// vanilla's constructor throws, and ends here as an error.
+func decodeProvider(tag nbt.Tag, decode func(nbt.Tag) (registry.LootNumber, string)) (n registry.LootNumber, msg string, err error) {
+	defer recoverLoot(&err)
+	if n, msg = decode(tag); msg != "" {
+		return nil, eitherNumberOr(msg), nil
 	}
-	p, msg := decodeTyped(tag, "context_float_provider_type", floatTypes)
-	if msg != "" {
-		return nil, eitherNumberOr(msg)
-	}
-	return p, ""
+	return n, "", nil
 }
 
 // ProviderRef is the context_int_provider (or, when float,
@@ -248,7 +258,7 @@ func nestedIntTag(t nbt.Tag) (registry.LootNumber, string) {
 	if s, ok := t.(nbt.String); ok {
 		return ProviderRef(string(s), false)
 	}
-	return DecodeIntProvider(t)
+	return decodeNested(t, DecodeIntProvider)
 }
 
 func nestedFloat(c nbt.Compound, key string) (registry.LootNumber, string) {
@@ -263,7 +273,17 @@ func nestedFloatTag(t nbt.Tag) (registry.LootNumber, string) {
 	if s, ok := t.(nbt.String); ok {
 		return ProviderRef(string(s), true)
 	}
-	return DecodeFloatProvider(t)
+	return decodeNested(t, DecodeFloatProvider)
+}
+
+// decodeNested reads an inline provider inside another, re-raising an
+// overflow for the outermost entry point.
+func decodeNested(t nbt.Tag, decode func(nbt.Tag) (registry.LootNumber, string, error)) (registry.LootNumber, string) {
+	n, msg, err := decode(t)
+	if err != nil {
+		panic(lootFailure{msg: err.Error(), overflow: true})
+	}
+	return n, msg
 }
 
 // listItems is the elements of a list, or of an int array: a JSON list of
@@ -390,7 +410,7 @@ func weightedChoice(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt
 			total += int64(weight)
 		}
 		if total > math.MaxInt32 {
-			return nil, WeightOverflowMsg
+			panic(lootFailure{msg: WeightOverflowMsg, overflow: true})
 		}
 		return out, ""
 	}

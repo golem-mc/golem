@@ -90,7 +90,7 @@ func computeSources(scale bool) []*Node {
 // registry entry (so a bare number is a lookup that fails), anything else is
 // an inline provider's SNBT.
 // vanilla: ResourceOrIdArgument.parse
-func parseProviderArg(text, registryName string, decode func(nbt.Tag) (registry.LootNumber, string), ref func(string) (registry.LootNumber, string)) (registry.LootNumber, *ParseError) {
+func parseProviderArg(text, registryName string, decode func(nbt.Tag) (registry.LootNumber, string, error), ref func(string) (registry.LootNumber, string)) (registry.LootNumber, *ParseError) {
 	var zero registry.LootNumber
 	if name, n, ok := readIdentifier(text); ok && n == len(text) {
 		if p, msg := ref(name); msg == "" {
@@ -109,9 +109,9 @@ func parseProviderArg(text, registryName string, decode func(nbt.Tag) (registry.
 	if n != len(text) {
 		return zero, &ParseError{Key: "command.unknown.argument", Cursor: n}
 	}
-	p, msg := decode(tag)
-	if msg == datapack.WeightOverflowMsg {
-		return zero, &ParseError{Key: "command.exception", With: []string{msg}, Cursor: len(text)}
+	p, msg, err := decode(tag)
+	if err != nil {
+		return zero, weightOverflowError(err, len(text))
 	}
 	if msg != "" {
 		return zero, &ParseError{Key: modifierFailedParseKey, With: []string{msg}, Cursor: len(text)}
@@ -278,4 +278,11 @@ func computeFloat(src Source, lc *rules.LootContext, p registry.LootNumber, scal
 		return resultOf(result, src.Feedback(computeExactKey, protocol.Text{Number: &n}))
 	}
 	return resultOf(result, src.Feedback(computeRoundedKey, protocol.Text{Float: &original}, protocol.Text{Number: &n}))
+}
+
+// weightOverflowError is the command parse failure of a weighted list whose
+// total weight overflows: vanilla throws from the list's constructor, so no
+// codec wraps it. vanilla: CommandDispatcher.parseNodes
+func weightOverflowError(err error, cursor int) *ParseError {
+	return &ParseError{Key: "command.exception", With: []string{err.Error()}, Cursor: cursor}
 }

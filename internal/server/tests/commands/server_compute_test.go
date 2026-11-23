@@ -154,6 +154,10 @@ func TestComputeRefusals(t *testing.T) {
 	weighted := func(w int32) string {
 		return `{type:"minecraft:weighted_list",distribution:[{data:1,weight:` + strconv.Itoa(int(w)) + `},{data:2,weight:1}]}`
 	}
+	// Both entries give 5, so the result at the limit is no draw.
+	weightedSame := func(w int32) string {
+		return `{type:"minecraft:weighted_list",distribution:[{data:5,weight:` + strconv.Itoa(int(w)) + `},{data:5,weight:1}]}`
+	}
 	for _, kind := range []string{"integer", "float"} {
 		suffix := ""
 		if kind == "float" {
@@ -171,12 +175,30 @@ func TestComputeRefusals(t *testing.T) {
 		}
 
 		// The exact limit parses and runs.
-		c.ChatCommand("compute default " + kind + " " + weighted(math.MaxInt32-1) + suffix)
-		data = c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
-		if bytes.Contains(data, []byte("Sum of weights")) || bytes.Contains(data, []byte("Could not parse")) {
-			t.Errorf("%s weights at the limit refused: % X", kind, data)
-		}
+		c.ChatCommand("compute default " + kind + " " + weightedSame(math.MaxInt32-1) + suffix)
+		servertest.CheckCommandFeedback(t, c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat),
+			"command.compute.result.unnamed.exact", protocol.Text{Number: new(int64(5))})
 	}
+
+	// Only a genuine overflow is thrown: a constant provider missing its value
+	// whose extra key spells the message is an ordinary codec refusal.
+	// vanilla: MapCodec.decode
+	spoof := `compute default integer {type:"minecraft:constant",note:"Sum of weights must be <= 2147483647"}`
+	c.ChatCommand(spoof)
+	if got, want := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); bytes.Equal(got, want) {
+		t.Errorf("%s: answered the overflow", spoof)
+	}
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+
+	// A table with an overflowing weighted list is no codec error either.
+	const loot = `{pools:[{rolls:1,entries:[{type:"minecraft:item",name:"minecraft:stick",modifier:{type:"minecraft:set_count",count:`
+	inline := "loot give @s loot " + loot + `{type:"minecraft:weighted_list",distribution:[{data:1,weight:2147483647},{data:2,weight:1}]}}}]}]}`
+	c.ChatCommand(inline)
+	data := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+	if want := servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); !bytes.Equal(data, want) {
+		t.Errorf("inline loot overflow = % X, want % X", data, want)
+	}
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
 	c.Disconnect()
 }
 
