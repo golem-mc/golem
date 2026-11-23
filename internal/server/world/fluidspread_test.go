@@ -53,3 +53,17 @@ func TestLavaSpreadReachByDimension(t *testing.T) {
 		})
 	}
 }
+
+// TestWaterReplacingLavaFlowsAtItsOwnDelay checks that a lava visit still
+// pending does not hold back the visit of the water that replaced the lava.
+func TestWaterReplacingLavaFlowsAtItsOwnDelay(t *testing.T) {
+	w, p := newPhysicsWorld(t)
+	var clock int64
+	setBlock(t, w, p, 0, GroundLevel, 0, lavaByLevel[0])
+	runTicks(p, &clock, 1)
+	setBlock(t, w, p, 0, GroundLevel, 0, waterByLevel[0])
+	runTicks(p, &clock, 8)
+	if got := fluidHolding(w.BlockAt(1, GroundLevel, 0)); got.kind != fluidWater {
+		t.Errorf("water beside the source after 8 ticks = %v, want water", got.kind)
+	}
+}

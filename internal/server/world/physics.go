@@ -613,7 +613,10 @@ type Physics struct {
 	randomTickKeys []uint64
 	queue          tickQueue
 	pending        map[blockKey]bool
-	finalizeSeq    map[blockKey]int64
+	// pendingDue is the due tick of the visit pending holds, which a fluid
+	// placed over another fluid compares against.
+	pendingDue  map[blockKey]int64
+	finalizeSeq map[blockKey]int64
 	// cancelled entries stay in the heap until popped or filtered; their
 	// sequence, rather than position, keeps a replacement booking live.
 	cancelled map[int64]struct{}
@@ -848,6 +851,7 @@ func NewPhysics(w *World) *Physics {
 		w:                   w,
 		maxChain:            DefaultMaxChainedNeighborUpdates,
 		pending:             make(map[blockKey]bool),
+		pendingDue:          make(map[blockKey]int64),
 		finalizeSeq:         make(map[blockKey]int64),
 		cancelled:           make(map[int64]struct{}),
 		rideSet:             make(map[[3]int32]struct{}),
@@ -1160,6 +1164,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			delete(p.fallBooked, next.pos)
 		default:
 			delete(p.pending, next.pos)
+			delete(p.pendingDue, next.pos)
 		}
 
 		x, y, z := next.pos.x, next.pos.y, next.pos.z
@@ -1330,6 +1335,23 @@ func (p *Physics) schedule(x, y, z int32, due int64) {
 	p.schedulePriority(x, y, z, due, tickPriorityNormal)
 }
 
+// scheduleFluid is schedule for a fluid visit: vanilla keeps fluid ticks apart
+// by fluid type, so a fluid that replaced another is not held back by the old
+// fluid's later visit. The earlier visit runs first and the later one finds
+// the cell settled.
+// vanilla: LiquidBlock.onPlace, ScheduledTick.UNIQUE_TICK_HASH
+func (p *Physics) scheduleFluid(x, y, z int32, due int64) {
+	key := blockKey{x, y, z}
+	if p.pending[key] && due < p.pendingDue[key] {
+		p.discardUnloadedTicks(p.w.prepareTick(x, z, true))
+		p.pendingDue[key] = due
+		p.seq++
+		p.queue.push(scheduledTick{pos: key, due: due, priority: tickPriorityNormal, seq: p.seq})
+		return
+	}
+	p.schedule(x, y, z, due)
+}
+
 func (p *Physics) schedulePriority(x, y, z int32, due int64, priority int) {
 	p.discardUnloadedTicks(p.w.prepareTick(x, z, true))
 	key := blockKey{x, y, z}
@@ -1337,6 +1359,7 @@ func (p *Physics) schedulePriority(x, y, z int32, due int64, priority int) {
 		return
 	}
 	p.pending[key] = true
+	p.pendingDue[key] = due
 	p.seq++
 	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq})
 	if priority == tickPriorityFinalize {
@@ -1740,7 +1763,7 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 		if fs.kind == fluidLava && !p.shouldSpreadLiquid(x, y, z, changes) {
 			return // the lava met water: obsidian, cobblestone or basalt at once
 		}
-		p.schedule(x, y, z, p.now+p.tickDelayOf(fs.kind))
+		p.scheduleFluid(x, y, z, p.now+p.tickDelayOf(fs.kind))
 		return
 	}
 	// A block's own placement leaves it standing (BlockInput.place keeps a
