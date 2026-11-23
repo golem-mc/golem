@@ -34,7 +34,7 @@ func resultFrom(id string, input protocol.ItemStack, item, count int32) protocol
 // applied to the result's defaults does not keep them.
 // vanilla: PatchedDataComponentMap.applyPatch, PatchedDataComponentMap.set
 func dropMeaninglessRemovals(stack *protocol.ItemStack) {
-	if stack.Removed == 0 {
+	if stack.Removed == (protocol.Removals{}) {
 		return
 	}
 	for _, name := range stack.RemovedNames() {
