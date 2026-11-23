@@ -1,10 +1,12 @@
 package mobs
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -84,33 +86,145 @@ func TestAPillagerShowsItsChargeAndShootsPiercingCrossbowArrows(t *testing.T) {
 	crossbow, _ := registry.ItemID("minecraft:crossbow")
 	piercing, _ := registry.EnchantmentID("minecraft:piercing")
 	srv.SetMobHand(id, protocol.ItemStack{ItemID: crossbow, Count: 1, Enchantments: map[int32]int32{piercing: 3}})
-	var flagged, shot bool
-	var crossbowHit bool
-	var pierce int32
-	pumpTicks(c, srv, 600, servertest.HostileSkip, func(pid int32, data []byte) bool {
-		if pid == protocol.IDPlayEntityMetadata {
-			r := protocol.NewReader(data)
-			if r.ReadVarInt() == id {
-				if entries, ok := servertest.ReadMetadata(r); ok {
-					if e := servertest.MetaOf(entries, protocol.MetadataIndexPillagerCharging); e != nil && e.FlagVal {
-						flagged = true
-					}
+	expectPillagerCrossbowCharge(t, c, srv, id, protocol.EntityFlagHandActive)
+	expectPillagerCrossbowArrow(t, c, srv, 3)
+}
+
+func TestPillagerOffhandCrossbow(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, main, off string
+		handFlags       uint8
+		pierce          int32
+		chargeTicks     int
+		mainDamage      int32
+		offDamage       int32
+		breaks          bool
+	}{
+		{
+			name: "off hand only", handFlags: protocol.EntityFlagHandActive | protocol.EntityFlagActiveHandOff,
+			off:    `{id:"minecraft:crossbow",count:1,components:{"minecraft:enchantments":{"minecraft:piercing":3,"minecraft:quick_charge":3}}}`,
+			pierce: 3, offDamage: 1, chargeTicks: 10, // Quick Charge III: 1.25 s minus 0.75 s.
+		},
+		{
+			name: "both hands", handFlags: protocol.EntityFlagHandActive,
+			main:   `,mainhand:{id:"minecraft:crossbow",count:1,components:{"minecraft:enchantments":{"minecraft:piercing":2}}}`,
+			off:    `{id:"minecraft:crossbow",count:1,components:{"minecraft:enchantments":{"minecraft:piercing":3}}}`,
+			pierce: 2, mainDamage: 1,
+		},
+		{
+			name: "off hand breaks", handFlags: protocol.EntityFlagHandActive | protocol.EntityFlagActiveHandOff,
+			off:    `{id:"minecraft:crossbow",count:1,components:{"minecraft:enchantments":{"minecraft:piercing":3},"minecraft:max_damage":1}}`,
+			pierce: 3, breaks: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := servertest.HostileTestConfig()
+			cfg.GameMode = "creative"
+			srv, c := servertest.Join(t, cfg, "Observer")
+			servertest.HoldTicks(t, srv)
+			srv.SetDifficulty(rules.DifficultyNormal)
+			srv.RunLine(`summon minecraft:villager 2.5 64 0.5 {NoAI:1b}`)
+			srv.RunLine(fmt.Sprintf(`summon minecraft:pillager 6.5 64 0.5 {PersistenceRequired:1b,equipment:{offhand:%s%s},attributes:[{id:"minecraft:movement_speed",base:0.0d}]}`, tc.off, tc.main))
+			var id, villager int32
+			if !c.ReadTicks(srv, 0, func(pid int32, data []byte) bool {
+				if pid != protocol.IDPlaySpawnEntity {
+					return false
+				}
+				r := protocol.NewReader(data)
+				entityID := r.ReadVarInt()
+				r.ReadUUID()
+				switch r.ReadVarInt() {
+				case protocol.EntityTypeVillager:
+					villager = entityID
+				case protocol.EntityTypePillager:
+					id = entityID
+				}
+				return id != 0 && villager != 0
+			}) {
+				t.Fatal("the summoned villager and pillager did not both spawn")
+			}
+
+			expectPillagerCrossbowCharge(t, c, srv, id, tc.handFlags)
+			if tc.chargeTicks > 0 {
+				servertest.RunTicks(t, srv, tc.chargeTicks-1)
+				if len(srv.MobOffHand(id).ChargedProjectiles()) != 0 {
+					t.Fatal("the off-hand crossbow loaded before its charge ended")
+				}
+				servertest.RunTicks(t, srv, 1)
+				if got := srv.MobOffHand(id).ChargedProjectiles(); len(got) != 1 || registry.Item(got[0].ItemID) != registry.ItemArrow {
+					t.Fatalf("off-hand crossbow held %v at the end of its charge, want one arrow", got)
 				}
 			}
-		}
-		if arrows := srv.ArrowsInDimension(world.DimensionName); len(arrows) > 0 && !shot {
-			shot = true
-			crossbowHit, pierce = arrows[0].CrossbowHit, arrows[0].PierceLevel
-		}
-		return flagged && shot
-	})
-	if !flagged {
-		t.Error("no metadata set the pillager's charging flag (index 17)")
+			if tc.breaks {
+				if !c.ReadTicks(srv, 80, func(pid int32, data []byte) bool {
+					if pid != protocol.IDPlayEntityEvent {
+						return false
+					}
+					r := protocol.NewReader(data)
+					return r.ReadI32() == id && r.ReadU8() == protocol.EntityStatusBreakOffHand
+				}) {
+					t.Fatal("no off-hand break event on the pillager's first shot")
+				}
+			}
+			expectPillagerCrossbowArrow(t, c, srv, tc.pierce)
+			main, off := srv.MobHand(id), srv.MobOffHand(id)
+			if main.Empty() != (tc.main == "") || main.Damage != tc.mainDamage {
+				t.Errorf("main hand = item %d with damage %d, want empty=%v and damage %d", main.ItemID, main.Damage, tc.main == "", tc.mainDamage)
+			}
+			if off.Empty() != tc.breaks || off.Damage != tc.offDamage {
+				t.Errorf("off hand = item %d with damage %d, want empty=%v and damage %d", off.ItemID, off.Damage, tc.breaks, tc.offDamage)
+			}
+			servertest.UntilTicks(t, srv, 10, "the pillager's arrow to hurt the villager", func() bool {
+				health, ok := srv.MobHealth(villager)
+				return ok && health < 20
+			})
+		})
 	}
-	if !shot {
-		t.Fatal("the pillager never shot")
+}
+
+func expectPillagerCrossbowCharge(t *testing.T, c *servertest.Client, srv *server.Server, id int32, handFlags uint8) {
+	t.Helper()
+	var hand uint8
+	if !c.ReadTicks(srv, 60, func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlayEntityMetadata {
+			return false
+		}
+		r := protocol.NewReader(data)
+		if r.ReadVarInt() != id {
+			return false
+		}
+		entries, ok := servertest.ReadMetadata(r)
+		if !ok {
+			return false
+		}
+		if e := servertest.MetaOf(entries, protocol.MetadataIndexHandState); e != nil {
+			hand = e.ByteVal
+		}
+		e := servertest.MetaOf(entries, protocol.MetadataIndexPillagerCharging)
+		return e != nil && e.FlagVal
+	}) {
+		t.Fatal("no metadata set the pillager's charging flag within 60 ticks")
 	}
-	if !crossbowHit || pierce != 3 {
-		t.Errorf("arrow crossbowHit=%v pierce=%d, want true and 3", crossbowHit, pierce)
+	if hand != handFlags {
+		t.Errorf("charging hand flags = %#x, want %#x", hand, handFlags)
+	}
+}
+
+func expectPillagerCrossbowArrow(t *testing.T, c *servertest.Client, srv *server.Server, pierce int32) {
+	t.Helper()
+	arrows := srv.ArrowsInDimension(world.DimensionName)
+	if len(arrows) == 0 {
+		if !servertest.ASpawnOfWithinTicks(c, srv, 80, protocol.EntityTypeArrow) {
+			t.Fatal("the pillager never shot within 80 ticks of charging")
+		}
+		arrows = srv.ArrowsInDimension(world.DimensionName)
+	}
+	if len(arrows) != 1 {
+		t.Fatalf("pillager arrows = %d, want one first shot", len(arrows))
+	}
+	if a := arrows[0]; !a.CrossbowHit || a.PierceLevel != pierce {
+		t.Errorf("arrow crossbowHit=%v pierce=%d, want true and %d", a.CrossbowHit, a.PierceLevel, pierce)
 	}
 }
