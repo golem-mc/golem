@@ -644,7 +644,9 @@ func (s *Server) summonDuplicate(identity uuid.UUID) bool {
 func (s *Server) readd(d departure) {
 	switch d.kind {
 	case departingItem:
-		restoreSaved(s, &itemTracker, d.item)
+		s.itemsMu.Lock()
+		s.appendItemLocked(d.item)
+		s.itemsMu.Unlock()
 	case departingArrow:
 		restoreSaved(s, &arrowTracker, d.arrow)
 	case departingOrb:

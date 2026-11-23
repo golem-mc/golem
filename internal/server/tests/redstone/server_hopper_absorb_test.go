@@ -79,3 +79,57 @@ func TestAHopperRemovesAnAbsorbedItemForItsWatchers(t *testing.T) {
 		t.Errorf("the world still holds %+v, want the item absorbed", got)
 	}
 }
+
+// TestAHopperPicksUpStraddlingDropsInRegistrationOrder places a hopper on the
+// west edge of chunk (1,0) with room for one stack, spawns one drop outside the
+// box, spawns a second drop in chunk (0,0) straddling into the hopper's suck
+// box, then moves the first drop into the box in chunk (1,0). The hopper must
+// take the first-registered drop despite chunk (0,0) being visited first, and
+// then take the straddling drop once space opens.
+func TestAHopperPicksUpStraddlingDropsInRegistrationOrder(t *testing.T) {
+	t.Parallel()
+	srv, _, _ := absorbedItemWatcher(t)
+
+	if !srv.PlaceContainer(16, 64, 0, "minecraft:hopper") {
+		t.Fatal("the hopper would not stand")
+	}
+	cobble := protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:cobblestone"), Count: 64}
+	for slot := range 4 {
+		if !srv.SetInventoryAt(16, 64, 0, slot, cobble) {
+			t.Fatalf("could not fill hopper slot %d", slot)
+		}
+	}
+
+	firstID := srv.SpawnItemEntity(14.5, 65.125, 0.5, "minecraft:diamond", 1)
+	secondID := srv.SpawnItemEntity(15.95, 65.125, 0.5, "minecraft:emerald", 1)
+	if firstID == 0 || secondID == 0 {
+		t.Fatalf("drops did not spawn: first=%d second=%d", firstID, secondID)
+	}
+	srv.RunLine("tp @e[type=item,x=14.5,y=65,z=0.5,distance=..1] 16.5 65 0.5")
+
+	servertest.TickBlockEntitiesByHand(srv, 1)
+
+	diamond := servertest.MustItemID(t, "minecraft:diamond")
+	emerald := servertest.MustItemID(t, "minecraft:emerald")
+	if got := srv.InventoryAt(16, 64, 0)[4]; got.ItemID != diamond || got.Count != 1 {
+		t.Fatalf("hopper slot 4 holds %+v, want first-registered diamond (%d)", got, diamond)
+	}
+	rem := srv.ItemsInDimension(world.DimensionName)
+	if len(rem) != 1 || rem[0].ID != secondID {
+		t.Fatalf("remaining items = %+v, want only straddling emerald %d", rem, secondID)
+	}
+
+	// Free slot 4 and advance past the 8-tick cooldown so the straddling drop
+	// centred in chunk (0,0) is picked up by the hopper in chunk (1,0).
+	if !srv.SetInventoryAt(16, 64, 0, 4, protocol.ItemStack{}) {
+		t.Fatal("could not clear hopper slot 4")
+	}
+	servertest.TickBlockEntitiesByHand(srv, 9)
+
+	if got := srv.InventoryAt(16, 64, 0)[4]; got.ItemID != emerald || got.Count != 1 {
+		t.Fatalf("hopper slot 4 holds %+v, want straddling emerald (%d)", got, emerald)
+	}
+	if rem := srv.ItemsInDimension(world.DimensionName); len(rem) != 0 {
+		t.Errorf("remaining items = %+v, want none", rem)
+	}
+}
