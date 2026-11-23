@@ -20,6 +20,7 @@ type lightCell struct{ x, y, z int32 }
 // markLightCell records a write at section-local x, z and y counted from the
 // world's bottom.
 func (c *Chunk) markLightCell(x, y, z int32) {
+	c.lightBands |= 1 << (y/sectionSize + 1)
 	if len(c.lightCells) >= maxLightCells {
 		c.lightOverflow = true
 		return
@@ -36,6 +37,7 @@ func (c *Chunk) dropLightCells(lx0, lx1, lz0, lz1 int32) {
 	})
 	if c.lightDirty == ([sectionSize]uint16{}) {
 		c.lightCells, c.lightOverflow = nil, false
+		c.lightBands = 0
 	}
 }
 
