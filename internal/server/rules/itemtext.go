@@ -80,6 +80,10 @@ func ItemName(stack protocol.ItemStack) protocol.Text {
 	}
 	switch registry.Item(stack.ItemID) {
 	case registry.ItemPotion, registry.ItemSplashPotion, registry.ItemLingeringPotion, registry.ItemTippedArrow:
+		if stack.Removes(protocol.DataComponentPotionContents) {
+			// No contents to name: the item's own name, as Item.getName.
+			break
+		}
 		return protocol.Text{Translate: key + ".effect." + potionSuffix(stack)}
 	case registry.ItemCompass:
 		if _, tracked := stack.LodestoneTrackerOf(); tracked {

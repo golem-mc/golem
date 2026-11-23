@@ -116,11 +116,9 @@ func TestAnvilCombineRename(t *testing.T) {
 	if !a.Result.Empty() || a.Cost != 0 {
 		t.Fatalf("same name: %+v", a)
 	}
-	// The default name is a translation the server never resolves, so a
-	// rename that spells it out is charged like any other - the one
-	// place this answers where vanilla would charge nothing.
+	// The item's default name is no rename either.
 	a = AnvilCombine(aSword(t, 0, 1, 0), nothing, "Diamond Sword", false)
-	if a.Cost != 1 || a.Result.CustomName == nil {
+	if !a.Result.Empty() || a.Cost != 0 {
 		t.Fatalf("default name: %+v", a)
 	}
 }
