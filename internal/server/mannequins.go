@@ -62,7 +62,7 @@ func mannequinPairing(ent *mannequinEntity) []outbound {
 	m := ent.mannequin
 	spawn := spawnEntityPayload(spawnEntity{
 		id: m.ID, uuid: ent.uuid, typ: protocol.EntityTypeMannequin,
-		x: m.X, y: m.Y, z: m.Z, vx: m.VX, vy: m.VY, vz: m.VZ,
+		x: m.X, y: m.Y, z: m.Z, vx: ent.sentVX, vy: ent.sentVY, vz: ent.sentVZ,
 		pitch: encodeAngle(m.Pitch), yaw: encodeAngle(m.Yaw), headYaw: encodeAngle(m.Yaw),
 	})
 	packets := spawnAndMetadata(spawn, mannequinMetadataPayload(ent, false))
@@ -88,6 +88,9 @@ func (s *Server) registerMannequin(ent *mannequinEntity) {
 	ent.mannequin.Combust = func(ticks int, src entity.CombustSource) int {
 		return s.askMannequinCombust(ent, ticks, src)
 	}
+	// The tracker's baseline starts at the spawn velocity, so a later stop is a change.
+	// vanilla: ServerEntity.<init>
+	ent.sentVX, ent.sentVY, ent.sentVZ = ent.mannequin.VX, ent.mannequin.VY, ent.mannequin.VZ
 	mannequinTracker.register(s, ent)
 }
 
@@ -102,6 +105,9 @@ func (s *Server) tickMannequins() {
 	}
 	teams := s.pushTeams()
 	pushes := s.mannequinPushInputs(teams)
+	// Tracking precedes physics, as in ServerChunkCache.tick before the entity tick.
+	// vanilla: ServerChunkCache.tick, ChunkMap.tick
+	mannequinTracker.pass(s, s.trackingWatchers(), true)
 	var effects []mannequinTickEffect
 	s.lockTick(&s.mannequinsMu)
 	for _, ent := range s.mannequins {
@@ -161,7 +167,6 @@ func (s *Server) tickMannequins() {
 			s.hurtMannequin(fx.ent, fx.step.Damage, fx.step.DamageType, 0, 0, nil, false)
 		}
 	}
-	mannequinTracker.pass(s, s.trackingWatchers(), true)
 }
 
 type mannequinTickEffect struct {

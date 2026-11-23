@@ -152,6 +152,7 @@ func (s *StandBody) move(w World, box AABB, halfWidth, gravity float64) (bool, f
 	if stuck {
 		s.VX, s.VY, s.VZ = 0, 0, 0
 	}
+	var hitBelow bool
 	for _, axis := range [...]int{axisY, axisX, axisZ} {
 		d := dy
 		switch axis {
@@ -176,6 +177,7 @@ func (s *StandBody) move(w World, box AABB, halfWidth, gravity float64) (bool, f
 		switch axis {
 		case axisY:
 			onGround = d < 0
+			hitBelow = onGround
 			if onGround {
 				s.VY = bounceOffGround(w, s.X, s.Y, s.Z, halfWidth, s.VY, s.Y-startY, gravity, airDragFloat, true)
 			} else {
@@ -191,5 +193,7 @@ func (s *StandBody) move(w World, box AABB, halfWidth, gravity float64) (bool, f
 	s.VX *= f
 	s.VZ *= f
 	s.stuck = stuckIn(w, box, s.X, s.Y, s.Z, true, false, false, false)
-	return onGround, bankFall(&s.FallDistance, startY, s.Y, onGround)
+	// A carried ground flag is not a landing: only a downward collision banks the fall.
+	// vanilla: Entity.move, Entity.checkFallDamage
+	return onGround, bankFall(&s.FallDistance, startY, s.Y, hitBelow)
 }

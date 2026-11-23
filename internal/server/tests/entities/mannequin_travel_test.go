@@ -1,6 +1,7 @@
 package entities
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -81,37 +82,109 @@ func TestAMannequinTakesAPunchKnockback(t *testing.T) {
 	}
 }
 
-// A /tp zeroes the vertical speed, so the watcher is told the reset velocity
-// ahead of the teleport sync instead of keeping the old fall speed.
+// mannequinMotionPacket is a Set Entity Motion of id, decoded.
+func mannequinMotionPacket(data []byte, id int32) (vy float64, ok bool) {
+	r := protocol.NewReader(data)
+	if r.ReadVarInt() != id {
+		return 0, false
+	}
+	_, vy, _ = r.ReadLpVec3()
+	return vy, true
+}
+
+// A /tp zeroes the vertical speed, so the watcher is told zero motion on the
+// next movement gate, ahead of the teleport sync, and the fall again after it.
 func TestACommandTeleportResetsAFallingMannequinMotionForItsWatcher(t *testing.T) {
 	t.Parallel()
 	srv, c := joinMannequinOp(t, "Stopping")
 	c.ChatCommand("summon mannequin 3.5 90 3.5")
 	id := awaitMannequin(t, c, srv).id
-	var last []byte
-	c.ReadTicks(srv, 10, func(packet int32, data []byte) bool {
-		if packet == protocol.IDPlaySetEntityMotion && protocol.NewReader(data).ReadVarInt() == id {
-			last = data
-		}
-		return false
-	})
-	if last == nil {
-		t.Fatal("no Set Entity Motion while the mannequin fell")
+	if !c.ReadTicks(srv, 30, func(packet int32, data []byte) bool {
+		vy, ok := mannequinMotionPacket(data, id)
+		return packet == protocol.IDPlaySetEntityMotion && ok && vy < 0
+	}) {
+		t.Fatal("no downward Set Entity Motion while the mannequin fell")
 	}
+	// The match was a movement gate (every second tick) and the command runs in
+	// the next tick's start, so one idle tick puts it on the following gate.
+	c.ReadTicks(srv, 1, func(int32, []byte) bool { return false })
 	c.ChatCommand("tp @e[type=mannequin,limit=1] 3.5 120 3.5")
-	var reset, synced bool
-	c.ReadTicks(srv, 6, func(packet int32, data []byte) bool {
+	c.Settle()
+	var events []string
+	c.ReadTicks(srv, 12, func(packet int32, data []byte) bool {
 		switch packet {
 		case protocol.IDPlaySetEntityMotion:
-			if protocol.NewReader(data).ReadVarInt() == id && !synced && string(data) != string(last) {
-				reset = true
+			if vy, ok := mannequinMotionPacket(data, id); ok {
+				switch {
+				case vy == 0:
+					events = append(events, "stop")
+				case vy < 0:
+					events = append(events, "fall")
+				default:
+					events = append(events, "rise")
+				}
 			}
 		case protocol.IDPlayTeleportEntity:
-			synced = synced || servertest.ParseEntityPositionSync(data).ID == id
+			if servertest.ParseEntityPositionSync(data).ID == id {
+				events = append(events, "sync")
+			}
 		}
-		return reset && synced
+		return len(events) >= 3
 	})
-	if !reset || !synced {
-		t.Errorf("reset motion before the teleport sync = %v, teleport sync = %v", reset, synced)
+	if got := fmt.Sprint(events); got != "[stop sync fall]" {
+		t.Errorf("watcher saw %s after the teleport, want [stop sync fall]", got)
+	}
+}
+
+// The first step after a /tp keeps the command's ground flag for the sync but
+// is no landing, so a fall from height does no damage in midair.
+func TestACommandTeleportDoesNotLandAFallingMannequinInMidair(t *testing.T) {
+	t.Parallel()
+	srv, c := joinMannequinOp(t, "Midair")
+	c.ChatCommand("summon mannequin 3.5 90 3.5")
+	awaitMannequin(t, c, srv)
+	servertest.RunTicks(t, srv, 14)
+	c.ChatCommand("tp @e[type=mannequin,limit=1] 3.5 120 3.5")
+	c.Settle()
+	servertest.RunTicks(t, srv, 1)
+	if health, _ := nbt.FloatField(mannequinTravelData(t, c, srv), "Health"); health != 20 {
+		t.Errorf("health = %v after the first step of a teleported fall, want 20", health)
+	}
+}
+
+// A mannequin summoned with motion is spawned with it, and the watcher is told
+// the stop when physics brings it to rest.
+func TestAMannequinSummonedWithMotionTellsItsWatcherTheStop(t *testing.T) {
+	t.Parallel()
+	srv, c := joinMannequinOp(t, "Drifting")
+	c.ChatCommand("summon mannequin 3.5 70 3.5 {NoGravity:1b,Motion:[0.0d,-0.002d,0.0d]}")
+	var id int32
+	var spawnVY float64
+	var stopped bool
+	c.ReadTicks(srv, 8, func(packet int32, data []byte) bool {
+		r := protocol.NewReader(data)
+		switch packet {
+		case protocol.IDPlaySpawnEntity:
+			entityID := r.ReadVarInt()
+			r.ReadUUID()
+			if r.ReadVarInt() == protocol.EntityTypeMannequin {
+				id = entityID
+				r.ReadF64()
+				r.ReadF64()
+				r.ReadF64()
+				_, spawnVY, _ = r.ReadLpVec3()
+			}
+		case protocol.IDPlaySetEntityMotion:
+			if vy, ok := mannequinMotionPacket(data, id); ok && id != 0 && vy == 0 {
+				stopped = true
+			}
+		}
+		return stopped
+	})
+	if id == 0 || spawnVY > -0.001 || spawnVY < -0.003 {
+		t.Errorf("spawned mannequin %d with vy %v, want about -0.002", id, spawnVY)
+	}
+	if !stopped {
+		t.Error("watcher got no stop after the mannequin came to rest")
 	}
 }
