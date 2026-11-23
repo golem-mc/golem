@@ -37,8 +37,13 @@ func (w pluginWorld) SetBlockState(p plugin.BlockPos, state plugin.BlockState, f
 // deferRelight grows the pending relight box of the column's chunk.
 func (s *Server) deferRelight(dim *dimension, x, z int32) {
 	dim.pendingRelightMu.Lock()
-	dim.pendingRelight.add(x, z)
+	fresh := dim.pendingRelight.add(x, z)
 	dim.pendingRelightMu.Unlock()
+	if fresh {
+		// Released once the chunk's relight result is installed; the chunk is
+		// loaded, as the write just changed it.
+		dim.w.HoldIfLoaded(world.ChunkPos{X: world.ChunkOf(float64(x)), Z: world.ChunkOf(float64(z))})
+	}
 }
 
 // relightPending books the relights deferRelight collected.
@@ -49,7 +54,7 @@ func (s *Server) relightPending(dim *dimension) {
 	if len(boxes) == 0 {
 		return
 	}
-	s.relightBoxesAsync(dim.w, boxes)
+	s.relightBoxesAsync(dim.w, boxes, true)
 	dim.pendingRelightMu.Lock()
 	dim.pendingRelight.recycle(boxes)
 	dim.pendingRelightMu.Unlock()

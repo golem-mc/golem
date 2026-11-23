@@ -883,13 +883,15 @@ type changeBoxes struct {
 	spare []changeBox
 }
 
-func (c *changeBoxes) add(x, z int32) {
+// add grows the box of the column's chunk and reports whether the chunk is new
+// to c.
+func (c *changeBoxes) add(x, z int32) bool {
 	key := [2]int32{world.ChunkOf(float64(x)), world.ChunkOf(float64(z))}
 	if i, ok := c.at[key]; ok {
 		b := &c.boxes[i]
 		b.minX, b.minZ = min(b.minX, x), min(b.minZ, z)
 		b.maxX, b.maxZ = max(b.maxX, x), max(b.maxZ, z)
-		return
+		return false
 	}
 	if c.at == nil {
 		c.at = make(map[[2]int32]int)
@@ -899,6 +901,7 @@ func (c *changeBoxes) add(x, z int32) {
 		c.boxes, c.spare = c.spare, nil
 	}
 	c.boxes = append(c.boxes, changeBox{minX: x, minZ: z, maxX: x, maxZ: z})
+	return true
 }
 
 // take empties c and returns its boxes; recycle gives the slice back once
@@ -920,7 +923,7 @@ func (s *Server) relightChanges(w *world.World, changes []world.BlockChange) {
 		set.add(ch.X, ch.Z)
 	}
 	boxes := set.boxes
-	s.relightBoxesAsync(w, boxes)
+	s.relightBoxesAsync(w, boxes, false)
 	if s.relightSeam != nil {
 		s.relightSeam(len(boxes), changes)
 	}

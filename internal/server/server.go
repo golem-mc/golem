@@ -2609,7 +2609,7 @@ func (s *Server) relightAsync(w *world.World, x, z int32) {
 // follow the block it belongs to; a stopped loop sends it at once.
 // vanilla: ChunkHolder.broadcastChanges
 func (s *Server) relightAreaAsync(w *world.World, minX, minZ, maxX, maxZ int32) {
-	s.relightBoxesAsync(w, []changeBox{{minX, minZ, maxX, maxZ}})
+	s.relightBoxesAsync(w, []changeBox{{minX, minZ, maxX, maxZ}}, false)
 }
 
 // relightBoxesAsync books the boxes' relights together and collects their
@@ -2618,11 +2618,19 @@ func (s *Server) relightAreaAsync(w *world.World, minX, minZ, maxX, maxZ int32) 
 // caller's write set the mark before this call, so an unmarked box was already
 // relit, and a relight running now covers any mark it clears. A write that
 // keeps its light (a fence arm, a stair shape) never marks.
-func (s *Server) relightBoxesAsync(w *world.World, boxes []changeBox) {
+func (s *Server) relightBoxesAsync(w *world.World, boxes []changeBox, held bool) {
 	var chs []<-chan []world.LightChange
+	var holds []world.ChunkPos
 	for _, b := range boxes {
+		pos := world.ChunkPos{X: world.ChunkOf(float64(b.minX)), Z: world.ChunkOf(float64(b.minZ))}
 		if !w.LightMarkedIn(b.minX, b.minZ, b.maxX, b.maxZ) {
+			if held {
+				w.Release(pos)
+			}
 			continue
+		}
+		if held {
+			holds = append(holds, pos)
 		}
 		s.relightsRun.Add(1)
 		chs = append(chs, w.RelightAreaAsync(b.minX, b.minZ, b.maxX, b.maxZ))
@@ -2635,9 +2643,13 @@ func (s *Server) relightBoxesAsync(w *world.World, boxes []changeBox) {
 			changed := <-ch
 			if !s.loopRunning() {
 				s.broadcastLight(w, changed)
-				continue
+			} else {
+				w.MarkLightChanged(changed)
 			}
-			w.MarkLightChanged(changed)
+		}
+		// The hold keeps a chunk from saving with the old light.
+		for _, pos := range holds {
+			w.Release(pos)
 		}
 	})
 }

@@ -821,16 +821,7 @@ func TestPluginWorldSleepSkipsNight(t *testing.T) {
 func TestPluginUnloadRelightsPendingWrites(t *testing.T) {
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	w := createFlat(t, run, h, &flatGen{})
-	var loaded atomic.Bool
-	load := func() {
-		loaded.Store(false)
-		run(func() {
-			w.AddTicket(plugin.ChunkPos{}, 0)
-			w.LoadChunk(plugin.ChunkPos{}, true, func(plugin.Chunk) { loaded.Store(true) })
-		})
-		awaitPluginIO(t, srv, "flat chunk", loaded.Load)
-	}
-	load()
+	run(func() { w.AddTicket(plugin.ChunkPos{}, 0) })
 	glow := plugin.BlockPos{X: 5, Y: 20, Z: 5}
 	before := srv.RelightsRun()
 	var unloadErr error
@@ -848,8 +839,36 @@ func TestPluginUnloadRelightsPendingWrites(t *testing.T) {
 		t.Fatalf("unload submitted %d relights, want 1", got)
 	}
 	w = createFlat(t, run, h, &flatGen{})
-	load()
 	run(func() {
+		w.AddTicket(plugin.ChunkPos{}, 0)
+		if _, block := w.Light(glow.Offset(plugin.Up, 1)); block != 14 {
+			t.Errorf("block light above the glowstone after reload = %d, want 14", block)
+		}
+	})
+}
+
+// Releasing the last ticket in the write tick does not save the chunk before
+// its relight lands.
+// vanilla: ChunkHolder.broadcastChanges, ChunkMap.save
+func TestPluginReleaseTicketKeepsPendingRelight(t *testing.T) {
+	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	w := createFlat(t, run, h, &flatGen{})
+	run(func() { w.AddTicket(plugin.ChunkPos{}, 0) })
+	glow := plugin.BlockPos{X: 5, Y: 20, Z: 5}
+	run(func() {
+		w.SetBlockState(glow, plugin.DefaultState(registry.BlockGlowstone), plugin.UpdateAll)
+		w.RemoveTicket(plugin.ChunkPos{}, 0)
+	})
+	srv.WaitRelights()
+	run(func() {})
+	var unloadErr error
+	run(func() { unloadErr = h.UnloadWorld(w, true) })
+	if unloadErr != nil {
+		t.Fatal(unloadErr)
+	}
+	w = createFlat(t, run, h, &flatGen{})
+	run(func() {
+		w.AddTicket(plugin.ChunkPos{}, 0)
 		if _, block := w.Light(glow.Offset(plugin.Up, 1)); block != 14 {
 			t.Errorf("block light above the glowstone after reload = %d, want 14", block)
 		}

@@ -381,14 +381,14 @@ func TestPluginBlockWriteRelightsOnPausedTick(t *testing.T) {
 }
 
 // A write from the last tick-end event is relit before shutdown waits for the
-// workers.
+// workers, and the chunk is saved with that light though the plugin's ticket
+// is dropped on disable.
 func TestPluginBlockWriteRelightsAtShutdown(t *testing.T) {
 	t.Parallel()
 	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
 	w := srv.OverworldWorld()
 	p := world.ChunkPos{X: 0, Z: 0}
-	w.Acquire(p)
-	defer w.Release(p)
+	run(func() { h.Overworld().AddTicket(plugin.ChunkPos{}, 0) })
 	cell := plugin.BlockPos{X: 8, Y: 200, Z: 8}
 	plugin.Listen(h, func(*plugin.ServerTickEndEvent) {
 		h.Overworld().SetBlockState(cell, plugin.DefaultState(registry.BlockGlowstone), plugin.UpdateAll)
@@ -401,5 +401,11 @@ func TestPluginBlockWriteRelightsAtShutdown(t *testing.T) {
 	srv.Shutdown()
 	if got := srv.RelightsRun() - before; got != 1 {
 		t.Errorf("shutdown submitted %d relights, want 1", got)
+	}
+	w.DrainSaves()
+	w.Acquire(p)
+	defer w.Release(p)
+	if got := w.BlockLightAt(8, 201, 8); got != 14 {
+		t.Errorf("saved block light above the glowstone = %d, want 14", got)
 	}
 }
