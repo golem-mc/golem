@@ -5,6 +5,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/servertest"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -124,7 +125,9 @@ func TestAHopperPicksUpTheLowerXSectionFirst(t *testing.T) {
 // was taken.
 func TestAHopperTellsWatchersTheRemainderOfAPartlyTakenItem(t *testing.T) {
 	t.Parallel()
-	srv, watcher := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, watcher := servertest.Join(t, cfg, "Watcher")
 	watcher.Settle()
 	srv.StopTick()
 
