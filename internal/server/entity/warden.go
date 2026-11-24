@@ -126,19 +126,22 @@ func (m *Mob) wardenStep(t *tickView) bool {
 		}
 		return true
 	}
-	if s.digCooldown == 0 && m.TargetID == 0 && m.navDone() {
+	// DIG takes priority even while Digging is waiting for its start conditions.
+	// vanilla: WardenAi.updateActivity, Digging.checkExtraStartConditions
+	if s.digCooldown == 0 && s.roarTarget == 0 && m.TargetID == 0 {
+		if !m.navDone() {
+			return false
+		}
 		if m.OnGround {
 			m.SetMetadataWardenPose(protocol.PoseDigging)
 			s.digging = 0
 			m.stopSeeking()
 			sound(registry.SoundEntityWardenDig)
-			return true
-		}
-		if m.InWater() || m.InLava() {
+		} else if m.InWater() || m.InLava() {
 			sound(registry.SoundEntityWardenAgitated)
 			m.Discard()
-			return true
 		}
+		return true
 	}
 	if held := m.wardenCombatStep(t); held || m.TargetID != 0 {
 		return held
