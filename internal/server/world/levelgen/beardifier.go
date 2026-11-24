@@ -42,17 +42,13 @@ func BeardNear(cx, cz int32) BoundingBox {
 // Intersects reports whether the boxes share a block.
 func (b BoundingBox) Intersects(o BoundingBox) bool { return b.intersects(o) }
 
-// SelectBeards returns the rigid pieces within 12 blocks of chunk (cx, cz)
-// and, of the pieces that near, the junctions within 12 blocks.
-// vanilla: Beardifier.forStructuresInChunk
-func SelectBeards(cx, cz int32, pieces []BeardPiece) ([]BeardRigid, []BeardJunction) {
-	near := BeardNear(cx, cz)
+// SelectBeards returns the rigid pieces of pieces, which the caller has
+// already limited to those adapting the terrain and within near, and the
+// junctions strictly inside near. vanilla: Beardifier.forStructuresInChunk
+func SelectBeards(near BoundingBox, pieces []BeardPiece) ([]BeardRigid, []BeardJunction) {
 	var rigids []BeardRigid
 	var junctions []BeardJunction
 	for _, p := range pieces {
-		if p.Adjustment == AdjustNone || !p.Box.intersects(near) {
-			continue
-		}
 		if p.Rigid {
 			rigids = append(rigids, BeardRigid{p.Box, p.Adjustment, p.GroundLevelDelta})
 		}

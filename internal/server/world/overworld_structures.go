@@ -489,7 +489,7 @@ func (g *OverworldGenerator) beardifierAt(cx, cz int32) *terrain.Beardifier {
 			pieces = append(pieces, bp)
 		}
 	})
-	return terrain.BeardifierForChunk(cx, cz, pieces)
+	return terrain.NewBeardifier(levelgen.SelectBeards(near, pieces))
 }
 
 // packChunk is a chunk position as a long. vanilla: ChunkPos.pack
