@@ -487,6 +487,14 @@ func (b boatCargo) Peek(slot int) (itemID, count int32) {
 	return b.it.cargo[slot].ItemID, b.it.cargo[slot].Count
 }
 
+// StackPtr is the cargo slot's stack in place for reading.
+func (b boatCargo) StackPtr(slot int) *protocol.ItemStack {
+	if slot < 0 || slot >= len(b.it.cargo) {
+		return nil
+	}
+	return &b.it.cargo[slot]
+}
+
 // Filled is the cargo's occupied-slot mask.
 func (b boatCargo) Filled() uint64 { return filledOf(b.it.cargo) }
 
@@ -562,6 +570,14 @@ func (b blockEntitySlots) Peek(slot int) (itemID, count int32) {
 		return s.ItemID, s.Count
 	}
 	return 0, 0
+}
+
+// StackPtr is the slot's stack in place for reading, nil for one it lacks.
+func (b blockEntitySlots) StackPtr(slot int) *protocol.ItemStack {
+	if slot >= 0 && slot < len(b.be.Slots) {
+		return &b.be.Slots[slot]
+	}
+	return nil
 }
 
 // Put replaces the container slot's stack, dropping any compound the file

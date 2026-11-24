@@ -36,14 +36,14 @@ func TestEndGatewayTickPreservesCarriedSnapshotsAndSlots(t *testing.T) {
 			savedEntities, _ := nbt.Get[nbt.List](saved, "block_entities")
 			slots := c.carriedBlockEntities.Items
 			loaded := w.chunks[pos]
-			loaded.dirty = false
+			loaded.savedGen.Store(loaded.dirtyGen.Load())
 			ticking := c.tickingCarried
 
 			if beams := w.TickEndGateways(2400); !slices.Equal(beams, wantBeams) {
 				t.Errorf("beams = %v, want %v", beams, wantBeams)
 			}
-			if !loaded.dirty || c.tickingCarried != ticking {
-				t.Errorf("dirty = %v, ticking = %d, want true/%d", loaded.dirty, c.tickingCarried, ticking)
+			if dirty := w.ChunkDirty(pos); !dirty || c.tickingCarried != ticking {
+				t.Errorf("dirty = %v, ticking = %d, want true/%d", dirty, c.tickingCarried, ticking)
 			}
 			if len(c.carriedBlockEntities.Items) != count || &c.carriedBlockEntities.Items[0] != &slots[0] {
 				t.Fatal("tick replaced the carried list's storage")

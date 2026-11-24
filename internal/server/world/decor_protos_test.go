@@ -205,3 +205,42 @@ func TestGeneratedSculkSensorHasItsBlockEntity(t *testing.T) {
 		t.Errorf("saved %v, want %v", got, want)
 	}
 }
+
+func spilledProtoBytes() (*decorProto, []byte) {
+	p := &decorProto{decorated: true, final: true}
+	for y := range int32(64) {
+		p.set(y%16, y, y%16, 100+uint16(y))
+	}
+	buf := new(decorProtoBuf)
+	buf.deflate(p)
+	return p, bytes.Clone(buf.out.Bytes())
+}
+
+func TestInflateRoundTripsAndRejectsGarbage(t *testing.T) {
+	t.Parallel()
+	_, data := spilledProtoBytes()
+	buf := new(decorProtoBuf)
+	for range 3 {
+		got, err := decodeDecorProto(buf.inflate(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s, ok := got.get(5, 5, 5); !ok || s != 105 {
+			t.Errorf("block read back as %d, %v", s, ok)
+		}
+		if _, err := decodeDecorProto(buf.inflate([]byte("garbage"))); err == nil {
+			t.Error("garbage decoded")
+		}
+	}
+}
+
+func BenchmarkInflateDecodeProto(b *testing.B) {
+	_, data := spilledProtoBytes()
+	buf := new(decorProtoBuf)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := decodeDecorProto(buf.inflate(data)); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

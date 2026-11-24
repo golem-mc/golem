@@ -117,7 +117,8 @@ func (w *World) RestoreLevel(m PluginMeta) {
 		return
 	}
 	w.timeMu.Lock()
-	w.level.WorldAge, w.level.Difficulty, w.level.DifficultyLocked = l.age, l.difficulty, l.locked
+	w.setWorldAge(l.age)
+	w.level.Difficulty, w.level.DifficultyLocked = l.difficulty, l.locked
 	applyWeather(l.weather, w.level)
 	for i := range w.clocks {
 		if entry, ok := nbt.Get[nbt.Compound](l.clocks, w.clocks[i].name); ok {

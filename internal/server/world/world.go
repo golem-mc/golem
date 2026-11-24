@@ -125,9 +125,10 @@ type World struct {
 	mu      sync.RWMutex
 	chunks  map[ChunkPos]*loadedChunk
 	packets chunkPacketRetention
-	// Block counts in w.chunks, guarded by mu.
+	// Block counts in w.chunks, updated under mu. Touch reads the comparator
+	// count without it.
 	touchBlocks      int
-	comparatorBlocks int
+	comparatorBlocks atomic.Int64
 	// tickingChunks holds the loaded chunks with a trial spawner or vault, so a
 	// tick without any walks nothing. Guarded by mu.
 	tickingChunks map[ChunkPos]struct{}
@@ -215,6 +216,8 @@ type World struct {
 	// tick and read for Update Time. It is separate from mu so the tick does
 	// not contend with chunk loads and saves.
 	timeMu sync.Mutex
+	// worldAge mirrors level.WorldAge for readers that need only the tick.
+	worldAge atomic.Int64
 	// pluginGen is a plugin world's terrain spec, guarded by timeMu.
 	pluginGen PluginGenSpec
 
@@ -310,15 +313,11 @@ type loadedChunk struct {
 	// mu; structureRefsRead tells nil from not yet read.
 	structureRefs     []string
 	structureRefsRead bool
-	// dirty is set once a block changed, so the chunk is written to its region
-	// file when nobody is near instead of discarded and regenerated, which is
-	// what makes a change survive a walk away and a restart.
-	dirty bool
 	// fresh is set when the chunk was generated because no region file held it.
 	fresh bool
-	// dirtyGen counts the marks, so Save can tell a mark made after it listed
-	// the chunk from one it saw.
-	dirtyGen uint64
+	// dirtyGen counts marks. Unload sets its high bit to claim the chunk
+	// from Touch. A loaded chunk needs saving while dirtyGen is ahead of savedGen.
+	dirtyGen atomic.Uint64
 	// containerGen publishes block and container-identity changes to hopper readers.
 	containerGen atomic.Uint64
 	// surface caches the per-column surface heights (highest block's y), which
@@ -337,7 +336,7 @@ type loadedChunk struct {
 	// chunk released, reloaded, changed and released again could run at once,
 	// and the older landing last would leave stale bytes.
 	saveMu   sync.Mutex
-	savedGen uint64
+	savedGen atomic.Uint64
 }
 
 // nearSlots is the side of the near cache's square, a power of two.
@@ -370,10 +369,11 @@ func (w *World) dropNear(pos ChunkPos, l *loadedChunk) {
 	w.near[nearIndex(pos)].CompareAndSwap(l, nil)
 }
 
-// markDirty flags the chunk for the next save, bumping dirtyGen.
-func (l *loadedChunk) markDirty() {
-	l.dirty = true
-	l.dirtyGen++
+const unloadedGen = uint64(1) << 63
+
+// markDirty reports whether the mark landed before unload claimed the chunk.
+func (l *loadedChunk) markDirty() bool {
+	return l.dirtyGen.Add(1) < unloadedGen
 }
 
 // NewWorld builds the overworld, which owns the world's level.dat, saving
@@ -414,6 +414,7 @@ func newWorld(dir string, gen Generator, name string, shape dimensionShape, leve
 		saveFormat: defaultSaveFormat,
 		dice:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 	}
+	w.worldAge.Store(level.WorldAge)
 	w.setEnvironment(registry.EnvDimensionDefaults(shape.typ))
 	w.loadForcedChunks()
 	w.regions = newRegionCache(func(rx, rz int32) (*regionFile, error) {
@@ -628,7 +629,13 @@ func (w *World) SetWorldAge(age int64) {
 	w = w.timeWorld()
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
+	w.setWorldAge(age)
+}
+
+// The caller holds timeMu.
+func (w *World) setWorldAge(age int64) {
 	w.level.WorldAge = age
+	w.worldAge.Store(age)
 }
 
 // Acquire returns the chunk at pos, loading or generating it, and records one
@@ -777,7 +784,9 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	w.chunks[pos] = loaded
 	touches, comparators := c.redstoneBlockCounts()
 	w.touchBlocks += touches
-	w.comparatorBlocks += comparators
+	if comparators != 0 {
+		w.comparatorBlocks.Add(int64(comparators))
+	}
 	w.chunkSet.Add(1)
 	w.syncTickingChunk(pos, c)
 	// Shared before the slot is stored: from the store on, BlockAt may read
@@ -875,7 +884,9 @@ func (w *World) release(pos ChunkPos, done *sync.WaitGroup) {
 		w.mu.Unlock()
 		return
 	}
-	if !loaded.dirty {
+	// A near-cache Touch can mark the chunk even while mu is held.
+	gen := loaded.dirtyGen.Load()
+	if gen == loaded.savedGen.Load() && loaded.dirtyGen.CompareAndSwap(gen, unloadedGen) {
 		w.removeChunk(pos, loaded)
 		w.mu.Unlock()
 		w.forgetChunkPacket(loaded.chunk)
@@ -884,7 +895,6 @@ func (w *World) release(pos ChunkPos, done *sync.WaitGroup) {
 	// gen is the chunk's state at this hold; later marks are unseen by the
 	// coming save, which unloadSaved re-saves before the chunk may leave.
 	chunk := loaded.chunk
-	gen := loaded.dirtyGen
 	w.mu.Unlock()
 	save := func() {
 		w.unloadSaved(pos, chunk, gen)
@@ -946,14 +956,14 @@ func (w *World) unloadSaved(pos ChunkPos, chunk *Chunk, gen uint64) {
 			w.mu.Unlock()
 			return
 		}
-		if l.dirtyGen == gen {
+		if l.dirtyGen.CompareAndSwap(gen, unloadedGen) {
 			w.removeChunk(pos, l)
 			w.mu.Unlock()
 			w.forgetChunkPacket(chunk)
 			return
 		}
 		// A newer mark arrived while nobody held the chunk; save it too.
-		gen = l.dirtyGen
+		gen = l.dirtyGen.Load()
 		w.mu.Unlock()
 	}
 }
@@ -966,7 +976,9 @@ func (w *World) removeChunk(pos ChunkPos, loaded *loadedChunk) {
 	delete(w.chunks, pos)
 	touches, comparators := loaded.chunk.redstoneBlockCounts()
 	w.touchBlocks -= touches
-	w.comparatorBlocks -= comparators
+	if comparators != 0 {
+		w.comparatorBlocks.Add(-int64(comparators))
+	}
 	w.chunkSet.Add(1)
 	delete(w.tickingChunks, pos)
 	w.chunkUnloaded(pos, loaded.chunk)
@@ -1025,13 +1037,12 @@ func (w *World) MarkDirty(pos ChunkPos) {
 	}
 }
 
-// ChunkDirty reports whether a loaded chunk awaits its next save, the flag
-// Touch and TouchEntity set.
+// ChunkDirty reports whether a loaded chunk has unsaved marks.
 func (w *World) ChunkDirty(pos ChunkPos) bool {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	loaded, ok := w.chunks[pos]
-	return ok && loaded.dirty
+	return ok && loaded.dirtyGen.Load() > loaded.savedGen.Load()
 }
 
 // ChunkSetVersion changes whenever a chunk is loaded or unloaded.
@@ -1271,9 +1282,9 @@ func (w *World) updateRedstoneBlockCounts(old, state uint16) {
 	}
 	switch {
 	case block == registry.BlockComparator:
-		w.comparatorBlocks++
+		w.comparatorBlocks.Add(1)
 	case oldBlock == registry.BlockComparator:
-		w.comparatorBlocks--
+		w.comparatorBlocks.Add(-1)
 	}
 }
 
@@ -1282,14 +1293,27 @@ func (w *World) updateRedstoneBlockCounts(old, state uint16) {
 // or hopper's contents reach disk at the next save. The position also waits for
 // the next physics tick to wake its comparators.
 func (w *World) Touch(x, y, z int32) {
-	// Read the tick before mu so the two locks never nest.
-	tick, _ := w.Time()
-	pos := ChunkPos{X: ChunkOf(float64(x)), Z: ChunkOf(float64(z))}
+	pos := ChunkPos{X: x >> 4, Z: z >> 4}
+	// A comparator added after the touch reads the container on placement.
+	if w.comparatorBlocks.Load() == 0 {
+		if loaded := w.nearAt(pos); loaded != nil && loaded.markDirty() {
+			return
+		}
+		w.mu.RLock()
+		defer w.mu.RUnlock()
+		if loaded := w.chunks[pos]; loaded != nil {
+			loaded.markDirty()
+		}
+		return
+	}
+	tick := w.timeWorld().worldAge.Load()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if loaded, ok := w.loadedAt(pos); ok {
 		loaded.markDirty()
-		w.containerChanges = append(w.containerChanges, containerChange{pos: posKey{x, y, z}, tick: tick})
+		if w.comparatorBlocks.Load() != 0 {
+			w.containerChanges = append(w.containerChanges, containerChange{pos: posKey{x, y, z}, tick: tick})
+		}
 	}
 }
 
@@ -1306,8 +1330,8 @@ func (w *World) takeContainerChanges() []containerChange {
 	defer w.mu.Unlock()
 	changes := w.containerChanges
 	w.containerChanges, w.containerChangesSpare = w.containerChangesSpare[:0], changes
-	// Check at the drain: a comparator may have been placed since the touch.
-	if w.comparatorBlocks == 0 {
+	// All comparators may have unloaded since the touch.
+	if w.comparatorBlocks.Load() == 0 {
 		return nil
 	}
 	if len(changes) < 2 {
@@ -1909,8 +1933,8 @@ func (w *World) Save() {
 	}
 	dirty := make(map[ChunkPos]saving, len(w.chunks))
 	for pos, loaded := range w.chunks {
-		if loaded.dirty {
-			dirty[pos] = saving{loaded, loaded.dirtyGen}
+		if gen := loaded.dirtyGen.Load(); gen > loaded.savedGen.Load() {
+			dirty[pos] = saving{loaded, gen}
 		}
 	}
 	w.mu.Unlock()
@@ -1929,16 +1953,6 @@ func (w *World) Save() {
 		if written {
 			saved++
 		}
-		w.mu.Lock()
-		// A mark made after the save listed the chunk bumped the generation, so
-		// only an unmoved one may clear the flag; otherwise the bytes written
-		// are stale. It must also be the listed chunk: one released and
-		// reloaded mid-save counts from zero and may reach the listed
-		// generation with marks of its own.
-		if loaded, ok := w.chunks[pos]; ok && loaded == pending.loaded && loaded.dirtyGen == pending.gen {
-			loaded.dirty = false
-		}
-		w.mu.Unlock()
 	}
 	if saved > 0 {
 		slog.Info("saved chunks", "chunks", saved)
@@ -2042,7 +2056,7 @@ const saveTries = 8
 func (w *World) saveLoaded(pos ChunkPos, l *loadedChunk, gen uint64) (bool, error) {
 	l.saveMu.Lock()
 	defer l.saveMu.Unlock()
-	if gen <= l.savedGen {
+	if gen <= l.savedGen.Load() {
 		return false, nil
 	}
 	if l.fresh {
@@ -2054,7 +2068,7 @@ func (w *World) saveLoaded(pos ChunkPos, l *loadedChunk, gen uint64) (bool, erro
 	if err != nil {
 		return written, err
 	}
-	l.savedGen = gen
+	l.savedGen.Store(gen)
 	return written, nil
 }
 

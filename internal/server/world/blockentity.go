@@ -659,7 +659,7 @@ func (b *BlockEntity) Put(slot int, stack protocol.ItemStack) {
 	// recomputes the total); emptying the slot is a change, the same item at
 	// another count is not.
 	// vanilla: AbstractFurnaceBlockEntity.setItem
-	if slot == 0 && IsCooking(b.Kind) && (stack.Empty() || !stack.Same(b.Slots[0])) {
+	if slot == 0 && IsCooking(b.Kind) && (stack.Empty() || !stack.SamePtr(&b.Slots[0])) {
 		b.CookingTotal = b.CookTotalOf(registry.CookingMatch(b.Kind.Name(), stack))
 		b.CookingSpent = 0
 	}
@@ -680,7 +680,9 @@ func (b *BlockEntity) PutKeepingCook(slot int, stack protocol.ItemStack) {
 	b.Wake()
 	b.inventoryVersion.Add(1)
 	b.Slots[slot] = stack
-	delete(b.Stored, slot)
+	if len(b.Stored) > 0 {
+		delete(b.Stored, slot)
+	}
 	b.setFilled(slot, stack.Count > 0)
 }
 
@@ -1416,16 +1418,16 @@ func (w *World) RemoveBlockEntity(x, y, z int32) *BlockEntity {
 	if b != nil {
 		loaded.containerGen.Add(1)
 	}
-	if loaded.chunk.removePistonRide(x, y, z) {
-		loaded.markDirty()
-	}
-	if loaded.chunk.removeCarriedBlockEntity(x, y, z) > 0 {
-		loaded.dirty = true
+	ride := loaded.chunk.removePistonRide(x, y, z)
+	carried := loaded.chunk.removeCarriedBlockEntity(x, y, z) > 0
+	if carried {
 		w.syncTickingChunk(pos, loaded.chunk)
+	}
+	if b != nil || ride || carried {
+		loaded.markDirty()
 	}
 	if b != nil {
 		w.removeBlockEntityOrder(b)
-		loaded.markDirty()
 		b.removed.Store(true)
 	}
 	w.mu.Unlock()
