@@ -34,6 +34,11 @@ type collideCtx struct {
 	lavaWalker bool
 	// noBorder is a move without a body, which the world border does not stop.
 	noBorder bool
+	// feetY, when feet is set, is the body's Y for context-dependent shapes
+	// (scaffolding) instead of the queried box's lower edge.
+	// vanilla: EntityCollisionContext.isAbove
+	feetY float64
+	feet  bool
 	// borders is set once the world border's walls for this move are in
 	// walls; clipMove computes them itself otherwise.
 	borders   bool
@@ -427,12 +432,16 @@ func overlapsSolid(w World, c collideCtx, b AABB) bool {
 	defer cellScratch.Put(scratch)
 	cells := w.BlocksIn(x0, y0, z0, x1, y1, z1, *scratch)
 	*scratch = cells
+	bottom := b.minY
+	if c.feet {
+		bottom = c.feetY
+	}
 	i := 0
 	for x := x0; x <= x1; x++ {
 		for y := y0; y <= y1; y++ {
 			for z := z0; z <= z1; z, i = z+1, i+1 {
 				state := cells[i]
-				boxes := cellBoxes(w, c, state, x, y, z, b.minY)
+				boxes := cellBoxes(w, c, state, x, y, z, bottom)
 				if len(boxes) == 0 {
 					continue
 				}

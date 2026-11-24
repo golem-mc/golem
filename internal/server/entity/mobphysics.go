@@ -1028,15 +1028,26 @@ func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
 // overlap the box, in no set order (pushIdx is each one's snapshot order).
 // The result is scratch valid until the next query.
 func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
-	g.near = g.near[:0]
 	hw := m.width() / 2
-	r := int(math.Ceil((hw + g.wide + inflate) / pushCellSide))
-	cx, cz := cellCoords(m.X, m.Z)
 	// The same sums boxesOverlap does, once for the query.
 	qw, qh := hw+inflate, m.height()+inflate
-	qMinX, qMaxX := m.X-qw, m.X+qw
-	qMinY, qMaxY := m.Y-inflate, m.Y+qh
-	qMinZ, qMaxZ := m.Z-qw, m.Z+qw
+	return g.query(m.X, m.Z, hw+inflate, AABB{m.X - qw, m.Y - inflate, m.Z - qw, m.X + qw, m.Y + qh, m.Z + qw})
+}
+
+// gatherBox collects the mobs whose cell box meets box grown by margin, in no
+// set order. The result is scratch valid until the next query.
+func (g *pushGrid) gatherBox(box AABB, margin float64) []*Mob {
+	q := box.inflate(margin, margin, margin)
+	return g.query((q.minX+q.maxX)/2, (q.minZ+q.maxZ)/2, max(q.maxX-q.minX, q.maxZ-q.minZ)/2, q)
+}
+
+// query collects the mobs in the cells within reach of (x, z) whose entry box
+// overlaps q.
+func (g *pushGrid) query(x, z, reach float64, q AABB) []*Mob {
+	g.near = g.near[:0]
+	r := int(math.Ceil((reach + g.wide) / pushCellSide))
+	cx, cz := cellCoords(x, z)
+	qMinX, qMaxX, qMinY, qMaxY, qMinZ, qMaxZ := q.minX, q.maxX, q.minY, q.maxY, q.minZ, q.maxZ
 	seen := 0
 	collect := func(c []pushEntry) {
 		seen += len(c)

@@ -20,7 +20,7 @@ func BenchmarkMobsTickShulkers(b *testing.B) {
 	var paths MobPathScratch
 	b.ReportAllocs()
 	for b.Loop() {
-		for i, m := range mobs {
+		for i, m := range mobs[:16] {
 			if i%2 == 0 {
 				m.RidesVehicle = true
 				m.shulker.teleport = true

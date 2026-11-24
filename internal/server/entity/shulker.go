@@ -315,7 +315,13 @@ func (s shulkerWorld) BodyBoxes(box AABB) []AABB {
 	if b, ok := s.World.(BodyWorld); ok {
 		out = b.BodyBoxes(box)
 	}
-	for _, o := range s.others {
+	others := s.others
+	if s.self != nil && s.self.push != nil {
+		// A shulker's hull reaches 1.5 of its scale from its position, the
+		// grid's cell box 0.5: three half-widths of the widest body cover it.
+		others = s.self.push.gatherBox(box, 3*s.self.push.wide)
+	}
+	for _, o := range others {
 		if o.IsShulker() && o.Alive() && o.RootVehicle() != s.self.RootVehicle() {
 			// Bound every attach face's fully open box before computing its peek.
 			side, down, up := 1.5, 1.0, 2.0
@@ -420,7 +426,7 @@ func (m *Mob) canStayAt(w World, at Waypoint, face uint8) bool {
 	}
 	// getProgressAabb at full peek, deflated.
 	open := shulkerDeltaBox(m.attrScale(), face^1, -1, 1, float64(at.X)+0.5, float64(at.Y), float64(at.Z)+0.5)
-	return !overlapsSolid(w, collideCtx{}, open.inflate(-shulkerDeflate, -shulkerDeflate, -shulkerDeflate))
+	return !overlapsSolid(w, collideCtx{feetY: m.Y, feet: true}, open.inflate(-shulkerDeflate, -shulkerDeflate, -shulkerDeflate))
 }
 
 // teleportShulker tries five random cells within eight blocks and takes the
