@@ -84,13 +84,18 @@ type chunkEntry[T any] struct {
 // another index leaves it first.
 func (ix *ChunkIndex[T]) Add(body T, f *Filing, pos world.ChunkPos, id uuid.UUID) {
 	if f.ix != nil {
-		if f.ix == filer(ix) && f.id == id && ix.owns(f) {
+		if f.id == id && ix.Contains(f) {
 			f.Refile(pos)
 			return
 		}
 		f.Unfile()
 	}
 	ix.insert(body, f, pos, id)
+}
+
+// Contains reports whether f itself is filed in ix.
+func (ix *ChunkIndex[T]) Contains(f *Filing) bool {
+	return f.ix == filer(ix) && ix.owns(f)
 }
 
 func (ix *ChunkIndex[T]) insert(body T, f *Filing, pos world.ChunkPos, id uuid.UUID) {
