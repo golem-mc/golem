@@ -207,14 +207,14 @@ type pistonResolver struct {
 // newPistonResolver builds one move's resolver: an extend pushes the facing
 // from the cell in front; a retraction pulls the other way from one cell
 // further, the block it brings home.
-func (p *Physics) newPistonResolver(x, y, z int32, dir int, extending bool) *pistonResolver {
+func (p *Physics) newPistonResolver(x, y, z int32, dir int, extending bool) pistonResolver {
 	pushDir := dir
 	sx, sy, sz := pistonShift(x, y, z, dir, 1)
 	if !extending {
 		pushDir = blocklogic.Opposite(dir)
 		sx, sy, sz = pistonShift(x, y, z, dir, 2)
 	}
-	return &pistonResolver{p: p, x: x, y: y, z: z, dir: dir, pushDir: pushDir,
+	return pistonResolver{p: p, x: x, y: y, z: z, dir: dir, pushDir: pushDir,
 		extending: extending, startX: sx, startY: sy, startZ: sz}
 }
 
@@ -699,7 +699,8 @@ func (p *Physics) pistonCheckIfExtend(x, y, z int32, state uint16, changes *[]Bl
 		if extended {
 			return
 		}
-		if !p.newPistonResolver(x, y, z, dir, true).resolve() {
+		r := p.newPistonResolver(x, y, z, dir, true)
+		if !r.resolve() {
 			return
 		}
 	} else {

@@ -233,6 +233,11 @@ func pistonRideShape(moved uint16, extending, source bool, progress float64) uin
 // a tick-old one's second.
 func (p *Physics) pistonPushes() {
 	live := p.rides[:0]
+	// Sized up front: the effects point into the slab, so it must not move.
+	if cap(p.pushes) < len(p.rides) {
+		p.pushes = make([]PistonPush, 0, len(p.rides))
+	}
+	p.pushes = p.pushes[:0]
 	for _, pos := range p.rides {
 		be := p.w.BlockEntity(pos[0], pos[1], pos[2])
 		if be == nil || be.Kind != KindPiston {
@@ -259,7 +264,8 @@ func (p *Physics) pistonPushes() {
 			push.Sticky = block == registry.BlockHoneyBlock
 		})
 		if age >= 0 && age <= 1 {
-			p.effects = append(p.effects, Effect{X: pos[0], Y: pos[1], Z: pos[2], PistonPush: &push})
+			p.pushes = append(p.pushes, push)
+			p.effects = append(p.effects, Effect{X: pos[0], Y: pos[1], Z: pos[2], PistonPush: &p.pushes[len(p.pushes)-1]})
 		}
 		if age < 1 {
 			live = append(live, pos)
