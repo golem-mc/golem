@@ -208,7 +208,7 @@ func TestGeneratedSculkSensorHasItsBlockEntity(t *testing.T) {
 
 func spilledProtoBytes() (*decorProto, []byte) {
 	p := &decorProto{decorated: true, final: true}
-	for y := int32(0); y < 64; y++ {
+	for y := range int32(64) {
 		p.set(y%16, y, y%16, 100+uint16(y))
 	}
 	buf := new(decorProtoBuf)
