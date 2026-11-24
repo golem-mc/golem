@@ -66,8 +66,9 @@ func (g *caravanGoal) CanStart(t *tickView) bool {
 	var inCaravan, leashed *Mob
 	bestC, bestL := math.MaxFloat64, math.MaxFloat64
 	scan, ordered := t.others, true
-	if m.push != nil && len(t.others) > villagerGridMinHerd {
-		scan, ordered = m.push.gather(m, llamaCaravanScanXZ+1e-6), false
+	if m.push != nil {
+		// pushIdx is herd order, so ties resolve as in a full scan.
+		scan, ordered = m.push.caravan, false
 	}
 	later := func(d, best float64, o, cur *Mob) bool {
 		return d < best || d == best && (ordered || o.pushIdx > cur.pushIdx)
@@ -101,6 +102,9 @@ func (g *caravanGoal) CanStart(t *tickView) bool {
 		return false
 	}
 	m.joinCaravan(closest)
+	if m.push != nil {
+		m.push.caravan = append(m.push.caravan, m)
+	}
 	return true
 }
 
