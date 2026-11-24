@@ -763,7 +763,7 @@ func (ws worldScope) UpdateItemInContainerAt(x, y, z int32, slot int, stack prot
 		if slot < 0 || slot >= b.Len() {
 			return
 		}
-		b.Put(slot, stack)
+		b.PutKeepingCook(slot, stack)
 		w.Touch(x, y, z)
 	})
 	ws.srv.syncContainerViewers(w, x, y, z)

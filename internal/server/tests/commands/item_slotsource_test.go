@@ -239,5 +239,17 @@ func TestItemSlotSources(t *testing.T) {
 		t.Errorf("shelf slot 2 components = %q, want empty charged_projectiles patch", got)
 	}
 
+	// 12. A component write on a furnace's input keeps its cooking progress.
+	run("setblock 2 64 7 minecraft:furnace")
+	run("item replace block 2 64 7 container.0 with iron_ore")
+	run("data merge block 2 64 7 {cooking_time_spent:80}")
+	run(`item replace block 2 64 7 {type:"contents",component:"minecraft:charged_projectiles",slot_source:{type:"slot_range",slots:"container.0"}} with arrow`)
+	if got := plainQuery(t, srv, "data get block 2 64 7 cooking_time_spent", "commands.data.block.query"); !strings.Contains(got, "80") {
+		t.Errorf("cooking_time_spent after component write = %q, want 80", got)
+	}
+	if got := plainQuery(t, srv, `data get block 2 64 7 Items[{Slot:0b}].components."minecraft:charged_projectiles"`, "commands.data.block.query"); !strings.Contains(got, `id: "minecraft:arrow"`) {
+		t.Errorf("furnace input charged_projectiles = %q, want arrow", got)
+	}
+
 	c.Disconnect()
 }
