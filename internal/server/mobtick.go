@@ -870,7 +870,7 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 			len(m.Worn[0].Raw) > 0 || len(m.Worn[1].Raw) > 0 || len(m.Worn[2].Raw) > 0 || len(m.Worn[3].Raw) > 0 ||
 			len(m.Body.Raw) > 0 || len(m.Horse.Saddle.Raw) > 0 || len(m.Antenna.Raw) > 0 {
 			var misses []world.LodestonePos
-			tickMobCompasses(m, lodestoneProbe{w: w, misses: &misses}, t.dim.name)
+			tickMobCompasses(m, &lodestoneProbe{w: w, misses: &misses}, t.dim.name)
 			if len(misses) > 0 {
 				fx.lodestoneMobs = append(fx.lodestoneMobs, lodestoneMob{h: h, w: w, dim: t.dim.name, m: m, misses: misses})
 			}

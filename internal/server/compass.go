@@ -29,7 +29,7 @@ func (c *client) tickLodestoneCompasses() {
 	}
 	var syncs []slotSync
 	var misses []world.LodestonePos
-	probe := lodestoneProbe{w: w, misses: &misses}
+	probe := &lodestoneProbe{w: w, misses: &misses}
 	// A stack is changed only once no target is unknown: a saved chunk is read
 	// with the inventory lock released, and slot updates built before that
 	// would overtake a newer write of the slot.
@@ -84,7 +84,7 @@ type lodestoneProbe struct {
 	resolved map[world.LodestonePos]bool
 }
 
-func (p lodestoneProbe) LodestoneCached(x, y, z int32) (present, known bool) {
+func (p *lodestoneProbe) LodestoneCached(x, y, z int32) (present, known bool) {
 	if present, known = p.w.LodestoneCached(x, y, z); known {
 		return present, true
 	}
@@ -128,7 +128,7 @@ func (s *Server) finishMobCompasses(mobs []lodestoneMob) {
 			continue
 		}
 		var unknown []world.LodestonePos
-		tickMobCompasses(lm.m, lodestoneProbe{w: lm.w, misses: &unknown, resolved: answers[lm.w]}, lm.dim)
+		tickMobCompasses(lm.m, &lodestoneProbe{w: lm.w, misses: &unknown, resolved: answers[lm.w]}, lm.dim)
 	}
 }
 

@@ -3283,7 +3283,7 @@ func mobEquipmentPayload(ent *mobEntity) []byte {
 // in a saved chunk the probe cannot answer is noted and left, for the caller to
 // resolve with no lock held and tick again.
 // vanilla: EntityEquipment.tick, CompassItem.inventoryTick
-func tickMobCompasses(m *entity.Mob, probe lodestoneProbe, dim string) {
+func tickMobCompasses(m *entity.Mob, probe *lodestoneProbe, dim string) {
 	w := probe.w
 	bottom, top := w.MinY(), w.MinY()+w.Height()
 	if cleared, ok := rules.ClearLostLodestone(probe, m.MainHand, dim, bottom, top); ok {
