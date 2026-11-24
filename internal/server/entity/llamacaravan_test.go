@@ -243,3 +243,29 @@ func TestCaravanGridReachesAScaledLead(t *testing.T) {
 		t.Error("the llama missed a scaled lead whose box overlaps its search window")
 	}
 }
+
+// TestPushIgnoresAScaledBodyFiledInTheNextSection: a scale-16 cow whose box
+// overlaps an ordinary one is neither pushed nor counted when its position is
+// filed outside the sections the ordinary cow's box touches, grid or not.
+// vanilla: LivingEntity.pushEntities, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestPushIgnoresAScaledBodyFiledInTheNextSection(t *testing.T) {
+	w := newTestWorld()
+	for _, x := range []float64{146, 142} {
+		cow := NewMob(TypeCow, 1, 139.5, 64, 0.5, 1)
+		giant := NewMob(TypeCow, 2, x, 64, 0.5, 2)
+		giant.SetAttributes(giant.BuildAttributes(nbt.List{}))
+		giant.attrs.SetBase(registry.AttributeScale, 16)
+		herd := []*Mob{cow, giant}
+		g := takePushGrid(len(herd), nil)
+		g.build(herd)
+		for _, m := range herd {
+			m.push = g
+		}
+		cow.pushStep(w, nil, herd, nil)
+		g.release()
+		// x=146 is section 9, the cow's box reaches section 8 only.
+		if pushed := cow.VX != 0; pushed != (x == 142) {
+			t.Errorf("giant at x=%v: cow pushed=%v", x, pushed)
+		}
+	}
+}

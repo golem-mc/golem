@@ -623,8 +623,18 @@ func (m *Mob) pushStep(w World, players []Player, others []*Mob, events []MobEve
 	if g := m.push; g != nil {
 		pack = g.candidates(m, 0)
 	}
+	// Entities are filed by their feet, so Y reaches 4 below and 0 above.
+	loX, hiX := sectionRange(m.X-bw/2, m.X+bw/2)
+	loY, hiY := sectionCoord(m.Y-4), sectionCoord(m.Y+h)
+	loZ, hiZ := sectionRange(m.Z-bw/2, m.Z+bw/2)
 	for _, other := range pack {
 		if other == nil || other == m || !other.Pushable() {
+			continue
+		}
+		// vanilla: Level.getEntities queries the sections the box touches and
+		// files an entity by its position, so a wide body in the next section
+		// is not found.
+		if sx, sy, sz := sectionCoord(other.X), sectionCoord(other.Y), sectionCoord(other.Z); sx < loX || sx > hiX || sy < loY || sy > hiY || sz < loZ || sz > hiZ {
 			continue
 		}
 		if !boxesOverlap(m.X, m.Y, m.Z, bw, h,
@@ -1028,11 +1038,11 @@ func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
 // The result is scratch valid until the next query.
 func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 	g.near = g.near[:0]
-	hw := m.kind().width * m.scale() * m.attrScale() / 2
+	hw := m.width() / 2
 	r := int(math.Ceil((hw + g.wide + inflate) / pushCellSide))
 	cx, cz := cellCoords(m.X, m.Z)
 	// The same sums boxesOverlap does, once for the query.
-	qw, qh := m.width()/2+inflate, m.height()+inflate
+	qw, qh := hw+inflate, m.height()+inflate
 	qMinX, qMaxX := m.X-qw, m.X+qw
 	qMinY, qMaxY := m.Y-inflate, m.Y+qh
 	qMinZ, qMaxZ := m.Z-qw, m.Z+qw
