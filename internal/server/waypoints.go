@@ -184,7 +184,7 @@ func setWaypointVisibility(present []waypointPlayer) {
 	for i := range present {
 		chunk, radius := present[i].chunk, present[i].radius
 		present[i].visible = func(x, z int32) bool {
-			return world.InViewOf(world.ChunkPos{X: x, Z: z}, chunk, radius)
+			return world.InChunkTrackingView(world.ChunkPos{X: x, Z: z}, chunk, radius)
 		}
 	}
 }
