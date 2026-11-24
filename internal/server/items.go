@@ -656,16 +656,18 @@ func (s *Server) tryItemPickup(p *itemPickup) bool {
 	if count == 0 {
 		return remains
 	}
-	// The whole stack's count, even when part of it did not fit.
-	// vanilla: ItemEntity.playerTouch
-	c.awardItemStat(registry.StatTypePickedUp, given.ItemID, given.Count)
-
 	for _, slot := range slots {
 		c.send(protocol.IDPlayContainerSlot, slot)
 	}
 	if visible {
 		c.equipmentDue.Store(true)
 	}
+	// A partial insert is a failed add: no take, stat or advancement.
+	// vanilla: Inventory.add, ItemEntity.playerTouch
+	if left > 0 {
+		return remains
+	}
+	c.awardItemStat(registry.StatTypePickedUp, given.ItemID, given.Count)
 	s.itemsMu.Lock()
 	watchers := trackedWatchers(it.tracked)
 	s.itemsMu.Unlock()
