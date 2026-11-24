@@ -85,21 +85,25 @@ func TestDirtyDataOpensOneMovementTick(t *testing.T) {
 		setup, line string
 		opens       bool // the change is a synched one
 		attributes  bool // the change dirties an attribute
+		lead        int  // ticks between the line and the pass that sees it
 	}{
-		{"glow", stand | mannequin, ``, `effect give @e[tag=s,limit=1] glowing infinite 0 true`, true, false},
-		{"load", stand | mannequin, ``, `data merge entity @e[tag=s,limit=1] {Invulnerable:1b}`, true, false},
-		{"health", mannequin, ``, `damage @e[tag=s,limit=1] 1 generic`, true, false},
-		{"zero_damage", mannequin, ``, `damage @e[tag=s,limit=1] 0 generic`, false, false},
-		{"visible_refresh", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 false`, `effect give @e[tag=s,limit=1] speed 200 0 false`, true, false},
-		{"hidden_refresh", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 true`, `effect give @e[tag=s,limit=1] speed 200 0 true`, false, false},
+		{"glow", stand | mannequin, ``, `effect give @e[tag=s,limit=1] glowing infinite 0 true`, true, false, 0},
+		{"load", stand | mannequin, ``, `data merge entity @e[tag=s,limit=1] {Invulnerable:1b}`, true, false, 0},
+		{"health", mannequin, ``, `damage @e[tag=s,limit=1] 1 generic`, true, false, 0},
+		{"zero_damage", mannequin, ``, `damage @e[tag=s,limit=1] 0 generic`, false, false, 0},
+		{"visible_refresh", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 false`, `effect give @e[tag=s,limit=1] speed 200 0 false`, true, false, 0},
+		{"hidden_refresh", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 true`, `effect give @e[tag=s,limit=1] speed 200 0 true`, false, false, 0},
 		// The first hidden effect turns the ambient flag on.
-		{"hidden_first", mannequin, ``, `effect give @e[tag=s,limit=1] speed 100 0 true`, true, false},
+		{"hidden_first", mannequin, ``, `effect give @e[tag=s,limit=1] speed 100 0 true`, true, false, 0},
 		// A refresh whose particle option vanilla reuses changes nothing.
-		{"omen_refresh", mannequin, `effect give @e[tag=s,limit=1] trial_omen 100 0 false`, `effect give @e[tag=s,limit=1] trial_omen 200 0 false`, false, false},
+		{"omen_refresh", mannequin, `effect give @e[tag=s,limit=1] trial_omen 100 0 false`, `effect give @e[tag=s,limit=1] trial_omen 200 0 false`, false, false, 0},
 		// The modifier changes, the synched fields do not.
-		{"hidden_amplifier", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 true`, `effect give @e[tag=s,limit=1] speed 100 1 true`, false, true},
-		// The health is healed back before tracking, but stays dirty.
-		{"damage_healed", mannequin, ``, "damage @e[tag=s,limit=1] 1 generic\ndata merge entity @e[tag=s,limit=1] {Health:20f}", true, false},
+		{"hidden_amplifier", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 true`, `effect give @e[tag=s,limit=1] speed 100 1 true`, false, true, 0},
+		// A splash hurts and heals back to full before tracking (6 harm, 8
+		// heal): the health stays dirty. It lands after the mannequins'
+		// tracking pass, so the next tick's pass sees it. It starts above the
+		// box (101 to 102.8): a sweep from inside the box meets nothing.
+		{name: "damage_healed", kinds: mannequin, line: `summon splash_potion 0.5 103.5 0.5 {Motion:[0d,-1d,0d],Item:{id:"minecraft:splash_potion",count:1,components:{"minecraft:potion_contents":{custom_effects:[{id:"minecraft:instant_damage",duration:1},{id:"minecraft:instant_health",amplifier:1b,duration:1}]}}}}`, opens: true, lead: 1},
 	}
 	for _, kind := range []struct {
 		name     string
@@ -141,15 +145,15 @@ func TestDirtyDataOpensOneMovementTick(t *testing.T) {
 								t.Fatal("no calibration teleport")
 							}
 							c.Settle()
-							// The next scheduled tick is interval ticks on.
+							// The next scheduled tick is interval ticks on; the
+							// one after it is off the period.
 							idle := kind.interval - 1
 							if !scheduled {
-								idle = 0
+								idle = kind.interval
 							}
-							servertest.RunTicks(t, srv, idle)
-							for line := range strings.SplitSeq(tc.line, "\n") {
-								srv.RunLine(line)
-							}
+							servertest.RunTicks(t, srv, idle-tc.lead)
+							srv.RunLine(tc.line)
+							servertest.RunTicks(t, srv, tc.lead)
 							attributesOf := func(pid int32, data []byte) bool {
 								return pid == protocol.IDPlayUpdateAttributes && protocol.NewReader(data).ReadVarInt() == id
 							}
