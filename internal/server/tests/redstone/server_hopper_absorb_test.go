@@ -121,10 +121,13 @@ func TestAHopperPicksUpTheLowerXSectionFirst(t *testing.T) {
 
 // TestAHopperTellsWatchersTheRemainderOfAPartlyTakenItem fills four slots and
 // the fifth to 63, blocks the outlet and drops two stone over it: the slot
-// reaches 64 and the watcher is sent the item entity's remaining stack of one.
+// reaches 64 and the player is sent the same item entity's remaining stack of
+// one, since a partial pickup changes the entity without removing it.
 func TestAHopperTellsWatchersTheRemainderOfAPartlyTakenItem(t *testing.T) {
 	t.Parallel()
-	srv, placer, watcher := absorbedItemWatcher(t)
+	srv, watcher := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
+	watcher.Settle()
+	srv.StopTick()
 
 	if !srv.PlaceContainer(4, 64, 0, "minecraft:hopper") {
 		t.Fatal("the hopper would not stand")
@@ -144,30 +147,35 @@ func TestAHopperTellsWatchersTheRemainderOfAPartlyTakenItem(t *testing.T) {
 	if itemID == 0 {
 		t.Fatal("the item entity did not spawn")
 	}
-	watcher.ExpectDroppedItem()
-	placer.ExpectDroppedItem()
+	itemSlot := func() *servertest.MetaEntry {
+		var slot *servertest.MetaEntry
+		watcher.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+			if id != protocol.IDPlayEntityMetadata {
+				return false
+			}
+			m := protocol.NewReader(data)
+			if m.ReadVarInt() != itemID {
+				return false
+			}
+			entries, ok := servertest.ReadMetadata(m)
+			if !ok {
+				return false
+			}
+			slot = servertest.MetaOf(entries, protocol.MetadataIndexItemSlot)
+			return slot != nil
+		})
+		return slot
+	}
+	if slot := itemSlot(); slot == nil || slot.SlotVal.Count != 2 {
+		t.Fatalf("the spawn sent %+v for the item, want two stone", slot)
+	}
 
 	servertest.TickBlockEntitiesByHand(srv, 1)
 
 	if got := srv.InventoryAt(4, 64, 0)[4]; got.ItemID != stone || got.Count != 64 {
 		t.Fatalf("hopper slot 4 holds %+v, want 64 stone", got)
 	}
-	var slot *servertest.MetaEntry
-	watcher.ReadTicks(srv, 0, func(id int32, data []byte) bool {
-		if id != protocol.IDPlayEntityMetadata {
-			return false
-		}
-		m := protocol.NewReader(data)
-		if m.ReadVarInt() != itemID {
-			return false
-		}
-		entries, ok := servertest.ReadMetadata(m)
-		if !ok {
-			return false
-		}
-		slot = servertest.MetaOf(entries, protocol.MetadataIndexItemSlot)
-		return slot != nil
-	})
+	slot := itemSlot()
 	if slot == nil {
 		t.Fatal("the watcher was sent no item slot for the item")
 	}
