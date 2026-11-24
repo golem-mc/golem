@@ -63,3 +63,33 @@ func TestNoAIShulkerReattachesButDoesNotTeleport(t *testing.T) {
 		t.Errorf("NoAI shulker moved to %v,%v,%v", x, y, z)
 	}
 }
+
+// A rider carried into another grid cell blocks a neighbour's opening the
+// same tick.
+// vanilla: ServerLevel.tickPassenger, Shulker.canStayAt
+func TestNoAIShulkerCarriedByCowBlocksNeighbourOpening(t *testing.T) {
+	t.Parallel()
+	srv, _ := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
+	servertest.HoldTicks(t, srv)
+	srv.RunLine(`fill 6 99 -2 12 99 2 stone`)
+	srv.RunLine(`setblock 11 100 0 minecraft:stone`)
+	srv.RunLine(`summon cow 1.5 98.4 0.5 {NoAI:1b,Passengers:[{id:"minecraft:shulker",NoAI:1b,AttachFace:0b}]}`)
+	// Spawned after the cow so it ticks after its rider is seated. East face
+	// holds the neighbour; its shell opens west over x 9..11.
+	srv.RunLine(`summon shulker 10.5 100 0.5 {Tags:[neighbour],AttachFace:5b,NoAI:1b}`)
+	var neighbour int32
+	for _, id := range srv.MobIDsOfKind("minecraft:shulker") {
+		if x, _, _, _ := srv.MobPos(id); x == 10.5 {
+			neighbour = id
+		}
+	}
+	servertest.RunTicks(t, srv, 1)
+	if face, _, _ := srv.ShulkerState(neighbour); face != 5 {
+		t.Fatalf("neighbour face = %d before the move, want east (5)", face)
+	}
+	srv.RunLine(`tp @e[type=cow] 9.5 98.4 0.5`)
+	servertest.RunTicks(t, srv, 1)
+	if face, _, _ := srv.ShulkerState(neighbour); face != 0 {
+		t.Errorf("neighbour face = %d, want down (0)", face)
+	}
+}

@@ -477,8 +477,8 @@ func (m *Mob) teleportShulker(w World, t *tickView) bool {
 // face toward face; scaffolding's shape depends on the shulker's height.
 // vanilla: Block.isFaceFull, ScaffoldingBlock.getCollisionShape
 func (m *Mob) supportsFace(state uint16, cellY int32, face uint8) bool {
-	if boxes, ok := world.ScaffoldingBoxes(state, cellY, m.Y); ok {
-		return boxesFaceFull(boxes, face)
+	if full, ok := world.ScaffoldingFaceFull(state, cellY, m.Y, int(face)); ok {
+		return full
 	}
 	return registry.CollisionFaceFull(state, int(face))
 }
