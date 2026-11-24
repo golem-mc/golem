@@ -93,3 +93,35 @@ func TestLootInlineTable(t *testing.T) {
 		servertest.CommandErrorContextForTest(command, len(command)))
 	c.Disconnect()
 }
+
+// vanilla: SequentialEntry.compose, AlternativesEntry.compose, LootPool.addRandomItem
+func TestLootSequenceKeepsCandidatesBeforeFailure(t *testing.T) {
+	t.Parallel()
+	const emerald = `{type:"minecraft:item",name:"minecraft:emerald"}`
+	const sequence = `{type:"minecraft:sequence",children:[` +
+		`{type:"minecraft:item",name:"minecraft:stick"},` +
+		`{type:"minecraft:item",name:"minecraft:diamond",condition:{type:"minecraft:random_chance",chance:0}},` +
+		emerald + `]}`
+	for _, tc := range []struct {
+		name  string
+		entry string
+	}{
+		{"sequence", sequence},
+		// The fallback succeeds and has no weight in the pool's choice.
+		{"successful fallback", `{type:"minecraft:alternatives",children:[` + sequence + `,{type:"minecraft:empty",weight:0}]}`},
+		{"failed alternative stops outer sequence", `{type:"minecraft:sequence",children:[` +
+			`{type:"minecraft:alternatives",children:[` + sequence + `]},` + emerald + `]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, c := dialItemBarrel(t)
+			c.ChatCommand(`loot insert 2 64 3 loot {pools:[{rolls:1,entries:[` + tc.entry + `]}]}`)
+			feedback := c.ExpectPlay(protocol.IDPlaySystemChat)
+			if got := barrelItems(srv, "minecraft:stick"); got != 1 {
+				t.Fatalf("loot awarded %d sticks, want one stick", got)
+			}
+			servertest.ExpectFeedbackSoon(t, c, [][]byte{feedback}, "commands.drop.success.single",
+				servertest.ItemNumber(1), lootStackText(t, "minecraft:stick", 1))
+			c.Disconnect()
+		})
+	}
+}
