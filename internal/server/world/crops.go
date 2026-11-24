@@ -211,6 +211,24 @@ func farmlandCanSurvive(w *World, x, y, z int32) bool {
 // the same position is not mistaken for it.
 const dirtPathTickEvent = 1<<5 | 1<<6 | 1<<7 | 6
 
+// farmlandTickEvent tags a farmland's own tick, so a replaced dirt path's visit
+// at the same position is not mistaken for it.
+const farmlandTickEvent = 1<<5 | 1<<6 | 1<<7 | 7
+
+// bookedBlockName is the block a queue entry was booked for: its tag names it
+// where the tag is per block, else the cell's current one.
+// vanilla: ScheduledTick.type
+func bookedBlockName(event uint8, state uint16) (string, bool) {
+	switch event {
+	case dirtPathTickEvent:
+		return registry.BlockDirtPath.Name(), true
+	case farmlandTickEvent:
+		return registry.BlockFarmland.Name(), true
+	}
+	name, _, ok := registry.BlockStateName(state)
+	return name, ok
+}
+
 // DirtPathSurvives reports whether a dirt path placed here would stand.
 // vanilla: DirtPathBlock.canSurvive, getStateForPlacement
 func (w *World) DirtPathSurvives(x, y, z int32) bool {

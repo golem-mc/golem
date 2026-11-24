@@ -762,6 +762,11 @@ func (p *Physics) scheduleSurvival(x, y, z int32, due int64) {
 // scheduleBooked queues an entry tagged event unless booked already holds the
 // position.
 func (p *Physics) scheduleBooked(booked map[blockKey]bool, x, y, z int32, due int64, event uint8) {
+	p.scheduleBookedPriority(booked, x, y, z, due, tickPriorityNormal, event)
+}
+
+// scheduleBookedPriority is scheduleBooked with the tick's priority.
+func (p *Physics) scheduleBookedPriority(booked map[blockKey]bool, x, y, z int32, due int64, priority int, event uint8) {
 	_, unloaded := p.w.prepareTick(x, z, true, false)
 	p.discardUnloadedTicks(unloaded)
 	key := blockKey{x, y, z}
@@ -771,7 +776,7 @@ func (p *Physics) scheduleBooked(booked map[blockKey]bool, x, y, z int32, due in
 	booked[key] = true
 	p.seq++
 	p.queue.push(scheduledTick{
-		pos: key, due: due, priority: tickPriorityNormal, seq: p.seq, event: event,
+		pos: key, due: due, priority: priority, seq: p.seq, event: event,
 	})
 }
 

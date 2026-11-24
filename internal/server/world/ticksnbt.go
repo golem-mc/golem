@@ -168,8 +168,7 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 			out.fluid = append(out.fluid, st)
 			return
 		}
-		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
-		name, _, ok := registry.BlockStateName(state)
+		name, ok := bookedBlockName(t.event, p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z))
 		if !ok {
 			return
 		}
@@ -191,7 +190,7 @@ func isTickEvent(event uint8) bool {
 	switch event {
 	case 0, leafTickEvent, coralTickEvent, redstoneTickEvent, sculkTickEvent, lightningRodTickEvent,
 		driedGhastHydrationEvent, frogspawnHatchEvent, snifferEggHatchEvent, cauldronDripEvent, survivalTickEvent,
-		scaffoldingTickEvent, dirtPathTickEvent:
+		scaffoldingTickEvent, dirtPathTickEvent, farmlandTickEvent:
 		return true
 	}
 	return false
@@ -324,7 +323,9 @@ func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int
 	case block.IsLeaves():
 		p.scheduleLeaf(x, y, z, due)
 	case block == registry.BlockDirtPath:
-		p.scheduleBooked(p.dirtPathBooked, x, y, z, due, dirtPathTickEvent)
+		p.scheduleBookedPriority(p.dirtPathBooked, x, y, z, due, priority, dirtPathTickEvent)
+	case block == registry.BlockFarmland:
+		p.scheduleBookedPriority(p.farmlandBooked, x, y, z, due, priority, farmlandTickEvent)
 	case block == registry.BlockScaffolding:
 		p.scheduleScaffolding(x, y, z, due)
 	case isLivingCoral(block):
@@ -365,6 +366,8 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 		delete(p.scaffoldingBooked, t.pos)
 	case dirtPathTickEvent:
 		delete(p.dirtPathBooked, t.pos)
+	case farmlandTickEvent:
+		delete(p.farmlandBooked, t.pos)
 	case coralTickEvent:
 		delete(p.coralBooked, t.pos)
 	case redstoneTickEvent:

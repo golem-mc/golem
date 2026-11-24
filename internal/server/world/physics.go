@@ -677,6 +677,8 @@ type Physics struct {
 	// dirtPathBooked marks dirt paths with a tick booked, apart from the
 	// pending visit a replaced farmland leaves at the same position.
 	dirtPathBooked map[blockKey]bool
+	// farmlandBooked is the same for farmland.
+	farmlandBooked map[blockKey]bool
 	// scaffoldingBooked keeps stability visits apart from fluid visits.
 	scaffoldingBooked map[blockKey]bool
 
@@ -880,6 +882,7 @@ func NewPhysics(w *World) *Physics {
 		leafBooked:          make(map[blockKey]bool),
 		scaffoldingBooked:   make(map[blockKey]bool),
 		dirtPathBooked:      make(map[blockKey]bool),
+		farmlandBooked:      make(map[blockKey]bool),
 		coralBooked:         make(map[blockKey]bool),
 		redstoneBooked:      make(map[blockKey]bool),
 		sculkBooked:         make(map[blockKey]bool),
@@ -1196,6 +1199,8 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			delete(p.scaffoldingBooked, next.pos)
 		case dirtPathTickEvent:
 			delete(p.dirtPathBooked, next.pos)
+		case farmlandTickEvent:
+			delete(p.farmlandBooked, next.pos)
 		case coralTickEvent:
 			delete(p.coralBooked, next.pos)
 		case redstoneTickEvent:
@@ -1272,6 +1277,13 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			}
 			continue
 		}
+		if next.event == farmlandTickEvent {
+			blocks++
+			if block == registry.BlockFarmland {
+				p.farmlandSurvivalScheduled(x, y, z, &changes)
+			}
+			continue
+		}
 		if next.event == scaffoldingTickEvent {
 			blocks++
 			p.scaffoldingTick(x, y, z, state, &changes, &falls)
@@ -1331,11 +1343,6 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		}
 		// The farm families' one-tick deaths, booked by updateShape when
 		// placement or a neighbour change leaves them unable to survive.
-		if block == registry.BlockFarmland {
-			blocks++
-			p.farmlandSurvivalScheduled(x, y, z, &changes)
-			continue
-		}
 		if block == registry.BlockSugarCane {
 			blocks++
 			p.caneSurvivalScheduled(x, y, z, &changes)
@@ -1475,11 +1482,10 @@ func (p *Physics) BlockTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) BlockTicks {
 			t.pos.z < loZ || t.pos.z > hiZ {
 			continue
 		}
-		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
 		if t.fluid != 0 {
 			continue
 		}
-		if name, _, ok := registry.BlockStateName(state); ok {
+		if name, ok := bookedBlockName(t.event, p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)); ok {
 			out = append(out, boxTick{tick: t, id: name})
 		}
 	}
@@ -2002,7 +2008,7 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	// vanilla: Block.updateFromNeighbourShapes, FarmlandBlock.updateShape, PathBlock.updateShape
 	if block == registry.BlockFarmland && (placed || from == [3]int32{0, 1, 0}) {
 		if !farmlandCanSurvive(p.w, x, y, z) {
-			p.schedule(x, y, z, p.now+farmlandTickDelay)
+			p.scheduleBooked(p.farmlandBooked, x, y, z, p.now+farmlandTickDelay, farmlandTickEvent)
 		}
 		return
 	}

@@ -193,3 +193,62 @@ func fallsAfterReload(t *testing.T, waterlogged bool) int {
 	}
 	return falls
 }
+
+// TestBookedSoilTickKeepsItsBlockAndPriority checks a farmland's pending visit
+// stays farmland's when a dirt path replaces it, through a copy and a
+// save, and that a path's own visit keeps its priority and its type.
+func TestBookedSoilTickKeepsItsBlockAndPriority(t *testing.T) {
+	w, p, dir := newSavedWorld(t)
+	const y = GroundLevel
+	w.SetBlock(8, y, 8, registry.BlockFarmland.DefaultState())
+	w.SetBlock(9, y, 8, registry.BlockDirtPath.DefaultState())
+	p.mu.Lock()
+	p.scheduleBooked(p.farmlandBooked, 8, y, 8, p.now+5, farmlandTickEvent)
+	p.scheduleBookedPriority(p.dirtPathBooked, 9, y, 8, p.now+5, -2, dirtPathTickEvent)
+	p.mu.Unlock()
+	w.SetBlock(8, y, 8, registry.BlockDirtPath.DefaultState())
+
+	ids := map[blockKey]string{}
+	for _, bt := range p.BlockTicksIn(8, y, 8, 9, y, 8) {
+		ids[bt.tick.pos] = bt.id
+	}
+	if ids[blockKey{8, y, 8}] != "minecraft:farmland" || ids[blockKey{9, y, 8}] != "minecraft:dirt_path" {
+		t.Errorf("copied ticks name %v, want farmland at 8 and dirt_path at 9", ids)
+	}
+	if got := p.chunkTicks(ChunkPos{X: 0, Z: 0}).block; len(got) != 2 {
+		t.Fatalf("saved %d block ticks, want 2", len(got))
+	} else if got[0].id == got[1].id {
+		t.Errorf("saved ticks share id %s", got[0].id)
+	}
+	p.ScheduleBlockTicks(p.BlockTicksIn(8, y, 8, 9, y, 8), 0, 0, 2)
+	p.mu.Lock()
+	for _, tk := range p.queue {
+		if tk.pos == (blockKey{9, y, 10}) && tk.priority != -2 {
+			t.Errorf("copied path tick priority = %d, want -2", tk.priority)
+		}
+		if tk.pos == (blockKey{8, y, 10}) {
+			t.Error("a stale farmland tick was copied onto a dirt path")
+		}
+	}
+	p.mu.Unlock()
+
+	w, p = reopenWorld(t, w, dir)
+	p.Tick(0)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var path, stale bool
+	for _, tk := range p.queue {
+		switch tk.pos {
+		case blockKey{9, y, 8}:
+			path = tk.event == dirtPathTickEvent && tk.priority == -2
+		case blockKey{8, y, 8}:
+			stale = true
+		}
+	}
+	if !path {
+		t.Error("the path's tick did not reload as a dirt path tick at priority -2")
+	}
+	if stale {
+		t.Error("the stale farmland tick reloaded onto the dirt path")
+	}
+}
