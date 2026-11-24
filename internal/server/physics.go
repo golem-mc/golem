@@ -326,6 +326,7 @@ func (s *Server) tickPhysics() {
 		for _, t := range dim.physics.TakeStructureTriggers() {
 			s.runStructureTrigger(dim.w, t)
 		}
+		dim.physics.RecycleTickResults(changes, effects)
 		// Random ticks run after scheduled ticks.
 		s.tickRandomTicks(dim, age)
 		s.setPistonGrid(dim, false)
@@ -893,7 +894,7 @@ func (s *Server) relightChanges(w *world.World, changes []world.BlockChange) {
 	}
 	s.relightBoxesAsync(w, boxes)
 	if s.relightSeam != nil {
-		s.relightSeam(len(boxes), changes)
+		s.relightSeam(len(boxes), slices.Clone(changes))
 	}
 }
 

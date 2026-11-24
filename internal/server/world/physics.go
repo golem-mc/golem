@@ -590,6 +590,16 @@ func (q tickQueue) down(i0, n int) bool {
 // scheduled from. The server owns one per world, calls NotifyChanged after its
 // own block changes and Tick once per game tick.
 type Physics struct {
+	// spareChanges and spareEffects are the last Tick's result slices handed
+	// back by RecycleTickResults; the next Tick fills them from length 0.
+	spareChanges []BlockChange
+	spareEffects []Effect
+	// pushes backs the Effect.PistonPush pointers of the last Tick; sparePushes
+	// is a slab RecycleTickResults took back for the next Tick.
+	pushes, sparePushes []PistonPush
+	// pushOwner is the first element of the effects batch whose pushes sit in
+	// pushes; nil when no outstanding batch owns the slab.
+	pushOwner *Effect
 	// mu guards everything below: NotifyChanged runs on player connections
 	// while Tick runs on the main loop.
 	//
@@ -1060,6 +1070,20 @@ func (p *Physics) releaseParked() {
 	}
 }
 
+// RecycleTickResults hands a Tick's changes and effects back for the next Tick
+// to reuse. The caller must not keep either slice, or any PistonPush an effect
+// points at, afterwards. The push slab is taken back only with the batch it
+// backs, so recycling an older batch leaves a newer Tick's pushes alone.
+func (p *Physics) RecycleTickResults(changes []BlockChange, effects []Effect) {
+	p.mu.Lock()
+	if p.pushOwner != nil && len(effects) > 0 && &effects[0] == p.pushOwner {
+		p.sparePushes, p.pushes, p.pushOwner = p.pushes[:0], nil, nil
+	}
+	clear(effects)
+	p.spareChanges, p.spareEffects = changes[:0], effects[:0]
+	p.mu.Unlock()
+}
+
 // SetTickFilter limits the following Ticks' scheduled visits to the chunks
 // ticks accepts; nil lifts the limit.
 func (p *Physics) SetTickFilter(ticks func(ChunkPos) bool) {
@@ -1072,14 +1096,23 @@ func (p *Physics) SetTickFilter(ticks func(ChunkPos) bool) {
 // the changed blocks, the gravity blocks to spawn as falling entities and the
 // TNT fires primed. Block and fluid visits have a budget each per tick, the
 // overflow running next tick. Separate bookings let a waterlogged block take
-// both visits.
+// both visits. The results stay valid until they are passed to
+// RecycleTickResults; a Tick never reuses a batch that was not recycled.
 func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrime, []Effect) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.now = gameTime
+	// A slab still held here belongs to a batch that was not recycled; leave
+	// it to that batch.
+	p.pushes, p.pushOwner = nil, nil
 	p.adoptLoadedTicks()
 	p.handlingTick = true
-	var changes []BlockChange
+	changes := p.spareChanges[:0]
+	p.spareChanges = nil
+	if p.effects == nil {
+		p.effects = p.spareEffects[:0]
+	}
+	p.spareEffects = nil
 	var falls []FallingSpawn
 	var primes []TNTPrime
 
@@ -1330,6 +1363,15 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 	p.vibrationTicks(&changes)
 	p.pistonPushes()
 	effects, wakePrimes := p.takeWake()
+	if len(p.pushes) == 0 {
+		// Nothing points into the slab: keep it for the next sweep.
+		if p.sparePushes == nil {
+			p.sparePushes = p.pushes[:0]
+		}
+		p.pushes = nil
+	} else {
+		p.pushOwner = &effects[0]
+	}
 	// Redstone ticks queued their TNT in the wake sink; the fire's primes came
 	// back through the visit.
 	primes = append(primes, wakePrimes...)
