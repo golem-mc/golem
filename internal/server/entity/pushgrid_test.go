@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"fmt"
 	"math/rand"
 	"slices"
 	"testing"
@@ -121,5 +122,99 @@ func TestPushGridGatherBoxMatchesScan(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Fatalf("box %v: got %v, want %v", box, got, want)
 		}
+	}
+}
+
+func TestPushGridMatchesHerdAtCellEdges(t *testing.T) {
+	const inflate, epsilon = .25, 1e-6
+	for _, edge := range []float64{-pushCellSide, pushCellSide} {
+		for _, offset := range []float64{-epsilon, 0, epsilon} {
+			t.Run(fmt.Sprintf("%g/%g", edge, offset), func(t *testing.T) {
+				query := NewMob(TypeBat, 0, 0, 64, 0, 0)
+				reach := query.width() + inflate
+				query.X, query.Z = edge-reach+offset, edge+reach+offset
+				herd := []*Mob{query}
+				for _, dx := range []float64{epsilon, 0, -epsilon} {
+					for _, dz := range []float64{epsilon, 0, -epsilon} {
+						id := int32(len(herd))
+						herd = append(herd, NewMob(TypeBat, id, edge+dx, 64, edge+dz, int64(id)))
+					}
+				}
+				grid := takePushGrid(len(herd), nil)
+				defer grid.release()
+				grid.build(herd)
+				assertPushCandidates(t, grid, query, inflate, herd)
+			})
+		}
+	}
+}
+
+func TestPushGridMatchesHerdWithOversizedTarget(t *testing.T) {
+	for _, update := range []string{"add", "refresh", "moved"} {
+		t.Run(update, func(t *testing.T) {
+			query := NewMob(TypeBat, 0, -.25, 64, .25, 0)
+			slime := NewMob(TypeSlime, 1, 8.25, 64, .25, 1)
+			other := NewMob(TypeBat, 2, .25, 64, .25, 2)
+			herd := []*Mob{query, slime, other}
+			if update == "add" {
+				slime.SetSize(40, true)
+			}
+			if update == "moved" {
+				slime.X = .25
+			}
+			grid := takePushGrid(len(herd), nil)
+			defer grid.release()
+			grid.build(herd)
+			switch update {
+			case "refresh":
+				slime.SetSize(40, true)
+				grid.refresh(slime)
+			case "moved":
+				slime.SetSize(40, true)
+				slime.X = 8.25
+				grid.moved(slime)
+			}
+			assertPushCandidates(t, grid, query, .25, herd)
+		})
+	}
+}
+
+func TestPushGridScansOnlyReachableCells(t *testing.T) {
+	herd := make([]*Mob, 0, 9)
+	for x := range 3 {
+		for z := range 3 {
+			id := int32(len(herd))
+			herd = append(herd, NewMob(TypeBat, id, (float64(x)+.5)*pushCellSide, 64, (float64(z)+.5)*pushCellSide, int64(id)))
+		}
+	}
+	var scanned int
+	grid := takePushGrid(len(herd), &scanned)
+	defer grid.release()
+	grid.build(herd)
+	assertPushCandidates(t, grid, herd[4], .25, herd)
+	if scanned != 1 {
+		t.Errorf("scanned %d entries, want 1", scanned)
+	}
+}
+
+func assertPushCandidates(t *testing.T, grid *pushGrid, query *Mob, inflate float64, herd []*Mob) {
+	t.Helper()
+	box := func(m *Mob, inflate float64) AABB {
+		hw := m.width()/2 + inflate
+		return NewAABB(m.X-hw, m.Y-inflate, m.Z-hw, m.X+hw, m.Y+(m.height()+inflate), m.Z+hw)
+	}
+	queryBox := box(query, inflate)
+	var want []int32
+	for _, m := range herd {
+		if queryBox.Crosses(box(m, 0)) {
+			want = append(want, m.ID)
+		}
+	}
+	var got []int32
+	for _, m := range grid.candidates(query, inflate) {
+		got = append(got, m.ID)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("candidate IDs %v, want %v in herd order", got, want)
 	}
 }

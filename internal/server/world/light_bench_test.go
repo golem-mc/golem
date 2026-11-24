@@ -121,3 +121,24 @@ func BenchmarkStaleChunkLightForm(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkLightQueueLava measures the queue a lone lava light grows and the
+// array it retains.
+func BenchmarkLightQueueLava(b *testing.B) {
+	c := newChunk(0, 0)
+	c.SetBlock(8, 64, 8, registry.BlockStates["minecraft:lava"])
+	ctx := lightCtx{alone: c}
+	var q *lightQueue
+	b.ReportAllocs()
+	for b.Loop() {
+		c.blockLight = [lightSections]*[lightArrayLen]byte{}
+		q = &lightQueue{}
+		c.lightSet(blockLayer, 8, 64, 8, 15)
+		q.push(8, 64, 8, 15, blockLayer|allDirs)
+		ctx.runIncreases(q)
+		if got := c.lightGet(&c.blockLight, 8, 78, 8); got != 1 {
+			b.Fatalf("light at (8,78,8) = %d, want 1", got)
+		}
+	}
+	b.ReportMetric(float64(cap(q.entries)), "cap")
+}

@@ -256,7 +256,7 @@ func stackComponentsMap(stack protocol.ItemStack) nbt.Compound {
 		}
 		components["minecraft:sulfur_cube_content"] = templateTag(content)
 	}
-	if contents := stack.BundleContents(); len(contents) > 0 {
+	if contents, ok := stack.BundleContentsOf(); ok {
 		if components == nil {
 			components = nbt.Compound{}
 		}
@@ -468,7 +468,7 @@ func bundleContentsTag(contents []protocol.ItemStack) nbt.List {
 	for _, entry := range contents {
 		items = append(items, templateTag(entry))
 	}
-	return nbt.List{Elem: nbt.TypeCompound, Items: items}
+	return nbt.List{Elem: tagElem(items), Items: items}
 }
 
 // potionContentsTag writes a stack's potion_contents; false when it carries
@@ -850,11 +850,7 @@ func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name stri
 		}
 		stack.SetContainer(contents)
 	case "minecraft:bundle_contents":
-		contents, ok := lookup.bundleContentsOf(value)
-		if !ok {
-			return false, true
-		}
-		stack.SetBundleContents(contents)
+		return lookup.readBundleContentsComponent(stack, value), true
 	case "minecraft:lore":
 		list, ok := value.(nbt.List)
 		if !ok || len(list.Items) > 256 {
@@ -1106,15 +1102,32 @@ func (lookup *TagLookup) containerOf(value nbt.Tag) ([]protocol.ItemStack, bool)
 	return contents[:length], true
 }
 
+func (lookup *TagLookup) readBundleContentsComponent(stack *protocol.ItemStack, value nbt.Tag) bool {
+	contents, ok := lookup.bundleContentsOf(value)
+	if !ok {
+		return false
+	}
+	if len(contents) == 0 && ItemHasComponentDefault(stack.ItemID, "minecraft:bundle_contents") {
+		stack.ResetComponent(protocol.DataComponentBundleContents)
+	} else {
+		stack.SetExplicitBundleContents(contents)
+	}
+	return true
+}
+
 // bundleContentsOf reads a bundle_contents list in the bundle's order, each
-// stack one the stored reading must accept; empty reads as absent.
+// stack one the stored reading must accept.
+// vanilla: BundleContents.CODEC
 func (lookup *TagLookup) bundleContentsOf(value nbt.Tag) ([]protocol.ItemStack, bool) {
 	list, ok := value.(nbt.List)
-	if !ok || list.Elem != nbt.TypeCompound {
+	if !ok {
 		return nil, false
 	}
 	if len(list.Items) == 0 {
 		return nil, true
+	}
+	if list.Elem != nbt.TypeCompound {
+		return nil, false
 	}
 	contents := make([]protocol.ItemStack, 0, len(list.Items))
 	for _, item := range list.Items {

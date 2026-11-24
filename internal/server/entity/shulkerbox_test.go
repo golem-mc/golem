@@ -187,8 +187,8 @@ func TestAShellShoveRefilesTheMobInThePushGrid(t *testing.T) {
 	if pig.Y <= 65 {
 		t.Fatalf("the pig stands at %v, want it lifted", pig.Y)
 	}
-	if got := g.cell(pig.pushCell)[pig.pushSlot]; got != entryOf(pig) {
-		t.Errorf("grid holds %+v for the pig, want %+v", got, entryOf(pig))
+	if got := g.cell(pig.pushCell)[pig.pushSlot]; got != g.entryOf(pig) {
+		t.Errorf("grid holds %+v for the pig, want %+v", got, g.entryOf(pig))
 	}
 }
 

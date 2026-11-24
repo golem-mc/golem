@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -274,6 +275,21 @@ func StackMaxDamage(stack protocol.ItemStack) int32 {
 		return 0
 	}
 	return MaxDamage(stack.ItemID)
+}
+
+// SetStackMaxDamage writes a positive maximum, dropping a patch equal to the item default.
+func SetStackMaxDamage(stack *protocol.ItemStack, maxDamage int32) {
+	if maxDamage == MaxDamage(stack.ItemID) {
+		stack.ResetComponent(protocol.DataComponentMaxDamage)
+		return
+	}
+	if current, ok := stackVarInt(*stack, protocol.DataComponentMaxDamage); ok && current == maxDamage {
+		return
+	}
+	var data protocol.Buffer
+	data.PutVarInt(maxDamage)
+	stack.Raw = slices.Clone(stack.Raw)
+	stack.SetRaw(protocol.RawComponent{Type: protocol.DataComponentMaxDamage, Data: data.Bytes()})
 }
 
 // StackDamageable reports whether the stack can accumulate wear.
