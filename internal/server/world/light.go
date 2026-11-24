@@ -46,6 +46,13 @@ func lightNibbleIndex(lx, ly, lz int32) (i int, high bool) {
 // lightNibble reads a section-local nibble.
 func lightNibble(s *[lightArrayLen]byte, lx, ly, lz int32) uint8 {
 	i, high := lightNibbleIndex(lx, ly, lz)
+	return lightNibbleAt(s, i, high)
+}
+
+func lightNibbleAt(s *[lightArrayLen]byte, i int, high bool) uint8 {
+	if s == nil {
+		return 0
+	}
 	if high {
 		return s[i] >> 4
 	}
@@ -549,15 +556,14 @@ func (ctx *lightCtx) setLight(layer int, x, y, z int32, v uint8) bool {
 		return false
 	}
 	i, high := lightNibbleIndex(x&15, lightLocalY(y), z&15)
-	if s := ctx.layer(c, layer)[si]; s != nil {
-		old := s[i] & 0x0F
-		if high {
-			old = s[i] >> 4
-		}
-		if old >= v {
-			return false
-		}
+	if s := ctx.layer(c, layer)[si]; s != nil && lightNibbleAt(s, i, high) >= v {
+		return false
 	}
+	ctx.writeLightNibble(c, layer, si, i, high, v)
+	return true
+}
+
+func (ctx *lightCtx) writeLightNibble(c *Chunk, layer, si, i int, high bool, v uint8) {
 	s := ctx.writable(c, layer, si)
 	if high {
 		s[i] = s[i]&0x0F | v<<4
@@ -565,7 +571,6 @@ func (ctx *lightCtx) setLight(layer int, x, y, z int32, v uint8) bool {
 		s[i] = s[i]&0xF0 | v&0x0F
 	}
 	ctx.touch(c)
-	return true
 }
 
 // touch records that a cell of c was written.
