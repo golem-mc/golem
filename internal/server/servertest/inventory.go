@@ -1021,13 +1021,15 @@ func (w *WindowedClient) RenameInAnvil(name string, result protocol.ItemStack, c
 		b.PutString(name)
 	})
 	var gotResult, gotCost bool
-	w.AwaitWindowPackets(func(id int32, data []byte) bool {
+	// The ping barrier reads every packet the rename wrote, the cost
+	// property after the result slot included.
+	w.SettleAndCollect(func(id int32, data []byte) {
 		switch id {
 		case protocol.IDPlayContainerSlot:
 			r := protocol.NewReader(data)
 			if got := r.ReadVarInt(); got != w.Window {
 				w.T.Errorf("slot correction for window %d, want %d", got, w.Window)
-				return true
+				return
 			}
 			// The state the window is on now, which the next click has
 			// to echo the way every correction of the recorder's does.
@@ -1040,7 +1042,7 @@ func (w *WindowedClient) RenameInAnvil(name string, result protocol.ItemStack, c
 			r := protocol.NewReader(data)
 			if got := r.ReadVarInt(); got != w.Window {
 				w.T.Errorf("property for window %d, want %d", got, w.Window)
-				return true
+				return
 			}
 			if prop, value := r.ReadI16(), r.ReadI16(); int32(prop) == server.AnvilCostProperty {
 				// Kept current the way the recorder's would, for the
@@ -1055,7 +1057,6 @@ func (w *WindowedClient) RenameInAnvil(name string, result protocol.ItemStack, c
 				}
 			}
 		}
-		return gotResult && (!wantCost || gotCost)
 	})
 	if !gotResult {
 		w.T.Error("the rename did not correct the result slot with the renamed stack")

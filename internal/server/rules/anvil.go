@@ -5,10 +5,6 @@ package rules
 // conjure, so recomputing is a function call rather than a process.
 // vanilla: AnvilMenu.createResult, setItemName, onTake,
 // EnchantmentHelper.getComponentType, ItemStack.calculateIncreasedRepairCost
-//
-// Deliberate difference: an item's default name is a client-side
-// translation the server never resolves, so a rename spelling it out is
-// priced like any other rename, where vanilla prices it at nothing.
 
 import (
 	"maps"
@@ -286,15 +282,14 @@ func AnvilCombine(base, extra protocol.ItemStack, name string, creative bool) An
 	}
 
 	// A blank name removes a custom name, a new one adds it: a level each,
-	// only when it differs from the item's own name (see the file comment
-	// on default names).
+	// only when it differs from the item's own hover name.
 	if name == "" || strings.IndexFunc(name, func(r rune) bool { return !isStringWhitespace(r) }) < 0 {
 		if base.CustomName != nil {
 			namingCost = 1
 			work++
 			copyOf.CustomName = nil
 		}
-	} else if !sameHoverName(base, name) {
+	} else if ItemName(base).Plain() != name {
 		namingCost = 1
 		work++
 		text := protocol.Text{Text: name}
@@ -358,20 +353,6 @@ func AnvilTake(extra protocol.ItemStack, answer AnvilAnswer) protocol.ItemStack 
 // components out of the question, the way ItemStack.is answers it.
 func sameItem(a, b protocol.ItemStack) bool {
 	return !a.Empty() && a.ItemID == b.ItemID
-}
-
-// sameHoverName reports whether the typed name reads as the stack's own: a
-// custom name compares as its literal, a raw one as its plain string; a
-// translated default name is never resolved, so it never matches.
-// vanilla: AnvilMenu.createResult (getHoverName().getString())
-func sameHoverName(base protocol.ItemStack, name string) bool {
-	if base.CustomName == nil || base.CustomName.Translate != "" {
-		return false
-	}
-	if base.CustomName.Raw != nil {
-		return base.CustomName.Plain() == name
-	}
-	return base.CustomName.Text == name
 }
 
 // cloneEnchantments copies a stack's magic map, the combine's own working

@@ -73,10 +73,9 @@ func BenchmarkTemplateStateTransforms(b *testing.B) {
 	}
 }
 
-// BenchmarkWaterloggedBlockTicks books and dispatches the block tick of a
-// waterlogged big dripleaf and detector rail through Physics.Tick.
+// BenchmarkWaterloggedBlockTicks books and dispatches ticks at waterlogged blocks.
 func BenchmarkWaterloggedBlockTicks(b *testing.B) {
-	for _, kind := range []string{"dripleaf", "detector_rail"} {
+	for _, kind := range []string{"dripleaf", "detector_rail", "scaffolding"} {
 		b.Run(kind, func(b *testing.B) {
 			w, err := NewWorld(b.TempDir(), NewFlatGenerator())
 			if err != nil {
@@ -88,10 +87,11 @@ func BenchmarkWaterloggedBlockTicks(b *testing.B) {
 			var state uint16
 			var act func()
 			ticks := int64(100)
-			if kind == "dripleaf" {
+			switch kind {
+			case "dripleaf":
 				state = registry.MustState("minecraft:big_dripleaf", map[string]string{"facing": "west", "waterlogged": "true"})
 				act = func() { p.DripleafProjectiled(8, GroundLevel, 8) }
-			} else {
+			case "detector_rail":
 				state = registry.MustState("minecraft:detector_rail", map[string]string{"shape": "north_south", "waterlogged": "true"})
 				ticks = 20
 				act = func() {
@@ -101,6 +101,13 @@ func BenchmarkWaterloggedBlockTicks(b *testing.B) {
 					p.EntityInside(8, GroundLevel, 8, &changes, &effects)
 					p.SetRailCartSource(railCartsStub{})
 				}
+			case "scaffolding":
+				state = registry.MustState("minecraft:scaffolding", map[string]string{"distance": "5", "waterlogged": "true"})
+				for _, side := range horizontal4 {
+					w.SetBlock(8+side[0], GroundLevel, 8+side[1], registry.BlockStone.DefaultState())
+				}
+				ticks = 5
+				act = func() { p.NotifyPlaced(8, GroundLevel, 8, airState) }
 			}
 			b.ReportAllocs()
 			var tick int64

@@ -1,14 +1,37 @@
 package blocks
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
+
+// vanilla: ScaffoldingBlock.updateShape, WaterFluid.getTickDelay
+func TestWaterloggedScaffoldingStabilityAndFlowTicks(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
+	servertest.HoldTicks(t, srv)
+
+	servertest.Setblock(t, c, 8, 64, 8, "scaffolding[distance=5,bottom=true,waterlogged=true]")
+	servertest.ExpectBlockNamed(t, srv, 8, 64, 8, "minecraft:scaffolding", map[string]string{
+		"distance": "5", "bottom": "true", "waterlogged": "true",
+	})
+
+	side := [3]int32{9, 64, 8}
+	servertest.RunTicks(t, srv, 1)
+	servertest.ExpectBlockNamed(t, srv, 8, 64, 8, "minecraft:scaffolding", map[string]string{
+		"distance": "0", "bottom": "false", "waterlogged": "true",
+	})
+	servertest.ExpectAir(t, srv, side)
+	servertest.RunTicks(t, srv, 3)
+	servertest.ExpectAir(t, srv, side)
+	servertest.RunTicks(t, srv, 1)
+	servertest.ExpectBlockNamed(t, srv, side[0], side[1], side[2], "minecraft:water", map[string]string{"level": "1"})
+}
 
 // The scaffolding: the distance and bottom properties a placement reads
 // off the blocks around it, and the stability they give — what a
