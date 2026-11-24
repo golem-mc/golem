@@ -629,8 +629,8 @@ type BodyMetadata struct {
 	HasAbsorb    bool
 	Particles    [][2]int32
 	HasParticles bool
-	ambient      bool
-	hasAmbient   bool
+	Ambient      bool
+	HasAmbient   bool
 }
 
 // ReadBodyMetadata parses a Set Entity Metadata packet of one of the
@@ -667,8 +667,8 @@ func ReadBodyMetadata(c *Client, data []byte, bodies map[int32]bool) (BodyMetada
 			if fieldType != protocol.MetadataBoolean {
 				c.T.Fatalf("effect ambient field type = %d, want %d", fieldType, protocol.MetadataBoolean)
 			}
-			m.ambient = r.ReadU8() != 0
-			m.hasAmbient = true
+			m.Ambient = r.ReadBool()
+			m.HasAmbient = true
 		case protocol.MetadataIndexLivingHealth:
 			if fieldType != protocol.MetadataFloat {
 				c.T.Fatalf("health field type = %d, want %d", fieldType, protocol.MetadataFloat)

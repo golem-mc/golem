@@ -160,12 +160,11 @@ func bodyNow(p *player.Player, was bodyShown) bodyShown {
 	return now
 }
 
-// mobEffectShown is bodyNow for a mob: particles, whether all ambient, and
-// the invisible and glowing flags. No effects means none, ambient off.
+// mobEffectShown is bodyNow for a mob, including its retained ambience.
 func mobEffectShown(m *entity.Mob) bodyShown {
-	var shown bodyShown
+	shown := bodyShown{ambient: m.EffectAmbience()}
 	if active := m.AllEffects(); len(active) > 0 {
-		shown.particles, shown.ambient = effect.Particles(active)
+		shown.particles, _ = effect.Particles(active)
 		shown.invisible = rules.Invisible(active)
 		shown.glowing = rules.Glowing(active)
 	}
@@ -274,7 +273,7 @@ func mobEffectTells(ent *mobEntity, changes []effect.Change) []outbound {
 	var particles, ambient, flags bool
 	for _, was := range ent.tracked.all() {
 		particles = particles || was.own.meta.particleRevision != state.particleRevision || !slices.Equal(was.own.meta.particles, state.particles)
-		ambient = ambient || (len(state.particles) > 0 && was.own.meta.ambient != state.ambient)
+		ambient = ambient || was.own.meta.ambient != state.ambient
 		flags = flags || was.own.meta.baseFlags != state.baseFlags
 	}
 	ent.updateShownMetadata(func(shown *mobMetadataState) {
