@@ -16,8 +16,9 @@ func BenchmarkChunkViewMoves(b *testing.B) {
 	s.viewDistance.Store(10)
 	s.simulationDistance.Store(10)
 	var holds []world.ChunkPos
-	for x := int32(-10); x <= 11; x++ {
-		for z := int32(-10); z <= 10; z++ {
+	// Both centers' send views, which reach one chunk past the radius.
+	for x := int32(-11); x <= 12; x++ {
+		for z := int32(-11); z <= 11; z++ {
 			p := world.ChunkPos{X: x, Z: z}
 			w.Acquire(p)
 			holds = append(holds, p)
@@ -37,13 +38,14 @@ func BenchmarkChunkViewMoves(b *testing.B) {
 	if len(c.generating) != 0 || len(c.pendingGeneration) != 0 {
 		b.Fatal("benchmark terrain was not cached")
 	}
-	// The client knows every chunk in the initial view, so each move also
+	// Load-only holds are not what a move costs, so the queue starts empty.
+	c.pendingHolds = nil
+	// The client knows every chunk in the initial send view, so each move also
 	// exercises unloading sent chunks and updating the concurrent sent mirror.
-	for x := int32(-10); x <= 10; x++ {
-		for z := int32(-10); z <= 10; z++ {
-			c.markSent(world.ChunkPos{X: x, Z: z})
-		}
+	for _, p := range c.pendingSend {
+		c.markSent(p)
 	}
+	c.pendingSend = nil
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := range b.N {

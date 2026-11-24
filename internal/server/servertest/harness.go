@@ -390,27 +390,39 @@ func FullSimulationDistance(s *server.Server) {
 	s.SetSimulationDistance(config.Default().SimulationDistance)
 }
 
-// JoinAtViewEdge joins a watcher and stands it four chunks east of the
+// JoinAtViewEdge joins a watcher and stands it five chunks east of the
 // origin, where the chunks of column 0 lie on the border of the view of four
 // it asks for: the chunks whose Update Light a player is sent, its client
-// lighting the others itself. It returns once the last column west of the
-// send view's neighbor ring has been unloaded, which is when the server
-// counts them on the border.
+// lighting the others itself. It returns once column -1, the first one outside
+// the send view, has been unloaded, which is when the server counts column 0
+// on the border; the chunk senders' beats bound the wait.
 // vanilla: ChunkMap.isChunkOnTrackedBorder
-func JoinAtViewEdge(t *testing.T, connect func() *Client, name string) *Client {
+func JoinAtViewEdge(t *testing.T, srv *server.Server, connect func() *Client, name string) *Client {
 	t.Helper()
 	w := connect().Join(name)
-	w.MoveTo(4*16+8.5, 64, 8.5, 0, 0)
-	for id, data := range w.Packets(JoinTimeout) {
-		if id != protocol.IDPlayUnloadChunk {
-			continue
+	w.MoveTo(5*16+8.5, 64, 8.5, 0, 0)
+	const maxBeats = 20
+	for range maxBeats {
+		select {
+		case <-srv.ChunkBeat():
+		case <-time.After(ExpectTimeout):
+			t.Fatalf("no chunk sender pass within %s", ExpectTimeout)
 		}
-		r := protocol.NewReader(data)
-		if z, x := r.ReadI32(), r.ReadI32(); x == -2 && z >= -1 && z <= 1 {
+		left := false
+		w.SettleAndCollect(func(id int32, data []byte) {
+			if id != protocol.IDPlayUnloadChunk {
+				return
+			}
+			r := protocol.NewReader(data)
+			if z, x := r.ReadI32(), r.ReadI32(); x == -1 && z >= -1 && z <= 1 {
+				left = true
+			}
+		})
+		if left {
 			return w
 		}
 	}
-	t.Fatalf("%s's view never left column -2", name)
+	t.Fatalf("%s's view never left column -1 within %d chunk sender beats", name, maxBeats)
 	return nil
 }
 

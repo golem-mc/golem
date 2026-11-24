@@ -6,14 +6,11 @@ import "math"
 // radius: the tracking view with its neighbor ring, so the client can light the
 // edge chunks it renders. vanilla: ChunkTrackingView.contains
 func InSendView(pos, center ChunkPos, radius int32) bool {
-	dx := int64(max(0, Abs32(pos.X-center.X)-2))
-	dz := int64(max(0, Abs32(pos.Z-center.Z)-2))
-	r := int64(radius)
-	return dx*dx+dz*dz < r*r
+	return inBufferedView(pos, center, radius, 2)
 }
 
-// InViewOf reports whether a chunk is within radius chunks of the centre. The
-// view is a square, the way the chunks that are sent are.
+// InViewOf reports whether a chunk is within radius chunks of the centre, as a
+// square; the chunks that are sent are the rounded InSendView.
 func InViewOf(pos, center ChunkPos, radius int32) bool {
 	dx, dz := pos.X-center.X, pos.Z-center.Z
 	return Abs32(dx) <= radius && Abs32(dz) <= radius
@@ -22,8 +19,14 @@ func InViewOf(pos, center ChunkPos, radius int32) bool {
 // InChunkTrackingView reports whether a chunk is within the buffered view distance.
 // vanilla: ChunkTrackingView.isInViewDistance
 func InChunkTrackingView(pos, center ChunkPos, radius int32) bool {
-	dx := int64(max(0, Abs32(pos.X-center.X)-1))
-	dz := int64(max(0, Abs32(pos.Z-center.Z)-1))
+	return inBufferedView(pos, center, radius, 1)
+}
+
+// inBufferedView compares the squared chunk distance, less buffer chunks on
+// each axis, with the radius. vanilla: ChunkTrackingView.isWithinDistance
+func inBufferedView(pos, center ChunkPos, radius, buffer int32) bool {
+	dx := int64(max(0, Abs32(pos.X-center.X)-buffer))
+	dz := int64(max(0, Abs32(pos.Z-center.Z)-buffer))
 	r := int64(radius)
 	return dx*dx+dz*dz < r*r
 }
