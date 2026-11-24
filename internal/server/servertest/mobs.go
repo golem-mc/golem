@@ -1480,21 +1480,8 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 			mob.FromBucket = meta.ReadBool()
 			continue
 		}
-		if mob.TypeID == protocol.EntityTypeLlama || mob.TypeID == protocol.EntityTypeTraderLlama {
-			switch {
-			case index == protocol.MetadataIndexHorseFlags && fieldType == protocol.MetadataByte:
-				meta.ReadU8()
-				continue
-			case index == protocol.MetadataIndexChestedHorseChest && fieldType == protocol.MetadataBoolean:
-				meta.ReadBool()
-				continue
-			case index == protocol.MetadataIndexLlamaStrength && fieldType == protocol.MetadataVarInt:
-				mob.LlamaStrength, mob.HasLlamaStrength = meta.ReadVarInt(), true
-				continue
-			case index == protocol.MetadataIndexLlamaVariant && fieldType == protocol.MetadataVarInt:
-				mob.LlamaVariant, mob.HasLlamaVariant = meta.ReadVarInt(), true
-				continue
-			}
+		if c.readLlamaField(mob, meta, index, fieldType) {
+			continue
 		}
 		if mob.TypeID == protocol.EntityTypeGoat && fieldType == protocol.MetadataBoolean &&
 			index >= protocol.MetadataIndexGoatScreaming && index <= protocol.MetadataIndexGoatRightHorn {
@@ -1635,6 +1622,40 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 	if meta.Remaining() != 0 {
 		c.T.Errorf("mob metadata has %d bytes left over", meta.Remaining())
 	}
+}
+
+// readLlamaField decodes a llama or trader llama's horse flags, chest,
+// strength and variant fields and reports whether index was one of them.
+// It fails the test on a serializer other than the one vanilla declares.
+func (c *Client) readLlamaField(mob *SpawnedMob, meta *protocol.Reader, index uint8, fieldType int32) bool {
+	if mob.TypeID != protocol.EntityTypeLlama && mob.TypeID != protocol.EntityTypeTraderLlama {
+		return false
+	}
+	var want int32
+	switch index {
+	case protocol.MetadataIndexHorseFlags:
+		want = protocol.MetadataByte
+	case protocol.MetadataIndexChestedHorseChest:
+		want = protocol.MetadataBoolean
+	case protocol.MetadataIndexLlamaStrength, protocol.MetadataIndexLlamaVariant:
+		want = protocol.MetadataVarInt
+	default:
+		return false
+	}
+	if fieldType != want {
+		c.T.Fatalf("llama field %d type = %d, want %d", index, fieldType, want)
+	}
+	switch index {
+	case protocol.MetadataIndexHorseFlags:
+		meta.ReadU8()
+	case protocol.MetadataIndexChestedHorseChest:
+		meta.ReadBool()
+	case protocol.MetadataIndexLlamaStrength:
+		mob.LlamaStrength, mob.HasLlamaStrength = meta.ReadVarInt(), true
+	default:
+		mob.LlamaVariant, mob.HasLlamaVariant = meta.ReadVarInt(), true
+	}
+	return true
 }
 
 // isBlazeType reports whether the entity type is a blaze.

@@ -8,10 +8,11 @@ import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
-// TestALlamaSpawnTellsItsStrengthAndVariant: a summoned llama's metadata
-// carries its Strength and Variant VarInts, which the mob reader decodes.
+// TestLlamaSpawnsTellStrengthAndVariant: a summoned llama or trader llama's
+// metadata carries its Strength and Variant VarInts next to the inherited
+// horse flags and chest fields, which the mob reader decodes.
 // vanilla: Llama.defineSynchedData
-func TestALlamaSpawnTellsItsStrengthAndVariant(t *testing.T) {
+func TestLlamaSpawnsTellStrengthAndVariant(t *testing.T) {
 	t.Parallel()
 	const name = "Watcher"
 	srv, connect := servertest.Start(t, servertest.MobTestConfig(),
@@ -22,12 +23,20 @@ func TestALlamaSpawnTellsItsStrengthAndVariant(t *testing.T) {
 	servertest.HoldTicks(t, srv)
 	srv.SetSpawning(false)
 	c.MoveToGround(0.5, 64, 0.5, true)
-	c.ChatCommand("summon minecraft:llama 4.5 64 0.5 {Strength:4,Variant:2,NoAI:1b}")
-	got := c.ExpectMobSpawn(protocol.EntityTypeLlama)
-	if !got.HasLlamaStrength || got.LlamaStrength != 4 {
-		t.Errorf("llama strength = %d (told %v), want 4", got.LlamaStrength, got.HasLlamaStrength)
-	}
-	if !got.HasLlamaVariant || got.LlamaVariant != 2 {
-		t.Errorf("llama variant = %d (told %v), want 2", got.LlamaVariant, got.HasLlamaVariant)
+	for _, kind := range []struct {
+		name string
+		typ  int32
+	}{
+		{"minecraft:llama", protocol.EntityTypeLlama},
+		{"minecraft:trader_llama", protocol.EntityTypeTraderLlama},
+	} {
+		c.ChatCommand("summon " + kind.name + " 4.5 64 0.5 {Strength:4,Variant:2,Tame:1b,ChestedHorse:1b,NoAI:1b}")
+		got := c.ExpectMobSpawn(kind.typ)
+		if !got.HasLlamaStrength || got.LlamaStrength != 4 {
+			t.Errorf("%s strength = %d (told %v), want 4", kind.name, got.LlamaStrength, got.HasLlamaStrength)
+		}
+		if !got.HasLlamaVariant || got.LlamaVariant != 2 {
+			t.Errorf("%s variant = %d (told %v), want 2", kind.name, got.LlamaVariant, got.HasLlamaVariant)
+		}
 	}
 }
