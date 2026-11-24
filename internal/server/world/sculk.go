@@ -197,17 +197,11 @@ func (w *World) vibrationListenersNear(cx, cy, cz, r int32, buf []blockKey) []bl
 					continue
 				}
 				baseY := worldMinY + sec*sectionSize
-				for y := max(cy-r, baseY); y <= min(cy+r, baseY+sectionSize-1); y++ {
-					for z := max(cz-r, chz<<4); z <= min(cz+r, chz<<4+15); z++ {
-						for x := max(cx-r, chx<<4); x <= min(cx+r, chx<<4+15); x++ {
-							dx, dy, dz := x-cx, y-cy, z-cz
-							if dx*dx+dy*dy+dz*dz > r*r {
-								continue
-							}
-							if listensForVibrations(s.at(blockIndex(x&15, y-baseY, z&15))) {
-								buf = append(buf, blockKey{x, y, z})
-							}
-						}
+				for _, i := range s.listeners {
+					x, y, z := chx<<4+int32(i&15), int32(baseY)+int32(i>>8), chz<<4+int32(i>>4&15)
+					dx, dy, dz := x-cx, y-cy, z-cz
+					if dx*dx+dy*dy+dz*dz <= r*r {
+						buf = append(buf, blockKey{x, y, z})
 					}
 				}
 			}

@@ -195,7 +195,7 @@ func TestAHopperFeedsAJukebox(t *testing.T) {
 	if x, y, z, _ := awaitJukeboxEvent(t, w, protocol.WorldEventJukeboxPlay); x != 4 || y != 63 || z != 0 {
 		t.Errorf("the fed song's play event = (%d,%d,%d), want (4,63,0)", x, y, z)
 	}
-	srv.StartTick()
+	servertest.HoldTicks(t, srv)
 	waitSensorHeard(t, srv, 6, 63, 0, "the sensor to hear the hopper push")
 	if got := sensorFrequency(t, srv, 6, 63, 0); got != 11 {
 		t.Errorf("the push gave frequency %d, want 11", got)
@@ -219,7 +219,7 @@ func TestAHopperTakesAJukeboxDisc(t *testing.T) {
 		t.Fatal("the jukebox has no block entity to fill")
 	}
 	servertest.TickBlockEntitiesByHand(srv, 1)
-	srv.StartTick()
+	servertest.HoldTicks(t, srv)
 	waitSensorHeard(t, srv, 6, 63, 0, "the sensor to hear the hopper pull")
 	if got := srv.InventoryAt(4, 64, 0); len(got) == 0 || got[0].Empty() {
 		t.Fatalf("the hopper holds %+v, want the cat disc", got)

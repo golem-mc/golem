@@ -601,6 +601,7 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 	s.touches.Store(0)
 	s.shapes.Store(0)
 	s.colliding, s.comparators = 0, 0
+	defer s.indexListeners()
 	// Invalid indices read as air, which contributes to none of these tallies.
 	for pIdx, state := range stateIDs {
 		n := int(counts[pIdx])

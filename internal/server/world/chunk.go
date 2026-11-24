@@ -240,6 +240,10 @@ type section struct {
 	// listening counts vibration listeners, so a game event skips sections with
 	// none (sculk.go).
 	listening int
+	// listeners are the section indices of those listeners, so a game event
+	// visits them directly.
+	// vanilla: EuclideanGameEventListenerRegistry
+	listeners []uint16
 	// colliding counts states with a possible entity collision, including
 	// body-dependent and moving shapes.
 	colliding int
@@ -474,11 +478,13 @@ func (s *section) set(i int, state uint16, shared bool) {
 	if registry.LightEmission(old) > 0 {
 		s.emitting--
 	}
-	if listensForVibrations(state) {
-		s.listening++
-	}
 	if listensForVibrations(old) {
 		s.listening--
+		s.listeners = slices.DeleteFunc(s.listeners, func(j uint16) bool { return int(j) == i })
+	}
+	if listensForVibrations(state) {
+		s.listening++
+		s.listeners = append(s.listeners, uint16(i))
 	}
 	if MayCollide(state) {
 		s.colliding++
@@ -547,6 +553,19 @@ func (s *section) setAll(state uint16) {
 	s.recalcCounts()
 }
 
+// indexListeners rebuilds the listener index from the blocks.
+func (s *section) indexListeners() {
+	s.listeners = s.listeners[:0]
+	if s.listening == 0 {
+		return
+	}
+	for i := range blocksPerSection {
+		if listensForVibrations(s.at(i)) {
+			s.listeners = append(s.listeners, uint16(i))
+		}
+	}
+}
+
 // recalcCounts rebuilds section counts after bulk block replacement.
 func (s *section) recalcCounts() {
 	s.tickMask.Store(nil)
@@ -556,6 +575,7 @@ func (s *section) recalcCounts() {
 	s.colliding, s.comparators = 0, 0
 	blocks := s.blocks.Load()
 	if blocks == nil {
+		defer s.indexListeners()
 		if randomlyTicking(s.fill) {
 			s.ticking = blocksPerSection
 		}
@@ -595,6 +615,7 @@ func (s *section) recalcCounts() {
 		}
 		return
 	}
+	defer s.indexListeners()
 	for i := range blocksPerSection {
 		state := blocks.get(i)
 		if randomlyTicking(state) {

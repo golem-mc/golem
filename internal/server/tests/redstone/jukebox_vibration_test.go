@@ -1,10 +1,10 @@
 package redstone
 
 import (
+	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
-
-	"github.com/google/uuid"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
@@ -28,17 +28,25 @@ func TestJukeboxDiscChangeVibration(t *testing.T) {
 	calibratedAt(t, srv, 4)
 	srv.SetBlock(4, 64, 5, servertest.MustState(t, "minecraft:target", map[string]string{"power": "11"}))
 
-	var sourceFree, attributed atomic.Int32
+	empty := servertest.MustState(t, "minecraft:jukebox", map[string]string{"has_record": "false"})
+	full := servertest.MustState(t, "minecraft:jukebox", map[string]string{"has_record": "true"})
+	var mu sync.Mutex
+	var events []rules.GameEventContext
 	srv.ObserveGameEventContexts(func(event string, x, y, z float64, ctx rules.GameEventContext) {
-		if event != "minecraft:block_change" || x != 2.5 || y != 64.5 || z != 4.5 {
-			return
-		}
-		if ctx.Player == uuid.Nil {
-			sourceFree.Add(1)
-		} else {
-			attributed.Add(1)
+		if event == "minecraft:block_change" && x == 2.5 && y == 64.5 && z == 4.5 {
+			mu.Lock()
+			events = append(events, ctx)
+			mu.Unlock()
 		}
 	})
+	expect := func(step string, want ...rules.GameEventContext) {
+		t.Helper()
+		mu.Lock()
+		defer mu.Unlock()
+		if !slices.Equal(events, want) {
+			t.Errorf("%s posted %+v, want %+v", step, events, want)
+		}
+	}
 
 	heard := func(step string) {
 		t.Helper()
@@ -61,17 +69,16 @@ func TestJukeboxDiscChangeVibration(t *testing.T) {
 	c.PlaceBlock(2, 64, 4, protocol.FaceTop)
 	c.Settle()
 	heard("insertion")
-	if sourceFree.Load() != 1 || attributed.Load() != 1 {
-		t.Errorf("insertion posted %d source-free and %d player events, want 1 and 1", sourceFree.Load(), attributed.Load())
-	}
+	expect("insertion", rules.GameEventContext{Affected: full}, rules.GameEventContext{Player: protocol.OfflineUUID("Actor"), Affected: empty})
 	quiet()
 
+	mu.Lock()
+	events = nil
+	mu.Unlock()
 	c.PlaceBlock(2, 64, 4, protocol.FaceTop)
 	c.Settle()
 	heard("ejection")
-	if sourceFree.Load() != 2 || attributed.Load() != 1 {
-		t.Errorf("after ejection %d source-free and %d player events, want 2 and 1", sourceFree.Load(), attributed.Load())
-	}
+	expect("ejection", rules.GameEventContext{Affected: empty})
 }
 
 // A click on a jukebox that claims a record but holds none ejects nothing and
@@ -90,7 +97,6 @@ func TestEmptyJukeboxClickIsSilent(t *testing.T) {
 	})
 	c.PlaceBlock(2, 64, 4, protocol.FaceTop)
 	c.Settle()
-	servertest.RunTicks(t, srv, 5)
 	if got := events.Load(); got != 0 {
 		t.Errorf("the click posted %d block_change events, want 0", got)
 	}

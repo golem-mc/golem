@@ -28,6 +28,8 @@ func BenchmarkHopperJukeboxTransfer(b *testing.B) {
 
 		withRecord, _ := registry.WithBool(registry.BlockJukebox.DefaultState(), registry.PropHasRecord, true)
 
+		sensor := registry.MustState("minecraft:sculk_sensor", nil)
+		physics := s.physicsFor(w)
 		tick := int64(100)
 		b.ReportAllocs()
 		for b.Loop() {
@@ -43,16 +45,24 @@ func BenchmarkHopperJukeboxTransfer(b *testing.B) {
 				jb.Use(func(e *world.BlockEntity) { e.Put(0, disc); e.TicksSinceSongStarted = 0 })
 				w.SetBlock(4, jukeY, 4, withRecord)
 			}
+			// Run the sensor through any vibration the reset posted, then idle.
+			for range 40 {
+				tick++
+				physics.Tick(tick)
+			}
+			w.SetBlock(7, y-1, 4, sensor)
 			hb.Cooldown = 0
 			tick++
 			b.StartTimer()
 			s.tickHopper(w, hb, tick)
+			b.StopTimer()
 			jb = w.EnsureBlockEntity(4, jukeY, 4, world.KindJukebox)
 			var moved bool
 			jb.Use(func(e *world.BlockEntity) { moved = e.Slots[0].Empty() != push })
 			if !moved {
 				b.Fatal("the hopper moved no disc")
 			}
+			b.StartTimer()
 		}
 	}
 	b.Run("push", func(b *testing.B) { run(b, true) })
