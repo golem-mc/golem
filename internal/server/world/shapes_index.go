@@ -31,8 +31,7 @@ func shapeTagsExtended() bool {
 	t := shapeTagCache.Load()
 	if t == nil || t.tags != tags {
 		ids := [...]registry.BlockTagID{
-			registry.BlockTagOf(registry.TagFences), registry.BlockTagOf(registry.TagWalls),
-			registry.BlockTagOf(registry.TagStairs), registry.BlockTagOf(registry.TagFenceGates),
+			registry.TagIDFences, registry.TagIDWalls, registry.TagIDStairs, registry.TagIDFenceGates,
 		}
 		t = &shapeTagTable{tags: tags}
 		for b := range registry.Block(registry.BlockCount) {
