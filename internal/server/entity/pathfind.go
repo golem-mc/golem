@@ -1430,20 +1430,18 @@ func waypointPoint(node Waypoint, width float64) (x, z float64) {
 	return float64(node.X) + offset, float64(node.Z) + offset
 }
 
-// atWaypoint reports whether dx, dz from a node's centre reach it. A body
-// wider than 0.75 steers to its footprint corner, so it is reached per axis
-// within half its width; narrower ones use waypointReached.
-// vanilla: PathNavigation.maxDistanceToWaypoint
+// atWaypoint reports whether dx, dz from a node's centre reach it: strictly
+// inside maxDistanceToWaypoint on each axis, which is half the width for a
+// body wider than 0.75 and 0.75 - width/2 otherwise.
+// vanilla: PathNavigation.followThePath
 func (m *Mob) atWaypoint(dx, dz float64) bool {
-	if w := m.width(); w > 0.75 {
-		return math.Abs(dx) < w/2 && math.Abs(dz) < w/2
+	w := float32(m.width())
+	reach := 0.75 - w/2
+	if w > 0.75 {
+		reach = w / 2
 	}
-	return math.Hypot(dx, dz) <= waypointReached
+	return math.Abs(dx) < float64(reach) && math.Abs(dz) < float64(reach)
 }
-
-// waypointReached is the reach radius around a waypoint's centre, well
-// within a step so the mob banks it a tick early rather than circling.
-const waypointReached = 0.35
 
 // vanilla: PathNavigation.getMaxVerticalDistanceToWaypoint
 const groundVerticalReach = 1.0
