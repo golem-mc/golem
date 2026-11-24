@@ -194,5 +194,25 @@ func TestItemSlotSources(t *testing.T) {
 		}
 	}
 
+	// 9. Contents visits every parent stack even when nothing is replaced in it,
+	// writing an explicit empty component patch on items without a default.
+	run("setblock 2 64 4 minecraft:chest")
+	run("item replace block 2 64 4 container.0 with stone 1")
+	run("item replace block 2 64 4 container.1 with stone 1")
+	run("item replace block 2 64 4 container.2 with stone 1")
+	expectFeedback(
+		`item replace block 2 64 4 {type:"contents",component:"minecraft:charged_projectiles",slot_source:{type:"slot_range",slots:"container.*"}} with arrow 1`,
+		itemBlockSetKey,
+		servertest.ItemNumber(1), servertest.ItemNumber(2), servertest.ItemNumber(64), servertest.ItemNumber(4),
+		servertest.ItemFeedbackText("minecraft:arrow", servertest.ItemDisplayKey(t, "minecraft:arrow"), 1))
+	if got := plainQuery(t, srv, `data get block 2 64 4 Items[{Slot:0b}].components."minecraft:charged_projectiles"`, "commands.data.block.query"); !strings.Contains(got, `id: "minecraft:arrow"`) {
+		t.Errorf("slot 0 charged_projectiles = %q, want arrow", got)
+	}
+	for _, slot := range []int{1, 2} {
+		if got := plainQuery(t, srv, fmt.Sprintf("data get block 2 64 4 Items[{Slot:%db}].components", slot), "commands.data.block.query"); !strings.Contains(got, `"minecraft:charged_projectiles": []`) {
+			t.Errorf("slot %d components after unreached contents replace = %q, want empty charged_projectiles patch", slot, got)
+		}
+	}
+
 	c.Disconnect()
 }

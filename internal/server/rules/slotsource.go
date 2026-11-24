@@ -329,7 +329,7 @@ func replaceComponentSlots(parent SlotAccess, component string, items *ItemProvi
 			list = append(list, items.Next())
 			replaced++
 		}
-		if !stack.Empty() && replaced > 0 {
+		if !stack.Empty() {
 			setComponentContents(&stack, component, list)
 			parent.Set(stack)
 		}
@@ -362,7 +362,7 @@ func replaceComponentSlots(parent SlotAccess, component string, items *ItemProvi
 			weight = nw
 			replaced++
 		}
-		if !stack.Empty() && replaced > 0 {
+		if !stack.Empty() {
 			setComponentContents(&stack, component, list)
 			parent.Set(stack)
 		}
@@ -383,7 +383,7 @@ func replaceComponentSlots(parent SlotAccess, component string, items *ItemProvi
 			list = append(list, items.Next())
 			replaced++
 		}
-		if !stack.Empty() && replaced > 0 {
+		if !stack.Empty() {
 			setComponentContents(&stack, component, list)
 			parent.Set(stack)
 		}
@@ -396,7 +396,6 @@ func replaceComponentSlots(parent SlotAccess, component string, items *ItemProvi
 // vanilla: ContainerComponentManipulator.ComponentSlotCollection.modifySlots
 func modifyComponentSlots(parent SlotAccess, component string, modify func(SlotAccess), sel SlotSelector) {
 	stack := parent.Get()
-	modified := false
 	switch component {
 	case "minecraft:container":
 		list := slices.Clone(stack.Container)
@@ -407,10 +406,10 @@ func modifyComponentSlots(parent SlotAccess, component string, modify func(SlotA
 			idx := i
 			modify(SlotAccess{
 				Get: func() protocol.ItemStack { return list[idx] },
-				Set: func(s protocol.ItemStack) bool { list[idx] = s; modified = true; return true },
+				Set: func(s protocol.ItemStack) bool { list[idx] = s; return true },
 			})
 		}
-		if !stack.Empty() && modified {
+		if !stack.Empty() {
 			setComponentContents(&stack, component, list)
 			parent.Set(stack)
 		}
@@ -431,12 +430,11 @@ func modifyComponentSlots(parent SlotAccess, component string, modify func(SlotA
 					}
 					list[idx] = s
 					weight = nw
-					modified = true
 					return true
 				},
 			})
 		}
-		if !stack.Empty() && modified {
+		if !stack.Empty() {
 			setComponentContents(&stack, component, list)
 			parent.Set(stack)
 		}
@@ -449,10 +447,10 @@ func modifyComponentSlots(parent SlotAccess, component string, modify func(SlotA
 			idx := i
 			modify(SlotAccess{
 				Get: func() protocol.ItemStack { return list[idx] },
-				Set: func(s protocol.ItemStack) bool { list[idx] = s; modified = true; return true },
+				Set: func(s protocol.ItemStack) bool { list[idx] = s; return true },
 			})
 		}
-		if !stack.Empty() && modified {
+		if !stack.Empty() {
 			setComponentContents(&stack, component, list)
 			parent.Set(stack)
 		}
