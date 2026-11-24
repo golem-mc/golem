@@ -23,7 +23,7 @@ type shapeTagTable struct {
 
 var shapeTagCache atomic.Pointer[shapeTagTable]
 
-// shapeTagsExtended reports whether the live fence, wall, stair or gate tags
+// shapeTagsExtended reports whether the live wall, stair or gate tags
 // hold a block the built-in table does not count, as after a data pack
 // expands one. The server then runs the pass unconditionally.
 func shapeTagsExtended() bool {
@@ -31,7 +31,7 @@ func shapeTagsExtended() bool {
 	t := shapeTagCache.Load()
 	if t == nil || t.tags != tags {
 		ids := [...]registry.BlockTagID{
-			registry.TagIDFences, registry.TagIDWalls, registry.TagIDStairs, registry.TagIDFenceGates,
+			registry.TagIDWalls, registry.TagIDStairs, registry.TagIDFenceGates,
 		}
 		t = &shapeTagTable{tags: tags}
 		for b := range registry.Block(registry.BlockCount) {
