@@ -167,7 +167,7 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 		var cases []registry.LootDispatchCase
 		var caseMsgs []string
 		for _, e := range items {
-			cc, ok := nbt.ListElement(e).(nbt.Compound)
+			cc, ok := e.(nbt.Compound)
 			if !ok {
 				caseMsgs = append(caseMsgs, "Not a map: "+nbt.Stringify(e))
 				continue
@@ -300,7 +300,7 @@ func listOf[T any](c nbt.Compound, key string, one func(nbt.Tag) (T, string)) ([
 	}
 	out := make([]T, 0, len(items))
 	for _, item := range items {
-		v, msg := one(nbt.ListElement(item))
+		v, msg := one(item)
 		if msg != "" {
 			return nil, msg
 		}
@@ -709,7 +709,7 @@ func TagJSON(tag nbt.Tag) any {
 	case nbt.List:
 		out := make([]any, len(v.Items))
 		for i, item := range v.Items {
-			out[i] = TagJSON(nbt.ListElement(item))
+			out[i] = TagJSON(item)
 		}
 		return out
 	case nbt.Compound:
