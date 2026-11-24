@@ -30,6 +30,13 @@ func (b cartBlock) Peek(slot int) (itemID, count int32) {
 	return b.it.cargo.slots[slot].ItemID, b.it.cargo.slots[slot].Count
 }
 
+func (b cartBlock) StackPtr(slot int) *protocol.ItemStack {
+	if slot < 0 || slot >= len(b.it.cargo.slots) {
+		return nil
+	}
+	return &b.it.cargo.slots[slot]
+}
+
 // Filled scans the cargo: carts are rare and small.
 func (b cartBlock) Filled() uint64 { return filledOf(b.it.cargo.slots) }
 
