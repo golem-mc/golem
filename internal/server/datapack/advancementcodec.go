@@ -684,7 +684,7 @@ func advLootConditions(terms any) (out []registry.LootCondition, ok bool) {
 	func() {
 		defer recoverLoot(&err)
 		for _, term := range terms.([]any) {
-			out = append(out, conditionHolder(advTyped(term)))
+			out = append(out, activeProviderDecoder.conditionHolder(advTyped(term)))
 		}
 	}()
 	return out, err == nil

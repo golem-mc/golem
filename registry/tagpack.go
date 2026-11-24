@@ -107,6 +107,19 @@ func PackTagRegistries() []string {
 // are left out and described in the returned messages.
 // vanilla: TagLoader.build
 func ApplyPackTags(packs PackTags) []string {
+	layer, problems := PreparePackTags(packs)
+	layer.Apply()
+	return problems
+}
+
+// PackTagLayer holds the tag lookups for a candidate pack selection.
+type PackTagLayer struct {
+	state       *tagState
+	packedItems bool
+}
+
+// PreparePackTags builds a tag layer for decoding pack resources before publishing it.
+func PreparePackTags(packs PackTags) (*PackTagLayer, []string) {
 	var problems []string
 	// Registries without vanilla tags start empty; vanilla loads tags for
 	// every registry.
@@ -197,10 +210,52 @@ func ApplyPackTags(packs PackTags) []string {
 			blocks = res.tags
 		}
 	}
-	itemTagsPacked.Store(len(packs["minecraft:item"]) > 0)
-	tagsNow.Store(newTagState(sync, builtin, blocks))
+	return &PackTagLayer{
+		state:       newTagState(sync, builtin, blocks),
+		packedItems: len(packs["minecraft:item"]) > 0,
+	}, problems
+}
+
+// Apply publishes the prepared tag layer.
+func (l *PackTagLayer) Apply() {
+	itemTagsPacked.Store(l.packedItems)
+	tagsNow.Store(l.state)
 	tagsGeneration.Add(1)
-	return problems
+}
+
+// Members finds the names in a tag in this layer.
+func (l *PackTagLayer) Members(registryName, tag string) ([]string, bool) {
+	if registryName == "minecraft:block" {
+		members, ok := l.state.blockTags[tag]
+		return members, ok
+	}
+	for _, r := range l.state.builtin {
+		if r.Registry != registryName {
+			continue
+		}
+		for _, t := range r.Tags {
+			if t.Name == tag {
+				names := make([]string, 0, len(t.IDs))
+				for _, id := range t.IDs {
+					if name := builtinName(registryName, id); name != "" {
+						names = append(names, name)
+					}
+				}
+				return names, true
+			}
+		}
+	}
+	for _, r := range l.state.sync {
+		if r.Registry != registryName {
+			continue
+		}
+		for _, t := range r.Tags {
+			if t.Name == tag {
+				return t.Entries, true
+			}
+		}
+	}
+	return nil, false
 }
 
 // tagsGeneration counts the tag states ApplyPackTags has installed.

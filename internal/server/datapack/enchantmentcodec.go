@@ -565,7 +565,7 @@ func (d *enchantmentDecoder) enchCondition(v any) (out *registry.EnchCondition) 
 		if _, failed := r.(lootFailure); !failed || !isObject || registry.Qualify(optStr(c, "type")) == "minecraft:reference" {
 			panic(r)
 		}
-		out = &registry.EnchCondition{Kind: registry.EnchCondLoot, Loot: []registry.LootCondition{condition(c)}}
+		out = &registry.EnchCondition{Kind: registry.EnchCondLoot, Loot: []registry.LootCondition{activeProviderDecoder.condition(c)}}
 	}()
 	return d.nativeCondition(v)
 }
@@ -618,7 +618,7 @@ func (d *enchantmentDecoder) nativeCondition(v any) *registry.EnchCondition {
 		for _, x := range list(predicate["tags"], "tags") {
 			t := object(x, "a damage source tag")
 			out.DamageTags = append(out.DamageTags, registry.EnchTagExpect{
-				Types: damageHolderSet(required(t, "id")), Expected: requireFlag(t, "expected"),
+				Types: activeProviderDecoder.damageHolderSet(required(t, "id")), Expected: requireFlag(t, "expected"),
 			})
 		}
 		if _, ok := predicate["is_direct"]; ok {
@@ -660,7 +660,7 @@ func entityProperties(c, predicate obj) *registry.EnchCondition {
 	entity := optStr(c, "entity")
 	flags, _ := optObject(predicate, "minecraft:flags")
 	if entity == "this" && asksAfterBody(predicate, flags) {
-		body := entityPredicate(predicate)
+		body := activeProviderDecoder.entityPredicate(predicate)
 		return &registry.EnchCondition{Kind: registry.EnchCondBody, Entity: entity, Body: &body}
 	}
 	_, hasMovement := predicate["minecraft:movement"]

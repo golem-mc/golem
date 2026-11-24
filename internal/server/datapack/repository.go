@@ -260,9 +260,20 @@ func (r *Repository) Config() (enabled, disabled []string) {
 func (r *Repository) Dirs() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	return r.dirsLocked(r.selected)
+}
+
+// DirsFor gives the pack folders a candidate selection would load.
+func (r *Repository) DirsFor(ids []string) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.dirsLocked(ids)
+}
+
+func (r *Repository) dirsLocked(ids []string) []string {
 	var dirs []string
-	for _, p := range r.selectedLocked() {
-		if p.Dir != "" {
+	for _, id := range ids {
+		if p, ok := r.packLocked(id); ok && p.Dir != "" {
 			dirs = append(dirs, p.Dir)
 		}
 	}

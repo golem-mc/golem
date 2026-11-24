@@ -66,7 +66,7 @@ func slotSource(v any) registry.SlotSource {
 		return out
 	case "minecraft:filtered":
 		unknownKeys(o, "filtered slot source", "type", "slot_source", "item_filter")
-		return registry.SlotFilteredSource{From: slotSource(required(o, "slot_source")), Filter: itemPredicate(object(required(o, "item_filter"), "item filter"))}
+		return registry.SlotFilteredSource{From: slotSource(required(o, "slot_source")), Filter: activeProviderDecoder.itemPredicate(object(required(o, "item_filter"), "item filter"))}
 	case "minecraft:limit_slots":
 		unknownKeys(o, "limit slot source", "type", "slot_source", "limit")
 		limit := int(optNum(o, "limit", 0))

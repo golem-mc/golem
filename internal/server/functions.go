@@ -2,6 +2,7 @@ package server
 
 import (
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -11,15 +12,12 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// loadFunctions loads the enabled packs' functions for /function; one that
+// loadFunctions loads the selected packs' reloadable resources; a function that
 // fails is logged and skipped. vanilla: ServerFunctionLibrary.reload
-func (s *Server) loadFunctions() error {
+func (s *Server) loadFunctions(dirs []string) error {
 	skip := func(file string, err error) {
 		slog.Warn("Skipping data pack file " + file + ": " + err.Error())
 	}
-	dirs := s.packs.Dirs()
-	s.templateFiles.SetPacks(dirs)
-	s.structures.Clear()
 	files, err := datapack.LoadFunctions(dirs, skip)
 	if err != nil {
 		return err
@@ -38,7 +36,28 @@ func (s *Server) loadFunctions() error {
 	if err != nil {
 		return err
 	}
-	s.applyPackTags(packTags)
+	var tagLayer *registry.PackTagLayer
+	var tagProblems []string
+	// The tables are process-wide. Leave them alone if this server has never
+	// loaded any pack tags.
+	if len(packTags) != 0 || s.packTagsApplied {
+		tagLayer, tagProblems = registry.PreparePackTags(packTags)
+	}
+	// Providers can reference each other and tags from the candidate packs.
+	// Decode them before replacing any of the resources used by the server.
+	applyProviders, err := loadPackContextProviders(dirs, tagLayer, skip)
+	if err != nil {
+		return err
+	}
+	s.templateFiles.SetPacks(dirs)
+	s.structures.Clear()
+	if tagLayer != nil {
+		tagLayer.Apply()
+		s.packTagsApplied = len(packTags) != 0
+		for _, problem := range tagProblems {
+			slog.Error("Couldn't load tag " + problem)
+		}
+	}
 	// Advancement criteria resolve item tags against the loaded tags.
 	packAdvancements, hiddenAdvancements, err := loadPackAdvancements(dirs, skip)
 	if err != nil {
@@ -46,11 +65,7 @@ func (s *Server) loadFunctions() error {
 	}
 	s.applyPackAdvancements(packAdvancements, hiddenAdvancements)
 	// Before the loot: a table's context provider names resolve against them.
-	ints, floats, err := loadPackContextProviders(dirs, skip)
-	if err != nil {
-		return err
-	}
-	registry.ApplyPackContextProviders(ints, floats)
+	applyProviders()
 	// Before the loot: a slots entry's source names resolve against them.
 	if err := loadPackSlotSources(dirs, skip); err != nil {
 		return err
@@ -130,7 +145,7 @@ func (s *Server) openDataPacks() error {
 	if s.packStems, err = loadPackStems(s.packs.Dirs()); err != nil {
 		return err
 	}
-	return s.loadFunctions()
+	return s.loadFunctions(s.packs.Dirs())
 }
 
 func splitPackList(list string) []string {
@@ -152,9 +167,8 @@ type serverPacks struct {
 
 // Edit selects the packs change names and reloads, with packReloadMu held
 // across change too: vanilla reads and replaces the selection on the server
-// thread, so two /datapack commands never interleave. A failed reload
-// restores the old selection, in memory and level.dat, and the old
-// functions. vanilla: MinecraftServer.reloadResources
+// thread, so two /datapack commands never interleave.
+// vanilla: MinecraftServer.reloadResources
 func (p *serverPacks) Edit(change func() (ids []string, ok bool)) error {
 	p.srv.packReloadMu.Lock()
 	defer p.srv.packReloadMu.Unlock()
@@ -165,38 +179,29 @@ func (p *serverPacks) Edit(change func() (ids []string, ok bool)) error {
 	return p.selectLocked(ids)
 }
 
-// selectLocked selects ids and reloads, with packReloadMu held.
+// selectLocked loads the packs and commits their selection with packReloadMu held.
 func (p *serverPacks) selectLocked(ids []string) error {
-	prev := p.SelectedIDs()
-	p.apply(ids)
-	if err := p.srv.loadFunctions(); err != nil {
-		p.apply(prev)
+	if err := p.srv.loadFunctions(p.DirsFor(ids)); err != nil {
 		return err
 	}
+	p.SetSelected(ids)
+	p.srv.world.SetDataPacks(p.Config())
 	p.srv.resendResources()
 	return nil
 }
 
-func (p *serverPacks) apply(ids []string) {
-	p.SetSelected(ids)
-	p.srv.world.SetDataPacks(p.Config())
-}
-
-// ReloadAll rescans the pack folders, enables newly found packs, and reloads
-// like Select. vanilla: ReloadCommand.discoverNewPacks
+// ReloadAll rescans and includes packs that the world's last successful
+// reload did not disable. vanilla: ReloadCommand.discoverNewPacks
 func (p *serverPacks) ReloadAll() error {
 	p.srv.packReloadMu.Lock()
 	defer p.srv.packReloadMu.Unlock()
-	known := map[string]bool{}
-	for _, pk := range p.Available() {
-		known[pk.ID] = true
-	}
 	if err := p.Reload(); err != nil {
 		return err
 	}
+	_, disabled, _ := p.srv.world.DataPacks()
 	selected := p.SelectedIDs()
 	for _, pk := range p.Available() {
-		if !known[pk.ID] {
+		if pk.Source == datapack.SourceWorld && !slices.Contains(disabled, pk.ID) && !slices.Contains(selected, pk.ID) {
 			selected = append(selected, pk.ID)
 		}
 	}
