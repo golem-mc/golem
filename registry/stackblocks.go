@@ -106,7 +106,7 @@ func resolveDamageSet(own protocol.DamageSetComponent) (*DamageTypeSet, bool) {
 
 // blocksAttacksOf reads the optional blocking fields and fills their defaults.
 // vanilla: BlocksAttacks.CODEC
-func blocksAttacksOf(value nbt.Tag) (protocol.BlocksAttacksComponent, bool) {
+func (lookup *TagLookup) blocksAttacksOf(value nbt.Tag) (protocol.BlocksAttacksComponent, bool) {
 	entry, ok := nbt.CompoundView(value)
 	if !ok {
 		return protocol.BlocksAttacksComponent{}, false
@@ -130,7 +130,7 @@ func blocksAttacksOf(value nbt.Tag) (protocol.BlocksAttacksComponent, bool) {
 			return protocol.BlocksAttacksComponent{}, false
 		}
 		for _, item := range list.Items {
-			d, ok := damageReductionOf(item)
+			d, ok := lookup.damageReductionOf(item)
 			if !ok {
 				return protocol.BlocksAttacksComponent{}, false
 			}
@@ -153,7 +153,7 @@ func blocksAttacksOf(value nbt.Tag) (protocol.BlocksAttacksComponent, bool) {
 		}
 	}
 	if field, has := entry["bypassed_by"]; has {
-		if b.BypassedBy, ok = damageSetOf(field); !ok {
+		if b.BypassedBy, ok = lookup.damageSetOf(field); !ok {
 			return protocol.BlocksAttacksComponent{}, false
 		}
 	}
@@ -169,7 +169,7 @@ func blocksAttacksOf(value nbt.Tag) (protocol.BlocksAttacksComponent, bool) {
 	return b, true
 }
 
-func damageReductionOf(value nbt.Tag) (protocol.DamageReductionComponent, bool) {
+func (lookup *TagLookup) damageReductionOf(value nbt.Tag) (protocol.DamageReductionComponent, bool) {
 	entry, ok := nbt.CompoundView(value)
 	if !ok {
 		return protocol.DamageReductionComponent{}, false
@@ -181,7 +181,7 @@ func damageReductionOf(value nbt.Tag) (protocol.DamageReductionComponent, bool) 
 		}
 	}
 	if field, has := entry["type"]; has {
-		if d.Type, ok = damageSetOf(field); !ok {
+		if d.Type, ok = lookup.damageSetOf(field); !ok {
 			return protocol.DamageReductionComponent{}, false
 		}
 	}
@@ -196,7 +196,7 @@ func damageReductionOf(value nbt.Tag) (protocol.DamageReductionComponent, bool) 
 
 // damageSetOf reads a damage type holder set: a "#tag", a name or a list of
 // names. vanilla: RegistryCodecs.homogeneousList
-func damageSetOf(value nbt.Tag) (protocol.DamageSetComponent, bool) {
+func (lookup *TagLookup) damageSetOf(value nbt.Tag) (protocol.DamageSetComponent, bool) {
 	set := protocol.DamageSetComponent{Present: true}
 	names := []nbt.Tag{value}
 	if list, ok := value.(nbt.List); ok {
@@ -204,7 +204,7 @@ func damageSetOf(value nbt.Tag) (protocol.DamageSetComponent, bool) {
 	}
 	if s, ok := value.(nbt.String); ok && strings.HasPrefix(string(s), "#") {
 		set.Tag = Qualify(string(s[1:]))
-		return set, protocol.ValidIdentifier(set.Tag) && DamageTypeTagExists(set.Tag)
+		return set, protocol.ValidIdentifier(set.Tag) && lookup.DamageTypeTagExists(set.Tag)
 	}
 	reg, _ := Get("minecraft:damage_type")
 	set.IDs = make([]int32, 0, len(names))
@@ -333,7 +333,7 @@ func withBlocksAndWeaponTags(components nbt.Compound, stack protocol.ItemStack) 
 
 // readCombatComponent reads one stored tool, weapon, blocks_attacks or attack_range into
 // the stack, reporting whether the value is whole.
-func readCombatComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
+func (lookup *TagLookup) readCombatComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
 	switch name {
 	case "minecraft:attack_range":
 		a, ok := attackRangeOf(value)
@@ -342,7 +342,7 @@ func readCombatComponent(stack *protocol.ItemStack, name string, value nbt.Tag) 
 		}
 		return ok
 	case "minecraft:tool":
-		tool, ok := toolOf(value)
+		tool, ok := lookup.toolOf(value)
 		if ok {
 			stack.SetTool(tool)
 		}
@@ -354,7 +354,7 @@ func readCombatComponent(stack *protocol.ItemStack, name string, value nbt.Tag) 
 		}
 		return ok
 	}
-	b, ok := blocksAttacksOf(value)
+	b, ok := lookup.blocksAttacksOf(value)
 	if ok {
 		stack.SetBlocksAttacks(b)
 	}

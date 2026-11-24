@@ -10,11 +10,11 @@ import (
 )
 
 // vanilla: ComponentSerialization.StrictEither, FuzzyCodec
-func textContentDiagnostic(fields nbt.Compound) (string, bool) {
+func (lookup *TagLookup) textContentDiagnostic(fields nbt.Compound) (string, bool) {
 	raw, typed := fields["type"]
 	if !typed {
 		for _, name := range []string{"text", "translatable", "keybind", "score", "selector", "nbt", "object"} {
-			if msg, _ := textTypedContentDiagnostic(name, fields); msg == "" {
+			if msg, _ := lookup.textTypedContentDiagnostic(name, fields); msg == "" {
 				return "", true
 			}
 		}
@@ -23,10 +23,10 @@ func textContentDiagnostic(fields nbt.Compound) (string, bool) {
 	if msg := textStringMalformed(raw); msg != "" {
 		return msg, false
 	}
-	return textTypedContentDiagnostic(string(raw.(nbt.String)), fields)
+	return lookup.textTypedContentDiagnostic(string(raw.(nbt.String)), fields)
 }
 
-func textTypedContentDiagnostic(name string, fields nbt.Compound) (string, bool) {
+func (lookup *TagLookup) textTypedContentDiagnostic(name string, fields nbt.Compound) (string, bool) {
 	switch name {
 	case "text", "keybind":
 		msg := textFieldMalformed(fields, name, textStringMalformed)
@@ -38,8 +38,8 @@ func textTypedContentDiagnostic(name string, fields nbt.Compound) (string, bool)
 			if list, ok := value.(nbt.List); ok {
 				for _, item := range list.Items {
 					tag := nbt.ListElement(item)
-					if !textContentArgDecodes(tag) {
-						msg, partial := textComponentDiagnostic(tag)
+					if !lookup.textContentArgDecodes(tag) {
+						msg, partial := lookup.textComponentDiagnostic(tag)
 						if !partial {
 							msg = profileEitherMalformed("This value needs to be parsed as component", msg)
 						}
@@ -55,7 +55,7 @@ func textTypedContentDiagnostic(name string, fields nbt.Compound) (string, bool)
 		required := textFieldMalformed(fields, "selector", textSelectorMalformed)
 		sep := ""
 		if value, present := fields["separator"]; present {
-			sep = TextComponentMalformed(value)
+			sep = lookup.textComponentMalformed(value)
 		}
 		return JoinFieldErrors(sep, required), required == ""
 	case "score":
@@ -94,7 +94,7 @@ func textTypedContentDiagnostic(name string, fields nbt.Compound) (string, bool)
 		msg, partial := textObjectDiagnostic(fields)
 		fallback := ""
 		if tag, present := fields["fallback"]; present {
-			fallback = TextComponentMalformed(tag)
+			fallback = lookup.textComponentMalformed(tag)
 		}
 		return JoinFieldErrors(fallback, msg), partial
 	}
@@ -205,8 +205,8 @@ func textObjectFieldsDiagnostic(kind string, fields nbt.Compound) (string, bool)
 }
 
 // vanilla: TranslatableContents.ARG_CODEC
-func textContentArgDecodes(tag nbt.Tag) bool {
-	return textNumberMalformed(tag) == "" || textStringMalformed(tag) == "" || TextComponentMalformed(tag) == ""
+func (lookup *TagLookup) textContentArgDecodes(tag nbt.Tag) bool {
+	return textNumberMalformed(tag) == "" || textStringMalformed(tag) == "" || lookup.textComponentMalformed(tag) == ""
 }
 
 // vanilla: ExtraCodecs.UNTRUSTED_URI, Util.parseAndValidateUntrustedUri

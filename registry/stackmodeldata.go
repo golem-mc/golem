@@ -139,7 +139,7 @@ func containerLootOf(value nbt.Tag) (protocol.ContainerLoot, bool) {
 
 // readModelDataComponent is readComponentKnown for custom_model_data and
 // container_loot.
-func readModelDataComponent(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
+func (lookup *TagLookup) readModelDataComponent(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
 	switch name {
 	case "minecraft:custom_model_data":
 		d, ok := customModelDataOf(value)
@@ -154,7 +154,7 @@ func readModelDataComponent(stack *protocol.ItemStack, name string, value nbt.Ta
 		}
 		stack.ContainerLoot = loot
 	default:
-		if ok, modeled := readAdventureOrEntityData(stack, name, value); modeled {
+		if ok, modeled := lookup.readAdventureOrEntityData(stack, name, value); modeled {
 			return ok, modeled
 		}
 		return readDisplayComponent(stack, name, value)

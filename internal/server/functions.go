@@ -23,22 +23,14 @@ func (s *Server) loadFunctions(dirs []string) error {
 	return nil
 }
 
-// publishPacks reads the packs in dirs and publishes their resources, but
-// not the function library, which it returns for the caller to store. On an
-// error nothing it publishes stays published.
+// publishPacks validates the candidate resources before publishing them and
+// returns the loaded function library for the caller to store.
 // vanilla: MinecraftServer.reloadResources
-func (s *Server) publishPacks(dirs []string) (_ *loadedFunctions, err error) {
+func (s *Server) publishPacks(dirs []string) (*loadedFunctions, error) {
 	skip := func(file string, err error) {
 		slog.Warn("Skipping data pack file " + file + ": " + err.Error())
 	}
 	layers := registry.StagePackLayers()
-	tagsApplied := s.packTagsApplied
-	defer func() {
-		if err != nil {
-			layers.RestoreTags()
-			s.packTagsApplied = tagsApplied
-		}
-	}()
 	files, err := datapack.LoadFunctions(dirs, skip)
 	if err != nil {
 		return nil, err
@@ -57,9 +49,9 @@ func (s *Server) publishPacks(dirs []string) (_ *loadedFunctions, err error) {
 	if err != nil {
 		return nil, err
 	}
-	// The tags go in force before the decoders below run: the item component
-	// codecs they call read the tags in force. The other layers stay staged.
-	s.applyPackTags(packTags)
+	if lookup := s.preparePackTags(packTags); lookup != nil {
+		layers.SetTags(lookup)
+	}
 	// Before the loot: a table's context provider names resolve against them.
 	ints, floats, err := loadPackContextProviders(dirs, skip)
 	if err != nil {
@@ -81,15 +73,18 @@ func (s *Server) publishPacks(dirs []string) (_ *loadedFunctions, err error) {
 		return nil, err
 	}
 	// After the tags too: an ingredient's tag resolves against the loaded tags.
-	recipes, err := loadPackRecipes(dirs, skip)
+	recipes, err := loadPackRecipes(dirs, datapack.NewResourceDecoder(layers), skip)
 	if err != nil {
 		return nil, err
 	}
+	hiddenTables := hiddenLoot(dirs, tables)
+	// vanilla: ReloadableServerResources.updateComponentsAndStaticRegistryTags
 	layers.Publish()
+	s.packTagsApplied = len(packTags) > 0
 	s.templateFiles.SetPacks(dirs)
 	s.structures.Clear()
 	s.applyPackAdvancements(packAdvancements, hiddenAdvancements)
-	s.applyPackLoot(tables, predicates, modifiers, hiddenLoot(dirs, tables))
+	s.applyPackLoot(tables, predicates, modifiers, hiddenTables)
 	s.applyPackRecipes(recipes)
 	// A new recipe or ingredient tag can make unchanged contents tickable.
 	for _, dim := range s.allDims() {

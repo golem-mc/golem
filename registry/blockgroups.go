@@ -303,6 +303,10 @@ func BlockInTag(name, tag string) bool {
 // BlockTagKnown reports whether the server holds and sends the named block
 // tag; "logs" and "minecraft:logs" ask the same.
 func BlockTagKnown(tag string) bool {
-	_, ok := BlockTagMembers(Qualify(tag))
+	return CurrentTagLookup().blockTagKnown(tag)
+}
+
+func (lookup *TagLookup) blockTagKnown(tag string) bool {
+	_, ok := lookup.BlockTagMembers(Qualify(tag))
 	return ok
 }

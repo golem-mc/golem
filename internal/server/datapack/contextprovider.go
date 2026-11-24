@@ -23,9 +23,10 @@ func init() {
 		if err != nil {
 			return nil, err.Error()
 		}
-		decode := lootDecoder{}.decodeInt
+		d := lootDecoder{ResourceDecoder: liveResourceDecoder()}
+		decode := d.decodeInt
 		if float {
-			decode = lootDecoder{}.decodeFloat
+			decode = d.decodeFloat
 		}
 		n, msg, err := decode(tag)
 		if err != nil {
@@ -72,7 +73,7 @@ func eitherNumberOr(p registry.LootNumber, msg string) (registry.LootNumber, str
 // codec's refusal otherwise.
 // vanilla: ContextIntProviders.DIRECT_CODEC
 func DecodeIntProvider(tag nbt.Tag) (registry.LootNumber, string, error) {
-	return lootDecoder{nbtInput: true}.decodeInt(tag)
+	return (lootDecoder{ResourceDecoder: liveResourceDecoder(), nbtInput: true}).decodeInt(tag)
 }
 
 func (d lootDecoder) decodeInt(tag nbt.Tag) (registry.LootNumber, string, error) {
@@ -90,7 +91,7 @@ func (d lootDecoder) intOrPartial(tag nbt.Tag) (registry.LootNumber, string) {
 // DecodeFloatProvider reads a context float provider.
 // vanilla: ContextFloatProviders.DIRECT_CODEC
 func DecodeFloatProvider(tag nbt.Tag) (registry.LootNumber, string, error) {
-	return lootDecoder{nbtInput: true}.decodeFloat(tag)
+	return (lootDecoder{ResourceDecoder: liveResourceDecoder(), nbtInput: true}).decodeFloat(tag)
 }
 
 func (d lootDecoder) decodeFloat(tag nbt.Tag) (registry.LootNumber, string, error) {
@@ -141,7 +142,7 @@ func (d lootDecoder) decodeCondition(tag nbt.Tag) (registry.LootCondition, strin
 	if err != nil {
 		return nil, err.Error()
 	}
-	cond, err := DecodePredicate(d.layers, data)
+	cond, err := d.decodePredicate(data)
 	if errors.Is(err, ErrWeightOverflow) {
 		panic(lootFailure{msg: WeightOverflowMsg, overflow: true})
 	}

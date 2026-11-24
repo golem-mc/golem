@@ -13,7 +13,7 @@ import (
 // loadPackRecipes reads the enabled packs' recipes; a file that fails to
 // decode is logged and skipped, and its ID's built-in recipe is dropped.
 // vanilla: RecipeManager.prepare
-func loadPackRecipes(dirs []string, skip func(file string, err error)) (registry.PackRecipes, error) {
+func loadPackRecipes(dirs []string, decoder datapack.ResourceDecoder, skip func(file string, err error)) (registry.PackRecipes, error) {
 	var recipes registry.PackRecipes
 	raw, err := datapack.LoadResources(dirs, "recipe", skip)
 	if err != nil {
@@ -27,7 +27,7 @@ func loadPackRecipes(dirs []string, skip func(file string, err error)) (registry
 	}
 	slices.Sort(ids)
 	for _, id := range ids {
-		if err := datapack.DecodeRecipe(id, raw[id], &recipes); err != nil {
+		if err := decoder.DecodeRecipe(id, raw[id], &recipes); err != nil {
 			slog.Error("Couldn't parse element recipe/" + id + ": " + err.Error())
 			if !errors.Is(err, datapack.ErrBuiltInRecipeType) {
 				recipes.Dropped = append(recipes.Dropped, id)

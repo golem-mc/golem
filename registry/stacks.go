@@ -661,19 +661,20 @@ func enchantmentsTag(stack protocol.ItemStack, stored bool) *nbt.OrderedCompound
 // models nor holds raw; the caller then keeps the compound whole, so what
 // vanilla wrote is saved back untouched.
 func StoredStack(entry nbt.CompoundTag) (protocol.ItemStack, bool) {
-	return storedStack(entry.Entries(), false)
+	return CurrentTagLookup().storedStack(entry, false)
 }
 
 // StoredContainerStack reads a container's stack, accepting safe partial
 // written book pages while leaving unsupported components to the caller.
 // vanilla: ContainerHelper.loadAllItems, TagValueInput.TypedListWrapper.iterator
 func StoredContainerStack(entry nbt.CompoundTag) (protocol.ItemStack, bool) {
-	return storedStack(entry.Entries(), true)
+	return CurrentTagLookup().storedStack(entry, true)
 }
 
 // storedStack permits book page partial values only for container loading.
 // vanilla: TagValueInput.TypedListWrapper.iterator
-func storedStack(entry nbt.Compound, partial bool) (protocol.ItemStack, bool) {
+func (lookup *TagLookup) storedStack(tag nbt.CompoundTag, partial bool) (protocol.ItemStack, bool) {
+	entry := tag.Entries()
 	components, hasComponents := entry["components"].(nbt.CompoundTag)
 	if !hasComponents {
 		view, isView := nbt.Get[nbt.Compound](entry, "components")
@@ -692,9 +693,9 @@ func storedStack(entry nbt.Compound, partial bool) (protocol.ItemStack, bool) {
 		// Keys are read in the compound's native order, which the patch keeps.
 		for _, name := range nbt.HashOrderedKeys(components) {
 			value := components.Entries()[name]
-			if !readComponent(&stack, name, value) {
+			if !lookup.ReadComponent(&stack, name, value) {
 				if partial && Qualify(name) == "minecraft:written_book_content" {
-					book, ok := readWrittenBook(value, true)
+					book, ok := lookup.readWrittenBook(value, true)
 					if ok && stack.SetWrittenBook(book) {
 						continue
 					}
@@ -712,18 +713,21 @@ func storedStack(entry nbt.Compound, partial bool) (protocol.ItemStack, bool) {
 // ReadComponent reads one component in its codec's NBT shape onto the
 // stack; false when it is not modelled or the value is refused.
 func ReadComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
-	return readComponent(stack, name, value)
+	return CurrentTagLookup().ReadComponent(stack, name, value)
 }
 
-// readComponent reads one component onto a stored stack, reporting whether
-// it is modelled in its codec's shape.
 func readComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
+	return ReadComponent(stack, name, value)
+}
+
+// ReadComponent decodes a component against this tag snapshot.
+func (lookup *TagLookup) ReadComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
 	// Noted first so a reader that leaves the component at its default can
 	// take it back out with ResetComponent.
 	if id, named := ComponentID(Qualify(strings.TrimPrefix(name, "!"))); named {
 		stack.NotePatch(id)
 	}
-	ok, _ := readComponentKnown(stack, name, value)
+	ok, _ := lookup.readComponentKnown(stack, name, value)
 	return ok
 }
 
@@ -731,15 +735,23 @@ func readComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
 // component and refuses the value, so /give and a saved stack agree; an
 // unmodelled component is never refused.
 func ComponentRefused(name string, value nbt.Tag) bool {
+	return CurrentTagLookup().componentRefused(name, value)
+}
+
+func (lookup *TagLookup) componentRefused(name string, value nbt.Tag) bool {
 	var scratch protocol.ItemStack
-	ok, modeled := readComponentKnown(&scratch, name, value)
+	ok, modeled := lookup.readComponentKnown(&scratch, name, value)
 	return modeled && !ok
 }
 
-// readComponentKnown is readComponent that also reports whether the
+// readComponentKnown is ReadComponent that also reports whether the
 // component has a reader at all (modeled). A shape with no reading refuses
 // the whole stack, so a half-read stack is never saved back half-written.
 func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
+	return CurrentTagLookup().readComponentKnown(stack, name, value)
+}
+
+func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
 	if removed, isRemoval := strings.CutPrefix(name, "!"); isRemoval {
 		if component, kept := protocol.RemovableType(Qualify(removed)); kept {
 			if entry, isMap := nbt.CompoundView(value); !isMap || len(entry) != 0 {
@@ -765,13 +777,13 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 		stack.Unbreakable = stack.Unbreakable || name == "minecraft:unbreakable"
 		stack.Intangible = stack.Intangible || name == "minecraft:intangible_projectile"
 	case "minecraft:item_name":
-		text, ok := protocol.StyledTextOf(value)
+		text, ok := lookup.styledTextOf(value)
 		if !ok {
 			return false, true
 		}
 		stack.SetItemName(text)
 	case "minecraft:custom_name":
-		text, ok := protocol.StyledTextOf(value)
+		text, ok := lookup.styledTextOf(value)
 		if !ok {
 			return false, true
 		}
@@ -832,13 +844,13 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 			stack.SetGlintOverride(protocol.GlintHidden)
 		}
 	case "minecraft:container":
-		contents, ok := containerOf(value)
+		contents, ok := lookup.containerOf(value)
 		if !ok {
 			return false, true
 		}
 		stack.SetContainer(contents)
 	case "minecraft:bundle_contents":
-		contents, ok := bundleContentsOf(value)
+		contents, ok := lookup.bundleContentsOf(value)
 		if !ok {
 			return false, true
 		}
@@ -850,7 +862,7 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 		}
 		lines := make([]protocol.Text, 0, len(list.Items))
 		for _, item := range list.Items {
-			line, ok := protocol.StyledTextOf(item)
+			line, ok := lookup.styledTextOf(item)
 			if !ok {
 				return false, true
 			}
@@ -880,13 +892,13 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 		if !ok {
 			return false, true
 		}
-		content, ok := StoredStack(tag)
+		content, ok := lookup.storedStack(tag, false)
 		if !ok || content.Empty() {
 			return false, true
 		}
 		stack.SetSulfurCubeContent(content)
 	case "minecraft:charged_projectiles":
-		loaded, ok := bundleContentsOf(value)
+		loaded, ok := lookup.bundleContentsOf(value)
 		if !ok {
 			return false, true
 		}
@@ -970,7 +982,7 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 		if !ok {
 			return false, true
 		}
-		sides, ok := PotDecorationsOf(tag)
+		sides, ok := lookup.potDecorationsOf(tag)
 		if !ok || !stack.SetPotDecorations(sides) {
 			return false, true
 		}
@@ -1019,14 +1031,14 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 			return false, true
 		}
 	case "minecraft:written_book_content":
-		book, ok := writtenBookOf(value)
+		book, ok := lookup.writtenBookOf(value)
 		if !ok || !stack.SetWrittenBook(book) {
 			return false, true
 		}
 	case "minecraft:tool", "minecraft:blocks_attacks", "minecraft:weapon", "minecraft:attack_range":
-		return readCombatComponent(stack, name, value), true
+		return lookup.readCombatComponent(stack, name, value), true
 	case "minecraft:equippable":
-		raw, ok := equippableOf(value)
+		raw, ok := lookup.equippableOf(value)
 		if !ok {
 			return false, true
 		}
@@ -1044,7 +1056,7 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 		}
 		stack.SetRaw(e.RawComponent())
 	default:
-		return readVariantComponent(stack, name, value)
+		return lookup.readVariantComponent(stack, name, value)
 	}
 	return true, true
 }
@@ -1052,7 +1064,7 @@ func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (
 // containerOf reads a container component's per-slot entries into contents
 // up to the last filled slot. An empty entry, a slot past the codec's bound
 // or a refused stack makes the whole component unholdable.
-func containerOf(value nbt.Tag) ([]protocol.ItemStack, bool) {
+func (lookup *TagLookup) containerOf(value nbt.Tag) ([]protocol.ItemStack, bool) {
 	list, ok := value.(nbt.List)
 	if !ok || list.Elem != nbt.TypeCompound {
 		return nil, false
@@ -1079,7 +1091,7 @@ func containerOf(value nbt.Tag) ([]protocol.ItemStack, bool) {
 		if !ok {
 			return nil, false
 		}
-		stack, ok := StoredStack(inner)
+		stack, ok := lookup.storedStack(inner, false)
 		if !ok {
 			return nil, false
 		}
@@ -1096,7 +1108,7 @@ func containerOf(value nbt.Tag) ([]protocol.ItemStack, bool) {
 
 // bundleContentsOf reads a bundle_contents list in the bundle's order, each
 // stack one the stored reading must accept; empty reads as absent.
-func bundleContentsOf(value nbt.Tag) ([]protocol.ItemStack, bool) {
+func (lookup *TagLookup) bundleContentsOf(value nbt.Tag) ([]protocol.ItemStack, bool) {
 	list, ok := value.(nbt.List)
 	if !ok || list.Elem != nbt.TypeCompound {
 		return nil, false
@@ -1110,7 +1122,7 @@ func bundleContentsOf(value nbt.Tag) ([]protocol.ItemStack, bool) {
 		if !ok {
 			return nil, false
 		}
-		stack, ok := StoredStack(entry)
+		stack, ok := lookup.storedStack(entry, false)
 		if !ok {
 			return nil, false
 		}
@@ -1650,6 +1662,10 @@ func PotDecorationsTag(sides [4]protocol.ItemStack) *nbt.OrderedCompound {
 // stack for an absent side; false for a side that is not a stored stack.
 // vanilla: PotDecorations.CODEC
 func PotDecorationsOf(tag nbt.Compound) ([4]protocol.ItemStack, bool) {
+	return CurrentTagLookup().potDecorationsOf(tag)
+}
+
+func (lookup *TagLookup) potDecorationsOf(tag nbt.Compound) ([4]protocol.ItemStack, bool) {
 	var sides [4]protocol.ItemStack
 	for i, key := range potSides {
 		value, present := tag[key]
@@ -1660,7 +1676,7 @@ func PotDecorationsOf(tag nbt.Compound) ([4]protocol.ItemStack, bool) {
 		if !ok {
 			return sides, false
 		}
-		side, ok := StoredStack(entry)
+		side, ok := lookup.storedStack(entry, false)
 		if !ok {
 			return sides, false
 		}
