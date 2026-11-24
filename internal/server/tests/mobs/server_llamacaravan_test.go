@@ -64,9 +64,15 @@ func TestALlamaIgnoresAScaledLeadFiledOutsideItsSearchSections(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		x     float64
+		leadX float64
 		moves bool
 		extra int
-	}{{"outside", -13.5, false, 0}, {"inside", -9.5, true, 0}, {"inside with a long list", -9.5, true, 64}} {
+	}{
+		{"outside", -13.5, 0.5, false, 0},
+		{"inside", -9.5, 0.5, true, 0},
+		// Four grid cells apart, past the unscaled push radius.
+		{"inside with a long list", -10.1, 4.1, true, 64},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			srv, connect := servertest.Start(t, servertest.MobTestConfig())
@@ -87,7 +93,7 @@ func TestALlamaIgnoresAScaledLeadFiledOutsideItsSearchSections(t *testing.T) {
 
 			scale := nbt.Compound{"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
 				nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(12)}}}}
-			lead := srv.SpawnMobTagged("minecraft:llama", 0.5, 64, 5.5, scale)
+			lead := srv.SpawnMobTagged("minecraft:llama", tc.leadX, 64, 5.5, scale)
 			if lead == 0 {
 				t.Fatal("the lead was refused")
 			}
@@ -104,8 +110,14 @@ func TestALlamaIgnoresAScaledLeadFiledOutsideItsSearchSections(t *testing.T) {
 			follower := srv.SpawnMob("minecraft:llama", tc.x, 64, 5.5)
 			c.Settle()
 			x0, _, _, _ := srv.MobPos(follower)
-			srv.TickMobs(40)
-			x1, _, _, _ := srv.MobPos(follower)
+			x1 := x0
+			for range 40 {
+				srv.TickMobs(1)
+				x1, _, _, _ = srv.MobPos(follower)
+				if tc.moves && x1-x0 >= 1 {
+					break
+				}
+			}
 			if moved := x1 - x0; tc.moves && moved < 1 || !tc.moves && moved > 1 {
 				t.Errorf("the follower moved %f in x over 40 ticks, moves=%v", moved, tc.moves)
 			}
