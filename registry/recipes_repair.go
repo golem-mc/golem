@@ -24,11 +24,7 @@ func repairItem(cells []protocol.ItemStack) (protocol.ItemStack, bool) {
 	maxDamage := max(firstMax, secondMax)
 	remaining := (firstMax - first.Damage) + (secondMax - second.Damage) + maxDamage*repairBonusPercent/100
 	result := protocol.ItemStack{ItemID: first.ItemID, Count: 1, Damage: max(maxDamage-remaining, 0)}
-	if maxDamage != MaxDamage(first.ItemID) { // a patch equal to the prototype is dropped
-		var b protocol.Buffer
-		b.PutVarInt(maxDamage)
-		result.SetRaw(protocol.RawComponent{Type: protocol.DataComponentMaxDamage, Data: b.Bytes()})
-	}
+	SetStackMaxDamage(&result, maxDamage)
 	for _, source := range []map[int32]int32{first.Enchantments, second.Enchantments} {
 		for id, level := range source {
 			if !EnchantmentInTag(id, "minecraft:curse") {

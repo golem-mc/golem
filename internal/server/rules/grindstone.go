@@ -1,8 +1,6 @@
 package rules
 
 import (
-	"slices"
-
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/registry"
 )
@@ -88,14 +86,7 @@ func grindstoneMerge(input, additional protocol.ItemStack) protocol.ItemStack {
 		inputMax, additionalMax := registry.StackMaxDamage(input), registry.StackMaxDamage(additional)
 		maxDamage := max(inputMax, additionalMax)
 		remaining := (inputMax - input.Damage) + (additionalMax - additional.Damage) + maxDamage*5/100
-		if maxDamage == registry.MaxDamage(merged.ItemID) {
-			merged.ResetComponent(protocol.DataComponentMaxDamage)
-		} else if maxDamage != inputMax {
-			var data protocol.Buffer
-			data.PutVarInt(maxDamage)
-			merged.Raw = slices.Clone(merged.Raw)
-			merged.SetRaw(protocol.RawComponent{Type: protocol.DataComponentMaxDamage, Data: data.Bytes()})
-		}
+		registry.SetStackMaxDamage(&merged, maxDamage)
 		merged.SetDamage(max(maxDamage-remaining, 0))
 	}
 	grindstoneMergeCurses(&merged, additional)
