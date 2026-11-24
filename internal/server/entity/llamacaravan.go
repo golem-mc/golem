@@ -174,8 +174,9 @@ func (g *caravanGoal) Tick(t *tickView) {
 	if !m.inCaravan() || m.Horse.knotHeld {
 		return
 	}
-	// A coordinate moveTo drops its path if createPath cannot run mid-fall.
-	// vanilla: PathNavigation.createPath, PathNavigation.moveTo
+	// The coordinate overload passes a failed createPath through to
+	// moveTo(Path, double), which clears the path on null.
+	// vanilla: PathNavigation.moveTo(double, double, double, double), moveTo(Path, double)
 	if !m.canUpdatePath() {
 		m.stopSeeking()
 		return

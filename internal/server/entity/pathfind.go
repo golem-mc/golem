@@ -1362,7 +1362,7 @@ func (m *Mob) pathFootprint(w World) footprint {
 	foot.overFences = IsCamel(m.Type)
 	foot.floats = m.canFloat
 	foot.flatDistance = m.Type == TypeWarden
-	foot.amphibious = m.Type == TypeTurtle || m.Type == TypeAxolotl || m.Type == TypeFrog || m.Type == TypeDrowned
+	foot.amphibious = m.usesAmphibiousNavigation()
 	foot.openDoors = m.canOpenDoors()
 	foot.maxFall = m.maxFallDistance(w)
 	m.setFireMaluses(&foot)
@@ -1445,6 +1445,79 @@ func (m *Mob) atWaypoint(dx, dz float64) bool {
 // within a step so the mob banks it a tick early rather than circling.
 const waypointReached = 0.35
 
+// vanilla: PathNavigation.getMaxVerticalDistanceToWaypoint
+const groundVerticalReach = 1.0
+
+func (m *Mob) usesAmphibiousNavigation() bool {
+	return m.Type == TypeTurtle || m.Type == TypeAxolotl || m.Type == TypeFrog || m.Type == TypeDrowned
+}
+
+// vanilla: GroundPathNavigation.getSurfaceY
+func (m *Mob) groundNavigationY(w World) float64 {
+	if !m.canFloat || !m.InWater() {
+		return math.Floor(m.Y + 0.5)
+	}
+	feet := m.cell()
+	for y := feet.Y; y <= feet.Y+16; y++ {
+		if !rules.IsWater(w.BlockAt(feet.X, y, feet.Z)) {
+			return float64(y)
+		}
+	}
+	return float64(feet.Y)
+}
+
+// cutsPathCorner is PathNavigation.shouldTargetNextNodeInDirection.
+func (m *Mob) cutsPathCorner(w World, waterBound bool) bool {
+	if len(m.nav.path) < 2 {
+		return false
+	}
+	amphibious := m.usesAmphibiousNavigation()
+	var y float64
+	if waterBound || amphibious {
+		y = m.Y + m.height()*0.5
+	} else {
+		y = m.groundNavigationY(w)
+	}
+	cur, next := m.nav.path[0], m.nav.path[1]
+	toCur := vec3{float64(cur.X) + 0.5 - m.X, float64(cur.Y) - y, float64(cur.Z) + 0.5 - m.Z}
+	curSq := toCur.x*toCur.x + toCur.y*toCur.y + toCur.z*toCur.z
+	if curSq >= 4 {
+		return false
+	}
+	if (waterBound || amphibious && (m.InWater() || m.InLava())) && m.swimMovesDirectly(w, y) {
+		return waterBound || m.canCutCorner(w, cur)
+	}
+	toNext := vec3{float64(next.X) + 0.5 - m.X, float64(next.Y) - y, float64(next.Z) + 0.5 - m.Z}
+	nextSq := toNext.x*toNext.x + toNext.y*toNext.y + toNext.z*toNext.z
+	if nextSq >= curSq && curSq >= 0.5 {
+		return false
+	}
+	a, b := toCur.normalize(), toNext.normalize()
+	return a.x*b.x+a.y*b.y+a.z*b.z < 0 && (waterBound || m.canCutCorner(w, cur))
+}
+
+// Waypoints hold coordinates, so classify the node against the current terrain.
+// vanilla: PathNavigation.canCutCorner, Frog.FrogPathNavigation.canCutCorner
+func (m *Mob) canCutCorner(w World, node Waypoint) bool {
+	switch positionPathType(w, node.X, node.Y, node.Z) {
+	case pathNearFire, pathNearDamaging:
+		return false
+	case pathWaterBorder:
+		if m.Type == TypeFrog {
+			return false
+		}
+	case pathWater:
+		if m.Type == TypeFrog && !amphibiousOpenWater(w, node.X, node.Y, node.Z) {
+			return false
+		}
+	}
+	if m.canOpenDoors() {
+		width, height := m.footprintCells()
+		return !doorInFootprint(w, footprint{fw: width, fh: height}, node.X, node.Y, node.Z)
+	}
+	return true
+}
+
 // closerToCentre is Vec3i.closerToCenterThan: pos within distance of the
 // block's centre.
 func closerToCentre(c Waypoint, pos [3]float64, distance float64) bool {
@@ -1471,18 +1544,14 @@ func (m *Mob) navigate(w World) {
 	if o.nav.delayedRecompute {
 		m.recomputePath(w)
 	}
-	for len(o.nav.path) > 0 {
+	if len(o.nav.path) > 0 {
 		node := o.nav.path[0]
-		// A follower still on the lip must keep steering toward the step below.
 		// vanilla: PathNavigation.followThePath
-		if o.inCaravan() && math.Abs(o.Y-float64(node.Y)) >= 1 {
-			break
-		}
 		centreX, centreZ := float64(node.X)+0.5, float64(node.Z)+0.5
-		if (!o.atWaypoint(centreX-o.X, centreZ-o.Z) || o.swimsBelow(node)) && !o.turtleCutsCorner(w) {
-			break
+		reached := o.atWaypoint(centreX-o.X, centreZ-o.Z) && math.Abs(o.Y-float64(node.Y)) < groundVerticalReach
+		if reached || o.cutsPathCorner(w, false) {
+			o.nav.advance()
 		}
-		o.nav.advance()
 	}
 	if len(o.nav.path) == 0 {
 		if !o.nav.climbSet {
