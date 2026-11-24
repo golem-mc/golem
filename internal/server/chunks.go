@@ -22,11 +22,12 @@ func (c *client) chunkRadius() int32 {
 }
 
 // chunkLoadRadius is how far around the player chunks are held: the
-// simulation distance, or the send radius if larger.
+// simulation distance, or the send view's reach (one past the send radius)
+// if larger.
 func (c *client) chunkLoadRadius() int32 {
 	load := c.srv.simulationDistance.Load()
-	if radius := c.chunkRadius(); radius > load {
-		return radius
+	if reach := c.chunkRadius() + 1; reach > load {
+		return reach
 	}
 	return load
 }
@@ -245,7 +246,7 @@ func (c *client) updateChunks() error {
 			if request := c.generating[pos]; request != nil {
 				request.SetPriority(world.DistanceTo(pos, center))
 			}
-			if c.sent.has(pos) && !world.InViewOf(pos, center, radius) {
+			if c.sent.has(pos) && !world.InSendView(pos, center, radius) {
 				c.unmarkSent(pos)
 				if err := c.writeUnload(pos); err != nil {
 					return err
@@ -278,7 +279,7 @@ func (c *client) updateChunks() error {
 		if _, ok := c.generating[pos]; ok {
 			continue
 		}
-		if world.InViewOf(pos, center, radius) {
+		if world.InSendView(pos, center, radius) {
 			queue = append(queue, pos)
 		}
 	}
@@ -286,20 +287,20 @@ func (c *client) updateChunks() error {
 	// Holds queued from a smaller view that now fall in send radius are
 	// acquired with it; taken as plain holds nothing would queue them to send.
 	c.pendingHolds = slices.DeleteFunc(c.pendingHolds, func(pos world.ChunkPos) bool {
-		return world.InViewOf(pos, center, radius)
+		return world.InSendView(pos, center, radius)
 	})
 	missing := c.missingChunks(center, load)
 	if skip {
 		// Only chunks other holders already brought into memory.
 		missing = slices.DeleteFunc(missing, func(pos world.ChunkPos) bool {
-			return !world.InViewOf(pos, center, radius) || !w.ChunkLoaded(pos)
+			return !world.InSendView(pos, center, radius) || !w.ChunkLoaded(pos)
 		})
 	}
 	// Keep unscheduled work as positions, so a moving view can discard it
 	// before it consumes generation, lighting or a worker goroutine.
 	c.pendingGeneration = nil
 	for _, pos := range missing {
-		if world.InViewOf(pos, center, radius) {
+		if world.InSendView(pos, center, radius) {
 			// Ready terrain bypasses the generation window, including while
 			// workers finish chunks left behind by a moving player.
 			if w.HoldIfLoaded(pos) != nil {
@@ -381,7 +382,7 @@ func (c *client) pruneGenerationWindow() {
 		}
 		delete(c.generating, pos)
 		c.loaded.delete(pos)
-		if world.InViewOf(pos, c.center, c.radius) {
+		if world.InSendView(pos, c.center, c.radius) {
 			c.pendingGeneration = append(c.pendingGeneration, pos)
 		} else {
 			c.pendingHolds = append(c.pendingHolds, pos)
@@ -429,7 +430,7 @@ func (c *client) collectGenerated() {
 			c.loadedWorld.Release(pos)
 			continue
 		}
-		if world.InViewOf(pos, c.center, c.radius) {
+		if world.InSendView(pos, c.center, c.radius) {
 			c.pendingSend = append(c.pendingSend, pos)
 			added = true
 		}

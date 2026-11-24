@@ -38,9 +38,10 @@ func TestDistancesFollowTheConfig(t *testing.T) {
 
 	// The chunks arrive in batches the client's acknowledgements pace
 	// rather than one: read the whole view before the server's holds are
-	// judged. The client was sent the five by five the render distance of
-	// 4 bounds the server's view distance to, but the world holds the
-	// simulation distance's seven by seven for its own work - the
+	// judged. The client was sent the view the render distance of
+	// 4 bounds the server's view distance to, plus the neighbor ring the client
+	// needs to light its edge chunks: seven by seven, as vanilla sends. The
+	// world holds the same area, the simulation distance's, for its own work - the
 	// natural spawn and the ticking among it - and those holds are taken
 	// after the batch, so they are waited for.
 	var chunks int32
@@ -53,7 +54,7 @@ func TestDistancesFollowTheConfig(t *testing.T) {
 				t.Errorf("batch size = %d, want no batch above the nine chunks per tick the server opens at", got)
 			}
 		}
-		if chunks == 5*5 {
+		if chunks == 7*7 {
 			servertest.PollUntil(t, 30*time.Second, func() bool { return srv.LoadedChunks() == 7*7 })
 			return
 		}
