@@ -1539,6 +1539,15 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 		case protocol.MetadataIndexSheepColour:
 			// The index is shared: the sheep carries its colour byte
 			// there, the mooshroom its variant VarInt.
+			// Decided first: no other decoder may consume an armadillo's
+			// state or take the state serializer.
+			if mob.TypeID == protocol.EntityTypeArmadillo || fieldType == protocol.MetadataArmadilloState {
+				if mob.TypeID != protocol.EntityTypeArmadillo || fieldType != protocol.MetadataArmadilloState {
+					c.T.Fatalf("index %d of entity type %d has serializer %d, want an armadillo state on an armadillo only", protocol.MetadataIndexSheepColour, mob.TypeID, fieldType)
+				}
+				mob.ArmadilloState, mob.HasArmadilloState = meta.ReadVarInt(), true
+				continue
+			}
 			if fieldType == protocol.MetadataVarInt {
 				if mob.TypeID == protocol.EntityTypeFox {
 					mob.FoxType = uint8(meta.ReadVarInt())
@@ -1560,16 +1569,6 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 				}
 				mob.MooshroomVariant = meta.ReadVarInt()
 				mob.HasMooshroomVariant = true
-				continue
-			}
-			if mob.TypeID == protocol.EntityTypeArmadillo && fieldType != protocol.MetadataArmadilloState {
-				c.T.Fatalf("armadillo state field type = %d, want %d (an armadillo state)", fieldType, protocol.MetadataArmadilloState)
-			}
-			if fieldType == protocol.MetadataArmadilloState {
-				if mob.TypeID != protocol.EntityTypeArmadillo {
-					c.T.Fatalf("an armadillo state at index 18 of entity type %d, want an armadillo", mob.TypeID)
-				}
-				mob.ArmadilloState, mob.HasArmadilloState = meta.ReadVarInt(), true
 				continue
 			}
 			if fieldType == protocol.MetadataBoolean && mob.TypeID == protocol.EntityTypeOcelot {
