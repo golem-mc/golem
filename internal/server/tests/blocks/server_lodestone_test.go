@@ -362,3 +362,42 @@ func TestABrokenLodestoneClearsTheCompassTarget(t *testing.T) {
 	}
 	c.Disconnect()
 }
+
+// TestLodestoneCompassUnloadedTarget checks a compass pointing into an
+// unloaded chunk is judged by the saved chunk: a never-generated one and one
+// saved without a lodestone clear the target, a saved lodestone keeps it, and
+// no check loads the chunk.
+// vanilla: LodestoneTracker.tick, PoiManager.existsAtPosition
+func TestLodestoneCompassUnloadedTarget(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
+	const dim = "minecraft:overworld"
+	const never, withLodestone, without = 98765, 200000, 300000
+	shapeLodestone(t, srv, withLodestone, 63, withLodestone)
+	stone, _ := registry.FindState("minecraft:stone", nil)
+	srv.SetLoadedBlock(without, 63, without, stone)
+
+	c := connect().Join("Wanderer")
+	slots := []struct {
+		slot int
+		at   int32
+		kept bool
+	}{{1, never, false}, {2, withLodestone, true}, {3, without, false}}
+	for _, s := range slots {
+		srv.GiveSlot("Wanderer", s.slot, lodestoneCompass(t, 1, dim, s.at, 63, s.at))
+	}
+	servertest.AwaitTicks(t, srv, 5)
+	for _, s := range slots {
+		want := clearedLodestoneCompass(t, 1)
+		if s.kept {
+			want = lodestoneCompass(t, 1, dim, s.at, 63, s.at)
+		}
+		if got := srv.InventorySlot("Wanderer", s.slot); !got.Equal(want) {
+			t.Errorf("target %d: slot %d = %+v, want %+v", s.at, s.slot, got, want)
+		}
+		if srv.ChunkLoadedInDimension(dim, s.at, s.at) {
+			t.Errorf("target %d: the check loaded its chunk", s.at)
+		}
+	}
+	c.Disconnect()
+}

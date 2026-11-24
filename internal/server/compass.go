@@ -14,9 +14,9 @@ import (
 // tickLodestoneCompasses ticks every carried compass (mobs' are in
 // tickMobCompasses): one whose lodestone is gone (broken, or outside the
 // world's bounds) loses its target and spins, keeping the component and the
-// tracked flag. One pointing into another dimension, or at a chunk with no
-// reading here, is left alone, since neither can be confirmed not a
-// lodestone. vanilla: CompassItem.inventoryTick, LodestoneTracker.tick
+// tracked flag. One pointing into another dimension is left alone; one at an
+// unloaded chunk is judged by the saved chunk.
+// vanilla: CompassItem.inventoryTick, LodestoneTracker.tick
 func (c *client) tickLodestoneCompasses() {
 	w := c.theWorld()
 	dim := c.dimension().name

@@ -2,14 +2,13 @@ package rules
 
 import (
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/registry"
 )
 
 // LodestoneWorld is what a lodestone compass's tick reads of its dimension:
-// whether the target's chunk is held, and the block standing there.
+// whether a lodestone stands at a position, read from the saved chunk when it
+// is not loaded.
 type LodestoneWorld interface {
-	BlockAt(x, y, z int32) uint16
-	ChunkLoadedAt(x, z int32) bool
+	LodestoneAt(x, y, z int32) bool
 }
 
 // worldBorderLimit is the horizontal extent of the world, in blocks each way
@@ -32,8 +31,8 @@ func ClearLostLodestone(w LodestoneWorld, stack protocol.ItemStack, dim string, 
 
 // LodestoneLost reports whether a compass in dimension dim (world height
 // bottom inclusive to top exclusive) lost its lodestone: a same-dimension
-// target that is not a lodestone or is out of bounds. Another dimension, or
-// an in-bounds target in a chunk w cannot read, is not lost.
+// target that is not a lodestone or is out of bounds. Another dimension or an
+// untracked compass is not lost.
 // vanilla: CompassItem.inventoryTick, LodestoneTracker.tick
 func LodestoneLost(w LodestoneWorld, tracker protocol.LodestoneTracker, dim string, bottom, top int32) bool {
 	if !tracker.Tracked || tracker.Target == nil || tracker.Target.Dimension != dim {
@@ -45,12 +44,7 @@ func LodestoneLost(w LodestoneWorld, tracker protocol.LodestoneTracker, dim stri
 		return true
 	}
 	if target.Y >= bottom && target.Y < top {
-		if !w.ChunkLoadedAt(target.X, target.Z) {
-			return false
-		}
-		if registry.BlockOf(w.BlockAt(target.X, target.Y, target.Z)) == registry.BlockLodestone {
-			return false
-		}
+		return !w.LodestoneAt(target.X, target.Y, target.Z)
 	}
 	return true
 }

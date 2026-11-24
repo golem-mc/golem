@@ -199,6 +199,7 @@ type World struct {
 	entityWriteFault atomic.Pointer[error]
 	entityWriteGate  atomic.Pointer[func()]
 	regionMu         sync.Mutex
+	lodestones       lodestoneCache
 	regions          *regionCache
 	entityRegions    *regionCache
 	entityWrites     entityWrites
@@ -2217,6 +2218,7 @@ func (w *World) saveChunk(pos ChunkPos, c *Chunk) (bool, error) {
 		}
 		err = rf.writeChunk(pos, data)
 		w.releaseRegion(rf)
+		w.lodestones.drop(pos)
 		*buf = data // keeps the grown capacity; writeChunk has copied or compressed data by now
 		saveBuffers.Put(buf)
 		return err == nil, skipUnreadable(err, "chunk", pos)
