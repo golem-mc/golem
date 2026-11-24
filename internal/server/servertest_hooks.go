@@ -4438,6 +4438,21 @@ func (s *Server) SpawnItemEntityDelay(x, y, z float64, item string, count, picku
 	return it.item.ID
 }
 
+// SpawnItemThrownBy is SpawnItemEntityDelay for a drop the named player
+// threw, so its pickup fires the thrown-item advancements.
+func (s *Server) SpawnItemThrownBy(thrower string, x, y, z float64, item string, count, pickupDelay int) int32 {
+	id, ok := registry.ItemID(item)
+	c := s.playerClient(thrower)
+	if !ok || c == nil {
+		return 0
+	}
+	it := s.newItemEntity(s.world, protocol.ItemStack{ItemID: id, Count: int32(count)},
+		x, y-entity.ItemHalfSize, z, 0, 0, 0, pickupDelay)
+	it.thrower = c.player.UUID
+	s.registerFreshItem(it)
+	return it.item.ID
+}
+
 // SpawnItemStack lays a built stack on the ground, past its pickup delay,
 // and returns its entity ID.
 func (s *Server) SpawnItemStack(x, y, z float64, stack protocol.ItemStack) int32 {
