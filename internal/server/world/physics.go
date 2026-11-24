@@ -2121,7 +2121,7 @@ func (p *Physics) tickDelayOf(kind fluidKind) int64 {
 // fluidHeight is a fluid cell's depth in blocks: 1 with the same fluid above,
 // else amount/9.
 // vanilla: FluidState.getHeight
-func (fs fluidState) fluidHeight(w *World, x, y, z int32) float64 {
+func (fs fluidState) fluidHeight(w BlockReader, x, y, z int32) float64 {
 	if fluidHolding(w.BlockAt(x, y+1, z)).kind == fs.kind {
 		return 1
 	}
@@ -2180,14 +2180,14 @@ func canMaybePassThrough(kind fluidKind, srcState uint16, axis int, positive boo
 // lava to water reaching 4/9 deep or more, which is why a thin lava flow holds
 // a flood out and a deep one goes under.
 // vanilla: FluidState.canBeReplacedWith
-func (p *Physics) canReplaceWith(held fluidState, x, y, z int32, incoming fluidKind, down bool) bool {
+func canReplaceWith(w BlockReader, held fluidState, x, y, z int32, incoming fluidKind, down bool) bool {
 	switch held.kind {
 	case fluidNone:
 		return true
 	case fluidWater:
 		return down && incoming != fluidWater
 	case fluidLava:
-		return held.fluidHeight(p.w, x, y, z) >= 0.44444445 && incoming == fluidWater
+		return held.fluidHeight(w, x, y, z) >= 0.44444445 && incoming == fluidWater
 	}
 	return false
 }
@@ -2198,15 +2198,20 @@ func (p *Physics) canReplaceWith(held fluidState, x, y, z int32, incoming fluidK
 // empty.
 // vanilla: FlowingFluid.getNewLiquid
 func (p *Physics) newLiquid(x, y, z int32, kind fluidKind) fluidState {
-	return p.newLiquidAt(x, y, z, p.w.BlockAt(x, y, z), kind)
+	return newLiquidAt(p.w, x, y, z, p.w.BlockAt(x, y, z), p.behaviourOf(kind))
 }
 
-func (p *Physics) newLiquidAt(x, y, z int32, state uint16, kind fluidKind) fluidState {
-	b := p.behaviourOf(kind)
+type fluidSpreadReader interface {
+	BlockReader
+	BoolRule(GameRuleIndex) bool
+}
+
+func newLiquidAt(w fluidSpreadReader, x, y, z int32, state uint16, b fluidBehaviour) fluidState {
+	kind := b.kind
 	sources, highest := 0, 0
 	for _, d := range horizontal4 {
 		nx, nz := x+d[0], z+d[1]
-		ns := p.w.BlockAt(nx, y, nz)
+		ns := w.BlockAt(nx, y, nz)
 		nfs := fluidHolding(ns)
 		if nfs.kind != kind {
 			continue
@@ -2222,17 +2227,17 @@ func (p *Physics) newLiquidAt(x, y, z int32, state uint16, kind fluidKind) fluid
 			highest = nfs.amount
 		}
 	}
-	if sources >= 2 && p.w.BoolRule(b.conversionRule) {
+	if sources >= 2 && w.BoolRule(b.conversionRule) {
 		// Two sources beside over body-holding ground, or a same-fluid source
 		// below, make an infinite-pool source.
-		belowState := p.w.BlockAt(x, y-1, z)
+		belowState := w.BlockAt(x, y-1, z)
 		belowFS := fluidHolding(belowState)
 		if collisionSolid(belowState) || (belowFS.kind == kind && belowFS.isSource()) {
 			return fluidState{kind: kind, amount: 8}
 		}
 	}
 	if y < worldMinY+worldHeight {
-		aboveState := p.w.BlockAt(x, y+1, z)
+		aboveState := w.BlockAt(x, y+1, z)
 		if afs := fluidHolding(aboveState); afs.kind == kind && passWall(state, 1, true, aboveState) {
 			return fluidState{kind: kind, amount: 8, falling: true}
 		}
@@ -2257,8 +2262,8 @@ func (p *Physics) spread(x, y, z int32, fs fluidState, changes *[]BlockChange) {
 	bx, by, bz := x, y-1, z
 	belowState := p.w.BlockAt(bx, by, bz) // air past the world's floor
 	if canMaybePassThrough(fs.kind, state, 1, false, belowState, fluidHolding(belowState)) {
-		newBelow := p.newLiquidAt(bx, by, bz, belowState, fs.kind)
-		if p.canReplaceWith(fluidHolding(belowState), bx, by, bz, newBelow.kind, true) &&
+		newBelow := newLiquidAt(p.w, bx, by, bz, belowState, p.behaviourOf(fs.kind))
+		if canReplaceWith(p.w, fluidHolding(belowState), bx, by, bz, newBelow.kind, true) &&
 			canHoldSpecific(belowState, newBelow) {
 			p.spreadTo(bx, by, bz, belowState, newBelow, [3]int32{x, y, z}, changes)
 			if p.sourceNeighborCount(x, y, z, fs.kind) >= 3 {
@@ -2303,7 +2308,7 @@ const spreadSide = 2*spreadReach + 1
 // square they are read uncached.
 // vanilla: FlowingFluid.SpreadContext
 type spreadContext struct {
-	p *Physics
+	w fluidSpreadReader
 	// A spread uses one tag snapshot throughout its slope search.
 	holdFlags     *[registry.StateCount]uint8
 	y             int32
@@ -2328,9 +2333,9 @@ var spreadOffsets = func() (t [spreadSide * spreadSide][2]int8) {
 	return
 }()
 
-func (p *Physics) newSpreadContext(x, y, z int32, kind fluidKind) spreadContext {
+func newSpreadContext(w fluidSpreadReader, x, y, z int32, kind fluidKind) spreadContext {
 	return spreadContext{
-		p:           p,
+		w:           w,
 		y:           y,
 		ox:          x,
 		oz:          z,
@@ -2380,7 +2385,7 @@ func (c *spreadContext) load(i int) {
 	off := spreadOffsets[i]
 	x := c.ox + int32(off[0]) - spreadReach
 	z := c.oz + int32(off[1]) - spreadReach
-	state := c.p.w.BlockAt(x, c.y, z)
+	state := c.w.BlockAt(x, c.y, z)
 	c.states[i] = state
 	if c.lastFlags&cellKnown != 0 && state == c.lastState {
 		c.flags[i] = c.lastFlags
@@ -2396,7 +2401,7 @@ func (c *spreadContext) load(i int) {
 func (c *spreadContext) cell(x, z int32) (state uint16, flags uint8) {
 	i, ok := c.index(x, z)
 	if !ok {
-		state = c.p.w.BlockAt(x, c.y, z)
+		state = c.w.BlockAt(x, c.y, z)
 		return state, c.cellFlags(state)
 	}
 	if c.flags[i]&cellKnown == 0 {
@@ -2416,7 +2421,7 @@ func (c *spreadContext) state(x, z int32) uint16 {
 func (c *spreadContext) isHole(x, z int32) bool {
 	i, ok := c.index(x, z)
 	if !ok {
-		return isWaterHole(c.state(x, z), c.p.w.BlockAt(x, c.y-1, z), c.flowingType, c.holdFlags)
+		return isWaterHole(c.state(x, z), c.w.BlockAt(x, c.y-1, z), c.flowingType, c.holdFlags)
 	}
 	if c.flags[i]&cellKnown == 0 {
 		c.load(i)
@@ -2431,7 +2436,7 @@ func (c *spreadContext) holeAt(i int) bool {
 		x := c.ox + int32(off[0]) - spreadReach
 		z := c.oz + int32(off[1]) - spreadReach
 		top := c.states[i]
-		below := c.p.w.BlockAt(x, c.y-1, z)
+		below := c.w.BlockAt(x, c.y-1, z)
 		var holeFlags uint8
 		if c.lastHoleFlags&cellHoleKnown != 0 && top == c.lastHoleTop && below == c.lastHoleBelow {
 			holeFlags = c.lastHoleFlags
@@ -2449,20 +2454,31 @@ func (c *spreadContext) holeAt(i int) bool {
 	return c.flags[i]&cellHole != 0
 }
 
-// spreadToSides floods outward if the fluid has strength left (a full cell less
+func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, changes *[]BlockChange) {
+	flows, winners := fluidSideFlows(p.w, x, y, z, state, fs, p.behaviourOf(fs.kind))
+	for i, d := range horizontal4 {
+		if !winners[i] {
+			continue
+		}
+		// An earlier write or plugin hook may have changed the target.
+		tx, tz := x+d[0], z+d[1]
+		p.spreadTo(tx, y, tz, p.w.BlockAt(tx, y, tz), flows[i], [3]int32{x, y, z}, changes)
+	}
+}
+
+// fluidSideFlows plans a flood if the fluid has strength left (a full cell less
 // its drop-off; a falling column 7): to every direction tied for the nearest
 // hole, or all where none is in reach.
 // vanilla: FlowingFluid.spreadToSides, getSpread
-func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, changes *[]BlockChange) {
-	b := p.behaviourOf(fs.kind)
+func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidState, b fluidBehaviour) (flows [4]fluidState, winners [4]bool) {
 	gate := fs.amount - b.dropOff
 	if fs.falling {
 		gate = 7
 	}
 	if gate <= 0 {
-		return
+		return flows, winners
 	}
-	ctx := p.newSpreadContext(x, y, z, fs.kind)
+	ctx := newSpreadContext(w, x, y, z, fs.kind)
 	c := &ctx
 	var sides [4]struct {
 		into, held     fluidState
@@ -2481,7 +2497,7 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 		}
 		side := &sides[i]
 		if fluidContainer(tState) {
-			side.into = p.newLiquidAt(tx, y, tz, tState, fs.kind)
+			side.into = newLiquidAt(w, tx, y, tz, tState, b)
 			if !canHoldSpecific(tState, side.into) {
 				continue
 			}
@@ -2496,9 +2512,8 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 	}
 	// Every eligible side already holds this fluid, which no write replaces.
 	if !anyDiffers {
-		return
+		return flows, winners
 	}
-	var winners [4]bool
 	lowest := 1000
 	for i, d := range horizontal4 {
 		side := &sides[i]
@@ -2533,19 +2548,12 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 		}
 		tx, tz := x+d[0], z+d[1]
 		if !fluidContainer(side.state) {
-			side.into = p.newLiquidAt(tx, y, tz, side.state, fs.kind)
+			side.into = newLiquidAt(w, tx, y, tz, side.state, b)
 		}
-		winners[i] = p.canReplaceWith(side.held, tx, y, tz, side.into.kind, false)
+		winners[i] = canReplaceWith(w, side.held, tx, y, tz, side.into.kind, false)
+		flows[i] = side.into
 	}
-	for i, d := range horizontal4 {
-		if !winners[i] {
-			continue
-		}
-		// Re-read the target at the moment of spreading: the flood may have
-		// changed it.
-		tx, tz := x+d[0], z+d[1]
-		p.spreadTo(tx, y, tz, p.w.BlockAt(tx, y, tz), sides[i].into, [3]int32{x, y, z}, changes)
-	}
+	return flows, winners
 }
 
 // spreadStep follows horizontal4's north, east, south, west order.

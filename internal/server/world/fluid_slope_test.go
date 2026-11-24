@@ -36,8 +36,8 @@ func TestFluidSlopeDistanceBound(t *testing.T) {
 			}
 		}
 		// Keep the oracle's cell cache independent of the candidate's search cache.
-		ctx := p.newSpreadContext(0, 64, 0, fluidWater)
-		bounded := p.newSpreadContext(0, 64, 0, fluidWater)
+		ctx := newSpreadContext(p.w, 0, 64, 0, fluidWater)
+		bounded := newSpreadContext(p.w, 0, 64, 0, fluidWater)
 		for start, d := range horizontal4 {
 			ctx.state(d[0], d[1])
 			bounded.state(d[0], d[1])
@@ -126,7 +126,7 @@ func TestFluidSlopeTagReload(t *testing.T) {
 	}
 
 	// Built-in tags include torch in washed_away_by_fluids.
-	before := p.newSpreadContext(8, 64, 8, fluidWater)
+	before := newSpreadContext(p.w, 8, 64, 8, fluidWater)
 	if !before.isHole(8, 10) || !before.isHole(9, 10) {
 		t.Fatal("torch floor not classified as a hole under built-in tags")
 	}
@@ -141,7 +141,7 @@ func TestFluidSlopeTagReload(t *testing.T) {
 			{ID: "minecraft:oak_stairs", Required: true},
 		}},
 	}})
-	after := p.newSpreadContext(8, 64, 8, fluidWater)
+	after := newSpreadContext(p.w, 8, 64, 8, fluidWater)
 	if after.isHole(8, 10) || after.isHole(9, 10) {
 		t.Fatal("torch floor still classified as a hole after removal from washed_away_by_fluids")
 	}
@@ -156,7 +156,7 @@ func TestFluidSlopeTagReload(t *testing.T) {
 
 	// Restoring built-in tags makes a fresh spread see the hole again.
 	registry.ApplyPackTags(nil)
-	restored := p.newSpreadContext(8, 64, 8, fluidWater)
+	restored := newSpreadContext(p.w, 8, 64, 8, fluidWater)
 	if !restored.isHole(8, 10) || !restored.isHole(9, 10) {
 		t.Fatal("torch floor not classified as a hole after restoring built-in tags")
 	}

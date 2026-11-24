@@ -282,6 +282,7 @@ func (r *decorRegion) finish(own *decorProto) {
 	for _, k := range own.sources {
 		c.scheduleGenerated(k[0], k[1], k[2])
 	}
+	own.transferFluidTicks(c, 0)
 	for _, be := range own.entities {
 		be.place(c, 0)
 	}

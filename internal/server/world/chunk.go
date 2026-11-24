@@ -56,6 +56,8 @@ var (
 type Chunk struct {
 	// generatedEntities hold starting entities until wake/save takes responsibility.
 	generatedEntities []nbt.Compound
+	// generationWorld supplies game rules while Generate is building this chunk.
+	generationWorld *World
 
 	x, z int32
 
@@ -116,8 +118,8 @@ type Chunk struct {
 	// generation, by id; savedRoot writes them as they stand.
 	liveStarts map[string]func() nbt.Compound
 
-	// loadedTicks is the file's scheduled ticks until the world hands them to
-	// the physics engine on load.
+	// loadedTicks holds scheduled ticks from disk or generation until the
+	// world hands them to the physics engine on load.
 	loadedTicks []loadedTick
 
 	// lastUpdate is the game time of the last save, LastUpdate on disk; a
