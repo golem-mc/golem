@@ -25,24 +25,39 @@ func BenchmarkMobsTickLlamas(b *testing.B) {
 }
 
 // BenchmarkMobsTickLlamasLeashed is BenchmarkMobsTickLlamas with every tenth
-// llama on a leash, spread over the area so most pairs are far apart.
+// llama on a lead held a block away, spread over the area so most pairs are
+// far apart; more leashed llamas than caravanGridMinList keeps the grid
+// fallback in the timed loop.
 func BenchmarkMobsTickLlamasLeashed(b *testing.B) {
 	stone := defaultState(b, "minecraft:stone")
 	w := newTestWorld()
 	floor(w, -129, -129, 128, 128, 63, stone)
 	rng := rand.New(rand.NewSource(527))
 	mobs := make(Mobs, 0, 2000)
+	var holders []LeashHolder
 	for id := int32(1); len(mobs) < cap(mobs); id++ {
 		x, z := (rng.Float64()-0.5)*256, (rng.Float64()-0.5)*256
 		m := NewMob(TypeLlama, id, x, 64, z, int64(id))
 		if id%10 == 0 {
-			m.LeashHolderID = 99
+			m.LeashHolderID = 10000 + id
+			holders = append(holders, LeashHolder{EntityID: m.LeashHolderID, X: x + 1, Y: 64, Z: z,
+				Width: 0.375, Height: 0.5, Present: true, SameLevel: true, Knot: true})
 		}
 		mobs = append(mobs, m)
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		mobs.Tick(w, nil, nil)
+		mobs.Tick(w, nil, holders)
+	}
+	b.StopTimer()
+	leashed := 0
+	for _, m := range mobs {
+		if m.leashed() {
+			leashed++
+		}
+	}
+	if leashed <= caravanGridMinList {
+		b.Fatalf("%d llamas still leashed after the run, want more than %d", leashed, caravanGridMinList)
 	}
 }

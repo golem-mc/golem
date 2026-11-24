@@ -95,11 +95,12 @@ func (g *caravanGoal) CanStart(t *tickView) bool {
 	}
 	// Only a llama in a caravan or on a leash can be picked, so that cheap
 	// test goes before the box.
-	loX, hiX := sectionRange(m.X-m.width()/2-llamaCaravanScanXZ, m.X+m.width()/2+llamaCaravanScanXZ)
+	width, height := m.width(), m.height()
+	loX, hiX := sectionRange(m.X-width/2-llamaCaravanScanXZ, m.X+width/2+llamaCaravanScanXZ)
 	// Entities are filed by their feet, so Y reaches 4 below and 0 above.
-	loY, hiY := sectionCoord(m.Y-llamaCaravanScanY-4), sectionCoord(m.Y+m.height()+llamaCaravanScanY)
-	loZ, hiZ := sectionRange(m.Z-m.width()/2-llamaCaravanScanXZ, m.Z+m.width()/2+llamaCaravanScanXZ)
-	scanW, scanH := m.width()+2*llamaCaravanScanXZ, m.height()+2*llamaCaravanScanY
+	loY, hiY := sectionCoord(m.Y-llamaCaravanScanY-4), sectionCoord(m.Y+height+llamaCaravanScanY)
+	loZ, hiZ := sectionRange(m.Z-width/2-llamaCaravanScanXZ, m.Z+width/2+llamaCaravanScanXZ)
+	scanW, scanH := width+2*llamaCaravanScanXZ, height+2*llamaCaravanScanY
 	for _, o := range scan {
 		if o == m || !o.inCaravan() && !o.leashed() || o.Horse.tail != nil || !IsLlama(o.Type) || !o.Alive() {
 			continue

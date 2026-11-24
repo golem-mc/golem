@@ -5,6 +5,7 @@ import (
 
 	server "github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
 )
 
 // llamaDistance is the horizontal distance between two mobs.
@@ -51,5 +52,42 @@ func TestALlamaFollowsALeashedLlamaUntilTheLeadGoes(t *testing.T) {
 	x2, _, z2, _ := srv.MobPos(follower)
 	if servertest.Abs64(x2-x)+servertest.Abs64(z2-z) > 1 {
 		t.Errorf("the llama kept walking (%f, %f) to (%f, %f) after the lead came off", x, z, x2, z2)
+	}
+}
+
+// TestALlamaIgnoresAScaledLeadFiledOutsideItsSearchSections: a scale-12 lead
+// on a lead whose box reaches the follower's search window is joined only
+// when its position is filed in a section that window touches.
+// vanilla: LlamaFollowCaravanGoal.canUse, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestALlamaIgnoresAScaledLeadFiledOutsideItsSearchSections(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		x     float64
+		moves bool
+	}{{"outside", -13.5, false}, {"inside", -9.5, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := servertest.Join(t, servertest.MobTestConfig(), "Herder")
+			c.MoveToGround(4.5, 64, 5.5, true)
+			c.Settle()
+			srv.StopTick()
+
+			scale := nbt.Compound{"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+				nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(12)}}}}
+			lead := srv.SpawnMobTagged("minecraft:llama", 0.5, 64, 5.5, scale)
+			if lead == 0 {
+				t.Fatal("the lead was refused")
+			}
+			srv.SetMobLeashHolder(lead, c.PlayerEntityID)
+			follower := srv.SpawnMob("minecraft:llama", tc.x, 64, 5.5)
+			c.Settle()
+			x0, _, _, _ := srv.MobPos(follower)
+			srv.TickMobs(40)
+			x1, _, _, _ := srv.MobPos(follower)
+			if moved := x1 - x0; tc.moves && moved < 1 || !tc.moves && moved > 1 {
+				t.Errorf("the follower moved %f in x over 40 ticks, moves=%v", moved, tc.moves)
+			}
+		})
 	}
 }

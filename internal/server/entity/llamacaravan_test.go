@@ -170,6 +170,14 @@ func TestCaravanSearchStaysInTheEntitySectionWindow(t *testing.T) {
 		follower := NewMob(TypeLlama, 2, 146.5, 64, 159.5, 2)
 		herd = append(herd, lead, follower)
 		for i := range 64 {
+			// The grid case fills the candidate list past the grid's
+			// threshold with leashed llamas far from the follower.
+			if grid {
+				far := NewMob(TypeLlama, int32(10+i), 1000.5+float64(i)*20, 64, 0.5, int64(i))
+				far.LeashHolderID = 99
+				herd = append(herd, far)
+				continue
+			}
 			herd = append(herd, NewMob(TypeCow, int32(10+i), 0.5+float64(i), 64, 0.5, int64(i)))
 		}
 		view := &tickView{w: w, others: herd}
