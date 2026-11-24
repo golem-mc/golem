@@ -1141,7 +1141,9 @@ func (w *World) SwapBlock(x, y, z int32, state uint16) (old uint16, changed bool
 	if be := loaded.chunk.blockEntity(x, y, z); be != nil {
 		be.Wake()
 	}
-	w.shulkerLidsOpen.Delete([3]int32{x, y, z})
+	if old != airState && shulkerBoxBlocks[registry.BlockOf(old)] {
+		w.shulkerLidsOpen.Delete([3]int32{x, y, z})
+	}
 	w.updateMotion(loaded, x&15, z&15)
 	w.updateSurface(loaded, x&15, y, z&15, state)
 	w.afterWrite(loaded)
@@ -1231,36 +1233,69 @@ func (w *World) SetBlocks(changes []BlockChange) []BlockChange {
 		return nil
 	}
 	var applied []BlockChange
-	var touched []*loadedChunk
-	seen := make(map[ChunkPos]bool, len(changes))
+	var touchedBuf [16]*loadedChunk
+	touched := touchedBuf[:0]
+	var seen map[*loadedChunk]struct{}
+	var lastPos ChunkPos
+	var lastLoaded *loadedChunk
+	var lastTouched bool
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	for _, ch := range changes {
+	for i, ch := range changes {
 		if !w.inBuildHeight(ch.Y) {
 			continue
 		}
-		pos := ChunkPos{X: ChunkOf(float64(ch.X)), Z: ChunkOf(float64(ch.Z))}
-		loaded, ok := w.chunks[pos]
-		if !ok {
-			continue
+		pos := ChunkPos{X: ch.X >> 4, Z: ch.Z >> 4}
+		var loaded *loadedChunk
+		if lastLoaded != nil && pos == lastPos {
+			loaded = lastLoaded
+		} else {
+			var ok bool
+			loaded, ok = w.chunks[pos]
+			if !ok {
+				continue
+			}
+			lastPos = pos
+			lastLoaded = loaded
+			lastTouched = false
 		}
-		old := loaded.chunk.BlockAt(ch.X&15, ch.Y, ch.Z&15)
+		lx, lz := ch.X&15, ch.Z&15
+		old := loaded.chunk.BlockAt(lx, ch.Y, lz)
 		if old == ch.State {
 			continue
 		}
-		applied = append(applied, BlockChange{X: ch.X, Y: ch.Y, Z: ch.Z, State: old})
-		if !seen[pos] {
-			seen[pos] = true
-			touched = append(touched, loaded)
+		if applied == nil {
+			applied = make([]BlockChange, 0, len(changes)-i)
 		}
-		loaded.chunk.SetBlock(ch.X&15, ch.Y, ch.Z&15, ch.State)
+		applied = append(applied, BlockChange{X: ch.X, Y: ch.Y, Z: ch.Z, State: old})
+		if !lastTouched {
+			if seen != nil {
+				if _, ok := seen[loaded]; !ok {
+					seen[loaded] = struct{}{}
+					touched = append(touched, loaded)
+				}
+			} else if !slices.Contains(touched, loaded) {
+				if len(touched) == len(touchedBuf) {
+					seen = make(map[*loadedChunk]struct{}, len(touched)*2)
+					for _, t := range touched {
+						seen[t] = struct{}{}
+					}
+					seen[loaded] = struct{}{}
+				}
+				touched = append(touched, loaded)
+			}
+			lastTouched = true
+		}
+		loaded.chunk.SetBlock(lx, ch.Y, lz, ch.State)
 		w.updateRedstoneBlockCounts(old, ch.State)
 		if be := loaded.chunk.blockEntity(ch.X, ch.Y, ch.Z); be != nil {
 			be.Wake()
 		}
-		w.shulkerLidsOpen.Delete([3]int32{ch.X, ch.Y, ch.Z})
-		w.updateMotion(loaded, ch.X&15, ch.Z&15)
-		w.updateSurface(loaded, ch.X&15, ch.Y, ch.Z&15, ch.State)
+		if old != airState && shulkerBoxBlocks[registry.BlockOf(old)] {
+			w.shulkerLidsOpen.Delete([3]int32{ch.X, ch.Y, ch.Z})
+		}
+		w.updateMotion(loaded, lx, lz)
+		w.updateSurface(loaded, lx, ch.Y, lz, ch.State)
 	}
 	for _, loaded := range touched {
 		w.afterWrite(loaded)
