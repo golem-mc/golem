@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/golem-mc/golem/internal/config"
 	"iter"
 	"os"
 	"testing"
@@ -79,7 +80,7 @@ func (c *Client) ReadBy(deadline time.Time) (int32, []byte, error) {
 		if err := r.Err(); err != nil {
 			c.T.Fatalf("login (play): %v", err)
 		}
-		c.ChunkRadius = min(serverView, int32(c.ViewAsk))
+		c.ChunkRadius = min(serverView, max(int32(c.ViewAsk), config.MinDistance))
 	}
 	// A finished chunk batch is answered (play phase only: configuration Store
 	// Cookie shares the ID), the way a client that wants the
