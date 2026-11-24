@@ -1,6 +1,7 @@
 package world
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
@@ -30,6 +31,7 @@ func TestDecodeSectionBlocksPacked(t *testing.T) {
 			t.Parallel()
 			tc.states = append([]uint16(nil), tc.states...)
 			tc.states[1] = registry.BlockOakFence.DefaultState()
+			tc.states[len(tc.states)-1] = registry.MustState("minecraft:sculk_sensor", nil)
 			indices := make([]uint16, blocksPerSection)
 			want := make([]uint16, blocksPerSection)
 			for i := range indices {
@@ -72,6 +74,9 @@ func TestDecodeSectionBlocksPacked(t *testing.T) {
 				ref.set(i, state, false)
 			}
 			ref.recalcCounts()
+			if len(ref.listeners) == 0 || !slices.Equal(got.listeners, ref.listeners) {
+				t.Fatalf("listeners = %v, want %v", got.listeners, ref.listeners)
+			}
 			edited := want[0] + 50
 			for i := range want {
 				if got.at(i) != want[i] {

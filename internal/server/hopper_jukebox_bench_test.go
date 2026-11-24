@@ -42,7 +42,7 @@ func BenchmarkHopperJukeboxTransfer(b *testing.B) {
 				s.setJukeboxHasRecord(w, 4, jukeY, 4, false)
 			} else {
 				hb.Use(func(e *world.BlockEntity) { e.Put(0, protocol.ItemStack{}) })
-				jb.Use(func(e *world.BlockEntity) { e.Put(0, disc); e.TicksSinceSongStarted = 0 })
+				jb.Use(func(e *world.BlockEntity) { e.Put(0, disc); e.TicksSinceSongStarted = -1 })
 				w.SetBlock(4, jukeY, 4, withRecord)
 			}
 			// Run the sensor through any vibration the reset posted, then idle.

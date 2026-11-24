@@ -478,13 +478,14 @@ func (s *section) set(i int, state uint16, shared bool) {
 	if registry.LightEmission(old) > 0 {
 		s.emitting--
 	}
-	if listensForVibrations(old) {
-		s.listening--
-		s.listeners = slices.DeleteFunc(s.listeners, func(j uint16) bool { return int(j) == i })
-	}
-	if listensForVibrations(state) {
-		s.listening++
-		s.listeners = append(s.listeners, uint16(i))
+	if newL, oldL := listensForVibrations(state), listensForVibrations(old); newL != oldL {
+		if newL {
+			s.listening++
+			s.listeners = append(s.listeners, uint16(i))
+		} else {
+			s.listening--
+			s.listeners = slices.DeleteFunc(s.listeners, func(j uint16) bool { return int(j) == i })
+		}
 	}
 	if MayCollide(state) {
 		s.colliding++
@@ -615,7 +616,7 @@ func (s *section) recalcCounts() {
 		}
 		return
 	}
-	defer s.indexListeners()
+	s.listeners = s.listeners[:0]
 	for i := range blocksPerSection {
 		state := blocks.get(i)
 		if randomlyTicking(state) {
@@ -626,6 +627,7 @@ func (s *section) recalcCounts() {
 		}
 		if listensForVibrations(state) {
 			s.listening++
+			s.listeners = append(s.listeners, uint16(i))
 		}
 		if MayCollide(state) {
 			s.colliding++

@@ -569,9 +569,22 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 
 	// Counts must represent all 4096 cells, including an explicit uniform array.
 	counts := make([]uint32, len(stateIDs))
-	blocks := adoptPackedBlocks(stateIDs, data, bitsPerEntry, counts)
+	// listen marks the palette entries that listen for vibrations; nil when
+	// none does, so the walks below skip the check.
+	var listen []bool
+	for i, state := range stateIDs {
+		if listensForVibrations(state) {
+			if listen == nil {
+				listen = make([]bool, len(stateIDs))
+			}
+			listen[i] = true
+		}
+	}
+	s.listeners = s.listeners[:0]
+	blocks := adoptPackedBlocks(stateIDs, data, bitsPerEntry, counts, listen, &s.listeners)
 	if blocks == nil {
 		clear(counts)
+		s.listeners = s.listeners[:0]
 		blocks = newBlockWords(stateIDs[0])
 		mask := uint64(1)<<bitsPerEntry - 1
 		i := 0
@@ -584,6 +597,9 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 				if pIdx < len(stateIDs) {
 					state = stateIDs[pIdx]
 					counts[pIdx]++
+					if listen != nil && listen[pIdx] {
+						s.listeners = append(s.listeners, uint16(i))
+					}
 				}
 				blocks = blocks.put(i, state, false)
 				i++
@@ -601,7 +617,6 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 	s.touches.Store(0)
 	s.shapes.Store(0)
 	s.colliding, s.comparators = 0, 0
-	defer s.indexListeners()
 	// Invalid indices read as air, which contributes to none of these tallies.
 	for pIdx, state := range stateIDs {
 		n := int(counts[pIdx])
@@ -651,11 +666,11 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 
 // adoptPackedBlocks builds storage straight from the saved words when the file's
 // palette already is the in-memory layout: width 4-8, distinct states and every
-// index inside the palette. It counts each index into counts and returns nil
-// (counts then meaningless) for anything else, which the cell-by-cell decoder
+// index inside the palette. It counts each index into counts, appends the cell of each listen entry to listeners and returns nil
+// (counts and listeners then meaningless) for anything else, which the cell-by-cell decoder
 // handles. data holds at least a section's words.
 // vanilla: PalettedContainer.unpack
-func adoptPackedBlocks(stateIDs []uint16, data nbt.LongArray, bitsPerEntry int, counts []uint32) *blockWords {
+func adoptPackedBlocks(stateIDs []uint16, data nbt.LongArray, bitsPerEntry int, counts []uint32, listen []bool, listeners *[]uint16) *blockWords {
 	if bitsPerEntry > maxIndirectBits {
 		return nil
 	}
@@ -674,12 +689,15 @@ func adoptPackedBlocks(stateIDs []uint16, data nbt.LongArray, bitsPerEntry int, 
 	for w, long := range words {
 		word := uint64(long)
 		take := min(b.perWord, blocksPerSection-cell)
-		for range take {
+		for j := range take {
 			pIdx := int(word & mask)
 			if pIdx >= n {
 				return nil
 			}
 			counts[pIdx]++
+			if listen != nil && listen[pIdx] {
+				*listeners = append(*listeners, uint16(cell+j))
+			}
 			word >>= bitsPerEntry
 		}
 		if take < b.perWord {
