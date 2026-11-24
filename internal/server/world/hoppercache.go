@@ -74,9 +74,10 @@ func (b *BlockEntity) HopperFull() bool {
 	return c.Full
 }
 
+// vanilla: HopperBlockEntity.inventoryFull
 func slotsFull(slots []protocol.ItemStack) bool {
 	for i := range slots {
-		if slots[i].Count <= 0 || slots[i].Count < registry.StackMaxStackSizePtr(&slots[i]) {
+		if slots[i].Count <= 0 || slots[i].Count != registry.StackMaxStackSizePtr(&slots[i]) {
 			return false
 		}
 	}

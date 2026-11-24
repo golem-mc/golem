@@ -11,7 +11,10 @@ func (n *NoiseChunk) SampleDensity() []float32 {
 
 // Recycle returns the chunk's scratch buffers for reuse; call it after the last
 // sample.
-func (n *NoiseChunk) Recycle() { n.ctx.recycle() }
+func (n *NoiseChunk) Recycle() {
+	n.aquifer.recycle()
+	n.ctx.recycle()
+}
 
 // ReleaseDensity hands a SampleDensity buffer back to the chunk's context.
 func (n *NoiseChunk) ReleaseDensity(buf []float32) { n.ctx.release(buf) }

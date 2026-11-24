@@ -1028,11 +1028,30 @@ func (s *Server) tickBlockEntities() {
 			s.dropCartColumns()
 		}
 		dim.sulfur.reset()
+		var tickCache [8][8]struct {
+			pos        world.ChunkPos
+			generation uint64
+			valid      bool
+			ticks      bool
+		}
 		for _, be := range dim.tickingBuf {
 			if seam := s.blockEntityTickSeam; seam != nil {
 				seam(be)
 			}
-			if be.Sleeping() || !ticks(blockChunk(be.X, be.Z)) {
+			if be.Sleeping() {
+				continue
+			}
+			pos := blockChunk(be.X, be.Z)
+			entry := &tickCache[pos.X&7][pos.Z&7]
+			// A ticket change during the filter must invalidate this entry on the next turn.
+			generation := dim.w.TicketGeneration()
+			if !entry.valid || entry.pos != pos || entry.generation != generation {
+				entry.pos = pos
+				entry.generation = generation
+				entry.ticks = ticks(pos)
+				entry.valid = true
+			}
+			if !entry.ticks {
 				continue
 			}
 			switch {
