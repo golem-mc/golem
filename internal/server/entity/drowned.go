@@ -370,7 +370,7 @@ type drownedBeachGoal struct{ *moveToBlock }
 
 func newDrownedBeachGoal(m *Mob) *drownedBeachGoal {
 	g := &drownedBeachGoal{newMoveToBlock(m, 1.0, 8, func(w World, x, y, z int32) bool {
-		return world.IsAirState(w.BlockAt(x, y+1, z)) && world.IsAirState(w.BlockAt(x, y+2, z)) && faceFull(w.BlockAt(x, y, z), 1)
+		return world.IsAirState(w.BlockAt(x, y+1, z)) && world.IsAirState(w.BlockAt(x, y+2, z)) && canStandOn(w.BlockAt(x, y, z), y, m.Y)
 	})}
 	g.vertRange = 2
 	return g
