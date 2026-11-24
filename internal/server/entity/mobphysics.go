@@ -1043,33 +1043,17 @@ func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 }
 
 // collectInto appends to dst the mobs in cells x0..x1 by z0..z1 whose box
-// crosses box, and counts the entries it looked at.
+// crosses box, visiting cells in cell order (in key order when the rectangle
+// is much larger than the occupied cells), and counts the entries it looked
+// at.
 func (g *pushGrid) collectInto(dst []*Mob, x0, x1, z0, z1 int, box AABB) []*Mob {
 	seen := 0
-	g.scan(x0, x1, z0, z1, func(c []pushEntry) {
-		seen += len(c)
-		for i := range c {
-			o := &c[i]
-			if box.maxX > o.minX && box.minX < o.maxX && box.maxY > o.minY && box.minY < o.maxY && box.maxZ > o.minZ && box.minZ < o.maxZ {
-				dst = append(dst, o.m)
-			}
-		}
-	})
-	if g.gathered != nil {
-		*g.gathered += seen
-	}
-	return dst
-}
-
-// scan visits the cells x0..x1 by z0..z1 in cell order, or in key order when
-// the rectangle is much larger than the occupied cells.
-func (g *pushGrid) scan(x0, x1, z0, z1 int, collect func([]pushEntry)) {
 	if g.rect.active() && len(g.cells) == 0 {
 		loX, hiX, loZ, hiZ := g.rect.clip(x0, x1, z0, z1)
 		for x := loX; x <= hiX; x++ {
 			row := g.rect.row(x)
 			for z := loZ; z <= hiZ; z++ {
-				collect(g.dense[row+z-g.rect.minZ].entries)
+				dst = overlapping(dst, g.dense[row+z-g.rect.minZ].entries, box, &seen)
 			}
 		}
 	} else if w, h := x1-x0+1, z1-z0+1; w*h > len(g.cells)+len(g.dense) {
@@ -1096,17 +1080,34 @@ func (g *pushGrid) scan(x0, x1, z0, z1 int, collect func([]pushEntry)) {
 			return cmp.Or(cmp.Compare(ax, bx), cmp.Compare(az, bz))
 		})
 		for _, k := range g.keys {
-			collect(g.cell(k))
+			dst = overlapping(dst, g.cell(k), box, &seen)
 		}
 	} else {
 		// Mixed dense and overflow cells still traverse in cell order before
 		// sorting, including ties from bodies outside the snapshot.
 		for x := x0; x <= x1; x++ {
 			for z := z0; z <= z1; z++ {
-				collect(g.cell(cellKey(x, z)))
+				dst = overlapping(dst, g.cell(cellKey(x, z)), box, &seen)
 			}
 		}
 	}
+	if g.gathered != nil {
+		*g.gathered += seen
+	}
+	return dst
+}
+
+// overlapping appends to dst the mobs in c whose box crosses box and adds
+// len(c) to seen.
+func overlapping(dst []*Mob, c []pushEntry, box AABB, seen *int) []*Mob {
+	*seen += len(c)
+	for i := range c {
+		o := &c[i]
+		if box.maxX > o.minX && box.minX < o.maxX && box.maxY > o.minY && box.minY < o.maxY && box.maxZ > o.minZ && box.minZ < o.maxZ {
+			dst = append(dst, o.m)
+		}
+	}
+	return dst
 }
 
 // gatherBox collects the mobs whose box crosses box, in no set order (sort by

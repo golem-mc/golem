@@ -53,3 +53,20 @@ func TestAMountedShulkerBlocksAStationaryShellsFace(t *testing.T) {
 		t.Errorf("stationary shell kept its east face, but the rider fills its hull")
 	}
 }
+
+// TestAShulkerUnderALilyPadTakesTheStoneBeside: a lily pad's underside is not
+// a full face, so a shell with air beneath it attaches to the stone beside it.
+// vanilla: Shulker.findAttachableSurface, Block.isFaceFull
+func TestAShulkerUnderALilyPadTakesTheStoneBeside(t *testing.T) {
+	t.Parallel()
+	srv, _ := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
+	servertest.HoldTicks(t, srv)
+	srv.RunLine(`setblock 1 100 0 stone`)
+	srv.RunLine(`setblock 0 101 0 lily_pad`)
+	srv.RunLine(`summon shulker 0.5 100 0.5`)
+	shell := srv.MobIDsOfKind("minecraft:shulker")[0]
+	servertest.RunTicks(t, srv, 1)
+	if face, _, _ := srv.ShulkerState(shell); face != 5 {
+		t.Errorf("shell attach face = %d after one tick, want 5 (east, the stone)", face)
+	}
+}

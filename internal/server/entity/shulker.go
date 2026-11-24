@@ -314,33 +314,52 @@ func (s shulkerWorld) BodyBoxes(box AABB) []AABB {
 	if b, ok := s.World.(BodyWorld); ok {
 		out = b.BodyBoxes(box)
 	}
-	others := s.others
 	if s.self != nil && s.self.push != nil {
 		g := s.self.push
 		// A grown shell reaches at most one body size past the body box, and
 		// wide is half the widest body, so twice wide covers it.
-		others = g.gatherBox(box.inflate(2*g.wide, 2*g.wide, 2*g.wide))
+		near := g.gatherBox(box.inflate(2*g.wide, 2*g.wide, 2*g.wide))
+		hits := near[:0]
+		for _, o := range near {
+			if s.blocks(o, box) {
+				hits = append(hits, o)
+			}
+		}
+		// clipMove's step-up top depends on the order it meets the hulls
+		// in, so they go in the whole-herd scan's order.
+		sortSnapshot(hits)
+		for _, o := range hits {
+			out = append(out, o.mobBox())
+		}
+		return out
 	}
-	for _, o := range others {
-		if o.IsShulker() && o.Alive() && o.RootVehicle() != s.self.RootVehicle() {
-			// Bound every attach face's fully open box before computing its peek.
-			side, down, up := 1.5, 1.0, 2.0
-			// Most candidates have no attribute edits; avoid an attribute read
-			// for every distant pair in the herd.
-			if o.attrs != nil {
-				size := o.attrScale()
-				side, down, up = side*size, down*size, up*size
-			}
-			if o.X+side < box.minX || o.X-side > box.maxX || o.Z+side < box.minZ || o.Z-side > box.maxZ ||
-				o.Y+up < box.minY || o.Y-down > box.maxY {
-				continue
-			}
-			if hull := o.mobBox(); box.Crosses(hull) {
-				out = append(out, hull)
-			}
+	for _, o := range s.others {
+		if s.blocks(o, box) {
+			out = append(out, o.mobBox())
 		}
 	}
 	return out
+}
+
+// blocks reports whether o is a live shulker outside self's ride chain whose
+// hull crosses box.
+func (s shulkerWorld) blocks(o *Mob, box AABB) bool {
+	if !o.IsShulker() || !o.Alive() || o.RootVehicle() == s.self.RootVehicle() {
+		return false
+	}
+	// Bound every attach face's fully open box before computing its peek.
+	side, down, up := 1.5, 1.0, 2.0
+	// Most candidates have no attribute edits; avoid an attribute read
+	// for every distant pair in the herd.
+	if o.attrs != nil {
+		size := o.attrScale()
+		side, down, up = side*size, down*size, up*size
+	}
+	if o.X+side < box.minX || o.X-side > box.maxX || o.Z+side < box.minZ || o.Z-side > box.maxZ ||
+		o.Y+up < box.minY || o.Y-down > box.maxY {
+		return false
+	}
+	return box.Crosses(o.mobBox())
 }
 
 func (m *Mob) shulkerWorld(t *tickView) shulkerWorld {

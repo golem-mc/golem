@@ -1,7 +1,6 @@
 package entity
 
 import (
-	"cmp"
 	"math"
 	"slices"
 
@@ -88,7 +87,7 @@ func (m *Mob) stepShulkerPeek(w World, t *tickView) {
 		// The entries are body boxes, which is what mobBox is for a non-shulker.
 		g.shove = g.gatherBoxInto(g.shove[:0], slab)
 		others = g.shove
-		slices.SortFunc(others, func(a, b *Mob) int { return cmp.Compare(a.pushIdx, b.pushIdx) })
+		sortSnapshot(others)
 	}
 	for _, o := range others {
 		if o == m || o.IsShulker() || o.Type == TypeVex || !o.Alive() || !slab.Crosses(o.mobBox()) {
