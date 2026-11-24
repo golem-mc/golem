@@ -2,9 +2,13 @@ package server
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/google/uuid"
@@ -113,4 +117,48 @@ func TestDirectDrainResetsQueueSlack(t *testing.T) {
 	if err != nil || m.queueSlack != 0 {
 		t.Fatalf("err %v, queueSlack %d", err, m.queueSlack)
 	}
+}
+
+func TestMailboxOverflowLogsQueuedBytesDuringDrain(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		writer, reader := net.Pipe()
+		defer writer.Close()
+		defer reader.Close()
+		peer := protocol.NewConn(reader)
+		var ping protocol.Buffer
+		ping.PutI32(42)
+		var warnings bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&warnings, &slog.HandlerOptions{
+			ReplaceAttr: func(_ []string, attr slog.Attr) slog.Attr {
+				if attr.Key == "queuedBytes" {
+					id, data, err := peer.ReadPacket()
+					if err != nil || id != protocol.IDPlayPing || !bytes.Equal(data, ping.Bytes()) {
+						t.Errorf("drained packet = (%#x, %x, %v), want ping %x", id, data, err, ping.Bytes())
+					}
+				}
+				return attr
+			},
+		}))
+		c := &client{srv: &Server{}, conn: protocol.NewConn(writer), log: logger}
+		c.out = c.startMailbox()
+		defer c.out.stop()
+		if !c.send(protocol.IDPlayPing, ping.Bytes()) {
+			t.Fatal("mailbox rejected the first packet")
+		}
+		go func() {
+			// Fake time advances once the logger blocks on the read, without
+			// synchronizing the warning's queued-byte read with the drain.
+			time.Sleep(time.Nanosecond)
+			c.out.release()
+		}()
+		if c.send(protocol.IDPlayPing, make([]byte, mailboxLimit)) {
+			t.Fatal("mailbox accepted the overflowing packet")
+		}
+		if !bytes.Contains(warnings.Bytes(), []byte(`level=WARN msg="dropping client that is not keeping up" queuedBytes=4`)) {
+			t.Errorf("warning = %q, want queuedBytes=4", warnings.String())
+		}
+		if _, _, err := peer.ReadPacket(); !errors.Is(err, io.EOF) {
+			t.Errorf("read after overflow = %v, want EOF", err)
+		}
+	})
 }
