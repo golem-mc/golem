@@ -1432,7 +1432,10 @@ func waypointPoint(node Waypoint, width float64) (x, z float64) {
 
 // atWaypoint reports whether dx, dz from a node's centre reach it: strictly
 // inside maxDistanceToWaypoint on each axis, which is half the width for a
-// body wider than 0.75 and 0.75 - width/2 otherwise.
+// body wider than 0.75 and 0.75 - width/2 otherwise. The width and threshold
+// are float32 as in vanilla, so the threshold is not the float64 difference.
+// Ground, water-bound and amphibious navigation share it; each keeps its own
+// vertical limit.
 // vanilla: PathNavigation.followThePath
 func (m *Mob) atWaypoint(dx, dz float64) bool {
 	w := float32(m.width())
