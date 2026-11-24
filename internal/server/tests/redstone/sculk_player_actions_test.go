@@ -231,3 +231,22 @@ func TestToolUsesOnBlocksMakeVibrations(t *testing.T) {
 		})
 	}
 }
+
+// A candle put on an intact cake is a block_change vibration.
+// vanilla: CakeBlock.useItemOn
+func TestCandleOnCakeVibration(t *testing.T) {
+	t.Parallel()
+	srv, c := survivalSensorScene(t)
+	srv.SetBlock(0, 64, 4, servertest.MustState(t, "minecraft:cake", map[string]string{"bites": "0"}))
+	srv.GiveSlot("Actor", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:red_candle"), Count: 1})
+	c.Settle()
+	c.PlaceBlock(0, 64, 4, protocol.FaceTop)
+	c.Settle()
+	servertest.UntilTicks(t, srv, 10, "the comparator to give 11", func() bool {
+		return servertest.WirePowerAt(srv, 6, 64, 4) == "11"
+	})
+	if got := srv.BlockAt(0, 64, 4); got != servertest.MustState(t, "minecraft:red_candle_cake", map[string]string{"lit": "false"}) {
+		t.Fatalf("block = %d, want unlit red candle cake", got)
+	}
+	expectComparator(t, srv, "11") // block_change
+}
