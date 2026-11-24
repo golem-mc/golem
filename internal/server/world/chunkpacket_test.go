@@ -21,10 +21,11 @@ func chunkPacketReference(w *World, c *Chunk) []byte {
 	b.PutBytes(c.encoded)
 	light := w.chunkLightWired(c)
 	own := c.blockEntities()
+	rides := c.sortedPistonRides()
 	carried := slices.Clone(c.carriedBlockEntities.Items)
 	active := c.activeTrialSpawners(carried)
 	w.mu.RUnlock()
-	putBlockEntities(&b, own, carried, active)
+	putBlockEntities(&b, own, rides, carried, active)
 	b.PutRaw(light)
 	return b.Bytes()
 }

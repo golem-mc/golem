@@ -242,30 +242,25 @@ func (p *Physics) pistonPushes() {
 		p.pushes = make([]PistonPush, 0, len(p.rides))
 	}
 	for _, pos := range p.rides {
-		be := p.w.BlockEntity(pos[0], pos[1], pos[2])
-		if be == nil || be.Kind != KindPiston {
+		r, age, ok := p.w.stepPistonRide(pos[0], pos[1], pos[2], p.now)
+		if !ok {
 			delete(p.rideSet, pos)
 			continue
 		}
-		var push PistonPush
-		age := p.now - be.CreatedTick
-		be.Use(func(b *BlockEntity) {
-			b.RideProgress = min(max(float64(age)*pistonStep, 0), 1)
-			push = PistonPush{
-				X: pos[0], Y: pos[1], Z: pos[2],
-				Dir: int(b.PistonDir), Extending: b.Extending, Source: b.IsSource,
-			}
-			if !b.Extending {
-				push.Dir = blocklogic.Opposite(push.Dir)
-			}
-			push.Progress = float64(age) * pistonStep
-			shape := pistonRideShape(b.MovedState, b.Extending, b.IsSource, push.Progress)
-			push.Boxes = CollisionBoxes(shape)
-			push.Top = CollisionTop(b.MovedState)
-			block := registry.BlockOf(b.MovedState)
-			push.Bounce = block == registry.BlockSlimeBlock
-			push.Sticky = block == registry.BlockHoneyBlock
-		})
+		push := PistonPush{
+			X: pos[0], Y: pos[1], Z: pos[2],
+			Dir: int(r.dir), Extending: r.extending, Source: r.isSource,
+		}
+		if !r.extending {
+			push.Dir = blocklogic.Opposite(push.Dir)
+		}
+		push.Progress = float64(age) * pistonStep
+		shape := pistonRideShape(r.movedState, r.extending, r.isSource, push.Progress)
+		push.Boxes = CollisionBoxes(shape)
+		push.Top = CollisionTop(r.movedState)
+		block := registry.BlockOf(r.movedState)
+		push.Bounce = block == registry.BlockSlimeBlock
+		push.Sticky = block == registry.BlockHoneyBlock
 		if age >= 0 && age <= 1 {
 			p.pushes = append(p.pushes, push)
 			p.effects = append(p.effects, Effect{X: pos[0], Y: pos[1], Z: pos[2], PistonPush: &p.pushes[len(p.pushes)-1]})
@@ -285,17 +280,11 @@ func (p *Physics) pistonPushes() {
 // modelled.
 // vanilla: PistonMovingBlockEntity.getCollisionShape
 func (w *World) MovingPistonBoxes(x, y, z int32) []CollisionBox {
-	be := w.BlockEntity(x, y, z)
-	if be == nil || be.Kind != KindPiston {
+	r, ok := w.pistonRideAt(x, y, z)
+	if !ok {
 		return nil
 	}
-	var moved uint16
-	var dir int
-	var extending, source bool
-	var progress float64
-	be.Use(func(b *BlockEntity) {
-		moved, dir, extending, source, progress = b.MovedState, int(b.PistonDir), b.Extending, b.IsSource, b.RideProgress
-	})
+	moved, dir, extending, source, progress := r.movedState, int(r.dir), r.extending, r.isSource, r.rideProgress
 	var out []CollisionBox
 	shape := moved
 	if source {

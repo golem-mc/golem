@@ -108,7 +108,8 @@ func encodeChunkNBTWith(c *Chunk, live []nbt.Tag, ticks chunkTicks) (nbt.Compoun
 		root["lightCorrect"] = nbt.Byte(1)
 		root["LightData"] = nbt.ByteArray(c.lightForm())
 	}
-	blockEntities := make([]nbt.Tag, 0, len(live)+len(c.carriedBlockEntities.Items))
+	pistonTags := c.encodePistonRides()
+	blockEntities := make([]nbt.Tag, 0, len(live)+len(pistonTags)+len(c.carriedBlockEntities.Items))
 	// A file older than the furnace burn-time fixer gets furnace progress under
 	// the old names, so the fixer does not run over the current ones.
 	if c.claimedVersion() < furnaceBurnTimeVersion {
@@ -119,6 +120,7 @@ func encodeChunkNBTWith(c *Chunk, live []nbt.Tag, ticks chunkTicks) (nbt.Compoun
 		}
 	}
 	blockEntities = append(blockEntities, live...)
+	blockEntities = append(blockEntities, pistonTags...)
 	blockEntities = append(blockEntities, c.carriedBlockEntities.Items...)
 	if len(blockEntities) > 0 {
 		root["block_entities"] = nbt.List{Elem: nbt.TypeCompound, Items: blockEntities}
@@ -477,6 +479,10 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 			rebaseBlockEntityPos(compound, c.x, c.z)
 			if c.dataVersion != 0 && c.dataVersion < furnaceBurnTimeVersion {
 				fixFurnaceBurnTime(compound)
+			}
+			if ride, ok := decodePistonRide(compound.Entries()); ok {
+				c.setPistonRide(ride)
+				continue
 			}
 			if live, ok := decodeBlockEntity(compound.Entries()); ok {
 				c.setBlockEntity(live)
