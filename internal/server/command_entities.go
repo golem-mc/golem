@@ -1009,7 +1009,7 @@ func (e *entitySnapshot) Rotate(yaw, pitch float32) {
 		e.srv.armorStandsMu.Unlock()
 		e.srv.teleportArmorStand(ref, to, "rotate", false)
 	case *mannequinEntity:
-		e.srv.teleportMannequin(ref, command.Move{Pos: to}, "rotate")
+		e.srv.teleportMannequin(ref, command.Move{Pos: to, DeltaX: true, DeltaY: true, DeltaZ: true}, "rotate")
 	case *fixtureEntity:
 		e.srv.teleportFixture(ref, to)
 	}

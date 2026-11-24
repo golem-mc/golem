@@ -561,26 +561,30 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 			len(data), blocksPerSection, bitsPerEntry, need)
 	}
 
-	blocks := newBlockWords(stateIDs[0])
 	// Counts must represent all 4096 cells, including an explicit uniform array.
 	counts := make([]uint32, len(stateIDs))
-	mask := uint64(1)<<bitsPerEntry - 1
-	i := 0
-	for _, long := range data {
-		word := uint64(long)
-		for j := 0; j < perLong && i < blocksPerSection; j++ {
-			pIdx := int(word & mask)
-			word >>= bitsPerEntry
-			state := uint16(airState)
-			if pIdx < len(stateIDs) {
-				state = stateIDs[pIdx]
-				counts[pIdx]++
+	blocks := adoptPackedBlocks(stateIDs, data, bitsPerEntry, counts)
+	if blocks == nil {
+		clear(counts)
+		blocks = newBlockWords(stateIDs[0])
+		mask := uint64(1)<<bitsPerEntry - 1
+		i := 0
+		for _, long := range data {
+			word := uint64(long)
+			for j := 0; j < perLong && i < blocksPerSection; j++ {
+				pIdx := int(word & mask)
+				word >>= bitsPerEntry
+				state := uint16(airState)
+				if pIdx < len(stateIDs) {
+					state = stateIDs[pIdx]
+					counts[pIdx]++
+				}
+				blocks = blocks.put(i, state, false)
+				i++
 			}
-			blocks = blocks.put(i, state, false)
-			i++
-		}
-		if i == blocksPerSection {
-			break
+			if i == blocksPerSection {
+				break
+			}
 		}
 	}
 	s.fill = stateIDs[0]
@@ -632,6 +636,49 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 		}
 	}
 	return nil
+}
+
+// adoptPackedBlocks builds storage straight from the saved words when the file's
+// palette already is the in-memory layout: width 4-8, distinct states and every
+// index inside the palette. It counts each index into counts and returns nil
+// (counts then meaningless) for anything else, which the cell-by-cell decoder
+// handles. data holds at least a section's words.
+// vanilla: PalettedContainer.unpack
+func adoptPackedBlocks(stateIDs []uint16, data nbt.LongArray, bitsPerEntry int, counts []uint32) *blockWords {
+	if bitsPerEntry > maxIndirectBits {
+		return nil
+	}
+	b := makeBlockWords(bitsPerEntry)
+	for _, state := range stateIDs {
+		if b.paletteSlot(state) != b.used {
+			return nil
+		}
+		b.palette[b.used] = uint32(state)
+		b.indexSlot(state, b.used)
+		b.used++
+	}
+	words := data[:len(b.words)]
+	mask, n := b.mask, len(stateIDs)
+	cell := 0
+	for w, long := range words {
+		word := uint64(long)
+		take := min(b.perWord, blocksPerSection-cell)
+		for range take {
+			pIdx := int(word & mask)
+			if pIdx >= n {
+				return nil
+			}
+			counts[pIdx]++
+			word >>= bitsPerEntry
+		}
+		if take < b.perWord {
+			// Padding past the last cell is not part of the section.
+			long &= int64(1)<<(take*bitsPerEntry) - 1
+		}
+		b.words[w] = uint64(long)
+		cell += take
+	}
+	return b
 }
 
 // packedIndices reads count indices of bitsPerEntry bits from a packed long

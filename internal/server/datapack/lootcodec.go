@@ -134,6 +134,8 @@ type lootDecoder struct {
 	ResourceDecoder
 	legacyFunctions bool
 	inlineLootTable bool
+	// nbtInput is a command's inline SNBT rather than a JSON file.
+	nbtInput bool
 }
 
 // itemModifier reads a typed function, or else a holder set of modifiers run
