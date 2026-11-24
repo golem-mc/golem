@@ -815,26 +815,27 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 	} else {
 		mt = v.teleportTick()
 	}
-	// motion is encoded for the first watcher who gets it and shared after.
+	// The baseline advances on every gate, watched or not, before any watcher
+	// is paired; the payload is encoded for the first watcher who gets it.
+	// vanilla: ServerEntity.sendChanges
 	var motion []byte
-	motionDue, motionChecked := false, false
+	motionDue := false
+	if k.motion != nil && mt.gate {
+		vx, vy, vz := k.motion(b)
+		motionDue = v.t.motionDue(vx, vy, vz, true)
+	}
 	for _, i := range v.watchers(near) {
 		wt := watchers[i]
 		if wt.c.theWorld() != v.w {
 			continue // crossed to another dimension since the snapshot
 		}
 		if was, seen := v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out); seen && (mt.gate || mt.teleported && !v.k.steppedPath) {
-			if k.motion != nil && mt.gate {
-				if !motionChecked {
-					motionChecked = true
+			if motionDue {
+				if motion == nil {
 					vx, vy, vz := k.motion(b)
-					if motionDue = v.t.motionDue(vx, vy, vz, true); motionDue {
-						motion = entityVelocityPayload(k.id(b), vx, vy, vz)
-					}
+					motion = entityVelocityPayload(k.id(b), vx, vy, vz)
 				}
-				if motionDue {
-					out.moves.add(wt.c, outbound{id: protocol.IDPlaySetEntityMotion, data: motion})
-				}
+				out.moves.add(wt.c, outbound{id: protocol.IDPlaySetEntityMotion, data: motion})
 			}
 			v.moveTold(was, wt.c, mt, out)
 		}
