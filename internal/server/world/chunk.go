@@ -521,11 +521,12 @@ func (s *section) set(i int, state uint16, shared bool) {
 	if isTouchBlock[oldBlock] {
 		s.touches.Add(-1)
 	}
-	if isShapeBlock[block] {
-		s.shapes.Add(1)
-	}
-	if isShapeBlock[oldBlock] {
-		s.shapes.Add(-1)
+	if shape, was := isShapeBlock[block], isShapeBlock[oldBlock]; shape != was {
+		if shape {
+			s.shapes.Add(1)
+		} else {
+			s.shapes.Add(-1)
+		}
 	}
 }
 

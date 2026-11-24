@@ -1,6 +1,10 @@
 package world
 
-import "github.com/golem-mc/golem/registry"
+import (
+	"sync/atomic"
+
+	"github.com/golem-mc/golem/registry"
+)
 
 // isShapeBlock marks the blocks the server's shape reconnect pass reads or
 // rewrites: fences, panes, bars, walls, stairs, gates, growing plants and
@@ -11,36 +15,45 @@ var isShapeBlock = registry.BlocksOf(func(b registry.Block) bool {
 		b == registry.BlockPaleMossCarpet
 })
 
-// ShapeBlocksIn reports whether a loaded section overlapping the inclusive
-// cell box contains a block the shape reconnect pass reacts to.
-// Near-cache reads follow BlockAt: an unloading chunk reads as it left.
-func (w *World) ShapeBlocksIn(x0, y0, z0, x1, y1, z1 int32) bool {
-	lo := max((y0-worldMinY)>>4, 0)
-	hi := min((y1-worldMinY)>>4, worldHeight/sectionSize-1)
-	if lo > hi {
-		return false
-	}
-	for chx := x0 >> 4; chx <= x1>>4; chx++ {
-		for chz := z0 >> 4; chz <= z1>>4; chz++ {
-			pos := ChunkPos{X: chx, Z: chz}
-			loaded := w.nearAt(pos)
-			if loaded == nil {
-				w.mu.RLock()
-				loaded = w.chunks[pos]
-				if loaded != nil {
-					w.near[nearIndex(pos)].Store(loaded)
-				}
-				w.mu.RUnlock()
-			}
-			if loaded == nil {
+// shapeTagTable is the tag snapshot checked for members isShapeBlock lacks.
+type shapeTagTable struct {
+	tags     *registry.BlockTagLookup
+	extended bool
+}
+
+var shapeTagCache atomic.Pointer[shapeTagTable]
+
+// shapeTagsExtended reports whether the live fence, wall, stair or gate tags
+// hold a block the built-in table does not count, as after a data pack
+// expands one. The server then runs the pass unconditionally.
+func shapeTagsExtended() bool {
+	tags := registry.CurrentBlockTags()
+	t := shapeTagCache.Load()
+	if t == nil || t.tags != tags {
+		ids := [...]registry.BlockTagID{
+			registry.BlockTagOf(registry.TagFences), registry.BlockTagOf(registry.TagWalls),
+			registry.BlockTagOf(registry.TagStairs), registry.BlockTagOf(registry.TagFenceGates),
+		}
+		t = &shapeTagTable{tags: tags}
+		for b := range registry.Block(registry.BlockCount) {
+			if isShapeBlock[b] {
 				continue
 			}
-			for sec := lo; sec <= hi; sec++ {
-				if loaded.chunk.sections[sec].shapes.Load() > 0 {
-					return true
+			for _, id := range ids {
+				if tags.InTag(b, id) {
+					t.extended = true
 				}
 			}
 		}
+		shapeTagCache.Store(t)
 	}
-	return false
+	return t.extended
+}
+
+// ShapeBlocksIn reports whether a loaded section overlapping the inclusive
+// cell box contains a block the shape reconnect pass reacts to. It is always
+// true while a data pack adds members to the shape tags.
+// Near-cache reads follow BlockAt: an unloading chunk reads as it left.
+func (w *World) ShapeBlocksIn(x0, y0, z0, x1, y1, z1 int32) bool {
+	return shapeTagsExtended() || w.sectionCountIn(x0, y0, z0, x1, y1, z1, func(s *section) int32 { return s.shapes.Load() })
 }

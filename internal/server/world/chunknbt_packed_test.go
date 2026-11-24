@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // TestDecodeSectionBlocksPacked checks that adopting saved words (and the
@@ -27,6 +28,8 @@ func TestDecodeSectionBlocksPacked(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			tc.states = append([]uint16(nil), tc.states...)
+			tc.states[1] = registry.BlockOakFence.DefaultState()
 			indices := make([]uint16, blocksPerSection)
 			want := make([]uint16, blocksPerSection)
 			for i := range indices {
@@ -60,6 +63,9 @@ func TestDecodeSectionBlocksPacked(t *testing.T) {
 			}
 			if tc.wantErr {
 				return
+			}
+			if got.shapes.Load() == 0 {
+				t.Fatal("no shape blocks counted")
 			}
 			var ref section
 			for i, state := range want {

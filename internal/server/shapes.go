@@ -8,7 +8,8 @@ import (
 // reconnectShapes runs the world's reconnect pass at (x, y, z) and tells
 // everyone the writes.
 func (s *Server) reconnectShapes(w *world.World, x, y, z int32) {
-	// The box holds every cell the pass reads; a write needs a shape block in it.
+	// The box holds the cells the pass first writes; a wall or stair reads
+	// farther once a write is found.
 	if !w.ShapeBlocksIn(x-1, y-1, z-1, x+1, y+1, z+1) {
 		return
 	}
