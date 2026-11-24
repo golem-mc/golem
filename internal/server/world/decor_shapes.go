@@ -308,7 +308,7 @@ func templateShape(r templateShapeRegion, x, y, z int32) {
 		if registry.BlockOf(neighbour) == b && registry.StateValue(neighbour, registry.PropHalf) == other {
 			state, _ = registry.WithProp(neighbour, registry.PropHalf, half)
 		}
-	case b.IsFence():
+	case b.Type() == registry.BlockTypeFence:
 		// vanilla: FenceBlock.updateShape
 		for d, o := range fenceOffsets {
 			state, _ = registry.WithBool(state, fenceSideProps[d], registry.ConnectsToFence(b, r.get(x+o[0], y, z+o[1]), fenceDirNames[d]))
