@@ -17,15 +17,18 @@ func parseSlotSource(text string) (registry.SlotSource, string, *ParseError) {
 	if _, known := itemSlotIDs[text]; known {
 		return registry.SlotRangeSource{Source: "container", Slots: text}, text, nil
 	}
-	if name, n, ok := readIdentifier(text); ok && n == len(text) {
+	if name, n, ok := readIdentifierNonEmpty(text); ok {
 		qualified := registry.Qualify(name)
 		if source, found := registry.FindSlotSource(qualified); found {
+			if n < len(text) {
+				return nil, "", &ParseError{Key: keyExpectedSeparator, Cursor: n}
+			}
 			return source, qualified, nil
 		}
 		return nil, "", &ParseError{
 			Key:    modifierNotFoundKey,
 			With:   []string{qualified, "minecraft:slot_source"},
-			Cursor: len(text),
+			Cursor: n,
 		}
 	}
 	if text == "" || (text[0] != '{' && text[0] != '[') {

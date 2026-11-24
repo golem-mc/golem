@@ -329,8 +329,8 @@ func replaceComponentSlots(parent SlotAccess, component string, items *ItemProvi
 			list = append(list, items.Next())
 			replaced++
 		}
-		if !stack.Empty() {
-			stack.SetContainer(trimTrailingEmpty(list))
+		if !stack.Empty() && replaced > 0 {
+			setComponentContents(&stack, component, list)
 			parent.Set(stack)
 		}
 		return replaced
@@ -362,8 +362,8 @@ func replaceComponentSlots(parent SlotAccess, component string, items *ItemProvi
 			weight = nw
 			replaced++
 		}
-		if !stack.Empty() {
-			stack.SetBundleContents(mergeBundleStacks(list))
+		if !stack.Empty() && replaced > 0 {
+			setComponentContents(&stack, component, list)
 			parent.Set(stack)
 		}
 		return replaced
@@ -383,8 +383,8 @@ func replaceComponentSlots(parent SlotAccess, component string, items *ItemProvi
 			list = append(list, items.Next())
 			replaced++
 		}
-		if !stack.Empty() {
-			stack.SetChargedProjectiles(slices.DeleteFunc(list, protocol.ItemStack.Empty))
+		if !stack.Empty() && replaced > 0 {
+			setComponentContents(&stack, component, list)
 			parent.Set(stack)
 		}
 		return replaced
@@ -396,6 +396,7 @@ func replaceComponentSlots(parent SlotAccess, component string, items *ItemProvi
 // vanilla: ContainerComponentManipulator.ComponentSlotCollection.modifySlots
 func modifyComponentSlots(parent SlotAccess, component string, modify func(SlotAccess), sel SlotSelector) {
 	stack := parent.Get()
+	modified := false
 	switch component {
 	case "minecraft:container":
 		list := slices.Clone(stack.Container)
@@ -406,11 +407,11 @@ func modifyComponentSlots(parent SlotAccess, component string, modify func(SlotA
 			idx := i
 			modify(SlotAccess{
 				Get: func() protocol.ItemStack { return list[idx] },
-				Set: func(s protocol.ItemStack) bool { list[idx] = s; return true },
+				Set: func(s protocol.ItemStack) bool { list[idx] = s; modified = true; return true },
 			})
 		}
-		if !stack.Empty() {
-			stack.SetContainer(trimTrailingEmpty(list))
+		if !stack.Empty() && modified {
+			setComponentContents(&stack, component, list)
 			parent.Set(stack)
 		}
 	case "minecraft:bundle_contents":
@@ -430,12 +431,13 @@ func modifyComponentSlots(parent SlotAccess, component string, modify func(SlotA
 					}
 					list[idx] = s
 					weight = nw
+					modified = true
 					return true
 				},
 			})
 		}
-		if !stack.Empty() {
-			stack.SetBundleContents(mergeBundleStacks(list))
+		if !stack.Empty() && modified {
+			setComponentContents(&stack, component, list)
 			parent.Set(stack)
 		}
 	default: // minecraft:charged_projectiles
@@ -447,13 +449,29 @@ func modifyComponentSlots(parent SlotAccess, component string, modify func(SlotA
 			idx := i
 			modify(SlotAccess{
 				Get: func() protocol.ItemStack { return list[idx] },
-				Set: func(s protocol.ItemStack) bool { list[idx] = s; return true },
+				Set: func(s protocol.ItemStack) bool { list[idx] = s; modified = true; return true },
 			})
 		}
-		if !stack.Empty() {
-			stack.SetChargedProjectiles(slices.DeleteFunc(list, protocol.ItemStack.Empty))
+		if !stack.Empty() && modified {
+			setComponentContents(&stack, component, list)
 			parent.Set(stack)
 		}
+	}
+}
+
+// setComponentContents writes items back to stack's container component,
+// keeping an explicit empty patch when the item lacks a default for it and
+// clearing any removal when restoring the default.
+// vanilla: ContainerComponentManipulator.setContents
+func setComponentContents(stack *protocol.ItemStack, component string, items []protocol.ItemStack) {
+	keepEmpty := !registry.ItemHasComponentDefault(stack.ItemID, component)
+	switch component {
+	case "minecraft:container":
+		stack.SetContainerPatch(trimTrailingEmpty(items), keepEmpty)
+	case "minecraft:bundle_contents":
+		stack.SetBundleContentsPatch(mergeBundleStacks(items), keepEmpty)
+	default: // minecraft:charged_projectiles
+		stack.SetChargedProjectilesPatch(slices.DeleteFunc(items, protocol.ItemStack.Empty), keepEmpty)
 	}
 }
 

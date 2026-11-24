@@ -39,16 +39,20 @@ func BundleRemoveFirst(bundle protocol.ItemStack) (rest, removed protocol.ItemSt
 }
 
 // BundleItemWeight returns an item's weight inside a bundle and whether a
-// bundle accepts it: 1/maxStackSize, a nested bundle 1/16 plus its own weight,
-// a stack with bees inside a whole bundle, and shulker boxes not at all.
+// bundle accepts it: 1/maxStackSize, any stack carrying bundle_contents 1/16
+// plus its own contents' weight, a stack with bees inside a whole bundle, and
+// shulker boxes not at all.
 // vanilla: BundleContents.canItemBeInBundle, BundleContents.getWeight
 func BundleItemWeight(stack protocol.ItemStack) (*big.Rat, bool) {
 	if stack.Empty() || registry.Item(stack.ItemID).InTag(registry.ItemTagIDShulkerBoxes) {
 		return nil, false
 	}
-	if IsBundle(stack.ItemID) && !stack.Removes(protocol.DataComponentBundleContents) {
-		inner := BundleItemsWeight(stack.BundleContents())
+	if contents, ok := stack.BundleContentsOf(); ok {
+		inner := BundleItemsWeight(contents)
 		return inner.Add(inner, big.NewRat(1, 16)), true
+	}
+	if !stack.Removes(protocol.DataComponentBundleContents) && registry.ItemHasComponentDefault(stack.ItemID, "minecraft:bundle_contents") {
+		return big.NewRat(1, 16), true
 	}
 	if bees, ok := stack.BeesOf(); ok && len(bees) > 0 {
 		return big.NewRat(1, 1), true

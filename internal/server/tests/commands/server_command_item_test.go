@@ -331,11 +331,11 @@ func TestItemSlotGrammar(t *testing.T) {
 		with    []string
 		wordEnd bool // the cursor points at the word's end, not its start
 	}{
-		{"a word outside the slot ranges that is not an identifier",
+		{"a word outside the slot ranges keeps its identifier prefix",
 			"item replace entity @s nonsense.* with minecraft:stone",
-			"nonsense.*",
-			slotUnknownKey,
-			[]string{"nonsense.*"},
+			"nonsense.",
+			"argument.resource_or_id.no_such_element",
+			[]string{"minecraft:nonsense.", "minecraft:slot_source"},
 			true},
 		{"an unknown identifier in slot source position",
 			"item replace entity @s nonsense.3 with minecraft:stone",
