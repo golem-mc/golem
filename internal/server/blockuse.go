@@ -335,8 +335,10 @@ func (c *client) useJukebox(hand, x, y, z int32) bool {
 	c.awardStat(player.Custom(registry.CustomStatPlayRecord), 1)
 	before := w.BlockAt(x, y, z)
 	c.srv.setJukeboxHasRecord(w, x, y, z, true)
-	c.srv.broadcastLevelEvent(w,
-		protocol.WorldEventJukeboxPlay, x, y, z, registry.JukeboxSongID(song))
+	if now, live := jukeboxSongNow(be); live && now == song {
+		c.srv.broadcastLevelEvent(w,
+			protocol.WorldEventJukeboxPlay, x, y, z, registry.JukeboxSongID(song))
+	}
 	// In w, not the player's world: a listener of the first event may have
 	// moved the player. vanilla: JukeboxPlayable.tryInsertIntoJukebox
 	c.srv.gameEvent(w, rules.GameEventBlockChange, float64(x)+.5, float64(y)+.5, float64(z)+.5, c.gameEventContext(before))
@@ -364,7 +366,7 @@ func (c *client) ejectJukebox(w *world.World, be *world.BlockEntity, x, y, z int
 		return true
 	}
 	c.srv.setJukeboxHasRecord(w, x, y, z, false)
-	if playing {
+	if now, live := jukeboxSongNow(be); playing && live && now == "" {
 		c.srv.broadcastLevelEvent(w,
 			protocol.WorldEventJukeboxStop, x, y, z, 0)
 	}

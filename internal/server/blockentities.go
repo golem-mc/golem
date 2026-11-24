@@ -1456,6 +1456,20 @@ func (s *Server) tickJukebox(w *world.World, be *world.BlockEntity) {
 	w.Touch(be.X, be.Y, be.Z)
 }
 
+// jukeboxSongNow is the song be plays now, "" for none, and whether be is
+// still in the world. A BLOCK_CHANGE listener runs synchronously and may
+// change or break the record, so a play or stop sent after the event checks
+// this first.
+func jukeboxSongNow(be *world.BlockEntity) (song string, live bool) {
+	be.UseLive(func(b *world.BlockEntity) {
+		live = true
+		if b.JukeboxPlaying() {
+			song, _ = b.JukeboxSong()
+		}
+	})
+	return song, live
+}
+
 // syncJukeboxRecord reconciles a jukebox after a hopper move: an arrived
 // disc starts its song, a removed one stops it, has_record follows. Call it
 // with no lock held.
@@ -1481,18 +1495,18 @@ func (s *Server) syncJukeboxRecord(w *world.World, be *world.BlockEntity) {
 		}
 		be.Use(func(b *world.BlockEntity) { b.TicksSinceSongStarted = 0 })
 		s.setJukeboxHasRecord(w, be.X, be.Y, be.Z, true)
-		s.broadcastLevelEvent(w,
-			protocol.WorldEventJukeboxPlay, be.X, be.Y, be.Z, registry.JukeboxSongID(song))
-
+		if now, live := jukeboxSongNow(be); live && now == song {
+			s.broadcastLevelEvent(w,
+				protocol.WorldEventJukeboxPlay, be.X, be.Y, be.Z, registry.JukeboxSongID(song))
+		}
 		return
 	}
 	if hasRecord {
 		be.Use(func(b *world.BlockEntity) { b.TicksSinceSongStarted = -1 })
 		s.setJukeboxHasRecord(w, be.X, be.Y, be.Z, false)
-		if songSet {
+		if now, live := jukeboxSongNow(be); songSet && live && now == "" {
 			s.broadcastLevelEvent(w,
 				protocol.WorldEventJukeboxStop, be.X, be.Y, be.Z, 0)
-
 		}
 	}
 }
