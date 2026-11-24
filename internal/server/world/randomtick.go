@@ -268,7 +268,7 @@ func (p *Physics) RandomTick(gameTime int64, chunks []ChunkPos, speed, maxSnowHe
 			// A view is valid only until the read lock is dropped for a visit.
 			// mask is nil for a section with every cell ticking (all) or
 			// none, or whose mask is not built.
-			read := func() (blocks *blockWords, fill uint16, mask *randomTickMask, all bool) {
+			read := func() (blocks *blockWords, fill uint16, mask *cellMask, all bool) {
 				if c == nil {
 					return nil, airState, nil, false
 				}
@@ -280,7 +280,7 @@ func (p *Physics) RandomTick(gameTime int64, chunks []ChunkPos, speed, maxSnowHe
 			for range speed {
 				x, y, z := p.blockRandomPos(pos.X*sectionSize, baseY, pos.Z*sectionSize)
 				i := int((y&15)*256 + (z&15)*16 + x&15)
-				if mask != nil && !mask.ticks(i) {
+				if mask != nil && !mask.has(i) {
 					continue // the die landed on nothing that ticks
 				}
 				state := fill

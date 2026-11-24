@@ -221,7 +221,7 @@ type section struct {
 	spawn atomic.Pointer[spawnCollision]
 	// tickMask is the lazily built random-ticking cell mask (randomtick_cells.go);
 	// nil means unbuilt. Reset wherever ticking is recounted.
-	tickMask atomic.Pointer[randomTickMask]
+	tickMask atomic.Pointer[cellMask]
 	// blocks is nil while every block is fill. Shared chunks publish a new
 	// layout atomically when the palette outgrows its entry width.
 	blocks    atomic.Pointer[blockWords]
@@ -240,10 +240,10 @@ type section struct {
 	// listening counts vibration listeners, so a game event skips sections with
 	// none (sculk.go).
 	listening int
-	// listeners are the section indices of those listeners, so a game event
-	// visits them directly.
+	// listeners marks the cells of those listeners, so a game event visits
+	// them directly; nil until the section first holds one.
 	// vanilla: EuclideanGameEventListenerRegistry
-	listeners []uint16
+	listeners *cellMask
 	// colliding counts states with a possible entity collision, including
 	// body-dependent and moving shapes.
 	colliding int
@@ -479,12 +479,14 @@ func (s *section) set(i int, state uint16, shared bool) {
 		s.emitting--
 	}
 	if newL, oldL := listensForVibrations(state), listensForVibrations(old); newL != oldL {
+		if s.listeners == nil {
+			s.listeners = new(cellMask)
+		}
+		s.listeners.flip(i)
 		if newL {
 			s.listening++
-			s.listeners = append(s.listeners, uint16(i))
 		} else {
 			s.listening--
-			s.listeners = slices.DeleteFunc(s.listeners, func(j uint16) bool { return int(j) == i })
 		}
 	}
 	if MayCollide(state) {
@@ -554,19 +556,6 @@ func (s *section) setAll(state uint16) {
 	s.recalcCounts()
 }
 
-// indexListeners rebuilds the listener index from the blocks.
-func (s *section) indexListeners() {
-	s.listeners = s.listeners[:0]
-	if s.listening == 0 {
-		return
-	}
-	for i := range blocksPerSection {
-		if listensForVibrations(s.at(i)) {
-			s.listeners = append(s.listeners, uint16(i))
-		}
-	}
-}
-
 // recalcCounts rebuilds section counts after bulk block replacement.
 func (s *section) recalcCounts() {
 	s.tickMask.Store(nil)
@@ -574,9 +563,11 @@ func (s *section) recalcCounts() {
 	s.touches.Store(0)
 	s.shapes.Store(0)
 	s.colliding, s.comparators = 0, 0
+	if s.listeners != nil {
+		clear(s.listeners[:])
+	}
 	blocks := s.blocks.Load()
 	if blocks == nil {
-		defer s.indexListeners()
 		if randomlyTicking(s.fill) {
 			s.ticking = blocksPerSection
 		}
@@ -585,6 +576,12 @@ func (s *section) recalcCounts() {
 		}
 		if listensForVibrations(s.fill) {
 			s.listening = blocksPerSection
+			if s.listeners == nil {
+				s.listeners = new(cellMask)
+			}
+			for w := range s.listeners {
+				s.listeners[w] = ^uint64(0)
+			}
 		}
 		if MayCollide(s.fill) {
 			s.colliding = blocksPerSection
@@ -616,7 +613,6 @@ func (s *section) recalcCounts() {
 		}
 		return
 	}
-	s.listeners = s.listeners[:0]
 	for i := range blocksPerSection {
 		state := blocks.get(i)
 		if randomlyTicking(state) {
@@ -627,7 +623,10 @@ func (s *section) recalcCounts() {
 		}
 		if listensForVibrations(state) {
 			s.listening++
-			s.listeners = append(s.listeners, uint16(i))
+			if s.listeners == nil {
+				s.listeners = new(cellMask)
+			}
+			s.listeners.set(i)
 		}
 		if MayCollide(state) {
 			s.colliding++

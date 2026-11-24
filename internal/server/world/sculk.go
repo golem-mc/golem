@@ -2,6 +2,7 @@ package world
 
 import (
 	"math"
+	"math/bits"
 	"math/rand"
 
 	"github.com/golem-mc/golem/internal/server/blocklogic"
@@ -197,11 +198,14 @@ func (w *World) vibrationListenersNear(cx, cy, cz, r int32, buf []blockKey) []bl
 					continue
 				}
 				baseY := worldMinY + sec*sectionSize
-				for _, i := range s.listeners {
-					x, y, z := chx<<4+int32(i&15), int32(baseY)+int32(i>>8), chz<<4+int32(i>>4&15)
-					dx, dy, dz := x-cx, y-cy, z-cz
-					if dx*dx+dy*dy+dz*dz <= r*r {
-						buf = append(buf, blockKey{x, y, z})
+				for wi, word := range s.listeners {
+					for ; word != 0; word &= word - 1 {
+						i := int32(wi<<6 | bits.TrailingZeros64(word))
+						x, y, z := chx<<4+i&15, int32(baseY)+i>>8, chz<<4+i>>4&15
+						dx, dy, dz := x-cx, y-cy, z-cz
+						if dx*dx+dy*dy+dz*dz <= r*r {
+							buf = append(buf, blockKey{x, y, z})
+						}
 					}
 				}
 			}

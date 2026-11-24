@@ -1,7 +1,6 @@
 package world
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
@@ -74,7 +73,7 @@ func TestDecodeSectionBlocksPacked(t *testing.T) {
 				ref.set(i, state, false)
 			}
 			ref.recalcCounts()
-			if len(ref.listeners) == 0 || !slices.Equal(got.listeners, ref.listeners) {
+			if ref.listeners == nil || *ref.listeners == (cellMask{}) || got.listeners == nil || *got.listeners != *ref.listeners {
 				t.Fatalf("listeners = %v, want %v", got.listeners, ref.listeners)
 			}
 			edited := want[0] + 50

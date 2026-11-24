@@ -60,3 +60,17 @@ func BenchmarkLoadChunkWithSensors(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkClearListenerSection fills a section with sculk sensors and clears
+// it cell by cell, as a batched replacement does.
+func BenchmarkClearListenerSection(b *testing.B) {
+	sensor := registry.MustState("minecraft:sculk_sensor", nil)
+	var s section
+	b.ReportAllocs()
+	for b.Loop() {
+		s.setAll(sensor)
+		for i := range blocksPerSection {
+			s.set(i, airState, false)
+		}
+	}
+}
