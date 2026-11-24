@@ -2318,6 +2318,14 @@ type spreadContext struct {
 	failedDepth   [spreadSide * spreadSide][4]uint8
 }
 
+// spreadOffsets is each cell's (dx, dz) from the square's corner.
+var spreadOffsets = func() (t [spreadSide * spreadSide][2]int8) {
+	for i := range t {
+		t[i] = [2]int8{int8(i % spreadSide), int8(i / spreadSide)}
+	}
+	return
+}()
+
 func (p *Physics) newSpreadContext(x, y, z int32, kind fluidKind) spreadContext {
 	return spreadContext{
 		p:           p,
@@ -2367,8 +2375,9 @@ func (c *spreadContext) cellFlags(state uint16) uint8 {
 
 // load reads a cell's state and classification into the cache.
 func (c *spreadContext) load(i int) {
-	x := c.ox + int32(i%spreadSide) - spreadReach
-	z := c.oz + int32(i/spreadSide) - spreadReach
+	off := spreadOffsets[i]
+	x := c.ox + int32(off[0]) - spreadReach
+	z := c.oz + int32(off[1]) - spreadReach
 	state := c.p.w.BlockAt(x, c.y, z)
 	c.states[i] = state
 	if c.lastFlags&cellKnown != 0 && state == c.lastState {
@@ -2416,8 +2425,9 @@ func (c *spreadContext) isHole(x, z int32) bool {
 // holeAt caches whether an already loaded cell hangs over a hole.
 func (c *spreadContext) holeAt(i int) bool {
 	if c.flags[i]&cellHoleKnown == 0 {
-		x := c.ox + int32(i%spreadSide) - spreadReach
-		z := c.oz + int32(i/spreadSide) - spreadReach
+		off := spreadOffsets[i]
+		x := c.ox + int32(off[0]) - spreadReach
+		z := c.oz + int32(off[1]) - spreadReach
 		top := c.states[i]
 		below := c.p.w.BlockAt(x, c.y-1, z)
 		var holeFlags uint8
