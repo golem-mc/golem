@@ -1,12 +1,15 @@
 package containers
 
 import (
+	"bytes"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -37,57 +40,60 @@ func TestOriginChestChangesLeaveTradeAndMountWindowsAlone(t *testing.T) {
 			})
 		}, merchantHotbar0},
 		{"horse", func(t *testing.T, srv *server.Server, w *servertest.WindowedClient) {
-			w.ChatCommand("summon minecraft:horse 1.5 64 0.5 {Tame:1b}")
-			var horse int32 = -1
-			for id, data := range w.Packets(servertest.ExpectTimeout) {
-				if id != protocol.IDPlaySpawnEntity {
-					continue
-				}
-				r := protocol.NewReader(data)
-				entity := r.ReadVarInt()
-				r.ReadUUID()
-				if r.ReadVarInt() == protocol.EntityTypeHorse {
-					horse = entity
-					break
-				}
-			}
-			if horse < 0 {
-				t.Fatal("no horse spawned")
-			}
+			horse := srv.SpawnMobTagged("minecraft:horse", 1.5, 64, 0.5, nbt.Compound{"Tame": nbt.Byte(1)})
 			w.UseOnSneaking(horse)
-			for id, data := range w.Packets(servertest.ExpectTimeout) {
-				if id == protocol.IDPlayMountScreenOpen {
-					w.Window = protocol.NewReader(data).ReadVarInt()
-					break
+			var content bool
+			w.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+				r := protocol.NewReader(data)
+				switch id {
+				case protocol.IDPlayMountScreenOpen:
+					w.Window = r.ReadVarInt()
+				case protocol.IDPlayContainerContent:
+					if r.ReadVarInt() == w.Window {
+						w.TrackState(w.Window, r.ReadVarInt())
+						content = true
+					}
 				}
+				return false
+			})
+			if !content {
+				t.Fatal("no mount content after opening the horse screen")
 			}
-			w.ExpectWindowContent()
 		}, 2 + 27},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			srv, connect := servertest.Start(t, servertest.MobTestConfig(), servertest.OpsListing(t, "Buyer", "Breaker"))
+			cfg := servertest.MobTestConfig()
+			cfg.ViewDistance = config.MinDistance
+			cfg.SimulationDistance = config.MinDistance
+			srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Buyer", "Breaker"))
 			w := servertest.WindowedOf(t, "Buyer", connect())
 			breaker := connect()
 			breaker.Join("Breaker")
 			srv.GiveSlot("Buyer", player.HotbarSlot, stone)
 			srv.PlaceContainer(0, 0, 0, "minecraft:chest")
-			tc.open(t, srv, w)
-			w.Settle()
-			breaker.Settle()
-
 			servertest.HoldTicks(t, srv)
+			tc.open(t, srv, w)
+
 			changed := servertest.PacketIs(protocol.IDPlayContainerSlot, protocol.IDPlayContainerContent, protocol.IDPlayCloseContainer)
-			breaker.ChatCommand("item replace block 0 0 0 container.0 with minecraft:stone")
-			breaker.Settle()
-			w.ExpectNoneWithinTicks(srv, 2, changed)
-			breaker.ChatCommand("setblock 0 0 0 minecraft:air destroy")
-			breaker.Settle()
-			w.ExpectNoneWithinTicks(srv, 2, changed)
+			run := func(command, success string) {
+				breaker.ChatCommand(command)
+				var ok bool
+				breaker.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+					ok = ok || id == protocol.IDPlaySystemChat && bytes.Contains(data, []byte(success))
+					return false
+				})
+				if !ok {
+					t.Fatalf("%q did not report %s", command, success)
+				}
+				w.ExpectNoneWithinTicks(srv, 0, changed)
+			}
+			run("item replace block 0 0 0 container.0 with minecraft:stone", "commands.item.block.replace.success")
+			run("setblock 0 0 0 minecraft:air destroy", "commands.setblock.success")
 
 			w.Click(tc.hotbar, 0, protocol.ClickModePickup)
-			cursor, _ := protocol.NewReader(w.ExpectWithinTicks(srv, 2, protocol.IDPlaySetCursorItem)).ReadSlot()
+			cursor, _ := protocol.NewReader(w.ExpectWithinTicks(srv, 0, protocol.IDPlaySetCursorItem)).ReadSlot()
 			if !cursor.Equal(stone) {
 				t.Errorf("cursor after the click = %+v, want the stone from the hotbar", cursor)
 			}
