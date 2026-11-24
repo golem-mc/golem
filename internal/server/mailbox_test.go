@@ -2,6 +2,9 @@ package server
 
 import (
 	"bytes"
+	"io"
+	"log/slog"
+	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/google/uuid"
@@ -29,4 +32,27 @@ func mailboxClient() (*client, *recordingMailboxConn) {
 	s.assignPlayerSlot(c)
 	s.clients[uuid.Nil] = c
 	return c, cc
+}
+
+func TestWriteBatchKeepsBusySpareAndReleasesIdle(t *testing.T) {
+	cl := &client{conn: protocol.NewConn(&countingConn{}), log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	m := &mailbox{c: cl, done: make(chan struct{})}
+	fill := func(n int) {
+		m.mu.Lock()
+		for range n {
+			m.queue = append(m.queue, outbound{id: 0x20})
+		}
+		m.mu.Unlock()
+		m.writeBatch()
+	}
+	fill(2048)
+	if cap(m.spare) < 2048 {
+		t.Fatalf("busy batch dropped, spare cap %d", cap(m.spare))
+	}
+	for range 2*spareSlackFlushes + 2 { // queue and spare alternate
+		fill(1)
+	}
+	if cap(m.spare) > spareMin {
+		t.Fatalf("idle spare kept, cap %d", cap(m.spare))
+	}
 }

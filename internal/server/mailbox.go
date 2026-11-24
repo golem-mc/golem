@@ -44,6 +44,7 @@ type mailbox struct {
 	mu      sync.Mutex
 	queue   []outbound
 	spare   []outbound // the last batch's storage, emptied, for the next queue
+	slack   int        // consecutive flushes that used under a quarter of an oversized spare
 	queued  int
 	closing bool
 	wake    chan struct{}
@@ -100,6 +101,12 @@ func (c *client) startMailbox() *mailbox {
 	return m
 }
 
+const (
+	spareMin          = 1024  // capacity kept without question
+	spareMax          = 16384 // capacity never kept
+	spareSlackFlushes = 8
+)
+
 // writeBatch writes everything waiting, later arrivals going next round;
 // it returns false once the writer should stop.
 func (m *mailbox) writeBatch() bool {
@@ -119,12 +126,24 @@ func (m *mailbox) writeBatch() bool {
 	err := m.c.conn.WritePacketsRaw(len(batch), func(i int) (int32, []byte, *protocol.CachedPacket, bool) {
 		return batch[i].id, batch[i].data, batch[i].shared, batch[i].raw
 	})
-	// The cap keeps a join's chunk burst from staying allocated.
-	if cap(batch) <= 1024 {
+	// A busy client refills the same capacity every tick, so keep it up to
+	// spareMax; a join's chunk burst is released after spareSlackFlushes
+	// flushes that need little of it.
+	// Queue and spare alternate, so small batches in between do not count.
+	if cap(batch) > spareMin {
+		if len(batch) <= cap(batch)/4 {
+			m.slack++
+		} else {
+			m.slack = 0
+		}
+	}
+	if cap(batch) <= spareMax && (cap(batch) <= spareMin || m.slack < spareSlackFlushes) {
 		clear(batch) // do not pin the payloads
 		m.mu.Lock()
 		m.spare = batch[:0]
 		m.mu.Unlock()
+	} else {
+		m.slack = 0
 	}
 	if err != nil {
 		// The read loop reports the connection ending.

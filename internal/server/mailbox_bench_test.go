@@ -94,3 +94,19 @@ func BenchmarkBroadcast50KBTo50(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkMailboxBusyBatch(b *testing.B) {
+	cc := &countingConn{}
+	cl := &client{conn: protocol.NewConn(cc), log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	m := &mailbox{c: cl, done: make(chan struct{})}
+	payload := make([]byte, 24)
+	b.ReportAllocs()
+	for b.Loop() {
+		m.mu.Lock()
+		for range 2048 {
+			m.queue = append(m.queue, outbound{id: 0x20, data: payload})
+		}
+		m.mu.Unlock()
+		m.writeBatch()
+	}
+}
