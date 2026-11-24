@@ -1,6 +1,8 @@
 package server
 
 import (
+	"fmt"
+	"github.com/golem-mc/golem/internal/config"
 	"log/slog"
 	"testing"
 
@@ -11,7 +13,15 @@ import (
 
 // BenchmarkChunkViewMoves shifts a ten-chunk view back and forth across a
 // chunk border over cached terrain, including holds, visibility and send queues.
+// It runs for a client asking for a distance of 1 and for one asking for the
+// server's ten.
 func BenchmarkChunkViewMoves(b *testing.B) {
+	for _, asked := range []int32{1, 10} {
+		b.Run(fmt.Sprintf("ask%d", asked), func(b *testing.B) { benchChunkViewMoves(b, asked) })
+	}
+}
+
+func benchChunkViewMoves(b *testing.B, asked int32) {
 	s, w := newBlockBenchServer(b, 0)
 	s.viewDistance.Store(10)
 	s.simulationDistance.Store(10)
@@ -29,6 +39,7 @@ func BenchmarkChunkViewMoves(b *testing.B) {
 		}
 	})
 	c := &client{srv: s, player: &player.Player{}, conn: protocol.NewConn(new(playerTrackingBenchConn)), log: slog.New(slog.DiscardHandler)}
+	c.viewDistance.Store(max(asked, config.MinDistance))
 	c.dim.Store(s.allDims()[0])
 	b.Cleanup(func() { c.forgetChunks(nil) })
 	if err := c.updateChunks(); err != nil {
