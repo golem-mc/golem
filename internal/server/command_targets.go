@@ -414,13 +414,28 @@ func (c *client) LootEntity() rules.LootEntity {
 	return out
 }
 
-// lootNBT can run during a roll that already holds the mob or projectile lock.
+// lootNBT can run during a roll that already holds the mob or projectile lock,
+// which the ride and pearls need, so it carries neither; a roll that can read
+// them first takes lootNBTRiding.
 // vanilla: ContextNbtProvider, NbtPredicate.getEntityTagToCompare
-func (c *client) lootNBT() nbt.Compound {
+func (c *client) lootNBT() nbt.Compound { return c.lootTag(nil, nil) }
+
+// lootNBTRiding reads the ride and flying pearls now, with no server lock
+// held, for a roll that reads the rest of the compound later.
+// vanilla: ServerPlayer.saveParentVehicle, ServerPlayer.saveEnderPearls
+func (c *client) lootNBTRiding() func() nbt.Compound {
+	if c.player == nil {
+		return c.lootNBT
+	}
+	vehicle, pearls := c.savedVehicle(false), c.srv.savedPearlTags(c.player.UUID)
+	return func() nbt.Compound { return c.lootTag(vehicle, pearls) }
+}
+
+func (c *client) lootTag(vehicle nbt.Compound, pearls []nbt.Tag) nbt.Compound {
 	if c.player == nil {
 		return nil
 	}
-	tag := c.playerSaveState(nil, nil)
+	tag := c.playerSaveState(vehicle, pearls)
 	c.addSelectedItem(tag)
 	return tag.Entries()
 }
