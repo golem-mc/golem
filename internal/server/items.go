@@ -3,7 +3,6 @@ package server
 import (
 	"github.com/golem-mc/golem/plugin"
 	"log/slog"
-	"math"
 	"slices"
 	"strconv"
 	"sync"
@@ -124,11 +123,12 @@ type pickupIndex struct {
 
 var pickupIndexes = sync.Pool{New: func() any { return new(pickupIndex) }}
 
-// newPickupIndex reads every client's pickup box. Call it with no lock held
-// and release the result.
+// newPickupIndex reads every client's pickup box. It keeps clients, which the
+// caller must not change, and must be called with no lock held; release the
+// result.
 func newPickupIndex(clients []*client) *pickupIndex {
 	ix := pickupIndexes.Get().(*pickupIndex)
-	ix.clients = append(ix.clients[:0], clients...)
+	ix.clients = clients
 	ix.reach = ix.reach[:0]
 	for _, c := range clients {
 		ix.reach = append(ix.reach, c.pickupBox())
@@ -140,31 +140,24 @@ func newPickupIndex(clients []*client) *pickupIndex {
 // build files the boxes in reach, unless there are few clients or a box is
 // too wide for the index to be bounded.
 func (ix *pickupIndex) build() {
-	ix.indexed = len(ix.clients) > pickupIndexDirect
-	for _, box := range ix.reach {
-		minX, _, minZ, maxX, _, maxZ := box.Corners()
-		if pickupBoxTooWide(minX, maxX, minZ, maxZ) {
-			ix.indexed = false
-		}
-	}
-	if !ix.indexed {
+	ix.indexed = false
+	if len(ix.clients) <= pickupIndexDirect {
 		return
 	}
 	ix.grid.Reset()
+	for _, box := range ix.reach {
+		if ix.grid.SpansMore(box, pickupIndexSpan) {
+			return
+		}
+	}
 	for i, box := range ix.reach {
 		ix.grid.Add(int32(i), box)
 	}
-}
-
-// pickupBoxTooWide reports whether the box spans more than pickupIndexSpan
-// cells of 16 blocks on either horizontal axis.
-func pickupBoxTooWide(minX, maxX, minZ, maxZ float64) bool {
-	span := func(lo, hi float64) float64 { return math.Floor(hi/16) - math.Floor(lo/16) + 1 }
-	return span(minX, maxX) > pickupIndexSpan || span(minZ, maxZ) > pickupIndexSpan
+	ix.indexed = true
 }
 
 func (ix *pickupIndex) release() {
-	clear(ix.clients)
+	ix.clients = nil
 	pickupIndexes.Put(ix)
 }
 
@@ -185,13 +178,10 @@ func (ix *pickupIndex) candidate(it *itemEntity) *itemPickup {
 		}
 		return nil
 	}
-	var found *itemPickup
-	ix.grid.Query(box, func(i int32) {
-		if found == nil && ok(i) {
-			found = &itemPickup{collector: ix.clients[i], entity: it, item: it.item.ID}
-		}
-	})
-	return found
+	if i := ix.grid.First(box, ok); i >= 0 {
+		return &itemPickup{collector: ix.clients[i], entity: it, item: it.item.ID}
+	}
+	return nil
 }
 
 // pickupBox is the box within which this player touches items and orbs: on

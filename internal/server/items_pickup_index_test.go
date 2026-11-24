@@ -27,24 +27,31 @@ func addPickupBenchClient(s *Server, dim *dimension, x, z float64) *client {
 	return c
 }
 
+// pickupTestClient is a survival player whose box the test sets, in dim. No
+// server or chunk is involved.
+func pickupTestClient(dim *dimension, x, z float64) *client {
+	p := &player.Player{UUID: uuid.New()}
+	p.SetPosition(player.Position{X: x, Y: 64, Z: z})
+	c := &client{player: p}
+	c.dim.Store(dim)
+	return c
+}
+
 // TestPlayerItemPickupIndexOrder checks the index names the same collector as
 // the direct loop for overlapping boxes across a chunk border, a mounted
 // player's wider box, an owner-only item and another dimension.
 func TestPlayerItemPickupIndexOrder(t *testing.T) {
-	s, w := newTrackerBenchServer(t)
-	// Only the world's identity matters to the pickup check.
-	other := &dimension{w: &world.World{}}
-	dim := s.allDims()[0]
+	w, other := &world.World{}, &world.World{}
+	dim, otherDim := &dimension{w: w}, &dimension{w: other}
 	var clients []*client
 	// Players straddling the x=16 chunk border, boxes overlapping.
 	for i := range 12 {
-		clients = append(clients, addPickupBenchClient(s, dim, 13+float64(i)*0.7, 3))
+		clients = append(clients, pickupTestClient(dim, 13+float64(i)*0.7, 3))
 	}
 	// One far out whose vehicle box is wide.
-	clients = append(clients, addPickupBenchClient(s, dim, 100, 100))
+	clients = append(clients, pickupTestClient(dim, 100, 100))
 	// Same XYZ as a client, but in another dimension.
-	foreign := addPickupBenchClient(s, dim, 16, 3)
-	foreign.dim.Store(other)
+	foreign := pickupTestClient(otherDim, 16, 3)
 	clients = append(clients, foreign)
 
 	reach := make([]entity.AABB, len(clients))
@@ -69,11 +76,14 @@ func TestPlayerItemPickupIndexOrder(t *testing.T) {
 		return nil
 	}
 	stack := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
+	newItem := func(w *world.World, x, z float64) *itemEntity {
+		return &itemEntity{item: entity.NewItem(1, stack, x, 64, z, 0, 0, 0, 0, 0), w: w}
+	}
 	owner := clients[5].player.UUID
 	var names []int
 	for i := range 80 {
 		x := 11 + float64(i)*0.2
-		it := s.newItemEntity(w, stack, x, 64, 3, 0, 0, 0, 0)
+		it := newItem(w, x, 3)
 		if i%3 == 0 {
 			it.item.Target = &owner
 		}
@@ -87,13 +97,11 @@ func TestPlayerItemPickupIndexOrder(t *testing.T) {
 		}
 	}
 	// Item at the vehicle's far corner is only the rider's.
-	far := s.newItemEntity(w, stack, 100, 64, 100, 0, 0, 0, 0)
-	if got := ix.candidate(far); got == nil || got.collector != clients[12] {
+	if got := ix.candidate(newItem(w, 100, 100)); got == nil || got.collector != clients[12] {
 		t.Fatalf("far item: %v", got)
 	}
 	// Equal XYZ in a world no client but the foreign one is in.
-	elsewhere := s.newItemEntity(other.w, stack, 16, 64, 3, 0, 0, 0, 0)
-	if got := ix.candidate(elsewhere); got == nil || got.collector != foreign {
+	if got := ix.candidate(newItem(other, 16, 3)); got == nil || got.collector != foreign {
 		t.Fatalf("other-dimension item: %v", got)
 	}
 	// A vehicle reaching past eight cells turns the index off for the pass.
@@ -133,6 +141,35 @@ func BenchmarkDistantPlayerItemPickups(b *testing.B) {
 			for _, it := range s.items {
 				if it.item.Dead {
 					b.Fatal("an item was picked up")
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkClusteredPickupCandidate times the lookup of a drop the first of n
+// players sharing one cell can collect, on a cell border so two buckets match.
+func BenchmarkClusteredPickupCandidate(b *testing.B) {
+	for _, n := range []int{20, 100} {
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			w := &world.World{}
+			dim := &dimension{w: w}
+			clients := make([]*client, n)
+			reach := make([]entity.AABB, n)
+			for i := range clients {
+				clients[i] = pickupTestClient(dim, 15.8+float64(i%4)*0.1, 3)
+				pos := clients[i].player.Position()
+				reach[i] = entity.PlayerTouchBox(pos.X, pos.Y, pos.Z, 0.6, 1.8, entity.AABB{})
+			}
+			ix := &pickupIndex{clients: clients, reach: reach}
+			ix.build()
+			stack := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
+			it := &itemEntity{item: entity.NewItem(1, stack, 16, 64, 3, 0, 0, 0, 0, 0), w: w}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				if ix.candidate(it) == nil {
+					b.Fatal("no candidate")
 				}
 			}
 		})
