@@ -213,7 +213,13 @@ func (s *Server) tickBeacon(w *world.World, be *world.BlockEntity, age int64) {
 				if c.player.GameMode() == protocol.GameModeSpectator {
 					continue
 				}
-				if b := c.bodyBox(); !rules.BoxesIntersect(lo, hi, [3]float64{b[0], b[1], b[2]}, [3]float64{b[3], b[4], b[5]}) {
+				// Reject by position alone before the pose and scale reads.
+				pos := c.player.Position()
+				if pos.X < lo[0]-rules.MaxPlayerHalfWidth || pos.X > hi[0]+rules.MaxPlayerHalfWidth ||
+					pos.Z < lo[2]-rules.MaxPlayerHalfWidth || pos.Z > hi[2]+rules.MaxPlayerHalfWidth {
+					continue
+				}
+				if b := c.bodyBoxAt(pos); !rules.BoxesIntersect(lo, hi, [3]float64{b[0], b[1], b[2]}, [3]float64{b[3], b[4], b[5]}) {
 					continue
 				}
 				c.effectCause = effect.CauseBeacon

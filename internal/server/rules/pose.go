@@ -40,6 +40,11 @@ func (d PlayerDimensions) Scaled(s float64) PlayerDimensions {
 	}
 }
 
+// MaxPlayerHalfWidth bounds a player's box half-width: the widest pose, 0.6,
+// at the scale attribute's maximum of 16.
+// vanilla: Attributes.SCALE (range 0.0625 to 16)
+const MaxPlayerHalfWidth = 0.6 / 2 * 16
+
 // The poses' shapes.
 // vanilla: Avatar.POSES
 var playerPoseDimensions = map[Pose]PlayerDimensions{
