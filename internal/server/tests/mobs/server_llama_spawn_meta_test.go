@@ -3,6 +3,7 @@ package mobs
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -15,11 +16,11 @@ import (
 func TestLlamaSpawnsTellStrengthAndVariant(t *testing.T) {
 	t.Parallel()
 	const name = "Watcher"
-	srv, connect := servertest.Start(t, servertest.MobTestConfig(),
-		servertest.OpsListing(t, name), func(s *server.Server) {
-			servertest.FreezeUntilHeld(t, s)
-		})
-	c := connect().Join(name)
+	cfg := servertest.MobTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, name, servertest.OpsListing(t, name), func(s *server.Server) {
+		servertest.FreezeUntilHeld(t, s)
+	})
 	servertest.HoldTicks(t, srv)
 	srv.SetSpawning(false)
 	c.MoveToGround(0.5, 64, 0.5, true)

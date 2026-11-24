@@ -1341,6 +1341,9 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 			break
 		}
 		fieldType := meta.ReadVarInt()
+		if c.readLlamaField(mob, meta, index, fieldType) {
+			continue
+		}
 		if index == protocol.MetadataIndexAir && fieldType == protocol.MetadataVarInt {
 			mob.Air = meta.ReadVarInt()
 			continue
@@ -1478,9 +1481,6 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 		}
 		if index == protocol.MetadataIndexFishFromBucket && fieldType == protocol.MetadataBoolean && isFishType(mob.TypeID) {
 			mob.FromBucket = meta.ReadBool()
-			continue
-		}
-		if c.readLlamaField(mob, meta, index, fieldType) {
 			continue
 		}
 		if mob.TypeID == protocol.EntityTypeGoat && fieldType == protocol.MetadataBoolean &&
