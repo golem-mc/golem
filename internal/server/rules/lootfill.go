@@ -22,7 +22,7 @@ func FillLootReviewed(name string, ctx *LootContext, rng LootRand, slots []proto
 		return false
 	}
 	rng = ctx.lootRandom(table.RandomSequence, rng)
-	stacks := rollLootTable(name, table, ctx, rng)
+	stacks := rollLootTable(nil, name, table, ctx, rng)
 	if review != nil {
 		stacks = review(stacks)
 	}
