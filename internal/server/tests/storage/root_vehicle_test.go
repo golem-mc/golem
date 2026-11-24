@@ -264,6 +264,94 @@ func assertSavedMinecart(t *testing.T, level, name string, wantUUID nbt.IntArray
 	}
 }
 
+// vanilla: ServerPlayer.saveParentVehicle, ServerPlayer.loadAndSpawnParentVehicle
+func TestARiderLeavingOnAMobInAMinecartRejoinsSeated(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SurvivalConfig()
+	cfg.LevelName = t.TempDir()
+	const name = "Rail"
+	const overworld = "minecraft:overworld"
+	srv, c, playerID := servertest.JoinAs(t, cfg, name, servertest.OpsListing(t, name))
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand(`summon minecart 4.5 64 4.5 {NoGravity:1b,Passengers:[{id:"minecraft:pig",NoAI:1b}]}`)
+	c.Settle()
+	carts := srv.MinecartsInDimension(overworld)
+	if len(carts) != 1 {
+		t.Fatalf("summoned %d minecarts, want 1", len(carts))
+	}
+	cartUUID := carts[0].UUID
+	passengers := srv.MinecartPassengerIDs(carts[0].ID)
+	if len(passengers) != 1 {
+		t.Fatalf("summoned minecart passengers = %v, want one pig", passengers)
+	}
+	pigID := passengers[0]
+	pigTag, ok := srv.MobSaveTag(pigID)
+	pigUUID, _ := nbt.Get[nbt.IntArray](pigTag, "UUID")
+	if !ok || len(pigUUID) != 4 {
+		t.Fatal("the minecart's pig has no saved UUID")
+	}
+
+	c.ChatCommand("ride @s mount @e[type=pig,limit=1]")
+	servertest.AwaitSystemChatSaying(t, c, "commands.ride.mount.success")
+	if got := srv.MobPassengerIDs(pigID); !slices.Equal(got, []int32{playerID}) {
+		t.Fatalf("the pig's passengers = %v, want [%d]", got, playerID)
+	}
+	c.Disconnect()
+	if n := len(srv.MinecartsInDimension(overworld)); n != 0 {
+		t.Fatalf("%d minecarts stand after logout, want 0", n)
+	}
+
+	root := servertest.ReadPlayerFile(t, servertest.PlayerFile(cfg.LevelName, name))
+	saved, ok := nbt.Get[nbt.Compound](root, "RootVehicle")
+	if !ok {
+		t.Fatal("no RootVehicle in the file of a rider on a pig in a minecart")
+	}
+	if attach, _ := nbt.Get[nbt.IntArray](saved, "Attach"); !slices.Equal(attach, pigUUID) {
+		t.Errorf("Attach = %v, want the pig's UUID %v", attach, pigUUID)
+	}
+	vehicle, ok := nbt.Get[nbt.Compound](saved, "Entity")
+	if !ok {
+		t.Fatal("RootVehicle has no Entity")
+	}
+	if id, _ := nbt.Get[nbt.String](vehicle, "id"); id != "minecraft:minecart" {
+		t.Errorf("RootVehicle entity = %q, want minecraft:minecart", id)
+	}
+	if id, _ := nbt.UUIDField(vehicle, "UUID"); id.String() != cartUUID {
+		t.Errorf("RootVehicle entity UUID = %s, want %s", id, cartUUID)
+	}
+	list, _ := nbt.Get[nbt.List](vehicle, "Passengers")
+	if len(list.Items) != 1 {
+		t.Fatalf("saved minecart has %d passengers, want one pig", len(list.Items))
+	}
+	pig, _ := nbt.CompoundView(list.Items[0])
+	if id, _ := nbt.Get[nbt.String](pig, "id"); id != "minecraft:pig" {
+		t.Errorf("saved passenger = %q, want minecraft:pig", id)
+	}
+	if id, _ := nbt.Get[nbt.IntArray](pig, "UUID"); !slices.Equal(id, pigUUID) {
+		t.Errorf("saved passenger UUID = %v, want %v", id, pigUUID)
+	}
+
+	servertest.ReleaseTicks(t, srv)
+	playerID = servertest.DialServer(t, srv).JoinAs(name)
+	servertest.HoldTicks(t, srv)
+	var pigs []int32
+	servertest.UntilTicks(t, srv, 200, "the rider seated back on the pig", func() bool {
+		pigs = srv.MobIDsOfKind("minecraft:pig")
+		return len(pigs) == 1 && slices.Equal(srv.MobPassengerIDs(pigs[0]), []int32{playerID})
+	})
+	carts = srv.MinecartsInDimension(overworld)
+	if len(carts) != 1 || carts[0].UUID != cartUUID {
+		t.Fatalf("restored minecarts = %v, want the single cart %s", carts, cartUUID)
+	}
+	if got := srv.MinecartPassengerIDs(carts[0].ID); !slices.Equal(got, pigs) {
+		t.Errorf("restored minecart passengers = %v, want the pig %v", got, pigs)
+	}
+	pigTag, _ = srv.MobSaveTag(pigs[0])
+	if id, _ := nbt.Get[nbt.IntArray](pigTag, "UUID"); !slices.Equal(id, pigUUID) {
+		t.Errorf("restored pig UUID = %v, want %v", id, pigUUID)
+	}
+}
+
 // TestAMinecartRootVehicleReattachesStandingCartWithoutDuplicating: a player
 // whose file names a minecart already standing in the world seats back into
 // that cart instead of spawning a second one.
