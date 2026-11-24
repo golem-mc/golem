@@ -1251,3 +1251,58 @@ func (s *Server) fallOntoCartRiders(f cartFall) {
 		s.sendMobSends(fx.sends)
 	}
 }
+
+// isMinecartTag reports whether a saved entity's id names a minecart kind.
+func isMinecartTag(id nbt.String) bool {
+	_, ok := entity.MinecartKindOf(string(id))
+	return ok
+}
+
+// remountSavedMinecart seats a joining player on the minecart (or one of its
+// mob passengers) named by Attach in their file's RootVehicle: the live cart of
+// w with its identity, else the file's copy stood up with its mob passengers.
+// vanilla: ServerPlayer.loadAndSpawnParentVehicle
+func (s *Server) remountSavedMinecart(c *client, w *world.World, tag nbt.Compound, identity, attach uuid.UUID) {
+	s.minecartsMu.Lock()
+	var standing *minecartEntity
+	for _, it := range s.minecarts {
+		if it.w == w && it.uuid == identity && !it.cart.Dead {
+			standing = it
+			break
+		}
+	}
+	s.minecartsMu.Unlock()
+	if standing == nil {
+		if standing = minecartOfTag(s, w, tag); standing == nil {
+			return
+		}
+		var woken wakeResult
+		woken.collectTeam(tag)
+		list, _ := nbt.Get[nbt.List](tag, "Passengers")
+		var mobs []nbt.Compound
+		for _, item := range list.Items {
+			if p, ok := nbt.CompoundView(item); ok {
+				if id, _ := nbt.Get[nbt.String](p, "id"); isMobTag(id) {
+					mobs = append(mobs, p)
+				} else {
+					woken.collectTeams(p, nil)
+					standing.carriedPassengers = append(standing.carriedPassengers, withoutTeam(p))
+				}
+			}
+		}
+		s.registerMinecart(standing)
+		for _, t := range woken.teams {
+			s.joinTagTeam(t)
+		}
+		for _, p := range mobs {
+			if ent := s.raiseSavedMob(w, p); ent != nil {
+				s.mountMobOnMinecart(ent, standing, true)
+			}
+		}
+	}
+	if attach == identity {
+		s.mountMinecart(c, standing, true)
+		return
+	}
+	s.seatOnSavedMob(c, w, attach)
+}
