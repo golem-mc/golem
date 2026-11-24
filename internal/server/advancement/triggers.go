@@ -490,8 +490,12 @@ func (p *Progress) BredAnimals(parent, partner, child string, subj *Subjects, at
 }
 
 // Blocks reads the block state at an offset from the position a trigger
-// fired at.
-type Blocks func(dx, dy, dz int32) uint16
+// fired at. Loaded reports whether the chunk at an offset is loaded; nil
+// means every offset is.
+type Blocks struct {
+	At     func(dx, dy, dz int32) uint16
+	Loaded func(dx, dy, dz int32) bool
+}
 
 // blockNamed reports whether state's block is one of blocks, names or one
 // "#" and a block tag.
@@ -512,12 +516,16 @@ func holds(cond *registry.AdvancementCondition, at Blocks) bool {
 	case len(cond.Any) > 0:
 		return slices.ContainsFunc(cond.Any, func(t registry.AdvancementCondition) bool { return holds(&t, at) })
 	}
-	state := at(cond.Offset[0], cond.Offset[1], cond.Offset[2])
+	state := at.At(cond.Offset[0], cond.Offset[1], cond.Offset[2])
 	if !blockNamed(cond.Blocks, state) {
 		return false
 	}
-	if cond.Smokey != nil && rules.HiveSedated(at, cond.Offset[0], cond.Offset[1], cond.Offset[2]) != *cond.Smokey {
-		return false
+	if cond.Smokey != nil {
+		// vanilla: LocationPredicate.matches requires a loaded position
+		if at.Loaded != nil && !at.Loaded(cond.Offset[0], cond.Offset[1], cond.Offset[2]) ||
+			rules.HiveSedated(at.At, cond.Offset[0], cond.Offset[1], cond.Offset[2]) != *cond.Smokey {
+			return false
+		}
 	}
 	for key, want := range cond.State {
 		if p, known := registry.PropNamed(key); !known || !registry.StateHas(state, p) || registry.StateValue(state, p) != want {

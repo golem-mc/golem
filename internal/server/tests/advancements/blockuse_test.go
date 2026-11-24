@@ -103,3 +103,21 @@ func TestPackLocationCheckSmokeyFalse(t *testing.T) {
 	c.UseBlock(x, y, z)
 	servertest.UntilTicks(t, srv, 20, "pk:unsmoked obtained", func() bool { return srv.AdvancementObtained("Packer", "pk:unsmoked", "used") })
 }
+
+// TestPackLocationCheckSmokeyUnloadedOffset: a smokey check of a position in
+// an unloaded chunk fails, though the block there reads as air.
+// vanilla: LocationCheck.test, LocationPredicate.matches
+func TestPackLocationCheckSmokeyUnloadedOffset(t *testing.T) {
+	cfg, data := packConfig(t)
+	writePackFile(t, filepath.Join(data, "pk", "advancement", "faraway.json"), `{"criteria":{"used":{"trigger":"minecraft:default_block_use",`+
+		`"conditions":{"location":[{"condition":"minecraft:location_check","offsetX":8192,"predicate":{"block":{"blocks":"minecraft:air"},"smokey":false}}]}}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	pos := srv.PlayerPosition("Packer")
+	x, y, z := rules.BlockOf(pos.X)+2, rules.BlockOf(pos.Y), rules.BlockOf(pos.Z)
+	servertest.Setblock(t, c, x, y, z, "minecraft:chest")
+	c.UseBlock(x, y, z)
+	c.Settle()
+	if srv.AdvancementObtained("Packer", "pk:faraway", "used") {
+		t.Fatal("a smokey:false check of an unloaded chunk passed")
+	}
+}
