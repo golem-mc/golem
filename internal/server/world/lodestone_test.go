@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -206,6 +207,73 @@ func TestResolveLodestonesLeavesRegionFailureUnmarked(t *testing.T) {
 	}
 	if rf.unreadable[regionIndex(0, 0)] {
 		t.Error("the compass lookup marked the chunk unreadable")
+	}
+}
+
+// TestResolveLodestonesRefusesTruncatedRegion checks a region file too short
+// for its header leaves the position unknown and uncached, and the file as it
+// was, and that the chunk is not read again until the retry delay passes,
+// when the repaired file answers.
+func TestResolveLodestonesRefusesTruncatedRegion(t *testing.T) {
+	w := writeSavedRoot(t, savedLodestoneRoot(t, "minecraft:full", "minecraft:lodestone"))
+	rx, rz := regionCoords(ChunkPos{})
+	path := regionFilePath(w.storage, rx, rz)
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, saved[:4], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1000, 0)
+	w.lodestones.now = func() time.Time { return now }
+	p := LodestonePos{1, 64, 1}
+	resolve := func() (present, known bool) {
+		got := w.ResolveLodestones([]LodestonePos{p})
+		defer got.Close()
+		return got.Lookup(p)
+	}
+	if _, known := resolve(); known {
+		t.Error("answered for a truncated region file")
+	}
+	if _, known := w.LodestoneCached(p.X, p.Y, p.Z); known {
+		t.Error("a truncated region file was cached as an answer")
+	}
+	if st, err := os.Stat(path); err != nil || st.Size() != 4 {
+		t.Fatalf("region file after the lookup: %v, %v; want it left at 4 bytes", st, err)
+	}
+
+	if err := os.WriteFile(path, saved, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, known := resolve(); known {
+		t.Error("the failed chunk was read again before the retry delay")
+	}
+	now = now.Add(lodestoneRetryDelay)
+	if present, known := resolve(); !known || !present {
+		t.Errorf("answer after the retry delay = %v, %v, want true, true", present, known)
+	}
+}
+
+// TestLodestoneRetryClearedByLoadOrWrite checks a load or write of a chunk
+// whose read failed lets it be read at once, and that a failure of a read
+// that crossed one holds nothing off.
+func TestLodestoneRetryClearedByLoadOrWrite(t *testing.T) {
+	var c lodestoneCache
+	pos := ChunkPos{X: 1, Z: 2}
+	version := c.begin(pos)
+	c.fail(pos, version)
+	if !c.holding(pos) {
+		t.Fatal("a failed read is not held off")
+	}
+	c.drop(pos)
+	if c.holding(pos) {
+		t.Error("a load or write left the failed read held off")
+	}
+	c.fail(pos, version) // began before the drop
+	c.end(pos)
+	if c.holding(pos) {
+		t.Error("a read that crossed a load or write held its chunk off")
 	}
 }
 

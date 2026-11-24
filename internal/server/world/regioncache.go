@@ -48,6 +48,11 @@ func newRegionCache(open func(rx, rz int32) (*regionFile, error)) *regionCache {
 // the least recently used at the cap. The caller holds it until release. A nil
 // cache (after Close) returns errWorldClosed.
 func (c *regionCache) get(rx, rz int32) (*regionFile, error) {
+	return c.getWith(rx, rz, c.open)
+}
+
+// getWith is get that opens a miss with open instead of the cache's opener.
+func (c *regionCache) getWith(rx, rz int32, open func(rx, rz int32) (*regionFile, error)) (*regionFile, error) {
 	if c == nil {
 		return nil, errWorldClosed
 	}
@@ -58,7 +63,7 @@ func (c *regionCache) get(rx, rz int32) (*regionFile, error) {
 		c.refs[rf]++
 		return rf, nil
 	}
-	rf, err := c.open(rx, rz)
+	rf, err := open(rx, rz)
 	if err != nil {
 		return nil, err
 	}

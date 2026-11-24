@@ -3,13 +3,20 @@ package world
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
-// lodestoneCacheMax bounds the unloaded-destination answers kept.
+// lodestoneCacheMax bounds the unloaded-destination answers kept, and the
+// chunks whose read failed.
 const lodestoneCacheMax = 1024
+
+// lodestoneRetryDelay is how long a chunk whose read failed is not read again
+// unless it is loaded or written, so a compass aimed into it does not read the
+// disk every tick.
+const lodestoneRetryDelay = 5 * time.Second
 
 // lodestoneCache remembers whether a saved chunk holds a lodestone at a
 // position, per chunk so a load or write of that chunk drops its answers.
@@ -20,6 +27,9 @@ type lodestoneCache struct {
 	// pending is the chunks with a read in flight; drop bumps the version a
 	// read started under, so its stale answer is not published.
 	pending map[ChunkPos]*lodestoneRead
+	// retry is when a chunk whose read failed may be read again.
+	retry map[ChunkPos]time.Time
+	now   func() time.Time // time.Now when nil
 }
 
 type lodestoneRead struct {
@@ -80,6 +90,51 @@ func (c *lodestoneCache) publish(pos ChunkPos, version uint64, answers map[posKe
 	return true
 }
 
+// fail holds off rereading a chunk whose read begun at version failed, unless
+// the chunk was loaded or written since. A full set gives up an expired or
+// arbitrary chunk.
+func (c *lodestoneCache) fail(pos ChunkPos, version uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pending[pos].version != version {
+		return
+	}
+	now := c.clock()
+	if c.retry == nil {
+		c.retry = map[ChunkPos]time.Time{}
+	}
+	if _, dup := c.retry[pos]; !dup && len(c.retry) >= lodestoneCacheMax {
+		victim := pos
+		for p, at := range c.retry {
+			victim = p
+			if !now.Before(at) {
+				break
+			}
+		}
+		delete(c.retry, victim)
+	}
+	c.retry[pos] = now.Add(lodestoneRetryDelay)
+}
+
+// holding reports whether a failed read of the chunk is not to be repeated yet.
+func (c *lodestoneCache) holding(pos ChunkPos) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	at, ok := c.retry[pos]
+	if ok && !c.clock().Before(at) {
+		delete(c.retry, pos)
+		return false
+	}
+	return ok
+}
+
+func (c *lodestoneCache) clock() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
 // valid reports whether the chunk is unloaded and unwritten since the read
 // begun at version.
 func (c *lodestoneCache) valid(pos ChunkPos, version uint64) bool {
@@ -123,6 +178,7 @@ func (c *lodestoneCache) drop(pos ChunkPos) {
 	if r := c.pending[pos]; r != nil {
 		r.version++
 	}
+	delete(c.retry, pos)
 	if m, ok := c.chunks[pos]; ok {
 		c.entries -= len(m)
 		delete(c.chunks, pos)
@@ -188,7 +244,8 @@ func (a *LodestoneAnswers) Close() {
 // ResolveLodestones reads the saved chunks behind positions
 // LodestoneCached did not know, one read per chunk, and keeps the answers in
 // the cache. A chunk never saved has an answer of absent without being
-// generated or loaded, and one that could not be read has none. It reads the
+// generated or loaded, and one that could not be read has none, nor is read
+// again for lodestoneRetryDelay unless it is loaded or written. It reads the
 // disk, so no lock a tick holds may be held.
 // vanilla: PoiManager.existsAtPosition
 func (w *World) ResolveLodestones(positions []LodestonePos) *LodestoneAnswers {
@@ -212,8 +269,12 @@ func (w *World) ResolveLodestones(positions []LodestonePos) *LodestoneAnswers {
 		cold[pos] = append(cold[pos], p)
 	}
 	for pos, ps := range cold {
+		if w.lodestones.holding(pos) {
+			continue
+		}
 		found, err := w.savedLodestones(pos, ps)
 		if err != nil {
+			w.lodestones.fail(pos, a.versions[pos])
 			continue
 		}
 		published := make(map[posKey]bool, len(found))

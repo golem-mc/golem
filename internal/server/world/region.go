@@ -132,7 +132,21 @@ func openRegion(path string, format saveFormat) (*regionFile, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create region directory: %w", err)
 	}
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	return openRegionFile(path, format, true)
+}
+
+// peekRegion opens an existing region file without changing it: a missing
+// file, or one too short for its header, is an error.
+func peekRegion(path string, format saveFormat) (*regionFile, error) {
+	return openRegionFile(path, format, false)
+}
+
+func openRegionFile(path string, format saveFormat, create bool) (*regionFile, error) {
+	flag := os.O_RDWR
+	if create {
+		flag |= os.O_CREATE
+	}
+	file, err := os.OpenFile(path, flag, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -145,6 +159,10 @@ func openRegion(path string, format saveFormat) (*regionFile, error) {
 		return nil, fmt.Errorf("stat %s: %w", path, err)
 	}
 	if stat.Size() < regionHeaderLen {
+		if !create {
+			file.Close()
+			return nil, fmt.Errorf("%s: header truncated to %d bytes", path, stat.Size())
+		}
 		// A new or truncated file: write an empty header so both tables exist
 		// before any data is appended.
 		if err := file.Truncate(regionHeaderLen); err != nil {

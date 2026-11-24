@@ -370,8 +370,8 @@ func TestABrokenLodestoneClearsTheCompassTarget(t *testing.T) {
 // TestLodestoneCompassUnloadedTarget checks a compass pointing into an
 // unloaded chunk is judged by the saved chunk in one tick: a never-generated
 // chunk and a saved one with no lodestone clear the target, a saved lodestone
-// keeps it, and so does a region file that cannot be read, without stopping the
-// others. A crafting input is not ticked. No check loads a chunk.
+// keeps it, and so does a region file with a truncated header, left as it
+// is, without stopping the others. A crafting input is not ticked. No check loads a chunk.
 // vanilla: LodestoneTracker.tick, PoiManager.existsAtPosition
 func TestLodestoneCompassUnloadedTarget(t *testing.T) {
 	t.Parallel()
@@ -379,15 +379,19 @@ func TestLodestoneCompassUnloadedTarget(t *testing.T) {
 	const never, withLodestone, without, unreadable = 98765, 200000, 300000, 400000
 	cfg := servertest.SurvivalTestConfig()
 	cfg.LevelName = t.TempDir()
+	rx, rz := int32(unreadable>>4)>>5, int32(unreadable>>4)>>5
+	region := filepath.Join(world.DimensionDir(cfg.LevelName, world.DimensionName), "region", fmt.Sprintf("r.%d.%d.mca", rx, rz))
 	srv, c := servertest.Join(t, cfg, "Wanderer", func(srv *server.Server) {
 		shapeLodestone(t, srv, withLodestone, 64, withLodestone)
 		stone, _ := registry.FindState("minecraft:stone", nil)
 		// Y=63 is stone already and an untouched chunk is not saved.
 		srv.SetLoadedBlock(without, 64, without, stone)
-		srv.SetLoadedBlock(unreadable, 64, unreadable, stone)
-		rx, rz := int32(unreadable>>4)>>5, int32(unreadable>>4)>>5
-		region := filepath.Join(world.DimensionDir(cfg.LevelName, world.DimensionName), "region", fmt.Sprintf("r.%d.%d.mca", rx, rz))
-		if err := os.WriteFile(region, []byte("not a region"), 0o644); err != nil {
+		// Written directly: a chunk generated there first would leave the
+		// file's header cached.
+		if err := os.MkdirAll(filepath.Dir(region), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(region, []byte{0, 0, 0, 2}, 0o644); err != nil { // a truncated header
 			t.Fatal(err)
 		}
 	})
@@ -436,6 +440,9 @@ func TestLodestoneCompassUnloadedTarget(t *testing.T) {
 		if srv.ChunkLoadedInDimension(dim, s.at, s.at) {
 			t.Errorf("target %d: the check loaded its chunk", s.at)
 		}
+	}
+	if st, err := os.Stat(region); err != nil || st.Size() != 4 {
+		t.Errorf("truncated region file after the tick: %v, %v; want it left at 4 bytes", st, err)
 	}
 	c.Disconnect()
 }
