@@ -287,19 +287,16 @@ func canHoldAny(state uint16) bool {
 // horizontal4 is north, east, south, west, the order the fluid scans walk.
 var horizontal4 = [4][2]int32{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}
 
-// gravityBlocks are the blocks whose definition names a falling class: sand,
-// gravel, concrete powder, anvils, dragon egg, the suspicious blocks and
-// scaffolding.
-var gravityBlocks = registry.GravityBlocks
-
-// gravityBlock is gravityBlocks indexed by Block.
+// gravityBlock indexes the blocks that use fallTick. Scaffolding has its own
+// stability tick.
 var gravityBlock = func() *[registry.BlockCount]bool {
 	t := new([registry.BlockCount]bool)
-	for name := range gravityBlocks {
+	for name := range registry.GravityBlocks {
 		if b, ok := registry.BlockByName(name); ok {
 			t[b] = true
 		}
 	}
+	t[registry.BlockScaffolding] = false
 	return t
 }()
 
@@ -665,6 +662,8 @@ type Physics struct {
 	// waterlogged leaf's fluid tick so neither delays the other. Set when
 	// booked, cleared when run.
 	leafBooked map[blockKey]bool
+	// scaffoldingBooked keeps stability visits apart from fluid visits.
+	scaffoldingBooked map[blockKey]bool
 
 	// redstoneBooked marks big dripleaves and detector rails with a block tick
 	// booked, apart from a waterlogged cell's fluid visit; set when booked,
@@ -864,6 +863,7 @@ func NewPhysics(w *World) *Physics {
 		snifferEggBooked:    make(map[blockKey]bool),
 		cauldronBooked:      make(map[blockKey]bool),
 		leafBooked:          make(map[blockKey]bool),
+		scaffoldingBooked:   make(map[blockKey]bool),
 		coralBooked:         make(map[blockKey]bool),
 		redstoneBooked:      make(map[blockKey]bool),
 		sculkBooked:         make(map[blockKey]bool),
@@ -1071,8 +1071,8 @@ func (p *Physics) SetTickFilter(ticks func(ChunkPos) bool) {
 // Tick advances the engine to gameTime, running every visit due and returning
 // the changed blocks, the gravity blocks to spawn as falling entities and the
 // TNT fires primed. Block and fluid visits have a budget each per tick, the
-// overflow running next tick. The queue holds one visit per block, which keeps
-// it proportional to the fluids, fires and falls in the world.
+// overflow running next tick. Separate bookings let a waterlogged block take
+// both visits.
 func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrime, []Effect) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -1153,6 +1153,8 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			delete(p.cauldronBooked, next.pos)
 		case leafTickEvent:
 			delete(p.leafBooked, next.pos)
+		case scaffoldingTickEvent:
+			delete(p.scaffoldingBooked, next.pos)
 		case coralTickEvent:
 			delete(p.coralBooked, next.pos)
 		case redstoneTickEvent:
@@ -1175,10 +1177,6 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 
 		x, y, z := next.pos.x, next.pos.y, next.pos.z
 		state := p.w.BlockAt(x, y, z)
-		// Scaffolding, both container and gravity block, takes one visit: its
-		// stability tick, booked by placement and every neighbour change, which
-		// settles the cell and spends a waterlogged piece's fluid visit with
-		// it.
 		if int(state) >= registry.StateCount {
 			continue
 		}
@@ -1225,6 +1223,11 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			p.leafTick(x, y, z, state, &changes)
 			continue
 		}
+		if next.event == scaffoldingTickEvent {
+			blocks++
+			p.scaffoldingTick(x, y, z, state, &changes, &falls)
+			continue
+		}
 		if next.event == redstoneTickEvent {
 			blocks++
 			p.redstoneTick(x, y, z, state, &changes)
@@ -1263,11 +1266,6 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			continue
 		}
 
-		if block == registry.BlockScaffolding {
-			blocks++
-			p.scaffoldingTick(x, y, z, state, &changes, &falls)
-			continue
-		}
 		if gravityBlock[block] {
 			blocks++
 			p.fallTick(x, y, z, state, &changes, &falls)
@@ -1811,17 +1809,12 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 			return
 		}
 	}
-	// A waterlogged container books its own fluid visit to spread its source
-	// through the faces its shape leaves open; the support check's survival
-	// tick is a separate block-tick queue. Kelp and seagrass join here, holding
-	// water without a waterlogged property. Scaffolding is left out: its
-	// stability visit spends the fluid debt (see Tick).
+	// A container's fluid visit spreads through the faces its shape leaves
+	// open. Kelp and seagrass hold water without a waterlogged property.
 	// vanilla: SimpleWaterloggedBlock.placeLiquid, FenceBlock.updateShape,
 	// SpeleothemBlock.updateShape
 	if fs.kind != fluidNone && fluidContainer(state) {
-		if registry.BlockOf(state) != registry.BlockScaffolding {
-			p.bookFluid(x, y, z, fs)
-		}
+		p.bookFluid(x, y, z, fs)
 	}
 	block := registry.BlockOf(state)
 	if placed && block == registry.BlockFrogspawn && registry.BlockOf(old) != block {
@@ -1908,10 +1901,8 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 		return
 	}
 	if block == registry.BlockScaffolding {
-		// Every change around a piece books its stability and bottom recompute
-		// one tick out.
-		// vanilla: ScaffoldingBlock.updateShape
-		p.schedule(x, y, z, p.now+scaffoldingTickDelay)
+		// vanilla: ScaffoldingBlock.onPlace, ScaffoldingBlock.updateShape
+		p.scheduleScaffolding(x, y, z, p.now+scaffoldingTickDelay)
 		return
 	}
 	if gravityBlock[block] {

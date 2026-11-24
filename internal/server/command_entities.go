@@ -50,14 +50,14 @@ type entitySnapshot struct {
 	// small.
 	name  *protocol.Text
 	plain string
-	// An unnamed item entity is named by its stack's item, settled on first
-	// use. vanilla: ItemEntity.getName
-	stackItem int32
-	byStack   bool
-	plainOnce sync.Once
-	dim       string
-	pos       player.Position
-	box       [6]float64
+	// nameStack is captured for unnamed items so the base name can be
+	// resolved outside the items lock. vanilla: ItemEntity.getName
+	nameStack     *protocol.ItemStack
+	stackNameOnce sync.Once
+	plainOnce     sync.Once
+	dim           string
+	pos           player.Position
+	box           [6]float64
 	// tags are the scoreboard tags, copied with the snapshot so later /tag
 	// changes do not show through.
 	tags []string
@@ -66,25 +66,29 @@ type entitySnapshot struct {
 // DisplayName is vanilla's Entity.getDisplayName.
 func (e *entitySnapshot) DisplayName() protocol.Text {
 	e.nameOnce.Do(func() {
-		name := entityDisplayName(e.srv.scoreboard, e.typ, e.uuid, e.baseName)
-		if e.byStack {
-			display, _ := registry.ItemTranslationKey(e.stackItem)
-			name.Translate = display
-			name.HoverEntity.Name.Translate = display
-		}
+		name := entityDisplayName(e.srv.scoreboard, e.typ, e.uuid, e.nameComponent())
 		e.name = &name
 	})
 	return *e.name
 }
 
+func (e *entitySnapshot) nameComponent() *protocol.Text {
+	if e.nameStack != nil {
+		e.stackNameOnce.Do(func() {
+			name := rules.ItemTypeName(*e.nameStack)
+			e.baseName = &name
+		})
+	}
+	return e.baseName
+}
+
 // PlainName is Entity.getPlainTextName, matched by the name option.
 func (e *entitySnapshot) PlainName() string {
-	e.plainOnce.Do(func() {
-		if e.byStack {
-			name, _ := registry.ItemName(e.stackItem)
-			e.plain = itemEnglishName(name)
-		}
-	})
+	if e.nameStack != nil {
+		e.plainOnce.Do(func() {
+			e.plain = e.nameComponent().Plain()
+		})
+	}
 	return e.plain
 }
 
@@ -950,7 +954,7 @@ func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
 	case *armorStandEntity:
 		e.srv.teleportArmorStand(ref, to, by, move.Command)
 	case *mannequinEntity:
-		e.srv.teleportMannequin(ref, to, by, move.Command)
+		e.srv.teleportMannequin(ref, move, by)
 	case *cloudEntity:
 		e.srv.teleportCloud(ref, to, by)
 	case *fangsEntity:
@@ -1005,7 +1009,7 @@ func (e *entitySnapshot) Rotate(yaw, pitch float32) {
 		e.srv.armorStandsMu.Unlock()
 		e.srv.teleportArmorStand(ref, to, "rotate", false)
 	case *mannequinEntity:
-		e.srv.teleportMannequin(ref, to, "rotate", false)
+		e.srv.teleportMannequin(ref, command.Move{Pos: to}, "rotate")
 	case *fixtureEntity:
 		e.srv.teleportFixture(ref, to)
 	}
@@ -1189,8 +1193,7 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 		s.mannequinsMu.Lock()
 		var twin *mannequinEntity
 		if alive = !ref.mannequin.Dead && slices.Contains(s.mannequins, ref); alive {
-			at.Yaw, at.Pitch = yaw, pitch
-			if twin = s.mannequinTwinAt(ref, to, at); twin != nil {
+			if twin = s.mannequinTwinAt(ref, to, move); twin != nil {
 				ref.mannequin.Dead = true
 				mannequinTracker.unfile(ref)
 				s.mannequins = slices.DeleteFunc(s.mannequins, func(o *mannequinEntity) bool { return o == ref })
@@ -1706,7 +1709,9 @@ func (s *Server) itemSnapshot(it *itemEntity, q *entityQuery) *entitySnapshot {
 	}
 	e.setCustomName(it.custom.tag())
 	if e.baseName == nil {
-		e.stackItem, e.byStack = it.item.Stack.ItemID, true
+		stack := it.item.Stack
+		stack.Raw = slices.Clone(stack.Raw)
+		e.nameStack = &stack
 	}
 	e.bind(&s.itemsMu, &it.tags, &itemEntityOps)
 	return e

@@ -312,14 +312,15 @@ func (p *Physics) growCrop(x, y, z int32, state uint16, changes *[]BlockChange) 
 	case registry.BlockBrownMushroom, registry.BlockRedMushroom:
 		// vanilla: MushroomBlock.growMushroom; a failed feature leaves the
 		// mushroom standing, as vanilla puts it back.
-		if !contains(y + 1) {
+		key := "huge_brown_mushroom"
+		if block == registry.BlockRedMushroom {
+			key = "huge_red_mushroom"
+		}
+		radius, ok := bonemealMushroomRadius(key)
+		if !ok || !p.w.inBuildHeight(y+4+radius) {
 			return nil, false
 		}
 		if p.rng.Float32() < 0.4 { // vanilla: MushroomBlock.isBonemealSuccess
-			key := "huge_brown_mushroom"
-			if block == registry.BlockRedMushroom {
-				key = "huge_red_mushroom"
-			}
 			p.placeGrownFeature(key, true, x, y, z, []BlockChange{{X: x, Y: y, Z: z, State: airState}}, changes)
 		}
 		return nil, true

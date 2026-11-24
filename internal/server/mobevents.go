@@ -195,9 +195,6 @@ func (t *mobDimTick) event(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent
 	case entity.MobBodyBroke:
 		// vanilla: LivingEntity.onEquippedItemBroken
 		fx.entityEvent(w, ev.Mob.ID, protocol.EntityStatusBreakBody)
-	case entity.MobHandBroke:
-		// vanilla: LivingEntity.onEquippedItemBroken
-		fx.entityEvent(w, ev.Mob.ID, protocol.EntityStatusBreakMainHand)
 	case entity.MobLanded, entity.MobLandingDust:
 		t.landed(fx, ev)
 	case entity.MobJumped, entity.MobSquished:

@@ -187,7 +187,8 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 func isTickEvent(event uint8) bool {
 	switch event {
 	case 0, leafTickEvent, coralTickEvent, redstoneTickEvent, sculkTickEvent, lightningRodTickEvent,
-		driedGhastHydrationEvent, frogspawnHatchEvent, snifferEggHatchEvent, cauldronDripEvent, survivalTickEvent:
+		driedGhastHydrationEvent, frogspawnHatchEvent, snifferEggHatchEvent, cauldronDripEvent, survivalTickEvent,
+		scaffoldingTickEvent:
 		return true
 	}
 	return false
@@ -315,6 +316,8 @@ func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int
 		p.scheduleBooked(p.cauldronBooked, x, y, z, due, cauldronDripEvent)
 	case block.IsLeaves():
 		p.scheduleLeaf(x, y, z, due)
+	case block == registry.BlockScaffolding:
+		p.scheduleScaffolding(x, y, z, due)
 	case isLivingCoral(block):
 		p.scheduleBooked(p.coralBooked, x, y, z, due, coralTickEvent)
 	case isSculkSensor(block), name == sculkShrieker:
@@ -349,6 +352,8 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 		delete(p.cauldronBooked, t.pos)
 	case leafTickEvent:
 		delete(p.leafBooked, t.pos)
+	case scaffoldingTickEvent:
+		delete(p.scaffoldingBooked, t.pos)
 	case coralTickEvent:
 		delete(p.coralBooked, t.pos)
 	case redstoneTickEvent:
