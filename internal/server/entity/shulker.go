@@ -415,7 +415,7 @@ func (m *Mob) canStayAt(w World, at Waypoint, face uint8) bool {
 		return false
 	}
 	s := faceStep[face]
-	if !faceFull(w.BlockAt(at.X+s[0], at.Y+s[1], at.Z+s[2]), face^1) {
+	if !m.supportsFace(w.BlockAt(at.X+s[0], at.Y+s[1], at.Z+s[2]), at.Y+s[1], face^1) {
 		return false
 	}
 	// getProgressAabb at full peek, deflated.
@@ -467,15 +467,23 @@ func (m *Mob) teleportShulker(w World, t *tickView) bool {
 	return false
 }
 
-// faceFull reports whether the state's collision shape covers its whole
-// face toward the direction id.
-// vanilla: Block.isFaceFull
-func faceFull(state uint16, face uint8) bool {
+// supportsFace reports whether the block at row cellY has a full collision
+// face toward face; scaffolding's shape depends on the shulker's height.
+// vanilla: Block.isFaceFull, ScaffoldingBlock.getCollisionShape
+func (m *Mob) supportsFace(state uint16, cellY int32, face uint8) bool {
+	if boxes, ok := world.ScaffoldingBoxes(state, cellY, m.Y); ok {
+		return boxesFaceFull(boxes, face)
+	}
+	return registry.CollisionFaceFull(state, int(face))
+}
+
+// boxesFaceFull reports whether the boxes cover the whole cell face toward face.
+func boxesFaceFull(shape []world.CollisionBox, face uint8) bool {
 	axis, high := [6]int{1, 1, 2, 2, 0, 0}[face], face%2 == 1
 	u, v := (axis+1)%3, (axis+2)%3
 	var boxes [][2][3]float64
 	cuts := [2][]float64{{0, 1}, {0, 1}}
-	for _, b := range blockBoxes(state) {
+	for _, b := range shape {
 		lo := [3]float64{b.MinX, b.MinY, b.MinZ}
 		hi := [3]float64{b.MaxX, b.MaxY, b.MaxZ}
 		if (high && hi[axis] != 1) || (!high && lo[axis] != 0) || lo[axis] == hi[axis] {
@@ -509,3 +517,8 @@ func faceFull(state uint16, face uint8) bool {
 	}
 	return true
 }
+
+// faceFull reports whether the state's static collision covers its whole
+// face toward face.
+// vanilla: Block.isFaceFull
+func faceFull(state uint16, face uint8) bool { return boxesFaceFull(blockBoxes(state), face) }
