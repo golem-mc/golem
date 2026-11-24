@@ -104,13 +104,12 @@ func (c *client) releaseTrident(hand int32, held protocol.ItemStack, strength fl
 	if !creative {
 		// Read the slot under the inventory lock and spend it outside, as the bow
 		// does.
-		var heldSlot int
-		var hasHeld bool
+		var heldSlot bowFind
 		c.player.Inventory(func(inv *player.Inventory) {
-			heldSlot = rules.SlotOfHand(inv, hand)
-			hasHeld = !inv.Slots[heldSlot].Empty()
+			slot := rules.SlotOfHand(inv, hand)
+			heldSlot = bowFind{slot: slot, stack: inv.Slots[slot]}
 		})
-		if hasHeld {
+		if !heldSlot.stack.Empty() {
 			c.consumeAmmo(heldSlot, 1)
 		}
 	}
