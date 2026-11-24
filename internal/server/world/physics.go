@@ -2410,9 +2410,11 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 	}
 	ctx := p.newSpreadContext(x, y, z, fs.kind)
 	c := &ctx
-	var sends [4]bool
-	var into [4]fluidState
-	lowest := 1000
+	var sides [4]struct {
+		into, held     fluidState
+		eligible, hole bool
+	}
+	hasHole := false
 	for i, d := range horizontal4 {
 		tx, tz := x+d[0], z+d[1]
 		tState := c.state(tx, tz)
@@ -2425,23 +2427,35 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 		if !canHoldSpecific(tState, newFluid) {
 			continue
 		}
+		side := &sides[i]
+		side.into = newFluid
+		side.held = tFS
+		side.eligible = true
+		side.hole = c.isHole(tx, tz)
+		hasHole = hasHole || side.hole
+	}
+	var sends [4]bool
+	lowest := 1000
+	for i, d := range horizontal4 {
+		side := &sides[i]
+		if !side.eligible || (hasHole && !side.hole) {
+			continue
+		}
+		tx, tz := x+d[0], z+d[1]
 		distance := 0
-		if !c.isHole(tx, tz) {
+		if !hasHole {
 			ti, _ := c.index(tx, tz)
 			distance = c.slopeDistance(ti, 1, i^2, min(b.slopeFindDistance, lowest))
 		}
 		if distance < lowest {
 			sends = [4]bool{}
-			into = [4]fluidState{}
 		}
 		if distance > lowest {
 			continue
 		}
-		if p.canReplaceWith(tFS, tx, y, tz, newFluid.kind, false) {
-			sends[i] = true
-			into[i] = newFluid
-		}
+		// An eligible hole sets the distance even if its fluid cannot be displaced.
 		lowest = distance
+		sends[i] = p.canReplaceWith(side.held, tx, y, tz, side.into.kind, false)
 	}
 	for i, d := range horizontal4 {
 		if !sends[i] {
@@ -2450,7 +2464,7 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 		// Re-read the target at the moment of spreading: the flood may have
 		// changed it.
 		tx, tz := x+d[0], z+d[1]
-		p.spreadTo(tx, y, tz, p.w.BlockAt(tx, y, tz), into[i], [3]int32{x, y, z}, changes)
+		p.spreadTo(tx, y, tz, p.w.BlockAt(tx, y, tz), sides[i].into, [3]int32{x, y, z}, changes)
 	}
 }
 
