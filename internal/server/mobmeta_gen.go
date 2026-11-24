@@ -66,7 +66,7 @@ func encodeMobMetadata7_1(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadat
 	shown := bodyShown{particles: now.particles, ambient: now.ambient}
 	if w.delta {
 		putBodyMetadata(&w.b, shown, !slices.Equal(now.particles, was.particles),
-			len(now.particles) > 0 && now.ambient != was.ambient, false)
+			now.ambient != was.ambient, false)
 	} else {
 		putBodyMetadata(&w.b, shown, len(now.particles) > 0, now.ambient, false)
 	}

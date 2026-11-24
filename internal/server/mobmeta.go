@@ -197,7 +197,7 @@ if m.Sprinting {
 	}`, mobMetaEntry{130, 130, `w.byte(protocol.MetadataIndexEntityFlags, now.baseFlags, was.baseFlags)`}, mobMetaEntry{220, 220, `shown := bodyShown{particles: now.particles, ambient: now.ambient}
 if w.delta {
 		putBodyMetadata(&w.b, shown, !slices.Equal(now.particles, was.particles),
-			len(now.particles) > 0 && now.ambient != was.ambient, false)
+			now.ambient != was.ambient, false)
 	} else {
 		putBodyMetadata(&w.b, shown, len(now.particles) > 0, now.ambient, false)
 	}`}),
@@ -739,7 +739,7 @@ type mobMetadataFields struct {
 	// angerEnd is a wolf's or bee's DATA_ANGER_END_TIME: the game tick its
 	// anger ends, -1 for none.
 	angerEnd int64
-	// ambient is whether the body's effect particles are all beacon-quiet.
+	// ambient is the mob's effect particle frequency flag.
 	ambient bool
 	// sleepingPos is a sleeping villager's bed head.
 	sleepingPos sleepSpot

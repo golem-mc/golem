@@ -111,6 +111,52 @@ func TestEffectGivePoisonsAMobOnItsRhythm(t *testing.T) {
 	}
 }
 
+// vanilla: LivingEntity.updateInvisibilityStatus, areAllEffectsAmbient
+func TestMobEffectAmbienceSurvivesClearing(t *testing.T) {
+	t.Parallel()
+	const name = "Observer"
+	srv, c := servertest.Join(t, servertest.MobTestConfig(), name, servertest.OpsListing(t, name))
+	servertest.HoldTicks(t, srv)
+	cow := summonedNoAI(c, "minecraft:cow", protocol.EntityTypeCow, "4.5 64 0.5")
+	c.Settle()
+	bodies := map[int32]bool{cow.EntityID: true}
+	for _, step := range []struct {
+		command                 string
+		ambient, hasAmbient     bool
+		particles, hasParticles bool
+	}{
+		{"effect give @e[type=cow,limit=1] poison 60 0 true", true, true, false, false},
+		{"effect clear @e[type=cow,limit=1]", false, false, false, false},
+		{`data merge entity @e[type=cow,limit=1] {active_effects:[{id:"minecraft:poison",duration:1200,ambient:1b}]}`, false, false, true, true},
+		{"effect clear @e[type=cow,limit=1]", false, false, false, true},
+		{"effect give @e[type=cow,limit=1] poison 60", false, true, true, true},
+		{`data merge entity @e[type=cow,limit=1] {active_effects:[{id:"minecraft:poison",duration:1200,show_particles:0b}]}`, true, true, false, true},
+	} {
+		var ambient, hasAmbient, particles, hasParticles bool
+		record := func(id int32, data []byte) {
+			if id != protocol.IDPlayEntityMetadata {
+				return
+			}
+			if m, ok := servertest.ReadBodyMetadata(c, data, bodies); ok {
+				if m.HasAmbient {
+					ambient, hasAmbient = m.Ambient, true
+				}
+				if m.HasParticles {
+					particles, hasParticles = len(m.Particles) > 0, true
+				}
+			}
+		}
+		c.ChatCommand(step.command)
+		c.SettleAndCollect(record)
+		servertest.RunTicks(t, srv, 1)
+		c.SettleAndCollect(record)
+		if ambient != step.ambient || hasAmbient != step.hasAmbient || particles != step.particles || hasParticles != step.hasParticles {
+			t.Errorf("/%s sent ambience %t (present %t), nonempty particles %t (present %t); want %t (%t), %t (%t)",
+				step.command, ambient, hasAmbient, particles, hasParticles, step.ambient, step.hasAmbient, step.particles, step.hasParticles)
+		}
+	}
+}
+
 // TestInstantHealthAndHarmTurnOnTheUndead checks the two instant effects
 // against the minecraft:inverted_healing_and_harm the zombie carries: a
 // health the zombie is given takes six off it as magic, a harm gives four

@@ -19,6 +19,7 @@ type LivingEffects struct {
 	revision uint64
 	// Absorption is the extra hearts spent before health.
 	Absorption float64
+	ambience   bool
 }
 
 const (
@@ -87,7 +88,7 @@ func (m *Mob) effectsStep(events []MobEvent) []MobEvent {
 		events = append(events, MobEvent{Mob: m, Kind: MobEffectChanged, EffectChange: ch})
 	}
 	if len(changes) > 0 {
-		m.revision++
+		m.effectsChanged()
 		m.clampAbsorption()
 	}
 	return events
@@ -197,7 +198,7 @@ func (m *Mob) AddEffect(in effect.Instance) (effect.Change, bool) {
 func (m *LivingEffects) AddEffect(in effect.Instance) (effect.Change, bool) {
 	change, changed := m.effects.Add(in)
 	if changed {
-		m.revision++
+		m.effectsChanged()
 	}
 	if in.ID == mobEffectAbsorption {
 		m.Absorption = math.Max(m.Absorption, float64(4*(1+in.Amplifier)))
@@ -225,7 +226,7 @@ func (m *LivingEffects) absorb(damage float64) float64 {
 func (m *LivingEffects) RemoveEffect(id int32) (effect.Change, bool) {
 	change, ok := m.effects.Remove(id)
 	if ok {
-		m.revision++
+		m.effectsChanged()
 	}
 	m.clampAbsorption()
 	return change, ok
@@ -235,7 +236,7 @@ func (m *LivingEffects) RemoveEffect(id int32) (effect.Change, bool) {
 func (m *LivingEffects) ClearEffects() []effect.Change {
 	changes := m.effects.Clear()
 	if len(changes) > 0 {
-		m.revision++
+		m.effectsChanged()
 	}
 	m.clampAbsorption()
 	return changes
@@ -249,6 +250,11 @@ func (m *LivingEffects) AllEffects() []effect.Instance {
 // RestoreEffects loads the set from an entity file's active_effects.
 func (m *LivingEffects) RestoreEffects(e effect.Set) {
 	m.effects = e
+	m.effectsChanged()
+}
+
+func (m *LivingEffects) effectsChanged() {
+	m.ambience = m.effects.ParticleAmbience(m.ambience)
 	m.revision++
 }
 
@@ -293,6 +299,9 @@ func (m *Mob) HurtByInstantMagic(amount, fromX, fromZ float64, ownerID int32, ow
 
 // EffectRevision changes when the displayed effect set changes.
 func (m *LivingEffects) EffectRevision() uint64 { return m.revision }
+
+// EffectAmbience is the body's effect particle frequency flag.
+func (m *LivingEffects) EffectAmbience() bool { return m.ambience }
 
 // HasEffect reports whether an effect is active without copying its instance.
 func (m *LivingEffects) HasEffect(id int32) bool { _, ok := m.effects.Amplifier(id); return ok }
