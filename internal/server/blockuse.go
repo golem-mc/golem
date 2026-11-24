@@ -345,26 +345,29 @@ func (c *client) useJukebox(hand, x, y, z int32) bool {
 
 // ejectJukebox pops the disc from a jukebox with has_record, stopping its
 // song, clearing the property and dropping the disc above. A finished song
-// sends no stop; only a set one does.
+// sends no stop; only a set one does. An empty slot leaves the block as is.
 // vanilla: JukeboxBlockEntity.popOutTheItem
 func (c *client) ejectJukebox(w *world.World, be *world.BlockEntity, x, y, z int32) bool {
 	var disc protocol.ItemStack
 	playing := false
 	be.Use(func(b *world.BlockEntity) {
 		disc = b.Slots[0]
+		if disc.Empty() {
+			return
+		}
 		playing = b.JukeboxPlaying()
 		b.Put(0, protocol.ItemStack{})
 		b.TicksSinceSongStarted = -1
 	})
+	if disc.Empty() {
+		return true
+	}
 	c.srv.setJukeboxHasRecord(w, x, y, z, false)
 	if playing {
 		c.srv.broadcastLevelEvent(w,
 			protocol.WorldEventJukeboxStop, x, y, z, 0)
-
 	}
-	if !disc.Empty() {
-		c.srv.spawnJukeboxRecord(w, x, y, z, disc)
-	}
+	c.srv.spawnJukeboxRecord(w, x, y, z, disc)
 	return true
 }
 

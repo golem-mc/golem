@@ -2,6 +2,7 @@ package plugins_test
 
 import (
 	"reflect"
+	"sync/atomic"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -206,4 +207,38 @@ func TestPluginMediaEditsSaveReload(t *testing.T) {
 			}
 		})
 	})
+}
+
+// TestPluginJukeboxRecordReplacePostsOneBlockChange replaces an occupied
+// record: the change is one block_change vibration, not one per step.
+// vanilla: JukeboxBlockEntity.setTheItem
+func TestPluginJukeboxRecordReplacePostsOneBlockChange(t *testing.T) {
+	t.Parallel()
+	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	srv.SetTickFrozen(true)
+	w := srv.OverworldWorld()
+	w.Acquire(world.ChunkPos{})
+	defer w.Release(world.ChunkPos{})
+	w.SetBlock(1, 80, 1, registry.BlockJukebox.DefaultState())
+	w.EnsureBlockEntity(1, 80, 1, world.KindJukebox)
+	var jukebox plugin.Jukebox
+	run(func() {
+		j, _ := h.Overworld().BlockEntity(plugin.BlockPos{X: 1, Y: 80, Z: 1})
+		jukebox, _ = j.(plugin.Jukebox)
+	})
+	if jukebox == nil {
+		t.Fatal("jukebox handle missing")
+	}
+	run(func() { jukebox.SetRecord(plugin.NewStack(registry.ItemMusicDiscCat, 1)) })
+
+	var events atomic.Int32
+	srv.ObserveGameEvents(func(event string, x, y, z float64) {
+		if event == "minecraft:block_change" && x == 1.5 && y == 80.5 && z == 1.5 {
+			events.Add(1)
+		}
+	})
+	run(func() { jukebox.SetRecord(plugin.NewStack(registry.ItemMusicDisc13, 1)) })
+	if got := events.Load(); got != 1 {
+		t.Errorf("replacing the record posted %d block_change events, want 1", got)
+	}
 }
