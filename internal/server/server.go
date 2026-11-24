@@ -63,6 +63,8 @@ type Server struct {
 	// openContainerWindows may over-count clients removed with a window open,
 	// but never under-counts: zero is only a shortcut for viewer discovery.
 	openContainerWindows atomic.Int32
+	// viewers finds the windows showing a block container by position.
+	viewers containerViewerIndex
 
 	// structures is the template cache /place and the structure blocks share.
 	structures *world.TemplateStore
