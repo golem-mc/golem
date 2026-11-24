@@ -251,5 +251,12 @@ func TestItemSlotSources(t *testing.T) {
 		t.Errorf("furnace input charged_projectiles = %q, want arrow", got)
 	}
 
+	// 13. A modify_contents loot modifier that empties a shulker box restores its default.
+	run(`item replace block 2 64 3 container.15 with shulker_box[container=[{slot:0,item:{id:"minecraft:stone"}}]]`)
+	run(`item modify block 2 64 3 container.15 {type:"modify_contents",component:"minecraft:container",modifier:{type:"set_count",count:0}}`)
+	if got := plainQuery(t, srv, "data get block 2 64 3 Items[{Slot:15b}]", "commands.data.block.query"); !strings.Contains(got, `id: "minecraft:shulker_box"`) || strings.Contains(got, "components") {
+		t.Errorf("emptied shulker box = %q, want default shulker box with no components patch", got)
+	}
+
 	c.Disconnect()
 }
