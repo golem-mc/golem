@@ -593,7 +593,9 @@ type Server struct {
 	tntChunks entity.ChunkIndex[*tntEntity]
 	// tntBlasts indexes tnts by position while tickTNT runs its blasts, so
 	// one blast reads the bodies near it and not the whole list.
-	tntBlasts tntBlastIndex
+	tntBlasts       tntBlastIndex
+	tntBlastTargets []tntBlastTarget
+	tntBlastHits    []rules.BlastHit
 
 	// boltMu guards bolts, the lightning bolts. It is taken alone.
 	boltMu     sync.Mutex

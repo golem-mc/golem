@@ -638,6 +638,7 @@ type tntBlastIndex struct {
 	grid   entity.BoxGrid
 	bodies []*tntEntity
 	hits   []int32
+	out    []*tntEntity
 	active bool
 }
 
@@ -661,6 +662,8 @@ func (x *tntBlastIndex) drop() {
 	x.grid.Reset()
 	clear(x.bodies)
 	x.bodies = x.bodies[:0]
+	clear(x.out)
+	x.out = x.out[:0]
 }
 
 // near returns the bodies of list within radius of the point, in list
@@ -676,9 +679,11 @@ func (x *tntBlastIndex) near(list []*tntEntity, cx, cy, cz, radius float64) []*t
 	x.grid.QueryPoints(entity.NewAABB(cx-radius, cy-radius, cz-radius, cx+radius, cy+radius, cz+radius),
 		func(i int32) { x.hits = append(x.hits, i) })
 	slices.Sort(x.hits)
-	out := make([]*tntEntity, 0, len(x.hits)+len(list)-n)
+	clear(x.out)
+	x.out = x.out[:0]
 	for _, i := range x.hits {
-		out = append(out, x.bodies[i])
+		x.out = append(x.out, x.bodies[i])
 	}
-	return append(out, list[n:]...)
+	x.out = append(x.out, list[n:]...)
+	return x.out
 }
