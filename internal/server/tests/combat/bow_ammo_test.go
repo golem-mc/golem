@@ -3,11 +3,10 @@ package combat
 import (
 	"testing"
 
-	"github.com/golem-mc/golem/internal/server/servertest"
-
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
 // shootOnce draws the bow for fifteen hand-driven ticks and releases it.
@@ -49,6 +48,78 @@ func TestTheBowSpendsHotbarArrowsBeforeMainRows(t *testing.T) {
 	}
 	if got := srv.InventorySlot("Archer", player.MainSlot).Count; got != 8 {
 		t.Errorf("the main-row stack holds %d arrows after the shot, want 8", got)
+	}
+}
+
+// vanilla: BowItem.releaseUsing, ProjectileWeaponItem.useAmmo
+func TestPackBowSpendsTheComputedAmmoCost(t *testing.T) {
+	const costTwo = `"minecraft:ammo_use":[{"effect":{"type":"minecraft:set","value":2}}]`
+	for _, tc := range []struct {
+		name  string
+		start int32
+		left  int32
+		fires bool
+	}{
+		{"arrows left", 4, 2, true},
+		{"exact cost", 2, 0, true},
+		{"short stack", 1, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, c := joinArcher(t, bowPack(t, costTwo, nil))
+			servertest.HoldTicks(t, srv)
+			srv.GiveSlot("Archer", player.OffHandSlot, servertest.ItemStack(t, "minecraft:arrow", tc.start))
+
+			c.MoveTo(0.5, 64, 0.5, -90, 0)
+			servertest.DrawBow(c, -90, 0)
+			servertest.HoldDraw(t, srv, "Archer", 24)
+			servertest.ReleaseBow(c)
+			c.SettleKeeping()
+
+			var arrows, slotUpdates int
+			var heard bool
+			c.ReadTicks(srv, 1, func(id int32, data []byte) bool {
+				r := protocol.NewReader(data)
+				switch id {
+				case protocol.IDPlaySpawnEntity:
+					r.ReadVarInt()
+					r.ReadUUID()
+					if r.ReadVarInt() == protocol.EntityTypeArrow {
+						arrows++
+					}
+				case protocol.IDPlayContainerSlot:
+					window := r.ReadVarInt()
+					r.ReadVarInt()
+					if window == 0 && r.ReadI16() == player.OffHandSlot {
+						slotUpdates++
+						if got := servertest.MustReadSlot(t, r).Count; got != tc.left {
+							t.Errorf("the client sees %d arrows in the off hand, want %d", got, tc.left)
+						}
+					}
+				case protocol.IDPlaySoundEffect:
+					heard = heard || servertest.SoundIs(data, "minecraft:entity.arrow.shoot")
+				}
+				return false
+			})
+			want := 0
+			if tc.fires {
+				want = 1
+			}
+			if arrows != want || slotUpdates != want {
+				t.Errorf("got %d arrow spawns and %d offhand slot updates, want %d of each", arrows, slotUpdates, want)
+			}
+			if !heard {
+				t.Error("releasing the drawn bow played no shot sound")
+			}
+			if got := srv.InventorySlot("Archer", player.OffHandSlot).Count; got != tc.left {
+				t.Errorf("the off hand holds %d arrows, want %d", got, tc.left)
+			}
+			if got := srv.InventorySlot("Archer", player.HotbarSlot+1).Count; got != 5 {
+				t.Errorf("the hotbar stack holds %d arrows, want 5", got)
+			}
+			if got := srv.InventorySlot("Archer", player.HotbarSlot).Damage; got != int32(want) {
+				t.Errorf("the bow has %d damage, want %d", got, want)
+			}
+		})
 	}
 }
 
