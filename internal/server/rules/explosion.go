@@ -224,17 +224,20 @@ type smallBlastScratch struct {
 	touched   []uint16
 }
 
+// unreadLoss marks a cell not yet read; a real loss is never negative.
+const unreadLoss = float32(-1)
+
 var smallBlastPool = sync.Pool{New: func() any {
 	s := new(smallBlastScratch)
 	for i := range s.losses {
-		s.losses[i] = float32(math.NaN())
+		s.losses[i] = unreadLoss
 	}
 	return s
 }}
 
 func (s *smallBlastScratch) release() {
 	for _, i := range s.touched {
-		s.losses[i] = float32(math.NaN())
+		s.losses[i] = unreadLoss
 	}
 	s.touched = s.touched[:0]
 	clear(s.destroyed[:])
@@ -258,7 +261,7 @@ func explosionBlocksSmall(w BlockReader, rng *rand.Rand, x, y, z, radius float64
 	bx, by, bz := int32(math.Floor(x)), int32(math.Floor(y)), int32(math.Floor(z))
 	cx, cy, cz := bx-16, by-16, bz-16
 	const origin = ((16<<5)|16)<<5 | 16
-	originLoss := float32(math.NaN())
+	originLoss := unreadLoss
 	// Every direction's second step stays in the origin only inside this band.
 	const stepSize = 0.30000001192092896
 	extraOrigin := math.Floor(x-stepSize) == float64(bx) && math.Floor(x+stepSize) == float64(bx) &&
@@ -270,7 +273,7 @@ func explosionBlocksSmall(w BlockReader, rng *rand.Rand, x, y, z, radius float64
 			continue
 		}
 		// Read the origin after the first positive roll, never ahead of the RNG.
-		if math.IsNaN(float64(originLoss)) {
+		if originLoss < 0 {
 			originLoss = s.loss(w, origin, bx, by, bz)
 		}
 		intensity -= originLoss
@@ -301,7 +304,7 @@ func explosionBlocksSmall(w BlockReader, rng *rand.Rand, x, y, z, radius float64
 			bx, by, bz := int32(math.Floor(px)), int32(math.Floor(py)), int32(math.Floor(pz))
 			i := int((((bx-cx)<<5)|(by-cy))<<5 | (bz - cz))
 			loss := s.losses[i]
-			if math.IsNaN(float64(loss)) {
+			if loss < 0 {
 				loss = s.loss(w, i, bx, by, bz)
 			}
 			intensity -= loss
@@ -314,7 +317,11 @@ func explosionBlocksSmall(w BlockReader, rng *rand.Rand, x, y, z, radius float64
 			intensity -= 0.22500001
 		}
 	}
-	var destroyed BlastBlocks
+	count := 0
+	for _, word := range s.destroyed {
+		count += bits.OnesCount64(word)
+	}
+	destroyed := make(BlastBlocks, 0, count)
 	for wi, word := range s.destroyed {
 		for ; word != 0; word &= word - 1 {
 			i := wi<<6 | bits.TrailingZeros64(word)

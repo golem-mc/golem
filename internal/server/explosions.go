@@ -913,8 +913,13 @@ func (s *Server) blastBlocks(b blast, destroyed rules.BlastBlocks) {
 		s.tellSectionBlocks(w, updates)
 	}
 	var drops rules.BlastDrops
-	for _, old := range removed {
-		s.explodedBlock(b, old, &drops)
+	// One context serves every block's roll: it is reset per block, so the
+	// crater costs one heap object rather than one per block.
+	if len(removed) > 0 {
+		var ctx rules.LootContext
+		for _, old := range removed {
+			s.explodedBlock(b, old, &drops, &ctx)
+		}
 	}
 	// Spawned after every block has rolled, so the loots have merged.
 	// vanilla: ServerExplosion.interactWithBlocks
@@ -958,11 +963,15 @@ func (s *Server) blastBlocks(b blast, destroyed rules.BlastBlocks) {
 // spill, then a primed TNT, or the infestation and the loot, which goes to
 // drops rather than the world. The spill is not collected: a container's
 // contents spawn where it stood.
-func (s *Server) explodedBlock(b blast, old world.BlockChange, drops *rules.BlastDrops) {
+func (s *Server) explodedBlock(b blast, old world.BlockChange, drops *rules.BlastDrops, ctx *rules.LootContext) {
 	w := b.w
-	// A skull's carried compound holds its profile and name; the context
-	// reads them before the break takes the compound out of the world.
-	ctx := s.brokenBlockLootContext(w, old.X, old.Y, old.Z, old.State, nil)
+	block := registry.BlockOf(old.State)
+	hasEntity := registry.PistonHasBlockEntityBlocks[block]
+	if hasEntity {
+		// A skull's carried compound holds its profile and name; the context
+		// reads them before the break takes the compound out of the world.
+		*ctx = s.brokenBlockLootContext(w, old.X, old.Y, old.Z, old.State, nil)
+	}
 	if registry.BlockOf(old.State) == registry.BlockCreakingHeart {
 		s.creakingHeartExploded(b, old.X, old.Y, old.Z, old.State)
 	}
@@ -976,20 +985,22 @@ func (s *Server) explodedBlock(b blast, old world.BlockChange, drops *rules.Blas
 	// The entity leaves the chunk before its stacks are read: an off-tick
 	// bed blast races a hopper, so the container must be gone before the
 	// spill or a hopper move duplicates what it drops.
-	container, customName := s.breakBlockEntity(w, old.X, old.Y, old.Z, old.State, true,
-		func(be *world.BlockEntity, spills []protocol.ItemStack) {
-			if s.blastSpillSeam != nil {
-				s.blastSpillSeam(be)
-			}
-			for _, stack := range spills {
-				s.spawnBlockDrop(w, old.X, old.Y, old.Z, stack)
-			}
-		})
-	ctx.Container = container
-	if customName != nil {
-		ctx.CustomName = customName
+	if hasEntity {
+		container, customName := s.breakBlockEntity(w, old.X, old.Y, old.Z, old.State, true,
+			func(be *world.BlockEntity, spills []protocol.ItemStack) {
+				if s.blastSpillSeam != nil {
+					s.blastSpillSeam(be)
+				}
+				for _, stack := range spills {
+					s.spawnBlockDrop(w, old.X, old.Y, old.Z, stack)
+				}
+			})
+		ctx.Container = container
+		if customName != nil {
+			ctx.CustomName = customName
+		}
 	}
-	switch rules.ExplodedBlockOf(registry.BlockOf(old.State), w) {
+	switch rules.ExplodedBlockOf(block, w) {
 	case rules.ExplodedNothing:
 		return
 	case rules.ExplodedPrimed:
@@ -1001,6 +1012,9 @@ func (s *Server) explodedBlock(b blast, old world.BlockChange, drops *rules.Blas
 		return
 	case rules.ExplodedInfested:
 		s.spawnInfestation(w, old.X, old.Y, old.Z)
+	}
+	if !hasEntity {
+		*ctx = s.breakLootContext(w, old.X, old.Y, old.Z, old.State, nil, world.ItemComponents{})
 	}
 	// survives_explosion and explosion_decay roll against the radius, set
 	// only under decay; match_tool fails with no tool, so silk touch never
@@ -1015,7 +1029,7 @@ func (s *Server) explodedBlock(b blast, old world.BlockChange, drops *rules.Blas
 	if b.directLoot != nil {
 		ctx.This = *b.directLoot
 	}
-	for _, stack := range rules.RollLoot(rules.BlockLootTable(registry.BlockOf(old.State)), &ctx, b.rng) {
+	for _, stack := range rules.RollLoot(rules.BlockLootTable(block), ctx, b.rng) {
 		drops.Add(stack, [3]int32{old.X, old.Y, old.Z})
 	}
 }

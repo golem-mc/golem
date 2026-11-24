@@ -942,40 +942,6 @@ func blockEntityTypeOf(state uint16) (string, bool) {
 	return entityType, ok
 }
 
-// tellBlockEntity sends a block entity's data after the block update, only
-// for types whose vanilla class overrides getUpdatePacket, with their update
-// tag (empty without a getUpdateTag override); modelled says whether the
-// entity is modelled or a carried tag.
-// vanilla: ClientboundBlockEntityDataPacket.create, BlockEntity.getUpdateTag
-func (s *Server) tellBlockEntity(w *world.World, x, y, z int32, entityType string, modelled bool) {
-	if !registry.UpdatePacketBlockEntityTypes[entityType] {
-		return
-	}
-	var compound nbt.Compound
-	if modelled {
-		be := w.BlockEntity(x, y, z)
-		if be == nil {
-			return
-		}
-		be.Use(func(b *world.BlockEntity) { compound = b.UpdateTag() })
-	} else {
-		tag, ok := w.BlockEntityTag(x, y, z)
-		if !ok {
-			return
-		}
-		compound = world.CarriedUpdateTag(entityType, tag, world.TrialSpawnerActive(w.BlockAt(x, y, z)))
-	}
-	data, err := nbt.EncodeNetwork(compound)
-	if err != nil {
-		return
-	}
-	var out protocol.Buffer
-	out.PutPosition(x, y, z)
-	out.PutVarInt(world.BlockEntityTypeID(entityType))
-	out.PutRaw(data)
-	s.broadcastBlockChunkExcept(w, nil, x, z, protocol.IDPlayBlockEntityData, out.Bytes())
-}
-
 // replaceBlockEntity drops the old block entity when a command changed the
 // block's kind, and gives a new container or sign an empty one; a replaced
 // jukebox stops its song.

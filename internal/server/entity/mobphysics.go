@@ -807,6 +807,8 @@ type pushGrid struct {
 	dense   []pushBucket
 	entries []pushEntry
 	rect    denseRect
+	// present marks the types in the snapshot, set by build.
+	present [registry.EntityTypeCount]bool
 	// byID is the snapshot by entity ID, the first mob filed winning a
 	// shared ID; kept between ticks like cells.
 	byID map[int32]*Mob
@@ -831,6 +833,10 @@ type pushBucket struct {
 
 // build files the snapshot in order, using at most four cell heads per mob.
 func (g *pushGrid) build(mobs []*Mob) {
+	g.present = [registry.EntityTypeCount]bool{}
+	for _, m := range mobs {
+		g.present[m.Type] = true
+	}
 	if len(mobs) == 0 {
 		return
 	}
