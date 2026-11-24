@@ -1003,7 +1003,7 @@ func (t *mobDimTick) shotArrow(fx *mobEffects, ev entity.MobEvent) {
 		shot.weapon = protocol.ItemStack{ItemID: int32(registry.ItemTrident), Count: 1}
 	}
 	if shot.crossbow {
-		shot.weapon = ev.Stack
+		shot.weapon, shot.ammo = ev.Stack, ev.Ammo
 	} else if !shot.trident && registry.Item(shot.weapon.ItemID) != registry.ItemBow {
 		// vanilla: ProjectileUtil.getWeaponHoldingHand falls back to the off hand
 		shot.weapon = ev.Mob.OffHand
@@ -1028,14 +1028,27 @@ func (s *Server) spawnMobShot(shot mobShot) {
 			entity.PickupDisallowed, shot.shooter, shot.shooterUUID, shot.weapon)
 		return
 	}
+	if isFireworkRocket(shot.ammo) {
+		// vanilla: CrossbowItem.createProjectile
+		rocket := s.newFirework(shot.w, shot.ammo, shot.x, shot.y, shot.z, shot.shooter, shot.shooterUUID, 0)
+		rocket.rocket.ShotAtAngle = true
+		rocket.rocket.VX, rocket.rocket.VY, rocket.rocket.VZ = shot.vx, shot.vy, shot.vz
+		rocket.rocket.Yaw, rocket.rocket.Pitch = yaw, pitch
+		s.registerFirework(rocket)
+		r := rocket.rocket
+		s.projectileSpawned(shot.w, shot.weapon, enchantTarget{uuid: rocket.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25,
+			entityID: r.ID, causeID: shot.shooter})
+		return
+	}
 	it := newArrowEntity(s, shot.w, shot.x, shot.y, shot.z, shot.vx, shot.vy, shot.vz, yaw, pitch,
 		false, shot.damage, entity.PickupDisallowed, shot.shooter, shot.shooterUUID,
 		shot.weapon, shot.fireTicks)
 	it.arrow.Effect = shot.effect
+	armArrow(it, shot.ammo)
 	if shot.crossbow {
 		// vanilla: CrossbowItem.createProjectile
 		it.arrow.HitSound = crossbowHitSound
-		it.arrow.PierceLevel = rules.PiercingLevel(shot.weapon, protocol.ItemStack{ItemID: int32(registry.ItemArrow), Count: 1}, &rules.EnchContext{Rand: s.levelRng})
+		it.arrow.PierceLevel = rules.PiercingLevel(shot.weapon, shot.ammo, &rules.EnchContext{Rand: s.levelRng})
 	}
 	if s.launchArrow(it) {
 		s.arrowSpawned(it, shot.weapon)

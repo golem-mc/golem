@@ -518,6 +518,8 @@ type MobEvent struct {
 	Fire bool
 	// Stack is the item in MobThrewItem or the crossbow that fired MobShotArrow.
 	Stack protocol.ItemStack
+	// Ammo is the projectile a crossbow's MobShotArrow fires.
+	Ammo protocol.ItemStack
 	// Owned marks a MobThrewItem whose item records the mob as its thrower.
 	// vanilla: BehaviorUtils.throwItem, Dolphin.PlayWithItemsGoal
 	Owned bool

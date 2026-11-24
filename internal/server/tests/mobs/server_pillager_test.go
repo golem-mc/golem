@@ -3,6 +3,7 @@ package mobs
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -226,5 +227,99 @@ func expectPillagerCrossbowArrow(t *testing.T, c *servertest.Client, srv *server
 	}
 	if a := arrows[0]; !a.CrossbowHit || a.PierceLevel != pierce {
 		t.Errorf("arrow crossbowHit=%v pierce=%d, want true and %d", a.CrossbowHit, a.PierceLevel, pierce)
+	}
+}
+
+// TestPillagerFiresHeldAmmo: a pillager loads the arrow or rocket in its off
+// hand, spending it, honours a preloaded crossbow's stack, and falls back to
+// an ordinary arrow with none.
+// vanilla: Monster.getProjectile, CrossbowItem.tryLoadProjectiles, createProjectile
+func TestPillagerFiresHeldAmmo(t *testing.T) {
+	t.Parallel()
+	const crossbow = `{id:"minecraft:crossbow",count:1`
+	for _, tc := range []struct {
+		name, mainhand, offhand string
+		loaded                  registry.Item
+		offCount                int32
+		effect                  string
+		firework                bool
+	}{
+		{name: "spectral arrow", mainhand: crossbow + `}`, offhand: `{id:"minecraft:spectral_arrow",count:8}`,
+			loaded: registry.ItemSpectralArrow, offCount: 7, effect: "minecraft:glowing"},
+		{name: "preloaded tipped arrow",
+			mainhand: crossbow + `,components:{"minecraft:charged_projectiles":[{id:"minecraft:tipped_arrow",count:1,components:{"minecraft:potion_contents":{potion:"minecraft:poison"}}}]}}`,
+			loaded:   registry.ItemTippedArrow, effect: "minecraft:poison"},
+		{name: "preloaded rocket",
+			mainhand: crossbow + `,components:{"minecraft:charged_projectiles":[{id:"minecraft:firework_rocket",count:1}]}}`,
+			loaded:   registry.ItemFireworkRocket, firework: true},
+		{name: "rocket in hand", mainhand: crossbow + `}`, offhand: `{id:"minecraft:firework_rocket",count:3}`,
+			loaded: registry.ItemFireworkRocket, offCount: 2, firework: true},
+		{name: "no ammunition", mainhand: crossbow + `}`, loaded: registry.ItemArrow},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := servertest.HostileTestConfig()
+			cfg.GameMode = "creative"
+			srv, c := servertest.Join(t, cfg, "Observer")
+			servertest.HoldTicks(t, srv)
+			srv.SetDifficulty(rules.DifficultyHard)
+			srv.RunLine(`summon minecraft:villager 2.5 64 0.5 {NoAI:1b,Health:100f,attributes:[{id:"minecraft:max_health",base:100.0d}]}`)
+			equip := `mainhand:` + tc.mainhand
+			if tc.offhand != "" {
+				equip += `,offhand:` + tc.offhand
+			}
+			srv.RunLine(fmt.Sprintf(`summon minecraft:pillager 6.5 64 0.5 {PersistenceRequired:1b,equipment:{%s},attributes:[{id:"minecraft:movement_speed",base:0.0d}]}`, equip))
+			var id, villager int32
+			if !c.ReadTicks(srv, 0, func(pid int32, data []byte) bool {
+				if pid != protocol.IDPlaySpawnEntity {
+					return false
+				}
+				r := protocol.NewReader(data)
+				entityID := r.ReadVarInt()
+				r.ReadUUID()
+				switch r.ReadVarInt() {
+				case protocol.EntityTypeVillager:
+					villager = entityID
+				case protocol.EntityTypePillager:
+					id = entityID
+				}
+				return id != 0 && villager != 0
+			}) {
+				t.Fatal("the summoned villager and pillager did not both spawn")
+			}
+			if strings.Contains(tc.mainhand, "charged_projectiles") {
+				got := srv.MobHand(id).ChargedProjectiles()
+				if len(got) != 1 || registry.Item(got[0].ItemID) != tc.loaded {
+					t.Fatalf("preloaded crossbow = %v, want one %v", got, tc.loaded)
+				}
+			} else {
+				servertest.UntilTicks(t, srv, 120, "the pillager to load its crossbow", func() bool {
+					return len(srv.MobHand(id).ChargedProjectiles()) > 0
+				})
+				got := srv.MobHand(id).ChargedProjectiles()
+				if registry.Item(got[0].ItemID) != tc.loaded {
+					t.Errorf("loaded item %d, want %v", got[0].ItemID, tc.loaded)
+				}
+				if tc.offhand != "" {
+					if off := srv.MobOffHand(id); off.Count != tc.offCount {
+						t.Errorf("off-hand count = %d, want %d", off.Count, tc.offCount)
+					}
+				}
+			}
+			if tc.firework {
+				servertest.UntilTicks(t, srv, 120, "the pillager's rocket", func() bool { return srv.FireworkCount() > 0 })
+				return
+			}
+			servertest.UntilTicks(t, srv, 120, "the pillager's arrow", func() bool {
+				return len(srv.ArrowsInDimension(world.DimensionName)) > 0
+			})
+			if tc.effect == "" {
+				return
+			}
+			servertest.UntilTicks(t, srv, 60, "the shot to give the villager "+tc.effect, func() bool {
+				_, _, ok := srv.MobEffectOf(villager, tc.effect)
+				return ok
+			})
+		})
 	}
 }

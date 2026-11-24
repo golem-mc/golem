@@ -276,7 +276,7 @@ func (g *crossbowAttackGoal) shoot(t *tickView, p *Player) {
 		ax, ay, az := spreadAim(aimX, aimY, aimZ, angle)
 		vx, vy, vz := ShootVelocity(ax, ay, az, crossbowMobPower, inaccuracy, m.Rand)
 		t.events = append(t.events, MobEvent{
-			Mob: m, Kind: MobShotArrow, Crossbow: true, Stack: stack,
+			Mob: m, Kind: MobShotArrow, Crossbow: true, Stack: stack, Ammo: loaded[i],
 			X: originX, Y: originY, Z: originZ, VX: vx, VY: vy, VZ: vz,
 			Damage: ArrowBaseDamage, Player: *p,
 		})
@@ -297,14 +297,57 @@ func (g *crossbowAttackGoal) shoot(t *tickView, p *Player) {
 	}
 }
 
+// heldCrossbowAmmo is the arrow or rocket in a hand, off hand first, and the
+// slot it is in; the slot is -1 when none is held.
+// vanilla: ProjectileWeaponItem.getHeldProjectile, CrossbowItem.getSupportedHeldProjectiles
+func (m *Mob) heldCrossbowAmmo() (protocol.ItemStack, int) {
+	for _, slot := range []int{protocol.EquipOffHand, protocol.EquipMainHand} {
+		stack := m.EquipmentSlot(slot)
+		item := registry.Item(stack.ItemID)
+		if !stack.Empty() && (item.InTag(registry.ItemTagIDArrows) || item == registry.ItemFireworkRocket) {
+			return stack, slot
+		}
+	}
+	return protocol.ItemStack{}, -1
+}
+
+// loadCrossbow draws the volley from the ammunition in a hand, else ordinary arrows.
 // vanilla: CrossbowItem.tryLoadProjectiles, ProjectileWeaponItem.draw, Monster.getProjectile
 func (g *crossbowAttackGoal) loadCrossbow(t *tickView, stack protocol.ItemStack) {
-	arrows := make([]protocol.ItemStack, rules.CrossbowProjectileCount(stack, g.m.crossbowEnchContext(t.w)))
-	for i := range arrows {
-		arrows[i] = protocol.ItemStack{ItemID: int32(registry.ItemArrow), Count: 1}
+	m := g.m
+	ammo, slot := m.heldCrossbowAmmo()
+	if slot < 0 {
+		ammo = protocol.ItemStack{ItemID: int32(registry.ItemArrow), Count: 1}
 	}
-	stack.SetChargedProjectiles(arrows)
-	g.m.SetEquipment(g.chargeSlot, stack)
+	var drawn []protocol.ItemStack
+	for i := range rules.CrossbowProjectileCount(stack, m.crossbowEnchContext(t.w)) {
+		use := int32(0)
+		if i == 0 {
+			use = rules.ProcessAmmoUse(stack, ammo)
+		}
+		if use > ammo.Count {
+			continue
+		}
+		one := ammo
+		one.Count = 1
+		if use == 0 {
+			one.Intangible = true
+		}
+		drawn = append(drawn, one)
+		ammo.Count -= use
+	}
+	if len(drawn) == 0 {
+		return
+	}
+	if slot >= 0 {
+		left := ammo
+		if left.Count <= 0 {
+			left = protocol.ItemStack{}
+		}
+		m.SetEquipment(slot, left)
+	}
+	stack.SetChargedProjectiles(drawn)
+	m.SetEquipment(g.chargeSlot, stack)
 }
 
 // CrossbowLoaded reports whether the selected crossbow holds charged projectiles.
