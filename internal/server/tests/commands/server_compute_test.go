@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/registry"
 )
 
 // The /compute command, black-box: the provider kinds the commands tree
@@ -24,6 +26,36 @@ func expectCompute(t *testing.T, c *servertest.Client, key string) protocol.Text
 		t.Fatalf("feedback = %+v, want %s", got, key)
 	}
 	return got
+}
+
+func TestComputeNamesRegistryProviders(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.LevelName = t.TempDir()
+	pack := filepath.Join(cfg.LevelName, "datapacks", "compute")
+	writeFile(t, filepath.Join(pack, "pack.mcmeta"), `{"pack":{"description":"Compute providers","min_format":121,"max_format":121}}`)
+	const constant = `{"type":"minecraft:constant","value":17}`
+	writeFile(t, filepath.Join(pack, "data", "review436", "context_int_provider", "keep.json"), constant)
+	writeFile(t, filepath.Join(pack, "data", "review436", "context_float_provider", "keep.json"), constant)
+	_, c := joinPacks(t, cfg)
+
+	name := protocol.Text{Text: "review436:keep"}
+	exact, rounded, original := int64(17), int64(8), float32(17)
+	for _, tc := range []struct {
+		input, key string
+		with       []protocol.Text
+	}{
+		{"integer review436:keep", "command.compute.result.named.exact", []protocol.Text{name, {Number: &exact}}},
+		{"float review436:keep", "command.compute.result.named.exact", []protocol.Text{name, {Number: &exact}}},
+		{"float review436:keep 0.5", "command.compute.result.named.rounded", []protocol.Text{name, {Float: &original}, {Number: &rounded}}},
+		{"integer " + constant, "command.compute.result.unnamed.exact", []protocol.Text{{Number: &exact}}},
+		{"float " + constant + " 0.5", "command.compute.result.unnamed.rounded", []protocol.Text{{Float: &original}, {Number: &rounded}}},
+	} {
+		c.ChatCommand("compute default " + tc.input)
+		c.ExpectCommandFeedbackText(tc.key, tc.with...)
+	}
+	c.Disconnect()
 }
 
 // TestComputeStoresItsValue checks that a constant provider answers its
@@ -62,6 +94,36 @@ func TestComputeStoresItsValue(t *testing.T) {
 		t.Errorf("rounded feedback arguments = %+v, want 14 and 7", with)
 	}
 
+	c.Disconnect()
+}
+
+// Run serially because data pack providers are process-wide.
+// vanilla: ComputeCommand.throwInvalidValue
+func TestComputeInvalidProviderFeedback(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackContextProviders(nil, nil) })
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.LevelName = t.TempDir()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	const division = `{"type":"minecraft:div","left":1,"right":0}`
+	servertest.WritePackFile(t, cfg, "compute", "pk/context_int_provider/div_zero.json", division)
+	servertest.WritePackFile(t, cfg, "compute", "pk/context_float_provider/div_zero.json", division)
+	srv, c := joinPacks(t, cfg)
+	servertest.HoldTicks(t, srv)
+
+	for _, tc := range []struct{ kind, reason string }{
+		{"integer", "/ by zero"},
+		{"float", "Infinity"},
+	} {
+		c.Run(t, tc.kind, func(t *testing.T) {
+			command := "compute default " + tc.kind + " "
+			c.ChatCommand(command + "pk:div_zero")
+			c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.named.invalid", "pk:div_zero", tc.reason))
+
+			c.ChatCommand(command + division)
+			c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.unnamed.invalid", tc.reason))
+		})
+	}
 	c.Disconnect()
 }
 
