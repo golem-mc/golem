@@ -89,7 +89,7 @@ type WaypointView struct {
 
 // ChunkVisible reports whether a chunk is within the receiver's view.
 func (v *WaypointView) ChunkVisible(chunkX, chunkZ int32) bool {
-	return world.InViewOf(world.ChunkPos{X: chunkX, Z: chunkZ}, world.ChunkPos{X: v.ViewerChunkX, Z: v.ViewerChunkZ}, v.ViewerRadius)
+	return world.InChunkTrackingView(world.ChunkPos{X: chunkX, Z: chunkZ}, world.ChunkPos{X: v.ViewerChunkX, Z: v.ViewerChunkZ}, v.ViewerRadius)
 }
 
 // Bearing computes the angle needed by an azimuth connection.

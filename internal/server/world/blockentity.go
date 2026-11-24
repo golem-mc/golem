@@ -1583,7 +1583,10 @@ func (w *World) savedBlockEntity(x, y, z int32) (tag nbt.CompoundTag, carried, o
 	if be == nil {
 		if r, found := loaded.chunk.pistonRide(x, y, z); found {
 			w.mu.RUnlock()
-			return r.saveTag(), false, true
+			tag := r.saveTag()
+			// vanilla: PistonMovingBlockEntity.saveAdditional writes progressO.
+			tag.Set("progress", nbt.Float(r.rideProgress))
+			return tag, false, true
 		}
 		compound, found := loaded.chunk.carriedBlockEntityAt(x, y, z)
 		w.mu.RUnlock()

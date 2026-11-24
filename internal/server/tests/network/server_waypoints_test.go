@@ -282,6 +282,49 @@ func TestAWaypointIsBlockFormInsideTheReceiversViewAndChunkFormOutside(t *testin
 	}
 }
 
+// vanilla: LivingEntity.makeWaypointConnectionWith, ChunkTrackingView.isInViewDistance
+func TestLocatorBarUsesTheReceiversChunkTrackingView(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance = 4
+	srv, connect := servertest.Start(t, cfg)
+	srv.SetGameRule("locator_bar", false)
+	watcher := connect().Join("Watcher")
+	watcher.WatchWaypoints = true
+	diagonal := connect().Join("Diagonal")
+	axis := connect().Join("Axis")
+	servertest.HoldTicks(t, srv)
+
+	diagonal.MoveToGround(64.5, 64, 64.5, true)
+	axis.MoveToGround(64.5, 64, 0.5, true)
+	diagonal.Settle()
+	axis.Settle()
+	srv.SetGameRule("locator_bar", true)
+
+	want := map[uuid.UUID]waypointPacket{
+		protocol.OfflineUUID("Diagonal"): {kind: protocol.WaypointTypeChunk, x: 4, z: 4},
+		protocol.OfflineUUID("Axis"):     {kind: protocol.WaypointTypeVec3i, x: 64, y: 64},
+	}
+	if !watcher.ReadTicks(srv, 5, func(id int32, data []byte) bool {
+		if id != protocol.IDPlayWaypoint {
+			return false
+		}
+		got := parseWaypoint(t, data)
+		expect, ok := want[got.id]
+		if !ok {
+			return false
+		}
+		if got.operation != protocol.WaypointTrack || got.kind != expect.kind || !got.at(expect.x, expect.y, expect.z) {
+			t.Errorf("waypoint for %s = operation %d, form %d at (%d, %d, %d), want track in form %d at (%d, %d, %d)",
+				got.id, got.operation, got.kind, got.x, got.y, got.z, expect.kind, expect.x, expect.y, expect.z)
+		}
+		delete(want, got.id)
+		return len(want) == 0
+	}) {
+		t.Fatalf("missing waypoint tracks after 5 ticks: %v", want)
+	}
+}
+
 // TestTheLocatorBarRuleTakesWaypointsOffAndBack checks the gate: with
 // locator_bar off, every pairing falls away with an untrack each way, nothing
 // re-tracks while the rule stands off, and the rule coming back re-tracks both

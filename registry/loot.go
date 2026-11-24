@@ -183,8 +183,7 @@ type LootItemEntry struct {
 	Functions  []LootFunction
 }
 
-// LootAlternatives is the cascade: the first child whose conditions hold
-// wins and the rest are not asked.
+// LootAlternatives collects candidates in order until a child succeeds.
 type LootAlternatives struct {
 	Children   []LootEntry
 	Conditions []LootCondition
@@ -196,8 +195,7 @@ type LootGroup struct {
 	Conditions []LootCondition
 }
 
-// LootSequence is every child in order, all or nothing: the first child
-// whose conditions refuse ends the sequence.
+// LootSequence collects candidates in order until a child fails.
 type LootSequence struct {
 	Children   []LootEntry
 	Conditions []LootCondition

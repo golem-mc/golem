@@ -16,12 +16,6 @@ import (
 // locks and packets: wanting under the mob lock, claims under the item
 // lock, never both at once, and packets with neither held.
 
-// mobLootItem is an item entity with the mob collection's view of it.
-type mobLootItem struct {
-	it   *itemEntity
-	loot entity.LootItem
-}
-
 // mobLootTake is a decided pickup: the item claimed from, the take, the
 // stack as decided (the copy vanilla's pickUpItem equips) and, once
 // claimed, whether it emptied the item.
@@ -82,50 +76,55 @@ type mobLootDropped struct {
 // the sweep's equipment diff tells watchers.
 // vanilla: Mob.aiStep, pickUpItem
 func (s *Server) tickMobLoot() {
-	// Only worlds with a looting mob are worth the item lock.
-	var picking []*world.World
-	grabbing := map[*world.World]bool{}
+	s.lockTick(&s.itemsMu)
+	empty := len(s.items) == 0
+	s.unlockTick(&s.itemsMu)
+	if empty {
+		return
+	}
+
+	dims := s.allDims()
+	anyLoot := false
 	s.lockTick(&s.mobsMu)
-	for _, dim := range s.allDims() {
+	for _, dim := range dims {
+		dim.mobLootPicking, dim.mobLootGrabbing = false, false
 		for _, m := range dim.mobs.herd {
-			if m.Alive() && m.BannerGrabbing() {
-				grabbing[dim.w] = true
+			if !m.Alive() {
+				continue
 			}
-			if m.Alive() && m.LootPickupEnabled() {
-				picking = append(picking, dim.w)
+			dim.mobLootGrabbing = dim.mobLootGrabbing || m.BannerGrabbing()
+			if m.LootPickupEnabled() {
+				dim.mobLootPicking = true
 				break
 			}
 		}
+		anyLoot = anyLoot || dim.mobLootPicking || dim.mobLootGrabbing
 	}
 	s.unlockTick(&s.mobsMu)
-	if len(picking) == 0 && len(grabbing) == 0 {
+	if !anyLoot {
 		return
 	}
-	lootWorlds := make(map[*world.World]bool, len(picking))
-	groundBy := make(map[*world.World][]mobLootItem, len(picking))
-	for _, w := range picking {
-		lootWorlds[w] = true
-	}
-	// The banner goal's pickup is not a looting pass, so mob_griefing does not
-	// gate it.
-	// vanilla: Raider.ObtainRaidLeaderBannerGoal.tick
-	for w := range grabbing {
-		lootWorlds[w] = true
-	}
 
-	// Under the item lock, snapshot the claimable items: due, not empty, not
-	// Dead.
+	// Snapshot claimable items for both ordinary pickup and the banner goal,
+	// which can take a banner with mob_griefing disabled.
+	// vanilla: Raider.ObtainRaidLeaderBannerGoal.tick
 	s.lockTick(&s.itemsMu)
 	for _, it := range s.items {
 		if it.item.Dead || it.item.Stack.Empty() || !it.item.PickupDue() {
 			continue
 		}
-		if !lootWorlds[it.w] {
-			continue
+		for _, dim := range dims {
+			if dim.w != it.w {
+				continue
+			}
+			if dim.mobLootPicking || dim.mobLootGrabbing {
+				dim.mobLootGround = append(dim.mobLootGround, it)
+				dim.mobLootView = append(dim.mobLootView, entity.LootItem{
+					X: it.item.X, Y: it.item.Y, Z: it.item.Z, Stack: it.item.Stack,
+				})
+			}
+			break
 		}
-		groundBy[it.w] = append(groundBy[it.w], mobLootItem{it: it, loot: entity.LootItem{
-			X: it.item.X, Y: it.item.Y, Z: it.item.Z, Stack: it.item.Stack,
-		}})
 	}
 	s.unlockTick(&s.itemsMu)
 
@@ -133,33 +132,34 @@ func (s *Server) tickMobLoot() {
 	// between equips nobody.
 	var takes []mobLootTake
 	s.lockTick(&s.mobsMu)
-	for _, dim := range s.allDims() {
-		ground := groundBy[dim.w]
+	for _, dim := range dims {
+		ground, view := dim.mobLootGround, dim.mobLootView
 		if len(ground) == 0 {
 			continue
-		}
-		view := make([]entity.LootItem, len(ground))
-		for i, l := range ground {
-			view[i] = l.loot
 		}
 		dim.mobs.herd.SenseWantedItems(dim.w, view)
 		// Captain claims precede ordinary banner equipment, even without a goal.
 		// vanilla: Raider.pickUpItem
 		mobGriefing := dim.w.BoolRule(world.RuleMobGriefing)
-		takes = append(takes, s.bannerTakes(dim, ground, mobGriefing)...)
+		takes = append(takes, s.bannerTakes(dim, mobGriefing)...)
 		if mobGriefing {
-			for _, take := range dim.mobs.herd.TakeLoot(view) {
+			for _, take := range dim.mobs.herd.TakeLootWithGrid(view, &dim.mobLootGrid) {
 				takes = append(takes, mobLootTake{
 					w:     dim.w,
-					it:    ground[take.Item].it,
+					it:    ground[take.Item],
 					take:  take,
-					stack: ground[take.Item].loot.Stack,
+					stack: view[take.Item].Stack,
 				})
 				if ent := dim.mobs.book[take.Mob]; ent != nil {
 					takes[len(takes)-1].mobUUID = ent.uuid
 				}
 			}
 		}
+		// Takes carry only the items they claim. Release the snapshot even
+		// if the next tick finds no items or no looting mobs.
+		clear(ground)
+		clear(view)
+		dim.mobLootGround, dim.mobLootView = ground[:0], view[:0]
 	}
 	s.unlockTick(&s.mobsMu)
 	if len(takes) == 0 {
