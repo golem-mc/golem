@@ -965,7 +965,7 @@ func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([
 
 // NotifyNeighbours is the neighbour update a command's
 // updateNeighboursOnBlockSet runs after a non-strict set left the cell
-// unchanged: the six neighbours hear of it, the position is not revisited.
+// unchanged: the six neighbours and any reading comparators hear of it.
 // NotifyChanged cannot stand in, as it returns early on an unchanged state.
 // vanilla: ServerLevel.updateNeighboursOnBlockSet
 func (p *Physics) NotifyNeighbours(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
@@ -973,6 +973,7 @@ func (p *Physics) NotifyNeighbours(x, y, z int32, oldState uint16) ([]BlockChang
 	defer p.mu.Unlock()
 	var changes []BlockChange
 	p.wakeNeighbors(x, y, z, oldState, p.w.BlockAt(x, y, z), &changes)
+	p.blockAnalogOutputChanged(x, y, z)
 	effects, primes := p.takeWake()
 	return changes, effects, primes
 }

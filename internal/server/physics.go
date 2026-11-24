@@ -37,10 +37,8 @@ func (s *Server) blockPlaced(w *world.World, x, y, z int32, oldState uint16) {
 	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
 }
 
-// updateNeighboursOnBlockSet runs the wake a non-strict /setblock owes even
-// when nothing changed: neighbours of an unchanged cell still hear it. It
-// requests the neighbour update directly, as NotifyChanged would no-op on an
-// unchanged state, then runs blockChanged's tail.
+// updateNeighboursOnBlockSet wakes neighbours after a successful non-strict
+// /setblock that left the block state unchanged. NotifyChanged skips that case.
 // vanilla: ServerLevel.updateNeighboursOnBlockSet
 func (s *Server) updateNeighboursOnBlockSet(w *world.World, x, y, z int32, oldState uint16) {
 	changes, effects, primes := s.physicsFor(w).NotifyNeighbours(x, y, z, oldState)

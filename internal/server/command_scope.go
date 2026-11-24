@@ -873,9 +873,14 @@ func (ws worldScope) SetBlockTagged(x, y, z int32, state uint16, defined map[str
 		ws.srv.physicsFor(w).PlacementShapeUpdates(x, y, z, state)
 	}
 	if !changed {
-		// The block already matched; the tag still applies if it changes the
-		// block entity, which returns true.
-		return ws.retagBlockEntity(x, y, z, state, tag)
+		if !ws.retagBlockEntity(x, y, z, state, tag) {
+			return false
+		}
+		// vanilla: SetBlockCommand.setBlock wakes neighbours after the tag loads.
+		if !strict {
+			ws.srv.updateNeighboursOnBlockSet(w, x, y, z, w.BlockAt(x, y, z))
+		}
+		return true
 	}
 	// A block argument without NBT arrives as a typed nil map.
 	if tag == nil || tag.Entries() == nil {
