@@ -20,15 +20,14 @@ type pistonRide struct {
 	extending    bool
 	isSource     bool
 	createdTick  int64
-	rideProgress float64
+	rideProgress float64 // progress at the start of the current sweep
 	customName   *protocol.Text
 	pluginData   nbt.Compound
 }
 
-// codec reads and writes a moving piston's saved fields. Progress is written
-// finished and never read (a reloaded move finishes where it was), and
-// createdTick is set to -1 on load because no file carries it (a reloaded
-// move is old for same-tick retraction).
+// codec reads and writes a moving piston's saved fields. A reloaded move
+// finishes where it was, so loading skips progress and sets createdTick to
+// -1 to treat the ride as old for same-tick retraction.
 // vanilla: PistonMovingBlockEntity.loadAdditional, saveAdditional
 func (r *pistonRide) codec(c *beCodec) {
 	if !c.updateTag {
@@ -40,7 +39,7 @@ func (r *pistonRide) codec(c *beCodec) {
 	if c.load {
 		r.createdTick = -1
 	} else {
-		c.out.Set("progress", nbt.Float(1))
+		c.out.Set("progress", nbt.Float(r.rideProgress))
 	}
 	field(c, "extending", &r.extending, beFlag, false)
 	field(c, "source", &r.isSource, beFlag, false)
