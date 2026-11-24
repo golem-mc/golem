@@ -2713,7 +2713,7 @@ func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch floa
 func (s *Server) turnTeleportMob(ent *mobEntity, move command.Move, by string) {
 	to := move.Pos
 	s.mobsMu.Lock()
-	turn := teleportTurn(ent.mob, move)
+	turn := teleportTurn(move)
 	book := s.herdOf(ent.w).book
 	// Before the mount turns: a rider's turn keeps its angle to the mount.
 	entity.TurnPassengers(ent.mob, turn, func(p *entity.Mob) {

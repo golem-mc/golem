@@ -912,11 +912,11 @@ func (e *entitySnapshot) Kill() {
 	e.srv.flushDestroyed()
 }
 
-// teleportTurn is the rotation transition move gives a mob facing as m
-// does. A facing clause turns only the mount, after the teleport, so the
+// teleportTurn is the rotation transition move gives a mob and its riders.
+// A facing clause turns only the mount, after the teleport, so the
 // riders get a zero relative turn; only /teleport wraps its angles.
 // vanilla: TeleportCommand.performTeleport, LookAt.perform
-func teleportTurn(m *entity.Mob, move command.Move) entity.Turn {
+func teleportTurn(move command.Move) entity.Turn {
 	if move.LookAt != nil || move.KeepRotation {
 		return entity.Turn{RelYaw: true, RelPitch: true}
 	}
@@ -924,14 +924,15 @@ func teleportTurn(m *entity.Mob, move command.Move) entity.Turn {
 	if !move.Command {
 		return t
 	}
+	// A relative axis turns by the wrapped offset, not to move.Pos, whose
+	// pitch is already clamped.
 	t.RelYaw, t.RelPitch = move.RelYaw, move.RelPitch
 	if t.RelYaw {
-		t.Yaw -= m.Yaw
+		t.Yaw = move.Offset.Yaw
 	}
 	if t.RelPitch {
-		t.Pitch -= m.Pitch
+		t.Pitch = move.Offset.Pitch
 	}
-	t.Yaw, t.Pitch = command.WrapDegrees(t.Yaw), command.WrapDegrees(t.Pitch)
 	return t
 }
 
