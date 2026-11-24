@@ -1047,24 +1047,34 @@ func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 			}
 		}
 	}
+	g.scan(cx-r, cx+r, cz-r, cz+r, collect)
+	if g.gathered != nil {
+		*g.gathered += seen
+	}
+	return g.near
+}
+
+// scan visits the cells x0..x1 by z0..z1 in cell order, or in key order when
+// the rectangle is much larger than the occupied cells.
+func (g *pushGrid) scan(x0, x1, z0, z1 int, collect func([]pushEntry)) {
 	if g.rect.active() && len(g.cells) == 0 {
-		loX, hiX, loZ, hiZ := g.rect.clip(cx-r, cx+r, cz-r, cz+r)
+		loX, hiX, loZ, hiZ := g.rect.clip(x0, x1, z0, z1)
 		for x := loX; x <= hiX; x++ {
 			row := g.rect.row(x)
 			for z := loZ; z <= hiZ; z++ {
 				collect(g.dense[row+z-g.rect.minZ].entries)
 			}
 		}
-	} else if side := 2*r + 1; side*side > len(g.cells)+len(g.dense) {
+	} else if w, h := x1-x0+1, z1-z0+1; w*h > len(g.cells)+len(g.dense) {
 		// A wide body makes the square far larger than the occupied cells:
 		// visit those in cell order instead.
 		g.keys = g.keys[:0]
 		for k := range g.cells {
-			if x, z := keyCoords(k); x >= cx-r && x <= cx+r && z >= cz-r && z <= cz+r {
+			if x, z := keyCoords(k); x >= x0 && x <= x1 && z >= z0 && z <= z1 {
 				g.keys = append(g.keys, k)
 			}
 		}
-		loX, hiX, loZ, hiZ := g.rect.clip(cx-r, cx+r, cz-r, cz+r)
+		loX, hiX, loZ, hiZ := g.rect.clip(x0, x1, z0, z1)
 		for x := loX; x <= hiX; x++ {
 			row := g.rect.row(x)
 			for z := loZ; z <= hiZ; z++ {
@@ -1084,12 +1094,31 @@ func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 	} else {
 		// Mixed dense and overflow cells still traverse in cell order before
 		// sorting, including ties from bodies outside the snapshot.
-		for x := cx - r; x <= cx+r; x++ {
-			for z := cz - r; z <= cz+r; z++ {
+		for x := x0; x <= x1; x++ {
+			for z := z0; z <= z1; z++ {
 				collect(g.cell(cellKey(x, z)))
 			}
 		}
 	}
+}
+
+// gatherBox collects the mobs whose box crosses box, in no set order (sort by
+// pushIdx where the order is observable). The result is scratch valid until
+// the next query.
+func (g *pushGrid) gatherBox(box AABB) []*Mob {
+	g.near = g.near[:0]
+	x0, z0 := cellCoords(box.minX-g.wide, box.minZ-g.wide)
+	x1, z1 := cellCoords(box.maxX+g.wide, box.maxZ+g.wide)
+	seen := 0
+	g.scan(x0, x1, z0, z1, func(c []pushEntry) {
+		seen += len(c)
+		for i := range c {
+			o := &c[i]
+			if box.maxX > o.minX && box.minX < o.maxX && box.maxY > o.minY && box.minY < o.maxY && box.maxZ > o.minZ && box.minZ < o.maxZ {
+				g.near = append(g.near, o.m)
+			}
+		}
+	})
 	if g.gathered != nil {
 		*g.gathered += seen
 	}

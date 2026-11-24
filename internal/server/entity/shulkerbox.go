@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"cmp"
 	"math"
 	"slices"
 
@@ -82,7 +83,13 @@ func (m *Mob) stepShulkerPeek(w World, t *tickView) {
 	t.events = append(t.events, MobEvent{Mob: m, Kind: MobShulkerShoved, VX: delta[0], VY: delta[1], VZ: delta[2],
 		Slab: [6]float64{slab.minX, slab.minY, slab.minZ, slab.maxX, slab.maxY, slab.maxZ}})
 	// A vex holds noPhysics, so the shell does not move it.
-	for _, o := range t.others {
+	others := t.others
+	if g := m.push; g != nil {
+		// The entries are body boxes, which is what mobBox is for a non-shulker.
+		others = slices.Clone(g.gatherBox(slab))
+		slices.SortFunc(others, func(a, b *Mob) int { return cmp.Compare(a.pushIdx, b.pushIdx) })
+	}
+	for _, o := range others {
 		if o == m || o.IsShulker() || o.Type == TypeVex || !o.Alive() || !slab.Crosses(o.mobBox()) {
 			continue
 		}

@@ -2,7 +2,6 @@ package entity
 
 import (
 	"math"
-	"sort"
 
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -315,7 +314,14 @@ func (s shulkerWorld) BodyBoxes(box AABB) []AABB {
 	if b, ok := s.World.(BodyWorld); ok {
 		out = b.BodyBoxes(box)
 	}
-	for _, o := range s.others {
+	others := s.others
+	if s.self != nil && s.self.push != nil {
+		g := s.self.push
+		// A grown shell reaches at most one body size past the body box, and
+		// wide is half the widest body, so twice wide covers it.
+		others = g.gatherBox(box.inflate(2*g.wide, 2*g.wide, 2*g.wide))
+	}
+	for _, o := range others {
 		if o.IsShulker() && o.Alive() && o.RootVehicle() != s.self.RootVehicle() {
 			// Bound every attach face's fully open box before computing its peek.
 			side, down, up := 1.5, 1.0, 2.0
@@ -467,44 +473,8 @@ func (m *Mob) teleportShulker(w World, t *tickView) bool {
 }
 
 // faceFull reports whether the state's collision shape covers its whole
-// face toward the direction id.
+// face toward the direction id (down, up, north, south, west, east).
 // vanilla: Block.isFaceFull
 func faceFull(state uint16, face uint8) bool {
-	axis, high := [6]int{1, 1, 2, 2, 0, 0}[face], face%2 == 1
-	u, v := (axis+1)%3, (axis+2)%3
-	var boxes [][2][3]float64
-	cuts := [2][]float64{{0, 1}, {0, 1}}
-	for _, b := range blockBoxes(state) {
-		lo := [3]float64{b.MinX, b.MinY, b.MinZ}
-		hi := [3]float64{b.MaxX, b.MaxY, b.MaxZ}
-		if (high && hi[axis] != 1) || (!high && lo[axis] != 0) || lo[axis] == hi[axis] {
-			continue
-		}
-		boxes = append(boxes, [2][3]float64{lo, hi})
-		cuts[0] = append(cuts[0], lo[u], hi[u])
-		cuts[1] = append(cuts[1], lo[v], hi[v])
-	}
-	if len(boxes) == 0 {
-		return false
-	}
-	// Every cell the box edges cut the face into must lie inside a box.
-	for i := range cuts {
-		sort.Float64s(cuts[i])
-	}
-	for i := 0; i+1 < len(cuts[0]); i++ {
-		for j := 0; j+1 < len(cuts[1]); j++ {
-			cu, cv := (cuts[0][i]+cuts[0][i+1])/2, (cuts[1][j]+cuts[1][j+1])/2
-			if cu <= 0 || cu >= 1 || cv <= 0 || cv >= 1 || cuts[0][i] == cuts[0][i+1] || cuts[1][j] == cuts[1][j+1] {
-				continue
-			}
-			covered := false
-			for _, b := range boxes {
-				covered = covered || (cu > b[0][u] && cu < b[1][u] && cv > b[0][v] && cv < b[1][v])
-			}
-			if !covered {
-				return false
-			}
-		}
-	}
-	return true
+	return registry.CollisionFaceFull(state, int(face))
 }
