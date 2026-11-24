@@ -618,18 +618,19 @@ func RollLootInto(dst []protocol.ItemStack, name string, ctx *LootContext, rng L
 	if !ok {
 		return dst
 	}
-	return rollLootTable(dst, name, table, ctx, ctx.lootRandom(table.RandomSequence, rng))
+	return rollLootTable(dst, name, table, ctx, ctx.RandomFor(table.RandomSequence, rng))
 }
 
 // RollLootTable rolls a table the caller holds, such as an inline one a
 // command carries; name is the table's own, which a reference entry may not
 // loop back to.
 func RollLootTable(name string, table registry.LootTable, ctx *LootContext, rng LootRand) []protocol.ItemStack {
-	return rollLootTable(nil, name, table, ctx, ctx.lootRandom(table.RandomSequence, rng))
+	return rollLootTable(nil, name, table, ctx, ctx.RandomFor(table.RandomSequence, rng))
 }
 
+// RandomFor selects the explicit source, named sequence or level random for a roll.
 // vanilla: LootContext.Builder.create
-func (ctx *LootContext) lootRandom(sequence string, fallback LootRand) LootRand {
+func (ctx *LootContext) RandomFor(sequence string, fallback LootRand) LootRand {
 	if ctx.Random != nil {
 		return ctx.Random
 	}

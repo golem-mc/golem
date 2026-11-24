@@ -550,6 +550,8 @@ type Server struct {
 	mobTickLoaded map[*world.World]map[world.ChunkPos]struct{}
 	// tradeDraws reserves a merchant while a draw loads chunks without mobsMu.
 	tradeDraws map[*entity.Mob]*tradeDrawState
+	// tradeRollMu keeps merchants on the same sequence from interleaving rolls.
+	tradeRollMu sync.Mutex
 	// raidsMu guards the dimensions' raids and raidState. It is taken
 	// before mobsMu and s.mu, never while holding either.
 	raidsMu   sync.Mutex
