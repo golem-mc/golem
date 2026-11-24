@@ -981,7 +981,7 @@ func (g *pushGrid) add(m *Mob, idx int) {
 	if _, ok := g.byID[m.ID]; !ok {
 		g.byID[m.ID] = m
 	}
-	hw := m.kind().width * m.scale() / 2
+	hw := m.kind().width * m.scale() * m.attrScale() / 2
 	if hw > g.wide {
 		g.wide = hw
 	}
@@ -1028,7 +1028,7 @@ func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
 // The result is scratch valid until the next query.
 func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 	g.near = g.near[:0]
-	hw := m.kind().width * m.scale() / 2
+	hw := m.kind().width * m.scale() * m.attrScale() / 2
 	r := int(math.Ceil((hw + g.wide + inflate) / pushCellSide))
 	cx, cz := cellCoords(m.X, m.Z)
 	// The same sums boxesOverlap does, once for the query.
