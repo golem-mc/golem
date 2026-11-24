@@ -188,10 +188,13 @@ func (m *Mob) carriedDrops(level rules.LootLevel) []protocol.ItemStack {
 // target. The search box is the follow range on all three axes.
 // vanilla: NearestAttackableTargetGoal.getTargetSearchArea
 type mobTargetGoal struct {
-	m        *Mob
-	victim   MobType
-	priority int
-	unseen   int
+	m      *Mob
+	victim MobType
+	// victimOnly says matches admits only victim, so the scan is skipped while
+	// the herd holds none.
+	victimOnly bool
+	priority   int
+	unseen     int
 	// matches replaces the victim type test; unsighted drops the line of
 	// sight (mustSee false); wildOnly is NonTameRandomTargetGoal's gate.
 	matches   func(o *Mob) bool
@@ -263,6 +266,9 @@ func (g *mobTargetGoal) CanStart(t *tickView) bool {
 	cands := t.others
 	if g.fromPrey && t.preyKnown {
 		cands = t.prey
+	}
+	if g.victimOnly && m.push != nil && !m.push.present[g.victim] {
+		cands = nil
 	}
 	for _, o := range cands {
 		// The range test is a field read, so it goes first: most of t.others is
