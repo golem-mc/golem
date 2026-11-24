@@ -61,6 +61,7 @@ type armorStandEntity struct {
 var standTracker = trackedKind[*armorStandEntity, *armorStandMeta]{
 	steppedPath:      true,
 	invalidatePiston: func(dim *dimension) { dim.pistons.armorStands.built = false },
+	pistonBit:        pistonArmorStands,
 
 	rangeChunks: entity.ArmorStandTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.armorStandsMu },

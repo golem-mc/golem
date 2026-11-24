@@ -35,6 +35,7 @@ type endCrystalEntity struct {
 // vanilla: EntityTypes.END_CRYSTAL
 var endCrystalTracker = trackedKind[*endCrystalEntity, struct{}]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.endCrystals.built = false },
+	pistonBit:        pistonEndCrystals,
 
 	rangeChunks: entity.EndCrystalTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.endCrystalsMu },

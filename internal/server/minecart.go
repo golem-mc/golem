@@ -89,6 +89,7 @@ type minecartEntity struct {
 // vanilla: ChunkMap.tick, TrackedEntity.updatePlayer
 var minecartTracker = trackedKind[*minecartEntity, minecartMeta]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.minecarts.built = false },
+	pistonBit:        pistonMinecarts,
 
 	rangeChunks: entity.MinecartTrackingRange,
 	passengerRange: func(it *minecartEntity) int {

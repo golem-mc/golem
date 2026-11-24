@@ -72,6 +72,7 @@ type itemEntity struct {
 // and its Teleport Entity carries no velocity: the motion packets do.
 var itemTracker = trackedKind[*itemEntity, struct{}]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.items.built = false },
+	pistonBit:        pistonItems,
 
 	rangeChunks:    entity.ItemTrackingRange,
 	interval:       entity.ItemUpdateInterval,

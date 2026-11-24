@@ -337,16 +337,16 @@ func (s *Server) tickPhysics() {
 // drops it after.
 func (s *Server) setPistonGrid(dim *dimension, active bool) {
 	setBodyPistonGrid(&s.mobsMu, &dim.mobs.pistonGrid, active)
-	setBodyPistonGrid(&s.itemsMu, &dim.pistons.items, active)
-	setBodyPistonGrid(&s.orbsMu, &dim.pistons.orbs, active)
-	setBodyPistonGrid(&s.arrowsMu, &dim.pistons.arrows, active)
-	setBodyPistonGrid(&s.tntMu, &dim.pistons.tnts, active)
-	setBodyPistonGrid(&s.fallingMu, &dim.pistons.fallings, active)
-	setBodyPistonGrid(&s.boatsMu, &dim.pistons.boats, active)
-	setBodyPistonGrid(&s.armorStandsMu, &dim.pistons.armorStands, active)
+	setTrackedPistonGrid(s, &itemTracker, &dim.pistons.items, active)
+	setTrackedPistonGrid(s, &orbTracker, &dim.pistons.orbs, active)
+	setTrackedPistonGrid(s, &arrowTracker, &dim.pistons.arrows, active)
+	setTrackedPistonGrid(s, &tntTracker, &dim.pistons.tnts, active)
+	setTrackedPistonGrid(s, &fallingTracker, &dim.pistons.fallings, active)
+	setTrackedPistonGrid(s, &boatTracker, &dim.pistons.boats, active)
+	setTrackedPistonGrid(s, &standTracker, &dim.pistons.armorStands, active)
 	setBodyPistonGrid(&s.fixturesMu, &dim.pistons.fixtures, active)
-	setBodyPistonGrid(&s.minecartsMu, &dim.pistons.minecarts, active)
-	setBodyPistonGrid(&s.endCrystalsMu, &dim.pistons.endCrystals, active)
+	setTrackedPistonGrid(s, &minecartTracker, &dim.pistons.minecarts, active)
+	setTrackedPistonGrid(s, &endCrystalTracker, &dim.pistons.endCrystals, active)
 }
 
 // tickRandomTicks runs a random tick pass over the dimension's chunks within
