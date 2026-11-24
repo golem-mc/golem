@@ -4,6 +4,7 @@ package redstone
 // frequency. vanilla: BucketItem.use, Consumable.onConsume, Sheep.mobInteract
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -37,6 +38,54 @@ func survivalScene(t *testing.T) (*server.Server, *servertest.Client) {
 func placeSensor(t *testing.T, srv *server.Server) {
 	t.Helper()
 	srv.SetBlock(4, 64, 4, servertest.MustState(t, "minecraft:sculk_sensor", nil))
+}
+
+func TestIronGolemRepairFeedback(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name                    string
+		silent                  int
+		startHealth, wantHealth float64
+		wantIngots              int32
+		wantFrequency           string
+		wantRepairSounds        int
+	}{
+		{"audible", 0, 50, 75, 1, "6", 1},
+		{"silent", 1, 50, 75, 1, "6", 0},
+		{"full health", 0, 100, 100, 2, "0", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := survivalSensorScene(t)
+			c.ChatCommand(fmt.Sprintf("summon minecraft:iron_golem 2.5 64 4.5 {NoAI:1b,Silent:%db,Health:%.1ff}",
+				tc.silent, tc.startHealth))
+			golem := c.ExpectSummonedMob(protocol.EntityTypeIronGolem)
+			srv.GiveSlot("Actor", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:iron_ingot"), Count: 2})
+			c.Settle()
+
+			c.UseOn(golem)
+			heard, _, _ := servertest.CollectSoundsTicks(c, srv, 10)
+			repairSounds := 0
+			for _, sound := range heard {
+				if sound.Name == "minecraft:entity.iron_golem.repair" {
+					repairSounds++
+				}
+			}
+			if repairSounds != tc.wantRepairSounds {
+				t.Errorf("repair sound packets = %d, want %d", repairSounds, tc.wantRepairSounds)
+			}
+			if health, ok := srv.MobHealth(golem); !ok || health != tc.wantHealth {
+				t.Errorf("golem health = %v (found %t), want %v", health, ok, tc.wantHealth)
+			}
+			if ingots := srv.InventorySlot("Actor", player.HotbarSlot).Count; ingots != tc.wantIngots {
+				t.Errorf("ingots left = %d, want %d", ingots, tc.wantIngots)
+			}
+			expectComparator(t, srv, tc.wantFrequency)
+			if tc.wantFrequency == "0" {
+				expectSensor(t, srv, 4, 64, 4, "inactive", "0")
+			}
+		})
+	}
 }
 
 func TestASurvivalPlayersBucketMakesVibrations(t *testing.T) {
