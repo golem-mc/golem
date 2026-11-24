@@ -67,3 +67,24 @@ func BenchmarkFlatJoinArea(b *testing.B) {
 		off += 20
 	}
 }
+
+// BenchmarkStaleChunkLightForm measures the first Chunk Data light form
+// after a relight on a retained flat chunk: one buffer is built, not both.
+func BenchmarkStaleChunkLightForm(b *testing.B) {
+	w, err := NewWorld(b.TempDir(), NewFlatGenerator())
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer w.Close()
+	c := newChunk(0, 0)
+	NewFlatGenerator().Generate(c)
+	w.lightAlone(c)
+	c.lightFormsRetained = true
+	b.ReportAllocs()
+	for b.Loop() {
+		c.invalidateLightForms()
+		if len(c.chunkLightForm()) == 0 {
+			b.Fatal("no light form")
+		}
+	}
+}

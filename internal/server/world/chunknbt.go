@@ -495,7 +495,7 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 	// LightData and is relit in Acquire.
 	if lightData, ok := nbt.Get[nbt.ByteArray](root, "LightData"); ok {
 		if c.decodeLight(lightData) {
-			c.lightFormsStale = true
+			c.lightFormsInit = true
 			c.lightCorrect = true
 		}
 	}

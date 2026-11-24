@@ -148,7 +148,7 @@ func (w *World) relightCells(cells []lightCell) {
 		if i >= written && c.hasLightForms() {
 			continue
 		}
-		c.lightFormsStale = true
+		c.invalidateLightForms()
 	}
 }
 

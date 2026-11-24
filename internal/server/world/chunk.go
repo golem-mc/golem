@@ -158,13 +158,14 @@ type Chunk struct {
 	blockLight        [lightSections]*[lightArrayLen]byte
 	lightEncoded      []byte
 	chunkLightEncoded []byte
-	// lightFormsStale marks the two encoded forms as behind the arrays; they
-	// are rebuilt on first read (lightForm), under lightFormsMu because
-	// readers hold w.mu only for reading. Cache reads also take lightFormsMu;
-	// writes hold either w.mu for writing or w.mu for reading + lightFormsMu.
-	// The forms are replaced, never edited.
-	lightFormsStale bool
-	lightFormsMu    sync.Mutex
+	// A nil encoded form is out of date and built on first read of that form
+	// (lightForm, chunkLightForm), under lightFormsMu because readers hold
+	// w.mu only for reading. Cache reads also take lightFormsMu; writes hold
+	// either w.mu for writing or w.mu for reading + lightFormsMu. The forms
+	// are replaced, never edited. lightFormsInit is set once the chunk has
+	// light, so an evicted form is told from a never-lit chunk.
+	lightFormsInit bool
+	lightFormsMu   sync.Mutex
 	// lightFormsRetained is set only while the packet cache owns this chunk.
 	lightFormsRetained bool
 	lightCorrect       bool
