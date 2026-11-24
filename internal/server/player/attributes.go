@@ -108,9 +108,9 @@ var playerBases = func() *[registry.NumAttributes]float64 {
 // startingAttributes are the three instances a vanilla server sends every
 // player at join or rejoin; equipment adds the rest with its modifiers.
 var startingAttributes = []registry.AttributeID{
+	registry.AttributeMovementSpeed,
 	registry.AttributeBlockInteractionRange,
 	registry.AttributeEntityInteractionRange,
-	registry.AttributeMovementSpeed,
 }
 
 // attributeSet is a set of attributes by ID, one bit each.
@@ -123,7 +123,9 @@ func (s attributeSet) has(id registry.AttributeID) bool { return s&(1<<id) != 0 
 // is a fresh player's, not yet introduced.
 // vanilla: AttributeMap, with LivingEntity.lastEquipmentItems
 type Attributes struct {
-	instances   [registry.NumAttributes]*AttributeInstance
+	instances [registry.NumAttributes]*AttributeInstance
+	// playerOrder records first instantiation for packing the saved list.
+	playerOrder []registry.AttributeID
 	dirty       attributeSet
 	initialized bool
 	introduced  bool
@@ -163,12 +165,22 @@ func (a *Attributes) init() {
 	if a.initialized {
 		return
 	}
+	a.initBases()
+	if a.supplier == nil {
+		a.initStartingAttributes()
+	}
+}
+
+func (a *Attributes) initStartingAttributes() {
+	for _, id := range startingAttributes {
+		a.Instance(id)
+	}
+}
+
+func (a *Attributes) initBases() {
 	a.initialized = true
 	if a.supplier == nil {
 		a.has, a.bases = playerAttributes, playerBases
-		for _, id := range startingAttributes {
-			a.Instance(id)
-		}
 		return
 	}
 	bases := new([registry.NumAttributes]float64)
@@ -186,14 +198,14 @@ func (a *Attributes) init() {
 
 // withBasesOnly is a fresh map holding the base of every instance and none of
 // its modifiers, not yet introduced to a client.
-func (a Attributes) withBasesOnly() Attributes {
-	out := Attributes{supplier: a.supplier}
-	out.init()
-	for id, in := range a.instances {
-		if in != nil {
-			out.instances[id] = &AttributeInstance{Attribute: in.Attribute, Base: in.Base}
-		}
+// vanilla: ServerPlayer.restoreFrom, AttributeMap.assignBaseValues
+func (a *Attributes) withBasesOnly() Attributes {
+	var out Attributes
+	out.initBases()
+	for _, id := range packedPlayerAttributeOrder(a.playerOrder) {
+		out.Instance(id).Base = a.instances[id].Base
 	}
+	out.initStartingAttributes()
 	return out
 }
 
@@ -207,6 +219,9 @@ func (a *Attributes) Instance(id registry.AttributeID) *AttributeInstance {
 	}
 	in := &AttributeInstance{Attribute: id.Attribute(), Base: a.bases[id]}
 	a.instances[id] = in
+	if a.supplier == nil {
+		a.playerOrder = append(a.playerOrder, id)
+	}
 	return in
 }
 

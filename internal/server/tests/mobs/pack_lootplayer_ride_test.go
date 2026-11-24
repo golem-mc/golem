@@ -25,18 +25,26 @@ func rideItems(srv *server.Server) map[string]int32 {
 	return got
 }
 
-// TestAPackLootTableReadsTheKillersRideAndPearls kills a zombie by fist on
-// foot with no pearl, then one from a pig's back with an ender pearl in
-// flight: an nbt predicate on the attacking player finds RootVehicle and
-// ender_pearls only for the second. The pack layer is process-wide, so the
-// test is not parallel.
+// TestAPackLootTableReadsTheKillersRideAndPearls checks an attacking-player
+// NBT predicate on foot, on a pig and directly in a minecart. The pack layer
+// is process-wide, so the subtests run in sequence.
 // vanilla: ContextNbtProvider.EntitySource.get, ServerPlayer.addAdditionalSaveData
 func TestAPackLootTableReadsTheKillersRideAndPearls(t *testing.T) {
+	t.Run("pig", func(t *testing.T) {
+		checkPackLootReadsRideAndPearls(t, "pig")
+	})
+	t.Run("minecart", func(t *testing.T) {
+		checkPackLootReadsRideAndPearls(t, "minecart")
+	})
+}
+
+func checkPackLootReadsRideAndPearls(t *testing.T, mount string) {
+	t.Helper()
 	t.Cleanup(func() { registry.ApplyPackLoot(nil, nil, nil) })
 	cfg := servertest.MobTestConfig()
 	cfg.LevelName = t.TempDir()
 	servertest.WritePackFile(t, cfg, "ride", "minecraft/loot_table/entities/zombie.json", `{"pools":[`+
-		ridePool("attacking_player", `{RootVehicle:{Entity:{id:\"minecraft:pig\"}}}`, "diamond")+`,`+
+		ridePool("attacking_player", `{RootVehicle:{Entity:{id:\"minecraft:`+mount+`\"}}}`, "diamond")+`,`+
 		ridePool("attacking_player", `{ender_pearls:[{id:\"minecraft:ender_pearl\"}]}`, "emerald")+`]}`)
 	const name = "Thrower"
 	srv, c := servertest.Join(t, cfg, name, servertest.OpsListing(t, name))
@@ -61,9 +69,11 @@ func TestAPackLootTableReadsTheKillersRideAndPearls(t *testing.T) {
 		t.Errorf("on-foot kill with no pearl dropped %v, want nothing", got)
 	}
 
-	srv.RunLine(`summon minecraft:pig 2.5 64 5.5 {NoAI:1b,Tags:["mount"]}`)
-	c.ExpectMobSpawn(protocol.EntityTypePig)
-	srv.RunLine("ride " + name + " mount @e[tag=mount,limit=1]")
+	srv.RunLine(`summon minecraft:` + mount + ` 2.5 64 5.5 {NoAI:1b,Tags:["mount"]}`)
+	if out := srv.RunLine("ride " + name + " mount @e[tag=mount,limit=1]"); len(out) != 1 || out[0].Translate != "commands.ride.mount.success" {
+		t.Fatalf("mounting %s: %v", mount, out)
+	}
+	c.Settle()
 	servertest.UseHeld(c, 0, -60)
 	c.ExpectThrownSpawn(srv, protocol.EntityTypeEnderPearl)
 	servertest.RunTicks(t, srv, 2)
