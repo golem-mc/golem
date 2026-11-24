@@ -68,8 +68,10 @@ type Aquifer struct {
 	ctx    *Context
 	global FluidPicker
 	// cfg is nil for a disabled aquifer. vanilla: Aquifer.createDisabled
-	cfg                          *AquiferConfig
-	random                       levelgen.PositionalRandomFactory
+	cfg    *AquiferConfig
+	random levelgen.PositionalRandomFactory
+	// siteRandom is reseeded per grid location by cacheNeighbors; nil until the first miss.
+	siteRandom                   levelgen.RandomSource
 	shouldSchedule               bool
 	skipSamplingAboveY           int32
 	minGridX, minGridY, minGridZ int32
@@ -363,7 +365,13 @@ func (a *Aquifer) cacheNeighbors(x, yAnchor, z int32) {
 				idx := a.index(gx, gy, gz)
 				loc := a.location[idx]
 				if loc == noLocation {
-					r := a.random.At(gx, gy, gz)
+					r := a.siteRandom
+					if r == nil {
+						r = a.random.At(gx, gy, gz)
+						a.siteRandom = r
+					} else {
+						a.random.SeedAt(r, gx, gy, gz)
+					}
 					lx := fromGridXZ(gx, r.NextIntN(aquiferXRange))
 					ly := fromGridY(gy, r.NextIntN(aquiferYRange))
 					lz := fromGridXZ(gz, r.NextIntN(aquiferZRange))
