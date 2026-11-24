@@ -718,7 +718,7 @@ func (s *Server) collectMobsToPush(w *world.World, sh bodyShove) []func() {
 		}
 		to := player.Position{X: m.X + moved.dx, Y: m.Y + moved.dy, Z: m.Z + moved.dz, Yaw: m.Yaw, Pitch: m.Pitch}
 		moves = append(moves, func() {
-			s.teleportMob(ent, to, to.Yaw, to.Pitch, "push")
+			s.teleportMob(ent, to, to.Yaw, to.Pitch, "push", nil)
 		})
 	}
 	return moves

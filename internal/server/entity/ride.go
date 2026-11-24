@@ -505,15 +505,41 @@ func mountEvent(rider, vehicle *Mob, kind MobEventKind) MobEvent {
 	return MobEvent{Mob: rider, Kind: kind, X: vehicle.X, Y: vehicle.Y, Z: vehicle.Z}
 }
 
-// TurnPassengers turns every rider of m by dyaw and dpitch, the mount's own
-// rotation change before its pitch is clamped. Each rider's pitch is clamped
-// on its own and its head follows its body.
+// Turn is a teleport's rotation transition in vanilla's terms: Yaw and Pitch
+// are the wrapped offset when the axis is relative, else the wrapped
+// destination angle.
+// vanilla: TeleportCommand.performTeleport
+type Turn struct {
+	Yaw, Pitch       float32
+	RelYaw, RelPitch bool
+}
+
+// TurnPassengers turns every rider of m, nested ones included, as m's
+// teleport by t does, calling each(rider) before it changes; each may be nil.
+// Each rider's pitch is clamped on its own and its head follows its body. m
+// must still hold its pre-teleport rotation.
 // vanilla: Entity.calculatePassengerTransition, PositionMoveRotation.calculateAbsolute
-func TurnPassengers(m *Mob, dyaw, dpitch float32) {
+func TurnPassengers(m *Mob, t Turn, each func(*Mob)) {
 	for _, p := range m.Passengers {
-		p.Yaw += dyaw
-		p.Pitch = min(max(p.Pitch+dpitch, -90), 90)
+		pt := t
+		if !t.RelYaw {
+			pt.Yaw += p.Yaw - m.Yaw
+		}
+		if !t.RelPitch {
+			pt.Pitch += p.Pitch - m.Pitch
+		}
+		TurnPassengers(p, pt, each)
+		if each != nil {
+			each(p)
+		}
+		yaw, pitch := pt.Yaw, pt.Pitch
+		if t.RelYaw {
+			yaw += p.Yaw
+		}
+		if t.RelPitch {
+			pitch += p.Pitch
+		}
+		p.Yaw, p.Pitch = yaw, min(max(pitch, -90), 90)
 		p.HeadYaw = p.Yaw
-		TurnPassengers(p, dyaw, dpitch)
 	}
 }

@@ -2697,8 +2697,9 @@ func (s *Server) killMob(ent *mobEntity) {
 
 // teleportMob moves the mob, leaving the telling to the movement tick.
 // vanilla: Entity.teleportTo, ServerEntity.sendChanges
-func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch float32, by string) {
+func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch float32, by string, turn *entity.Turn) {
 	s.mobsMu.Lock()
+	s.turnRiders(ent, turn)
 	s.placeMob(ent, to, yaw, pitch)
 	s.mobsMu.Unlock()
 	logTeleported("mob", to, by, "kind", ent.mob.Type)
@@ -2706,8 +2707,9 @@ func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch floa
 
 // commandTeleportMob is teleportMob that also lands a mob that is not gliding.
 // vanilla: TeleportCommand.performTeleport
-func (s *Server) commandTeleportMob(ent *mobEntity, to player.Position, by string) {
+func (s *Server) commandTeleportMob(ent *mobEntity, to player.Position, by string, turn *entity.Turn) {
 	s.mobsMu.Lock()
+	s.turnRiders(ent, turn)
 	s.placeMob(ent, to, to.Yaw, to.Pitch)
 	// Under the same lock, so no tick tells the teleport without the flag.
 	// vanilla: LivingEntity.isFallFlying
@@ -2716,6 +2718,21 @@ func (s *Server) commandTeleportMob(ent *mobEntity, to player.Position, by strin
 	}
 	s.mobsMu.Unlock()
 	logTeleported("mob", to, by, "kind", ent.mob.Type)
+}
+
+// turnRiders turns the mount's riders for its teleport and marks them
+// pending, so the tracker tells their turn even while ticks are frozen; the
+// caller holds mobsMu and has not yet placed the mount. A nil turn is none.
+func (s *Server) turnRiders(ent *mobEntity, turn *entity.Turn) {
+	if turn == nil {
+		return
+	}
+	book := s.herdOf(ent.w).book
+	entity.TurnPassengers(ent.mob, *turn, func(p *entity.Mob) {
+		if rider := book[p]; rider != nil {
+			rider.teleported = true
+		}
+	})
 }
 
 // placeMob moves the mob; the caller holds mobsMu.

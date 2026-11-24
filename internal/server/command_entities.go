@@ -928,17 +928,27 @@ func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
 	}
 	switch ref := e.ref.(type) {
 	case *mobEntity:
-		// A facing clause turns only the mount, after the teleport.
+		// A facing clause turns only the mount, after the teleport: the
+		// riders get a zero relative turn.
 		// vanilla: TeleportCommand.performTeleport, LookAt.perform
-		if move.LookAt == nil {
-			e.srv.mobsMu.Lock()
-			entity.TurnPassengers(ref.mob, to.Yaw-ref.mob.Yaw, to.Pitch-ref.mob.Pitch)
-			e.srv.mobsMu.Unlock()
+		cur := ref.mob
+		turn := entity.Turn{Yaw: command.WrapDegrees(to.Yaw), Pitch: command.WrapDegrees(to.Pitch)}
+		switch {
+		case move.LookAt != nil || move.KeepRotation:
+			turn = entity.Turn{RelYaw: true, RelPitch: true}
+		default:
+			turn.RelYaw, turn.RelPitch = move.RelYaw, move.RelPitch
+			if turn.RelYaw {
+				turn.Yaw = command.WrapDegrees(to.Yaw - cur.Yaw)
+			}
+			if turn.RelPitch {
+				turn.Pitch = command.WrapDegrees(to.Pitch - cur.Pitch)
+			}
 		}
 		if move.Command {
-			e.srv.commandTeleportMob(ref, to, by)
+			e.srv.commandTeleportMob(ref, to, by, &turn)
 		} else {
-			e.srv.teleportMob(ref, to, to.Yaw, to.Pitch, by)
+			e.srv.teleportMob(ref, to, to.Yaw, to.Pitch, by, &turn)
 		}
 	case *itemEntity:
 		e.srv.teleportItem(ref, to, by)
