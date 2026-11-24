@@ -250,6 +250,8 @@ func TestPillagerFiresHeldAmmo(t *testing.T) {
 		pickups map[string]int
 		// broken is whether the volley leaves the crossbow broken.
 		broken bool
+		// burns is whether the hit leaves the villager alight.
+		burns bool
 	}{
 		{name: "spectral arrow", mainhand: crossbow + `}`, offhand: `{id:"minecraft:spectral_arrow",count:8}`,
 			loaded: registry.ItemSpectralArrow, offCount: 7, effect: "minecraft:glowing", shot: protocol.EntityTypeSpectralArrow},
@@ -262,6 +264,10 @@ func TestPillagerFiresHeldAmmo(t *testing.T) {
 		{name: "rocket in hand", mainhand: crossbow + `}`, offhand: `{id:"minecraft:firework_rocket",count:3}`,
 			loaded: registry.ItemFireworkRocket, offCount: 2, firework: true, shot: protocol.EntityTypeFireworkRocket},
 		{name: "no ammunition", mainhand: crossbow + `}`, loaded: registry.ItemArrow, shot: protocol.EntityTypeArrow},
+		// The loaded stack's own projectile_spawned effects apply, so a Flame arrow ignites.
+		{name: "flame ammunition", mainhand: crossbow + `}`,
+			offhand: `{id:"minecraft:spectral_arrow",count:2,components:{"minecraft:enchantments":{"minecraft:flame":1}}}`,
+			loaded:  registry.ItemSpectralArrow, offCount: 1, shot: protocol.EntityTypeSpectralArrow, burns: true},
 		// A rocket costs three durability, so a crossbow with three left breaks on it.
 		{name: "rocket breaks the crossbow",
 			mainhand: crossbow + `,components:{"minecraft:max_damage":10,"minecraft:damage":7,"minecraft:charged_projectiles":[{id:"minecraft:firework_rocket",count:1}]}}`,
@@ -338,6 +344,11 @@ func TestPillagerFiresHeldAmmo(t *testing.T) {
 				if !maps.Equal(got, tc.pickups) {
 					t.Errorf("arrow pickups = %v, want %v", got, tc.pickups)
 				}
+			}
+			if tc.burns {
+				servertest.UntilTicks(t, srv, 60, "the shot to set the villager alight", func() bool {
+					return srv.MobFireTicks(villager) > 0
+				})
 			}
 			if tc.effect == "" {
 				return

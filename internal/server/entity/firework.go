@@ -88,6 +88,9 @@ type Firework struct {
 	Life     int
 	Lifetime int
 
+	// FireTicks is remainingFireTicks; a rocket burns visibly while it is positive.
+	FireTicks int
+
 	OwnerID    int32
 	AttachedTo int32
 	Explosions int
@@ -170,6 +173,9 @@ func (f *Firework) Step(w World, owner *ArrowTarget, carrier *FireworkCarrier, t
 	}
 	// vanilla: FireworkRocketEntity.tick calls super.tick before moving.
 	splash := f.waterEntry.step(w, f.Box(), f.VX, f.VY, f.VZ)
+	if f.FireTicks > 0 {
+		f.FireTicks--
+	}
 	events := f.step(w, owner, carrier, targets)
 	if splash != nil {
 		events = append([]FireworkEvent{{Kind: FireworkSplashed, X: splash.X, Y: splash.Y, Z: splash.Z,

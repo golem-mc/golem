@@ -1010,14 +1010,15 @@ func (t *mobDimTick) shotArrow(fx *mobEffects, ev entity.MobEvent) {
 	}
 	if shot.crossbow {
 		shot.weapon = ev.Stack
-		if ev.Ammo != nil {
-			shot.ammo = *ev.Ammo
-		}
+		shot.ammo = ev.Ammo
 	} else if !shot.trident && registry.Item(shot.weapon.ItemID) != registry.ItemBow {
 		// vanilla: ProjectileUtil.getWeaponHoldingHand falls back to the off hand
 		shot.weapon = ev.Mob.OffHand
 	}
 	shot.fireTicks = rules.ProjectileIgniteTicks(shot.weapon)
+	if shot.ammo != nil {
+		shot.fireTicks = max(shot.fireTicks, rules.ProjectileIgniteTicks(*shot.ammo))
+	}
 	if ev.Mob.Type == entity.TypeWitherSkeleton {
 		// vanilla: WitherSkeleton.getArrow, igniteForSeconds(100)
 		shot.fireTicks = max(shot.fireTicks, rules.IgniteTicks(100))
@@ -1037,13 +1038,17 @@ func (s *Server) spawnMobShot(shot mobShot) {
 			entity.PickupDisallowed, shot.shooter, shot.shooterUUID, shot.weapon)
 		return
 	}
-	if isFireworkRocket(shot.ammo) {
-		s.spawnCrossbowRocket(shot.w, shot.ammo, shot.x, shot.y, shot.z, shot.vx, shot.vy, shot.vz,
+	var ammo protocol.ItemStack
+	if shot.ammo != nil {
+		ammo = *shot.ammo
+	}
+	if isFireworkRocket(ammo) {
+		s.spawnCrossbowRocket(shot.w, ammo, shot.x, shot.y, shot.z, shot.vx, shot.vy, shot.vz,
 			shot.shooter, shot.shooterUUID)
 		return
 	}
 	pickup := entity.PickupDisallowed
-	if shot.ammo.Intangible {
+	if ammo.Intangible {
 		// vanilla: AbstractArrow.setPickup via the intangible projectile
 		pickup = entity.PickupCreativeOnly
 	}
@@ -1051,11 +1056,11 @@ func (s *Server) spawnMobShot(shot mobShot) {
 		false, shot.damage, pickup, shot.shooter, shot.shooterUUID,
 		shot.weapon, shot.fireTicks)
 	it.arrow.Effect = shot.effect
-	armArrow(it, shot.ammo)
+	armArrow(it, ammo)
 	if shot.crossbow {
 		// vanilla: CrossbowItem.createProjectile
 		it.arrow.HitSound = crossbowHitSound
-		it.arrow.PierceLevel = rules.PiercingLevel(shot.weapon, shot.ammo, &rules.EnchContext{Rand: s.levelRng})
+		it.arrow.PierceLevel = rules.PiercingLevel(shot.weapon, ammo, &rules.EnchContext{Rand: s.levelRng})
 	}
 	if s.launchArrow(it) {
 		s.arrowSpawned(it, shot.weapon)

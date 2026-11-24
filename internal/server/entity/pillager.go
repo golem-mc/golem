@@ -249,8 +249,9 @@ func (g *crossbowAttackGoal) chargeSounds(t *tickView, stack *protocol.ItemStack
 		play(rules.ChargingSounds(*stack).Mid, 0.5, 1)
 	}
 	if load && len(stack.ChargedProjectiles()) == 0 {
-		g.loadCrossbow(t, *stack)
-		play(rules.ChargingSounds(*stack).End, 1, 1/(m.Rand.Float32()*0.5+1)+0.2)
+		if g.loadCrossbow(t, *stack) {
+			play(rules.ChargingSounds(*stack).End, 1, 1/(m.Rand.Float32()*0.5+1)+0.2)
+		}
 	}
 }
 
@@ -319,9 +320,10 @@ func (m *Mob) heldCrossbowAmmo() (protocol.ItemStack, int) {
 	return protocol.ItemStack{}, -1
 }
 
-// loadCrossbow draws the volley from the ammunition in a hand, else ordinary arrows.
+// loadCrossbow draws the volley from the ammunition in a hand, else ordinary
+// arrows, and reports whether the crossbow was loaded.
 // vanilla: CrossbowItem.tryLoadProjectiles, ProjectileWeaponItem.draw, Monster.getProjectile
-func (g *crossbowAttackGoal) loadCrossbow(t *tickView, stack protocol.ItemStack) {
+func (g *crossbowAttackGoal) loadCrossbow(t *tickView, stack protocol.ItemStack) bool {
 	m := g.m
 	ammo, slot := m.heldCrossbowAmmo()
 	if slot < 0 {
@@ -329,7 +331,7 @@ func (g *crossbowAttackGoal) loadCrossbow(t *tickView, stack protocol.ItemStack)
 	}
 	drawn, spent := rules.CrossbowDraw(stack, ammo, false, m.crossbowEnchContext(t.w))
 	if len(drawn) == 0 {
-		return
+		return false
 	}
 	if slot >= 0 {
 		ammo.Count -= spent
@@ -340,6 +342,7 @@ func (g *crossbowAttackGoal) loadCrossbow(t *tickView, stack protocol.ItemStack)
 	}
 	stack.SetChargedProjectiles(drawn)
 	m.SetEquipment(g.chargeSlot, stack)
+	return true
 }
 
 // CrossbowLoaded reports whether the selected crossbow holds charged projectiles.

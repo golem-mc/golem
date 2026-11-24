@@ -311,11 +311,12 @@ type fireworkMetadataState struct {
 	name        customName
 	attached    int32
 	shotAtAngle bool
+	fire        bool
 }
 
 func fireworkMetadataStateOf(it *fireworkEntity) fireworkMetadataState {
 	return fireworkMetadataState{stack: it.stack, name: it.custom,
-		attached: it.rocket.AttachedTo, shotAtAngle: it.rocket.ShotAtAngle}
+		attached: it.rocket.AttachedTo, shotAtAngle: it.rocket.ShotAtAngle, fire: it.rocket.FireTicks > 0}
 }
 
 // fireworkMetadataTable writes spawn fields (was == nil) or fields changed by a command.
@@ -329,6 +330,14 @@ func fireworkMetadataTable(it *fireworkEntity, was *fireworkMetadataState) []byt
 	var b protocol.Buffer
 	b.PutVarInt(it.rocket.ID)
 	head := b.Len()
+	if now.fire != was.fire {
+		b.PutMetadata(protocol.MetadataIndexEntityFlags, protocol.MetadataByte)
+		var flags uint8
+		if now.fire {
+			flags = protocol.EntityFlagOnFire
+		}
+		b.PutU8(flags)
+	}
 	// Pairing always includes the carried item, even an empty stack.
 	if spawn || !now.stack.Equal(was.stack) {
 		b.PutMetadata(protocol.MetadataIndexItemSlot, protocol.MetadataSlot)
