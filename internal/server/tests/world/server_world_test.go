@@ -7,6 +7,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/world"
 )
 
 func TestDistancesFollowTheConfig(t *testing.T) {
@@ -76,7 +77,7 @@ func TestChunksFollowThePlayer(t *testing.T) {
 
 	// Joining held the simulation distance's 21x21 square around spawn, in
 	// chunk (0, 0), for the world's own work, of which the client was sent
-	// the 9x9 its render distance of 4 bounds the view distance to. The
+	// the view its render distance of 4 bounds the view distance to. The
 	// holds are taken after the batch that ends the loading screen, so they
 	// are waited for.
 	servertest.PollUntil(t, 30*time.Second, func() bool { return srv.LoadedChunks() == 21*21 })
@@ -96,37 +97,48 @@ func TestChunksFollowThePlayer(t *testing.T) {
 		t.Errorf("center chunk = (%d, %d), want (1, 0)", x, z)
 	}
 
-	dropped := map[int32]bool{}
-	for range 9 {
+	// The send view is vanilla's neighbor-inclusive one, rounded at its
+	// corners, so what leaves and arrives is the difference of two views.
+	was, now := world.ChunkPos{}, world.ChunkPos{X: 1}
+	dropped, arrived := map[world.ChunkPos]bool{}, map[world.ChunkPos]bool{}
+	for x := int32(-8); x <= 9; x++ {
+		for z := int32(-8); z <= 8; z++ {
+			p := world.ChunkPos{X: x, Z: z}
+			in, wasIn := world.InSendView(p, now, 4), world.InSendView(p, was, 4)
+			if wasIn && !in {
+				dropped[p] = false
+			}
+			if in && !wasIn {
+				arrived[p] = false
+			}
+		}
+	}
+	nDropped, nArrived := len(dropped), len(arrived)
+	for range nDropped {
 		r := protocol.NewReader(c.ExpectPlay(protocol.IDPlayUnloadChunk))
 		// The coordinates are inverted on the wire, the client reading them as
 		// one long.
 		z, x := r.ReadI32(), r.ReadI32()
-		if x != -4 {
-			t.Errorf("unloaded chunk (%d, %d), want the column at x=-4", x, z)
+		p := world.ChunkPos{X: x, Z: z}
+		if seen, ok := dropped[p]; !ok || seen {
+			t.Errorf("unloaded chunk (%d, %d), which is not a chunk the view left", x, z)
 		}
-		dropped[z] = true
-	}
-	if len(dropped) != 9 {
-		t.Errorf("unloaded %d distinct chunks, want 9", len(dropped))
+		dropped[p] = true
 	}
 
 	c.ExpectPlay(protocol.IDPlayChunkBatchStart)
-	arrived := map[int32]bool{}
-	for range 9 {
+	for range nArrived {
 		r := protocol.NewReader(c.ExpectPlay(protocol.IDPlayChunkData))
 		x, z := r.ReadI32(), r.ReadI32()
-		if x != 5 {
-			t.Errorf("received chunk (%d, %d), want the column at x=5", x, z)
+		p := world.ChunkPos{X: x, Z: z}
+		if seen, ok := arrived[p]; !ok || seen {
+			t.Errorf("received chunk (%d, %d), which is not a chunk the view gained", x, z)
 		}
-		arrived[z] = true
-	}
-	if len(arrived) != 9 {
-		t.Errorf("received %d distinct chunks, want 9", len(arrived))
+		arrived[p] = true
 	}
 	batch := protocol.NewReader(c.ExpectPlay(protocol.IDPlayChunkBatchFinished))
-	if got := batch.ReadVarInt(); got != 9 {
-		t.Errorf("batch size = %d, want 9", got)
+	if got := batch.ReadVarInt(); got != int32(nArrived) {
+		t.Errorf("batch size = %d, want %d", got, nArrived)
 	}
 
 	// The area is the same size as it was, only somewhere else: the held
