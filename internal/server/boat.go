@@ -141,6 +141,7 @@ func boatShownOf(it *boatEntity) boatShown {
 // last told.
 var boatTracker = trackedKind[*boatEntity, boatShown]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.boats.built = false },
+	pistonBit:        pistonBoats,
 
 	rangeChunks: entity.BoatTrackingRange,
 	passengerRange: func(it *boatEntity) int {

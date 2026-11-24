@@ -167,6 +167,9 @@ type trackedKind[B any, S any] struct {
 	// invalidatePiston drops cached boxes under the kind lock after a position
 	// or dimension change, including commands interleaved with physics effects.
 	invalidatePiston func(*dimension)
+	// pistonBit is the kind's bit in Server.pistonPopulated; zero for a kind
+	// pushByPiston always visits.
+	pistonBit uint32
 	// tellPose, if not nil, is the pose an absolute Teleport Entity tells in
 	// place of pose, for a body whose range is measured from another point
 	// than the one the client places it at.
@@ -198,6 +201,9 @@ func (k *trackedKind[B, S]) chunkOf(b B) world.ChunkPos {
 // file puts a body in the kind's chunk index under its pose. The caller holds
 // the kind's lock.
 func (k *trackedKind[B, S]) file(s *Server, b B) {
+	if k.pistonBit != 0 {
+		s.pistonPopulated.Or(k.pistonBit)
+	}
 	if k.chunks == nil {
 		return
 	}

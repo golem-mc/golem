@@ -68,6 +68,7 @@ type arrowEntity struct {
 // Teleport Entity carries no velocity: the motion packets do.
 var arrowTracker = trackedKind[*arrowEntity, arrowMetadataState]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.arrows.built = false },
+	pistonBit:        pistonArrows,
 
 	rangeChunks:    entity.ArrowTracking,
 	interval:       entity.ArrowInterval,

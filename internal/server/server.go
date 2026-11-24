@@ -718,6 +718,10 @@ type Server struct {
 	// cushionsMade is set once any cushion is built and never cleared, so
 	// a piston move skips the fixture scan on a server that never had one.
 	cushionsMade atomic.Bool
+	// pistonPopulated has a trackedKind.pistonBit set while the kind may hold a
+	// body: set on filing, refreshed from the list length under the kind's lock
+	// by setPistonGrid. pushByPiston skips a kind whose bit is clear.
+	pistonPopulated atomic.Uint32
 
 	// ops is the operator list from ops.json, written by /op and /deop; it sets
 	// each player's permission level and so their offered commands.

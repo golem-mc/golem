@@ -64,6 +64,7 @@ type tntEntity struct {
 // last told.
 var tntTracker = trackedKind[*tntEntity, int]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.tnts.built = false },
+	pistonBit:        pistonTNTs,
 
 	rangeChunks: entity.TNTTrackingRange,
 	interval:    entity.TNTUpdateInterval,
