@@ -1,8 +1,12 @@
 package server
 
 import (
+	"math"
 	"math/rand"
+	"runtime"
 	"slices"
+	"sync"
+	"sync/atomic"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/advancement"
@@ -617,6 +621,15 @@ func (b blast) sparesItems() bool {
 // exposure rays read a cell cache; below it the cache's reset costs more.
 const tntSightCacheMin = 64
 
+// tntParallelMin is the count of primed TNT in reach from which one blast fans
+// its exposure rays out across workers instead of running them serially.
+const tntParallelMin = tntSightCacheMin
+
+type tntBlastTarget struct {
+	it   *tntEntity
+	dist float64
+}
+
 // blastPushed hurts and pushes the items and orbs in reach, and pushes the
 // arrows, thrown bodies, primed TNT and falling blocks; a hurt does nothing
 // else to those.
@@ -721,25 +734,7 @@ func (s *Server) blastPushed(b blast, in *blastInputs, fx *blastEffects) {
 	// A primed TNT's hurt returns false: the push is the chain reaction's
 	// shove. A falling block sends no motion: its next position packet
 	// carries it.
-	s.tntMu.Lock()
-	near := s.tntBlasts.near(s.tnts, b.x, b.y, b.z, b.radius*2)
-	var sight rules.BlockReader = in.blocks
-	if len(near) >= tntSightCacheMin {
-		cache := rules.NewCachedBlocks(in.blocks, b.x, b.y, b.z, b.radius*2+1)
-		defer cache.Release()
-		sight = cache
-	}
-	for _, it := range near {
-		if it.tnt.Dead || it.w != b.w {
-			continue
-		}
-		if dist, ok := in.at.Reach(it.tnt.X, it.tnt.Y, it.tnt.Z); ok {
-			hit := in.at.Hit(sight, dist, it.tnt.BlastBox, it.tnt.BlastOrigin)
-			it.tnt.Push(hit.KX, hit.KY, hit.KZ)
-			queueMotion(fx, &it.bodyTrack, it.tnt.ID, it.tnt.VX, it.tnt.VY, it.tnt.VZ)
-		}
-	}
-	s.tntMu.Unlock()
+	s.blastTNT(b, in, fx, tntParallelMin, runtime.GOMAXPROCS(0))
 	s.fallingMu.Lock()
 	for _, it := range s.fallings {
 		if it.fb.Dead || it.w != b.w {
@@ -753,11 +748,95 @@ func (s *Server) blastPushed(b blast, in *blastInputs, fx *blastEffects) {
 	s.fallingMu.Unlock()
 }
 
+// blastTNT pushes every primed TNT in reach of b. When at least parallelMin
+// TNT are in reach and workers > 1, exposures are computed in parallel against
+// a prefilled read-only block box, then pushes and motion packets are applied
+// serially in input order.
+// vanilla: ServerExplosion.hurtEntities
+func (s *Server) blastTNT(b blast, in *blastInputs, fx *blastEffects, parallelMin, workers int) {
+	s.tntMu.Lock()
+	defer s.tntMu.Unlock()
+	near := s.tntBlasts.near(s.tnts, b.x, b.y, b.z, b.radius*2)
+	targets := s.tntBlastTargets[:0]
+	for _, it := range near {
+		if it.tnt.Dead || it.w != b.w {
+			continue
+		}
+		if dist, ok := in.at.Reach(it.tnt.X, it.tnt.Y, it.tnt.Z); ok {
+			targets = append(targets, tntBlastTarget{it: it, dist: dist})
+		}
+	}
+	if len(targets) == 0 {
+		return
+	}
+
+	n := len(targets)
+	if cap(s.tntBlastHits) < n {
+		s.tntBlastHits = make([]rules.BlastHit, n)
+	}
+	hits := s.tntBlastHits[:n]
+
+	if n >= parallelMin && workers > 1 {
+		minX, maxX := b.x, b.x
+		minY, maxY := b.y, b.y
+		minZ, maxZ := b.z, b.z
+		for _, t := range targets {
+			bx0, by0, bz0, bx1, by1, bz1 := t.it.tnt.BlastBox()
+			minX, maxX = min(minX, bx0), max(maxX, bx1)
+			minY, maxY = min(minY, by0), max(maxY, by1)
+			minZ, maxZ = min(minZ, bz0), max(maxZ, bz1)
+		}
+		sight := rules.NewPrefilledBlocks(in.blocks,
+			int32(math.Floor(minX))-1, int32(math.Floor(minY))-1, int32(math.Floor(minZ))-1,
+			int32(math.Floor(maxX))+1, int32(math.Floor(maxY))+1, int32(math.Floor(maxZ))+1)
+		defer sight.Release()
+
+		const batch = 32
+		w := min(workers, (n+batch-1)/batch)
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range w {
+			wg.Go(func() {
+				for {
+					start := int(next.Add(batch) - batch)
+					if start >= n {
+						return
+					}
+					end := min(start+batch, n)
+					for i := start; i < end; i++ {
+						t := targets[i]
+						hits[i] = in.at.Hit(sight, t.dist, t.it.tnt.BlastBox, t.it.tnt.BlastOrigin)
+					}
+				}
+			})
+		}
+		wg.Wait()
+	} else {
+		var sight rules.BlockReader = in.blocks
+		if n >= tntSightCacheMin {
+			cache := rules.NewCachedBlocks(in.blocks, b.x, b.y, b.z, b.radius*2+1)
+			defer cache.Release()
+			sight = cache
+		}
+		for i, t := range targets {
+			hits[i] = in.at.Hit(sight, t.dist, t.it.tnt.BlastBox, t.it.tnt.BlastOrigin)
+		}
+	}
+
+	for i, t := range targets {
+		hit := hits[i]
+		t.it.tnt.Push(hit.KX, hit.KY, hit.KZ)
+		queueMotion(fx, &t.it.bodyTrack, t.it.tnt.ID, t.it.tnt.VX, t.it.tnt.VY, t.it.tnt.VZ)
+	}
+	clear(targets)
+	s.tntBlastTargets = targets[:0]
+}
+
 // queueMotion queues the motion packet of a pushed body whose velocity
 // moved past the tracker's threshold, for sendBlast to send this tick to
 // the body's watchers. The body's lock is held.
 func queueMotion[S any](fx *blastEffects, t *bodyTrack[S], id int32, vx, vy, vz float64) {
-	if t.motionDue(vx, vy, vz, false) {
+	if t.motionDue(vx, vy, vz, false) && len(t.tracked) > 0 {
 		fx.pushed = append(fx.pushed, pushedMotion{
 			data:     entityVelocityPayload(id, vx, vy, vz),
 			watchers: trackedWatchers(t.tracked)})

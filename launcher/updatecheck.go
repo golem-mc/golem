@@ -21,7 +21,7 @@ const (
 	// versionCacheTTL is how long a start trusts a cached latest version.
 	versionCacheTTL = 24 * time.Hour
 	// launcherKey is the launcher's own entry in the version cache; the
-	// others are module paths.
+	// others identify the server or a plugin on its update channel.
 	launcherKey = "golem-launcher"
 )
 
@@ -101,12 +101,19 @@ func (l *launcher) latest(ctx context.Context, key string, cached bool, look fun
 
 // latestOf answers the latest version of the server (serverModule) or of the
 // remote plugin path, through the version cache.
-func (l *launcher) latestOf(ctx context.Context, path string, cached bool) (string, error) {
-	if path == serverModule {
-		return l.latest(ctx, path, cached, l.latestServer)
+func (l *launcher) latestOf(ctx context.Context, path string, ch updateChannel, cached bool) (string, error) {
+	key := path
+	if ch == devChannel {
+		// Keep the existing cache keys for stable.
+		key += "@" + ch.query()
 	}
-	return l.latest(ctx, path, cached, func(ctx context.Context) (string, error) {
-		_, v, err := l.latestPlugin(ctx, path)
+	if path == serverModule {
+		return l.latest(ctx, key, cached, func(ctx context.Context) (string, error) {
+			return l.latestServer(ctx, ch)
+		})
+	}
+	return l.latest(ctx, key, cached, func(ctx context.Context) (string, error) {
+		_, v, err := l.latestPlugin(ctx, path, ch)
 		return v, err
 	})
 }
@@ -129,9 +136,10 @@ func (c *cli) outdatedItems(ctx context.Context, st state, cached bool) ([]outda
 		}
 	}
 	errs := make([]error, len(pinned))
+	ch := st.cfg.updateChannel()
 	var wg sync.WaitGroup
 	for i := range pinned {
-		wg.Go(func() { pinned[i].latest, errs[i] = c.l.latestOf(ctx, pinned[i].path, cached) })
+		wg.Go(func() { pinned[i].latest, errs[i] = c.l.latestOf(ctx, pinned[i].path, ch, cached) })
 	}
 	wg.Wait()
 	var items []outdatedItem

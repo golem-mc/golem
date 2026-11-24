@@ -65,7 +65,7 @@ func encodeMobMetadata7_1(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadat
 	_, _ = m, t
 	shown := bodyShown{particles: now.particles, ambient: now.ambient}
 	if w.delta {
-		putBodyMetadata(&w.b, shown, !slices.Equal(now.particles, was.particles),
+		putBodyMetadata(&w.b, shown, now.particleRevision != was.particleRevision || !slices.Equal(now.particles, was.particles),
 			now.ambient != was.ambient, false)
 	} else {
 		putBodyMetadata(&w.b, shown, len(now.particles) > 0, now.ambient, false)
@@ -595,6 +595,7 @@ func mobMetadataStateOf(m *entity.Mob) mobMetadataState {
 	{
 		shown := mobEffectShown(m)
 		s.particles, s.ambient = shown.particles, shown.ambient
+		s.particleRevision = effectParticleRevision(m, shown.particles)
 		if shown.invisible {
 			s.baseFlags |= protocol.EntityFlagInvisible
 		}
@@ -945,10 +946,12 @@ func captureMobMetadata(m *entity.Mob, s *mobMetadataState, mask mobMetadataMask
 	}
 	if mask[0]&(1<<7) != 0 {
 		s.particles = zero.particles
+		s.particleRevision = zero.particleRevision
 		s.ambient = zero.ambient
 		s.baseFlags = zero.baseFlags
 		shown := mobEffectShown(m)
 		s.particles, s.ambient = shown.particles, shown.ambient
+		s.particleRevision = effectParticleRevision(m, shown.particles)
 		if shown.invisible {
 			s.baseFlags |= protocol.EntityFlagInvisible
 		}

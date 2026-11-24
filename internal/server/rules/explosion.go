@@ -369,14 +369,7 @@ func lerp(f, low, high float64) float64 {
 // shape. Exact for full blocks; a shape reaching half the cell (a slab)
 // blocks its whole cell, and a lower plate (carpet, lily pad) lets the ray through.
 func sightBlocked(w BlockReader, x0, y0, z0, x1, y1, z1 float64) bool {
-	solid := func(x, y, z int32) bool {
-		state := w.BlockAt(x, y, z)
-		if state == 0 {
-			return false
-		}
-		b := registry.BlockOf(state)
-		return registry.CollisionTop(state) >= 0.5 && b != registry.BlockWater && b != registry.BlockLava
-	}
+	p, _ := w.(*PrefilledBlocks)
 	cx, cy, cz := int32(math.Floor(x0)), int32(math.Floor(y0)), int32(math.Floor(z0))
 	endX, endY, endZ := int32(math.Floor(x1)), int32(math.Floor(y1)), int32(math.Floor(z1))
 	dx, dy, dz := x1-x0, y1-y0, z1-z0
@@ -385,7 +378,13 @@ func sightBlocked(w BlockReader, x0, y0, z0, x1, y1, z1 float64) bool {
 	tMaxY, tDeltaY := raySpan(y0, dy)
 	tMaxZ, tDeltaZ := raySpan(z0, dz)
 	for {
-		if solid(cx, cy, cz) {
+		var solid bool
+		if p != nil {
+			solid = p.solidAt(cx, cy, cz)
+		} else {
+			solid = sightSolid(w.BlockAt(cx, cy, cz))
+		}
+		if solid {
 			return true
 		}
 		if cx == endX && cy == endY && cz == endZ {

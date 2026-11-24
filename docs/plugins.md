@@ -25,21 +25,23 @@ with no plugins, pinned to the launcher's own version:
 }
 ```
 
-- `server` is a release tag or a commit, never a branch. It may also be a
+- `server` is a release tag, a Go pseudo-version or a commit. It may also be a
   path to a local golem checkout (starting with `.` or `/`, relative to
   `launcher.json`), which is built as it is, uncommitted changes included,
   on every start.
-- Each plugin is a package import path with an exact version (a tag or a
-  commit), or a local package directory, relative to `launcher.json`. The
-  package may sit below its module's root (`github.com/golem-mc/essentials/spawn`,
+- Each plugin is a package import path with an exact version (a tag, a
+  pseudo-version or a commit), or a local package directory, relative to
+  `launcher.json`. The package may sit below its module's root (`github.com/golem-mc/essentials/spawn`,
   `./essentials/spawn`); packages of one module share its version, and
   `update` moves them together. A local directory is rebuilt on every start,
   which makes it the loop for developing a plugin.
+- `channel` is optional. `stable` (the default) follows releases. `dev` follows
+  the newest commit on each module's default branch.
 - `allow-dependency-upgrades` (default false) is described under
   [What the launcher refuses](#what-the-launcher-refuses).
-- `updateCheck` (default true): false stops the launcher from printing, on
-  start, a line for each newer server, plugin or launcher release
-  (`GOLEM_NO_UPDATE_CHECK=1` does the same).
+- `updateCheck` (default true) controls whether startup reports newer server
+  and plugin versions on the configured channel and newer launcher releases.
+  Set it to false or use `GOLEM_NO_UPDATE_CHECK=1` to turn the check off.
 
 The file always holds exact versions, never "latest", so a server builds the
 same way every time.
@@ -51,10 +53,11 @@ Server options follow `--`: `golem-launcher -- --port 25566`.
 ```
 golem-launcher [run] [-rebuild] [-- server options]   build if needed, then run (the default)
 golem-launcher build [-o file]             build only, print the binary's path
-golem-launcher plugin add [<path>[@version]...] add plugins; no version means the latest release tag
+golem-launcher plugin add [<path>[@version]...] add plugins; no version means the latest on the configured channel
 golem-launcher plugin remove <path|name>
 golem-launcher plugin list                 pinned version, local or remote, latest available
 golem-launcher server [version|latest]     show the server version, or set it
+golem-launcher channel [stable|dev]        show or set the update channel
 golem-launcher outdated                    newer versions of the server and each plugin
 golem-launcher update [--server] [plugin...]  move them to their latest versions and pin those
 golem-launcher check                       resolve and run every build check without building
@@ -68,6 +71,15 @@ opens a checkbox list of the golem-mc plugins (arrows or j/k move, space
 ticks, enter installs, q or Esc cancels); a plugin that needs another ticks it
 too.
 
+Switch channels with `golem-launcher channel dev` or
+`golem-launcher channel stable`. Then run `golem-launcher update` to move the
+pinned versions forward. On stable, `update` looks for release tags. On dev,
+it resolves each module's default branch with Go's `@HEAD` query and pins the
+resulting version. It selects the server first, then the plugins, and writes
+`launcher.json` once the combined build check passes. Local paths stay as
+they are. After switching back to stable, a dev pin stays in place until a
+release sorts above it. That release will then appear in `outdated`.
+
 `-config` (default `launcher.json`), `-cache` (default: your user cache
 directory plus `golem`) and `-color` work on every command. `golem-launcher --help`
 lists everything, and `<command> --help` shows one command.
@@ -79,10 +91,9 @@ command's result (`build` prints only the binary's path). Piped, in CI, with
 `-color=always` (or `FORCE_COLOR`) colours a pipe too; `-color=never` turns
 colour and progress off.
 
-The commands edit `launcher.json` for you and always write exact versions. A
-command that adds or changes something checks first that the result would
-build, and leaves the file alone if it would not; it prints a one-line diff of
-what it changed. `build` is meant for CI or a Docker image.
+The commands edit `launcher.json` for you and always write exact versions.
+Commands that change the server or plugins run a build check before saving,
+then show what changed. `build` is meant for CI or a Docker image.
 
 The first build with plugins downloads a Go toolchain and the modules, which
 takes a while; later starts reuse the cached build until `launcher.json`
