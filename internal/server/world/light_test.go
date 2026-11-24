@@ -72,6 +72,35 @@ func TestBlockLightFromTorch(t *testing.T) {
 	}
 }
 
+func TestScanEmittersClippedBox(t *testing.T) {
+	t.Parallel()
+	c := newChunk(0, 0)
+	glowstone := registry.BlockStates["minecraft:glowstone"]
+	c.SetBlock(6, 82, 7, glowstone)
+	c.SetBlock(8, 64, 9, torchState)
+	c.SetBlock(8, 82, 10, glowstone)
+
+	ctx := lightCtx{alone: c}
+	var q lightQueue
+	ctx.scanEmitters(6, 7, 8, 9, &q)
+	// The higher emitter comes first because its column comes first.
+	want := []lightEntry{
+		{x: 6, y: 82, z: 7, v: 15, layer: blockLayer},
+		{x: 8, y: 64, z: 9, v: 14, layer: blockLayer},
+	}
+	if !slices.Equal(q.entries, want) {
+		t.Errorf("queued emitters = %v, want %v", q.entries, want)
+	}
+	for _, e := range want {
+		if got := c.lightGet(&c.blockLight, e.x, e.y, e.z); got != e.v {
+			t.Errorf("block light at (%d, %d, %d) = %d, want %d", e.x, e.y, e.z, got, e.v)
+		}
+	}
+	if got := c.lightGet(&c.blockLight, 8, 82, 10); got != 0 {
+		t.Errorf("block light outside the box = %d, want 0", got)
+	}
+}
+
 // TestSkyLightShadow checks that placing an opaque block above the ground
 // casts a shadow: the block itself has sky light 0, and the cell directly below
 // it gets its sky light from the sides (less than 15) rather than from above.

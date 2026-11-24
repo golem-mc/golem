@@ -894,6 +894,7 @@ func (ctx *lightCtx) fillSkyColumns(minX, minZ, maxX, maxZ int32, q *lightQueue)
 
 // scanEmitters seeds the box's block light emitters, a chunk at a time,
 // skipping sections with no emitter (nearly all).
+// vanilla: ChunkAccess.findBlockLightSources
 func (ctx *lightCtx) scanEmitters(minX, minZ, maxX, maxZ int32, q *lightQueue) {
 	minCx, minCz := floorDiv(minX, sectionSize), floorDiv(minZ, sectionSize)
 	maxCx, maxCz := floorDiv(maxX, sectionSize), floorDiv(maxZ, sectionSize)
@@ -903,6 +904,17 @@ func (ctx *lightCtx) scanEmitters(minX, minZ, maxX, maxZ int32, q *lightQueue) {
 			if c == nil {
 				continue
 			}
+			var emitting [sectionCount]int
+			n := 0
+			for si := range c.sections {
+				if c.sections[si].emitting > 0 {
+					emitting[n] = si
+					n++
+				}
+			}
+			if n == 0 {
+				continue
+			}
 			lx0 := max(cx*16, minX) - cx*16
 			lx1 := min(cx*16+15, maxX) - cx*16
 			lz0 := max(cz*16, minZ) - cz*16
@@ -910,10 +922,7 @@ func (ctx *lightCtx) scanEmitters(minX, minZ, maxX, maxZ int32, q *lightQueue) {
 			for lx := lx0; lx <= lx1; lx++ {
 				for lz := lz0; lz <= lz1; lz++ {
 					wx, wz := cx*16+lx, cz*16+lz
-					for si := range c.sections {
-						if c.sections[si].emitting == 0 {
-							continue
-						}
+					for _, si := range emitting[:n] {
 						y0 := worldMinY + int32(si)*sectionSize
 						for y := y0; y < y0+sectionSize; y++ {
 							state := c.sharedBlockAt(lx, y, lz)

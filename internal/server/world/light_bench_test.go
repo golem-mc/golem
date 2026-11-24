@@ -1,6 +1,10 @@
 package world
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/golem-mc/golem/registry"
+)
 
 // BenchmarkSkyLightBelow measures missing-section searches and a stored-cell read.
 func BenchmarkSkyLightBelow(b *testing.B) {
@@ -37,6 +41,35 @@ func BenchmarkFlatLightAlone(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		w.lightAlone(c)
+	}
+}
+
+func BenchmarkScanEmitters(b *testing.B) {
+	for _, tc := range []struct {
+		name      string
+		glowstone bool
+	}{
+		{"Empty", false},
+		{"Glowstone", true},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			c := newChunk(0, 0)
+			NewFlatGenerator().Generate(c)
+			if tc.glowstone {
+				c.SetBlock(8, 66, 8, registry.BlockStates["minecraft:glowstone"])
+				c.lightSet(blockLayer, 8, 66, 8, 15)
+			}
+			ctx := lightCtx{alone: c}
+			q := lightQueue{entries: make([]lightEntry, 0, 1)}
+			b.ReportAllocs()
+			for b.Loop() {
+				if tc.glowstone {
+					c.lightSet(blockLayer, 8, 66, 8, 0)
+				}
+				ctx.scanEmitters(0, 0, 15, 15, &q)
+				q.entries = q.entries[:0]
+			}
+		})
 	}
 }
 
