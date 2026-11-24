@@ -380,39 +380,39 @@ func AddItem[B Block](dest B, stack protocol.ItemStack, face int32, throughFace 
 		if stack.Empty() {
 			break
 		}
-		var moved bool
-		stack, moved = tryMoveInItem(dest, stack, slot)
-		changed = changed || moved
+		changed = tryMoveInItem(dest, &stack, slot) || changed
 	}
 	return stack, wasEmpty && changed
 }
 
-// tryMoveInItem is vanilla's tryMoveInItem: one slot's share of a pour.
-func tryMoveInItem[B Block](dest B, stack protocol.ItemStack, slot int) (protocol.ItemStack, bool) {
-	if !canPlaceThroughFace(dest, stack, slot) {
-		return stack, false
+// tryMoveInItem is vanilla's tryMoveInItem: one slot's share of a pour. It
+// takes what the slot accepts out of *stack and reports whether it moved any.
+func tryMoveInItem[B Block](dest B, stack *protocol.ItemStack, slot int) bool {
+	if !canPlaceThroughFace(dest, *stack, slot) {
+		return false
 	}
 	id, count := dest.Peek(slot)
 	if count <= 0 {
-		dest.Put(slot, stack)
-		return protocol.ItemStack{}, true
+		dest.Put(slot, *stack)
+		*stack = protocol.ItemStack{}
+		return true
 	}
 	// Room and item first: a full or foreign slot is the common refusal and
 	// needs neither the stack nor a component comparison.
 	if id != stack.ItemID {
-		return stack, false
+		return false
 	}
 	item := dest.Slot(slot)
 	move := min(registry.StackMaxStackSize(item)-item.Count, stack.Count)
 	// move > 0 means item.Count is under its maximum, vanilla's canMergeItems
 	// capacity check.
-	if move <= 0 || !item.Same(stack) {
-		return stack, false
+	if move <= 0 || !item.Same(*stack) {
+		return false
 	}
 	stack.Count -= move
 	item.Count += move
 	dest.Put(slot, item)
-	return stack, true
+	return true
 }
 
 // Gate lets a caller veto or replace the one item a hopper move is about to
