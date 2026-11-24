@@ -94,14 +94,20 @@ func TestPackTradesChangeAVillagersOffers(t *testing.T) {
 	t.Cleanup(func() { registry.ApplyPackTradeSets(nil) })
 	emerald, stick := servertest.MustItemID(t, "minecraft:emerald"), servertest.MustItemID(t, "minecraft:stick")
 	t.Run("pack", func(t *testing.T) {
-		offers := armorerOffers(t, map[string]string{
-			"pack.mcmeta":                       `{"pack":{"description":"p"}}`,
-			"data/pk/villager_trade/stick.json": `{"wants":{"id":"minecraft:emerald","count":1},"gives":{"id":"minecraft:stick","count":1},"max_uses":3,"xp":1}`,
+		offers, stacks := armorerOfferStacks(t, map[string]string{
+			"pack.mcmeta": `{"pack":{"description":"p"}}`,
+			"data/pk/villager_trade/stick.json": `{"wants":{"id":"minecraft:emerald","count":1},"gives":{"id":"minecraft:stick","count":1},"max_uses":3,"xp":1,` +
+				`"given_item_modifier":{"function":"minecraft:set_count","count":{"type":"minecraft:uniform","min":1,"max":32}}}`,
 			"data/minecraft/tags/villager_trade/armorer/level_1.json": `{"replace":true,"values":["pk:stick"]}`,
-			"data/minecraft/trade_set/armorer/level_1.json":           `{"amount":1,"trades":"#minecraft:armorer/level_1"}`,
+			"data/minecraft/trade_set/armorer/level_1.json":           `{"amount":1,"trades":"#minecraft:armorer/level_1","random_sequence":"pk:armorer"}`,
 		})
 		if len(offers) != 1 || offers[0] != (listedOffer{cost: emerald, result: stick, maxUses: 3}) {
 			t.Fatalf("offers = %v, want emerald -> stick with max uses 3", offers)
+		}
+		// At world seed 0, vanilla's pk:armorer rolls nextInt(1) for the pick,
+		// then 1 + nextInt(32) for the result count.
+		if got := stacks[0].Count; got != 27 {
+			t.Errorf("result count = %d, want 27 from the trade set's sequence", got)
 		}
 	})
 	t.Run("vanilla", func(t *testing.T) {

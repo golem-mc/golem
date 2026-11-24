@@ -2,7 +2,6 @@ package inventory
 
 import (
 	"maps"
-	"math/rand"
 	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -17,7 +16,10 @@ import (
 // pool (with duplicates) or already out of it.
 // vanilla: AbstractVillager.addOffersFromItemListings,
 // AbstractVillager.addOffersFromItemListingsWithoutDuplicates
-func DrawOffers(tag nbt.Compound, set registry.TradeSet, villagerType string, rng *rand.Rand, ctx *rules.LootContext) nbt.Compound {
+func DrawOffers(tag nbt.Compound, set registry.TradeSet, villagerType string, rng rules.LootRand, ctx *rules.LootContext) nbt.Compound {
+	if ctx != nil {
+		rng = ctx.RandomFor(set.RandomSequence, rng)
+	}
 	pool := slices.Clone(set.Trades)
 	var drawn []nbt.Tag
 	for len(drawn) < set.Amount && len(pool) > 0 {
@@ -36,7 +38,7 @@ func DrawOffers(tag nbt.Compound, set registry.TradeSet, villagerType string, rn
 
 // offerOf appends the trade's saved recipe and reports whether it made one.
 // vanilla: VillagerTrade.getOffer
-func offerOf(t registry.VillagerTrade, villagerType string, rng *rand.Rand, out *[]nbt.Tag, ctx *rules.LootContext) bool {
+func offerOf(t registry.VillagerTrade, villagerType string, rng rules.LootRand, out *[]nbt.Tag, ctx *rules.LootContext) bool {
 	if t.Unsupported || len(t.Variants) > 0 && !slices.Contains(t.Variants, villagerType) {
 		return false
 	}

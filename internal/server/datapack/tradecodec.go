@@ -199,6 +199,9 @@ func DecodeTradeSet(data []byte) (set registry.PackTradeSet, err error) {
 	if b, ok := o["allow_duplicates"].(bool); ok {
 		set.Duplicates = b
 	}
+	if sequence, ok := o["random_sequence"]; ok {
+		set.RandomSequence = qualifiedID(str(sequence, "random_sequence"), "random_sequence")
+	}
 	switch trades := required(o, "trades").(type) {
 	case string:
 		set.Trades = []registry.PackTagEntry{tradeHolder(trades)}

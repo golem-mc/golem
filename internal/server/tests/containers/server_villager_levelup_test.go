@@ -72,9 +72,10 @@ func TestATradeLevelsUpAVillagerAndRefreshesTheOpenWindow(t *testing.T) {
 	}
 }
 
-// merchantOffers is what a Merchant Offers packet says beyond each offer.
+// merchantOffers is the summary of a Merchant Offers packet.
 type merchantOffers struct {
 	window, offers, level, xp int32
+	results                   []int32
 	specialPrices             []int32
 }
 
@@ -94,7 +95,8 @@ func readMerchantOffers(t *testing.T, data []byte) merchantOffers {
 			}
 		}
 		readCost()
-		r.ReadSlot()
+		result, _ := r.ReadSlot()
+		got.results = append(got.results, result.ItemID)
 		if r.ReadBool() {
 			readCost()
 		}
