@@ -213,8 +213,7 @@ func (s *Server) tickBeacon(w *world.World, be *world.BlockEntity, age int64) {
 				if c.player.GameMode() == protocol.GameModeSpectator {
 					continue
 				}
-				pos := c.player.Position()
-				if !rules.BeaconInReach(reach, pos.X, pos.Y, pos.Z, x, y, z) {
+				if !rules.BeaconInReach(reach, w.Height(), c.bodyBox(), x, y, z) {
 					continue
 				}
 				c.effectCause = effect.CauseBeacon
