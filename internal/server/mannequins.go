@@ -58,16 +58,14 @@ var mannequinTracker = trackedKind[*mannequinEntity, struct{}]{
 // mannequinDelta collects the changed ticking fields and attributes, and asks
 // for a movement tick off the period when a synched value changed.
 // vanilla: ServerEntity.sendChanges
-func mannequinDelta(ent *mannequinEntity) []outbound {
-	var packets []outbound
-	if data := mannequinTickMetadata(ent); data != nil {
+func mannequinDelta(ent *mannequinEntity) (metadata, attributes []byte) {
+	if metadata = mannequinTickMetadata(ent); metadata != nil {
 		ent.needsSync = true
-		packets = append(packets, outbound{id: protocol.IDPlayEntityMetadata, data: data})
 	}
 	if attrs := ent.mannequin.Attributes.TakeDirty(); len(attrs) > 0 {
-		packets = append(packets, outbound{id: protocol.IDPlayUpdateAttributes, data: attributesPayload(ent.mannequin.ID, attrs)})
+		attributes = attributesPayload(ent.mannequin.ID, attrs)
 	}
-	return packets
+	return metadata, attributes
 }
 
 // mannequinPairing introduces a mannequin with its metadata and equipment.
@@ -213,8 +211,6 @@ func (s *Server) mannequinVictim(ent *mannequinEntity, fx mannequinHurt, attacke
 
 type mannequinHurt struct {
 	w                 *world.World
-	watchers          []uuid.UUID
-	metadata          []byte
 	id, cause, direct int32
 	typ               registry.DamageType
 	at                *[3]float64
@@ -239,19 +235,12 @@ func (s *Server) hurtMannequinLocked(ent *mannequinEntity, amount float64, damag
 		m.KnockbackFrom(shove.x, shove.z, 0.4)
 		m.KnockbackAlong(shove.yaw, shove.extra)
 	}
-	// The tracking pass sends the health after the damage event; only a
-	// death tells the dying pose now.
-	var metadata []byte
-	if died {
-		mannequinHealthPayload(ent)
-		ent.needsSync = true
-		metadata = dyingMetadataPayload(m.ID)
-	}
-	return mannequinHurt{w: ent.w, watchers: trackedWatchers(ent.tracked), metadata: metadata, id: m.ID, cause: causeID, direct: directID, typ: damageType, at: at, x: m.X, y: m.Y, z: m.Z, softened: softened, died: died, dealt: amount, taken: before - m.Health}, true
+	// The tracking pass sends the health and a dying pose after the damage
+	// and death events.
+	return mannequinHurt{w: ent.w, id: m.ID, cause: causeID, direct: directID, typ: damageType, at: at, x: m.X, y: m.Y, z: m.Z, softened: softened, died: died, dealt: amount, taken: before - m.Health}, true
 }
 
 func (s *Server) tellMannequinHurt(fx mannequinHurt) {
-	s.sendEntityMetadata(fx.w, fx.watchers, fx.metadata)
 	if !fx.softened {
 		s.broadcastWorld(fx.w, protocol.IDPlayDamageEvent, damageEventPayloadAt(fx.id, fx.typ, fx.cause, fx.direct, fx.at))
 		sound := registry.SoundEntityGenericHurt

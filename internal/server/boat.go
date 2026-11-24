@@ -564,7 +564,7 @@ func (s *Server) tickBoats() {
 		if bounced {
 			fx.bounces = append(fx.bounces, bodyBounce{w: it.w, source: it.uuid, x: it.boat.X, y: it.boat.Y, z: it.boat.Z, halfWidth: entity.BoatHalfWidth})
 		}
-		mt := body.schedule(func() bool { return bounced })
+		mt := body.schedule(bounced)
 		now := boatShownOf(it)
 		for _, i := range body.watchers(near[it.w]) {
 			wh := watchers[it.w][i]

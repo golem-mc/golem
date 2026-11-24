@@ -569,7 +569,7 @@ func (s *Server) tickFireworks() {
 		// alone, the newly paired included.
 		// vanilla: ServerEntity.sendChanges, sendToTrackingPlayers
 		body := fireworkTracker.body(it)
-		mt := body.schedule(nil)
+		mt := body.schedule(false)
 		var motion *outbound
 		if mt.gate && it.motionDue(it.rocket.VX, it.rocket.VY, it.rocket.VZ, false) {
 			motion = &outbound{id: protocol.IDPlaySetEntityMotion,

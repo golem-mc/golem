@@ -256,7 +256,7 @@ func (s *Server) tickOrbs() {
 		// The motion packet goes on the movement schedule, ahead of each
 		// watcher's move.
 		body := orbTracker.body(it)
-		mt := body.schedule(it.orb.TakeSync)
+		mt := body.schedule(it.orb.TakeSync())
 		var motion []byte
 		if mt.gate && it.motionDue(it.orb.VX, it.orb.VY, it.orb.VZ, true) {
 			motion = entityVelocityPayload(it.orb.ID, it.orb.VX, it.orb.VY, it.orb.VZ)

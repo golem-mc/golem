@@ -68,8 +68,8 @@ var mannequinFields = []mannequinField{
 		func(b *protocol.Buffer, m *mannequinEntity) { b.PutBool(m.custom.visible) },
 		func(m *mannequinEntity) bool { return !m.custom.visible }, nil},
 	{protocol.MetadataIndexPose, protocol.MetadataPose,
-		func(b *protocol.Buffer, m *mannequinEntity) { b.PutVarInt(m.mannequin.Pose) },
-		func(m *mannequinEntity) bool { return m.mannequin.Pose == protocol.PoseStanding }, nil},
+		func(b *protocol.Buffer, m *mannequinEntity) { b.PutVarInt(mannequinPose(m)) },
+		func(m *mannequinEntity) bool { return mannequinPose(m) == protocol.PoseStanding }, func(m *mannequinEntity) uint64 { return uint64(mannequinPose(m)) }},
 	{protocol.MetadataIndexLivingHealth, protocol.MetadataFloat,
 		func(b *protocol.Buffer, m *mannequinEntity) { b.PutF32(float32(m.mannequin.Health)) },
 		func(m *mannequinEntity) bool { return m.mannequin.Health == 1 }, func(m *mannequinEntity) uint64 { return uint64(math.Float32bits(float32(m.mannequin.Health))) }},
@@ -136,14 +136,6 @@ func mannequinMetadataPayload(ent *mannequinEntity, all bool) []byte {
 	return mannequinFieldsPayload(ent, func(f mannequinField) bool { return all || !f.initial(ent) })
 }
 
-// mannequinHealthPayload is the Set Entity Metadata delta of a hurt: the
-// health alone.
-func mannequinHealthPayload(m *mannequinEntity) []byte {
-	return mannequinFieldsPayload(m, func(f mannequinField) bool {
-		return f.index == protocol.MetadataIndexLivingHealth
-	})
-}
-
 // mannequinFieldsPayload builds the packet of the fields send picks; nil
 // when it picks none.
 func mannequinFieldsPayload(m *mannequinEntity, send func(mannequinField) bool) []byte {
@@ -166,6 +158,15 @@ func mannequinFieldsPayload(m *mannequinEntity, send func(mannequinField) bool) 
 	}
 	b.EndMetadata()
 	return b.Bytes()
+}
+
+// mannequinPose is the pose the clients are told: dying once the health is
+// gone. vanilla: LivingEntity.die
+func mannequinPose(m *mannequinEntity) int32 {
+	if m.mannequin.Dying() {
+		return protocol.PoseDying
+	}
+	return m.mannequin.Pose
 }
 
 func mannequinFlags(ent *mannequinEntity) byte {
@@ -200,8 +201,8 @@ func mannequinTickMetadata(ent *mannequinEntity) []byte {
 // mannequinShown is the effect particles and ambient flag the mannequin
 // shows, refreshed when its effects changed; the keys count the changes the
 // ticking fields compare. A refresh that shows particles counts as a change
-// even when they are equal, as vanilla's particle options compare by
-// identity.
+// even when they are equal, as vanilla builds a color option anew and
+// compares it by identity.
 // vanilla: LivingEntity.updateSynchronizedMobEffectParticles, ColorParticleOption
 type mannequinShown struct {
 	known        bool
@@ -212,15 +213,23 @@ type mannequinShown struct {
 	ambientKey   uint64
 }
 
+// shownEffects refreshes the shown state when the effects changed. Only a
+// mannequin with effects sets the ambient flag; the last one leaving clears
+// the particles alone.
+// vanilla: LivingEntity.tickEffects
 func (m *mannequinEntity) shownEffects() *mannequinShown {
 	sh := &m.shown
 	rev := m.mannequin.EffectRevision()
 	if sh.known && sh.revision == rev {
 		return sh
 	}
-	particles, ambient := effect.Particles(m.mannequin.AllEffects())
+	var particles []effect.Particle
+	ambient := sh.ambient
+	if active := m.mannequin.AllEffects(); len(active) > 0 {
+		particles, ambient = effect.Particles(active)
+	}
 	if sh.known {
-		if len(particles) > 0 || !slices.Equal(particles, sh.particles) {
+		if !slices.Equal(particles, sh.particles) || slices.ContainsFunc(particles, func(p effect.Particle) bool { return p.Type == "minecraft:entity_effect" }) {
 			sh.particlesKey++
 		}
 		if ambient != sh.ambient {

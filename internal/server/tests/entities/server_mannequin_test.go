@@ -322,6 +322,8 @@ type mannequinHurtSeen struct {
 	healthSent  bool
 	statuses    []uint8
 	removed     bool
+	// order is the damage event, death event and health or pose metadata as they arrived.
+	order []string
 }
 
 // readMannequinHurt reads n ticks of what the client is told of the
@@ -336,6 +338,7 @@ func readMannequinHurt(c *servertest.Client, srv *server.Server, id int32, n int
 			if r.ReadVarInt() == id {
 				r.ReadVarInt() // damage type
 				seen.damageEvent, seen.causeID = true, r.ReadVarInt()
+				seen.order = append(seen.order, "damage")
 			}
 		case protocol.IDPlaySoundEffect:
 			sound, _, _, _, _, _, _ := servertest.ReadAmbient(c.T, data)
@@ -350,13 +353,18 @@ func readMannequinHurt(c *servertest.Client, srv *server.Server, id int32, n int
 			}
 			if e := servertest.MetaOf(meta, protocol.MetadataIndexLivingHealth); e != nil {
 				seen.health, seen.healthSent = e.FloatVal, true
+				seen.order = append(seen.order, "meta")
 			}
 			if e := servertest.MetaOf(meta, protocol.MetadataIndexPose); e != nil {
 				seen.pose, seen.poseSent = e.VarintVal, true
 			}
 		case protocol.IDPlayEntityEvent:
 			if r.ReadI32() == id {
-				seen.statuses = append(seen.statuses, r.ReadU8())
+				status := r.ReadU8()
+				seen.statuses = append(seen.statuses, status)
+				if status == protocol.EntityStatusDeath {
+					seen.order = append(seen.order, "death")
+				}
 			}
 		case protocol.IDPlayRemoveEntities:
 			for range r.ReadVarInt() {
@@ -406,8 +414,12 @@ func TestAMannequinDamagedToDeathIsRemoved(t *testing.T) {
 
 	c.ChatCommand("damage @e[type=mannequin,limit=1] 20")
 	seen := readMannequinHurt(c, srv, id, 3, func(s *mannequinHurtSeen) bool {
-		return slices.Contains(s.statuses, protocol.EntityStatusDeath)
+		return slices.Contains(s.statuses, protocol.EntityStatusDeath) && s.healthSent && s.poseSent
 	})
+	// The health and the dying pose follow the damage and death events.
+	if want := []string{"damage", "death", "meta"}; !slices.Equal(seen.order, want) {
+		t.Errorf("order = %v, want %v", seen.order, want)
+	}
 	if !slices.Contains(seen.statuses, protocol.EntityStatusDeath) {
 		t.Fatalf("entity events = %v, want the death %d", seen.statuses, protocol.EntityStatusDeath)
 	}

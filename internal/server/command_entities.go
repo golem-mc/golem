@@ -861,10 +861,8 @@ func (e *entitySnapshot) changeLivingEffects(change func(effectBody) []effect.Ch
 	if ref, ok := e.ref.(*mannequinEntity); ok {
 		s.mannequinsMu.Lock()
 		changes := change(ref.mannequin)
-		packets := mannequinEffectPackets(ref)
-		watchers := trackedWatchers(ref.tracked)
+		syncMannequinEffects(ref)
 		s.mannequinsMu.Unlock()
-		s.tellWatchers(ref.w, watchers, packets)
 		return len(changes) > 0
 	}
 	ref, ok := e.ref.(*mobEntity)

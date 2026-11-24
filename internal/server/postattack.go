@@ -211,12 +211,11 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			shove := &mannequinKnockback{x: cause.x, z: cause.z}
 			hurt, landed = s.hurtMannequinLocked(ent, hit.Damage, hit.DamageType, cause.entityID+1, cause.entityID+1, nil, creativeClient(owner.player), shove)
 		}
-		packets, watchers := mannequinEffectPackets(ent), trackedWatchers(ent.tracked)
+		syncMannequinEffects(ent)
 		s.mannequinsMu.Unlock()
 		if landed {
 			s.tellMannequinHurt(hurt)
 		}
-		s.tellWatchers(w, watchers, packets)
 	} else {
 		s.mobsMu.Lock()
 		m := target.mob

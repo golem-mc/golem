@@ -68,7 +68,7 @@ type bodyTrack[S any] struct {
 
 	movementSchedule
 	// needsSync is vanilla's needsSync: a /data load asks for a movement
-	// tick off the period. The kind's tick hands takeSync to schedule.
+	// tick off the period. The kind's tick hands takeSync() to schedule.
 	// vanilla: Entity.load, ServerEntity.sendChanges
 	needsSync bool
 
@@ -169,11 +169,11 @@ type trackedKind[B any, S any] struct {
 	tellPose func(B) bodyPose
 	pairing  func(B) []outbound
 	// delta, if not nil, is read under the lock before the movement gate and
-	// gives the packets the watchers already told get after the movement:
+	// gives the payloads the watchers already told get after the movement:
 	// the dirty data and attributes. It asks for an off-period movement tick
 	// by setting needsSync when a synched value changed.
 	// vanilla: ServerEntity.sendChanges, sendDirtyEntityData
-	delta func(B) []outbound
+	delta func(B) (metadata, attributes []byte)
 	// own is the kind's state a pairing tells; nil for a kind with none.
 	own func(B) S
 	// all, if not nil, walks the bodies in place of list, for a kind kept
@@ -348,14 +348,14 @@ type moveTick struct {
 	stepTicks int32
 }
 
-// schedule advances the body's movement schedule one tick. synced, if not
-// nil, is asked for a movement tick off the period, and only off it.
-func (v *trackedBody[B, S]) schedule(synced func() bool) moveTick {
+// schedule advances the body's movement schedule one tick. synced is the sync
+// flag the tick took, which opens a movement tick off the period.
+func (v *trackedBody[B, S]) schedule(synced bool) moveTick {
 	interval := v.k.interval
 	if v.k.intervalOf != nil {
 		interval = v.k.intervalOf(v.b)
 	}
-	return v.t.step(interval, synced)
+	return v.t.stepDue(interval, synced)
 }
 
 // teleportTick is the movement tick of a kind with no schedule of its own: it
@@ -364,14 +364,9 @@ func (v *trackedBody[B, S]) teleportTick() moveTick {
 	return v.t.takeTeleport()
 }
 
-// step advances one movement tick and reports what this one owes. synced, if
-// not nil, is asked for a movement tick off the period.
-func (m *movementSchedule) step(interval int, synced func() bool) moveTick {
-	pending := synced != nil && synced() // taken on a scheduled tick too
-	return m.advance(m.tickCount%interval == 0 || pending)
-}
-
-// stepDue takes an already available sync flag without a callback dispatch.
+// stepDue advances one movement tick and reports what it owes. synced opens
+// one off the period; the caller takes it on every tick, so a scheduled tick
+// consumes it too.
 func (m *movementSchedule) stepDue(interval int, synced bool) moveTick {
 	return m.advance(m.tickCount%interval == 0 || synced)
 }
@@ -812,13 +807,13 @@ func (k *trackedKind[B, S]) pass(s *Server, watchers []trackingWatcher, running 
 // settleBody runs one live body's share of a pass, under the kind lock.
 func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *nearbyPlayers, running bool, out *trackSends) {
 	v := k.body(b)
-	var tail []outbound
+	var metadata, attributes []byte
 	if k.delta != nil {
-		tail = k.delta(b)
+		metadata, attributes = k.delta(b)
 	}
 	var mt moveTick
 	if running || k.alwaysPosition || k.frozenSchedule {
-		mt = v.schedule(v.t.takeSync)
+		mt = v.schedule(v.t.takeSync())
 	} else {
 		mt = v.teleportTick()
 	}
@@ -837,8 +832,11 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 		}
 		// A watcher just paired was told the current state.
 		if len(out.showTos) == paired {
-			for _, p := range tail {
-				out.moves.add(wt.c, p)
+			if metadata != nil {
+				out.moves.add(wt.c, outbound{id: protocol.IDPlayEntityMetadata, data: metadata})
+			}
+			if attributes != nil {
+				out.moves.add(wt.c, outbound{id: protocol.IDPlayUpdateAttributes, data: attributes})
 			}
 		}
 	}

@@ -2,6 +2,8 @@ package entities
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
@@ -87,6 +89,10 @@ func TestDirtyDataOpensOneMovementTick(t *testing.T) {
 		{"zero_damage", mannequin, ``, `damage @e[tag=s,limit=1] 0 generic`, false},
 		{"visible_refresh", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 false`, `effect give @e[tag=s,limit=1] speed 200 0 false`, true},
 		{"hidden_refresh", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 true`, `effect give @e[tag=s,limit=1] speed 200 0 true`, false},
+		// The first hidden effect turns the ambient flag on.
+		{"hidden_first", mannequin, ``, `effect give @e[tag=s,limit=1] speed 100 0 true`, true},
+		// A refresh whose particle option vanilla reuses changes nothing.
+		{"omen_refresh", mannequin, `effect give @e[tag=s,limit=1] trial_omen 100 0 false`, `effect give @e[tag=s,limit=1] trial_omen 200 0 false`, false},
 	}
 	for _, kind := range []struct {
 		name     string
@@ -176,7 +182,7 @@ func TestDirtyDataFollowsMovement(t *testing.T) {
 		lines    []string
 	}{
 		{"armor_stand", 3, []string{`effect give @e[tag=s,limit=1] glowing infinite 0 true`}},
-		{"mannequin", 2, []string{`effect give @e[tag=s,limit=1] glowing infinite 0 true`, `damage @e[tag=s,limit=1] 1 generic`}},
+		{"mannequin", 2, []string{`effect give @e[tag=s,limit=1] glowing infinite 0 true`, `damage @e[tag=s,limit=1] 1 generic`, `effect give @e[tag=s,limit=1] speed 100 0 false`}},
 	} {
 		t.Run(kind.name, func(t *testing.T) {
 			t.Parallel()
@@ -227,10 +233,23 @@ func TestDirtyDataFollowsMovement(t *testing.T) {
 						if metaFirst {
 							t.Error("metadata arrived before the movement")
 						}
-						if !c.ReadTicks(srv, 0, func(pid int32, data []byte) bool {
-							return pid == protocol.IDPlayEntityMetadata && servertest.MetadataEntityID(data) == id
-						}) {
-							t.Error("no metadata after the movement")
+						// The movement is followed by the data, then the attributes.
+						var after []string
+						c.ReadTicks(srv, 0, func(pid int32, data []byte) bool {
+							if pid == protocol.IDPlayEntityMetadata && servertest.MetadataEntityID(data) == id {
+								after = append(after, "meta")
+							}
+							if pid == protocol.IDPlayUpdateAttributes && protocol.NewReader(data).ReadVarInt() == id {
+								after = append(after, "attributes")
+							}
+							return false
+						})
+						want := []string{"meta"}
+						if strings.Contains(line, "speed") {
+							want = append(want, "attributes")
+						}
+						if !slices.Equal(after, want) {
+							t.Errorf("after the movement: %v, want %v", after, want)
 						}
 					})
 				}

@@ -538,7 +538,7 @@ func arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInputs, hv *arro
 // held.
 func (fx *arrowEffects) watchArrow(it *arrowEntity, watchers []arrowWatcher, near *nearbyPlayers, events []entity.ArrowEvent) {
 	body := arrowTracker.body(it)
-	mt := body.schedule(it.takeSync)
+	mt := body.schedule(it.takeSync())
 
 	// Velocity updates go to the watchers alone, including newly paired ones.
 	// vanilla: ServerEntity.sendChanges, sendToTrackingPlayers

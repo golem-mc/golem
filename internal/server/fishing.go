@@ -759,7 +759,7 @@ func (s *Server) tickBobbers() {
 		// A hook that died this tick has no movement tick. The velocity goes
 		// out ahead of each watcher's move.
 		body := bobberTracker.body(it)
-		mt := body.schedule(nil)
+		mt := body.schedule(false)
 		mt.gate = mt.gate && !it.hook.Dead
 		var motion []byte
 		if mt.gate && it.motionDue(it.hook.VX, it.hook.VY, it.hook.VZ, false) {

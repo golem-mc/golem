@@ -1393,7 +1393,7 @@ func (s *Server) tickPlayerTracking() {
 	// Only the tick goroutine touches the schedule, so the off ticks take no lock.
 	var movements sendList
 	for _, body := range present {
-		mt := body.c.movement.step(entity.PlayerUpdateInterval, nil)
+		mt := body.c.movement.stepDue(entity.PlayerUpdateInterval, false)
 		if !mt.gate {
 			continue
 		}
