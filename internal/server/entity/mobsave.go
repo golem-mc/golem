@@ -48,7 +48,12 @@ func (m *Mob) SaveTo(tag nbt.Compound, gameTime func() int64) {
 // SaveWith inserts server-owned attributes and leash data in their superclass phases.
 func (m *Mob) SaveWith(tag nbt.CompoundTag, gameTime func() int64, keptAttributes nbt.Tag, attributes, leash, raider func()) {
 	tag.Set("Health", nbt.Float(m.Health))
-	m.SaveWithBrain(tag, func() {
+	var sleepingPos nbt.IntArray
+	if m.Type == TypeVillager && m.Sleeping {
+		bed := m.vb.sleepPos
+		sleepingPos = nbt.IntArray{bed.X, bed.Y, bed.Z}
+	}
+	m.SaveWithSleepingPos(tag, func() {
 		if keptAttributes != nil {
 			tag.Set("attributes", nbt.Copy(keptAttributes))
 		} else {
@@ -75,13 +80,7 @@ func (m *Mob) SaveWith(tag nbt.CompoundTag, gameTime func() int64, keptAttribute
 		if effects := effect.Encode(m.AllEffects()); effects != nil {
 			tag.Set("active_effects", *effects)
 		}
-	}, func() {
-		if m.Type == TypeVillager && m.Sleeping {
-			bed := m.vb.sleepPos
-			tag.Set("sleeping_pos", nbt.IntArray{bed.X, bed.Y, bed.Z})
-		}
-		tag.Set("Brain", brainTag(nil))
-	})
+	}, sleepingPos)
 	tag.Set("AbsorptionAmount", nbt.Float(m.Absorption))
 	if equipment := equipmentTag(m); len(equipment.Entries()) > 0 {
 		tag.Set("equipment", equipment)
