@@ -29,7 +29,7 @@ type fireworkEntity struct {
 	w      *world.World
 	uuid   uuid.UUID
 	stack  protocol.ItemStack
-	bodyTrack[struct{}]
+	bodyTrack[fireworkMetadataState]
 	shotMark
 
 	portal rules.EntityPortal
@@ -48,7 +48,7 @@ type fireworkEntity struct {
 
 // fireworkTracker tracks the rockets. A rocket's flight is never on the
 // ground, and its Teleport Entity carries no velocity: the motion packets do.
-var fireworkTracker = trackedKind[*fireworkEntity, struct{}]{
+var fireworkTracker = trackedKind[*fireworkEntity, fireworkMetadataState]{
 	rangeChunks: entity.FireworkTrackingRange,
 	interval:    entity.FireworkUpdateInterval,
 	lock:        func(s *Server) *sync.Mutex { return &s.fireworksMu },
@@ -56,7 +56,7 @@ var fireworkTracker = trackedKind[*fireworkEntity, struct{}]{
 	chunks:      func(s *Server) *entity.ChunkIndex[*fireworkEntity] { return &s.fireworkChunks },
 	filing:      func(it *fireworkEntity) *entity.Filing { return &it.rocket.Filing },
 	uuid:        func(it *fireworkEntity) uuid.UUID { return it.uuid },
-	track:       func(it *fireworkEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
+	track:       func(it *fireworkEntity) *bodyTrack[fireworkMetadataState] { return &it.bodyTrack },
 	world:       func(it *fireworkEntity) *world.World { return it.w },
 	id:          func(it *fireworkEntity) int32 { return it.rocket.ID },
 	dead:        func(it *fireworkEntity) bool { return it.rocket.Dead },
@@ -65,6 +65,7 @@ var fireworkTracker = trackedKind[*fireworkEntity, struct{}]{
 		return bodyPose{x: r.X, y: r.Y, z: r.Z, yaw: r.Yaw, pitch: r.Pitch}
 	},
 	pairing: fireworkPairing,
+	own:     fireworkMetadataStateOf,
 }
 
 // handleUseFirework launches a gliding player's rocket attached to them for
@@ -233,6 +234,7 @@ func applyFireworkTag(it *fireworkEntity, compound nbt.Compound) {
 	it.portal.Cooldown = portalCooldownOf(compound)
 	it.tags.Reset(tagsOfTag(compound))
 	it.custom = customNameOfTag(compound)
+	rocket.FireTicks = fireOfTag(compound)
 }
 
 // registerFirework puts a built rocket into the world and shows it to every
@@ -312,6 +314,23 @@ type fireworkMetadataState struct {
 	attached    int32
 	shotAtAngle bool
 	fire        bool
+}
+
+// same reports whether two states tell a client the same.
+func (a fireworkMetadataState) same(b fireworkMetadataState) bool {
+	return a.stack.Equal(b.stack) && a.name == b.name && a.attached == b.attached &&
+		a.shotAtAngle == b.shotAtAngle && a.fire == b.fire
+}
+
+// tellFireworkChanges tells c the metadata a tick turned, the tick it turned in.
+func tellFireworkChanges(it *fireworkEntity, was *toldBody[fireworkMetadataState], now fireworkMetadataState, c *client, metas *sendList) {
+	if was.own.same(now) {
+		return
+	}
+	if data := fireworkMetadataTable(it, &was.own); data != nil {
+		metas.add(c, outbound{id: protocol.IDPlayEntityMetadata, data: data})
+	}
+	was.own = now
 }
 
 func fireworkMetadataStateOf(it *fireworkEntity) fireworkMetadataState {
@@ -424,6 +443,7 @@ func (s *Server) tickFireworks() {
 	var (
 		out             trackSends
 		motions, sounds sendList
+		metas           sendList
 		removals        = make(map[*world.World][]int32)
 		bursts          []fireworkBurst
 		mobHits         []thrownMobHit
@@ -585,6 +605,7 @@ func (s *Server) tickFireworks() {
 				data: entityVelocityPayload(it.rocket.ID, it.rocket.VX, it.rocket.VY, it.rocket.VZ)}
 		}
 
+		now := fireworkMetadataStateOf(it)
 		for _, i := range body.watchers(near[it.w]) {
 			watch := watchers[it.w][i]
 			if watch.c.theWorld() != it.w {
@@ -597,6 +618,7 @@ func (s *Server) tickFireworks() {
 			if motion != nil {
 				motions.add(watch.c, *motion)
 			}
+			tellFireworkChanges(it, was, now, watch.c, &metas)
 			body.moveTold(was, watch.c, mt, &out)
 		}
 		alive = append(alive, it)
@@ -717,6 +739,7 @@ func (s *Server) tickFireworks() {
 	}
 	out.send()
 	motions.send()
+	metas.send()
 	sounds.send()
 	// The mob hits' telling, the hurts having been taken under the mob lock.
 	// vanilla: LivingEntity.hurtServer

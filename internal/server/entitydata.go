@@ -476,7 +476,7 @@ func fireworkTagAs(ent *fireworkEntity, id string) *nbt.OrderedCompound {
 	f := ent.rocket
 	tag := orderedEntityBaseTag(id,
 		f.X, f.Y, f.Z, f.VX, f.VY, f.VZ,
-		f.Yaw, f.Pitch, ent.uuid, false, ent.portal.Cooldown, restingFire, 0)
+		f.Yaw, f.Pitch, ent.uuid, false, ent.portal.Cooldown, f.FireTicks, 0)
 	putEntityOptions(tag, ent.custom, false, false, entityLook{}, ent.tags)
 	putProjectileFields(tag, ent.ownerUUID, f.LeftOwner(), ent.shot)
 	tag.Set("Life", nbt.Int(f.Life))

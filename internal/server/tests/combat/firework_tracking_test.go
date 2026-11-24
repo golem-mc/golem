@@ -3,6 +3,7 @@ package combat
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
@@ -39,5 +40,43 @@ func TestAFireworkRocketsVelocityGoesToItsWatchersAlone(t *testing.T) {
 	})
 	if told == 0 {
 		t.Fatal("the watching player was told no velocity of the rising rocket")
+	}
+}
+
+// TestAFireworkRocketsBurnEndsIsTold sets a rocket alight for four ticks and
+// flies it on: the watcher is told the fire flag, then the flag clearing while
+// the rocket is still flying.
+// vanilla: Entity.baseTick, FireworkRocketEntity.tick
+func TestAFireworkRocketsBurnEndsIsTold(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Watcher")
+	servertest.HoldTicks(t, srv)
+	rocket := srv.SpawnFireworkAtAngle(3.5, 65, 3.5, 0, 0, 0, 200)
+	srv.RunLine("data merge entity " + rocket.UUID.String() + " {Fire:4s}")
+
+	burning, cleared := false, false
+	c.ReadTicks(srv, 12, func(id int32, data []byte) bool {
+		if id != protocol.IDPlayEntityMetadata {
+			return false
+		}
+		r := protocol.NewReader(data)
+		if r.ReadVarInt() != rocket.ID {
+			return false
+		}
+		flags, ok := servertest.ReadEntityFlags(r)
+		if !ok {
+			return false
+		}
+		if flags&protocol.EntityFlagOnFire != 0 {
+			burning = true
+			return false
+		}
+		cleared = burning
+		return cleared
+	})
+	if !burning || !cleared {
+		t.Fatalf("fire flag told set = %v, then cleared = %v; want both", burning, cleared)
 	}
 }

@@ -174,7 +174,6 @@ func (c *client) fireCrossbow(hand int32) {
 	for i, projectile := range projectiles {
 		aimX, aimY, aimZ := entity.CrossbowShotVector(pos.Yaw, pos.Pitch, angles[i])
 		vx, vy, vz := entity.ShootVelocity(aimX, aimY, aimZ, power, 1.0, rng)
-		yaw, pitch := entity.ArrowAngles(vx, vy, vz)
 		firework := isFireworkRocket(projectile)
 		if firework {
 			s.spawnCrossbowRocket(c.theWorld(), projectile, pos.X,
@@ -186,6 +185,7 @@ func (c *client) fireCrossbow(hand int32) {
 			}
 			continue
 		}
+		yaw, pitch := entity.ArrowAngles(vx, vy, vz)
 		pickup := entity.PickupAllowed
 		if projectile.Intangible {
 			pickup = entity.PickupCreativeOnly

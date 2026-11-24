@@ -1015,9 +1015,13 @@ func (t *mobDimTick) shotArrow(fx *mobEffects, ev entity.MobEvent) {
 		// vanilla: ProjectileUtil.getWeaponHoldingHand falls back to the off hand
 		shot.weapon = ev.Mob.OffHand
 	}
-	shot.fireTicks = rules.ProjectileIgniteTicks(shot.weapon)
-	if shot.ammo != nil {
-		shot.fireTicks = max(shot.fireTicks, rules.ProjectileIgniteTicks(*shot.ammo))
+	if shot.ammo == nil || !isFireworkRocket(*shot.ammo) {
+		// A rocket takes its burn from its own stack alone.
+		// vanilla: Projectile.applyOnProjectileSpawned
+		shot.fireTicks = rules.ProjectileIgniteTicks(shot.weapon)
+		if shot.ammo != nil {
+			shot.fireTicks = max(shot.fireTicks, rules.ProjectileIgniteTicks(*shot.ammo))
+		}
 	}
 	if ev.Mob.Type == entity.TypeWitherSkeleton {
 		// vanilla: WitherSkeleton.getArrow, igniteForSeconds(100)
@@ -1031,8 +1035,8 @@ func (t *mobDimTick) shotArrow(fx *mobEffects, ev entity.MobEvent) {
 
 // spawnMobShot stands a mob's arrow or thrown trident in the world.
 func (s *Server) spawnMobShot(shot mobShot) {
-	yaw, pitch := entity.ArrowAngles(shot.vx, shot.vy, shot.vz)
 	if shot.trident {
+		yaw, pitch := entity.ArrowAngles(shot.vx, shot.vy, shot.vz)
 		// AbstractArrow.setOwner only allows pickup for a player owner.
 		s.spawnTrident(shot.w, shot.x, shot.y, shot.z, shot.vx, shot.vy, shot.vz, yaw, pitch,
 			entity.PickupDisallowed, shot.shooter, shot.shooterUUID, shot.weapon)
@@ -1047,6 +1051,7 @@ func (s *Server) spawnMobShot(shot mobShot) {
 			shot.shooter, shot.shooterUUID)
 		return
 	}
+	yaw, pitch := entity.ArrowAngles(shot.vx, shot.vy, shot.vz)
 	pickup := entity.PickupDisallowed
 	if ammo.Intangible {
 		// vanilla: AbstractArrow.setPickup via the intangible projectile
