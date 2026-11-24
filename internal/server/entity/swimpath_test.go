@@ -95,3 +95,23 @@ func openPond(t *testing.T, x float64) (testWorld, *Mob) {
 	m.nav.swim = true
 	return w, m
 }
+
+// BenchmarkSwimPath runs an open-water search across a 49x14x49 water box,
+// from (0, 55, 0) to (9, 58, 7), range 16, 256 visited.
+func BenchmarkSwimPath(b *testing.B) {
+	w := newTestWorld()
+	water := defaultState(b, "minecraft:water")
+	for x := int32(-24); x <= 24; x++ {
+		for z := int32(-24); z <= 24; z++ {
+			for y := int32(49); y <= 62; y++ {
+				w.set(x, y, z, water)
+			}
+		}
+	}
+	start, target := Waypoint{0, 55, 0}, Waypoint{9, 58, 7}
+	_ = findSwimPath(w, 1, 1, start, target, 1, 16, 256)
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = findSwimPath(w, 1, 1, start, target, 1, 16, 256)
+	}
+}
