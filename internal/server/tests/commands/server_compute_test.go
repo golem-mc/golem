@@ -28,8 +28,9 @@ func expectCompute(t *testing.T, c *servertest.Client, key string) protocol.Text
 	return got
 }
 
+// Run serially because data pack providers are process-wide.
 func TestComputeNamesRegistryProviders(t *testing.T) {
-	t.Parallel()
+	t.Cleanup(func() { registry.ApplyPackContextProviders(nil, nil) })
 	cfg := config.Default()
 	cfg.OnlineMode = false
 	cfg.LevelName = t.TempDir()
