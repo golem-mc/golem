@@ -8,6 +8,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -48,6 +49,55 @@ func TestBrushingAnAdultArmadilloCostsSixteenDurability(t *testing.T) {
 	if got := srv.InventorySlot("Rancher", player.HotbarSlot).Damage; got != 16 {
 		t.Fatalf("adult brush damage = %d, want 16", got)
 	}
+}
+
+func TestCurledArmadilloRejectsGoldenDandelion(t *testing.T) {
+	t.Parallel()
+	const playerName = "Rancher"
+	srv, c := servertest.BreedingPlayer(t, "survival", playerName, "minecraft:golden_dandelion", 2,
+		servertest.OpsListing(t, playerName))
+	servertest.HoldTicks(t, srv)
+	servertest.RunTicks(t, srv, 2)
+	if srv.AttackTicks(playerName) == 0 {
+		t.Fatal("attack cooldown has not advanced")
+	}
+	c.ChatCommand(`summon minecraft:armadillo 1.5 64 2.5 {NoAI:1b,Age:-24000,state:"scared"}`)
+	spawn := protocol.NewReader(c.ExpectMobPacket(protocol.IDPlaySpawnEntity))
+	id := spawn.ReadVarInt()
+
+	useFlower := func(state string, wantCount int32, wantLocked bool, wantSounds int) {
+		t.Helper()
+		before := srv.AttackTicks(playerName)
+		c.UseOn(id)
+		heard, _, _ := servertest.CollectSoundsSettled(c)
+		held := srv.InventorySlot(playerName, player.HotbarSlot)
+		if registry.Item(held.ItemID) != registry.ItemGoldenDandelion || held.Count != wantCount {
+			t.Errorf("%s armadillo: held item %d × %d, want %d golden dandelions", state, held.ItemID, held.Count, wantCount)
+		}
+		tag, ok := srv.MobSaveTag(id)
+		if !ok {
+			t.Fatal("missing summoned armadillo")
+		}
+		if got, _ := nbt.Get[nbt.String](tag, "state"); string(got) != state {
+			t.Fatalf("armadillo state = %q, want %q", got, state)
+		}
+		if got := nbt.BoolField(tag, "AgeLocked"); got != wantLocked {
+			t.Errorf("%s armadillo: AgeLocked = %t, want %t", state, got, wantLocked)
+		}
+		if got := servertest.CountSounds(heard, "minecraft:item.golden_dandelion.use", protocol.SoundCategoryPlayer); got != wantSounds {
+			t.Errorf("%s armadillo: golden dandelion use sounds = %d, want %d", state, got, wantSounds)
+		}
+		if wantLocked {
+			before = 0
+		}
+		if got := srv.AttackTicks(playerName); got != before {
+			t.Errorf("%s armadillo: attack cooldown ticks = %d, want %d", state, got, before)
+		}
+	}
+	useFlower("scared", 2, false, 0)
+	c.ChatCommand(`data merge entity @e[type=minecraft:armadillo,limit=1] {state:"idle"}`)
+	c.Settle()
+	useFlower("idle", 1, true, 1)
 }
 
 func TestArmadilloRollMetadataAndReducedDamage(t *testing.T) {

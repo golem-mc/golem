@@ -3761,6 +3761,7 @@ func (c *client) mobInteract(ent *mobEntity, hand int32, held protocol.ItemStack
 		ent.mob.Persistence = true
 	}
 	baby := ent.mob.IsBaby()
+	armadilloScared := ent.mob.ArmadilloScared()
 	filledCube := ent.mob.SulfurCubeFilled()
 	primedCube := ent.mob.SulfurPrimed()
 	leashedToPlayer := ent.mob.LeashHolderID == c.player.EntityID
@@ -3838,6 +3839,11 @@ func (c *client) mobInteract(ent *mobEntity, hand int32, held protocol.ItemStack
 		return true, c.stewFromMooshroom(ent, hand)
 	case tagUsed:
 		return true, c.nameMob(ent, hand)
+	case armadilloScared:
+		// vanilla: Armadillo.mobInteract refuses before age locking or feeding.
+		c.useSwing = swingNone
+		// Finish the flower use before the equipment fallback.
+		return item == registry.ItemGoldenDandelion, nil
 	case ent.mob.Type == entity.TypeZombieVillager && item == registry.ItemGoldenApple:
 		return true, c.cureZombieVillager(ent, hand)
 	case ent.mob.Type == entity.TypePiglin && item == registry.ItemGoldIngot:
