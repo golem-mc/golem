@@ -25,9 +25,13 @@ type PlayerDimensions struct {
 }
 
 // Scaled is the shape grown by s in width, height and eye height.
-// The products are single precision, as the float fields are.
+// A scale other than 1 gives single-precision products, as the float fields
+// do; scale 1 keeps the table's values so unscaled players stay unchanged.
 // vanilla: EntityDimensions.scale
 func (d PlayerDimensions) Scaled(s float64) PlayerDimensions {
+	if s == 1 {
+		return d
+	}
 	f := float32(s)
 	return PlayerDimensions{
 		Width:     float64(float32(d.Width) * f),
