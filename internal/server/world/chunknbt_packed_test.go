@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // TestDecodeSectionBlocksPacked checks that adopting saved words (and the
@@ -27,6 +28,8 @@ func TestDecodeSectionBlocksPacked(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			tc.states = append([]uint16(nil), tc.states...)
+			tc.states[1] = registry.BlockOakFence.DefaultState()
 			indices := make([]uint16, blocksPerSection)
 			want := make([]uint16, blocksPerSection)
 			for i := range indices {
@@ -60,6 +63,9 @@ func TestDecodeSectionBlocksPacked(t *testing.T) {
 			}
 			if tc.wantErr {
 				return
+			}
+			if got.shapes.Load() == 0 {
+				t.Fatal("no shape blocks counted")
 			}
 			var ref section
 			for i, state := range want {
@@ -101,5 +107,5 @@ func sameCounts(a, b *section) bool {
 	return a.ticking == b.ticking && a.emitting == b.emitting && a.listening == b.listening &&
 		a.rods == b.rods && a.catalysts == b.catalysts && a.eggs == b.eggs && a.portals == b.portals &&
 		a.pois == b.pois && a.colliding == b.colliding && a.comparators == b.comparators &&
-		a.touches.Load() == b.touches.Load()
+		a.touches.Load() == b.touches.Load() && a.shapes.Load() == b.shapes.Load()
 }
