@@ -8,6 +8,7 @@ import (
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/registry"
 )
 
 // The /compute command, black-box: the provider kinds the commands tree
@@ -60,6 +61,36 @@ func TestComputeStoresItsValue(t *testing.T) {
 		t.Errorf("rounded feedback arguments = %+v, want 14 and 7", with)
 	}
 
+	c.Disconnect()
+}
+
+// Run serially because data pack providers are process-wide.
+// vanilla: ComputeCommand.throwInvalidValue
+func TestComputeInvalidProviderFeedback(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackContextProviders(nil, nil) })
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.LevelName = t.TempDir()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	const division = `{"type":"minecraft:div","left":1,"right":0}`
+	servertest.WritePackFile(t, cfg, "compute", "pk/context_int_provider/div_zero.json", division)
+	servertest.WritePackFile(t, cfg, "compute", "pk/context_float_provider/div_zero.json", division)
+	srv, c := joinPacks(t, cfg)
+	servertest.HoldTicks(t, srv)
+
+	for _, tc := range []struct{ kind, reason string }{
+		{"integer", "/ by zero"},
+		{"float", "Infinity"},
+	} {
+		c.Run(t, tc.kind, func(t *testing.T) {
+			command := "compute default " + tc.kind + " "
+			c.ChatCommand(command + "pk:div_zero")
+			c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.named.invalid", "pk:div_zero", tc.reason))
+
+			c.ChatCommand(command + division)
+			c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.unnamed.invalid", tc.reason))
+		})
+	}
 	c.Disconnect()
 }
 

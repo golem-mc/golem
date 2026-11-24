@@ -25,6 +25,7 @@ const (
 	computeExactKey           = "command.compute.result.unnamed.exact"
 	computeRoundedKey         = "command.compute.result.unnamed.rounded"
 	computeInvalidKey         = "command.compute.result.unnamed.invalid"
+	computeNamedInvalidKey    = "command.compute.result.named.invalid"
 	computeIntProviderRegistr = "minecraft:context_int_provider"
 	computeFloatProviderRegis = "minecraft:context_float_provider"
 )
@@ -239,8 +240,13 @@ func readComputeProvider(src Source, input string, rest []string) (p registry.Lo
 	return p, rest[0], rest[1+span:]
 }
 
-func invalidValue(src Source, value string) error {
-	return refuse(src, computeInvalidKey, protocol.Text{Text: value})
+// vanilla: ComputeCommand.throwInvalidValue
+func invalidValue(src Source, p registry.LootNumber, value string) error {
+	reason := protocol.Text{Text: value}
+	if ref, ok := p.(registry.LootProviderRef); ok {
+		return refuse(src, computeNamedInvalidKey, protocol.Text{Text: ref.Name}, reason)
+	}
+	return refuse(src, computeInvalidKey, reason)
 }
 
 // computeInt answers the int provider's value.
@@ -248,7 +254,7 @@ func invalidValue(src Source, value string) error {
 func computeInt(src Source, lc *rules.LootContext, p registry.LootNumber) (int32, error) {
 	v, err := rules.EvalIntProvider(p, lc, src.Random())
 	if err != nil {
-		return 0, invalidValue(src, err.Error())
+		return 0, invalidValue(src, p, err.Error())
 	}
 	n := int64(v)
 	return resultOf(v, src.Feedback(computeExactKey, protocol.Text{Number: &n}))
@@ -259,10 +265,10 @@ func computeInt(src Source, lc *rules.LootContext, p registry.LootNumber) (int32
 func computeFloat(src Source, lc *rules.LootContext, p registry.LootNumber, scale float32) (int32, error) {
 	original, err := rules.EvalFloatProvider(p, lc, src.Random())
 	if err != nil {
-		return 0, invalidValue(src, err.Error())
+		return 0, invalidValue(src, p, err.Error())
 	}
 	if f := float64(original); math.IsNaN(f) || math.IsInf(f, 0) {
-		return 0, invalidValue(src, formatJavaFloat(original))
+		return 0, invalidValue(src, p, formatJavaFloat(original))
 	}
 	// Mth.floor(float): the (int) cast, one less where it rounded up.
 	scaled := original * scale
