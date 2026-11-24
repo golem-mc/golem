@@ -121,8 +121,9 @@ func (c *client) bodyBox() [6]float64 {
 // bodyBoxAt is bodyBox for a position the caller already read.
 func (c *client) bodyBoxAt(pos player.Position) [6]float64 {
 	d := c.dims(c.player.Appearance().Pose)
-	hw := d.Width / 2
-	return [6]float64{pos.X - hw, pos.Y, pos.Z - hw, pos.X + hw, pos.Y + d.Height, pos.Z + hw}
+	// vanilla: EntityDimensions.makeBoundingBox uses float dimensions even at scale 1.
+	halfWidth, height := float64(float32(d.Width)/2), float64(float32(d.Height))
+	return [6]float64{pos.X - halfWidth, pos.Y, pos.Z - halfWidth, pos.X + halfWidth, pos.Y + height, pos.Z + halfWidth}
 }
 
 // Alive is false for a dead player who has not respawned, so the @e and @n
