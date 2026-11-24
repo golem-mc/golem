@@ -2,7 +2,6 @@ package server
 
 import (
 	"log/slog"
-	"maps"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/server/datapack"
@@ -12,14 +11,14 @@ import (
 // loadPackLoot reads the enabled packs' loot tables, predicates and item modifiers; a file
 // that fails to decode is logged and skipped, leaving the built-in one.
 // vanilla: ReloadableServerRegistries.reload, LootDataType
-func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]registry.LootTable, map[string]registry.LootCondition, map[string]registry.LootFunction, error) {
+func loadPackLoot(dirs []string, decoder datapack.ResourceDecoder, skip func(file string, err error)) (map[string]registry.LootTable, map[string]registry.LootCondition, map[string]registry.LootFunction, error) {
 	rawTables, err := datapack.LoadResources(dirs, "loot_table", skip)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	tables := make(map[string]registry.LootTable, len(rawTables))
 	for id, raw := range rawTables {
-		table, err := datapack.DecodeLootTable(raw)
+		table, err := decoder.DecodeLootTable(raw)
 		if err != nil {
 			slog.Error("Couldn't parse element loot_table/" + id + ": " + err.Error())
 			continue
@@ -32,7 +31,7 @@ func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]
 	}
 	predicates := make(map[string]registry.LootCondition, len(rawPredicates))
 	for id, raw := range rawPredicates {
-		cond, err := datapack.DecodePredicate(raw)
+		cond, err := decoder.DecodePredicate(raw)
 		if err != nil {
 			slog.Error("Couldn't parse element predicate/" + id + ": " + err.Error())
 			continue
@@ -45,7 +44,7 @@ func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]
 	}
 	modifiers := make(map[string]registry.LootFunction, len(rawModifiers))
 	for id, raw := range rawModifiers {
-		fn, err := datapack.DecodeItemModifier(raw)
+		fn, err := decoder.DecodeItemModifier(raw)
 		if err != nil {
 			slog.Error("Couldn't parse element item_modifier/" + id + ": " + err.Error())
 			continue
@@ -85,34 +84,30 @@ func (s *Server) applyPackLoot(tables map[string]registry.LootTable, predicates 
 	registry.ApplyPackLootHiding(tables, predicates, modifiers, hidden)
 }
 
-// loadPackSlotSources reads the enabled packs' slot sources into the
-// registry; a file that fails to decode is logged and skipped. A source that
-// names another resolves it whatever the files' order, so a pass repeats
-// while it still lets one more decode.
+// loadPackSlotSources fills the candidate layer. A source that names another
+// resolves it whatever the files' order, so each pass that decodes one more
+// lets a subsequent pass find it.
 // vanilla: RegistryDataLoader.RELOADABLE_REGISTRIES
-func loadPackSlotSources(dirs []string, skip func(file string, err error)) error {
+func loadPackSlotSources(dirs []string, decoder datapack.ResourceDecoder, sources map[string]registry.SlotSource, skip func(file string, err error)) error {
 	raws, err := datapack.LoadResources(dirs, "slot_source", skip)
 	if err != nil {
 		return err
 	}
-	registry.ApplyPackSlotSources(nil)
-	sources := make(map[string]registry.SlotSource, len(raws))
 	for progress := true; progress && len(sources) < len(raws); {
 		progress = false
 		for id, raw := range raws {
 			if _, done := sources[id]; done {
 				continue
 			}
-			if source, err := datapack.DecodeSlotSource(raw); err == nil {
+			if source, err := decoder.DecodeSlotSource(raw); err == nil {
 				sources[id] = source
-				registry.ApplyPackSlotSources(maps.Clone(sources))
 				progress = true
 			}
 		}
 	}
 	for id, raw := range raws {
 		if _, done := sources[id]; !done {
-			_, err := datapack.DecodeSlotSource(raw)
+			_, err := decoder.DecodeSlotSource(raw)
 			slog.Error("Couldn't parse element slot_source/" + id + ": " + err.Error())
 		}
 	}

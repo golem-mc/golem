@@ -9,9 +9,9 @@ import (
 // predicate, or a non-empty list of them. A predicate with component
 // matchers is refused, as the wire reader refuses one.
 // vanilla: AdventureModePredicate.CODEC
-func adventurePredicatesOf(value nbt.Tag) ([]protocol.BlockPredicate, bool) {
+func (lookup *TagLookup) adventurePredicatesOf(value nbt.Tag) ([]protocol.BlockPredicate, bool) {
 	if entry, ok := nbt.CompoundView(value); ok {
-		p, ok := blockPredicateOf(entry)
+		p, ok := lookup.blockPredicateOf(entry)
 		return []protocol.BlockPredicate{p}, ok
 	}
 	list, ok := value.(nbt.List)
@@ -24,7 +24,7 @@ func adventurePredicatesOf(value nbt.Tag) ([]protocol.BlockPredicate, bool) {
 		if !ok {
 			return nil, false
 		}
-		p, ok := blockPredicateOf(entry)
+		p, ok := lookup.blockPredicateOf(entry)
 		if !ok {
 			return nil, false
 		}
@@ -35,7 +35,7 @@ func adventurePredicatesOf(value nbt.Tag) ([]protocol.BlockPredicate, bool) {
 
 // blockPredicateOf reads one predicate; unknown keys are skipped.
 // vanilla: BlockPredicate.CODEC
-func blockPredicateOf(entry nbt.Compound) (protocol.BlockPredicate, bool) {
+func (lookup *TagLookup) blockPredicateOf(entry nbt.Compound) (protocol.BlockPredicate, bool) {
 	var p protocol.BlockPredicate
 	for _, key := range [...]string{"components", "predicates"} {
 		if field, has := entry[key]; has {
@@ -45,7 +45,7 @@ func blockPredicateOf(entry nbt.Compound) (protocol.BlockPredicate, bool) {
 		}
 	}
 	if field, has := entry["blocks"]; has {
-		set, ok := blockSetOf(field)
+		set, ok := lookup.blockSetOf(field)
 		if !ok {
 			return p, false
 		}
@@ -143,10 +143,10 @@ func adventurePredicatesTag(predicates []protocol.BlockPredicate) nbt.Tag {
 
 // readAdventureOrEntityData is readComponentKnown for can_place_on,
 // can_break, entity_data and block_entity_data.
-func readAdventureOrEntityData(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
+func (lookup *TagLookup) readAdventureOrEntityData(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
 	switch name {
 	case "minecraft:can_place_on", "minecraft:can_break":
-		predicates, ok := adventurePredicatesOf(value)
+		predicates, ok := lookup.adventurePredicatesOf(value)
 		component := int32(protocol.DataComponentCanPlaceOn)
 		if name == "minecraft:can_break" {
 			component = protocol.DataComponentCanBreak
@@ -165,13 +165,13 @@ func readAdventureOrEntityData(stack *protocol.ItemStack, name string, value nbt
 			return false, true
 		}
 	default:
-		if ok, modeled := readConsumableComponent(stack, name, value); modeled {
+		if ok, modeled := lookup.readConsumableComponent(stack, name, value); modeled {
 			return ok, true
 		}
-		if ok, modeled := readRecordComponent(stack, name, value); modeled {
+		if ok, modeled := lookup.readRecordComponent(stack, name, value); modeled {
 			return ok, true
 		}
-		return readProtectionComponent(stack, name, value)
+		return lookup.readProtectionComponent(stack, name, value)
 	}
 	return true, true
 }

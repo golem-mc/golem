@@ -16,13 +16,13 @@ import (
 // what a saved stack would and refuses the rest.
 
 // componentOf reads v as the named component onto an empty stack.
-func componentOf(name string, v any) protocol.ItemStack {
+func (decoder ResourceDecoder) componentOf(name string, v any) protocol.ItemStack {
 	tag, n, err := nbt.ParseValueTag(snbt(v))
 	if err != nil || n == 0 {
 		fail("Failed to read %s", name)
 	}
 	var stack protocol.ItemStack
-	if !registry.ReadComponent(&stack, name, tag) {
+	if !decoder.tags.ReadComponent(&stack, name, tag) {
 		fail("Failed to decode %s: %s", name, snbt(v))
 	}
 	return stack
@@ -36,12 +36,12 @@ func componentOf(name string, v any) protocol.ItemStack {
 func (d lootDecoder) componentFunction(kind string, f obj, conds []registry.LootCondition) (registry.LootFunction, bool) {
 	switch kind {
 	case "minecraft:set_banner_pattern":
-		layers, _ := componentOf("minecraft:banner_patterns", required(f, "patterns")).BannerPatternsOf()
+		layers, _ := d.componentOf("minecraft:banner_patterns", required(f, "patterns")).BannerPatternsOf()
 		return registry.LootSetBannerPattern{Patterns: layers, Append: requireFlag(f, "append"), Conditions: conds}, true
 	case "minecraft:set_book_cover":
 		out := registry.LootSetBookCover{Conditions: conds}
 		if v, ok := f["title"]; ok {
-			book, _ := componentOf("minecraft:written_book_content", obj{"title": v, "author": ""}).WrittenBookOf()
+			book, _ := d.componentOf("minecraft:written_book_content", obj{"title": v, "author": ""}).WrittenBookOf()
 			out.Title = &protocol.FilterablePage{Raw: book.Title, Filtered: book.FilteredTitle}
 		}
 		if _, ok := f["author"]; ok {
@@ -60,11 +60,11 @@ func (d lootDecoder) componentFunction(kind string, f obj, conds []registry.Loot
 	case "minecraft:set_firework_explosion":
 		out := registry.LootSetFireworkExplosion{Conditions: conds}
 		explosion := func(key string, v any) protocol.FireworkExplosion {
-			e, _ := componentOf("minecraft:firework_explosion", obj{"shape": "small_ball", key: v}).FireworkExplosionOf()
+			e, _ := d.componentOf("minecraft:firework_explosion", obj{"shape": "small_ball", key: v}).FireworkExplosionOf()
 			return e
 		}
 		if v, ok := f["shape"]; ok {
-			e, _ := componentOf("minecraft:firework_explosion", obj{"shape": v}).FireworkExplosionOf()
+			e, _ := d.componentOf("minecraft:firework_explosion", obj{"shape": v}).FireworkExplosionOf()
 			out.Shape = &e.Shape
 		}
 		if v, ok := f["colors"]; ok {
@@ -84,7 +84,7 @@ func (d lootDecoder) componentFunction(kind string, f obj, conds []registry.Loot
 		out := registry.LootSetFireworks{Conditions: conds}
 		if v, ok := f["explosions"]; ok {
 			o := object(v, "explosions")
-			_, explosions, _ := componentOf("minecraft:fireworks", obj{"explosions": required(o, "values")}).FireworksComponentOf()
+			_, explosions, _ := d.componentOf("minecraft:fireworks", obj{"explosions": required(o, "values")}).FireworksComponentOf()
 			out.Explosions = &registry.LootStandAlone[protocol.FireworkExplosion]{Values: explosions, Operation: listOperation(o, 256)}
 		}
 		if _, ok := f["flight_duration"]; ok {
@@ -102,10 +102,10 @@ func (d lootDecoder) componentFunction(kind string, f obj, conds []registry.Loot
 		}
 		return registry.LootSetContainerLoot{Table: registry.Qualify(id), Seed: longAt(f, "seed"), Conditions: conds}, true
 	case "minecraft:set_writable_book_pages":
-		book, _ := componentOf("minecraft:writable_book_content", obj{"pages": required(f, "pages")}).WritableBookOf()
+		book, _ := d.componentOf("minecraft:writable_book_content", obj{"pages": required(f, "pages")}).WritableBookOf()
 		return registry.LootSetWritableBookPages{Pages: book.Pages, Operation: listOperation(f, 100), Conditions: conds}, true
 	case "minecraft:set_written_book_pages":
-		book, _ := componentOf("minecraft:written_book_content",
+		book, _ := d.componentOf("minecraft:written_book_content",
 			obj{"title": "", "author": "", "pages": required(f, "pages")}).WrittenBookOf()
 		return registry.LootSetWrittenBookPages{Pages: book.Pages, Operation: listOperation(f, math.MaxInt32), Conditions: conds}, true
 	case "minecraft:fill_player_head":

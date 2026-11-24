@@ -43,11 +43,11 @@ func materialCount(o obj) (lo, hi int32) {
 
 // transmuteRecipe reads a crafting_transmute recipe.
 // vanilla: TransmuteRecipe.MAP_CODEC, TransmuteRecipe.display
-func transmuteRecipe(id string, o obj, into *registry.PackRecipes) registry.PackTransmute {
+func (decoder ResourceDecoder) transmuteRecipe(id string, o obj, into *registry.PackRecipes) registry.PackTransmute {
 	display, group := specialBase(id, o)
-	input, material := recipeIngredient(required(o, "input")), recipeIngredient(required(o, "material"))
+	input, material := decoder.recipeIngredient(required(o, "input")), decoder.recipeIngredient(required(o, "material"))
 	lo, hi := materialCount(o)
-	item, count, patch := resultTemplate(required(o, "result"), false)
+	item, count, patch := decoder.resultTemplate(required(o, "result"), false)
 	keepResult(into, id, patch)
 	add := flag(o, "add_material_count_to_result", false)
 	recipe := registry.PackTransmute{
@@ -85,10 +85,10 @@ func transmuteRecipe(id string, o obj, into *registry.PackRecipes) registry.Pack
 
 // dyeRecipe reads a crafting_dye recipe.
 // vanilla: DyeRecipe.MAP_CODEC, DyeRecipe.display
-func dyeRecipe(id string, o obj, into *registry.PackRecipes) registry.PackDye {
+func (decoder ResourceDecoder) dyeRecipe(id string, o obj, into *registry.PackRecipes) registry.PackDye {
 	display, group := specialBase(id, o)
-	target, dye := recipeIngredient(required(o, "target")), recipeIngredient(required(o, "dye"))
-	item, count, patch := recipeResult(o)
+	target, dye := decoder.recipeIngredient(required(o, "target")), decoder.recipeIngredient(required(o, "dye"))
+	item, count, patch := decoder.recipeResult(o)
 	keepResult(into, id, patch)
 	display.ResultID, display.ResultCount = item, count
 	display.Squares = []registry.BookIngredient{bookSquare(target), bookSquare(dye)}
@@ -110,10 +110,10 @@ func dyeRecipe(id string, o obj, into *registry.PackRecipes) registry.PackDye {
 
 // imbueRecipe reads a crafting_imbue recipe.
 // vanilla: ImbueRecipe.MAP_CODEC, ImbueRecipe.display
-func imbueRecipe(id string, o obj, into *registry.PackRecipes) registry.PackImbue {
+func (decoder ResourceDecoder) imbueRecipe(id string, o obj, into *registry.PackRecipes) registry.PackImbue {
 	display, group := specialBase(id, o)
-	source, material := recipeIngredient(required(o, "source")), recipeIngredient(required(o, "material"))
-	item, count, patch := recipeResult(o)
+	source, material := decoder.recipeIngredient(required(o, "source")), decoder.recipeIngredient(required(o, "material"))
+	item, count, patch := decoder.recipeResult(o)
 	keepResult(into, id, patch)
 	display.ResultID, display.ResultCount = item, count
 	display.Shaped, display.Width, display.Height = true, 3, 3

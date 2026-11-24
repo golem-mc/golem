@@ -51,44 +51,48 @@ var ErrBuiltInRecipeType = errors.New("recipe type is built in and not read from
 // file that does not decode adds nothing.
 // vanilla: RecipeManager.prepare
 func DecodeRecipe(id string, data []byte, into *registry.PackRecipes) (err error) {
+	return liveResourceDecoder().DecodeRecipe(id, data, into)
+}
+
+func (decoder ResourceDecoder) DecodeRecipe(id string, data []byte, into *registry.PackRecipes) (err error) {
 	defer recoverLoot(&err)
 	o := object(parseJSON(data), "recipe")
 	kind := registry.Qualify(requireStr(o, "type"))
 	switch kind {
 	case "minecraft:crafting_shaped":
-		into.Crafting = append(into.Crafting, shapedRecipe(id, o, into))
+		into.Crafting = append(into.Crafting, decoder.shapedRecipe(id, o, into))
 	case "minecraft:crafting_shapeless":
-		into.Crafting = append(into.Crafting, shapelessRecipe(id, o, into))
+		into.Crafting = append(into.Crafting, decoder.shapelessRecipe(id, o, into))
 	case "minecraft:crafting_transmute":
-		into.Transmute = append(into.Transmute, transmuteRecipe(id, o, into))
+		into.Transmute = append(into.Transmute, decoder.transmuteRecipe(id, o, into))
 	case "minecraft:crafting_dye":
-		into.Dye = append(into.Dye, dyeRecipe(id, o, into))
+		into.Dye = append(into.Dye, decoder.dyeRecipe(id, o, into))
 	case "minecraft:crafting_imbue":
-		into.Imbue = append(into.Imbue, imbueRecipe(id, o, into))
+		into.Imbue = append(into.Imbue, decoder.imbueRecipe(id, o, into))
 	case "minecraft:brewing":
-		into.Brewing = append(into.Brewing, brewingRecipes(id, o)...)
+		into.Brewing = append(into.Brewing, decoder.brewingRecipes(id, o)...)
 	case "minecraft:stonecutting":
-		result, count, patch := recipeResult(o)
+		result, count, patch := decoder.recipeResult(o)
 		keepResult(into, id, patch)
-		for _, item := range recipeIngredient(required(o, "ingredient")).Items {
+		for _, item := range decoder.recipeIngredient(required(o, "ingredient")).Items {
 			into.Stonecutting = append(into.Stonecutting, registry.StonecutterRecipe{ID: id, Input: item, ResultID: result, ResultCount: count})
 		}
 	case "minecraft:smithing_transform":
-		result, count, patch := recipeResult(o)
+		result, count, patch := decoder.recipeResult(o)
 		keepResult(into, id, patch)
 		into.SmithingTransform = append(into.SmithingTransform, registry.SmithingTransformRecipe{
-			ID: id, Template: optionalIngredient(o, "template"), Base: recipeIngredient(required(o, "base")).Items,
-			Addition: optionalIngredient(o, "addition"), ResultID: result, ResultCount: count,
+			ID: id, Template: decoder.optionalIngredient(o, "template"), Base: decoder.recipeIngredient(required(o, "base")).Items,
+			Addition: decoder.optionalIngredient(o, "addition"), ResultID: result, ResultCount: count,
 		})
 	case "minecraft:smithing_trim":
 		into.SmithingTrim = append(into.SmithingTrim, registry.SmithingTrimRecipe{
-			ID: id, Template: recipeIngredient(required(o, "template")).Items, Base: recipeIngredient(required(o, "base")).Items,
-			Addition: recipeIngredient(required(o, "addition")).Items, Pattern: trimPattern(required(o, "pattern")),
+			ID: id, Template: decoder.recipeIngredient(required(o, "template")).Items, Base: decoder.recipeIngredient(required(o, "base")).Items,
+			Addition: decoder.recipeIngredient(required(o, "addition")).Items, Pattern: trimPattern(required(o, "pattern")),
 		})
 	default:
 		for k, cooking := range cookingTypes {
 			if cooking.name == kind {
-				into.Cooking[k] = append(into.Cooking[k], cookingRecipe(id, o, cooking.categories, into))
+				into.Cooking[k] = append(into.Cooking[k], decoder.cookingRecipe(id, o, cooking.categories, into))
 				return nil
 			}
 		}
@@ -116,20 +120,20 @@ func recipeItem(name string) int32 {
 // count, and the component patch the object may carry. A component the
 // stored-stack reader refuses refuses the recipe.
 // vanilla: ItemStackTemplate.CODEC
-func recipeResult(o obj) (item, count int32, patch []registry.ResultComponent) {
-	return resultTemplate(required(o, "result"), true)
+func (decoder ResourceDecoder) recipeResult(o obj) (item, count int32, patch []registry.ResultComponent) {
+	return decoder.resultTemplate(required(o, "result"), true)
 }
 
 // resultTemplate reads a result; needID false allows an object without an id,
 // which makes item 0, the input's item.
 // vanilla: ItemStackTemplate.CODEC, TransmuteResult.CODEC
-func resultTemplate(v any, needID bool) (item, count int32, patch []registry.ResultComponent) {
+func (decoder ResourceDecoder) resultTemplate(v any, needID bool) (item, count int32, patch []registry.ResultComponent) {
 	switch r := v.(type) {
 	case string:
 		return recipeItem(r), 1, nil
 	case map[string]any:
 		if comps, ok := r["components"]; ok {
-			patch = resultPatch(object(comps, "components"))
+			patch = decoder.resultPatch(object(comps, "components"))
 		}
 		count = 1
 		if _, ok := r["count"]; ok {
@@ -151,7 +155,7 @@ func resultTemplate(v any, needID bool) (item, count int32, patch []registry.Res
 
 // resultPatch reads a result's "components" in the component codecs' shapes.
 // vanilla: DataComponentPatch.CODEC
-func resultPatch(comps obj) []registry.ResultComponent {
+func (decoder ResourceDecoder) resultPatch(comps obj) []registry.ResultComponent {
 	var patch []registry.ResultComponent
 	var probe protocol.ItemStack
 	for _, name := range sortedKeys(comps) {
@@ -159,7 +163,7 @@ func resultPatch(comps obj) []registry.ResultComponent {
 		if err != nil || n == 0 {
 			fail("Failed to read %s", name)
 		}
-		if !registry.ReadComponent(&probe, name, tag) {
+		if !decoder.tags.ReadComponent(&probe, name, tag) {
 			fail("Failed to decode %s: %s", name, snbt(comps[name]))
 		}
 		patch = append(patch, registry.ResultComponent{Name: name, Value: tag})
@@ -192,12 +196,12 @@ type ingredient struct {
 // recipeIngredient reads an item, a list of items or a #tag, which must hold
 // at least one item.
 // vanilla: Ingredient.CODEC
-func recipeIngredient(v any) ingredient {
+func (decoder ResourceDecoder) recipeIngredient(v any) ingredient {
 	ing := ingredient{}
 	if s, ok := v.(string); ok && strings.HasPrefix(s, "#") {
 		ing.Tag = registry.Qualify(s[1:])
 	}
-	for _, name := range holderSet(v, "item", registry.ItemTagMembers) {
+	for _, name := range holderSet(v, "item", decoder.tags.ItemTagMembers) {
 		ing.Items = append(ing.Items, recipeItem(name))
 	}
 	if ing.Tag == "" {
@@ -213,12 +217,12 @@ func recipeIngredient(v any) ingredient {
 
 // optionalIngredient is recipeIngredient for a field a smithing recipe may
 // leave out, nil when it does.
-func optionalIngredient(o obj, key string) []int32 {
+func (decoder ResourceDecoder) optionalIngredient(o obj, key string) []int32 {
 	v, ok := o[key]
 	if !ok {
 		return nil
 	}
-	return recipeIngredient(v).Items
+	return decoder.recipeIngredient(v).Items
 }
 
 // bookSquare is an ingredient as the recipe book's display carries it: the tag
@@ -252,13 +256,13 @@ func bookGroup(o obj) string {
 // craftingBase reads what shaped and shapeless recipes share: the result, the
 // book category, the group and the notification flag.
 // vanilla: CraftingRecipe.CraftingBookInfo, Recipe.CommonInfo
-func craftingBase(id string, o obj, into *registry.PackRecipes) registry.PackCrafting {
+func (decoder ResourceDecoder) craftingBase(id string, o obj, into *registry.PackRecipes) registry.PackCrafting {
 	category := bookCategory(o, "misc")
 	categoryID, ok := craftingCategories[category]
 	if !ok {
 		fail("unknown crafting category %q", category)
 	}
-	result, count, patch := recipeResult(o)
+	result, count, patch := decoder.recipeResult(o)
 	keepResult(into, id, patch)
 	return registry.PackCrafting{
 		Name: id, Category: categoryID, ResultID: result, ResultCount: count,
@@ -269,14 +273,14 @@ func craftingBase(id string, o obj, into *registry.PackRecipes) registry.PackCra
 
 // shapelessRecipe reads one to nine ingredients, in any arrangement.
 // vanilla: ShapelessRecipe.MAP_CODEC
-func shapelessRecipe(id string, o obj, into *registry.PackRecipes) registry.PackCrafting {
-	recipe := craftingBase(id, o, into)
+func (decoder ResourceDecoder) shapelessRecipe(id string, o obj, into *registry.PackRecipes) registry.PackCrafting {
+	recipe := decoder.craftingBase(id, o, into)
 	ingredients := list(required(o, "ingredients"), "ingredients")
 	if len(ingredients) < 1 || len(ingredients) > 9 {
 		fail("a shapeless recipe takes 1 to 9 ingredients, not %d", len(ingredients))
 	}
 	for _, v := range ingredients {
-		ing := recipeIngredient(v)
+		ing := decoder.recipeIngredient(v)
 		recipe.Squares = append(recipe.Squares, bookSquare(ing))
 		recipe.Items = append(recipe.Items, ing.Items)
 	}
@@ -287,8 +291,8 @@ func shapelessRecipe(id string, o obj, into *registry.PackRecipes) registry.Pack
 // each symbol stands for. The pattern is shrunk to the smallest box holding
 // every symbol, so the recipe matches wherever that box fits in the grid.
 // vanilla: ShapedRecipePattern.Data, ShapedRecipePattern.unpack
-func shapedRecipe(id string, o obj, into *registry.PackRecipes) registry.PackCrafting {
-	recipe := craftingBase(id, o, into)
+func (decoder ResourceDecoder) shapedRecipe(id string, o obj, into *registry.PackRecipes) registry.PackCrafting {
+	recipe := decoder.craftingBase(id, o, into)
 	var rows [][]rune
 	for _, row := range list(required(o, "pattern"), "pattern") {
 		rows = append(rows, []rune(str(row, "a pattern row")))
@@ -306,7 +310,7 @@ func shapedRecipe(id string, o obj, into *registry.PackRecipes) registry.PackCra
 		if r := []rune(symbol); len(r) != 1 || r[0] == ' ' {
 			fail("%q is not a valid key symbol: one character, not a space", symbol)
 		} else {
-			keys[r[0]] = recipeIngredient(v)
+			keys[r[0]] = decoder.recipeIngredient(v)
 		}
 	}
 	rows = shrinkPattern(rows)
@@ -368,18 +372,18 @@ func shrinkPattern(rows [][]rune) [][]rune {
 // Codec.INT truncates a fraction and wraps a number past int range to its low
 // 32 bits (Gson LazilyParsedNumber.intValue).
 // vanilla: AbstractCookingRecipe.cookingMapCodec, AbstractCookingRecipe.display
-func cookingRecipe(id string, o obj, categories map[string]int32, into *registry.PackRecipes) registry.PackCooking {
+func (decoder ResourceDecoder) cookingRecipe(id string, o obj, categories map[string]int32, into *registry.PackRecipes) registry.PackCooking {
 	category := bookCategory(o, "misc")
 	categoryID, ok := categories[category]
 	if !ok {
 		fail("unknown cooking category %q", category)
 	}
-	ing := recipeIngredient(required(o, "ingredient"))
+	ing := decoder.recipeIngredient(required(o, "ingredient"))
 	square := bookSquare(ing)
 	if square.Tag != "" {
 		square.Items = ing.Items
 	}
-	result, count, patch := recipeResult(o)
+	result, count, patch := decoder.recipeResult(o)
 	keepResult(into, id, patch)
 	experience := optNum(o, "experience", 0)
 	required(o, "cookingtime")

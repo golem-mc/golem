@@ -103,7 +103,7 @@ func withProtectionTags(components nbt.Compound, stack protocol.ItemStack) nbt.C
 // damage_resistant value on the stack; false for a value the codec refuses,
 // modeled false for any other name.
 // vanilla: Unit.CODEC, DeathProtection.CODEC, DamageResistant.CODEC
-func readProtectionComponent(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
+func (lookup *TagLookup) readProtectionComponent(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
 	switch name {
 	case "minecraft:glider":
 		// Unit.CODEC takes any map and keeps nothing of it.
@@ -132,7 +132,7 @@ func readProtectionComponent(stack *protocol.ItemStack, name string, value nbt.T
 		if !has {
 			return false, true
 		}
-		set, ok := damageSetOf(field)
+		set, ok := lookup.damageSetOf(field)
 		if !ok {
 			return false, true
 		}

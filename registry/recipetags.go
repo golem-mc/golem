@@ -1,20 +1,13 @@
 package registry
 
-import "sync/atomic"
-
-// itemTagsPacked is set while the data packs change the item tags, which is
-// when the built-in recipes' tag ingredients no longer match the generated
-// expansion.
-var itemTagsPacked atomic.Bool
-
 // noItem fills an ingredient whose tag collects nothing: it keeps the square
 // occupied and matches no stack.
 var noItem = Ingredient{-1}
 
 // resolveItemTag returns a resolver from an item tag name to the items it
 // collects in the tags in force.
-func resolveItemTag() func(tag string) Ingredient {
-	byName := itemTagIDs(tagsNow.Load().builtin)
+func resolveItemTag(lookup *TagLookup) func(tag string) Ingredient {
+	byName := itemTagIDs(lookup.builtin)
 	return func(tag string) Ingredient {
 		if ids := byName[tag]; len(ids) > 0 {
 			return ids
@@ -29,10 +22,11 @@ func resolveItemTag() func(tag string) Ingredient {
 // recipe book displays, which keep them beside the expanded items.
 // vanilla: Ingredient (a HolderSet bound by ReloadableServerResources.updateStaticRegistryTags)
 func retagBuiltins(s *recipeSet, replaced map[string]bool) {
-	if !itemTagsPacked.Load() {
+	lookup := CurrentTagLookup()
+	if !lookup.itemTagsPacked {
 		return
 	}
-	resolve := resolveItemTag()
+	resolve := resolveItemTag(lookup)
 	square := func(b BookIngredient, old Ingredient) Ingredient {
 		if b.Tag == "" {
 			return old

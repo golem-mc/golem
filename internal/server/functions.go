@@ -38,13 +38,13 @@ func (s *Server) loadFunctions() error {
 	if err != nil {
 		return err
 	}
-	s.applyPackTags(packTags)
-	// Advancement criteria resolve item tags against the loaded tags.
-	packAdvancements, hiddenAdvancements, err := loadPackAdvancements(dirs, skip)
+	tagsLookup, publishTags := s.preparePackTags(packTags)
+	slotSources := map[string]registry.SlotSource{}
+	decoder := datapack.NewResourceDecoder(tagsLookup, slotSources)
+	packAdvancements, hiddenAdvancements, err := loadPackAdvancements(dirs, decoder, skip)
 	if err != nil {
 		return err
 	}
-	s.applyPackAdvancements(packAdvancements, hiddenAdvancements)
 	// Before the loot: a table's context provider names resolve against them.
 	ints, floats, err := loadPackContextProviders(dirs, skip)
 	if err != nil {
@@ -52,20 +52,26 @@ func (s *Server) loadFunctions() error {
 	}
 	registry.ApplyPackContextProviders(ints, floats)
 	// Before the loot: a slots entry's source names resolve against them.
-	if err := loadPackSlotSources(dirs, skip); err != nil {
+	if err := loadPackSlotSources(dirs, decoder, slotSources, skip); err != nil {
 		return err
 	}
-	// After the tags: a table's tag entries resolve against the loaded tags.
-	tables, predicates, modifiers, err := loadPackLoot(dirs, skip)
+	tables, predicates, modifiers, err := loadPackLoot(dirs, decoder, skip)
 	if err != nil {
 		return err
 	}
-	s.applyPackLoot(tables, predicates, modifiers, hiddenLoot(dirs, tables))
-	// After the tags too: an ingredient's tag resolves against the loaded tags.
-	recipes, err := loadPackRecipes(dirs, skip)
+	recipes, err := loadPackRecipes(dirs, decoder, skip)
 	if err != nil {
 		return err
 	}
+	hiddenTables := hiddenLoot(dirs, tables)
+	// vanilla: ReloadableServerResources.updateComponentsAndStaticRegistryTags
+	if publishTags {
+		tagsLookup.Publish()
+		s.packTagsApplied = len(packTags) > 0
+	}
+	registry.ApplyPackSlotSources(slotSources)
+	s.applyPackAdvancements(packAdvancements, hiddenAdvancements)
+	s.applyPackLoot(tables, predicates, modifiers, hiddenTables)
 	s.applyPackRecipes(recipes)
 	// A new recipe or ingredient tag can make unchanged contents tickable.
 	for _, dim := range s.allDims() {

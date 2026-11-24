@@ -250,7 +250,7 @@ func newRecipeSet(s *recipeSet) *recipeSet {
 // in force. An empty set with no item tag changed restores the built-in recipes.
 // vanilla: RecipeManager.prepare, RecipeManager.apply
 func ApplyPackRecipes(p PackRecipes) {
-	if p.Empty() && !itemTagsPacked.Load() {
+	if p.Empty() && !CurrentTagLookup().itemTagsPacked {
 		recipesNow.Store(nil)
 		return
 	}

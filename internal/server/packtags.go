@@ -58,17 +58,18 @@ func loadPackTags(dirs []string, skip func(file string, err error)) (registry.Pa
 // unappliedTagRegistries get built-in tags sent but pack tags ignored.
 var unappliedTagRegistries = []string{"minecraft:game_event", "minecraft:potion", "minecraft:point_of_interest_type"}
 
-// applyPackTags layers the tags over the built-ins for every lookup and the
-// next Update Tags. The tables are process-wide, so a server without pack
-// tags leaves them alone unless it changed them itself.
-func (s *Server) applyPackTags(tags registry.PackTags) {
+// preparePackTags builds a lookup for decoding and reports whether to publish
+// it. A server without pack tags reuses the process-wide tags unless it had
+// tags of its own to clear.
+func (s *Server) preparePackTags(tags registry.PackTags) (*registry.TagLookup, bool) {
 	if len(tags) == 0 && !s.packTagsApplied {
-		return
+		return registry.CurrentTagLookup(), false
 	}
-	s.packTagsApplied = len(tags) > 0
-	for _, problem := range registry.ApplyPackTags(tags) {
+	lookup, problems := registry.BuildPackTags(tags)
+	for _, problem := range problems {
 		slog.Error("Couldn't load tag " + problem)
 	}
+	return lookup, true
 }
 
 // builtinTagNames lists the built-in tags of a registry.

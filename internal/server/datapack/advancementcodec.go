@@ -78,6 +78,10 @@ var variantComponents = map[string]string{
 // id. A file without criteria, or with requirements that do not name exactly
 // its criteria, is refused as vanilla refuses it.
 func DecodeAdvancement(id string, data []byte) (adv registry.Advancement, err error) {
+	return liveResourceDecoder().DecodeAdvancement(id, data)
+}
+
+func (decoder ResourceDecoder) DecodeAdvancement(id string, data []byte) (adv registry.Advancement, err error) {
 	defer recoverLoot(&err)
 	o := object(parseJSON(data), "advancement")
 	ignoreKeys(id, "advancement", o, "parent", "display", "rewards", "criteria", "requirements", "sends_telemetry_event")
@@ -86,7 +90,7 @@ func DecodeAdvancement(id string, data []byte) (adv registry.Advancement, err er
 		adv.Parent = qualifiedID(requireStr(o, "parent"), "parent")
 	}
 	if d, ok := o["display"]; ok {
-		adv.Display = advDisplay(id, object(d, "display"))
+		adv.Display = decoder.advDisplay(id, object(d, "display"))
 	}
 	if r, ok := o["rewards"]; ok {
 		ro := object(r, "rewards")
@@ -117,7 +121,7 @@ func DecodeAdvancement(id string, data []byte) (adv registry.Advancement, err er
 	}
 	names := sortedKeys(criteria)
 	for _, name := range names {
-		adv.Criteria = append(adv.Criteria, advCriterion(id, name, object(criteria[name], "criterion")))
+		adv.Criteria = append(adv.Criteria, decoder.advCriterion(id, name, object(criteria[name], "criterion")))
 	}
 	adv.Requirements = advRequirements(o["requirements"], names)
 	for _, c := range adv.Criteria {
@@ -163,9 +167,9 @@ func advRequirements(v any, names []string) [][]string {
 	return groups
 }
 
-func advDisplay(id string, o obj) *registry.AdvancementDisplay {
+func (decoder ResourceDecoder) advDisplay(id string, o obj) *registry.AdvancementDisplay {
 	ignoreKeys(id, "display", o, "icon", "title", "description", "frame", "background", "show_toast", "announce_to_chat", "hidden")
-	stack := tradeResult(required(o, "icon"))
+	stack := decoder.tradeResult(required(o, "icon"))
 	var iconStack *protocol.ItemStack
 	if icon, ok := o["icon"].(obj); ok {
 		ignoreKeys(id, "icon", icon, "id", "count", "components")
@@ -243,9 +247,9 @@ func asObjOr(v any) obj {
 
 // advItems reads one item reference, a list of them or a #tag, as the sorted
 // item IDs they cover.
-func advItems(v any) []int32 {
+func (decoder ResourceDecoder) advItems(v any) []int32 {
 	var ids []int32
-	for _, name := range holderSet(v, "item", registry.ItemTagMembers) {
+	for _, name := range holderSet(v, "item", decoder.tags.ItemTagMembers) {
 		id, ok := registry.ItemID(name)
 		if !ok {
 			fail("unknown item %s", name)
@@ -261,7 +265,7 @@ func advItems(v any) []int32 {
 // the item, nil for the others. It is false for a predicate with a key this
 // model does not read.
 // vanilla: ItemPredicate.CODEC
-func advItemPredicates(conditions obj) (ids [][]int32, tests []*registry.ItemPredicate, ok bool) {
+func (decoder ResourceDecoder) advItemPredicates(conditions obj) (ids [][]int32, tests []*registry.ItemPredicate, ok bool) {
 	for i, p := range list(conditions["items"], "items") {
 		predicate := object(p, "an item predicate")
 		if !keysWithin(predicate, "items", "count", "components", "predicates") {
@@ -270,7 +274,7 @@ func advItemPredicates(conditions obj) (ids [][]int32, tests []*registry.ItemPre
 		var test *registry.ItemPredicate
 		if !keysAre(predicate, "items") && len(predicate) > 0 {
 			needsFullItemPredicate(predicate)
-			full := registry.DecodeItemPredicate(nbtOf(predicate))
+			full := decoder.tags.DecodeItemPredicate(nbtOf(predicate))
 			test = &full
 			if tests == nil {
 				tests = make([]*registry.ItemPredicate, i, len(list(conditions["items"], "items")))
@@ -281,7 +285,7 @@ func advItemPredicates(conditions obj) (ids [][]int32, tests []*registry.ItemPre
 		}
 		var accepted []int32
 		if v, has := predicate["items"]; has {
-			accepted = advItems(v)
+			accepted = decoder.advItems(v)
 		}
 		ids = append(ids, accepted)
 	}
@@ -290,8 +294,8 @@ func advItemPredicates(conditions obj) (ids [][]int32, tests []*registry.ItemPre
 
 // advSetItems fills c.Items from conditions["items"], or marks c
 // unmodelled for a predicate that tests more than the item.
-func advSetItems(c *registry.AdvancementCriterion, conditions obj) {
-	items, tests, ok := advItemPredicates(conditions)
+func (decoder ResourceDecoder) advSetItems(c *registry.AdvancementCriterion, conditions obj) {
+	items, tests, ok := decoder.advItemPredicates(conditions)
 	if !ok || tests != nil {
 		c.Unmodelled = true
 		return
@@ -301,8 +305,8 @@ func advSetItems(c *registry.AdvancementCriterion, conditions obj) {
 
 // advSetTestedItems is advSetItems for a trigger that tests whole stacks: a
 // predicate beyond the item IDs lands in c.ItemTests.
-func advSetTestedItems(c *registry.AdvancementCriterion, conditions obj) {
-	items, tests, ok := advItemPredicates(conditions)
+func (decoder ResourceDecoder) advSetTestedItems(c *registry.AdvancementCriterion, conditions obj) {
+	items, tests, ok := decoder.advItemPredicates(conditions)
 	if !ok {
 		c.Unmodelled = true
 		return
@@ -311,16 +315,16 @@ func advSetTestedItems(c *registry.AdvancementCriterion, conditions obj) {
 }
 
 // advSetSingleItem is advSetItems for the one item predicate under key.
-func advSetSingleItem(c *registry.AdvancementCriterion, conditions obj, key string) {
+func (decoder ResourceDecoder) advSetSingleItem(c *registry.AdvancementCriterion, conditions obj, key string) {
 	if _, ok := conditions[key]; ok {
-		advSetItems(c, obj{"items": []any{conditions[key]}})
+		decoder.advSetItems(c, obj{"items": []any{conditions[key]}})
 	}
 }
 
 // advSetTestedItem is advSetTestedItems for the one item predicate under key.
-func advSetTestedItem(c *registry.AdvancementCriterion, conditions obj, key string) {
+func (decoder ResourceDecoder) advSetTestedItem(c *registry.AdvancementCriterion, conditions obj, key string) {
 	if _, ok := conditions[key]; ok {
-		advSetTestedItems(c, obj{"items": []any{conditions[key]}})
+		decoder.advSetTestedItems(c, obj{"items": []any{conditions[key]}})
 	}
 }
 
@@ -460,7 +464,7 @@ func advLocation(cond obj) (registry.AdvancementCondition, bool) {
 
 // advLocations fills c.Where and c.Items from a trigger's location contexts,
 // or marks it unmodelled.
-func advLocations(contexts []any, c *registry.AdvancementCriterion) {
+func (decoder ResourceDecoder) advLocations(contexts []any, c *registry.AdvancementCriterion) {
 	for _, x := range contexts {
 		cond := object(x, "a location condition")
 		if cond["condition"] == "minecraft:match_tool" {
@@ -470,7 +474,7 @@ func advLocations(contexts []any, c *registry.AdvancementCriterion) {
 				c.Items = [][]int32{jukeboxPlayable()}
 				continue
 			}
-			advSetTestedItems(c, obj{"items": []any{predicate}})
+			decoder.advSetTestedItems(c, obj{"items": []any{predicate}})
 			continue
 		}
 		// Only item_used_on_block reads WhereBiome; elsewhere a biome stays in
@@ -535,21 +539,21 @@ func advOnly(c *registry.AdvancementCriterion, conditions obj, keys ...string) {
 
 // advCriterion reads one criterion: its trigger and the conditions the
 // server tests of that trigger.
-func advCriterion(id, name string, value obj) registry.AdvancementCriterion {
+func (decoder ResourceDecoder) advCriterion(id, name string, value obj) registry.AdvancementCriterion {
 	ignoreKeys(id, "criterion "+name, value, "trigger", "conditions")
 	trigger := qualifiedID(requireStr(value, "trigger"), "trigger")
 	if !advancementTriggers[trigger] {
 		fail("unknown trigger %s", trigger)
 	}
 	conditions := advContexts(asObjOr(value["conditions"]))
-	c := advTrigger(name, trigger, conditions)
+	c := decoder.advTrigger(name, trigger, conditions)
 	if !c.Unmodelled {
 		return c
 	}
-	if read := advLootContexts(name, trigger, conditions, c); !read.Unmodelled {
+	if read := decoder.advLootContexts(name, trigger, conditions, c); !read.Unmodelled {
 		return read
 	}
-	if combat, ok := advCombat(name, trigger, conditions); ok {
+	if combat, ok := decoder.advCombat(name, trigger, conditions); ok {
 		return combat
 	}
 	return c
@@ -562,7 +566,7 @@ func advCriterion(id, name string, value obj) registry.AdvancementCriterion {
 // AdvancementDamage. ok is false for another trigger or a condition outside
 // these or one the loot codec refuses.
 // vanilla: PlayerHurtEntityTrigger, EntityHurtPlayerTrigger, KilledTrigger
-func advCombat(name, trigger string, conditions obj) (c registry.AdvancementCriterion, ok bool) {
+func (decoder ResourceDecoder) advCombat(name, trigger string, conditions obj) (c registry.AdvancementCriterion, ok bool) {
 	var blowKey string
 	var entity bool
 	switch trigger {
@@ -580,12 +584,12 @@ func advCombat(name, trigger string, conditions obj) (c registry.AdvancementCrit
 	}
 	c = registry.AdvancementCriterion{Name: name, Trigger: trigger, Damage: &registry.AdvancementDamage{}}
 	if v, has := conditions["player"]; has {
-		if c.Player, ok = advLootConditions(v); !ok {
+		if c.Player, ok = decoder.advLootConditions(v); !ok {
 			return c, false
 		}
 	}
 	if v, has := conditions["entity"]; has {
-		conds, ok := advLootConditions(v)
+		conds, ok := decoder.advLootConditions(v)
 		if !ok {
 			return c, false
 		}
@@ -622,14 +626,14 @@ func advCombat(name, trigger string, conditions obj) (c registry.AdvancementCrit
 	if blowKey == "killing_blow" || blow["type"] != nil {
 		terms = append(terms, obj{"condition": "minecraft:damage_source_properties", "predicate": map[string]any(source)})
 	}
-	c.Damage.Conds, ok = advLootConditions(terms)
+	c.Damage.Conds, ok = decoder.advLootConditions(terms)
 	return c, ok
 }
 
 // advLootContexts re-reads a criterion the bespoke readers left unmodelled
 // without its entity conditions, which it keeps as the loot codec's decoding,
 // or returns unmodelled when it still is without them or the codec refuses one.
-func advLootContexts(name, trigger string, conditions obj, unmodelled registry.AdvancementCriterion) registry.AdvancementCriterion {
+func (decoder ResourceDecoder) advLootContexts(name, trigger string, conditions obj, unmodelled registry.AdvancementCriterion) registry.AdvancementCriterion {
 	rest := maps.Clone(conditions)
 	var keys []string
 	for _, key := range advLootKeys(trigger) {
@@ -641,7 +645,7 @@ func advLootContexts(name, trigger string, conditions obj, unmodelled registry.A
 	if len(keys) == 0 {
 		return unmodelled
 	}
-	c := advTrigger(name, trigger, rest)
+	c := decoder.advTrigger(name, trigger, rest)
 	if c.Unmodelled {
 		return unmodelled
 	}
@@ -653,7 +657,7 @@ func advLootContexts(name, trigger string, conditions obj, unmodelled registry.A
 				return unmodelled
 			}
 			for _, victim := range victims {
-				conds, ok := advLootConditions(victim)
+				conds, ok := decoder.advLootConditions(victim)
 				if !ok {
 					return unmodelled
 				}
@@ -661,7 +665,7 @@ func advLootContexts(name, trigger string, conditions obj, unmodelled registry.A
 			}
 			continue
 		}
-		conds, ok := advLootConditions(conditions[key])
+		conds, ok := decoder.advLootConditions(conditions[key])
 		if !ok {
 			return unmodelled
 		}
@@ -679,12 +683,12 @@ func advLootContexts(name, trigger string, conditions obj, unmodelled registry.A
 
 // advLootConditions decodes one context condition's conjuncts with the loot
 // codec, or false for one it refuses.
-func advLootConditions(terms any) (out []registry.LootCondition, ok bool) {
+func (decoder ResourceDecoder) advLootConditions(terms any) (out []registry.LootCondition, ok bool) {
 	var err error
 	func() {
 		defer recoverLoot(&err)
 		for _, term := range terms.([]any) {
-			out = append(out, conditionHolder(advTyped(term)))
+			out = append(out, decoder.conditionHolder(advTyped(term)))
 		}
 	}()
 	return out, err == nil
@@ -738,19 +742,19 @@ func advLootKeys(trigger string) []string {
 }
 
 // advTrigger reads the conditions the server tests of one trigger.
-func advTrigger(name, trigger string, conditions obj) registry.AdvancementCriterion {
+func (decoder ResourceDecoder) advTrigger(name, trigger string, conditions obj) registry.AdvancementCriterion {
 	c := registry.AdvancementCriterion{Name: name, Trigger: trigger}
 	only := func(keys ...string) { advOnly(&c, conditions, keys...) }
 	switch trigger {
 	case "minecraft:consume_item", "minecraft:shot_crossbow":
 		only("item")
-		advSetTestedItem(&c, conditions, "item")
+		decoder.advSetTestedItem(&c, conditions, "item")
 	case "minecraft:filled_bucket", "minecraft:fishing_rod_hooked":
 		only("item")
-		advSetTestedItem(&c, conditions, "item")
+		decoder.advSetTestedItem(&c, conditions, "item")
 	case "minecraft:inventory_changed":
 		only("items", "slots")
-		advSetTestedItems(&c, conditions)
+		decoder.advSetTestedItems(&c, conditions)
 		slots := asObjOr(conditions["slots"])
 		advOnly(&c, slots, "occupied", "full", "empty")
 		for key, bound := range map[string]*registry.AdvancementRange{"occupied": &c.Occupied, "full": &c.Full, "empty": &c.Empty} {
@@ -760,7 +764,7 @@ func advTrigger(name, trigger string, conditions obj) registry.AdvancementCriter
 		}
 	case "minecraft:enchanted_item":
 		only("item", "levels")
-		advSetTestedItem(&c, conditions, "item")
+		decoder.advSetTestedItem(&c, conditions, "item")
 		if v, ok := conditions["levels"]; ok {
 			c.Levels = advDoubleRange("levels", v)
 		}
@@ -780,7 +784,7 @@ func advTrigger(name, trigger string, conditions obj) registry.AdvancementCriter
 			c.To = registry.Qualify(str(s, "to"))
 		}
 	default:
-		advCriterionEntities(&c, conditions)
+		decoder.advCriterionEntities(&c, conditions)
 	}
 	return c
 }
@@ -863,7 +867,7 @@ func advCondition(v any) any {
 
 // advCriterionEntities is advCriterion for the triggers that read entities,
 // blocks and positions.
-func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
+func (decoder ResourceDecoder) advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 	only := func(keys ...string) { advOnly(c, conditions, keys...) }
 	switch c.Trigger {
 	case "minecraft:player_killed_entity":
@@ -879,22 +883,22 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 		}
 	case "minecraft:player_interacted_with_entity", "minecraft:player_sheared_equipment":
 		only("item", "entity", "player")
-		advSetTestedItem(c, conditions, "item")
-		e, baby, adult, body, undamaged, ok := advBodyPredicate(conditions["entity"])
+		decoder.advSetTestedItem(c, conditions, "item")
+		e, baby, adult, body, undamaged, ok := decoder.advBodyPredicate(conditions["entity"])
 		c.Entity, c.Variant, c.Baby, c.Adult, c.Body, c.BodyUndamaged = e.typ, e.variant, baby, adult, body, undamaged
 		c.Unmodelled = c.Unmodelled || !ok
 		if player, has := conditions["player"]; has {
-			worn, ok := advNotWearing(player)
+			worn, ok := decoder.advNotWearing(player)
 			c.NotWearing, c.Unmodelled = worn, c.Unmodelled || !ok
 		}
 	case "minecraft:thrown_item_picked_up_by_entity", "minecraft:thrown_item_picked_up_by_player":
 		only("item", "entity", "player")
-		advSetTestedItem(c, conditions, "item")
+		decoder.advSetTestedItem(c, conditions, "item")
 		e, adult, ok := advAdultPredicate(conditions["entity"])
 		c.Entity, c.Adult = e.typ, adult
 		c.Unmodelled = c.Unmodelled || !ok || e.dimension != ""
 		if player, has := conditions["player"]; has {
-			worn, ok := advNotWearing(player)
+			worn, ok := decoder.advNotWearing(player)
 			c.NotWearing, c.Unmodelled = worn, c.Unmodelled || !ok
 		}
 	case "minecraft:bred_animals":
@@ -923,13 +927,13 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 			c.Entity, c.Variant = e.typ, e.variant
 		}
 	case "minecraft:location":
-		advLocationTrigger(c, conditions)
+		decoder.advLocationTrigger(c, conditions)
 	case "minecraft:placed_block", "minecraft:item_used_on_block", "minecraft:allay_drop_item_on_block",
 		"minecraft:default_block_use", "minecraft:any_block_use":
 		only("location", "player")
 		_, player := conditions["player"]
 		c.Unmodelled = player
-		advLocations(list(conditions["location"], "location"), c)
+		decoder.advLocations(list(conditions["location"], "location"), c)
 	case "minecraft:villager_trade":
 		only("player")
 		if _, ok := conditions["player"]; ok {
@@ -956,10 +960,10 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 		_, hasSource := conditions["source"]
 		c.Unmodelled = c.Unmodelled || !ok || source.dimension != "" || source.variant != "" || hasSource && source.typ == ""
 	case "minecraft:player_hurt_entity":
-		advHurtEntity(c, conditions)
+		decoder.advHurtEntity(c, conditions)
 	case "minecraft:killed_by_arrow":
 		only("fired_from_weapon", "victims", "unique_entity_types")
-		advSetTestedItem(c, conditions, "fired_from_weapon")
+		decoder.advSetTestedItem(c, conditions, "fired_from_weapon")
 		advVictims(c, conditions)
 		if v, ok := conditions["unique_entity_types"]; ok {
 			c.UniqueMin, c.UniqueMax = advRange("unique entity types", v)
@@ -985,13 +989,13 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 		advFallAfterExplosion(c, conditions)
 	case "minecraft:used_totem":
 		only("item")
-		advSetTestedItem(c, conditions, "item")
+		decoder.advSetTestedItem(c, conditions, "item")
 	case "minecraft:entity_hurt_player":
 		advHurtPlayer(c, conditions)
 	case "minecraft:target_hit":
 		advTargetHit(c, conditions)
 	case "minecraft:started_riding", "minecraft:item_durability_changed", "minecraft:ride_entity_in_lava":
-		advRiding(c, conditions)
+		decoder.advRiding(c, conditions)
 	case "minecraft:enter_block":
 		only("block", "blocks", "state")
 		block, ok := advSingleName(conditions, "block", "blocks")
@@ -1021,11 +1025,11 @@ func advCriterionEntities(c *registry.AdvancementCriterion, conditions obj) {
 		only("recipe_id", "recipes", "ingredients")
 		c.RecipeID = advRequiredName(c, conditions, "recipe_id", "recipes")
 		if ingredients, ok := conditions["ingredients"]; ok {
-			advSetTestedItems(c, obj{"items": ingredients})
+			decoder.advSetTestedItems(c, obj{"items": ingredients})
 		}
 	case "minecraft:using_item":
 		only("item", "player")
-		advSetTestedItem(c, conditions, "item")
+		decoder.advSetTestedItem(c, conditions, "item")
 		if player, ok := conditions["player"]; ok {
 			looking, ok := advLookingAt(player)
 			c.LookingAt, c.Unmodelled = looking, c.Unmodelled || !ok
@@ -1050,7 +1054,7 @@ func advVictims(c *registry.AdvancementCriterion, conditions obj) {
 
 // advLocationTrigger reads the player's biome, structure, feet slot and
 // stepping_on conditions.
-func advLocationTrigger(c *registry.AdvancementCriterion, conditions obj) {
+func (decoder ResourceDecoder) advLocationTrigger(c *registry.AdvancementCriterion, conditions obj) {
 	if len(conditions) == 0 {
 		return
 	}
@@ -1082,7 +1086,7 @@ func advLocationTrigger(c *registry.AdvancementCriterion, conditions obj) {
 		return
 	}
 	if hasEquipment {
-		c.Feet = advItems(feet["items"])
+		c.Feet = decoder.advItems(feet["items"])
 	}
 	if hasStepping {
 		check, ok := advBlockCheck(block["blocks"], nil, [3]int32{})
@@ -1323,7 +1327,7 @@ func advBabyFlag(contexts any) (rest any, baby, adult, ok bool) {
 // set in none of its armor slots: an inverted any_of of one equipment slot
 // each, covering the four with the same items. ok is false for any other
 // shape.
-func advNotWearing(contexts any) (items []int32, ok bool) {
+func (decoder ResourceDecoder) advNotWearing(contexts any) (items []int32, ok bool) {
 	l, _ := contexts.([]any)
 	if len(l) != 1 {
 		return nil, false
@@ -1347,7 +1351,7 @@ func advNotWearing(contexts any) (items []int32, ok bool) {
 			if !keysAre(p, "items") {
 				return nil, false
 			}
-			got := advItems(p["items"])
+			got := decoder.advItems(p["items"])
 			if i > 0 && !slices.Equal(got, items) {
 				return nil, false
 			}
@@ -1476,7 +1480,7 @@ func advLightningStrike(c *registry.AdvancementCriterion, conditions obj) {
 // advBodyPredicate reads an entity predicate of a type, variant and baby flag
 // with, optionally, an equipment.body item (and a damage of 0), or false for
 // one beyond them.
-func advBodyPredicate(contexts any) (e advEntity, baby, adult bool, body []int32, undamaged, ok bool) {
+func (decoder ResourceDecoder) advBodyPredicate(contexts any) (e advEntity, baby, adult bool, body []int32, undamaged, ok bool) {
 	rest, baby, adult, flagsOK := advBabyFlag(contexts)
 	rest, equipment, has := advStrip(rest, "minecraft:equipment")
 	e, ok = advEntityPredicate(rest, true)
@@ -1496,13 +1500,13 @@ func advBodyPredicate(contexts any) (e advEntity, baby, adult bool, body []int32
 		}
 		undamaged = true
 	}
-	return e, baby, adult, advItems(slot["items"]), undamaged, true
+	return e, baby, adult, decoder.advItems(slot["items"]), undamaged, true
 }
 
 // advHurtEntity reads a player_hurt_entity's modelled shapes: projectile
 // damage by one kind of shaft, or a player's mace smash that dealt at least
 // a damage.
-func advHurtEntity(c *registry.AdvancementCriterion, conditions obj) {
+func (decoder ResourceDecoder) advHurtEntity(c *registry.AdvancementCriterion, conditions obj) {
 	if !keysWithin(conditions, "damage", "entity") {
 		c.Unmodelled = true
 		return
@@ -1521,7 +1525,7 @@ func advHurtEntity(c *registry.AdvancementCriterion, conditions obj) {
 		c.Direct = qualifyRef(typ)
 	case keysAre(damage, "type", "dealt") && keysAre(direct, "minecraft:entity_type", "minecraft:equipment") &&
 		keysAre(equipment, "mainhand") && qualifyRef(typ) == "minecraft:player" && advTagIs(kind["tags"], "minecraft:mace_smash"):
-		advSetSingleItem(c, obj{"item": equipment["mainhand"]}, "item")
+		decoder.advSetSingleItem(c, obj{"item": equipment["mainhand"]}, "item")
 		dealt := advDoubleRange("dealt", damage["dealt"])
 		c.SmashMin, c.Unmodelled = dealt.Min, c.Unmodelled || !dealt.HasMin || dealt.HasMax
 	default:
@@ -1601,10 +1605,10 @@ func advBrewedPotion(c *registry.AdvancementCriterion, v any) {
 // advRiding reads started_riding, item_durability_changed and
 // ride_entity_in_lava: a held item, a distance and a player condition on
 // the dimension, the vehicle's type and one of its passengers' types.
-func advRiding(c *registry.AdvancementCriterion, conditions obj) {
+func (decoder ResourceDecoder) advRiding(c *registry.AdvancementCriterion, conditions obj) {
 	if c.Trigger == "minecraft:item_durability_changed" {
 		advOnly(c, conditions, "player", "item", "durability", "delta")
-		advSetTestedItem(c, conditions, "item")
+		decoder.advSetTestedItem(c, conditions, "item")
 		for key, bound := range map[string]*registry.AdvancementRange{"durability": &c.Durability, "delta": &c.Delta} {
 			if v, ok := conditions[key]; ok {
 				*bound = advDoubleRange(key, v)
@@ -1612,7 +1616,7 @@ func advRiding(c *registry.AdvancementCriterion, conditions obj) {
 		}
 	} else {
 		advOnly(c, conditions, "player", "item", "distance")
-		advSetSingleItem(c, conditions, "item")
+		decoder.advSetSingleItem(c, conditions, "item")
 	}
 	advDistance(c, asObjOr(conditions["distance"]))
 	v, ok := conditions["player"]
