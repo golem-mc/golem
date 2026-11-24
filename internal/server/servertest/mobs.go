@@ -1562,7 +1562,13 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 				mob.HasMooshroomVariant = true
 				continue
 			}
+			if mob.TypeID == protocol.EntityTypeArmadillo && fieldType != protocol.MetadataArmadilloState {
+				c.T.Fatalf("armadillo state field type = %d, want %d (an armadillo state)", fieldType, protocol.MetadataArmadilloState)
+			}
 			if fieldType == protocol.MetadataArmadilloState {
+				if mob.TypeID != protocol.EntityTypeArmadillo {
+					c.T.Fatalf("an armadillo state at index 18 of entity type %d, want an armadillo", mob.TypeID)
+				}
 				mob.ArmadilloState, mob.HasArmadilloState = meta.ReadVarInt(), true
 				continue
 			}
