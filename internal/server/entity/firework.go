@@ -120,7 +120,7 @@ type Firework struct {
 // gliding body a boost rocket rides (0 for free).
 // vanilla: FireworkRocketEntity.<init>
 func NewFirework(id int32, x, y, z float64, ownerID, flight, explosions, attached int32, seed int64) *Firework {
-	rng := rand.New(rand.NewSource(seed))
+	rng := NewDice(seed)
 	return &Firework{
 		rng: rng,
 		ID:  id,

@@ -132,7 +132,7 @@ func (m *Mob) RollConversionAttributes(special float32) { m.handleAttributes(spe
 // also enables door opening). A leader starts at full health unless
 // converted.
 func (m *Mob) handleAttributes(special float32, conversion bool) {
-	r := rand.New(rand.NewSource(m.lootSeed ^ attributesSalt))
+	r := NewDice(m.lootSeed ^ attributesSalt)
 	m.zombie.ReinforceBase = r.Float64() * reinforceBaseMax
 	if m.Type == TypeZombifiedPiglin {
 		// vanilla: ZombifiedPiglin.randomizeReinforcementsChance

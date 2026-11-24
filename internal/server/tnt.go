@@ -394,7 +394,7 @@ func (s *Server) newTNTEntity(w *world.World, x, y, z float64, fuse int, ownerID
 	state := registry.BlockTnt.DefaultState()
 	id := s.nextEntity()
 	seed := s.entitySeed(id)
-	dice := rand.New(rand.NewSource(seed))
+	dice := entity.NewDice(seed)
 	var vx, vy, vz float64
 	if nudge {
 		// The nudge rolls the body's own stream from its start, which the

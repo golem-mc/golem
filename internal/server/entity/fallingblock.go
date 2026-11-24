@@ -120,7 +120,7 @@ func NewFallingBlock(id int32, x, y, z, vx, vy, vz float64, blockState uint16, s
 		VX: vx, VY: vy, VZ: vz,
 		BlockState: blockState,
 		DropItem:   true,
-		Rand:       rand.New(rand.NewSource(seed)),
+		Rand:       NewDice(seed),
 	}
 }
 
@@ -198,7 +198,7 @@ func (f *FallingBlock) HurtBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
 // constructor gave has been left unset.
 func (f *FallingBlock) dice() *rand.Rand {
 	if f.Rand == nil {
-		f.Rand = rand.New(rand.NewSource(int64(f.ID)))
+		f.Rand = NewDice(int64(f.ID))
 	}
 	return f.Rand
 }

@@ -2,7 +2,6 @@ package entity
 
 import (
 	"maps"
-	"math/rand"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/effect"
@@ -153,10 +152,10 @@ func (m *Mob) loadCure(tag nbt.Compound, difficulty uint8) {
 // vanilla: Zombie.killedEntity, Villager.convertTo
 func (m *Mob) InfectedFrom(old *Mob, special float32) {
 	// CONVERSION initializes attributes, retaining the converted age and equipment.
-	m.rollBreakDoors(GoDice{rand.New(rand.NewSource(m.lootSeed ^ breakDoorSalt))}, special)
+	m.rollBreakDoors(GoDice{NewDice(m.lootSeed ^ breakDoorSalt)}, special)
 	m.RollConversionAttributes(special)
 	m.SetMetadataHealth(m.MaxHealth)
-	m.CanPickUpLoot = rand.New(rand.NewSource(m.lootSeed^lootPickupSalt)).Float64() < lootPickupOdds*float64(special)
+	m.CanPickUpLoot = NewDice(m.lootSeed^lootPickupSalt).Float64() < lootPickupOdds*float64(special)
 	m.transferVillagerData(old)
 	m.SetMetadataVillagerFinalized(true)
 }
