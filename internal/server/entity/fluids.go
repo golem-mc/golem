@@ -348,6 +348,17 @@ func (b AABB) Inflate(d float64) AABB {
 	return AABB{b.minX - d, b.minY - d, b.minZ - d, b.maxX + d, b.maxY + d, b.maxZ + d}
 }
 
+// PlayerTouchBox is the reach for entity touches. A zero vehicle box means the player is on foot.
+// vanilla: Player.aiStep
+func PlayerTouchBox(x, y, z, width, height float64, vehicle AABB) AABB {
+	hw := width / 2
+	if vehicle == (AABB{}) {
+		return NewAABB(x-hw-1, y-0.5, z-hw-1, x+hw+1, y+height+0.5, z+hw+1)
+	}
+	return NewAABB(min(x-hw, vehicle.minX)-1, min(y, vehicle.minY), min(z-hw, vehicle.minZ)-1,
+		max(x+hw, vehicle.maxX)+1, max(y+height, vehicle.maxY), max(z+hw, vehicle.maxZ)+1)
+}
+
 // centerXZ is the centre of the box's horizontal span, where a clipped
 // horizontal move leaves a body's bottom-centre position.
 func (b AABB) centerXZ() (x, z float64) {

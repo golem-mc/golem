@@ -282,7 +282,7 @@ func conditionalNode(execute *Node, name string, expected bool) *Node {
 				EntityArg:  &EntityArg{}}),
 		}},
 		{Type: NodeLiteral, Name: "predicate", Children: []*Node{
-			redirectTo(execute, &Node{Type: NodeArgument, Name: "predicate", Parser: ParserLootPredicate, Executable: true, Check: checkPredicateArgument}),
+			redirectTo(execute, &Node{Type: NodeArgument, Name: "predicate", Parser: ParserLootPredicate, Executable: true, Check: predicateArgumentCheck(nil)}),
 		}},
 		{Type: NodeLiteral, Name: "function", Children: []*Node{
 			redirectTo(execute, &Node{Type: NodeArgument, Name: "name", Parser: ParserFunction,
@@ -1472,7 +1472,7 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 		// The argument is a pack predicate's name or an inline one.
 		text, span := itemPredicateText(tokens, at+2)
 		next, ask := expectOver(src, ctxs, expected, false, func(view Source) condAnswer {
-			cond, err := parsePredicate(text)
+			cond, err := parsePredicate(text, nil)
 			if err != nil {
 				return condAnswer{}
 			}

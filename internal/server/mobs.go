@@ -492,6 +492,41 @@ type mobDrops struct {
 	by   uuid.UUID
 	x, y float64
 	z    float64
+	// roll is a death's table roll, made after the mob lock (rollDeathLoot);
+	// nil once stacks holds it.
+	roll *deathRoll
+}
+
+// deathRoll is what a death's table roll needs. The killing and credited
+// players' rides and pearls take locks the mob tick holds, so the roll waits
+// for the apply phase, reads them with no lock held, then rolls under the mob
+// lock alone.
+// vanilla: LivingEntity.dropFromLootTable
+type deathRoll struct {
+	mob                *entity.Mob
+	killer             rules.LootKiller
+	level              rules.LootLevel
+	attacker, credited *client
+}
+
+// rollDeathLoot makes the tick's pending death rolls in collection order.
+func (s *Server) rollDeathLoot(deaths []mobDrops) {
+	for i := range deaths {
+		r := deaths[i].roll
+		if r == nil {
+			continue
+		}
+		if r.attacker != nil {
+			r.killer.PlayerNBT = r.attacker.lootNBTRiding()
+		}
+		if r.credited != nil {
+			r.killer.CreditedPlayer.NBT = r.credited.lootNBTRiding()
+		}
+		s.mobsMu.Lock()
+		deaths[i].stacks = r.mob.RollDrops(r.killer, r.level)
+		s.mobsMu.Unlock()
+		deaths[i].roll = nil
+	}
 }
 
 // mobXpDrop is a dead mob's rolled experience, cut into orbs after the mob
@@ -2510,11 +2545,6 @@ func (s *Server) spawnTaggedMob(dim *dimension, kind entity.MobType, x, y, z flo
 		return 0, false, errNotSimulated
 	}
 	ent.mob.SetPos(x, y, z)
-	// An explicit ground flag survives loading, even when NoAI prevents travel.
-	// vanilla: Entity.load, LivingEntity.aiStep
-	if _, ok := nbt.ByteField(compound, "OnGround"); !ok {
-		ent.mob.OnGround = !ent.mob.NoAI && spawnStandsOnGround(dim.w, x, y, z)
-	}
 	if prep != nil {
 		prep(ent)
 	}
@@ -3444,9 +3474,11 @@ func (c *client) attackMob(target int32) {
 	if !ok {
 		return
 	}
+	pos := c.player.Position()
 	attacker := entity.Player{
-		X: c.player.Position().X, Y: c.player.Position().Y, Z: c.player.Position().Z,
-		Yaw:      float64(c.player.Position().Yaw),
+		X: pos.X, Y: pos.Y, Z: pos.Z,
+		Yaw:      float64(pos.Yaw),
+		Pitch:    float64(pos.Pitch),
 		EntityID: c.player.EntityID,
 		Huntable: true,
 		Creative: c.player.GameMode() == protocol.GameModeCreative,

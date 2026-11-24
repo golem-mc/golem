@@ -1571,10 +1571,12 @@ func (ws worldScope) summonMob(kind string, x, y, z float64, tag nbt.Compound) (
 	reason := ws.summonReason()
 	var id int32
 	if tag == nil {
-		// A summon loads even an empty tag, so a bat reads BatFlags 0 and flies.
-		// vanilla: SummonCommand's EntityType.loadEntityRecursive
+		// A summon loads even an empty tag, so a bat reads BatFlags 0 and flies
+		// and OnGround starts false until the first travel lands the body.
+		// vanilla: SummonCommand.createEntity, Entity.load
 		id = s.spawnMobArriving(dim, entity.MobTypeOf(kind), x, y, z, 0, nil, false, "", true, func(ent *mobEntity) {
 			ent.spawnReason = spawnReasonCode(reason)
+			ent.mob.OnGround = false
 			if ent.mob.Type == entity.TypeBat {
 				ent.mob.SetMetadataResting(false)
 			}

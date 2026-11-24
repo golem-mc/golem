@@ -413,18 +413,13 @@ func holderSet(v any, kind string, members func(string) ([]string, bool)) []stri
 }
 
 // conditions reads the optional condition holder of a pool, an entry or a
-// function. A pack in the earlier format lists them under conditions
-// instead, which is still read.
+// function.
 // vanilla: LootItemCondition.CODEC.optionalFieldOf("condition")
 func (d lootDecoder) conditions(o obj) []registry.LootCondition {
 	if v, ok := o["condition"]; ok {
 		return []registry.LootCondition{d.conditionHolder(v)}
 	}
-	var out []registry.LootCondition
-	for _, c := range list(o["conditions"], "conditions") {
-		out = append(out, d.condition(object(c, "condition")))
-	}
-	return out
+	return nil
 }
 
 // conditionHolder reads a predicate's name, resolved when evaluated, or an
