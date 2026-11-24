@@ -72,6 +72,7 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 			light = w.chunkLightWired(c)
 		}
 		own := c.blockEntities()
+		rides := c.sortedPistonRides()
 		// Snapshot the carried compounds under the lock: a command setting one
 		// replaces the list, and a save reads it. Trial spawners' block state
 		// is read under the same lock.
@@ -84,7 +85,7 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 		// only place a client learns they exist. They are written first, to
 		// scratch, so the payload is allocated once at its size.
 		entities := scratchBuffer()
-		putBlockEntities(entities, own, carried, active)
+		putBlockEntities(entities, own, rides, carried, active)
 		defer scratchBuffers.Put(entities)
 		if unchanged && bytes.Equal(entities.Bytes(), c.packet.entities) {
 			return c.packet.packet

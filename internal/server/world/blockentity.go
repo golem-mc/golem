@@ -306,23 +306,6 @@ type BlockEntity struct {
 	BeaconLevels                   int
 	BeaconPrimary, BeaconSecondary int32
 
-	// The moving piston's ride (PistonMovingBlockEntity): the carried state,
-	// the piston's facing, whether this is the extend or the pull home, and
-	// whether the ride is the head. The engine does not animate vanilla's
-	// two-tick move (its write is already where the last tick lands), but the
-	// entity lives exactly as long because rules read it: a sticky retraction
-	// checks the moving block ahead, and the zero-tick retraction asks when it
-	// was made. CreatedTick is that: the tick whose block event wrote it.
-	MovedState  uint16
-	PistonDir   int8
-	Extending   bool
-	IsSource    bool
-	CreatedTick int64
-	// RideProgress is the ride's progress, 0 to 1, that body sweeps read
-	// collision at; refreshed per tick, not saved.
-	// vanilla: PistonMovingBlockEntity.progress
-	RideProgress float64
-
 	// The spawner's BaseSpawner numbers: the next spawn's delay and the bounds
 	// it is rolled between, plus count, neighbourhood and ranges. Saved as
 	// vanilla's shorts; a fresh spawner has BaseSpawner's defaults.
@@ -1299,6 +1282,7 @@ func (w *World) EnsureBlockEntity(x, y, z int32, kind BlockEntityKind) *BlockEnt
 		// vanilla: CrafterBlock.newBlockEntity
 		created.Triggered = registry.StateBool(loaded.chunk.BlockAt(x&15, y, z&15), registry.PropTriggered)
 	}
+	loaded.chunk.removePistonRide(x, y, z)
 	loaded.chunk.setBlockEntity(created)
 	loaded.containerGen.Add(1)
 	w.appendBlockEntityOrder(created)
@@ -1324,7 +1308,8 @@ func (w *World) EnsureBlockEntityForBlock(x, y, z int32) {
 	block := registry.BlockOf(loaded.chunk.BlockAt(x&15, y, z&15))
 	id, has := registry.BlockEntityTypes[block.Name()]
 	_, carried := loaded.chunk.carriedBlockEntityAt(x, y, z)
-	live := loaded.chunk.blockEntity(x, y, z) != nil
+	_, ride := loaded.chunk.pistonRide(x, y, z)
+	live := loaded.chunk.blockEntity(x, y, z) != nil || ride
 	w.mu.RUnlock()
 	if !has || carried || live {
 		return
@@ -1333,7 +1318,7 @@ func (w *World) EnsureBlockEntityForBlock(x, y, z int32) {
 	switch {
 	case kind == KindSpawner:
 		w.EnsureBlockEntity(x, y, z, kind)
-	case containerKind(kind):
+	case containerKind(kind) || kind == KindPiston:
 	default:
 		save := nbt.Compound{"components": nbt.Compound{}}
 		if id == "minecraft:end_gateway" {
@@ -1431,6 +1416,9 @@ func (w *World) RemoveBlockEntity(x, y, z int32) *BlockEntity {
 	if b != nil {
 		loaded.containerGen.Add(1)
 	}
+	if loaded.chunk.removePistonRide(x, y, z) {
+		loaded.markDirty()
+	}
 	if loaded.chunk.removeCarriedBlockEntity(x, y, z) > 0 {
 		loaded.dirty = true
 		w.syncTickingChunk(pos, loaded.chunk)
@@ -1521,8 +1509,14 @@ func (w *World) SetBlockEntityTag(x, y, z int32, entityType string, data nbt.Com
 		return KindNone, false
 	}
 	// vanilla: MovingPistonBlock.newBlockEntity returns null; only piston
-	// movement creates its entity. Chunk loads still use decodeBlockEntity.
+	// movement creates its entity, though commands can update an existing ride.
 	if entityType == KindPiston.Name() {
+		if r, ok := loaded.chunk.pistonRide(x, y, z); ok {
+			r.loadFrom(entry)
+			loaded.chunk.setPistonRide(r)
+			loaded.markDirty()
+			return KindPiston, true
+		}
 		return KindNone, false
 	}
 	if be, ok := decodeBlockEntity(entry); ok {
@@ -1532,6 +1526,7 @@ func (w *World) SetBlockEntityTag(x, y, z int32, entityType string, data nbt.Com
 			w.removeBlockEntityOrder(old)
 			old.removed.Store(true)
 		}
+		loaded.chunk.removePistonRide(x, y, z)
 		loaded.chunk.setBlockEntity(be)
 		loaded.containerGen.Add(1)
 		w.appendBlockEntityOrder(be)
@@ -1581,6 +1576,10 @@ func (w *World) savedBlockEntity(x, y, z int32) (tag nbt.CompoundTag, carried, o
 	}
 	be := loaded.chunk.blockEntity(x, y, z)
 	if be == nil {
+		if r, found := loaded.chunk.pistonRide(x, y, z); found {
+			w.mu.RUnlock()
+			return r.saveTag(), false, true
+		}
 		compound, found := loaded.chunk.carriedBlockEntityAt(x, y, z)
 		w.mu.RUnlock()
 		return compound, found, found
@@ -2125,7 +2124,7 @@ func (b *BlockEntity) loadFrom(entry nbt.Compound) {
 	b.Stored = nil
 	// The runtime state no save carries starts over.
 	b.BrewingIngredient, b.BrewingBottles = 0, nil
-	b.TickedGameTime, b.Openers, b.CreatedTick = 0, 0, 0
+	b.TickedGameTime, b.Openers = 0, 0
 	b.hopperSlept = false
 	b.ConduitActive, b.ConduitNextAmbient, b.CreakingTicker = false, 0, 0
 	b.Bell = BellState{}
@@ -2141,7 +2140,7 @@ func containerKind(kind BlockEntityKind) bool {
 	switch kind {
 	case KindChest, KindTrappedChest, KindFurnace, KindBlastFurnace, KindSmoker,
 		KindBrewingStand, KindCrafter, KindBarrel, KindShulkerBox, KindEnderChest,
-		KindDispenser, KindDropper, KindHopper, KindComparator, KindPiston,
+		KindDispenser, KindDropper, KindHopper, KindComparator,
 		KindSpawner, KindCommandBlock, KindBell, KindSign, KindHangingSign,
 		KindJukebox, KindDaylightDetector, KindBeacon, KindDecoratedPot, KindShelf,
 		KindChiseledBookshelf, KindConduit, KindCreakingHeart, KindLectern,
@@ -2473,7 +2472,7 @@ func (b *BlockEntity) UpdateTag() nbt.Compound {
 // each modelled entity is read under its own lock, never taken with the world's
 // held (see World.mu).
 // vanilla: BlockEntity.getUpdateTag
-func putBlockEntities(b *protocol.Buffer, own []*BlockEntity, carried []nbt.Tag, active map[posKey]bool) {
+func putBlockEntities(b *protocol.Buffer, own []*BlockEntity, rides []pistonRide, carried []nbt.Tag, active map[posKey]bool) {
 	type entry struct {
 		packed uint8
 		y      int16
@@ -2482,7 +2481,7 @@ func putBlockEntities(b *protocol.Buffer, own []*BlockEntity, carried []nbt.Tag,
 	}
 	// Filter before writing the count, so a type the client's registry cannot
 	// number is left out of both.
-	entries := make([]entry, 0, len(own)+len(carried))
+	entries := make([]entry, 0, len(own)+len(rides)+len(carried))
 	for _, be := range own {
 		id := blockEntityID(be.Kind)
 		if id < 0 {
@@ -2493,6 +2492,15 @@ func putBlockEntities(b *protocol.Buffer, own []*BlockEntity, carried []nbt.Tag,
 			be.Use(func(b *BlockEntity) { e.tag = b.UpdateTag() })
 		}
 		entries = append(entries, e)
+	}
+	for i := range rides {
+		r := &rides[i]
+		entries = append(entries, entry{
+			packed: uint8(r.x&0xF)<<4 | uint8(r.z&0xF),
+			y:      int16(r.y),
+			typeID: protocol.BlockEntityPiston,
+			tag:    r.updateTag(),
+		})
 	}
 	for _, item := range carried {
 		compound, ok := nbt.CompoundView(item)

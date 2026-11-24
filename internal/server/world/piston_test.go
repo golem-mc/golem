@@ -2,6 +2,8 @@ package world
 
 import (
 	"testing"
+
+	"github.com/golem-mc/golem/nbt"
 )
 
 // The piston engine's black-box checks: a piston on the flat ground, its
@@ -352,9 +354,10 @@ func TestAMovingPistonCollidesAsItsCarriedBlock(t *testing.T) {
 	ride := movingPistonStateOf(dirEast, false)
 	w.SetBlock(12, 64, 9, ride)
 	p.pistonRideCreate([3]int32{12, 64, 9}, ride, blocks["dirt"], dirEast, true, false)
-	be := w.BlockEntity(12, 64, 9)
 	for progress, want := range map[float64]float64{0: -1, 0.5: -0.5, 1: 0} {
-		be.Use(func(b *BlockEntity) { b.RideProgress = progress })
+		if !w.setPistonRideProgress(12, 64, 9, progress) {
+			t.Fatalf("missing piston ride at (12, 64, 9)")
+		}
 		boxes := w.MovingPistonBoxes(12, 64, 9)
 		if len(boxes) != 1 || boxes[0].MinX != want || boxes[0].MaxX != want+1 {
 			t.Errorf("progress %v: boxes %+v, want one unit box at x %v", progress, boxes, want)
@@ -362,5 +365,48 @@ func TestAMovingPistonCollidesAsItsCarriedBlock(t *testing.T) {
 	}
 	if boxes := w.MovingPistonBoxes(13, 64, 9); boxes != nil {
 		t.Errorf("a cell with no ride has boxes %+v", boxes)
+	}
+}
+
+// TestPistonRideSurvivesChunkSaveAndLoad checks that an active moving-piston
+// ride round-trips through chunk NBT save/load and exposes its tag to commands.
+func TestPistonRideSurvivesChunkSaveAndLoad(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWorld(dir, NewFlatGenerator())
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	pos := ChunkPos{X: 0, Z: 0}
+	w.Acquire(pos)
+	p := NewPhysics(w)
+	dirt := rsState(t, "minecraft:dirt", nil)
+	ride := movingPistonStateOf(dirEast, false)
+	w.SetBlock(4, 64, 4, ride)
+	p.pistonRideCreate([3]int32{4, 64, 4}, ride, dirt, dirEast, true, false)
+
+	tag, ok := w.BlockEntityTag(4, 64, 4)
+	if !ok {
+		t.Fatal("BlockEntityTag missing for active piston ride")
+	}
+	if tag["id"] != nbt.String("minecraft:piston") || tag["blockState"] != nbt.String("minecraft:dirt") {
+		t.Fatalf("BlockEntityTag = %v, want piston carrying dirt", tag)
+	}
+	w.Save()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	w2, err := NewWorld(dir, NewFlatGenerator())
+	if err != nil {
+		t.Fatalf("reopen NewWorld: %v", err)
+	}
+	defer w2.Close()
+	w2.Acquire(pos)
+	got, ok := w2.pistonRideAt(4, 64, 4)
+	if !ok {
+		t.Fatal("piston ride lost across chunk save/load")
+	}
+	if got.movedState != dirt || int(got.dir) != dirEast || !got.extending || got.isSource || got.createdTick != -1 {
+		t.Fatalf("reloaded piston ride = %+v, want dirt/east/extending/!source/createdTick=-1", got)
 	}
 }

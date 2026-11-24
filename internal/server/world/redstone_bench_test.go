@@ -240,3 +240,46 @@ func BenchmarkRedstoneHandlers(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkPistonExtendRetract cycles a sticky piston pushing and pulling a
+// stone block in steady state.
+func BenchmarkPistonExtendRetract(b *testing.B) {
+	w := newTestWorld(b, NewFlatGenerator())
+	b.Cleanup(func() { w.Close() })
+	w.Acquire(ChunkPos{})
+	p := NewPhysics(w)
+	const y = GroundLevel
+	piston := pistonStateOf(true, dirEast, false)
+	stone := registry.BlockStone.DefaultState()
+	power := registry.BlockRedstoneBlock.DefaultState()
+	set := func(x, z int32, s uint16) {
+		old := w.BlockAt(x, y, z)
+		w.SetBlock(x, y, z, s)
+		p.NotifyChanged(x, y, z, old)
+	}
+	set(4, 4, piston)
+	set(5, 4, stone)
+	var tick int64
+	step := func(n int) {
+		for range n {
+			tick++
+			changes, _, _, effects := p.Tick(tick)
+			p.RecycleTickResults(changes, effects)
+		}
+	}
+	step(4)
+	// Warm up one extend/retract cycle so maps and slices reach steady state.
+	set(4, 3, power)
+	step(4)
+	set(4, 3, airState)
+	step(4)
+	w.FlushLighting()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		set(4, 3, power)
+		step(4)
+		set(4, 3, airState)
+		step(4)
+	}
+}

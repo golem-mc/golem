@@ -94,6 +94,10 @@ type Chunk struct {
 	// entityOrder those positions in insertion order, the order a save writes
 	// so two saves of a chunk give the same bytes. The tick order spans chunks
 	// (World.blockEntityOrder).
+	//
+	// pistonRides holds active moving-piston rides separately so piston moves
+	// do not allocate a full BlockEntity; guarded by World.mu.
+	pistonRides          map[int64]pistonRide
 	carriedBlockEntities nbt.List
 	// carriedHandles is allocated only when a plugin requests a live handle.
 	carriedHandles map[int64]*CarriedBlockEntity
@@ -878,7 +882,9 @@ func (c *Chunk) GeneratedTicks() [][3]int32 {
 // BlockEntitiesNBT returns the block entities a save would write, in save order.
 func (c *Chunk) BlockEntitiesNBT() []nbt.Compound {
 	var out []nbt.Compound
-	for _, tag := range append(encodeBlockEntities(c.blockEntities()), c.carriedBlockEntities.Items...) {
+	all := append(encodeBlockEntities(c.blockEntities()), c.encodePistonRides()...)
+	all = append(all, c.carriedBlockEntities.Items...)
+	for _, tag := range all {
 		if compound, ok := nbt.CompoundView(tag); ok {
 			out = append(out, compound)
 		}
