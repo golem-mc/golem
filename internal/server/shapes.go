@@ -8,12 +8,19 @@ import (
 // reconnectShapes runs the world's reconnect pass at (x, y, z) and tells
 // everyone the writes.
 func (s *Server) reconnectShapes(w *world.World, x, y, z int32) {
+	// The box holds every cell the pass reads; a write needs a shape block in it.
+	if !w.ShapeBlocksIn(x-1, y-1, z-1, x+1, y+1, z+1) {
+		return
+	}
 	s.tellShapeChanges(w, rules.ReconnectShapes(w, x, y, z))
 }
 
 // updateNeighborShapes runs the neighbour shape pass around (x, y, z) and
 // tells everyone the writes.
 func (s *Server) updateNeighborShapes(w *world.World, x, y, z int32) {
+	if !w.ShapeBlocksIn(x-1, y-1, z-1, x+1, y+1, z+1) {
+		return
+	}
 	s.tellShapeChanges(w, rules.UpdateNeighborShapes(w, x, y, z))
 }
 

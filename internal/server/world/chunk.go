@@ -247,6 +247,9 @@ type section struct {
 	pois    int
 	// touches is read through the near cache without the world lock.
 	touches atomic.Int32
+	// shapes counts blocks the server's shape reconnect pass reacts to; read
+	// like touches.
+	shapes atomic.Int32
 	// comparators is guarded by the world lock once the chunk is shared.
 	comparators int32
 }
@@ -518,6 +521,12 @@ func (s *section) set(i int, state uint16, shared bool) {
 	if isTouchBlock[oldBlock] {
 		s.touches.Add(-1)
 	}
+	if isShapeBlock[block] {
+		s.shapes.Add(1)
+	}
+	if isShapeBlock[oldBlock] {
+		s.shapes.Add(-1)
+	}
 }
 
 // setAll makes the whole section one block, dropping any block array it had.
@@ -534,6 +543,7 @@ func (s *section) recalcCounts() {
 	s.tickMask.Store(nil)
 	s.ticking, s.emitting, s.listening, s.rods, s.catalysts, s.eggs, s.portals, s.pois = 0, 0, 0, 0, 0, 0, 0, 0
 	s.touches.Store(0)
+	s.shapes.Store(0)
 	s.colliding, s.comparators = 0, 0
 	blocks := s.blocks.Load()
 	if blocks == nil {
@@ -570,6 +580,9 @@ func (s *section) recalcCounts() {
 		}
 		if isTouchBlock[block] {
 			s.touches.Store(blocksPerSection)
+		}
+		if isShapeBlock[block] {
+			s.shapes.Store(blocksPerSection)
 		}
 		return
 	}
@@ -608,6 +621,9 @@ func (s *section) recalcCounts() {
 		}
 		if isTouchBlock[block] {
 			s.touches.Add(1)
+		}
+		if isShapeBlock[block] {
+			s.shapes.Add(1)
 		}
 	}
 }

@@ -101,5 +101,5 @@ func sameCounts(a, b *section) bool {
 	return a.ticking == b.ticking && a.emitting == b.emitting && a.listening == b.listening &&
 		a.rods == b.rods && a.catalysts == b.catalysts && a.eggs == b.eggs && a.portals == b.portals &&
 		a.pois == b.pois && a.colliding == b.colliding && a.comparators == b.comparators &&
-		a.touches.Load() == b.touches.Load()
+		a.touches.Load() == b.touches.Load() && a.shapes.Load() == b.shapes.Load()
 }
