@@ -136,6 +136,15 @@ func (l raidLevel) Difficulty() uint8 { return l.dim.w.Difficulty() }
 
 func (l raidLevel) ChunkLoaded(x, z int) bool { return l.dim.w.ChunkLoadedAt(int32(x), int32(z)) }
 
+// EntityTicking keeps a wave inside the simulation distance: the send
+// view's neighbor ring loads chunks where raiders would stand still.
+// vanilla: ServerLevel.isPositionEntityTicking
+func (l raidLevel) EntityTicking(x, z int) bool {
+	w := l.dim.w
+	pos := world.ChunkPos{X: int32(x >> 4), Z: int32(z >> 4)}
+	return w.ChunkLoaded(pos) && l.s.newEntityGate().ticks(w, float64(x), float64(z))
+}
+
 func (l raidLevel) IsVillage(x, y, z int) bool { return l.dim.isVillage(x, y, z) }
 
 // isVillage is true within one section of an occupied village POI.
@@ -148,10 +157,14 @@ func (d *dimension) isVillage(x, y, z int) bool {
 // vanilla: Heightmap.Types.WORLD_SURFACE
 func (l raidLevel) SurfaceY(x, z int) int { return int(l.dim.w.SurfaceHeight(int32(x), int32(z))) + 1 }
 
-// CanSpawnAt checks wave placement and every chunk within ten blocks.
+// CanSpawnAt checks wave placement, every chunk within ten blocks and that
+// the block entity-ticks.
 // vanilla: Raid.findRandomSpawnPos, LevelReader.hasChunksAt
 func (l raidLevel) CanSpawnAt(x, y, z int) bool {
 	w := l.dim.w
+	if !l.EntityTicking(x, z) {
+		return false
+	}
 	for cx := (x - 10) >> 4; cx <= (x+10)>>4; cx++ {
 		for cz := (z - 10) >> 4; cz <= (z+10)>>4; cz++ {
 			if !w.ChunkLoaded(world.ChunkPos{X: int32(cx), Z: int32(cz)}) {

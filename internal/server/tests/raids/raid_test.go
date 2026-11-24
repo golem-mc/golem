@@ -335,11 +335,13 @@ func TestNoRaidStartsInTheNether(t *testing.T) {
 }
 
 // TestRaidersWalkTowardTheVillage: raiders spawned away from the village head
-// for the raid's centre.
-// vanilla: PathfindToRaidGoal
+// for the raid's centre. At simulation distance 4 the send view's neighbor
+// ring loads a fifth ring of chunks, where a wave would stand still.
+// vanilla: PathfindToRaidGoal, Raid.findRandomSpawnPos (isPositionEntityTicking)
 func TestRaidersWalkTowardTheVillage(t *testing.T) {
 	t.Parallel()
 	srv, c, bell := village(t, rules.DifficultyNormal)
+	srv.SetSimulationDistance(4)
 	srv.SetPlayerGameMode("Hero", protocol.GameModeCreative)
 	startRaid(t, c, srv, 0)
 	run(c, srv, 330)
