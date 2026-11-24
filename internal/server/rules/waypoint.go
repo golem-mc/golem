@@ -1,6 +1,10 @@
 package rules
 
-import "math"
+import (
+	"math"
+
+	"github.com/golem-mc/golem/internal/server/world"
+)
 
 // WaypointReallyFar is the distance past which the locator bar shows a
 // transmitter as a bearing alone, in blocks.
@@ -72,30 +76,24 @@ func WaypointBearing(dx, dz float64) float32 {
 	return float32(math.Atan2(dx, -dz))
 }
 
-// WaypointView is a transmitter as one receiver's connection sees it.
+// WaypointView is a transmitter as one receiver's connection sees it. The
+// float64 fields come first so the int32 fields pack without padding.
 type WaypointView struct {
 	Dist                   float64
+	DX, DZ                 float64 // receiver minus transmitter
 	BlockX, BlockY, BlockZ int32
 	ChunkX, ChunkZ         int32
-	DX, DZ                 float64 // receiver minus transmitter
 	// The receiver's chunk and view radius, which ChunkVisible judges against.
 	ViewerChunkX, ViewerChunkZ, ViewerRadius int32
 }
 
 // ChunkVisible reports whether a chunk is within the receiver's view.
-func (v WaypointView) ChunkVisible(chunkX, chunkZ int32) bool {
-	dx, dz := chunkX-v.ViewerChunkX, chunkZ-v.ViewerChunkZ
-	if dx < 0 {
-		dx = -dx
-	}
-	if dz < 0 {
-		dz = -dz
-	}
-	return dx <= v.ViewerRadius && dz <= v.ViewerRadius
+func (v *WaypointView) ChunkVisible(chunkX, chunkZ int32) bool {
+	return world.InViewOf(world.ChunkPos{X: chunkX, Z: chunkZ}, world.ChunkPos{X: v.ViewerChunkX, Z: v.ViewerChunkZ}, v.ViewerRadius)
 }
 
 // Bearing computes the angle needed by an azimuth connection.
-func (v WaypointView) Bearing() float32 {
+func (v *WaypointView) Bearing() float32 {
 	return WaypointBearing(v.DX, v.DZ)
 }
 
@@ -122,7 +120,7 @@ const (
 // NewWaypointConnection makes the connection for a pairing at the form the
 // distance and sight name.
 // vanilla: LivingEntity.makeWaypointConnectionWith
-func NewWaypointConnection(v WaypointView) WaypointConnection {
+func NewWaypointConnection(v *WaypointView) WaypointConnection {
 	c := WaypointConnection{Form: WaypointFormFor(v.Dist, v.ChunkVisible(v.ChunkX, v.ChunkZ))}
 	switch c.Form {
 	case WaypointAzimuth:
@@ -139,7 +137,7 @@ func NewWaypointConnection(v WaypointView) WaypointConnection {
 // broken, needs an update or holds, and for an update records what is sent.
 // v.ChunkVisible judges the chunk last named, which the chunk form needs.
 // vanilla: WaypointTransmitter.*Connection.update, isBroken
-func (c *WaypointConnection) Step(v WaypointView) WaypointStep {
+func (c *WaypointConnection) Step(v *WaypointView) WaypointStep {
 	abs := func(a int32) int32 {
 		if a < 0 {
 			return -a

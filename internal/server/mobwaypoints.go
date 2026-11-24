@@ -113,7 +113,8 @@ func (s *Server) tickMobWaypoints(rule bool, present []waypointPlayer) {
 
 // settleMobWaypoint settles mob m's waypoint on receiver v's bar.
 func settleMobWaypoint(rule bool, pass uint64, m *waypointMob, v *waypointPlayer) {
-	view := waypointViewOf(&m.waypointPoint, v)
+	v0 := waypointViewOf(&m.waypointPoint, v)
+	view := &v0
 	if !rule || v.receive <= 0 || m.ent == v.c.mount.Load() ||
 		rules.WaypointIgnoresReceiver(false, v.spectator, view.Dist, m.transmit, v.receive) {
 		return

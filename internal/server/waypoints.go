@@ -247,7 +247,8 @@ func settleWaypointLocked(rule bool, t, v *waypointPlayer) {
 	if !v.c.joined() {
 		return
 	}
-	view := waypointViewOf(&t.waypointPoint, v)
+	v0 := waypointViewOf(&t.waypointPoint, v)
+	view := &v0
 	hold := rule && t.transmit > 0 && v.receive > 0 &&
 		!rules.WaypointIgnoresReceiver(t.spectator, v.spectator, view.Dist, t.transmit, v.receive)
 
@@ -289,7 +290,7 @@ func settleWaypointLocked(rule bool, t, v *waypointPlayer) {
 
 // trackWaypointPair pairs a receiver with a transmitter and sends the
 // track, replacing any record of the pair.
-func trackWaypointPair(t, v *waypointPlayer, view rules.WaypointView) {
+func trackWaypointPair(t, v *waypointPlayer, view *rules.WaypointView) {
 	link := &waypointLink{viewer: v.c, WaypointConnection: rules.NewWaypointConnection(view)}
 	sendWaypoint(t, v, protocol.WaypointTrack, link)
 	t.c.waypoints.set(v.c, link)
