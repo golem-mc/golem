@@ -36,11 +36,24 @@ func TestCrowdedPickupGoesToTheOwner(t *testing.T) {
 	words := servertest.UuidWords(protocol.OfflineUUID("Crowd1"))
 	srv.RunLine(fmt.Sprintf(`summon minecraft:item 16.0 64 0.5 {Item:{id:"minecraft:stone",count:1},PickupDelay:0s,Owner:[I;%d,%d,%d,%d]}`,
 		int32(words[0]), int32(words[1]), int32(words[2]), int32(words[3])))
-	drop := servertest.ParseItemSpawn(clients[1].ExpectWithinTicks(srv, 3, protocol.IDPlaySpawnEntity))
+	var spawn, pickup []byte
+	clients[1].ReadTicks(srv, 1, func(id int32, data []byte) bool {
+		switch {
+		case id == protocol.IDPlaySpawnEntity && spawn == nil:
+			spawn = data
+		case id == protocol.IDPlayPickupItem && spawn != nil:
+			pickup = data
+		}
+		return pickup != nil
+	})
+	if spawn == nil || pickup == nil {
+		t.Fatalf("spawn seen %v, pickup seen %v within one tick", spawn != nil, pickup != nil)
+	}
+	drop := servertest.ParseItemSpawn(spawn)
 	if drop.EntityID == 0 || drop.X != 16 {
 		t.Fatalf("summoned drop = %+v, want an item at x=16", drop)
 	}
-	collected, collector, count := servertest.ReadPickupItem(clients[1], clients[1].ExpectWithinTicks(srv, 3, protocol.IDPlayPickupItem))
+	collected, collector, count := servertest.ReadPickupItem(clients[1], pickup)
 	if collected != drop.EntityID || collector != ids[1] || count != 1 {
 		t.Fatalf("pickup of %d by %d (count %d), want %d by the owner %d and 1", collected, collector, count, drop.EntityID, ids[1])
 	}
