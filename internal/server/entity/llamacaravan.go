@@ -174,6 +174,12 @@ func (g *caravanGoal) Tick(t *tickView) {
 	if !m.inCaravan() || m.Horse.knotHeld {
 		return
 	}
+	// A coordinate moveTo drops its path if createPath cannot run mid-fall.
+	// vanilla: PathNavigation.createPath, PathNavigation.moveTo
+	if !m.canUpdatePath() {
+		m.stopSeeking()
+		return
+	}
 	h := m.Horse.head
 	dx, dy, dz := h.X-m.X, h.Y-m.Y, h.Z-m.Z
 	dist := math.Sqrt(dx*dx + dy*dy + dz*dz)

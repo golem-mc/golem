@@ -6,6 +6,7 @@ import (
 	server "github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // llamaDistance is the horizontal distance between two mobs.
@@ -17,6 +18,58 @@ func llamaDistance(t *testing.T, srv *server.Server, a, b int32) float64 {
 		t.Fatal("a llama is gone from the world")
 	}
 	return servertest.Abs64(ax-bx) + servertest.Abs64(az-bz)
+}
+
+// vanilla: LlamaFollowCaravanGoal.tick, PathNavigation.createPath
+func TestALlamaDescendsStepsToJoinItsCaravan(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Herder",
+		func(srv *server.Server) { servertest.FreezeUntilHeld(t, srv) })
+	servertest.HoldTicks(t, srv)
+
+	// The high platform and the lower floor straddle a section boundary.
+	stone := registry.BlockStone.DefaultState()
+	for x := int32(0); x <= 15; x++ {
+		for z := int32(12); z <= 20; z++ {
+			if !srv.SetBlock(x, 149-max(0, min(x-2, 7)), z, stone) {
+				t.Fatalf("could not build step at (%d, %d)", x, z)
+			}
+		}
+	}
+	srv.SetBlock(11, 143, 16, registry.BlockOakFence.DefaultState())
+	c.MoveToGround(11.5, 143, 18.5, true)
+	c.Settle()
+
+	giveLead(t, srv, "Herder", 1)
+	lead := srv.SpawnMobTagged("minecraft:llama", 11.5, 143, 15.5, nbt.Compound{
+		"NoAI": nbt.Byte(1),
+		"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(4)},
+		}},
+	})
+	if lead == 0 {
+		t.Fatal("the lead llama was refused")
+	}
+	c.Settle()
+	c.UseOn(lead)
+	if attached, holder := c.ExpectLinkPacket(); attached != lead || holder != c.PlayerEntityID {
+		t.Fatalf("link = (%d, %d), want the lead llama tied to the player", attached, holder)
+	}
+	c.UseBlock(11, 143, 16)
+	knot := c.ExpectKnotSpawn()
+	if attached, holder := c.ExpectLinkPacket(); attached != lead || holder != knot.EntityID {
+		t.Fatalf("link = (%d, %d), want the lead llama tied to the fence", attached, holder)
+	}
+
+	follower := srv.SpawnMob("minecraft:llama", 2.5, 150, 15.5)
+	servertest.RunTicks(t, srv, 40)
+	x, y, z, ok := srv.MobPos(follower)
+	// Vanilla reaches the middle steps in 40 ticks on this fixture.
+	const wantX, wantY, wantZ = 7.00, 146.00, 15.51
+	if !ok || servertest.Abs64(x-wantX) > 1 || servertest.Abs64(y-wantY) > 1 || servertest.Abs64(z-wantZ) > 1 {
+		t.Fatalf("follower after 40 ticks = (%.2f, %.2f, %.2f), want it partway down the steps near (%.2f, %.2f, %.2f)",
+			x, y, z, wantX, wantY, wantZ)
+	}
 }
 
 // TestALlamaFollowsALeashedLlamaUntilTheLeadGoes: a llama beside a leashed

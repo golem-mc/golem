@@ -1472,9 +1472,14 @@ func (m *Mob) navigate(w World) {
 		m.recomputePath(w)
 	}
 	for len(o.nav.path) > 0 {
-		centreX := float64(o.nav.path[0].X) + 0.5
-		centreZ := float64(o.nav.path[0].Z) + 0.5
-		if (!o.atWaypoint(centreX-o.X, centreZ-o.Z) || o.swimsBelow(o.nav.path[0])) && !o.turtleCutsCorner(w) {
+		node := o.nav.path[0]
+		// A follower still on the lip must keep steering toward the step below.
+		// vanilla: PathNavigation.followThePath
+		if o.inCaravan() && math.Abs(o.Y-float64(node.Y)) >= 1 {
+			break
+		}
+		centreX, centreZ := float64(node.X)+0.5, float64(node.Z)+0.5
+		if (!o.atWaypoint(centreX-o.X, centreZ-o.Z) || o.swimsBelow(node)) && !o.turtleCutsCorner(w) {
 			break
 		}
 		o.nav.advance()
