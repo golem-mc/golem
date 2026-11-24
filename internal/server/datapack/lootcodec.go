@@ -347,11 +347,11 @@ func (d lootDecoder) entry(o obj) registry.LootEntry {
 		}
 		switch kind {
 		case "minecraft:alternatives":
-			return registry.LootAlternatives{Children: children, Conditions: conds}
+			return registry.LootAlternatives{Children: children, Conditions: conds, Functions: d.modifiers(o)}
 		case "minecraft:group":
-			return registry.LootGroup{Children: children, Conditions: conds}
+			return registry.LootGroup{Children: children, Conditions: conds, Functions: d.modifiers(o)}
 		}
-		return registry.LootSequence{Children: children, Conditions: conds}
+		return registry.LootSequence{Children: children, Conditions: conds, Functions: d.modifiers(o)}
 	case "minecraft:empty":
 		return registry.LootEmpty{Weight: weight, Quality: quality, Conditions: conds}
 	case "minecraft:loot_table":
