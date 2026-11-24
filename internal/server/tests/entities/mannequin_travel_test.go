@@ -205,7 +205,7 @@ func TestAMannequinSpawnsWithItsCurrentMotionForALateWatcher(t *testing.T) {
 	t.Parallel()
 	srv, c := joinMannequinOp(t, "Unwatched")
 	c.ChatCommand("summon mannequin 300.5 70 3.5 {NoGravity:1b,Motion:[0.0d,-0.002d,0.0d]}")
-	servertest.RunTicks(t, srv, 6)
+	c.ReadTicks(srv, 6, func(int32, []byte) bool { return false })
 	c.ChatCommand("tp @s 300.5 70 20.5")
 	var spawnVY float64
 	var spawned bool
