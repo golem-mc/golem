@@ -676,7 +676,7 @@ func (b *BlockEntity) Put(slot int, stack protocol.ItemStack) {
 	// recomputes the total); emptying the slot is a change, the same item at
 	// another count is not.
 	// vanilla: AbstractFurnaceBlockEntity.setItem
-	if slot == 0 && IsCooking(b.Kind) && (stack.Empty() || !stack.Same(b.Slots[0])) {
+	if slot == 0 && IsCooking(b.Kind) && (stack.Empty() || !stack.SamePtr(&b.Slots[0])) {
 		b.CookingTotal = b.CookTotalOf(registry.CookingMatch(b.Kind.Name(), stack))
 		b.CookingSpent = 0
 	}
@@ -697,7 +697,9 @@ func (b *BlockEntity) PutKeepingCook(slot int, stack protocol.ItemStack) {
 	b.Wake()
 	b.inventoryVersion.Add(1)
 	b.Slots[slot] = stack
-	delete(b.Stored, slot)
+	if len(b.Stored) > 0 {
+		delete(b.Stored, slot)
+	}
 	b.setFilled(slot, stack.Count > 0)
 }
 
