@@ -62,7 +62,7 @@ func TestPlayerItemPickupIndexOrder(t *testing.T) {
 	// The far player rides something reaching back to the border.
 	reach[12] = entity.PlayerTouchBox(100, 64, 100, 0.6, 1.8, entity.NewAABB(12, 64, 2, 101, 65, 101))
 
-	ix := &pickupIndex{clients: clients, reach: reach}
+	ix := &pickupIndex{reach: reach}
 	ix.build()
 	if !ix.indexed {
 		t.Fatal("index not used")
@@ -88,7 +88,7 @@ func TestPlayerItemPickupIndexOrder(t *testing.T) {
 			it.item.Target = &owner
 		}
 		want := direct(it)
-		got := ix.candidate(it)
+		got := ix.candidate(it, clients, 0)
 		if (got == nil) != (want == nil) || got != nil && got.collector != want {
 			t.Fatalf("item %d at x=%v: index %v, direct %v", i, x, got, want)
 		}
@@ -97,11 +97,17 @@ func TestPlayerItemPickupIndexOrder(t *testing.T) {
 		}
 	}
 	// Item at the vehicle's far corner is only the rider's.
-	if got := ix.candidate(newItem(w, 100, 100)); got == nil || got.collector != clients[12] {
+	if got := ix.candidate(newItem(w, 100, 100), clients, 0); got == nil || got.collector != clients[12] {
 		t.Fatalf("far item: %v", got)
 	}
+	// A follow-up search starts after the first collector.
+	if first := ix.candidate(newItem(w, 100, 100), clients, 0); first != nil {
+		if got := ix.candidate(first.entity, clients, first.next); got != nil {
+			t.Fatalf("follow-up after the only toucher: %v", got.collector)
+		}
+	}
 	// Equal XYZ in a world no client but the foreign one is in.
-	if got := ix.candidate(newItem(other, 16, 3)); got == nil || got.collector != foreign {
+	if got := ix.candidate(newItem(other, 16, 3), clients, 0); got == nil || got.collector != foreign {
 		t.Fatalf("other-dimension item: %v", got)
 	}
 	// A vehicle reaching past eight cells turns the index off for the pass.
@@ -161,14 +167,14 @@ func BenchmarkClusteredPickupCandidate(b *testing.B) {
 				pos := clients[i].player.Position()
 				reach[i] = entity.PlayerTouchBox(pos.X, pos.Y, pos.Z, 0.6, 1.8, entity.AABB{})
 			}
-			ix := &pickupIndex{clients: clients, reach: reach}
+			ix := &pickupIndex{reach: reach}
 			ix.build()
 			stack := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
 			it := &itemEntity{item: entity.NewItem(1, stack, 16, 64, 3, 0, 0, 0, 0, 0), w: w}
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				if ix.candidate(it) == nil {
+				if ix.candidate(it, clients, 0) == nil {
 					b.Fatal("no candidate")
 				}
 			}

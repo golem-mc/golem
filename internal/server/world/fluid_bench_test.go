@@ -266,7 +266,7 @@ func BenchmarkFluidSlopeLayouts(b *testing.B) {
 			p := NewPhysics(w)
 			reach := p.behaviourOf(fluidWater).slopeFindDistance
 			search := func() int {
-				ctx := p.newSpreadContext(0, 64, 0, fluidWater)
+				ctx := newSpreadContext(p.w, 0, 64, 0, fluidWater)
 				lowest := 1000
 				for i, d := range horizontal4 {
 					tx, tz := d[0], d[1]

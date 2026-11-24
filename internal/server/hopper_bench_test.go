@@ -219,6 +219,48 @@ func BenchmarkHopperCachedFailedPull(b *testing.B) {
 	}
 }
 
+// BenchmarkFullBlockedHopper measures a tick of an enabled, full hopper pointing
+// into a full barrel, after its push failed once.
+func BenchmarkFullBlockedHopper(b *testing.B) {
+	hopper := registry.MustState("minecraft:hopper", map[string]string{"facing": "down", "enabled": "true"})
+	barrel := registry.MustState("minecraft:barrel", map[string]string{"facing": "up", "open": "false"})
+	for _, c := range []struct {
+		name string
+		max  int32
+	}{{"default", 0}, {"max16", 16}} {
+		b.Run(c.name, func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 1)
+			w.SetBlock(1, 64, 1, barrel)
+			bar := w.EnsureBlockEntity(1, 64, 1, world.KindBarrel)
+			w.SetBlock(1, 65, 1, hopper)
+			be := w.EnsureBlockEntity(1, 65, 1, world.KindHopper)
+			stack := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 64}
+			if c.max > 0 {
+				stack.SetMaxStackSize(c.max)
+				stack.Count = c.max
+			}
+			for i := range bar.Len() {
+				bar.Put(i, stack)
+			}
+			for i := range be.Len() {
+				be.Put(i, stack)
+			}
+			w.FlushLighting()
+			age := int64(1)
+			s.tickHopper(w, be, age)
+			if !be.HopperTargets.Push.Failed {
+				b.Fatal("push did not fail")
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				age++
+				s.tickHopper(w, be, age)
+			}
+		})
+	}
+}
+
 // BenchmarkHopperDistantItems measures the block-entity pass with one hopper
 // and N drops outside its pickup area.
 func BenchmarkHopperDistantItems(b *testing.B) {

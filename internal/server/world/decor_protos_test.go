@@ -159,6 +159,7 @@ func TestNetherFortressSurvivesARestart(t *testing.T) {
 func TestNetherProtoCodecRoundTrips(t *testing.T) {
 	t.Parallel()
 	p := &decorProto{decorated: true, final: true, finals: 0x1a5, sources: []posKey{{1, 40, 2}}, shapes: []posKey{{15, 77, 0}},
+		fluidTicks: []decorFluidTick{{pos: posKey{3, 40, 4}, kind: fluidTypeOf(fluidState{kind: fluidWater, amount: 7})}},
 		entities: []protoEntity{{x: 3, y: 75, z: 4, lootSeed: -5}, {spawner: true, x: 1, y: 76, z: 2},
 			{x: 9, y: 50, z: 8, tag: nbt.Compound{"id": nbt.String("minecraft:chest"), "LootTableSeed": nbt.Long(77)}}}}
 	p.set(5, 70, 6, 1234)
@@ -167,6 +168,7 @@ func TestNetherProtoCodecRoundTrips(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !got.decorated || !got.final || got.finals != p.finals || !slices.Equal(got.sources, p.sources) ||
+		!slices.Equal(got.fluidTicks, p.fluidTicks) ||
 		!slices.Equal(got.shapes, p.shapes) || !slices.EqualFunc(got.entities, p.entities, func(a, b protoEntity) bool { return reflect.DeepEqual(a, b) }) {
 		t.Errorf("decoded %+v, want %+v", got, p)
 	}

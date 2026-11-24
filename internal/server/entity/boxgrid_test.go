@@ -121,6 +121,10 @@ func TestBoxGridFirstAndSpansMore(t *testing.T) {
 	if got != 1 {
 		t.Fatalf("First = %d, want 1", got)
 	}
+	// Both buckets hold eligible indices and the lowest is in the later one.
+	if got := g.First(query, func(i int32) bool { return i <= 1 }); got != 0 {
+		t.Fatalf("First = %d, want the lowest index 0", got)
+	}
 	if g.First(query, func(int32) bool { return false }) != -1 {
 		t.Fatal("First found a match where none holds")
 	}

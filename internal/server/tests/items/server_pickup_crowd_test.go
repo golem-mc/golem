@@ -19,7 +19,6 @@ func TestCrowdedPickupGoesToTheOwner(t *testing.T) {
 	srv, first, firstID := servertest.JoinAs(t, servertest.MobTestConfig(), "Crowd0", func(s *server.Server) {
 		s.SetKeepAlive(time.Hour, time.Hour)
 	})
-	servertest.HoldTicks(t, srv)
 	clients := []*servertest.Client{first}
 	ids := []int32{firstID}
 	for i := 1; i < 9; i++ {
@@ -27,19 +26,18 @@ func TestCrowdedPickupGoesToTheOwner(t *testing.T) {
 		ids = append(ids, c.JoinAs(fmt.Sprintf("Crowd%d", i)))
 		clients = append(clients, c)
 	}
-	// Players 0 and 1 straddle the x=16 border; the rest stand well clear.
+	servertest.HoldTicks(t, srv)
+	// Players 0 and 1 straddle the x=16 border; the rest stay at spawn.
 	clients[0].MoveToGround(15.5, 64, 0.5, true)
 	clients[1].MoveToGround(16.5, 64, 0.5, true)
-	for i := 2; i < 9; i++ {
-		clients[i].MoveToGround(float64(i), 64, 8.5, true)
-	}
-	for _, c := range clients {
+	for _, c := range clients[:2] {
 		c.Settle()
 	}
-	srv.SpawnOwnedItemEntity(16, 64, 0.5, "minecraft:stone", 1, "Crowd1")
-	r := protocol.NewReader(clients[1].ExpectWithinTicks(srv, 3, protocol.IDPlayPickupItem))
-	r.ReadVarInt()
-	if got := r.ReadVarInt(); got != ids[1] {
-		t.Fatalf("collector %d, want the owner %d", got, ids[1])
+	words := servertest.UuidWords(protocol.OfflineUUID("Crowd1"))
+	srv.RunLine(fmt.Sprintf(`summon minecraft:item 16 64 0.5 {Item:{id:"minecraft:stone",count:1},PickupDelay:0s,Owner:[I;%d,%d,%d,%d]}`,
+		int32(words[0]), int32(words[1]), int32(words[2]), int32(words[3])))
+	collected, collector, count := servertest.ReadPickupItem(clients[1], clients[1].ExpectWithinTicks(srv, 3, protocol.IDPlayPickupItem))
+	if collector != ids[1] || count != 1 {
+		t.Fatalf("pickup of %d by %d (count %d), want the owner %d and 1", collected, collector, count, ids[1])
 	}
 }

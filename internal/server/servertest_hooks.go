@@ -4438,22 +4438,6 @@ func (s *Server) SpawnItemEntityDelay(x, y, z float64, item string, count, picku
 	return it.item.ID
 }
 
-// SpawnOwnedItemEntity is SpawnItemEntityDelay with the stack claimable only
-// by the named online player, past its pickup delay.
-func (s *Server) SpawnOwnedItemEntity(x, y, z float64, item string, count int, owner string) int32 {
-	c := s.playerClient(owner)
-	id, ok := registry.ItemID(item)
-	if c == nil || !ok {
-		return 0
-	}
-	it := s.spawnItem(s.world, protocol.ItemStack{ItemID: id, Count: int32(count)},
-		x, y-entity.ItemHalfSize, z, 0, 0, 0, 0)
-	s.itemsMu.Lock()
-	it.item.Target = &c.player.UUID
-	s.itemsMu.Unlock()
-	return it.item.ID
-}
-
 // SpawnItemStack lays a built stack on the ground, past its pickup delay,
 // and returns its entity ID.
 func (s *Server) SpawnItemStack(x, y, z float64, stack protocol.ItemStack) int32 {
