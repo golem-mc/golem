@@ -289,7 +289,14 @@ func (ctx *lightCtx) runDecreases(dq, iq *lightQueue) {
 			if !contains(ny) || int(e.layer)&dirBit(n.dir) == 0 {
 				continue
 			}
-			to := ctx.getLight(layer, nx, ny, nz)
+			c, loaded := ctx.resolve(nx, nz)
+			if !loaded {
+				continue
+			}
+			lx, ly, lz := nx&15, ny-worldMinY, nz&15
+			si := int(ly/sectionSize) + 1 // light has one section below the world
+			i, high := lightNibbleIndex(lx, ly%sectionSize, lz)
+			to := lightNibbleAt(ctx.layer(c, layer)[si], i, high)
 			if to == 0 {
 				continue
 			}
@@ -297,13 +304,12 @@ func (ctx *lightCtx) runDecreases(dq, iq *lightQueue) {
 				iq.push(nx, ny, nz, to, layer|dirBit(n.dir^1))
 				continue
 			}
-			ctx.putLight(layer, nx, ny, nz, 0)
+			ctx.writeLightNibble(c, layer, si, i, high, 0)
 			if layer == skyLayer {
 				dq.push(nx, ny, nz, to, layer|allDirs&^dirBit(n.dir^1))
 				continue
 			}
-			state, _ := ctx.blockAt(nx, ny, nz)
-			emission := uint8(registry.LightEmission(state))
+			emission := uint8(registry.LightEmission(c.sharedBlockAt(lx, ny, lz)))
 			if emission < to {
 				dq.push(nx, ny, nz, to, layer|allDirs&^dirBit(n.dir^1))
 			}

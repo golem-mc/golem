@@ -180,7 +180,7 @@ func (ix *pickupIndex) candidate(it *itemEntity) *itemPickup {
 	if !ix.indexed {
 		for i := range ix.clients {
 			if ok(int32(i)) {
-				return &itemPickup{collector: ix.clients[i], item: it.item.ID}
+				return &itemPickup{collector: ix.clients[i], entity: it, item: it.item.ID}
 			}
 		}
 		return nil
@@ -188,7 +188,7 @@ func (ix *pickupIndex) candidate(it *itemEntity) *itemPickup {
 	var found *itemPickup
 	ix.grid.Query(box, func(i int32) {
 		if found == nil && ok(i) {
-			found = &itemPickup{collector: ix.clients[i], item: it.item.ID}
+			found = &itemPickup{collector: ix.clients[i], entity: it, item: it.item.ID}
 		}
 	})
 	return found
@@ -235,12 +235,13 @@ const motionThreshold = 1e-7
 // broadcast: the slot updates their inventory grew.
 type itemPickup struct {
 	collector *client
+	entity    *itemEntity
 	item      int32
 	count     int32
 	left      int32
 	consumed  bool
-	slots     [][]byte
 	visible   bool
+	slots     [][]byte
 }
 
 // itemMetadataUpdate is what one stack change owes the clients watching it:
@@ -655,9 +656,12 @@ func (s *Server) tickItemPickups() {
 // dimensions to twin.
 func (s *Server) giveItemPickups(candidates []*itemPickup) {
 	for _, p := range candidates {
-		it := s.itemByID(p.item)
-		if it == nil {
-			continue // gone: the tick raced a despawn or another pickup's tail
+		it := p.entity
+		s.itemsMu.Lock()
+		live := s.canClaimItemLocked(it)
+		s.itemsMu.Unlock()
+		if !live {
+			continue
 		}
 		c := p.collector
 
@@ -671,7 +675,7 @@ func (s *Server) giveItemPickups(candidates []*itemPickup) {
 		s.itemsMu.Lock()
 		rest := int32(0)
 		var given protocol.ItemStack
-		claimed := !it.item.Dead
+		claimed := s.canClaimItemLocked(it)
 		thrower := it.thrower
 		if claimed {
 			given = it.item.Stack
@@ -744,17 +748,9 @@ func (s *Server) giveItemPickups(candidates []*itemPickup) {
 	}
 }
 
-// itemByID finds the item entity a pickup phase is working on, nil for one
-// gone. The item lock says the answer is not half-way through an append.
-func (s *Server) itemByID(id int32) *itemEntity {
-	s.itemsMu.Lock()
-	defer s.itemsMu.Unlock()
-	for _, it := range s.items {
-		if it.item.ID == id && !it.item.Dead {
-			return it
-		}
-	}
-	return nil
+func (s *Server) canClaimItemLocked(it *itemEntity) bool {
+	// A body crossing dimensions can be unfiled while alive and leave its UUID to its twin.
+	return !it.item.Dead && s.itemChunks.Contains(&it.item.Filing)
 }
 
 // spawnItem lays a stack of items on the ground as an item entity, in the
