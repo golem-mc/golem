@@ -829,6 +829,8 @@ type pushGrid struct {
 	keys []pushCellKey
 	// near is the candidates' scratch, reused gathering to gathering.
 	near []*Mob
+	// shove is a shell's push candidates; o.move queries near meanwhile.
+	shove []*Mob
 	// gathered, when set, adds up the candidates handed out.
 	gathered *int
 	// spare holds emptied cell slices a new cell can take.
@@ -942,6 +944,8 @@ func (g *pushGrid) reset() {
 	clear(g.byID)
 	clear(g.near[:cap(g.near)])
 	g.near = g.near[:0]
+	clear(g.shove[:cap(g.shove)])
+	g.shove = g.shove[:0]
 	clear(g.caravan)
 	g.caravan = g.caravan[:0]
 	g.wide, g.gathered, g.crammingSet, g.crowd = 0, nil, false, nil
@@ -1106,7 +1110,13 @@ func (g *pushGrid) scan(x0, x1, z0, z1 int, collect func([]pushEntry)) {
 // pushIdx where the order is observable). The result is scratch valid until
 // the next query.
 func (g *pushGrid) gatherBox(box AABB) []*Mob {
-	g.near = g.near[:0]
+	g.near = g.gatherBoxInto(g.near[:0], box)
+	return g.near
+}
+
+// gatherBoxInto appends to dst the mobs gatherBox finds, for a caller whose
+// result must survive another query.
+func (g *pushGrid) gatherBoxInto(dst []*Mob, box AABB) []*Mob {
 	x0, z0 := cellCoords(box.minX-g.wide, box.minZ-g.wide)
 	x1, z1 := cellCoords(box.maxX+g.wide, box.maxZ+g.wide)
 	seen := 0
@@ -1115,14 +1125,14 @@ func (g *pushGrid) gatherBox(box AABB) []*Mob {
 		for i := range c {
 			o := &c[i]
 			if box.maxX > o.minX && box.minX < o.maxX && box.maxY > o.minY && box.minY < o.maxY && box.maxZ > o.minZ && box.minZ < o.maxZ {
-				g.near = append(g.near, o.m)
+				dst = append(dst, o.m)
 			}
 		}
 	})
 	if g.gathered != nil {
 		*g.gathered += seen
 	}
-	return g.near
+	return dst
 }
 
 // boxesOverlap is the AABB intersection the pushable list is gathered by.

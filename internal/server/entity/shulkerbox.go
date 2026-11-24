@@ -86,7 +86,8 @@ func (m *Mob) stepShulkerPeek(w World, t *tickView) {
 	others := t.others
 	if g := m.push; g != nil {
 		// The entries are body boxes, which is what mobBox is for a non-shulker.
-		others = slices.Clone(g.gatherBox(slab))
+		g.shove = g.gatherBoxInto(g.shove[:0], slab)
+		others = g.shove
 		slices.SortFunc(others, func(a, b *Mob) int { return cmp.Compare(a.pushIdx, b.pushIdx) })
 	}
 	for _, o := range others {

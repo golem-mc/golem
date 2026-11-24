@@ -2,7 +2,6 @@ package entity
 
 import (
 	"math"
-	"sort"
 
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -434,7 +433,14 @@ func (m *Mob) canStayAt(w World, at Waypoint, face uint8) bool {
 // vanilla: BlockBehaviour.isFaceFull, ScaffoldingBlock.getCollisionShape
 func (m *Mob) supportFull(state uint16, y int32, face uint8) bool {
 	if boxes, ok := world.ScaffoldingBoxes(state, y, m.Y); ok {
-		return boxesFaceFull(boxes, face)
+		// Only a plate spanning the whole cell can fill a scaffold's top or bottom face.
+		for _, b := range boxes {
+			if b.MinX == 0 && b.MaxX == 1 && b.MinZ == 0 && b.MaxZ == 1 &&
+				(face == faceUp && b.MaxY == 1 || face == faceDown && b.MinY == 0) {
+				return true
+			}
+		}
+		return false
 	}
 	return faceFull(state, face)
 }
@@ -488,47 +494,4 @@ func (m *Mob) teleportShulker(w World, t *tickView) bool {
 // vanilla: Block.isFaceFull
 func faceFull(state uint16, face uint8) bool {
 	return registry.CollisionFaceFull(state, int(face))
-}
-
-// boxesFaceFull reports whether the boxes cover the whole face toward the
-// direction id (down, up, north, south, west, east).
-// vanilla: Block.isFaceFull
-func boxesFaceFull(shape []world.CollisionBox, face uint8) bool {
-	axis, high := [6]int{1, 1, 2, 2, 0, 0}[face], face%2 == 1
-	u, v := (axis+1)%3, (axis+2)%3
-	var boxes [][2][3]float64
-	cuts := [2][]float64{{0, 1}, {0, 1}}
-	for _, b := range shape {
-		lo := [3]float64{b.MinX, b.MinY, b.MinZ}
-		hi := [3]float64{b.MaxX, b.MaxY, b.MaxZ}
-		if (high && hi[axis] != 1) || (!high && lo[axis] != 0) || lo[axis] == hi[axis] {
-			continue
-		}
-		boxes = append(boxes, [2][3]float64{lo, hi})
-		cuts[0] = append(cuts[0], lo[u], hi[u])
-		cuts[1] = append(cuts[1], lo[v], hi[v])
-	}
-	if len(boxes) == 0 {
-		return false
-	}
-	// Every cell the box edges cut the face into must lie inside a box.
-	for i := range cuts {
-		sort.Float64s(cuts[i])
-	}
-	for i := 0; i+1 < len(cuts[0]); i++ {
-		for j := 0; j+1 < len(cuts[1]); j++ {
-			cu, cv := (cuts[0][i]+cuts[0][i+1])/2, (cuts[1][j]+cuts[1][j+1])/2
-			if cu <= 0 || cu >= 1 || cv <= 0 || cv >= 1 || cuts[0][i] == cuts[0][i+1] || cuts[1][j] == cuts[1][j+1] {
-				continue
-			}
-			covered := false
-			for _, b := range boxes {
-				covered = covered || (cu > b[0][u] && cu < b[1][u] && cv > b[0][v] && cv < b[1][v])
-			}
-			if !covered {
-				return false
-			}
-		}
-	}
-	return true
 }
