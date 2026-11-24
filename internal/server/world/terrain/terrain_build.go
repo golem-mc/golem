@@ -102,6 +102,13 @@ func (rs *RandomState) CarvingMask(chunkX, chunkZ int32, carvers func(int32, int
 // zero density, and turns the dirt under a carved grass block into the biome's
 // top material. vanilla: NoiseBasedChunkGenerator.applyCarvingMask
 func (rs *RandomState) applyCarvingMask(chunk CarveChunk, chunkX, chunkZ int32, mask *CarvingMask, nc *NoiseChunk, biomes Biomes, post PostProcessingChunk) {
+	var ctx *materialContext
+	var rule ruleFn
+	defer func() {
+		if ctx != nil {
+			ctx.close()
+		}
+	}()
 	mask.Visit(func(x, z, bottomY, topY int32) {
 		hasGrass := false
 		wx, wz := chunkX*16+x, chunkZ*16+z
@@ -124,7 +131,12 @@ func (rs *RandomState) applyCarvingMask(chunk CarveChunk, chunkX, chunkZ int32, 
 			if !hasGrass || chunk.Get(wx, y-1, wz) != Dirt {
 				continue
 			}
-			if top, ok := rs.Materials.topMaterial(chunk, nc, biomes, wx, y-1, wz, m.IsFluid()); ok {
+			if ctx == nil {
+				ctx = newMaterialContext(rs.Materials, nc, nc.volume, biomes, nil)
+				ctx.sampleBandsAtPoint = true
+				rule = rs.Materials.rule(ctx)
+			}
+			if top, ok := ctx.topMaterial(rule, chunk, wx, y-1, wz, m.IsFluid()); ok {
 				chunk.Set(wx, y-1, wz, top)
 				if post != nil && top.IsFluid() {
 					post.MarkPosForPostProcessing(wx, y-1, wz)
