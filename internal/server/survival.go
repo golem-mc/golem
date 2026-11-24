@@ -2293,6 +2293,7 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 	attacker := entity.Player{
 		X: from.X, Y: from.Y, Z: from.Z,
 		Yaw:      float64(from.Yaw),
+		Pitch:    float64(from.Pitch),
 		EntityID: c.player.EntityID,
 		Huntable: true,
 		Creative: c.player.GameMode() == protocol.GameModeCreative,

@@ -3904,11 +3904,13 @@ func (m *Mob) HurtByFirework(amount float64, damageType registry.DamageType, cau
 
 // HurtByCommand is /damage: causeID (0 for none) is kept for
 // retaliation and kill credit, and a whole hit shoves away from (fromX, fromZ)
-// unless the type is no_knockback. Results are landed and softened.
+// unless the type is no_knockback. When from is non-nil (a by/from entity),
+// a filled sulfur cube bends its shove by the attacker's aim. Results are
+// landed and softened.
 // vanilla: DamageCommand.damage, LivingEntity.hurtServer
-func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, causeIsPlayer, causeCreative bool, fromX, fromZ float64) (landed, softened bool) {
+func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, causeIsPlayer, causeCreative bool, fromX, fromZ float64, from ...*HitSource) (landed, softened bool) {
 	if causeID != 0 {
-		return m.hurtByDamage(amount, damageType, causeID, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z)
+		return m.hurtByDamage(amount, damageType, causeID, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z, from...)
 	}
 	landed, softened = m.HurtByWorld(amount, damageType)
 	if landed && !softened && !damageType.InTag(registry.DamageTypeTagIDNoKnockback) {
