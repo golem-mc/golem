@@ -915,9 +915,11 @@ func (s *Server) blastBlocks(b blast, destroyed rules.BlastBlocks) {
 	var drops rules.BlastDrops
 	// One context serves every block's roll: it is reset per block, so the
 	// crater costs one heap object rather than one per block.
-	var ctx rules.LootContext
-	for _, old := range removed {
-		s.explodedBlock(b, old, &drops, &ctx)
+	if len(removed) > 0 {
+		var ctx rules.LootContext
+		for _, old := range removed {
+			s.explodedBlock(b, old, &drops, &ctx)
+		}
 	}
 	// Spawned after every block has rolled, so the loots have merged.
 	// vanilla: ServerExplosion.interactWithBlocks
@@ -957,13 +959,6 @@ func (s *Server) blastBlocks(b blast, destroyed rules.BlastBlocks) {
 	s.relightChanges(w, removed)
 }
 
-// explodedEntityBlocks are the blocks that can hold a block entity, the only
-// ones whose removal has a spill, a carried compound or a container to read.
-var explodedEntityBlocks = registry.BlocksOf(func(b registry.Block) bool {
-	_, ok := registry.BlockEntityTypes[b.Name()]
-	return ok || b == registry.BlockMovingPiston
-})
-
 // explodedBlock applies what one removed block leaves: its block entity's
 // spill, then a primed TNT, or the infestation and the loot, which goes to
 // drops rather than the world. The spill is not collected: a container's
@@ -971,7 +966,7 @@ var explodedEntityBlocks = registry.BlocksOf(func(b registry.Block) bool {
 func (s *Server) explodedBlock(b blast, old world.BlockChange, drops *rules.BlastDrops, ctx *rules.LootContext) {
 	w := b.w
 	block := registry.BlockOf(old.State)
-	hasEntity := explodedEntityBlocks[block]
+	hasEntity := registry.PistonHasBlockEntityBlocks[block]
 	if hasEntity {
 		// A skull's carried compound holds its profile and name; the context
 		// reads them before the break takes the compound out of the world.
