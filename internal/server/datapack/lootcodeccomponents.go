@@ -56,7 +56,7 @@ func (d lootDecoder) componentFunction(kind string, f obj, conds []registry.Loot
 		}
 		return out, true
 	case "minecraft:set_custom_model_data":
-		return setCustomModelData(f, conds), true
+		return d.setCustomModelData(f, conds), true
 	case "minecraft:set_firework_explosion":
 		out := registry.LootSetFireworkExplosion{Conditions: conds}
 		explosion := func(key string, v any) protocol.FireworkExplosion {
@@ -131,7 +131,7 @@ func (d lootDecoder) componentFunction(kind string, f obj, conds []registry.Loot
 // setCustomModelData reads the four optional list operations; a colour is a
 // context int provider or an RGB colour.
 // vanilla: SetCustomModelDataFunction.MAP_CODEC
-func setCustomModelData(f obj, conds []registry.LootCondition) registry.LootSetCustomModelData {
+func (d lootDecoder) setCustomModelData(f obj, conds []registry.LootCondition) registry.LootSetCustomModelData {
 	out := registry.LootSetCustomModelData{Conditions: conds}
 	values := func(key string) (obj, []any, bool) {
 		v, ok := f[key]
@@ -144,7 +144,7 @@ func setCustomModelData(f obj, conds []registry.LootCondition) registry.LootSetC
 	if o, vs, ok := values("floats"); ok {
 		op := &registry.LootStandAlone[registry.LootNumber]{Operation: listOperation(o, math.MaxInt32)}
 		for _, v := range vs {
-			op.Values = append(op.Values, floatProvider(v))
+			op.Values = append(op.Values, d.floatProvider(v))
 		}
 		out.Floats = op
 	}
@@ -170,7 +170,7 @@ func setCustomModelData(f obj, conds []registry.LootCondition) registry.LootSetC
 		op := &registry.LootStandAlone[registry.LootNumber]{Operation: listOperation(o, math.MaxInt32)}
 		for _, v := range vs {
 			if _, isList := v.([]any); !isList {
-				op.Values = append(op.Values, intProvider(v))
+				op.Values = append(op.Values, d.intProvider(v))
 				continue
 			}
 			tag, _, err := nbt.ParseValueTag(snbt(v))

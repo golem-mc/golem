@@ -26,8 +26,24 @@ func TestDecodeSlotSource(t *testing.T) {
 		{"unknown id", `"p:missing"`, false},
 		{"unknown type", `{"type":"minecraft:nope"}`, false},
 	} {
-		if _, err := DecodeSlotSource([]byte(tc.json)); (err == nil) != tc.ok {
+		if _, err := DecodeSlotSource(nil, []byte(tc.json)); (err == nil) != tc.ok {
 			t.Errorf("%s: err = %v, want ok=%v", tc.name, err, tc.ok)
 		}
+	}
+}
+
+// TestDecodeResolvesStagedLayers checks that a pack load's loot resolves
+// provider and slot source names against its staged layers, which the
+// layers in force do not see before Publish.
+func TestDecodeResolvesStagedLayers(t *testing.T) {
+	layers := registry.StagePackLayers()
+	layers.SetContextProviders(map[string][]byte{"p:n": []byte(`3`)}, nil)
+	layers.SetSlotSources(map[string]registry.SlotSource{"p:s": registry.SlotEmptySource{}})
+	table := []byte(`{"pools":[{"rolls":"p:n","entries":[{"type":"minecraft:slots","slot_source":"p:s"}]}]}`)
+	if _, err := DecodeLootTable(layers, table); err != nil {
+		t.Errorf("staged layers: %v", err)
+	}
+	if _, err := DecodeLootTable(nil, table); err == nil {
+		t.Error("the layers in force resolved the staged names")
 	}
 }

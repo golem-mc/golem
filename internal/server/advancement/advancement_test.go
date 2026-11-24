@@ -254,7 +254,7 @@ func TestTheFileRoundTrips(t *testing.T) {
 
 // column is a Blocks reader over a few cells.
 func column(cells map[[3]int32]uint16) Blocks {
-	return func(dx, dy, dz int32) uint16 { return cells[[3]int32{dx, dy, dz}] }
+	return Blocks{At: func(dx, dy, dz int32) uint16 { return cells[[3]int32{dx, dy, dz}] }}
 }
 
 func TestPlacedBlockReadsStateTagsAndNeighbours(t *testing.T) {

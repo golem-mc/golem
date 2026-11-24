@@ -521,6 +521,13 @@ func (w *World) ChunkLoadedAt(x, z int32) bool {
 	return w.ChunkLoaded(ChunkPos{X: ChunkOf(float64(x)), Z: ChunkOf(float64(z))})
 }
 
+// LoadedAt reports whether the block position is within build height and in a
+// loaded chunk.
+// vanilla: Level.isLoaded, Level.isInValidBounds
+func (w *World) LoadedAt(x, y, z int32) bool {
+	return w.inBuildHeight(y) && w.ChunkLoadedAt(x, z)
+}
+
 // SpawnPoint returns the world spawn and whether it belongs to this dimension,
 // which decides whether the natural spawn's keep-clear rule applies here.
 // vanilla: NaturalSpawner.isRightDistanceToPlayerAndSpawnPoint

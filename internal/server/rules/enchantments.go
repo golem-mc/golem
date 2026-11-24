@@ -824,6 +824,30 @@ func EnchLevelValueAt(v *registry.EnchLevelValue, level int32) float32 {
 	return float32(enchLevelValue(v, level))
 }
 
+// enchLevelValueThrows reports whether calculate at level reaches a lookup
+// below level 1, which reads index level-1 and throws. A fraction whose
+// denominator is zero never reads its numerator.
+// vanilla: LevelBasedValue.Lookup.calculate, LevelBasedValue.Fraction.calculate
+func enchLevelValueThrows(v *registry.EnchLevelValue, level int32) bool {
+	if v == nil || level >= 1 {
+		return false
+	}
+	switch v.Kind {
+	case registry.EnchValueLookup:
+		return true
+	case registry.EnchValueClamped:
+		return enchLevelValueThrows(v.Value, level)
+	case registry.EnchValueFraction:
+		if enchLevelValueThrows(v.Den, level) {
+			return true
+		}
+		return enchLevelValue(v.Den, level) != 0 && enchLevelValueThrows(v.Num, level)
+	case registry.EnchValueExponent:
+		return enchLevelValueThrows(v.ExpBase, level) || enchLevelValueThrows(v.ExpPower, level)
+	}
+	return false
+}
+
 // itemEnchValue folds an item's conditional value component in its loot context.
 func itemEnchValue(stack protocol.ItemStack, contexts []*EnchContext, component func(*registry.EnchantmentEffects) []registry.EnchConditional, value float64) float64 {
 	ctx := EnchContext{Victim: -1, Attacker: -1, DirectAttacker: -1}

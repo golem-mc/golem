@@ -1,6 +1,7 @@
 package command
 
 import (
+	"errors"
 	"math"
 	"math/big"
 	"slices"
@@ -804,7 +805,8 @@ func runDataModify(src Source, input string, args []string, tokens []Token) (int
 // dataComputeValue evaluates a compute source's provider in the context it
 // names: an int tag or a float tag. A nil tag means the command stops with
 // the error. An arithmetic failure stores 0, as does a NaN or infinite
-// float, and a float is stored unscaled.
+// float, and a float is stored unscaled; a lookup read below level 1 is
+// command.failed.
 // vanilla: DataCommands.decorateModification (getInt / getFloat)
 func dataComputeValue(src Source, input string, words []string) (nbt.Tag, error) {
 	lc, rest, err := computeContext(src, input, words)
@@ -815,12 +817,18 @@ func dataComputeValue(src Source, input string, words []string) (nbt.Tag, error)
 	switch kind {
 	case "integer":
 		v, err := rules.EvalIntProvider(p, lc, src.Random())
+		if errors.Is(err, rules.ErrLookupIndex) {
+			return nil, refuse(src, "command.failed")
+		}
 		if err != nil {
 			return nbt.Int(0), nil
 		}
 		return nbt.Int(v), nil
 	case "float":
 		v, err := rules.EvalFloatProvider(p, lc, src.Random())
+		if errors.Is(err, rules.ErrLookupIndex) {
+			return nil, refuse(src, "command.failed")
+		}
 		if f := float64(v); err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 			return nbt.Float(0), nil
 		}
