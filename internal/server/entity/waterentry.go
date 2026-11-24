@@ -30,7 +30,7 @@ func (e *waterEntry) step(w World, box AABB, vx, vy, vz float64) *WaterSplash {
 		return nil
 	}
 	if e.rng == nil {
-		e.rng = rand.New(rand.NewSource(rand.Int63()))
+		e.rng = NewDice(rand.Int63())
 	}
 	volume, pitch := splashSound(vx, vy, vz, e.rng)
 	return &WaterSplash{X: x, Y: y, Z: z, Volume: volume, Pitch: pitch}

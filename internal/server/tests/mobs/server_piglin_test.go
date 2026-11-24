@@ -78,7 +78,6 @@ func TestAPiglinAdmiresAGoldIngotThenThrowsABarterItem(t *testing.T) {
 	t.Parallel()
 	c, _, srv := barterWorld(t)
 	p := srv.SpawnMob(barterPiglin, 5.5, 64, 0.5)
-	srv.SetMobBaby(p, false) // the seeded spawn roll may make a baby, which hunts no one
 	srv.SetMobBaby(p, false) // the seeded spawn roll may make a baby, which does not barter
 	c.ChatCommand(`summon item 5.5 64 0.5 {Item:{id:"minecraft:gold_ingot",count:1}}`)
 	c.Settle()
