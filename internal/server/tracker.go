@@ -145,6 +145,10 @@ type trackedKind[B any, S any] struct {
 	// frozenSchedule keeps the movement cadence running while physics is held,
 	// including the initial correction of a client's predicted birth step.
 	frozenSchedule bool
+	// motion, if not nil, is the body's velocity for the Set Entity Motion
+	// that goes ahead of each watcher's move on a movement tick.
+	// vanilla: ServerEntity.sendChanges
+	motion func(B) (vx, vy, vz float64)
 
 	lock  func(*Server) *sync.Mutex
 	list  func(*Server) *[]B
@@ -833,6 +837,16 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 	if mt.gate && k.dirtyAttributes != nil {
 		attributes = k.dirtyAttributes(b)
 	}
+	// The baseline advances on every gate, watched or not, before any watcher
+	// is paired; a watcher paired now has it in its Add Entity, and the
+	// payload is encoded for the first watcher already tracking the body.
+	// vanilla: ServerEntity.sendChanges, ChunkMap.TrackedEntity.updatePlayer
+	var motion []byte
+	motionDue := false
+	if k.motion != nil && mt.gate {
+		vx, vy, vz := k.motion(b)
+		motionDue = v.t.motionDue(vx, vy, vz, true)
+	}
 	for _, i := range v.watchers(near) {
 		wt := watchers[i]
 		if wt.c.theWorld() != v.w {
@@ -844,6 +858,12 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 			continue
 		}
 		if mt.gate || mt.teleported && !v.k.steppedPath {
+			if motionDue && len(out.showTos) == paired { // not paired by this settle
+				if motion == nil {
+					motion = entityVelocityPayload(v.id, v.t.sentVX, v.t.sentVY, v.t.sentVZ)
+				}
+				out.moves.add(wt.c, outbound{id: protocol.IDPlaySetEntityMotion, data: motion})
+			}
 			v.moveTold(was, wt.c, mt, out)
 		}
 		// A watcher just paired was told the current state.

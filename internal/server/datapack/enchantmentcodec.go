@@ -565,7 +565,7 @@ func (d *enchantmentDecoder) enchCondition(v any) (out *registry.EnchCondition) 
 		if _, failed := r.(lootFailure); !failed || !isObject || registry.Qualify(optStr(c, "type")) == "minecraft:reference" {
 			panic(r)
 		}
-		out = &registry.EnchCondition{Kind: registry.EnchCondLoot, Loot: []registry.LootCondition{condition(c)}}
+		out = &registry.EnchCondition{Kind: registry.EnchCondLoot, Loot: []registry.LootCondition{lootDecoder{}.condition(c)}}
 	}()
 	return d.nativeCondition(v)
 }

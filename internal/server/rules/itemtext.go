@@ -54,12 +54,8 @@ func nested(name protocol.Text) protocol.Text {
 	return protocol.Text{Extra: []protocol.Text{name}}
 }
 
-// ItemName is a stack's display name: the custom name in italics, a written
-// book's title, a potion's or tipped arrow's effect, a lodestone compass, a
-// named player head's "<name>'s Head", a shield's base_color, the item_name
-// component, else the item's translation key.
-// vanilla: ItemStack.getHoverName, ItemStack.getCustomName, PotionContents.getName,
-// CompassItem.getName, PlayerHeadItem.getName, ShieldItem.getName, Item.getName
+// ItemName is a stack's hover name, with its custom name styled in italics.
+// vanilla: ItemStack.getHoverName, ItemStack.getCustomName
 func ItemName(stack protocol.ItemStack) protocol.Text {
 	if stack.CustomName != nil {
 		name := *stack.CustomName
@@ -74,12 +70,22 @@ func ItemName(stack protocol.ItemStack) protocol.Text {
 	if book, ok := stack.WrittenBookOf(); ok && strings.TrimSpace(book.Title) != "" {
 		return protocol.Text{Text: book.Title}
 	}
+	return ItemTypeName(stack)
+}
+
+// ItemTypeName returns the stack's item name, including item-specific overrides.
+// vanilla: ItemStack.getItemName, Item.getName
+func ItemTypeName(stack protocol.ItemStack) protocol.Text {
 	key, ok := registry.ItemTranslationKey(stack.ItemID)
 	if !ok {
 		return protocol.Text{Translate: "item.minecraft.unknown"}
 	}
 	switch registry.Item(stack.ItemID) {
 	case registry.ItemPotion, registry.ItemSplashPotion, registry.ItemLingeringPotion, registry.ItemTippedArrow:
+		if stack.Removes(protocol.DataComponentPotionContents) {
+			// No contents to name: the item's own name, as Item.getName.
+			break
+		}
 		return protocol.Text{Translate: key + ".effect." + potionSuffix(stack)}
 	case registry.ItemCompass:
 		if _, tracked := stack.LodestoneTrackerOf(); tracked {

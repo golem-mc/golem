@@ -56,7 +56,7 @@ func (c *client) useBeehive(hand, x, y, z int32) bool {
 	}
 	hive := w.BlockAt(x, y, z)
 	c.srv.emptyHive(w, x, y, z, state)
-	if !rules.HiveSedated(w, x, y, z) {
+	if !rules.HiveSedated(w.BlockAt, x, y, z) {
 		if len(hiveBees(w, x, y, z).Items) > 0 {
 			c.srv.angerBeesAround(w, x, y, z)
 		}
@@ -99,7 +99,7 @@ func (c *client) collectHive(x, y, z int32, state uint16) func() {
 	}
 	w := c.theWorld()
 	occupants := hiveBees(w, x, y, z)
-	sedated := rules.HiveSedated(w, x, y, z)
+	sedated := rules.HiveSedated(w.BlockAt, x, y, z)
 	return func() {
 		c.srv.spawnHiveBees(w, x, y, z, state, occupants, c, sedated, true)
 		c.srv.angerBeesAround(w, x, y, z)
@@ -114,7 +114,7 @@ func (s *Server) releaseHiveBees(w *world.World, x, y, z int32, state uint16, by
 	if len(list.Items) == 0 {
 		return
 	}
-	kept := s.spawnHiveBees(w, x, y, z, state, list, by, rules.HiveSedated(w, x, y, z), emergency)
+	kept := s.spawnHiveBees(w, x, y, z, state, list, by, rules.HiveSedated(w.BlockAt, x, y, z), emergency)
 	if !forget {
 		return
 	}

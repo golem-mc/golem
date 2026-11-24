@@ -99,7 +99,7 @@ func TestDirtyDataOpensOneMovementTick(t *testing.T) {
 		// The modifier changes, the synched fields do not.
 		{"hidden_amplifier", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 true`, `effect give @e[tag=s,limit=1] speed 100 1 true`, false, true},
 		// The health is healed back before tracking, but stays dirty.
-		{"damage_healed", mannequin, ``, "damage @e[tag=s,limit=1] 1 generic\neffect give @e[tag=s,limit=1] instant_health 1 0 true", true, false},
+		{"damage_healed", mannequin, ``, "damage @e[tag=s,limit=1] 1 generic\ndata merge entity @e[tag=s,limit=1] {Health:20f}", true, false},
 	}
 	for _, kind := range []struct {
 		name     string

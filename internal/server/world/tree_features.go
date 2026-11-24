@@ -215,11 +215,29 @@ func parseFallenTree(c jobj) func(*decorRegion, treePos) bool {
 	}
 }
 
+// hugeMushroomRadius reads the foliage radius of a HugeMushroomFeatureConfiguration.
+func hugeMushroomRadius(c jobj) int32 { return c.integerOr("foliage_radius", 2) }
+
+// bonemealMushroomRadius returns the foliage radius of the huge mushroom
+// feature key, or false when the feature is missing or not a huge mushroom.
+// vanilla: MushroomBlock.isValidBonemealTarget
+func bonemealMushroomRadius(key string) (int32, bool) {
+	src, ok := levelgen.OverworldTreeFeature(false, "minecraft:"+key)
+	if !ok {
+		return 0, false
+	}
+	o := parseJSON(src)
+	if t := jtype(o); t != "huge_red_mushroom" && t != "huge_brown_mushroom" {
+		return 0, false
+	}
+	return hugeMushroomRadius(o), true
+}
+
 // parseHugeMushroom reads a HugeMushroomFeatureConfiguration.
 // vanilla: AbstractHugeMushroomFeature, HugeRedMushroomFeature, HugeBrownMushroomFeature
 func parseHugeMushroom(red bool, c jobj) func(*decorRegion, treePos) bool {
 	canPlaceOn, cap, stem := compilePred(c["can_place_on"]), compileState(c["cap_provider"]), compileState(c["stem_provider"])
-	radius := c.integerOr("foliage_radius", 2)
+	radius := hugeMushroomRadius(c)
 	radiusAt := func(height, yo int32) int32 {
 		if red {
 			if yo < height && yo >= height-3 || yo == height {

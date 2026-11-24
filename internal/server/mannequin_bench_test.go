@@ -76,6 +76,35 @@ func BenchmarkTickMannequinsMoving(b *testing.B) {
 	}
 }
 
+// BenchmarkTickMannequinsFalling runs the mannequin pass over bodies falling
+// in sight of every player, so each movement gate sends motion and a move.
+func BenchmarkTickMannequinsFalling(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	var ents []*mannequinEntity
+	for i := range trackerBenchBodies {
+		x, z := trackerBenchSpot(i)
+		ent := &mannequinEntity{
+			mannequin: entity.NewMannequin(s.nextEntity(), x, float64(world.GroundLevel)+200, z),
+			w:         w,
+		}
+		ents = append(ents, ent)
+		s.registerMannequin(ent)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		if i%40 == 0 { // back to the top before any lands
+			b.StopTimer()
+			for _, ent := range ents {
+				ent.mannequin.SetPos(ent.mannequin.X, float64(world.GroundLevel)+200, ent.mannequin.Z)
+				ent.mannequin.VY = 0
+			}
+			b.StartTimer()
+		}
+		s.tickMannequins()
+	}
+}
+
 // BenchmarkTickMannequinsNone runs the mannequin pass in a world with none,
 // the cost every server pays.
 func BenchmarkTickMannequinsNone(b *testing.B) {

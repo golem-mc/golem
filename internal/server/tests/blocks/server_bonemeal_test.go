@@ -986,3 +986,48 @@ func TestBoneMealOnWarpedNyliumPlacesCover(t *testing.T) {
 		t.Error("bone meal on warped nylium placed no warped roots or nether sprouts")
 	}
 }
+
+// TestMushroomBoneMealCeiling checks that a small mushroom whose huge form
+// cannot fit under the build ceiling refuses the bone meal: red needs
+// Y+4+2 and brown Y+4+3 inside the world, and only an accepted use costs one,
+// whether or not the roll grows the mushroom.
+func TestMushroomBoneMealCeiling(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.SurvivalConfig(), "Farmer", servertest.OpsListing(t, "Farmer"))
+
+	srv.StopTick()
+	servertest.SeedPhysics(t, srv, servertest.CropsSeed)
+
+	boneMeal, ok := registry.ItemID("minecraft:bone_meal")
+	if !ok {
+		t.Fatal("the item registry has no bone meal")
+	}
+	for _, tc := range []struct {
+		mushroom string
+		y        int32
+		accepted bool
+	}{
+		{"minecraft:red_mushroom", 313, true},
+		{"minecraft:red_mushroom", 314, false},
+		{"minecraft:brown_mushroom", 312, true},
+		{"minecraft:brown_mushroom", 313, false},
+	} {
+		servertest.SetFarmBlock(t, c, srv, 5, tc.y-1, 0, "minecraft:mycelium", nil)
+		servertest.SetFarmBlock(t, c, srv, 5, tc.y, 0, tc.mushroom, nil)
+		srv.GiveSlot("Farmer", player.HotbarSlot, protocol.ItemStack{ItemID: boneMeal, Count: 8})
+		c.MoveToGround(4.5, float64(tc.y), 1.5, true)
+		c.Settle()
+
+		c.UseBlock(5, tc.y, 0)
+		c.SettleKeeping()
+		srv.FlushBlockAcks()
+
+		want := int32(8)
+		if tc.accepted {
+			want = 7
+		}
+		if got := srv.InventorySlot("Farmer", player.HotbarSlot); got.Count != want {
+			t.Errorf("%s at Y=%d: %d bone meal left, want %d", tc.mushroom, tc.y, got.Count, want)
+		}
+	}
+}

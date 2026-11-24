@@ -27,7 +27,7 @@ func TestMannequinLodgedArrowRemoval(t *testing.T) {
 				t.Fatalf("arrow count after /data = %v, want [1]", got)
 			}
 			// Mannequins step before arrows, so the countdown starts after the hit tick.
-			if got := servertest.StuckArrows(t, c, srv, id, 578); len(got) != 0 {
+			if got := servertest.StuckArrows(t, c, srv, id, 579); len(got) != 0 {
 				t.Fatalf("arrow counts before 580 ticks = %v, want none", got)
 			}
 			if got := servertest.StuckArrows(t, c, srv, id, 1); !slices.Equal(got, []int32{0}) {

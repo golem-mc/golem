@@ -31,7 +31,7 @@ func TestACrossbowShotScattersByTheDifficultyInaccuracy(t *testing.T) {
 		var worst float64
 		for range 300 {
 			view := &tickView{w: w}
-			m.loadCrossbow()
+			g.loadCrossbow(view, m.MainHand)
 			g.shoot(view, p)
 			for _, ev := range view.events {
 				if ev.Kind != MobShotArrow {

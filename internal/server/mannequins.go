@@ -7,6 +7,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/advancement"
+	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -54,6 +55,9 @@ var mannequinTracker = trackedKind[*mannequinEntity, struct{}]{
 	pairing:         mannequinPairing,
 	delta:           mannequinDelta,
 	dirtyAttributes: mannequinDirtyAttributes,
+	motion: func(ent *mannequinEntity) (float64, float64, float64) {
+		return ent.mannequin.VX, ent.mannequin.VY, ent.mannequin.VZ
+	},
 }
 
 // mannequinDelta collects the changed ticking fields, and asks for a movement
@@ -80,7 +84,7 @@ func mannequinPairing(ent *mannequinEntity) []outbound {
 	m := ent.mannequin
 	spawn := spawnEntityPayload(spawnEntity{
 		id: m.ID, uuid: ent.uuid, typ: protocol.EntityTypeMannequin,
-		x: m.X, y: m.Y, z: m.Z, vx: m.VX, vy: m.VY, vz: m.VZ,
+		x: m.X, y: m.Y, z: m.Z, vx: ent.sentVX, vy: ent.sentVY, vz: ent.sentVZ,
 		pitch: encodeAngle(m.Pitch), yaw: encodeAngle(m.Yaw), headYaw: encodeAngle(m.Yaw),
 	})
 	packets := spawnAndMetadata(spawn, mannequinMetadataPayload(ent, false))
@@ -106,6 +110,9 @@ func (s *Server) registerMannequin(ent *mannequinEntity) {
 	ent.mannequin.Combust = func(ticks int, src entity.CombustSource) int {
 		return s.askMannequinCombust(ent, ticks, src)
 	}
+	// The tracker's baseline starts at the spawn velocity, so a later stop is a change.
+	// vanilla: ServerEntity.<init>
+	ent.sentVX, ent.sentVY, ent.sentVZ = ent.mannequin.VX, ent.mannequin.VY, ent.mannequin.VZ
 	mannequinTracker.register(s, ent)
 }
 
@@ -120,6 +127,9 @@ func (s *Server) tickMannequins() {
 	}
 	teams := s.pushTeams()
 	pushes := s.mannequinPushInputs(teams)
+	// Tracking precedes physics, as in ServerChunkCache.tick before the entity tick.
+	// vanilla: ServerChunkCache.tick, ChunkMap.tick
+	mannequinTracker.pass(s, s.trackingWatchers(), true)
 	var effects []mannequinTickEffect
 	s.lockTick(&s.mannequinsMu)
 	for _, ent := range s.mannequins {
@@ -166,7 +176,6 @@ func (s *Server) tickMannequins() {
 			s.hurtMannequin(fx.ent, fx.step.Damage, fx.step.DamageType, 0, 0, nil, false)
 		}
 	}
-	mannequinTracker.pass(s, s.trackingWatchers(), true)
 }
 
 type mannequinTickEffect struct {
@@ -379,27 +388,32 @@ func (s *Server) setMannequinData(ent *mannequinEntity, data nbt.Compound) {
 	s.tellWatchers(w, watchers, packets)
 }
 
-// mannequinTwinAt is a copy of ent, a new entity with the same UUID, at pos
+// mannequinTwinAt is a copy of ent, a new entity with the same UUID, at move.Pos
 // in another dimension; nil when the round trip fails.
-func (s *Server) mannequinTwinAt(ent *mannequinEntity, to *dimension, pos player.Position) *mannequinEntity {
+func (s *Server) mannequinTwinAt(ent *mannequinEntity, to *dimension, move command.Move) *mannequinEntity {
 	twin := mannequinOfTag(s, to.w, mannequinTag(ent).Entries())
 	if twin == nil {
 		return nil
 	}
+	pos := move.Pos
 	m := twin.mannequin
 	m.SetPos(pos.X, pos.Y, pos.Z)
 	m.Yaw = pos.Yaw
 	m.Pitch = pos.Pitch
+	if move.Command {
+		m.VX, m.VZ = mannequinTeleportMotion(ent.mannequin, move)
+	}
 	return twin
 }
 
-// teleportMannequin puts a mannequin somewhere else, facing to's angles, and
-// leaves the move to the tracking pass. The head turns with the body, so a
-// changed yaw also sends a Rotate Head, without which the player model keeps
-// looking the old way. A /tp (command) also lands it on the ground, gravity
-// or not.
-// vanilla: Entity.teleportSetPosition, Entity.forceSetRotation, TeleportCommand.performTeleport, ServerEntity.sendChanges
-func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by string, command bool) {
+// teleportMannequin puts a mannequin at move.Pos, facing its angles, and
+// leaves the move to the tracking pass. Motion along an axis without its Delta
+// flag stops. The head turns with the body, so a changed yaw also sends a
+// Rotate Head, without which the player model keeps looking the old way. A /tp
+// (move.Command) also lands it on the ground, gravity or not.
+// vanilla: Entity.teleportSetPosition, PositionMoveRotation.calculateAbsolute, Entity.forceSetRotation, TeleportCommand.performTeleport, ServerEntity.sendChanges
+func (s *Server) teleportMannequin(ent *mannequinEntity, move command.Move, by string) {
+	to := move.Pos
 	var watchers []uuid.UUID
 	var turned bool
 	var id int32
@@ -409,7 +423,11 @@ func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by 
 		m.SetPos(to.X, to.Y, to.Z)
 		m.Yaw = to.Yaw
 		m.Pitch = to.Pitch
-		if command {
+		m.VX, m.VZ = mannequinTeleportMotion(m, move)
+		if !move.DeltaY || move.Command {
+			m.VY = 0
+		}
+		if move.Command {
 			m.OnGround = true
 		}
 		id = m.ID
@@ -419,6 +437,17 @@ func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by 
 		s.tellWatchers(ent.w, watchers, []outbound{{id: protocol.IDPlayHeadRotation, data: mannequinHeadPayload(id, to.Yaw)}})
 	}
 	logTeleported("mannequin", to, by)
+}
+
+// vanilla: PositionMoveRotation.calculateDelta
+func mannequinTeleportMotion(m *entity.Mannequin, move command.Move) (vx, vz float64) {
+	if move.DeltaX {
+		vx = m.VX
+	}
+	if move.DeltaZ {
+		vz = m.VZ
+	}
+	return vx, vz
 }
 
 // mannequinHeadPayload is a Rotate Head turning the mannequin's head to yaw.

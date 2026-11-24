@@ -350,7 +350,10 @@ func (c *client) bredAnimalsAdvancements(parent, partner, child string, ents map
 
 // blocksAround reads the blocks around a position for a location condition.
 func blocksAround(w *world.World, x, y, z int32) advancement.Blocks {
-	return func(dx, dy, dz int32) uint16 { return w.BlockAt(x+dx, y+dy, z+dz) }
+	return advancement.Blocks{
+		At:     func(dx, dy, dz int32) uint16 { return w.BlockAt(x+dx, y+dy, z+dz) },
+		Loaded: func(dx, dy, dz int32) bool { return w.LoadedAt(x+dx, y+dy, z+dz) },
+	}
 }
 
 // placedBlockAdvancements fires placed_block for a block the player placed.
