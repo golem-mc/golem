@@ -111,3 +111,35 @@ func itemsOfSet(sets []RecipePropertySet, name string) []int32 {
 	}
 	return nil
 }
+
+// TestCookingMatchAgreesWithLinearWalk checks the per-item index against a
+// first-match walk of each table, built-in and after a pack recipe loads.
+func TestCookingMatchAgreesWithLinearWalk(t *testing.T) {
+	t.Cleanup(func() { ApplyPackRecipes(PackRecipes{}) })
+	kinds := []string{"minecraft:furnace", "minecraft:blast_furnace", "minecraft:smoker", "minecraft:campfire"}
+	check := func(label string) {
+		for _, kind := range kinds {
+			table := cookingTable(kind)
+			for item := range int32(ItemCount) {
+				var want *CookingRecipe
+				for i := range table {
+					if slices.Contains(table[i].Ingredient, item) {
+						want = &table[i]
+						break
+					}
+				}
+				if got := CookingMatch(kind, protocol.ItemStack{ItemID: item, Count: 1}); got != want {
+					t.Fatalf("%s: %s item %d matches %v, want %v", label, kind, item, got, want)
+				}
+			}
+		}
+	}
+	check("built-in")
+	stick, planks := stackOf(t, "minecraft:stick"), stackOf(t, "minecraft:oak_planks")
+	ApplyPackRecipes(PackRecipes{Cooking: [cookingKinds][]PackCooking{CookingSmelting: {{
+		Name: "pk:stick", Ingredient: BookIngredient{Items: []int32{stick.ItemID}}, ResultID: planks.ItemID, ResultCount: 1, Duration: 20}}}})
+	check("pack")
+	if CookingMatch("minecraft:furnace", stick) == nil {
+		t.Error("pack recipe not matched")
+	}
+}
