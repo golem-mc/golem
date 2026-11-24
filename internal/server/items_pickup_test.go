@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
@@ -15,7 +14,9 @@ func TestRemovedPickupCandidateIsSkipped(t *testing.T) {
 		s, pw := newPluginHandleTestWorld(t)
 		c := &client{srv: s, player: &player.Player{EntityID: s.nextEntity()}}
 		c.dim.Store(pw.dim)
-		reach := map[*client]entity.AABB{c: c.pickupBox()}
+		clients := []*client{c}
+		ix := newPickupIndex(clients)
+		defer ix.release()
 		stack := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
 		original := s.newItemEntity(pw.dim.w, stack, 0, 0, 0, 0, 0, 0, 0)
 		replacement := s.newItemEntity(pw.dim.w, stack, 0, 0, 0, 0, 0, 0, 0)
@@ -23,7 +24,7 @@ func TestRemovedPickupCandidateIsSkipped(t *testing.T) {
 
 		s.itemsMu.Lock()
 		s.appendItemLocked(original)
-		candidate := itemPickupCandidate(original, []*client{c}, reach)
+		candidate := ix.candidate(original, clients, 0)
 		s.itemsMu.Unlock()
 		if candidate == nil {
 			t.Fatal("original item is out of pickup reach")
@@ -52,7 +53,7 @@ func TestRemovedPickupCandidateIsSkipped(t *testing.T) {
 			replace()
 		}
 
-		s.giveItemPickups([]*itemPickup{candidate}, reach)
+		s.giveItemPickups([]*itemPickup{candidate}, ix, clients)
 		if listener.calls != wantCalls {
 			t.Errorf("pickup callbacks = %d, want %d", listener.calls, wantCalls)
 		}

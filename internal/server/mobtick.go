@@ -980,12 +980,12 @@ func (t *mobDimTick) scheduleMovement(fx *mobEffects, in *mobTickInputs) {
 				}
 				if was.own.wornGen != ent.equipGen {
 					equipped := &ent.equipSeen
-					used := equipmentChanged(&was.own.worn, equipped)
+					used := equipmentChanged(was.own.worn[:], equipped[:])
 					was.own.worn = *equipped
 					was.own.wornGen = ent.equipGen
 					if len(used) > 0 {
 						fx.sends = append(fx.sends, mobSend{c: c, w: w, id: protocol.IDPlayEntityEquipment,
-							data: equipmentEntriesPayload(m.ID, equipped, used)})
+							data: equipmentEntriesPayload(m.ID, equipped[:], used)})
 					}
 				}
 			}

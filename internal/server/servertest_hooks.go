@@ -1285,12 +1285,10 @@ func (s *Server) SetMobEquipment(id int32, slot string, stack protocol.ItemStack
 		switch slot {
 		case "body":
 			m.SetEquipment(6, stack)
-		case "saddle":
-			m.SetMetadataHorseSaddle(stack)
+		case "saddle", "antenna":
+			m.SetEquipment(protocol.EquipSaddle, stack)
 		case "mainhand":
 			m.SetEquipment(protocol.EquipMainHand, stack)
-		case "antenna":
-			m.SetMetadataAntenna(stack)
 		}
 	}
 }

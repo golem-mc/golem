@@ -1,12 +1,74 @@
 package mobs
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
 )
+
+// vanilla: ServerEntity.sendPairingData, LivingEntity.collectEquipmentChanges
+func TestMobSaddleEquipmentTracking(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.MobTestConfig(), servertest.OpsListing(t, "Smith"))
+	actor := connect().Join("Smith")
+	servertest.FreezeUntilHeld(t, srv)
+	actor.ChatCommand(`summon minecraft:horse 4.5 64 7.5 {NoAI:1b,Tame:1b,equipment:{body:{id:"minecraft:iron_horse_armor",count:1},saddle:{id:"minecraft:saddle",count:1}}}`)
+	actor.Settle()
+	ids := srv.MobIDsOfKind("minecraft:horse")
+	if len(ids) != 1 {
+		t.Fatalf("summoned horses = %v, want one", ids)
+	}
+	id := ids[0]
+	watcher := connect().JoinKeeping("Watcher")
+	servertest.HoldTicks(t, srv)
+	servertest.RunTicks(t, srv, 2)
+
+	const saddleSlot = 7
+	saddle := servertest.ItemStack(t, "minecraft:saddle", 1)
+	check := func(phase string, pairing bool, stack protocol.ItemStack) {
+		t.Helper()
+		var want protocol.Buffer
+		want.PutVarInt(id)
+		if pairing {
+			want.PutU8(6 | 0x80)
+			want.PutSlot(servertest.ItemStack(t, "minecraft:iron_horse_armor", 1))
+		}
+		want.PutU8(saddleSlot)
+		want.PutSlot(stack)
+		packets := 0
+		watcher.SettleAndCollect(func(packetID int32, data []byte) {
+			if packetID != protocol.IDPlayEntityEquipment || protocol.NewReader(data).ReadVarInt() != id {
+				return
+			}
+			packets++
+			if !bytes.Equal(data, want.Bytes()) {
+				t.Errorf("%s: equipment payload = %x, want %x", phase, data, want.Bytes())
+			}
+		})
+		if packets != 1 {
+			t.Errorf("%s: watcher got %d equipment packets, want one", phase, packets)
+		}
+	}
+	check("pairing", true, saddle)
+
+	selector := "@e[type=minecraft:horse,limit=1]"
+	actor.ChatCommand("item replace entity " + selector + ` saddle with minecraft:saddle[minecraft:custom_data={marker:1}]`)
+	actor.ChatCommand("item replace entity " + selector + " weapon.mainhand with minecraft:stone")
+	actor.Settle()
+	watcher.Settle() // The immediate hand update leaves the saddle for the next tick.
+	servertest.RunTicks(t, srv, 2)
+	saddle.SetCustomData(nbt.Compound{"marker": nbt.Int(1)})
+	check("replacement", false, saddle)
+
+	actor.ChatCommand("data remove entity " + selector + " equipment.saddle")
+	actor.Settle()
+	servertest.RunTicks(t, srv, 2)
+	check("removal", false, protocol.ItemStack{})
+}
 
 // vanilla: LivingEntity.collectEquipmentChanges, ServerEntity.sendPairingData
 func TestMobEquipmentTickUpdatesEveryWatcher(t *testing.T) {

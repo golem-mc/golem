@@ -45,7 +45,7 @@ type mobEntity struct {
 	// equipSeen is the equipment the tracking pass last read; equipGen counts
 	// its changes and is never 0 once the pass has read the mob. equipRead is
 	// the Mob.EquipmentRevision last read. Guarded by the mob lock.
-	equipSeen [7]protocol.ItemStack
+	equipSeen mobEquipment
 	equipGen  uint32
 	equipRead uint64
 	// metaSeen is immutable; immediate broadcasts patch watcher baselines by copy.
@@ -149,7 +149,7 @@ type mobShown struct {
 	wornGen    uint32
 	head       uint8
 	vx, vy, vz float64
-	worn       [7]protocol.ItemStack
+	worn       mobEquipment
 }
 
 // mobShownOf is a mob's own state as a watcher is told it now.
@@ -2319,9 +2319,6 @@ func mobPairingPackets(ent *mobEntity) []outbound {
 		outbound{id: protocol.IDPlayEntityEquipment, data: mobEquipmentPayload(ent)},
 		outbound{id: protocol.IDPlayUpdateAttributes, data: mobAttributesPayload(ent)},
 	)
-	if !ent.mob.SaddleSlot().Empty() {
-		packets = append(packets, outbound{id: protocol.IDPlayEntityEquipment, data: saddlePayload(ent.mob)})
-	}
 	if ids := ent.mob.PassengerIDs(); len(ids) > 0 {
 		// The passenger link goes last before a lead: a viewer that has not met the
 		// riders gets their spawns after it.
@@ -3276,7 +3273,7 @@ func mobEquipmentPayload(ent *mobEntity) []byte {
 	if len(used) == 0 {
 		return nil
 	}
-	return equipmentEntriesPayload(m.ID, &slots, used)
+	return equipmentEntriesPayload(m.ID, slots[:], used)
 }
 
 // tickMobCompasses clears invalid targets on equipped compasses. A target
@@ -3298,29 +3295,27 @@ func tickMobCompasses(m *entity.Mob, probe *lodestoneProbe, dim string) {
 		}
 	}
 	if cleared, ok := rules.ClearLostLodestone(probe, m.Body, dim, bottom, top); ok {
-		m.SetEquipment(6, cleared)
+		m.SetEquipment(protocol.EquipBody, cleared)
 	}
-	if cleared, ok := rules.ClearLostLodestone(probe, m.Horse.Saddle, dim, bottom, top); ok {
-		m.SetMetadataHorseSaddle(cleared)
-	}
-	if cleared, ok := rules.ClearLostLodestone(probe, m.Antenna, dim, bottom, top); ok {
-		m.SetMetadataAntenna(cleared)
+	if cleared, ok := rules.ClearLostLodestone(probe, m.SaddleSlot(), dim, bottom, top); ok {
+		m.SetEquipment(protocol.EquipSaddle, cleared)
 	}
 }
 
-// mobEquipmentNow is a mob's equipment in wire-slot order: main hand, off
-// hand, feet, legs, chest, head, body.
-func mobEquipmentNow(m *entity.Mob) [7]protocol.ItemStack {
-	var slots [7]protocol.ItemStack
-	slots[0], slots[1] = m.MainHand, m.OffHand
-	copy(slots[2:], m.Worn[:])
-	slots[6] = m.Body
+type mobEquipment [protocol.EquipSaddle + 1]protocol.ItemStack
+
+// mobEquipmentNow is a mob's equipment in wire-slot order.
+func mobEquipmentNow(m *entity.Mob) mobEquipment {
+	var slots mobEquipment
+	slots[protocol.EquipMainHand], slots[protocol.EquipOffHand] = m.MainHand, m.OffHand
+	copy(slots[protocol.EquipFeet:], m.Worn[:])
+	slots[protocol.EquipBody], slots[protocol.EquipSaddle] = m.Body, m.SaddleSlot()
 	return slots
 }
 
 // mobEquipmentSame compares live slots in mobEquipmentNow's wire-slot order,
 // without copying the whole equipment snapshot.
-func mobEquipmentSame(seen *[7]protocol.ItemStack, m *entity.Mob) bool {
+func mobEquipmentSame(seen *mobEquipment, m *entity.Mob) bool {
 	for i := range seen {
 		live := m.EquipmentSlot(i)
 		if seen[i].ItemID == 0 && live.ItemID == 0 && seen[i].Count == live.Count {
@@ -3335,7 +3330,7 @@ func mobEquipmentSame(seen *[7]protocol.ItemStack, m *entity.Mob) bool {
 
 // equipmentEntriesPayload writes Set Equipment for the used slots, the
 // continuation bit on all but the last.
-func equipmentEntriesPayload(id int32, slots *[7]protocol.ItemStack, used []int) []byte {
+func equipmentEntriesPayload(id int32, slots []protocol.ItemStack, used []int) []byte {
 	var b protocol.Buffer
 	b.PutVarInt(id)
 	for i, slot := range used {
@@ -3370,21 +3365,22 @@ func (s *Server) updateMobSlot(ent *mobEntity, wire int, update func(protocol.It
 	before := mobEquipmentNow(ent.mob)
 	ent.mob.SetEquipment(wire, stack)
 	equipped := mobEquipmentNow(ent.mob)
-	used := equipmentChanged(&before, &equipped)
-	var payload []byte
-	if len(used) > 0 {
-		payload = equipmentEntriesPayload(ent.mob.ID, &equipped, used)
+	used := equipmentChanged(before[:], equipped[:])
+	if len(used) == 0 {
+		s.mobsMu.Unlock()
+		return
 	}
+	payload := equipmentEntriesPayload(ent.mob.ID, equipped[:], used)
 	var watchers []uuid.UUID
 	for id, tracked := range ent.tracked.all() {
-		tracked.own.worn = equipped
+		// Keep unsent changes to other slots pending for the tracking pass.
+		for _, slot := range used {
+			tracked.own.worn[slot] = equipped[slot]
+		}
 		tracked.own.wornGen = 0
 		watchers = append(watchers, id)
 	}
 	s.mobsMu.Unlock()
-	if payload == nil {
-		return
-	}
 	// Look up watcher clients after releasing the mob lock: the player list
 	// lock stays outside it, as in the tick.
 	for _, id := range watchers {
@@ -3400,7 +3396,7 @@ func (s *Server) updateMobSlot(ent *mobEntity, wire int, update func(protocol.It
 
 // equipmentChanged returns the slots whose whole stack changed, wear
 // included.
-func equipmentChanged(was, now *[7]protocol.ItemStack) []int {
+func equipmentChanged(was, now []protocol.ItemStack) []int {
 	if equipmentSame(was, now) {
 		return nil
 	}
@@ -3415,7 +3411,7 @@ func equipmentChanged(was, now *[7]protocol.ItemStack) []int {
 
 // equipmentSame reports whether every slot is Equal, without copying the
 // stacks.
-func equipmentSame(a, b *[7]protocol.ItemStack) bool {
+func equipmentSame(a, b []protocol.ItemStack) bool {
 	for i := range a {
 		if a[i].ItemID == 0 && b[i].ItemID == 0 && a[i].Count == b[i].Count {
 			continue // two bare empty slots; components only ride on an item
