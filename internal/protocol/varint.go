@@ -8,26 +8,27 @@ import (
 var ErrVarIntTooLong = errors.New("VarInt is too long")
 
 // ReadVarInt reads a VarInt from a stream, returning the decoded value and the
-// number of bytes read. Fields inside a packet are read with Reader instead;
-// this is for the packet length, which precedes the payload. An
-// io.ByteReader is read byte by byte; other readers go through a one-byte
-// buffer that escapes to the heap.
+// number of bytes read. An io.ByteReader is read byte by byte; other readers
+// go through a one-byte buffer that escapes to the heap.
 func ReadVarInt(r io.Reader) (int32, int, error) {
-	if br, ok := r.(io.ByteReader); ok {
-		return readVarInt(br.ReadByte)
-	}
-	var buf [1]byte
-	return readVarInt(func() (byte, error) {
-		_, err := io.ReadFull(r, buf[:])
-		return buf[0], err
-	})
+	return readVarInt(r, 5)
 }
 
-// readVarInt decodes at most five bytes from next; the count returned on error
-// is the bytes consumed before it.
-func readVarInt(next func() (byte, error)) (int32, int, error) {
+func readVarInt(r io.Reader, maxBytes int) (int32, int, error) {
+	if br, ok := r.(io.ByteReader); ok {
+		return decodeVarInt(br.ReadByte, maxBytes)
+	}
+	var buf [1]byte
+	return decodeVarInt(func() (byte, error) {
+		_, err := io.ReadFull(r, buf[:])
+		return buf[0], err
+	}, maxBytes)
+}
+
+// The count returned on error is the number of bytes consumed.
+func decodeVarInt(next func() (byte, error), maxBytes int) (int32, int, error) {
 	var result uint32
-	for i := range 5 {
+	for i := range maxBytes {
 		b, err := next()
 		if err != nil {
 			return 0, i, err
@@ -37,5 +38,5 @@ func readVarInt(next func() (byte, error)) (int32, int, error) {
 			return int32(result), i + 1, nil
 		}
 	}
-	return 0, 5, ErrVarIntTooLong
+	return 0, maxBytes, ErrVarIntTooLong
 }

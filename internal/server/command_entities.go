@@ -954,7 +954,7 @@ func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
 	case *armorStandEntity:
 		e.srv.teleportArmorStand(ref, to, by, move.Command)
 	case *mannequinEntity:
-		e.srv.teleportMannequin(ref, to, by, move.Command)
+		e.srv.teleportMannequin(ref, move, by)
 	case *cloudEntity:
 		e.srv.teleportCloud(ref, to, by)
 	case *fangsEntity:
@@ -1009,7 +1009,7 @@ func (e *entitySnapshot) Rotate(yaw, pitch float32) {
 		e.srv.armorStandsMu.Unlock()
 		e.srv.teleportArmorStand(ref, to, "rotate", false)
 	case *mannequinEntity:
-		e.srv.teleportMannequin(ref, to, "rotate", false)
+		e.srv.teleportMannequin(ref, command.Move{Pos: to}, "rotate")
 	case *fixtureEntity:
 		e.srv.teleportFixture(ref, to)
 	}
@@ -1193,8 +1193,7 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 		s.mannequinsMu.Lock()
 		var twin *mannequinEntity
 		if alive = !ref.mannequin.Dead && slices.Contains(s.mannequins, ref); alive {
-			at.Yaw, at.Pitch = yaw, pitch
-			if twin = s.mannequinTwinAt(ref, to, at); twin != nil {
+			if twin = s.mannequinTwinAt(ref, to, move); twin != nil {
 				ref.mannequin.Dead = true
 				mannequinTracker.unfile(ref)
 				s.mannequins = slices.DeleteFunc(s.mannequins, func(o *mannequinEntity) bool { return o == ref })

@@ -18,6 +18,12 @@ const scaffoldingStabilityMax = 7
 // neighbour change book the recompute.
 const scaffoldingTickDelay = 1
 
+const scaffoldingTickEvent = 1<<5 | 1<<6 | 1<<7 | 5
+
+func (p *Physics) scheduleScaffolding(x, y, z int32, due int64) {
+	p.scheduleBooked(p.scaffoldingBooked, x, y, z, due, scaffoldingTickEvent)
+}
+
 // scaffoldingDistanceOf reads a state's distance, the ceiling if missing.
 func scaffoldingDistanceOf(state uint16) int {
 	return stateIntOr(state, registry.PropDistance, scaffoldingStabilityMax)
@@ -111,13 +117,5 @@ func (p *Physics) scaffoldingTick(x, y, z int32, state uint16, changes *[]BlockC
 	}
 	if newState != state {
 		p.setShaped(x, y, z, newState, changes)
-	}
-	// A waterlogged piece's water is owed its visit. Deliberately unlike
-	// vanilla (which books it through updateShape at the fluid's five-tick
-	// delay), it is spent here, one tick out, because the queue holds one visit
-	// per position.
-	// vanilla: ScaffoldingBlock.updateShape
-	if fs := fluidHolding(state); fs.kind != fluidNone && fluidContainer(state) {
-		p.fluidTick(x, y, z, fs, changes)
 	}
 }

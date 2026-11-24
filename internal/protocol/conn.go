@@ -48,9 +48,8 @@ func (s State) String() string {
 }
 
 const (
-	// maxPacketSize caps the size of a packet as it appears on the wire. The
-	// vanilla client never sends more than 2 MiB.
-	maxPacketSize = 2 * 1024 * 1024
+	// vanilla: Varint21FrameDecoder.MAX_VARINT21_BYTES
+	packetLengthBytes = 3
 	// maxDecompressedSize caps how much a single packet may expand to, so that
 	// a small packet cannot be used to exhaust memory.
 	maxDecompressedSize = 8 * 1024 * 1024
@@ -167,12 +166,9 @@ func (c *Conn) EnableEncryption(secret []byte) error {
 // is the caller's to keep: handlers queue replies made of it for another
 // goroutine to write, so it must not share a buffer with the next packet.
 func (c *Conn) ReadPacket() (packetID int32, data []byte, err error) {
-	length, _, err := ReadVarInt(c.r)
+	length, _, err := readVarInt(c.r, packetLengthBytes)
 	if err != nil {
 		return 0, nil, fmt.Errorf("read packet length: %w", err)
-	}
-	if length < 0 || length > maxPacketSize {
-		return 0, nil, fmt.Errorf("packet length %d out of range", length)
 	}
 
 	frame, err := readFrame(c.r, int(length))

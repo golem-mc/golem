@@ -122,6 +122,27 @@ func TestHalfSpreadWaterContinuesAfterAReload(t *testing.T) {
 	}
 }
 
+func TestWaterloggedScaffoldingKeepsBothTicksAfterReload(t *testing.T) {
+	w, p, dir := newSavedWorld(t)
+	state := scaffoldingTestState(t, map[string]string{"distance": "5", "waterlogged": "true"})
+	setBlock(t, w, p, 8, GroundLevel, 8, state)
+
+	w, p = reopenWorld(t, w, dir)
+	p.Tick(0) // Adopt the saved delays before advancing game time.
+	p.Tick(1)
+	checkScaffold(t, w, 8, GroundLevel, 8, "0", "false", "stability after reload")
+	for tick := int64(2); tick <= 4; tick++ {
+		p.Tick(tick)
+	}
+	if got := w.BlockAt(9, GroundLevel, 8); got != airState {
+		t.Errorf("outlet at tick four = %d, want air", got)
+	}
+	p.Tick(5)
+	if got := w.BlockAt(9, GroundLevel, 8); got != waterByLevel[1] {
+		t.Errorf("outlet at tick five = %d, want water level 1", got)
+	}
+}
+
 // TestUnloadingAChunkDropsItsQueuedTicks checks a tick booked in a chunk does
 // not stay on the queue once the chunk leaves memory.
 func TestUnloadingAChunkDropsItsQueuedTicks(t *testing.T) {

@@ -267,6 +267,11 @@ func nestedFloatOrPartial(t nbt.Tag) (registry.LootNumber, string) {
 // listItems is the elements of a list or typed array.
 // vanilla: NbtOps.getStream
 func listItems(t nbt.Tag) ([]nbt.Tag, bool) {
+	// A list keeps its entries as written: a literal {"": x} compound is not
+	// a mixed-list wrapper, so nbt.ListElement must not strip it.
+	if l, ok := t.(nbt.List); ok {
+		return l.Items, true
+	}
 	seq := nbt.CollectionValues(t)
 	if seq == nil {
 		return nil, false
@@ -729,7 +734,7 @@ func TagJSON(tag nbt.Tag) any {
 	case nbt.List:
 		out := make([]any, len(v.Items))
 		for i, item := range v.Items {
-			out[i] = TagJSON(nbt.ListElement(item))
+			out[i] = TagJSON(item)
 		}
 		return out
 	case nbt.Compound:
