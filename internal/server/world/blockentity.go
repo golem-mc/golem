@@ -1431,13 +1431,15 @@ func (w *World) RemoveBlockEntity(x, y, z int32) *BlockEntity {
 	if b != nil {
 		loaded.containerGen.Add(1)
 	}
-	if loaded.chunk.removeCarriedBlockEntity(x, y, z) > 0 {
-		loaded.dirty = true
+	carried := loaded.chunk.removeCarriedBlockEntity(x, y, z) > 0
+	if carried {
 		w.syncTickingChunk(pos, loaded.chunk)
+	}
+	if b != nil || carried {
+		loaded.markDirty()
 	}
 	if b != nil {
 		w.removeBlockEntityOrder(b)
-		loaded.markDirty()
 		b.removed.Store(true)
 	}
 	w.mu.Unlock()

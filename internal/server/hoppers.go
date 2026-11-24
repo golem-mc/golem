@@ -364,7 +364,9 @@ func (s *Server) tickHopper(w *world.World, be *world.BlockEntity, age int64) {
 		s.hopperStep(w, b, gate, &turn)
 		if turn.moved || (gate != nil && gate.vetoed()) {
 			b.Cooldown = world.HopperMoveInterval
-			w.Touch(b.X, b.Y, b.Z)
+			if !turn.moved {
+				w.Touch(b.X, b.Y, b.Z)
+			}
 		}
 		if turn.moved || turn.partial {
 			synced[0] = b
