@@ -2,11 +2,11 @@ package server
 
 import (
 	"fmt"
-	"github.com/golem-mc/golem/internal/config"
 	"log/slog"
 	"testing"
 	"time"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -18,17 +18,29 @@ import (
 // server's ten.
 func BenchmarkChunkViewMoves(b *testing.B) {
 	for _, asked := range []int32{1, 10} {
-		b.Run(fmt.Sprintf("ask%d", asked), func(b *testing.B) { benchChunkViewMoves(b, asked) })
+		b.Run(fmt.Sprintf("ask%d", asked), func(b *testing.B) { benchChunkViewMoves(b, asked, true) })
 	}
 }
 
-func benchChunkViewMoves(b *testing.B, asked int32) {
+// BenchmarkChunkViewMovesWithPendingHolds moves a player who asks for render
+// distance one while the simulation-distance holds are still queued.
+func BenchmarkChunkViewMovesWithPendingHolds(b *testing.B) {
+	benchChunkViewMoves(b, 1, false)
+}
+
+func benchChunkViewMoves(b *testing.B, asked int32, settle bool) {
+	const load = 10
 	s, w := newBlockBenchServer(b, 0)
-	s.viewDistance.Store(10)
-	s.simulationDistance.Store(10)
+	s.viewDistance.Store(load)
+	s.simulationDistance.Store(load)
+	radius := max(asked, config.MinDistance)
+	cacheRadius := int32(load)
+	if !settle {
+		cacheRadius = radius
+	}
 	var holds []world.ChunkPos
-	for x := int32(-10); x <= 11; x++ {
-		for z := int32(-10); z <= 10; z++ {
+	for x := -cacheRadius; x <= cacheRadius+1; x++ {
+		for z := -cacheRadius; z <= cacheRadius; z++ {
 			p := world.ChunkPos{X: x, Z: z}
 			w.Acquire(p)
 			holds = append(holds, p)
@@ -40,7 +52,7 @@ func benchChunkViewMoves(b *testing.B, asked int32) {
 		}
 	})
 	c := &client{srv: s, player: &player.Player{}, conn: protocol.NewConn(new(playerTrackingBenchConn)), log: slog.New(slog.DiscardHandler)}
-	c.viewDistance.Store(max(asked, config.MinDistance))
+	c.viewDistance.Store(radius)
 	c.dim.Store(s.allDims()[0])
 	b.Cleanup(func() { c.forgetChunks(nil) })
 	if err := c.updateChunks(); err != nil {
@@ -49,26 +61,29 @@ func benchChunkViewMoves(b *testing.B, asked int32) {
 	if len(c.generating) != 0 || len(c.pendingGeneration) != 0 {
 		b.Fatal("benchmark terrain was not cached")
 	}
-	// Settle the view: the client has the chunks the initial update queued and
-	// the load-radius holds are taken, so each move sees no stale backlog.
 	for _, p := range c.pendingSend {
 		c.markSent(p)
 	}
 	c.pendingSend = nil
-	for range 10000 {
-		if len(c.pendingHolds) == 0 && len(c.generating) == 0 {
-			break
+	if settle {
+		// Take the load-radius holds before measuring movement from a settled view.
+		for range 10000 {
+			if len(c.pendingHolds) == 0 && len(c.generating) == 0 {
+				break
+			}
+			c.takeHolds()
+			c.collectGenerated()
+			time.Sleep(time.Millisecond)
+			for _, p := range c.pendingSend {
+				c.markSent(p)
+			}
+			c.pendingSend = nil
 		}
-		c.takeHolds()
-		c.collectGenerated()
-		time.Sleep(time.Millisecond)
-		for _, p := range c.pendingSend {
-			c.markSent(p)
+		if len(c.pendingHolds) != 0 || len(c.generating) != 0 {
+			b.Fatal("load holds did not settle")
 		}
-		c.pendingSend = nil
-	}
-	if len(c.pendingHolds) != 0 || len(c.generating) != 0 {
-		b.Fatal("load holds did not settle")
+	} else if want := (2*load+1)*(2*load+1) - int((2*radius+1)*(2*radius+1)); len(c.pendingHolds) != want {
+		b.Fatalf("queued holds = %d, want %d", len(c.pendingHolds), want)
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
