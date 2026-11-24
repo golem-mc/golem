@@ -4189,6 +4189,7 @@ func (c *client) milkAnimal(ent *mobEntity, hand int32, sound registry.Sound) er
 	// Read under the mob lock: the tick ages the animal.
 	c.srv.mobsMu.Lock()
 	baby := ent.mob.IsBaby()
+	x, y, z := ent.mob.X, ent.mob.Y, ent.mob.Z
 	c.srv.mobsMu.Unlock()
 	if baby {
 		return nil
@@ -4198,6 +4199,8 @@ func (c *client) milkAnimal(ent *mobEntity, hand int32, sound registry.Sound) er
 	pos := c.player.Position()
 	c.srv.broadcastSoundIDExcept(ent.w, c, sound, protocol.SoundCategoryPlayer, pos.X, pos.Y, pos.Z, 1.0, 1.0)
 	c.filledResult(hand, protocol.ItemStack{ItemID: int32(registry.ItemMilkBucket), Count: 1}, true)
+	// vanilla: Mob.interact posts ENTITY_INTERACT at the animal.
+	c.srv.gameEvent(ent.w, rules.GameEventEntityInteract, x, y, z, c.gameEventContext(0))
 	return nil
 }
 
@@ -4297,6 +4300,7 @@ func (c *client) stewFromMooshroom(ent *mobEntity, hand int32) error {
 		sound = registry.SoundEntityMooshroomSuspiciousMilk
 	}
 	c.filledResult(hand, stack, false)
+	c.srv.gameEvent(ent.w, rules.GameEventEntityInteract, x, y, z, c.gameEventContext(0))
 	// The mooshroom plays from its body in its own category, unlike
 	// AbstractCow's milking, which plays from the milker.
 	if !silent {
