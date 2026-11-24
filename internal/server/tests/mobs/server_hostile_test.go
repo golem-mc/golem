@@ -78,7 +78,9 @@ func TestAZombieReplansAroundABlockPlacedOnItsPath(t *testing.T) {
 	c.MoveToGround(12.5, 64, 0.5, true)
 	c.Settle()
 
-	zombieID := srv.SpawnMob("minecraft:zombie", -5.5, 64, 0.5)
+	// Seeded: the zombie's speed bonus decides the crossing time the 140-tick bound is set on.
+	zombieID := srv.SpawnMobSeeded("minecraft:zombie", -5.5, 64, 0.5, 1)
+	srv.SetMobBaby(zombieID, false)
 	c.ExpectMobSpawn(protocol.EntityTypeZombie)
 	servertest.HoldTicks(t, srv)
 	servertest.WaitForTicks(t, srv, 200, func() bool {

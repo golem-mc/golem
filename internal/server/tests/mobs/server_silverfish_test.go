@@ -130,8 +130,10 @@ func TestAHurtSilverfishCallsTheInfestedBlocksOut(t *testing.T) {
 	if left == 6 {
 		t.Fatal("no infested block broke after the call")
 	}
-	if got, want := int32(len(silverfishes(srv))), 1+(6-left); got != want {
-		t.Errorf("%d silverfish after %d blocks broke, want %d", got, 6-left, want)
+	// A silverfish may already have merged into the stone beside the row, so
+	// the count is an upper bound.
+	if got, most := int32(len(silverfishes(srv))), 1+(6-left); got < 1 || got > most {
+		t.Errorf("%d silverfish after %d blocks broke, want 1 to %d", got, 6-left, most)
 	}
 	if items := srv.ItemsInDimension("minecraft:overworld"); len(items) != 0 {
 		t.Errorf("the woken blocks dropped %d items, want none", len(items))

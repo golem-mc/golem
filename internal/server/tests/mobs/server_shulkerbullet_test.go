@@ -50,7 +50,7 @@ func TestAShulkerFiresOnItsCadence(t *testing.T) {
 	t.Parallel()
 	srv, _, y := shulkerTests(t)
 	at := srv.PlayerPosition("Watcher")
-	srv.SpawnMob("minecraft:shulker", at.X+12, y, at.Z)
+	srv.SpawnMobSeeded("minecraft:shulker", at.X+12, y, at.Z, 1)
 	seen := map[int32]bool{}
 	var shots []int
 	for tick := 1; tick <= 1500; tick++ {

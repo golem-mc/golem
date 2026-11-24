@@ -241,7 +241,7 @@ func TestAHurtCowPanicsWhileItsHurtIsFresh(t *testing.T) {
 	w := newTestWorld()
 	floor(w, -30, -30, 30, 30, 63, stone)
 
-	cow := NewMob(TypeCow, 1, 0.5, 64, 0.5, 1)
+	cow := NewMob(TypeCow, 1, 0.5, 64, 0.5, 2)
 	if !cow.TakeDamage(3, Player{X: 0.5, Y: 64, Z: 1.5}) {
 		t.Fatal("the hit did not land")
 	}

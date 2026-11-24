@@ -46,7 +46,7 @@ func camelRiders(t *testing.T, names ...string) (*server.Server, []*servertest.C
 	for _, c := range clients[1:] {
 		c.AwaitSpawn(camelType(t))
 	}
-	s.TickMobs(1)
+	s.SetMobBaby(camel.EntityID, false) // a baby camel cannot dash, and the summon's roll may make one
 	return s, clients, camel.EntityID
 }
 
@@ -83,6 +83,9 @@ func TestARidersJumpMakesASaddledCamelDash(t *testing.T) {
 	rider := clients[0]
 	rider.UseOn(id)
 	rider.Settle()
+	// The camel's first tick, with a rider aboard: unridden, its sit goal may
+	// pick the pose and a sitting camel cannot dash.
+	srv.TickMobs(1)
 	rider.Send(protocol.IDPlayPlayerCommand, func(b *protocol.Buffer) {
 		b.PutVarInt(rider.PlayerEntityID)
 		b.PutVarInt(protocol.PlayerCommandStartRidingJump)

@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/rules"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -44,7 +45,7 @@ func TestAHurtBodyWithInfestedLetsSilverfishOut(t *testing.T) {
 	want := 0
 	for i, id := range cows {
 		srv.SeedMobInfested(id, int64(i))
-		want += infestedReplay(rand.New(rand.NewSource(int64(i))))
+		want += infestedReplay(entity.NewDice(int64(i)))
 		srv.HurtMobByWorld(id, 1, "minecraft:magic")
 	}
 	srv.TickMobs(1)

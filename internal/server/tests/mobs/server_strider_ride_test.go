@@ -83,10 +83,10 @@ func TestStriderJockeysRespectMonsterSpawningRules(t *testing.T) {
 				srv, _ := striderWorld(t)
 				srv.SetGameRule(rule, false)
 				var fallbackParent int32
-				for seed := int64(1); seed <= 150; seed++ {
+				for seed := int64(1); seed <= 164; seed++ {
 					id := srv.SpawnMobSeeded("minecraft:strider", 20.5, 64, 20.5, seed, reason == "natural")
-					// Seed 28 rolls zero for both the piglin and baby checks.
-					if seed == 28 {
+					// Seed 164 rolls zero for both the piglin and baby checks.
+					if seed == 164 {
 						fallbackParent = id
 					}
 				}
