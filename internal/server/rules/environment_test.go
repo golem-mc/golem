@@ -21,7 +21,7 @@ func dice() *rand.Rand { return rand.New(rand.NewSource(7)) }
 // the block has, the default first; one that is in neither table, the
 // propertyless soul fire among them, is found by walking the state IDs,
 // which is what a test can afford and a server cannot.
-func stateOf(t *testing.T, name string) uint16 {
+func stateOf(t testing.TB, name string) uint16 {
 	t.Helper()
 	if state, ok := registry.BlockStates[name]; ok {
 		return state
@@ -316,5 +316,63 @@ func TestOnPosReadsTheSupportingBlock(t *testing.T) {
 		if got := OnPos(tc.w, tc.x, 64, tc.z, 0.3); got != tc.want {
 			t.Errorf("%s: OnPos = %d, want %d", tc.name, got, tc.want)
 		}
+	}
+}
+
+// countingBlocks counts the BlockAt reads made through it.
+type countingBlocks struct {
+	stubBlocks
+	reads int
+}
+
+func (w *countingBlocks) BlockAt(x, y, z int32) uint16 {
+	w.reads++
+	return w.stubBlocks.BlockAt(x, y, z)
+}
+
+var standingFixtures = func(t testing.TB) []struct {
+	name     string
+	w        stubBlocks
+	x, y, z  float64
+	maxReads int
+} {
+	stone := stateOf(t, "minecraft:stone")
+	fence := stateOf(t, "minecraft:oak_fence")
+	return []struct {
+		name     string
+		w        stubBlocks
+		x, y, z  float64
+		maxReads int
+	}{
+		{"centred stone", stubBlocks{{0, 63, 0}: stone}, 0.5, 64, 0.5, 1},
+		{"stone edge", stubBlocks{{0, 63, 0}: stone}, 1.1, 64, 0.5, 3},
+		{"fence", stubBlocks{{0, 63, 0}: fence}, 0.5, 64.5, 0.5, 2},
+	}
+}
+
+// TestOnPosCellReadsEachCellOnce checks that one ground-contact lookup
+// carries the state it read instead of rereading the cell.
+func TestOnPosCellReadsEachCellOnce(t *testing.T) {
+	for _, tc := range standingFixtures(t) {
+		w := &countingBlocks{stubBlocks: tc.w}
+		bx, by, bz := StandingBlock(tc.w, tc.x, tc.y, tc.z, 0.125)
+		ox, oy, oz, state := onPosCell(w, tc.x, tc.y, tc.z, 0.125, false)
+		if ox != bx || oy != by || oz != bz || state != tc.w[[3]int32{bx, by, bz}] {
+			t.Errorf("%s: got (%d,%d,%d) state %d, want (%d,%d,%d)", tc.name, ox, oy, oz, state, bx, by, bz)
+		}
+		if w.reads > tc.maxReads {
+			t.Errorf("%s: %d reads, want at most %d", tc.name, w.reads, tc.maxReads)
+		}
+	}
+}
+
+func BenchmarkOnPosCell(b *testing.B) {
+	for _, tc := range standingFixtures(b) {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for range b.N {
+				onPosCell(tc.w, tc.x, tc.y, tc.z, 0.125, false)
+			}
+		})
 	}
 }
