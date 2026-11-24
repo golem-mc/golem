@@ -638,7 +638,13 @@ func (m *Mob) SetLoadedYaw(yaw float32) {
 			body = m.look.bodyYaw
 		}
 		diff := float32(wrapDegrees(float64(yaw - body)))
-		m.HeadYaw = body + max(-15, min(15, diff))
+		lim := m.maxHeadYRot()
+		m.HeadYaw = body + max(-lim, min(lim, diff))
 	}
 	m.look.bodyYaw, m.look.bodyYawSet = yaw, true
 }
+
+// SeedBodyYaw sets the body yaw a fresh mob spawns with, ahead of any
+// SetLoadedYaw.
+// vanilla: EntityType.create
+func (m *Mob) SeedBodyYaw(yaw float32) { m.look.bodyYaw, m.look.bodyYawSet = yaw, true }

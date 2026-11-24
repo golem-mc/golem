@@ -180,6 +180,7 @@ func (s *Server) standEggMob(dim *dimension, egg protocol.ItemStack, kind entity
 			m.Yaw -= 360
 		}
 		m.HeadYaw = m.Yaw
+		m.SeedBodyYaw(m.Yaw)
 		applyEggComponents(m, egg)
 		if egg.CustomName != nil {
 			ent.name = protocol.TextTag(*egg.CustomName)
