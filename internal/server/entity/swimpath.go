@@ -309,8 +309,14 @@ func (m *Mob) swimNavTickAt(w World, speed float64) {
 	if m.width() > 0.75 {
 		reach = m.width() / 2
 	}
-	if math.Abs(m.X-(float64(node.X)+0.5)) < reach && math.Abs(m.Z-(float64(node.Z)+0.5)) < reach &&
-		math.Abs(m.Y-float64(node.Y)) < swimVerticalReach || m.swimCutsCorner(w) {
+	waterBound := !m.usesAmphibiousNavigation()
+	verticalReach := swimVerticalReach
+	if !waterBound {
+		verticalReach = groundVerticalReach
+	}
+	reached := math.Abs(m.X-(float64(node.X)+0.5)) < reach && math.Abs(m.Z-(float64(node.Z)+0.5)) < reach &&
+		math.Abs(m.Y-float64(node.Y)) < verticalReach
+	if reached || m.cutsPathCorner(w, waterBound) {
 		n.advance()
 	}
 	if len(n.path) == 0 {
@@ -324,60 +330,24 @@ func (m *Mob) swimNavTickAt(w World, speed float64) {
 	n.flyY = float64(n.path[0].Y)
 }
 
-// swimCutsCorner is PathNavigation.shouldTargetNextNodeInDirection: within
-// two blocks of the current node, a collider-clear line to the node (an
-// amphibious body only while in water), or the next lying back along the way
-// came.
-func (m *Mob) swimCutsCorner(w World) bool {
-	n := &m.nav
-	if len(n.path) < 2 {
-		return false
-	}
-	px, py, pz := m.X, m.Y+m.height()*0.5, m.Z
-	cur, next := n.path[0], n.path[1]
-	cx, cy, cz := float64(cur.X)+0.5-px, float64(cur.Y)-py, float64(cur.Z)+0.5-pz
-	nx, ny, nz := float64(next.X)+0.5-px, float64(next.Y)-py, float64(next.Z)+0.5-pz
-	curSq, nextSq := cx*cx+cy*cy+cz*cz, nx*nx+ny*ny+nz*nz
-	if curSq >= 4 {
-		return false
-	}
-	if m.swimMovesDirectly(w, px, py, pz) {
-		return true
-	}
-	if nextSq < curSq || curSq < 0.5 {
-		cl, nl := math.Sqrt(curSq), math.Sqrt(nextSq)
-		if cl == 0 || nl == 0 {
-			return false
-		}
-		return (cx*nx+cy*ny+cz*nz)/(cl*nl) < 0
-	}
-	return false
-}
-
 // swimMovesDirectly is canMoveDirectly of the water-bound and amphibious
 // navigations: a collider clip, fluids ignored, from the body to the current
 // node lifted by half its height.
 // vanilla: WaterBoundPathNavigation.canMoveDirectly, AmphibiousPathNavigation.canMoveDirectly, PathNavigation.isClearForMovementBetween
-func (m *Mob) swimMovesDirectly(w World, px, py, pz float64) bool {
-	switch m.Type {
-	case TypeAxolotl, TypeFrog, TypeDrowned:
-		if !m.InWater() && !m.InLava() {
-			return false
-		}
-	}
+func (m *Mob) swimMovesDirectly(w World, py float64) bool {
 	tx, tz := waypointPoint(m.nav.path[0], m.width())
 	ty := float64(m.nav.path[0].Y) + m.height()*0.5
 	// Deliberately stricter than vanilla's single ray: the rays of the body's
 	// two sides must be clear too, or the box wedges on a wall corner the
 	// centre line grazes.
-	dx, dz := tx-px, tz-pz
+	dx, dz := tx-m.X, tz-m.Z
 	l := math.Hypot(dx, dz)
 	var sx, sz float64
 	if l > 0 {
 		sx, sz = -dz/l*m.width()/2, dx/l*m.width()/2
 	}
 	for _, k := range [...]float64{0, 1, -1} {
-		if clipArrowFlight(w, px+sx*k, py, pz+sz*k, dx, ty-py, dz).ok {
+		if clipArrowFlight(w, m.X+sx*k, py, m.Z+sz*k, dx, ty-py, dz).ok {
 			return false
 		}
 	}
