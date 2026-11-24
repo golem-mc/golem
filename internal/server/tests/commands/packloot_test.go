@@ -178,6 +178,47 @@ func TestPackPredicatesAnswerExecuteAndSelectors(t *testing.T) {
 	}
 }
 
+// vanilla: ReloadableServerResources.loadResources, ServerFunctionLibrary.reload
+func TestPackFunctionsResolveNewPredicates(t *testing.T) {
+	for _, phase := range []string{"startup", "reload"} {
+		t.Run(phase, func(t *testing.T) {
+			t.Cleanup(func() { registry.ApplyPackLoot(nil, nil, nil) })
+			cfg := packWorld(t)
+			data := filepath.Join(cfg.LevelName, "datapacks", "a", "data", "pk")
+			predicate := filepath.Join(data, "predicate", "function_gate.json")
+			install := func() {
+				writeFile(t, predicate, `{"type":"minecraft:random_chance","chance":1}`)
+				writeFile(t, filepath.Join(data, "function", "check_gate.mcfunction"),
+					"execute if predicate pk:function_gate run return 7\n")
+			}
+			if phase == "startup" {
+				install()
+			}
+			_, c := joinPacks(t, cfg)
+			if phase == "reload" {
+				install()
+				c.ChatCommand("reload")
+				c.ExpectCommandFeedback("commands.reload.success")
+			}
+			const id = "pk:check_gate"
+			c.ChatCommand("function " + id)
+			if feedback := servertest.FeedbackComponent(t, c); feedback.Translate != "commands.function.scheduled.single" {
+				t.Fatalf("/function %s answered %q, want the function to run", id, feedback.Plain())
+			}
+			expectFunctionResult(c, id, 7)
+
+			if phase == "reload" {
+				if err := os.Remove(predicate); err != nil {
+					t.Fatal(err)
+				}
+				c.ChatCommand("reload")
+				c.ExpectCommandFeedback("commands.reload.success")
+				expectFunctionReturns(t, c, id, 0)
+			}
+		})
+	}
+}
+
 // TestPackItemModifiersRunFromItemModify checks that /item modify runs a data
 // pack's item modifier by name, as one function or a list, and inside an
 // inline list or a sequence's single holder, refuses one that

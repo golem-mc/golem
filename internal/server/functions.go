@@ -31,20 +31,6 @@ func (s *Server) publishPacks(dirs []string) (*loadedFunctions, error) {
 		slog.Warn("Skipping data pack file " + file + ": " + err.Error())
 	}
 	layers := registry.StagePackLayers()
-	files, err := datapack.LoadFunctions(dirs, skip)
-	if err != nil {
-		return nil, err
-	}
-	fns := command.CompileFunctions(files, s.Config.FunctionPermissionLevel, func(id string, err error) {
-		slog.Error("Failed to load function " + id + ": " + err.Error())
-	})
-	tags, err := datapack.LoadFunctionTags(dirs, skip)
-	if err != nil {
-		return nil, err
-	}
-	fns.LoadTags(tags, func(id string, err error) {
-		slog.Error("Couldn't load tag " + id + " as it is missing following references: " + err.Error())
-	})
 	packTags, err := loadPackTags(dirs, skip)
 	if err != nil {
 		return nil, err
@@ -77,6 +63,21 @@ func (s *Server) publishPacks(dirs []string) (*loadedFunctions, error) {
 	if err != nil {
 		return nil, err
 	}
+	layers.SetPredicates(predicates)
+	files, err := datapack.LoadFunctions(dirs, skip)
+	if err != nil {
+		return nil, err
+	}
+	fns := command.CompileFunctions(files, s.Config.FunctionPermissionLevel, layers, func(id string, err error) {
+		slog.Error("Failed to load function " + id + ": " + err.Error())
+	})
+	tags, err := datapack.LoadFunctionTags(dirs, skip)
+	if err != nil {
+		return nil, err
+	}
+	fns.LoadTags(tags, func(id string, err error) {
+		slog.Error("Couldn't load tag " + id + " as it is missing following references: " + err.Error())
+	})
 	hiddenTables := hiddenLoot(dirs, tables)
 	// vanilla: ReloadableServerResources.updateComponentsAndStaticRegistryTags
 	layers.Publish()
