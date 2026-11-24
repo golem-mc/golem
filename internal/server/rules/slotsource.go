@@ -25,6 +25,19 @@ const (
 type SlotAccess struct {
 	Get func() protocol.ItemStack
 	Set func(protocol.ItemStack) bool
+	// Update replaces the stored stack in place without Set's side effects (a
+	// bookshelf's interaction record); nil means Set is the only write.
+	// vanilla: ContainerComponentManipulator.ComponentSlotCollection (ItemStack.set)
+	Update func(protocol.ItemStack)
+}
+
+// writeBack stores a component-edited parent stack.
+func (a SlotAccess) writeBack(stack protocol.ItemStack) {
+	if a.Update != nil {
+		a.Update(stack)
+		return
+	}
+	a.Set(stack)
 }
 
 // SlotSelector filters, limits and counts slots selected during replace/modify.
@@ -330,8 +343,8 @@ func replaceComponentSlots(parent SlotAccess, component string, items *ItemProvi
 			replaced++
 		}
 		if !stack.Empty() {
-			setComponentContents(&stack, component, list)
-			parent.Set(stack)
+			setComponentContents(&stack, component, list, replaced > 0)
+			parent.writeBack(stack)
 		}
 		return replaced
 	case "minecraft:bundle_contents":
@@ -363,8 +376,8 @@ func replaceComponentSlots(parent SlotAccess, component string, items *ItemProvi
 			replaced++
 		}
 		if !stack.Empty() {
-			setComponentContents(&stack, component, list)
-			parent.Set(stack)
+			setComponentContents(&stack, component, list, replaced > 0)
+			parent.writeBack(stack)
 		}
 		return replaced
 	default: // minecraft:charged_projectiles
@@ -384,8 +397,8 @@ func replaceComponentSlots(parent SlotAccess, component string, items *ItemProvi
 			replaced++
 		}
 		if !stack.Empty() {
-			setComponentContents(&stack, component, list)
-			parent.Set(stack)
+			setComponentContents(&stack, component, list, replaced > 0)
+			parent.writeBack(stack)
 		}
 		return replaced
 	}
@@ -410,12 +423,13 @@ func modifyComponentSlots(parent SlotAccess, component string, modify func(SlotA
 			})
 		}
 		if !stack.Empty() {
-			setComponentContents(&stack, component, list)
-			parent.Set(stack)
+			setComponentContents(&stack, component, list, false)
+			parent.writeBack(stack)
 		}
 	case "minecraft:bundle_contents":
 		list := slices.Clone(stack.BundleContents())
 		weight := BundleItemsWeight(list)
+		changed := false
 		for i := range list {
 			if !sel.TrySelect(list[i]) {
 				continue
@@ -430,13 +444,14 @@ func modifyComponentSlots(parent SlotAccess, component string, modify func(SlotA
 					}
 					list[idx] = s
 					weight = nw
+					changed = true
 					return true
 				},
 			})
 		}
 		if !stack.Empty() {
-			setComponentContents(&stack, component, list)
-			parent.Set(stack)
+			setComponentContents(&stack, component, list, changed)
+			parent.writeBack(stack)
 		}
 	default: // minecraft:charged_projectiles
 		list := slices.Clone(stack.ChargedProjectiles())
@@ -451,23 +466,27 @@ func modifyComponentSlots(parent SlotAccess, component string, modify func(SlotA
 			})
 		}
 		if !stack.Empty() {
-			setComponentContents(&stack, component, list)
-			parent.Set(stack)
+			setComponentContents(&stack, component, list, false)
+			parent.writeBack(stack)
 		}
 	}
 }
 
 // setComponentContents writes items back to stack's container component,
 // keeping an explicit empty patch when the item lacks a default for it and
-// clearing any removal when restoring the default.
-// vanilla: ContainerComponentManipulator.setContents
-func setComponentContents(stack *protocol.ItemStack, component string, items []protocol.ItemStack) {
+// clearing any removal when restoring the default. A bundle merges identical
+// entries only when a visit set or appended one.
+// vanilla: ContainerComponentManipulator.setContents, BundleContents.Mutable.tryInsert
+func setComponentContents(stack *protocol.ItemStack, component string, items []protocol.ItemStack, changed bool) {
 	keepEmpty := !registry.ItemHasComponentDefault(stack.ItemID, component)
 	switch component {
 	case "minecraft:container":
 		stack.SetContainerPatch(trimTrailingEmpty(items), keepEmpty)
 	case "minecraft:bundle_contents":
-		stack.SetBundleContentsPatch(mergeBundleStacks(items), keepEmpty)
+		if changed {
+			items = mergeBundleStacks(items)
+		}
+		stack.SetBundleContentsPatch(items, keepEmpty)
 	default: // minecraft:charged_projectiles
 		stack.SetChargedProjectilesPatch(slices.DeleteFunc(items, protocol.ItemStack.Empty), keepEmpty)
 	}

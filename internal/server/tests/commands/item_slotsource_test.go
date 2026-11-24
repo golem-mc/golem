@@ -214,5 +214,30 @@ func TestItemSlotSources(t *testing.T) {
 		}
 	}
 
+	// 10. A bundle the visit sets nothing in keeps its entries unmerged.
+	run("setblock 2 64 5 minecraft:chest")
+	run("item replace block 2 64 5 container.0 with bundle")
+	run("item replace block 2 64 5 container.1 with bundle[bundle_contents=[{id:\"minecraft:stone\"},{id:\"minecraft:stone\"}]]")
+	expectFeedback(
+		`item replace block 2 64 5 {type:"contents",component:"minecraft:bundle_contents",slot_source:{type:"slot_range",slots:"container.*"}} with arrow`,
+		itemBlockSetKey,
+		servertest.ItemNumber(1), servertest.ItemNumber(2), servertest.ItemNumber(64), servertest.ItemNumber(5),
+		servertest.ItemFeedbackText("minecraft:arrow", servertest.ItemDisplayKey(t, "minecraft:arrow"), 1))
+	if got := plainQuery(t, srv, `data get block 2 64 5 Items[{Slot:1b}].components."minecraft:bundle_contents"`, "commands.data.block.query"); strings.Count(got, `minecraft:stone`) != 2 || strings.Contains(got, "count: 2") {
+		t.Errorf("untouched bundle contents = %q, want two unmerged stone entries", got)
+	}
+
+	// 11. Component writes leave a bookshelf's last-interacted slot alone.
+	run("setblock 2 64 6 minecraft:chiseled_bookshelf")
+	run("item replace block 2 64 6 container.2 with book")
+	run("item replace block 2 64 6 container.0 with book")
+	run(`item replace block 2 64 6 {type:"contents",component:"minecraft:charged_projectiles",slot_source:{type:"slot_range",slots:"container.*"}} with arrow 1`)
+	if got := plainQuery(t, srv, "data get block 2 64 6 last_interacted_slot", "commands.data.block.query"); !strings.Contains(got, "0") || strings.Contains(got, "2") {
+		t.Errorf("last_interacted_slot after component write = %q, want 0", got)
+	}
+	if got := plainQuery(t, srv, "data get block 2 64 6 Items[{Slot:2b}].components", "commands.data.block.query"); !strings.Contains(got, `"minecraft:charged_projectiles": []`) {
+		t.Errorf("shelf slot 2 components = %q, want empty charged_projectiles patch", got)
+	}
+
 	c.Disconnect()
 }

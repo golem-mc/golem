@@ -112,6 +112,9 @@ func blockSlotAccess(src Source, x, y, z int32, size int, name string) []rules.S
 					src.SetItemInContainerAt(x, y, z, slot, stack)
 					return true
 				},
+				Update: func(stack protocol.ItemStack) {
+					src.UpdateItemInContainerAt(x, y, z, slot, stack)
+				},
 			})
 		}
 	}
