@@ -192,6 +192,10 @@ type cartColumns struct {
 	// spare* keep emptied overflow slices for the next index build.
 	spareCols  [][]*minecartEntity
 	spareBoats [][]*boatEntity
+	// moreColKeys and moreBoatKeys list the buckets that took an overflow
+	// slice, so a reset recycles those and clears the maps in bulk.
+	moreColKeys  [][2]int32
+	moreBoatKeys [][2]int32
 }
 
 // vehicleBucket holds a column's first vehicle inline so a lone vehicle
@@ -213,19 +217,19 @@ func (b vehicleBucket[T]) each(f func(*T)) {
 }
 
 // resetBuckets empties m and keeps each overflow slice's storage in spare.
-func resetBuckets[T any](m map[[2]int32]vehicleBucket[T], spare *[][]*T) {
-	for k, b := range m {
-		if b.more != nil {
-			clear(b.more)
-			*spare = append(*spare, b.more[:0])
-		}
-		delete(m, k)
+func resetBuckets[T any](m map[[2]int32]vehicleBucket[T], spare *[][]*T, moreKeys *[][2]int32) {
+	for _, k := range *moreKeys {
+		more := m[k].more
+		clear(more)
+		*spare = append(*spare, more[:0])
 	}
+	*moreKeys = (*moreKeys)[:0]
+	clear(m)
 }
 
 func (c *cartColumns) reset() {
-	resetBuckets(c.cols, &c.spareCols)
-	resetBuckets(c.boats, &c.spareBoats)
+	resetBuckets(c.cols, &c.spareCols, &c.moreColKeys)
+	resetBuckets(c.boats, &c.spareBoats, &c.moreBoatKeys)
 }
 
 func (c *cartColumns) add(it *minecartEntity) {
@@ -233,7 +237,7 @@ func (c *cartColumns) add(it *minecartEntity) {
 		return
 	}
 	minX, _, minZ, maxX, _, maxZ := it.cart.Box()
-	addContainerColumns(c.cols, &c.spareCols, it, minX, minZ, maxX, maxZ)
+	addContainerColumns(c.cols, &c.spareCols, &c.moreColKeys, it, minX, minZ, maxX, maxZ)
 }
 
 func (c *cartColumns) addBoat(it *boatEntity) {
@@ -241,11 +245,11 @@ func (c *cartColumns) addBoat(it *boatEntity) {
 		return
 	}
 	minX, _, minZ, maxX, _, maxZ := it.boat.Box()
-	addContainerColumns(c.boats, &c.spareBoats, it, minX, minZ, maxX, maxZ)
+	addContainerColumns(c.boats, &c.spareBoats, &c.moreBoatKeys, it, minX, minZ, maxX, maxZ)
 }
 
 // addContainerColumns includes every column whose unit query box can overlap the hull.
-func addContainerColumns[T any](cols map[[2]int32]vehicleBucket[T], spare *[][]*T, it *T, minX, minZ, maxX, maxZ float64) {
+func addContainerColumns[T any](cols map[[2]int32]vehicleBucket[T], spare *[][]*T, moreKeys *[][2]int32, it *T, minX, minZ, maxX, maxZ float64) {
 	for x := int32(math.Floor(minX - 0.5)); x <= int32(math.Floor(maxX+0.5)); x++ {
 		for z := int32(math.Floor(minZ - 0.5)); z <= int32(math.Floor(maxZ+0.5)); z++ {
 			k := [2]int32{x, z}
@@ -253,6 +257,9 @@ func addContainerColumns[T any](cols map[[2]int32]vehicleBucket[T], spare *[][]*
 			if b.first == nil {
 				b.first = it
 			} else {
+				if b.more == nil {
+					*moreKeys = append(*moreKeys, k)
+				}
 				if b.more == nil && len(*spare) > 0 {
 					last := len(*spare) - 1
 					b.more = (*spare)[last]
@@ -304,42 +311,42 @@ func (s *Server) dropCartColumns() {
 // unit box centred on (cx, cy, cz), never except; nil for none.
 // vanilla: HopperBlockEntity.getEntityContainer
 func (s *Server) entityContainerAt(w *world.World, cx, cy, cz float64, except *minecartEntity) containerTarget {
+	// Boats are read under boatsMu then minecartsMu, the order the index
+	// build uses, so dropCartColumns cannot recycle a bucket mid-traversal.
+	// An empty or cart-only lookup takes minecartsMu alone.
 	s.minecartsMu.Lock()
-	var carts vehicleBucket[minecartEntity]
-	var boats vehicleBucket[boatEntity]
-	indexed := false
-	if idx := s.cartCols; idx != nil && idx.w == w {
-		if len(idx.cols) == 0 && len(idx.boats) == 0 {
+	locked := false
+	for {
+		carts, boats, indexed, empty := s.cartBucketsAt(w, cx, cz)
+		if empty {
 			s.minecartsMu.Unlock()
+			if locked {
+				s.boatsMu.Unlock()
+			}
 			return nil
 		}
-		key := [2]int32{int32(math.Floor(cx)), int32(math.Floor(cz))}
-		carts = idx.cols[key]
-		boats = idx.boats[key]
-		if carts.first == nil && boats.first == nil {
+		if (!indexed || boats.first != nil) && !locked {
 			s.minecartsMu.Unlock()
-			return nil
+			s.boatsMu.Lock()
+			s.minecartsMu.Lock()
+			locked = true
+			continue // the index may have changed while unlocked
 		}
-		indexed = true
-	}
-	var found []containerTarget
-	visitCart := func(it *minecartEntity) {
-		if it == except || it.w != w || it.cart.Dead || it.cargo.slots == nil {
-			return
+		var found []containerTarget
+		if !indexed {
+			carts.more = s.minecarts
+			boats.more = s.boats
 		}
-		minX, minY, minZ, maxX, maxY, maxZ := it.cart.Box()
-		if boxMeets(minX, minY, minZ, maxX, maxY, maxZ, cx, cy, cz) {
-			found = append(found, cartTarget{s: s, it: it})
-		}
-	}
-	if !indexed {
-		carts.more = s.minecarts
-	}
-	carts.each(visitCart)
-	s.minecartsMu.Unlock()
-	if !indexed || boats.first != nil {
-		s.boatsMu.Lock()
-		visitBoat := func(it *boatEntity) {
+		carts.each(func(it *minecartEntity) {
+			if it == except || it.w != w || it.cart.Dead || it.cargo.slots == nil {
+				return
+			}
+			minX, minY, minZ, maxX, maxY, maxZ := it.cart.Box()
+			if boxMeets(minX, minY, minZ, maxX, maxY, maxZ, cx, cy, cz) {
+				found = append(found, cartTarget{s: s, it: it})
+			}
+		})
+		boats.each(func(it *boatEntity) {
 			if it.w != w || it.boat.Dead || it.cargo == nil {
 				return
 			}
@@ -347,17 +354,30 @@ func (s *Server) entityContainerAt(w *world.World, cx, cy, cz float64, except *m
 			if boxMeets(minX, minY, minZ, maxX, maxY, maxZ, cx, cy, cz) {
 				found = append(found, boatTarget{s: s, it: it})
 			}
+		})
+		s.minecartsMu.Unlock()
+		if locked {
+			s.boatsMu.Unlock()
 		}
-		if !indexed {
-			boats.more = s.boats
+		if len(found) == 0 {
+			return nil
 		}
-		boats.each(visitBoat)
-		s.boatsMu.Unlock()
+		return found[s.levelRng.Intn(len(found))]
 	}
-	if len(found) == 0 {
-		return nil
+}
+
+// cartBucketsAt reads the index buckets for the column of (cx, cz); without an
+// index for w it reports indexed false. empty means no vehicle can match.
+// Caller holds minecartsMu.
+func (s *Server) cartBucketsAt(w *world.World, cx, cz float64) (carts vehicleBucket[minecartEntity], boats vehicleBucket[boatEntity], indexed, empty bool) {
+	idx := s.cartCols
+	if idx == nil || idx.w != w {
+		return carts, boats, false, false
 	}
-	return found[s.levelRng.Intn(len(found))]
+	key := [2]int32{int32(math.Floor(cx)), int32(math.Floor(cz))}
+	carts = idx.cols[key]
+	boats = idx.boats[key]
+	return carts, boats, true, carts.first == nil && boats.first == nil
 }
 
 // boxMeets tests strict overlap with the unit box centred on (cx, cy, cz).
