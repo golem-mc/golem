@@ -6,21 +6,28 @@ import "slices"
 // server keeps as the bytes it arrived in, but the click path has to fill and
 // empty a bundle, so its value is decoded and written here.
 
+// BundleContentsOf returns the items a stack's minecraft:bundle_contents patch
+// holds; false when the component is absent from the patch.
+func (s ItemStack) BundleContentsOf() ([]ItemStack, bool) {
+	for _, raw := range s.Raw {
+		if raw.Type == DataComponentBundleContents {
+			items, ok := bundleItemsOf(raw.Data)
+			if !ok {
+				return nil, false
+			}
+			return items, true
+		}
+	}
+	return nil, false
+}
+
 // BundleContents returns the items a bundle stack holds, decoding the
 // minecraft:bundle_contents component it keeps as bytes. A bundle with no
 // component holds nothing: the component is absent when it is the item's own
 // default.
 func (s ItemStack) BundleContents() []ItemStack {
-	for _, raw := range s.Raw {
-		if raw.Type == DataComponentBundleContents {
-			items, ok := bundleItemsOf(raw.Data)
-			if !ok {
-				return nil
-			}
-			return items
-		}
-	}
-	return nil
+	items, _ := s.BundleContentsOf()
+	return items
 }
 
 // SetBundleContents replaces the items a bundle stack holds, storing them as
@@ -31,6 +38,12 @@ func (s *ItemStack) SetBundleContents(items []ItemStack) {
 		s.dropRaw(DataComponentBundleContents)
 		return
 	}
+	s.SetExplicitBundleContents(items)
+}
+
+// SetExplicitBundleContents writes minecraft:bundle_contents onto the stack,
+// retaining an empty list as an explicit component patch.
+func (s *ItemStack) SetExplicitBundleContents(items []ItemStack) {
 	var value Buffer
 	value.PutBundleContents(items)
 	// A copied stack - the clone a creative middle-click makes - shares the

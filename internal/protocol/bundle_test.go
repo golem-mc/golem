@@ -18,3 +18,19 @@ func TestSetBundleContentsLeavesACopiedStackAlone(t *testing.T) {
 		t.Errorf("the original holds %+v, want its two entries untouched", got)
 	}
 }
+
+func TestSetExplicitBundleContentsRetainsEmptyComponent(t *testing.T) {
+	stack := ItemStack{ItemID: 1, Count: 1}
+	if _, ok := stack.BundleContentsOf(); ok {
+		t.Fatal("fresh stack unexpectedly reports bundle_contents")
+	}
+	stack.SetExplicitBundleContents(nil)
+	got, ok := stack.BundleContentsOf()
+	if !ok || len(got) != 0 {
+		t.Fatalf("BundleContentsOf() = (%v, %v), want empty present component", got, ok)
+	}
+	stack.SetBundleContents(nil)
+	if _, ok := stack.BundleContentsOf(); ok {
+		t.Fatal("SetBundleContents(nil) left bundle_contents on stack")
+	}
+}
