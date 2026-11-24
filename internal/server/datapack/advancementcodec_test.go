@@ -31,7 +31,7 @@ func TestDecodeAdvancementMatchesTheGeneratedTree(t *testing.T) {
 		}
 		data, _ := io.ReadAll(f)
 		f.Close()
-		got, err := DecodeAdvancement(want.ID, data)
+		got, err := DecodeAdvancement(nil, want.ID, data)
 		if err != nil {
 			t.Errorf("%s: %v", want.ID, err)
 			continue
@@ -66,7 +66,7 @@ func TestDecodeAdvancementRefusesWhatVanillaRefuses(t *testing.T) {
 		"invalid title":          `{` + crit + `,"display":{"icon":{"id":"minecraft:stick"},"title":{},"description":"d"}}`,
 		"invalid icon component": `{` + crit + `,"display":{"icon":{"id":"minecraft:stick","components":{"minecraft:enchantment_glint_override":"nope"}},"title":"t","description":"d"}}`,
 	} {
-		if _, err := DecodeAdvancement("pk:x", []byte(body)); err == nil {
+		if _, err := DecodeAdvancement(nil, "pk:x", []byte(body)); err == nil {
 			t.Errorf("%s: decoded, want an error", name)
 		}
 	}
@@ -78,7 +78,7 @@ func TestDecodeAdvancementReadsLootAndFunctionRewards(t *testing.T) {
 		`{` + crit + `,"rewards":{"loot":"l","function":"x:y"}}`:         {"minecraft:l"},
 		`{` + crit + `,"rewards":{"loot":["x:l","m"],"function":"x:y"}}`: {"x:l", "minecraft:m"},
 	} {
-		adv, err := DecodeAdvancement("pk:x", []byte(body))
+		adv, err := DecodeAdvancement(nil, "pk:x", []byte(body))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,7 +89,7 @@ func TestDecodeAdvancementReadsLootAndFunctionRewards(t *testing.T) {
 }
 
 func TestDecodeAdvancementReadsLiteralTextAndUnqualifiedNames(t *testing.T) {
-	adv, err := DecodeAdvancement("pk:x", []byte(`{"parent":"pk:root","display":{"icon":{"id":"stick","count":2},
+	adv, err := DecodeAdvancement(nil, "pk:x", []byte(`{"parent":"pk:root","display":{"icon":{"id":"stick","count":2},
 		"title":"Plain","description":{"text":"Words"},"frame":"goal","hidden":true},"rewards":{"experience":7},
 		"criteria":{"b":{"trigger":"minecraft:changed_dimension","conditions":{"to":"the_nether"}},
 		"a":{"trigger":"minecraft:inventory_changed","conditions":{"items":[{"items":["stick","minecraft:dirt"]}]}}}}`))
@@ -114,7 +114,7 @@ func TestDecodeAdvancementReadsLiteralTextAndUnqualifiedNames(t *testing.T) {
 }
 
 func TestDecodeAdvancementIgnoresWhatVanillaIgnoresAndNeverFiresWhatItCannotTest(t *testing.T) {
-	adv, err := DecodeAdvancement("pk:x", []byte(`{"extra":1,"display":{"icon":{"id":"minecraft:stick","extra":1},"title":"t","description":"d","extra":1},
+	adv, err := DecodeAdvancement(nil, "pk:x", []byte(`{"extra":1,"display":{"icon":{"id":"minecraft:stick","extra":1},"title":"t","description":"d","extra":1},
 		"criteria":{"a":{"trigger":"minecraft:inventory_changed","extra":1,"conditions":{"player":[],"slots":{},"items":[{"items":"minecraft:stick"}]}},
 		"b":{"trigger":"minecraft:inventory_changed","conditions":{"items":[{"items":"minecraft:stick","count":2}]}},
 		"c":{"trigger":"minecraft:consume_item","conditions":{"player":[]}},
@@ -145,7 +145,7 @@ func TestStructureLocationPredicatesDecode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			body := `{"criteria":{"here":{"trigger":"minecraft:location","conditions":{"player":[{
 				"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:location":{` + tc.location + `}}}]}}}}`
-			adv, err := DecodeAdvancement("pk:here", []byte(body))
+			adv, err := DecodeAdvancement(nil, "pk:here", []byte(body))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -162,7 +162,7 @@ func TestStructureLocationPredicatesDecode(t *testing.T) {
 // conjunction of them, match_block, "#" tag predicates and the plural
 // holder-set fields.
 func TestDecodeAdvancementReads263Conditions(t *testing.T) {
-	adv, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
+	adv, err := DecodeAdvancement(nil, "pk:x", []byte(`{"criteria":{
 		"a":{"trigger":"location","conditions":{"player":{"type":"entity_properties","entity":"this",
 			"predicate":{"minecraft:location":{"structures":"minecraft:stronghold"}}}}},
 		"b":{"trigger":"item_used_on_block","conditions":{"location":{"type":"minecraft:all_of","terms":[
@@ -215,7 +215,7 @@ func TestDecodeAdvancementReads263Conditions(t *testing.T) {
 	}
 
 	// match_block's blocks is optional (BlockPredicate.MAP_CODEC); a state alone is not modelled.
-	adv, err = DecodeAdvancement("pk:y", []byte(`{"criteria":{"a":{"trigger":"placed_block",
+	adv, err = DecodeAdvancement(nil, "pk:y", []byte(`{"criteria":{"a":{"trigger":"placed_block",
 		"conditions":{"location":{"type":"minecraft:match_block","state":{"lit":"true"}}}}}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +226,7 @@ func TestDecodeAdvancementReads263Conditions(t *testing.T) {
 }
 
 func TestDecodeAdvancementKeepsEntityConditionsAsLootConditions(t *testing.T) {
-	adv, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
+	adv, err := DecodeAdvancement(nil, "pk:x", []byte(`{"criteria":{
 		"tame":{"trigger":"minecraft:tame_animal","conditions":{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Tags:[\"a\"]}"}}]}},
 		"bred":{"trigger":"minecraft:bred_animals","conditions":{"child":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:flags":{"is_baby":true}}}]}},
 		"cure":{"trigger":"minecraft:cured_zombie_villager","conditions":{"villager":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:villager"}}]}},
@@ -251,7 +251,7 @@ func TestDecodeAdvancementKeepsEntityConditionsAsLootConditions(t *testing.T) {
 }
 
 func TestDecodeAdvancementReadsStyledTextAndIconComponents(t *testing.T) {
-	adv, err := DecodeAdvancement("pk:styled", []byte(`{
+	adv, err := DecodeAdvancement(nil, "pk:styled", []byte(`{
 		"display": {
 			"icon": {
 				"id": "minecraft:stone",
@@ -288,7 +288,7 @@ func TestDecodeAdvancementReadsStyledTextAndIconComponents(t *testing.T) {
 	}
 
 	// Bare string icon and JSON list title are both valid codec shapes.
-	adv2, err := DecodeAdvancement("pk:list", []byte(`{
+	adv2, err := DecodeAdvancement(nil, "pk:list", []byte(`{
 		"display": {
 			"icon": "minecraft:player_head",
 			"title": [{"text": "A", "color": "red"}, {"text": "B"}],
@@ -305,7 +305,7 @@ func TestDecodeAdvancementReadsStyledTextAndIconComponents(t *testing.T) {
 }
 
 func TestDecodeAdvancementReadsItemPredicatesLevelsDurabilityAndPotions(t *testing.T) {
-	adv, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
+	adv, err := DecodeAdvancement(nil, "pk:x", []byte(`{"criteria":{
 		"a":{"trigger":"minecraft:inventory_changed","conditions":{"items":[{"items":"minecraft:stick","count":2}]}},
 		"b":{"trigger":"minecraft:item_durability_changed","conditions":{"durability":{"max":1},"delta":-1}},
 		"c":{"trigger":"minecraft:enchanted_item","conditions":{"levels":{"min":30}}},
@@ -338,7 +338,7 @@ func TestDecodeAdvancementReadsItemPredicatesLevelsDurabilityAndPotions(t *testi
 }
 
 func TestDecodeAdvancementRefusesMalformedVictims(t *testing.T) {
-	_, err := DecodeAdvancement("pk:x", []byte(`{"criteria":{
+	_, err := DecodeAdvancement(nil, "pk:x", []byte(`{"criteria":{
 		"arrow":{"trigger":"minecraft:killed_by_arrow","conditions":{"victims":{}}}}}`))
 	if err == nil {
 		t.Error("a victims object decoded without an error")

@@ -11,11 +11,11 @@ var slotSourceTargets = map[string]bool{
 	"target_entity": true, "interacting_entity": true, "block_entity": true, "container": true,
 }
 
-// DecodeSlotSource reads a slot source file.
+// DecodeSlotSource reads a slot source file, resolving names against layers.
 // vanilla: RegistryDataLoader.RELOADABLE_REGISTRIES, SlotSources.DIRECT_CODEC
-func DecodeSlotSource(data []byte) (s registry.SlotSource, err error) {
+func DecodeSlotSource(layers *registry.PackLayers, data []byte) (s registry.SlotSource, err error) {
 	defer recoverLoot(&err)
-	return slotSource(parseJSON(data)), nil
+	return lootDecoder{layers: layers}.slotSource(parseJSON(data)), nil
 }
 
 // DecodeSlotSourceValue reads a slot source already parsed into the shapes
@@ -23,22 +23,22 @@ func DecodeSlotSource(data []byte) (s registry.SlotSource, err error) {
 // vanilla: SlotSources.CODEC
 func DecodeSlotSourceValue(v any) (s registry.SlotSource, err error) {
 	defer recoverLoot(&err)
-	return slotSource(v), nil
+	return lootDecoder{}.slotSource(v), nil
 }
 
 // slotSource reads a data pack id, a typed compound, or a bare list that is
 // a group.
 // vanilla: SlotSources.CODEC, SlotSources.DIRECT_CODEC
-func slotSource(v any) registry.SlotSource {
+func (d lootDecoder) slotSource(v any) registry.SlotSource {
 	switch k := v.(type) {
 	case string:
 		name := registry.Qualify(k)
-		if _, ok := registry.FindSlotSource(name); !ok {
+		if !d.layers.HasSlotSource(name) {
 			fail("Failed to get element %s from registry minecraft:slot_source", name)
 		}
 		return registry.SlotSourceReference{Name: name}
 	case []any:
-		return registry.SlotGroupSource{Terms: slotTerms(k)}
+		return registry.SlotGroupSource{Terms: d.slotTerms(k)}
 	}
 	o := object(v, "slot source")
 	switch kind := registry.Qualify(str(o["type"], "slot source type")); kind {
@@ -48,9 +48,9 @@ func slotSource(v any) registry.SlotSource {
 	case "minecraft:group":
 		unknownKeys(o, "group slot source", "type", "terms")
 		if terms, ok := o["terms"].([]any); ok {
-			return registry.SlotGroupSource{Terms: slotTerms(terms)}
+			return registry.SlotGroupSource{Terms: d.slotTerms(terms)}
 		}
-		return registry.SlotGroupSource{Terms: []registry.SlotSource{slotSource(o["terms"])}}
+		return registry.SlotGroupSource{Terms: []registry.SlotSource{d.slotSource(o["terms"])}}
 	case "minecraft:slot_range":
 		unknownKeys(o, "slot range source", "type", "source", "slots")
 		out := registry.SlotRangeSource{Source: "container", Slots: requireStr(o, "slots")}
@@ -66,14 +66,14 @@ func slotSource(v any) registry.SlotSource {
 		return out
 	case "minecraft:filtered":
 		unknownKeys(o, "filtered slot source", "type", "slot_source", "item_filter")
-		return registry.SlotFilteredSource{From: slotSource(required(o, "slot_source")), Filter: itemPredicate(object(required(o, "item_filter"), "item filter"))}
+		return registry.SlotFilteredSource{From: d.slotSource(required(o, "slot_source")), Filter: itemPredicate(object(required(o, "item_filter"), "item filter"))}
 	case "minecraft:limit_slots":
 		unknownKeys(o, "limit slot source", "type", "slot_source", "limit")
 		limit := int(optNum(o, "limit", 0))
 		if limit <= 0 {
 			fail("Value must be positive: %d", limit)
 		}
-		return registry.SlotLimitSource{From: slotSource(required(o, "slot_source")), Limit: limit}
+		return registry.SlotLimitSource{From: d.slotSource(required(o, "slot_source")), Limit: limit}
 	case "minecraft:contents":
 		unknownKeys(o, "contents slot source", "type", "slot_source", "component")
 		component := registry.Qualify(requireStr(o, "component"))
@@ -82,17 +82,17 @@ func slotSource(v any) registry.SlotSource {
 		default:
 			fail("No items in component")
 		}
-		return registry.SlotContentsSource{From: slotSource(required(o, "slot_source")), Component: component}
+		return registry.SlotContentsSource{From: d.slotSource(required(o, "slot_source")), Component: component}
 	default:
 		fail("Unknown registry key in ResourceKey[minecraft:root / minecraft:slot_source_type]: %s", kind)
 	}
 	return nil
 }
 
-func slotTerms(items []any) []registry.SlotSource {
+func (d lootDecoder) slotTerms(items []any) []registry.SlotSource {
 	terms := make([]registry.SlotSource, len(items))
 	for i, t := range items {
-		terms[i] = slotSource(t)
+		terms[i] = d.slotSource(t)
 	}
 	return terms
 }

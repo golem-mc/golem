@@ -44,7 +44,7 @@ func TestDecodeItemModifierDiscriminators(t *testing.T) {
 			if _, err := DecodeItemModifierValue(parseJSON([]byte(old))); err == nil || !strings.Contains(err.Error(), "No key type in MapLike[") {
 				t.Errorf("legacy inline modifier error = %v, want missing type", err)
 			}
-			got, err := DecodeItemModifier([]byte(old))
+			got, err := DecodeItemModifier(nil, []byte(old))
 			if err != nil || !reflect.DeepEqual(got, want) {
 				t.Errorf("legacy pack modifier = %#v, %v; want %#v", got, err, want)
 			}
@@ -100,7 +100,7 @@ func TestDecodeLootTableMatchesTheGeneratedTables(t *testing.T) {
 		if err != nil {
 			continue
 		}
-		got, err := DecodeLootTable(data)
+		got, err := DecodeLootTable(nil, data)
 		if err != nil {
 			t.Errorf("%s: %v", name, err)
 			continue
@@ -205,11 +205,11 @@ func TestDecodeLootTableRefusesWhatItDoesNotKnow(t *testing.T) {
 		"refused func":   `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:stick","functions":[{"function":"minecraft:set_book_cover","generation":4}]}]}]}`,
 		"unknown number": `{"pools":[{"rolls":{"type":"minecraft:score"},"entries":[]}]}`,
 	} {
-		if _, err := DecodeLootTable([]byte(body)); err == nil {
+		if _, err := DecodeLootTable(nil, []byte(body)); err == nil {
 			t.Errorf("%s: decoded, want a refusal", name)
 		}
 	}
-	table, err := DecodeLootTable([]byte(`{"pools":[{"rolls":2,"entries":[{"type":"minecraft:tag","name":"#minecraft:logs","expand":true}]}]}`))
+	table, err := DecodeLootTable(nil, []byte(`{"pools":[{"rolls":2,"entries":[{"type":"minecraft:tag","name":"#minecraft:logs","expand":true}]}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,16 +234,16 @@ func damageSourceRecord(id string) string {
 // codecs do not default, and that a tag no pack defines holds nothing.
 // vanilla: LootPool.CODEC, TagEntry.CODEC
 func TestDecodeLootTableRequiresRollsAndExpand(t *testing.T) {
-	if _, err := DecodeLootTable([]byte(`{"pools":[{"entries":[]}]}`)); err == nil {
+	if _, err := DecodeLootTable(nil, []byte(`{"pools":[{"entries":[]}]}`)); err == nil {
 		t.Error("a pool without rolls decoded")
 	}
 	tag := func(extra string) string {
 		return `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:tag","name":"pk:nowhere"` + extra + `}]}]}`
 	}
-	if _, err := DecodeLootTable([]byte(tag(""))); err == nil {
+	if _, err := DecodeLootTable(nil, []byte(tag(""))); err == nil {
 		t.Error("a tag entry without expand decoded")
 	}
-	got, err := DecodeLootTable([]byte(tag(`,"expand":true`)))
+	got, err := DecodeLootTable(nil, []byte(tag(`,"expand":true`)))
 	if err != nil {
 		t.Fatalf("a tag entry naming a missing tag: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestDecodeLootTableRequiresRollsAndExpand(t *testing.T) {
 }
 
 func TestDecodeTradeEnchantmentFunctionsAndStoredFilter(t *testing.T) {
-	fn, err := DecodeItemModifier([]byte(`[
+	fn, err := DecodeItemModifier(nil, []byte(`[
   {"function":"minecraft:enchant_randomly","options":["minecraft:mending"],"include_additional_cost_component":true},
   {"function":"minecraft:enchant_with_levels","levels":19,"include_additional_cost_component":true},
   {"function":"minecraft:filtered","item_filter":{"items":"minecraft:enchanted_book","predicates":{"minecraft:stored_enchantments":[{"enchantments":"minecraft:mending","levels":1}]}},"on_fail":{"function":"minecraft:discard"}}
@@ -272,13 +272,13 @@ func TestDecodeTradeEnchantmentFunctionsAndStoredFilter(t *testing.T) {
 	if _, ok := filter.OnFail.(registry.LootDiscard); !ok {
 		t.Fatalf("on_fail %T", filter.OnFail)
 	}
-	if _, err := DecodeItemModifier([]byte(`{"function":"minecraft:filtered","item_filter":{"predicates":{"minecraft:unknown":{}}}}`)); err == nil {
+	if _, err := DecodeItemModifier(nil, []byte(`{"function":"minecraft:filtered","item_filter":{"predicates":{"minecraft:unknown":{}}}}`)); err == nil {
 		t.Fatal("accepted an unmodelled component predicate")
 	}
 }
 
 func TestDecodeTradeComponentFunctionsAndDyeFilter(t *testing.T) {
-	fn, err := DecodeItemModifier([]byte(`[
+	fn, err := DecodeItemModifier(nil, []byte(`[
   {"function":"minecraft:set_random_dyes","number_of_dyes":{"type":"minecraft:add","inputs":[1,{"type":"minecraft:binomial","n":2,"p":0.75}]}},
   {"function":"minecraft:filtered","item_filter":{"predicates":{"minecraft:dyed_color":{}}},"on_fail":{"function":"minecraft:discard"}},
   {"function":"minecraft:set_random_potion","options":"#minecraft:tradeable"},
@@ -303,7 +303,7 @@ func TestDecodeTradeComponentFunctionsAndDyeFilter(t *testing.T) {
 	if seq[3].(registry.LootSetRandomPotion).Options == nil || seq[4].(registry.LootSetRandomPotion).Options != nil {
 		t.Fatal("empty and absent potion options are different")
 	}
-	if _, err := DecodeItemModifier([]byte(`{"function":"minecraft:filtered","item_filter":{"predicates":{"minecraft:dyed_color":{"unknown":1}}}}`)); err == nil {
+	if _, err := DecodeItemModifier(nil, []byte(`{"function":"minecraft:filtered","item_filter":{"predicates":{"minecraft:dyed_color":{"unknown":1}}}}`)); err == nil {
 		t.Fatal("accepted an unmodelled dye predicate")
 	}
 }
@@ -312,7 +312,7 @@ func TestDecodeTradeComponentFunctionsAndDyeFilter(t *testing.T) {
 // functions decode, and their bad fields are refused.
 // vanilla: SetLoreFunction, ListOperation.codec, ToggleTooltips
 func TestDecodeItemModifierComponentFunctions(t *testing.T) {
-	fn, err := DecodeItemModifier([]byte(`[
+	fn, err := DecodeItemModifier(nil, []byte(`[
   {"function":"minecraft:set_lore","lore":["a",{"text":"b"}],"mode":"replace_section","offset":1,"size":2},
   {"function":"minecraft:set_custom_data","tag":"{a:1}"},
   {"function":"minecraft:toggle_tooltips","toggles":{"minecraft:enchantments":false}},
@@ -346,7 +346,7 @@ func TestDecodeItemModifierComponentFunctions(t *testing.T) {
 		`{"function":"minecraft:copy_name","source":"nobody"}`,
 		`{"function":"minecraft:set_attributes","modifiers":[{"id":"x:y","attribute":"minecraft:armor","operation":"add_value","amount":1,"slot":[]}]}`,
 	} {
-		if _, err := DecodeItemModifier([]byte(bad)); err == nil {
+		if _, err := DecodeItemModifier(nil, []byte(bad)); err == nil {
 			t.Errorf("%s decoded", bad)
 		}
 	}
@@ -363,7 +363,7 @@ func TestDecodePredicateLevelAndValueChecks(t *testing.T) {
 		`{"type":"minecraft:float_value_check","value":0.5,"test":0.5}`,
 		`{"type":"minecraft:int_value_check","value":{"type":"minecraft:score","target":"this","score":"a"},"test":1}`,
 	} {
-		if _, err := DecodePredicate([]byte(in)); err != nil {
+		if _, err := DecodePredicate(nil, []byte(in)); err != nil {
 			t.Errorf("%s: %v", in, err)
 		}
 	}
@@ -374,7 +374,7 @@ func TestDecodePredicateLevelAndValueChecks(t *testing.T) {
 		`{"type":"minecraft:time_check","clock":"minecraft:overworld"}`:                                                 `No key value in MapLike[{clock:"minecraft:overworld",type:"minecraft:time_check"}]`,
 		`{"type":"minecraft:time_check","clock":"minecraft:x","value":1}`:                                               "Failed to get element minecraft:x from registry minecraft:world_clock",
 	} {
-		if _, err := DecodePredicate([]byte(in)); err == nil || err.Error() != want {
+		if _, err := DecodePredicate(nil, []byte(in)); err == nil || err.Error() != want {
 			t.Errorf("%s: got %v, want %q", in, err, want)
 		}
 	}
@@ -386,7 +386,7 @@ func TestDecodeLootTableInlineNestedAndEnchantedLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	table, err := DecodeLootTable(data)
+	table, err := DecodeLootTable(nil, data)
 	if err != nil {
 		t.Fatalf("inline: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestDecodeLootTableInlineNestedAndEnchantedLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	table, err = DecodeLootTable(data)
+	table, err = DecodeLootTable(nil, data)
 	if err != nil {
 		t.Fatalf("lookup: %v", err)
 	}
@@ -413,9 +413,9 @@ func TestDecodeLootTableInlineNestedAndEnchantedLookup(t *testing.T) {
 // predicate keeps all its tag terms, both entity predicates and is_direct.
 // vanilla: DamageSourcePredicate.CODEC
 func TestDecodeLootDamageSourceReadsEveryField(t *testing.T) {
-	table, err := DecodeLootTable([]byte(`{"pools":[{"rolls":1,"entries":[],"conditions":[{"type":"minecraft:damage_source_properties",` +
-		`"predicate":{"tags":[{"id":"minecraft:is_fire","expected":true},{"id":"minecraft:is_explosion","expected":false}],` +
-		`"is_direct":false,"direct_entity":{"minecraft:entity_type":"minecraft:arrow"},` +
+	table, err := DecodeLootTable(nil, []byte(`{"pools":[{"rolls":1,"entries":[],"conditions":[{"type":"minecraft:damage_source_properties",`+
+		`"predicate":{"tags":[{"id":"minecraft:is_fire","expected":true},{"id":"minecraft:is_explosion","expected":false}],`+
+		`"is_direct":false,"direct_entity":{"minecraft:entity_type":"minecraft:arrow"},`+
 		`"source_entity":{"minecraft:flags":{"is_sneaking":true}}}}]}]}`))
 	if err != nil {
 		t.Fatal(err)

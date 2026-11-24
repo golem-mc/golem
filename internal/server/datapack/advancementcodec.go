@@ -76,8 +76,9 @@ var variantComponents = map[string]string{
 
 // DecodeAdvancement reads one advancement file; id is the file's resource
 // id. A file without criteria, or with requirements that do not name exactly
-// its criteria, is refused as vanilla refuses it.
-func DecodeAdvancement(id string, data []byte) (adv registry.Advancement, err error) {
+// its criteria, is refused as vanilla refuses it. It resolves names against
+// layers.
+func DecodeAdvancement(layers *registry.PackLayers, id string, data []byte) (adv registry.Advancement, err error) {
 	defer recoverLoot(&err)
 	o := object(parseJSON(data), "advancement")
 	ignoreKeys(id, "advancement", o, "parent", "display", "rewards", "criteria", "requirements", "sends_telemetry_event")
@@ -117,7 +118,7 @@ func DecodeAdvancement(id string, data []byte) (adv registry.Advancement, err er
 	}
 	names := sortedKeys(criteria)
 	for _, name := range names {
-		adv.Criteria = append(adv.Criteria, advCriterion(id, name, object(criteria[name], "criterion")))
+		adv.Criteria = append(adv.Criteria, lootDecoder{layers: layers}.advCriterion(id, name, object(criteria[name], "criterion")))
 	}
 	adv.Requirements = advRequirements(o["requirements"], names)
 	for _, c := range adv.Criteria {
@@ -537,7 +538,7 @@ func advOnly(c *registry.AdvancementCriterion, conditions obj, keys ...string) {
 
 // advCriterion reads one criterion: its trigger and the conditions the
 // server tests of that trigger.
-func advCriterion(id, name string, value obj) registry.AdvancementCriterion {
+func (d lootDecoder) advCriterion(id, name string, value obj) registry.AdvancementCriterion {
 	ignoreKeys(id, "criterion "+name, value, "trigger", "conditions")
 	trigger := qualifiedID(requireStr(value, "trigger"), "trigger")
 	if !advancementTriggers[trigger] {
@@ -548,10 +549,10 @@ func advCriterion(id, name string, value obj) registry.AdvancementCriterion {
 	if !c.Unmodelled {
 		return c
 	}
-	if read := advLootContexts(name, trigger, conditions, c); !read.Unmodelled {
+	if read := d.advLootContexts(name, trigger, conditions, c); !read.Unmodelled {
 		return read
 	}
-	if combat, ok := advCombat(name, trigger, conditions); ok {
+	if combat, ok := d.advCombat(name, trigger, conditions); ok {
 		return combat
 	}
 	return c
@@ -564,7 +565,7 @@ func advCriterion(id, name string, value obj) registry.AdvancementCriterion {
 // AdvancementDamage. ok is false for another trigger or a condition outside
 // these or one the loot codec refuses.
 // vanilla: PlayerHurtEntityTrigger, EntityHurtPlayerTrigger, KilledTrigger
-func advCombat(name, trigger string, conditions obj) (c registry.AdvancementCriterion, ok bool) {
+func (d lootDecoder) advCombat(name, trigger string, conditions obj) (c registry.AdvancementCriterion, ok bool) {
 	var blowKey string
 	var entity bool
 	switch trigger {
@@ -582,12 +583,12 @@ func advCombat(name, trigger string, conditions obj) (c registry.AdvancementCrit
 	}
 	c = registry.AdvancementCriterion{Name: name, Trigger: trigger, Damage: &registry.AdvancementDamage{}}
 	if v, has := conditions["player"]; has {
-		if c.Player, ok = advLootConditions(v); !ok {
+		if c.Player, ok = d.advLootConditions(v); !ok {
 			return c, false
 		}
 	}
 	if v, has := conditions["entity"]; has {
-		conds, ok := advLootConditions(v)
+		conds, ok := d.advLootConditions(v)
 		if !ok {
 			return c, false
 		}
@@ -624,14 +625,14 @@ func advCombat(name, trigger string, conditions obj) (c registry.AdvancementCrit
 	if blowKey == "killing_blow" || blow["type"] != nil {
 		terms = append(terms, obj{"condition": "minecraft:damage_source_properties", "predicate": map[string]any(source)})
 	}
-	c.Damage.Conds, ok = advLootConditions(terms)
+	c.Damage.Conds, ok = d.advLootConditions(terms)
 	return c, ok
 }
 
 // advLootContexts re-reads a criterion the bespoke readers left unmodelled
 // without its entity conditions, which it keeps as the loot codec's decoding,
 // or returns unmodelled when it still is without them or the codec refuses one.
-func advLootContexts(name, trigger string, conditions obj, unmodelled registry.AdvancementCriterion) registry.AdvancementCriterion {
+func (d lootDecoder) advLootContexts(name, trigger string, conditions obj, unmodelled registry.AdvancementCriterion) registry.AdvancementCriterion {
 	rest := maps.Clone(conditions)
 	var keys []string
 	for _, key := range advLootKeys(trigger) {
@@ -655,7 +656,7 @@ func advLootContexts(name, trigger string, conditions obj, unmodelled registry.A
 				return unmodelled
 			}
 			for _, victim := range victims {
-				conds, ok := advLootConditions(victim)
+				conds, ok := d.advLootConditions(victim)
 				if !ok {
 					return unmodelled
 				}
@@ -663,7 +664,7 @@ func advLootContexts(name, trigger string, conditions obj, unmodelled registry.A
 			}
 			continue
 		}
-		conds, ok := advLootConditions(conditions[key])
+		conds, ok := d.advLootConditions(conditions[key])
 		if !ok {
 			return unmodelled
 		}
@@ -681,12 +682,12 @@ func advLootContexts(name, trigger string, conditions obj, unmodelled registry.A
 
 // advLootConditions decodes one context condition's conjuncts with the loot
 // codec, or false for one it refuses.
-func advLootConditions(terms any) (out []registry.LootCondition, ok bool) {
+func (d lootDecoder) advLootConditions(terms any) (out []registry.LootCondition, ok bool) {
 	var err error
 	func() {
 		defer recoverLoot(&err)
 		for _, term := range terms.([]any) {
-			out = append(out, conditionHolder(advTyped(term)))
+			out = append(out, d.conditionHolder(advTyped(term)))
 		}
 	}()
 	return out, err == nil

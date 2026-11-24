@@ -8,7 +8,7 @@ func TestProviderListRefusesLiteralEmptyKeyCompound(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, msg := DecodeIntProvider(tag)
+		_, msg, _ := DecodeIntProvider(tag)
 		return msg
 	}
 	if msg := decode(`{"type":"minecraft:add","inputs":[{"":7}]}`); msg == "" {
