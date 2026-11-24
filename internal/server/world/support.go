@@ -762,7 +762,8 @@ func (p *Physics) scheduleSurvival(x, y, z int32, due int64) {
 // scheduleBooked queues an entry tagged event unless booked already holds the
 // position.
 func (p *Physics) scheduleBooked(booked map[blockKey]bool, x, y, z int32, due int64, event uint8) {
-	p.discardUnloadedTicks(p.w.prepareTick(x, z, true))
+	_, unloaded := p.w.prepareTick(x, z, true, false)
+	p.discardUnloadedTicks(unloaded)
 	key := blockKey{x, y, z}
 	if booked[key] {
 		return
