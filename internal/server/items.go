@@ -128,7 +128,7 @@ var pickupIndexes = sync.Pool{New: func() any { return new(pickupIndex) }}
 // and release the result.
 func newPickupIndex(clients []*client) *pickupIndex {
 	ix := pickupIndexes.Get().(*pickupIndex)
-	ix.clients = clients
+	ix.clients = append(ix.clients[:0], clients...)
 	ix.reach = ix.reach[:0]
 	for _, c := range clients {
 		ix.reach = append(ix.reach, c.pickupBox())
@@ -164,7 +164,7 @@ func pickupBoxTooWide(minX, maxX, minZ, maxZ float64) bool {
 }
 
 func (ix *pickupIndex) release() {
-	ix.clients = nil
+	clear(ix.clients)
 	pickupIndexes.Put(ix)
 }
 
