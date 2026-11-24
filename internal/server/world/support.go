@@ -777,6 +777,7 @@ func (p *Physics) scheduleBookedPriority(booked map[blockKey]bool, x, y, z int32
 	p.seq++
 	p.queue.push(scheduledTick{
 		pos: key, due: due, priority: priority, seq: p.seq, event: event,
+		block: registry.BlockOf(p.w.BlockAt(x, y, z)),
 	})
 }
 

@@ -168,7 +168,7 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 			out.fluid = append(out.fluid, st)
 			return
 		}
-		name, ok := bookedBlockName(t.event, p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z))
+		name, ok := bookedBlockName(t, p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z))
 		if !ok {
 			return
 		}
@@ -302,11 +302,19 @@ func (p *Physics) discardUnloadedTicks(unloaded []ChunkPos) {
 }
 
 // adoptBlockTick books a block tick for the block named id at a cell holding
-// state, tagged and booked as that block's own ticks are; it is dropped when
-// the cell holds another block, as vanilla's tick would find one. Runs under
-// p.mu.
-// vanilla: ServerLevel.tickBlock
+// state, tagged and booked as that block's own ticks are; apart from a soil
+// block's, which dispatch checks, it is dropped when the cell holds another
+// block. Runs under p.mu.
 func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int64, priority int) {
+	// vanilla: ServerLevel.tickBlock checks the cell's block against the booked type.
+	switch id {
+	case registry.BlockDirtPath.Name():
+		p.scheduleBookedPriority(p.dirtPathBooked, x, y, z, due, priority, dirtPathTickEvent)
+		return
+	case registry.BlockFarmland.Name():
+		p.scheduleBookedPriority(p.farmlandBooked, x, y, z, due, priority, farmlandTickEvent)
+		return
+	}
 	name, _, ok := registry.BlockStateName(state)
 	if !ok || name != id {
 		return
@@ -322,10 +330,6 @@ func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int
 		p.scheduleBooked(p.cauldronBooked, x, y, z, due, cauldronDripEvent)
 	case block.IsLeaves():
 		p.scheduleLeaf(x, y, z, due)
-	case block == registry.BlockDirtPath:
-		p.scheduleBookedPriority(p.dirtPathBooked, x, y, z, due, priority, dirtPathTickEvent)
-	case block == registry.BlockFarmland:
-		p.scheduleBookedPriority(p.farmlandBooked, x, y, z, due, priority, farmlandTickEvent)
 	case block == registry.BlockScaffolding:
 		p.scheduleScaffolding(x, y, z, due)
 	case isLivingCoral(block):

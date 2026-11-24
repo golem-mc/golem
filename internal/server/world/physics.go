@@ -504,6 +504,9 @@ type scheduledTick struct {
 	event    uint8
 	// fluid is the booked fluid type of a fluid visit, zero for any other.
 	fluid fluidType
+	// block is the block the cell held when a block tick was booked, zero for
+	// none; vanilla's ScheduledTick keeps the type it was booked for.
+	block registry.Block
 }
 
 // tickQueue orders ticks by due time, then priority (smaller more urgent), then
@@ -1454,7 +1457,8 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 		p.pending[key] = true
 	}
 	p.seq++
-	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ})
+	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ,
+		block: registry.BlockOf(p.w.BlockAt(key.x, key.y, key.z))})
 	if priority == tickPriorityFinalize && typ == 0 {
 		p.finalizeSeq[key] = p.seq
 	}
@@ -1485,7 +1489,7 @@ func (p *Physics) BlockTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) BlockTicks {
 		if t.fluid != 0 {
 			continue
 		}
-		if name, ok := bookedBlockName(t.event, p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)); ok {
+		if name, ok := bookedBlockName(t, p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)); ok {
 			out = append(out, boxTick{tick: t, id: name})
 		}
 	}

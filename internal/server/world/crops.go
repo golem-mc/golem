@@ -216,14 +216,18 @@ const dirtPathTickEvent = 1<<5 | 1<<6 | 1<<7 | 6
 const farmlandTickEvent = 1<<5 | 1<<6 | 1<<7 | 7
 
 // bookedBlockName is the block a queue entry was booked for: its tag names it
-// where the tag is per block, else the cell's current one.
+// where the tag is per block, else the block recorded at booking, else the
+// cell's current one.
 // vanilla: ScheduledTick.type
-func bookedBlockName(event uint8, state uint16) (string, bool) {
-	switch event {
+func bookedBlockName(t scheduledTick, state uint16) (string, bool) {
+	switch t.event {
 	case dirtPathTickEvent:
 		return registry.BlockDirtPath.Name(), true
 	case farmlandTickEvent:
 		return registry.BlockFarmland.Name(), true
+	}
+	if t.block != registry.BlockAir {
+		return t.block.Name(), true
 	}
 	name, _, ok := registry.BlockStateName(state)
 	return name, ok

@@ -220,17 +220,34 @@ func TestBookedSoilTickKeepsItsBlockAndPriority(t *testing.T) {
 	} else if got[0].id == got[1].id {
 		t.Errorf("saved ticks share id %s", got[0].id)
 	}
-	p.ScheduleBlockTicks(p.BlockTicksIn(8, y, 8, 9, y, 8), 0, 0, 2)
+	// A destination holding a path takes both ticks by their booked type; one
+	// holding stone takes them too, and the path's tick still fires once the
+	// path is back.
+	w.SetBlock(8, y, 10, registry.BlockDirtPath.DefaultState())
+	w.SetBlock(9, y, 10, registry.BlockDirtPath.DefaultState())
+	w.SetBlock(8, y, 12, registry.BlockStone.DefaultState())
+	w.SetBlock(9, y, 12, registry.BlockStone.DefaultState())
+	ticks := p.BlockTicksIn(8, y, 8, 9, y, 8)
+	p.ScheduleBlockTicks(ticks, 0, 0, 2)
+	p.ScheduleBlockTicks(ticks, 0, 0, 4)
+	w.SetBlock(9, y, 12, registry.BlockDirtPath.DefaultState())
 	p.mu.Lock()
+	events := map[blockKey]uint8{}
 	for _, tk := range p.queue {
+		events[tk.pos] = tk.event
 		if tk.pos == (blockKey{9, y, 10}) && tk.priority != -2 {
 			t.Errorf("copied path tick priority = %d, want -2", tk.priority)
 		}
-		if tk.pos == (blockKey{8, y, 10}) {
-			t.Error("a stale farmland tick was copied onto a dirt path")
-		}
 	}
 	p.mu.Unlock()
+	for pos, want := range map[blockKey]uint8{
+		{9, y, 10}: dirtPathTickEvent, {8, y, 10}: farmlandTickEvent,
+		{9, y, 12}: dirtPathTickEvent, {8, y, 12}: farmlandTickEvent,
+	} {
+		if got, ok := events[pos]; !ok || got != want {
+			t.Errorf("tick at %v = %d (booked %t), want event %d", pos, got, ok, want)
+		}
+	}
 
 	w, p = reopenWorld(t, w, dir)
 	p.Tick(0)
@@ -242,13 +259,38 @@ func TestBookedSoilTickKeepsItsBlockAndPriority(t *testing.T) {
 		case blockKey{9, y, 8}:
 			path = tk.event == dirtPathTickEvent && tk.priority == -2
 		case blockKey{8, y, 8}:
-			stale = true
+			stale = tk.event == farmlandTickEvent
 		}
 	}
 	if !path {
 		t.Error("the path's tick did not reload as a dirt path tick at priority -2")
 	}
-	if stale {
-		t.Error("the stale farmland tick reloaded onto the dirt path")
+	if !stale {
+		t.Error("the farmland tick did not reload as a farmland tick")
+	}
+}
+
+// TestBookedTickKeepsItsBlockWhenReplaced checks a generic tick booked for one
+// block is not copied as another's after the cell changed.
+func TestBookedTickKeepsItsBlockWhenReplaced(t *testing.T) {
+	w, p, _ := newSavedWorld(t)
+	const y = GroundLevel
+	w.SetBlock(8, y, 8, registry.BlockStone.DefaultState())
+	p.mu.Lock()
+	p.insertTick(blockKey{8, y, 8}, 0, p.now+5, tickPriorityNormal)
+	p.mu.Unlock()
+	w.SetBlock(8, y, 8, registry.BlockDirtPath.DefaultState())
+	ticks := p.BlockTicksIn(8, y, 8, 8, y, 8)
+	if len(ticks) != 1 || ticks[0].id != registry.BlockStone.Name() {
+		t.Fatalf("copied ticks = %v, want one booked for stone", ticks)
+	}
+	w.SetBlock(8, y, 10, registry.BlockDirtPath.DefaultState())
+	p.ScheduleBlockTicks(ticks, 0, 0, 2)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, tk := range p.queue {
+		if tk.pos == (blockKey{8, y, 10}) {
+			t.Errorf("a tick booked for stone was copied onto a dirt path: %+v", tk)
+		}
 	}
 }
