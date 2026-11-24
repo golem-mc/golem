@@ -597,6 +597,9 @@ type Physics struct {
 	// pushes backs the Effect.PistonPush pointers of the last Tick; sparePushes
 	// is a slab RecycleTickResults took back for the next Tick.
 	pushes, sparePushes []PistonPush
+	// pushOwner is the first element of the effects batch whose pushes sit in
+	// pushes; nil when no outstanding batch owns the slab.
+	pushOwner *Effect
 	// mu guards everything below: NotifyChanged runs on player connections
 	// while Tick runs on the main loop.
 	//
@@ -1073,14 +1076,8 @@ func (p *Physics) releaseParked() {
 // backs, so recycling an older batch leaves a newer Tick's pushes alone.
 func (p *Physics) RecycleTickResults(changes []BlockChange, effects []Effect) {
 	p.mu.Lock()
-	if cap(p.pushes) > 0 {
-		first := &p.pushes[:1][0]
-		for _, e := range effects {
-			if e.PistonPush == first {
-				p.sparePushes = p.pushes[:0]
-				break
-			}
-		}
+	if p.pushOwner != nil && len(effects) > 0 && &effects[0] == p.pushOwner {
+		p.sparePushes, p.pushes, p.pushOwner = p.pushes[:0], nil, nil
 	}
 	clear(effects)
 	p.spareChanges, p.spareEffects = changes[:0], effects[:0]
@@ -1105,7 +1102,9 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.now = gameTime
-	p.pushes, p.sparePushes = p.sparePushes[:0], nil
+	// A slab still held here belongs to a batch that was not recycled; leave
+	// it to that batch.
+	p.pushes, p.pushOwner = nil, nil
 	p.adoptLoadedTicks()
 	p.handlingTick = true
 	changes := p.spareChanges[:0]
@@ -1364,6 +1363,15 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 	p.vibrationTicks(&changes)
 	p.pistonPushes()
 	effects, wakePrimes := p.takeWake()
+	if len(p.pushes) == 0 {
+		// Nothing points into the slab: keep it for the next sweep.
+		if p.sparePushes == nil {
+			p.sparePushes = p.pushes[:0]
+		}
+		p.pushes = nil
+	} else {
+		p.pushOwner = &effects[0]
+	}
 	// Redstone ticks queued their TNT in the wake sink; the fire's primes came
 	// back through the visit.
 	primes = append(primes, wakePrimes...)

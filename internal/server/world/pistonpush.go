@@ -233,11 +233,14 @@ func pistonRideShape(moved uint16, extending, source bool, progress float64) uin
 // a tick-old one's second.
 func (p *Physics) pistonPushes() {
 	live := p.rides[:0]
+	if len(p.rides) == 0 {
+		return
+	}
 	// Sized up front: the effects point into the slab, so it must not move.
+	p.pushes, p.sparePushes = p.sparePushes[:0], nil
 	if cap(p.pushes) < len(p.rides) {
 		p.pushes = make([]PistonPush, 0, len(p.rides))
 	}
-	p.pushes = p.pushes[:0]
 	for _, pos := range p.rides {
 		be := p.w.BlockEntity(pos[0], pos[1], pos[2])
 		if be == nil || be.Kind != KindPiston {
