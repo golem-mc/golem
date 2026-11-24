@@ -469,14 +469,22 @@ func fastutilMix(x int64) int64 {
 // that reach it. vanilla: Beardifier.forStructuresInChunk
 func (g *OverworldGenerator) beardifierAt(cx, cz int32) *terrain.Beardifier {
 	var pieces []levelgen.BeardPiece
+	near := levelgen.BeardNear(cx, cz)
 	g.eachStructureReaching(cx, cz, func(s *structureStart) {
+		if s.def.Adaptation == levelgen.AdjustNone {
+			return
+		}
 		for _, p := range s.pieces {
+			box := p.bounds()
+			pb := levelgen.BoundingBox{MinX: int(box.minX), MinY: int(box.minY), MinZ: int(box.minZ), MaxX: int(box.maxX), MaxY: int(box.maxY), MaxZ: int(box.maxZ)}
+			if !pb.Intersects(near) {
+				continue
+			}
 			bp := levelgen.BeardPiece{Rigid: true}
 			if b, ok := p.(structureBeardPiece); ok {
 				bp = b.beard()
 			}
-			box := p.bounds()
-			bp.Box = levelgen.BoundingBox{MinX: int(box.minX), MinY: int(box.minY), MinZ: int(box.minZ), MaxX: int(box.maxX), MaxY: int(box.maxY), MaxZ: int(box.maxZ)}
+			bp.Box = pb
 			bp.Adjustment = s.def.Adaptation
 			pieces = append(pieces, bp)
 		}
