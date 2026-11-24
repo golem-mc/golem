@@ -445,14 +445,16 @@ func advLocation(cond obj) (registry.AdvancementCondition, bool) {
 		}
 		predicate := object(required(cond, "predicate"), "a location predicate")
 		block := asObjOr(predicate["block"])
-		smokey, hasSmokey := predicate["smokey"]
-		if !keysWithin(predicate, "block", "smokey") || !keysWithin(block, "blocks", "state") || block["blocks"] == nil ||
-			hasSmokey && smokey != true {
+		smokey, hasSmokey := predicate["smokey"].(bool)
+		if _, present := predicate["smokey"]; !keysWithin(predicate, "block", "smokey") || !keysWithin(block, "blocks", "state") ||
+			block["blocks"] == nil || present && !hasSmokey {
 			return registry.AdvancementCondition{}, false
 		}
 		offset := [3]int32{int32(optNum(cond, "offsetX", 0)), int32(optNum(cond, "offsetY", 0)), int32(optNum(cond, "offsetZ", 0))}
 		check, ok := advBlockCheck(block["blocks"], asObjOr(block["state"]), offset)
-		check.Smokey = hasSmokey
+		if hasSmokey {
+			check.Smokey = &smokey
+		}
 		return check, ok
 	}
 	return registry.AdvancementCondition{}, false

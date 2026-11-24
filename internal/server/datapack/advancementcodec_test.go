@@ -192,7 +192,7 @@ func TestDecodeAdvancementReads263Conditions(t *testing.T) {
 	if !slices.Equal(c[0].Structures, []string{"minecraft:stronghold"}) {
 		t.Errorf("a's structures = %v, want the stronghold", c[0].Structures)
 	}
-	if len(c[1].Where) != 1 || !c[1].Where[0].Smokey || len(c[1].Items) != 1 {
+	if len(c[1].Where) != 1 || c[1].Where[0].Smokey == nil || !*c[1].Where[0].Smokey || len(c[1].Items) != 1 {
 		t.Errorf("b = %+v, want a smoked beehive and a glass bottle", c[1])
 	}
 	if len(c[2].Where) != 1 || c[2].Where[0].State["creaking_heart_state"] != "awake" {
