@@ -415,17 +415,25 @@ func (c *client) LootEntity() rules.LootEntity {
 }
 
 // lootNBT can run during a roll that already holds the mob or projectile lock,
-// so the ride and pearls come from the tick's snapshot, at most one tick old,
-// not from the boat, mob and projectile locks.
+// which the ride and pearls need, so it carries neither; a roll that can read
+// them first takes lootNBTRiding.
 // vanilla: ContextNbtProvider, NbtPredicate.getEntityTagToCompare
-func (c *client) lootNBT() nbt.Compound {
+func (c *client) lootNBT() nbt.Compound { return c.lootTag(nil, nil) }
+
+// lootNBTRiding reads the ride and flying pearls now, with no server lock
+// held, for a roll that reads the rest of the compound later.
+// vanilla: ServerPlayer.saveParentVehicle, ServerPlayer.saveEnderPearls
+func (c *client) lootNBTRiding() func() nbt.Compound {
+	if c.player == nil {
+		return c.lootNBT
+	}
+	vehicle, pearls := c.savedVehicle(false), c.srv.savedPearlTags(c.player.UUID)
+	return func() nbt.Compound { return c.lootTag(vehicle, pearls) }
+}
+
+func (c *client) lootTag(vehicle nbt.Compound, pearls []nbt.Tag) nbt.Compound {
 	if c.player == nil {
 		return nil
-	}
-	var vehicle nbt.Compound
-	var pearls []nbt.Tag
-	if st := c.lootRide.Load(); st != nil {
-		vehicle, pearls = st.vehicle, st.pearls
 	}
 	tag := c.playerSaveState(vehicle, pearls)
 	c.addSelectedItem(tag)
@@ -934,30 +942,4 @@ func (c *client) advancementContext() (*rules.LootContext, rules.LootRand) {
 	ctx := &rules.LootContext{This: c.LootEntity()}
 	command.FillLootWorld(ctx, c, c.Position())
 	return ctx, c.Random()
-}
-
-// lootRideState is a player's RootVehicle compound and ender_pearls list as
-// the last tick saw them.
-type lootRideState struct {
-	vehicle nbt.Compound
-	pearls  []nbt.Tag
-}
-
-// refreshLootRides snapshots every player's ride and flying pearls for
-// lootNBT. It runs with no server lock held, which the saves need.
-func (s *Server) refreshLootRides() {
-	s.mu.RLock()
-	connected := s.clientsLocked()
-	s.mu.RUnlock()
-	for _, c := range connected {
-		if c.player == nil || c.leaving.Load() {
-			continue
-		}
-		vehicle, pearls := c.savedVehicle(false), s.savedPearlTags(c.player.UUID)
-		if vehicle == nil && len(pearls) == 0 {
-			c.lootRide.Store(nil)
-			continue
-		}
-		c.lootRide.Store(&lootRideState{vehicle: vehicle, pearls: pearls})
-	}
 }

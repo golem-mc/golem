@@ -1041,11 +1041,11 @@ type lootOpener struct {
 }
 
 // lootOpener is the client as the player opening a container. Its saved
-// compound is read now: the roll runs under the container's lock, which ranks
-// below the inventory lock the read takes.
+// compound, ride and pearls included, is read now: the roll runs under the
+// container's lock, which ranks below the inventory lock the read takes.
 func (c *client) lootOpener() lootOpener {
 	this := c.LootEntity()
-	tag := this.NBT()
+	tag := c.lootNBTRiding()()
 	this.NBT = func() nbt.Compound { return tag }
 	// The relations and live facts take locks that rank above the
 	// container's, so they are read now too.
