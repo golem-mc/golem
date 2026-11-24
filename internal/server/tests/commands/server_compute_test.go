@@ -2,6 +2,8 @@ package commands
 
 import (
 	"bytes"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -143,6 +145,32 @@ func TestComputeRefusals(t *testing.T) {
 		data = c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
 		if want := servertest.CommandErrorContextForTest(tc.command, len(tc.command)-suffix); !bytes.Equal(data, want) {
 			t.Errorf("%s: context = % X, want % X", tc.command, data, want)
+		}
+	}
+	// A weighted list whose weights sum past an int is refused while the
+	// command parses; a sum of exactly 2147483647 evaluates.
+	// vanilla: WeightedRandom.getTotalWeight
+	weighted := func(kind string, w1 int) string {
+		return `compute default ` + kind + ` {type:"minecraft:weighted_list",distribution:[{data:7,weight:` +
+			strconv.Itoa(w1) + `},{data:7,weight:1}]}`
+	}
+	for _, kind := range []string{"integer", "float"} {
+		over := weighted(kind, math.MaxInt32)
+		c.ChatCommand(over)
+		if got, want := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat),
+			servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); !bytes.Equal(got, want) {
+			t.Errorf("%s: overflow = % X, want % X", kind, got, want)
+		}
+		if got, want := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat),
+			servertest.CommandErrorContextForTest(over, len(over)); !bytes.Equal(got, want) {
+			t.Errorf("%s: overflow context = % X, want % X", kind, got, want)
+		}
+
+		c.ChatCommand(weighted(kind, math.MaxInt32-1))
+		with := expectCompute(t, c, "command.compute.result.unnamed.exact").With
+		if len(with) != 1 || (with[0].Number == nil && with[0].Float == nil) ||
+			(with[0].Number != nil && *with[0].Number != 7) || (with[0].Float != nil && *with[0].Float != 7) {
+			t.Errorf("%s: limit feedback arguments = %+v, want 7", kind, with)
 		}
 	}
 	c.Disconnect()

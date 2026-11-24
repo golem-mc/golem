@@ -110,6 +110,10 @@ func parseProviderArg(text, registryName string, decode func(nbt.Tag) (registry.
 		return zero, &ParseError{Key: "command.unknown.argument", Cursor: n}
 	}
 	p, msg := decode(tag)
+	if msg == datapack.WeightSumMessage {
+		// vanilla: Commands.performCommand (the dispatcher's parse exception)
+		return zero, &ParseError{Key: "command.exception", With: []string{msg}, Cursor: len(text)}
+	}
 	if msg != "" {
 		return zero, &ParseError{Key: modifierFailedParseKey, With: []string{msg}, Cursor: len(text)}
 	}

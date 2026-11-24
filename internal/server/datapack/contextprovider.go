@@ -29,6 +29,12 @@ func init() {
 	}
 }
 
+// WeightSumMessage is the exception a weighted list throws at construction.
+// A decoder returns it alone, whatever provider nests the list, because the
+// exception is not a codec error.
+// vanilla: WeightedRandom.getTotalWeight
+const WeightSumMessage = "Sum of weights must be <= 2147483647"
+
 // partialMark prefixes an error whose codec result has a partial value.
 // Codec.either forwards that error unwrapped.
 // vanilla: EitherCodec.decode, ListCodec.decode
@@ -36,6 +42,9 @@ const partialMark = "\x00"
 
 // eitherNumberOr wraps the typed branch's error of Codec.either(number, typed).
 func eitherNumberOr(msg string) string {
+	if strings.Contains(msg, WeightSumMessage) {
+		return WeightSumMessage
+	}
 	if rest, ok := strings.CutPrefix(msg, partialMark); ok {
 		return rest
 	}
@@ -374,7 +383,7 @@ func weightedChoice(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt
 			}
 			// vanilla: WeightedRandom.getTotalWeight
 			if total += int64(weight); total > math.MaxInt32 {
-				return nil, "Sum of weights must be <= 2147483647"
+				return nil, WeightSumMessage
 			}
 			out.Values = append(out.Values, v)
 			out.Weights = append(out.Weights, int64(weight))
