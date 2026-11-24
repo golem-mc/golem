@@ -98,8 +98,8 @@ func (s *Server) tellSplashMob(w *world.World, t splashMobTell) {
 	}
 }
 
-// tellEffects sends the player their effect changes in order and marks the
-// particles for resending.
+// tellEffects sends the player their effect changes in order and marks their
+// effect metadata dirty.
 func (c *client) tellEffects(changes []effect.Change) {
 	c.tellEffectsFrom(changes, "")
 }
@@ -173,18 +173,21 @@ func mobEffectShown(m *entity.Mob) bodyShown {
 }
 
 // tellBody sends the world the effect particles and extra hearts when
-// changed, and the shared flags when invisibility or glowing changed. Any
-// effect change resends the particle list even if equal: vanilla's particle
-// options compare by identity, so its recomputed list never equals the old.
+// changed, and the shared flags when invisibility or glowing changed.
 func (c *client) tellBody() {
 	c.trackMu.Lock()
+	// Take the flag before reading effects so a concurrent change stays dirty.
+	dirty := c.effectsDirty.Swap(false)
 	was := c.shown
 	now := bodyNow(c.player, was)
 	c.shown = now
 	c.trackMu.Unlock()
 
-	dirty := c.effectsDirty.Swap(false)
-	particles := !slices.Equal(now.particles, was.particles) || dirty && len(now.particles) > 0
+	// Fresh color options make the rebuilt list unequal by identity. The
+	// other options are shared. vanilla: MobEffect, SynchedEntityData.set
+	particles := !slices.Equal(now.particles, was.particles) || dirty && slices.ContainsFunc(now.particles, func(p effect.Particle) bool {
+		return p.Type == "minecraft:entity_effect"
+	})
 	ambient := now.ambient != was.ambient
 	absorption := now.absorption != was.absorption
 	flags := now.invisible != was.invisible || now.glowing != was.glowing
