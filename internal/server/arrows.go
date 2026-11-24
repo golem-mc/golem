@@ -607,7 +607,7 @@ func (s *Server) arrowSpawnedFrom(it *arrowEntity, ammo, weapon protocol.ItemSta
 // arrowSpawned runs the item's projectile_spawned effects at the new arrow.
 func (s *Server) arrowSpawned(it *arrowEntity, item protocol.ItemStack) {
 	a := it.arrow
-	ctx := s.spawnedContext(it.w, [3]float64{a.X, a.Y, a.Z}, func() *rules.LootEntity {
+	ctx := s.spawnedContext(it.w, [3]float64{a.X, a.Y, a.Z}, it.entityType, func() *rules.LootEntity {
 		snap := s.arrowSnapshot(it, nil)
 		if snap == nil {
 			return &rules.LootEntity{Type: arrowTypeName(it)}
@@ -625,8 +625,9 @@ func (s *Server) arrowSpawned(it *arrowEntity, item protocol.ItemStack) {
 // spawnedContext is the context a projectile_spawned requirement reads: the
 // projectile as "this" and its position as the origin.
 // vanilla: Enchantment.entityContext
-func (s *Server) spawnedContext(w *world.World, at [3]float64, body func() *rules.LootEntity) *rules.EnchContext {
+func (s *Server) spawnedContext(w *world.World, at [3]float64, typ int32, body func() *rules.LootEntity) *rules.EnchContext {
 	return &rules.EnchContext{
+		Victim: typ,
 		Rand:   s.levelRng,
 		BodyOf: body,
 		LootWorld: func(loot *rules.LootContext) {
@@ -639,12 +640,12 @@ func (s *Server) spawnedContext(w *world.World, at [3]float64, body func() *rule
 // projectile in order; ignite, when not nil, sets the projectile's burn.
 // vanilla: EnchantmentHelper.onProjectileSpawned
 func (s *Server) projectileSpawned(w *world.World, item protocol.ItemStack, body enchantTarget, ctx *rules.EnchContext, ignite func(ticks int32)) {
-	for _, e := range rules.ProjectileSpawnedEffects(item, ctx) {
+	rules.VisitProjectileSpawned(item, ctx, func(e rules.LeveledEffect) {
 		if ignite != nil && e.Effect.Duration != nil {
 			ignite(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Effect.Duration, e.Level))))
 		}
 		s.applyPackEffects(w, e.Effect, e.Level, body)
-	}
+	})
 }
 
 // armArrow makes the arrow the ammo stack's kind: the spectral entity type,

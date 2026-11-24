@@ -750,21 +750,22 @@ type LeveledEffect struct {
 	Effect registry.EnchEntityEffect
 }
 
-// ProjectileSpawnedEffects lists the item's projectile_spawned effects whose
-// requirements the spawn passes, each tested at its enchantment's level.
+// VisitProjectileSpawned tests the item's projectile_spawned entries one at a
+// time, each at its enchantment's level, and calls visit for each that passes
+// before the next is tested, so a requirement reads the projectile as the
+// earlier effects left it.
 // vanilla: EnchantmentHelper.onProjectileSpawned, Enchantment.applyEffects
-func ProjectileSpawnedEffects(weapon protocol.ItemStack, ctx *EnchContext) []LeveledEffect {
-	var out []LeveledEffect
+func VisitProjectileSpawned(weapon protocol.ItemStack, ctx *EnchContext, visit func(LeveledEffect)) {
 	for _, ench := range enchantsOn(weapon) {
 		here := *ctx
 		here.Level = ench.level
 		for _, spawned := range ench.def.Effects.ProjectileSpawned {
+			here.Body = nil
 			if enchCondition(spawned.Requires, &here) {
-				out = append(out, LeveledEffect{ench.level, spawned.Effect})
+				visit(LeveledEffect{ench.level, spawned.Effect})
 			}
 		}
 	}
-	return out
 }
 
 // HitBlockEffects lists the weapon's hit_block effects whose requirements the
