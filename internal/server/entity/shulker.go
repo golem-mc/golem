@@ -356,13 +356,14 @@ func (m *Mob) shulkerStep(t *tickView) {
 			m.shulker.split = false
 			m.copyShulker(w, t)
 		}
-		at := m.cell()
-		if !m.RidesVehicle && !m.canStayAt(w, at, m.shulker.face) {
-			if face, ok := m.attachableFace(w, at); ok {
-				m.SetMetadataShulkerFace(face)
-			} else {
-				m.teleportShulker(w, t)
-			}
+	}
+	// A NoAI shulker still reattaches; teleportShulker refuses it.
+	at := m.cell()
+	if !m.RidesVehicle && !m.canStayAt(w, at, m.shulker.face) {
+		if face, ok := m.attachableFace(w, at); ok {
+			m.SetMetadataShulkerFace(face)
+		} else {
+			m.teleportShulker(w, t)
 		}
 	}
 	m.stepShulkerPeek(w, t)
