@@ -278,14 +278,11 @@ func PlayerSeat(m *Mob, index int) (x, y, z float64) {
 	return seatAt(m, index, 0, playerVehicleY, 0)
 }
 
-// seatAt is the vehicle's passenger height at index less the rider's own
-// attachment (ax, ay, az), turned by the vehicle's yaw. The seat's own
-// horizontal offset is left out: a vanilla server reports a mounted body in
-// the vehicle's column at any yaw (seen on chicken, wolf, llama, camel and
-// happy ghast), so that offset only shapes the client's drawing.
+// seatAt is the vehicle's passenger point at index less the rider's own
+// attachment (ax, ay, az), turned by the vehicle's yaw.
 func seatAt(vehicle *Mob, index int, ax, ay, az float64) (x, y, z float64) {
-	_, py, _ := vehiclePassengerPoint(vehicle, index)
-	dx, dy, dz := -ax, py-ay, -az
+	px, py, pz := vehiclePassengerPoint(vehicle, index)
+	dx, dy, dz := px-ax, py-ay, pz-az
 	rad := float64(vehicle.Yaw) * math.Pi / 180
 	sin, cos := math.Sin(rad), math.Cos(rad)
 	return vehicle.X + dx*cos - dz*sin, vehicle.Y + dy, vehicle.Z + dx*sin + dz*cos

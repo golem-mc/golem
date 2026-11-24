@@ -32,8 +32,13 @@ func mobTagIn(ent *mobEntity, book map[*entity.Mob]*mobEntity) *nbt.OrderedCompo
 func mobTagAs(ent *mobEntity, book map[*entity.Mob]*mobEntity, id string) *nbt.OrderedCompound {
 	m := ent.mob
 	tag := nbt.NewOrderedCompound(28)
+	x, z := m.X, m.Z
+	if v := m.Vehicle; v != nil {
+		// vanilla: Entity.saveWithoutId stores the vehicle's X/Z and the rider's Y.
+		x, z = v.X, v.Z
+	}
 	writeEntityBaseTag(tag, id,
-		m.X, m.Y, m.Z, m.VX, m.VY, m.VZ,
+		x, m.Y, z, m.VX, m.VY, m.VZ,
 		m.Yaw, m.Pitch, ent.uuid, m.OnGround, ent.portal.Cooldown, max(m.FireTicks, restingFire), 0, false)
 	if ent.name != nil {
 		tag.Set("CustomName", ent.name)
