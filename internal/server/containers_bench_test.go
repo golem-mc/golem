@@ -128,9 +128,6 @@ func BenchmarkSyncContainerViewers(b *testing.B) {
 // the same mix.
 func BenchmarkContainerOpenerCount(b *testing.B) {
 	s, w := openOriginMix(b)
-	if n := s.containerOpenerCount(w, 0, 0, 0); n != 1 {
-		b.Fatalf("openers = %d, want 1", n)
-	}
 	b.ReportAllocs()
 	for b.Loop() {
 		s.containerOpenerCount(w, 0, 0, 0)

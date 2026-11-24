@@ -69,12 +69,45 @@ func TestOriginChestChangesLeaveTradeAndMountWindowsAlone(t *testing.T) {
 			cfg.SimulationDistance = config.MinDistance
 			srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Buyer", "Breaker"))
 			w := servertest.WindowedOf(t, "Buyer", connect())
-			breaker := connect()
-			breaker.Join("Breaker")
+			breaker := servertest.WindowedOf(t, "Breaker", connect())
 			srv.GiveSlot("Buyer", player.HotbarSlot, stone)
 			srv.PlaceContainer(0, 0, 0, "minecraft:chest")
 			servertest.HoldTicks(t, srv)
 			tc.open(t, srv, w)
+
+			// A lid count of this chest ignores the entity menu: the close
+			// leaves no opener, and so does the recheck booked for five
+			// ticks later.
+			lids := func(ticks int) (counts []int) {
+				breaker.ReadTicks(srv, ticks, func(id int32, data []byte) bool {
+					if id == protocol.IDPlayBlockAction {
+						r := protocol.NewReader(data)
+						if x, y, z := r.ReadPosition(); x == 0 && y == 0 && z == 0 && r.ReadU8() == protocol.ChestActionLid {
+							counts = append(counts, int(r.ReadU8()))
+						}
+					}
+					return false
+				})
+				return counts
+			}
+			// The shaft keeps the chest unblocked and the opener in reach.
+			breaker.ChatCommand("fill 0 1 0 0 2 0 minecraft:air")
+			breaker.ChatCommand("tp Breaker 0.5 1 0.5")
+			servertest.RunTicks(t, srv, 1)
+			lids(0)
+			breaker.UseBlock(0, 0, 0)
+			if got := lids(1); len(got) == 0 || got[len(got)-1] != 1 {
+				t.Fatalf("lid counts after opening the chest = %v, want a last count of 1", got)
+			}
+			breaker.CloseWindow()
+			if got := lids(1); len(got) == 0 || got[len(got)-1] != 0 {
+				t.Fatalf("lid counts after closing the chest = %v, want a last count of 0", got)
+			}
+			for _, n := range lids(5) {
+				if n != 0 {
+					t.Fatalf("lid recheck counted %d openers, want 0", n)
+				}
+			}
 
 			changed := servertest.PacketIs(protocol.IDPlayContainerSlot, protocol.IDPlayContainerContent, protocol.IDPlayCloseContainer)
 			run := func(command, success string) {
