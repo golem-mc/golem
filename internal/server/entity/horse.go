@@ -635,7 +635,7 @@ func horseGoals(m *Mob) []Goal {
 			&runAroundGoal{m: m},
 			&hurtByGoal{m: m, priority: 1, drop: m.takeDidSpit},
 			&caravanGoal{m: m, speed: llamaCaravanSpeed},
-			&mobTargetGoal{m: m, priority: 2, victim: TypeWolf, unsighted: true, interval: 16,
+			&mobTargetGoal{m: m, priority: 2, victim: TypeWolf, victimOnly: true, unsighted: true, interval: 16,
 				followShare: llamaWolfFollow, matches: isWildWolf},
 			newSpitGoal(m),
 			&panicGoal{m: m, priority: 3},
