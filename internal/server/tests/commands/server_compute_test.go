@@ -130,6 +130,10 @@ func TestComputeRefusals(t *testing.T) {
 				missing("value", "{}") + "; " + missing("condition", "{}")},
 		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"}]}`,
 			either + "Not a number; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"},{data:2,weight:1}]}`,
+			"Failed to parse structure: Not a number"},
+		{`compute default float {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"},{data:2,weight:1}]} 1`,
+			"Failed to parse structure: Not a number"},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{},1]}`,
 			"Not a map: 1; " + missing("value", "{}") + "; " + missing("condition", "{}")},
 	} {

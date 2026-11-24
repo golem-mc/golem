@@ -364,7 +364,11 @@ func weightedChoice(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt
 			weight := int32(1)
 			if w, present := entry["weight"]; present {
 				if weight, ok = nbt.IntValue(w); !ok {
-					// The dropped entry leaves an empty list, which fails validation too (WeightedList.nonEmptyCodec).
+					// The dropped entry leaves the list partial; it fails validation too only when no other
+					// entry carries a positive weight (WeightedList.nonEmptyCodec).
+					if hasPositiveWeight(items) {
+						return nil, partialMark + "Failed to parse structure: Not a number"
+					}
 					return nil, "Not a number; Weighted list must contain at least one entry with non-zero weight"
 				}
 				if weight < 1 {
@@ -376,6 +380,24 @@ func weightedChoice(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt
 		}
 		return out, ""
 	}
+}
+
+// hasPositiveWeight reports whether some entry has an absent or numeric positive weight.
+func hasPositiveWeight(items []nbt.Tag) bool {
+	for _, item := range items {
+		entry, ok := nbt.ListElement(item).(nbt.Compound)
+		if !ok {
+			continue
+		}
+		w, present := entry["weight"]
+		if !present {
+			return true
+		}
+		if v, ok := nbt.IntValue(w); ok && v > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 var entityTargetNames = []string{"this", "attacker", "direct_attacker", "attacking_player", "target_entity", "interacting_entity"}
