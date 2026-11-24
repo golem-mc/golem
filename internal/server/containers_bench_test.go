@@ -1,6 +1,8 @@
 package server
 
 import (
+	"strconv"
+
 	"github.com/google/uuid"
 	"io"
 	"net"
@@ -113,5 +115,27 @@ func BenchmarkSyncContainerViewers(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		s.syncContainerViewers(w, 4, y, 4)
+	}
+}
+
+func BenchmarkUnviewedBlockContainer(b *testing.B) {
+	for _, n := range []int{1, 20, 100} {
+		b.Run(strconv.Itoa(n)+"clients", func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 0)
+			var viewer *client
+			for range n {
+				p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
+				c := &client{srv: s, player: p}
+				s.clients[p.UUID] = c
+				viewer = c
+			}
+			y := int32(world.GroundLevel)
+			viewer.setOpenWindow(&openWindow{kind: windowBarrel, w: w, x: 2, y: y, z: 2})
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				s.syncContainerViewers(w, 0, y, 0)
+			}
+		})
 	}
 }
