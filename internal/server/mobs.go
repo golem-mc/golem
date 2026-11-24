@@ -239,6 +239,7 @@ type mobHerd struct {
 	herd entity.Mobs
 	// events is the previous tick's event buffer, reused to avoid a fresh slice per tick.
 	events []entity.MobEvent
+	paths  entity.MobPathScratch
 	book   map[*entity.Mob]*mobEntity
 	// moveMarks is each mob's transform at the last EntityMoveEvent pass; nil while nothing listens.
 	moveMarks map[*entity.Mob]markState
