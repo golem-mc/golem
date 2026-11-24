@@ -815,6 +815,9 @@ type pushGrid struct {
 	// wide is the widest fully grown half-width in the herd, which widens the
 	// scanned ring so pairs stay exact with a chonky cube present.
 	wide float64
+	// caravan is the snapshot's llamas that are leashed or in a caravan, plus
+	// those that joined one this tick: the only ones a caravan goal can pick.
+	caravan []*Mob
 	// near is the candidates' scratch, reused gathering to gathering.
 	near []*Mob
 	// gathered, when set, adds up the candidates handed out.
@@ -938,6 +941,8 @@ func (g *pushGrid) reset() {
 	clear(g.byID)
 	clear(g.near[:cap(g.near)])
 	g.near = g.near[:0]
+	clear(g.caravan)
+	g.caravan = g.caravan[:0]
 	g.wide, g.gathered, g.crammingSet, g.crowd = 0, nil, false, nil
 }
 
@@ -970,6 +975,9 @@ func (g *pushGrid) add(m *Mob, idx int) {
 	m.pushIdx = idx
 	m.pushCell = cellOf(m.X, m.Z)
 	m.pushSlot = g.file(m.pushCell, entryOf(m))
+	if (m.inCaravan() || m.leashed()) && IsLlama(m.Type) {
+		g.caravan = append(g.caravan, m)
+	}
 	if _, ok := g.byID[m.ID]; !ok {
 		g.byID[m.ID] = m
 	}

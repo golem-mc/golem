@@ -1,45 +1,63 @@
 package entity
 
 import (
-	"fmt"
-	"math"
 	"math/rand"
 	"testing"
 )
 
-// BenchmarkLlamaCaravanSearch runs every llama's caravan search in herds of
-// 2,000 and 8,000 at the llamas-2000 pen's density (2,000 in 60x60), so the
-// time per search should not grow with the herd. No llama is leashed, so no
-// search joins and each iteration repeats the same work.
-func BenchmarkLlamaCaravanSearch(b *testing.B) {
-	for _, herd := range []int{2000, 8000} {
-		b.Run(fmt.Sprintf("herd=%d", herd), func(b *testing.B) {
-			side := 60 * math.Sqrt(float64(herd)/2000)
-			rng := rand.New(rand.NewSource(27))
-			mobs := make([]*Mob, herd)
-			for i := range mobs {
-				mobs[i] = NewMob(TypeLlama, int32(i+1), (rng.Float64()-0.5)*side, 64, (rng.Float64()-0.5)*side, int64(i))
-			}
-			grid := takePushGrid(herd, nil)
-			defer grid.release()
-			grid.build(mobs)
-			view := &tickView{w: newTestWorld(), others: mobs}
-			goals := make([]caravanGoal, herd)
-			for i, m := range mobs {
-				goals[i] = caravanGoal{m: m, speed: llamaCaravanSpeed}
-			}
-			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
-				for i, m := range mobs {
-					m.push = grid
-					if goals[i].CanStart(view) {
-						b.Fatal("a llama joined a caravan with no leashed lead")
-					}
-					m.push = nil
-				}
-			}
-			b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N*herd), "ns/search")
-		})
+// BenchmarkMobsTickLlamas steps two thousand unleashed llamas, none in a
+// caravan, through a tick: the caravan goal every one of them asks.
+func BenchmarkMobsTickLlamas(b *testing.B) {
+	stone := defaultState(b, "minecraft:stone")
+	w := newTestWorld()
+	floor(w, -129, -129, 128, 128, 63, stone)
+	rng := rand.New(rand.NewSource(527))
+	mobs := make(Mobs, 0, 2000)
+	for id := int32(1); len(mobs) < cap(mobs); id++ {
+		x, z := (rng.Float64()-0.5)*256, (rng.Float64()-0.5)*256
+		mobs = append(mobs, NewMob(TypeLlama, id, x, 64, z, int64(id)))
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		mobs.Tick(w, nil, nil)
+	}
+}
+
+// BenchmarkMobsTickLlamasLeashed is BenchmarkMobsTickLlamas with every tenth
+// llama on a lead held a block away, spread over the area so most pairs are
+// far apart; more leashed llamas than caravanGridMinList keeps the grid
+// fallback in the timed loop.
+func BenchmarkMobsTickLlamasLeashed(b *testing.B) {
+	stone := defaultState(b, "minecraft:stone")
+	w := newTestWorld()
+	floor(w, -129, -129, 128, 128, 63, stone)
+	rng := rand.New(rand.NewSource(527))
+	mobs := make(Mobs, 0, 2000)
+	var holders []LeashHolder
+	for id := int32(1); len(mobs) < cap(mobs); id++ {
+		x, z := (rng.Float64()-0.5)*256, (rng.Float64()-0.5)*256
+		m := NewMob(TypeLlama, id, x, 64, z, int64(id))
+		if id%10 == 0 {
+			m.LeashHolderID = 10000 + id
+			holders = append(holders, LeashHolder{EntityID: m.LeashHolderID, X: x + 1, Y: 64, Z: z,
+				Width: 0.375, Height: 0.5, Present: true, SameLevel: true, Knot: true})
+		}
+		mobs = append(mobs, m)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		mobs.Tick(w, nil, holders)
+	}
+	b.StopTimer()
+	leashed := 0
+	for _, m := range mobs {
+		if m.leashed() {
+			leashed++
+		}
+	}
+	if leashed <= caravanGridMinList {
+		b.Fatalf("%d llamas still leashed after the run, want more than %d", leashed, caravanGridMinList)
 	}
 }
