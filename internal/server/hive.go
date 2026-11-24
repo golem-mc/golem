@@ -193,7 +193,7 @@ func (s *Server) spawnOccupant(w *world.World, x, y, z, dx, dz int32, frontBlock
 		tag["InLove"] = nbt.Int(max(0, love-ticks))
 	}
 	px, py, pz := rules.HiveReleaseSpot(x, y, z, dx, dz, frontBlocked, 0.55, 0.5)
-	if _, err := s.spawnSummonedMobFacing(s.dimensionOfWorld(w), entity.TypeBee, px, py, pz, tag, prep); err != nil {
+	if _, spawned, _ := s.spawnTaggedMob(s.dimensionOfWorld(w), entity.TypeBee, px, py, pz, tag, prep); !spawned {
 		return false
 	}
 	s.broadcastSoundID(w, registry.SoundBlockBeehiveExit, protocol.SoundCategoryBlock,
