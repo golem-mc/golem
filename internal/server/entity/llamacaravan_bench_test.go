@@ -3,6 +3,9 @@ package entity
 import (
 	"math/rand"
 	"testing"
+
+	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // BenchmarkMobsTickLlamas steps two thousand unleashed llamas, none in a
@@ -42,6 +45,11 @@ func BenchmarkMobsTickLlamasLeashed(b *testing.B) {
 			m.LeashHolderID = 10000 + id
 			holders = append(holders, LeashHolder{EntityID: m.LeashHolderID, X: x + 1, Y: 64, Z: z,
 				Width: 0.375, Height: 0.5, Present: true, SameLevel: true, Knot: true})
+		}
+		if id == 10 {
+			// One scale-16 lead widens the reach of every grid query.
+			m.SetAttributes(m.BuildAttributes(nbt.List{}))
+			m.attrs.SetBase(registry.AttributeScale, 16)
 		}
 		mobs = append(mobs, m)
 	}
