@@ -200,7 +200,7 @@ func (c *client) fireCrossbow(hand int32) {
 			rocket.rocket.Yaw, rocket.rocket.Pitch = yaw, pitch
 			s.registerFirework(rocket)
 			r := rocket.rocket
-			s.projectileSpawned(c.theWorld(), crossbow, enchantTarget{uuid: rocket.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25,
+			s.projectileSpawned(c.theWorld(), projectile, enchantTarget{uuid: rocket.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25,
 				entityID: r.ID, causeID: c.player.EntityID})
 			c.shotSoundAndWear(hand, i, firework)
 			if c.heldItem(hand).Empty() {
@@ -222,7 +222,7 @@ func (c *client) fireCrossbow(hand int32) {
 		it.arrow.PierceLevel = rules.PiercingLevel(crossbow, projectile, &rules.EnchContext{Rand: s.levelRng})
 		it.arrow.HitSound = crossbowHitSound
 		if s.launchArrow(it) {
-			s.arrowSpawned(it, crossbow)
+			s.arrowSpawnedFrom(it, projectile, crossbow)
 		}
 		c.shotSoundAndWear(hand, i, firework)
 		if c.heldItem(hand).Empty() {

@@ -585,9 +585,23 @@ func (s *Server) spawnArrowFrom(w *world.World, x, y, z, vx, vy, vz float64,
 	it := newArrowEntity(s, w, x, y, z, vx, vy, vz, yaw, pitch, crit, baseDamage, pickup, ownerID, ownerUUID, weapon, fireTicks)
 	armArrow(it, ammo)
 	if s.launchArrow(it) {
-		s.arrowSpawned(it, weapon)
+		s.arrowSpawnedFrom(it, ammo, weapon)
 	}
 	return it.arrow.ID
+}
+
+// arrowSpawnedFrom runs the fired ammunition's projectile_spawned effects at
+// the new arrow, then the weapon's when the two are different items.
+// vanilla: Projectile.applyOnProjectileSpawned
+func (s *Server) arrowSpawnedFrom(it *arrowEntity, ammo, weapon protocol.ItemStack) {
+	if ammo.Empty() {
+		s.arrowSpawned(it, weapon)
+		return
+	}
+	s.arrowSpawned(it, ammo)
+	if !weapon.Empty() && weapon.ItemID != ammo.ItemID {
+		s.arrowSpawned(it, weapon)
+	}
 }
 
 // arrowSpawned runs the weapon's projectile_spawned effects at the new arrow.
