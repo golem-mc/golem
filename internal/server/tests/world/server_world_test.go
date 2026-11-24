@@ -10,6 +10,10 @@ import (
 	"github.com/golem-mc/golem/internal/server/world"
 )
 
+// joinTicks bounds the radius-two join: six batches at the opening pace of
+// nine chunks a tick, with room for a loaded runner.
+const joinTicks = 200
+
 func TestDistancesFollowTheConfig(t *testing.T) {
 	t.Parallel()
 	cfg := config.Default()
@@ -17,7 +21,8 @@ func TestDistancesFollowTheConfig(t *testing.T) {
 	// Shorter than the render distance of 4 the test client asks for, so that
 	// it is the server's setting that bounds the world it is sent.
 	cfg.ViewDistance = 2
-	cfg.SimulationDistance = 3
+	// Inside the send view's reach, so the view alone holds its outer ring.
+	cfg.SimulationDistance = 2
 
 	srv, c := servertest.Dial(t, cfg)
 	c.Login("Testificate")
@@ -42,13 +47,12 @@ func TestDistancesFollowTheConfig(t *testing.T) {
 	// judged. The client was sent the view the render distance of
 	// 4 bounds the server's view distance to, plus the neighbor ring the client
 	// needs to light its edge chunks: seven by seven, as vanilla sends. The
-	// world holds the same area, the simulation distance's, for its own work - the
-	// natural spawn and the ticking among it - and those holds are taken
-	// after the batch, so they are waited for.
+	// world holds that area too, wider than the simulation distance's five by
+	// five; the holds are taken after the batch, so they are waited for.
 	var chunks, batched int32
 	batches := 0
-	for packetID, data := range c.Packets(servertest.JoinTimeout) {
-		switch packetID {
+	if !c.ReadTicks(srv, joinTicks, func(id int32, data []byte) bool {
+		switch id {
 		case protocol.IDPlayChunkData:
 			chunks++
 		case protocol.IDPlayChunkBatchFinished:
@@ -60,18 +64,18 @@ func TestDistancesFollowTheConfig(t *testing.T) {
 			}
 			batches++
 			batched += got
-			if chunks >= 7*7 {
-				// The last batch is read through its end, so a chunk past the
-				// 49 is counted and every chunk sent was in a batch.
-				if chunks != 7*7 || batched != chunks {
-					t.Errorf("join sent %d chunks, %d in batches, want %d", chunks, batched, 7*7)
-				}
-				servertest.PollUntil(t, 30*time.Second, func() bool { return srv.LoadedChunks() == 7*7 })
-				return
-			}
+			// The last batch is read through its end, so a chunk past the
+			// 49 is counted and every chunk sent was in a batch.
+			return chunks >= 7*7
 		}
+		return false
+	}) {
+		t.Fatalf("the join sent %d chunks within %d ticks, want %d", chunks, joinTicks, 7*7)
 	}
-	t.Fatalf("the join did not finish within %s", servertest.JoinTimeout)
+	if chunks != 7*7 || batched != chunks {
+		t.Errorf("join sent %d chunks, %d in batches, want %d", chunks, batched, 7*7)
+	}
+	servertest.UntilTicks(t, srv, joinTicks, "the join's 7x7 chunks held", func() bool { return srv.LoadedChunks() == 7*7 })
 }
 
 func TestChunksFollowThePlayer(t *testing.T) {
