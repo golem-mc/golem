@@ -1543,6 +1543,25 @@ func (w *World) BlockAt(x, y, z int32) uint16 {
 	return state
 }
 
+// sharedChunkAt returns pos's loaded chunk for lock-free sharedBlockAt reads,
+// or nil if not loaded.
+func (w *World) sharedChunkAt(pos ChunkPos) *Chunk {
+	if loaded := w.nearAt(pos); loaded != nil {
+		return loaded.chunk
+	}
+	w.mu.RLock()
+	loaded, ok := w.chunks[pos]
+	if !ok {
+		w.mu.RUnlock()
+		return nil
+	}
+	if slot := &w.near[nearIndex(pos)]; slot.Load() != loaded {
+		slot.Store(loaded)
+	}
+	w.mu.RUnlock()
+	return loaded.chunk
+}
+
 // blockReader reads blocks under one hold of the read lock with a last-chunk
 // cache. The hold keeps every chunk in w.chunks (unload and replace take the
 // write lock), so the cache cannot go stale; nothing under a reader may write

@@ -2304,6 +2304,13 @@ type spreadContext struct {
 	p *Physics
 	// A spread uses one tag snapshot throughout its slope search.
 	holdFlags     *[registry.StateCount]uint8
+	topWords      [4]*blockWords
+	belowWords    [4]*blockWords
+	topFill       [4]uint16
+	belowFill     [4]uint16
+	cx0, cz0      int32
+	topYOff       int
+	belowYOff     int
 	y             int32
 	ox, oz        int32
 	kind          fluidKind
@@ -2313,6 +2320,7 @@ type spreadContext struct {
 	lastHoleBelow uint16
 	lastFlags     uint8
 	lastHoleFlags uint8
+	chunksLoaded  uint8
 	states        [spreadSide * spreadSide]uint16
 	flags         [spreadSide * spreadSide]uint8
 	failedDepth   [spreadSide * spreadSide][4]uint8
@@ -2326,15 +2334,45 @@ var spreadOffsets = func() (t [spreadSide * spreadSide][2]int8) {
 	return
 }()
 
+func (c *spreadContext) init(p *Physics, x, y, z int32, kind fluidKind) {
+	c.p = p
+	c.y = y
+	c.ox = x
+	c.oz = z
+	c.cx0 = (x - spreadReach) >> 4
+	c.cz0 = (z - spreadReach) >> 4
+	c.topYOff = int(uint32(y-worldMinY)&15) << 8
+	c.belowYOff = int(uint32(y-1-worldMinY)&15) << 8
+	c.kind = kind
+	c.flowingType = fluidState{kind: kind, amount: 8, falling: true}
+	c.holdFlags = currentFluidHoldFlags()
+}
+
 func (p *Physics) newSpreadContext(x, y, z int32, kind fluidKind) spreadContext {
-	return spreadContext{
-		p:           p,
-		y:           y,
-		ox:          x,
-		oz:          z,
-		kind:        kind,
-		flowingType: fluidState{kind: kind, amount: 8, falling: true},
-		holdFlags:   currentFluidHoldFlags(),
+	var c spreadContext
+	c.init(p, x, y, z, kind)
+	return c
+}
+
+// loadChunk resolves one chunk in the 2x2 quadrant and snapshots its block
+// storage at y and y-1.
+func (c *spreadContext) loadChunk(q uint, cx, cz int32) {
+	c.chunksLoaded |= 1 << q
+	c.topFill[q] = airState
+	c.belowFill[q] = airState
+	ch := c.p.w.sharedChunkAt(ChunkPos{X: cx, Z: cz})
+	if ch == nil {
+		return
+	}
+	if ly := uint32(c.y - worldMinY); ly < worldHeight {
+		s := &ch.sections[ly>>4]
+		c.topWords[q] = s.blocks.Load()
+		c.topFill[q] = s.fill
+	}
+	if ly := uint32(c.y - 1 - worldMinY); ly < worldHeight {
+		s := &ch.sections[ly>>4]
+		c.belowWords[q] = s.blocks.Load()
+		c.belowFill[q] = s.fill
 	}
 }
 
@@ -2378,7 +2416,17 @@ func (c *spreadContext) load(i int) {
 	off := spreadOffsets[i]
 	x := c.ox + int32(off[0]) - spreadReach
 	z := c.oz + int32(off[1]) - spreadReach
-	state := c.p.w.BlockAt(x, c.y, z)
+	cx, cz := x>>4, z>>4
+	q := uint((cx-c.cx0)|(cz-c.cz0)<<1) & 3
+	if c.chunksLoaded&(1<<q) == 0 {
+		c.loadChunk(q, cx, cz)
+	}
+	var state uint16
+	if b := c.topWords[q]; b != nil {
+		state = b.load(c.topYOff | int(z&15)<<4 | int(x&15))
+	} else {
+		state = c.topFill[q]
+	}
 	c.states[i] = state
 	if c.lastFlags&cellKnown != 0 && state == c.lastState {
 		c.flags[i] = c.lastFlags
@@ -2429,7 +2477,14 @@ func (c *spreadContext) holeAt(i int) bool {
 		x := c.ox + int32(off[0]) - spreadReach
 		z := c.oz + int32(off[1]) - spreadReach
 		top := c.states[i]
-		below := c.p.w.BlockAt(x, c.y-1, z)
+		// load(i) already loaded chunk q for cell i.
+		q := uint((x>>4-c.cx0)|(z>>4-c.cz0)<<1) & 3
+		var below uint16
+		if b := c.belowWords[q]; b != nil {
+			below = b.load(c.belowYOff | int(z&15)<<4 | int(x&15))
+		} else {
+			below = c.belowFill[q]
+		}
 		var holeFlags uint8
 		if c.lastHoleFlags&cellHoleKnown != 0 && top == c.lastHoleTop && below == c.lastHoleBelow {
 			holeFlags = c.lastHoleFlags
@@ -2460,7 +2515,8 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 	if gate <= 0 {
 		return
 	}
-	ctx := p.newSpreadContext(x, y, z, fs.kind)
+	var ctx spreadContext
+	ctx.init(p, x, y, z, fs.kind)
 	c := &ctx
 	var sides [4]struct {
 		into, held     fluidState
