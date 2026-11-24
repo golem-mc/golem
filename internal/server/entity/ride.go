@@ -290,8 +290,7 @@ func seatAt(vehicle *Mob, index int, ax, ay, az float64) (x, y, z float64) {
 
 // passengerPoints are the types' first passenger attachments in the type's
 // frame at adult scale. Unlisted kinds use vanilla's default, the top of the
-// body. Their Z offsets are left out: a mob passenger of a chicken, turtle,
-// llama, wolf or fox stands at the vehicle's own X/Z on vanilla.
+// body.
 // vanilla: EntityTypes passengerAttachments
 var passengerPoints = [registry.EntityTypeCount][3]float64{
 	TypeZombieNautilus: {0, float64(float32(1.1375)), 0},
@@ -300,13 +299,13 @@ var passengerPoints = [registry.EntityTypeCount][3]float64{
 	TypeMooshroom:      {0, 1.36875, 0},
 	TypePig:            {0, 0.86875, 0},
 	TypeSheep:          {0, 1.2375, 0},
-	TypeChicken:        {0, 0.7, 0},
-	TypeTurtle:         {0, 0.55625, 0},
+	TypeChicken:        {0, 0.7, -0.1},
+	TypeTurtle:         {0, 0.55625, -0.25},
 	TypeHorse:          {0, 1.44375, 0},
 	TypeDonkey:         {0, 1.1125, 0},
 	TypeMule:           {0, 1.2125, 0},
-	TypeLlama:          {0, 1.37, 0},
-	TypeTraderLlama:    {0, 1.37, 0},
+	TypeLlama:          {0, 1.37, -0.3},
+	TypeTraderLlama:    {0, 1.37, -0.3},
 	TypeSkeletonHorse:  {0, 1.31875, 0},
 	TypeZombieHorse:    {0, 1.31875, 0},
 	TypeZombie:         {0, 2.0125, 0},
@@ -316,8 +315,8 @@ var passengerPoints = [registry.EntityTypeCount][3]float64{
 	TypeDrowned:        {0, 2.0125, 0},
 	TypeZombieVillager: {0, 2.125, 0},
 	TypePhantom:        {0, 0.3375, 0},
-	TypeWolf:           {0, 0.81875, 0},
-	TypeFox:            {0, 0.6375, 0},
+	TypeWolf:           {0, 0.81875, -0.0625},
+	TypeFox:            {0, 0.6375, -0.25},
 	TypeEndermite:      {0, 0.2375, 0},
 }
 

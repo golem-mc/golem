@@ -142,16 +142,3 @@ func TestARideEndsWhenEitherBodyDies(t *testing.T) {
 		t.Error("a mount kept a rider that died")
 	}
 }
-
-func TestAChickenSeatsAMobPassengerAtItsOwnXZ(t *testing.T) {
-	chicken := NewMob(TypeChicken, 1, 148.66, 126, 153.5, 7)
-	pig := NewMob(TypePig, 2, 0, 0, 0, 8)
-	Ride(chicken, pig)
-	for _, yaw := range []float32{0, 90, 180} {
-		chicken.Yaw = yaw
-		chicken.seatPassenger(pig)
-		if pig.X != 148.66 || pig.Z != 153.5 || math.Abs(pig.Y-126.7) > 1e-9 {
-			t.Errorf("yaw %v: pig at %v %v %v, want 148.66 126.7 153.5", yaw, pig.X, pig.Y, pig.Z)
-		}
-	}
-}
