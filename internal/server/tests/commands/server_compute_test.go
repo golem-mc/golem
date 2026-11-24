@@ -201,10 +201,13 @@ func TestComputeRefusals(t *testing.T) {
 	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
 
 	// The overflow also fails a provider inside a condition, an inline item
-	// modifier (one function or a list) and a predicate argument.
-	// vanilla: ConditionalProvider.mapCodec, SetItemCountFunction.CODEC, IntValueCheck.CODEC
+	// modifier (one function or a list), a predicate argument, and a list
+	// whose other entry has a codec error: the sum covers the entries kept.
+	// vanilla: ConditionalProvider.mapCodec, SetItemCountFunction.CODEC, IntValueCheck.CODEC,
+	// ListCodec.decode, WeightedList.entryToListCodec
 	w := weighted(math.MaxInt32)
 	for _, command := range []string{
+		`compute default integer {type:"weighted_list",distribution:[{data:1,weight:2147483647},{data:2,weight:1},{weight:1}]}`,
 		`compute default integer {type:"minecraft:conditional",condition:{type:"minecraft:int_value_check",value:` + w + `,test:1},on_true:1}`,
 		`item modify entity @s hotbar.0 {type:"minecraft:set_count",count:` + w + `}`,
 		`item modify entity @s hotbar.0 [{type:"minecraft:set_count",count:` + w + `}]`,

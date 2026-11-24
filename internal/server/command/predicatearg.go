@@ -145,7 +145,7 @@ func parsePredicate(text string) (registry.LootCondition, *ParseError) {
 	data, err := json.Marshal(datapack.TagJSON(tag))
 	if err == nil {
 		var cond registry.LootCondition
-		if cond, err = datapack.DecodePredicate(data); err == nil {
+		if cond, err = datapack.DecodePredicate(nil, data); err == nil {
 			return cond, nil
 		}
 	}

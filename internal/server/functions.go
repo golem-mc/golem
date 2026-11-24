@@ -11,10 +11,10 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// loadFunctions loads the enabled packs' functions for /function; one that
-// fails is logged and skipped. vanilla: ServerFunctionLibrary.reload
-func (s *Server) loadFunctions() error {
-	loaded, err := s.publishPacks()
+// loadFunctions loads the packs in dirs for /function; one that fails is
+// logged and skipped. vanilla: ServerFunctionLibrary.reload
+func (s *Server) loadFunctions(dirs []string) error {
+	loaded, err := s.publishPacks(dirs)
 	if err != nil {
 		return err
 	}
@@ -23,19 +23,19 @@ func (s *Server) loadFunctions() error {
 	return nil
 }
 
-// publishPacks reads the enabled packs and publishes their resources, but not
-// the function library, which it returns for the caller to store. On an error
-// nothing it publishes stays published.
-func (s *Server) publishPacks() (_ *loadedFunctions, err error) {
+// publishPacks reads the packs in dirs and publishes their resources, but
+// not the function library, which it returns for the caller to store. On an
+// error nothing it publishes stays published.
+// vanilla: MinecraftServer.reloadResources
+func (s *Server) publishPacks(dirs []string) (_ *loadedFunctions, err error) {
 	skip := func(file string, err error) {
 		slog.Warn("Skipping data pack file " + file + ": " + err.Error())
 	}
-	dirs := s.packs.Dirs()
-	layers := registry.SnapshotPackLayers()
+	layers := registry.StagePackLayers()
 	tagsApplied := s.packTagsApplied
 	defer func() {
 		if err != nil {
-			layers.Restore()
+			layers.RestoreTags()
 			s.packTagsApplied = tagsApplied
 		}
 	}()
@@ -57,24 +57,26 @@ func (s *Server) publishPacks() (_ *loadedFunctions, err error) {
 	if err != nil {
 		return nil, err
 	}
+	// The tags go in force before the decoders below run: the item component
+	// codecs they call read the tags in force. The other layers stay staged.
 	s.applyPackTags(packTags)
-	// Advancement criteria resolve item tags against the loaded tags.
-	packAdvancements, hiddenAdvancements, err := loadPackAdvancements(dirs, skip)
-	if err != nil {
-		return nil, err
-	}
 	// Before the loot: a table's context provider names resolve against them.
 	ints, floats, err := loadPackContextProviders(dirs, skip)
 	if err != nil {
 		return nil, err
 	}
-	registry.ApplyPackContextProviders(ints, floats)
+	layers.SetContextProviders(ints, floats)
 	// Before the loot: a slots entry's source names resolve against them.
-	if err := loadPackSlotSources(dirs, skip); err != nil {
+	if err := loadPackSlotSources(layers, dirs, skip); err != nil {
+		return nil, err
+	}
+	// Advancement criteria resolve item tags and context providers.
+	packAdvancements, hiddenAdvancements, err := loadPackAdvancements(layers, dirs, skip)
+	if err != nil {
 		return nil, err
 	}
 	// After the tags: a table's tag entries resolve against the loaded tags.
-	tables, predicates, modifiers, err := loadPackLoot(dirs, skip)
+	tables, predicates, modifiers, err := loadPackLoot(layers, dirs, skip)
 	if err != nil {
 		return nil, err
 	}
@@ -83,6 +85,7 @@ func (s *Server) publishPacks() (_ *loadedFunctions, err error) {
 	if err != nil {
 		return nil, err
 	}
+	layers.Publish()
 	s.templateFiles.SetPacks(dirs)
 	s.structures.Clear()
 	s.applyPackAdvancements(packAdvancements, hiddenAdvancements)
@@ -149,7 +152,7 @@ func (s *Server) openDataPacks() error {
 	if s.packStems, err = loadPackStems(s.packs.Dirs()); err != nil {
 		return err
 	}
-	return s.loadFunctions()
+	return s.loadFunctions(s.packs.Dirs())
 }
 
 func splitPackList(list string) []string {
@@ -171,9 +174,9 @@ type serverPacks struct {
 
 // Edit selects the packs change names and reloads, with packReloadMu held
 // across change too: vanilla reads and replaces the selection on the server
-// thread, so two /datapack commands never interleave. A failed reload
-// restores the old selection, in memory and level.dat, and the old
-// resources. vanilla: MinecraftServer.reloadResources
+// thread, so two /datapack commands never interleave. A failed reload keeps
+// the old selection, in memory and level.dat, and the old resources.
+// vanilla: MinecraftServer.reloadResources
 func (p *serverPacks) Edit(change func() (ids []string, ok bool)) error {
 	p.srv.packReloadMu.Lock()
 	defer p.srv.packReloadMu.Unlock()
@@ -184,21 +187,16 @@ func (p *serverPacks) Edit(change func() (ids []string, ok bool)) error {
 	return p.selectLocked(ids)
 }
 
-// selectLocked selects ids and reloads, with packReloadMu held.
+// selectLocked loads ids and selects them once the load has succeeded, with
+// packReloadMu held.
 func (p *serverPacks) selectLocked(ids []string) error {
-	prev := p.SelectedIDs()
-	p.apply(ids)
-	if err := p.srv.loadFunctions(); err != nil {
-		p.apply(prev)
+	if err := p.srv.loadFunctions(p.DirsOf(ids)); err != nil {
 		return err
 	}
-	p.srv.resendResources()
-	return nil
-}
-
-func (p *serverPacks) apply(ids []string) {
 	p.SetSelected(ids)
 	p.srv.world.SetDataPacks(p.Config())
+	p.srv.resendResources()
+	return nil
 }
 
 // ReloadAll rescans the pack folders, enables newly found packs, and reloads
