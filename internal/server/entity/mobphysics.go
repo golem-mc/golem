@@ -1025,21 +1025,9 @@ func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 	cx, cz := cellCoords(m.X, m.Z)
 	// The same sums boxesOverlap does, once for the query.
 	qw, qh := m.width()/2+inflate, m.height()+inflate
-	qMinX, qMaxX := m.X-qw, m.X+qw
-	qMinY, qMaxY := m.Y-inflate, m.Y+qh
-	qMinZ, qMaxZ := m.Z-qw, m.Z+qw
-	collect := func(c []pushEntry) {
-		for i := range c {
-			o := &c[i]
-			if qMaxX > o.minX && qMinX < o.maxX && qMaxY > o.minY && qMinY < o.maxY && qMaxZ > o.minZ && qMinZ < o.maxZ {
-				g.near = append(g.near, o.m)
-			}
-		}
-	}
-	seen := g.visit(cx-r, cx+r, cz-r, cz+r, collect)
-	if g.gathered != nil {
-		*g.gathered += seen
-	}
+	q := pushQuery{
+		minX: m.X - qw, maxX: m.X + qw, minY: m.Y - inflate, maxY: m.Y + qh, minZ: m.Z - qw, maxZ: m.Z + qw}
+	g.gatherCells(cx-r, cx+r, cz-r, cz+r, &q)
 	return g.near
 }
 
@@ -1049,42 +1037,53 @@ func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 // The result is scratch valid until the next query.
 func (g *pushGrid) gatherSections(loX, hiX, loZ, hiZ int) []*Mob {
 	g.near = g.near[:0]
-	seen := g.visit(loX*4, hiX*4+3, loZ*4, hiZ*4+3, func(c []pushEntry) {
-		for i := range c {
-			g.near = append(g.near, c[i].m)
-		}
-	})
-	if g.gathered != nil {
-		*g.gathered += seen
-	}
+	g.gatherCells(loX*4, hiX*4+3, loZ*4, hiZ*4+3, &pushQuery{math.Inf(-1), math.Inf(1), math.Inf(-1), math.Inf(1), math.Inf(-1), math.Inf(1)})
 	return g.near
 }
 
-// visit hands collect each cell in the inclusive range and returns the
-// entries it held.
-func (g *pushGrid) visit(loCX, hiCX, loCZ, hiCZ int, collect func([]pushEntry)) (seen int) {
-	count := func(c []pushEntry) {
-		seen += len(c)
-		collect(c)
+// pushQuery is the box a gather keeps overlapping mobs by; an infinite box
+// keeps every mob in the cells.
+type pushQuery struct {
+	minX, maxX, minY, maxY, minZ, maxZ float64
+}
+
+// gatherCells appends to g.near the mobs filed in the inclusive cell range
+// that q keeps, and counts the entries it looked at.
+func (g *pushGrid) gatherCells(loCX, hiCX, loCZ, hiCZ int, q *pushQuery) {
+	seen := 0
+	near := g.near
+	qMinX, qMaxX, qMinY, qMaxY, qMinZ, qMaxZ := q.minX, q.maxX, q.minY, q.maxY, q.minZ, q.maxZ
+	// Mixed dense and overflow cells traverse in cell order before sorting,
+	// including ties from bodies outside the snapshot.
+	dense := g.rect.active() && len(g.cells) == 0
+	if dense {
+		loCX, hiCX, loCZ, hiCZ = g.rect.clip(loCX, hiCX, loCZ, hiCZ)
 	}
-	if g.rect.active() && len(g.cells) == 0 {
-		loX, hiX, loZ, hiZ := g.rect.clip(loCX, hiCX, loCZ, hiCZ)
-		for x := loX; x <= hiX; x++ {
-			row := g.rect.row(x)
-			for z := loZ; z <= hiZ; z++ {
-				count(g.dense[row+z-g.rect.minZ].entries)
+	for x := loCX; x <= hiCX; x++ {
+		row := 0
+		if dense {
+			row = g.rect.row(x)
+		}
+		for z := loCZ; z <= hiCZ; z++ {
+			var c []pushEntry
+			if dense {
+				c = g.dense[row+z-g.rect.minZ].entries
+			} else {
+				c = g.cell(cellKey(x, z))
+			}
+			seen += len(c)
+			for i := range c {
+				o := &c[i]
+				if qMaxX > o.minX && qMinX < o.maxX && qMaxY > o.minY && qMinY < o.maxY && qMaxZ > o.minZ && qMinZ < o.maxZ {
+					near = append(near, o.m)
+				}
 			}
 		}
-		return seen
 	}
-	// Mixed dense and overflow cells still traverse in cell order before
-	// sorting, including ties from bodies outside the snapshot.
-	for x := loCX; x <= hiCX; x++ {
-		for z := loCZ; z <= hiCZ; z++ {
-			count(g.cell(cellKey(x, z)))
-		}
+	g.near = near
+	if g.gathered != nil {
+		*g.gathered += seen
 	}
-	return seen
 }
 
 // boxesOverlap is the AABB intersection the pushable list is gathered by.

@@ -47,7 +47,7 @@ func BenchmarkMobsTickLlamasLeashed(b *testing.B) {
 				Width: 0.375, Height: 0.5, Present: true, SameLevel: true, Knot: true})
 		}
 		if id == 10 {
-			// One scale-16 lead widens the reach of every grid query.
+			// A scale-16 lead among the leashed llamas.
 			m.SetAttributes(m.BuildAttributes(nbt.List{}))
 			m.attrs.SetBase(registry.AttributeScale, 16)
 		}
