@@ -3,6 +3,7 @@ package fluids
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -16,11 +17,17 @@ import (
 // vanilla: BucketItem.emptyContents, Level.setBlock
 func TestBucketPourAtDimensionCeiling(t *testing.T) {
 	t.Parallel()
-	cfg := servertest.SurvivalTestConfig()
+	cfg := servertest.CrossingTestConfig(t)
 	cfg.GameMode = "survival"
+	cfg.SimulationDistance = config.MinDistance
 	srv, c := servertest.Join(t, cfg, "Pourer")
+	servertest.HoldTicks(t, srv)
+	// Only the target chunk is loaded in the nether: the sender is held and
+	// the chunk is pinned instead of the arrival's whole view.
+	release := srv.HoldChunkSenders()
+	t.Cleanup(release)
+	defer srv.HoldChunkInDimension(world.NetherName, 6, 0)()
 	servertest.CarryIntoNether(t, srv, c, "Pourer", 6, 0)
-	srv.StopTick()
 
 	lava := registry.MustState("minecraft:lava", map[string]string{"level": "0"})
 	lavaBucket := servertest.ItemIDOrDie(t, "minecraft:lava_bucket")
