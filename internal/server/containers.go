@@ -178,7 +178,7 @@ func (o *openWindow) halves() [][3]int32 {
 // covers reports whether the window shows the container at the position;
 // a chest boat's covers none.
 func (o *openWindow) covers(w *world.World, x, y, z int32) bool {
-	return o.boat == nil && o.cart == nil && o.menu == nil && !o.virtual && o.w == w && slices.Contains(o.halves(), [3]int32{x, y, z})
+	return o.boat == nil && o.cart == nil && o.menu == nil && o.trader == nil && o.mount == nil && !o.virtual && o.w == w && slices.Contains(o.halves(), [3]int32{x, y, z})
 }
 
 // slotBase is where the container at the position starts in the window's
