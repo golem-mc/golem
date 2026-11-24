@@ -104,3 +104,81 @@ func TestDecodeLightRoundTrip(t *testing.T) {
 		t.Error("re-encoded light differs")
 	}
 }
+
+// lightWithArrays is a chunk whose first 16 sky and four block sections are
+// uniformly full and one of each is mixed.
+func lightWithArrays() *Chunk {
+	c := newChunk(0, 0)
+	for i := range 16 {
+		c.skyLight[i] = &fullSection
+	}
+	for i := range 4 {
+		c.blockLight[i] = &fullSection
+	}
+	c.skyLight[20], c.blockLight[9] = new([lightArrayLen]byte), new([lightArrayLen]byte)
+	for j := range lightArrayLen {
+		c.skyLight[20][j], c.blockLight[9][j] = byte(j+1), byte(j*5+3)
+	}
+	return c
+}
+
+func TestDecodeLightRejectsBadArrays(t *testing.T) {
+	t.Parallel()
+	enc := lightWithArrays().encodeLight()
+	if !newChunk(0, 0).decodeLight(enc) {
+		t.Fatal("valid light rejected")
+	}
+	// Header: four trimmed masks, then the sky count and the first array's length.
+	r := protocol.NewReader(enc)
+	for range 4 {
+		r.ReadBitSet()
+	}
+	hdr := len(enc) - r.Remaining()
+	lenAt := hdr + 1
+	for _, cut := range []int{1, lightArrayLen, len(enc) - hdr} {
+		if newChunk(0, 0).decodeLight(enc[:len(enc)-cut]) {
+			t.Errorf("truncated by %d accepted", cut)
+		}
+	}
+	// Wrong declared lengths for the first sky array and the first block array.
+	bad := bytes.Clone(enc)
+	bad[lenAt], bad[lenAt+1] = 0xff, 0x0f // 2047
+	if newChunk(0, 0).decodeLight(bad) {
+		t.Error("wrong-length sky array accepted")
+	}
+	skyEnd := hdr + 1 + 17*(2+lightArrayLen)
+	bad = bytes.Clone(enc)
+	bad[skyEnd+1], bad[skyEnd+2] = 0x81, 0x10 // 2049
+	if newChunk(0, 0).decodeLight(bad) {
+		t.Error("wrong-length block array accepted")
+	}
+}
+
+func TestDecodeLightOwnsMixedArrays(t *testing.T) {
+	t.Parallel()
+	c := lightWithArrays()
+	enc := c.encodeLight()
+	in := bytes.Clone(enc)
+	d := newChunk(0, 0)
+	if !d.decodeLight(in) {
+		t.Fatal("decodeLight rejected encodeLight's output")
+	}
+	clear(in)
+	if *d.skyLight[20] != *c.skyLight[20] || *d.blockLight[9] != *c.blockLight[9] {
+		t.Error("a decoded mixed array aliases the input")
+	}
+	if d.skyLight[0] != &fullSection {
+		t.Error("full section not shared")
+	}
+}
+
+func BenchmarkDecodeLight(b *testing.B) {
+	enc := lightWithArrays().encodeLight()
+	d := newChunk(0, 0)
+	b.ReportAllocs()
+	for b.Loop() {
+		if !d.decodeLight(enc) {
+			b.Fatal("decodeLight failed")
+		}
+	}
+}
