@@ -210,42 +210,80 @@ func TestComputeRefusals(t *testing.T) {
 			t.Errorf("%s: context = % X, want % X", tc.command, data, want)
 		}
 	}
-	// Text echoing the overflow message is no overflow.
-	echo := `compute default integer {type:"minecraft:constant",note:"Sum of weights must be <= 2147483647"}`
-	c.ChatCommand(echo)
-	data := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
-	if want := servertest.CommandErrorMessageForTest("argument.resource_or_id.failed_to_parse", either+missing("value", `{note:"Sum of weights must be <= 2147483647",type:"minecraft:constant"}`)); !bytes.Equal(data, want) {
-		t.Errorf("echo refusal = % X, want % X", data, want)
+
+	// A weighted list whose total weight overflows an int is thrown from the
+	// list's constructor, so the command parse fails with no codec wrapping.
+	// vanilla: WeightedRandom.getTotalWeight, CommandDispatcher.parseNodes
+	weighted := func(w int32) string {
+		return `{type:"minecraft:weighted_list",distribution:[{data:1,weight:` + strconv.Itoa(int(w)) + `},{data:2,weight:1}]}`
 	}
-	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
-	// A weighted list whose weights sum past an int is refused while the
-	// command parses; a sum of exactly 2147483647 evaluates.
-	// vanilla: WeightedRandom.getTotalWeight
-	weighted := func(kind string, w1 int) string {
-		return `compute default ` + kind + ` {type:"minecraft:weighted_list",distribution:[{data:7,weight:` +
-			strconv.Itoa(w1) + `},{data:7,weight:1}]}`
+	// Both entries give 5, so the result at the limit is no draw.
+	weightedSame := func(w int32) string {
+		return `{type:"minecraft:weighted_list",distribution:[{data:5,weight:` + strconv.Itoa(int(w)) + `},{data:5,weight:1}]}`
 	}
 	for _, kind := range []string{"integer", "float"} {
-		over := weighted(kind, math.MaxInt32)
-		c.ChatCommand(over)
-		if got, want := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat),
-			servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); !bytes.Equal(got, want) {
-			t.Errorf("%s: overflow = % X, want % X", kind, got, want)
+		suffix := ""
+		if kind == "float" {
+			suffix = " 1"
 		}
-		if got, want := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat),
-			servertest.CommandErrorContextForTest(over, len(over)); !bytes.Equal(got, want) {
-			t.Errorf("%s: overflow context = % X, want % X", kind, got, want)
+		overflow := "compute default " + kind + " " + weighted(math.MaxInt32) + suffix
+		c.ChatCommand(overflow)
+		data := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); !bytes.Equal(data, want) {
+			t.Errorf("%s: refusal = % X, want % X", overflow, data, want)
+		}
+		data = c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorContextForTest(overflow, len(overflow)-len(suffix)); !bytes.Equal(data, want) {
+			t.Errorf("%s: context = % X, want % X", overflow, data, want)
 		}
 
-		c.ChatCommand(weighted(kind, math.MaxInt32-1))
-		text := readFeedback(t, c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat))
-		if text.Translate != "command.compute.result.unnamed.exact" {
-			t.Fatalf("%s: limit feedback = %+v, want command.compute.result.unnamed.exact", kind, text)
+		// The exact limit parses and runs.
+		c.ChatCommand("compute default " + kind + " " + weightedSame(math.MaxInt32-1) + suffix)
+		servertest.CheckCommandFeedback(t, c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat),
+			"command.compute.result.unnamed.exact", protocol.Text{Number: new(int64(5))})
+	}
+
+	// Only a genuine overflow is thrown: a constant provider missing its value
+	// whose extra key spells the message is an ordinary codec refusal.
+	// vanilla: MapCodec.decode
+	spoof := `compute default integer {type:"minecraft:constant",note:"Sum of weights must be <= 2147483647"}`
+	c.ChatCommand(spoof)
+	if got, want := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); bytes.Equal(got, want) {
+		t.Errorf("%s: answered the overflow", spoof)
+	}
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+
+	// A table with an overflowing weighted list is no codec error either.
+	const loot = `{pools:[{rolls:1,entries:[{type:"minecraft:item",name:"minecraft:stick",modifier:{type:"minecraft:set_count",count:`
+	inline := "loot give @s loot " + loot + `{type:"minecraft:weighted_list",distribution:[{data:1,weight:2147483647},{data:2,weight:1}]}}}]}]}`
+	c.ChatCommand(inline)
+	data := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+	if want := servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); !bytes.Equal(data, want) {
+		t.Errorf("inline loot overflow = % X, want % X", data, want)
+	}
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+
+	// The overflow also fails a provider inside a condition, an inline item
+	// modifier (one function or a list), a predicate argument, and a list
+	// whose other entry has a codec error: the sum covers the entries kept.
+	// vanilla: ConditionalProvider.mapCodec, SetItemCountFunction.CODEC, IntValueCheck.CODEC,
+	// ListCodec.decode, WeightedList.entryToListCodec
+	w := weighted(math.MaxInt32)
+	for _, command := range []string{
+		`compute default integer {type:"weighted_list",distribution:[{data:1,weight:2147483647},{data:2,weight:1},{weight:1}]}`,
+		`compute default integer {type:"minecraft:conditional",condition:{type:"minecraft:int_value_check",value:` + w + `,test:1},on_true:1}`,
+		`item modify entity @s hotbar.0 {type:"minecraft:set_count",count:` + w + `}`,
+		`item modify entity @s hotbar.0 [{type:"minecraft:set_count",count:` + w + `}]`,
+		`execute if predicate {type:"minecraft:int_value_check",value:` + w + `,test:1}`,
+	} {
+		c.ChatCommand(command)
+		data := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); !bytes.Equal(data, want) {
+			t.Errorf("%s: refusal = % X, want % X", command, data, want)
 		}
-		with := text.With
-		if len(with) != 1 || (with[0].Number == nil && with[0].Float == nil) ||
-			(with[0].Number != nil && *with[0].Number != 7) || (with[0].Float != nil && *with[0].Float != 7) {
-			t.Errorf("%s: limit feedback arguments = %+v, want 7", kind, with)
+		data = c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorContextForTest(command, len(command)); !bytes.Equal(data, want) {
+			t.Errorf("%s: context = % X, want % X", command, data, want)
 		}
 	}
 	c.Disconnect()

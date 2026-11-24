@@ -81,3 +81,45 @@ func TestPackBlockUseAndEnderEyeAdvancements(t *testing.T) {
 		t.Error("an eye thrown 40 blocks from its structure passed a distance of at least 1000")
 	}
 }
+
+// TestPackLocationCheckSmokey: smokey:false passes a block that no lit
+// campfire's smoke reaches, and fails one it does or whose position is in an
+// unloaded chunk or above build height.
+// vanilla: LocationCheck.test, LocationPredicate.matches, CampfireBlock.isSmokeyPos
+func TestPackLocationCheckSmokey(t *testing.T) {
+	cfg, data := packConfig(t)
+	check := func(name, offsets string) {
+		writePackFile(t, filepath.Join(data, "pk", "advancement", name+".json"), `{"criteria":{"used":{"trigger":"minecraft:default_block_use",`+
+			`"conditions":{"location":{"type":"minecraft:location_check",`+offsets+`"predicate":{"block":{"blocks":"minecraft:air"},"smokey":false}}}}}}`)
+	}
+	check("clear", `"offsetX":1,`)
+	check("faraway", `"offsetX":8192,`)
+	check("toohigh", `"offsetY":512,`)
+	srv, c := joinOp(t, cfg, "Packer")
+	pos := srv.PlayerPosition("Packer")
+	x, y, z := rules.BlockOf(pos.X)+2, rules.BlockOf(pos.Y), rules.BlockOf(pos.Z)
+	servertest.Setblock(t, c, x+1, y-1, z, "minecraft:campfire[lit=true]")
+	servertest.Setblock(t, c, x, y, z, "minecraft:chest")
+	use := func() {
+		c.UseBlock(x, y, z)
+		c.Settle()
+	}
+	got := func(name string) bool { return srv.AdvancementObtained("Packer", "pk:"+name, "used") }
+	use()
+	for _, name := range []string{"clear", "faraway", "toohigh"} {
+		if got(name) {
+			t.Fatalf("pk:%s passed with a lit campfire's smoke or an unloaded position", name)
+		}
+	}
+	servertest.Setblock(t, c, x+1, y-1, z, "minecraft:air")
+	use()
+	if !got("clear") {
+		t.Error("smokey:false failed a position no campfire's smoke reaches")
+	}
+	if got("faraway") {
+		t.Error("a smokey:false check of an unloaded chunk passed")
+	}
+	if got("toohigh") {
+		t.Error("a smokey:false check above build height passed")
+	}
+}

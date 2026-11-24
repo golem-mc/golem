@@ -43,7 +43,7 @@ func TestItemModifierSetNameTargets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		fn, msg := decodeItemModifier(tag)
+		fn, msg, _ := decodeItemModifier(tag)
 		got, ok := fn.(registry.LootSetName)
 		if msg != "" || !ok || got.ItemName != want {
 			t.Errorf("%s: got %#v (%q), want ItemName %v", snbt, fn, msg, want)
