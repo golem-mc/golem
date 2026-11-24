@@ -2510,11 +2510,6 @@ func (s *Server) spawnTaggedMob(dim *dimension, kind entity.MobType, x, y, z flo
 		return 0, false, errNotSimulated
 	}
 	ent.mob.SetPos(x, y, z)
-	// An explicit ground flag survives loading, even when NoAI prevents travel.
-	// vanilla: Entity.load, LivingEntity.aiStep
-	if _, ok := nbt.ByteField(compound, "OnGround"); !ok {
-		ent.mob.OnGround = !ent.mob.NoAI && spawnStandsOnGround(dim.w, x, y, z)
-	}
 	if prep != nil {
 		prep(ent)
 	}

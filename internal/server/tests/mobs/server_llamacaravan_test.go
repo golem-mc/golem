@@ -226,6 +226,80 @@ func TestACowAcrossTheSectionBoundaryFromAScaledCowIsNotCrammed(t *testing.T) {
 	}
 }
 
+// TestSummonedLlamaCaravanApproachMatchesVanilla: a freshly summoned llama
+// starts off the ground (vanilla Entity.load) and approaches a stationary
+// scale-12 leashed lead among 64 other leashed llamas at vanilla's exact
+// tick-by-tick pace, colliding with the scaled lead's box at the same tick.
+// vanilla: SummonCommand.createEntity, Entity.load, LlamaFollowCaravanGoal.tick
+func TestSummonedLlamaCaravanApproachMatchesVanilla(t *testing.T) {
+	t.Parallel()
+	for _, tagged := range []bool{false, true} {
+		name := "plain"
+		if tagged {
+			name = "tagged"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := servertest.Join(t, servertest.MobTestConfig(), "Herder",
+				func(srv *server.Server) { servertest.FreezeUntilHeld(t, srv) })
+			servertest.HoldTicks(t, srv)
+			c.MoveToGround(4.5, 64, 10.5, true)
+			c.Settle()
+
+			scale := nbt.Compound{
+				"NoAI": nbt.Byte(1),
+				"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+					nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(12)},
+				}},
+			}
+			lead := srv.SpawnMobTagged("minecraft:llama", 4.1, 64, 5.5, scale)
+			if lead == 0 {
+				t.Fatal("the lead was refused")
+			}
+			srv.SetMobLeashHolder(lead, c.PlayerEntityID)
+			for i := range 64 {
+				filler := srv.SpawnMob("minecraft:llama", 15.5+float64(i%8), 64, 1.5+float64(i/8))
+				srv.SetMobNoAI(filler)
+				srv.SetMobLeashHolder(filler, c.PlayerEntityID)
+			}
+
+			if tagged {
+				srv.RunLine(`summon minecraft:llama -10.1 64 5.5 {Tags:["fol"]}`)
+			} else {
+				srv.RunLine(`summon minecraft:llama -10.1 64 5.5`)
+			}
+			ids := srv.MobIDsOfKind("minecraft:llama")
+			follower := ids[len(ids)-1]
+			if srv.MobOnGround(follower) {
+				t.Fatalf("summoned follower started on ground, want false before first tick")
+			}
+
+			// Tick 1 lands the llama (OnGround becomes true, no path yet).
+			// Tick 2 starts walking if (2+id)%2 == 0, else tick 3 does.
+			want10, want40 := -10.1+2.0249, -10.1+9.4472
+			if (2+follower)%2 == 0 {
+				want10, want40 = -10.1+2.3211, -10.1+9.5254
+			}
+			servertest.RunTicks(t, srv, 10)
+			x10, _, _, ok := srv.MobPos(follower)
+			if !ok {
+				t.Fatal("follower gone after 10 ticks")
+			}
+			if servertest.Abs64(x10-want10) > 0.01 {
+				t.Errorf("after 10 ticks: x = %.4f, want %.4f (id=%d)", x10, want10, follower)
+			}
+			servertest.RunTicks(t, srv, 30)
+			x40, _, _, ok := srv.MobPos(follower)
+			if !ok {
+				t.Fatal("follower gone after 40 ticks")
+			}
+			if servertest.Abs64(x40-want40) > 0.01 {
+				t.Errorf("after 40 ticks: x = %.4f, want %.4f (id=%d)", x40, want40, follower)
+			}
+		})
+	}
+}
+
 // TestAScaledLlamaIsCrammedByACowThatDoesNotQueryItsSection: with a limit of
 // one, a scale-16 llama whose box reaches a mooshroom takes cramming damage
 // while the mooshroom, whose padded query window misses the llama's section,
