@@ -189,6 +189,9 @@ type cartColumns struct {
 	w     *world.World
 	cols  map[[2]int32]vehicleBucket[minecartEntity]
 	boats map[[2]int32]vehicleBucket[boatEntity]
+	// spare* keep emptied overflow slices for the next index build.
+	spareCols  [][]*minecartEntity
+	spareBoats [][]*boatEntity
 }
 
 // vehicleBucket holds a column's first vehicle inline so a lone vehicle
@@ -209,12 +212,28 @@ func (b vehicleBucket[T]) each(f func(*T)) {
 	}
 }
 
+// resetBuckets empties m and keeps each overflow slice's storage in spare.
+func resetBuckets[T any](m map[[2]int32]vehicleBucket[T], spare *[][]*T) {
+	for k, b := range m {
+		if b.more != nil {
+			clear(b.more)
+			*spare = append(*spare, b.more[:0])
+		}
+		delete(m, k)
+	}
+}
+
+func (c *cartColumns) reset() {
+	resetBuckets(c.cols, &c.spareCols)
+	resetBuckets(c.boats, &c.spareBoats)
+}
+
 func (c *cartColumns) add(it *minecartEntity) {
 	if it.w != c.w || it.cart.Dead || it.cargo.slots == nil {
 		return
 	}
 	minX, _, minZ, maxX, _, maxZ := it.cart.Box()
-	addContainerColumns(c.cols, it, minX, minZ, maxX, maxZ)
+	addContainerColumns(c.cols, &c.spareCols, it, minX, minZ, maxX, maxZ)
 }
 
 func (c *cartColumns) addBoat(it *boatEntity) {
@@ -222,11 +241,11 @@ func (c *cartColumns) addBoat(it *boatEntity) {
 		return
 	}
 	minX, _, minZ, maxX, _, maxZ := it.boat.Box()
-	addContainerColumns(c.boats, it, minX, minZ, maxX, maxZ)
+	addContainerColumns(c.boats, &c.spareBoats, it, minX, minZ, maxX, maxZ)
 }
 
 // addContainerColumns includes every column whose unit query box can overlap the hull.
-func addContainerColumns[T any](cols map[[2]int32]vehicleBucket[T], it *T, minX, minZ, maxX, maxZ float64) {
+func addContainerColumns[T any](cols map[[2]int32]vehicleBucket[T], spare *[][]*T, it *T, minX, minZ, maxX, maxZ float64) {
 	for x := int32(math.Floor(minX - 0.5)); x <= int32(math.Floor(maxX+0.5)); x++ {
 		for z := int32(math.Floor(minZ - 0.5)); z <= int32(math.Floor(maxZ+0.5)); z++ {
 			k := [2]int32{x, z}
@@ -234,6 +253,12 @@ func addContainerColumns[T any](cols map[[2]int32]vehicleBucket[T], it *T, minX,
 			if b.first == nil {
 				b.first = it
 			} else {
+				if b.more == nil && len(*spare) > 0 {
+					last := len(*spare) - 1
+					b.more = (*spare)[last]
+					(*spare)[last] = nil
+					*spare = (*spare)[:last]
+				}
 				b.more = append(b.more, it)
 			}
 			cols[k] = b
@@ -249,18 +274,15 @@ func (s *Server) indexCartColumns(w *world.World) {
 	defer s.minecartsMu.Unlock()
 	idx := &s.cartColBuffer
 	idx.w = w
+	idx.reset()
 	if idx.cols == nil {
 		idx.cols = make(map[[2]int32]vehicleBucket[minecartEntity])
-	} else {
-		clear(idx.cols)
-	}
-	for _, it := range s.minecarts {
-		idx.add(it)
 	}
 	if idx.boats == nil {
 		idx.boats = make(map[[2]int32]vehicleBucket[boatEntity])
-	} else {
-		clear(idx.boats)
+	}
+	for _, it := range s.minecarts {
+		idx.add(it)
 	}
 	for _, it := range s.boats {
 		idx.addBoat(it)
@@ -271,12 +293,10 @@ func (s *Server) indexCartColumns(w *world.World) {
 func (s *Server) dropCartColumns() {
 	s.minecartsMu.Lock()
 	s.cartCols = nil
-	// Release the vehicles and world the last pass buffered; published
-	// overflow slices stay with their readers.
+	// Release the vehicles and world the last pass buffered.
 	idx := &s.cartColBuffer
 	idx.w = nil
-	clear(idx.cols)
-	clear(idx.boats)
+	idx.reset()
 	s.minecartsMu.Unlock()
 }
 
