@@ -182,7 +182,8 @@ func applyMobTag(m *entity.Mob, ent *mobEntity, compound nbt.Compound) {
 	}
 	m.VX, m.VY, m.VZ = entityMotionOfTag(compound)
 	yaw, pitch := entityRotationOfTag(compound)
-	m.Yaw, m.Pitch, m.HeadYaw = yaw, pitch, yaw
+	m.Pitch = pitch
+	m.SetLoadedYaw(yaw)
 	if onGround, ok := nbt.ByteField(compound, "OnGround"); ok {
 		m.OnGround = onGround != 0
 	}

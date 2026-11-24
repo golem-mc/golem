@@ -99,6 +99,24 @@ func (c *Client) AwaitSoundNamed(name string) (x, y, z int32, volume float32) {
 	return 0, 0, 0, 0
 }
 
+// ReadSpawnEntity decodes a Spawn Entity packet into its entity type and
+// body, plus the body yaw and head yaw in degrees.
+func ReadSpawnEntity(t *testing.T, data []byte) (kind int32, e CapturedEntity, yaw, head float32) {
+	t.Helper()
+	r := protocol.NewReader(data)
+	e = CapturedEntity{EntityID: r.ReadVarInt(), Uuid: r.ReadUUID()}
+	kind = r.ReadVarInt()
+	e.X, e.Y, e.Z = r.ReadF64(), r.ReadF64(), r.ReadF64()
+	r.ReadLpVec3() // velocity
+	r.ReadAngle()  // Pitch
+	yaw, head = r.ReadAngle(), r.ReadAngle()
+	r.ReadVarInt() // type-specific data
+	if err := r.Err(); err != nil {
+		t.Fatalf("spawn entity: %v", err)
+	}
+	return kind, e, yaw, head
+}
+
 // AwaitNextSpawn reads until the next Spawn Entity of any kind and hands
 // back its entity type and body, so a test can assert which of two arrivals
 // the wire carried first.
@@ -109,18 +127,7 @@ func (c *Client) AwaitNextSpawn() (int32, CapturedEntity) {
 		if packetID != protocol.IDPlaySpawnEntity {
 			continue
 		}
-		r := protocol.NewReader(data)
-		e := CapturedEntity{EntityID: r.ReadVarInt(), Uuid: r.ReadUUID()}
-		kind := r.ReadVarInt()
-		e.X, e.Y, e.Z = r.ReadF64(), r.ReadF64(), r.ReadF64()
-		r.ReadLpVec3() // velocity
-		r.ReadAngle()  // Pitch
-		r.ReadAngle()  // Yaw
-		r.ReadAngle()  // head yaw
-		r.ReadVarInt() // type-specific data
-		if err := r.Err(); err != nil {
-			c.T.Fatalf("spawn entity: %v", err)
-		}
+		kind, e, _, _ := ReadSpawnEntity(c.T, data)
 		return kind, e
 	}
 	c.T.Fatalf("no spawn entity arrived within %s", ExpectTimeout)
