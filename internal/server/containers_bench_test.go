@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/google/uuid"
 	"io"
 	"net"
 	"testing"
@@ -86,5 +87,31 @@ func BenchmarkContainerStillOpenMerchant(b *testing.B) {
 		if !c.containerStillOpen(window) {
 			b.Fatal("window closed")
 		}
+	}
+}
+
+// BenchmarkSyncContainerViewers runs the viewer scan of a hopper transfer
+// with one chest viewer among trade and mount windows.
+func BenchmarkSyncContainerViewers(b *testing.B) {
+	s, w := newCommandBenchServer(b, 0)
+	y := int32(world.GroundLevel)
+	w.SetBlock(4, y, 4, registry.BlockBarrel.DefaultState())
+	w.EnsureBlockEntity(4, y, 4, world.KindBarrel)
+	add := func(i int, window *openWindow) {
+		p := &player.Player{EntityID: s.nextEntity(), UUID: uuid.UUID{byte(i)}}
+		c := &client{srv: s, player: p}
+		c.setOpenWindow(window)
+		s.clients[p.UUID] = c
+	}
+	add(1, &openWindow{kind: windowBarrel, w: w, x: 4, y: y, z: 4, Sent: make([]protocol.ItemStack, 27)})
+	for i := 2; i < 10; i++ {
+		add(i, &openWindow{kind: windowMerchant, w: w, trader: &merchant{}})
+		add(i+10, &openWindow{kind: windowHorse, w: w, mount: &mobEntity{}})
+	}
+	// The fake clients have no connection for shutdown to close.
+	b.Cleanup(func() { clear(s.clients) })
+	b.ReportAllocs()
+	for b.Loop() {
+		s.syncContainerViewers(w, 4, y, 4)
 	}
 }
