@@ -1064,9 +1064,11 @@ func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 				g.keys = append(g.keys, k)
 			}
 		}
-		for x := max(cx-r, g.minX); x <= min(cx+r, g.minX+g.sizeX-1); x++ {
-			for z := max(cz-r, g.minZ); z <= min(cz+r, g.minZ+g.sizeZ-1); z++ {
-				if len(g.dense[(x-g.minX)*g.sizeZ+z-g.minZ].entries) > 0 {
+		loX, hiX, loZ, hiZ := g.rect.clip(cx-r, cx+r, cz-r, cz+r)
+		for x := loX; x <= hiX; x++ {
+			row := g.rect.row(x)
+			for z := loZ; z <= hiZ; z++ {
+				if len(g.dense[row+z-g.rect.minZ].entries) > 0 {
 					g.keys = append(g.keys, cellKey(x, z))
 				}
 			}
