@@ -231,7 +231,7 @@ func TestAWaypointIsBlockFormInsideTheReceiversViewAndChunkFormOutside(t *testin
 	t.Parallel()
 	cfg := servertest.BlockTestConfig()
 	cfg.ViewDistance = config.MinDistance
-	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Mover"))
+	srv, connect := servertest.Start(t, cfg)
 
 	watcher := connect().Join("Watcher")
 	watcher.Settle()
@@ -245,9 +245,13 @@ func TestAWaypointIsBlockFormInsideTheReceiversViewAndChunkFormOutside(t *testin
 	moveTo := func(chunkX int32) waypointPacket {
 		t.Helper()
 		x := chunkX*16 + 8
-		mover.ChatCommand("tp @s " + strconv.Itoa(int(x)) + " 64 0")
+		// Settle has the server apply the move before the watcher counts
+		// its tick: a tick counted on one connection does not wait for a
+		// packet still queued on another.
+		mover.MoveToGround(float64(x)+0.5, mover.LastTeleport.Y, 0.5, true)
+		mover.Settle()
 		var got waypointPacket
-		if !watcher.ReadTicks(srv, 40, func(id int32, data []byte) bool {
+		if !watcher.ReadTicks(srv, 1, func(id int32, data []byte) bool {
 			if id != protocol.IDPlayWaypoint {
 				return false
 			}
@@ -265,7 +269,7 @@ func TestAWaypointIsBlockFormInsideTheReceiversViewAndChunkFormOutside(t *testin
 			got = wp
 			return true
 		}) {
-			t.Fatalf("no waypoint track for the mover at chunk %d within 40 ticks", chunkX)
+			t.Fatalf("no waypoint track for the mover at chunk %d within a tick", chunkX)
 		}
 		return got
 	}
