@@ -1024,7 +1024,7 @@ func (g *pushGrid) refresh(m *Mob) {
 // keeps the sort small. The result is scratch valid until the next query.
 func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
 	g.gather(m, inflate)
-	slices.SortFunc(g.near, func(a, b *Mob) int { return cmp.Compare(a.pushIdx, b.pushIdx) })
+	sortSnapshot(g.near)
 	return g.near
 }
 
@@ -1032,30 +1032,33 @@ func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
 // overlap the box, in no set order (pushIdx is each one's snapshot order).
 // The result is scratch valid until the next query.
 func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
-	g.near = g.near[:0]
 	hw := m.width() / 2
 	r := int(math.Ceil((hw + g.wide + inflate) / pushCellSide))
 	cx, cz := cellCoords(m.X, m.Z)
 	// The same sums boxesOverlap does, once for the query.
 	qw, qh := hw+inflate, m.height()+inflate
-	qMinX, qMaxX := m.X-qw, m.X+qw
-	qMinY, qMaxY := m.Y-inflate, m.Y+qh
-	qMinZ, qMaxZ := m.Z-qw, m.Z+qw
+	box := AABB{m.X - qw, m.Y - inflate, m.Z - qw, m.X + qw, m.Y + qh, m.Z + qw}
+	g.near = g.collectInto(g.near[:0], cx-r, cx+r, cz-r, cz+r, box)
+	return g.near
+}
+
+// collectInto appends to dst the mobs in cells x0..x1 by z0..z1 whose box
+// crosses box, and counts the entries it looked at.
+func (g *pushGrid) collectInto(dst []*Mob, x0, x1, z0, z1 int, box AABB) []*Mob {
 	seen := 0
-	collect := func(c []pushEntry) {
+	g.scan(x0, x1, z0, z1, func(c []pushEntry) {
 		seen += len(c)
 		for i := range c {
 			o := &c[i]
-			if qMaxX > o.minX && qMinX < o.maxX && qMaxY > o.minY && qMinY < o.maxY && qMaxZ > o.minZ && qMinZ < o.maxZ {
-				g.near = append(g.near, o.m)
+			if box.maxX > o.minX && box.minX < o.maxX && box.maxY > o.minY && box.minY < o.maxY && box.maxZ > o.minZ && box.minZ < o.maxZ {
+				dst = append(dst, o.m)
 			}
 		}
-	}
-	g.scan(cx-r, cx+r, cz-r, cz+r, collect)
+	})
 	if g.gathered != nil {
 		*g.gathered += seen
 	}
-	return g.near
+	return dst
 }
 
 // scan visits the cells x0..x1 by z0..z1 in cell order, or in key order when
@@ -1119,20 +1122,12 @@ func (g *pushGrid) gatherBox(box AABB) []*Mob {
 func (g *pushGrid) gatherBoxInto(dst []*Mob, box AABB) []*Mob {
 	x0, z0 := cellCoords(box.minX-g.wide, box.minZ-g.wide)
 	x1, z1 := cellCoords(box.maxX+g.wide, box.maxZ+g.wide)
-	seen := 0
-	g.scan(x0, x1, z0, z1, func(c []pushEntry) {
-		seen += len(c)
-		for i := range c {
-			o := &c[i]
-			if box.maxX > o.minX && box.minX < o.maxX && box.maxY > o.minY && box.minY < o.maxY && box.maxZ > o.minZ && box.minZ < o.maxZ {
-				dst = append(dst, o.m)
-			}
-		}
-	})
-	if g.gathered != nil {
-		*g.gathered += seen
-	}
-	return dst
+	return g.collectInto(dst, x0, x1, z0, z1, box)
+}
+
+// sortSnapshot orders mobs as the whole-herd scan visits them.
+func sortSnapshot(mobs []*Mob) {
+	slices.SortFunc(mobs, func(a, b *Mob) int { return cmp.Compare(a.pushIdx, b.pushIdx) })
 }
 
 // boxesOverlap is the AABB intersection the pushable list is gathered by.
