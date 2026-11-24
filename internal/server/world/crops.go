@@ -224,15 +224,6 @@ func dirtPathCanSurvive(w *World, x, y, z int32) bool {
 	return registry.BlockOf(above).InGroup(registry.GroupFenceGate)
 }
 
-// dirtPathSurvivalScheduled is the one-tick visit DirtPathBlock.updateShape
-// books when the block above turned solid: the path becomes dirt.
-func (p *Physics) dirtPathSurvivalScheduled(x, y, z int32, changes *[]BlockChange) {
-	if dirtPathCanSurvive(p.w, x, y, z) {
-		return
-	}
-	p.turnFarmlandToDirt(x, y, z, changes)
-}
-
 // farmlandSurvivalScheduled is the one-tick visit FarmlandBlock.updateShape
 // books when the block above turned solid and maintains nothing: it becomes
 // dirt.

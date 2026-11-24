@@ -1322,7 +1322,8 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		}
 		if block == registry.BlockDirtPath {
 			blocks++
-			p.dirtPathSurvivalScheduled(x, y, z, &changes)
+			// vanilla: DirtPathBlock.tick turns to dirt without rechecking.
+			p.turnFarmlandToDirt(x, y, z, &changes)
 			continue
 		}
 		if block == registry.BlockSugarCane {
