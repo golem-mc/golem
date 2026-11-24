@@ -2,7 +2,10 @@ package server
 
 import (
 	mrand "math/rand"
+	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/golem-mc/golem/internal/config"
 )
@@ -64,12 +67,35 @@ func TestVehicleQuerySurvivesIndexDropWhileWaitingForBoats(t *testing.T) {
 	s.boatsMu.Lock()
 	done := make(chan containerTarget)
 	go func() { done <- s.entityContainerAt(w, 0, 64.5, 0.5, nil) }()
-	// The lookup gives up minecartsMu while it waits for boatsMu.
-	s.minecartsMu.Lock()
-	s.minecartsMu.Unlock()
+	// Wait until the lookup is parked on boatsMu, having given up minecartsMu.
+	for i := 0; !parkedOnBoatsMu(); i++ {
+		if i > 5000 {
+			t.Fatal("lookup never blocked on boatsMu")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	s.dropCartColumns()
 	s.boatsMu.Unlock()
 	if got := <-done; got == nil {
 		t.Fatal("no container found")
 	}
+}
+
+// parkedOnBoatsMu reports whether a goroutine sleeps on a mutex inside
+// entityContainerAt; the test holds boatsMu, so that is the lookup.
+func parkedOnBoatsMu() bool {
+	buf := make([]byte, 1<<20)
+	for len(buf) < 1<<26 {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			for g := range strings.SplitSeq(string(buf[:n]), "\n\n") {
+				if strings.Contains(g, "[sync.Mutex.Lock") && strings.Contains(g, "entityContainerAt") {
+					return true
+				}
+			}
+			return false
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+	return false
 }

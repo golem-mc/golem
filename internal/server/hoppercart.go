@@ -374,9 +374,14 @@ func (s *Server) cartBucketsAt(w *world.World, cx, cz float64) (carts vehicleBuc
 	if idx == nil || idx.w != w {
 		return carts, boats, false, false
 	}
+	if len(idx.cols) == 0 && len(idx.boats) == 0 {
+		return carts, boats, true, true
+	}
 	key := [2]int32{int32(math.Floor(cx)), int32(math.Floor(cz))}
 	carts = idx.cols[key]
-	boats = idx.boats[key]
+	if len(idx.boats) > 0 {
+		boats = idx.boats[key]
+	}
 	return carts, boats, true, carts.first == nil && boats.first == nil
 }
 
