@@ -2,6 +2,7 @@ package entity
 
 import (
 	"math"
+	"sort"
 
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -420,12 +421,22 @@ func (m *Mob) canStayAt(w World, at Waypoint, face uint8) bool {
 		return false
 	}
 	s := faceStep[face]
-	if !faceFull(w.BlockAt(at.X+s[0], at.Y+s[1], at.Z+s[2]), face^1) {
+	if !m.supportFull(w.BlockAt(at.X+s[0], at.Y+s[1], at.Z+s[2]), at.Y+s[1], face^1) {
 		return false
 	}
 	// getProgressAabb at full peek, deflated.
 	open := shulkerDeltaBox(m.attrScale(), face^1, -1, 1, float64(at.X)+0.5, float64(at.Y), float64(at.Z)+0.5)
 	return !overlapsSolid(w, collideCtx{}, open.inflate(-shulkerDeflate, -shulkerDeflate, -shulkerDeflate))
+}
+
+// supportFull is faceFull for the block at row y, except that scaffolding's
+// shape depends on where the shulker's feet are.
+// vanilla: BlockBehaviour.isFaceFull, ScaffoldingBlock.getCollisionShape
+func (m *Mob) supportFull(state uint16, y int32, face uint8) bool {
+	if boxes, ok := world.ScaffoldingBoxes(state, y, m.Y); ok {
+		return boxesFaceFull(boxes, face)
+	}
+	return faceFull(state, face)
 }
 
 // teleportShulker tries five random cells within eight blocks and takes the
@@ -477,4 +488,47 @@ func (m *Mob) teleportShulker(w World, t *tickView) bool {
 // vanilla: Block.isFaceFull
 func faceFull(state uint16, face uint8) bool {
 	return registry.CollisionFaceFull(state, int(face))
+}
+
+// boxesFaceFull reports whether the boxes cover the whole face toward the
+// direction id (down, up, north, south, west, east).
+// vanilla: Block.isFaceFull
+func boxesFaceFull(shape []world.CollisionBox, face uint8) bool {
+	axis, high := [6]int{1, 1, 2, 2, 0, 0}[face], face%2 == 1
+	u, v := (axis+1)%3, (axis+2)%3
+	var boxes [][2][3]float64
+	cuts := [2][]float64{{0, 1}, {0, 1}}
+	for _, b := range shape {
+		lo := [3]float64{b.MinX, b.MinY, b.MinZ}
+		hi := [3]float64{b.MaxX, b.MaxY, b.MaxZ}
+		if (high && hi[axis] != 1) || (!high && lo[axis] != 0) || lo[axis] == hi[axis] {
+			continue
+		}
+		boxes = append(boxes, [2][3]float64{lo, hi})
+		cuts[0] = append(cuts[0], lo[u], hi[u])
+		cuts[1] = append(cuts[1], lo[v], hi[v])
+	}
+	if len(boxes) == 0 {
+		return false
+	}
+	// Every cell the box edges cut the face into must lie inside a box.
+	for i := range cuts {
+		sort.Float64s(cuts[i])
+	}
+	for i := 0; i+1 < len(cuts[0]); i++ {
+		for j := 0; j+1 < len(cuts[1]); j++ {
+			cu, cv := (cuts[0][i]+cuts[0][i+1])/2, (cuts[1][j]+cuts[1][j+1])/2
+			if cu <= 0 || cu >= 1 || cv <= 0 || cv >= 1 || cuts[0][i] == cuts[0][i+1] || cuts[1][j] == cuts[1][j+1] {
+				continue
+			}
+			covered := false
+			for _, b := range boxes {
+				covered = covered || (cu > b[0][u] && cu < b[1][u] && cv > b[0][v] && cv < b[1][v])
+			}
+			if !covered {
+				return false
+			}
+		}
+	}
+	return true
 }

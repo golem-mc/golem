@@ -2,6 +2,7 @@ package entity
 
 import (
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/player"
@@ -167,5 +168,39 @@ func TestShulkerCoveredArmorSurvivesSaveAndReload(t *testing.T) {
 				t.Errorf("mapped %v, covered %v: saved armor attribute = %v, want %v", mapped, covered, armor, want)
 			}
 		}
+	}
+}
+
+// TestAShellShoveRefilesTheMobInThePushGrid: the next shell queries the grid,
+// so a mob a shell moved is filed at its new box at once.
+// vanilla: Shulker.onPeekAmountChange
+func TestAShellShoveRefilesTheMobInThePushGrid(t *testing.T) {
+	w := shulkerFloor(t)
+	m := NewMob(TypeShulker, 1, 0.5, 64, 0.5, 3)
+	pig := NewMob(TypePig, 2, 0.5, 65, 0.5, 4)
+	herd := []*Mob{m, pig}
+	g := takePushGrid(len(herd), nil)
+	defer g.release()
+	g.build(herd)
+	m.push = g
+	openShell(m, w, herd, 3)
+	if pig.Y <= 65 {
+		t.Fatalf("the pig stands at %v, want it lifted", pig.Y)
+	}
+	if got := g.cell(pig.pushCell)[pig.pushSlot]; got != entryOf(pig) {
+		t.Errorf("grid holds %+v for the pig, want %+v", got, entryOf(pig))
+	}
+}
+
+// TestAnEndermanKeepsItsOwnCollisionView: the view is refiltered for each
+// mover, so the one an enderman retains for hurt teleports is a copy.
+func TestAnEndermanKeepsItsOwnCollisionView(t *testing.T) {
+	b := &Bodies{World: newTestWorld(), Boxes: make([]AABB, 2), Skip: []int32{0}}
+	m := NewMob(TypeEnderman, 1, 0.5, 64, 0.5, 3)
+	m.endermanStep(b, nil)
+	b.Skip[0] = 1
+	b.Skip = b.Skip[:0]
+	if got := m.enderman.w.(*Bodies).Skip; !slices.Equal(got, []int32{0}) {
+		t.Errorf("retained skip %v, want [0]", got)
 	}
 }

@@ -94,6 +94,9 @@ func (m *Mob) stepShulkerPeek(w World, t *tickView) {
 			continue
 		}
 		o.move(w, delta[0], delta[1], delta[2])
+		if m.push != nil {
+			m.push.moved(o)
+		}
 	}
 }
 
