@@ -224,3 +224,42 @@ func TestACowAcrossTheSectionBoundaryFromAScaledCowIsNotCrammed(t *testing.T) {
 		})
 	}
 }
+
+// TestAScaledLlamaIsCrammedByACowThatDoesNotQueryItsSection: with a limit of
+// one, a scale-16 llama whose box reaches a mooshroom takes cramming damage
+// while the mooshroom, whose padded query window misses the llama's section,
+// does not.
+// The fixture is 144 blocks (nine sections, thirty-six grid cells) closer to
+// the spawn than where it was observed, so the section and cell offsets match.
+// vanilla: LivingEntity.pushEntities, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestAScaledLlamaIsCrammedByACowThatDoesNotQueryItsSection(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Herder")
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+	srv.SetGameRuleValue("max_entity_cramming", 1)
+	scale := nbt.Compound{"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+		nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(16)}}}}
+	llama := srv.SpawnMobTagged("minecraft:llama", 20.1, 64, 15.5, scale)
+	cow := srv.SpawnMob("minecraft:mooshroom", 13.25, 64, 15.5)
+	if llama == 0 || cow == 0 || !srv.SetMobNoAI(llama) || !srv.SetMobNoAI(cow) {
+		t.Fatal("the mobs could not be set up")
+	}
+	llamaBefore, _ := srv.MobHealth(llama)
+	cowBefore, _ := srv.MobHealth(cow)
+	// The llama dies within 100 ticks, so read it after 20 (one hit lands
+	// every ten or so) and keep stepping for the mooshroom.
+	servertest.RunTicks(t, srv, 20)
+	llamaAfter, ok1 := srv.MobHealth(llama)
+	servertest.RunTicks(t, srv, 80)
+	cowAfter, ok2 := srv.MobHealth(cow)
+	if !ok1 || !ok2 {
+		t.Fatalf("a mob is gone: llama %v cow %v", ok1, ok2)
+	}
+	if llamaAfter >= llamaBefore {
+		t.Errorf("llama health %v -> %v, want cramming damage", llamaBefore, llamaAfter)
+	}
+	if cowAfter != cowBefore {
+		t.Errorf("mooshroom health %v -> %v, want unchanged", cowBefore, cowAfter)
+	}
+}
