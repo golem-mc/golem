@@ -764,8 +764,7 @@ func resolveBlockState(entry nbt.Tag) (id uint16, ok bool) {
 	}
 	// FindState falls back to the default state for unmatched properties, and
 	// reading that would drop the stored values on the next save.
-	_, stateProps, _ := registry.BlockStateName(id)
-	have := registry.ParseStateProps(stateProps)
+	have := registry.StateProps(id)
 	for k, v := range overrides {
 		if have[k] != v {
 			return airState, false
