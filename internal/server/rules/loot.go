@@ -572,7 +572,8 @@ type LootKiller struct {
 type lootRoller struct {
 	ctx     *LootContext
 	rng     LootRand
-	visited map[string]bool
+	root    string
+	visited map[string]bool // sub-tables being rolled; made on the first reference
 	// predicates are the loaded predicates being evaluated, which a
 	// reference may not loop back to.
 	predicates map[string]bool
@@ -626,7 +627,7 @@ func (ctx *LootContext) lootRandom(sequence string, fallback LootRand) LootRand 
 }
 
 func rollLootTable(name string, table registry.LootTable, ctx *LootContext, rng LootRand) []protocol.ItemStack {
-	r := lootRoller{ctx: ctx, rng: rng, visited: map[string]bool{name: true}}
+	r := lootRoller{ctx: ctx, rng: rng, root: name}
 	var stacks []lootStack
 	// Wrapping this callback with the subtable's emitter makes both escape.
 	// vanilla: LootTable.getRandomItemsRaw
@@ -886,13 +887,16 @@ func (r *lootRoller) expand(e *registry.LootEntry) (bool, []lootCandidate) {
 // sub-table's own; the outer pool's and table's run later still, as they
 // decorate the consumer it rolls into.
 func (r *lootRoller) subTable(name string, funcs []registry.LootFunction, out func(lootStack)) {
-	if r.visited[name] {
+	if name == r.root || r.visited[name] {
 		// A table that loops back on itself stops here.
 		return
 	}
 	sub, ok := registry.FindLootTable(name)
 	if !ok {
 		return
+	}
+	if r.visited == nil {
+		r.visited = map[string]bool{}
 	}
 	r.visited[name] = true
 	defer delete(r.visited, name)
