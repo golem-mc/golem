@@ -529,9 +529,10 @@ func TestBeaconUsesPlayerBounds(t *testing.T) {
 		srv.RunLine("effect clear Smallfry")
 		stepBeaconCycle(t, srv, clock)
 	}
-	// The level-one area ends at x = 4+1+10+10 = 25.
+	// The level-one area ends at x = 4+1+10+10 = 25. A scale-4 half-width is
+	// float32(0.6)*4/2 = 1.2000000476, so a player at 26.2 reaches just in.
 	srv.RunLine("attribute Testificate minecraft:scale base set 4")
-	srv.RunLine("tp Testificate 25.75 64 0.5")
+	srv.RunLine("tp Testificate 26.2 64 0.5")
 	srv.RunLine("tp Smallfry 25.75 64 0.5")
 	cycle()
 	if !has("Testificate") {
@@ -545,13 +546,12 @@ func TestBeaconUsesPlayerBounds(t *testing.T) {
 	top := 64 + 1 + 20 + 384
 	srv.RunLine("attribute Testificate minecraft:scale base set 1")
 	srv.RunLine("tp Testificate 4.5 " + fmt.Sprint(top) + " 0.5")
+	srv.RunLine("tp Smallfry 4.5 " + fmt.Sprint(top-1) + " 0.5")
 	cycle()
 	if has("Testificate") {
 		t.Error("a player standing on the upper face got speed")
 	}
-	srv.RunLine("tp Testificate 4.5 " + fmt.Sprint(top-1) + " 0.5")
-	cycle()
-	if !has("Testificate") {
+	if !has("Smallfry") {
 		t.Error("a player just under the upper face got no speed")
 	}
 }

@@ -25,9 +25,15 @@ type PlayerDimensions struct {
 }
 
 // Scaled is the shape grown by s in width, height and eye height.
+// The products are single precision, as the float fields are.
 // vanilla: EntityDimensions.scale
 func (d PlayerDimensions) Scaled(s float64) PlayerDimensions {
-	return PlayerDimensions{Width: d.Width * s, Height: d.Height * s, EyeHeight: d.EyeHeight * s}
+	f := float32(s)
+	return PlayerDimensions{
+		Width:     float64(float32(d.Width) * f),
+		Height:    float64(float32(d.Height) * f),
+		EyeHeight: float64(float32(d.EyeHeight) * f),
+	}
 }
 
 // The poses' shapes.

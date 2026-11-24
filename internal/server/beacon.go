@@ -201,7 +201,7 @@ func (s *Server) tickBeacon(w *world.World, be *world.BlockEntity, age int64) {
 		if primary >= 0 {
 			duration := rules.BeaconEffectDuration(levels)
 			amplifier := rules.BeaconEffectAmplifier(levels, primary, secondary)
-			reach := rules.BeaconRange(levels)
+			lo, hi := rules.BeaconReachBounds(rules.BeaconRange(levels), w.Height(), x, y, z)
 			s.mu.RLock()
 			clients := s.clientsLocked()
 			s.mu.RUnlock()
@@ -213,7 +213,7 @@ func (s *Server) tickBeacon(w *world.World, be *world.BlockEntity, age int64) {
 				if c.player.GameMode() == protocol.GameModeSpectator {
 					continue
 				}
-				if !rules.BeaconInReach(reach, w.Height(), c.bodyBox(), x, y, z) {
+				if b := c.bodyBox(); !rules.BoxesIntersect(lo, hi, [3]float64{b[0], b[1], b[2]}, [3]float64{b[3], b[4], b[5]}) {
 					continue
 				}
 				c.effectCause = effect.CauseBeacon
