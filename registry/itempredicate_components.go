@@ -174,8 +174,8 @@ func (lookup *TagLookup) decodeComponentPredicate(name string, value nbt.Tag) (t
 				}
 				return items, hand.Container != nil || (!hand.Removes(protocol.DataComponentContainer) && ItemHasComponentDefault(hand.ItemID, name))
 			}
-			items := hand.BundleContents()
-			return items, items != nil || (!hand.Removes(protocol.DataComponentBundleContents) && ItemHasComponentDefault(hand.ItemID, name))
+			items, explicit := hand.BundleContentsOf()
+			return items, explicit || (!hand.Removes(protocol.DataComponentBundleContents) && ItemHasComponentDefault(hand.ItemID, name))
 		}
 		var coll *collectionTest[protocol.ItemStack]
 		if raw, ok := fields["items"]; ok {
