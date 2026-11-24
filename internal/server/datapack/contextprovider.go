@@ -367,7 +367,7 @@ func weightedChoice(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt
 					// The dropped entry leaves the list partial; it fails validation too only when no other
 					// entry carries a positive weight (WeightedList.nonEmptyCodec).
 					if hasPositiveWeight(items) {
-						return nil, partialMark + "Failed to parse structure: Not a number"
+						return nil, partialMark + "Not a number"
 					}
 					return nil, "Not a number; Weighted list must contain at least one entry with non-zero weight"
 				}
@@ -382,7 +382,7 @@ func weightedChoice(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt
 	}
 }
 
-// hasPositiveWeight reports whether some entry has an absent or numeric positive weight.
+// hasPositiveWeight reports whether some entry that decodes (a compound with data and a weight) has a positive weight.
 func hasPositiveWeight(items []nbt.Tag) bool {
 	for _, item := range items {
 		entry, ok := nbt.ListElement(item).(nbt.Compound)
@@ -390,8 +390,8 @@ func hasPositiveWeight(items []nbt.Tag) bool {
 			continue
 		}
 		w, present := entry["weight"]
-		if !present {
-			return true
+		if _, hasData := entry["data"]; !hasData || !present {
+			continue
 		}
 		if v, ok := nbt.IntValue(w); ok && v > 0 {
 			return true
