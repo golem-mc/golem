@@ -255,6 +255,13 @@ func TestAWaypointIsBlockFormInsideTheReceiversViewAndChunkFormOutside(t *testin
 			if wp.id != moverID || wp.operation != protocol.WaypointTrack {
 				return false
 			}
+			// A track left over from the previous move may still be in flight.
+			if wp.kind == protocol.WaypointTypeChunk && wp.x != chunkX {
+				return false
+			}
+			if wp.kind == protocol.WaypointTypeVec3i && wp.x != x {
+				return false
+			}
 			got = wp
 			return true
 		}) {
