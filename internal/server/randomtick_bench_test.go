@@ -12,6 +12,14 @@ import (
 // BenchmarkTickRandomTicks runs a random tick pass with one player at the
 // default simulation distance, every chunk of its square loaded.
 func BenchmarkTickRandomTicks(b *testing.B) {
+	benchTickRandomTicks(b, false)
+}
+
+func BenchmarkTickRandomTicksDisabled(b *testing.B) {
+	benchTickRandomTicks(b, true)
+}
+
+func benchTickRandomTicks(b *testing.B, disabled bool) {
 	cfg := config.Default()
 	cfg.OnlineMode = false
 	cfg.LevelName = b.TempDir()
@@ -26,6 +34,9 @@ func BenchmarkTickRandomTicks(b *testing.B) {
 		s.Shutdown()
 	}()
 	w := s.world
+	if disabled {
+		w.SetIntRule(world.RuleRandomTickSpeed, 0)
+	}
 	reach := int32(cfg.SimulationDistance)
 	for x := -reach; x <= reach; x++ {
 		for z := -reach; z <= reach; z++ {
@@ -41,7 +52,7 @@ func BenchmarkTickRandomTicks(b *testing.B) {
 	s.assignPlayerSlot(c)
 	s.clients[id] = c
 	defer delete(s.clients, id)
-	// The first pass pays for generating and lighting the chunks.
+	// Warm the tick's scratch buffers before timing.
 	s.tickRandomTicks(s.allDims()[0], 0)
 	b.ReportAllocs()
 	b.ResetTimer()

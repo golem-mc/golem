@@ -74,6 +74,52 @@ func TestRandomTickThrowsItsDiceInAFixedChunkOrder(t *testing.T) {
 	}
 }
 
+func TestDisabledRandomTickAdvancesTimeWithoutVisitingSections(t *testing.T) {
+	t.Parallel()
+	pos := ChunkPos{}
+	const y = 96
+	leaf := leafState(t, map[string]string{"persistent": "false", "distance": "7"})
+	setup := func() (*Physics, *section) {
+		w := newTestWorld(t, NewFlatGenerator())
+		t.Cleanup(func() { w.Close() })
+		c, _ := w.Acquire(pos)
+		w.mu.Lock()
+		sec := &c.sections[(y-worldMinY)/sectionSize]
+		sec.setAll(leaf)
+		// A mixed section builds its tick mask when the pass first reads it.
+		sec.set(0, registry.BlockStone.DefaultState(), false)
+		w.mu.Unlock()
+		p := NewPhysics(w)
+		p.SetSeed(123)
+		return p, sec
+	}
+	p, sec := setup()
+	control, _ := setup()
+	chunks := []ChunkPos{pos}
+	changes, decays := p.RandomTick(10, chunks, 0, 1)
+	if p.now != 10 {
+		t.Errorf("disabled tick advanced time to %d, want 10", p.now)
+	}
+	if changes != nil || decays != nil {
+		t.Errorf("disabled tick returned changes=%v and decays=%v, want nil for both", changes, decays)
+	}
+	if sec.tickMask.Load() != nil {
+		t.Error("disabled tick read a ticking section")
+	}
+
+	changes, decays = p.RandomTick(11, chunks, 8, 1)
+	wantChanges, wantDecays := control.RandomTick(11, chunks, 8, 1)
+	if len(wantChanges) == 0 || len(wantDecays) == 0 {
+		t.Fatal("control tick did not decay leaves")
+	}
+	if !reflect.DeepEqual(changes, wantChanges) || !reflect.DeepEqual(decays, wantDecays) {
+		t.Errorf("enabled tick returned changes=%v and decays=%v, want changes=%v and decays=%v", changes, decays, wantChanges, wantDecays)
+	}
+	if got, want := p.rng.Int63(), control.rng.Int63(); got != want {
+		t.Errorf("next RNG draw is %d, want %d", got, want)
+	}
+}
+
 // Snapshot a seeded pass across uniform and paletted sections. The first
 // decays allocate a palette and cross its four-bit width respectively.
 func randomTickPaletteOutcome(t *testing.T, speed int) []byte {
