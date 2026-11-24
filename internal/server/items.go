@@ -97,21 +97,19 @@ var itemTracker = trackedKind[*itemEntity, struct{}]{
 // too, its inventory growing the same way a survival one does.
 // vanilla: ItemEntity.playerTouch, EntitySelector.NO_SPECTATORS
 func canPickUp(c *client) bool {
-	if c.player.GameMode() == protocol.GameModeSpectator {
-		return false
-	}
-	return !c.player.Vitals().Dead
+	vitals := c.player.Vitals()
+	return vitals.GameMode != protocol.GameModeSpectator && !vitals.Dead
 }
 
-// itemPickupCandidate returns the first client who may claim the item now —
-// alive, not a spectator, allowed by the item's owner rule and within the
-// pickup range — or nil for one nobody claims.
+// itemPickupCandidate finds the next eligible player in reach and keeps the
+// rest of the player snapshot for another touch if the item stays alive.
 func itemPickupCandidate(it *itemEntity, clients []*client, reach map[*client]entity.AABB) *itemPickup {
-	for _, c := range clients {
-		if c.theWorld() != it.w || !canPickUp(c) || !it.item.AllowsPickup(c.player.UUID) || !reach[c].Crosses(entity.NewAABB(it.item.BlastBox())) {
+	for i, c := range clients {
+		box, eligible := reach[c]
+		if !eligible || c.theWorld() != it.w || !it.item.AllowsPickup(c.player.UUID) || !box.Crosses(entity.NewAABB(it.item.BlastBox())) {
 			continue
 		}
-		return &itemPickup{collector: c, entity: it, item: it.item.ID}
+		return &itemPickup{collector: c, entity: it, item: it.item.ID, remaining: clients[i+1:]}
 	}
 	return nil
 }
@@ -153,17 +151,11 @@ func (c *client) pickupBox() entity.AABB {
 // vanilla's ServerEntity 1.0E-7, squared.
 const motionThreshold = 1e-7
 
-// itemPickup is what one pickup has to tell its collector before it can be
-// broadcast: the slot updates their inventory grew.
 type itemPickup struct {
 	collector *client
 	entity    *itemEntity
 	item      int32
-	count     int32
-	left      int32
-	consumed  bool
-	visible   bool
-	slots     [][]byte
+	remaining []*client
 }
 
 // itemMetadataUpdate is what one stack change owes the clients watching it:
@@ -224,7 +216,9 @@ func (s *Server) tickItems() {
 	reach := make(map[*client]entity.AABB, len(clients))
 	for _, c := range clients {
 		where[c] = c.player.Position()
-		reach[c] = c.pickupBox()
+		if canPickUp(c) {
+			reach[c] = c.pickupBox()
+		}
 		radius[c] = c.chunkRadius()
 	}
 
@@ -457,8 +451,6 @@ func (s *Server) tickItems() {
 		claimed := false
 		if it.item.PickupDue() {
 			if p := itemPickupCandidate(it, clients, reach); p != nil {
-				// The first player in range claims it, as vanilla
-				// gives an item to one collector.
 				candidates = append(candidates, p)
 				claimed = true
 			}
@@ -542,7 +534,7 @@ func (s *Server) tickItems() {
 		s.finishItemTravel(tr.it, tr.kind)
 	}
 
-	s.giveItemPickups(candidates)
+	s.giveItemPickups(candidates, reach)
 }
 
 // tickItemPickups runs one pass of the item pickups alone, the part of
@@ -555,7 +547,9 @@ func (s *Server) tickItemPickups() {
 	s.mu.RUnlock()
 	reach := make(map[*client]entity.AABB, len(clients))
 	for _, c := range clients {
-		reach[c] = c.pickupBox()
+		if canPickUp(c) {
+			reach[c] = c.pickupBox()
+		}
 	}
 	var candidates []*itemPickup
 	s.lockTick(&s.itemsMu)
@@ -568,107 +562,120 @@ func (s *Server) tickItemPickups() {
 		}
 	}
 	s.unlockTick(&s.itemsMu)
-	s.giveItemPickups(candidates)
+	s.giveItemPickups(candidates, reach)
 }
 
-// giveItemPickups hands each claimed item to its collector: the stack is
-// claimed out from under the item lock — alive check, count taken, body
-// marked dead — before the inventory is given any of it, and what did not
-// fit is put back after. A give with the lock down would leave the body
-// alive holding a stack already handed out, for a teleport across the
-// dimensions to twin.
-func (s *Server) giveItemPickups(candidates []*itemPickup) {
+// giveItemPickups lets each eligible player touch a drop until it is gone.
+// vanilla: Player.aiStep, ItemEntity.playerTouch
+func (s *Server) giveItemPickups(candidates []*itemPickup, reach map[*client]entity.AABB) {
 	for _, p := range candidates {
-		it := p.entity
-		s.itemsMu.Lock()
-		live := s.canClaimItemLocked(it)
-		s.itemsMu.Unlock()
-		if !live {
-			continue
-		}
-		c := p.collector
-
-		// rest is what a listener left on the ground by taking fewer.
-		take, ok := c.pluginPickup(it)
-		if !ok {
-			continue
-		}
-		// vanilla: ItemEntity.playerTouch, whose shrink runs before
-		// anything else can read the stack.
-		s.itemsMu.Lock()
-		rest := int32(0)
-		var given protocol.ItemStack
-		claimed := s.canClaimItemLocked(it)
-		thrower := it.thrower
-		if claimed {
-			given = it.item.Stack
-			if take > 0 && take < given.Count {
-				rest, given.Count = given.Count-take, take
+		for p != nil && s.tryItemPickup(p) && len(p.remaining) != 0 {
+			it, remaining := p.entity, p.remaining
+			p = nil
+			s.itemsMu.Lock()
+			if s.canClaimItemLocked(it) && it.item.PickupDue() {
+				p = itemPickupCandidate(it, remaining, reach)
 			}
-			it.item.Stack.Count = 0
-			it.item.Dead = true
+			s.itemsMu.Unlock()
 		}
-		s.itemsMu.Unlock()
-		if !claimed {
-			continue // gone between the find and the claim
-		}
-		if s.pickupSeam != nil {
-			s.pickupSeam(p.item)
-		}
-
-		c.player.Inventory(func(inv *player.Inventory) {
-			left, slots := inv.Add(given)
-			p.count = given.Count - left
-			for _, slot := range slots {
-				p.slots = append(p.slots, playerWindowSlotOf(inv, slot))
-				p.visible = p.visible || player.VisibleSlot(inv, slot)
-			}
-			p.left = left
-		})
-		p.consumed = p.left == 0 && rest == 0
-
-		// A creative add always succeeds, room or not: whatever the
-		// inventory cannot hold is voided, the take playing the whole
-		// original count. vanilla: Inventory.add, Player.hasInfiniteMaterials
-		if c.player.GameMode() == protocol.GameModeCreative {
-			p.count = given.Count
-			p.left = 0
-			p.consumed = rest == 0
-		}
-
-		// What did not fit goes back where it lay: the count restored,
-		// the body alive again unless the collector took the last of it,
-		// or a kill took the body during the window — the kill's removal
-		// is already out, and the body is not raised under it.
-		s.itemsMu.Lock()
-		it.item.Stack.Count = p.left + rest
-		it.item.Dead = p.consumed || it.killed
-		s.itemsMu.Unlock()
-		if p.count == 0 {
-			// The inventory could not hold any of it: the item stays
-			// as it lies, as vanilla retries a pickup that did not fit.
-			continue
-		}
-		// The whole stack's count, even when part of it did not fit.
-		// vanilla: ItemEntity.playerTouch
-		c.awardItemStat(registry.StatTypePickedUp, given.ItemID, given.Count)
-
-		for _, slot := range p.slots {
-			c.send(protocol.IDPlayContainerSlot, slot)
-		}
-		if p.visible {
-			c.equipmentDue.Store(true)
-		}
-		s.itemsMu.Lock()
-		watchers := trackedWatchers(it.tracked)
-		s.itemsMu.Unlock()
-		s.tellPickup(it.w, watchers, c, pickupItemPayload(p.item, c.player.EntityID, p.count))
-		if p.consumed {
-			s.entityDestroyedBy(it.uuid, plugin.RemovePickup)
-			s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities, removeEntitiesPayload([]int32{p.item}))
-		}
-		s.thrownItemPickedUpAdvancements(it.w, thrower, given, c, advancement.Entity{Type: playerEntityType, Loot: c.LootEntity})
 	}
+}
+
+// tryItemPickup reports whether the drop can still be touched. Mark it dead
+// before giving the stack so a portal cannot duplicate it during the claim.
+func (s *Server) tryItemPickup(p *itemPickup) bool {
+	it := p.entity
+	c := p.collector
+	if c.theWorld() != it.w || !canPickUp(c) {
+		return true
+	}
+	s.itemsMu.Lock()
+	live := s.canClaimItemLocked(it)
+	s.itemsMu.Unlock()
+	if !live {
+		return false
+	}
+	// rest is what a listener left on the ground by taking fewer.
+	take, ok := c.pluginPickup(it)
+	if !ok {
+		return true
+	}
+	// vanilla: ItemEntity.playerTouch, whose shrink runs before
+	// anything else can read the stack.
+	s.itemsMu.Lock()
+	rest := int32(0)
+	var given protocol.ItemStack
+	claimed := s.canClaimItemLocked(it)
+	thrower := it.thrower
+	if claimed {
+		given = it.item.Stack
+		if take > 0 && take < given.Count {
+			rest, given.Count = given.Count-take, take
+		}
+		it.item.Stack.Count = 0
+		it.item.Dead = true
+	}
+	s.itemsMu.Unlock()
+	if !claimed {
+		return false // gone between the find and the claim
+	}
+	if s.pickupSeam != nil {
+		s.pickupSeam(p.item)
+	}
+
+	var left int32
+	var slots [][]byte
+	var visible bool
+	c.player.Inventory(func(inv *player.Inventory) {
+		var changed []int
+		left, changed = inv.Add(given)
+		for _, slot := range changed {
+			slots = append(slots, playerWindowSlotOf(inv, slot))
+			visible = visible || player.VisibleSlot(inv, slot)
+		}
+	})
+
+	// A creative add always succeeds, room or not: whatever the
+	// inventory cannot hold is voided, the take playing the whole
+	// original count. vanilla: Inventory.add, Player.hasInfiniteMaterials
+	if c.player.GameMode() == protocol.GameModeCreative {
+		left = 0
+	}
+	count := given.Count - left
+	consumed := left == 0 && rest == 0
+
+	// What did not fit goes back where it lay: the count restored,
+	// the body alive again unless the collector took the last of it,
+	// or a kill took the body during the window — the kill's removal
+	// is already out, and the body is not raised under it.
+	s.itemsMu.Lock()
+	it.item.Stack.Count = left + rest
+	it.item.Dead = consumed || it.killed
+	remains := !it.item.Dead
+	s.itemsMu.Unlock()
+	if count == 0 {
+		return remains
+	}
+	// The whole stack's count, even when part of it did not fit.
+	// vanilla: ItemEntity.playerTouch
+	c.awardItemStat(registry.StatTypePickedUp, given.ItemID, given.Count)
+
+	for _, slot := range slots {
+		c.send(protocol.IDPlayContainerSlot, slot)
+	}
+	if visible {
+		c.equipmentDue.Store(true)
+	}
+	s.itemsMu.Lock()
+	watchers := trackedWatchers(it.tracked)
+	s.itemsMu.Unlock()
+	s.tellPickup(it.w, watchers, c, pickupItemPayload(p.item, c.player.EntityID, count))
+	if consumed {
+		s.entityDestroyedBy(it.uuid, plugin.RemovePickup)
+		s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities, removeEntitiesPayload([]int32{p.item}))
+	}
+	s.thrownItemPickedUpAdvancements(it.w, thrower, given, c, advancement.Entity{Type: playerEntityType, Loot: c.LootEntity})
+	return remains
 }
 
 func (s *Server) canClaimItemLocked(it *itemEntity) bool {
