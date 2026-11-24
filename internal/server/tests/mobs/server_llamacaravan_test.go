@@ -3,6 +3,7 @@ package mobs
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	server "github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
@@ -234,7 +235,9 @@ func TestACowAcrossTheSectionBoundaryFromAScaledCowIsNotCrammed(t *testing.T) {
 // vanilla: LivingEntity.pushEntities, EntitySectionStorage.forEachAccessibleNonEmptySection
 func TestAScaledLlamaIsCrammedByACowThatDoesNotQueryItsSection(t *testing.T) {
 	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Herder")
+	cfg := servertest.MobTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Herder")
 	c.Settle()
 	servertest.HoldTicks(t, srv)
 	srv.SetGameRuleValue("max_entity_cramming", 1)
@@ -247,11 +250,9 @@ func TestAScaledLlamaIsCrammedByACowThatDoesNotQueryItsSection(t *testing.T) {
 	}
 	llamaBefore, _ := srv.MobHealth(llama)
 	cowBefore, _ := srv.MobHealth(cow)
-	// The llama dies within 100 ticks, so read it after 20 (one hit lands
-	// every ten or so) and keep stepping for the mooshroom.
+	// The llama dies within 100 ticks, so read both after 20.
 	servertest.RunTicks(t, srv, 20)
 	llamaAfter, ok1 := srv.MobHealth(llama)
-	servertest.RunTicks(t, srv, 80)
 	cowAfter, ok2 := srv.MobHealth(cow)
 	if !ok1 || !ok2 {
 		t.Fatalf("a mob is gone: llama %v cow %v", ok1, ok2)
