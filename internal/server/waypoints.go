@@ -105,9 +105,6 @@ type waypointPlayer struct {
 	transmit, receive float64
 	spectator         bool
 	changed           bool
-	// visible reports whether a chunk is within this player's view, built
-	// once per tick so a pairing's view does not allocate.
-	visible func(x, z int32) bool
 	// Every track/update in this pass names the snapshot's coordinates.
 	// Queued payloads are immutable and shared by receivers of the same form.
 	payloads [protocol.WaypointUpdate + 1][2][]byte
@@ -131,7 +128,8 @@ type waypointStamp struct {
 func (s *Server) tickWaypoints() {
 	rule := s.world.BoolRule(world.RuleLocatorBar)
 	s.mu.RLock()
-	present := make([]waypointPlayer, 0, len(s.clients))
+	old := len(s.waypointBuf)
+	present := s.waypointBuf[:0]
 	for _, c := range s.clients {
 		if c.player == nil || c.keepAlive == nil {
 			continue
@@ -164,7 +162,6 @@ func (s *Server) tickWaypoints() {
 		anyChanged = anyChanged || p.changed
 	}
 	if anyChanged {
-		setWaypointVisibility(present)
 		for i := range present {
 			t := &present[i]
 			t.c.trackMu.Lock()
@@ -177,15 +174,10 @@ func (s *Server) tickWaypoints() {
 		}
 	}
 	s.tickMobWaypoints(rule, present)
-}
-
-// setWaypointVisibility builds each receiver's view test once per tick.
-func setWaypointVisibility(present []waypointPlayer) {
-	for i := range present {
-		chunk, radius := present[i].chunk, present[i].radius
-		present[i].visible = func(x, z int32) bool {
-			return world.InViewOf(world.ChunkPos{X: x, Z: z}, chunk, radius)
-		}
+	// Drop the client pointers of players who left, so they can be collected.
+	s.waypointBuf = present
+	if n := len(present); n < old {
+		clear(s.waypointBuf[n:old])
 	}
 }
 
@@ -197,7 +189,7 @@ func waypointViewOf(t *waypointPoint, v *waypointPlayer) rules.WaypointView {
 		BlockX: t.blockX, BlockY: t.blockY, BlockZ: t.blockZ,
 		ChunkX: t.chunk.X, ChunkZ: t.chunk.Z,
 		DX: v.x - t.x, DZ: v.z - t.z,
-		ChunkVisible: v.visible,
+		ViewerChunkX: v.chunk.X, ViewerChunkZ: v.chunk.Z, ViewerRadius: v.radius,
 	}
 }
 

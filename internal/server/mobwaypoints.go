@@ -91,9 +91,6 @@ func (s *Server) tickMobWaypoints(rule bool, present []waypointPlayer) {
 	if len(present) == 0 || len(mobs) == 0 && !held {
 		return
 	}
-	if present[0].visible == nil {
-		setWaypointVisibility(present)
-	}
 	s.waypointPass++
 	for i := range present {
 		v := &present[i]

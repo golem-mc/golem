@@ -78,8 +78,20 @@ type WaypointView struct {
 	BlockX, BlockY, BlockZ int32
 	ChunkX, ChunkZ         int32
 	DX, DZ                 float64 // receiver minus transmitter
-	// ChunkVisible reports whether a chunk is within the receiver's view.
-	ChunkVisible func(chunkX, chunkZ int32) bool
+	// The receiver's chunk and view radius, which ChunkVisible judges against.
+	ViewerChunkX, ViewerChunkZ, ViewerRadius int32
+}
+
+// ChunkVisible reports whether a chunk is within the receiver's view.
+func (v WaypointView) ChunkVisible(chunkX, chunkZ int32) bool {
+	dx, dz := chunkX-v.ViewerChunkX, chunkZ-v.ViewerChunkZ
+	if dx < 0 {
+		dx = -dx
+	}
+	if dz < 0 {
+		dz = -dz
+	}
+	return dx <= v.ViewerRadius && dz <= v.ViewerRadius
 }
 
 // Bearing computes the angle needed by an azimuth connection.
