@@ -2466,6 +2466,7 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 	c := &ctx
 	var sides [4]struct {
 		into, held     fluidState
+		state          uint16
 		eligible, hole bool
 	}
 	hasHole, anyDiffers := false, false
@@ -2478,12 +2479,14 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 		if !canMaybePassThrough(fs.kind, state, axis, positive, tState, tFS) {
 			continue
 		}
-		newFluid := p.newLiquidAt(tx, y, tz, tState, fs.kind)
-		if !canHoldSpecific(tState, newFluid) {
-			continue
-		}
 		side := &sides[i]
-		side.into = newFluid
+		if fluidContainer(tState) {
+			side.into = p.newLiquidAt(tx, y, tz, tState, fs.kind)
+			if !canHoldSpecific(tState, side.into) {
+				continue
+			}
+		}
+		side.state = tState
 		side.held = tFS
 		side.eligible = true
 		side.hole = c.isHole(tx, tz)
@@ -2495,32 +2498,47 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 	if !anyDiffers {
 		return
 	}
-	var sends [4]bool
+	var winners [4]bool
 	lowest := 1000
 	for i, d := range horizontal4 {
 		side := &sides[i]
 		if !side.eligible || (hasHole && !side.hole) {
 			continue
 		}
-		tx, tz := x+d[0], z+d[1]
 		distance := 0
 		// A lone outlet wins at any distance.
 		if !hasHole && eligible > 1 {
-			ti, _ := c.index(tx, tz)
+			ti, _ := c.index(x+d[0], z+d[1])
 			distance = c.slopeDistance(ti, 1, i^2, min(b.slopeFindDistance, lowest))
 		}
 		if distance < lowest {
-			sends = [4]bool{}
+			winners = [4]bool{}
 		}
 		if distance > lowest {
 			continue
 		}
 		// An eligible hole sets the distance even if its fluid cannot be displaced.
 		lowest = distance
-		sends[i] = p.canReplaceWith(side.held, tx, y, tz, side.into.kind, false)
+		winners[i] = true
+	}
+	// Finish planning every write before a spread or plugin hook changes the world.
+	for i, d := range horizontal4 {
+		if !winners[i] {
+			continue
+		}
+		side := &sides[i]
+		if side.held.kind == fs.kind {
+			winners[i] = false
+			continue
+		}
+		tx, tz := x+d[0], z+d[1]
+		if !fluidContainer(side.state) {
+			side.into = p.newLiquidAt(tx, y, tz, side.state, fs.kind)
+		}
+		winners[i] = p.canReplaceWith(side.held, tx, y, tz, side.into.kind, false)
 	}
 	for i, d := range horizontal4 {
-		if !sends[i] {
+		if !winners[i] {
 			continue
 		}
 		// Re-read the target at the moment of spreading: the flood may have
