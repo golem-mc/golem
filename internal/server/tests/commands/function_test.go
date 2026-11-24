@@ -129,6 +129,43 @@ func TestFunctionRunsEveryLineSilently(t *testing.T) {
 	c.Disconnect()
 }
 
+func TestFunctionSelfSelectorSeesTagChanges(t *testing.T) {
+	t.Parallel()
+	srv, connect := startFunctionServer(t, map[string]string{
+		"t/function/weapon.mcfunction": `tag @s add weapon
+execute if entity @s[tag=weapon] run tellraw @a {"text":"Projectile tagged weapon"}
+tag @e[type=arrow,tag=review_probe,limit=1] remove review_probe
+execute if entity @s[tag=!review_probe] run tellraw @a {"text":"Projectile lost review_probe"}
+`,
+	}, "Testificate")
+	c := connect().Join("Testificate")
+	servertest.HoldTicks(t, srv)
+
+	c.ChatCommand(`summon arrow ~2 ~2 ~ {Tags:["review_probe"],NoGravity:1b}`)
+	servertest.AwaitSystemChatSaying(t, c, "commands.summon.success")
+	c.ChatCommand("execute as @e[type=arrow,tag=review_probe,limit=1] at @s run function t:weapon")
+	c.ExpectCommandFeedback("commands.function.scheduled.single", "t:weapon")
+
+	var messages []string
+	c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+		if id == protocol.IDPlaySystemChat {
+			msg, ok := protocol.ReadText(protocol.NewReader(data))
+			if !ok {
+				t.Fatalf("invalid system chat: %x", data)
+			}
+			messages = append(messages, msg.Plain())
+		}
+		return false
+	})
+	want := []string{"Projectile tagged weapon", "Projectile lost review_probe"}
+	if !slices.Equal(messages, want) {
+		t.Errorf("function chat = %q, want %q", messages, want)
+	}
+
+	c.ChatCommand("execute if entity @e[type=arrow,tag=weapon,tag=!review_probe]")
+	c.ExpectCommandFeedbackText("commands.execute.conditional.pass_count", protocol.Text{Number: new(int64(1))})
+}
+
 // TestFunctionReturnEndsTheFunction checks /return: a value ends the
 // function and reaches /function's result line and an execute store, a fail
 // returns 0, a return run hands back its command's result, and a function
