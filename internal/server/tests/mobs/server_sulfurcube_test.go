@@ -225,6 +225,44 @@ func TestExplosiveSulfurCubeFireExplosionAndPowerPriming(t *testing.T) {
 	}
 }
 
+// vanilla: SulfurCube.getSplitCount, AbstractCubeMob.remove
+func TestSulfurCubeSplitsOnlyWhenUnprimed(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		primed bool
+		want   int
+	}{
+		{"primed", true, 0},
+		{"unprimed", false, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := servertest.MobTestConfig()
+			cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+			srv, c := servertest.Join(t, cfg, "Keeper", servertest.OpsListing(t, "Keeper"))
+			c.MoveToGround(4.5, 64, 0.5, true)
+			c.Settle()
+			servertest.HoldTicks(t, srv)
+			c.ChatCommand(`summon minecraft:sulfur_cube 4.5 64 4.5 {Size:1,NoAI:1b,Tags:["split_test"],equipment:{body:{id:"minecraft:tnt",count:1}}}`)
+			id := c.ExpectMobSpawn(protocol.EntityTypeSulfurCube).EntityID
+			const cube = "@e[type=minecraft:sulfur_cube,tag=split_test,limit=1]"
+			if tc.primed {
+				c.ChatCommand("damage " + cube + " 1 minecraft:in_fire")
+				c.Settle()
+			}
+			if got := srv.MobSulfurPrimed(id); got != tc.primed {
+				t.Fatalf("cube primed = %v, want %v", got, tc.primed)
+			}
+			c.ChatCommand("kill " + cube)
+			servertest.AwaitSystemChatSaying(t, c, "commands.kill.success.single")
+			servertest.RunTicks(t, srv, 25)
+			if ids := srv.MobIDsOfKind("minecraft:sulfur_cube"); len(ids) != tc.want {
+				t.Fatalf("sulfur cubes after death = %d, want %d", len(ids), tc.want)
+			}
+		})
+	}
+}
+
 // sulfurCubeWith spawns an adult cube beside the player and feeds it one item.
 func sulfurCubeWith(t *testing.T, srv *server.Server, c *servertest.Client, item string) int32 {
 	t.Helper()
