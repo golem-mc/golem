@@ -77,6 +77,13 @@ func TestVehicleQuerySurvivesIndexDropWhileWaitingForBoats(t *testing.T) {
 			}
 			time.Sleep(time.Millisecond)
 		}
+		// A lookup still holding minecartsMu would deadlock dropCartColumns
+		// while this goroutine holds boatsMu.
+		if !s.minecartsMu.TryLock() {
+			t.Error("lookup holds minecartsMu while waiting for boatsMu")
+			return
+		}
+		s.minecartsMu.Unlock()
 		s.dropCartColumns()
 	}()
 	if t.Failed() {
