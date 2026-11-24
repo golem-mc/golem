@@ -1,10 +1,11 @@
 package world
 
 import (
-	"github.com/golem-mc/golem/internal/server/world/terrain"
+	"math/bits"
 	"sync"
 
 	"github.com/golem-mc/golem/internal/server/world/levelgen"
+	"github.com/golem-mc/golem/internal/server/world/terrain"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -170,8 +171,28 @@ func (b *overworldMaterialBiomes) At(x, y, z int32) int {
 func (b *overworldMaterialBiomes) Temperature(biome int, x, y, z, seaLevel int32) float32 {
 	return heightAdjustedTemperature(seaLevel, x, y, z, b.g.biomeClimates[biome])
 }
-func (g *OverworldGenerator) terrainBiomes() terrain.TerrainBiomes {
+func (g *OverworldGenerator) terrainBiomes(cx, cz int32) terrain.TerrainBiomes {
+	// vanilla: ChunkStatusTasks.collectPossibleBiomes includes every vertical
+	// palette in the radius-one neighbourhood.
+	var mask uint64
+	for dz := int32(-1); dz <= 1; dz++ {
+		for dx := int32(-1); dx <= 1; dx++ {
+			mask |= g.biomeCellsOf(cx+dx, cz+dz).mask
+		}
+	}
+	possible := make([]int, 0, bits.OnesCount64(mask))
+	for b := range terrain.OverworldBiomeCount {
+		if mask&(1<<b) != 0 {
+			possible = append(possible, b)
+		}
+	}
+
 	surface := &overworldMaterialBiomes{g: g, reader: cellReader{g: g}}
 	carving := &overworldMaterialBiomes{g: g, sampler: g.biomeSource.NewSampler()}
-	return terrain.TerrainBiomes{Surface: surface, Carving: carving, Carvers: func(int32, int32) []terrain.Carver { return terrain.OverworldCarvers }}
+	return terrain.TerrainBiomes{
+		Surface:        surface,
+		PossibleBiomes: possible,
+		Carving:        carving,
+		Carvers:        func(int32, int32) []terrain.Carver { return terrain.OverworldCarvers },
+	}
 }
