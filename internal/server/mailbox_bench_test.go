@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -22,20 +23,24 @@ func (c *countingConn) Write(b []byte) (int, error)      { c.writes++; return le
 func (c *countingConn) SetWriteDeadline(time.Time) error { return nil }
 
 func BenchmarkMailboxBatch(b *testing.B) {
-	cc := &countingConn{}
-	cl := &client{conn: protocol.NewConn(cc), log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	m := &mailbox{c: cl, done: make(chan struct{})}
-	payload := make([]byte, 24)
-	b.ReportAllocs()
-	for b.Loop() {
-		m.mu.Lock()
-		for range 100 {
-			m.queue = append(m.queue, outbound{id: 0x20, data: payload})
-		}
-		m.mu.Unlock()
-		m.writeBatch()
+	for _, n := range []int{100, 2048} {
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			cc := &countingConn{}
+			cl := &client{conn: protocol.NewConn(cc), log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+			m := &mailbox{c: cl, done: make(chan struct{})}
+			payload := make([]byte, 24)
+			b.ReportAllocs()
+			for b.Loop() {
+				m.mu.Lock()
+				for range n {
+					m.queue = append(m.queue, outbound{id: 0x20, data: payload})
+				}
+				m.mu.Unlock()
+				m.writeBatch()
+			}
+			b.ReportMetric(float64(cc.writes)/float64(b.N), "writes/batch")
+		})
 	}
-	b.ReportMetric(float64(cc.writes)/float64(b.N), "writes/batch")
 }
 
 func BenchmarkMailboxSend(b *testing.B) {
@@ -92,21 +97,5 @@ func BenchmarkBroadcast50KBTo50(b *testing.B) {
 				b.Fatal("write failed")
 			}
 		}
-	}
-}
-
-func BenchmarkMailboxBusyBatch(b *testing.B) {
-	cc := &countingConn{}
-	cl := &client{conn: protocol.NewConn(cc), log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	m := &mailbox{c: cl, done: make(chan struct{})}
-	payload := make([]byte, 24)
-	b.ReportAllocs()
-	for b.Loop() {
-		m.mu.Lock()
-		for range 2048 {
-			m.queue = append(m.queue, outbound{id: 0x20, data: payload})
-		}
-		m.mu.Unlock()
-		m.writeBatch()
 	}
 }
