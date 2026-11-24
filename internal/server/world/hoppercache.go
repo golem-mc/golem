@@ -1,6 +1,9 @@
 package world
 
-import "github.com/golem-mc/golem/internal/protocol"
+import (
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/registry"
+)
 
 // ContainerStamp identifies a loaded chunk and its latest block or container
 // replacement. Including the chunk identity distinguishes unload followed by reload.
@@ -55,4 +58,27 @@ type HopperTargetCache struct {
 	Versions     [2]uint64
 	// VehicleSlots identifies the selected vehicle inventory, including NBT replacements.
 	VehicleSlots *protocol.ItemStack
+}
+
+// HopperFull is vanilla's inventoryFull after ejectItems, reusing the last
+// answer until the inventory version moves. The caller holds b's lock and has
+// set HopperTargets.
+func (b *BlockEntity) HopperFull() bool {
+	if b.FilledSlots() != 0x1f {
+		return false
+	}
+	c := b.HopperTargets
+	if v := b.InventoryVersion(); !c.FullKnown || c.FullVersion != v {
+		c.FullKnown, c.FullVersion, c.Full = true, v, slotsFull(b.Slots)
+	}
+	return c.Full
+}
+
+func slotsFull(slots []protocol.ItemStack) bool {
+	for i := range slots {
+		if slots[i].Count <= 0 || slots[i].Count < registry.StackMaxStackSizePtr(&slots[i]) {
+			return false
+		}
+	}
+	return true
 }

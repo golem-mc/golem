@@ -34,7 +34,7 @@ func TestAHopperRetriesAfterEitherInventoryChanges(t *testing.T) {
 	}
 	// With only room for dirt, changing the hopper's item must retry too.
 	srv.SetInventoryAt(4, 64, 0, 26, servertest.ItemStack(t, "minecraft:dirt", 63))
-	servertest.TickBlockEntitiesByHand(srv, 10)
+	servertest.TickBlockEntitiesByHand(srv, 7)
 	srv.OverworldWorld().BlockEntity(4, 65, 0).Use(func(be *world.BlockEntity) {
 		be.Put(0, servertest.ItemStack(t, "minecraft:dirt", 1))
 	})
@@ -48,8 +48,9 @@ func TestAHopperRetriesAfterEitherInventoryChanges(t *testing.T) {
 // slots changing even when the occupied-slot mask stays the same.
 func TestHopperFullnessAfterSlotEdit(t *testing.T) {
 	t.Parallel()
-	srv, _ := servertest.Join(t, servertest.BlockTestConfig(), "Tester")
-	servertest.HoldTicks(t, srv)
+	srv := servertest.NewTestServer(t, servertest.BlockTestConfig())
+	srv.StopTick()
+	t.Cleanup(srv.HoldChunk(4, 0))
 	srv.PlaceContainer(4, 66, 0, "minecraft:chest")
 	srv.PlaceContainer(4, 65, 0, "minecraft:hopper")
 	srv.PlaceContainer(4, 64, 0, "minecraft:chest")
@@ -76,7 +77,7 @@ func TestHopperFullnessAfterSlotEdit(t *testing.T) {
 	// A full hopper pulls nothing, then pulls once a full stack shrinks.
 	full := servertest.ItemStack(t, "minecraft:stone", 64)
 	fill(full)
-	servertest.TickBlockEntitiesByHand(srv, 3)
+	servertest.TickBlockEntitiesByHand(srv, 1)
 	pulled(0, 64)
 	shrunk := full
 	shrunk.Count = 63
@@ -91,7 +92,7 @@ func TestHopperFullnessAfterSlotEdit(t *testing.T) {
 	srv.SetInventoryAt(4, 66, 0, 0, source)
 	fill(small)
 	// Outlast the cooldown of the pull above.
-	servertest.TickBlockEntitiesByHand(srv, 10)
+	servertest.TickBlockEntitiesByHand(srv, 7)
 	pulled(0, 16)
 	srv.SetInventoryAt(4, 65, 0, 0, bigger)
 	pulled(0, 17)
