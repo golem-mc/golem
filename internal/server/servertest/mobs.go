@@ -1111,6 +1111,9 @@ type SpawnedMob struct {
 	HasLlamaStrength, HasLlamaVariant bool
 	GolemFlags                        uint8
 	HasGolemFlags                     bool
+	// ArmadilloState is the armadillo's state enum (0 idle, 1 rolling, 2 scared, 3 unrolling).
+	ArmadilloState    int32
+	HasArmadilloState bool
 	// CopperWeather is a copper golem's non-default weathering stage.
 	CopperWeather int
 	Powered       bool
@@ -1557,6 +1560,10 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 				}
 				mob.MooshroomVariant = meta.ReadVarInt()
 				mob.HasMooshroomVariant = true
+				continue
+			}
+			if fieldType == protocol.MetadataArmadilloState {
+				mob.ArmadilloState, mob.HasArmadilloState = meta.ReadVarInt(), true
 				continue
 			}
 			if fieldType == protocol.MetadataBoolean && mob.TypeID == protocol.EntityTypeOcelot {

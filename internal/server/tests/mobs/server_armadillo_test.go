@@ -90,3 +90,13 @@ func TestArmadilloRollMetadataAndReducedDamage(t *testing.T) {
 		t.Fatalf("rolled health=%v, want 10", hp)
 	}
 }
+
+func TestSummonedScaredArmadilloSpawnsWithScaredState(t *testing.T) {
+	t.Parallel()
+	c, _, _ := polarWorld(t)
+	c.ChatCommand(`summon minecraft:armadillo 3.5 64 0.5 {NoAI:1b,Age:-24000,state:"scared"}`)
+	mob := c.ExpectMobSpawn(armadilloType())
+	if !mob.HasArmadilloState || mob.ArmadilloState != 2 {
+		t.Fatalf("armadillo state = %d (present %v), want 2 (scared)", mob.ArmadilloState, mob.HasArmadilloState)
+	}
+}
