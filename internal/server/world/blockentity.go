@@ -1297,7 +1297,7 @@ func (w *World) EnsureBlockEntity(x, y, z int32, kind BlockEntityKind) *BlockEnt
 
 // EnsureBlockEntityForBlock gives the block now at the position the block
 // entity vanilla gives every block of its type, when it has none: a fresh
-// spawner, or a carried compound with the type's empty save for a type this
+// spawner, or a carried compound with the type's default data for a type this
 // server does not model (the client draws banners, heads and the enchanting
 // table's book only from one). The other modelled kinds are the callers' to
 // create; a piston's is its moving block's.
@@ -1310,7 +1310,8 @@ func (w *World) EnsureBlockEntityForBlock(x, y, z int32) {
 		w.mu.RUnlock()
 		return
 	}
-	block := registry.BlockOf(loaded.chunk.BlockAt(x&15, y, z&15))
+	state := loaded.chunk.BlockAt(x&15, y, z&15)
+	block := registry.BlockOf(state)
 	id, has := registry.BlockEntityTypes[block.Name()]
 	_, carried := loaded.chunk.carriedBlockEntityAt(x, y, z)
 	_, ride := loaded.chunk.pistonRide(x, y, z)
@@ -1325,11 +1326,7 @@ func (w *World) EnsureBlockEntityForBlock(x, y, z int32) {
 		w.EnsureBlockEntity(x, y, z, kind)
 	case containerKind(kind) || kind == KindPiston:
 	default:
-		save := nbt.Compound{"components": nbt.Compound{}}
-		if id == "minecraft:end_gateway" {
-			save["Age"] = nbt.Long(0)
-		}
-		w.SetBlockEntityTag(x, y, z, id, save)
+		w.SetBlockEntityTag(x, y, z, id, freshCarriedTag(block, state))
 	}
 }
 
