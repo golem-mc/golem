@@ -214,3 +214,96 @@ func TestCaravanSearchReachesTheSectionBelow(t *testing.T) {
 		t.Error("the llama missed a lead filed in the section below the window")
 	}
 }
+
+// TestCaravanGridReachesAScaledLead: the grid's reach counts the scale
+// attribute, so a big lead whose box overlaps the window is found like in
+// the herd scan.
+// vanilla: LlamaFollowCaravanGoal.canUse
+func TestCaravanGridReachesAScaledLead(t *testing.T) {
+	w := newTestWorld()
+	herd := make([]*Mob, 0, 70)
+	lead := NewMob(TypeLlama, 1, 157.0, 64, 159.5, 1)
+	lead.LeashHolderID = 99
+	lead.SetAttributes(lead.BuildAttributes(nbt.List{}))
+	lead.attrs.SetBase(registry.AttributeScale, 16)
+	follower := NewMob(TypeLlama, 2, 141.5, 64, 159.5, 2)
+	herd = append(herd, lead, follower)
+	for i := range 64 {
+		far := NewMob(TypeLlama, int32(10+i), 1000.5+float64(i)*20, 64, 0.5, int64(i))
+		far.LeashHolderID = 99
+		herd = append(herd, far)
+	}
+	g := takePushGrid(len(herd), nil)
+	g.build(herd)
+	for _, m := range herd {
+		m.push = g
+	}
+	defer g.release()
+	if !(&caravanGoal{m: follower, speed: llamaCaravanSpeed}).CanStart(&tickView{w: w, others: herd}) {
+		t.Error("the llama missed a scaled lead whose box overlaps its search window")
+	}
+}
+
+// TestPushIgnoresAScaledBodyFiledInTheNextSection: a scale-16 cow whose box
+// overlaps an ordinary one is neither pushed nor counted when its position is
+// filed outside the sections the ordinary cow's box touches, grid or not.
+// vanilla: LivingEntity.pushEntities, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestPushIgnoresAScaledBodyFiledInTheNextSection(t *testing.T) {
+	w := newTestWorld()
+	for _, x := range []float64{146, 142} {
+		cow := NewMob(TypeCow, 1, 139.5, 64, 0.5, 1)
+		giant := NewMob(TypeCow, 2, x, 64, 0.5, 2)
+		giant.SetAttributes(giant.BuildAttributes(nbt.List{}))
+		giant.attrs.SetBase(registry.AttributeScale, 16)
+		herd := []*Mob{cow, giant}
+		g := takePushGrid(len(herd), nil)
+		g.build(herd)
+		for _, m := range herd {
+			m.push = g
+		}
+		cow.pushStep(w, nil, herd, nil)
+		g.release()
+		// x=146 is section 9, the cow's box reaches section 8 only.
+		if pushed := cow.VX != 0; pushed != (x == 142) {
+			t.Errorf("giant at x=%v: cow pushed=%v", x, pushed)
+		}
+	}
+}
+
+// TestGatherSkipsEmptyCellsOfAWideQuery: a scale-16 slime far off widens every
+// query, and the sparse grid still hands out the same candidates in the same
+// order as a full scan.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestGatherSkipsEmptyCellsOfAWideQuery(t *testing.T) {
+	herd := make([]*Mob, 0, 41)
+	for i := range 40 {
+		herd = append(herd, NewMob(TypeZombie, int32(i), float64(i%8)*0.5-2, 64, float64(i/8)*0.5-1, int64(i)))
+	}
+	slime := NewMob(TypeSlime, 100, 100000.5, 64, 0.5, 100)
+	slime.Size = 127
+	slime.SetAttributes(slime.BuildAttributes(nbt.List{}))
+	slime.attrs.SetBase(registry.AttributeScale, 16)
+	herd = append(herd, slime)
+	g := takePushGrid(len(herd), nil)
+	defer g.release()
+	g.build(herd)
+	if len(g.dense) != 0 {
+		t.Fatal("the herd should be sparse")
+	}
+	m := herd[0]
+	var want []*Mob
+	for _, o := range herd {
+		if boxesOverlap(m.X, m.Y, m.Z, m.width(), m.height(), o.X, o.Y, o.Z, o.width(), o.height()) {
+			want = append(want, o)
+		}
+	}
+	got := g.candidates(m, 0)
+	if len(got) != len(want) {
+		t.Fatalf("got %d candidates, want %d", len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("candidate %d differs", i)
+		}
+	}
+}

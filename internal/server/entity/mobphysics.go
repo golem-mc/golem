@@ -623,8 +623,12 @@ func (m *Mob) pushStep(w World, players []Player, others []*Mob, events []MobEve
 	if g := m.push; g != nil {
 		pack = g.candidates(m, 0)
 	}
+	window := newSectionWindow(m.X-bw/2, m.X+bw/2, m.Y, m.Y+h, m.Z-bw/2, m.Z+bw/2)
 	for _, other := range pack {
 		if other == nil || other == m || !other.Pushable() {
+			continue
+		}
+		if !window.holds(other) {
 			continue
 		}
 		if !boxesOverlap(m.X, m.Y, m.Z, bw, h,
@@ -764,6 +768,9 @@ func cellKey(x, z int) pushCellKey {
 	return pushCellKey(int64(x)<<32 | int64(uint32(z)))
 }
 
+// keyCoords is cellKey's inverse.
+func keyCoords(k pushCellKey) (x, z int) { return int(int32(int64(k) >> 32)), int(int32(k)) }
+
 // cellCoords is the cell's x and z.
 func cellCoords(x, z float64) (cx, cz int) {
 	return int(math.Floor(x / pushCellSide)), int(math.Floor(z / pushCellSide))
@@ -818,6 +825,8 @@ type pushGrid struct {
 	// caravan is the snapshot's llamas that are leashed or in a caravan, plus
 	// those that joined one this tick: the only ones a caravan goal can pick.
 	caravan []*Mob
+	// keys is the sparse query's scratch of occupied cells.
+	keys []pushCellKey
 	// near is the candidates' scratch, reused gathering to gathering.
 	near []*Mob
 	// gathered, when set, adds up the candidates handed out.
@@ -973,7 +982,7 @@ func (g *pushGrid) add(m *Mob, idx int) {
 	if _, ok := g.byID[m.ID]; !ok {
 		g.byID[m.ID] = m
 	}
-	hw := m.kind().width * m.scale() / 2
+	hw := m.kind().width * m.scale() * m.attrScale() / 2
 	if hw > g.wide {
 		g.wide = hw
 	}
@@ -1020,11 +1029,11 @@ func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
 // The result is scratch valid until the next query.
 func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 	g.near = g.near[:0]
-	hw := m.kind().width * m.scale() / 2
+	hw := m.width() / 2
 	r := int(math.Ceil((hw + g.wide + inflate) / pushCellSide))
 	cx, cz := cellCoords(m.X, m.Z)
 	// The same sums boxesOverlap does, once for the query.
-	qw, qh := m.width()/2+inflate, m.height()+inflate
+	qw, qh := hw+inflate, m.height()+inflate
 	qMinX, qMaxX := m.X-qw, m.X+qw
 	qMinY, qMaxY := m.Y-inflate, m.Y+qh
 	qMinZ, qMaxZ := m.Z-qw, m.Z+qw
@@ -1045,6 +1054,32 @@ func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 			for z := loZ; z <= hiZ; z++ {
 				collect(g.dense[row+z-g.rect.minZ].entries)
 			}
+		}
+	} else if side := 2*r + 1; side*side > len(g.cells)+len(g.dense) {
+		// A wide body makes the square far larger than the occupied cells:
+		// visit those in cell order instead.
+		g.keys = g.keys[:0]
+		for k := range g.cells {
+			if x, z := keyCoords(k); x >= cx-r && x <= cx+r && z >= cz-r && z <= cz+r {
+				g.keys = append(g.keys, k)
+			}
+		}
+		loX, hiX, loZ, hiZ := g.rect.clip(cx-r, cx+r, cz-r, cz+r)
+		for x := loX; x <= hiX; x++ {
+			row := g.rect.row(x)
+			for z := loZ; z <= hiZ; z++ {
+				if len(g.dense[row+z-g.rect.minZ].entries) > 0 {
+					g.keys = append(g.keys, cellKey(x, z))
+				}
+			}
+		}
+		slices.SortFunc(g.keys, func(a, b pushCellKey) int {
+			ax, az := keyCoords(a)
+			bx, bz := keyCoords(b)
+			return cmp.Or(cmp.Compare(ax, bx), cmp.Compare(az, bz))
+		})
+		for _, k := range g.keys {
+			collect(g.cell(k))
 		}
 	} else {
 		// Mixed dense and overflow cells still traverse in cell order before
