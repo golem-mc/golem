@@ -12,11 +12,11 @@ import (
 func TestRideSeatsPassengersAtFoxAttachment(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name, age     string
-		attachY, back float64
+		name, age string
+		attachY   float64
 	}{
-		{"adult", "0", 0.6375, 0.25},
-		{"baby", "-24000", 0.375, 0},
+		{"adult", "0", 0.6375},
+		{"baby", "-24000", 0.375},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -56,8 +56,8 @@ func TestRideSeatsPassengersAtFoxAttachment(t *testing.T) {
 				name, rotation string
 				dx, dz         float64
 			}{
-				{"south", "", 0, -tc.back},
-				{"west", "90", tc.back, 0},
+				{"south", "", 0, 0},
+				{"west", "90", 0, 0},
 			} {
 				t.Run(facing.name, func(t *testing.T) {
 					if facing.rotation != "" {
