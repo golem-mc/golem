@@ -212,12 +212,14 @@ func (c *client) fireCrossbow(hand int32) {
 		if projectile.Intangible {
 			pickup = entity.PickupCreativeOnly
 		}
+		// vanilla: Projectile.applyOnProjectileSpawned, Entity.igniteForTicks
+		fireTicks := max(rules.ProjectileIgniteTicks(projectile), rules.ProjectileIgniteTicks(crossbow))
 		// A shooter that is a player always shoots critical arrows.
 		// vanilla: CrossbowItem.performShooting
 		it := newArrowEntity(s, c.theWorld(),
 			pos.X, pos.Y+c.dims(c.player.Appearance().Pose).EyeHeight-entity.ArrowSpawnBelow, pos.Z,
 			vx, vy, vz, yaw, pitch, true, entity.ArrowBaseDamage, pickup,
-			c.player.EntityID, c.player.UUID, crossbow, rules.ProjectileIgniteTicks(crossbow))
+			c.player.EntityID, c.player.UUID, crossbow, fireTicks)
 		armArrow(it, projectile)
 		it.arrow.PierceLevel = rules.PiercingLevel(crossbow, projectile, &rules.EnchContext{Rand: s.levelRng})
 		it.arrow.HitSound = crossbowHitSound

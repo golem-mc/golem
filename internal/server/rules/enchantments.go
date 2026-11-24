@@ -744,12 +744,12 @@ func enchRollBetween(rng *rand.Rand, min, max float64) float64 {
 	return float64(rng.Float32()*float32(max-min) + float32(min))
 }
 
-// ProjectileIgniteTicks is the burn the weapon's projectile_spawned ignite
+// ProjectileIgniteTicks is the burn a stack's projectile_spawned ignite
 // effects give the projectile (flame: an arrow arrives burning for 100 s).
 // vanilla: EnchantmentHelper.onProjectileSpawned
-func ProjectileIgniteTicks(weapon protocol.ItemStack) int32 {
+func ProjectileIgniteTicks(stack protocol.ItemStack) int32 {
 	var best int32
-	for _, ench := range enchantsOn(weapon) {
+	for _, ench := range enchantsOn(stack) {
 		for _, spawned := range ench.def.Effects.ProjectileSpawned {
 			if !enchCondition(spawned.Requires, &EnchContext{}) {
 				continue
