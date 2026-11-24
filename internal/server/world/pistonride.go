@@ -25,9 +25,9 @@ type pistonRide struct {
 	pluginData   nbt.Compound
 }
 
-// codec reads and writes a moving piston's saved fields. A reloaded move
-// finishes where it was, so loading skips progress and sets createdTick to
-// -1 to treat the ride as old for same-tick retraction.
+// codec reads and writes a moving piston's saved fields. Reloads skip the
+// sweep and set createdTick to -1 to treat the ride as old for same-tick
+// retraction. Saves and chunk update tags put the carried block at rest.
 // vanilla: PistonMovingBlockEntity.loadAdditional, saveAdditional
 func (r *pistonRide) codec(c *beCodec) {
 	if !c.updateTag {
@@ -39,7 +39,7 @@ func (r *pistonRide) codec(c *beCodec) {
 	if c.load {
 		r.createdTick = -1
 	} else {
-		c.out.Set("progress", nbt.Float(r.rideProgress))
+		c.out.Set("progress", nbt.Float(1))
 	}
 	field(c, "extending", &r.extending, beFlag, false)
 	field(c, "source", &r.isSource, beFlag, false)
