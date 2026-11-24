@@ -152,21 +152,77 @@ func TestAHopperTellsWatchersTheRemainderOfAPartlyTakenItem(t *testing.T) {
 	if got := srv.InventoryAt(4, 64, 0)[4]; got.ItemID != stone || got.Count != 64 {
 		t.Fatalf("hopper slot 4 holds %+v, want 64 stone", got)
 	}
-	var count int32 = -1
+	var slot *servertest.MetaEntry
 	watcher.ReadTicks(srv, 0, func(id int32, data []byte) bool {
 		if id != protocol.IDPlayEntityMetadata {
 			return false
 		}
 		m := protocol.NewReader(data)
-		if m.ReadVarInt() != itemID || m.ReadU8() != protocol.MetadataIndexItemSlot || m.ReadVarInt() != protocol.MetadataSlot {
+		if m.ReadVarInt() != itemID {
 			return false
 		}
-		if stack, ok := m.ReadSlot(); ok {
-			count = int32(stack.Count)
+		entries, ok := servertest.ReadMetadata(m)
+		if !ok {
+			return false
 		}
-		return count >= 0
+		slot = servertest.MetaOf(entries, protocol.MetadataIndexItemSlot)
+		return slot != nil
 	})
-	if count != 1 {
-		t.Errorf("the watcher was sent a stack of %d for the item, want 1", count)
+	if slot == nil {
+		t.Fatal("the watcher was sent no item slot for the item")
+	}
+	if slot.SlotVal.ItemID != stone || slot.SlotVal.Count != 1 {
+		t.Errorf("the watcher was sent %+v for the item, want one stone", slot.SlotVal)
+	}
+}
+
+// TestAHopperPicksUpAcrossAChunkBorder covers an item whose centre is in
+// the next chunk, including arrivals after another hopper searched that chunk.
+// vanilla: HopperBlockEntity.getItemsAtAndAbove
+func TestAHopperPicksUpAcrossAChunkBorder(t *testing.T) {
+	t.Parallel()
+	for _, arrival := range []string{"present", "spawned", "teleported"} {
+		t.Run(arrival, func(t *testing.T) {
+			srv := servertest.NewTestServer(t, servertest.BlockTestConfig())
+			srv.StopTick()
+			t.Cleanup(srv.HoldChunk(15, 0))
+			t.Cleanup(srv.HoldChunk(16, 0))
+
+			// The first hopper searches both chunks before the second takes its turn.
+			for _, z := range []int32{1, 0} {
+				if !srv.PlaceContainer(16, 64, z, "minecraft:hopper") {
+					t.Fatalf("could not place hopper at z=%d", z)
+				}
+			}
+			spawn := func(x float64) {
+				t.Helper()
+				if srv.SpawnItemEntity(x, 65, 0.5, "minecraft:stone", 1) == 0 {
+					t.Fatal("the drop did not spawn")
+				}
+			}
+			switch arrival {
+			case "present":
+				spawn(15.95)
+			case "teleported":
+				spawn(17.5)
+			}
+			srv.BlockEntityTickBetween(func(be *world.BlockEntity) {
+				if be.X != 16 || be.Y != 64 || be.Z != 0 {
+					return
+				}
+				switch arrival {
+				case "spawned":
+					spawn(15.95)
+				case "teleported":
+					srv.RunLine("tp @e[type=item] 15.95 65 0.5")
+				}
+			})
+			servertest.TickBlockEntitiesByHand(srv, 1)
+
+			stone := servertest.MustItemID(t, "minecraft:stone")
+			if got := srv.InventoryAt(16, 64, 0)[0]; got.ItemID != stone || got.Count != 1 {
+				t.Fatalf("hopper slot 0 holds %+v, want the straddling stone", got)
+			}
+		})
 	}
 }
