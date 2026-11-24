@@ -658,10 +658,18 @@ func (x *tntBlastIndex) build(list []*tntEntity) {
 	x.grid.Reset()
 	clear(x.bodies)
 	x.bodies = x.bodies[:0]
-	for _, it := range list {
-		i := int32(len(x.bodies))
-		x.bodies = append(x.bodies, it)
-		x.grid.Add(i, entity.NewAABB(it.tnt.X, it.tnt.Y, it.tnt.Z, it.tnt.X, it.tnt.Y, it.tnt.Z))
+	if len(list) > 0 {
+		minX, maxX := list[0].tnt.X, list[0].tnt.X
+		minZ, maxZ := list[0].tnt.Z, list[0].tnt.Z
+		for _, it := range list[1:] {
+			minX, maxX = min(minX, it.tnt.X), max(maxX, it.tnt.X)
+			minZ, maxZ = min(minZ, it.tnt.Z), max(maxZ, it.tnt.Z)
+		}
+		x.grid.SetPointBounds(minX, maxX, minZ, maxZ, len(list))
+		x.bodies = append(x.bodies, list...)
+		for i, it := range list {
+			x.grid.AddPoint(int32(i), it.tnt.X, it.tnt.Z)
+		}
 	}
 	x.active = true
 }
