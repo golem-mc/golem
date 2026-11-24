@@ -90,8 +90,11 @@ func (r *decorRegion) reconnectShapes(own *decorProto) {
 		state := r.get(x, y, z)
 		b := registry.BlockOf(state)
 		if b == registry.BlockWater && bubbleWaterSource(state) {
-			// vanilla: LiquidBlock.tick, BubbleColumnBlock.updateColumn
 			if col := bubbleColumnStateFor(r.get(x, y-1, z), state); col != state {
+				// The fluid tick spreads sideways over the column's base before
+				// the block tick replaces the source with a bubble column.
+				// vanilla: LevelChunk.postProcessGeneration
+				r.spreadBubbleSource(x, y, z, state)
 				r.set(x, y, z, col)
 				r.breakSeagrassAround(x, y, z)
 				for yy := y + 1; yy < r.minY+r.height && bubbleCanOccupy(r.get(x, yy, z)); yy++ {
@@ -150,6 +153,36 @@ func (r *decorRegion) reconnectShapes(own *decorProto) {
 			}
 			r.set(x, y, z, state)
 		}
+	}
+}
+
+// spreadBubbleSource applies the fluid tick of a marked bubble column base.
+func (r *decorRegion) spreadBubbleSource(x, y, z int32, state uint16) {
+	fs := fluidHolding(state)
+	flows, winners := fluidSideFlows(r, x, y, z, state, fs, fluidBehaviours[fluidWater])
+	for i, d := range horizontal4 {
+		if !winners[i] {
+			continue
+		}
+		tx, tz := x+d[0], z+d[1]
+		old := r.get(tx, y, tz)
+		flow := flows[i]
+		next := flow.createLegacy()
+		if fluidContainer(old) {
+			if !flow.isSource() {
+				continue
+			}
+			wet, _, ok := blocklogic.PlaceWater(old)
+			if !ok {
+				continue
+			}
+			next = wet
+		}
+		r.set(tx, y, tz, next)
+		p := r.protoAt(tx, tz)
+		p.fluidTicks = append(p.fluidTicks, decorFluidTick{
+			pos: posKey{tx & 15, y - r.minY, tz & 15}, kind: fluidTypeOf(fluidHolding(next)),
+		})
 	}
 }
 
