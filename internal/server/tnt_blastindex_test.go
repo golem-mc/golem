@@ -81,6 +81,9 @@ func BenchmarkTNTBlastIndex(b *testing.B) {
 		z := float64(i/64)*32 + 0.5
 		scattered[i] = &tntEntity{tnt: &entity.TNT{X: x, Y: 64, Z: z}}
 	}
+	// Place a nearby survivor in an adjacent cell so the sparse query returns
+	// candidates across cells without shrinking the scattered bounding box.
+	scattered[count-1] = &tntEntity{tnt: &entity.TNT{X: 39.5, Y: 64, Z: 32.5}}
 	b.Run("ScatteredBuild", func(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {
@@ -92,7 +95,7 @@ func BenchmarkTNTBlastIndex(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {
 			idx.build(scattered)
-			_ = idx.near(scattered, 16.5, 64.0, 16.5, 8)
+			_ = idx.near(scattered, 32.5, 64.0, 32.5, 8)
 			idx.drop()
 		}
 	})

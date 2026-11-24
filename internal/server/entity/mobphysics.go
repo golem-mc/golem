@@ -851,7 +851,7 @@ func (g *pushGrid) build(mobs []*Mob) {
 		g.dense = slices.Grow(g.dense, total)[:total]
 		for _, m := range mobs {
 			x, z := cellCoords(m.X, m.Z)
-			g.dense[g.rect.index(x, z)].count++
+			g.dense[g.rect.row(x)+z-g.rect.minZ].count++
 		}
 		g.entries = slices.Grow(g.entries, len(mobs))[:len(mobs)]
 		offset := 0

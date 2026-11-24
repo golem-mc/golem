@@ -4,10 +4,9 @@ import (
 	"math"
 	"slices"
 	"testing"
-	"time"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 )
@@ -18,11 +17,10 @@ import (
 // vanilla: ServerExplosion.hurtEntities
 func TestSameTickTNTBlastsPushSurvivorsInOrder(t *testing.T) {
 	t.Parallel()
-	clock := servertest.NewStepClock()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Watcher", func(s *server.Server) {
-		s.SetTickClock(clock, nil)
-		s.SetKeepAlive(time.Hour, time.Hour)
-	})
+	cfg := servertest.MobTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Watcher")
+	servertest.HoldTicks(t, srv)
 
 	// Place survivors in reverse cell order across the x=8 cell boundary
 	// (surv1 in cell 1, surv2 in cell 0) so cell order differs from list order.
@@ -37,19 +35,13 @@ func TestSameTickTNTBlastsPushSurvivorsInOrder(t *testing.T) {
 		c.AwaitSpawn(protocol.EntityTypeTnt)
 	}
 
-	servertest.StepTicks(t, srv, clock, 1)
-
 	type motion struct {
 		id         int32
 		vx, vy, vz float64
 	}
 	var got []motion
 	explosions := 0
-	for explosions < 2 || len(got) < 4 {
-		id, data, err := c.Read()
-		if err != nil {
-			t.Fatalf("read packet: %v", err)
-		}
+	c.ReadTicks(srv, 1, func(id int32, data []byte) bool {
 		switch id {
 		case protocol.IDPlaySetEntityMotion:
 			r := protocol.NewReader(data)
@@ -64,6 +56,11 @@ func TestSameTickTNTBlastsPushSurvivorsInOrder(t *testing.T) {
 		case protocol.IDPlayExplosion:
 			explosions++
 		}
+		return false
+	})
+
+	if explosions != 2 {
+		t.Fatalf("explosions = %d, want 2", explosions)
 	}
 
 	var ids []int32

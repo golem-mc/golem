@@ -169,6 +169,38 @@ func (g *BoxGrid) Add(i int32, box AABB) {
 	}
 }
 
+// forEachBucket visits each non-empty bucket in [x0, x1] x [z0, z1].
+func (g *BoxGrid) forEachBucket(x0, x1, z0, z1 int32, fn func([]int32)) {
+	switch {
+	case !g.rect.active():
+		for x := x0; x <= x1; x++ {
+			for z := z0; z <= z1; z++ {
+				if c := g.cells[[2]int32{x, z}]; len(c) > 0 {
+					fn(c)
+				}
+			}
+		}
+	case len(g.cells) == 0:
+		loX, hiX, loZ, hiZ := g.rect.clip(int(x0), int(x1), int(z0), int(z1))
+		for x := loX; x <= hiX; x++ {
+			row := g.rect.row(x)
+			for z := loZ; z <= hiZ; z++ {
+				if c := g.dense[row+z-g.rect.minZ]; len(c) > 0 {
+					fn(c)
+				}
+			}
+		}
+	default:
+		for x := x0; x <= x1; x++ {
+			for z := z0; z <= z1; z++ {
+				if c := g.cell(x, z); len(c) > 0 {
+					fn(c)
+				}
+			}
+		}
+	}
+}
+
 // Query yields each index filed under a cell box overlaps, once, in ascending
 // order. yield must not call Query.
 func (g *BoxGrid) Query(box AABB, yield func(i int32)) {
@@ -186,28 +218,9 @@ func (g *BoxGrid) Query(box AABB, yield func(i int32)) {
 		return
 	}
 	g.seen = g.seen[:0]
-	switch {
-	case !g.rect.active():
-		for x := x0; x <= x1; x++ {
-			for z := z0; z <= z1; z++ {
-				g.seen = append(g.seen, g.cells[[2]int32{x, z}]...)
-			}
-		}
-	case len(g.cells) == 0:
-		loX, hiX, loZ, hiZ := g.rect.clip(int(x0), int(x1), int(z0), int(z1))
-		for x := loX; x <= hiX; x++ {
-			row := g.rect.row(x)
-			for z := loZ; z <= hiZ; z++ {
-				g.seen = append(g.seen, g.dense[row+z-g.rect.minZ]...)
-			}
-		}
-	default:
-		for x := x0; x <= x1; x++ {
-			for z := z0; z <= z1; z++ {
-				g.seen = append(g.seen, g.cell(x, z)...)
-			}
-		}
-	}
+	g.forEachBucket(x0, x1, z0, z1, func(c []int32) {
+		g.seen = append(g.seen, c...)
+	})
 	slices.Sort(g.seen)
 	g.seen = slices.Compact(g.seen)
 	for _, i := range g.seen {
@@ -220,34 +233,11 @@ func (g *BoxGrid) Query(box AABB, yield func(i int32)) {
 // and none is sorted. yield must not call Query.
 func (g *BoxGrid) QueryPoints(box AABB, yield func(i int32)) {
 	x0, x1, z0, z1 := g.boxCells(box)
-	switch {
-	case !g.rect.active():
-		for x := x0; x <= x1; x++ {
-			for z := z0; z <= z1; z++ {
-				for _, i := range g.cells[[2]int32{x, z}] {
-					yield(i)
-				}
-			}
+	g.forEachBucket(x0, x1, z0, z1, func(c []int32) {
+		for _, i := range c {
+			yield(i)
 		}
-	case len(g.cells) == 0:
-		loX, hiX, loZ, hiZ := g.rect.clip(int(x0), int(x1), int(z0), int(z1))
-		for x := loX; x <= hiX; x++ {
-			row := g.rect.row(x)
-			for z := loZ; z <= hiZ; z++ {
-				for _, i := range g.dense[row+z-g.rect.minZ] {
-					yield(i)
-				}
-			}
-		}
-	default:
-		for x := x0; x <= x1; x++ {
-			for z := z0; z <= z1; z++ {
-				for _, i := range g.cell(x, z) {
-					yield(i)
-				}
-			}
-		}
-	}
+	})
 }
 
 // Union is the smallest box holding both a and b.
