@@ -392,7 +392,7 @@ func (s *Server) boxTaken(w *world.World, box entity.AABB) bool {
 	if s.endCrystalBoxTaken(w, box) {
 		return true
 	}
-	return s.looseBoxTaken(w, box) || s.cloudBoxTaken(w, box)
+	return s.looseBoxTaken(w, box) || s.arrowOrCloudBoxTaken(w, box)
 }
 
 // looseBoxTaken is boxTaken's half over the items, orbs, TNT, falling
