@@ -587,8 +587,9 @@ func FeetSupport(w BlockAt, x, feetY, z, halfWidth float64) uint16 {
 // whose shape stops short of y gives way to one that reaches it, and is
 // the answer only when none does.
 func onPosCell(w BlockAt, x, y, z, halfWidth float64, reach bool) (int32, int32, int32, uint16) {
-	if bx, by, bz := StandingBlock(w, x, y, z, halfWidth); isPostBlock(w.BlockAt(bx, by, bz)) {
-		return bx, by, bz, w.BlockAt(bx, by, bz)
+	sx, sy, sz, sstate := standingBlock(w, x, y, z, halfWidth)
+	if isPostBlock(sstate) {
+		return sx, sy, sz, sstate
 	}
 	cy := int32(math.Floor(y - 0.2))
 	cx, cz := int32(math.Floor(x)), int32(math.Floor(z))
@@ -597,7 +598,10 @@ func onPosCell(w BlockAt, x, y, z, halfWidth float64, reach bool) (int32, int32,
 	// nothing.
 	fx, fz, fallback := cx, cz, airState
 	pick := func(xx, zz int32) bool {
-		state := w.BlockAt(xx, cy, zz)
+		state := sstate
+		if xx != sx || cy != sy || zz != sz {
+			state = w.BlockAt(xx, cy, zz)
+		}
 		if registry.CollisionHeight(state) <= 0 {
 			return false
 		}
@@ -659,35 +663,52 @@ var fenceGateBlocks = registry.BlocksInGroup(registry.GroupFenceGate)
 // server does not keep.
 // vanilla: Entity.getOnPos, mainSupportingBlockPos
 func StandingBlock(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32) {
+	bx, by, bz, _ = standingBlock(w, x, y, z, halfWidth)
+	return bx, by, bz
+}
+
+// standingBlock is StandingBlock with the state it read at the answer, so a
+// caller need not read the cell again. Reads each cell at most once per row.
+func standingBlock(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32, state uint16) {
 	const eps = 1e-5
 	cx, cz := int32(math.Floor(x)), int32(math.Floor(z))
 	cy := int32(math.Floor(y - eps))
 	minX, maxX := CellRange(x-halfWidth, x+halfWidth)
 	minZ, maxZ := CellRange(z-halfWidth, z+halfWidth)
-	scan := func(yy int32, reach float64) (int32, int32, bool) {
-		ok := func(xx, zz int32) bool {
-			h := registry.CollisionHeight(w.BlockAt(xx, yy, zz))
-			return h > 0 && float64(yy)+h >= reach
+	// centre is the state read at (cx, cy, cz), kept for the miss answer.
+	var centre uint16
+	scan := func(yy int32, reach float64) (int32, int32, uint16, bool) {
+		ok := func(xx, zz int32) (uint16, bool) {
+			s := w.BlockAt(xx, yy, zz)
+			h := registry.CollisionHeight(s)
+			return s, h > 0 && float64(yy)+h >= reach
 		}
-		if ok(cx, cz) {
-			return cx, cz, true
+		s, found := ok(cx, cz)
+		if yy == cy {
+			centre = s
+		}
+		if found {
+			return cx, cz, s, true
 		}
 		for zz := minZ; zz <= maxZ; zz++ {
 			for xx := minX; xx <= maxX; xx++ {
-				if ok(xx, zz) {
-					return xx, zz, true
+				if xx == cx && zz == cz {
+					continue
+				}
+				if s, found := ok(xx, zz); found {
+					return xx, zz, s, true
 				}
 			}
 		}
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
-	if xx, zz, found := scan(cy, math.Inf(-1)); found {
-		return xx, cy, zz
+	if xx, zz, s, found := scan(cy, math.Inf(-1)); found {
+		return xx, cy, zz, s
 	}
-	if xx, zz, found := scan(cy-1, y-eps); found {
-		return xx, cy - 1, zz
+	if xx, zz, s, found := scan(cy-1, y-eps); found {
+		return xx, cy - 1, zz, s
 	}
-	return cx, cy, cz
+	return cx, cy, cz, centre
 }
 
 // FrostSlowAir reports whether the block the frost slow reads under a body
