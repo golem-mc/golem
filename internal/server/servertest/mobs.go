@@ -1105,8 +1105,12 @@ type SpawnedMob struct {
 	HasFoxType, HasFoxFlags bool
 	Baby                    bool
 	HasBaby                 bool
-	GolemFlags              uint8
-	HasGolemFlags           bool
+	// LlamaStrength and LlamaVariant are a llama's VarInts; absent (Has false)
+	// is the client's default.
+	LlamaStrength, LlamaVariant       int32
+	HasLlamaStrength, HasLlamaVariant bool
+	GolemFlags                        uint8
+	HasGolemFlags                     bool
 	// CopperWeather is a copper golem's non-default weathering stage.
 	CopperWeather int
 	Powered       bool
@@ -1475,6 +1479,22 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 		if index == protocol.MetadataIndexFishFromBucket && fieldType == protocol.MetadataBoolean && isFishType(mob.TypeID) {
 			mob.FromBucket = meta.ReadBool()
 			continue
+		}
+		if mob.TypeID == protocol.EntityTypeLlama || mob.TypeID == protocol.EntityTypeTraderLlama {
+			switch {
+			case index == protocol.MetadataIndexHorseFlags && fieldType == protocol.MetadataByte:
+				meta.ReadU8()
+				continue
+			case index == protocol.MetadataIndexChestedHorseChest && fieldType == protocol.MetadataBoolean:
+				meta.ReadBool()
+				continue
+			case index == protocol.MetadataIndexLlamaStrength && fieldType == protocol.MetadataVarInt:
+				mob.LlamaStrength, mob.HasLlamaStrength = meta.ReadVarInt(), true
+				continue
+			case index == protocol.MetadataIndexLlamaVariant && fieldType == protocol.MetadataVarInt:
+				mob.LlamaVariant, mob.HasLlamaVariant = meta.ReadVarInt(), true
+				continue
+			}
 		}
 		if mob.TypeID == protocol.EntityTypeGoat && fieldType == protocol.MetadataBoolean &&
 			index >= protocol.MetadataIndexGoatScreaming && index <= protocol.MetadataIndexGoatRightHorn {
