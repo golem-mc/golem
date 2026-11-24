@@ -48,12 +48,12 @@ func TestAPackProviderListRefusesLiteralEmptyKeyCompound(t *testing.T) {
 			t.Fatalf("%s: feedback = %+v, want one extra component", tc.name, got)
 		}
 		got = got.Extra[0]
-		if got.Translate != "command.compute.result.unnamed.invalid" || len(got.With) != 1 || !strings.Contains(got.With[0].Text, tc.want) {
+		if got.Translate != "command.compute.result.named.invalid" || len(got.With) != 2 || got.With[0].Text != "p:"+tc.name || !strings.Contains(got.With[1].Text, tc.want) {
 			t.Errorf("%s: feedback = %+v, want an invalid result naming %q", tc.name, got, tc.want)
 		}
 	}
 	c.ChatCommand("compute default integer p:mixed")
-	if got := feedback(t, srv, c); got.Translate != "command.compute.result.unnamed.exact" || len(got.With) != 1 || got.With[0].Number == nil || *got.With[0].Number != 8 {
+	if got := feedback(t, srv, c); got.Translate != "command.compute.result.named.exact" || len(got.With) != 2 || got.With[0].Text != "p:mixed" || got.With[1].Number == nil || *got.With[1].Number != 8 {
 		t.Errorf("mixed list feedback = %+v, want the exact result", got)
 	}
 	c.Disconnect()
