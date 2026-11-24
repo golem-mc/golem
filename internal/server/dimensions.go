@@ -53,6 +53,12 @@ type dimension struct {
 	// of which mobs have been woken into the world. It is guarded by the
 	// server's mobsMu, the way the item entities are by itemsMu.
 	mobs *mobHerd
+	// Mob loot scratch belongs to the tick goroutine. Ground and view share indices.
+	mobLootGround   []*itemEntity
+	mobLootView     []entity.LootItem
+	mobLootGrid     entity.BoxGrid
+	mobLootPicking  bool
+	mobLootGrabbing bool
 	// spawnTuning is the plugin-set natural spawn limits and tick rates.
 	spawnTuning entity.SpawnTuning
 	// colliders belongs to each dimension/pass on the tick goroutine; grids
