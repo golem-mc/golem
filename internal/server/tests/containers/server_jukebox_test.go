@@ -244,20 +244,45 @@ func TestBreakingAJukeboxDropsItsDisc(t *testing.T) {
 // above it. A stopped record leaves the hopper enabled to pull it.
 func TestAPlayingJukeboxPlacedWithATagLocksTheHopperBelow(t *testing.T) {
 	t.Parallel()
-	srv, w := servertest.OpenWindowedOps(t, servertest.BlockTestConfig())
-	srv.StopTick()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
 
 	for _, tc := range []struct {
-		name    string
-		x       int32
-		ticks   int64
-		enabled string
-	}{{"playing", 3, 0, "false"}, {"stopped", 8, 99999, "true"}} {
-		servertest.Setblock(t, w.Client, tc.x, 64, 0, "minecraft:hopper[facing=down]")
-		servertest.Setblock(t, w.Client, tc.x, 65, 0, servertest.JukeboxCommand("cat", tc.ticks))
-		servertest.TickBlockEntitiesByHand(srv, 12)
+		name      string
+		x         int32
+		ticks     int64
+		enabled   string
+		inHopper  bool
+		hasRecord string
+	}{{"playing", 3, 0, "false", false, "true"}, {"stopped", 8, 99999, "true", true, "false"}} {
+		servertest.Setblock(t, c, tc.x, 64, 0, "minecraft:hopper[facing=down]")
+		servertest.Setblock(t, c, tc.x, 65, 0, servertest.JukeboxCommand("cat", tc.ticks))
 		if _, props := servertest.StatePropsOf(t, srv, tc.x, 64, 0); props["enabled"] != tc.enabled {
 			t.Errorf("%s: hopper = %v, want enabled=%s", tc.name, props, tc.enabled)
 		}
+		servertest.RunTicks(t, srv, 1)
+		if got := srv.BlockEntityStack(tc.x, 64, 0, 0).Count > 0; got != tc.inHopper {
+			t.Errorf("%s: disc in hopper = %v, want %v", tc.name, got, tc.inHopper)
+		}
+		if _, props := servertest.StatePropsOf(t, srv, tc.x, 65, 0); props["has_record"] != tc.hasRecord {
+			t.Errorf("%s: jukebox = %v, want has_record=%s", tc.name, props, tc.hasRecord)
+		}
+	}
+}
+
+// TestStrictSetblockLoadsTheBlockEntityTag places a chest with items in strict
+// mode, which skips the neighbour wake but still loads the tag.
+func TestStrictSetblockLoadsTheBlockEntityTag(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
+
+	servertest.Setblock(t, c, 3, 64, 0, `minecraft:chest{Items:[{Slot:0b,id:"minecraft:diamond",count:1}]} strict`)
+	if got := srv.BlockEntityStack(3, 64, 0, 0); got.Count != 1 || registry.Item(got.ItemID) != registry.ItemDiamond {
+		t.Errorf("slot 0 = %+v, want a diamond", got)
 	}
 }

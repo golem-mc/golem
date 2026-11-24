@@ -37,6 +37,13 @@ func (s *Server) blockPlaced(w *world.World, x, y, z int32, oldState uint16) {
 	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
 }
 
+// blockPlacedAfterShapes is blockPlaced for a write whose shape pass already
+// ran, so the wake does not repeat it.
+func (s *Server) blockPlacedAfterShapes(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyPlacedAfterShapes(x, y, z, oldState)
+	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
+}
+
 // updateNeighboursOnBlockSet runs the wake a non-strict /setblock owes even
 // when nothing changed: neighbours of an unchanged cell still hear it. It
 // requests the neighbour update directly, as NotifyChanged would no-op on an

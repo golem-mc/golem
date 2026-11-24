@@ -912,7 +912,7 @@ func (p *Physics) takeWake() ([]Effect, []TNTPrime) {
 // once). A call where nothing changed is a no-op, as LevelChunk.setBlockState
 // declines an unchanged state.
 func (p *Physics) NotifyChanged(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
-	return p.notifyChanged(x, y, z, oldState, false)
+	return p.notifyChanged(x, y, z, oldState, false, true)
 }
 
 // NotifyPlaced is NotifyChanged for a command's write followed by
@@ -920,10 +920,16 @@ func (p *Physics) NotifyChanged(x, y, z int32, oldState uint16) ([]BlockChange, 
 // position, not the old one.
 // vanilla: ServerLevel.updateNeighboursOnBlockSet
 func (p *Physics) NotifyPlaced(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
-	return p.notifyChanged(x, y, z, oldState, true)
+	return p.notifyChanged(x, y, z, oldState, true, true)
 }
 
-func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([]BlockChange, []Effect, []TNTPrime) {
+// NotifyPlacedAfterShapes is NotifyPlaced without the neighbour shape pass,
+// for a write that already ran it.
+func (p *Physics) NotifyPlacedAfterShapes(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
+	return p.notifyChanged(x, y, z, oldState, true, false)
+}
+
+func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew, shapes bool) ([]BlockChange, []Effect, []TNTPrime) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	newState := p.w.BlockAt(x, y, z)
@@ -957,7 +963,9 @@ func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([
 	// redstone wire overrides it, for the wires a step above or below its
 	// connected sides.
 	p.wireSlopeChanges(x, y, z, oldState, &changes)
-	p.shapeUpdateNeighbors(x, y, z, &changes)
+	if shapes {
+		p.shapeUpdateNeighbors(x, y, z, &changes)
+	}
 	p.wireSlopeChanges(x, y, z, newState, &changes)
 	effects, primes := p.takeWake()
 	return changes, effects, primes
