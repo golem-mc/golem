@@ -294,6 +294,36 @@ func TestABabyFollowsTheAdultOfItsKind(t *testing.T) {
 	}
 }
 
+// TestABabyFollowsItsParentAmongAHugeHerd: with more than sixty-four other
+// cows in the dimension, which puts the herd search on the push grid, a calf
+// still walks to the adult beside it and not to a farther one.
+func TestABabyFollowsItsParentAmongAHugeHerd(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Watcher", "", 0, servertest.OpsListing(t, "Watcher"))
+	srv.StopTick()
+	srv.SpawnMob("minecraft:cow", 2.5, 64, 3.5)
+	adult := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.ChatCommand(`summon minecraft:cow 9.5 64 3.5 {Age:-24000}`)
+	calf := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	for i := range 70 {
+		srv.SpawnMob("minecraft:cow", -20+float64(i%10)*2+0.5, 64, 30+float64(i/10)*2+0.5)
+	}
+
+	closed := false
+	for range 10 {
+		srv.TickMobs(10)
+		a, _ := mobWithID(srv, adult.EntityID)
+		b, _ := mobWithID(srv, calf.EntityID)
+		if blocksAway(a.X, a.Y, a.Z, b.X, b.Y, b.Z) < 3 {
+			closed = true
+			break
+		}
+	}
+	if !closed {
+		t.Fatal("the calf is still three blocks or more from the adult after 100 ticks")
+	}
+}
+
 // TestBredYoungOfEachKind: every farm animal breeds a baby of its own kind
 // once two fed adults meet — Pig, Sheep and Chicken.getBreedOffspring beside
 // the cow's own covered above.
