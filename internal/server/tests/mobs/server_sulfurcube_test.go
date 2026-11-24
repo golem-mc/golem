@@ -370,8 +370,8 @@ func TestFilledSulfurCubeKnockbackPitchAndDamageCommand(t *testing.T) {
 		if !ok {
 			t.Fatal("sulfur cube disappeared")
 		}
-		if vx <= 0.5 || vy <= 0.1 || vz >= 0.4 {
-			t.Fatalf("/damage by mob Motion = [%.4f, %.4f, %.4f], want sulfur-bent knockback", vx, vy, vz)
+		if math.Abs(vx-0.5871) > 0.001 || math.Abs(vy-0.144) > 0.001 || math.Abs(vz-0.3015) > 0.001 {
+			t.Fatalf("/damage by mob Motion = [%.4f, %.4f, %.4f], want [0.5871, 0.144, 0.3015] (+-0.001)", vx, vy, vz)
 		}
 	})
 
