@@ -177,7 +177,9 @@ func (ix *pickupIndex) candidate(it *itemEntity, clients []*client, from int) *i
 		c := clients[i]
 		return int(i) >= from && ix.eligible[i] && c.theWorld() == it.w && it.item.AllowsPickup(c.player.UUID) && ix.reach[i].Crosses(box)
 	}
-	if !ix.indexed {
+	// A handoff resumes at the next index; the grid would revisit the clients
+	// already passed, so only the first lookup uses it.
+	if !ix.indexed || from > 0 {
 		for i := from; i < len(clients); i++ {
 			if ok(int32(i)) {
 				return &itemPickup{collector: clients[i], entity: it, item: it.item.ID, next: i + 1}
