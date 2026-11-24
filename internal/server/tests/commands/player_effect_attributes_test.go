@@ -13,15 +13,17 @@ func TestPlayerEffectModifiersAreListedInAttributes(t *testing.T) {
 	_, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "DJ", servertest.OpsListing(t, "DJ"))
 	c.Settle()
 
-	modifiers := func() string {
+	// query reads the movement_speed attribute path, failing on any other feedback.
+	query := func(path string) string {
 		t.Helper()
-		c.ChatCommand(`data get entity @s attributes[{id:"minecraft:movement_speed"}].modifiers`)
+		c.ChatCommand(`data get entity @s attributes[{id:"minecraft:movement_speed"}]` + path)
 		line := servertest.FeedbackComponent(t, c)
 		if line.Translate != "commands.data.entity.query" || len(line.With) != 2 {
-			return ""
+			t.Fatalf("query %q feedback = %+v, want commands.data.entity.query", path, line)
 		}
 		return line.With[1].Plain()
 	}
+	modifiers := func() string { t.Helper(); return query(".modifiers") }
 
 	c.ChatCommand("effect give @s speed 30 1")
 	c.Settle()
@@ -37,7 +39,18 @@ func TestPlayerEffectModifiersAreListedInAttributes(t *testing.T) {
 
 	c.ChatCommand("effect clear @s")
 	c.Settle()
-	if got := modifiers(); strings.Contains(got, "effect.speed") {
-		t.Fatalf("modifiers after effect clear = %s, want no effect.speed", got)
+	if got := query(""); strings.Contains(got, "modifiers") {
+		t.Fatalf("movement_speed after effect clear = %s, want no modifiers field", got)
+	}
+
+	// A reapplied effect goes last, after the others.
+	// vanilla: LivingEntity.onEffectUpdated
+	for _, cmd := range []string{"effect give @s speed infinite", "effect give @s slowness infinite", "effect give @s speed infinite 1"} {
+		c.ChatCommand(cmd)
+		c.Settle()
+	}
+	got = modifiers()
+	if s, sl := strings.Index(got, "effect.speed"), strings.Index(got, "effect.slowness"); sl < 0 || s < sl {
+		t.Fatalf("modifiers after reapplying speed = %s, want slowness before speed", got)
 	}
 }

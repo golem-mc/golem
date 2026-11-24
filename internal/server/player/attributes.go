@@ -253,6 +253,21 @@ func (a *Attributes) AddModifier(id registry.AttributeID, m Modifier) {
 	a.markDirty(in)
 }
 
+// ReplaceModifier puts a modifier on an attribute; one of the same ID that
+// differs is removed first, so the new one goes last.
+// vanilla: MobEffect.removeAttributeModifiers, addAttributeModifiers
+func (a *Attributes) ReplaceModifier(id registry.AttributeID, m Modifier) {
+	in := a.Instance(id)
+	if i := slices.IndexFunc(in.Modifiers, func(o Modifier) bool { return o.ID == m.ID }); i >= 0 {
+		if in.Modifiers[i] == m {
+			return
+		}
+		in.Modifiers = slices.Delete(in.Modifiers, i, i+1)
+	}
+	in.Modifiers = append(in.Modifiers, m)
+	a.markDirty(in)
+}
+
 // RemoveModifier removes a modifier by ID, reporting whether it was there. It
 // creates no instance, so an untouched attribute leaves the map unchanged.
 // vanilla: AttributeInstance.removeModifier
