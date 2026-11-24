@@ -197,6 +197,17 @@ func (s *Server) setItemStepDeferral(deferSteps bool) {
 	s.unlockTick(&s.itemsMu)
 }
 
+type itemTickList struct {
+	live []*itemEntity
+	slot []int
+}
+
+var itemTickLists = sync.Pool{New: func() any { return new(itemTickList) }}
+
+var itemNeighbours = sync.Pool{New: func() any {
+	return newBodyNear(entity.ItemMergeReach, func(it *entity.Item) (float64, float64) { return it.X, it.Z })
+}}
+
 // tickItems runs one game tick of everything lying in the worlds. The tick
 // is three phases, for the locks — the item lock is taken beneath the
 // player ones, never above them: positions read first with nothing held;
@@ -296,8 +307,9 @@ func (s *Server) tickItems() {
 	// live and neighbours are the items alive as the tick began — a merge
 	// this tick makes does not take its victim out of a later item's
 	// neighbours; slot is each live item's index in its world's grid.
-	live := make([]*itemEntity, 0, len(s.items))
-	slot := make([]int, 0, len(s.items))
+	list := itemTickLists.Get().(*itemTickList)
+	list.live = slices.Grow(list.live, len(s.items))
+	list.slot = slices.Grow(list.slot, len(s.items))
 	neighbours := make(map[*world.World]*bodyNear[*entity.Item])
 	for _, it := range s.items {
 		if it.item.Dead {
@@ -305,18 +317,13 @@ func (s *Server) tickItems() {
 		}
 		n := neighbours[it.w]
 		if n == nil {
-			n = newBodyNear(entity.ItemMergeReach, func(i *entity.Item) (float64, float64) { return i.X, i.Z })
+			n = itemNeighbours.Get().(*bodyNear[*entity.Item])
 			neighbours[it.w] = n
 		}
-		live = append(live, it)
-		slot = append(slot, n.add(it.item))
+		list.live = append(list.live, it)
+		list.slot = append(list.slot, n.add(it.item))
 		asks.watch(it)
 	}
-	defer func() {
-		for _, n := range neighbours {
-			n.release()
-		}
-	}()
 
 	alive := s.items[:0]
 	// sounds is one packet a burning or extinguished item's tick produced,
@@ -344,7 +351,7 @@ func (s *Server) tickItems() {
 	var ores []cellSpot
 	// flakes are the points snowflakes may rise from, above powder snow.
 	var flakes []snowflakeSpot
-	for k, it := range live {
+	for k, it := range list.live {
 		if it.item.Dead {
 			itemTracker.unfile(it)
 			continue // a merge took it into a neighbour earlier in the pass
@@ -401,7 +408,7 @@ func (s *Server) tickItems() {
 			bodyLandings = append(bodyLandings, bodyLanding{w: it.w, x: it.item.X, y: it.item.Y - entity.ItemHalfSize, z: it.item.Z,
 				halfWidth: entity.ItemHalfSize, dampens: dampensVibrations(it.item.Stack)})
 		}
-		n.moved(slot[k])
+		n.moved(list.slot[k])
 		for _, ev := range events {
 			switch ev.Kind {
 			case entity.ItemBurned:
@@ -485,7 +492,7 @@ func (s *Server) tickItems() {
 	// victims ride the same removals; the metadata update is built here,
 	// from the stack as the merge left it, for the clients the tracking
 	// says are watching.
-	for _, it := range live {
+	for _, it := range list.live {
 		if it.item.Dead && !announced[it] {
 			despawns[it.w] = append(despawns[it.w], it.item.ID)
 			s.entityDestroyedBy(it.uuid, plugin.RemoveMerge)
@@ -501,6 +508,14 @@ func (s *Server) tickItems() {
 	}
 	s.items = alive
 	s.unlockTick(&s.itemsMu)
+	clear(list.live)
+	list.live = list.live[:0]
+	list.slot = list.slot[:0]
+	itemTickLists.Put(list)
+	for _, n := range neighbours {
+		n.reset()
+		itemNeighbours.Put(n)
+	}
 	s.resolveItemAsks(asks, despawns, &merges, &spills)
 
 	out.send()
