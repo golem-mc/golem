@@ -2349,18 +2349,14 @@ func (b *BlockEntity) SetSpawnEntityID(id string) {
 }
 
 // RollSpawnPotential puts a weighted pick of SpawnPotentials in SpawnData (intn
-// is the level random's nextInt) and reports whether it picked. Without
-// potentials, SpawnData is the list's one entry, as load defaults it; with
-// all-zero weights the data stays. Call it inside Use.
+// is the level random's nextInt) and reports whether it picked. With no
+// potentials or all-zero weights nothing is drawn and the data stays; load
+// defaults only an omitted list to one entry. Call it inside Use.
 // vanilla: WeightedList.getRandom, BaseSpawner.load
 func (b *BlockEntity) RollSpawnPotential(intn func(int) int) bool {
 	total := 0
 	for _, item := range b.SpawnPotentials.Items {
 		total += spawnPotentialWeight(item)
-	}
-	if len(b.SpawnPotentials.Items) == 0 && b.SpawnData != nil {
-		intn(1)
-		return true
 	}
 	if total <= 0 {
 		return false
