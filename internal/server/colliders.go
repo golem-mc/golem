@@ -32,10 +32,12 @@ func (s *Server) collidersByWorld(pass collisionPass) map[*world.World]entity.Wo
 
 type mobCollisionWorld struct {
 	entity.Bodies
-	grid   entity.BoxGrid
-	mobs   map[*entity.Mob]int32
-	skip   []int32
-	riders []*entity.Mob
+	grid entity.BoxGrid
+	mobs map[*entity.Mob]int32
+	// shulkers indexes the shulker hulls in Boxes.
+	shulkers []int32
+	skip     []int32
+	riders   []*entity.Mob
 }
 
 // reset requires mobsMu; the hulls were read before taking it. The returned
@@ -47,12 +49,16 @@ func (w *mobCollisionWorld) reset(level *world.World, hulls []entity.AABB, herd 
 	w.grid.Reset()
 	w.Grid = &w.grid
 	clear(w.mobs)
+	w.shulkers = w.shulkers[:0]
 	for _, m := range herd {
 		if m.CollidesWithAny() {
 			if w.mobs == nil {
 				w.mobs = make(map[*entity.Mob]int32)
 			}
 			w.mobs[m] = int32(len(w.Boxes))
+			if m.IsShulker() {
+				w.shulkers = append(w.shulkers, int32(len(w.Boxes)))
+			}
 			w.Boxes = append(w.Boxes, entity.NewAABB(m.BlastBox()))
 		}
 	}
@@ -65,12 +71,18 @@ func (w *mobCollisionWorld) reset(level *world.World, hulls []entity.AABB, herd 
 	return w
 }
 
-// ForMob excludes the mover and its current ride tree. Called under mobsMu;
-// its Skip storage lasts until the next mover's synchronous tick starts.
+// ForMob excludes the mover and its current ride tree, and for a shulker
+// every shulker hull: its tick reads those live from the herd, and a hull
+// recorded before the tick would still block where a carried shulker left.
+// Called under mobsMu; its Skip storage lasts until the next mover's
+// synchronous tick starts.
 // vanilla: Entity.isPassengerOfSameVehicle
 func (w *mobCollisionWorld) ForMob(m *entity.Mob) entity.World {
 	b := w.Bodies
 	w.skip = w.skip[:0]
+	if m.IsShulker() {
+		w.skip = append(w.skip, w.shulkers...)
+	}
 	w.riders = append(w.riders, m.RootVehicle())
 	for len(w.riders) > 0 {
 		last := len(w.riders) - 1

@@ -65,7 +65,7 @@ func TestNoAIShulkerReattachesButDoesNotTeleport(t *testing.T) {
 }
 
 // A rider carried into another grid cell blocks a neighbour's opening the
-// same tick.
+// same tick, and one carried out of it no longer does.
 // vanilla: ServerLevel.tickPassenger, Shulker.canStayAt
 func TestNoAIShulkerCarriedByCowBlocksNeighbourOpening(t *testing.T) {
 	t.Parallel()
@@ -90,6 +90,12 @@ func TestNoAIShulkerCarriedByCowBlocksNeighbourOpening(t *testing.T) {
 	srv.RunLine(`tp @e[type=cow] 9.5 98.4 0.5`)
 	servertest.RunTicks(t, srv, 1)
 	if face, _, _ := srv.ShulkerState(neighbour); face != 0 {
-		t.Errorf("neighbour face = %d, want down (0)", face)
+		t.Fatalf("neighbour face = %d, want down (0)", face)
+	}
+	srv.RunLine(`data merge entity @e[tag=neighbour,limit=1] {AttachFace:5b}`)
+	srv.RunLine(`tp @e[type=cow] 1.5 98.4 0.5`)
+	servertest.RunTicks(t, srv, 1)
+	if face, _, _ := srv.ShulkerState(neighbour); face != 5 {
+		t.Errorf("neighbour face = %d after the rider left, want east (5)", face)
 	}
 }
