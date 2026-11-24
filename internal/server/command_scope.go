@@ -867,6 +867,15 @@ func (ws worldScope) SetBlockTagged(x, y, z int32, state uint16, defined map[str
 	if strict {
 		policy = strictBlockWrite
 	}
+	// A block entity's tag loads before the neighbour wake, so a neighbour
+	// reads the loaded state (a playing jukebox's signal).
+	// vanilla: BlockInput.place, SetBlockCommand.setBlock
+	_, hasEntity := blockEntityTypeOf(state)
+	deferWake := !strict && hasEntity && tag != nil && tag.Entries() != nil
+	if deferWake {
+		policy &^= writeWake
+	}
+	old := w.BlockAt(x, y, z)
 	changed := ws.writeBlock(x, y, z, state, defined, policy)
 	if !strict {
 		// BlockInput's shape pass also runs when Level.setBlock finds a match.
@@ -878,17 +887,16 @@ func (ws worldScope) SetBlockTagged(x, y, z int32, state uint16, defined map[str
 		return ws.retagBlockEntity(x, y, z, state, tag)
 	}
 	// A block argument without NBT arrives as a typed nil map.
-	if tag == nil || tag.Entries() == nil {
+	if !deferWake {
 		return true
 	}
-	entityType, hasEntity := blockEntityTypeOf(state)
-	if !hasEntity {
-		return true
-	}
+	entityType, _ := blockEntityTypeOf(state)
 	previousAuto := commandBlockAutoAt(w, x, y, z)
 	w.SetBlockEntityTag(x, y, z, entityType, tag)
 	ws.srv.markChanged(w, x, y, z)
 	ws.srv.commandBlockTagLoaded(w, x, y, z, previousAuto)
+	ws.srv.updateNeighborShapes(w, x, y, z)
+	ws.srv.blockPlaced(w, x, y, z, old)
 	return true
 }
 

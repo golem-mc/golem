@@ -237,3 +237,27 @@ func TestBreakingAJukeboxDropsItsDisc(t *testing.T) {
 		t.Error("the broken jukebox still has a block entity")
 	}
 }
+
+// TestAPlayingJukeboxPlacedWithATagLocksTheHopperBelow places a jukebox whose
+// tag already has a song running above a hopper: the tag loads before the
+// neighbour wake, so the hopper reads the 15 and stays disabled with the disc
+// above it. A stopped record leaves the hopper enabled to pull it.
+func TestAPlayingJukeboxPlacedWithATagLocksTheHopperBelow(t *testing.T) {
+	t.Parallel()
+	srv, w := servertest.OpenWindowedOps(t, servertest.BlockTestConfig())
+	srv.StopTick()
+
+	for _, tc := range []struct {
+		name    string
+		x       int32
+		ticks   int64
+		enabled string
+	}{{"playing", 3, 0, "false"}, {"stopped", 8, 99999, "true"}} {
+		servertest.Setblock(t, w.Client, tc.x, 64, 0, "minecraft:hopper[facing=down]")
+		servertest.Setblock(t, w.Client, tc.x, 65, 0, servertest.JukeboxCommand("cat", tc.ticks))
+		servertest.TickBlockEntitiesByHand(srv, 12)
+		if _, props := servertest.StatePropsOf(t, srv, tc.x, 64, 0); props["enabled"] != tc.enabled {
+			t.Errorf("%s: hopper = %v, want enabled=%s", tc.name, props, tc.enabled)
+		}
+	}
+}
