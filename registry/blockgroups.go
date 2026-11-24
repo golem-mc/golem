@@ -150,9 +150,12 @@ func (b Block) IsBars() bool {
 }
 
 // IsCrossCollision reports whether a block is a CrossCollisionBlock (fence
-// or bars), with neighbour-driven north/south/east/west properties.
+// or bars), with neighbour-driven north/south/east/west properties. Fences
+// are read by class, not the fences tag, which a data pack may extend to
+// blocks without those properties.
+// vanilla: CrossCollisionBlock
 func (b Block) IsCrossCollision() bool {
-	return b.IsFence() || b.IsBars()
+	return b.Type() == BlockTypeFence || b.IsBars()
 }
 
 // IsLeaves reports whether a block is a leaf block, which is excluded from
