@@ -2,8 +2,10 @@ package world
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
 )
 
@@ -19,16 +21,20 @@ type pistonRide struct {
 	isSource     bool
 	createdTick  int64
 	rideProgress float64
+	customName   *protocol.Text
+	pluginData   nbt.Compound
 }
 
-// codec walks a moving piston's ride in vanilla's shape: the block state
-// as its codec writes it, the facing as the legacy direction byte. The
-// progress is written finished and never read: the engine holds a move for
-// two whole ticks without animating, so a reloaded move finishes where it
-// was. The same-tick retraction's age check reads a creation tick no file
-// carries, so a reloaded move is old.
+// codec reads and writes a moving piston's saved fields. Progress is written
+// finished and never read (a reloaded move finishes where it was), and
+// createdTick is set to -1 on load because no file carries it (a reloaded
+// move is old for same-tick retraction).
 // vanilla: PistonMovingBlockEntity.loadAdditional, saveAdditional
 func (r *pistonRide) codec(c *beCodec) {
+	if !c.updateTag {
+		field(c, "plugins", &r.pluginData, bePluginData, nil)
+	}
+	field(c, "CustomName", &r.customName, beText, nil)
 	field(c, BlockStateKeyPiston, &r.movedState, beMovedState, 0)
 	field(c, "facing", &r.dir, beLegacyDirection, 0)
 	if c.load {
@@ -41,8 +47,6 @@ func (r *pistonRide) codec(c *beCodec) {
 }
 
 func (r *pistonRide) loadFrom(entry nbt.Compound) {
-	r.movedState, r.dir, r.extending, r.isSource = 0, 0, false, false
-	r.createdTick, r.rideProgress = 0, 0
 	r.codec(&beCodec{load: true, in: entry})
 }
 
@@ -97,12 +101,13 @@ func (c *Chunk) removePistonRide(x, y, z int32) bool {
 		return false
 	}
 	delete(c.pistonRides, key)
+	delete(c.pistonHandles, key)
 	return true
 }
 
-// sortedPistonRides returns the chunk's active rides in deterministic order
-// (nil when empty) for chunk saves and chunk packets.
-func (c *Chunk) sortedPistonRides() []pistonRide {
+// snapshotPistonRides copies the chunk's active rides into a fresh slice
+// (nil when empty) so callers can sort and encode after releasing World.mu.
+func (c *Chunk) snapshotPistonRides() []pistonRide {
 	if len(c.pistonRides) == 0 {
 		return nil
 	}
@@ -110,7 +115,14 @@ func (c *Chunk) sortedPistonRides() []pistonRide {
 	for _, r := range c.pistonRides {
 		out = append(out, r)
 	}
-	slices.SortFunc(out, func(a, b pistonRide) int {
+	return out
+}
+
+func sortPistonRides(rides []pistonRide) {
+	if len(rides) <= 1 {
+		return
+	}
+	slices.SortFunc(rides, func(a, b pistonRide) int {
 		if d := cmp.Compare(a.y, b.y); d != 0 {
 			return d
 		}
@@ -119,6 +131,13 @@ func (c *Chunk) sortedPistonRides() []pistonRide {
 		}
 		return cmp.Compare(a.x, b.x)
 	})
+}
+
+// sortedPistonRides returns the chunk's active rides in deterministic order
+// (nil when empty) for chunk saves and plugin enumeration.
+func (c *Chunk) sortedPistonRides() []pistonRide {
+	out := c.snapshotPistonRides()
+	sortPistonRides(out)
 	return out
 }
 
@@ -149,6 +168,7 @@ func (w *World) setPistonRide(r pistonRide) bool {
 		old.removed.Store(true)
 		loaded.containerGen.Add(1)
 	}
+	delete(loaded.chunk.pistonHandles, entityKey(r.x, r.y, r.z))
 	loaded.chunk.setPistonRide(r)
 	loaded.markDirty()
 	return true
@@ -186,20 +206,112 @@ func (w *World) stepPistonRide(x, y, z int32, now int64) (pistonRide, int64, boo
 	return r, age, true
 }
 
-// setPistonRideProgress sets a moving-piston ride's progress directly (for tests).
-func (w *World) setPistonRideProgress(x, y, z int32, progress float64) bool {
-	pos := ChunkPos{X: x >> 4, Z: z >> 4}
+// PistonBlockEntity identifies one loaded, active moving-piston ride.
+type PistonBlockEntity struct {
+	w     *World
+	chunk *Chunk
+	pos   [3]int32
+}
+
+// Pos returns the block position.
+func (b *PistonBlockEntity) Pos() [3]int32 { return b.pos }
+
+// PistonBlockEntity returns a live handle for an active moving-piston ride
+// without loading a chunk.
+func (w *World) PistonBlockEntity(x, y, z int32) *PistonBlockEntity {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	loaded, ok := w.loadedAt(pos)
+	l, ok := w.loadedAt(ChunkPos{X: x >> 4, Z: z >> 4})
 	if !ok {
-		return false
+		return nil
 	}
-	r, ok := loaded.chunk.pistonRide(x, y, z)
+	if _, ok := l.chunk.pistonRide(x, y, z); !ok {
+		return nil
+	}
+	return w.pistonHandle(l.chunk, x, y, z)
+}
+
+// PistonBlockEntities lists a live chunk's active moving-piston rides in
+// deterministic order.
+func (w *World) PistonBlockEntities(c *Chunk) []*PistonBlockEntity {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	l, ok := w.loadedAt(ChunkPos{X: c.x, Z: c.z})
+	if !ok || l.chunk != c || len(c.pistonRides) == 0 {
+		return nil
+	}
+	rides := c.sortedPistonRides()
+	out := make([]*PistonBlockEntity, 0, len(rides))
+	for i := range rides {
+		r := &rides[i]
+		out = append(out, w.pistonHandle(c, r.x, r.y, r.z))
+	}
+	return out
+}
+
+func (w *World) pistonHandle(c *Chunk, x, y, z int32) *PistonBlockEntity {
+	key := entityKey(x, y, z)
+	if b := c.pistonHandles[key]; b != nil {
+		return b
+	}
+	if c.pistonHandles == nil {
+		c.pistonHandles = make(map[int64]*PistonBlockEntity)
+	}
+	b := &PistonBlockEntity{w: w, chunk: c, pos: [3]int32{x, y, z}}
+	c.pistonHandles[key] = b
+	return b
+}
+
+// loaded checks load and replacement identity with the world lock held.
+func (b *PistonBlockEntity) loaded() (*loadedChunk, pistonRide, bool) {
+	x, y, z := b.pos[0], b.pos[1], b.pos[2]
+	l, ok := b.w.loadedAt(ChunkPos{X: x >> 4, Z: z >> 4})
+	if !ok || l.chunk != b.chunk || l.chunk.pistonHandles[entityKey(x, y, z)] != b {
+		return nil, pistonRide{}, false
+	}
+	r, ok := l.chunk.pistonRide(x, y, z)
+	return l, r, ok
+}
+
+// IsValid reports whether the moving-piston ride is still live.
+func (b *PistonBlockEntity) IsValid() bool {
+	b.w.mu.RLock()
+	defer b.w.mu.RUnlock()
+	_, _, ok := b.loaded()
+	return ok
+}
+
+// ReadPluginData visits one private value without copying unrelated values.
+func (b *PistonBlockEntity) ReadPluginData(key string, read func(nbt.Tag)) {
+	b.w.mu.RLock()
+	defer b.w.mu.RUnlock()
+	if _, r, ok := b.loaded(); ok {
+		read(r.pluginData[key])
+	}
+}
+
+// PluginDataKeys lists accepted private keys without a gameplay wake.
+func (b *PistonBlockEntity) PluginDataKeys(keep func(nbt.Tag) bool) []string {
+	b.w.mu.RLock()
+	defer b.w.mu.RUnlock()
+	_, r, ok := b.loaded()
 	if !ok {
-		return false
+		return nil
 	}
-	r.rideProgress = progress
-	loaded.chunk.setPistonRide(r)
-	return true
+	return pluginDataKeys(r.pluginData, keep)
+}
+
+// SetPluginData changes one private value; nil deletes it and stale handles do nothing.
+func (b *PistonBlockEntity) SetPluginData(key string, value nbt.Tag) {
+	b.w.mu.Lock()
+	defer b.w.mu.Unlock()
+	l, r, ok := b.loaded()
+	if !ok {
+		return
+	}
+	data := maps.Clone(r.pluginData)
+	setPluginData(&data, key, value)
+	r.pluginData = data
+	b.chunk.setPistonRide(r)
+	l.markDirty()
 }

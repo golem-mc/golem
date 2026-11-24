@@ -1226,7 +1226,10 @@ func (c *Chunk) carriedBlockEntityAt(x, y, z int32) (nbt.Compound, bool) {
 // if none.
 func (c *Chunk) removeBlockEntity(x, y, z int32) *BlockEntity {
 	key := entityKey(x, y, z)
-	b := c.entities[key]
+	b, ok := c.entities[key]
+	if !ok {
+		return nil
+	}
 	delete(c.entities, key)
 	c.dropEntityOrder(key)
 	return b

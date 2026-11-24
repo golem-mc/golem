@@ -97,7 +97,9 @@ type Chunk struct {
 	//
 	// pistonRides holds active moving-piston rides separately so piston moves
 	// do not allocate a full BlockEntity; guarded by World.mu.
-	pistonRides          map[int64]pistonRide
+	pistonRides map[int64]pistonRide
+	// pistonHandles is allocated only when a plugin requests a live handle.
+	pistonHandles        map[int64]*PistonBlockEntity
 	carriedBlockEntities nbt.List
 	// carriedHandles is allocated only when a plugin requests a live handle.
 	carriedHandles map[int64]*CarriedBlockEntity

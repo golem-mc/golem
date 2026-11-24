@@ -72,13 +72,14 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 			light = w.chunkLightWired(c)
 		}
 		own := c.blockEntities()
-		rides := c.sortedPistonRides()
+		rides := c.snapshotPistonRides()
 		// Snapshot the carried compounds under the lock: a command setting one
 		// replaces the list, and a save reads it. Trial spawners' block state
 		// is read under the same lock.
 		carried := slices.Clone(c.carriedBlockEntities.Items)
 		active := c.activeTrialSpawners(carried)
 		w.mu.RUnlock()
+		sortPistonRides(rides)
 
 		// The block entities go out packed with their update tags (a sign's
 		// text, a banner's patterns, a container only its place). This is the
