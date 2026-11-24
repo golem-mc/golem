@@ -41,12 +41,16 @@ type mailbox struct {
 	holdSeam atomic.Pointer[func()]
 
 	// mu guards queue, queued (bytes) and closing.
-	mu      sync.Mutex
-	queue   []outbound
-	spare   []outbound // the last batch's storage, emptied, for the next queue
-	queued  int
-	closing bool
-	wake    chan struct{}
+	mu    sync.Mutex
+	queue []outbound
+	spare []outbound // the last batch's storage, emptied, for the next queue
+	// Consecutive flushes of each backing slice that used under a quarter of
+	// its oversized capacity; they move with the slices and reset when one is dropped.
+	queueSlack int
+	spareSlack int
+	queued     int
+	closing    bool
+	wake       chan struct{}
 
 	// ready is closed once the client is in the world. A player registers
 	// before the world is sent, so nothing is missed, and packets queue until
@@ -100,6 +104,12 @@ func (c *client) startMailbox() *mailbox {
 	return m
 }
 
+const (
+	spareMin          = 1024  // capacity kept without question
+	spareMax          = 16384 // capacity never kept
+	spareSlackFlushes = 8
+)
+
 // writeBatch writes everything waiting, later arrivals going next round;
 // it returns false once the writer should stop.
 func (m *mailbox) writeBatch() bool {
@@ -107,8 +117,9 @@ func (m *mailbox) writeBatch() bool {
 	defer m.writing.Unlock()
 	m.mu.Lock()
 	batch := m.queue
-	m.queue = m.spare
-	m.spare = nil
+	slack := m.queueSlack
+	m.queue, m.queueSlack = m.spare, m.spareSlack
+	m.spare, m.spareSlack = nil, 0
 	m.queued = 0
 	m.mu.Unlock()
 	select {
@@ -119,11 +130,20 @@ func (m *mailbox) writeBatch() bool {
 	err := m.c.conn.WritePacketsRaw(len(batch), func(i int) (int32, []byte, *protocol.CachedPacket, bool) {
 		return batch[i].id, batch[i].data, batch[i].shared, batch[i].raw
 	})
-	// The cap keeps a join's chunk burst from staying allocated.
-	if cap(batch) <= 1024 {
+	// A busy client refills the same capacity every tick, so keep it up to
+	// spareMax; a join's chunk burst is released after spareSlackFlushes
+	// flushes of this slice that need little of it.
+	if cap(batch) > spareMin {
+		if len(batch) <= cap(batch)/4 {
+			slack++
+		} else {
+			slack = 0
+		}
+	}
+	if cap(batch) <= spareMax && (cap(batch) <= spareMin || slack < spareSlackFlushes) {
 		clear(batch) // do not pin the payloads
 		m.mu.Lock()
-		m.spare = batch[:0]
+		m.spare, m.spareSlack = batch[:0], slack
 		m.mu.Unlock()
 	}
 	if err != nil {
@@ -265,7 +285,7 @@ func (c *client) holdWriter() (release func(), err error) {
 	m.held.Store(true)
 	m.mu.Lock()
 	before := m.queue
-	m.queue = nil
+	m.queue, m.queueSlack = nil, 0
 	m.queued = 0
 	m.mu.Unlock()
 	return func() { m.held.Store(false); m.writing.Unlock() }, c.writeAll(before)
@@ -285,7 +305,7 @@ func (c *client) switchDimension(dim *dimension) (release func(), err error) {
 	if m := c.out; m != nil {
 		m.mu.Lock()
 		before := m.queue
-		m.queue = nil
+		m.queue, m.queueSlack = nil, 0
 		m.queued = 0
 		c.dim.Store(dim)
 		m.mu.Unlock()
