@@ -166,9 +166,7 @@ func (s *Server) tellEffectFrom(w *world.World, user *client, e world.Effect) {
 		} else if src := e.GameEventSource; src != nil {
 			ctx = rules.GameEventContext{Player: src.Player, Mob: src.Mob, Sneaking: src.Sneaking}
 		}
-		// A destroyed block is the event's affected state, so a popped carpet
-		// or wool is dampened. vanilla: Level.destroyBlock
-		ctx.Affected = e.BreakDrop
+		ctx.Affected = e.GameEventAffected
 		s.gameEvent(w, e.GameEvent, float64(e.X)+0.5, float64(e.Y)+0.5, float64(e.Z)+0.5, ctx)
 	}
 	if v := e.ListenerEvent; v != nil {
