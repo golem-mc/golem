@@ -2,8 +2,10 @@ package containers
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"maps"
+	"strings"
 	"testing"
 	"time"
 
@@ -500,4 +502,56 @@ func TestACoveredBeaconGrantsNothing(t *testing.T) {
 	// its last count stood at.
 	w.Chat("under the cover")
 	w.ExpectChat("Testificate", "under the cover")
+}
+
+// TestBeaconUsesPlayerBounds: the beacon's reach is tested against the
+// player's current box, scaled and all, and ends at the dimension height
+// above the block.
+// vanilla: BeaconBlockEntity.applyEffects
+func TestBeaconUsesPlayerBounds(t *testing.T) {
+	t.Parallel()
+	srv, connect, clock := beaconCycleServer(t)
+	owner := servertest.WindowedOf(t, "Testificate", connect())
+	buildPyramid(t, srv)
+	placeBeacon(t, srv, clock, owner)
+	stepBeaconCycle(t, srv, clock)
+	openBeacon(t, owner)
+	payBeacon(t, owner)
+	chooseBeaconSpeed(owner)
+	owner.Settle()
+
+	servertest.WindowedOf(t, "Smallfry", connect())
+	has := func(name string) bool {
+		return strings.Contains(fmt.Sprint(srv.RunLine("data get entity "+name+" active_effects")), "speed")
+	}
+	cycle := func() {
+		srv.RunLine("effect clear Testificate")
+		srv.RunLine("effect clear Smallfry")
+		stepBeaconCycle(t, srv, clock)
+	}
+	// The level-one area ends at x = 4+1+10+10 = 25. A scale-4 half-width is
+	// float32(0.6)*4/2 = 1.2000000476, so a player at 26.2 reaches just in.
+	srv.RunLine("attribute Testificate minecraft:scale base set 4")
+	srv.RunLine("tp Testificate 26.2 64 0.5")
+	srv.RunLine("tp Smallfry 25.75 64 0.5")
+	cycle()
+	if !has("Testificate") {
+		t.Error("a scale-4 player whose box overlaps the area got no speed")
+	}
+	if has("Smallfry") {
+		t.Error("a scale-1 player outside the area got speed")
+	}
+
+	// The area's top is the block's top, the reach and the dimension height.
+	top := 64 + 1 + 20 + 384
+	srv.RunLine("attribute Testificate minecraft:scale base set 1")
+	srv.RunLine("tp Testificate 4.5 " + fmt.Sprint(top) + " 0.5")
+	srv.RunLine("tp Smallfry 4.5 " + fmt.Sprint(top-1) + " 0.5")
+	cycle()
+	if has("Testificate") {
+		t.Error("a player standing on the upper face got speed")
+	}
+	if !has("Smallfry") {
+		t.Error("a player just under the upper face got no speed")
+	}
 }

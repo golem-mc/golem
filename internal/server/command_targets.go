@@ -115,7 +115,11 @@ func (c *client) Box() (minX, minY, minZ, maxX, maxY, maxZ float64) {
 // bodyBox is the player's bounding box as minX, minY, minZ, maxX, maxY, maxZ.
 // It takes the player's lock. vanilla: Entity.getBoundingBox
 func (c *client) bodyBox() [6]float64 {
-	pos := c.player.Position()
+	return c.bodyBoxAt(c.player.Position())
+}
+
+// bodyBoxAt is bodyBox for a position the caller already read.
+func (c *client) bodyBoxAt(pos player.Position) [6]float64 {
 	d := c.dims(c.player.Appearance().Pose)
 	hw := d.Width / 2
 	return [6]float64{pos.X - hw, pos.Y, pos.Z - hw, pos.X + hw, pos.Y + d.Height, pos.Z + hw}
