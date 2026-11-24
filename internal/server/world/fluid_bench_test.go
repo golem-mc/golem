@@ -161,6 +161,47 @@ func BenchmarkFluidSpreadToSides(b *testing.B) {
 	}
 }
 
+func BenchmarkFluidSpreadLip(b *testing.B) {
+	for _, tc := range []struct {
+		name   string
+		dx, dz int32
+	}{
+		{name: "flat"},
+		{name: "north", dz: -1},
+		{name: "west", dx: -1},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			w := newTestWorld(b, NewFlatGenerator())
+			b.Cleanup(func() { w.Close() })
+			for x := int32(-1); x <= 0; x++ {
+				for z := int32(-1); z <= 0; z++ {
+					w.Acquire(ChunkPos{X: x, Z: z})
+				}
+			}
+			const y = 64
+			source := waterByLevel[0]
+			w.SetBlock(0, y, 0, source)
+			// Flowing water is eligible for slope selection but cannot be replaced sideways.
+			for _, d := range horizontal4 {
+				w.SetBlock(d[0], y, d[1], waterByLevel[1])
+			}
+			if tc.dx != 0 || tc.dz != 0 {
+				w.SetBlock(tc.dx, y-1, tc.dz, airState)
+			}
+			p := NewPhysics(w)
+			fs := fluidHolding(source)
+			var changes []BlockChange
+			b.ReportAllocs()
+			for b.Loop() {
+				p.spreadToSides(0, y, 0, source, fs, &changes)
+			}
+			if len(changes) != 0 {
+				b.Fatalf("spread changed %d blocks in the fixture", len(changes))
+			}
+		})
+	}
+}
+
 // BenchmarkFluidSlopeLayouts measures the four first-step slope searches of a
 // water source at (0,64,0) on a 13x13 stone floor with no hole, a far hole at
 // (3,63,2), and a near hole at (0,63,2).
