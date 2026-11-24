@@ -93,7 +93,7 @@ func BenchmarkScheduledDirtPathTick(b *testing.B) {
 		p.mu.Lock()
 		for x := range int32(64) {
 			for z := range int32(64) {
-				p.scheduleBooked(p.dirtPathBooked, x, GroundLevel-2, z, now, dirtPathTickEvent)
+				p.scheduleSoil(registry.BlockDirtPath, x, GroundLevel-2, z, now, tickPriorityNormal)
 			}
 		}
 		p.mu.Unlock()

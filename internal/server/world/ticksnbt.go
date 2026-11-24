@@ -309,10 +309,10 @@ func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int
 	// vanilla: ServerLevel.tickBlock checks the cell's block against the booked type.
 	switch id {
 	case registry.BlockDirtPath.Name():
-		p.scheduleBookedPriority(p.dirtPathBooked, x, y, z, due, priority, dirtPathTickEvent)
+		p.scheduleSoil(registry.BlockDirtPath, x, y, z, due, priority)
 		return
 	case registry.BlockFarmland.Name():
-		p.scheduleBookedPriority(p.farmlandBooked, x, y, z, due, priority, farmlandTickEvent)
+		p.scheduleSoil(registry.BlockFarmland, x, y, z, due, priority)
 		return
 	}
 	name, _, ok := registry.BlockStateName(state)

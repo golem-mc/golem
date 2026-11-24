@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
@@ -11,7 +12,8 @@ import (
 // TestBrieflyCoveredDirtPath checks that a dirt path whose cover is gone by
 // its scheduled tick still turns to dirt, that farmland rechecks and
 // survives, that a path replaced meanwhile is left alone, and that a path
-// that replaced a covered farmland does not take the farmland's visit.
+// that replaced a covered farmland does not take the farmland's visit; a
+// clone of the row carries both bookings with their booked types.
 func TestBrieflyCoveredDirtPath(t *testing.T) {
 	t.Parallel()
 	cfg := servertest.BlockTestConfig()
@@ -34,9 +36,18 @@ func TestBrieflyCoveredDirtPath(t *testing.T) {
 	}
 	set(5, 63, "minecraft:stone", nil)
 	set(7, 63, "minecraft:dirt_path", nil)
+	seven := int64(7)
+	c.ChatCommand("clone 1 63 0 7 63 0 1 63 2")
+	servertest.AwaitCommandFeedbackText(t, c, "commands.clone.success", protocol.Text{Number: &seven})
 	servertest.HoldTicks(t, srv)
 	servertest.RunTicks(t, srv, 1)
 
+	if got := servertest.CropsNameOf(t, srv.BlockAt(1, 63, 2)); got != "minecraft:dirt" {
+		t.Errorf("cloned path with its booking = %s, want minecraft:dirt", got)
+	}
+	if got := servertest.CropsNameOf(t, srv.BlockAt(7, 63, 2)); got != "minecraft:dirt_path" {
+		t.Errorf("cloned path with a farmland booking = %s, want minecraft:dirt_path", got)
+	}
 	if got := servertest.CropsNameOf(t, srv.BlockAt(1, 63, 0)); got != "minecraft:dirt" {
 		t.Errorf("briefly covered path = %s, want minecraft:dirt", got)
 	}

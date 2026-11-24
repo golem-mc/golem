@@ -71,17 +71,19 @@ var updateShapeOrder = [6][3]int32{
 }
 
 // TickPriority ranks, smaller more urgent: among ticks due the same instant the
-// higher priority runs first. The two below the block ticks are the piston
-// passes: vanilla drains block events after the scheduled-tick pass, and block
-// entities (moving pistons landing) after the events, so both wait for every
-// block tick of their game tick, the landing after the events.
+// higher priority runs first. Block ticks use vanilla's -3..3; the two after
+// them are the piston passes, outside that range so no saved or copied tick
+// takes one: vanilla drains block events after the scheduled-tick pass, and
+// block entities (moving pistons landing) after the events, so both wait for
+// every block tick of their game tick, the landing after the events.
+// vanilla: TickPriority
 const (
 	tickPriorityExtremelyHigh = -3
 	tickPriorityVeryHigh      = -2
 	tickPriorityHigh          = -1
 	tickPriorityNormal        = 0
-	tickPriorityEvent         = 1
-	tickPriorityFinalize      = 2
+	tickPriorityEvent         = 4
+	tickPriorityFinalize      = 5
 )
 
 // fluidKind numbers the two fluids; the zero value is no fluid, what every
@@ -504,8 +506,8 @@ type scheduledTick struct {
 	event    uint8
 	// fluid is the booked fluid type of a fluid visit, zero for any other.
 	fluid fluidType
-	// block is the block the cell held when a block tick was booked, zero for
-	// none; vanilla's ScheduledTick keeps the type it was booked for.
+	// block is the block a block tick was booked for, zero to name it by the
+	// cell; vanilla's ScheduledTick keeps the type it was booked for.
 	block registry.Block
 }
 
@@ -1457,8 +1459,11 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 		p.pending[key] = true
 	}
 	p.seq++
-	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ,
-		block: registry.BlockOf(p.w.BlockAt(key.x, key.y, key.z))})
+	t := scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ}
+	if typ == 0 {
+		t.block = registry.BlockOf(p.w.BlockAt(key.x, key.y, key.z))
+	}
+	p.queue.push(t)
 	if priority == tickPriorityFinalize && typ == 0 {
 		p.finalizeSeq[key] = p.seq
 	}
@@ -1558,7 +1563,8 @@ func (p *Physics) allTicks(yield func(scheduledTick) bool) {
 
 // ScheduleBlockTicks books ticks on p offset by (offX, offY, offZ), keeping
 // each one's due tick, priority and order; one whose cell now holds another
-// block is dropped, and a cell with a tick pending keeps its own.
+// block is dropped (a soil block's is not, see adoptBlockTick), and a cell
+// with a tick pending keeps its own.
 // vanilla: LevelTicks.copyAreaFrom
 func (p *Physics) ScheduleBlockTicks(ticks BlockTicks, offX, offY, offZ int32) {
 	p.mu.Lock()
@@ -2012,13 +2018,13 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	// vanilla: Block.updateFromNeighbourShapes, FarmlandBlock.updateShape, PathBlock.updateShape
 	if block == registry.BlockFarmland && (placed || from == [3]int32{0, 1, 0}) {
 		if !farmlandCanSurvive(p.w, x, y, z) {
-			p.scheduleBooked(p.farmlandBooked, x, y, z, p.now+farmlandTickDelay, farmlandTickEvent)
+			p.scheduleSoil(registry.BlockFarmland, x, y, z, p.now+farmlandTickDelay, tickPriorityNormal)
 		}
 		return
 	}
 	if block == registry.BlockDirtPath && (placed || from == [3]int32{0, 1, 0}) {
 		if !dirtPathCanSurvive(p.w, x, y, z) {
-			p.scheduleBooked(p.dirtPathBooked, x, y, z, p.now+dirtPathTickDelay, dirtPathTickEvent)
+			p.scheduleSoil(registry.BlockDirtPath, x, y, z, p.now+dirtPathTickDelay, tickPriorityNormal)
 		}
 		return
 	}

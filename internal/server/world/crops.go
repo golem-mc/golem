@@ -215,17 +215,20 @@ const dirtPathTickEvent = 1<<5 | 1<<6 | 1<<7 | 6
 // at the same position is not mistaken for it.
 const farmlandTickEvent = 1<<5 | 1<<6 | 1<<7 | 7
 
-// bookedBlockName is the block a queue entry was booked for: its tag names it
-// where the tag is per block, else the block recorded at booking, else the
-// cell's current one.
+// scheduleSoil books block's (dirt path or farmland) own tick, which keeps that
+// type whatever the cell holds; dispatch checks the cell.
+func (p *Physics) scheduleSoil(block registry.Block, x, y, z int32, due int64, priority int) {
+	if block == registry.BlockDirtPath {
+		p.scheduleBookedFor(p.dirtPathBooked, x, y, z, due, priority, dirtPathTickEvent, block)
+		return
+	}
+	p.scheduleBookedFor(p.farmlandBooked, x, y, z, due, priority, farmlandTickEvent, block)
+}
+
+// bookedBlockName is the block a queue entry was booked for: the block recorded
+// at booking, else the cell's current one.
 // vanilla: ScheduledTick.type
 func bookedBlockName(t scheduledTick, state uint16) (string, bool) {
-	switch t.event {
-	case dirtPathTickEvent:
-		return registry.BlockDirtPath.Name(), true
-	case farmlandTickEvent:
-		return registry.BlockFarmland.Name(), true
-	}
 	if t.block != registry.BlockAir {
 		return t.block.Name(), true
 	}
