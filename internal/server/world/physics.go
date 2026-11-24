@@ -2573,6 +2573,8 @@ func (p *Physics) fluidTick(x, y, z int32, fs fluidState, changes *[]BlockChange
 			return
 		}
 		if newFS != fs {
+			// vanilla: LiquidBlock.onPlace books the base delay if the fluid stays.
+			// LevelChunkTicks.schedule keeps it over FlowingFluid.tick's later booking.
 			p.setShaped(x, y, z, newFS.createLegacy(), changes)
 		}
 		fs = newFS
