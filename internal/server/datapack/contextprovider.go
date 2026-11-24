@@ -364,7 +364,8 @@ func weightedChoice(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt
 			weight := int32(1)
 			if w, present := entry["weight"]; present {
 				if weight, ok = nbt.IntValue(w); !ok {
-					return nil, "Not a number"
+					// The dropped entry leaves an empty list, which fails validation too (WeightedList.nonEmptyCodec).
+					return nil, "Not a number; Weighted list must contain at least one entry with non-zero weight"
 				}
 				if weight < 1 {
 					return nil, fmt.Sprintf("Value %d outside of range [1:2147483647]", weight)
