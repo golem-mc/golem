@@ -121,6 +121,9 @@ func decodeCondition(tag nbt.Tag) (registry.LootCondition, string) {
 		return nil, err.Error()
 	}
 	cond, err := DecodePredicate(data)
+	if errors.Is(err, ErrWeightOverflow) {
+		panic(lootFailure{msg: WeightOverflowMsg, overflow: true})
+	}
 	if err != nil {
 		return nil, err.Error()
 	}

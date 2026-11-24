@@ -2,6 +2,7 @@ package command
 
 import (
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -45,7 +46,10 @@ func parseItemModifier(text string) (registry.LootFunction, *ParseError) {
 	if n != len(text) {
 		return nil, &ParseError{Key: "command.unknown.argument", Cursor: n}
 	}
-	fn, msg := decodeItemModifier(tag)
+	fn, msg, err := decodeItemModifier(tag)
+	if err != nil {
+		return nil, weightOverflowError(err, len(text))
+	}
 	if msg != "" {
 		return nil, &ParseError{Key: modifierFailedParseKey, With: []string{msg}, Cursor: len(text)}
 	}
@@ -61,25 +65,32 @@ func checkItemModifierArgument(text string) *ParseError {
 
 // decodeItemModifier reads an inline modifier: one typed function, or a
 // list of them run in order. The message is the codec's refusal, empty for
-// none.
+// none. The error is a weighted list's overflow, which fails the argument
+// outright.
 // vanilla: LootItemFunctions.DIRECT_CODEC
-func decodeItemModifier(tag nbt.Tag) (registry.LootFunction, string) {
+func decodeItemModifier(tag nbt.Tag) (registry.LootFunction, string, error) {
 	switch tag.(type) {
 	case nbt.Compound:
 		fn, err := datapack.DecodeItemModifierValue(nbtJSON(tag))
+		if errors.Is(err, datapack.ErrWeightOverflow) {
+			return nil, "", err
+		}
 		if err != nil {
 			msg := inlineLootError(err)
 			// The holder set also tries this map as a single typed holder.
 			// vanilla: HolderSetCodec.directCodec, ExtraCodecs.compactListCodec
 			return nil, "Failed to parse either. First: " + msg +
 				"; Second: Failed to parse either. First: Not a string; Second: Failed to parse either. First: Not a list: " + nbt.Stringify(tag) +
-				"; Second: " + msg
+				"; Second: " + msg, nil
 		}
-		return fn, ""
+		return fn, "", nil
 	case nbt.List:
 		fn, err := datapack.DecodeItemModifierValue(nbtJSON(tag))
+		if errors.Is(err, datapack.ErrWeightOverflow) {
+			return nil, "", err
+		}
 		if err != nil {
-			return nil, inlineLootError(err)
+			return nil, inlineLootError(err), nil
 		}
 		// A name in the list resolves while the argument parses.
 		// vanilla: RegistryFileCodec.decode
@@ -87,15 +98,15 @@ func decodeItemModifier(tag nbt.Tag) (registry.LootFunction, string) {
 			for _, f := range seq.Functions {
 				if ref, ok := f.(registry.LootFunctionReference); ok {
 					if _, found := registry.FindItemModifier(ref.Name); !found {
-						return nil, "Failed to get element " + ref.Name + " from registry minecraft:item_modifier"
+						return nil, "Failed to get element " + ref.Name + " from registry minecraft:item_modifier", nil
 					}
 				}
 			}
 		}
-		return fn, ""
+		return fn, "", nil
 	}
 	text := nbt.Stringify(tag)
-	return nil, "Failed to parse either. First: Not a map: " + text + "; Second: Not a list: " + text
+	return nil, "Failed to parse either. First: Not a map: " + text + "; Second: Not a list: " + text, nil
 }
 
 // inlineLootError words the codec's refusal of a function type this server

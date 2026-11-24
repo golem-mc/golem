@@ -44,10 +44,12 @@ func TestReloadPicksUpNewFunctionsAndPacks(t *testing.T) {
 // vanilla: ReloadCommand.reloadPacks, MinecraftServer.reloadResources,
 // WeightedRandom.getTotalWeight
 func TestReloadFailureKeepsOldState(t *testing.T) {
-	t.Parallel()
+	// Not parallel: the context provider layer is process-wide, and another
+	// test's pack load would replace the one this test expects to survive.
 	cfg := packWorld(t)
-	srv, c := joinPacks(t, cfg)
 	root := filepath.Join(cfg.LevelName, "datapacks")
+	writeFile(t, filepath.Join(root, "a", "data", "x", "context_int_provider", "keep.json"), `{"type":"minecraft:constant","value":17}`)
+	srv, c := joinPacks(t, cfg)
 	writeFile(t, filepath.Join(root, "a", "data", "x", "function", "new.mcfunction"), "return 4\n")
 	writeFile(t, filepath.Join(root, "c", "pack.mcmeta"), `{"pack":{"description":"pack c"}}`)
 	writeFile(t, filepath.Join(root, "c", "data", "x", "function", "fromc.mcfunction"), "return 3\n")
@@ -73,6 +75,7 @@ func TestReloadFailureKeepsOldState(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(root, "c", "data", "x", "context_int_provider", "leak.json"), `{"type":"minecraft:constant","value":73}`)
+	writeFile(t, filepath.Join(root, "a", "data", "x", "context_int_provider", "keep.json"), `{"type":"minecraft:constant","value":99}`)
 	writeFile(t, filepath.Join(root, "c", "data", "x", "loot_table", "t.json"), `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:stick",`+
 		`"modifier":{"type":"minecraft:set_count","count":{"type":"minecraft:weighted_list","distribution":[`+
 		`{"data":1,"weight":2147483647},{"data":2,"weight":1}]}}}]}]}`)
@@ -87,6 +90,8 @@ func TestReloadFailureKeepsOldState(t *testing.T) {
 		t.Errorf("a provider of the rejected pack answered % X, want the no such element refusal", got)
 	}
 	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+	c.ChatCommand("compute default integer x:keep")
+	servertest.CheckCommandFeedback(t, c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), "command.compute.result.unnamed.exact", protocol.Text{Number: new(int64(17))})
 	c.ChatCommand("datapack list enabled")
-	expectPackList(t, c, "commands.datapack.list.enabled.success", "vanilla", "file/a", "file/b")
+	checkPackList(t, c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), "commands.datapack.list.enabled.success", "vanilla", "file/a", "file/b")
 }

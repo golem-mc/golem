@@ -199,6 +199,27 @@ func TestComputeRefusals(t *testing.T) {
 		t.Errorf("inline loot overflow = % X, want % X", data, want)
 	}
 	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+
+	// The overflow also fails a provider inside a condition, an inline item
+	// modifier (one function or a list) and a predicate argument.
+	// vanilla: ConditionalProvider.mapCodec, SetItemCountFunction.CODEC, IntValueCheck.CODEC
+	w := weighted(math.MaxInt32)
+	for _, command := range []string{
+		`compute default integer {type:"minecraft:conditional",condition:{type:"minecraft:int_value_check",value:` + w + `,test:1},on_true:1}`,
+		`item modify entity @s hotbar.0 {type:"minecraft:set_count",count:` + w + `}`,
+		`item modify entity @s hotbar.0 [{type:"minecraft:set_count",count:` + w + `}]`,
+		`execute if predicate {type:"minecraft:int_value_check",value:` + w + `,test:1}`,
+	} {
+		c.ChatCommand(command)
+		data := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); !bytes.Equal(data, want) {
+			t.Errorf("%s: refusal = % X, want % X", command, data, want)
+		}
+		data = c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorContextForTest(command, len(command)); !bytes.Equal(data, want) {
+			t.Errorf("%s: context = % X, want % X", command, data, want)
+		}
+	}
 	c.Disconnect()
 }
 

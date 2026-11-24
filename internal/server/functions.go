@@ -24,15 +24,21 @@ func (s *Server) loadFunctions() error {
 }
 
 // publishPacks reads the enabled packs and publishes their resources, but not
-// the function library, which it returns for the caller to store. A failure
-// can leave some of the resources published.
-func (s *Server) publishPacks() (*loadedFunctions, error) {
+// the function library, which it returns for the caller to store. On an error
+// nothing it publishes stays published.
+func (s *Server) publishPacks() (_ *loadedFunctions, err error) {
 	skip := func(file string, err error) {
 		slog.Warn("Skipping data pack file " + file + ": " + err.Error())
 	}
 	dirs := s.packs.Dirs()
-	s.templateFiles.SetPacks(dirs)
-	s.structures.Clear()
+	layers := registry.SnapshotPackLayers()
+	tagsApplied := s.packTagsApplied
+	defer func() {
+		if err != nil {
+			layers.Restore()
+			s.packTagsApplied = tagsApplied
+		}
+	}()
 	files, err := datapack.LoadFunctions(dirs, skip)
 	if err != nil {
 		return nil, err
@@ -57,7 +63,6 @@ func (s *Server) publishPacks() (*loadedFunctions, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.applyPackAdvancements(packAdvancements, hiddenAdvancements)
 	// Before the loot: a table's context provider names resolve against them.
 	ints, floats, err := loadPackContextProviders(dirs, skip)
 	if err != nil {
@@ -73,12 +78,15 @@ func (s *Server) publishPacks() (*loadedFunctions, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.applyPackLoot(tables, predicates, modifiers, hiddenLoot(dirs, tables))
 	// After the tags too: an ingredient's tag resolves against the loaded tags.
 	recipes, err := loadPackRecipes(dirs, skip)
 	if err != nil {
 		return nil, err
 	}
+	s.templateFiles.SetPacks(dirs)
+	s.structures.Clear()
+	s.applyPackAdvancements(packAdvancements, hiddenAdvancements)
+	s.applyPackLoot(tables, predicates, modifiers, hiddenLoot(dirs, tables))
 	s.applyPackRecipes(recipes)
 	// A new recipe or ingredient tag can make unchanged contents tickable.
 	for _, dim := range s.allDims() {
@@ -182,21 +190,10 @@ func (p *serverPacks) selectLocked(ids []string) error {
 	p.apply(ids)
 	if err := p.srv.loadFunctions(); err != nil {
 		p.apply(prev)
-		p.srv.restoreFunctions()
 		return err
 	}
 	p.srv.resendResources()
 	return nil
-}
-
-// restoreFunctions publishes the restored selection's resources again after a
-// failed reload, which may have published some of its own (tags, advancements,
-// context providers, loot) before failing. The function library and its load
-// tag are left alone: the old ones never stopped being live.
-func (s *Server) restoreFunctions() {
-	if _, err := s.publishPacks(); err != nil {
-		slog.Error("Failed to restore the data packs after a failed reload: " + err.Error())
-	}
 }
 
 func (p *serverPacks) apply(ids []string) {
