@@ -34,8 +34,8 @@ func (c *lodestoneCache) get(pos ChunkPos, key posKey) (found, ok bool) {
 	return found, ok
 }
 
-// begin registers a read of the chunk; finish must follow with the returned
-// version.
+// begin registers a read of the chunk; end must follow, and the returned
+// version tells valid and publish whether a load or write came between.
 func (c *lodestoneCache) begin(pos ChunkPos) uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -51,18 +51,13 @@ func (c *lodestoneCache) begin(pos ChunkPos) uint64 {
 	return r.version
 }
 
-// finish ends a read begun at version and publishes its answers unless the
-// chunk was loaded or written since, reporting whether it did. A full cache
-// gives up one other answer rather than all of them.
-func (c *lodestoneCache) finish(pos ChunkPos, version uint64, answers map[posKey]bool) bool {
+// publish keeps the answers of a read begun at version unless the chunk was
+// loaded or written since, reporting whether it did. A full cache gives up one
+// other answer rather than all of them.
+func (c *lodestoneCache) publish(pos ChunkPos, version uint64, answers map[posKey]bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	r := c.pending[pos]
-	current := r.version == version
-	if r.readers--; r.readers == 0 {
-		delete(c.pending, pos)
-	}
-	if !current {
+	if c.pending[pos].version != version {
 		return false
 	}
 	if c.chunks == nil {
@@ -83,6 +78,25 @@ func (c *lodestoneCache) finish(pos ChunkPos, version uint64, answers map[posKey
 		m[key] = found
 	}
 	return true
+}
+
+// valid reports whether the chunk is unloaded and unwritten since the read
+// begun at version.
+func (c *lodestoneCache) valid(pos ChunkPos, version uint64) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pending[pos].version == version
+}
+
+// end releases a read begun by begin.
+func (c *lodestoneCache) end(pos ChunkPos) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if r := c.pending[pos]; r != nil {
+		if r.readers--; r.readers == 0 {
+			delete(c.pending, pos)
+		}
+	}
 }
 
 // evictOne removes an arbitrary answer, outside keep's chunk when it can.
@@ -136,52 +150,80 @@ func (w *World) ForgetLodestones() {
 // LodestonePos is a block position whose lodestone answer is asked for.
 type LodestonePos struct{ X, Y, Z int32 }
 
+// LodestoneAnswers are what ResolveLodestones found out. An answer holds only
+// while no load or write of its chunk came after it was read; Lookup checks
+// that at each use, so Close the answers when done.
+type LodestoneAnswers struct {
+	w        *World
+	found    map[LodestonePos]bool
+	versions map[ChunkPos]uint64
+}
+
+// Lookup reports whether a lodestone stands at p when the read that found out
+// is still current; known is false otherwise. A nil receiver knows nothing.
+func (a *LodestoneAnswers) Lookup(p LodestonePos) (present, known bool) {
+	if a == nil {
+		return false, false
+	}
+	if present, known = a.found[p]; !known {
+		return false, false
+	}
+	pos := ChunkPos{X: p.X >> 4, Z: p.Z >> 4}
+	if !a.w.lodestones.valid(pos, a.versions[pos]) {
+		return false, false
+	}
+	return present, true
+}
+
+// Close ends the answers' hold on their chunks' versions.
+func (a *LodestoneAnswers) Close() {
+	if a == nil {
+		return
+	}
+	for pos := range a.versions {
+		a.w.lodestones.end(pos)
+	}
+}
+
 // ResolveLodestones reads the saved chunks behind positions
-// LodestoneCached did not know, one read per chunk, and keeps the answers.
-// The result holds an answer for each position found out, from the live block
-// or from a read no load or write of its chunk overtook; a chunk never saved
-// has none, and is not generated or loaded to find out. A position whose chunk
-// could not be read is left out, not answered absent. It reads the disk, so no
-// lock a tick holds may be held.
+// LodestoneCached did not know, one read per chunk, and keeps the answers in
+// the cache. A chunk never saved has an answer of absent without being
+// generated or loaded, and one that could not be read has none. It reads the
+// disk, so no lock a tick holds may be held.
 // vanilla: PoiManager.existsAtPosition
-func (w *World) ResolveLodestones(positions []LodestonePos) map[LodestonePos]bool {
-	answers := make(map[LodestonePos]bool, len(positions))
+func (w *World) ResolveLodestones(positions []LodestonePos) *LodestoneAnswers {
+	a := &LodestoneAnswers{w: w, found: make(map[LodestonePos]bool, len(positions)), versions: map[ChunkPos]uint64{}}
 	var cold map[ChunkPos][]LodestonePos
 	for _, p := range positions {
-		if present, known := w.LodestoneCached(p.X, p.Y, p.Z); known {
-			answers[p] = present
-			continue
+		if _, live := w.blockIfLoaded(p.X, p.Y, p.Z); live {
+			continue // the live block answers
 		}
 		pos := ChunkPos{X: p.X >> 4, Z: p.Z >> 4}
+		if _, held := a.versions[pos]; !held {
+			a.versions[pos] = w.lodestones.begin(pos)
+		}
+		if present, known := w.lodestones.get(pos, posKey{p.X, p.Y, p.Z}); known {
+			a.found[p] = present
+			continue
+		}
 		if cold == nil {
 			cold = map[ChunkPos][]LodestonePos{}
 		}
 		cold[pos] = append(cold[pos], p)
 	}
 	for pos, ps := range cold {
-		version := w.lodestones.begin(pos)
 		found, err := w.savedLodestones(pos, ps)
-		var published map[posKey]bool
-		if err == nil {
-			published = make(map[posKey]bool, len(found))
-			for p, f := range found {
-				published[posKey{p.X, p.Y, p.Z}] = f
-			}
-		}
 		if err != nil {
-			found = nil
+			continue
 		}
-		current := w.lodestones.finish(pos, version, published)
-		for _, p := range ps {
-			// A chunk that loaded meanwhile answers from its live block.
-			if present, known := w.LodestoneCached(p.X, p.Y, p.Z); known {
-				answers[p] = present
-			} else if f, ok := found[p]; ok && current {
-				answers[p] = f
-			}
+		published := make(map[posKey]bool, len(found))
+		for p, f := range found {
+			published[posKey{p.X, p.Y, p.Z}] = f
+			a.found[p] = f
 		}
+		w.lodestones.publish(pos, a.versions[pos], published)
 	}
-	return answers
+	return a
 }
 
 // savedLodestones reads a saved chunk once and tells which of ps, all in it,
@@ -216,17 +258,18 @@ func (w *World) savedLodestones(pos ChunkPos, ps []LodestonePos) (map[LodestoneP
 			if len(asked) == 0 {
 				continue
 			}
-			s := section{fill: airState}
-			if err := decodeSectionStates(&s, sec, dataVersion); err != nil {
-				return fmt.Errorf("section %d: %w", int32(sy), err)
+			cells := make([]int, len(asked))
+			for i, p := range asked {
+				cells[i] = int(p.Y&15<<8 | p.Z&15<<4 | p.X&15)
 			}
-			blocks := s.blocks.Load()
-			for _, p := range asked {
-				state := s.fill
-				if blocks != nil {
-					state = blocks.get(int(p.Y&15<<8 | p.Z&15<<4 | p.X&15))
+			states := make([]uint16, len(asked))
+			if bs, ok := sectionBlockStates(sec, dataVersion); ok {
+				if err := blockStatesAt(bs, cells, states); err != nil {
+					return fmt.Errorf("section %d: %w", int32(sy), err)
 				}
-				found[p] = registry.BlockOf(state) == registry.BlockLodestone
+			}
+			for i, p := range asked {
+				found[p] = registry.BlockOf(states[i]) == registry.BlockLodestone
 			}
 		}
 		return nil

@@ -219,17 +219,27 @@ func (rf *regionFile) allocate(count int) int {
 // the chunk unreadable and later writes to it are refused.
 // vanilla: RegionFile.getChunkDataInputStream
 func (rf *regionFile) readChunk(pos ChunkPos) ([]byte, error) {
+	data, err := rf.peekChunk(pos)
+	if err != nil {
+		rf.markUnreadable(regionIndex(pos.X, pos.Z))
+	}
+	return data, err
+}
+
+// peekChunk is readChunk that leaves the record unmarked on a failure, for a
+// reader that does not decide whether the chunk may be written.
+func (rf *regionFile) peekChunk(pos ChunkPos) ([]byte, error) {
 	index := regionIndex(pos.X, pos.Z)
 	compType, payload, err := rf.readRecord(index)
-	if err == nil && payload != nil {
+	if err == nil && payload == nil {
+		return nil, nil
+	}
+	if err == nil {
 		var data []byte
 		if data, err = rf.decodeRecord(pos, compType, payload); err == nil {
 			return data, nil
 		}
-	} else if err == nil {
-		return nil, nil
 	}
-	rf.markUnreadable(index)
 	return nil, fmt.Errorf("chunk %d in %s: %w", index, rf.path, err)
 }
 

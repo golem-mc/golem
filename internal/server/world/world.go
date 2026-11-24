@@ -2074,7 +2074,11 @@ func (w *World) withChunkRoot(pos ChunkPos, peek bool, read func(root nbt.Compou
 	}
 	defer w.releaseRegion(rf)
 	index := regionIndex(pos.X, pos.Z)
-	data, err := rf.readChunk(pos)
+	readRecord := rf.readChunk
+	if peek {
+		readRecord = rf.peekChunk
+	}
+	data, err := readRecord(pos)
 	if err != nil {
 		return false, err
 	}

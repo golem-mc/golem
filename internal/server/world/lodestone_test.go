@@ -20,7 +20,11 @@ func TestLodestoneCacheFillCrossingInvalidation(t *testing.T) {
 
 	version := c.begin(pos)
 	c.drop(pos) // the chunk loaded, or was written, while the disk was read
-	c.finish(pos, version, map[posKey]bool{key: true})
+	if c.valid(pos, version) {
+		t.Error("a read that crossed an invalidation is still valid")
+	}
+	c.publish(pos, version, map[posKey]bool{key: true})
+	c.end(pos)
 	if _, ok := c.get(pos, key); ok {
 		t.Error("a read that crossed an invalidation was published")
 	}
@@ -28,7 +32,7 @@ func TestLodestoneCacheFillCrossingInvalidation(t *testing.T) {
 		t.Errorf("%d reads still pending", len(c.pending))
 	}
 
-	c.finish(pos, c.begin(pos), map[posKey]bool{key: true})
+	c.fill(pos, map[posKey]bool{key: true})
 	if found, ok := c.get(pos, key); !ok || !found {
 		t.Errorf("get after a clean read = %v, %v, want true, true", found, ok)
 	}
@@ -36,13 +40,13 @@ func TestLodestoneCacheFillCrossingInvalidation(t *testing.T) {
 	c.drop(pos)
 	for i := range lodestoneCacheMax {
 		p := ChunkPos{X: int32(i + 10)}
-		c.finish(p, c.begin(p), map[posKey]bool{{p.X << 4, 64, 0}: false})
+		c.fill(p, map[posKey]bool{{p.X << 4, 64, 0}: false})
 	}
 	if c.entries != lodestoneCacheMax {
 		t.Fatalf("entries = %d, want the cap %d", c.entries, lodestoneCacheMax)
 	}
 	extra := ChunkPos{X: 5000}
-	c.finish(extra, c.begin(extra), map[posKey]bool{{extra.X << 4, 64, 0}: true})
+	c.fill(extra, map[posKey]bool{{extra.X << 4, 64, 0}: true})
 	if c.entries != lodestoneCacheMax {
 		t.Errorf("entries after an admission to a full cache = %d, want %d", c.entries, lodestoneCacheMax)
 	}
@@ -59,6 +63,12 @@ func TestLodestoneCacheFillCrossingInvalidation(t *testing.T) {
 	if kept != lodestoneCacheMax-1 {
 		t.Errorf("kept %d of the older answers, want %d", kept, lodestoneCacheMax-1)
 	}
+}
+
+// fill is a clean read of the chunk that found answers.
+func (c *lodestoneCache) fill(pos ChunkPos, answers map[posKey]bool) {
+	c.publish(pos, c.begin(pos), answers)
+	c.end(pos)
 }
 
 // savedLodestoneRoot is a saved chunk (0,0) root with one section at Y 4 whose
@@ -116,10 +126,14 @@ func TestResolveLodestonesBatch(t *testing.T) {
 	w := writeSavedRoot(t, savedLodestoneRoot(t, "minecraft:full", "minecraft:lodestone"))
 	in, out := LodestonePos{1, 64, 1}, LodestonePos{1, 200, 1}
 	got := w.ResolveLodestones([]LodestonePos{in, {2, 70, 3}, out})
-	if !got[in] || !got[LodestonePos{2, 70, 3}] {
-		t.Errorf("answers %v: a lodestone in the filled section was missed", got)
+	defer got.Close()
+	if a, _ := got.Lookup(in); !a {
+		t.Error("a lodestone in the filled section was missed")
 	}
-	if present, ok := got[out]; !ok || present {
+	if a, _ := got.Lookup(LodestonePos{2, 70, 3}); !a {
+		t.Error("a second lodestone in the filled section was missed")
+	}
+	if present, ok := got.Lookup(out); !ok || present {
 		t.Errorf("answer for a position in a section with no record = %v, %v, want false, true", present, ok)
 	}
 	if present, known := w.LodestoneCached(in.X, in.Y, in.Z); !known || !present {
@@ -132,8 +146,10 @@ func TestResolveLodestonesBatch(t *testing.T) {
 func TestResolveLodestonesKeepsUnreadableUnknown(t *testing.T) {
 	w := writeSavedRoot(t, savedLodestoneRoot(t, "minecraft:full", "minecraft:not_a_block"))
 	p := LodestonePos{1, 64, 1}
-	if got := w.ResolveLodestones([]LodestonePos{p}); len(got) != 0 {
-		t.Errorf("answers %v for a record that does not decode, want none", got)
+	got := w.ResolveLodestones([]LodestonePos{p})
+	defer got.Close()
+	if _, known := got.Lookup(p); known {
+		t.Error("answered for a record that does not decode")
 	}
 	if _, known := w.LodestoneCached(p.X, p.Y, p.Z); known {
 		t.Error("a failed read was cached")
@@ -154,8 +170,69 @@ func TestResolveLodestonesKeepsUnreadableUnknown(t *testing.T) {
 func TestResolveLodestonesSkipsNonFullRecord(t *testing.T) {
 	w := writeSavedRoot(t, savedLodestoneRoot(t, "minecraft:carved", "minecraft:lodestone"))
 	p := LodestonePos{1, 64, 1}
-	if present, ok := w.ResolveLodestones([]LodestonePos{p})[p]; !ok || present {
+	got := w.ResolveLodestones([]LodestonePos{p})
+	defer got.Close()
+	if present, ok := got.Lookup(p); !ok || present {
 		t.Errorf("answer = %v, %v, want false, true", present, ok)
+	}
+}
+
+// TestResolveLodestonesLeavesRegionFailureUnmarked checks a record whose
+// compression cannot be read leaves positions unanswered and the chunk
+// writable.
+func TestResolveLodestonesLeavesRegionFailureUnmarked(t *testing.T) {
+	w := writeSavedRoot(t, savedLodestoneRoot(t, "minecraft:full", "minecraft:lodestone"))
+	rx, rz := regionCoords(ChunkPos{})
+	path := regionFilePath(w.storage, rx, rz)
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rf, err := w.region(rx, rz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.releaseRegion(rf)
+	sector := int64(rf.offsets[regionIndex(0, 0)] >> 8)
+	if _, err := f.WriteAt([]byte{99}, sector*sectorSize+4); err != nil { // no such compression type
+		t.Fatal(err)
+	}
+	f.Close()
+	p := LodestonePos{1, 64, 1}
+	got := w.ResolveLodestones([]LodestonePos{p})
+	defer got.Close()
+	if _, known := got.Lookup(p); known {
+		t.Error("answered for a record that does not decompress")
+	}
+	if rf.unreadable[regionIndex(0, 0)] {
+		t.Error("the compass lookup marked the chunk unreadable")
+	}
+}
+
+// TestLodestoneAnswersSeeLoadAndWrite checks an answer read as absent is not
+// used once its chunk loaded, took a lodestone and was saved, though the batch
+// still holds it.
+func TestLodestoneAnswersSeeLoadAndWrite(t *testing.T) {
+	w := writeSavedRoot(t, savedLodestoneRoot(t, "minecraft:full", "minecraft:stone"))
+	p := LodestonePos{1, 64, 1}
+	got := w.ResolveLodestones([]LodestonePos{p})
+	defer got.Close()
+	if present, known := got.Lookup(p); !known || present {
+		t.Fatalf("answer = %v, %v, want absent and known", present, known)
+	}
+	pos := ChunkPos{}
+	w.Acquire(pos)
+	w.SetBlock(p.X, p.Y, p.Z, registry.BlockLodestone.DefaultState())
+	w.Save()
+	w.Release(pos)
+	for w.ChunkLoaded(pos) {
+		runtime.Gosched()
+	}
+	if _, known := got.Lookup(p); known {
+		t.Error("the answer outlived a load and write of its chunk")
+	}
+	if _, known := w.LodestoneCached(p.X, p.Y, p.Z); known {
+		t.Error("the cache kept an answer across a load and write")
 	}
 }
 
@@ -175,8 +252,40 @@ func BenchmarkResolveLodestones(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		w.lodestones = lodestoneCache{}
-		if !w.ResolveLodestones([]LodestonePos{{50, 63, 70}})[LodestonePos{50, 63, 70}] {
+		got := w.ResolveLodestones([]LodestonePos{{50, 63, 70}})
+		if present, _ := got.Lookup(LodestonePos{50, 63, 70}); !present {
 			b.Fatal("the saved lodestone was not found")
+		}
+		got.Close()
+	}
+}
+
+// TestBlockStatesAtMatchesDecode checks the direct palette read agrees with
+// the section decode for a packed section.
+func TestBlockStatesAtMatchesDecode(t *testing.T) {
+	var names []nbt.Tag
+	for _, n := range []string{"minecraft:air", "minecraft:stone", "minecraft:lodestone"} {
+		names = append(names, nbt.Compound{"Name": nbt.String(n)})
+	}
+	data := make(nbt.LongArray, 342) // 2 bits wide is raised to 4: 16 per long
+	data = data[:blocksPerSection/16]
+	for i := range data {
+		data[i] = int64(0x2121_1020_0121_2012) * int64(i+1)
+	}
+	bs := nbt.Compound{"palette": nbt.List{Elem: nbt.TypeCompound, Items: names}, "data": data}
+	var s section
+	s.fill = airState
+	if err := decodeSectionBlocks(&s, bs); err != nil {
+		t.Fatal(err)
+	}
+	cells := []int{0, 1, 15, 16, 255, 256, 1000, 4095}
+	out := make([]uint16, len(cells))
+	if err := blockStatesAt(bs, cells, out); err != nil {
+		t.Fatal(err)
+	}
+	for i, cell := range cells {
+		if want := s.blocks.Load().get(cell); out[i] != want {
+			t.Errorf("cell %d = %d, want %d", cell, out[i], want)
 		}
 	}
 }

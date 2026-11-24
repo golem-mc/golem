@@ -17,21 +17,33 @@ type LodestoneWorld interface {
 // vanilla: Level.MAX_LEVEL_SIZE
 const worldBorderLimit = 30000000
 
-// ClearLostLodestone returns the stack with its tracker's target taken off,
-// and true, when the stack is a tracked lodestone compass that LodestoneLost
-// says has lost its lodestone. Other items keep their tracker.
+// LodestoneCompassLost reports whether the stack is a tracked lodestone
+// compass that LodestoneLost says has lost its lodestone; ClearedLodestone
+// is what it becomes. Other items keep their tracker.
 // vanilla: CompassItem.inventoryTick
-func ClearLostLodestone(w LodestoneWorld, stack protocol.ItemStack, dim string, bottom, top int32) (protocol.ItemStack, bool) {
+func LodestoneCompassLost(w LodestoneWorld, stack *protocol.ItemStack, dim string, bottom, top int32) bool {
 	if registry.Item(stack.ItemID) != registry.ItemCompass {
-		return stack, false
+		return false
 	}
 	tracker, ok := stack.LodestoneTrackerOf()
-	if !ok || !LodestoneLost(w, tracker, dim, bottom, top) {
-		return stack, false
-	}
+	return ok && LodestoneLost(w, tracker, dim, bottom, top)
+}
+
+// ClearedLodestone returns the stack with its tracker's target taken off.
+func ClearedLodestone(stack protocol.ItemStack) protocol.ItemStack {
+	tracker, _ := stack.LodestoneTrackerOf()
 	tracker.Target = nil
 	stack.SetLodestoneTracker(tracker)
-	return stack, true
+	return stack
+}
+
+// ClearLostLodestone returns the stack cleared, and true, when
+// LodestoneCompassLost says so.
+func ClearLostLodestone(w LodestoneWorld, stack protocol.ItemStack, dim string, bottom, top int32) (protocol.ItemStack, bool) {
+	if !LodestoneCompassLost(w, &stack, dim, bottom, top) {
+		return stack, false
+	}
+	return ClearedLodestone(stack), true
 }
 
 // LodestoneLost reports whether a compass in dimension dim (world height

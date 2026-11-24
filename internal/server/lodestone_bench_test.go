@@ -9,8 +9,8 @@ import (
 )
 
 // lodestoneBenchClient is a player holding 36 tracked compasses pointing into
-// saved, unloaded chunks: all at a lodestone, or half at stone. stacks are the
-// starting inventory.
+// saved, unloaded chunks, one record each in the world's region files: all at a
+// lodestone, or half at stone. stacks are the starting inventory.
 func lodestoneBenchClient(b *testing.B, allKept bool) (*client, []protocol.ItemStack) {
 	s, _ := newCommandBenchServer(b, 0)
 	lodestone := registry.BlockLodestone.DefaultState()
@@ -37,7 +37,7 @@ func lodestoneBenchClient(b *testing.B, allKept bool) (*client, []protocol.ItemS
 func setLodestoneBenchStacks(c *client, stacks []protocol.ItemStack) {
 	c.player.Inventory(func(inv *player.Inventory) {
 		for i, stack := range stacks {
-			inv.Set(i, stack)
+			inv.Set(player.MainSlot+i, stack) // main inventory and hotbar
 		}
 	})
 }
@@ -60,6 +60,7 @@ func BenchmarkTickLodestoneCompasses(b *testing.B) {
 	b.Run("cold", func(b *testing.B) {
 		c, stacks := lodestoneBenchClient(b, false)
 		b.ReportAllocs()
+		b.ResetTimer() // the fixture saves 36 chunks
 		for range b.N {
 			b.StopTimer()
 			setLodestoneBenchStacks(c, stacks)

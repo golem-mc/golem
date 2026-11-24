@@ -1,13 +1,17 @@
 package blocks
 
 import (
+	"fmt"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"os"
+	"path/filepath"
 
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -364,30 +368,45 @@ func TestABrokenLodestoneClearsTheCompassTarget(t *testing.T) {
 }
 
 // TestLodestoneCompassUnloadedTarget checks a compass pointing into an
-// unloaded chunk is judged by the saved chunk: a never-generated one and one
-// saved without a lodestone clear the target, a saved lodestone keeps it, and
-// no check loads the chunk.
+// unloaded chunk is judged by the saved chunk in one tick: a never-generated
+// chunk and a saved one with no lodestone clear the target, a saved lodestone
+// keeps it, and so does a region file that cannot be read, without stopping the
+// others. A crafting input is not ticked. No check loads a chunk.
 // vanilla: LodestoneTracker.tick, PoiManager.existsAtPosition
 func TestLodestoneCompassUnloadedTarget(t *testing.T) {
 	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig())
 	const dim = "minecraft:overworld"
-	const never, withLodestone, without = 98765, 200000, 300000
-	shapeLodestone(t, srv, withLodestone, 63, withLodestone)
-	stone, _ := registry.FindState("minecraft:stone", nil)
-	srv.SetLoadedBlock(without, 63, without, stone)
-
-	c := connect().Join("Wanderer")
+	const never, withLodestone, without, unreadable = 98765, 200000, 300000, 400000
+	cfg := servertest.SurvivalTestConfig()
+	cfg.LevelName = t.TempDir()
+	srv, c := servertest.Join(t, cfg, "Wanderer", func(srv *server.Server) {
+		shapeLodestone(t, srv, withLodestone, 64, withLodestone)
+		stone, _ := registry.FindState("minecraft:stone", nil)
+		// Y=63 is stone already and an untouched chunk is not saved.
+		srv.SetLoadedBlock(without, 64, without, stone)
+		srv.SetLoadedBlock(unreadable, 64, unreadable, stone)
+		rx, rz := int32(unreadable>>4)>>5, int32(unreadable>>4)>>5
+		region := filepath.Join(world.DimensionDir(cfg.LevelName, world.DimensionName), "region", fmt.Sprintf("r.%d.%d.mca", rx, rz))
+		if err := os.WriteFile(region, []byte("not a region"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
 	servertest.HoldTicks(t, srv)
 	slots := []struct {
 		slot int
 		at   int32
+		y    int32
 		kept bool
-	}{{1, never, false}, {2, withLodestone, true}, {3, without, false}}
-	for _, s := range slots {
-		srv.GiveSlot("Wanderer", s.slot, lodestoneCompass(t, 1, dim, s.at, 63, s.at))
+	}{
+		{player.HotbarSlot, never, 64, false},
+		{player.HotbarSlot + 1, withLodestone, 64, true},
+		{player.HotbarSlot + 2, without, 64, false},
+		{player.HotbarSlot + 3, unreadable, 64, true},
+		{1, never, 64, true}, // a crafting input
 	}
-	// One tick judges all three, the saved chunks read inside it.
+	for _, s := range slots {
+		srv.GiveSlot("Wanderer", s.slot, lodestoneCompass(t, 1, dim, s.at, s.y, s.at))
+	}
 	cleared := map[int16]bool{}
 	c.ReadTicks(srv, 1, func(id int32, data []byte) bool {
 		if id != protocol.IDPlayContainerSlot {
@@ -407,11 +426,9 @@ func TestLodestoneCompassUnloadedTarget(t *testing.T) {
 			t.Errorf("target %d: slot %d cleared on the client = %v after one tick, want %v",
 				s.at, s.slot, cleared[int16(s.slot)], !s.kept)
 		}
-	}
-	for _, s := range slots {
 		want := clearedLodestoneCompass(t, 1)
 		if s.kept {
-			want = lodestoneCompass(t, 1, dim, s.at, 63, s.at)
+			want = lodestoneCompass(t, 1, dim, s.at, s.y, s.at)
 		}
 		if got := srv.InventorySlot("Wanderer", s.slot); !got.Equal(want) {
 			t.Errorf("target %d: slot %d = %+v, want %+v", s.at, s.slot, got, want)

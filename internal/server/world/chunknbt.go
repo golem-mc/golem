@@ -409,18 +409,15 @@ func chunkIsFull(root nbt.Compound) (bool, error) {
 	return string(status) == "minecraft:full", nil
 }
 
-// decodeSectionStates fills a section's blocks from its block_states, with
-// the legacy palette renames of dataVersion (0: unknown) applied.
-func decodeSectionStates(s *section, sec nbt.Compound, dataVersion int32) error {
+// sectionBlockStates returns a section's block_states with the legacy palette
+// renames of dataVersion (0: unknown) applied.
+func sectionBlockStates(sec nbt.Compound, dataVersion int32) (nbt.Compound, bool) {
 	bs, ok := nbt.Get[nbt.Compound](sec, "block_states")
-	if !ok {
-		return nil
-	}
-	if dataVersion != 0 {
+	if ok && dataVersion != 0 {
 		palette, _ := nbt.Get[nbt.List](bs, "palette")
 		fixLegacyPalette(palette, dataVersion)
 	}
-	return decodeSectionBlocks(s, bs)
+	return bs, ok
 }
 
 // decodeChunkNBT reads a chunk's root into a Chunk with its sections, biome
@@ -472,8 +469,10 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 		}
 		s := &c.sections[idx]
 
-		if err := decodeSectionStates(s, sec, c.dataVersion); err != nil {
-			return nil, fmt.Errorf("section %d: %w", int32(y), err)
+		if bs, ok := sectionBlockStates(sec, c.dataVersion); ok {
+			if err := decodeSectionBlocks(s, bs); err != nil {
+				return nil, fmt.Errorf("section %d: %w", int32(y), err)
+			}
 		}
 		if bi, ok := nbt.Get[nbt.Compound](sec, "biomes"); ok {
 			decodeSectionBiomes(s, bi)
@@ -550,37 +549,76 @@ func carryChunkRoot(root nbt.Compound) nbt.Compound {
 	return carried
 }
 
+// blockStatesLayout reads a section's block_states palette as state IDs and
+// checks its packed data covers every cell. data is empty for a uniform
+// section; stateIDs is empty for one with no palette.
+func blockStatesLayout(bs nbt.Compound) (stateIDs []uint16, data nbt.LongArray, bitsPerEntry int, err error) {
+	palette, _ := nbt.Get[nbt.List](bs, "palette")
+	if len(palette.Items) == 0 {
+		return nil, nil, 0, nil
+	}
+	stateIDs = make([]uint16, len(palette.Items))
+	for i, entry := range palette.Items {
+		id, ok := resolveBlockState(entry)
+		if !ok {
+			return nil, nil, 0, fmt.Errorf("unknown block state in palette entry %d", i)
+		}
+		stateIDs[i] = id
+	}
+	data, _ = nbt.Get[nbt.LongArray](bs, "data")
+	if len(data) == 0 {
+		return stateIDs, nil, 0, nil
+	}
+	bitsPerEntry = max(minIndirectBits, bits.Len(uint(len(stateIDs)-1)))
+	perLong := 64 / bitsPerEntry
+	if need := (blocksPerSection + perLong - 1) / perLong; len(data) < need {
+		return nil, nil, 0, fmt.Errorf("block_states data holds %d longs, %d entries at %d bits per entry need %d",
+			len(data), blocksPerSection, bitsPerEntry, need)
+	}
+	return stateIDs, data, bitsPerEntry, nil
+}
+
+// blockStatesAt reads the states of the given cells (y<<8|z<<4|x) of a
+// section's block_states without building the section; a cell index outside
+// the palette reads as air, as in decodeSectionBlocks.
+func blockStatesAt(bs nbt.Compound, cells []int, out []uint16) error {
+	stateIDs, data, bitsPerEntry, err := blockStatesLayout(bs)
+	if err != nil {
+		return err
+	}
+	for i, cell := range cells {
+		switch {
+		case len(stateIDs) == 0:
+			out[i] = airState
+		case len(data) == 0:
+			out[i] = stateIDs[0]
+		default:
+			perLong := 64 / bitsPerEntry
+			word := uint64(data[cell/perLong]) >> (cell % perLong * bitsPerEntry)
+			out[i] = airState
+			if idx := int(word & (1<<bitsPerEntry - 1)); idx < len(stateIDs) {
+				out[i] = stateIDs[idx]
+			}
+		}
+	}
+	return nil
+}
+
 // decodeSectionBlocks fills a section from block_states: a single-entry palette
 // without data fills it whole, otherwise the longs unpack to palette indices.
 // The file has no bits-per-entry, so the palette size decides it, and an array
 // too short for 4096 entries at that width is refused rather than read past.
 // vanilla: PalettedContainer.unpack
 func decodeSectionBlocks(s *section, bs nbt.Compound) error {
-	palette, _ := nbt.Get[nbt.List](bs, "palette")
-	if len(palette.Items) == 0 {
-		return nil
+	stateIDs, data, bitsPerEntry, err := blockStatesLayout(bs)
+	if err != nil || len(stateIDs) == 0 {
+		return err
 	}
-	stateIDs := make([]uint16, len(palette.Items))
-	for i, entry := range palette.Items {
-		id, ok := resolveBlockState(entry)
-		if !ok {
-			return fmt.Errorf("unknown block state in palette entry %d", i)
-		}
-		stateIDs[i] = id
-	}
-
-	data, hasData := nbt.Get[nbt.LongArray](bs, "data")
-	if !hasData || len(data) == 0 {
+	if len(data) == 0 {
 		s.setAll(stateIDs[0])
 		return nil
 	}
-
-	bitsPerEntry := max(minIndirectBits, bits.Len(uint(len(stateIDs)-1)))
 	perLong := 64 / bitsPerEntry
-	if need := (blocksPerSection + perLong - 1) / perLong; len(data) < need {
-		return fmt.Errorf("block_states data holds %d longs, %d entries at %d bits per entry need %d",
-			len(data), blocksPerSection, bitsPerEntry, need)
-	}
 
 	// Counts must represent all 4096 cells, including an explicit uniform array.
 	counts := make([]uint32, len(stateIDs))

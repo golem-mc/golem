@@ -28,43 +28,41 @@ func (c *client) tickLodestoneCompasses() {
 		visible bool
 	}
 	var syncs []slotSync
-	var misses []world.LodestonePos
-	probe := &lodestoneProbe{w: w, misses: &misses}
-	// A stack is changed only once no target is unknown: a saved chunk is read
-	// with the inventory lock released, and slot updates built before that
-	// would overtake a newer write of the slot.
-	type lost struct {
-		slot  int
-		stack protocol.ItemStack
-	}
-	var found []lost
-	pass := func() {
-		found = found[:0]
+	probe := &c.compassProbe
+	*probe = lodestoneProbe{w: w, misses: probe.misses[:0]}
+	// Slot updates are built only on the pass that writes the stacks: a saved
+	// chunk is read between the passes with the inventory lock released, and an
+	// update built before that would overtake a newer write of the slot.
+	// Crafting slots are menu state, not inventory, and are not ticked.
+	pass := func(final bool) {
 		c.player.Inventory(func(inv *player.Inventory) {
-			for slot := range inv.Slots {
-				// Only a stack with components can carry a tracker; skipping the rest
-				// avoids copying each ItemStack by value.
+			var lost []int
+			for slot := player.ArmorSlot; slot < len(inv.Slots); slot++ {
+				// Only a stack with components can carry a tracker.
 				if len(inv.Slots[slot].Raw) == 0 {
 					continue
 				}
-				if stack, ok := rules.ClearLostLodestone(probe, inv.Slots[slot], dim, bottom, top); ok {
-					found = append(found, lost{slot, stack})
+				if rules.LodestoneCompassLost(probe, &inv.Slots[slot], dim, bottom, top) {
+					lost = append(lost, slot)
 				}
 			}
-			if len(misses) > 0 {
+			// The first pass defers every write while a target is unknown; the
+			// final one applies each loss known by then.
+			if !final && len(probe.misses) > 0 {
 				return
 			}
-			for _, l := range found {
-				payload, visible := c.setSlotUnder(inv, l.slot, l.stack)
+			for _, slot := range lost {
+				payload, visible := c.setSlotUnder(inv, slot, rules.ClearedLodestone(inv.Slots[slot]))
 				syncs = append(syncs, slotSync{payload: payload, visible: visible})
 			}
 		})
 	}
-	pass()
-	if len(misses) > 0 {
-		probe.resolved = w.ResolveLodestones(misses)
-		misses = misses[:0]
-		pass()
+	pass(false)
+	if len(probe.misses) > 0 {
+		probe.resolved = w.ResolveLodestones(probe.misses)
+		pass(true)
+		probe.resolved.Close()
+		probe.resolved = nil
 	}
 	for _, sync := range syncs {
 		c.send(protocol.IDPlayContainerSlot, sync.payload)
@@ -77,11 +75,11 @@ func (c *client) tickLodestoneCompasses() {
 // lodestoneProbe is a rules.LodestoneWorld that answers from memory and notes
 // each position it could not, so the caller reads them once it holds no lock.
 // An unknown position counts as present. resolved holds what an earlier read
-// found out.
+// found out, checked against its chunk's version at each use.
 type lodestoneProbe struct {
 	w        *world.World
-	misses   *[]world.LodestonePos
-	resolved map[world.LodestonePos]bool
+	misses   []world.LodestonePos
+	resolved *world.LodestoneAnswers
 }
 
 func (p *lodestoneProbe) LodestoneCached(x, y, z int32) (present, known bool) {
@@ -89,10 +87,10 @@ func (p *lodestoneProbe) LodestoneCached(x, y, z int32) (present, known bool) {
 		return present, true
 	}
 	pos := world.LodestonePos{X: x, Y: y, Z: z}
-	if present, known = p.resolved[pos]; known {
+	if present, known = p.resolved.Lookup(pos); known {
 		return present, true
 	}
-	*p.misses = append(*p.misses, pos)
+	p.misses = append(p.misses, pos)
 	return true, false
 }
 
@@ -117,9 +115,10 @@ func (s *Server) finishMobCompasses(mobs []lodestoneMob) {
 	for _, lm := range mobs {
 		asked[lm.w] = append(asked[lm.w], lm.misses...)
 	}
-	answers := make(map[*world.World]map[world.LodestonePos]bool, len(asked))
+	answers := make(map[*world.World]*world.LodestoneAnswers, len(asked))
 	for w, ps := range asked {
 		answers[w] = w.ResolveLodestones(ps)
+		defer answers[w].Close()
 	}
 	s.mobsMu.Lock()
 	defer s.mobsMu.Unlock()
@@ -127,8 +126,7 @@ func (s *Server) finishMobCompasses(mobs []lodestoneMob) {
 		if lm.h.book[lm.m] == nil {
 			continue
 		}
-		var unknown []world.LodestonePos
-		tickMobCompasses(lm.m, &lodestoneProbe{w: lm.w, misses: &unknown, resolved: answers[lm.w]}, lm.dim)
+		tickMobCompasses(lm.m, &lodestoneProbe{w: lm.w, resolved: answers[lm.w]}, lm.dim)
 	}
 }
 
