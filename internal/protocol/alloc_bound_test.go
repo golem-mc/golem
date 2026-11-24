@@ -78,11 +78,11 @@ func lengthPrefixed(length int32, frame []byte) []byte {
 	return b.Bytes()
 }
 
-// TestReadPacketGrowsWithTheBytesReceived pins that a frame claiming the
-// most a packet may be costs memory by what arrived: a hundred bytes behind
-// a 2 MiB length fail as cut off without the 2 MiB being allocated first.
+// TestReadPacketGrowsWithTheBytesReceived checks that a truncated frame with
+// the largest valid wire length allocates based on the bytes received.
 func TestReadPacketGrowsWithTheBytesReceived(t *testing.T) {
-	data := lengthPrefixed(maxPacketSize, make([]byte, 100))
+	const largestFrame = (1 << 21) - 1
+	data := lengthPrefixed(largestFrame, make([]byte, 100))
 	var err error
 	n := allocated(func() {
 		_, _, err = NewConn(framedConn{r: bytes.NewReader(data)}).ReadPacket()
@@ -91,7 +91,7 @@ func TestReadPacketGrowsWithTheBytesReceived(t *testing.T) {
 		t.Errorf("ReadPacket = %v, want the frame cut off", err)
 	}
 	if n > allocBound {
-		t.Errorf("a 100-byte frame claiming %d allocated %d bytes", maxPacketSize, n)
+		t.Errorf("a 100-byte frame claiming %d allocated %d bytes", largestFrame, n)
 	}
 }
 

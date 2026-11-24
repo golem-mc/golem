@@ -1297,7 +1297,7 @@ func stepSummon(src Source, ctxs []execContext, forked bool, rest []string) ([]e
 			_, id, err = view.SummonItem(ctx.pos.X, ctx.pos.Y, ctx.pos.Z, protocol.ItemStack{}, 10, false, nil)
 			made = true
 		} else {
-			_, id, _, _, made, err = summonBody(view, name, kind, ctx.pos.X, ctx.pos.Y, ctx.pos.Z, nil, nil, nil, false)
+			_, id, _, made, err = summonBody(view, name, kind, ctx.pos.X, ctx.pos.Y, ctx.pos.Z, nil, nil, nil, false)
 		}
 		if made && err == nil {
 			if found := view.Entities(EntityQuery{UUID: &id}); len(found) > 0 {

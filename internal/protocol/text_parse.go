@@ -309,7 +309,7 @@ func JSONValueTag(v any) (nbt.Tag, error) {
 		if len(items) > 0 && len(ints) == len(items) {
 			return ints, nil
 		}
-		return nbt.NewList(items), nil
+		return nbt.ListOf(items), nil
 	}
 	return nil, fmt.Errorf("unsupported value %s", jsonValue(v))
 }
