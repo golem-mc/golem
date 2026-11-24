@@ -414,7 +414,7 @@ func (s *Server) hopperStep(w *world.World, b *world.BlockEntity, gate *hopperGa
 		t.pushed = s.hopperEject(w, self, gate)
 		t.moved = t.pushed != nil
 	}
-	if !slotsFull(b.Slots) {
+	if !hopperFull(b) {
 		var suckMoved bool
 		suckMoved, t.pulled, t.partial, t.taken, t.shrunk = s.hopperSuck(w, self, gate)
 		t.moved = suckMoved || t.moved
@@ -625,6 +625,19 @@ func slotsEmpty(slots []protocol.ItemStack) bool {
 		}
 	}
 	return true
+}
+
+// hopperFull is vanilla's inventoryFull after ejectItems, reusing the last
+// answer until the hopper's inventory version moves. The caller holds b's lock.
+func hopperFull(b *world.BlockEntity) bool {
+	if b.FilledSlots() != 0x1f {
+		return false
+	}
+	c := b.HopperTargets
+	if v := b.InventoryVersion(); !c.FullKnown || c.FullVersion != v {
+		c.FullKnown, c.FullVersion, c.Full = true, v, slotsFull(b.Slots)
+	}
+	return c.Full
 }
 
 func slotsFull(slots []protocol.ItemStack) bool {

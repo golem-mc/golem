@@ -31,6 +31,10 @@ func (b *BlockEntity) InventoryVersion() uint64 { return b.inventoryVersion.Load
 // HopperTargets caches a hopper's push and pull lookups; it is never saved.
 type HopperTargets struct {
 	Push, Pull HopperTargetCache
+	// FullKnown, FullVersion and Full cache the hopper's own slots-full result per inventory version.
+	FullKnown   bool
+	FullVersion uint64
+	Full        bool
 }
 
 // HopperTargetCache holds block-container identities and failed-transfer
