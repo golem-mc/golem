@@ -58,8 +58,7 @@ type entitySnapshot struct {
 	dim           string
 	pos           player.Position
 	box           [6]float64
-	// tags are the scoreboard tags, copied with the snapshot so later /tag
-	// changes do not show through.
+	// tags are captured alongside the other selector fields.
 	tags []string
 }
 
@@ -118,6 +117,14 @@ func (e *entitySnapshot) Alive() bool { return e.alive }
 
 // Tags are the snapshot's scoreboard tags. vanilla: Entity.entityTags
 func (e *entitySnapshot) Tags() []string { return e.tags }
+
+// MatchesLiveTag tests the live set because a function reuses its @s snapshot
+// across commands. vanilla: EntitySelectorOptions.bootStrap
+func (e *entitySnapshot) MatchesLiveTag(filter command.TagFilter) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return filter.Passes(e.liveTags.Len(), e.liveTags.Contains)
+}
 
 // AddTag adds a scoreboard tag to the live body. vanilla: Entity.addTag
 func (e *entitySnapshot) AddTag(tag string) bool {

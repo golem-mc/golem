@@ -912,7 +912,7 @@ func (p *Physics) takeWake() ([]Effect, []TNTPrime) {
 // once). A call where nothing changed is a no-op, as LevelChunk.setBlockState
 // declines an unchanged state.
 func (p *Physics) NotifyChanged(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
-	return p.notifyChanged(x, y, z, oldState, false, true)
+	return p.notifyChanged(x, y, z, oldState, false)
 }
 
 // NotifyPlaced is NotifyChanged for a command's write followed by
@@ -920,16 +920,49 @@ func (p *Physics) NotifyChanged(x, y, z int32, oldState uint16) ([]BlockChange, 
 // position, not the old one.
 // vanilla: ServerLevel.updateNeighboursOnBlockSet
 func (p *Physics) NotifyPlaced(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
-	return p.notifyChanged(x, y, z, oldState, true, true)
+	return p.notifyChanged(x, y, z, oldState, true)
 }
 
-// NotifyPlacedAfterShapes is NotifyPlaced without the neighbour shape pass,
-// for a write that already ran it.
-func (p *Physics) NotifyPlacedAfterShapes(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
-	return p.notifyChanged(x, y, z, oldState, true, false)
+// NotifyPlacedHooks is the part of NotifyPlaced a block write owns: the old
+// block's removal hook, the new block's on-place and the shape passes, with no
+// neighbour update. A block entity's tag loads after it, then NotifyPlacedWake.
+// vanilla: Level.setBlock, LevelChunk.setBlockState
+func (p *Physics) NotifyPlacedHooks(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	newState := p.w.BlockAt(x, y, z)
+	if oldState == newState {
+		return nil, nil, nil
+	}
+	var changes []BlockChange
+	p.redstoneAfterRemoval(x, y, z, oldState, false, &changes)
+	p.containerRemoved(x, y, z, oldState, newState)
+	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	// The old and new states' updateIndirectNeighbourShapes flank the pass.
+	p.wireSlopeChanges(x, y, z, oldState, &changes)
+	p.shapeUpdateNeighbors(x, y, z, &changes)
+	p.wireSlopeChanges(x, y, z, newState, &changes)
+	effects, primes := p.takeWake()
+	return changes, effects, primes
 }
 
-func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew, shapes bool) ([]BlockChange, []Effect, []TNTPrime) {
+// NotifyPlacedWake is the explicit neighbour update of a command's placement
+// after NotifyPlacedHooks: the block and its six neighbours hear of the block
+// now at the position, and comparators reading it.
+// vanilla: ServerLevel.updateNeighboursOnBlockSet
+func (p *Physics) NotifyPlacedWake(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	newState := p.w.BlockAt(x, y, z)
+	var changes []BlockChange
+	p.updateAsNeighbor(x, y, z, &changes, true, oldState, newState, [3]int32{})
+	p.wakeNeighbors(x, y, z, newState, newState, &changes)
+	p.analogOutputWoken(x, y, z)
+	effects, primes := p.takeWake()
+	return changes, effects, primes
+}
+
+func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([]BlockChange, []Effect, []TNTPrime) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	newState := p.w.BlockAt(x, y, z)
@@ -946,34 +979,36 @@ func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew, shapes 
 	} else {
 		p.neighborUpdate(x, y, z, oldState, newState, &changes)
 	}
-	// A new state with an analog output wakes the comparators reading it,
-	// through a conductor too; the face asked is immaterial, only whether there
-	// is an output.
-	// A container is answered by its block alone: computing its output would
-	// roll a pending loot table, which only a comparator's read does.
-	// vanilla: Level.setBlock, Block.hasAnalogOutputSignal
+	p.analogOutputWoken(x, y, z)
+	// vanilla: Level.setBlock — the old and new states'
+	// updateIndirectNeighbourShapes flank the neighbour shape pass; only
+	// redstone wire overrides it, for the wires a step above or below its
+	// connected sides.
+	p.wireSlopeChanges(x, y, z, oldState, &changes)
+	p.shapeUpdateNeighbors(x, y, z, &changes)
+	p.wireSlopeChanges(x, y, z, newState, &changes)
+	effects, primes := p.takeWake()
+	return changes, effects, primes
+}
+
+// analogOutputWoken wakes the comparators reading a new state with an analog
+// output, through a conductor too; the face asked is immaterial, only whether
+// there is an output.
+// A container is answered by its block alone: computing its output would
+// roll a pending loot table, which only a comparator's read does.
+// vanilla: Level.setBlock, Block.hasAnalogOutputSignal
+func (p *Physics) analogOutputWoken(x, y, z int32) {
 	cur := p.w.BlockAt(x, y, z)
 	if isFullnessContainer(registry.BlockOf(cur)) {
 		p.analogOutputChanged(x, y, z, p.now)
 	} else if _, has := p.analogOutputOf(cur, x, y, z, dirDown); has {
 		p.analogOutputChanged(x, y, z, p.now)
 	}
-	// vanilla: Level.setBlock — the old and new states'
-	// updateIndirectNeighbourShapes flank the neighbour shape pass; only
-	// redstone wire overrides it, for the wires a step above or below its
-	// connected sides.
-	p.wireSlopeChanges(x, y, z, oldState, &changes)
-	if shapes {
-		p.shapeUpdateNeighbors(x, y, z, &changes)
-	}
-	p.wireSlopeChanges(x, y, z, newState, &changes)
-	effects, primes := p.takeWake()
-	return changes, effects, primes
 }
 
 // NotifyNeighbours is the neighbour update a command's
 // updateNeighboursOnBlockSet runs after a non-strict set left the cell
-// unchanged: the six neighbours hear of it, the position is not revisited.
+// unchanged: the six neighbours and any reading comparators hear of it.
 // NotifyChanged cannot stand in, as it returns early on an unchanged state.
 // vanilla: ServerLevel.updateNeighboursOnBlockSet
 func (p *Physics) NotifyNeighbours(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
@@ -981,6 +1016,7 @@ func (p *Physics) NotifyNeighbours(x, y, z int32, oldState uint16) ([]BlockChang
 	defer p.mu.Unlock()
 	var changes []BlockChange
 	p.wakeNeighbors(x, y, z, oldState, p.w.BlockAt(x, y, z), &changes)
+	p.blockAnalogOutputChanged(x, y, z)
 	effects, primes := p.takeWake()
 	return changes, effects, primes
 }

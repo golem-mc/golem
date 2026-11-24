@@ -875,7 +875,7 @@ func (ws worldScope) SetBlockTagged(x, y, z int32, state uint16, defined map[str
 	hasTag := hasEntity && tag != nil && tag.Entries() != nil
 	deferWake := !strict && hasTag
 	if deferWake {
-		policy = policy&^writeWake | writeNeighborShapes
+		policy = policy&^writeWake | writePlacedHooks
 	}
 	old := w.BlockAt(x, y, z)
 	changed := ws.writeBlock(x, y, z, state, defined, policy)
@@ -884,9 +884,14 @@ func (ws worldScope) SetBlockTagged(x, y, z int32, state uint16, defined map[str
 		ws.srv.physicsFor(w).PlacementShapeUpdates(x, y, z, state)
 	}
 	if !changed {
-		// The block already matched; the tag still applies if it changes the
-		// block entity, which returns true.
-		return ws.retagBlockEntity(x, y, z, state, tag)
+		if !ws.retagBlockEntity(x, y, z, state, tag) {
+			return false
+		}
+		// vanilla: SetBlockCommand.setBlock wakes neighbours after the tag loads.
+		if !strict {
+			ws.srv.updateNeighboursOnBlockSet(w, x, y, z, w.BlockAt(x, y, z))
+		}
+		return true
 	}
 	// A block argument without NBT arrives as a typed nil map.
 	if !hasTag {
@@ -897,7 +902,7 @@ func (ws worldScope) SetBlockTagged(x, y, z int32, state uint16, defined map[str
 	ws.srv.markChanged(w, x, y, z)
 	ws.srv.commandBlockTagLoaded(w, x, y, z, previousAuto)
 	if deferWake {
-		ws.srv.blockPlacedAfterShapes(w, x, y, z, old)
+		ws.srv.blockPlacedWake(w, x, y, z, old)
 	}
 	return true
 }

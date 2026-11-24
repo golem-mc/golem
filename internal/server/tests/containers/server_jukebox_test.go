@@ -179,6 +179,57 @@ func TestAHopperFeedsAJukebox(t *testing.T) {
 	}
 }
 
+func TestSetblockJukeboxPlaybackTagLocksHopperBeforeFirstPull(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Tester", servertest.OpsListing(t, "Tester"))
+	servertest.HoldTicks(t, srv)
+	servertest.Setblock(t, c, 4, 64, 0, "minecraft:hopper[facing=down]")
+	servertest.Setblock(t, c, 4, 65, 0, `minecraft:jukebox[has_record=true]{RecordItem:{id:"minecraft:music_disc_cat",count:1}}`)
+	if _, props := servertest.StatePropsOf(t, srv, 4, 64, 0); props["enabled"] != "true" {
+		t.Fatalf("hopper below a silent jukebox = %v, want enabled=true", props)
+	}
+
+	servertest.Setblock(t, c, 4, 65, 0, servertest.JukeboxCommand("cat", 0))
+	if _, props := servertest.StatePropsOf(t, srv, 4, 64, 0); props["enabled"] != "false" {
+		t.Errorf("hopper after the playback tag and before stepping = %v, want enabled=false", props)
+	}
+	servertest.RunTicks(t, srv, 12)
+	disc := servertest.ItemStack(t, "minecraft:music_disc_cat", 1)
+	if got := srv.InventoryAt(4, 65, 0); len(got) != 1 || !got[0].Equal(disc) {
+		t.Errorf("jukebox after 12 ticks holds %+v, want the cat disc", got)
+	}
+	for i, stack := range srv.InventoryAt(4, 64, 0) {
+		if !stack.Empty() {
+			t.Errorf("hopper slot %d holds %+v, want it empty", i, stack)
+		}
+	}
+}
+
+func TestSetblockJukeboxRecordTagWakesComparatorThroughStone(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Tester", servertest.OpsListing(t, "Tester"))
+	servertest.HoldTicks(t, srv)
+	servertest.Setblock(t, c, 4, 64, 0, "minecraft:stone")
+	servertest.Setblock(t, c, 4, 65, 1, "minecraft:stone")
+	servertest.Setblock(t, c, 4, 65, 2, `minecraft:jukebox[has_record=true]{RecordItem:{id:"minecraft:music_disc_cat",count:1}}`)
+	servertest.Setblock(t, c, 4, 65, 0, "minecraft:comparator[facing=south]")
+	output := func() nbt.Int {
+		tag, _ := srv.BlockEntityTagAt(4, 65, 0)
+		out, _ := nbt.Get[nbt.Int](tag, "OutputSignal")
+		return out
+	}
+	servertest.RunTicks(t, srv, 4)
+	if got := output(); got != 2 {
+		t.Fatalf("comparator reading cat through stone = %d, want 2", got)
+	}
+
+	servertest.Setblock(t, c, 4, 65, 2, `minecraft:jukebox[has_record=true]{RecordItem:{id:"minecraft:music_disc_13",count:1}}`)
+	servertest.RunTicks(t, srv, 4)
+	if got := output(); got != 1 {
+		t.Errorf("comparator after the disc changes to 13 = %d, want 1", got)
+	}
+}
+
 // TestAJukeboxKeepsItsDiscAcrossARestart lays a jukebox holding a disc partway
 // through its song, saves the world and restarts: the disc and the ticks the
 // song has run come back out of the region file.
@@ -282,6 +333,20 @@ func TestStrictSetblockLoadsTheBlockEntityTag(t *testing.T) {
 	servertest.HoldTicks(t, srv)
 
 	servertest.Setblock(t, c, 3, 64, 0, `minecraft:chest{Items:[{Slot:0b,id:"minecraft:diamond",count:1}]} strict`)
+	if got := srv.BlockEntityStack(3, 64, 0, 0); got.Count != 1 || registry.Item(got.ItemID) != registry.ItemDiamond {
+		t.Errorf("slot 0 = %+v, want a diamond", got)
+	}
+}
+
+func TestSetblockTagSurvivesReplacingAMovingPiston(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
+
+	servertest.Setblock(t, c, 3, 64, 0, `minecraft:moving_piston[facing=east]`)
+	servertest.Setblock(t, c, 3, 64, 0, `minecraft:chest{Items:[{Slot:0b,id:"minecraft:diamond",count:1}]}`)
 	if got := srv.BlockEntityStack(3, 64, 0, 0); got.Count != 1 || registry.Item(got.ItemID) != registry.ItemDiamond {
 		t.Errorf("slot 0 = %+v, want a diamond", got)
 	}
