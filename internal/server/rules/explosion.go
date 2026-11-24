@@ -343,22 +343,6 @@ func ExplosionExposure(w BlockReader, minX, minY, minZ, maxX, maxY, maxZ, cx, cy
 	offX := (1 - math.Floor(1/dx)*dx) / 2
 	offZ := (1 - math.Floor(1/dz)*dz) / 2
 	seen, total := 0, 0
-	if p, ok := w.(*PrefilledBlocks); ok {
-		for f := 0.0; f <= 1; f += dx {
-			for g := 0.0; g <= 1; g += dy {
-				for h := 0.0; h <= 1; h += dz {
-					sx := lerp(f, minX, maxX) + offX
-					sy := lerp(g, minY, maxY)
-					sz := lerp(h, minZ, maxZ) + offZ
-					if !sightBlockedPrefilled(p, sx, sy, sz, cx, cy, cz) {
-						seen++
-					}
-					total++
-				}
-			}
-		}
-		return float64(float32(seen) / float32(total))
-	}
 	for f := 0.0; f <= 1; f += dx {
 		for g := 0.0; g <= 1; g += dy {
 			for h := 0.0; h <= 1; h += dz {
@@ -385,6 +369,7 @@ func lerp(f, low, high float64) float64 {
 // shape. Exact for full blocks; a shape reaching half the cell (a slab)
 // blocks its whole cell, and a lower plate (carpet, lily pad) lets the ray through.
 func sightBlocked(w BlockReader, x0, y0, z0, x1, y1, z1 float64) bool {
+	p, _ := w.(*PrefilledBlocks)
 	cx, cy, cz := int32(math.Floor(x0)), int32(math.Floor(y0)), int32(math.Floor(z0))
 	endX, endY, endZ := int32(math.Floor(x1)), int32(math.Floor(y1)), int32(math.Floor(z1))
 	dx, dy, dz := x1-x0, y1-y0, z1-z0
@@ -393,47 +378,13 @@ func sightBlocked(w BlockReader, x0, y0, z0, x1, y1, z1 float64) bool {
 	tMaxY, tDeltaY := raySpan(y0, dy)
 	tMaxZ, tDeltaZ := raySpan(z0, dz)
 	for {
-		if sightSolid(w.BlockAt(cx, cy, cz)) {
-			return true
+		var solid bool
+		if p != nil {
+			solid = p.solidAt(cx, cy, cz)
+		} else {
+			solid = sightSolid(w.BlockAt(cx, cy, cz))
 		}
-		if cx == endX && cy == endY && cz == endZ {
-			return false
-		}
-		switch {
-		case tMaxX <= tMaxY && tMaxX <= tMaxZ:
-			if tMaxX > 1 {
-				return false
-			}
-			cx += stepX
-			tMaxX += tDeltaX
-		case tMaxY <= tMaxZ:
-			if tMaxY > 1 {
-				return false
-			}
-			cy += stepY
-			tMaxY += tDeltaY
-		default:
-			if tMaxZ > 1 {
-				return false
-			}
-			cz += stepZ
-			tMaxZ += tDeltaZ
-		}
-	}
-}
-
-// sightBlockedPrefilled is sightBlocked specialized for PrefilledBlocks to
-// avoid interface dispatch and per-step registry lookups in the inner loop.
-func sightBlockedPrefilled(p *PrefilledBlocks, x0, y0, z0, x1, y1, z1 float64) bool {
-	cx, cy, cz := int32(math.Floor(x0)), int32(math.Floor(y0)), int32(math.Floor(z0))
-	endX, endY, endZ := int32(math.Floor(x1)), int32(math.Floor(y1)), int32(math.Floor(z1))
-	dx, dy, dz := x1-x0, y1-y0, z1-z0
-	stepX, stepY, stepZ := sign(dx), sign(dy), sign(dz)
-	tMaxX, tDeltaX := raySpan(x0, dx)
-	tMaxY, tDeltaY := raySpan(y0, dy)
-	tMaxZ, tDeltaZ := raySpan(z0, dz)
-	for {
-		if p.solidAt(cx, cy, cz) {
+		if solid {
 			return true
 		}
 		if cx == endX && cy == endY && cz == endZ {
