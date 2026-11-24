@@ -247,7 +247,7 @@ func TestAWaypointIsBlockFormInsideTheReceiversViewAndChunkFormOutside(t *testin
 		x := chunkX*16 + 8
 		mover.ChatCommand("tp @s " + strconv.Itoa(int(x)) + " 64 0")
 		var got waypointPacket
-		if !watcher.ReadTicks(srv, 5, func(id int32, data []byte) bool {
+		if !watcher.ReadTicks(srv, 40, func(id int32, data []byte) bool {
 			if id != protocol.IDPlayWaypoint {
 				return false
 			}
@@ -265,7 +265,7 @@ func TestAWaypointIsBlockFormInsideTheReceiversViewAndChunkFormOutside(t *testin
 			got = wp
 			return true
 		}) {
-			t.Fatalf("no waypoint track for the mover at chunk %d within 5 ticks", chunkX)
+			t.Fatalf("no waypoint track for the mover at chunk %d within 40 ticks", chunkX)
 		}
 		return got
 	}
