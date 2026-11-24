@@ -56,7 +56,7 @@ func (p *Physics) blockNeighborChanged(x, y, z int32, old uint16, changes *[]Blo
 	block := registry.BlockOf(state)
 	if fs := fluidHolding(state); fs.kind != fluidNone && !fluidContainer(state) {
 		if fs.kind != fluidLava || p.shouldSpreadLiquid(x, y, z, changes) {
-			p.scheduleFluid(x, y, z)
+			p.bookFluid(x, y, z, fs)
 		}
 		return
 	}

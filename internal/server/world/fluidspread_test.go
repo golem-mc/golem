@@ -104,3 +104,72 @@ func TestSavedFluidVisitsReloadWithTheirType(t *testing.T) {
 		t.Errorf("%d fluid bookings after the reload, want 2", len(p.fluidBooked))
 	}
 }
+
+var lavaFluidType = fluidTypeOf(fluidHolding(lavaByLevel[0]))
+
+// TestFluidBookingKeepsSavedVisit books lava at a cell whose saved lava visit
+// has not been adopted yet; the saved visit's due tick stands.
+// vanilla: LevelChunkTicks.<init>, LevelChunkTicks.schedule
+func TestFluidBookingKeepsSavedVisit(t *testing.T) {
+	w, p := newFluidBookingWorld(t)
+	setBlock(t, w, p, 0, GroundLevel, 0, waterByLevel[0])
+	w.pendingLoaded = append(w.pendingLoaded, loadedTick{
+		id: lavaFluidType.name(), y: GroundLevel, delay: 18, fluid: true})
+	p.mu.Lock()
+	p.bookFluid(0, GroundLevel, 0, fluidHolding(lavaByLevel[0]))
+	p.mu.Unlock()
+	var due []int64
+	for _, q := range p.queue {
+		if q.fluid == lavaFluidType {
+			due = append(due, q.due)
+		}
+	}
+	if len(due) != 1 || due[0] != p.now+18 {
+		t.Errorf("lava visits due %v, want one at %d", due, p.now+18)
+	}
+}
+
+// TestSavedFluidVisitIsNotAPistonLanding loads a fluid visit saved at the
+// piston landing's priority; it is no landing, and a clear removes it.
+// vanilla: TickPriority.VERY_LOW, SavedTick.pack
+func TestSavedFluidVisitIsNotAPistonLanding(t *testing.T) {
+	w, p := newFluidBookingWorld(t)
+	setBlock(t, w, p, 0, GroundLevel, 0, waterByLevel[0])
+	p.ClearTicksIn(0, GroundLevel, 0, 0, GroundLevel, 0)
+	w.pendingLoaded = append(w.pendingLoaded, loadedTick{
+		id: waterFluidTypeName(), y: GroundLevel, delay: 3, priority: tickPriorityFinalize, fluid: true})
+	p.mu.Lock()
+	p.adoptLoadedTicks()
+	p.mu.Unlock()
+	if len(p.finalizeSeq) != 0 {
+		t.Errorf("%d piston landings registered", len(p.finalizeSeq))
+	}
+	p.ClearTicksIn(0, GroundLevel, 0, 0, GroundLevel, 0)
+	if len(p.queue) != 0 || len(p.fluidBooked) != 0 {
+		t.Errorf("%d visits and %d bookings survive the clear", len(p.queue), len(p.fluidBooked))
+	}
+}
+
+func waterFluidTypeName() string { return fluidTypeOf(fluidHolding(waterByLevel[0])).name() }
+
+// TestStaleFluidVisitsSpendTheBudget queues a full budget of stale lava visits
+// ahead of one water visit, which then waits for the next tick.
+// vanilla: LevelTicks.collectTicks
+func TestStaleFluidVisitsSpendTheBudget(t *testing.T) {
+	w, p := newFluidBookingWorld(t)
+	const top = 300
+	setBlock(t, w, p, 0, top, 0, waterByLevel[0])
+	p.ClearTicksIn(0, top, 0, 0, top, 0)
+	p.mu.Lock()
+	for i := range maxFluidTicksPerTick {
+		p.seq++
+		p.queue.push(scheduledTick{pos: blockKey{int32(i & 15), int32(i>>8) - 64, int32(i >> 4 & 15)},
+			due: p.now + 1, seq: p.seq, fluid: lavaFluidType})
+	}
+	p.mu.Unlock()
+	p.mu.Lock()
+	p.bookTick(0, top, 0, fluidTypeOf(fluidHolding(waterByLevel[0])), p.now+1, tickPriorityNormal)
+	p.mu.Unlock()
+	p.Tick(p.now + 1)
+	assertAir(t, w, 0, top-1, 0, "the water below waits for the next tick")
+}

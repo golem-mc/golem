@@ -1136,7 +1136,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			delete(p.cancelled, next.seq)
 			continue
 		}
-		if next.priority == tickPriorityFinalize {
+		if next.priority == tickPriorityFinalize && next.fluid == 0 {
 			delete(p.finalizeSeq, next.pos)
 		}
 		var fallBooked bool
@@ -1183,9 +1183,10 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			continue
 		}
 		if next.fluid != 0 {
-			// vanilla: ServerLevel.tickFluid runs only the booked type.
+			// A stale visit spends the budget too.
+			// vanilla: ServerLevel.tickFluid runs only the booked type; LevelTicks.collectTicks
+			fluids++
 			if fs := fluidHolding(state); fs.kind != fluidNone && fluidTypeOf(fs) == next.fluid {
-				fluids++
 				p.fluidTick(x, y, z, fs, &changes)
 			}
 			continue
@@ -1351,7 +1352,7 @@ func (p *Physics) schedule(x, y, z int32, due int64) {
 // vanilla: LiquidBlock.onPlace, ScheduledTick.UNIQUE_TICK_HASH, ServerLevel.tickFluid
 func (p *Physics) scheduleFluid(x, y, z int32) {
 	if fs := fluidHolding(p.w.BlockAt(x, y, z)); fs.kind != fluidNone {
-		p.scheduleFluidAt(x, y, z, fs, p.now+p.tickDelayOf(fs.kind), tickPriorityNormal)
+		p.bookFluid(x, y, z, fs)
 	}
 }
 
@@ -1372,6 +1373,12 @@ func (p *Physics) schedulePriority(x, y, z int32, due int64, priority int) {
 // fluid type (zero for a block tick). Runs under p.mu.
 // vanilla: LevelChunkTicks.schedule
 func (p *Physics) bookTick(x, y, z int32, typ fluidType, due int64, priority int) {
+	if typ != 0 {
+		// A saved booking of this position and type is reserved before a new
+		// one can take its place.
+		// vanilla: LevelChunkTicks.<init>
+		p.adoptLoadedTicks()
+	}
 	p.discardUnloadedTicks(p.w.prepareTick(x, z, true))
 	key := blockKey{x, y, z}
 	if typ != 0 {
@@ -1388,7 +1395,7 @@ func (p *Physics) bookTick(x, y, z int32, typ fluidType, due int64, priority int
 	}
 	p.seq++
 	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ})
-	if priority == tickPriorityFinalize {
+	if priority == tickPriorityFinalize && typ == 0 {
 		p.finalizeSeq[key] = p.seq
 	}
 }
@@ -1461,7 +1468,7 @@ func (p *Physics) dropTickIn(t scheduledTick, loX, loY, loZ, hiX, hiY, hiZ int32
 		delete(p.cancelled, t.seq)
 		return true
 	}
-	if t.priority != tickPriorityFinalize &&
+	if (t.priority != tickPriorityFinalize || t.fluid != 0) &&
 		t.pos.x >= loX && t.pos.x <= hiX && t.pos.y >= loY && t.pos.y <= hiY && t.pos.z >= loZ && t.pos.z <= hiZ {
 		p.forgetBooking(t)
 		return true
@@ -1539,7 +1546,7 @@ func (p *Physics) cancelPistonFinalize(x, y, z int32) {
 }
 
 func (p *Physics) tickCancelled(t scheduledTick) bool {
-	if t.priority != tickPriorityFinalize {
+	if t.priority != tickPriorityFinalize || t.fluid != 0 {
 		return false
 	}
 	_, ok := p.cancelled[t.seq]
