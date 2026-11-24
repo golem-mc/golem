@@ -973,11 +973,14 @@ func (g *pushGrid) add(m *Mob, idx int) {
 	if _, ok := g.byID[m.ID]; !ok {
 		g.byID[m.ID] = m
 	}
-	hw := m.kind().width * m.scale() / 2
+	hw := m.maxHalfWidth()
 	if hw > g.wide {
 		g.wide = hw
 	}
 }
+
+// maxHalfWidth is the fully grown half-width including the scale attribute.
+func (m *Mob) maxHalfWidth() float64 { return m.kind().width * m.scale() * m.attrScale() / 2 }
 
 // moved re-files a mob that crossed a cell boundary this tick (a knockback
 // may cross many) and refreshes its box.
@@ -1020,7 +1023,7 @@ func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
 // The result is scratch valid until the next query.
 func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 	g.near = g.near[:0]
-	hw := m.kind().width * m.scale() / 2
+	hw := m.maxHalfWidth()
 	r := int(math.Ceil((hw + g.wide + inflate) / pushCellSide))
 	cx, cz := cellCoords(m.X, m.Z)
 	// The same sums boxesOverlap does, once for the query.
