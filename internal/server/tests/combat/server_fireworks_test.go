@@ -334,8 +334,8 @@ func TestAFireworkRocketLaunchesFromTheFaceItIsUsedOn(t *testing.T) {
 		t.Errorf("the launch sound's pitch = %v, want the one", launchSound.Pitch)
 	}
 
-	// The stack the rocket is: one rocket, told with the spawn, attached
-	// to nobody and no crossbow's shot at an angle.
+	// The stack the rocket is: the whole held stack of two, told with the
+	// spawn (FireworkRocketItem.useOn), attached to nobody and no crossbow's shot at an angle.
 	var slot *protocol.ItemStack
 	attached := int32(-1)
 	shot := false
@@ -351,8 +351,8 @@ func TestAFireworkRocketLaunchesFromTheFaceItIsUsedOn(t *testing.T) {
 	if slot == nil {
 		t.Fatal("no metadata told the rocket's item")
 	}
-	if slot.Count != 1 || slot.ItemID != servertest.MustItem("minecraft:firework_rocket") {
-		t.Errorf("the rocket's stack is %d of item %d, want one firework rocket", slot.Count, slot.ItemID)
+	if slot.Count != 2 || slot.ItemID != servertest.MustItem("minecraft:firework_rocket") {
+		t.Errorf("the rocket's stack is %d of item %d, want the held two firework rockets", slot.Count, slot.ItemID)
 	}
 	if attached != -1 {
 		t.Errorf("the rocket's metadata named entity %d as attached, want nobody", attached)

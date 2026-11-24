@@ -317,6 +317,7 @@ func (s *Server) dispenseFireCharge(w *world.World, d world.Dispense, stack prot
 func (s *Server) dispenseFirework(w *world.World, d world.Dispense, stack protocol.ItemStack) {
 	dx, dy, dz := dispenseAim(d)
 	px, py, pz := inventory.DispenseFireworkStart(d.X, d.Y, d.Z, int32(d.Dir))
+	stack.Count = 1
 	it := s.newFirework(w, stack, px, py, pz, 0, uuid.Nil, 0)
 	vx, vy, vz := entity.ShootVelocity(dx, dy, dz, 0.5, 1, s.levelRng)
 	it.rocket.ShotAtAngle = true
