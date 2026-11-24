@@ -203,7 +203,12 @@ func (c *client) fireCrossbow(hand int32) {
 			s.projectileSpawned(c.theWorld(), projectile, enchantTarget{uuid: rocket.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25,
 				entityID: r.ID, causeID: c.player.EntityID},
 				s.spawnedContext(c.theWorld(), [3]float64{r.X, r.Y, r.Z}, protocol.EntityTypeFireworkRocket,
-					snapshotLoot(s.fireworkSnapshot(rocket, nil))), nil)
+					func() *rules.LootEntity {
+						if load := snapshotLoot(s.fireworkSnapshot(rocket, nil)); load != nil {
+							return load()
+						}
+						return &rules.LootEntity{Type: "minecraft:firework_rocket"}
+					}), nil)
 			c.shotSoundAndWear(hand, i, firework)
 			if c.heldItem(hand).Empty() {
 				break

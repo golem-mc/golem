@@ -36,6 +36,12 @@ func ammoPack(t *testing.T) string {
 			runFunction("angled", `,"requirements":{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{ShotAtAngle:1b}"}}`)),
 		"data/pk/enchantment/seq.json": spawnEnchantment(`{"effect":{"type":"minecraft:ignite","duration":100}},` +
 			runFunction("afterignite", `,"requirements":{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Fire:2000s}"}}`)),
+		"data/pk/enchantment/sky.json": spawnEnchantment(runFunction("sky", `,"requirements":{"type":"minecraft:location_check","predicate":{"can_see_sky":true}}`)),
+		"data/pk/enchantment/moved.json": spawnEnchantment(runFunction("move", "") + "," +
+			runFunction("aftermove", `,"requirements":{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Pos:[5.5d,64.0d,0.5d]}"}}`)),
+		"data/pack/function/sky.mcfunction":         "tag @s add sky\n",
+		"data/pack/function/move.mcfunction":        "tp @s 5 64 0\n",
+		"data/pack/function/aftermove.mcfunction":   "tag @s add aftermove\n",
 		"data/pack/function/arrowtype.mcfunction":   "tag @s add arrowtype\n",
 		"data/pack/function/angled.mcfunction":      "tag @s add angled\n",
 		"data/pack/function/afterignite.mcfunction": "tag @s add afterignite\n",
@@ -138,5 +144,23 @@ func TestBowArrowRunsAmmoSpawnEffect(t *testing.T) {
 		if !hasEntity(srv, "type=arrow,tag="+tag) {
 			t.Errorf("the bow's arrow was not tagged by the %s effect", tag)
 		}
+	}
+}
+
+// A location requirement reads the projectile's origin.
+// vanilla: LocationCheck.test
+func TestCrossbowSpawnEffectLocationRequirement(t *testing.T) {
+	srv := fireLoadedWith(t, "pk:weapon", "minecraft:arrow", "pk:sky")
+	if !hasEntity(srv, "type=arrow,tag=sky") {
+		t.Error("the can_see_sky requirement failed for an arrow shot under open sky")
+	}
+}
+
+// A rocket's requirement reads its position after the earlier entries ran.
+// vanilla: Enchantment.applyEffects, EntityLocationPredicate.matches
+func TestCrossbowRocketRequirementSeesMove(t *testing.T) {
+	srv := fireLoadedWith(t, "pk:weapon", "minecraft:firework_rocket", "pk:moved")
+	if !hasEntity(srv, "type=firework_rocket,tag=aftermove") {
+		t.Error("the requirement read the rocket at its old position")
 	}
 }

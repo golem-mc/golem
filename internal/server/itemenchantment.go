@@ -27,8 +27,14 @@ func entityItemEnchContext(w *world.World, x, y, z float64, kind int32) *rules.E
 
 // fillEntityItemEnchContext overwrites ctx with entityItemEnchContext's value.
 func fillEntityItemEnchContext(ctx *rules.EnchContext, w *world.World, x, y, z float64, kind int32) {
+	*ctx = rules.EnchContext{Victim: kind, Attacker: -1, DirectAttacker: -1}
+	fillEnchLocation(ctx, w, x, y, z)
+}
+
+// fillEnchLocation sets the weather, sky and block fields location
+// requirements read.
+func fillEnchLocation(ctx *rules.EnchContext, w *world.World, x, y, z float64) {
 	bx, by, bz := rules.BlockOf(x), rules.BlockOf(y), rules.BlockOf(z)
-	*ctx = rules.EnchContext{Victim: kind, Attacker: -1, DirectAttacker: -1,
-		Thundering: w.IsThundering(), CanSeeSky: w.SkyLightAt(bx, by, bz) == 15,
-		Block: registry.BlockOf(w.BlockAt(bx, by, bz))}
+	ctx.Thundering, ctx.CanSeeSky = w.IsThundering(), w.SkyLightAt(bx, by, bz) == 15
+	ctx.Block = registry.BlockOf(w.BlockAt(bx, by, bz))
 }

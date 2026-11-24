@@ -630,6 +630,9 @@ func (s *Server) spawnedContext(w *world.World, at [3]float64, typ int32, body f
 		Victim: typ,
 		Rand:   s.levelRng,
 		BodyOf: body,
+		LocationOf: func(ctx *rules.EnchContext) {
+			fillEnchLocation(ctx, w, at[0], at[1], at[2])
+		},
 		LootWorld: func(loot *rules.LootContext) {
 			s.fillBlowWorld(w, loot, at)
 		},

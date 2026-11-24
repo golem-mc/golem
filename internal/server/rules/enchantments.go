@@ -56,6 +56,10 @@ type EnchContext struct {
 	// "this" that asks after movement, ground contact or age.
 	Body  *LootEntity
 	World BlockAt
+	// LocationOf sets Thundering, CanSeeSky and Block on the first
+	// condition that reads them, so a walk whose entries never test the
+	// location does not read the world.
+	LocationOf func(*EnchContext)
 	// BodyOf builds Body on the first predicate that reads it, so a walk
 	// whose entries never test the body does not snapshot it.
 	BodyOf func() *LootEntity
@@ -199,6 +203,7 @@ func enchCondition(c *registry.EnchCondition, ctx *EnchContext) bool {
 	}
 	switch c.Kind {
 	case registry.EnchCondWeatherCheck:
+		ctx.location()
 		return c.Thundering == nil || *c.Thundering == ctx.Thundering
 	case registry.EnchCondLocationCheck:
 		return enchLocationMatches(c, ctx)
@@ -309,7 +314,16 @@ func enchEntityStateMatches(s *registry.EnchEntityState, u *EnchUser) bool {
 	return s.FoodMin == nil || u.Food >= *s.FoodMin
 }
 
+// location runs LocationOf once.
+func (ctx *EnchContext) location() {
+	if f := ctx.LocationOf; f != nil {
+		ctx.LocationOf = nil
+		f(ctx)
+	}
+}
+
 func enchLocationMatches(c *registry.EnchCondition, ctx *EnchContext) bool {
+	ctx.location()
 	return (c.CanSeeSky == nil || *c.CanSeeSky == ctx.CanSeeSky) &&
 		(c.BlockTag == "" || ctx.Block.InTag(registry.BlockTagOf(c.BlockTag)))
 }
