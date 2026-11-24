@@ -92,3 +92,34 @@ func TestPushGridDenseMatchesSparse(t *testing.T) {
 		t.Fatal("unfiled mob changed a cell")
 	}
 }
+
+func TestPushGridGatherBoxMatchesScan(t *testing.T) {
+	const herd = 160
+	rng := rand.New(rand.NewSource(632))
+	mobs := make([]*Mob, herd)
+	for i := range mobs {
+		mobs[i] = NewMob(TypeCow, int32(i), rng.Float64()*40-20, 64+float64(i%3), rng.Float64()*40-20, int64(i))
+	}
+	g := takePushGrid(herd, nil)
+	defer g.release()
+	g.build(mobs)
+	for range 200 {
+		x, y, z := rng.Float64()*50-25, 63+rng.Float64()*3, rng.Float64()*50-25
+		box := AABB{x, y, z, x + rng.Float64()*6, y + rng.Float64()*3, z + rng.Float64()*6}
+		var want []int32
+		for _, m := range mobs {
+			if box.Crosses(m.mobBox()) {
+				want = append(want, m.ID)
+			}
+		}
+		var got []int32
+		for _, m := range g.gatherBox(box) {
+			got = append(got, m.ID)
+		}
+		slices.Sort(want)
+		slices.Sort(got)
+		if !slices.Equal(got, want) {
+			t.Fatalf("box %v: got %v, want %v", box, got, want)
+		}
+	}
+}
