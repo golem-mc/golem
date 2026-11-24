@@ -232,13 +232,15 @@ func NewTestServerWithPlugins(t *testing.T, cfg *config.Config, plugins []plugin
 		cfg.LevelType = server.TestFlatLevelType
 	}
 
-	// The fake client asks for a render distance of 4, so at the default
-	// simulation distance of 10 the server would generate, light and save
-	// 360 chunks per join that no test sees. A test that set another
+	// The fake client asks for a render distance of 4 and holds chunks out to
+	// 5 (the send view's neighbor ring), so at the default simulation distance
+	// of 10 the server would generate, light and save 360 chunks per join that
+	// no test sees. 5 keeps every held chunk entity-ticking, as a raid or a
+	// spawn may pick any of them. A test that set another
 	// distance keeps it; one that needs the default's reach passes
 	// FullSimulationDistance, since 10 here reads as unset.
 	if cfg.SimulationDistance == config.Default().SimulationDistance {
-		cfg.SimulationDistance = 4
+		cfg.SimulationDistance = 5
 	}
 
 	// A test on the harness's flat world takes its nether chunks from a
@@ -391,8 +393,9 @@ func FullSimulationDistance(s *server.Server) {
 // JoinAtViewEdge joins a watcher and stands it four chunks east of the
 // origin, where the chunks of column 0 lie on the border of the view of four
 // it asks for: the chunks whose Update Light a player is sent, its client
-// lighting the others itself. It returns once the column west of them has
-// been unloaded, which is when the server counts them on the border.
+// lighting the others itself. It returns once the last column west of the
+// send view's neighbor ring has been unloaded, which is when the server
+// counts them on the border.
 // vanilla: ChunkMap.isChunkOnTrackedBorder
 func JoinAtViewEdge(t *testing.T, connect func() *Client, name string) *Client {
 	t.Helper()
@@ -403,11 +406,11 @@ func JoinAtViewEdge(t *testing.T, connect func() *Client, name string) *Client {
 			continue
 		}
 		r := protocol.NewReader(data)
-		if z, x := r.ReadI32(), r.ReadI32(); x == -1 && z >= -1 && z <= 1 {
+		if z, x := r.ReadI32(), r.ReadI32(); x == -2 && z >= -1 && z <= 1 {
 			return w
 		}
 	}
-	t.Fatalf("%s's view never left column -1", name)
+	t.Fatalf("%s's view never left column -2", name)
 	return nil
 }
 
