@@ -431,7 +431,7 @@ func TestAReleaseSaveRacingAGiveBackSavesTheChange(t *testing.T) {
 	w.mu.Lock()
 	w.chunks[pos].users.Store(0)
 	chunk := w.chunks[pos].chunk
-	gen := w.chunks[pos].dirtyGen
+	gen := w.chunks[pos].dirtyGen.Load()
 	w.mu.Unlock()
 
 	// The save parks inside its region write, which is past its read of
