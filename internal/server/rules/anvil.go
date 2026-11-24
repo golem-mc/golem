@@ -207,14 +207,13 @@ func AnvilCombine(base, extra protocol.ItemStack, name string, creative bool) An
 				return AnvilAnswer{}
 			}
 			if maxDamage > 0 && !usingBook {
-				// Two of a kind: the remaining durability is the sum plus a twelfth
-				// of the max, and costs more for it.
-				j2 := maxDamage - base.Damage
-				k2 := maxDamage - extra.Damage
-				restored := j2 + k2 + maxDamage*12/100
-				k3 := max(maxDamage-restored, 0)
-				if k3 < copyOf.Damage {
-					copyOf.Damage = k3
+				// vanilla: AnvilMenu.createResult
+				baseRemaining := maxDamage - base.Damage
+				extraRemaining := registry.StackMaxDamage(extra) - extra.Damage
+				restored := baseRemaining + extraRemaining + maxDamage*12/100
+				damage := max(maxDamage-restored, 0)
+				if damage < copyOf.Damage {
+					copyOf.Damage = damage
 					work += 2
 				}
 			}
