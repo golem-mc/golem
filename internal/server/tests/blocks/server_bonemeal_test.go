@@ -1110,3 +1110,81 @@ func TestNyliumBonemealUsesDimensionCeiling(t *testing.T) {
 		}
 	}
 }
+
+// TestNetherFungusBonemealUsesDimensionCeiling checks that a fungus needs
+// buildable space above it in the active dimension: at Y=255 in the Nether
+// bone meal is kept with no growth event, at Y=254 it is spent.
+// vanilla: NetherFungusBlock.isValidBonemealTarget, BoneMealItem.growCrop
+func TestNetherFungusBonemealUsesDimensionCeiling(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.NetherTestConfig(t, servertest.SurvivalConfig()), "Farmer")
+	servertest.HoldTicks(t, srv)
+	servertest.SeedPhysics(t, srv, servertest.CropsSeed)
+
+	srv.MovePlayerToDimension("Farmer", world.NetherName, 4.5, 254, -2.5)
+	if !c.Pump(servertest.JoinTimeout, nil, func(int32, []byte) bool {
+		return srv.PlayerDimension("Farmer") == world.NetherName &&
+			srv.ChunkLoadedInDimension(world.NetherName, 4, 0)
+	}) {
+		t.Fatal("the Nether never loaded around the test column")
+	}
+	c.Settle()
+
+	boneMeal := int32(registry.ItemBoneMeal)
+	air := servertest.BlockState(t, "minecraft:air")
+	var seq int32
+
+	for _, pair := range [][2]string{
+		{"minecraft:crimson_fungus", "minecraft:crimson_nylium"},
+		{"minecraft:warped_fungus", "minecraft:warped_nylium"},
+	} {
+		fungus, nylium := servertest.BlockState(t, pair[0]), servertest.BlockState(t, pair[1])
+		for _, tc := range []struct {
+			y         int32
+			wantCount int32
+			wantEvent bool
+		}{
+			{y: 255, wantCount: 3, wantEvent: false},
+			{y: 254, wantCount: 2, wantEvent: true},
+		} {
+			for y := int32(253); y <= 255; y++ {
+				srv.SetBlockInDimension(world.NetherName, 4, y, 0, air)
+			}
+			srv.SetBlockInDimension(world.NetherName, 4, tc.y-1, 0, nylium)
+			srv.SetBlockInDimension(world.NetherName, 4, tc.y, 0, fungus)
+			srv.GiveSlot("Farmer", player.HotbarSlot, protocol.ItemStack{ItemID: boneMeal, Count: 3})
+			c.Settle()
+
+			seq++
+			c.UseBlockSeq(4, tc.y, 0, protocol.FaceNorth, seq)
+			c.SettleKeeping()
+			srv.FlushBlockAcks()
+
+			gotEvent, gotAck := false, false
+			for gotID, data := range c.Packets(servertest.ExpectTimeout) {
+				switch gotID {
+				case protocol.IDPlayWorldEvent:
+					if protocol.NewReader(data).ReadI32() == protocol.WorldEventBonemeal {
+						gotEvent = true
+					}
+				case protocol.IDPlayAckBlockChange:
+					if protocol.NewReader(data).ReadVarInt() == seq {
+						gotAck = true
+					}
+				}
+				if gotAck {
+					break
+				}
+			}
+			if !gotAck {
+				t.Fatalf("%s at Y=%d: block ack %d did not arrive", pair[0], tc.y, seq)
+			}
+			if gotEvent != tc.wantEvent {
+				t.Errorf("%s at Y=%d: growth level event sent = %v, want %v", pair[0], tc.y, gotEvent, tc.wantEvent)
+			}
+			if got := srv.InventorySlot("Farmer", player.HotbarSlot); got.Count != tc.wantCount {
+				t.Errorf("%s at Y=%d: %d bone meal left, want %d", pair[0], tc.y, got.Count, tc.wantCount)
+			}
+		}
+	}
+}
