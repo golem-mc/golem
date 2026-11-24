@@ -50,3 +50,32 @@ func TestPistonRideMembershipKeepsPushOrder(t *testing.T) {
 	create(a)
 	check([][3]int32{b, a})
 }
+
+func TestPistonPushesSurviveNextTickUntilRecycled(t *testing.T) {
+	w, p := newOneChunkPhysics(t)
+	pos := [3]int32{8, 70, 8}
+	ride := movingPistonStateOf(dirUp, false)
+	w.SetBlock(pos[0], pos[1], pos[2], ride)
+	p.pistonRideCreate(pos, ride, registry.BlockStone.DefaultState(), dirUp, true, false)
+	p.now = 0
+	_, _, _, first := p.Tick(0)
+	var held *PistonPush
+	for _, e := range first {
+		if e.PistonPush != nil {
+			held = e.PistonPush
+		}
+	}
+	if held == nil {
+		t.Fatal("no push on the first tick")
+	}
+	want := held.Progress
+	_, _, _, second := p.Tick(1)
+	if held.Progress != want {
+		t.Fatalf("second Tick rewrote an unrecycled push: Progress %v, want %v", held.Progress, want)
+	}
+	p.RecycleTickResults(nil, first)
+	if p.sparePushes != nil {
+		t.Fatal("recycling an older batch took back the newer push slab")
+	}
+	p.RecycleTickResults(nil, second)
+}

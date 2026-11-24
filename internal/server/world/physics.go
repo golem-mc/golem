@@ -594,8 +594,9 @@ type Physics struct {
 	// back by RecycleTickResults; the next Tick fills them from length 0.
 	spareChanges []BlockChange
 	spareEffects []Effect
-	// pushes backs the Effect.PistonPush pointers of one Tick.
-	pushes []PistonPush
+	// pushes backs the Effect.PistonPush pointers of the last Tick; sparePushes
+	// is a slab RecycleTickResults took back for the next Tick.
+	pushes, sparePushes []PistonPush
 	// mu guards everything below: NotifyChanged runs on player connections
 	// while Tick runs on the main loop.
 	//
@@ -1068,11 +1069,20 @@ func (p *Physics) releaseParked() {
 
 // RecycleTickResults hands a Tick's changes and effects back for the next Tick
 // to reuse. The caller must not keep either slice, or any PistonPush an effect
-// points at, afterwards.
+// points at, afterwards. The push slab is taken back only with the batch it
+// backs, so recycling an older batch leaves a newer Tick's pushes alone.
 func (p *Physics) RecycleTickResults(changes []BlockChange, effects []Effect) {
-	clear(changes)
-	clear(effects)
 	p.mu.Lock()
+	if cap(p.pushes) > 0 {
+		first := &p.pushes[:1][0]
+		for _, e := range effects {
+			if e.PistonPush == first {
+				p.sparePushes = p.pushes[:0]
+				break
+			}
+		}
+	}
+	clear(effects)
 	p.spareChanges, p.spareEffects = changes[:0], effects[:0]
 	p.mu.Unlock()
 }
@@ -1089,11 +1099,13 @@ func (p *Physics) SetTickFilter(ticks func(ChunkPos) bool) {
 // the changed blocks, the gravity blocks to spawn as falling entities and the
 // TNT fires primed. Block and fluid visits have a budget each per tick, the
 // overflow running next tick. Separate bookings let a waterlogged block take
-// both visits.
+// both visits. The results stay valid until they are passed to
+// RecycleTickResults; a Tick never reuses a batch that was not recycled.
 func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrime, []Effect) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.now = gameTime
+	p.pushes, p.sparePushes = p.sparePushes[:0], nil
 	p.adoptLoadedTicks()
 	p.handlingTick = true
 	changes := p.spareChanges[:0]
