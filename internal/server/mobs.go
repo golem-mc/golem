@@ -3279,8 +3279,8 @@ func mobEquipmentPayload(ent *mobEntity) []byte {
 	return equipmentEntriesPayload(m.ID, &slots, used)
 }
 
-// tickMobCompasses ticks a mob's compasses; the tick's equipment diff tells
-// watchers of a cleared target. vanilla: EntityEquipment.tick
+// tickMobCompasses clears invalid targets on equipped compasses.
+// vanilla: EntityEquipment.tick, CompassItem.inventoryTick
 func tickMobCompasses(m *entity.Mob, w *world.World, dim string) {
 	bottom, top := w.MinY(), w.MinY()+w.Height()
 	if cleared, ok := rules.ClearLostLodestone(w, m.MainHand, dim, bottom, top); ok {
@@ -3293,6 +3293,15 @@ func tickMobCompasses(m *entity.Mob, w *world.World, dim string) {
 		if cleared, ok := rules.ClearLostLodestone(w, m.Worn[i], dim, bottom, top); ok {
 			m.SetEquipment(protocol.EquipFeet+i, cleared)
 		}
+	}
+	if cleared, ok := rules.ClearLostLodestone(w, m.Body, dim, bottom, top); ok {
+		m.SetEquipment(6, cleared)
+	}
+	if cleared, ok := rules.ClearLostLodestone(w, m.Horse.Saddle, dim, bottom, top); ok {
+		m.SetMetadataHorseSaddle(cleared)
+	}
+	if cleared, ok := rules.ClearLostLodestone(w, m.Antenna, dim, bottom, top); ok {
+		m.SetMetadataAntenna(cleared)
 	}
 }
 
