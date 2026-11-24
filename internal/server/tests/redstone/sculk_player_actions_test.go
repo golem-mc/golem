@@ -9,7 +9,9 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/registry"
 )
 
 // survivalSensorScene is comparatorSensorScene for a survival player: the
@@ -37,6 +39,39 @@ func survivalScene(t *testing.T) (*server.Server, *servertest.Client) {
 func placeSensor(t *testing.T, srv *server.Server) {
 	t.Helper()
 	srv.SetBlock(4, 64, 4, servertest.MustState(t, "minecraft:sculk_sensor", nil))
+}
+
+func TestCoveredSoilVibration(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		state uint16
+	}{
+		{"farmland", servertest.MustState(t, "minecraft:farmland", map[string]string{"moisture": "7"})},
+		{"dirt path", registry.BlockDirtPath.DefaultState()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, _ := survivalSensorScene(t)
+			dirt := registry.BlockDirt.DefaultState()
+			srv.SetBlock(3, 64, 4, tc.state)
+			var events []rules.GameEventContext
+			srv.ObserveGameEventContexts(func(event string, x, y, z float64, ctx rules.GameEventContext) {
+				if event == "minecraft:block_change" && x == 3.5 && y == 64.5 && z == 4.5 {
+					events = append(events, ctx)
+				}
+			})
+			srv.SetBlockAndTell(3, 65, 4, registry.BlockStone.DefaultState())
+			servertest.RunTicks(t, srv, 10)
+			if got := srv.BlockAt(3, 64, 4); got != dirt {
+				t.Errorf("covered %s became state %d, want dirt (%d)", tc.name, got, dirt)
+			}
+			if want := (rules.GameEventContext{Affected: dirt}); len(events) != 1 || events[0] != want {
+				t.Errorf("block_change contexts at the soil = %+v, want one %+v", events, want)
+			}
+			expectComparator(t, srv, "11")
+		})
+	}
 }
 
 func TestASurvivalPlayersBucketMakesVibrations(t *testing.T) {
