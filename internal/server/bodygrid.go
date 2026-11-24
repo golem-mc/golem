@@ -161,3 +161,13 @@ func (n *bodyNear[T]) release() {
 		n.grid = nil
 	}
 }
+
+func (n *bodyNear[T]) reset() {
+	n.release()
+	clear(n.bodies)
+	// A shorter query can leave references past the end of out.
+	clear(n.out[:cap(n.out)])
+	n.bodies = n.bodies[:0]
+	n.idx = n.idx[:0]
+	n.out = n.out[:0]
+}
