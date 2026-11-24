@@ -87,8 +87,8 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 		// scratch, so the payload is allocated once at its size.
 		entities := scratchBuffer()
 		putBlockEntities(entities, own, rides, carried, active)
-		defer scratchBuffers.Put(entities)
 		if unchanged && bytes.Equal(entities.Bytes(), c.packet.entities) {
+			scratchBuffers.Put(entities)
 			return c.packet.packet
 		}
 		var b protocol.Buffer
@@ -101,6 +101,7 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 		b.PutRaw(entities.Bytes())
 		b.PutRaw(light)
 		next.light, next.entities = light, slices.Clone(entities.Bytes())
+		scratchBuffers.Put(entities)
 		next.packet = protocol.NewCachedPacket(protocol.IDPlayChunkData, b.Bytes())
 		c.packet = next
 		return next.packet
