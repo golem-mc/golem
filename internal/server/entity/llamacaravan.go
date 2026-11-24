@@ -24,6 +24,19 @@ const (
 	llamaCaravanGap = 2.0
 )
 
+// caravanGridMinList is the candidate count above which the grid's
+// neighbourhood query replaces scanning the whole list.
+const caravanGridMinList = 64
+
+// sectionCoord is the entity section a coordinate is filed in.
+func sectionCoord(v float64) int { return int(math.Floor(v)) >> 4 }
+
+// sectionRange is the entity sections a query span reaches, padded by 2.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+func sectionRange(lo, hi float64) (int, int) {
+	return int(math.Floor(lo-2)) >> 4, int(math.Floor(hi+2)) >> 4
+}
+
 // inCaravan reports whether the llama follows another.
 // vanilla: Llama.inCaravan
 func (m *Mob) inCaravan() bool { return m.Horse.head != nil }
@@ -67,17 +80,32 @@ func (g *caravanGoal) CanStart(t *tickView) bool {
 	bestC, bestL := math.MaxFloat64, math.MaxFloat64
 	scan, ordered := t.others, true
 	if m.push != nil {
+		if len(m.push.caravan) == 0 {
+			return false
+		}
 		// pushIdx is herd order, so ties resolve as in a full scan.
 		scan, ordered = m.push.caravan, false
+		if len(scan) > caravanGridMinList {
+			// A long list is cut to the neighbourhood by the grid.
+			scan = m.push.gather(m, llamaCaravanScanXZ+1e-6)
+		}
 	}
 	later := func(d, best float64, o, cur *Mob) bool {
 		return d < best || d == best && (ordered || o.pushIdx > cur.pushIdx)
 	}
 	// Only a llama in a caravan or on a leash can be picked, so that cheap
 	// test goes before the box.
+	loX, hiX := sectionRange(m.X-m.width()/2-llamaCaravanScanXZ, m.X+m.width()/2+llamaCaravanScanXZ)
+	loY, hiY := sectionRange(m.Y-llamaCaravanScanY, m.Y+m.height()+llamaCaravanScanY)
+	loZ, hiZ := sectionRange(m.Z-m.width()/2-llamaCaravanScanXZ, m.Z+m.width()/2+llamaCaravanScanXZ)
 	scanW, scanH := m.width()+2*llamaCaravanScanXZ, m.height()+2*llamaCaravanScanY
 	for _, o := range scan {
 		if o == m || !o.inCaravan() && !o.leashed() || o.Horse.tail != nil || !IsLlama(o.Type) || !o.Alive() {
+			continue
+		}
+		// Vanilla only searches the entity sections the window touches, and
+		// files an entity by its position, not its box.
+		if sx, sy, sz := sectionCoord(o.X), sectionCoord(o.Y), sectionCoord(o.Z); sx < loX || sx > hiX || sy < loY || sy > hiY || sz < loZ || sz > hiZ {
 			continue
 		}
 		if !boxesOverlap(m.X, m.Y-llamaCaravanScanY, m.Z, scanW, scanH, o.X, o.Y, o.Z, o.width(), o.height()) {

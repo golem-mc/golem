@@ -3,6 +3,9 @@ package entity
 import (
 	"math/rand"
 	"testing"
+
+	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // TestLlamaJoinsALeashedCaravanAndLeavesWhenItBreaks: a llama falls in behind
@@ -149,5 +152,41 @@ func TestLlamaCaravanSearchInALargeHerdMatchesTheWholeHerd(t *testing.T) {
 	}
 	if joined == 0 {
 		t.Fatal("no llama joined a caravan")
+	}
+}
+
+// TestCaravanSearchStaysInTheEntitySectionWindow: a scaled lead whose box
+// reaches the search window but whose position is filed in a section the
+// window misses is not joined, in the herd scan and the grid alike.
+// vanilla: LlamaFollowCaravanGoal.canUse, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestCaravanSearchStaysInTheEntitySectionWindow(t *testing.T) {
+	w := newTestWorld()
+	for _, grid := range []bool{false, true} {
+		herd := make([]*Mob, 0, 70)
+		lead := NewMob(TypeLlama, 1, 160.5, 64, 159.5, 1)
+		lead.LeashHolderID = 99
+		lead.SetAttributes(lead.BuildAttributes(nbt.List{}))
+		lead.attrs.SetBase(registry.AttributeScale, 12)
+		follower := NewMob(TypeLlama, 2, 146.5, 64, 159.5, 2)
+		herd = append(herd, lead, follower)
+		for i := range 64 {
+			herd = append(herd, NewMob(TypeCow, int32(10+i), 0.5+float64(i), 64, 0.5, int64(i)))
+		}
+		view := &tickView{w: w, others: herd}
+		if grid {
+			g := takePushGrid(len(herd), nil)
+			g.build(herd)
+			for _, m := range herd {
+				m.push = g
+			}
+			defer g.release()
+		}
+		if (&caravanGoal{m: follower, speed: llamaCaravanSpeed}).CanStart(view) {
+			t.Errorf("grid=%v: the llama joined a lead filed outside the search sections", grid)
+		}
+		follower.X = 150.5
+		if !(&caravanGoal{m: follower, speed: llamaCaravanSpeed}).CanStart(view) {
+			t.Errorf("grid=%v: the llama did not join a lead in the search sections", grid)
+		}
 	}
 }
