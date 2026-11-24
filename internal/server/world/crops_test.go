@@ -226,6 +226,27 @@ func newOneChunkPhysics(t *testing.T) (*World, *Physics) {
 	return w, NewPhysics(w)
 }
 
+func TestDryFarmlandVibration(t *testing.T) {
+	w, p := newOneChunkPhysics(t)
+	const x, y, z = 8, GroundLevel - 1, 8
+	dry := rsState(t, "minecraft:farmland", map[string]string{"moisture": "0"})
+	setBlock(t, w, p, x, y, z, dry)
+	var changes []BlockChange
+	var decays []Decay
+	p.randomVisit(x, y, z, dry, &changes, &decays)
+	if got := w.BlockAt(x, y, z); got != dirtState {
+		t.Fatalf("dry farmland became state %d, want dirt (%d)", got, dirtState)
+	}
+	effects := p.TakeRandomEffects()
+	if len(effects) != 1 || effects[0].GameEvent != gameEventBlockChange {
+		t.Fatalf("dry farmland effects = %+v, want one block_change", effects)
+	}
+	e := effects[0]
+	if e.X != x || e.Y != y || e.Z != z || e.GameEventAffected != dirtState || e.BreakDrop != 0 || e.GameEventByUser || e.GameEventSource != nil {
+		t.Errorf("dry farmland effect = %+v, want a sourceless dirt change at (%d, %d, %d) with no loot", e, x, y, z)
+	}
+}
+
 // TestSpreadingDirtUnderSealingBlock pins the bottom-face seal test.
 // vanilla: SpreadingSnowyBlock.canStayAlive, LightEngine.getLightDampeningInto
 func TestSpreadingDirtUnderSealingBlock(t *testing.T) {
