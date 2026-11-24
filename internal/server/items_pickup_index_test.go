@@ -62,7 +62,7 @@ func TestPlayerItemPickupIndexOrder(t *testing.T) {
 	// The far player rides something reaching back to the border.
 	reach[12] = entity.PlayerTouchBox(100, 64, 100, 0.6, 1.8, entity.NewAABB(12, 64, 2, 101, 65, 101))
 
-	ix := &pickupIndex{reach: reach}
+	ix := &pickupIndex{reach: reach, eligible: allTrue(len(reach))}
 	ix.build()
 	if !ix.indexed {
 		t.Fatal("index not used")
@@ -167,7 +167,7 @@ func BenchmarkClusteredPickupCandidate(b *testing.B) {
 				pos := clients[i].player.Position()
 				reach[i] = entity.PlayerTouchBox(pos.X, pos.Y, pos.Z, 0.6, 1.8, entity.AABB{})
 			}
-			ix := &pickupIndex{reach: reach}
+			ix := &pickupIndex{reach: reach, eligible: allTrue(len(reach))}
 			ix.build()
 			stack := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
 			it := &itemEntity{item: entity.NewItem(1, stack, 16, 64, 3, 0, 0, 0, 0, 0), w: w}
@@ -180,4 +180,12 @@ func BenchmarkClusteredPickupCandidate(b *testing.B) {
 			}
 		})
 	}
+}
+
+func allTrue(n int) []bool {
+	b := make([]bool, n)
+	for i := range b {
+		b[i] = true
+	}
+	return b
 }

@@ -114,7 +114,10 @@ const (
 // with the caller, so the single-client pass allocates nothing.
 type pickupIndex struct {
 	reach []entity.AABB
-	grid  entity.BoxGrid
+	// eligible is whether each client could pick items up when the index was
+	// built; ineligible ones are not filed in the grid.
+	eligible []bool
+	grid     entity.BoxGrid
 	// indexed is false when the pass walks clients directly.
 	indexed bool
 }
@@ -125,9 +128,15 @@ var pickupIndexes = sync.Pool{New: func() any { return new(pickupIndex) }}
 // lock held; release the result.
 func newPickupIndex(clients []*client) *pickupIndex {
 	ix := pickupIndexes.Get().(*pickupIndex)
-	ix.reach = ix.reach[:0]
+	ix.reach, ix.eligible = ix.reach[:0], ix.eligible[:0]
 	for _, c := range clients {
-		ix.reach = append(ix.reach, c.pickupBox())
+		ok := canPickUp(c)
+		ix.eligible = append(ix.eligible, ok)
+		box := entity.AABB{}
+		if ok {
+			box = c.pickupBox()
+		}
+		ix.reach = append(ix.reach, box)
 	}
 	ix.build()
 	return ix
@@ -147,7 +156,9 @@ func (ix *pickupIndex) build() {
 		}
 	}
 	for i, box := range ix.reach {
-		ix.grid.Add(int32(i), box)
+		if ix.eligible[i] {
+			ix.grid.Add(int32(i), box)
+		}
 	}
 	ix.indexed = true
 }
@@ -164,7 +175,7 @@ func (ix *pickupIndex) candidate(it *itemEntity, clients []*client, from int) *i
 	box := entity.NewAABB(it.item.BlastBox())
 	ok := func(i int32) bool {
 		c := clients[i]
-		return int(i) >= from && c.theWorld() == it.w && canPickUp(c) && it.item.AllowsPickup(c.player.UUID) && ix.reach[i].Crosses(box)
+		return int(i) >= from && ix.eligible[i] && c.theWorld() == it.w && it.item.AllowsPickup(c.player.UUID) && ix.reach[i].Crosses(box)
 	}
 	if !ix.indexed {
 		for i := from; i < len(clients); i++ {
