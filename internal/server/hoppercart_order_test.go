@@ -64,20 +64,31 @@ func TestVehicleQuerySurvivesIndexDropWhileWaitingForBoats(t *testing.T) {
 	}
 	s.indexCartColumns(w)
 
-	s.boatsMu.Lock()
-	done := make(chan containerTarget)
-	go func() { done <- s.entityContainerAt(w, 0, 64.5, 0.5, nil) }()
-	// Wait until the lookup is parked on boatsMu, having given up minecartsMu.
-	for i := 0; !parkedOnBoatsMu(); i++ {
-		if i > 5000 {
-			t.Fatal("lookup never blocked on boatsMu")
+	done := make(chan containerTarget, 1)
+	func() {
+		s.boatsMu.Lock()
+		defer s.boatsMu.Unlock()
+		go func() { done <- s.entityContainerAt(w, 0, 64.5, 0.5, nil) }()
+		// Wait until the lookup is parked on boatsMu, having given up minecartsMu.
+		for i := 0; !parkedOnBoatsMu(); i++ {
+			if i > 5000 {
+				t.Error("lookup never blocked on boatsMu")
+				return
+			}
+			time.Sleep(time.Millisecond)
 		}
-		time.Sleep(time.Millisecond)
+		s.dropCartColumns()
+	}()
+	if t.Failed() {
+		return
 	}
-	s.dropCartColumns()
-	s.boatsMu.Unlock()
-	if got := <-done; got == nil {
-		t.Fatal("no container found")
+	select {
+	case got := <-done:
+		if got == nil {
+			t.Fatal("no container found")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("lookup did not finish after boatsMu was released")
 	}
 }
 
