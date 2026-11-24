@@ -92,16 +92,17 @@ func BenchmarkTickMobsTicketed(b *testing.B) {
 // BenchmarkTickMobsCowsInHerd is BenchmarkTickMobsShulkersInHerd without the
 // shulkers: the herd and the player alone.
 func BenchmarkTickMobsCowsInHerd(b *testing.B) {
-	benchTickMobs(b, herdMix(0), 96, 2000, func(s *Server, rng *rand.Rand) { addBenchPlayers(b, s, rng, 1) })
+	benchTickMobs(b, herdMix(0), 96, 2000, func(s *Server, _ *rand.Rand) { addBenchPlayers(b, s, rand.New(rand.NewSource(632)), 1) })
 }
 
 // BenchmarkTickMobsShulkersInHerd is BenchmarkTickMobs with 2000 cows and 50
 // shulkers added and one player, so the herd ticks and each shulker's
 // collision and push queries run beside a large herd.
 func BenchmarkTickMobsShulkersInHerd(b *testing.B) {
-	benchTickMobs(b, herdMix(50), 96, 2000, func(s *Server, rng *rand.Rand) { addBenchPlayers(b, s, rng, 1) })
+	benchTickMobs(b, herdMix(50), 96, 2000, func(s *Server, _ *rand.Rand) { addBenchPlayers(b, s, rand.New(rand.NewSource(632)), 1) })
 }
 
+// The player stands at a fixed spot so both runs keep the same chunks awake.
 // herdMix is the BenchmarkTickMobs mix plus 2000 cows and shulkers shulkers.
 func herdMix(shulkers int) []mobMix {
 	return []mobMix{
