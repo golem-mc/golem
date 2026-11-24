@@ -816,8 +816,9 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 		mt = v.teleportTick()
 	}
 	// The baseline advances on every gate, watched or not, before any watcher
-	// is paired; the payload is encoded for the first watcher who gets it.
-	// vanilla: ServerEntity.sendChanges
+	// is paired; a watcher paired now has it in its Add Entity, and the
+	// payload is encoded for the first watcher already tracking the body.
+	// vanilla: ServerEntity.sendChanges, ChunkMap.TrackedEntity.updatePlayer
 	var motion []byte
 	motionDue := false
 	if k.motion != nil && mt.gate {
@@ -829,11 +830,11 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 		if wt.c.theWorld() != v.w {
 			continue // crossed to another dimension since the snapshot
 		}
+		shows := len(out.shows)
 		if was, seen := v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out); seen && (mt.gate || mt.teleported && !v.k.steppedPath) {
-			if motionDue {
+			if motionDue && len(out.shows) == shows { // not paired by this settle
 				if motion == nil {
-					vx, vy, vz := k.motion(b)
-					motion = entityVelocityPayload(k.id(b), vx, vy, vz)
+					motion = entityVelocityPayload(v.id, v.t.sentVX, v.t.sentVY, v.t.sentVZ)
 				}
 				out.moves.add(wt.c, outbound{id: protocol.IDPlaySetEntityMotion, data: motion})
 			}

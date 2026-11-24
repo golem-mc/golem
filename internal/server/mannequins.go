@@ -7,6 +7,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/advancement"
+	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -401,13 +402,14 @@ func (s *Server) mannequinTwinAt(ent *mannequinEntity, to *dimension, pos player
 	return twin
 }
 
-// teleportMannequin puts a mannequin somewhere else, facing to's angles, and
-// leaves the move to the tracking pass. The head turns with the body, so a
-// changed yaw also sends a Rotate Head, without which the player model keeps
-// looking the old way. A /tp (command) also lands it on the ground, gravity
-// or not.
-// vanilla: Entity.teleportSetPosition, Entity.forceSetRotation, TeleportCommand.performTeleport, ServerEntity.sendChanges
-func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by string, command bool) {
+// teleportMannequin puts a mannequin at move.Pos, facing its angles, and
+// leaves the move to the tracking pass. Motion along an axis without its Delta
+// flag stops. The head turns with the body, so a changed yaw also sends a
+// Rotate Head, without which the player model keeps looking the old way. A /tp
+// (move.Command) also lands it on the ground, gravity or not.
+// vanilla: Entity.teleportSetPosition, PositionMoveRotation.calculateAbsolute, Entity.forceSetRotation, TeleportCommand.performTeleport, ServerEntity.sendChanges
+func (s *Server) teleportMannequin(ent *mannequinEntity, move command.Move, by string) {
+	to := move.Pos
 	var watchers []uuid.UUID
 	var turned bool
 	var id int32
@@ -417,9 +419,17 @@ func (s *Server) teleportMannequin(ent *mannequinEntity, to player.Position, by 
 		m.SetPos(to.X, to.Y, to.Z)
 		m.Yaw = to.Yaw
 		m.Pitch = to.Pitch
-		if command {
-			m.OnGround = true
+		if !move.DeltaX {
+			m.VX = 0
+		}
+		if !move.DeltaY || move.Command {
 			m.VY = 0
+		}
+		if !move.DeltaZ {
+			m.VZ = 0
+		}
+		if move.Command {
+			m.OnGround = true
 		}
 		id = m.ID
 		watchers = trackedWatchers(ent.tracked)
