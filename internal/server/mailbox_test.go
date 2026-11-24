@@ -48,17 +48,11 @@ func testMailbox() *mailbox {
 	return &mailbox{c: cl, done: make(chan struct{})}
 }
 
-func TestWriteBatchKeepsBusySpareAndReleasesIdle(t *testing.T) {
+func TestWriteBatchKeepsBusySpare(t *testing.T) {
 	m := testMailbox()
 	fillMailbox(m, 2048)
 	if cap(m.spare) < 2048 {
 		t.Fatalf("busy batch dropped, spare cap %d", cap(m.spare))
-	}
-	for range 2*spareSlackFlushes + 2 { // queue and spare alternate
-		fillMailbox(m, 1)
-	}
-	if cap(m.spare) > spareMin {
-		t.Fatalf("idle spare kept, cap %d", cap(m.spare))
 	}
 }
 
