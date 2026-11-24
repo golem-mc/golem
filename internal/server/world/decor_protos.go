@@ -645,17 +645,13 @@ func (b *decorProtoBuf) deflate(p *decorProto) {
 	_ = zw.Close()
 }
 
-// decorProtoZlibReaders holds inflate state: a fresh reader allocates a
-// 32 kB window.
-var decorProtoZlibReaders sync.Pool
-
 // inflate undoes deflate; non-stream bytes come back empty and fail to decode.
 // The result is valid until the next inflate on b.
 func (b *decorProtoBuf) inflate(data []byte) []byte {
 	b.in.Reset()
 	src := bytes.NewReader(data)
 	var zr io.ReadCloser
-	if r, ok := decorProtoZlibReaders.Get().(io.ReadCloser); ok {
+	if r, ok := zlibReaders.Get().(io.ReadCloser); ok {
 		if r.(zlib.Resetter).Reset(src, nil) != nil {
 			return nil
 		}
@@ -668,7 +664,7 @@ func (b *decorProtoBuf) inflate(data []byte) []byte {
 	}
 	_, _ = b.in.ReadFrom(zr)
 	_ = zr.Close()
-	decorProtoZlibReaders.Put(zr)
+	zlibReaders.Put(zr)
 	return b.in.Bytes()
 }
 
