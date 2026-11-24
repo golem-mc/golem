@@ -399,6 +399,30 @@ func checkChunkFormat(root nbt.Compound) error {
 	return nil
 }
 
+// chunkIsFull reports whether the root is a readable, fully generated chunk;
+// a Status other than "minecraft:full" is (false, nil).
+func chunkIsFull(root nbt.Compound) (bool, error) {
+	if err := checkChunkFormat(root); err != nil {
+		return false, err
+	}
+	status, _ := nbt.Get[nbt.String](root, "Status")
+	return string(status) == "minecraft:full", nil
+}
+
+// decodeSectionStates fills a section's blocks from its block_states, with
+// the legacy palette renames of dataVersion (0: unknown) applied.
+func decodeSectionStates(s *section, sec nbt.Compound, dataVersion int32) error {
+	bs, ok := nbt.Get[nbt.Compound](sec, "block_states")
+	if !ok {
+		return nil
+	}
+	if dataVersion != 0 {
+		palette, _ := nbt.Get[nbt.List](bs, "palette")
+		fixLegacyPalette(palette, dataVersion)
+	}
+	return decodeSectionBlocks(s, bs)
+}
+
 // decodeChunkNBT reads a chunk's root into a Chunk with its sections, biome
 // cells and carried block entities; the world that loads it does the wire
 // encoding, since a narrower dimension encodes only its band.
@@ -412,11 +436,8 @@ func checkChunkFormat(root nbt.Compound) error {
 // block renames since chunkDataVersionFloor are fixed, and reading it as air or regenerating would let the next save
 // replace the original. Sections outside the overworld's Y range are skipped.
 func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
-	if err := checkChunkFormat(root); err != nil {
+	if full, err := chunkIsFull(root); !full {
 		return nil, err
-	}
-	if status, _ := nbt.Get[nbt.String](root, "Status"); string(status) != "minecraft:full" {
-		return nil, nil
 	}
 
 	x, _ := nbt.Get[nbt.Int](root, "xPos")
@@ -451,14 +472,8 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 		}
 		s := &c.sections[idx]
 
-		if bs, ok := nbt.Get[nbt.Compound](sec, "block_states"); ok {
-			if c.dataVersion != 0 {
-				palette, _ := nbt.Get[nbt.List](bs, "palette")
-				fixLegacyPalette(palette, c.dataVersion)
-			}
-			if err := decodeSectionBlocks(s, bs); err != nil {
-				return nil, fmt.Errorf("section %d: %w", int32(y), err)
-			}
+		if err := decodeSectionStates(s, sec, c.dataVersion); err != nil {
+			return nil, fmt.Errorf("section %d: %w", int32(y), err)
 		}
 		if bi, ok := nbt.Get[nbt.Compound](sec, "biomes"); ok {
 			decodeSectionBiomes(s, bi)

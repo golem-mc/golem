@@ -1,6 +1,7 @@
 package world
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/golem-mc/golem/nbt"
@@ -50,10 +51,10 @@ func (c *lodestoneCache) begin(pos ChunkPos) uint64 {
 	return r.version
 }
 
-// finish ends a read begun at version and publishes its answer unless the
-// chunk was loaded or written since. A full cache gives up one other answer
-// rather than all of them.
-func (c *lodestoneCache) finish(pos ChunkPos, key posKey, version uint64, found bool) {
+// finish ends a read begun at version and publishes its answers unless the
+// chunk was loaded or written since, reporting whether it did. A full cache
+// gives up one other answer rather than all of them.
+func (c *lodestoneCache) finish(pos ChunkPos, version uint64, answers map[posKey]bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	r := c.pending[pos]
@@ -62,23 +63,26 @@ func (c *lodestoneCache) finish(pos ChunkPos, key posKey, version uint64, found 
 		delete(c.pending, pos)
 	}
 	if !current {
-		return
+		return false
 	}
 	if c.chunks == nil {
 		c.chunks = map[ChunkPos]map[posKey]bool{}
 	}
-	if _, dup := c.chunks[pos][key]; !dup && c.entries >= lodestoneCacheMax {
-		c.evictOne(pos)
+	for key, found := range answers {
+		if _, dup := c.chunks[pos][key]; !dup && c.entries >= lodestoneCacheMax {
+			c.evictOne(pos)
+		}
+		m := c.chunks[pos]
+		if m == nil {
+			m = map[posKey]bool{}
+			c.chunks[pos] = m
+		}
+		if _, dup := m[key]; !dup {
+			c.entries++
+		}
+		m[key] = found
 	}
-	m := c.chunks[pos]
-	if m == nil {
-		m = map[posKey]bool{}
-		c.chunks[pos] = m
-	}
-	if _, dup := m[key]; !dup {
-		c.entries++
-	}
-	m[key] = found
+	return true
 }
 
 // evictOne removes an arbitrary answer, outside keep's chunk when it can.
@@ -121,29 +125,81 @@ func (w *World) LodestoneCached(x, y, z int32) (present, known bool) {
 	return w.lodestones.get(ChunkPos{X: x >> 4, Z: z >> 4}, posKey{x, y, z})
 }
 
-// ResolveLodestone reads the saved chunk for LodestoneCached's answer, and
-// keeps it. A chunk never saved has none, and is not generated or loaded to
-// find out. It reads the disk, so no lock a tick holds may be held.
-// vanilla: PoiManager.existsAtPosition
-func (w *World) ResolveLodestone(x, y, z int32) bool {
-	if present, known := w.LodestoneCached(x, y, z); known {
-		return present
-	}
-	pos := ChunkPos{X: x >> 4, Z: z >> 4}
-	key := posKey{x, y, z}
-	version := w.lodestones.begin(pos)
-	found := w.savedLodestone(pos, x, y, z)
-	w.lodestones.finish(pos, key, version, found)
-	// A chunk that loaded meanwhile answers from its live block.
-	if present, known := w.LodestoneCached(x, y, z); known {
-		return present
-	}
-	return found
+// ForgetLodestones drops every kept answer, so a benchmark can measure the cold
+// read again.
+func (w *World) ForgetLodestones() {
+	w.lodestones.mu.Lock()
+	w.lodestones.chunks, w.lodestones.entries = nil, 0
+	w.lodestones.mu.Unlock()
 }
 
-// savedLodestone reads the one section of the saved chunk that holds y.
-func (w *World) savedLodestone(pos ChunkPos, x, y, z int32) (found bool) {
-	_ = w.withChunkRoot(pos, func(root nbt.Compound) error {
+// LodestonePos is a block position whose lodestone answer is asked for.
+type LodestonePos struct{ X, Y, Z int32 }
+
+// ResolveLodestones reads the saved chunks behind positions
+// LodestoneCached did not know, one read per chunk, and keeps the answers.
+// The result holds an answer for each position found out, from the live block
+// or from a read no load or write of its chunk overtook; a chunk never saved
+// has none, and is not generated or loaded to find out. A position whose chunk
+// could not be read is left out, not answered absent. It reads the disk, so no
+// lock a tick holds may be held.
+// vanilla: PoiManager.existsAtPosition
+func (w *World) ResolveLodestones(positions []LodestonePos) map[LodestonePos]bool {
+	answers := make(map[LodestonePos]bool, len(positions))
+	var cold map[ChunkPos][]LodestonePos
+	for _, p := range positions {
+		if present, known := w.LodestoneCached(p.X, p.Y, p.Z); known {
+			answers[p] = present
+			continue
+		}
+		pos := ChunkPos{X: p.X >> 4, Z: p.Z >> 4}
+		if cold == nil {
+			cold = map[ChunkPos][]LodestonePos{}
+		}
+		cold[pos] = append(cold[pos], p)
+	}
+	for pos, ps := range cold {
+		version := w.lodestones.begin(pos)
+		found, err := w.savedLodestones(pos, ps)
+		var published map[posKey]bool
+		if err == nil {
+			published = make(map[posKey]bool, len(found))
+			for p, f := range found {
+				published[posKey{p.X, p.Y, p.Z}] = f
+			}
+		}
+		if err != nil {
+			found = nil
+		}
+		current := w.lodestones.finish(pos, version, published)
+		for _, p := range ps {
+			// A chunk that loaded meanwhile answers from its live block.
+			if present, known := w.LodestoneCached(p.X, p.Y, p.Z); known {
+				answers[p] = present
+			} else if f, ok := found[p]; ok && current {
+				answers[p] = f
+			}
+		}
+	}
+	return answers
+}
+
+// savedLodestones reads a saved chunk once and tells which of ps, all in it,
+// hold a lodestone, decoding each section asked about once. A chunk with no
+// full record answers absent, as loading it generates a new one.
+func (w *World) savedLodestones(pos ChunkPos, ps []LodestonePos) (map[LodestonePos]bool, error) {
+	found := make(map[LodestonePos]bool, len(ps))
+	for _, p := range ps {
+		found[p] = false
+	}
+	_, err := w.withChunkRoot(pos, true, func(root nbt.Compound) error {
+		if full, err := chunkIsFull(root); !full {
+			return err
+		}
+		dataVersion := int32(0)
+		if v, ok := nbt.Get[nbt.Int](root, "DataVersion"); ok {
+			dataVersion = int32(v)
+		}
 		sections, _ := nbt.Get[nbt.List](root, "sections")
 		for _, item := range sections.Items {
 			sec, ok := nbt.CompoundView(item)
@@ -151,29 +207,29 @@ func (w *World) savedLodestone(pos ChunkPos, x, y, z int32) (found bool) {
 				continue
 			}
 			sy, _ := nbt.Get[nbt.Byte](sec, "Y")
-			if int32(sy) != y>>4 {
+			var asked []LodestonePos
+			for _, p := range ps {
+				if p.Y>>4 == int32(sy) {
+					asked = append(asked, p)
+				}
+			}
+			if len(asked) == 0 {
 				continue
 			}
-			bs, ok := nbt.Get[nbt.Compound](sec, "block_states")
-			if !ok {
-				return nil
-			}
-			if version, ok := nbt.Get[nbt.Int](root, "DataVersion"); ok && version != 0 {
-				palette, _ := nbt.Get[nbt.List](bs, "palette")
-				fixLegacyPalette(palette, int32(version))
-			}
 			s := section{fill: airState}
-			if err := decodeSectionBlocks(&s, bs); err != nil {
-				return err
+			if err := decodeSectionStates(&s, sec, dataVersion); err != nil {
+				return fmt.Errorf("section %d: %w", int32(sy), err)
 			}
-			state := s.fill
-			if b := s.blocks.Load(); b != nil {
-				state = b.get(int(y&15<<8 | z&15<<4 | x&15))
+			blocks := s.blocks.Load()
+			for _, p := range asked {
+				state := s.fill
+				if blocks != nil {
+					state = blocks.get(int(p.Y&15<<8 | p.Z&15<<4 | p.X&15))
+				}
+				found[p] = registry.BlockOf(state) == registry.BlockLodestone
 			}
-			found = registry.BlockOf(state) == registry.BlockLodestone
-			return nil
 		}
 		return nil
 	})
-	return found
+	return found, err
 }

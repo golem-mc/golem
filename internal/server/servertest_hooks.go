@@ -409,6 +409,9 @@ func (s *Server) SetLoadedBlock(x, y, z int32, state uint16) {
 	saves.Wait()
 }
 
+// ForgetLodestoneAnswers drops the overworld's kept lodestone answers.
+func (s *Server) ForgetLodestoneAnswers() { s.world.ForgetLodestones() }
+
 // ScanOverworldBlocks walks the generated overworld inside the block square
 // x0..x1 by z0..z1, between the Y bounds given, and calls visit with the Y
 // and the state of every block that is not air. It is how a test of world

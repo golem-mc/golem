@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -27,9 +28,18 @@ func (c *client) tickLodestoneCompasses() {
 		visible bool
 	}
 	var syncs []slotSync
-	var misses []lodestoneMiss
+	var misses []world.LodestonePos
 	probe := lodestoneProbe{w: w, misses: &misses}
+	// A stack is changed only once no target is unknown: a saved chunk is read
+	// with the inventory lock released, and slot updates built before that
+	// would overtake a newer write of the slot.
+	type lost struct {
+		slot  int
+		stack protocol.ItemStack
+	}
+	var found []lost
 	pass := func() {
+		found = found[:0]
 		c.player.Inventory(func(inv *player.Inventory) {
 			for slot := range inv.Slots {
 				// Only a stack with components can carry a tracker; skipping the rest
@@ -37,20 +47,22 @@ func (c *client) tickLodestoneCompasses() {
 				if len(inv.Slots[slot].Raw) == 0 {
 					continue
 				}
-				stack, lost := rules.ClearLostLodestone(probe, inv.Slots[slot], dim, bottom, top)
-				if !lost {
-					continue
+				if stack, ok := rules.ClearLostLodestone(probe, inv.Slots[slot], dim, bottom, top); ok {
+					found = append(found, lost{slot, stack})
 				}
-				payload, visible := c.setSlotUnder(inv, slot, stack)
+			}
+			if len(misses) > 0 {
+				return
+			}
+			for _, l := range found {
+				payload, visible := c.setSlotUnder(inv, l.slot, l.stack)
 				syncs = append(syncs, slotSync{payload: payload, visible: visible})
 			}
 		})
 	}
 	pass()
-	// A saved chunk is read with the inventory lock released, then the stacks
-	// are judged again as they stand.
 	if len(misses) > 0 {
-		resolveLodestones(misses)
+		probe.resolved = w.ResolveLodestones(misses)
 		misses = misses[:0]
 		pass()
 	}
@@ -62,32 +74,61 @@ func (c *client) tickLodestoneCompasses() {
 	}
 }
 
-// lodestoneMiss is a lodestone position whose answer needs a saved chunk read.
-type lodestoneMiss struct {
-	w       *world.World
-	x, y, z int32
-}
-
 // lodestoneProbe is a rules.LodestoneWorld that answers from memory and notes
 // each position it could not, so the caller reads them once it holds no lock.
-// An unknown position counts as present for now.
+// An unknown position counts as present. resolved holds what an earlier read
+// found out.
 type lodestoneProbe struct {
-	w      *world.World
-	misses *[]lodestoneMiss
+	w        *world.World
+	misses   *[]world.LodestonePos
+	resolved map[world.LodestonePos]bool
 }
 
 func (p lodestoneProbe) LodestoneCached(x, y, z int32) (present, known bool) {
-	present, known = p.w.LodestoneCached(x, y, z)
-	if !known {
-		*p.misses = append(*p.misses, lodestoneMiss{p.w, x, y, z})
+	if present, known = p.w.LodestoneCached(x, y, z); known {
+		return present, true
 	}
-	return present, known
+	pos := world.LodestonePos{X: x, Y: y, Z: z}
+	if present, known = p.resolved[pos]; known {
+		return present, true
+	}
+	*p.misses = append(*p.misses, pos)
+	return true, false
 }
 
-// resolveLodestones reads the saved chunks behind the misses.
-func resolveLodestones(misses []lodestoneMiss) {
-	for _, m := range misses {
-		m.w.ResolveLodestone(m.x, m.y, m.z)
+// lodestoneMob is a mob whose compass targets in saved chunks were unknown
+// when it ticked.
+type lodestoneMob struct {
+	h      *mobHerd
+	w      *world.World
+	dim    string
+	m      *entity.Mob
+	misses []world.LodestonePos
+}
+
+// finishMobCompasses reads the saved chunks behind the mobs' compass targets
+// with no lock held, then ticks each mob's compasses again with the answers
+// under the mob lock, if it is still in its herd.
+func (s *Server) finishMobCompasses(mobs []lodestoneMob) {
+	if len(mobs) == 0 {
+		return
+	}
+	asked := map[*world.World][]world.LodestonePos{}
+	for _, lm := range mobs {
+		asked[lm.w] = append(asked[lm.w], lm.misses...)
+	}
+	answers := make(map[*world.World]map[world.LodestonePos]bool, len(asked))
+	for w, ps := range asked {
+		answers[w] = w.ResolveLodestones(ps)
+	}
+	s.mobsMu.Lock()
+	defer s.mobsMu.Unlock()
+	for _, lm := range mobs {
+		if lm.h.book[lm.m] == nil {
+			continue
+		}
+		var unknown []world.LodestonePos
+		tickMobCompasses(lm.m, lodestoneProbe{w: lm.w, misses: &unknown, resolved: answers[lm.w]}, lm.dim)
 	}
 }
 

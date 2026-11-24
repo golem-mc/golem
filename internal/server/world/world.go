@@ -3,6 +3,7 @@ package world
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"math/rand/v2"
 	"os"
@@ -2038,7 +2039,7 @@ func (w *World) RegionFileCounts() (chunks, entities int) {
 // vanilla: SerializableChunkData.read
 func (w *World) loadChunk(pos ChunkPos) (*Chunk, error) {
 	var chunk *Chunk
-	err := w.withChunkRoot(pos, func(root nbt.Compound) (err error) {
+	_, err := w.withChunkRoot(pos, false, func(root nbt.Compound) (err error) {
 		chunk, err = decodeChunkNBT(root)
 		return err
 	})
@@ -2054,26 +2055,31 @@ func (w *World) loadChunk(pos ChunkPos) (*Chunk, error) {
 }
 
 // withChunkRoot reads a chunk's stored NBT and hands it to read, relocated to
-// pos; it does nothing when the chunk is absent. A chunk that does not parse,
-// or that read refuses, is marked unreadable.
-func (w *World) withChunkRoot(pos ChunkPos, read func(root nbt.Compound) error) error {
+// pos; found is false when the chunk is absent. A loading read marks a chunk
+// that does not parse, or that read refuses, unreadable and treats a region
+// file it cannot stat as absent. A peek leaves the record alone, and an
+// unreadable file or record is an error, not an absence.
+func (w *World) withChunkRoot(pos ChunkPos, peek bool, read func(root nbt.Compound) error) (found bool, err error) {
 	rx, rz := regionCoords(pos)
 	path := regionFilePath(w.storage, rx, rz)
 	if _, err := os.Stat(path); err != nil {
-		return nil // no region file, no chunk to load
+		if peek && !errors.Is(err, fs.ErrNotExist) {
+			return false, err
+		}
+		return false, nil // no region file, no chunk to load
 	}
 	rf, err := w.region(rx, rz)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer w.releaseRegion(rf)
 	index := regionIndex(pos.X, pos.Z)
 	data, err := rf.readChunk(pos)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if data == nil {
-		return nil // chunk not in this region
+		return false, nil // chunk not in this region
 	}
 	root, err := decodeRoot(data)
 	if err == nil {
@@ -2081,10 +2087,12 @@ func (w *World) withChunkRoot(pos ChunkPos, read func(root nbt.Compound) error) 
 		err = read(root)
 	}
 	if err != nil {
-		rf.markUnreadable(index)
-		return fmt.Errorf("chunk (%d,%d): %w", pos.X, pos.Z, err)
+		if !peek {
+			rf.markUnreadable(index)
+		}
+		return false, fmt.Errorf("chunk (%d,%d): %w", pos.X, pos.Z, err)
 	}
-	return nil
+	return true, nil
 }
 
 // decodeRoot parses a chunk's region NBT, whose root must be a compound.

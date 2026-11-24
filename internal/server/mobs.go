@@ -3279,10 +3279,10 @@ func mobEquipmentPayload(ent *mobEntity) []byte {
 	return equipmentEntriesPayload(m.ID, &slots, used)
 }
 
-// tickMobCompasses ticks a mob's compasses; the tick's equipment diff tells
-// watchers of a cleared target. A saved chunk's answer is not read under the
-// mob lock: the probe notes it, and the mob is judged when it is known.
-// vanilla: EntityEquipment.tick
+// tickMobCompasses clears invalid targets on equipped compasses. A target
+// in a saved chunk the probe cannot answer is noted and left, for the caller to
+// resolve with no lock held and tick again.
+// vanilla: EntityEquipment.tick, CompassItem.inventoryTick
 func tickMobCompasses(m *entity.Mob, probe lodestoneProbe, dim string) {
 	w := probe.w
 	bottom, top := w.MinY(), w.MinY()+w.Height()
@@ -3296,6 +3296,15 @@ func tickMobCompasses(m *entity.Mob, probe lodestoneProbe, dim string) {
 		if cleared, ok := rules.ClearLostLodestone(probe, m.Worn[i], dim, bottom, top); ok {
 			m.SetEquipment(protocol.EquipFeet+i, cleared)
 		}
+	}
+	if cleared, ok := rules.ClearLostLodestone(probe, m.Body, dim, bottom, top); ok {
+		m.SetEquipment(6, cleared)
+	}
+	if cleared, ok := rules.ClearLostLodestone(probe, m.Horse.Saddle, dim, bottom, top); ok {
+		m.SetMetadataHorseSaddle(cleared)
+	}
+	if cleared, ok := rules.ClearLostLodestone(probe, m.Antenna, dim, bottom, top); ok {
+		m.SetMetadataAntenna(cleared)
 	}
 }
 
