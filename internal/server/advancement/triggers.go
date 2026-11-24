@@ -490,7 +490,7 @@ func (p *Progress) BredAnimals(parent, partner, child string, subj *Subjects, at
 }
 
 // Blocks reads the block state at an offset from the position a trigger
-// fired at. Loaded reports whether the chunk at an offset is loaded; nil
+// fired at. Loaded reports whether the position at an offset is loaded and in build height; nil
 // means every offset is.
 type Blocks struct {
 	At     func(dx, dy, dz int32) uint16

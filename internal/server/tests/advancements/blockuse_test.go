@@ -82,42 +82,44 @@ func TestPackBlockUseAndEnderEyeAdvancements(t *testing.T) {
 	}
 }
 
-// TestPackLocationCheckSmokeyFalse: smokey:false passes a block that no lit
-// campfire's smoke reaches and fails one it does.
-// vanilla: LocationPredicate.matches, CampfireBlock.isSmokeyPos
-func TestPackLocationCheckSmokeyFalse(t *testing.T) {
+// TestPackLocationCheckSmokey: smokey:false passes a block that no lit
+// campfire's smoke reaches, and fails one it does or whose position is in an
+// unloaded chunk or above build height.
+// vanilla: LocationCheck.test, LocationPredicate.matches, CampfireBlock.isSmokeyPos
+func TestPackLocationCheckSmokey(t *testing.T) {
 	cfg, data := packConfig(t)
-	writePackFile(t, filepath.Join(data, "pk", "advancement", "unsmoked.json"), `{"criteria":{"used":{"trigger":"minecraft:default_block_use",`+
-		`"conditions":{"location":[{"condition":"minecraft:location_check","predicate":{"block":{"blocks":"minecraft:chest"},"smokey":false}}]}}}}`)
-	srv, c := joinOp(t, cfg, "Packer")
-	pos := srv.PlayerPosition("Packer")
-	x, y, z := rules.BlockOf(pos.X)+2, rules.BlockOf(pos.Y), rules.BlockOf(pos.Z)
-	servertest.Setblock(t, c, x, y-2, z, "minecraft:campfire[lit=true]")
-	servertest.Setblock(t, c, x, y, z, "minecraft:chest")
-	c.UseBlock(x, y, z)
-	c.Settle()
-	if srv.AdvancementObtained("Packer", "pk:unsmoked", "used") {
-		t.Fatal("a hive in a campfire's smoke passed smokey:false")
+	check := func(name, offsets string) {
+		writePackFile(t, filepath.Join(data, "pk", "advancement", name+".json"), `{"criteria":{"used":{"trigger":"minecraft:default_block_use",`+
+			`"conditions":{"location":{"type":"minecraft:location_check",`+offsets+`"predicate":{"block":{"blocks":"minecraft:air"},"smokey":false}}}}}}`)
 	}
-	servertest.Setblock(t, c, x, y-2, z, "minecraft:air")
-	c.UseBlock(x, y, z)
-	servertest.UntilTicks(t, srv, 20, "pk:unsmoked obtained", func() bool { return srv.AdvancementObtained("Packer", "pk:unsmoked", "used") })
-}
-
-// TestPackLocationCheckSmokeyUnloadedOffset: a smokey check of a position in
-// an unloaded chunk fails, though the block there reads as air.
-// vanilla: LocationCheck.test, LocationPredicate.matches
-func TestPackLocationCheckSmokeyUnloadedOffset(t *testing.T) {
-	cfg, data := packConfig(t)
-	writePackFile(t, filepath.Join(data, "pk", "advancement", "faraway.json"), `{"criteria":{"used":{"trigger":"minecraft:default_block_use",`+
-		`"conditions":{"location":[{"condition":"minecraft:location_check","offsetX":8192,"predicate":{"block":{"blocks":"minecraft:air"},"smokey":false}}]}}}}`)
+	check("clear", `"offsetX":1,`)
+	check("faraway", `"offsetX":8192,`)
+	check("toohigh", `"offsetY":512,`)
 	srv, c := joinOp(t, cfg, "Packer")
 	pos := srv.PlayerPosition("Packer")
 	x, y, z := rules.BlockOf(pos.X)+2, rules.BlockOf(pos.Y), rules.BlockOf(pos.Z)
+	servertest.Setblock(t, c, x+1, y-1, z, "minecraft:campfire[lit=true]")
 	servertest.Setblock(t, c, x, y, z, "minecraft:chest")
-	c.UseBlock(x, y, z)
-	c.Settle()
-	if srv.AdvancementObtained("Packer", "pk:faraway", "used") {
-		t.Fatal("a smokey:false check of an unloaded chunk passed")
+	use := func() {
+		c.UseBlock(x, y, z)
+		c.Settle()
+	}
+	got := func(name string) bool { return srv.AdvancementObtained("Packer", "pk:"+name, "used") }
+	use()
+	for _, name := range []string{"clear", "faraway", "toohigh"} {
+		if got(name) {
+			t.Fatalf("pk:%s passed with a lit campfire's smoke or an unloaded position", name)
+		}
+	}
+	servertest.Setblock(t, c, x+1, y-1, z, "minecraft:air")
+	use()
+	if !got("clear") {
+		t.Error("smokey:false failed a position no campfire's smoke reaches")
+	}
+	if got("faraway") {
+		t.Error("a smokey:false check of an unloaded chunk passed")
+	}
+	if got("toohigh") {
+		t.Error("a smokey:false check above build height passed")
 	}
 }
