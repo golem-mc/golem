@@ -587,7 +587,7 @@ func (e *entitySnapshot) ItemIn(slot command.ItemSlot) (protocol.ItemStack, bool
 		case command.ItemSlotBody:
 			return ref.mob.Body, true
 		case command.ItemSlotSaddle:
-			return ref.mob.Horse.Saddle, true
+			return ref.mob.EquipmentSlot(protocol.EquipSaddle), true
 		}
 	case *armorStandEntity:
 		e.srv.armorStandsMu.Lock()
@@ -655,9 +655,9 @@ func (e *entitySnapshot) SetItemIn(slot command.ItemSlot, stack protocol.ItemSta
 			return false
 		}
 		if slot == command.ItemSlotBody {
-			ref.mob.SetEquipment(6, stack)
+			ref.mob.SetEquipment(protocol.EquipBody, stack)
 		} else {
-			ref.mob.SetMetadataHorseSaddle(stack)
+			ref.mob.SetEquipment(protocol.EquipSaddle, stack)
 		}
 		return true
 	}
@@ -713,7 +713,7 @@ func (e *entitySnapshot) SetItemIn(slot command.ItemSlot, stack protocol.ItemSta
 		}
 		m.SyncEquipmentModifiers()
 		slots := mannequinEquipmentNow(m)
-		equipment := equipmentEntriesPayload(m.ID, &slots, []int{wire})
+		equipment := equipmentEntriesPayload(m.ID, slots[:], []int{wire})
 		watchers, w := trackedWatchers(ref.tracked), ref.w
 		e.srv.mannequinsMu.Unlock()
 		e.srv.tellWatchers(w, watchers, []outbound{{id: protocol.IDPlayEntityEquipment, data: equipment}})

@@ -78,7 +78,7 @@ func mannequinPairing(ent *mannequinEntity) []outbound {
 	}
 	if n > 0 {
 		slots := mannequinEquipmentNow(m)
-		packets = append(packets, outbound{id: protocol.IDPlayEntityEquipment, data: equipmentEntriesPayload(m.ID, &slots, used[:n])})
+		packets = append(packets, outbound{id: protocol.IDPlayEntityEquipment, data: equipmentEntriesPayload(m.ID, slots[:], used[:n])})
 	}
 	return packets
 }
@@ -374,10 +374,10 @@ func (s *Server) setMannequinData(ent *mannequinEntity, data nbt.Compound) {
 	}
 	payload := mannequinMetadataPayload(ent, true)
 	now := mannequinEquipmentNow(m)
-	used := equipmentChanged(&before, &now)
+	used := equipmentChanged(before[:], now[:])
 	packets := []outbound{{id: protocol.IDPlayEntityMetadata, data: payload}}
 	if len(used) > 0 {
-		packets = append(packets, outbound{id: protocol.IDPlayEntityEquipment, data: equipmentEntriesPayload(m.ID, &now, used)})
+		packets = append(packets, outbound{id: protocol.IDPlayEntityEquipment, data: equipmentEntriesPayload(m.ID, now[:], used)})
 	}
 	if encodeAngle(yaw) != encodeAngle(m.Yaw) {
 		packets = append(packets, outbound{id: protocol.IDPlayHeadRotation, data: mannequinHeadPayload(m.ID, m.Yaw)})
@@ -459,8 +459,8 @@ func mannequinHeadPayload(id int32, yaw float32) []byte {
 }
 
 // mannequinEquipmentNow returns held and worn equipment in wire-slot order.
-func mannequinEquipmentNow(m *entity.Mannequin) [7]protocol.ItemStack {
-	return [7]protocol.ItemStack{m.MainHand, m.OffHand, m.Worn[0], m.Worn[1], m.Worn[2], m.Worn[3]}
+func mannequinEquipmentNow(m *entity.Mannequin) [6]protocol.ItemStack {
+	return [6]protocol.ItemStack{m.MainHand, m.OffHand, m.Worn[0], m.Worn[1], m.Worn[2], m.Worn[3]}
 }
 
 // nameMannequin gives a mannequin in reach the name of a name tag, reporting
