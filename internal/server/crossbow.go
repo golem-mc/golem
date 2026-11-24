@@ -133,15 +133,14 @@ func (c *client) loadCrossbow(hand int32, crossbow protocol.ItemStack) bool {
 		if use > ammo.stack.Count {
 			continue
 		}
-		one := ammo.stack
-		one.Count = 1
+		projectile := ammo.stack
+		projectile.Count = max(1, use)
 		if use == 0 {
-			one.Intangible = true
+			projectile.Intangible = true
 		}
-		drawn = append(drawn, one)
+		drawn = append(drawn, projectile)
 		if use > 0 {
-			c.consumeAmmo(ammo)
-			ammo.stack.Count -= use
+			c.consumeAmmo(ammo.slot, use)
 		}
 	}
 	if len(drawn) == 0 {
