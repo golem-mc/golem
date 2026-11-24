@@ -190,3 +190,19 @@ func TestCaravanSearchStaysInTheEntitySectionWindow(t *testing.T) {
 		}
 	}
 }
+
+// TestCaravanSearchReachesTheSectionBelow: the window reaches 4 blocks below
+// the query box, so a tall lead filed in the section under it is found.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestCaravanSearchReachesTheSectionBelow(t *testing.T) {
+	w := newTestWorld()
+	lead := NewMob(TypeLlama, 1, 156.5, 63, 159.5, 1)
+	lead.LeashHolderID = 99
+	lead.SetAttributes(lead.BuildAttributes(nbt.List{}))
+	lead.attrs.SetBase(registry.AttributeScale, 4)
+	follower := NewMob(TypeLlama, 2, 150.5, 70, 159.5, 2)
+	view := &tickView{w: w, others: []*Mob{lead, follower}}
+	if !(&caravanGoal{m: follower, speed: llamaCaravanSpeed}).CanStart(view) {
+		t.Error("the llama missed a lead filed in the section below the window")
+	}
+}

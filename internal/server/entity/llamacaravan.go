@@ -31,7 +31,7 @@ const caravanGridMinList = 64
 // sectionCoord is the entity section a coordinate is filed in.
 func sectionCoord(v float64) int { return int(math.Floor(v)) >> 4 }
 
-// sectionRange is the entity sections a query span reaches, padded by 2.
+// sectionRange is the entity sections a horizontal query span reaches, padded by 2.
 // vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
 func sectionRange(lo, hi float64) (int, int) {
 	return int(math.Floor(lo-2)) >> 4, int(math.Floor(hi+2)) >> 4
@@ -96,7 +96,8 @@ func (g *caravanGoal) CanStart(t *tickView) bool {
 	// Only a llama in a caravan or on a leash can be picked, so that cheap
 	// test goes before the box.
 	loX, hiX := sectionRange(m.X-m.width()/2-llamaCaravanScanXZ, m.X+m.width()/2+llamaCaravanScanXZ)
-	loY, hiY := sectionRange(m.Y-llamaCaravanScanY, m.Y+m.height()+llamaCaravanScanY)
+	// Entities are filed by their feet, so Y reaches 4 below and 0 above.
+	loY, hiY := sectionCoord(m.Y-llamaCaravanScanY-4), sectionCoord(m.Y+m.height()+llamaCaravanScanY)
 	loZ, hiZ := sectionRange(m.Z-m.width()/2-llamaCaravanScanXZ, m.Z+m.width()/2+llamaCaravanScanXZ)
 	scanW, scanH := m.width()+2*llamaCaravanScanXZ, m.height()+2*llamaCaravanScanY
 	for _, o := range scan {
