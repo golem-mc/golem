@@ -173,7 +173,9 @@ func TestDecodeLightOwnsMixedArrays(t *testing.T) {
 }
 
 func BenchmarkDecodeLight(b *testing.B) {
-	enc := lightWithArrays().encodeLight()
+	c := lightWithArrays()
+	c.skyLight[20], c.blockLight[9] = nil, nil // mixed arrays allocate by design
+	enc := c.encodeLight()
 	d := newChunk(0, 0)
 	b.ReportAllocs()
 	for b.Loop() {
