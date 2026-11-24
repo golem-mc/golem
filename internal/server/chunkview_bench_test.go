@@ -5,6 +5,7 @@ import (
 	"github.com/golem-mc/golem/internal/config"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
@@ -48,12 +49,26 @@ func benchChunkViewMoves(b *testing.B, asked int32) {
 	if len(c.generating) != 0 || len(c.pendingGeneration) != 0 {
 		b.Fatal("benchmark terrain was not cached")
 	}
-	// The client knows every chunk in the initial view, so each move also
-	// exercises unloading sent chunks and updating the concurrent sent mirror.
-	for x := int32(-10); x <= 10; x++ {
-		for z := int32(-10); z <= 10; z++ {
-			c.markSent(world.ChunkPos{X: x, Z: z})
+	// Settle the view: the client has the chunks the initial update queued and
+	// the load-radius holds are taken, so each move sees no stale backlog.
+	for _, p := range c.pendingSend {
+		c.markSent(p)
+	}
+	c.pendingSend = nil
+	for range 10000 {
+		if len(c.pendingHolds) == 0 && len(c.generating) == 0 {
+			break
 		}
+		c.takeHolds()
+		c.collectGenerated()
+		time.Sleep(time.Millisecond)
+		for _, p := range c.pendingSend {
+			c.markSent(p)
+		}
+		c.pendingSend = nil
+	}
+	if len(c.pendingHolds) != 0 || len(c.generating) != 0 {
+		b.Fatal("load holds did not settle")
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
