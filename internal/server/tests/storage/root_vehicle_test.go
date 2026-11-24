@@ -182,3 +182,126 @@ func TestARiderLeavingOnABoatWritesRootVehicle(t *testing.T) {
 		t.Errorf("the saved boat carries Passengers %v, want the player left out", entity["Passengers"])
 	}
 }
+
+// TestARiderLeavingOnAMinecartWritesRootVehicleAndRestoresOnRejoin: a player
+// riding a minecart saves RootVehicle with Attach naming the cart's UUID and
+// Entity holding the cart, and rejoining restores the seat without duplicating
+// the cart.
+// vanilla: ServerPlayer.saveParentVehicle, ServerPlayer.loadAndSpawnParentVehicle
+func TestARiderLeavingOnAMinecartWritesRootVehicleAndRestoresOnRejoin(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SurvivalConfig()
+	cfg.LevelName = t.TempDir()
+
+	srv, connect := servertest.Start(t, cfg)
+	c := connect().Join("Rail")
+	c.Settle()
+	cartID := srv.SpawnMinecart(4.5, 64, 4.5)
+	if cartID == 0 {
+		t.Fatal("SpawnMinecart came to nothing")
+	}
+	c.UseOn(cartID)
+	servertest.AwaitPassengersFor(c, cartID)
+	tag, ok := srv.MinecartSaveTag(cartID)
+	if !ok {
+		t.Fatal("no save tag for the ridden minecart")
+	}
+	identity, _ := nbt.Get[nbt.IntArray](tag, "UUID")
+	wantUUID := srv.MinecartsInDimension("minecraft:overworld")[0].UUID
+
+	if !srv.SaveAll(false) {
+		t.Fatal("SaveAll failed")
+	}
+	assertSavedMinecart(t, cfg.LevelName, "Rail", identity)
+	if n := len(srv.MinecartsInDimension("minecraft:overworld")); n != 1 {
+		t.Fatalf("%d minecarts stand after SaveAll, want 1", n)
+	}
+
+	c.Disconnect()
+	servertest.UntilTicks(t, srv, 200, "the minecart leaves with its rider", func() bool {
+		return len(srv.MinecartsInDimension("minecraft:overworld")) == 0
+	})
+	assertSavedMinecart(t, cfg.LevelName, "Rail", identity)
+
+	connect().Join("Rail")
+	servertest.UntilTicks(t, srv, 200, "the rider seated back in the minecart", func() bool {
+		for _, cart := range srv.MinecartsInDimension("minecraft:overworld") {
+			if rider, ok := srv.MinecartRider(cart.ID); ok && rider == "Rail" {
+				return true
+			}
+		}
+		return false
+	})
+	carts := srv.MinecartsInDimension("minecraft:overworld")
+	if len(carts) != 1 {
+		t.Fatalf("%d minecarts stand after rejoin, want 1", len(carts))
+	}
+	if carts[0].UUID != wantUUID {
+		t.Errorf("restored minecart UUID = %q, want %q", carts[0].UUID, wantUUID)
+	}
+}
+
+func assertSavedMinecart(t *testing.T, level, name string, wantUUID nbt.IntArray) {
+	t.Helper()
+	root := servertest.ReadPlayerFile(t, servertest.PlayerFile(level, name))
+	saved, ok := nbt.Get[nbt.Compound](root, "RootVehicle")
+	if !ok {
+		t.Fatal("no RootVehicle in the file of a rider on a minecart")
+	}
+	attach, ok := nbt.Get[nbt.IntArray](saved, "Attach")
+	if !ok || len(wantUUID) != 4 || !slices.Equal(attach, wantUUID) {
+		t.Errorf("Attach = %v (%v), want the minecart's UUID %v", attach, ok, wantUUID)
+	}
+	ent, ok := nbt.Get[nbt.Compound](saved, "Entity")
+	if !ok {
+		t.Fatal("RootVehicle has no Entity")
+	}
+	if id, _ := nbt.Get[nbt.String](ent, "id"); id != "minecraft:minecart" {
+		t.Errorf("RootVehicle entity = %q, want minecraft:minecart", id)
+	}
+	if _, ok := ent["Passengers"]; ok {
+		t.Errorf("the saved minecart carries Passengers %v, want the player left out", ent["Passengers"])
+	}
+}
+
+// TestAMinecartRootVehicleReattachesStandingCartWithoutDuplicating: a player
+// whose file names a minecart already standing in the world seats back into
+// that cart instead of spawning a second one.
+// vanilla: ServerPlayer.loadAndSpawnParentVehicle
+func TestAMinecartRootVehicleReattachesStandingCartWithoutDuplicating(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SurvivalConfig()
+	cfg.LevelName = t.TempDir()
+
+	srv, connect := servertest.Start(t, cfg)
+	cartID := srv.SpawnMinecart(4.5, 64, 4.5)
+	if cartID == 0 {
+		t.Fatal("SpawnMinecart came to nothing")
+	}
+	tag, ok := srv.MinecartSaveTag(cartID)
+	if !ok {
+		t.Fatal("no save tag for the standing minecart")
+	}
+	cartUUID, _ := nbt.Get[nbt.IntArray](tag, "UUID")
+	pos := nbt.List{Elem: nbt.TypeDouble, Items: []nbt.Tag{nbt.Double(4.5), nbt.Double(64), nbt.Double(4.5)}}
+	servertest.WritePlayerFile(t, servertest.PlayerFile(cfg.LevelName, "Rail"), nbt.Compound{
+		"Pos": pos,
+		"RootVehicle": nbt.Compound{
+			"Attach": cartUUID,
+			"Entity": nbt.Compound{
+				"id":   nbt.String("minecraft:minecart"),
+				"UUID": cartUUID,
+				"Pos":  pos,
+			},
+		},
+	})
+
+	connect().Join("Rail")
+	servertest.UntilTicks(t, srv, 200, "the rider seated in the standing minecart", func() bool {
+		rider, ok := srv.MinecartRider(cartID)
+		return ok && rider == "Rail"
+	})
+	if n := len(srv.MinecartsInDimension("minecraft:overworld")); n != 1 {
+		t.Errorf("%d minecarts stand after rejoin, want the 1 already in the world", n)
+	}
+}
