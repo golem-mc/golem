@@ -52,7 +52,7 @@ func TestRemovedPickupCandidateIsSkipped(t *testing.T) {
 			replace()
 		}
 
-		s.giveItemPickups([]*itemPickup{candidate})
+		s.giveItemPickups([]*itemPickup{candidate}, reach)
 		if listener.calls != wantCalls {
 			t.Errorf("pickup callbacks = %d, want %d", listener.calls, wantCalls)
 		}
