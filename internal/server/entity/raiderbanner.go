@@ -161,6 +161,6 @@ func (m *Mob) createReachingPath(w World, x, y, z float64) (path []Waypoint, end
 	if !ok {
 		return nil, Waypoint{}, false
 	}
-	path, reached = findPath(w, foot, o.cell(), target, int32(math.Ceil(o.maxPathLength())), navReach)
+	path, reached = m.tickPaths.findPath(w, foot, o.cell(), target, int32(math.Ceil(o.maxPathLength())), navReach)
 	return o.trimForSun(w, raiseCauldronNodes(w, path)), cellAt(x, y, z), reached
 }

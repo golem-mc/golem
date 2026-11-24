@@ -614,7 +614,7 @@ func (g *goatJumpGoal) walkable(w World, cell Waypoint) bool {
 	if !ok {
 		return false
 	}
-	_, reached := findPath(w, foot, m.cell(), target, goatWalkReach, 0)
+	_, reached := m.tickPaths.findPath(w, foot, m.cell(), target, goatWalkReach, 0)
 	return reached
 }
 

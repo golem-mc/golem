@@ -2166,6 +2166,8 @@ type Mob struct {
 	// reordered so pushes land in the tick's walk order. Set for one tick and
 	// cleared after.
 	push *pushGrid
+	// tickPaths belongs to the herd and is lent to this body for its tick.
+	tickPaths *MobPathScratch
 	// prey is the tick's villagers, traders, iron golems, turtles and axolotls
 	// in herd order, which the zombie's mob targets scan instead of the herd;
 	// preyKnown is false where no tick built it. Set for one tick.

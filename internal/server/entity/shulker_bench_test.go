@@ -11,6 +11,7 @@ func BenchmarkMobsTickShulkers(b *testing.B) {
 		mobs = append(mobs, NewMob(TypeShulker, int32(i+1), float64(i%4)*4+.5, 64, float64(i/4)*4+.5, int64(i+1)))
 	}
 	var events []MobEvent
+	var paths MobPathScratch
 	b.ReportAllocs()
 	for b.Loop() {
 		for i, m := range mobs {
@@ -19,6 +20,6 @@ func BenchmarkMobsTickShulkers(b *testing.B) {
 				m.shulker.teleport = true
 			}
 		}
-		events = mobs.TickInto(events, w, nil, nil, nil, nil)
+		events = mobs.TickInto(events, w, nil, nil, nil, nil, &paths)
 	}
 }
