@@ -119,10 +119,55 @@ func TestALlamaReachesAScaledLeadAmongAHerdOfLeashedLlamas(t *testing.T) {
 	}
 	follower := srv.SpawnMob("minecraft:llama", -9.5, 64, 5.5)
 	c.Settle()
-	x0, _, _, _ := srv.MobPos(follower)
-	srv.TickMobs(40)
-	x1, _, _, _ := srv.MobPos(follower)
+	servertest.HoldTicks(t, srv)
+	x0, _, _, ok0 := srv.MobPos(follower)
+	servertest.RunTicks(t, srv, 10)
+	x1, _, _, ok1 := srv.MobPos(follower)
+	if !ok0 || !ok1 {
+		t.Fatal("the follower is gone from the world")
+	}
 	if x1-x0 < 1 {
-		t.Errorf("the follower moved %f in x over 40 ticks, want it to approach the lead", x1-x0)
+		t.Errorf("the follower moved %f in x over 10 ticks, want it to approach the lead", x1-x0)
+	}
+}
+
+// TestACowAcrossTheSectionBoundaryFromAScaledCowIsNotCrammed: with a limit of
+// one, an ordinary cow overlapping a scale-16 cow takes cramming damage only
+// when the giant is filed in a section its box query reaches.
+// vanilla: LivingEntity.pushEntities, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestACowAcrossTheSectionBoundaryFromAScaledCowIsNotCrammed(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		x    float64
+		hurt bool
+	}{{"outside", 18, false}, {"inside", 14, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := servertest.Join(t, servertest.MobTestConfig(), "Herder")
+			c.MoveToGround(11.5, 64, 20.5, true)
+			c.Settle()
+			servertest.HoldTicks(t, srv)
+			srv.SetGameRuleValue("max_entity_cramming", 1)
+			scale := nbt.Compound{"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+				nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(16)}}}}
+			cow := srv.SpawnMob("minecraft:cow", 11.5, 64, 0.5)
+			giant := srv.SpawnMobTagged("minecraft:cow", tc.x, 64, 0.5, scale)
+			if giant == 0 || !srv.SetMobNoAI(cow) || !srv.SetMobNoAI(giant) || !srv.SetMobInvulnerable(giant) {
+				t.Fatal("the cows could not be set up")
+			}
+			before, ok := srv.MobHealth(cow)
+			if !ok {
+				t.Fatal("the cow is gone")
+			}
+			servertest.RunTicks(t, srv, 10)
+			after, ok := srv.MobHealth(cow)
+			if !ok {
+				t.Fatal("the cow is gone")
+			}
+			if hurt := after < before; hurt != tc.hurt {
+				t.Errorf("giant at x=%v: health %v -> %v, want hurt=%v", tc.x, before, after, tc.hurt)
+			}
+		})
 	}
 }

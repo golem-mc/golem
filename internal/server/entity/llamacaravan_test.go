@@ -269,3 +269,41 @@ func TestPushIgnoresAScaledBodyFiledInTheNextSection(t *testing.T) {
 		}
 	}
 }
+
+// TestGatherSkipsEmptyCellsOfAWideQuery: a scale-16 slime far off widens every
+// query, and the sparse grid still hands out the same candidates in the same
+// order as a full scan.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestGatherSkipsEmptyCellsOfAWideQuery(t *testing.T) {
+	herd := make([]*Mob, 0, 41)
+	for i := range 40 {
+		herd = append(herd, NewMob(TypeZombie, int32(i), float64(i%8)*0.5-2, 64, float64(i/8)*0.5-1, int64(i)))
+	}
+	slime := NewMob(TypeSlime, 100, 100000.5, 64, 0.5, 100)
+	slime.Size = 127
+	slime.SetAttributes(slime.BuildAttributes(nbt.List{}))
+	slime.attrs.SetBase(registry.AttributeScale, 16)
+	herd = append(herd, slime)
+	g := takePushGrid(len(herd), nil)
+	defer g.release()
+	g.build(herd)
+	if len(g.dense) != 0 {
+		t.Fatal("the herd should be sparse")
+	}
+	m := herd[0]
+	var want []*Mob
+	for _, o := range herd {
+		if boxesOverlap(m.X, m.Y, m.Z, m.width(), m.height(), o.X, o.Y, o.Z, o.width(), o.height()) {
+			want = append(want, o)
+		}
+	}
+	got := g.candidates(m, 0)
+	if len(got) != len(want) {
+		t.Fatalf("got %d candidates, want %d", len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("candidate %d differs", i)
+		}
+	}
+}
