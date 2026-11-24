@@ -868,7 +868,7 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 		// LodestoneTrackerOf reads only Raw on the two hands and four worn slots.
 		if len(m.MainHand.Raw) > 0 || len(m.OffHand.Raw) > 0 ||
 			len(m.Worn[0].Raw) > 0 || len(m.Worn[1].Raw) > 0 || len(m.Worn[2].Raw) > 0 || len(m.Worn[3].Raw) > 0 {
-			tickMobCompasses(m, w, t.dim.name)
+			tickMobCompasses(m, lodestoneProbe{w: w, misses: &fx.lodestoneMisses}, t.dim.name)
 		}
 		if cloud := takeInk(m); cloud != nil {
 			fx.inks = append(fx.inks, mobInk{w: w, kind: m.Type, cloud: cloud})

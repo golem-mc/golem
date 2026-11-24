@@ -4,6 +4,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -26,26 +27,67 @@ func (c *client) tickLodestoneCompasses() {
 		visible bool
 	}
 	var syncs []slotSync
-	c.player.Inventory(func(inv *player.Inventory) {
-		for slot := range inv.Slots {
-			// Only a stack with components can carry a tracker; skipping the rest
-			// avoids copying each ItemStack by value.
-			if len(inv.Slots[slot].Raw) == 0 {
-				continue
+	var misses []lodestoneMiss
+	probe := lodestoneProbe{w: w, misses: &misses}
+	pass := func() {
+		c.player.Inventory(func(inv *player.Inventory) {
+			for slot := range inv.Slots {
+				// Only a stack with components can carry a tracker; skipping the rest
+				// avoids copying each ItemStack by value.
+				if len(inv.Slots[slot].Raw) == 0 {
+					continue
+				}
+				stack, lost := rules.ClearLostLodestone(probe, inv.Slots[slot], dim, bottom, top)
+				if !lost {
+					continue
+				}
+				payload, visible := c.setSlotUnder(inv, slot, stack)
+				syncs = append(syncs, slotSync{payload: payload, visible: visible})
 			}
-			stack, lost := rules.ClearLostLodestone(w, inv.Slots[slot], dim, bottom, top)
-			if !lost {
-				continue
-			}
-			payload, visible := c.setSlotUnder(inv, slot, stack)
-			syncs = append(syncs, slotSync{payload: payload, visible: visible})
-		}
-	})
+		})
+	}
+	pass()
+	// A saved chunk is read with the inventory lock released, then the stacks
+	// are judged again as they stand.
+	if len(misses) > 0 {
+		resolveLodestones(misses)
+		misses = misses[:0]
+		pass()
+	}
 	for _, sync := range syncs {
 		c.send(protocol.IDPlayContainerSlot, sync.payload)
 		if sync.visible {
 			c.broadcastEquipment()
 		}
+	}
+}
+
+// lodestoneMiss is a lodestone position whose answer needs a saved chunk read.
+type lodestoneMiss struct {
+	w       *world.World
+	x, y, z int32
+}
+
+// lodestoneProbe is a rules.LodestoneWorld that answers from memory and notes
+// each position it could not, so the caller reads them once it holds no lock.
+// An unknown position counts as present for now.
+type lodestoneProbe struct {
+	w      *world.World
+	misses *[]lodestoneMiss
+}
+
+func (p lodestoneProbe) LodestoneCached(x, y, z int32) (present, known bool) {
+	present, known = p.w.LodestoneCached(x, y, z)
+	if !known {
+		*p.misses = append(*p.misses, lodestoneMiss{p.w, x, y, z})
+	}
+	return present, known
+}
+
+// resolveLodestones reads the saved chunks behind the misses.
+func resolveLodestones(misses []lodestoneMiss) {
+	for _, m := range misses {
+		m.w.ResolveLodestone(m.x, m.y, m.z)
 	}
 }
 

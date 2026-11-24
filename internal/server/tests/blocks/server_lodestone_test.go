@@ -378,6 +378,7 @@ func TestLodestoneCompassUnloadedTarget(t *testing.T) {
 	srv.SetLoadedBlock(without, 63, without, stone)
 
 	c := connect().Join("Wanderer")
+	servertest.HoldTicks(t, srv)
 	slots := []struct {
 		slot int
 		at   int32
@@ -386,7 +387,27 @@ func TestLodestoneCompassUnloadedTarget(t *testing.T) {
 	for _, s := range slots {
 		srv.GiveSlot("Wanderer", s.slot, lodestoneCompass(t, 1, dim, s.at, 63, s.at))
 	}
-	servertest.AwaitTicks(t, srv, 5)
+	// One tick judges all three, the saved chunks read inside it.
+	cleared := map[int16]bool{}
+	c.ReadTicks(srv, 1, func(id int32, data []byte) bool {
+		if id != protocol.IDPlayContainerSlot {
+			return false
+		}
+		r := protocol.NewReader(data)
+		r.ReadVarInt() // the window
+		r.ReadVarInt() // the state ID
+		slot := r.ReadI16()
+		if servertest.MustReadSlot(t, r).Equal(clearedLodestoneCompass(t, 1)) {
+			cleared[slot] = true
+		}
+		return false
+	})
+	for _, s := range slots {
+		if cleared[int16(s.slot)] == s.kept {
+			t.Errorf("target %d: slot %d cleared on the client = %v after one tick, want %v",
+				s.at, s.slot, cleared[int16(s.slot)], !s.kept)
+		}
+	}
 	for _, s := range slots {
 		want := clearedLodestoneCompass(t, 1)
 		if s.kept {

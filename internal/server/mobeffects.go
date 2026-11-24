@@ -17,6 +17,9 @@ type mobEffects struct {
 	// moves are the mobs that moved this tick while a plugin listens.
 	moves        []mobMove
 	dragonDeaths []dragonDeathEffect
+	// lodestoneMisses are compass targets in saved chunks, read after the mob
+	// lock so the next tick knows them.
+	lodestoneMisses []lodestoneMiss
 	// gateways are the mobs found in an end gateway.
 	gateways []gatewayTouch
 	// raiderDeaths are raiders that died this tick, removed from their raids
@@ -250,6 +253,7 @@ func (fx *mobEffects) convert(cv mobConversion) {
 // reach clients, which the black-box tests read and vanilla fixes, so a new
 // kind goes where its packets belong, not at the end.
 func (fx *mobEffects) apply(s *Server, in *mobTickInputs) {
+	resolveLodestones(fx.lodestoneMisses)
 	s.rollDeathLoot(fx.deaths)
 	applyEach(s, fx.gameEvents, func(s *Server, event mobGameEvent) {
 		s.gameEvent(event.w, event.event, event.x, event.y, event.z, event.context)

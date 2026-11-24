@@ -785,6 +785,7 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	w.queueGeneratedTicks(c)
 	w.queueLoadedTicks(c)
 	w.chunks[pos] = loaded
+	w.lodestones.drop(pos)
 	touches, comparators := c.redstoneBlockCounts()
 	w.touchBlocks += touches
 	if comparators != 0 {
@@ -1561,15 +1562,22 @@ func (w *World) RelightAsync(x, z int32) <-chan []LightChange {
 // chunk unloaded after its slot was loaded reads as it left, its blocks no
 // longer written.
 func (w *World) BlockAt(x, y, z int32) uint16 {
+	state, _ := w.blockIfLoaded(x, y, z)
+	return state
+}
+
+// blockIfLoaded is BlockAt that also reports whether the chunk was resident
+// at that read, air and false when it was not.
+func (w *World) blockIfLoaded(x, y, z int32) (uint16, bool) {
 	pos := ChunkPos{X: x >> 4, Z: z >> 4}
 	if loaded := w.nearAt(pos); loaded != nil {
-		return loaded.chunk.sharedBlockAt(x&15, y, z&15)
+		return loaded.chunk.sharedBlockAt(x&15, y, z&15), true
 	}
 	w.mu.RLock()
 	loaded, ok := w.chunks[pos]
 	if !ok {
 		w.mu.RUnlock()
-		return airState
+		return airState, false
 	}
 	// Two chunks sharing a slot (more than nearSlots chunks apart on an axis)
 	// take it from each other on a miss, so a run of reads in one chunk hits.
@@ -1578,7 +1586,7 @@ func (w *World) BlockAt(x, y, z int32) uint16 {
 	}
 	state := loaded.chunk.BlockAt(x&15, y, z&15)
 	w.mu.RUnlock()
-	return state
+	return state, true
 }
 
 // blockReader reads blocks under one hold of the read lock with a last-chunk
@@ -2029,33 +2037,13 @@ func (w *World) RegionFileCounts() (chunks, entities int) {
 // coordinates is relocated to the slot read.
 // vanilla: SerializableChunkData.read
 func (w *World) loadChunk(pos ChunkPos) (*Chunk, error) {
-	rx, rz := regionCoords(pos)
-	path := regionFilePath(w.storage, rx, rz)
-	if _, err := os.Stat(path); err != nil {
-		return nil, nil // no region file, no chunk to load
-	}
-	rf, err := w.region(rx, rz)
-	if err != nil {
-		return nil, err
-	}
-	defer w.releaseRegion(rf)
-	index := regionIndex(pos.X, pos.Z)
-	data, err := rf.readChunk(pos)
-	if err != nil {
-		return nil, err
-	}
-	if data == nil {
-		return nil, nil // chunk not in this region
-	}
-	root, err := decodeRoot(data)
 	var chunk *Chunk
-	if err == nil {
-		relocateChunkRoot(root, pos)
+	err := w.withChunkRoot(pos, func(root nbt.Compound) (err error) {
 		chunk, err = decodeChunkNBT(root)
-	}
+		return err
+	})
 	if err != nil {
-		rf.markUnreadable(index)
-		return nil, fmt.Errorf("chunk (%d,%d): %w", pos.X, pos.Z, err)
+		return nil, err
 	}
 	// Encode for this dimension: the decode built the full-height form, which
 	// nether and end clients would read past the end of their shorter chunks.
@@ -2063,6 +2051,40 @@ func (w *World) loadChunk(pos ChunkPos) (*Chunk, error) {
 		w.encodeChunk(chunk)
 	}
 	return chunk, nil
+}
+
+// withChunkRoot reads a chunk's stored NBT and hands it to read, relocated to
+// pos; it does nothing when the chunk is absent. A chunk that does not parse,
+// or that read refuses, is marked unreadable.
+func (w *World) withChunkRoot(pos ChunkPos, read func(root nbt.Compound) error) error {
+	rx, rz := regionCoords(pos)
+	path := regionFilePath(w.storage, rx, rz)
+	if _, err := os.Stat(path); err != nil {
+		return nil // no region file, no chunk to load
+	}
+	rf, err := w.region(rx, rz)
+	if err != nil {
+		return err
+	}
+	defer w.releaseRegion(rf)
+	index := regionIndex(pos.X, pos.Z)
+	data, err := rf.readChunk(pos)
+	if err != nil {
+		return err
+	}
+	if data == nil {
+		return nil // chunk not in this region
+	}
+	root, err := decodeRoot(data)
+	if err == nil {
+		relocateChunkRoot(root, pos)
+		err = read(root)
+	}
+	if err != nil {
+		rf.markUnreadable(index)
+		return fmt.Errorf("chunk (%d,%d): %w", pos.X, pos.Z, err)
+	}
+	return nil
 }
 
 // decodeRoot parses a chunk's region NBT, whose root must be a compound.
@@ -2218,7 +2240,9 @@ func (w *World) saveChunk(pos ChunkPos, c *Chunk) (bool, error) {
 		}
 		err = rf.writeChunk(pos, data)
 		w.releaseRegion(rf)
-		w.lodestones.drop(pos)
+		if err == nil {
+			w.lodestones.drop(pos)
+		}
 		*buf = data // keeps the grown capacity; writeChunk has copied or compressed data by now
 		saveBuffers.Put(buf)
 		return err == nil, skipUnreadable(err, "chunk", pos)

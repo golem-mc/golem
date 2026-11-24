@@ -5,10 +5,10 @@ import (
 )
 
 // LodestoneWorld is what a lodestone compass's tick reads of its dimension:
-// whether a lodestone stands at a position, read from the saved chunk when it
-// is not loaded.
+// whether a lodestone stands at a position, when that is known without a disk
+// read (a saved chunk's answer is resolved ahead of the tick's locks).
 type LodestoneWorld interface {
-	LodestoneAt(x, y, z int32) bool
+	LodestoneCached(x, y, z int32) (present, known bool)
 }
 
 // worldBorderLimit is the horizontal extent of the world, in blocks each way
@@ -31,7 +31,7 @@ func ClearLostLodestone(w LodestoneWorld, stack protocol.ItemStack, dim string, 
 
 // LodestoneLost reports whether a compass in dimension dim (world height
 // bottom inclusive to top exclusive) lost its lodestone: a same-dimension
-// target that is not a lodestone or is out of bounds. Another dimension or an
+// target that is known not to be a lodestone, or is out of bounds. Another dimension or an
 // untracked compass is not lost.
 // vanilla: CompassItem.inventoryTick, LodestoneTracker.tick
 func LodestoneLost(w LodestoneWorld, tracker protocol.LodestoneTracker, dim string, bottom, top int32) bool {
@@ -44,7 +44,8 @@ func LodestoneLost(w LodestoneWorld, tracker protocol.LodestoneTracker, dim stri
 		return true
 	}
 	if target.Y >= bottom && target.Y < top {
-		return !w.LodestoneAt(target.X, target.Y, target.Z)
+		present, known := w.LodestoneCached(target.X, target.Y, target.Z)
+		return known && !present
 	}
 	return true
 }

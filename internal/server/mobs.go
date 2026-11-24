@@ -3280,17 +3280,20 @@ func mobEquipmentPayload(ent *mobEntity) []byte {
 }
 
 // tickMobCompasses ticks a mob's compasses; the tick's equipment diff tells
-// watchers of a cleared target. vanilla: EntityEquipment.tick
-func tickMobCompasses(m *entity.Mob, w *world.World, dim string) {
+// watchers of a cleared target. A saved chunk's answer is not read under the
+// mob lock: the probe notes it, and the mob is judged when it is known.
+// vanilla: EntityEquipment.tick
+func tickMobCompasses(m *entity.Mob, probe lodestoneProbe, dim string) {
+	w := probe.w
 	bottom, top := w.MinY(), w.MinY()+w.Height()
-	if cleared, ok := rules.ClearLostLodestone(w, m.MainHand, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.MainHand, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipMainHand, cleared)
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.OffHand, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.OffHand, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipOffHand, cleared)
 	}
 	for i := range m.Worn {
-		if cleared, ok := rules.ClearLostLodestone(w, m.Worn[i], dim, bottom, top); ok {
+		if cleared, ok := rules.ClearLostLodestone(probe, m.Worn[i], dim, bottom, top); ok {
 			m.SetEquipment(protocol.EquipFeet+i, cleared)
 		}
 	}

@@ -12,8 +12,8 @@ type lodestoneWorld struct {
 	stubBlocks
 }
 
-func (w lodestoneWorld) LodestoneAt(x, y, z int32) bool {
-	return registry.BlockOf(w.BlockAt(x, y, z)) == registry.BlockLodestone
+func (w lodestoneWorld) LodestoneCached(x, y, z int32) (present, known bool) {
+	return registry.BlockOf(w.BlockAt(x, y, z)) == registry.BlockLodestone, true
 }
 
 // TestLodestoneLost checks when a tracked compass loses its target.
