@@ -787,7 +787,7 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 		}
 	}
 	ew := t.dim.colliders[mobCollisions].reset(w, t.hulls[w], h.herd)
-	h.herd.BlocksChanged(ew, t.navChanges)
+	h.herd.BlocksChanged(ew, t.navChanges, &h.paths)
 	var crowd *entity.PushCrowd
 	if len(t.dim.vehicles.Bodies) > 0 {
 		crowd = &t.dim.vehicles
@@ -796,7 +796,7 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 	if s.targetListened() {
 		prevTargets = h.targetsOf()
 	}
-	events = h.herd.TickInto(h.events, ew, in.players[w], in.holders[w], crowd, in.stands[w])
+	events = h.herd.TickInto(h.events, ew, in.players[w], in.holders[w], crowd, in.stands[w], &h.paths)
 	if prevTargets != nil {
 		s.askTargetChanges(h, prevTargets)
 	}

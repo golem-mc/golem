@@ -542,6 +542,19 @@ func TestBeaconUsesPlayerBounds(t *testing.T) {
 		t.Error("a scale-1 player outside the area got speed")
 	}
 
+	// vanilla: EntityDimensions.makeBoundingBox uses a float32 half-width.
+	// Both boxes reach past x = 25 by less than a millionth of a block.
+	srv.RunLine("tp Smallfry 25.3 64 0.5")
+	srv.RunLine("attribute Testificate minecraft:scale base set 16")
+	srv.RunLine("tp Testificate 29.8000001 64 0.5")
+	cycle()
+	if !has("Smallfry") {
+		t.Error("a scale-1 player overlapping the side by float32 rounding got no speed")
+	}
+	if !has("Testificate") {
+		t.Error("a scale-16 player overlapping the side by float32 rounding got no speed")
+	}
+
 	// The area's top is the block's top, the reach and the dimension height.
 	top := 64 + 1 + 20 + 384
 	srv.RunLine("attribute Testificate minecraft:scale base set 1")

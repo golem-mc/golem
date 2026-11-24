@@ -2,9 +2,7 @@ package entity
 
 import "sync"
 
-// pathScratch is the working memory of one findPath call, kept in a pool so
-// a search starts with tables and a heap already grown by earlier ones. It is
-// reset, never shared between concurrent searches.
+// pathScratch is the working memory of one search, reset between searches.
 type pathScratch struct {
 	walked   map[Waypoint]float64
 	cameFrom map[Waypoint]Waypoint
@@ -137,7 +135,7 @@ func (s *pathScratch) malus(w World, f *footprint, c Waypoint) float64 {
 
 // Map room per scratch kind, in cells. A tiny scratch is dropped once a
 // search outgrows it, and a large one past scratchKeep, so one huge search
-// does not leave its memory in the pool.
+// does not keep its oversized tables alive.
 const (
 	// scratchHint is what the cells opened at the smallest range (sixteen per
 	// block, at least 16 blocks) reach on open ground.
@@ -154,6 +152,41 @@ var (
 	pathScratchPool = sync.Pool{New: func() any { return newPathScratch(false) }}
 	tinyScratchPool = sync.Pool{New: func() any { return newPathScratch(true) }}
 )
+
+// MobPathScratch keeps the two ground-search buffers alive between a herd's
+// ticks. Its zero value is ready to use, and the herd uses it serially.
+type MobPathScratch struct {
+	normal, tiny *pathScratch
+}
+
+func (p *MobPathScratch) findPath(w World, f footprint, from, to Waypoint, maxRange, reachRange int32) ([]Waypoint, bool) {
+	distance := manhattan(from, to)
+	if p == nil {
+		s := getPathScratch(distance)
+		defer s.release()
+		return s.search(w, f, from, to, maxRange, reachRange)
+	}
+	slot := &p.normal
+	tiny := distance <= tinyReach
+	if tiny {
+		slot = &p.tiny
+	}
+	if *slot == nil {
+		*slot = newPathScratch(tiny)
+	}
+	s := *slot
+	defer func() {
+		if !s.fits() {
+			// A large sparse search can grow the maps without using the dense cells.
+			fresh := newPathScratch(s.tiny)
+			fresh.cells, fresh.epoch = s.cells, s.epoch
+			*slot = fresh
+			return
+		}
+		s.reset()
+	}()
+	return s.search(w, f, from, to, maxRange, reachRange)
+}
 
 func newPathScratch(tiny bool) *pathScratch {
 	hint := scratchHint
@@ -187,8 +220,7 @@ func (s *pathScratch) reset() {
 	s.blocks.reset()
 }
 
-// fits reports whether the search left the scratch small enough for its
-// pool.
+// fits reports whether the search left the scratch small enough to reuse.
 func (s *pathScratch) fits() bool {
 	grown := max(len(s.walked), len(s.maluses))
 	if s.tiny {

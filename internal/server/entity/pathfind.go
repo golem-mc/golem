@@ -871,9 +871,7 @@ func (m *Mob) maxPathLength() float64 {
 // never overestimates, so the first arrival is a shortest path.
 // vanilla: PathFinder.findPath
 func findPath(w World, f footprint, from, to Waypoint, maxRange, reachRange int32) ([]Waypoint, bool) {
-	s := getPathScratch(manhattan(from, to))
-	defer s.release()
-	return s.search(w, f, from, to, maxRange, reachRange)
+	return (*MobPathScratch)(nil).findPath(w, f, from, to, maxRange, reachRange)
 }
 
 // search is findPath over the scratch's memory, which must be empty.
@@ -1178,7 +1176,7 @@ func (m *Mob) createPath(w World, x, y, z float64) ([]Waypoint, Waypoint, bool) 
 		return nil, end, true
 	}
 	// vanilla: MeleeAttackGoal.canUse plans createPath(target, 0)
-	path, _ := findPath(w, foot, o.cell(), target, int32(o.maxPathLength()), 0)
+	path, _ := m.tickPaths.findPath(w, foot, o.cell(), target, int32(o.maxPathLength()), 0)
 	return o.trimForSun(w, raiseCauldronNodes(w, path)), end, true
 }
 
@@ -1299,7 +1297,7 @@ func (m *Mob) seekTo(w World, x, y, z float64, speedFactor float64, reachRange i
 	if !ok {
 		return false
 	}
-	path, reached := findPath(w, foot, o.cell(), target, int32(o.maxPathLength()), reachRange)
+	path, reached := m.tickPaths.findPath(w, foot, o.cell(), target, int32(o.maxPathLength()), reachRange)
 	// A partial path to an unreachable target still stands; only no
 	// standable cell, or an empty unreached result, is no path.
 	if len(path) == 0 && !reached {
@@ -1318,7 +1316,7 @@ func (m *Mob) recomputePath(w World) {
 	if o.nav.navTick-o.nav.lastRecompute > 20 && o.canUpdatePath() {
 		end, reach, pace := o.nav.end, o.nav.reach, o.nav.speedFactor
 		o.nav.path = nil
-		o.seekTo(w, float64(end.X)+0.5, float64(end.Y), float64(end.Z)+0.5, pace, reach)
+		m.seekTo(w, float64(end.X)+0.5, float64(end.Y), float64(end.Z)+0.5, pace, reach)
 		o.nav.lastRecompute = o.nav.navTick
 		o.nav.delayedRecompute = false
 	} else {
@@ -1329,7 +1327,7 @@ func (m *Mob) recomputePath(w World) {
 // BlocksChanged replans the path of every mob whose walk a changed block's
 // cell (one whose collision shape changed) lies near.
 // vanilla: PathNavigation.shouldRecomputePath
-func (h Mobs) BlocksChanged(w World, cells []Waypoint) {
+func (h Mobs) BlocksChanged(w World, cells []Waypoint, paths *MobPathScratch) {
 	if len(cells) == 0 {
 		return
 	}
@@ -1348,7 +1346,9 @@ func (h Mobs) BlocksChanged(w World, cells []Waypoint) {
 		for _, c := range cells {
 			dx, dy, dz := float64(c.X)+0.5-mx, float64(c.Y)+0.5-my, float64(c.Z)+0.5-mz
 			if dx*dx+dy*dy+dz*dz < n*n {
+				m.tickPaths = paths
 				m.recomputePath(w)
+				m.tickPaths = nil
 				break
 			}
 		}
@@ -1469,7 +1469,7 @@ func (m *Mob) navigate(w World) {
 	}
 	o.nav.navTick++
 	if o.nav.delayedRecompute {
-		o.recomputePath(w)
+		m.recomputePath(w)
 	}
 	for len(o.nav.path) > 0 {
 		centreX := float64(o.nav.path[0].X) + 0.5
