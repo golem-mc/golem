@@ -1111,6 +1111,9 @@ type SpawnedMob struct {
 	HasLlamaStrength, HasLlamaVariant bool
 	GolemFlags                        uint8
 	HasGolemFlags                     bool
+	// ArmadilloState is the armadillo's state enum (0 idle, 1 rolling, 2 scared, 3 unrolling).
+	ArmadilloState    int32
+	HasArmadilloState bool
 	// CopperWeather is a copper golem's non-default weathering stage.
 	CopperWeather int
 	Powered       bool
@@ -1341,6 +1344,15 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 			break
 		}
 		fieldType := meta.ReadVarInt()
+		// Decided before any other decoder: none may consume an armadillo's
+		// state or take the state serializer.
+		if index == protocol.MetadataIndexArmadilloState && (mob.TypeID == protocol.EntityTypeArmadillo || fieldType == protocol.MetadataArmadilloState) {
+			if mob.TypeID != protocol.EntityTypeArmadillo || fieldType != protocol.MetadataArmadilloState {
+				c.T.Fatalf("index %d of entity type %d has serializer %d, want an armadillo state on an armadillo only", index, mob.TypeID, fieldType)
+			}
+			mob.ArmadilloState, mob.HasArmadilloState = meta.ReadVarInt(), true
+			continue
+		}
 		if c.readLlamaField(mob, meta, index, fieldType) {
 			continue
 		}
