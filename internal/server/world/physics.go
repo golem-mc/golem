@@ -672,6 +672,9 @@ type Physics struct {
 	// waterlogged leaf's fluid tick so neither delays the other. Set when
 	// booked, cleared when run.
 	leafBooked map[blockKey]bool
+	// dirtPathBooked marks dirt paths with a tick booked, apart from the
+	// pending visit a replaced farmland leaves at the same position.
+	dirtPathBooked map[blockKey]bool
 	// scaffoldingBooked keeps stability visits apart from fluid visits.
 	scaffoldingBooked map[blockKey]bool
 
@@ -874,6 +877,7 @@ func NewPhysics(w *World) *Physics {
 		cauldronBooked:      make(map[blockKey]bool),
 		leafBooked:          make(map[blockKey]bool),
 		scaffoldingBooked:   make(map[blockKey]bool),
+		dirtPathBooked:      make(map[blockKey]bool),
 		coralBooked:         make(map[blockKey]bool),
 		redstoneBooked:      make(map[blockKey]bool),
 		sculkBooked:         make(map[blockKey]bool),
@@ -1188,6 +1192,8 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			delete(p.leafBooked, next.pos)
 		case scaffoldingTickEvent:
 			delete(p.scaffoldingBooked, next.pos)
+		case dirtPathTickEvent:
+			delete(p.dirtPathBooked, next.pos)
 		case coralTickEvent:
 			delete(p.coralBooked, next.pos)
 		case redstoneTickEvent:
@@ -1256,6 +1262,14 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			p.leafTick(x, y, z, state, &changes)
 			continue
 		}
+		if next.event == dirtPathTickEvent {
+			blocks++
+			if block == registry.BlockDirtPath {
+				// vanilla: PathBlock.tick
+				p.turnFarmlandToDirt(x, y, z, &changes)
+			}
+			continue
+		}
 		if next.event == scaffoldingTickEvent {
 			blocks++
 			p.scaffoldingTick(x, y, z, state, &changes, &falls)
@@ -1318,12 +1332,6 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		if block == registry.BlockFarmland {
 			blocks++
 			p.farmlandSurvivalScheduled(x, y, z, &changes)
-			continue
-		}
-		if block == registry.BlockDirtPath {
-			blocks++
-			// vanilla: DirtPathBlock.tick turns to dirt without rechecking.
-			p.turnFarmlandToDirt(x, y, z, &changes)
 			continue
 		}
 		if block == registry.BlockSugarCane {
@@ -1998,7 +2006,7 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	}
 	if block == registry.BlockDirtPath && (placed || from == [3]int32{0, 1, 0}) {
 		if !dirtPathCanSurvive(p.w, x, y, z) {
-			p.schedule(x, y, z, p.now+dirtPathTickDelay)
+			p.scheduleBooked(p.dirtPathBooked, x, y, z, p.now+dirtPathTickDelay, dirtPathTickEvent)
 		}
 		return
 	}

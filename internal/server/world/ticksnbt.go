@@ -191,7 +191,7 @@ func isTickEvent(event uint8) bool {
 	switch event {
 	case 0, leafTickEvent, coralTickEvent, redstoneTickEvent, sculkTickEvent, lightningRodTickEvent,
 		driedGhastHydrationEvent, frogspawnHatchEvent, snifferEggHatchEvent, cauldronDripEvent, survivalTickEvent,
-		scaffoldingTickEvent:
+		scaffoldingTickEvent, dirtPathTickEvent:
 		return true
 	}
 	return false
@@ -323,6 +323,8 @@ func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int
 		p.scheduleBooked(p.cauldronBooked, x, y, z, due, cauldronDripEvent)
 	case block.IsLeaves():
 		p.scheduleLeaf(x, y, z, due)
+	case block == registry.BlockDirtPath:
+		p.scheduleBooked(p.dirtPathBooked, x, y, z, due, dirtPathTickEvent)
 	case block == registry.BlockScaffolding:
 		p.scheduleScaffolding(x, y, z, due)
 	case isLivingCoral(block):
@@ -361,6 +363,8 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 		delete(p.leafBooked, t.pos)
 	case scaffoldingTickEvent:
 		delete(p.scaffoldingBooked, t.pos)
+	case dirtPathTickEvent:
+		delete(p.dirtPathBooked, t.pos)
 	case coralTickEvent:
 		delete(p.coralBooked, t.pos)
 	case redstoneTickEvent:

@@ -207,6 +207,10 @@ func farmlandCanSurvive(w *World, x, y, z int32) bool {
 	return true
 }
 
+// dirtPathTickEvent tags a dirt path's own tick so a farmland's pending visit at
+// the same position is not mistaken for it.
+const dirtPathTickEvent = 1<<5 | 1<<6 | 1<<7 | 6
+
 // DirtPathSurvives reports whether a dirt path placed here would stand.
 // vanilla: DirtPathBlock.canSurvive, getStateForPlacement
 func (w *World) DirtPathSurvives(x, y, z int32) bool {
