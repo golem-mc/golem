@@ -147,6 +147,14 @@ func TestComputeRefusals(t *testing.T) {
 			t.Errorf("%s: context = % X, want % X", tc.command, data, want)
 		}
 	}
+	// Text echoing the overflow message is no overflow.
+	echo := `compute default integer {type:"minecraft:constant",note:"Sum of weights must be <= 2147483647"}`
+	c.ChatCommand(echo)
+	data := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+	if want := servertest.CommandErrorMessageForTest("argument.resource_or_id.failed_to_parse", either+missing("value", `{note:"Sum of weights must be <= 2147483647",type:"minecraft:constant"}`)); !bytes.Equal(data, want) {
+		t.Errorf("echo refusal = % X, want % X", data, want)
+	}
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
 	// A weighted list whose weights sum past an int is refused while the
 	// command parses; a sum of exactly 2147483647 evaluates.
 	// vanilla: WeightedRandom.getTotalWeight
@@ -167,7 +175,11 @@ func TestComputeRefusals(t *testing.T) {
 		}
 
 		c.ChatCommand(weighted(kind, math.MaxInt32-1))
-		with := expectCompute(t, c, "command.compute.result.unnamed.exact").With
+		text := readFeedback(t, c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat))
+		if text.Translate != "command.compute.result.unnamed.exact" {
+			t.Fatalf("%s: limit feedback = %+v, want command.compute.result.unnamed.exact", kind, text)
+		}
+		with := text.With
 		if len(with) != 1 || (with[0].Number == nil && with[0].Float == nil) ||
 			(with[0].Number != nil && *with[0].Number != 7) || (with[0].Float != nil && *with[0].Float != 7) {
 			t.Errorf("%s: limit feedback arguments = %+v, want 7", kind, with)

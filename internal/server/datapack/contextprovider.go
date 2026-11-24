@@ -35,6 +35,15 @@ func init() {
 // vanilla: WeightedRandom.getTotalWeight
 const WeightSumMessage = "Sum of weights must be <= 2147483647"
 
+// joinFieldErrors joins field errors, except that an overflow among them
+// stands alone.
+func joinFieldErrors(msgs ...string) string {
+	if slices.Contains(msgs, WeightSumMessage) {
+		return WeightSumMessage
+	}
+	return registry.JoinFieldErrors(msgs...)
+}
+
 // partialMark prefixes an error whose codec result has a partial value.
 // Codec.either forwards that error unwrapped.
 // vanilla: EitherCodec.decode, ListCodec.decode
@@ -42,8 +51,8 @@ const partialMark = "\x00"
 
 // eitherNumberOr wraps the typed branch's error of Codec.either(number, typed).
 func eitherNumberOr(msg string) string {
-	if strings.Contains(msg, WeightSumMessage) {
-		return WeightSumMessage
+	if msg == WeightSumMessage {
+		return msg
 	}
 	if rest, ok := strings.CutPrefix(msg, partialMark); ok {
 		return rest
@@ -141,7 +150,7 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 		test, testMsg := condField(c)
 		onTrue, onTrueMsg := required(c, "on_true")
 		onFalse, onFalseMsg := optional(c, "on_false")
-		if msg := registry.JoinFieldErrors(onFalseMsg, onTrueMsg, testMsg); msg != "" {
+		if msg := joinFieldErrors(onFalseMsg, onTrueMsg, testMsg); msg != "" {
 			return nil, msg
 		}
 		return registry.LootConditional{Condition: test, OnTrue: onTrue, OnFalse: onFalse}, ""
@@ -165,7 +174,7 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 			}
 			test, testMsg := condField(cc)
 			v, valueMsg := required(cc, "value")
-			if msg := registry.JoinFieldErrors(valueMsg, testMsg); msg != "" {
+			if msg := joinFieldErrors(valueMsg, testMsg); msg != "" {
 				caseMsgs = append(caseMsgs, msg)
 				continue
 			}
@@ -174,7 +183,7 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 		// vanilla: ListCodec.decode keeps going and merges every element's error,
 		// DataResult.apply2stable prepending the newest, so cases report last first.
 		slices.Reverse(caseMsgs)
-		if msg := registry.JoinFieldErrors(caseMsgs...); msg != "" {
+		if msg := joinFieldErrors(caseMsgs...); msg != "" {
 			return nil, partialMark + msg
 		}
 		return cases, ""
@@ -183,7 +192,7 @@ func conditionalOf(nested func(nbt.Tag) (registry.LootNumber, string)) (conditio
 		cases, casesMsg := decodeCases(c)
 		def, defaultMsg := optional(c, "default")
 		casesErr, partial := strings.CutPrefix(casesMsg, partialMark)
-		if msg := registry.JoinFieldErrors(defaultMsg, casesErr); msg != "" {
+		if msg := joinFieldErrors(defaultMsg, casesErr); msg != "" {
 			// vanilla: OptionalFieldCodec.decode supplies a partial default on error,
 			// so only missing or non-list cases leave the record without a value.
 			if casesErr == "" || partial {
@@ -322,7 +331,7 @@ func binary(nested func(nbt.Compound, string) (registry.LootNumber, string), op,
 	return func(c nbt.Compound) (registry.LootNumber, string) {
 		l, lMsg := nested(c, leftKey)
 		r, rMsg := nested(c, rightKey)
-		if msg := registry.JoinFieldErrors(rMsg, lMsg); msg != "" {
+		if msg := joinFieldErrors(rMsg, lMsg); msg != "" {
 			return nil, msg
 		}
 		return registry.LootBinary{Op: op, Left: l, Right: r}, ""
@@ -479,7 +488,7 @@ func storage(nested func(nbt.Tag) (registry.LootNumber, string)) func(nbt.Compou
 			}
 		}
 		fallback, fallbackMsg := fallbackOf(c, nested)
-		if msg := registry.JoinFieldErrors(fallbackMsg, pathMsg, idMsg); msg != "" {
+		if msg := joinFieldErrors(fallbackMsg, pathMsg, idMsg); msg != "" {
 			return nil, msg
 		}
 		return registry.LootStorage{Storage: id, Path: string(path), Fallback: fallback}, ""
@@ -545,7 +554,7 @@ func init() {
 		"uniform": func(c nbt.Compound) (registry.LootNumber, string) {
 			lo, loMsg := nestedInt(c, "min")
 			hi, hiMsg := nestedInt(c, "max")
-			if msg := registry.JoinFieldErrors(hiMsg, loMsg); msg != "" {
+			if msg := joinFieldErrors(hiMsg, loMsg); msg != "" {
 				return nil, msg
 			}
 			return registry.LootUniform{Min: lo, Max: hi}, ""
@@ -553,7 +562,7 @@ func init() {
 		"binomial": func(c nbt.Compound) (registry.LootNumber, string) {
 			n, nMsg := nestedInt(c, "n")
 			p, pMsg := nestedFloat(c, "p")
-			if msg := registry.JoinFieldErrors(pMsg, nMsg); msg != "" {
+			if msg := joinFieldErrors(pMsg, nMsg); msg != "" {
 				return nil, msg
 			}
 			return registry.LootBinomial{N: n, P: p}, ""
@@ -582,7 +591,7 @@ func init() {
 			}
 			var fallbackMsg string
 			out.Fallback, fallbackMsg = fallbackOf(c, nestedIntTag)
-			if msg := registry.JoinFieldErrors(fallbackMsg, objMsg, holderMsg); msg != "" {
+			if msg := joinFieldErrors(fallbackMsg, objMsg, holderMsg); msg != "" {
 				return nil, msg
 			}
 			return out, ""
@@ -652,7 +661,7 @@ func init() {
 		"uniform": func(c nbt.Compound) (registry.LootNumber, string) {
 			lo, loMsg := nestedFloat(c, "min")
 			hi, hiMsg := nestedFloat(c, "max")
-			if msg := registry.JoinFieldErrors(hiMsg, loMsg); msg != "" {
+			if msg := joinFieldErrors(hiMsg, loMsg); msg != "" {
 				return nil, msg
 			}
 			return registry.LootUniform{Min: lo, Max: hi}, ""
