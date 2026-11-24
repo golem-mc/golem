@@ -1,12 +1,12 @@
 package commands
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
@@ -17,27 +17,22 @@ import (
 // the test is not parallel.
 // vanilla: ListCodec.decode, ContextIntProviders.DIRECT_CODEC, DispatcherProvider.mapCodec
 func TestAPackProviderListRefusesLiteralEmptyKeyCompound(t *testing.T) {
-	t.Cleanup(func() { registry.ApplyPackRegistries(nil) })
+	t.Cleanup(func() {
+		registry.ApplyPackRegistries(nil)
+		registry.ApplyPackContextProviders(nil, nil)
+	})
 	cfg := config.Default()
 	cfg.OnlineMode = false
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	cfg.LevelName = t.TempDir()
 	const one = `{"type":"minecraft:constant","value":1}`
-	pack := filepath.Join(cfg.LevelName, "datapacks", "p")
 	for file, body := range map[string]string{
-		"pack.mcmeta": `{"pack":{"description":"p"}}`,
-		"data/p/context_int_provider/single.json":     `{"type":"minecraft:add","inputs":[{"":7}]}`,
-		"data/p/context_int_provider/multiple.json":   `{"type":"minecraft:add","inputs":[{"":7},` + one + `]}`,
-		"data/p/context_int_provider/dispatcher.json": `{"type":"minecraft:number_dispatcher","cases":[{"":7},{"condition":{"type":"minecraft:random_chance","chance":1},"value":1}]}`,
-		"data/p/context_int_provider/mixed.json":      `{"type":"minecraft:add","inputs":[7,` + one + `]}`,
+		"single":     `{"type":"minecraft:add","inputs":[{"":7}]}`,
+		"multiple":   `{"type":"minecraft:add","inputs":[{"":7},` + one + `]}`,
+		"dispatcher": `{"type":"minecraft:number_dispatcher","cases":[{"":7},{"condition":{"type":"minecraft:random_chance","chance":1},"value":1}]}`,
+		"mixed":      `{"type":"minecraft:add","inputs":[7,` + one + `]}`,
 	} {
-		path := filepath.Join(pack, file)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		servertest.WritePackFile(t, cfg, "p", "p/context_int_provider/"+file+".json", body)
 	}
 	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
 	servertest.HoldTicks(t, srv)
@@ -48,7 +43,7 @@ func TestAPackProviderListRefusesLiteralEmptyKeyCompound(t *testing.T) {
 		{"dispatcher", `No key value in MapLike[{"":7}]; No key condition in MapLike[{"":7}]`},
 	} {
 		c.ChatCommand("compute default integer p:" + tc.name)
-		got := servertest.FeedbackComponent(t, c)
+		got := feedback(t, srv, c)
 		if len(got.Extra) != 1 {
 			t.Fatalf("%s: feedback = %+v, want one extra component", tc.name, got)
 		}
@@ -58,8 +53,18 @@ func TestAPackProviderListRefusesLiteralEmptyKeyCompound(t *testing.T) {
 		}
 	}
 	c.ChatCommand("compute default integer p:mixed")
-	if got := servertest.FeedbackComponent(t, c); got.Translate != "command.compute.result.unnamed.exact" || len(got.With) != 1 || got.With[0].Number == nil || *got.With[0].Number != 8 {
+	if got := feedback(t, srv, c); got.Translate != "command.compute.result.unnamed.exact" || len(got.With) != 1 || got.With[0].Number == nil || *got.With[0].Number != 8 {
 		t.Errorf("mixed list feedback = %+v, want the exact result", got)
 	}
 	c.Disconnect()
+}
+
+func feedback(t *testing.T, srv *server.Server, c *servertest.Client) protocol.Text {
+	t.Helper()
+	r := protocol.NewReader(c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat))
+	component, ok := protocol.ReadText(r)
+	if !ok {
+		t.Fatalf("decode system chat component: %v", r.Err())
+	}
+	return component
 }
