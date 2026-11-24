@@ -11,27 +11,19 @@ var slotSourceTargets = map[string]bool{
 	"target_entity": true, "interacting_entity": true, "block_entity": true, "container": true,
 }
 
-// DecodeSlotSource reads a slot source file.
+// DecodeSlotSource reads a slot source file, resolving names against layers.
 // vanilla: RegistryDataLoader.RELOADABLE_REGISTRIES, SlotSources.DIRECT_CODEC
-func DecodeSlotSource(data []byte) (s registry.SlotSource, err error) {
-	return liveResourceDecoder().DecodeSlotSource(data)
-}
-
-func (decoder ResourceDecoder) DecodeSlotSource(data []byte) (s registry.SlotSource, err error) {
+func DecodeSlotSource(layers *registry.PackLayers, data []byte) (s registry.SlotSource, err error) {
 	defer recoverLoot(&err)
-	return decoder.slotSource(parseJSON(data)), nil
+	return NewResourceDecoder(layers).slotSource(parseJSON(data)), nil
 }
 
 // DecodeSlotSourceValue reads a slot source already parsed into the shapes
 // encoding/json gives, as an inline command argument is.
 // vanilla: SlotSources.CODEC
 func DecodeSlotSourceValue(v any) (s registry.SlotSource, err error) {
-	return liveResourceDecoder().DecodeSlotSourceValue(v)
-}
-
-func (decoder ResourceDecoder) DecodeSlotSourceValue(v any) (s registry.SlotSource, err error) {
 	defer recoverLoot(&err)
-	return decoder.slotSource(v), nil
+	return liveResourceDecoder().slotSource(v), nil
 }
 
 // slotSource reads a data pack id, a typed compound, or a bare list that is
@@ -41,7 +33,7 @@ func (decoder ResourceDecoder) slotSource(v any) registry.SlotSource {
 	switch k := v.(type) {
 	case string:
 		name := registry.Qualify(k)
-		if !decoder.hasSlotSource(name) {
+		if !decoder.layers.HasSlotSource(name) {
 			fail("Failed to get element %s from registry minecraft:slot_source", name)
 		}
 		return registry.SlotSourceReference{Name: name}
@@ -95,15 +87,6 @@ func (decoder ResourceDecoder) slotSource(v any) registry.SlotSource {
 		fail("Unknown registry key in ResourceKey[minecraft:root / minecraft:slot_source_type]: %s", kind)
 	}
 	return nil
-}
-
-func (decoder ResourceDecoder) hasSlotSource(name string) bool {
-	if decoder.slotSources != nil {
-		_, ok := decoder.slotSources[name]
-		return ok
-	}
-	_, ok := registry.FindSlotSource(name)
-	return ok
 }
 
 func (decoder ResourceDecoder) slotTerms(items []any) []registry.SlotSource {

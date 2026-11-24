@@ -2,17 +2,17 @@ package datapack
 
 import "github.com/golem-mc/golem/registry"
 
-// ResourceDecoder resolves file codecs against one reload's tags and slot sources.
+// ResourceDecoder resolves file codecs against one reload's registry layers.
 type ResourceDecoder struct {
-	tags        *registry.TagLookup
-	slotSources map[string]registry.SlotSource
+	tags   *registry.TagLookup
+	layers *registry.PackLayers
 }
 
-// NewResourceDecoder reads the tag snapshot and the slot sources as they load.
-func NewResourceDecoder(tags *registry.TagLookup, slotSources map[string]registry.SlotSource) ResourceDecoder {
-	return ResourceDecoder{tags: tags, slotSources: slotSources}
+// NewResourceDecoder captures the layers' tag snapshot for decoding.
+func NewResourceDecoder(layers *registry.PackLayers) ResourceDecoder {
+	return ResourceDecoder{tags: layers.TagLookup(), layers: layers}
 }
 
 func liveResourceDecoder() ResourceDecoder {
-	return NewResourceDecoder(registry.CurrentTagLookup(), nil)
+	return NewResourceDecoder(nil)
 }

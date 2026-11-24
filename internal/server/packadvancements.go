@@ -14,7 +14,7 @@ import (
 // loadPackAdvancements reads the enabled packs' advancements; a file that
 // fails to decode is logged and skipped, leaving the built-in one.
 // vanilla: ServerAdvancementManager.apply
-func loadPackAdvancements(dirs []string, decoder datapack.ResourceDecoder, skip func(file string, err error)) (packed []registry.Advancement, hidden map[string]bool, err error) {
+func loadPackAdvancements(layers *registry.PackLayers, dirs []string, skip func(file string, err error)) (packed []registry.Advancement, hidden map[string]bool, err error) {
 	raw, err := datapack.LoadResources(dirs, "advancement", skip)
 	if err != nil {
 		return nil, nil, err
@@ -30,7 +30,7 @@ func loadPackAdvancements(dirs []string, decoder datapack.ResourceDecoder, skip 
 	}
 	var out []registry.Advancement
 	for _, id := range slices.Sorted(maps.Keys(raw)) {
-		adv, err := decoder.DecodeAdvancement(id, raw[id])
+		adv, err := datapack.DecodeAdvancement(layers, id, raw[id])
 		if err != nil {
 			slog.Error("Couldn't parse element advancement/" + id + ": " + err.Error())
 			continue

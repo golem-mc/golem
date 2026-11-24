@@ -77,12 +77,9 @@ var variantComponents = map[string]string{
 // DecodeAdvancement reads one advancement file; id is the file's resource
 // id. A file without criteria, or with requirements that do not name exactly
 // its criteria, is refused as vanilla refuses it.
-func DecodeAdvancement(id string, data []byte) (adv registry.Advancement, err error) {
-	return liveResourceDecoder().DecodeAdvancement(id, data)
-}
-
-func (decoder ResourceDecoder) DecodeAdvancement(id string, data []byte) (adv registry.Advancement, err error) {
+func DecodeAdvancement(layers *registry.PackLayers, id string, data []byte) (adv registry.Advancement, err error) {
 	defer recoverLoot(&err)
+	decoder := NewResourceDecoder(layers)
 	o := object(parseJSON(data), "advancement")
 	ignoreKeys(id, "advancement", o, "parent", "display", "rewards", "criteria", "requirements", "sends_telemetry_event")
 	adv = registry.Advancement{ID: id, Telemetry: flag(o, "sends_telemetry_event", false)}
@@ -449,14 +446,16 @@ func advLocation(cond obj) (registry.AdvancementCondition, bool) {
 		}
 		predicate := object(required(cond, "predicate"), "a location predicate")
 		block := asObjOr(predicate["block"])
-		smokey, hasSmokey := predicate["smokey"]
-		if !keysWithin(predicate, "block", "smokey") || !keysWithin(block, "blocks", "state") || block["blocks"] == nil ||
-			hasSmokey && smokey != true {
+		smokey, hasSmokey := predicate["smokey"].(bool)
+		if _, present := predicate["smokey"]; !keysWithin(predicate, "block", "smokey") || !keysWithin(block, "blocks", "state") ||
+			block["blocks"] == nil || present && !hasSmokey {
 			return registry.AdvancementCondition{}, false
 		}
 		offset := [3]int32{int32(optNum(cond, "offsetX", 0)), int32(optNum(cond, "offsetY", 0)), int32(optNum(cond, "offsetZ", 0))}
 		check, ok := advBlockCheck(block["blocks"], asObjOr(block["state"]), offset)
-		check.Smokey = hasSmokey
+		if hasSmokey {
+			check.Smokey = &smokey
+		}
 		return check, ok
 	}
 	return registry.AdvancementCondition{}, false
@@ -685,10 +684,11 @@ func (decoder ResourceDecoder) advLootContexts(name, trigger string, conditions 
 // codec, or false for one it refuses.
 func (decoder ResourceDecoder) advLootConditions(terms any) (out []registry.LootCondition, ok bool) {
 	var err error
+	d := lootDecoder{ResourceDecoder: decoder}
 	func() {
 		defer recoverLoot(&err)
 		for _, term := range terms.([]any) {
-			out = append(out, decoder.conditionHolder(advTyped(term)))
+			out = append(out, d.conditionHolder(advTyped(term)))
 		}
 	}()
 	return out, err == nil

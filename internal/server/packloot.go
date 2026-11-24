@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"log/slog"
 	"strings"
 
@@ -9,17 +10,21 @@ import (
 )
 
 // loadPackLoot reads the enabled packs' loot tables, predicates and item modifiers; a file
-// that fails to decode is logged and skipped, leaving the built-in one.
+// that fails to decode is logged and skipped, leaving the built-in one, except a
+// weighted list whose total weight overflows, which fails the whole load.
 // vanilla: ReloadableServerRegistries.reload, LootDataType
-func loadPackLoot(dirs []string, decoder datapack.ResourceDecoder, skip func(file string, err error)) (map[string]registry.LootTable, map[string]registry.LootCondition, map[string]registry.LootFunction, error) {
+func loadPackLoot(layers *registry.PackLayers, dirs []string, skip func(file string, err error)) (map[string]registry.LootTable, map[string]registry.LootCondition, map[string]registry.LootFunction, error) {
 	rawTables, err := datapack.LoadResources(dirs, "loot_table", skip)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	tables := make(map[string]registry.LootTable, len(rawTables))
 	for id, raw := range rawTables {
-		table, err := decoder.DecodeLootTable(raw)
+		table, err := datapack.DecodeLootTable(layers, raw)
 		if err != nil {
+			if errors.Is(err, datapack.ErrWeightOverflow) {
+				return nil, nil, nil, err
+			}
 			slog.Error("Couldn't parse element loot_table/" + id + ": " + err.Error())
 			continue
 		}
@@ -31,8 +36,11 @@ func loadPackLoot(dirs []string, decoder datapack.ResourceDecoder, skip func(fil
 	}
 	predicates := make(map[string]registry.LootCondition, len(rawPredicates))
 	for id, raw := range rawPredicates {
-		cond, err := decoder.DecodePredicate(raw)
+		cond, err := datapack.DecodePredicate(layers, raw)
 		if err != nil {
+			if errors.Is(err, datapack.ErrWeightOverflow) {
+				return nil, nil, nil, err
+			}
 			slog.Error("Couldn't parse element predicate/" + id + ": " + err.Error())
 			continue
 		}
@@ -44,8 +52,11 @@ func loadPackLoot(dirs []string, decoder datapack.ResourceDecoder, skip func(fil
 	}
 	modifiers := make(map[string]registry.LootFunction, len(rawModifiers))
 	for id, raw := range rawModifiers {
-		fn, err := decoder.DecodeItemModifier(raw)
+		fn, err := datapack.DecodeItemModifier(layers, raw)
 		if err != nil {
+			if errors.Is(err, datapack.ErrWeightOverflow) {
+				return nil, nil, nil, err
+			}
 			slog.Error("Couldn't parse element item_modifier/" + id + ": " + err.Error())
 			continue
 		}
@@ -84,22 +95,25 @@ func (s *Server) applyPackLoot(tables map[string]registry.LootTable, predicates 
 	registry.ApplyPackLootHiding(tables, predicates, modifiers, hidden)
 }
 
-// loadPackSlotSources fills the candidate layer. A source that names another
-// resolves it whatever the files' order, so each pass that decodes one more
-// lets a subsequent pass find it.
+// loadPackSlotSources stages the enabled packs' slot sources in layers; a
+// file that fails to decode is logged and skipped. A source that names
+// another resolves it whatever the files' order, so a pass repeats while it
+// still lets one more decode.
 // vanilla: RegistryDataLoader.RELOADABLE_REGISTRIES
-func loadPackSlotSources(dirs []string, decoder datapack.ResourceDecoder, sources map[string]registry.SlotSource, skip func(file string, err error)) error {
+func loadPackSlotSources(layers *registry.PackLayers, dirs []string, skip func(file string, err error)) error {
 	raws, err := datapack.LoadResources(dirs, "slot_source", skip)
 	if err != nil {
 		return err
 	}
+	sources := make(map[string]registry.SlotSource, len(raws))
+	layers.SetSlotSources(sources)
 	for progress := true; progress && len(sources) < len(raws); {
 		progress = false
 		for id, raw := range raws {
 			if _, done := sources[id]; done {
 				continue
 			}
-			if source, err := decoder.DecodeSlotSource(raw); err == nil {
+			if source, err := datapack.DecodeSlotSource(layers, raw); err == nil {
 				sources[id] = source
 				progress = true
 			}
@@ -107,7 +121,7 @@ func loadPackSlotSources(dirs []string, decoder datapack.ResourceDecoder, source
 	}
 	for id, raw := range raws {
 		if _, done := sources[id]; !done {
-			_, err := decoder.DecodeSlotSource(raw)
+			_, err := datapack.DecodeSlotSource(layers, raw)
 			slog.Error("Couldn't parse element slot_source/" + id + ": " + err.Error())
 		}
 	}

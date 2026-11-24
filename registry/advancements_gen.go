@@ -1057,7 +1057,7 @@ var Advancements = []Advancement{
 		Parent:  "minecraft:husbandry/root",
 		Display: &AdvancementDisplay{Title: "advancements.husbandry.safely_harvest_honey.title", Description: "advancements.husbandry.safely_harvest_honey.description", Icon: 1533, IconCount: 1, Frame: 0, Background: "", ShowToast: true, AnnounceChat: true, Hidden: false},
 		Criteria: []AdvancementCriterion{
-			{Name: "safely_harvest_honey", Trigger: "minecraft:item_used_on_block", Items: [][]int32{{1270}}, Where: []AdvancementCondition{{Blocks: []string{"#minecraft:beehives"}, Smokey: true}}},
+			{Name: "safely_harvest_honey", Trigger: "minecraft:item_used_on_block", Items: [][]int32{{1270}}, Where: []AdvancementCondition{{Blocks: []string{"#minecraft:beehives"}, Smokey: new(true)}}},
 		},
 		Requirements: [][]string{{"safely_harvest_honey"}},
 		Telemetry:    true,

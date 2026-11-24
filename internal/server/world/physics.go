@@ -500,6 +500,8 @@ type scheduledTick struct {
 	priority int
 	seq      int64
 	event    uint8
+	// fluid is the booked fluid type of a fluid visit, zero for any other.
+	fluid fluidType
 }
 
 // tickQueue orders ticks by due time, then priority (smaller more urgent), then
@@ -610,7 +612,9 @@ type Physics struct {
 	randomTickKeys []uint64
 	queue          tickQueue
 	pending        map[blockKey]bool
-	finalizeSeq    map[blockKey]int64
+	// fluidBooked holds the fluid visits queued, one per position and type.
+	fluidBooked map[fluidBook]struct{}
+	finalizeSeq map[blockKey]int64
 	// cancelled entries stay in the heap until popped or filtered; their
 	// sequence, rather than position, keeps a replacement booking live.
 	cancelled map[int64]struct{}
@@ -847,6 +851,7 @@ func NewPhysics(w *World) *Physics {
 		w:                   w,
 		maxChain:            DefaultMaxChainedNeighborUpdates,
 		pending:             make(map[blockKey]bool),
+		fluidBooked:         make(map[fluidBook]struct{}),
 		finalizeSeq:         make(map[blockKey]int64),
 		cancelled:           make(map[int64]struct{}),
 		rideSet:             make(map[[3]int32]struct{}),
@@ -1095,8 +1100,10 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			// Post-processing visits the contained fluid, then updateShape
 			// books its next visit. vanilla: LevelChunk.postProcessGeneration
 			p.fluidTick(pos[0], pos[1], pos[2], fs, &changes)
-			p.schedule(pos[0], pos[1], pos[2], p.now+p.tickDelayOf(fs.kind))
-		} else if fs.kind != fluidNone || isEyeblossom(s) || registry.BlockOf(s) == registry.BlockSugarCane {
+			p.scheduleFluid(pos[0], pos[1], pos[2])
+		} else if fs.kind != fluidNone {
+			p.scheduleFluidAt(pos[0], pos[1], pos[2], fs, p.now, tickPriorityNormal)
+		} else if isEyeblossom(s) || registry.BlockOf(s) == registry.BlockSugarCane {
 			p.schedule(pos[0], pos[1], pos[2], p.now)
 		}
 	}
@@ -1115,7 +1122,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		p.queue.pop()
 		// A spent budget leaves its kind queued while the other keeps draining.
 		if blocks >= maxBlockTicksPerTick || fluids >= maxFluidTicksPerTick {
-			fluid := isFluidTick(next.event, p.w.BlockAt(next.pos.x, next.pos.y, next.pos.z))
+			fluid := next.fluid != 0
 			if fluid && fluids >= maxFluidTicksPerTick || !fluid && blocks >= maxBlockTicksPerTick {
 				deferred = append(deferred, next)
 				continue
@@ -1129,7 +1136,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			delete(p.cancelled, next.seq)
 			continue
 		}
-		if next.priority == tickPriorityFinalize {
+		if next.priority == tickPriorityFinalize && next.fluid == 0 {
 			delete(p.finalizeSeq, next.pos)
 		}
 		var fallBooked bool
@@ -1161,12 +1168,25 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			fallBooked = p.fallBooked[next.pos]
 			delete(p.fallBooked, next.pos)
 		default:
-			delete(p.pending, next.pos)
+			if next.fluid != 0 {
+				delete(p.fluidBooked, fluidBook{next.pos, next.fluid})
+			} else {
+				delete(p.pending, next.pos)
+			}
 		}
 
 		x, y, z := next.pos.x, next.pos.y, next.pos.z
 		state := p.w.BlockAt(x, y, z)
 		if int(state) >= registry.StateCount {
+			continue
+		}
+		if next.fluid != 0 {
+			// A stale visit spends the budget too.
+			// vanilla: ServerLevel.tickFluid runs only the booked type; LevelTicks.collectTicks
+			fluids++
+			if fs := fluidHolding(state); fs.kind != fluidNone && fluidTypeOf(fs) == next.fluid {
+				p.fluidTick(x, y, z, fs, &changes)
+			}
 			continue
 		}
 		block := registry.BlockOf(state)
@@ -1255,11 +1275,6 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			blocks++
 			continue
 		}
-		if fs := fluidHolding(state); fs.kind != fluidNone {
-			fluids++
-			p.fluidTick(x, y, z, fs, &changes)
-			continue
-		}
 		if block == registry.BlockFire {
 			blocks++
 			p.fireTick(x, y, z, state, &changes, &primes)
@@ -1328,16 +1343,59 @@ func (p *Physics) schedule(x, y, z int32, due int64) {
 	p.schedulePriority(x, y, z, due, tickPriorityNormal)
 }
 
-func (p *Physics) schedulePriority(x, y, z int32, due int64, priority int) {
-	p.discardUnloadedTicks(p.w.prepareTick(x, z, true))
-	key := blockKey{x, y, z}
-	if p.pending[key] {
-		return
+// scheduleFluid books the visit of the fluid the cell holds. Vanilla keeps
+// fluid ticks apart by fluid type and position, so a replaced fluid's visit
+// neither holds back nor spends the new fluid's; the type is checked when the
+// visit runs.
+// vanilla: LiquidBlock.onPlace, ScheduledTick.UNIQUE_TICK_HASH, ServerLevel.tickFluid
+func (p *Physics) scheduleFluid(x, y, z int32) {
+	if fs := fluidHolding(p.w.BlockAt(x, y, z)); fs.kind != fluidNone {
+		p.bookFluid(x, y, z, fs)
 	}
-	p.pending[key] = true
+}
+
+func (p *Physics) scheduleFluidAt(x, y, z int32, fs fluidState, due int64, priority int) {
+	p.bookTick(x, y, z, fluidTypeOf(fs), due, priority)
+}
+
+// bookFluid books the visit of fs, the fluid the caller read at the cell.
+func (p *Physics) bookFluid(x, y, z int32, fs fluidState) {
+	p.scheduleFluidAt(x, y, z, fs, p.now+p.tickDelayOf(fs.kind), tickPriorityNormal)
+}
+
+func (p *Physics) schedulePriority(x, y, z int32, due int64, priority int) {
+	p.bookTick(x, y, z, 0, due, priority)
+}
+
+// bookTick queues a visit unless one is waiting for the same position and
+// fluid type (zero for a block tick). Runs under p.mu.
+// vanilla: LevelChunkTicks.schedule
+func (p *Physics) bookTick(x, y, z int32, typ fluidType, due int64, priority int) {
+	// A fluid booking first reserves the saved fluid bookings, so a new one
+	// cannot take their place.
+	// vanilla: LevelChunkTicks.<init>
+	p.adoptTicks(p.w.prepareTick(x, z, true, typ != 0))
+	p.insertTick(blockKey{x, y, z}, typ, due, priority)
+}
+
+// insertTick queues a visit unless one is waiting for the same key and fluid
+// type. Runs under p.mu.
+func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority int) {
+	if typ != 0 {
+		book := fluidBook{key, typ}
+		if _, ok := p.fluidBooked[book]; ok {
+			return
+		}
+		p.fluidBooked[book] = struct{}{}
+	} else {
+		if p.pending[key] {
+			return
+		}
+		p.pending[key] = true
+	}
 	p.seq++
-	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq})
-	if priority == tickPriorityFinalize {
+	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ})
+	if priority == tickPriorityFinalize && typ == 0 {
 		p.finalizeSeq[key] = p.seq
 	}
 }
@@ -1365,7 +1423,7 @@ func (p *Physics) BlockTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) BlockTicks {
 			continue
 		}
 		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
-		if isFluidTick(t.event, state) {
+		if t.fluid != 0 {
 			continue
 		}
 		if name, _, ok := registry.BlockStateName(state); ok {
@@ -1410,7 +1468,7 @@ func (p *Physics) dropTickIn(t scheduledTick, loX, loY, loZ, hiX, hiY, hiZ int32
 		delete(p.cancelled, t.seq)
 		return true
 	}
-	if t.priority != tickPriorityFinalize &&
+	if (t.priority != tickPriorityFinalize || t.fluid != 0) &&
 		t.pos.x >= loX && t.pos.x <= hiX && t.pos.y >= loY && t.pos.y <= hiY && t.pos.z >= loZ && t.pos.z <= hiZ {
 		p.forgetBooking(t)
 		return true
@@ -1454,7 +1512,8 @@ func (p *Physics) ScheduleBlockTicks(ticks BlockTicks, offX, offY, offZ int32) {
 // inside the tick, the next when a landing queued it), at a priority after
 // every block tick of its game tick.
 func (p *Physics) schedulePistonEvent(x, y, z int32, dir int8, typ uint8) {
-	p.discardUnloadedTicks(p.w.prepareTick(x, z, false))
+	_, unloaded := p.w.prepareTick(x, z, false, false)
+	p.discardUnloadedTicks(unloaded)
 	key := blockKey{x, y, z}
 	event := (typ + 1) | uint8(dir)<<2
 	if p.pendingEvent[key] == event {
@@ -1488,7 +1547,7 @@ func (p *Physics) cancelPistonFinalize(x, y, z int32) {
 }
 
 func (p *Physics) tickCancelled(t scheduledTick) bool {
-	if t.priority != tickPriorityFinalize {
+	if t.priority != tickPriorityFinalize || t.fluid != 0 {
 		return false
 	}
 	_, ok := p.cancelled[t.seq]
@@ -1738,7 +1797,7 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 		if fs.kind == fluidLava && !p.shouldSpreadLiquid(x, y, z, changes) {
 			return // the lava met water: obsidian, cobblestone or basalt at once
 		}
-		p.schedule(x, y, z, p.now+p.tickDelayOf(fs.kind))
+		p.bookFluid(x, y, z, fs)
 		return
 	}
 	// A block's own placement leaves it standing (BlockInput.place keeps a
@@ -1758,7 +1817,7 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	// vanilla: SimpleWaterloggedBlock.placeLiquid, FenceBlock.updateShape,
 	// SpeleothemBlock.updateShape
 	if fs.kind != fluidNone && fluidContainer(state) {
-		p.schedule(x, y, z, p.now+p.tickDelayOf(fs.kind))
+		p.bookFluid(x, y, z, fs)
 	}
 	block := registry.BlockOf(state)
 	if placed && block == registry.BlockFrogspawn && registry.BlockOf(old) != block {
@@ -1969,11 +2028,6 @@ func (p *Physics) fallsInto(x, y, z int32) bool {
 // vanilla: FallingBlock.tick
 func (p *Physics) fallTick(x, y, z int32, state uint16, changes *[]BlockChange, falls *[]FallingSpawn) {
 	if !p.fallsInto(x, y, z) {
-		// Held up; the entry is spent. A fluid-holding container's fluid visit,
-		// booked beside the fall, is spent with it and so runs here.
-		if fs := fluidHolding(state); fs.kind != fluidNone && fluidContainer(state) {
-			p.fluidTick(x, y, z, fs, changes)
-		}
 		return
 	}
 	p.fallSpawn(x, y, z, state, changes, falls)
@@ -2501,7 +2555,7 @@ func (p *Physics) spreadTo(x, y, z int32, state uint16, target fluidState, from 
 			if !registry.StateBool(state, registry.PropWaterlogged) {
 				if flooded, sound, ok := blocklogic.PlaceWater(state); ok {
 					p.setShaped(x, y, z, flooded, changes)
-					p.schedule(x, y, z, p.now+waterTickDelay)
+					p.scheduleFluid(x, y, z)
 					if sound != registry.SoundNone {
 						effect := Effect{SoundID: sound, X: x, Y: y, Z: z, Volume: 1, Pitch: 1}
 						if registry.StateLit(state) {

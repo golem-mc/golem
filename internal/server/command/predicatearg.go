@@ -2,6 +2,7 @@ package command
 
 import (
 	"encoding/json"
+	"errors"
 	"math/rand"
 
 	"github.com/golem-mc/golem/internal/commandsyntax"
@@ -144,9 +145,12 @@ func parsePredicate(text string) (registry.LootCondition, *ParseError) {
 	data, err := json.Marshal(datapack.TagJSON(tag))
 	if err == nil {
 		var cond registry.LootCondition
-		if cond, err = datapack.DecodePredicate(data); err == nil {
+		if cond, err = datapack.DecodePredicate(nil, data); err == nil {
 			return cond, nil
 		}
+	}
+	if errors.Is(err, datapack.ErrWeightOverflow) {
+		return nil, weightOverflowError(err, len(text))
 	}
 	return nil, &ParseError{Key: modifierFailedParseKey, With: []string{err.Error()}, Cursor: len(text)}
 }
