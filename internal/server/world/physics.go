@@ -1371,14 +1371,16 @@ func (p *Physics) schedulePriority(x, y, z int32, due int64, priority int) {
 // fluid type (zero for a block tick). Runs under p.mu.
 // vanilla: LevelChunkTicks.schedule
 func (p *Physics) bookTick(x, y, z int32, typ fluidType, due int64, priority int) {
-	if typ != 0 {
-		// A saved booking of this position and type is reserved before a new
-		// one can take its place.
-		// vanilla: LevelChunkTicks.<init>
-		p.adoptLoadedTicks()
-	}
-	p.discardUnloadedTicks(p.w.prepareTick(x, z, true))
-	key := blockKey{x, y, z}
+	// A fluid booking first reserves the saved fluid bookings, so a new one
+	// cannot take their place.
+	// vanilla: LevelChunkTicks.<init>
+	p.adoptTicks(p.w.prepareTick(x, z, true, typ != 0))
+	p.insertTick(blockKey{x, y, z}, typ, due, priority)
+}
+
+// insertTick queues a visit unless one is waiting for the same key and fluid
+// type. Runs under p.mu.
+func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority int) {
 	if typ != 0 {
 		book := fluidBook{key, typ}
 		if _, ok := p.fluidBooked[book]; ok {
@@ -1510,7 +1512,8 @@ func (p *Physics) ScheduleBlockTicks(ticks BlockTicks, offX, offY, offZ int32) {
 // inside the tick, the next when a landing queued it), at a priority after
 // every block tick of its game tick.
 func (p *Physics) schedulePistonEvent(x, y, z int32, dir int8, typ uint8) {
-	p.discardUnloadedTicks(p.w.prepareTick(x, z, false))
+	_, unloaded := p.w.prepareTick(x, z, false, false)
+	p.discardUnloadedTicks(unloaded)
 	key := blockKey{x, y, z}
 	event := (typ + 1) | uint8(dir)<<2
 	if p.pendingEvent[key] == event {

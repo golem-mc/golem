@@ -128,19 +128,22 @@ func (w *World) dropChunkTicks(pos ChunkPos) {
 	w.unloadedChunks = append(w.unloadedChunks, pos)
 }
 
-// prepareTick takes the unloads that must precede a new booking and, for a
-// scheduled tick, flags its chunk for a save. Vanilla does not mark a chunk
-// unsaved for a new tick, losing ticks booked after the last save on shutdown.
-func (w *World) prepareTick(x, z int32, dirty bool) []ChunkPos {
+// prepareTick takes the unloads that must precede a new booking, with
+// takeLoaded the loaded ticks too, and, for a scheduled tick, flags its chunk
+// for a save. Vanilla does not mark a chunk unsaved for a new tick, losing
+// ticks booked after the last save on shutdown.
+func (w *World) prepareTick(x, z int32, dirty, takeLoaded bool) (loaded []loadedTick, unloaded []ChunkPos) {
 	pos := ChunkPos{X: x >> 4, Z: z >> 4}
 	w.mu.Lock()
-	unloaded := w.unloadedChunks
-	w.unloadedChunks = nil
-	if loaded, ok := w.chunks[pos]; ok && dirty {
-		loaded.markDirty()
+	unloaded, w.unloadedChunks = w.unloadedChunks, nil
+	if takeLoaded {
+		loaded, w.pendingLoaded = w.pendingLoaded, nil
+	}
+	if c, ok := w.chunks[pos]; ok && dirty {
+		c.markDirty()
 	}
 	w.mu.Unlock()
-	return unloaded
+	return loaded, unloaded
 }
 
 // chunkTicks is physics' pending ticks inside the chunk, as the file lists
@@ -240,21 +243,25 @@ func fluidTypeNamed(name string) fluidType {
 // find another block. Runs under p.mu.
 // vanilla: ServerLevel.tickBlock
 func (p *Physics) adoptLoadedTicks() {
-	loaded, unloaded := p.w.takeLoadedTicks()
+	p.adoptTicks(p.w.takeLoadedTicks())
+}
+
+// adoptTicks discards the unloaded chunks' ticks and then queues loaded.
+// Runs under p.mu.
+func (p *Physics) adoptTicks(loaded []loadedTick, unloaded []ChunkPos) {
 	p.discardUnloadedTicks(unloaded)
 	for _, t := range loaded {
-		state := p.w.BlockAt(t.x, t.y, t.z)
 		due := p.now + int64(t.delay)
 		if t.fluid {
 			// The booking keeps its saved type whatever the cell holds now;
 			// dispatch checks the cell.
 			// vanilla: LevelChunkTicks.<init>, ServerLevel.tickFluid
 			if typ := fluidTypeNamed(t.id); typ != 0 {
-				p.bookTick(t.x, t.y, t.z, typ, due, int(t.priority))
+				p.insertTick(blockKey{t.x, t.y, t.z}, typ, due, int(t.priority))
 			}
 			continue
 		}
-		p.adoptBlockTick(t.x, t.y, t.z, state, t.id, due, int(t.priority))
+		p.adoptBlockTick(t.x, t.y, t.z, p.w.BlockAt(t.x, t.y, t.z), t.id, due, int(t.priority))
 	}
 }
 

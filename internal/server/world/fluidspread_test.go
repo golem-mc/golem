@@ -107,25 +107,52 @@ func TestSavedFluidVisitsReloadWithTheirType(t *testing.T) {
 
 var lavaFluidType = fluidTypeOf(fluidHolding(lavaByLevel[0]))
 
-// TestFluidBookingKeepsSavedVisit books lava at a cell whose saved lava visit
-// has not been adopted yet; the saved visit's due tick stands.
+// TestSavedLavaVisitOutlivesAReopen saves a walled cell holding water with
+// its lava visit 18 ticks out, reopens, restores lava and opens a side before
+// the first physics tick: the saved visit, not a fresh 30-tick one, spreads it.
 // vanilla: LevelChunkTicks.<init>, LevelChunkTicks.schedule
-func TestFluidBookingKeepsSavedVisit(t *testing.T) {
-	w, p := newFluidBookingWorld(t)
-	setBlock(t, w, p, 0, GroundLevel, 0, waterByLevel[0])
-	w.pendingLoaded = append(w.pendingLoaded, loadedTick{
-		id: lavaFluidType.name(), y: GroundLevel, delay: 18, fluid: true})
-	p.mu.Lock()
-	p.bookFluid(0, GroundLevel, 0, fluidHolding(lavaByLevel[0]))
-	p.mu.Unlock()
-	var due []int64
-	for _, q := range p.queue {
-		if q.fluid == lavaFluidType {
-			due = append(due, q.due)
-		}
+func TestSavedLavaVisitOutlivesAReopen(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	w, err := NewWorld(dir, NewFlatGenerator())
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
 	}
-	if len(due) != 1 || due[0] != p.now+18 {
-		t.Errorf("lava visits due %v, want one at %d", due, p.now+18)
+	w.Acquire(ChunkPos{})
+	p := NewPhysics(w)
+	const x, y, z = 8, GroundLevel, 8
+	for _, d := range [][2]int32{{-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
+		setBlock(t, w, p, x+d[0], y, z+d[1], stoneState)
+	}
+	setBlock(t, w, p, x, y, z, lavaByLevel[0]) // lava visit due at 30
+	for clock := int64(1); clock <= 12; clock++ {
+		if clock == 11 {
+			setBlock(t, w, p, x, y, z, waterByLevel[0])
+		}
+		p.Tick(clock)
+	}
+	if got := len(p.chunkTicks(ChunkPos{}).fluid); got != 2 {
+		t.Fatalf("setup: %d fluid visits to save, want lava and water", got)
+	}
+	w.Save()
+	w.Close()
+
+	w2, err := NewWorld(dir, NewFlatGenerator())
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() { w2.Close() })
+	w2.Acquire(ChunkPos{})
+	p2 := NewPhysics(w2)
+	setBlock(t, w2, p2, x, y, z, lavaByLevel[0])
+	setBlock(t, w2, p2, x+1, y, z, airState)
+	for clock := int64(1); clock <= 17; clock++ {
+		p2.Tick(clock)
+	}
+	assertAir(t, w2, x+1, y, z, "the outlet before the saved lava visit")
+	p2.Tick(18)
+	if fluidHolding(w2.BlockAt(x+1, y, z)).kind != fluidLava {
+		t.Errorf("the outlet holds state %d at the saved visit's tick, want lava", w2.BlockAt(x+1, y, z))
 	}
 }
 
