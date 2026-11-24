@@ -68,10 +68,13 @@ type goatJump struct {
 	chosen     bool
 	velocity   [3]float64
 	prepared   int
-	// wantPreferred and notPreferred are LongJumpToPreferredBlock's roll for
-	// this run and the candidates it set aside.
+	// wantPreferred and fallback are LongJumpToPreferredBlock's roll for this
+	// run and the first non-preferred spot set aside; only the first is ever
+	// read because pick and usable stop once candidates is empty.
 	wantPreferred bool
-	notPreferred  []pickedJump
+	hasFallback   bool
+	fallback      jumpSpot
+	totalWeight   int
 	lookX         float64
 	lookY         float64
 	lookZ         float64
@@ -87,7 +90,7 @@ type goatJump struct {
 
 type jumpSpot struct {
 	cell   Waypoint
-	weight int
+	weight int32
 }
 
 // jumpSpec is what differs between the goat's and the frog's long jump.
@@ -438,19 +441,22 @@ func (g *goatJumpGoal) Start(*tickView) {
 	here := m.cell()
 	spec := m.jumpSpec()
 	spots := make([]jumpSpot, 0, (2*spec.width+1)*(2*spec.width+1)*(2*spec.height+1))
+	totalWeight := 0
 	// vanilla: BlockPos.betweenClosedStream runs x fastest, z outermost.
 	w, h := int32(spec.width), int32(spec.height)
 	for z := here.Z - w; z <= here.Z+w; z++ {
 		for y := here.Y - h; y <= here.Y+h; y++ {
 			for x := here.X - w; x <= here.X+w; x++ {
 				if c := (Waypoint{x, y, z}); c != here {
-					spots = append(spots, jumpSpot{c, int(distSq(c, here))})
+					weight := int32(distSq(c, here))
+					spots = append(spots, jumpSpot{c, weight})
+					totalWeight += int(weight)
 				}
 			}
 		}
 	}
 	m.replaceLongJump(goatJump{cooldown: m.longJump().cooldown, running: true, start: [3]float64{m.X, m.Y, m.Z},
-		candidates: spots, tries: goatJumpTries,
+		candidates: spots, totalWeight: totalWeight, tries: goatJumpTries,
 		wantPreferred: m.Type == TypeFrog && m.Rand.Float32() < frogPreferChance})
 }
 
@@ -461,7 +467,7 @@ func (g *goatJumpGoal) ShouldContinue(*tickView) bool {
 
 func (g *goatJumpGoal) Stop(*tickView) {
 	j := g.m.longJump()
-	j.running, j.candidates = false, nil
+	j.running, j.candidates, j.hasFallback, j.totalWeight = false, nil, false, 0
 }
 
 // usable is canStillUse, and the timeout that ends the behaviour ahead of it.
@@ -516,58 +522,9 @@ func (g *goatJumpGoal) Tick(t *tickView) {
 // vanilla: LongJumpToRandomPos.pickCandidate
 func (g *goatJumpGoal) pick(t *tickView) {
 	j := g.m.longJump()
-	c, ok := g.candidate(t)
-	if ok && j.wantPreferred {
-		// vanilla: LongJumpToPreferredBlock.getJumpCandidate keeps the others
-		// aside and falls back to the first of them.
-		for ok && !g.preferred(t.w, c.cell.X, c.cell.Y-1, c.cell.Z) {
-			j.notPreferred = append(j.notPreferred, c)
-			c, ok = g.candidate(t)
-		}
-		if !ok && len(j.notPreferred) > 0 {
-			c, ok = j.notPreferred[0], true
-			j.notPreferred = j.notPreferred[1:]
-		}
-	}
-	if ok {
-		j.lookX, j.lookY, j.lookZ = c.target[0], c.target[1], c.target[2]
-		j.chosen, j.velocity, j.prepared = true, c.velocity, 0
-	}
-}
-
-// pickedJump is a candidate with its landing point and launch vector.
-type pickedJump struct {
-	cell     Waypoint
-	target   [3]float64
-	velocity [3]float64
-}
-
-// preferred reports a block of the frog's preferred-landing tag.
-func (g *goatJumpGoal) preferred(w World, x, y, z int32) bool {
-	return g.m.Type == TypeFrog && registry.BlockOf(w.BlockAt(x, y, z)).InTag(frogPreferJumpTag)
-}
-
-// candidate is LongJumpToRandomPos.getJumpCandidate: weighted draws, without
-// replacement, until one has a landing, a launch vector and no walk to it.
-func (g *goatJumpGoal) candidate(t *tickView) (pickedJump, bool) {
-	m, j := g.m, g.m.longJump()
-	total := 0
-	for _, c := range j.candidates {
-		total += c.weight
-	}
 	for len(j.candidates) > 0 {
-		roll := m.Rand.Intn(total)
-		idx := 0
-		for i, c := range j.candidates {
-			if roll -= c.weight; roll < 0 {
-				idx = i
-				break
-			}
-		}
-		spot := j.candidates[idx]
-		j.candidates = slices.Delete(j.candidates, idx, idx+1)
-		total -= spot.weight
-		if !g.landing(t.w, spot.cell) {
+		spot, ok := g.nextSpot(t)
+		if !ok || !g.landing(t.w, spot.cell) {
 			continue
 		}
 		target := [3]float64{float64(spot.cell.X) + 0.5, float64(spot.cell.Y) + 0.5, float64(spot.cell.Z) + 0.5}
@@ -578,9 +535,70 @@ func (g *goatJumpGoal) candidate(t *tickView) (pickedJump, bool) {
 		if g.walkable(t.w, spot.cell) {
 			continue
 		}
-		return pickedJump{spot.cell, target, v}, true
+		j.lookX, j.lookY, j.lookZ = target[0], target[1], target[2]
+		j.chosen, j.velocity, j.prepared = true, v, 0
+		return
 	}
-	return pickedJump{}, false
+}
+
+// preferred reports a block of the frog's preferred-landing tag.
+func (g *goatJumpGoal) preferred(w World, x, y, z int32) bool {
+	return g.m.Type == TypeFrog && registry.BlockOf(w.BlockAt(x, y, z)).InTag(frogPreferJumpTag)
+}
+
+// drawSpot is LongJumpToRandomPos.getJumpCandidate: one weighted draw without
+// replacement.
+// vanilla: LongJumpToRandomPos.getJumpCandidate
+func (g *goatJumpGoal) drawSpot() (jumpSpot, bool) {
+	m, j := g.m, g.m.longJump()
+	if len(j.candidates) == 0 {
+		return jumpSpot{}, false
+	}
+	if j.totalWeight <= 0 {
+		for _, c := range j.candidates {
+			j.totalWeight += int(c.weight)
+		}
+	}
+	roll := m.Rand.Intn(j.totalWeight)
+	idx := 0
+	for i, c := range j.candidates {
+		if roll -= int(c.weight); roll < 0 {
+			idx = i
+			break
+		}
+	}
+	spot := j.candidates[idx]
+	j.candidates = slices.Delete(j.candidates, idx, idx+1)
+	j.totalWeight -= int(spot.weight)
+	return spot, true
+}
+
+// nextSpot is LongJumpToPreferredBlock.getJumpCandidate: when the frog wants a
+// preferred block, draw until one sits above a preferred block, setting the
+// first other aside as the fallback when candidates run out.
+// vanilla: LongJumpToPreferredBlock.getJumpCandidate
+func (g *goatJumpGoal) nextSpot(t *tickView) (jumpSpot, bool) {
+	j := g.m.longJump()
+	if !j.wantPreferred {
+		return g.drawSpot()
+	}
+	for len(j.candidates) > 0 {
+		spot, ok := g.drawSpot()
+		if !ok {
+			continue
+		}
+		if g.preferred(t.w, spot.cell.X, spot.cell.Y-1, spot.cell.Z) {
+			return spot, true
+		}
+		if !j.hasFallback {
+			j.fallback, j.hasFallback = spot, true
+		}
+	}
+	if j.hasFallback {
+		j.hasFallback = false
+		return j.fallback, true
+	}
+	return jumpSpot{}, false
 }
 
 // landing is isAcceptableLandingPosition with defaultAcceptableLandingSpot:

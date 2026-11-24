@@ -98,3 +98,67 @@ func flatWorld(t *testing.T) testWorld {
 	}
 	return w
 }
+
+// TestFrogLongJumpChecksPreferredBeforePathfinding verifies that a frog
+// wanting a preferred block picks a lily pad on flat stone and, with no
+// preferred block present, pathfinds at most once for the fallback spot rather
+// than once per acceptable stone spot.
+// vanilla: LongJumpToPreferredBlock.getJumpCandidate, LongJumpToRandomPos.pickCandidate
+func TestFrogLongJumpChecksPreferredBeforePathfinding(t *testing.T) {
+	t.Run("picks lily pad", func(t *testing.T) {
+		w := flatWorld(t)
+		w.set(5, 64, 0, defaultState(t, "minecraft:stone"))
+		w.set(5, 65, 0, defaultState(t, "minecraft:lily_pad"))
+		m := NewMob(TypeFrog, 1, 2.5, 64, 0.5, 1)
+		m.OnGround = true
+		var scratch MobPathScratch
+		m.tickPaths = &scratch
+		g := goatJumpGoal{m: m}
+		view := tickView{w: w}
+		g.Start(&view)
+		m.frog.jump.wantPreferred = true
+		g.pick(&view)
+		if !m.frog.jump.chosen {
+			t.Fatal("frog did not choose the lily pad spot")
+		}
+		if m.frog.jump.lookX != 5.5 || m.frog.jump.lookY != 66.5 || m.frog.jump.lookZ != 0.5 {
+			t.Errorf("frog chose (%.1f, %.1f, %.1f), want lily pad spot (5.5, 66.5, 0.5)",
+				m.frog.jump.lookX, m.frog.jump.lookY, m.frog.jump.lookZ)
+		}
+		if scratch.calls > 1 {
+			t.Errorf("findPath calls = %d, want at most 1", scratch.calls)
+		}
+	})
+
+	t.Run("no lily pad pathfinds once", func(t *testing.T) {
+		w := flatWorld(t)
+		// Find a seed whose first drawn spot is an acceptable flat stone cell
+		// so the fallback spot reaches walkable/findPath.
+		var calls int
+		for seed := int64(1); seed <= 50; seed++ {
+			m := NewMob(TypeFrog, 1, 2.5, 64, 0.5, seed)
+			m.OnGround = true
+			var scratch MobPathScratch
+			m.tickPaths = &scratch
+			g := goatJumpGoal{m: m}
+			view := tickView{w: w}
+			g.Start(&view)
+			m.frog.jump.wantPreferred = true
+			g.pick(&view)
+			if m.frog.jump.chosen {
+				t.Fatalf("seed %d: frog chose a jump to (%.1f, %.1f, %.1f) on walkable flat stone (calls=%d)",
+					seed, m.frog.jump.lookX, m.frog.jump.lookY, m.frog.jump.lookZ, scratch.calls)
+			}
+			if scratch.calls > 1 {
+				t.Fatalf("seed %d: findPath calls = %d, want at most 1", seed, scratch.calls)
+			}
+			if scratch.calls == 1 {
+				calls = scratch.calls
+				break
+			}
+		}
+		if calls != 1 {
+			t.Fatalf("no seed reached findPath on the fallback spot (calls=%d)", calls)
+		}
+	})
+}
