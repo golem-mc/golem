@@ -172,6 +172,19 @@ func mobEffectShown(m *entity.Mob) bodyShown {
 	return shown
 }
 
+// effectParticleRevision tracks effect updates when the particle list carries
+// a colored entity_effect option: vanilla allocates a fresh ColorParticleOption
+// on rebuild, so SynchedEntityData marks the list dirty even when colors match.
+// vanilla: MobEffect.createParticleOptions, SynchedEntityData.set
+func effectParticleRevision(m *entity.Mob, particles []effect.Particle) uint64 {
+	for _, p := range particles {
+		if p.Type == "minecraft:entity_effect" {
+			return m.EffectRevision()
+		}
+	}
+	return 0
+}
+
 // tellBody sends the world the effect particles and extra hearts when
 // changed, and the shared flags when invisibility or glowing changed.
 func (c *client) tellBody() {
@@ -260,12 +273,12 @@ func mobEffectTells(ent *mobEntity, changes []effect.Change) []outbound {
 	state := mobMetadataStateOf(ent.mob)
 	var particles, ambient, flags bool
 	for _, was := range ent.tracked.all() {
-		particles = particles || !slices.Equal(was.own.meta.particles, state.particles)
+		particles = particles || was.own.meta.particleRevision != state.particleRevision || !slices.Equal(was.own.meta.particles, state.particles)
 		ambient = ambient || (len(state.particles) > 0 && was.own.meta.ambient != state.ambient)
 		flags = flags || was.own.meta.baseFlags != state.baseFlags
 	}
 	ent.updateShownMetadata(func(shown *mobMetadataState) {
-		shown.particles, shown.ambient = state.particles, state.ambient
+		shown.particles, shown.particleRevision, shown.ambient = state.particles, state.particleRevision, state.ambient
 		shown.baseFlags = state.baseFlags
 	})
 	if !particles && !ambient && !flags {
