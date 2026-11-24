@@ -373,6 +373,9 @@ func (s *Server) tickHopper(w *world.World, be *world.BlockEntity, age int64) {
 		}
 		return false
 	})
+	if !turn.moved && !turn.partial {
+		return
+	}
 	sets := [2]containerTarget{turn.pushed, turn.pulled}
 	if c := synced[0]; c != nil {
 		s.syncContainerViewers(w, c.X, c.Y, c.Z)

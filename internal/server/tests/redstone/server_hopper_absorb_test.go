@@ -118,3 +118,55 @@ func TestAHopperPicksUpTheLowerXSectionFirst(t *testing.T) {
 		t.Fatalf("remaining items = %+v, want only diamond %d", rem, firstID)
 	}
 }
+
+// TestAHopperTellsWatchersTheRemainderOfAPartlyTakenItem fills four slots and
+// the fifth to 63, blocks the outlet and drops two stone over it: the slot
+// reaches 64 and the watcher is sent the item entity's remaining stack of one.
+func TestAHopperTellsWatchersTheRemainderOfAPartlyTakenItem(t *testing.T) {
+	t.Parallel()
+	srv, placer, watcher := absorbedItemWatcher(t)
+
+	if !srv.PlaceContainer(4, 64, 0, "minecraft:hopper") {
+		t.Fatal("the hopper would not stand")
+	}
+	srv.SetBlock(4, 63, 0, servertest.MustState(t, "minecraft:stone", nil)) // false if the floor is already stone
+	cobble := protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:cobblestone"), Count: 64}
+	for slot := range 4 {
+		if !srv.SetInventoryAt(4, 64, 0, slot, cobble) {
+			t.Fatalf("could not fill hopper slot %d", slot)
+		}
+	}
+	stone := servertest.MustItemID(t, "minecraft:stone")
+	if !srv.SetInventoryAt(4, 64, 0, 4, protocol.ItemStack{ItemID: stone, Count: 63}) {
+		t.Fatal("could not set the fifth slot")
+	}
+	itemID := srv.SpawnItemEntity(4.5, 65.0, 0.5, "minecraft:stone", 2)
+	if itemID == 0 {
+		t.Fatal("the item entity did not spawn")
+	}
+	watcher.ExpectDroppedItem()
+	placer.ExpectDroppedItem()
+
+	servertest.TickBlockEntitiesByHand(srv, 1)
+
+	if got := srv.InventoryAt(4, 64, 0)[4]; got.ItemID != stone || got.Count != 64 {
+		t.Fatalf("hopper slot 4 holds %+v, want 64 stone", got)
+	}
+	var count int32 = -1
+	watcher.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+		if id != protocol.IDPlayEntityMetadata {
+			return false
+		}
+		m := protocol.NewReader(data)
+		if m.ReadVarInt() != itemID || m.ReadU8() != protocol.MetadataIndexItemSlot || m.ReadVarInt() != protocol.MetadataSlot {
+			return false
+		}
+		if stack, ok := m.ReadSlot(); ok {
+			count = int32(stack.Count)
+		}
+		return count >= 0
+	})
+	if count != 1 {
+		t.Errorf("the watcher was sent a stack of %d for the item, want 1", count)
+	}
+}
