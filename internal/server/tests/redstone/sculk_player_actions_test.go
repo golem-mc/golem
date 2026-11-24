@@ -100,6 +100,41 @@ func TestASurvivalPlayerShearingASheepMakesAVibration(t *testing.T) {
 	expectComparator(t, srv, "6") // shear
 }
 
+// vanilla: Llama.handleEating, AbstractHorse.handleEating, Mob.interact
+func TestEquineFeedVibration(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, kind string
+		entityType int32
+		calibrated bool
+		frequency  string
+	}{
+		{"llama", "llama", protocol.EntityTypeLlama, false, "6"},
+		{"trader llama", "trader_llama", protocol.EntityTypeTraderLlama, false, "6"},
+		{"horse", "horse", protocol.EntityTypeHorse, false, "8"},
+		{"horse with calibrated sensor", "horse", protocol.EntityTypeHorse, true, "6"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := survivalScene(t)
+			c.ChatCommand("summon minecraft:" + tc.kind + " 1.5 64 4.5 {NoAI:1b,Tame:1b,Health:5f}")
+			mob := c.ExpectMobSpawn(tc.entityType)
+			srv.GiveSlot("Actor", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:wheat"), Count: 1})
+			c.Settle()
+			if tc.calibrated {
+				calibratedAt(t, srv, 4)
+				srv.SetBlock(4, 64, 5, servertest.MustState(t, "minecraft:target", map[string]string{"power": "6"}))
+			} else {
+				placeSensor(t, srv)
+			}
+			c.UseOn(mob.EntityID)
+			c.Settle()
+			servertest.RunTicks(t, srv, 10)
+			expectComparator(t, srv, tc.frequency)
+		})
+	}
+}
+
 func TestASurvivalPlayerPlacingEntitiesMakesVibrations(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
