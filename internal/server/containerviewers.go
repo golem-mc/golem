@@ -1,6 +1,7 @@
 package server
 
 import (
+	"slices"
 	"sync"
 
 	"github.com/golem-mc/golem/internal/server/world"
@@ -51,7 +52,7 @@ func (i *containerViewerIndex) removeLocked(k viewerKey, c *client) {
 	list := i.byAt[k]
 	for n, v := range list {
 		if v.c == c {
-			list = append(list[:n], list[n+1:]...)
+			list = slices.Delete(list, n, n+1)
 			break
 		}
 	}

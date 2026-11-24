@@ -57,6 +57,19 @@ func TestContainerViewerRegistry(t *testing.T) {
 	if n := len(s.viewers.byAt); n != 0 {
 		t.Fatalf("%d buckets left after close", n)
 	}
+	// Closing the last of two viewers releases its reference in the bucket.
+	a.setOpenWindow(&openWindow{kind: windowBarrel, w: w1, x: 0, y: 64, z: 0})
+	b.setOpenWindow(&openWindow{kind: windowBarrel, w: w1, x: 0, y: 64, z: 0})
+	k := viewerKey{w1, 0, 64, 0}
+	bucket := s.viewers.byAt[k]
+	b.setOpenWindow(nil)
+	if got := viewers(w1, 0, nil); !slices.Equal(got, []*client{a}) {
+		t.Fatalf("after one close, viewers = %v", got)
+	}
+	if left := bucket[:2][1]; left.c != nil || left.window != nil {
+		t.Fatalf("bucket still holds the closed viewer: %+v", left)
+	}
+	a.setOpenWindow(nil)
 	// A disconnected client is not a viewer.
 	a.setOpenWindow(&openWindow{kind: windowBarrel, w: w1, x: 0, y: 64, z: 0})
 	delete(s.clients, a.player.UUID)

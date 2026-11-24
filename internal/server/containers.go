@@ -2210,17 +2210,17 @@ func (s *Server) containerViewers(w *world.World, x, y, z int32, except *client,
 	if len(candidates) == 0 {
 		return
 	}
-	var out [8]*client
-	recipients := out[:0]
+	// Compact the validated viewers in place: the copy is already ours.
+	recipients := candidates[:0]
 	s.mu.RLock()
 	for _, v := range candidates {
 		if v.c != except && s.clients[v.c.player.UUID] == v.c && v.c.openContainerWindow() == v.window {
-			recipients = append(recipients, v.c)
+			recipients = append(recipients, v)
 		}
 	}
 	s.mu.RUnlock()
-	for _, c := range recipients {
-		fn(c)
+	for _, v := range recipients {
+		fn(v.c)
 	}
 }
 
