@@ -390,3 +390,35 @@ func TestLateJoinerSeesTheItemsOnTheGround(t *testing.T) {
 		t.Errorf("the late joiner was shown %v, want the single dirt lying on the ground", items)
 	}
 }
+
+// TestPartialPickupGivesNoTakeOrStat checks a stack that only partly fits is
+// inserted as far as it goes, the rest stays on the ground, and neither the
+// take animation nor the picked-up stat is played.
+// vanilla: Inventory.add, ItemEntity.playerTouch
+func TestPartialPickupGivesNoTakeOrStat(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SurvivalConfig()
+
+	srv, c := servertest.Dial(t, cfg)
+	c.Login("Packrat")
+	c.Configure()
+	c.EnterWorldAndReportEntity("Packrat")
+
+	stone, _ := registry.ItemID("minecraft:stone")
+	dirt, _ := registry.ItemID("minecraft:dirt")
+	for slot := 9; slot < 45; slot++ {
+		srv.GiveSlot("Packrat", slot, protocol.ItemStack{ItemID: stone, Count: 64})
+	}
+	srv.GiveSlot("Packrat", 36, protocol.ItemStack{ItemID: dirt, Count: 63})
+
+	srv.SpawnItemEntityDelay(0.5, 64.125, 0.5, "minecraft:dirt", 2, 0)
+	c.ExpectDroppedItem()
+	servertest.ExpectNoPacket(t, srv, c, 20, protocol.IDPlayPickupItem)
+
+	if got := srv.InventorySlot("Packrat", 36); got.Count != 64 {
+		t.Errorf("dirt slot = %+v, want 64", got)
+	}
+	if got := srv.StatValue("Packrat", registry.StatPickedUp, "minecraft:dirt"); got != 0 {
+		t.Errorf("picked_up stat = %d, want 0", got)
+	}
+}

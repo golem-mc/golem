@@ -649,16 +649,18 @@ func (s *Server) giveItemPickups(candidates []*itemPickup) {
 			// as it lies, as vanilla retries a pickup that did not fit.
 			continue
 		}
-		// The whole stack's count, even when part of it did not fit.
-		// vanilla: ItemEntity.playerTouch
-		c.awardItemStat(registry.StatTypePickedUp, given.ItemID, given.Count)
-
 		for _, slot := range p.slots {
 			c.send(protocol.IDPlayContainerSlot, slot)
 		}
 		if p.visible {
 			c.equipmentDue.Store(true)
 		}
+		// A partial insert is a failed add: no take, stat or advancement.
+		// vanilla: Inventory.add, ItemEntity.playerTouch
+		if p.left > 0 {
+			continue
+		}
+		c.awardItemStat(registry.StatTypePickedUp, given.ItemID, given.Count)
 		s.itemsMu.Lock()
 		watchers := trackedWatchers(it.tracked)
 		s.itemsMu.Unlock()
