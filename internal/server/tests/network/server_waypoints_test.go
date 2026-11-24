@@ -230,7 +230,7 @@ func TestPlayersAppearOnEachOthersLocatorBars(t *testing.T) {
 func TestAWaypointIsBlockFormInsideTheReceiversViewAndChunkFormOutside(t *testing.T) {
 	t.Parallel()
 	cfg := servertest.BlockTestConfig()
-	cfg.ViewDistance = config.MinDistance
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	srv, connect := servertest.Start(t, cfg)
 
 	watcher := connect().Join("Watcher")
