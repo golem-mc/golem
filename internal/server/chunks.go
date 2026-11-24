@@ -10,13 +10,14 @@ import (
 )
 
 // chunkRadius is the send radius in chunks: the server's view distance, or
-// the client's render distance if shorter. All visibility, entity tracking
+// the client's render distance (at least 2) if shorter. All visibility, entity tracking
 // included, uses it. viewDistance is atomic as the read loop sets it while
 // the sender reads it.
 func (c *client) chunkRadius() int32 {
 	radius := c.srv.viewDistance.Load()
-	if asked := c.viewDistance.Load(); asked > 0 && asked < radius {
-		return asked
+	// vanilla: ChunkMap.getPlayerViewDistance clamps to [2, server distance]
+	if asked := c.viewDistance.Load(); asked > 0 && max(asked, 2) < radius {
+		return max(asked, 2)
 	}
 	return radius
 }
