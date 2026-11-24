@@ -1142,6 +1142,18 @@ func (c *client) dropCreativeHive(x, y, z int32, state uint16) {
 // of the pot.
 // vanilla: Block.dropResources
 func (s *Server) breakLootContext(w *world.World, x, y, z int32, state uint16, customName *protocol.Text, components world.ItemComponents) rules.LootContext {
+	ctx := rules.LootContext{
+		BlockState: state,
+		HasBlock:   true,
+		// A broken half's table reads its still-standing partner.
+		BlockAt: func(dx, dy, dz int32) uint16 { return w.BlockAt(x+dx, y+dy, z+dz) },
+		Level:   s.lootLevelAtBlock(w, x, y, z),
+	}
+	setBlockLootComponents(&ctx, w, x, y, z, customName, components)
+	return ctx
+}
+
+func setBlockLootComponents(ctx *rules.LootContext, w *world.World, x, y, z int32, customName *protocol.Text, components world.ItemComponents) {
 	var scratch protocol.ItemStack
 	if components.Profile != nil {
 		scratch.SetProfile(*components.Profile)
@@ -1158,19 +1170,10 @@ func (s *Server) breakLootContext(w *world.World, x, y, z int32, state uint16, c
 	if customName == nil {
 		customName = components.CustomName
 	}
-	ctx := rules.LootContext{
-		BlockState:    state,
-		HasBlock:      true,
-		Container:     components.Container,
-		CustomName:    customName,
-		Components:    scratch.Raw,
-		Lock:          components.Lock,
-		ContainerLoot: components.ContainerLoot,
-		// A broken half's table reads its still-standing partner.
-		BlockAt: func(dx, dy, dz int32) uint16 { return w.BlockAt(x+dx, y+dy, z+dz) },
-		Level:   s.lootLevelAtBlock(w, x, y, z),
-	}
-	if registry.BlockOf(state) == registry.BlockDecoratedPot {
+	ctx.Container, ctx.CustomName, ctx.Components = components.Container, customName, scratch.Raw
+	ctx.Lock, ctx.ContainerLoot = components.Lock, components.ContainerLoot
+	ctx.Dynamic = nil
+	if registry.BlockOf(ctx.BlockState) == registry.BlockDecoratedPot {
 		var sherds nbt.Compound
 		if be := w.BlockEntity(x, y, z); be != nil {
 			be.Use(func(b *world.BlockEntity) {
@@ -1187,7 +1190,6 @@ func (s *Server) breakLootContext(w *world.World, x, y, z int32, state uint16, c
 			ctx.Components = append(slices.Clone(ctx.Components), scratch.Raw...)
 		}
 	}
-	return ctx
 }
 
 // brokenBlockLootContext builds the context a broken block's loot rolls
@@ -1200,8 +1202,7 @@ func (s *Server) breakLootContext(w *world.World, x, y, z int32, state uint16, c
 func (s *Server) brokenBlockLootContext(w *world.World, x, y, z int32, state uint16, customName *protocol.Text) rules.LootContext {
 	components, tag := brokenBlockEntity(w, x, y, z)
 	ctx := s.breakLootContext(w, x, y, z, state, customName, components)
-	ctx.BlockEntity = tag
-	ctx.Extra = components.Extra
+	ctx.BlockEntity, ctx.Extra = tag, components.Extra
 	return ctx
 }
 
