@@ -1,14 +1,15 @@
 package mobs
 
 import (
-	"github.com/golem-mc/golem/internal/config"
-	"github.com/golem-mc/golem/internal/server/world"
+	"math"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -292,4 +293,107 @@ func TestHotSulfurCubeBurnsAPlayerItPushes(t *testing.T) {
 	if hp := srv.PlayerHealth("Striker"); hp >= 20 {
 		t.Fatalf("a hot cube left the player at %g health", hp)
 	}
+}
+
+// TestFilledSulfurCubeKnockbackPitchAndDamageCommand checks that a filled
+// sulfur cube bends knockback by the attacker's pitch on melee hits and by the
+// causing entity's eye and look on /damage ... by <entity>.
+// vanilla: SulfurCube.knockback, DamageCommand.damage
+func TestFilledSulfurCubeKnockbackPitchAndDamageCommand(t *testing.T) {
+	t.Parallel()
+
+	t.Run("melee pitch bends vertical knockback", func(t *testing.T) {
+		t.Parallel()
+		srv, c := squidTests(t)
+		servertest.HoldTicks(t, srv)
+		c.MoveTo(0.5, 64, 10.3, 0, 30)
+		c.ChatCommand(`summon minecraft:sulfur_cube 0.5 64 12.5 {NoAI:1b,Age:0,equipment:{body:{id:"minecraft:tnt",count:1}}}`)
+		c.Settle()
+		ids := srv.MobIDsOfKind("minecraft:sulfur_cube")
+		if len(ids) != 1 {
+			t.Fatalf("expected 1 sulfur cube, got %d", len(ids))
+		}
+		// Let the bare-hand attack cooldown reach full strength (1.0 damage).
+		servertest.RunTicks(t, srv, 10)
+		c.Attack(ids[0])
+		c.Settle()
+		vx, vy, vz, ok := srv.MobVelocity(ids[0])
+		if !ok {
+			t.Fatal("sulfur cube disappeared")
+		}
+		if math.Abs(vy-0.14906) > 0.001 {
+			t.Fatalf("melee Motion = [%g, %g, %g], want vy ≈ 0.149 (+-0.001)", vx, vy, vz)
+		}
+		if math.Abs(vx) > 0.001 || math.Abs(vz-0.33) > 0.001 {
+			t.Fatalf("melee Motion = [%g, %g, %g], want [0, 0.149, 0.33] (+-0.001)", vx, vy, vz)
+		}
+	})
+
+	t.Run("damage command by player bends knockback", func(t *testing.T) {
+		t.Parallel()
+		srv, c := squidTests(t)
+		servertest.HoldTicks(t, srv)
+		c.ChatCommand(`summon minecraft:sulfur_cube -15 64 20 {NoAI:1b,Age:0,Tags:["d"],equipment:{body:{id:"minecraft:tnt",count:1}}}`)
+		c.Settle()
+		ids := srv.MobIDsOfKind("minecraft:sulfur_cube")
+		if len(ids) != 1 {
+			t.Fatalf("expected 1 sulfur cube, got %d", len(ids))
+		}
+		servertest.RunTicks(t, srv, 1)
+		c.MoveTo(-15.3, 64, 17.5, 15, 10)
+		c.ChatCommand(`damage @e[tag=d,limit=1] 4 minecraft:player_attack by @s`)
+		c.Settle()
+		vx, vy, vz, ok := srv.MobVelocity(ids[0])
+		if !ok {
+			t.Fatal("sulfur cube disappeared")
+		}
+		if math.Abs(vx-0.5871) > 0.001 || math.Abs(vy-0.144) > 0.001 || math.Abs(vz-0.3015) > 0.001 {
+			t.Fatalf("/damage Motion = [%.4f, %.4f, %.4f], want [0.5871, 0.144, 0.3015] (+-0.001)", vx, vy, vz)
+		}
+	})
+
+	t.Run("damage command by mob bends knockback", func(t *testing.T) {
+		t.Parallel()
+		srv, c := squidTests(t)
+		servertest.HoldTicks(t, srv)
+		c.ChatCommand(`summon minecraft:sulfur_cube -15 64 20 {NoAI:1b,Age:0,Tags:["d"],equipment:{body:{id:"minecraft:tnt",count:1}}}`)
+		c.ChatCommand(`summon minecraft:zombie -15.3 64 17.5 {NoAI:1b,Tags:["a"],Rotation:[15f,10f]}`)
+		c.Settle()
+		ids := srv.MobIDsOfKind("minecraft:sulfur_cube")
+		if len(ids) != 1 {
+			t.Fatalf("expected 1 sulfur cube, got %d", len(ids))
+		}
+		servertest.RunTicks(t, srv, 1)
+		c.ChatCommand(`damage @e[tag=d,limit=1] 4 minecraft:mob_attack by @e[tag=a,limit=1]`)
+		c.Settle()
+		vx, vy, vz, ok := srv.MobVelocity(ids[0])
+		if !ok {
+			t.Fatal("sulfur cube disappeared")
+		}
+		if vx <= 0.5 || vy <= 0.1 || vz >= 0.4 {
+			t.Fatalf("/damage by mob Motion = [%.4f, %.4f, %.4f], want sulfur-bent knockback", vx, vy, vz)
+		}
+	})
+
+	t.Run("damage command without by uses plain knockback", func(t *testing.T) {
+		t.Parallel()
+		srv, c := squidTests(t)
+		servertest.HoldTicks(t, srv)
+		c.ChatCommand(`summon minecraft:sulfur_cube -15 64 20 {NoAI:1b,Age:0,Tags:["d"],equipment:{body:{id:"minecraft:tnt",count:1}}}`)
+		c.Settle()
+		ids := srv.MobIDsOfKind("minecraft:sulfur_cube")
+		if len(ids) != 1 {
+			t.Fatalf("expected 1 sulfur cube, got %d", len(ids))
+		}
+		servertest.RunTicks(t, srv, 1)
+		c.ChatCommand(`damage @e[tag=d,limit=1] 4 minecraft:player_attack at -15.3 64 17.5`)
+		c.Settle()
+		vx, vy, vz, ok := srv.MobVelocity(ids[0])
+		if !ok {
+			t.Fatal("sulfur cube disappeared")
+		}
+		if vy != 0 || math.Hypot(vx, vz) == 0 {
+			t.Fatalf("/damage at Motion = [%.4f, %.4f, %.4f], want plain horizontal knockback with vy == 0", vx, vy, vz)
+		}
+	})
 }

@@ -3444,9 +3444,11 @@ func (c *client) attackMob(target int32) {
 	if !ok {
 		return
 	}
+	pos := c.player.Position()
 	attacker := entity.Player{
-		X: c.player.Position().X, Y: c.player.Position().Y, Z: c.player.Position().Z,
-		Yaw:      float64(c.player.Position().Yaw),
+		X: pos.X, Y: pos.Y, Z: pos.Z,
+		Yaw:      float64(pos.Yaw),
+		Pitch:    float64(pos.Pitch),
 		EntityID: c.player.EntityID,
 		Huntable: true,
 		Creative: c.player.GameMode() == protocol.GameModeCreative,
