@@ -408,27 +408,20 @@ func (c *client) AddItem(stack protocol.ItemStack) bool {
 func (c *client) LootEntity() rules.LootEntity {
 	v := c.player.Vitals()
 	out := rules.LootEntity{Type: "minecraft:player", OnFire: rules.OnFire(&v), ScoreHolder: c.Name(), Profile: c.lootProfile(), Player: c.lootPlayer(),
-		NBT: func() nbt.Compound {
-			tag, ok := c.DataTag()
-			if !ok {
-				return nil
-			}
-			return tag.Entries()
-		}}
+		NBT: c.lootNBT}
 	command.FillLootEntity(&out, c)
 	out.Team, _ = c.srv.scoreboard.PlayerTeam(c.player.Name)
 	return out
 }
 
-// lootNBT is the player's compound a loot table's copy_custom_data reads,
-// nil for a joining player. It takes the player's locks, which come after the
-// mob lock.
+// lootNBT can run during a roll that already holds the mob or projectile lock.
 // vanilla: ContextNbtProvider, NbtPredicate.getEntityTagToCompare
 func (c *client) lootNBT() nbt.Compound {
-	tag, ok := c.DataTag()
-	if !ok {
+	if c.player == nil {
 		return nil
 	}
+	tag := c.playerSaveState(nil, nil)
+	c.addSelectedItem(tag)
 	return tag.Entries()
 }
 
