@@ -1,12 +1,13 @@
 package registry
 
-// PackLayers holds the tags, context providers and slot sources used to
-// decode candidate pack resources. A nil *PackLayers reads the layers in force.
+// PackLayers holds the registry lookups used to decode candidate pack resources
+// and compile functions. A nil *PackLayers reads the layers in force.
 type PackLayers struct {
 	tags        *TagLookup
 	publishTags bool
 	providers   *contextProviderLayer
 	slotSources map[string]SlotSource
+	predicates  map[string]LootCondition
 }
 
 // StagePackLayers starts a pack load's layers: no pack context providers
@@ -37,6 +38,20 @@ func (l *PackLayers) SetContextProviders(ints, floats map[string][]byte) {
 // SetSlotSources stages the packs' slot sources; the caller may add to the
 // map until Publish.
 func (l *PackLayers) SetSlotSources(sources map[string]SlotSource) { l.slotSources = sources }
+
+// SetPredicates stages the decoded pack predicates for function compilation.
+func (l *PackLayers) SetPredicates(predicates map[string]LootCondition) { l.predicates = predicates }
+
+// FindPredicate reads a staged predicate or falls back to the built-ins.
+func (l *PackLayers) FindPredicate(name string) (LootCondition, bool) {
+	if l == nil {
+		return FindPredicate(name)
+	}
+	if cond, ok := l.predicates[name]; ok {
+		return cond, true
+	}
+	return findBuiltinPredicate(name)
+}
 
 // Publish puts the staged tags, context providers and slot sources in force.
 func (l *PackLayers) Publish() {

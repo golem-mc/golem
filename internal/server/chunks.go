@@ -284,12 +284,7 @@ func (c *client) updateChunks() error {
 		}
 	}
 
-	// Holds queued from a smaller view that now fall in send radius are
-	// acquired with it; taken as plain holds nothing would queue them to send.
-	c.pendingHolds = slices.DeleteFunc(c.pendingHolds, func(pos world.ChunkPos) bool {
-		return world.InSendView(pos, center, radius)
-	})
-	missing := c.missingChunks(center, load)
+	missing := c.missingChunks()
 	if skip {
 		// Only chunks other holders already brought into memory.
 		missing = slices.DeleteFunc(missing, func(pos world.ChunkPos) bool {
@@ -568,17 +563,31 @@ func (c *client) takeHolds() {
 	}
 }
 
-// missingChunks lists load-radius chunks neither held nor queued, closest
-// first.
-func (c *client) missingChunks(center world.ChunkPos, load int32) []world.ChunkPos {
+// missingChunks lists load-radius chunks to acquire, including holds promoted
+// to the send view, closest first.
+func (c *client) missingChunks() []world.ChunkPos {
+	center, load := c.center, c.load
+	var queued *chunkSet
+	if len(c.pendingHolds) > 0 {
+		queued = newChunkSet(center, load)
+		c.pendingHolds = slices.DeleteFunc(c.pendingHolds, func(pos world.ChunkPos) bool {
+			// A plain hold would bypass sending this chunk.
+			if world.InSendView(pos, center, c.radius) {
+				return true
+			}
+			// takeHolds drops departures. Until then they must stay out of the
+			// wrapping window, where they could alias positions in the new view.
+			if world.InViewOf(pos, center, load) {
+				queued.add(pos)
+			}
+			return false
+		})
+	}
 	missing := make([]world.ChunkPos, 0, (2*load+1)*(2*load+1))
 	for x := center.X - load; x <= center.X+load; x++ {
 		for z := center.Z - load; z <= center.Z+load; z++ {
 			pos := world.ChunkPos{X: x, Z: z}
-			if c.loaded.has(pos) {
-				continue
-			}
-			if slices.Contains(c.pendingHolds, pos) {
+			if c.loaded.has(pos) || queued.has(pos) {
 				continue
 			}
 			missing = append(missing, pos)

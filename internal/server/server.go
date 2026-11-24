@@ -536,6 +536,8 @@ type Server struct {
 	mobsMu sync.Mutex
 	// waypointPass counts the locator bar passes; tick loop only.
 	waypointPass uint64
+	// waypointBuf is the locator bar pass's player list, reused across ticks.
+	waypointBuf []waypointPlayer
 	// Mob tick scratch maps belong to the tick loop; no reader retains them
 	// after tickMobs returns.
 	mobTickKnown map[uuid.UUID]bool
@@ -548,6 +550,8 @@ type Server struct {
 	mobTickLoaded map[*world.World]map[world.ChunkPos]struct{}
 	// tradeDraws reserves a merchant while a draw loads chunks without mobsMu.
 	tradeDraws map[*entity.Mob]*tradeDrawState
+	// tradeRollMu keeps merchants on the same sequence from interleaving rolls.
+	tradeRollMu sync.Mutex
 	// raidsMu guards the dimensions' raids and raidState. It is taken
 	// before mobsMu and s.mu, never while holding either.
 	raidsMu   sync.Mutex

@@ -201,7 +201,7 @@ func TestDecodeLootTableRefusesWhatItDoesNotKnow(t *testing.T) {
 		"syntax":         `{"pools":[`,
 		"unknown item":   `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:nope"}]}]}`,
 		"unknown entry":  `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:mystery"}]}]}`,
-		"unknown cond":   `{"pools":[{"rolls":1,"entries":[],"conditions":[{"type":"minecraft:time_check"}]}]}`,
+		"unknown cond":   `{"pools":[{"rolls":1,"entries":[],"condition":{"type":"minecraft:time_check"}}]}`,
 		"refused func":   `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:stick","functions":[{"function":"minecraft:set_book_cover","generation":4}]}]}]}`,
 		"unknown number": `{"pools":[{"rolls":{"type":"minecraft:score"},"entries":[]}]}`,
 	} {
@@ -221,13 +221,13 @@ func TestDecodeLootTableRefusesWhatItDoesNotKnow(t *testing.T) {
 
 func ghastRecord(tag string) string {
 	return `{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:music_disc_tears"}],` +
-		`"conditions":[{"type":"minecraft:damage_source_properties","predicate":{"direct_entity":` +
-		`{"minecraft:entity_type":"minecraft:fireball"},"tags":[{"id":"` + tag + `","expected":true}]}}]}]}`
+		`"condition":{"type":"minecraft:damage_source_properties","predicate":{"direct_entity":` +
+		`{"minecraft:entity_type":"minecraft:fireball"},"tags":[{"id":"` + tag + `","expected":true}]}}}]}`
 }
 
 func damageSourceRecord(id string) string {
-	return `{"pools":[{"rolls":1,"entries":[],"conditions":[{"type":"minecraft:damage_source_properties",` +
-		`"predicate":{"tags":[{"id":` + id + `,"expected":true}]}}]}]}`
+	return `{"pools":[{"rolls":1,"entries":[],"condition":{"type":"minecraft:damage_source_properties",` +
+		`"predicate":{"tags":[{"id":` + id + `,"expected":true}]}}}]}`
 }
 
 // TestDecodeLootTableRequiresRollsAndExpand checks the fields vanilla's
@@ -413,10 +413,10 @@ func TestDecodeLootTableInlineNestedAndEnchantedLookup(t *testing.T) {
 // predicate keeps all its tag terms, both entity predicates and is_direct.
 // vanilla: DamageSourcePredicate.CODEC
 func TestDecodeLootDamageSourceReadsEveryField(t *testing.T) {
-	table, err := DecodeLootTable(nil, []byte(`{"pools":[{"rolls":1,"entries":[],"conditions":[{"type":"minecraft:damage_source_properties",`+
+	table, err := DecodeLootTable(nil, []byte(`{"pools":[{"rolls":1,"entries":[],"condition":{"type":"minecraft:damage_source_properties",`+
 		`"predicate":{"tags":[{"id":"minecraft:is_fire","expected":true},{"id":"minecraft:is_explosion","expected":false}],`+
 		`"is_direct":false,"direct_entity":{"minecraft:entity_type":"minecraft:arrow"},`+
-		`"source_entity":{"minecraft:flags":{"is_sneaking":true}}}}]}]}`))
+		`"source_entity":{"minecraft:flags":{"is_sneaking":true}}}}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}

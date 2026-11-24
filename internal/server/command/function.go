@@ -203,11 +203,15 @@ func (l *Functions) IDs() []string {
 // a line that does not parse is left out of the library and reported
 // through fail.
 // vanilla: ServerFunctionLibrary.reload
-func CompileFunctions(files map[string][]string, level int, fail func(id string, err error)) *Functions {
+func CompileFunctions(files map[string][]string, level int, layers *registry.PackLayers, fail func(id string, err error)) *Functions {
 	lineTokens.Clear()
 	lib := &Functions{byID: make(map[string]*Function, len(files))}
+	if len(files) == 0 {
+		return lib
+	}
+	tree := functionCompileTree(level, layers)
 	for id, lines := range files {
-		fn, err := compileFunction(level, id, lines)
+		fn, err := compileFunction(tree, level, id, lines)
 		if err != nil {
 			fail(id, err)
 			continue
@@ -219,11 +223,29 @@ func CompileFunctions(files map[string][]string, level int, fail func(id string,
 	return lib
 }
 
+// functionCompileTree binds checks on a fresh graph so live commands keep
+// reading the published registries while the candidate is being validated.
+// vanilla: ReloadableServerResources.loadResources
+func functionCompileTree(level int, layers *registry.PackLayers) *Node {
+	tree := buildForLevel(level)
+	check := predicateArgumentCheck(layers)
+	var bind func(*Node)
+	bind = func(node *Node) {
+		if node.Parser == ParserLootPredicate {
+			node.Check = check
+		}
+		for _, child := range node.Children {
+			bind(child)
+		}
+	}
+	bind(tree)
+	return tree
+}
+
 // compileFunction reads a function file's lines: each trimmed, a trailing
 // backslash joining the next line on, blank lines and # comments skipped.
 // vanilla: CommandFunction.fromLines
-func compileFunction(level int, id string, lines []string) (*Function, error) {
-	tree := ForLevel(level)
+func compileFunction(tree *Node, level int, id string, lines []string) (*Function, error) {
 	fn := &Function{ID: id, level: level}
 	for i := 0; i < len(lines); i++ {
 		lineNumber := i + 1

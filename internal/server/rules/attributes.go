@@ -261,8 +261,8 @@ func (em effectModifier) apply(a *player.Attributes, in effect.Instance, on bool
 		a.RemoveModifier(em.attribute, em.id)
 		return
 	}
-	a.AddModifier(em.attribute, player.Modifier{
-		ID: em.id, Amount: em.perLevel * float64(in.Amplifier+1), Operation: em.operation,
+	a.ReplaceModifier(em.attribute, player.Modifier{
+		ID: em.id, Amount: em.perLevel * float64(in.Amplifier+1), Operation: em.operation, Persistent: true,
 	})
 }
 

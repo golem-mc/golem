@@ -9,6 +9,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/servertest"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -217,6 +218,71 @@ func TestPlayersAppearOnEachOthersLocatorBars(t *testing.T) {
 	if !wp.at(moverAt.x+5, moverAt.y, moverAt.z) {
 		t.Errorf("the re-track points at (%d, %d, %d), want five blocks east of the track's (%d, %d, %d)",
 			wp.x, wp.y, wp.z, moverAt.x+5, moverAt.y, moverAt.z)
+	}
+}
+
+// TestAWaypointIsBlockFormInsideTheReceiversViewAndChunkFormOutside moves a
+// transmitter along one axis to the last chunk of the receiver's view and then
+// one chunk past it: each move rebuilds the link, which is made in the block
+// form while the transmitter's chunk is in view and in the chunk form once it
+// is not.
+// vanilla: LivingEntity.makeWaypointConnectionWith
+func TestAWaypointIsBlockFormInsideTheReceiversViewAndChunkFormOutside(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, connect := servertest.Start(t, cfg)
+
+	watcher := connect().Join("Watcher")
+	watcher.Settle()
+	mover := connect().Join("Mover")
+	moverID := protocol.OfflineUUID("Mover")
+	watcher.WatchWaypoints = true
+	servertest.HoldTicks(t, srv)
+
+	// The watcher stands in chunk 0, so the view reaches chunk 2 along x.
+	view := int32(config.MinDistance)
+	moveTo := func(chunkX int32) waypointPacket {
+		t.Helper()
+		x := chunkX*16 + 8
+		// Settle has the server apply the move before the watcher counts
+		// its tick: a tick counted on one connection does not wait for a
+		// packet still queued on another.
+		mover.MoveToGround(float64(x)+0.5, mover.LastTeleport.Y, 0.5, true)
+		mover.Settle()
+		var got waypointPacket
+		if !watcher.ReadTicks(srv, 1, func(id int32, data []byte) bool {
+			if id != protocol.IDPlayWaypoint {
+				return false
+			}
+			wp := parseWaypoint(t, data)
+			if wp.id != moverID || wp.operation != protocol.WaypointTrack {
+				return false
+			}
+			// A track left over from the previous move may still be in flight.
+			if wp.kind == protocol.WaypointTypeChunk && wp.x != chunkX {
+				return false
+			}
+			if wp.kind == protocol.WaypointTypeVec3i && wp.x != x {
+				return false
+			}
+			got = wp
+			return true
+		}) {
+			t.Fatalf("no waypoint track for the mover at chunk %d within a tick", chunkX)
+		}
+		return got
+	}
+
+	if wp := moveTo(view); wp.kind != protocol.WaypointTypeVec3i {
+		t.Errorf("the waypoint at the view's edge is of type %d, want the block form", wp.kind)
+	}
+	wp := moveTo(view + 1)
+	if wp.kind != protocol.WaypointTypeChunk {
+		t.Fatalf("the waypoint just past the view is of type %d, want the chunk form", wp.kind)
+	}
+	if wp.x != view+1 || wp.z != 0 {
+		t.Errorf("the chunk waypoint names (%d, %d), want (%d, 0)", wp.x, wp.z, view+1)
 	}
 }
 

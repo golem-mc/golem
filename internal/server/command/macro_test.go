@@ -12,7 +12,7 @@ import (
 // turned into.
 func macroFunctionOf(t *testing.T, lines []string) *macroFunction {
 	t.Helper()
-	fn, err := compileFunction(PermLevelGamemasters, "t:m", lines)
+	fn, err := compileFunction(ForLevel(PermLevelGamemasters), PermLevelGamemasters, "t:m", lines)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -72,14 +72,14 @@ func TestMacroTemplateReadsTheFile(t *testing.T) {
 		{"$say $(a-b)", "Can't parse function line 1: 'say $(a-b)': invalid macro variable name 'a-b'"},
 		{"$say $(a b)", "Can't parse function line 1: 'say $(a b)': invalid macro variable name 'a b'"},
 	} {
-		_, err := compileFunction(PermLevelGamemasters, "t:bad", []string{tc.line})
+		_, err := compileFunction(ForLevel(PermLevelGamemasters), PermLevelGamemasters, "t:bad", []string{tc.line})
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("compile %q: error %v, want one containing %q", tc.line, err, tc.want)
 		}
 	}
 
 	// A plain file stays plain: no macro, its lines kept.
-	fn, err := compileFunction(PermLevelGamemasters, "t:plain", []string{"say hi"})
+	fn, err := compileFunction(ForLevel(PermLevelGamemasters), PermLevelGamemasters, "t:plain", []string{"say hi"})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestInstantiateMacroSubstitutesAndMatches(t *testing.T) {
 	}
 
 	// A plain function answers itself, whatever arguments it was handed.
-	plain, err := compileFunction(PermLevelGamemasters, "t:plain", []string{"say hi"})
+	plain, err := compileFunction(ForLevel(PermLevelGamemasters), PermLevelGamemasters, "t:plain", []string{"say hi"})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

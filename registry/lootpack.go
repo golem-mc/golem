@@ -97,6 +97,10 @@ func FindPredicate(name string) (LootCondition, bool) {
 			return c, true
 		}
 	}
+	return findBuiltinPredicate(name)
+}
+
+func findBuiltinPredicate(name string) (LootCondition, bool) {
 	src, ok := predicateJSON[name]
 	if !ok || DecodeBuiltinPredicate == nil {
 		return nil, false

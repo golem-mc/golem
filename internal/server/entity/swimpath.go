@@ -305,16 +305,12 @@ func (m *Mob) swimNavTickAt(w World, speed float64) {
 		return
 	}
 	node := n.path[0]
-	reach := 0.75 - m.width()/2
-	if m.width() > 0.75 {
-		reach = m.width() / 2
-	}
 	waterBound := !m.usesAmphibiousNavigation()
 	verticalReach := swimVerticalReach
 	if !waterBound {
 		verticalReach = groundVerticalReach
 	}
-	reached := math.Abs(m.X-(float64(node.X)+0.5)) < reach && math.Abs(m.Z-(float64(node.Z)+0.5)) < reach &&
+	reached := m.atWaypoint(m.X-(float64(node.X)+0.5), m.Z-(float64(node.Z)+0.5)) &&
 		math.Abs(m.Y-float64(node.Y)) < verticalReach
 	if reached || m.cutsPathCorner(w, waterBound) {
 		n.advance()

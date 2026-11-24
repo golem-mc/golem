@@ -145,13 +145,13 @@ func TestPackPredicatesAnswerExecuteAndSelectors(t *testing.T) {
 	writeFile(t, filepath.Join(data, "predicate", "never.json"), `[{"type":"minecraft:random_chance","chance":0}]`)
 	writeFile(t, filepath.Join(data, "loot_table", "gated.json"),
 		`{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:clay_ball",`+
-			`"conditions":[{"type":"minecraft:reference","name":"pk:gate"}]}]}]}`)
+			`"condition":{"type":"minecraft:reference","name":"pk:gate"}}]}]}`)
 	// A holder set names a single holder without a list.
 	// vanilla: HolderSetCodec.directCodec
 	writeFile(t, filepath.Join(data, "predicate", "always.json"), `{"type":"minecraft:random_chance","chance":1}`)
 	writeFile(t, filepath.Join(data, "loot_table", "single_term.json"),
 		`{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:brick",`+
-			`"conditions":[{"type":"minecraft:all_of","terms":"pk:always"}]}]}]}`)
+			`"condition":{"type":"minecraft:all_of","terms":"pk:always"}}]}]}`)
 	_, c := joinPacks(t, cfg)
 
 	c.ChatCommand("execute if predicate pk:gate run say hi")
@@ -175,6 +175,47 @@ func TestPackPredicatesAnswerExecuteAndSelectors(t *testing.T) {
 	c.ChatCommand("execute if predicate pk:gate")
 	if got := c.ExpectPlay(protocol.IDPlaySystemChat); !bytes.Equal(got, servertest.CommandErrorMessageForTest("commands.execute.conditional.fail")) {
 		t.Errorf("the reloaded predicate answered % X, want the conditional failure", got)
+	}
+}
+
+// vanilla: ReloadableServerResources.loadResources, ServerFunctionLibrary.reload
+func TestPackFunctionsResolveNewPredicates(t *testing.T) {
+	for _, phase := range []string{"startup", "reload"} {
+		t.Run(phase, func(t *testing.T) {
+			t.Cleanup(func() { registry.ApplyPackLoot(nil, nil, nil) })
+			cfg := packWorld(t)
+			data := filepath.Join(cfg.LevelName, "datapacks", "a", "data", "pk")
+			predicate := filepath.Join(data, "predicate", "function_gate.json")
+			install := func() {
+				writeFile(t, predicate, `{"type":"minecraft:random_chance","chance":1}`)
+				writeFile(t, filepath.Join(data, "function", "check_gate.mcfunction"),
+					"execute if predicate pk:function_gate run return 7\n")
+			}
+			if phase == "startup" {
+				install()
+			}
+			_, c := joinPacks(t, cfg)
+			if phase == "reload" {
+				install()
+				c.ChatCommand("reload")
+				c.ExpectCommandFeedback("commands.reload.success")
+			}
+			const id = "pk:check_gate"
+			c.ChatCommand("function " + id)
+			if feedback := servertest.FeedbackComponent(t, c); feedback.Translate != "commands.function.scheduled.single" {
+				t.Fatalf("/function %s answered %q, want the function to run", id, feedback.Plain())
+			}
+			expectFunctionResult(c, id, 7)
+
+			if phase == "reload" {
+				if err := os.Remove(predicate); err != nil {
+					t.Fatal(err)
+				}
+				c.ChatCommand("reload")
+				c.ExpectCommandFeedback("commands.reload.success")
+				expectFunctionReturns(t, c, id, 0)
+			}
+		})
 	}
 }
 
@@ -266,4 +307,32 @@ func TestPackItemModifiersRunFromItemModify(t *testing.T) {
 	c.ChatCommand("reload")
 	servertest.ExpectFeedbackSoon(t, c, nil, "commands.reload.success")
 	modify("pk:five", 9)
+}
+
+// TestPackLootIgnoresLegacyPluralConditions checks that a data pack loot table
+// whose pool, entry or function carries only the legacy plural "conditions"
+// field rolls as if it had no condition, while the singular "condition" field
+// still gates it.
+// vanilla: LootPool.CODEC, LootPoolEntryContainer.commonFields, LootItemConditionalFunction.commonFields
+func TestPackLootIgnoresLegacyPluralConditions(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackLoot(nil, nil, nil) })
+	cfg := packWorld(t)
+	dir := filepath.Join(cfg.LevelName, "datapacks", "a", "data", "pk", "loot_table")
+	const never = `{"type":"minecraft:random_chance","chance":0}`
+	writeFile(t, filepath.Join(dir, "pool_legacy.json"),
+		`{"pools":[{"rolls":1,"conditions":[`+never+`],"entries":[{"type":"minecraft:item","name":"minecraft:diamond"}]}]}`)
+	writeFile(t, filepath.Join(dir, "entry_legacy.json"),
+		`{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:emerald","conditions":[`+never+`]}]}]}`)
+	writeFile(t, filepath.Join(dir, "func_legacy.json"),
+		`{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:gold_ingot","modifier":{"type":"minecraft:set_count","count":3,"conditions":[`+never+`]}}]}]}`)
+	writeFile(t, filepath.Join(dir, "pool_singular.json"),
+		`{"pools":[{"rolls":1,"condition":`+never+`,"entries":[{"type":"minecraft:item","name":"minecraft:iron_ingot"}]}]}`)
+	_, c := joinPacks(t, cfg)
+
+	expectGave(t, c, "loot give @s loot pk:pool_legacy", "minecraft:diamond", 1)
+	expectGave(t, c, "loot give @s loot pk:entry_legacy", "minecraft:emerald", 1)
+	expectGave(t, c, "loot give @s loot pk:func_legacy", "minecraft:gold_ingot", 3)
+
+	c.ChatCommand("loot give @s loot pk:pool_singular")
+	servertest.ExpectFeedbackSoon(t, c, nil, "commands.drop.success.multiple", servertest.ItemNumber(0))
 }

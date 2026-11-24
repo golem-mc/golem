@@ -239,7 +239,6 @@ func BenchmarkTickWaypointsMoving(b *testing.B) {
 
 func BenchmarkWaypointTrackForms(b *testing.B) {
 	receivers := []waypointPlayer{{waypointPoint: waypointPointAt(0.5, 64, 0.5), radius: 4}}
-	setWaypointVisibility(receivers)
 	transmitters := []waypointPoint{
 		waypointPointAt(16.5, 64, 16.5),
 		waypointPointAt(64.5, 64, 0.5),
@@ -249,7 +248,8 @@ func BenchmarkWaypointTrackForms(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		for i := range transmitters {
-			rules.NewWaypointConnection(waypointViewOf(&transmitters[i], &receivers[0]))
+			v := waypointViewOf(&transmitters[i], &receivers[0])
+			rules.NewWaypointConnection(&v)
 		}
 	}
 }

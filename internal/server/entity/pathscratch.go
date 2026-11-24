@@ -157,6 +157,7 @@ var (
 // ticks. Its zero value is ready to use, and the herd uses it serially.
 type MobPathScratch struct {
 	normal, tiny *pathScratch
+	calls        int
 }
 
 func (p *MobPathScratch) findPath(w World, f footprint, from, to Waypoint, maxRange, reachRange int32) ([]Waypoint, bool) {
@@ -166,6 +167,7 @@ func (p *MobPathScratch) findPath(w World, f footprint, from, to Waypoint, maxRa
 		defer s.release()
 		return s.search(w, f, from, to, maxRange, reachRange)
 	}
+	p.calls++
 	slot := &p.normal
 	tiny := distance <= tinyReach
 	if tiny {

@@ -147,3 +147,32 @@ func TestLootSingleChildGroupFailureFallsThrough(t *testing.T) {
 	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
 	c.Disconnect()
 }
+
+// vanilla: LootPoolEntryContainer.adjustOutput
+func TestLootCompositeEntryModifier(t *testing.T) {
+	t.Parallel()
+	const stick = `{type:"minecraft:item",name:"minecraft:stick"}`
+	const modifier = `,modifier:{type:"minecraft:set_count",count:2}`
+	for _, tc := range []struct {
+		name  string
+		entry string
+	}{
+		{"group", `{type:"minecraft:group",children:[` + stick + `]` + modifier + `}`},
+		{"alternatives", `{type:"minecraft:alternatives",children:[` + stick + `]` + modifier + `}`},
+		{"sequence", `{type:"minecraft:sequence",children:[` + stick + `]` + modifier + `}`},
+		// The inner modifier runs first, then the outer one replaces the count.
+		{"nested", `{type:"minecraft:group",children:[{type:"minecraft:group",children:[` + stick + `],` +
+			`modifier:{type:"minecraft:set_count",count:5}}]` + modifier + `}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, c := dialItemBarrel(t)
+			c.ChatCommand(`loot insert 2 64 3 loot {pools:[{rolls:1,entries:[` + tc.entry + `]}]}`)
+			c.ExpectPlay(protocol.IDPlaySystemChat)
+
+			if got := barrelItems(srv, "minecraft:stick"); got != 2 {
+				t.Fatalf("loot awarded %d sticks, want two", got)
+			}
+			c.Disconnect()
+		})
+	}
+}

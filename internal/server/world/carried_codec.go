@@ -66,6 +66,7 @@ var carriedKinds = map[string]carriedKind{
 		}
 		e["mode"], e["message"], e["powered"] = mode, message, powered
 	}},
+	"minecraft:jigsaw": {fields: []string{"name", "target", "pool", "final_state", "joint", "placement_priority", "selection_priority"}},
 	"minecraft:trial_spawner": {fields: []string{
 		"registered_players", "current_mobs", "cooldown_ends_at", "next_mob_spawns_at", "total_mobs_spawned",
 		"spawn_data", "ejecting_loot_table", "normal_config", "ominous_config", "target_cooldown_length",
@@ -115,6 +116,29 @@ var carriedKinds = map[string]carriedKind{
 
 // testBlockModes are TestBlockMode's names.
 var testBlockModes = []string{"start", "log", "fail", "accept"}
+
+// freshCarriedTag supplies constructor values that differ from loading empty NBT.
+// vanilla: StructureBlockEntity.<init>, TestBlockEntity.<init>, JigsawBlockEntity.<init>
+func freshCarriedTag(block registry.Block, state uint16) nbt.Compound {
+	tag := nbt.Compound{"components": nbt.Compound{}}
+	switch block {
+	case registry.BlockStructureBlock:
+		tag["mode"] = nbt.String(structureModeNames[structureModeOfState(state)])
+	case registry.BlockTestBlock:
+		tag["mode"] = nbt.String(registry.StateValue(state, registry.PropMode))
+	case registry.BlockJigsaw:
+		tag["name"] = nbt.String("minecraft:empty")
+		tag["target"] = nbt.String("minecraft:empty")
+		tag["pool"] = nbt.String("minecraft:empty")
+		tag["final_state"] = nbt.String("minecraft:air")
+		tag["joint"] = nbt.String("rollable") // The constructor uses this for every orientation.
+		tag["placement_priority"] = nbt.Int(0)
+		tag["selection_priority"] = nbt.Int(0)
+	case registry.BlockEndGateway:
+		tag["Age"] = nbt.Long(0)
+	}
+	return tag
+}
 
 // readCarried normalises a command's tag in place as the type's codecs read it.
 func readCarried(chunk *Chunk, entry nbt.Compound) {
