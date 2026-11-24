@@ -831,6 +831,10 @@ func (r *lootRoller) expand(entry registry.LootEntry, dst []lootCandidate) (bool
 		if !r.conditions(k.Conditions) {
 			return false, dst
 		}
+		// vanilla: EntryGroup.compose (one child delegates, so its failure propagates)
+		if len(k.Children) == 1 {
+			return r.expand(k.Children[0], dst)
+		}
 		for _, child := range k.Children {
 			_, dst = r.expand(child, dst)
 		}
