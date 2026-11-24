@@ -147,7 +147,9 @@ func (r *decorRegion) placeMonsterRoom(p [3]int32) bool {
 }
 
 // freshSpawnerTag is a spawner block entity right after setEntityId: the mob in
-// SpawnData and an explicit empty SpawnPotentials, which loading must not default.
+// SpawnData and an explicit empty SpawnPotentials: an omitted list loads as one
+// weighted entry, so the empty list must be written out.
+// vanilla: BaseSpawner.load (BaseSpawner.java:187)
 // vanilla: BaseSpawner.setEntityId, BaseSpawner.save
 func freshSpawnerTag(mob string) nbt.Compound {
 	return nbt.Compound{

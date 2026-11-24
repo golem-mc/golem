@@ -361,7 +361,7 @@ func (p *strongholdPlacer) portalRoom() {
 	}
 	if wx, wy, wz := p.worldPos(5, 3, 6); p.chunk.inside(wx, wy, wz) {
 		p.r.set(wx, wy, wz, s.spawner)
-		p.r.placeBlockEntity(wx, wy, wz, s.spawner, nbtSilverfishSpawner())
+		p.r.placeBlockEntity(wx, wy, wz, s.spawner, freshSpawnerTag("minecraft:silverfish"))
 	}
 }
 
