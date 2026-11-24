@@ -317,20 +317,20 @@ type fireworkMetadataState struct {
 }
 
 // same reports whether two states tell a client the same.
-func (a fireworkMetadataState) same(b fireworkMetadataState) bool {
-	return a.stack.Equal(b.stack) && a.name == b.name && a.attached == b.attached &&
-		a.shotAtAngle == b.shotAtAngle && a.fire == b.fire
+func (a *fireworkMetadataState) same(b *fireworkMetadataState) bool {
+	return a.name == b.name && a.attached == b.attached && a.shotAtAngle == b.shotAtAngle &&
+		a.fire == b.fire && a.stack.Count == b.stack.Count && a.stack.SamePtr(&b.stack)
 }
 
 // tellFireworkChanges tells c the metadata a tick turned, the tick it turned in.
-func tellFireworkChanges(it *fireworkEntity, was *toldBody[fireworkMetadataState], now fireworkMetadataState, c *client, metas *sendList) {
+func tellFireworkChanges(it *fireworkEntity, was *toldBody[fireworkMetadataState], now *fireworkMetadataState, c *client, metas *sendList) {
 	if was.own.same(now) {
 		return
 	}
 	if data := fireworkMetadataTable(it, &was.own); data != nil {
 		metas.add(c, outbound{id: protocol.IDPlayEntityMetadata, data: data})
 	}
-	was.own = now
+	was.own = *now
 }
 
 func fireworkMetadataStateOf(it *fireworkEntity) fireworkMetadataState {
@@ -618,7 +618,7 @@ func (s *Server) tickFireworks() {
 			if motion != nil {
 				motions.add(watch.c, *motion)
 			}
-			tellFireworkChanges(it, was, now, watch.c, &metas)
+			tellFireworkChanges(it, was, &now, watch.c, &metas)
 			body.moveTold(was, watch.c, mt, &out)
 		}
 		alive = append(alive, it)
