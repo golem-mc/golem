@@ -316,15 +316,11 @@ func (c *Chunk) decodeLight(data []byte) bool {
 			return false
 		}
 		nSky--
-		n := r.ReadVarInt()
-		if int(n) != lightArrayLen || r.Remaining() < int(n) {
+		raw := r.ReadBytes(lightArrayLen)
+		if len(raw) != lightArrayLen {
 			return false
 		}
-		arr := [lightArrayLen]byte{}
-		for j := range arr {
-			arr[j] = r.ReadU8()
-		}
-		c.loadLightArray(skyLayer, i, &arr)
+		c.loadLightArray(skyLayer, i, (*[lightArrayLen]byte)(raw))
 	}
 
 	// Read block arrays: one per bit set in blockMask.
@@ -337,15 +333,11 @@ func (c *Chunk) decodeLight(data []byte) bool {
 			return false
 		}
 		nBlock--
-		n := r.ReadVarInt()
-		if int(n) != lightArrayLen || r.Remaining() < int(n) {
+		raw := r.ReadBytes(lightArrayLen)
+		if len(raw) != lightArrayLen {
 			return false
 		}
-		arr := [lightArrayLen]byte{}
-		for j := range arr {
-			arr[j] = r.ReadU8()
-		}
-		c.loadLightArray(blockLayer, i, &arr)
+		c.loadLightArray(blockLayer, i, (*[lightArrayLen]byte)(raw))
 	}
 
 	return r.Err() == nil
