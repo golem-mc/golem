@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 )
@@ -68,10 +67,6 @@ func TestSpawnerLoadsDefaultPotentials(t *testing.T) {
 func TestGeneratedDungeonSpawnerSavesEmptyPotentials(t *testing.T) {
 	t.Parallel()
 	cfg := servertest.BlockTestConfig()
-	cfg.LevelType = "normal"
-	cfg.LevelSeed = "0"
-	cfg.GenerateStructures = true
-	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	// Seed 0's chunk (3,-1) holds a dungeon whose spawner is at 59 -12 -13.
 	cfg.LevelName = (servertest.RegionFixture{
 		Seed: 0, GenerateStructures: true,
@@ -79,12 +74,11 @@ func TestGeneratedDungeonSpawnerSavesEmptyPotentials(t *testing.T) {
 	}).Copy(t)
 	srv, _ := servertest.Join(t, cfg, "Spawnwatcher")
 	servertest.HoldTicks(t, srv)
-	srv.RunLine(`forceload add 59 -13`)
-	var replies []protocol.Text
-	servertest.UntilTicks(t, srv, 40, "the dungeon chunk is loaded", func() bool {
-		replies = srv.RunLine(`data get block 59 -12 -13`)
-		return len(replies) == 1 && replies[0].Translate == "commands.data.block.query"
-	})
+	t.Cleanup(srv.HoldChunk(59, -13))
+	replies := srv.RunLine(`data get block 59 -12 -13`)
+	if len(replies) != 1 || replies[0].Translate != "commands.data.block.query" {
+		t.Fatalf("data get replies = %+v", replies)
+	}
 	got := replies[0].With[3].Plain()
 	for _, want := range []string{`SpawnPotentials: []`, `minecraft:spider`} {
 		if !strings.Contains(got, want) {
