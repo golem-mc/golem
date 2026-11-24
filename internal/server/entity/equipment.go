@@ -321,7 +321,7 @@ func (m *Mob) lootPickupEligible() bool {
 		(m.Type != TypeSulfurCube || !m.IsBaby() && !m.NoAI && m.sulfur.pickupTimer <= 0)
 }
 
-func (mobs Mobs) lootGrid(items []LootItem) *BoxGrid {
+func (mobs Mobs) lootGrid(items []LootItem, grid *BoxGrid) *BoxGrid {
 	const minPickers, minItems = 8, 32
 	if len(mobs) < minPickers || len(items) < minItems {
 		return nil
@@ -338,7 +338,7 @@ func (mobs Mobs) lootGrid(items []LootItem) *BoxGrid {
 	if eligible < minPickers {
 		return nil
 	}
-	grid := &BoxGrid{}
+	grid.Reset()
 	for i := range items {
 		if loot := &items[i]; !loot.Stack.Empty() {
 			grid.Add(int32(i), loot.box())
@@ -353,7 +353,13 @@ func (mobs Mobs) lootGrid(items []LootItem) *BoxGrid {
 // equips nobody.
 // vanilla: Mob.aiStep's looting, pickUpItem, equipItemIfPossible
 func (mobs Mobs) TakeLoot(items []LootItem) []LootTake {
-	grid := mobs.lootGrid(items)
+	var grid BoxGrid
+	return mobs.TakeLootWithGrid(items, &grid)
+}
+
+// TakeLootWithGrid decides pickups using the caller's reusable spatial index.
+func (mobs Mobs) TakeLootWithGrid(items []LootItem, grid *BoxGrid) []LootTake {
+	grid = mobs.lootGrid(items, grid)
 	var takes []LootTake
 	for _, m := range mobs {
 		if !m.lootPickupEligible() {
