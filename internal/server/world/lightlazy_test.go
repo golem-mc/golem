@@ -65,42 +65,71 @@ func TestRelightedLightReachesPacketAndSave(t *testing.T) {
 		t.Fatal("the save does not carry the new light")
 	}
 
-	// Each form is built on its own, in either order, retained or evicted.
-	forms := func(chunkFirst bool) (light, chunkLight []byte) {
-		w.mu.RLock()
-		defer w.mu.RUnlock()
-		if chunkFirst {
-			chunkLight, light = c.chunkLightForm(), c.lightForm()
-		} else {
-			light, chunkLight = c.lightForm(), c.chunkLightForm()
-		}
-		if !bytes.Equal(light, c.encodeLight()) || !bytes.Equal(chunkLight, c.encodeChunkLight()) {
-			t.Fatalf("forms differ from the encoders (chunk first %v)", chunkFirst)
-		}
-		return light, chunkLight
-	}
-	for i, chunkFirst := range []bool{true, false, true, false} {
+	// Each form is built on its own, in either read order. A retained chunk
+	// fills only the slot read; an evicted one rebuilds without filling either.
+	torch := false
+	for _, tc := range []struct{ chunkFirst, evict bool }{{true, false}, {false, false}, {true, true}, {false, true}} {
 		w.HoldChunkPacket(pos)
 		w.CachedChunkPacket(c)
-		if i%2 == 0 {
-			w.SetBlock(5, 70, 5, airState)
-		} else {
+		w.mu.RLock()
+		beforeLight, beforeChunk := c.encodeLight(), c.encodeChunkLight()
+		w.mu.RUnlock()
+		torch = !torch
+		if torch {
 			w.SetBlock(5, 70, 5, torchState)
+		} else {
+			w.SetBlock(5, 70, 5, airState)
 		}
 		<-w.RelightAreaAsync(5, 5, 5, 5)
-		if i >= 2 {
-			// Evict: empty chunks push this one past the recent bound.
+
+		w.mu.RLock()
+		if !c.lightFormsInit || c.lightEncoded != nil || c.chunkLightEncoded != nil {
+			t.Fatalf("%+v: a relight should leave both forms to be built", tc)
+		}
+		if bytes.Equal(beforeLight, c.encodeLight()) || bytes.Equal(beforeChunk, c.encodeChunkLight()) {
+			t.Fatalf("%+v: the edit changed no light", tc)
+		}
+		w.mu.RUnlock()
+
+		if tc.evict {
 			w.ReleaseChunkPacket(pos)
 			for j := range recentChunkPackets + 1 {
 				w.CachedChunkPacket(newChunk(int32(j+1), 0))
 			}
-			if c.lightEncoded != nil || c.chunkLightEncoded != nil {
-				t.Fatal("the chunk was not evicted")
+			c.lightFormsMu.Lock()
+			retained := c.lightFormsRetained
+			c.lightFormsMu.Unlock()
+			if retained || c.packet.packet != nil {
+				t.Fatalf("%+v: the chunk was not evicted", tc)
 			}
-		} else {
-			defer w.ReleaseChunkPacket(pos)
 		}
-		forms(chunkFirst)
-		forms(!chunkFirst)
+		read := func(chunkLight bool) {
+			w.mu.RLock()
+			defer w.mu.RUnlock()
+			var got, want []byte
+			if chunkLight {
+				got, want = c.chunkLightForm(), c.encodeChunkLight()
+			} else {
+				got, want = c.lightForm(), c.encodeLight()
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("%+v: form (chunk light %v) differs from its encoder", tc, chunkLight)
+			}
+		}
+		slots := func() (bool, bool) { return c.lightEncoded != nil, c.chunkLightEncoded != nil }
+		read(tc.chunkFirst)
+		light, chunkLight := slots()
+		wantFirst := !tc.evict
+		if tc.chunkFirst && (light || chunkLight != wantFirst) || !tc.chunkFirst && (chunkLight || light != wantFirst) {
+			t.Fatalf("%+v: first read filled light %v, chunk light %v", tc, light, chunkLight)
+		}
+		read(!tc.chunkFirst)
+		light, chunkLight = slots()
+		if light != wantFirst || chunkLight != wantFirst {
+			t.Fatalf("%+v: after both reads light %v, chunk light %v", tc, light, chunkLight)
+		}
+		if !tc.evict {
+			w.ReleaseChunkPacket(pos)
+		}
 	}
 }
