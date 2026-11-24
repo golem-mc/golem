@@ -20,20 +20,12 @@ func goatSpawnAngles(t *testing.T, srv *server.Server, c *servertest.Client) (ya
 		if id != protocol.IDPlaySpawnEntity {
 			return false
 		}
-		if _, typ := servertest.SpawnEntityHead(data); typ != goat {
+		typ, _, y, h := servertest.ReadSpawnEntity(t, data)
+		if typ != goat {
 			return false
 		}
-		r := protocol.NewReader(data)
-		r.ReadVarInt()
-		r.ReadUUID()
-		r.ReadVarInt()
-		r.ReadF64()
-		r.ReadF64()
-		r.ReadF64()
-		r.ReadLpVec3()
-		r.ReadAngle()
-		yaw, head = r.ReadAngle(), r.ReadAngle()
-		return r.Err() == nil
+		yaw, head = y, h
+		return true
 	}) {
 		t.Fatal("no goat spawned")
 	}
@@ -68,7 +60,11 @@ func TestASummonedGoatSendsAHeadNearTheBodyItWasGiven(t *testing.T) {
 // the egg's data loads, so a custom egg without Rotation keeps them equal.
 func TestACustomGoatEggSendsMatchingBodyAndHeadYaw(t *testing.T) {
 	t.Parallel()
-	srv, c := servertest.EggPlayer(t, "creative", "GoatEgg", "minecraft:goat_spawn_egg", 1)
+	cfg := goatRotationConfig()
+	cfg.GameMode = "creative"
+	srv, c := servertest.Join(t, cfg, "GoatEgg")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
 	srv.GiveSlot("GoatEgg", player.HotbarSlot,
 		eggWithData(t, "minecraft:goat_spawn_egg", "minecraft:goat", nbt.Compound{"id": nbt.String("minecraft:goat"), "NoAI": nbt.Byte(1)}))
 	servertest.HoldTicks(t, srv)
