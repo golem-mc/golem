@@ -604,16 +604,45 @@ func (s *Server) arrowSpawnedFrom(it *arrowEntity, ammo, weapon protocol.ItemSta
 	}
 }
 
-// arrowSpawned runs the weapon's projectile_spawned effects at the new arrow.
-func (s *Server) arrowSpawned(it *arrowEntity, weapon protocol.ItemStack) {
+// arrowSpawned runs the item's projectile_spawned effects at the new arrow.
+func (s *Server) arrowSpawned(it *arrowEntity, item protocol.ItemStack) {
 	a := it.arrow
-	s.projectileSpawned(it.w, weapon, enchantTarget{uuid: it.uuid, x: a.X, y: a.Y, z: a.Z, width: .5, height: .5, entityID: a.ID, causeID: a.OwnerID})
+	ctx := s.spawnedContext(it.w, [3]float64{a.X, a.Y, a.Z}, func() *rules.LootEntity {
+		snap := s.arrowSnapshot(it, nil)
+		if snap == nil {
+			return &rules.LootEntity{Type: arrowTypeName(it)}
+		}
+		return snapshotLoot(snap)()
+	})
+	s.projectileSpawned(it.w, item, enchantTarget{uuid: it.uuid, x: a.X, y: a.Y, z: a.Z, width: .5, height: .5, entityID: a.ID, causeID: a.OwnerID},
+		ctx, func(ticks int32) {
+			s.arrowsMu.Lock()
+			a.FireTicks = max(a.FireTicks, int(ticks))
+			s.arrowsMu.Unlock()
+		})
 }
 
-// projectileSpawned runs the weapon's projectile_spawned effects at a new projectile.
+// spawnedContext is the context a projectile_spawned requirement reads: the
+// projectile as "this" and its position as the origin.
+// vanilla: Enchantment.entityContext
+func (s *Server) spawnedContext(w *world.World, at [3]float64, body func() *rules.LootEntity) *rules.EnchContext {
+	return &rules.EnchContext{
+		Rand:   s.levelRng,
+		BodyOf: body,
+		LootWorld: func(loot *rules.LootContext) {
+			s.fillBlowWorld(w, loot, at)
+		},
+	}
+}
+
+// projectileSpawned runs the item's projectile_spawned effects at a new
+// projectile in order; ignite, when not nil, sets the projectile's burn.
 // vanilla: EnchantmentHelper.onProjectileSpawned
-func (s *Server) projectileSpawned(w *world.World, weapon protocol.ItemStack, body enchantTarget) {
-	for _, e := range rules.ProjectileSpawnedEffects(weapon) {
+func (s *Server) projectileSpawned(w *world.World, item protocol.ItemStack, body enchantTarget, ctx *rules.EnchContext, ignite func(ticks int32)) {
+	for _, e := range rules.ProjectileSpawnedEffects(item, ctx) {
+		if ignite != nil && e.Effect.Duration != nil {
+			ignite(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Effect.Duration, e.Level))))
+		}
 		s.applyPackEffects(w, e.Effect, e.Level, body)
 	}
 }
@@ -1022,10 +1051,9 @@ func (t *mobDimTick) shotArrow(fx *mobEffects, ev entity.MobEvent) {
 		// vanilla: ProjectileUtil.getWeaponHoldingHand falls back to the off hand
 		shot.weapon = ev.Mob.OffHand
 	}
-	shot.fireTicks = rules.ProjectileIgniteTicks(shot.weapon)
 	if ev.Mob.Type == entity.TypeWitherSkeleton {
 		// vanilla: WitherSkeleton.getArrow, igniteForSeconds(100)
-		shot.fireTicks = max(shot.fireTicks, rules.IgniteTicks(100))
+		shot.fireTicks = rules.IgniteTicks(100)
 	}
 	if ent, ok := h.book[ev.Mob]; ok {
 		shot.shooterUUID = ent.uuid

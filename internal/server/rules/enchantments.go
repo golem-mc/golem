@@ -744,37 +744,22 @@ func enchRollBetween(rng *rand.Rand, min, max float64) float64 {
 	return float64(rng.Float32()*float32(max-min) + float32(min))
 }
 
-// ProjectileIgniteTicks is the longest burn a stack's projectile_spawned
-// ignite effects give the projectile (Flame burns for 100 s).
-// vanilla: EnchantmentHelper.onProjectileSpawned
-func ProjectileIgniteTicks(stack protocol.ItemStack) int32 {
-	var best int32
-	for _, ench := range enchantsOn(stack) {
-		for _, spawned := range ench.def.Effects.ProjectileSpawned {
-			if !enchCondition(spawned.Requires, &EnchContext{}) {
-				continue
-			}
-			if ticks := IgniteTicks(enchLevelValue(spawned.Effect.Duration, ench.level)); ticks > best {
-				best = ticks
-			}
-		}
-	}
-	return best
-}
-
 // LeveledEffect is an entity effect with the level of the enchantment it came from.
 type LeveledEffect struct {
 	Level  int32
 	Effect registry.EnchEntityEffect
 }
 
-// ProjectileSpawnedEffects lists the weapon's projectile_spawned effects.
-// vanilla: EnchantmentHelper.onProjectileSpawned
-func ProjectileSpawnedEffects(weapon protocol.ItemStack) []LeveledEffect {
+// ProjectileSpawnedEffects lists the item's projectile_spawned effects whose
+// requirements the spawn passes, each tested at its enchantment's level.
+// vanilla: EnchantmentHelper.onProjectileSpawned, Enchantment.applyEffects
+func ProjectileSpawnedEffects(weapon protocol.ItemStack, ctx *EnchContext) []LeveledEffect {
 	var out []LeveledEffect
 	for _, ench := range enchantsOn(weapon) {
+		here := *ctx
+		here.Level = ench.level
 		for _, spawned := range ench.def.Effects.ProjectileSpawned {
-			if enchCondition(spawned.Requires, &EnchContext{}) {
+			if enchCondition(spawned.Requires, &here) {
 				out = append(out, LeveledEffect{ench.level, spawned.Effect})
 			}
 		}

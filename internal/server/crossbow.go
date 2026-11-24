@@ -201,7 +201,10 @@ func (c *client) fireCrossbow(hand int32) {
 			s.registerFirework(rocket)
 			r := rocket.rocket
 			s.projectileSpawned(c.theWorld(), projectile, enchantTarget{uuid: rocket.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25,
-				entityID: r.ID, causeID: c.player.EntityID})
+				entityID: r.ID, causeID: c.player.EntityID},
+				s.spawnedContext(c.theWorld(), [3]float64{r.X, r.Y, r.Z}, func() *rules.LootEntity {
+					return &rules.LootEntity{Type: registry.EntityType(protocol.EntityTypeFireworkRocket).Name()}
+				}), nil)
 			c.shotSoundAndWear(hand, i, firework)
 			if c.heldItem(hand).Empty() {
 				break
@@ -217,7 +220,7 @@ func (c *client) fireCrossbow(hand int32) {
 		it := newArrowEntity(s, c.theWorld(),
 			pos.X, pos.Y+c.dims(c.player.Appearance().Pose).EyeHeight-entity.ArrowSpawnBelow, pos.Z,
 			vx, vy, vz, yaw, pitch, true, entity.ArrowBaseDamage, pickup,
-			c.player.EntityID, c.player.UUID, crossbow, rules.ProjectileIgniteTicks(crossbow))
+			c.player.EntityID, c.player.UUID, crossbow, 0)
 		armArrow(it, projectile)
 		it.arrow.PierceLevel = rules.PiercingLevel(crossbow, projectile, &rules.EnchContext{Rand: s.levelRng})
 		it.arrow.HitSound = crossbowHitSound
