@@ -804,9 +804,9 @@ type pushGrid struct {
 	crowd *PushCrowd
 	cells map[pushCellKey][]pushEntry
 	// dense covers compact herds; cells then holds only moves outside its bounds.
-	dense                    []pushBucket
-	entries                  []pushEntry
-	minX, minZ, sizeX, sizeZ int
+	dense   []pushBucket
+	entries []pushEntry
+	rect    denseRect
 	// present marks the types in the snapshot, set by build.
 	present [registry.EntityTypeCount]bool
 	// byID is the snapshot by entity ID, the first mob filed winning a
@@ -850,15 +850,11 @@ func (g *pushGrid) build(mobs []*Mob) {
 		minX, minZ = min(minX, x), min(minZ, z)
 		maxX, maxZ = max(maxX, x), max(maxZ, z)
 	}
-	nx, nz := maxX-minX+1, maxZ-minZ+1
-	limit := 4 * len(mobs)
-	// Divide before multiplying: widely scattered coordinates must not overflow.
-	if nx > 0 && nz > 0 && nx <= limit && nz <= limit/nx {
-		g.minX, g.minZ, g.sizeX, g.sizeZ = minX, minZ, nx, nz
-		g.dense = slices.Grow(g.dense, nx*nz)[:nx*nz]
+	if total, ok := g.rect.set(minX, maxX, minZ, maxZ, 4*len(mobs)); ok {
+		g.dense = slices.Grow(g.dense, total)[:total]
 		for _, m := range mobs {
 			x, z := cellCoords(m.X, m.Z)
-			g.dense[(x-minX)*nz+z-minZ].count++
+			g.dense[g.rect.row(x)+z-g.rect.minZ].count++
 		}
 		g.entries = slices.Grow(g.entries, len(mobs))[:len(mobs)]
 		offset := 0
@@ -879,11 +875,7 @@ func (g *pushGrid) build(mobs []*Mob) {
 
 // denseIndex returns -1 outside the tick's dense rectangle.
 func (g *pushGrid) denseIndex(cell pushCellKey) int {
-	x, z := int(int32(int64(cell)>>32))-g.minX, int(int32(cell))-g.minZ
-	if uint(x) < uint(g.sizeX) && uint(z) < uint(g.sizeZ) {
-		return x*g.sizeZ + z
-	}
-	return -1
+	return g.rect.index(int(int32(int64(cell)>>32)), int(int32(cell)))
 }
 
 func (g *pushGrid) cell(cell pushCellKey) []pushEntry {
@@ -937,7 +929,7 @@ func (g *pushGrid) reset() {
 	g.dense = g.dense[:0]
 	clear(g.entries)
 	g.entries = g.entries[:0]
-	g.sizeX, g.sizeZ = 0, 0
+	g.rect.reset()
 	clear(g.byID)
 	clear(g.near[:cap(g.near)])
 	g.near = g.near[:0]
@@ -1046,11 +1038,12 @@ func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 			}
 		}
 	}
-	if len(g.dense) > 0 && len(g.cells) == 0 {
-		for x := max(cx-r, g.minX); x <= min(cx+r, g.minX+g.sizeX-1); x++ {
-			row := (x - g.minX) * g.sizeZ
-			for z := max(cz-r, g.minZ); z <= min(cz+r, g.minZ+g.sizeZ-1); z++ {
-				collect(g.dense[row+z-g.minZ].entries)
+	if g.rect.active() && len(g.cells) == 0 {
+		loX, hiX, loZ, hiZ := g.rect.clip(cx-r, cx+r, cz-r, cz+r)
+		for x := loX; x <= hiX; x++ {
+			row := g.rect.row(x)
+			for z := loZ; z <= hiZ; z++ {
+				collect(g.dense[row+z-g.rect.minZ].entries)
 			}
 		}
 	} else {
