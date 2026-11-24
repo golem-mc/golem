@@ -172,7 +172,9 @@ func TestCandleOnCakeVibration(t *testing.T) {
 	c.Settle()
 	c.PlaceBlock(0, 64, 4, protocol.FaceTop)
 	c.Settle()
-	servertest.RunTicks(t, srv, 10)
+	servertest.UntilTicks(t, srv, 10, "the comparator to give 11", func() bool {
+		return servertest.WirePowerAt(srv, 6, 64, 4) == "11"
+	})
 	if got := srv.BlockAt(0, 64, 4); got != servertest.MustState(t, "minecraft:red_candle_cake", map[string]string{"lit": "false"}) {
 		t.Fatalf("block = %d, want unlit red candle cake", got)
 	}
