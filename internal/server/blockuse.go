@@ -337,8 +337,9 @@ func (c *client) useJukebox(hand, x, y, z int32) bool {
 	c.srv.setJukeboxHasRecord(w, x, y, z, true)
 	c.srv.broadcastLevelEvent(w,
 		protocol.WorldEventJukeboxPlay, x, y, z, registry.JukeboxSongID(song))
-	// vanilla: JukeboxPlayable.tryInsertIntoJukebox
-	c.gameEventAt(rules.GameEventBlockChange, float64(x)+.5, float64(y)+.5, float64(z)+.5, before)
+	// In w, not the player's world: a listener of the first event may have
+	// moved the player. vanilla: JukeboxPlayable.tryInsertIntoJukebox
+	c.srv.gameEvent(w, rules.GameEventBlockChange, float64(x)+.5, float64(y)+.5, float64(z)+.5, c.gameEventContext(before))
 
 	return true
 }

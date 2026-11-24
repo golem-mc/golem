@@ -2,9 +2,12 @@ package plugins_test
 
 import (
 	"reflect"
+	"slices"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
@@ -240,5 +243,45 @@ func TestPluginJukeboxRecordReplacePostsOneBlockChange(t *testing.T) {
 	run(func() { jukebox.SetRecord(plugin.NewStack(registry.ItemMusicDisc13, 1)) })
 	if got := events.Load(); got != 1 {
 		t.Errorf("replacing the record posted %d block_change events, want 1", got)
+	}
+}
+
+// TestPluginJukeboxInsertEventsStayInJukeboxWorld moves the inserting player
+// to the Nether from the first block_change listener; the player-attributed
+// one still fires in the jukebox's world.
+// vanilla: JukeboxPlayable.tryInsertIntoJukebox
+func TestPluginJukeboxInsertEventsStayInJukeboxWorld(t *testing.T) {
+	t.Parallel()
+	var worlds []plugin.Key
+	var host plugin.Server
+	srv, host, c := blockScene(t, "minecraft:music_disc_cat", false, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.GenericGameEvent) {
+			if e.Event != plugin.MinecraftKey("block_change") || e.Pos != (plugin.Vec3{X: 2.5, Y: 64.5, Z: 0.5}) {
+				return
+			}
+			worlds = append(worlds, e.World.Key())
+			if e.Entity == nil {
+				p, _ := host.PlayerNamed("Miner")
+				nether, _ := host.World(plugin.MinecraftKey("the_nether"))
+				p.Teleport(plugin.Location{World: nether, Pos: plugin.Vec3{X: 0.5, Y: 70, Z: 0.5}}, plugin.TeleportPlugin)
+			}
+		})
+	})
+	d := servertest.DigTarget
+	srv.SetBlock(d[0], d[1], d[2], servertest.BlockState(t, "minecraft:jukebox"))
+	c.Settle()
+	n := 0
+	c.PlaceBlock(d[0], d[1], d[2], protocol.FaceTop)
+	for i := 0; n < 2; i++ {
+		if i == 4000 {
+			t.Fatalf("block_change events in %v, want 2", worlds)
+		}
+		servertest.RunTicks(t, srv, 1)
+		time.Sleep(5 * time.Millisecond)
+		n = len(worlds)
+	}
+	overworld := plugin.MinecraftKey("overworld")
+	if !slices.Equal(worlds, []plugin.Key{overworld, overworld}) {
+		t.Errorf("block_change events in %v, want both in the overworld", worlds)
 	}
 }
