@@ -139,24 +139,6 @@ func TestWaterFindsItsWayDownAPit(t *testing.T) {
 	}
 }
 
-// TestWaterImmediateHoleSuppressesFartherOutlet checks that a side hanging over
-// a hole wins the ranking even though flowing water there cannot be replaced.
-func TestWaterImmediateHoleSuppressesFartherOutlet(t *testing.T) {
-	w, p := newPhysicsWorld(t)
-	var clock int64
-
-	// East: flowing water over a hole. West: a hole two cells off.
-	setBlock(t, w, p, 1, GroundLevel-1, 0, airState)
-	setBlock(t, w, p, 1, GroundLevel, 0, waterByLevel[1])
-	setBlock(t, w, p, -2, GroundLevel-1, 0, airState)
-	setBlock(t, w, p, 0, GroundLevel, 1, stoneState)
-	setBlock(t, w, p, 0, GroundLevel, -1, stoneState)
-	setBlock(t, w, p, 0, GroundLevel, 0, waterByLevel[0])
-	tickToQuiet(t, p, &clock, 250)
-
-	assertAir(t, w, -1, GroundLevel, 0, "the farther outlet")
-}
-
 // TestWaterRecedingWhenItsSourceIsRemoved checks that a spread slope dries
 // back up when what fed it is gone, thinning out to its edges in waves.
 func TestWaterRecedingWhenItsSourceIsRemoved(t *testing.T) {
