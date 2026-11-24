@@ -3,6 +3,7 @@ package commands
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
@@ -129,13 +130,20 @@ func TestLootSequenceKeepsCandidatesBeforeFailure(t *testing.T) {
 // vanilla: EntryGroup.compose, AlternativesEntry.compose
 func TestLootSingleChildGroupFailureFallsThrough(t *testing.T) {
 	t.Parallel()
-	srv, c := dialItemBarrel(t)
-	c.ChatCommand(`loot insert 2 64 3 loot {pools:[{rolls:1,entries:[{type:"minecraft:alternatives",children:[` +
+	cfg := servertest.ItemCreativeConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand(`loot give @s loot {pools:[{rolls:1,entries:[{type:"minecraft:alternatives",children:[` +
 		`{type:"minecraft:group",children:[{type:"minecraft:item",name:"minecraft:diamond",condition:{type:"minecraft:random_chance",chance:0}}]},` +
 		`{type:"minecraft:item",name:"minecraft:stick"}]}]}]}`)
-	c.ExpectPlay(protocol.IDPlaySystemChat)
-	if got := barrelItems(srv, "minecraft:stick"); got != 1 {
-		t.Fatalf("loot awarded %d sticks, want one stick", got)
+	r := protocol.NewReader(c.ExpectWithinTicks(srv, 0, protocol.IDPlayContainerSlot))
+	r.ReadVarInt() // container
+	r.ReadVarInt() // state
+	slot := r.ReadI16()
+	if got := servertest.MustReadSlot(t, r); slot != 36 || got.ItemID != servertest.MustItem("minecraft:stick") || got.Count != 1 || r.Err() != nil {
+		t.Fatalf("slot update = %d, %+v, %v, want one stick in the main hand", slot, got, r.Err())
 	}
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
 	c.Disconnect()
 }
