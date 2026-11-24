@@ -1295,13 +1295,15 @@ type Player struct {
 	// Passenger says the body rides a vehicle; cramming leaves it out.
 	// vanilla: Entity.isPassenger
 	Passenger bool
-	// OnHappyGhast says the body's root vehicle is a happy ghast.
+	// OnHappyGhast says the player is seated on a happy ghast.
 	// vanilla: HappyGhast.scanPlayerAboveGhast
 	OnHappyGhast bool
 	// BoatDriver and NautilusDriver identify controlling passengers for dolphin following.
 	BoatDriver, NautilusDriver bool
-	// RideBox is the vehicle's min X/Y/Z followed by max X/Y/Z.
-	RideBox [6]float64
+	// RideBox is the immediate vehicle's box, or zero on foot.
+	RideBox AABB
+	// RideRoot is the root vehicle's feet and the top of its dimensions.
+	RideRoot struct{ X, Y, Z, Top float64 }
 
 	// Spectator is a spectator, left out of the despawn's nearest-player
 	// distance.

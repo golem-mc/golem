@@ -57,22 +57,6 @@ func (c *client) applyDolphinGrace() {
 	}, "minecraft:dolphin")
 }
 
-// dolphinRiderSnapshot reads the vehicles before the mob tick takes its lock.
-func (c *client) dolphinRiderSnapshot(p *entity.Player) {
-	s := c.srv
-	if it := c.vehicle.Load(); it != nil {
-		s.boatsMu.Lock()
-		p.BoatDriver = it.driver() == c
-		p.RideBox[0], p.RideBox[1], p.RideBox[2], p.RideBox[3], p.RideBox[4], p.RideBox[5] = it.boat.Box()
-		s.boatsMu.Unlock()
-	} else if it := c.mount.Load(); it != nil && entity.IsNautilus(it.mob.Type) {
-		s.mobsMu.Lock()
-		p.NautilusDriver = it.rider == c && !it.mob.Horse.Saddle.Empty()
-		p.RideBox[0], p.RideBox[1], p.RideBox[2], p.RideBox[3], p.RideBox[4], p.RideBox[5] = it.mob.BlastBox()
-		s.mobsMu.Unlock()
-	}
-}
-
 func (t *mobDimTick) dolphinEvent(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent) {
 	if ev.Kind == entity.MobDolphinTreasure {
 		fx.entityEvent(t.w, ev.Mob.ID, 38) // vanilla: DolphinSwimToTreasureGoal.start
