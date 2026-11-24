@@ -2468,7 +2468,8 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 		into, held     fluidState
 		eligible, hole bool
 	}
-	hasHole := false
+	hasHole, anyDiffers := false, false
+	eligible := 0
 	for i, d := range horizontal4 {
 		tx, tz := x+d[0], z+d[1]
 		tState := c.state(tx, tz)
@@ -2487,6 +2488,12 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 		side.eligible = true
 		side.hole = c.isHole(tx, tz)
 		hasHole = hasHole || side.hole
+		eligible++
+		anyDiffers = anyDiffers || tFS.kind != fs.kind
+	}
+	// Every eligible side already holds this fluid, which no write replaces.
+	if !anyDiffers {
+		return
 	}
 	var sends [4]bool
 	lowest := 1000
@@ -2497,7 +2504,8 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 		}
 		tx, tz := x+d[0], z+d[1]
 		distance := 0
-		if !hasHole {
+		// A lone outlet wins at any distance.
+		if !hasHole && eligible > 1 {
 			ti, _ := c.index(tx, tz)
 			distance = c.slopeDistance(ti, 1, i^2, min(b.slopeFindDistance, lowest))
 		}
