@@ -134,7 +134,7 @@ func (c *client) handleSetStructureBlock(r *protocol.Reader) error {
 		}
 	}
 	c.srv.storeStructureBlock(w, x, y, z, sb)
-	c.srv.tellBlockEntity(w, x, y, z, world.KindStructureBlock, false)
+	c.srv.tellCarriedBlockEntity(w, x, y, z, world.KindStructureBlock)
 	return nil
 }
 
