@@ -1,6 +1,8 @@
 package server
 
 import (
+	"slices"
+
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/world"
 )
@@ -34,10 +36,12 @@ type mobCollisionWorld struct {
 	entity.Bodies
 	grid entity.BoxGrid
 	mobs map[*entity.Mob]int32
-	// shulkers indexes the shulker hulls in Boxes.
-	shulkers []int32
+	// shulkers marks the shulker hulls in Boxes.
+	shulkers []bool
 	skip     []int32
 	riders   []*entity.Mob
+	// view is ForMob's result, reused so a mover's view is not boxed anew.
+	view entity.Bodies
 }
 
 // reset requires mobsMu; the hulls were read before taking it. The returned
@@ -49,16 +53,15 @@ func (w *mobCollisionWorld) reset(level *world.World, hulls []entity.AABB, herd 
 	w.grid.Reset()
 	w.Grid = &w.grid
 	clear(w.mobs)
-	w.shulkers = w.shulkers[:0]
+	w.shulkers = slices.Grow(w.shulkers[:0], len(hulls))[:len(hulls)]
+	clear(w.shulkers)
 	for _, m := range herd {
 		if m.CollidesWithAny() {
 			if w.mobs == nil {
 				w.mobs = make(map[*entity.Mob]int32)
 			}
 			w.mobs[m] = int32(len(w.Boxes))
-			if m.IsShulker() {
-				w.shulkers = append(w.shulkers, int32(len(w.Boxes)))
-			}
+			w.shulkers = append(w.shulkers, m.IsShulker())
 			w.Boxes = append(w.Boxes, entity.NewAABB(m.BlastBox()))
 		}
 	}
@@ -74,14 +77,15 @@ func (w *mobCollisionWorld) reset(level *world.World, hulls []entity.AABB, herd 
 // ForMob excludes the mover and its current ride tree, and for a shulker
 // every shulker hull: its tick reads those live from the herd, and a hull
 // recorded before the tick would still block where a carried shulker left.
-// Called under mobsMu; its Skip storage lasts until the next mover's
-// synchronous tick starts.
+// Called under mobsMu; the view lasts until the next mover's synchronous
+// tick starts.
 // vanilla: Entity.isPassengerOfSameVehicle
 func (w *mobCollisionWorld) ForMob(m *entity.Mob) entity.World {
-	b := w.Bodies
+	w.view = w.Bodies
+	b := &w.view
 	w.skip = w.skip[:0]
 	if m.IsShulker() {
-		w.skip = append(w.skip, w.shulkers...)
+		b.Drop = w.shulkers
 	}
 	w.riders = append(w.riders, m.RootVehicle())
 	for len(w.riders) > 0 {

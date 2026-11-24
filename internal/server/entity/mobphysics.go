@@ -796,6 +796,9 @@ func (g *pushGrid) entryOf(m *Mob) pushEntry {
 	if hw > g.wide {
 		g.wide = hw
 	}
+	if hw > g.shulkerWide && m.IsShulker() {
+		g.shulkerWide = hw
+	}
 	return pushEntry{
 		m:    m,
 		minX: m.X - hw, maxX: m.X + hw,
@@ -822,8 +825,9 @@ type pushGrid struct {
 	// byID is the snapshot by entity ID, the first mob filed winning a
 	// shared ID; kept between ticks like cells.
 	byID map[int32]*Mob
-	// wide bounds the half-width of every box filed this tick.
-	wide float64
+	// wide bounds the half-width of every box filed this tick, shulkerWide
+	// that of every shulker's.
+	wide, shulkerWide float64
 	// caravan is the snapshot's llamas that are leashed or in a caravan, plus
 	// those that joined one this tick: the only ones a caravan goal can pick.
 	caravan []*Mob
@@ -946,7 +950,7 @@ func (g *pushGrid) reset() {
 	g.near = g.near[:0]
 	clear(g.caravan)
 	g.caravan = g.caravan[:0]
-	g.wide, g.gathered, g.crammingSet, g.crowd = 0, nil, false, nil
+	g.wide, g.shulkerWide, g.gathered, g.crammingSet, g.crowd = 0, 0, nil, false, nil
 }
 
 // file appends e to cell and returns its slot.
@@ -1028,22 +1032,33 @@ func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 	hw := m.width() / 2
 	// The same sums boxesOverlap does, once for the query.
 	qw, qh := hw+inflate, m.height()+inflate
-	return g.query(AABB{m.X - qw, m.Y - inflate, m.Z - qw, m.X + qw, m.Y + qh, m.Z + qw})
+	return g.query(AABB{m.X - qw, m.Y - inflate, m.Z - qw, m.X + qw, m.Y + qh, m.Z + qw}, g.wide)
 }
 
-// gatherBox collects the mobs whose cell box meets box grown by margin, in no
-// set order. The result is scratch valid until the next query.
-func (g *pushGrid) gatherBox(box AABB, margin float64) []*Mob {
-	return g.query(box.inflate(margin, margin, margin))
+// shulkersNear collects, in snapshot order, the shulkers whose hull may meet
+// box: a hull reaches 1.5 of its scale from its position, the cell box 0.5,
+// so three half-widths of the widest shulker cover it. Snapshot order keeps a
+// shove's step-up as a whole-herd scan has it. The result is scratch valid
+// until the next query.
+func (g *pushGrid) shulkersNear(box AABB) []*Mob {
+	if g.shulkerWide == 0 {
+		return g.near[:0]
+	}
+	margin := 3 * g.shulkerWide
+	g.query(box.inflate(margin, margin, margin), g.shulkerWide)
+	g.near = slices.DeleteFunc(g.near, func(o *Mob) bool { return !o.IsShulker() })
+	slices.SortFunc(g.near, func(a, b *Mob) int { return cmp.Compare(a.pushIdx, b.pushIdx) })
+	return g.near
 }
 
-// query collects the mobs whose entry box overlaps q.
-func (g *pushGrid) query(q AABB) []*Mob {
+// query collects the mobs whose entry box overlaps q; wide bounds the
+// half-width of the boxes sought.
+func (g *pushGrid) query(q AABB, wide float64) []*Mob {
 	g.near = g.near[:0]
 	qMinX, qMaxX, qMinY, qMaxY, qMinZ, qMaxZ := q.minX, q.maxX, q.minY, q.maxY, q.minZ, q.maxZ
 	// A target can overlap even when its centre is outside the query box.
-	minX, minZ := cellCoords(qMinX-g.wide, qMinZ-g.wide)
-	maxX, maxZ := cellCoords(qMaxX+g.wide, qMaxZ+g.wide)
+	minX, minZ := cellCoords(qMinX-wide, qMinZ-wide)
+	maxX, maxZ := cellCoords(qMaxX+wide, qMaxZ+wide)
 	seen := 0
 	collect := func(c []pushEntry) {
 		seen += len(c)

@@ -79,6 +79,42 @@ func TestAnOpeningShellPushesTheMobInItsWay(t *testing.T) {
 	}
 }
 
+// TestAShellShoveReadsShulkerHullsInHerdOrder: a pig shoved east toward a
+// low shell, with a taller one just past it, steps onto the low one. The
+// taller shell's grid cell comes first; read in that order, its top would
+// stand as the obstacle and refuse the step.
+// vanilla: Shulker.onPeekAmountChange, Entity.collide
+func TestAShellShoveReadsShulkerHullsInHerdOrder(t *testing.T) {
+	w := newTestWorld()
+	opener := NewMob(TypeShulker, 1, 1.5, 63, 0.5, 3)
+	opener.shulker.face, opener.shulker.peekNow = faceWest, 0.4
+	// Both shells open west: the low one to X 2.5 (top 64), the tall one to
+	// about X 2.55 (top 65). The pig straddles both on Z, 0.01 short of the
+	// low one; the shove carries it 0.076.
+	low := NewMob(TypeShulker, 2, 3.5, 63, 0.5, 4)
+	low.shulker.face, low.shulker.peekNow = faceEast, 0.5
+	tall := NewMob(TypeShulker, 3, 3.5, 64, -0.5, 5)
+	tall.shulker.face, tall.shulker.peekNow = faceEast, 0.468
+	pig := NewMob(TypePig, 4, 2.04, 63.6, 0, 6)
+	pig.OnGround = true
+	herd := []*Mob{opener, low, tall, pig}
+	grid := takePushGrid(len(herd), nil)
+	defer grid.release()
+	grid.build(herd)
+	if cellOf(tall.X, tall.Z) == cellOf(low.X, low.Z) {
+		t.Fatal("the shells share a grid cell; the fixture no longer orders them apart")
+	}
+	for _, m := range herd {
+		m.push = grid
+	}
+	opener.shulker.peek = shulkerOpenPeek
+	tv := tickView{w: w, others: herd}
+	opener.stepShulkerPeek(opener.shulkerWorld(&tv), &tv)
+	if math.Abs(pig.Y-64) > 1e-9 {
+		t.Errorf("the shoved pig stands at Y %v, want 64 on the low shell", pig.Y)
+	}
+}
+
 // TestAShulkerKeepsItsColourInItsFile: Color is the dye id, 16 for none, and
 // anything past 15 reads as undyed.
 // vanilla: Shulker.readAdditionalSaveData, addAdditionalSaveData

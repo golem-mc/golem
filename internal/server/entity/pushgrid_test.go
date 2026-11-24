@@ -187,3 +187,28 @@ func assertPushCandidates(t *testing.T, grid *pushGrid, query *Mob, inflate floa
 		t.Errorf("candidate IDs %v, want %v in herd order", got, want)
 	}
 }
+
+// TestShulkerHullQueryIgnoresAWideNonShulker: a shulker's hull query is
+// bounded by the widest shulker, so one huge slime far off does not widen it
+// to the whole herd.
+func TestShulkerHullQueryIgnoresAWideNonShulker(t *testing.T) {
+	var herd []*Mob
+	for i := range 2000 {
+		herd = append(herd, NewMob(TypeCow, int32(i), float64(i%45)*2, 64, float64(i/45)*2, int64(i)))
+	}
+	shell := NewMob(TypeShulker, 2000, 40.5, 64, 40.5, 2000)
+	slime := NewMob(TypeSlime, 2001, 1000, 64, 1000, 2001)
+	slime.SetSize(127, true)
+	herd = append(herd, shell, slime)
+	var seen int
+	grid := takePushGrid(len(herd), &seen)
+	defer grid.release()
+	grid.build(herd)
+	got := grid.shulkersNear(shell.shulkerBox())
+	if len(got) != 1 || got[0] != shell {
+		t.Fatalf("query found %d shulkers, want only the shell", len(got))
+	}
+	if seen > 100 {
+		t.Errorf("query visited %d entries, want the few in the shell's cells", seen)
+	}
+}

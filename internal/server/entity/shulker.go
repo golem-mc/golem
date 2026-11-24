@@ -317,9 +317,7 @@ func (s shulkerWorld) BodyBoxes(box AABB) []AABB {
 	}
 	others := s.others
 	if s.self != nil && s.self.push != nil {
-		// A shulker's hull reaches 1.5 of its scale from its position, the
-		// grid's cell box 0.5: three half-widths of the widest body cover it.
-		others = s.self.push.gatherBox(box, 3*s.self.push.wide)
+		others = s.self.push.shulkersNear(box)
 	}
 	for _, o := range others {
 		if o.IsShulker() && o.Alive() && o.RootVehicle() != s.self.RootVehicle() {
