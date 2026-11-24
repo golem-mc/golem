@@ -74,4 +74,26 @@ func BenchmarkTNTBlastIndex(b *testing.B) {
 			idx.drop()
 		}
 	})
+
+	scattered := make([]*tntEntity, count)
+	for i := range count {
+		x := float64(i%64)*32 + 0.5
+		z := float64(i/64)*32 + 0.5
+		scattered[i] = &tntEntity{tnt: &entity.TNT{X: x, Y: 64, Z: z}}
+	}
+	b.Run("ScatteredBuild", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			idx.build(scattered)
+			idx.drop()
+		}
+	})
+	b.Run("ScatteredBuildAndNear", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			idx.build(scattered)
+			_ = idx.near(scattered, 16.5, 64.0, 16.5, 8)
+			idx.drop()
+		}
+	})
 }
