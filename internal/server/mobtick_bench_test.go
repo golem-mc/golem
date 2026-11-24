@@ -89,16 +89,26 @@ func BenchmarkTickMobsTicketed(b *testing.B) {
 	})
 }
 
+// BenchmarkTickMobsCowsInHerd is BenchmarkTickMobsShulkersInHerd without the
+// shulkers: the herd and the player alone.
+func BenchmarkTickMobsCowsInHerd(b *testing.B) {
+	benchTickMobs(b, herdMix(0), 96, 2000, func(s *Server, rng *rand.Rand) { addBenchPlayers(b, s, rng, 1) })
+}
+
 // BenchmarkTickMobsShulkersInHerd is BenchmarkTickMobs with 2000 cows and 50
 // shulkers added and one player, so the herd ticks and each shulker's
 // collision and push queries run beside a large herd.
 func BenchmarkTickMobsShulkersInHerd(b *testing.B) {
-	mix := []mobMix{
+	benchTickMobs(b, herdMix(50), 96, 2000, func(s *Server, rng *rand.Rand) { addBenchPlayers(b, s, rng, 1) })
+}
+
+// herdMix is the BenchmarkTickMobs mix plus 2000 cows and shulkers shulkers.
+func herdMix(shulkers int) []mobMix {
+	return []mobMix{
 		{entity.TypeCow, 45 + 2000}, {entity.TypePig, 45}, {entity.TypeSheep, 45}, {entity.TypeChicken, 35},
 		{entity.TypeZombie, 8}, {entity.TypeSkeleton, 8}, {entity.TypeCreeper, 7}, {entity.TypeSpider, 7},
-		{entity.TypeShulker, 50},
+		{entity.TypeShulker, shulkers},
 	}
-	benchTickMobs(b, mix, 96, 2000, func(s *Server, rng *rand.Rand) { addBenchPlayers(b, s, rng, 1) })
 }
 
 type mobMix struct {
