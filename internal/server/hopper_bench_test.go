@@ -219,6 +219,28 @@ func BenchmarkHopperCachedFailedPull(b *testing.B) {
 	}
 }
 
+// BenchmarkHopperDistantItems measures the block-entity pass with one hopper
+// and N drops outside its pickup area.
+func BenchmarkHopperDistantItems(b *testing.B) {
+	stone := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
+	for _, n := range []int{0, 1024, 8192} {
+		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 0)
+			b.Cleanup(w.HoldEntityTicking(world.ChunkPos{X: 0, Z: 0}))
+			w.SetBlock(4, 64, 4, registry.BlockHopper.DefaultState())
+			w.EnsureBlockEntity(4, 64, 4, world.KindHopper)
+			for i := range n {
+				s.spawnItem(w, stone, float64(100+i%64), 65, 2, 0, 0, 0, 0)
+			}
+			s.tickBlockEntities()
+			b.ReportAllocs()
+			for b.Loop() {
+				s.tickBlockEntities()
+			}
+		})
+	}
+}
+
 // BenchmarkHopperItemBox measures hopper item-box queries with N unrelated
 // items in distant chunks.
 func BenchmarkHopperItemBox(b *testing.B) {
