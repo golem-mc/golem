@@ -2,6 +2,7 @@ package rules
 
 import (
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/registry"
 )
 
 // LodestoneWorld is what a lodestone compass's tick reads of its dimension:
@@ -18,8 +19,12 @@ const worldBorderLimit = 30000000
 
 // ClearLostLodestone returns the stack with its tracker's target taken off,
 // and true, when the stack is a tracked lodestone compass that LodestoneLost
-// says has lost its lodestone.
+// says has lost its lodestone. Other items keep their tracker.
+// vanilla: CompassItem.inventoryTick
 func ClearLostLodestone(w LodestoneWorld, stack protocol.ItemStack, dim string, bottom, top int32) (protocol.ItemStack, bool) {
+	if registry.Item(stack.ItemID) != registry.ItemCompass {
+		return stack, false
+	}
 	tracker, ok := stack.LodestoneTrackerOf()
 	if !ok || !LodestoneLost(w, tracker, dim, bottom, top) {
 		return stack, false
