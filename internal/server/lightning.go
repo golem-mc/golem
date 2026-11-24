@@ -3,7 +3,6 @@ package server
 import (
 	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"math"
-	"math/rand"
 	"slices"
 	"time"
 
@@ -156,7 +155,7 @@ func boxOf(minX, minY, minZ, maxX, maxY, maxZ float64) rules.LightningBox {
 func (s *Server) spawnBolt(w *world.World, x, y, z float64, visualOnly bool, cause plugin.LightningCause) *boltEntity {
 	id := s.nextEntity()
 	it := &boltEntity{
-		bolt: entity.NewBolt(id, x, y, z, visualOnly, rand.New(rand.NewSource(s.entitySeed(id)))),
+		bolt: entity.NewBolt(id, x, y, z, visualOnly, entity.NewDice(s.entitySeed(id))),
 		w:    w,
 		uuid: uuid.New(),
 	}

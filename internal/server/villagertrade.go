@@ -312,7 +312,7 @@ func (s *Server) prepareTradeDraw(w *world.World, m *entity.Mob) mobTradeDraw {
 		x: rules.BlockOf(m.X), y: rules.BlockOf(m.Y), z: rules.BlockOf(m.Z),
 		previous: previous, finished: state.tail,
 		// The draw must not share the mob's RNG after releasing its lock.
-		rng: rand.New(rand.NewSource(m.Rand.Int63()))}
+		rng: entity.NewDice(m.Rand.Int63())}
 }
 
 // finishTradeDraw searches and renders maps without the mob lock, then publishes offers.

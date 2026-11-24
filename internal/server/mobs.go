@@ -734,7 +734,7 @@ func (s *Server) finishReinforcement(call reinforcementCall) {
 	s.mobsMu.Lock()
 	kind, x, y, z := call.caller.Type, rules.BlockOf(call.caller.X), rules.BlockOf(call.caller.Y), rules.BlockOf(call.caller.Z)
 	s.mobsMu.Unlock()
-	sx, sy, sz, ok := entity.ReinforcementSite(call.w, rand.New(rand.NewSource(call.seed)), kind, x, y, z, players, bodies)
+	sx, sy, sz, ok := entity.ReinforcementSite(call.w, entity.NewDice(call.seed), kind, x, y, z, players, bodies)
 	if !ok {
 		return
 	}

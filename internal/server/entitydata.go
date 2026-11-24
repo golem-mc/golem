@@ -4,7 +4,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/effect"
 	"maps"
 	"math"
-	"math/rand"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -890,7 +889,7 @@ func tntOfTag(s *Server, w *world.World, compound nbt.Compound) *tntEntity {
 		tnt:  entity.NewTNT(eid, x, y, z, vx, vy, vz, fuse, state, 0),
 		uuid: identity,
 		w:    w,
-		rand: rand.New(rand.NewSource(s.entitySeed(eid))),
+		rand: entity.NewDice(s.entitySeed(eid)),
 	}
 	applyTNTTag(it, compound)
 	return it

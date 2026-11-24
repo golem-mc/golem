@@ -53,7 +53,7 @@ func TestAnEndermanTakesADirtBlockFromTheWorld(t *testing.T) {
 		}
 	}
 	srv.SetBlock(8, 64, 0, 0)
-	id := srv.SpawnMob("minecraft:enderman", 8.5, 64, 0.5)
+	id := srv.SpawnMobSeeded("minecraft:enderman", 8.5, 64, 0.5, 3)
 	c.ExpectMobSpawn(protocol.EntityTypeEnderman)
 
 	watch := &carriedWatch{id: id}

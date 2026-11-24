@@ -141,9 +141,10 @@ func TestAPackOverworldDimensionBurnsMonstersAndReadsDaylight(t *testing.T) {
 	}) {
 		t.Error("the pack dimension's zombie did not catch fire at noon")
 	}
-	if srv.MobFireTicks(overworldMob) == 0 {
-		t.Error("the overworld's zombie did not catch fire at noon")
-	}
+	// Sunburn is a per-tick chance, so the zombie may need a few more ticks.
+	servertest.UntilTicks(t, srv, 200, "the overworld's zombie catching fire at noon", func() bool {
+		return srv.MobFireTicks(overworldMob) > 0
+	})
 	// Noon alone cannot catch a missing sun track: both a constant angle of
 	// zero and the noon sun give full power. Midnight must read zero too.
 	for _, tc := range []struct {

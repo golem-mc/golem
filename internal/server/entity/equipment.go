@@ -246,12 +246,12 @@ func (m *Mob) equipmentDice() Dice { return GoDice{m.equipmentRand()} }
 // equipmentRand is the same stream as a math/rand source, for the kinds that
 // draw their own fields from it too.
 func (m *Mob) equipmentRand() *rand.Rand {
-	return rand.New(rand.NewSource(m.lootSeed ^ equipmentSalt))
+	return NewDice(m.lootSeed ^ equipmentSalt)
 }
 
 // halloweenDice is the skeleton's own Halloween head stream.
 func (m *Mob) halloweenDice() Dice {
-	return GoDice{rand.New(rand.NewSource(m.lootSeed ^ halloweenSalt))}
+	return GoDice{NewDice(m.lootSeed ^ halloweenSalt)}
 }
 
 // rollDrownedHands is Drowned.populateDefaultEquipmentSlots: a trident or

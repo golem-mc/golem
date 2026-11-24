@@ -2209,7 +2209,7 @@ func NewMob(t MobType, id int32, x, y, z float64, seed int64) *Mob {
 	if k == nil {
 		panic("entity: unknown mob type " + t.Name())
 	}
-	rng := rand.New(rand.NewSource(seed))
+	rng := NewDice(seed)
 	m := &Mob{
 		ID:        id,
 		Type:      t,
@@ -2285,7 +2285,7 @@ func NewMob(t MobType, id int32, x, y, z float64, seed int64) *Mob {
 		m.ai.wire(ocelotGoals(m)...)
 	} else if t == TypeParrot {
 		// Standalone simulations have a separate stream until a level binds its own.
-		m.SetParrotSoundRandom(rand.New(rand.NewSource(seed ^ spawnDiceSalt)))
+		m.SetParrotSoundRandom(NewDice(seed ^ spawnDiceSalt))
 		m.ai.wire(parrotGoals(m)...)
 	} else if IsEquine(t) {
 		m.ai.wire(horseGoals(m)...)
@@ -2756,7 +2756,7 @@ func (m *Mob) FinalizeStructureSpawnAt(dice Dice, ctx rules.SpawnContext, local 
 // generation rolls: vanilla's is not the mob's own, so it is a stream salted
 // off the loot seed that moves neither the mob's dice nor its loot.
 func (m *Mob) SpawnDice() Dice {
-	return GoDice{rand.New(rand.NewSource(m.lootSeed ^ spawnDiceSalt))}
+	return GoDice{NewDice(m.lootSeed ^ spawnDiceSalt)}
 }
 
 // spawnDiceSalt gives SpawnDice its own seed.
@@ -2905,7 +2905,7 @@ func (m *Mob) finalizeSpawn(dice Dice, ctx rules.SpawnContext, group *SpawnGroup
 	// vanilla: AbstractSkeleton.finalizeSpawn rolls loot pickup scaled by the
 	// special multiplier.
 	if m.is(TypeSkeleton) {
-		m.CanPickUpLoot = rand.New(rand.NewSource(m.lootSeed^lootPickupSalt)).Float64() < lootPickupOdds*float64(local.Special)
+		m.CanPickUpLoot = NewDice(m.lootSeed^lootPickupSalt).Float64() < lootPickupOdds*float64(local.Special)
 	}
 	if m.isPiglin() {
 		m.finalizePiglin(dice, local, structure)

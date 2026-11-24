@@ -261,7 +261,7 @@ func (c *client) handleUseThrown(hand int32) bool {
 	// thrower's feet, at the pitch the item's own roll gives it — the
 	// player's random in vanilla, and one of the server's own here.
 	// vanilla: SnowballItem.use, EggItem.use, EnderpearlItem.use
-	pitchRng := rand.New(rand.NewSource(seed))
+	pitchRng := entity.NewDice(seed)
 	c.srv.broadcastSoundID(c.theWorld(), sound, soundCategory,
 		pos.X, pos.Y, pos.Z, thrownSoundVolume,
 		float32(0.4/(pitchRng.Float64()*0.4+0.8)))

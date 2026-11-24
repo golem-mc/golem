@@ -885,7 +885,7 @@ func TestPackHurtEntityFiresOnASpearJab(t *testing.T) {
 	srv.StopTick()
 	srv.GiveSlot("Packer", player.HotbarSlot, servertest.ItemStack(t, "minecraft:wooden_spear", 1))
 	srv.TickSurvival()
-	srv.SpawnMob("minecraft:zombie", 0.5, 64, 3.5)
+	srv.SetMobBaby(srv.SpawnMob("minecraft:zombie", 0.5, 64, 3.5), false)
 	for i := 0; srv.AttackTicks("Packer") < 13; i++ {
 		if i > 26 {
 			t.Fatal("the spear never charged")
