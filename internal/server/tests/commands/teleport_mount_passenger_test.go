@@ -36,12 +36,15 @@ func TestTeleportTurnsMobPassengerWithMount(t *testing.T) {
 			}
 			c.ChatCommand(tc.tp)
 			turned := false
-			servertest.RunTicks(t, srv, 40)
-			c.SettleAndCollect(func(id int32, data []byte) {
+			record := func(id int32, data []byte) {
 				if id == protocol.IDPlayEntityRotation && protocol.NewReader(data).ReadVarInt() == pig {
 					turned = true
 				}
-			})
+			}
+			// Settle first so the command has run before the ticks that send the turn.
+			c.SettleAndCollect(record)
+			servertest.RunTicks(t, srv, 40)
+			c.SettleAndCollect(record)
 			c.ChatCommand("data get entity @e[type=pig,limit=1] Rotation")
 			c.ExpectCommandFeedbackText("commands.data.entity.query", servertest.EntityDisplayComponent("minecraft:pig", "entity.minecraft.pig", spawn.Uuid), servertest.NBTArg(tc.want))
 			if tc.want != "[0.0f, 0.0f]" && !turned {
