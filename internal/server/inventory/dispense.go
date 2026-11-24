@@ -266,11 +266,11 @@ func DispenseFireChargeStart(x, y, z int32, face int32) (px, py, pz float64) {
 // became), so a partial merge never arises.
 // vanilla: DispenserBlock.dispenseFrom
 func DispenseGiveBack(b Block, slot int, stack protocol.ItemStack) protocol.ItemStack {
-	rest, _ := tryMoveInItem(b, stack, slot)
-	if rest.Empty() {
-		return rest
+	tryMoveInItem(b, &stack, slot)
+	if stack.Empty() {
+		return stack
 	}
-	left, _ := AddItem(b, rest, 0, false)
+	left, _ := AddItem(b, stack, 0, false)
 	return left
 }
 
