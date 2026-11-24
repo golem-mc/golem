@@ -100,3 +100,38 @@ func PiercingLevel(weapon, ammo protocol.ItemStack, contexts ...*EnchContext) in
 	value := itemEnchValue(weapon, []*EnchContext{&ctx}, func(e *registry.EnchantmentEffects) []registry.EnchConditional { return e.ProjectilePiercing }, 0)
 	return max(0, int32(value))
 }
+
+// CrossbowDraw draws a load's volley from ammo and reports how many of the
+// ammunition it spent. Only the first projectile is paid for, and it keeps the
+// whole count it took; the rest are one free intangible copy of the original
+// stack each. infinite (creative) makes every projectile free.
+// vanilla: ProjectileWeaponItem.draw, useAmmo
+func CrossbowDraw(crossbow, ammo protocol.ItemStack, infinite bool, ctx *EnchContext) (volley []protocol.ItemStack, spent int32) {
+	if ammo.Empty() {
+		return nil, 0
+	}
+	n := CrossbowProjectileCount(crossbow, ctx)
+	volley = make([]protocol.ItemStack, 0, n)
+	for i := range n {
+		use := int32(0)
+		if i == 0 && !infinite {
+			use = ProcessAmmoUse(crossbow, ammo)
+		}
+		if use > ammo.Count {
+			continue
+		}
+		one := ammo
+		one.Count = 1
+		switch {
+		case use == 0:
+			one.Intangible = true
+		case use > 1:
+			one.Count = use
+		}
+		if use > 0 {
+			spent = use
+		}
+		volley = append(volley, one)
+	}
+	return volley, spent
+}

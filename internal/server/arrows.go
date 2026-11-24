@@ -590,13 +590,19 @@ func (s *Server) spawnArrowFrom(w *world.World, x, y, z, vx, vy, vz float64,
 	return it.arrow.ID
 }
 
-// arrowSpawned runs the weapon's projectile_spawned effects at the new arrow.
+// arrowSpawned runs the projectile_spawned effects of the arrow's own stack and
+// then the weapon's, unless the weapon is that item.
+// vanilla: Projectile.applyOnProjectileSpawned
 func (s *Server) arrowSpawned(it *arrowEntity, weapon protocol.ItemStack) {
 	a := it.arrow
-	s.projectileSpawned(it.w, weapon, enchantTarget{uuid: it.uuid, x: a.X, y: a.Y, z: a.Z, width: .5, height: .5, entityID: a.ID, causeID: a.OwnerID})
+	body := enchantTarget{uuid: it.uuid, x: a.X, y: a.Y, z: a.Z, width: .5, height: .5, entityID: a.ID, causeID: a.OwnerID}
+	s.projectileSpawned(it.w, a.PickupStack, body)
+	if !weapon.Empty() && a.PickupStack.ItemID != weapon.ItemID {
+		s.projectileSpawned(it.w, weapon, body)
+	}
 }
 
-// projectileSpawned runs the weapon's projectile_spawned effects at a new projectile.
+// projectileSpawned runs a stack's projectile_spawned effects at a new projectile.
 // vanilla: EnchantmentHelper.onProjectileSpawned
 func (s *Server) projectileSpawned(w *world.World, weapon protocol.ItemStack, body enchantTarget) {
 	for _, e := range rules.ProjectileSpawnedEffects(weapon) {
@@ -1003,7 +1009,10 @@ func (t *mobDimTick) shotArrow(fx *mobEffects, ev entity.MobEvent) {
 		shot.weapon = protocol.ItemStack{ItemID: int32(registry.ItemTrident), Count: 1}
 	}
 	if shot.crossbow {
-		shot.weapon, shot.ammo = ev.Stack, ev.Ammo
+		shot.weapon = ev.Stack
+		if ev.Ammo != nil {
+			shot.ammo = *ev.Ammo
+		}
 	} else if !shot.trident && registry.Item(shot.weapon.ItemID) != registry.ItemBow {
 		// vanilla: ProjectileUtil.getWeaponHoldingHand falls back to the off hand
 		shot.weapon = ev.Mob.OffHand
@@ -1029,19 +1038,17 @@ func (s *Server) spawnMobShot(shot mobShot) {
 		return
 	}
 	if isFireworkRocket(shot.ammo) {
-		// vanilla: CrossbowItem.createProjectile
-		rocket := s.newFirework(shot.w, shot.ammo, shot.x, shot.y, shot.z, shot.shooter, shot.shooterUUID, 0)
-		rocket.rocket.ShotAtAngle = true
-		rocket.rocket.VX, rocket.rocket.VY, rocket.rocket.VZ = shot.vx, shot.vy, shot.vz
-		rocket.rocket.Yaw, rocket.rocket.Pitch = yaw, pitch
-		s.registerFirework(rocket)
-		r := rocket.rocket
-		s.projectileSpawned(shot.w, shot.weapon, enchantTarget{uuid: rocket.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25,
-			entityID: r.ID, causeID: shot.shooter})
+		s.spawnCrossbowRocket(shot.w, shot.ammo, shot.x, shot.y, shot.z, shot.vx, shot.vy, shot.vz,
+			shot.shooter, shot.shooterUUID)
 		return
 	}
+	pickup := entity.PickupDisallowed
+	if shot.ammo.Intangible {
+		// vanilla: AbstractArrow.setPickup via the intangible projectile
+		pickup = entity.PickupCreativeOnly
+	}
 	it := newArrowEntity(s, shot.w, shot.x, shot.y, shot.z, shot.vx, shot.vy, shot.vz, yaw, pitch,
-		false, shot.damage, entity.PickupDisallowed, shot.shooter, shot.shooterUUID,
+		false, shot.damage, pickup, shot.shooter, shot.shooterUUID,
 		shot.weapon, shot.fireTicks)
 	it.arrow.Effect = shot.effect
 	armArrow(it, shot.ammo)

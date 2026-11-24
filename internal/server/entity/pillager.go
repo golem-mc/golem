@@ -9,8 +9,8 @@ import (
 )
 
 // The pillager: an illager whose crossbow charges, waits a beat and shoots
-// from up to eight blocks. Not modelled: the five-slot inventory, and ammo
-// held in a hand (the load is always arrows).
+// from up to eight blocks. Loads the arrow or rocket held in a hand, else an
+// ordinary arrow. Not modelled: the five-slot inventory.
 // vanilla: Pillager, RangedCrossbowAttackGoal, CrossbowAttackMob
 
 const TypePillager = registry.EntityTypePillager
@@ -20,6 +20,9 @@ const (
 	crossbowWalkFactor   = 1.0
 	// crossbowMobPower is CrossbowItem.MOB_ARROW_POWER.
 	crossbowMobPower = 1.6
+	// rocketSpawnBelow is how far under the eyes a loaded rocket spawns.
+	// vanilla: CrossbowItem.createProjectile
+	rocketSpawnBelow = 0.15
 	// crossbowInaccuracy is performCrossbowAttack's 14 less 4 per difficulty.
 	crossbowInaccuracy           = 14.0
 	crossbowInaccuracyPerLevel   = 4.0
@@ -252,7 +255,7 @@ func (g *crossbowAttackGoal) chargeSounds(t *tickView, stack *protocol.ItemStack
 }
 
 // shoot is CrossbowAttackMob.performCrossbowAttack: an empty crossbow fires
-// nothing; a loaded one fires its arrows (three for multishot) at a third
+// nothing; a loaded one fires its arrows or rockets (three for multishot) at a third
 // of the target's height, lifted by a fifth of the horizontal distance.
 // vanilla: CrossbowItem.performShooting, shootProjectile
 func (g *crossbowAttackGoal) shoot(t *tickView, p *Player) {
@@ -269,14 +272,19 @@ func (g *crossbowAttackGoal) shoot(t *tickView, p *Player) {
 	}
 	stack.SetChargedProjectiles(nil)
 	m.SetEquipment(slot, stack)
-	originX, originY, originZ, aimX, aimY, aimZ := arrowAim(m, p, crossbowAimLift)
 	inaccuracy := crossbowInaccuracy - crossbowInaccuracyPerLevel*float64(t.w.Difficulty())
 	angles := rules.CrossbowAngles(len(loaded), rules.CrossbowMaxSpread(stack, m.crossbowEnchContext(t.w)))
 	for i, angle := range angles {
+		firework := registry.Item(loaded[i].ItemID) == registry.ItemFireworkRocket
+		below := ArrowSpawnBelow
+		if firework {
+			below = rocketSpawnBelow
+		}
+		originX, originY, originZ, aimX, aimY, aimZ := arrowAim(m, p, crossbowAimLift, below)
 		ax, ay, az := spreadAim(aimX, aimY, aimZ, angle)
 		vx, vy, vz := ShootVelocity(ax, ay, az, crossbowMobPower, inaccuracy, m.Rand)
 		t.events = append(t.events, MobEvent{
-			Mob: m, Kind: MobShotArrow, Crossbow: true, Stack: stack, Ammo: loaded[i],
+			Mob: m, Kind: MobShotArrow, Crossbow: true, Stack: stack, Ammo: &loaded[i],
 			X: originX, Y: originY, Z: originZ, VX: vx, VY: vy, VZ: vz,
 			Damage: ArrowBaseDamage, Player: *p,
 		})
@@ -290,7 +298,7 @@ func (g *crossbowAttackGoal) shoot(t *tickView, p *Player) {
 		}
 		t.events = append(t.events, MobEvent{Mob: m, Kind: MobSounded, SoundID: registry.SoundItemCrossbowShoot, Volume: 1, Pitch: pitch})
 		// vanilla: ProjectileWeaponItem.shoot hurts the weapon per projectile and stops once it is gone
-		stack = g.wearCrossbow(t, slot, stack)
+		stack = g.wearCrossbow(t, slot, stack, firework)
 		if stack.Empty() {
 			break
 		}
@@ -319,32 +327,16 @@ func (g *crossbowAttackGoal) loadCrossbow(t *tickView, stack protocol.ItemStack)
 	if slot < 0 {
 		ammo = protocol.ItemStack{ItemID: int32(registry.ItemArrow), Count: 1}
 	}
-	var drawn []protocol.ItemStack
-	for i := range rules.CrossbowProjectileCount(stack, m.crossbowEnchContext(t.w)) {
-		use := int32(0)
-		if i == 0 {
-			use = rules.ProcessAmmoUse(stack, ammo)
-		}
-		if use > ammo.Count {
-			continue
-		}
-		one := ammo
-		one.Count = 1
-		if use == 0 {
-			one.Intangible = true
-		}
-		drawn = append(drawn, one)
-		ammo.Count -= use
-	}
+	drawn, spent := rules.CrossbowDraw(stack, ammo, false, m.crossbowEnchContext(t.w))
 	if len(drawn) == 0 {
 		return
 	}
 	if slot >= 0 {
-		left := ammo
-		if left.Count <= 0 {
-			left = protocol.ItemStack{}
+		ammo.Count -= spent
+		if ammo.Count <= 0 {
+			ammo = protocol.ItemStack{}
 		}
-		m.SetEquipment(slot, left)
+		m.SetEquipment(slot, ammo)
 	}
 	stack.SetChargedProjectiles(drawn)
 	m.SetEquipment(g.chargeSlot, stack)
@@ -357,9 +349,9 @@ func (m *Mob) CrossbowLoaded() bool {
 	return isHeldWeapon(stack, registry.ItemCrossbow) && len(stack.ChargedProjectiles()) > 0
 }
 
-func (g *crossbowAttackGoal) wearCrossbow(t *tickView, slot int, stack protocol.ItemStack) protocol.ItemStack {
+func (g *crossbowAttackGoal) wearCrossbow(t *tickView, slot int, stack protocol.ItemStack, firework bool) protocol.ItemStack {
 	m := g.m
-	worn, broke := rules.Wear(stack, rules.ProcessDurabilityChange(stack, rules.CrossbowWearPerShot(false), m.Rand))
+	worn, broke := rules.Wear(stack, rules.ProcessDurabilityChange(stack, rules.CrossbowWearPerShot(firework), m.Rand))
 	m.SetEquipment(slot, worn)
 	if broke {
 		// vanilla: LivingEntity.onEquippedItemBroken

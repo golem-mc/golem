@@ -243,7 +243,7 @@ func (c *client) releaseBow() {
 	}
 	free = !consume
 	if !free && ammo.ok {
-		c.consumeAmmo(ammo)
+		c.consumeAmmo(ammo, 1)
 	}
 	pickup := map[bool]entity.ArrowPickup{true: entity.PickupCreativeOnly, false: entity.PickupAllowed}[creative || free]
 	fireTicks := rules.ProjectileIgniteTicks(held)
@@ -280,15 +280,15 @@ func (c *client) releaseBow() {
 	c.startUseCooldown(held)
 }
 
-// consumeAmmo takes one arrow from the slot and sends it, since the client
+// consumeAmmo takes n arrows from the slot and sends it, since the client
 // waits for the server's decrement; watchers get an equipment update if the
 // slot is visible.
-func (c *client) consumeAmmo(ammo bowFind) {
+func (c *client) consumeAmmo(ammo bowFind, n int32) {
 	var payload []byte
 	var visible bool
 	c.player.Inventory(func(inv *player.Inventory) {
 		stack := inv.Slots[ammo.slot]
-		stack.Count--
+		stack.Count -= n
 		if stack.Count <= 0 {
 			stack = protocol.ItemStack{}
 		}

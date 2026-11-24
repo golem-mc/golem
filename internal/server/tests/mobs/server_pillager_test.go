@@ -2,10 +2,12 @@ package mobs
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -242,24 +244,39 @@ func TestPillagerFiresHeldAmmo(t *testing.T) {
 		loaded                  registry.Item
 		offCount                int32
 		effect                  string
+		shot                    int32 // spawn type of the first projectile
 		firework                bool
+		// pickups counts the shot arrows by pickup rule, when asserted.
+		pickups map[string]int
+		// broken is whether the volley leaves the crossbow broken.
+		broken bool
 	}{
 		{name: "spectral arrow", mainhand: crossbow + `}`, offhand: `{id:"minecraft:spectral_arrow",count:8}`,
-			loaded: registry.ItemSpectralArrow, offCount: 7, effect: "minecraft:glowing"},
+			loaded: registry.ItemSpectralArrow, offCount: 7, effect: "minecraft:glowing", shot: protocol.EntityTypeSpectralArrow},
 		{name: "preloaded tipped arrow",
 			mainhand: crossbow + `,components:{"minecraft:charged_projectiles":[{id:"minecraft:tipped_arrow",count:1,components:{"minecraft:potion_contents":{potion:"minecraft:poison"}}}]}}`,
-			loaded:   registry.ItemTippedArrow, effect: "minecraft:poison"},
+			loaded:   registry.ItemTippedArrow, effect: "minecraft:poison", shot: protocol.EntityTypeArrow},
 		{name: "preloaded rocket",
 			mainhand: crossbow + `,components:{"minecraft:charged_projectiles":[{id:"minecraft:firework_rocket",count:1}]}}`,
-			loaded:   registry.ItemFireworkRocket, firework: true},
+			loaded:   registry.ItemFireworkRocket, firework: true, shot: protocol.EntityTypeFireworkRocket},
 		{name: "rocket in hand", mainhand: crossbow + `}`, offhand: `{id:"minecraft:firework_rocket",count:3}`,
-			loaded: registry.ItemFireworkRocket, offCount: 2, firework: true},
-		{name: "no ammunition", mainhand: crossbow + `}`, loaded: registry.ItemArrow},
+			loaded: registry.ItemFireworkRocket, offCount: 2, firework: true, shot: protocol.EntityTypeFireworkRocket},
+		{name: "no ammunition", mainhand: crossbow + `}`, loaded: registry.ItemArrow, shot: protocol.EntityTypeArrow},
+		// A rocket costs three durability, so a crossbow with three left breaks on it.
+		{name: "rocket breaks the crossbow",
+			mainhand: crossbow + `,components:{"minecraft:max_damage":10,"minecraft:damage":7,"minecraft:charged_projectiles":[{id:"minecraft:firework_rocket",count:1}]}}`,
+			loaded:   registry.ItemFireworkRocket, firework: true, shot: protocol.EntityTypeFireworkRocket, broken: true},
+		// Multishot pays for the first arrow only; the two side arrows are free copies.
+		{name: "multishot with one arrow",
+			mainhand: crossbow + `,components:{"minecraft:enchantments":{"minecraft:multishot":1}}}`, offhand: `{id:"minecraft:spectral_arrow",count:1}`,
+			loaded: registry.ItemSpectralArrow, shot: protocol.EntityTypeSpectralArrow,
+			pickups: map[string]int{"disallowed": 1, "creative": 2}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := servertest.HostileTestConfig()
 			cfg.GameMode = "creative"
+			cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 			srv, c := servertest.Join(t, cfg, "Observer")
 			servertest.HoldTicks(t, srv)
 			srv.SetDifficulty(rules.DifficultyHard)
@@ -274,10 +291,8 @@ func TestPillagerFiresHeldAmmo(t *testing.T) {
 				if pid != protocol.IDPlaySpawnEntity {
 					return false
 				}
-				r := protocol.NewReader(data)
-				entityID := r.ReadVarInt()
-				r.ReadUUID()
-				switch r.ReadVarInt() {
+				entityID, kind := servertest.SpawnEntityHead(data)
+				switch kind {
 				case protocol.EntityTypeVillager:
 					villager = entityID
 				case protocol.EntityTypePillager:
@@ -306,13 +321,24 @@ func TestPillagerFiresHeldAmmo(t *testing.T) {
 					}
 				}
 			}
-			if tc.firework {
-				servertest.UntilTicks(t, srv, 120, "the pillager's rocket", func() bool { return srv.FireworkCount() > 0 })
-				return
+			if !servertest.ASpawnOfWithinTicks(c, srv, 120, tc.shot) {
+				t.Fatalf("the pillager never shot a projectile of type %d", tc.shot)
 			}
-			servertest.UntilTicks(t, srv, 120, "the pillager's arrow", func() bool {
-				return len(srv.ArrowsInDimension(world.DimensionName)) > 0
-			})
+			if tc.broken && !srv.MobHand(id).Empty() {
+				t.Errorf("crossbow after the shot = %v, want broken", srv.MobHand(id))
+			}
+			if tc.firework && srv.FireworkCount() == 0 {
+				t.Error("no rocket in the world")
+			}
+			if tc.pickups != nil {
+				got := map[string]int{}
+				for _, a := range srv.ArrowsInDimension(world.DimensionName) {
+					got[a.Pickup]++
+				}
+				if !maps.Equal(got, tc.pickups) {
+					t.Errorf("arrow pickups = %v, want %v", got, tc.pickups)
+				}
+			}
 			if tc.effect == "" {
 				return
 			}

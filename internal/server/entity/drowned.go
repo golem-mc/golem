@@ -357,7 +357,7 @@ func (g *drownedTridentGoal) Tick(t *tickView) { g.tick(t, 40, g.m.throwTrident)
 
 // vanilla: Drowned.performRangedAttack
 func (m *Mob) throwTrident(t *tickView, p *Player) {
-	ox, oy, oz, ax, ay, az := arrowAim(m, p, rangedArrowAimLift)
+	ox, oy, oz, ax, ay, az := arrowAim(m, p, rangedArrowAimLift, ArrowSpawnBelow)
 	vx, vy, vz := ShootVelocity(ax, ay, az, rangedArrowPower,
 		rangedArrowInaccuracy-rangedInaccuracyPerDifficultyLevel*float64(t.w.Difficulty()), m.Rand)
 	t.events = append(t.events, MobEvent{Mob: m, Kind: MobThrewTrident,
