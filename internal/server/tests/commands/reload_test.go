@@ -113,7 +113,7 @@ func TestReloadFailureKeepsOldState(t *testing.T) {
 	t.Cleanup(func() { _ = fifo.Close() })
 	other.Drain() // the admin lines of the commands so far
 	other.ChatCommand("compute default integer x:keep")
-	servertest.CheckCommandFeedback(t, other.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), "command.compute.result.unnamed.exact", protocol.Text{Number: new(int64(17))})
+	servertest.CheckCommandFeedback(t, other.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), "command.compute.result.named.exact", protocol.Text{Text: "x:keep"}, protocol.Text{Number: new(int64(17))})
 	other.ChatCommand("datapack list enabled")
 	checkPackList(t, other.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), "commands.datapack.list.enabled.success", "vanilla", "file/a", "file/b")
 	if _, err := fifo.WriteString(`{"pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:stick",` +
@@ -134,7 +134,7 @@ func TestReloadFailureKeepsOldState(t *testing.T) {
 	}
 	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
 	c.ChatCommand("compute default integer x:keep")
-	servertest.CheckCommandFeedback(t, c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), "command.compute.result.unnamed.exact", protocol.Text{Number: new(int64(17))})
+	servertest.CheckCommandFeedback(t, c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), "command.compute.result.named.exact", protocol.Text{Text: "x:keep"}, protocol.Text{Number: new(int64(17))})
 	c.ChatCommand("datapack list enabled")
 	checkPackList(t, c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), "commands.datapack.list.enabled.success", "vanilla", "file/a", "file/b")
 }
