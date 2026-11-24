@@ -3,6 +3,8 @@ package player
 import (
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
@@ -77,11 +79,12 @@ func TestSavePlayerIncludesOnlyInstantiatedAttributes(t *testing.T) {
 	if len(saved.Items) != len(startingAttributes)+4 {
 		t.Fatalf("saved attributes = %v, want the starting and four instantiated attributes", saved)
 	}
+	checkSavedPlayerAttributeOrder(t, saved, "movement_speed entity_interaction_range armor luck oxygen_bonus block_interaction_range attack_speed")
 	var back Attributes
 	back.Load(*saved)
-	if got := back.SavePlayer(nil); !reflect.DeepEqual(got, saved) {
-		t.Errorf("round trip = %v, want %v", got, saved)
-	}
+	// Oxygen bonus and block reach share a bucket. Loading the packed list
+	// instantiates oxygen bonus first, reversing their traversal order.
+	checkSavedPlayerAttributeOrder(t, back.SavePlayer(saved), "movement_speed entity_interaction_range armor luck block_interaction_range oxygen_bonus attack_speed")
 	if back.Base(registry.AttributeArmor) != 5 {
 		t.Error("changed base was lost")
 	}
@@ -99,5 +102,47 @@ func TestSavePlayerIncludesOnlyInstantiatedAttributes(t *testing.T) {
 	}
 	if len(introduced) != len(startingAttributes) {
 		t.Errorf("introduced attributes = %v, want the starting instances", introduced)
+	}
+}
+
+func TestSavePlayerAttributeOrderAfterGrowth(t *testing.T) {
+	t.Parallel()
+	// The 25th instance grows the table. Vanilla reinserts from the old
+	// table's high buckets down, which matters for collisions after growth.
+	loaded := nbt.List{Elem: nbt.TypeCompound}
+	for id := range strings.FieldsSeq(`
+		air_drag_modifier armor armor_toughness attack_damage attack_knockback attack_speed below_name_distance
+		block_break_speed block_interaction_range bounciness burning_time camera_distance explosion_knockback_resistance
+		entity_interaction_range fall_damage_multiplier friction_modifier gravity jump_strength knockback_resistance
+		luck max_absorption max_health mining_efficiency movement_efficiency movement_speed`) {
+		loaded.Items = append(loaded.Items, AttributeTag(registry.Qualify(id), 0, nil))
+	}
+	loaded.Items = append(loaded.Items, AttributeTag("minecraft:armor", 6, nil), AttributeTag("other:attribute", 2, nil))
+	var a Attributes
+	a.Load(loaded)
+	checkSavedPlayerAttributeOrder(t, a.SavePlayer(&loaded), `
+		burning_time max_absorption entity_interaction_range friction_modifier below_name_distance bounciness gravity
+		max_health block_interaction_range explosion_knockback_resistance attack_speed armor_toughness attack_knockback
+		movement_speed attack_damage armor block_break_speed knockback_resistance air_drag_modifier jump_strength luck
+		camera_distance mining_efficiency fall_damage_multiplier movement_efficiency other:attribute`)
+	if got := a.Base(registry.AttributeArmor); got != 6 {
+		t.Errorf("armor after applying duplicate entries = %v, want 6", got)
+	}
+}
+
+func checkSavedPlayerAttributeOrder(t *testing.T, list *nbt.List, names string) {
+	t.Helper()
+	want := strings.Fields(names)
+	for i, name := range want {
+		want[i] = registry.Qualify(name)
+	}
+	var got []string
+	for _, item := range list.Items {
+		tag, _ := nbt.CompoundView(item)
+		id, _ := nbt.Get[nbt.String](tag, "id")
+		got = append(got, string(id))
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("attribute order = %v, want %v", got, want)
 	}
 }
