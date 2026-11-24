@@ -25,7 +25,7 @@ func TestRelightedLightReachesPacketAndSave(t *testing.T) {
 	<-w.RelightAreaAsync(3, 3, 3, 3)
 
 	w.mu.RLock()
-	stale := c.lightFormsStale
+	stale := c.lightFormsInit && c.lightEncoded == nil && c.chunkLightEncoded == nil
 	want := c.encodeLight()
 	wantChunk := c.encodeChunkLight()
 	w.mu.RUnlock()
@@ -42,7 +42,7 @@ func TestRelightedLightReachesPacketAndSave(t *testing.T) {
 	w.SetBlock(3, 70, 3, airState)
 	<-w.RelightAreaAsync(3, 3, 3, 3)
 	w.mu.RLock()
-	stale = c.lightFormsStale
+	stale = c.lightFormsInit && c.lightEncoded == nil && c.chunkLightEncoded == nil
 	want = c.encodeLight()
 	w.mu.RUnlock()
 	if !stale {
@@ -63,5 +63,44 @@ func TestRelightedLightReachesPacketAndSave(t *testing.T) {
 	data, ok := nbt.Get[nbt.ByteArray](root, "LightData")
 	if !ok || !bytes.Equal(data, want) {
 		t.Fatal("the save does not carry the new light")
+	}
+
+	// Each form is built on its own, in either order, retained or evicted.
+	forms := func(chunkFirst bool) (light, chunkLight []byte) {
+		w.mu.RLock()
+		defer w.mu.RUnlock()
+		if chunkFirst {
+			chunkLight, light = c.chunkLightForm(), c.lightForm()
+		} else {
+			light, chunkLight = c.lightForm(), c.chunkLightForm()
+		}
+		if !bytes.Equal(light, c.encodeLight()) || !bytes.Equal(chunkLight, c.encodeChunkLight()) {
+			t.Fatalf("forms differ from the encoders (chunk first %v)", chunkFirst)
+		}
+		return light, chunkLight
+	}
+	for i, chunkFirst := range []bool{true, false, true, false} {
+		w.HoldChunkPacket(pos)
+		w.CachedChunkPacket(c)
+		if i%2 == 0 {
+			w.SetBlock(5, 70, 5, airState)
+		} else {
+			w.SetBlock(5, 70, 5, torchState)
+		}
+		<-w.RelightAreaAsync(5, 5, 5, 5)
+		if i >= 2 {
+			// Evict: empty chunks push this one past the recent bound.
+			w.ReleaseChunkPacket(pos)
+			for j := range recentChunkPackets + 1 {
+				w.CachedChunkPacket(newChunk(int32(j+1), 0))
+			}
+			if c.lightEncoded != nil || c.chunkLightEncoded != nil {
+				t.Fatal("the chunk was not evicted")
+			}
+		} else {
+			defer w.ReleaseChunkPacket(pos)
+		}
+		forms(chunkFirst)
+		forms(!chunkFirst)
 	}
 }

@@ -95,7 +95,7 @@ func (w *World) joinChunkLight(pos ChunkPos) []ChunkPos {
 		old := c.lightEncoded
 		c.lightEncoded = c.encodeLight()
 		c.chunkLightEncoded = c.encodeChunkLight()
-		c.lightFormsStale = false
+		c.lightFormsInit = true
 		c.lightGen++
 		if old == nil || !bytes.Equal(old, c.lightEncoded) {
 			changed = append(changed, ChunkPos{c.x, c.z})

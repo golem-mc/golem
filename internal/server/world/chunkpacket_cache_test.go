@@ -78,7 +78,7 @@ func TestChunkPacketCacheInvalidation(t *testing.T) {
 			w.mu.Lock()
 			c.blockLight[5] = new([lightArrayLen]byte)
 			c.blockLight[5][0] = 15
-			c.lightFormsStale = true
+			c.invalidateLightForms()
 			c.lightGen++
 			w.mu.Unlock()
 			check("light only", true)

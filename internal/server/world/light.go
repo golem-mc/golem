@@ -382,34 +382,39 @@ func (w *World) LightPacket(pos ChunkPos) []byte {
 func (c *Chunk) hasLightForms() bool {
 	c.lightFormsMu.Lock()
 	defer c.lightFormsMu.Unlock()
-	return c.lightFormsStale || c.lightEncoded != nil
+	return c.lightFormsInit || c.lightEncoded != nil
 }
 
-// lightForms returns the Update Light and Chunk Data forms of the chunk's
-// light, rebuilding both if the arrays changed since. The caller holds w.mu,
-// read or write, so the arrays are not written meanwhile.
-func (c *Chunk) lightForms() (light, chunkLight []byte) {
+// invalidateLightForms marks both encoded forms out of date. The caller holds
+// w.mu for writing.
+func (c *Chunk) invalidateLightForms() {
+	c.lightFormsInit = true
+	c.lightEncoded, c.chunkLightEncoded = nil, nil
+}
+
+// lightForm returns the Update Light form of the chunk's light, building it
+// if out of date. The caller holds w.mu, read or write, so the arrays are not
+// written meanwhile.
+func (c *Chunk) lightForm() []byte {
+	return c.encodedLightForm(&c.lightEncoded, c.encodeLight)
+}
+
+// chunkLightForm is lightForm for the Chunk Data form.
+func (c *Chunk) chunkLightForm() []byte {
+	return c.encodedLightForm(&c.chunkLightEncoded, c.encodeChunkLight)
+}
+
+func (c *Chunk) encodedLightForm(slot *[]byte, encode func() []byte) []byte {
 	c.lightFormsMu.Lock()
 	defer c.lightFormsMu.Unlock()
-	if c.lightFormsStale {
-		light, chunkLight = c.encodeLight(), c.encodeChunkLight()
-		if !c.lightFormsRetained {
-			return light, chunkLight
-		}
-		c.lightEncoded, c.chunkLightEncoded = light, chunkLight
-		c.lightFormsStale = false
+	if *slot != nil || !c.lightFormsInit {
+		return *slot
 	}
-	return c.lightEncoded, c.chunkLightEncoded
-}
-
-func (c *Chunk) lightForm() []byte {
-	l, _ := c.lightForms()
-	return l
-}
-
-func (c *Chunk) chunkLightForm() []byte {
-	_, l := c.lightForms()
-	return l
+	form := encode()
+	if c.lightFormsRetained {
+		*slot = form
+	}
+	return form
 }
 
 // --- Engine ---
@@ -1132,7 +1137,7 @@ func (w *World) relightBox(minX, minZ, maxX, maxZ int32) {
 			loaded.chunk.lightGen++
 			continue
 		}
-		loaded.chunk.lightFormsStale = true
+		loaded.chunk.invalidateLightForms()
 		loaded.chunk.lightCorrect = true
 		loaded.chunk.lightGen++
 	}
