@@ -409,10 +409,12 @@ type Effect struct {
 	// none.
 	Vibration *VibrationParticle
 
-	// GameEvent is the minecraft:game_event posted at the cell, zero for none,
-	// with no source entity unless GameEventByUser.
+	// GameEvent is the minecraft:game_event posted at the cell, zero for none.
 	// vanilla: Level.gameEvent
 	GameEvent registry.GameEvent
+
+	// GameEventAffected is the event's block state, zero for none.
+	GameEventAffected uint16
 
 	// GameEventByUser makes the player whose click produced the effect the
 	// GameEvent's source entity.
@@ -786,8 +788,8 @@ type Physics struct {
 	rides   [][3]int32
 	rideSet map[[3]int32]struct{}
 
-	// randomEffects collects the random tick pass's level events (chorus growth
-	// and death), drained through TakeRandomEffects.
+	// randomEffects collects the random tick pass's effects, drained through
+	// TakeRandomEffects.
 	randomEffects []Effect
 
 	// dispenses collects the dispenser and dropper visits of the scheduled
@@ -849,7 +851,7 @@ func (p *Physics) TakeCommandRuns() []CommandRun {
 	return out
 }
 
-// TakeRandomEffects returns and clears the random tick pass's level events.
+// TakeRandomEffects returns and clears the random tick pass's effects.
 func (p *Physics) TakeRandomEffects() []Effect {
 	out := p.randomEffects
 	p.randomEffects = nil
@@ -1266,7 +1268,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			blocks++
 			if block == registry.BlockDirtPath {
 				// vanilla: PathBlock.tick
-				p.turnFarmlandToDirt(x, y, z, &changes)
+				p.turnSoilToDirt(x, y, z, &changes, &p.effects)
 			}
 			continue
 		}

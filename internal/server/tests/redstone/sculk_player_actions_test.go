@@ -9,7 +9,9 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/registry"
 )
 
 // survivalSensorScene is comparatorSensorScene for a survival player: the
@@ -37,6 +39,39 @@ func survivalScene(t *testing.T) (*server.Server, *servertest.Client) {
 func placeSensor(t *testing.T, srv *server.Server) {
 	t.Helper()
 	srv.SetBlock(4, 64, 4, servertest.MustState(t, "minecraft:sculk_sensor", nil))
+}
+
+func TestCoveredSoilVibration(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		state uint16
+	}{
+		{"farmland", servertest.MustState(t, "minecraft:farmland", map[string]string{"moisture": "7"})},
+		{"dirt path", registry.BlockDirtPath.DefaultState()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, _ := survivalSensorScene(t)
+			dirt := registry.BlockDirt.DefaultState()
+			srv.SetBlock(3, 64, 4, tc.state)
+			var events []rules.GameEventContext
+			srv.ObserveGameEventContexts(func(event string, x, y, z float64, ctx rules.GameEventContext) {
+				if event == "minecraft:block_change" && x == 3.5 && y == 64.5 && z == 4.5 {
+					events = append(events, ctx)
+				}
+			})
+			srv.SetBlockAndTell(3, 65, 4, registry.BlockStone.DefaultState())
+			servertest.RunTicks(t, srv, 10)
+			if got := srv.BlockAt(3, 64, 4); got != dirt {
+				t.Errorf("covered %s became state %d, want dirt (%d)", tc.name, got, dirt)
+			}
+			if want := (rules.GameEventContext{Affected: dirt}); len(events) != 1 || events[0] != want {
+				t.Errorf("block_change contexts at the soil = %+v, want one %+v", events, want)
+			}
+			expectComparator(t, srv, "11")
+		})
+	}
 }
 
 func TestASurvivalPlayersBucketMakesVibrations(t *testing.T) {
@@ -100,6 +135,41 @@ func TestASurvivalPlayerShearingASheepMakesAVibration(t *testing.T) {
 	expectComparator(t, srv, "6") // shear
 }
 
+// vanilla: Llama.handleEating, AbstractHorse.handleEating, Mob.interact
+func TestEquineFeedVibration(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, kind string
+		entityType int32
+		calibrated bool
+		frequency  string
+	}{
+		{"llama", "llama", protocol.EntityTypeLlama, false, "6"},
+		{"trader llama", "trader_llama", protocol.EntityTypeTraderLlama, false, "6"},
+		{"horse", "horse", protocol.EntityTypeHorse, false, "8"},
+		{"horse with calibrated sensor", "horse", protocol.EntityTypeHorse, true, "6"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := survivalScene(t)
+			c.ChatCommand("summon minecraft:" + tc.kind + " 1.5 64 4.5 {NoAI:1b,Tame:1b,Health:5f}")
+			mob := c.ExpectMobSpawn(tc.entityType)
+			srv.GiveSlot("Actor", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:wheat"), Count: 1})
+			c.Settle()
+			if tc.calibrated {
+				calibratedAt(t, srv, 4)
+				srv.SetBlock(4, 64, 5, servertest.MustState(t, "minecraft:target", map[string]string{"power": "6"}))
+			} else {
+				placeSensor(t, srv)
+			}
+			c.UseOn(mob.EntityID)
+			c.Settle()
+			servertest.RunTicks(t, srv, 10)
+			expectComparator(t, srv, tc.frequency)
+		})
+	}
+}
+
 func TestASurvivalPlayerPlacingEntitiesMakesVibrations(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -160,4 +230,23 @@ func TestToolUsesOnBlocksMakeVibrations(t *testing.T) {
 			expectComparator(t, srv, tc.frequency)
 		})
 	}
+}
+
+// A candle put on an intact cake is a block_change vibration.
+// vanilla: CakeBlock.useItemOn
+func TestCandleOnCakeVibration(t *testing.T) {
+	t.Parallel()
+	srv, c := survivalSensorScene(t)
+	srv.SetBlock(0, 64, 4, servertest.MustState(t, "minecraft:cake", map[string]string{"bites": "0"}))
+	srv.GiveSlot("Actor", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:red_candle"), Count: 1})
+	c.Settle()
+	c.PlaceBlock(0, 64, 4, protocol.FaceTop)
+	c.Settle()
+	servertest.UntilTicks(t, srv, 10, "the comparator to give 11", func() bool {
+		return servertest.WirePowerAt(srv, 6, 64, 4) == "11"
+	})
+	if got := srv.BlockAt(0, 64, 4); got != servertest.MustState(t, "minecraft:red_candle_cake", map[string]string{"lit": "false"}) {
+		t.Fatalf("block = %d, want unlit red candle cake", got)
+	}
+	expectComparator(t, srv, "11") // block_change
 }

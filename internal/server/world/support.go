@@ -977,7 +977,9 @@ func destroyBlockEffect(state uint16, tag nbt.Compound, x, y, z int32) Effect {
 		// vanilla: StrawBedBlock.spawnDestroyParticles — particles only.
 		event = 2014
 	}
-	return Effect{LevelEvent: event, LevelEventData: int32(state), BreakDrop: state, BreakTag: tag, GameEvent: gameEventBlockDestroy, X: x, Y: y, Z: z}
+	// The destroyed state still controls whether the vibration is dampened.
+	return Effect{LevelEvent: event, LevelEventData: int32(state), BreakDrop: state, BreakTag: tag,
+		GameEvent: gameEventBlockDestroy, GameEventAffected: state, X: x, Y: y, Z: z}
 }
 
 // bellShapeUpdate is BellBlock.updateShape's attachment half: a double wall
