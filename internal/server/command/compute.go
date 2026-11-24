@@ -24,6 +24,8 @@ var Compute = Command{
 const (
 	computeExactKey           = "command.compute.result.unnamed.exact"
 	computeRoundedKey         = "command.compute.result.unnamed.rounded"
+	computeNamedExactKey      = "command.compute.result.named.exact"
+	computeNamedRoundedKey    = "command.compute.result.named.rounded"
 	computeInvalidKey         = "command.compute.result.unnamed.invalid"
 	computeIntProviderRegistr = "minecraft:context_int_provider"
 	computeFloatProviderRegis = "minecraft:context_float_provider"
@@ -243,6 +245,14 @@ func invalidValue(src Source, value string) error {
 	return refuse(src, computeInvalidKey, protocol.Text{Text: value})
 }
 
+// vanilla: ComputeCommand.printExactOutput, ComputeCommand.printRoundedOutput
+func computeFeedback(src Source, p registry.LootNumber, unnamedKey, namedKey string, with ...protocol.Text) error {
+	if ref, ok := p.(registry.LootProviderRef); ok {
+		return src.Feedback(namedKey, append([]protocol.Text{{Text: ref.Name}}, with...)...)
+	}
+	return src.Feedback(unnamedKey, with...)
+}
+
 // computeInt answers the int provider's value.
 // vanilla: ComputeCommand.computeAsInt
 func computeInt(src Source, lc *rules.LootContext, p registry.LootNumber) (int32, error) {
@@ -251,7 +261,7 @@ func computeInt(src Source, lc *rules.LootContext, p registry.LootNumber) (int32
 		return 0, invalidValue(src, err.Error())
 	}
 	n := int64(v)
-	return resultOf(v, src.Feedback(computeExactKey, protocol.Text{Number: &n}))
+	return resultOf(v, computeFeedback(src, p, computeExactKey, computeNamedExactKey, protocol.Text{Number: &n}))
 }
 
 // computeFloat answers the float provider's value times the scale, floored.
@@ -272,7 +282,7 @@ func computeFloat(src Source, lc *rules.LootContext, p registry.LootNumber, scal
 	}
 	n := int64(result)
 	if float32(result) == original {
-		return resultOf(result, src.Feedback(computeExactKey, protocol.Text{Number: &n}))
+		return resultOf(result, computeFeedback(src, p, computeExactKey, computeNamedExactKey, protocol.Text{Number: &n}))
 	}
-	return resultOf(result, src.Feedback(computeRoundedKey, protocol.Text{Float: &original}, protocol.Text{Number: &n}))
+	return resultOf(result, computeFeedback(src, p, computeRoundedKey, computeNamedRoundedKey, protocol.Text{Float: &original}, protocol.Text{Number: &n}))
 }
