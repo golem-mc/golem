@@ -140,6 +140,9 @@ func TestDecodeLightRejectsBadArrays(t *testing.T) {
 			t.Errorf("truncated by %d accepted", cut)
 		}
 	}
+	if newChunk(0, 0).decodeLight(enc[:lenAt+2+lightArrayLen-1]) {
+		t.Error("sky array cut one byte short accepted")
+	}
 	// Wrong declared lengths for the first sky array and the first block array.
 	bad := bytes.Clone(enc)
 	bad[lenAt], bad[lenAt+1] = 0xff, 0x0f // 2047
