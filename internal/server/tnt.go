@@ -131,11 +131,24 @@ func (s *Server) tickTNT() {
 	}
 	var travels []tntPortalTravel
 	var gates []gatewayTouch
+	limit := s.Config.MaxTNTPerTick
+	var portalTicked, ticked map[*world.World]int
+	if limit > 0 {
+		portalTicked = make(map[*world.World]int)
+		ticked = make(map[*world.World]int)
+	}
 	portalAlive := s.tnts[:0]
 	for _, it := range s.tnts {
 		if it.tnt.Dead {
 			tntTracker.unfile(it)
 			continue
+		}
+		if limit > 0 {
+			if portalTicked[it.w] >= limit || !gate.ticks(it.w, it.tnt.X, it.tnt.Z) {
+				portalAlive = append(portalAlive, it)
+				continue
+			}
+			portalTicked[it.w]++
 		}
 		state, kind, due := gate.stepPortal(it.w, it.tnt.X, it.tnt.Y, it.tnt.Z, &it.portal, portalCooldownTicks)
 		s.notePortalTouch(nil, it.uuid, it.w, it.tnt.X, it.tnt.Y, it.tnt.Z, state)
@@ -149,6 +162,10 @@ func (s *Server) tickTNT() {
 			portalAlive = append(portalAlive, it)
 			continue
 		}
+		// Travellers leave the physics pass, but spent a slot in this world.
+		if limit > 0 {
+			ticked[it.w]++
+		}
 		tntTracker.unfile(it)
 		travels = append(travels, tntPortalTravel{it: it, kind: kind})
 	}
@@ -158,21 +175,14 @@ func (s *Server) tickTNT() {
 	// ticked counts the TNT stepped per world against max-tnt-per-tick; a
 	// TNT past it keeps its place in the list, so the earliest-primed go on
 	// first and none starves.
-	var ticked map[*world.World]int
-	limit := s.Config.MaxTNTPerTick
 	for _, it := range s.tnts {
 		if it.tnt.Dead {
 			tntTracker.unfile(it)
 			continue // the fuse ran out before this tick
 		}
-		if limit > 0 {
-			if ticked == nil {
-				ticked = make(map[*world.World]int)
-			}
-			if ticked[it.w] >= limit {
-				alive = append(alive, it)
-				continue
-			}
+		if limit > 0 && ticked[it.w] >= limit {
+			alive = append(alive, it)
+			continue
 		}
 		if !gate.ticks(it.w, it.tnt.X, it.tnt.Z) {
 			held = append(held, it)
