@@ -1323,25 +1323,27 @@ func spentFuel(fuel protocol.ItemStack) protocol.ItemStack {
 	return left
 }
 
-// setJukeboxHasRecord sets has_record and tells the world, waking
-// neighbours so comparators and wire read it; it does not change light, so
-// no relight. vanilla: JukeboxBlockEntity.notifyItemChangedInJukebox
+// setJukeboxHasRecord sets has_record, tells the world, wakes neighbours so
+// comparators and wire read it, and posts BLOCK_CHANGE on the resulting
+// state; it does not change light, so no relight.
+// vanilla: JukeboxBlockEntity.notifyItemChangedInJukebox
 func (s *Server) setJukeboxHasRecord(w *world.World, x, y, z int32, has bool) {
 	state := w.BlockAt(x, y, z)
 	if registry.BlockOf(state) != registry.BlockJukebox {
 		return
 	}
-	if registry.StateBool(state, registry.PropHasRecord) == has {
-		return
+	if registry.StateBool(state, registry.PropHasRecord) != has {
+		newState, ok := registry.WithBool(state, registry.PropHasRecord, has)
+		if !ok {
+			return
+		}
+		if w.SetBlock(x, y, z, newState) {
+			s.markChanged(w, x, y, z)
+			s.blockChanged(w, x, y, z, state)
+		}
 	}
-	newState, ok := registry.WithBool(state, registry.PropHasRecord, has)
-	if !ok {
-		return
-	}
-	if w.SetBlock(x, y, z, newState) {
-		s.markChanged(w, x, y, z)
-		s.blockChanged(w, x, y, z, state)
-	}
+	s.gameEvent(w, rules.GameEventBlockChange, float64(x)+.5, float64(y)+.5, float64(z)+.5,
+		rules.GameEventContext{Affected: w.BlockAt(x, y, z)})
 }
 
 // setBookshelfState redraws a chiseled bookshelf from its slots: six

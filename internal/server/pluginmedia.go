@@ -40,8 +40,6 @@ func (b pluginJukebox) SetRecord(record plugin.ItemStack) {
 	s, w := b.world.srv, b.world.dim.w
 	x, y, z := b.entity.X, b.entity.Y, b.entity.Z
 	s.setJukeboxHasRecord(w, x, y, z, !stack.Empty())
-	s.gameEvent(w, rules.GameEventBlockChange, float64(x)+.5, float64(y)+.5, float64(z)+.5,
-		rules.GameEventContext{Affected: w.BlockAt(x, y, z)})
 	if playable {
 		s.broadcastLevelEvent(w, protocol.WorldEventJukeboxPlay, x, y, z, registry.JukeboxSongID(song))
 	} else if wasPlaying {
