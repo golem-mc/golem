@@ -5,6 +5,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/servertest"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -116,6 +117,61 @@ func TestAHopperPicksUpTheLowerXSectionFirst(t *testing.T) {
 	rem := srv.ItemsInDimension(world.DimensionName)
 	if len(rem) != 1 || rem[0].ID != firstID {
 		t.Fatalf("remaining items = %+v, want only diamond %d", rem, firstID)
+	}
+}
+
+// TestAHopperTellsWatchersTheRemainderOfAPartlyTakenItem protects that a
+// partial pickup can change the tracked stack even when no whole item entity
+// was taken.
+func TestAHopperTellsWatchersTheRemainderOfAPartlyTakenItem(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, watcher := servertest.Join(t, cfg, "Watcher")
+	watcher.Settle()
+	srv.StopTick()
+
+	if !srv.PlaceContainer(4, 64, 0, "minecraft:hopper") {
+		t.Fatal("the hopper would not stand")
+	}
+	srv.SetBlock(4, 63, 0, servertest.MustState(t, "minecraft:stone", nil)) // false if the floor is already stone
+	cobble := protocol.ItemStack{ItemID: servertest.MustItemID(t, "minecraft:cobblestone"), Count: 64}
+	for slot := range 4 {
+		if !srv.SetInventoryAt(4, 64, 0, slot, cobble) {
+			t.Fatalf("could not fill hopper slot %d", slot)
+		}
+	}
+	stone := servertest.MustItemID(t, "minecraft:stone")
+	if !srv.SetInventoryAt(4, 64, 0, 4, protocol.ItemStack{ItemID: stone, Count: 63}) {
+		t.Fatal("could not set the fifth slot")
+	}
+	itemID := srv.SpawnItemEntity(4.5, 65.0, 0.5, "minecraft:stone", 2)
+	if itemID == 0 {
+		t.Fatal("the item entity did not spawn")
+	}
+	itemStack := func() protocol.ItemStack {
+		var stack protocol.ItemStack
+		watcher.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+			if id != protocol.IDPlayEntityMetadata || servertest.MetadataEntityID(data) != itemID {
+				return false
+			}
+			stack = servertest.ItemStackMetadata(data)
+			return !stack.Empty()
+		})
+		return stack
+	}
+	if got := itemStack(); got.Count != 2 {
+		t.Fatalf("the spawn sent %+v for the item, want two stone", got)
+	}
+
+	servertest.TickBlockEntitiesByHand(srv, 1)
+
+	if got := srv.InventoryAt(4, 64, 0)[4]; got.ItemID != stone || got.Count != 64 {
+		t.Fatalf("hopper slot 4 holds %+v, want 64 stone", got)
+	}
+	got := itemStack()
+	if got.ItemID != stone || got.Count != 1 {
+		t.Errorf("the watcher was sent %+v for the item, want one stone", got)
 	}
 }
 
