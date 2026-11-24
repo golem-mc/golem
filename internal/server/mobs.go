@@ -2721,7 +2721,6 @@ func (s *Server) commandTeleportMob(ent *mobEntity, to player.Position, by strin
 // placeMob moves the mob; the caller holds mobsMu.
 func (s *Server) placeMob(ent *mobEntity, to player.Position, yaw, pitch float32) {
 	m := ent.mob
-	turnPassengers(m, yaw-m.Yaw, clampBodyPitch(pitch)-m.Pitch)
 	m.SetPos(to.X, to.Y, to.Z)
 	// Stop the vertical fall; horizontal motion is kept. The ground flag is
 	// left to the next movement tick, as vanilla's teleportSetPosition does.
@@ -2733,18 +2732,6 @@ func (s *Server) placeMob(ent *mobEntity, to player.Position, yaw, pitch float32
 	m.Trading = false
 	ent.teleported = true
 	s.herdOf(ent.w).pistonGrid.built = false
-}
-
-// turnPassengers turns every rider of m by the mount's own turn, keeping its
-// facing relative to the mount; the next seating tick moves it.
-// vanilla: Entity.calculatePassengerTransition
-func turnPassengers(m *entity.Mob, dyaw, dpitch float32) {
-	for _, p := range m.Passengers {
-		p.Yaw += dyaw
-		p.Pitch = clampBodyPitch(p.Pitch + dpitch)
-		p.HeadYaw += dyaw
-		turnPassengers(p, dyaw, dpitch)
-	}
 }
 
 // rotateMob turns a mob in place, head with body, and tells watchers with

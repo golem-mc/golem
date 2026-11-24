@@ -928,6 +928,13 @@ func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
 	}
 	switch ref := e.ref.(type) {
 	case *mobEntity:
+		// A facing clause turns only the mount, after the teleport.
+		// vanilla: TeleportCommand.performTeleport, LookAt.perform
+		if move.LookAt == nil {
+			e.srv.mobsMu.Lock()
+			entity.TurnPassengers(ref.mob, to.Yaw-ref.mob.Yaw, to.Pitch-ref.mob.Pitch)
+			e.srv.mobsMu.Unlock()
+		}
 		if move.Command {
 			e.srv.commandTeleportMob(ref, to, by)
 		} else {

@@ -8073,17 +8073,3 @@ func (s *Server) ChunkIndexDrift() error {
 	}
 	return nil
 }
-
-// MobLook is the body yaw and pitch of the live mob.
-func (s *Server) MobLook(id int32) (yaw, pitch float32) {
-	s.mobsMu.Lock()
-	defer s.mobsMu.Unlock()
-	for _, dim := range s.allDims() {
-		for _, m := range dim.mobs.herd {
-			if m.ID == id {
-				return m.Yaw, m.Pitch
-			}
-		}
-	}
-	return 0, 0
-}

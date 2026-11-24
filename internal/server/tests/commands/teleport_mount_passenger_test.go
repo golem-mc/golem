@@ -3,36 +3,50 @@ package commands
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
-// vanilla: Entity.calculatePassengerTransition
-func TestTeleportKeepsMobPassengerFacingRelativeToMount(t *testing.T) {
+// vanilla: Entity.calculatePassengerTransition, TeleportCommand.performTeleport
+func TestTeleportTurnsMobPassengerWithMount(t *testing.T) {
 	t.Parallel()
-	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Summoner", servertest.OpsListing(t, "Summoner"))
-	servertest.HoldTicks(t, srv)
-	c.Settle()
-	c.ChatCommand(`summon chicken 3.5 64 3.5 {NoAI:1b,NoGravity:1b,Rotation:[90f,0f],Passengers:[{id:"minecraft:pig",NoAI:1b,NoGravity:1b,Rotation:[0f,0f]}]}`)
-	byType := make(map[int32]int32)
-	c.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlaySpawnEntity {
-			r := protocol.NewReader(data)
-			body := r.ReadVarInt()
-			r.ReadUUID()
-			byType[r.ReadVarInt()] = body
-		}
-	})
-	chicken, pig := byType[protocol.EntityTypeChicken], byType[protocol.EntityTypePig]
-	if chicken == 0 || pig == 0 {
-		t.Fatalf("spawned types = %v", byType)
+	cases := []struct {
+		name, tp, want string
+	}{
+		{"yaw and pitch clamp separately", "tp @e[type=chicken] 6.5 64 6.5 180 120", "[-270.0f, 60.0f]"},
+		{"facing turns only the mount", "tp @e[type=chicken] 6.5 64 6.5 facing 100 64 6.5", "[0.0f, 0.0f]"},
 	}
-	c.ChatCommand(`tp @e[type=chicken] 6.5 64 6.5 180 0`)
-	c.Settle()
-	if y, _ := srv.MobLook(chicken); y != -180 {
-		t.Fatalf("chicken yaw = %g, want -180", y)
-	}
-	if y, p := srv.MobLook(pig); y != -270 || p != 0 {
-		t.Errorf("pig look = (%g, %g), want (-270, 0)", y, p)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := servertest.BlockTestConfig()
+			cfg.ViewDistance = config.MinDistance
+			cfg.SimulationDistance = config.MinDistance
+			srv, c := servertest.Join(t, cfg, "Summoner", servertest.OpsListing(t, "Summoner"))
+			servertest.HoldTicks(t, srv)
+			c.Settle()
+			c.ChatCommand(`summon chicken 3.5 64 3.5 {NoAI:1b,NoGravity:1b,Rotation:[90f,0f],Passengers:[{id:"minecraft:pig",Tags:["rider"],NoAI:1b,NoGravity:1b,Rotation:[0f,-60f]}]}`)
+			spawn := c.AwaitSpawn(protocol.EntityTypePig)
+			pig := spawn.EntityID
+			if tc.want == "[0.0f, 0.0f]" {
+				// The pig starts level in this case.
+				c.ChatCommand(`data merge entity @e[type=pig,limit=1] {Rotation:[0f,0f]}`)
+				c.Settle()
+			}
+			c.ChatCommand(tc.tp)
+			turned := false
+			servertest.RunTicks(t, srv, 40)
+			c.SettleAndCollect(func(id int32, data []byte) {
+				if id == protocol.IDPlayEntityRotation && protocol.NewReader(data).ReadVarInt() == pig {
+					turned = true
+				}
+			})
+			c.ChatCommand("data get entity @e[type=pig,limit=1] Rotation")
+			c.ExpectCommandFeedbackText("commands.data.entity.query", servertest.EntityDisplayComponent("minecraft:pig", "entity.minecraft.pig", spawn.Uuid), servertest.NBTArg(tc.want))
+			if tc.want != "[0.0f, 0.0f]" && !turned {
+				t.Error("the seated rider's turn was not sent")
+			}
+		})
 	}
 }

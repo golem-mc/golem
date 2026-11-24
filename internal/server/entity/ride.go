@@ -504,3 +504,16 @@ func (m *Mob) finalizeSpiderEffect(group *SpawnGroup, local rules.LocalDifficult
 func mountEvent(rider, vehicle *Mob, kind MobEventKind) MobEvent {
 	return MobEvent{Mob: rider, Kind: kind, X: vehicle.X, Y: vehicle.Y, Z: vehicle.Z}
 }
+
+// TurnPassengers turns every rider of m by dyaw and dpitch, the mount's own
+// rotation change before its pitch is clamped. Each rider's pitch is clamped
+// on its own and its head follows its body.
+// vanilla: Entity.calculatePassengerTransition, PositionMoveRotation.calculateAbsolute
+func TurnPassengers(m *Mob, dyaw, dpitch float32) {
+	for _, p := range m.Passengers {
+		p.Yaw += dyaw
+		p.Pitch = min(max(p.Pitch+dpitch, -90), 90)
+		p.HeadYaw = p.Yaw
+		TurnPassengers(p, dyaw, dpitch)
+	}
+}
