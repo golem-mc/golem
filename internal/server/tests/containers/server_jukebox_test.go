@@ -351,3 +351,28 @@ func TestSetblockTagSurvivesReplacingAMovingPiston(t *testing.T) {
 		t.Errorf("slot 0 = %+v, want a diamond", got)
 	}
 }
+
+// TestReplacingAPoweredLeverWithAPlayingJukeboxKeepsTheHopperLocked replaces
+// the powered lever locking a hopper with a jukebox whose song is running: the
+// lever's removal reactions run after the tag loads, so the hopper never
+// unlocks and an observer watching it does not pulse.
+func TestReplacingAPoweredLeverWithAPlayingJukeboxKeepsTheHopperLocked(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
+
+	servertest.Setblock(t, c, 3, 64, 0, "minecraft:hopper[facing=down]")
+	servertest.Setblock(t, c, 3, 65, 0, "minecraft:lever[face=floor,powered=true]")
+	servertest.Setblock(t, c, 4, 64, 0, "minecraft:observer[facing=west]")
+	servertest.RunTicks(t, srv, 6)
+	servertest.Setblock(t, c, 3, 65, 0, servertest.JukeboxCommand("cat", 0))
+	servertest.RunTicks(t, srv, 2)
+	if _, props := servertest.StatePropsOf(t, srv, 4, 64, 0); props["powered"] != "false" {
+		t.Errorf("observer = %v, want unpowered: the hopper unlocked and relocked", props)
+	}
+	if _, props := servertest.StatePropsOf(t, srv, 3, 64, 0); props["enabled"] != "false" {
+		t.Errorf("hopper = %v, want enabled=false", props)
+	}
+}

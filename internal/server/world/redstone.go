@@ -165,6 +165,22 @@ const (
 // byPiston is vanilla's movedByPiston: true skips the source wake (a piston's
 // destroy passes false, like every other removal).
 func (p *Physics) redstoneAfterRemoval(x, y, z int32, oldState uint16, byPiston bool, changes *[]BlockChange) {
+	p.removeRideEntity(x, y, z, oldState)
+	p.redstoneRemovalReactions(x, y, z, oldState, byPiston, changes)
+}
+
+// removeRideEntity drops the block entity of a removed moving piston: a removed
+// ride does not land.
+func (p *Physics) removeRideEntity(x, y, z int32, oldState uint16) {
+	if int(oldState) < registry.StateCount && registry.BlockOf(oldState) == registry.BlockMovingPiston {
+		p.w.RemoveBlockEntity(x, y, z)
+	}
+}
+
+// redstoneRemovalReactions is redstoneAfterRemoval without the ride's block
+// entity cleanup, for a caller that already ran it and loaded a replacement
+// block entity since.
+func (p *Physics) redstoneRemovalReactions(x, y, z int32, oldState uint16, byPiston bool, changes *[]BlockChange) {
 	if int(oldState) >= registry.StateCount {
 		return
 	}
@@ -250,12 +266,10 @@ func (p *Physics) redstoneAfterRemoval(x, y, z int32, oldState uint16, byPiston 
 			p.breakWithDrop(bx, by, bz, changes)
 		}
 	case oldBlock == registry.BlockMovingPiston:
-		// A removed ride does not land: its block entity vanishes, and the
-		// still-extended base of a head's ride goes too, as a player break's
-		// destroy hook leaves no extended base. No landing write: the section
-		// write that removed the ride ran first, so the final tick's
-		// moving-piston check finds the cell changed.
-		p.w.RemoveBlockEntity(x, y, z)
+		// The still-extended base of a head's ride goes with the ride, as a
+		// player break's destroy hook leaves no extended base. No landing
+		// write: the section write that removed the ride ran first, so the
+		// final tick's moving-piston check finds the cell changed.
 		bx, by, bz := pistonShift(x, y, z, blocklogic.Opposite(facingOfState(oldState)), 1)
 		if bs := p.w.BlockAt(bx, by, bz); pistonBlocks[registry.BlockOf(bs)] && registry.StateBool(bs, registry.PropExtended) {
 			p.set(bx, by, bz, airState, changes)
