@@ -216,9 +216,9 @@ func (c *client) queueIn(w *world.World, p outbound) bool {
 		m.mu.Unlock()
 		return false
 	}
-	if m.queued+len(data) > mailboxLimit {
+	if queued := m.queued; queued+len(data) > mailboxLimit {
 		m.mu.Unlock()
-		c.log.Warn("dropping client that is not keeping up", "queuedBytes", m.queued)
+		c.log.Warn("dropping client that is not keeping up", "queuedBytes", queued)
 		c.conn.Close()
 		return false
 	}

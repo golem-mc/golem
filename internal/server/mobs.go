@@ -2488,8 +2488,14 @@ func (s *Server) spawnSummonedMobInDim(dim *dimension, kind entity.MobType, x, y
 }
 
 // spawnSummonedMobFacing is spawnSummonedMobInDim with prep run before
-// anyone sees the mob.
+// anyone sees the mob. The assigned ID is returned even if a plugin cancels.
 func (s *Server) spawnSummonedMobFacing(dim *dimension, kind entity.MobType, x, y, z float64, tag nbt.Compound, prep func(*mobEntity)) (int32, error) {
+	id, _, err := s.spawnTaggedMob(dim, kind, x, y, z, tag, prep)
+	return id, err
+}
+
+// spawnTaggedMob reports whether the new mob stayed in the world after the spawn event.
+func (s *Server) spawnTaggedMob(dim *dimension, kind entity.MobType, x, y, z float64, tag nbt.Compound, prep func(*mobEntity)) (id int32, spawned bool, err error) {
 	compound := maps.Clone(tag)
 	compound["id"] = nbt.String(kind.Name())
 	if woken, ok := s.wakeChunkOnce(dim, world.ChunkPos{X: world.ChunkOf(x), Z: world.ChunkOf(z)}); ok {
@@ -2501,7 +2507,7 @@ func (s *Server) spawnSummonedMobFacing(dim *dimension, kind entity.MobType, x, 
 	ent := mobOfTag(s, dim.w, compound)
 	dim.w.Release(pos)
 	if ent == nil {
-		return 0, errNotSimulated
+		return 0, false, errNotSimulated
 	}
 	ent.mob.SetPos(x, y, z)
 	// An explicit ground flag survives loading, even when NoAI prevents travel.
@@ -2521,13 +2527,13 @@ func (s *Server) spawnSummonedMobFacing(dim *dimension, kind entity.MobType, x, 
 		}
 	}
 	if !s.addMobCore(true, mobs...) {
-		return 0, errDuplicateUUID
+		return 0, false, errDuplicateUUID
 	}
 	if !s.spawnAllowed(ent) {
 		for _, r := range mobs[1:] {
 			s.discardSpawned(r)
 		}
-		return ent.mob.ID, nil
+		return ent.mob.ID, false, nil
 	}
 	// A summoned vex may name an evoker already live, and a tagged summon
 	// may bring back an evoker a live vex was saved to follow.
@@ -2535,7 +2541,7 @@ func (s *Server) spawnSummonedMobFacing(dim *dimension, kind entity.MobType, x, 
 	for _, t := range riders.teams {
 		s.joinTagTeam(t)
 	}
-	return ent.mob.ID, nil
+	return ent.mob.ID, true, nil
 }
 
 // giveRidersUUIDs gives every nested rider compound that lacks a UUID a

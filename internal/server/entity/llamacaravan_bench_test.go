@@ -31,7 +31,13 @@ func BenchmarkMobsTickLlamas(b *testing.B) {
 // llama on a lead held a block away, spread over the area so most pairs are
 // far apart; more leashed llamas than caravanGridMinList keeps the grid
 // fallback in the timed loop.
-func BenchmarkMobsTickLlamasLeashed(b *testing.B) {
+func BenchmarkMobsTickLlamasLeashed(b *testing.B) { benchLlamasLeashed(b, false) }
+
+// BenchmarkMobsTickLlamasLeashedScaled is the same with one scale-16 llama,
+// which widens the grid's reach for every query.
+func BenchmarkMobsTickLlamasLeashedScaled(b *testing.B) { benchLlamasLeashed(b, true) }
+
+func benchLlamasLeashed(b *testing.B, giant bool) {
 	stone := defaultState(b, "minecraft:stone")
 	w := newTestWorld()
 	floor(w, -129, -129, 128, 128, 63, stone)
@@ -46,8 +52,7 @@ func BenchmarkMobsTickLlamasLeashed(b *testing.B) {
 			holders = append(holders, LeashHolder{EntityID: m.LeashHolderID, X: x + 1, Y: 64, Z: z,
 				Width: 0.375, Height: 0.5, Present: true, SameLevel: true, Knot: true})
 		}
-		if id == 10 {
-			// A scale-16 lead among the leashed llamas.
+		if giant && id == 1 {
 			m.SetAttributes(m.BuildAttributes(nbt.List{}))
 			m.attrs.SetBase(registry.AttributeScale, 16)
 		}

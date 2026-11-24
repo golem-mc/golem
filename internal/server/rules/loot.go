@@ -777,8 +777,9 @@ func (r *lootRoller) expandSingle(dst []lootCandidate, entry registry.LootEntry,
 	return true, append(dst, lootCandidate{entry: entry, weight: r.weight(weight, quality)})
 }
 
-// expand appends the candidates of an entry and reports whether it could
-// run, including entries that can run without producing candidates.
+// expand appends candidates even if the entry ultimately fails. A successful
+// entry can also produce no candidates.
+// vanilla: ComposableEntryContainer.expand
 func (r *lootRoller) expand(entry registry.LootEntry, dst []lootCandidate) (bool, []lootCandidate) {
 	switch k := entry.(type) {
 	case registry.LootItemEntry:
@@ -804,29 +805,35 @@ func (r *lootRoller) expand(entry registry.LootEntry, dst []lootCandidate) (bool
 	case registry.LootDynamic:
 		return r.expandSingle(dst, entry, k.Conditions, k.Weight, k.Quality)
 	case registry.LootAlternatives:
-		if r.conditions(k.Conditions) {
-			for _, child := range k.Children {
-				if ok, expanded := r.expand(child, dst); ok {
-					return true, expanded
-				}
+		if !r.conditions(k.Conditions) {
+			return false, dst
+		}
+		for _, child := range k.Children {
+			var ok bool
+			ok, dst = r.expand(child, dst)
+			if ok {
+				return true, dst
 			}
 		}
 	case registry.LootSequence:
 		if !r.conditions(k.Conditions) {
 			return false, dst
 		}
-		expanded := dst
 		for _, child := range k.Children {
 			var ok bool
-			ok, expanded = r.expand(child, expanded)
+			ok, dst = r.expand(child, dst)
 			if !ok {
 				return false, dst
 			}
 		}
-		return true, expanded
+		return true, dst
 	case registry.LootGroup:
 		if !r.conditions(k.Conditions) {
 			return false, dst
+		}
+		// vanilla: EntryGroup.compose (one child delegates, so its failure propagates)
+		if len(k.Children) == 1 {
+			return r.expand(k.Children[0], dst)
 		}
 		for _, child := range k.Children {
 			_, dst = r.expand(child, dst)

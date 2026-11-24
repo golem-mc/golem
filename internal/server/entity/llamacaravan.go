@@ -31,10 +31,25 @@ const caravanGridMinList = 64
 // sectionCoord is the entity section a coordinate is filed in.
 func sectionCoord(v float64) int { return int(math.Floor(v)) >> 4 }
 
-// sectionRange is the entity sections a horizontal query span reaches, padded by 2.
-// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
-func sectionRange(lo, hi float64) (int, int) {
-	return int(math.Floor(lo-2)) >> 4, int(math.Floor(hi+2)) >> 4
+// sectionWindow is the entity sections an entity query's box reaches.
+type sectionWindow struct{ loX, hiX, loY, hiY, loZ, hiZ int }
+
+// newSectionWindow is the sections of the box [minX,maxX]×[minY,maxY]×[minZ,maxZ].
+// X and Z are padded by 2 and Y reaches 4 below, because entities are filed by
+// their feet.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection, PersistentEntitySectionManager
+func newSectionWindow(minX, maxX, minY, maxY, minZ, maxZ float64) sectionWindow {
+	return sectionWindow{
+		int(math.Floor(minX-2)) >> 4, int(math.Floor(maxX+2)) >> 4,
+		sectionCoord(minY - 4), sectionCoord(maxY),
+		int(math.Floor(minZ-2)) >> 4, int(math.Floor(maxZ+2)) >> 4,
+	}
+}
+
+// holds reports whether the query finds o, which is filed by its position.
+func (w sectionWindow) holds(o *Mob) bool {
+	sx, sy, sz := sectionCoord(o.X), sectionCoord(o.Y), sectionCoord(o.Z)
+	return sx >= w.loX && sx <= w.hiX && sy >= w.loY && sy <= w.hiY && sz >= w.loZ && sz <= w.hiZ
 }
 
 // inCaravan reports whether the llama follows another.
@@ -92,22 +107,19 @@ func (g *caravanGoal) CanStart(t *tickView) bool {
 	// Only a llama in a caravan or on a leash can be picked, so that cheap
 	// test goes before the box.
 	width, height := m.width(), m.height()
-	loX, hiX := sectionRange(m.X-width/2-llamaCaravanScanXZ, m.X+width/2+llamaCaravanScanXZ)
-	// Entities are filed by their feet, so Y reaches 4 below and 0 above.
-	loY, hiY := sectionCoord(m.Y-llamaCaravanScanY-4), sectionCoord(m.Y+height+llamaCaravanScanY)
-	loZ, hiZ := sectionRange(m.Z-width/2-llamaCaravanScanXZ, m.Z+width/2+llamaCaravanScanXZ)
+	window := newSectionWindow(m.X-width/2-llamaCaravanScanXZ, m.X+width/2+llamaCaravanScanXZ,
+		m.Y-llamaCaravanScanY, m.Y+height+llamaCaravanScanY,
+		m.Z-width/2-llamaCaravanScanXZ, m.Z+width/2+llamaCaravanScanXZ)
 	scanW, scanH := width+2*llamaCaravanScanXZ, height+2*llamaCaravanScanY
 	if m.push != nil && len(scan) > caravanGridMinList {
 		// A long list is cut to the window's sections by the grid.
-		scan = m.push.gatherSections(loX, hiX, loZ, hiZ)
+		scan = m.push.gatherSections(window.loX, window.hiX, window.loZ, window.hiZ)
 	}
 	for _, o := range scan {
 		if o == m || !o.inCaravan() && !o.leashed() || o.Horse.tail != nil || !IsLlama(o.Type) || !o.Alive() {
 			continue
 		}
-		// Vanilla only searches the entity sections the window touches, and
-		// files an entity by its position, not its box.
-		if sx, sy, sz := sectionCoord(o.X), sectionCoord(o.Y), sectionCoord(o.Z); sx < loX || sx > hiX || sy < loY || sy > hiY || sz < loZ || sz > hiZ {
+		if !window.holds(o) {
 			continue
 		}
 		if !boxesOverlap(m.X, m.Y-llamaCaravanScanY, m.Z, scanW, scanH, o.X, o.Y, o.Z, o.width(), o.height()) {
@@ -172,6 +184,13 @@ func (g *caravanGoal) RequiresEveryTick() bool { return false }
 func (g *caravanGoal) Tick(t *tickView) {
 	m := g.m
 	if !m.inCaravan() || m.Horse.knotHeld {
+		return
+	}
+	// The coordinate overload passes a failed createPath through to
+	// moveTo(Path, double), which clears the path on null.
+	// vanilla: PathNavigation.moveTo(double, double, double, double), moveTo(Path, double)
+	if !m.canUpdatePath() {
+		m.stopSeeking()
 		return
 	}
 	h := m.Horse.head

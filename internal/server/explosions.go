@@ -1021,19 +1021,20 @@ func (s *Server) explodedBlock(b blast, old world.BlockChange, drops *rules.Blas
 
 func (s *Server) explodeBlockEntity(b blast, old world.BlockChange, block registry.Block, ctx *rules.LootContext) {
 	w := b.w
+	if isHiveState(old.State) {
+		// vanilla: BeehiveBlock.getDrops releases before the loot reads the hive.
+		if hiveBlasters[b.directType] {
+			s.releaseHiveBees(w, old.X, old.Y, old.Z, old.State, nil, true)
+		}
+		// vanilla: BeehiveBlock.onExplosionHit
+		s.angerBeesAround(w, old.X, old.Y, old.Z)
+	}
 	// A skull's carried compound holds its profile and name until removal.
 	components, tag := brokenBlockEntity(w, old.X, old.Y, old.Z)
 	setBlockLootComponents(ctx, w, old.X, old.Y, old.Z, nil, components)
 	ctx.BlockEntity, ctx.Extra = tag, components.Extra
 	if block == registry.BlockCreakingHeart {
 		s.creakingHeartExploded(b, old.X, old.Y, old.Z, old.State)
-	}
-	if isHiveState(old.State) {
-		// vanilla: BeehiveBlock.onExplosionHit angers for every blast; getDrops releases.
-		if hiveBlasters[b.directType] {
-			s.releaseHiveBees(w, old.X, old.Y, old.Z, old.State, nil, false, true)
-		}
-		s.angerBeesAround(w, old.X, old.Y, old.Z)
 	}
 	// Detach before spilling so an off-tick bed blast cannot duplicate a hopper move.
 	container, customName := s.breakBlockEntity(w, old.X, old.Y, old.Z, old.State, true,

@@ -14,6 +14,72 @@ import (
 // findPath calls let a path wander from its first cell.
 const pathMaxRange = 20
 
+// vanilla: PathNavigation.followThePath, WaterBoundPathNavigation.getMaxVerticalDistanceToWaypoint
+func TestWaypointReachUsesNavigationHeight(t *testing.T) {
+	w := newTestWorld()
+	for _, tc := range []struct {
+		name    string
+		kind    MobType
+		y       float64
+		swim    bool
+		reached bool
+	}{
+		{name: "ground at limit", kind: TypeFox, y: 65},
+		{name: "ground within limit", kind: TypeFox, y: 64.75, reached: true},
+		{name: "water-bound at limit", kind: TypeCod, y: 64.5, swim: true},
+		{name: "water-bound within limit", kind: TypeCod, y: 64.25, swim: true, reached: true},
+		{name: "amphibious at limit", kind: TypeAxolotl, y: 65, swim: true},
+		{name: "amphibious within limit", kind: TypeAxolotl, y: 64.75, swim: true, reached: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewMob(tc.kind, 1, 0.5, tc.y, 0.5, 1)
+			m.OnGround = !tc.swim
+			node := Waypoint{0, 64, 0}
+			m.moveTo([]Waypoint{node}, node, 1)
+			if tc.swim {
+				m.swimNavTickAt(w, m.pace())
+			} else {
+				m.navigate(w)
+			}
+			if reached := len(m.nav.passed) == 1; reached != tc.reached {
+				t.Errorf("waypoint reached at Y=%.2f: %t, want %t", tc.y, reached, tc.reached)
+			}
+		})
+	}
+}
+
+// vanilla: PathNavigation.canCutCorner, PathNavigation.shouldTargetNextNodeInDirection
+func TestAGroundMobCutsACornerOnlyWhenTheNodeAllowsIt(t *testing.T) {
+	stone := defaultState(t, "minecraft:stone")
+	fire := defaultState(t, "minecraft:fire")
+	for _, tc := range []struct {
+		name   string
+		next   Waypoint
+		hazard bool
+		passed int
+	}{
+		{name: "next closer and opposite", next: Waypoint{1, 65, 0}, passed: 1},
+		{name: "next in the same direction", next: Waypoint{0, 63, 0}},
+		{name: "next opposite but farther away", next: Waypoint{3, 65, 0}},
+		{name: "fire beside current node", next: Waypoint{1, 65, 0}, hazard: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newTestWorld()
+			w.set(0, 63, 0, stone)
+			if tc.hazard {
+				w.set(-1, 64, 0, fire)
+			}
+			m := NewMob(TypeFox, 1, 0.95, 65, 0.5, 1)
+			m.OnGround = true
+			m.moveTo([]Waypoint{{0, 64, 0}, tc.next}, tc.next, 1)
+			m.navigate(w)
+			if got := len(m.nav.passed); got != tc.passed {
+				t.Errorf("advanced %d waypoints, want %d", got, tc.passed)
+			}
+		})
+	}
+}
+
 // wall raises a two-block wall along a column of Z, two high so no step-up
 // or one-block climb routes over it, leaving the doorway given open.
 func wall(w testWorld, state uint16, x, z0, z1, door0, door1 int32, y int32) {
