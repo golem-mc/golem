@@ -583,7 +583,9 @@ func (c *client) missingChunks() []world.ChunkPos {
 			return false
 		})
 	}
-	missing := make([]world.ChunkPos, 0, (2*load+1)*(2*load+1))
+	// Departures are already unloaded and a queued hold is not yet loaded, so
+	// the window holds both sets apart.
+	missing := make([]world.ChunkPos, 0, max(int((2*load+1)*(2*load+1))-c.loaded.len()-queued.len(), 0))
 	for x := center.X - load; x <= center.X+load; x++ {
 		for z := center.Z - load; z <= center.Z+load; z++ {
 			pos := world.ChunkPos{X: x, Z: z}

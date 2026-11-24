@@ -62,6 +62,7 @@ func benchChunkViewMoves(b *testing.B, asked int32, settle bool) {
 	if len(c.generating) != 0 || len(c.pendingGeneration) != 0 {
 		b.Fatal("benchmark terrain was not cached")
 	}
+	initialSend := len(c.pendingSend)
 	for _, p := range c.pendingSend {
 		c.markSent(p)
 	}
@@ -83,7 +84,7 @@ func benchChunkViewMoves(b *testing.B, asked int32, settle bool) {
 		if len(c.pendingHolds) != 0 || len(c.generating) != 0 {
 			b.Fatal("load holds did not settle")
 		}
-	} else if want := (2*load+1)*(2*load+1) - sendViewSize(radius); len(c.pendingHolds) != want {
+	} else if want := (2*load+1)*(2*load+1) - initialSend; len(c.pendingHolds) != want {
 		b.Fatalf("queued holds = %d, want %d", len(c.pendingHolds), want)
 	}
 	c.pendingSend = nil
@@ -98,17 +99,4 @@ func benchChunkViewMoves(b *testing.B, asked int32, settle bool) {
 			c.markSent(p)
 		}
 	}
-}
-
-// sendViewSize counts the chunks InSendView covers around one center.
-func sendViewSize(radius int32) int {
-	n := 0
-	for x := -radius - 1; x <= radius+1; x++ {
-		for z := -radius - 1; z <= radius+1; z++ {
-			if world.InSendView(world.ChunkPos{X: x, Z: z}, world.ChunkPos{}, radius) {
-				n++
-			}
-		}
-	}
-	return n
 }
