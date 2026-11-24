@@ -65,12 +65,24 @@ func TestALlamaIgnoresAScaledLeadFiledOutsideItsSearchSections(t *testing.T) {
 		name  string
 		x     float64
 		moves bool
-	}{{"outside", -13.5, false}, {"inside", -9.5, true}} {
+		extra int
+	}{{"outside", -13.5, false, 0}, {"inside", -9.5, true, 0}, {"inside with a long list", -9.5, true, 64}} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			srv, c := servertest.Join(t, servertest.MobTestConfig(), "Herder")
+			srv, connect := servertest.Start(t, servertest.MobTestConfig())
+			c := connect()
+			c.Join("Herder")
 			c.MoveToGround(4.5, 64, 5.5, true)
 			c.Settle()
+			var keeper *servertest.Client
+			if tc.extra > 0 {
+				// A second player in range of the distant llamas, so
+				// their leashes hold.
+				keeper = connect()
+				keeper.Join("Keeper")
+				keeper.MoveToGround(6.5, 64, 36.5, true)
+				keeper.Settle()
+			}
 			srv.StopTick()
 
 			scale := nbt.Compound{"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
@@ -80,6 +92,15 @@ func TestALlamaIgnoresAScaledLeadFiledOutsideItsSearchSections(t *testing.T) {
 				t.Fatal("the lead was refused")
 			}
 			srv.SetMobLeashHolder(lead, c.PlayerEntityID)
+			// Leashed llamas past the search window keep the list long
+			// enough for the grid to cut it.
+			for i := range tc.extra {
+				far := srv.SpawnMob("minecraft:llama", 0.5+float64(i%8)*1.5, 64, 32.5+float64(i/8)*1.5)
+				if far == 0 {
+					t.Fatal("a distant llama was refused")
+				}
+				srv.SetMobLeashHolder(far, keeper.PlayerEntityID)
+			}
 			follower := srv.SpawnMob("minecraft:llama", tc.x, 64, 5.5)
 			c.Settle()
 			x0, _, _, _ := srv.MobPos(follower)

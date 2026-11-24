@@ -973,14 +973,11 @@ func (g *pushGrid) add(m *Mob, idx int) {
 	if _, ok := g.byID[m.ID]; !ok {
 		g.byID[m.ID] = m
 	}
-	hw := m.maxHalfWidth()
+	hw := m.kind().width * m.scale() / 2
 	if hw > g.wide {
 		g.wide = hw
 	}
 }
-
-// maxHalfWidth is the fully grown half-width including the scale attribute.
-func (m *Mob) maxHalfWidth() float64 { return m.kind().width * m.scale() * m.attrScale() / 2 }
 
 // moved re-files a mob that crossed a cell boundary this tick (a knockback
 // may cross many) and refreshes its box.
@@ -1023,7 +1020,7 @@ func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
 // The result is scratch valid until the next query.
 func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 	g.near = g.near[:0]
-	hw := m.maxHalfWidth()
+	hw := m.kind().width * m.scale() / 2
 	r := int(math.Ceil((hw + g.wide + inflate) / pushCellSide))
 	cx, cz := cellCoords(m.X, m.Z)
 	// The same sums boxesOverlap does, once for the query.
@@ -1031,9 +1028,7 @@ func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 	qMinX, qMaxX := m.X-qw, m.X+qw
 	qMinY, qMaxY := m.Y-inflate, m.Y+qh
 	qMinZ, qMaxZ := m.Z-qw, m.Z+qw
-	seen := 0
 	collect := func(c []pushEntry) {
-		seen += len(c)
 		for i := range c {
 			o := &c[i]
 			if qMaxX > o.minX && qMinX < o.maxX && qMaxY > o.minY && qMinY < o.maxY && qMaxZ > o.minZ && qMinZ < o.maxZ {
@@ -1041,27 +1036,55 @@ func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 			}
 		}
 	}
-	if g.rect.active() && len(g.cells) == 0 {
-		loX, hiX, loZ, hiZ := g.rect.clip(cx-r, cx+r, cz-r, cz+r)
-		for x := loX; x <= hiX; x++ {
-			row := g.rect.row(x)
-			for z := loZ; z <= hiZ; z++ {
-				collect(g.dense[row+z-g.rect.minZ].entries)
-			}
-		}
-	} else {
-		// Mixed dense and overflow cells still traverse in cell order before
-		// sorting, including ties from bodies outside the snapshot.
-		for x := cx - r; x <= cx+r; x++ {
-			for z := cz - r; z <= cz+r; z++ {
-				collect(g.cell(cellKey(x, z)))
-			}
-		}
-	}
+	seen := g.visit(cx-r, cx+r, cz-r, cz+r, collect)
 	if g.gathered != nil {
 		*g.gathered += seen
 	}
 	return g.near
+}
+
+// gatherSections collects every mob filed in the cells of the entity-section
+// columns loX..hiX by loZ..hiZ, with no box test: a mob's box can reach
+// further than its filing cell, and the caller applies its own window.
+// The result is scratch valid until the next query.
+func (g *pushGrid) gatherSections(loX, hiX, loZ, hiZ int) []*Mob {
+	g.near = g.near[:0]
+	seen := g.visit(loX*4, hiX*4+3, loZ*4, hiZ*4+3, func(c []pushEntry) {
+		for i := range c {
+			g.near = append(g.near, c[i].m)
+		}
+	})
+	if g.gathered != nil {
+		*g.gathered += seen
+	}
+	return g.near
+}
+
+// visit hands collect each cell in the inclusive range and returns the
+// entries it held.
+func (g *pushGrid) visit(loCX, hiCX, loCZ, hiCZ int, collect func([]pushEntry)) (seen int) {
+	count := func(c []pushEntry) {
+		seen += len(c)
+		collect(c)
+	}
+	if g.rect.active() && len(g.cells) == 0 {
+		loX, hiX, loZ, hiZ := g.rect.clip(loCX, hiCX, loCZ, hiCZ)
+		for x := loX; x <= hiX; x++ {
+			row := g.rect.row(x)
+			for z := loZ; z <= hiZ; z++ {
+				count(g.dense[row+z-g.rect.minZ].entries)
+			}
+		}
+		return seen
+	}
+	// Mixed dense and overflow cells still traverse in cell order before
+	// sorting, including ties from bodies outside the snapshot.
+	for x := loCX; x <= hiCX; x++ {
+		for z := loCZ; z <= hiCZ; z++ {
+			count(g.cell(cellKey(x, z)))
+		}
+	}
+	return seen
 }
 
 // boxesOverlap is the AABB intersection the pushable list is gathered by.
