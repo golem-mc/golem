@@ -125,3 +125,17 @@ func TestLootSequenceKeepsCandidatesBeforeFailure(t *testing.T) {
 		})
 	}
 }
+
+// vanilla: EntryGroup.compose, AlternativesEntry.compose
+func TestLootSingleChildGroupFailureFallsThrough(t *testing.T) {
+	t.Parallel()
+	srv, c := dialItemBarrel(t)
+	c.ChatCommand(`loot insert 2 64 3 loot {pools:[{rolls:1,entries:[{type:"minecraft:alternatives",children:[` +
+		`{type:"minecraft:group",children:[{type:"minecraft:item",name:"minecraft:diamond",condition:{type:"minecraft:random_chance",chance:0}}]},` +
+		`{type:"minecraft:item",name:"minecraft:stick"}]}]}]}`)
+	c.ExpectPlay(protocol.IDPlaySystemChat)
+	if got := barrelItems(srv, "minecraft:stick"); got != 1 {
+		t.Fatalf("loot awarded %d sticks, want one stick", got)
+	}
+	c.Disconnect()
+}
