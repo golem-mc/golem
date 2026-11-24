@@ -514,11 +514,23 @@ type Turn struct {
 	RelYaw, RelPitch bool
 }
 
+// Apply is the rotation a body facing yaw, pitch ends with after t, its pitch
+// clamped to [-90, 90].
+// vanilla: PositionMoveRotation.calculateAbsolute
+func (t Turn) Apply(yaw, pitch float32) (float32, float32) {
+	if !t.RelYaw {
+		yaw = 0
+	}
+	if !t.RelPitch {
+		pitch = 0
+	}
+	return yaw + t.Yaw, min(max(pitch+t.Pitch, -90), 90)
+}
+
 // TurnPassengers turns every rider of m, nested ones included, as m's
 // teleport by t does, calling each(rider) before it changes; each may be nil.
-// Each rider's pitch is clamped on its own and its head follows its body. m
-// must still hold its pre-teleport rotation.
-// vanilla: Entity.calculatePassengerTransition, PositionMoveRotation.calculateAbsolute
+// m must still hold its pre-teleport rotation.
+// vanilla: Entity.calculatePassengerTransition
 func TurnPassengers(m *Mob, t Turn, each func(*Mob)) {
 	for _, p := range m.Passengers {
 		pt := t
@@ -532,14 +544,7 @@ func TurnPassengers(m *Mob, t Turn, each func(*Mob)) {
 		if each != nil {
 			each(p)
 		}
-		yaw, pitch := pt.Yaw, pt.Pitch
-		if t.RelYaw {
-			yaw += p.Yaw
-		}
-		if t.RelPitch {
-			pitch += p.Pitch
-		}
-		p.Yaw, p.Pitch = yaw, min(max(pitch, -90), 90)
+		p.Yaw, p.Pitch = pt.Apply(p.Yaw, p.Pitch)
 		p.HeadYaw = p.Yaw
 	}
 }

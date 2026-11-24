@@ -912,6 +912,29 @@ func (e *entitySnapshot) Kill() {
 	e.srv.flushDestroyed()
 }
 
+// teleportTurn is the rotation transition move gives a mob facing as m
+// does. A facing clause turns only the mount, after the teleport, so the
+// riders get a zero relative turn; only /teleport wraps its angles.
+// vanilla: TeleportCommand.performTeleport, LookAt.perform
+func teleportTurn(m *entity.Mob, move command.Move) entity.Turn {
+	if move.LookAt != nil || move.KeepRotation {
+		return entity.Turn{RelYaw: true, RelPitch: true}
+	}
+	t := entity.Turn{Yaw: move.Pos.Yaw, Pitch: move.Pos.Pitch}
+	if !move.Command {
+		return t
+	}
+	t.RelYaw, t.RelPitch = move.RelYaw, move.RelPitch
+	if t.RelYaw {
+		t.Yaw -= m.Yaw
+	}
+	if t.RelPitch {
+		t.Pitch -= m.Pitch
+	}
+	t.Yaw, t.Pitch = command.WrapDegrees(t.Yaw), command.WrapDegrees(t.Pitch)
+	return t
+}
+
 // Teleport is Entity.teleportTo: an absolute Teleport Entity to the
 // entity's viewers, or teleportAcross for another dimension. A non-player
 // always gets its absolute destination, so a facing clause turns it here
@@ -928,28 +951,7 @@ func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
 	}
 	switch ref := e.ref.(type) {
 	case *mobEntity:
-		// A facing clause turns only the mount, after the teleport: the
-		// riders get a zero relative turn.
-		// vanilla: TeleportCommand.performTeleport, LookAt.perform
-		cur := ref.mob
-		turn := entity.Turn{Yaw: command.WrapDegrees(to.Yaw), Pitch: command.WrapDegrees(to.Pitch)}
-		switch {
-		case move.LookAt != nil || move.KeepRotation:
-			turn = entity.Turn{RelYaw: true, RelPitch: true}
-		default:
-			turn.RelYaw, turn.RelPitch = move.RelYaw, move.RelPitch
-			if turn.RelYaw {
-				turn.Yaw = command.WrapDegrees(to.Yaw - cur.Yaw)
-			}
-			if turn.RelPitch {
-				turn.Pitch = command.WrapDegrees(to.Pitch - cur.Pitch)
-			}
-		}
-		if move.Command {
-			e.srv.commandTeleportMob(ref, to, by, &turn)
-		} else {
-			e.srv.teleportMob(ref, to, to.Yaw, to.Pitch, by, &turn)
-		}
+		e.srv.turnTeleportMob(ref, move, by)
 	case *itemEntity:
 		e.srv.teleportItem(ref, to, by)
 	case *arrowEntity:

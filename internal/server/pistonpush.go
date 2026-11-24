@@ -235,7 +235,7 @@ func (s *Server) collectMobsPistonPush(dim *dimension, pp *world.PistonPush) []f
 			func(vx, vy, vz float64) {
 				ent.mob.VX, ent.mob.VY, ent.mob.VZ, ent.mob.OnGround = vx, vy, vz, false
 			},
-			func() { s.teleportMob(ent, to, to.Yaw, to.Pitch, "piston", nil) }))
+			func() { s.teleportMob(ent, to, to.Yaw, to.Pitch, "piston") }))
 	}
 	if len(moves) > 0 {
 		// The moves teleport mobs once the lock is down.
