@@ -50,6 +50,32 @@ func BenchmarkTickMannequinsTracked(b *testing.B) {
 	}
 }
 
+// BenchmarkTickMannequinsMoving is BenchmarkTickMannequinsTracked with every
+// mannequin moved a block and its lodged arrow count changed each tick, so
+// each tick opens a movement pass that sends a position and the data.
+func BenchmarkTickMannequinsMoving(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	for i := range trackerBenchBodies {
+		x, z := trackerBenchSpot(i)
+		s.registerMannequin(&mannequinEntity{
+			mannequin: entity.NewMannequin(s.nextEntity(), x, float64(world.GroundLevel), z),
+			w:         w,
+		})
+	}
+	for range 40 {
+		s.tickMannequins()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		for _, ent := range s.mannequins {
+			ent.mannequin.Y = float64(world.GroundLevel) + float64(i%2)
+			ent.mannequin.ArrowCount = i % 2
+		}
+		s.tickMannequins()
+	}
+}
+
 // BenchmarkTickMannequinsNone runs the mannequin pass in a world with none,
 // the cost every server pays.
 func BenchmarkTickMannequinsNone(b *testing.B) {

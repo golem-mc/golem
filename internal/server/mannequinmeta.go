@@ -3,8 +3,8 @@ package server
 import (
 	"bytes"
 	"github.com/golem-mc/golem/registry"
-	"hash/fnv"
 	"math"
+	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/effect"
@@ -45,7 +45,7 @@ var mannequinFields = []mannequinField{
 		func(m *mannequinEntity) bool { return m.mannequin.TicksFrozen == 0 }, func(m *mannequinEntity) uint64 { return uint64(m.mannequin.TicksFrozen) }},
 	{protocol.MetadataIndexEffectParticles, protocol.MetadataParticles,
 		func(b *protocol.Buffer, m *mannequinEntity) {
-			particles, _ := effect.Particles(m.mannequin.AllEffects())
+			particles := m.shownEffects().particles
 			b.PutVarInt(int32(len(particles)))
 			for _, p := range particles {
 				b.PutVarInt(effectParticleTypes[p.Type])
@@ -53,15 +53,13 @@ var mannequinFields = []mannequinField{
 					b.PutI32(p.Color)
 				}
 			}
-		}, func(m *mannequinEntity) bool { p, _ := effect.Particles(m.mannequin.AllEffects()); return len(p) == 0 }, mannequinParticlesKey},
+		}, func(m *mannequinEntity) bool { return len(m.shownEffects().particles) == 0 }, mannequinParticlesKey},
 	{protocol.MetadataIndexEffectAmbient, protocol.MetadataBoolean,
 		func(b *protocol.Buffer, m *mannequinEntity) {
-			_, ambient := effect.Particles(m.mannequin.AllEffects())
-			b.PutBool(ambient)
+			b.PutBool(m.shownEffects().ambient)
 		},
 		func(m *mannequinEntity) bool {
-			_, ambient := effect.Particles(m.mannequin.AllEffects())
-			return !ambient
+			return !m.shownEffects().ambient
 		}, mannequinAmbientKey},
 	{protocol.MetadataIndexCustomName, protocol.MetadataOptionalText,
 		func(b *protocol.Buffer, m *mannequinEntity) { m.custom.putName(b) },
@@ -199,35 +197,40 @@ func mannequinTickMetadata(ent *mannequinEntity) []byte {
 	})
 }
 
-// mannequinParticlesKey identifies the shown particle list by value, so an
-// effect refresh that leaves it alone is no change.
-func mannequinParticlesKey(ent *mannequinEntity) uint64 {
-	particles, _ := effect.Particles(ent.mannequin.AllEffects())
-	h := fnv.New64a()
-	for _, p := range particles {
-		h.Write([]byte(p.Type))
-		h.Write([]byte{byte(p.Color), byte(p.Color >> 8), byte(p.Color >> 16), byte(p.Color >> 24)})
-	}
-	return h.Sum64() ^ uint64(len(particles))
+// mannequinShown is the effect particles and ambient flag the mannequin
+// shows, refreshed when its effects changed; the keys count the changes the
+// ticking fields compare. A refresh that shows particles counts as a change
+// even when they are equal, as vanilla's particle options compare by
+// identity.
+// vanilla: LivingEntity.updateSynchronizedMobEffectParticles, ColorParticleOption
+type mannequinShown struct {
+	known        bool
+	revision     uint64
+	particles    []effect.Particle
+	ambient      bool
+	particlesKey uint64
+	ambientKey   uint64
 }
 
-func mannequinAmbientKey(ent *mannequinEntity) uint64 {
-	if _, ambient := effect.Particles(ent.mannequin.AllEffects()); ambient {
-		return 1
+func (m *mannequinEntity) shownEffects() *mannequinShown {
+	sh := &m.shown
+	rev := m.mannequin.EffectRevision()
+	if sh.known && sh.revision == rev {
+		return sh
 	}
-	return 0
+	particles, ambient := effect.Particles(m.mannequin.AllEffects())
+	if sh.known {
+		if len(particles) > 0 || !slices.Equal(particles, sh.particles) {
+			sh.particlesKey++
+		}
+		if ambient != sh.ambient {
+			sh.ambientKey++
+		}
+	}
+	sh.known, sh.revision, sh.particles, sh.ambient = true, rev, particles, ambient
+	return sh
 }
 
-// mannequinMetadataDirty reports whether a ticking field differs from the
-// last one sent, without advancing it. The mannequin lock is held.
-func mannequinMetadataDirty(ent *mannequinEntity) bool {
-	for _, f := range mannequinFields {
-		if f.tick == nil {
-			continue
-		}
-		if old, known := ent.metadata[f.index]; known && old != f.tick(ent) {
-			return true
-		}
-	}
-	return false
-}
+func mannequinParticlesKey(ent *mannequinEntity) uint64 { return ent.shownEffects().particlesKey }
+
+func mannequinAmbientKey(ent *mannequinEntity) uint64 { return ent.shownEffects().ambientKey }

@@ -45,11 +45,7 @@ func mannequinEffectPackets(ent *mannequinEntity) []outbound {
 	rules.UpdateEffectAttributes(m.Attributes, m.AllEffects())
 	m.Health = min(m.Health, m.HealthCap())
 	var packets []outbound
-	// The next tracking pass sends the delta after the movement.
-	// vanilla: ServerEntity.sendChanges
-	if mannequinMetadataDirty(ent) {
-		ent.needsSync = true
-	}
+	// The next tracking pass sends the metadata delta after the movement.
 	if attrs := m.Attributes.TakeDirty(); len(attrs) > 0 {
 		packets = append(packets, outbound{id: protocol.IDPlayUpdateAttributes, data: attributesPayload(m.ID, attrs)})
 	}

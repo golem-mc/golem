@@ -168,6 +168,12 @@ type trackedKind[B any, S any] struct {
 	// than the one the client places it at.
 	tellPose func(B) bodyPose
 	pairing  func(B) []outbound
+	// delta, if not nil, is read under the lock before the movement gate and
+	// gives the packets the watchers already told get after the movement:
+	// the dirty data and attributes. It asks for an off-period movement tick
+	// by setting needsSync when a synched value changed.
+	// vanilla: ServerEntity.sendChanges, sendDirtyEntityData
+	delta func(B) []outbound
 	// own is the kind's state a pairing tells; nil for a kind with none.
 	own func(B) S
 	// all, if not nil, walks the bodies in place of list, for a kind kept
@@ -806,6 +812,10 @@ func (k *trackedKind[B, S]) pass(s *Server, watchers []trackingWatcher, running 
 // settleBody runs one live body's share of a pass, under the kind lock.
 func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *nearbyPlayers, running bool, out *trackSends) {
 	v := k.body(b)
+	var tail []outbound
+	if k.delta != nil {
+		tail = k.delta(b)
+	}
 	var mt moveTick
 	if running || k.alwaysPosition || k.frozenSchedule {
 		mt = v.schedule(v.t.takeSync)
@@ -817,8 +827,19 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 		if wt.c.theWorld() != v.w {
 			continue // crossed to another dimension since the snapshot
 		}
-		if was, seen := v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out); seen && (mt.gate || mt.teleported && !v.k.steppedPath) {
+		paired := len(out.showTos)
+		was, seen := v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out)
+		if !seen {
+			continue
+		}
+		if mt.gate || mt.teleported && !v.k.steppedPath {
 			v.moveTold(was, wt.c, mt, out)
+		}
+		// A watcher just paired was told the current state.
+		if len(out.showTos) == paired {
+			for _, p := range tail {
+				out.moves.add(wt.c, p)
+			}
 		}
 	}
 }
