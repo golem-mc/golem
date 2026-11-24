@@ -57,12 +57,15 @@ func TestContainerViewerRegistry(t *testing.T) {
 	if n := len(s.viewers.byAt); n != 0 {
 		t.Fatalf("%d buckets left after close", n)
 	}
-	// Closing the last of two viewers releases its reference in the bucket.
-	a.setOpenWindow(&openWindow{kind: windowBarrel, w: w1, x: 0, y: 64, z: 0})
-	b.setOpenWindow(&openWindow{kind: windowBarrel, w: w1, x: 0, y: 64, z: 0})
+	// Disconnect teardown of the last of two viewers releases its references in
+	// the bucket while the other stays.
+	a.setOpenWindow(&openWindow{kind: windowHopper, w: w1, x: 0, y: 64, z: 0})
+	b.setOpenWindow(&openWindow{kind: windowHopper, w: w1, x: 0, y: 64, z: 0})
 	k := viewerKey{w1, 0, 64, 0}
 	bucket := s.viewers.byAt[k]
-	b.setOpenWindow(nil)
+	if err := b.closeWindows(false, true, true); err != nil {
+		t.Fatal(err)
+	}
 	if got := viewers(w1, 0, nil); !slices.Equal(got, []*client{a}) {
 		t.Fatalf("after one close, viewers = %v", got)
 	}
