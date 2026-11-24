@@ -46,11 +46,14 @@ func TestMilkingVibration(t *testing.T) {
 			if got := srv.InventorySlot("Actor", player.HotbarSlot).ItemID; got != servertest.MustItemID(t, tc.filled) {
 				t.Errorf("hand holds item %d, want %s", got, tc.filled)
 			}
-			want := "6"
+			// The animal is three blocks from the sensor, the player four:
+			// power 15 - floor(15/8 * 3) = 10 only if posted at the animal.
+			want, phase, power := "6", "active", "10"
 			if tc.calf {
-				want = "0"
+				want, phase, power = "0", "inactive", "0"
 			}
 			expectComparator(t, srv, want)
+			expectSensor(t, srv, 4, 64, 4, phase, power)
 		})
 	}
 }

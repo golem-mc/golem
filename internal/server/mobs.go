@@ -4300,15 +4300,14 @@ func (c *client) stewFromMooshroom(ent *mobEntity, hand int32) error {
 		sound = registry.SoundEntityMooshroomSuspiciousMilk
 	}
 	c.filledResult(hand, stack, false)
-	c.srv.gameEvent(ent.w, rules.GameEventEntityInteract, x, y, z, c.gameEventContext(0))
 	// The mooshroom plays from its body in its own category, unlike
 	// AbstractCow's milking, which plays from the milker.
 	if !silent {
 		c.srv.broadcastSoundID(ent.w,
 			sound, protocol.SoundCategoryNeutral,
 			x, y, z, 1.0, 1.0)
-
 	}
+	c.srv.gameEvent(ent.w, rules.GameEventEntityInteract, x, y, z, c.gameEventContext(0))
 	return nil
 }
 
