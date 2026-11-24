@@ -346,3 +346,34 @@ func TestBookedTickKeepsItsBlockWhenReplaced(t *testing.T) {
 		}
 	}
 }
+
+// TestTaggedTickKeepsItsBlockThroughCopyAndSave books a chorus flower's
+// survival tick, puts a dirt path in its cell, copies the cell and reloads: the
+// tick stays booked for the flower, so neither path takes it.
+// vanilla: ScheduledTick.type, LevelTicks.copyAreaFrom, ServerLevel.tickBlock
+func TestTaggedTickKeepsItsBlockThroughCopyAndSave(t *testing.T) {
+	origin := []ChunkPos{{}}
+	w, p, dir := newSavedWorldWith(t, origin)
+	const y = GroundLevel
+	w.SetBlock(8, y, 8, registry.BlockChorusFlower.DefaultState())
+	p.mu.Lock()
+	p.scheduleSurvival(8, y, 8, p.now+1)
+	p.mu.Unlock()
+	w.SetBlock(8, y, 8, registry.BlockDirtPath.DefaultState())
+	ticks := p.BlockTicksIn(8, y, 8, 8, y, 8)
+	if len(ticks) != 1 || ticks[0].id != registry.BlockChorusFlower.Name() {
+		t.Fatalf("copied ticks = %+v, want one booked for the chorus flower", ticks)
+	}
+	w.SetBlock(8, y, 10, registry.BlockDirtPath.DefaultState())
+	p.ScheduleBlockTicks(ticks, 0, 0, 2)
+
+	w, p = reopenWorldWith(t, w, dir, origin)
+	for clock := int64(0); clock <= 2; clock++ {
+		p.Tick(clock)
+	}
+	for _, z := range []int32{8, 10} {
+		if got, _, _ := registry.BlockStateName(w.BlockAt(8, y, z)); got != "minecraft:dirt_path" {
+			t.Errorf("path at z=%d = %s, want minecraft:dirt_path", z, got)
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // The piston engine's black-box checks: a piston on the flat ground, its
@@ -461,4 +462,42 @@ func TestPistonRideSurvivesChunkSaveAndLoad(t *testing.T) {
 	if plugins, ok := nbt.Get[nbt.Compound](reloadedTag, "plugins"); !ok || plugins["test:flag"] != nbt.Byte(1) {
 		t.Fatalf("reloaded plugins = %v, want test:flag=1", reloadedTag["plugins"])
 	}
+}
+
+// TestLandingSavedAtLowPriorityStillLands adopts a ride's landings saved at
+// p=2: they stay landings, left out of a copy and a clear, and land.
+// vanilla: PistonMovingBlockEntity.tick, LevelTicks.copyAreaFrom, LevelTicks.clearArea
+func TestLandingSavedAtLowPriorityStillLands(t *testing.T) {
+	w, p, blocks := pistonRow(t, false)
+	clock := pistonSetup(t, w, p, blocks, false, map[int32]uint16{11: blocks["dirt"]}, nil)
+	pistonPowerOn(t, w, p, blocks, &clock)
+	p.mu.Lock()
+	kept := p.queue[:0]
+	for _, tk := range p.queue {
+		if tk.priority != tickPriorityFinalize || tk.fluid != 0 {
+			kept = append(kept, tk)
+			continue
+		}
+		p.forgetBooking(tk)
+		w.pendingLoaded = append(w.pendingLoaded, loadedTick{
+			id: registry.BlockMovingPiston.Name(), x: tk.pos.x, y: tk.pos.y, z: tk.pos.z,
+			delay: int32(tk.due - p.now), priority: 2})
+	}
+	p.queue = kept
+	p.queue.init()
+	if len(w.pendingLoaded) != 2 {
+		t.Fatalf("%d landings queued, want 2", len(w.pendingLoaded))
+	}
+	p.adoptLoadedTicks()
+	p.mu.Unlock()
+	if ticks := p.BlockTicksIn(11, 64, 9, 12, 64, 9); len(ticks) != 0 {
+		t.Errorf("copied ticks = %+v, want none", ticks)
+	}
+	p.ClearTicksIn(11, 64, 9, 12, 64, 9)
+	created := clock
+	for clock < created+2 {
+		clock++
+		p.Tick(clock)
+	}
+	wantRow(t, w, map[int32]string{10: "minecraft:piston", 11: "minecraft:piston_head", 12: "minecraft:dirt"})
 }

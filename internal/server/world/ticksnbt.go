@@ -320,6 +320,10 @@ func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int
 		return
 	}
 	switch block := registry.BlockOf(state); {
+	case block == registry.BlockMovingPiston:
+		// A ride's landing whatever priority it was saved at.
+		// vanilla: PistonMovingBlockEntity.tick
+		p.schedulePistonFinalize(x, y, z, due)
 	case block == registry.BlockFrogspawn:
 		p.scheduleBooked(p.frogspawnBooked, x, y, z, due, frogspawnHatchEvent)
 	case block == registry.BlockSnifferEgg:
