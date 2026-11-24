@@ -125,37 +125,27 @@ func (c *client) pickupBox() entity.AABB {
 	s := c.srv
 	pos := c.player.Position()
 	dims := c.dims(c.player.Appearance().Pose)
-	hw := dims.Width / 2
-	minX, minY, minZ := pos.X-hw, pos.Y, pos.Z-hw
-	maxX, maxY, maxZ := pos.X+hw, pos.Y+dims.Height, pos.Z+hw
-	var v [6]float64
-	riding := true
+	var vehicle entity.AABB
 	switch {
 	case c.vehicle.Load() != nil:
 		it := c.vehicle.Load()
 		s.boatsMu.Lock()
-		v[0], v[1], v[2], v[3], v[4], v[5] = it.boat.BlastBox()
+		vehicle = entity.NewAABB(it.boat.BlastBox())
 		s.boatsMu.Unlock()
 	case c.minecart.Load() != nil:
 		it := c.minecart.Load()
 		s.minecartsMu.Lock()
-		v[0], v[1], v[2], v[3], v[4], v[5] = it.cart.BlastBox()
+		vehicle = entity.NewAABB(it.cart.BlastBox())
 		s.minecartsMu.Unlock()
 	case c.mount.Load() != nil:
 		ent := c.mount.Load()
 		s.mobsMu.Lock()
-		v[0], v[1], v[2], v[3], v[4], v[5] = ent.mob.BlastBox()
+		vehicle = entity.NewAABB(ent.mob.BlastBox())
 		s.mobsMu.Unlock()
 	case c.cushion.Load() != nil:
-		v[0], v[1], v[2], v[3], v[4], v[5] = s.fixtureBox(c.cushion.Load())
-	default:
-		riding = false
+		vehicle = entity.NewAABB(s.fixtureBox(c.cushion.Load()))
 	}
-	if !riding {
-		return entity.NewAABB(minX-1, minY-0.5, minZ-1, maxX+1, maxY+0.5, maxZ+1)
-	}
-	return entity.NewAABB(min(minX, v[0])-1, min(minY, v[1]), min(minZ, v[2])-1,
-		max(maxX, v[3])+1, max(maxY, v[4]), max(maxZ, v[5])+1)
+	return entity.PlayerTouchBox(pos.X, pos.Y, pos.Z, dims.Width, dims.Height, vehicle)
 }
 
 // motionThreshold is how far a tick may move an item's velocity off the one

@@ -210,10 +210,6 @@ func (s *Server) readMobTickInputs(in *mobTickInputs) (known map[uuid.UUID]bool)
 			Pushable: !vitals.Dead &&
 				mode != protocol.GameModeSpectator,
 			Passenger: c.isPassenger(),
-			OnHappyGhast: func() bool {
-				v := c.mount.Load()
-				return v != nil && v.mob.Type == entity.TypeHappyGhast
-			}(),
 			// Spectator keeps despawn distance from measuring against a spectator.
 			Spectator: mode == protocol.GameModeSpectator,
 			Creative:  mode == protocol.GameModeCreative,
@@ -235,7 +231,9 @@ func (s *Server) readMobTickInputs(in *mobTickInputs) (known map[uuid.UUID]bool)
 		}
 		dims := c.dims(c.player.Appearance().Pose)
 		snapshot.Width, snapshot.Height, snapshot.EyeHeight = dims.Width, dims.Height, dims.EyeHeight
-		c.dolphinRiderSnapshot(&snapshot)
+		if snapshot.Passenger {
+			c.mobRiderSnapshot(&snapshot)
+		}
 		c.shoulderSnapshot(&snapshot, pos, in.parrotOwners[c.player.UUID])
 		// Forget a blow older than lastHurtByMemory ticks. vanilla: LivingEntity.tick
 		if vitals.LastHurtBy != 0 && vitals.AgeTicks-vitals.LastHurtByAge <= lastHurtByMemory {
@@ -323,6 +321,57 @@ func (s *Server) readMobTickInputs(in *mobTickInputs) (known map[uuid.UUID]bool)
 		}
 	}
 	return known
+}
+
+// mobRiderSnapshot reads the immediate mount and root vehicle without nesting entity locks.
+func (c *client) mobRiderSnapshot(p *entity.Player) {
+	s := c.srv
+	boat, cart := c.vehicle.Load(), c.minecart.Load()
+	if mount := c.mount.Load(); mount != nil && boat == nil && cart == nil {
+		s.mobsMu.Lock()
+		m := mount.mob
+		p.OnHappyGhast = m.Type == entity.TypeHappyGhast
+		p.NautilusDriver = entity.IsNautilus(m.Type) && mount.rider == c && !m.Horse.Saddle.Empty()
+		p.RideBox = entity.NewAABB(m.BlastBox())
+		root := m.RootVehicle()
+		p.RideRoot.X, p.RideRoot.Y, p.RideRoot.Z, p.RideRoot.Top = root.X, root.Y, root.Z, root.Y+root.BbHeight()
+		if ent := s.herdOf(mount.w).book[root]; ent != nil {
+			boat, cart = ent.vehicle, ent.cart
+		}
+		s.mobsMu.Unlock()
+		if boat == nil && cart == nil {
+			return
+		}
+	}
+
+	var box entity.AABB
+	var x, y, z, height float64
+	switch {
+	case boat != nil:
+		s.boatsMu.Lock()
+		p.BoatDriver = boat.driver() == c
+		box = entity.NewAABB(boat.boat.Box())
+		x, y, z, height = boat.boat.X, boat.boat.Y, boat.boat.Z, entity.BoatHeight
+		s.boatsMu.Unlock()
+	case cart != nil:
+		s.minecartsMu.Lock()
+		box = entity.NewAABB(cart.cart.Box())
+		x, y, z, height = cart.cart.X, cart.cart.Y, cart.cart.Z, entity.MinecartHeight
+		s.minecartsMu.Unlock()
+	default:
+		cushion := c.cushion.Load()
+		if cushion == nil {
+			return
+		}
+		s.fixturesMu.Lock()
+		box = entity.NewAABB(entity.FixtureBox(cushion.kind, cushion.tag, cushion.x, cushion.y, cushion.z))
+		x, y, z, height = cushion.x, cushion.y, cushion.z, entity.CushionHeight
+		s.fixturesMu.Unlock()
+	}
+	if p.RideBox == (entity.AABB{}) {
+		p.RideBox = box
+	}
+	p.RideRoot.X, p.RideRoot.Y, p.RideRoot.Z, p.RideRoot.Top = x, y, z, y+height
 }
 
 // stepOffDepartingVehicles empties the mob seats of boats and carts leaving
