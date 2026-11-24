@@ -694,8 +694,8 @@ func (m *Mob) loadEquipment(tag nbt.Tag) {
 		for i, slot := range ArmorSlotNames {
 			m.SetEquipment(protocol.EquipFeet+i, StoredSlot(equipment, slot))
 		}
-		m.loadSaddleSlot(equipment)
-		m.SetEquipment(6, StoredSlot(equipment, "body"))
+		m.SetEquipment(protocol.EquipBody, StoredSlot(equipment, "body"))
+		m.SetEquipment(protocol.EquipSaddle, StoredSlot(equipment, "saddle"))
 	}
 }
 
@@ -875,11 +875,8 @@ func equipmentTag(m *Mob) *nbt.OrderedCompound {
 	if !m.Body.Empty() {
 		equipment.Set("body", registry.StackTag(m.Body))
 	}
-	if !m.Horse.Saddle.Empty() {
-		equipment.Set("saddle", registry.StackTag(m.Horse.Saddle))
-	}
-	if !m.Antenna.Empty() {
-		equipment.Set("saddle", registry.StackTag(m.Antenna))
+	if saddle := m.SaddleSlot(); !saddle.Empty() {
+		equipment.Set("saddle", registry.StackTag(saddle))
 	}
 
 	return equipment
@@ -931,15 +928,6 @@ func clampToShort(v int) int16 {
 // clampToByte clamps a counter into 0..255.
 func clampToByte(v int) uint8 {
 	return uint8(min(max(v, 0), 255))
-}
-
-// loadSaddleSlot reads the "saddle" equipment slot into the field the kind keeps it in.
-func (m *Mob) loadSaddleSlot(equipment nbt.Compound) {
-	if m.Type == TypeCopperGolem {
-		m.SetMetadataAntenna(StoredSlot(equipment, "saddle"))
-	} else {
-		m.SetMetadataHorseSaddle(StoredSlot(equipment, "saddle"))
-	}
 }
 
 // loadFreezeConversion reads a skeleton's freeze conversion state.
