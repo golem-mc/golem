@@ -45,7 +45,7 @@ func (s *Server) mannequinTargets() mannequinTargetSnapshot {
 func syncMannequinEffects(ent *mannequinEntity) {
 	m := ent.mannequin
 	rules.UpdateEffectAttributes(m.Attributes, m.AllEffects())
-	m.Health = min(m.Health, m.HealthCap())
+	m.SetHealth(min(m.Health, m.HealthCap()))
 }
 
 type mannequinEffectTell struct {

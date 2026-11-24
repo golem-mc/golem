@@ -169,11 +169,15 @@ type trackedKind[B any, S any] struct {
 	tellPose func(B) bodyPose
 	pairing  func(B) []outbound
 	// delta, if not nil, is read under the lock before the movement gate and
-	// gives the payloads the watchers already told get after the movement:
-	// the dirty data and attributes. It asks for an off-period movement tick
-	// by setting needsSync when a synched value changed.
+	// gives the dirty data the watchers already told get after the movement.
+	// It asks for an off-period movement tick by setting needsSync when a
+	// synched value changed.
 	// vanilla: ServerEntity.sendChanges, sendDirtyEntityData
-	delta func(B) (metadata, attributes []byte)
+	delta func(B) []byte
+	// dirtyAttributes, if not nil, takes the changed attributes, sent after
+	// the data; only a movement tick takes them, so a changed attribute alone
+	// waits for the next one.
+	dirtyAttributes func(B) []byte
 	// own is the kind's state a pairing tells; nil for a kind with none.
 	own func(B) S
 	// all, if not nil, walks the bodies in place of list, for a kind kept
@@ -441,7 +445,10 @@ type sendList struct{ entries *[]sendEntry }
 
 type sendEntry struct {
 	to *client
-	p  outbound
+	// w, if not nil, is the world the packet belongs to; a client that left
+	// it is not sent the packet.
+	w *world.World
+	p outbound
 }
 
 var sendEntries = sync.Pool{New: func() any { return new([]sendEntry) }}
@@ -450,7 +457,13 @@ func (l *sendList) add(c *client, p outbound) {
 	if l.entries == nil {
 		l.entries = sendEntries.Get().(*[]sendEntry)
 	}
-	*l.entries = append(*l.entries, sendEntry{c, p})
+	*l.entries = append(*l.entries, sendEntry{to: c, p: p})
+}
+
+// addIn queues a packet for c only while c stays in w.
+func (l *sendList) addIn(c *client, w *world.World, p outbound) {
+	l.add(c, p)
+	(*l.entries)[len(*l.entries)-1].w = w
 }
 
 // drain hands every queued packet to f instead of sending it, and releases
@@ -473,7 +486,7 @@ func (l *sendList) send() {
 		return
 	}
 	for _, e := range *l.entries {
-		e.to.sendOutboundIn(nil, e.p)
+		e.to.sendOutboundIn(e.w, e.p)
 	}
 	// Cleared, so a pooled list holds no client or payload alive.
 	clear(*l.entries)
@@ -809,13 +822,16 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 	v := k.body(b)
 	var metadata, attributes []byte
 	if k.delta != nil {
-		metadata, attributes = k.delta(b)
+		metadata = k.delta(b)
 	}
 	var mt moveTick
 	if running || k.alwaysPosition || k.frozenSchedule {
 		mt = v.schedule(v.t.takeSync())
 	} else {
 		mt = v.teleportTick()
+	}
+	if mt.gate && k.dirtyAttributes != nil {
+		attributes = k.dirtyAttributes(b)
 	}
 	for _, i := range v.watchers(near) {
 		wt := watchers[i]
@@ -833,10 +849,10 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 		// A watcher just paired was told the current state.
 		if len(out.showTos) == paired {
 			if metadata != nil {
-				out.moves.add(wt.c, outbound{id: protocol.IDPlayEntityMetadata, data: metadata})
+				out.moves.addIn(wt.c, v.w, outbound{id: protocol.IDPlayEntityMetadata, data: metadata})
 			}
 			if attributes != nil {
-				out.moves.add(wt.c, outbound{id: protocol.IDPlayUpdateAttributes, data: attributes})
+				out.moves.addIn(wt.c, v.w, outbound{id: protocol.IDPlayUpdateAttributes, data: attributes})
 			}
 		}
 	}

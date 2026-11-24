@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"github.com/golem-mc/golem/registry"
-	"math"
 	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -72,7 +71,7 @@ var mannequinFields = []mannequinField{
 		func(m *mannequinEntity) bool { return mannequinPose(m) == protocol.PoseStanding }, func(m *mannequinEntity) uint64 { return uint64(mannequinPose(m)) }},
 	{protocol.MetadataIndexLivingHealth, protocol.MetadataFloat,
 		func(b *protocol.Buffer, m *mannequinEntity) { b.PutF32(float32(m.mannequin.Health)) },
-		func(m *mannequinEntity) bool { return m.mannequin.Health == 1 }, func(m *mannequinEntity) uint64 { return uint64(math.Float32bits(float32(m.mannequin.Health))) }},
+		func(m *mannequinEntity) bool { return m.mannequin.Health == 1 }, func(m *mannequinEntity) uint64 { return m.mannequin.HealthWrites }},
 	{protocol.MetadataIndexArrowCount, protocol.MetadataVarInt,
 		func(b *protocol.Buffer, m *mannequinEntity) { b.PutVarInt(int32(m.mannequin.ArrowCount)) },
 		func(m *mannequinEntity) bool { return m.mannequin.ArrowCount == 0 }, func(m *mannequinEntity) uint64 { return uint64(m.mannequin.ArrowCount) }},

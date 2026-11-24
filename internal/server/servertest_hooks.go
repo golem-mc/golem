@@ -7837,7 +7837,8 @@ func (s *Server) SetMannequinForTest(id int32, health, fall float64) {
 	defer s.mannequinsMu.Unlock()
 	for _, it := range s.mannequins {
 		if it.mannequin.ID == id {
-			it.mannequin.Health, it.mannequin.FallDistance = health, fall
+			it.mannequin.SetHealth(health)
+			it.mannequin.FallDistance = fall
 		}
 	}
 }

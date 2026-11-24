@@ -34,9 +34,14 @@ type Mannequin struct {
 	Attributes                             *player.Attributes
 	attrWorn                               [7]protocol.ItemStack
 	StandBody
-	Yaw               float32
-	Pitch             float32
-	Health            float64
+	Yaw   float32
+	Pitch float32
+	// Health is written through SetHealth.
+	Health float64
+	// HealthWrites counts the writes that changed Health's synched float, so
+	// a hit healed back within one tick still reaches the clients.
+	// vanilla: SynchedEntityData.set
+	HealthWrites      uint64
 	MainHand, OffHand protocol.ItemStack
 	Worn              [4]protocol.ItemStack // feet, legs, chest, head
 	// Dead is the mannequin removed; a dying one has Health 0 and counts
@@ -96,6 +101,15 @@ func (m *Mannequin) BlastBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
 	width, height := MannequinDimensions(m.Pose)
 	half := width / 2
 	return m.X - half, m.Y, m.Z - half, m.X + half, m.Y + height, m.Z + half
+}
+
+// SetHealth writes Health and counts the write when it changes the float the
+// clients are sent.
+func (m *Mannequin) SetHealth(h float64) {
+	if float32(h) != float32(m.Health) {
+		m.HealthWrites++
+	}
+	m.Health = h
 }
 
 // Dying is Health run out: the body stays for its death animation.
@@ -159,7 +173,7 @@ func (m *Mannequin) HurtBy(amount float64, typ registry.DamageType, bypassesCool
 	}
 	amount = m.hurtAfterEffects(amount, typ)
 	// LivingEntity's health and damage are floats, including successive hurts.
-	m.Health = float64(max(float32(m.Health)-float32(amount), 0))
+	m.SetHealth(float64(max(float32(m.Health)-float32(amount), 0)))
 	return true, softened, m.Dying()
 }
 

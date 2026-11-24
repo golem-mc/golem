@@ -51,21 +51,27 @@ var mannequinTracker = trackedKind[*mannequinEntity, struct{}]{
 		m := ent.mannequin
 		return bodyPose{x: m.X, y: m.Y, z: m.Z, yaw: m.Yaw, pitch: m.Pitch, onGround: m.OnGround}
 	},
-	pairing: mannequinPairing,
-	delta:   mannequinDelta,
+	pairing:         mannequinPairing,
+	delta:           mannequinDelta,
+	dirtyAttributes: mannequinDirtyAttributes,
 }
 
-// mannequinDelta collects the changed ticking fields and attributes, and asks
-// for a movement tick off the period when a synched value changed.
+// mannequinDelta collects the changed ticking fields, and asks for a movement
+// tick off the period when one changed.
 // vanilla: ServerEntity.sendChanges
-func mannequinDelta(ent *mannequinEntity) (metadata, attributes []byte) {
-	if metadata = mannequinTickMetadata(ent); metadata != nil {
+func mannequinDelta(ent *mannequinEntity) []byte {
+	metadata := mannequinTickMetadata(ent)
+	if metadata != nil {
 		ent.needsSync = true
 	}
+	return metadata
+}
+
+func mannequinDirtyAttributes(ent *mannequinEntity) []byte {
 	if attrs := ent.mannequin.Attributes.TakeDirty(); len(attrs) > 0 {
-		attributes = attributesPayload(ent.mannequin.ID, attrs)
+		return attributesPayload(ent.mannequin.ID, attrs)
 	}
-	return metadata, attributes
+	return nil
 }
 
 // mannequinPairing introduces a mannequin with its metadata and equipment.

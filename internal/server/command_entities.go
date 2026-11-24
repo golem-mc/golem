@@ -2060,7 +2060,7 @@ func (e *entitySnapshot) WithAttributes(fn func(a *player.Attributes)) {
 		e.srv.mannequinsMu.Lock()
 		defer e.srv.mannequinsMu.Unlock()
 		fn(ref.mannequin.Attributes)
-		ref.mannequin.Health = min(ref.mannequin.Health, ref.mannequin.HealthCap())
+		ref.mannequin.SetHealth(min(ref.mannequin.Health, ref.mannequin.HealthCap()))
 		return
 	}
 	ref, ok := e.ref.(*mobEntity)

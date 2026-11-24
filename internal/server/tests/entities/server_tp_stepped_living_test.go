@@ -69,8 +69,10 @@ func TestTeleportCommandSteppedPathLastsOneTrackingInterval(t *testing.T) {
 // opens one movement tick off the period and is consumed by whichever tick
 // opens: the teleport that follows waits for the next scheduled tick, and its
 // path lasts the ticks since the pass the change opened. A change that leaves
-// the synched value as it was opens nothing.
-// vanilla: ServerEntity.sendChanges, Entity.needsSync, SteppedInterpolationTracker
+// the synched value as it was opens nothing, and a changed attribute alone
+// waits for the next movement tick.
+// vanilla: ServerEntity.sendChanges, Entity.needsSync, SteppedInterpolationTracker,
+// SynchedEntityData.set
 func TestDirtyDataOpensOneMovementTick(t *testing.T) {
 	t.Parallel()
 	const (
@@ -82,17 +84,22 @@ func TestDirtyDataOpensOneMovementTick(t *testing.T) {
 		kinds       int
 		setup, line string
 		opens       bool // the change is a synched one
+		attributes  bool // the change dirties an attribute
 	}{
-		{"glow", stand | mannequin, ``, `effect give @e[tag=s,limit=1] glowing infinite 0 true`, true},
-		{"load", stand | mannequin, ``, `data merge entity @e[tag=s,limit=1] {Invulnerable:1b}`, true},
-		{"health", mannequin, ``, `damage @e[tag=s,limit=1] 1 generic`, true},
-		{"zero_damage", mannequin, ``, `damage @e[tag=s,limit=1] 0 generic`, false},
-		{"visible_refresh", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 false`, `effect give @e[tag=s,limit=1] speed 200 0 false`, true},
-		{"hidden_refresh", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 true`, `effect give @e[tag=s,limit=1] speed 200 0 true`, false},
+		{"glow", stand | mannequin, ``, `effect give @e[tag=s,limit=1] glowing infinite 0 true`, true, false},
+		{"load", stand | mannequin, ``, `data merge entity @e[tag=s,limit=1] {Invulnerable:1b}`, true, false},
+		{"health", mannequin, ``, `damage @e[tag=s,limit=1] 1 generic`, true, false},
+		{"zero_damage", mannequin, ``, `damage @e[tag=s,limit=1] 0 generic`, false, false},
+		{"visible_refresh", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 false`, `effect give @e[tag=s,limit=1] speed 200 0 false`, true, false},
+		{"hidden_refresh", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 true`, `effect give @e[tag=s,limit=1] speed 200 0 true`, false, false},
 		// The first hidden effect turns the ambient flag on.
-		{"hidden_first", mannequin, ``, `effect give @e[tag=s,limit=1] speed 100 0 true`, true},
+		{"hidden_first", mannequin, ``, `effect give @e[tag=s,limit=1] speed 100 0 true`, true, false},
 		// A refresh whose particle option vanilla reuses changes nothing.
-		{"omen_refresh", mannequin, `effect give @e[tag=s,limit=1] trial_omen 100 0 false`, `effect give @e[tag=s,limit=1] trial_omen 200 0 false`, false},
+		{"omen_refresh", mannequin, `effect give @e[tag=s,limit=1] trial_omen 100 0 false`, `effect give @e[tag=s,limit=1] trial_omen 200 0 false`, false, false},
+		// The modifier changes, the synched fields do not.
+		{"hidden_amplifier", mannequin, `effect give @e[tag=s,limit=1] speed 100 0 true`, `effect give @e[tag=s,limit=1] speed 100 1 true`, false, true},
+		// The health is healed back before tracking, but stays dirty.
+		{"damage_healed", mannequin, ``, "damage @e[tag=s,limit=1] 1 generic\neffect give @e[tag=s,limit=1] instant_health 1 0 true", true, false},
 	}
 	for _, kind := range []struct {
 		name     string
@@ -140,14 +147,25 @@ func TestDirtyDataOpensOneMovementTick(t *testing.T) {
 								idle = 0
 							}
 							servertest.RunTicks(t, srv, idle)
-							srv.RunLine(tc.line)
-							servertest.RunTicks(t, srv, 1) // the tick the change opens or shares
+							for line := range strings.SplitSeq(tc.line, "\n") {
+								srv.RunLine(line)
+							}
+							attributesOf := func(pid int32, data []byte) bool {
+								return pid == protocol.IDPlayUpdateAttributes && protocol.NewReader(data).ReadVarInt() == id
+							}
+							// The tick the change opens or shares.
+							attributesNow := c.ReadTicks(srv, 1, attributesOf)
 							c.Settle()
+							if tc.attributes && attributesNow != scheduled {
+								t.Errorf("attributes on the change's tick: %v, want %v", attributesNow, scheduled)
+							}
+							attributesLater := false
 							srv.RunLine(`tp @e[tag=s,limit=1] 0.5 105 0.5`)
 							// The dirty pass is consumed, so the teleport waits for
 							// the next scheduled tick, the ticks since the pass.
 							var sync servertest.EntityPositionSync
 							if !c.ReadTicks(srv, kind.interval, func(pid int32, data []byte) bool {
+								attributesLater = attributesLater || attributesOf(pid, data)
 								if pid != protocol.IDPlayTeleportEntity {
 									return false
 								}
@@ -155,6 +173,11 @@ func TestDirtyDataOpensOneMovementTick(t *testing.T) {
 								return sync.ID == id && sync.Y == 105
 							}) {
 								t.Fatal("no Teleport Entity")
+							}
+							// The attributes follow the movement within its tick.
+							attributesLater = c.ReadTicks(srv, 0, attributesOf) || attributesLater
+							if tc.attributes && attributesLater == scheduled {
+								t.Errorf("attributes with the next scheduled tick: %v, want %v", attributesLater, !scheduled)
 							}
 							want := int32(kind.interval)
 							if tc.opens && !scheduled {
