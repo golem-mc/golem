@@ -365,7 +365,10 @@ func (s *decorProtoStore) lookupLocked(pos ChunkPos) *decorProto {
 	if err == nil {
 		os.Remove(path)
 		var p *decorProto
-		if p, err = decodeDecorProto(inflate(data)); err == nil {
+		buf := decorProtoBufs.Get().(*decorProtoBuf)
+		p, err = decodeDecorProto(buf.inflate(data))
+		decorProtoBufs.Put(buf)
+		if err == nil {
 			p.finals = flags.finals
 			s.mem[pos] = p
 			s.peak = max(s.peak, len(s.mem))
@@ -614,10 +617,12 @@ func readDecorProtoFlags(path string) spilledProto {
 var writeDecorProtoFile = os.WriteFile
 
 // decorProtoBuf is the scratch of a spill: raw holds one proto's encoding,
-// out the deflated protos. Pooled, since a proto encodes to over 100 kB.
+// out the deflated protos, in the inflated one. Pooled, since a proto encodes
+// to over 100 kB.
 type decorProtoBuf struct {
 	raw []byte
 	out bytes.Buffer
+	in  bytes.Buffer
 }
 
 var decorProtoBufs = sync.Pool{New: func() any { return new(decorProtoBuf) }}
@@ -640,15 +645,31 @@ func (b *decorProtoBuf) deflate(p *decorProto) {
 	_ = zw.Close()
 }
 
-// inflate undoes writeDecorProto's deflate; non-stream bytes come back empty
-// and fail to decode.
-func inflate(b []byte) []byte {
-	zr, err := zlib.NewReader(bytes.NewReader(b))
-	if err != nil {
-		return nil
+// decorProtoZlibReaders holds inflate state: a fresh reader allocates a
+// 32 kB window.
+var decorProtoZlibReaders sync.Pool
+
+// inflate undoes deflate; non-stream bytes come back empty and fail to decode.
+// The result is valid until the next inflate on b.
+func (b *decorProtoBuf) inflate(data []byte) []byte {
+	b.in.Reset()
+	src := bytes.NewReader(data)
+	var zr io.ReadCloser
+	if r, ok := decorProtoZlibReaders.Get().(io.ReadCloser); ok {
+		if r.(zlib.Resetter).Reset(src, nil) != nil {
+			return nil
+		}
+		zr = r
+	} else {
+		var err error
+		if zr, err = zlib.NewReader(src); err != nil {
+			return nil
+		}
 	}
-	out, _ := io.ReadAll(zr)
-	return out
+	_, _ = b.in.ReadFrom(zr)
+	_ = zr.Close()
+	decorProtoZlibReaders.Put(zr)
+	return b.in.Bytes()
 }
 
 // decorProtoVersion is the first byte of a saved proto.
