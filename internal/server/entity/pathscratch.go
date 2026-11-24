@@ -153,10 +153,11 @@ var (
 	tinyScratchPool = sync.Pool{New: func() any { return newPathScratch(true) }}
 )
 
-// MobPathScratch keeps the two ground-search buffers alive between a herd's
-// ticks. Its zero value is ready to use, and the herd uses it serially.
+// MobPathScratch keeps the path-search buffers alive between a herd's ticks.
+// Its zero value is ready to use, and the herd uses it serially.
 type MobPathScratch struct {
 	normal, tiny *pathScratch
+	swim         *swimScratch
 }
 
 func (p *MobPathScratch) findPath(w World, f footprint, from, to Waypoint, maxRange, reachRange int32) ([]Waypoint, bool) {
