@@ -423,6 +423,7 @@ func (s *Server) tick() {
 	s.tickBoats()
 	s.tickMinecarts()
 	s.fireVehicleMoves()
+	s.refreshLootRides()
 	if runs {
 		s.tickDragonCrystals()
 		s.tickMobs()

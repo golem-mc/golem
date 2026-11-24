@@ -1893,6 +1893,10 @@ type client struct {
 	// by the pointer swaps.
 	vehicleOnJoin atomic.Pointer[nbt.Compound]
 	pearlsOnJoin  atomic.Pointer[[]nbt.Compound]
+
+	// lootRide is the ride and pearls a loot table reads from the player's
+	// compound, refreshed by the tick with no lock held (refreshLootRides).
+	lootRide atomic.Pointer[lootRideState]
 }
 
 // creativeClient reports whether c is a creative player; nil-safe because
