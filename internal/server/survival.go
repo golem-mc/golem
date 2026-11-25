@@ -262,6 +262,7 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 		v.Health = math.Max(0, v.Health-amount)
 		if v.Health == 0 {
 			v.Dead = true
+			v.DeathTime = 0
 			died = true
 		}
 	})
@@ -913,7 +914,6 @@ func (c *client) die(message protocol.Text, damageType registry.DamageType, caus
 	// A dead player counts as unloaded until respawn. vanilla:
 	// ServerGamePacketListenerImpl.markClientUnloadedAfterDeath
 	c.awaitingRespawn.Store(true)
-	c.deathTicks.Store(0)
 	// vanilla: ServerPlayer.die
 	c.awardStat(player.Custom(registry.CustomStatDeaths), 1)
 	c.resetStat(player.Custom(registry.CustomStatTimeSinceDeath))
@@ -1413,8 +1413,6 @@ func (c *client) resetRespawnBody(pos player.Position, respawn respawnKind) bool
 			*v, kept = rules.RespawnVitalsKeeping(*v, keep.inventory, keep.level)
 			// The new body keeps bases, without the dead body's modifiers.
 			v.Health = attrs.Base(registry.AttributeMaxHealth)
-			// Under the vitals lock so a save sees the counter reset with the health.
-			c.deathTicks.Store(0)
 		})
 		// Effects go with the dead body (vanilla:
 		// LivingEntity.triggerOnDeathMobEffects); the credits' body keeps its own.
@@ -1431,7 +1429,6 @@ func (c *client) resetRespawnBody(pos player.Position, respawn respawnKind) bool
 	c.spearMu.Unlock()
 	c.trackMu.Lock()
 	if respawn == respawnDeath {
-		c.deathTicks.Store(0)
 		c.bodyGone.Store(false)
 		c.holdsDropped.Store(false)
 	}

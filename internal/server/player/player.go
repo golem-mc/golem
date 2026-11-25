@@ -130,6 +130,10 @@ type Vitals struct {
 	// (vanilla's HurtInvulnerableTicks).
 	InvulnerableTicks int
 
+	// DeathTime counts the ticks a dead body has lain, so a save reads it with
+	// the health it belongs to. vanilla: LivingEntity.deathTime
+	DeathTime int32
+
 	// HurtTime is the saved hurt animation countdown; loading it grants no immunity.
 	// vanilla: LivingEntity.hurtTime
 	HurtTime int

@@ -336,16 +336,15 @@ func (s *playerStore) writePlayerFile(id uuid.UUID, data []byte) error {
 // unmodelled data survives. spawn is the personal respawn point, nil for
 // none; pearls are the flying ender pearls, written as vanilla's
 // ender_pearls list; book is the recipe book, saved under recipeBook;
-// portalCooldown is the ticks before a portal can take the player; deathTime
-// is the corpse's elapsed ticks.
+// portalCooldown is the ticks before a portal can take the player.
 func playerState(loaded nbt.Compound, p *player.Player, flying bool, dimension string,
 	xpSeed int32, spawn *respawnPos, vehicle nbt.Compound, pearls []nbt.Compound,
-	book *inventory.RecipeBook, portalCooldown, deathTime int32) nbt.Compound {
+	book *inventory.RecipeBook, portalCooldown int32) nbt.Compound {
 	items := make([]nbt.Tag, len(pearls))
 	for i, pearl := range pearls {
 		items[i] = pearl
 	}
-	return orderedPlayerState(loaded, p, flying, dimension, xpSeed, spawn, vehicle, items, book, portalCooldown, deathTime, playerSaveExtras{}).Entries()
+	return orderedPlayerState(loaded, p, flying, dimension, xpSeed, spawn, vehicle, items, book, portalCooldown, playerSaveExtras{}).Entries()
 }
 
 // playerSaveExtras carries tags built outside the player; speeds, when set,
@@ -353,16 +352,13 @@ func playerState(loaded nbt.Compound, p *player.Player, flying bool, dimension s
 type playerSaveExtras struct {
 	warden, raid, post nbt.Tag
 	speeds             *pluginAbilities
-	// deathTicks, when set, is read after the vitals snapshot so a respawn
-	// between the two cannot save live health with the dead body's counter.
-	deathTicks *atomic.Int32
 }
 
 // orderedPlayerState follows Entity, LivingEntity, Player and ServerPlayer save order.
 // vanilla: Entity.saveWithoutId, Player.addAdditionalSaveData, ServerPlayer.addAdditionalSaveData
 func orderedPlayerState(loaded nbt.Compound, p *player.Player, flying bool, dimension string,
 	xpSeed int32, spawn *respawnPos, vehicle nbt.Compound, pearls []nbt.Tag,
-	book *inventory.RecipeBook, portalCooldown, deathTime int32, extra playerSaveExtras) *nbt.OrderedCompound {
+	book *inventory.RecipeBook, portalCooldown int32, extra playerSaveExtras) *nbt.OrderedCompound {
 	state := nbt.NewOrderedCompound(48)
 	kept := maps.Clone(loaded)
 	put := func(key string, value nbt.Tag) {
@@ -372,9 +368,6 @@ func orderedPlayerState(loaded nbt.Compound, p *player.Player, flying bool, dime
 		}
 	}
 	pos, v := p.Position(), p.Vitals()
-	if extra.deathTicks != nil {
-		deathTime = extra.deathTicks.Load()
-	}
 	writeEntityBaseTag(state, "", pos.X, pos.Y, pos.Z, 0, 0, 0, pos.Yaw, pos.Pitch, p.UUID, pos.OnGround, int(max(portalCooldown, 0)), v.FireTicks, 0, false)
 	put("fall_distance", nbt.Double(v.FallDistance))
 	put("Air", nbt.Short(clampToShort(v.AirSupply)))
@@ -408,7 +401,7 @@ func orderedPlayerState(loaded nbt.Compound, p *player.Player, flying bool, dime
 	if sleep.Lying {
 		sleepingPos = nbt.IntArray{sleep.X, sleep.Y, sleep.Z}
 	}
-	living := entity.LivingState{HurtTime: v.HurtTime, DeathTime: int(deathTime), AbsorptionAmount: float32(v.Absorption), ImpulseContextResetGraceTime: v.ImpulseGraceTicks, FallFlying: p.Appearance().FallFlying}
+	living := entity.LivingState{HurtTime: v.HurtTime, DeathTime: int(v.DeathTime), AbsorptionAmount: float32(v.Absorption), ImpulseContextResetGraceTime: v.ImpulseGraceTicks, FallFlying: p.Appearance().FallFlying}
 	living.SaveWithSleepingPos(state, func() {
 		put("current_explosion_impact_pos", nil)
 		if at := v.ImpulseImpact; at != nil {
@@ -918,7 +911,7 @@ func (c *client) restore() {
 	living.LoadFrom(root)
 	v.HurtTime = living.HurtTime
 	v.ImpulseGraceTicks = living.ImpulseContextResetGraceTime
-	c.deathTicks.Store(int32(living.DeathTime))
+	v.DeathTime = int32(living.DeathTime)
 	look := c.player.Appearance()
 	look.FallFlying = living.FallFlying
 	name := customNameOfTag(root)
@@ -982,10 +975,10 @@ func (c *client) restore() {
 		// normalised as for a live respawn (the join's Set Experience reads it), but
 		// health stays empty and effects are not restored; the respawn replaces
 		// both. vanilla: LivingEntity.readAdditionalSaveData
-		hurtTime, frozen := v.HurtTime, v.TicksFrozen
+		hurtTime, frozen, deathTime := v.HurtTime, v.TicksFrozen, v.DeathTime
 		keepInv := c.theWorld().BoolRule(world.RuleKeepInventory)
 		v, _ = rules.RespawnVitalsKeeping(v, keepInv, keepInv)
-		v.HurtTime, v.TicksFrozen = hurtTime, frozen
+		v.HurtTime, v.TicksFrozen, v.DeathTime = hurtTime, frozen, deathTime
 		v.Health = 0
 		v.Dead = true
 		c.player.SetVitals(v)

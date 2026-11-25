@@ -25,7 +25,7 @@ func BenchmarkTickDeadBodies(b *testing.B) {
 			c.player.SetVitals(player.Vitals{Dead: name == "expiry"})
 			b.ReportAllocs()
 			for b.Loop() {
-				c.deathTicks.Store(corpseTicks - 1)
+				c.player.UpdateVitals(func(v *player.Vitals) { v.DeathTime = corpseTicks - 1 })
 				c.bodyGone.Store(false)
 				c.holdsDropped.Store(false)
 				s.tickDeadBodies()
