@@ -47,7 +47,7 @@ func TestFangsBiteReachesAcrossChunksAndFindsDistantOwners(t *testing.T) {
 	for _, m := range []*entity.Mob{owner, west, east, far, distant, allyVex, strayVex} {
 		m.Health = 100
 	}
-	s.fangsBite(fangsEffect{w: w, id: 10, owner: owner.ID, x: 16, y: 64, z: 0.5})
+	s.fangsBite(fangsEffect{w: w, id: 10, owner: owner.ID, ownerUUID: ids[owner.ID], x: 16, y: 64, z: 0.5})
 	for _, tc := range []struct {
 		name string
 		m    *entity.Mob
