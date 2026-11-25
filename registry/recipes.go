@@ -323,21 +323,23 @@ func CookingMatchCached(kind string, stack protocol.ItemStack, last *string) *Co
 	}
 	set := recipes()
 	k := cookingKindOf(kind)
-	if last != nil && *last != "" {
-		if i, ok := set.cookingByID[k][*last]; ok && slices.Contains(set.cooking[k][i].Ingredient, stack.ItemID) {
-			return &set.cooking[k][i]
-		}
-	}
 	if stack.ItemID < 0 || int(stack.ItemID) >= len(set.cookingByItem[k]) {
 		return nil
 	}
-	if i := set.cookingByItem[k][stack.ItemID]; i >= 0 {
-		if last != nil {
-			*last = set.cooking[k][i].ID
-		}
-		return &set.cooking[k][i]
+	i := set.cookingByItem[k][stack.ItemID]
+	if i < 0 {
+		return nil
 	}
-	return nil
+	if last != nil {
+		// Only a recipe that is not an item's first match needs the hint lookup.
+		if *last != "" && set.cooking[k][i].ID != *last {
+			if j, ok := set.cookingOverlap[k][*last]; ok && slices.Contains(set.cooking[k][j].Ingredient, stack.ItemID) {
+				return &set.cooking[k][j]
+			}
+		}
+		*last = set.cooking[k][i].ID
+	}
+	return &set.cooking[k][i]
 }
 
 // CookingRecipeByID returns a cooking kind's recipe by the id a RecipesUsed

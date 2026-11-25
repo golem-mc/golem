@@ -67,32 +67,28 @@ func TestAFurnaceKeepsItsLastMatchingRecipeForOverlappingInputs(t *testing.T) {
 
 	load(fresh, 0, 3)
 	load(primed, 2, 4)
-	// An idle furnace holding string, then bone put in by hand.
+	servertest.TickBlockEntitiesByHand(srv, cookTicks)
+	// The idle furnace held string without fuel through the round; its string
+	// is taken out by hand and bone put in, as the primed furnace gets bone.
 	w.Settle()
 	w.UseBlock(idle, 64, 0)
 	w.ExpectContainerOpen(protocol.MenuFurnace, true, idle, 64, 0)
-	servertest.TickBlockEntitiesByHand(srv, cookTicks)
 	w.Click(0, 0, protocol.ClickModeQuickMove)
 	w.CollectClickResponse()
 	w.CloseWindow()
 	load(idle, 6, 5)
-	servertest.TickBlockEntitiesByHand(srv, cookTicks)
-	if got := output(fresh); !got.Equal(stick) {
-		t.Errorf("an unprimed furnace made %+v, want the first recipe's stick", got)
-	}
-	if got := output(primed); !got.Equal(bowl) {
-		t.Errorf("the furnace that cooked string made %+v, want a bowl", got)
-	}
-	if got := output(idle); !got.Equal(stick) {
-		t.Errorf("an idle furnace that held string made %+v from bone, want the first recipe's stick", got)
-	}
-
 	load(primed, 1)
 	servertest.TickBlockEntitiesByHand(srv, cookTicks)
 	bowls := bowl
 	bowls.Count = 2
+	if got := output(fresh); !got.Equal(stick) {
+		t.Errorf("an unprimed furnace made %+v, want the first recipe's stick", got)
+	}
 	if got := output(primed); !got.Equal(bowls) {
 		t.Errorf("a primed furnace's output is %+v after bone, want two bowls", got)
+	}
+	if got := output(idle); !got.Equal(stick) {
+		t.Errorf("an idle furnace that held string made %+v from bone, want the first recipe's stick", got)
 	}
 }
 
@@ -113,20 +109,22 @@ func TestACampfireKeepsItsLastMatchingRecipeForOverlappingInputs(t *testing.T) {
 	for _, x := range []int32{fresh, primed, relit} {
 		srv.SetBlock(x, 64, 0, lit)
 	}
-	cook := func(x int32, food string) {
+	// put loads one food onto the campfire at x.
+	put := func(x int32, food string) {
 		srv.GiveSlot("Testificate", player.HotbarSlot, servertest.ItemStack(t, food, 1))
 		w.Settle()
 		w.UseBlock(x, 64, 0)
 		w.Settle()
-		servertest.TickBlockEntitiesByHand(srv, cookTicks)
 	}
-	cook(fresh, "minecraft:bone")
-	cook(primed, "minecraft:string")
-	cook(primed, "minecraft:bone")
-	cook(relit, "minecraft:string")
+	put(fresh, "minecraft:bone")
+	put(primed, "minecraft:string")
+	put(relit, "minecraft:string")
+	servertest.TickBlockEntitiesByHand(srv, cookTicks)
 	srv.SetBlock(relit, 64, 0, out)
 	srv.SetBlock(relit, 64, 0, lit)
-	cook(relit, "minecraft:bone")
+	put(primed, "minecraft:bone")
+	put(relit, "minecraft:bone")
+	servertest.TickBlockEntitiesByHand(srv, cookTicks)
 
 	drops := func(x int32) (sticks, bowls int) {
 		for _, it := range srv.ItemsInDimension("minecraft:overworld") {
