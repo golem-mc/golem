@@ -2,6 +2,7 @@ package world
 
 import (
 	"fmt"
+	"github.com/golem-mc/golem/registry"
 	"testing"
 )
 
@@ -51,5 +52,26 @@ func BenchmarkBlockAtPackedSections(b *testing.B) {
 			}
 			_ = sink
 		})
+	}
+}
+
+// BenchmarkRecountSection times recalcCounts of a four-bit section holding six
+// terrain states in successive groups of 16 cells.
+func BenchmarkRecountSection(b *testing.B) {
+	states := [...]uint16{
+		registry.BlockAir.DefaultState(), registry.BlockStone.DefaultState(),
+		registry.BlockDirt.DefaultState(), registry.BlockGrassBlock.DefaultState(),
+		registry.BlockWater.DefaultState(), registry.BlockOakLeaves.DefaultState(),
+	}
+	words := newBlockWords(states[0])
+	for i := range blocksPerSection {
+		words = words.put(i, states[i/16%len(states)], false)
+	}
+	var s section
+	s.blocks.Store(words)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.recalcCounts()
 	}
 }
