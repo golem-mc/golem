@@ -3,6 +3,8 @@ package world
 import (
 	"fmt"
 	"testing"
+
+	"github.com/golem-mc/golem/registry"
 )
 
 func TestSectionPackedWidths(t *testing.T) {
@@ -86,4 +88,102 @@ func TestSectionPackedResizeKeepsOldReaders(t *testing.T) {
 			}
 		}
 	}
+}
+
+// recountReference builds a section cell by cell, the path recalcCounts must equal.
+func recountReference(states *[blocksPerSection]uint16) *section {
+	var s section
+	for i, state := range states {
+		s.set(i, state, false)
+	}
+	return &s
+}
+
+func TestRecalcCountsMatchesPerCell(t *testing.T) {
+	t.Parallel()
+	pool := []uint16{
+		registry.BlockAir.DefaultState(), registry.BlockStone.DefaultState(),
+		registry.BlockSculkSensor.DefaultState(), registry.BlockSculkCatalyst.DefaultState(),
+		registry.BlockComparator.DefaultState(), registry.BlockNetherPortal.DefaultState(),
+		registry.BlockLightningRod.DefaultState(), registry.BlockOakLeaves.DefaultState(),
+		registry.BlockWater.DefaultState(), registry.BlockGlowstone.DefaultState(),
+		registry.BlockTurtleEgg.DefaultState(), registry.BlockWheat.DefaultState(),
+	}
+	check := func(t *testing.T, s *section, states *[blocksPerSection]uint16) {
+		t.Helper()
+		s.recalcCounts()
+		if want := recountReference(states); !sameCounts(s, want) {
+			t.Fatalf("counts differ: got %+v want %+v", s, want)
+		}
+	}
+	for _, n := range []int{1, 2, 5, 16, 17, 33, 65, 129, 257, 600} {
+		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			var s section
+			var states [blocksPerSection]uint16
+			for i := range states {
+				state := pool[i*7%n%len(pool)]
+				if n > 12 {
+					state = uint16(i * 13 % n)
+					if i%5 == 0 {
+						state = pool[i/5%len(pool)]
+					}
+				}
+				states[i] = state
+				s.set(i, state, false)
+			}
+			check(t, &s, &states)
+		})
+	}
+	t.Run("uniform", func(t *testing.T) {
+		for _, state := range pool {
+			var s section
+			var states [blocksPerSection]uint16
+			for i := range states {
+				states[i] = state
+			}
+			s.setAll(state)
+			check(t, &s, &states)
+		}
+	})
+	t.Run("unused slots and padded word", func(t *testing.T) {
+		// 40 states then overwrite most: palette keeps unused slots; six bits
+		// leave four padding bits in the last word.
+		var s section
+		var states [blocksPerSection]uint16
+		for i := range states {
+			s.set(i, uint16(i%40+100), false)
+		}
+		for i := range states {
+			state := pool[i%3]
+			if i%4 == 0 {
+				state = pool[3]
+			}
+			states[i] = state
+			s.set(i, state, false)
+		}
+		blocks := s.blocks.Load()
+		if blocks.bits != 6 || blocks.used < 40 {
+			t.Fatalf("bits=%d used=%d", blocks.bits, blocks.used)
+		}
+		// Fill the unused complete slots of the last word with stone, which
+		// would change every counter if they were read.
+		stone := -1
+		for slot, state := range blocks.palette[:blocks.used] {
+			if uint16(state) == pool[1] {
+				stone = slot
+			}
+		}
+		if stone < 0 {
+			t.Fatal("stone not in palette")
+		}
+		last := len(blocks.words) - 1
+		for i := blocksPerSection; i < len(blocks.words)*blocks.perWord; i++ {
+			shift := (i - last*blocks.perWord) * blocks.bits
+			blocks.words[last] |= uint64(stone) << shift
+		}
+		if len(blocks.words)*blocks.perWord == blocksPerSection {
+			t.Fatal("no padding slots")
+		}
+		check(t, &s, &states)
+	})
 }

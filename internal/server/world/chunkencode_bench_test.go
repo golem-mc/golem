@@ -2,6 +2,7 @@ package world
 
 import (
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -208,5 +209,27 @@ func BenchmarkAcquireSavedWithNeighbours(b *testing.B) {
 		}
 		w.Release(pos)
 		i++
+	}
+}
+
+// BenchmarkMixedBiomeWire is putBiomes for a section whose 64 cells hold n
+// distinct biomes.
+func BenchmarkMixedBiomeWire(b *testing.B) {
+	for _, n := range []int{1, 2, 8, 9, 64} {
+		cells := make([]int32, biomesPerSection)
+		for i := range cells {
+			cells[i] = int32(i % n)
+		}
+		s := &section{biomes: cells}
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			var buf protocol.Buffer
+			s.putBiomes(&buf)
+			buf.Reset()
+			b.ReportAllocs()
+			for range b.N {
+				buf.Reset()
+				s.putBiomes(&buf)
+			}
+		})
 	}
 }

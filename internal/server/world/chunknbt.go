@@ -176,18 +176,16 @@ func encodeSectionNBT(s *section, y int32) nbt.Compound {
 		// One packed index per cell, at the width the palette's entries need.
 		// A cell array holding one biome (a whole-section /fillbiome) has no
 		// width to pack at, so it saves as the single-entry form.
-		cellPalette, index := s.biomePalette()
+		var palette [biomesPerSection]int32
+		var cellIndices [biomesPerSection]uint16
+		cellPalette := palette[:s.biomePalette(&palette, &cellIndices)]
 		entries := make([]nbt.Tag, len(cellPalette))
 		for i, biome := range cellPalette {
 			entries[i] = nbt.String(biomeName(biome))
 		}
-		cellIndices := make([]uint16, len(s.biomes))
-		for i, biome := range s.biomes {
-			cellIndices[i] = index[biome]
-		}
 		biomes = nbt.Compound{"palette": nbt.List{Elem: nbt.TypeString, Items: entries}}
 		if len(cellPalette) > 1 {
-			biomes["data"] = packLongs(cellIndices, bits.Len(uint(len(cellPalette)-1)))
+			biomes["data"] = packLongs(cellIndices[:], bits.Len(uint(len(cellPalette)-1)))
 		}
 	}
 
@@ -656,47 +654,17 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 	s.shapes.Store(0)
 	s.colliding, s.comparators = 0, 0
 	var sculkCounts [sculkCellKinds]int
+	var touches, shapes int32
 	// Invalid indices read as air, which contributes to none of these tallies.
 	for pIdx, state := range stateIDs {
-		n := int(counts[pIdx])
-		if n == 0 {
-			continue
-		}
-		if randomlyTicking(state) {
-			s.ticking += n
-		}
-		if registry.LightEmission(state) > 0 {
-			s.emitting += n
-		}
-		if MayCollide(state) {
-			s.colliding += n
-		}
-		if isLightningRod(state) {
-			s.rods += n
-		}
-		if IsTurtleEgg(state) {
-			s.eggs += n
-		}
-		block := registry.BlockOf(state)
-		if kind := sculkCellKindOf(block); kind != noSculkCell {
-			sculkCounts[kind] += n
-		}
-		switch block {
-		case registry.BlockNetherPortal:
-			s.portals += n
-		case registry.BlockComparator:
-			s.comparators += int32(n)
-		}
-		if registry.IsPOI(state) {
-			s.pois += n
-		}
-		if isTouchBlock[block] {
-			s.touches.Add(int32(n))
-		}
-		if isShapeBlock[block] {
-			s.shapes.Add(int32(n))
+		if n := int(counts[pIdx]); n > 0 {
+			if kind := s.countState(state, n, &touches, &shapes); kind != noSculkCell {
+				sculkCounts[kind] += n
+			}
 		}
 	}
+	s.touches.Store(touches)
+	s.shapes.Store(shapes)
 	if sculkCounts != [sculkCellKinds]int{} {
 		s.indexDecodedSculkCells(blocks, sculkCounts)
 	}
