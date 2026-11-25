@@ -614,6 +614,7 @@ func (s *Server) tickFireworks() {
 			if watch.c.theWorld() != it.w {
 				continue // crossed to another dimension since the snapshot
 			}
+			shows := len(out.shows)
 			was, seen := body.settle(watch.c, watch.pos.X, watch.pos.Z, watch.chunkRadius, &out)
 			if !seen || !mt.gate {
 				continue
@@ -621,7 +622,8 @@ func (s *Server) tickFireworks() {
 			if motion != nil {
 				motions.add(watch.c, *motion)
 			}
-			if meta != nil {
+			// A watcher paired by this settle has the flag in its pairing.
+			if meta != nil && len(out.shows) == shows {
 				metas.add(watch.c, *meta)
 			}
 			body.moveTold(was, watch.c, mt, &out)

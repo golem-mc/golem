@@ -44,7 +44,7 @@ func TestAFireworkRocketsVelocityGoesToItsWatchersAlone(t *testing.T) {
 }
 
 // TestAFireworkRocketsBurnEndsIsTold sets a rocket alight for four ticks and
-// flies it on: the watcher is told the fire flag once, kept through tick
+// flies it on: the watcher is told nothing before the first tick; then is told the fire flag once, kept through tick
 // three, then cleared on the fourth, off the rocket's ten-tick movement
 // period, while the rocket is still flying.
 // vanilla: Entity.baseTick, ServerEntity.sendChanges
@@ -69,6 +69,12 @@ func TestAFireworkRocketsBurnEndsIsTold(t *testing.T) {
 		return flags&protocol.EntityFlagOnFire != 0, ok
 	}
 	set, cleared := 0, false
+	c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+		if _, told := fireFlag(id, data); told {
+			t.Fatal("the fire flag was told before the rocket's first tick")
+		}
+		return false
+	})
 	c.ReadTicks(srv, 3, func(id int32, data []byte) bool {
 		if on, told := fireFlag(id, data); told {
 			if on {
@@ -149,5 +155,42 @@ func TestACrossbowFlameRocketLightsOnItsFirstTick(t *testing.T) {
 		return ok && flags&protocol.EntityFlagOnFire != 0
 	}) {
 		t.Fatal("the rocket was not told alight on its first tick")
+	}
+}
+
+// TestAFireworkRocketsBurnIsToldOnceToAWatcherPairedOnItsLightingTick moves a
+// player into range of a rocket on the tick the rocket lights: the pairing
+// carries the flag and the tick's delta is not sent again.
+// vanilla: ChunkMap.TrackedEntity.updatePlayer, ServerEntity.sendChanges
+func TestAFireworkRocketsBurnIsToldOnceToAWatcherPairedOnItsLightingTick(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Watcher")
+	servertest.HoldTicks(t, srv)
+	// Past the two chunks of sight, inside the chunks the world keeps loaded.
+	rocket := srv.SpawnFireworkAtAngle(40.5, 65, 0.5, 0, 0, 0, 200)
+	srv.RunLine("data merge entity " + rocket.UUID.String() + " {Fire:4s}")
+	c.MoveToGround(36.5, 64, 0.5, true)
+
+	set := 0
+	c.ReadTicks(srv, 1, func(id int32, data []byte) bool {
+		if id != protocol.IDPlayEntityMetadata {
+			return false
+		}
+		r := protocol.NewReader(data)
+		if r.ReadVarInt() != rocket.ID {
+			return false
+		}
+		// The pairing's slot entry is past what ReadEntityFlags reads, but the
+		// flags entry comes first.
+		if r.ReadU8() == protocol.MetadataIndexEntityFlags && r.ReadVarInt() == protocol.MetadataByte &&
+			r.ReadU8()&protocol.EntityFlagOnFire != 0 {
+			set++
+		}
+		return false
+	})
+	if set != 1 {
+		t.Fatalf("the fire flag was told %d times to a watcher paired on the lighting tick; want once", set)
 	}
 }
