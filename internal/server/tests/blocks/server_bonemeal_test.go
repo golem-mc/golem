@@ -1033,7 +1033,6 @@ func TestMushroomBoneMealCeiling(t *testing.T) {
 	}
 }
 
-// TestNyliumBonemealUsesDimensionCeiling checks that nylium checks the active
 // checkBonemealCeiling clicks bone meal on each target at the Nether ceiling
 // (Y=255, refused, stack kept, no growth event) and one block below (Y=254,
 // one spent, growth event at the target). A target with a substrate gets it
@@ -1100,7 +1099,36 @@ func checkBonemealCeiling(t *testing.T, targets [][2]string) {
 			if got := srv.InventorySlot("Farmer", player.HotbarSlot); got.Count != tc.wantCount {
 				t.Errorf("%s at Y=%d: %d bone meal left, want %d", pair[0], tc.y, got.Count, tc.wantCount)
 			}
+			if pair[0] == "minecraft:short_grass" || pair[0] == "minecraft:fern" {
+				checkTallPlantHalves(t, srv, pair[0], tc.y, tc.wantEvent)
+			}
 		}
+	}
+}
+
+// checkTallPlantHalves checks the column at (4, y, 0) after bone meal on a
+// short grass or fern: both halves of the tall plant when it grew, the
+// original plant alone when it was refused.
+func checkTallPlantHalves(t *testing.T, srv *server.Server, short string, y int32, grew bool) {
+	t.Helper()
+	at := func(y int32) (string, map[string]string) {
+		return servertest.StateProps(srv.BlockInDimension(world.NetherName, 4, y, 0))
+	}
+	if !grew {
+		if name, _ := at(y); name != short {
+			t.Errorf("%s at Y=%d: refused use left %s", short, y, name)
+		}
+		return
+	}
+	tall := "minecraft:tall_grass"
+	if short == "minecraft:fern" {
+		tall = "minecraft:large_fern"
+	}
+	if name, props := at(y); name != tall || props["half"] != "lower" {
+		t.Errorf("%s at Y=%d: lower half is %s %v, want %s half=lower", short, y, name, props, tall)
+	}
+	if name, props := at(y + 1); name != tall || props["half"] != "upper" {
+		t.Errorf("%s at Y=%d: upper half is %s %v, want %s half=upper", short, y, name, props, tall)
 	}
 }
 
