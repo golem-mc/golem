@@ -315,3 +315,33 @@ func TestFangsHurtAMobWithTheJawsAsDirectSource(t *testing.T) {
 		t.Errorf("pig motion after the bite = %v (sent %v), want a shove away from the jaws (+x)", vx, shoved)
 	}
 }
+
+// TestFangsFindOversizedMobsOnlyThroughTheirSections: a ghast scaled to 64
+// blocks wide, filed two sections away, keeps its health although its box
+// overlaps the bite, while one filed in the searched sections is hurt.
+// vanilla: EvokerFangs.tick, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestFangsFindOversizedMobsOnlyThroughTheirSections(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.HostileTestConfig())
+	c := connect().Join("Observer")
+	servertest.HoldTicks(t, srv)
+	c.MoveToGround(0.5, 64, 0.5, true)
+	for _, tc := range []struct {
+		name string
+		x    float64
+		hurt bool
+	}{{"outside the searched sections", 46.5, false}, {"inside the searched sections", 30.5, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ghast := srv.SpawnMob("minecraft:ghast", tc.x, 80, 0.5)
+			srv.SetMobNoAI(ghast)
+			identity, _ := srv.MobUUID(ghast)
+			srv.RunLine("attribute " + identity + " minecraft:scale base set 16")
+			before, _ := srv.MobHealth(ghast)
+			srv.SpawnFangs(16, 80, 0.5, 0)
+			servertest.RunTicks(t, srv, 8)
+			if got, _ := srv.MobHealth(ghast); (got < before) != tc.hurt {
+				t.Errorf("health = %v from %v, want hurt %v", got, before, tc.hurt)
+			}
+		})
+	}
+}
