@@ -175,6 +175,44 @@ func TestAHopperTellsWatchersTheRemainderOfAPartlyTakenItem(t *testing.T) {
 	}
 }
 
+func TestAHopperRemainderPairsWithALateWatcher(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, connect := servertest.Start(t, cfg)
+	srv.StopTick()
+	t.Cleanup(srv.HoldChunk(4, 0))
+
+	if !srv.PlaceContainer(4, 64, 0, "minecraft:hopper") {
+		t.Fatal("the hopper would not stand")
+	}
+	srv.SetBlock(4, 63, 0, servertest.MustState(t, "minecraft:stone", nil))
+	stone := servertest.MustItemID(t, "minecraft:stone")
+	for slot := range 5 {
+		stack := protocol.ItemStack{ItemID: stone, Count: 64}
+		if slot == 4 {
+			stack.Count--
+		}
+		if !srv.SetInventoryAt(4, 64, 0, slot, stack) {
+			t.Fatalf("could not fill hopper slot %d", slot)
+		}
+	}
+	itemID := srv.SpawnItemEntity(4.5, 65, 0.5, "minecraft:stone", 2)
+	if itemID == 0 {
+		t.Fatal("the item entity did not spawn")
+	}
+	servertest.TickBlockEntitiesByHand(srv, 1)
+
+	watcher := connect().JoinKeeping("Watcher")
+	if got := watcher.AwaitSpawn(protocol.EntityTypeItem).EntityID; got != itemID {
+		t.Fatalf("the watcher was shown item %d, want item %d", got, itemID)
+	}
+	item := servertest.MetaOf(watcher.AwaitMetadataFor(itemID), protocol.MetadataIndexItemSlot)
+	if item == nil || item.SlotVal.ItemID != stone || item.SlotVal.Count != 1 {
+		t.Fatalf("the watcher was sent %+v for item %d, want one stone", item, itemID)
+	}
+}
+
 // TestAHopperPicksUpAcrossAChunkBorder covers an item whose centre is in
 // the next chunk, including arrivals after another hopper searched that chunk.
 // vanilla: HopperBlockEntity.getItemsAtAndAbove

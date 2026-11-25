@@ -523,11 +523,11 @@ func (s *Server) notifyItemsAbsorbed(w *world.World, taken, shrunk []*itemEntity
 		s.entityDestroyed(it.uuid)
 	}
 	for _, it := range shrunk {
-		update := itemMetadataUpdate{it: it, metadata: itemMetadataPayload(it)}
-		for id := range it.tracked.all() {
-			update.watchers = append(update.watchers, id)
+		watchers := trackedWatchers(it.tracked)
+		if len(watchers) == 0 {
+			continue
 		}
-		updates = append(updates, update)
+		updates = append(updates, itemMetadataUpdate{it: it, metadata: itemMetadataPayload(it), watchers: watchers})
 	}
 	s.itemsMu.Unlock()
 

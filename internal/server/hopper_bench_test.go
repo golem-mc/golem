@@ -261,6 +261,35 @@ func BenchmarkFullBlockedHopper(b *testing.B) {
 	}
 }
 
+// BenchmarkHopperUnwatchedRemainders measures a hopper retrying incompatible drops.
+func BenchmarkHopperUnwatchedRemainders(b *testing.B) {
+	stone := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 63}
+	dirt := protocol.ItemStack{ItemID: int32(registry.ItemDirt), Count: 64}
+	for _, n := range []int{0, 1, 16, 64} {
+		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 0)
+			w.SetBlock(4, 64, 4, registry.BlockHopper.DefaultState())
+			be := w.EnsureBlockEntity(4, 64, 4, world.KindHopper)
+			for slot := range be.Len() {
+				be.Put(slot, stone)
+			}
+			for range n {
+				s.spawnItem(w, dirt, 4.5, 65, 4.5, 0, 0, 0, 0)
+			}
+			s.indexItemColumns(w)
+			b.Cleanup(s.dropItemColumns)
+
+			age := int64(0)
+			s.tickHopper(w, be, age)
+			b.ReportAllocs()
+			for b.Loop() {
+				age++
+				s.tickHopper(w, be, age)
+			}
+		})
+	}
+}
+
 // BenchmarkHopperDistantItems measures the block-entity pass with one hopper
 // and N drops outside its pickup area.
 func BenchmarkHopperDistantItems(b *testing.B) {
