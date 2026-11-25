@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
@@ -72,8 +71,9 @@ type shotResult struct{ spawns, removes int }
 
 // run fires one shot, lets the tick goroutine run both events it reaches and
 // checks their counts: a cancelled or removed launch never reaches the spawn event. The
-// loop is held; a packet's call is waited for before a fixed few ticks run,
-// a scheduled task needs one.
+// loop is held; a packet's listeners are each asked at a tick's start, so a
+// tick is run for every call its connection queues until the packet is done
+// with, then one more as for a scheduled task.
 func (r *rocketShot) run(t *testing.T, l *fireworkListener) (res shotResult) {
 	t.Helper()
 	queued := r.srv.PluginCallsQueued()
@@ -82,25 +82,37 @@ func (r *rocketShot) run(t *testing.T, l *fireworkListener) (res shotResult) {
 	default:
 	}
 	launches, spawns := l.launches, l.spawns
-	r.fire()
-	ticks := 1
-	if r.byPacket {
-		select {
-		case <-queued:
-		case <-time.After(servertest.ExpectTimeout):
-			t.Fatal("no plugin call queued")
-		}
-		ticks = 3
-	}
-	servertest.RunTicks(t, r.srv, ticks)
-	r.c.SettleAndCollect(func(id int32, _ []byte) {
+	record := func(id int32, _ []byte) {
 		switch id {
 		case protocol.IDPlaySpawnEntity:
 			res.spawns++
 		case protocol.IDPlayRemoveEntities:
 			res.removes++
 		}
-	})
+	}
+	r.fire()
+	if r.byPacket {
+		// The settle's ping is answered once the packet's last call has run;
+		// res is only read here after it ends.
+		settled := make(chan struct{})
+		go func() {
+			defer close(settled)
+			r.c.SettleAndCollect(record)
+		}()
+		for waiting := true; waiting; {
+			select {
+			case <-queued:
+				servertest.RunTicks(t, r.srv, 1)
+			case <-settled:
+				waiting = false
+			}
+		}
+		if t.Failed() {
+			t.FailNow()
+		}
+	}
+	servertest.RunTicks(t, r.srv, 1)
+	r.c.SettleAndCollect(record)
 	wantSpawns := 1
 	if l.cancelLaunch || l.removeLaunch {
 		wantSpawns = 0
