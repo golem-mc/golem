@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -193,12 +194,8 @@ func TestTiedFallsDispatchInBookingOrderAfterARestart(t *testing.T) {
 	srv.Shutdown()
 
 	restarted := *cfg
-	restartedSrv, reconnect := servertest.Start(t, &restarted)
-	servertest.FreezeUntilHeld(t, restartedSrv)
-	again := reconnect()
-	again.Login("Builder")
-	again.Configure()
-	again.EnterWorld("Builder")
+	freeze := func(s *server.Server) { servertest.FreezeUntilHeld(t, s) }
+	restartedSrv, again := servertest.Join(t, &restarted, "Builder", freeze)
 	servertest.HoldTicks(t, restartedSrv)
 
 	var xs []float64
