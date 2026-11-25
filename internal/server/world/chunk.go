@@ -787,7 +787,9 @@ func (s *section) putBiomes(b *protocol.Buffer) {
 		return
 	}
 
-	palette, index := s.biomePalette()
+	var paletteBuf [biomesPerSection]int32
+	var index [biomesPerSection]uint16
+	palette := paletteBuf[:s.biomePalette(&paletteBuf, &index)]
 	if len(palette) <= 1<<maxBiomeBits {
 		entryBits := max(minBiomeBits, bits.Len(uint(len(palette)-1)))
 		b.PutU8(uint8(entryBits))
@@ -796,7 +798,7 @@ func (s *section) putBiomes(b *protocol.Buffer) {
 			b.PutVarInt(biome)
 		}
 		putPacked(b, entryBits, len(s.biomes), func(i int) uint64 {
-			return uint64(index[s.biomes[i]])
+			return uint64(index[i])
 		})
 		return
 	}
@@ -807,18 +809,32 @@ func (s *section) putBiomes(b *protocol.Buffer) {
 	})
 }
 
-// biomePalette returns the section's distinct biomes in first-seen order and
-// each one's index.
-func (s *section) biomePalette() ([]int32, map[int32]uint16) {
-	palette := make([]int32, 0, 8)
-	index := make(map[int32]uint16, 8)
-	for _, biome := range s.biomes {
-		if _, ok := index[biome]; !ok {
-			index[biome] = uint16(len(palette))
-			palette = append(palette, biome)
+// biomePalette fills palette with the section's distinct biomes in first-seen
+// order and index with each cell's palette index, returning the palette's
+// length. IDs outside the registry are found by a linear search of the palette.
+func (s *section) biomePalette(palette *[biomesPerSection]int32, index *[biomesPerSection]uint16) int {
+	var slots [registry.BiomeCount]uint8 // palette index plus one; zero if absent
+	n := 0
+	for cell, biome := range s.biomes {
+		var slot int
+		if uint32(biome) < registry.BiomeCount {
+			if slots[biome] == 0 {
+				palette[n] = biome
+				n++
+				slots[biome] = uint8(n)
+			}
+			slot = int(slots[biome]) - 1
+		} else {
+			slot = slices.Index(palette[:n], biome)
+			if slot < 0 {
+				slot = n
+				palette[n] = biome
+				n++
+			}
 		}
+		index[cell] = uint16(slot)
 	}
-	return palette, index
+	return n
 }
 
 // putPacked writes count entries of entryBits bits into longs from the low bits
