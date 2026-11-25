@@ -3,6 +3,7 @@ package datapack
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -45,16 +46,15 @@ func gameEventOf(o obj) registry.GameEvent {
 	return ev
 }
 
-const legacySimpleStateProvider = "minecraft:simple_state_provider"
-
-// ErrLegacySimpleStateProvider is a registry decoding error that prevents world load.
-var ErrLegacySimpleStateProvider = errors.New("unknown block state provider type " + legacySimpleStateProvider)
+// ErrRemovedBlockStateProvider reports a retired provider type that prevents world loading.
+var ErrRemovedBlockStateProvider = errors.New("unknown block state provider type")
 
 // vanilla: BlockStateProviderTypes.bootstrap
 func stateProviderType(o obj) string {
 	kind := registry.Qualify(requireStr(o, "type"))
-	if kind == legacySimpleStateProvider {
-		panic(lootFailure{fatal: ErrLegacySimpleStateProvider})
+	switch kind {
+	case "minecraft:simple_state_provider", "minecraft:rotated_block_provider", "minecraft:randomized_int_state_provider":
+		panic(lootFailure{fatal: fmt.Errorf("%w %s", ErrRemovedBlockStateProvider, kind)})
 	}
 	return kind
 }
@@ -180,8 +180,8 @@ func optPredicate(o obj) *registry.EnchBlockPredicate {
 // pureStateProviders are the state providers that read no world, which the
 // server runs for a replace effect; the rest (rule_based, copy_properties,
 // random_block) read the block already there.
-var pureStateProviders = []string{"minecraft:rotated_block_provider", "minecraft:weighted_state_provider",
-	"minecraft:noise_provider", "minecraft:noise_threshold_provider", "minecraft:dual_noise_provider"}
+var pureStateProviders = []string{"minecraft:weighted_state_provider", "minecraft:noise_provider",
+	"minecraft:noise_threshold_provider", "minecraft:dual_noise_provider"}
 
 // stateProvider reads a block_state provider: a simple one gives its state, a
 // pure one its raw JSON for the server to compile.
@@ -196,7 +196,9 @@ func stateProvider(v any) (state uint16, raw any) {
 		kind := stateProviderType(o)
 		switch {
 		case kind == "minecraft:simple":
-		case kind == "minecraft:randomized_int" || kind == "minecraft:randomized_int_state_provider":
+		case kind == "minecraft:rotated":
+			check(required(o, "state"))
+		case kind == "minecraft:randomized_int":
 			check(required(o, "source"))
 		case slices.Contains(pureStateProviders, kind):
 		default:
