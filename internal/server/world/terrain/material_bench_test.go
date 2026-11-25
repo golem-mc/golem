@@ -45,6 +45,30 @@ func BenchmarkMaterialBuildSurface(b *testing.B) {
 		nc := NewNoiseChunk(rs, nil, rs.ChunkVolume(0, 0))
 		rs.Materials.BuildSurface(chunk, 0, 0, nc, biomes, []int{0})
 	}
+	b.Run("reads", func(b *testing.B) {
+		counting := &countingSurfaceChunk{ProtoChunk: chunk}
+		for b.Loop() {
+			copy(chunk.blocks, template.blocks)
+			chunk.tops = template.tops
+			nc := NewNoiseChunk(rs, nil, rs.ChunkVolume(0, 0))
+			rs.Materials.BuildSurface(counting, 0, 0, nc, biomes, []int{0})
+		}
+		b.ReportMetric(float64(counting.reads)/float64(b.N), "Block-calls/build")
+		if per := counting.reads / b.N; per > 37000 {
+			b.Fatalf("%d Block calls per build, want at most 37000", per)
+		}
+	})
+}
+
+// countingSurfaceChunk counts the Block reads of a surface build.
+type countingSurfaceChunk struct {
+	*ProtoChunk
+	reads int
+}
+
+func (c *countingSurfaceChunk) Block(x, y, z int32) ColumnBlock {
+	c.reads++
+	return c.ProtoChunk.Block(x, y, z)
 }
 
 // BenchmarkBuildTerrainChunk runs the whole terrain step, fill, surface and
