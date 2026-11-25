@@ -141,7 +141,7 @@ func (t singleTarget) use(w *world.World, move containerMove) (moved bool) {
 func (t *pairTarget) use(w *world.World, move containerMove) (moved bool) {
 	t.bes[0].UseLive(func(right *world.BlockEntity) {
 		t.bes[1].UseLive(func(left *world.BlockEntity) {
-			moved = applyContainerMove(move, inventory.Pair[blockEntitySlots]{First: containerSlots(right, w), Second: containerSlots(left, w)}, right)
+			moved = applyContainerMove(move, doubleChestSlots(right, left, w), right)
 		})
 	})
 	return moved
@@ -461,12 +461,7 @@ func (s *Server) hopperSuck(w *world.World, self blockEntitySlots, gate *hopperG
 	if moved {
 		return true, above, false, nil, nil
 	}
-	if skipped || above != nil {
-		return false, nil, false, nil, nil
-	}
-
-	state := w.BlockAt(b.X, b.Y+1, b.Z)
-	if world.ContainerMouthBlock(state) || world.HopperBlockedBy(state, registry.CollisionShapeFull(state)) {
+	if skipped || above != nil || cache.MouthBlocked {
 		return false, nil, false, nil, nil
 	}
 	if !s.itemsOverColumn(w, b.X, b.Z) {

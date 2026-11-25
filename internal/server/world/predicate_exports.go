@@ -25,7 +25,7 @@ func PlacementSurvives(w BlockReader, state uint16, x, y, z int32) bool {
 type StateProviderPicker func(x, y, z int32) uint16
 
 // NewStateProviderPicker compiles a BlockStateProvider that reads no world: a
-// simple, rotated_block, weighted, noise, noise_threshold, dual_noise or
+// simple, rotated, weighted, noise, noise_threshold, dual_noise or
 // randomized_int provider. The draws come from a stream seeded by seed.
 // vanilla: BlockStateProvider.getState
 func NewStateProviderPicker(raw any, seed int64) (pick StateProviderPicker, err error) {

@@ -72,8 +72,8 @@ func (s *Server) applyPackEffects(w *world.World, e registry.EnchEntityEffect, l
 		s.runEnchantExplode(w, x, level, t)
 	}
 	if e.RunFunction != "" {
-		if _, ok := s.funcs.Load().lib.Get(e.RunFunction); ok {
-			s.runEnchantLine(w, fmt.Sprintf("execute as %s at %s run function %s", t.uuid, t.uuid, e.RunFunction))
+		if fn, ok := s.funcs.Load().lib.Get(e.RunFunction); ok {
+			s.runEnchantFunction(w, fn, t)
 		}
 	}
 }
@@ -143,6 +143,25 @@ func (s *Server) runEnchantLine(w *world.World, line string) {
 		return
 	}
 	_, _ = runSourceCommand(quiet, line, command.Tokenize(line), func(protocol.Text) {})
+}
+
+// runEnchantFunction runs a function as the target, at its position and
+// rotation but in w, the level of the hit, which may not be the target's.
+// vanilla: RunFunction.apply, ServerFunctionManager.execute
+func (s *Server) runEnchantFunction(w *world.World, fn *command.Function, t enchantTarget) {
+	// Through the interface: a static call to Entities closes an initialization cycle.
+	var src command.Source = s.gameLoopSource()
+	id := t.uuid
+	found := src.Entities(command.EntityQuery{UUID: &id})
+	if len(found) == 0 {
+		return
+	}
+	at, ok := src.InContext(command.Context{Silent: true, Dim: s.dimensionOfWorld(w).name, HasDim: true,
+		Executor: found[0], Pos: found[0].Position(), HasPos: true})
+	if !ok {
+		return
+	}
+	command.RunFunction(at, fn)
 }
 
 // blockPredicateTest runs a block predicate at a cell; a nil one passes.

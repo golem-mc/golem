@@ -235,10 +235,41 @@ func UpdateSupportedEffectAttributes(a *player.Attributes, active []effect.Insta
 	updateEffectAttributes(a, active, func(em effectModifier) bool { return a.Has(em.attribute) })
 }
 
-// UpdateEffectAttributesOf is UpdateEffectAttributes for the modifiers on one
-// attribute.
-func UpdateEffectAttributesOf(a *player.Attributes, active []effect.Instance, attribute registry.AttributeID) {
-	updateEffectAttributes(a, active, func(em effectModifier) bool { return em.attribute == attribute })
+// HasEffectModifier reports whether the effect carries an attribute modifier.
+func HasEffectModifier(id int32) bool { return modifierOf(id) != nil }
+
+// effectModifierByID indexes effectModifiers by effect ID.
+var effectModifierByID = func() (t [64]*effectModifier) {
+	for i, em := range effectModifiers {
+		t[em.effect] = &effectModifiers[i]
+	}
+	return t
+}()
+
+func modifierOf(id int32) *effectModifier {
+	if uint32(id) >= uint32(len(effectModifierByID)) {
+		return nil
+	}
+	return effectModifierByID[id]
+}
+
+// ApplyEffectChange puts on or takes off the one modifier of the changed
+// effect, where the map has its attribute. An add or refresh removes the
+// modifier first, so it is re-added at the end of the list.
+// vanilla: LivingEntity.onEffectUpdated, MobEffect.addAttributeModifiers, removeAttributeModifiers
+func ApplyEffectChange(a *player.Attributes, ch effect.Change) {
+	em := modifierOf(ch.Instance.ID)
+	if em == nil || !a.Has(em.attribute) {
+		return
+	}
+	switch ch.Kind {
+	case effect.Removed:
+		a.Instance(em.attribute) // vanilla creates the instance even without the modifier
+		em.apply(a, ch.Instance, false)
+	default:
+		a.RemoveModifier(em.attribute, em.id)
+		em.apply(a, ch.Instance, true)
+	}
 }
 
 func updateEffectAttributes(a *player.Attributes, active []effect.Instance, want func(effectModifier) bool) {

@@ -110,13 +110,15 @@ func (ent *mobEntity) saveRaid(tag nbt.CompoundTag) {
 func (ent *mobEntity) saveAttributes(tag nbt.CompoundTag) {
 	m := ent.mob
 	a := m.Attributes()
+	loaded, _ := nbt.Get[nbt.List](tag.Entries(), "attributes")
 	if a == nil {
-		if !m.NativeAttributeInstances() && !m.Ticked() {
+		// A loaded list still goes through the map, which drops the entries
+		// the kind lacks.
+		if !m.NativeAttributeInstances() && !m.Ticked() && len(loaded.Items) == 0 {
 			return
 		}
 		a = m.BuildAttributes(savedAttributes(ent.saved))
 	}
-	loaded, _ := nbt.Get[nbt.List](tag.Entries(), "attributes")
 	if out := a.SaveInstances(&loaded, m.Ticked()); out != nil {
 		tag.Set("attributes", *out)
 	}

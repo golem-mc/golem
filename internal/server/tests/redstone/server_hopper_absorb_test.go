@@ -81,6 +81,55 @@ func TestAHopperRemovesAnAbsorbedItemForItsWatchers(t *testing.T) {
 	}
 }
 
+func TestHopperMouthTracksBlockReplacement(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name          string
+		before, after string
+		absorbed      bool
+	}{
+		{"stone to air", "minecraft:stone", "minecraft:air", true},
+		{"air to stone", "minecraft:air", "minecraft:stone", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := servertest.NewTestServer(t, servertest.BlockTestConfig())
+			srv.StopTick()
+			t.Cleanup(srv.HoldChunk(4, 0))
+			if !srv.PlaceContainer(4, 64, 0, "minecraft:hopper") {
+				t.Fatal("the hopper would not stand")
+			}
+			srv.SetBlock(4, 65, 0, servertest.MustState(t, tc.before, nil))
+			servertest.TickBlockEntitiesByHand(srv, 1)
+
+			if !srv.SetBlock(4, 65, 0, servertest.MustState(t, tc.after, nil)) {
+				t.Fatalf("could not replace %s with %s", tc.before, tc.after)
+			}
+			itemID := srv.SpawnItemEntity(4.5, 64.72, 0.5, "minecraft:dirt", 1)
+			if itemID == 0 {
+				t.Fatal("the item entity did not spawn")
+			}
+			servertest.TickBlockEntitiesByHand(srv, 1)
+
+			slots := srv.InventoryAt(4, 64, 0)
+			if len(slots) == 0 {
+				t.Fatal("the hopper inventory is missing")
+			}
+			items := srv.ItemsInDimension(world.DimensionName)
+			if tc.absorbed {
+				dirt := servertest.ItemStack(t, "minecraft:dirt", 1)
+				if !slots[0].Equal(dirt) || !servertest.NothingIn(slots[1:]) || len(items) != 0 {
+					t.Fatalf("hopper slot 0 has item %d (count %d), other slots empty: %t, world item count: %d, want one dirt in the hopper only",
+						slots[0].ItemID, slots[0].Count, servertest.NothingIn(slots[1:]), len(items))
+				}
+				return
+			}
+			if !servertest.NothingIn(slots) || len(items) != 1 || items[0].ID != itemID {
+				t.Fatalf("hopper empty: %t, world holds %+v, want an empty hopper and item %d", servertest.NothingIn(slots), items, itemID)
+			}
+		})
+	}
+}
+
 // TestAHopperPicksUpTheLowerXSectionFirst registers the diamond before the
 // straddling emerald and moves it into the eastern chunk: vanilla visits the
 // lower-X section first, so the emerald wins the one free slot.

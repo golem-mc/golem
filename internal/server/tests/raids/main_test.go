@@ -2,11 +2,14 @@ package raids
 
 import (
 	"os"
+	"sync"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
@@ -26,7 +29,13 @@ type bossEvent struct {
 // has claimed the bell.
 func village(t *testing.T, difficulty uint8) (*server.Server, *servertest.Client, [3]int32) {
 	t.Helper()
-	srv, c, bell := bareBell(t, difficulty)
+	return villageWith(t, servertest.HostileTestConfig(), difficulty)
+}
+
+// villageWith is village on a server of cfg.
+func villageWith(t *testing.T, cfg *config.Config, difficulty uint8) (*server.Server, *servertest.Client, [3]int32) {
+	t.Helper()
+	srv, c, bell := bareBellWith(t, cfg, difficulty, nil)
 	spawnVillager(t, srv, bell)
 	return srv, c, bell
 }
@@ -52,8 +61,15 @@ func spawnVillagerIn(t *testing.T, srv *server.Server, dimension string, bell [3
 // answers the server and the player's connection. No villager claims it.
 func bareBell(t *testing.T, difficulty uint8) (*server.Server, *servertest.Client, [3]int32) {
 	t.Helper()
-	srv, connect := servertest.Start(t, servertest.HostileTestConfig())
+	return bareBellWith(t, servertest.HostileTestConfig(), difficulty, nil)
+}
+
+// bareBellWith is bareBell on a server of cfg running the plugins.
+func bareBellWith(t *testing.T, cfg *config.Config, difficulty uint8, plugins []plugin.Registration) (*server.Server, *servertest.Client, [3]int32) {
+	t.Helper()
+	srv := servertest.NewTestServerWithPlugins(t, cfg, plugins)
 	srv.SetDifficulty(difficulty)
+	connect := func() *servertest.Client { return servertest.DialServer(t, srv) }
 	c := connect().Join("Hero")
 	servertest.HoldTicks(t, srv)
 	pos := srv.PlayerPosition("Hero")
@@ -101,3 +117,28 @@ func startRaid(t *testing.T, c *servertest.Client, srv *server.Server, amplifier
 	}
 	return events
 }
+
+// shooterPlugin records the type of each launched rocket's shooter, 0 for a
+// rocket with none.
+type shooterPlugin struct {
+	mu       sync.Mutex
+	shooters []int32
+}
+
+func (p *shooterPlugin) Enable(s plugin.Server) error {
+	plugin.Listen(s, func(e *plugin.ProjectileLaunchEvent) {
+		if e.Projectile.Type() != protocol.EntityTypeFireworkRocket {
+			return
+		}
+		var kind int32
+		if sh, ok := e.Projectile.Shooter(); ok {
+			kind = int32(sh.Type())
+		}
+		p.mu.Lock()
+		p.shooters = append(p.shooters, kind)
+		p.mu.Unlock()
+	})
+	return nil
+}
+
+func (p *shooterPlugin) Disable() {}

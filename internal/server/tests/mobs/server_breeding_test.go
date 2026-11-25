@@ -5,6 +5,7 @@ import (
 	"github.com/golem-mc/golem/nbt"
 	"github.com/google/uuid"
 
+	"fmt"
 	"math"
 	"testing"
 
@@ -292,6 +293,54 @@ func TestABabyFollowsTheAdultOfItsKind(t *testing.T) {
 	if !b.Baby {
 		t.Error("the calf grew up on its walk, want the baby it still is")
 	}
+}
+
+// TestABabyFollowsADyingAdult: the class query FollowParentGoal runs includes
+// an adult killed this tick, so a calf walks toward the corpse instead of the
+// living adult behind it.
+func TestABabyFollowsADyingAdult(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Watcher", "", 0, servertest.OpsListing(t, "Watcher"))
+	srv.StopTick()
+	c.ChatCommand(`summon minecraft:cow 8.5 64 3.5 {Age:-24000}`)
+	calf := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	// Let the calf land: a walk request waits for the ground.
+	srv.TickMobs(20)
+	before, _ := mobWithID(srv, calf.EntityID)
+	c.ChatCommand(fmt.Sprintf(`summon minecraft:cow %v 64 %v`, before.X-8.5, before.Z))
+	c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.ChatCommand(fmt.Sprintf(`summon minecraft:cow %v 64 %v {Tags:["doomed"]}`, before.X+6.5, before.Z))
+	c.ExpectMobSpawn(protocol.EntityTypeCow)
+	srv.RunLine("kill @e[tag=doomed]")
+	srv.TickMobs(6)
+	after, _ := mobWithID(srv, calf.EntityID)
+	if after.X <= before.X+0.05 {
+		t.Fatalf("the calf moved from X=%v to X=%v after the adult died, want it walking toward the corpse at X=%v", before.X, after.X, before.X+6.5)
+	}
+}
+
+// TestABabyFollowsItsParentAmongAHugeHerd: the same walk with seventy more
+// cows in the dimension, enough that the parent search runs on the push grid.
+func TestABabyFollowsItsParentAmongAHugeHerd(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Watcher", "", 0, servertest.OpsListing(t, "Watcher"))
+	servertest.HoldTicks(t, srv)
+	srv.SpawnMob("minecraft:cow", 2.5, 64, 3.5)
+	adult := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.ChatCommand(`summon minecraft:cow 9.5 64 3.5 {Age:-24000}`)
+	calf := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	for i := range 70 {
+		srv.SpawnMob("minecraft:cow", -20+float64(i%10)*2+0.5, 64, 30+float64(i/10)*2+0.5)
+	}
+
+	servertest.UntilTicks(t, srv, 100, "the calf closes on the adult", func() bool {
+		a, okA := mobWithID(srv, adult.EntityID)
+		b, okB := mobWithID(srv, calf.EntityID)
+		if !okA || !okB {
+			t.Fatalf("a mob is missing: adult %v, calf %v", okA, okB)
+		}
+		return blocksAway(a.X, a.Y, a.Z, b.X, b.Y, b.Z) < 3
+	})
 }
 
 // TestBredYoungOfEachKind: every farm animal breeds a baby of its own kind

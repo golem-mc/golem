@@ -41,7 +41,7 @@ func hasSuffixModifier(e servertest.AttrEntry, id string) bool {
 func TestPackLocationChangedAttributeFollowsTheBoots(t *testing.T) {
 	const name = "Runner"
 	cfg := servertest.BowTestConfig()
-	cfg.LevelName = packEnchantments(t, map[string]string{"data/pk/enchantment/fast.json": fastBoots})
+	cfg.LevelName = servertest.PackEnchantments(t, map[string]string{"data/pk/enchantment/fast.json": fastBoots})
 	srv, c, id := servertest.JoinAs(t, cfg, name)
 	c.MoveToGround(0.5, 64, 0.5, true)
 	servertest.HoldTicks(t, srv)
@@ -65,7 +65,7 @@ func TestPackLocationChangedAttributeFollowsTheBoots(t *testing.T) {
 func TestPackTickEffectGlowsTheWearer(t *testing.T) {
 	const name = "Glower"
 	cfg := servertest.BowTestConfig()
-	cfg.LevelName = packEnchantments(t, map[string]string{"data/pk/enchantment/glow.json": glowBoots})
+	cfg.LevelName = servertest.PackEnchantments(t, map[string]string{"data/pk/enchantment/glow.json": glowBoots})
 	srv, _, _ := servertest.JoinAs(t, cfg, name)
 	servertest.HoldTicks(t, srv)
 	srv.GiveSlot(name, player.ArmorSlot+3, servertest.EnchantedStack(t, "minecraft:iron_boots", "pk:glow", 1))

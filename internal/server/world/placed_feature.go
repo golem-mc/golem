@@ -358,7 +358,7 @@ func (c providerCompiler) state(v any) stateProvider {
 		return func(*decorRegion, [3]int32) uint16 { return s }
 	}
 	switch jtype(o) {
-	case "simple_state_provider", "simple":
+	case "simple":
 		jonly(o, "state")
 		s := compileBlockState(o["state"])
 		return func(*decorRegion, [3]int32) uint16 { return s }
@@ -377,10 +377,7 @@ func (c providerCompiler) state(v any) stateProvider {
 	case "random_block":
 		opt := c.randomBlock(o)
 		return stateOrExisting(opt)
-	case "rotated_block_provider":
-		jonly(o, "state")
-		return rotatedBlock(compileBlockState(o["state"]))
-	case "weighted_state_provider", "weighted":
+	case "weighted":
 		jonly(o, "entries")
 		var states []uint16
 		var weights []int32
@@ -390,13 +387,13 @@ func (c providerCompiler) state(v any) stateProvider {
 			weights = append(weights, jint(e["weight"]))
 		}
 		return func(r *decorRegion, _ [3]int32) uint16 { return states[pickWeighted(r.rng, weights)] }
-	case "noise_provider", "noise":
+	case "noise":
 		jonly(o, "seed", "noise", "scale", "states")
 		noise, scale, states := compileNoise(o, "noise"), jfloat(o["scale"]), compileStates(o["states"])
 		return func(_ *decorRegion, p [3]int32) uint16 {
 			return pickByNoise(states, noise.Get3D(float64(p[0])*scale, float64(p[1])*scale, float64(p[2])*scale))
 		}
-	case "noise_threshold_provider", "noise_threshold":
+	case "noise_threshold":
 		jonly(o, "seed", "noise", "scale", "threshold", "high_chance", "default_state", "low_states", "high_states")
 		noise, scale, threshold := compileNoise(o, "noise"), jfloat(o["scale"]), jfloat(o["threshold"])
 		chance, deflt := float32(jfloat(o["high_chance"])), compileBlockState(o["default_state"])
@@ -410,7 +407,7 @@ func (c providerCompiler) state(v any) stateProvider {
 			}
 			return deflt
 		}
-	case "dual_noise_provider", "dual_noise":
+	case "dual_noise":
 		jonly(o, "seed", "noise", "scale", "states", "slow_noise", "slow_scale", "variety")
 		noise, scale, states := compileNoise(o, "noise"), jfloat(o["scale"]), compileStates(o["states"])
 		slow, slowScale := compileNoise(o, "slow_noise"), float32(jfloat(o["slow_scale"]))
@@ -430,7 +427,7 @@ func (c providerCompiler) state(v any) stateProvider {
 			}
 			return pickByNoise(picks, noise.Get3D(float64(p[0])*scale, float64(p[1])*scale, float64(p[2])*scale))
 		}
-	case "randomized_int_state_provider", "randomized_int":
+	case "randomized_int":
 		jonly(o, "source", "property", "values")
 		src, values := c.state(o["source"]), compileInt(o["values"])
 		prop, ok := registry.PropNamed(o["property"].(string))
@@ -448,7 +445,7 @@ func (c providerCompiler) state(v any) stateProvider {
 			}
 			return next
 		}
-	case "rule_based_state_provider", "rule_based":
+	case "rule_based":
 		return stateOrExisting(c.rules(o))
 	}
 	modelFail("unhandled state provider %q", jtype(o))
@@ -466,7 +463,7 @@ func (c providerCompiler) optional(v any) optState {
 	v = c.resolve(v)
 	o := jobjOf(v)
 	switch jtype(o) {
-	case "rule_based_state_provider", "rule_based":
+	case "rule_based":
 		return c.rules(o)
 	case "random_block":
 		return c.randomBlock(o)

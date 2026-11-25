@@ -20,14 +20,16 @@ var Item = Command{
 
 // The translation keys /item answers with.
 const (
-	itemTargetNoContainerKey = "commands.item.target.not_a_container"
-	itemSourceNoContainerKey = "commands.item.source.not_a_container"
-	itemTargetNoSlotKey      = "commands.item.target.no_such_slot"
-	itemSourceNoSlotKey      = "commands.item.source.no_such_slot"
-	itemTargetFailedKey      = "commands.item.target.failed"
-	itemOverstackedKey       = "arguments.item.overstacked"
-	slotOnlySingleKey        = "slot.only_single_allowed"
-	slotUnknownKey           = "slot.unknown"
+	itemTargetNoContainerKey   = "commands.item.target.not_a_container"
+	itemSourceNoContainerKey   = "commands.item.source.not_a_container"
+	itemTargetNoSlotKey        = "commands.item.target.no_such_slot"
+	itemTargetNoSlotUnnamedKey = "commands.item.target.no_such_slot.unnamed"
+	itemSourceNoSlotKey        = "commands.item.source.no_such_slot"
+	itemSourceNoSlotUnnamedKey = "commands.item.source.no_such_slot.unnamed"
+	itemTargetFailedKey        = "commands.item.target.failed"
+	itemOverstackedKey         = "arguments.item.overstacked"
+	slotOnlySingleKey          = "slot.only_single_allowed"
+	slotUnknownKey             = "slot.unknown"
 )
 
 // ItemSlot is a raw slot id as vanilla numbers them: container slots 0-53,
@@ -104,27 +106,18 @@ func itemEntityArg(name string, with []*Node) *Node {
 	}
 }
 
-// itemSlotsNode is the slot source argument, whose word the walk holds to the
-// slot grammar while it reads it; only the slot range words parse.
+// itemSlotsNode is the slot source argument: a slot range word, a data pack
+// source's id or an inline source.
 // vanilla: SlotSourceArgument.parse
 func itemSlotsNode(name string, executable bool, with ...*Node) *Node {
 	return &Node{
 		Type:       NodeArgument,
 		Name:       name,
 		Parser:     ParserSlotSource,
-		Check:      checkItemSlotsArgument,
+		Check:      checkSlotSourceArgument,
 		Children:   with,
 		Executable: executable,
 	}
-}
-
-// itemSourceNode is itemSlotsNode for the commands that read a whole slot
-// source: a range word, a data pack source's id or an inline compound.
-// vanilla: SlotSourceArgument.parse
-func itemSourceNode(name string, executable bool, with ...*Node) *Node {
-	n := itemSlotsNode(name, executable, with...)
-	n.Check = checkSlotSourceArgument
-	return n
 }
 
 // itemWithTail is the with tail: the item, executable without a count, and
@@ -205,16 +198,6 @@ func checkItemSlotArgument(word string) *ParseError {
 	}
 	if len(ids) > 1 {
 		return &ParseError{Key: slotOnlySingleKey, With: []string{word}, Cursor: len(word)}
-	}
-	return nil
-}
-
-// checkItemSlotsArgument reads one slot word while the walk reads it: a word
-// outside the slot grammar is refused as unknown where the word ends.
-// vanilla: SlotRanges.tryRead
-func checkItemSlotsArgument(word string) *ParseError {
-	if _, known := itemSlotIDs[word]; !known {
-		return &ParseError{Key: slotUnknownKey, With: []string{word}, Cursor: len(word)}
 	}
 	return nil
 }
@@ -312,79 +295,12 @@ func slotBand(lo, hi int) []ItemSlot {
 	return slots
 }
 
-// itemMode is how a set command hands its items to the slots.
-// vanilla: ItemCommands.replaceItemProvider, fillItemProvider, overrideItemProvider
-type itemMode int
-
-const (
-	itemReplace  itemMode = iota // the items in order, slots past the last kept
-	itemFill                     // the items cycled over every slot
-	itemOverride                 // the items in order, slots past the last emptied
-)
-
-// itemProvider hands items out to slots one at a time.
-// vanilla: ItemProvider
-type itemProvider struct {
-	items []protocol.ItemStack
-	mode  itemMode
-	pos   int
-}
-
-func (p *itemProvider) hasNext() bool {
-	switch p.mode {
-	case itemFill:
-		return len(p.items) > 0
-	case itemOverride:
-		return true
-	}
-	return p.pos < len(p.items)
-}
-
-// next is the following item, an empty stack once an override ran out.
-func (p *itemProvider) next() protocol.ItemStack {
-	if p.mode == itemFill && len(p.items) > 0 {
-		p.pos++
-		return p.items[(p.pos-1)%len(p.items)]
-	}
-	if p.pos < len(p.items) {
-		p.pos++
-		return p.items[p.pos-1]
-	}
-	return protocol.ItemStack{}
-}
-
 // itemSide is one end of an /item: the container block at a position, or
 // entities.
 type itemSide struct {
 	block    bool
 	x, y, z  int32
 	entities []Entity
-}
-
-// itemSlotRef is one slot of a block's container or an entity.
-type itemSlotRef struct {
-	src     Source
-	side    *itemSide
-	entity  Entity
-	slotID  int
-	element int // index of the entity, 0 for a block
-}
-
-func (r itemSlotRef) get() protocol.ItemStack {
-	if r.entity == nil {
-		return r.src.ItemInContainerAt(r.side.x, r.side.y, r.side.z, r.slotID)
-	}
-	stack, _ := r.entity.ItemIn(ItemSlot(r.slotID))
-	return stack
-}
-
-// set writes the stack, false for a slot the entity refuses it.
-func (r itemSlotRef) set(stack protocol.ItemStack) bool {
-	if r.entity == nil {
-		r.src.SetItemInContainerAt(r.side.x, r.side.y, r.side.z, r.slotID, stack)
-		return true
-	}
-	return r.entity.SetItemIn(ItemSlot(r.slotID), stack)
 }
 
 // readItemSide reads "block x y z" or "entity <selector>" off args, resolving
@@ -423,34 +339,29 @@ func readItemSide(src Source, input string, args []string) (*itemSide, []string,
 	return nil, nil, ErrRefused
 }
 
-// slotGroups is the slots the ids name that exist, one group per entity, or
-// the container's one group. A block that is no container is refused with
-// the key.
-// vanilla: SlotProvider.getSlotsFromRange
-func (s *itemSide) slotGroups(src Source, ids []ItemSlot, notContainerKey string) ([][]itemSlotRef, error) {
+// slotCollections resolves source for the block's container or each entity.
+// A block that is no container is refused with notContainerKey.
+// vanilla: BlockItemAccessor.getBlockSlots, EntityItemAccessor.setItems
+func (s *itemSide) slotCollections(src Source, source registry.SlotSource, notContainerKey string) ([]rules.SlotCollection, error) {
 	if s.block {
 		size := src.ContainerSizeAt(s.x, s.y, s.z)
 		if size == 0 {
 			return nil, refuse(src, notContainerKey,
 				entityCount(int(s.x)), entityCount(int(s.y)), entityCount(int(s.z)))
 		}
-		var group []itemSlotRef
-		for _, id := range ids {
-			if int(id) >= 0 && int(id) < size {
-				group = append(group, itemSlotRef{src: src, side: s, slotID: int(id)})
-			}
-		}
-		return [][]itemSlotRef{group}, nil
+		col := slotSourceCollection(src, source, func(name string) []rules.SlotAccess {
+			return blockSlotAccess(src, s.x, s.y, s.z, size, name)
+		})
+		return []rules.SlotCollection{col}, nil
 	}
-	groups := make([][]itemSlotRef, len(s.entities))
+	cols := make([]rules.SlotCollection, len(s.entities))
 	for i, e := range s.entities {
-		for _, id := range ids {
-			if _, ok := e.ItemIn(id); ok {
-				groups[i] = append(groups[i], itemSlotRef{src: src, side: s, entity: e, slotID: int(id), element: i})
-			}
-		}
+		entity := e
+		cols[i] = slotSourceCollection(src, source, func(name string) []rules.SlotAccess {
+			return entitySlotAccess(entity, name)
+		})
 	}
-	return groups, nil
+	return cols, nil
 }
 
 // runItem runs /item.
@@ -461,11 +372,11 @@ func runItem(src Source, input string, args []string) (int32, error) {
 	}
 	switch args[0] {
 	case "replace":
-		return runItemSet(src, input, args[1:], itemReplace)
+		return runItemSet(src, input, args[1:], rules.ItemProviderReplace)
 	case "fill":
-		return runItemSet(src, input, args[1:], itemFill)
+		return runItemSet(src, input, args[1:], rules.ItemProviderFill)
 	case "override":
-		return runItemSet(src, input, args[1:], itemOverride)
+		return runItemSet(src, input, args[1:], rules.ItemProviderOverride)
 	case "modify":
 		return runItemModify(src, input, args[1:])
 	}
@@ -473,30 +384,40 @@ func runItem(src Source, input string, args []string) (int32, error) {
 	return 0, nil
 }
 
-// readItemSlots reads the slot word off the words after a side and returns
-// the ids it names, with the word for the refusals.
-func readItemSlots(src Source, rest []string) ([]ItemSlot, string, []string, error) {
+// readItemSlots reads a slot source argument off rest and returns the parsed
+// source, its name (empty for an inline source) and the remaining words.
+// vanilla: SlotSourceArgument.parse
+func readItemSlots(src Source, input string, rest []string) (registry.SlotSource, string, []string, error) {
 	if len(rest) < 1 {
 		src.Debug("incomplete item slots")
 		return nil, "", nil, ErrRefused
 	}
-	ids, known := itemSlots(rest[0])
-	if !known {
-		src.Debug("item slot did not parse", "slot", rest[0])
+	span := min(spanCount(rest, plainText, true, false), len(rest))
+	text := wordsIn(input, rest, 0, span)
+	source, name, perr := parseSlotSource(text)
+	if perr != nil {
+		src.Debug("item slot did not parse", "slot", text)
 		return nil, "", nil, ErrRefused
 	}
-	return ids, rest[0], rest[1:], nil
+	return source, name, rest[span:], nil
+}
+
+func noSuchSlotError(src Source, namedKey, unnamedKey, name string) error {
+	if name != "" {
+		return refuse(src, namedKey, protocol.Text{Text: name})
+	}
+	return refuse(src, unnamedKey)
 }
 
 // runItemModify runs /item modify: the modifier runs over every non-empty
-// slot the words name, in the block's container or each target.
+// slot the source selects, in the block's container or each target.
 // vanilla: ItemCommands.modifyItems
 func runItemModify(src Source, input string, args []string) (int32, error) {
 	side, rest, err := readItemSide(src, input, args)
 	if err != nil {
 		return 0, err
 	}
-	ids, name, rest, err := readItemSlots(src, rest)
+	source, name, rest, err := readItemSlots(src, input, rest)
 	if err != nil {
 		return 0, err
 	}
@@ -504,27 +425,25 @@ func runItemModify(src Source, input string, args []string) (int32, error) {
 	if !ok {
 		return 0, ErrRefused
 	}
-	groups, err := side.slotGroups(src, ids, itemTargetNoContainerKey)
+	cols, err := side.slotCollections(src, source, itemTargetNoContainerKey)
 	if err != nil {
 		return 0, err
 	}
 	selected := 0
-	counts := make([]int, len(groups))
-	for i, group := range groups {
-		for _, slot := range group {
-			held := slot.get()
-			if held.Empty() {
-				continue
+	sel := rules.NonEmptyTrackingSlotSelector(&selected)
+	counts := make([]int, len(cols))
+	for i, col := range cols {
+		updated := 0
+		col.ModifySlots(func(slot rules.SlotAccess) {
+			if slot.Set(rules.ApplyItemModifierIn(fn, slot.Get(), src.Random(), patchComponent, itemModifierContext(src))) {
+				updated++
 			}
-			selected++
-			if slot.set(rules.ApplyItemModifierIn(fn, held, src.Random(), patchComponent, itemModifierContext(src))) {
-				counts[i]++
-			}
-		}
-		side.broadcastChanges(i, counts[i])
+		}, sel)
+		counts[i] = updated
+		side.broadcastChanges(i, updated)
 	}
 	if selected == 0 {
-		return 0, refuse(src, itemTargetNoSlotKey, protocol.Text{Text: name})
+		return 0, noSuchSlotError(src, itemTargetNoSlotKey, itemTargetNoSlotUnnamedKey, name)
 	}
 	return itemFeedback(src, side, counts, "modify", nil)
 }
@@ -543,12 +462,12 @@ func itemModifierArgs(src Source, input string, words []string) (registry.LootFu
 // are read first, then the items come from the with tail or the from tail's
 // source, which is read before any write so its refusals come first.
 // vanilla: ItemCommands.setItems
-func runItemSet(src Source, input string, args []string, mode itemMode) (int32, error) {
+func runItemSet(src Source, input string, args []string, mode rules.ItemProviderMode) (int32, error) {
 	side, rest, err := readItemSide(src, input, args)
 	if err != nil {
 		return 0, err
 	}
-	ids, name, rest, err := readItemSlots(src, rest)
+	source, name, rest, err := readItemSlots(src, input, rest)
 	if err != nil {
 		return 0, err
 	}
@@ -581,27 +500,21 @@ func runItemSet(src Source, input string, args []string, mode itemMode) (int32, 
 		src.Debug("unknown item set tail", "tail", rest[0])
 		return 0, ErrRefused
 	}
-	groups, err := side.slotGroups(src, ids, itemTargetNoContainerKey)
+	cols, err := side.slotCollections(src, source, itemTargetNoContainerKey)
 	if err != nil {
 		return 0, err
 	}
 	selected := 0
-	counts := make([]int, len(groups))
-	for i, group := range groups {
-		provider := itemProvider{items: items, mode: mode}
-		for _, slot := range group {
-			if !provider.hasNext() {
-				break
-			}
-			selected++
-			if slot.set(provider.next()) {
-				counts[i]++
-			}
-		}
+	sel := rules.TrackingSlotSelector(&selected)
+	provider := rules.ItemProvider{Items: items, Mode: mode}
+	counts := make([]int, len(cols))
+	for i, col := range cols {
+		provider.Restart()
+		counts[i] = col.ReplaceSlotItems(&provider, sel)
 		side.broadcastChanges(i, counts[i])
 	}
 	if selected == 0 {
-		return 0, refuse(src, itemTargetNoSlotKey, protocol.Text{Text: name})
+		return 0, noSuchSlotError(src, itemTargetNoSlotKey, itemTargetNoSlotUnnamedKey, name)
 	}
 	return itemFeedback(src, side, counts, "replace", known)
 }
@@ -675,22 +588,20 @@ func itemReadFrom(src Source, input string, args []string) ([]protocol.ItemStack
 	if err != nil {
 		return nil, err
 	}
-	ids, name, rest, err := readItemSlots(src, rest)
+	source, name, rest, err := readItemSlots(src, input, rest)
 	if err != nil {
 		return nil, err
 	}
-	groups, err := side.slotGroups(src, ids, itemSourceNoContainerKey)
+	cols, err := side.slotCollections(src, source, itemSourceNoContainerKey)
 	if err != nil {
 		return nil, err
 	}
 	var items []protocol.ItemStack
-	for _, group := range groups {
-		for _, slot := range group {
-			items = append(items, slot.get())
-		}
+	for _, col := range cols {
+		items = append(items, col.ItemCopies()...)
 	}
 	if len(items) == 0 {
-		return nil, refuse(src, itemSourceNoSlotKey, protocol.Text{Text: name})
+		return nil, noSuchSlotError(src, itemSourceNoSlotKey, itemSourceNoSlotUnnamedKey, name)
 	}
 	if len(rest) > 0 {
 		fn, ok := itemModifierArgs(src, input, rest)

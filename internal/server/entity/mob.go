@@ -2179,7 +2179,9 @@ type Mob struct {
 	preyKnown bool
 	// stands is the tick's visible armor stands of the world, which a goat's
 	// ram may target. Set for one tick.
-	stands   []StandTarget
+	stands []StandTarget
+	// corpses is the tick's dying bodies, a classic follow-parent candidate.
+	corpses  []*Mob
 	pushCell pushCellKey
 	pushIdx  int
 	// pushSlot is the mob's index in its cell's entries.
@@ -2488,6 +2490,7 @@ func (m *Mob) SetBaby(baby bool) {
 	if wasBaby != m.IsBaby() {
 		m.syncSulfurSize()
 	}
+	m.syncPiglinBabySpeed(m.attrs)
 	m.syncFlyingGoals()
 }
 
@@ -3552,8 +3555,8 @@ func (m *Mob) pace() float64 {
 			speed *= 1.5
 		}
 		if m.Type == TypePiglin && m.IsBaby() {
-			// vanilla: Piglin.SPEED_MODIFIER_BABY, ADD_MULTIPLIED_BASE
-			speed *= 1.2
+			// vanilla: Piglin.SPEED_MODIFIER_BABY, ADD_MULTIPLIED_BASE 0.2f
+			speed += speed * float64(float32(0.2))
 		}
 	}
 	if m.Type == TypeRavager {
@@ -3642,6 +3645,20 @@ func (m *Mob) BlastBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
 	}
 	hw := m.width() / 2
 	return m.X - hw, m.Y, m.Z - hw, m.X + hw, m.Y + m.height(), m.Z + hw
+}
+
+// BlastBoxHits reports whether BlastBox intersects the box. It tests X and Z
+// first so a body that misses horizontally never computes its height.
+func (m *Mob) BlastBoxHits(minX, minY, minZ, maxX, maxY, maxZ float64) bool {
+	if m.Type == TypeShulker {
+		bMinX, bMinY, bMinZ, bMaxX, bMaxY, bMaxZ := m.shulkerBox().Corners()
+		return minX < bMaxX && maxX > bMinX && minY < bMaxY && maxY > bMinY && minZ < bMaxZ && maxZ > bMinZ
+	}
+	hw := m.width() / 2
+	if !(minX < m.X+hw && maxX > m.X-hw && minZ < m.Z+hw && maxZ > m.Z-hw) {
+		return false
+	}
+	return minY < m.Y+m.height() && maxY > m.Y
 }
 
 // EyePosition is getEyePosition, where an explosion's knockback is directed
@@ -3905,14 +3922,15 @@ func (m *Mob) HurtByFirework(amount float64, damageType registry.DamageType, cau
 }
 
 // HurtByCommand is /damage: causeID (0 for none) is kept for
-// retaliation and kill credit, and a whole hit shoves away from (fromX, fromZ)
+// retaliation and kill credit, direct is the direct entity's identity (nil
+// for the causing one), and a whole hit shoves away from (fromX, fromZ)
 // unless the type is no_knockback. When from is non-nil (a by/from entity),
 // a filled sulfur cube bends its shove by the attacker's aim. Results are
 // landed and softened.
 // vanilla: DamageCommand.damage, LivingEntity.hurtServer
-func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, causeIsPlayer, causeCreative bool, fromX, fromZ float64, from ...*HitSource) (landed, softened bool) {
+func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, direct uuid.UUID, causeIsPlayer, causeCreative bool, fromX, fromZ float64, from ...*HitSource) (landed, softened bool) {
 	if causeID != 0 {
-		return m.hurtByDamage(amount, damageType, causeID, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z, from...)
+		return m.hurtVia(amount, damageType, hurtContext{causeID: causeID, direct: direct}, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z, from...)
 	}
 	landed, softened = m.HurtByWorld(amount, damageType)
 	if landed && !softened && !damageType.InTag(registry.DamageTypeTagIDNoKnockback) {
@@ -3927,6 +3945,12 @@ func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, caus
 // whole blow landed.
 // vanilla: LivingEntity.hurtServer, calculateHorizontalHurtKnockbackDirection
 func (m *Mob) hurtByDamage(amount float64, damageType registry.DamageType, causeID int32, causeIsPlayer, creative bool, knX, knZ float64, from ...*HitSource) (landed, softened bool) {
+	return m.hurtVia(amount, damageType, hurtContext{causeID: causeID}, causeIsPlayer, creative, knX, knZ, from...)
+}
+
+// hurtVia is hurtByDamage with the whole context the gate is told.
+func (m *Mob) hurtVia(amount float64, damageType registry.DamageType, ctx hurtContext, causeIsPlayer, creative bool, knX, knZ float64, from ...*HitSource) (landed, softened bool) {
+	causeID := ctx.causeID
 	if damageType.InTag(registry.DamageTypeTagIDIsProjectile) {
 		if dodges, _ := m.dodgesProjectile(damageType, creative); dodges {
 			return false, false
@@ -3963,7 +3987,7 @@ func (m *Mob) hurtByDamage(amount float64, damageType registry.DamageType, cause
 		}
 		return true, true
 	}
-	mayLand, soft := m.throughWindow(amount, damageType, creative, true, causeIsPlayer, hurtContext{causeID: causeID})
+	mayLand, soft := m.throughWindow(amount, damageType, creative, true, causeIsPlayer, ctx)
 	if mayLand == 0 && soft {
 		return false, false
 	}
@@ -4538,7 +4562,7 @@ func (m *Mob) HurtByMob(amount float64, source *Mob) bool {
 // HurtByMobOwned is HurtByMob with ownerID, the entity ID of a tame wolf
 // source's owner in this level (0 when absent), who takes the player credit.
 func (m *Mob) HurtByMobOwned(amount float64, source *Mob, ownerID int32) bool {
-	return m.hurtByMob(amount, rules.DamageTypeMobAttack, source, ownerID, 0, nil)
+	return m.hurtByMob(amount, rules.DamageTypeMobAttack, source, ownerID, uuid.Nil, nil)
 }
 
 // HurtByRam is HurtByMob for a goat's ram: mob_attack_no_aggro, so the victim
@@ -4552,21 +4576,21 @@ func (m *Mob) HurtByRam(amount float64, source *Mob) bool {
 // or beam), still knocked back by the direct entity.
 // vanilla: LivingEntity.hurtServer
 func (m *Mob) HurtByMobAs(amount float64, damageType registry.DamageType, source *Mob) bool {
-	return m.hurtByMob(amount, damageType, source, 0, 0, nil)
+	return m.hurtByMob(amount, damageType, source, 0, uuid.Nil, nil)
 }
 
 // HurtByMobVia is HurtByMobAs for a blow whose direct entity is not source
 // (an evoker's fangs): source is the causing entity, and the shove points
 // away from (fromX, fromZ), the direct entity's position. directEntityID is
-// the direct entity's ID, which the damage event names.
+// the direct entity's identity, which the damage event names.
 // vanilla: LivingEntity.hurtServer, DamageSource.getSourcePosition
-func (m *Mob) HurtByMobVia(amount float64, damageType registry.DamageType, source *Mob, directEntityID int32, fromX, fromZ float64) bool {
-	return m.hurtByMob(amount, damageType, source, 0, directEntityID+1, &[2]float64{fromX, fromZ})
+func (m *Mob) HurtByMobVia(amount float64, damageType registry.DamageType, source *Mob, direct uuid.UUID, fromX, fromZ float64) bool {
+	return m.hurtByMob(amount, damageType, source, 0, direct, &[2]float64{fromX, fromZ})
 }
 
 // hurtByMob's push, when non-nil, is the point the shove points away from
 // instead of source's feet.
-func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *Mob, ownerID, directID int32, push *[2]float64) (landed bool) {
+func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *Mob, ownerID int32, direct uuid.UUID, push *[2]float64) (landed bool) {
 	if m.dragon != nil {
 		defer func(accepted bool) { landed = landed || accepted }(m.dragonAccepts(amount))
 	}
@@ -4588,7 +4612,7 @@ func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *
 		m.hitKnockback(&from, fromX-m.X, fromZ-m.Z, amount)
 		return true
 	}
-	mayLand, soft := m.throughWindow(amount, damageType, false, true, false, hurtContext{causeID: source.ID, directID: directID})
+	mayLand, soft := m.throughWindow(amount, damageType, false, true, false, hurtContext{causeID: source.ID, direct: direct})
 	if mayLand == 0 {
 		return false
 	}
@@ -5285,7 +5309,7 @@ func (m *Mob) tickInto(out []MobEvent, tick *tickView, w World, players []Player
 	if m.Type == TypeFox {
 		events = m.foxStep(w, events)
 	}
-	*tick = tickView{w: w, players: players, others: others, prey: m.prey, preyKnown: m.preyKnown, stands: m.stands, events: tick.events[:0]}
+	*tick = tickView{w: w, players: players, others: others, prey: m.prey, preyKnown: m.preyKnown, stands: m.stands, corpses: m.corpses, events: tick.events[:0]}
 	if m.push != nil {
 		tick.byID = m.push.byID
 	}
@@ -5684,6 +5708,9 @@ func (m *Mob) animalAIStep(t *tickView) {
 		m.catTick(t)
 	}
 	if m.NoAI {
+		if m.Type == TypePufferfish && m.Alive() {
+			t.events = m.pufferStings(t, t.events)
+		}
 		return
 	}
 	switch m.Type {

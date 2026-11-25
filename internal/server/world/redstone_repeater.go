@@ -144,12 +144,18 @@ func (p *Physics) RepeaterLocked(x, y, z int32, facing int) bool {
 	return p.repeaterLocked(x, y, z, facing)
 }
 
-// repeaterShapeUpdate recomputes LOCKED on a change off the facing axis,
+// repeaterShapeUpdate drops a repeater whose floor changed to something that
+// cannot carry it, else recomputes LOCKED on a change off the facing axis,
 // writing the bar clients draw.
 // vanilla: RepeaterBlock.updateShape
 func (p *Physics) repeaterShapeUpdate(x, y, z int32, d [3]int32, state uint16, changes *[]BlockChange) {
-	// The axis test is symmetric, so the delta's direction needs no flip.
+	// The walk delta points from the changed block to the repeater, so a change
+	// below it reads as dirUp; the axis test below is symmetric, so it needs no flip.
 	rDir := directionOf(d)
+	if rDir == dirUp && !canSurvive(p.w, x, y, z, state) {
+		p.popBlock(x, y, z, state, changes)
+		return
+	}
 	f := facingOfState(state)
 	if rDir == f || rDir == blocklogic.Opposite(f) {
 		return

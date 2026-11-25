@@ -176,7 +176,7 @@ func (t *mobDimTick) event(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent
 				instrument: rules.GoatHornInstrument(ent.uuid, ev.Mob.Goat.Screaming)})
 		}
 	case entity.MobRangBell, entity.MobCelebrated:
-		fx.villagerSignals = append(fx.villagerSignals, villagerSignal{w: w, event: ev})
+		fx.villagerSignals = append(fx.villagerSignals, villagerSignal{w: w, event: ev, mob: h.MobUUID(ev.Mob)})
 	case entity.MobWantsGolem:
 		fx.golems = append(fx.golems, mobGolemRequest{w: w, x: ev.Mob.X, y: ev.Mob.Y, z: ev.Mob.Z, mob: ev.Mob})
 	case entity.MobThrewItem, entity.MobGaveGift:
@@ -318,7 +318,11 @@ func (t *mobDimTick) event(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent
 	case entity.MobShulkerShell:
 		t.shulkerShell(fx, ev)
 	case entity.MobShulkerShoved:
-		fx.shoves = append(fx.shoves, bodyShove{overlaps: slabOverlaps(ev.Slab), dx: ev.VX, dy: ev.VY, dz: ev.VZ, w: w})
+		sh := bodyShove{overlaps: slabOverlaps(ev.Slab), dx: ev.VX, dy: ev.VY, dz: ev.VZ, w: w}
+		if root := h.book[ev.Mob.RootVehicle()]; root != nil {
+			sh.ownBoat, sh.ownCart = root.vehicle, root.cart
+		}
+		fx.shoves = append(fx.shoves, sh)
 	case entity.MobShulkerTeleported:
 		t.shulkerTeleported(fx, ev)
 	case entity.MobThrewPotion:
@@ -884,8 +888,8 @@ func landingDust(w *world.World, ev entity.MobEvent) mobSend {
 }
 
 // killingBlow is the blow of the player k that killed m, read under the mob
-// lock: a projectile of the type the mob last took (an arrow, a trident or a
-// thrown thing), else the player's swing. The swing's damage type is the
+// lock: a projectile of the type the mob last took (an arrow, a trident, a
+// thrown thing or evoker fangs), else the player's swing. The swing's damage type is the
 // player attack, as the weapon is no longer known.
 // vanilla: LivingEntity.die, DamageSource
 func killingBlow(k *client, m *entity.Mob) *advancement.Blow {
@@ -893,8 +897,11 @@ func killingBlow(k *client, m *entity.Mob) *advancement.Blow {
 	attacker := func() rules.LootEntity { return player }
 	if direct := m.BlowDirectType(); m.HurtByPlayer() && direct != "" {
 		typ := registry.DamageTypeArrow
-		if id, _ := registry.EntityTypeID(direct); registry.EntityType(id) == registry.EntityTypeTrident {
+		switch id, _ := registry.EntityTypeID(direct); registry.EntityType(id) {
+		case registry.EntityTypeTrident:
 			typ = registry.DamageTypeTrident
+		case registry.EntityTypeEvokerFangs:
+			typ = registry.DamageTypeIndirectMagic
 		}
 		thrown := rules.LootEntity{Type: direct}
 		return &advancement.Blow{Type: typ, Attacker: attacker, Direct: func() rules.LootEntity { return thrown }, Indirect: true}

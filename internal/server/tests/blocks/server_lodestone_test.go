@@ -1,13 +1,18 @@
 package blocks
 
 import (
+	"encoding/binary"
+	"fmt"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"os"
+	"path/filepath"
 
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -359,6 +364,96 @@ func TestABrokenLodestoneClearsTheCompassTarget(t *testing.T) {
 	if got := srv.InventorySlot("Wanderer", player.HotbarSlot); !got.Equal(cleared) {
 		t.Errorf("after the break slot %d = %+v, want the target cleared to %+v",
 			player.HotbarSlot, got, cleared)
+	}
+	c.Disconnect()
+}
+
+// TestLodestoneCompassUnloadedTarget checks a compass pointing into an
+// unloaded chunk is judged by the saved chunk in one tick: a never-generated
+// chunk and a saved one with no lodestone clear the target, a saved lodestone
+// keeps it, and so do a region file with a truncated header, left as it
+// is, and a header entry pointing past the end of its file, without stopping
+// the others. A crafting input is not ticked. No check loads a chunk.
+// vanilla: LodestoneTracker.tick, PoiManager.existsAtPosition
+func TestLodestoneCompassUnloadedTarget(t *testing.T) {
+	t.Parallel()
+	const dim = "minecraft:overworld"
+	const never, withLodestone, without, unreadable, pastEnd = 98765, 200000, 300000, 400000, 500000
+	cfg := servertest.SurvivalTestConfig()
+	cfg.LevelName = t.TempDir()
+	rx, rz := int32(unreadable>>4)>>5, int32(unreadable>>4)>>5
+	region := filepath.Join(world.DimensionDir(cfg.LevelName, world.DimensionName), "region", fmt.Sprintf("r.%d.%d.mca", rx, rz))
+	pastEndChunk := int32(pastEnd >> 4)
+	pastEndRegion := filepath.Join(filepath.Dir(region), fmt.Sprintf("r.%d.%d.mca", pastEndChunk>>5, pastEndChunk>>5))
+	srv, c := servertest.Join(t, cfg, "Wanderer", func(srv *server.Server) {
+		shapeLodestone(t, srv, withLodestone, 64, withLodestone)
+		stone, _ := registry.FindState("minecraft:stone", nil)
+		// Y=63 is stone already and an untouched chunk is not saved.
+		srv.SetLoadedBlock(without, 64, without, stone)
+		// Written directly: a chunk generated there first would leave the
+		// file's header cached.
+		if err := os.MkdirAll(filepath.Dir(region), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(region, []byte{0, 0, 0, 2}, 0o644); err != nil { // a truncated header
+			t.Fatal(err)
+		}
+		header := make([]byte, 8192)
+		index := (pastEndChunk & 31) * 33 // x and z share the slot's low bits
+		binary.BigEndian.PutUint32(header[index*4:], 0xFFFF<<8|1)
+		if err := os.WriteFile(pastEndRegion, header, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	servertest.HoldTicks(t, srv)
+	slots := []struct {
+		slot int
+		at   int32
+		y    int32
+		kept bool
+	}{
+		{player.HotbarSlot, never, 64, false},
+		{player.HotbarSlot + 1, withLodestone, 64, true},
+		{player.HotbarSlot + 2, without, 64, false},
+		{player.HotbarSlot + 3, unreadable, 64, true},
+		{player.HotbarSlot + 4, pastEnd, 64, true},
+		{1, never, 64, true}, // a crafting input
+	}
+	for _, s := range slots {
+		srv.GiveSlot("Wanderer", s.slot, lodestoneCompass(t, 1, dim, s.at, s.y, s.at))
+	}
+	cleared := map[int16]bool{}
+	c.ReadTicks(srv, 1, func(id int32, data []byte) bool {
+		if id != protocol.IDPlayContainerSlot {
+			return false
+		}
+		r := protocol.NewReader(data)
+		r.ReadVarInt() // the window
+		r.ReadVarInt() // the state ID
+		slot := r.ReadI16()
+		if servertest.MustReadSlot(t, r).Equal(clearedLodestoneCompass(t, 1)) {
+			cleared[slot] = true
+		}
+		return false
+	})
+	for _, s := range slots {
+		if cleared[int16(s.slot)] == s.kept {
+			t.Errorf("target %d: slot %d cleared on the client = %v after one tick, want %v",
+				s.at, s.slot, cleared[int16(s.slot)], !s.kept)
+		}
+		want := clearedLodestoneCompass(t, 1)
+		if s.kept {
+			want = lodestoneCompass(t, 1, dim, s.at, s.y, s.at)
+		}
+		if got := srv.InventorySlot("Wanderer", s.slot); !got.Equal(want) {
+			t.Errorf("target %d: slot %d = %+v, want %+v", s.at, s.slot, got, want)
+		}
+		if srv.ChunkLoadedInDimension(dim, s.at, s.at) {
+			t.Errorf("target %d: the check loaded its chunk", s.at)
+		}
+	}
+	if st, err := os.Stat(region); err != nil || st.Size() != 4 {
+		t.Errorf("truncated region file after the tick: %v, %v; want it left at 4 bytes", st, err)
 	}
 	c.Disconnect()
 }

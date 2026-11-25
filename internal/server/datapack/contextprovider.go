@@ -19,21 +19,50 @@ import (
 
 func init() {
 	registry.DecodeContextProvider = func(data []byte, float bool) (registry.LootNumber, string) {
-		tag, err := JSONTag(data)
-		if err != nil {
-			return nil, err.Error()
-		}
-		d := lootDecoder{ResourceDecoder: liveResourceDecoder()}
-		decode := d.decodeInt
-		if float {
-			decode = d.decodeFloat
-		}
-		n, msg, err := decode(tag)
-		if err != nil {
-			return nil, err.Error()
-		}
-		return n, msg
+		return (lootDecoder{ResourceDecoder: liveResourceDecoder()}).decodeProviderJSON(data, float)
 	}
+}
+
+// ValidatePackContextProviders decodes both provider registries against the staged layers.
+// vanilla: ResourceManagerRegistryLoadTask.load, RegistryDataLoader.RELOADABLE_REGISTRIES
+func ValidatePackContextProviders(layers *registry.PackLayers, ints, floats map[string][]byte) error {
+	d := lootDecoder{ResourceDecoder: NewResourceDecoder(layers)}
+	for _, entries := range []struct {
+		kind  string
+		float bool
+		files map[string][]byte
+	}{
+		{"context_int_provider", false, ints},
+		{"context_float_provider", true, floats},
+	} {
+		for _, name := range sortedKeys(entries.files) {
+			if _, msg := d.decodeProviderJSON(entries.files[name], entries.float); msg != "" {
+				return fmt.Errorf("%s %s: %s", entries.kind, name, msg)
+			}
+		}
+	}
+	return nil
+}
+
+func (d lootDecoder) decodeProviderJSON(data []byte, float bool) (registry.LootNumber, string) {
+	tag, err := JSONTag(data)
+	if err != nil {
+		return nil, err.Error()
+	}
+	// JSONTag reads the first value; a registry file must consume the document.
+	// vanilla: StrictJsonParser.parse
+	if !json.Valid(data) {
+		return nil, "trailing data after the JSON value"
+	}
+	decode := d.decodeInt
+	if float {
+		decode = d.decodeFloat
+	}
+	n, msg, err := decode(tag)
+	if err != nil {
+		return nil, err.Error()
+	}
+	return n, msg
 }
 
 // partialMark prefixes an error whose codec result has a partial value.

@@ -37,19 +37,18 @@ var modeledTypes = map[string]bool{
 	"all_of": true, "any_of": true, "not": true, "solid": true, "replaceable": true,
 	"has_sturdy_face": true, "true": true, "inside_world_bounds": true, "volume_match": true,
 	// state providers
-	"weighted": true, "randomized_int": true,
-	"simple_state_provider": true, "weighted_state_provider": true, "noise_threshold_provider": true,
-	"dual_noise_provider": true, "randomized_int_state_provider": true, "noise_provider": true,
+	"copy_properties": true, "dual_noise": true, "noise": true, "noise_threshold": true,
+	"random_block": true, "randomized_int": true, "rotated": true, "rule_based": true, "simple": true, "weighted": true,
 	// int and height providers
 	"constant": true, "uniform": true, "biased_to_bottom": true, "clamped": true,
 	"weighted_list": true, "trapezoid": true, "clamped_normal": true,
 	// configured features
 	"simple_block": true, "block_column": true, "seagrass": true, "kelp": true,
 	"sea_pickle": true, "vines": true, "simple_random_selector": true, "random_boolean_selector": true,
-	"multiface_growth": true, "bamboo": true, "block_pile": true, "rotated": true, "rotated_block_provider": true, "vegetation_patch": true, "waterlogged_vegetation_patch": true,
+	"multiface_growth": true, "bamboo": true, "block_pile": true, "vegetation_patch": true, "waterlogged_vegetation_patch": true,
 	"sculk_patch": true, "ore": true, "speleothem": true, "speleothem_cluster": true, "iceberg": true, "large_dripstone": true,
 	"spike": true, "disk": true, "desert_well": true, "fossil": true,
-	"single_block_pillar": true, "projected_random_patchy_square": true, "rule_based": true, "overlay": true, "random_neighbor_spread": true,
+	"single_block_pillar": true, "projected_random_patchy_square": true, "overlay": true, "random_neighbor_spread": true,
 	"sequence": true, "weighted_random_selector": true, "template": true, "lake": true, "root_system": true,
 	// template processor block entity modifiers
 	"append_loot": true,

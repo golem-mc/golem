@@ -1129,6 +1129,8 @@ type SpawnedMob struct {
 	Carried        int32
 	HasCarried     bool
 	SpeedAttribute float64
+	// Attributes is the pairing's Update Attributes, by attribute ID.
+	Attributes map[int32]AttrEntry
 	// The farm animal's variant and sound variant IDs, -1 where the
 	// metadata left them at their defaults, and the custom name.
 	Variant, SoundVariant int32
@@ -1232,6 +1234,7 @@ func (c *Client) ExpectMobSpawn(wantType int32) SpawnedMob {
 		c.T.Fatalf("attributes %v lack movement_speed", entries)
 	}
 	m.SpeedAttribute = speed.Base
+	m.Attributes = entries
 	if len(speed.Modifiers) != 0 {
 		c.T.Errorf("movement_speed modifiers = %v, want none", speed.Modifiers)
 	}

@@ -283,3 +283,45 @@ func BenchmarkEjectIntoADoubleChest(b *testing.B) {
 		hopper.slots[0] = full
 	}
 }
+
+type countingGate struct{ calls int }
+
+func (g *countingGate) Check(one protocol.ItemStack) (protocol.ItemStack, bool) {
+	g.calls++
+	return one, true
+}
+
+func TestEjectFromTheOnlyOccupiedSlotIntoAFullPair(t *testing.T) {
+	t.Parallel()
+	build := func() (*testBlock, *testBlock, Block, *testBlock) {
+		full := item(t, "minecraft:stone", 64)
+		first := &testBlock{kind: KindChest, slots: slices.Repeat([]protocol.ItemStack{full}, 27)}
+		second := &testBlock{kind: KindChest, slots: slices.Repeat([]protocol.ItemStack{full}, 27)}
+		hopper := &testBlock{kind: KindHopper, slots: make([]protocol.ItemStack, 5)}
+		hopper.slots[2] = full
+		return first, second, Compound{First: first, Second: second}, hopper
+	}
+	t.Run("no room", func(t *testing.T) {
+		first, second, chest, hopper := build()
+		moved, intoEmpty := Eject(hopper, chest, protocol.FaceBottom)
+		if moved || intoEmpty || hopper.slots[2].Count != 64 || first.slots[0].Count != 64 || second.slots[26].Count != 64 {
+			t.Fatalf("moved=%v intoEmpty=%v hopper=%d", moved, intoEmpty, hopper.slots[2].Count)
+		}
+	})
+	t.Run("component capacity in the last slot", func(t *testing.T) {
+		_, second, chest, hopper := build()
+		second.slots[26].SetMaxStackSize(65)
+		hopper.slots[2].SetMaxStackSize(65)
+		moved, intoEmpty := Eject(hopper, chest, protocol.FaceBottom)
+		if !moved || intoEmpty || hopper.slots[2].Count != 63 || second.slots[26].Count != 65 {
+			t.Fatalf("moved=%v intoEmpty=%v hopper=%d last=%d", moved, intoEmpty, hopper.slots[2].Count, second.slots[26].Count)
+		}
+	})
+	t.Run("gate not asked about a full destination", func(t *testing.T) {
+		_, _, chest, hopper := build()
+		gate := &countingGate{}
+		if moved, _ := EjectGated(hopper, chest, protocol.FaceBottom, gate); moved || gate.calls != 0 {
+			t.Fatalf("moved=%v gate calls=%d", moved, gate.calls)
+		}
+	})
+}

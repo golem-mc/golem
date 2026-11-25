@@ -47,9 +47,11 @@ func (s *Server) pluginSource(w *world.World, damageType registry.DamageType, ca
 		x := cause.exploder
 		src.Causing = handle(cause.entityID)
 		switch {
-		case cause.directID != 0 && x != nil:
+		case cause.directUUID != uuid.Nil && x != nil && x.id == cause.directUUID:
 			// The captured identity binds to the live body, or stays a removed handle.
 			src.Direct = x.handle()
+		case cause.directUUID != uuid.Nil:
+			src.Direct = pluginEntity{id: cause.directUUID}
 		case cause.directID != 0:
 			src.Direct = handle(cause.directID - 1)
 		default:

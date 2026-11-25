@@ -48,7 +48,19 @@ type damageCause struct {
 	// lands; nil for any other cause.
 	exploder *removedBody
 	directID int32
-	x, y, z  float64
+	// directUUID is the direct entity's identity, which plugins are told; nil
+	// to resolve directID instead.
+	directUUID uuid.UUID
+	// directType is the entity type name of a projectile direct entity, which
+	// is neither a player nor a mob; empty otherwise.
+	directType string
+	// directBurning is the projectile's fire flag when it hit.
+	directBurning bool
+	// directIsSource makes the projectile itself the source when it has no
+	// shooter: advancement predicates and the Damage Event's cause ID use it.
+	// vanilla: AbstractArrow.onHitEntity, ThrownTrident.onHitEntity
+	directIsSource bool
+	x, y, z        float64
 	// weapon belongs to the direct entity, independently of death attribution.
 	// vanilla: DamageSource.getWeaponItem
 	weapon protocol.ItemStack
@@ -62,10 +74,11 @@ type damageCause struct {
 	// vanilla: LivingEntity.applyItemBlocking
 	piercing bool
 	// flying marks a projectile's blow, whose knockback follows its flight
-	// (flightVX, flightVZ) rather than its position.
+	// (flightVX, flightVZ) rather than its position. The flight is in blocks
+	// per tick at the hit; flightVY only feeds a directType's movement.
 	// vanilla: Projectile.calculateHorizontalHurtKnockbackDirection
-	flying             bool
-	flightVX, flightVZ float64
+	flying                       bool
+	flightVX, flightVY, flightVZ float64
 	// posOnly marks a position cause with no entity (/damage at); eventPos one
 	// whose x, y, z the Damage Event also carries.
 	// vanilla: DamageSource.sourcePositionRaw
@@ -253,6 +266,7 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 		v.Health = math.Max(0, v.Health-amount)
 		if v.Health == 0 {
 			v.Dead = true
+			v.DeathTime = 0
 			died = true
 		}
 	})
@@ -284,8 +298,12 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 	// flinch stay back.
 	if !softened {
 		direct := causeEntityID(cause)
+		wireCause := direct
 		if cause != nil && cause.directID != 0 {
 			direct = cause.directID
+			if cause.directIsSource {
+				wireCause = direct
+			}
 		}
 		// A blocked blow plays the item's sound in place of the damage event.
 		// vanilla: LivingEntity.hurtServer
@@ -293,7 +311,7 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 			c.playShieldBlock(blockSound)
 		} else {
 			c.srv.broadcastWorld(c.theWorld(), protocol.IDPlayDamageEvent,
-				damageEventPayloadAt(c.player.EntityID, damageType, causeEntityID(cause), direct, damageEventPos(cause)))
+				damageEventPayloadAt(c.player.EntityID, damageType, wireCause, direct, damageEventPos(cause)))
 		}
 		// Only the victim is told, and only of an unblocked hit that knocks back.
 		// vanilla: ServerPlayer.indicateDamage via LivingEntity.dealDefaultKnockback
@@ -904,7 +922,6 @@ func (c *client) die(message protocol.Text, damageType registry.DamageType, caus
 	// A dead player counts as unloaded until respawn. vanilla:
 	// ServerGamePacketListenerImpl.markClientUnloadedAfterDeath
 	c.awaitingRespawn.Store(true)
-	c.deathTicks.Store(0)
 	// vanilla: ServerPlayer.die
 	c.awardStat(player.Custom(registry.CustomStatDeaths), 1)
 	c.resetStat(player.Custom(registry.CustomStatTimeSinceDeath))
@@ -1408,6 +1425,11 @@ func (c *client) resetRespawnBody(pos player.Position, respawn respawnKind) bool
 		// Effects go with the dead body (vanilla:
 		// LivingEntity.triggerOnDeathMobEffects); the credits' body keeps its own.
 		c.player.UpdateBody(func(_ *player.Vitals, effects *effect.Set, _ *player.Attributes) { effects.Clear() })
+	} else {
+		// The credits' new body copies health but starts its own death counter,
+		// which a loaded file can leave nonzero on a living body.
+		// vanilla: ServerPlayer.restoreFrom, LivingEntity.deathTime
+		c.player.UpdateVitals(func(v *player.Vitals) { v.DeathTime = 0 })
 	}
 	// The new body has no use or cooldown from before: vanilla builds the
 	// respawned player fresh ItemCooldowns. vanilla: ServerPlayer.<init>
@@ -1420,7 +1442,6 @@ func (c *client) resetRespawnBody(pos player.Position, respawn respawnKind) bool
 	c.spearMu.Unlock()
 	c.trackMu.Lock()
 	if respawn == respawnDeath {
-		c.deathTicks.Store(0)
 		c.bodyGone.Store(false)
 		c.holdsDropped.Store(false)
 	}
@@ -1545,7 +1566,7 @@ func (c *client) trackMovement(was, now player.Position) {
 	c.splashEvent(was, now, water != rules.Dry)
 	c.stepEvent(was, now, look, water != rules.Dry)
 	if landedFall > 0 {
-		c.trampleUnderfoot(landedFall, now)
+		c.trampleUnderfoot(landedFall, landing)
 		c.trampleTurtleEgg(world.TurtleEggLandOdds)
 		// vanilla: Entity.checkFallDamage
 		c.srv.gameEvent(c.theWorld(), rules.GameEventHitGround, now.X, now.Y, now.Z, c.gameEventContext(landing.Ground))
@@ -1600,16 +1621,16 @@ func (c *client) bounceLanded(now player.Position) {
 // spawn protection and a body too small in its pose (crawling, swimming)
 // keep the farmland. Unlike vanilla, a gated landing rolls no dice.
 // vanilla: FarmlandBlock.fallOn
-func (c *client) trampleUnderfoot(fallDistance float64, now player.Position) {
+func (c *client) trampleUnderfoot(fallDistance float64, landing rules.Landing) {
 	w := c.theWorld()
-	x := int32(math.Floor(now.X))
-	z := int32(math.Floor(now.Z))
-	ground := int32(math.Floor(now.Y - 0.2))
+	dims := c.dims(c.player.Appearance().Pose)
+	// The landing's supporting block, not the one under the centre: an edge
+	// landing tramples the farmland the feet rest on.
+	x, ground, z := landing.GroundX, landing.GroundY, landing.GroundZ
 	if c.underSpawnProtection(x, z) {
 		return
 	}
 	// vanilla compares the float bounding box against 0.512f.
-	dims := c.dims(c.player.Appearance().Pose)
 	if bw, bh := float32(dims.Width), float32(dims.Height); bw*bw*bh <= 0.512 {
 		return
 	}
@@ -1926,10 +1947,11 @@ func (c *client) landingAt(now, was player.Position) rules.Landing {
 	w := c.theWorld()
 	dims := c.dims(c.player.Appearance().Pose)
 	overlapped, _, _ := c.overlapCells(now, dims.Width/2, dims.Height)
-	gx, _, gz, ground := rules.OnPosCell(w, now.X, now.Y, now.Z, dims.Width/2)
+	gx, gy, gz, ground := rules.OnPosCell(w, now.X, now.Y, now.Z, dims.Width/2)
 	return rules.Landing{
 		Ground:     ground,
 		GroundX:    gx,
+		GroundY:    gy,
 		GroundZ:    gz,
 		Feet:       w.BlockAt(int32(math.Floor(now.X)), int32(math.Floor(now.Y)), int32(math.Floor(now.Z))),
 		Overlapped: overlapped,

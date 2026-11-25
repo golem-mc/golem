@@ -39,7 +39,7 @@ func thrownDefaultItem(kind entity.ThrownKind, id string) string {
 		return "minecraft:fire_charge"
 	case entity.ThrownWitherSkull:
 		return "minecraft:wither_skeleton_skull"
-	case entity.ThrownShulkerBullet:
+	case entity.ThrownShulkerBullet, entity.ThrownLlamaSpit:
 		return "minecraft:shulker_shell"
 	}
 	return id

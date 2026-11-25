@@ -508,30 +508,27 @@ func packetHex(packetID int32) string { return fmt.Sprintf("0x%02X", packetID) }
 // shifts the feedback register a byte per byte.
 type cfb8 struct {
 	block   cipher.Block
-	iv      []byte
-	keyByte []byte
+	iv      [aes.BlockSize]byte
+	keyByte [aes.BlockSize]byte
 	decrypt bool
 }
 
 func newCFB8(block cipher.Block, iv []byte, decrypt bool) *cfb8 {
-	return &cfb8{
-		block:   block,
-		iv:      bytes.Clone(iv),
-		keyByte: make([]byte, block.BlockSize()),
-		decrypt: decrypt,
-	}
+	c := &cfb8{block: block, decrypt: decrypt}
+	copy(c.iv[:], iv)
+	return c
 }
 
 func (c *cfb8) XORKeyStream(dst, src []byte) {
 	for i, in := range src {
-		c.block.Encrypt(c.keyByte, c.iv)
+		c.block.Encrypt(c.keyByte[:], c.iv[:])
 		out := in ^ c.keyByte[0]
 		// The feedback register keeps the last block of ciphertext.
-		copy(c.iv, c.iv[1:])
+		copy(c.iv[:aes.BlockSize-1], c.iv[1:])
 		if c.decrypt {
-			c.iv[len(c.iv)-1] = in
+			c.iv[aes.BlockSize-1] = in
 		} else {
-			c.iv[len(c.iv)-1] = out
+			c.iv[aes.BlockSize-1] = out
 		}
 		dst[i] = out
 	}

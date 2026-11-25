@@ -23,6 +23,6 @@ func BenchmarkMobsTickCourtingHerd(b *testing.B) {
 				m.BabyAge, m.InLove = 0, 600
 			}
 		}
-		events = mobs.TickInto(events, w, nil, nil, nil, nil, &paths)
+		events = mobs.TickInto(events, w, nil, nil, nil, nil, nil, &paths)
 	}
 }

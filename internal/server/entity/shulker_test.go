@@ -126,7 +126,7 @@ func TestAShulkerWhoseFloorVanishesMovesToAnotherFace(t *testing.T) {
 		t.Errorf("teleported %v,%v,%v away, want within 8", dx, dy, dz)
 	}
 	cell := m.cell()
-	if _, ok := m.attachableFace(shulkerWorld{World: w}, cell); !ok {
+	if _, ok := m.attachableFace(&shulkerWorld{World: w}, cell); !ok {
 		t.Error("the shulker landed where no face holds it")
 	}
 }

@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
@@ -175,5 +177,59 @@ func TestPackTridentReleaseAmplifiedWearNeverBreaks(t *testing.T) {
 				t.Errorf("used statistic = %d, want 1", got)
 			}
 		})
+	}
+}
+
+// A draw that costs more ammunition than the pillager holds fails: the start
+// sound plays, the end sound does not, and the crossbow stays empty.
+// vanilla: CrossbowItem.tryLoadProjectiles, ProjectileWeaponItem.draw
+func TestPackPillagerFailedDrawIsSilentAtTheEnd(t *testing.T) {
+	t.Run("costs more than held", func(t *testing.T) { pillagerFailedDraw(t, 2, 1) })
+	// A split of -1 is an empty projectile and gives one ammunition back.
+	t.Run("negative cost", func(t *testing.T) { pillagerFailedDraw(t, -1, 2) })
+}
+
+func pillagerFailedDraw(t *testing.T, cost, wantHeld int32) {
+	cfg := servertest.HostileTestConfig()
+	cfg.GameMode = "creative"
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	cfg.LevelName = valueEffectPack(t, "ammotwo", fmt.Sprintf(`{"minecraft:ammo_use":[{"effect":{"type":"minecraft:set","value":%d}}]}`, cost))
+	srv, c := servertest.Join(t, cfg, "Observer")
+	servertest.HoldTicks(t, srv)
+	srv.SetDifficulty(rules.DifficultyHard)
+	srv.RunLine(`summon minecraft:villager 2.5 64 0.5 {NoAI:1b}`)
+	srv.RunLine(`summon minecraft:pillager 6.5 64 0.5 {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:crossbow",count:1,components:{"minecraft:enchantments":{"minecraft:ammotwo":1}}},offhand:{id:"minecraft:spectral_arrow",count:1}},attributes:[{id:"minecraft:movement_speed",base:0.0d}]}`)
+	var id int32
+	if !c.ReadTicks(srv, 0, func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlaySpawnEntity {
+			return false
+		}
+		entityID, kind := servertest.SpawnEntityHead(data)
+		if kind == protocol.EntityTypePillager {
+			id = entityID
+		}
+		return id != 0
+	}) {
+		t.Fatal("the pillager did not spawn")
+	}
+	endSound := func(pid int32, data []byte) bool {
+		return pid == protocol.IDPlaySoundEffect && servertest.SoundIs(data, "minecraft:item.crossbow.loading_end")
+	}
+	if !c.ReadTicks(srv, 120, func(pid int32, data []byte) bool {
+		if endSound(pid, data) {
+			t.Error("the loading end sound played before the draw started")
+		}
+		return pid == protocol.IDPlaySoundEffect && servertest.SoundIs(data, "minecraft:item.crossbow.loading_start")
+	}) {
+		t.Fatal("the draw played no start sound")
+	}
+	// The start sound plays a fifth into the 25-tick draw, the load on its
+	// last tick: 20 more ticks end the draw, the 2 after are slack.
+	c.ExpectNoneWithinTicks(srv, 22, endSound)
+	if got := srv.MobHand(id).ChargedProjectiles(); len(got) != 0 {
+		t.Errorf("crossbow loaded %v after a draw it could not pay", got)
+	}
+	if off := srv.MobOffHand(id); off.Count != wantHeld {
+		t.Errorf("off hand = %v, want %d arrows", off, wantHeld)
 	}
 }

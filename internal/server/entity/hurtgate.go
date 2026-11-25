@@ -4,6 +4,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
+	"github.com/google/uuid"
 )
 
 // HurtGate lets the server veto or edit a hurt before it lands. Ask runs with
@@ -28,10 +29,10 @@ type BarterGate interface {
 type HurtProbe struct {
 	Mob *Mob
 	// Type is the damage type; CauseID the causing entity's ID (0 for none),
-	// Direct the direct entity's ID plus one (0 for the causing one).
+	// Direct the direct entity's identity (nil for the causing one).
 	Type    registry.DamageType
 	CauseID int32
-	Direct  int32
+	Direct  uuid.UUID
 	// Amount is what the hurt window lets through; the gate may edit it.
 	Amount float64
 	// Final is the health the hurt would take: armour, Resistance, protection
@@ -44,8 +45,9 @@ type HurtProbe struct {
 // hurtContext is what the entry point of a hurt knows that throughWindow's
 // parameters do not; throughWindow consumes it.
 type hurtContext struct {
-	causeID       int32
-	directID      int32 // direct entity's ID plus one, 0 for the causing one
+	causeID int32
+	// direct is HurtProbe.Direct.
+	direct        uuid.UUID
 	effectiveness float64
 }
 
@@ -65,7 +67,7 @@ func (m *Mob) previewHurt(amount float64, damageType registry.DamageType, effect
 // askHurt puts a hurt of amount to the gate and returns the amount to land,
 // false when the gate refused it or the mob died meanwhile.
 func (m *Mob) askHurt(amount float64, damageType registry.DamageType, ctx hurtContext) (float64, bool) {
-	p := &HurtProbe{Mob: m, Type: damageType, CauseID: ctx.causeID, Direct: ctx.directID, Amount: amount,
+	p := &HurtProbe{Mob: m, Type: damageType, CauseID: ctx.causeID, Direct: ctx.direct, Amount: amount,
 		Final: m.previewHurt(amount, damageType, ctx.effectiveness)}
 	m.Gate.Ask(p)
 	if p.Cancel || p.Amount <= 0 || m.Dead {

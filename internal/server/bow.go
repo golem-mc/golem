@@ -276,14 +276,12 @@ func (c *client) spawnBowArrow(pos player.Position, bow, ammo protocol.ItemStack
 	if !pos.OnGround {
 		vy += movement.Y
 	}
-	// vanilla: Projectile.applyOnProjectileSpawned, Entity.igniteForTicks
-	fireTicks := max(rules.ProjectileIgniteTicks(ammo), rules.ProjectileIgniteTicks(bow))
 	c.srv.spawnArrowFrom(c.theWorld(),
 		pos.X, pos.Y+c.dims(c.player.Appearance().Pose).EyeHeight-entity.ArrowSpawnBelow, pos.Z,
 		vx, vy, vz, yaw, pitch,
 		power == 1.0, entity.ArrowBaseDamage,
 		pickup,
-		c.player.EntityID, c.player.UUID, bow, fireTicks, ammo)
+		c.player.EntityID, c.player.UUID, bow, 0, ammo)
 }
 
 // consumeAmmo takes count from the selected stack if it can still pay.

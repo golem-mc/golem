@@ -197,6 +197,40 @@ func TestPluginBlockPhysicsCancelStopsTheReaction(t *testing.T) {
 	}
 }
 
+// A cancelled BlockPhysicsEvent for a double plant's half also stops its shape
+// update, and the event fires once for the write.
+// vanilla: DoublePlantBlock.updateShape, Level.neighborChanged
+func TestPluginBlockPhysicsCancelKeepsDoublePlant(t *testing.T) {
+	t.Parallel()
+	for _, cancel := range []bool{false, true} {
+		events := 0
+		srv, _ := physicsScene(t, func(s plugin.Server) {
+			plugin.Listen(s, func(e *plugin.BlockPhysicsEvent) {
+				if e.Block.Pos == pos(4, 65, 0) && e.Source.Pos == pos(4, 64, 0) {
+					events++
+					e.SetCancelled(cancel)
+				}
+			})
+		})
+		lower, ok := registry.FindState("minecraft:peony", map[string]string{"half": "lower"})
+		upper, ok2 := registry.FindState("minecraft:peony", map[string]string{"half": "upper"})
+		if !ok || !ok2 {
+			t.Fatal("the registry has no peony halves")
+		}
+		srv.SetBlock(4, 64, 0, servertest.BlockState(t, "minecraft:dirt"))
+		srv.SetBlock(4, 65, 0, lower)
+		srv.SetBlock(4, 66, 0, upper)
+		srv.SetBlockAndTell(4, 64, 0, 0)
+		srv.TickPhysics(1)
+		if standing := srv.BlockAt(4, 65, 0) == lower; standing != cancel {
+			t.Errorf("cancel=%v: peony standing=%v", cancel, standing)
+		}
+		if events != 1 {
+			t.Errorf("cancel=%v: %d events for the write, want 1", cancel, events)
+		}
+	}
+}
+
 // vanilla: RedStoneWireBlock.updatePowerStrength
 func TestPluginBlockRedstoneEditsPower(t *testing.T) {
 	t.Parallel()

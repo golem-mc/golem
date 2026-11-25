@@ -1166,7 +1166,6 @@ func (m *Mob) bankFall(w World, oldX, oldY, oldZ float64) {
 // vanilla: LivingEntity.calculateFallPower, calculateFallDamage
 func (m *Mob) fallParams() (safe, multiplier float64) {
 	if m.attrs != nil {
-		rules.UpdateEffectAttributesOf(m.attrs, m.effects.All(), registry.AttributeSafeFallDistance)
 		return m.attrOr(registry.AttributeSafeFallDistance, 3), m.attrOr(registry.AttributeFallDamageMultiplier, 1)
 	}
 	safe, multiplier = m.fallAttributeBases()

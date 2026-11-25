@@ -284,13 +284,18 @@ func (ctx *lightCtx) runDecreases(dq, iq *lightQueue) {
 			return
 		}
 		layer := int(e.layer & 1)
+		source, _ := ctx.resolve(e.x, e.z)
+		cx, cz := e.x>>4, e.z>>4
 		for _, n := range lightNeighbors {
 			nx, ny, nz := e.x+n.dx, e.y+n.dy, e.z+n.dz
 			if !contains(ny) || int(e.layer)&dirBit(n.dir) == 0 {
 				continue
 			}
-			c, loaded := ctx.resolve(nx, nz)
-			if !loaded {
+			c := source
+			if nx>>4 != cx || nz>>4 != cz {
+				c, _ = ctx.resolve(nx, nz)
+			}
+			if c == nil {
 				continue
 			}
 			lx, ly, lz := nx&15, ny-worldMinY, nz&15

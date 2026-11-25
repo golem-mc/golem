@@ -309,7 +309,7 @@ type shulkerWorld struct {
 	others []*Mob
 }
 
-func (s shulkerWorld) BodyBoxes(box AABB) []AABB {
+func (s *shulkerWorld) BodyBoxes(box AABB) []AABB {
 	var out []AABB
 	if b, ok := s.World.(BodyWorld); ok {
 		out = b.BodyBoxes(box)
@@ -344,7 +344,7 @@ func (s shulkerWorld) BodyBoxes(box AABB) []AABB {
 
 // blocks reports whether o is a live shulker outside self's ride chain whose
 // hull crosses box.
-func (s shulkerWorld) blocks(o *Mob, box AABB) bool {
+func (s *shulkerWorld) blocks(o *Mob, box AABB) bool {
 	if !o.IsShulker() || !o.Alive() || o.RootVehicle() == s.self.RootVehicle() {
 		return false
 	}
@@ -363,8 +363,11 @@ func (s shulkerWorld) blocks(o *Mob, box AABB) bool {
 	return box.Crosses(o.mobBox())
 }
 
-func (m *Mob) shulkerWorld(t *tickView) shulkerWorld {
-	return shulkerWorld{World: t.w, self: m, others: t.others}
+// shulkerWorld fills the tick view's reusable shulkerWorld, so the check does
+// not box a new one; it is valid until the next call on the same view.
+func (m *Mob) shulkerWorld(t *tickView) *shulkerWorld {
+	t.shulkerView = shulkerWorld{World: t.w, self: m, others: t.others}
+	return &t.shulkerView
 }
 
 // shulkerStep is Shulker.tick's server half: no velocity movement, a lost
@@ -382,13 +385,14 @@ func (m *Mob) shulkerStep(t *tickView) {
 			m.shulker.split = false
 			m.copyShulker(w, t)
 		}
-		at := m.cell()
-		if !m.RidesVehicle && !m.canStayAt(w, at, m.shulker.face) {
-			if face, ok := m.attachableFace(w, at); ok {
-				m.SetMetadataShulkerFace(face)
-			} else {
-				m.teleportShulker(w, t)
-			}
+	}
+	// A NoAI shulker still reattaches; teleportShulker refuses it.
+	at := m.cell()
+	if !m.RidesVehicle && !m.canStayAt(w, at, m.shulker.face) {
+		if face, ok := m.attachableFace(w, at); ok {
+			m.SetMetadataShulkerFace(face)
+		} else {
+			m.teleportShulker(w, t)
 		}
 	}
 	m.stepShulkerPeek(w, t)
@@ -445,7 +449,7 @@ func (m *Mob) canStayAt(w World, at Waypoint, face uint8) bool {
 	}
 	// getProgressAabb at full peek, deflated.
 	open := shulkerDeltaBox(m.attrScale(), face^1, -1, 1, float64(at.X)+0.5, float64(at.Y), float64(at.Z)+0.5)
-	return !overlapsSolid(w, collideCtx{}, open.inflate(-shulkerDeflate, -shulkerDeflate, -shulkerDeflate))
+	return !overlapsSolid(w, collideCtx{feetY: m.Y, feet: true}, open.inflate(-shulkerDeflate, -shulkerDeflate, -shulkerDeflate))
 }
 
 // teleportShulker tries five random cells within eight blocks and takes the

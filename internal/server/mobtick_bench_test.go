@@ -83,6 +83,24 @@ func BenchmarkTickMobsTicketed(b *testing.B) {
 	})
 }
 
+// BenchmarkTickMobsCalves is a thousand cows in 96 blocks, every second one
+// a calf, and a spectator so the herd keeps ticking: each calf looks for a
+// parent.
+func BenchmarkTickMobsCalves(b *testing.B) {
+	benchTickMobs(b, []mobMix{{entity.TypeCow, 1000}}, 96, 900, func(s *Server, rng *rand.Rand) {
+		dim := s.allDims()[0]
+		s.mobsMu.Lock()
+		for i, m := range dim.mobs.herd {
+			if i%2 == 0 {
+				m.SetBaby(true)
+				m.BabyAge = -1 << 30
+			}
+		}
+		s.mobsMu.Unlock()
+		benchMobSpectator(b)(s, rng)
+	})
+}
+
 // BenchmarkTickMobsCowsInHerd is BenchmarkTickMobsShulkersInHerd without the
 // shulkers: the herd and the spectator alone.
 func BenchmarkTickMobsCowsInHerd(b *testing.B) {

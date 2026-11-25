@@ -129,10 +129,10 @@ type LootEntity struct {
 	// false for a name that is no range; nil where the caller cannot say.
 	// vanilla: SlotsPredicate.matches over Entity.getSlot
 	Slot func(name string) ([]LootTool, bool)
-	// SlotStacks reads a copy of the stack in each slot a range's name
-	// spans, empty slots included; nil where the caller cannot say.
+	// SlotAccess returns the slots a range's name spans, empty slots included;
+	// nil where the caller cannot say.
 	// vanilla: SlotProvider.getSlotsFromRange
-	SlotStacks func(name string) []protocol.ItemStack
+	SlotAccess func(name string) []SlotAccess
 }
 
 // LootPlace is a body's position and the blocks under it.
@@ -397,10 +397,10 @@ type LootContext struct {
 	// minecraft:container (a broken shulker box's contents); nil at no
 	// container.
 	Container []protocol.ItemStack
-	// ContainerSlots reads the slots a range's name spans off the container
-	// a command's slot source reads; nil outside one.
+	// ContainerSlots returns the slots a range's name spans off the container
+	// a command's slot source addresses; nil outside one.
 	// vanilla: LootContextParams.CONTAINER
-	ContainerSlots func(name string) []protocol.ItemStack
+	ContainerSlots func(name string) []SlotAccess
 	// CustomName is the block entity's name, copied by copy_components'
 	// minecraft:custom_name; nil when unnamed.
 	CustomName *protocol.Text

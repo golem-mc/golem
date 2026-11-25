@@ -319,6 +319,7 @@ func resolvedMove(move Move, target Entity) Move {
 	if move.LookAt == nil && move.KeepRotation {
 		move.Pos.Yaw, move.Pos.Pitch = cur.Yaw, cur.Pitch
 	}
+	move.Want = move.Pos
 	if move.LookAt != nil {
 		from := move.Pos
 		if move.LookAtFromEyes {
@@ -339,17 +340,24 @@ func resolvedMove(move Move, target Entity) Move {
 		move.Offset.Yaw, move.Offset.Pitch = 0, 0
 		return move
 	}
-	// vanilla: TeleportCommand.performTeleport wraps the offset before
-	// PositionMoveRotation.calculateAbsolute adds it to the target's angle.
-	if move.RelYaw {
-		move.Offset.Yaw = WrapDegrees(move.Offset.Yaw)
-		move.Pos.Yaw = cur.Yaw + move.Offset.Yaw
+	return move.AgainstAngles(cur.Yaw, cur.Pitch)
+}
+
+// AgainstAngles resolves a relative axis of Want against a target's current
+// angles, so a target that an earlier one in the same command already turned
+// is resolved from where it is now.
+// vanilla: TeleportCommand.performTeleport wraps the offset before
+// PositionMoveRotation.calculateAbsolute adds it to the target's angle.
+func (m Move) AgainstAngles(yaw, pitch float32) Move {
+	if m.RelYaw {
+		m.Offset.Yaw = WrapDegrees(m.Want.Yaw - yaw)
+		m.Pos.Yaw = yaw + m.Offset.Yaw
 	}
-	if move.RelPitch {
-		move.Offset.Pitch = WrapDegrees(move.Offset.Pitch)
-		move.Pos.Pitch = ClampPitch(cur.Pitch + move.Offset.Pitch)
+	if m.RelPitch {
+		m.Offset.Pitch = WrapDegrees(m.Want.Pitch - pitch)
+		m.Pos.Pitch = ClampPitch(pitch + m.Offset.Pitch)
 	}
-	return move
+	return m
 }
 
 // lookAnglesFrom works out which way a player standing at from would have to

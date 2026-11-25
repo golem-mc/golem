@@ -2,6 +2,8 @@ package datapack
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -44,11 +46,19 @@ func gameEventOf(o obj) registry.GameEvent {
 	return ev
 }
 
-// isSimpleProvider reports whether a provider type is the simple one; the
-// world compiler accepts both names too.
-func isSimpleProvider(t string) bool {
-	t = registry.Qualify(t)
-	return t == "minecraft:simple_state_provider" || t == "minecraft:simple"
+// ErrRemovedBlockStateProvider reports a retired block state provider ID.
+var ErrRemovedBlockStateProvider = errors.New("unknown block state provider type")
+
+// vanilla: BlockStateProviderTypes.bootstrap
+func stateProviderType(o obj) string {
+	kind := registry.Qualify(requireStr(o, "type"))
+	switch kind {
+	case "minecraft:simple_state_provider", "minecraft:weighted_state_provider", "minecraft:rotated_block_provider",
+		"minecraft:noise_provider", "minecraft:noise_threshold_provider", "minecraft:dual_noise_provider",
+		"minecraft:randomized_int_state_provider", "minecraft:rule_based_state_provider":
+		panic(lootFailure{fatal: fmt.Errorf("%w %q", ErrRemovedBlockStateProvider, kind)})
+	}
+	return kind
 }
 
 // simpleState reads a simple state provider or a bare state; a registry
@@ -56,7 +66,7 @@ func isSimpleProvider(t string) bool {
 // vanilla: BlockStateProvider.CODEC, BlockState.FULL_CODEC
 func simpleState(v any) uint16 {
 	if o, ok := v.(obj); ok && o["type"] != nil {
-		if !isSimpleProvider(requireStr(o, "type")) {
+		if stateProviderType(o) != "minecraft:simple" {
 			fail("a block state provider other than simple")
 		}
 		unknownKeys(o, "a simple state provider", "type", "state")
@@ -169,38 +179,44 @@ func optPredicate(o obj) *registry.EnchBlockPredicate {
 	return nil
 }
 
-// pureStateProviders are the state providers that read no world, which the
-// server runs for a replace effect; the rest (rule_based, copy_properties,
-// random_block) read the block already there.
-var pureStateProviders = []string{"minecraft:rotated_block_provider", "minecraft:weighted_state_provider",
-	"minecraft:noise_provider", "minecraft:noise_threshold_provider", "minecraft:dual_noise_provider",
-	"minecraft:randomized_int_state_provider"}
-
 // stateProvider reads a block_state provider: a simple one gives its state, a
 // pure one its raw JSON for the server to compile.
 // vanilla: BlockStateProvider.CODEC
 func stateProvider(v any) (state uint16, raw any) {
-	var check func(v any)
-	check = func(v any) {
-		o, ok := v.(obj)
-		if !ok || o["type"] == nil {
-			return
-		}
-		kind := registry.Qualify(requireStr(o, "type"))
-		switch {
-		case isSimpleProvider(kind):
-		case kind == "minecraft:randomized_int_state_provider":
-			check(required(o, "source"))
-		case slices.Contains(pureStateProviders, kind):
-		default:
-			fail("a block state provider of type %s", kind)
+	o, ok := v.(obj)
+	if !ok || o["type"] == nil || stateProviderType(o) == "minecraft:simple" {
+		return simpleState(v), nil
+	}
+	if kind := unsupportedReplaceProvider(v); kind != "" {
+		fail("a block state provider of type %s", kind)
+	}
+	return 0, plainJSON(v)
+}
+
+// unsupportedReplaceProvider identifies a provider the picker cannot run without a world.
+func unsupportedReplaceProvider(v any) string {
+	o, ok := v.(obj)
+	if !ok || o["type"] == nil {
+		return ""
+	}
+	kind := stateProviderType(o)
+	switch kind {
+	case "minecraft:simple", "minecraft:weighted", "minecraft:noise", "minecraft:noise_threshold", "minecraft:dual_noise":
+		return ""
+	case "minecraft:rotated":
+		return unsupportedReplaceProvider(required(o, "state"))
+	case "minecraft:randomized_int":
+		return unsupportedReplaceProvider(required(o, "source"))
+	case "minecraft:copy_properties":
+		// Its source must decode even when the enclosing provider is skipped.
+		unsupportedReplaceProvider(required(o, "source"))
+	case "minecraft:rule_based":
+		unsupportedReplaceProvider(o["fallback"])
+		for _, rule := range list(required(o, "rules"), "state provider rules") {
+			unsupportedReplaceProvider(required(object(rule, "a state provider rule"), "then"))
 		}
 	}
-	if o, ok := v.(obj); ok && o["type"] != nil && !isSimpleProvider(requireStr(o, "type")) {
-		check(v)
-		return 0, plainJSON(v)
-	}
-	return simpleState(v), nil
+	return kind
 }
 
 // plainJSON copies a decoded tree with its numbers as float64, the form the
