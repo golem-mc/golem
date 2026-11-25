@@ -132,7 +132,7 @@ func hostileGoals(m *Mob) []Goal {
 			&avoidGoal{m: m, priority: 3, active: func() bool { return true }, maxDist: 6,
 				walk: 1.0, sprint: 1.2, mobs: []MobType{TypeWolf}},
 			&mobTargetGoal{m: m, priority: priorityGolemTarget, victim: TypeIronGolem},
-			&mobTargetGoal{m: m, priority: priorityGolemTarget, matches: isBabyTurtleAshore},
+			&mobTargetGoal{m: m, priority: priorityGolemTarget, kinds: babyTurtleKinds, matches: isBabyTurtleAshore},
 			&rangedAttackGoal{m: m, priority: priorityRanged},
 			&meleeAttackGoal{m: m, priority: priorityRanged, pace: skeletonMeleePace, refuse: m.holdsBow},
 			&randomStroll{m: m, priority: skeletonStroll},
@@ -141,7 +141,7 @@ func hostileGoals(m *Mob) []Goal {
 		}
 		if m.Type == TypeWitherSkeleton {
 			// vanilla: WitherSkeleton.registerGoals; slotted before the priority-4 attack
-			piglins := &mobTargetGoal{m: m, priority: priorityGolemTarget, matches: func(o *Mob) bool { return piglinKind(o.Type) }}
+			piglins := &mobTargetGoal{m: m, priority: priorityGolemTarget, kinds: piglinKinds}
 			i := slices.IndexFunc(goals, func(g Goal) bool { return g.Priority() > priorityGolemTarget })
 			goals = slices.Insert(goals, i, Goal(piglins))
 		}
@@ -192,11 +192,9 @@ func isPrey(k MobType) bool {
 // wandering traders unsighted and iron golems at 3, baby turtles ashore at 5.
 func zombieMobTargets(m *Mob) []Goal {
 	return []Goal{
-		&mobTargetGoal{m: m, priority: 3, fromPrey: true, unsighted: true, matches: func(o *Mob) bool {
-			return o.Type == TypeVillager || o.Type == TypeWanderingTrader
-		}},
-		&mobTargetGoal{m: m, priority: 3, fromPrey: true, matches: func(o *Mob) bool { return o.Type == TypeIronGolem }},
-		&mobTargetGoal{m: m, priority: 5, fromPrey: true, matches: isBabyTurtleAshore},
+		&mobTargetGoal{m: m, priority: 3, fromPrey: true, unsighted: true, kinds: abstractVillagerKinds},
+		&mobTargetGoal{m: m, priority: 3, fromPrey: true, kinds: ironGolemKinds},
+		&mobTargetGoal{m: m, priority: 5, fromPrey: true, kinds: babyTurtleKinds, matches: isBabyTurtleAshore},
 	}
 }
 

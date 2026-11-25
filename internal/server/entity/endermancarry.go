@@ -3,6 +3,7 @@ package entity
 import (
 	"cmp"
 	"math"
+	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -197,7 +198,10 @@ type mobTargetGoal struct {
 	unseen     int
 	// matches replaces the victim type test; unsighted drops the line of
 	// sight (mustSee false); wildOnly is NonTameRandomTargetGoal's gate.
-	matches   func(o *Mob) bool
+	matches func(o *Mob) bool
+	// kinds lists every type matches admits, or the accepted types when matches
+	// is nil. A nil list leaves the scan unrestricted by the herd's kinds.
+	kinds     []MobType
 	unsighted bool
 	wildOnly  bool
 	// fromPrey scans the tick's prey rather than the herd; matches must
@@ -225,6 +229,16 @@ type mobTargetGoal struct {
 	followShare float64
 }
 
+func mobKindsMatching(matches func(MobType) bool) []MobType {
+	var kinds []MobType
+	for id := range registry.EntityTypeCount {
+		if kind := MobType(id); matches(kind) {
+			kinds = append(kinds, kind)
+		}
+	}
+	return kinds
+}
+
 // follow is the follow range the goal scans and holds its target within.
 func (g *mobTargetGoal) follow() float64 {
 	if g.followShare != 0 {
@@ -237,6 +251,9 @@ func (g *mobTargetGoal) follow() float64 {
 func (g *mobTargetGoal) wants(o *Mob) bool {
 	if g.matches != nil {
 		return g.matches(o)
+	}
+	if g.kinds != nil {
+		return slices.Contains(g.kinds, o.Type)
 	}
 	return o.Type == g.victim
 }
@@ -267,7 +284,8 @@ func (g *mobTargetGoal) CanStart(t *tickView) bool {
 	if g.fromPrey && t.preyKnown {
 		cands = t.prey
 	}
-	if g.victimOnly && m.push != nil && !m.push.present[g.victim] {
+	if m.push != nil && (g.victimOnly && !m.push.present[g.victim] ||
+		g.kinds != nil && !slices.ContainsFunc(g.kinds, func(kind MobType) bool { return m.push.present[kind] })) {
 		cands = nil
 	}
 	for _, o := range cands {

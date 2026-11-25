@@ -2,6 +2,7 @@ package entity
 
 import (
 	"math"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -115,8 +116,8 @@ func (m *Mob) foxTrusts(id uuid.UUID) bool {
 // foxFullyCrouched is Fox.isFullyCrouched.
 func (m *Mob) foxFullyCrouched() bool { return m.Fox.CrouchAmount == foxCrouchFull }
 
-// foxStalkable is Fox.STALKABLE_PREY.
-func foxStalkable(o *Mob) bool { return o.Type == TypeChicken || o.Type == TypeRabbit }
+// vanilla: Fox.STALKABLE_PREY
+var foxStalkableKinds = []MobType{TypeChicken, TypeRabbit}
 
 // foxPathClear is Fox.isPathClear: three cells above the line to the target
 // are replaceable at six points along it.
@@ -189,11 +190,10 @@ func (g *foxGuard) Start(t *tickView) {
 // vanilla: Fox.setTargetGoals
 func foxPreyGoals(m *Mob) []Goal {
 	return []Goal{
-		&foxPreyGoal{mobTargetGoal{m: m, unsighted: true, interval: foxLandScan, matches: foxStalkable}, 4, 6},
+		&foxPreyGoal{mobTargetGoal{m: m, unsighted: true, interval: foxLandScan, kinds: foxStalkableKinds}, 4, 6},
 		&foxPreyGoal{mobTargetGoal{m: m, unsighted: true, interval: foxLandScan,
-			matches: func(o *Mob) bool { return o.Type == TypeTurtle && o.IsBaby() && !o.InWater() }}, 4, 6},
-		&foxPreyGoal{mobTargetGoal{m: m, unsighted: true, interval: foxFishScan,
-			matches: func(o *Mob) bool { return o.IsSchoolingFish() }}, 6, 4},
+			kinds: babyTurtleKinds, matches: isBabyTurtleAshore}, 4, 6},
+		&foxPreyGoal{mobTargetGoal{m: m, unsighted: true, interval: foxFishScan, kinds: schoolingFishKinds, matches: (*Mob).IsSchoolingFish}, 6, 4},
 	}
 }
 
@@ -251,7 +251,7 @@ func (g *foxStalkGoal) CanStart(t *tickView) bool {
 		return false
 	}
 	o := m.foxPrey(t)
-	return o != nil && foxStalkable(o) && Dist2(m.X, m.Y, m.Z, o.X, o.Y, o.Z) > foxStalkNearSq &&
+	return o != nil && slices.Contains(foxStalkableKinds, o.Type) && Dist2(m.X, m.Y, m.Z, o.X, o.Y, o.Z) > foxStalkNearSq &&
 		!m.Fox.Crouching && !m.Fox.Interested && !m.jump
 }
 
