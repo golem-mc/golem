@@ -22,17 +22,28 @@ func stateArgsWorld(b *testing.B) (*World, *Physics) {
 	return w, NewPhysics(w)
 }
 
-// BenchmarkDoublePlantNeighbourChange is a change under a tall grass's lower
-// half: the half and survival checks of doublePlantUpdate.
+// BenchmarkDoublePlantNeighbourChange is a shape update from under a tall
+// grass's lower half: the partner and survival checks of doublePlantUpdate.
 func BenchmarkDoublePlantNeighbourChange(b *testing.B) {
+	benchDoublePlantShape(b, [3]int32{0, 1, 0})
+}
+
+// BenchmarkDoublePlantSideChange is a shape update from beside a supported
+// tall grass: the survival check alone.
+func BenchmarkDoublePlantSideChange(b *testing.B) {
+	benchDoublePlantShape(b, [3]int32{-1, 0, 0})
+}
+
+// benchDoublePlantShape runs the shape update of a change at the cell that
+// d walks from the tall grass back to it.
+func benchDoublePlantShape(b *testing.B, d [3]int32) {
 	w, p := stateArgsWorld(b)
-	dirt := w.BlockAt(1, GroundLevel-1, 1)
 	lower := w.BlockAt(1, GroundLevel, 1)
 	b.ReportAllocs()
 	var changes []BlockChange
 	for range b.N {
 		changes = changes[:0]
-		p.updateAsNeighbor(1, GroundLevel, 1, &changes, false, dirt, dirt, [3]int32{0, -1, 0})
+		p.shapeUpdate(1, GroundLevel, 1, d, &changes)
 	}
 	if w.BlockAt(1, GroundLevel, 1) != lower || len(changes) != 0 {
 		b.Fatalf("the tall grass changed: %v", changes)

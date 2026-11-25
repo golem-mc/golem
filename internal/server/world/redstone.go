@@ -724,6 +724,9 @@ func (p *Physics) shapeUpdateBody(x, y, z int32, d [3]int32, changes *[]BlockCha
 		}
 		return
 	}
+	if p.doublePlantUpdate(x, y, z, state, [3]int32{-d[0], -d[1], -d[2]}, changes) {
+		return
+	}
 	if isDoorLike[block] {
 		p.doorLikeShapeUpdate(x, y, z, d, changes)
 	}

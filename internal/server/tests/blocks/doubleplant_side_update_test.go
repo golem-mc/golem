@@ -1,40 +1,55 @@
 package blocks
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/registry"
 )
 
-// TestDoublePlantWithoutGroundBreaksOnSideUpdate checks that a tall grass
-// standing on stone breaks when a neighbour beside it changes, while one on
-// dirt stays.
+// TestDoublePlantShapeUpdateChecksSurvival checks the survival question a
+// tall grass half answers to a shape update: a lower half on stone breaks
+// when a side neighbour is written or its upper half is placed, and one on
+// dirt stays; a neighbour notification alone breaks nothing.
 // vanilla: DoublePlantBlock.updateShape, VegetationBlock.updateShape
-func TestDoublePlantWithoutGroundBreaksOnSideUpdate(t *testing.T) {
+func TestDoublePlantShapeUpdateChecksSurvival(t *testing.T) {
 	t.Parallel()
 	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Camper", servertest.OpsListing(t, "Camper"))
 	srv.StopTick()
 
-	for _, tc := range []struct {
-		z      int32
-		floor  string
-		broken bool
-	}{{0, "minecraft:stone", true}, {4, "minecraft:dirt", false}} {
-		servertest.SetFarmBlock(t, c, srv, 1, 99, tc.z, tc.floor, nil)
-		lower := servertest.SetFarmBlock(t, c, srv, 1, 100, tc.z, "minecraft:tall_grass", map[string]string{"half": "lower"})
-		servertest.SetFarmBlock(t, c, srv, 1, 101, tc.z, "minecraft:tall_grass", map[string]string{"half": "upper"})
-		srv.TickPhysics(2)
-		if got := srv.BlockAt(1, 100, tc.z); got != lower {
-			t.Fatalf("on %s the grass is %d before the side update, want %d", tc.floor, got, lower)
+	state := func(name string, props map[string]string) uint16 {
+		s, ok := registry.FindState(name, props)
+		if !ok {
+			t.Fatalf("the registry has no %s with %v", name, props)
 		}
-		servertest.SetFarmBlock(t, c, srv, 2, 100, tc.z, "minecraft:stone", nil)
-		srv.TickPhysics(2)
-		got := srv.BlockAt(1, 100, tc.z)
+		return s
+	}
+	lower := state("minecraft:tall_grass", map[string]string{"half": "lower"})
+
+	for i, tc := range []struct {
+		name    string
+		floor   string
+		command string
+		broken  bool
+	}{
+		{"side write on stone", "minecraft:stone", "setblock 2 100 %d stone", true},
+		{"side write on dirt", "minecraft:dirt", "setblock 2 100 %d stone", false},
+		{"upper placed on stone", "minecraft:stone", "setblock 1 101 %d tall_grass[half=upper]", true},
+		{"upper placed on dirt", "minecraft:dirt", "setblock 1 101 %d tall_grass[half=upper]", false},
+		{"side air destroy on air", "minecraft:stone", "setblock 2 100 %d air destroy", false},
+	} {
+		z := int32(4 * i)
+		srv.SetBlock(1, 99, z, state(tc.floor, nil))
+		srv.SetBlock(1, 100, z, lower)
+		c.ChatCommand(fmt.Sprintf(tc.command, z))
+		c.Settle()
+		got := srv.BlockAt(1, 100, z)
 		if tc.broken && got != 0 {
-			t.Errorf("tall grass on %s after a side update = %d, want air", tc.floor, got)
+			t.Errorf("%s: tall grass = %d, want air", tc.name, got)
 		}
 		if !tc.broken && got != lower {
-			t.Errorf("tall grass on %s after a side update = %d, want %d", tc.floor, got, lower)
+			t.Errorf("%s: tall grass = %d, want %d", tc.name, got, lower)
 		}
 	}
 }
