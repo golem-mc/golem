@@ -47,6 +47,38 @@ func BenchmarkMaterialBuildSurface(b *testing.B) {
 	}
 }
 
+// BenchmarkMaterialBuildSurfaceReads counts the Block reads of a surface build
+// on the same fixture as BenchmarkMaterialBuildSurface.
+func BenchmarkMaterialBuildSurfaceReads(b *testing.B) {
+	rs := NewRandomState(Overworld, 12345)
+	biomes := &goldenBiomeSource{names: []string{"plains"}, zoom: levelgen.BiomeZoomSeed(rs.Seed), melt: strings.Repeat("0", 256)}
+	template, _ := buildGoldenChunk("overworld", 0, 0, 70, 3)
+	chunk := NewProtoChunk(rs.MinY, rs.Height, Stone)
+	counting := &countingSurfaceChunk{ProtoChunk: chunk}
+	b.ResetTimer()
+	for b.Loop() {
+		copy(chunk.blocks, template.blocks)
+		chunk.tops = template.tops
+		nc := NewNoiseChunk(rs, nil, rs.ChunkVolume(0, 0))
+		rs.Materials.BuildSurface(counting, 0, 0, nc, biomes, []int{0})
+	}
+	b.ReportMetric(float64(counting.reads)/float64(b.N), "Block-calls/build")
+	if per := counting.reads / b.N; per > 37000 {
+		b.Fatalf("%d Block calls per build, want at most 37000", per)
+	}
+}
+
+// countingSurfaceChunk counts the Block reads of a surface build.
+type countingSurfaceChunk struct {
+	*ProtoChunk
+	reads int
+}
+
+func (c *countingSurfaceChunk) Block(x, y, z int32) ColumnBlock {
+	c.reads++
+	return c.ProtoChunk.Block(x, y, z)
+}
+
 // BenchmarkBuildTerrainChunk runs the whole terrain step, fill, surface and
 // carvers, on fresh overworld chunks with a fixed seed.
 func BenchmarkBuildTerrainChunk(b *testing.B) {
