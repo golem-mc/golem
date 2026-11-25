@@ -1986,7 +1986,9 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	}
 	if block == registry.BlockAttachedMelonStem || block == registry.BlockAttachedPumpkinStem {
 		if !placed && from != ([3]int32{}) {
-			p.attachedStemUpdateShape(x, y, z, state, from, changed, changes)
+			if next, ok := attachedStemShape(state, from, changed); ok {
+				p.setShaped(x, y, z, next, changes)
+			}
 		}
 		return
 	}

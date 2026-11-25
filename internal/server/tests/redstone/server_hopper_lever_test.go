@@ -80,3 +80,24 @@ func TestComparatorToggleTurnsFacingAttachedStemBack(t *testing.T) {
 		t.Fatalf("dropped pumpkin seeds = %d, want 0", n)
 	}
 }
+
+// An attached stem facing a hopper whose enabled write shape-updates it turns
+// back into a plain stem with the shape flags, so the unsupported rail beside
+// it only gets a shape update and stays.
+// vanilla: AttachedStemBlock.updateShape, Block.updateOrDestroy, BaseRailBlock.neighborChanged
+func TestHopperEnabledChangeStemConversionKeepsRail(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.AttachActor(t)
+	servertest.HoldTicks(t, srv)
+	servertest.Setblock(t, c, 5, 70, 0, "hopper[facing=down,enabled=true]")
+	servertest.Setblock(t, c, 5, 69, 1, "farmland")
+	servertest.Setblock(t, c, 5, 70, 1, "attached_pumpkin_stem[facing=north] strict")
+	servertest.Setblock(t, c, 6, 70, 1, "rail strict")
+	servertest.Setblock(t, c, 4, 70, 0, "redstone_block")
+	servertest.ExpectBlockNamed(t, srv, 5, 70, 0, "minecraft:hopper", map[string]string{"enabled": "false"})
+	servertest.ExpectBlockNamed(t, srv, 5, 70, 1, "minecraft:pumpkin_stem", map[string]string{"age": "7"})
+	servertest.ExpectBlockNamed(t, srv, 6, 70, 1, "minecraft:rail", nil)
+	if n := countDropped(srv.ItemsInDimension(world.DimensionName), "minecraft:rail"); n != 0 {
+		t.Fatalf("dropped rails = %d, want 0", n)
+	}
+}
