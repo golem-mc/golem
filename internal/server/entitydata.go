@@ -1411,6 +1411,7 @@ func applyArmorStandFields(ent *armorStandEntity, compound nbt.Compound) {
 // stand's wake does. Both share applyArmorStandFields.
 // vanilla: Entity.load, ArmorStand.readAdditionalSaveData
 func applyArmorStandTag(ent *armorStandEntity, compound nbt.Compound) {
+	ent.needsSync = true
 	ent.portal.Cooldown = portalCooldownOf(compound)
 	s := ent.stand
 	if x, y, z, ok := entityPositionOfTag(compound); ok {

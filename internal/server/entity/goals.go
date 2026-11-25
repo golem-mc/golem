@@ -66,6 +66,8 @@ type tickView struct {
 	// stands is the world's visible armor stands, a goat ram's targets.
 	stands []StandTarget
 	events []MobEvent
+	// shulkerView is the collision view Mob.shulkerWorld reuses.
+	shulkerView shulkerWorld
 }
 
 // Goal is one behaviour the selector drives. CanStart is offered every

@@ -6,6 +6,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
@@ -295,5 +296,56 @@ func BenchmarkTickCloudsInstants(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		s.tickClouds()
+	}
+}
+
+// BenchmarkTickMobsPufferfishTouch runs the whole mob tick with a puffed NoAI
+// pufferfish standing in a player's box among the tracker cows, so every tick
+// collects a touch and walks the world's players for it.
+func BenchmarkTickMobsPufferfishTouch(b *testing.B) {
+	s, _ := newTrackerBenchServer(b)
+	spawnTrackerBenchMobs(b, s)
+	dim := s.allDims()[0]
+	var victim *client
+	s.mu.RLock()
+	for _, c := range s.clients {
+		victim = c
+		break
+	}
+	s.mu.RUnlock()
+	pos := victim.player.Position()
+	id := s.spawnMobInDim(dim, entity.TypePufferfish, pos.X, pos.Y, pos.Z, 1, nil)
+	s.mobsMu.Lock()
+	fish := s.mobByEntityIDLocked(dim.w, id).mob
+	fish.NoAI, fish.Silent = true, true
+	fish.SetPuffState(entity.PuffFull)
+	s.mobsMu.Unlock()
+	// tickMobs runs no player vitals tick, so the hurt cooldown the last
+	// sting opened is reset with the health; the fish, out of water, gets its
+	// air back so it never drowns.
+	refill := func() {
+		s.mobsMu.Lock()
+		fish.AirSupply = rules.MaxAirSupply
+		s.mobsMu.Unlock()
+		victim.player.UpdateVitals(func(v *player.Vitals) { v.Health, v.Dead, v.InvulnerableTicks = 20, false, 0 })
+	}
+	refill()
+	s.tickMobs()
+	if h := victim.player.Vitals().Health; h >= 20 {
+		b.Fatalf("health %v after a tick next to a puffed pufferfish, want a sting", h)
+	}
+	stung := 0
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		refill()
+		s.tickMobs()
+		if victim.player.Vitals().Health < 20 {
+			stung++
+		}
+	}
+	b.StopTimer()
+	if stung != b.N {
+		b.Fatalf("%d of %d measured ticks stung the player", stung, b.N)
 	}
 }

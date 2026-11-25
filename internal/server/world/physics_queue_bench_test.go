@@ -88,6 +88,43 @@ func BenchmarkScheduledTickQueueHeld(b *testing.B) {
 	}
 }
 
+// BenchmarkScheduledDirtPathTick books 4096 dirt path ticks and pops them next
+// tick, so the path's own dispatch branch runs.
+func BenchmarkScheduledDirtPathTick(b *testing.B) {
+	w := newTestWorld(b, NewFlatGenerator())
+	b.Cleanup(func() { w.Close() })
+	for cx := range int32(4) {
+		for cz := range int32(4) {
+			w.Acquire(ChunkPos{X: cx, Z: cz})
+		}
+	}
+	w.FlushLighting()
+	p := NewPhysics(w)
+	var now int64
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		now++
+		b.StopTimer()
+		for x := range int32(64) {
+			for z := range int32(64) {
+				w.SetBlock(x, GroundLevel-2, z, registry.BlockDirtPath.DefaultState())
+			}
+		}
+		b.StartTimer()
+		p.mu.Lock()
+		for x := range int32(64) {
+			for z := range int32(64) {
+				p.scheduleSoil(registry.BlockDirtPath, x, GroundLevel-2, z, now, tickPriorityNormal)
+			}
+		}
+		p.mu.Unlock()
+		p.Tick(now)
+	}
+	b.StopTimer()
+	b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/4096, "ns/visit")
+}
+
 // BenchmarkDistantComparatorTouches touches 1,024 hoppers per tick, with no
 // comparator and with one outside every hopper's reach.
 func BenchmarkDistantComparatorTouches(b *testing.B) {

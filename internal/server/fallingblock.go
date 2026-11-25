@@ -293,7 +293,7 @@ func (s *Server) tickFallingBlocks() {
 		}
 
 		body := fallingTracker.body(it)
-		mt := body.schedule(nil)
+		mt := body.schedule(false)
 		for _, i := range body.watchers(near[it.w]) {
 			wh := watchers[it.w][i]
 			c := wh.c

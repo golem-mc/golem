@@ -198,10 +198,9 @@ func (c *client) fireCrossbow(hand int32) {
 			rocket.rocket.ShotAtAngle = true
 			rocket.rocket.VX, rocket.rocket.VY, rocket.rocket.VZ = vx, vy, vz
 			rocket.rocket.Yaw, rocket.rocket.Pitch = yaw, pitch
-			if s.launchFirework(rocket) {
-				r := rocket.rocket
-				s.projectileSpawned(rocket.w, crossbow, enchantTarget{uuid: rocket.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25,
-					entityID: r.ID, causeID: c.player.EntityID})
+			rocket.spawning = len(projectile.Enchantments) > 0
+			if s.launchFirework(rocket) && rocket.spawning {
+				s.spawnEffects(spawnedProjectile{w: rocket.w, typ: protocol.EntityTypeFireworkRocket, body: rocket}, projectile, protocol.ItemStack{})
 			}
 			c.shotSoundAndWear(hand, i, firework)
 			if c.heldItem(hand).Empty() {
@@ -218,13 +217,11 @@ func (c *client) fireCrossbow(hand int32) {
 		it := newArrowEntity(s, c.theWorld(),
 			pos.X, pos.Y+c.dims(c.player.Appearance().Pose).EyeHeight-entity.ArrowSpawnBelow, pos.Z,
 			vx, vy, vz, yaw, pitch, true, entity.ArrowBaseDamage, pickup,
-			c.player.EntityID, c.player.UUID, crossbow, rules.ProjectileIgniteTicks(crossbow))
+			c.player.EntityID, c.player.UUID, crossbow, 0)
 		armArrow(it, projectile)
 		it.arrow.PierceLevel = rules.PiercingLevel(crossbow, projectile, &rules.EnchContext{Rand: s.levelRng})
 		it.arrow.HitSound = crossbowHitSound
-		if s.launchArrow(it) {
-			s.arrowSpawned(it, crossbow)
-		}
+		s.launchArrowFrom(it, projectile, crossbow)
 		c.shotSoundAndWear(hand, i, firework)
 		if c.heldItem(hand).Empty() {
 			break

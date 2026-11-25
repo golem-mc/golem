@@ -1,0 +1,92 @@
+package server
+
+import (
+	"math/rand"
+	"testing"
+
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/registry"
+)
+
+// lodestoneBenchClient is a player holding 36 tracked compasses pointing into
+// saved, unloaded chunks, one record each in the world's region files: all at a
+// lodestone, or half at stone. stacks are the starting inventory.
+func lodestoneBenchClient(b *testing.B, allKept bool) (*client, []protocol.ItemStack) {
+	s, _ := newCommandBenchServer(b, 0)
+	lodestone := registry.BlockLodestone.DefaultState()
+	p := &player.Player{EntityID: s.nextEntity()}
+	stacks := make([]protocol.ItemStack, 36)
+	for i := range stacks {
+		x, z := int32(20000+i*16), int32(20000)
+		if allKept || i%2 == 0 {
+			s.SetLoadedBlock(x, 63, z, lodestone)
+		} else {
+			s.SetLoadedBlock(x, 62, z, registry.BlockStone.DefaultState())
+		}
+		stacks[i] = protocol.ItemStack{ItemID: int32(registry.ItemCompass), Count: 1}
+		stacks[i].SetLodestoneTracker(protocol.LodestoneTracker{
+			Target:  &protocol.LodestoneTarget{Dimension: "minecraft:overworld", X: x, Y: 63, Z: z},
+			Tracked: true,
+		})
+	}
+	c := &client{srv: s, player: p}
+	c.dim.Store(s.allDims()[0])
+	return c, stacks
+}
+
+func setLodestoneBenchStacks(c *client, stacks []protocol.ItemStack) {
+	c.player.Inventory(func(inv *player.Inventory) {
+		for i, stack := range stacks {
+			inv.Set(player.MainSlot+i, stack) // main inventory and hotbar
+		}
+	})
+}
+
+// BenchmarkTickLodestoneCompasses is a player's compass tick with 36 tracked
+// compasses pointing into saved chunks. Warm keeps every target, after the
+// first tick has learned the answers; cold starts each tick from the original
+// stacks with no answer kept, half of them lost.
+func BenchmarkTickLodestoneCompasses(b *testing.B) {
+	b.Run("warm", func(b *testing.B) {
+		c, stacks := lodestoneBenchClient(b, true)
+		setLodestoneBenchStacks(c, stacks)
+		c.tickLodestoneCompasses()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for range b.N {
+			c.tickLodestoneCompasses()
+		}
+	})
+	b.Run("cold", func(b *testing.B) {
+		c, stacks := lodestoneBenchClient(b, false)
+		b.ReportAllocs()
+		b.ResetTimer() // the fixture saves 36 chunks
+		for range b.N {
+			b.StopTimer()
+			setLodestoneBenchStacks(c, stacks)
+			c.srv.ForgetLodestoneAnswers()
+			b.StartTimer()
+			c.tickLodestoneCompasses()
+		}
+	})
+}
+
+// BenchmarkTickMobsEquippedTracker is BenchmarkTickMobs over 200 zombies each
+// holding a stick that carries a lodestone tracker: every mob takes the
+// equipped-compass pass, none holds a compass.
+func BenchmarkTickMobsEquippedTracker(b *testing.B) {
+	stick := protocol.ItemStack{ItemID: int32(registry.ItemStick), Count: 1}
+	stick.SetLodestoneTracker(protocol.LodestoneTracker{
+		Target:  &protocol.LodestoneTarget{Dimension: "minecraft:overworld", X: 0, Y: 70, Z: 0},
+		Tracked: true,
+	})
+	benchTickMobs(b, []mobMix{{entity.TypeZombie, 200}}, 96, 200, func(s *Server, _ *rand.Rand) {
+		s.mobsMu.Lock()
+		defer s.mobsMu.Unlock()
+		for _, m := range s.allDims()[0].mobs.herd {
+			m.SetEquipment(protocol.EquipMainHand, stick)
+		}
+	})
+}

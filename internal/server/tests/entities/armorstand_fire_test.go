@@ -96,11 +96,14 @@ func TestMarkerArmorStandFireExpires(t *testing.T) {
 			return flags&protocol.EntityFlagOnFire == want
 		})
 	}
-	if !sawFlags(protocol.EntityFlagOnFire) {
-		t.Fatalf("on-fire bit not sent on the first tick")
-	}
+	// Tracking runs before the step, so a tick tells the flag the tick
+	// before it set.
+	servertest.RunTicks(t, srv, 1)
 	if got := fire(); got != "1s" {
 		t.Fatalf("Fire after one tick = %s, want 1s", got)
+	}
+	if !sawFlags(protocol.EntityFlagOnFire) {
+		t.Fatalf("on-fire bit not sent on the second tick")
 	}
 	if !sawFlags(0) {
 		t.Fatalf("on-fire bit not cleared after fire expired")

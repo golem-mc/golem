@@ -732,14 +732,8 @@ func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 			if ent == nil {
 				continue
 			}
-			if puff := m.PuffState(); held && m.Type == entity.TypePufferfish && puff > 0 && m.Alive() {
-				pufferTouches = append(pufferTouches, pufferTouch{
-					box: entity.NewAABB(m.BlastBox()),
-					strike: mobStrike{
-						w: dim.w, mob: m, uuidText: ent.uuidText, killer: s.mobKiller(ent),
-						x: m.X, y: m.Y, z: m.Z, damage: float64(1 + puff), touch: true, puff: puff,
-					},
-				})
+			if touch, ok := pufferTouchOf(dim.w, m, ent); held && ok {
+				pufferTouches = append(pufferTouches, touch)
 			}
 			body := mobTracker.body(ent)
 			var motion mobMovement
@@ -2721,14 +2715,36 @@ func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch floa
 	logTeleported("mob", to, by, "kind", ent.mob.Type)
 }
 
-// commandTeleportMob is teleportMob that also lands a mob that is not gliding.
-// vanilla: TeleportCommand.performTeleport
-func (s *Server) commandTeleportMob(ent *mobEntity, to player.Position, by string) {
+// turnTeleportMob is a command's or plugin's teleport within the dimension:
+// it turns the mob and its riders by move's transition, or the mob alone to
+// move's angles for a facing clause, and a /teleport also lands a mob that is
+// not gliding. The riders are marked pending, so the tracker tells their turn
+// even while ticks are frozen.
+// vanilla: TeleportCommand.performTeleport, Entity.teleportSameDimension
+func (s *Server) turnTeleportMob(ent *mobEntity, move command.Move, by string) {
 	s.mobsMu.Lock()
-	s.placeMob(ent, to, to.Yaw, to.Pitch)
+	// A relative turn is worked out from the mob's angles now, which an
+	// earlier target in the command may have changed.
+	if move.Command && move.LookAt == nil && !move.KeepRotation {
+		move = move.AgainstAngles(ent.mob.Yaw, ent.mob.Pitch)
+	}
+	to := move.Pos
+	turn := teleportTurn(move)
+	book := s.herdOf(ent.w).book
+	// Before the mount turns: a rider's turn keeps its angle to the mount.
+	entity.TurnPassengers(ent.mob, turn, func(p *entity.Mob) {
+		if rider := book[p]; rider != nil {
+			rider.teleported = true
+		}
+	})
+	yaw, pitch := to.Yaw, to.Pitch
+	if move.LookAt == nil {
+		yaw, pitch = turn.Apply(ent.mob.Yaw, ent.mob.Pitch)
+	}
+	s.placeMob(ent, to, yaw, pitch)
 	// Under the same lock, so no tick tells the teleport without the flag.
 	// vanilla: LivingEntity.isFallFlying
-	if !ent.mob.FallFlying {
+	if move.Command && !ent.mob.FallFlying {
 		ent.mob.OnGround = true
 	}
 	s.mobsMu.Unlock()
@@ -3308,25 +3324,28 @@ func mobEquipmentPayload(ent *mobEntity) []byte {
 	return equipmentEntriesPayload(m.ID, slots[:], used)
 }
 
-// tickMobCompasses clears invalid targets on equipped compasses.
+// tickMobCompasses clears invalid targets on equipped compasses. A target
+// in a saved chunk the probe cannot answer is noted and left, for the caller to
+// resolve with no lock held and tick again.
 // vanilla: EntityEquipment.tick, CompassItem.inventoryTick
-func tickMobCompasses(m *entity.Mob, w *world.World, dim string) {
+func tickMobCompasses(m *entity.Mob, probe *lodestoneProbe, dim string) {
+	w := probe.w
 	bottom, top := w.MinY(), w.MinY()+w.Height()
-	if cleared, ok := rules.ClearLostLodestone(w, m.MainHand, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.MainHand, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipMainHand, cleared)
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.OffHand, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.OffHand, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipOffHand, cleared)
 	}
 	for i := range m.Worn {
-		if cleared, ok := rules.ClearLostLodestone(w, m.Worn[i], dim, bottom, top); ok {
+		if cleared, ok := rules.ClearLostLodestone(probe, m.Worn[i], dim, bottom, top); ok {
 			m.SetEquipment(protocol.EquipFeet+i, cleared)
 		}
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.Body, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.Body, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipBody, cleared)
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.SaddleSlot(), dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.SaddleSlot(), dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipSaddle, cleared)
 	}
 }

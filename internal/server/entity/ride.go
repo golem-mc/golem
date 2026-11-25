@@ -510,3 +510,47 @@ func (m *Mob) finalizeSpiderEffect(group *SpawnGroup, local rules.LocalDifficult
 func mountEvent(rider, vehicle *Mob, kind MobEventKind) MobEvent {
 	return MobEvent{Mob: rider, Kind: kind, X: vehicle.X, Y: vehicle.Y, Z: vehicle.Z}
 }
+
+// Turn is a teleport's rotation transition in vanilla's terms: Yaw and Pitch
+// are the wrapped offset when the axis is relative, else the wrapped
+// destination angle.
+// vanilla: TeleportCommand.performTeleport
+type Turn struct {
+	Yaw, Pitch       float32
+	RelYaw, RelPitch bool
+}
+
+// Apply is the rotation a body facing yaw, pitch ends with after t, its pitch
+// clamped to [-90, 90].
+// vanilla: PositionMoveRotation.calculateAbsolute
+func (t Turn) Apply(yaw, pitch float32) (float32, float32) {
+	if !t.RelYaw {
+		yaw = 0
+	}
+	if !t.RelPitch {
+		pitch = 0
+	}
+	return yaw + t.Yaw, min(max(pitch+t.Pitch, -90), 90)
+}
+
+// TurnPassengers turns every rider of m, nested ones included, as m's
+// teleport by t does, calling each(rider) before it changes; each may be nil.
+// m must still hold its pre-teleport rotation.
+// vanilla: Entity.calculatePassengerTransition
+func TurnPassengers(m *Mob, t Turn, each func(*Mob)) {
+	for _, p := range m.Passengers {
+		pt := t
+		if !t.RelYaw {
+			pt.Yaw += p.Yaw - m.Yaw
+		}
+		if !t.RelPitch {
+			pt.Pitch += p.Pitch - m.Pitch
+		}
+		TurnPassengers(p, pt, each)
+		if each != nil {
+			each(p)
+		}
+		p.Yaw, p.Pitch = pt.Apply(p.Yaw, p.Pitch)
+		p.HeadYaw = p.Yaw
+	}
+}
