@@ -13,8 +13,8 @@ func TestIndexedWantedItemsMatchDirectSensing(t *testing.T) {
 		copy(items, []LootItem{
 			{X: 36.5, Y: 64, Z: 0.5, Stack: gold}, // first of two equally distant items across a cell boundary
 			{X: -3.5, Y: 64, Z: 0.5, Stack: gold},
-			{X: 16.5, Y: 81, Z: 0.5, Stack: gold}, // closer, but too high
-			{X: 16.5, Y: 64, Z: 4.5, Stack: gold}, // closer, but behind a wall
+			{X: 16.5, Y: 82.25, Z: 0.5, Stack: gold}, // closer, but too high
+			{X: 16.5, Y: 64, Z: 4.5, Stack: gold},    // closer, but behind a wall
 		})
 		mobs := make(Mobs, 8)
 		for i := range mobs {
@@ -80,6 +80,53 @@ func TestIndexedWantedItemsMatchDirectSensing(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestWantedItemSensingUsesBoxOverlap(t *testing.T) {
+	w := griefingWorld{newTestWorld()}
+	gold := stackOf(t, "minecraft:gold_ingot")
+	items := make([]LootItem, 32)
+	mobs := make(Mobs, 8)
+	for i := range mobs {
+		m := NewMob(TypePiglin, int32(i+1), 16.5, 64, 0.5, int64(i+1))
+		m.CanPickUpLoot = true
+		mobs[i] = m
+	}
+	var scratch BoxGrid
+	for _, tc := range []struct {
+		name string
+		y    float64
+		want bool
+	}{
+		{"17 blocks above feet", 81, true},
+		{"above search box", 82.25, false},
+		{"overlapping bottom face", 47.9375, true},
+		{"touching bottom face", 47.875, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			items[0] = LootItem{X: 16.5, Y: tc.y, Z: 0.5, Stack: gold}
+			for _, indexed := range []bool{false, true} {
+				for _, m := range mobs {
+					m.barter.scanIn = 1
+				}
+				if indexed {
+					grid := mobs.PrepareLootGrid(items, &scratch, true)
+					if grid == nil {
+						t.Fatal("due piglins did not get a loot grid")
+					}
+					mobs.SenseWantedItemsWithGrid(w, items, grid, true)
+				} else {
+					mobs.SenseWantedItems(w, items)
+				}
+				for _, m := range mobs {
+					if m.barter.hasWanted != tc.want || tc.want && m.barter.wanted.Y != tc.y {
+						t.Errorf("indexed=%t: wanted=%t at Y=%g, want found=%t for ingot at Y=%g", indexed, m.barter.hasWanted, m.barter.wanted.Y, tc.want, tc.y)
+						break
+					}
+				}
+			}
+		})
+	}
 }
 
 func TestLootGridCountsPickersAndDueSensors(t *testing.T) {
