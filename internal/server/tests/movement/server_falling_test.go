@@ -196,10 +196,38 @@ func TestTiedFallsDispatchInBookingOrderAfterARestart(t *testing.T) {
 	restarted := *cfg
 	freeze := func(s *server.Server) { servertest.FreezeUntilHeld(t, s) }
 	restartedSrv, again := servertest.Join(t, &restarted, "Builder", freeze)
-	servertest.HoldTicks(t, restartedSrv)
+	assertTiedFallOrder(t, restartedSrv, again)
+}
 
+func TestTiedFallsKeepBookingOrderWhenResavedBeforeTicking(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance = config.MinDistance
+	cfg.SimulationDistance = config.MinDistance
+	freeze := func(s *server.Server) { servertest.FreezeUntilHeld(t, s) }
+	ops := servertest.OpsListing(t, "Builder")
+	srv, c := servertest.Join(t, cfg, "Builder", ops, freeze)
+	c.ChatCommand("setblock 9 70 3 sand")
+	c.Settle()
+	srv.Shutdown()
+
+	// The first fall is still pending from disk when the second is booked.
+	resaving := *cfg
+	middle, c := servertest.Join(t, &resaving, "Builder", ops, freeze)
+	c.ChatCommand("setblock 3 70 3 sand")
+	c.Settle()
+	middle.Shutdown()
+
+	restarted := *cfg
+	restartedSrv, again := servertest.Join(t, &restarted, "Builder", freeze)
+	assertTiedFallOrder(t, restartedSrv, again)
+}
+
+func assertTiedFallOrder(t *testing.T, srv *server.Server, c *servertest.Client) {
+	t.Helper()
+	servertest.HoldTicks(t, srv)
 	var xs []float64
-	again.ReadTicks(restartedSrv, 3, func(id int32, data []byte) bool {
+	c.ReadTicks(srv, 3, func(id int32, data []byte) bool {
 		if id != protocol.IDPlaySpawnEntity {
 			return false
 		}
