@@ -48,7 +48,12 @@ type damageCause struct {
 	// lands; nil for any other cause.
 	exploder *removedBody
 	directID int32
-	x, y, z  float64
+	// directType is the entity type name of a projectile direct entity, which
+	// is neither a player nor a mob; empty otherwise.
+	directType string
+	// directBurning is the projectile's fire flag when it hit.
+	directBurning bool
+	x, y, z       float64
 	// weapon belongs to the direct entity, independently of death attribution.
 	// vanilla: DamageSource.getWeaponItem
 	weapon protocol.ItemStack
@@ -62,10 +67,11 @@ type damageCause struct {
 	// vanilla: LivingEntity.applyItemBlocking
 	piercing bool
 	// flying marks a projectile's blow, whose knockback follows its flight
-	// (flightVX, flightVZ) rather than its position.
+	// (flightVX, flightVZ) rather than its position. The flight is in blocks
+	// per tick at the hit; flightVY only feeds a directType's movement.
 	// vanilla: Projectile.calculateHorizontalHurtKnockbackDirection
-	flying             bool
-	flightVX, flightVZ float64
+	flying                       bool
+	flightVX, flightVY, flightVZ float64
 	// posOnly marks a position cause with no entity (/damage at); eventPos one
 	// whose x, y, z the Damage Event also carries.
 	// vanilla: DamageSource.sourcePositionRaw
