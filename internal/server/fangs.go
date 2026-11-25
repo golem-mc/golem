@@ -184,8 +184,11 @@ func (s *Server) fangsBite(it fangsEffect) {
 	}
 	lookup := s.fangsAllyByUUIDLocked
 	var victims []*entity.Mob
+	// A body is found only through the sections its feet are filed in, however
+	// wide its box. vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+	window := entity.NewSectionWindow(minX, maxX, minY, maxY, minZ, maxZ)
 	consider := func(m *entity.Mob) {
-		if m.Dead || m == owner.Mob {
+		if m.Dead || m == owner.Mob || !window.HoldsAt(m.X, m.Y, m.Z) {
 			return
 		}
 		if !m.BlastBoxHits(minX, minY, minZ, maxX, maxY, maxZ) {
