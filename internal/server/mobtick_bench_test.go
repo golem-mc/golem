@@ -89,6 +89,19 @@ func BenchmarkTickMobsCowsInHerd(b *testing.B) {
 	benchTickMobs(b, herdMix(0), 96, 2000, benchMobSpectator(b))
 }
 
+func BenchmarkTickMobsCalfFollow(b *testing.B) {
+	benchTickMobs(b, []mobMix{{entity.TypeCow, 400}, {entity.TypePig, 100}}, 96, 500,
+		benchMobSpectator(b), func(s *Server, _ *rand.Rand) {
+			s.mobsMu.Lock()
+			defer s.mobsMu.Unlock()
+			for _, m := range s.allDims()[0].mobs.herd {
+				if m.Type == entity.TypeCow && m.ID%2 == 0 {
+					m.SetBaby(true)
+				}
+			}
+		})
+}
+
 // BenchmarkTickMobsShulkersInHerd is BenchmarkTickMobs with 2000 cows and 50
 // shulkers added and a spectator, so the herd ticks and each shulker's
 // collision and push queries run beside a large herd.
