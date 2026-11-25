@@ -174,33 +174,57 @@ func (s *Server) fangsBite(it fangsEffect) {
 	minX, minY, minZ, maxX, maxY, maxZ := body.BiteBox()
 
 	s.mobsMu.Lock()
+	h := s.herdOf(w)
 	owner := entity.AllianceMember{}
 	var ownerUUID uuid.UUID
-	var victims []*entity.Mob
-	h := s.herdOf(w)
+	// An ID reserved for a dragon part maps to its parent, which is not that ID's mob.
 	if ent := h.byID[it.owner]; ent != nil && ent.mob.ID == it.owner && !ent.mob.Dead && !ent.mob.Discarded() {
 		owner = entity.AllianceMember{Mob: ent.mob, Team: ent.mob.Team}
 		ownerUUID = ent.uuid
 	}
 	lookup := s.fangsAllyByUUIDLocked
+	var victims []*entity.Mob
 	// A body is found only through the sections its feet are filed in, however
 	// wide its box. vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
 	window := entity.NewSectionWindow(minX, maxX, minY, maxY, minZ, maxZ)
-	for _, m := range h.herd {
+	consider := func(m *entity.Mob) bool {
 		if m.Dead || m == owner.Mob || !window.HoldsAt(m.X, m.Y, m.Z) {
-			continue
+			return true
+		}
+		if !m.BlastBoxHits(minX, minY, minZ, maxX, maxY, maxZ) {
+			return true
 		}
 		if owner.Mob != nil && owner.Mob.EvokerFangsDirectAlly(m, ownerUUID) {
-			continue
-		}
-		mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ := m.BlastBox()
-		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ) {
-			continue
+			return true
 		}
 		if owner.Mob != nil && entity.FangsAllied(owner, entity.AllianceMember{Mob: m, Team: m.Team}, lookup) {
-			continue
+			return true
 		}
 		victims = append(victims, m)
+		return true
+	}
+	indexed := false
+	if len(h.book) != 0 {
+		// smallChunkArea adds the same two-block margin as the window.
+		var area chunkArea
+		area, indexed = smallChunkArea(&[6]float64{minX, minY, minZ, maxX, maxY, maxZ})
+		h.mobsInArea(area, indexed, consider)
+	}
+	if indexed && len(victims) > 1 {
+		// The index visits by chunk; damage goes in herd order.
+		hit := make(map[*entity.Mob]struct{}, len(victims))
+		for _, m := range victims {
+			hit[m] = struct{}{}
+		}
+		victims = victims[:0]
+		for _, m := range h.herd {
+			if _, ok := hit[m]; ok {
+				victims = append(victims, m)
+				if len(victims) == len(hit) {
+					break
+				}
+			}
+		}
 	}
 	s.mobsMu.Unlock()
 
