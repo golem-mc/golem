@@ -62,3 +62,30 @@ func BenchmarkFollowParentShouldContinue(b *testing.B) {
 		})
 	}
 }
+
+// TestFollowParentFindsRiderSeatedAcrossCell: a grown cow carried into
+// another push cell by its vehicle is found by a calf at the edge of the
+// search, as the whole-herd scan finds it.
+func TestFollowParentFindsRiderSeatedAcrossCell(t *testing.T) {
+	calf := NewMob(TypeCow, 1, 8.85, 64, 0.5, 1)
+	calf.BabyAge = -24000
+	pig := NewMob(TypePig, 2, 0.3, 64, 0.5, 2)
+	cow := NewMob(TypeCow, 3, -0.1, 64, 0.5, 3)
+	herd := []*Mob{calf, pig, cow}
+	for i := range villagerGridMinHerd {
+		id := int32(10 + i)
+		herd = append(herd, NewMob(TypeBat, id, 60+float64(i), 64, 60, int64(id)))
+	}
+	grid := takePushGrid(len(herd), nil)
+	defer grid.release()
+	grid.build(herd)
+	Ride(pig, cow)
+	pig.seatPassenger(cow)
+	grid.moved(cow)
+	calf.push = grid
+	view := &tickView{w: testWorld{}, others: herd}
+	g := &followParentGoal{m: calf}
+	if !g.CanStart(view) || g.parent != cow {
+		t.Fatalf("calf chose %v, want the carried cow", g.parent)
+	}
+}
