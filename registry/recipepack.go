@@ -116,7 +116,8 @@ type recipeSet struct {
 	transmute         []TransmuteRecipe
 	dye               []DyeRecipe
 	cooking           [cookingKinds][]CookingRecipe
-	cookingByItem     [cookingKinds][]int32 // first recipe index per item, -1 for none
+	cookingByItem     [cookingKinds][]int32          // first recipe index per item, -1 for none
+	cookingByID       [cookingKinds]map[string]int32 // first recipe index per id
 	smithing          []SmithingTransformRecipe
 	trim              []SmithingTrimRecipe
 	brewing           []BrewingRecipe
@@ -221,7 +222,12 @@ func newRecipeSet(s *recipeSet) *recipeSet {
 		for i := range idx {
 			idx[i] = -1
 		}
+		byID := make(map[string]int32, len(s.cooking[k]))
+		s.cookingByID[k] = byID
 		for r := range s.cooking[k] {
+			if _, dup := byID[s.cooking[k][r].ID]; !dup {
+				byID[s.cooking[k][r].ID] = int32(r)
+			}
 			for _, id := range s.cooking[k][r].Ingredient {
 				if id >= 0 && int(id) < len(idx) && idx[id] < 0 {
 					idx[id] = int32(r)

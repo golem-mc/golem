@@ -4,10 +4,14 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
+
+// cookTicks is the cooking time of both overlap recipes.
+const cookTicks = 10
 
 // overlapPack writes two recipes of kind taking bone, the first making a stick
 // and the second, whose other input is string, a bowl.
@@ -17,80 +21,134 @@ func overlapPack(t *testing.T, cfg *config.Config, kind string) {
 	servertest.WritePackFile(t, cfg, "p", "pk/recipe/b.json", `{"type":"minecraft:`+kind+`","ingredient":["minecraft:bone","minecraft:string"],"cookingtime":10,"result":{"id":"minecraft:bowl"}}`)
 }
 
-// furnaceMakes cooks the inputs one after another in a furnace and returns
-// the item its output slot ends with.
-func furnaceMakes(t *testing.T, inputs ...string) int32 {
+// vanilla: RecipeManager.createCheck, AbstractFurnaceBlockEntity.setItem, serverTick
+func TestAFurnaceKeepsItsLastMatchingRecipeForOverlappingInputs(t *testing.T) {
 	t.Cleanup(func() { registry.ApplyPackRecipes(registry.PackRecipes{}) })
 	cfg := servertest.BlockTestConfig()
 	cfg.LevelName = t.TempDir()
 	overlapPack(t, cfg, "smelting")
-	srv, _ := servertest.OpenWindowed(t, cfg)
-	if !srv.PlaceContainer(4, 64, 0, "minecraft:furnace") {
-		t.Fatal("could not place the furnace")
+	srv, c := servertest.Dial(t, cfg, servertest.OpsListing(t, "Testificate"))
+	w := servertest.WindowedOf(t, "Testificate", c)
+	stick := servertest.ItemStack(t, "minecraft:stick", 1)
+	bowl := servertest.ItemStack(t, "minecraft:bowl", 1)
+	const fresh, primed, idle = 2, 3, 4
+	for _, x := range []int32{fresh, primed} {
+		if !srv.PlaceContainer(x, 64, 0, "minecraft:furnace") {
+			t.Fatal("could not place the furnace")
+		}
 	}
-	srv.SetInventoryAt(4, 64, 0, 1, servertest.ItemStack(t, "minecraft:coal", 1))
-	for _, in := range inputs {
-		srv.SetInventoryAt(4, 64, 0, 0, servertest.ItemStack(t, in, 1))
+	// The input is loaded from data, which looks no recipe up.
+	servertest.Setblock(t, c, idle, 64, 0, `furnace{Items:[{Slot:0b,id:"minecraft:string",count:1}]}`)
+	// Window slots 30..34 are the hotbar slots 36..40.
+	for i, item := range []string{"minecraft:bone", "minecraft:bone", "minecraft:string", "minecraft:coal", "minecraft:coal", "minecraft:coal", "minecraft:bone"} {
+		w.SetCreativeSlot(int16(36+i), servertest.ItemStack(t, item, 1))
 	}
-	servertest.HoldTicks(t, srv)
-	servertest.RunTicks(t, srv, 12)
-	got := srv.InventoryAt(4, 64, 0)
-	if len(got) != 3 || got[2].Empty() {
-		t.Fatalf("the furnace holds %+v, want an output", got)
+	w.Settle()
+	servertest.StopTheLoop(t, srv)
+	// load shift-clicks hotbar slot i into the open furnace's input or fuel.
+	load := func(x int32, hotbar ...int16) {
+		w.Settle()
+		w.UseBlock(x, 64, 0)
+		w.ExpectContainerOpen(protocol.MenuFurnace, true, x, 64, 0)
+		for _, slot := range hotbar {
+			w.Click(30+slot, 0, protocol.ClickModeQuickMove)
+			w.CollectClickResponse()
+		}
+		w.CloseWindow()
 	}
-	return got[2].ItemID
+	output := func(x int32) protocol.ItemStack {
+		t.Helper()
+		got := srv.InventoryAt(x, 64, 0)
+		if len(got) != 3 {
+			t.Fatalf("the furnace at %d holds %+v", x, got)
+		}
+		return got[2]
+	}
+
+	load(fresh, 0, 3)
+	load(primed, 2, 4)
+	// An idle furnace holding string, then bone put in by hand.
+	w.Settle()
+	w.UseBlock(idle, 64, 0)
+	w.ExpectContainerOpen(protocol.MenuFurnace, true, idle, 64, 0)
+	servertest.TickBlockEntitiesByHand(srv, cookTicks)
+	w.Click(0, 0, protocol.ClickModeQuickMove)
+	w.CollectClickResponse()
+	w.CloseWindow()
+	load(idle, 6, 5)
+	servertest.TickBlockEntitiesByHand(srv, cookTicks)
+	if got := output(fresh); !got.Equal(stick) {
+		t.Errorf("an unprimed furnace made %+v, want the first recipe's stick", got)
+	}
+	if got := output(primed); !got.Equal(bowl) {
+		t.Errorf("the furnace that cooked string made %+v, want a bowl", got)
+	}
+	if got := output(idle); !got.Equal(stick) {
+		t.Errorf("an idle furnace that held string made %+v from bone, want the first recipe's stick", got)
+	}
+
+	load(primed, 1)
+	servertest.TickBlockEntitiesByHand(srv, cookTicks)
+	bowls := bowl
+	bowls.Count = 2
+	if got := output(primed); !got.Equal(bowls) {
+		t.Errorf("a primed furnace's output is %+v after bone, want two bowls", got)
+	}
 }
 
-// vanilla: RecipeManager.createCheck, AbstractFurnaceBlockEntity.setItem
-func TestAFurnaceKeepsItsLastMatchingRecipeForOverlappingInputs(t *testing.T) {
-	stick := servertest.ItemStack(t, "minecraft:stick", 1).ItemID
-	bowl := servertest.ItemStack(t, "minecraft:bowl", 1).ItemID
-	if got := furnaceMakes(t, "minecraft:bone"); got != stick {
-		t.Errorf("an unprimed furnace made item %d, want the first recipe's stick", got)
-	}
-	if got := furnaceMakes(t, "minecraft:string", "minecraft:bone"); got != bowl {
-		t.Errorf("a primed furnace made item %d, want the later recipe's bowl", got)
-	}
-}
-
-// campfireDrops cooks the foods one after another on a lit campfire and
-// returns how many sticks and bowls lie on the ground.
-func campfireDrops(t *testing.T, foods ...string) (sticks, bowls int) {
+// vanilla: RecipeManager.createCheck, CampfireBlock.getTicker, LevelChunk.updateBlockEntityTicker
+func TestACampfireKeepsItsLastMatchingRecipeForOverlappingInputs(t *testing.T) {
 	t.Cleanup(func() { registry.ApplyPackRecipes(registry.PackRecipes{}) })
 	cfg := servertest.SurvivalTestConfig()
 	cfg.LevelName = t.TempDir()
 	overlapPack(t, cfg, "campfire_cooking")
 	srv, w := servertest.OpenWindowed(t, cfg)
 	srv.StopTick()
-	state, ok := registry.FindState("minecraft:campfire", map[string]string{"lit": "true"})
+	lit, ok := registry.FindState("minecraft:campfire", map[string]string{"lit": "true"})
 	if !ok {
 		t.Fatal("no lit campfire state")
 	}
-	srv.SetBlock(3, 64, 0, state)
-	for _, food := range foods {
+	out, _ := registry.FindState("minecraft:campfire", map[string]string{"lit": "false"})
+	const fresh, primed, relit = 2, 3, 4
+	for _, x := range []int32{fresh, primed, relit} {
+		srv.SetBlock(x, 64, 0, lit)
+	}
+	cook := func(x int32, food string) {
 		srv.GiveSlot("Testificate", player.HotbarSlot, servertest.ItemStack(t, food, 1))
 		w.Settle()
-		w.UseBlock(3, 64, 0)
+		w.UseBlock(x, 64, 0)
 		w.Settle()
-		servertest.TickBlockEntitiesByHand(srv, 10)
+		servertest.TickBlockEntitiesByHand(srv, cookTicks)
 	}
-	for _, it := range srv.ItemsInDimension("minecraft:overworld") {
-		switch it.Item {
-		case "minecraft:stick":
-			sticks++
-		case "minecraft:bowl":
-			bowls++
-		}
-	}
-	return sticks, bowls
-}
+	cook(fresh, "minecraft:bone")
+	cook(primed, "minecraft:string")
+	cook(primed, "minecraft:bone")
+	cook(relit, "minecraft:string")
+	srv.SetBlock(relit, 64, 0, out)
+	srv.SetBlock(relit, 64, 0, lit)
+	cook(relit, "minecraft:bone")
 
-// vanilla: RecipeManager.createCheck, CampfireBlock.getTicker
-func TestACampfireKeepsItsLastMatchingRecipeForOverlappingInputs(t *testing.T) {
-	if sticks, bowls := campfireDrops(t, "minecraft:bone"); sticks != 1 || bowls != 0 {
+	drops := func(x int32) (sticks, bowls int) {
+		for _, it := range srv.ItemsInDimension("minecraft:overworld") {
+			if it.X < float64(x) || it.X >= float64(x+1) {
+				continue
+			}
+			switch it.Item {
+			case "minecraft:stick":
+				sticks++
+			case "minecraft:bowl":
+				bowls++
+			}
+		}
+		return sticks, bowls
+	}
+	if sticks, bowls := drops(fresh); sticks != 1 || bowls != 0 {
 		t.Errorf("an unprimed campfire dropped %d sticks and %d bowls, want the first recipe's stick", sticks, bowls)
 	}
-	if sticks, bowls := campfireDrops(t, "minecraft:string", "minecraft:bone"); sticks != 0 || bowls != 2 {
+	if sticks, bowls := drops(primed); sticks != 0 || bowls != 2 {
 		t.Errorf("a primed campfire dropped %d sticks and %d bowls, want two bowls", sticks, bowls)
+	}
+	if sticks, bowls := drops(relit); sticks != 1 || bowls != 1 {
+		t.Errorf("a relit campfire dropped %d sticks and %d bowls, want a bowl then a stick", sticks, bowls)
 	}
 }

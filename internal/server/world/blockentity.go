@@ -218,6 +218,7 @@ type BlockEntity struct {
 	// over an earlier recipe taking the same input; not saved.
 	// vanilla: AbstractFurnaceBlockEntity.quickCheck, CampfireBlock.getTicker
 	CookCheck              string
+	cookReset              atomic.Bool // a state write asks the campfire to drop CookCheck
 	LitRemaining, LitTotal int32
 	// SpeedMultiplier is what the fuel last lit (a furnace) or loaded (a
 	// brewing stand) divides the recipe's time by; nought counts as 1.

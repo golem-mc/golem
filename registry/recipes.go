@@ -324,11 +324,8 @@ func CookingMatchCached(kind string, stack protocol.ItemStack, last *string) *Co
 	set := recipes()
 	k := cookingKindOf(kind)
 	if last != nil && *last != "" {
-		table := set.cooking[k]
-		for i := range table {
-			if table[i].ID == *last && slices.Contains(table[i].Ingredient, stack.ItemID) {
-				return &table[i]
-			}
+		if i, ok := set.cookingByID[k][*last]; ok && slices.Contains(set.cooking[k][i].Ingredient, stack.ItemID) {
+			return &set.cooking[k][i]
 		}
 	}
 	if stack.ItemID < 0 || int(stack.ItemID) >= len(set.cookingByItem[k]) {
@@ -346,11 +343,10 @@ func CookingMatchCached(kind string, stack protocol.ItemStack, last *string) *Co
 // CookingRecipeByID returns a cooking kind's recipe by the id a RecipesUsed
 // compound keys it by, or false.
 func CookingRecipeByID(kind, id string) (*CookingRecipe, bool) {
-	table := cookingTable(kind)
-	for i := range table {
-		if table[i].ID == id {
-			return &table[i], true
-		}
+	set := recipes()
+	k := cookingKindOf(kind)
+	if i, ok := set.cookingByID[k][id]; ok {
+		return &set.cooking[k][i], true
 	}
 	return nil, false
 }

@@ -1141,7 +1141,7 @@ func (w *World) SwapBlock(x, y, z int32, state uint16) (old uint16, changed bool
 		w.journal = append(w.journal, journalEntry{x, y, z, old, state})
 	}
 	if be := loaded.chunk.blockEntity(x, y, z); be != nil {
-		be.Wake()
+		be.StateWritten()
 	}
 	if old != airState && shulkerBoxBlocks[registry.BlockOf(old)] {
 		w.shulkerLidsOpen.Delete([3]int32{x, y, z})
@@ -1291,7 +1291,7 @@ func (w *World) SetBlocks(changes []BlockChange) []BlockChange {
 		loaded.chunk.SetBlock(lx, ch.Y, lz, ch.State)
 		w.updateRedstoneBlockCounts(old, ch.State)
 		if be := loaded.chunk.blockEntity(ch.X, ch.Y, ch.Z); be != nil {
-			be.Wake()
+			be.StateWritten()
 		}
 		if old != airState && shulkerBoxBlocks[registry.BlockOf(old)] {
 			w.shulkerLidsOpen.Delete([3]int32{ch.X, ch.Y, ch.Z})
