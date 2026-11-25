@@ -445,7 +445,7 @@ func (s *Server) summonThrown(w *world.World, name string, x, y, z float64, tag 
 	if tagged == nil {
 		tagged = nbt.Compound{}
 	}
-	if item, carried := nbt.Get[nbt.Compound](tagged, "Item"); carried {
+	if item, carried := nbt.Get[nbt.Compound](tagged, "Item"); carried && kind != entity.ThrownLlamaSpit {
 		// The id is qualified the way a resource location parses, so an
 		// Item written without a namespace still names the item it meant.
 		if id, ok := nbt.Get[nbt.String](item, "id"); ok {
