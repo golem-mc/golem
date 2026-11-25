@@ -9,6 +9,51 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
+func TestIncrementalRelightAcrossZero(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		loaded bool
+		east   uint8
+	}{
+		{name: "loaded", loaded: true, east: 13},
+		{name: "missing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newTestWorld(t, NewFlatGenerator())
+			source := ChunkPos{-1, 0}
+			destination := ChunkPos{0, 0}
+			w.Acquire(source)
+			defer w.Release(source)
+			if tc.loaded {
+				w.Acquire(destination)
+				defer w.Release(destination)
+			}
+
+			w.SetBlock(-1, 64, 8, torchState)
+			w.Relight(-1, 8)
+
+			if got := w.ChunkLoaded(destination); got != tc.loaded {
+				t.Errorf("destination chunk loaded = %t, want %t", got, tc.loaded)
+			}
+			for _, cell := range []struct {
+				x, y int32
+				want uint8
+			}{
+				{-1, 64, 14},
+				{-2, 64, 13},
+				{-1, 65, 13},
+				{0, 64, tc.east},
+				{-16, 64, 0}, // x=0 has the same local x in the destination chunk.
+			} {
+				if got := w.BlockLightAt(cell.x, cell.y, 8); got != cell.want {
+					t.Errorf("block light at (%d,%d,8) = %d, want %d", cell.x, cell.y, got, cell.want)
+				}
+			}
+		})
+	}
+}
+
 func TestIncrementalRelightSkySourcesFromTheChangedCell(t *testing.T) {
 	t.Parallel()
 	const top = worldMinY + worldHeight

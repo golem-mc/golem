@@ -2,6 +2,7 @@ package world
 
 import (
 	"bytes"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -84,6 +85,17 @@ func TestChunkPacketCacheInvalidation(t *testing.T) {
 			c.lightGen++
 			w.mu.Unlock()
 			check("light only", true)
+			// The wire entries sit in a 16-entry stack buffer: cross its end.
+			for i := range int32(15) {
+				x, z := i%8, 10+i/8
+				w.SetBlock(x, 71, z, registry.BlockStates["minecraft:chest"])
+				w.EnsureBlockEntity(x, 71, z, KindChest)
+				if n := i + 3; n == 16 || n == 17 || n == 18 {
+					check(fmt.Sprintf("%d entities", n), true)
+				}
+			}
+			be.Use(func(be *BlockEntity) { be.SignFront.Messages[0] = "Edited past the buffer" })
+			check("update tag past 16 entities", true)
 
 			var readers sync.WaitGroup
 			for range 10 {
@@ -124,5 +136,5 @@ func TestChunkPacketCacheHitAllocations(t *testing.T) {
 		w.SetBlock(x, GroundLevel, z, registry.BlockChest.DefaultState())
 		w.EnsureBlockEntity(x, GroundLevel, z, KindChest)
 	}
-	check("10blockentities", 2)
+	check("10blockentities", 0)
 }
