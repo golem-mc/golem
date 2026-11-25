@@ -43,6 +43,33 @@ func newBlockBenchServer(b *testing.B, chunks int32) (*Server, *world.World) {
 	return s, w
 }
 
+// BenchmarkEmptyHopperField measures a block entity pass over 1,024 enabled hoppers with air above.
+func BenchmarkEmptyHopperField(b *testing.B) {
+	s, w := newBlockBenchServer(b, 2)
+	for x := range int32(2) {
+		for z := range int32(2) {
+			b.Cleanup(w.HoldEntityTicking(world.ChunkPos{X: x, Z: z}))
+		}
+	}
+	hopper := registry.MustState("minecraft:hopper", map[string]string{"facing": "down", "enabled": "true"})
+	for x := range int32(32) {
+		for z := range int32(32) {
+			w.SetBlock(x, 64, z, hopper)
+			w.EnsureBlockEntity(x, 64, z, world.KindHopper)
+		}
+	}
+	w.FlushLighting()
+	for range 10 {
+		w.TickTime()
+		s.tickBlockEntities()
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		w.TickTime()
+		s.tickBlockEntities()
+	}
+}
+
 // BenchmarkIdleHoppers is one block entity tick over 16384 hoppers with
 // nothing to move.
 func BenchmarkIdleHoppers(b *testing.B) {

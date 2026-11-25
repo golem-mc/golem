@@ -31,15 +31,15 @@ const caravanGridMinList = 64
 // sectionCoord is the entity section a coordinate is filed in.
 func sectionCoord(v float64) int { return int(math.Floor(v)) >> 4 }
 
-// sectionWindow is the entity sections an entity query's box reaches.
-type sectionWindow struct{ loX, hiX, loY, hiY, loZ, hiZ int }
+// SectionWindow is the entity sections an entity query's box reaches.
+type SectionWindow struct{ loX, hiX, loY, hiY, loZ, hiZ int }
 
-// newSectionWindow is the sections of the box [minX,maxX]×[minY,maxY]×[minZ,maxZ].
+// NewSectionWindow is the sections of the box [minX,maxX]×[minY,maxY]×[minZ,maxZ].
 // X and Z are padded by 2 and Y reaches 4 below, because entities are filed by
 // their feet.
 // vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection, PersistentEntitySectionManager
-func newSectionWindow(minX, maxX, minY, maxY, minZ, maxZ float64) sectionWindow {
-	return sectionWindow{
+func NewSectionWindow(minX, maxX, minY, maxY, minZ, maxZ float64) SectionWindow {
+	return SectionWindow{
 		int(math.Floor(minX-2)) >> 4, int(math.Floor(maxX+2)) >> 4,
 		sectionCoord(minY - 4), sectionCoord(maxY),
 		int(math.Floor(minZ-2)) >> 4, int(math.Floor(maxZ+2)) >> 4,
@@ -47,8 +47,11 @@ func newSectionWindow(minX, maxX, minY, maxY, minZ, maxZ float64) sectionWindow 
 }
 
 // holds reports whether the query finds o, which is filed by its position.
-func (w sectionWindow) holds(o *Mob) bool {
-	sx, sy, sz := sectionCoord(o.X), sectionCoord(o.Y), sectionCoord(o.Z)
+func (w SectionWindow) holds(o *Mob) bool { return w.HoldsAt(o.X, o.Y, o.Z) }
+
+// HoldsAt reports whether the query finds a body filed at (x, y, z).
+func (w SectionWindow) HoldsAt(x, y, z float64) bool {
+	sx, sy, sz := sectionCoord(x), sectionCoord(y), sectionCoord(z)
 	return sx >= w.loX && sx <= w.hiX && sy >= w.loY && sy <= w.hiY && sz >= w.loZ && sz <= w.hiZ
 }
 
@@ -111,7 +114,7 @@ func (g *caravanGoal) CanStart(t *tickView) bool {
 	// Only a llama in a caravan or on a leash can be picked, so that cheap
 	// test goes before the box.
 	width, height := m.width(), m.height()
-	window := newSectionWindow(m.X-width/2-llamaCaravanScanXZ, m.X+width/2+llamaCaravanScanXZ,
+	window := NewSectionWindow(m.X-width/2-llamaCaravanScanXZ, m.X+width/2+llamaCaravanScanXZ,
 		m.Y-llamaCaravanScanY, m.Y+height+llamaCaravanScanY,
 		m.Z-width/2-llamaCaravanScanXZ, m.Z+width/2+llamaCaravanScanXZ)
 	scanW, scanH := width+2*llamaCaravanScanXZ, height+2*llamaCaravanScanY

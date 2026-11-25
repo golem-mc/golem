@@ -2090,8 +2090,9 @@ func (e *entitySnapshot) WithAttributes(fn func(a *player.Attributes)) {
 	if m.Attributes() == nil {
 		m.SetAttributes(m.BuildAttributes(savedAttributes(ref.saved)))
 	}
-	fn(m.Attributes())
-	m.OnAttributeUpdated()
+	if m.EditAttributes(ref.w, fn) {
+		e.srv.herdOf(ref.w).pistonGrid.built = false
+	}
 }
 
 func (s *Server) teleportMobAcross(ref *mobEntity, to *dimension, at player.Position, yaw, pitch float32) (alive bool, from *world.World, oldID int32, register func(), severed []seatNews) {

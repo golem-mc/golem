@@ -219,6 +219,39 @@ func BenchmarkHopperCachedFailedPull(b *testing.B) {
 	}
 }
 
+// BenchmarkHopperPullFromDoubleChest measures a successful pull from a double chest above.
+func BenchmarkHopperPullFromDoubleChest(b *testing.B) {
+	hopper := registry.MustState("minecraft:hopper", map[string]string{"facing": "down", "enabled": "true"})
+	chest := func(typ string) uint16 {
+		return registry.MustState("minecraft:chest", map[string]string{"facing": "north", "type": typ})
+	}
+	s, w := newBlockBenchServer(b, 1)
+	w.SetBlock(1, 64, 1, hopper)
+	be := w.EnsureBlockEntity(1, 64, 1, world.KindHopper)
+	w.SetBlock(1, 65, 1, chest("left"))
+	w.SetBlock(2, 65, 1, chest("right"))
+	left := w.EnsureBlockEntity(1, 65, 1, world.KindChest)
+	w.EnsureBlockEntity(2, 65, 1, world.KindChest)
+	w.FlushLighting()
+	stone := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
+	age := int64(0)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		be.Put(0, protocol.ItemStack{})
+		be.Cooldown = 0
+		left.Put(0, stone)
+		age++
+		s.tickHopper(w, be, age)
+		if be.FilledSlots() != 1 {
+			b.Fatal("the hopper did not pull the item")
+		}
+		if be.HopperTargets.Pull.Entities[1] == nil {
+			b.Fatal("double chest did not resolve")
+		}
+	}
+}
+
 // BenchmarkFullBlockedHopper measures a tick of an enabled, full hopper pointing
 // into a full barrel, after its push failed once.
 func BenchmarkFullBlockedHopper(b *testing.B) {
@@ -254,6 +287,35 @@ func BenchmarkFullBlockedHopper(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
+				age++
+				s.tickHopper(w, be, age)
+			}
+		})
+	}
+}
+
+// BenchmarkHopperUnwatchedRemainders measures a hopper retrying incompatible drops.
+func BenchmarkHopperUnwatchedRemainders(b *testing.B) {
+	stone := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 63}
+	dirt := protocol.ItemStack{ItemID: int32(registry.ItemDirt), Count: 64}
+	for _, n := range []int{0, 1, 16, 64} {
+		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 0)
+			w.SetBlock(4, 64, 4, registry.BlockHopper.DefaultState())
+			be := w.EnsureBlockEntity(4, 64, 4, world.KindHopper)
+			for slot := range be.Len() {
+				be.Put(slot, stone)
+			}
+			for range n {
+				s.spawnItem(w, dirt, 4.5, 65, 4.5, 0, 0, 0, 0)
+			}
+			s.indexItemColumns(w)
+			b.Cleanup(s.dropItemColumns)
+
+			age := int64(0)
+			s.tickHopper(w, be, age)
+			b.ReportAllocs()
+			for b.Loop() {
 				age++
 				s.tickHopper(w, be, age)
 			}

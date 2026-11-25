@@ -141,7 +141,7 @@ func (t singleTarget) use(w *world.World, move containerMove) (moved bool) {
 func (t *pairTarget) use(w *world.World, move containerMove) (moved bool) {
 	t.bes[0].UseLive(func(right *world.BlockEntity) {
 		t.bes[1].UseLive(func(left *world.BlockEntity) {
-			moved = applyContainerMove(move, inventory.Compound{First: containerSlots(right, w), Second: containerSlots(left, w)}, right)
+			moved = applyContainerMove(move, doubleChestSlots(right, left, w), right)
 		})
 	})
 	return moved
@@ -461,12 +461,7 @@ func (s *Server) hopperSuck(w *world.World, self blockEntitySlots, gate *hopperG
 	if moved {
 		return true, above, false, nil, nil
 	}
-	if skipped || above != nil {
-		return false, nil, false, nil, nil
-	}
-
-	state := w.BlockAt(b.X, b.Y+1, b.Z)
-	if world.ContainerMouthBlock(state) || world.HopperBlockedBy(state, registry.CollisionShapeFull(state)) {
+	if skipped || above != nil || cache.MouthBlocked {
 		return false, nil, false, nil, nil
 	}
 	if !s.itemsOverColumn(w, b.X, b.Z) {
@@ -523,11 +518,11 @@ func (s *Server) notifyItemsAbsorbed(w *world.World, taken, shrunk []*itemEntity
 		s.entityDestroyed(it.uuid)
 	}
 	for _, it := range shrunk {
-		update := itemMetadataUpdate{it: it, metadata: itemMetadataPayload(it)}
-		for id := range it.tracked.all() {
-			update.watchers = append(update.watchers, id)
+		watchers := trackedWatchers(it.tracked)
+		if len(watchers) == 0 {
+			continue
 		}
-		updates = append(updates, update)
+		updates = append(updates, itemMetadataUpdate{it: it, metadata: itemMetadataPayload(it), watchers: watchers})
 	}
 	s.itemsMu.Unlock()
 
@@ -669,10 +664,13 @@ func (s *Server) dropItemColumns() {
 	s.itemsMu.Unlock()
 }
 
-// itemsOverColumn is false only when the index says no item reaches the column.
+// itemsOverColumn reports whether an item may reach the column.
 func (s *Server) itemsOverColumn(w *world.World, x, z int32) bool {
 	s.itemsMu.Lock()
 	defer s.itemsMu.Unlock()
+	if len(s.items) == 0 {
+		return false
+	}
 	idx := s.itemCols
 	if idx == nil || idx.w != w {
 		return true

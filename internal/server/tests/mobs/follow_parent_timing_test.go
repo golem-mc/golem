@@ -17,6 +17,7 @@ func TestCalfFollowTimingOnFlatGround(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name      string
+		minDist   bool
 		setup     []string
 		want      []sample
 		adultY    float64
@@ -51,10 +52,24 @@ func TestCalfFollowTimingOnFlatGround(t *testing.T) {
 				{45, 4.05961435, 1.08429801}, {90, 2.79711692, 1.08429801},
 			},
 		},
+		{
+			name:    "mounted adult with level motion",
+			minDist: true,
+			setup: []string{
+				`summon minecraft:pig -0.1 180 0.5 {OnGround:1b,Motion:[0.45d,0d,0d],Passengers:[{id:"minecraft:cow",NoAI:1b}]}`,
+				"summon minecraft:cow 8.85 180 0.5 {Age:-24000}",
+			},
+			adultY:    180.86874998,
+			firstNear: 0,
+			want:      []sample{{3, 8.85, 0.81928706}},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := servertest.MobTestConfig()
+			if tc.minDist {
+				cfg = tpGroundConfig()
+			}
 			cfg.LevelSeed = "823"
 			srv, _ := servertest.Join(t, cfg, "Watcher", func(s *server.Server) {
 				servertest.FreezeUntilHeld(t, s)

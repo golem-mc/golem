@@ -542,8 +542,9 @@ type Server struct {
 	mobsMu sync.Mutex
 	// waypointPass counts the locator bar passes; tick loop only.
 	waypointPass uint64
-	// waypointBuf is the locator bar pass's player list, reused across ticks.
-	waypointBuf []waypointPlayer
+	// The locator bar pass reuses its player list and changed receiver indices.
+	waypointBuf     []waypointPlayer
+	waypointChanged []int
 	// Mob tick scratch maps belong to the tick loop; no reader retains them
 	// after tickMobs returns.
 	mobTickKnown map[uuid.UUID]bool

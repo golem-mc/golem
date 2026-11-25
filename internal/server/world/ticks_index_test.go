@@ -1,12 +1,14 @@
 package world
 
 import (
+	"cmp"
 	"reflect"
+	"slices"
 	"testing"
 )
 
 // linearChunkTicks is chunkTicks without the index: every heap entry in slice
-// order, then the chunk's parked ones.
+// order, then the chunk's parked ones, in booking order.
 func linearChunkTicks(p *Physics, pos ChunkPos) chunkTicks {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -17,6 +19,9 @@ func linearChunkTicks(p *Physics, pos ChunkPos) chunkTicks {
 	for _, t := range p.parked[pos] {
 		p.collectTick(&out, pos, t)
 	}
+	bySeq := func(a, b savedTick) int { return cmp.Compare(a.seq, b.seq) }
+	slices.SortFunc(out.block, bySeq)
+	slices.SortFunc(out.fluid, bySeq)
 	return out
 }
 

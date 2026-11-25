@@ -501,7 +501,7 @@ func (p *Physics) tallPlantFits(x, y, z int32) bool {
 	if !registry.BlockOf(p.w.BlockAt(x, y-1, z)).InTag(registry.TagIDSupportsVegetation) {
 		return false
 	}
-	return p.airAt(x, y+1, z) && contains(y+1)
+	return p.airAt(x, y+1, z) && p.w.inBuildHeight(y+1)
 }
 
 // placeDoublePlant writes both halves with flag 2.

@@ -83,7 +83,6 @@ var registryNameAllowed = map[string]nameAllowance{
 	"internal/server/fangs.go: literal entity lookup":                               {count: 1, issue: 6380},
 	"internal/server/horse.go: string registry lookup":                              {count: 1, issue: 6380},
 	"internal/server/lightning.go: literal entity lookup":                           {count: 1, issue: 6380},
-	"internal/server/mobs.go: case on an entity name":                               {count: 1, issue: 6380},
 	"internal/server/mobs.go: string block lookup":                                  {count: 1, issue: 6380},
 	"internal/server/pluginregistries.go: string block lookup":                      {count: 1, boundary: "plugin registry key resolution"},
 	"internal/server/pluginregistries.go: string damage lookup":                     {count: 1, boundary: "plugin registry key resolution"},
