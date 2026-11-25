@@ -101,15 +101,94 @@ func canPickUp(c *client) bool {
 	return vitals.GameMode != protocol.GameModeSpectator && !vitals.Dead
 }
 
-// itemPickupCandidate finds the next eligible player in reach and keeps the
-// rest of the player snapshot for another touch if the item stays alive.
-func itemPickupCandidate(it *itemEntity, clients []*client, reach map[*client]entity.AABB) *itemPickup {
-	for i, c := range clients {
-		box, eligible := reach[c]
-		if !eligible || c.theWorld() != it.w || !it.item.AllowsPickup(c.player.UUID) || !box.Crosses(entity.NewAABB(it.item.BlastBox())) {
-			continue
+// pickupIndexDirect is the client count up to which the direct loop is
+// cheaper than indexing, and pickupIndexSpan the most 16-block cells a pickup
+// box may span on a horizontal axis before the pass skips the index.
+const (
+	pickupIndexDirect = 8
+	pickupIndexSpan   = 8
+)
+
+// pickupIndex answers which client claims an item, from the pickup boxes read
+// before the item lock. It is built once per pass; the client snapshot stays
+// with the caller, so the single-client pass allocates nothing.
+type pickupIndex struct {
+	reach []entity.AABB
+	// eligible is whether each client could pick items up when the index was
+	// built; ineligible ones are not filed in the grid.
+	eligible []bool
+	grid     entity.BoxGrid
+	// indexed is false when the pass walks clients directly.
+	indexed bool
+}
+
+var pickupIndexes = sync.Pool{New: func() any { return new(pickupIndex) }}
+
+// newPickupIndex reads every client's pickup box. It must be called with no
+// lock held; release the result.
+func newPickupIndex(clients []*client) *pickupIndex {
+	ix := pickupIndexes.Get().(*pickupIndex)
+	ix.reach, ix.eligible = ix.reach[:0], ix.eligible[:0]
+	for _, c := range clients {
+		ok := canPickUp(c)
+		ix.eligible = append(ix.eligible, ok)
+		box := entity.AABB{}
+		if ok {
+			box = c.pickupBox()
 		}
-		return &itemPickup{collector: c, entity: it, item: it.item.ID, remaining: clients[i+1:]}
+		ix.reach = append(ix.reach, box)
+	}
+	ix.build()
+	return ix
+}
+
+// build files the boxes in reach, unless there are few clients or a box is
+// too wide for the index to be bounded.
+func (ix *pickupIndex) build() {
+	ix.indexed = false
+	if len(ix.reach) <= pickupIndexDirect {
+		return
+	}
+	ix.grid.Reset()
+	for _, box := range ix.reach {
+		if ix.grid.SpansMore(box, pickupIndexSpan) {
+			return
+		}
+	}
+	for i, box := range ix.reach {
+		if ix.eligible[i] {
+			ix.grid.Add(int32(i), box)
+		}
+	}
+	ix.indexed = true
+}
+
+func (ix *pickupIndex) release() {
+	pickupIndexes.Put(ix)
+}
+
+// candidate returns the first client at or after index from in clients who
+// may claim the item now — alive, not a spectator, allowed by the item's
+// owner rule and within the pickup range — or nil for one nobody claims.
+// clients is the snapshot the index was built from.
+func (ix *pickupIndex) candidate(it *itemEntity, clients []*client, from int) *itemPickup {
+	box := entity.NewAABB(it.item.BlastBox())
+	ok := func(i int32) bool {
+		c := clients[i]
+		return int(i) >= from && ix.eligible[i] && c.theWorld() == it.w && it.item.AllowsPickup(c.player.UUID) && ix.reach[i].Crosses(box)
+	}
+	// A handoff resumes at the next index; the grid would revisit the clients
+	// already passed, so only the first lookup uses it.
+	if !ix.indexed || from > 0 {
+		for i := from; i < len(clients); i++ {
+			if ok(int32(i)) {
+				return &itemPickup{collector: clients[i], entity: it, item: it.item.ID, next: i + 1}
+			}
+		}
+		return nil
+	}
+	if i := ix.grid.First(box, ok); i >= 0 {
+		return &itemPickup{collector: clients[i], entity: it, item: it.item.ID, next: int(i) + 1}
 	}
 	return nil
 }
@@ -155,7 +234,8 @@ type itemPickup struct {
 	collector *client
 	entity    *itemEntity
 	item      int32
-	remaining []*client
+	// next is the client index the follow-up search for another toucher starts at.
+	next int
 }
 
 // itemMetadataUpdate is what one stack change owes the clients watching it:
@@ -213,14 +293,13 @@ func (s *Server) tickItems() {
 	// the player's lock.
 	where := make(map[*client]player.Position, len(clients))
 	radius := make(map[*client]int32, len(clients))
-	reach := make(map[*client]entity.AABB, len(clients))
 	for _, c := range clients {
 		where[c] = c.player.Position()
-		if canPickUp(c) {
-			reach[c] = c.pickupBox()
-		}
 		radius[c] = c.chunkRadius()
 	}
+
+	pickups := newPickupIndex(clients)
+	defer pickups.release()
 
 	near := nearbyFor(clients, func(c *client) trackingWatcher {
 		return trackingWatcher{c: c, x: where[c].X, z: where[c].Z, chunkRadius: radius[c]}
@@ -348,7 +427,7 @@ func (s *Server) tickItems() {
 			// A player's touch does not require the newborn item's own tick.
 			// vanilla: LivingEntity.tick, Player.aiStep, ItemEntity.playerTouch
 			if it.item.PickupDue() {
-				if p := itemPickupCandidate(it, clients, reach); p != nil {
+				if p := pickups.candidate(it, clients, 0); p != nil {
 					candidates = append(candidates, p)
 				}
 			}
@@ -450,7 +529,9 @@ func (s *Server) tickItems() {
 		}
 		claimed := false
 		if it.item.PickupDue() {
-			if p := itemPickupCandidate(it, clients, reach); p != nil {
+			if p := pickups.candidate(it, clients, 0); p != nil {
+				// The first player in range claims it; the pickup pass
+				// offers it on to the next if their inventory is full.
 				candidates = append(candidates, p)
 				claimed = true
 			}
@@ -534,7 +615,7 @@ func (s *Server) tickItems() {
 		s.finishItemTravel(tr.it, tr.kind)
 	}
 
-	s.giveItemPickups(candidates, reach)
+	s.giveItemPickups(candidates, pickups, clients)
 }
 
 // tickItemPickups runs one pass of the item pickups alone, the part of
@@ -545,36 +626,32 @@ func (s *Server) tickItemPickups() {
 	s.mu.RLock()
 	clients := s.clientsLocked()
 	s.mu.RUnlock()
-	reach := make(map[*client]entity.AABB, len(clients))
-	for _, c := range clients {
-		if canPickUp(c) {
-			reach[c] = c.pickupBox()
-		}
-	}
+	pickups := newPickupIndex(clients)
+	defer pickups.release()
 	var candidates []*itemPickup
 	s.lockTick(&s.itemsMu)
 	for _, it := range s.items {
 		if it.item.Dead || !it.item.PickupDue() {
 			continue
 		}
-		if p := itemPickupCandidate(it, clients, reach); p != nil {
+		if p := pickups.candidate(it, clients, 0); p != nil {
 			candidates = append(candidates, p)
 		}
 	}
 	s.unlockTick(&s.itemsMu)
-	s.giveItemPickups(candidates, reach)
+	s.giveItemPickups(candidates, pickups, clients)
 }
 
 // giveItemPickups lets each eligible player touch a drop until it is gone.
 // vanilla: Player.aiStep, ItemEntity.playerTouch
-func (s *Server) giveItemPickups(candidates []*itemPickup, reach map[*client]entity.AABB) {
+func (s *Server) giveItemPickups(candidates []*itemPickup, pickups *pickupIndex, clients []*client) {
 	for _, p := range candidates {
-		for p != nil && s.tryItemPickup(p) && len(p.remaining) != 0 {
-			it, remaining := p.entity, p.remaining
+		for p != nil && s.tryItemPickup(p) && p.next < len(clients) {
+			it, next := p.entity, p.next
 			p = nil
 			s.itemsMu.Lock()
 			if s.canClaimItemLocked(it) && it.item.PickupDue() {
-				p = itemPickupCandidate(it, remaining, reach)
+				p = pickups.candidate(it, clients, next)
 			}
 			s.itemsMu.Unlock()
 		}
@@ -656,16 +733,18 @@ func (s *Server) tryItemPickup(p *itemPickup) bool {
 	if count == 0 {
 		return remains
 	}
-	// The whole stack's count, even when part of it did not fit.
-	// vanilla: ItemEntity.playerTouch
-	c.awardItemStat(registry.StatTypePickedUp, given.ItemID, given.Count)
-
 	for _, slot := range slots {
 		c.send(protocol.IDPlayContainerSlot, slot)
 	}
 	if visible {
 		c.equipmentDue.Store(true)
 	}
+	// A partial insert is a failed add: no take, stat or advancement.
+	// vanilla: Inventory.add, ItemEntity.playerTouch
+	if left > 0 {
+		return remains
+	}
+	c.awardItemStat(registry.StatTypePickedUp, given.ItemID, given.Count)
 	s.itemsMu.Lock()
 	watchers := trackedWatchers(it.tracked)
 	s.itemsMu.Unlock()

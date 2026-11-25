@@ -96,7 +96,7 @@ func (p *Physics) repeaterCheckTickOnNeighbor(x, y, z int32, powered bool, delay
 	if powered == should {
 		return
 	}
-	if p.repeaterWillTick(x, y, z, p.now) {
+	if p.hasTickDueAt(blockKey{x, y, z}, p.now) {
 		return
 	}
 	delay *= 2
@@ -112,15 +112,6 @@ func (p *Physics) repeaterCheckTickOnNeighbor(x, y, z int32, powered bool, delay
 // repeaterDelayOf reads the repeater's delay property (1-4).
 func repeaterDelayOf(state uint16) int {
 	return max(stateIntOr(state, registry.PropDelay, 1), 1)
-}
-
-func (p *Physics) repeaterWillTick(x, y, z int32, tick int64) bool {
-	for _, t := range p.queue {
-		if t.pos.x == x && t.pos.y == y && t.pos.z == z && t.due == tick && !p.tickCancelled(t) {
-			return true
-		}
-	}
-	return false
 }
 
 // repeaterLocked reports a side diode strongly powering through its output.

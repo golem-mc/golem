@@ -31,7 +31,7 @@ func TestBodiesBelowTheWorldAreDiscarded(t *testing.T) {
 		{"bobber", func(y float64) bool {
 			b := NewBobber(1, 0, y, 0, 0, 0, 7, 3, 0, 0)
 			b.Y = y
-			b.Step(w, &BobberOwner{Fishing: true}, nil)
+			b.Step(w, &BobberOwner{Fishing: true}, nil, nil)
 			return b.Dead
 		}},
 	}

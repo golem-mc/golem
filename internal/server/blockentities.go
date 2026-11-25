@@ -1151,17 +1151,6 @@ func (b *furnaceBurn) advance(entity *world.BlockEntity) bool {
 	b.ran = true
 
 	input := entity.Slots[0]
-	result := registry.CookingMatch(entity.Kind.Name(), input)
-	// Smeltable: a recipe matches and the output is empty or the same item
-	// with room for one more.
-	var cooked protocol.ItemStack
-	if result != nil {
-		cooked = registry.CookingResult(result)
-	}
-	canSmelt := result != nil && (entity.Slots[2].Empty() ||
-		(entity.Slots[2].Same(cooked) &&
-			entity.Slots[2].Count+result.ResultCount <= registry.StackMaxStackSize(entity.Slots[2])))
-
 	lit := entity.LitRemaining > 0
 	b.litWas = lit
 	if lit {
@@ -1177,7 +1166,13 @@ func (b *furnaceBurn) advance(entity *world.BlockEntity) bool {
 	if lit || (hasFuel && hasIngredient) {
 		if !hasIngredient {
 			b.resetCook(entity)
-		} else if result != nil {
+		} else if result := registry.CookingMatchCached(entity.Kind.Name(), input, &entity.CookCheck); result != nil {
+			// Smeltable: a recipe matches and the output is empty or the same item
+			// with room for one more.
+			cooked := registry.CookingResult(result)
+			canSmelt := entity.Slots[2].Empty() ||
+				(entity.Slots[2].Same(cooked) &&
+					entity.Slots[2].Count+result.ResultCount <= registry.StackMaxStackSize(entity.Slots[2]))
 			if canSmelt {
 				if !lit {
 					burn, speed := fuelLot(entity.Kind, entity.Slots[1])

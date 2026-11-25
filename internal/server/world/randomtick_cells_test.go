@@ -12,14 +12,14 @@ func checkTickMask(t *testing.T, s *section) {
 		return
 	}
 	for i := range blocksPerSection {
-		if m.has(i) != randomlyTicking(s.at(i)) {
-			t.Fatalf("cell %d: mask=%v state=%d", i, m.has(i), s.at(i))
+		if m.ticks(i) != randomlyTicking(s.at(i)) {
+			t.Fatalf("cell %d: mask=%v state=%d", i, m.ticks(i), s.at(i))
 		}
 	}
 }
 
 // builtMask builds the mask under the section's read-lock contract.
-func builtMask(t *testing.T, s *section) *cellMask {
+func builtMask(t *testing.T, s *section) *randomTickMask {
 	t.Helper()
 	m := s.tickCells(s.blocks.Load())
 	checkTickMask(t, s)

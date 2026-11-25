@@ -190,7 +190,7 @@ func applyMobTag(m *entity.Mob, ent *mobEntity, compound nbt.Compound) {
 	m.Pitch = pitch
 	m.SetLoadedYaw(yaw)
 	if onGround, ok := nbt.ByteField(compound, "OnGround"); ok {
-		m.OnGround = onGround != 0
+		m.OnGround, m.GroundGuess = onGround != 0, false
 	}
 	// A nil *world.World must remain nil through the entity.World interface.
 	var w entity.World

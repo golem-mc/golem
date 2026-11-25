@@ -362,3 +362,32 @@ func TestABrokenLodestoneClearsTheCompassTarget(t *testing.T) {
 	}
 	c.Disconnect()
 }
+
+// TestOnlyCompassTicksLodestoneTracker checks that a stick carrying a tracker
+// to an air block keeps it, while a compass loses its target.
+// vanilla: Item.inventoryTick, CompassItem.inventoryTick
+func TestOnlyCompassTicksLodestoneTracker(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), "Wanderer")
+	servertest.HoldTicks(t, srv)
+	tracker := protocol.LodestoneTracker{
+		Target:  &protocol.LodestoneTarget{Dimension: "minecraft:overworld", X: 2, Y: 64, Z: 1},
+		Tracked: true,
+	}
+	stick := servertest.ItemStack(t, "minecraft:stick", 1)
+	stick.SetLodestoneTracker(tracker)
+	compass := servertest.ItemStack(t, "minecraft:compass", 1)
+	compass.SetLodestoneTracker(tracker)
+	srv.GiveSlot("Wanderer", player.HotbarSlot, stick)
+	srv.GiveSlot("Wanderer", player.HotbarSlot+1, compass)
+
+	servertest.RunTicks(t, srv, 1)
+	if got := srv.InventorySlot("Wanderer", player.HotbarSlot); !got.Equal(stick) {
+		t.Errorf("stick = %+v, want it unchanged %+v", got, stick)
+	}
+	cleared := clearedLodestoneCompass(t, 1)
+	if got := srv.InventorySlot("Wanderer", player.HotbarSlot+1); !got.Equal(cleared) {
+		t.Errorf("compass = %+v, want %+v", got, cleared)
+	}
+	c.Disconnect()
+}

@@ -1,6 +1,7 @@
 package world
 
 import (
+	"math/bits"
 	"slices"
 
 	"github.com/golem-mc/golem/registry"
@@ -234,7 +235,6 @@ func (p *Physics) RandomTick(gameTime int64, chunks []ChunkPos, speed, maxSnowHe
 
 	var changes []BlockChange
 	var decays []Decay
-	var sectionBuf [sectionCount]int32
 	// The world's read lock is held through the loop, released only around a
 	// precipitation or landed-die visit, which may write.
 	p.w.mu.RLock()
@@ -251,24 +251,21 @@ func (p *Physics) RandomTick(gameTime int64, chunks []ChunkPos, speed, maxSnowHe
 			p.tickPrecipitation(x, z, int32(maxSnowHeight), &changes)
 			p.w.mu.RLock()
 		}
-		// A chunk gone in a gap of the lock reads as air for its remaining
-		// dice, which are still thrown so the stream stays aligned.
-		sections := sectionBuf[:0]
+		// Keep the selection through visits that may write or unload the chunk.
+		// A chunk gone in a gap of the lock reads as air for its remaining dice.
+		var sections uint32
 		var c *Chunk
 		if loaded, ok := p.w.loadedAt(pos); ok {
 			c = loaded.chunk
-			for i := range c.sections {
-				if c.sections[i].ticking > 0 {
-					sections = append(sections, int32(i))
-				}
-			}
+			sections = c.randomTickSections
 		}
-		for _, si := range sections {
-			baseY := worldMinY + si*sectionSize
+		for ; sections != 0; sections &= sections - 1 {
+			si := bits.TrailingZeros32(sections)
+			baseY := worldMinY + int32(si)*sectionSize
 			// A view is valid only until the read lock is dropped for a visit.
 			// mask is nil for a section with every cell ticking (all) or
 			// none, or whose mask is not built.
-			read := func() (blocks *blockWords, fill uint16, mask *cellMask, all bool) {
+			read := func() (blocks *blockWords, fill uint16, mask *randomTickMask, all bool) {
 				if c == nil {
 					return nil, airState, nil, false
 				}
@@ -280,7 +277,7 @@ func (p *Physics) RandomTick(gameTime int64, chunks []ChunkPos, speed, maxSnowHe
 			for range speed {
 				x, y, z := p.blockRandomPos(pos.X*sectionSize, baseY, pos.Z*sectionSize)
 				i := int((y&15)*256 + (z&15)*16 + x&15)
-				if mask != nil && !mask.has(i) {
+				if mask != nil && !mask.ticks(i) {
 					continue // the die landed on nothing that ticks
 				}
 				state := fill

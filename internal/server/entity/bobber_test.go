@@ -53,13 +53,13 @@ func TestAFlightIntoWaterTurnsToBobbing(t *testing.T) {
 	b := NewBobber(1, 0, 66, 0, 0, 50, 7, 3, 0, 0)
 	// Two ticks of flight stand the hook in the pool's cell; the tick
 	// after them takes the state.
-	b.Step(w, &BobberOwner{Fishing: true}, nil)
-	b.Step(w, &BobberOwner{Fishing: true}, nil)
+	b.Step(w, &BobberOwner{Fishing: true}, nil, nil)
+	b.Step(w, &BobberOwner{Fishing: true}, nil, nil)
 	if b.State != BobberFlying {
 		t.Fatalf("after two ticks of flight the hook is %v, want the still-flying", b.State)
 	}
 	vx0, vy0, vz0 := b.VX, b.VY, b.VZ
-	b.Step(w, &BobberOwner{Fishing: true}, nil)
+	b.Step(w, &BobberOwner{Fishing: true}, nil, nil)
 	if b.State != BobberBobbing {
 		t.Fatalf("the hook that entered the water is %v, want the bobbing", b.State)
 	}
@@ -89,7 +89,7 @@ func TestABittenHookOpensTheNibbleWindow(t *testing.T) {
 	}
 	b := NewBobber(1, 0, 66, 0, 0, 50, 7, 3, 0, 0)
 	for range 4 {
-		b.Step(w, &BobberOwner{Fishing: true}, nil)
+		b.Step(w, &BobberOwner{Fishing: true}, nil, nil)
 	}
 	if b.State != BobberBobbing {
 		t.Fatalf("the hook never reached its water, state %v", b.State)
@@ -101,7 +101,7 @@ func TestABittenHookOpensTheNibbleWindow(t *testing.T) {
 	// is fixed, so the window's roll is the same want every run.
 	b.TimeUntilLured = 0
 	b.TimeUntilHooked = 1
-	events := b.Step(w, &BobberOwner{Fishing: true}, nil)
+	events := b.Step(w, &BobberOwner{Fishing: true}, nil, nil)
 	var bite *BobberEvent
 	for i := range events {
 		if events[i].Kind == BobberBite {
@@ -125,7 +125,7 @@ func TestABittenHookOpensTheNibbleWindow(t *testing.T) {
 	// end; the next water's countdowns begin over, the lured wait rolled
 	// fresh for the fish that comes after.
 	for range 100 {
-		b.Step(w, &BobberOwner{Fishing: true}, nil)
+		b.Step(w, &BobberOwner{Fishing: true}, nil, nil)
 		if b.Nibble == 0 {
 			break
 		}
@@ -133,7 +133,7 @@ func TestABittenHookOpensTheNibbleWindow(t *testing.T) {
 	if b.Biting {
 		t.Error("the flag stayed past the window's end")
 	}
-	b.Step(w, &BobberOwner{Fishing: true}, nil)
+	b.Step(w, &BobberOwner{Fishing: true}, nil, nil)
 	if b.TimeUntilLured <= 0 {
 		t.Error("the water rolled no fresh lured wait after the bite")
 	}
@@ -152,7 +152,7 @@ func TestABiteDipsTheBobber(t *testing.T) {
 	}
 	b := NewBobber(1, 0, 66, 0, 0, 50, 7, 3, 0, 0)
 	for range 4 {
-		b.Step(w, &BobberOwner{Fishing: true}, nil)
+		b.Step(w, &BobberOwner{Fishing: true}, nil, nil)
 	}
 	if b.State != BobberBobbing {
 		t.Fatalf("the hook never reached its water, state %v", b.State)
@@ -160,7 +160,7 @@ func TestABiteDipsTheBobber(t *testing.T) {
 	b.X, b.Z, b.VX, b.VY, b.VZ = 0, 0, 0, 0, 0
 	b.TimeUntilLured = 0
 	b.TimeUntilHooked = 1
-	b.Step(w, &BobberOwner{Fishing: true}, nil)
+	b.Step(w, &BobberOwner{Fishing: true}, nil, nil)
 	if !b.Biting {
 		t.Fatal("the wound hook never bit")
 	}
@@ -180,7 +180,7 @@ func TestAFlightHooksTheBodyItMeets(t *testing.T) {
 	target := ArrowTarget{EntityID: 9, MinX: -0.5, MinY: 63, MinZ: 0.5, MaxX: 0.5, MaxY: 64.9, MaxZ: 1.5}
 	owner := &BobberOwner{Fishing: true}
 	vz1 := b.VZ
-	events := b.Step(w, owner, []ArrowTarget{target})
+	events := b.Step(w, owner, nil, []ArrowTarget{target})
 	if len(events) != 1 || events[0].Kind != BobberHitTarget || events[0].Z != target.MinZ {
 		t.Fatalf("hook events = %+v, want a body hit at z=%v", events, target.MinZ)
 	}
@@ -191,7 +191,7 @@ func TestAFlightHooksTheBodyItMeets(t *testing.T) {
 	if !closeEnough(b.Z, 0.3+vz1) {
 		t.Errorf("the striking tick left the hook at z=%v, want the flight's own %v", b.Z, 0.3+vz1)
 	}
-	b.Step(w, owner, []ArrowTarget{target})
+	b.Step(w, owner, &target, nil)
 	if b.State != BobberHookedInEntity {
 		t.Fatalf("the hook that took a body is %v, want the riding state", b.State)
 	}
@@ -199,12 +199,12 @@ func TestAFlightHooksTheBodyItMeets(t *testing.T) {
 		t.Errorf("the riding hook keeps a flight of (%v %v %v), want the zeroed", b.VX, b.VY, b.VZ)
 	}
 	// The next tick rides the body: its own place, at the height's 0.8.
-	b.Step(w, owner, []ArrowTarget{target})
+	b.Step(w, owner, &target, nil)
 	if !closeEnough(b.X, 0) || !closeEnough(b.Y, 63+0.8*(64.9-63)) || !closeEnough(b.Z, 1) {
 		t.Errorf("the riding hook stands at (%v %v %v), want the body's own place at its height's 0.8", b.X, b.Y, b.Z)
 	}
 	// The body gone: unhooked, flying again.
-	b.Step(w, owner, nil)
+	b.Step(w, owner, nil, nil)
 	if b.State != BobberFlying || b.HookedID != 0 {
 		t.Fatalf("the hook whose body left is state %v hooking %d, want the flying free", b.State, b.HookedID)
 	}
@@ -216,17 +216,17 @@ func TestAFlightHooksTheBodyItMeets(t *testing.T) {
 func TestTheHookLeavesWithItsAngler(t *testing.T) {
 	w := newTestWorld()
 	b := NewBobber(1, 0, 64, 0, 0, 0, 7, 3, 0, 0)
-	if events := b.Step(w, nil, nil); !b.Dead || events != nil {
+	if events := b.Step(w, nil, nil, nil); !b.Dead || events != nil {
 		t.Fatalf("an anglerless hook stepped to dead=%v with %#v, want the discard untold", b.Dead, events)
 	}
 
 	b = NewBobber(1, 0, 64, 0, 0, 0, 7, 3, 0, 0)
-	if events := b.Step(w, &BobberOwner{Fishing: false}, nil); !b.Dead || events != nil {
+	if events := b.Step(w, &BobberOwner{Fishing: false}, nil, nil); !b.Dead || events != nil {
 		t.Fatalf("an unheld hook stepped to dead=%v with %#v, want the discard untold", b.Dead, events)
 	}
 
 	b = NewBobber(1, 0, 64, 0, 0, 0, 7, 3, 0, 0)
-	if events := b.Step(w, &BobberOwner{Fishing: true}, nil); b.Dead || events != nil {
+	if events := b.Step(w, &BobberOwner{Fishing: true}, nil, nil); b.Dead || events != nil {
 		t.Fatalf("a held hook stepped to dead=%v with %#v, want the flight carried on", b.Dead, events)
 	}
 }

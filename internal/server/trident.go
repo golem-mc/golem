@@ -110,7 +110,7 @@ func (c *client) releaseTrident(hand int32, held protocol.ItemStack, strength fl
 			heldSlot = bowFind{slot: slot, stack: inv.Slots[slot]}
 		})
 		if !heldSlot.stack.Empty() {
-			c.consumeAmmo(heldSlot)
+			c.consumeAmmo(heldSlot, 1)
 		}
 	}
 

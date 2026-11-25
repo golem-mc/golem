@@ -108,3 +108,36 @@ func TestBoxGridAddPoint(t *testing.T) {
 		}
 	}
 }
+
+func TestBoxGridFirstAndSpansMore(t *testing.T) {
+	var g BoxGrid
+	// Index 0 sits in the far cell, 1 and 2 in the near one.
+	g.Add(0, NewAABB(40, 0, 0, 41, 1, 1))
+	g.Add(1, NewAABB(10, 0, 0, 20, 1, 1))
+	g.Add(2, NewAABB(10, 0, 0, 20, 1, 1))
+	query := NewAABB(0, 0, 0, 50, 1, 1)
+	var calls []int32
+	got := g.First(query, func(i int32) bool { calls = append(calls, i); return i >= 1 })
+	if got != 1 {
+		t.Fatalf("First = %d, want 1", got)
+	}
+	// Both buckets hold eligible indices and the lowest is in the later one.
+	if got := g.First(query, func(i int32) bool { return i <= 1 }); got != 0 {
+		t.Fatalf("First = %d, want the lowest index 0", got)
+	}
+	if g.First(query, func(int32) bool { return false }) != -1 {
+		t.Fatal("First found a match where none holds")
+	}
+	if g.First(NewAABB(100, 0, 100, 101, 1, 101), func(int32) bool { return true }) != -1 {
+		t.Fatal("First found an index in an empty cell")
+	}
+	if g.SpansMore(NewAABB(0, 0, 0, 47, 1, 1), 3) {
+		t.Error("three cells reported as more than three")
+	}
+	if !g.SpansMore(NewAABB(0, 0, 0, 48, 1, 1), 3) {
+		t.Error("four cells not reported as more than three")
+	}
+	if !g.SpansMore(NewAABB(0, 0, 0, 1, 1, 48), 3) {
+		t.Error("four cells in z not reported")
+	}
+}
