@@ -14,39 +14,9 @@ import (
 // stack in and a right click gives a stored stack back.
 // vanilla: BundleItem.overrideStackedOnOther, overrideOtherStackedOnMe
 
-// isBundle reports whether the stack is one of the bundle items.
+// isBundle reports whether the stack is one of the bundles.
 func isBundle(stack protocol.ItemStack) bool {
 	return rules.IsBundle(stack.ItemID)
-}
-
-// bundleWeight is an item's weight and whether a bundle takes it:
-// 1/maxStackSize, a nested bundle 1/16 plus its own weight, a stack with bees
-// inside a whole bundle, and a shulker box (which may not sit in a container)
-// not at all. A bundle holds weight 1.
-// vanilla: BundleContents.getWeight
-func bundleWeight(stack protocol.ItemStack) (*big.Rat, bool) {
-	if stack.Empty() || isShulkerBoxItem(stack) {
-		return nil, false
-	}
-	if isBundle(stack) && !stack.Removes(protocol.DataComponentBundleContents) {
-		inner := bundleItemsWeight(stack.BundleContents())
-		return inner.Add(inner, big.NewRat(1, 16)), true
-	}
-	if bees, ok := stack.BeesOf(); ok && len(bees) > 0 {
-		return big.NewRat(1, 1), true
-	}
-	return big.NewRat(1, int64(registry.StackMaxStackSize(stack))), true
-}
-
-// bundleItemsWeight is what a bundle's stored stacks weigh together.
-func bundleItemsWeight(items []protocol.ItemStack) *big.Rat {
-	total := new(big.Rat)
-	for _, item := range items {
-		if weight, ok := bundleWeight(item); ok {
-			total.Add(total, weight.Mul(weight, big.NewRat(int64(item.Count), 1)))
-		}
-	}
-	return total
 }
 
 // bundleMaxAdd is how many items of the given weight fit in a bundle already
@@ -65,11 +35,11 @@ func bundleMaxAdd(weight, itemWeight *big.Rat) int32 {
 // the count inserted.
 // vanilla: BundleContents.Mutable.tryInsert
 func bundleInsert(items []protocol.ItemStack, stack protocol.ItemStack) ([]protocol.ItemStack, int32) {
-	itemWeight, ok := bundleWeight(stack)
-	if !ok {
+	itemWeight, ok := rules.BundleItemWeight(stack)
+	if !ok || !rules.BundleAccepts(stack) {
 		return items, 0
 	}
-	amount := min(stack.Count, bundleMaxAdd(bundleItemsWeight(items), itemWeight))
+	amount := min(stack.Count, bundleMaxAdd(rules.BundleItemsWeight(items), itemWeight))
 	if amount <= 0 {
 		return items, 0
 	}
@@ -110,14 +80,14 @@ func bundleStackedOnOther(s *Session, view View, inv *player.Inventory, button, 
 			outcome.BundleSounds = append(outcome.BundleSounds, registry.SoundItemBundleInsertFail)
 			return true
 		}
-		itemWeight, ok := bundleWeight(other)
+		itemWeight, ok := rules.BundleItemWeight(other)
 		// A bundle refusing the stack, or full, leaves both in place rather
 		// than trading; the click is still the bundle's.
-		if !ok {
+		if !ok || !rules.BundleAccepts(other) {
 			outcome.BundleSounds = append(outcome.BundleSounds, registry.SoundItemBundleInsertFail)
 			return true
 		}
-		amount := min(other.Count, bundleMaxAdd(bundleItemsWeight(s.Carried.BundleContents()), itemWeight))
+		amount := min(other.Count, bundleMaxAdd(rules.BundleItemsWeight(s.Carried.BundleContents()), itemWeight))
 		// vanilla: Slot.tryRemove refuses a partial take without allowModification.
 		if amount < other.Count && !view.placeable(slot, other) {
 			amount = 0

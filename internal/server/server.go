@@ -494,6 +494,10 @@ type Server struct {
 	// another goroutine can win. s.mu guards it, as the tick reads it each pass.
 	playerTrackSeam func()
 
+	// corpseExpirySeam runs after the tick finds a corpse due for removal.
+	// s.mu guards it.
+	corpseExpirySeam func()
+
 	// playerSendSeam, test-only, opens the window in the tracking pass between
 	// deciding a pairing and sending it, which a step on another goroutine can
 	// win. s.mu guards it, as the tick reads it each pass.
@@ -538,8 +542,9 @@ type Server struct {
 	mobsMu sync.Mutex
 	// waypointPass counts the locator bar passes; tick loop only.
 	waypointPass uint64
-	// waypointBuf is the locator bar pass's player list, reused across ticks.
-	waypointBuf []waypointPlayer
+	// The locator bar pass reuses its player list and changed receiver indices.
+	waypointBuf     []waypointPlayer
+	waypointChanged []int
 	// Mob tick scratch maps belong to the tick loop; no reader retains them
 	// after tickMobs returns.
 	mobTickKnown map[uuid.UUID]bool
@@ -1204,6 +1209,11 @@ type respawnPos struct {
 
 // client is a connection and its state from handshake to play.
 type client struct {
+	// compassProbe is the lodestone tick's scratch, reused across ticks.
+	compassProbe lodestoneProbe
+	// compassRead, when set, runs between the compass tick's saved-chunk read
+	// and its write, for a test to interleave a dimension change.
+	compassRead func()
 	// effectCause is what the caller names for the next effect change.
 	effectCause    effect.Cause
 	statusProtocol int // handshake protocol for the server-list callback
@@ -1404,8 +1414,8 @@ type client struct {
 	// respawn clears it on their own goroutines, so it is atomic.
 	awaitingRespawn atomic.Bool
 
-	// deathTicks counts ticks a dead body has lain; bodyGone is set once past
-	// corpseTicks and gone from watchers. The respawn clears both.
+	// deathTicks counts ticks a dead body has lain. The tick ages and removes
+	// it under trackMu, which respawn takes to claim and clear the corpse.
 	// vanilla: LivingEntity.deathTime
 	deathTicks atomic.Int32
 	// deathKeeps is the last death's keep decision, taken by the respawn.

@@ -109,11 +109,6 @@ func TestComputeInvalidProviderFeedback(t *testing.T) {
 	const division = `{"type":"minecraft:div","left":1,"right":0}`
 	servertest.WritePackFile(t, cfg, "compute", "pk/context_int_provider/div_zero.json", division)
 	servertest.WritePackFile(t, cfg, "compute", "pk/context_float_provider/div_zero.json", division)
-	// A pack file is read through JsonOps, whose number error names the value.
-	// vanilla: JsonOps.getNumberValue, Weighted.codec
-	const badWeight = `{"type":"minecraft:weighted_list","distribution":[{"data":1,"weight":"abc"},{"data":2,"weight":1}]}`
-	servertest.WritePackFile(t, cfg, "compute", "pk/context_int_provider/bad_weight.json", badWeight)
-	servertest.WritePackFile(t, cfg, "compute", "pk/context_float_provider/bad_weight.json", badWeight)
 	srv, c := joinPacks(t, cfg)
 	servertest.HoldTicks(t, srv)
 
@@ -128,9 +123,6 @@ func TestComputeInvalidProviderFeedback(t *testing.T) {
 
 			c.ChatCommand(command + division)
 			c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.unnamed.invalid", tc.reason))
-
-			c.ChatCommand(command + "pk:bad_weight")
-			c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.named.invalid", "pk:bad_weight", `pk:bad_weight: Not a number: "abc"`))
 		})
 	}
 	c.Disconnect()

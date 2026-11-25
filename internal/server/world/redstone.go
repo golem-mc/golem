@@ -416,7 +416,7 @@ func (p *Physics) redstoneNeighborChanged(x, y, z int32, state uint16, changes *
 		p.wireUpdatePower(x, y, z, changes)
 	case reactTorch:
 		lit := registry.StateLit(cur)
-		if lit == p.torchShouldBeLit(x, y, z, registry.BlockOf(cur), cur) && !p.torchWillTick(x, y, z) {
+		if lit == p.torchShouldBeLit(x, y, z, registry.BlockOf(cur), cur) && !p.hasTickDueAt(blockKey{x, y, z}, p.now) {
 			p.schedulePriority(x, y, z, p.now+torchTickDelay, tickPriorityNormal)
 		}
 	case reactRail:

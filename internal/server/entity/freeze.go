@@ -204,8 +204,12 @@ func (m *Mob) inRain(w World) bool { return rainLandsOn(w, m.X, m.Y, m.Z, m.heig
 // vanilla: Entity.isInRain, Level.isRainingAt
 func rainLandsOn(w World, bx, by, bz, height float64) bool {
 	x, z := int32(math.Floor(bx)), int32(math.Floor(bz))
-	return w.RainingAt(x, int32(math.Floor(by)), z) ||
-		w.RainingAt(x, int32(math.Floor(by+height)), z)
+	feetY := int32(math.Floor(by))
+	if w.RainingAt(x, feetY, z) {
+		return true
+	}
+	topY := int32(math.Floor(by + height))
+	return topY != feetY && w.RainingAt(x, topY, z)
 }
 
 // collideCtx is what powder snow's collision reads of this body: its fall,

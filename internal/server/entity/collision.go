@@ -57,6 +57,11 @@ type collideCtx struct {
 	lavaWalker bool
 	// noBorder is a move without a body, which the world border does not stop.
 	noBorder bool
+	// feetY, when feet is set, is the body's Y for context-dependent shapes
+	// (scaffolding) instead of the queried box's lower edge.
+	// vanilla: EntityCollisionContext.isAbove
+	feetY float64
+	feet  bool
 	// borders is set once the world border's walls for this move are in
 	// walls; clipMove computes them itself otherwise.
 	borders   bool
@@ -253,6 +258,9 @@ func clipMove(w World, c collideCtx, b AABB, axis int, d float64) (AABB, float64
 		}
 		if d > 0 && hi[axis] <= oLo[axis] {
 			gap := oLo[axis] - hi[axis]
+			if gap < allowed-physicsEpsilon {
+				obstacleTop = math.Inf(-1)
+			}
 			if gap < allowed {
 				allowed = gap
 			}
@@ -261,6 +269,9 @@ func clipMove(w World, c collideCtx, b AABB, axis int, d float64) (AABB, float64
 			}
 		} else if d < 0 && lo[axis] >= oHi[axis] {
 			gap := oHi[axis] - lo[axis]
+			if gap > allowed+physicsEpsilon {
+				obstacleTop = math.Inf(-1)
+			}
 			if gap > allowed {
 				allowed = gap
 			}
@@ -296,11 +307,13 @@ func clipMove(w World, c collideCtx, b AABB, axis int, d float64) (AABB, float64
 			coreLo[k], coreHi[k] = int32(math.Floor(lo[k])), int32(math.Floor(hi[k]))
 		}
 	}
+	// A plain shape is checked against the core only, so the core is cut to
+	// the cells read.
+	coreLo[0], coreHi[0] = max(coreLo[0], x0), min(coreHi[0], x1)
+	coreLo[1], coreHi[1] = max(coreLo[1], y0), min(coreHi[1], y1)
+	coreLo[2], coreHi[2] = max(coreLo[2], z0), min(coreHi[2], z1)
 	for _, cell := range cells.cells {
 		x, y, z, state := cell.X, cell.Y, cell.Z, cell.State
-		if x < x0 || x > x1 || y < y0 || y > y1 || z < z0 || z > z1 {
-			continue
-		}
 		if cell.Plain {
 			if y < coreLo[1] || y > coreHi[1] || x < coreLo[0] || x > coreHi[0] || z < coreLo[2] || z > coreHi[2] {
 				continue
@@ -309,6 +322,9 @@ func clipMove(w World, c collideCtx, b AABB, axis int, d float64) (AABB, float64
 			for _, s := range blockBoxes(state) {
 				stop([3]float64{fx + s.MinX, fy + s.MinY, fz + s.MinZ}, [3]float64{fx + s.MaxX, fy + s.MaxY, fz + s.MaxZ})
 			}
+			continue
+		}
+		if x < x0 || x > x1 || y < y0 || y > y1 || z < z0 || z > z1 {
 			continue
 		}
 		boxes := cellBoxes(w, c, state, x, y, z, b.minY)
@@ -450,12 +466,16 @@ func overlapsSolid(w World, c collideCtx, b AABB) bool {
 	defer cellScratch.Put(scratch)
 	cells := w.BlocksIn(x0, y0, z0, x1, y1, z1, *scratch)
 	*scratch = cells
+	bottom := b.minY
+	if c.feet {
+		bottom = c.feetY
+	}
 	i := 0
 	for x := x0; x <= x1; x++ {
 		for y := y0; y <= y1; y++ {
 			for z := z0; z <= z1; z, i = z+1, i+1 {
 				state := cells[i]
-				boxes := cellBoxes(w, c, state, x, y, z, b.minY)
+				boxes := cellBoxes(w, c, state, x, y, z, bottom)
 				if len(boxes) == 0 {
 					continue
 				}

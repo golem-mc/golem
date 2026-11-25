@@ -138,3 +138,27 @@ func TestAnOpeningShellDoesNotShoveItsOwnVehicle(t *testing.T) {
 		})
 	}
 }
+
+// TestAShovedMobStepsOntoALowHullBesideAParkedGhast: a pig shoved toward a
+// shell whose top is within a step steps onto it though a tall body stands
+// just beyond, which a stale step-up top from the farther hull would forbid.
+// vanilla: Shulker.onPeekAmountChange, Entity.collide
+func TestAShovedMobStepsOntoALowHullBesideAParkedGhast(t *testing.T) {
+	t.Parallel()
+	srv, _ := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
+	servertest.HoldTicks(t, srv)
+	// The pig stands on a slab, half a block below the neighbour shell's top.
+	srv.RunLine(`setblock 1 99 0 stone_slab`)
+	srv.RunLine(`setblock -1 100 0 stone`)
+	srv.RunLine(`setblock 2 98 0 stone`)
+	srv.RunLine(`summon shulker 0.5 100 0.5 {AttachFace:4b,Peek:100b,NoAI:1b}`)
+	srv.RunLine(`summon shulker 2.5 99 0.5 {AttachFace:0b,NoAI:1b}`)
+	srv.RunLine(`summon happy_ghast 5.2 99 0.5 {NoAI:1b}`)
+	srv.RunLine(`summon pig 1.46 99.5 0.5`)
+	pig := srv.MobIDsOfKind("minecraft:pig")[0]
+	servertest.RunTicks(t, srv, 12)
+	x, y, _, _ := srv.MobPos(pig)
+	if x <= 1.46 || y < 99.9 {
+		t.Errorf("pig at (%v, %v) after twelve ticks, want shoved east and standing on the shell (y 100)", x, y)
+	}
+}

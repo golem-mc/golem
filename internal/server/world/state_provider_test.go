@@ -13,6 +13,13 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
+func TestWorldRejectsLegacySimpleStateProvider(t *testing.T) {
+	_, err := NewStateProviderPicker(parseJSON(`{"type":"minecraft:simple_state_provider","state":{"id":"minecraft:sand"}}`), 0)
+	if err == nil || !strings.Contains(err.Error(), "unhandled state provider \"simple_state_provider\"") {
+		t.Fatalf("provider compile error = %v, want the unknown provider type", err)
+	}
+}
+
 func TestStateProviderGolden(t *testing.T) {
 	t.Parallel()
 	f, err := os.Open("testdata/state_provider_golden.txt")

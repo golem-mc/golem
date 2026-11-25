@@ -180,6 +180,9 @@ func (s *Server) tellEffectFrom(w *world.World, user *client, e world.Effect) {
 		}
 		ctx.Affected = e.GameEventAffected
 		s.gameEvent(w, e.GameEvent, float64(e.X)+0.5, float64(e.Y)+0.5, float64(e.Z)+0.5, ctx)
+		if e.GameEvent == registry.GameEventNoteBlockPlay {
+			s.allaysHearNote(w, e.X, e.Y, e.Z) // vanilla: Allay.VibrationUser
+		}
 	}
 	if v := e.ListenerEvent; v != nil {
 		source := v.Player
@@ -218,9 +221,6 @@ func (s *Server) tellEffectFrom(w *world.World, user *client, e world.Effect) {
 		if e.BlockActionBlock == protocol.BlockBell && e.BlockAction == 1 {
 			s.villagersHearBell(w, e.X, e.Y, e.Z)
 			s.bellRung(w, e.X, e.Y, e.Z)
-		}
-		if e.BlockActionBlock == protocol.BlockNoteBlock {
-			s.allaysHearNote(w, e.X, e.Y, e.Z)
 		}
 		// vanilla: ServerLevel.runBlockEvents
 		var b protocol.Buffer

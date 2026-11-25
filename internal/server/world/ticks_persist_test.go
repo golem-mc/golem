@@ -1,6 +1,7 @@
 package world
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
@@ -10,6 +11,12 @@ import (
 // around the origin held and a fresh physics engine.
 func reopenWorld(t *testing.T, w *World, dir string) (*World, *Physics) {
 	t.Helper()
+	return reopenWorldAround(t, w, dir, -1, 2)
+}
+
+// reopenWorldAround is reopenWorld holding chunks lo..hi on each axis.
+func reopenWorldAround(t *testing.T, w *World, dir string, lo, hi int32) (*World, *Physics) {
+	t.Helper()
 	w.Save()
 	w.Close()
 	w2, err := NewWorld(dir, NewFlatGenerator())
@@ -17,8 +24,8 @@ func reopenWorld(t *testing.T, w *World, dir string) (*World, *Physics) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	t.Cleanup(func() { w2.Close() })
-	for cx := int32(-1); cx <= 2; cx++ {
-		for cz := int32(-1); cz <= 2; cz++ {
+	for cx := lo; cx <= hi; cx++ {
+		for cz := lo; cz <= hi; cz++ {
 			w2.Acquire(ChunkPos{X: cx, Z: cz})
 		}
 	}
@@ -27,14 +34,20 @@ func reopenWorld(t *testing.T, w *World, dir string) (*World, *Physics) {
 
 func newSavedWorld(t *testing.T) (*World, *Physics, string) {
 	t.Helper()
+	return newSavedWorldAround(t, -1, 2)
+}
+
+// newSavedWorldAround is newSavedWorld holding chunks lo..hi on each axis.
+func newSavedWorldAround(t *testing.T, lo, hi int32) (*World, *Physics, string) {
+	t.Helper()
 	t.Parallel()
 	dir := t.TempDir()
 	w, err := NewWorld(dir, NewFlatGenerator())
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	for cx := int32(-1); cx <= 2; cx++ {
-		for cz := int32(-1); cz <= 2; cz++ {
+	for cx := lo; cx <= hi; cx++ {
+		for cz := lo; cz <= hi; cz++ {
 			w.Acquire(ChunkPos{X: cx, Z: cz})
 		}
 	}
@@ -192,4 +205,269 @@ func fallsAfterReload(t *testing.T, waterlogged bool) int {
 		falls += len(f)
 	}
 	return falls
+}
+
+// soilTickRow books, at z, a farmland tick at x=8 whose cell a dirt path then
+// replaces, a path tick at VERY_HIGH at x=9, one at VERY_LOW (the piston
+// landing's old priority) at x=10, and a plain one at x=11; all are due at 5.
+func soilTickRow(w *World, p *Physics, z int32) {
+	const y = GroundLevel
+	w.SetBlock(8, y, z, registry.BlockFarmland.DefaultState())
+	for x := int32(9); x <= 11; x++ {
+		w.SetBlock(x, y, z, registry.BlockDirtPath.DefaultState())
+	}
+	p.mu.Lock()
+	p.scheduleSoil(registry.BlockFarmland, 8, y, z, 5, tickPriorityNormal)
+	p.scheduleSoil(registry.BlockDirtPath, 9, y, z, 5, tickPriorityVeryHigh)
+	p.scheduleSoil(registry.BlockDirtPath, 10, y, z, 5, 2)
+	p.scheduleSoil(registry.BlockDirtPath, 11, y, z, 5, tickPriorityNormal)
+	p.mu.Unlock()
+	w.SetBlock(8, y, z, registry.BlockDirtPath.DefaultState())
+}
+
+// wantBlocks reports each cell of row z at GroundLevel from x=8 that does not
+// hold the block named.
+func wantBlocks(t *testing.T, w *World, z int32, names ...string) {
+	t.Helper()
+	for i, want := range names {
+		x := int32(8 + i)
+		if got, _, _ := registry.BlockStateName(w.BlockAt(x, GroundLevel, z)); got != want {
+			t.Errorf("block at (%d, %d) = %s, want %s", x, z, got, want)
+		}
+	}
+}
+
+// TestCopiedSoilTickKeepsItsBlockAndPriority copies soil ticks onto dirt paths
+// and onto stone, and runs them: each keeps its booked type and priority, and
+// dispatch checks the cell, so a path tick turns a path restored before it
+// fires.
+// vanilla: LevelTicks.copyAreaFrom, ServerLevel.tickBlock, TickPriority.VERY_LOW
+func TestCopiedSoilTickKeepsItsBlockAndPriority(t *testing.T) {
+	w, p := newOneChunkPhysics(t)
+	const y = GroundLevel
+	soilTickRow(w, p, 8)
+	ticks := p.BlockTicksIn(8, y, 8, 11, y, 8)
+	ids := map[int32]string{}
+	for _, bt := range ticks {
+		ids[bt.tick.pos.x] = bt.id
+	}
+	if ids[8] != "minecraft:farmland" || ids[9] != "minecraft:dirt_path" || ids[10] != "minecraft:dirt_path" ||
+		ids[11] != "minecraft:dirt_path" {
+		t.Errorf("copied ticks name %v, want farmland at 8 and dirt_path at 9 to 11", ids)
+	}
+	for x := int32(8); x <= 11; x++ {
+		w.SetBlock(x, y, 10, registry.BlockDirtPath.DefaultState())
+		w.SetBlock(x, y, 12, registry.BlockStone.DefaultState())
+	}
+	p.ScheduleBlockTicks(ticks, 0, 0, 2)
+	p.ScheduleBlockTicks(ticks, 0, 0, 4)
+	w.SetBlock(9, y, 12, registry.BlockDirtPath.DefaultState())
+	p.mu.Lock()
+	for _, tk := range p.queue {
+		want, ok := map[blockKey]int{{9, y, 10}: tickPriorityVeryHigh, {10, y, 10}: 2}[tk.pos]
+		if ok && tk.priority != want {
+			t.Errorf("copied tick at %v has priority %d, want %d", tk.pos, tk.priority, want)
+		}
+	}
+	p.mu.Unlock()
+	for clock := int64(1); clock <= 5; clock++ {
+		p.Tick(clock)
+	}
+	wantBlocks(t, w, 8, "minecraft:dirt_path", "minecraft:dirt", "minecraft:dirt", "minecraft:dirt")
+	wantBlocks(t, w, 10, "minecraft:dirt_path", "minecraft:dirt", "minecraft:dirt", "minecraft:dirt")
+	wantBlocks(t, w, 12, "minecraft:stone", "minecraft:dirt", "minecraft:stone", "minecraft:stone")
+}
+
+// TestSavedSoilTickKeepsItsBlockAndPriority saves soil ticks, one in a cell
+// holding stone, and runs them after a reload, copying the VERY_LOW one: each
+// keeps its booked type and priority, and a path back in the stone's cell
+// before the tick fires turns to dirt.
+// vanilla: SavedTick.loadTick, LevelChunkTicks.<init>, ServerLevel.tickBlock
+func TestSavedSoilTickKeepsItsBlockAndPriority(t *testing.T) {
+	w, p, dir := newSavedWorldAround(t, 0, 0)
+	const y = GroundLevel
+	soilTickRow(w, p, 8)
+	w.SetBlock(11, y, 8, registry.BlockStone.DefaultState())
+
+	w, p = reopenWorldAround(t, w, dir, 0, 0)
+	p.Tick(0)
+	w.SetBlock(11, y, 8, registry.BlockDirtPath.DefaultState())
+	w.SetBlock(10, y, 10, registry.BlockDirtPath.DefaultState())
+	ticks := p.BlockTicksIn(10, y, 8, 10, y, 8)
+	if len(ticks) != 1 || ticks[0].tick.priority != 2 || ticks[0].id != "minecraft:dirt_path" {
+		t.Fatalf("copied ticks = %+v, want one dirt path tick at priority 2", ticks)
+	}
+	p.ScheduleBlockTicks(ticks, 0, 0, 2)
+	p.mu.Lock()
+	for _, tk := range p.queue {
+		if tk.pos == (blockKey{9, y, 8}) && tk.priority != tickPriorityVeryHigh {
+			t.Errorf("reloaded path tick has priority %d, want %d", tk.priority, tickPriorityVeryHigh)
+		}
+	}
+	p.mu.Unlock()
+	for clock := int64(1); clock <= 5; clock++ {
+		p.Tick(clock)
+	}
+	wantBlocks(t, w, 8, "minecraft:dirt_path", "minecraft:dirt", "minecraft:dirt", "minecraft:dirt")
+	if got, _, _ := registry.BlockStateName(w.BlockAt(10, y, 10)); got != "minecraft:dirt" {
+		t.Errorf("copied VERY_LOW path = %s, want minecraft:dirt", got)
+	}
+}
+
+// TestBookedTickKeepsItsBlockWhenReplaced checks a generic tick booked for one
+// block is not copied as another's after the cell changed.
+func TestBookedTickKeepsItsBlockWhenReplaced(t *testing.T) {
+	w, p := newOneChunkPhysics(t)
+	const y = GroundLevel
+	w.SetBlock(8, y, 8, registry.BlockStone.DefaultState())
+	p.mu.Lock()
+	p.insertTick(blockKey{8, y, 8}, 0, p.now+5, tickPriorityNormal)
+	p.mu.Unlock()
+	w.SetBlock(8, y, 8, registry.BlockDirtPath.DefaultState())
+	ticks := p.BlockTicksIn(8, y, 8, 8, y, 8)
+	if len(ticks) != 1 || ticks[0].id != registry.BlockStone.Name() {
+		t.Fatalf("copied ticks = %v, want one booked for stone", ticks)
+	}
+	w.SetBlock(8, y, 10, registry.BlockDirtPath.DefaultState())
+	p.ScheduleBlockTicks(ticks, 0, 0, 2)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, tk := range p.queue {
+		if tk.pos == (blockKey{8, y, 10}) {
+			t.Errorf("a tick booked for stone was copied onto a dirt path: %+v", tk)
+		}
+	}
+}
+
+// TestTaggedTickKeepsItsBlockThroughCopyAndSave books a chorus flower's
+// survival tick, puts a dirt path in its cell, copies the cell and reloads: the
+// tick stays booked for the flower, so neither path takes it.
+// vanilla: ScheduledTick.type, LevelTicks.copyAreaFrom, ServerLevel.tickBlock
+func TestTaggedTickKeepsItsBlockThroughCopyAndSave(t *testing.T) {
+	w, p, dir := newSavedWorldAround(t, 0, 0)
+	const y = GroundLevel
+	w.SetBlock(8, y, 8, registry.BlockChorusFlower.DefaultState())
+	p.mu.Lock()
+	p.scheduleSurvival(8, y, 8, p.now+1)
+	p.mu.Unlock()
+	w.SetBlock(8, y, 8, registry.BlockDirtPath.DefaultState())
+	ticks := p.BlockTicksIn(8, y, 8, 8, y, 8)
+	if len(ticks) != 1 || ticks[0].id != registry.BlockChorusFlower.Name() {
+		t.Fatalf("copied ticks = %+v, want one booked for the chorus flower", ticks)
+	}
+	w.SetBlock(8, y, 10, registry.BlockDirtPath.DefaultState())
+	p.ScheduleBlockTicks(ticks, 0, 0, 2)
+
+	w, p = reopenWorldAround(t, w, dir, 0, 0)
+	for clock := int64(0); clock <= 2; clock++ {
+		p.Tick(clock)
+	}
+	for _, z := range []int32{8, 10} {
+		if got, _, _ := registry.BlockStateName(w.BlockAt(8, y, z)); got != "minecraft:dirt_path" {
+			t.Errorf("path at z=%d = %s, want minecraft:dirt_path", z, got)
+		}
+	}
+}
+
+// TestTiedTicksKeepBookingOrderAcrossReload books two visits with the same
+// due and priority around heap reorderings and checks the file lists them in
+// booking order (the order vanilla packs them in).
+func TestTiedTicksKeepBookingOrderAcrossReload(t *testing.T) {
+	w, p, dir := newSavedWorldAround(t, 0, 0)
+	waterSource := fluidType(fluidWater)<<1 | 1
+	// Booked out of coordinate order so a position sort cannot pass.
+	p.mu.Lock()
+	p.insertTick(blockKey{3, GroundLevel, 1}, waterSource, 100, 0) // A
+	p.insertTick(blockKey{1, GroundLevel, 1}, waterSource, 50, 0)
+	p.insertTick(blockKey{4, GroundLevel, 1}, waterSource, 100, 0) // B
+	p.insertTick(blockKey{2, GroundLevel, 1}, waterSource, 25, 0)
+	p.mu.Unlock()
+
+	w, _ = reopenWorldAround(t, w, dir, 0, 0)
+	var got []int32
+	for _, st := range w.ticksOfChunk(ChunkPos{}).fluid {
+		got = append(got, st.x)
+	}
+	if want := []int32{3, 1, 4, 2}; !slices.Equal(got, want) {
+		t.Fatalf("reloaded fluid ticks x = %v, want %v", got, want)
+	}
+}
+
+// TestTiedTicksDispatchInBookingOrderAfterReload books two sand falls due the
+// same tick, with shorter fluid visits between them, and checks that after a
+// save and reload the first-booked sand is the first to fall.
+func TestTiedTicksDispatchInBookingOrderAfterReload(t *testing.T) {
+	w, p, dir := newSavedWorldAround(t, 0, 0)
+	sand, _ := registry.FindState("minecraft:sand", nil)
+	waterSource := fluidType(fluidWater)<<1 | 1
+	y := int32(GroundLevel + 4)
+	// Booked second-to-first by x so a position sort cannot pass.
+	setBlock(t, w, p, 9, y, 1, sand)
+	p.mu.Lock()
+	p.insertTick(blockKey{2, GroundLevel, 1}, waterSource, p.now+1, 0)
+	p.mu.Unlock()
+	setBlock(t, w, p, 3, y, 1, sand)
+	p.mu.Lock()
+	p.insertTick(blockKey{4, GroundLevel, 1}, waterSource, p.now+1, 0)
+	p.mu.Unlock()
+
+	_, p = reopenWorldAround(t, w, dir, 0, 0)
+	var got []int32
+	for clock := int64(1); clock <= 10 && len(got) < 2; clock++ {
+		_, falls, _, _ := p.Tick(clock)
+		for _, f := range falls {
+			got = append(got, f.X)
+		}
+	}
+	if len(got) != 2 || got[0] != 9 || got[1] != 3 {
+		t.Fatalf("sand fell in x order %v, want [9 3]", got)
+	}
+}
+
+// TestSavedSoilTickPriorityIsClamped adopts a path tick saved at p=5: it
+// reads as the lowest vanilla priority, so a copy and a clear both see it.
+// vanilla: TickPriority.byValue, LevelTicks.copyAreaFrom, LevelTicks.clearArea
+func TestSavedSoilTickPriorityIsClamped(t *testing.T) {
+	w, p := newOneChunkPhysics(t)
+	const y = GroundLevel
+	w.SetBlock(8, y, 8, registry.BlockDirtPath.DefaultState())
+	p.mu.Lock()
+	p.adoptBlockTick(8, y, 8, w.BlockAt(8, y, 8), registry.BlockDirtPath.Name(), p.now+1, 5)
+	p.mu.Unlock()
+	if ticks := p.BlockTicksIn(8, y, 8, 8, y, 8); len(ticks) != 1 || ticks[0].tick.priority != 3 {
+		t.Fatalf("copied ticks = %+v, want one at priority 3", ticks)
+	}
+	p.ClearTicksIn(8, y, 8, 8, y, 8)
+	p.Tick(p.now + 1)
+	if got, _, _ := registry.BlockStateName(w.BlockAt(8, y, 8)); got != "minecraft:dirt_path" {
+		t.Errorf("cleared path became %s, want minecraft:dirt_path", got)
+	}
+}
+
+// TestSavedAirTickKeepsAirThroughCopyAndSave adopts a saved air tick, puts an
+// uncovered path in its cell and checks the copy and the save still name air,
+// so the path is not turned to dirt.
+func TestSavedAirTickKeepsAirThroughCopyAndSave(t *testing.T) {
+	w, p, dir := newSavedWorldAround(t, 0, 0)
+	const y = GroundLevel
+	p.mu.Lock()
+	p.adoptBlockTick(8, y, 8, w.BlockAt(8, y, 8), registry.BlockAir.Name(), p.now+1, 0)
+	p.mu.Unlock()
+	w.SetBlock(8, y, 8, registry.BlockDirtPath.DefaultState())
+	ticks := p.BlockTicksIn(8, y, 8, 8, y, 8)
+	if len(ticks) != 1 || ticks[0].id != registry.BlockAir.Name() {
+		t.Fatalf("copied ticks = %+v, want one booked for air", ticks)
+	}
+	w.SetBlock(8, y, 10, registry.BlockDirtPath.DefaultState())
+	p.ScheduleBlockTicks(ticks, 0, 0, 2)
+
+	w, p = reopenWorldAround(t, w, dir, 0, 0)
+	for clock := int64(0); clock <= 2; clock++ {
+		p.Tick(clock)
+	}
+	for _, z := range []int32{8, 10} {
+		if got, _, _ := registry.BlockStateName(w.BlockAt(8, y, z)); got != "minecraft:dirt_path" {
+			t.Errorf("path at z=%d = %s, want minecraft:dirt_path", z, got)
+		}
+	}
 }

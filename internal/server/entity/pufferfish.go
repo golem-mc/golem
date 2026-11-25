@@ -1,6 +1,8 @@
 package entity
 
-import "github.com/golem-mc/golem/registry"
+import (
+	"github.com/golem-mc/golem/registry"
+)
 
 // The pufferfish: a fish that puffs up near anything scary and stings what it
 // touches while puffed.
@@ -61,26 +63,43 @@ func scaryTo(o *Mob) bool {
 	return o.Alive() && !registry.EntityType(o.TypeID()).InTag(registry.EntityTypeTagIDNotScaryForPufferfish)
 }
 
-// scaryMobs lists the scary mobs whose boxes meet the fish's box grown by
-// grow.
-func (m *Mob) scaryMobs(t *tickView, grow float64) []*Mob {
-	box := m.mobBox()
-	var out []*Mob
-	for _, o := range t.others {
-		if o == m {
-			continue
-		}
-		b := o.mobBox()
-		if b.maxX <= box.minX-grow || b.minX >= box.maxX+grow ||
-			b.maxY <= box.minY-grow || b.minY >= box.maxY+grow ||
-			b.maxZ <= box.minZ-grow || b.minZ >= box.maxZ+grow {
-			continue
-		}
-		if scaryTo(o) {
-			out = append(out, o)
+// maxShulkerShell is how far an open shulker's shell reaches past its cell:
+// the largest scale (3) at a full peek.
+// vanilla: Shulker.sanitizeScale, Shulker.getPhysicalPeek
+const maxShulkerShell = 3
+
+// scaryCandidates is the herd a reach grown by grow around the fish can meet.
+func (m *Mob) scaryCandidates(t *tickView, grow float64) []*Mob {
+	near := grow
+	if m.push != nil && m.push.shellWide > 0 {
+		near += maxShulkerShell
+	}
+	return m.herdNear(t, near)
+}
+
+// scaryIn reports whether o is a scary mob other than the fish whose box
+// crosses reach and whose section the walk of window visits.
+// vanilla: EntityGetter.getEntitiesOfClass, EntitySection.getEntities
+func (m *Mob) scaryIn(window SectionWindow, reach AABB, o *Mob) bool {
+	return o != m && window.holds(o) && o.mobBox().Crosses(reach) && scaryTo(o)
+}
+
+// NewSectionWindowOf is the sections an entity query for box reaches.
+func NewSectionWindowOf(box AABB) SectionWindow {
+	b := box.Bounds()
+	return NewSectionWindow(b[0], b[3], b[1], b[4], b[2], b[5])
+}
+
+// scaryMobNear reports whether a scary mob is in the fish's box grown by grow.
+func (m *Mob) scaryMobNear(t *tickView, grow float64) bool {
+	reach := m.mobBox().Inflate(grow)
+	window := NewSectionWindowOf(reach)
+	for _, o := range m.scaryCandidates(t, grow) {
+		if m.scaryIn(window, reach, o) {
+			return true
 		}
 	}
-	return out
+	return false
 }
 
 // scaryPlayerNear reports whether a player that is neither creative nor a
@@ -110,9 +129,9 @@ func (m *Mob) setPuff(state int, sound registry.Sound, events []MobEvent) []MobE
 		Volume: m.SoundVolume(), Pitch: m.VoicePitch()})
 }
 
-// pufferStep is the pufferfish's tick and aiStep: the puff counters, then a
-// sting on every scary mob in reach and every player touched.
-// vanilla: Pufferfish.tick, Pufferfish.aiStep, Pufferfish.playerTouch
+// pufferStep is the pufferfish's tick and aiStep: the puff counters, then
+// the stings.
+// vanilla: Pufferfish.tick, Pufferfish.aiStep
 func (m *Mob) pufferStep(t *tickView, events []MobEvent) []MobEvent {
 	p := &m.puffer
 	if p.inflateCounter > 0 {
@@ -130,18 +149,24 @@ func (m *Mob) pufferStep(t *tickView, events []MobEvent) []MobEvent {
 		}
 		p.deflate++
 	}
+	return m.pufferStings(t, events)
+}
+
+// pufferStings is the sting on every scary mob in reach, which runs without
+// AI; a player's touch is the server's (applyPufferTouches).
+// vanilla: Pufferfish.aiStep
+func (m *Mob) pufferStings(t *tickView, events []MobEvent) []MobEvent {
+	p := &m.puffer
 	if p.state == PuffSmall {
 		return events
 	}
 	damage := float64(1 + p.state)
-	for _, o := range m.scaryMobs(t, puffStingGrow) {
-		events = append(events, MobEvent{Mob: m, Kind: MobAttackedPlayer, Damage: damage,
-			Player: o.asTarget(), Touch: true, Puff: p.state})
-	}
-	for i := range t.players {
-		if pl := &t.players[i]; pl.Huntable && m.touchesPlayer(pl) {
+	reach := m.mobBox().Inflate(puffStingGrow)
+	window := NewSectionWindowOf(reach)
+	for _, o := range m.scaryCandidates(t, puffStingGrow) {
+		if m.scaryIn(window, reach, o) {
 			events = append(events, MobEvent{Mob: m, Kind: MobAttackedPlayer, Damage: damage,
-				Player: *pl, Touch: true, Puff: p.state})
+				Player: o.asTarget(), Touch: true, Puff: p.state})
 		}
 	}
 	return events
@@ -155,7 +180,7 @@ func (g *pufferGoal) Priority() int    { return 1 }
 func (g *pufferGoal) Flags() GoalFlags { return 0 }
 
 func (g *pufferGoal) CanStart(t *tickView) bool {
-	return g.m.scaryPlayerNear(t, puffScanGrow) || len(g.m.scaryMobs(t, puffScanGrow)) > 0
+	return g.m.scaryPlayerNear(t, puffScanGrow) || g.m.scaryMobNear(t, puffScanGrow)
 }
 
 func (g *pufferGoal) Start(*tickView) {

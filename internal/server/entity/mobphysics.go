@@ -413,6 +413,13 @@ func (m *Mob) move(w World, dx, dy, dz float64) {
 	if dx != 0 || dz != 0 {
 		m.moveHorizontal(w, ctx, dx, dz)
 	}
+	if dy == 0 && (!m.GroundGuess || m.Age > 1) {
+		// vanilla: Entity.move, setOnGroundWithMovement: only a downward move
+		// that collides leaves the flag set. Cleared after moveHorizontal,
+		// which steps up on the flag the move started with. A guessed flag
+		// survives the spawn's first tick, which callers rely on.
+		m.OnGround = false
+	}
 
 	// The block's speed factor scales the horizontal velocity after the move;
 	// then the cells the box ended in set the next move's stuck multiplier.
@@ -623,7 +630,7 @@ func (m *Mob) pushStep(w World, players []Player, others []*Mob, events []MobEve
 	if g := m.push; g != nil {
 		pack = g.candidates(m, 0)
 	}
-	window := newSectionWindow(m.X-bw/2, m.X+bw/2, m.Y, m.Y+h, m.Z-bw/2, m.Z+bw/2)
+	window := NewSectionWindow(m.X-bw/2, m.X+bw/2, m.Y, m.Y+h, m.Z-bw/2, m.Z+bw/2)
 	for _, other := range pack {
 		if other == nil || other == m || !other.Pushable() {
 			continue

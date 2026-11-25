@@ -207,6 +207,31 @@ func farmlandCanSurvive(w *World, x, y, z int32) bool {
 	return true
 }
 
+// dirtPathTickEvent tags a dirt path's own tick so a farmland's pending visit at
+// the same position is not mistaken for it.
+const dirtPathTickEvent = 1<<5 | 1<<6 | 1<<7 | 6
+
+// farmlandTickEvent tags a farmland's own tick, so a replaced dirt path's visit
+// at the same position is not mistaken for it.
+const farmlandTickEvent = 1<<5 | 1<<6 | 1<<7 | 7
+
+// scheduleSoil books block's (dirt path or farmland) own tick, which keeps that
+// type whatever the cell holds; dispatch checks the cell.
+func (p *Physics) scheduleSoil(block registry.Block, x, y, z int32, due int64, priority int) {
+	if block == registry.BlockDirtPath {
+		p.scheduleBookedFor(p.dirtPathBooked, x, y, z, due, priority, dirtPathTickEvent, block)
+		return
+	}
+	p.scheduleBookedFor(p.farmlandBooked, x, y, z, due, priority, farmlandTickEvent, block)
+}
+
+// bookedBlockName is the block a block-tick queue entry was booked for, air
+// included.
+// vanilla: ScheduledTick.type
+func bookedBlockName(t scheduledTick) string {
+	return t.block.Name()
+}
+
 // DirtPathSurvives reports whether a dirt path placed here would stand.
 // vanilla: DirtPathBlock.canSurvive, getStateForPlacement
 func (w *World) DirtPathSurvives(x, y, z int32) bool {
@@ -222,15 +247,6 @@ func dirtPathCanSurvive(w *World, x, y, z int32) bool {
 		return true
 	}
 	return registry.BlockOf(above).InGroup(registry.GroupFenceGate)
-}
-
-// dirtPathSurvivalScheduled is the one-tick visit DirtPathBlock.updateShape
-// books when the block above turned solid: the path becomes dirt.
-func (p *Physics) dirtPathSurvivalScheduled(x, y, z int32, changes *[]BlockChange) {
-	if dirtPathCanSurvive(p.w, x, y, z) {
-		return
-	}
-	p.turnSoilToDirt(x, y, z, changes, &p.effects)
 }
 
 // farmlandSurvivalScheduled is the one-tick visit FarmlandBlock.updateShape

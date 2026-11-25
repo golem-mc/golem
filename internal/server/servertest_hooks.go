@@ -409,6 +409,9 @@ func (s *Server) SetLoadedBlock(x, y, z int32, state uint16) {
 	saves.Wait()
 }
 
+// ForgetLodestoneAnswers drops the overworld's kept lodestone answers.
+func (s *Server) ForgetLodestoneAnswers() { s.world.ForgetLodestones() }
+
 // ScanOverworldBlocks walks the generated overworld inside the block square
 // x0..x1 by z0..z1, between the Y bounds given, and calls visit with the Y
 // and the state of every block that is not air. It is how a test of world
@@ -1023,6 +1026,12 @@ func (s *Server) PlayerHealth(name string) float64 {
 		return c.player.Vitals().Health
 	}
 	return -1
+}
+
+// PlayerHoldsChunks reports whether the named online player keeps chunk tickets.
+func (s *Server) PlayerHoldsChunks(name string) bool {
+	c := s.playerClient(name)
+	return c != nil && c.holdsChunks()
 }
 
 // HoldPlayerUnloaded makes the named player's client count as still loading
@@ -4764,6 +4773,13 @@ func (s *Server) BlastSpillBetween(between func(*world.BlockEntity)) {
 func (s *Server) PlayerTrackBetween(between func()) {
 	s.mu.Lock()
 	s.playerTrackSeam = between
+	s.mu.Unlock()
+}
+
+// CorpseExpiryBetween runs between finding an expired corpse and removing it.
+func (s *Server) CorpseExpiryBetween(between func()) {
+	s.mu.Lock()
+	s.corpseExpirySeam = between
 	s.mu.Unlock()
 }
 

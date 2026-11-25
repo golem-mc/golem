@@ -133,6 +133,9 @@ type Move struct {
 	DeltaZ       bool
 	RotateDelta  bool
 	KeepRotation bool
+	// Want is the rotation the command asked for, before a relative axis is
+	// resolved against a target's angles.
+	Want player.Position
 	// Command marks a /teleport, which also lands the target (vanilla: TeleportCommand.performTeleport).
 	Command bool
 	LookAt  *player.Position
@@ -645,6 +648,10 @@ type Source interface {
 	// SetItemInContainerAt puts the stack in the container block's slot the
 	// way a /item set does, telling the viewers of the container.
 	SetItemInContainerAt(x, y, z int32, slot int, stack protocol.ItemStack)
+	// UpdateItemInContainerAt replaces the slot's stack in place, telling the
+	// viewers but skipping the slot's setItem effects (a bookshelf's
+	// last-interacted slot). vanilla: ItemStack.set on the stored stack
+	UpdateItemInContainerAt(x, y, z int32, slot int, stack protocol.ItemStack)
 	// CanPlaceItemInContainerAt reports whether a container slot takes the
 	// stack (a furnace's output and a full jukebox take none).
 	// vanilla: Container.canPlaceItem

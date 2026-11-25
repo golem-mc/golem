@@ -881,7 +881,7 @@ func (s *Server) arrowHitTarget(fx *arrowEffects, in *arrowTickInputs, hv *arrow
 			effects:     arrowPostEffects(it),
 			custom:      it.custom,
 			x:           ev.X, y: ev.Y, z: ev.Z,
-			vx: ev.VX, vz: ev.VZ,
+			vx: ev.VX, vy: ev.VY, vz: ev.VZ,
 		})
 	case hv.frameByID[it.w][target.EntityID] != nil:
 		// A frame takes the hurt a body does: its item pops, or

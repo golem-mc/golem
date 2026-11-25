@@ -28,7 +28,11 @@ func TestChickenRiderLiveSeatAndSavedPos(t *testing.T) {
 	_, chicken := c.AwaitNextSpawn()
 	_, pig := c.AwaitNextSpawn()
 	servertest.AwaitSystemChatSaying(t, c, "commands.summon.success")
+	if pig.X != 6.5 || pig.Y != 64 || pig.Z != 6.5 {
+		t.Errorf("pig spawn packet at (%g, %g, %g), want the summon position (6.5, 64, 6.5)", pig.X, pig.Y, pig.Z)
+	}
 	pigName := servertest.EntityDisplayComponent("minecraft:pig", "entity.minecraft.pig", pig.Uuid)
+	servertest.RunTicks(t, srv, 1)
 	check := func(t *testing.T, seatX, seatZ float64, wantPos string) {
 		t.Helper()
 		seat := func(x, z float64) bool {

@@ -50,17 +50,18 @@ type fireworkEntity struct {
 // fireworkTracker tracks the rockets. A rocket's flight is never on the
 // ground, and its Teleport Entity carries no velocity: the motion packets do.
 var fireworkTracker = trackedKind[*fireworkEntity, struct{}]{
-	rangeChunks: entity.FireworkTrackingRange,
-	interval:    entity.FireworkUpdateInterval,
-	lock:        func(s *Server) *sync.Mutex { return &s.fireworksMu },
-	list:        func(s *Server) *[]*fireworkEntity { return &s.fireworks },
-	chunks:      func(s *Server) *entity.ChunkIndex[*fireworkEntity] { return &s.fireworkChunks },
-	filing:      func(it *fireworkEntity) *entity.Filing { return &it.rocket.Filing },
-	uuid:        func(it *fireworkEntity) uuid.UUID { return it.uuid },
-	track:       func(it *fireworkEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
-	world:       func(it *fireworkEntity) *world.World { return it.w },
-	id:          func(it *fireworkEntity) int32 { return it.rocket.ID },
-	dead:        func(it *fireworkEntity) bool { return it.rocket.Dead },
+	rangeChunks:    entity.FireworkTrackingRange,
+	interval:       entity.FireworkUpdateInterval,
+	frozenSchedule: true,
+	lock:           func(s *Server) *sync.Mutex { return &s.fireworksMu },
+	list:           func(s *Server) *[]*fireworkEntity { return &s.fireworks },
+	chunks:         func(s *Server) *entity.ChunkIndex[*fireworkEntity] { return &s.fireworkChunks },
+	filing:         func(it *fireworkEntity) *entity.Filing { return &it.rocket.Filing },
+	uuid:           func(it *fireworkEntity) uuid.UUID { return it.uuid },
+	track:          func(it *fireworkEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
+	world:          func(it *fireworkEntity) *world.World { return it.w },
+	id:             func(it *fireworkEntity) int32 { return it.rocket.ID },
+	dead:           func(it *fireworkEntity) bool { return it.rocket.Dead },
 	pose: func(it *fireworkEntity) bodyPose {
 		r := it.rocket
 		return bodyPose{x: r.X, y: r.Y, z: r.Z, yaw: r.Yaw, pitch: r.Pitch}
@@ -171,13 +172,14 @@ func (s *Server) newFirework(w *world.World, stack protocol.ItemStack, x, y, z f
 	id := s.nextEntity()
 	rocket := entity.NewFirework(id, x, y, z, ownerID, flight, explosions, attached,
 		s.entitySeed(id))
-	carried := stack
-	carried.Count = 1
+	// The rocket keeps the launching stack's count; callers that launch one
+	// item of a stack pass a single-item stack.
+	// vanilla: FireworkRocketEntity.<init> copies the stack
 	it := &fireworkEntity{
 		rocket:    rocket,
 		w:         w,
 		uuid:      uuid.New(),
-		stack:     carried,
+		stack:     stack,
 		ownerID:   ownerID,
 		ownerUUID: ownerUUID,
 	}

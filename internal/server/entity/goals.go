@@ -66,6 +66,8 @@ type tickView struct {
 	// stands is the world's visible armor stands, a goat ram's targets.
 	stands []StandTarget
 	events []MobEvent
+	// shulkerView is the collision view Mob.shulkerWorld reuses.
+	shulkerView shulkerWorld
 }
 
 // Goal is one behaviour the selector drives. CanStart is offered every
@@ -1413,6 +1415,14 @@ func (g *followParentGoal) Tick(t *tickView) {
 		return
 	}
 	g.recalc = reducedTickDelay(followReplan)
+	if g.ranged == nil {
+		// vanilla: GroundPathNavigation.canUpdatePath declines the request
+		// until the child lands, even though FollowParentGoal keeps running.
+		walker := g.m.navOf()
+		if !walker.kind().flying && !walker.RidesVehicle && !walker.canUpdatePath() {
+			return
+		}
+	}
 	pace := g.m.kind().followPace
 	if g.m.Type == TypeAxolotl && !g.m.InWater() {
 		pace = 0.15
