@@ -1417,6 +1417,11 @@ func (c *client) resetRespawnBody(pos player.Position, respawn respawnKind) bool
 		// Effects go with the dead body (vanilla:
 		// LivingEntity.triggerOnDeathMobEffects); the credits' body keeps its own.
 		c.player.UpdateBody(func(_ *player.Vitals, effects *effect.Set, _ *player.Attributes) { effects.Clear() })
+	} else {
+		// The credits' new body copies health but starts its own death counter,
+		// which a loaded file can leave nonzero on a living body.
+		// vanilla: ServerPlayer.restoreFrom, LivingEntity.deathTime
+		c.player.UpdateVitals(func(v *player.Vitals) { v.DeathTime = 0 })
 	}
 	// The new body has no use or cooldown from before: vanilla builds the
 	// respawned player fresh ItemCooldowns. vanilla: ServerPlayer.<init>

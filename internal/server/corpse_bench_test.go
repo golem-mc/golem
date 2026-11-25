@@ -25,9 +25,12 @@ func BenchmarkTickDeadBodies(b *testing.B) {
 			c.player.SetVitals(player.Vitals{Dead: name == "expiry"})
 			b.ReportAllocs()
 			for b.Loop() {
+				// The reset is fixture, not the tick.
+				b.StopTimer()
 				c.player.UpdateVitals(func(v *player.Vitals) { v.DeathTime = corpseTicks - 1 })
 				c.bodyGone.Store(false)
 				c.holdsDropped.Store(false)
+				b.StartTimer()
 				s.tickDeadBodies()
 			}
 		})
