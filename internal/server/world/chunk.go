@@ -565,7 +565,9 @@ func (s *section) setAll(state uint16) {
 	s.recalcCounts()
 }
 
-// recalcCounts rebuilds section counts after bulk block replacement.
+// recalcCounts rebuilds section counts after bulk block replacement. It
+// classifies each distinct state once with its multiplicity
+// (vanilla: LevelChunkSection.recalcBlockCounts).
 func (s *section) recalcCounts() {
 	s.tickMask.Store(nil)
 	s.ticking, s.emitting, s.rods, s.eggs, s.portals, s.pois = 0, 0, 0, 0, 0, 0
@@ -573,84 +575,92 @@ func (s *section) recalcCounts() {
 	s.touches.Store(0)
 	s.shapes.Store(0)
 	s.colliding, s.comparators = 0, 0
+	var touches, shapes int32
+	sculk := false
 	blocks := s.blocks.Load()
-	if blocks == nil {
-		if randomlyTicking(s.fill) {
-			s.ticking = blocksPerSection
+	switch {
+	case blocks == nil:
+		if s.countState(s.fill, blocksPerSection, &touches, &shapes) {
+			s.fillSculk(nil)
 		}
-		if registry.LightEmission(s.fill) > 0 {
-			s.emitting = blocksPerSection
+	case blocks.palette == nil:
+		for i := range blocksPerSection {
+			sculk = s.countState(blocks.get(i), 1, &touches, &shapes) || sculk
 		}
-		if MayCollide(s.fill) {
-			s.colliding = blocksPerSection
-		}
-		if isLightningRod(s.fill) {
-			s.rods = blocksPerSection
-		}
-		if IsTurtleEgg(s.fill) {
-			s.eggs = blocksPerSection
-		}
-		block := registry.BlockOf(s.fill)
-		if kind := sculkCellKindOf(block); kind != noSculkCell {
-			cells := s.sculkList(kind)
-			*cells = make([]uint16, blocksPerSection)
-			for i := range *cells {
-				(*cells)[i] = uint16(i)
+	default:
+		// Same walk as blockWords.unpack, so a padded last word is ignored.
+		var freq [1 << maxIndirectBits]uint16
+		i := 0
+		for _, word := range blocks.words {
+			for j := 0; j < blocks.perWord && i < blocksPerSection; j++ {
+				freq[word&blocks.mask]++
+				word >>= blocks.bits
+				i++
 			}
 		}
-		switch block {
-		case registry.BlockNetherPortal:
-			s.portals = blocksPerSection
-		case registry.BlockComparator:
-			s.comparators = blocksPerSection
+		for slot := range min(blocks.used, len(freq)) {
+			if n := freq[slot]; n > 0 {
+				sculk = s.countState(uint16(blocks.palette[slot]), int(n), &touches, &shapes) || sculk
+			}
 		}
-		if registry.IsPOI(s.fill) {
-			s.pois = blocksPerSection
-		}
-		if isTouchBlock[block] {
-			s.touches.Store(blocksPerSection)
-		}
-		if isShapeBlock[block] {
-			s.shapes.Store(blocksPerSection)
-		}
-		return
 	}
+	if sculk {
+		var states [blocksPerSection]uint16
+		blocks.unpack(&states)
+		s.fillSculk(&states)
+	}
+	s.touches.Store(touches)
+	s.shapes.Store(shapes)
+}
+
+// countState adds n cells of state to the counters. It reports whether the
+// state is a sculk listener or catalyst, whose cell positions the caller adds.
+func (s *section) countState(state uint16, n int, touches, shapes *int32) bool {
+	if randomlyTicking(state) {
+		s.ticking += n
+	}
+	if registry.LightEmission(state) > 0 {
+		s.emitting += n
+	}
+	if MayCollide(state) {
+		s.colliding += n
+	}
+	if isLightningRod(state) {
+		s.rods += n
+	}
+	if IsTurtleEgg(state) {
+		s.eggs += n
+	}
+	block := registry.BlockOf(state)
+	switch block {
+	case registry.BlockNetherPortal:
+		s.portals += n
+	case registry.BlockComparator:
+		s.comparators += int32(n)
+	}
+	if registry.IsPOI(state) {
+		s.pois += n
+	}
+	if isTouchBlock[block] {
+		*touches += int32(n)
+	}
+	if isShapeBlock[block] {
+		*shapes += int32(n)
+	}
+	return sculkCellKindOf(block) != noSculkCell
+}
+
+// fillSculk lists listener and catalyst cells in cell order; nil states means
+// every cell holds the section's uniform fill.
+func (s *section) fillSculk(states *[blocksPerSection]uint16) {
 	for i := range blocksPerSection {
-		state := blocks.get(i)
-		if randomlyTicking(state) {
-			s.ticking++
+		state := s.fill
+		if states != nil {
+			state = states[i]
 		}
-		if registry.LightEmission(state) > 0 {
-			s.emitting++
-		}
-		if MayCollide(state) {
-			s.colliding++
-		}
-		if isLightningRod(state) {
-			s.rods++
-		}
-		if IsTurtleEgg(state) {
-			s.eggs++
-		}
-		block := registry.BlockOf(state)
-		if kind := sculkCellKindOf(block); kind != noSculkCell {
+		if kind := sculkCellKindOf(registry.BlockOf(state)); kind != noSculkCell {
 			cells := s.sculkList(kind)
 			*cells = append(*cells, uint16(i))
-		}
-		switch block {
-		case registry.BlockNetherPortal:
-			s.portals++
-		case registry.BlockComparator:
-			s.comparators++
-		}
-		if registry.IsPOI(state) {
-			s.pois++
-		}
-		if isTouchBlock[block] {
-			s.touches.Add(1)
-		}
-		if isShapeBlock[block] {
-			s.shapes.Add(1)
 		}
 	}
 }
