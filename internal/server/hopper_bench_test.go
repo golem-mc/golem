@@ -283,6 +283,24 @@ func BenchmarkHopperDistantItems(b *testing.B) {
 	}
 }
 
+// BenchmarkHopperCartDistantVehicles measures an empty hopper cart's pull
+// with N container vehicles outside its pickup area.
+func BenchmarkHopperCartDistantVehicles(b *testing.B) {
+	for _, n := range []int{0, 256, 2048} {
+		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 0)
+			cart := s.spawnMinecart(w, "minecraft:hopper_minecart", 4.5, 64, 4.5)
+			for i := range n {
+				s.spawnMinecart(w, "minecraft:hopper_minecart", float64(64+i%16), 64, 80)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				s.hopperCartSuck(cart)
+			}
+		})
+	}
+}
+
 // BenchmarkHopperItemBox measures hopper item-box queries with N unrelated
 // items in distant chunks.
 func BenchmarkHopperItemBox(b *testing.B) {
