@@ -32,7 +32,7 @@ func drownedGoals(m *Mob) []Goal {
 		&randomLookAround{m: m, priority: hostileLookAround},
 	},
 		// vanilla: Drowned.addBehaviourGoals, Axolotl mustSee at 3
-		&mobTargetGoal{m: m, priority: 3, fromPrey: true, matches: func(o *Mob) bool { return o.Type == TypeAxolotl }})
+		&mobTargetGoal{m: m, priority: 3, fromPrey: true, victim: TypeAxolotl, victimOnly: true})
 }
 
 // drownedOkTarget is Drowned.okTarget: by day only a player in water.

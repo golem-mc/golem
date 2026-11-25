@@ -96,6 +96,8 @@ type fishState struct {
 // IsFish reports whether the mob is a cod, salmon, tropical fish or pufferfish.
 func (m *Mob) IsFish() bool { return FishKind(m.Type) }
 
+var fishKinds = mobKindsMatching(FishKind)
+
 // FishKind reports whether the type is a cod, salmon, tropical fish or pufferfish.
 func FishKind(t MobType) bool {
 	return t == TypeCod || t == TypeSalmon || t == TypeTropicalFish || t == TypePufferfish
