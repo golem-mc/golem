@@ -447,6 +447,10 @@ func modifyComponentSlots(parent SlotAccess, component string, modify func(SlotA
 					changed = true
 					return true
 				},
+				// A component edit rewrites the entry in place and does not
+				// arm the merge.
+				// vanilla: SlotCollection.FlatMapped, BundleContents.Mutable
+				Update: func(s protocol.ItemStack) { list[idx] = s },
 			})
 		}
 		if !stack.Empty() {

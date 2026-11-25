@@ -258,5 +258,12 @@ func TestItemSlotSources(t *testing.T) {
 		t.Errorf("emptied shulker box = %q, want default shulker box with no components patch", got)
 	}
 
+	// 14. A component write inside a bundle entry does not merge the other entries.
+	run(`item replace block 2 64 3 container.16 with bundle[bundle_contents=[{id:"minecraft:stone"},{id:"minecraft:stone"},{id:"minecraft:stone"}]]`)
+	run(`item replace block 2 64 3 {type:"contents",component:"minecraft:charged_projectiles",slot_source:{type:"contents",component:"minecraft:bundle_contents",slot_source:{type:"slot_range",slots:"container.16"}}} with arrow`)
+	if got := plainQuery(t, srv, `data get block 2 64 3 Items[{Slot:16b}].components."minecraft:bundle_contents"`, "commands.data.block.query"); strings.Count(got, `minecraft:stone`) != 3 || strings.Contains(got, "count: 2") || strings.Count(got, `"minecraft:charged_projectiles": []`) != 2 {
+		t.Errorf("bundle entries after nested component write = %q, want three unmerged stones, two with empty projectiles", got)
+	}
+
 	c.Disconnect()
 }
