@@ -732,14 +732,8 @@ func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 			if ent == nil {
 				continue
 			}
-			if puff := m.PuffState(); held && m.Type == entity.TypePufferfish && puff > 0 && m.Alive() {
-				pufferTouches = append(pufferTouches, pufferTouch{
-					box: entity.NewAABB(m.BlastBox()),
-					strike: mobStrike{
-						w: dim.w, mob: m, uuidText: ent.uuidText, killer: s.mobKiller(ent),
-						x: m.X, y: m.Y, z: m.Z, damage: float64(1 + puff), touch: true, puff: puff,
-					},
-				})
+			if touch, ok := pufferTouchOf(dim.w, m, ent); held && ok {
+				pufferTouches = append(pufferTouches, touch)
 			}
 			body := mobTracker.body(ent)
 			var motion mobMovement
