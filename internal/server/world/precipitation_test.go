@@ -130,12 +130,16 @@ func TestBiomeTemperatureMatchesTheJar(t *testing.T) {
 
 // TestMotionHeightTracksTheWrittenColumn checks a write refreshes only its own
 // cached column: a block raised in one column lifts that column's motion
-// height and leaves its neighbour's where it was.
+// height and leaves its neighbour's where it was. Then batches that add,
+// remove and replace tops in one column, and finally empty it, keep the cache
+// equal to a full scan.
 func TestMotionHeightTracksTheWrittenColumn(t *testing.T) {
 	t.Parallel()
 	slab := registry.MustState("minecraft:oak_slab", map[string]string{"type": "bottom"})
 
-	w := newRainWorld(t, "minecraft:plains")
+	w := newTestWorld(t, NewFlatGenerator())
+	t.Cleanup(func() { w.Close() })
+	w.Acquire(ChunkPos{})
 	if h := w.motionBlockingHeight(0, 0); h != GroundLevel-1 {
 		t.Fatalf("the flat column's motion height = %d, want %d", h, GroundLevel-1)
 	}
@@ -147,37 +151,29 @@ func TestMotionHeightTracksTheWrittenColumn(t *testing.T) {
 	if h := w.motionBlockingHeight(1, 0); h != GroundLevel-1 {
 		t.Errorf("the neighbour column's motion height = %d, want %d", h, GroundLevel-1)
 	}
-}
 
-// TestMotionHeightIncrementalMatchesRescan applies batches that add, remove and
-// replace a column's top, then empty the column, and compares the cached
-// height with a full scan after each.
-func TestMotionHeightIncrementalMatchesRescan(t *testing.T) {
-	t.Parallel()
-	slab := registry.MustState("minecraft:oak_slab", map[string]string{"type": "bottom"})
-	w := newRainWorld(t, "minecraft:plains")
-	w.motionBlockingHeight(0, 0)
+	at := func(y int32, s uint16) BlockChange { return BlockChange{X: 0, Y: y, Z: 0, State: s} }
 	top := int32(GroundLevel + 10)
+	var clear []BlockChange
+	for y := int32(worldMinY); y < top+8; y++ {
+		clear = append(clear, at(y, airState))
+	}
 	batches := []struct {
 		name string
 		set  []BlockChange
 	}{
-		{"add above", []BlockChange{{X: 0, Y: top, Z: 0, State: stoneState}}},
-		{"add and remove the new top", []BlockChange{{X: 0, Y: top + 3, Z: 0, State: stoneState}, {X: 0, Y: top + 3, Z: 0, State: airState}}},
-		{"remove top", []BlockChange{{X: 0, Y: top, Z: 0, State: airState}}},
-		{"replace top", []BlockChange{{X: 0, Y: GroundLevel - 1, Z: 0, State: slab}}},
-		{"write below top", []BlockChange{{X: 0, Y: GroundLevel - 5, Z: 0, State: airState}}},
-		{"raise and lower", []BlockChange{{X: 0, Y: top, Z: 0, State: stoneState}, {X: 0, Y: top + 1, Z: 0, State: stoneState}, {X: 0, Y: top + 1, Z: 0, State: airState}, {X: 0, Y: top, Z: 0, State: airState}}},
+		{"remove the slab", []BlockChange{at(GroundLevel+4, airState)}},
+		{"add above", []BlockChange{at(top, stoneState)}},
+		{"add and remove the new top", []BlockChange{at(top+3, stoneState), at(top+3, airState)}},
+		{"remove top", []BlockChange{at(top, airState)}},
+		{"replace top", []BlockChange{at(GroundLevel-1, slab)}},
+		{"write below top", []BlockChange{at(GroundLevel-5, airState)}},
+		{"raise and lower", []BlockChange{at(top, stoneState), at(top+1, stoneState), at(top+1, airState), at(top, airState)}},
+		{"stand two tops", []BlockChange{at(top, stoneState), at(top-4, stoneState)}},
+		// the standing top is top-4; the batch's last accepted write is below it
+		{"mixed", []BlockChange{at(top+4, stoneState), at(top, airState), at(top-4, slab), at(top+4, airState), at(GroundLevel+2, stoneState)}},
+		{"clear column", clear},
 	}
-	// the whole column cleared
-	var clear []BlockChange
-	for y := int32(worldMinY); y < top+8; y++ {
-		clear = append(clear, BlockChange{X: 0, Y: y, Z: 0, State: airState})
-	}
-	batches = append(batches, struct {
-		name string
-		set  []BlockChange
-	}{"clear column", clear})
 	for _, b := range batches {
 		w.SetBlocks(b.set)
 		w.mu.RLock()
@@ -187,6 +183,9 @@ func TestMotionHeightIncrementalMatchesRescan(t *testing.T) {
 		w.mu.RUnlock()
 		if got != want {
 			t.Errorf("%s: cached height = %d, rescan = %d", b.name, got, want)
+		}
+		if b.name == "mixed" && got != top-4 {
+			t.Errorf("mixed: cached height = %d, want %d", got, top-4)
 		}
 	}
 	if h := w.motionBlockingHeight(0, 0); h != w.dim.minY-1 {
