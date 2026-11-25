@@ -1243,7 +1243,13 @@ func (c *Chunk) removeBlockEntity(x, y, z int32) *BlockEntity {
 // blockEntities lists the chunk's entities in insertion order, vanilla's ticker
 // order and a deterministic save order so two saves give the same bytes.
 func (c *Chunk) blockEntities() []*BlockEntity {
-	out := make([]*BlockEntity, 0, len(c.entityOrder))
+	return c.appendBlockEntities(nil)
+}
+
+// appendBlockEntities appends the entities in blockEntities' order to out,
+// growing it once for all of them.
+func (c *Chunk) appendBlockEntities(out []*BlockEntity) []*BlockEntity {
+	out = slices.Grow(out, len(c.entityOrder))
 	for _, key := range c.entityOrder {
 		if b := c.entities[key]; b != nil {
 			out = append(out, b)
@@ -2491,7 +2497,11 @@ func putBlockEntities(b *protocol.Buffer, own []*BlockEntity, rides []pistonRide
 	}
 	// Filter before writing the count, so a type the client's registry cannot
 	// number is left out of both.
-	entries := make([]entry, 0, len(own)+len(rides)+len(carried))
+	var entryBuf [16]entry
+	entries := entryBuf[:0]
+	if n := len(own) + len(rides) + len(carried); n > len(entryBuf) {
+		entries = make([]entry, 0, n)
+	}
 	for _, be := range own {
 		id := blockEntityID(be.Kind)
 		if id < 0 {
