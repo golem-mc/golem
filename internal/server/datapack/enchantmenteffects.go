@@ -46,15 +46,17 @@ func gameEventOf(o obj) registry.GameEvent {
 	return ev
 }
 
-// ErrRemovedBlockStateProvider reports a retired provider type that prevents world loading.
+// ErrRemovedBlockStateProvider reports a retired block state provider ID.
 var ErrRemovedBlockStateProvider = errors.New("unknown block state provider type")
 
 // vanilla: BlockStateProviderTypes.bootstrap
 func stateProviderType(o obj) string {
 	kind := registry.Qualify(requireStr(o, "type"))
 	switch kind {
-	case "minecraft:simple_state_provider", "minecraft:rotated_block_provider", "minecraft:randomized_int_state_provider":
-		panic(lootFailure{fatal: fmt.Errorf("%w %s", ErrRemovedBlockStateProvider, kind)})
+	case "minecraft:simple_state_provider", "minecraft:weighted_state_provider", "minecraft:rotated_block_provider",
+		"minecraft:noise_provider", "minecraft:noise_threshold_provider", "minecraft:dual_noise_provider",
+		"minecraft:randomized_int_state_provider", "minecraft:rule_based_state_provider":
+		panic(lootFailure{fatal: fmt.Errorf("%w %q", ErrRemovedBlockStateProvider, kind)})
 	}
 	return kind
 }
@@ -181,32 +183,40 @@ func optPredicate(o obj) *registry.EnchBlockPredicate {
 // pure one its raw JSON for the server to compile.
 // vanilla: BlockStateProvider.CODEC
 func stateProvider(v any) (state uint16, raw any) {
-	if o, ok := v.(obj); ok && o["type"] != nil && stateProviderType(o) != "minecraft:simple" {
-		checkReplaceProvider(o)
-		return 0, plainJSON(v)
+	o, ok := v.(obj)
+	if !ok || o["type"] == nil || stateProviderType(o) == "minecraft:simple" {
+		return simpleState(v), nil
 	}
-	return simpleState(v), nil
+	if kind := unsupportedReplaceProvider(v); kind != "" {
+		fail("a block state provider of type %s", kind)
+	}
+	return 0, plainJSON(v)
 }
 
-// vanilla: BlockStateProviderTypes.bootstrap
-func checkReplaceProvider(o obj) {
+// unsupportedReplaceProvider identifies a provider the picker cannot run without a world.
+func unsupportedReplaceProvider(v any) string {
+	o, ok := v.(obj)
+	if !ok || o["type"] == nil {
+		return ""
+	}
 	kind := stateProviderType(o)
 	switch kind {
 	case "minecraft:simple", "minecraft:weighted", "minecraft:noise", "minecraft:noise_threshold", "minecraft:dual_noise":
-	case "minecraft:rotated", "minecraft:randomized_int":
-		key := "source"
-		if kind == "minecraft:rotated" {
-			key = "state"
+		return ""
+	case "minecraft:rotated":
+		return unsupportedReplaceProvider(required(o, "state"))
+	case "minecraft:randomized_int":
+		return unsupportedReplaceProvider(required(o, "source"))
+	case "minecraft:copy_properties":
+		// Its source must decode even when the enclosing provider is skipped.
+		unsupportedReplaceProvider(required(o, "source"))
+	case "minecraft:rule_based":
+		unsupportedReplaceProvider(o["fallback"])
+		for _, rule := range list(required(o, "rules"), "state provider rules") {
+			unsupportedReplaceProvider(required(object(rule, "a state provider rule"), "then"))
 		}
-		if inner, ok := required(o, key).(obj); ok && inner["type"] != nil {
-			checkReplaceProvider(inner)
-		}
-	case "minecraft:weighted_state_provider", "minecraft:noise_provider",
-		"minecraft:noise_threshold_provider", "minecraft:dual_noise_provider":
-		panic(lootFailure{fatal: fmt.Errorf("%w %q", ErrRemovedBlockStateProvider, kind)})
-	default:
-		unsupported("a block state provider of type %s", kind)
 	}
+	return kind
 }
 
 // plainJSON copies a decoded tree with its numbers as float64, the form the

@@ -1416,10 +1416,6 @@ type client struct {
 	// respawn clears it on their own goroutines, so it is atomic.
 	awaitingRespawn atomic.Bool
 
-	// deathTicks counts ticks a dead body has lain. The tick ages and removes
-	// it under trackMu, which respawn takes to claim and clear the corpse.
-	// vanilla: LivingEntity.deathTime
-	deathTicks atomic.Int32
 	// deathKeeps is the last death's keep decision, taken by the respawn.
 	deathKeeps atomic.Pointer[deathKeeps]
 	bodyGone   atomic.Bool

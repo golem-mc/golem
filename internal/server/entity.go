@@ -626,7 +626,15 @@ func (s *Server) tickDeadBodies() {
 			continue
 		}
 		c.trackMu.Lock()
-		expired := !c.traveling.Load() && c.player.Vitals().Dead && c.deathTicks.Add(1) >= corpseTicks
+		expired := false
+		if !c.traveling.Load() {
+			c.player.UpdateVitals(func(v *player.Vitals) {
+				if v.Dead {
+					v.DeathTime++
+					expired = v.DeathTime >= corpseTicks
+				}
+			})
+		}
 		c.trackMu.Unlock()
 		if !expired {
 			continue
@@ -642,7 +650,7 @@ func (s *Server) tickDeadBodies() {
 // replace it under the same entity ID.
 func (c *client) expireCorpse() {
 	c.trackMu.Lock()
-	if c.traveling.Load() || c.deathTicks.Load() < corpseTicks {
+	if c.traveling.Load() || c.player.Vitals().DeathTime < corpseTicks {
 		c.trackMu.Unlock()
 		return
 	}
@@ -663,7 +671,7 @@ func (c *client) expireCorpse() {
 	// Effects need the corpse's chunk and take the mob and world locks.
 	c.srv.fireMobEffectTrigger(trigger)
 	c.trackMu.Lock()
-	drop := !c.traveling.Load() && c.deathTicks.Load() >= corpseTicks
+	drop := !c.traveling.Load() && c.player.Vitals().DeathTime >= corpseTicks
 	if drop {
 		c.holdsDropped.Store(true)
 	}

@@ -115,53 +115,67 @@ func TestPackRefusesLegacySimpleStateProvider(t *testing.T) {
 }
 
 // vanilla: BlockStateProviderTypes.bootstrap, ReplaceBlock.apply, ReplaceDisk.apply
-func TestPackReplaceStateProviderIDs(t *testing.T) {
-	const noise = `"seed":2345,"scale":1.0,"noise":{"base_octave":-3}`
-	tests := []struct {
-		current string
-		removed string
-		fields  string
-		disk    bool
+func TestPackReplaceWithCurrentStateProviders(t *testing.T) {
+	const noise = `"seed":42,"noise":{"base_octave":-3},"scale":1`
+	for _, tc := range []struct {
+		kind, fields, block string
+		props               map[string]string
 	}{
-		{"weighted", "weighted_state_provider", `"entries":[{"data":"minecraft:gold_block","weight":1}]`, false},
-		{"noise", "noise_provider", noise + `,"states":["minecraft:gold_block"]`, true},
-		{"noise_threshold", "noise_threshold_provider", noise + `,"threshold":0.0,"high_chance":1.0,
-			"default_state":"minecraft:iron_block","low_states":["minecraft:gold_block"],"high_states":["minecraft:gold_block"]`, false},
-		{"dual_noise", "dual_noise_provider", noise + `,"states":["minecraft:gold_block"],
-			"variety":[1,3],"slow_scale":1.0,"slow_noise":{"base_octave":-10}`, true},
-	}
-	gold, _ := registry.BlockByName("minecraft:gold_block")
-	for _, tc := range tests {
-		effect := func(id string) string {
-			kind, fields := "replace_block", ""
-			if tc.disk {
-				kind, fields = "replace_disk", `,"radius":2,"height":1`
+		{"weighted", `"entries":[{"data":"minecraft:gold_block","weight":1}]`, "gold_block", nil},
+		{"noise", noise + `,"states":["minecraft:gold_block"]`, "gold_block", nil},
+		{"noise_threshold", noise + `,"threshold":0,"high_chance":1,"default_state":"minecraft:gold_block","low_states":["minecraft:gold_block"],"high_states":["minecraft:gold_block"]`, "gold_block", nil},
+		{"dual_noise", noise + `,"slow_noise":{"base_octave":-4},"slow_scale":1,"variety":[1,1],"states":["minecraft:gold_block"]`, "gold_block", nil},
+		{"rotated", `"state":{"type":"weighted","entries":[{"data":"minecraft:oak_log","weight":1}]},"direction":"east"`, "oak_log", map[string]string{"axis": "x"}},
+		{"randomized_int", `"source":{"type":"simple","state":{"id":"minecraft:water_cauldron"}},"property":"level","values":2`, "water_cauldron", map[string]string{"level": "2"}},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			effect := `"type":"minecraft:replace_block"`
+			if tc.kind == "noise" {
+				effect = `"type":"minecraft:replace_disk","radius":1,"height":1`
 			}
-			return fmt.Sprintf(`{"type":"minecraft:%s","offset":[0,-1,0],"block_state":{"type":"minecraft:%s",%s}%s}`,
-				kind, id, tc.fields, fields)
-		}
-		t.Run(tc.current, func(t *testing.T) {
-			srv, _ := hitZombieWith(t, effect(tc.current), nil)
-			if got := registry.BlockOf(srv.BlockAt(2, 63, 0)); got != gold {
-				t.Errorf("block under the zombie is %s, want gold_block", got.Name())
-			}
-			if tc.disk {
-				if got := registry.BlockOf(srv.BlockAt(3, 63, 0)); got != gold {
-					t.Errorf("block beside the zombie is %s, want gold_block", got.Name())
-				}
+			srv, _ := hitZombieWith(t, fmt.Sprintf(`{%s,"offset":[0,-1,0],"block_state":{"type":"minecraft:%s",%s}}`, effect, tc.kind, tc.fields), nil)
+			want := registry.MustState("minecraft:"+tc.block, tc.props)
+			if got := srv.BlockAt(2, 63, 0); got != want {
+				t.Fatalf("block under the zombie is %s %v, want %s %v", registry.BlockOf(got).Name(), registry.StateProps(got), tc.block, tc.props)
 			}
 		})
-		t.Run(tc.removed, func(t *testing.T) {
-			cfg := servertest.MobTestConfig()
+	}
+}
+
+// vanilla: BlockStateProvider.TYPED_CODEC
+func TestPackRefusesRetiredStateProviderIDs(t *testing.T) {
+	for _, tc := range []struct {
+		name, retired, provider string
+	}{
+		{name: "weighted", retired: "weighted_state_provider"},
+		{name: "noise", retired: "noise_provider"},
+		{name: "noise_threshold", retired: "noise_threshold_provider"},
+		{name: "dual_noise", retired: "dual_noise_provider"},
+		{name: "rotated", retired: "rotated_block_provider"},
+		{name: "randomized_int", retired: "randomized_int_state_provider"},
+		{name: "rule_based", retired: "rule_based_state_provider"},
+		{"rotated_state", "weighted_state_provider", `{"type":"rotated","state":{"type":"weighted_state_provider"}}`},
+		{"randomized_int_source", "noise_provider", `{"type":"randomized_int","source":{"type":"noise_provider"},"property":"level","values":1}`},
+		{"copy_properties_source", "simple_state_provider", `{"type":"copy_properties","source":{"type":"simple_state_provider"}}`},
+		{"rule_based_fallback", "dual_noise_provider", `{"type":"rule_based","rules":[],"fallback":{"type":"dual_noise_provider"}}`},
+		{"rule_based_rule", "rotated_block_provider", `{"type":"rule_based","rules":[{"if_true":{"type":"true"},"then":{"type":"rotated_block_provider"}}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := tc.provider
+			if provider == "" {
+				provider = fmt.Sprintf(`{"type":"minecraft:%s"}`, tc.retired)
+			}
+			effect := fmt.Sprintf(`{"type":"minecraft:replace_disk","radius":1,"height":1,"block_state":%s}`, provider)
+			cfg := servertest.BlockTestConfig()
 			cfg.LevelType = server.TestFlatLevelType
-			cfg.LevelName = postAttackPack(t, "mainhand", "#minecraft:enchantable/weapon", packPostAttack("attacker", "victim", effect(tc.removed)))
-			srv, err := server.New(cfg)
+			cfg.LevelName = postAttackPack(t, "mainhand", "minecraft:iron_sword", packPostAttack("attacker", "victim", effect))
+			srv, err := server.NewSeeded(cfg, 1)
 			if err == nil {
 				srv.Shutdown()
-				t.Fatalf("world loaded with removed state provider %s", tc.removed)
+				t.Fatal("world loaded with a retired block state provider ID")
 			}
-			if !strings.Contains(err.Error(), "pk:targets") || !strings.Contains(err.Error(), "minecraft:"+tc.removed) {
-				t.Errorf("world load error = %v, want the enchantment and removed provider IDs", err)
+			if msg := err.Error(); !strings.Contains(msg, "pk:targets") || !strings.Contains(msg, "minecraft:"+tc.retired) {
+				t.Fatalf("startup error %q should name the enchantment and provider", msg)
 			}
 		})
 	}

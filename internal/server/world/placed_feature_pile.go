@@ -41,12 +41,3 @@ func blockPileTry(r *decorRegion, provider stateProvider, p [3]int32) {
 	}
 	r.set(p[0], p[1], p[2], provider(r, p))
 }
-
-// rotatedBlock is RotatedBlockProvider: the block with a random axis.
-// vanilla: RotatedBlockProvider.getState
-func rotatedBlock(state uint16) stateProvider {
-	return func(r *decorRegion, _ [3]int32) uint16 {
-		s, _ := registry.WithProp(state, registry.PropAxis, [...]string{"x", "y", "z"}[r.rng.NextIntN(3)])
-		return s
-	}
-}
