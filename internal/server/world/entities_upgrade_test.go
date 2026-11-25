@@ -52,7 +52,7 @@ func TestOlderEntityFilesAreUpgradedOnLoad(t *testing.T) {
 	old, current, ancient := ChunkPos{X: 0, Z: 0}, ChunkPos{X: 1, Z: 0}, ChunkPos{X: 2, Z: 0}
 	plant(old, 4189)
 	plant(current, equipmentFormatVersion)
-	plant(ancient, chunkDataVersionFloor-1)
+	plant(ancient, entityDataVersionFloor-1)
 
 	got, _, err := w.LoadChunkEntities(old)
 	if err != nil || len(got) != 1 {

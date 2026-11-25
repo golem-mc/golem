@@ -319,10 +319,16 @@ func biomeID(name string) int32 {
 	return id
 }
 
-// chunkDataVersionFloor is the oldest DataVersion whose block names this server
-// reads; the renames after it are applied by fixLegacyPalette.
-// vanilla: DataFixers.addFixers (v3692 grass to short_grass)
-const chunkDataVersionFloor = 3692
+// chunkDataVersionFloor is the oldest chunk DataVersion read: 1.18.2, the first
+// after the structure and biome fixes this server does not carry. The fixes
+// after it are fixLegacyPalette and fixOldBlockEntity.
+// vanilla: DataFixers.addFixers (v2970 StructuresBecomeConfiguredFix)
+const chunkDataVersionFloor = 2975
+
+// entityDataVersionFloor is the oldest DataVersion of a stored entity read:
+// older ones hold item stacks this server does not componentize.
+// vanilla: DataFixers.addFixers (v3692)
+const entityDataVersionFloor = 3692
 
 // Data versions of the block renames a chunk palette from below them gets.
 const (
@@ -376,6 +382,11 @@ var legacyPaletteFixes = map[string]func(entry, props nbt.Compound, nameKey stri
 			props["mode"] = mode
 		}
 	},
+	"minecraft:grass": func(entry, _ nbt.Compound, nameKey string, version int32) {
+		if version < grassRenameVersion {
+			entry[nameKey] = nbt.String("minecraft:short_grass")
+		}
+	},
 	"minecraft:chain": func(entry, _ nbt.Compound, nameKey string, _ int32) {
 		entry[nameKey] = nbt.String("minecraft:iron_chain")
 	},
@@ -393,6 +404,11 @@ func checkChunkFormat(root nbt.Compound) error {
 	}
 	if version, ok := nbt.Get[nbt.Int](root, "DataVersion"); ok && version != 0 && version < chunkDataVersionFloor {
 		return &unsupportedVersionError{version: int32(version)}
+	}
+	if version, _ := nbt.Get[nbt.Int](root, "DataVersion"); version != 0 && version < storedItemVersion {
+		if be, ok := nbt.Get[nbt.List](root, "block_entities"); ok && holdsLegacyItem(be) {
+			return &unsupportedVersionError{version: int32(version)}
+		}
 	}
 	return nil
 }
@@ -497,6 +513,7 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 				continue
 			}
 			rebaseBlockEntityPos(compound, c.x, c.z)
+			fixOldBlockEntity(compound, c.dataVersion)
 			if c.dataVersion != 0 && c.dataVersion < furnaceBurnTimeVersion {
 				fixFurnaceBurnTime(compound)
 			}
