@@ -2556,6 +2556,10 @@ func (s *Server) spawnTaggedMob(dim *dimension, kind entity.MobType, x, y, z flo
 	var riders wakeResult
 	mobs := s.standWithRiders(s.herdOf(dim.w), ent, compound, &riders)
 	for _, r := range mobs[1:] {
+		// A rider is spawned at the summon position and reaches its seat on
+		// its first ride tick.
+		// vanilla: EntityType.loadEntityRecursive, Entity.positionRider
+		r.mob.SetPos(x, y, z)
 		if r.spawnReason == 0 {
 			r.spawnReason = ent.spawnReason
 		}
