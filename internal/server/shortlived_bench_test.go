@@ -141,6 +141,9 @@ func BenchmarkTickFangsBiteOwned(b *testing.B) {
 	}{{"no-listener", nil}, {"damage-listener", []plugin.Registration{listener}}} {
 		b.Run(tc.name, func(b *testing.B) {
 			s, w := newTrackerBenchServer(b, tc.plugins...)
+			if s.plugins != nil {
+				s.plugins.BindTick() // a listener's call runs inline on the tick goroutine
+			}
 			owner := s.SpawnMob("minecraft:evoker", 14.5, -60, 14.5)
 			var pigs []*entity.Mob
 			for i := range count {
