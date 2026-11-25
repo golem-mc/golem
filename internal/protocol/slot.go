@@ -216,6 +216,9 @@ func (s *ItemStack) SamePtr(other *ItemStack) bool {
 	if s.ContainerLoot != other.ContainerLoot || !slices.Equal(s.Recipes, other.Recipes) {
 		return false
 	}
+	if (s.Container != nil) != (other.Container != nil) {
+		return false
+	}
 	if len(s.Container) != 0 || len(other.Container) != 0 {
 		if !sameContainer(s.Container, other.Container) {
 			return false
@@ -440,7 +443,7 @@ func componentsOf(s ItemStack) []int32 {
 	if len(s.StoredEnchantments) > 0 {
 		ids = append(ids, DataComponentStoredEnchantments)
 	}
-	if len(s.Container) > 0 {
+	if s.Container != nil {
 		ids = append(ids, DataComponentContainer)
 	}
 	for _, raw := range s.Raw {
@@ -805,9 +808,7 @@ func readContainerContents(r *Reader, depth int) ([]ItemStack, bool) {
 		return nil, false
 	}
 	if length == 0 {
-		// No entries reads as the component absent: the same stack the
-		// item's own defaults give.
-		return nil, true
+		return []ItemStack{}, true
 	}
 	contents := make([]ItemStack, length)
 	for i := range length {
