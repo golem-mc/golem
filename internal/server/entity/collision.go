@@ -374,7 +374,7 @@ func borderWalls(w World, b AABB, dx, dz float64) []AABB {
 // vanilla's collide does. It reports which axes were stopped and the higher
 // obstacle top, for the step-up.
 func collideHorizontal(w World, c collideCtx, b AABB, dx, dz float64) (AABB, float64, bool, bool) {
-	if !c.noBorder {
+	if !c.noBorder && !c.borders {
 		c.walls, c.borders = borderWalls(w, b, dx, dz), true
 	}
 	if math.Abs(dx) >= math.Abs(dz) {
