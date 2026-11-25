@@ -1943,7 +1943,7 @@ func (c *client) landingAt(now, was player.Position) rules.Landing {
 	w := c.theWorld()
 	dims := c.dims(c.player.Appearance().Pose)
 	overlapped, _, _ := c.overlapCells(now, dims.Width/2, dims.Height)
-	gx, gy, gz, ground := rules.OnPosCell(w, now.X, now.Y, now.Z, dims.Width/2)
+	gx, gy, gz, ground := rules.OnPosCellMoved(w, now.X, now.Y, now.Z, dims.Width/2, now.X-was.X, now.Z-was.Z)
 	return rules.Landing{
 		Ground:     ground,
 		GroundX:    gx,

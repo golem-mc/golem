@@ -407,3 +407,16 @@ func TestSupportCellPrefersTheNearestThenTheGreater(t *testing.T) {
 		}
 	}
 }
+
+func TestOnPosCellMovedRetriesAtTheBoxBeforeTheStep(t *testing.T) {
+	stone := stateOf(t, "minecraft:stone")
+	w := stubBlocks{{0, 63, 0}: stone}
+	// Box 1.1..1.7 clears the stone; before a +0.5 step it spanned 0.6..1.2.
+	if _, _, _, s := OnPosCell(w, 1.4, 64, 0.5, 0.3); s == stone {
+		t.Fatal("without a movement nothing supports the body")
+	}
+	x, y, z, s := OnPosCellMoved(w, 1.4, 64, 0.5, 0.3, 0.5, 0)
+	if x != 0 || y != 63 || z != 0 || s != stone {
+		t.Errorf("got (%d,%d,%d) state %d, want the stone at (0,63,0)", x, y, z, s)
+	}
+}
