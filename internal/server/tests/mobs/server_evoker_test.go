@@ -178,3 +178,39 @@ func TestAnEvokerTurnsBlueSheepRed(t *testing.T) {
 		}
 	}
 }
+
+// TestFangsHurtAMobWithTheJawsAsDirectSource: with the evoker and the jaws on
+// opposite sides of the victim, the damage is the evoker's, the event names
+// the jaws as the direct entity, and the shove points away from the jaws.
+// vanilla: EvokerFangs.dealDamageTo, DamageSource.getSourcePosition
+func TestFangsHurtAMobWithTheJawsAsDirectSource(t *testing.T) {
+	t.Parallel()
+	srv, c := evokerWorld(t)
+	evoker := srv.SpawnMob(evokerKind, 14.5, 64, 0.5)
+	srv.SetMobNoAI(evoker)
+	pig := srv.SpawnMob("minecraft:pig", 10.5, 64, 0.5)
+	srv.SetMobNoAI(pig)
+	srv.SpawnFangs(9.7, 64, 0.5, evoker)
+	var cause, direct int32
+	pumpTicks(c, srv, 40, servertest.HostileSkip, func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlayDamageEvent {
+			return false
+		}
+		r := protocol.NewReader(data)
+		if r.ReadVarInt() != pig {
+			return false
+		}
+		r.ReadVarInt()
+		cause, direct = r.ReadVarInt(), r.ReadVarInt()
+		return true
+	})
+	if cause != evoker+1 {
+		t.Errorf("damage cause = %d, want the evoker %d", cause, evoker+1)
+	}
+	if direct == 0 || direct == evoker+1 {
+		t.Errorf("direct entity = %d, want the jaws", direct)
+	}
+	if vx, _, _, _ := srv.MobVelocity(pig); vx <= 0 {
+		t.Errorf("pig vx = %v, want a shove away from the jaws (+x)", vx)
+	}
+}
