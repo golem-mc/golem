@@ -17,35 +17,87 @@ const (
 )
 
 // storedItemVersion is the data version from which stored item stacks are
-// componentized; a chunk older than it that holds a stack is not upgraded.
+// componentized.
 // vanilla: DataFixers.addFixers (ItemStackComponentizationFix)
 const storedItemVersion = 3818
 
-// holdsLegacyItem reports whether a block entity list holds an item stack in
-// the pre-1.20.5 shape (id and Count), which this server cannot upgrade; a
-// chunk saved over it would lose the item.
-func holdsLegacyItem(tag nbt.Tag) bool {
+// isLegacyStack reports whether a compound is an item stack in the pre-1.20.5
+// shape (id and Count).
+func isLegacyStack(entries nbt.Compound) bool {
+	if _, ok := entries["id"].(nbt.String); !ok {
+		return false
+	}
+	_, legacy := entries["Count"]
+	return legacy
+}
+
+// holdsUnfixableItem reports whether a block entity list holds a pre-1.20.5
+// stack with a "tag", whose conversion to components is not ported; a chunk
+// saved over it would lose the item. A stack without one is converted by
+// upgradeLegacyStacks.
+func holdsUnfixableItem(tag nbt.Tag) bool {
 	switch v := tag.(type) {
 	case nbt.List:
 		for _, item := range v.Items {
-			if holdsLegacyItem(item) {
+			if holdsUnfixableItem(item) {
 				return true
 			}
 		}
 	case nbt.CompoundTag:
 		entries := v.Entries()
-		if _, hasID := entries["id"].(nbt.String); hasID {
-			if _, legacy := entries["Count"]; legacy {
-				return true
-			}
+		if _, tagged := entries["tag"]; tagged && isLegacyStack(entries) {
+			return true
 		}
 		for _, child := range entries {
-			if holdsLegacyItem(child) {
+			if holdsUnfixableItem(child) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// upgradeLegacyStacks rewrites every plain pre-1.20.5 stack under tag to the
+// current shape: Count becomes an int count, and item names renamed since
+// version follow.
+// vanilla: ItemStackComponentizationFix (a stack with no tag), ItemRenameFix
+func upgradeLegacyStacks(tag nbt.Tag, version int32) {
+	switch v := tag.(type) {
+	case nbt.List:
+		for _, item := range v.Items {
+			upgradeLegacyStacks(item, version)
+		}
+	case nbt.CompoundTag:
+		entries := v.Entries()
+		if isLegacyStack(entries) {
+			count, _ := nbt.IntValue(entries["Count"])
+			delete(entries, "Count")
+			entries["count"] = nbt.Int(count)
+			name, _ := nbt.Get[nbt.String](entries, "id")
+			entries["id"] = nbt.String(renameOldItem(string(name), version))
+		}
+		for _, child := range entries {
+			upgradeLegacyStacks(child, version)
+		}
+	}
+}
+
+// renameOldItem applies the item renames between version and
+// grassRenameVersion.
+// vanilla: DataFixers.addFixers (ItemRenameFix: v3438, v3447, v3692)
+func renameOldItem(name string, version int32) string {
+	if version < brushableBlockVersion {
+		if to, ok := potShardRenames[name]; ok {
+			name = to
+		}
+	}
+	if version < shardRenameVersion && strings.HasSuffix(name, "_pottery_shard") {
+		name = strings.TrimSuffix(name, "_pottery_shard") + "_pottery_sherd"
+	}
+	if name == "minecraft:grass" {
+		name = "minecraft:short_grass"
+	}
+	return name
 }
 
 // potShardRenames are the pottery shard item names of before 3447 and their
@@ -61,11 +113,14 @@ var potShardRenames = map[string]string{
 // fixOldBlockEntity applies the block entity fixes between a chunk's data
 // version and the one decodeChunkNBT reads.
 func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
-	if version == 0 || version >= grassRenameVersion {
+	if version == 0 || version >= storedItemVersion {
 		return
 	}
 	tag := entry.Entries()
 	id, _ := nbt.Get[nbt.String](tag, "id")
+	if version < storedItemVersion {
+		upgradeLegacyStacks(entry, version)
+	}
 	switch string(id) {
 	case "minecraft:suspicious_sand":
 		if version < brushableBlockVersion {
@@ -193,15 +248,7 @@ func fixPotSherds(tag nbt.Compound, version int32) {
 		if !ok {
 			continue
 		}
-		if version < brushableBlockVersion {
-			if to, ok := potShardRenames[string(name)]; ok {
-				name = nbt.String(to)
-			}
-		}
-		if version < shardRenameVersion {
-			name = nbt.String(strings.Replace(string(name), "_pottery_shard", "_pottery_sherd", 1))
-		}
-		shards.Items[i] = name
+		shards.Items[i] = nbt.String(renameOldItem(string(name), version))
 	}
 	tag["sherds"] = shards
 }

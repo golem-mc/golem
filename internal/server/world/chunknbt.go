@@ -406,7 +406,7 @@ func checkChunkFormat(root nbt.Compound) error {
 		return &unsupportedVersionError{version: int32(version)}
 	}
 	if version, _ := nbt.Get[nbt.Int](root, "DataVersion"); version != 0 && version < storedItemVersion {
-		if be, ok := nbt.Get[nbt.List](root, "block_entities"); ok && holdsLegacyItem(be) {
+		if be, ok := nbt.Get[nbt.List](root, "block_entities"); ok && holdsUnfixableItem(be) {
 			return &unsupportedVersionError{version: int32(version)}
 		}
 	}

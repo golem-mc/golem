@@ -56,18 +56,19 @@ func TestOldChunkGrassBecomesShortGrass(t *testing.T) {
 	}
 }
 
-func TestOldChunkWithLegacyItemIsRefused(t *testing.T) {
+func TestOldChunkWithTaggedItemIsRefused(t *testing.T) {
 	t.Parallel()
 	chest := nbt.Compound{
 		"id": nbt.String("minecraft:chest"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
 		"Items": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{
 			"Slot": nbt.Byte(0), "id": nbt.String("minecraft:stick"), "Count": nbt.Byte(3),
+			"tag": nbt.Compound{"display": nbt.Compound{"Name": nbt.String(`"x"`)}},
 		}}},
 	}
 	w, pos := oldChunkWorld(t, 3465, chest)
 	w.Acquire(pos)
 	if !w.oldVersionLogged.Load() {
-		t.Error("a chunk with a pre-1.20.5 item stack was read")
+		t.Error("a chunk with a pre-1.20.5 stack with a tag was read")
 	}
 }
 
@@ -111,5 +112,34 @@ func TestFixPotSherds(t *testing.T) {
 	}
 	if _, ok := tag["shards"]; ok {
 		t.Error("shards was kept")
+	}
+}
+
+func TestOldChestStacksAreUpgraded(t *testing.T) {
+	t.Parallel()
+	chest := nbt.Compound{
+		"id": nbt.String("minecraft:chest"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
+		"Items": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			nbt.Compound{"Slot": nbt.Byte(2), "id": nbt.String("minecraft:grass"), "Count": nbt.Byte(7)},
+			nbt.Compound{"Slot": nbt.Byte(3), "id": nbt.String("minecraft:pottery_shard_archer"), "Count": nbt.Byte(1)},
+		}},
+	}
+	w, pos := oldChunkWorld(t, 3465, chest)
+	w.Acquire(pos)
+	if w.oldVersionLogged.Load() {
+		t.Fatal("an upgradable chunk was refused")
+	}
+	tag, ok := w.BlockEntityTag(16, 64, 32)
+	if !ok {
+		t.Fatal("the chest was not loaded")
+	}
+	items, _ := nbt.Get[nbt.List](tag, "Items")
+	first, _ := nbt.CompoundView(items.Items[0])
+	second, _ := nbt.CompoundView(items.Items[1])
+	if first["id"] != nbt.String("minecraft:short_grass") || first["count"] != nbt.Int(7) || first["Count"] != nil {
+		t.Errorf("first stack = %v", first)
+	}
+	if second["id"] != nbt.String("minecraft:archer_pottery_sherd") {
+		t.Errorf("second stack = %v", second)
 	}
 }
