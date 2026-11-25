@@ -145,6 +145,14 @@ func (r *decorRegion) terrainChunk(x, z int32) *shapedTerrain {
 // BlockAt is get for the survival rules, which read through BlockReader.
 func (r *decorRegion) BlockAt(x, y, z int32) uint16 { return r.get(x, y, z) }
 
+// BoolRule supplies the rules for post-processing fluids in a fresh chunk.
+func (r *decorRegion) BoolRule(rule GameRuleIndex) bool {
+	if w := r.center.generationWorld; w != nil {
+		return w.BoolRule(rule)
+	}
+	return GameRuleTable[rule].DefBool
+}
+
 // set writes a block unless outside the decorated chunk's 3x3 or the
 // dimension's height.
 // vanilla: WorldGenRegion.setBlock

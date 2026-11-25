@@ -142,14 +142,14 @@ func parseSelectorWord(text string, start int, allow bool) (*Selector, int, *Par
 	}
 	sel := &Selector{Selector: *parsed}
 	for _, f := range parsed.Filters {
-		sel.predicates = append(sel.predicates, selectorFilter(f))
+		sel.predicates = append(sel.predicates, selectorFilter(f, sel.CurrentEntity))
 	}
 
 	return sel, n, nil
 }
 
 // selectorFilter binds parsed values once; registry tags and progress stay live.
-func selectorFilter(f commandsyntax.Filter) func(Entity) bool {
+func selectorFilter(f commandsyntax.Filter, currentEntity bool) func(Entity) bool {
 	switch f.Kind {
 	case commandsyntax.FilterAlive:
 		return func(e Entity) bool { return e.Alive() }
@@ -178,6 +178,11 @@ func selectorFilter(f commandsyntax.Filter) func(Entity) bool {
 	case commandsyntax.FilterTag:
 		tag := TagFilter{Name: f.Name, Invert: f.Invert}
 		return func(e Entity) bool {
+			if currentEntity {
+				if live, ok := e.(interface{ MatchesLiveTag(TagFilter) bool }); ok {
+					return live.MatchesLiveTag(tag)
+				}
+			}
 			tags := e.Tags()
 			return tag.Passes(len(tags), func(name string) bool { return slices.Contains(tags, name) })
 		}

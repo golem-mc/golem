@@ -276,42 +276,10 @@ func keyBefore(a, b blockKey) bool {
 	return a.z < b.z
 }
 
-func isSculkCatalyst(state uint16) bool {
-	return registry.BlockOf(state) == registry.BlockSculkCatalyst
-}
-
-// sculkCatalystsNear lists the catalysts within eight cells of the cell on
-// each axis, looking only into sections that hold one.
+// sculkCatalystsNear lists the catalysts in sections intersecting the death's
+// eight-block search radius.
 func (w *World) sculkCatalystsNear(bx, by, bz int32) []blockKey {
-	const r = 8
-	var out []blockKey
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	for chx := (bx - r) >> 4; chx <= (bx+r)>>4; chx++ {
-		for chz := (bz - r) >> 4; chz <= (bz+r)>>4; chz++ {
-			loaded, ok := w.loadedAt(ChunkPos{X: chx, Z: chz})
-			if !ok {
-				continue
-			}
-			for sec := range loaded.chunk.sections {
-				s := &loaded.chunk.sections[sec]
-				baseY := int32(worldMinY + sec*sectionSize)
-				if s.catalysts == 0 || baseY+sectionSize <= by-r || baseY > by+r {
-					continue
-				}
-				for ly := range int32(sectionSize) {
-					for lz := range int32(16) {
-						for lx := range int32(16) {
-							if isSculkCatalyst(s.at(blockIndex(lx, ly, lz))) {
-								out = append(out, blockKey{chx<<4 + lx, baseY + ly, chz<<4 + lz})
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return out
+	return w.sculkCellsNear(bx, by, bz, 8, sculkCatalystCell, nil)
 }
 
 // catalystBloom lights the catalyst's pulse for eight ticks.

@@ -443,12 +443,16 @@ func (m *Mob) LootSlotStack(slot string) (stack protocol.ItemStack, ok bool) {
 // and component updates. The caller holds the same lock as the mob's state.
 func (m *Mob) EquipmentRevision() uint64 { return m.equipmentRevision }
 
-// EquipmentSlot reads a Set Equipment slot: hands, feet through head, then body.
+// EquipmentSlot reads a Set Equipment slot in wire order.
 func (m *Mob) EquipmentSlot(slot int) protocol.ItemStack {
-	if slot == 6 {
+	switch slot {
+	case protocol.EquipBody:
 		return m.Body
+	case protocol.EquipSaddle:
+		return m.SaddleSlot()
+	default:
+		return m.slotStack(slot)
 	}
-	return m.slotStack(slot)
 }
 
 // SetEquipment replaces a Set Equipment slot and invalidates its tracking snapshot.
@@ -459,8 +463,14 @@ func (m *Mob) SetEquipment(slot int, stack protocol.ItemStack) {
 		m.MainHand = stack
 	case protocol.EquipOffHand:
 		m.OffHand = stack
-	case 6:
+	case protocol.EquipBody:
 		m.Body = stack
+	case protocol.EquipSaddle:
+		if m.Type == TypeCopperGolem {
+			m.Antenna = stack
+		} else {
+			m.Horse.Saddle = stack
+		}
 	default:
 		m.Worn[slot-protocol.EquipFeet] = stack
 	}

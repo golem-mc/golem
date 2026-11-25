@@ -689,7 +689,9 @@ func (w *World) readyChunk(pos ChunkPos) (*Chunk, *[16][16]int32, bool) {
 		}
 		if c = w.fromFixture(pos); c == nil {
 			c = newChunk(pos.X, pos.Z)
+			c.generationWorld = w
 			w.gen.Generate(c)
+			c.generationWorld = nil
 		}
 		w.encodeChunk(c)
 	}

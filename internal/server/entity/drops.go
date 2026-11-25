@@ -324,12 +324,10 @@ func (m *Mob) takePreservedEquipment(shouldDrop func(int, protocol.ItemStack) bo
 			m.SetEquipment(protocol.EquipOffHand, protocol.ItemStack{})
 		case i < 6:
 			m.SetEquipment(protocol.EquipFeet+i-2, protocol.ItemStack{})
-		case i == 6 && m.Type == TypeCopperGolem:
-			m.SetMetadataAntenna(protocol.ItemStack{})
 		case i == 6:
-			m.SetMetadataHorseSaddle(protocol.ItemStack{})
+			m.SetEquipment(protocol.EquipSaddle, protocol.ItemStack{})
 		default:
-			m.SetEquipment(6, protocol.ItemStack{})
+			m.SetEquipment(protocol.EquipBody, protocol.ItemStack{})
 		}
 	}
 	return taken

@@ -326,19 +326,25 @@ var passengerPoints = [registry.EntityTypeCount][3]float64{
 var happyGhastSeats = [...][3]float64{{0, 4.0, 1.7}, {-1.7, 4.0, 0}, {0, 4.0, -1.7}, {1.7, 4.0, 0}}
 
 // vehiclePassengerPoint is the mount's seat for the passenger at index in
-// its own frame, scaled for a baby; an index past the last seat takes it.
+// its own frame and at its current age; an index past the last seat takes it.
 // vanilla: Entity.getPassengerAttachmentPoint, EntityAttachments.getClamped
 func vehiclePassengerPoint(m *Mob, index int) (x, y, z float64) {
-	// vanilla: Strider.BABY_DIMENSIONS
-	if (m.Type == TypeNautilus || m.Type == TypePig) && m.IsBaby() {
-		return 0, 0.5, 0
-	}
-	if m.IsStrider() && m.IsBaby() {
-		return 0, 0.65625, 0
-	}
-	// vanilla: Fox.BABY_DIMENSIONS
-	if m.Type == TypeFox && m.IsBaby() {
-		return 0, 0.375, 0
+	baby := m.IsBaby()
+	if baby {
+		switch m.Type {
+		case TypeNautilus, TypePig:
+			return 0, 0.5, 0
+		case TypeStrider:
+			return 0, 0.65625, 0 // vanilla: Strider.BABY_DIMENSIONS
+		case TypeFox:
+			return 0, 0.375, 0 // vanilla: Fox.BABY_DIMENSIONS
+		case TypeWolf:
+			return 0, 0.4375, 0 // vanilla: Wolf.BABY_DIMENSIONS
+		case TypeTurtle:
+			return 0, 0.4 * 0.3, -0.25 * 0.3 // vanilla: Turtle.BABY_DIMENSIONS
+		case TypeLlama, TypeTraderLlama:
+			return 0, (1.87 - 0.25) * 0.5, -0.3 * 0.5 // vanilla: Llama.BABY_DIMENSIONS
+		}
 	}
 	if IsCamel(m.Type) {
 		return m.camelSeat(index)
@@ -356,7 +362,7 @@ func vehiclePassengerPoint(m *Mob, index int) (x, y, z float64) {
 		return 0, m.height(), 0
 	}
 	f := 1.0
-	if k := m.kind(); m.IsBaby() && k.babyHeight > 0 && k.height > 0 {
+	if k := m.kind(); baby && k.babyHeight > 0 && k.height > 0 {
 		f = k.babyHeight / k.height
 	}
 	return p[0] * f, p[1] * f, p[2] * f

@@ -373,6 +373,9 @@ func (s *Server) tickHopper(w *world.World, be *world.BlockEntity, age int64) {
 		}
 		return false
 	})
+	if !turn.moved && !turn.partial {
+		return
+	}
 	sets := [2]containerTarget{turn.pushed, turn.pulled}
 	if c := synced[0]; c != nil {
 		s.syncContainerViewers(w, c.X, c.Y, c.Z)
@@ -411,7 +414,7 @@ func (s *Server) hopperStep(w *world.World, b *world.BlockEntity, gate *hopperGa
 		t.pushed = s.hopperEject(w, self, gate)
 		t.moved = t.pushed != nil
 	}
-	if !slotsFull(b.Slots) {
+	if !b.HopperFull() {
 		var suckMoved bool
 		suckMoved, t.pulled, t.partial, t.taken, t.shrunk = s.hopperSuck(w, self, gate)
 		t.moved = suckMoved || t.moved
@@ -613,20 +616,11 @@ func (s *Server) syncContainerViewers(w *world.World, x, y, z int32) {
 	})
 }
 
-// slotsEmpty and slotsFull read the hopper's own slots in place: a Slot call
+// slotsEmpty reads the hopper's own slots in place: a Slot call
 // copies the 144-byte stack.
 func slotsEmpty(slots []protocol.ItemStack) bool {
 	for i := range slots {
 		if slots[i].Count > 0 {
-			return false
-		}
-	}
-	return true
-}
-
-func slotsFull(slots []protocol.ItemStack) bool {
-	for i := range slots {
-		if slots[i].Count <= 0 || slots[i].Count < registry.StackMaxStackSizePtr(&slots[i]) {
 			return false
 		}
 	}

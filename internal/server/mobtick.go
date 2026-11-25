@@ -865,9 +865,10 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 		for _, op := range m.TakeBedOps() {
 			fx.bedOps = append(fx.bedOps, mobBedOp{w: w, op: op})
 		}
-		// LodestoneTrackerOf reads only Raw on the two hands and four worn slots.
+		// LodestoneTrackerOf only reads Raw components.
 		if len(m.MainHand.Raw) > 0 || len(m.OffHand.Raw) > 0 ||
-			len(m.Worn[0].Raw) > 0 || len(m.Worn[1].Raw) > 0 || len(m.Worn[2].Raw) > 0 || len(m.Worn[3].Raw) > 0 {
+			len(m.Worn[0].Raw) > 0 || len(m.Worn[1].Raw) > 0 || len(m.Worn[2].Raw) > 0 || len(m.Worn[3].Raw) > 0 ||
+			len(m.Body.Raw) > 0 || len(m.Horse.Saddle.Raw) > 0 || len(m.Antenna.Raw) > 0 {
 			tickMobCompasses(m, w, t.dim.name)
 		}
 		if cloud := takeInk(m); cloud != nil {
@@ -975,12 +976,12 @@ func (t *mobDimTick) scheduleMovement(fx *mobEffects, in *mobTickInputs) {
 				}
 				if was.own.wornGen != ent.equipGen {
 					equipped := &ent.equipSeen
-					used := equipmentChanged(&was.own.worn, equipped)
+					used := equipmentChanged(was.own.worn[:], equipped[:])
 					was.own.worn = *equipped
 					was.own.wornGen = ent.equipGen
 					if len(used) > 0 {
 						fx.sends = append(fx.sends, mobSend{c: c, w: w, id: protocol.IDPlayEntityEquipment,
-							data: equipmentEntriesPayload(m.ID, equipped, used)})
+							data: equipmentEntriesPayload(m.ID, equipped[:], used)})
 					}
 				}
 			}

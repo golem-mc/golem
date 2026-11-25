@@ -392,21 +392,18 @@ func (l *lerpSampler) SampleVolume(c *Context, out []float32, v Volume) {
 // rangeChoice picks between two samplers by whether the input is in a range.
 // vanilla: RangeChoiceFunction.Sampler, ConstSampler
 type rangeChoice struct {
-	input                 Sampler
-	min, max              float32
-	inRange, outOfRange   Sampler
-	inRangeK, outOfRangeK float32
-	consts                bool
+	input                       Sampler
+	min, max                    float32
+	inRange, outOfRange         Sampler
+	inRangeK, outOfRangeK       float32
+	hasInRangeK, hasOutOfRangeK bool
 }
 
 // RangeChoice is vanilla: DensityFunctions.rangeChoice.
 func RangeChoice(input Sampler, minInclusive, maxExclusive float32, whenInRange, whenOutOfRange Sampler) Sampler {
 	r := &rangeChoice{input: input, min: minInclusive, max: maxExclusive, inRange: whenInRange, outOfRange: whenOutOfRange}
-	if a, ok := constOf(whenInRange); ok {
-		if b, ok := constOf(whenOutOfRange); ok {
-			r.inRangeK, r.outOfRangeK, r.consts = a, b, true
-		}
-	}
+	r.inRangeK, r.hasInRangeK = constOf(whenInRange)
+	r.outOfRangeK, r.hasOutOfRangeK = constOf(whenOutOfRange)
 	return r
 }
 
@@ -414,7 +411,7 @@ func (r *rangeChoice) in(v float32) bool { return v >= r.min && v < r.max }
 
 func (r *rangeChoice) Sample(c *Context, x, y, z int32) float32 {
 	v := r.input.Sample(c, x, y, z)
-	if r.consts {
+	if r.hasInRangeK && r.hasOutOfRangeK {
 		if r.in(v) {
 			return r.inRangeK
 		}
@@ -427,7 +424,10 @@ func (r *rangeChoice) Sample(c *Context, x, y, z int32) float32 {
 }
 
 func (r *rangeChoice) SampleVolume(c *Context, out []float32, v Volume) {
-	if r.consts {
+	if len(out) == 0 {
+		return
+	}
+	if r.hasInRangeK && r.hasOutOfRangeK {
 		r.input.SampleVolume(c, out, v)
 		for i := range out {
 			if r.in(out[i]) {
@@ -438,18 +438,53 @@ func (r *rangeChoice) SampleVolume(c *Context, out []float32, v Volume) {
 		}
 		return
 	}
-	r.inRange.SampleVolume(c, out, v)
-	ib := c.acquire(len(out))
-	r.input.SampleVolume(c, ib, v)
-	ob := c.acquire(len(out))
-	r.outOfRange.SampleVolume(c, ob, v)
-	for i := range out {
-		if !r.in(ib[i]) {
-			out[i] = ob[i]
+	selector := c.acquire(len(out))
+	r.input.SampleVolume(c, selector, v)
+	firstInRange := r.in(selector[0])
+	uniform := true
+	for _, value := range selector[1:] {
+		if r.in(value) != firstInRange {
+			uniform = false
+			break
 		}
 	}
-	c.release(ob)
-	c.release(ib)
+	if uniform {
+		c.release(selector)
+		if firstInRange {
+			r.inRange.SampleVolume(c, out, v)
+		} else {
+			r.outOfRange.SampleVolume(c, out, v)
+		}
+		return
+	}
+
+	switch {
+	case r.hasInRangeK:
+		r.outOfRange.SampleVolume(c, out, v)
+		for i := range out {
+			if r.in(selector[i]) {
+				out[i] = r.inRangeK
+			}
+		}
+	case r.hasOutOfRangeK:
+		r.inRange.SampleVolume(c, out, v)
+		for i := range out {
+			if !r.in(selector[i]) {
+				out[i] = r.outOfRangeK
+			}
+		}
+	default:
+		r.inRange.SampleVolume(c, out, v)
+		outside := c.acquire(len(out))
+		r.outOfRange.SampleVolume(c, outside, v)
+		for i := range out {
+			if !r.in(selector[i]) {
+				out[i] = outside[i]
+			}
+		}
+		c.release(outside)
+	}
+	c.release(selector)
 }
 
 // intervalSelect picks one of several samplers by the input's interval.

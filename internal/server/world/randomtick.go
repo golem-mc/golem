@@ -218,6 +218,9 @@ func (p *Physics) RandomTick(gameTime int64, chunks []ChunkPos, speed, maxSnowHe
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.now = gameTime
+	if speed <= 0 {
+		return nil, nil
+	}
 
 	// The chunks come from a map, whose order Go randomizes, and one dice
 	// stream serves every chunk: sort them so the same world and seed replay.

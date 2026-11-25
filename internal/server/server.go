@@ -63,6 +63,8 @@ type Server struct {
 	// openContainerWindows may over-count clients removed with a window open,
 	// but never under-counts: zero is only a shortcut for viewer discovery.
 	openContainerWindows atomic.Int32
+	// viewers finds the windows showing a block container by position.
+	viewers containerViewerIndex
 
 	// structures is the template cache /place and the structure blocks share.
 	structures *world.TemplateStore
@@ -617,9 +619,10 @@ type Server struct {
 	// under it; a launch only adds. It is taken inside mu where both are
 	// needed, like itemsMu, and with the mob lock by the tick reading bodies a
 	// flight may meet.
-	fireworksMu    sync.Mutex
-	fireworks      []*fireworkEntity
-	fireworkChunks entity.ChunkIndex[*fireworkEntity]
+	fireworksMu     sync.Mutex
+	fireworks       []*fireworkEntity
+	fireworkChunks  entity.ChunkIndex[*fireworkEntity]
+	fireworkTargets []entity.ArrowTarget
 
 	// boatsMu guards boats: the main loop ticks them under it; placing,
 	// mounting, driving or striking one only adds or amends. It is taken inside

@@ -228,6 +228,36 @@ func (g *BoxGrid) Query(box AABB, yield func(i int32)) {
 	}
 }
 
+// First returns the lowest index filed under a cell box overlaps for which ok
+// holds, or -1. Each bucket is ascending, so it is scanned only up to the best
+// index found so far.
+func (g *BoxGrid) First(box AABB, ok func(i int32) bool) int32 {
+	x0, x1, z0, z1 := g.boxCells(box)
+	best := int32(math.MaxInt32)
+	g.forEachBucket(x0, x1, z0, z1, func(c []int32) {
+		for _, i := range c {
+			if i >= best {
+				return
+			}
+			if ok(i) {
+				best = i
+				return
+			}
+		}
+	})
+	if best == math.MaxInt32 {
+		return -1
+	}
+	return best
+}
+
+// SpansMore reports whether box overlaps more than n cells on either
+// horizontal axis, by the cells Add files it under.
+func (g *BoxGrid) SpansMore(box AABB, n int32) bool {
+	x0, x1, z0, z1 := g.boxCells(box)
+	return x1-x0+1 > n || z1-z0+1 > n
+}
+
 // QueryPoints yields each index filed under a cell box overlaps, for a grid
 // whose every box is a point and so lies in one cell: no index repeats,
 // and none is sorted. yield must not call Query.

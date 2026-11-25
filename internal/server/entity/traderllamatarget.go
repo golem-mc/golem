@@ -1,5 +1,7 @@
 package entity
 
+var traderLlamaZombieKinds = []MobType{TypeZombie, TypeHusk, TypeDrowned, TypeZombieVillager}
+
 // withTraderLlamaTargets adds TraderLlama.registerGoals' goals to the
 // llama's: a panic at 2.0 and defend the trader at 1, zombies and
 // illagers at 2 (not the zombified piglin), each after the goals already at
@@ -9,10 +11,8 @@ func withTraderLlamaTargets(m *Mob, goals []Goal) []Goal {
 	extra := []Goal{
 		&panicGoal{m: m, priority: 1, pace: 2},
 		&traderDefendGoal{m: m},
-		&mobTargetGoal{m: m, priority: priorityBreed, matches: func(o *Mob) bool {
-			return o.Type == TypeZombie || o.Type == TypeHusk || o.Type == TypeDrowned || o.Type == TypeZombieVillager
-		}},
-		&mobTargetGoal{m: m, priority: priorityBreed, matches: func(o *Mob) bool { return IsIllagerType(o.Type) }},
+		&mobTargetGoal{m: m, priority: priorityBreed, kinds: traderLlamaZombieKinds},
+		&mobTargetGoal{m: m, priority: priorityBreed, kinds: illagerKinds},
 	}
 	for _, g := range extra {
 		i := 0
