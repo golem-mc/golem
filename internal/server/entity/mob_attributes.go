@@ -293,12 +293,9 @@ func (m *Mob) attrPaced() bool { return m.family() != TypeGhast }
 // stays pending: a load lets the next tick announce it.
 func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	a := player.NewAttributes(m.AttributeSupplier())
-	a.Instance(registry.AttributeMovementSpeed)
-	// Vanilla instantiates movement_speed and the equipment's attributes in
-	// the first tick, not with the map; a zombie's setBaby does it on load.
-	synthetic := []registry.AttributeID{registry.AttributeMovementSpeed}
 	if m.is(TypeZombie) {
-		synthetic = synthetic[:0]
+		// vanilla: Zombie.setBaby
+		a.Instance(registry.AttributeMovementSpeed)
 	}
 	if m.Size > 0 {
 		a.Instance(registry.AttributeMaxHealth)
@@ -332,6 +329,7 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	}
 	m.syncFollowSpawnBonus(a)
 	m.syncZombieTraits(a)
+	synthetic := make([]registry.AttributeID, 0, registry.NumAttributes)
 	for _, sl := range m.equipmentSlots() {
 		for _, mod := range rules.EquipmentModifiers(sl.stack, sl.name) {
 			if !a.Instantiated(mod.Attribute) {
@@ -340,6 +338,11 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 			}
 		}
 		applyEquipment(a, sl.stack, sl.name)
+	}
+	// vanilla: LivingEntity.detectEquipmentUpdates precedes removeFrost.
+	if !a.Instantiated(registry.AttributeMovementSpeed) {
+		a.Instance(registry.AttributeMovementSpeed)
+		synthetic = append(synthetic, registry.AttributeMovementSpeed)
 	}
 	// The mark must follow every Instance above; Load and the sync below
 	// instantiate for real and clear it.
