@@ -1,6 +1,7 @@
 package mobs
 
 import (
+	"bytes"
 	"math"
 	"testing"
 
@@ -83,7 +84,11 @@ func TestCrammingIgnoresAMobOnlyAnotherPlayerReaches(t *testing.T) {
 	cow := srv.SpawnMob("minecraft:cow", 18, 64, 0.5)
 	srv.SetMobNoAI(cow)
 	c.ChatCommand("attribute @e[type=minecraft:cow,limit=1] minecraft:scale base set 16")
-	servertest.AwaitSystemChatSaying(t, c, "commands.attribute.base_value.set.success")
+	if !c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+		return id == protocol.IDPlaySystemChat && bytes.Contains(data, []byte("commands.attribute.base_value.set.success"))
+	}) {
+		t.Fatal("the attribute command did not report success")
+	}
 	servertest.RunTicks(t, srv, 20)
 	if hp := srv.PlayerHealth("Stayer"); hp != 20 {
 		t.Fatalf("health = %v, want 20: the cow is filed outside the player's sections", hp)

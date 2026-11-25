@@ -231,12 +231,24 @@ func (c *client) crammingHurt() (rules.Hurt, bool) {
 	total, standing := 0, 0
 	// The shared walk may have filed a mob only another player reaches.
 	// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
-	bn := box.Bounds()
-	window := entity.NewSectionWindow(bn[0], bn[3], bn[1], bn[4], bn[2], bn[5])
+	// The window is built on the first filed mob met, so an idle tick pays
+	// nothing for it.
+	var window entity.SectionWindow
+	haveWindow := false
 	cw.grid.Query(box, func(i int32) {
 		b := &cw.bodies[i]
-		if b.owner == c || !box.Crosses(b.box) || (b.filed && !window.HoldsAt(b.at[0], b.at[1], b.at[2])) || !entity.PushableBy(team, rule, b.team, b.rule) {
+		if b.owner == c || !box.Crosses(b.box) || !entity.PushableBy(team, rule, b.team, b.rule) {
 			return
+		}
+		if b.filed {
+			if !haveWindow {
+				bn := box.Bounds()
+				window = entity.NewSectionWindow(bn[0], bn[3], bn[1], bn[4], bn[2], bn[5])
+				haveWindow = true
+			}
+			if !window.HoldsAt(b.at[0], b.at[1], b.at[2]) {
+				return
+			}
 		}
 		total++
 		if !b.riding {
