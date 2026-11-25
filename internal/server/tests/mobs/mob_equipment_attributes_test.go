@@ -1,6 +1,8 @@
 package mobs
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -66,5 +68,45 @@ func TestSavedAttributesDropKindlessEntries(t *testing.T) {
 	}
 	if !strings.Contains(got, "golem:unknown") {
 		t.Errorf("pig attributes list lost the unknown entry: %s", got)
+	}
+}
+
+const slowBoots = `{"anvil_cost":1,"description":{"text":"Slow"},"max_level":1,"weight":1,
+	"min_cost":{"base":1,"per_level_above_first":0},"max_cost":{"base":50,"per_level_above_first":0},
+	"slots":["feet"],"supported_items":"#minecraft:enchantable/foot_armor",
+	"effects":{"minecraft:location_changed":[{"effect":{"type":"minecraft:attribute",
+	"attribute":"minecraft:attack_speed","id":"pack:slow","amount":0.1,"operation":"add_value"}}]}}`
+
+// TestLocationChangedLeavesKindlessAttributeOutOfSave: a location_changed
+// attribute effect on boots adds no instance the mob's kind lacks.
+// vanilla: EnchantmentAttributeEffect.onChangedBlock
+func TestLocationChangedLeavesKindlessAttributeOutOfSave(t *testing.T) {
+	// The registry tables are process-wide, so this test is not parallel.
+	t.Cleanup(func() { registry.ApplyPackRegistries(nil); registry.ApplyPackEnchantments(nil) })
+	dir := t.TempDir()
+	files := map[string]string{
+		"pack.mcmeta":                   `{"pack":{"description":"p"}}`,
+		"data/pk/enchantment/slow.json": slowBoots,
+	}
+	for file, body := range files {
+		path := filepath.Join(dir, "datapacks", "p", file)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := servertest.MobTestConfig()
+	cfg.LevelName = dir
+	cfg.ViewDistance, cfg.SimulationDistance = 2, 2
+	srv, c := servertest.Join(t, cfg, "Keeper", servertest.OpsListing(t, "Keeper"))
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand(`summon minecraft:pig 1.5 100 0.5 {equipment:{feet:{id:"minecraft:iron_boots",count:1,components:{"minecraft:enchantments":{"pk:slow":1}}}}}`)
+	c.ExpectMobSpawn(protocol.EntityTypePig)
+	c.Settle()
+	servertest.RunTicks(t, srv, 1)
+	if got := savedField(t, srv, "pig", "attributes"); strings.Contains(got, "attack_speed") {
+		t.Errorf("pig attributes list carries attack_speed: %s", got)
 	}
 }
