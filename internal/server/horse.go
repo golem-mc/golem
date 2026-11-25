@@ -14,19 +14,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// The wire number of the saddle's equipment slot.
-// vanilla: EquipmentSlot.SADDLE
-const saddleEquipmentSlot = 7
-
-// saddlePayload is the Set Equipment packet of a mob's saddle slot (a copper golem's antenna).
-func saddlePayload(m *entity.Mob) []byte {
-	var b protocol.Buffer
-	b.PutVarInt(m.ID)
-	b.PutU8(saddleEquipmentSlot)
-	b.PutSlot(m.SaddleSlot())
-	return b.Bytes()
-}
-
 // ridingMob reports whether the player sits on a mob.
 func (c *client) ridingMob() bool { return c.mount.Load() != nil }
 

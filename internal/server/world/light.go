@@ -597,11 +597,12 @@ func spread(v uint8, dir int, fromState, nbState uint16) uint8 {
 	return v - uint8(damp)
 }
 
-// lightEntry is a pending light propagation in the BFS queue.
+// lightEntry is a pending light propagation, packed into 16 bytes.
 type lightEntry struct {
-	x, y, z int32
-	v       uint8
-	layer   uint8 // 16 bytes an entry rather than 24
+	x, y, z      int32
+	v            uint8
+	layer        uint8
+	statePlusOne uint16 // zero if unknown or the state ID wrapped when offset
 }
 
 type lightQueue struct {
@@ -620,7 +621,17 @@ func (q *lightQueue) release() {
 }
 
 func (q *lightQueue) push(x, y, z int32, v uint8, layer int) {
-	q.entries = append(q.entries, lightEntry{x, y, z, v, uint8(layer)})
+	q.pushWithState(x, y, z, v, layer, 0)
+}
+
+// pushWithState appends an entry; a full array first reuses the consumed prefix when it
+// is at least as large as the unread suffix, so the copy is amortised.
+func (q *lightQueue) pushWithState(x, y, z int32, v uint8, layer int, statePlusOne uint16) {
+	if len(q.entries) == cap(q.entries) && q.head > 0 && q.head >= len(q.entries)-q.head {
+		n := copy(q.entries, q.entries[q.head:])
+		q.entries, q.head = q.entries[:n], 0
+	}
+	q.entries = append(q.entries, lightEntry{x, y, z, v, uint8(layer), statePlusOne})
 }
 
 func (q *lightQueue) pop() (lightEntry, bool) {

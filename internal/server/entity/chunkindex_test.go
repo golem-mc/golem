@@ -124,6 +124,9 @@ func TestChunkIndexStructCopy(t *testing.T) {
 	id := uuid.UUID{1}
 	ix.Add(m, &m.Filing, world.ChunkPos{}, id)
 	cp := *m
+	if ix.Contains(&cp.Filing) || !ix.Contains(&m.Filing) {
+		t.Fatal("Contains must recognize the original filing only")
+	}
 	cp.SetPos(40, 0, 0)
 	if !ix.Holds(&m.Filing, world.ChunkPos{}) || ix.Len() != 1 {
 		t.Fatal("a copy's SetPos moved the original")
@@ -143,10 +146,16 @@ func TestChunkIndexReplacedUUID(t *testing.T) {
 	id := uuid.UUID{1}
 	ix.Add(first, &first.Filing, world.ChunkPos{}, id)
 	ix.Add(second, &second.Filing, world.ChunkPos{}, id)
+	if !ix.Contains(&first.Filing) || !ix.Contains(&second.Filing) {
+		t.Fatal("both filings must be present despite sharing a UUID")
+	}
 	checkChunkIndexUUID(t, &ix, id, second)
 	first.SetPos(40, 0, 0)
 	checkChunkIndexUUID(t, &ix, id, second)
 	first.Unfile()
+	if ix.Contains(&first.Filing) || !ix.Contains(&second.Filing) {
+		t.Fatal("Contains must reject the unfiled body and retain the replacement")
+	}
 	checkChunkIndexUUID(t, &ix, id, second)
 	second.Unfile()
 	checkChunkIndexUUID(t, &ix, id, nil)

@@ -2,7 +2,6 @@ package entity
 
 import (
 	"math"
-	"sort"
 
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -315,30 +314,53 @@ func (s shulkerWorld) BodyBoxes(box AABB) []AABB {
 	if b, ok := s.World.(BodyWorld); ok {
 		out = b.BodyBoxes(box)
 	}
-	others := s.others
 	if s.self != nil && s.self.push != nil {
-		others = s.self.push.shulkersNear(box)
+		g := s.self.push
+		// A grown shell reaches at most one body size past the body box, and
+		// shellWide is half the widest shell's, so twice it covers it.
+		r := g.shellWide
+		g.near = g.gatherBoxInto(g.near[:0], box.inflate(2*r, 2*r, 2*r), r)
+		hits := g.near[:0]
+		for _, o := range g.near {
+			if s.blocks(o, box) {
+				hits = append(hits, o)
+			}
+		}
+		// clipMove's step-up top depends on the order it meets the hulls
+		// in, so they go in the whole-herd scan's order.
+		sortSnapshot(hits)
+		for _, o := range hits {
+			out = append(out, o.mobBox())
+		}
+		return out
 	}
-	for _, o := range others {
-		if o.IsShulker() && o.Alive() && o.RootVehicle() != s.self.RootVehicle() {
-			// Bound every attach face's fully open box before computing its peek.
-			side, down, up := 1.5, 1.0, 2.0
-			// Most candidates have no attribute edits; avoid an attribute read
-			// for every distant pair in the herd.
-			if o.attrs != nil {
-				size := o.attrScale()
-				side, down, up = side*size, down*size, up*size
-			}
-			if o.X+side < box.minX || o.X-side > box.maxX || o.Z+side < box.minZ || o.Z-side > box.maxZ ||
-				o.Y+up < box.minY || o.Y-down > box.maxY {
-				continue
-			}
-			if hull := o.mobBox(); box.Crosses(hull) {
-				out = append(out, hull)
-			}
+	for _, o := range s.others {
+		if s.blocks(o, box) {
+			out = append(out, o.mobBox())
 		}
 	}
 	return out
+}
+
+// blocks reports whether o is a live shulker outside self's ride chain whose
+// hull crosses box.
+func (s shulkerWorld) blocks(o *Mob, box AABB) bool {
+	if !o.IsShulker() || !o.Alive() || o.RootVehicle() == s.self.RootVehicle() {
+		return false
+	}
+	// Bound every attach face's fully open box before computing its peek.
+	side, down, up := 1.5, 1.0, 2.0
+	// Most candidates have no attribute edits; avoid an attribute read
+	// for every distant pair in the herd.
+	if o.attrs != nil {
+		size := o.attrScale()
+		side, down, up = side*size, down*size, up*size
+	}
+	if o.X+side < box.minX || o.X-side > box.maxX || o.Z+side < box.minZ || o.Z-side > box.maxZ ||
+		o.Y+up < box.minY || o.Y-down > box.maxY {
+		return false
+	}
+	return box.Crosses(o.mobBox())
 }
 
 func (m *Mob) shulkerWorld(t *tickView) shulkerWorld {
@@ -419,7 +441,7 @@ func (m *Mob) canStayAt(w World, at Waypoint, face uint8) bool {
 		return false
 	}
 	s := faceStep[face]
-	if !m.supportsFace(w.BlockAt(at.X+s[0], at.Y+s[1], at.Z+s[2]), at.Y+s[1], face^1) {
+	if !faceFullFor(w.BlockAt(at.X+s[0], at.Y+s[1], at.Z+s[2]), at.Y+s[1], m.Y, face^1) {
 		return false
 	}
 	// getProgressAabb at full peek, deflated.
@@ -471,58 +493,9 @@ func (m *Mob) teleportShulker(w World, t *tickView) bool {
 	return false
 }
 
-// supportsFace reports whether the block at row cellY has a full collision
-// face toward face; scaffolding's shape depends on the shulker's height.
-// vanilla: Block.isFaceFull, ScaffoldingBlock.getCollisionShape
-func (m *Mob) supportsFace(state uint16, cellY int32, face uint8) bool {
-	if full, ok := world.ScaffoldingFaceFull(state, cellY, m.Y, int(face)); ok {
-		return full
-	}
+// faceFull reports whether the state's collision shape covers its whole
+// face toward the direction id (down, up, north, south, west, east).
+// vanilla: Block.isFaceFull
+func faceFull(state uint16, face uint8) bool {
 	return registry.CollisionFaceFull(state, int(face))
 }
-
-// boxesFaceFull reports whether the boxes cover the whole cell face toward face.
-func boxesFaceFull(shape []world.CollisionBox, face uint8) bool {
-	axis, high := [6]int{1, 1, 2, 2, 0, 0}[face], face%2 == 1
-	u, v := (axis+1)%3, (axis+2)%3
-	var boxes [][2][3]float64
-	cuts := [2][]float64{{0, 1}, {0, 1}}
-	for _, b := range shape {
-		lo := [3]float64{b.MinX, b.MinY, b.MinZ}
-		hi := [3]float64{b.MaxX, b.MaxY, b.MaxZ}
-		if (high && hi[axis] != 1) || (!high && lo[axis] != 0) || lo[axis] == hi[axis] {
-			continue
-		}
-		boxes = append(boxes, [2][3]float64{lo, hi})
-		cuts[0] = append(cuts[0], lo[u], hi[u])
-		cuts[1] = append(cuts[1], lo[v], hi[v])
-	}
-	if len(boxes) == 0 {
-		return false
-	}
-	// Every cell the box edges cut the face into must lie inside a box.
-	for i := range cuts {
-		sort.Float64s(cuts[i])
-	}
-	for i := 0; i+1 < len(cuts[0]); i++ {
-		for j := 0; j+1 < len(cuts[1]); j++ {
-			cu, cv := (cuts[0][i]+cuts[0][i+1])/2, (cuts[1][j]+cuts[1][j+1])/2
-			if cu <= 0 || cu >= 1 || cv <= 0 || cv >= 1 || cuts[0][i] == cuts[0][i+1] || cuts[1][j] == cuts[1][j+1] {
-				continue
-			}
-			covered := false
-			for _, b := range boxes {
-				covered = covered || (cu > b[0][u] && cu < b[1][u] && cv > b[0][v] && cv < b[1][v])
-			}
-			if !covered {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// faceFull reports whether the state's static collision covers its whole
-// face toward face.
-// vanilla: Block.isFaceFull
-func faceFull(state uint16, face uint8) bool { return boxesFaceFull(blockBoxes(state), face) }

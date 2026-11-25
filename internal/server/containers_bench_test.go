@@ -1,6 +1,9 @@
 package server
 
 import (
+	"strconv"
+
+	"github.com/google/uuid"
 	"io"
 	"net"
 	"testing"
@@ -86,5 +89,69 @@ func BenchmarkContainerStillOpenMerchant(b *testing.B) {
 		if !c.containerStillOpen(window) {
 			b.Fatal("window closed")
 		}
+	}
+}
+
+// openOriginMix opens one barrel window at the origin among trade and mount
+// windows, whose block position is also the origin.
+func openOriginMix(b *testing.B) (*Server, *world.World) {
+	s, w := newCommandBenchServer(b, 0)
+	w.SetBlock(0, 0, 0, registry.BlockBarrel.DefaultState())
+	w.EnsureBlockEntity(0, 0, 0, world.KindBarrel)
+	add := func(i int, window *openWindow) {
+		p := &player.Player{EntityID: s.nextEntity(), UUID: uuid.UUID{byte(i)}}
+		c := &client{srv: s, player: p}
+		c.setOpenWindow(window)
+		s.clients[p.UUID] = c
+	}
+	add(1, &openWindow{kind: windowBarrel, w: w, Sent: make([]protocol.ItemStack, 27)})
+	for i := 2; i < 10; i++ {
+		add(i, &openWindow{kind: windowMerchant, w: w, trader: &merchant{}})
+		add(i+10, &openWindow{kind: windowHorse, w: w, mount: &mobEntity{}})
+	}
+	// The fake clients have no connection for shutdown to close.
+	b.Cleanup(func() { clear(s.clients) })
+	return s, w
+}
+
+// BenchmarkSyncContainerViewers runs the viewer scan of a hopper transfer
+// at the origin with one chest viewer among trade and mount windows.
+func BenchmarkSyncContainerViewers(b *testing.B) {
+	s, w := openOriginMix(b)
+	b.ReportAllocs()
+	for b.Loop() {
+		s.syncContainerViewers(w, 0, 0, 0)
+	}
+}
+
+// BenchmarkContainerOpenerCount is the scheduled lid recheck's count over
+// the same mix.
+func BenchmarkContainerOpenerCount(b *testing.B) {
+	s, w := openOriginMix(b)
+	b.ReportAllocs()
+	for b.Loop() {
+		s.containerOpenerCount(w, 0, 0, 0)
+	}
+}
+
+func BenchmarkUnviewedBlockContainer(b *testing.B) {
+	for _, n := range []int{1, 20, 100} {
+		b.Run(strconv.Itoa(n)+"clients", func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 0)
+			var viewer *client
+			for range n {
+				p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
+				c := &client{srv: s, player: p}
+				s.clients[p.UUID] = c
+				viewer = c
+			}
+			y := int32(world.GroundLevel)
+			viewer.setOpenWindow(&openWindow{kind: windowBarrel, w: w, x: 2, y: y, z: 2})
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				s.syncContainerViewers(w, 0, y, 0)
+			}
+		})
 	}
 }

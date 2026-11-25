@@ -94,6 +94,37 @@ func TestPushGridDenseMatchesSparse(t *testing.T) {
 	}
 }
 
+func TestPushGridGatherBoxMatchesScan(t *testing.T) {
+	const herd = 160
+	rng := rand.New(rand.NewSource(632))
+	mobs := make([]*Mob, herd)
+	for i := range mobs {
+		mobs[i] = NewMob(TypeCow, int32(i), rng.Float64()*40-20, 64+float64(i%3), rng.Float64()*40-20, int64(i))
+	}
+	g := takePushGrid(herd, nil)
+	defer g.release()
+	g.build(mobs)
+	for range 200 {
+		x, y, z := rng.Float64()*50-25, 63+rng.Float64()*3, rng.Float64()*50-25
+		box := AABB{x, y, z, x + rng.Float64()*6, y + rng.Float64()*3, z + rng.Float64()*6}
+		var want []int32
+		for _, m := range mobs {
+			if box.Crosses(m.mobBox()) {
+				want = append(want, m.ID)
+			}
+		}
+		var got []int32
+		for _, m := range g.gatherBox(box) {
+			got = append(got, m.ID)
+		}
+		slices.Sort(want)
+		slices.Sort(got)
+		if !slices.Equal(got, want) {
+			t.Fatalf("box %v: got %v, want %v", box, got, want)
+		}
+	}
+}
+
 func TestPushGridMatchesHerdAtCellEdges(t *testing.T) {
 	const inflate, epsilon = .25, 1e-6
 	for _, edge := range []float64{-pushCellSide, pushCellSide} {
@@ -185,30 +216,5 @@ func assertPushCandidates(t *testing.T, grid *pushGrid, query *Mob, inflate floa
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("candidate IDs %v, want %v in herd order", got, want)
-	}
-}
-
-// TestShulkerHullQueryIgnoresAWideNonShulker: a shulker's hull query is
-// bounded by the widest shulker, so one huge slime far off does not widen it
-// to the whole herd.
-func TestShulkerHullQueryIgnoresAWideNonShulker(t *testing.T) {
-	var herd []*Mob
-	for i := range 2000 {
-		herd = append(herd, NewMob(TypeCow, int32(i), float64(i%45)*2, 64, float64(i/45)*2, int64(i)))
-	}
-	shell := NewMob(TypeShulker, 2000, 40.5, 64, 40.5, 2000)
-	slime := NewMob(TypeSlime, 2001, 1000, 64, 1000, 2001)
-	slime.SetSize(127, true)
-	herd = append(herd, shell, slime)
-	var seen int
-	grid := takePushGrid(len(herd), &seen)
-	defer grid.release()
-	grid.build(herd)
-	got := grid.shulkersNear(shell.shulkerBox())
-	if len(got) != 1 || got[0] != shell {
-		t.Fatalf("query found %d shulkers, want only the shell", len(got))
-	}
-	if seen > 100 {
-		t.Errorf("query visited %d entries, want the few in the shell's cells", seen)
 	}
 }

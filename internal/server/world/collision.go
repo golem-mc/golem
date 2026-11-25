@@ -114,32 +114,17 @@ func BodyAbove(bodyBottom, top float64) bool {
 // flag is not modelled (no mob or item sneaks). ok is false for other states.
 // vanilla: ScaffoldingBlock.getCollisionShape
 func ScaffoldingBoxes(state uint16, cellY int32, bodyBottom float64) (boxes []CollisionBox, ok bool) {
-	boxes, _, ok = scaffoldingShape(state, cellY, bodyBottom)
-	return boxes, ok
-}
-
-// ScaffoldingFaceFull reports whether the shape ScaffoldingBoxes selects
-// covers a whole cell face; face is a Direction index (0 down, 1 up). The
-// stable plate fills the top, the unstable plate the bottom.
-// vanilla: Block.isFaceFull, ScaffoldingBlock.getCollisionShape
-func ScaffoldingFaceFull(state uint16, cellY int32, bodyBottom float64, face int) (full, ok bool) {
-	_, mask, ok := scaffoldingShape(state, cellY, bodyBottom)
-	return mask>>face&1 == 1, ok
-}
-
-// scaffoldingShape selects the shape and the mask of faces it fills fully.
-func scaffoldingShape(state uint16, cellY int32, bodyBottom float64) (boxes []CollisionBox, faces uint8, ok bool) {
 	collisionTablesOnce.Do(initCollisionTables)
 	if !collisionScaffolding[state] {
-		return nil, 0, false
+		return nil, false
 	}
 	if BodyAbove(bodyBottom, float64(cellY)+1) {
-		return scaffoldingStable, 1 << 1, true
+		return scaffoldingStable, true
 	}
 	if collisionScaffoldingUnstable[state] && BodyAbove(bodyBottom, float64(cellY)) {
-		return scaffoldingUnstableBottom, 1 << 0, true
+		return scaffoldingUnstableBottom, true
 	}
-	return nil, 0, true
+	return nil, true
 }
 
 // CollisionTop is the highest top among a state's collision boxes, above its
