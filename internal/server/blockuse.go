@@ -36,6 +36,7 @@ func (c *client) useCakeOrCandle(hand, x, y, z int32, ctx rules.PlacementContext
 			protocol.SoundCategoryBlock, float64(x)+0.5, float64(y)+0.5, float64(z)+0.5, 1.0, 1.0)
 
 		c.setUsedBlock(w, x, y, z, candleCake)
+		c.gameEventAtCell(rules.GameEventBlockChange, x, y, z)
 		c.awardUsedHeld(hand)
 		c.spendHeld(hand)
 		return true

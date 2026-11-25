@@ -112,7 +112,9 @@ func moveThroughVillageRun(t *testing.T, timeCmd string) float64 {
 	})
 	srv.SetMobNoAI(v)
 	srv.SetMobInvulnerable(v)
-	z := srv.SpawnMob("minecraft:zombie", -6.5, 64, 0.5)
+	// Seeded: the path search samples random positions, and the 140-tick bound is tight.
+	z := srv.SpawnMobSeeded("minecraft:zombie", -6.5, 64, 0.5, 1)
+	srv.SetMobBaby(z, false)
 	srv.SetMobInvulnerable(z)
 	best := math.Inf(1)
 	for range 300 {

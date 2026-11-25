@@ -4,7 +4,6 @@ import (
 	"math"
 	"slices"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/blocklogic"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -43,11 +42,6 @@ func (m *Mob) finalizeFrog(dice Dice, ctx rules.SpawnContext) {
 // FinishTadpoleGrowth finalizes a conversion and fits the larger body in the world.
 // vanilla: Tadpole.ageUp
 func (m *Mob) FinishTadpoleGrowth(w World, old *Mob, biome registry.Biome) {
-	// ConversionParams.single(this, false, false) does not carry equipment.
-	for slot := range 6 {
-		m.SetEquipment(slot, protocol.ItemStack{})
-	}
-	m.ResetDropChances()
 	m.FinalizeSpawn(m.SpawnDice(), biome, nil, rules.LocalDifficulty{})
 	m.Persistence = true
 	m.refreshDimensions(w, old.width(), old.height())
@@ -179,12 +173,11 @@ func (g *frogTongueGoal) Priority() int           { return priorityBreed }
 func (g *frogTongueGoal) Flags() GoalFlags        { return GoalMove | GoalLook }
 func (g *frogTongueGoal) RequiresEveryTick() bool { return true }
 func (g *frogTongueGoal) prey(t *tickView) *Mob {
-	for _, o := range t.others {
-		if o.ID == g.m.frog.target {
-			return o
-		}
+	target := g.m.frog.target
+	if target == 0 {
+		return nil
 	}
-	return nil
+	return t.mobByID(target)
 }
 
 // vanilla: ShootTongue.checkExtraStartConditions, canPathfindToTarget

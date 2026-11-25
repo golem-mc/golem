@@ -2,10 +2,7 @@
 
 package entity
 
-import (
-	"github.com/golem-mc/golem/internal/protocol"
-	"github.com/google/uuid"
-)
+import "github.com/google/uuid"
 
 // MobMetadataMask names pending logical captures, independently of protocol indices.
 type MobMetadataMask [2]uint64
@@ -49,40 +46,39 @@ const (
 	MobMetadataFox             MobMetadataGroup = 32
 	MobMetadataBeeFlags        MobMetadataGroup = 33
 	MobMetadataChest           MobMetadataGroup = 34
-	MobMetadataSaddled         MobMetadataGroup = 35
-	MobMetadataCreepy          MobMetadataGroup = 36
-	MobMetadataDrinking        MobMetadataGroup = 37
-	MobMetadataAngerEnd        MobMetadataGroup = 38
-	MobMetadataTamableFlags    MobMetadataGroup = 39
-	MobMetadataBegging         MobMetadataGroup = 40
-	MobMetadataTropicalVariant MobMetadataGroup = 41
-	MobMetadataSheared         MobMetadataGroup = 42
-	MobMetadataVillager        MobMetadataGroup = 43
-	MobMetadataUnhappy         MobMetadataGroup = 44
-	MobMetadataSize            MobMetadataGroup = 45
-	MobMetadataPhantomSize     MobMetadataGroup = 46
-	MobMetadataFromBucket      MobMetadataGroup = 47
-	MobMetadataMaxFuse         MobMetadataGroup = 48
-	MobMetadataHasEgg          MobMetadataGroup = 49
-	MobMetadataAgeLocked       MobMetadataGroup = 50
-	MobMetadataAxolotlVariant  MobMetadataGroup = 51
-	MobMetadataDolphinGotFish  MobMetadataGroup = 52
-	MobMetadataPuffState       MobMetadataGroup = 53
-	MobMetadataGuardianMoving  MobMetadataGroup = 54
-	MobMetadataShulker         MobMetadataGroup = 55
-	MobMetadataBlazeCharged    MobMetadataGroup = 56
-	MobMetadataDragonPhase     MobMetadataGroup = 57
-	MobMetadataGhastCharging   MobMetadataGroup = 58
-	MobMetadataWitherHeads     MobMetadataGroup = 59
-	MobMetadataStaysStill      MobMetadataGroup = 60
-	MobMetadataCreaking        MobMetadataGroup = 61
-	MobMetadataStriderCold     MobMetadataGroup = 62
-	MobMetadataItemBoost       MobMetadataGroup = 63
-	MobMetadataCuring          MobMetadataGroup = 64
-	MobMetadataDrowning        MobMetadataGroup = 65
-	MobMetadataStraying        MobMetadataGroup = 66
-	MobMetadataDark            MobMetadataGroup = 67
-	MobMetadataNoGravity       MobMetadataGroup = 68
+	MobMetadataCreepy          MobMetadataGroup = 35
+	MobMetadataDrinking        MobMetadataGroup = 36
+	MobMetadataAngerEnd        MobMetadataGroup = 37
+	MobMetadataTamableFlags    MobMetadataGroup = 38
+	MobMetadataBegging         MobMetadataGroup = 39
+	MobMetadataTropicalVariant MobMetadataGroup = 40
+	MobMetadataSheared         MobMetadataGroup = 41
+	MobMetadataVillager        MobMetadataGroup = 42
+	MobMetadataUnhappy         MobMetadataGroup = 43
+	MobMetadataSize            MobMetadataGroup = 44
+	MobMetadataPhantomSize     MobMetadataGroup = 45
+	MobMetadataFromBucket      MobMetadataGroup = 46
+	MobMetadataMaxFuse         MobMetadataGroup = 47
+	MobMetadataHasEgg          MobMetadataGroup = 48
+	MobMetadataAgeLocked       MobMetadataGroup = 49
+	MobMetadataAxolotlVariant  MobMetadataGroup = 50
+	MobMetadataDolphinGotFish  MobMetadataGroup = 51
+	MobMetadataPuffState       MobMetadataGroup = 52
+	MobMetadataGuardianMoving  MobMetadataGroup = 53
+	MobMetadataShulker         MobMetadataGroup = 54
+	MobMetadataBlazeCharged    MobMetadataGroup = 55
+	MobMetadataDragonPhase     MobMetadataGroup = 56
+	MobMetadataGhastCharging   MobMetadataGroup = 57
+	MobMetadataWitherHeads     MobMetadataGroup = 58
+	MobMetadataStaysStill      MobMetadataGroup = 59
+	MobMetadataCreaking        MobMetadataGroup = 60
+	MobMetadataStriderCold     MobMetadataGroup = 61
+	MobMetadataItemBoost       MobMetadataGroup = 62
+	MobMetadataCuring          MobMetadataGroup = 63
+	MobMetadataDrowning        MobMetadataGroup = 64
+	MobMetadataStraying        MobMetadataGroup = 65
+	MobMetadataDark            MobMetadataGroup = 66
+	MobMetadataNoGravity       MobMetadataGroup = 67
 )
 
 // Has reports whether the capture group is pending.
@@ -114,7 +110,7 @@ func (m *Mob) ClearMetadataDirty() { m.metadataDirty = MobMetadataMask{} }
 func (m *Mob) InvalidateMetadata() {
 	m.metadataRevision++
 	m.metadataDirty[0] |= 0xffffffffffffffff
-	m.metadataDirty[1] |= 0x1f
+	m.metadataDirty[1] |= 0xf
 }
 
 // SetMetadataHealth stores and invalidates; simulation side effects belong to its caller.
@@ -717,7 +713,7 @@ func (m *Mob) SetMetadataSheared(value bool) {
 		changed = true
 	}
 	if before2 != (m.Sheared) {
-		m.metadataDirty[0] |= 1 << 42
+		m.metadataDirty[0] |= 1 << 41
 		changed = true
 	}
 	if changed {
@@ -1299,41 +1295,13 @@ func (m *Mob) SetMetadataHorseStrength(value int32) {
 	}
 }
 
-// SetMetadataHorseSaddle stores and invalidates; simulation side effects belong to its caller.
-func (m *Mob) SetMetadataHorseSaddle(value protocol.ItemStack) {
-	before0 := !m.SaddleSlot().Empty()
-	m.Horse.Saddle = value
-	changed := false
-	if before0 != (!m.SaddleSlot().Empty()) {
-		m.metadataDirty[0] |= 1 << 35
-		changed = true
-	}
-	if changed {
-		m.metadataRevision++
-	}
-}
-
-// SetMetadataAntenna stores and invalidates; simulation side effects belong to its caller.
-func (m *Mob) SetMetadataAntenna(value protocol.ItemStack) {
-	before0 := !m.SaddleSlot().Empty()
-	m.Antenna = value
-	changed := false
-	if before0 != (!m.SaddleSlot().Empty()) {
-		m.metadataDirty[0] |= 1 << 35
-		changed = true
-	}
-	if changed {
-		m.metadataRevision++
-	}
-}
-
 // SetMetadataTargetID stores and invalidates; simulation side effects belong to its caller.
 func (m *Mob) SetMetadataTargetID(value int32) {
 	before0 := m.Creepy()
 	m.TargetID = value
 	changed := false
 	if before0 != (m.Creepy()) {
-		m.metadataDirty[0] |= 1 << 36
+		m.metadataDirty[0] |= 1 << 35
 		changed = true
 	}
 	if changed {
@@ -1347,7 +1315,7 @@ func (m *Mob) SetMetadataEndermanStaredAt(value bool) {
 	m.enderman.staredAt = value
 	changed := false
 	if before0 != (m.enderman.staredAt) {
-		m.metadataDirty[0] |= 1 << 36
+		m.metadataDirty[0] |= 1 << 35
 		changed = true
 	}
 	if changed {
@@ -1361,7 +1329,7 @@ func (m *Mob) SetMetadataEndermanCarried(value uint16) {
 	m.enderman.carried = value
 	changed := false
 	if before0 != (m.enderman.carried) {
-		m.metadataDirty[0] |= 1 << 36
+		m.metadataDirty[0] |= 1 << 35
 		changed = true
 	}
 	if changed {
@@ -1375,7 +1343,7 @@ func (m *Mob) SetMetadataWitchDrinking(value bool) {
 	m.witch.drinking = value
 	changed := false
 	if before0 != (m.witch.drinking) {
-		m.metadataDirty[0] |= 1 << 37
+		m.metadataDirty[0] |= 1 << 36
 		changed = true
 	}
 	if changed {
@@ -1390,7 +1358,7 @@ func (m *Mob) SetMetadataGameTime(value int64) {
 	m.GameTime = value
 	changed := false
 	if enabled0 && before0 != (m.AngerEndTime()) {
-		m.metadataDirty[0] |= 1 << 38
+		m.metadataDirty[0] |= 1 << 37
 		changed = true
 	}
 	if changed {
@@ -1405,7 +1373,7 @@ func (m *Mob) SetMetadataAngerTicks(value int) {
 	m.anger.ticks = value
 	changed := false
 	if enabled0 && before0 != (m.AngerEndTime()) {
-		m.metadataDirty[0] |= 1 << 38
+		m.metadataDirty[0] |= 1 << 37
 		changed = true
 	}
 	if changed {
@@ -1419,7 +1387,7 @@ func (m *Mob) SetMetadataTamableTame(value bool) {
 	m.Tamable.Tame = value
 	changed := false
 	if before0 != (m.Tamable.Tame) {
-		m.metadataDirty[0] |= 1 << 39
+		m.metadataDirty[0] |= 1 << 38
 		changed = true
 	}
 	if changed {
@@ -1433,7 +1401,7 @@ func (m *Mob) SetMetadataTamableSittingPose(value bool) {
 	m.Tamable.SittingPose = value
 	changed := false
 	if before0 != (m.Tamable.SittingPose) {
-		m.metadataDirty[0] |= 1 << 39
+		m.metadataDirty[0] |= 1 << 38
 		changed = true
 	}
 	if changed {
@@ -1447,7 +1415,7 @@ func (m *Mob) SetMetadataNautilusDashing(value bool) {
 	m.nautilus.dashing = value
 	changed := false
 	if before0 != (m.nautilus.dashing) {
-		m.metadataDirty[0] |= 1 << 39
+		m.metadataDirty[0] |= 1 << 38
 		changed = true
 	}
 	if changed {
@@ -1461,7 +1429,7 @@ func (m *Mob) SetMetadataParrotVariant(value int) {
 	m.parrot.variant = value
 	changed := false
 	if before0 != (m.parrot.variant) {
-		m.metadataDirty[0] |= 1 << 39
+		m.metadataDirty[0] |= 1 << 38
 		changed = true
 	}
 	if changed {
@@ -1475,7 +1443,7 @@ func (m *Mob) SetMetadataTamableOwner(value uuid.UUID) {
 	m.Tamable.Owner = value
 	changed := false
 	if before0 != (m.Tamable.Owner) {
-		m.metadataDirty[0] |= 1 << 39
+		m.metadataDirty[0] |= 1 << 38
 		changed = true
 	}
 	if changed {
@@ -1489,7 +1457,7 @@ func (m *Mob) SetMetadataCollar(value string) {
 	m.Collar = value
 	changed := false
 	if before0 != (m.Collar) {
-		m.metadataDirty[0] |= 1 << 39
+		m.metadataDirty[0] |= 1 << 38
 		changed = true
 	}
 	if changed {
@@ -1503,7 +1471,7 @@ func (m *Mob) SetMetadataLying(value bool) {
 	m.Lying = value
 	changed := false
 	if before0 != (m.Lying) {
-		m.metadataDirty[0] |= 1 << 39
+		m.metadataDirty[0] |= 1 << 38
 		changed = true
 	}
 	if changed {
@@ -1517,7 +1485,7 @@ func (m *Mob) SetMetadataRelaxStateOne(value bool) {
 	m.RelaxStateOne = value
 	changed := false
 	if before0 != (m.RelaxStateOne) {
-		m.metadataDirty[0] |= 1 << 39
+		m.metadataDirty[0] |= 1 << 38
 		changed = true
 	}
 	if changed {
@@ -1531,7 +1499,7 @@ func (m *Mob) SetMetadataBegging(value bool) {
 	m.Begging = value
 	changed := false
 	if before0 != (m.Begging) {
-		m.metadataDirty[0] |= 1 << 40
+		m.metadataDirty[0] |= 1 << 39
 		changed = true
 	}
 	if changed {
@@ -1545,7 +1513,7 @@ func (m *Mob) SetMetadataTropicalVariant(value int32) {
 	m.TropicalVariant = value
 	changed := false
 	if before0 != (m.TropicalVariant) {
-		m.metadataDirty[0] |= 1 << 41
+		m.metadataDirty[0] |= 1 << 40
 		changed = true
 	}
 	if changed {
@@ -1559,7 +1527,7 @@ func (m *Mob) SetMetadataVillagerType(value string) {
 	m.Villager.Type = value
 	changed := false
 	if before0 != (m.Villager.Type) {
-		m.metadataDirty[0] |= 1 << 43
+		m.metadataDirty[0] |= 1 << 42
 		changed = true
 	}
 	if changed {
@@ -1573,7 +1541,7 @@ func (m *Mob) SetMetadataVillagerProfession(value string) {
 	m.Villager.Profession = value
 	changed := false
 	if before0 != (m.Villager.Profession) {
-		m.metadataDirty[0] |= 1 << 43
+		m.metadataDirty[0] |= 1 << 42
 		changed = true
 	}
 	if changed {
@@ -1587,7 +1555,7 @@ func (m *Mob) SetMetadataVillagerLevel(value int) {
 	m.Villager.Level = value
 	changed := false
 	if before0 != (m.Villager.Level) {
-		m.metadataDirty[0] |= 1 << 43
+		m.metadataDirty[0] |= 1 << 42
 		changed = true
 	}
 	if changed {
@@ -1601,7 +1569,7 @@ func (m *Mob) SetMetadataVillagerFinalized(value bool) {
 	m.Villager.Finalized = value
 	changed := false
 	if before0 != (m.Villager.Finalized) {
-		m.metadataDirty[0] |= 1 << 43
+		m.metadataDirty[0] |= 1 << 42
 		changed = true
 	}
 	if changed {
@@ -1615,7 +1583,7 @@ func (m *Mob) SetMetadataUnhappy(value int) {
 	m.Unhappy = value
 	changed := false
 	if before0 != (m.Unhappy) {
-		m.metadataDirty[0] |= 1 << 44
+		m.metadataDirty[0] |= 1 << 43
 		changed = true
 	}
 	if changed {
@@ -1629,7 +1597,7 @@ func (m *Mob) SetMetadataSize(value int) {
 	m.Size = value
 	changed := false
 	if before0 != (m.Size) {
-		m.metadataDirty[0] |= 1 << 45
+		m.metadataDirty[0] |= 1 << 44
 		changed = true
 	}
 	if changed {
@@ -1643,7 +1611,7 @@ func (m *Mob) SetMetadataPhantomSize(value int) {
 	m.phantom.size = value
 	changed := false
 	if before0 != (m.phantom.size) {
-		m.metadataDirty[0] |= 1 << 46
+		m.metadataDirty[0] |= 1 << 45
 		changed = true
 	}
 	if changed {
@@ -1658,11 +1626,11 @@ func (m *Mob) SetMetadataFromBucket(value bool) {
 	m.FromBucket = value
 	changed := false
 	if before0 != (m.FromBucket) {
-		m.metadataDirty[0] |= 1 << 47
+		m.metadataDirty[0] |= 1 << 46
 		changed = true
 	}
 	if before1 != (m.FromBucket) {
-		m.metadataDirty[0] |= 1 << 51
+		m.metadataDirty[0] |= 1 << 50
 		changed = true
 	}
 	if changed {
@@ -1676,7 +1644,7 @@ func (m *Mob) SetMetadataSulfurMaxFuse(value int) {
 	m.sulfur.maxFuse = value
 	changed := false
 	if before0 != (m.SulfurMaxFuse()) {
-		m.metadataDirty[0] |= 1 << 48
+		m.metadataDirty[0] |= 1 << 47
 		changed = true
 	}
 	if changed {
@@ -1690,7 +1658,7 @@ func (m *Mob) SetMetadataHasEgg(value bool) {
 	m.HasEgg = value
 	changed := false
 	if before0 != (m.HasEgg) {
-		m.metadataDirty[0] |= 1 << 49
+		m.metadataDirty[0] |= 1 << 48
 		changed = true
 	}
 	if changed {
@@ -1704,7 +1672,7 @@ func (m *Mob) SetMetadataLayingEgg(value bool) {
 	m.LayingEgg = value
 	changed := false
 	if before0 != (m.LayingEgg) {
-		m.metadataDirty[0] |= 1 << 49
+		m.metadataDirty[0] |= 1 << 48
 		changed = true
 	}
 	if changed {
@@ -1718,7 +1686,7 @@ func (m *Mob) SetMetadataAgeLocked(value bool) {
 	m.AgeLocked = value
 	changed := false
 	if before0 != (m.AgeLocked) {
-		m.metadataDirty[0] |= 1 << 50
+		m.metadataDirty[0] |= 1 << 49
 		changed = true
 	}
 	if changed {
@@ -1732,7 +1700,7 @@ func (m *Mob) SetMetadataAxolotlVariant(value int) {
 	m.axolotl.variant = value
 	changed := false
 	if before0 != (m.axolotl.variant) {
-		m.metadataDirty[0] |= 1 << 51
+		m.metadataDirty[0] |= 1 << 50
 		changed = true
 	}
 	if changed {
@@ -1746,7 +1714,7 @@ func (m *Mob) SetMetadataAxolotlPlayingDead(value bool) {
 	m.axolotl.playingDead = value
 	changed := false
 	if before0 != (m.axolotl.playingDead) {
-		m.metadataDirty[0] |= 1 << 51
+		m.metadataDirty[0] |= 1 << 50
 		changed = true
 	}
 	if changed {
@@ -1760,7 +1728,7 @@ func (m *Mob) SetMetadataDolphinGotFish(value bool) {
 	m.dolphin.gotFish = value
 	changed := false
 	if before0 != (m.dolphin.gotFish) {
-		m.metadataDirty[0] |= 1 << 52
+		m.metadataDirty[0] |= 1 << 51
 		changed = true
 	}
 	if changed {
@@ -1774,7 +1742,7 @@ func (m *Mob) SetMetadataDolphinMoistness(value int) {
 	m.dolphin.moistness = value
 	changed := false
 	if before0 != (m.dolphin.moistness) {
-		m.metadataDirty[0] |= 1 << 52
+		m.metadataDirty[0] |= 1 << 51
 		changed = true
 	}
 	if changed {
@@ -1788,7 +1756,7 @@ func (m *Mob) SetMetadataPufferState(value int) {
 	m.puffer.state = value
 	changed := false
 	if before0 != (m.puffer.state) {
-		m.metadataDirty[0] |= 1 << 53
+		m.metadataDirty[0] |= 1 << 52
 		changed = true
 	}
 	if changed {
@@ -1802,7 +1770,7 @@ func (m *Mob) SetMetadataGuardianMoving(value bool) {
 	m.guardian.moving = value
 	changed := false
 	if before0 != (m.guardian.moving) {
-		m.metadataDirty[0] |= 1 << 54
+		m.metadataDirty[0] |= 1 << 53
 		changed = true
 	}
 	if changed {
@@ -1816,7 +1784,7 @@ func (m *Mob) SetMetadataGuardianTarget(value int32) {
 	m.guardian.target = value
 	changed := false
 	if before0 != (m.guardian.target) {
-		m.metadataDirty[0] |= 1 << 54
+		m.metadataDirty[0] |= 1 << 53
 		changed = true
 	}
 	if changed {
@@ -1830,7 +1798,7 @@ func (m *Mob) SetMetadataShulkerFace(value uint8) {
 	m.shulker.face = value
 	changed := false
 	if before0 != (m.shulker.face) {
-		m.metadataDirty[0] |= 1 << 55
+		m.metadataDirty[0] |= 1 << 54
 		changed = true
 	}
 	if changed {
@@ -1844,7 +1812,7 @@ func (m *Mob) SetMetadataShulkerPeek(value uint8) {
 	m.shulker.peek = value
 	changed := false
 	if before0 != (m.shulker.peek) {
-		m.metadataDirty[0] |= 1 << 55
+		m.metadataDirty[0] |= 1 << 54
 		changed = true
 	}
 	if changed {
@@ -1858,7 +1826,7 @@ func (m *Mob) SetMetadataShulkerColorOff(value uint8) {
 	m.shulker.colorOff = value
 	changed := false
 	if before0 != (m.shulker.colorOff) {
-		m.metadataDirty[0] |= 1 << 55
+		m.metadataDirty[0] |= 1 << 54
 		changed = true
 	}
 	if changed {
@@ -1872,7 +1840,7 @@ func (m *Mob) SetMetadataBlazeCharged(value bool) {
 	m.blaze.charged = value
 	changed := false
 	if before0 != (m.blaze.charged) {
-		m.metadataDirty[0] |= 1 << 56
+		m.metadataDirty[0] |= 1 << 55
 		changed = true
 	}
 	if changed {
@@ -1886,7 +1854,7 @@ func (m *Mob) SetMetadataDragonPhase(value int) {
 	m.dragon.phase = value
 	changed := false
 	if before0 != (m.DragonPhase()) {
-		m.metadataDirty[0] |= 1 << 57
+		m.metadataDirty[0] |= 1 << 56
 		changed = true
 	}
 	if changed {
@@ -1900,7 +1868,7 @@ func (m *Mob) SetMetadataGhastCharging(value bool) {
 	m.ghast.charging = value
 	changed := false
 	if before0 != (m.ghast.charging) {
-		m.metadataDirty[0] |= 1 << 58
+		m.metadataDirty[0] |= 1 << 57
 		changed = true
 	}
 	if changed {
@@ -1914,7 +1882,7 @@ func (m *Mob) SetMetadataWitherHeads(value [3]int32) {
 	m.wither.heads = value
 	changed := false
 	if before0 != (m.wither.heads) {
-		m.metadataDirty[0] |= 1 << 59
+		m.metadataDirty[0] |= 1 << 58
 		changed = true
 	}
 	if changed {
@@ -1928,7 +1896,7 @@ func (m *Mob) SetMetadataWitherInvul(value int) {
 	m.wither.invul = value
 	changed := false
 	if before0 != (m.wither.invul) {
-		m.metadataDirty[0] |= 1 << 59
+		m.metadataDirty[0] |= 1 << 58
 		changed = true
 	}
 	if changed {
@@ -1942,7 +1910,7 @@ func (m *Mob) SetMetadataStillTimeout(value int) {
 	m.stillTimeout = value
 	changed := false
 	if before0 != (m.StaysStill()) {
-		m.metadataDirty[0] |= 1 << 60
+		m.metadataDirty[0] |= 1 << 59
 		changed = true
 	}
 	if changed {
@@ -1956,7 +1924,7 @@ func (m *Mob) SetMetadataCreakingFrozen(value bool) {
 	m.creaking.frozen = value
 	changed := false
 	if before0 != (m.creaking.frozen) {
-		m.metadataDirty[0] |= 1 << 61
+		m.metadataDirty[0] |= 1 << 60
 		changed = true
 	}
 	if changed {
@@ -1970,7 +1938,7 @@ func (m *Mob) SetMetadataCreakingActive(value bool) {
 	m.creaking.active = value
 	changed := false
 	if before0 != (m.creaking.active) {
-		m.metadataDirty[0] |= 1 << 61
+		m.metadataDirty[0] |= 1 << 60
 		changed = true
 	}
 	if changed {
@@ -1984,7 +1952,7 @@ func (m *Mob) SetMetadataCreakingTearingDown(value bool) {
 	m.creaking.tearingDown = value
 	changed := false
 	if before0 != (m.creaking.tearingDown) {
-		m.metadataDirty[0] |= 1 << 61
+		m.metadataDirty[0] |= 1 << 60
 		changed = true
 	}
 	if changed {
@@ -1998,7 +1966,7 @@ func (m *Mob) SetMetadataCreakingBound(value bool) {
 	m.creaking.bound = value
 	changed := false
 	if before0 != (m.creaking.bound) {
-		m.metadataDirty[0] |= 1 << 61
+		m.metadataDirty[0] |= 1 << 60
 		changed = true
 	}
 	if changed {
@@ -2012,7 +1980,7 @@ func (m *Mob) SetMetadataCreakingHomeX(value int32) {
 	m.creaking.home.X = value
 	changed := false
 	if before0 != (m.creaking.home.X) {
-		m.metadataDirty[0] |= 1 << 61
+		m.metadataDirty[0] |= 1 << 60
 		changed = true
 	}
 	if changed {
@@ -2026,7 +1994,7 @@ func (m *Mob) SetMetadataCreakingHomeY(value int32) {
 	m.creaking.home.Y = value
 	changed := false
 	if before0 != (m.creaking.home.Y) {
-		m.metadataDirty[0] |= 1 << 61
+		m.metadataDirty[0] |= 1 << 60
 		changed = true
 	}
 	if changed {
@@ -2040,7 +2008,7 @@ func (m *Mob) SetMetadataCreakingHomeZ(value int32) {
 	m.creaking.home.Z = value
 	changed := false
 	if before0 != (m.creaking.home.Z) {
-		m.metadataDirty[0] |= 1 << 61
+		m.metadataDirty[0] |= 1 << 60
 		changed = true
 	}
 	if changed {
@@ -2054,7 +2022,7 @@ func (m *Mob) SetMetadataStriderCold(value bool) {
 	m.strider.cold = value
 	changed := false
 	if before0 != (m.strider.cold) {
-		m.metadataDirty[0] |= 1 << 62
+		m.metadataDirty[0] |= 1 << 61
 		changed = true
 	}
 	if changed {
@@ -2068,7 +2036,7 @@ func (m *Mob) SetMetadataItemSteeringBoostTotal(value int) {
 	m.itemSteering.boostTotal = value
 	changed := false
 	if before0 != (m.itemSteering.boostTotal) {
-		m.metadataDirty[0] |= 1 << 63
+		m.metadataDirty[0] |= 1 << 62
 		changed = true
 	}
 	if changed {
@@ -2082,7 +2050,7 @@ func (m *Mob) SetMetadataCureActive(value bool) {
 	m.cure.active = value
 	changed := false
 	if before0 != (m.cure.active) {
-		m.metadataDirty[1] |= 1 << 0
+		m.metadataDirty[0] |= 1 << 63
 		changed = true
 	}
 	if changed {
@@ -2096,7 +2064,7 @@ func (m *Mob) SetMetadataDrownedConverting(value bool) {
 	m.DrownedConverting = value
 	changed := false
 	if before0 != (m.DrownedConverting) {
-		m.metadataDirty[1] |= 1 << 1
+		m.metadataDirty[1] |= 1 << 0
 		changed = true
 	}
 	if changed {
@@ -2110,7 +2078,7 @@ func (m *Mob) SetMetadataStrayConverting(value bool) {
 	m.StrayConverting = value
 	changed := false
 	if before0 != (m.StrayConverting) {
-		m.metadataDirty[1] |= 1 << 2
+		m.metadataDirty[1] |= 1 << 1
 		changed = true
 	}
 	if changed {
@@ -2124,7 +2092,7 @@ func (m *Mob) SetMetadataDarkTicks(value int) {
 	m.DarkTicks = value
 	changed := false
 	if before0 != (m.DarkTicks) {
-		m.metadataDirty[1] |= 1 << 3
+		m.metadataDirty[1] |= 1 << 2
 		changed = true
 	}
 	if changed {
@@ -2138,7 +2106,7 @@ func (m *Mob) SetMetadataNoGravity(value bool) {
 	m.NoGravity = value
 	changed := false
 	if before0 != (m.NoGravity) {
-		m.metadataDirty[1] |= 1 << 4
+		m.metadataDirty[1] |= 1 << 3
 		changed = true
 	}
 	if changed {
@@ -2257,143 +2225,143 @@ func (m *Mob) InvalidateMetadataBee() {
 // InvalidateMetadataHorse marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataHorse() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0xc00000000
+	m.metadataDirty[0] |= 0x400000000
 }
 
 // InvalidateMetadataEnderman marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataEnderman() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x1000000000
+	m.metadataDirty[0] |= 0x800000000
 }
 
 // InvalidateMetadataWitch marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataWitch() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x2000000000
+	m.metadataDirty[0] |= 0x1000000000
 }
 
 // InvalidateMetadataAnger marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataAnger() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x4000000000
+	m.metadataDirty[0] |= 0x2000000000
 }
 
 // InvalidateMetadataTamable marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataTamable() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x8000000000
+	m.metadataDirty[0] |= 0x4000000000
 }
 
 // InvalidateMetadataNautilus marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataNautilus() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x8000000000
+	m.metadataDirty[0] |= 0x4000000000
 }
 
 // InvalidateMetadataParrot marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataParrot() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x8000000000
+	m.metadataDirty[0] |= 0x4000000000
 }
 
 // InvalidateMetadataVillager marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataVillager() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x80000000000
+	m.metadataDirty[0] |= 0x40000000000
 }
 
 // InvalidateMetadataPhantom marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataPhantom() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x400000000000
+	m.metadataDirty[0] |= 0x200000000000
 }
 
 // InvalidateMetadataSulfur marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataSulfur() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x1000000000000
+	m.metadataDirty[0] |= 0x800000000000
 }
 
 // InvalidateMetadataAxolotl marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataAxolotl() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x8000000000000
+	m.metadataDirty[0] |= 0x4000000000000
 }
 
 // InvalidateMetadataDolphin marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataDolphin() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x10000000000000
+	m.metadataDirty[0] |= 0x8000000000000
 }
 
 // InvalidateMetadataPuffer marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataPuffer() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x20000000000000
+	m.metadataDirty[0] |= 0x10000000000000
 }
 
 // InvalidateMetadataGuardian marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataGuardian() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x40000000000000
+	m.metadataDirty[0] |= 0x20000000000000
 }
 
 // InvalidateMetadataShulker marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataShulker() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x80000000000000
+	m.metadataDirty[0] |= 0x40000000000000
 }
 
 // InvalidateMetadataBlaze marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataBlaze() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x100000000000000
+	m.metadataDirty[0] |= 0x80000000000000
 }
 
 // InvalidateMetadataDragon marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataDragon() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x200000000000000
+	m.metadataDirty[0] |= 0x100000000000000
 }
 
 // InvalidateMetadataGhast marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataGhast() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x400000000000000
+	m.metadataDirty[0] |= 0x200000000000000
 }
 
 // InvalidateMetadataWither marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataWither() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x800000000000000
+	m.metadataDirty[0] |= 0x400000000000000
 }
 
 // InvalidateMetadataCreaking marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataCreaking() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x2000000000000000
+	m.metadataDirty[0] |= 0x1000000000000000
 }
 
 // InvalidateMetadataCreakingHome marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataCreakingHome() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x2000000000000000
+	m.metadataDirty[0] |= 0x1000000000000000
 }
 
 // InvalidateMetadataStrider marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataStrider() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x4000000000000000
+	m.metadataDirty[0] |= 0x2000000000000000
 }
 
 // InvalidateMetadataItemSteering marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataItemSteering() {
 	m.metadataRevision++
-	m.metadataDirty[0] |= 0x8000000000000000
+	m.metadataDirty[0] |= 0x4000000000000000
 }
 
 // InvalidateMetadataCure marks captures after a bulk storage replacement.
 func (m *Mob) InvalidateMetadataCure() {
 	m.metadataRevision++
-	m.metadataDirty[1] |= 0x1
+	m.metadataDirty[0] |= 0x8000000000000000
 }

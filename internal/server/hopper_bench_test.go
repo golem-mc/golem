@@ -88,43 +88,86 @@ func BenchmarkHopperRing(b *testing.B) {
 	b.StopTimer()
 }
 
-// BenchmarkChainedHoppersWithChests measures blocked push chains and empty
-// pull chains beside full and empty chests, including the block-entity dispatch.
+// BenchmarkChainedHoppersWithChests measures blocked, empty and transferring
+// chains, including the block-entity dispatch and container wake drain.
 func BenchmarkChainedHoppersWithChests(b *testing.B) {
 	const side = int32(64)
 	s, w := newBlockBenchServer(b, side/16)
-	hopper := registry.MustState("minecraft:hopper", map[string]string{"facing": "east", "enabled": "true"})
-	chest := registry.BlockChest.DefaultState()
-	fill := func(be *world.BlockEntity) {
-		for i := range be.Len() {
-			be.Put(i, protocol.ItemStack{ItemID: int32(registry.ItemCobblestone), Count: 64})
+	for x := range side/16 + 1 {
+		for z := range side / 16 {
+			b.Cleanup(w.HoldEntityTicking(world.ChunkPos{X: x, Z: z}))
 		}
 	}
+	hopper := registry.MustState("minecraft:hopper", map[string]string{"facing": "east", "enabled": "true"})
+	chest := registry.BlockChest.DefaultState()
+	cobble := protocol.ItemStack{ItemID: int32(registry.ItemCobblestone), Count: 64}
+	fill := func(be *world.BlockEntity) {
+		for i := range be.Len() {
+			be.Put(i, cobble)
+		}
+	}
+	var sources, sinks []*world.BlockEntity
 	for z := range side {
 		for x := range side {
 			w.SetBlock(x, 64, z, hopper)
 			be := w.EnsureBlockEntity(x, 64, z, world.KindHopper)
-			if z%2 == 0 {
+			switch {
+			case z%4 == 0:
 				fill(be)
-			} else {
+			case z%4 == 1:
 				w.SetBlock(x, 65, z, chest)
 				w.EnsureBlockEntity(x, 65, z, world.KindChest)
+			default:
+				// Prime each hopper so the chain transfers before the first
+				// item from the source reaches its far end.
+				be.Put(0, protocol.ItemStack{ItemID: cobble.ItemID, Count: 1})
+				if x == 0 {
+					w.SetBlock(x, 65, z, chest)
+					source := w.EnsureBlockEntity(x, 65, z, world.KindChest)
+					fill(source)
+					sources = append(sources, source)
+				}
 			}
 		}
 		w.SetBlock(side, 64, z, chest)
 		be := w.EnsureBlockEntity(side, 64, z, world.KindChest)
-		if z%2 == 0 {
+		if z%4 == 0 {
 			fill(be)
+		} else if z%4 >= 2 {
+			sinks = append(sinks, be)
 		}
 	}
 	w.FlushLighting()
-	for range 10 {
+	physics := s.dimensionOfWorld(w).physics
+	tick := func(age int64) {
+		w.TickTime()
 		s.tickBlockEntities()
+		physics.Tick(age)
+	}
+	const warmup = 10
+	for i := range warmup {
+		tick(int64(i + 1))
+	}
+	for _, sink := range sinks {
+		if sink.FilledSlots() == 0 {
+			b.Fatal("the chain did not feed its sink during warmup")
+		}
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
-	for range b.N {
-		s.tickBlockEntities()
+	for i := range b.N {
+		// Renew the stock before the source or sink runs out of space.
+		if i > 0 && i%(512*int(world.HopperMoveInterval)) == 0 {
+			b.StopTimer()
+			for j, source := range sources {
+				fill(source)
+				for slot := range sinks[j].Len() {
+					sinks[j].Put(slot, protocol.ItemStack{})
+				}
+			}
+			b.StartTimer()
+		}
+		tick(int64(i + warmup + 1))
 	}
 }
 
@@ -171,6 +214,70 @@ func BenchmarkHopperCachedFailedPull(b *testing.B) {
 			for range b.N {
 				age++
 				s.tickHopper(w, be, age)
+			}
+		})
+	}
+}
+
+// BenchmarkFullBlockedHopper measures a tick of an enabled, full hopper pointing
+// into a full barrel, after its push failed once.
+func BenchmarkFullBlockedHopper(b *testing.B) {
+	hopper := registry.MustState("minecraft:hopper", map[string]string{"facing": "down", "enabled": "true"})
+	barrel := registry.MustState("minecraft:barrel", map[string]string{"facing": "up", "open": "false"})
+	for _, c := range []struct {
+		name string
+		max  int32
+	}{{"default", 0}, {"max16", 16}} {
+		b.Run(c.name, func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 1)
+			w.SetBlock(1, 64, 1, barrel)
+			bar := w.EnsureBlockEntity(1, 64, 1, world.KindBarrel)
+			w.SetBlock(1, 65, 1, hopper)
+			be := w.EnsureBlockEntity(1, 65, 1, world.KindHopper)
+			stack := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 64}
+			if c.max > 0 {
+				stack.SetMaxStackSize(c.max)
+				stack.Count = c.max
+			}
+			for i := range bar.Len() {
+				bar.Put(i, stack)
+			}
+			for i := range be.Len() {
+				be.Put(i, stack)
+			}
+			w.FlushLighting()
+			age := int64(1)
+			s.tickHopper(w, be, age)
+			if !be.HopperTargets.Push.Failed {
+				b.Fatal("push did not fail")
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				age++
+				s.tickHopper(w, be, age)
+			}
+		})
+	}
+}
+
+// BenchmarkHopperDistantItems measures the block-entity pass with one hopper
+// and N drops outside its pickup area.
+func BenchmarkHopperDistantItems(b *testing.B) {
+	stone := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
+	for _, n := range []int{0, 1024, 8192} {
+		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 0)
+			b.Cleanup(w.HoldEntityTicking(world.ChunkPos{X: 0, Z: 0}))
+			w.SetBlock(4, 64, 4, registry.BlockHopper.DefaultState())
+			w.EnsureBlockEntity(4, 64, 4, world.KindHopper)
+			for i := range n {
+				s.spawnItem(w, stone, float64(100+i%64), 65, 2, 0, 0, 0, 0)
+			}
+			s.tickBlockEntities()
+			b.ReportAllocs()
+			for b.Loop() {
+				s.tickBlockEntities()
 			}
 		})
 	}

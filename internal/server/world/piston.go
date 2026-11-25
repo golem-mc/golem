@@ -207,14 +207,14 @@ type pistonResolver struct {
 // newPistonResolver builds one move's resolver: an extend pushes the facing
 // from the cell in front; a retraction pulls the other way from one cell
 // further, the block it brings home.
-func (p *Physics) newPistonResolver(x, y, z int32, dir int, extending bool) *pistonResolver {
+func (p *Physics) newPistonResolver(x, y, z int32, dir int, extending bool) pistonResolver {
 	pushDir := dir
 	sx, sy, sz := pistonShift(x, y, z, dir, 1)
 	if !extending {
 		pushDir = blocklogic.Opposite(dir)
 		sx, sy, sz = pistonShift(x, y, z, dir, 2)
 	}
-	return &pistonResolver{p: p, x: x, y: y, z: z, dir: dir, pushDir: pushDir,
+	return pistonResolver{p: p, x: x, y: y, z: z, dir: dir, pushDir: pushDir,
 		extending: extending, startX: sx, startY: sy, startZ: sz}
 }
 
@@ -485,7 +485,7 @@ func (p *Physics) pistonMoveBlocks(x, y, z int32, dir int, extending, sticky boo
 	// its direct and indirect shape updates.
 	for j, pos := range slices.Backward(r.toDestroy) {
 
-		p.redstoneAfterRemoval(pos[0], pos[1], pos[2], destroyed[j], false, changes)
+		p.redstoneAfterRemoval(pos[0], pos[1], pos[2], destroyed[j], false, false, changes)
 		p.shapeUpdateNeighbors(pos[0], pos[1], pos[2], changes)
 		p.wakeNeighbors(pos[0], pos[1], pos[2], destroyed[j], destroyed[j], changes)
 	}
@@ -523,23 +523,19 @@ func (p *Physics) pistonRemoveFront(x, y, z int32, changes *[]BlockChange) {
 	p.shapeUpdateNeighbors(x, y, z, changes)
 }
 
-// pistonRideCreate writes the moving piston's block entity (carried state,
-// direction, creation tick, read by the landing two ticks later) and books the
-// landing.
+// pistonRideCreate writes the moving piston's ride (carried state, direction,
+// creation tick, read by the landing two ticks later) and books the landing.
 func (p *Physics) pistonRideCreate(pos [3]int32, rideState, movedState uint16, dir int, extending, isSource bool) {
-	be := p.w.EnsureBlockEntity(pos[0], pos[1], pos[2], KindPiston)
-	if be == nil {
+	if !p.w.setPistonRide(pistonRide{
+		x: pos[0], y: pos[1], z: pos[2],
+		movedState:  movedState,
+		dir:         int8(dir),
+		extending:   extending,
+		isSource:    isSource,
+		createdTick: p.now,
+	}) {
 		return // a ride whose chunk is gone carries nothing
 	}
-	// The chunk packet and the save read the ride's fields under the entity's
-	// lock, so the write takes it too.
-	be.Use(func(b *BlockEntity) {
-		b.MovedState = movedState
-		b.PistonDir = int8(dir)
-		b.Extending = extending
-		b.IsSource = isSource
-		b.CreatedTick = p.now
-	})
 	if _, ok := p.rideSet[pos]; !ok {
 		p.rides = append(p.rides, pos)
 		p.rideSet[pos] = struct{}{}
@@ -619,7 +615,7 @@ func (p *Physics) pistonTriggerEvent(x, y, z int32, sticky bool, eventDir, typ i
 	// rides back, and a sticky piston checks whether the extend one tick ago
 	// left it something two ahead to pull.
 	fx, fy, fz := pistonShift(x, y, z, dir, 1)
-	if be := p.w.BlockEntity(fx, fy, fz); be != nil && be.Kind == KindPiston {
+	if _, ok := p.w.pistonRideAt(fx, fy, fz); ok {
 		p.pistonForceFinalize(fx, fy, fz, changes)
 	}
 	movingState := movingPistonStateOf(dir, sticky)
@@ -635,8 +631,8 @@ func (p *Physics) pistonTriggerEvent(x, y, z int32, sticky bool, eventDir, typ i
 			// The extending ride of last tick's extend finishes where it
 			// stands, whatever its age: the zero-tick push. The test reads the
 			// entity's direction, not the state's.
-			if be := p.w.BlockEntity(tx, ty, tz); be != nil && be.Kind == KindPiston &&
-				be.Extending && int(be.PistonDir) == dir {
+			if r, ok := p.w.pistonRideAt(tx, ty, tz); ok &&
+				r.extending && int(r.dir) == dir {
 				p.pistonForceFinalize(tx, ty, tz, changes)
 				abort = true
 			}
@@ -699,7 +695,8 @@ func (p *Physics) pistonCheckIfExtend(x, y, z int32, state uint16, changes *[]Bl
 		if extended {
 			return
 		}
-		if !p.newPistonResolver(x, y, z, dir, true).resolve() {
+		r := p.newPistonResolver(x, y, z, dir, true)
+		if !r.resolve() {
 			return
 		}
 	} else {
@@ -710,9 +707,9 @@ func (p *Physics) pistonCheckIfExtend(x, y, z int32, state uint16, changes *[]Bl
 		tx, ty, tz := pistonShift(x, y, z, dir, 2)
 		ts := p.w.BlockAt(tx, ty, tz)
 		if registry.BlockOf(ts) == registry.BlockMovingPiston && facingOfState(ts) == dir {
-			if be := p.w.BlockEntity(tx, ty, tz); be != nil && be.Kind == KindPiston &&
-				be.Extending && int(be.PistonDir) == dir &&
-				p.now >= be.CreatedTick+2 && p.handlingTick {
+			if r, ok := p.w.pistonRideAt(tx, ty, tz); ok &&
+				r.extending && int(r.dir) == dir &&
+				p.now >= r.createdTick+2 && p.handlingTick {
 				typ = 2
 			}
 		}
@@ -727,17 +724,17 @@ func (p *Physics) pistonCheckIfExtend(x, y, z int32, state uint16, changes *[]Bl
 // never rewrites what it carried.
 // vanilla: PistonMovingBlockEntity.tick
 func (p *Physics) movingPistonFinalize(x, y, z int32, changes *[]BlockChange) {
-	be := p.w.BlockEntity(x, y, z)
-	if be == nil || be.Kind != KindPiston {
+	r, ok := p.w.pistonRideAt(x, y, z)
+	if !ok {
 		return
 	}
-	if p.now < be.CreatedTick+2 {
+	if p.now < r.createdTick+2 {
 		// The landing is one tick after the ride finished; a younger ride waits
 		// for it.
-		p.schedulePistonFinalize(x, y, z, be.CreatedTick+2)
+		p.schedulePistonFinalize(x, y, z, r.createdTick+2)
 		return
 	}
-	movedState := be.MovedState
+	movedState := r.movedState
 	rideState := p.w.BlockAt(x, y, z)
 	p.w.RemoveBlockEntity(x, y, z)
 	if registry.BlockOf(rideState) != registry.BlockMovingPiston {
@@ -765,11 +762,11 @@ func (p *Physics) movingPistonFinalize(x, y, z int32, changes *[]BlockChange) {
 // a carried block's to that block) and the neighbours wake.
 // vanilla: PistonMovingBlockEntity.finalTick
 func (p *Physics) pistonForceFinalize(x, y, z int32, changes *[]BlockChange) {
-	be := p.w.BlockEntity(x, y, z)
-	if be == nil || be.Kind != KindPiston {
+	r, ok := p.w.pistonRideAt(x, y, z)
+	if !ok {
 		return
 	}
-	if p.now >= be.CreatedTick+3 {
+	if p.now >= r.createdTick+3 {
 		return
 	}
 	rideState := p.w.BlockAt(x, y, z)
@@ -781,11 +778,11 @@ func (p *Physics) pistonForceFinalize(x, y, z int32, changes *[]BlockChange) {
 	// landing writes.
 	p.cancelPistonFinalize(x, y, z)
 	finalState := uint16(airState)
-	if !be.IsSource {
-		finalState = be.MovedState
+	if !r.isSource {
+		finalState = r.movedState
 	}
 	p.setClientMoved(x, y, z, finalState, changes)
-	if !be.IsSource {
+	if !r.isSource {
 		// The final tick lands the carried block through
 		// updateFromNeighbourShapes and onPlace like a normal landing; the
 		// head's ride lands only air, which needs neither.

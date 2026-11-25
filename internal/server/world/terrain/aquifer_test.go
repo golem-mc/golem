@@ -6,6 +6,15 @@ import (
 	"testing"
 )
 
+func BenchmarkAquiferBuffers(b *testing.B) {
+	rs := NewRandomState(Overworld, 12345)
+	b.ReportAllocs()
+	for b.Loop() {
+		n := NewNoiseChunk(rs, nil, rs.ChunkVolume(0, 0))
+		n.Recycle()
+	}
+}
+
 // The column fixtures come from vanilla's NoiseBasedAquifer via SamplerGolden.
 // Reorder their queries to exercise column and vertical-anchor invalidation,
 // including negative coordinates and revisiting cells after an early return.

@@ -37,7 +37,7 @@ func TestEnchantedChanceAcceptsAnyLevelValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	table, err := datapack.DecodeLootTable(data)
+	table, err := datapack.DecodeLootTable(nil, data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestInlineNestedLootTableRolls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	table, err := datapack.DecodeLootTable(data)
+	table, err := datapack.DecodeLootTable(nil, data)
 	if err != nil {
 		t.Fatal(err)
 	}

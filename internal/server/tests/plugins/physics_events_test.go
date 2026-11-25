@@ -89,6 +89,46 @@ func TestPluginBlockFromToFiresAndCancels(t *testing.T) {
 	}
 }
 
+// vanilla: FlowingFluid.getSpread, spreadToSides
+func TestPluginFluidSpreadKeepsPlannedLevelsAndRereadsTargets(t *testing.T) {
+	t.Parallel()
+	source, north, east, south := pos(4, 64, 4), pos(4, 64, 3), pos(5, 64, 4), pos(4, 64, 5)
+	water := plugin.DefaultState(registry.BlockWater)
+	cobweb := plugin.DefaultState(registry.BlockCobweb)
+	srv := servertest.NewTestServerWithPlugins(t, servertest.BlockTestConfig(), []plugin.Registration{{
+		Name: "fluid", Plugin: &testPlugin{enable: func(s plugin.Server) error {
+			plugin.Listen(s, func(e *plugin.BlockFromToEvent) {
+				if e.From.Pos != source || e.To.Pos != north {
+					return
+				}
+				// Recomputing the east flow after this edit would make it fall.
+				if !e.To.World.SetBlockState(east.Offset(plugin.Up, 1), water, plugin.UpdateAll) {
+					t.Error("could not place water over the east target")
+				}
+				// A stale target state would make the south hook veto the write.
+				if !e.To.World.SetBlockState(south, cobweb, plugin.UpdateAll) {
+					t.Error("could not place a cobweb at the south target")
+				}
+			})
+			return nil
+		}},
+	}})
+	c := servertest.DialServer(t, srv)
+	c.Join("Builder")
+	servertest.HoldTicks(t, srv)
+	for _, drop := range []plugin.BlockPos{north, east, south} {
+		srv.SetBlockAndTell(int32(drop.X), 63, int32(drop.Z), registry.BlockAir.DefaultState())
+	}
+	srv.SetBlockAndTell(4, 64, 4, uint16(water))
+	servertest.RunTicks(t, srv, 5)
+	for _, target := range []plugin.BlockPos{north, east, south} {
+		name, props := servertest.StateProps(srv.BlockAt(int32(target.X), 64, int32(target.Z)))
+		if name != "minecraft:water" || props["level"] != "1" {
+			t.Errorf("flow at %v = %s %v, want level-1 water", target, name, props)
+		}
+	}
+}
+
 // vanilla: LiquidBlock.shouldSpreadLiquid
 func TestPluginBlockFormLavaHardensCancelAndEdit(t *testing.T) {
 	t.Parallel()

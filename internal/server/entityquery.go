@@ -1,7 +1,6 @@
 package server
 
 import (
-	"iter"
 	"math"
 	"sync"
 
@@ -41,7 +40,16 @@ func (a chunkArea) each(yield func(world.ChunkPos) bool) {
 	}
 }
 
-func smallChunkArea(b *[6]float64) *chunkArea {
+func smallChunkArea(b *[6]float64) (chunkArea, bool) {
+	a, ok := chunkAreaOf(b)
+	if !ok {
+		return chunkArea{}, false
+	}
+	width, depth := int64(a.maxX-a.minX+1), int64(a.maxZ-a.minZ+1)
+	return a, width*depth <= 256
+}
+
+func chunkAreaOf(b *[6]float64) (chunkArea, bool) {
 	// Bodies filed across a border can still overlap the box.
 	// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
 	const padding = 2.0
@@ -50,27 +58,32 @@ func smallChunkArea(b *[6]float64) *chunkArea {
 	// unrepresentable plugin boxes on the list path.
 	if !(math.MinInt32 <= minX && minX <= maxX && maxX < math.MaxInt32+1 &&
 		math.MinInt32 <= minZ && minZ <= maxZ && maxZ < math.MaxInt32+1) {
-		return nil
+		return chunkArea{}, false
 	}
-	a := chunkArea{world.ChunkOf(minX), world.ChunkOf(minZ), world.ChunkOf(maxX), world.ChunkOf(maxZ)}
-	width, depth := int64(a.maxX-a.minX+1), int64(a.maxZ-a.minZ+1)
-	if width*depth > 256 {
-		return nil
-	}
-	return &a
+	return chunkArea{world.ChunkOf(minX), world.ChunkOf(minZ), world.ChunkOf(maxX), world.ChunkOf(maxZ)}, true
 }
 
-func bodiesInChunks[E any](ix *entity.ChunkIndex[E], q *entityQuery) iter.Seq[E] {
-	if q.chunk != nil {
-		return ix.In(*q.chunk)
+func (a chunkArea) contains(pos world.ChunkPos) bool {
+	return pos.X >= a.minX && pos.X <= a.maxX && pos.Z >= a.minZ && pos.Z <= a.maxZ
+}
+
+func bodiesInChunks[E any](ix *entity.ChunkIndex[E], chunk *world.ChunkPos, area *chunkArea, yield func(E) bool) {
+	if chunk != nil {
+		ix.Visit(*chunk, yield)
+		return
 	}
-	return func(yield func(E) bool) {
-		for pos := range q.area.each {
-			for body := range ix.In(pos) {
-				if !yield(body) {
-					return
-				}
-			}
+	area.each(func(pos world.ChunkPos) bool { return ix.Visit(pos, yield) })
+}
+
+func (h *mobHerd) mobsInArea(area chunkArea, indexed bool, yield func(*entity.Mob) bool) {
+	// Place.SetPos refiles a moving mob under mobsMu before readers can see it.
+	if indexed {
+		bodiesInChunks(&h.chunks, nil, &area, yield)
+		return
+	}
+	for _, mob := range h.herd {
+		if !yield(mob) {
+			return
 		}
 	}
 }

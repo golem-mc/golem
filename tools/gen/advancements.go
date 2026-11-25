@@ -1233,7 +1233,7 @@ func goCondition(c *condition) string {
 		fields = append(fields, "State: map[string]string{"+strings.Join(pairs, ", ")+"}")
 	}
 	if c.check.smokey {
-		fields = append(fields, "Smokey: true")
+		fields = append(fields, "Smokey: new(true)")
 	}
 	if c.check.offset != [3]float64{} {
 		var offs []string

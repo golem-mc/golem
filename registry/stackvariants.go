@@ -197,7 +197,7 @@ func putVariantComponents(stack protocol.ItemStack, components nbt.Compound) nbt
 
 // readVariantComponent is readComponentKnown for the components
 // putVariantComponents writes.
-func readVariantComponent(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
+func (lookup *TagLookup) readVariantComponent(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
 	switch name {
 	case "minecraft:block_transformer":
 		return readBlockTransformer(stack, value), true
@@ -258,7 +258,7 @@ func readVariantComponent(stack *protocol.ItemStack, name string, value nbt.Tag)
 	if ok, modeled := readPropComponent(stack, name, value); modeled {
 		return ok, true
 	}
-	return readModelDataComponent(stack, name, value)
+	return lookup.readModelDataComponent(stack, name, value)
 }
 
 // entryName is the name of a synchronized registry's entry (or an item's), false for an ID

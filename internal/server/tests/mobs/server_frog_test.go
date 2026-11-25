@@ -186,7 +186,7 @@ func TestAFrogLongJumpsToALilyPad(t *testing.T) {
 	c.ChatCommand("setblock -5 100 1 minecraft:lily_pad")
 	c.ChatCommand("tp @s 0.5 100 0.5")
 	c.ReadTicks(srv, 2, func(int32, []byte) bool { return false })
-	id := srv.SpawnMobSeeded("minecraft:frog", 1.5, 100, 1.5, 7)
+	id := srv.SpawnMobSeeded("minecraft:frog", 1.5, 100, 1.5, 11)
 	c.ExpectMobSpawn(fishType(t, "minecraft:frog"))
 	srv.SetFrogLongJumpCooldown(id, 0)
 	poses, sounds := map[int32]bool{}, map[string]int{}

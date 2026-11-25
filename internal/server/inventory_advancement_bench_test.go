@@ -1,6 +1,7 @@
 package server
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -39,7 +40,17 @@ func benchTickInventoryAdvancements(b *testing.B, water bool) {
 	if water {
 		c.theWorld().SetBlock(2, int32(y), 4, registry.BlockWater.DefaultState())
 	}
-	c.advancements.Store(advancement.NewProgress(advancement.Current()))
+	tree := advancement.Current()
+	if water {
+		// A criterion that matches the water block but wants another level
+		// stays pending, so every timed tick still evaluates it.
+		pending := registry.Advancement{ID: "bench:pending_water", Criteria: []registry.AdvancementCriterion{{
+			Name: "in_water", Trigger: advancement.TriggerEnterBlock,
+			Where: []registry.AdvancementCondition{{Blocks: []string{"minecraft:water"}, State: map[string]string{"level": "1"}}},
+		}}, Requirements: [][]string{{"in_water"}}}
+		tree = advancement.NewTree(append(slices.Clone(registry.Advancements), pending))
+	}
+	c.advancements.Store(advancement.NewProgress(tree))
 	benchTickInventory(c) // the first read fires and grants; the rest find no change
 	b.ReportAllocs()
 	b.ResetTimer()

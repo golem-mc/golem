@@ -409,10 +409,12 @@ type Effect struct {
 	// none.
 	Vibration *VibrationParticle
 
-	// GameEvent is the minecraft:game_event posted at the cell, zero for none,
-	// with no source entity unless GameEventByUser.
+	// GameEvent is the minecraft:game_event posted at the cell, zero for none.
 	// vanilla: Level.gameEvent
 	GameEvent registry.GameEvent
+
+	// GameEventAffected is the event's block state, zero for none.
+	GameEventAffected uint16
 
 	// GameEventByUser makes the player whose click produced the effect the
 	// GameEvent's source entity.
@@ -500,6 +502,8 @@ type scheduledTick struct {
 	priority int
 	seq      int64
 	event    uint8
+	// fluid is the booked fluid type of a fluid visit, zero for any other.
+	fluid fluidType
 }
 
 // tickQueue orders ticks by due time, then priority (smaller more urgent), then
@@ -588,6 +592,16 @@ func (q tickQueue) down(i0, n int) bool {
 // scheduled from. The server owns one per world, calls NotifyChanged after its
 // own block changes and Tick once per game tick.
 type Physics struct {
+	// spareChanges and spareEffects are the last Tick's result slices handed
+	// back by RecycleTickResults; the next Tick fills them from length 0.
+	spareChanges []BlockChange
+	spareEffects []Effect
+	// pushes backs the Effect.PistonPush pointers of the last Tick; sparePushes
+	// is a slab RecycleTickResults took back for the next Tick.
+	pushes, sparePushes []PistonPush
+	// pushOwner is the first element of the effects batch whose pushes sit in
+	// pushes; nil when no outstanding batch owns the slab.
+	pushOwner *Effect
 	// mu guards everything below: NotifyChanged runs on player connections
 	// while Tick runs on the main loop.
 	//
@@ -610,7 +624,9 @@ type Physics struct {
 	randomTickKeys []uint64
 	queue          tickQueue
 	pending        map[blockKey]bool
-	finalizeSeq    map[blockKey]int64
+	// fluidBooked holds the fluid visits queued, one per position and type.
+	fluidBooked map[fluidBook]struct{}
+	finalizeSeq map[blockKey]int64
 	// cancelled entries stay in the heap until popped or filtered; their
 	// sequence, rather than position, keeps a replacement booking live.
 	cancelled map[int64]struct{}
@@ -769,8 +785,8 @@ type Physics struct {
 	rides   [][3]int32
 	rideSet map[[3]int32]struct{}
 
-	// randomEffects collects the random tick pass's level events (chorus growth
-	// and death), drained through TakeRandomEffects.
+	// randomEffects collects the random tick pass's effects, drained through
+	// TakeRandomEffects.
 	randomEffects []Effect
 
 	// dispenses collects the dispenser and dropper visits of the scheduled
@@ -832,7 +848,7 @@ func (p *Physics) TakeCommandRuns() []CommandRun {
 	return out
 }
 
-// TakeRandomEffects returns and clears the random tick pass's level events.
+// TakeRandomEffects returns and clears the random tick pass's effects.
 func (p *Physics) TakeRandomEffects() []Effect {
 	out := p.randomEffects
 	p.randomEffects = nil
@@ -847,6 +863,7 @@ func NewPhysics(w *World) *Physics {
 		w:                   w,
 		maxChain:            DefaultMaxChainedNeighborUpdates,
 		pending:             make(map[blockKey]bool),
+		fluidBooked:         make(map[fluidBook]struct{}),
 		finalizeSeq:         make(map[blockKey]int64),
 		cancelled:           make(map[int64]struct{}),
 		rideSet:             make(map[[3]int32]struct{}),
@@ -906,6 +923,44 @@ func (p *Physics) NotifyPlaced(x, y, z int32, oldState uint16) ([]BlockChange, [
 	return p.notifyChanged(x, y, z, oldState, true)
 }
 
+// NotifyPlacedHooks is the part of NotifyPlaced a block write owns: the new
+// block's on-place and the shape passes, with no neighbour update. A block
+// entity's tag loads after it, then NotifyPlacedWake.
+// vanilla: Level.setBlock, LevelChunk.setBlockState
+func (p *Physics) NotifyPlacedHooks(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	newState := p.w.BlockAt(x, y, z)
+	if oldState == newState {
+		return nil, nil, nil
+	}
+	var changes []BlockChange
+	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	p.shapePass(x, y, z, oldState, newState, &changes)
+	effects, primes := p.takeWake()
+	return changes, effects, primes
+}
+
+// NotifyPlacedWake is the explicit neighbour update of a command's placement
+// after NotifyPlacedHooks and the tag load: the old block's removal reactions
+// when the block type changed, then the block and its six neighbours hear of
+// the block now at the position, and comparators reading it.
+// vanilla: ServerLevel.updateNeighboursOnBlockSet
+func (p *Physics) NotifyPlacedWake(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	newState := p.w.BlockAt(x, y, z)
+	var changes []BlockChange
+	if registry.BlockOf(oldState) != registry.BlockOf(newState) {
+		p.redstoneAfterRemoval(x, y, z, oldState, false, true, &changes)
+		p.containerRemoved(x, y, z, oldState, newState)
+	}
+	p.updateAsNeighbor(x, y, z, &changes, true, oldState, newState, [3]int32{})
+	p.wakeAround(x, y, z, newState, newState, &changes)
+	effects, primes := p.takeWake()
+	return changes, effects, primes
+}
+
 func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([]BlockChange, []Effect, []TNTPrime) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -914,7 +969,7 @@ func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([
 		return nil, nil, nil
 	}
 	var changes []BlockChange
-	p.redstoneAfterRemoval(x, y, z, oldState, false, &changes)
+	p.redstoneAfterRemoval(x, y, z, oldState, false, false, &changes)
 	p.containerRemoved(x, y, z, oldState, newState)
 	p.redstoneOnPlace(x, y, z, oldState, &changes)
 	if handNew {
@@ -923,39 +978,40 @@ func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([
 	} else {
 		p.neighborUpdate(x, y, z, oldState, newState, &changes)
 	}
-	// A new state with an analog output wakes the comparators reading it,
-	// through a conductor too; the face asked is immaterial, only whether there
-	// is an output.
-	// A container is answered by its block alone: computing its output would
-	// roll a pending loot table, which only a comparator's read does.
-	// vanilla: Level.setBlock, Block.hasAnalogOutputSignal
-	cur := p.w.BlockAt(x, y, z)
-	if isFullnessContainer(registry.BlockOf(cur)) {
-		p.analogOutputChanged(x, y, z, p.now)
-	} else if _, has := p.analogOutputOf(cur, x, y, z, dirDown); has {
-		p.analogOutputChanged(x, y, z, p.now)
-	}
-	// vanilla: Level.setBlock — the old and new states'
-	// updateIndirectNeighbourShapes flank the neighbour shape pass; only
-	// redstone wire overrides it, for the wires a step above or below its
-	// connected sides.
-	p.wireSlopeChanges(x, y, z, oldState, &changes)
-	p.shapeUpdateNeighbors(x, y, z, &changes)
-	p.wireSlopeChanges(x, y, z, newState, &changes)
+	p.blockAnalogOutputChanged(x, y, z)
+	p.shapePass(x, y, z, oldState, newState, &changes)
 	effects, primes := p.takeWake()
 	return changes, effects, primes
 }
 
+// shapePass is a write's neighbour shape pass, flanked by the old and new
+// states' updateIndirectNeighbourShapes; only redstone wire overrides those,
+// for the wires a step above or below its connected sides.
+// vanilla: Level.setBlock
+func (p *Physics) shapePass(x, y, z int32, oldState, newState uint16, changes *[]BlockChange) {
+	p.wireSlopeChanges(x, y, z, oldState, changes)
+	p.shapeUpdateNeighbors(x, y, z, changes)
+	p.wireSlopeChanges(x, y, z, newState, changes)
+}
+
+// wakeAround tells the six neighbours of a block set at the position, then
+// the comparators reading it.
+// vanilla: ServerLevel.updateNeighboursOnBlockSet
+func (p *Physics) wakeAround(x, y, z int32, old, changed uint16, changes *[]BlockChange) {
+	p.wakeNeighbors(x, y, z, old, changed, changes)
+	p.blockAnalogOutputChanged(x, y, z)
+}
+
 // NotifyNeighbours is the neighbour update a command's
 // updateNeighboursOnBlockSet runs after a non-strict set left the cell
-// unchanged: the six neighbours hear of it, the position is not revisited.
+// unchanged: the six neighbours and any reading comparators hear of it.
 // NotifyChanged cannot stand in, as it returns early on an unchanged state.
 // vanilla: ServerLevel.updateNeighboursOnBlockSet
 func (p *Physics) NotifyNeighbours(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	var changes []BlockChange
-	p.wakeNeighbors(x, y, z, oldState, p.w.BlockAt(x, y, z), &changes)
+	p.wakeAround(x, y, z, oldState, p.w.BlockAt(x, y, z), &changes)
 	effects, primes := p.takeWake()
 	return changes, effects, primes
 }
@@ -1055,6 +1111,20 @@ func (p *Physics) releaseParked() {
 	}
 }
 
+// RecycleTickResults hands a Tick's changes and effects back for the next Tick
+// to reuse. The caller must not keep either slice, or any PistonPush an effect
+// points at, afterwards. The push slab is taken back only with the batch it
+// backs, so recycling an older batch leaves a newer Tick's pushes alone.
+func (p *Physics) RecycleTickResults(changes []BlockChange, effects []Effect) {
+	p.mu.Lock()
+	if p.pushOwner != nil && len(effects) > 0 && &effects[0] == p.pushOwner {
+		p.sparePushes, p.pushes, p.pushOwner = p.pushes[:0], nil, nil
+	}
+	clear(effects)
+	p.spareChanges, p.spareEffects = changes[:0], effects[:0]
+	p.mu.Unlock()
+}
+
 // SetTickFilter limits the following Ticks' scheduled visits to the chunks
 // ticks accepts; nil lifts the limit.
 func (p *Physics) SetTickFilter(ticks func(ChunkPos) bool) {
@@ -1067,14 +1137,23 @@ func (p *Physics) SetTickFilter(ticks func(ChunkPos) bool) {
 // the changed blocks, the gravity blocks to spawn as falling entities and the
 // TNT fires primed. Block and fluid visits have a budget each per tick, the
 // overflow running next tick. Separate bookings let a waterlogged block take
-// both visits.
+// both visits. The results stay valid until they are passed to
+// RecycleTickResults; a Tick never reuses a batch that was not recycled.
 func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrime, []Effect) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.now = gameTime
+	// A slab still held here belongs to a batch that was not recycled; leave
+	// it to that batch.
+	p.pushes, p.pushOwner = nil, nil
 	p.adoptLoadedTicks()
 	p.handlingTick = true
-	var changes []BlockChange
+	changes := p.spareChanges[:0]
+	p.spareChanges = nil
+	if p.effects == nil {
+		p.effects = p.spareEffects[:0]
+	}
+	p.spareEffects = nil
 	var falls []FallingSpawn
 	var primes []TNTPrime
 
@@ -1095,8 +1174,10 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			// Post-processing visits the contained fluid, then updateShape
 			// books its next visit. vanilla: LevelChunk.postProcessGeneration
 			p.fluidTick(pos[0], pos[1], pos[2], fs, &changes)
-			p.schedule(pos[0], pos[1], pos[2], p.now+p.tickDelayOf(fs.kind))
-		} else if fs.kind != fluidNone || isEyeblossom(s) || registry.BlockOf(s) == registry.BlockSugarCane {
+			p.scheduleFluid(pos[0], pos[1], pos[2])
+		} else if fs.kind != fluidNone {
+			p.scheduleFluidAt(pos[0], pos[1], pos[2], fs, p.now, tickPriorityNormal)
+		} else if isEyeblossom(s) || registry.BlockOf(s) == registry.BlockSugarCane {
 			p.schedule(pos[0], pos[1], pos[2], p.now)
 		}
 	}
@@ -1115,7 +1196,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		p.queue.pop()
 		// A spent budget leaves its kind queued while the other keeps draining.
 		if blocks >= maxBlockTicksPerTick || fluids >= maxFluidTicksPerTick {
-			fluid := isFluidTick(next.event, p.w.BlockAt(next.pos.x, next.pos.y, next.pos.z))
+			fluid := next.fluid != 0
 			if fluid && fluids >= maxFluidTicksPerTick || !fluid && blocks >= maxBlockTicksPerTick {
 				deferred = append(deferred, next)
 				continue
@@ -1129,7 +1210,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			delete(p.cancelled, next.seq)
 			continue
 		}
-		if next.priority == tickPriorityFinalize {
+		if next.priority == tickPriorityFinalize && next.fluid == 0 {
 			delete(p.finalizeSeq, next.pos)
 		}
 		var fallBooked bool
@@ -1161,12 +1242,25 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			fallBooked = p.fallBooked[next.pos]
 			delete(p.fallBooked, next.pos)
 		default:
-			delete(p.pending, next.pos)
+			if next.fluid != 0 {
+				delete(p.fluidBooked, fluidBook{next.pos, next.fluid})
+			} else {
+				delete(p.pending, next.pos)
+			}
 		}
 
 		x, y, z := next.pos.x, next.pos.y, next.pos.z
 		state := p.w.BlockAt(x, y, z)
 		if int(state) >= registry.StateCount {
+			continue
+		}
+		if next.fluid != 0 {
+			// A stale visit spends the budget too.
+			// vanilla: ServerLevel.tickFluid runs only the booked type; LevelTicks.collectTicks
+			fluids++
+			if fs := fluidHolding(state); fs.kind != fluidNone && fluidTypeOf(fs) == next.fluid {
+				p.fluidTick(x, y, z, fs, &changes)
+			}
 			continue
 		}
 		block := registry.BlockOf(state)
@@ -1255,11 +1349,6 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			blocks++
 			continue
 		}
-		if fs := fluidHolding(state); fs.kind != fluidNone {
-			fluids++
-			p.fluidTick(x, y, z, fs, &changes)
-			continue
-		}
 		if block == registry.BlockFire {
 			blocks++
 			p.fireTick(x, y, z, state, &changes, &primes)
@@ -1315,6 +1404,15 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 	p.vibrationTicks(&changes)
 	p.pistonPushes()
 	effects, wakePrimes := p.takeWake()
+	if len(p.pushes) == 0 {
+		// Nothing points into the slab: keep it for the next sweep.
+		if p.sparePushes == nil {
+			p.sparePushes = p.pushes[:0]
+		}
+		p.pushes = nil
+	} else {
+		p.pushOwner = &effects[0]
+	}
 	// Redstone ticks queued their TNT in the wake sink; the fire's primes came
 	// back through the visit.
 	primes = append(primes, wakePrimes...)
@@ -1328,16 +1426,59 @@ func (p *Physics) schedule(x, y, z int32, due int64) {
 	p.schedulePriority(x, y, z, due, tickPriorityNormal)
 }
 
-func (p *Physics) schedulePriority(x, y, z int32, due int64, priority int) {
-	p.discardUnloadedTicks(p.w.prepareTick(x, z, true))
-	key := blockKey{x, y, z}
-	if p.pending[key] {
-		return
+// scheduleFluid books the visit of the fluid the cell holds. Vanilla keeps
+// fluid ticks apart by fluid type and position, so a replaced fluid's visit
+// neither holds back nor spends the new fluid's; the type is checked when the
+// visit runs.
+// vanilla: LiquidBlock.onPlace, ScheduledTick.UNIQUE_TICK_HASH, ServerLevel.tickFluid
+func (p *Physics) scheduleFluid(x, y, z int32) {
+	if fs := fluidHolding(p.w.BlockAt(x, y, z)); fs.kind != fluidNone {
+		p.bookFluid(x, y, z, fs)
 	}
-	p.pending[key] = true
+}
+
+func (p *Physics) scheduleFluidAt(x, y, z int32, fs fluidState, due int64, priority int) {
+	p.bookTick(x, y, z, fluidTypeOf(fs), due, priority)
+}
+
+// bookFluid books the visit of fs, the fluid the caller read at the cell.
+func (p *Physics) bookFluid(x, y, z int32, fs fluidState) {
+	p.scheduleFluidAt(x, y, z, fs, p.now+p.tickDelayOf(fs.kind), tickPriorityNormal)
+}
+
+func (p *Physics) schedulePriority(x, y, z int32, due int64, priority int) {
+	p.bookTick(x, y, z, 0, due, priority)
+}
+
+// bookTick queues a visit unless one is waiting for the same position and
+// fluid type (zero for a block tick). Runs under p.mu.
+// vanilla: LevelChunkTicks.schedule
+func (p *Physics) bookTick(x, y, z int32, typ fluidType, due int64, priority int) {
+	// A fluid booking first reserves the saved fluid bookings, so a new one
+	// cannot take their place.
+	// vanilla: LevelChunkTicks.<init>
+	p.adoptTicks(p.w.prepareTick(x, z, true, typ != 0))
+	p.insertTick(blockKey{x, y, z}, typ, due, priority)
+}
+
+// insertTick queues a visit unless one is waiting for the same key and fluid
+// type. Runs under p.mu.
+func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority int) {
+	if typ != 0 {
+		book := fluidBook{key, typ}
+		if _, ok := p.fluidBooked[book]; ok {
+			return
+		}
+		p.fluidBooked[book] = struct{}{}
+	} else {
+		if p.pending[key] {
+			return
+		}
+		p.pending[key] = true
+	}
 	p.seq++
-	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq})
-	if priority == tickPriorityFinalize {
+	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ})
+	if priority == tickPriorityFinalize && typ == 0 {
 		p.finalizeSeq[key] = p.seq
 	}
 }
@@ -1365,7 +1506,7 @@ func (p *Physics) BlockTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) BlockTicks {
 			continue
 		}
 		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
-		if isFluidTick(t.event, state) {
+		if t.fluid != 0 {
 			continue
 		}
 		if name, _, ok := registry.BlockStateName(state); ok {
@@ -1410,7 +1551,7 @@ func (p *Physics) dropTickIn(t scheduledTick, loX, loY, loZ, hiX, hiY, hiZ int32
 		delete(p.cancelled, t.seq)
 		return true
 	}
-	if t.priority != tickPriorityFinalize &&
+	if (t.priority != tickPriorityFinalize || t.fluid != 0) &&
 		t.pos.x >= loX && t.pos.x <= hiX && t.pos.y >= loY && t.pos.y <= hiY && t.pos.z >= loZ && t.pos.z <= hiZ {
 		p.forgetBooking(t)
 		return true
@@ -1454,7 +1595,8 @@ func (p *Physics) ScheduleBlockTicks(ticks BlockTicks, offX, offY, offZ int32) {
 // inside the tick, the next when a landing queued it), at a priority after
 // every block tick of its game tick.
 func (p *Physics) schedulePistonEvent(x, y, z int32, dir int8, typ uint8) {
-	p.discardUnloadedTicks(p.w.prepareTick(x, z, false))
+	_, unloaded := p.w.prepareTick(x, z, false, false)
+	p.discardUnloadedTicks(unloaded)
 	key := blockKey{x, y, z}
 	event := (typ + 1) | uint8(dir)<<2
 	if p.pendingEvent[key] == event {
@@ -1488,7 +1630,7 @@ func (p *Physics) cancelPistonFinalize(x, y, z int32) {
 }
 
 func (p *Physics) tickCancelled(t scheduledTick) bool {
-	if t.priority != tickPriorityFinalize {
+	if t.priority != tickPriorityFinalize || t.fluid != 0 {
 		return false
 	}
 	_, ok := p.cancelled[t.seq]
@@ -1738,7 +1880,7 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 		if fs.kind == fluidLava && !p.shouldSpreadLiquid(x, y, z, changes) {
 			return // the lava met water: obsidian, cobblestone or basalt at once
 		}
-		p.schedule(x, y, z, p.now+p.tickDelayOf(fs.kind))
+		p.bookFluid(x, y, z, fs)
 		return
 	}
 	// A block's own placement leaves it standing (BlockInput.place keeps a
@@ -1758,7 +1900,7 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	// vanilla: SimpleWaterloggedBlock.placeLiquid, FenceBlock.updateShape,
 	// SpeleothemBlock.updateShape
 	if fs.kind != fluidNone && fluidContainer(state) {
-		p.schedule(x, y, z, p.now+p.tickDelayOf(fs.kind))
+		p.bookFluid(x, y, z, fs)
 	}
 	block := registry.BlockOf(state)
 	if placed && block == registry.BlockFrogspawn && registry.BlockOf(old) != block {
@@ -1969,11 +2111,6 @@ func (p *Physics) fallsInto(x, y, z int32) bool {
 // vanilla: FallingBlock.tick
 func (p *Physics) fallTick(x, y, z int32, state uint16, changes *[]BlockChange, falls *[]FallingSpawn) {
 	if !p.fallsInto(x, y, z) {
-		// Held up; the entry is spent. A fluid-holding container's fluid visit,
-		// booked beside the fall, is spent with it and so runs here.
-		if fs := fluidHolding(state); fs.kind != fluidNone && fluidContainer(state) {
-			p.fluidTick(x, y, z, fs, changes)
-		}
 		return
 	}
 	p.fallSpawn(x, y, z, state, changes, falls)
@@ -2023,7 +2160,7 @@ func (p *Physics) tickDelayOf(kind fluidKind) int64 {
 // fluidHeight is a fluid cell's depth in blocks: 1 with the same fluid above,
 // else amount/9.
 // vanilla: FluidState.getHeight
-func (fs fluidState) fluidHeight(w *World, x, y, z int32) float64 {
+func (fs fluidState) fluidHeight(w BlockReader, x, y, z int32) float64 {
 	if fluidHolding(w.BlockAt(x, y+1, z)).kind == fs.kind {
 		return 1
 	}
@@ -2082,14 +2219,14 @@ func canMaybePassThrough(kind fluidKind, srcState uint16, axis int, positive boo
 // lava to water reaching 4/9 deep or more, which is why a thin lava flow holds
 // a flood out and a deep one goes under.
 // vanilla: FluidState.canBeReplacedWith
-func (p *Physics) canReplaceWith(held fluidState, x, y, z int32, incoming fluidKind, down bool) bool {
+func canReplaceWith(w BlockReader, held fluidState, x, y, z int32, incoming fluidKind, down bool) bool {
 	switch held.kind {
 	case fluidNone:
 		return true
 	case fluidWater:
 		return down && incoming != fluidWater
 	case fluidLava:
-		return held.fluidHeight(p.w, x, y, z) >= 0.44444445 && incoming == fluidWater
+		return held.fluidHeight(w, x, y, z) >= 0.44444445 && incoming == fluidWater
 	}
 	return false
 }
@@ -2100,15 +2237,20 @@ func (p *Physics) canReplaceWith(held fluidState, x, y, z int32, incoming fluidK
 // empty.
 // vanilla: FlowingFluid.getNewLiquid
 func (p *Physics) newLiquid(x, y, z int32, kind fluidKind) fluidState {
-	return p.newLiquidAt(x, y, z, p.w.BlockAt(x, y, z), kind)
+	return newLiquidAt(p.w, x, y, z, p.w.BlockAt(x, y, z), p.behaviourOf(kind))
 }
 
-func (p *Physics) newLiquidAt(x, y, z int32, state uint16, kind fluidKind) fluidState {
-	b := p.behaviourOf(kind)
+type fluidSpreadReader interface {
+	BlockReader
+	BoolRule(GameRuleIndex) bool
+}
+
+func newLiquidAt(w fluidSpreadReader, x, y, z int32, state uint16, b fluidBehaviour) fluidState {
+	kind := b.kind
 	sources, highest := 0, 0
 	for _, d := range horizontal4 {
 		nx, nz := x+d[0], z+d[1]
-		ns := p.w.BlockAt(nx, y, nz)
+		ns := w.BlockAt(nx, y, nz)
 		nfs := fluidHolding(ns)
 		if nfs.kind != kind {
 			continue
@@ -2124,17 +2266,17 @@ func (p *Physics) newLiquidAt(x, y, z int32, state uint16, kind fluidKind) fluid
 			highest = nfs.amount
 		}
 	}
-	if sources >= 2 && p.w.BoolRule(b.conversionRule) {
+	if sources >= 2 && w.BoolRule(b.conversionRule) {
 		// Two sources beside over body-holding ground, or a same-fluid source
 		// below, make an infinite-pool source.
-		belowState := p.w.BlockAt(x, y-1, z)
+		belowState := w.BlockAt(x, y-1, z)
 		belowFS := fluidHolding(belowState)
 		if collisionSolid(belowState) || (belowFS.kind == kind && belowFS.isSource()) {
 			return fluidState{kind: kind, amount: 8}
 		}
 	}
 	if y < worldMinY+worldHeight {
-		aboveState := p.w.BlockAt(x, y+1, z)
+		aboveState := w.BlockAt(x, y+1, z)
 		if afs := fluidHolding(aboveState); afs.kind == kind && passWall(state, 1, true, aboveState) {
 			return fluidState{kind: kind, amount: 8, falling: true}
 		}
@@ -2159,8 +2301,8 @@ func (p *Physics) spread(x, y, z int32, fs fluidState, changes *[]BlockChange) {
 	bx, by, bz := x, y-1, z
 	belowState := p.w.BlockAt(bx, by, bz) // air past the world's floor
 	if canMaybePassThrough(fs.kind, state, 1, false, belowState, fluidHolding(belowState)) {
-		newBelow := p.newLiquidAt(bx, by, bz, belowState, fs.kind)
-		if p.canReplaceWith(fluidHolding(belowState), bx, by, bz, newBelow.kind, true) &&
+		newBelow := newLiquidAt(p.w, bx, by, bz, belowState, p.behaviourOf(fs.kind))
+		if canReplaceWith(p.w, fluidHolding(belowState), bx, by, bz, newBelow.kind, true) &&
 			canHoldSpecific(belowState, newBelow) {
 			p.spreadTo(bx, by, bz, belowState, newBelow, [3]int32{x, y, z}, changes)
 			if p.sourceNeighborCount(x, y, z, fs.kind) >= 3 {
@@ -2205,7 +2347,7 @@ const spreadSide = 2*spreadReach + 1
 // square they are read uncached.
 // vanilla: FlowingFluid.SpreadContext
 type spreadContext struct {
-	p *Physics
+	w fluidSpreadReader
 	// A spread uses one tag snapshot throughout its slope search.
 	holdFlags     *[registry.StateCount]uint8
 	y             int32
@@ -2222,9 +2364,17 @@ type spreadContext struct {
 	failedDepth   [spreadSide * spreadSide][4]uint8
 }
 
-func (p *Physics) newSpreadContext(x, y, z int32, kind fluidKind) spreadContext {
+// spreadOffsets is each cell's (dx, dz) from the square's corner.
+var spreadOffsets = func() (t [spreadSide * spreadSide][2]int8) {
+	for i := range t {
+		t[i] = [2]int8{int8(i % spreadSide), int8(i / spreadSide)}
+	}
+	return
+}()
+
+func newSpreadContext(w fluidSpreadReader, x, y, z int32, kind fluidKind) spreadContext {
 	return spreadContext{
-		p:           p,
+		w:           w,
 		y:           y,
 		ox:          x,
 		oz:          z,
@@ -2271,9 +2421,10 @@ func (c *spreadContext) cellFlags(state uint16) uint8 {
 
 // load reads a cell's state and classification into the cache.
 func (c *spreadContext) load(i int) {
-	x := c.ox + int32(i%spreadSide) - spreadReach
-	z := c.oz + int32(i/spreadSide) - spreadReach
-	state := c.p.w.BlockAt(x, c.y, z)
+	off := spreadOffsets[i]
+	x := c.ox + int32(off[0]) - spreadReach
+	z := c.oz + int32(off[1]) - spreadReach
+	state := c.w.BlockAt(x, c.y, z)
 	c.states[i] = state
 	if c.lastFlags&cellKnown != 0 && state == c.lastState {
 		c.flags[i] = c.lastFlags
@@ -2289,7 +2440,7 @@ func (c *spreadContext) load(i int) {
 func (c *spreadContext) cell(x, z int32) (state uint16, flags uint8) {
 	i, ok := c.index(x, z)
 	if !ok {
-		state = c.p.w.BlockAt(x, c.y, z)
+		state = c.w.BlockAt(x, c.y, z)
 		return state, c.cellFlags(state)
 	}
 	if c.flags[i]&cellKnown == 0 {
@@ -2309,7 +2460,7 @@ func (c *spreadContext) state(x, z int32) uint16 {
 func (c *spreadContext) isHole(x, z int32) bool {
 	i, ok := c.index(x, z)
 	if !ok {
-		return isWaterHole(c.state(x, z), c.p.w.BlockAt(x, c.y-1, z), c.flowingType, c.holdFlags)
+		return isWaterHole(c.state(x, z), c.w.BlockAt(x, c.y-1, z), c.flowingType, c.holdFlags)
 	}
 	if c.flags[i]&cellKnown == 0 {
 		c.load(i)
@@ -2320,10 +2471,11 @@ func (c *spreadContext) isHole(x, z int32) bool {
 // holeAt caches whether an already loaded cell hangs over a hole.
 func (c *spreadContext) holeAt(i int) bool {
 	if c.flags[i]&cellHoleKnown == 0 {
-		x := c.ox + int32(i%spreadSide) - spreadReach
-		z := c.oz + int32(i/spreadSide) - spreadReach
+		off := spreadOffsets[i]
+		x := c.ox + int32(off[0]) - spreadReach
+		z := c.oz + int32(off[1]) - spreadReach
 		top := c.states[i]
-		below := c.p.w.BlockAt(x, c.y-1, z)
+		below := c.w.BlockAt(x, c.y-1, z)
 		var holeFlags uint8
 		if c.lastHoleFlags&cellHoleKnown != 0 && top == c.lastHoleTop && below == c.lastHoleBelow {
 			holeFlags = c.lastHoleFlags
@@ -2341,24 +2493,39 @@ func (c *spreadContext) holeAt(i int) bool {
 	return c.flags[i]&cellHole != 0
 }
 
-// spreadToSides floods outward if the fluid has strength left (a full cell less
+func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, changes *[]BlockChange) {
+	flows, winners := fluidSideFlows(p.w, x, y, z, state, fs, p.behaviourOf(fs.kind))
+	for i, d := range horizontal4 {
+		if !winners[i] {
+			continue
+		}
+		// An earlier write or plugin hook may have changed the target.
+		tx, tz := x+d[0], z+d[1]
+		p.spreadTo(tx, y, tz, p.w.BlockAt(tx, y, tz), flows[i], [3]int32{x, y, z}, changes)
+	}
+}
+
+// fluidSideFlows plans a flood if the fluid has strength left (a full cell less
 // its drop-off; a falling column 7): to every direction tied for the nearest
 // hole, or all where none is in reach.
 // vanilla: FlowingFluid.spreadToSides, getSpread
-func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, changes *[]BlockChange) {
-	b := p.behaviourOf(fs.kind)
+func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidState, b fluidBehaviour) (flows [4]fluidState, winners [4]bool) {
 	gate := fs.amount - b.dropOff
 	if fs.falling {
 		gate = 7
 	}
 	if gate <= 0 {
-		return
+		return flows, winners
 	}
-	ctx := p.newSpreadContext(x, y, z, fs.kind)
+	ctx := newSpreadContext(w, x, y, z, fs.kind)
 	c := &ctx
-	var sends [4]bool
-	var into [4]fluidState
-	lowest := 1000
+	var sides [4]struct {
+		into, held     fluidState
+		state          uint16
+		eligible, hole bool
+	}
+	hasHole, anyDiffers := false, false
+	eligible := 0
 	for i, d := range horizontal4 {
 		tx, tz := x+d[0], z+d[1]
 		tState := c.state(tx, tz)
@@ -2367,37 +2534,65 @@ func (p *Physics) spreadToSides(x, y, z int32, state uint16, fs fluidState, chan
 		if !canMaybePassThrough(fs.kind, state, axis, positive, tState, tFS) {
 			continue
 		}
-		newFluid := p.newLiquidAt(tx, y, tz, tState, fs.kind)
-		if !canHoldSpecific(tState, newFluid) {
+		side := &sides[i]
+		if fluidContainer(tState) {
+			side.into = newLiquidAt(w, tx, y, tz, tState, b)
+			if !canHoldSpecific(tState, side.into) {
+				continue
+			}
+		}
+		side.state = tState
+		side.held = tFS
+		side.eligible = true
+		side.hole = c.isHole(tx, tz)
+		hasHole = hasHole || side.hole
+		eligible++
+		anyDiffers = anyDiffers || tFS.kind != fs.kind
+	}
+	// Every eligible side already holds this fluid, which no write replaces.
+	if !anyDiffers {
+		return flows, winners
+	}
+	lowest := 1000
+	for i, d := range horizontal4 {
+		side := &sides[i]
+		if !side.eligible || (hasHole && !side.hole) {
 			continue
 		}
 		distance := 0
-		if !c.isHole(tx, tz) {
-			ti, _ := c.index(tx, tz)
+		// A lone outlet wins at any distance.
+		if !hasHole && eligible > 1 {
+			ti, _ := c.index(x+d[0], z+d[1])
 			distance = c.slopeDistance(ti, 1, i^2, min(b.slopeFindDistance, lowest))
 		}
 		if distance < lowest {
-			sends = [4]bool{}
-			into = [4]fluidState{}
+			winners = [4]bool{}
 		}
 		if distance > lowest {
 			continue
 		}
-		if p.canReplaceWith(tFS, tx, y, tz, newFluid.kind, false) {
-			sends[i] = true
-			into[i] = newFluid
-		}
+		// An eligible hole sets the distance even if its fluid cannot be displaced.
 		lowest = distance
+		winners[i] = true
 	}
+	// Finish planning every write before a spread or plugin hook changes the world.
 	for i, d := range horizontal4 {
-		if !sends[i] {
+		if !winners[i] {
 			continue
 		}
-		// Re-read the target at the moment of spreading: the flood may have
-		// changed it.
+		side := &sides[i]
+		if side.held.kind == fs.kind {
+			winners[i] = false
+			continue
+		}
 		tx, tz := x+d[0], z+d[1]
-		p.spreadTo(tx, y, tz, p.w.BlockAt(tx, y, tz), into[i], [3]int32{x, y, z}, changes)
+		if !fluidContainer(side.state) {
+			side.into = newLiquidAt(w, tx, y, tz, side.state, b)
+		}
+		winners[i] = canReplaceWith(w, side.held, tx, y, tz, side.into.kind, false)
+		flows[i] = side.into
 	}
+	return flows, winners
 }
 
 // spreadStep follows horizontal4's north, east, south, west order.
@@ -2501,7 +2696,7 @@ func (p *Physics) spreadTo(x, y, z int32, state uint16, target fluidState, from 
 			if !registry.StateBool(state, registry.PropWaterlogged) {
 				if flooded, sound, ok := blocklogic.PlaceWater(state); ok {
 					p.setShaped(x, y, z, flooded, changes)
-					p.schedule(x, y, z, p.now+waterTickDelay)
+					p.scheduleFluid(x, y, z)
 					if sound != registry.SoundNone {
 						effect := Effect{SoundID: sound, X: x, Y: y, Z: z, Volume: 1, Pitch: 1}
 						if registry.StateLit(state) {
@@ -2573,6 +2768,8 @@ func (p *Physics) fluidTick(x, y, z int32, fs fluidState, changes *[]BlockChange
 			return
 		}
 		if newFS != fs {
+			// vanilla: LiquidBlock.onPlace books the base delay if the fluid stays.
+			// LevelChunkTicks.schedule keeps it over FlowingFluid.tick's later booking.
 			p.setShaped(x, y, z, newFS.createLegacy(), changes)
 		}
 		fs = newFS

@@ -3,15 +3,14 @@ package datapack
 import (
 	"strings"
 	"testing"
+
+	"github.com/golem-mc/golem/registry"
 )
 
 func TestProviderListRefusesLiteralEmptyKeyCompound(t *testing.T) {
+	d := lootDecoder{ResourceDecoder: liveResourceDecoder()}
 	decode := func(raw string) string {
-		tag, err := JSONTag([]byte(raw))
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, msg := DecodeIntProvider(tag)
+		_, msg := d.decodeProviderJSON([]byte(raw), false)
 		return msg
 	}
 	for _, tc := range []struct{ input, want string }{
@@ -29,9 +28,30 @@ func TestProviderListRefusesLiteralEmptyKeyCompound(t *testing.T) {
 	}
 }
 
-func TestValidatePackContextProvidersRejectsTrailingJSON(t *testing.T) {
-	err := ValidatePackContextProviders(map[string][]byte{"p:extra": []byte("1 2")}, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "context_int_provider p:extra: trailing data") {
-		t.Fatalf("provider with trailing JSON returned %v", err)
+func TestValidatePackContextProvidersRejectsInvalidFiles(t *testing.T) {
+	// JsonOps includes the bad value in the number error.
+	// vanilla: JsonOps.getNumberValue, Weighted.codec
+	const badWeight = `{"type":"minecraft:weighted_list","distribution":[{"data":1,"weight":"abc"},{"data":2,"weight":1}]}`
+	for _, tc := range []struct {
+		input string
+		float bool
+		want  string
+	}{
+		{"1 2", false, "context_int_provider p:bad: trailing data after the JSON value"},
+		{badWeight, false, `context_int_provider p:bad: Not a number: "abc"`},
+		{badWeight, true, `context_float_provider p:bad: Not a number: "abc"`},
+	} {
+		var ints, floats map[string][]byte
+		files := map[string][]byte{"p:bad": []byte(tc.input)}
+		if tc.float {
+			floats = files
+		} else {
+			ints = files
+		}
+		layers := registry.StagePackLayers()
+		layers.SetContextProviders(ints, floats)
+		if err := ValidatePackContextProviders(layers, ints, floats); err == nil || err.Error() != tc.want {
+			t.Errorf("validation returned %v, want %q", err, tc.want)
+		}
 	}
 }

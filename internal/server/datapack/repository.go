@@ -257,20 +257,12 @@ func (r *Repository) Config() (enabled, disabled []string) {
 }
 
 // Dirs is the folders of the selected packs in layer order.
-func (r *Repository) Dirs() []string {
+func (r *Repository) Dirs() []string { return r.DirsOf(r.SelectedIDs()) }
+
+// DirsOf is Dirs for the selection ids would make, unknown ids left out.
+func (r *Repository) DirsOf(ids []string) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.dirsLocked(r.selected)
-}
-
-// DirsFor gives the pack folders a candidate selection would load.
-func (r *Repository) DirsFor(ids []string) []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.dirsLocked(ids)
-}
-
-func (r *Repository) dirsLocked(ids []string) []string {
 	var dirs []string
 	for _, id := range ids {
 		if p, ok := r.packLocked(id); ok && p.Dir != "" {

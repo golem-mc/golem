@@ -7,18 +7,27 @@ import (
 	"github.com/golem-mc/golem/internal/server/world/levelgen"
 )
 
-// BenchmarkMaterialTerrainChunk includes fill because ore veins are part of
-// fill in levelgen and part of BuildSurface here. Carvers and features are excluded.
+// The carvers cut through grass and dirt in this seed 12345 chunk.
+const materialBenchChunkX, materialBenchChunkZ = 6, -4
+
+// BenchmarkMaterialTerrainChunk measures fill, surface and carving material
+// evaluation with a precomputed mask.
 func BenchmarkMaterialTerrainChunk(b *testing.B) {
 	rs := NewRandomState(Overworld, 12345)
 	biomes := &goldenBiomeSource{names: []string{"plains"}, zoom: levelgen.BiomeZoomSeed(rs.Seed), melt: strings.Repeat("0", 256)}
+	mask := rs.CarvingMask(materialBenchChunkX, materialBenchChunkZ, func(int32, int32) []Carver { return OverworldCarvers })
+	volume := rs.ChunkVolume(materialBenchChunkX, materialBenchChunkZ)
 	materials := [...]Material{SubstanceDefault: Stone, SubstanceAir: Air, SubstanceWater: Water, SubstanceLava: Lava}
-	b.ResetTimer()
+	b.ReportAllocs()
 	for b.Loop() {
 		chunk := NewProtoChunk(rs.MinY, rs.Height, Stone)
-		nc := NewNoiseChunk(rs, nil, rs.ChunkVolume(0, 0))
-		nc.DoFill(nc.SampleDensity(), func(x, y, z int32, s Substance) { chunk.Set(x, y, z, materials[s]) })
-		rs.Materials.BuildSurface(chunk, 0, 0, nc, biomes, []int{0})
+		nc := NewNoiseChunk(rs, nil, volume)
+		density := nc.SampleDensity()
+		nc.DoFill(density, func(x, y, z int32, s Substance) { chunk.Set(x, y, z, materials[s]) })
+		nc.ctx.release(density)
+		rs.Materials.BuildSurface(chunk, materialBenchChunkX, materialBenchChunkZ, nc, biomes, []int{0})
+		rs.applyCarvingMask(chunk, materialBenchChunkX, materialBenchChunkZ, mask, nc, biomes, nil)
+		nc.Recycle()
 	}
 }
 
@@ -51,6 +60,6 @@ func BenchmarkBuildTerrainChunk(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		rs.BuildTerrain(NewProtoChunk(rs.MinY, rs.Height, Stone), 0, 0, nil, biomes)
+		rs.BuildTerrain(NewProtoChunk(rs.MinY, rs.Height, Stone), materialBenchChunkX, materialBenchChunkZ, nil, biomes)
 	}
 }

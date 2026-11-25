@@ -9,6 +9,15 @@ func InViewOf(pos, center ChunkPos, radius int32) bool {
 	return Abs32(dx) <= radius && Abs32(dz) <= radius
 }
 
+// InChunkTrackingView reports whether a chunk is within the buffered view distance.
+// vanilla: ChunkTrackingView.isInViewDistance
+func InChunkTrackingView(pos, center ChunkPos, radius int32) bool {
+	dx := int64(max(0, Abs32(pos.X-center.X)-1))
+	dz := int64(max(0, Abs32(pos.Z-center.Z)-1))
+	r := int64(radius)
+	return dx*dx+dz*dz < r*r
+}
+
 // DistanceTo is the squared distance between two chunks, which is all that is
 // needed to put chunks in order of how near they are.
 func DistanceTo(pos, center ChunkPos) int {

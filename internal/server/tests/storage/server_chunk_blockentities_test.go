@@ -159,6 +159,7 @@ func TestChunkDataCarriesBlockEntities(t *testing.T) {
 			chunkMetadata(targetlessConduitEntity(0)),
 			chunkMetadata(emptyCampfireEntity(11, 4)),
 			chunkMetadata(bareShelfEntity(12, 4)),
+			chunkMetadata(pistonEntity(13, 4)),
 			chunkMetadata(positionlessEntity()),
 		}}
 		out, err := nbt.Encode("", root)
@@ -351,6 +352,29 @@ func TestChunkDataCarriesBlockEntities(t *testing.T) {
 	assertNoMetadata(t, "decorated pot", pot.tag)
 	if _, ok := pot.tag["item"]; !ok {
 		t.Errorf("decorated pot entry dropped its item: %v", pot.tag)
+	}
+
+	// An active moving-piston ride sends its carried state, facing, finished
+	// progress and flags, with chunk metadata dropped.
+	piston := blockEntityAt(t, entries, 13, 64, 4)
+	if piston.typeID != world.BlockEntityTypeID("minecraft:piston") {
+		t.Errorf("piston entry type = %d, want %d", piston.typeID, world.BlockEntityTypeID("minecraft:piston"))
+	}
+	assertOnlyKeys(t, "piston", piston.tag, "blockState", "facing", "progress", "extending", "source")
+	if state, _ := nbt.Get[nbt.String](piston.tag, "blockState"); state != "minecraft:dirt" {
+		t.Errorf("piston blockState = %v, want minecraft:dirt", piston.tag["blockState"])
+	}
+	if facing, _ := nbt.Get[nbt.Byte](piston.tag, "facing"); facing != 5 {
+		t.Errorf("piston facing = %v, want 5", piston.tag["facing"])
+	}
+	if progress, _ := nbt.Get[nbt.Float](piston.tag, "progress"); progress != 1 {
+		t.Errorf("piston progress = %v, want 1", piston.tag["progress"])
+	}
+	if extending, _ := nbt.Get[nbt.Byte](piston.tag, "extending"); extending != 1 {
+		t.Errorf("piston extending = %v, want 1", piston.tag["extending"])
+	}
+	if source, _ := nbt.Get[nbt.Byte](piston.tag, "source"); source != 0 {
+		t.Errorf("piston source = %v, want 0", piston.tag["source"])
 	}
 
 	// A carried entry with no position is left out, not listed at (0,0,0).
@@ -578,6 +602,21 @@ func decoratedPotEntity(x int32) nbt.Compound {
 		"id": nbt.String("minecraft:decorated_pot"), "x": nbt.Int(x), "y": nbt.Int(64), "z": nbt.Int(3),
 		"item":   nbt.Compound{"id": nbt.String("minecraft:brick"), "count": nbt.Int(1)},
 		"sherds": nbt.List{},
+	}
+}
+
+// pistonEntity is a moving piston carrying dirt east.
+func pistonEntity(x, z int32) nbt.Compound {
+	return nbt.Compound{
+		"id":         nbt.String("minecraft:piston"),
+		"x":          nbt.Int(x),
+		"y":          nbt.Int(64),
+		"z":          nbt.Int(z),
+		"blockState": nbt.String("minecraft:dirt"),
+		"facing":     nbt.Byte(5),
+		"progress":   nbt.Float(0.5),
+		"extending":  nbt.Byte(1),
+		"source":     nbt.Byte(0),
 	}
 }
 

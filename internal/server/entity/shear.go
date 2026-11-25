@@ -20,9 +20,7 @@ type ShearedEquipment struct {
 	DropHeight float64
 }
 
-// ShearEquipment takes the first shearable piece off the mob, the body slot
-// before the saddle, and reports it. clicker is the player holding the
-// shears; a piece with binding_curse stays on unless creative.
+// ShearEquipment removes the first eligible stack in equipment slot order.
 // vanilla: Mob.canShearEquipment, Mob.attemptToShearEquipment
 func (m *Mob) ShearEquipment(clicker uuid.UUID, creative bool) (ShearedEquipment, bool) {
 	if !m.Alive() {
@@ -35,24 +33,20 @@ func (m *Mob) ShearEquipment(clicker uuid.UUID, creative bool) (ShearedEquipment
 	} else if len(m.PassengerIDs()) > 0 {
 		return ShearedEquipment{}, false
 	}
-	for i, slot := range []protocol.ItemStack{m.Body, m.Horse.Saddle} {
-		if slot.Empty() {
+	for slot := range protocol.EquipSaddle + 1 {
+		stack := m.EquipmentSlot(slot)
+		if stack.Empty() {
 			continue
 		}
-		eq, ok := registry.StackEquippable(slot)
+		eq, ok := registry.StackEquippable(stack)
 		if !ok || !eq.CanBeSheared {
 			continue
 		}
-		if !creative && player.HasBindingCurse(slot) {
+		if !creative && player.HasBindingCurse(stack) {
 			continue
 		}
-		taken := ShearedEquipment{Stack: slot, Sound: eq.ShearingSound, DropHeight: m.shearDropHeight()}
-		if i == 0 {
-			m.SetEquipment(6, protocol.ItemStack{})
-		} else {
-			m.SetMetadataHorseSaddle(protocol.ItemStack{})
-		}
-		return taken, true
+		m.SetEquipment(slot, protocol.ItemStack{})
+		return ShearedEquipment{Stack: stack, Sound: eq.ShearingSound, DropHeight: m.shearDropHeight()}, true
 	}
 	return ShearedEquipment{}, false
 }

@@ -317,3 +317,121 @@ func withAttributes(e nbt.Compound, attrs ...nbt.Compound) nbt.Compound {
 	e["attributes"] = list
 	return e
 }
+
+func TestBlockEntityTagEquality(t *testing.T) {
+	pos := [3]int32{59, -12, -13}
+	makeVanilla := func() *chunkData {
+		c := filled(t, 0, 0)
+		c.BlockEntities = map[[3]int32]nbt.Compound{
+			pos: {
+				"id":    nbt.String("minecraft:mob_spawner"),
+				"Delay": nbt.Short(20),
+				"SpawnData": nbt.Compound{
+					"entity": nbt.Compound{
+						"id":                  nbt.String("minecraft:spider"),
+						"PersistenceRequired": nbt.Byte(1),
+					},
+					"custom_spawn_rules": nbt.Compound{
+						"block_light_limit": nbt.Int(0),
+						"sky_light_limit":   nbt.Int(15),
+					},
+				},
+				"SpawnPotentials": nbt.List{Elem: nbt.TypeEnd},
+				"Order": nbt.List{
+					Elem:  nbt.TypeInt,
+					Items: []nbt.Tag{nbt.Int(1), nbt.Int(2)},
+				},
+			},
+		}
+		return c
+	}
+	makeOurs := func(entityID string, potentials []nbt.Tag) *chunkData {
+		entity := nbt.NewOrderedCompound(2)
+		entity.Set("PersistenceRequired", nbt.Byte(1))
+		entity.Set("id", nbt.String(entityID))
+
+		rules := nbt.NewOrderedCompound(2)
+		rules.Set("sky_light_limit", nbt.Int(15))
+		rules.Set("block_light_limit", nbt.Int(0))
+
+		spawnData := nbt.NewOrderedCompound(2)
+		spawnData.Set("custom_spawn_rules", rules)
+		spawnData.Set("entity", entity)
+
+		c := filled(t, 0, 0)
+		c.BlockEntities = map[[3]int32]nbt.Compound{
+			pos: {
+				"id":              nbt.String("minecraft:mob_spawner"),
+				"Delay":           nbt.Short(20),
+				"SpawnData":       spawnData,
+				"SpawnPotentials": nbt.List{Elem: nbt.TypeCompound, Items: potentials},
+				"Order": nbt.List{
+					Elem:  nbt.TypeInt,
+					Items: []nbt.Tag{nbt.Int(1), nbt.Int(2)},
+				},
+			},
+		}
+		return c
+	}
+
+	run := func(v, o *chunkData) (*report, string) {
+		t.Helper()
+		var diff bytes.Buffer
+		rep, err := compare(overworld, 0, chunkRange{0, 0, 0, 0}, map[[2]int32]*chunkData{{0, 0}: v}, map[[2]int32]*chunkData{{0, 0}: o}, &diff)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rep, diff.String()
+	}
+
+	// Same entries in plain vs ordered compounds with different insertion order
+	// and empty lists of different element types must match with no diff lines.
+	rep, diff := run(makeVanilla(), makeOurs("minecraft:spider", nil))
+	if be := rep.BlockEntities; be.Vanilla != 1 || be.Ours != 1 || be.SameID != 1 || be.Identical != 1 || len(be.Pairs) != 0 {
+		t.Fatalf("identical block entity report = %+v, want 1/1/1/1 with no pairs", be)
+	}
+	if diff != "" {
+		t.Fatalf("identical block entity diff = %q, want empty", diff)
+	}
+
+	// Changing a nested value inside the ordered compound flags only SpawnData once.
+	rep, diff = run(makeVanilla(), makeOurs("minecraft:zombie", nil))
+	wantPairs := []blockEntityPair{{"minecraft:mob_spawner", "SpawnData", 1}}
+	if be := rep.BlockEntities; be.Identical != 0 || be.SameID != 1 || !reflect.DeepEqual(be.Pairs, wantPairs) {
+		t.Fatalf("changed nested value report = %+v, want pairs %v", be, wantPairs)
+	}
+	if want := "be 59 -12 -13 minecraft:mob_spawner SpawnData\n"; diff != want {
+		t.Fatalf("changed nested value diff = %q, want %q", diff, want)
+	}
+
+	// Changing a list length flags only SpawnPotentials once.
+	potential := nbt.NewOrderedCompound(1)
+	potential.Set("weight", nbt.Int(1))
+	rep, diff = run(makeVanilla(), makeOurs("minecraft:spider", []nbt.Tag{potential}))
+	wantPairs = []blockEntityPair{{"minecraft:mob_spawner", "SpawnPotentials", 1}}
+	if be := rep.BlockEntities; be.Identical != 0 || be.SameID != 1 || !reflect.DeepEqual(be.Pairs, wantPairs) {
+		t.Fatalf("changed list length report = %+v, want pairs %v", be, wantPairs)
+	}
+	if want := "be 59 -12 -13 minecraft:mob_spawner SpawnPotentials\n"; diff != want {
+		t.Fatalf("changed list length diff = %q, want %q", diff, want)
+	}
+
+	// List order and numeric tag types remain significant.
+	o := makeOurs("minecraft:spider", nil)
+	o.BlockEntities[pos]["Delay"] = nbt.Int(20)
+	o.BlockEntities[pos]["Order"] = nbt.List{
+		Elem:  nbt.TypeInt,
+		Items: []nbt.Tag{nbt.Int(2), nbt.Int(1)},
+	}
+	rep, diff = run(makeVanilla(), o)
+	wantPairs = []blockEntityPair{
+		{"minecraft:mob_spawner", "Delay", 1},
+		{"minecraft:mob_spawner", "Order", 1},
+	}
+	if be := rep.BlockEntities; be.Identical != 0 || !reflect.DeepEqual(be.Pairs, wantPairs) {
+		t.Fatalf("type and order report = %+v, want pairs %v", be, wantPairs)
+	}
+	if want := "be 59 -12 -13 minecraft:mob_spawner Delay\nbe 59 -12 -13 minecraft:mob_spawner Order\n"; diff != want {
+		t.Fatalf("type and order diff = %q, want %q", diff, want)
+	}
+}

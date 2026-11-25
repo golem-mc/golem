@@ -1,8 +1,12 @@
 package server
 
 import (
+	"math"
 	"math/rand"
+	"runtime"
 	"slices"
+	"sync"
+	"sync/atomic"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/advancement"
@@ -617,6 +621,15 @@ func (b blast) sparesItems() bool {
 // exposure rays read a cell cache; below it the cache's reset costs more.
 const tntSightCacheMin = 64
 
+// tntParallelMin is the count of primed TNT in reach from which one blast fans
+// its exposure rays out across workers instead of running them serially.
+const tntParallelMin = tntSightCacheMin
+
+type tntBlastTarget struct {
+	it   *tntEntity
+	dist float64
+}
+
 // blastPushed hurts and pushes the items and orbs in reach, and pushes the
 // arrows, thrown bodies, primed TNT and falling blocks; a hurt does nothing
 // else to those.
@@ -721,25 +734,7 @@ func (s *Server) blastPushed(b blast, in *blastInputs, fx *blastEffects) {
 	// A primed TNT's hurt returns false: the push is the chain reaction's
 	// shove. A falling block sends no motion: its next position packet
 	// carries it.
-	s.tntMu.Lock()
-	near := s.tntBlasts.near(s.tnts, b.x, b.y, b.z, b.radius*2)
-	var sight rules.BlockReader = in.blocks
-	if len(near) >= tntSightCacheMin {
-		cache := rules.NewCachedBlocks(in.blocks, b.x, b.y, b.z, b.radius*2+1)
-		defer cache.Release()
-		sight = cache
-	}
-	for _, it := range near {
-		if it.tnt.Dead || it.w != b.w {
-			continue
-		}
-		if dist, ok := in.at.Reach(it.tnt.X, it.tnt.Y, it.tnt.Z); ok {
-			hit := in.at.Hit(sight, dist, it.tnt.BlastBox, it.tnt.BlastOrigin)
-			it.tnt.Push(hit.KX, hit.KY, hit.KZ)
-			queueMotion(fx, &it.bodyTrack, it.tnt.ID, it.tnt.VX, it.tnt.VY, it.tnt.VZ)
-		}
-	}
-	s.tntMu.Unlock()
+	s.blastTNT(b, in, fx, tntParallelMin, runtime.GOMAXPROCS(0))
 	s.fallingMu.Lock()
 	for _, it := range s.fallings {
 		if it.fb.Dead || it.w != b.w {
@@ -753,11 +748,95 @@ func (s *Server) blastPushed(b blast, in *blastInputs, fx *blastEffects) {
 	s.fallingMu.Unlock()
 }
 
+// blastTNT pushes every primed TNT in reach of b. When at least parallelMin
+// TNT are in reach and workers > 1, exposures are computed in parallel against
+// a prefilled read-only block box, then pushes and motion packets are applied
+// serially in input order.
+// vanilla: ServerExplosion.hurtEntities
+func (s *Server) blastTNT(b blast, in *blastInputs, fx *blastEffects, parallelMin, workers int) {
+	s.tntMu.Lock()
+	defer s.tntMu.Unlock()
+	near := s.tntBlasts.near(s.tnts, b.x, b.y, b.z, b.radius*2)
+	targets := s.tntBlastTargets[:0]
+	for _, it := range near {
+		if it.tnt.Dead || it.w != b.w {
+			continue
+		}
+		if dist, ok := in.at.Reach(it.tnt.X, it.tnt.Y, it.tnt.Z); ok {
+			targets = append(targets, tntBlastTarget{it: it, dist: dist})
+		}
+	}
+	if len(targets) == 0 {
+		return
+	}
+
+	n := len(targets)
+	if cap(s.tntBlastHits) < n {
+		s.tntBlastHits = make([]rules.BlastHit, n)
+	}
+	hits := s.tntBlastHits[:n]
+
+	if n >= parallelMin && workers > 1 {
+		minX, maxX := b.x, b.x
+		minY, maxY := b.y, b.y
+		minZ, maxZ := b.z, b.z
+		for _, t := range targets {
+			bx0, by0, bz0, bx1, by1, bz1 := t.it.tnt.BlastBox()
+			minX, maxX = min(minX, bx0), max(maxX, bx1)
+			minY, maxY = min(minY, by0), max(maxY, by1)
+			minZ, maxZ = min(minZ, bz0), max(maxZ, bz1)
+		}
+		sight := rules.NewPrefilledBlocks(in.blocks,
+			int32(math.Floor(minX))-1, int32(math.Floor(minY))-1, int32(math.Floor(minZ))-1,
+			int32(math.Floor(maxX))+1, int32(math.Floor(maxY))+1, int32(math.Floor(maxZ))+1)
+		defer sight.Release()
+
+		const batch = 32
+		w := min(workers, (n+batch-1)/batch)
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range w {
+			wg.Go(func() {
+				for {
+					start := int(next.Add(batch) - batch)
+					if start >= n {
+						return
+					}
+					end := min(start+batch, n)
+					for i := start; i < end; i++ {
+						t := targets[i]
+						hits[i] = in.at.Hit(sight, t.dist, t.it.tnt.BlastBox, t.it.tnt.BlastOrigin)
+					}
+				}
+			})
+		}
+		wg.Wait()
+	} else {
+		var sight rules.BlockReader = in.blocks
+		if n >= tntSightCacheMin {
+			cache := rules.NewCachedBlocks(in.blocks, b.x, b.y, b.z, b.radius*2+1)
+			defer cache.Release()
+			sight = cache
+		}
+		for i, t := range targets {
+			hits[i] = in.at.Hit(sight, t.dist, t.it.tnt.BlastBox, t.it.tnt.BlastOrigin)
+		}
+	}
+
+	for i, t := range targets {
+		hit := hits[i]
+		t.it.tnt.Push(hit.KX, hit.KY, hit.KZ)
+		queueMotion(fx, &t.it.bodyTrack, t.it.tnt.ID, t.it.tnt.VX, t.it.tnt.VY, t.it.tnt.VZ)
+	}
+	clear(targets)
+	s.tntBlastTargets = targets[:0]
+}
+
 // queueMotion queues the motion packet of a pushed body whose velocity
 // moved past the tracker's threshold, for sendBlast to send this tick to
 // the body's watchers. The body's lock is held.
 func queueMotion[S any](fx *blastEffects, t *bodyTrack[S], id int32, vx, vy, vz float64) {
-	if t.motionDue(vx, vy, vz, false) {
+	if t.motionDue(vx, vy, vz, false) && len(t.tracked) > 0 {
 		fx.pushed = append(fx.pushed, pushedMotion{
 			data:     entityVelocityPayload(id, vx, vy, vz),
 			watchers: trackedWatchers(t.tracked)})
@@ -834,8 +913,11 @@ func (s *Server) blastBlocks(b blast, destroyed rules.BlastBlocks) {
 		s.tellSectionBlocks(w, updates)
 	}
 	var drops rules.BlastDrops
-	for _, old := range removed {
-		s.explodedBlock(b, old, &drops)
+	if len(removed) > 0 {
+		var loot blastBlockLoot
+		for _, old := range removed {
+			s.explodedBlock(b, old, &drops, &loot)
+		}
 	}
 	// Spawned after every block has rolled, so the loots have merged.
 	// vanilla: ServerExplosion.interactWithBlocks
@@ -875,42 +957,40 @@ func (s *Server) blastBlocks(b blast, destroyed rules.BlastBlocks) {
 	s.relightChanges(w, removed)
 }
 
-// explodedBlock applies what one removed block leaves: its block entity's
-// spill, then a primed TNT, or the infestation and the loot, which goes to
-// drops rather than the world. The spill is not collected: a container's
-// contents spawn where it stood.
-func (s *Server) explodedBlock(b blast, old world.BlockChange, drops *rules.BlastDrops) {
-	w := b.w
-	// A skull's carried compound holds its profile and name; the context
-	// reads them before the break takes the compound out of the world.
-	ctx := s.brokenBlockLootContext(w, old.X, old.Y, old.Z, old.State, nil)
-	if registry.BlockOf(old.State) == registry.BlockCreakingHeart {
-		s.creakingHeartExploded(b, old.X, old.Y, old.Z, old.State)
-	}
-	if isHiveState(old.State) {
-		// vanilla: BeehiveBlock.onExplosionHit angers for every blast; getDrops releases.
-		if hiveBlasters[b.directType] {
-			s.releaseHiveBees(w, old.X, old.Y, old.Z, old.State, nil, false, true)
+type blastBlockLoot struct {
+	context rules.LootContext
+	stacks  []protocol.ItemStack
+}
+
+func (loot *blastBlockLoot) setBlock(b blast, old world.BlockChange) {
+	ctx := &loot.context
+	if ctx.Level == nil {
+		w := b.w
+		ctx.Level = rules.LevelWithoutOrigin(w, w.LootReads())
+		ctx.HasBlock = true
+		// vanilla: BlockBehaviour.onExplosionHit
+		ctx.Radius = b.interaction.LootRadius(b.radius)
+		if b.yield != nil {
+			ctx.Radius = yieldLootRadius(*b.yield)
 		}
-		s.angerBeesAround(w, old.X, old.Y, old.Z)
+		ctx.This.Type = b.directType
+		if b.directLoot != nil {
+			ctx.This = *b.directLoot
+		}
+		ctx.BlockAt = func(dx, dy, dz int32) uint16 {
+			o := ctx.Origin
+			return w.BlockAt(rules.BlockOf(o[0])+dx, rules.BlockOf(o[1])+dy, rules.BlockOf(o[2])+dz)
+		}
 	}
-	// The entity leaves the chunk before its stacks are read: an off-tick
-	// bed blast races a hopper, so the container must be gone before the
-	// spill or a hopper move duplicates what it drops.
-	container, customName := s.breakBlockEntity(w, old.X, old.Y, old.Z, old.State, true,
-		func(be *world.BlockEntity, spills []protocol.ItemStack) {
-			if s.blastSpillSeam != nil {
-				s.blastSpillSeam(be)
-			}
-			for _, stack := range spills {
-				s.spawnBlockDrop(w, old.X, old.Y, old.Z, stack)
-			}
-		})
-	ctx.Container = container
-	if customName != nil {
-		ctx.CustomName = customName
-	}
-	switch rules.ExplodedBlockOf(registry.BlockOf(old.State), w) {
+	ctx.BlockState = old.State
+	ctx.SetBlockOrigin(old.X, old.Y, old.Z)
+}
+
+// explodedBlock applies what one removed block leaves.
+func (s *Server) explodedBlock(b blast, old world.BlockChange, drops *rules.BlastDrops, loot *blastBlockLoot) {
+	w := b.w
+	block := registry.BlockOf(old.State)
+	switch rules.ExplodedBlockOf(block, w) {
 	case rules.ExplodedNothing:
 		return
 	case rules.ExplodedPrimed:
@@ -923,21 +1003,52 @@ func (s *Server) explodedBlock(b blast, old world.BlockChange, drops *rules.Blas
 	case rules.ExplodedInfested:
 		s.spawnInfestation(w, old.X, old.Y, old.Z)
 	}
-	// survives_explosion and explosion_decay roll against the radius, set
-	// only under decay; match_tool fails with no tool, so silk touch never
-	// applies. Every destroyed block rolls whatever the blast's radius.
-	// This is the carrier (TNT, creeper), which a chorus flower's table
-	// checks. vanilla: BlockBehaviour.onExplosionHit
-	ctx.Radius = b.interaction.LootRadius(b.radius)
-	if b.yield != nil {
-		ctx.Radius = yieldLootRadius(*b.yield)
+
+	loot.setBlock(b, old)
+	ctx := &loot.context
+	if registry.PistonHasBlockEntityBlocks[block] {
+		s.explodeBlockEntity(b, old, block, ctx)
+	} else {
+		setBlockLootComponents(ctx, w, old.X, old.Y, old.Z, nil, world.ItemComponents{})
+		ctx.BlockEntity, ctx.Extra = nil, nil
 	}
-	ctx.This = rules.LootEntity{Type: b.directType}
-	if b.directLoot != nil {
-		ctx.This = *b.directLoot
+	loot.stacks = rules.RollLootInto(loot.stacks[:0], rules.BlockLootTable(block), ctx, b.rng)
+	pos := [3]int32{old.X, old.Y, old.Z}
+	for _, stack := range loot.stacks {
+		drops.Add(stack, pos)
 	}
-	for _, stack := range rules.RollLoot(rules.BlockLootTable(registry.BlockOf(old.State)), &ctx, b.rng) {
-		drops.Add(stack, [3]int32{old.X, old.Y, old.Z})
+}
+
+func (s *Server) explodeBlockEntity(b blast, old world.BlockChange, block registry.Block, ctx *rules.LootContext) {
+	w := b.w
+	if isHiveState(old.State) {
+		// vanilla: BeehiveBlock.getDrops releases before the loot reads the hive.
+		if hiveBlasters[b.directType] {
+			s.releaseHiveBees(w, old.X, old.Y, old.Z, old.State, nil, true)
+		}
+		// vanilla: BeehiveBlock.onExplosionHit
+		s.angerBeesAround(w, old.X, old.Y, old.Z)
+	}
+	// A skull's carried compound holds its profile and name until removal.
+	components, tag := brokenBlockEntity(w, old.X, old.Y, old.Z)
+	setBlockLootComponents(ctx, w, old.X, old.Y, old.Z, nil, components)
+	ctx.BlockEntity, ctx.Extra = tag, components.Extra
+	if block == registry.BlockCreakingHeart {
+		s.creakingHeartExploded(b, old.X, old.Y, old.Z, old.State)
+	}
+	// Detach before spilling so an off-tick bed blast cannot duplicate a hopper move.
+	container, customName := s.breakBlockEntity(w, old.X, old.Y, old.Z, old.State, true,
+		func(be *world.BlockEntity, spills []protocol.ItemStack) {
+			if s.blastSpillSeam != nil {
+				s.blastSpillSeam(be)
+			}
+			for _, stack := range spills {
+				s.spawnBlockDrop(w, old.X, old.Y, old.Z, stack)
+			}
+		})
+	ctx.Container = container
+	if customName != nil {
+		ctx.CustomName = customName
 	}
 }
 

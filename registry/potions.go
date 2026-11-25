@@ -47,7 +47,11 @@ func PotionEffects(id int32) []EffectSpec {
 
 // PotionTagMembers returns a potion tag's names in registry tag order.
 func PotionTagMembers(tag string) ([]string, bool) {
-	for _, r := range tagsNow.Load().builtin {
+	return CurrentTagLookup().PotionTagMembers(tag)
+}
+
+func (lookup *TagLookup) PotionTagMembers(tag string) ([]string, bool) {
+	for _, r := range lookup.builtin {
 		if r.Registry != "minecraft:potion" {
 			continue
 		}

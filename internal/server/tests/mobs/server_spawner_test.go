@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/protocol"
 	server "github.com/golem-mc/golem/internal/server"
 )
 
@@ -158,6 +159,43 @@ func TestSpawnerIdlesForSpectatorsAndPeaceful(t *testing.T) {
 			}
 			if n := zombiesAround(t, srv); n != 0 {
 				t.Errorf("%d zombies came after %q", n, prep)
+			}
+			c.Disconnect()
+		})
+	}
+}
+
+// TestSpawnerDelayRollHonorsEmptyPotentials ticks a pig spawner whose delay
+// is spent: the delay event always goes out, and the next spawn data is
+// re-sent only when the potentials list has an entry to roll. An explicit
+// empty list rolls nothing; an omitted one defaults to a single entry.
+// vanilla: BaseSpawner.delay, BaseSpawner.load
+func TestSpawnerDelayRollHonorsEmptyPotentials(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, potentials string
+		data             int
+	}{
+		{"explicit empty list", `,SpawnPotentials:[]`, 0},
+		{"omitted list", ``, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := spawnerTests(t,
+				`setblock 4 64 4 minecraft:spawner{Delay:-1s,MinSpawnDelay:20s,MaxSpawnDelay:20s,SpawnData:{entity:{id:"minecraft:pig"}}`+tc.potentials+`}`)
+			c.Settle()
+			srv.TickBlockEntities()
+			actions, data := 0, 0
+			c.SettleAndCollect(func(id int32, _ []byte) {
+				switch id {
+				case protocol.IDPlayBlockAction:
+					actions++
+				case protocol.IDPlayBlockEntityData:
+					data++
+				}
+			})
+			if actions != 1 || data != tc.data {
+				t.Errorf("%d block actions and %d block entity data, want 1 and %d", actions, data, tc.data)
 			}
 			c.Disconnect()
 		})

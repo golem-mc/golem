@@ -188,17 +188,14 @@ func surfaceGradients(chunk SurfaceChunk, x, z int32) (gradX, gradZ int32) {
 
 // topMaterial is the block the rule puts at the top of a column at x, y, z,
 // with ok false where it places none. vanilla: MaterialSystem.topMaterial
-func (s *MaterialSystem) topMaterial(chunk SurfaceChunk, nc *NoiseChunk, biomes Biomes, x, y, z int32, underFluid bool) (m Material, ok bool) {
-	ctx := newMaterialContext(s, nc, NewVolume(1, 1, 1, x, y, z), biomes, nil)
-	defer ctx.close()
-	rule := s.rule(ctx)
+func (c *materialContext) topMaterial(rule ruleFn, chunk SurfaceChunk, x, y, z int32, underFluid bool) (Material, bool) {
 	gradX, gradZ := surfaceGradients(chunk, x&15, z&15)
-	ctx.updateXZ(x, z, gradX, gradZ)
+	c.updateXZ(x, z, gradX, gradZ)
 	water := int32(noWater)
 	if underFluid {
 		water = y + 1
 	}
-	ctx.updateY(1, 1, water, y)
+	c.updateY(1, 1, water, y)
 	return rule(x, y, z)
 }
 

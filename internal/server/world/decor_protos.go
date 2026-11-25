@@ -59,12 +59,29 @@ type decorProto struct {
 	blocks [decorProtoSections]*[blocksPerSection]uint16
 	// sources are generated fluid visits, as local positions.
 	sources []posKey
+	// fluidTicks are delayed water ticks booked by post-processing.
+	fluidTicks []decorFluidTick
 	// shapes are the local positions (y from the region's lowest block) of
 	// placed blocks that need a shape update, entities its chests and spawners.
 	shapes   []posKey
 	entities []protoEntity
 	// used orders the protos for eviction.
 	used uint64
+}
+
+type decorFluidTick struct {
+	pos  posKey
+	kind fluidType
+}
+
+func (p *decorProto) transferFluidTicks(c *Chunk, minY int32) {
+	for _, t := range p.fluidTicks {
+		c.loadedTicks = append(c.loadedTicks, loadedTick{
+			id: t.kind.name(), x: c.x*16 + t.pos[0], y: minY + t.pos[1], z: c.z*16 + t.pos[2],
+			delay: waterTickDelay, priority: tickPriorityNormal,
+			fluid: true,
+		})
+	}
 }
 
 // protoEntity is a block entity the decoration of a chunk placed in it.
@@ -365,7 +382,10 @@ func (s *decorProtoStore) lookupLocked(pos ChunkPos) *decorProto {
 	if err == nil {
 		os.Remove(path)
 		var p *decorProto
-		if p, err = decodeDecorProto(inflate(data)); err == nil {
+		buf := decorProtoBufs.Get().(*decorProtoBuf)
+		p, err = decodeDecorProto(buf.inflate(data))
+		decorProtoBufs.Put(buf)
+		if err == nil {
 			p.finals = flags.finals
 			s.mem[pos] = p
 			s.peak = max(s.peak, len(s.mem))
@@ -614,10 +634,12 @@ func readDecorProtoFlags(path string) spilledProto {
 var writeDecorProtoFile = os.WriteFile
 
 // decorProtoBuf is the scratch of a spill: raw holds one proto's encoding,
-// out the deflated protos. Pooled, since a proto encodes to over 100 kB.
+// out the deflated protos, in the inflated one. Pooled, since a proto encodes
+// to over 100 kB.
 type decorProtoBuf struct {
 	raw []byte
 	out bytes.Buffer
+	in  bytes.Buffer
 }
 
 var decorProtoBufs = sync.Pool{New: func() any { return new(decorProtoBuf) }}
@@ -640,23 +662,36 @@ func (b *decorProtoBuf) deflate(p *decorProto) {
 	_ = zw.Close()
 }
 
-// inflate undoes writeDecorProto's deflate; non-stream bytes come back empty
-// and fail to decode.
-func inflate(b []byte) []byte {
-	zr, err := zlib.NewReader(bytes.NewReader(b))
-	if err != nil {
-		return nil
+// inflate undoes deflate; non-stream bytes come back empty and fail to decode.
+// The result is valid until the next inflate on b.
+func (b *decorProtoBuf) inflate(data []byte) []byte {
+	b.in.Reset()
+	src := bytes.NewReader(data)
+	var zr io.ReadCloser
+	if r, ok := zlibReaders.Get().(io.ReadCloser); ok {
+		if r.(zlib.Resetter).Reset(src, nil) != nil {
+			return nil
+		}
+		zr = r
+	} else {
+		var err error
+		if zr, err = zlib.NewReader(src); err != nil {
+			return nil
+		}
 	}
-	out, _ := io.ReadAll(zr)
-	return out
+	_, _ = b.in.ReadFrom(zr)
+	_ = zr.Close()
+	zlibReaders.Put(zr)
+	return b.in.Bytes()
 }
 
 // decorProtoVersion is the first byte of a saved proto.
 const decorProtoVersion = 7
 
 // appendDecorProto appends p to b: version, flags (decorated, final),
-// neighbours mask, springs, shapes and entities, a section mask, then each
-// present section's 4096 states. Positions are x, y, z as 1, 2, 1 bytes.
+// neighbours mask, springs, shapes and entities, a section mask, each
+// present section's 4096 states, then optional delayed fluid ticks. Positions
+// are x, y, z as 1, 2, 1 bytes.
 func appendDecorProto(b []byte, p *decorProto) []byte {
 	var flags byte
 	if p.decorated {
@@ -713,6 +748,13 @@ func appendDecorProto(b []byte, p *decorProto) []byte {
 		}
 		for _, v := range s {
 			b = binary.LittleEndian.AppendUint16(b, v)
+		}
+	}
+	if len(p.fluidTicks) > 0 {
+		b = binary.LittleEndian.AppendUint16(b, uint16(len(p.fluidTicks)))
+		for _, t := range p.fluidTicks {
+			b = pos(b, t.pos[0], t.pos[1], t.pos[2])
+			b = append(b, byte(t.kind))
 		}
 	}
 	return b
@@ -801,6 +843,17 @@ func decodeDecorProto(b []byte) (*decorProto, error) {
 		}
 		p.blocks[i] = s
 		b = b[blocksPerSection*2:]
+	}
+	if len(b) > 0 {
+		n, ok := count(5)
+		if !ok {
+			return nil, bad
+		}
+		for range n {
+			x, y, z := pos()
+			p.fluidTicks = append(p.fluidTicks, decorFluidTick{pos: posKey{x, y, z}, kind: fluidType(b[0])})
+			b = b[1:]
+		}
 	}
 	return p, nil
 }

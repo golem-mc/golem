@@ -246,12 +246,12 @@ func (m *Mob) equipmentDice() Dice { return GoDice{m.equipmentRand()} }
 // equipmentRand is the same stream as a math/rand source, for the kinds that
 // draw their own fields from it too.
 func (m *Mob) equipmentRand() *rand.Rand {
-	return rand.New(rand.NewSource(m.lootSeed ^ equipmentSalt))
+	return NewDice(m.lootSeed ^ equipmentSalt)
 }
 
 // halloweenDice is the skeleton's own Halloween head stream.
 func (m *Mob) halloweenDice() Dice {
-	return GoDice{rand.New(rand.NewSource(m.lootSeed ^ halloweenSalt))}
+	return GoDice{NewDice(m.lootSeed ^ halloweenSalt)}
 }
 
 // rollDrownedHands is Drowned.populateDefaultEquipmentSlots: a trident or
@@ -321,7 +321,7 @@ func (m *Mob) lootPickupEligible() bool {
 		(m.Type != TypeSulfurCube || !m.IsBaby() && !m.NoAI && m.sulfur.pickupTimer <= 0)
 }
 
-func (mobs Mobs) lootGrid(items []LootItem) *BoxGrid {
+func (mobs Mobs) lootGrid(items []LootItem, grid *BoxGrid) *BoxGrid {
 	const minPickers, minItems = 8, 32
 	if len(mobs) < minPickers || len(items) < minItems {
 		return nil
@@ -338,7 +338,7 @@ func (mobs Mobs) lootGrid(items []LootItem) *BoxGrid {
 	if eligible < minPickers {
 		return nil
 	}
-	grid := &BoxGrid{}
+	grid.Reset()
 	for i := range items {
 		if loot := &items[i]; !loot.Stack.Empty() {
 			grid.Add(int32(i), loot.box())
@@ -353,7 +353,13 @@ func (mobs Mobs) lootGrid(items []LootItem) *BoxGrid {
 // equips nobody.
 // vanilla: Mob.aiStep's looting, pickUpItem, equipItemIfPossible
 func (mobs Mobs) TakeLoot(items []LootItem) []LootTake {
-	grid := mobs.lootGrid(items)
+	var grid BoxGrid
+	return mobs.TakeLootWithGrid(items, &grid)
+}
+
+// TakeLootWithGrid decides pickups using the caller's reusable spatial index.
+func (mobs Mobs) TakeLootWithGrid(items []LootItem, grid *BoxGrid) []LootTake {
+	grid = mobs.lootGrid(items, grid)
 	var takes []LootTake
 	for _, m := range mobs {
 		if !m.lootPickupEligible() {
@@ -437,12 +443,16 @@ func (m *Mob) LootSlotStack(slot string) (stack protocol.ItemStack, ok bool) {
 // and component updates. The caller holds the same lock as the mob's state.
 func (m *Mob) EquipmentRevision() uint64 { return m.equipmentRevision }
 
-// EquipmentSlot reads a Set Equipment slot: hands, feet through head, then body.
+// EquipmentSlot reads a Set Equipment slot in wire order.
 func (m *Mob) EquipmentSlot(slot int) protocol.ItemStack {
-	if slot == 6 {
+	switch slot {
+	case protocol.EquipBody:
 		return m.Body
+	case protocol.EquipSaddle:
+		return m.SaddleSlot()
+	default:
+		return m.slotStack(slot)
 	}
-	return m.slotStack(slot)
 }
 
 // SetEquipment replaces a Set Equipment slot and invalidates its tracking snapshot.
@@ -453,8 +463,14 @@ func (m *Mob) SetEquipment(slot int, stack protocol.ItemStack) {
 		m.MainHand = stack
 	case protocol.EquipOffHand:
 		m.OffHand = stack
-	case 6:
+	case protocol.EquipBody:
 		m.Body = stack
+	case protocol.EquipSaddle:
+		if m.Type == TypeCopperGolem {
+			m.Antenna = stack
+		} else {
+			m.Horse.Saddle = stack
+		}
 	default:
 		m.Worn[slot-protocol.EquipFeet] = stack
 	}

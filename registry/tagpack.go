@@ -8,10 +8,8 @@ import (
 	"sync/atomic"
 )
 
-// tagState is the tag data every lookup reads: the built-in tables with the
-// data packs' tags layered over them, and the indexes derived from them. It is
-// replaced whole, so a reader never sees a half-applied reload.
-type tagState struct {
+// TagLookup is a snapshot of the built-in tags and the data packs' overlays.
+type TagLookup struct {
 	sync    []TaggedRegistry
 	builtin []BuiltinTaggedRegistry
 
@@ -29,10 +27,11 @@ type tagState struct {
 	item               map[string]map[int32]bool
 	itemTable          ItemTagLookup
 	entityTable        EntityTypeTagLookup
+	itemTagsPacked     bool
 }
 
-func newTagState(sync []TaggedRegistry, builtin []BuiltinTaggedRegistry, blocks map[string][]string) *tagState {
-	return &tagState{
+func newTagLookup(sync []TaggedRegistry, builtin []BuiltinTaggedRegistry, blocks map[string][]string) *TagLookup {
+	return &TagLookup{
 		sync:               sync,
 		builtin:            builtin,
 		blockTags:          blocks,
@@ -53,11 +52,14 @@ func newTagState(sync []TaggedRegistry, builtin []BuiltinTaggedRegistry, blocks 
 
 // tagsNow is built by variable initialization, not init(), so the package
 // level tag IDs can resolve against it.
-var tagsNow = func() *atomic.Pointer[tagState] {
-	p := new(atomic.Pointer[tagState])
-	p.Store(newTagState(Tags, BuiltinTags, BlockTags))
+var tagsNow = func() *atomic.Pointer[TagLookup] {
+	p := new(atomic.Pointer[TagLookup])
+	p.Store(newTagLookup(Tags, BuiltinTags, BlockTags))
 	return p
 }()
+
+// CurrentTagLookup returns the published tag snapshot.
+func CurrentTagLookup() *TagLookup { return tagsNow.Load() }
 
 // CurrentTags returns the tags of the synchronized registries and of the built-in
 // registries as Update Tags sends them: the built-in tables with the data
@@ -103,23 +105,17 @@ func PackTagRegistries() []string {
 }
 
 // ApplyPackTags layers the data packs' tags over the built-in tags and makes
-// the result what every tag lookup and Update Tags see. Tags that do not load
-// are left out and described in the returned messages.
-// vanilla: TagLoader.build
+// the result live, returning any load problems.
 func ApplyPackTags(packs PackTags) []string {
-	layer, problems := PreparePackTags(packs)
-	layer.Apply()
+	lookup, problems := BuildPackTags(packs)
+	lookup.Publish()
 	return problems
 }
 
-// PackTagLayer holds the tag lookups for a candidate pack selection.
-type PackTagLayer struct {
-	state       *tagState
-	packedItems bool
-}
-
-// PreparePackTags builds a tag layer for decoding pack resources before publishing it.
-func PreparePackTags(packs PackTags) (*PackTagLayer, []string) {
+// BuildPackTags resolves the data packs' tags against the built-ins for resource
+// validation. Tags that fail to load are omitted and reported in problems.
+// vanilla: TagLoader.build
+func BuildPackTags(packs PackTags) (*TagLookup, []string) {
 	var problems []string
 	// Registries without vanilla tags start empty; vanilla loads tags for
 	// every registry.
@@ -210,55 +206,18 @@ func PreparePackTags(packs PackTags) (*PackTagLayer, []string) {
 			blocks = res.tags
 		}
 	}
-	return &PackTagLayer{
-		state:       newTagState(sync, builtin, blocks),
-		packedItems: len(packs["minecraft:item"]) > 0,
-	}, problems
+	lookup := newTagLookup(sync, builtin, blocks)
+	lookup.itemTagsPacked = len(packs["minecraft:item"]) > 0
+	return lookup, problems
 }
 
-// Apply publishes the prepared tag layer.
-func (l *PackTagLayer) Apply() {
-	itemTagsPacked.Store(l.packedItems)
-	tagsNow.Store(l.state)
+// Publish replaces the live tags and invalidates cached tag lookups.
+func (lookup *TagLookup) Publish() {
+	tagsNow.Store(lookup)
 	tagsGeneration.Add(1)
 }
 
-// Members finds the names in a tag in this layer.
-func (l *PackTagLayer) Members(registryName, tag string) ([]string, bool) {
-	if registryName == "minecraft:block" {
-		members, ok := l.state.blockTags[tag]
-		return members, ok
-	}
-	for _, r := range l.state.builtin {
-		if r.Registry != registryName {
-			continue
-		}
-		for _, t := range r.Tags {
-			if t.Name == tag {
-				names := make([]string, 0, len(t.IDs))
-				for _, id := range t.IDs {
-					if name := builtinName(registryName, id); name != "" {
-						names = append(names, name)
-					}
-				}
-				return names, true
-			}
-		}
-	}
-	for _, r := range l.state.sync {
-		if r.Registry != registryName {
-			continue
-		}
-		for _, t := range r.Tags {
-			if t.Name == tag {
-				return t.Entries, true
-			}
-		}
-	}
-	return nil, false
-}
-
-// tagsGeneration counts the tag states ApplyPackTags has installed.
+// tagsGeneration counts the published tag snapshots.
 var tagsGeneration atomic.Uint64
 
 // TagsGeneration changes whenever the tags do, so a caller may cache a tag

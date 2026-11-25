@@ -127,7 +127,7 @@ func (t *treeBuild) shapeUpdate(state uint16, p treePos, d int) uint16 {
 	}
 
 	// vanilla: FenceBlock.updateShape
-	if b := registry.BlockOf(state); b.IsFence() && d >= dirNorth {
+	if b := registry.BlockOf(state); b.Type() == registry.BlockTypeFence && d >= dirNorth {
 		neighbour := t.state(at(p, dirDelta[d]))
 		next, _ := registry.WithBool(state, facePropIDs[d], registry.ConnectsToFence(b, neighbour, faceProps[d]))
 		return next

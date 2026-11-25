@@ -26,7 +26,7 @@ func TestSetJigsawBlockProgramsTheBlockEntity(t *testing.T) {
 		X: 10, Y: 64, Z: 10, Name: "minecraft:a", Target: "minecraft:empty", Pool: "minecraft:empty",
 		FinalState: "minecraft:air", Joint: "rollable", SelectionPriority: 3, Placement: 4,
 	})
-	// The setblock's own Block Entity Data (an empty tag) may still be queued ahead of the update.
+	// The placement's default tag can arrive before the programmed update.
 	var data nbt.Compound
 	for range 4 {
 		var beType int32
@@ -34,12 +34,12 @@ func TestSetJigsawBlockProgramsTheBlockEntity(t *testing.T) {
 		if beType != protocol.BlockEntityJigsaw {
 			t.Fatalf("block entity type = %d, want the jigsaw's %d", beType, protocol.BlockEntityJigsaw)
 		}
-		if data["name"] != nil {
+		if data["name"] == nbt.String("minecraft:a") {
 			break
 		}
 	}
-	if data["name"] == nil {
-		t.Fatalf("update tag %v carries no name", data)
+	if data["name"] != nbt.String("minecraft:a") {
+		t.Fatalf("update tag %v has no programmed name", data)
 	}
 
 	guest.SetJigsawBlock(servertest.JigsawBlockPacket{
@@ -73,7 +73,7 @@ func TestJigsawGenerateGrowsThePool(t *testing.T) {
 		X: 10, Y: 64, Z: 10, Name: "minecraft:a", Target: "minecraft:bottom",
 		Pool: "minecraft:village/plains/town_centers", FinalState: "minecraft:air", Joint: "rollable",
 	})
-	c.AwaitBlockEntityData()
+	c.Settle()
 
 	before := map[[3]int32]uint16{}
 	for x := int32(-10); x <= 30; x++ {

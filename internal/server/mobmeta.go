@@ -77,11 +77,11 @@ func (ent *mobEntity) metadataState() *mobMetadataState {
 // mobMetadataDeltas reuses encodings for watchers sharing a baseline in one pass.
 // A second baseline pays for a map; the usual shared baseline needs none.
 type mobMetadataDeltas struct {
-	ent                *mobEntity
-	now, last          *mobMetadataState
-	packets            []outbound
-	others             map[*mobMetadataState][]outbound
-	attributes, saddle []byte
+	ent        *mobEntity
+	now, last  *mobMetadataState
+	packets    []outbound
+	others     map[*mobMetadataState][]outbound
+	attributes []byte
 }
 
 func (d *mobMetadataDeltas) from(old *mobMetadataState) []outbound {
@@ -101,12 +101,6 @@ func (d *mobMetadataDeltas) from(old *mobMetadataState) []outbound {
 	now := d.now
 	if !mobMetadataTurned(*now, *old) {
 		return nil
-	}
-	if now.saddled != old.saddled {
-		if d.saddle == nil {
-			d.saddle = saddlePayload(d.ent.mob)
-		}
-		d.packets = append(d.packets, outbound{id: protocol.IDPlayEntityEquipment, data: d.saddle})
 	}
 	d.packets = append(d.packets, outbound{id: protocol.IDPlayEntityMetadata, data: mobMetadataDeltaFrom(d.ent, now, old)})
 	speed := now.drinking != old.drinking || now.creepy != old.creepy || now.striderCold != old.striderCold
@@ -144,7 +138,7 @@ func (ent *mobEntity) updateShownMetadata(update func(*mobMetadataState)) {
 
 // mobMetaDescriptor owns the projection and ordered encoders for a capture group.
 // The generator parses the Go bodies in package server; no code runs during generation.
-// Empty fields/capture denotes an opaque spawn-only helper; saddled has no encoder.
+// Empty fields/capture denotes an opaque spawn-only helper.
 type mobMetaDescriptor struct {
 	fields, capture string
 	sources         mobMetaSources
@@ -178,8 +172,9 @@ var mobMetadataSchema = []mobMetaDescriptor{
 		w.boolean(protocol.MetadataIndexPiglinImmune, now.immune, was.immune)
 	}`}),
 	mobMeta("dancing", mobMetaSources{{"m.barter.dance", "int", "m.Dancing()", ""}}, `s.dancing = m.Dancing()`, mobMetaEntry{552, 552, `if t == entity.TypePiglin { w.boolean(protocol.MetadataIndexPiglinDancing, now.dancing, was.dancing) }`}),
-	mobMeta("particles ambient baseFlags", mobMetaSources{{"m.LivingEffects.EffectRevision()", "uint64", "", ""}, {"m.Glowing", "bool", "", ""}, {"m.FireTicks", "int", "m.OnFire()", ""}, {"m.VisualFire", "bool", "", ""}, {"m.Swimming", "bool", "", ""}, {"m.Sprinting", "bool", "", ""}}, `shown := mobEffectShown(m)
+	mobMeta("particles particleRevision ambient baseFlags", mobMetaSources{{"m.LivingEffects.EffectRevision()", "uint64", "", ""}, {"m.Glowing", "bool", "", ""}, {"m.FireTicks", "int", "m.OnFire()", ""}, {"m.VisualFire", "bool", "", ""}, {"m.Swimming", "bool", "", ""}, {"m.Sprinting", "bool", "", ""}}, `shown := mobEffectShown(m)
 s.particles, s.ambient = shown.particles, shown.ambient
+s.particleRevision = effectParticleRevision(m, shown.particles)
 if shown.invisible {
 		s.baseFlags |= protocol.EntityFlagInvisible
 	}
@@ -196,8 +191,8 @@ if m.Sprinting {
 		s.baseFlags |= protocol.EntityFlagSprinting
 	}`, mobMetaEntry{130, 130, `w.byte(protocol.MetadataIndexEntityFlags, now.baseFlags, was.baseFlags)`}, mobMetaEntry{220, 220, `shown := bodyShown{particles: now.particles, ambient: now.ambient}
 if w.delta {
-		putBodyMetadata(&w.b, shown, !slices.Equal(now.particles, was.particles),
-			len(now.particles) > 0 && now.ambient != was.ambient, false)
+		putBodyMetadata(&w.b, shown, now.particleRevision != was.particleRevision || !slices.Equal(now.particles, was.particles),
+			now.ambient != was.ambient, false)
 	} else {
 		putBodyMetadata(&w.b, shown, len(now.particles) > 0, now.ambient, false)
 	}`}),
@@ -334,7 +329,6 @@ case entity.TypeHorse, entity.TypeDonkey, entity.TypeMule, entity.TypeSkeletonHo
  } else if t == entity.TypeHorse { w.varInt(protocol.MetadataIndexHorseVariant, protocol.MetadataVarInt, int(now.horseVariant), int(was.horseVariant))
  } else if !entity.IsCamel(t) && !entity.IsUndeadHorse(t) { w.boolean(protocol.MetadataIndexChestedHorseChest, now.chest, was.chest) }
 }`}),
-	mobMeta("saddled", mobMetaSources{{"m.Horse.Saddle", "protocol.ItemStack", "!m.SaddleSlot().Empty()", ""}, {"m.Antenna", "protocol.ItemStack", "!m.SaddleSlot().Empty()", ""}}, `s.saddled = !m.SaddleSlot().Empty()`),
 	mobMeta("creepy staredAt carried", mobMetaSources{{"m.TargetID", "int32", "m.Creepy()", ""}, {"m.enderman.staredAt", "bool", "", ""}, {"m.enderman.carried", "uint16", "", ""}}, `s.creepy, s.staredAt = m.Creepy(), m.StaredAt()
 s.carried = m.CarriedBlock()`, mobMetaEntry{370, 370, `if t == entity.TypeEnderman {
 		// vanilla: EnderMan.DATA_CARRY_STATE
@@ -715,12 +709,11 @@ type mobMetadataFields struct {
 	staysStill bool
 	creaking   entity.CreakingView
 	// horseFlags and horseVariant are AbstractHorse's flag byte and Horse's
-	// variant; saddled (saddle slot filled) is told by an equipment packet.
+	// variant.
 	horseFlags   uint8
 	horseVariant int32
 	// llamaStrength is Llama.DATA_STRENGTH_ID.
 	llamaStrength int32
-	saddled       bool
 	chest         bool
 	// tamableFlags and owner are TamableAnimal's flag byte and owner
 	// reference; the zero UUID is no owner.
@@ -739,7 +732,10 @@ type mobMetadataFields struct {
 	// angerEnd is a wolf's or bee's DATA_ANGER_END_TIME: the game tick its
 	// anger ends, -1 for none.
 	angerEnd int64
-	// ambient is whether the body's effect particles are all beacon-quiet.
+	// particleRevision is the mob's effect revision when particles carries a
+	// colored entity_effect option.
+	particleRevision uint64
+	// ambient is the mob's effect particle frequency flag.
 	ambient bool
 	// sleepingPos is a sleeping villager's bed head.
 	sleepingPos sleepSpot

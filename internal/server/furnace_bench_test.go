@@ -23,3 +23,54 @@ func BenchmarkFurnaceCooking(b *testing.B) {
 		step.advance(be)
 	}
 }
+
+// refillTicks is well under the 6400 ticks 64 items take in the slowest cooker.
+const refillTicks = 1000
+
+// BenchmarkActiveCookers measures the block-entity pass over 500 lit cookers.
+func BenchmarkActiveCookers(b *testing.B) {
+	for _, c := range []struct {
+		name  string
+		block registry.Block
+		kind  world.BlockEntityKind
+		input registry.Item
+	}{
+		{"furnace", registry.BlockFurnace, world.KindFurnace, registry.ItemIronOre},
+		{"blast_furnace", registry.BlockBlastFurnace, world.KindBlastFurnace, registry.ItemIronOre},
+		{"smoker", registry.BlockSmoker, world.KindSmoker, registry.ItemBeef},
+	} {
+		b.Run(c.name, func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 1)
+			var cookers []*world.BlockEntity
+			for i := range int32(500) {
+				x, y, z := i%16, world.GroundLevel+1+i/256, i/16%16
+				w.SetBlock(x, y, z, c.block.DefaultState())
+				be := w.EnsureBlockEntity(x, y, z, c.kind)
+				be.Put(0, protocol.ItemStack{ItemID: int32(c.input), Count: 64})
+				be.Put(1, protocol.ItemStack{ItemID: int32(registry.ItemCoalBlock), Count: 64})
+				cookers = append(cookers, be)
+				w.Touch(x, y, z)
+			}
+			w.FlushLighting()
+			w.AddTicket(world.ChunkPos{}, 2)
+			for range 5 {
+				s.tickBlockEntities()
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := range b.N {
+				// The input would run dry after 64 items; refill so every tick cooks.
+				if i%refillTicks == 0 {
+					b.StopTimer()
+					for _, be := range cookers {
+						be.Slots[0] = protocol.ItemStack{ItemID: int32(c.input), Count: 64}
+						be.Slots[2] = protocol.ItemStack{}
+					}
+					b.StartTimer()
+				}
+				s.tickBlockEntities()
+			}
+			b.StopTimer()
+		})
+	}
+}

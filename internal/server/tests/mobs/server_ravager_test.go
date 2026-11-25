@@ -93,6 +93,7 @@ func TestAShieldedRavagerBlowStunsOrThrows(t *testing.T) {
 			break
 		}
 		srv.SetMobRavagerTicks(id, 0, 0, 0)
+		srv.SetPlayerVelocity(ravagerHero, 0, 0, 0)
 		if !srv.StrikePlayerWith(id, ravagerHero, 12) {
 			t.Fatal("the strike found no ravager or player")
 		}
@@ -111,7 +112,6 @@ func TestAShieldedRavagerBlowStunsOrThrows(t *testing.T) {
 		default:
 			t.Fatalf("stun = %d with velocity (%v, %v), want 40 ticks and (0, -0.05) or no stun and (0, -1.3333)", stun, vx, vz)
 		}
-		servertest.RunTicks(t, srv, 10)
 	}
 	if stuns == 0 || throws == 0 {
 		t.Errorf("stuns = %d, throws = %d over the blows, want both", stuns, throws)

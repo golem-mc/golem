@@ -1,15 +1,16 @@
 package blocks
 
 import (
-	"github.com/golem-mc/golem/internal/config"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"slices"
 	"strconv"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -1030,4 +1031,97 @@ func TestMushroomBoneMealCeiling(t *testing.T) {
 			t.Errorf("%s at Y=%d: %d bone meal left, want %d", tc.mushroom, tc.y, got.Count, want)
 		}
 	}
+}
+
+// TestNyliumBonemealUsesDimensionCeiling checks that nylium checks the active
+// checkBonemealCeiling clicks bone meal on each target at the Nether ceiling
+// (Y=255, refused, stack kept, no growth event) and one block below (Y=254,
+// one spent, growth event at the target). A target with a substrate gets it
+// placed under it.
+func checkBonemealCeiling(t *testing.T, targets [][2]string) {
+	t.Helper()
+	srv, c := servertest.Join(t, servertest.NetherTestConfig(t, servertest.SurvivalConfig()), "Farmer")
+	servertest.HoldTicks(t, srv)
+	servertest.SeedPhysics(t, srv, servertest.CropsSeed)
+
+	srv.MovePlayerToDimension("Farmer", world.NetherName, 4.5, 254, -2.5)
+	if !c.Pump(servertest.JoinTimeout, nil, func(int32, []byte) bool {
+		return srv.PlayerDimension("Farmer") == world.NetherName &&
+			srv.ChunkLoadedInDimension(world.NetherName, 4, 0)
+	}) {
+		t.Fatal("the Nether never loaded around the test column")
+	}
+	c.Settle()
+
+	boneMeal := int32(registry.ItemBoneMeal)
+	air := servertest.BlockState(t, "minecraft:air")
+	var seq int32
+
+	for _, pair := range targets {
+		target := servertest.BlockState(t, pair[0])
+		for _, tc := range []struct {
+			y         int32
+			wantCount int32
+			wantEvent bool
+		}{
+			{y: 255, wantCount: 3, wantEvent: false},
+			{y: 254, wantCount: 2, wantEvent: true},
+		} {
+			for y := int32(253); y <= 255; y++ {
+				srv.SetBlockInDimension(world.NetherName, 4, y, 0, air)
+			}
+			if pair[1] != "" {
+				srv.SetBlockInDimension(world.NetherName, 4, tc.y-1, 0, servertest.BlockState(t, pair[1]))
+			}
+			srv.SetBlockInDimension(world.NetherName, 4, tc.y, 0, target)
+			srv.GiveSlot("Farmer", player.HotbarSlot, protocol.ItemStack{ItemID: boneMeal, Count: 3})
+			c.Settle()
+
+			seq++
+			c.UseBlockSeq(4, tc.y, 0, protocol.FaceNorth, seq)
+			gotEvent := false
+			c.SettleAndCollect(func(id int32, data []byte) {
+				if id != protocol.IDPlayWorldEvent {
+					return
+				}
+				r := protocol.NewReader(data)
+				if r.ReadI32() != protocol.WorldEventBonemeal {
+					return
+				}
+				ex, ey, ez := r.ReadPosition()
+				if ex != 4 || ey != tc.y || ez != 0 {
+					t.Errorf("%s at Y=%d: bone meal event at (%d, %d, %d), want (4, %d, 0)", pair[0], tc.y, ex, ey, ez, tc.y)
+				}
+				gotEvent = true
+			})
+			if gotEvent != tc.wantEvent {
+				t.Errorf("%s at Y=%d: growth level event sent = %v, want %v", pair[0], tc.y, gotEvent, tc.wantEvent)
+			}
+			if got := srv.InventorySlot("Farmer", player.HotbarSlot); got.Count != tc.wantCount {
+				t.Errorf("%s at Y=%d: %d bone meal left, want %d", pair[0], tc.y, got.Count, tc.wantCount)
+			}
+		}
+	}
+}
+
+// TestNyliumBonemealUsesDimensionCeiling checks that nylium checks the active
+// dimension's build height rather than the overworld's.
+// vanilla: NyliumBlock.isValidBonemealTarget, BoneMealItem.growCrop
+func TestNyliumBonemealUsesDimensionCeiling(t *testing.T) {
+	t.Parallel()
+	checkBonemealCeiling(t, [][2]string{
+		{"minecraft:crimson_nylium", ""},
+		{"minecraft:warped_nylium", ""},
+	})
+}
+
+// TestNetherFungusBonemealUsesDimensionCeiling checks that a fungus needs
+// buildable space above it in the active dimension.
+// vanilla: NetherFungusBlock.isValidBonemealTarget, BoneMealItem.growCrop
+func TestNetherFungusBonemealUsesDimensionCeiling(t *testing.T) {
+	t.Parallel()
+	checkBonemealCeiling(t, [][2]string{
+		{"minecraft:crimson_fungus", "minecraft:crimson_nylium"},
+		{"minecraft:warped_fungus", "minecraft:warped_nylium"},
+	})
 }

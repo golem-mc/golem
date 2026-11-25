@@ -61,6 +61,7 @@ type armorStandEntity struct {
 var standTracker = trackedKind[*armorStandEntity, *armorStandMeta]{
 	steppedPath:      true,
 	invalidatePiston: func(dim *dimension) { dim.pistons.armorStands.built = false },
+	pistonBit:        pistonArmorStands,
 
 	rangeChunks: entity.ArmorStandTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.armorStandsMu },
@@ -392,7 +393,7 @@ func (s *Server) boxTaken(w *world.World, box entity.AABB) bool {
 	if s.endCrystalBoxTaken(w, box) {
 		return true
 	}
-	return s.looseBoxTaken(w, box) || s.cloudBoxTaken(w, box)
+	return s.looseBoxTaken(w, box) || s.arrowOrCloudBoxTaken(w, box)
 }
 
 // looseBoxTaken is boxTaken's half over the items, orbs, TNT, falling

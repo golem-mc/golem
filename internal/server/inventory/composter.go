@@ -17,7 +17,7 @@ func (m *ComposterMoves) Input() Block { return composterInput{m} }
 
 // Output is the view of a level-8 composter holding the given bone meal.
 func (m *ComposterMoves) Output(meal protocol.ItemStack) Block {
-	return composterOutput{m: m, meal: meal}
+	return &composterOutput{m: m, meal: meal}
 }
 
 // composterInput is the input container: one top-face slot taking one
@@ -61,11 +61,11 @@ type composterOutput struct {
 }
 
 // Slot is the bone meal the full composter holds, one of it.
-func (b composterOutput) Slot(int) protocol.ItemStack { return b.meal }
+func (b *composterOutput) Slot(int) protocol.ItemStack { return b.meal }
 
 // Put records the take that emptied the slot, the drain that levels the
 // composter down.
-func (b composterOutput) Put(_ int, stack protocol.ItemStack) {
+func (b *composterOutput) Put(_ int, stack protocol.ItemStack) {
 	if stack.Empty() {
 		b.m.Emptied = true
 	}
@@ -73,13 +73,13 @@ func (b composterOutput) Put(_ int, stack protocol.ItemStack) {
 
 // Stacks is the block's slots for reading; a view over the block state
 // keeps none.
-func (b composterOutput) Stacks() []protocol.ItemStack { return nil }
+func (b *composterOutput) Stacks() []protocol.ItemStack { return nil }
 
 // Len is one: the bone meal's one slot.
-func (b composterOutput) Len() int { return 1 }
+func (b *composterOutput) Len() int { return 1 }
 
 // Kind is the output view's move rules.
-func (b composterOutput) Kind() Kind { return KindComposterOutput }
+func (b *composterOutput) Kind() Kind { return KindComposterOutput }
 
 // ComposterFull is a level-7 composter awaiting its ready tick: no face
 // opens a slot.
@@ -108,7 +108,7 @@ func (b composterInput) Peek(slot int) (itemID, count int32) {
 }
 
 // Peek is the output slot's item and count.
-func (b composterOutput) Peek(slot int) (itemID, count int32) {
+func (b *composterOutput) Peek(slot int) (itemID, count int32) {
 	st := b.Slot(slot)
 	return st.ItemID, st.Count
 }
@@ -119,12 +119,26 @@ func (b ComposterFull) Peek(slot int) (itemID, count int32) {
 	return st.ItemID, st.Count
 }
 
+// StackPtr is nil: the input view holds no backing stack.
+func (b composterInput) StackPtr(int) *protocol.ItemStack { return nil }
+
+// StackPtr is the bone meal stack in place for reading.
+func (b *composterOutput) StackPtr(slot int) *protocol.ItemStack {
+	if slot != 0 {
+		return nil
+	}
+	return &b.meal
+}
+
+// StackPtr is nil: the full composter has no slots.
+func (b ComposterFull) StackPtr(int) *protocol.ItemStack { return nil }
+
 // Filled is none: the input view never holds a stack.
 func (b composterInput) Filled() uint64 { return 0 }
 
 // Filled is the bone meal slot's bit.
-func (b composterOutput) Filled() uint64 {
-	if b.Slot(0).Count > 0 {
+func (b *composterOutput) Filled() uint64 {
+	if b.meal.Count > 0 {
 		return 1
 	}
 	return 0

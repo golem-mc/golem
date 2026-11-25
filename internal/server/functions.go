@@ -12,75 +12,84 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// loadFunctions loads the selected packs' reloadable resources; a function that
-// fails is logged and skipped. vanilla: ServerFunctionLibrary.reload
+// loadFunctions loads the packs in dirs for /function; one that fails is
+// logged and skipped. vanilla: ServerFunctionLibrary.reload
 func (s *Server) loadFunctions(dirs []string) error {
-	skip := func(file string, err error) {
-		slog.Warn("Skipping data pack file " + file + ": " + err.Error())
-	}
-	files, err := datapack.LoadFunctions(dirs, skip)
+	loaded, err := s.publishPacks(dirs)
 	if err != nil {
 		return err
 	}
-	fns := command.CompileFunctions(files, s.Config.FunctionPermissionLevel, func(id string, err error) {
+	s.funcs.Store(loaded)
+	s.loadPending.Store(true)
+	return nil
+}
+
+// publishPacks validates the candidate resources before publishing them and
+// returns the loaded function library for the caller to store.
+// vanilla: MinecraftServer.reloadResources
+func (s *Server) publishPacks(dirs []string) (*loadedFunctions, error) {
+	skip := func(file string, err error) {
+		slog.Warn("Skipping data pack file " + file + ": " + err.Error())
+	}
+	layers := registry.StagePackLayers()
+	packTags, err := loadPackTags(dirs, skip)
+	if err != nil {
+		return nil, err
+	}
+	if lookup := s.preparePackTags(packTags); lookup != nil {
+		layers.SetTags(lookup)
+	}
+	ints, floats, err := loadPackContextProviders(dirs, skip)
+	if err != nil {
+		return nil, err
+	}
+	layers.SetContextProviders(ints, floats)
+	// Providers can reference each other and tags from the candidate packs.
+	if err := datapack.ValidatePackContextProviders(layers, ints, floats); err != nil {
+		return nil, err
+	}
+	// Before the loot: a slots entry's source names resolve against them.
+	if err := loadPackSlotSources(layers, dirs, skip); err != nil {
+		return nil, err
+	}
+	// Advancement criteria resolve item tags and context providers.
+	packAdvancements, hiddenAdvancements, err := loadPackAdvancements(layers, dirs, skip)
+	if err != nil {
+		return nil, err
+	}
+	// After the tags: a table's tag entries resolve against the loaded tags.
+	tables, predicates, modifiers, err := loadPackLoot(layers, dirs, skip)
+	if err != nil {
+		return nil, err
+	}
+	// After the tags too: an ingredient's tag resolves against the loaded tags.
+	recipes, err := loadPackRecipes(dirs, datapack.NewResourceDecoder(layers), skip)
+	if err != nil {
+		return nil, err
+	}
+	layers.SetPredicates(predicates)
+	files, err := datapack.LoadFunctions(dirs, skip)
+	if err != nil {
+		return nil, err
+	}
+	fns := command.CompileFunctions(files, s.Config.FunctionPermissionLevel, layers, func(id string, err error) {
 		slog.Error("Failed to load function " + id + ": " + err.Error())
 	})
 	tags, err := datapack.LoadFunctionTags(dirs, skip)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fns.LoadTags(tags, func(id string, err error) {
 		slog.Error("Couldn't load tag " + id + " as it is missing following references: " + err.Error())
 	})
-	packTags, err := loadPackTags(dirs, skip)
-	if err != nil {
-		return err
-	}
-	var tagLayer *registry.PackTagLayer
-	var tagProblems []string
-	// The tables are process-wide. Leave them alone if this server has never
-	// loaded any pack tags.
-	if len(packTags) != 0 || s.packTagsApplied {
-		tagLayer, tagProblems = registry.PreparePackTags(packTags)
-	}
-	// Providers can reference each other and tags from the candidate packs.
-	// Decode them before replacing any of the resources used by the server.
-	applyProviders, err := loadPackContextProviders(dirs, tagLayer, skip)
-	if err != nil {
-		return err
-	}
+	hiddenTables := hiddenLoot(dirs, tables)
+	// vanilla: ReloadableServerResources.updateComponentsAndStaticRegistryTags
+	layers.Publish()
+	s.packTagsApplied = len(packTags) > 0
 	s.templateFiles.SetPacks(dirs)
 	s.structures.Clear()
-	if tagLayer != nil {
-		tagLayer.Apply()
-		s.packTagsApplied = len(packTags) != 0
-		for _, problem := range tagProblems {
-			slog.Error("Couldn't load tag " + problem)
-		}
-	}
-	// Advancement criteria resolve item tags against the loaded tags.
-	packAdvancements, hiddenAdvancements, err := loadPackAdvancements(dirs, skip)
-	if err != nil {
-		return err
-	}
 	s.applyPackAdvancements(packAdvancements, hiddenAdvancements)
-	// Before the loot: a table's context provider names resolve against them.
-	applyProviders()
-	// Before the loot: a slots entry's source names resolve against them.
-	if err := loadPackSlotSources(dirs, skip); err != nil {
-		return err
-	}
-	// After the tags: a table's tag entries resolve against the loaded tags.
-	tables, predicates, modifiers, err := loadPackLoot(dirs, skip)
-	if err != nil {
-		return err
-	}
-	s.applyPackLoot(tables, predicates, modifiers, hiddenLoot(dirs, tables))
-	// After the tags too: an ingredient's tag resolves against the loaded tags.
-	recipes, err := loadPackRecipes(dirs, skip)
-	if err != nil {
-		return err
-	}
+	s.applyPackLoot(tables, predicates, modifiers, hiddenTables)
 	s.applyPackRecipes(recipes)
 	// A new recipe or ingredient tag can make unchanged contents tickable.
 	for _, dim := range s.allDims() {
@@ -88,9 +97,7 @@ func (s *Server) loadFunctions(dirs []string) error {
 			be.Wake()
 		}
 	}
-	s.funcs.Store(&loadedFunctions{lib: fns, tick: fns.Tag("minecraft:tick")})
-	s.loadPending.Store(true)
-	return nil
+	return &loadedFunctions{lib: fns, tick: fns.Tag("minecraft:tick")}, nil
 }
 
 // loadedFunctions is one load's function library and its minecraft:tick tag.
@@ -167,7 +174,8 @@ type serverPacks struct {
 
 // Edit selects the packs change names and reloads, with packReloadMu held
 // across change too: vanilla reads and replaces the selection on the server
-// thread, so two /datapack commands never interleave.
+// thread, so two /datapack commands never interleave. A failed reload keeps
+// the old selection, in memory and level.dat, and the old resources.
 // vanilla: MinecraftServer.reloadResources
 func (p *serverPacks) Edit(change func() (ids []string, ok bool)) error {
 	p.srv.packReloadMu.Lock()
@@ -179,9 +187,10 @@ func (p *serverPacks) Edit(change func() (ids []string, ok bool)) error {
 	return p.selectLocked(ids)
 }
 
-// selectLocked loads the packs and commits their selection with packReloadMu held.
+// selectLocked loads ids and selects them once the load has succeeded, with
+// packReloadMu held.
 func (p *serverPacks) selectLocked(ids []string) error {
-	if err := p.srv.loadFunctions(p.DirsFor(ids)); err != nil {
+	if err := p.srv.loadFunctions(p.DirsOf(ids)); err != nil {
 		return err
 	}
 	p.SetSelected(ids)

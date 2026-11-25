@@ -396,8 +396,14 @@ func orderedPlayerState(loaded nbt.Compound, p *player.Player, flying bool, dime
 	delete(kept, "Tags")
 	put("data", loaded["data"])
 	put("Health", nbt.Float(v.Health))
+	sleep := p.Sleep()
+	delete(kept, "sleeping_pos")
+	var sleepingPos nbt.IntArray
+	if sleep.Lying {
+		sleepingPos = nbt.IntArray{sleep.X, sleep.Y, sleep.Z}
+	}
 	living := entity.LivingState{HurtTime: v.HurtTime, DeathTime: int(deathTime), AbsorptionAmount: float32(v.Absorption), ImpulseContextResetGraceTime: v.ImpulseGraceTicks, FallFlying: p.Appearance().FallFlying}
-	living.SaveWithAttributes(state, func() {
+	living.SaveWithSleepingPos(state, func() {
 		put("current_explosion_impact_pos", nil)
 		if at := v.ImpulseImpact; at != nil {
 			put("current_explosion_impact_pos", vec3Tag(at[0], at[1], at[2]))
@@ -410,7 +416,7 @@ func orderedPlayerState(loaded nbt.Compound, p *player.Player, flying bool, dime
 		if effects := effect.Encode(p.Effects()); effects != nil {
 			put("active_effects", *effects)
 		}
-	})
+	}, sleepingPos)
 	put("equipment", nil)
 	p.Inventory(func(inv *player.Inventory) { inv.StoreEquipment(state) })
 	put("locator_bar_icon", nil)
@@ -431,7 +437,7 @@ func orderedPlayerState(loaded nbt.Compound, p *player.Player, flying bool, dime
 			inv.StoreLegacyEquipment(state)
 		}
 	})
-	put("SleepTimer", nbt.Short(clampToShort(p.Sleep().Ticks)))
+	put("SleepTimer", nbt.Short(clampToShort(sleep.Ticks)))
 	put("XpP", nbt.Float(v.ExperienceProgress))
 	put("XpLevel", nbt.Int(v.ExperienceLevel))
 	put("XpTotal", nbt.Int(v.ExperienceTotal))

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"math/rand"
 	"slices"
 	"sync"
 
@@ -179,7 +178,7 @@ func (c *client) handleUseEye(hand int32) bool {
 		c.updateAppearance(func(a *player.Appearance) { a.Eating = true; a.EatingHand = hand })
 		return true
 	}
-	rng := rand.New(rand.NewSource(s.levelRng.Int63()))
+	rng := entity.NewDice(s.levelRng.Int63())
 	stack := protocol.ItemStack{ItemID: held.ItemID, Count: 1, Raw: held.Raw}
 	height := c.dims(pose).Height * entity.EyeSpawnHeightFraction
 	ent := &eyeEntity{

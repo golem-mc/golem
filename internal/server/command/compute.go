@@ -1,6 +1,7 @@
 package command
 
 import (
+	"errors"
 	"math"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -93,7 +94,7 @@ func computeSources(scale bool) []*Node {
 // registry entry (so a bare number is a lookup that fails), anything else is
 // an inline provider's SNBT.
 // vanilla: ResourceOrIdArgument.parse
-func parseProviderArg(text, registryName string, decode func(nbt.Tag) (registry.LootNumber, string), ref func(string) (registry.LootNumber, string)) (registry.LootNumber, *ParseError) {
+func parseProviderArg(text, registryName string, decode func(nbt.Tag) (registry.LootNumber, string, error), ref func(string) (registry.LootNumber, string)) (registry.LootNumber, *ParseError) {
 	var zero registry.LootNumber
 	if name, n, ok := readIdentifier(text); ok && n == len(text) {
 		if p, msg := ref(name); msg == "" {
@@ -112,7 +113,10 @@ func parseProviderArg(text, registryName string, decode func(nbt.Tag) (registry.
 	if n != len(text) {
 		return zero, &ParseError{Key: "command.unknown.argument", Cursor: n}
 	}
-	p, msg := decode(tag)
+	p, msg, err := decode(tag)
+	if err != nil {
+		return zero, weightOverflowError(err, len(text))
+	}
 	if msg != "" {
 		return zero, &ParseError{Key: modifierFailedParseKey, With: []string{msg}, Cursor: len(text)}
 	}
@@ -242,6 +246,16 @@ func readComputeProvider(src Source, input string, rest []string) (p registry.Lo
 	return p, rest[0], rest[1+span:]
 }
 
+// evalFailed answers a provider that threw: an uncaught exception is
+// command.failed, an ArithmeticException the invalid value.
+// vanilla: Commands.performCommand, ComputeCommand.computeAsInt
+func evalFailed(src Source, p registry.LootNumber, err error) error {
+	if errors.Is(err, rules.ErrLookupIndex) {
+		return refuse(src, "command.failed")
+	}
+	return invalidValue(src, p, err.Error())
+}
+
 // vanilla: ComputeCommand.throwInvalidValue
 func invalidValue(src Source, p registry.LootNumber, value string) error {
 	reason := protocol.Text{Text: value}
@@ -264,7 +278,7 @@ func computeFeedback(src Source, p registry.LootNumber, unnamedKey, namedKey str
 func computeInt(src Source, lc *rules.LootContext, p registry.LootNumber) (int32, error) {
 	v, err := rules.EvalIntProvider(p, lc, src.Random())
 	if err != nil {
-		return 0, invalidValue(src, p, err.Error())
+		return 0, evalFailed(src, p, err)
 	}
 	n := int64(v)
 	return resultOf(v, computeFeedback(src, p, computeExactKey, computeNamedExactKey, protocol.Text{Number: &n}))
@@ -275,7 +289,7 @@ func computeInt(src Source, lc *rules.LootContext, p registry.LootNumber) (int32
 func computeFloat(src Source, lc *rules.LootContext, p registry.LootNumber, scale float32) (int32, error) {
 	original, err := rules.EvalFloatProvider(p, lc, src.Random())
 	if err != nil {
-		return 0, invalidValue(src, p, err.Error())
+		return 0, evalFailed(src, p, err)
 	}
 	if f := float64(original); math.IsNaN(f) || math.IsInf(f, 0) {
 		return 0, invalidValue(src, p, formatJavaFloat(original))
@@ -291,4 +305,11 @@ func computeFloat(src Source, lc *rules.LootContext, p registry.LootNumber, scal
 		return resultOf(result, computeFeedback(src, p, computeExactKey, computeNamedExactKey, protocol.Text{Number: &n}))
 	}
 	return resultOf(result, computeFeedback(src, p, computeRoundedKey, computeNamedRoundedKey, protocol.Text{Float: &original}, protocol.Text{Number: &n}))
+}
+
+// weightOverflowError is the command parse failure of a weighted list whose
+// total weight overflows: vanilla throws from the list's constructor, so no
+// codec wraps it. vanilla: CommandDispatcher.parseNodes
+func weightOverflowError(err error, cursor int) *ParseError {
+	return &ParseError{Key: "command.exception", With: []string{err.Error()}, Cursor: cursor}
 }

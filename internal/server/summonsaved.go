@@ -2,7 +2,6 @@ package server
 
 import (
 	"math"
-	"math/rand"
 
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/entity"
@@ -127,7 +126,7 @@ func (s *Server) boltOfTag(w *world.World, tag nbt.Compound) *boltEntity {
 		return nil
 	}
 	id := s.nextEntity()
-	it := &boltEntity{bolt: entity.NewBolt(id, x, y, z, false, rand.New(rand.NewSource(s.entitySeed(id)))), w: w, uuid: identity}
+	it := &boltEntity{bolt: entity.NewBolt(id, x, y, z, false, entity.NewDice(s.entitySeed(id))), w: w, uuid: identity}
 	applyBoltTag(it, tag)
 	return it
 }

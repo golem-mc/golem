@@ -52,6 +52,9 @@ var mannequinTracker = trackedKind[*mannequinEntity, struct{}]{
 		return bodyPose{x: m.X, y: m.Y, z: m.Z, yaw: m.Yaw, pitch: m.Pitch, onGround: m.OnGround}
 	},
 	pairing: mannequinPairing,
+	motion: func(ent *mannequinEntity) (float64, float64, float64) {
+		return ent.mannequin.VX, ent.mannequin.VY, ent.mannequin.VZ
+	},
 }
 
 // mannequinPairing introduces a mannequin with its metadata and equipment.
@@ -60,7 +63,7 @@ func mannequinPairing(ent *mannequinEntity) []outbound {
 	m := ent.mannequin
 	spawn := spawnEntityPayload(spawnEntity{
 		id: m.ID, uuid: ent.uuid, typ: protocol.EntityTypeMannequin,
-		x: m.X, y: m.Y, z: m.Z, vx: m.VX, vy: m.VY, vz: m.VZ,
+		x: m.X, y: m.Y, z: m.Z, vx: ent.sentVX, vy: ent.sentVY, vz: ent.sentVZ,
 		pitch: encodeAngle(m.Pitch), yaw: encodeAngle(m.Yaw), headYaw: encodeAngle(m.Yaw),
 	})
 	packets := spawnAndMetadata(spawn, mannequinMetadataPayload(ent, false))
@@ -75,7 +78,7 @@ func mannequinPairing(ent *mannequinEntity) []outbound {
 	}
 	if n > 0 {
 		slots := mannequinEquipmentNow(m)
-		packets = append(packets, outbound{id: protocol.IDPlayEntityEquipment, data: equipmentEntriesPayload(m.ID, &slots, used[:n])})
+		packets = append(packets, outbound{id: protocol.IDPlayEntityEquipment, data: equipmentEntriesPayload(m.ID, slots[:], used[:n])})
 	}
 	return packets
 }
@@ -86,6 +89,9 @@ func (s *Server) registerMannequin(ent *mannequinEntity) {
 	ent.mannequin.Combust = func(ticks int, src entity.CombustSource) int {
 		return s.askMannequinCombust(ent, ticks, src)
 	}
+	// The tracker's baseline starts at the spawn velocity, so a later stop is a change.
+	// vanilla: ServerEntity.<init>
+	ent.sentVX, ent.sentVY, ent.sentVZ = ent.mannequin.VX, ent.mannequin.VY, ent.mannequin.VZ
 	mannequinTracker.register(s, ent)
 }
 
@@ -100,6 +106,9 @@ func (s *Server) tickMannequins() {
 	}
 	teams := s.pushTeams()
 	pushes := s.mannequinPushInputs(teams)
+	// Tracking precedes physics, as in ServerChunkCache.tick before the entity tick.
+	// vanilla: ServerChunkCache.tick, ChunkMap.tick
+	mannequinTracker.pass(s, s.trackingWatchers(), true)
 	var effects []mannequinTickEffect
 	s.lockTick(&s.mannequinsMu)
 	for _, ent := range s.mannequins {
@@ -159,7 +168,6 @@ func (s *Server) tickMannequins() {
 			s.hurtMannequin(fx.ent, fx.step.Damage, fx.step.DamageType, 0, 0, nil, false)
 		}
 	}
-	mannequinTracker.pass(s, s.trackingWatchers(), true)
 }
 
 type mannequinTickEffect struct {
@@ -366,10 +374,10 @@ func (s *Server) setMannequinData(ent *mannequinEntity, data nbt.Compound) {
 	}
 	payload := mannequinMetadataPayload(ent, true)
 	now := mannequinEquipmentNow(m)
-	used := equipmentChanged(&before, &now)
+	used := equipmentChanged(before[:], now[:])
 	packets := []outbound{{id: protocol.IDPlayEntityMetadata, data: payload}}
 	if len(used) > 0 {
-		packets = append(packets, outbound{id: protocol.IDPlayEntityEquipment, data: equipmentEntriesPayload(m.ID, &now, used)})
+		packets = append(packets, outbound{id: protocol.IDPlayEntityEquipment, data: equipmentEntriesPayload(m.ID, now[:], used)})
 	}
 	if encodeAngle(yaw) != encodeAngle(m.Yaw) {
 		packets = append(packets, outbound{id: protocol.IDPlayHeadRotation, data: mannequinHeadPayload(m.ID, m.Yaw)})
@@ -398,12 +406,12 @@ func (s *Server) mannequinTwinAt(ent *mannequinEntity, to *dimension, move comma
 	return twin
 }
 
-// teleportMannequin puts a mannequin somewhere else, facing to's angles, and
-// leaves the move to the tracking pass. The head turns with the body, so a
-// changed yaw also sends a Rotate Head, without which the player model keeps
-// looking the old way. A /tp also lands it on the ground, gravity
-// or not.
-// vanilla: Entity.teleportSetPosition, Entity.forceSetRotation, TeleportCommand.performTeleport, ServerEntity.sendChanges
+// teleportMannequin puts a mannequin at move.Pos, facing its angles, and
+// leaves the move to the tracking pass. Motion along an axis without its Delta
+// flag stops. The head turns with the body, so a changed yaw also sends a
+// Rotate Head, without which the player model keeps looking the old way. A /tp
+// (move.Command) also lands it on the ground, gravity or not.
+// vanilla: Entity.teleportSetPosition, PositionMoveRotation.calculateAbsolute, Entity.forceSetRotation, TeleportCommand.performTeleport, ServerEntity.sendChanges
 func (s *Server) teleportMannequin(ent *mannequinEntity, move command.Move, by string) {
 	to := move.Pos
 	var watchers []uuid.UUID
@@ -415,8 +423,11 @@ func (s *Server) teleportMannequin(ent *mannequinEntity, move command.Move, by s
 		m.SetPos(to.X, to.Y, to.Z)
 		m.Yaw = to.Yaw
 		m.Pitch = to.Pitch
+		m.VX, m.VZ = mannequinTeleportMotion(m, move)
+		if !move.DeltaY || move.Command {
+			m.VY = 0
+		}
 		if move.Command {
-			m.VX, m.VZ = mannequinTeleportMotion(m, move)
 			m.OnGround = true
 		}
 		id = m.ID
@@ -448,8 +459,8 @@ func mannequinHeadPayload(id int32, yaw float32) []byte {
 }
 
 // mannequinEquipmentNow returns held and worn equipment in wire-slot order.
-func mannequinEquipmentNow(m *entity.Mannequin) [7]protocol.ItemStack {
-	return [7]protocol.ItemStack{m.MainHand, m.OffHand, m.Worn[0], m.Worn[1], m.Worn[2], m.Worn[3]}
+func mannequinEquipmentNow(m *entity.Mannequin) [6]protocol.ItemStack {
+	return [6]protocol.ItemStack{m.MainHand, m.OffHand, m.Worn[0], m.Worn[1], m.Worn[2], m.Worn[3]}
 }
 
 // nameMannequin gives a mannequin in reach the name of a name tag, reporting

@@ -8,7 +8,7 @@ import (
 )
 
 func TestLootEntriesResolveItemsInHolderOrder(t *testing.T) {
-	table, err := DecodeLootTable([]byte(`{"pools":[{"rolls":1,"entries":[
+	table, err := DecodeLootTable(nil, []byte(`{"pools":[{"rolls":1,"entries":[
   {"type":"minecraft:item","name":"diamond"},
   {"type":"minecraft:tag","items":["stone","dirt","stone"],"expand":true}
  ]}]}`))

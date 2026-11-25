@@ -230,7 +230,7 @@ func (p *Physics) dirtPathSurvivalScheduled(x, y, z int32, changes *[]BlockChang
 	if dirtPathCanSurvive(p.w, x, y, z) {
 		return
 	}
-	p.turnFarmlandToDirt(x, y, z, changes)
+	p.turnSoilToDirt(x, y, z, changes, &p.effects)
 }
 
 // farmlandSurvivalScheduled is the one-tick visit FarmlandBlock.updateShape
@@ -240,7 +240,7 @@ func (p *Physics) farmlandSurvivalScheduled(x, y, z int32, changes *[]BlockChang
 	if farmlandCanSurvive(p.w, x, y, z) {
 		return
 	}
-	p.turnFarmlandToDirt(x, y, z, changes)
+	p.turnSoilToDirt(x, y, z, changes, &p.effects)
 }
 
 // farmlandTick: water within the 9x2x9 field, or rain on the block, wets it
@@ -264,7 +264,7 @@ func (p *Physics) farmlandTick(x, y, z int32, state uint16, changes *[]BlockChan
 	}
 	if !farmlandAboveMaintains(p.w, x, y, z) {
 		if _, ok := p.veto(HookFade, x, y, z, dirtState, [3]int32{}); ok {
-			p.turnFarmlandToDirt(x, y, z, changes)
+			p.turnSoilToDirt(x, y, z, changes, &p.randomEffects)
 		}
 	}
 }
@@ -312,17 +312,20 @@ func (p *Physics) setFarmlandMoisture(x, y, z int32, moisture int, changes *[]Bl
 	}
 }
 
-// turnFarmlandToDirt writes dirt with flags 3 (neighbours wake, observers see
-// the shape pass), carrying the rise of the full block over farmland's low top
-// so the server pushes entities up (Block.pushEntitiesUp).
-// vanilla: FarmlandBlock.turnToDirt
-func (p *Physics) turnFarmlandToDirt(x, y, z int32, changes *[]BlockChange) {
+// turnSoilToDirt records the block's rise for entity pushes. Trample callers
+// pass nil effects and post their sourced event themselves.
+// vanilla: FarmlandBlock.turnToBaseBlock, PathBlock.turnToBaseBlock
+func (p *Physics) turnSoilToDirt(x, y, z int32, changes *[]BlockChange, effects *[]Effect) {
 	old := p.w.BlockAt(x, y, z)
 	n := len(*changes)
 	p.set(x, y, z, dirtState, changes)
-	if len(*changes) > n {
-		(*changes)[n].PushUp = CollisionTop(dirtState) - CollisionTop(old)
-		p.shapeUpdateNeighbors(x, y, z, changes)
+	if len(*changes) == n {
+		return
+	}
+	(*changes)[n].PushUp = CollisionTop(dirtState) - CollisionTop(old)
+	p.shapeUpdateNeighbors(x, y, z, changes)
+	if effects != nil {
+		*effects = append(*effects, Effect{GameEvent: gameEventBlockChange, GameEventAffected: dirtState, X: x, Y: y, Z: z})
 	}
 }
 
@@ -342,7 +345,7 @@ func (p *Physics) FarmlandFallenOn(x, y, z int32, fallDistance float64) []BlockC
 		return nil
 	}
 	var changes []BlockChange
-	p.turnFarmlandToDirt(x, y, z, &changes)
+	p.turnSoilToDirt(x, y, z, &changes, nil)
 	return changes
 }
 

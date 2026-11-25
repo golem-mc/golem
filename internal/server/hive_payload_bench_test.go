@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -26,3 +27,41 @@ func BenchmarkTickHivePayloads(b *testing.B) {
 		s.tickHives(w, nil)
 	}
 }
+
+func BenchmarkCancelledHiveRelease(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	// Spawn event binding resolves entities through the command query.
+	for _, c := range s.clients {
+		c.worldScope = worldScope{srv: s, in: c.dimension, by: c.Profile}
+	}
+	fixture := &hiveReleaseBenchPlugin{}
+	s.loadPlugins([]plugin.Registration{{Name: "bench", Plugin: fixture}})
+	s.enablePlugins()
+	s.DriveTicksHere()
+	w.SetBlock(3, 64, 3, registry.BlockBeehive.DefaultState())
+	occupant := nbt.Compound{
+		"entity_data":       nbt.Compound{"id": nbt.String("minecraft:bee")},
+		"ticks_in_hive":     nbt.Int(601),
+		"min_ticks_in_hive": nbt.Int(600),
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		s.spawnOccupant(w, 3, 64, 3, 0, -1, false, occupant, false, nil)
+	}
+	if fixture.calls != b.N {
+		b.Fatalf("spawn listener calls = %d, want %d", fixture.calls, b.N)
+	}
+}
+
+type hiveReleaseBenchPlugin struct{ calls int }
+
+func (p *hiveReleaseBenchPlugin) Enable(s plugin.Server) error {
+	plugin.Listen(s, func(e *plugin.EntitySpawnEvent) {
+		p.calls++
+		e.SetCancelled(true)
+	})
+	return nil
+}
+
+func (*hiveReleaseBenchPlugin) Disable() {}

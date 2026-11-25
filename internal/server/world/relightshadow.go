@@ -90,7 +90,7 @@ func (c *Chunk) viewOf(live *Chunk) {
 	c.skyLight, c.blockLight = live.skyLight, live.blockLight
 	c.lightBorrowed = [2]uint32{allLightSections, allLightSections}
 	live.lightFormsMu.Lock()
-	c.lightEncoded, c.chunkLightEncoded, c.lightFormsStale = live.lightEncoded, live.chunkLightEncoded, live.lightFormsStale
+	c.lightEncoded, c.chunkLightEncoded, c.lightFormsInit = live.lightEncoded, live.chunkLightEncoded, live.lightFormsInit
 	live.lightFormsMu.Unlock()
 	c.lightCorrect = live.lightCorrect
 	for i := range live.sections {
@@ -119,7 +119,7 @@ func (s *lightShadow) release(installed bool) {
 		}
 		// Dropped so the pool keeps no chunk's arrays alive.
 		c.skyLight, c.blockLight = [lightSections]*[lightArrayLen]byte{}, [lightSections]*[lightArrayLen]byte{}
-		c.lightEncoded, c.chunkLightEncoded, c.lightFormsStale = nil, nil, false
+		c.lightEncoded, c.chunkLightEncoded, c.lightFormsInit = nil, nil, false
 		for i := range c.sections {
 			c.sections[i].spawn.Store(nil)
 			c.sections[i].blocks.Store(nil)
@@ -175,9 +175,9 @@ func (s *lightShadow) install() []LightChange {
 		}
 		c.skyLight, c.blockLight = cp.skyLight, cp.blockLight
 		c.lightBorrowed = cp.lightBorrowed
-		c.lightEncoded, c.chunkLightEncoded, c.lightFormsStale = cp.lightEncoded, cp.chunkLightEncoded, cp.lightFormsStale
+		c.lightEncoded, c.chunkLightEncoded, c.lightFormsInit = cp.lightEncoded, cp.chunkLightEncoded, cp.lightFormsInit
 		if !c.lightFormsRetained {
-			c.lightFormsStale = c.lightFormsStale || c.lightEncoded != nil
+			c.lightFormsInit = c.lightFormsInit || c.lightEncoded != nil
 			c.lightEncoded, c.chunkLightEncoded = nil, nil
 		}
 		c.lightCorrect = cp.lightCorrect
@@ -259,7 +259,7 @@ func (j *lightJoin) install(w *World) {
 		}
 		c.skyLight, c.blockLight = o.layers[skyLayer], o.layers[blockLayer]
 		c.lightBorrowed = o.borrowed
-		c.lightFormsStale = true
+		c.invalidateLightForms()
 		c.lightGen++
 	}
 	j.touched[0].lightCorrect = true

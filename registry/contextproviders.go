@@ -35,28 +35,15 @@ func contextProvidersNow() *contextProviderLayer {
 	return &builtinContextProviders
 }
 
-func builtinContextProviderEntries(float bool) map[string]string {
-	if float {
-		return contextFloatProviderJSON
-	}
-	return contextIntProviderJSON
-}
-
-// HasBuiltinContextProvider reports whether the vanilla pack defines a provider.
-func HasBuiltinContextProvider(name string, float bool) bool {
-	_, ok := builtinContextProviderEntries(float)[name]
-	return ok
-}
-
 func (l *contextProviderLayer) json(name string, float bool) ([]byte, bool) {
-	entries := l.ints
+	entries, builtin := l.ints, contextIntProviderJSON
 	if float {
-		entries = l.floats
+		entries, builtin = l.floats, contextFloatProviderJSON
 	}
 	if b, ok := entries[name]; ok {
 		return b, true
 	}
-	s, ok := builtinContextProviderEntries(float)[name]
+	s, ok := builtin[name]
 	return []byte(s), ok
 }
 

@@ -88,3 +88,34 @@ func BenchmarkFoxFollowParent(b *testing.B) {
 		goal.Tick(view)
 	}
 }
+
+// BenchmarkFoxFishGoal measures the snow fox's fish scan over a herd of
+// pufferfish alone and over one holding schooling fish.
+func BenchmarkFoxFishGoal(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		fish MobType
+	}{{"pufferfish", TypePufferfish}, {"cod", TypeCod}} {
+		b.Run(tc.name, func(b *testing.B) {
+			w := newTestWorld()
+			fox := NewMob(TypeFox, 1, 0.5, 64, 0.5, 1)
+			others := []*Mob{fox}
+			for i := range 64 {
+				others = append(others, NewMob(tc.fish, int32(i+2), float64(i%8)+2.5, 64, float64(i/8)+0.5, int64(i)))
+			}
+			grid := takePushGrid(len(others), nil)
+			defer grid.release()
+			grid.build(others)
+			fox.push = grid
+			view := &tickView{w: w, others: others}
+			goal := &foxPreyGoals(fox)[2].(*foxPreyGoal).mobTargetGoal
+			goal.eager = true
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				fox.TargetID = 0
+				goal.CanStart(view)
+			}
+		})
+	}
+}

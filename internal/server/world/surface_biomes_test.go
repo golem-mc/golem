@@ -10,8 +10,9 @@ import (
 
 type surfaceOutcome struct {
 	*terrain.ProtoChunk
-	post [][3]int32
-	mask [][4]int32
+	post         [][3]int32
+	mask         [][4]int32
+	surfaceCalls int
 }
 
 func (c *surfaceOutcome) MarkPosForPostProcessing(x, y, z int32) {
@@ -25,25 +26,14 @@ func TestSurfaceBiomePruningMatchesUnpruned(t *testing.T) {
 	build := func(p [2]int32, unpruned bool) *surfaceOutcome {
 		c := &surfaceOutcome{ProtoChunk: terrain.NewProtoChunk(worldMinY, worldHeight, terrain.Stone)}
 		// Each build owns its surface reader and stateful carving sampler.
-		biomes := g.terrainBiomes()
-		// vanilla: ChunkStatusTasks.collectPossibleBiomes includes all vertical
-		// palettes of the nine chunks, even where the zoom never selects them.
-		var possible uint64
-		for dz := int32(-1); dz <= 1; dz++ {
-			for dx := int32(-1); dx <= 1; dx++ {
-				possible |= g.biomeCellsOf(p[0]+dx, p[1]+dz).mask
-			}
-		}
-		biomes.PossibleBiomes = make([]int, 0)
-		for b := range terrain.OverworldBiomeCount {
-			if possible&(1<<b) != 0 {
-				biomes.PossibleBiomes = append(biomes.PossibleBiomes, b)
-			}
-		}
+		biomes := g.terrainBiomes(p[0], p[1])
 		if unpruned {
 			biomes.PossibleBiomes = nil
 		}
+		lookups := surfaceLookupCounter{Biomes: biomes.Surface}
+		biomes.Surface = &lookups
 		mask := g.state.BuildTerrain(c, p[0], p[1], nil, biomes)
+		c.surfaceCalls = lookups.calls
 		mask.Visit(func(x, z, bottom, top int32) { c.mask = append(c.mask, [4]int32{x, z, bottom, top}) })
 		return c
 	}
@@ -70,6 +60,9 @@ func TestSurfaceBiomePruningMatchesUnpruned(t *testing.T) {
 	for i, p := range positions {
 		serial[i] = build(p, false)
 		compare(serial[i], build(p, true))
+	}
+	if got := serial[0].surfaceCalls; got != 256 {
+		t.Errorf("surface biome lookups at (0,0) = %d, want 256", got)
 	}
 	// Two pairs per position also overlap readers of the same cached grids.
 	results := make([][2]*surfaceOutcome, len(positions)*2)

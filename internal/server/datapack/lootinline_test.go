@@ -34,7 +34,7 @@ func TestInlineLootTableFunctionDiscriminators(t *testing.T) {
 				} else if err == nil || !strings.Contains(err.Error(), "No key type") {
 					t.Errorf("legacy inline function: %v, want missing type", err)
 				}
-				if _, err := DecodeLootTable([]byte(text)); err != nil {
+				if _, err := DecodeLootTable(nil, []byte(text)); err != nil {
 					t.Errorf("pack function keyed by %s: %v", key, err)
 				}
 			}

@@ -2,7 +2,6 @@ package entity
 
 import (
 	"math"
-	"math/rand"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -186,7 +185,7 @@ func (m *Mob) RollDrops(killer rules.LootKiller, level rules.LootLevel) []protoc
 	// Built here, not at spawn or load, so only a death pays for the second
 	// source.
 	if m.lootRand == nil {
-		m.lootRand = rand.New(rand.NewSource(m.lootSeed))
+		m.lootRand = NewDice(m.lootSeed)
 	}
 	table := rules.EntityLootTable(m.Type.Name())
 	if m.DeathLootTable != "" {
@@ -247,7 +246,7 @@ func (m *Mob) TakeDeathEquipment() []protocol.ItemStack {
 // vanilla: Creeper.killedEntity, BuiltInLootTables.CHARGED_CREEPER
 func (m *Mob) RollChargedHead(level rules.LootLevel) []protocol.ItemStack {
 	if m.lootRand == nil {
-		m.lootRand = rand.New(rand.NewSource(m.lootSeed))
+		m.lootRand = NewDice(m.lootSeed)
 	}
 	ctx := rules.LootContext{This: m.LootEntity(), Level: level}
 	return rules.RollLoot("minecraft:charged_creeper/root", &ctx, m.lootRand)
@@ -325,12 +324,10 @@ func (m *Mob) takePreservedEquipment(shouldDrop func(int, protocol.ItemStack) bo
 			m.SetEquipment(protocol.EquipOffHand, protocol.ItemStack{})
 		case i < 6:
 			m.SetEquipment(protocol.EquipFeet+i-2, protocol.ItemStack{})
-		case i == 6 && m.Type == TypeCopperGolem:
-			m.SetMetadataAntenna(protocol.ItemStack{})
 		case i == 6:
-			m.SetMetadataHorseSaddle(protocol.ItemStack{})
+			m.SetEquipment(protocol.EquipSaddle, protocol.ItemStack{})
 		default:
-			m.SetEquipment(6, protocol.ItemStack{})
+			m.SetEquipment(protocol.EquipBody, protocol.ItemStack{})
 		}
 	}
 	return taken

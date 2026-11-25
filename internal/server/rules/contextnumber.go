@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"errors"
 	"fmt"
 	"math"
 
@@ -19,6 +20,12 @@ const (
 	ErrIntegerOverflow = ArithmeticError("integer overflow")
 	ErrDivideByZero    = ArithmeticError("/ by zero")
 )
+
+// ErrLookupIndex is the IndexOutOfBoundsException a lookup level-based value
+// throws below level 1. Neither getInt nor ComputeCommand catches it, so a
+// command answers command.failed.
+// vanilla: LevelBasedValue.Lookup.calculate
+var ErrLookupIndex = errors.New("lookup level-based value below level 1")
 
 // maxProviderRefDepth bounds how many registry entries one evaluation may
 // pass through, so that entries referring to each other end in an error
@@ -277,6 +284,9 @@ func (r *lootRoller) floatOf(n registry.LootNumber) (float64, error) {
 		}
 		return float64(r.ctx.Level.EnvironmentFloat(k.Attribute)), nil
 	case registry.LootEnchantmentLevel:
+		if enchLevelValueThrows(k.Amount, r.ctx.EnchantmentLevel) {
+			return 0, ErrLookupIndex
+		}
 		return float64(EnchLevelValueAt(k.Amount, r.ctx.EnchantmentLevel)), nil
 	case registry.LootProviderRef:
 		var v float64

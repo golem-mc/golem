@@ -116,6 +116,7 @@ type recipeSet struct {
 	transmute         []TransmuteRecipe
 	dye               []DyeRecipe
 	cooking           [cookingKinds][]CookingRecipe
+	cookingByItem     [cookingKinds][]int32 // first recipe index per item, -1 for none
 	smithing          []SmithingTransformRecipe
 	trim              []SmithingTrimRecipe
 	brewing           []BrewingRecipe
@@ -215,6 +216,20 @@ func newRecipeSet(s *recipeSet) *recipeSet {
 			}
 		}
 	}
+	for k := range s.cooking {
+		idx := make([]int32, ItemCount)
+		for i := range idx {
+			idx[i] = -1
+		}
+		for r := range s.cooking[k] {
+			for _, id := range s.cooking[k][r].Ingredient {
+				if id >= 0 && int(id) < len(idx) && idx[id] < 0 {
+					idx[id] = int32(r)
+				}
+			}
+		}
+		s.cookingByItem[k] = idx
+	}
 	s.displayByID = make(map[int32]int, len(s.displays))
 	s.displayByName = make(map[string]int, len(s.displays))
 	for i := range s.displays {
@@ -250,7 +265,7 @@ func newRecipeSet(s *recipeSet) *recipeSet {
 // in force. An empty set with no item tag changed restores the built-in recipes.
 // vanilla: RecipeManager.prepare, RecipeManager.apply
 func ApplyPackRecipes(p PackRecipes) {
-	if p.Empty() && !itemTagsPacked.Load() {
+	if p.Empty() && !CurrentTagLookup().itemTagsPacked {
 		recipesNow.Store(nil)
 		return
 	}
@@ -712,10 +727,13 @@ func ApplyResultPatch(stack *protocol.ItemStack, patch []ResultComponent) bool {
 // RecipeResult returns the recipe's result: the stack with the patch a data
 // pack gave the recipe laid over its components.
 func RecipeResult(id string, stack protocol.ItemStack) protocol.ItemStack {
-	if patch := recipes().results[id]; patch != nil {
-		ApplyResultPatch(&stack, patch)
+	patch := recipes().results[id]
+	if patch == nil {
+		return stack
 	}
-	return stack
+	out := stack
+	ApplyResultPatch(&out, patch)
+	return out
 }
 
 // CookingResult is what one cook of the recipe produces.

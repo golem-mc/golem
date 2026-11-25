@@ -97,6 +97,10 @@ func FindPredicate(name string) (LootCondition, bool) {
 			return c, true
 		}
 	}
+	return findBuiltinPredicate(name)
+}
+
+func findBuiltinPredicate(name string) (LootCondition, bool) {
 	src, ok := predicateJSON[name]
 	if !ok || DecodeBuiltinPredicate == nil {
 		return nil, false
@@ -152,7 +156,11 @@ func LootTableNames() []string {
 // ItemTagMembers returns the names of the items a tag groups, or false for a
 // tag this version does not define.
 func ItemTagMembers(tag string) ([]string, bool) {
-	for _, r := range tagsNow.Load().builtin {
+	return CurrentTagLookup().ItemTagMembers(tag)
+}
+
+func (lookup *TagLookup) ItemTagMembers(tag string) ([]string, bool) {
+	for _, r := range lookup.builtin {
 		if r.Registry != "minecraft:item" {
 			continue
 		}
@@ -175,19 +183,32 @@ func ItemTagMembers(tag string) ([]string, bool) {
 // EnchantmentTagMembers returns the names of the enchantments a tag groups,
 // or false for a tag this version does not define.
 func EnchantmentTagMembers(tag string) ([]string, bool) {
-	return SyncTagMembers("minecraft:enchantment")(tag)
+	return CurrentTagLookup().EnchantmentTagMembers(tag)
+}
+
+func (lookup *TagLookup) EnchantmentTagMembers(tag string) ([]string, bool) {
+	return lookup.syncTagMembers("minecraft:enchantment")(tag)
 }
 
 // BiomeTagMembers returns the names of the biomes a tag groups, or false for
 // a tag this version does not define.
 func BiomeTagMembers(tag string) ([]string, bool) {
-	return SyncTagMembers("minecraft:worldgen/biome")(tag)
+	return CurrentTagLookup().BiomeTagMembers(tag)
+}
+
+func (lookup *TagLookup) BiomeTagMembers(tag string) ([]string, bool) {
+	return lookup.syncTagMembers("minecraft:worldgen/biome")(tag)
 }
 
 // InstrumentTagMembers returns the names of the instruments a tag groups, or
 // false for a tag this version does not define.
 func InstrumentTagMembers(tag string) ([]string, bool) {
-	return SyncTagMembers("minecraft:instrument")(tag)
+	return CurrentTagLookup().InstrumentTagMembers(tag)
+}
+
+// InstrumentTagMembers resolves an instrument tag in this snapshot.
+func (lookup *TagLookup) InstrumentTagMembers(tag string) ([]string, bool) {
+	return lookup.syncTagMembers("minecraft:instrument")(tag)
 }
 
 // SyncTagMembers returns a resolver for the tags of one synchronized
@@ -196,8 +217,12 @@ func InstrumentTagMembers(tag string) ([]string, bool) {
 // vanilla: MappedRegistry.get(TagKey) returns empty for an unbound tag, and
 // HolderSetCodec reports the missing tag
 func SyncTagMembers(registryName string) func(string) ([]string, bool) {
+	return func(tag string) ([]string, bool) { return CurrentTagLookup().syncTagMembers(registryName)(tag) }
+}
+
+func (lookup *TagLookup) syncTagMembers(registryName string) func(string) ([]string, bool) {
 	return func(tag string) ([]string, bool) {
-		for _, r := range tagsNow.Load().sync {
+		for _, r := range lookup.sync {
 			if r.Registry != registryName {
 				continue
 			}

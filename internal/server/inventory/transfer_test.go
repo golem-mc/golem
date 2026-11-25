@@ -17,6 +17,12 @@ func (b *testBlock) Slot(i int) protocol.ItemStack       { return b.slots[i] }
 func (b *testBlock) Put(i int, stack protocol.ItemStack) { b.slots[i] = stack }
 func (b *testBlock) Stacks() []protocol.ItemStack        { return b.slots }
 func (b *testBlock) Peek(i int) (int32, int32)           { return b.slots[i].ItemID, b.slots[i].Count }
+func (b *testBlock) StackPtr(i int) *protocol.ItemStack {
+	if i < 0 || i >= len(b.slots) {
+		return nil
+	}
+	return &b.slots[i]
+}
 func (b *testBlock) Filled() uint64 {
 	var m uint64
 	for i, s := range b.slots {
@@ -94,7 +100,7 @@ func TestFurnaceFacesAndShulkerRefusal(t *testing.T) {
 	if left, _ := AddItem(furnace, item(t, "minecraft:stone", 1), protocol.FaceTop, true); !left.Empty() || furnace.slots[0].Empty() {
 		t.Error("the furnace's top refused stone")
 	}
-	if canTakeThroughFace(furnace, furnace.slots[1], 1, protocol.FaceBottom) {
+	if canTakeThroughFace(furnace, &furnace.slots[1], 1, protocol.FaceBottom) {
 		t.Error("the furnace's bottom gave up its fuel")
 	}
 
@@ -141,6 +147,38 @@ func TestFullDoubleChestDoesNotAllocate(t *testing.T) {
 		}
 	}); allocations != 0 {
 		t.Errorf("checking a full double chest allocated %g times, want 0", allocations)
+	}
+}
+
+func TestEmptyAndFullMaskFastPaths(t *testing.T) {
+	t.Parallel()
+	chest := &testBlock{kind: KindChest, slots: make([]protocol.ItemStack, 27)}
+	if !Empty(chest) || Full(chest, protocol.FaceTop) {
+		t.Fatal("empty chest reported wrong Empty/Full")
+	}
+	chest.slots[26] = item(t, "minecraft:stone", 64)
+	if Empty(chest) || Full(chest, protocol.FaceTop) {
+		t.Fatal("single-slot chest reported wrong Empty/Full")
+	}
+	for i := range chest.slots {
+		chest.slots[i] = item(t, "minecraft:stone", 64)
+	}
+	if Empty(chest) || !Full(chest, protocol.FaceTop) {
+		t.Fatal("full chest reported wrong Empty/Full")
+	}
+	chest.slots[13].Count = 63
+	if Full(chest, protocol.FaceTop) {
+		t.Fatal("nearly full chest reported Full")
+	}
+
+	// Blocks with >64 slots fall back to scanning past the 64-bit mask.
+	large := &testBlock{kind: KindChest, slots: make([]protocol.ItemStack, 70)}
+	if !Empty(large) {
+		t.Fatal("empty >64-slot block reported non-empty")
+	}
+	large.slots[69] = item(t, "minecraft:stone", 1)
+	if Empty(large) {
+		t.Fatal(">64-slot block with item in slot 69 reported empty")
 	}
 }
 

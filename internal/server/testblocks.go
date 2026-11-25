@@ -53,7 +53,7 @@ func (c *client) handleSetTestBlock(r *protocol.Reader) error {
 	}
 	w.SetBlockEntityTag(x, y, z, world.KindTestBlock, tag)
 	c.srv.markChanged(w, x, y, z)
-	c.srv.tellBlockEntity(w, x, y, z, world.KindTestBlock, false)
+	c.srv.tellCarriedBlockEntity(w, x, y, z, world.KindTestBlock)
 	return nil
 }
 

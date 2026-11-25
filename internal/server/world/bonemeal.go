@@ -270,7 +270,7 @@ func (p *Physics) growCrop(x, y, z int32, state uint16, changes *[]BlockChange) 
 		return nil, true
 	case registry.BlockCrimsonNylium, registry.BlockWarpedNylium:
 		// vanilla: NyliumBlock
-		if !p.airAt(x, y+1, z) || !contains(y+1) {
+		if !p.airAt(x, y+1, z) || !p.w.inBuildHeight(y+1) {
 			return nil, false
 		}
 		p.placeGrownFeature("nylium_bonemeal", false, x, y+1, z, nil, changes)
@@ -302,7 +302,7 @@ func (p *Physics) growCrop(x, y, z int32, state uint16, changes *[]BlockChange) 
 		if block == registry.BlockWarpedFungus {
 			required, key = registry.BlockWarpedNylium, "warped_fungus_planted"
 		}
-		if below != required || !contains(y+1) {
+		if below != required || !p.w.inBuildHeight(y+1) {
 			return nil, false
 		}
 		if p.rng.Float32() < 0.4 { // vanilla: NetherFungusBlock.isBonemealSuccess

@@ -320,6 +320,7 @@ func (c *client) stabMob(ent *mobEntity, held protocol.ItemStack, pw registry.Pi
 	attacker := entity.Player{
 		X: pos.X, Y: pos.Y, Z: pos.Z,
 		Yaw:      float64(pos.Yaw),
+		Pitch:    float64(pos.Pitch),
 		EntityID: c.player.EntityID,
 		Huntable: true,
 		Creative: c.player.GameMode() == protocol.GameModeCreative,

@@ -48,3 +48,55 @@ func TestTNTBlastIndexNear(t *testing.T) {
 		t.Fatal("a changed prefix must fall back to the list")
 	}
 }
+
+func BenchmarkTNTBlastIndex(b *testing.B) {
+	const count = 4096
+	list := make([]*tntEntity, count)
+	for i := range count {
+		x := float64(i%32)*0.75 + 0.5
+		y := 64 + float64(i/1024)*0.75
+		z := float64((i%1024)/32)*0.75 + 0.5
+		list[i] = &tntEntity{tnt: &entity.TNT{X: x, Y: y, Z: z}}
+	}
+	var idx tntBlastIndex
+	b.Run("Build", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			idx.build(list)
+			idx.drop()
+		}
+	})
+	b.Run("BuildAndNear", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			idx.build(list)
+			_ = idx.near(list, 12.5, 65.0, 12.5, 8)
+			idx.drop()
+		}
+	})
+
+	scattered := make([]*tntEntity, count)
+	for i := range count {
+		x := float64(i%64)*32 + 0.5
+		z := float64(i/64)*32 + 0.5
+		scattered[i] = &tntEntity{tnt: &entity.TNT{X: x, Y: 64, Z: z}}
+	}
+	// Place a nearby survivor in an adjacent cell so the sparse query returns
+	// candidates across cells without shrinking the scattered bounding box.
+	scattered[count-1] = &tntEntity{tnt: &entity.TNT{X: 39.5, Y: 64, Z: 32.5}}
+	b.Run("ScatteredBuild", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			idx.build(scattered)
+			idx.drop()
+		}
+	})
+	b.Run("ScatteredBuildAndNear", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			idx.build(scattered)
+			_ = idx.near(scattered, 32.5, 64.0, 32.5, 8)
+			idx.drop()
+		}
+	})
+}

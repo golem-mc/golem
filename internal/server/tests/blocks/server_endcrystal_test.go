@@ -1,12 +1,13 @@
 package blocks
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
+	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
@@ -96,6 +97,57 @@ func TestAnEndCrystalNeedsObsidianAndRoom(t *testing.T) {
 	servertest.RunTicks(t, srv, 4)
 	if got := srv.EndCrystalCount(); got != 0 {
 		t.Errorf("%d end crystals stand, want none", got)
+	}
+}
+
+func TestArrowBlocksEntityPlacement(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		item   registry.Item
+		typ    int32
+		count  func(*server.Server) int
+		clearX float64
+	}{
+		{"end crystal", registry.ItemEndCrystal, protocol.EntityTypeEndCrystal, (*server.Server).EndCrystalCount, 9.25},
+		{"armor stand", registry.ItemArmorStand, protocol.EntityTypeArmorStand, (*server.Server).ArmorStandCount, 9},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			const name = "Placer"
+			srv, c := servertest.Join(t, servertest.SurvivalTestConfig(), name, servertest.OpsListing(t, name))
+			servertest.HoldTicks(t, srv)
+			srv.SetBlock(8, 63, 0, registry.MustState("minecraft:obsidian", nil))
+			srv.GiveSlot(name, player.HotbarSlot, protocol.ItemStack{ItemID: int32(tc.item), Count: 2})
+			c.MoveToGrounded(8.5, 64, -2.5, 0, 30, true)
+			c.ChatCommand("summon arrow 8.7 64.55 0.6 {NoGravity:1b}")
+			c.AwaitSpawn(protocol.EntityTypeArrow)
+
+			c.PlaceBlockAt(8, 63, 0, protocol.FaceTop, 1)
+			c.Settle()
+			if got := tc.count(srv); got != 0 {
+				t.Errorf("placed entities with an overlapping arrow = %d, want 0", got)
+			}
+			if got := srv.InventorySlot(name, player.HotbarSlot).Count; got != 2 {
+				t.Errorf("held count with an overlapping arrow = %d, want 2", got)
+			}
+			if t.Failed() {
+				return
+			}
+
+			// Touching the east face of the placement box leaves its interior free.
+			c.ChatCommand(fmt.Sprintf("tp @e[type=arrow,limit=1] %g 64.55 0.6", tc.clearX))
+			servertest.AwaitSystemChatSaying(t, c, "commands.teleport.success.location.single")
+			c.PlaceBlockAt(8, 63, 0, protocol.FaceTop, 1)
+			c.AwaitSpawn(tc.typ)
+			c.Settle()
+			if got := tc.count(srv); got != 1 {
+				t.Errorf("placed entities after moving the arrow = %d, want 1", got)
+			}
+			if got := srv.InventorySlot(name, player.HotbarSlot).Count; got != 1 {
+				t.Errorf("held count after moving the arrow = %d, want 1", got)
+			}
+		})
 	}
 }
 

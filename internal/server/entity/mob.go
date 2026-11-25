@@ -1295,13 +1295,15 @@ type Player struct {
 	// Passenger says the body rides a vehicle; cramming leaves it out.
 	// vanilla: Entity.isPassenger
 	Passenger bool
-	// OnHappyGhast says the body's root vehicle is a happy ghast.
+	// OnHappyGhast says the player is seated on a happy ghast.
 	// vanilla: HappyGhast.scanPlayerAboveGhast
 	OnHappyGhast bool
 	// BoatDriver and NautilusDriver identify controlling passengers for dolphin following.
 	BoatDriver, NautilusDriver bool
-	// RideBox is the vehicle's min X/Y/Z followed by max X/Y/Z.
-	RideBox [6]float64
+	// RideBox is the immediate vehicle's box, or zero on foot.
+	RideBox AABB
+	// RideRoot is the root vehicle's feet and the top of its dimensions.
+	RideRoot struct{ X, Y, Z, Top float64 }
 
 	// Spectator is a spectator, left out of the despawn's nearest-player
 	// distance.
@@ -2166,6 +2168,8 @@ type Mob struct {
 	// reordered so pushes land in the tick's walk order. Set for one tick and
 	// cleared after.
 	push *pushGrid
+	// tickPaths belongs to the herd and is lent to this body for its tick.
+	tickPaths *MobPathScratch
 	// prey is the tick's villagers, traders, iron golems, turtles and axolotls
 	// in herd order, which the zombie's mob targets scan instead of the herd;
 	// preyKnown is false where no tick built it. Set for one tick.
@@ -2209,7 +2213,7 @@ func NewMob(t MobType, id int32, x, y, z float64, seed int64) *Mob {
 	if k == nil {
 		panic("entity: unknown mob type " + t.Name())
 	}
-	rng := rand.New(rand.NewSource(seed))
+	rng := NewDice(seed)
 	m := &Mob{
 		ID:        id,
 		Type:      t,
@@ -2285,7 +2289,7 @@ func NewMob(t MobType, id int32, x, y, z float64, seed int64) *Mob {
 		m.ai.wire(ocelotGoals(m)...)
 	} else if t == TypeParrot {
 		// Standalone simulations have a separate stream until a level binds its own.
-		m.SetParrotSoundRandom(rand.New(rand.NewSource(seed ^ spawnDiceSalt)))
+		m.SetParrotSoundRandom(NewDice(seed ^ spawnDiceSalt))
 		m.ai.wire(parrotGoals(m)...)
 	} else if IsEquine(t) {
 		m.ai.wire(horseGoals(m)...)
@@ -2756,7 +2760,7 @@ func (m *Mob) FinalizeStructureSpawnAt(dice Dice, ctx rules.SpawnContext, local 
 // generation rolls: vanilla's is not the mob's own, so it is a stream salted
 // off the loot seed that moves neither the mob's dice nor its loot.
 func (m *Mob) SpawnDice() Dice {
-	return GoDice{rand.New(rand.NewSource(m.lootSeed ^ spawnDiceSalt))}
+	return GoDice{NewDice(m.lootSeed ^ spawnDiceSalt)}
 }
 
 // spawnDiceSalt gives SpawnDice its own seed.
@@ -2905,7 +2909,7 @@ func (m *Mob) finalizeSpawn(dice Dice, ctx rules.SpawnContext, group *SpawnGroup
 	// vanilla: AbstractSkeleton.finalizeSpawn rolls loot pickup scaled by the
 	// special multiplier.
 	if m.is(TypeSkeleton) {
-		m.CanPickUpLoot = rand.New(rand.NewSource(m.lootSeed^lootPickupSalt)).Float64() < lootPickupOdds*float64(local.Special)
+		m.CanPickUpLoot = NewDice(m.lootSeed^lootPickupSalt).Float64() < lootPickupOdds*float64(local.Special)
 	}
 	if m.isPiglin() {
 		m.finalizePiglin(dice, local, structure)
@@ -3900,11 +3904,13 @@ func (m *Mob) HurtByFirework(amount float64, damageType registry.DamageType, cau
 
 // HurtByCommand is /damage: causeID (0 for none) is kept for
 // retaliation and kill credit, and a whole hit shoves away from (fromX, fromZ)
-// unless the type is no_knockback. Results are landed and softened.
+// unless the type is no_knockback. When from is non-nil (a by/from entity),
+// a filled sulfur cube bends its shove by the attacker's aim. Results are
+// landed and softened.
 // vanilla: DamageCommand.damage, LivingEntity.hurtServer
-func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, causeIsPlayer, causeCreative bool, fromX, fromZ float64) (landed, softened bool) {
+func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, causeIsPlayer, causeCreative bool, fromX, fromZ float64, from ...*HitSource) (landed, softened bool) {
 	if causeID != 0 {
-		return m.hurtByDamage(amount, damageType, causeID, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z)
+		return m.hurtByDamage(amount, damageType, causeID, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z, from...)
 	}
 	landed, softened = m.HurtByWorld(amount, damageType)
 	if landed && !softened && !damageType.InTag(registry.DamageTypeTagIDNoKnockback) {

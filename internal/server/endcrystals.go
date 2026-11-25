@@ -2,7 +2,6 @@ package server
 
 import (
 	"math"
-	"math/rand"
 	"slices"
 	"sync"
 
@@ -36,6 +35,7 @@ type endCrystalEntity struct {
 // vanilla: EntityTypes.END_CRYSTAL
 var endCrystalTracker = trackedKind[*endCrystalEntity, struct{}]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.endCrystals.built = false },
+	pistonBit:        pistonEndCrystals,
 
 	rangeChunks: entity.EndCrystalTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.endCrystalsMu },
@@ -257,7 +257,7 @@ func (s *Server) explodeEndCrystal(ent *endCrystalEntity, causeID int32, causeNa
 		directLoot:  carrier,
 		damageType:  damageType,
 		sourceTeam:  sourceTeam,
-		rng:         rand.New(rand.NewSource(s.entitySeed(ent.crystal.ID))),
+		rng:         entity.NewDice(s.entitySeed(ent.crystal.ID)),
 		// vanilla: Level.ExplosionInteraction.BLOCK
 		interaction: rules.BlockExplosionInteraction(s.world),
 	})

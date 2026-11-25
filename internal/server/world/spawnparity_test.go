@@ -67,11 +67,11 @@ func TestNaturalSpawnPlayerParity(t *testing.T) {
 		"false/capped":         "60304:1ed1845479f05eb86d3a34cbddfd610b9e45e27b4fc8f2b50345a1613920d23e",
 		"false/far":            "46890:3a9207e07c58e55c27fe222c6739434d77f20071afd4c1224da539cb42e642df",
 		"true/high-observer":   "38674:64d0173ccae4b6d30f57c501f8f1352f9ca749c336552ebc742724b80d47a479",
-		"true/low":             "74218:bc0119ce2f47bd904d5e6f26365a3616857581209b5b6fcc278d27927eefa8a5",
-		"true/spectator-dead":  "75768:3540119cb9510a59f451b18bbe3d2e3d6f1445a6215bb02097d9f2fcf8ba306f",
+		"true/low":             "74275:910ae63f7cfeaedac4714f0a296c64b4afeffa69ba437d3d8f134e76c4d5140b",
+		"true/spectator-dead":  "76302:0b09cc697c00661d736567838077db74d1f21eb973df6b01282006027a6b99b5",
 		"true/none":            "38653:be491a8fd57f09777f2c1adb1147f157079627523618d47f5e9be9b1d47c0fdd",
-		"true/overlap":         "82652:c3d86951c3666a2cb47cd4203bc453196d85c1144d00d8d45234e745c69c2d10",
-		"true/capped":          "98557:0d746c740d7c379792726b4435e41a10cda47fb998bf334fe7519b6267700f9f",
+		"true/overlap":         "84437:47cc516b9b9c0b3c41c157ffde304fd86330783390fcc7035f410779e3c282b0",
+		"true/capped":          "100333:e2b7193566c5512ec8686b2ceef6382eda83fbc5015492099f8a25fdd423ef5e",
 		"true/far":             "38674:64d0173ccae4b6d30f57c501f8f1352f9ca749c336552ebc742724b80d47a479",
 	}
 	for _, water := range []bool{false, true} {

@@ -49,6 +49,7 @@ func TestUniversalAngerTurnsAStruckPiglinOnTheNearestPlayer(t *testing.T) {
 	other.Settle()
 	servertest.HoldTicks(t, srv)
 	p := srv.SpawnMob(barterPiglin, 5.5, 64, 0.5)
+	srv.SetMobBaby(p, false) // the seeded spawn roll may make a baby, which hunts no one
 	servertest.AwaitFullSwing(t, srv, "Slayer")
 	c.Attack(p)
 	c.Settle()
