@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
@@ -88,6 +89,7 @@ func TestDisabledRandomTickAdvancesTimeWithoutVisitingSections(t *testing.T) {
 		sec.setAll(leaf)
 		// A mixed section builds its tick mask when the pass first reads it.
 		sec.set(0, registry.BlockStone.DefaultState(), false)
+		c.rebuildRandomTickSections()
 		w.mu.Unlock()
 		p := NewPhysics(w)
 		p.SetSeed(123)
@@ -120,6 +122,132 @@ func TestDisabledRandomTickAdvancesTimeWithoutVisitingSections(t *testing.T) {
 	}
 }
 
+func TestRandomTickSectionWriteTransitions(t *testing.T) {
+	t.Parallel()
+	w := newTestWorld(t, NewFlatGenerator())
+	t.Cleanup(func() { w.Close() })
+	pos := ChunkPos{}
+	c, _ := w.Acquire(pos)
+	p, dice := randomTickSectionTest(t, w)
+	const baseY = 96
+	x, y, z := dice.blockRandomPos(0, baseY, 0)
+	stone, vine := registry.BlockStone.DefaultState(), registry.BlockVine.DefaultState()
+
+	visits := 0
+	p.SetVineSpreadRule(func() bool { visits++; return false })
+	check := func(wantVisits int) {
+		t.Helper()
+		p.SetSeed(randomTickSectionSeed)
+		visits = 0
+		p.RandomTick(1, []ChunkPos{pos}, 1, 1)
+		if visits != wantVisits {
+			t.Errorf("landed visits = %d, want %d", visits, wantVisits)
+		}
+		dice.SetSeed(randomTickSectionSeed)
+		dice.rng.Intn(precipitationDie)
+		for i := range wantVisits {
+			dice.blockRandomPos(0, baseY+int32(i)*sectionSize, 0)
+		}
+		if got, want := p.rng.Int63(), dice.rng.Int63(); got != want {
+			t.Errorf("next RNG draw = %d, want %d", got, want)
+		}
+	}
+	w.SwapBlock(x, y, z, vine)
+	check(1)
+	w.SwapBlock(x, y, z, stone)
+	check(0)
+	w.SetBlocks([]BlockChange{{X: x, Y: y, Z: z, State: vine}})
+	check(1)
+	w.SetBlocks([]BlockChange{{X: x, Y: y, Z: z, State: stone}})
+	check(0)
+	w.mu.Lock()
+	c.Fill(baseY, baseY+2*sectionSize, vine)
+	w.mu.Unlock()
+	check(2)
+	w.mu.Lock()
+	c.Fill(baseY, baseY+2*sectionSize, stone)
+	w.mu.Unlock()
+	check(0)
+}
+
+func TestRandomTickSectionsAreReadyAfterGenerationAndReload(t *testing.T) {
+	t.Parallel()
+	const baseY = 96
+	vine := registry.BlockVine.DefaultState()
+	w := newTestWorld(t, newFlatGenerator("minecraft:plains", []flatLayer{
+		{state: stoneState, height: baseY - worldMinY},
+		{state: vine, height: sectionSize},
+	}))
+	t.Cleanup(func() { w.Close() })
+	pos := ChunkPos{}
+	w.Acquire(pos)
+	p, dice := randomTickSectionTest(t, w)
+	visits := 0
+	p.SetVineSpreadRule(func() bool { visits++; return false })
+	p.RandomTick(1, []ChunkPos{pos}, 1, 1)
+	if visits != 1 {
+		t.Fatalf("generated chunk had %d landed visits, want 1", visits)
+	}
+	// Make the saved section nonuniform without changing the sampled block.
+	x, y, z := dice.blockRandomPos(0, baseY, 0)
+	w.SwapBlock(x^1, y, z, stoneState)
+	w.Release(pos)
+	w.FlushSaves()
+	if w.ChunkLoaded(pos) || w.AcquireSaved(pos) == nil {
+		t.Fatal("chunk did not unload and reload from disk")
+	}
+	visits = 0
+	p.SetSeed(randomTickSectionSeed)
+	p.RandomTick(2, []ChunkPos{pos}, 1, 1)
+	if visits != 1 {
+		t.Errorf("reloaded chunk had %d landed visits, want 1", visits)
+	}
+}
+
+func TestRandomTickKeepsSectionSnapshotAcrossAVisit(t *testing.T) {
+	t.Parallel()
+	w := newTestWorld(t, NewFlatGenerator())
+	t.Cleanup(func() { w.Close() })
+	pos := ChunkPos{}
+	w.Acquire(pos)
+	p, dice := randomTickSectionTest(t, w)
+	vine := registry.BlockVine.DefaultState()
+	leaf := leafState(t, map[string]string{"persistent": "false", "distance": "7"})
+	x, y, z := dice.blockRandomPos(0, 96, 0)
+	w.SwapBlock(x, y, z, vine)
+	rx, ry, rz := dice.blockRandomPos(0, 112, 0)
+	w.SwapBlock(rx, ry, rz, leaf)
+	lx, ly, lz := dice.blockRandomPos(0, 144, 0)
+	w.SwapBlock(lx, ly, lz, leaf)
+	// The callback clears a selected section and activates a skipped one.
+	// The former still consumes its die and the latter waits for the next pass.
+	p.SetVineSpreadRule(func() bool {
+		w.SwapBlock(rx, ry, rz, airState)
+		w.SwapBlock(rx, ry+sectionSize, rz, leaf)
+		return false
+	})
+	_, decays := p.RandomTick(1, []ChunkPos{pos}, 1, 1)
+	if want := []Decay{{X: lx, Y: ly, Z: lz, State: leaf}}; !slices.Equal(decays, want) {
+		t.Errorf("decays = %v, want %v", decays, want)
+	}
+	if got, want := p.rng.Int63(), dice.rng.Int63(); got != want {
+		t.Errorf("next RNG draw = %d, want %d", got, want)
+	}
+}
+
+const randomTickSectionSeed = 6532
+
+func randomTickSectionTest(t *testing.T, w *World) (physics, dice *Physics) {
+	t.Helper()
+	physics, dice = NewPhysics(w), NewPhysics(w)
+	physics.SetSeed(randomTickSectionSeed)
+	dice.SetSeed(randomTickSectionSeed)
+	if dice.rng.Intn(precipitationDie) == 0 {
+		t.Fatal("seed must skip precipitation at speed one")
+	}
+	return physics, dice
+}
+
 // Snapshot a seeded pass across uniform and paletted sections. The first
 // decays allocate a palette and cross its four-bit width respectively.
 func randomTickPaletteOutcome(t *testing.T, speed int) []byte {
@@ -148,6 +276,7 @@ func randomTickPaletteOutcome(t *testing.T, speed int) []byte {
 				t.Fatal("fixture needs a four-bit palette")
 			}
 		}
+		c.rebuildRandomTickSections()
 		w.mu.Unlock()
 	}
 	p := NewPhysics(w)
@@ -201,6 +330,7 @@ func randomTickTransitionOutcome(t *testing.T) []byte {
 		w := newTestWorld(t, NewFlatGenerator())
 		t.Cleanup(func() { w.Close() })
 		c, _ := w.Acquire(ChunkPos{})
+		w.mu.Lock()
 		for i := range c.sections {
 			c.sections[i].setAll(airState)
 		}
@@ -225,6 +355,8 @@ func randomTickTransitionOutcome(t *testing.T) []byte {
 			q := dice[0]
 			c.SetBlock(q[0], q[1], q[2], vine)
 		}
+		c.rebuildRandomTickSections()
+		w.mu.Unlock()
 		p := NewPhysics(w)
 		p.SetSeed(6532)
 		visits := 0
@@ -239,6 +371,7 @@ func randomTickTransitionOutcome(t *testing.T) []byte {
 				delete(w.chunks, ChunkPos{})
 				return false
 			}
+			defer c.rebuildRandomTickSections()
 			for i := range blocksPerSection {
 				sec.set(i, airState, true)
 			}

@@ -1,6 +1,7 @@
 package blocks
 
 import (
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"testing"
@@ -231,5 +232,26 @@ func TestAShelfSideChainLinksItsPoweredNeighbours(t *testing.T) {
 	c.Settle()
 	servertest.ExpectBlockNamed(t, srv, 5, 64, 4, "minecraft:oak_shelf", map[string]string{"side_chain": "left"})
 	servertest.ExpectBlockNamed(t, srv, 4, 64, 4, "minecraft:oak_shelf", map[string]string{"side_chain": "center"})
+	servertest.ExpectBlockNamed(t, srv, 3, 64, 4, "minecraft:oak_shelf", map[string]string{"side_chain": "right"})
+}
+
+// TestASetblockWithATagKeepsAPoweredShelfLinked replaces an unpowered shelf
+// with a powered one carrying items beside a powered shelf: the shelf's block
+// type is unchanged, so the post-tag wake runs no removal hook to undo the
+// link its placement made.
+// vanilla: ServerLevel.updateNeighboursOnBlockSet, ShelfBlock.affectNeighborsAfterRemoval
+func TestASetblockWithATagKeepsAPoweredShelfLinked(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
+
+	servertest.Setblock(t, c, 3, 64, 5, "redstone_block")
+	servertest.Setblock(t, c, 4, 64, 5, "redstone_block")
+	servertest.Setblock(t, c, 4, 64, 4, "oak_shelf[facing=north,powered=true]")
+	servertest.Setblock(t, c, 3, 64, 4, "oak_shelf[facing=north] strict")
+	servertest.Setblock(t, c, 3, 64, 4, `oak_shelf[facing=north,powered=true]{Items:[{Slot:0b,id:"minecraft:diamond",count:1}]}`)
+	servertest.ExpectBlockNamed(t, srv, 4, 64, 4, "minecraft:oak_shelf", map[string]string{"side_chain": "left"})
 	servertest.ExpectBlockNamed(t, srv, 3, 64, 4, "minecraft:oak_shelf", map[string]string{"side_chain": "right"})
 }

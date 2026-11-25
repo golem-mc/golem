@@ -14,8 +14,8 @@ func (m *Mob) FeedMooshroomFlower(item registry.Item) (handled, consumed bool) {
 	if m.Type != TypeMooshroom || m.Mushroom != "brown" || m.IsBaby() || !m.Alive() {
 		return false, false
 	}
-	// The other three ingredients are common to every stew recipe.
-	if item == registry.ItemBowl || item == registry.ItemRedMushroom || item == registry.ItemBrownMushroom {
+	// Bowl and the mushrooms are common to every stew recipe; the shelf mushroom only shares the recipe's mushroom ingredient.
+	if item == registry.ItemBowl || item == registry.ItemRedMushroom || item == registry.ItemBrownMushroom || item == registry.ItemShelfMushroom {
 		return false, false
 	}
 	for _, recipe := range registry.StewRecipes {

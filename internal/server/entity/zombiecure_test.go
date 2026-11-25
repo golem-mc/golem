@@ -105,7 +105,7 @@ func TestACuredVillagerKeepsItsTradesAndBindingEquipment(t *testing.T) {
 	curse, _ := registry.EnchantmentID("minecraft:binding_curse")
 	old.Worn[wornFeet] = protocol.ItemStack{ItemID: registry.MustItem("minecraft:iron_boots"), Count: 1, Enchantments: map[int32]int32{curse: 1}}
 	m := NewMob(TypeVillager, 2, 0, 64, 0, 2)
-	m.ConvertedFrom(old)
+	m.ConvertedFrom(old, false)
 	drops := m.CuredFrom(old)
 	if len(drops) != 1 || drops[0].ItemID != registry.MustItem("minecraft:iron_sword") {
 		t.Fatalf("drops = %v", drops)

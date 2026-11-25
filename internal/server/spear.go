@@ -93,6 +93,18 @@ func inPiercingRange(r entity.PiercingRay, b entity.AABB) bool {
 	return dx*dx+dy*dy+dz*dz <= reach*reach
 }
 
+func piercingChunkArea(r entity.PiercingRay) (chunkArea, bool) {
+	far := r.MaxReach + max(0, r.Forward)
+	fromX, fromZ := r.EyeX+r.LookX*r.MinReach, r.EyeZ+r.LookZ*r.MinReach
+	toX, toZ := r.EyeX+r.LookX*far, r.EyeZ+r.LookZ*far
+	padding := max(0, r.Margin) + entity.PiercingMobPadding
+	bounds := [6]float64{
+		min(fromX, toX) - padding, 0, min(fromZ, toZ) - padding,
+		max(fromX, toX) + padding, 0, max(fromZ, toZ) + padding,
+	}
+	return smallChunkArea(&bounds)
+}
+
 // piercingTargets lists the players and mobs a ray can hit and the indices
 // it does hit, players first then mobs.
 func (c *client) piercingTargets(w *world.World, ray entity.PiercingRay) (players []*client, mobs []*mobEntity, hits []int) {
@@ -124,23 +136,45 @@ func (c *client) piercingTargets(w *world.World, ray entity.PiercingRay) (player
 		boxes = append(boxes, box)
 	}
 	c.srv.mu.RUnlock()
-	c.srv.mobsMu.Lock()
-	for m, ent := range c.srv.herdOf(w).book {
+	addMob := func(ent *mobEntity) {
+		if ent == nil {
+			return
+		}
+		m := ent.mob
 		// vanilla: PiercingWeapon.canHitEntity, Entity.isInvulnerableToPiercingWeapon
 		if m.Dead || m.Invulnerable {
-			continue
+			return
 		}
 		// vanilla: PiercingWeapon.canHitEntity, Entity.isPassengerOfSameVehicle
 		if mount != nil && (ent == mount || m.Vehicle == mount.mob || mount.mob.Vehicle == m) ||
 			boat != nil && ent.vehicle == boat || cart != nil && ent.cart == cart {
-			continue
+			return
 		}
 		box := entity.NewAABB(m.BlastBox())
 		if !inPiercingRange(ray, box) {
-			continue
+			return
 		}
 		mobs = append(mobs, ent)
 		boxes = append(boxes, box)
+	}
+	h := c.srv.herdOf(w)
+	c.srv.mobsMu.Lock()
+	if len(h.book) != 0 {
+		if area, indexed := piercingChunkArea(ray); indexed {
+			h.mobsInArea(area, true, func(m *entity.Mob) bool {
+				if len(h.widePiercingBodies) == 0 || !m.MayExceedPiercingPadding() {
+					addMob(h.record(m))
+				}
+				return true
+			})
+			for _, m := range h.widePiercingBodies {
+				addMob(h.record(m))
+			}
+		} else {
+			for _, ent := range h.book {
+				addMob(ent)
+			}
+		}
 	}
 	c.srv.mobsMu.Unlock()
 

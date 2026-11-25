@@ -80,9 +80,15 @@ func TestAPackDimensionIsCreatedSavedAndRestored(t *testing.T) {
 	if got := r.ReadString(32767); got != "pk:void" {
 		t.Errorf("respawn dimension = %q, want pk:void", got)
 	}
-	servertest.UntilTicks(t, srv, 200, "the chunk of pk:void", func() bool {
-		return srv.BlockInDimension("pk:void", 0, -64, 0) != 0
-	})
+	// Chunk delivery runs independently of game ticks and needs the client to read.
+	for id, data := range c.Stream() {
+		if id == protocol.IDPlayChunkData {
+			r := protocol.NewReader(data)
+			if r.ReadI32() == 0 && r.ReadI32() == 0 {
+				break
+			}
+		}
+	}
 	if got := srv.BlockInDimension("pk:void", 0, -64, 0); got != registry.BlockStates["minecraft:glass"] {
 		t.Errorf("block at y=-64 = %d, want glass", got)
 	}
@@ -91,11 +97,11 @@ func TestAPackDimensionIsCreatedSavedAndRestored(t *testing.T) {
 	}
 
 	c.ChatCommand("save-all flush")
+	c.Settle()
 	region := filepath.Join(cfg.LevelName, "dimensions", "pk", "void", "region")
-	servertest.UntilTicks(t, srv, 200, "the region file", func() bool {
-		entries, _ := os.ReadDir(region)
-		return len(entries) > 0
-	})
+	if entries, err := os.ReadDir(region); err != nil || len(entries) == 0 {
+		t.Fatalf("region directory %s has %d entries, error: %v", region, len(entries), err)
+	}
 	srv.Shutdown()
 
 	restarted := *cfg

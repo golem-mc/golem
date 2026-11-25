@@ -137,13 +137,15 @@ func (s *Server) tickMobLoot() {
 		if len(ground) == 0 {
 			continue
 		}
-		dim.mobs.herd.SenseWantedItems(dim.w, view)
+		herd := dim.mobs.herd
+		mobGriefing := dim.w.BoolRule(world.RuleMobGriefing)
+		grid := herd.PrepareLootGrid(view, &dim.mobLootGrid, mobGriefing)
+		herd.SenseWantedItemsWithGrid(dim.w, view, grid, mobGriefing)
 		// Captain claims precede ordinary banner equipment, even without a goal.
 		// vanilla: Raider.pickUpItem
-		mobGriefing := dim.w.BoolRule(world.RuleMobGriefing)
 		takes = append(takes, s.bannerTakes(dim, mobGriefing)...)
 		if mobGriefing {
-			for _, take := range dim.mobs.herd.TakeLootWithGrid(view, &dim.mobLootGrid) {
+			for _, take := range herd.TakeLootWithPreparedGrid(view, grid) {
 				takes = append(takes, mobLootTake{
 					w:     dim.w,
 					it:    ground[take.Item],

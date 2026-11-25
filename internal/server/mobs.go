@@ -248,12 +248,15 @@ type mobHerd struct {
 	lootExtra func(*mobHerd, *mobEntity) func(*rules.LootEntity)
 	// records uses stable, one-based slots independent of herd compaction;
 	// freeRecords holds vacant slots. Both are guarded by mobsMu.
-	records     []*mobEntity
-	freeRecords []int
-	byUUID      map[uuid.UUID]*entity.Mob
-	dying       []dyingMob
-	woken       map[world.ChunkPos]struct{}
-	carried     map[world.ChunkPos][]nbt.Tag
+	records            []*mobEntity
+	freeRecords        []int
+	byUUID             map[uuid.UUID]*entity.Mob
+	byID               map[int32]*mobEntity // includes the IDs reserved for dragon parts
+	dragonBodies       []*entity.Mob
+	widePiercingBodies []*entity.Mob
+	dying              []dyingMob
+	woken              map[world.ChunkPos]struct{}
+	carried            map[world.ChunkPos][]nbt.Tag
 	// listed is the chunks whose entity file has to be written when they
 	// leave even empty, or the next load would generate the animals again.
 	listed map[world.ChunkPos]bool
@@ -273,6 +276,8 @@ type mobHerd struct {
 	// dragons counts the ender dragons in herd the same way, so a tick with
 	// none skips the crystal and fight passes over the herd.
 	dragons atomic.Int32
+	// illagers lets the banner pass skip this herd. Guarded by mobsMu.
+	illagers int32
 	// leashWaits is the mobs that joined carrying a saved lead, which the
 	// mob tick re-ties to their holder or lets go after the grace.
 	leashWaits []*mobEntity
@@ -291,6 +296,10 @@ func (h *mobHerd) count(m *entity.Mob, n int32) {
 		h.wardens.Add(n)
 	case entity.TypeEnderDragon:
 		h.dragons.Add(n)
+	default:
+		if entity.IsIllagerType(m.Type) {
+			h.illagers += n
+		}
 	}
 }
 
@@ -304,7 +313,7 @@ func (h *mobHerd) record(m *entity.Mob) *mobEntity {
 	return nil
 }
 
-// remember indexes a registered body by slot, pointer and UUID. The caller holds mobsMu.
+// remember indexes a registered body. The caller holds mobsMu.
 func (h *mobHerd) remember(ent *mobEntity) {
 	slot := ent.mob.RecordSlot()
 	if h.record(ent.mob) == nil {
@@ -314,6 +323,19 @@ func (h *mobHerd) remember(ent *mobEntity) {
 		} else {
 			slot = len(h.records) + 1
 			h.records = append(h.records, nil)
+		}
+		if h.byID == nil {
+			h.byID = make(map[int32]*mobEntity)
+		}
+		h.byID[ent.mob.ID] = ent
+		if ent.mob.Type == entity.TypeEnderDragon {
+			h.dragonBodies = append(h.dragonBodies, ent.mob)
+			for part := range int32(8) {
+				h.byID[ent.mob.ID+1+part] = ent
+			}
+		}
+		if ent.mob.MayExceedPiercingPadding() {
+			h.widePiercingBodies = append(h.widePiercingBodies, ent.mob)
 		}
 	}
 	h.records[slot-1] = ent
@@ -337,6 +359,16 @@ func (h *mobHerd) forget(m *entity.Mob) {
 		h.freeRecords = append(h.freeRecords, slot)
 		m.SetRecordSlot(0)
 		delete(h.byUUID, ent.uuid)
+		delete(h.byID, m.ID)
+		if m.Type == entity.TypeEnderDragon {
+			h.dragonBodies = slices.DeleteFunc(h.dragonBodies, func(dragon *entity.Mob) bool { return dragon == m })
+			for part := range int32(8) {
+				delete(h.byID, m.ID+1+part)
+			}
+		}
+		if m.MayExceedPiercingPadding() {
+			h.widePiercingBodies = slices.DeleteFunc(h.widePiercingBodies, func(wide *entity.Mob) bool { return wide == m })
+		}
 		delete(h.book, m)
 		m.Unfile()
 	}
@@ -365,6 +397,7 @@ func (h *mobHerd) setHerd(herd entity.Mobs) {
 	h.version++
 	h.wardens.Store(0)
 	h.dragons.Store(0)
+	h.illagers = 0
 	for _, m := range herd {
 		h.count(m, 1)
 	}
@@ -680,22 +713,26 @@ func (s *Server) sendMobSends(sends []mobSend) {
 	}
 }
 
-// tickMobTracking updates frozen mob visibility and collects pufferfish
-// contacts for players whose own ticks still run.
+// tickMobTracking advances the tracker on frozen loop ticks, even between
+// game steps. Players can still touch a pufferfish while its physics is held.
 // vanilla: ChunkMap.tick
 func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 	near := nearbyTracking(watchers)
 	defer near.release()
-	var sends []mobSend
+	gate := s.newEntityGate()
+	held := !s.tickRate.Running()
+	sends := s.mobTickSends[:0]
+	s.mobTickSends = nil
 	var pufferTouches []pufferTouch
 	s.lockTick(&s.mobsMu)
 	for _, dim := range s.allDims() {
+		centres := gate.centres[dim.w]
 		for _, m := range dim.mobs.herd {
-			ent := dim.mobs.book[m]
+			ent := dim.mobs.record(m)
 			if ent == nil {
 				continue
 			}
-			if puff := m.PuffState(); m.Type == entity.TypePufferfish && puff > 0 && m.Alive() {
+			if puff := m.PuffState(); held && m.Type == entity.TypePufferfish && puff > 0 && m.Alive() {
 				pufferTouches = append(pufferTouches, pufferTouch{
 					box: entity.NewAABB(m.BlastBox()),
 					strike: mobStrike{
@@ -705,28 +742,27 @@ func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 				})
 			}
 			body := mobTracker.body(ent)
-			motion := mobMovement{seated: ent.seated()}
-			// The cadence runs on, so a teleport waits for the next gate.
-			// vanilla: ServerEntity.sendChanges
-			mt := body.t.ride(body.t.stepDue(m.UpdateInterval(), false), motion.seated)
-			mt.teleported = ent.teleported
+			var motion mobMovement
+			var mt moveTick
+			if ent.teleported || m.Impulse || entityTicksIn(dim.w, centres, gate.reach, herdChunk(m)) {
+				motion.seated = ent.seated()
+				mt = ent.movementTick(motion.seated)
+			}
 			for _, i := range body.watchers(near) {
 				wt := watchers[i]
 				if wt.c.theWorld() != dim.w {
 					continue // crossed to another dimension since the snapshot
 				}
-				_, told := ent.tracked.get(wt.c)
-				if was, seen := mobSettle(&body, wt.c, wt.x, wt.z, wt.chunkRadius, &sends); seen && told && mt.gate && mt.teleported {
+				before := len(sends)
+				if was, seen := mobSettle(&body, wt.c, wt.x, wt.z, wt.chunkRadius, &sends); seen && mt.gate && len(sends) == before {
 					motion.move(&body, was, wt.c, mt, &sends)
 				}
-			}
-			if mt.gate {
-				ent.teleported = false
 			}
 		}
 	}
 	s.unlockTick(&s.mobsMu)
 	s.sendMobSends(sends)
+	s.recycleMobTickSends(sends)
 	s.applyPufferTouches(watchers, pufferTouches)
 }
 
@@ -904,14 +940,12 @@ func (s *Server) breedingParents(birth mobBirth) map[string]func() rules.LootEnt
 	}
 }
 
-// finishConversion spawns the converted body in the old one's place,
-// unfinalized (vanilla: Mob.convertTo), and plays the world event (1040
-// zombie drowned, 1041 husk, 1048 skeleton frozen).
+// finishConversion spawns the replacement and plays its conversion event.
+// vanilla: Mob.convertTo
 func (s *Server) finishConversion(cv mobConversion) {
 	old := cv.old.mob
 	id := s.nextEntity()
 	m := entity.NewMob(cv.into, id, old.X, old.Y, old.Z, s.entitySeed(id))
-	m.ConvertedFrom(old)
 	if old.Type == entity.TypeZombieVillager && cv.into == entity.TypeVillager {
 		s.zombieVillagerCured(cv, m)
 		return
@@ -924,18 +958,8 @@ func (s *Server) finishConversion(cv mobConversion) {
 		s.hoglinConverted(cv, m)
 		return
 	}
-	if entity.Family(old.Type) == entity.TypeZombie {
-		pos := world.ChunkPos{X: world.ChunkOf(old.X), Z: world.ChunkOf(old.Z)}
-		cv.w.Acquire(pos)
-		m.RollConversionAttributes(rules.SpecialMultiplier(s.effectiveDifficultyAt(cv.w, old.X, old.Z)))
-		cv.w.Release(pos)
-	}
-	if old.Type == entity.TypePiglin || old.Type == entity.TypePiglinBrute {
-		// vanilla: AbstractPiglin.finishConversion
-		m.AddEffect(effect.Instance{ID: registry.MobEffectNausea, Duration: 200})
-	}
 	if old.Type == entity.TypeTadpole {
-		ent := convertedEntity(cv.old, m, cv.w, false)
+		ent := convertedEntity(cv.old, m, cv.w, conversionParams{})
 		m.FinishTadpoleGrowth(cv.w, old, cv.w.Biome(rules.BlockOf(old.X), rules.BlockOf(old.Y), rules.BlockOf(old.Z)))
 		s.addRiddenConversion(cv.old, ent)
 		if !old.Silent {
@@ -943,7 +967,18 @@ func (s *Server) finishConversion(cv mobConversion) {
 		}
 		return
 	}
-	s.addRiddenConversion(cv.old, convertedEntity(cv.old, m, cv.w, true))
+	// vanilla: ConversionTracker.doConversion, AbstractPiglin.finishConversion
+	ent := convertedEntity(cv.old, m, cv.w, conversionParams{keepEquipment: true, keepLootPickup: true})
+	if entity.Family(old.Type) == entity.TypeZombie {
+		pos := world.ChunkPos{X: world.ChunkOf(old.X), Z: world.ChunkOf(old.Z)}
+		cv.w.Acquire(pos)
+		m.RollConversionAttributes(rules.SpecialMultiplier(s.effectiveDifficultyAt(cv.w, old.X, old.Z)))
+		cv.w.Release(pos)
+	}
+	if old.Type == entity.TypePiglin || old.Type == entity.TypePiglinBrute {
+		m.AddEffect(blowEffect(registry.MobEffectNausea, 200, 0))
+	}
+	s.addRiddenConversion(cv.old, ent)
 	event := int32(protocol.WorldEventZombieDrowned)
 	switch old.Type {
 	case entity.TypePiglin, entity.TypePiglinBrute:
@@ -979,7 +1014,7 @@ func (s *Server) spawnSplitCube(sp cubeSplit) {
 	m := entity.NewMob(sp.from.mob.Type, id, sp.split.X, sp.split.Y, sp.split.Z, s.entitySeed(id))
 	m.SetSize(sp.split.Size, true)
 	m.Yaw, m.HeadYaw = sp.split.Yaw, sp.split.Yaw
-	s.addMob(convertedEntity(sp.from, m, sp.w, false))
+	s.addMob(convertedEntityCommon(sp.from, m, sp.w, false))
 }
 
 // fireMobEffectTrigger spawns a removed body's oozing slimes (capped by the
@@ -1097,31 +1132,34 @@ func (s *Server) weaveCobwebs(tr mobEffectTrigger) {
 	}
 }
 
-// convertedMobTags are saved keys a full conversion carries and a split
-// does not. Door breaking is carried ungated in vanilla; no splitting kind
-// breaks doors.
-// vanilla: ConversionType.convertCommon
-// vanilla: ConversionParams.single(this, true, true) sets the keep-flags
-var convertedMobTags = []string{"CanBreakDoors"}
+// vanilla: ConversionParams.single
+type conversionParams struct {
+	keepEquipment  bool
+	keepLootPickup bool
+}
 
-// convertedEntity wraps a converted body with what convertCommon carries
-// over (name, portal cooldown, invulnerability, unmodelled tags, NoAI,
-// persistence) under a new UUID. full (a drowned, a husk's zombie) also
-// keeps loot pickup and convertedMobTags; a split's children keep neither.
-func convertedEntity(from *mobEntity, m *entity.Mob, w *world.World, full bool) *mobEntity {
+// convertedEntity copies one body into its replacement before the conversion callback.
+// vanilla: ConversionType.SINGLE
+func convertedEntity(from *mobEntity, m *entity.Mob, w *world.World, params conversionParams) *mobEntity {
+	m.ConvertedFrom(from.mob, params.keepEquipment)
+	return convertedEntityCommon(from, m, w, params.keepLootPickup)
+}
+
+// vanilla: ConversionType.convertCommon
+func convertedEntityCommon(from *mobEntity, m *entity.Mob, w *world.World, keepLootPickup bool) *mobEntity {
 	m.SetMetadataNoAI(from.mob.NoAI)
 	m.Persistence = from.mob.Persistence
 	m.SetMetadataNoGravity(from.mob.NoGravity)
 	m.Silent = from.mob.Silent
 	m.SetMetadataLeftHanded(from.mob.LeftHanded)
 	m.Invulnerable = from.mob.Invulnerable
-	if full {
+	if keepLootPickup {
 		m.CanPickUpLoot = from.mob.CanPickUpLoot
 	}
 	// vanilla: ConversionType.convertCommon's active_effects, from the old
 	// body's live set.
 	m.InheritEffects(from.mob)
-	ent := &mobEntity{
+	return &mobEntity{
 		mob: m, w: w, uuid: uuid.New(),
 		name: from.name, nameVisible: from.nameVisible,
 		portal:            rules.EntityPortal{Cooldown: from.portal.Cooldown},
@@ -1131,20 +1169,6 @@ func convertedEntity(from *mobEntity, m *entity.Mob, w *world.World, full bool) 
 		// The lead's name goes with a holder the caller copies over.
 		leash: from.leash, leashOf: from.leashOf,
 	}
-	carry := func(key string) {
-		if tag, ok := from.saved[key]; ok {
-			if ent.saved == nil {
-				ent.saved = nbt.Compound{}
-			}
-			ent.saved[key] = tag
-		}
-	}
-	if full {
-		for _, key := range convertedMobTags {
-			carry(key)
-		}
-	}
-	return ent
 }
 
 // mobTrample is one mob's landing in a tick: where, its size and the fall
@@ -1835,15 +1859,6 @@ func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known m
 				known[ent.uuid] = true
 				continue
 			}
-		case "minecraft:snowball", "minecraft:egg", "minecraft:ender_pearl",
-			"minecraft:splash_potion", "minecraft:lingering_potion", "minecraft:experience_bottle",
-			"minecraft:wind_charge", "minecraft:small_fireball", "minecraft:fireball", "minecraft:dragon_fireball",
-			"minecraft:wither_skull", "minecraft:shulker_bullet":
-			if ent := s.thrownOfTag(h.w, compound); ent != nil {
-				woken.thrown = append(woken.thrown, ent)
-				known[ent.uuid] = true
-				continue
-			}
 		case cloudEntityID:
 			if ent := s.cloudOfTag(h.w, compound); ent != nil {
 				woken.clouds = append(woken.clouds, ent)
@@ -1863,8 +1878,14 @@ func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known m
 				continue
 			}
 		default:
-			// Each boat kind's id is its own name, so no constant names them.
-			if string(id) != "" && entity.BoatKind(string(id)) != "" {
+			if kind, ok := savedThrownKind(string(id)); ok {
+				if ent := s.thrownOfTag(h.w, kind, string(id), compound); ent != nil {
+					woken.thrown = append(woken.thrown, ent)
+					known[ent.uuid] = true
+					continue
+				}
+			} else if id != "" && entity.BoatKind(string(id)) != "" {
+				// Each boat kind's id is its own name, so no constant names them.
 				if ent := boatOfTag(s, h.w, compound); ent != nil {
 					woken.boats = append(woken.boats, ent)
 					known[ent.uuid] = true
@@ -2404,6 +2425,7 @@ func (s *Server) standMobArriving(dim *dimension, kind entity.MobType, x, y, z f
 	// Grounded only over a block: a blow before the first tick lifts a grounded
 	// spawn, and an airborne one cannot jump a fence before its first fall.
 	m.OnGround = spawnStandsOnGround(dim.w, x, y, z)
+	m.GroundGuess = true
 	ent := &mobEntity{
 		mob:  m,
 		w:    dim.w,
@@ -2549,6 +2571,10 @@ func (s *Server) spawnTaggedMob(dim *dimension, kind entity.MobType, x, y, z flo
 	var riders wakeResult
 	mobs := s.standWithRiders(s.herdOf(dim.w), ent, compound, &riders)
 	for _, r := range mobs[1:] {
+		// A rider is spawned at the summon position and reaches its seat on
+		// its first ride tick.
+		// vanilla: EntityType.loadEntityRecursive, Entity.positionRider
+		r.mob.SetPos(x, y, z)
 		if r.spawnReason == 0 {
 			r.spawnReason = ent.spawnReason
 		}
@@ -2602,13 +2628,7 @@ func (s *Server) mobByEntityID(w *world.World, id int32) *mobEntity {
 
 // mobByEntityIDLocked is mobByEntityID for a caller already holding mobsMu.
 func (s *Server) mobByEntityIDLocked(w *world.World, id int32) *mobEntity {
-	h := s.herdOf(w)
-	for _, m := range h.herd {
-		if m.ID == id || (m.Type == entity.TypeEnderDragon && id > m.ID && id <= m.ID+8) {
-			return h.book[m]
-		}
-	}
-	return nil
+	return s.herdOf(w).byID[id]
 }
 
 // mobNameByID is the display name of the mob with this ID in w, false for
@@ -2867,6 +2887,18 @@ type mobMovement struct {
 	seated   bool
 	head     uint8
 	headRead bool
+}
+
+// movementTick takes the impulse and any teleport due on this tracking tick.
+func (ent *mobEntity) movementTick(seated bool) moveTick {
+	m := ent.mob
+	mt := ent.ride(ent.stepDue(m.UpdateInterval(), m.Impulse), seated)
+	m.Impulse = false
+	mt.teleported = ent.teleported
+	if mt.gate {
+		ent.teleported = false
+	}
+	return mt
 }
 
 // move tells one watcher where the mob went: the velocity first once it
@@ -4019,16 +4051,8 @@ func (s *Server) convertShearedMooshroom(ent *mobEntity) {
 		removeEntitiesPayload([]int32{ent.mob.ID}))
 	id := s.nextEntity()
 	m := entity.NewMob(entity.TypeCow, id, x, y, z, s.entitySeed(id))
-	m.ConvertedFrom(ent.mob)
-	// keepEquipment false only skips the copy: the old body is removed without
-	// loot, so its gear is gone, not dropped.
-	// vanilla: ConversionType.single's keepEquipment
-	for slot := range 6 {
-		m.SetEquipment(slot, protocol.ItemStack{})
-	}
-	m.ResetDropChances()
+	cow := convertedEntity(ent, m, ent.w, conversionParams{})
 	m.LeashHolderID = holder
-	cow := convertedEntity(ent, m, ent.w, false)
 	cow.convertTeam = team
 	s.addRiddenConversion(ent, cow)
 }

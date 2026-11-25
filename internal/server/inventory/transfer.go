@@ -31,14 +31,18 @@ type Block interface {
 	Kind() Kind
 }
 
-// Compound is two blocks as one, the first's slots then the second's: a
-// double chest's 54, right half first. vanilla: CompoundContainer
-type Compound struct {
-	First, Second Block
+// Pair is two blocks as one, the first's slots then the second's: a
+// double chest's 54, right half first. The halves keep their concrete type so
+// value adapters need no heap box. vanilla: CompoundContainer
+type Pair[B Block] struct {
+	First, Second B
 }
 
+// Compound is a Pair of interface-typed halves, for window and interface callers.
+type Compound = Pair[Block]
+
 // Slot is what the given one of the pair's slots holds.
-func (c Compound) Slot(slot int) protocol.ItemStack {
+func (c Pair[B]) Slot(slot int) protocol.ItemStack {
 	if n := c.First.Len(); slot >= n {
 		return c.Second.Slot(slot - n)
 	}
@@ -46,7 +50,7 @@ func (c Compound) Slot(slot int) protocol.ItemStack {
 }
 
 // Peek is the item and count of the given one of the pair's slots.
-func (c Compound) Peek(slot int) (itemID, count int32) {
+func (c Pair[B]) Peek(slot int) (itemID, count int32) {
 	if n := c.First.Len(); slot >= n {
 		return c.Second.Peek(slot - n)
 	}
@@ -54,7 +58,7 @@ func (c Compound) Peek(slot int) (itemID, count int32) {
 }
 
 // StackPtr is the given slot's stack in place for reading.
-func (c Compound) StackPtr(slot int) *protocol.ItemStack {
+func (c Pair[B]) StackPtr(slot int) *protocol.ItemStack {
 	if n := c.First.Len(); slot >= n {
 		return c.Second.StackPtr(slot - n)
 	}
@@ -62,10 +66,10 @@ func (c Compound) StackPtr(slot int) *protocol.ItemStack {
 }
 
 // Filled is the pair's masks joined, the second half above the first's slots.
-func (c Compound) Filled() uint64 { return c.First.Filled() | c.Second.Filled()<<c.First.Len() }
+func (c Pair[B]) Filled() uint64 { return c.First.Filled() | c.Second.Filled()<<c.First.Len() }
 
 // Put replaces what the given one of the pair's slots holds.
-func (c Compound) Put(slot int, stack protocol.ItemStack) {
+func (c Pair[B]) Put(slot int, stack protocol.ItemStack) {
 	if n := c.First.Len(); slot >= n {
 		c.Second.Put(slot-n, stack)
 		return
@@ -74,15 +78,15 @@ func (c Compound) Put(slot int, stack protocol.ItemStack) {
 }
 
 // Stacks is a copy of the pair's slots.
-func (c Compound) Stacks() []protocol.ItemStack {
+func (c Pair[B]) Stacks() []protocol.ItemStack {
 	return append(slices.Clone(c.First.Stacks()), c.Second.Stacks()...)
 }
 
 // Len is how many slots the pair has: both halves'.
-func (c Compound) Len() int { return c.First.Len() + c.Second.Len() }
+func (c Pair[B]) Len() int { return c.First.Len() + c.Second.Len() }
 
 // Kind is the double chest's window.
-func (c Compound) Kind() Kind { return KindDoubleChest }
+func (c Pair[B]) Kind() Kind { return KindDoubleChest }
 
 // slotRange is 0..n-1 for every block size, shared and never written:
 // vanilla's CACHED_SLOTS, so a move allocates no slot list.
@@ -439,14 +443,24 @@ func addItemPtr[B Block](dest B, stack *protocol.ItemStack, face int32, throughF
 // addOneItem pours a single item of stack into dest's face slots without
 // mutating or copying stack unless an empty slot accepts it.
 func addOneItem[B Block](dest B, stack *protocol.ItemStack, face int32, throughFace bool) (moved, intoEmpty bool) {
+	kind := dest.Kind()
 	slots := allSlots(dest)
-	if throughFace && isWorldly(dest.Kind()) {
+	if throughFace && isWorldly(kind) {
 		slots = slotsForFace(dest, face)
 	}
+	checkPlacement := !isPlainContainer(kind)
+	if kind == KindCrafter {
+		target := crafterTarget(dest, stack)
+		if target < 0 {
+			return false, false
+		}
+		// Crafters expose the whole grid in slot order on every face.
+		slots = slots[target : target+1]
+		checkPlacement = false
+	}
 	wasEmpty := Empty(dest)
-	plain := isPlainContainer(dest.Kind())
 	for _, slot := range slots {
-		if !plain && !canPlaceThroughFace(dest, stack, slot) {
+		if checkPlacement && !canPlaceThroughFace(dest, stack, slot) {
 			continue
 		}
 		item := dest.StackPtr(slot)
