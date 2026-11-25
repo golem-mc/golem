@@ -13,7 +13,7 @@ func TestMoveWithoutVerticalMotionClearsGround(t *testing.T) {
 	}{{1, true}, {2, false}} {
 		w := flatWorld(t)
 		m := NewMob(TypePig, 1, 0.5, 64, 0.5, 1)
-		m.OnGround = true
+		m.OnGround, m.GroundGuess = true, true
 		m.Age = tc.age
 		m.move(w, 0.45, 0, 0)
 		if m.OnGround != tc.want {

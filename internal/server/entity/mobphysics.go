@@ -408,10 +408,10 @@ func (m *Mob) move(w World, dx, dy, dz float64) {
 			m.bouncedOff = m.bouncedOff || m.VY != 0
 		}
 		m.OnGround = false
-	} else if m.Age > 1 {
+	} else if !m.GroundGuess || m.Age > 1 {
 		// vanilla: Entity.move, setOnGroundWithMovement: only a downward move
-		// that collides leaves the flag set. A spawn's first tick keeps the
-		// grounded stand-in flag set in standMobArriving, which callers rely on.
+		// that collides leaves the flag set. A guessed flag survives the
+		// spawn's first tick, which callers rely on.
 		m.OnGround = false
 	}
 

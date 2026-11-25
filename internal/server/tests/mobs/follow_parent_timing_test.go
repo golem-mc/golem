@@ -51,6 +51,16 @@ func TestCalfFollowTimingOnFlatGround(t *testing.T) {
 				{45, 4.05961435, 1.08429801}, {90, 2.79711692, 1.08429801},
 			},
 		},
+		{
+			name: "mounted adult with level motion",
+			setup: []string{
+				`summon minecraft:pig -0.1 180 0.5 {OnGround:1b,Motion:[0.45d,0d,0d],Passengers:[{id:"minecraft:cow",NoAI:1b}]}`,
+				"summon minecraft:cow 8.85 180 0.5 {Age:-24000}",
+			},
+			adultY:    180.86874998,
+			firstNear: 0,
+			want:      []sample{{3, 8.85, 0.81928706}},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
