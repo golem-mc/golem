@@ -109,11 +109,8 @@ func (s *Server) hopperCartSuck(it *minecartEntity) {
 	whole := false
 	if above == nil {
 		mouth = s.itemEntitiesIn(w, x-0.5, y-0.5+11.0/16.0, z-0.5, x+0.5, y-0.5+2, z+0.5)
-		for _, e := range mouth {
-			if try(e) {
-				whole = true
-				break
-			}
+		if slices.ContainsFunc(mouth, try) {
+			whole = true
 		}
 	}
 	if !whole {
