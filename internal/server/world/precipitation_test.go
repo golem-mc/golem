@@ -149,6 +149,51 @@ func TestMotionHeightTracksTheWrittenColumn(t *testing.T) {
 	}
 }
 
+// TestMotionHeightIncrementalMatchesRescan applies batches that add, remove and
+// replace a column's top, then empty the column, and compares the cached
+// height with a full scan after each.
+func TestMotionHeightIncrementalMatchesRescan(t *testing.T) {
+	t.Parallel()
+	slab := registry.MustState("minecraft:oak_slab", map[string]string{"type": "bottom"})
+	w := newRainWorld(t, "minecraft:plains")
+	w.motionBlockingHeight(0, 0)
+	top := int32(GroundLevel + 10)
+	batches := []struct {
+		name string
+		set  []BlockChange
+	}{
+		{"add above", []BlockChange{{X: 0, Y: top, Z: 0, State: stoneState}}},
+		{"add and remove the new top", []BlockChange{{X: 0, Y: top + 3, Z: 0, State: stoneState}, {X: 0, Y: top + 3, Z: 0, State: airState}}},
+		{"remove top", []BlockChange{{X: 0, Y: top, Z: 0, State: airState}}},
+		{"replace top", []BlockChange{{X: 0, Y: GroundLevel - 1, Z: 0, State: slab}}},
+		{"write below top", []BlockChange{{X: 0, Y: GroundLevel - 5, Z: 0, State: airState}}},
+		{"raise and lower", []BlockChange{{X: 0, Y: top, Z: 0, State: stoneState}, {X: 0, Y: top + 1, Z: 0, State: stoneState}, {X: 0, Y: top + 1, Z: 0, State: airState}, {X: 0, Y: top, Z: 0, State: airState}}},
+	}
+	// the whole column cleared
+	var clear []BlockChange
+	for y := int32(worldMinY); y < top+8; y++ {
+		clear = append(clear, BlockChange{X: 0, Y: y, Z: 0, State: airState})
+	}
+	batches = append(batches, struct {
+		name string
+		set  []BlockChange
+	}{"clear column", clear})
+	for _, b := range batches {
+		w.SetBlocks(b.set)
+		w.mu.RLock()
+		loaded := w.chunks[ChunkPos{}]
+		want := w.motionHeight(loaded.chunk, 0, 0)
+		got := loaded.motion[0][0]
+		w.mu.RUnlock()
+		if got != want {
+			t.Errorf("%s: cached height = %d, rescan = %d", b.name, got, want)
+		}
+	}
+	if h := w.motionBlockingHeight(0, 0); h != w.dim.minY-1 {
+		t.Errorf("cleared column height = %d, want %d", h, w.dim.minY-1)
+	}
+}
+
 // motionHeightPrimed reports whether the chunk at pos already carries its
 // MOTION_BLOCKING heightmap.
 func motionHeightPrimed(w *World, pos ChunkPos) bool {
