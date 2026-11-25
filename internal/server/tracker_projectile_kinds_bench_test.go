@@ -89,6 +89,18 @@ func BenchmarkTickFireworksTracked(b *testing.B) {
 	}
 }
 
+func BenchmarkRegisterUnseenFirework(b *testing.B) {
+	s, w := newBlockBenchServer(b, 0)
+	stack := protocol.ItemStack{ItemID: int32(registry.ItemFireworkRocket), Count: 1}
+	rocket := s.newFirework(w, stack, 0.5, 70, 0.5, 0, uuid.Nil, 0)
+	b.ReportAllocs()
+	for b.Loop() {
+		s.registerFirework(rocket)
+		fireworkTracker.unfile(rocket)
+		s.fireworks = s.fireworks[:0]
+	}
+}
+
 // BenchmarkWholeTickFireworksFrozen measures a frozen tick with and without
 // rockets in range of the connected players.
 func BenchmarkWholeTickFireworksFrozen(b *testing.B) {
