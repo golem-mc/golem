@@ -193,7 +193,7 @@ func foxPreyGoals(m *Mob) []Goal {
 		&foxPreyGoal{mobTargetGoal{m: m, unsighted: true, interval: foxLandScan,
 			matches: func(o *Mob) bool { return o.Type == TypeTurtle && o.IsBaby() && !o.InWater() }}, 4, 6},
 		&foxPreyGoal{mobTargetGoal{m: m, unsighted: true, interval: foxFishScan,
-			matches: func(o *Mob) bool { return FishKind(o.Type) }}, 6, 4},
+			matches: func(o *Mob) bool { return o.IsSchoolingFish() }}, 6, 4},
 	}
 }
 

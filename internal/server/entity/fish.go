@@ -101,6 +101,10 @@ func FishKind(t MobType) bool {
 	return t == TypeCod || t == TypeSalmon || t == TypeTropicalFish || t == TypePufferfish
 }
 
+// IsSchoolingFish reports whether the mob is an AbstractSchoolingFish: a cod,
+// salmon or tropical fish, not a pufferfish.
+func (m *Mob) IsSchoolingFish() bool { return m.IsFish() && m.Type != TypePufferfish }
+
 // maxSchoolSize is AbstractSchoolingFish.getMaxSchoolSize: the salmon's five,
 // otherwise AbstractFish.getMaxSpawnClusterSize' eight.
 func (m *Mob) maxSchoolSize() int {

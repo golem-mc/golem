@@ -141,3 +141,59 @@ func TestAFoxFinishesAMealWithItsEffectsAndRemainder(t *testing.T) {
 		t.Error("the golden apple left no regeneration")
 	}
 }
+
+// TestASnowFoxHuntsCodButNotPufferfish: with no other prey, a snow fox goes
+// for a cod in a pool and leaves a pufferfish there alone.
+// vanilla: Fox.registerGoals (AbstractSchoolingFish filter), Pufferfish extends AbstractFish
+func TestASnowFoxHuntsCodButNotPufferfish(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		fish     string
+		wantDead bool
+		deep     bool // a pufferfish suffocates in one block of water
+		seed     int64
+		wide     int32 // 1 for a pool a pufferfish does not flop out of
+	}{
+		{"minecraft:cod", true, false, 4, 0},
+		{"minecraft:pufferfish", false, true, 5, 1},
+	} {
+		t.Run(tc.fish, func(t *testing.T) {
+			t.Parallel()
+			srv := foxScene(t, false)
+			srv.SetSpawning(false)
+			srv.SetOverworldBiome(foxBlock, 0, "minecraft:snowy_taiga")
+			srv.SetOverworldBiome(foxBlock, -1, "minecraft:snowy_taiga")
+			water := servertest.BlockState(t, "minecraft:water")
+			stone := servertest.BlockState(t, "minecraft:stone")
+			for dx := int32(-1); dx <= 4; dx++ {
+				for dz := int32(-1); dz <= 2; dz++ {
+					srv.SetBlock(foxBlock+4+dx, 61, dz, stone)
+				}
+			}
+			for dx := int32(0); dx <= 1+2*tc.wide; dx++ {
+				for dz := int32(0); dz <= tc.wide; dz++ {
+					srv.SetBlock(foxBlock+4+dx, 63, dz, water)
+					if tc.deep {
+						srv.SetBlock(foxBlock+4+dx, 62, dz, water)
+					} else {
+						srv.SetBlock(foxBlock+4+dx, 62, dz, stone)
+					}
+				}
+			}
+			fox := srv.SpawnMobSeeded(foxType, foxX, 64, 0.5, 3)
+			if foxState(t, srv, fox).Variant != 1 {
+				t.Fatal("the fox is not a snow fox")
+			}
+			fish := srv.SpawnMobSeeded(tc.fish, foxX+5, 63.3, 0.5, tc.seed)
+			for range 600 {
+				servertest.RunTicks(t, srv, 1)
+				if !mobAlive(srv, fish) {
+					break
+				}
+			}
+			if dead := !mobAlive(srv, fish); dead != tc.wantDead {
+				t.Errorf("%s dead = %v, want %v", tc.fish, dead, tc.wantDead)
+			}
+		})
+	}
+}
