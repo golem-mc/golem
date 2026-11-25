@@ -1355,7 +1355,7 @@ func (g *followParentGoal) CanStart(t *tickView) bool {
 		if g.sensedParent != nil {
 			break
 		}
-		if o == g.m || o.Type != g.m.Type || !o.Alive() || o.IsBaby() {
+		if o == g.m || o.Type != g.m.Type || o.gone || o.IsBaby() {
 			continue
 		}
 		if !boxesOverlap(

@@ -33,6 +33,27 @@ func TestFollowParentLeavesHerd(t *testing.T) {
 	}
 }
 
+// TestFollowParentDyingAdult starts toward a nearer dying adult and stops
+// once it is dead.
+func TestFollowParentDyingAdult(t *testing.T) {
+	calf := NewMob(TypeCow, 1, 8.85, 64, 0.5, 1)
+	calf.BabyAge = -24000
+	rider := NewMob(TypeCow, 2, 0.3, 64, 0.5, 2)
+	dying := NewMob(TypeCow, 3, 15.5, 64, 0.5, 3)
+	dying.Dead = true
+	view := &tickView{w: testWorld{}, others: []*Mob{calf, rider, dying}}
+	g := &followParentGoal{m: calf}
+	if !g.CanStart(view) {
+		t.Fatal("calf did not start")
+	}
+	if g.parent != dying {
+		t.Fatalf("calf chose %v, want the nearer dying adult", g.parent.ID)
+	}
+	if g.ShouldContinue(view) {
+		t.Error("kept following a dying adult")
+	}
+}
+
 // BenchmarkFollowParentShouldContinue measures an active follow goal's
 // per-tick check with the parent last in a herd of the given size.
 func BenchmarkFollowParentShouldContinue(b *testing.B) {
