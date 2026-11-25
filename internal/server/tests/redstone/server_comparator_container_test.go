@@ -85,8 +85,9 @@ func TestComparatorFollowsADoubleChestChangedThroughItsWindow(t *testing.T) {
 // vanilla: CompoundContainer.setChanged, Level.updateNeighbourForOutputSignal, ComparatorBlock.refreshOutputState
 func TestAComparatorBehindAConductorSeesTheFartherChestHalfTwoTicksLater(t *testing.T) {
 	t.Parallel()
-	srv, c := servertest.Dial(t, servertest.BlockTestConfig(), servertest.OpsListing(t, "Testificate"))
-	w := servertest.WindowedOf(t, "Testificate", c)
+	srv, w := servertest.OpenWindowedOps(t, servertest.BlockTestConfig())
+	c := w.Client
+	servertest.HoldTicks(t, srv)
 
 	servertest.Setblock(t, c, 13, 64, 0, "minecraft:chest[facing=south,type=right]")
 	servertest.Setblock(t, c, 14, 64, 0, "minecraft:chest[facing=south,type=left]")
@@ -96,8 +97,9 @@ func TestAComparatorBehindAConductorSeesTheFartherChestHalfTwoTicksLater(t *test
 		t.Fatal("the cells' chunks are not loaded")
 	}
 	servertest.Setblock(t, c, 16, 64, 0, "minecraft:comparator[facing=west]")
-	servertest.RunTicks(t, srv, 5)
-	servertest.ExpectWirePower(t, srv, 17, 64, 0, "0")
+	if got := servertest.WirePowerAt(srv, 17, 64, 0); got != "0" {
+		t.Fatalf("the wire reads %q before the click, want 0", got)
+	}
 
 	// The click changes a single half; slot 0 is in the half the test
 	// checks below to be the one at x=13.
@@ -106,7 +108,6 @@ func TestAComparatorBehindAConductorSeesTheFartherChestHalfTwoTicksLater(t *test
 	w.UseBlock(13, 64, 0)
 	w.ExpectContainerOpen(protocol.MenuGeneric9x6, true, 13, 64, 0)
 	w.SetCreativeSlot(36, dirt)
-	servertest.HoldTicks(t, srv)
 	w.Click(81, 0, protocol.ClickModePickup)
 	w.ExpectClickResult(map[int16]protocol.ItemStack{81: {}}, dirt)
 	w.Click(0, 0, protocol.ClickModePickup)
