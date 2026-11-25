@@ -44,11 +44,10 @@ func gameEventOf(o obj) registry.GameEvent {
 	return ev
 }
 
-// isSimpleProvider reports whether a provider type is the simple one; the
-// world compiler accepts both names too.
+// isSimpleProvider reports whether a provider type is the simple one.
 func isSimpleProvider(t string) bool {
 	t = registry.Qualify(t)
-	return t == "minecraft:simple_state_provider" || t == "minecraft:simple"
+	return t == "minecraft:simple"
 }
 
 // simpleState reads a simple state provider or a bare state; a registry

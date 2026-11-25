@@ -32,7 +32,7 @@ func TestDiskClearsTallPlantAboveIt(t *testing.T) {
 	place := compileFeature(parseJSON(`{"type":"disk","config":{
 		"half_height":0,"radius":2,
 		"target":{"type":"matching_blocks","blocks":"minecraft:grass_block"},
-		"state_provider":{"type":"simple_state_provider","state":{"Name":"minecraft:sand"}}
+		"state_provider":{"type":"simple","state":{"Name":"minecraft:sand"}}
 	}}`))
 	if !place(r, [3]int32{8, y, 8}) {
 		t.Fatal("disk placed nothing")

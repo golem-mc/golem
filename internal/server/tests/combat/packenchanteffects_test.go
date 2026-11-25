@@ -73,7 +73,7 @@ func TestPackRunFunctionRunsAsVictim(t *testing.T) {
 
 // vanilla: ReplaceBlock.apply
 func TestPackReplaceBlockUnderVictim(t *testing.T) {
-	srv, _ := hitZombieWith(t, `{"type":"minecraft:replace_block","block_state":{"type":"minecraft:simple_state_provider","state":{"id":"minecraft:gold_block"}},"offset":[0,-1,0]}`, nil)
+	srv, _ := hitZombieWith(t, `{"type":"minecraft:replace_block","block_state":{"type":"minecraft:simple","state":{"id":"minecraft:gold_block"}},"offset":[0,-1,0]}`, nil)
 	gold, _ := registry.BlockByName("minecraft:gold_block")
 	if got := registry.BlockOf(srv.BlockAt(2, 63, 0)); got != gold {
 		t.Fatalf("block under the zombie is %s, want gold_block", got.Name())

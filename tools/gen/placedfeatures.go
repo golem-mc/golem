@@ -38,7 +38,7 @@ var modeledTypes = map[string]bool{
 	"has_sturdy_face": true, "true": true, "inside_world_bounds": true, "volume_match": true,
 	// state providers
 	"weighted": true, "randomized_int": true,
-	"simple_state_provider": true, "weighted_state_provider": true, "noise_threshold_provider": true,
+	"weighted_state_provider": true, "noise_threshold_provider": true,
 	"dual_noise_provider": true, "randomized_int_state_provider": true, "noise_provider": true,
 	// int and height providers
 	"constant": true, "uniform": true, "biased_to_bottom": true, "clamped": true,
