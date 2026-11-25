@@ -41,16 +41,13 @@ func (a chunkArea) each(yield func(world.ChunkPos) bool) {
 	}
 }
 
-func smallChunkArea(b *[6]float64) *chunkArea {
+func smallChunkArea(b *[6]float64) (chunkArea, bool) {
 	a, ok := chunkAreaOf(b)
 	if !ok {
-		return nil
+		return chunkArea{}, false
 	}
 	width, depth := int64(a.maxX-a.minX+1), int64(a.maxZ-a.minZ+1)
-	if width*depth > 256 {
-		return nil
-	}
-	return &a
+	return a, width*depth <= 256
 }
 
 func chunkAreaOf(b *[6]float64) (chunkArea, bool) {
@@ -72,17 +69,12 @@ func (a chunkArea) contains(pos world.ChunkPos) bool {
 }
 
 func bodiesInChunks[E any](ix *entity.ChunkIndex[E], q *entityQuery) iter.Seq[E] {
-	if q.chunk != nil {
-		return ix.In(*q.chunk)
-	}
 	return func(yield func(E) bool) {
-		for pos := range q.area.each {
-			for body := range ix.In(pos) {
-				if !yield(body) {
-					return
-				}
-			}
+		if q.chunk != nil {
+			ix.Visit(*q.chunk, yield)
+			return
 		}
+		q.area.each(func(pos world.ChunkPos) bool { return ix.Visit(pos, yield) })
 	}
 }
 

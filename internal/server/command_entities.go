@@ -1344,7 +1344,9 @@ func (ws worldScope) Entities(filters command.EntityQuery) []command.Entity {
 func (ws worldScope) query(q entityQuery) []command.Entity {
 	s := ws.srv
 	if q.Box != nil && q.chunk == nil && q.UUID == nil {
-		q.area = smallChunkArea(q.Box)
+		if area, ok := smallChunkArea(q.Box); ok {
+			q.area = &area
+		}
 	}
 	// Bound maintenance is linear in the batch size; larger limits collect once.
 	if q.Limit > 0 && q.Limit <= 16 {

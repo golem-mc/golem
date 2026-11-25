@@ -583,7 +583,7 @@ func (wt *arrowWorldTargets) mobsInSweep(h *mobHerd, box [6]float64, owner *enti
 	if wt.mobHeights == nil {
 		wt.mobHeights = make(map[world.ChunkPos][2]float64)
 	}
-	if area := smallChunkArea(&box); area != nil {
+	if area, ok := smallChunkArea(&box); ok {
 		for pos := range area.each {
 			mobs = wt.mobsInSweepChunk(mobs, h, pos, box, owner)
 		}
