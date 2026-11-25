@@ -192,7 +192,6 @@ func (c *client) fireCrossbow(hand int32) {
 		firework := isFireworkRocket(projectile)
 		if firework {
 			// vanilla: CrossbowItem.createProjectile
-			projectile.Count = 1
 			rocket := s.newFirework(c.theWorld(), projectile, pos.X,
 				pos.Y+c.dims(c.player.Appearance().Pose).EyeHeight-0.15, pos.Z,
 				c.player.EntityID, c.player.UUID, 0)

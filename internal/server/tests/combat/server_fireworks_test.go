@@ -413,7 +413,9 @@ func TestAGlidingPlayerUsesARocketAttachedToThemselves(t *testing.T) {
 	servertest.UseHeld(c, -90, 0)
 	c.AwaitPlay(protocol.IDPlayContainerSlot)
 	c.AwaitPlay(protocol.IDPlayContainerSlot)
-	srv.GiveSlot("Glider", 36, servertest.FireworkStack(0, 1))
+	two := servertest.FireworkStack(0, 1)
+	two.Count = 2
+	srv.GiveSlot("Glider", 36, two)
 
 	// A flight-duration rocket of one explosion: the life is ten ticks
 	// and up to eleven more, and the burst asks five and two a star.
@@ -454,13 +456,21 @@ func TestAGlidingPlayerUsesARocketAttachedToThemselves(t *testing.T) {
 	}
 	// The attachment the metadata tells: the rocket rides the player.
 	attached := int32(-1)
+	itemCount := int32(0)
 	for _, m := range traffic.metasOf(rocket.EntityID) {
 		if m.attached >= 0 {
 			attached = m.attached
 		}
+		if m.item != nil {
+			itemCount = m.item.Count
+		}
 	}
 	if attached != playerID {
 		t.Errorf("the rocket's attachment names entity %d, want the glider's %d", attached, playerID)
+	}
+	// The rocket entity keeps the used stack's count.
+	if itemCount != 2 {
+		t.Errorf("the rocket's item holds %d, want the used stack's two", itemCount)
 	}
 
 	// The burst: the event, the removal, and the hurts. The glider takes
@@ -514,8 +524,8 @@ func TestAGlidingPlayerUsesARocketAttachedToThemselves(t *testing.T) {
 		}
 	}
 	// The rocket the survival hand used was spent.
-	if left := srv.InventorySlot("Glider", 36); left.Count != 0 {
-		t.Errorf("the hotbar still holds %d rockets, want the one use to spend it", left.Count)
+	if left := srv.InventorySlot("Glider", 36); left.Count != 1 {
+		t.Errorf("the hotbar holds %d rockets, want the one the use left", left.Count)
 	}
 }
 
@@ -728,5 +738,35 @@ func TestLevitationEndsAGlide(t *testing.T) {
 	c.PumpTicks(srv, 3, func(int32, []byte) bool { return false })
 	if srv.PlayerFallFlying("Glider") {
 		t.Error("the glide went on under Levitation")
+	}
+}
+
+// TestACrossbowRocketKeepsTheChargedStackCount fires a crossbow loaded with
+// a stack of five rockets: the rocket's item keeps that count.
+func TestACrossbowRocketKeepsTheChargedStackCount(t *testing.T) {
+	t.Parallel()
+	srv, c, _ := servertest.JoinAs(t, servertest.BowTestConfig(), "Archer")
+	crossbow := servertest.ItemStack(t, "minecraft:crossbow", 1)
+	rocket := servertest.FireworkStack(0, 1)
+	rocket.Count = 5
+	crossbow.SetChargedProjectiles([]protocol.ItemStack{rocket})
+	srv.GiveSlot("Archer", 36, crossbow)
+	c.MoveToGrounded(0.5, 64, 0.5, -90, 0, false)
+	servertest.HoldTicks(t, srv)
+	servertest.UseHeld(c, -90, 0)
+
+	traffic := readFireworkTraffic(c, srv, 5)
+	fired := traffic.fireworkOf()
+	if fired == nil {
+		t.Fatal("no firework rocket came into the world for the crossbow shot")
+	}
+	count := int32(0)
+	for _, m := range traffic.metasOf(fired.EntityID) {
+		if m.item != nil {
+			count = m.item.Count
+		}
+	}
+	if count != 5 {
+		t.Errorf("the rocket's item holds %d, want the charged stack's five", count)
 	}
 }
