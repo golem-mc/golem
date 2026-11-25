@@ -128,3 +128,24 @@ func TestAttributeSpeedDrivesTheChase(t *testing.T) {
 		t.Errorf("the zombie quickened to 1.0 stands %v blocks away, on the far side of its hunt", d)
 	}
 }
+
+// TestFrozenZombieListsMovementSpeed has a zombie summoned under a frozen
+// loop list its default movement_speed before any tick.
+// vanilla: Zombie.setBaby
+func TestFrozenZombieListsMovementSpeed(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.MobTestConfig()
+	srv, c := servertest.Join(t, cfg, "Keeper", servertest.OpsListing(t, "Keeper"))
+	srv.RunLine("tick freeze")
+
+	c.ChatCommand("summon minecraft:zombie 1.5 64 0.5 {NoAI:1b}")
+	c.Settle()
+	c.ChatCommand(`data get entity @e[type=minecraft:zombie,limit=1] attributes[{id:"minecraft:movement_speed"}].base`)
+	line := servertest.FeedbackComponent(t, c)
+	if line.Translate != "commands.data.entity.query" || len(line.With) != 2 {
+		t.Fatalf("feedback = %+v, want commands.data.entity.query", line)
+	}
+	if got := line.With[1].Plain(); got != "0.23000000417232513d" {
+		t.Errorf("movement_speed base = %s, want 0.23000000417232513d", got)
+	}
+}
