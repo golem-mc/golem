@@ -15,7 +15,7 @@ func TestSummonedFangsKeepAPlayerOwner(t *testing.T) {
 	t.Parallel()
 	srv, connect := servertest.Start(t, servertest.HostileTestConfig(), servertest.OpsListing(t, "Owner"))
 	srv.SetSpawning(false)
-	owner := connect().Join("Owner")
+	connect().Join("Owner")
 	connect().Join("Mate")
 	connect().Join("Foe")
 	servertest.HoldTicks(t, srv)
@@ -25,7 +25,9 @@ func TestSummonedFangsKeepAPlayerOwner(t *testing.T) {
 	srv.RunLine("tp Owner 0 80 0")
 	srv.RunLine("tp Mate 8 80 0")
 	srv.RunLine("tp Foe 16 80 0")
-	servertest.RunTicks(t, srv, 40)
+	servertest.UntilTicks(t, srv, 100, "the players to arrive", func() bool {
+		return srv.PlayerPosition("Foe").X > 15 && srv.PlayerPosition("Mate").X > 7
+	})
 
 	id := protocol.OfflineUUID("Owner")
 	ints := fmt.Sprintf("[I;%d,%d,%d,%d]",
@@ -36,7 +38,7 @@ func TestSummonedFangsKeepAPlayerOwner(t *testing.T) {
 	for _, name := range []string{"Owner", "Mate", "Foe"} {
 		p := srv.PlayerPosition(name)
 		before := srv.PlayerHealth(name)
-		owner.ChatCommand(fmt.Sprintf("summon minecraft:evoker_fangs %f %f %f {Warmup:0,Owner:%s}", p.X, p.Y, p.Z, ints))
+		srv.RunLine(fmt.Sprintf("summon minecraft:evoker_fangs %f %f %f {Warmup:0,Owner:%s}", p.X, p.Y, p.Z, ints))
 		servertest.RunTicks(t, srv, 30)
 		hurt := srv.PlayerHealth(name) < before
 		if want := name == "Foe"; hurt != want {
