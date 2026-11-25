@@ -1637,6 +1637,24 @@ func (p *Physics) tickCancelled(t scheduledTick) bool {
 	return ok
 }
 
+// hasTickDueAt reports whether the active queue contains a live visit
+// at pos with the requested due tick. Runs under p.mu.
+func (p *Physics) hasTickDueAt(pos blockKey, due int64) bool {
+	return p.hasTickDueIn(0, pos, due)
+}
+
+func (p *Physics) hasTickDueIn(i int, pos blockKey, due int64) bool {
+	// A heap child can only be due at the same time as its parent or later.
+	if i >= len(p.queue) || p.queue[i].due > due {
+		return false
+	}
+	t := p.queue[i]
+	if t.due == due && t.pos == pos && !p.tickCancelled(t) {
+		return true
+	}
+	return p.hasTickDueIn(2*i+1, pos, due) || p.hasTickDueIn(2*i+2, pos, due)
+}
+
 // set writes a block, records the change and runs the position's neighbour
 // update, so physics' own changes get the server's treatment: water a fall
 // opened flows, a torch the flow stranded breaks. A write outside loaded chunks

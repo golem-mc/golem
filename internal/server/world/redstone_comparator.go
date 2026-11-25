@@ -466,7 +466,7 @@ func (p *Physics) comparatorWrite(x, y, z int32, state uint16, f int, changes *[
 // at HIGH priority when shouldPrioritize says so.
 // vanilla: ComparatorBlock.checkTickOnNeighbor
 func (p *Physics) comparatorCheckTickOnNeighbor(x, y, z int32, state uint16, tick int64) {
-	if p.repeaterWillTick(x, y, z, tick) {
+	if p.hasTickDueAt(blockKey{x, y, z}, tick) {
 		return
 	}
 	f := facingOfState(state)
