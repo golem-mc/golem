@@ -1,8 +1,11 @@
 package terrain
 
-import "slices"
+import (
+	"math"
+	"slices"
 
-import "math"
+	"github.com/golem-mc/golem/internal/server/world/levelgen"
+)
 
 // ruleFn is a compiled rule: the block it places at a position, if any.
 // vanilla: RuleEvaluator
@@ -107,6 +110,7 @@ func oreVein(pick func(*VeinConfig) Vein, ore, rawOre, filler Material) material
 		richness := c.pointDensity(veins.Richness)
 		gap := c.pointDensity(veins.Gap)
 		factory := c.sys.rs.RandomFactory("minecraft:ore")
+		var r levelgen.RandomSource
 		return func(x, y, z int32) (Material, bool) {
 			if y < vein.MinY || y > vein.MaxY {
 				return 0, false
@@ -115,7 +119,11 @@ func oreVein(pick func(*VeinConfig) Vein, ore, rawOre, filler Material) material
 			if d <= 0 {
 				return 0, false
 			}
-			r := factory.At(x, y, z)
+			if r == nil {
+				r = factory.At(x, y, z)
+			} else {
+				factory.SeedAt(r, x, y, z)
+			}
 			if r.NextFloat() > d {
 				return 0, false
 			}
