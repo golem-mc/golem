@@ -18,6 +18,19 @@ type pluginCommandRegistry struct {
 	mu     sync.Mutex
 	roots  []ownedCommand
 	active atomic.Bool
+	// epoch changes with roots; trees and perms are valid for it.
+	epoch      uint64
+	permsEpoch uint64 // epoch+1 that perms was computed for; 0 means never
+	perms      []string
+	trees      map[treeKey]*command.Node
+}
+
+// treeKey identifies a cached tree: the plugin permissions the sender holds
+// are one byte each in perms, in sorted node order.
+type treeKey struct {
+	level   int
+	plugins bool
+	perms   string
 }
 type ownedCommand struct {
 	owner *pluginHost
@@ -109,6 +122,7 @@ func (p pluginCommands) Register(c plugin.Command) error {
 	}
 	info := plugin.CommandInfo{Name: c.Name, Aliases: slices.Clone(c.Aliases), Description: c.Description, Usage: c.Usage, Permission: c.Permission, Plugin: p.host.Name()}
 	r.roots = append(r.roots, ownedCommand{p.host, c.Name, roots, info})
+	r.invalidate()
 	r.active.Store(true)
 	r.mu.Unlock()
 	retained := true
@@ -130,6 +144,13 @@ func (p pluginCommands) Unregister(name string) {
 	defer r.mu.Unlock()
 	r.roots = slices.DeleteFunc(r.roots, func(c ownedCommand) bool { return c.owner == p.host && c.name == name })
 	r.active.Store(len(r.roots) != 0)
+	r.invalidate()
+}
+
+// invalidate drops the cached trees. mu is held.
+func (r *pluginCommandRegistry) invalidate() {
+	r.epoch++
+	r.trees = nil
 }
 
 // All lists vanilla's commands with their aliases, then the plugins'. A
@@ -182,37 +203,85 @@ func (p pluginCommands) All() []plugin.CommandInfo {
 	return out
 }
 
+// pluginCommandTree returns the command graph src may use at level. Extending
+// the vanilla graph copies it, and a function looks a command up per line, so
+// trees are cached per level and per set of plugin permissions the sender
+// holds, until a plugin command is registered or unregistered.
 func (s *Server) pluginCommandTree(src command.Source, level int) *command.Node {
-	base := command.ForLevel(level)
-	s.pluginCommands.mu.Lock()
+	r := &s.pluginCommands
+	r.mu.Lock()
 	var roots []*command.Node
-	for _, c := range s.pluginCommands.roots {
+	for _, c := range r.roots {
 		roots = append(roots, c.roots...)
 	}
-	s.pluginCommands.mu.Unlock()
-	// With no plugin the tree depends on the level alone; a function runs a
-	// command per lookup, so copying the graph each time is too slow.
-	cacheable := len(roots) == 0 && !s.pluginCommands.active.Load() && !s.plugins.Any() && level >= 0 && level < len(s.bareTrees)
-	if cacheable {
-		if t := s.bareTrees[level].Load(); t != nil {
-			return t
-		}
+	epoch := r.epoch
+	if r.permsEpoch != epoch+1 {
+		r.perms, r.permsEpoch = distinctPermissions(roots), epoch+1
 	}
+	perms := r.perms
+	r.mu.Unlock()
+	sender := s.pluginCommandSender(src)
+	key := treeKey{level: level, plugins: s.plugins.Any()}
+	if len(perms) != 0 {
+		sig := make([]byte, len(perms))
+		for i, p := range perms {
+			sig[i] = '0'
+			if s.plugins.HasPermission(sender, p) {
+				sig[i] = '1'
+			}
+		}
+		key.perms = string(sig)
+	}
+	r.mu.Lock()
+	t := r.trees[key]
+	r.mu.Unlock()
+	if t != nil {
+		return t
+	}
+	hasCommands := len(roots) != 0
 	taken := make(map[string]bool, len(roots))
 	for _, n := range roots {
 		taken[n.Name] = true
 	}
+	base := command.ForLevel(level)
 	roots = append(roots, s.bukkitHelpRoots(taken)...)
 	roots = append(roots, s.pluginsRoots(taken)...)
-	if s.pluginCommands.active.Load() || s.plugins.Any() {
+	if hasCommands || key.plugins {
 		roots = append(roots, minecraftAliases(base, roots)...)
 	}
-	sender := s.pluginCommandSender(src)
 	tree := command.Extend(base, roots, func(n *command.Node) bool { return n.Permission == "" || s.plugins.HasPermission(sender, n.Permission) })
-	if cacheable {
-		s.bareTrees[level].Store(tree)
+	r.mu.Lock()
+	if r.epoch == epoch {
+		if r.trees == nil {
+			r.trees = make(map[treeKey]*command.Node)
+		}
+		r.trees[key] = tree
 	}
+	r.mu.Unlock()
 	return tree
+}
+
+// distinctPermissions lists the permission nodes the graphs under roots gate on, sorted.
+func distinctPermissions(roots []*command.Node) []string {
+	set := make(map[string]bool)
+	var walk func(*command.Node)
+	walk = func(n *command.Node) {
+		if n.Permission != "" {
+			set[n.Permission] = true
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	for _, n := range roots {
+		walk(n)
+	}
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // minecraftAliases names every vanilla root minecraft:<name>, as Bukkit does,
