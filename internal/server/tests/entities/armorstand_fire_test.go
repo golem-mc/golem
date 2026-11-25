@@ -68,3 +68,46 @@ func TestArmorStandFireMetadataReachesExistingWatchers(t *testing.T) {
 	expectFlags(protocol.EntityFlagGlowing | protocol.EntityFlagOnFire)
 	c.ExpectNoneWithinTicks(srv, 3, servertest.PacketAbout(stand.EntityID, protocol.IDPlayEntityMetadata))
 }
+
+// vanilla: Entity.baseTick, ArmorStand.hurtServer
+func TestMarkerArmorStandFireExpires(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Watcher", servertest.OpsListing(t, "Watcher"))
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand(`summon minecraft:armor_stand 5.5 64 5.5 {Marker:1b,Fire:2s,Tags:["markcheck"]}`)
+	stand := c.ExpectArmorStandSpawn()
+	fire := func() string {
+		t.Helper()
+		return standCommandText(t, c, "data get entity @e[tag=markcheck,limit=1] Fire", "commands.data.entity.query").With[1].Plain()
+	}
+	sawFlags := func(want uint8) bool {
+		return c.ReadTicks(srv, 1, func(id int32, data []byte) bool {
+			if id != protocol.IDPlayEntityMetadata {
+				return false
+			}
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() != stand.EntityID {
+				return false
+			}
+			entries, _ := servertest.ReadMetadata(r)
+			for _, e := range entries {
+				if e.Index == protocol.MetadataIndexEntityFlags && e.ByteVal&protocol.EntityFlagOnFire == want {
+					return true
+				}
+			}
+			return false
+		})
+	}
+	if !sawFlags(protocol.EntityFlagOnFire) {
+		t.Fatalf("on-fire bit not sent on the first tick")
+	}
+	if got := fire(); got != "1s" {
+		t.Fatalf("Fire after one tick = %s, want 1s", got)
+	}
+	if !sawFlags(0) {
+		t.Fatalf("on-fire bit not cleared after fire expired")
+	}
+	if got := fire(); got != "0s" {
+		t.Fatalf("Fire after two ticks = %s, want 0s", got)
+	}
+}

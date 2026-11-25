@@ -218,6 +218,11 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 	}
 	s.tickEffects()
 	if s.Marker {
+		// A marker takes no damage but its fire still counts down.
+		// vanilla: Entity.baseTick
+		if s.FireTicks > 0 {
+			s.FireTicks--
+		}
 		return events
 	}
 
