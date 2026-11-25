@@ -309,7 +309,7 @@ type shulkerWorld struct {
 	others []*Mob
 }
 
-func (s shulkerWorld) BodyBoxes(box AABB) []AABB {
+func (s *shulkerWorld) BodyBoxes(box AABB) []AABB {
 	var out []AABB
 	if b, ok := s.World.(BodyWorld); ok {
 		out = b.BodyBoxes(box)
@@ -344,7 +344,7 @@ func (s shulkerWorld) BodyBoxes(box AABB) []AABB {
 
 // blocks reports whether o is a live shulker outside self's ride chain whose
 // hull crosses box.
-func (s shulkerWorld) blocks(o *Mob, box AABB) bool {
+func (s *shulkerWorld) blocks(o *Mob, box AABB) bool {
 	if !o.IsShulker() || !o.Alive() || o.RootVehicle() == s.self.RootVehicle() {
 		return false
 	}
@@ -363,8 +363,11 @@ func (s shulkerWorld) blocks(o *Mob, box AABB) bool {
 	return box.Crosses(o.mobBox())
 }
 
-func (m *Mob) shulkerWorld(t *tickView) shulkerWorld {
-	return shulkerWorld{World: t.w, self: m, others: t.others}
+// shulkerWorld fills the tick view's reusable shulkerWorld, so the check does
+// not box a new one; it is valid until the next call on the same view.
+func (m *Mob) shulkerWorld(t *tickView) *shulkerWorld {
+	t.shulkerView = shulkerWorld{World: t.w, self: m, others: t.others}
+	return &t.shulkerView
 }
 
 // shulkerStep is Shulker.tick's server half: no velocity movement, a lost
