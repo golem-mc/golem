@@ -9,7 +9,7 @@ import (
 
 // TestFangsBiteHurtsMobsOnBothSidesOfAChunkBorderAndSparesAllies: fangs on a
 // chunk border hurt the mobs filed on either side and a body whose feet are
-// chunks away, and spare the owner and a vex whose summoner stands outside
+// chunks away, and spare the owner standing in the bite and a vex whose summoner stands outside
 // the search area.
 // vanilla: EvokerFangs.dealDamageTo, Evoker.considersEntityAsAlly
 func TestFangsBiteHurtsMobsOnBothSidesOfAChunkBorderAndSparesAllies(t *testing.T) {
@@ -17,7 +17,7 @@ func TestFangsBiteHurtsMobsOnBothSidesOfAChunkBorderAndSparesAllies(t *testing.T
 	srv, _ := servertest.Join(t, servertest.MobTestConfig(), "Watcher")
 	servertest.HoldTicks(t, srv)
 
-	owner := srv.SpawnMob("minecraft:evoker", 0.5, 64, 0.5)
+	owner := srv.SpawnMob("minecraft:evoker", 16, 64, 0.5)
 	west := srv.SpawnMob("minecraft:pig", 15.7, 64, 0.5)
 	east := srv.SpawnMob("minecraft:pig", 16.3, 64, 0.5)
 	far := srv.SpawnMob("minecraft:pig", 0.5, 64, -40.5)
@@ -25,8 +25,8 @@ func TestFangsBiteHurtsMobsOnBothSidesOfAChunkBorderAndSparesAllies(t *testing.T
 	allyVex := srv.SpawnMob("minecraft:vex", 16, 64, 0.5)
 	strayVex := srv.SpawnMob("minecraft:vex", 16, 64, 0.5)
 	srv.SetMobVexOwner(allyVex, distant)
-	// The ghast's feet are two chunks east, beyond the ordinary search padding.
-	wide := srv.SpawnMobTagged("minecraft:ghast", 46.5, 64, 0.5, nbt.Compound{
+	// The ghast's feet are in chunk X=3, beyond the ordinary search padding.
+	wide := srv.SpawnMobTagged("minecraft:ghast", 48.25, 64, 0.5, nbt.Compound{
 		"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
 			nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(16)},
 		}},
@@ -38,7 +38,7 @@ func TestFangsBiteHurtsMobsOnBothSidesOfAChunkBorderAndSparesAllies(t *testing.T
 	}
 
 	srv.SpawnFangs(16, 64, 0.5, owner)
-	servertest.RunTicks(t, srv, 30)
+	servertest.RunTicks(t, srv, 8)
 	for _, tc := range []struct {
 		name string
 		id   int32

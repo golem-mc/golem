@@ -188,11 +188,11 @@ func (s *Server) fangsBite(it fangsEffect) {
 		if m.Dead || m == owner.Mob {
 			return
 		}
-		if owner.Mob != nil && owner.Mob.EvokerFangsDirectAlly(m, ownerUUID) {
-			return
-		}
 		mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ := m.BlastBox()
 		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ) {
+			return
+		}
+		if owner.Mob != nil && owner.Mob.EvokerFangsDirectAlly(m, ownerUUID) {
 			return
 		}
 		if owner.Mob != nil && entity.FangsAllied(owner, entity.AllianceMember{Mob: m, Team: m.Team}, lookup) {
