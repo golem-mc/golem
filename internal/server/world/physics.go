@@ -2479,6 +2479,7 @@ const (
 	cellKnown
 	cellHoleKnown
 	cellHole
+	cellNoAdjacentHole
 )
 
 // cellFlags classifies the state for this spread's fluid and tag snapshot.
@@ -2728,8 +2729,11 @@ func (c *spreadContext) slopeDistance(i, pass, from, reach int) int {
 	if *failedDepth >= depth {
 		return 1000
 	}
-	lowest := 1000
 	flags := c.flags[i]
+	if depth == 1 && flags&cellNoAdjacentHole != 0 {
+		return 1000
+	}
+	lowest := 1000
 	for d, step := range spreadStep {
 		if d == from {
 			continue
@@ -2766,6 +2770,11 @@ func (c *spreadContext) slopeDistance(i, pass, from, reach int) int {
 	}
 	if lowest == 1000 {
 		*failedDepth = depth
+		// The scan ruled out three exits. Use only cached facts for the skipped face.
+		nf := c.flags[i+spreadStep[from]]
+		if nf&cellKnown != 0 && (nf&cellEnterable == 0 || nf&(cellHoleKnown|cellHole) == cellHoleKnown) {
+			c.flags[i] |= cellNoAdjacentHole
+		}
 	}
 	return lowest
 }
