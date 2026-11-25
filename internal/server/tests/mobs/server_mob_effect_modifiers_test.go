@@ -45,6 +45,26 @@ func attributeReply(c *servertest.Client, command, key string) string {
 	return got
 }
 
+// dataQuery runs a /data get command and returns its printed value, read
+// without a tick.
+func dataQuery(c *servertest.Client, command string) string {
+	c.T.Helper()
+	c.ChatCommand(command)
+	var got string
+	c.SettleAndCollect(func(id int32, data []byte) {
+		if id != protocol.IDPlaySystemChat {
+			return
+		}
+		if text, ok := protocol.ReadText(protocol.NewReader(data)); ok && text.Translate == "commands.data.entity.query" {
+			got = ""
+			for _, e := range text.With[len(text.With)-1].Extra {
+				got += e.Text
+			}
+		}
+	})
+	return got
+}
+
 func TestHealthBoostRaisesAMobsMaximumHealth(t *testing.T) {
 	t.Parallel()
 	srv, c := servertest.Join(t, effectModifierConfig(), "Keeper", servertest.OpsListing(t, "Keeper"))
@@ -104,6 +124,10 @@ func TestSavedEffectsDoNotRaiseMaximumHealth(t *testing.T) {
 	if got := attributeGet(c, "@e[type=minecraft:pig,limit=1]", "minecraft:max_health"); got != "10.0" {
 		t.Errorf("effect-only max_health = %q, want 10.0", got)
 	}
+	c.ChatCommand("effect clear @e[type=minecraft:pig,limit=1] minecraft:health_boost")
+	if got := dataQuery(c, "data get entity @e[type=minecraft:pig,limit=1] attributes"); got != `[{id: "minecraft:max_health", base: 10.0d}]` {
+		t.Errorf("attributes after clear = %s, want the max_health base row", got)
+	}
 
 	c.ChatCommand("summon minecraft:pig 1.5 64 0.5 " + savedBoostPigNBT)
 	boosted := c.AwaitSpawn(protocol.EntityTypePig)
@@ -142,15 +166,17 @@ func TestDurationNoticeKeepsACommandModifier(t *testing.T) {
 	srv, c := servertest.Join(t, effectModifierConfig(), "Keeper", servertest.OpsListing(t, "Keeper"))
 	servertest.HoldTicks(t, srv)
 
-	c.ChatCommand("summon minecraft:pig 0.5 64 0.5 {NoAI:1b}")
-	c.ExpectMobSpawn(protocol.EntityTypePig)
-	c.ChatCommand("effect give @e[type=minecraft:pig,limit=1] minecraft:health_boost 601 1")
+	c.ChatCommand(`summon minecraft:pig 0.5 64 0.5 {NoAI:1b,active_effects:[{id:"minecraft:health_boost",amplifier:1b,duration:601}]}`)
+	c.AwaitSpawn(protocol.EntityTypePig)
 	c.ChatCommand("attribute @e[type=minecraft:pig,limit=1] minecraft:max_health modifier remove minecraft:effect.health_boost")
 	c.ChatCommand("attribute @e[type=minecraft:pig,limit=1] minecraft:max_health modifier add minecraft:effect.health_boost 2 add_value")
 	c.Settle()
 	servertest.RunTicks(t, srv, 1)
 	if got := attributeGet(c, "@e[type=minecraft:pig,limit=1]", "minecraft:max_health"); got != "12.0" {
 		t.Errorf("max_health = %q, want 12.0", got)
+	}
+	if got := dataQuery(c, "data get entity @e[type=minecraft:pig,limit=1] active_effects[0].duration"); got != "600" {
+		t.Errorf("duration = %q, want 600", got)
 	}
 }
 

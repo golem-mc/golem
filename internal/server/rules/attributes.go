@@ -264,6 +264,7 @@ func ApplyEffectChange(a *player.Attributes, ch effect.Change) {
 	}
 	switch ch.Kind {
 	case effect.Removed:
+		a.Instance(em.attribute) // vanilla creates the instance even without the modifier
 		em.apply(a, ch.Instance, false)
 	default:
 		a.RemoveModifier(em.attribute, em.id)
