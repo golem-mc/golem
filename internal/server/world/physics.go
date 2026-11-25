@@ -2598,7 +2598,7 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		state          uint16
 		eligible, hole bool
 	}
-	hasHole, anyDiffers := false, false
+	anyDiffers := false
 	eligible := 0
 	for i, d := range horizontal4 {
 		tx, tz := x+d[0], z+d[1]
@@ -2618,14 +2618,24 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		side.state = tState
 		side.held = tFS
 		side.eligible = true
-		side.hole = c.isHole(tx, tz)
-		hasHole = hasHole || side.hole
 		eligible++
 		anyDiffers = anyDiffers || tFS.kind != fs.kind
 	}
 	// Every eligible side already holds this fluid, which no write replaces.
 	if !anyDiffers {
 		return flows, winners
+	}
+	hasHole := false
+	if eligible > 1 {
+		// Already-wet sides can still outrank a side that can receive a write.
+		for i, d := range horizontal4 {
+			side := &sides[i]
+			if !side.eligible {
+				continue
+			}
+			side.hole = c.isHole(x+d[0], z+d[1])
+			hasHole = hasHole || side.hole
+		}
 	}
 	lowest := 1000
 	for i, d := range horizontal4 {
