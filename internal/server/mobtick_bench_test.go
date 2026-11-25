@@ -168,9 +168,35 @@ type mobMix struct {
 	n    int
 }
 
+// BenchmarkTickFrozenMobTracking tracks two hundred frozen pigs from a nearby watcher.
+func BenchmarkTickFrozenMobTracking(b *testing.B) {
+	s := benchMobHerd(b, []mobMix{{entity.TypePig, 200}}, 32, 200, benchMobSpectator(b))
+	s.tickRate.SetFrozen(true)
+	s.tickRate.Tick()
+	watchers := s.trackingWatchers()
+	b.ReportAllocs()
+	for b.Loop() {
+		s.tickMobTracking(watchers)
+	}
+}
+
 // benchTickMobs runs the mob tick over mix spread across span blocks; each
 // setup runs after the spawns.
 func benchTickMobs(b *testing.B, mix []mobMix, span float64, minHerd int, setups ...func(*Server, *rand.Rand)) {
+	s := benchMobHerd(b, mix, span, minHerd, setups...)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.tickMobs()
+	}
+	b.StopTimer()
+	s.mobsMu.Lock()
+	b.ReportMetric(float64(len(s.allDims()[0].mobs.herd)), "mobs")
+	s.mobsMu.Unlock()
+}
+
+func benchMobHerd(b *testing.B, mix []mobMix, span float64, minHerd int, setups ...func(*Server, *rand.Rand)) *Server {
+	b.Helper()
 	cfg := config.Default()
 	cfg.OnlineMode = false
 	cfg.LevelName = b.TempDir()
@@ -229,16 +255,7 @@ func benchTickMobs(b *testing.B, mix []mobMix, span float64, minHerd int, setups
 	if herd < minHerd {
 		b.Fatalf("%d mobs in the herd after the settling ticks, want at least %d", herd, minHerd)
 	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		s.tickMobs()
-	}
-	b.StopTimer()
-	s.mobsMu.Lock()
-	b.ReportMetric(float64(len(dim.mobs.herd)), "mobs")
-	s.mobsMu.Unlock()
+	return s
 }
 
 // BenchmarkTickMobsNoMobs runs the mob tick with no mob in the world: one
