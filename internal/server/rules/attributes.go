@@ -235,6 +235,13 @@ func UpdateSupportedEffectAttributes(a *player.Attributes, active []effect.Insta
 	updateEffectAttributes(a, active, func(em effectModifier) bool { return a.Has(em.attribute) })
 }
 
+// HasEffectModifier reports whether any active effect carries an attribute modifier.
+func HasEffectModifier(active []effect.Instance) bool {
+	return slices.ContainsFunc(effectModifiers, func(em effectModifier) bool {
+		return slices.ContainsFunc(active, func(in effect.Instance) bool { return in.ID == em.effect })
+	})
+}
+
 // UpdateEffectAttributesOf is UpdateEffectAttributes for the modifiers on one
 // attribute.
 func UpdateEffectAttributesOf(a *player.Attributes, active []effect.Instance, attribute registry.AttributeID) {

@@ -38,7 +38,9 @@ func (m *Mob) RemoveEffect(id int32) (effect.Change, bool) {
 			}
 		}
 	}
-	return m.LivingEffects.RemoveEffect(id)
+	change, ok := m.LivingEffects.RemoveEffect(id)
+	m.syncEffectAttributes()
+	return change, ok
 }
 
 // ClearEffects takes every effect off the body, each put to the gate on its
@@ -47,7 +49,9 @@ func (m *Mob) RemoveEffect(id int32) (effect.Change, bool) {
 func (m *Mob) ClearEffects() []effect.Change {
 	cause := m.takeEffectCause()
 	if m.EffectGate == nil || !m.EffectGate.Listening() {
-		return m.LivingEffects.ClearEffects()
+		changes := m.LivingEffects.ClearEffects()
+		m.syncEffectAttributes()
+		return changes
 	}
 	var changes []effect.Change
 	for _, in := range m.effects.All() {
@@ -59,5 +63,6 @@ func (m *Mob) ClearEffects() []effect.Change {
 			changes = append(changes, ch)
 		}
 	}
+	m.syncEffectAttributes()
 	return changes
 }

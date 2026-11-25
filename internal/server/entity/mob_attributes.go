@@ -407,8 +407,7 @@ func (m *Mob) SyncSpeedModifiers(a *player.Attributes) {
 	} else {
 		a.RemoveModifier(registry.AttributeMovementSpeed, modFrost)
 	}
-	rules.UpdateEffectAttributesOf(a, m.effects.All(), registry.AttributeMovementSpeed)
-	rules.UpdateEffectAttributesOf(a, m.effects.All(), registry.AttributeSafeFallDistance)
+	rules.UpdateSupportedEffectAttributes(a, m.effects.All())
 	switch {
 	case m.IsStrider():
 		if m.StriderCold() {

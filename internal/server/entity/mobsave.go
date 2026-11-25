@@ -377,6 +377,11 @@ func (m *Mob) LoadFrom(compound nbt.Compound, w World, gameTime func() int64) {
 		// variant modifier depends on it.
 		m.RabbitType = v
 	}
+	// The effects the file kept on the body, woken with it; read before
+	// the attribute map, whose health boost modifier caps the saved health.
+	if list, ok := nbt.Get[nbt.List](compound, "active_effects"); ok {
+		m.RestoreEffects(effect.Decode(list))
+	}
 	if list, ok := nbt.Get[nbt.List](compound, "attributes"); ok && savedAttrEdits(list, m) {
 		// A list the kind's own save cannot have written: a command's
 		// edits, which the map owns. The hook runs after every read that
@@ -664,10 +669,6 @@ func (m *Mob) LoadFrom(compound nbt.Compound, w World, gameTime func() int64) {
 	}
 	if chances, ok := nbt.Get[nbt.Compound](compound, "drop_chances"); ok {
 		m.DropChances, m.BodyDropChance, m.SaddleDropChance = ReadDropChances(chances)
-	}
-	// The effects the file kept on the body, woken with it.
-	if list, ok := nbt.Get[nbt.List](compound, "active_effects"); ok {
-		m.RestoreEffects(effect.Decode(list))
 	}
 	if m.Type == TypeZombieVillager {
 		difficulty := rules.DifficultyNormal
