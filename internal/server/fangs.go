@@ -82,7 +82,9 @@ func (s *Server) spawnFangs(cast fangsCast) {
 		w:     cast.w,
 		uuid:  uuid.New(),
 	}
-	owner := s.mobByEntityID(cast.w, cast.owner)
+	s.mobsMu.Lock()
+	owner, _ := s.mobByEntityIDAnyDimLocked(cast.owner)
+	s.mobsMu.Unlock()
 	if owner != nil {
 		it.ownerUUID = owner.uuid
 	}
@@ -178,9 +180,13 @@ func (s *Server) fangsBite(it fangsEffect) {
 	owner := entity.AllianceMember{}
 	var ownerUUID uuid.UUID
 	// An ID reserved for a dragon part maps to its parent, which is not that ID's mob.
-	if ent := h.byID[it.owner]; ent != nil && ent.mob.ID == it.owner && !ent.mob.Dead && !ent.mob.Discarded() {
+	// The owner may be loaded in another dimension. vanilla: ServerLevel.getEntity
+	ownerW := w
+	ent, dim := s.mobByEntityIDAnyDimLocked(it.owner)
+	if ent != nil && !ent.mob.Dead && !ent.mob.Discarded() {
 		owner = entity.AllianceMember{Mob: ent.mob, Team: ent.mob.Team}
 		ownerUUID = ent.uuid
+		ownerW = dim.w
 	}
 	lookup := s.fangsAllyByUUIDLocked
 	var victims []*entity.Mob
@@ -259,7 +265,7 @@ func (s *Server) fangsBite(it fangsEffect) {
 			continue
 		}
 		cause := &damageCause{entityID: it.owner, directID: it.id + 1, x: it.x, y: it.y, z: it.z,
-			killer: s.entityKiller(w, it.owner)}
+			killer: s.entityKiller(ownerW, it.owner)}
 		damage := rules.ScaledWithDifficulty(entity.FangsDamage, w.Difficulty())
 		if landed, softened := c.hurt(damage, rules.DamageTypeIndirectMagic, cause); landed {
 			if !softened {

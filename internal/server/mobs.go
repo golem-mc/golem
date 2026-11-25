@@ -2627,6 +2627,18 @@ func (s *Server) mobByEntityIDLocked(w *world.World, id int32) *mobEntity {
 	return s.herdOf(w).byID[id]
 }
 
+// mobByEntityIDAnyDimLocked finds a mob by entity ID in whichever dimension
+// holds it, with that dimension. An ID reserved for a dragon part maps to its
+// parent, which is not that ID's mob. The caller holds mobsMu.
+func (s *Server) mobByEntityIDAnyDimLocked(id int32) (*mobEntity, *dimension) {
+	for _, dim := range s.allDims() {
+		if ent := dim.mobs.byID[id]; ent != nil && ent.mob.ID == id {
+			return ent, dim
+		}
+	}
+	return nil, nil
+}
+
 // mobNameByID is the display name of the mob with this ID in w, false for
 // none. Read under mobsMu, which guards name tag names.
 func (s *Server) mobNameByID(w *world.World, id int32) (string, bool) {

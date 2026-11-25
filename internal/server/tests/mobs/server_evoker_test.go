@@ -342,3 +342,42 @@ func TestFangsFindOversizedMobsOnlyThroughTheirSections(t *testing.T) {
 		}
 	}
 }
+
+// TestFangsKeepTheirOwnerAcrossDimensions: fangs owned by an evoker loaded in
+// the nether spare an allied vindicator and hurt a pig with the evoker as the
+// cause of the indirect magic damage.
+// vanilla: EvokerFangs.dealDamageTo, EntityReference.getEntity
+func TestFangsKeepTheirOwnerAcrossDimensions(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.HostileTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Target")
+	servertest.HoldTicks(t, srv)
+	srv.ForceChunkInDimension(world.NetherName, 0, 0)
+	evoker := srv.SpawnMobInDimension(evokerKind, world.NetherName, 0.5, 64, 0.5)
+	srv.SetMobNoAI(evoker)
+	pig := srv.SpawnMob("minecraft:pig", 10.5, 64, 0.5)
+	ally := srv.SpawnMob("minecraft:vindicator", 10.5, 64, 0.5)
+	for _, id := range []int32{pig, ally} {
+		srv.SetMobNoAI(id)
+		srv.SetMobHealth(id, 100)
+	}
+	srv.SpawnFangs(10.5, 64, 0.5, evoker)
+	var cause int32
+	c.ReadTicks(srv, 8, func(pid int32, data []byte) bool {
+		if pid == protocol.IDPlayDamageEvent {
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() == pig {
+				r.ReadVarInt()
+				cause = r.ReadVarInt()
+			}
+		}
+		return false
+	})
+	if cause != evoker+1 {
+		t.Errorf("damage cause = %d, want the nether evoker %d", cause, evoker+1)
+	}
+	if hp, _ := srv.MobHealth(ally); hp < 100 {
+		t.Errorf("vindicator health = %v, want it spared as the evoker's ally", hp)
+	}
+}

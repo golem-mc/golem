@@ -38,7 +38,7 @@ func (s *Server) thornsOnOwner(w *world.World, victim *client, ownerID int32, da
 	if owner := s.entityClient(ownerID); owner != nil {
 		ctx.Attacker = protocol.EntityTypePlayer
 		s.postAttack(w, attackBody{player: owner}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
-	} else if ent := s.mobByEntityID(w, ownerID); ent != nil {
+	} else if ent := s.mobByEntityIDAnyDim(ownerID); ent != nil {
 		ctx.Attacker = mobEntityType(ent.mob.Type)
 		s.postAttack(w, attackBody{mob: ent.mob}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
 	}
@@ -59,4 +59,12 @@ func (c *client) thornsFromMob(w *world.World, t mobThorns, when velocitySync) {
 	if t.mob != nil {
 		c.srv.postAttack(w, attackBody{player: c}, attackBody{mob: t.mob}, t.weapon, &t.ctx, when)
 	}
+}
+
+// mobByEntityIDAnyDim is mobByEntityIDAnyDimLocked taking mobsMu itself.
+func (s *Server) mobByEntityIDAnyDim(id int32) *mobEntity {
+	s.mobsMu.Lock()
+	defer s.mobsMu.Unlock()
+	ent, _ := s.mobByEntityIDAnyDimLocked(id)
+	return ent
 }
