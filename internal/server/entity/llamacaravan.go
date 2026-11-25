@@ -103,6 +103,10 @@ func (g *caravanGoal) CanStart(t *tickView) bool {
 		}
 		// pushIdx is herd order, so ties resolve as in a full scan.
 		scan, ordered = m.push.caravan, false
+		if len(scan) > caravanGridMinList {
+			// A long list is cut to the neighbourhood by the grid.
+			scan = m.push.gather(m, llamaCaravanScanXZ+1e-6)
+		}
 	}
 	later := func(d, best float64, o, cur *Mob) bool {
 		return d < best || d == best && (ordered || o.pushIdx > cur.pushIdx)
@@ -114,10 +118,6 @@ func (g *caravanGoal) CanStart(t *tickView) bool {
 		m.Y-llamaCaravanScanY, m.Y+height+llamaCaravanScanY,
 		m.Z-width/2-llamaCaravanScanXZ, m.Z+width/2+llamaCaravanScanXZ)
 	scanW, scanH := width+2*llamaCaravanScanXZ, height+2*llamaCaravanScanY
-	if m.push != nil && len(scan) > caravanGridMinList {
-		// A long list is cut to the window's sections by the grid.
-		scan = m.push.gatherSections(window.loX, window.hiX, window.loZ, window.hiZ)
-	}
 	for _, o := range scan {
 		if o == m || !o.inCaravan() && !o.leashed() || o.Horse.tail != nil || !IsLlama(o.Type) || !o.Alive() {
 			continue

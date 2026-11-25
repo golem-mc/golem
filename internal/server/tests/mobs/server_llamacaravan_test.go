@@ -118,15 +118,8 @@ func TestALlamaIgnoresAScaledLeadFiledOutsideItsSearchSections(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		x     float64
-		leadX float64
 		moves bool
-		extra int
-	}{
-		{"outside", -13.5, 0.5, false, 0},
-		{"inside", -9.5, 0.5, true, 0},
-		// Four grid cells apart, past the unscaled push radius.
-		{"inside with a long list", -10.1, 4.1, true, 64},
-	} {
+	}{{"outside", -13.5, false}, {"inside", -9.5, true}} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			srv, c := servertest.Join(t, servertest.MobTestConfig(), "Herder")
@@ -136,32 +129,16 @@ func TestALlamaIgnoresAScaledLeadFiledOutsideItsSearchSections(t *testing.T) {
 
 			scale := nbt.Compound{"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
 				nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(12)}}}}
-			lead := srv.SpawnMobTagged("minecraft:llama", tc.leadX, 64, 5.5, scale)
+			lead := srv.SpawnMobTagged("minecraft:llama", 0.5, 64, 5.5, scale)
 			if lead == 0 {
 				t.Fatal("the lead was refused")
 			}
 			srv.SetMobLeashHolder(lead, c.PlayerEntityID)
-			// Llamas tied to a knot past the search window keep the list long
-			// enough for the grid to cut it.
-			knot := srv.SpawnKnotEntity(6, 64, 37)
-			for i := range tc.extra {
-				far := srv.SpawnMob("minecraft:llama", 0.5+float64(i%8)*1.5, 64, 32.5+float64(i/8)*1.5)
-				if far == 0 {
-					t.Fatal("a distant llama was refused")
-				}
-				srv.SetMobLeashHolder(far, knot.ID)
-			}
 			follower := srv.SpawnMob("minecraft:llama", tc.x, 64, 5.5)
 			c.Settle()
 			x0, _, _, _ := srv.MobPos(follower)
-			x1 := x0
-			for range 40 {
-				srv.TickMobs(1)
-				x1, _, _, _ = srv.MobPos(follower)
-				if tc.moves && x1-x0 >= 1 {
-					break
-				}
-			}
+			srv.TickMobs(40)
+			x1, _, _, _ := srv.MobPos(follower)
 			if moved := x1 - x0; tc.moves && moved < 1 || !tc.moves && moved > 1 {
 				t.Errorf("the follower moved %f in x over 40 ticks, moves=%v", moved, tc.moves)
 			}

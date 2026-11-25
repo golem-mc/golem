@@ -1132,16 +1132,6 @@ func (g *pushGrid) gatherBoxInto(dst []*Mob, box AABB, reach float64) []*Mob {
 	return g.collectInto(dst, x0, x1, z0, z1, box)
 }
 
-// gatherSections collects every mob filed in the cells of the entity-section
-// columns loX..hiX by loZ..hiZ, with no box test: a mob's box can reach
-// further than its filing cell, and the caller applies its own window.
-// The result is scratch valid until the next query.
-func (g *pushGrid) gatherSections(loX, hiX, loZ, hiZ int) []*Mob {
-	inf := math.Inf(1)
-	g.near = g.collectInto(g.near[:0], loX*4, hiX*4+3, loZ*4, hiZ*4+3, AABB{-inf, -inf, -inf, inf, inf, inf})
-	return g.near
-}
-
 // sortSnapshot orders mobs as the whole-herd scan visits them.
 func sortSnapshot(mobs []*Mob) {
 	slices.SortFunc(mobs, func(a, b *Mob) int { return cmp.Compare(a.pushIdx, b.pushIdx) })
