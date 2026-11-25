@@ -35,7 +35,13 @@ func BenchmarkWeightedPlateStrengthChange(b *testing.B) {
 // BenchmarkObserverClockGrid is one physics tick of 128 observer clocks: rows
 // of redstone lamps under wire, observer facing east, observer facing west,
 // wire, repeated 8 along x and 16 along z so neighbouring wires connect.
-func BenchmarkObserverClockGrid(b *testing.B) {
+func BenchmarkObserverClockGrid(b *testing.B) { benchObserverClockGrid(b, false) }
+
+// BenchmarkObserverClockGridTorches is the same grid with a standing torch on
+// each observer, so every pulse's shape pass reaches support-watching blocks.
+func BenchmarkObserverClockGridTorches(b *testing.B) { benchObserverClockGrid(b, true) }
+
+func benchObserverClockGrid(b *testing.B, torches bool) {
 	w, err := NewWorld(b.TempDir(), NewFlatGenerator())
 	if err != nil {
 		b.Fatalf("NewWorld: %v", err)
@@ -58,6 +64,7 @@ func BenchmarkObserverClockGrid(b *testing.B) {
 	wire := state("minecraft:redstone_wire", nil)
 	east := state("minecraft:observer", map[string]string{"facing": "east"})
 	west := state("minecraft:observer", map[string]string{"facing": "west"})
+	torch := state("minecraft:torch", nil)
 	set := func(x, y, z int32, s uint16) {
 		old := w.BlockAt(x, y, z)
 		if !w.SetBlock(x, y, z, s) {
@@ -76,6 +83,10 @@ func BenchmarkObserverClockGrid(b *testing.B) {
 			set(x+3, y, z, wire)
 			set(x+1, y, z, east)
 			set(x+2, y, z, west)
+			if torches {
+				set(x+1, y+1, z, torch)
+				set(x+2, y+1, z, torch)
+			}
 		}
 	}
 	var clock int64
