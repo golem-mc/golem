@@ -21,7 +21,7 @@ func TestNaturalSpawnSeededOutcome(t *testing.T) {
 		}
 	}
 	got := fmt.Sprintf("%x", hash.Sum(nil))
-	const want = "8930dbb3f1fa588adb3b7304d667ca0397a284bebdccf30909fad9261cc2b02f"
+	const want = "6f80223452f8d39f902ed2913802f31d5b4e7a8616a31cf699b3d2930950934a"
 	if got != want {
 		t.Fatalf("seeded spawn outcome = %s, want %s", got, want)
 	}

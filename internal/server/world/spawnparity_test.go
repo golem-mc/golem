@@ -32,7 +32,7 @@ func spawnParityRun(sw entity.SpawnWorld, seed int64, players []entity.SpawnPlay
 	var potential entity.SpawnPotential
 	potential.Add(0, 30, 0, 0.7)
 	var result string
-	entity.SpawnNaturally(sw, rng, chunks, players, nil, &potential, passes, 289, func(r entity.SpawnRequest) {
+	entity.SpawnNaturally(sw, rng, chunks, players, nil, &potential, passes, 289, nil, func(r entity.SpawnRequest) {
 		m := entity.NewMob(r.Type, 1, r.X, r.Y, r.Z, seed)
 		m.FinalizeSpawn(entity.GoDice{Rand: rng}, sw.Biome(int32(r.X), int32(r.Y), int32(r.Z)), r.Group, rules.LocalDifficulty{})
 		result += fmt.Sprintf("%s %g %g %g %g %t %v\n", r.Type.Name(), r.X, r.Y, r.Z, r.Yaw, m.IsBaby(), r.Group.Natural())

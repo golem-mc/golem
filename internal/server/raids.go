@@ -142,7 +142,13 @@ func (l raidLevel) ChunkLoaded(x, z int) bool { return l.dim.w.ChunkLoadedAt(int
 func (l raidLevel) EntityTicking(x, z int) bool {
 	w := l.dim.w
 	pos := world.ChunkPos{X: int32(x >> 4), Z: int32(z >> 4)}
-	return w.ChunkLoaded(pos) && l.s.newEntityGate().ticks(w, float64(x), float64(z))
+	if !w.ChunkLoaded(pos) {
+		return false
+	}
+	if g := l.dim.raidGate; g != nil {
+		return entityTicksIn(w, g.centres[w], g.reach, pos)
+	}
+	return l.s.newEntityGate().ticks(w, float64(x), float64(z))
 }
 
 func (l raidLevel) IsVillage(x, y, z int) bool { return l.dim.isVillage(x, y, z) }
@@ -384,10 +390,20 @@ func (s *Server) tickRaidsLocked() {
 	for _, c := range clients {
 		s.tickOmens(c)
 	}
+	// One snapshot, built when the first raid is live, serves the cached
+	// position check and every wave candidate.
+	var gate *entityGate
 	for _, dim := range s.allDims() {
-		if dim.raids != nil {
-			dim.raids.Tick(dim.w.BoolRule(world.RuleRaids))
+		if dim.raids == nil {
+			continue
 		}
+		if gate == nil && len(dim.raids.All()) > 0 {
+			g := s.newEntityGate()
+			gate = &g
+		}
+		dim.raidGate = gate
+		dim.raids.Tick(dim.w.BoolRule(world.RuleRaids))
+		dim.raidGate = nil
 	}
 	s.tickRaiderViews(tick)
 	if tick%raiderJoinInterval == 0 {

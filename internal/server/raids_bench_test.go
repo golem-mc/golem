@@ -14,8 +14,17 @@ import (
 )
 
 // BenchmarkTickRaids runs the raid tick while a raid is live over a village
-// with a bell and beds, with forty raiders enrolled in it.
+// with a bell and beds. settled has forty raiders enrolled; countdown has
+// none and a wave position cached in forced (entity-ticking) chunks, so the
+// cached position is checked every tick; search has no entity-ticking chunk,
+// so every fifth tick tries eight candidates and finds none.
 func BenchmarkTickRaids(b *testing.B) {
+	b.Run("settled", func(b *testing.B) { benchTickRaids(b, true, false) })
+	b.Run("countdown", func(b *testing.B) { benchTickRaids(b, false, true) })
+	b.Run("search", func(b *testing.B) { benchTickRaids(b, false, false) })
+}
+
+func benchTickRaids(b *testing.B, raiders, forced bool) {
 	cfg := config.Default()
 	cfg.OnlineMode = false
 	cfg.LevelName = b.TempDir()
@@ -34,6 +43,11 @@ func BenchmarkTickRaids(b *testing.B) {
 	}
 	for _, pos := range holds {
 		w.Acquire(pos)
+	}
+	if forced {
+		for _, pos := range holds {
+			w.SetChunkForced(pos, true)
+		}
 	}
 	b.Cleanup(func() {
 		for _, pos := range holds {
@@ -63,11 +77,26 @@ func BenchmarkTickRaids(b *testing.B) {
 	at := raid.Pos{X: 0, Y: int(y), Z: 0}
 	dim.raids.CreateOrExtend(raid.Player{UUID: uuid.New(), Alive: true}, 0, at, s.villagePOIsAround(dim, at, 64))
 	for i := range 40 {
+		if !raiders {
+			break
+		}
 		s.spawnMobInDim(dim, entity.TypePillager, float64(i%10)*3-15, float64(y), float64(i/10)*3-6, int64(i), nil)
 	}
 	for range 40 {
 		s.tickMobs()
 		s.tickRaids()
+	}
+	// A countdown lasts 300 ticks; a fresh raid every 250 keeps one running.
+	restart := func() {
+		s.raidsMu.Lock()
+		for _, r := range dim.raids.All() {
+			dim.raids.Discard(r)
+		}
+		s.raidsMu.Unlock()
+		dim.raids.CreateOrExtend(raid.Player{UUID: uuid.New(), Alive: true}, 0, at, s.villagePOIsAround(dim, at, 64))
+	}
+	if !raiders {
+		restart()
 	}
 	if len(dim.raids.All()) == 0 {
 		b.Fatal("the raid ended during the settling ticks")
@@ -75,7 +104,12 @@ func BenchmarkTickRaids(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	var worst time.Duration
-	for range b.N {
+	for i := range b.N {
+		if !raiders && i%250 == 249 {
+			b.StopTimer()
+			restart()
+			b.StartTimer()
+		}
 		start := time.Now()
 		s.tickRaids()
 		worst = max(worst, time.Since(start))

@@ -1001,7 +1001,7 @@ func NewSpawnPass(c SpawnCategory, counts *SpawnCounts, limit int) SpawnPass {
 // SpawnNaturally shuffles chunks once, trying open passes in order with shared bodies/potential.
 // vanilla: ServerChunkCache.tickChunks, NaturalSpawner.spawnForChunk; global cap scales by chunks/289.
 func SpawnNaturally(w SpawnWorld, rng *rand.Rand, chunks []ChunkPos, players []SpawnPlayer,
-	bodies []SpawnBody, potential *SpawnPotential, passes []SpawnPass, spawnableChunkCount int, sink func(SpawnRequest)) {
+	bodies []SpawnBody, potential *SpawnPotential, passes []SpawnPass, spawnableChunkCount int, ticking func(ChunkPos) bool, sink func(SpawnRequest)) {
 	open := make([]SpawnPass, 0, len(passes))
 	for _, p := range passes {
 		if p.Counts.Global < spawnableChunkCount*p.max/spawnMagicNumber {
@@ -1014,7 +1014,7 @@ func SpawnNaturally(w SpawnWorld, rng *rand.Rand, chunks []ChunkPos, players []S
 	// The spawn point cannot change during this pass.
 	spawn := readSpawnPoint(w)
 	rng.Shuffle(len(chunks), func(i, j int) { chunks[i], chunks[j] = chunks[j], chunks[i] })
-	c := naturalSpawnContext{w: w}
+	c := naturalSpawnContext{w: w, ticking: ticking}
 	concrete, _ := w.(*world.World)
 	var held world.SpawnChunk
 	for _, pos := range chunks {
@@ -1131,7 +1131,7 @@ func (c *naturalSpawnContext) spawnCategoryForPosition(spawn spawnPoint, rng *ra
 			if !exists {
 				continue
 			}
-			if !rightDistanceToPlayerAndSpawnPoint(w, spawn, x0, y, z0, dist) {
+			if !rightDistanceToPlayerAndSpawnPoint(w, c.ticking, spawn, x0, y, z0, dist) {
 				continue
 			}
 			initial := data == nil
@@ -1246,9 +1246,9 @@ func readSpawnPoint(w SpawnWorld) spawnPoint {
 	return spawnPoint{x, y, z, guarded}
 }
 
-// rightDistanceToPlayerAndSpawnPoint keeps 24 blocks clear and requires a loaded landing chunk.
+// rightDistanceToPlayerAndSpawnPoint keeps 24 blocks clear and requires a loaded, entity-ticking landing chunk.
 // vanilla: NaturalSpawner.isRightDistanceToPlayerAndSpawnPoint
-func rightDistanceToPlayerAndSpawnPoint(w SpawnWorld, spawn spawnPoint, x, y, z int32, distToPlayerSq float64) bool {
+func rightDistanceToPlayerAndSpawnPoint(w SpawnWorld, ticking func(ChunkPos) bool, spawn spawnPoint, x, y, z int32, distToPlayerSq float64) bool {
 	if distToPlayerSq <= spawnMinDistanceSq {
 		return false
 	}
@@ -1261,7 +1261,7 @@ func rightDistanceToPlayerAndSpawnPoint(w SpawnWorld, spawn spawnPoint, x, y, z 
 			return false
 		}
 	}
-	if !w.ChunkLoadedAt(x, z) {
+	if !w.ChunkLoadedAt(x, z) || ticking != nil && !ticking(ChunkPos{X: x >> 4, Z: z >> 4}) {
 		return false
 	}
 	if s, ok := w.(*world.SpawnChunk); ok {
