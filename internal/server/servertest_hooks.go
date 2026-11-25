@@ -7410,17 +7410,6 @@ func (s *Server) FangsCount() int {
 	return len(s.fangs.list)
 }
 
-// FangsUUIDs is the identity of every set of fangs standing in the worlds.
-func (s *Server) FangsUUIDs() []uuid.UUID {
-	s.fangs.mu.Lock()
-	defer s.fangs.mu.Unlock()
-	var ids []uuid.UUID
-	for _, it := range s.fangs.list {
-		ids = append(ids, it.uuid)
-	}
-	return ids
-}
-
 // SetMobVexOwner makes the evoker with ownerID the summoner of the vex, by
 // entity ID and by the identity a save keeps.
 func (s *Server) SetMobVexOwner(id, ownerID int32) {

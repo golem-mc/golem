@@ -10,6 +10,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
@@ -173,7 +174,12 @@ func (s *Server) fangsBite(it fangsEffect) {
 	w := it.w
 	body := entity.EvokerFangs{X: it.x, Y: it.y, Z: it.z}
 	minX, minY, minZ, maxX, maxY, maxZ := body.BiteBox()
-	fang := &removedBody{id: it.uuid, typ: registry.EntityTypeEvokerFangs}
+	// The fang may be discarded before the damage lands, so a listener's
+	// event carries its identity; no handle is built when nobody listens.
+	var fang *removedBody
+	if r := s.plugins; r != nil && (r.Has(pluginruntime.EntityDamage) || r.Has(pluginruntime.PlayerDeath)) {
+		fang = &removedBody{id: it.uuid, typ: registry.EntityTypeEvokerFangs}
+	}
 
 	s.mobsMu.Lock()
 	owner := entity.AllianceMember{}
@@ -229,7 +235,6 @@ func (s *Server) fangsBite(it fangsEffect) {
 		if allied {
 			continue
 		}
-		// The fang may be discarded before the damage lands, so the cause carries its identity.
 		cause := &damageCause{entityID: it.owner, directID: it.id + 1, x: it.x, y: it.y, z: it.z,
 			killer: s.entityKiller(w, it.owner), exploder: fang}
 		damage := rules.ScaledWithDifficulty(entity.FangsDamage, w.Difficulty())
