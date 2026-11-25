@@ -935,7 +935,13 @@ func TestPlayerAttributesAreLoadedFromTheFile(t *testing.T) {
 	if len(list.Items) != 5 {
 		t.Fatalf("attributes = %v, want the four player instances and loaded armor", list)
 	}
-	entry := list.Items[0].(nbt.Compound)
+	armor := slices.IndexFunc(list.Items, func(tag nbt.Tag) bool {
+		return tag.(nbt.Compound)["id"] == nbt.String("minecraft:armor")
+	})
+	if armor < 0 {
+		t.Fatalf("attributes = %v, want an armor entry", list)
+	}
+	entry := list.Items[armor].(nbt.Compound)
 	mods, _ := nbt.Get[nbt.List](entry, "modifiers")
 	if entry["base"] != nbt.Double(7) || len(mods.Items) != 1 || mods.Items[0].(nbt.Compound)["id"] != nbt.String("minecraft:kept") {
 		t.Errorf("attributes entry = %v, want base 7 and the one readable modifier", entry)

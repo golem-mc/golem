@@ -48,7 +48,7 @@ func (m *Mob) dispenserEquip(stack protocol.ItemStack, commit bool) bool {
 			return false
 		}
 		if commit {
-			m.SetMetadataHorseSaddle(one)
+			m.SetEquipment(protocol.EquipSaddle, one)
 			m.SaddleDropChance = guaranteedDropChance
 		}
 	default:
@@ -119,11 +119,7 @@ func (m *Mob) EquipOnInteract(stack protocol.ItemStack) (registry.EquippableItem
 		if !m.SaddleSlot().Empty() {
 			return item, false
 		}
-		if m.Type == TypeCopperGolem {
-			m.SetMetadataAntenna(one)
-		} else {
-			m.SetMetadataHorseSaddle(one)
-		}
+		m.SetEquipment(protocol.EquipSaddle, one)
 		m.SaddleDropChance = guaranteedDropChance
 		return item, true
 	}

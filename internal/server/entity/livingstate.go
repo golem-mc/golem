@@ -17,13 +17,16 @@ func (s *LivingState) SaveTo(tag nbt.CompoundTag) {
 
 // SaveWithAttributes inserts the body's attributes, effects and impact before flight and brain.
 func (s *LivingState) SaveWithAttributes(tag nbt.CompoundTag, writeAttributes func()) {
-	s.SaveWithBrain(tag, writeAttributes, func() { tag.Set("Brain", brainTag(nil)) })
+	s.SaveWithSleepingPos(tag, writeAttributes, nil)
 }
 
-// SaveWithBrain lets a body's sleeping and brain codecs finish the shared living phase.
-func (s *LivingState) SaveWithBrain(tag nbt.CompoundTag, writeAttributes, writeBrain func()) {
+// SaveWithSleepingPos writes an optional bed position before the brain.
+func (s *LivingState) SaveWithSleepingPos(tag nbt.CompoundTag, writeAttributes func(), sleepingPos nbt.IntArray) {
 	s.fields(mobCodec{tag: tag.Entries(), out: tag}, writeAttributes)
-	writeBrain()
+	if sleepingPos != nil {
+		tag.Set("sleeping_pos", sleepingPos)
+	}
+	tag.Set("Brain", brainTag(nil))
 }
 
 // LoadFrom reads the shared LivingEntity fields, defaulting absent timers to zero.

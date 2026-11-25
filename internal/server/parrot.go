@@ -50,7 +50,7 @@ func (c *client) useOnParrot(ent *mobEntity, hand int32, held protocol.ItemStack
 		var softened bool
 		if creative || !m.Invulnerable {
 			pos := c.player.Position()
-			attacker := entity.Player{X: pos.X, Y: pos.Y, Z: pos.Z, Yaw: float64(pos.Yaw),
+			attacker := entity.Player{X: pos.X, Y: pos.Y, Z: pos.Z, Yaw: float64(pos.Yaw), Pitch: float64(pos.Pitch),
 				EntityID: c.player.EntityID, Huntable: true, Creative: creative}
 			hurt, _, _, softened = landMobHurt(ent, math.MaxFloat32, attacker, 0, protocol.ItemStack{}, rules.EnchContext{}, nil)
 		}

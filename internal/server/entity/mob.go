@@ -1295,13 +1295,15 @@ type Player struct {
 	// Passenger says the body rides a vehicle; cramming leaves it out.
 	// vanilla: Entity.isPassenger
 	Passenger bool
-	// OnHappyGhast says the body's root vehicle is a happy ghast.
+	// OnHappyGhast says the player is seated on a happy ghast.
 	// vanilla: HappyGhast.scanPlayerAboveGhast
 	OnHappyGhast bool
 	// BoatDriver and NautilusDriver identify controlling passengers for dolphin following.
 	BoatDriver, NautilusDriver bool
-	// RideBox is the vehicle's min X/Y/Z followed by max X/Y/Z.
-	RideBox [6]float64
+	// RideBox is the immediate vehicle's box, or zero on foot.
+	RideBox AABB
+	// RideRoot is the root vehicle's feet and the top of its dimensions.
+	RideRoot struct{ X, Y, Z, Top float64 }
 
 	// Spectator is a spectator, left out of the despawn's nearest-player
 	// distance.
@@ -2166,6 +2168,8 @@ type Mob struct {
 	// reordered so pushes land in the tick's walk order. Set for one tick and
 	// cleared after.
 	push *pushGrid
+	// tickPaths belongs to the herd and is lent to this body for its tick.
+	tickPaths *MobPathScratch
 	// prey is the tick's villagers, traders, iron golems, turtles and axolotls
 	// in herd order, which the zombie's mob targets scan instead of the herd;
 	// preyKnown is false where no tick built it. Set for one tick.
@@ -3900,11 +3904,13 @@ func (m *Mob) HurtByFirework(amount float64, damageType registry.DamageType, cau
 
 // HurtByCommand is /damage: causeID (0 for none) is kept for
 // retaliation and kill credit, and a whole hit shoves away from (fromX, fromZ)
-// unless the type is no_knockback. Results are landed and softened.
+// unless the type is no_knockback. When from is non-nil (a by/from entity),
+// a filled sulfur cube bends its shove by the attacker's aim. Results are
+// landed and softened.
 // vanilla: DamageCommand.damage, LivingEntity.hurtServer
-func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, causeIsPlayer, causeCreative bool, fromX, fromZ float64) (landed, softened bool) {
+func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, causeIsPlayer, causeCreative bool, fromX, fromZ float64, from ...*HitSource) (landed, softened bool) {
 	if causeID != 0 {
-		return m.hurtByDamage(amount, damageType, causeID, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z)
+		return m.hurtByDamage(amount, damageType, causeID, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z, from...)
 	}
 	landed, softened = m.HurtByWorld(amount, damageType)
 	if landed && !softened && !damageType.InTag(registry.DamageTypeTagIDNoKnockback) {

@@ -48,3 +48,42 @@ func BenchmarkTickItemsNewbornPickup(b *testing.B) {
 	}
 	b.ReportMetric(float64(picked), "pickups/op")
 }
+
+// BenchmarkTickItemsNewbornPartialPickup is the Newborn benchmark with every
+// inventory full but for room for one of the two diamonds on the ground, so
+// each pickup is partial and takes the early exit.
+func BenchmarkTickItemsNewbornPartialPickup(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	clients := s.clientsLocked()
+	for i := range trackerBenchBodies {
+		pos := clients[i%len(clients)].player.Position()
+		s.spawnItem(w, protocol.ItemStack{ItemID: int32(registry.ItemDiamond), Count: 2},
+			pos.X, pos.Y, pos.Z, 0, 0, 0, 0)
+	}
+	items := append([]*itemEntity(nil), s.items...)
+	fill := func() {
+		for _, c := range clients {
+			c.player.Inventory(func(inv *player.Inventory) {
+				*inv = player.Inventory{}
+				for range 35 {
+					inv.Add(protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 64})
+				}
+				inv.Add(protocol.ItemStack{ItemID: int32(registry.ItemDiamond), Count: 63})
+			})
+		}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		b.StopTimer()
+		fill()
+		for _, it := range items {
+			it.skipStep = true
+			it.item.Dead = false
+			it.item.Stack.Count = 2
+		}
+		b.StartTimer()
+		s.tickItems()
+	}
+	b.StopTimer()
+}

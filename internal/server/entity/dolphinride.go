@@ -18,9 +18,8 @@ func dolphinRiderMoving(p *Player) bool {
 	return p.KnownVX*p.KnownVX+p.KnownVZ*p.KnownVZ > float64(float32(1e-5))*float64(float32(1e-5))
 }
 func (g *dolphinRideGoal) nearby(p *Player) bool {
-	box := g.m.mobBox()
-	b := p.RideBox
-	return ((g.boat && p.BoatDriver) || (!g.boat && p.NautilusDriver)) && b[0] < box.maxX+5 && b[3] > box.minX-5 && b[1] < box.maxY+5 && b[4] > box.minY-5 && b[2] < box.maxZ+5 && b[5] > box.minZ-5
+	return ((g.boat && p.BoatDriver) || (!g.boat && p.NautilusDriver)) &&
+		p.RideBox.Crosses(g.m.mobBox().Inflate(5))
 }
 func (g *dolphinRideGoal) CanStart(t *tickView) bool {
 	if p := t.playerByID(g.player); p != nil && dolphinRiderMoving(p) {

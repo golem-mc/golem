@@ -619,7 +619,13 @@ func (q *lightQueue) release() {
 	lightQueues.Put(q)
 }
 
+// push appends an entry; a full array first reuses the consumed prefix when it
+// is at least as large as the unread suffix, so the copy is amortised.
 func (q *lightQueue) push(x, y, z int32, v uint8, layer int) {
+	if len(q.entries) == cap(q.entries) && q.head > 0 && q.head >= len(q.entries)-q.head {
+		n := copy(q.entries, q.entries[q.head:])
+		q.entries, q.head = q.entries[:n], 0
+	}
 	q.entries = append(q.entries, lightEntry{x, y, z, v, uint8(layer)})
 }
 

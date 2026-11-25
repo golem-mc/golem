@@ -218,6 +218,51 @@ func TestAVillagerWithAProfessionDrawsItsTradesOnFirstUse(t *testing.T) {
 	}
 }
 
+// vanilla: AbstractVillager.addOffersFromTradeSet
+func TestArmorerOffersRepeatAfterRandomSequenceReset(t *testing.T) {
+	cfg := servertest.MobTestConfig()
+	cfg.LevelSeed = "1"
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Buyer", servertest.OpsListing(t, "Buyer"))
+	servertest.HoldTicks(t, srv)
+	w := &servertest.WindowedClient{Client: c}
+
+	draw := func() (merchantOffers, []byte) {
+		t.Helper()
+		c.ChatCommand("random reset minecraft:trade_set/armorer/level_1 5 true true")
+		c.ExpectFeedbackLine("commands.random.reset.success")
+		c.ChatCommand(`summon villager 1.5 64 0.5 {NoAI:1b,VillagerData:{profession:"minecraft:armorer",level:1,type:"minecraft:plains"}}`)
+		spawn := c.AwaitSpawn(protocol.EntityTypeVillager)
+		c.ExpectFeedbackLine("commands.summon.success")
+		w.UseOn(spawn.EntityID)
+		var data []byte
+		w.SettleAndCollect(func(id int32, payload []byte) {
+			if id == protocol.IDPlayMerchantOffers {
+				data = payload
+			}
+		})
+		if data == nil {
+			t.Fatal("the trade window sent no offers")
+		}
+		offers := readMerchantOffers(t, data)
+		w.Window = offers.window
+		w.CloseWindow()
+		// Each window has its own ID. The full offer list should match byte for byte.
+		r := protocol.NewReader(data)
+		r.ReadVarInt()
+		return offers, data[len(data)-r.Remaining():]
+	}
+	first, firstPayload := draw()
+	second, secondPayload := draw()
+	if !slices.Equal(firstPayload, secondPayload) {
+		t.Errorf("armorer results before and after reset: %v and %v, want identical offer packets", first.results, second.results)
+	}
+	want := []int32{int32(registry.ItemIronLeggings), int32(registry.ItemEmerald)}
+	if !slices.Equal(first.results, want) {
+		t.Errorf("first armorer results = %v, want %v (iron leggings, emerald)", first.results, want)
+	}
+}
+
 // vanilla: Slot.tryRemove, MerchantContainer.setChanged, AbstractVillager.notifyTrade
 func TestMerchantsSoundOnceWhenTakingATrade(t *testing.T) {
 	for _, tc := range []struct {

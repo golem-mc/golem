@@ -192,6 +192,46 @@ func TestAdaptingStructureGrowsItsBoxAndBendsTheTerrain(t *testing.T) {
 	}
 }
 
+// beardCountPiece is a piece that counts how often the beardifier reads it.
+type beardCountPiece struct {
+	box   jbox
+	reads int
+}
+
+func (p *beardCountPiece) bounds() jbox                       { return p.box }
+func (p *beardCountPiece) nbt() nbt.Compound                  { return nil }
+func (p *beardCountPiece) place(*decorRegion, jbox, [3]int32) {}
+func (p *beardCountPiece) beard() levelgen.BeardPiece {
+	p.reads++
+	return levelgen.BeardPiece{Junctions: []levelgen.BeardJunction{{X: int(p.box.minX) - 1, Z: int(p.box.minZ)}}}
+}
+
+// TestBeardifierReadsOnlyPiecesWithinTwelveBlocks checks that a piece is
+// built only when its structure adapts the terrain and its box, inclusive,
+// meets the chunk grown by 12 blocks, and that its junction is kept.
+func TestBeardifierReadsOnlyPiecesWithinTwelveBlocks(t *testing.T) {
+	t.Parallel()
+	const cx, cz = 20000, 20000
+	g := structureTestGenerator("minecraft:mineshaft", 50)
+	x0, z0 := int32(cx*16), int32(cz*16)
+	piece := func(minX int32) *beardCountPiece {
+		return &beardCountPiece{box: jbox{minX, 40, z0, minX + 4, 50, z0 + 4}}
+	}
+	at12, at13, none := piece(x0+27), piece(x0+28), piece(x0+10)
+	wide := jbox{x0 - 100, 0, z0 - 100, x0 + 100, 100, z0 + 100}
+	g.structureSets() // the first call clears the starts
+	g.structures.starts[[2]int32{cx, cz}] = []*structureStart{
+		{def: &levelgen.StructureDef{Adaptation: levelgen.AdjustBeardThin}, chunkX: cx, chunkZ: cz, pieces: []structurePiece{at12, at13}, box: wide},
+		{def: &levelgen.StructureDef{Adaptation: levelgen.AdjustNone}, chunkX: cx, chunkZ: cz, pieces: []structurePiece{none}, box: wide},
+	}
+	if g.beardifierAt(cx, cz) == nil {
+		t.Error("the junction of the piece 12 blocks away was dropped")
+	}
+	if at12.reads != 1 || at13.reads != 0 || none.reads != 0 {
+		t.Errorf("reads at 12 blocks %d, at 13 blocks %d, of a structure that does not adapt %d; want 1, 0, 0", at12.reads, at13.reads, none.reads)
+	}
+}
+
 // TestReferenceOrderMatchesFastutil checks referenceOrder against the
 // iteration order of a fastutil 8.5.18 LongOpenHashSet filled x outer, z
 // inner; the 8x8 square rehashes twice.

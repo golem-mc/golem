@@ -201,9 +201,8 @@ func TestStaleFluidVisitsSpendTheBudget(t *testing.T) {
 	assertAir(t, w, 0, top-1, 0, "the water below waits for the next tick")
 }
 
-// TestSpreadContextChunkQuadrant checks that spreadContext's 2x2 chunk quadrant
-// cache matches World.BlockAt across chunk boundaries, negative coordinates,
-// and unloaded quadrant chunks.
+// TestSpreadContextChunkQuadrant checks that live and generic readers match
+// World.BlockAt across chunk boundaries, negative coordinates, and unloaded chunks.
 func TestSpreadContextChunkQuadrant(t *testing.T) {
 	t.Parallel()
 	w := newTestWorld(t, NewFlatGenerator())
@@ -213,8 +212,6 @@ func TestSpreadContextChunkQuadrant(t *testing.T) {
 	w.Acquire(ChunkPos{X: 0, Z: 0})
 	w.Acquire(ChunkPos{X: -1, Z: 0})
 	w.Acquire(ChunkPos{X: -2, Z: -1})
-	p := NewPhysics(w)
-
 	w.SetBlock(0, GroundLevel, 0, waterByLevel[0])
 	w.SetBlock(-1, GroundLevel, 2, stoneState)
 	w.SetBlock(3, GroundLevel-1, 1, airState)
@@ -222,20 +219,30 @@ func TestSpreadContextChunkQuadrant(t *testing.T) {
 	w.SetBlock(-17, GroundLevel, -15, stoneState)
 	w.SetBlock(-18, GroundLevel-1, -14, airState)
 
-	for _, origin := range [][2]int32{{0, 0}, {8, 8}, {-16, -16}} {
-		ctx := p.newSpreadContext(origin[0], GroundLevel, origin[1], fluidWater)
-		for dx := int32(-spreadReach); dx <= spreadReach; dx++ {
-			for dz := int32(-spreadReach); dz <= spreadReach; dz++ {
-				x, z := origin[0]+dx, origin[1]+dz
-				wantTop := w.BlockAt(x, GroundLevel, z)
-				if got := ctx.state(x, z); got != wantTop {
-					t.Fatalf("origin %v cell (%d,%d): state = %d, want %d", origin, x, z, got, wantTop)
-				}
-				wantHole := isWaterHole(wantTop, w.BlockAt(x, GroundLevel-1, z), ctx.flowingType, ctx.holdFlags)
-				if got := ctx.isHole(x, z); got != wantHole {
-					t.Fatalf("origin %v cell (%d,%d): isHole = %v, want %v", origin, x, z, got, wantHole)
+	for _, tc := range []struct {
+		name   string
+		reader fluidSpreadReader
+	}{
+		{"live", w},
+		{"generic", struct{ fluidSpreadReader }{w}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, origin := range [][2]int32{{0, 0}, {8, 8}, {-16, -16}} {
+				ctx := newSpreadContext(tc.reader, origin[0], GroundLevel, origin[1], fluidWater)
+				for dx := int32(-spreadReach); dx <= spreadReach; dx++ {
+					for dz := int32(-spreadReach); dz <= spreadReach; dz++ {
+						x, z := origin[0]+dx, origin[1]+dz
+						wantTop := w.BlockAt(x, GroundLevel, z)
+						if got := ctx.state(x, z); got != wantTop {
+							t.Fatalf("origin %v cell (%d,%d): state = %d, want %d", origin, x, z, got, wantTop)
+						}
+						wantHole := isWaterHole(wantTop, w.BlockAt(x, GroundLevel-1, z), ctx.flowingType, ctx.holdFlags)
+						if got := ctx.isHole(x, z); got != wantHole {
+							t.Fatalf("origin %v cell (%d,%d): isHole = %v, want %v", origin, x, z, got, wantHole)
+						}
+					}
 				}
 			}
-		}
+		})
 	}
 }

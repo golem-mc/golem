@@ -2,12 +2,14 @@ package protocol_test
 
 import (
 	"bytes"
-	"github.com/klauspost/compress/zlib"
+	"math"
 	"math/rand/v2"
 	"net"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/klauspost/compress/zlib"
 
 	"github.com/golem-mc/golem/internal/protocol"
 )
@@ -169,5 +171,62 @@ func TestWritePacketsRawSkipsDeflate(t *testing.T) {
 	}
 	if !bytes.Equal(rd.Rest(), body) {
 		t.Fatal("body differs")
+	}
+}
+
+func TestWritePacketsRawMatchesFrames(t *testing.T) {
+	t.Parallel()
+	packets := []struct {
+		id     int32
+		size   int
+		raw    bool
+		cached bool
+	}{
+		{0x42, 254, false, false},  // one byte below the threshold
+		{0x123, 253, false, false}, // one byte below with a two-byte ID
+		{0x42, 255, false, false},  // exactly at the threshold
+		{0x123, 254, false, false},
+		{0x42, 300, true, false},
+		{0x123, 300, true, false},
+		{0x42, 300, true, true}, // cached framing ignores raw
+		{0x123, 125, true, true},
+	}
+	payloads := make([][]byte, len(packets))
+	cached := make([]*protocol.CachedPacket, len(packets))
+	for i, packet := range packets {
+		payloads[i] = bytes.Repeat([]byte{byte(i)}, packet.size)
+		if packet.cached {
+			cached[i] = protocol.NewCachedPacket(packet.id, payloads[i])
+		}
+	}
+
+	for _, threshold := range []int{-1, 256} {
+		wire := &recordConn{}
+		conn := protocol.NewConn(wire)
+		if threshold >= 0 {
+			conn.EnableCompression(threshold)
+		}
+		err := conn.WritePacketsRaw(len(packets), func(i int) (int32, []byte, *protocol.CachedPacket, bool) {
+			packet := packets[i]
+			if cached[i] != nil {
+				return 0, nil, cached[i], packet.raw
+			}
+			return packet.id, payloads[i], nil, packet.raw
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want []byte
+		for i, packet := range packets {
+			frameThreshold := threshold
+			if threshold >= 0 && packet.raw && !packet.cached {
+				frameThreshold = math.MaxInt
+			}
+			want = append(want, referenceFrame(frameThreshold, packet.id, payloads[i])...)
+		}
+		if !bytes.Equal(wire.got, want) {
+			t.Errorf("threshold %d: mixed batch (%d bytes) differs from reference frames (%d bytes)",
+				threshold, len(wire.got), len(want))
+		}
 	}
 }

@@ -31,9 +31,10 @@ type VillagerTrade struct {
 // TradeSet is a data-pack trade_set: Amount offers drawn from Trades.
 // vanilla: TradeSet
 type TradeSet struct {
-	Amount     int
-	Duplicates bool
-	Trades     []VillagerTrade
+	Amount         int
+	Duplicates     bool
+	Trades         []VillagerTrade
+	RandomSequence string // empty uses the level random
 }
 
 // FindTradeSet returns the trade set of a profession's level, or of the

@@ -37,10 +37,22 @@ func (s *Server) blockPlaced(w *world.World, x, y, z int32, oldState uint16) {
 	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
 }
 
-// updateNeighboursOnBlockSet runs the wake a non-strict /setblock owes even
-// when nothing changed: neighbours of an unchanged cell still hear it. It
-// requests the neighbour update directly, as NotifyChanged would no-op on an
-// unchanged state, then runs blockChanged's tail.
+// blockPlacedHooks is blockPlaced's share a block write owns: the placement
+// hooks and the shape passes, before a block entity's tag loads.
+func (s *Server) blockPlacedHooks(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyPlacedHooks(x, y, z, oldState)
+	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
+}
+
+// blockPlacedWake is blockPlaced's explicit neighbour update, run after
+// blockPlacedHooks and the tag load.
+func (s *Server) blockPlacedWake(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyPlacedWake(x, y, z, oldState)
+	s.finishBlockWake(w, x, y, z, oldState, changes, effects, primes, false, false, false)
+}
+
+// updateNeighboursOnBlockSet wakes neighbours after a successful non-strict
+// /setblock that left the block state unchanged. NotifyChanged skips that case.
 // vanilla: ServerLevel.updateNeighboursOnBlockSet
 func (s *Server) updateNeighboursOnBlockSet(w *world.World, x, y, z int32, oldState uint16) {
 	changes, effects, primes := s.physicsFor(w).NotifyNeighbours(x, y, z, oldState)
@@ -166,9 +178,7 @@ func (s *Server) tellEffectFrom(w *world.World, user *client, e world.Effect) {
 		} else if src := e.GameEventSource; src != nil {
 			ctx = rules.GameEventContext{Player: src.Player, Mob: src.Mob, Sneaking: src.Sneaking}
 		}
-		// A destroyed block is the event's affected state, so a popped carpet
-		// or wool is dampened. vanilla: Level.destroyBlock
-		ctx.Affected = e.BreakDrop
+		ctx.Affected = e.GameEventAffected
 		s.gameEvent(w, e.GameEvent, float64(e.X)+0.5, float64(e.Y)+0.5, float64(e.Z)+0.5, ctx)
 	}
 	if v := e.ListenerEvent; v != nil {
@@ -1351,6 +1361,9 @@ const (
 	// writeNeighborShapes is the shape pass of a flag-2 write: the rules
 	// reshape and the engine's shape pass, no neighbour update.
 	writeNeighborShapes
+	// writePlacedHooks runs a placement's hooks and shape passes within the
+	// write and leaves the explicit neighbour update to the caller.
+	writePlacedHooks
 	commandBlockWrite = writeShape | writeEntity | writeLight | writeWake
 	strictBlockWrite  = writeEntity | writeLight
 )
@@ -1400,7 +1413,10 @@ func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint
 		s.applyBlockUpdates(w, x, y, z, old, state, *updates)
 		return true
 	}
-	if policy&(writeWake|writeNeighborShapes) == writeNeighborShapes {
+	if policy&writePlacedHooks != 0 {
+		s.updateNeighborShapes(w, x, y, z)
+		s.blockPlacedHooks(w, x, y, z, old)
+	} else if policy&(writeWake|writeNeighborShapes) == writeNeighborShapes {
 		s.updateNeighborShapes(w, x, y, z)
 		s.physicsShapePass(w, x, y, z)
 	}

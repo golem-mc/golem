@@ -618,18 +618,19 @@ func RollLootInto(dst []protocol.ItemStack, name string, ctx *LootContext, rng L
 	if !ok {
 		return dst
 	}
-	return rollLootTable(dst, name, table, ctx, ctx.lootRandom(table.RandomSequence, rng))
+	return rollLootTable(dst, name, table, ctx, ctx.RandomFor(table.RandomSequence, rng))
 }
 
 // RollLootTable rolls a table the caller holds, such as an inline one a
 // command carries; name is the table's own, which a reference entry may not
 // loop back to.
 func RollLootTable(name string, table registry.LootTable, ctx *LootContext, rng LootRand) []protocol.ItemStack {
-	return rollLootTable(nil, name, table, ctx, ctx.lootRandom(table.RandomSequence, rng))
+	return rollLootTable(nil, name, table, ctx, ctx.RandomFor(table.RandomSequence, rng))
 }
 
+// RandomFor selects the explicit source, named sequence or level random for a roll.
 // vanilla: LootContext.Builder.create
-func (ctx *LootContext) lootRandom(sequence string, fallback LootRand) LootRand {
+func (ctx *LootContext) RandomFor(sequence string, fallback LootRand) LootRand {
 	if ctx.Random != nil {
 		return ctx.Random
 	}
@@ -728,6 +729,8 @@ type lootCandidate struct {
 	entry  registry.LootEntry
 	item   registry.Item
 	weight int32
+	// wraps are the modifiers of the composite entries around it, outermost first.
+	wraps [][]registry.LootFunction
 }
 
 // pickOne makes one weighted choice across all expanded entries. A single
@@ -777,9 +780,32 @@ func (r *lootRoller) expandSingle(dst []lootCandidate, entry registry.LootEntry,
 	return true, append(dst, lootCandidate{entry: entry, weight: r.weight(weight, quality)})
 }
 
-// expand appends the candidates of an entry and reports whether it could
-// run, including entries that can run without producing candidates.
+// expand appends candidates even if the entry ultimately fails. A successful
+// entry can also produce no candidates.
+// vanilla: ComposableEntryContainer.expand
 func (r *lootRoller) expand(entry registry.LootEntry, dst []lootCandidate) (bool, []lootCandidate) {
+	var funcs []registry.LootFunction
+	switch k := entry.(type) {
+	case registry.LootAlternatives:
+		funcs = k.Functions
+	case registry.LootGroup:
+		funcs = k.Functions
+	case registry.LootSequence:
+		funcs = k.Functions
+	}
+	if len(funcs) == 0 {
+		return r.expandRaw(entry, dst)
+	}
+	// vanilla: LootPoolEntryContainer.adjustOutput
+	start := len(dst)
+	ok, dst := r.expandRaw(entry, dst)
+	for i := start; i < len(dst); i++ {
+		dst[i].wraps = append([][]registry.LootFunction{funcs}, dst[i].wraps...)
+	}
+	return ok, dst
+}
+
+func (r *lootRoller) expandRaw(entry registry.LootEntry, dst []lootCandidate) (bool, []lootCandidate) {
 	switch k := entry.(type) {
 	case registry.LootItemEntry:
 		return r.expandSingle(dst, entry, k.Conditions, k.Weight, k.Quality)
@@ -804,29 +830,35 @@ func (r *lootRoller) expand(entry registry.LootEntry, dst []lootCandidate) (bool
 	case registry.LootDynamic:
 		return r.expandSingle(dst, entry, k.Conditions, k.Weight, k.Quality)
 	case registry.LootAlternatives:
-		if r.conditions(k.Conditions) {
-			for _, child := range k.Children {
-				if ok, expanded := r.expand(child, dst); ok {
-					return true, expanded
-				}
+		if !r.conditions(k.Conditions) {
+			return false, dst
+		}
+		for _, child := range k.Children {
+			var ok bool
+			ok, dst = r.expand(child, dst)
+			if ok {
+				return true, dst
 			}
 		}
 	case registry.LootSequence:
 		if !r.conditions(k.Conditions) {
 			return false, dst
 		}
-		expanded := dst
 		for _, child := range k.Children {
 			var ok bool
-			ok, expanded = r.expand(child, expanded)
+			ok, dst = r.expand(child, dst)
 			if !ok {
 				return false, dst
 			}
 		}
-		return true, expanded
+		return true, dst
 	case registry.LootGroup:
 		if !r.conditions(k.Conditions) {
 			return false, dst
+		}
+		// vanilla: EntryGroup.compose (one child delegates, so its failure propagates)
+		if len(k.Children) == 1 {
+			return r.expand(k.Children[0], dst)
 		}
 		for _, child := range k.Children {
 			_, dst = r.expand(child, dst)
@@ -837,6 +869,9 @@ func (r *lootRoller) expand(entry registry.LootEntry, dst []lootCandidate) (bool
 }
 
 func (r *lootRoller) create(c lootCandidate, out lootOutput) {
+	for _, w := range c.wraps {
+		out = out.withFunctions(w)
+	}
 	switch k := c.entry.(type) {
 	case nil:
 		r.emit(lootStack{item: c.item, count: 1}, out)

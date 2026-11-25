@@ -45,7 +45,7 @@ type mobEntity struct {
 	// equipSeen is the equipment the tracking pass last read; equipGen counts
 	// its changes and is never 0 once the pass has read the mob. equipRead is
 	// the Mob.EquipmentRevision last read. Guarded by the mob lock.
-	equipSeen [7]protocol.ItemStack
+	equipSeen mobEquipment
 	equipGen  uint32
 	equipRead uint64
 	// metaSeen is immutable; immediate broadcasts patch watcher baselines by copy.
@@ -149,7 +149,7 @@ type mobShown struct {
 	wornGen    uint32
 	head       uint8
 	vx, vy, vz float64
-	worn       [7]protocol.ItemStack
+	worn       mobEquipment
 }
 
 // mobShownOf is a mob's own state as a watcher is told it now.
@@ -239,6 +239,7 @@ type mobHerd struct {
 	herd entity.Mobs
 	// events is the previous tick's event buffer, reused to avoid a fresh slice per tick.
 	events []entity.MobEvent
+	paths  entity.MobPathScratch
 	book   map[*entity.Mob]*mobEntity
 	// moveMarks is each mob's transform at the last EntityMoveEvent pass; nil while nothing listens.
 	moveMarks map[*entity.Mob]markState
@@ -247,12 +248,14 @@ type mobHerd struct {
 	lootExtra func(*mobHerd, *mobEntity) func(*rules.LootEntity)
 	// records uses stable, one-based slots independent of herd compaction;
 	// freeRecords holds vacant slots. Both are guarded by mobsMu.
-	records     []*mobEntity
-	freeRecords []int
-	byUUID      map[uuid.UUID]*entity.Mob
-	dying       []dyingMob
-	woken       map[world.ChunkPos]struct{}
-	carried     map[world.ChunkPos][]nbt.Tag
+	records      []*mobEntity
+	freeRecords  []int
+	byUUID       map[uuid.UUID]*entity.Mob
+	byID         map[int32]*mobEntity // includes the IDs reserved for dragon parts
+	dragonBodies []*entity.Mob
+	dying        []dyingMob
+	woken        map[world.ChunkPos]struct{}
+	carried      map[world.ChunkPos][]nbt.Tag
 	// listed is the chunks whose entity file has to be written when they
 	// leave even empty, or the next load would generate the animals again.
 	listed map[world.ChunkPos]bool
@@ -303,7 +306,7 @@ func (h *mobHerd) record(m *entity.Mob) *mobEntity {
 	return nil
 }
 
-// remember indexes a registered body by slot, pointer and UUID. The caller holds mobsMu.
+// remember indexes a registered body. The caller holds mobsMu.
 func (h *mobHerd) remember(ent *mobEntity) {
 	slot := ent.mob.RecordSlot()
 	if h.record(ent.mob) == nil {
@@ -313,6 +316,16 @@ func (h *mobHerd) remember(ent *mobEntity) {
 		} else {
 			slot = len(h.records) + 1
 			h.records = append(h.records, nil)
+		}
+		if h.byID == nil {
+			h.byID = make(map[int32]*mobEntity)
+		}
+		h.byID[ent.mob.ID] = ent
+		if ent.mob.Type == entity.TypeEnderDragon {
+			h.dragonBodies = append(h.dragonBodies, ent.mob)
+			for part := range int32(8) {
+				h.byID[ent.mob.ID+1+part] = ent
+			}
 		}
 	}
 	h.records[slot-1] = ent
@@ -336,6 +349,13 @@ func (h *mobHerd) forget(m *entity.Mob) {
 		h.freeRecords = append(h.freeRecords, slot)
 		m.SetRecordSlot(0)
 		delete(h.byUUID, ent.uuid)
+		delete(h.byID, m.ID)
+		if m.Type == entity.TypeEnderDragon {
+			h.dragonBodies = slices.DeleteFunc(h.dragonBodies, func(dragon *entity.Mob) bool { return dragon == m })
+			for part := range int32(8) {
+				delete(h.byID, m.ID+1+part)
+			}
+		}
 		delete(h.book, m)
 		m.Unfile()
 	}
@@ -491,6 +511,41 @@ type mobDrops struct {
 	by   uuid.UUID
 	x, y float64
 	z    float64
+	// roll is a death's table roll, made after the mob lock (rollDeathLoot);
+	// nil once stacks holds it.
+	roll *deathRoll
+}
+
+// deathRoll is what a death's table roll needs. The killing and credited
+// players' rides and pearls take locks the mob tick holds, so the roll waits
+// for the apply phase, reads them with no lock held, then rolls under the mob
+// lock alone.
+// vanilla: LivingEntity.dropFromLootTable
+type deathRoll struct {
+	mob                *entity.Mob
+	killer             rules.LootKiller
+	level              rules.LootLevel
+	attacker, credited *client
+}
+
+// rollDeathLoot makes the tick's pending death rolls in collection order.
+func (s *Server) rollDeathLoot(deaths []mobDrops) {
+	for i := range deaths {
+		r := deaths[i].roll
+		if r == nil {
+			continue
+		}
+		if r.attacker != nil {
+			r.killer.PlayerNBT = r.attacker.lootNBTRiding()
+		}
+		if r.credited != nil {
+			r.killer.CreditedPlayer.NBT = r.credited.lootNBTRiding()
+		}
+		s.mobsMu.Lock()
+		deaths[i].stacks = r.mob.RollDrops(r.killer, r.level)
+		s.mobsMu.Unlock()
+		deaths[i].roll = nil
+	}
 }
 
 // mobXpDrop is a dead mob's rolled experience, cut into orbs after the mob
@@ -868,14 +923,12 @@ func (s *Server) breedingParents(birth mobBirth) map[string]func() rules.LootEnt
 	}
 }
 
-// finishConversion spawns the converted body in the old one's place,
-// unfinalized (vanilla: Mob.convertTo), and plays the world event (1040
-// zombie drowned, 1041 husk, 1048 skeleton frozen).
+// finishConversion spawns the replacement and plays its conversion event.
+// vanilla: Mob.convertTo
 func (s *Server) finishConversion(cv mobConversion) {
 	old := cv.old.mob
 	id := s.nextEntity()
 	m := entity.NewMob(cv.into, id, old.X, old.Y, old.Z, s.entitySeed(id))
-	m.ConvertedFrom(old)
 	if old.Type == entity.TypeZombieVillager && cv.into == entity.TypeVillager {
 		s.zombieVillagerCured(cv, m)
 		return
@@ -888,18 +941,8 @@ func (s *Server) finishConversion(cv mobConversion) {
 		s.hoglinConverted(cv, m)
 		return
 	}
-	if entity.Family(old.Type) == entity.TypeZombie {
-		pos := world.ChunkPos{X: world.ChunkOf(old.X), Z: world.ChunkOf(old.Z)}
-		cv.w.Acquire(pos)
-		m.RollConversionAttributes(rules.SpecialMultiplier(s.effectiveDifficultyAt(cv.w, old.X, old.Z)))
-		cv.w.Release(pos)
-	}
-	if old.Type == entity.TypePiglin || old.Type == entity.TypePiglinBrute {
-		// vanilla: AbstractPiglin.finishConversion
-		m.AddEffect(effect.Instance{ID: registry.MobEffectNausea, Duration: 200})
-	}
 	if old.Type == entity.TypeTadpole {
-		ent := convertedEntity(cv.old, m, cv.w, false)
+		ent := convertedEntity(cv.old, m, cv.w, conversionParams{})
 		m.FinishTadpoleGrowth(cv.w, old, cv.w.Biome(rules.BlockOf(old.X), rules.BlockOf(old.Y), rules.BlockOf(old.Z)))
 		s.addRiddenConversion(cv.old, ent)
 		if !old.Silent {
@@ -907,7 +950,18 @@ func (s *Server) finishConversion(cv mobConversion) {
 		}
 		return
 	}
-	s.addRiddenConversion(cv.old, convertedEntity(cv.old, m, cv.w, true))
+	// vanilla: ConversionTracker.doConversion, AbstractPiglin.finishConversion
+	ent := convertedEntity(cv.old, m, cv.w, conversionParams{keepEquipment: true, keepLootPickup: true})
+	if entity.Family(old.Type) == entity.TypeZombie {
+		pos := world.ChunkPos{X: world.ChunkOf(old.X), Z: world.ChunkOf(old.Z)}
+		cv.w.Acquire(pos)
+		m.RollConversionAttributes(rules.SpecialMultiplier(s.effectiveDifficultyAt(cv.w, old.X, old.Z)))
+		cv.w.Release(pos)
+	}
+	if old.Type == entity.TypePiglin || old.Type == entity.TypePiglinBrute {
+		m.AddEffect(blowEffect(registry.MobEffectNausea, 200, 0))
+	}
+	s.addRiddenConversion(cv.old, ent)
 	event := int32(protocol.WorldEventZombieDrowned)
 	switch old.Type {
 	case entity.TypePiglin, entity.TypePiglinBrute:
@@ -943,7 +997,7 @@ func (s *Server) spawnSplitCube(sp cubeSplit) {
 	m := entity.NewMob(sp.from.mob.Type, id, sp.split.X, sp.split.Y, sp.split.Z, s.entitySeed(id))
 	m.SetSize(sp.split.Size, true)
 	m.Yaw, m.HeadYaw = sp.split.Yaw, sp.split.Yaw
-	s.addMob(convertedEntity(sp.from, m, sp.w, false))
+	s.addMob(convertedEntityCommon(sp.from, m, sp.w, false))
 }
 
 // fireMobEffectTrigger spawns a removed body's oozing slimes (capped by the
@@ -1061,31 +1115,34 @@ func (s *Server) weaveCobwebs(tr mobEffectTrigger) {
 	}
 }
 
-// convertedMobTags are saved keys a full conversion carries and a split
-// does not. Door breaking is carried ungated in vanilla; no splitting kind
-// breaks doors.
-// vanilla: ConversionType.convertCommon
-// vanilla: ConversionParams.single(this, true, true) sets the keep-flags
-var convertedMobTags = []string{"CanBreakDoors"}
+// vanilla: ConversionParams.single
+type conversionParams struct {
+	keepEquipment  bool
+	keepLootPickup bool
+}
 
-// convertedEntity wraps a converted body with what convertCommon carries
-// over (name, portal cooldown, invulnerability, unmodelled tags, NoAI,
-// persistence) under a new UUID. full (a drowned, a husk's zombie) also
-// keeps loot pickup and convertedMobTags; a split's children keep neither.
-func convertedEntity(from *mobEntity, m *entity.Mob, w *world.World, full bool) *mobEntity {
+// convertedEntity copies one body into its replacement before the conversion callback.
+// vanilla: ConversionType.SINGLE
+func convertedEntity(from *mobEntity, m *entity.Mob, w *world.World, params conversionParams) *mobEntity {
+	m.ConvertedFrom(from.mob, params.keepEquipment)
+	return convertedEntityCommon(from, m, w, params.keepLootPickup)
+}
+
+// vanilla: ConversionType.convertCommon
+func convertedEntityCommon(from *mobEntity, m *entity.Mob, w *world.World, keepLootPickup bool) *mobEntity {
 	m.SetMetadataNoAI(from.mob.NoAI)
 	m.Persistence = from.mob.Persistence
 	m.SetMetadataNoGravity(from.mob.NoGravity)
 	m.Silent = from.mob.Silent
 	m.SetMetadataLeftHanded(from.mob.LeftHanded)
 	m.Invulnerable = from.mob.Invulnerable
-	if full {
+	if keepLootPickup {
 		m.CanPickUpLoot = from.mob.CanPickUpLoot
 	}
 	// vanilla: ConversionType.convertCommon's active_effects, from the old
 	// body's live set.
 	m.InheritEffects(from.mob)
-	ent := &mobEntity{
+	return &mobEntity{
 		mob: m, w: w, uuid: uuid.New(),
 		name: from.name, nameVisible: from.nameVisible,
 		portal:            rules.EntityPortal{Cooldown: from.portal.Cooldown},
@@ -1095,20 +1152,6 @@ func convertedEntity(from *mobEntity, m *entity.Mob, w *world.World, full bool) 
 		// The lead's name goes with a holder the caller copies over.
 		leash: from.leash, leashOf: from.leashOf,
 	}
-	carry := func(key string) {
-		if tag, ok := from.saved[key]; ok {
-			if ent.saved == nil {
-				ent.saved = nbt.Compound{}
-			}
-			ent.saved[key] = tag
-		}
-	}
-	if full {
-		for _, key := range convertedMobTags {
-			carry(key)
-		}
-	}
-	return ent
 }
 
 // mobTrample is one mob's landing in a tick: where, its size and the fall
@@ -2283,9 +2326,6 @@ func mobPairingPackets(ent *mobEntity) []outbound {
 		outbound{id: protocol.IDPlayEntityEquipment, data: mobEquipmentPayload(ent)},
 		outbound{id: protocol.IDPlayUpdateAttributes, data: mobAttributesPayload(ent)},
 	)
-	if !ent.mob.SaddleSlot().Empty() {
-		packets = append(packets, outbound{id: protocol.IDPlayEntityEquipment, data: saddlePayload(ent.mob)})
-	}
 	if ids := ent.mob.PassengerIDs(); len(ids) > 0 {
 		// The passenger link goes last before a lead: a viewer that has not met the
 		// riders gets their spawns after it.
@@ -2487,8 +2527,14 @@ func (s *Server) spawnSummonedMobInDim(dim *dimension, kind entity.MobType, x, y
 }
 
 // spawnSummonedMobFacing is spawnSummonedMobInDim with prep run before
-// anyone sees the mob.
+// anyone sees the mob. The assigned ID is returned even if a plugin cancels.
 func (s *Server) spawnSummonedMobFacing(dim *dimension, kind entity.MobType, x, y, z float64, tag nbt.Compound, prep func(*mobEntity)) (int32, error) {
+	id, _, err := s.spawnTaggedMob(dim, kind, x, y, z, tag, prep)
+	return id, err
+}
+
+// spawnTaggedMob reports whether the new mob stayed in the world after the spawn event.
+func (s *Server) spawnTaggedMob(dim *dimension, kind entity.MobType, x, y, z float64, tag nbt.Compound, prep func(*mobEntity)) (id int32, spawned bool, err error) {
 	compound := maps.Clone(tag)
 	compound["id"] = nbt.String(kind.Name())
 	if woken, ok := s.wakeChunkOnce(dim, world.ChunkPos{X: world.ChunkOf(x), Z: world.ChunkOf(z)}); ok {
@@ -2500,14 +2546,9 @@ func (s *Server) spawnSummonedMobFacing(dim *dimension, kind entity.MobType, x, 
 	ent := mobOfTag(s, dim.w, compound)
 	dim.w.Release(pos)
 	if ent == nil {
-		return 0, errNotSimulated
+		return 0, false, errNotSimulated
 	}
 	ent.mob.SetPos(x, y, z)
-	// An explicit ground flag survives loading, even when NoAI prevents travel.
-	// vanilla: Entity.load, LivingEntity.aiStep
-	if _, ok := nbt.ByteField(compound, "OnGround"); !ok {
-		ent.mob.OnGround = !ent.mob.NoAI && spawnStandsOnGround(dim.w, x, y, z)
-	}
 	if prep != nil {
 		prep(ent)
 	}
@@ -2520,13 +2561,13 @@ func (s *Server) spawnSummonedMobFacing(dim *dimension, kind entity.MobType, x, 
 		}
 	}
 	if !s.addMobCore(true, mobs...) {
-		return 0, errDuplicateUUID
+		return 0, false, errDuplicateUUID
 	}
 	if !s.spawnAllowed(ent) {
 		for _, r := range mobs[1:] {
 			s.discardSpawned(r)
 		}
-		return ent.mob.ID, nil
+		return ent.mob.ID, false, nil
 	}
 	// A summoned vex may name an evoker already live, and a tagged summon
 	// may bring back an evoker a live vex was saved to follow.
@@ -2534,7 +2575,7 @@ func (s *Server) spawnSummonedMobFacing(dim *dimension, kind entity.MobType, x, 
 	for _, t := range riders.teams {
 		s.joinTagTeam(t)
 	}
-	return ent.mob.ID, nil
+	return ent.mob.ID, true, nil
 }
 
 // giveRidersUUIDs gives every nested rider compound that lacks a UUID a
@@ -2568,13 +2609,7 @@ func (s *Server) mobByEntityID(w *world.World, id int32) *mobEntity {
 
 // mobByEntityIDLocked is mobByEntityID for a caller already holding mobsMu.
 func (s *Server) mobByEntityIDLocked(w *world.World, id int32) *mobEntity {
-	h := s.herdOf(w)
-	for _, m := range h.herd {
-		if m.ID == id || (m.Type == entity.TypeEnderDragon && id > m.ID && id <= m.ID+8) {
-			return h.book[m]
-		}
-	}
-	return nil
+	return s.herdOf(w).byID[id]
 }
 
 // mobNameByID is the display name of the mob with this ID in w, false for
@@ -3239,11 +3274,11 @@ func mobEquipmentPayload(ent *mobEntity) []byte {
 	if len(used) == 0 {
 		return nil
 	}
-	return equipmentEntriesPayload(m.ID, &slots, used)
+	return equipmentEntriesPayload(m.ID, slots[:], used)
 }
 
-// tickMobCompasses ticks a mob's compasses; the tick's equipment diff tells
-// watchers of a cleared target. vanilla: EntityEquipment.tick
+// tickMobCompasses clears invalid targets on equipped compasses.
+// vanilla: EntityEquipment.tick, CompassItem.inventoryTick
 func tickMobCompasses(m *entity.Mob, w *world.World, dim string) {
 	bottom, top := w.MinY(), w.MinY()+w.Height()
 	if cleared, ok := rules.ClearLostLodestone(w, m.MainHand, dim, bottom, top); ok {
@@ -3257,21 +3292,28 @@ func tickMobCompasses(m *entity.Mob, w *world.World, dim string) {
 			m.SetEquipment(protocol.EquipFeet+i, cleared)
 		}
 	}
+	if cleared, ok := rules.ClearLostLodestone(w, m.Body, dim, bottom, top); ok {
+		m.SetEquipment(protocol.EquipBody, cleared)
+	}
+	if cleared, ok := rules.ClearLostLodestone(w, m.SaddleSlot(), dim, bottom, top); ok {
+		m.SetEquipment(protocol.EquipSaddle, cleared)
+	}
 }
 
-// mobEquipmentNow is a mob's equipment in wire-slot order: main hand, off
-// hand, feet, legs, chest, head, body.
-func mobEquipmentNow(m *entity.Mob) [7]protocol.ItemStack {
-	var slots [7]protocol.ItemStack
-	slots[0], slots[1] = m.MainHand, m.OffHand
-	copy(slots[2:], m.Worn[:])
-	slots[6] = m.Body
+type mobEquipment [protocol.EquipSaddle + 1]protocol.ItemStack
+
+// mobEquipmentNow is a mob's equipment in wire-slot order.
+func mobEquipmentNow(m *entity.Mob) mobEquipment {
+	var slots mobEquipment
+	slots[protocol.EquipMainHand], slots[protocol.EquipOffHand] = m.MainHand, m.OffHand
+	copy(slots[protocol.EquipFeet:], m.Worn[:])
+	slots[protocol.EquipBody], slots[protocol.EquipSaddle] = m.Body, m.SaddleSlot()
 	return slots
 }
 
 // mobEquipmentSame compares live slots in mobEquipmentNow's wire-slot order,
 // without copying the whole equipment snapshot.
-func mobEquipmentSame(seen *[7]protocol.ItemStack, m *entity.Mob) bool {
+func mobEquipmentSame(seen *mobEquipment, m *entity.Mob) bool {
 	for i := range seen {
 		live := m.EquipmentSlot(i)
 		if seen[i].ItemID == 0 && live.ItemID == 0 && seen[i].Count == live.Count {
@@ -3286,7 +3328,7 @@ func mobEquipmentSame(seen *[7]protocol.ItemStack, m *entity.Mob) bool {
 
 // equipmentEntriesPayload writes Set Equipment for the used slots, the
 // continuation bit on all but the last.
-func equipmentEntriesPayload(id int32, slots *[7]protocol.ItemStack, used []int) []byte {
+func equipmentEntriesPayload(id int32, slots []protocol.ItemStack, used []int) []byte {
 	var b protocol.Buffer
 	b.PutVarInt(id)
 	for i, slot := range used {
@@ -3321,21 +3363,22 @@ func (s *Server) updateMobSlot(ent *mobEntity, wire int, update func(protocol.It
 	before := mobEquipmentNow(ent.mob)
 	ent.mob.SetEquipment(wire, stack)
 	equipped := mobEquipmentNow(ent.mob)
-	used := equipmentChanged(&before, &equipped)
-	var payload []byte
-	if len(used) > 0 {
-		payload = equipmentEntriesPayload(ent.mob.ID, &equipped, used)
+	used := equipmentChanged(before[:], equipped[:])
+	if len(used) == 0 {
+		s.mobsMu.Unlock()
+		return
 	}
+	payload := equipmentEntriesPayload(ent.mob.ID, equipped[:], used)
 	var watchers []uuid.UUID
 	for id, tracked := range ent.tracked.all() {
-		tracked.own.worn = equipped
+		// Keep unsent changes to other slots pending for the tracking pass.
+		for _, slot := range used {
+			tracked.own.worn[slot] = equipped[slot]
+		}
 		tracked.own.wornGen = 0
 		watchers = append(watchers, id)
 	}
 	s.mobsMu.Unlock()
-	if payload == nil {
-		return
-	}
 	// Look up watcher clients after releasing the mob lock: the player list
 	// lock stays outside it, as in the tick.
 	for _, id := range watchers {
@@ -3351,7 +3394,7 @@ func (s *Server) updateMobSlot(ent *mobEntity, wire int, update func(protocol.It
 
 // equipmentChanged returns the slots whose whole stack changed, wear
 // included.
-func equipmentChanged(was, now *[7]protocol.ItemStack) []int {
+func equipmentChanged(was, now []protocol.ItemStack) []int {
 	if equipmentSame(was, now) {
 		return nil
 	}
@@ -3366,7 +3409,7 @@ func equipmentChanged(was, now *[7]protocol.ItemStack) []int {
 
 // equipmentSame reports whether every slot is Equal, without copying the
 // stacks.
-func equipmentSame(a, b *[7]protocol.ItemStack) bool {
+func equipmentSame(a, b []protocol.ItemStack) bool {
 	for i := range a {
 		if a[i].ItemID == 0 && b[i].ItemID == 0 && a[i].Count == b[i].Count {
 			continue // two bare empty slots; components only ride on an item
@@ -3437,9 +3480,11 @@ func (c *client) attackMob(target int32) {
 	if !ok {
 		return
 	}
+	pos := c.player.Position()
 	attacker := entity.Player{
-		X: c.player.Position().X, Y: c.player.Position().Y, Z: c.player.Position().Z,
-		Yaw:      float64(c.player.Position().Yaw),
+		X: pos.X, Y: pos.Y, Z: pos.Z,
+		Yaw:      float64(pos.Yaw),
+		Pitch:    float64(pos.Pitch),
 		EntityID: c.player.EntityID,
 		Huntable: true,
 		Creative: c.player.GameMode() == protocol.GameModeCreative,
@@ -3722,6 +3767,7 @@ func (c *client) mobInteract(ent *mobEntity, hand int32, held protocol.ItemStack
 		ent.mob.Persistence = true
 	}
 	baby := ent.mob.IsBaby()
+	armadilloScared := ent.mob.ArmadilloScared()
 	filledCube := ent.mob.SulfurCubeFilled()
 	primedCube := ent.mob.SulfurPrimed()
 	leashedToPlayer := ent.mob.LeashHolderID == c.player.EntityID
@@ -3799,6 +3845,11 @@ func (c *client) mobInteract(ent *mobEntity, hand int32, held protocol.ItemStack
 		return true, c.stewFromMooshroom(ent, hand)
 	case tagUsed:
 		return true, c.nameMob(ent, hand)
+	case armadilloScared:
+		// vanilla: Armadillo.mobInteract refuses before age locking or feeding.
+		c.useSwing = swingNone
+		// Finish the flower use before the equipment fallback.
+		return item == registry.ItemGoldenDandelion, nil
 	case ent.mob.Type == entity.TypeZombieVillager && item == registry.ItemGoldenApple:
 		return true, c.cureZombieVillager(ent, hand)
 	case ent.mob.Type == entity.TypePiglin && item == registry.ItemGoldIngot:
@@ -3966,16 +4017,8 @@ func (s *Server) convertShearedMooshroom(ent *mobEntity) {
 		removeEntitiesPayload([]int32{ent.mob.ID}))
 	id := s.nextEntity()
 	m := entity.NewMob(entity.TypeCow, id, x, y, z, s.entitySeed(id))
-	m.ConvertedFrom(ent.mob)
-	// keepEquipment false only skips the copy: the old body is removed without
-	// loot, so its gear is gone, not dropped.
-	// vanilla: ConversionType.single's keepEquipment
-	for slot := range 6 {
-		m.SetEquipment(slot, protocol.ItemStack{})
-	}
-	m.ResetDropChances()
+	cow := convertedEntity(ent, m, ent.w, conversionParams{})
 	m.LeashHolderID = holder
-	cow := convertedEntity(ent, m, ent.w, false)
 	cow.convertTeam = team
 	s.addRiddenConversion(ent, cow)
 }
@@ -4150,6 +4193,7 @@ func (c *client) milkAnimal(ent *mobEntity, hand int32, sound registry.Sound) er
 	// Read under the mob lock: the tick ages the animal.
 	c.srv.mobsMu.Lock()
 	baby := ent.mob.IsBaby()
+	x, y, z := ent.mob.X, ent.mob.Y, ent.mob.Z
 	c.srv.mobsMu.Unlock()
 	if baby {
 		return nil
@@ -4159,6 +4203,8 @@ func (c *client) milkAnimal(ent *mobEntity, hand int32, sound registry.Sound) er
 	pos := c.player.Position()
 	c.srv.broadcastSoundIDExcept(ent.w, c, sound, protocol.SoundCategoryPlayer, pos.X, pos.Y, pos.Z, 1.0, 1.0)
 	c.filledResult(hand, protocol.ItemStack{ItemID: int32(registry.ItemMilkBucket), Count: 1}, true)
+	// vanilla: Mob.interact posts ENTITY_INTERACT at the animal.
+	c.srv.gameEvent(ent.w, rules.GameEventEntityInteract, x, y, z, c.gameEventContext(0))
 	return nil
 }
 
@@ -4264,8 +4310,8 @@ func (c *client) stewFromMooshroom(ent *mobEntity, hand int32) error {
 		c.srv.broadcastSoundID(ent.w,
 			sound, protocol.SoundCategoryNeutral,
 			x, y, z, 1.0, 1.0)
-
 	}
+	c.srv.gameEvent(ent.w, rules.GameEventEntityInteract, x, y, z, c.gameEventContext(0))
 	return nil
 }
 

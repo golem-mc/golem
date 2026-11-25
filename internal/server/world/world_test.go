@@ -645,3 +645,82 @@ func waitSaveParked(t *testing.T, mark string) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+func TestSetBlocksTouchedChunksAndShulkerLids(t *testing.T) {
+	w := newTestWorld(t, NewFlatGenerator())
+
+	// Acquire 20 chunks (> 16 stack threshold) to exercise both the stack-backed
+	// touched slice and its promotion to the seen map.
+	const numChunks = 20
+	for cx := range int32(numChunks) {
+		pos := ChunkPos{X: cx, Z: 0}
+		w.Acquire(pos)
+		defer w.Release(pos)
+	}
+
+	// Place two open shulker boxes in chunk 0: one replaced by SetBlocks, one untouched.
+	shulker := registry.BlockShulkerBox.DefaultState()
+	w.SetBlock(1, 80, 1, shulker)
+	w.SetBlock(2, 80, 1, shulker)
+	p := NewPhysics(w)
+	p.ShulkerViewersChanged(1, 80, 1, 1)
+	p.ShulkerViewersChanged(2, 80, 1, 1)
+	if _, open := w.shulkerLidsOpen.Load([3]int32{1, 80, 1}); !open {
+		t.Fatal("expected shulker lid at (1,80,1) to be open before SetBlocks")
+	}
+
+	writesBefore := make([]uint64, numChunks)
+	genBefore := make([]uint64, numChunks)
+	w.mu.RLock()
+	for cx := range int32(numChunks) {
+		loaded := w.chunks[ChunkPos{X: cx, Z: 0}]
+		writesBefore[cx] = loaded.chunk.writes
+		genBefore[cx] = loaded.containerGen.Load()
+	}
+	w.mu.RUnlock()
+
+	var changes []BlockChange
+	// Replace the first shulker box with air, plus a no-op write and an unloaded
+	// chunk write interspersed with multiple writes per chunk across 20 chunks.
+	changes = append(changes,
+		BlockChange{X: 1, Y: 80, Z: 1, State: airState},
+		BlockChange{X: 3, Y: 80, Z: 1, State: airState},         // no-op (already air)
+		BlockChange{X: 9999, Y: 80, Z: 9999, State: stoneState}, // unloaded chunk
+	)
+	for cx := range int32(numChunks) {
+		x := cx * 16
+		changes = append(changes,
+			BlockChange{X: x, Y: 80, Z: 0, State: stoneState},
+			BlockChange{X: x + 1, Y: 80, Z: 0, State: stoneState},
+		)
+	}
+	// Revisit chunks 0 and 18 after map promotion to ensure afterWrite runs once.
+	changes = append(changes,
+		BlockChange{X: 4, Y: 80, Z: 0, State: stoneState},
+		BlockChange{X: 18*16 + 4, Y: 80, Z: 0, State: stoneState},
+	)
+
+	applied := w.SetBlocks(changes)
+	wantApplied := 1 + numChunks*2 + 2
+	if len(applied) != wantApplied {
+		t.Fatalf("SetBlocks applied %d changes, want %d", len(applied), wantApplied)
+	}
+	if _, open := w.shulkerLidsOpen.Load([3]int32{1, 80, 1}); open {
+		t.Error("replaced shulker box still has an entry in shulkerLidsOpen")
+	}
+	if _, open := w.shulkerLidsOpen.Load([3]int32{2, 80, 1}); !open {
+		t.Error("untouched shulker box lost its entry in shulkerLidsOpen")
+	}
+
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	for cx := range int32(numChunks) {
+		loaded := w.chunks[ChunkPos{X: cx, Z: 0}]
+		if got := loaded.chunk.writes - writesBefore[cx]; got != 1 {
+			t.Errorf("chunk %d afterWrite writes delta = %d, want 1", cx, got)
+		}
+		if got := loaded.containerGen.Load() - genBefore[cx]; got != 1 {
+			t.Errorf("chunk %d afterWrite containerGen delta = %d, want 1", cx, got)
+		}
+	}
+}
