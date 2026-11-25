@@ -28,9 +28,8 @@ type crammingCrowd struct {
 	worlds  map[*world.World]*crammingWorld
 	// self is where each filed player's own body lies.
 	self map[*client]crammerAt
-	// filed are the mobs already in a world's crowd, so one near two players
-	// is filed once.
-	filed map[*entity.Mob]struct{}
+	// visited are the chunks of the current world whose mobs are filed.
+	visited map[world.ChunkPos]struct{}
 }
 
 type crammerAt struct {
@@ -94,7 +93,7 @@ func (s *Server) buildCrammingCrowd(cc *crammingCrowd) {
 	if cc.worlds == nil {
 		cc.worlds = make(map[*world.World]*crammingWorld)
 		cc.self = make(map[*client]crammerAt)
-		cc.filed = make(map[*entity.Mob]struct{})
+		cc.visited = make(map[world.ChunkPos]struct{})
 	}
 	for _, cw := range cc.worlds {
 		clear(cw.bodies)
@@ -103,7 +102,6 @@ func (s *Server) buildCrammingCrowd(cc *crammingCrowd) {
 		cw.grid.Reset()
 	}
 	clear(cc.self)
-	clear(cc.filed)
 	teams := s.scoreboard.MemberTeams()
 	var rulesOf map[string]entity.CollisionRule
 	if teams != nil {
@@ -138,21 +136,30 @@ func (s *Server) buildCrammingCrowd(cc *crammingCrowd) {
 			continue
 		}
 		herd := s.herdOf(dim.w)
+		// Every player is filed before the first mob, so one test of a mob
+		// against the crowd serves every player: a chunk is walked once.
+		clear(cc.visited)
+		file := func(m *entity.Mob) bool {
+			// The box first: it is fewer of the mob's fields to read than
+			// Pushable's.
+			box := entity.NewAABB(m.BlastBox())
+			if cw.nearPlayer(box) && m.Pushable() {
+				cw.add(crammer{box: box, team: m.Team, rule: m.TeamCollision, riding: m.RidesVehicle})
+			}
+			return true
+		}
 		for p := 0; p < cw.players; p++ {
 			bounds := cw.bodies[p].box.Bounds()
 			area, indexed := smallChunkArea(&bounds)
-			herd.mobsInArea(area, indexed, func(m *entity.Mob) bool {
-				if _, filed := cc.filed[m]; filed {
-					return true
+			if !indexed {
+				herd.mobsInArea(area, false, file)
+				break
+			}
+			area.each(func(pos world.ChunkPos) bool {
+				if _, seen := cc.visited[pos]; !seen {
+					cc.visited[pos] = struct{}{}
+					herd.chunks.Visit(pos, file)
 				}
-				// The box first: it is fewer of the mob's fields to read than
-				// Pushable's.
-				box := entity.NewAABB(m.BlastBox())
-				if !cw.nearPlayer(box) || !m.Pushable() {
-					return true
-				}
-				cc.filed[m] = struct{}{}
-				cw.add(crammer{box: box, team: m.Team, rule: m.TeamCollision, riding: m.RidesVehicle})
 				return true
 			})
 		}
