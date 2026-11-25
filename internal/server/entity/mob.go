@@ -2179,7 +2179,9 @@ type Mob struct {
 	preyKnown bool
 	// stands is the tick's visible armor stands of the world, which a goat's
 	// ram may target. Set for one tick.
-	stands   []StandTarget
+	stands []StandTarget
+	// corpses is the tick's dying bodies, a classic follow-parent candidate.
+	corpses  []*Mob
 	pushCell pushCellKey
 	pushIdx  int
 	// pushSlot is the mob's index in its cell's entries.
@@ -3920,14 +3922,15 @@ func (m *Mob) HurtByFirework(amount float64, damageType registry.DamageType, cau
 }
 
 // HurtByCommand is /damage: causeID (0 for none) is kept for
-// retaliation and kill credit, and a whole hit shoves away from (fromX, fromZ)
+// retaliation and kill credit, direct is the direct entity's identity (nil
+// for the causing one), and a whole hit shoves away from (fromX, fromZ)
 // unless the type is no_knockback. When from is non-nil (a by/from entity),
 // a filled sulfur cube bends its shove by the attacker's aim. Results are
 // landed and softened.
 // vanilla: DamageCommand.damage, LivingEntity.hurtServer
-func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, causeIsPlayer, causeCreative bool, fromX, fromZ float64, from ...*HitSource) (landed, softened bool) {
+func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, direct uuid.UUID, causeIsPlayer, causeCreative bool, fromX, fromZ float64, from ...*HitSource) (landed, softened bool) {
 	if causeID != 0 {
-		return m.hurtByDamage(amount, damageType, causeID, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z, from...)
+		return m.hurtVia(amount, damageType, hurtContext{causeID: causeID, direct: direct}, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z, from...)
 	}
 	landed, softened = m.HurtByWorld(amount, damageType)
 	if landed && !softened && !damageType.InTag(registry.DamageTypeTagIDNoKnockback) {
@@ -3942,6 +3945,12 @@ func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, caus
 // whole blow landed.
 // vanilla: LivingEntity.hurtServer, calculateHorizontalHurtKnockbackDirection
 func (m *Mob) hurtByDamage(amount float64, damageType registry.DamageType, causeID int32, causeIsPlayer, creative bool, knX, knZ float64, from ...*HitSource) (landed, softened bool) {
+	return m.hurtVia(amount, damageType, hurtContext{causeID: causeID}, causeIsPlayer, creative, knX, knZ, from...)
+}
+
+// hurtVia is hurtByDamage with the whole context the gate is told.
+func (m *Mob) hurtVia(amount float64, damageType registry.DamageType, ctx hurtContext, causeIsPlayer, creative bool, knX, knZ float64, from ...*HitSource) (landed, softened bool) {
+	causeID := ctx.causeID
 	if damageType.InTag(registry.DamageTypeTagIDIsProjectile) {
 		if dodges, _ := m.dodgesProjectile(damageType, creative); dodges {
 			return false, false
@@ -3978,7 +3987,7 @@ func (m *Mob) hurtByDamage(amount float64, damageType registry.DamageType, cause
 		}
 		return true, true
 	}
-	mayLand, soft := m.throughWindow(amount, damageType, creative, true, causeIsPlayer, hurtContext{causeID: causeID})
+	mayLand, soft := m.throughWindow(amount, damageType, creative, true, causeIsPlayer, ctx)
 	if mayLand == 0 && soft {
 		return false, false
 	}
@@ -5299,7 +5308,7 @@ func (m *Mob) tickInto(out []MobEvent, tick *tickView, w World, players []Player
 	if m.Type == TypeFox {
 		events = m.foxStep(w, events)
 	}
-	*tick = tickView{w: w, players: players, others: others, prey: m.prey, preyKnown: m.preyKnown, stands: m.stands, events: tick.events[:0]}
+	*tick = tickView{w: w, players: players, others: others, prey: m.prey, preyKnown: m.preyKnown, stands: m.stands, corpses: m.corpses, events: tick.events[:0]}
 	if m.push != nil {
 		tick.byID = m.push.byID
 	}

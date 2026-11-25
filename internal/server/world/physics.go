@@ -628,7 +628,9 @@ type Physics struct {
 	// randomTickKeys is RandomTick's sort buffer, reused between ticks.
 	randomTickKeys []uint64
 	queue          tickQueue
-	pending        map[blockKey]bool
+	// chunkIdx caches where each chunk's entries sit in queue; see tickIndex.
+	chunkIdx tickIndex
+	pending  map[blockKey]bool
 	// fluidBooked holds the fluid visits queued, one per position and type.
 	fluidBooked map[fluidBook]struct{}
 	finalizeSeq map[blockKey]int64
@@ -789,6 +791,9 @@ type Physics struct {
 	// them through takeWake under mu, so one caller never clears another's.
 	effects    []Effect
 	wakePrimes []TNTPrime
+	// physicsAsked holds the answers of one write's BlockPhysicsEvent asks, by
+	// neighbour and written cell, so its wake and shape pass ask once.
+	physicsAsked map[[6]int32]bool
 
 	// rides are the cells of the moving pistons still sweeping, in creation
 	// order.
@@ -912,6 +917,7 @@ func NewPhysics(w *World) *Physics {
 func (p *Physics) takeWake() ([]Effect, []TNTPrime) {
 	effects, primes := p.effects, p.wakePrimes
 	p.effects, p.wakePrimes = nil, nil
+	p.physicsAsked = nil
 	return effects, primes
 }
 
@@ -948,8 +954,11 @@ func (p *Physics) NotifyPlacedHooks(x, y, z int32, oldState uint16) ([]BlockChan
 	}
 	var changes []BlockChange
 	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	p.physicsAsked = nil
 	p.shapePass(x, y, z, oldState, newState, &changes)
+	asked := p.physicsAsked // NotifyPlacedWake is the same write's wake
 	effects, primes := p.takeWake()
+	p.physicsAsked = asked
 	return changes, effects, primes
 }
 
@@ -984,6 +993,7 @@ func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([
 	p.redstoneAfterRemoval(x, y, z, oldState, false, false, &changes)
 	p.containerRemoved(x, y, z, oldState, newState)
 	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	p.physicsAsked = nil
 	if handNew {
 		p.updateAsNeighbor(x, y, z, &changes, true, oldState, newState, [3]int32{})
 		p.wakeNeighbors(x, y, z, newState, newState, &changes)
@@ -1037,6 +1047,7 @@ func (p *Physics) ShapeUpdateNeighbors(x, y, z int32) ([]BlockChange, []Effect, 
 	defer p.mu.Unlock()
 	var changes []BlockChange
 	p.effects, p.wakePrimes = nil, nil
+	p.physicsAsked = nil
 	p.shapeUpdateNeighbors(x, y, z, &changes)
 	effects, primes := p.takeWake()
 	return changes, effects, primes
@@ -1060,9 +1071,6 @@ func (p *Physics) SurvivalShapeUpdates(x, y, z int32) ([]BlockChange, []Effect, 
 		}
 		if survivalOf[state].watch != 0 {
 			p.supportCheck(nx, ny, nz, state, blocklogic.Opposite(directionOf(d)), &changes)
-		} else {
-			// The halves of a double plant answer for each other.
-			p.doublePlantUpdate(nx, ny, nz, state, false, [3]int32{-d[0], -d[1], -d[2]}, &changes)
 		}
 	}
 	effects, primes := p.takeWake()
@@ -1117,7 +1125,7 @@ func (p *Physics) releaseParked() {
 			continue
 		}
 		for _, t := range ts {
-			p.queue.push(t)
+			p.pushTick(t)
 		}
 		delete(p.parked, cp)
 	}
@@ -1205,7 +1213,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		if next.due > p.now {
 			break
 		}
-		p.queue.pop()
+		p.popTick()
 		// A spent budget leaves its kind queued while the other keeps draining.
 		if blocks >= maxBlockTicksPerTick || fluids >= maxFluidTicksPerTick {
 			fluid := next.fluid != 0
@@ -1417,7 +1425,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		}
 	}
 	for _, t := range deferred {
-		p.queue.push(t)
+		p.pushTick(t)
 	}
 	p.handlingTick = false
 	// The block entities tick after the scheduled ticks.
@@ -1482,6 +1490,31 @@ func (p *Physics) bookTick(x, y, z int32, typ fluidType, due int64, priority int
 	p.insertTick(blockKey{x, y, z}, typ, due, priority)
 }
 
+// dropTickIndex forgets the chunk index after a queue mutation. The stores are
+// skipped while no snapshot has scanned the heap, the common case between saves.
+func (p *Physics) dropTickIndex() {
+	if p.chunkIdx.scanned {
+		p.chunkIdx = tickIndex{}
+	}
+}
+
+func (p *Physics) pushTick(t scheduledTick) {
+	p.dropTickIndex()
+	p.queue.push(t)
+}
+
+func (p *Physics) popTick() scheduledTick {
+	p.dropTickIndex()
+	return p.queue.pop()
+}
+
+// setTicks replaces the heap's entries with kept and restores heap order.
+func (p *Physics) setTicks(kept tickQueue) {
+	p.dropTickIndex()
+	p.queue = kept
+	p.queue.init()
+}
+
 // insertTick queues a visit unless one is waiting for the same key and fluid
 // type. Runs under p.mu.
 func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority int) {
@@ -1508,7 +1541,7 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 	if typ == 0 {
 		t.block = registry.BlockOf(p.w.BlockAt(key.x, key.y, key.z))
 	}
-	p.queue.push(t)
+	p.pushTick(t)
 	if priority == tickPriorityFinalize && typ == 0 {
 		p.finalizeSeq[key] = p.seq
 	}
@@ -1569,8 +1602,7 @@ func (p *Physics) ClearTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) {
 		}
 		kept = append(kept, t)
 	}
-	p.queue = kept
-	p.queue.init()
+	p.setTicks(kept)
 }
 
 // dropTickIn reports whether ClearTicksIn removes t, forgetting its booking.
@@ -1633,7 +1665,7 @@ func (p *Physics) schedulePistonEvent(x, y, z int32, dir int8, typ uint8) {
 	}
 	p.pendingEvent[key] = event
 	p.seq++
-	p.queue.push(scheduledTick{
+	p.pushTick(scheduledTick{
 		pos: key, due: p.now + p.eventDelay, priority: tickPriorityEvent, seq: p.seq, event: event,
 	})
 }
@@ -1858,11 +1890,8 @@ func (p *Physics) wakeNeighbors(x, y, z int32, old, changed uint16, changes *[]B
 	for _, d := range [6][3]int32{
 		{0, -1, 0}, {0, 1, 0}, {-1, 0, 0}, {1, 0, 0}, {0, 0, -1}, {0, 0, 1},
 	} {
-		if listens {
-			hd := HookDecision{Kind: HookPhysics, X: x + d[0], Y: y + d[1], Z: z + d[2], Old: p.w.BlockAt(x+d[0], y+d[1], z+d[2]), From: [3]int32{x, y, z}}
-			if p.ask(&hd) {
-				continue
-			}
+		if listens && p.physicsVetoed(x+d[0], y+d[1], z+d[2], [3]int32{x, y, z}) {
+			continue
 		}
 		p.updateAsNeighbor(x+d[0], y+d[1], z+d[2], changes, false, old, changed, [3]int32{-d[0], -d[1], -d[2]})
 	}
@@ -1959,7 +1988,9 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	if placed && block == registry.BlockSnifferEgg && registry.BlockOf(old) != block {
 		p.scheduleSnifferEgg(x, y, z)
 	}
-	if p.doublePlantUpdate(x, y, z, state, placed, from, changes) {
+	if isDoublePlantHalf(block, state) {
+		// Neighbour changes reach a half through the shape pass only.
+		// vanilla: VegetationBlock has no neighborChanged
 		return
 	}
 	if (placed || neighbors) && p.spongeChanged(x, y, z, block, placed, old, changes) {

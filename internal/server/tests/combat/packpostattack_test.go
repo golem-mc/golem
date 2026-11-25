@@ -12,6 +12,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -196,5 +197,40 @@ func TestPackEffectOnFangsOwnerRunsInTheFangsLevel(t *testing.T) {
 				t.Errorf("nether block at (%d, 63, %d) is %s, want the effect to leave that level alone", tc.x, tc.z, tc.blockID)
 			}
 		})
+	}
+}
+
+// A player's fangs run the post-attack effects of the weapon the player
+// holds, on a mob and a player alike.
+// vanilla: EvokerFangs.dealDamageTo, EnchantmentHelper.doPostAttackEffects
+func TestPackFangsOwnerWeaponPostAttack(t *testing.T) {
+	cfg := servertest.MobTestConfig()
+	cfg.LevelName = postAttackPack(t, "mainhand", "#minecraft:enchantable/weapon",
+		packPostAttack("attacker", "victim", `{"type":"minecraft:ignite","duration":2}`))
+	srv, connect := servertest.Start(t, cfg)
+	srv.SetSpawning(false)
+	oc, fc := connect(), connect()
+	oc.JoinAs("Owner")
+	fc.JoinAs("Foe")
+	oc.MoveToGround(0.5, 64, 0.5, true)
+	fc.MoveToGround(4.5, 64, 0.5, true)
+	cow := srv.SpawnMob("minecraft:cow", 8.5, 64, 0.5)
+	srv.SetMobNoAI(cow)
+	srv.GiveSlot("Owner", player.HotbarSlot, servertest.EnchantedStack(t, "minecraft:iron_sword", "pk:targets", 1))
+	oc.Settle()
+	servertest.HoldTicks(t, srv)
+	tag := " " + nbt.Stringify(nbt.Compound{"Owner": nbt.UUIDToIntArray(protocol.OfflineUUID("Owner"))})
+	srv.RunLine("summon minecraft:evoker_fangs 4.5 64 0.5" + tag)
+	srv.RunLine("summon minecraft:evoker_fangs 8.5 64 0.5" + tag)
+	// Fangs bite on their eighth tick; the fire still has 32 to burn.
+	servertest.RunTicks(t, srv, 8)
+	if hp, _ := srv.MobHealth(cow); hp != 4 {
+		t.Fatalf("cow health = %v, want 4 after the bite", hp)
+	}
+	if got := srv.MobFire(cow); got <= 0 {
+		t.Errorf("cow fire = %d, want lit by the owner's weapon", got)
+	}
+	if got := srv.PlayerFire("Foe"); got <= 0 {
+		t.Errorf("Foe fire = %d, want lit by the owner's weapon", got)
 	}
 }

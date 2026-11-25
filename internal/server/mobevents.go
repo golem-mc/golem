@@ -888,8 +888,8 @@ func landingDust(w *world.World, ev entity.MobEvent) mobSend {
 }
 
 // killingBlow is the blow of the player k that killed m, read under the mob
-// lock: a projectile of the type the mob last took (an arrow, a trident or a
-// thrown thing), else the player's swing. The swing's damage type is the
+// lock: a projectile of the type the mob last took (an arrow, a trident, a
+// thrown thing or evoker fangs), else the player's swing. The swing's damage type is the
 // player attack, as the weapon is no longer known.
 // vanilla: LivingEntity.die, DamageSource
 func killingBlow(k *client, m *entity.Mob) *advancement.Blow {
@@ -897,8 +897,11 @@ func killingBlow(k *client, m *entity.Mob) *advancement.Blow {
 	attacker := func() rules.LootEntity { return player }
 	if direct := m.BlowDirectType(); m.HurtByPlayer() && direct != "" {
 		typ := registry.DamageTypeArrow
-		if id, _ := registry.EntityTypeID(direct); registry.EntityType(id) == registry.EntityTypeTrident {
+		switch id, _ := registry.EntityTypeID(direct); registry.EntityType(id) {
+		case registry.EntityTypeTrident:
 			typ = registry.DamageTypeTrident
+		case registry.EntityTypeEvokerFangs:
+			typ = registry.DamageTypeIndirectMagic
 		}
 		thrown := rules.LootEntity{Type: direct}
 		return &advancement.Blow{Type: typ, Attacker: attacker, Direct: func() rules.LootEntity { return thrown }, Indirect: true}

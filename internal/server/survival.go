@@ -48,6 +48,9 @@ type damageCause struct {
 	// lands; nil for any other cause.
 	exploder *removedBody
 	directID int32
+	// directUUID is the direct entity's identity, which plugins are told; nil
+	// to resolve directID instead.
+	directUUID uuid.UUID
 	// directType is the entity type name of a projectile direct entity, which
 	// is neither a player nor a mob; empty otherwise.
 	directType string
