@@ -1,5 +1,20 @@
 package entity
 
+import "github.com/golem-mc/golem/registry"
+
+// PiercingMobPadding bounds the horizontal overhang of ordinary mob hitboxes.
+const PiercingMobPadding = 16
+
+// MayExceedPiercingPadding classifies kinds whose hitboxes need a separate search.
+func (m *Mob) MayExceedPiercingPadding() bool {
+	switch m.Type {
+	case TypePhantom, TypeSalmon, TypePufferfish, TypeShulker:
+		return true
+	}
+	k := m.kind()
+	return k.cube || max(k.width, k.babyWidth)*registry.AttributeScale.Attribute().Max/2 > PiercingMobPadding
+}
+
 // PiercingRay is a piercing jab's look ray: from the eyes along the unit
 // look vector between the reaches (blocks from the eyes), with the hitbox
 // margin, and the attacker's forward speed, which lengthens the far reach

@@ -150,3 +150,24 @@ func TestACopperColumnBuildsACopperGolemInAnyOrientation(t *testing.T) {
 		}
 	}
 }
+
+// vanilla: CarvedPumpkinBlock.trySpawnGolem, replaceCopperBlockWithChest
+func TestNearbyPumpkinUsesTheMatchedCopperGolemHead(t *testing.T) {
+	w := testWorld{}
+	head, _ := registry.WithProp(jackOLantern(t), registry.PropFacing, "east")
+	w.set(1, 81, 4, head)
+	w.set(1, 80, 4, registry.BlockWaxedWeatheredCopper.DefaultState())
+	w.set(0, 80, 3, carvedPumpkin(t))
+
+	spawn, ok := GolemSpawnOf(w, 0, 80, 3)
+	if !ok || spawn.Kind != CopperGolem {
+		t.Fatalf("the nearby build yielded %+v, want a copper golem", spawn)
+	}
+	want := [][3]int32{{1, 81, 4}, {1, 80, 4}}
+	if !slices.Equal(spawn.Clear, want) || spawn.Feet != want[0] {
+		t.Errorf("the build clears %v and spawns at %v, want %v and %v", spawn.Clear, spawn.Feet, want, want[0])
+	}
+	if spawn.Facing != "east" || spawn.Weather != 2 || spawn.Chest != registry.BlockWaxedWeatheredCopperChest {
+		t.Errorf("the build yielded facing %q, weather %d and chest %v, want the matched head's facing and waxed weathered copper", spawn.Facing, spawn.Weather, spawn.Chest)
+	}
+}

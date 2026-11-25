@@ -141,6 +141,50 @@ func BenchmarkComparatorInput(b *testing.B) {
 	}
 }
 
+// BenchmarkNeighborPower measures the boolean and numeric queries with a source below the receiver.
+func BenchmarkNeighborPower(b *testing.B) {
+	w := newTestWorld(b, NewFlatGenerator())
+	b.Cleanup(func() { _ = w.Close() })
+	w.Acquire(ChunkPos{})
+	p := NewPhysics(w)
+	weak, ok := registry.WithInt(registry.BlockDaylightDetector.DefaultState(), registry.PropPower, 7)
+	if !ok {
+		b.Fatal("no daylight detector state with power 7")
+	}
+	const x, y, z = 8, 80, 8
+	for _, tc := range []struct {
+		name  string
+		state uint16
+		power int
+	}{
+		{"air", registry.BlockAir.DefaultState(), 0},
+		{"weak", weak, 7},
+		{"full", registry.BlockRedstoneBlock.DefaultState(), 15},
+	} {
+		w.SetBlock(x, y-1, z, tc.state)
+		b.Run(tc.name, func(b *testing.B) {
+			b.Run("boolean", func(b *testing.B) {
+				if got, want := p.hasNeighborSignal(x, y, z), tc.power > 0; got != want {
+					b.Fatalf("hasNeighborSignal = %t, want %t", got, want)
+				}
+				b.ReportAllocs()
+				for b.Loop() {
+					p.hasNeighborSignal(x, y, z)
+				}
+			})
+			b.Run("numeric", func(b *testing.B) {
+				if got := p.bestNeighborSignal(x, y, z); got != tc.power {
+					b.Fatalf("bestNeighborSignal = %d, want %d", got, tc.power)
+				}
+				b.ReportAllocs()
+				for b.Loop() {
+					p.bestNeighborSignal(x, y, z)
+				}
+			})
+		})
+	}
+}
+
 // BenchmarkComparatorTickUnchanged refreshes an idle comparator's stored output.
 func BenchmarkComparatorTickUnchanged(b *testing.B) {
 	for _, mode := range []string{"compare", "subtract"} {
@@ -161,6 +205,35 @@ func BenchmarkComparatorTickUnchanged(b *testing.B) {
 			for b.Loop() {
 				changes = changes[:0]
 				p.comparatorTick(8, GroundLevel, 8, state, dirEast, &changes)
+			}
+		})
+	}
+}
+
+// BenchmarkDoubleChestComparatorWake drains a touch to a double chest read
+// through a conductor, from either the near half or the far half.
+func BenchmarkDoubleChestComparatorWake(b *testing.B) {
+	w := newTestWorld(b, NewFlatGenerator())
+	w.Acquire(ChunkPos{})
+	w.Acquire(ChunkPos{X: 1})
+	p := NewPhysics(w)
+	const y = GroundLevel
+	w.SetBlock(13, y, 0, registry.MustState("minecraft:chest", map[string]string{"facing": "north", "type": "left"}))
+	w.SetBlock(14, y, 0, registry.MustState("minecraft:chest", map[string]string{"facing": "north", "type": "right"}))
+	w.EnsureBlockEntity(13, y, 0, KindChest)
+	w.EnsureBlockEntity(14, y, 0, KindChest)
+	w.SetBlock(15, y, 0, registry.BlockStone.DefaultState())
+	w.SetBlock(16, y, 0, registry.MustState("minecraft:comparator", map[string]string{"facing": "west"}))
+	w.EnsureBlockEntity(16, y, 0, KindComparator)
+	for x, name := range []string{"far", "near"} {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			var tick int64
+			for b.Loop() {
+				w.Touch(13+int32(x), y, 0)
+				tick++
+				changes, _, _, effects := p.Tick(tick)
+				p.RecycleTickResults(changes, effects)
 			}
 		})
 	}

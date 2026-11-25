@@ -615,6 +615,7 @@ func bodyVisibleToSnap(body, viewer *pairedPlayer) bool {
 func (s *Server) tickDeadBodies() {
 	s.mu.RLock()
 	clients := s.clientsLocked()
+	between := s.corpseExpirySeam
 	s.mu.RUnlock()
 	for _, c := range clients {
 		if !c.joined() || !c.player.Vitals().Dead || c.holdsDropped.Load() {
@@ -626,32 +627,57 @@ func (s *Server) tickDeadBodies() {
 		}
 		// Dead is rechecked under the vitals lock the respawn resets the body
 		// under, so a tick that raced the respawn cannot count on the new body.
+		c.trackMu.Lock()
 		var ticks int32
-		c.player.UpdateBody(func(v *player.Vitals, _ *effect.Set, _ *player.Attributes) {
-			if v.Dead {
-				ticks = c.deathTicks.Add(1)
-			}
-		})
+		if !c.traveling.Load() {
+			c.player.UpdateBody(func(v *player.Vitals, _ *effect.Set, _ *player.Attributes) {
+				if v.Dead {
+					ticks = c.deathTicks.Add(1)
+				}
+			})
+		}
+		c.trackMu.Unlock()
 		if ticks < corpseTicks {
 			continue
 		}
-		c.trackMu.Lock()
-		wasGone := c.bodyGone.Swap(true)
-		dim := c.dimension()
-		for _, viewer := range c.seenBy {
-			viewer.sendIn(dim.w, protocol.IDPlayEntityEvent,
-				entityEventPayload(c.player.EntityID, protocol.EntityStatusDeathPoof))
-			viewer.sendIn(dim.w, protocol.IDPlayRemoveEntities, removeEntity(c.player))
+		if between != nil {
+			between()
 		}
-		clear(c.seenBy)
+		c.expireCorpse()
+	}
+}
+
+// expireCorpse removes the body and takes its effects before a respawn can
+// replace it under the same entity ID.
+func (c *client) expireCorpse() {
+	c.trackMu.Lock()
+	if c.traveling.Load() || c.deathTicks.Load() < corpseTicks {
 		c.trackMu.Unlock()
-		// Outside trackMu: the trigger takes the mob and world locks. A rejoined
-		// dead player's body was never shown, so its effects fired at the death.
-		if !wasGone {
-			c.fireDeathEffects()
-		}
-		// The holds go after the effects, which need the chunk loaded.
+		return
+	}
+	wasGone := c.bodyGone.Swap(true)
+	w := c.theWorld()
+	for _, viewer := range c.seenBy {
+		viewer.sendIn(w, protocol.IDPlayEntityEvent,
+			entityEventPayload(c.player.EntityID, protocol.EntityStatusDeathPoof))
+		viewer.sendIn(w, protocol.IDPlayRemoveEntities, removeEntity(c.player))
+	}
+	clear(c.seenBy)
+	var trigger mobEffectTrigger
+	if !wasGone {
+		trigger = c.takeDeathEffects()
+	}
+	c.trackMu.Unlock()
+
+	// Effects need the corpse's chunk and take the mob and world locks.
+	c.srv.fireMobEffectTrigger(trigger)
+	c.trackMu.Lock()
+	drop := !c.traveling.Load() && c.deathTicks.Load() >= corpseTicks
+	if drop {
 		c.holdsDropped.Store(true)
+	}
+	c.trackMu.Unlock()
+	if drop {
 		c.sendChunksAsync()
 	}
 }

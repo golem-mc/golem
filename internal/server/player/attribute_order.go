@@ -6,9 +6,9 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// Holder.Reference uses JVM identity hashes. One vanilla 26.3 JVM's hashes
-// give all players a shared layout and reproduce its fresh survival traversal.
-var playerAttributeHashes = [registry.NumAttributes]uint32{
+// Holder.Reference uses JVM identity hashes. These were recorded from one
+// vanilla 26.3 JVM so every attribute map uses the same layout.
+var attributeHashes = [registry.NumAttributes]uint32{
 	registry.AttributeAirDragModifier:              0x44db6d15,
 	registry.AttributeArmor:                        0x77303268,
 	registry.AttributeArmorToughness:               0x3e411e92,
@@ -52,10 +52,10 @@ var playerAttributeHashes = [registry.NumAttributes]uint32{
 }
 
 // vanilla: AttributeMap.pack, Object2ObjectOpenHashMap.rehash, MapIterator.nextEntry
-func packedPlayerAttributeOrder(inserted []registry.AttributeID) []registry.AttributeID {
+func packedAttributeOrder(inserted []uint8) []registry.AttributeID {
 	slots := make([]registry.AttributeID, 32) // fastutil's default 16 entries at a 0.75 load factor
 	for i, id := range inserted {
-		putAttributeSlot(slots, id)
+		putAttributeSlot(slots, registry.AttributeID(id))
 		if i+1 > len(slots)*3/4 {
 			previous := slots
 			slots = make([]registry.AttributeID, len(previous)*2)
@@ -77,7 +77,7 @@ func packedPlayerAttributeOrder(inserted []registry.AttributeID) []registry.Attr
 
 // putAttributeSlot stores id+1 so zero marks an empty bucket. vanilla: HashCommon.mix
 func putAttributeSlot(slots []registry.AttributeID, id registry.AttributeID) {
-	hash := playerAttributeHashes[id] * 0x9e3779b9
+	hash := attributeHashes[id] * 0x9e3779b9
 	mask := uint32(len(slots) - 1)
 	pos := (hash ^ (hash >> 16)) & mask
 	for slots[pos] != 0 {

@@ -270,6 +270,11 @@ func (g *BoxGrid) QueryPoints(box AABB, yield func(i int32)) {
 	})
 }
 
+// Bounds returns minX, minY, minZ, maxX, maxY, maxZ.
+func (a AABB) Bounds() [6]float64 {
+	return [6]float64{a.minX, a.minY, a.minZ, a.maxX, a.maxY, a.maxZ}
+}
+
 // Union is the smallest box holding both a and b.
 func (a AABB) Union(b AABB) AABB {
 	return AABB{min(a.minX, b.minX), min(a.minY, b.minY), min(a.minZ, b.minZ), max(a.maxX, b.maxX), max(a.maxY, b.maxY), max(a.maxZ, b.maxZ)}

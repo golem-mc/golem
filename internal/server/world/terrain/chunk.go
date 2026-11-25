@@ -35,7 +35,20 @@ func (c *ProtoChunk) MaxY() int32 { return c.minY + c.height - 1 }
 // Height is the y of the top block; an empty column reads minY - 1.
 func (c *ProtoChunk) Height(lx, lz int32) int32 { return c.tops[lz*16+lx] - 1 }
 
+// TopFilledY is the top Y of the highest occupied complete section, or minY - 1.
 func (c *ProtoChunk) TopFilledY() int32 {
+	if c.height%16 == 0 {
+		maxTop := c.minY
+		for _, top := range c.tops[:] {
+			maxTop = max(maxTop, top)
+		}
+		if maxTop == c.minY {
+			return c.minY - 1
+		}
+		return c.minY + ((maxTop-1-c.minY)/16)*16 + 15
+	}
+
+	// A column top can lie in the partial section that this scan ignores.
 	for s := c.height/16 - 1; s >= 0; s-- {
 		for i := range 256 {
 			for y := s * 16; y < s*16+16; y++ {
@@ -48,7 +61,8 @@ func (c *ProtoChunk) TopFilledY() int32 {
 	return c.minY - 1
 }
 
-// Column is the column at local x, z, bottom first: index 0 is minY.
+// Column returns a read-only view of the column at local x, z, starting at minY.
+// Write through Set to keep the column heights current.
 func (c *ProtoChunk) Column(x, z int32) []Material {
 	return c.blocks[c.index(x, c.minY, z):][:c.height]
 }

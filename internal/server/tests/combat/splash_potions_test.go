@@ -837,6 +837,55 @@ func (w *potionWitness) radiusMetas(entityID int32) []float32 {
 	return out
 }
 
+func TestThrownPotionCustomColor(t *testing.T) {
+	t.Parallel()
+	const red, opaqueRed int32 = 16711680, -65536
+	checkCloud := func(t *testing.T, w *potionWitness) {
+		t.Helper()
+		for _, m := range w.cloudMetas {
+			if m.hasParticle {
+				if m.particleType != protocol.ParticleEntityEffect || m.colour != opaqueRed {
+					t.Errorf("cloud particle type and colour = (%d, %d), want (%d, %d)", m.particleType, m.colour, protocol.ParticleEntityEffect, opaqueRed)
+				}
+				return
+			}
+		}
+		t.Error("no cloud particle metadata")
+	}
+	for _, item := range []registry.Item{registry.ItemSplashPotion, registry.ItemLingeringPotion} {
+		t.Run(item.Name(), func(t *testing.T) {
+			srv, c := servertest.Join(t, servertest.MobTestConfig(), "Thrower")
+			servertest.HoldTicks(t, srv)
+			stack := protocol.ItemStack{ItemID: int32(item), Count: 1}
+			colour := red
+			stack.SetPotionContents(protocol.PotionContents{Potion: registry.MustPotion("minecraft:night_vision"), CustomColor: &colour})
+			srv.GiveSlot("Thrower", 36, stack)
+			c.MoveTo(0.5, 64, 0.5, -90, 90)
+			servertest.UseHeld(c, -90, 90)
+
+			w := newPotionWitness()
+			w.listenWhile(srv, c, 20)
+			i := slices.IndexFunc(w.worldEvents, func(ev worldEffect) bool { return ev.event == protocol.WorldEventPotionSplash })
+			if i < 0 {
+				t.Error("no potion shatter event")
+			} else if got := w.worldEvents[i].data; got != red {
+				t.Errorf("potion shatter colour = %d, want %d", got, red)
+			}
+			if item == registry.ItemLingeringPotion {
+				checkCloud(t, w)
+			}
+		})
+	}
+	t.Run("cloud from NBT", func(t *testing.T) {
+		srv, c := servertest.Join(t, servertest.MobTestConfig(), "Op", servertest.OpsListing(t, "Op"))
+		servertest.HoldTicks(t, srv)
+		c.ChatCommand(`summon area_effect_cloud 0.5 64 0.5 {Duration:600,potion_contents:{potion:"minecraft:night_vision",custom_color:16711680}}`)
+		w := newPotionWitness()
+		w.listenWhile(srv, c, 20)
+		checkCloud(t, w)
+	})
+}
+
 // TestALingeringPotionWithoutEffectsLeavesNoCloud throws a lingering water
 // and a lingering mundane potion: neither has an effect to rain, so neither
 // leaves an area effect cloud, though each still plays its shatter's world
