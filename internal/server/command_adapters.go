@@ -143,7 +143,7 @@ func (c *client) playerSaveState(vehicle nbt.Compound, pearls []nbt.Tag) *nbt.Or
 	c.srv.wardenMu.Lock()
 	tracker := c.wardenTracker
 	c.srv.wardenMu.Unlock()
-	extra := playerSaveExtras{warden: tracker.Tag()}
+	extra := playerSaveExtras{warden: tracker.Tag(), deathTicks: &c.deathTicks}
 	if at, ok := c.srv.raidOmenPosition(c.player.UUID); ok {
 		extra.raid = nbt.IntArray{int32(at.X), int32(at.Y), int32(at.Z)}
 	}
@@ -153,7 +153,7 @@ func (c *client) playerSaveState(vehicle nbt.Compound, pearls []nbt.Tag) *nbt.Or
 	if st := c.abilities.Load(); st != nil {
 		extra.speeds = st
 	}
-	return orderedPlayerState(c.saved, c.player, c.flying.Load(), c.dimension().name, c.xpSeed.Load(), c.spawnPoint.Load(), vehicle, pearls, c.recipeBook.Load(), c.portalCooldown.Load(), c.deathTicks.Load(), extra)
+	return orderedPlayerState(c.saved, c.player, c.flying.Load(), c.dimension().name, c.xpSeed.Load(), c.spawnPoint.Load(), vehicle, pearls, c.recipeBook.Load(), c.portalCooldown.Load(), 0, extra)
 }
 
 // ChatArgument is empty outside a signed command invocation.

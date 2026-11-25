@@ -625,19 +625,10 @@ func (s *Server) tickDeadBodies() {
 		if c.deadHealthPending.Load() {
 			continue
 		}
-		// Dead is rechecked under the vitals lock the respawn resets the body
-		// under, so a tick that raced the respawn cannot count on the new body.
 		c.trackMu.Lock()
-		var ticks int32
-		if !c.traveling.Load() {
-			c.player.UpdateBody(func(v *player.Vitals, _ *effect.Set, _ *player.Attributes) {
-				if v.Dead {
-					ticks = c.deathTicks.Add(1)
-				}
-			})
-		}
+		expired := !c.traveling.Load() && c.player.Vitals().Dead && c.deathTicks.Add(1) >= corpseTicks
 		c.trackMu.Unlock()
-		if ticks < corpseTicks {
+		if !expired {
 			continue
 		}
 		if between != nil {
@@ -1427,7 +1418,7 @@ func (s *Server) tickPlayerTracking() {
 	// Only the tick goroutine touches the schedule, so the off ticks take no lock.
 	var movements sendList
 	for _, body := range present {
-		mt := body.c.movement.step(entity.PlayerUpdateInterval, nil)
+		mt := body.c.movement.stepDue(entity.PlayerUpdateInterval, false)
 		if !mt.gate {
 			continue
 		}

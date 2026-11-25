@@ -1413,6 +1413,8 @@ func (c *client) resetRespawnBody(pos player.Position, respawn respawnKind) bool
 			*v, kept = rules.RespawnVitalsKeeping(*v, keep.inventory, keep.level)
 			// The new body keeps bases, without the dead body's modifiers.
 			v.Health = attrs.Base(registry.AttributeMaxHealth)
+			// Under the vitals lock so a save sees the counter reset with the health.
+			c.deathTicks.Store(0)
 		})
 		// Effects go with the dead body (vanilla:
 		// LivingEntity.triggerOnDeathMobEffects); the credits' body keeps its own.
@@ -1447,7 +1449,6 @@ func (c *client) resetRespawnBody(pos player.Position, respawn respawnKind) bool
 	c.resetDig()
 	// vanilla: ServerGamePacketListenerImpl.restartClientLoadTimerAfterRespawn
 	c.awaitingRespawn.Store(false)
-	c.deathTicks.Store(0)
 	c.scoreResample.Store(true)
 	c.loadTicks.Store(clientLoadTicks)
 	c.player.SetPosition(pos)

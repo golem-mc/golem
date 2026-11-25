@@ -353,6 +353,9 @@ func playerState(loaded nbt.Compound, p *player.Player, flying bool, dimension s
 type playerSaveExtras struct {
 	warden, raid, post nbt.Tag
 	speeds             *pluginAbilities
+	// deathTicks, when set, is read after the vitals snapshot so a respawn
+	// between the two cannot save live health with the dead body's counter.
+	deathTicks *atomic.Int32
 }
 
 // orderedPlayerState follows Entity, LivingEntity, Player and ServerPlayer save order.
@@ -369,6 +372,9 @@ func orderedPlayerState(loaded nbt.Compound, p *player.Player, flying bool, dime
 		}
 	}
 	pos, v := p.Position(), p.Vitals()
+	if extra.deathTicks != nil {
+		deathTime = extra.deathTicks.Load()
+	}
 	writeEntityBaseTag(state, "", pos.X, pos.Y, pos.Z, 0, 0, 0, pos.Yaw, pos.Pitch, p.UUID, pos.OnGround, int(max(portalCooldown, 0)), v.FireTicks, 0, false)
 	put("fall_distance", nbt.Double(v.FallDistance))
 	put("Air", nbt.Short(clampToShort(v.AirSupply)))
