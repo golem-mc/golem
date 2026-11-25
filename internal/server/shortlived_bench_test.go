@@ -101,3 +101,29 @@ func BenchmarkTickFangsBite(b *testing.B) {
 		s.tickFangs()
 	}
 }
+
+// BenchmarkTickOwnedFangsBite repeats an evoker's bites among allied illagers
+// and its vexes so each bite checks alliances without changing the herd.
+func BenchmarkTickOwnedFangsBite(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	owner := s.SpawnMob("minecraft:evoker", 17.5, -60, 0.5)
+	for i := range trackerBenchBodies {
+		x, z := trackerBenchSpot(i)
+		if i%2 == 0 {
+			s.SpawnMob("minecraft:vindicator", x, -60, z)
+		} else {
+			vex := s.SpawnMob("minecraft:vex", x, -60, z)
+			s.SetMobVexOwner(vex, owner)
+		}
+		s.spawnFangs(fangsCast{w: w, owner: owner, x: x, y: -60, z: z})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		for _, it := range s.fangs.list {
+			f := it.fangs
+			it.fangs = entity.NewEvokerFangs(f.ID, f.X, f.Y, f.Z, 0, -7, owner)
+		}
+		s.tickFangs()
+	}
+}

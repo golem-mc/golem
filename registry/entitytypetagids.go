@@ -17,6 +17,7 @@ var (
 	EntityTypeTagIDFreezeImmuneEntityTypes   = mustEntityTypeTag("minecraft:freeze_immune_entity_types")
 	EntityTypeTagIDFrogFood                  = mustEntityTypeTag("minecraft:frog_food")
 	EntityTypeTagIDIgnoresPoisonAndRegen     = mustEntityTypeTag("minecraft:ignores_poison_and_regen")
+	EntityTypeTagIDIllagerFriends            = mustEntityTypeTag("minecraft:illager_friends")
 	EntityTypeTagIDImmuneToInfested          = mustEntityTypeTag("minecraft:immune_to_infested")
 	EntityTypeTagIDImmuneToOozing            = mustEntityTypeTag("minecraft:immune_to_oozing")
 	EntityTypeTagIDImpactProjectiles         = mustEntityTypeTag("minecraft:impact_projectiles")
