@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
 )
 
 // A powered floor lever on a hopper locks it; the hopper's enabled write then
@@ -17,4 +18,24 @@ func TestHopperEnabledChangeDropsFloorLever(t *testing.T) {
 	servertest.Setblock(t, c, 5, 65, 0, "lever[face=floor,facing=north,powered=true]")
 	servertest.ExpectBlockNamed(t, srv, 5, 65, 0, "minecraft:air", nil)
 	servertest.ExpectBlockNamed(t, srv, 5, 64, 0, "minecraft:hopper", map[string]string{"enabled": "true"})
+	if n := countDropped(srv.ItemsInDimension(world.DimensionName), "minecraft:lever"); n != 1 {
+		t.Fatalf("dropped levers = %d, want 1", n)
+	}
+}
+
+// A comparator beside a hopper keeps its place when the hopper's enabled write
+// shape-updates it from the side; only a change below drops it.
+// vanilla: ComparatorBlock.updateShape
+func TestHopperEnabledChangeKeepsSideComparator(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.AttachActor(t)
+	servertest.HoldTicks(t, srv)
+	servertest.Setblock(t, c, 5, 70, 0, "hopper[facing=down,enabled=true]")
+	servertest.Setblock(t, c, 6, 70, 0, "comparator[facing=north] strict")
+	servertest.Setblock(t, c, 4, 70, 0, "redstone_block")
+	servertest.ExpectBlockNamed(t, srv, 5, 70, 0, "minecraft:hopper", map[string]string{"enabled": "false"})
+	servertest.ExpectBlockNamed(t, srv, 6, 70, 0, "minecraft:comparator", nil)
+	if n := countDropped(srv.ItemsInDimension(world.DimensionName), "minecraft:comparator"); n != 0 {
+		t.Fatalf("dropped comparators = %d, want 0", n)
+	}
 }
