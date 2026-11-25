@@ -1434,7 +1434,9 @@ type Mob struct {
 	VX, VY, VZ          float64
 	Yaw, Pitch, HeadYaw float32
 	OnGround            bool
-	look                lookControl
+	// GroundGuess marks OnGround as the spawn's stand-in, not a saved fact.
+	GroundGuess bool
+	look        lookControl
 
 	Health, MaxHealth float64
 	// damagedEvent marks a hurt not yet told as entity_damage.
