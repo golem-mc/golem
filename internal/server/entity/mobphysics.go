@@ -413,6 +413,11 @@ func (m *Mob) move(w World, dx, dy, dz float64) {
 	if dx != 0 || dz != 0 {
 		m.moveHorizontal(w, ctx, dx, dz)
 	}
+	// vanilla: Entity.move sets onGround from downward collision, even
+	// when the server moved the body with no vertical motion.
+	if dy == 0 {
+		m.OnGround = false
+	}
 
 	// The block's speed factor scales the horizontal velocity after the move;
 	// then the cells the box ended in set the next move's stuck multiplier.
