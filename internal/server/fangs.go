@@ -187,28 +187,28 @@ func (s *Server) fangsBite(it fangsEffect) {
 	// A body is found only through the sections its feet are filed in, however
 	// wide its box. vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
 	window := entity.NewSectionWindow(minX, maxX, minY, maxY, minZ, maxZ)
-	consider := func(m *entity.Mob) {
+	consider := func(m *entity.Mob) bool {
 		if m.Dead || m == owner.Mob || !window.HoldsAt(m.X, m.Y, m.Z) {
-			return
+			return true
 		}
 		if !m.BlastBoxHits(minX, minY, minZ, maxX, maxY, maxZ) {
-			return
+			return true
 		}
 		if owner.Mob != nil && owner.Mob.EvokerFangsDirectAlly(m, ownerUUID) {
-			return
+			return true
 		}
 		if owner.Mob != nil && entity.FangsAllied(owner, entity.AllianceMember{Mob: m, Team: m.Team}, lookup) {
-			return
+			return true
 		}
 		victims = append(victims, m)
+		return true
 	}
 	indexed := false
 	if len(h.book) != 0 {
-		bounds := [6]float64{minX - entity.PiercingMobPadding, 0, minZ - entity.PiercingMobPadding,
-			maxX + entity.PiercingMobPadding, 0, maxZ + entity.PiercingMobPadding}
+		// smallChunkArea adds the same two-block margin as the window.
 		var area chunkArea
-		area, indexed = smallChunkArea(&bounds)
-		h.mobsInAreaWide(area, indexed, consider)
+		area, indexed = smallChunkArea(&[6]float64{minX, minY, minZ, maxX, maxY, maxZ})
+		h.mobsInArea(area, indexed, consider)
 	}
 	if indexed && len(victims) > 1 {
 		// The index visits by chunk; damage goes in herd order.

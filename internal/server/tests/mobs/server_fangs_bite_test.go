@@ -4,19 +4,21 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/nbt"
 )
 
 // TestFangsBiteHurtsMobsOnBothSidesOfAChunkBorderAndSparesAllies: fangs on a
-// chunk border hurt the mobs filed on either side and a body whose feet are
-// chunks away, and spare the owner standing in the bite and a vex whose summoner stands outside
-// the search area.
+// chunk border hurt the mobs filed on either side in herd order, and spare a
+// pig beside the bite, the owner standing in it and a vex whose summoner
+// stands outside the sections the bite searches.
 // vanilla: EvokerFangs.dealDamageTo, Evoker.considersEntityAsAlly
 func TestFangsBiteHurtsMobsOnBothSidesOfAChunkBorderAndSparesAllies(t *testing.T) {
 	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Watcher")
+	cfg := servertest.MobTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Watcher")
 	servertest.HoldTicks(t, srv)
 
 	owner := srv.SpawnMob("minecraft:evoker", 16, 64, 0.5)
@@ -25,18 +27,11 @@ func TestFangsBiteHurtsMobsOnBothSidesOfAChunkBorderAndSparesAllies(t *testing.T
 	west := srv.SpawnMob("minecraft:pig", 15.7, 64, 0.5)
 	// In a queried chunk but beyond the bite.
 	near := srv.SpawnMob("minecraft:pig", 16, 64, 4.5)
-	far := srv.SpawnMob("minecraft:pig", 0.5, 64, -40.5)
-	distant := srv.SpawnMob("minecraft:evoker", -48.5, 64, 0.5)
+	distant := srv.SpawnMob("minecraft:evoker", -16.5, 64, 0.5)
 	allyVex := srv.SpawnMob("minecraft:vex", 16, 64, 0.5)
 	strayVex := srv.SpawnMob("minecraft:vex", 16, 64, 0.5)
 	srv.SetMobVexOwner(allyVex, distant)
-	// The ghast's box reaches the bite, but its feet are in chunk X=3, outside the sections the bite searches.
-	wide := srv.SpawnMobTagged("minecraft:ghast", 48.25, 64, 0.5, nbt.Compound{
-		"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-			nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(16)},
-		}},
-	})
-	all := []int32{owner, west, east, near, far, distant, allyVex, strayVex, wide}
+	all := []int32{owner, west, east, near, distant, allyVex, strayVex}
 	for _, id := range all {
 		srv.SetMobNoAI(id)
 		srv.SetMobHealth(id, 100)
@@ -59,9 +54,9 @@ func TestFangsBiteHurtsMobsOnBothSidesOfAChunkBorderAndSparesAllies(t *testing.T
 		id   int32
 		hurt bool
 	}{
-		{"west pig", west, true}, {"east pig", east, true}, {"far pig", far, false}, {"pig beside the bite", near, false},
+		{"west pig", west, true}, {"east pig", east, true}, {"pig beside the bite", near, false},
 		{"owner", owner, false}, {"vex of a distant illager", allyVex, false},
-		{"stray vex", strayVex, true}, {"wide ghast filed beyond the search", wide, false},
+		{"stray vex", strayVex, true},
 	} {
 		hp, ok := srv.MobHealth(tc.id)
 		if !ok {

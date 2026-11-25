@@ -161,7 +161,15 @@ func (c *client) piercingTargets(w *world.World, ray entity.PiercingRay) (player
 	c.srv.mobsMu.Lock()
 	if len(h.book) != 0 {
 		if area, indexed := piercingChunkArea(ray); indexed {
-			h.mobsInAreaWide(area, true, func(m *entity.Mob) { addMob(h.record(m)) })
+			h.mobsInArea(area, true, func(m *entity.Mob) bool {
+				if len(h.widePiercingBodies) == 0 || !m.MayExceedPiercingPadding() {
+					addMob(h.record(m))
+				}
+				return true
+			})
+			for _, m := range h.widePiercingBodies {
+				addMob(h.record(m))
+			}
 		} else {
 			for _, ent := range h.book {
 				addMob(ent)
