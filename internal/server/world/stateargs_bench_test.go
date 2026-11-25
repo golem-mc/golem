@@ -22,31 +22,43 @@ func stateArgsWorld(b *testing.B) (*World, *Physics) {
 	return w, NewPhysics(w)
 }
 
-// BenchmarkDoublePlantNeighbourChange is a shape update from under a tall
-// grass's lower half: the partner and survival checks of doublePlantUpdate.
+// BenchmarkDoublePlantNeighbourChange is a write under a tall grass's lower
+// half, with its notification.
 func BenchmarkDoublePlantNeighbourChange(b *testing.B) {
-	benchDoublePlantShape(b, [3]int32{0, 1, 0})
+	benchWriteNear(b, 1, GroundLevel-1, 1)
 }
 
-// BenchmarkDoublePlantSideChange is a shape update from beside a supported
-// tall grass: the survival check alone.
+// BenchmarkDoublePlantSideChange is a write beside a supported tall grass.
 func BenchmarkDoublePlantSideChange(b *testing.B) {
-	benchDoublePlantShape(b, [3]int32{-1, 0, 0})
+	benchWriteNear(b, 0, GroundLevel, 1)
 }
 
-// benchDoublePlantShape runs the shape update of a change at the cell that
-// d walks from the tall grass back to it.
-func benchDoublePlantShape(b *testing.B, d [3]int32) {
+// BenchmarkOrdinaryNeighbourChange is a write with no double plant around it.
+func BenchmarkOrdinaryNeighbourChange(b *testing.B) {
+	benchWriteNear(b, 9, GroundLevel, 9)
+}
+
+// benchWriteNear swaps the block at (x, y, z) between grass block and dirt (both support vegetation) and
+// notifies the change, as a block write does.
+func benchWriteNear(b *testing.B, x, y, z int32) {
 	w, p := stateArgsWorld(b)
+	stone := registry.MustState("minecraft:grass_block", map[string]string{"snowy": "false"})
+	dirt := registry.MustState("minecraft:dirt", nil)
+	w.SetBlock(x, y, z, stone)
 	lower := w.BlockAt(1, GroundLevel, 1)
 	b.ReportAllocs()
-	var changes []BlockChange
+	next := dirt
 	for range b.N {
-		changes = changes[:0]
-		p.shapeUpdate(1, GroundLevel, 1, d, &changes)
+		old, _ := w.SwapBlock(x, y, z, next)
+		p.NotifyChanged(x, y, z, old)
+		if next == dirt {
+			next = stone
+		} else {
+			next = dirt
+		}
 	}
-	if w.BlockAt(1, GroundLevel, 1) != lower || len(changes) != 0 {
-		b.Fatalf("the tall grass changed: %v", changes)
+	if w.BlockAt(1, GroundLevel, 1) != lower {
+		b.Fatal("the tall grass changed")
 	}
 }
 

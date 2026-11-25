@@ -1060,9 +1060,6 @@ func (p *Physics) SurvivalShapeUpdates(x, y, z int32) ([]BlockChange, []Effect, 
 		}
 		if survivalOf[state].watch != 0 {
 			p.supportCheck(nx, ny, nz, state, blocklogic.Opposite(directionOf(d)), &changes)
-		} else {
-			// The halves of a double plant answer for each other.
-			p.doublePlantUpdate(nx, ny, nz, state, [3]int32{-d[0], -d[1], -d[2]}, &changes)
 		}
 	}
 	effects, primes := p.takeWake()
@@ -1959,7 +1956,7 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	if placed && block == registry.BlockSnifferEgg && registry.BlockOf(old) != block {
 		p.scheduleSnifferEgg(x, y, z)
 	}
-	if isDoublePlantHalf(state) {
+	if isDoublePlantHalf(block, state) {
 		// Neighbour changes reach a half through the shape pass only.
 		// vanilla: VegetationBlock has no neighborChanged
 		return

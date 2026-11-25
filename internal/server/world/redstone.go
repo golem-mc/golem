@@ -724,7 +724,8 @@ func (p *Physics) shapeUpdateBody(x, y, z int32, d [3]int32, changes *[]BlockCha
 		}
 		return
 	}
-	if p.doublePlantUpdate(x, y, z, state, [3]int32{-d[0], -d[1], -d[2]}, changes) {
+	if isDoublePlantHalf(block, state) {
+		p.doublePlantUpdate(x, y, z, block, state, [3]int32{-d[0], -d[1], -d[2]}, changes)
 		return
 	}
 	// The fruit-facing conversion answers before the stem's support check, and
