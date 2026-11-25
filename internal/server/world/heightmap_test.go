@@ -1,6 +1,7 @@
 package world
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
@@ -166,6 +167,7 @@ func TestHeightmapTopMatchesFullScan(t *testing.T) {
 			for pos, state := range tc.blocks {
 				c.SetBlock(pos[0], pos[1], pos[2], state)
 			}
+			got := decodeHeightmaps(t, w.encodeHeightmaps(c), heightmapBits(w.dim.height))
 			for lx := range int32(16) {
 				for lz := range int32(16) {
 					var want [3]int32
@@ -185,12 +187,41 @@ func TestHeightmapTopMatchesFullScan(t *testing.T) {
 							want[2] = raw
 						}
 					}
+					i := lz*16 + lx
+					if g := [3]int32{got[0][i], got[1][i], got[2][i]}; g != want {
+						t.Fatalf("column %d,%d = %v, want %v", lx, lz, g, want)
+					}
 					s, m, n := w.heightmapColumn(c, lx, lz)
 					if [3]int32{s, m, n} != want {
-						t.Fatalf("column %d,%d = %d/%d/%d, want %v", lx, lz, s, m, n, want)
+						t.Fatalf("heightmapColumn %d,%d = %d/%d/%d, want %v", lx, lz, s, m, n, want)
 					}
 				}
 			}
 		})
 	}
+}
+
+// decodeHeightmaps unpacks the three maps of an encodeHeightmaps payload; every
+// varint in it fits one byte.
+func decodeHeightmaps(t *testing.T, b []byte, bits int) [3][256]int32 {
+	t.Helper()
+	perLong := 64 / bits
+	longs := (256 + perLong - 1) / perLong
+	if b[0] != 3 {
+		t.Fatalf("map count %d, want 3", b[0])
+	}
+	b = b[1:]
+	var out [3][256]int32
+	for k := range 3 {
+		if int(b[1]) != longs {
+			t.Fatalf("map %d has %d longs, want %d", k, b[1], longs)
+		}
+		b = b[2:]
+		for i := range 256 {
+			word := binary.BigEndian.Uint64(b[i/perLong*8:])
+			out[k][i] = int32(word >> (i % perLong * bits) & (1<<bits - 1))
+		}
+		b = b[longs*8:]
+	}
+	return out
 }
