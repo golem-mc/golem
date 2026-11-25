@@ -285,10 +285,15 @@ func (p *Physics) directSignalTo(x, y, z int32) int {
 	return best
 }
 
-// hasNeighborSignal reports whether any neighbour signals toward (x, y, z),
-// walked in UPDATE_ORDER.
+// hasNeighborSignal reports whether any neighbour signals toward (x, y, z).
+// vanilla: SignalGetter.hasNeighborSignal
 func (p *Physics) hasNeighborSignal(x, y, z int32) bool {
-	return p.bestNeighborSignal(x, y, z) > 0
+	for d := range dirCount {
+		if p.signalAt(x, y, z, d) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // HasNeighborSignal is hasNeighborSignal for callers outside the engine (a door
@@ -302,13 +307,15 @@ func (p *Physics) HasNeighborSignal(x, y, z int32) bool {
 
 // bestNeighborSignal returns the strongest signal any neighbour delivers toward
 // (x, y, z).
-// vanilla: Level.getBestNeighborSignal
+// vanilla: SignalGetter.getBestNeighborSignal
 func (p *Physics) bestNeighborSignal(x, y, z int32) int {
 	best := 0
-	for _, d := range updateNeighborOrder {
-		if s := p.signalAt(x, y, z, d); s > best {
-			best = s
+	for d := range dirCount {
+		signal := p.signalAt(x, y, z, d)
+		if signal >= 15 {
+			return 15
 		}
+		best = max(best, signal)
 	}
 	return best
 }

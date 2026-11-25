@@ -1,6 +1,7 @@
 package world
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
@@ -10,11 +11,11 @@ import (
 // around the origin held and a fresh physics engine.
 func reopenWorld(t *testing.T, w *World, dir string) (*World, *Physics) {
 	t.Helper()
-	return reopenWorldWith(t, w, dir, savedWorldChunks())
+	return reopenWorldAround(t, w, dir, -1, 2)
 }
 
-// reopenWorldWith saves and closes w, then reopens dir with chunks loaded.
-func reopenWorldWith(t *testing.T, w *World, dir string, chunks []ChunkPos) (*World, *Physics) {
+// reopenWorldAround is reopenWorld holding chunks lo..hi on each axis.
+func reopenWorldAround(t *testing.T, w *World, dir string, lo, hi int32) (*World, *Physics) {
 	t.Helper()
 	w.Save()
 	w.Close()
@@ -23,20 +24,21 @@ func reopenWorldWith(t *testing.T, w *World, dir string, chunks []ChunkPos) (*Wo
 		t.Fatalf("NewWorld: %v", err)
 	}
 	t.Cleanup(func() { w2.Close() })
-	for _, pos := range chunks {
-		w2.Acquire(pos)
+	for cx := lo; cx <= hi; cx++ {
+		for cz := lo; cz <= hi; cz++ {
+			w2.Acquire(ChunkPos{X: cx, Z: cz})
+		}
 	}
 	return w2, NewPhysics(w2)
 }
 
 func newSavedWorld(t *testing.T) (*World, *Physics, string) {
 	t.Helper()
-	return newSavedWorldWith(t, savedWorldChunks())
+	return newSavedWorldAround(t, -1, 2)
 }
 
-// newSavedWorldWith is a world saved under a temporary directory, with chunks
-// loaded.
-func newSavedWorldWith(t *testing.T, chunks []ChunkPos) (*World, *Physics, string) {
+// newSavedWorldAround is newSavedWorld holding chunks lo..hi on each axis.
+func newSavedWorldAround(t *testing.T, lo, hi int32) (*World, *Physics, string) {
 	t.Helper()
 	t.Parallel()
 	dir := t.TempDir()
@@ -44,21 +46,12 @@ func newSavedWorldWith(t *testing.T, chunks []ChunkPos) (*World, *Physics, strin
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	for _, pos := range chunks {
-		w.Acquire(pos)
-	}
-	return w, NewPhysics(w), dir
-}
-
-// savedWorldChunks is the 4x4 chunks around the origin newSavedWorld loads.
-func savedWorldChunks() []ChunkPos {
-	var out []ChunkPos
-	for cx := int32(-1); cx <= 2; cx++ {
-		for cz := int32(-1); cz <= 2; cz++ {
-			out = append(out, ChunkPos{X: cx, Z: cz})
+	for cx := lo; cx <= hi; cx++ {
+		for cz := lo; cz <= hi; cz++ {
+			w.Acquire(ChunkPos{X: cx, Z: cz})
 		}
 	}
-	return out
+	return w, NewPhysics(w), dir
 }
 
 // TestRepeaterMidDelaySurvivesASaveAndReload stops the world with a repeater's
@@ -291,13 +284,12 @@ func TestCopiedSoilTickKeepsItsBlockAndPriority(t *testing.T) {
 // before the tick fires turns to dirt.
 // vanilla: SavedTick.loadTick, LevelChunkTicks.<init>, ServerLevel.tickBlock
 func TestSavedSoilTickKeepsItsBlockAndPriority(t *testing.T) {
-	origin := []ChunkPos{{}}
-	w, p, dir := newSavedWorldWith(t, origin)
+	w, p, dir := newSavedWorldAround(t, 0, 0)
 	const y = GroundLevel
 	soilTickRow(w, p, 8)
 	w.SetBlock(11, y, 8, registry.BlockStone.DefaultState())
 
-	w, p = reopenWorldWith(t, w, dir, origin)
+	w, p = reopenWorldAround(t, w, dir, 0, 0)
 	p.Tick(0)
 	w.SetBlock(11, y, 8, registry.BlockDirtPath.DefaultState())
 	w.SetBlock(10, y, 10, registry.BlockDirtPath.DefaultState())
@@ -352,8 +344,7 @@ func TestBookedTickKeepsItsBlockWhenReplaced(t *testing.T) {
 // tick stays booked for the flower, so neither path takes it.
 // vanilla: ScheduledTick.type, LevelTicks.copyAreaFrom, ServerLevel.tickBlock
 func TestTaggedTickKeepsItsBlockThroughCopyAndSave(t *testing.T) {
-	origin := []ChunkPos{{}}
-	w, p, dir := newSavedWorldWith(t, origin)
+	w, p, dir := newSavedWorldAround(t, 0, 0)
 	const y = GroundLevel
 	w.SetBlock(8, y, 8, registry.BlockChorusFlower.DefaultState())
 	p.mu.Lock()
@@ -367,7 +358,7 @@ func TestTaggedTickKeepsItsBlockThroughCopyAndSave(t *testing.T) {
 	w.SetBlock(8, y, 10, registry.BlockDirtPath.DefaultState())
 	p.ScheduleBlockTicks(ticks, 0, 0, 2)
 
-	w, p = reopenWorldWith(t, w, dir, origin)
+	w, p = reopenWorldAround(t, w, dir, 0, 0)
 	for clock := int64(0); clock <= 2; clock++ {
 		p.Tick(clock)
 	}
@@ -375,5 +366,60 @@ func TestTaggedTickKeepsItsBlockThroughCopyAndSave(t *testing.T) {
 		if got, _, _ := registry.BlockStateName(w.BlockAt(8, y, z)); got != "minecraft:dirt_path" {
 			t.Errorf("path at z=%d = %s, want minecraft:dirt_path", z, got)
 		}
+	}
+}
+
+// TestTiedTicksKeepBookingOrderAcrossReload books two visits with the same
+// due and priority around heap reorderings and checks the file lists them in
+// booking order (the order vanilla packs them in).
+func TestTiedTicksKeepBookingOrderAcrossReload(t *testing.T) {
+	w, p, dir := newSavedWorldAround(t, 0, 0)
+	waterSource := fluidType(fluidWater)<<1 | 1
+	// Booked out of coordinate order so a position sort cannot pass.
+	p.mu.Lock()
+	p.insertTick(blockKey{3, GroundLevel, 1}, waterSource, 100, 0) // A
+	p.insertTick(blockKey{1, GroundLevel, 1}, waterSource, 50, 0)
+	p.insertTick(blockKey{4, GroundLevel, 1}, waterSource, 100, 0) // B
+	p.insertTick(blockKey{2, GroundLevel, 1}, waterSource, 25, 0)
+	p.mu.Unlock()
+
+	w, _ = reopenWorldAround(t, w, dir, 0, 0)
+	var got []int32
+	for _, st := range w.ticksOfChunk(ChunkPos{}).fluid {
+		got = append(got, st.x)
+	}
+	if want := []int32{3, 1, 4, 2}; !slices.Equal(got, want) {
+		t.Fatalf("reloaded fluid ticks x = %v, want %v", got, want)
+	}
+}
+
+// TestTiedTicksDispatchInBookingOrderAfterReload books two sand falls due the
+// same tick, with shorter fluid visits between them, and checks that after a
+// save and reload the first-booked sand is the first to fall.
+func TestTiedTicksDispatchInBookingOrderAfterReload(t *testing.T) {
+	w, p, dir := newSavedWorldAround(t, 0, 0)
+	sand, _ := registry.FindState("minecraft:sand", nil)
+	waterSource := fluidType(fluidWater)<<1 | 1
+	y := int32(GroundLevel + 4)
+	// Booked second-to-first by x so a position sort cannot pass.
+	setBlock(t, w, p, 9, y, 1, sand)
+	p.mu.Lock()
+	p.insertTick(blockKey{2, GroundLevel, 1}, waterSource, p.now+1, 0)
+	p.mu.Unlock()
+	setBlock(t, w, p, 3, y, 1, sand)
+	p.mu.Lock()
+	p.insertTick(blockKey{4, GroundLevel, 1}, waterSource, p.now+1, 0)
+	p.mu.Unlock()
+
+	_, p = reopenWorldAround(t, w, dir, 0, 0)
+	var got []int32
+	for clock := int64(1); clock <= 10 && len(got) < 2; clock++ {
+		_, falls, _, _ := p.Tick(clock)
+		for _, f := range falls {
+			got = append(got, f.X)
+		}
+	}
+	if len(got) != 2 || got[0] != 9 || got[1] != 3 {
+		t.Fatalf("sand fell in x order %v, want [9 3]", got)
 	}
 }

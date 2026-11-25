@@ -46,9 +46,8 @@ func faceStep(face int32) (int32, int32, int32) {
 	return offset[0], offset[1], offset[2]
 }
 
-// blockFacing reads a block's facing property, down if it has none.
-func blockFacing(w *world.World, x, y, z int32) int32 {
-	id := w.BlockAt(x, y, z)
+// stateFacing is the face a state points at, FaceBottom for one without facing.
+func stateFacing(id uint16) int32 {
 	if !registry.StateHasFacing(id) {
 		return protocol.FaceBottom
 	}
@@ -142,7 +141,7 @@ func (t singleTarget) use(w *world.World, move containerMove) (moved bool) {
 func (t *pairTarget) use(w *world.World, move containerMove) (moved bool) {
 	t.bes[0].UseLive(func(right *world.BlockEntity) {
 		t.bes[1].UseLive(func(left *world.BlockEntity) {
-			moved = applyContainerMove(move, inventory.Compound{First: containerSlots(right, w), Second: containerSlots(left, w)}, right)
+			moved = applyContainerMove(move, doubleChestSlots(right, left, w), right)
 		})
 	})
 	return moved
@@ -358,10 +357,11 @@ func (s *Server) tickHopper(w *world.World, be *world.BlockEntity, age int64) {
 		if !b.HopperReady(age) {
 			return false
 		}
-		if !world.HopperEnabled(w, b.X, b.Y, b.Z) {
+		state := w.BlockAt(b.X, b.Y, b.Z)
+		if !registry.StateEnabled(state) {
 			return true
 		}
-		s.hopperStep(w, b, gate, &turn)
+		s.hopperStep(w, b, state, gate, &turn)
 		if turn.moved || (gate != nil && gate.vetoed()) {
 			b.Cooldown = world.HopperMoveInterval
 			if !turn.moved {
@@ -373,6 +373,9 @@ func (s *Server) tickHopper(w *world.World, be *world.BlockEntity, age int64) {
 		}
 		return false
 	})
+	if !turn.moved && !turn.partial {
+		return
+	}
 	sets := [2]containerTarget{turn.pushed, turn.pulled}
 	if c := synced[0]; c != nil {
 		s.syncContainerViewers(w, c.X, c.Y, c.Z)
@@ -402,16 +405,16 @@ type hopperTurn struct {
 
 // hopperStep is one turn's moves under the hopper's lock, recorded in t; a
 // probing gate makes it write nothing.
-func (s *Server) hopperStep(w *world.World, b *world.BlockEntity, gate *hopperGate, t *hopperTurn) {
+func (s *Server) hopperStep(w *world.World, b *world.BlockEntity, state uint16, gate *hopperGate, t *hopperTurn) {
 	self := containerSlots(b, w)
 	if b.HopperTargets == nil {
 		b.HopperTargets = &world.HopperTargets{}
 	}
 	if b.FilledSlots() != 0 {
-		t.pushed = s.hopperEject(w, self, gate)
+		t.pushed = s.hopperEject(w, self, stateFacing(state), gate)
 		t.moved = t.pushed != nil
 	}
-	if !slotsFull(b.Slots) {
+	if !b.HopperFull() {
 		var suckMoved bool
 		suckMoved, t.pulled, t.partial, t.taken, t.shrunk = s.hopperSuck(w, self, gate)
 		t.moved = suckMoved || t.moved
@@ -421,9 +424,8 @@ func (s *Server) hopperStep(w *world.World, b *world.BlockEntity, gate *hopperGa
 // hopperEject pushes one item out the spout (vanilla's ejectItems),
 // returning the container it went into, nil if none, for the caller to sync
 // after the hopper's lock.
-func (s *Server) hopperEject(w *world.World, self blockEntitySlots, gate *hopperGate) containerTarget {
+func (s *Server) hopperEject(w *world.World, self blockEntitySlots, face int32, gate *hopperGate) containerTarget {
 	b := self.be
-	face := blockFacing(w, b.X, b.Y, b.Z)
 	tx, ty, tz := faceOffset(b.X, b.Y, b.Z, face)
 	cache := &b.HopperTargets.Push
 	hopperRefresh(w, cache, tx, ty, tz)
@@ -459,12 +461,7 @@ func (s *Server) hopperSuck(w *world.World, self blockEntitySlots, gate *hopperG
 	if moved {
 		return true, above, false, nil, nil
 	}
-	if skipped || above != nil {
-		return false, nil, false, nil, nil
-	}
-
-	state := w.BlockAt(b.X, b.Y+1, b.Z)
-	if world.ContainerMouthBlock(state) || world.HopperBlockedBy(state, registry.CollisionShapeFull(state)) {
+	if skipped || above != nil || cache.MouthBlocked {
 		return false, nil, false, nil, nil
 	}
 	if !s.itemsOverColumn(w, b.X, b.Z) {
@@ -521,11 +518,11 @@ func (s *Server) notifyItemsAbsorbed(w *world.World, taken, shrunk []*itemEntity
 		s.entityDestroyed(it.uuid)
 	}
 	for _, it := range shrunk {
-		update := itemMetadataUpdate{it: it, metadata: itemMetadataPayload(it)}
-		for id := range it.tracked.all() {
-			update.watchers = append(update.watchers, id)
+		watchers := trackedWatchers(it.tracked)
+		if len(watchers) == 0 {
+			continue
 		}
-		updates = append(updates, update)
+		updates = append(updates, itemMetadataUpdate{it: it, metadata: itemMetadataPayload(it), watchers: watchers})
 	}
 	s.itemsMu.Unlock()
 
@@ -533,6 +530,15 @@ func (s *Server) notifyItemsAbsorbed(w *world.World, taken, shrunk []*itemEntity
 		s.broadcastWorld(w, protocol.IDPlayRemoveEntities, removeEntitiesPayload(removes))
 	}
 	s.sendItemMetadata(updates)
+}
+
+func itemChunkArea(minX, minZ, maxX, maxZ float64) chunkArea {
+	return chunkArea{
+		minX: world.ChunkOf(minX - entity.ItemHalfSize),
+		minZ: world.ChunkOf(minZ - entity.ItemHalfSize),
+		maxX: world.ChunkOf(maxX + entity.ItemHalfSize),
+		maxZ: world.ChunkOf(maxZ + entity.ItemHalfSize),
+	}
 }
 
 // itemEntitiesIn gathers w's live item entities whose boxes reach into the
@@ -543,12 +549,7 @@ func (s *Server) itemEntitiesIn(w *world.World, minX, minY, minZ, maxX, maxY, ma
 	if minX >= maxX || minY >= maxY || minZ >= maxZ {
 		return nil
 	}
-	area := chunkArea{
-		minX: world.ChunkOf(minX - entity.ItemHalfSize),
-		minZ: world.ChunkOf(minZ - entity.ItemHalfSize),
-		maxX: world.ChunkOf(maxX + entity.ItemHalfSize),
-		maxZ: world.ChunkOf(maxZ + entity.ItemHalfSize),
-	}
+	area := itemChunkArea(minX, minZ, maxX, maxZ)
 	s.itemsMu.Lock()
 	defer s.itemsMu.Unlock()
 	var found []*itemEntity
@@ -609,7 +610,7 @@ func (s *Server) syncContainerViewers(w *world.World, x, y, z int32) {
 	})
 }
 
-// slotsEmpty and slotsFull read the hopper's own slots in place: a Slot call
+// slotsEmpty reads the hopper's own slots in place: a Slot call
 // copies the 144-byte stack.
 func slotsEmpty(slots []protocol.ItemStack) bool {
 	for i := range slots {
@@ -620,21 +621,13 @@ func slotsEmpty(slots []protocol.ItemStack) bool {
 	return true
 }
 
-func slotsFull(slots []protocol.ItemStack) bool {
-	for i := range slots {
-		if slots[i].Count <= 0 || slots[i].Count < registry.StackMaxStackSizePtr(&slots[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// itemColumns is the block columns a live item's box reaches in one world,
-// built for the block entity tick so a hopper with no item over it skips the
-// scan of every item. Guarded by itemsMu.
+// itemColumns records columns reached by items in the chunks already queried
+// during one world's block-entity pass. Removals leave harmless positives for
+// the exact box query, and arrivals add their columns immediately. Guarded by itemsMu.
 type itemColumns struct {
-	w    *world.World
-	cols map[[2]int32]struct{}
+	w       *world.World
+	cols    map[[2]int32]struct{}
+	scanned map[world.ChunkPos]struct{}
 }
 
 func (c *itemColumns) add(it *itemEntity) {
@@ -649,19 +642,18 @@ func (c *itemColumns) add(it *itemEntity) {
 	}
 }
 
-// indexItemColumns builds the index for w; dropItemColumns ends it.
+// indexItemColumns starts a fresh pass for w.
 func (s *Server) indexItemColumns(w *world.World) {
 	s.itemsMu.Lock()
 	defer s.itemsMu.Unlock()
 	idx := &s.itemColBuffer
 	idx.w = w
 	if idx.cols == nil {
-		idx.cols = make(map[[2]int32]struct{}, len(s.items))
+		idx.cols = make(map[[2]int32]struct{})
+		idx.scanned = make(map[world.ChunkPos]struct{})
 	} else {
 		clear(idx.cols)
-	}
-	for _, it := range s.items {
-		idx.add(it)
+		clear(idx.scanned)
 	}
 	s.itemCols = idx
 }
@@ -672,13 +664,27 @@ func (s *Server) dropItemColumns() {
 	s.itemsMu.Unlock()
 }
 
-// itemsOverColumn is false only when the index says no item reaches the column.
+// itemsOverColumn reports whether an item may reach the column.
 func (s *Server) itemsOverColumn(w *world.World, x, z int32) bool {
 	s.itemsMu.Lock()
 	defer s.itemsMu.Unlock()
+	if len(s.items) == 0 {
+		return false
+	}
 	idx := s.itemCols
 	if idx == nil || idx.w != w {
 		return true
+	}
+	minX, minZ := float64(x), float64(z)
+	area := itemChunkArea(minX, minZ, minX+1, minZ+1)
+	for pos := range area.each {
+		if _, ok := idx.scanned[pos]; ok {
+			continue
+		}
+		idx.scanned[pos] = struct{}{}
+		for it := range s.itemChunks.In(pos) {
+			idx.add(it)
+		}
 	}
 	_, ok := idx.cols[[2]int32{x, z}]
 	return ok

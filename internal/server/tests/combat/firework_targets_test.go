@@ -8,6 +8,25 @@ import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
+// vanilla: ProjectileUtil.getEntityHitResult
+func TestACrossbowRocketHitsTheNearestBodyAcrossAChunkBorder(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BowTestConfig(), "Launcher", func(s *server.Server) {
+		servertest.FreezeUntilHeld(t, s)
+	})
+	servertest.HoldTicks(t, srv)
+	srv.SetMobNoAI(srv.SpawnMob("minecraft:breeze", 18.5, 64, 3.5))
+	srv.SetMobNoAI(srv.SpawnMob("minecraft:cow", 16.25, 64, 3.5))
+	rocket := srv.SpawnFireworkStackAtAngle(servertest.FireworkStack(0, 1), 14.5, 65, 3.5, 5, 0, 0, 100)
+	traffic := readFireworkTraffic(c, srv, 1)
+	if events := traffic.eventsOf(rocket.ID); len(events) != 1 || events[0].Status != protocol.EntityStatusFireworkBurst {
+		t.Fatalf("rocket events after reaching the cow: %v, want event 17", events)
+	}
+	if !traffic.removedOnce(rocket.ID) {
+		t.Error("the cow did not stop the rocket before it could reach the breeze")
+	}
+}
+
 // vanilla: FireworkRocketEntity.tick, onHitEntity
 func TestACrossbowRocketBurstsOnAnArmorStandInItsPath(t *testing.T) {
 	t.Parallel()

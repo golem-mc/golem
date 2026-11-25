@@ -1,6 +1,9 @@
 package world
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 // MaxTicketRadius caps the radius of a plugin chunk ticket.
 const MaxTicketRadius = 32
@@ -14,6 +17,8 @@ type ticketKey struct {
 // a plugin adds them again when it enables.
 type chunkTickets struct {
 	mu sync.Mutex
+	// generation is bumped under mu after changing ticket counts.
+	generation atomic.Uint64
 	// held counts the identical tickets added at one centre and radius.
 	held map[ticketKey]int
 	// ticking counts, per chunk, the tickets that block-tick it.
@@ -26,6 +31,9 @@ type chunkTickets struct {
 	// timed is the expiry tick of each ticket placed with AddTimedTicket.
 	timed map[ticketKey]int64
 }
+
+// TicketGeneration identifies the current ticket counts for ticking decisions.
+func (w *World) TicketGeneration() uint64 { return w.tickets.generation.Load() }
 
 // ticketSquare lists the chunks within reach (Chebyshev) of pos.
 func ticketSquare(pos ChunkPos, reach int) []ChunkPos {
@@ -68,6 +76,7 @@ func (w *World) AddTicket(pos ChunkPos, radius int) []ChunkPos {
 	for _, c := range ticketSquare(pos, radius-2) {
 		t.entity[c]++
 	}
+	t.generation.Add(1)
 	t.mu.Unlock()
 	loaded := ticketSquare(pos, radius)
 	for range w.AcquireMany(loaded) {
@@ -103,6 +112,7 @@ func (w *World) RemoveTicket(pos ChunkPos, radius int) {
 			delete(t.entity, c)
 		}
 	}
+	t.generation.Add(1)
 	t.mu.Unlock()
 	for _, c := range ticketSquare(pos, radius) {
 		w.Release(c)
@@ -182,6 +192,7 @@ func (w *World) HoldEntityTicking(pos ChunkPos) (release func()) {
 		t.entityHeld = map[ChunkPos]int{}
 	}
 	t.entityHeld[pos]++
+	t.generation.Add(1)
 	t.mu.Unlock()
 	_, _ = w.Acquire(pos)
 	return func() {
@@ -189,6 +200,7 @@ func (w *World) HoldEntityTicking(pos ChunkPos) (release func()) {
 		if t.entityHeld[pos]--; t.entityHeld[pos] == 0 {
 			delete(t.entityHeld, pos)
 		}
+		t.generation.Add(1)
 		t.mu.Unlock()
 		w.Release(pos)
 	}

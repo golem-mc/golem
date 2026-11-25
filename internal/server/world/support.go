@@ -952,7 +952,7 @@ func (p *Physics) removeWithDrop(x, y, z int32, state uint16, changes *[]BlockCh
 	// by the cell's next block.
 	p.w.RemoveBlockEntity(x, y, z)
 	*changes = append(*changes, physicsChange(x, y, z, state, leave))
-	p.redstoneAfterRemoval(x, y, z, state, false, changes)
+	p.redstoneAfterRemoval(x, y, z, state, false, false, changes)
 	p.neighborUpdate(x, y, z, state, leave, changes)
 	// vanilla: Level.setBlock — the old state's updateIndirectNeighbourShapes
 	// runs before the neighbour shape pass; only redstone wire overrides it,

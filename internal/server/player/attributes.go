@@ -124,11 +124,12 @@ func (s attributeSet) has(id registry.AttributeID) bool { return s&(1<<id) != 0 
 // vanilla: AttributeMap, with LivingEntity.lastEquipmentItems
 type Attributes struct {
 	instances [registry.NumAttributes]*AttributeInstance
-	// playerOrder records first instantiation for packing the saved list.
-	playerOrder []registry.AttributeID
-	dirty       attributeSet
-	initialized bool
-	introduced  bool
+	// Keep insertion history inline because pairing builds throwaway maps.
+	insertionOrder [registry.NumAttributes]uint8
+	instanceCount  uint8
+	dirty          attributeSet
+	initialized    bool
+	introduced     bool
 	// synthetic marks instances this server made for pairing and equipment
 	// before vanilla would have; an explicit Instance clears the mark.
 	synthetic attributeSet
@@ -202,7 +203,7 @@ func (a *Attributes) initBases() {
 func (a *Attributes) withBasesOnly() Attributes {
 	var out Attributes
 	out.initBases()
-	for _, id := range packedPlayerAttributeOrder(a.playerOrder) {
+	for _, id := range packedAttributeOrder(a.insertionOrder[:a.instanceCount]) {
 		out.Instance(id).Base = a.instances[id].Base
 	}
 	out.initStartingAttributes()
@@ -213,15 +214,21 @@ func (a *Attributes) withBasesOnly() Attributes {
 // vanilla: AttributeMap.getInstance
 func (a *Attributes) Instance(id registry.AttributeID) *AttributeInstance {
 	a.init()
-	a.synthetic &^= 1 << id
 	if in := a.instances[id]; in != nil {
+		if a.synthetic.has(id) {
+			a.synthetic &^= 1 << id
+			// Pairing made this instance early. Insert it at its first native use.
+			order := a.insertionOrder[:a.instanceCount]
+			i := slices.Index(order, uint8(id))
+			copy(order[i:], order[i+1:])
+			order[len(order)-1] = uint8(id)
+		}
 		return in
 	}
 	in := &AttributeInstance{Attribute: id.Attribute(), Base: a.bases[id]}
 	a.instances[id] = in
-	if a.supplier == nil {
-		a.playerOrder = append(a.playerOrder, id)
-	}
+	a.insertionOrder[a.instanceCount] = uint8(id)
+	a.instanceCount++
 	return in
 }
 

@@ -138,7 +138,7 @@ func (m *Mob) CopperShearable() bool {
 // vanilla: CopperGolem.shear
 func (m *Mob) CopperShear() protocol.ItemStack {
 	stack := m.Antenna
-	m.SetMetadataAntenna(protocol.ItemStack{})
+	m.SetEquipment(protocol.EquipSaddle, protocol.ItemStack{})
 	return stack
 }
 

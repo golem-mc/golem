@@ -485,7 +485,7 @@ func (p *Physics) pistonMoveBlocks(x, y, z int32, dir int, extending, sticky boo
 	// its direct and indirect shape updates.
 	for j, pos := range slices.Backward(r.toDestroy) {
 
-		p.redstoneAfterRemoval(pos[0], pos[1], pos[2], destroyed[j], false, changes)
+		p.redstoneAfterRemoval(pos[0], pos[1], pos[2], destroyed[j], false, false, changes)
 		p.shapeUpdateNeighbors(pos[0], pos[1], pos[2], changes)
 		p.wakeNeighbors(pos[0], pos[1], pos[2], destroyed[j], destroyed[j], changes)
 	}

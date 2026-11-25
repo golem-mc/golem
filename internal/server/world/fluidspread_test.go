@@ -200,3 +200,76 @@ func TestStaleFluidVisitsSpendTheBudget(t *testing.T) {
 	p.Tick(p.now + 1)
 	assertAir(t, w, 0, top-1, 0, "the water below waits for the next tick")
 }
+
+// TestSpreadContextChunkQuadrant checks that live and generic readers match
+// World.BlockAt across chunk boundaries, negative coordinates, and unloaded chunks.
+func TestSpreadContextChunkQuadrant(t *testing.T) {
+	t.Parallel()
+	w := newTestWorld(t, NewFlatGenerator())
+	t.Cleanup(func() { w.Close() })
+	// Load two of the four chunks around (0, 0) and one negative chunk to leave
+	// unloaded neighbours in the 2x2 quadrant.
+	w.Acquire(ChunkPos{X: 0, Z: 0})
+	w.Acquire(ChunkPos{X: -1, Z: 0})
+	w.Acquire(ChunkPos{X: -2, Z: -1})
+	w.SetBlock(0, GroundLevel, 0, waterByLevel[0])
+	w.SetBlock(-1, GroundLevel, 2, stoneState)
+	w.SetBlock(3, GroundLevel-1, 1, airState)
+	w.SetBlock(-4, GroundLevel-1, 0, airState)
+	w.SetBlock(-17, GroundLevel, -15, stoneState)
+	w.SetBlock(-18, GroundLevel-1, -14, airState)
+
+	for _, tc := range []struct {
+		name   string
+		reader fluidSpreadReader
+	}{
+		{"live", w},
+		{"generic", struct{ fluidSpreadReader }{w}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, origin := range [][2]int32{{0, 0}, {8, 8}, {-16, -16}} {
+				ctx := newSpreadContext(tc.reader, origin[0], GroundLevel, origin[1], fluidWater)
+				for dx := int32(-spreadReach); dx <= spreadReach; dx++ {
+					for dz := int32(-spreadReach); dz <= spreadReach; dz++ {
+						x, z := origin[0]+dx, origin[1]+dz
+						wantTop := w.BlockAt(x, GroundLevel, z)
+						if got := ctx.state(x, z); got != wantTop {
+							t.Fatalf("origin %v cell (%d,%d): state = %d, want %d", origin, x, z, got, wantTop)
+						}
+						wantHole := isWaterHole(wantTop, w.BlockAt(x, GroundLevel-1, z), ctx.flowingType, ctx.holdFlags)
+						if got := ctx.isHole(x, z); got != wantHole {
+							t.Fatalf("origin %v cell (%d,%d): isHole = %v, want %v", origin, x, z, got, wantHole)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestSpreadContextSeesPublishedChunk(t *testing.T) {
+	t.Parallel()
+	w := newTestWorld(t, NewFlatGenerator())
+	t.Cleanup(func() { w.Close() })
+	w.Acquire(ChunkPos{})
+	const x, y, z = 16, GroundLevel, 4
+	ctx := newSpreadContext(w, x-1, y, z, fluidWater)
+	if got := ctx.state(x, z); got != airState {
+		t.Fatalf("state before publication = %d, want air", got)
+	}
+
+	neighbor := ChunkPos{X: 1}
+	<-w.AcquireAsync(neighbor)
+	t.Cleanup(func() { w.Release(neighbor) })
+	if !w.SetBlock(x, y, z+1, stoneState) {
+		t.Fatal("could not place stone in the published chunk")
+	}
+
+	// The top was read before publication, but the first hole check is after it.
+	if ctx.isHole(x, z) {
+		t.Error("first hole check after publication saw air below instead of stone")
+	}
+	if got := ctx.state(x, z+1); got != stoneState {
+		t.Errorf("first state in the next cell after publication = %d, want stone", got)
+	}
+}

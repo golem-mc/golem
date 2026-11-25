@@ -41,6 +41,24 @@ func rsBuildLine(t *testing.T, w *World, p *Physics, states map[[3]int32]uint16)
 	}
 }
 
+func TestNeighborSignalKeepsStrongerLaterSource(t *testing.T) {
+	w := newTestWorld(t, NewFlatGenerator())
+	t.Cleanup(func() { _ = w.Close() })
+	w.Acquire(ChunkPos{})
+	p := NewPhysics(w)
+	const x, y, z = 8, 80, 8
+	weak := rsState(t, "minecraft:daylight_detector", map[string]string{"power": "7"})
+	stronger := rsState(t, "minecraft:daylight_detector", map[string]string{"power": "11"})
+	w.SetBlock(x, y-1, z, weak)
+	if got := p.NeighborSignal(x, y, z); got != 7 {
+		t.Fatalf("power from below = %d, want 7", got)
+	}
+	w.SetBlock(x+1, y, z, stronger)
+	if got := p.NeighborSignal(x, y, z); got != 11 {
+		t.Fatalf("power with a stronger source to the east = %d, want 11", got)
+	}
+}
+
 // TestLeverLightsWireAndLampCascades pulls a lever at the head of a wire
 // line and follows the power fall off block by block until the lamp lights.
 func TestLeverLightsWireAndLampCascades(t *testing.T) {

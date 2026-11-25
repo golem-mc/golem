@@ -2,17 +2,70 @@ package mobs
 
 import (
 	"fmt"
-	"github.com/golem-mc/golem/nbt"
-	"github.com/google/uuid"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
+	"github.com/google/uuid"
 )
+
+func TestSummonedWardenWaitsToDigWithoutSniffing(t *testing.T) {
+	t.Parallel()
+	const name = "Milker"
+	cfg := servertest.HostileTestConfig()
+	cfg.GameMode = "survival"
+	srv, c := servertest.Join(t, cfg, name, servertest.OpsListing(t, name))
+	c.MoveToGround(0.5, 64, 2.5, true)
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+
+	c.ChatCommand("summon minecraft:warden 4.5 64 0.5 {PersistenceRequired:1b,Rotation:[63f,0f]}")
+	warden := c.AwaitSpawn(protocol.EntityTypeWarden).EntityID
+	c.ChatCommand("summon minecraft:cow 3.3 64 2.5 {NoAI:1b}")
+	cow := c.AwaitSpawn(protocol.EntityTypeCow).EntityID
+	srv.GiveSlot(name, player.HotbarSlot, protocol.ItemStack{ItemID: int32(registry.ItemBucket), Count: 1})
+	c.UseOn(cow)
+
+	var sounds []string
+	c.ReadTicks(srv, 10, func(pid int32, data []byte) bool {
+		switch pid {
+		case protocol.IDPlaySoundEffect:
+			sound, _, _, _, _, _, _ := servertest.ReadAmbient(t, data)
+			switch sound {
+			case "minecraft:entity.warden.sniff", "minecraft:entity.warden.tendril_clicks",
+				"minecraft:entity.warden.listening", "minecraft:entity.warden.dig":
+				sounds = append(sounds, sound)
+			}
+		case protocol.IDPlayEntityMetadata:
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() == warden {
+				entries, ok := servertest.ReadMetadata(r)
+				if !ok {
+					t.Fatal("malformed warden metadata")
+				}
+				for _, e := range entries {
+					if e.Index == protocol.MetadataIndexPose && e.VarintVal == protocol.PoseSniffing {
+						t.Error("warden started sniffing while waiting to dig")
+					}
+				}
+			}
+		}
+		return false
+	})
+	want := []string{"minecraft:entity.warden.tendril_clicks", "minecraft:entity.warden.listening", "minecraft:entity.warden.dig"}
+	if !slices.Equal(sounds, want) {
+		t.Errorf("warden sounds = %v, want %v", sounds, want)
+	}
+	if got := srv.WardenAnger(warden, protocol.OfflineUUID(name)); got != 35 {
+		t.Errorf("warden anger at the player = %d, want 35", got)
+	}
+}
 
 func TestWardenSniffingSendsPoseAndClientAnger(t *testing.T) {
 	t.Parallel()

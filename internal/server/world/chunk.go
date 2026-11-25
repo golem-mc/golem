@@ -56,6 +56,8 @@ var (
 type Chunk struct {
 	// generatedEntities hold starting entities until wake/save takes responsibility.
 	generatedEntities []nbt.Compound
+	// generationWorld supplies game rules while Generate is building this chunk.
+	generationWorld *World
 
 	x, z int32
 
@@ -74,6 +76,9 @@ type Chunk struct {
 	// alike). A save keeps the claim (claimedVersion), so data carried unread
 	// from an older file still tells the game to upgrade it.
 	dataVersion int32
+	// randomTickSections indexes sections with ticking > 0 in a shared chunk,
+	// under the same world lock as the counts.
+	randomTickSections uint32
 
 	// inhabitedTime is the ticks players have spent near the chunk, the local
 	// share of a spawn's difficulty; the tick pass ages every chunk near a
@@ -116,8 +121,8 @@ type Chunk struct {
 	// generation, by id; savedRoot writes them as they stand.
 	liveStarts map[string]func() nbt.Compound
 
-	// loadedTicks is the file's scheduled ticks until the world hands them to
-	// the physics engine on load.
+	// loadedTicks holds scheduled ticks from disk or generation until the
+	// world hands them to the physics engine on load.
 	loadedTicks []loadedTick
 
 	// lastUpdate is the game time of the last save, LastUpdate on disk; a
@@ -235,17 +240,13 @@ type section struct {
 	// emitting counts states with light emission above zero, so the emitter
 	// scan skips sections with none.
 	emitting int
-	// listening counts vibration listeners, so a game event skips sections with
-	// none (sculk.go).
-	listening int
+	// sculk indexes listeners and catalysts under the world lock on shared chunks.
+	sculk *sectionSculkCells
 	// colliding counts states with a possible entity collision, including
 	// body-dependent and moving shapes.
 	colliding int
 	// rods counts lightning rods, so the rod search skips sections with none.
 	rods int
-	// catalysts counts sculk catalysts, so a death's search skips sections with
-	// none.
-	catalysts int
 	// eggs counts turtle eggs, so a zombie's egg search skips sections with none.
 	eggs int
 	// portals and pois let destination and village scans skip empty sections.
@@ -321,7 +322,29 @@ func (c *Chunk) setIndexed(s *section, i int, x, y, z int32, state uint16, sameL
 		c.lightDirty[x] |= 1 << z
 		c.markLightCell(x, y, z)
 	}
+	wasTicking := c.shared && s.ticking > 0
 	s.set(i, state, c.shared)
+	if c.shared && (s.ticking > 0) != wasTicking {
+		c.setRandomTickSection(y/sectionSize, s.ticking > 0)
+	}
+}
+
+func (c *Chunk) setRandomTickSection(si int32, ticking bool) {
+	if ticking {
+		c.randomTickSections |= 1 << si
+	} else {
+		c.randomTickSections &^= 1 << si
+	}
+}
+
+// rebuildRandomTickSections derives the index from the generated or decoded counts.
+func (c *Chunk) rebuildRandomTickSections() {
+	c.randomTickSections = 0
+	for i := range c.sections {
+		if c.sections[i].ticking > 0 {
+			c.randomTickSections |= 1 << i
+		}
+	}
 }
 
 // scheduleGenerated records a fluid source whose tick the generator scheduled, for
@@ -370,19 +393,25 @@ func (c *Chunk) Fill(fromY, toY int32, state uint16) {
 	toY = min(toY, worldMinY+worldHeight)
 
 	for y := fromY; y < toY; {
-		s := &c.sections[(y-worldMinY)/sectionSize]
-		local := (y - worldMinY) % sectionSize
-		if local == 0 && toY-y >= sectionSize && !c.shared {
+		si := (y - worldMinY) / sectionSize
+		s := &c.sections[si]
+		baseY := worldMinY + si*sectionSize
+		endY := min(toY, baseY+sectionSize)
+		if y == baseY && endY-y == sectionSize && !c.shared {
 			s.setAll(state)
-			y += sectionSize
+			y = endY
 			continue
 		}
-		for z := range int32(sectionSize) {
-			for x := range int32(sectionSize) {
-				s.set(blockIndex(x, local, z), state, c.shared)
+		for ; y < endY; y++ {
+			for z := range int32(sectionSize) {
+				for x := range int32(sectionSize) {
+					s.set(blockIndex(x, y-baseY, z), state, c.shared)
+				}
 			}
 		}
-		y++
+		if c.shared {
+			c.setRandomTickSection(si, s.ticking > 0)
+		}
 	}
 }
 
@@ -472,12 +501,6 @@ func (s *section) set(i int, state uint16, shared bool) {
 	if registry.LightEmission(old) > 0 {
 		s.emitting--
 	}
-	if listensForVibrations(state) {
-		s.listening++
-	}
-	if listensForVibrations(old) {
-		s.listening--
-	}
 	if MayCollide(state) {
 		s.colliding++
 	}
@@ -490,12 +513,6 @@ func (s *section) set(i int, state uint16, shared bool) {
 	if isLightningRod(old) {
 		s.rods--
 	}
-	if isSculkCatalyst(state) {
-		s.catalysts++
-	}
-	if isSculkCatalyst(old) {
-		s.catalysts--
-	}
 	if IsTurtleEgg(state) {
 		s.eggs++
 	}
@@ -503,6 +520,9 @@ func (s *section) set(i int, state uint16, shared bool) {
 		s.eggs--
 	}
 	block, oldBlock := registry.BlockOf(state), registry.BlockOf(old)
+	if kind, was := sculkCellKindOf(block), sculkCellKindOf(oldBlock); kind != was {
+		s.updateSculkCell(uint16(i), kind, was)
+	}
 	switch block {
 	case registry.BlockNetherPortal:
 		s.portals++
@@ -548,7 +568,8 @@ func (s *section) setAll(state uint16) {
 // recalcCounts rebuilds section counts after bulk block replacement.
 func (s *section) recalcCounts() {
 	s.tickMask.Store(nil)
-	s.ticking, s.emitting, s.listening, s.rods, s.catalysts, s.eggs, s.portals, s.pois = 0, 0, 0, 0, 0, 0, 0, 0
+	s.ticking, s.emitting, s.rods, s.eggs, s.portals, s.pois = 0, 0, 0, 0, 0, 0
+	s.sculk = nil
 	s.touches.Store(0)
 	s.shapes.Store(0)
 	s.colliding, s.comparators = 0, 0
@@ -560,22 +581,23 @@ func (s *section) recalcCounts() {
 		if registry.LightEmission(s.fill) > 0 {
 			s.emitting = blocksPerSection
 		}
-		if listensForVibrations(s.fill) {
-			s.listening = blocksPerSection
-		}
 		if MayCollide(s.fill) {
 			s.colliding = blocksPerSection
 		}
 		if isLightningRod(s.fill) {
 			s.rods = blocksPerSection
 		}
-		if isSculkCatalyst(s.fill) {
-			s.catalysts = blocksPerSection
-		}
 		if IsTurtleEgg(s.fill) {
 			s.eggs = blocksPerSection
 		}
 		block := registry.BlockOf(s.fill)
+		if kind := sculkCellKindOf(block); kind != noSculkCell {
+			cells := s.sculkList(kind)
+			*cells = make([]uint16, blocksPerSection)
+			for i := range *cells {
+				(*cells)[i] = uint16(i)
+			}
+		}
 		switch block {
 		case registry.BlockNetherPortal:
 			s.portals = blocksPerSection
@@ -601,22 +623,20 @@ func (s *section) recalcCounts() {
 		if registry.LightEmission(state) > 0 {
 			s.emitting++
 		}
-		if listensForVibrations(state) {
-			s.listening++
-		}
 		if MayCollide(state) {
 			s.colliding++
 		}
 		if isLightningRod(state) {
 			s.rods++
 		}
-		if isSculkCatalyst(state) {
-			s.catalysts++
-		}
 		if IsTurtleEgg(state) {
 			s.eggs++
 		}
 		block := registry.BlockOf(state)
+		if kind := sculkCellKindOf(block); kind != noSculkCell {
+			cells := s.sculkList(kind)
+			*cells = append(*cells, uint16(i))
+		}
 		switch block {
 		case registry.BlockNetherPortal:
 			s.portals++

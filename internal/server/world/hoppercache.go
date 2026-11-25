@@ -1,6 +1,9 @@
 package world
 
-import "github.com/golem-mc/golem/internal/protocol"
+import (
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/registry"
+)
 
 // ContainerStamp identifies a loaded chunk and its latest block or container
 // replacement. Including the chunk identity distinguishes unload followed by reload.
@@ -31,11 +34,15 @@ func (b *BlockEntity) InventoryVersion() uint64 { return b.inventoryVersion.Load
 // HopperTargets caches a hopper's push and pull lookups; it is never saved.
 type HopperTargets struct {
 	Push, Pull HopperTargetCache
+	// FullKnown, FullVersion and Full cache the hopper's own slots-full result per inventory version.
+	FullKnown   bool
+	FullVersion uint64
+	Full        bool
 }
 
-// HopperTargetCache holds block-container identities and failed-transfer
-// versions. A missing block container still searches the entity column on each
-// attempt, preserving random vehicle selection and movement between ticks.
+// HopperTargetCache holds block-container identities, mouth obstruction and
+// failed-transfer versions. A missing block container still searches the entity
+// column on each attempt, preserving random vehicle selection and movement between ticks.
 type HopperTargetCache struct {
 	Known        bool
 	Tags         uint64
@@ -46,9 +53,34 @@ type HopperTargetCache struct {
 	Paired       bool
 	Entities     [2]*BlockEntity
 	Composter    bool
+	MouthBlocked bool
 	Failed       bool
 	SelfVersion  uint64
 	Versions     [2]uint64
 	// VehicleSlots identifies the selected vehicle inventory, including NBT replacements.
 	VehicleSlots *protocol.ItemStack
+}
+
+// HopperFull is vanilla's inventoryFull after ejectItems, reusing the last
+// answer until the inventory version moves. The caller holds b's lock and has
+// set HopperTargets.
+func (b *BlockEntity) HopperFull() bool {
+	if b.FilledSlots() != 0x1f {
+		return false
+	}
+	c := b.HopperTargets
+	if v := b.InventoryVersion(); !c.FullKnown || c.FullVersion != v {
+		c.FullKnown, c.FullVersion, c.Full = true, v, slotsFull(b.Slots)
+	}
+	return c.Full
+}
+
+// vanilla: HopperBlockEntity.inventoryFull
+func slotsFull(slots []protocol.ItemStack) bool {
+	for i := range slots {
+		if slots[i].Count <= 0 || slots[i].Count != registry.StackMaxStackSizePtr(&slots[i]) {
+			return false
+		}
+	}
+	return true
 }

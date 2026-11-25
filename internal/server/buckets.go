@@ -208,7 +208,9 @@ func (c *client) pourBucket(w *world.World, pour fluidKind, fx, fy, fz, dx, dy, 
 			// before the bucket's.
 			c.srv.waterlogEffects(w, old, nx, ny, nz)
 		}
-		c.bucketChange(nx, ny, nz, state, pour.emptySound, pour.emptyCategory())
+		if !c.bucketChange(nx, ny, nz, state, pour.emptySound, pour.emptyCategory()) {
+			return false
+		}
 	}
 	// A fish bucket still releases its fish where water evaporates, and posts
 	// only entity_place: MobBucketItem.playEmptySound posts nothing.
@@ -241,12 +243,12 @@ func (s *Server) evaporateWater(w *world.World, x, y, z int32, except *client) {
 }
 
 // bucketChange sets the block and propagates it; the sound goes to all but
-// the clicker, whose client predicted it.
-func (c *client) bucketChange(x, y, z int32, state uint16, sound registry.Sound, category int32) {
+// the clicker, whose client predicted it. It reports whether the write landed.
+func (c *client) bucketChange(x, y, z int32, state uint16, sound registry.Sound, category int32) bool {
 	w := c.theWorld()
 	old := w.BlockAt(x, y, z)
 	if !w.SetBlock(x, y, z, state) {
-		return
+		return false
 	}
 	c.srv.markChanged(w, x, y, z)
 	c.srv.relightAsync(w, x, z)
@@ -254,6 +256,7 @@ func (c *client) bucketChange(x, y, z int32, state uint16, sound registry.Sound,
 		sound, category, float64(x)+0.5, float64(y)+0.5, float64(z)+0.5, 1.0, 1.0)
 
 	c.srv.blockChanged(w, x, y, z, old)
+	return true
 }
 
 // pourFluidAt pours a source for a dispenser if the block takes fluid,

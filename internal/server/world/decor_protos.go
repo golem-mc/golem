@@ -59,12 +59,29 @@ type decorProto struct {
 	blocks [decorProtoSections]*[blocksPerSection]uint16
 	// sources are generated fluid visits, as local positions.
 	sources []posKey
+	// fluidTicks are delayed water ticks booked by post-processing.
+	fluidTicks []decorFluidTick
 	// shapes are the local positions (y from the region's lowest block) of
 	// placed blocks that need a shape update, entities its chests and spawners.
 	shapes   []posKey
 	entities []protoEntity
 	// used orders the protos for eviction.
 	used uint64
+}
+
+type decorFluidTick struct {
+	pos  posKey
+	kind fluidType
+}
+
+func (p *decorProto) transferFluidTicks(c *Chunk, minY int32) {
+	for _, t := range p.fluidTicks {
+		c.loadedTicks = append(c.loadedTicks, loadedTick{
+			id: t.kind.name(), x: c.x*16 + t.pos[0], y: minY + t.pos[1], z: c.z*16 + t.pos[2],
+			delay: waterTickDelay, priority: tickPriorityNormal,
+			fluid: true,
+		})
+	}
 }
 
 // protoEntity is a block entity the decoration of a chunk placed in it.
@@ -672,8 +689,9 @@ func (b *decorProtoBuf) inflate(data []byte) []byte {
 const decorProtoVersion = 7
 
 // appendDecorProto appends p to b: version, flags (decorated, final),
-// neighbours mask, springs, shapes and entities, a section mask, then each
-// present section's 4096 states. Positions are x, y, z as 1, 2, 1 bytes.
+// neighbours mask, springs, shapes and entities, a section mask, each
+// present section's 4096 states, then optional delayed fluid ticks. Positions
+// are x, y, z as 1, 2, 1 bytes.
 func appendDecorProto(b []byte, p *decorProto) []byte {
 	var flags byte
 	if p.decorated {
@@ -730,6 +748,13 @@ func appendDecorProto(b []byte, p *decorProto) []byte {
 		}
 		for _, v := range s {
 			b = binary.LittleEndian.AppendUint16(b, v)
+		}
+	}
+	if len(p.fluidTicks) > 0 {
+		b = binary.LittleEndian.AppendUint16(b, uint16(len(p.fluidTicks)))
+		for _, t := range p.fluidTicks {
+			b = pos(b, t.pos[0], t.pos[1], t.pos[2])
+			b = append(b, byte(t.kind))
 		}
 	}
 	return b
@@ -818,6 +843,17 @@ func decodeDecorProto(b []byte) (*decorProto, error) {
 		}
 		p.blocks[i] = s
 		b = b[blocksPerSection*2:]
+	}
+	if len(b) > 0 {
+		n, ok := count(5)
+		if !ok {
+			return nil, bad
+		}
+		for range n {
+			x, y, z := pos()
+			p.fluidTicks = append(p.fluidTicks, decorFluidTick{pos: posKey{x, y, z}, kind: fluidType(b[0])})
+			b = b[1:]
+		}
 	}
 	return p, nil
 }

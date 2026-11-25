@@ -134,7 +134,7 @@ func (t *Thrown) bulletMoved(w World, target *ArrowTarget) {
 	axis := bulletAxis[b.dir]
 	step := faceStep[b.dir]
 	ahead := [3]int32{cur[0] + step[0], cur[1] + step[1], cur[2] + step[2]}
-	if chunkLoaded(w, ahead[0], ahead[2]) && faceFull(w.BlockAt(ahead[0], ahead[1], ahead[2]), faceUp) {
+	if chunkLoaded(w, ahead[0], ahead[2]) && canStandOn(w.BlockAt(ahead[0], ahead[1], ahead[2]), ahead[1], t.Y) {
 		t.selectBulletDirection(w, axis, target)
 		return
 	}

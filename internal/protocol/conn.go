@@ -157,9 +157,21 @@ func (c *Conn) EnableEncryption(secret []byte) error {
 	defer c.writeMu.Unlock()
 	// The buffered reader sits below the cipher, so bytes it read ahead are
 	// decrypted as they are consumed.
-	c.r = cipher.StreamReader{S: newCFB8(block, secret, true), R: c.br}
+	c.r = &encryptedReader{
+		S: newCFB8(block, secret, true),
+		R: c.br}
 	c.encrypter = newCFB8(block, secret, false)
 	return nil
+}
+
+type encryptedReader struct {
+	cipher.StreamReader
+	prefix [1]byte
+}
+
+func (r *encryptedReader) ReadByte() (byte, error) {
+	_, err := io.ReadFull(&r.StreamReader, r.prefix[:])
+	return r.prefix[0], err
 }
 
 // ReadPacket reads the next packet and returns its ID and payload. The payload
@@ -300,8 +312,7 @@ func decompress(frame []byte, threshold int) ([]byte, error) {
 	return out, nil
 }
 
-// varIntRoom is the most bytes a VarInt takes, the room WritePacket leaves
-// for the length prefix.
+// varIntRoom is the most bytes a VarInt takes.
 const varIntRoom = 5
 
 // zlibWriters holds the deflate state of finished packets: a fresh writer
@@ -313,10 +324,8 @@ var zlibWriters = sync.Pool{New: func() any {
 	return zw
 }}
 
-// frame is what WritePacket builds a packet in: id holds the packet ID and
-// then the length prefix. Frames are pooled: a frame is written to the
-// connection before WritePacket returns, and an io.Writer may not keep what it
-// was given.
+// frame holds the encoded packet ID and a standalone frame when needed.
+// Deflated frames reuse id to encode the length prefix.
 type frame struct{ id, out Buffer }
 
 var frames = sync.Pool{New: func() any { return new(frame) }}
@@ -328,7 +337,7 @@ func (c *Conn) WritePacket(packetID int32, data []byte) error {
 
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	packet, err := c.framePacket(f, packetID, data, false)
+	packet, err := c.framePacket(f, packetID, data)
 	if err != nil {
 		return err
 	}
@@ -366,9 +375,9 @@ func (c *Conn) WritePacketsCached(n int, at func(i int) (int32, []byte, *CachedP
 	})
 }
 
-// WritePacketsRaw is WritePacketsCached where an entry's raw flag sends it
-// uncompressed even above the threshold (see framePacket); it is ignored for
-// a cached entry.
+// WritePacketsRaw is WritePacketsCached where an uncached entry's raw flag
+// sends it with a Data Length of 0 even at or above the compression threshold.
+// vanilla: CompressionDecoder.decode
 func (c *Conn) WritePacketsRaw(n int, at func(i int) (int32, []byte, *CachedPacket, bool)) error {
 	f := frames.Get().(*frame)
 	defer frames.Put(f)
@@ -380,18 +389,27 @@ func (c *Conn) WritePacketsRaw(n int, at func(i int) (int32, []byte, *CachedPack
 	defer c.writeMu.Unlock()
 	for i := range n {
 		packetID, data, cached, raw := at(i)
-		var packet []byte
-		var err error
 		if cached != nil {
 			packetID, data = cached.id, cached.data
-			packet, err = cached.frame(c)
+			packet, err := cached.frame(c)
+			if err != nil {
+				return err
+			}
+			batch.PutRaw(packet)
 		} else {
-			packet, err = c.framePacket(f, packetID, data, raw)
+			f.id.Reset()
+			f.id.PutVarInt(packetID)
+			bodyLen := f.id.Len() + len(data)
+			if c.threshold < 0 || raw || bodyLen < c.threshold {
+				f.appendUncompressed(batch, data, bodyLen, c.threshold >= 0)
+			} else {
+				packet, err := f.deflate(data, bodyLen)
+				if err != nil {
+					return err
+				}
+				batch.PutRaw(packet)
+			}
 		}
-		if err != nil {
-			return err
-		}
-		batch.PutRaw(packet)
 		c.traceOut(packetID, len(data))
 		if batch.Len() >= batchFlushSize {
 			if err := c.writeFrames(batch.Bytes()); err != nil {
@@ -407,51 +425,55 @@ func (c *Conn) WritePacketsRaw(n int, at func(i int) (int32, []byte, *CachedPack
 }
 
 // framePacket builds the framed packet in f, which the result aliases; the
-// caller holds writeMu. raw sends the body with a Data Length of 0 even at or
-// above the threshold, which the client's decoder accepts at any size; it
-// spares deflating a body that cannot shrink.
-// vanilla: CompressionDecoder.decode
-func (c *Conn) framePacket(f *frame, packetID int32, data []byte, raw bool) ([]byte, error) {
-	id, out := &f.id, &f.out
-	id.Reset()
-	id.PutVarInt(packetID)
-	bodyLen := id.Len() + len(data)
-
-	// Room is left for the length prefix, filled in once the size is known,
-	// so the payload is copied once. The body with a size ahead of it bounds
-	// an uncompressed frame, and a compressed one unless deflate cannot shrink
-	// the body.
-	out.data = slices.Grow(out.data[:0], varIntRoom+varIntRoom+bodyLen)[:varIntRoom]
-	switch {
-	case c.threshold < 0:
-		out.PutRaw(id.Bytes())
-		out.PutRaw(data)
-	case raw || bodyLen < c.threshold:
-		// Below the threshold packets are sent as-is, marked by a zero size.
-		out.PutVarInt(0)
-		out.PutRaw(id.Bytes())
-		out.PutRaw(data)
-	default:
-		out.PutVarInt(int32(bodyLen))
-		zw := zlibWriters.Get().(*zlib.Writer)
-		defer zlibWriters.Put(zw)
-		zw.Reset(out)
-		if _, err := zw.Write(id.Bytes()); err != nil {
-			return nil, fmt.Errorf("compress packet: %w", err)
-		}
-		if _, err := zw.Write(data); err != nil {
-			return nil, fmt.Errorf("compress packet: %w", err)
-		}
-		if err := zw.Close(); err != nil {
-			return nil, fmt.Errorf("compress packet: %w", err)
-		}
+// caller holds writeMu.
+func (c *Conn) framePacket(f *frame, packetID int32, data []byte) ([]byte, error) {
+	f.id.Reset()
+	f.id.PutVarInt(packetID)
+	bodyLen := f.id.Len() + len(data)
+	if c.threshold >= 0 && bodyLen >= c.threshold {
+		return f.deflate(data, bodyLen)
 	}
 
-	prefix := id
-	prefix.Reset()
-	prefix.PutVarInt(int32(out.Len() - varIntRoom))
-	start := varIntRoom - prefix.Len()
-	copy(out.data[start:], prefix.Bytes())
+	f.out.Reset()
+	f.out.Grow(varIntRoom + 1 + bodyLen)
+	f.appendUncompressed(&f.out, data, bodyLen, c.threshold >= 0)
+	return f.out.Bytes(), nil
+}
+
+// vanilla: CompressionEncoder.encode, Varint21LengthFieldPrepender.encode
+func (f *frame) appendUncompressed(out *Buffer, data []byte, bodyLen int, compression bool) {
+	if compression {
+		out.PutVarInt(int32(bodyLen + 1))
+		out.PutU8(0)
+	} else {
+		out.PutVarInt(int32(bodyLen))
+	}
+	out.PutRaw(f.id.Bytes())
+	out.PutRaw(data)
+}
+
+func (f *frame) deflate(data []byte, bodyLen int) ([]byte, error) {
+	id, out := &f.id, &f.out
+	// Reserve space for the outer length prefix before the zlib size is known.
+	out.data = slices.Grow(out.data[:0], varIntRoom+varIntRoom+bodyLen)[:varIntRoom]
+	out.PutVarInt(int32(bodyLen))
+	zw := zlibWriters.Get().(*zlib.Writer)
+	defer zlibWriters.Put(zw)
+	zw.Reset(out)
+	if _, err := zw.Write(id.Bytes()); err != nil {
+		return nil, fmt.Errorf("compress packet: %w", err)
+	}
+	if _, err := zw.Write(data); err != nil {
+		return nil, fmt.Errorf("compress packet: %w", err)
+	}
+	if err := zw.Close(); err != nil {
+		return nil, fmt.Errorf("compress packet: %w", err)
+	}
+
+	id.Reset()
+	id.PutVarInt(int32(out.Len() - varIntRoom))
+	start := varIntRoom - id.Len()
+	copy(out.data[start:], id.Bytes())
 	return out.data[start:], nil
 }
 
@@ -486,30 +508,27 @@ func packetHex(packetID int32) string { return fmt.Sprintf("0x%02X", packetID) }
 // shifts the feedback register a byte per byte.
 type cfb8 struct {
 	block   cipher.Block
-	iv      []byte
-	keyByte []byte
+	iv      [aes.BlockSize]byte
+	keyByte [aes.BlockSize]byte
 	decrypt bool
 }
 
 func newCFB8(block cipher.Block, iv []byte, decrypt bool) *cfb8 {
-	return &cfb8{
-		block:   block,
-		iv:      bytes.Clone(iv),
-		keyByte: make([]byte, block.BlockSize()),
-		decrypt: decrypt,
-	}
+	c := &cfb8{block: block, decrypt: decrypt}
+	copy(c.iv[:], iv)
+	return c
 }
 
 func (c *cfb8) XORKeyStream(dst, src []byte) {
 	for i, in := range src {
-		c.block.Encrypt(c.keyByte, c.iv)
+		c.block.Encrypt(c.keyByte[:], c.iv[:])
 		out := in ^ c.keyByte[0]
 		// The feedback register keeps the last block of ciphertext.
-		copy(c.iv, c.iv[1:])
+		copy(c.iv[:aes.BlockSize-1], c.iv[1:])
 		if c.decrypt {
-			c.iv[len(c.iv)-1] = in
+			c.iv[aes.BlockSize-1] = in
 		} else {
-			c.iv[len(c.iv)-1] = out
+			c.iv[aes.BlockSize-1] = out
 		}
 		dst[i] = out
 	}

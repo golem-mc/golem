@@ -302,7 +302,7 @@ func (p *Physics) growCrop(x, y, z int32, state uint16, changes *[]BlockChange) 
 		if block == registry.BlockWarpedFungus {
 			required, key = registry.BlockWarpedNylium, "warped_fungus_planted"
 		}
-		if below != required || !contains(y+1) {
+		if below != required || !p.w.inBuildHeight(y+1) {
 			return nil, false
 		}
 		if p.rng.Float32() < 0.4 { // vanilla: NetherFungusBlock.isBonemealSuccess
@@ -501,7 +501,7 @@ func (p *Physics) tallPlantFits(x, y, z int32) bool {
 	if !registry.BlockOf(p.w.BlockAt(x, y-1, z)).InTag(registry.TagIDSupportsVegetation) {
 		return false
 	}
-	return p.airAt(x, y+1, z) && contains(y+1)
+	return p.airAt(x, y+1, z) && p.w.inBuildHeight(y+1)
 }
 
 // placeDoublePlant writes both halves with flag 2.
