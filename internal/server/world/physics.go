@@ -2459,6 +2459,18 @@ func (c *spreadContext) loadChunk(q uint, cx, cz int32) {
 	}
 }
 
+// loadQuadrant resolves the chunk holding (x, z) once, so a hole check reads
+// its storage instead of World.BlockAt. A missing chunk keeps that fallback.
+func (c *spreadContext) loadQuadrant(x, z int32) {
+	if c.world == nil {
+		return
+	}
+	cx, cz := x>>4, z>>4
+	if q := uint((cx-c.cx0)|(cz-c.cz0)<<1) & 3; c.chunksLoaded&(1<<q) == 0 {
+		c.loadChunk(q, cx, cz)
+	}
+}
+
 // index maps a position to its cell, or reports it outside the square.
 func (c *spreadContext) index(x, z int32) (int, bool) {
 	dx, dz := x-c.ox+spreadReach, z-c.oz+spreadReach
@@ -2665,26 +2677,22 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		c = &ctx
 		// Only ranking competing sides needs the slope-search cache.
 		c.init(w, x, y, z, fs.kind)
-		// Seed every eligible side before any hole lookup. Already-wet sides
-		// can still outrank a side that can receive a write.
-		var idx [4]int
+		// A hole check reads only its own cell and the one below, so seed and
+		// test each side in turn; all are seeded before the recursive search.
 		for i, d := range horizontal4 {
-			if side := &sides[i]; side.eligible {
-				idx[i], _ = c.index(x+d[0], z+d[1])
-				c.seed(idx[i], side.state)
-			}
-		}
-		for i := range sides {
 			side := &sides[i]
 			if !side.eligible {
 				continue
 			}
-			side.hole = c.holeAt(idx[i])
+			ci := spreadCenter + spreadStep[i]
+			c.loadQuadrant(x+d[0], z+d[1])
+			c.seed(ci, side.state)
+			side.hole = c.holeAt(ci)
 			hasHole = hasHole || side.hole
 		}
 	}
 	lowest := 1000
-	for i, d := range horizontal4 {
+	for i := range horizontal4 {
 		side := &sides[i]
 		if !side.eligible || (hasHole && !side.hole) {
 			continue
@@ -2692,8 +2700,7 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		distance := 0
 		// A lone outlet wins at any distance.
 		if !hasHole && eligible > 1 {
-			ti, _ := c.index(x+d[0], z+d[1])
-			distance = c.slopeDistance(ti, 1, i^2, min(b.slopeFindDistance, lowest))
+			distance = c.slopeDistance(spreadCenter+spreadStep[i], 1, i^2, min(b.slopeFindDistance, lowest))
 		}
 		if distance < lowest {
 			winners = [4]bool{}
@@ -2727,6 +2734,9 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 
 // spreadStep follows horizontal4's north, east, south, west order.
 var spreadStep = [4]int{-spreadSide, 1, spreadSide, -1}
+
+// spreadCenter is the origin's cell.
+const spreadCenter = spreadReach*spreadSide + spreadReach
 
 // slopeDistance finds the nearest hole without stepping back. i is a loaded
 // cell in the cached square, which the walk cannot leave; from is the
