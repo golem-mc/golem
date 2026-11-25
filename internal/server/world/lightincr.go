@@ -330,7 +330,11 @@ func (ctx *lightCtx) runIncreases(iq *lightQueue) {
 			return
 		}
 		layer := int(e.layer & 1)
-		held := ctx.getLight(layer, e.x, e.y, e.z)
+		source, _ := ctx.resolve(e.x, e.z)
+		var held uint8
+		if source != nil {
+			held = source.lightGet(ctx.layer(source, layer), e.x&15, e.y, e.z&15)
+		}
 		if e.layer&emitFlag != 0 && held < e.v {
 			ctx.putLight(layer, e.x, e.y, e.z, e.v)
 			held = e.v
@@ -345,13 +349,17 @@ func (ctx *lightCtx) runIncreases(iq *lightQueue) {
 		if e.statePlusOne == 0 {
 			fromState, _ = ctx.blockAt(e.x, e.y, e.z)
 		}
+		cx, cz := e.x>>4, e.z>>4
 		for _, n := range lightNeighbors {
 			nx, ny, nz := e.x+n.dx, e.y+n.dy, e.z+n.dz
 			if !contains(ny) || int(e.layer)&dirBit(n.dir) == 0 {
 				continue
 			}
-			c, loaded := ctx.resolve(nx, nz)
-			if !loaded {
+			c := source
+			if nx>>4 != cx || nz>>4 != cz {
+				c, _ = ctx.resolve(nx, nz)
+			}
+			if c == nil {
 				continue
 			}
 			lx, ly, lz := nx&15, ny-worldMinY, nz&15
