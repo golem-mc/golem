@@ -124,7 +124,7 @@ func TestOldChestStacksAreUpgraded(t *testing.T) {
 			nbt.Compound{"Slot": nbt.Byte(3), "id": nbt.String("minecraft:pottery_shard_archer"), "Count": nbt.Byte(1)},
 		}},
 	}
-	w, pos := oldChunkWorld(t, 3465, chest)
+	w, pos := oldChunkWorld(t, 3400, chest)
 	w.Acquire(pos)
 	if w.oldVersionLogged.Load() {
 		t.Fatal("an upgradable chunk was refused")
