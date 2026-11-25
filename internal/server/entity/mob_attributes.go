@@ -260,6 +260,9 @@ func syncEquipmentModifiers(a *player.Attributes, slots [7]equipmentSlot, previo
 
 func applyEquipment(a *player.Attributes, stack protocol.ItemStack, slot string) {
 	for _, mod := range rules.EquipmentModifiers(stack, slot) {
+		if !a.Has(mod.Attribute) {
+			continue // vanilla: AttributeMap.getInstance is null
+		}
 		a.AddModifier(mod.Attribute, player.Modifier{ID: mod.ID, Amount: mod.Amount, Operation: mod.Operation})
 	}
 }
@@ -331,7 +334,7 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	m.syncZombieTraits(a)
 	for _, sl := range m.equipmentSlots() {
 		for _, mod := range rules.EquipmentModifiers(sl.stack, sl.name) {
-			if !a.Instantiated(mod.Attribute) {
+			if a.Has(mod.Attribute) && !a.Instantiated(mod.Attribute) {
 				synthetic = append(synthetic, mod.Attribute)
 				a.Instance(mod.Attribute)
 			}
