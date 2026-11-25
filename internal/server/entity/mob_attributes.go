@@ -348,8 +348,23 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	if m.IsShulker() {
 		m.syncShulkerArmor(a)
 	}
+	m.syncPiglinBabySpeed(a)
 	m.SyncSpeedModifiers(a)
 	return a
+}
+
+// syncPiglinBabySpeed replaces the piglin's transient baby modifier, so a
+// command's edit lasts until the next baby-state write or load.
+// vanilla: Piglin.setBaby, Piglin.SPEED_MODIFIER_BABY
+func (m *Mob) syncPiglinBabySpeed(a *player.Attributes) {
+	if m.Type != TypePiglin || a == nil {
+		return
+	}
+	a.RemoveModifier(registry.AttributeMovementSpeed, modBaby)
+	if m.IsBaby() {
+		a.AddModifier(registry.AttributeMovementSpeed, player.Modifier{ID: modBaby, Amount: float64(float32(0.2)),
+			Operation: registry.AttributeAddMultipliedBase})
+	}
 }
 
 // NativeAttributeInstances reports whether the kind instantiates attributes
@@ -382,7 +397,7 @@ func (m *Mob) attrOr(attr registry.AttributeID, direct float64) float64 {
 
 // The mob's own movement_speed modifiers; the baby's and the witch's are
 // permanent in vanilla, the frost slow, enderman anger and strider shiver transient.
-// vanilla: Zombie.SPEED_MODIFIER_BABY, Piglin.SPEED_MODIFIER_BABY, Witch.SPEED_MODIFIER_DRINKING,
+// vanilla: Zombie.SPEED_MODIFIER_BABY, Witch.SPEED_MODIFIER_DRINKING,
 // EnderMan.SPEED_MODIFIER_ATTACKING_ID,
 // LivingEntity.SPEED_MODIFIER_POWDER_SNOW_ID, Strider.SUFFOCATING_MODIFIER_ID
 const (
@@ -429,14 +444,6 @@ func (m *Mob) SyncSpeedModifiers(a *player.Attributes) {
 				Amount: float64(float32(0.15)), Operation: registry.AttributeAddValue})
 		} else {
 			a.RemoveModifier(registry.AttributeMovementSpeed, modAttacking)
-		}
-	case m.Type == TypePiglin:
-		// vanilla: Piglin.SPEED_MODIFIER_BABY
-		if m.IsBaby() {
-			a.AddModifier(registry.AttributeMovementSpeed, player.Modifier{ID: modBaby, Amount: 0.2,
-				Operation: registry.AttributeAddMultipliedBase})
-		} else {
-			a.RemoveModifier(registry.AttributeMovementSpeed, modBaby)
 		}
 	case m.is(TypeZombie):
 		if m.IsBaby() && !m.isCube() {

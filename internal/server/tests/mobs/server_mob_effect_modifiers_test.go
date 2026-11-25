@@ -24,14 +24,21 @@ func effectModifierConfig() *config.Config {
 // attributeGet is the value `/attribute ... get` reports, read without a tick.
 func attributeGet(c *servertest.Client, selector, attribute string) string {
 	c.T.Helper()
-	c.ChatCommand("attribute " + selector + " " + attribute + " get")
+	return attributeReply(c, "attribute "+selector+" "+attribute+" get", "commands.attribute.value.get.success")
+}
+
+// attributeReply runs an /attribute command and returns the last argument of
+// its key's feedback, read without a tick.
+func attributeReply(c *servertest.Client, command, key string) string {
+	c.T.Helper()
+	c.ChatCommand(command)
 	var got string
 	c.SettleAndCollect(func(id int32, data []byte) {
 		if id != protocol.IDPlaySystemChat {
 			return
 		}
 		text, ok := protocol.ReadText(protocol.NewReader(data))
-		if ok && text.Translate == "commands.attribute.value.get.success" {
+		if ok && text.Translate == key {
 			got = text.With[len(text.With)-1].Text
 		}
 	})
@@ -235,6 +242,30 @@ func TestBabyPiglinKeepsItsSpeedWhenAnEffectInstallsTheMap(t *testing.T) {
 	servertest.RunTicks(t, srv, 1)
 	if got := srv.MobPace(piglin.EntityID); got != before {
 		t.Errorf("pace = %v, want %v", got, before)
+	}
+}
+
+// vanilla: Piglin.setBaby adds the baby modifier only when the state is written
+func TestBabyPiglinKeepsACommandsBabyModifier(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, effectModifierConfig(), "Keeper", servertest.OpsListing(t, "Keeper"))
+	servertest.HoldTicks(t, srv)
+
+	const piglin = "@e[type=minecraft:piglin,limit=1]"
+	const babyGet = "attribute " + piglin + " minecraft:movement_speed modifier value get minecraft:baby"
+	const valueKey = "commands.attribute.modifier.value.get.success"
+	c.ChatCommand("summon minecraft:piglin 0.5 64 0.5 {NoAI:1b,IsBaby:1b}")
+	c.AwaitSpawn(protocol.EntityTypePiglin)
+	c.ChatCommand("effect give " + piglin + " minecraft:health_boost 60 1")
+	if got := attributeReply(c, babyGet, valueKey); got != "0.20000000298023224" {
+		t.Errorf("baby modifier on install = %q, want 0.20000000298023224", got)
+	}
+	c.ChatCommand("attribute " + piglin + " minecraft:movement_speed modifier remove minecraft:baby")
+	c.ChatCommand("attribute " + piglin + " minecraft:movement_speed modifier add minecraft:baby 0.5 add_multiplied_base")
+	c.Settle()
+	servertest.RunTicks(t, srv, 1)
+	if got := attributeReply(c, babyGet, valueKey); got != "0.5" {
+		t.Errorf("baby modifier after a tick = %q, want 0.5", got)
 	}
 }
 

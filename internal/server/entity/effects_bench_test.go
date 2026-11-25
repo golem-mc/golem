@@ -28,8 +28,8 @@ func BenchmarkMobTrackingTickWithEffects(b *testing.B) {
 	}
 }
 
-// BenchmarkMobEffectChange adds, refreshes, promotes over a hidden effect and
-// removes health boost on a mob that already carries effects.
+// BenchmarkMobEffectChange adds, upgrades, refreshes and removes Health Boost
+// on a mob that already carries effects.
 func BenchmarkMobEffectChange(b *testing.B) {
 	m := effectBenchMob()
 	b.ReportAllocs()
