@@ -404,6 +404,16 @@ func (in *thrownTickInputs) mobTargets(targets []entity.ArrowTarget, s *Server, 
 			in.mobsNear = append(in.mobsNear, ent.mob)
 		}
 	}
+	// While the thrower is excluded, its vehicle group's mobs wherever they
+	// are: the moved box must clear every one of them.
+	// vanilla: Projectile.isOutsideOwnerCollisionRange
+	if root := in.boatRoots[t.OwnerID]; root != 0 && t.OwnerID != 0 && !t.LeftOwner() {
+		for id, r := range in.boatRoots {
+			if ent := s.mobByEntityIDLocked(it.w, id); r == root && ent != nil && !slices.Contains(in.mobsNear, ent.mob) {
+				in.mobsNear = append(in.mobsNear, ent.mob)
+			}
+		}
+	}
 	// A dragon's parts reach beyond the chunks around its feet.
 	for _, m := range tw.dim.mobs.dragonBodies {
 		if !slices.Contains(in.mobsNear, m) {

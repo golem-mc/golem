@@ -148,16 +148,30 @@ func TestASmallFireballIgnitesAndHurtsAPlayer(t *testing.T) {
 	}
 }
 
+// fireballChunks is a server with its loop stopped and only the chunks
+// holding the given block columns loaded, for a fireball's entity ticks.
+func fireballChunks(t *testing.T, columns ...[2]int32) *server.Server {
+	t.Helper()
+	srv := servertest.NewTestServer(t, servertest.BlockTestConfig())
+	srv.StopTick()
+	for _, c := range columns {
+		t.Cleanup(srv.HoldChunk(c[0], c[1]))
+	}
+	srv.SetGameRule("mob_griefing", false)
+	return srv
+}
+
+// scale16 is the tag of a mob sixteen times its size.
+var scale16 = nbt.Compound{"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+	nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(16)}}}}
+
 // scaledCowFlight launches a small fireball along +x at z=fz, one tick short
 // of a scale-16 cow centred at (24.5, 64, cz), and returns its health before
 // and after that tick.
 func scaledCowFlight(t *testing.T, fz, cz float64) (before, after float64) {
 	t.Helper()
-	srv, _ := flameScene(t)
-	srv.SetGameRule("mob_griefing", false)
-	scale := nbt.Compound{"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-		nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(16)}}}}
-	cow := srv.SpawnMobTagged("minecraft:cow", 24.5, 64, cz, scale)
+	srv := fireballChunks(t, [2]int32{17, int32(fz)}, [2]int32{24, int32(cz)})
+	cow := srv.SpawnMobTagged("minecraft:cow", 24.5, 64, cz, scale16)
 	if cow == 0 {
 		t.Fatal("the cow was refused")
 	}
@@ -165,7 +179,7 @@ func scaledCowFlight(t *testing.T, fz, cz float64) (before, after float64) {
 	if srv.LaunchFireball(entity.ThrownSmallFireball, 17.25, 65.0, fz, 1, 0, 0, 0, 1) == 0 {
 		t.Fatal("could not launch")
 	}
-	servertest.DriveTargetTicks(srv, 1)
+	srv.TickEntities(1)
 	after, _ = srv.MobHealth(cow)
 	return before, after
 }
@@ -208,15 +222,41 @@ func TestAFireballReachesAScaledMobFiledInTheChunkItsOwnBoxPadsInto(t *testing.T
 // vanilla: AbstractHurtingProjectile.tick, ProjectileUtil.getEntityHitResult
 func TestAFireballWithSavedAccelerationReachesAMobInOneTick(t *testing.T) {
 	t.Parallel()
-	srv, _ := flameScene(t)
-	srv.SetGameRule("mob_griefing", false)
+	srv := fireballChunks(t, [2]int32{0, 0})
 	cow := srv.SpawnMob("minecraft:cow", 12.5, 64, 0.5)
 	before, _ := srv.MobHealth(cow)
 
 	srv.LaunchAcceleratedFireball(entity.ThrownSmallFireball, 3.5, 65.0, 0.5, 1, 0, 0, 10)
-	servertest.DriveTargetTicks(srv, 1)
+	srv.TickEntities(1)
 
 	if after, _ := srv.MobHealth(cow); after >= before {
 		t.Errorf("health %v -> %v, want the fireball to hurt it", before, after)
+	}
+}
+
+// TestAFireballSparesItsOwnersFellowPassengerFiledOutOfReach checks the
+// thrower stays excluded while the moved flight box still touches a mob in
+// the thrower's boat whose centre is in a chunk the flight's own query does
+// not reach: a scale-16 cow seated with the thrower is never struck.
+// vanilla: Projectile.isOutsideOwnerCollisionRange, Projectile.checkLeftOwner
+func TestAFireballSparesItsOwnersFellowPassengerFiledOutOfReach(t *testing.T) {
+	t.Parallel()
+	srv := fireballChunks(t, [2]int32{16, 12}, [2]int32{24, 16})
+	boat := srv.SpawnBoat(24.5, 64, 16.5, "minecraft:oak_boat")
+	owner := srv.SpawnMob("minecraft:cow", 24.5, 64, 16.5)
+	cow := srv.SpawnMobTagged("minecraft:cow", 24.5, 64, 16.5, scale16)
+	if boat == 0 || owner == 0 || cow == 0 || !srv.MountMobOnBoat(owner, boat) || !srv.MountMobOnBoat(cow, boat) {
+		t.Fatal("could not seat the thrower and the cow")
+	}
+	before, _ := srv.MobHealth(cow)
+	// From outside the cow's box (x 17.3..31.7) into it: the moved flight
+	// box touches the cow from the first tick, while the query reaches the
+	// cow's chunk (z 16..) only from the fourth, still short of the box.
+	if srv.LaunchFireball(entity.ThrownSmallFireball, 16.1, 65.0, 12.0, 1, 0, 1, owner, 1) == 0 {
+		t.Fatal("could not launch")
+	}
+	srv.TickEntities(10)
+	if after, _ := srv.MobHealth(cow); after != before {
+		t.Errorf("health %v -> %v, want the thrower's fellow passenger spared", before, after)
 	}
 }
