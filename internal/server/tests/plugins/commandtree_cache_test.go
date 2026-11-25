@@ -61,10 +61,10 @@ func TestFunctionSeesPluginCommandChanges(t *testing.T) {
 		t.Fatalf("unregistered command ran %d times", n)
 	}
 	run(func() {
-		err := h.Commands().Register(plugin.Command{Name: "list", Override: true, Permission: "warps.use", Node: plugin.Node{Run: func(*plugin.CommandContext) (int, error) {
+		err := h.Commands().Register(plugin.Command{Name: "list", Override: true, Permission: "warps.use", Run: func(*plugin.CommandContext) (int, error) {
 			runs.Add(1)
 			return 1, nil
-		}}})
+		}})
 		if err != nil {
 			t.Error(err)
 		}
