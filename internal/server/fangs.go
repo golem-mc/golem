@@ -265,28 +265,11 @@ func (s *Server) fangsBite(it fangsEffect) {
 // owner.
 // vanilla: EvokerFangs.dealDamageTo, EnchantmentHelper.doPostAttackEffects
 func (s *Server) hurtMobByPlayerFangs(w *world.World, m *entity.Mob, it fangsEffect, owner *client) {
-	creative := owner.player.GameMode() == protocol.GameModeCreative
-	s.mobsMu.Lock()
-	ent := s.herdOf(w).book[m]
-	if ent == nil || m.Dead || m.Invulnerable {
-		s.mobsMu.Unlock()
+	cause := &damageCause{entityID: it.owner, player: true, creative: owner.player.GameMode() == protocol.GameModeCreative,
+		x: it.x, z: it.z}
+	if !s.hurtMobTyped(w, m, entity.FangsDamage, rules.DamageTypeIndirectMagic, cause, it.id+1, "minecraft:evoker_fangs", true, nil) {
 		return
 	}
-	landed, softened := m.HurtByCommand(entity.FangsDamage, rules.DamageTypeIndirectMagic, it.owner, true, creative, it.x, it.z)
-	var health []byte
-	var sends []mobSend
-	if landed {
-		health = ent.syncHealth()
-		if !softened {
-			sends = mobHurtToldBy(w, m, rules.DamageTypeIndirectMagic, it.owner+1, it.id+1, nil)
-		}
-	}
-	s.mobsMu.Unlock()
-	if !landed {
-		return
-	}
-	s.broadcastWorld(w, protocol.IDPlayEntityMetadata, health)
-	s.sendMobSends(sends)
 	s.postAttack(w, attackBody{player: owner}, attackBody{mob: m}, protocol.ItemStack{}, &rules.EnchContext{
 		DamageType: rules.DamageTypeIndirectMagic,
 		Victim:     mobEntityType(m.Type), Attacker: protocol.EntityTypePlayer, DirectAttacker: fangsTypeID,

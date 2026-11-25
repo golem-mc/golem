@@ -1,12 +1,14 @@
 package mobs
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -18,22 +20,21 @@ type fangsDamageEvent struct {
 	victim, damageType, cause, direct int32
 }
 
-// biteWatched summons fangs owned by owner at (x, z) and reads the fang's ID
-// and the damage event on victim the bite sends to c, if any.
-func biteWatched(t *testing.T, srv *server.Server, c *servertest.Client, owner int32, x, z float64, victim int32) (fang int32, event *fangsDamageEvent) {
+// biteWatched summons fangs owned by the player named owner at (x, 0.5) with
+// /summon and reads the fang's ID and the damage event on victim the bite
+// sends to c, if any.
+func biteWatched(t *testing.T, srv *server.Server, c *servertest.Client, owner string, x float64, victim int32) (fang int32, event *fangsDamageEvent) {
 	t.Helper()
-	fangsType := int32(registry.EntityTypeEvokerFangs)
-	srv.SpawnFangs(x, 64, z, owner)
+	tag := nbt.Stringify(nbt.Compound{"Owner": nbt.UUIDToIntArray(protocol.OfflineUUID(owner))})
+	srv.RunLine("summon minecraft:evoker_fangs " + strconv.FormatFloat(x, 'f', 1, 64) + " 64 0.5 " + tag)
 	c.ReadTicks(srv, fangsBiteTicks, func(id int32, data []byte) bool {
-		r := protocol.NewReader(data)
 		switch id {
 		case protocol.IDPlaySpawnEntity:
-			fangID := r.ReadVarInt()
-			r.ReadUUID()
-			if r.ReadVarInt() == fangsType {
-				fang = fangID
+			if kind, e, _, _ := servertest.ReadSpawnEntity(t, data); kind == int32(registry.EntityTypeEvokerFangs) {
+				fang = e.EntityID
 			}
 		case protocol.IDPlayDamageEvent:
+			r := protocol.NewReader(data)
 			if ev := (fangsDamageEvent{r.ReadVarInt(), r.ReadVarInt(), r.ReadVarInt(), r.ReadVarInt()}); ev.victim == victim {
 				event = &ev
 			}
@@ -63,11 +64,16 @@ func TestPlayerOwnedFangsBite(t *testing.T) {
 	fc.MoveToGround(6.5, 64, 0.5, true)
 	cow := srv.SpawnMob("minecraft:cow", 9.5, 64, 0.5)
 	husk := srv.SpawnMob("minecraft:husk", 12.5, 64, 0.5)
-	for _, id := range []int32{cow, husk} {
+	spared := srv.SpawnMob("minecraft:husk", 14.5, 64, 0.5)
+	thorny := srv.SpawnMob("minecraft:husk", 16.5, 64, 0.5)
+	for _, id := range []int32{cow, husk, spared, thorny} {
 		srv.SetMobNoAI(id)
 	}
+	srv.SetMobInvulnerable(spared)
 	cowUUID, _ := srv.MobUUID(cow)
 	srv.RunLine("team join t " + cowUUID)
+	thornyUUID, _ := srv.MobUUID(thorny)
+	srv.RunLine(`data merge entity ` + thornyUUID + ` {equipment:{chest:{id:"minecraft:diamond_chestplate",count:1,components:{"minecraft:enchantments":{"minecraft:thorns":7}}}}}`)
 	oc.Settle()
 
 	indirectMagic := registry.MustID("minecraft:damage_type", "minecraft:indirect_magic")
@@ -88,7 +94,7 @@ func TestPlayerOwnedFangsBite(t *testing.T) {
 		hurt   bool
 	}{{"Owner", oc, owner, 0.5, false}, {"Mate", mc, mate, 3.5, false}, {"Foe", fc, foe, 6.5, true}} {
 		before := srv.PlayerHealth(tc.name)
-		fang, ev := biteWatched(t, srv, tc.client, owner, tc.x, 0.5, tc.id)
+		fang, ev := biteWatched(t, srv, tc.client, "Owner", tc.x, tc.id)
 		if tc.hurt {
 			check(tc.name, ev, tc.id, fang)
 			if got := srv.PlayerHealth(tc.name); got != before-6 {
@@ -99,29 +105,53 @@ func TestPlayerOwnedFangsBite(t *testing.T) {
 		}
 	}
 
-	if _, ev := biteWatched(t, srv, oc, owner, 9.5, 0.5, cow); ev != nil {
+	if _, ev := biteWatched(t, srv, oc, "Owner", 9.5, cow); ev != nil {
 		t.Errorf("allied cow bitten: %+v", ev)
 	}
 	if hp, _ := srv.MobHealth(cow); hp != 10 {
 		t.Errorf("allied cow health = %v, want 10", hp)
 	}
 
-	fang, ev := biteWatched(t, srv, oc, owner, 12.5, 0.5, husk)
+	fang, ev := biteWatched(t, srv, oc, "Owner", 12.5, husk)
 	check("husk", ev, husk, fang)
 	if hp, _ := srv.MobHealth(husk); hp != 14 {
 		t.Errorf("husk health = %v, want 14", hp)
 	}
 
+	// A creative owner still cannot hurt an invulnerable mob.
+	srv.SetPlayerGameMode("Owner", protocol.GameModeCreative)
+	if _, ev := biteWatched(t, srv, oc, "Owner", 14.5, spared); ev != nil {
+		t.Errorf("invulnerable husk bitten: %+v", ev)
+	}
+	if hp, _ := srv.MobHealth(spared); hp != 20 {
+		t.Errorf("invulnerable husk health = %v, want 20", hp)
+	}
+	srv.SetPlayerGameMode("Owner", protocol.GameModeSurvival)
+
+	// Thorns on the victim's armor hurt the owner who caused the bite.
+	before := srv.PlayerHealth("Owner")
+	biteWatched(t, srv, oc, "Owner", 16.5, thorny)
+	if got := srv.PlayerHealth("Owner"); got >= before {
+		t.Errorf("owner health = %v, want below %v after Thorns", got, before)
+	}
+
 	// The kill is the owner's: the husk drops experience.
-	weak := srv.SpawnMob("minecraft:husk", 14.5, 64, 0.5)
+	weak := srv.SpawnMob("minecraft:husk", 18.5, 64, 0.5)
 	srv.SetMobNoAI(weak)
 	srv.SetMobHealth(weak, 4)
-	biteWatched(t, srv, oc, owner, 14.5, 0.5, weak)
+	biteWatched(t, srv, oc, "Owner", 18.5, weak)
 	if hp, found := srv.MobHealth(weak); found && hp > 0 {
 		t.Error("weak husk survived a lethal bite")
 	}
-	servertest.RunTicks(t, srv, 30) // the death animation
+	servertest.RunTicks(t, srv, 1) // the death effects
 	if srv.OrbCount() == 0 {
 		t.Error("no experience dropped: the kill was not credited to the owner")
+	}
+
+	// The owner in another dimension is still the owner: the teammate is spared.
+	srv.RunLine("execute in minecraft:the_nether run tp Owner 8.5 70 8.5")
+	before = srv.PlayerHealth("Mate")
+	if _, ev := biteWatched(t, srv, mc, "Owner", 3.5, mate); ev != nil || srv.PlayerHealth("Mate") != before {
+		t.Errorf("teammate bitten with the owner in the Nether: event %+v", ev)
 	}
 }

@@ -195,3 +195,44 @@ func BenchmarkTickFangsBiteOwned(b *testing.B) {
 		s.tickFangs()
 	}
 }
+
+// BenchmarkTickPlayerOwnedFangsBiteLanded repeats 100 bites by a player's
+// fangs on a pig each, none on the owner's team, so every bite lands. Resetting
+// the victims is timed identically on both sides.
+func BenchmarkTickPlayerOwnedFangsBiteLanded(b *testing.B) {
+	const count = 100
+	s, w := newTrackerBenchServer(b)
+	var owner *client
+	s.mu.RLock()
+	for _, c := range s.clients {
+		owner = c
+		break
+	}
+	s.mu.RUnlock()
+	s.mobsMu.Lock()
+	s.mobInputs.clientByEntityID = map[int32]*client{owner.player.EntityID: owner}
+	s.mobsMu.Unlock()
+	var pigs []*entity.Mob
+	for i := range count {
+		x, z := trackerBenchSpot(i)
+		id := s.SpawnMob("minecraft:pig", x, -60, z)
+		for _, m := range s.herdOf(w).herd {
+			if m.ID == id {
+				pigs = append(pigs, m)
+			}
+		}
+		s.spawnFangs(fangsCast{w: w, owner: owner.player.EntityID, x: x, y: -60, z: z})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		for _, it := range s.fangs.list {
+			f := it.fangs
+			it.fangs = entity.NewEvokerFangs(f.ID, f.X, f.Y, f.Z, 0, -7, owner.player.EntityID)
+		}
+		for _, m := range pigs {
+			m.Health, m.InvulnTicks, m.Dead = m.MaxHealth, 0, false
+		}
+		s.tickFangs()
+	}
+}
