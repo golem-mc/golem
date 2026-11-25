@@ -2459,16 +2459,10 @@ func (c *spreadContext) loadChunk(q uint, cx, cz int32) {
 	}
 }
 
-// loadQuadrant resolves the chunk holding (x, z) once and returns its
-// quadrant, so reads use its storage instead of World.BlockAt. A missing chunk
-// stays unloaded, which keeps that fallback.
-func (c *spreadContext) loadQuadrant(x, z int32) uint {
-	cx, cz := x>>4, z>>4
-	q := uint((cx-c.cx0)|(cz-c.cz0)<<1) & 3
-	if c.chunksLoaded&(1<<q) == 0 {
-		c.loadChunk(q, cx, cz)
-	}
-	return q
+// quadrant maps a position to its chunk's slot in the 2x2 cache; small enough
+// to inline on the slope search's hot path.
+func (c *spreadContext) quadrant(x, z int32) uint {
+	return uint((x>>4-c.cx0)|(z>>4-c.cz0)<<1) & 3
 }
 
 // index maps a position to its cell, or reports it outside the square.
@@ -2513,7 +2507,11 @@ func (c *spreadContext) load(i int) {
 	z := c.oz + int32(off[1]) - spreadReach
 	var state uint16
 	if c.world != nil {
-		q := c.loadQuadrant(x, z)
+		q := c.quadrant(x, z)
+		if c.chunksLoaded>>q&1 == 0 {
+			// A missing chunk stays unloaded, which keeps the World.BlockAt fallback.
+			c.loadChunk(q, x>>4, z>>4)
+		}
 		if b := c.topWords[q]; b != nil {
 			state = b.load(c.topYOff | int(z&15)<<4 | int(x&15))
 		} else if c.chunksLoaded&(1<<q) != 0 {
@@ -2573,7 +2571,8 @@ func (c *spreadContext) isHole(x, z int32) bool {
 	return c.holeAt(i)
 }
 
-// holeAt caches whether an already loaded cell hangs over a hole.
+// holeAt caches whether a seeded cell hangs over a hole, resolving its chunk
+// if the seed did not.
 func (c *spreadContext) holeAt(i int) bool {
 	if c.flags[i]&cellHoleKnown == 0 {
 		off := spreadOffsets[i]
@@ -2582,7 +2581,11 @@ func (c *spreadContext) holeAt(i int) bool {
 		top := c.states[i]
 		var below uint16
 		if c.world != nil {
-			q := uint((x>>4-c.cx0)|(z>>4-c.cz0)<<1) & 3
+			q := c.quadrant(x, z)
+			if c.chunksLoaded>>q&1 == 0 {
+				// A missing chunk stays unloaded, which keeps the World.BlockAt fallback.
+				c.loadChunk(q, x>>4, z>>4)
+			}
 			if b := c.belowWords[q]; b != nil {
 				below = b.load(c.belowYOff | int(z&15)<<4 | int(x&15))
 			} else if c.chunksLoaded&(1<<q) != 0 {
@@ -2675,15 +2678,12 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		c.init(w, x, y, z, fs.kind)
 		// A hole check reads only its own cell and the one below, so seed and
 		// test each side in turn; all are seeded before the recursive search.
-		for i, d := range horizontal4 {
+		for i := range horizontal4 {
 			side := &sides[i]
 			if !side.eligible {
 				continue
 			}
 			ci := spreadCenter + spreadStep[i]
-			if c.world != nil {
-				c.loadQuadrant(x+d[0], z+d[1])
-			}
 			c.seed(ci, side.state)
 			side.hole = c.holeAt(ci)
 			hasHole = hasHole || side.hole
