@@ -16,6 +16,12 @@ import (
 func pistonRow(t *testing.T, sticky bool) (*World, *Physics, map[string]uint16) {
 	t.Helper()
 	w, p := newPhysicsWorld(t)
+	return w, p, pistonRowBlocks(t, sticky)
+}
+
+// pistonRowBlocks is the block states the piston tests place.
+func pistonRowBlocks(t *testing.T, sticky bool) map[string]uint16 {
+	t.Helper()
 	blocks := map[string]uint16{}
 	if sticky {
 		blocks["piston"] = rsState(t, "minecraft:sticky_piston", map[string]string{"facing": "east", "extended": "false"})
@@ -32,7 +38,7 @@ func pistonRow(t *testing.T, sticky bool) (*World, *Physics, map[string]uint16) 
 	blocks["grass"] = rsState(t, "minecraft:short_grass", nil)
 	blocks["obsidian"] = rsState(t, "minecraft:obsidian", nil)
 	blocks["power"] = rsState(t, "minecraft:redstone_block", nil)
-	return w, p, blocks
+	return blocks
 }
 
 // pistonRowCells reads the row the tests build on: x from 9 to 16 on the
@@ -468,7 +474,8 @@ func TestPistonRideSurvivesChunkSaveAndLoad(t *testing.T) {
 // p=2: they stay landings, left out of a copy and a clear, and land.
 // vanilla: PistonMovingBlockEntity.tick, LevelTicks.copyAreaFrom, LevelTicks.clearArea
 func TestLandingSavedAtLowPriorityStillLands(t *testing.T) {
-	w, p, blocks := pistonRow(t, false)
+	w, p := newOneChunkPhysics(t)
+	blocks := pistonRowBlocks(t, false)
 	clock := pistonSetup(t, w, p, blocks, false, map[int32]uint16{11: blocks["dirt"]}, nil)
 	pistonPowerOn(t, w, p, blocks, &clock)
 	p.mu.Lock()
@@ -499,5 +506,9 @@ func TestLandingSavedAtLowPriorityStillLands(t *testing.T) {
 		clock++
 		p.Tick(clock)
 	}
-	wantRow(t, w, map[int32]string{10: "minecraft:piston", 11: "minecraft:piston_head", 12: "minecraft:dirt"})
+	for x, want := range map[int32]string{10: "minecraft:piston", 11: "minecraft:piston_head", 12: "minecraft:dirt"} {
+		if got, _ := rsNameAt(t, w, x, 64, 9); got != want {
+			t.Errorf("cell x=%d holds %s, want %s", x, got, want)
+		}
+	}
 }

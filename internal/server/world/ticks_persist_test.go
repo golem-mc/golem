@@ -423,3 +423,23 @@ func TestTiedTicksDispatchInBookingOrderAfterReload(t *testing.T) {
 		t.Fatalf("sand fell in x order %v, want [9 3]", got)
 	}
 }
+
+// TestSavedSoilTickPriorityIsClamped adopts a path tick saved at p=5: it
+// reads as the lowest vanilla priority, so a copy and a clear both see it.
+// vanilla: TickPriority.byValue, LevelTicks.copyAreaFrom, LevelTicks.clearArea
+func TestSavedSoilTickPriorityIsClamped(t *testing.T) {
+	w, p := newOneChunkPhysics(t)
+	const y = GroundLevel
+	w.SetBlock(8, y, 8, registry.BlockDirtPath.DefaultState())
+	p.mu.Lock()
+	p.adoptBlockTick(8, y, 8, w.BlockAt(8, y, 8), registry.BlockDirtPath.Name(), p.now+1, 5)
+	p.mu.Unlock()
+	if ticks := p.BlockTicksIn(8, y, 8, 8, y, 8); len(ticks) != 1 || ticks[0].tick.priority != 3 {
+		t.Fatalf("copied ticks = %+v, want one at priority 3", ticks)
+	}
+	p.ClearTicksIn(8, y, 8, 8, y, 8)
+	p.Tick(p.now + 1)
+	if got, _, _ := registry.BlockStateName(w.BlockAt(8, y, 8)); got != "minecraft:dirt_path" {
+		t.Errorf("cleared path became %s, want minecraft:dirt_path", got)
+	}
+}

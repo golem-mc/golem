@@ -326,6 +326,8 @@ func (p *Physics) discardUnloadedTicks(unloaded []ChunkPos) {
 // block's, which dispatch checks, it is dropped when the cell holds another
 // block. Runs under p.mu.
 func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int64, priority int) {
+	// vanilla: TickPriority.byValue clamps an out-of-range saved priority.
+	priority = max(tickPriorityExtremelyHigh, min(priority, 3))
 	// vanilla: ServerLevel.tickBlock checks the cell's block against the booked type.
 	switch id {
 	case registry.BlockDirtPath.Name():
