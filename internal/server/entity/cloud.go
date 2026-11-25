@@ -173,6 +173,9 @@ func (c *Cloud) Apply(targets []CloudTarget) []CloudTarget {
 			delete(c.victims, id)
 		}
 	}
+	// The candidates are those meeting the box at the starting radius; the
+	// radius a hit grows only moves the distance test below.
+	box := c.Box()
 	var reached []CloudTarget
 	for i := range targets {
 		target := &targets[i]
@@ -182,11 +185,7 @@ func (c *Cloud) Apply(targets []CloudTarget) []CloudTarget {
 		if _, held := c.victims[target.EntityID]; held {
 			continue
 		}
-		// The candidate's box must meet the cloud's own: the scalable
-		// radius-wide, half-block-tall box it stands in.
-		if target.MinX >= c.X+float64(radius) || target.MaxX <= c.X-float64(radius) ||
-			target.MinY >= c.Y+0.5 || target.MaxY <= c.Y ||
-			target.MinZ >= c.Z+float64(radius) || target.MaxZ <= c.Z-float64(radius) {
+		if !box.Crosses(NewAABB(target.MinX, target.MinY, target.MinZ, target.MaxX, target.MaxY, target.MaxZ)) {
 			continue
 		}
 		if !cloudTakesEffect(c, target) {

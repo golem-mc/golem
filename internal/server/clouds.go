@@ -441,7 +441,6 @@ func (s *Server) tickClouds() {
 				scratch = &cloudWorldTargets{
 					mobsByID:    make(map[int32]*entity.Mob),
 					clientsByID: make(map[int32]*client),
-					index:       make(map[int32]int),
 				}
 			}
 			wt = scratch
@@ -527,42 +526,52 @@ type cloudWatcher struct {
 }
 
 // cloudWorldTargets is the living mobs, mannequins and players one cloud's
-// application pass may reach; index is a mob's entry by entity ID.
+// application pass may reach.
 type cloudWorldTargets struct {
 	targets     []entity.CloudTarget
-	index       map[int32]int
 	mobsByID    map[int32]*entity.Mob
 	clientsByID map[int32]*client
 	mobs        []*entity.Mob
 }
 
-// fill rebuilds the targets for c: the mobs of the chunks its box covers by
-// entity ID, then the world's mannequins, then its players. The mob lock is held.
+// compareMobSections orders mobs as vanilla's section walk visits them: by
+// section X, then Z and Y as unsigned key fields, then by entity ID in place
+// of the section list's insertion order.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection, SectionPos.asLong
+func compareMobSections(a, b *entity.Mob) int {
+	ax, bx := world.ChunkOf(a.X), world.ChunkOf(b.X)
+	if c := cmp.Compare(ax, bx); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(uint32(world.ChunkOf(a.Z))&0x3FFFFF, uint32(world.ChunkOf(b.Z))&0x3FFFFF); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(uint32(world.ChunkOf(a.Y))&0xFFFFF, uint32(world.ChunkOf(b.Y))&0xFFFFF); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.ID, b.ID)
+}
+
+// fill rebuilds the targets for c: the mobs of the chunks its box covers in
+// section order, then the world's mannequins, then its players. The mob lock is held.
 func (wt *cloudWorldTargets) fill(c *entity.Cloud, dim *dimension, w *world.World, mannequins mannequinTargetSnapshot, watchers []cloudWatcher) {
 	wt.targets = wt.targets[:0]
-	clear(wt.index)
 	clear(wt.mobsByID)
 	clear(wt.clientsByID)
 	wt.mobs = wt.mobs[:0]
-	r := float64(c.Radius())
-	box := [6]float64{c.X - r, c.Y, c.Z - r, c.X + r, c.Y + 0.5, c.Z + r}
+	minX, minY, minZ, maxX, maxY, maxZ := c.Box().Corners()
+	box := [6]float64{minX, minY, minZ, maxX, maxY, maxZ}
 	area, indexed := smallChunkArea(&box)
 	dim.mobs.mobsInArea(area, indexed, func(m *entity.Mob) bool {
 		wt.mobs = append(wt.mobs, m)
 		return true
 	})
-	if indexed {
-		// A dragon's parts reach beyond its own chunk's padding.
-		wt.mobs = append(wt.mobs, dim.mobs.dragonBodies...)
-	}
-	slices.SortFunc(wt.mobs, func(a, b *entity.Mob) int { return cmp.Compare(a.ID, b.ID) })
-	wt.mobs = slices.Compact(wt.mobs)
+	slices.SortFunc(wt.mobs, compareMobSections)
 	for _, m := range wt.mobs {
 		// Skip the dying: vanilla: isAffectedByPotions, !isDeadOrDying
 		if !m.Alive() {
 			continue
 		}
-		wt.index[m.ID] = len(wt.targets)
 		wt.targets = append(wt.targets, entity.CloudTarget{
 			ArrowTarget: entity.MobTarget(m.ID, mobEntityType(m.Type), m),
 			FeetX:       m.X, FeetZ: m.Z,
@@ -621,12 +630,6 @@ func (l *cloudLanding) land(it *cloudEntity, dim *dimension, wt *cloudWorldTarge
 		if m := mobsByID[target.EntityID]; m != nil {
 			hits, changes := landMobEffects(dim, it.w, m, landing, rules.CloudInstantScale, it.cloud.X, it.cloud.Z, src)
 			l.instantHurts = append(l.instantHurts, hits...)
-			// An ownerless instant harm can teleport an enderman, and the
-			// next cloud passes a body this one killed by.
-			// vanilla: Enderman.hurtServer
-			entry := entity.CloudTarget{ArrowTarget: entity.MobTarget(m.ID, mobEntityType(m.Type), m), FeetX: m.X, FeetZ: m.Z}
-			entry.Unhittable = entry.Unhittable || !m.Alive()
-			wt.targets[wt.index[m.ID]] = entry
 			if tell, ok := mobEffectTell(dim, m, changes); ok {
 				l.mobTells = append(l.mobTells, tell)
 				l.tellWorlds = append(l.tellWorlds, it.w)

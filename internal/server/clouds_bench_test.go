@@ -5,8 +5,10 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/registry"
 )
 
 // BenchmarkTickCloudsInHerd ticks one lingering cloud over a flat world's herd.
@@ -22,6 +24,8 @@ func BenchmarkTickCloudsInHerd(b *testing.B) {
 				b.Fatal(err)
 			}
 			b.Cleanup(s.Shutdown)
+			poisonID, _ := registry.MobEffectID("minecraft:poison")
+			poison := []protocol.PotionEffectSpec{{ID: poisonID, Duration: 600}}
 			dim := s.allDims()[0]
 			w := dim.w
 			for x := int32(-4); x < 4; x++ {
@@ -34,14 +38,14 @@ func BenchmarkTickCloudsInHerd(b *testing.B) {
 				x, z := float64(i%50)*2-49.5, float64(i/50)*2-39.5
 				s.spawnMobInDim(dim, entity.TypeCow, x, world.GroundLevel, z, int64(i+1), nil)
 			}
-			s.SpawnCloudEntity(40, world.GroundLevel, 40)
+			s.SpawnOwnerlessCloud(40, world.GroundLevel, 40, poison)
 
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := range b.N {
 				if i%400 == 399 {
 					b.StopTimer()
-					s.SpawnCloudEntity(40, world.GroundLevel, 40)
+					s.SpawnOwnerlessCloud(40, world.GroundLevel, 40, poison)
 					b.StartTimer()
 				}
 				s.tickClouds()
