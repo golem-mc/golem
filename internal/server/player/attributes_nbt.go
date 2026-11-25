@@ -57,9 +57,14 @@ func (a *Attributes) SavePlayer(loaded *nbt.List) *nbt.List {
 
 // SaveInstances packs mob and armor-stand instances, including defaults.
 // A synthetic instance is included if loaded from disk or withSynthetic is set.
+// It is nil for nothing to save, and an empty list when every loaded entry was
+// dropped, which must replace the loaded list.
 func (a *Attributes) SaveInstances(loaded *nbt.List, withSynthetic bool) *nbt.List {
 	list := a.pack(loaded, withSynthetic)
 	if len(list.Items) == 0 {
+		if loaded != nil && len(loaded.Items) > 0 {
+			return &nbt.List{Elem: nbt.TypeEnd}
+		}
 		return nil
 	}
 	return &list

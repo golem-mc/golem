@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -71,6 +72,34 @@ func BenchmarkMobSyncEquipmentChange(b *testing.B) {
 				m.MainHand = stacks[i&1]
 				m.equipmentRevision++
 				m.SyncEquipmentModifiers(a)
+			}
+		})
+	}
+}
+
+// BenchmarkApplyLocatedModsActivating is a boots location_changed attribute
+// entry becoming active on a mob's live map, then stopping. The pig lacks
+// attack_speed, so the entry adds nothing; movement_speed is on every mob and
+// attack_damage on a zombie.
+func BenchmarkApplyLocatedModsActivating(b *testing.B) {
+	for _, tc := range []struct {
+		name, attr string
+		kind       MobType
+	}{{"pig_lacking", "minecraft:attack_speed", TypePig}, {"pig_having", "minecraft:movement_speed", TypePig}, {"zombie_having", "minecraft:attack_damage", TypeZombie}} {
+		b.Run(tc.name, func(b *testing.B) {
+			a := NewMob(tc.kind, 1, .5, 66, .5, 1).BuildAttributes(nbt.List{})
+			act := rules.LocatedAction{Slot: "feet", Level: 1, Became: true, Entry: registry.EnchLocated{Attribute: &registry.EnchAttribute{
+				Attribute: tc.attr, ID: "pack:slow", Operation: "add_value",
+				Amount: &registry.EnchLevelValue{Kind: registry.EnchValueConstant, Constant: .1},
+			}}}
+			if _, ok := act.LocatedAttributeModifier(); !ok {
+				b.Fatal("no modifier")
+			}
+			on := []rules.LocatedAction{act}
+			b.ReportAllocs()
+			for b.Loop() {
+				ApplyLocatedMods(a, on, nil)
+				ApplyLocatedMods(a, nil, on)
 			}
 		})
 	}

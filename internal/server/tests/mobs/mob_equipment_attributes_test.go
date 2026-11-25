@@ -18,7 +18,9 @@ import (
 // it is equipped, which takes the tick sync path.
 func TestEquipmentLeavesKindlessAttributesOutOfSave(t *testing.T) {
 	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Keeper", servertest.OpsListing(t, "Keeper"))
+	cfg := servertest.MobTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = 2, 2
+	srv, c := servertest.Join(t, cfg, "Keeper", servertest.OpsListing(t, "Keeper"))
 	servertest.HoldTicks(t, srv)
 	sword := `minecraft:iron_sword`
 	c.ChatCommand(`summon minecraft:pig 1.5 100 0.5 {equipment:{mainhand:{id:"` + sword + `",count:1}}}`)
@@ -31,7 +33,7 @@ func TestEquipmentLeavesKindlessAttributesOutOfSave(t *testing.T) {
 	c.Settle()
 	srv.RunLine("attribute @e[type=zombie,limit=1] minecraft:movement_speed get")
 	srv.RunLine("item replace entity @e[type=zombie,limit=1] weapon.mainhand with " + sword)
-	servertest.RunTicks(t, srv, 5)
+	servertest.RunTicks(t, srv, 1)
 	pigAttrs := savedField(t, srv, "pig", "attributes")
 	for _, id := range []string{"attack_damage", "attack_speed"} {
 		if strings.Contains(pigAttrs, id) {
@@ -49,18 +51,23 @@ func TestEquipmentLeavesKindlessAttributesOutOfSave(t *testing.T) {
 }
 
 // TestSavedAttributesDropKindlessEntries: a saved list entry for an attribute
-// the kind lacks is skipped on load and absent from the next save, while an
-// unknown ID passes through.
-// vanilla: AttributeMap.load, AttributeSupplier.hasAttribute
+// the kind lacks is skipped on load and absent from the next save, before the
+// mob's first tick, while an unknown ID passes through; a list of only such
+// entries saves as an empty list.
+// vanilla: AttributeMap.load, AttributeSupplier.hasAttribute, AttributeMap.pack
 func TestSavedAttributesDropKindlessEntries(t *testing.T) {
 	t.Parallel()
-	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Keeper", servertest.OpsListing(t, "Keeper"))
+	cfg := servertest.MobTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = 2, 2
+	srv, c := servertest.Join(t, cfg, "Keeper", servertest.OpsListing(t, "Keeper"))
 	servertest.HoldTicks(t, srv)
-	c.ChatCommand(`summon minecraft:pig 1.5 100 0.5 {attributes:[{id:"minecraft:attack_damage",base:2d},{id:"minecraft:attack_speed",base:4d},{id:"golem:unknown",base:1d}]}`)
+	const kindless = `{id:"minecraft:attack_damage",base:2d},{id:"minecraft:attack_speed",base:4d}`
+	c.ChatCommand(`summon minecraft:pig 1.5 100 0.5 {Tags:["mixed"],attributes:[` + kindless + `,{id:"golem:unknown",base:1d}]}`)
+	c.ExpectMobSpawn(protocol.EntityTypePig)
+	c.ChatCommand(`summon minecraft:pig 4.5 100 0.5 {Tags:["only"],attributes:[` + kindless + `]}`)
 	c.ExpectMobSpawn(protocol.EntityTypePig)
 	c.Settle()
-	servertest.RunTicks(t, srv, 2)
-	got := savedField(t, srv, "pig", "attributes")
+	got := savedField(t, srv, "pig,tag=mixed", "attributes")
 	for _, id := range []string{"attack_damage", "attack_speed"} {
 		if strings.Contains(got, id) {
 			t.Errorf("pig attributes list %s: %s", id, got)
@@ -68,6 +75,9 @@ func TestSavedAttributesDropKindlessEntries(t *testing.T) {
 	}
 	if !strings.Contains(got, "golem:unknown") {
 		t.Errorf("pig attributes list lost the unknown entry: %s", got)
+	}
+	if got := savedField(t, srv, "pig,tag=only", "attributes"); got != "[]" {
+		t.Errorf("pig with only kindless entries saves attributes %s, want []", got)
 	}
 }
 
