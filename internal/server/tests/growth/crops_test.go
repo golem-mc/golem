@@ -457,6 +457,38 @@ func TestAFallingPlayerTramplesFarmland(t *testing.T) {
 	}
 }
 
+// TestAPlayerTramplesTheFarmlandUnderAnEdgeLanding checks a landing whose
+// centre is past the farmland's edge over air: the feet still rest on the
+// farmland, so it is the one trampled and its crop breaks.
+func TestAPlayerTramplesTheFarmlandUnderAnEdgeLanding(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.SurvivalConfig(), "Camper", servertest.OpsListing(t, "Camper"))
+
+	srv.StopTick()
+	servertest.SeedPhysics(t, srv, servertest.CropsSeed)
+
+	servertest.SetFarmBlock(t, c, srv, 0, 63, 0, "minecraft:farmland", map[string]string{"moisture": "7"})
+	servertest.SetFarmBlock(t, c, srv, 0, 64, 0, "minecraft:wheat", map[string]string{"age": "7"})
+
+	servertest.SetFarmBlock(t, c, srv, 1, 63, 0, "minecraft:air", nil)
+
+	c.MoveTo(1.125, 74, 0.5, 0, 0)
+	c.MoveTo(1.125, 64, 0.5, 0, 0)
+
+	dirt := servertest.CropsStateOf(t, "minecraft:dirt", nil)
+	servertest.AwaitBlockUpdate(t, c, 0, 63, 0, dirt)
+	air := servertest.CropsStateOf(t, "minecraft:air", nil)
+	for _, p := range [][3]int32{{0, 63, 0}, {0, 64, 0}, {1, 63, 0}} {
+		want := air
+		if p[1] == 63 && p[0] == 0 {
+			want = dirt
+		}
+		if got := srv.BlockAt(p[0], p[1], p[2]); got != want {
+			t.Errorf("block at %v = %d, want %d", p, got, want)
+		}
+	}
+}
+
 // TestAMobTramplesFarmland checks the mob's landing: a cow heavy enough by
 // its own shape, falling onto a farm square while the mob griefing rule
 // stands, tramples the square under its feet the way the player's landing

@@ -1602,14 +1602,14 @@ func (c *client) bounceLanded(now player.Position) {
 // vanilla: FarmlandBlock.fallOn
 func (c *client) trampleUnderfoot(fallDistance float64, now player.Position) {
 	w := c.theWorld()
-	x := int32(math.Floor(now.X))
-	z := int32(math.Floor(now.Z))
-	ground := int32(math.Floor(now.Y - 0.2))
+	dims := c.dims(c.player.Appearance().Pose)
+	// The block is the one supporting the footprint, not the one under the
+	// centre: an edge landing tramples the farmland the feet overlap.
+	x, ground, z, _ := rules.OnPosCell(w, now.X, now.Y, now.Z, dims.Width/2)
 	if c.underSpawnProtection(x, z) {
 		return
 	}
 	// vanilla compares the float bounding box against 0.512f.
-	dims := c.dims(c.player.Appearance().Pose)
 	if bw, bh := float32(dims.Width), float32(dims.Height); bw*bw*bh <= 0.512 {
 		return
 	}
