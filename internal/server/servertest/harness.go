@@ -232,6 +232,15 @@ func NewTestServerWithPlugins(t *testing.T, cfg *config.Config, plugins []plugin
 		cfg.LevelType = server.TestFlatLevelType
 	}
 
+	// The fake client asks for a render distance of 4, so at the default
+	// simulation distance of 10 the server would generate, light and save
+	// 360 chunks per join that no test sees. A test that set another
+	// distance keeps it; one that needs the default's reach passes
+	// FullSimulationDistance, since 10 here reads as unset.
+	if cfg.SimulationDistance == config.Default().SimulationDistance {
+		cfg.SimulationDistance = 4
+	}
+
 	// A test on the harness's flat world takes its nether chunks from a
 	// process-wide fixture, so each is generated once per package rather
 	// than once per test: generating their own, the crossing tests of a

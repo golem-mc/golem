@@ -1131,7 +1131,7 @@ func (c *naturalSpawnContext) spawnCategoryForPosition(spawn spawnPoint, rng *ra
 			if !exists {
 				continue
 			}
-			if !rightDistanceToPlayerAndSpawnPoint(w, c.ticking, spawn, x0, y, z0, dist) {
+			if !rightDistanceToPlayerAndSpawnPoint(w, c.ticking, pos, spawn, x0, y, z0, dist) {
 				continue
 			}
 			initial := data == nil
@@ -1246,9 +1246,9 @@ func readSpawnPoint(w SpawnWorld) spawnPoint {
 	return spawnPoint{x, y, z, guarded}
 }
 
-// rightDistanceToPlayerAndSpawnPoint keeps 24 blocks clear and requires a loaded, entity-ticking landing chunk.
+// rightDistanceToPlayerAndSpawnPoint keeps 24 blocks clear and requires a loaded landing chunk, entity-ticking when it is not the origin's.
 // vanilla: NaturalSpawner.isRightDistanceToPlayerAndSpawnPoint
-func rightDistanceToPlayerAndSpawnPoint(w SpawnWorld, ticking func(ChunkPos) bool, spawn spawnPoint, x, y, z int32, distToPlayerSq float64) bool {
+func rightDistanceToPlayerAndSpawnPoint(w SpawnWorld, ticking func(ChunkPos) bool, origin ChunkPos, spawn spawnPoint, x, y, z int32, distToPlayerSq float64) bool {
 	if distToPlayerSq <= spawnMinDistanceSq {
 		return false
 	}
@@ -1261,7 +1261,13 @@ func rightDistanceToPlayerAndSpawnPoint(w SpawnWorld, ticking func(ChunkPos) boo
 			return false
 		}
 	}
-	if !w.ChunkLoadedAt(x, z) || ticking != nil && !ticking(ChunkPos{X: x >> 4, Z: z >> 4}) {
+	if !w.ChunkLoadedAt(x, z) {
+		return false
+	}
+	// The origin chunk was checked when the pass chose it; only a walk into
+	// another chunk needs the check.
+	// vanilla: NaturalSpawner.spawnCategoryForPosition (chunk != origin)
+	if land := (ChunkPos{X: x >> 4, Z: z >> 4}); ticking != nil && land != origin && !ticking(land) {
 		return false
 	}
 	if s, ok := w.(*world.SpawnChunk); ok {

@@ -116,9 +116,6 @@ type dimension struct {
 	border *world.Border
 	// raids is the dimension's raids, guarded by the server's raidsMu.
 	raids *raid.Raids
-	// raidGate is the entity-gate snapshot of the raid tick in progress, nil
-	// outside one; guarded by raidsMu.
-	raidGate *entityGate
 	// dragonFight is the dimension's ender dragon fight, nil when its
 	// dimension type has has_ender_dragon_fight false.
 	// vanilla: ServerLevel.dragonFight

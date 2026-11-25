@@ -165,6 +165,8 @@ type Server struct {
 	// raidNotes are the raid stages of this tick, kept under raidsMu until the
 	// listeners can be asked without it.
 	raidNotes []raidNote
+	// raidGate is the entity gate of the raid tick in progress, under raidsMu.
+	raidGate raidGateSnapshot
 
 	// randomSequences is /random's named sequences, saved like the storages.
 	randomSequences *world.RandomSequences

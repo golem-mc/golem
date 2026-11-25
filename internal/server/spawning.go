@@ -35,6 +35,8 @@ func (s *Server) tickNaturalSpawning() {
 	s.tickPatrolSpawner(clients)
 	s.tickVillageSiege(clients)
 
+	// One snapshot serves every dimension, built when the first one spawns.
+	var gate *entityGate
 	for _, dim := range s.allDims() {
 		players := spawnPlayersOf(clients, dim.w)
 		if len(players) == 0 {
@@ -67,9 +69,13 @@ func (s *Server) tickNaturalSpawning() {
 		}
 		monsters := w.SpawnEnemies()
 
-		gate := s.newEntityGate()
+		if gate == nil {
+			g := s.newEntityGateOf(clients)
+			gate = &g
+		}
+		centres, reach := gate.centres[w], gate.reach
 		ticking := func(pos entity.ChunkPos) bool {
-			return entityTicksIn(w, gate.centres[w], gate.reach, world.ChunkPos(pos))
+			return entityTicksIn(w, centres, reach, world.ChunkPos(pos))
 		}
 		chunks := dim.spawnablePositions[:0]
 		for _, pos := range spawning {

@@ -145,10 +145,8 @@ func (l raidLevel) EntityTicking(x, z int) bool {
 	if !w.ChunkLoaded(pos) {
 		return false
 	}
-	if g := l.dim.raidGate; g != nil {
-		return entityTicksIn(w, g.centres[w], g.reach, pos)
-	}
-	return l.s.newEntityGate().ticks(w, float64(x), float64(z))
+	g := l.s.raidTickGate()
+	return entityTicksIn(w, g.centres[w], g.reach, pos)
 }
 
 func (l raidLevel) IsVillage(x, y, z int) bool { return l.dim.isVillage(x, y, z) }
@@ -367,6 +365,26 @@ func (s *Server) saveRaids() {
 	}
 }
 
+// raidGateSnapshot is the entity gate shared by the cached position check and
+// every wave candidate of one raid tick; guarded by raidsMu.
+type raidGateSnapshot struct {
+	clients []*client // nil outside a raid tick
+	gate    entityGate
+	built   bool
+}
+
+// raidTickGate returns the raid tick's entity gate, building it on first use.
+func (s *Server) raidTickGate() entityGate {
+	if s.raidGate.clients == nil {
+		return s.newEntityGate()
+	}
+	if !s.raidGate.built {
+		s.raidGate.gate = s.newEntityGateOf(s.raidGate.clients)
+		s.raidGate.built = true
+	}
+	return s.raidGate.gate
+}
+
 // tickRaids advances the omens, the raids and the raiders looking for one.
 // vanilla: ServerLevel.tick (raids.tick), BadOmenMobEffect, RaidOmenMobEffect
 func (s *Server) tickRaids() {
@@ -390,20 +408,14 @@ func (s *Server) tickRaidsLocked() {
 	for _, c := range clients {
 		s.tickOmens(c)
 	}
-	// One snapshot, built when the first raid is live, serves the cached
-	// position check and every wave candidate.
-	var gate *entityGate
+	// The gate snapshot is built on the first wave-position check of the
+	// tick; a tick that reaches none builds none.
+	s.raidGate = raidGateSnapshot{clients: clients}
+	defer func() { s.raidGate = raidGateSnapshot{} }()
 	for _, dim := range s.allDims() {
-		if dim.raids == nil {
-			continue
+		if dim.raids != nil {
+			dim.raids.Tick(dim.w.BoolRule(world.RuleRaids))
 		}
-		if gate == nil && len(dim.raids.All()) > 0 {
-			g := s.newEntityGate()
-			gate = &g
-		}
-		dim.raidGate = gate
-		dim.raids.Tick(dim.w.BoolRule(world.RuleRaids))
-		dim.raidGate = nil
 	}
 	s.tickRaiderViews(tick)
 	if tick%raiderJoinInterval == 0 {
