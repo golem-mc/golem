@@ -209,6 +209,7 @@ func (s *Session) serveEditing() {
 	if f, ok := s.in.(*os.File); ok {
 		if state, err := term.MakeRaw(int(f.Fd())); err == nil {
 			s.rawFd, s.rawState = int(f.Fd()), state
+			keepOutputProcessing(s.rawFd)
 		}
 	}
 	s.draw()
