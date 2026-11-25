@@ -672,10 +672,6 @@ type potionBreak struct {
 	// for its watchers.
 	mobs []splashMobTell
 
-	// splashed are the IDs of the mobs the spray reached, which a dodge may
-	// have teleported.
-	splashed []int32
-
 	// players are the players the spray reached, each with the instances
 	// their bodies are to be given.
 	players         []splashPlayerTell
@@ -853,7 +849,6 @@ func (s *Server) potionBreakOf(it *thrownEntity, dim *dimension, mobsByID map[in
 				continue
 			}
 			if m := mobsByID[target.EntityID]; m != nil {
-				shl.splashed = append(shl.splashed, m.ID)
 				m.Rehydrate()
 				owner := it.throwable.OwnerID
 				if landed, softened := m.HurtByWaterSplash(it.throwable.X, it.throwable.Z, owner,
@@ -909,7 +904,6 @@ func (s *Server) potionBreakOf(it *thrownEntity, dim *dimension, mobsByID map[in
 			continue
 		}
 		if m := mobsByID[hit.Target.EntityID]; m != nil {
-			shl.splashed = append(shl.splashed, m.ID)
 			if ent := dim.mobs.book[m]; deferred && ent != nil {
 				shl.pending = append(shl.pending, pendingSplash{mob: m.ID, id: ent.uuid, scale: hit.Scale, src: src})
 				continue
