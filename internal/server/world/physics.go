@@ -1161,7 +1161,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 	// due visits. Each carries the tick it was made in, so the comparator's
 	// delay runs from then, not from this drain.
 	for _, c := range p.w.takeContainerChanges() {
-		p.containerChanged(c.pos[0], c.pos[1], c.pos[2], c.tick)
+		p.analogOutputChanged(c.pos[0], c.pos[1], c.pos[2], c.tick)
 	}
 
 	// Generated ticks and fluid post-processing visits run on

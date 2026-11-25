@@ -166,6 +166,35 @@ func BenchmarkComparatorTickUnchanged(b *testing.B) {
 	}
 }
 
+// BenchmarkDoubleChestComparatorWake drains a touch to a double chest read
+// through a conductor, from either the near half or the far half.
+func BenchmarkDoubleChestComparatorWake(b *testing.B) {
+	w := newTestWorld(b, NewFlatGenerator())
+	w.Acquire(ChunkPos{})
+	w.Acquire(ChunkPos{X: 1})
+	p := NewPhysics(w)
+	const y = GroundLevel
+	w.SetBlock(13, y, 0, registry.MustState("minecraft:chest", map[string]string{"facing": "north", "type": "left"}))
+	w.SetBlock(14, y, 0, registry.MustState("minecraft:chest", map[string]string{"facing": "north", "type": "right"}))
+	w.EnsureBlockEntity(13, y, 0, KindChest)
+	w.EnsureBlockEntity(14, y, 0, KindChest)
+	w.SetBlock(15, y, 0, registry.BlockStone.DefaultState())
+	w.SetBlock(16, y, 0, registry.MustState("minecraft:comparator", map[string]string{"facing": "west"}))
+	w.EnsureBlockEntity(16, y, 0, KindComparator)
+	for x, name := range []string{"far", "near"} {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			var tick int64
+			for b.Loop() {
+				w.Touch(13+int32(x), y, 0)
+				tick++
+				changes, _, _, effects := p.Tick(tick)
+				p.RecycleTickResults(changes, effects)
+			}
+		})
+	}
+}
+
 // BenchmarkVibrationOccluded traces the vibration rays through open air or wool.
 func BenchmarkVibrationOccluded(b *testing.B) {
 	w, err := NewWorld(b.TempDir(), NewFlatGenerator())
