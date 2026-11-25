@@ -28,6 +28,9 @@ type crammingCrowd struct {
 	worlds  map[*world.World]*crammingWorld
 	// self is where each filed player's own body lies.
 	self map[*client]crammerAt
+	// filed are the mobs already in a world's crowd, so one near two players
+	// is filed once.
+	filed map[*entity.Mob]struct{}
 }
 
 type crammerAt struct {
@@ -91,6 +94,7 @@ func (s *Server) buildCrammingCrowd(cc *crammingCrowd) {
 	if cc.worlds == nil {
 		cc.worlds = make(map[*world.World]*crammingWorld)
 		cc.self = make(map[*client]crammerAt)
+		cc.filed = make(map[*entity.Mob]struct{})
 	}
 	for _, cw := range cc.worlds {
 		clear(cw.bodies)
@@ -99,6 +103,7 @@ func (s *Server) buildCrammingCrowd(cc *crammingCrowd) {
 		cw.grid.Reset()
 	}
 	clear(cc.self)
+	clear(cc.filed)
 	teams := s.scoreboard.MemberTeams()
 	var rulesOf map[string]entity.CollisionRule
 	if teams != nil {
@@ -132,14 +137,24 @@ func (s *Server) buildCrammingCrowd(cc *crammingCrowd) {
 		if cw == nil {
 			continue
 		}
-		for _, m := range s.herdOf(dim.w).herd {
-			// The box first: it is fewer of the mob's fields to read than
-			// Pushable's.
-			box := entity.NewAABB(m.BlastBox())
-			if !cw.nearPlayer(box) || !m.Pushable() {
-				continue
-			}
-			cw.add(crammer{box: box, team: m.Team, rule: m.TeamCollision, riding: m.RidesVehicle})
+		herd := s.herdOf(dim.w)
+		for p := 0; p < cw.players; p++ {
+			bounds := cw.bodies[p].box.Bounds()
+			area, indexed := smallChunkArea(&bounds)
+			herd.mobsInArea(area, indexed, func(m *entity.Mob) bool {
+				if _, filed := cc.filed[m]; filed {
+					return true
+				}
+				// The box first: it is fewer of the mob's fields to read than
+				// Pushable's.
+				box := entity.NewAABB(m.BlastBox())
+				if !cw.nearPlayer(box) || !m.Pushable() {
+					return true
+				}
+				cc.filed[m] = struct{}{}
+				cw.add(crammer{box: box, team: m.Team, rule: m.TeamCollision, riding: m.RidesVehicle})
+				return true
+			})
 		}
 	}
 	s.unlockTick(&s.mobsMu)
