@@ -47,6 +47,22 @@ func BenchmarkMaterialBuildSurface(b *testing.B) {
 	}
 }
 
+// BenchmarkOreVeinBuildSurface measures the surface build on a vein-bearing chunk.
+func BenchmarkOreVeinBuildSurface(b *testing.B) {
+	rs := NewRandomState(Overworld, 12345)
+	biomes := &goldenBiomeSource{names: []string{"plains"}, zoom: levelgen.BiomeZoomSeed(rs.Seed), melt: strings.Repeat("0", 256)}
+	template, _ := buildGoldenChunk("overworld", 0, 0, 75, 3)
+	chunk := NewProtoChunk(rs.MinY, rs.Height, Stone)
+	b.ReportAllocs()
+	for b.Loop() {
+		copy(chunk.blocks, template.blocks)
+		chunk.tops = template.tops
+		nc := NewNoiseChunk(rs, nil, rs.ChunkVolume(0, 0))
+		rs.Materials.BuildSurface(chunk, 0, 0, nc, biomes, []int{0})
+		nc.Recycle()
+	}
+}
+
 // BenchmarkMaterialBuildSurfaceReads counts the Block reads of a surface build
 // on the same fixture as BenchmarkMaterialBuildSurface.
 func BenchmarkMaterialBuildSurfaceReads(b *testing.B) {
