@@ -24,7 +24,7 @@ func TestACrossbowShotScattersByTheDifficultyInaccuracy(t *testing.T) {
 		m.MainHand = protocol.ItemStack{ItemID: int32(registry.ItemCrossbow), Count: 1}
 		p := &Player{X: 8.5, Y: 64, Z: 0.5}
 		g := &crossbowAttackGoal{m: m}
-		ox, oy, oz, ax, ay, az := arrowAim(m, p, crossbowAimLift)
+		ox, oy, oz, ax, ay, az := arrowAim(m, p, crossbowAimLift, ArrowSpawnBelow)
 		_, _, _ = ox, oy, oz
 		n := math.Sqrt(ax*ax + ay*ay + az*az)
 		bound := 0.0172275 * tc.inaccuracy

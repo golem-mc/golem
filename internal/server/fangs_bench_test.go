@@ -22,7 +22,7 @@ func BenchmarkFangsBiteDistantMobs(b *testing.B) {
 				h.remember(&mobEntity{mob: m, w: w, uuid: uuid.New()})
 			}
 			s.mobsMu.Unlock()
-			it := fangsEffect{w: w, id: 1, x: 0.5, y: 64, z: 0.5}
+			it := fangsBiteEffect{w: w, id: 1, x: 0.5, y: 64, z: 0.5}
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {

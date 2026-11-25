@@ -30,7 +30,7 @@ func pathTick(mobs *Mobs, w World, players []Player, events []MobEvent, paths *M
 	}
 	// TemptGoal runs on the full goal pass, once every two ticks.
 	for range 2 {
-		events = mobs.TickInto(events, w, players, nil, nil, nil, paths)
+		events = mobs.TickInto(events, w, players, nil, nil, nil, nil, paths)
 	}
 	return events
 }

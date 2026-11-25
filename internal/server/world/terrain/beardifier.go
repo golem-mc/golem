@@ -29,6 +29,30 @@ var beardKernel = func() []float32 {
 	return k
 }()
 
+// beardSameY is beardContribution(dx, dy, dz, dy) by offset, indexed like
+// beardKernel. Thin beards and junctions pass one Y offset as both arguments.
+var beardSameY = func() []float32 {
+	t := make([]float32, len(beardKernel))
+	for zi := range beardKernelSize {
+		for xi := range beardKernelSize {
+			for yi := range beardKernelSize {
+				t[(zi*beardKernelSize+xi)*beardKernelSize+yi] = beardContribution(
+					xi-beardKernelRadius, yi-beardKernelRadius, zi-beardKernelRadius, yi-beardKernelRadius)
+			}
+		}
+	}
+	return t
+}()
+
+// beardContributionSameY is beardContribution(dx, dy, dz, dy), zero out of range.
+func beardContributionSameY(dx, dy, dz int) float32 {
+	xi, yi, zi := dx+beardKernelRadius, dy+beardKernelRadius, dz+beardKernelRadius
+	if uint(xi) >= beardKernelSize || uint(yi) >= beardKernelSize || uint(zi) >= beardKernelSize {
+		return 0
+	}
+	return beardSameY[(zi*beardKernelSize+xi)*beardKernelSize+yi]
+}
+
 // Beardifier is the density the structures near a chunk add to its terrain.
 // A nil Beardifier adds nothing. vanilla: Beardifier
 type Beardifier struct {
@@ -131,7 +155,7 @@ func (b *Beardifier) sampleUnchecked(x, y, z int) float32 {
 		case levelgen.AdjustBury:
 			value += buryContribution(float32(dx), float32(dyToGround)/2.0, float32(dz))
 		case levelgen.AdjustBeardThin:
-			value += float32(beardContribution(dx, dyToGround, dz, dyToGround) * 0.8)
+			value += float32(beardContributionSameY(dx, dyToGround, dz) * 0.8)
 		case levelgen.AdjustBeardBox:
 			dy := max(0, groundY-y, y-box.MaxY)
 			value += float32(beardContribution(dx, dy, dz, dyToGround) * 0.8)
@@ -142,7 +166,7 @@ func (b *Beardifier) sampleUnchecked(x, y, z int) float32 {
 	}
 	for _, j := range b.junctions {
 		dy := y - j.GroundY
-		value += float32(beardContribution(x-j.X, dy, z-j.Z, dy) * 0.4)
+		value += float32(beardContributionSameY(x-j.X, dy, z-j.Z) * 0.4)
 	}
 	return value
 }

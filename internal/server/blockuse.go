@@ -319,9 +319,11 @@ func (c *client) useJukebox(hand, x, y, z int32) bool {
 	one := held
 	one.Count = 1
 	inserted := false
+	var started uint64
 	be.Use(func(b *world.BlockEntity) {
 		if b.Slots[0].Empty() {
 			b.Put(0, one)
+			started = b.InventoryVersion()
 			// The song starts now; a jukebox loaded without the ticks tag carries -1
 			// and is not playing until this.
 			b.TicksSinceSongStarted = 0
@@ -333,35 +335,44 @@ func (c *client) useJukebox(hand, x, y, z int32) bool {
 	}
 	c.spendHeld(hand)
 	c.awardStat(player.Custom(registry.CustomStatPlayRecord), 1)
+	before := w.BlockAt(x, y, z)
 	c.srv.setJukeboxHasRecord(w, x, y, z, true)
-	c.srv.broadcastLevelEvent(w,
-		protocol.WorldEventJukeboxPlay, x, y, z, registry.JukeboxSongID(song))
+	if jukeboxStillPlays(be, started) {
+		c.srv.broadcastLevelEvent(w,
+			protocol.WorldEventJukeboxPlay, x, y, z, registry.JukeboxSongID(song))
+	}
+	// In w, not the player's world: a listener of the first event may have
+	// moved the player. vanilla: JukeboxPlayable.tryInsertIntoJukebox
+	c.srv.gameEvent(w, rules.GameEventBlockChange, float64(x)+.5, float64(y)+.5, float64(z)+.5, c.gameEventContext(before))
 
 	return true
 }
 
 // ejectJukebox pops the disc from a jukebox with has_record, stopping its
 // song, clearing the property and dropping the disc above. A finished song
-// sends no stop; only a set one does.
+// sends no stop; only a set one does. An empty slot leaves the block as is.
 // vanilla: JukeboxBlockEntity.popOutTheItem
 func (c *client) ejectJukebox(w *world.World, be *world.BlockEntity, x, y, z int32) bool {
 	var disc protocol.ItemStack
 	playing := false
 	be.Use(func(b *world.BlockEntity) {
 		disc = b.Slots[0]
+		if disc.Empty() {
+			return
+		}
 		playing = b.JukeboxPlaying()
 		b.Put(0, protocol.ItemStack{})
 		b.TicksSinceSongStarted = -1
 	})
+	if disc.Empty() {
+		return true
+	}
 	c.srv.setJukeboxHasRecord(w, x, y, z, false)
-	if playing {
+	if playing && jukeboxStillSilent(be) {
 		c.srv.broadcastLevelEvent(w,
 			protocol.WorldEventJukeboxStop, x, y, z, 0)
-
 	}
-	if !disc.Empty() {
-		c.srv.spawnJukeboxRecord(w, x, y, z, disc)
-	}
+	c.srv.spawnJukeboxRecord(w, x, y, z, disc)
 	return true
 }
 

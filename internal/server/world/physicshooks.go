@@ -136,3 +136,19 @@ func (p *Physics) setCauldron(x, y, z int32, state uint16, changes *[]BlockChang
 	}
 	return ok
 }
+
+// physicsVetoed asks the BlockPhysicsEvent listeners about the neighbour at
+// x, y, z of the written cell from, once per write, and reports a veto.
+func (p *Physics) physicsVetoed(x, y, z int32, from [3]int32) bool {
+	key := [6]int32{x, y, z, from[0], from[1], from[2]}
+	if v, ok := p.physicsAsked[key]; ok {
+		return v
+	}
+	hd := HookDecision{Kind: HookPhysics, X: x, Y: y, Z: z, Old: p.w.BlockAt(x, y, z), From: from}
+	v := p.ask(&hd)
+	if p.physicsAsked == nil {
+		p.physicsAsked = map[[6]int32]bool{}
+	}
+	p.physicsAsked[key] = v
+	return v
+}

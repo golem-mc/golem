@@ -166,29 +166,8 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 	out := p.w.loadedTicksOfChunk(pos)
 	p.w.mu.RUnlock()
 	pendingBlocks, pendingFluids := len(out.block), len(out.fluid)
-	add := func(t scheduledTick) {
-		if t.pos.x>>4 != pos.X || t.pos.z>>4 != pos.Z || p.tickCancelled(t) || !isTickEvent(t.event) {
-			return
-		}
-		st := savedTick{
-			x: t.pos.x, y: t.pos.y, z: t.pos.z,
-			delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority), seq: t.seq,
-		}
-		if t.fluid != 0 {
-			st.id = t.fluid.name()
-			out.fluid = append(out.fluid, st)
-			return
-		}
-		name, _, ok := registry.BlockStateName(p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z))
-		if !ok {
-			return
-		}
-		st.id = name
-		out.block = append(out.block, st)
-	}
-	for _, t := range p.queue {
-		add(t)
-	}
+	add := func(t scheduledTick) { p.collectTick(&out, pos, t) }
+	p.queuedIn(pos, add)
 	for _, t := range p.parked[pos] {
 		add(t)
 	}
@@ -204,13 +183,34 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 	return out
 }
 
+// collectTick adds t to out when it is a saved tick of chunk pos.
+func (p *Physics) collectTick(out *chunkTicks, pos ChunkPos, t scheduledTick) {
+	if t.pos.x>>4 != pos.X || t.pos.z>>4 != pos.Z || p.tickCancelled(t) {
+		return
+	}
+	if !isTickEvent(t.event) {
+		return
+	}
+	st := savedTick{
+		x: t.pos.x, y: t.pos.y, z: t.pos.z,
+		delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority), seq: t.seq,
+	}
+	if t.fluid != 0 {
+		st.id = t.fluid.name()
+		out.fluid = append(out.fluid, st)
+		return
+	}
+	st.id = bookedBlockName(t)
+	out.block = append(out.block, st)
+}
+
 // isTickEvent reports whether a queue entry tagged event is a scheduled tick
 // (block or fluid); the rest are piston events, block events in vanilla.
 func isTickEvent(event uint8) bool {
 	switch event {
 	case 0, leafTickEvent, coralTickEvent, redstoneTickEvent, sculkTickEvent, lightningRodTickEvent,
 		driedGhastHydrationEvent, frogspawnHatchEvent, snifferEggHatchEvent, cauldronDripEvent, survivalTickEvent,
-		scaffoldingTickEvent:
+		scaffoldingTickEvent, dirtPathTickEvent, farmlandTickEvent:
 		return true
 	}
 	return false
@@ -316,22 +316,35 @@ func (p *Physics) discardUnloadedTicks(unloaded []ChunkPos) {
 			}
 			kept = append(kept, t)
 		}
-		p.queue = kept
-		p.queue.init()
+		p.setTicks(kept)
 	}
 }
 
 // adoptBlockTick books a block tick for the block named id at a cell holding
-// state, tagged and booked as that block's own ticks are; it is dropped when
-// the cell holds another block, as vanilla's tick would find one. Runs under
-// p.mu.
-// vanilla: ServerLevel.tickBlock
+// state, tagged and booked as that block's own ticks are; apart from a soil
+// block's, which dispatch checks, it is dropped when the cell holds another
+// block. Runs under p.mu.
 func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int64, priority int) {
+	// vanilla: TickPriority.byValue clamps an out-of-range saved priority.
+	priority = max(tickPriorityExtremelyHigh, min(priority, 3))
+	// vanilla: ServerLevel.tickBlock checks the cell's block against the booked type.
+	switch id {
+	case registry.BlockDirtPath.Name():
+		p.scheduleSoil(registry.BlockDirtPath, x, y, z, due, priority)
+		return
+	case registry.BlockFarmland.Name():
+		p.scheduleSoil(registry.BlockFarmland, x, y, z, due, priority)
+		return
+	}
 	name, _, ok := registry.BlockStateName(state)
 	if !ok || name != id {
 		return
 	}
 	switch block := registry.BlockOf(state); {
+	case block == registry.BlockMovingPiston:
+		// A ride's landing whatever priority it was saved at.
+		// vanilla: PistonMovingBlockEntity.tick
+		p.schedulePistonFinalize(x, y, z, due)
 	case block == registry.BlockFrogspawn:
 		p.scheduleBooked(p.frogspawnBooked, x, y, z, due, frogspawnHatchEvent)
 	case block == registry.BlockSnifferEgg:
@@ -380,6 +393,10 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 		delete(p.leafBooked, t.pos)
 	case scaffoldingTickEvent:
 		delete(p.scaffoldingBooked, t.pos)
+	case dirtPathTickEvent:
+		delete(p.dirtPathBooked, t.pos)
+	case farmlandTickEvent:
+		delete(p.farmlandBooked, t.pos)
 	case coralTickEvent:
 		delete(p.coralBooked, t.pos)
 	case redstoneTickEvent:
@@ -396,11 +413,45 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 			delete(p.fluidBooked, fluidBook{t.pos, t.fluid})
 			return
 		}
-		delete(p.pending, t.pos)
 		if t.priority == tickPriorityFinalize {
 			delete(p.finalizeSeq, t.pos)
+			return
 		}
+		delete(p.pending, t.pos)
 	default:
 		delete(p.pendingEvent, t.pos)
+	}
+}
+
+// tickIndex maps a chunk to the offsets of its entries in Physics.queue, in
+// slice order, so a save reads one chunk's ticks without scanning the heap.
+// It holds offsets only; every queue mutation goes through pushTick, popTick
+// or setTicks (physics.go), which drop it. Only under p.mu.
+type tickIndex struct {
+	byChunk map[ChunkPos][]int32
+	// scanned is set once a snapshot scanned the heap: the index is built on
+	// the next snapshot that finds the heap unchanged.
+	scanned bool
+}
+
+// queuedIn calls f on the heap entries of chunk pos, in heap slice order.
+func (p *Physics) queuedIn(pos ChunkPos, f func(scheduledTick)) {
+	if p.chunkIdx.byChunk == nil {
+		if !p.chunkIdx.scanned {
+			p.chunkIdx.scanned = true
+			for _, t := range p.queue {
+				f(t)
+			}
+			return
+		}
+		idx := make(map[ChunkPos][]int32)
+		for i, t := range p.queue {
+			cp := ChunkPos{X: t.pos.x >> 4, Z: t.pos.z >> 4}
+			idx[cp] = append(idx[cp], int32(i))
+		}
+		p.chunkIdx.byChunk = idx
+	}
+	for _, i := range p.chunkIdx.byChunk[pos] {
+		f(p.queue[i])
 	}
 }

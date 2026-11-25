@@ -47,6 +47,7 @@ func newLevel(difficulty uint8) *fakeLevel {
 
 func (l *fakeLevel) Difficulty() uint8                          { return l.difficulty }
 func (l *fakeLevel) ChunkLoaded(x, z int) bool                  { return true }
+func (l *fakeLevel) EntityTicking(x, z int) bool                { return true }
 func (l *fakeLevel) IsVillage(x, y, z int) bool                 { return l.village }
 func (l *fakeLevel) SurfaceY(x, z int) int                      { return 64 }
 func (l *fakeLevel) CanSpawnAt(x, y, z int) bool                { return l.canSpawn }

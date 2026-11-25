@@ -626,6 +626,8 @@ type mobShot struct {
 	damage      float64
 	effect      entity.ArrowEffect
 	weapon      protocol.ItemStack
+	// ammo is the crossbow's loaded projectile, nil for a bow or trident.
+	ammo *protocol.ItemStack
 	// fireTicks is the burn the arrow is shot with.
 	fireTicks int32
 	crossbow  bool
@@ -732,14 +734,8 @@ func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 			if ent == nil {
 				continue
 			}
-			if puff := m.PuffState(); held && m.Type == entity.TypePufferfish && puff > 0 && m.Alive() {
-				pufferTouches = append(pufferTouches, pufferTouch{
-					box: entity.NewAABB(m.BlastBox()),
-					strike: mobStrike{
-						w: dim.w, mob: m, uuidText: ent.uuidText, killer: s.mobKiller(ent),
-						x: m.X, y: m.Y, z: m.Z, damage: float64(1 + puff), touch: true, puff: puff,
-					},
-				})
+			if touch, ok := pufferTouchOf(dim.w, m, ent); held && ok {
+				pufferTouches = append(pufferTouches, touch)
 			}
 			body := mobTracker.body(ent)
 			var motion mobMovement
@@ -1878,7 +1874,8 @@ func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known m
 				continue
 			}
 		default:
-			if kind, ok := savedThrownKind(string(id)); ok {
+			typ, _ := registry.EntityTypeID(string(id))
+			if kind, ok := savedThrownKind(typ); ok {
 				if ent := s.thrownOfTag(h.w, kind, string(id), compound); ent != nil {
 					woken.thrown = append(woken.thrown, ent)
 					known[ent.uuid] = true
@@ -2631,6 +2628,48 @@ func (s *Server) mobByEntityIDLocked(w *world.World, id int32) *mobEntity {
 	return s.herdOf(w).byID[id]
 }
 
+// mobByEntityIDAnyDimLocked finds a mob by entity ID in whichever dimension
+// holds it, with that dimension. An ID reserved for a dragon part maps to its
+// parent, which is not that ID's mob. The caller holds mobsMu.
+func (s *Server) mobByEntityIDAnyDimLocked(id int32) (*mobEntity, *dimension) {
+	for _, dim := range s.allDims() {
+		if ent := dim.mobs.byID[id]; ent != nil && ent.mob.ID == id {
+			return ent, dim
+		}
+	}
+	return nil, nil
+}
+
+// mobByUUIDLocked finds a mob by identity, trying first (nil for none)
+// before the other dimensions, with its dimension. A removed mob is skipped;
+// the caller checks the rest of its eligibility and holds mobsMu.
+// vanilla: ServerLevel.getEntity(UUID), Entity.level().getServer().getLevel
+func (s *Server) mobByUUIDLocked(id uuid.UUID, first *dimension) (*mobEntity, *dimension) {
+	if id == uuid.Nil {
+		return nil, nil
+	}
+	find := func(dim *dimension) *mobEntity {
+		if m := dim.mobs.byUUID[id]; m != nil && !m.Discarded() {
+			return dim.mobs.book[m]
+		}
+		return nil
+	}
+	if first != nil {
+		if ent := find(first); ent != nil {
+			return ent, first
+		}
+	}
+	for _, dim := range s.allDims() {
+		if dim == first {
+			continue
+		}
+		if ent := find(dim); ent != nil {
+			return ent, dim
+		}
+	}
+	return nil, nil
+}
+
 // mobNameByID is the display name of the mob with this ID in w, false for
 // none. Read under mobsMu, which guards name tag names.
 func (s *Server) mobNameByID(w *world.World, id int32) (string, bool) {
@@ -2721,14 +2760,36 @@ func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch floa
 	logTeleported("mob", to, by, "kind", ent.mob.Type)
 }
 
-// commandTeleportMob is teleportMob that also lands a mob that is not gliding.
-// vanilla: TeleportCommand.performTeleport
-func (s *Server) commandTeleportMob(ent *mobEntity, to player.Position, by string) {
+// turnTeleportMob is a command's or plugin's teleport within the dimension:
+// it turns the mob and its riders by move's transition, or the mob alone to
+// move's angles for a facing clause, and a /teleport also lands a mob that is
+// not gliding. The riders are marked pending, so the tracker tells their turn
+// even while ticks are frozen.
+// vanilla: TeleportCommand.performTeleport, Entity.teleportSameDimension
+func (s *Server) turnTeleportMob(ent *mobEntity, move command.Move, by string) {
 	s.mobsMu.Lock()
-	s.placeMob(ent, to, to.Yaw, to.Pitch)
+	// A relative turn is worked out from the mob's angles now, which an
+	// earlier target in the command may have changed.
+	if move.Command && move.LookAt == nil && !move.KeepRotation {
+		move = move.AgainstAngles(ent.mob.Yaw, ent.mob.Pitch)
+	}
+	to := move.Pos
+	turn := teleportTurn(move)
+	book := s.herdOf(ent.w).book
+	// Before the mount turns: a rider's turn keeps its angle to the mount.
+	entity.TurnPassengers(ent.mob, turn, func(p *entity.Mob) {
+		if rider := book[p]; rider != nil {
+			rider.teleported = true
+		}
+	})
+	yaw, pitch := to.Yaw, to.Pitch
+	if move.LookAt == nil {
+		yaw, pitch = turn.Apply(ent.mob.Yaw, ent.mob.Pitch)
+	}
+	s.placeMob(ent, to, yaw, pitch)
 	// Under the same lock, so no tick tells the teleport without the flag.
 	// vanilla: LivingEntity.isFallFlying
-	if !ent.mob.FallFlying {
+	if move.Command && !ent.mob.FallFlying {
 		ent.mob.OnGround = true
 	}
 	s.mobsMu.Unlock()
@@ -3308,25 +3369,28 @@ func mobEquipmentPayload(ent *mobEntity) []byte {
 	return equipmentEntriesPayload(m.ID, slots[:], used)
 }
 
-// tickMobCompasses clears invalid targets on equipped compasses.
+// tickMobCompasses clears invalid targets on equipped compasses. A target
+// in a saved chunk the probe cannot answer is noted and left, for the caller to
+// resolve with no lock held and tick again.
 // vanilla: EntityEquipment.tick, CompassItem.inventoryTick
-func tickMobCompasses(m *entity.Mob, w *world.World, dim string) {
+func tickMobCompasses(m *entity.Mob, probe *lodestoneProbe, dim string) {
+	w := probe.w
 	bottom, top := w.MinY(), w.MinY()+w.Height()
-	if cleared, ok := rules.ClearLostLodestone(w, m.MainHand, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.MainHand, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipMainHand, cleared)
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.OffHand, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.OffHand, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipOffHand, cleared)
 	}
 	for i := range m.Worn {
-		if cleared, ok := rules.ClearLostLodestone(w, m.Worn[i], dim, bottom, top); ok {
+		if cleared, ok := rules.ClearLostLodestone(probe, m.Worn[i], dim, bottom, top); ok {
 			m.SetEquipment(protocol.EquipFeet+i, cleared)
 		}
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.Body, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.Body, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipBody, cleared)
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.SaddleSlot(), dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.SaddleSlot(), dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipSaddle, cleared)
 	}
 }

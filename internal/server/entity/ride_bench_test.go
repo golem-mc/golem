@@ -22,6 +22,6 @@ func BenchmarkMobsTickBoatPassengers(b *testing.B) {
 	var paths MobPathScratch
 	b.ReportAllocs()
 	for b.Loop() {
-		events = mobs.TickInto(events, w, nil, nil, &crowd, nil, &paths)
+		events = mobs.TickInto(events, w, nil, nil, &crowd, nil, nil, &paths)
 	}
 }

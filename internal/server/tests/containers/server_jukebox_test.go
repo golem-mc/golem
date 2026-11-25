@@ -154,14 +154,32 @@ func TestAJukeboxComparatorReadsTheStoredDisc(t *testing.T) {
 	})
 }
 
+// sensorFrequency reads the frequency of the last vibration the sensor at
+// (x, y, z) heard.
+func sensorFrequency(t *testing.T, srv *server.Server, x, y, z int32) int32 {
+	t.Helper()
+	tag, _ := srv.BlockEntityTagAt(x, y, z)
+	got, _ := nbt.IntField(tag, "last_vibration_frequency")
+	return got
+}
+
+// waitSensorHeard ticks until the sensor goes active.
+func waitSensorHeard(t *testing.T, srv *server.Server, x, y, z int32, what string) {
+	t.Helper()
+	servertest.UntilTicks(t, srv, 20, what, func() bool {
+		return registry.StateValue(srv.BlockAt(x, y, z), registry.PropSculkSensorPhase) == "active"
+	})
+}
+
 // TestAHopperFeedsAJukebox checks that a hopper above a jukebox pushes a disc
-// into it, which starts the song.
+// into it, which starts the song and is heard as a frequency-11 vibration.
 func TestAHopperFeedsAJukebox(t *testing.T) {
 	t.Parallel()
 	srv, w := servertest.OpenWindowedOps(t, servertest.BlockTestConfig())
 
 	servertest.Setblock(t, w.Client, 4, 63, 0, "minecraft:jukebox")
 	placeAHopperOnTheGround(t, srv, w, 4, 64, 0)
+	servertest.Setblock(t, w.Client, 6, 63, 0, "minecraft:sculk_sensor")
 	srv.StopTick()
 
 	if !srv.SetInventoryAt(4, 64, 0, 0, servertest.ItemStack(t, "minecraft:music_disc_cat", 1)) {
@@ -176,6 +194,41 @@ func TestAHopperFeedsAJukebox(t *testing.T) {
 	}
 	if x, y, z, _ := awaitJukeboxEvent(t, w, protocol.WorldEventJukeboxPlay); x != 4 || y != 63 || z != 0 {
 		t.Errorf("the fed song's play event = (%d,%d,%d), want (4,63,0)", x, y, z)
+	}
+	servertest.HoldTicks(t, srv)
+	waitSensorHeard(t, srv, 6, 63, 0, "the sensor to hear the hopper push")
+	if got := sensorFrequency(t, srv, 6, 63, 0); got != 11 {
+		t.Errorf("the push gave frequency %d, want 11", got)
+	}
+}
+
+// TestAHopperTakesAJukeboxDisc checks that a hopper below a jukebox pulls the
+// disc out, which is heard as a frequency-11 vibration.
+// vanilla: HopperBlockEntity.suckInItems
+func TestAHopperTakesAJukeboxDisc(t *testing.T) {
+	t.Parallel()
+	srv, w := servertest.OpenWindowedOps(t, servertest.BlockTestConfig())
+
+	servertest.Setblock(t, w.Client, 4, 65, 0, "minecraft:jukebox")
+	placeAHopperOnTheGround(t, srv, w, 4, 64, 0)
+	servertest.Setblock(t, w.Client, 6, 63, 0, "minecraft:sculk_sensor")
+	srv.StopTick()
+
+	srv.SetBlock(4, 65, 0, servertest.MustState(t, "minecraft:jukebox", map[string]string{"has_record": "true"}))
+	if !srv.SetInventoryAt(4, 65, 0, 0, servertest.ItemStack(t, "minecraft:music_disc_cat", 1)) {
+		t.Fatal("the jukebox has no block entity to fill")
+	}
+	servertest.TickBlockEntitiesByHand(srv, 1)
+	servertest.HoldTicks(t, srv)
+	waitSensorHeard(t, srv, 6, 63, 0, "the sensor to hear the hopper pull")
+	if got := srv.InventoryAt(4, 64, 0); len(got) == 0 || got[0].Empty() {
+		t.Fatalf("the hopper holds %+v, want the cat disc", got)
+	}
+	if _, props := servertest.StatePropsOf(t, srv, 4, 65, 0); props["has_record"] != "false" {
+		t.Errorf("the emptied jukebox = %v, want has_record=false", props)
+	}
+	if got := sensorFrequency(t, srv, 6, 63, 0); got != 11 {
+		t.Errorf("the pull gave frequency %d, want 11", got)
 	}
 }
 

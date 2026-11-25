@@ -64,6 +64,20 @@ func (s *Server) relatedByUUID(identity uuid.UUID) command.Entity {
 	return nil
 }
 
+// relatedMobAnyDim is the mob with this ID in whichever dimension holds it, nil for none.
+func (s *Server) relatedMobAnyDim(id int32) command.Entity {
+	s.mobsMu.Lock()
+	defer s.mobsMu.Unlock()
+	ent, dim := s.mobByEntityIDAnyDimLocked(id)
+	if ent == nil {
+		return nil
+	}
+	if snap := s.mobSnapshot(ent, dim.name, nil); snap != nil {
+		return snap
+	}
+	return nil
+}
+
 // firstRelated is the single related entity as a result list.
 func firstRelated(e command.Entity) []command.Entity {
 	if e == nil {
@@ -81,7 +95,13 @@ func (c *client) Relation(name string) []command.Entity {
 			return []command.Entity{v}
 		}
 	case "attacker":
-		return firstRelated(c.srv.relatedByID(c.theWorld(), c.player.Vitals().LastHurtBy))
+		id := c.player.Vitals().LastHurtBy
+		related := c.srv.relatedByID(c.theWorld(), id)
+		if related == nil {
+			// vanilla: EntityReference.getEntity
+			related = c.srv.relatedMobAnyDim(id)
+		}
+		return firstRelated(related)
 	}
 	return nil
 }
@@ -257,7 +277,12 @@ func (s *Server) mobRelation(ent *mobEntity, self *entitySnapshot, name string) 
 		}
 	}
 	if targetID != 0 {
-		out = append(out, firstRelated(s.relatedByID(ent.w, targetID))...)
+		related := s.relatedByID(ent.w, targetID)
+		if related == nil {
+			// A mob keeps its attacker's ID across dimensions. vanilla: EntityReference.getEntity
+			related = s.relatedMobAnyDim(targetID)
+		}
+		out = append(out, firstRelated(related)...)
 	}
 	if ownerID != uuid.Nil {
 		out = append(out, firstRelated(s.relatedByUUID(ownerID))...)

@@ -3,6 +3,7 @@ package world
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"math/rand/v2"
 	"os"
@@ -199,6 +200,7 @@ type World struct {
 	entityWriteFault atomic.Pointer[error]
 	entityWriteGate  atomic.Pointer[func()]
 	regionMu         sync.Mutex
+	lodestones       lodestoneCache
 	regions          *regionCache
 	entityRegions    *regionCache
 	entityWrites     entityWrites
@@ -785,6 +787,7 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	w.queueLoadedTicks(c)
 	c.rebuildRandomTickSections()
 	w.chunks[pos] = loaded
+	w.lodestones.drop(pos)
 	touches, comparators := c.redstoneBlockCounts()
 	w.touchBlocks += touches
 	if comparators != 0 {
@@ -2103,33 +2106,13 @@ func (w *World) RegionFileCounts() (chunks, entities int) {
 // coordinates is relocated to the slot read.
 // vanilla: SerializableChunkData.read
 func (w *World) loadChunk(pos ChunkPos) (*Chunk, error) {
-	rx, rz := regionCoords(pos)
-	path := regionFilePath(w.storage, rx, rz)
-	if _, err := os.Stat(path); err != nil {
-		return nil, nil // no region file, no chunk to load
-	}
-	rf, err := w.region(rx, rz)
-	if err != nil {
-		return nil, err
-	}
-	defer w.releaseRegion(rf)
-	index := regionIndex(pos.X, pos.Z)
-	data, err := rf.readChunk(pos)
-	if err != nil {
-		return nil, err
-	}
-	if data == nil {
-		return nil, nil // chunk not in this region
-	}
-	root, err := decodeRoot(data)
 	var chunk *Chunk
-	if err == nil {
-		relocateChunkRoot(root, pos)
+	_, err := w.withChunkRoot(pos, false, func(root nbt.Compound) (err error) {
 		chunk, err = decodeChunkNBT(root)
-	}
+		return err
+	})
 	if err != nil {
-		rf.markUnreadable(index)
-		return nil, fmt.Errorf("chunk (%d,%d): %w", pos.X, pos.Z, err)
+		return nil, err
 	}
 	// Encode for this dimension: the decode built the full-height form, which
 	// nether and end clients would read past the end of their shorter chunks.
@@ -2137,6 +2120,51 @@ func (w *World) loadChunk(pos ChunkPos) (*Chunk, error) {
 		w.encodeChunk(chunk)
 	}
 	return chunk, nil
+}
+
+// withChunkRoot reads a chunk's stored NBT and hands it to read, relocated to
+// pos; found is false when the chunk is absent. A loading read marks a chunk
+// that does not parse, or that read refuses, unreadable and treats a region
+// file it cannot stat as absent. A peek leaves the file and record alone, and an
+// unreadable file or record is an error, not an absence.
+func (w *World) withChunkRoot(pos ChunkPos, peek bool, read func(root nbt.Compound) error) (found bool, err error) {
+	rx, rz := regionCoords(pos)
+	path := regionFilePath(w.storage, rx, rz)
+	if _, err := os.Stat(path); err != nil {
+		if peek && !errors.Is(err, fs.ErrNotExist) {
+			return false, err
+		}
+		return false, nil // no region file, no chunk to load
+	}
+	open, readRecord := w.region, (*regionFile).readChunk
+	if peek {
+		open, readRecord = w.peekRegion, (*regionFile).peekChunk
+	}
+	rf, err := open(rx, rz)
+	if err != nil {
+		return false, err
+	}
+	defer w.releaseRegion(rf)
+	index := regionIndex(pos.X, pos.Z)
+	data, err := readRecord(rf, pos)
+	if err != nil {
+		return false, err
+	}
+	if data == nil {
+		return false, nil // chunk not in this region
+	}
+	root, err := decodeRoot(data)
+	if err == nil {
+		relocateChunkRoot(root, pos)
+		err = read(root)
+	}
+	if err != nil {
+		if !peek {
+			rf.markUnreadable(index)
+		}
+		return false, fmt.Errorf("chunk (%d,%d): %w", pos.X, pos.Z, err)
+	}
+	return true, nil
 }
 
 // decodeRoot parses a chunk's region NBT, whose root must be a compound.
@@ -2292,6 +2320,9 @@ func (w *World) saveChunk(pos ChunkPos, c *Chunk) (bool, error) {
 		}
 		err = rf.writeChunk(pos, data)
 		w.releaseRegion(rf)
+		if err == nil {
+			w.lodestones.drop(pos)
+		}
 		*buf = data // keeps the grown capacity; writeChunk has copied or compressed data by now
 		saveBuffers.Put(buf)
 		return err == nil, skipUnreadable(err, "chunk", pos)
@@ -2318,6 +2349,16 @@ func (w *World) region(rx, rz int32) (*regionFile, error) {
 	w.regionMu.Lock()
 	defer w.regionMu.Unlock()
 	return w.regions.get(rx, rz)
+}
+
+// peekRegion is region that leaves a file it has to open unchanged, refusing
+// one with no full header.
+func (w *World) peekRegion(rx, rz int32) (*regionFile, error) {
+	w.regionMu.Lock()
+	defer w.regionMu.Unlock()
+	return w.regions.getWith(rx, rz, func(rx, rz int32) (*regionFile, error) {
+		return peekRegion(regionFilePath(w.storage, rx, rz), w.saveFormat)
+	})
 }
 
 // releaseRegion gives back a handle from region.

@@ -309,12 +309,7 @@ func (r *lootRoller) modifyContents(k registry.LootModifyContents, s protocol.It
 	switch k.Component {
 	case "minecraft:container":
 		if s.Container != nil {
-			// Slots keep their places; the list runs to the last filled one.
-			contents := each(s.Container)
-			for len(contents) > 0 && contents[len(contents)-1].Empty() {
-				contents = contents[:len(contents)-1]
-			}
-			s.Container = contents
+			setComponentContents(&s, k.Component, each(s.Container), false)
 		}
 	case "minecraft:bundle_contents":
 		if holds(protocol.DataComponentBundleContents) {

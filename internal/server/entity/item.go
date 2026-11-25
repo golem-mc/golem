@@ -582,7 +582,7 @@ func bounceOffGround(w World, x, feetY, z, halfWidth, vy, moved, g, airDrag floa
 	if -vy <= g {
 		return 0 // BouncedFall's cut-off, ahead of the support lookup
 	}
-	state := rules.FeetSupport(w, x, feetY, z, halfWidth)
+	state := rules.OnPos(w, x, feetY, z, halfWidth)
 	return rules.BouncedFall(vy, moved, g, airDrag, rules.BlockBounceRestitution(state, living))
 }
 

@@ -478,7 +478,7 @@ func fireworkTagAs(ent *fireworkEntity, id string) *nbt.OrderedCompound {
 	f := ent.rocket
 	tag := orderedEntityBaseTag(id,
 		f.X, f.Y, f.Z, f.VX, f.VY, f.VZ,
-		f.Yaw, f.Pitch, ent.uuid, false, ent.portal.Cooldown, restingFire, 0)
+		f.Yaw, f.Pitch, ent.uuid, false, ent.portal.Cooldown, f.FireTicks, 0)
 	putEntityOptions(tag, ent.custom, false, false, entityLook{}, ent.tags)
 	putProjectileFields(tag, ent.ownerUUID, f.LeftOwner(), ent.shot)
 	tag.Set("Life", nbt.Int(f.Life))
@@ -1411,6 +1411,7 @@ func applyArmorStandFields(ent *armorStandEntity, compound nbt.Compound) {
 // stand's wake does. Both share applyArmorStandFields.
 // vanilla: Entity.load, ArmorStand.readAdditionalSaveData
 func applyArmorStandTag(ent *armorStandEntity, compound nbt.Compound) {
+	ent.needsSync = true
 	ent.portal.Cooldown = portalCooldownOf(compound)
 	s := ent.stand
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
