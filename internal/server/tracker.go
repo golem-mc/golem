@@ -623,7 +623,29 @@ func moveDiff(id int32, was, now trackedPosition, abs bodyPose, mt moveTick, del
 
 // register puts a built body into its kind's list and shows it to every
 // player of its world in range.
-func (k *trackedKind[B, S]) register(s *Server, b B) {
+func (k *trackedKind[B, S]) register(s *Server, b B) { k.enroll(s, b, false) }
+
+// hold files a body in the chunk index only, so plugin handles resolve it
+// while it is neither listed, simulated nor shown; publish lists and shows it.
+func (k *trackedKind[B, S]) hold(s *Server, b B) {
+	mu := k.lock(s)
+	mu.Lock()
+	k.file(s, b)
+	mu.Unlock()
+}
+
+// drop takes a held body that was never published out of the chunk index.
+func (k *trackedKind[B, S]) drop(s *Server, b B) {
+	mu := k.lock(s)
+	mu.Lock()
+	k.unfile(b)
+	mu.Unlock()
+}
+
+// publish is register for a body hold already filed.
+func (k *trackedKind[B, S]) publish(s *Server, b B) { k.enroll(s, b, true) }
+
+func (k *trackedKind[B, S]) enroll(s *Server, b B, filed bool) {
 	w := k.world(b)
 	type spot struct {
 		c           *client
@@ -644,7 +666,9 @@ func (k *trackedKind[B, S]) register(s *Server, b B) {
 	mu.Lock()
 	list := k.list(s)
 	*list = append(*list, b)
-	k.file(s, b)
+	if !filed {
+		k.file(s, b)
+	}
 	v := k.body(b)
 	v.t.origin.stamp(w, v.p.x, v.p.y, v.p.z)
 	var recipients []*client

@@ -176,7 +176,7 @@ func (t *mobDimTick) event(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent
 				instrument: rules.GoatHornInstrument(ent.uuid, ev.Mob.Goat.Screaming)})
 		}
 	case entity.MobRangBell, entity.MobCelebrated:
-		fx.villagerSignals = append(fx.villagerSignals, villagerSignal{w: w, event: ev})
+		fx.villagerSignals = append(fx.villagerSignals, villagerSignal{w: w, event: ev, mob: h.MobUUID(ev.Mob)})
 	case entity.MobWantsGolem:
 		fx.golems = append(fx.golems, mobGolemRequest{w: w, x: ev.Mob.X, y: ev.Mob.Y, z: ev.Mob.Z, mob: ev.Mob})
 	case entity.MobThrewItem, entity.MobGaveGift:

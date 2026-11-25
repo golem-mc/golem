@@ -702,11 +702,16 @@ func (s *Server) summonArrow(w *world.World, name string, x, y, z float64, tag n
 // registerArrow puts a built arrow into the world and shows it to every
 // player in range: the one door every arrival but a wake walks.
 func (s *Server) registerArrow(it *arrowEntity) {
+	arrowFirstTick(it)
+	arrowTracker.register(s, it)
+}
+
+// arrowFirstTick sets the tick count a shown arrow starts at.
+func arrowFirstTick(it *arrowEntity) {
 	// Pairing accounts for the initial tracking update; the first periodic
 	// correction is after twenty flight ticks, not twenty-one.
 	// vanilla: ServerEntity.sendChanges
 	it.tickCount = 1
-	arrowTracker.register(s, it)
 }
 
 // arrowPairing is what shows an arrow: the spawn, then the metadata a crit,

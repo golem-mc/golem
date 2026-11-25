@@ -203,6 +203,15 @@ func (s *Server) EndClockTime() int64 {
 	return total
 }
 
+// PluginCallsQueued is signalled when a connection queues a plugin call for
+// the tick goroutine, nil with no plugins.
+func (s *Server) PluginCallsQueued() <-chan struct{} {
+	if s.plugins == nil {
+		return nil
+	}
+	return s.plugins.CallsQueued()
+}
+
 // SetTickClock replaces the clock the main loop schedules its ticks by and
 // the logger the loop's own lines go to, the backlog warning and a
 // finished sprint's report. It has to be called before the main loop is

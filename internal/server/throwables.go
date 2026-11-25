@@ -590,6 +590,11 @@ func (s *Server) thrownOfFields(w *world.World, kind entity.ThrownKind, stackOf 
 func (s *Server) registerThrown(it *thrownEntity) {
 	s.resolveBulletTarget(it)
 	thrownTracker.register(s, it)
+	s.thrownRegistered(it)
+}
+
+// thrownRegistered is what a shown thrown body needs after the tracker has it.
+func (s *Server) thrownRegistered(it *thrownEntity) {
 	// The ticket goes down at once: a pearl in a chunk nothing ticks would
 	// never step to place it.
 	if it.throwable.Kind == entity.ThrownEnderPearl {

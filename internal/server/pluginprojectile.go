@@ -6,30 +6,46 @@ import (
 	"github.com/google/uuid"
 )
 
-// launchArrow registers a freshly shot arrow or trident and puts it to
-// ProjectileLaunchEvent listeners; false means a listener cancelled it and
-// it is already discarded.
+// launchBody files a freshly shot projectile where plugin handles resolve it
+// and puts it to ProjectileLaunchEvent and EntitySpawnEvent listeners; only
+// an accepted one is published, so watchers never see a refused one. false
+// means a listener cancelled it and it is already dropped.
+// vanilla: Projectile.spawnProjectile
+func launchBody[B any, S any](s *Server, k *trackedKind[B, S], it B, publish func()) bool {
+	k.hold(s, it)
+	id := k.uuid(it)
+	if !s.projectileLaunched(id) || !s.bodySpawnAllowed(id, plugin.SpawnDefault) {
+		k.drop(s, it)
+		return false
+	}
+	publish()
+	return true
+}
+
+// launchArrow launches a freshly shot arrow or trident.
 func (s *Server) launchArrow(it *arrowEntity) bool {
-	s.registerArrow(it)
-	return s.projectileLaunched(it.uuid) && s.bodySpawned(it.uuid, plugin.SpawnDefault)
+	return launchBody(s, &arrowTracker, it, func() {
+		arrowFirstTick(it)
+		arrowTracker.publish(s, it)
+	})
 }
 
 // launchThrown is launchArrow for a thrown body, fireball or bullet.
 func (s *Server) launchThrown(it *thrownEntity) bool {
-	s.registerThrown(it)
-	return s.projectileLaunched(it.uuid) && s.bodySpawned(it.uuid, plugin.SpawnDefault)
+	s.resolveBulletTarget(it)
+	return launchBody(s, &thrownTracker, it, func() {
+		thrownTracker.publish(s, it)
+		s.thrownRegistered(it)
+	})
 }
 
 // launchFirework is launchArrow for a firework rocket.
 func (s *Server) launchFirework(it *fireworkEntity) bool {
-	s.registerFirework(it)
-	return s.projectileLaunched(it.uuid) && s.bodySpawned(it.uuid, plugin.SpawnDefault)
+	return launchBody(s, &fireworkTracker, it, func() { fireworkTracker.publish(s, it) })
 }
 
-// projectileLaunched fires ProjectileLaunchEvent for a projectile just put in
-// the world and discards it on a cancel. It is registered first so the
-// handle resolves, so watchers in range see it appear and go in the same
-// tick; a listener may change its shooter.
+// projectileLaunched fires ProjectileLaunchEvent for a held projectile and
+// reports whether it was left uncancelled; a listener may change its shooter.
 // vanilla: Projectile.spawnProjectile, ProjectileUtil
 func (s *Server) projectileLaunched(id uuid.UUID) bool {
 	r := s.plugins
@@ -38,9 +54,5 @@ func (s *Server) projectileLaunched(id uuid.UUID) bool {
 	}
 	e := &plugin.ProjectileLaunchEvent{Projectile: pendingProjectile{id: id}}
 	s.firePluginEvent(e)
-	if !e.Cancelled() {
-		return true
-	}
-	bindPluginEntity(pluginEntity{id: id, host: s.pluginAdapter}, s.pluginAdapter).Remove()
-	return false
+	return !e.Cancelled()
 }
