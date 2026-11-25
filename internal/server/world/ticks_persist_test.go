@@ -193,3 +193,33 @@ func fallsAfterReload(t *testing.T, waterlogged bool) int {
 	}
 	return falls
 }
+
+// TestTiedTicksKeepBookingOrderAcrossReload books two visits with the same
+// due and priority around heap reorderings and checks the file lists them in
+// booking order.
+func TestTiedTicksKeepBookingOrderAcrossReload(t *testing.T) {
+	w, p, dir := newSavedWorld(t)
+	waterSource := fluidType(fluidWater)<<1 | 1
+	p.mu.Lock()
+	p.insertTick(blockKey{1, GroundLevel, 1}, waterSource, 100, 0) // A
+	p.insertTick(blockKey{2, GroundLevel, 1}, waterSource, 50, 0)
+	p.insertTick(blockKey{3, GroundLevel, 1}, waterSource, 100, 0) // B
+	p.insertTick(blockKey{4, GroundLevel, 1}, waterSource, 25, 0)
+	p.mu.Unlock()
+
+	w, p = reopenWorld(t, w, dir)
+	p.Tick(0)
+	var got []int32
+	for _, st := range w.ticksOfChunk(ChunkPos{}).fluid {
+		got = append(got, st.x)
+	}
+	want := []int32{4, 2, 1, 3}
+	if len(got) != len(want) {
+		t.Fatalf("reloaded fluid ticks x = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("reloaded fluid ticks x = %v, want %v", got, want)
+		}
+	}
+}

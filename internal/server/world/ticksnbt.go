@@ -1,6 +1,9 @@
 package world
 
 import (
+	"cmp"
+	"slices"
+
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -152,6 +155,7 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	var out chunkTicks
+	var bySeq []scheduledTick
 	add := func(t scheduledTick) {
 		if t.pos.x>>4 != pos.X || t.pos.z>>4 != pos.Z || p.tickCancelled(t) {
 			return
@@ -159,6 +163,21 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 		if !isTickEvent(t.event) {
 			return
 		}
+		bySeq = append(bySeq, t)
+	}
+	for _, t := range p.queue {
+		add(t)
+	}
+	for _, t := range p.parked[pos] {
+		add(t)
+	}
+	// The heap's slice order is not booking order; the file lists each kind
+	// by (due, priority, booking), which a reload restores.
+	// vanilla: LevelChunkTicks.save
+	slices.SortFunc(bySeq, func(a, b scheduledTick) int {
+		return cmp.Or(cmp.Compare(a.due, b.due), cmp.Compare(a.priority, b.priority), cmp.Compare(a.seq, b.seq))
+	})
+	for _, t := range bySeq {
 		st := savedTick{
 			x: t.pos.x, y: t.pos.y, z: t.pos.z,
 			delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority),
@@ -166,21 +185,15 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 		if t.fluid != 0 {
 			st.id = t.fluid.name()
 			out.fluid = append(out.fluid, st)
-			return
+			continue
 		}
 		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
 		name, _, ok := registry.BlockStateName(state)
 		if !ok {
-			return
+			continue
 		}
 		st.id = name
 		out.block = append(out.block, st)
-	}
-	for _, t := range p.queue {
-		add(t)
-	}
-	for _, t := range p.parked[pos] {
-		add(t)
 	}
 	return out
 }
