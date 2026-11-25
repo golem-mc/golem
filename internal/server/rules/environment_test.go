@@ -348,7 +348,7 @@ var standingFixtures = func(t testing.TB) []struct {
 		{"stone edge", stubBlocks{{0, 63, 0}: stone}, 1.1, 64, 0.5, 4},
 		{"fence", stubBlocks{{0, 63, 0}: fence}, 0.5, 64.5, 0.5, 2},
 		{"corner centre hit", stubBlocks{{0, 63, 0}: stone, {1, 63, 1}: stone}, 1.05, 64, 1.05, 1},
-		{"corner centre miss", stubBlocks{{1, 63, 1}: stone}, 0.95, 64, 0.95, 4},
+		{"corner centre miss", stubBlocks{{1, 63, 1}: stone}, 0.95, 64, 0.95, 8},
 	}
 }
 
