@@ -94,9 +94,11 @@ func (a *Attributes) pack(loaded *nbt.List, withSynthetic bool) nbt.List {
 	}
 	if loaded != nil {
 		for _, item := range loaded.Items {
-			if attr, ok := savedAttribute(item); !ok || !packed.has(registry.AttributeID(attr.ID)) {
-				items = append(items, item)
+			attr, ok := savedAttribute(item)
+			if ok && (packed.has(registry.AttributeID(attr.ID)) || a.supplier != nil && !a.Has(registry.AttributeID(attr.ID))) {
+				continue // vanilla: AttributeMap.load skips what the supplier lacks
 			}
+			items = append(items, item)
 		}
 	}
 	return nbt.List{Elem: nbt.TypeCompound, Items: items}
