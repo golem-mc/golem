@@ -124,3 +124,71 @@ func TestPluginEntityTransformEvent(t *testing.T) {
 		t.Errorf("allowed: pigs %d, piglins %d", len(srv.MobIDsOfKind("minecraft:pig")), len(srv.MobIDsOfKind("minecraft:zombified_piglin")))
 	}
 }
+
+// TestPluginHeldProjectileTeleportAndQueries checks a projectile a launch
+// listener has not yet accepted is invisible to spatial queries, and one moved
+// to another world during the callback appears there only once accepted.
+// vanilla: Entity.teleportCrossDimension, Projectile.spawnProjectile
+func TestPluginHeldProjectileTeleportAndQueries(t *testing.T) {
+	t.Parallel()
+	var host plugin.Server
+	var queried, move, cancel bool
+	launches, seen := 0, -1
+	srv, _, c := blockScene(t, "minecraft:snowball", false, func(s plugin.Server) {
+		host = s
+		plugin.Listen(s, func(e *plugin.ProjectileLaunchEvent) {
+			launches++
+			if move {
+				nether, ok := host.World(plugin.MinecraftKey("the_nether"))
+				if !ok {
+					t.Error("no nether")
+					return
+				}
+				if !e.Projectile.Teleport(plugin.Location{World: nether, Pos: plugin.Vec3{X: 0.5, Y: 70, Z: 0.5}}, plugin.TeleportPlugin) {
+					t.Error("the move was refused")
+				}
+			}
+			if queried {
+				seen = 0
+				for _, o := range host.Overworld().EntitiesIn(plugin.Box{Min: plugin.Vec3{X: -64, Y: 0, Z: -64}, Max: plugin.Vec3{X: 64, Y: 128, Z: 64}}) {
+					if o.Type() == registry.EntityTypeSnowball {
+						seen++
+					}
+				}
+			}
+			e.SetCancelled(cancel)
+		})
+	})
+	want := 0
+	shoot := func() {
+		srv.GiveSlot("Miner", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:snowball"), Count: 1})
+		c.UseItemRightClicks(protocol.HandMain)
+		want++
+		fired(t, srv, c, "launch", &launches, want)
+		servertest.RunTicks(t, srv, 2)
+	}
+	count := func(dim string) int { return len(srv.ThrownInDimension(dim)) }
+	shoot()
+	if count("minecraft:overworld") != 1 {
+		t.Fatalf("an allowed launch left %d snowballs", count("minecraft:overworld"))
+	}
+	queried, cancel = true, true
+	shoot()
+	if seen != 1 {
+		t.Errorf("a query during the launch saw %d snowballs, want the 1 already live", seen)
+	}
+	queried = false
+	if count("minecraft:overworld") != 1 {
+		t.Errorf("a cancelled launch left %d snowballs", count("minecraft:overworld"))
+	}
+	move, cancel = true, false
+	shoot()
+	if count("minecraft:the_nether") != 1 {
+		t.Errorf("after an accepted move: %d snowballs in the nether, want 1", count("minecraft:the_nether"))
+	}
+	cancel = true
+	shoot()
+	if count("minecraft:the_nether") != 1 {
+		t.Errorf("a cancelled move left %d snowballs in the nether, want 1", count("minecraft:the_nether"))
+	}
+}

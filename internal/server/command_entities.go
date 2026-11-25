@@ -1044,6 +1044,9 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 		// the removal.
 		severed []seatNews
 	)
+	if s.relocateHeldAcross(e.ref, to, at) {
+		return
+	}
 	switch ref := e.ref.(type) {
 	case *mobEntity:
 		alive, from, oldID, register, severed = s.teleportMobAcross(ref, to, at, yaw, pitch)
@@ -1333,6 +1336,35 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 	s.sendSeatNews(severed)
 }
 
+// relocateHeldAcross moves a projectile still held back from watchers into
+// the destination in place, to be published there if its events accept it.
+func (s *Server) relocateHeldAcross(ref any, to *dimension, at player.Position) bool {
+	yaw, pitch := at.Yaw, at.Pitch
+	switch ref := ref.(type) {
+	case *arrowEntity:
+		return arrowTracker.relocateHeld(s, ref, func() {
+			ref.w = to.w
+			ref.arrow.SetPos(at.X, at.Y, at.Z)
+			ref.arrow.VX, ref.arrow.VY, ref.arrow.VZ = 0, 0, 0
+			ref.arrow.Yaw, ref.arrow.Pitch = yaw, pitch
+		})
+	case *thrownEntity:
+		return thrownTracker.relocateHeld(s, ref, func() {
+			ref.w = to.w
+			ref.throwable.SetPos(at.X, at.Y, at.Z)
+			ref.throwable.VX, ref.throwable.VY, ref.throwable.VZ = 0, 0, 0
+		})
+	case *fireworkEntity:
+		return fireworkTracker.relocateHeld(s, ref, func() {
+			ref.w = to.w
+			ref.rocket.SetPos(at.X, at.Y, at.Z)
+			ref.rocket.VX, ref.rocket.VY, ref.rocket.VZ = 0, 0, 0
+			ref.rocket.Yaw, ref.rocket.Pitch = yaw, pitch
+		})
+	}
+	return false
+}
+
 // Entities reads each kind under its own lock, returning a non-nil pool.
 // Results follow entity ID order; limited queries snapshot non-players only
 // until enough entities pass Accept.
@@ -1498,6 +1530,7 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 			}
 			return out
 		}
+		// A held body is filed for UUID lookup only: spatial queries skip it.
 		list := k.list(s)
 		if len(*list) == 0 {
 			return out
@@ -1528,7 +1561,7 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 				bodies = slices.Values(*list)
 			}
 			for body := range bodies {
-				if !q.skipCandidate(k.id(body)) {
+				if !k.track(body).held && !q.skipCandidate(k.id(body)) {
 					snap(s, body, q)
 				}
 			}
@@ -1538,6 +1571,9 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 			// Keep the slice captured by the iterator local to chunk queries.
 			found := out
 			for body := range indexed {
+				if k.track(body).held {
+					continue
+				}
 				if v := snap(s, body, q); v != nil {
 					found = append(found, v)
 				}

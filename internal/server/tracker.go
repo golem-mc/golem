@@ -71,12 +71,12 @@ type bodyTrack[S any] struct {
 	// tick off the period. The kind's tick hands takeSync to schedule.
 	// vanilla: Entity.load, ServerEntity.sendChanges
 	needsSync bool
-
-	sentVX, sentVY, sentVZ float64
-	origin                 entityOrigin
 	// held marks a body filed by hold and not yet published: no watcher has
 	// been told of it, so its removal tells none. Read under the kind's lock.
 	held bool
+
+	sentVX, sentVY, sentVZ float64
+	origin                 entityOrigin
 }
 
 func (t *bodyTrack[S]) entityOrigin() entityOrigin { return t.origin }
@@ -639,6 +639,22 @@ func (k *trackedKind[B, S]) hold(s *Server, b B) {
 	v.t.held = true
 	v.t.origin.stamp(v.w, v.p.x, v.p.y, v.p.z)
 	mu.Unlock()
+}
+
+// relocateHeld moves a held body, as move does, and files it again under its
+// new pose; it reports false for a body that is not held. A cross-world
+// teleport of a withheld body moves it in place, as no watcher knows it.
+func (k *trackedKind[B, S]) relocateHeld(s *Server, b B, move func()) bool {
+	mu := k.lock(s)
+	mu.Lock()
+	defer mu.Unlock()
+	if !k.track(b).held || k.dead(b) {
+		return false
+	}
+	k.unfile(b)
+	move()
+	k.file(s, b)
+	return true
 }
 
 // stillHeld reports whether a held body is still filed and not dead, which a
