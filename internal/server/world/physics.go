@@ -71,17 +71,19 @@ var updateShapeOrder = [6][3]int32{
 }
 
 // TickPriority ranks, smaller more urgent: among ticks due the same instant the
-// higher priority runs first. The two below the block ticks are the piston
-// passes: vanilla drains block events after the scheduled-tick pass, and block
-// entities (moving pistons landing) after the events, so both wait for every
-// block tick of their game tick, the landing after the events.
+// higher priority runs first. Block ticks use vanilla's -3..3; the two after
+// them are the piston passes, outside that range so no saved or copied tick
+// takes one: vanilla drains block events after the scheduled-tick pass, and
+// block entities (moving pistons landing) after the events, so both wait for
+// every block tick of their game tick, the landing after the events.
+// vanilla: TickPriority
 const (
 	tickPriorityExtremelyHigh = -3
 	tickPriorityVeryHigh      = -2
 	tickPriorityHigh          = -1
 	tickPriorityNormal        = 0
-	tickPriorityEvent         = 1
-	tickPriorityFinalize      = 2
+	tickPriorityEvent         = 4
+	tickPriorityFinalize      = 5
 )
 
 // fluidKind numbers the two fluids; the zero value is no fluid, what every
@@ -504,6 +506,9 @@ type scheduledTick struct {
 	event    uint8
 	// fluid is the booked fluid type of a fluid visit, zero for any other.
 	fluid fluidType
+	// block is the block a block tick was booked for (air is a valid type);
+	// vanilla's ScheduledTick keeps the type it was booked for.
+	block registry.Block
 }
 
 // tickQueue orders ticks by due time, then priority (smaller more urgent), then
@@ -674,6 +679,11 @@ type Physics struct {
 	// waterlogged leaf's fluid tick so neither delays the other. Set when
 	// booked, cleared when run.
 	leafBooked map[blockKey]bool
+	// dirtPathBooked marks dirt paths with a tick booked, apart from the
+	// pending visit a replaced farmland leaves at the same position.
+	dirtPathBooked map[blockKey]bool
+	// farmlandBooked is the same for farmland.
+	farmlandBooked map[blockKey]bool
 	// scaffoldingBooked keeps stability visits apart from fluid visits.
 	scaffoldingBooked map[blockKey]bool
 
@@ -876,6 +886,8 @@ func NewPhysics(w *World) *Physics {
 		cauldronBooked:      make(map[blockKey]bool),
 		leafBooked:          make(map[blockKey]bool),
 		scaffoldingBooked:   make(map[blockKey]bool),
+		dirtPathBooked:      make(map[blockKey]bool),
+		farmlandBooked:      make(map[blockKey]bool),
 		coralBooked:         make(map[blockKey]bool),
 		redstoneBooked:      make(map[blockKey]bool),
 		sculkBooked:         make(map[blockKey]bool),
@@ -1229,6 +1241,10 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			delete(p.leafBooked, next.pos)
 		case scaffoldingTickEvent:
 			delete(p.scaffoldingBooked, next.pos)
+		case dirtPathTickEvent:
+			delete(p.dirtPathBooked, next.pos)
+		case farmlandTickEvent:
+			delete(p.farmlandBooked, next.pos)
 		case coralTickEvent:
 			delete(p.coralBooked, next.pos)
 		case redstoneTickEvent:
@@ -1244,7 +1260,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		default:
 			if next.fluid != 0 {
 				delete(p.fluidBooked, fluidBook{next.pos, next.fluid})
-			} else {
+			} else if next.priority != tickPriorityFinalize {
 				delete(p.pending, next.pos)
 			}
 		}
@@ -1295,6 +1311,21 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		if next.event == leafTickEvent {
 			blocks++
 			p.leafTick(x, y, z, state, &changes)
+			continue
+		}
+		if next.event == dirtPathTickEvent {
+			blocks++
+			if block == registry.BlockDirtPath {
+				// vanilla: PathBlock.tick
+				p.turnSoilToDirt(x, y, z, &changes, &p.effects)
+			}
+			continue
+		}
+		if next.event == farmlandTickEvent {
+			blocks++
+			if block == registry.BlockFarmland {
+				p.farmlandSurvivalScheduled(x, y, z, &changes)
+			}
 			continue
 		}
 		if next.event == scaffoldingTickEvent {
@@ -1356,16 +1387,6 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		}
 		// The farm families' one-tick deaths, booked by updateShape when
 		// placement or a neighbour change leaves them unable to survive.
-		if block == registry.BlockFarmland {
-			blocks++
-			p.farmlandSurvivalScheduled(x, y, z, &changes)
-			continue
-		}
-		if block == registry.BlockDirtPath {
-			blocks++
-			p.dirtPathSurvivalScheduled(x, y, z, &changes)
-			continue
-		}
 		if block == registry.BlockSugarCane {
 			blocks++
 			p.caneSurvivalScheduled(x, y, z, &changes)
@@ -1470,6 +1491,12 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 			return
 		}
 		p.fluidBooked[book] = struct{}{}
+	} else if priority == tickPriorityFinalize {
+		// A landing is a block-entity tick: it neither waits behind nor holds
+		// back an ordinary block tick of the cell.
+		if _, ok := p.finalizeSeq[key]; ok {
+			return
+		}
 	} else {
 		if p.pending[key] {
 			return
@@ -1477,7 +1504,11 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 		p.pending[key] = true
 	}
 	p.seq++
-	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ})
+	t := scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ}
+	if typ == 0 {
+		t.block = registry.BlockOf(p.w.BlockAt(key.x, key.y, key.z))
+	}
+	p.queue.push(t)
 	if priority == tickPriorityFinalize && typ == 0 {
 		p.finalizeSeq[key] = p.seq
 	}
@@ -1505,13 +1536,10 @@ func (p *Physics) BlockTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) BlockTicks {
 			t.pos.z < loZ || t.pos.z > hiZ {
 			continue
 		}
-		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
 		if t.fluid != 0 {
 			continue
 		}
-		if name, _, ok := registry.BlockStateName(state); ok {
-			out = append(out, boxTick{tick: t, id: name})
-		}
+		out = append(out, boxTick{tick: t, id: bookedBlockName(t)})
 	}
 	p.mu.Unlock()
 	slices.SortFunc(out, func(a, b boxTick) int {
@@ -1578,7 +1606,8 @@ func (p *Physics) allTicks(yield func(scheduledTick) bool) {
 
 // ScheduleBlockTicks books ticks on p offset by (offX, offY, offZ), keeping
 // each one's due tick, priority and order; one whose cell now holds another
-// block is dropped, and a cell with a tick pending keeps its own.
+// block is dropped (a soil block's is not, see adoptBlockTick), and a cell
+// with a tick pending keeps its own.
 // vanilla: LevelTicks.copyAreaFrom
 func (p *Physics) ScheduleBlockTicks(ticks BlockTicks, offX, offY, offZ int32) {
 	p.mu.Lock()
@@ -1623,7 +1652,6 @@ func (p *Physics) schedulePistonFinalize(x, y, z int32, due int64) {
 func (p *Physics) cancelPistonFinalize(x, y, z int32) {
 	key := blockKey{x, y, z}
 	if seq, ok := p.finalizeSeq[key]; ok {
-		delete(p.pending, key)
 		delete(p.finalizeSeq, key)
 		p.cancelled[seq] = struct{}{}
 	}
@@ -2054,13 +2082,13 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	// vanilla: Block.updateFromNeighbourShapes, FarmlandBlock.updateShape, PathBlock.updateShape
 	if block == registry.BlockFarmland && (placed || from == [3]int32{0, 1, 0}) {
 		if !farmlandCanSurvive(p.w, x, y, z) {
-			p.schedule(x, y, z, p.now+farmlandTickDelay)
+			p.scheduleSoil(registry.BlockFarmland, x, y, z, p.now+farmlandTickDelay, tickPriorityNormal)
 		}
 		return
 	}
 	if block == registry.BlockDirtPath && (placed || from == [3]int32{0, 1, 0}) {
 		if !dirtPathCanSurvive(p.w, x, y, z) {
-			p.schedule(x, y, z, p.now+dirtPathTickDelay)
+			p.scheduleSoil(registry.BlockDirtPath, x, y, z, p.now+dirtPathTickDelay, tickPriorityNormal)
 		}
 		return
 	}

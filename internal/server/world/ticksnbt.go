@@ -179,11 +179,7 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 			out.fluid = append(out.fluid, st)
 			return
 		}
-		name, _, ok := registry.BlockStateName(p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z))
-		if !ok {
-			return
-		}
-		st.id = name
+		st.id = bookedBlockName(t)
 		out.block = append(out.block, st)
 	}
 	for _, t := range p.queue {
@@ -210,7 +206,7 @@ func isTickEvent(event uint8) bool {
 	switch event {
 	case 0, leafTickEvent, coralTickEvent, redstoneTickEvent, sculkTickEvent, lightningRodTickEvent,
 		driedGhastHydrationEvent, frogspawnHatchEvent, snifferEggHatchEvent, cauldronDripEvent, survivalTickEvent,
-		scaffoldingTickEvent:
+		scaffoldingTickEvent, dirtPathTickEvent, farmlandTickEvent:
 		return true
 	}
 	return false
@@ -322,16 +318,30 @@ func (p *Physics) discardUnloadedTicks(unloaded []ChunkPos) {
 }
 
 // adoptBlockTick books a block tick for the block named id at a cell holding
-// state, tagged and booked as that block's own ticks are; it is dropped when
-// the cell holds another block, as vanilla's tick would find one. Runs under
-// p.mu.
-// vanilla: ServerLevel.tickBlock
+// state, tagged and booked as that block's own ticks are; apart from a soil
+// block's, which dispatch checks, it is dropped when the cell holds another
+// block. Runs under p.mu.
 func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int64, priority int) {
+	// vanilla: TickPriority.byValue clamps an out-of-range saved priority.
+	priority = max(tickPriorityExtremelyHigh, min(priority, 3))
+	// vanilla: ServerLevel.tickBlock checks the cell's block against the booked type.
+	switch id {
+	case registry.BlockDirtPath.Name():
+		p.scheduleSoil(registry.BlockDirtPath, x, y, z, due, priority)
+		return
+	case registry.BlockFarmland.Name():
+		p.scheduleSoil(registry.BlockFarmland, x, y, z, due, priority)
+		return
+	}
 	name, _, ok := registry.BlockStateName(state)
 	if !ok || name != id {
 		return
 	}
 	switch block := registry.BlockOf(state); {
+	case block == registry.BlockMovingPiston:
+		// A ride's landing whatever priority it was saved at.
+		// vanilla: PistonMovingBlockEntity.tick
+		p.schedulePistonFinalize(x, y, z, due)
 	case block == registry.BlockFrogspawn:
 		p.scheduleBooked(p.frogspawnBooked, x, y, z, due, frogspawnHatchEvent)
 	case block == registry.BlockSnifferEgg:
@@ -380,6 +390,10 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 		delete(p.leafBooked, t.pos)
 	case scaffoldingTickEvent:
 		delete(p.scaffoldingBooked, t.pos)
+	case dirtPathTickEvent:
+		delete(p.dirtPathBooked, t.pos)
+	case farmlandTickEvent:
+		delete(p.farmlandBooked, t.pos)
 	case coralTickEvent:
 		delete(p.coralBooked, t.pos)
 	case redstoneTickEvent:
@@ -396,10 +410,11 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 			delete(p.fluidBooked, fluidBook{t.pos, t.fluid})
 			return
 		}
-		delete(p.pending, t.pos)
 		if t.priority == tickPriorityFinalize {
 			delete(p.finalizeSeq, t.pos)
+			return
 		}
+		delete(p.pending, t.pos)
 	default:
 		delete(p.pendingEvent, t.pos)
 	}
