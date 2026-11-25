@@ -98,3 +98,21 @@ func TestLivePendingFileSurvivesSecondStart(t *testing.T) {
 		t.Fatalf("reports = %v", r)
 	}
 }
+
+func TestAdoptPendingTakesFileOfOwnPid(t *testing.T) {
+	cdir := t.TempDir()
+	own := filepath.Join(cdir, ".pending-"+strconv.Itoa(os.Getpid())+".txt")
+	if err := os.WriteFile(own, []byte("trace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if pendingOwnerAlive(own) {
+		t.Fatal("own pid counted as a live owner")
+	}
+	adoptPending(cdir)
+	if _, err := os.Stat(own); err == nil {
+		t.Fatal("pending file of an earlier run with the same pid not adopted")
+	}
+	if r, _ := filepath.Glob(filepath.Join(cdir, "crash-*-server.txt")); len(r) != 1 {
+		t.Fatalf("reports = %v", r)
+	}
+}

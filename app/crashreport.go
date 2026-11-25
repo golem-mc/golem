@@ -91,11 +91,13 @@ func adoptPending(cdir string) {
 }
 
 // pendingOwnerAlive reports whether the process whose pid is in the pending
-// file's name still runs.
+// file's name still runs. The current process's own pid never counts: a file
+// carrying it is from an earlier run that had the same pid (a container, a
+// restart after a reboot).
 func pendingOwnerAlive(path string) bool {
 	name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), pendingPrefix), ".txt")
 	pid, err := strconv.Atoi(name)
-	if err != nil || pid <= 0 {
+	if err != nil || pid <= 0 || pid == os.Getpid() {
 		return false
 	}
 	proc, err := os.FindProcess(pid)
