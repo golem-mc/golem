@@ -95,18 +95,18 @@ func TestOriginChestChangesLeaveTradeAndMountWindowsAlone(t *testing.T) {
 			breaker.ChatCommand("tp Breaker 0.5 1 0.5")
 			servertest.RunTicks(t, srv, 1)
 			lids(0)
+			// Open and close land on one tick boundary, so the recheck the
+			// open booked is the one five ticks on, and it finds no opener.
 			breaker.UseBlock(0, 0, 0)
-			if got := lids(1); len(got) == 0 || got[len(got)-1] != 1 {
-				t.Fatalf("lid counts after opening the chest = %v, want a last count of 1", got)
+			if got := lids(0); len(got) != 1 || got[0] != 1 {
+				t.Fatalf("lid counts after opening the chest = %v, want [1]", got)
 			}
 			breaker.CloseWindow()
-			if got := lids(1); len(got) == 0 || got[len(got)-1] != 0 {
-				t.Fatalf("lid counts after closing the chest = %v, want a last count of 0", got)
+			if got := lids(0); len(got) != 1 || got[0] != 0 {
+				t.Fatalf("lid counts after closing the chest = %v, want [0]", got)
 			}
-			for _, n := range lids(5) {
-				if n != 0 {
-					t.Fatalf("lid recheck counted %d openers, want 0", n)
-				}
+			if got := lids(5); len(got) != 1 || got[0] != 0 {
+				t.Fatalf("lid counts at the recheck = %v, want [0]", got)
 			}
 
 			changed := servertest.PacketIs(protocol.IDPlayContainerSlot, protocol.IDPlayContainerContent, protocol.IDPlayCloseContainer)
