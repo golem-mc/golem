@@ -41,6 +41,10 @@ func (s *Server) pluginSource(w *world.World, damageType registry.DamageType, ca
 		if e := s.relatedByID(w, id); e != nil {
 			return pluginEntity{id: e.UUID()}
 		}
+		// fangs.mu is a leaf: nothing is locked inside it.
+		if fang := fangsTracker.identityOf(s, w, id); fang != uuid.Nil {
+			return pluginEntity{id: fang}
+		}
 		return nil
 	}
 	if !cause.posOnly {

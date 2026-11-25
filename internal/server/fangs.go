@@ -277,7 +277,8 @@ func (s *Server) fangsBite(it fangsEffect) {
 				c.knockbackFromPoint(w, it.x, it.y, it.z, syncVelocityAfterTravel)
 			}
 			if ownerClient != nil {
-				s.thornsOnPlayerOwner(w, c, ownerClient, rules.DamageTypeIndirectMagic, fangsTypeID)
+				// vanilla: EnchantmentHelper.doPostAttackEffects reads the owner's weapon
+				s.thornsOnPlayerOwner(w, c, ownerClient, ownerClient.heldItem(protocol.HandMain), rules.DamageTypeIndirectMagic, fangsTypeID)
 			} else {
 				s.thornsOnOwner(w, c, it.owner, rules.DamageTypeIndirectMagic, fangsTypeID)
 			}
@@ -296,9 +297,9 @@ func (s *Server) fangsBite(it fangsEffect) {
 }
 
 // hurtMobByPlayerFangs bites m as indirect magic caused by the owner player,
-// who gets the kill credit, tells its watchers and takes the post-attack
-// effects of m's equipment. An invulnerable mob is spared even by a creative
-// owner.
+// who gets the kill credit, tells its watchers and runs the post-attack
+// effects of m's equipment and the owner's weapon. An invulnerable mob is
+// spared even by a creative owner.
 // vanilla: EvokerFangs.dealDamageTo, EnchantmentHelper.doPostAttackEffects
 func (s *Server) hurtMobByPlayerFangs(w *world.World, m *entity.Mob, it fangsEffect, owner *client) {
 	cause := &damageCause{entityID: it.owner, player: true, creative: owner.player.GameMode() == protocol.GameModeCreative,
@@ -306,21 +307,24 @@ func (s *Server) hurtMobByPlayerFangs(w *world.World, m *entity.Mob, it fangsEff
 	if !s.hurtMobTyped(w, m, entity.FangsDamage, rules.DamageTypeIndirectMagic, cause, it.id+1, "minecraft:evoker_fangs", true, nil) {
 		return
 	}
-	// Only worn enchantments can act, so an unenchanted mob skips the sky and
-	// block lookups and the loot binding.
-	s.mobsMu.Lock()
-	enchanted := false
-	for _, p := range m.EnchEquipment() {
-		if p.Stack.Enchanted() {
-			enchanted = true
-			break
+	// Only enchantments can act, so an unenchanted weapon and mob skip the sky
+	// and block lookups and the loot binding.
+	weapon := owner.heldItem(protocol.HandMain)
+	enchanted := weapon.Enchanted()
+	if !enchanted {
+		s.mobsMu.Lock()
+		for _, p := range m.EnchEquipment() {
+			if p.Stack.Enchanted() {
+				enchanted = true
+				break
+			}
 		}
+		s.mobsMu.Unlock()
 	}
-	s.mobsMu.Unlock()
 	if !enchanted {
 		return
 	}
-	s.postAttack(w, attackBody{player: owner}, attackBody{mob: m}, protocol.ItemStack{}, &rules.EnchContext{
+	s.postAttack(w, attackBody{player: owner}, attackBody{mob: m}, weapon, &rules.EnchContext{
 		DamageType: rules.DamageTypeIndirectMagic,
 		Victim:     mobEntityType(m.Type), Attacker: protocol.EntityTypePlayer, DirectAttacker: fangsTypeID,
 	}, syncVelocityAfterTravel)

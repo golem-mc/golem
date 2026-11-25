@@ -291,6 +291,20 @@ func (k *trackedKind[B, S]) bodies(s *Server) iter.Seq[B] {
 	return slices.Values(*k.list(s))
 }
 
+// identityOf is the UUID of the live body with protocol ID id in w, or the
+// nil UUID. It takes the kind's lock.
+func (k *trackedKind[B, S]) identityOf(s *Server, w *world.World, id int32) uuid.UUID {
+	mu := k.lock(s)
+	mu.Lock()
+	defer mu.Unlock()
+	for b := range k.bodies(s) {
+		if k.id(b) == id && k.world(b) == w && !k.dead(b) {
+			return k.uuid(b)
+		}
+	}
+	return uuid.Nil
+}
+
 func (k *trackedKind[B, S]) body(b B) trackedBody[B, S] {
 	if k.readBody != nil {
 		t, w, id, p := k.readBody(b)

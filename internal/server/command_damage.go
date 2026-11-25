@@ -176,7 +176,7 @@ func (s *Server) hurtMobTyped(w *world.World, m *entity.Mob, amount float64, dam
 	if cause != nil {
 		src = *cause
 	}
-	landed, softened := m.HurtByCommand(amount, damageType, src.entityID, src.player, src.creative, src.x, src.z, hs)
+	landed, softened := m.HurtByCommand(amount, damageType, src.entityID, direct, src.player, src.creative, src.x, src.z, hs)
 	var health []byte
 	var sends []mobSend
 	if landed {
