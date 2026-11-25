@@ -3644,6 +3644,20 @@ func (m *Mob) BlastBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
 	return m.X - hw, m.Y, m.Z - hw, m.X + hw, m.Y + m.height(), m.Z + hw
 }
 
+// BlastBoxHits reports whether BlastBox intersects the box. It tests X and Z
+// first so a body that misses horizontally never computes its height.
+func (m *Mob) BlastBoxHits(minX, minY, minZ, maxX, maxY, maxZ float64) bool {
+	if m.Type == TypeShulker {
+		bMinX, bMinY, bMinZ, bMaxX, bMaxY, bMaxZ := m.shulkerBox().Corners()
+		return minX < bMaxX && maxX > bMinX && minY < bMaxY && maxY > bMinY && minZ < bMaxZ && maxZ > bMinZ
+	}
+	hw := m.width() / 2
+	if !(minX < m.X+hw && maxX > m.X-hw && minZ < m.Z+hw && maxZ > m.Z-hw) {
+		return false
+	}
+	return minY < m.Y+m.height() && maxY > m.Y
+}
+
 // EyePosition is getEyePosition, where an explosion's knockback is directed
 // from.
 func (m *Mob) EyePosition() (x, y, z float64) {

@@ -188,8 +188,7 @@ func (s *Server) fangsBite(it fangsEffect) {
 		if m.Dead || m == owner.Mob {
 			return
 		}
-		mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ := m.BlastBox()
-		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ) {
+		if !m.BlastBoxHits(minX, minY, minZ, maxX, maxY, maxZ) {
 			return
 		}
 		if owner.Mob != nil && owner.Mob.EvokerFangsDirectAlly(m, ownerUUID) {
