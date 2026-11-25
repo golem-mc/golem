@@ -245,8 +245,15 @@ func (s *Server) fangsBite(it fangsEffect) {
 	}
 	s.mu.RUnlock()
 	for _, c := range clients {
-		cMinX, cMinY, cMinZ, cMaxX, cMaxY, cMaxZ := c.Box()
-		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, cMinX, cMinY, cMinZ, cMaxX, cMaxY, cMaxZ) {
+		// One position read for the box and the section, which the connection goroutine may move between reads.
+		pos := c.player.Position()
+		cb := c.bodyBoxAt(pos)
+		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, cb[0], cb[1], cb[2], cb[3], cb[4], cb[5]) {
+			continue
+		}
+		// A scaled player's box can reach past the sections its feet are filed in.
+		// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+		if !window.HoldsAt(pos.X, pos.Y, pos.Z) {
 			continue
 		}
 		if !owned {
