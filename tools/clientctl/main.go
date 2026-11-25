@@ -38,7 +38,9 @@ commands:
   chat TEXT                   send a chat line or /command
   input [-forward -back -left -right -jump -sneak -sprint] [-ticks N] [-yaw D] [-pitch D]
                               hold movement keys for a number of ticks
-  use | attack                use or attack what the crosshair points at
+  use | attack [-ticks N]     use or attack what the crosshair points at; with -ticks, hold
+                              the key N client ticks, then release (-1: until use -ticks 0
+                              or use -release)
   slot N                      select a hotbar slot
   drop [-all]                 drop the held stack
   click SLOT [-button N] [-mode pickup|quick_move|swap|throw]
@@ -70,7 +72,7 @@ func dispatch(command string, args []string, c *clientctl.Client, stderr io.Writ
 	fl.SetOutput(stderr)
 	positional := func(n int, what string) ([]string, error) { return parseArgs(fl, args, n, command+" needs "+what) }
 	switch command {
-	case "state", "use", "attack", "respawn", "disconnect":
+	case "state", "respawn", "disconnect":
 		if _, err := positional(0, ""); err != nil {
 			return nil, err
 		}
@@ -78,10 +80,29 @@ func dispatch(command string, args []string, c *clientctl.Client, stderr io.Writ
 	switch command {
 	case "state":
 		return c.State()
-	case "use":
-		return c.Use()
-	case "attack":
-		return c.Attack()
+	case "use", "attack":
+		ticks := fl.Int("ticks", 0, "hold the key this many client ticks (-1: until released)")
+		release := fl.Bool("release", false, "let go of a key held with -ticks -1")
+		if _, err := positional(0, ""); err != nil {
+			return nil, err
+		}
+		held := false
+		fl.Visit(func(f *flag.Flag) { held = held || f.Name == "ticks" })
+		switch {
+		case *release && held:
+			return nil, fmt.Errorf("%s: -release and -ticks exclude each other", command)
+		case *release:
+			*ticks, held = 0, true
+		}
+		switch {
+		case !held && command == "use":
+			return c.Use()
+		case !held:
+			return c.Attack()
+		case command == "use":
+			return c.UseFor(*ticks)
+		}
+		return c.AttackFor(*ticks)
 	case "respawn":
 		return c.Respawn()
 	case "disconnect":
