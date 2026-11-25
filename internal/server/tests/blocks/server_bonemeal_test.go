@@ -1125,3 +1125,14 @@ func TestNetherFungusBonemealUsesDimensionCeiling(t *testing.T) {
 		{"minecraft:warped_fungus", "minecraft:warped_nylium"},
 	})
 }
+
+// TestTallGrassBonemealUsesDimensionCeiling checks that short grass and a fern
+// need room for the upper half below the dimension's build height.
+// vanilla: TallGrassBlock.isValidBonemealTarget, BoneMealItem.growCrop
+func TestTallGrassBonemealUsesDimensionCeiling(t *testing.T) {
+	t.Parallel()
+	checkBonemealCeiling(t, [][2]string{
+		{"minecraft:short_grass", "minecraft:dirt"},
+		{"minecraft:fern", "minecraft:dirt"},
+	})
+}
