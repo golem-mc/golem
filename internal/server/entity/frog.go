@@ -179,12 +179,11 @@ func (g *frogTongueGoal) Priority() int           { return priorityBreed }
 func (g *frogTongueGoal) Flags() GoalFlags        { return GoalMove | GoalLook }
 func (g *frogTongueGoal) RequiresEveryTick() bool { return true }
 func (g *frogTongueGoal) prey(t *tickView) *Mob {
-	for _, o := range t.others {
-		if o.ID == g.m.frog.target {
-			return o
-		}
+	target := g.m.frog.target
+	if target == 0 {
+		return nil
 	}
-	return nil
+	return t.mobByID(target)
 }
 
 // vanilla: ShootTongue.checkExtraStartConditions, canPathfindToTarget
