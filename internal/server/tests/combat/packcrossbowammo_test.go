@@ -39,7 +39,7 @@ func replaceWith(block, requirements string) string {
 // The ammo function also tags an arrow that is not yet burning "cold"; "typed"
 // is run only where a requirement on "this" matches the arrow.
 func ammoPack(t *testing.T) string {
-	return packEnchantments(t, map[string]string{
+	return servertest.PackEnchantments(t, map[string]string{
 		"data/pk/enchantment/weapon.json": spawnEnchantment(runFunction("weapon", "")),
 		"data/pk/enchantment/flame.json":  spawnEnchantment(`{"effect":{"type":"minecraft:ignite","duration":100}}`),
 		"data/pk/enchantment/ammo.json": spawnEnchantment(runFunction("ammo", "") + "," +

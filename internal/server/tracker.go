@@ -71,12 +71,18 @@ type bodyTrack[S any] struct {
 	// tick off the period. The kind's tick hands takeSync() to schedule.
 	// vanilla: Entity.load, ServerEntity.sendChanges
 	needsSync bool
+	// held marks a body filed by hold and not yet published: no watcher has
+	// been told of it, so its removal tells none. Read under the kind's lock.
+	held bool
 
 	sentVX, sentVY, sentVZ float64
 	origin                 entityOrigin
 }
 
 func (t *bodyTrack[S]) entityOrigin() entityOrigin { return t.origin }
+
+// heldBack reports whether the body is held; read under the kind's lock.
+func (t *bodyTrack[S]) heldBack() bool { return t.held }
 
 // movementSchedule is ServerEntity's movement cadence, shared by every tracked
 // kind. vanilla: ServerEntity.tickCount, teleportDelay
@@ -639,7 +645,63 @@ func moveDiff(id int32, was, now trackedPosition, abs bodyPose, mt moveTick, del
 // register puts a built body into its kind's list and shows it to every
 // player of its world in range.
 // vanilla: ChunkMap.TrackedEntity.updatePlayer
-func (k *trackedKind[B, S]) register(s *Server, b B) {
+func (k *trackedKind[B, S]) register(s *Server, b B) { k.enroll(s, b, false) }
+
+// hold files a body in the chunk index only, so plugin handles resolve it
+// while it is neither listed, simulated nor shown; publish lists and shows it.
+// The origin is stamped here so listeners read the launch position.
+func (k *trackedKind[B, S]) hold(s *Server, b B) {
+	mu := k.lock(s)
+	mu.Lock()
+	k.file(s, b)
+	v := k.body(b)
+	v.t.held = true
+	v.t.origin.stamp(v.w, v.p.x, v.p.y, v.p.z)
+	mu.Unlock()
+}
+
+// relocateHeld moves a held body, as move does, and files it again under its
+// new pose; it reports false for a body that is not held. A cross-world
+// teleport of a withheld body moves it in place, as no watcher knows it.
+func (k *trackedKind[B, S]) relocateHeld(s *Server, b B, move func()) bool {
+	mu := k.lock(s)
+	mu.Lock()
+	defer mu.Unlock()
+	if !k.track(b).held || k.dead(b) {
+		return false
+	}
+	k.unfile(b)
+	move()
+	k.file(s, b)
+	return true
+}
+
+// stillHeld reports whether a held body is still filed and not dead, which a
+// listener that removed it has undone.
+func (k *trackedKind[B, S]) stillHeld(s *Server, b B) bool {
+	mu := k.lock(s)
+	mu.Lock()
+	defer mu.Unlock()
+	return !k.dead(b) && k.chunks(s).Contains(k.filing(b))
+}
+
+// discard drops a held body a listener refused: out of the chunk index, its
+// plugin data and scores forgotten, with no remove packet and no
+// EntityRemoveEvent since no watcher or listener saw it leave.
+func (k *trackedKind[B, S]) discard(s *Server, b B) {
+	mu := k.lock(s)
+	mu.Lock()
+	k.unfile(b)
+	k.track(b).held = false
+	mu.Unlock()
+	s.forgetEntity(k.uuid(b))
+}
+
+// publish is register for a body hold already filed. It reports false, having
+// shown nothing, when a listener removed the body meanwhile.
+func (k *trackedKind[B, S]) publish(s *Server, b B) bool { return k.enroll(s, b, true) }
+
+func (k *trackedKind[B, S]) enroll(s *Server, b B, filed bool) bool {
 	w := k.world(b)
 	type spot struct {
 		c           *client
@@ -658,10 +720,19 @@ func (k *trackedKind[B, S]) register(s *Server, b B) {
 
 	mu := k.lock(s)
 	mu.Lock()
+	if filed && (k.dead(b) || !k.chunks(s).Contains(k.filing(b))) {
+		k.track(b).held = false
+		mu.Unlock()
+		s.mu.RUnlock()
+		return false
+	}
 	list := k.list(s)
 	*list = append(*list, b)
-	k.file(s, b)
+	if !filed {
+		k.file(s, b)
+	}
 	v := k.body(b)
+	v.t.held = false
 	v.t.origin.stamp(w, v.p.x, v.p.y, v.p.z)
 	var recipients []*client
 	for _, sp := range spots {
@@ -680,6 +751,7 @@ func (k *trackedKind[B, S]) register(s *Server, b B) {
 	s.mu.RUnlock()
 
 	sendPacketsToAll(w, recipients, shown)
+	return true
 }
 
 // stamp records the body's initial spawn position unless it already has one or

@@ -199,8 +199,7 @@ func (c *client) fireCrossbow(hand int32) {
 			rocket.rocket.VX, rocket.rocket.VY, rocket.rocket.VZ = vx, vy, vz
 			rocket.rocket.Yaw, rocket.rocket.Pitch = yaw, pitch
 			rocket.spawning = len(projectile.Enchantments) > 0
-			s.registerFirework(rocket)
-			if rocket.spawning {
+			if s.launchFirework(rocket) && rocket.spawning {
 				s.spawnEffects(spawnedProjectile{w: rocket.w, typ: protocol.EntityTypeFireworkRocket, body: rocket}, projectile, protocol.ItemStack{})
 			}
 			c.shotSoundAndWear(hand, i, firework)
