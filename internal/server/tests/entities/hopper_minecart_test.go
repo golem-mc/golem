@@ -116,7 +116,8 @@ func TestAHopperMinecartTakesAnItemEntityWhole(t *testing.T) {
 // vanilla: MinecartHopper.suckInItems
 func TestAHopperMinecartTakesTheMouthDropBeforeABodyDrop(t *testing.T) {
 	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
+	srv, _ := servertest.Start(t, servertest.BlockTestConfig())
+	t.Cleanup(srv.HoldChunk(4, 1))
 	cartID := hopperCartAt(t, srv, "")
 	srv.SpawnItemEntity(4.5, 64.25, 1.5, "minecraft:stone", 1)
 	srv.SpawnItemEntity(4.5, 65, 1.5, "minecraft:diamond", 1)
@@ -136,7 +137,8 @@ func TestAHopperMinecartTakesTheMouthDropBeforeABodyDrop(t *testing.T) {
 // vanilla: MinecartHopper.suckInItems
 func TestAHopperMinecartFallsBackToABodyDropWhenTheMouthFails(t *testing.T) {
 	t.Parallel()
-	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
+	srv, _ := servertest.Start(t, servertest.BlockTestConfig())
+	t.Cleanup(srv.HoldChunk(4, 1))
 	cartID := hopperCartAt(t, srv, "")
 	stone := protocol.ItemStack{ItemID: servertest.ItemID(t, "minecraft:stone"), Count: 64}
 	for slot := range 4 {
