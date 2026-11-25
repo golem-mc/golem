@@ -53,27 +53,6 @@ func BenchmarkTickMobsAmongVehicles(b *testing.B) {
 	})
 }
 
-// addBenchPlayers puts n connectionless players into the first dimension.
-func addBenchPlayers(b *testing.B, s *Server, rng *rand.Rand, n int) {
-	dim := s.allDims()[0]
-	for range n {
-		p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
-		p.SetPosition(player.Position{X: (rng.Float64() - 0.5) * 96, Y: float64(world.GroundLevel), Z: (rng.Float64() - 0.5) * 96})
-		c := &client{srv: s, player: p}
-		c.dim.Store(dim)
-		s.mu.Lock()
-		s.assignPlayerSlot(c)
-		s.clients[p.UUID] = c
-		s.mu.Unlock()
-	}
-	// The players have no connection to shut down with the server.
-	b.Cleanup(func() {
-		s.mu.Lock()
-		clear(s.clients)
-		s.mu.Unlock()
-	})
-}
-
 // BenchmarkTickMobsTicketed is BenchmarkTickMobs with a plugin ticket held
 // over the herd and four players in it, so each mob checks its chunk against
 // the tickets, the players and the forced chunks.
@@ -85,24 +64,38 @@ func BenchmarkTickMobsTicketed(b *testing.B) {
 	benchTickMobs(b, mix, 96, 180, func(s *Server, rng *rand.Rand) {
 		dim := s.allDims()[0]
 		dim.w.AddTicket(world.ChunkPos{X: -4, Z: -4}, 2)
-		addBenchPlayers(b, s, rng, 4)
+		for range 4 {
+			p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
+			p.SetPosition(player.Position{X: (rng.Float64() - 0.5) * 96, Y: float64(world.GroundLevel), Z: (rng.Float64() - 0.5) * 96})
+			c := &client{srv: s, player: p}
+			c.dim.Store(dim)
+			s.mu.Lock()
+			s.assignPlayerSlot(c)
+			s.clients[p.UUID] = c
+			s.mu.Unlock()
+		}
+		// The players have no connection to shut down with the server.
+		b.Cleanup(func() {
+			s.mu.Lock()
+			clear(s.clients)
+			s.mu.Unlock()
+		})
 	})
 }
 
 // BenchmarkTickMobsCowsInHerd is BenchmarkTickMobsShulkersInHerd without the
-// shulkers: the herd and the player alone.
+// shulkers: the herd and the spectator alone.
 func BenchmarkTickMobsCowsInHerd(b *testing.B) {
-	benchTickMobs(b, herdMix(0), 96, 2000, func(s *Server, _ *rand.Rand) { addBenchPlayers(b, s, rand.New(rand.NewSource(632)), 1) })
+	benchTickMobs(b, herdMix(0), 96, 2000, benchMobSpectator(b))
 }
 
 // BenchmarkTickMobsShulkersInHerd is BenchmarkTickMobs with 2000 cows and 50
-// shulkers added and one player, so the herd ticks and each shulker's
+// shulkers added and a spectator, so the herd ticks and each shulker's
 // collision and push queries run beside a large herd.
 func BenchmarkTickMobsShulkersInHerd(b *testing.B) {
-	benchTickMobs(b, herdMix(50), 96, 2000, func(s *Server, _ *rand.Rand) { addBenchPlayers(b, s, rand.New(rand.NewSource(632)), 1) })
+	benchTickMobs(b, herdMix(50), 96, 2000, benchMobSpectator(b))
 }
 
-// The player stands at a fixed spot so both runs keep the same chunks awake.
 // herdMix is the BenchmarkTickMobs mix plus 2000 cows and shulkers shulkers.
 func herdMix(shulkers int) []mobMix {
 	return []mobMix{
