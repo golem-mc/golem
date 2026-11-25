@@ -56,8 +56,9 @@ type damageCause struct {
 	directType string
 	// directBurning is the projectile's fire flag when it hit.
 	directBurning bool
-	// directIsSource lets advancement predicates use the projectile itself
-	// as the source when it has no shooter.
+	// directIsSource makes the projectile itself the source when it has no
+	// shooter: advancement predicates and the Damage Event's cause ID use it.
+	// vanilla: AbstractArrow.onHitEntity, ThrownTrident.onHitEntity
 	directIsSource bool
 	x, y, z        float64
 	// weapon belongs to the direct entity, independently of death attribution.
@@ -296,8 +297,12 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 	// flinch stay back.
 	if !softened {
 		direct := causeEntityID(cause)
+		wireCause := direct
 		if cause != nil && cause.directID != 0 {
 			direct = cause.directID
+			if cause.directIsSource {
+				wireCause = direct
+			}
 		}
 		// A blocked blow plays the item's sound in place of the damage event.
 		// vanilla: LivingEntity.hurtServer
@@ -305,7 +310,7 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 			c.playShieldBlock(blockSound)
 		} else {
 			c.srv.broadcastWorld(c.theWorld(), protocol.IDPlayDamageEvent,
-				damageEventPayloadAt(c.player.EntityID, damageType, causeEntityID(cause), direct, damageEventPos(cause)))
+				damageEventPayloadAt(c.player.EntityID, damageType, wireCause, direct, damageEventPos(cause)))
 		}
 		// Only the victim is told, and only of an unblocked hit that knocks back.
 		// vanilla: ServerPlayer.indicateDamage via LivingEntity.dealDefaultKnockback
