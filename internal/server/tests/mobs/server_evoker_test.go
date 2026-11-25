@@ -1,6 +1,7 @@
 package mobs
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -9,6 +10,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -153,6 +155,85 @@ func TestFangsSpareAnIllager(t *testing.T) {
 	pumpTicks(c, srv, 400, servertest.HostileSkip, func(int32, []byte) bool { return false })
 	if hp, _ := srv.MobHealth(vindicator); hp != 24 {
 		t.Errorf("vindicator health = %v after the evoker's fangs, want 24", hp)
+	}
+}
+
+// vanilla: EvokerFangs.dealDamageTo, Entity.isAlliedTo, OwnableEntity.getRootOwner
+func TestFangsRespectMobAlliances(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.HostileTestConfig())
+	c := connect().Join("Observer")
+	servertest.HoldTicks(t, srv)
+	srv.RunLine("team add red")
+	srv.RunLine("team add blue")
+	srv.RunLine("team join red Observer")
+	spawn := func(kind, team string, x, z float64) int32 {
+		id := srv.SpawnMob(kind, x, 64, z)
+		srv.SetMobNoAI(id)
+		if team != "" {
+			identity, _ := srv.MobUUID(id)
+			srv.RunLine("team join " + team + " " + identity)
+		}
+		return id
+	}
+	evoker := spawn(evokerKind, "", 1.5, 14.5)
+	redEvoker := spawn(evokerKind, "red", 4.5, 14.5)
+	blueIllager := spawn("minecraft:pillager", "blue", 7.5, 14.5)
+	redCow := spawn("minecraft:cow", "red", 10.5, 14.5)
+	middleVex := spawn(vexKind, "", 13.5, 14.5)
+	srv.SetMobVexOwner(middleVex, evoker)
+
+	for i, tc := range []struct {
+		name, kind, team string
+		caster, summoner int32
+		reverse, cycle   bool
+		playerRoot       bool
+		damage           float64
+	}{
+		{name: "same team", kind: "minecraft:cow", team: "red", caster: redEvoker},
+		{name: "unteamed illagers", kind: "minecraft:vindicator", caster: evoker},
+		{name: "different teams", kind: "minecraft:vindicator", team: "blue", caster: redEvoker, damage: 6},
+		{name: "only one on a team", kind: "minecraft:vindicator", caster: redEvoker, damage: 6},
+		{name: "root is the caster", kind: vexKind, caster: evoker, summoner: middleVex},
+		{name: "root is a teammate", kind: vexKind, caster: redEvoker, summoner: redCow},
+		{name: "root is an online teammate", kind: vexKind, caster: redEvoker, playerRoot: true},
+		{name: "root is an enemy illager", kind: vexKind, caster: redEvoker, summoner: blueIllager, damage: 6},
+		{name: "victim considers the owner an ally", kind: evokerKind, caster: middleVex, reverse: true},
+		{name: "cycle has no root", kind: vexKind, caster: evoker, summoner: middleVex, cycle: true, damage: 6},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			x, z := 2.5+3*float64(i%4), 2.5+3*float64(i/4)
+			target := spawn(tc.kind, tc.team, x, z)
+			if tc.summoner != 0 {
+				srv.SetMobVexOwner(target, tc.summoner)
+			}
+			if tc.playerRoot {
+				identity, _ := srv.MobUUID(target)
+				owner := nbt.UUIDToIntArray(protocol.OfflineUUID("Observer"))
+				srv.RunLine(fmt.Sprintf("data merge entity %s {owner:[I;%d,%d,%d,%d]}", identity, owner[0], owner[1], owner[2], owner[3]))
+			}
+			if tc.reverse || tc.cycle {
+				srv.SetMobVexOwner(middleVex, target)
+			}
+			before, ok := srv.MobHealth(target)
+			if !ok {
+				t.Fatal("target missing before the bite")
+			}
+			srv.SpawnFangs(x, 64, z, tc.caster)
+			servertest.RunTicks(t, srv, 8)
+			if got, ok := srv.MobHealth(target); !ok || got != before-tc.damage {
+				t.Errorf("health after bite = %v (found %v), want %v", got, ok, before-tc.damage)
+			}
+		})
+	}
+
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	before := srv.PlayerHealth("Observer")
+	srv.SpawnFangs(0.5, 64, 0.5, redEvoker)
+	servertest.RunTicks(t, srv, 8)
+	if got := srv.PlayerHealth("Observer"); got != before {
+		t.Errorf("same-team player health after bite = %v, want %v", got, before)
 	}
 }
 

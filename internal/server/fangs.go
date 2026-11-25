@@ -174,22 +174,30 @@ func (s *Server) fangsBite(it fangsEffect) {
 	minX, minY, minZ, maxX, maxY, maxZ := body.BiteBox()
 
 	s.mobsMu.Lock()
-	var owner *entity.Mob
+	owner := entity.AllianceMember{}
+	var ownerUUID uuid.UUID
 	var victims []*entity.Mob
-	herd := s.herdOf(w).herd
-	for _, m := range herd {
-		if m.ID == it.owner && !m.Dead {
-			owner = m
-		}
+	h := s.herdOf(w)
+	if ent := h.byID[it.owner]; ent != nil && ent.mob.ID == it.owner && !ent.mob.Dead && !ent.mob.Discarded() {
+		owner = entity.AllianceMember{Mob: ent.mob, Team: ent.mob.Team}
+		ownerUUID = ent.uuid
 	}
-	for _, m := range herd {
-		if m.Dead || m == owner || entity.FangsAllied(owner, m, herd) {
+	lookup := s.fangsAllyByUUIDLocked
+	for _, m := range h.herd {
+		if m.Dead || m == owner.Mob {
+			continue
+		}
+		if owner.Mob != nil && owner.Mob.EvokerFangsDirectAlly(m, ownerUUID) {
 			continue
 		}
 		mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ := m.BlastBox()
-		if boxHits(minX, minY, minZ, maxX, maxY, maxZ, mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ) {
-			victims = append(victims, m)
+		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ) {
+			continue
 		}
+		if owner.Mob != nil && entity.FangsAllied(owner, entity.AllianceMember{Mob: m, Team: m.Team}, lookup) {
+			continue
+		}
+		victims = append(victims, m)
 	}
 	s.mobsMu.Unlock()
 
@@ -206,8 +214,14 @@ func (s *Server) fangsBite(it fangsEffect) {
 		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, cMinX, cMinY, cMinZ, cMaxX, cMaxY, cMaxZ) {
 			continue
 		}
-		if owner == nil {
+		if owner.Mob == nil {
 			c.hurt(entity.FangsDamage, rules.DamageTypeMagic, &damageCause{x: it.x, y: it.y, z: it.z})
+			continue
+		}
+		s.mobsMu.Lock()
+		allied := entity.FangsAllied(owner, lookup(c.player.UUID), lookup)
+		s.mobsMu.Unlock()
+		if allied {
 			continue
 		}
 		cause := &damageCause{entityID: it.owner, directID: it.id + 1, x: it.x, y: it.y, z: it.z,
@@ -221,12 +235,26 @@ func (s *Server) fangsBite(it fangsEffect) {
 		}
 	}
 	for _, m := range victims {
-		if owner == nil {
+		if owner.Mob == nil {
 			s.hurtMobPlain(w, m, entity.FangsDamage, rules.DamageTypeMagic)
 			continue
 		}
-		s.hurtMobBy(w, m, owner, entity.FangsDamage, rules.DamageTypeIndirectMagic)
+		s.hurtMobBy(w, m, owner.Mob, entity.FangsDamage, rules.DamageTypeIndirectMagic)
 	}
+}
+
+// vanilla: EntityReference.getEntity
+func (s *Server) fangsAllyByUUIDLocked(id uuid.UUID) entity.AllianceMember {
+	for _, dim := range s.allDims() {
+		if m := dim.mobs.byUUID[id]; m != nil && !m.Discarded() {
+			return entity.AllianceMember{Mob: m, Team: m.Team}
+		}
+	}
+	// The mob pass snapshots online players' teams before fangs tick.
+	if team, online := s.mobInputs.playerTeams[id]; online {
+		return entity.AllianceMember{Player: id, Team: team}
+	}
+	return entity.AllianceMember{}
 }
 
 // hurtMobPlain hurts m with no source and tells its watchers.
