@@ -380,6 +380,14 @@ func thrownHitMargin(tickCount int) float64 {
 // angles a fifth toward the velocity, and settle the thrower exclusion at
 // the new position, in Projectile.tick's order.
 func (t *Thrown) Step(w World, owner *ArrowTarget, targets []ArrowTarget) []ThrownEvent {
+	return t.StepGather(w, func(*Thrown) (*ArrowTarget, []ArrowTarget) { return owner, targets })
+}
+
+// StepGather is Step with the thrower and targets asked for once the
+// velocity of the move is settled, so a caller can query by MoveBox. A
+// shulker bullet asks first, for its steering. gather is not called for a body
+// that is dead or falls out of the world this tick.
+func (t *Thrown) StepGather(w World, gather func(*Thrown) (*ArrowTarget, []ArrowTarget)) []ThrownEvent {
 	if t.Dead {
 		return nil
 	}
@@ -400,6 +408,7 @@ func (t *Thrown) Step(w World, owner *ArrowTarget, targets []ArrowTarget) []Thro
 	}
 
 	if t.Kind == ThrownLlamaSpit {
+		owner, targets := gather(t)
 		return t.stepSpit(w, owner, targets)
 	}
 
@@ -424,8 +433,11 @@ func (t *Thrown) Step(w World, owner *ArrowTarget, targets []ArrowTarget) []Thro
 	// flight (ShulkerBullet.tick's super.tick), the others' after the move.
 	var bulletTarget *ArrowTarget
 	var splash []ThrownEvent
+	var owner *ArrowTarget
+	var targets []ArrowTarget
 	bullet := t.Kind == ThrownShulkerBullet
 	if bullet {
+		owner, targets = gather(t)
 		splash = t.touchWater(w)
 		bulletTarget = t.steerBullet(targets)
 	} else if !t.NoGravity {
@@ -452,6 +464,10 @@ func (t *Thrown) Step(w World, owner *ArrowTarget, targets []ArrowTarget) []Thro
 			t.VY *= thrownAirDrag
 			t.VZ *= thrownAirDrag
 		}
+	}
+
+	if !bullet {
+		owner, targets = gather(t)
 	}
 
 	// The move: clip against blocks first (a block hit ends the flight),
@@ -682,37 +698,12 @@ func (t *Thrown) thrownBoxFor(vx, vy, vz float64) ArrowTarget {
 	}
 }
 
-// MoveBox is the box (x, y, z, x, y, z) of what the coming Step may meet:
-// thrownBox over the velocity after the tick's gravity, acceleration and
-// inertia. A shulker bullet's steering is not modelled; callers pad it.
+// MoveBox is the box (x, y, z, x, y, z) of what the move may meet: thrownBox
+// over the velocity StepGather has settled. A shulker bullet's steering is
+// not modelled; callers pad it.
 func (t *Thrown) MoveBox() [6]float64 {
-	vx, vy, vz := t.nextVelocity()
-	b := t.thrownBoxFor(vx, vy, vz)
+	b := t.thrownBox()
 	return [6]float64{b.MinX, b.MinY, b.MinZ, b.MaxX, b.MaxY, b.MaxZ}
-}
-
-// nextVelocity is the velocity Step moves by, before a bubble column's push.
-// vanilla: ThrowableProjectile.tick, AbstractHurtingProjectile.tick
-func (t *Thrown) nextVelocity() (vx, vy, vz float64) {
-	c := Thrown{Kind: t.Kind, VX: t.VX, VY: t.VY, VZ: t.VZ, NoGravity: t.NoGravity,
-		AccelerationPower: t.AccelerationPower, Dangerous: t.Dangerous, wasInWater: t.wasInWater}
-	switch {
-	case t.Kind == ThrownLlamaSpit || t.Kind == ThrownShulkerBullet:
-	case t.Kind.IsFireball():
-		c.accelerate(c.wasInWater)
-	case t.Kind.IsWindCharge():
-		c.pushAlongHeading()
-	default:
-		if !c.NoGravity {
-			c.VY -= c.Kind.Gravity()
-		}
-		inertia := thrownAirDrag
-		if c.wasInWater {
-			inertia = thrownWaterInertia
-		}
-		c.VX, c.VY, c.VZ = c.VX*inertia, c.VY*inertia, c.VZ*inertia
-	}
-	return c.VX, c.VY, c.VZ
 }
 
 // sweepThrownTargets returns the body whose box (grown by the age's margin)

@@ -148,29 +148,47 @@ func TestASmallFireballIgnitesAndHurtsAPlayer(t *testing.T) {
 	}
 }
 
-// TestAFireballHitsAScaledMobWhoseCentreIsOffTheFlight checks the box the
-// flight is tested against is the mob's own: a scale-16 cow six blocks off
-// the line is still struck.
-// vanilla: EntitySection.getEntities, LivingEntity.getBoundingBox
-func TestAFireballHitsAScaledMobWhoseCentreIsOffTheFlight(t *testing.T) {
-	t.Parallel()
+// scaledCowFlight launches a small fireball along +x at z=fz, one tick short
+// of a scale-16 cow centred at (24.5, 64, cz), and returns its health before
+// and after that tick.
+func scaledCowFlight(t *testing.T, fz, cz float64) (before, after float64) {
+	t.Helper()
 	srv, _ := flameScene(t)
 	srv.SetGameRule("mob_griefing", false)
 	scale := nbt.Compound{"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
 		nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(16)}}}}
-	cow := srv.SpawnMobTagged("minecraft:cow", 24.5, 64, 6.5, scale)
+	cow := srv.SpawnMobTagged("minecraft:cow", 24.5, 64, cz, scale)
 	if cow == 0 {
 		t.Fatal("the cow was refused")
 	}
-	before, _ := srv.MobHealth(cow)
-
-	if srv.LaunchFireball(entity.ThrownSmallFireball, 3.5, 65.0, 0.5, 1, 0, 0, 0, 1) == 0 {
+	before, _ = srv.MobHealth(cow)
+	if srv.LaunchFireball(entity.ThrownSmallFireball, 17.25, 65.0, fz, 1, 0, 0, 0, 1) == 0 {
 		t.Fatal("could not launch")
 	}
-	servertest.DriveTargetTicks(srv, 40)
+	servertest.DriveTargetTicks(srv, 1)
+	after, _ = srv.MobHealth(cow)
+	return before, after
+}
 
-	if after, _ := srv.MobHealth(cow); after >= before {
+// TestAFireballHitsAScaledMobWhoseCentreIsOffTheFlight checks the box the
+// flight is tested against is the mob's own: a scale-16 cow six blocks off
+// the line, in the same chunk, is still struck.
+// vanilla: EntitySection.getEntities, LivingEntity.getBoundingBox
+func TestAFireballHitsAScaledMobWhoseCentreIsOffTheFlight(t *testing.T) {
+	t.Parallel()
+	if before, after := scaledCowFlight(t, 0.5, 6.5); after >= before {
 		t.Errorf("health %v -> %v, want the fireball to hurt it", before, after)
+	}
+}
+
+// TestAFireballSkipsAScaledMobFiledBeyondTheSectionPadding checks a mob whose
+// centre is in the next chunk, past the two blocks of padding around the
+// flight, is not offered even though its box overlaps the flight.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestAFireballSkipsAScaledMobFiledBeyondTheSectionPadding(t *testing.T) {
+	t.Parallel()
+	if before, after := scaledCowFlight(t, 12.8, 16.5); after != before {
+		t.Errorf("health %v -> %v, want the cow skipped", before, after)
 	}
 }
 

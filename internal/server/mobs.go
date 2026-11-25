@@ -253,13 +253,9 @@ type mobHerd struct {
 	byUUID       map[uuid.UUID]*entity.Mob
 	byID         map[int32]*mobEntity // includes the IDs reserved for dragon parts
 	dragonBodies []*entity.Mob
-	// widest is the largest half width of a body in herd as of the last mob
-	// tick or add; a mob is filed by its centre, so a box query reaches this
-	// far for the chunks of a scaled mob. Guarded by mobsMu.
-	widest  float64
-	dying   []dyingMob
-	woken   map[world.ChunkPos]struct{}
-	carried map[world.ChunkPos][]nbt.Tag
+	dying        []dyingMob
+	woken        map[world.ChunkPos]struct{}
+	carried      map[world.ChunkPos][]nbt.Tag
 	// listed is the chunks whose entity file has to be written when they
 	// leave even empty, or the next load would generate the animals again.
 	listed map[world.ChunkPos]bool
@@ -336,7 +332,6 @@ func (h *mobHerd) remember(ent *mobEntity) {
 	ent.mob.SetRecordSlot(slot)
 	h.book[ent.mob] = ent
 	h.chunks.Add(ent.mob, &ent.mob.Filing, entity.ChunkAt(ent.mob.X, ent.mob.Z), ent.uuid)
-	h.widest = max(h.widest, halfWidth(ent.mob))
 	if h.lootExtra != nil {
 		ent.mob.LootExtra = h.lootExtra(h, ent)
 	}
@@ -4492,9 +4487,4 @@ func victimLoot(v *client) func() *rules.LootEntity {
 		e := v.LootEntity()
 		return &e
 	}
-}
-
-func halfWidth(m *entity.Mob) float64 {
-	minX, _, _, maxX, _, _ := m.BlastBox()
-	return (maxX - minX) / 2
 }

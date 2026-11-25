@@ -246,7 +246,7 @@ func (s *Server) stepThrown(fx *thrownEffects, in *thrownTickInputs, it *thrownE
 	// No discard for a removed owner: vanilla's getOwner never returns one,
 	// so AbstractHurtingProjectile.tick's owner.isRemoved() never holds.
 	// vanilla: EntityReference.getEntity
-	owner := s.gatherTargets(in, it, tw)
+	in.targets = nil
 
 	// A pearl carries its owner to vanilla's oldPosition, not the hit point.
 	fromX, fromY, fromZ := t.X, t.Y, t.Z
@@ -258,7 +258,9 @@ func (s *Server) stepThrown(fx *thrownEffects, in *thrownTickInputs, it *thrownE
 		before = *t
 		rollMark = t.RandSrc.Mark()
 	}
-	raw := t.Step(it.w, owner, in.targets)
+	raw := t.StepGather(it.w, func(*entity.Thrown) (*entity.ArrowTarget, []entity.ArrowTarget) {
+		return s.gatherTargets(in, it, tw), in.targets
+	})
 	if asking {
 		if ask, held := s.thrownHitAskOf(it, &tw.bodies, before.HitAllowed, raw); held {
 			*t = before
@@ -367,6 +369,9 @@ func (s *Server) gatherTargets(in *thrownTickInputs, it *thrownEntity, tw *throw
 // it has none. The thrower and a bullet's target are always among them. Mobs
 // refile under mobsMu, which is held, so the chunk index is current.
 func (in *thrownTickInputs) mobTargets(targets []entity.ArrowTarget, s *Server, it *thrownEntity, tw *thrownWorld) (_ []entity.ArrowTarget, ownerAt int) {
+	if len(tw.dim.mobs.herd) == 0 {
+		return targets, -1
+	}
 	t := it.throwable
 	box := t.MoveBox()
 	// A bullet's steering moves it beyond the box. A splash reaches 4 blocks
@@ -378,10 +383,10 @@ func (in *thrownTickInputs) mobTargets(targets []entity.ArrowTarget, s *Server, 
 		grow = 5
 	}
 	box[0], box[1], box[2], box[3], box[4], box[5] = box[0]-grow, box[1]-grow, box[2]-grow, box[3]+grow, box[4]+grow, box[5]+grow
-	reach := box
-	wide := tw.dim.mobs.widest
-	reach[0], reach[2], reach[3], reach[5] = reach[0]-wide, reach[2]-wide, reach[3]+wide, reach[5]+wide
-	area, indexed := smallChunkArea(&reach)
+	// A mob is filed by its centre and found within smallChunkArea's padding
+	// of the box, however wide its own box is.
+	// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+	area, indexed := smallChunkArea(&box)
 	in.mobsNear = in.mobsNear[:0]
 	tw.dim.mobs.mobsInArea(area, indexed, func(m *entity.Mob) bool {
 		// vanilla: EntitySection.getEntities tests the entity's own box

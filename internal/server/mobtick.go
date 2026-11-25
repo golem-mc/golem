@@ -764,9 +764,7 @@ func (t *mobDimTick) markDormant(in *mobTickInputs) {
 func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity.MobEvent) {
 	s, h, w := t.s, t.h, t.w
 	// The tick returns deaths and laid eggs; movement is scheduleMovement's.
-	widest := 0.0
 	for _, m := range h.herd {
-		widest = max(widest, halfWidth(m))
 		switch m.Type {
 		case entity.TypeSulfurCube:
 			// vanilla: SulfurCube.primeWhenOnPoweredPosition
@@ -812,7 +810,6 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 			m.DrawTrades = t.dim.drawTrades
 		}
 	}
-	h.widest = widest
 	t.dim.villageView.updateOccupied(h.herd)
 	gameTime, dayTime := w.Time()
 	for m, ent := range h.book {
