@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -84,4 +85,24 @@ func TestADeadPlayersChunksAreDroppedAndComeBackOnRespawn(t *testing.T) {
 	servertest.UntilTicks(t, srv, 400, "the furnace smelts again", func() bool {
 		return ingots(t, srv, x, y, z) >= 2
 	})
+}
+
+// TestRespawnedPlayerDeathTimeIsZero: the respawn builds a new player, so the
+// corpse ticks counted while dead do not carry into its saved DeathTime.
+// vanilla: PlayerList.respawn
+func TestRespawnedPlayerDeathTimeIsZero(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SurvivalTestConfig()
+	cfg.ViewDistance = config.MinDistance
+	cfg.SimulationDistance = config.MinDistance
+	srv, c, _ := servertest.JoinAs(t, cfg, "Victim", servertest.OpsListing(t, "Victim"))
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand("kill")
+	c.Settle()
+	servertest.RunTicks(t, srv, 1)
+	c.PerformRespawn()
+	c.Settle()
+	c.ChatCommand("data get entity Victim DeathTime")
+	c.ExpectCommandFeedbackText("commands.data.entity.query",
+		servertest.PlayerDisplayComponent("Victim"), servertest.NBTArg("0s"))
 }

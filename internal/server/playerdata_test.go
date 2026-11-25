@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/google/uuid"
@@ -146,7 +147,7 @@ func TestPlayerStateKeepsWhatItDoesNotUnderstand(t *testing.T) {
 		Exhaustion: 1.25,
 		Score:      7,
 	})
-	state := playerState(loaded, p, false, "minecraft:overworld", 12345, nil, nil, nil, nil, 0, 0)
+	state := playerState(loaded, p, false, "minecraft:overworld", 12345, nil, nil, nil, nil, 0)
 
 	// The survival state the player actually is in won, not the 12.5 the
 	// file they were loaded with claimed.
@@ -222,7 +223,7 @@ func TestPlayerStateWritesVitals(t *testing.T) {
 		ExperienceProgress: 7.0 / 9.0,
 		ExperienceTotal:    16,
 	})
-	state := playerState(nil, p, false, "minecraft:overworld", -42, nil, nil, nil, nil, 0, 0)
+	state := playerState(nil, p, false, "minecraft:overworld", -42, nil, nil, nil, nil, 0)
 
 	if mode, ok := nbt.Get[nbt.Int](state, "playerGameType"); !ok || mode != 2 {
 		t.Errorf("playerGameType = %v, %v; want 2, true", mode, ok)
@@ -304,5 +305,19 @@ func TestStoredPositionRejectsNonsense(t *testing.T) {
 	}
 	if pos.Yaw != 0 || pos.Pitch != 0 {
 		t.Errorf("rotation = (%v, %v), want (0, 0)", pos.Yaw, pos.Pitch)
+	}
+}
+
+func TestPlayerStateSavesDeathTimeFromVitals(t *testing.T) {
+	p := &player.Player{UUID: uuid.MustParse("3f0ca0c8-9f16-3b87-92fb-b626b9a1bb99")}
+	p.SetVitals(player.Vitals{Dead: true, DeathTime: 15})
+	state := playerState(nil, p, false, "minecraft:overworld", 0, nil, nil, nil, nil, 0)
+	if got, ok := nbt.Get[nbt.Short](state, "DeathTime"); !ok || got != 15 {
+		t.Errorf("DeathTime = %v, %v; want 15, true", got, ok)
+	}
+	p.SetVitals(rules.FreshVitals(0))
+	state = playerState(nil, p, false, "minecraft:overworld", 0, nil, nil, nil, nil, 0)
+	if got, ok := nbt.Get[nbt.Short](state, "DeathTime"); !ok || got != 0 {
+		t.Errorf("DeathTime after respawn = %v, %v; want 0, true", got, ok)
 	}
 }

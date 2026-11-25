@@ -56,7 +56,7 @@ func BenchmarkPlayerSave(b *testing.B) {
 	p := &player.Player{}
 	p.SetVitals(player.Vitals{Health: 20, Food: 20, GameMode: protocol.GameModeCreative})
 	for range b.N {
-		if len(playerState(nil, p, false, "minecraft:overworld", 0, nil, nil, nil, nil, 0, 0)) == 0 {
+		if len(playerState(nil, p, false, "minecraft:overworld", 0, nil, nil, nil, nil, 0)) == 0 {
 			b.Fatal("empty player")
 		}
 	}
