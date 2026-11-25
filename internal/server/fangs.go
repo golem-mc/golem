@@ -275,10 +275,7 @@ func (s *Server) fangsBite(it fangsEffect) {
 				c.knockbackFromPoint(w, it.x, it.y, it.z, syncVelocityAfterTravel)
 			}
 			if owner.Mob != nil {
-				s.thornsOnMobOwner(w, c, owner.Mob, ownerW, &rules.EnchContext{
-					DamageType: rules.DamageTypeIndirectMagic, Victim: protocol.EntityTypePlayer,
-					Attacker: -1, DirectAttacker: -1,
-				})
+				s.fangsThorns(w, c, owner.Mob, ownerW)
 			}
 		}
 	}
@@ -289,6 +286,14 @@ func (s *Server) fangsBite(it fangsEffect) {
 		}
 		s.hurtMobVia(w, m, owner.Mob, &directBody{id: it.id, x: it.x, z: it.z}, entity.FangsDamage, rules.DamageTypeIndirectMagic, nil)
 	}
+}
+
+// fangsThorns hits back the fangs' owner, living in ownerW, for a bite on victim.
+func (s *Server) fangsThorns(w *world.World, victim *client, owner *entity.Mob, ownerW *world.World) {
+	s.thornsOnMobOwner(w, victim, owner, ownerW, &rules.EnchContext{
+		DamageType: rules.DamageTypeIndirectMagic, Victim: protocol.EntityTypePlayer,
+		Attacker: -1, DirectAttacker: -1,
+	})
 }
 
 // vanilla: EntityReference.getEntity
