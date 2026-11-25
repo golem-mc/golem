@@ -11,11 +11,12 @@ import (
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/plugin"
+	"github.com/golem-mc/golem/registry"
 )
 
 // fireworkListener counts launches and spawns of rockets, writes plugin data
-// to each at launch and cancels or removes it at the launch or the spawn
-// while its flags are set.
+// to each at launch and cancels or removes it at the launch or the spawn while its flags
+// are set.
 type fireworkListener struct {
 	launches, spawns          int
 	cancelLaunch, cancelSpawn bool
@@ -24,6 +25,10 @@ type fireworkListener struct {
 	// launches whose projectile had no origin.
 	lastID     plugin.UUID
 	originless int
+	// netherAt, when set, is where in the nether a launch moves the rocket;
+	// moveRefused records a move Teleport refused.
+	netherAt    *plugin.Vec3
+	moveRefused bool
 }
 
 var dataKey = plugin.Key{Namespace: "fx", Path: "k"}
@@ -39,6 +44,12 @@ func (f *fireworkListener) listen(s plugin.Server) {
 			f.originless++
 		}
 		e.Projectile.Data().Set(dataKey, "v")
+		if f.netherAt != nil {
+			nether, _ := s.World(plugin.MinecraftKey("the_nether"))
+			if !e.Projectile.Teleport(plugin.Location{World: nether, Pos: *f.netherAt}, plugin.TeleportPlugin) {
+				f.moveRefused = true
+			}
+		}
 		e.SetCancelled(f.cancelLaunch)
 		if f.removeLaunch {
 			e.Projectile.Remove()
@@ -70,17 +81,11 @@ type rocketShot struct {
 type shotResult struct{ spawns, removes int }
 
 // run fires one shot, lets the tick goroutine run both events it reaches and
-// checks their counts: a cancelled or removed launch never reaches the spawn event. The
-// loop is held; a packet's listeners are each asked at a tick's start, so a
-// tick is run for every call its connection queues until the packet is done
-// with, then one more as for a scheduled task.
+// checks their counts: a cancelled or removed launch never reaches the spawn
+// event. A dispensed shot runs in one tick, as a scheduled task.
 func (r *rocketShot) run(t *testing.T, l *fireworkListener) (res shotResult) {
 	t.Helper()
-	queued := r.srv.PluginCallsQueued()
-	select {
-	case <-queued:
-	default:
-	}
+	calls := expectCalls(r.srv)
 	launches, spawns := l.launches, l.spawns
 	record := func(id int32, _ []byte) {
 		switch id {
@@ -92,24 +97,7 @@ func (r *rocketShot) run(t *testing.T, l *fireworkListener) (res shotResult) {
 	}
 	r.fire()
 	if r.byPacket {
-		// The settle's ping is answered once the packet's last call has run;
-		// res is only read here after it ends.
-		settled := make(chan struct{})
-		go func() {
-			defer close(settled)
-			r.c.SettleAndCollect(record)
-		}()
-		for waiting := true; waiting; {
-			select {
-			case <-queued:
-				servertest.RunTicks(t, r.srv, 1)
-			case <-settled:
-				waiting = false
-			}
-		}
-		if t.Failed() {
-			t.FailNow()
-		}
+		calls.settle(t, r.c, record)
 	}
 	servertest.RunTicks(t, r.srv, 1)
 	r.c.SettleAndCollect(record)
@@ -121,6 +109,50 @@ func (r *rocketShot) run(t *testing.T, l *fireworkListener) (res shotResult) {
 		t.Fatalf("the shot ran %d launch and %d spawn events, want 1 and %d", l.launches-launches, l.spawns-spawns, wantSpawns)
 	}
 	return res
+}
+
+// packetCalls ticks a held loop for the plugin calls one packet queues.
+type packetCalls struct {
+	srv    *server.Server
+	queued <-chan struct{}
+}
+
+// expectCalls clears the queued-call signal; call it before sending the packet.
+func expectCalls(srv *server.Server) packetCalls {
+	queued := srv.PluginCallsQueued()
+	select {
+	case <-queued:
+	default:
+	}
+	return packetCalls{srv: srv, queued: queued}
+}
+
+// settle runs a tick for every call the connection queues, as a held loop
+// runs a connection's calls only at a tick's start, until the client's settle
+// ping is answered, which is once the packet's last call has run. record, if
+// not nil, sees what the client was sent meanwhile; it runs on another
+// goroutine and is done with when settle returns.
+func (p packetCalls) settle(t *testing.T, c *servertest.Client, record func(int32, []byte)) {
+	t.Helper()
+	if record == nil {
+		record = func(int32, []byte) {}
+	}
+	settled := make(chan struct{})
+	go func() {
+		defer close(settled)
+		c.SettleAndCollect(record)
+	}()
+	for waiting := true; waiting; {
+		select {
+		case <-p.queued:
+			servertest.RunTicks(t, p.srv, 1)
+		case <-settled:
+			waiting = false
+		}
+	}
+	if t.Failed() {
+		t.FailNow()
+	}
 }
 
 func chargedCrossbow(t *testing.T, enchantment string) protocol.ItemStack {
@@ -229,15 +261,17 @@ func crossbowServer(t *testing.T, cfg *config.Config, l *fireworkListener) (*ser
 }
 
 // TestPluginCrossbowRocketSpawnEffect checks a projectile_spawned effect on the
-// crossbow and on its rocket runs once for an accepted rocket and not for one either event refuses.
-// vanilla: Projectile.spawnProjectile, Projectile.applyOnProjectileSpawned
+// crossbow and on its rocket runs once for an accepted rocket and not for one
+// either event refuses, in the world a launch listener moved the rocket to.
+// vanilla: Projectile.spawnProjectile, Projectile.applyOnProjectileSpawned, ReplaceBlock.apply
 func TestPluginCrossbowRocketSpawnEffect(t *testing.T) {
 	cfg := servertest.BowTestConfig()
 	cfg.LevelName = servertest.PackEnchantments(t, map[string]string{
 		"data/pk/enchantment/fx.json": `{"anvil_cost":1,"description":{"text":"Fx"},"max_level":1,"weight":1,
 			"min_cost":{"base":1,"per_level_above_first":0},"max_cost":{"base":1,"per_level_above_first":0},
 			"slots":["mainhand"],"supported_items":["minecraft:crossbow","minecraft:firework_rocket"],
-			"effects":{"minecraft:projectile_spawned":[{"effect":{"type":"minecraft:run_function","function":"pack:count"}}]}}`,
+			"effects":{"minecraft:projectile_spawned":[{"effect":{"type":"minecraft:run_function","function":"pack:count"}},
+				{"effect":{"type":"minecraft:replace_block","block_state":{"id":"minecraft:gold_block"},"offset":[0,3,0]}}]}}`,
 		"data/pack/function/count.mcfunction": "scoreboard players add #n fx 1\n",
 	})
 	l := &fireworkListener{}
@@ -258,9 +292,27 @@ func TestPluginCrossbowRocketSpawnEffect(t *testing.T) {
 	if !score(0) {
 		t.Fatal("a refused rocket ran the crossbow's spawn effect")
 	}
-	l.cancelSpawn = false
+	// The effect writes 3 blocks above the moved rocket, at (0, 73, 0); the
+	// overworld's block there must stay as it is.
+	srv.RunLine("execute in minecraft:the_nether run forceload add 0 0")
+	servertest.UntilTicks(t, srv, 200, "the nether chunk", func() bool {
+		return srv.ChunkLoadedInDimension("minecraft:the_nether", 0, 0)
+	})
+	stone := servertest.BlockState(t, "minecraft:stone")
+	srv.SetBlock(0, 73, 0, stone)
+	srv.SetBlockInDimension("minecraft:the_nether", 0, 73, 0, stone)
+	l.cancelSpawn, l.netherAt = false, &plugin.Vec3{X: 0.5, Y: 70, Z: 0.5}
 	shot.run(t, l)
+	if l.moveRefused {
+		t.Fatal("the move to the nether was refused")
+	}
 	if !score(1) {
 		t.Error("an accepted rocket did not run the spawn effect exactly once")
+	}
+	if got := registry.BlockOf(srv.BlockInDimension("minecraft:the_nether", 0, 73, 0)); got != registry.BlockGoldBlock {
+		t.Errorf("the block above the moved rocket in the nether is %s, want gold_block", got.Name())
+	}
+	if got := registry.BlockOf(srv.BlockAt(0, 73, 0)); got != registry.BlockStone {
+		t.Errorf("the overworld's block at the moved rocket's effect is %s, want stone", got.Name())
 	}
 }

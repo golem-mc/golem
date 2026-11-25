@@ -1666,7 +1666,7 @@ func (s *Server) appendMobSnapshots(out []command.Entity, q *entityQuery) []comm
 
 // snapshot checks shared availability, then collects an identity or builds the snapshot's base.
 func (s *Server) snapshot(q *entityQuery, tags nbt.StringSet, ref any, id int32, typ, plain string, identity uuid.UUID, dim string, pos player.Position, box [6]float64) *entitySnapshot {
-	if s.rejectsSnapshot(q.filters(), tags, typ, identity, dim, pos, box) {
+	if s.rejectsSnapshot(q.filters(), tags, ref, typ, identity, dim, pos, box) {
 		return nil
 	}
 	if q != nil && q.candidates != nil {
@@ -1679,15 +1679,18 @@ func (s *Server) snapshot(q *entityQuery, tags nbt.StringSet, ref any, id int32,
 	}
 }
 
-func (s *Server) rejectsSnapshot(q *command.EntityQuery, tags nbt.StringSet, typ string, identity uuid.UUID, dim string, pos player.Position, box [6]float64) bool {
+func (s *Server) rejectsSnapshot(q *command.EntityQuery, tags nbt.StringSet, ref any, typ string, identity uuid.UUID, dim string, pos player.Position, box [6]float64) bool {
 	if q.Rejects(typ, dim, box, identity) || rejectsEntityTags(q, tags) {
 		return true
 	}
 	// A body can arrive before its terrain is loaded. Only accessible sections
 	// enter the selector lookup; direct snapshots still serve summons and @s.
+	// A held projectile, which only a UUID lookup reaches, stays resolvable for
+	// the launch listeners' handles wherever one moved it.
 	// vanilla: PersistentEntitySectionManager.startTracking, Visibility.isAccessible
 	if q != nil && !s.dimensionByName(dim).w.ChunkLoaded(world.ChunkPos{X: world.ChunkOf(pos.X), Z: world.ChunkOf(pos.Z)}) {
-		return true
+		h, ok := ref.(interface{ heldBack() bool })
+		return !ok || !h.heldBack()
 	}
 	return false
 }

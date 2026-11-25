@@ -81,6 +81,9 @@ type bodyTrack[S any] struct {
 
 func (t *bodyTrack[S]) entityOrigin() entityOrigin { return t.origin }
 
+// heldBack reports whether the body is held; read under the kind's lock.
+func (t *bodyTrack[S]) heldBack() bool { return t.held }
+
 // movementSchedule is ServerEntity's movement cadence, shared by every tracked
 // kind. vanilla: ServerEntity.tickCount, teleportDelay
 type movementSchedule struct {
