@@ -2281,11 +2281,15 @@ func newLiquidAt(w fluidSpreadReader, x, y, z int32, state uint16, b fluidBehavi
 		if !passWall(state, axis, positive, ns) {
 			continue
 		}
-		if nfs.isSource() {
-			sources++
-		}
 		if nfs.amount > highest {
 			highest = nfs.amount
+		}
+		if nfs.isSource() {
+			sources++
+			if sources == 2 {
+				// A source already supplies the maximum neighbor amount.
+				break
+			}
 		}
 	}
 	if sources >= 2 && w.BoolRule(b.conversionRule) && supportsFluidSource(w.BlockAt(x, y-1, z), kind) {
