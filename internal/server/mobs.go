@@ -1842,15 +1842,6 @@ func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known m
 				known[ent.uuid] = true
 				continue
 			}
-		case "minecraft:snowball", "minecraft:egg", "minecraft:ender_pearl",
-			"minecraft:splash_potion", "minecraft:lingering_potion", "minecraft:experience_bottle",
-			"minecraft:wind_charge", "minecraft:breeze_wind_charge", "minecraft:small_fireball", "minecraft:fireball", "minecraft:dragon_fireball",
-			"minecraft:wither_skull", "minecraft:shulker_bullet":
-			if ent := s.thrownOfTag(h.w, compound); ent != nil {
-				woken.thrown = append(woken.thrown, ent)
-				known[ent.uuid] = true
-				continue
-			}
 		case cloudEntityID:
 			if ent := s.cloudOfTag(h.w, compound); ent != nil {
 				woken.clouds = append(woken.clouds, ent)
@@ -1870,8 +1861,14 @@ func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known m
 				continue
 			}
 		default:
-			// Each boat kind's id is its own name, so no constant names them.
-			if string(id) != "" && entity.BoatKind(string(id)) != "" {
+			if kind, ok := savedThrownKind(string(id)); ok {
+				if ent := s.thrownOfTag(h.w, kind, string(id), compound); ent != nil {
+					woken.thrown = append(woken.thrown, ent)
+					known[ent.uuid] = true
+					continue
+				}
+			} else if entity.BoatKind(string(id)) != "" {
+				// Each boat kind's id is its own name, so no constant names them.
 				if ent := boatOfTag(s, h.w, compound); ent != nil {
 					woken.boats = append(woken.boats, ent)
 					known[ent.uuid] = true
