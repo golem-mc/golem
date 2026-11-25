@@ -1151,7 +1151,7 @@ func (b *furnaceBurn) advance(entity *world.BlockEntity) bool {
 	b.ran = true
 
 	input := entity.Slots[0]
-	result := registry.CookingMatch(entity.Kind.Name(), input)
+	result := registry.CookingMatchCached(entity.Kind.Name(), input, &entity.CookCheck)
 	// Smeltable: a recipe matches and the output is empty or the same item
 	// with room for one more.
 	var cooked protocol.ItemStack

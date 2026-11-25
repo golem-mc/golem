@@ -308,14 +308,32 @@ func pairCell(recipe *ShapelessRecipe, cells []protocol.ItemStack, cell int, mat
 // CookingMatch returns the recipe a stack cooks under for a block entity
 // kind (smelting, blasting, smoking or campfire), or nil; a kind cooking
 // none of the four falls back to smelting.
-// vanilla: AbstractFurnaceBlockEntity.quickCheck, one RecipeType apiece.
+// vanilla: RecipeManager.getRecipeFor
 func CookingMatch(kind string, stack protocol.ItemStack) *CookingRecipe {
+	return CookingMatchCached(kind, stack, nil)
+}
+
+// CookingMatchCached is CookingMatch for a block entity's own check: the
+// recipe that last matched, kept in *last, wins over an earlier match while
+// it still takes the stack.
+// vanilla: RecipeManager.createCheck, RecipeManager.getRecipeFor with a hint
+func CookingMatchCached(kind string, stack protocol.ItemStack, last *string) *CookingRecipe {
 	if stack.Empty() {
 		return nil
 	}
 	table := cookingTable(kind)
+	if last != nil && *last != "" {
+		for i := range table {
+			if table[i].ID == *last && slices.Contains(table[i].Ingredient, stack.ItemID) {
+				return &table[i]
+			}
+		}
+	}
 	for i := range table {
 		if slices.Contains(table[i].Ingredient, stack.ItemID) {
+			if last != nil {
+				*last = table[i].ID
+			}
 			return &table[i]
 		}
 	}

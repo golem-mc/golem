@@ -214,7 +214,11 @@ type BlockEntity struct {
 	// Furnace progress in ticks: the current smelt's progress and length, and
 	// the current fuel lot's remaining and total burn. Zero for a chest.
 	CookingSpent, CookingTotal int32
-	LitRemaining, LitTotal     int32
+	// CookCheck is the id of the cooking recipe that last matched, which wins
+	// over an earlier recipe taking the same input; not saved.
+	// vanilla: AbstractFurnaceBlockEntity.quickCheck, CampfireBlock.getTicker
+	CookCheck              string
+	LitRemaining, LitTotal int32
 	// SpeedMultiplier is what the fuel last lit (a furnace) or loaded (a
 	// brewing stand) divides the recipe's time by; nought counts as 1.
 	// vanilla: AbstractFurnaceBlockEntity.speedMultiplier
@@ -660,7 +664,7 @@ func (b *BlockEntity) Put(slot int, stack protocol.ItemStack) {
 	// another count is not.
 	// vanilla: AbstractFurnaceBlockEntity.setItem
 	if slot == 0 && IsCooking(b.Kind) && (stack.Empty() || !stack.SamePtr(&b.Slots[0])) {
-		b.CookingTotal = b.CookTotalOf(registry.CookingMatch(b.Kind.Name(), stack))
+		b.CookingTotal = b.CookTotalOf(registry.CookingMatchCached(b.Kind.Name(), stack, &b.CookCheck))
 		b.CookingSpent = 0
 	}
 	// A write into a disabled grid slot enables it first, even an empty one.

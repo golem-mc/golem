@@ -72,7 +72,7 @@ func (b *BlockEntity) CampfireTickWith(lit bool, cook func(slot int, source, res
 		}
 		// A slot whose item no recipe takes any more is dropped as it is.
 		result := b.Slots[slot]
-		if recipe := registry.CookingMatch(KindCampfire.Name(), result); recipe != nil {
+		if recipe := registry.CookingMatchCached(KindCampfire.Name(), result, &b.CookCheck); recipe != nil {
 			result = registry.CookingResult(recipe)
 		}
 		if cook != nil {
