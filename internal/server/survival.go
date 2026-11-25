@@ -51,7 +51,9 @@ type damageCause struct {
 	// directType is the entity type name of a projectile direct entity, which
 	// is neither a player nor a mob; empty otherwise.
 	directType string
-	x, y, z    float64
+	// directBurning is the projectile's fire flag when it hit.
+	directBurning bool
+	x, y, z       float64
 	// weapon belongs to the direct entity, independently of death attribution.
 	// vanilla: DamageSource.getWeaponItem
 	weapon protocol.ItemStack

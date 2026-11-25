@@ -12,7 +12,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -591,6 +590,8 @@ func TestPackEntityKilledPlayerTestsEntityType(t *testing.T) {
 // TestPackEntityHurtPlayerTestsSourceEntityAndType: an entity_hurt_player
 // criterion fires for a zombie's hit when its damage.source_entity is a
 // zombie, not when it is a skeleton or when the damage must be a projectile.
+// A burning arrow a skeleton shot afterwards fires the direct arrow and source
+// skeleton criteria, with the arrow's fire flag, and neither reversed pair.
 // vanilla: EntityHurtPlayerTrigger.TriggerInstance.matches, DamagePredicate.matches
 func TestPackEntityHurtPlayerTestsSourceEntityAndType(t *testing.T) {
 	cfg, data := packConfig(t)
@@ -604,9 +605,20 @@ func TestPackEntityHurtPlayerTestsSourceEntityAndType(t *testing.T) {
 				`{"damage":{"type":{"`+key+`":{"minecraft:entity_type":"minecraft:`+kind+`"}}}}`)
 		}
 	}
+	for name, damage := range map[string]string{
+		"shot_direct_arrow":    `"direct_entity":{"minecraft:entity_type":"minecraft:arrow"}`,
+		"shot_source_skeleton": `"source_entity":{"minecraft:entity_type":"minecraft:skeleton"}`,
+		"shot_direct_skeleton": `"direct_entity":{"minecraft:entity_type":"minecraft:skeleton"}`,
+		"shot_source_arrow":    `"source_entity":{"minecraft:entity_type":"minecraft:arrow"}`,
+		"shot_direct_burning":  `"direct_entity":{"minecraft:entity_type":"minecraft:arrow","minecraft:flags":{"is_on_fire":true}}`,
+		"shot_direct_unlit":    `"direct_entity":{"minecraft:entity_type":"minecraft:arrow","minecraft:flags":{"is_on_fire":false}}`,
+	} {
+		packCriterion(t, dir, name, "entity_hurt_player", `{"damage":{"type":{`+damage+`}}}`)
+	}
 	srv, c := joinOp(t, cfg, "Packer")
 	c.MoveToGround(0.5, 64, 0.5, true)
 	c.Settle()
+	servertest.HoldTicks(t, srv)
 	id := srv.SpawnMob("minecraft:zombie", 0.5, 64, 1.0)
 	srv.SetMobTargetPlayer(id, "Packer")
 	servertest.UntilTicks(t, srv, 400, "the zombie's hit", func() bool { return srv.AdvancementObtained("Packer", "pk:zombie", "c") })
@@ -624,37 +636,21 @@ func TestPackEntityHurtPlayerTestsSourceEntityAndType(t *testing.T) {
 	if srv.AdvancementObtained("Packer", "pk:shot", "c") {
 		t.Error("a zombie's melee hit fired the is_projectile criterion")
 	}
-}
 
-// TestPackEntityHurtPlayerTestsArrowAsDirectEntity: a skeleton's arrow that
-// hits the player fires damage.type.direct_entity for the arrow and
-// source_entity for the skeleton, and neither reversed.
-// vanilla: DamageSourcePredicate.matches, AbstractArrow.onHitEntity
-func TestPackEntityHurtPlayerTestsArrowAsDirectEntity(t *testing.T) {
-	cfg, data := packConfig(t)
-	dir := filepath.Join(data, "pk", "advancement")
-	for _, want := range []struct{ key, kind string }{
-		{"direct_entity", "arrow"}, {"source_entity", "skeleton"},
-		{"direct_entity", "skeleton"}, {"source_entity", "arrow"},
+	srv.KillMob(id)
+	skeleton := srv.SpawnMob("minecraft:skeleton", 8.5, 64, 0.5)
+	shaft := srv.ShootMobArrowFrom(skeleton, 3.5, 65.2, 0.5, -3, 0, 0)
+	if shaft == 0 {
+		t.Fatal("the skeleton's arrow never flew")
+	}
+	srv.IgniteArrow(shaft, 100)
+	servertest.RunTicks(t, srv, 8)
+	for name, want := range map[string]bool{
+		"shot_direct_arrow": true, "shot_source_skeleton": true, "shot_direct_burning": true,
+		"shot_direct_skeleton": false, "shot_source_arrow": false, "shot_direct_unlit": false,
 	} {
-		packCriterion(t, dir, want.key+"_"+want.kind, "entity_hurt_player",
-			`{"damage":{"type":{"`+want.key+`":{"minecraft:entity_type":"minecraft:`+want.kind+`"}}}}`)
-	}
-	srv, c := joinOp(t, cfg, "Packer")
-	srv.SetDifficulty(rules.DifficultyHard)
-	srv.SetDayTime(18000)
-	c.MoveToGround(0.5, 64, 0.5, true)
-	c.Settle()
-	srv.SpawnMob("minecraft:skeleton", 8.5, 64, 0.5)
-	servertest.UntilTicks(t, srv, servertest.SkeletonTicks, "the arrow's hit", func() bool {
-		return srv.AdvancementObtained("Packer", "pk:direct_entity_arrow", "c")
-	})
-	if !srv.AdvancementObtained("Packer", "pk:source_entity_skeleton", "c") {
-		t.Error("a skeleton's arrow did not fire the damage.type.source_entity skeleton criterion")
-	}
-	for _, name := range []string{"direct_entity_skeleton", "source_entity_arrow"} {
-		if srv.AdvancementObtained("Packer", "pk:"+name, "c") {
-			t.Errorf("a skeleton's arrow fired the %s criterion", name)
+		if got := srv.AdvancementObtained("Packer", "pk:"+name, "c"); got != want {
+			t.Errorf("a skeleton's burning arrow: %s obtained = %v, want %v", name, got, want)
 		}
 	}
 }
