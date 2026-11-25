@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"math/bits"
 	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -531,11 +532,15 @@ func Eject[S, D Block](src S, dest D, face int32) (moved, intoEmpty bool) {
 // EjectGated is Eject asking gate (when non-nil) about the first stack,
 // before dest is tried.
 func EjectGated[S, D Block](src S, dest D, face int32, gate Gate) (moved, intoEmpty bool) {
-	if Full(dest, face) {
+	filled, n := src.Filled(), src.Len()
+	if filled == 0 && n <= 64 {
 		return false, false
 	}
-	filled := src.Filled()
-	if filled == 0 && src.Len() <= 64 {
+	// A single candidate slot on a plain destination: addOneItem checks every
+	// slot's room and components itself, so the Full walk would only repeat it.
+	// A gate is asked before dest is tried, so it keeps the preflight.
+	single := gate == nil && n <= 64 && bits.OnesCount64(filled) == 1 && isPlainContainer(dest.Kind())
+	if !single && Full(dest, face) {
 		return false, false
 	}
 	for i := 0; i < src.Len(); i++ {
