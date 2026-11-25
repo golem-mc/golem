@@ -164,7 +164,9 @@ func TestPluginMobDamagePlayerFangs(t *testing.T) {
 	srv.SetMobNoAI(id)
 	tag := nbt.Stringify(nbt.Compound{"Owner": nbt.UUIDToIntArray(protocol.OfflineUUID("Victim"))})
 	srv.RunLine("summon minecraft:evoker_fangs 0.5 64 4.5 " + tag)
-	ticksUntil(t, srv, "the bite", func() bool { return causing != 0 })
+	for range 8 {
+		srv.RunTick()
+	}
 	if causing != registry.EntityTypePlayer || direct != registry.EntityTypeEvokerFangs || !distinct {
 		t.Errorf("source causing %v direct %v (distinct %v), want the player and the fangs", causing, direct, distinct)
 	}

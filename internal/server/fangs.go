@@ -279,7 +279,7 @@ func (s *Server) fangsBite(it fangsEffect) {
 		} else {
 			killer = s.entityKiller(w, it.owner)
 		}
-		cause := &damageCause{entityID: it.owner, directID: it.id + 1, directUUID: it.identity, x: it.x, y: it.y, z: it.z, killer: killer}
+		cause := &damageCause{entityID: it.owner, directID: it.id + 1, directType: "minecraft:evoker_fangs", directUUID: it.identity, x: it.x, y: it.y, z: it.z, killer: killer}
 		if landed, softened := c.hurt(damage, rules.DamageTypeIndirectMagic, cause); landed {
 			if !softened {
 				c.knockbackFromPoint(w, it.x, it.y, it.z, syncVelocityAfterTravel)
