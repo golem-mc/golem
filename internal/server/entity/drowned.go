@@ -3,6 +3,7 @@ package entity
 import (
 	"math"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
@@ -216,11 +217,9 @@ func (m *Mob) waterConversionStep() MobType {
 	return NoMobType
 }
 
-// ConvertedFrom copies what Mob.convertTo keeps (ConversionType.SINGLE with
-// equipment, plus convertCommon): position, motion, facing, babyhood, hands,
-// fall and player memory. NoAI and persistence come through the caller's
-// convertedEntity.
-func (m *Mob) ConvertedFrom(old *Mob) {
+// ConvertedFrom copies the simulation state of a replaced mob.
+// vanilla: ConversionType.SINGLE, ConversionType.convertCommon
+func (m *Mob) ConvertedFrom(old *Mob, keepEquipment bool) {
 	m.SetPos(old.X, old.Y, old.Z)
 	m.VX, m.VY, m.VZ = old.VX, old.VY, old.VZ
 	m.Yaw, m.Pitch, m.HeadYaw = old.Yaw, old.Pitch, old.HeadYaw
@@ -229,15 +228,27 @@ func (m *Mob) ConvertedFrom(old *Mob) {
 	if Ageable(old.Type) && Ageable(m.Type) {
 		m.forcedAge, m.forcedAgeTimer = old.forcedAge, old.forcedAgeTimer
 	}
-	// vanilla: ConversionType.convertCommon copies a slot's chance only with its item
-	for slot := range 6 {
-		if item := old.EquipmentSlot(slot); !item.Empty() {
-			m.SetEquipment(slot, item)
-			m.DropChances[slot] = old.DropChances[slot]
+	if keepEquipment {
+		// vanilla: ConversionType.SINGLE copies a slot's chance only with its item
+		for slot := range m.DropChances {
+			if item := old.EquipmentSlot(slot); !item.Empty() {
+				m.SetEquipment(slot, item)
+				m.DropChances[slot] = old.DropChances[slot]
+			}
+		}
+		if !old.Body.Empty() {
+			m.SetEquipment(protocol.EquipBody, old.Body)
+			m.BodyDropChance = old.BodyDropChance
+		}
+		if saddle := old.SaddleSlot(); !saddle.Empty() {
+			m.SetEquipment(protocol.EquipSaddle, saddle)
+			m.SaddleDropChance = old.SaddleDropChance
 		}
 	}
 	// vanilla: ConversionType.convertCommon
-	m.CanBreakDoors = old.CanBreakDoors
+	if old.is(TypeZombie) && m.is(TypeZombie) && old.CanBreakDoors {
+		m.CanBreakDoors = true
+	}
 	m.playerMemoryTicks = old.playerMemoryTicks
 	m.playerCreditID = old.playerCreditID
 	// The fluid state carries over: the first tick rereads it, but a save

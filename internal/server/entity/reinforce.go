@@ -159,9 +159,6 @@ func (m *Mob) rollBreakDoors(dice Dice, special float32) {
 	m.CanBreakDoors = dice.NextFloat() < special*breakDoorOdds
 }
 
-// breakDoorSalt seeds the conversion's door roll, which has no spawn dice.
-const breakDoorSalt = 0x1F83D9ABFB41BD6B
-
 // ReinforcementChance is the spawn_reinforcements attribute: base, leader
 // bonus and the charges, clamped to its 0 to 1 range.
 func (m *Mob) ReinforcementChance() float64 {

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"iter"
 	"math"
 	"sync"
 
@@ -68,13 +67,24 @@ func (a chunkArea) contains(pos world.ChunkPos) bool {
 	return pos.X >= a.minX && pos.X <= a.maxX && pos.Z >= a.minZ && pos.Z <= a.maxZ
 }
 
-func bodiesInChunks[E any](ix *entity.ChunkIndex[E], q *entityQuery) iter.Seq[E] {
-	return func(yield func(E) bool) {
-		if q.chunk != nil {
-			ix.Visit(*q.chunk, yield)
+func bodiesInChunks[E any](ix *entity.ChunkIndex[E], chunk *world.ChunkPos, area *chunkArea, yield func(E) bool) {
+	if chunk != nil {
+		ix.Visit(*chunk, yield)
+		return
+	}
+	area.each(func(pos world.ChunkPos) bool { return ix.Visit(pos, yield) })
+}
+
+func (h *mobHerd) mobsInArea(area chunkArea, indexed bool, yield func(*entity.Mob) bool) {
+	// Place.SetPos refiles a moving mob under mobsMu before readers can see it.
+	if indexed {
+		bodiesInChunks(&h.chunks, nil, &area, yield)
+		return
+	}
+	for _, mob := range h.herd {
+		if !yield(mob) {
 			return
 		}
-		q.area.each(func(pos world.ChunkPos) bool { return ix.Visit(pos, yield) })
 	}
 }
 

@@ -598,7 +598,7 @@ func (wt *arrowWorldTargets) mobsInSweep(h *mobHerd, box [6]float64, owner *enti
 	}
 	// Dragon parts can lie outside the padding around their parent's chunk.
 	// vanilla: Level.getEntities
-	for m := range h.dragonBodies {
+	for _, m := range h.dragonBodies {
 		if m == owner {
 			continue
 		}
@@ -627,9 +627,9 @@ func (wt *arrowWorldTargets) mobsInSweepChunk(dst []*entity.Mob, h *mobHerd, pos
 	} else {
 		heights = [2]float64{math.Inf(1), math.Inf(-1)}
 	}
-	for m := range bodiesInChunks(&h.chunks, &entityQuery{chunk: &pos}) {
+	h.chunks.Visit(pos, func(m *entity.Mob) bool {
 		if m.Type == entity.TypeEnderDragon {
-			continue
+			return true
 		}
 		x0, y0, z0, x1, y1, z1 := m.BlastBox()
 		if !cached {
@@ -641,7 +641,8 @@ func (wt *arrowWorldTargets) mobsInSweepChunk(dst []*entity.Mob, h *mobHerd, pos
 			[3]float64{x0, y0, z0}, [3]float64{x1, y1, z1}) {
 			dst = append(dst, m)
 		}
-	}
+		return true
+	})
 	if !cached {
 		wt.mobHeights[pos] = heights
 	}

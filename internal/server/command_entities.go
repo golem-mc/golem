@@ -1511,7 +1511,7 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 			if q.chunk != nil && !ix.Has(*q.chunk) {
 				return out
 			}
-			indexed = bodiesInChunks(ix, q)
+			indexed = func(yield func(E) bool) { bodiesInChunks(ix, q.chunk, q.area, yield) }
 		}
 		if q.candidates != nil {
 			q.kind = &entityQueryKind{mu: mu, snapshot: func(ref any, query *entityQuery) *entitySnapshot {
@@ -1602,11 +1602,12 @@ func (s *Server) appendMobSnapshots(out []command.Entity, q *entityQuery) []comm
 				appendMob(ent, dim.name)
 			}
 		} else if q.chunk != nil || q.area != nil {
-			for m := range bodiesInChunks(&dim.mobs.chunks, q) {
+			bodiesInChunks(&dim.mobs.chunks, q.chunk, q.area, func(m *entity.Mob) bool {
 				if ent := dim.mobs.record(m); ent != nil {
 					appendMob(ent, dim.name)
 				}
-			}
+				return true
+			})
 		} else {
 			for _, ent := range dim.mobs.book {
 				appendMob(ent, dim.name)

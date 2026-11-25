@@ -184,10 +184,13 @@ func (ix *ChunkIndex[T]) ByUUID(id uuid.UUID) (T, bool) {
 // In yields the bodies filed under the chunk. The cell is live: move or
 // remove nothing while ranging, and do not keep it past the lock.
 func (ix *ChunkIndex[T]) In(pos world.ChunkPos) iter.Seq[T] {
-	return func(yield func(T) bool) { ix.Visit(pos, yield) }
+	return func(yield func(T) bool) {
+		ix.Visit(pos, yield)
+	}
 }
 
-// Visit calls yield for the bodies in pos and reports whether all were visited.
+// Visit passes each body in pos to yield, stopping when it returns false.
+// The caller holds the index's lock and must keep the cell unchanged.
 func (ix *ChunkIndex[T]) Visit(pos world.ChunkPos, yield func(T) bool) bool {
 	for _, e := range ix.cells[pos] {
 		if !yield(e.body) {

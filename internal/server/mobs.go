@@ -251,8 +251,8 @@ type mobHerd struct {
 	records      []*mobEntity
 	freeRecords  []int
 	byUUID       map[uuid.UUID]*entity.Mob
-	byID         map[int32]*mobEntity
-	dragonBodies map[*entity.Mob]*mobEntity
+	byID         map[int32]*mobEntity // includes the IDs reserved for dragon parts
+	dragonBodies []*entity.Mob
 	dying        []dyingMob
 	woken        map[world.ChunkPos]struct{}
 	carried      map[world.ChunkPos][]nbt.Tag
@@ -317,17 +317,20 @@ func (h *mobHerd) remember(ent *mobEntity) {
 			slot = len(h.records) + 1
 			h.records = append(h.records, nil)
 		}
+		if h.byID == nil {
+			h.byID = make(map[int32]*mobEntity)
+		}
+		h.byID[ent.mob.ID] = ent
+		if ent.mob.Type == entity.TypeEnderDragon {
+			h.dragonBodies = append(h.dragonBodies, ent.mob)
+			for part := range int32(8) {
+				h.byID[ent.mob.ID+1+part] = ent
+			}
+		}
 	}
 	h.records[slot-1] = ent
 	ent.mob.SetRecordSlot(slot)
 	h.book[ent.mob] = ent
-	h.byID[ent.mob.ID] = ent
-	if ent.mob.Type == entity.TypeEnderDragon {
-		if h.dragonBodies == nil {
-			h.dragonBodies = make(map[*entity.Mob]*mobEntity)
-		}
-		h.dragonBodies[ent.mob] = ent
-	}
 	h.chunks.Add(ent.mob, &ent.mob.Filing, entity.ChunkAt(ent.mob.X, ent.mob.Z), ent.uuid)
 	if h.lootExtra != nil {
 		ent.mob.LootExtra = h.lootExtra(h, ent)
@@ -346,9 +349,14 @@ func (h *mobHerd) forget(m *entity.Mob) {
 		h.freeRecords = append(h.freeRecords, slot)
 		m.SetRecordSlot(0)
 		delete(h.byUUID, ent.uuid)
-		delete(h.book, m)
 		delete(h.byID, m.ID)
-		delete(h.dragonBodies, m)
+		if m.Type == entity.TypeEnderDragon {
+			h.dragonBodies = slices.DeleteFunc(h.dragonBodies, func(dragon *entity.Mob) bool { return dragon == m })
+			for part := range int32(8) {
+				delete(h.byID, m.ID+1+part)
+			}
+		}
+		delete(h.book, m)
 		m.Unfile()
 	}
 }
@@ -387,7 +395,6 @@ func newMobHerd(w *world.World) *mobHerd {
 		w:       w,
 		book:    make(map[*entity.Mob]*mobEntity),
 		byUUID:  make(map[uuid.UUID]*entity.Mob),
-		byID:    make(map[int32]*mobEntity),
 		woken:   make(map[world.ChunkPos]struct{}),
 		carried: make(map[world.ChunkPos][]nbt.Tag),
 		listed:  make(map[world.ChunkPos]bool),
@@ -916,14 +923,12 @@ func (s *Server) breedingParents(birth mobBirth) map[string]func() rules.LootEnt
 	}
 }
 
-// finishConversion spawns the converted body in the old one's place,
-// unfinalized (vanilla: Mob.convertTo), and plays the world event (1040
-// zombie drowned, 1041 husk, 1048 skeleton frozen).
+// finishConversion spawns the replacement and plays its conversion event.
+// vanilla: Mob.convertTo
 func (s *Server) finishConversion(cv mobConversion) {
 	old := cv.old.mob
 	id := s.nextEntity()
 	m := entity.NewMob(cv.into, id, old.X, old.Y, old.Z, s.entitySeed(id))
-	m.ConvertedFrom(old)
 	if old.Type == entity.TypeZombieVillager && cv.into == entity.TypeVillager {
 		s.zombieVillagerCured(cv, m)
 		return
@@ -936,18 +941,8 @@ func (s *Server) finishConversion(cv mobConversion) {
 		s.hoglinConverted(cv, m)
 		return
 	}
-	if entity.Family(old.Type) == entity.TypeZombie {
-		pos := world.ChunkPos{X: world.ChunkOf(old.X), Z: world.ChunkOf(old.Z)}
-		cv.w.Acquire(pos)
-		m.RollConversionAttributes(rules.SpecialMultiplier(s.effectiveDifficultyAt(cv.w, old.X, old.Z)))
-		cv.w.Release(pos)
-	}
-	if old.Type == entity.TypePiglin || old.Type == entity.TypePiglinBrute {
-		// vanilla: AbstractPiglin.finishConversion
-		m.AddEffect(effect.Instance{ID: registry.MobEffectNausea, Duration: 200})
-	}
 	if old.Type == entity.TypeTadpole {
-		ent := convertedEntity(cv.old, m, cv.w, false)
+		ent := convertedEntity(cv.old, m, cv.w, conversionParams{})
 		m.FinishTadpoleGrowth(cv.w, old, cv.w.Biome(rules.BlockOf(old.X), rules.BlockOf(old.Y), rules.BlockOf(old.Z)))
 		s.addRiddenConversion(cv.old, ent)
 		if !old.Silent {
@@ -955,7 +950,18 @@ func (s *Server) finishConversion(cv mobConversion) {
 		}
 		return
 	}
-	s.addRiddenConversion(cv.old, convertedEntity(cv.old, m, cv.w, true))
+	// vanilla: ConversionTracker.doConversion, AbstractPiglin.finishConversion
+	ent := convertedEntity(cv.old, m, cv.w, conversionParams{keepEquipment: true, keepLootPickup: true})
+	if entity.Family(old.Type) == entity.TypeZombie {
+		pos := world.ChunkPos{X: world.ChunkOf(old.X), Z: world.ChunkOf(old.Z)}
+		cv.w.Acquire(pos)
+		m.RollConversionAttributes(rules.SpecialMultiplier(s.effectiveDifficultyAt(cv.w, old.X, old.Z)))
+		cv.w.Release(pos)
+	}
+	if old.Type == entity.TypePiglin || old.Type == entity.TypePiglinBrute {
+		m.AddEffect(blowEffect(registry.MobEffectNausea, 200, 0))
+	}
+	s.addRiddenConversion(cv.old, ent)
 	event := int32(protocol.WorldEventZombieDrowned)
 	switch old.Type {
 	case entity.TypePiglin, entity.TypePiglinBrute:
@@ -991,7 +997,7 @@ func (s *Server) spawnSplitCube(sp cubeSplit) {
 	m := entity.NewMob(sp.from.mob.Type, id, sp.split.X, sp.split.Y, sp.split.Z, s.entitySeed(id))
 	m.SetSize(sp.split.Size, true)
 	m.Yaw, m.HeadYaw = sp.split.Yaw, sp.split.Yaw
-	s.addMob(convertedEntity(sp.from, m, sp.w, false))
+	s.addMob(convertedEntityCommon(sp.from, m, sp.w, false))
 }
 
 // fireMobEffectTrigger spawns a removed body's oozing slimes (capped by the
@@ -1109,31 +1115,34 @@ func (s *Server) weaveCobwebs(tr mobEffectTrigger) {
 	}
 }
 
-// convertedMobTags are saved keys a full conversion carries and a split
-// does not. Door breaking is carried ungated in vanilla; no splitting kind
-// breaks doors.
-// vanilla: ConversionType.convertCommon
-// vanilla: ConversionParams.single(this, true, true) sets the keep-flags
-var convertedMobTags = []string{"CanBreakDoors"}
+// vanilla: ConversionParams.single
+type conversionParams struct {
+	keepEquipment  bool
+	keepLootPickup bool
+}
 
-// convertedEntity wraps a converted body with what convertCommon carries
-// over (name, portal cooldown, invulnerability, unmodelled tags, NoAI,
-// persistence) under a new UUID. full (a drowned, a husk's zombie) also
-// keeps loot pickup and convertedMobTags; a split's children keep neither.
-func convertedEntity(from *mobEntity, m *entity.Mob, w *world.World, full bool) *mobEntity {
+// convertedEntity copies one body into its replacement before the conversion callback.
+// vanilla: ConversionType.SINGLE
+func convertedEntity(from *mobEntity, m *entity.Mob, w *world.World, params conversionParams) *mobEntity {
+	m.ConvertedFrom(from.mob, params.keepEquipment)
+	return convertedEntityCommon(from, m, w, params.keepLootPickup)
+}
+
+// vanilla: ConversionType.convertCommon
+func convertedEntityCommon(from *mobEntity, m *entity.Mob, w *world.World, keepLootPickup bool) *mobEntity {
 	m.SetMetadataNoAI(from.mob.NoAI)
 	m.Persistence = from.mob.Persistence
 	m.SetMetadataNoGravity(from.mob.NoGravity)
 	m.Silent = from.mob.Silent
 	m.SetMetadataLeftHanded(from.mob.LeftHanded)
 	m.Invulnerable = from.mob.Invulnerable
-	if full {
+	if keepLootPickup {
 		m.CanPickUpLoot = from.mob.CanPickUpLoot
 	}
 	// vanilla: ConversionType.convertCommon's active_effects, from the old
 	// body's live set.
 	m.InheritEffects(from.mob)
-	ent := &mobEntity{
+	return &mobEntity{
 		mob: m, w: w, uuid: uuid.New(),
 		name: from.name, nameVisible: from.nameVisible,
 		portal:            rules.EntityPortal{Cooldown: from.portal.Cooldown},
@@ -1143,20 +1152,6 @@ func convertedEntity(from *mobEntity, m *entity.Mob, w *world.World, full bool) 
 		// The lead's name goes with a holder the caller copies over.
 		leash: from.leash, leashOf: from.leashOf,
 	}
-	carry := func(key string) {
-		if tag, ok := from.saved[key]; ok {
-			if ent.saved == nil {
-				ent.saved = nbt.Compound{}
-			}
-			ent.saved[key] = tag
-		}
-	}
-	if full {
-		for _, key := range convertedMobTags {
-			carry(key)
-		}
-	}
-	return ent
 }
 
 // mobTrample is one mob's landing in a tick: where, its size and the fall
@@ -2614,16 +2609,7 @@ func (s *Server) mobByEntityID(w *world.World, id int32) *mobEntity {
 
 // mobByEntityIDLocked is mobByEntityID for a caller already holding mobsMu.
 func (s *Server) mobByEntityIDLocked(w *world.World, id int32) *mobEntity {
-	h := s.herdOf(w)
-	if ent := h.byID[id]; ent != nil {
-		return ent
-	}
-	for m, ent := range h.dragonBodies {
-		if id > m.ID && id <= m.ID+8 {
-			return ent
-		}
-	}
-	return nil
+	return s.herdOf(w).byID[id]
 }
 
 // mobNameByID is the display name of the mob with this ID in w, false for
@@ -4031,16 +4017,8 @@ func (s *Server) convertShearedMooshroom(ent *mobEntity) {
 		removeEntitiesPayload([]int32{ent.mob.ID}))
 	id := s.nextEntity()
 	m := entity.NewMob(entity.TypeCow, id, x, y, z, s.entitySeed(id))
-	m.ConvertedFrom(ent.mob)
-	// keepEquipment false only skips the copy: the old body is removed without
-	// loot, so its gear is gone, not dropped.
-	// vanilla: ConversionType.single's keepEquipment
-	for slot := range 6 {
-		m.SetEquipment(slot, protocol.ItemStack{})
-	}
-	m.ResetDropChances()
+	cow := convertedEntity(ent, m, ent.w, conversionParams{})
 	m.LeashHolderID = holder
-	cow := convertedEntity(ent, m, ent.w, false)
 	cow.convertTeam = team
 	s.addRiddenConversion(ent, cow)
 }
