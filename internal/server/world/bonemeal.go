@@ -270,7 +270,7 @@ func (p *Physics) growCrop(x, y, z int32, state uint16, changes *[]BlockChange) 
 		return nil, true
 	case registry.BlockCrimsonNylium, registry.BlockWarpedNylium:
 		// vanilla: NyliumBlock
-		if !p.airAt(x, y+1, z) || !contains(y+1) {
+		if !p.airAt(x, y+1, z) || !p.w.inBuildHeight(y+1) {
 			return nil, false
 		}
 		p.placeGrownFeature("nylium_bonemeal", false, x, y+1, z, nil, changes)
@@ -302,7 +302,7 @@ func (p *Physics) growCrop(x, y, z int32, state uint16, changes *[]BlockChange) 
 		if block == registry.BlockWarpedFungus {
 			required, key = registry.BlockWarpedNylium, "warped_fungus_planted"
 		}
-		if below != required || !contains(y+1) {
+		if below != required || !p.w.inBuildHeight(y+1) {
 			return nil, false
 		}
 		if p.rng.Float32() < 0.4 { // vanilla: NetherFungusBlock.isBonemealSuccess
@@ -312,14 +312,15 @@ func (p *Physics) growCrop(x, y, z int32, state uint16, changes *[]BlockChange) 
 	case registry.BlockBrownMushroom, registry.BlockRedMushroom:
 		// vanilla: MushroomBlock.growMushroom; a failed feature leaves the
 		// mushroom standing, as vanilla puts it back.
-		if !contains(y + 1) {
+		key := "huge_brown_mushroom"
+		if block == registry.BlockRedMushroom {
+			key = "huge_red_mushroom"
+		}
+		radius, ok := bonemealMushroomRadius(key)
+		if !ok || !p.w.inBuildHeight(y+4+radius) {
 			return nil, false
 		}
 		if p.rng.Float32() < 0.4 { // vanilla: MushroomBlock.isBonemealSuccess
-			key := "huge_brown_mushroom"
-			if block == registry.BlockRedMushroom {
-				key = "huge_red_mushroom"
-			}
 			p.placeGrownFeature(key, true, x, y, z, []BlockChange{{X: x, Y: y, Z: z, State: airState}}, changes)
 		}
 		return nil, true
@@ -500,7 +501,7 @@ func (p *Physics) tallPlantFits(x, y, z int32) bool {
 	if !registry.BlockOf(p.w.BlockAt(x, y-1, z)).InTag(registry.TagIDSupportsVegetation) {
 		return false
 	}
-	return p.airAt(x, y+1, z) && contains(y+1)
+	return p.airAt(x, y+1, z) && p.w.inBuildHeight(y+1)
 }
 
 // placeDoublePlant writes both halves with flag 2.

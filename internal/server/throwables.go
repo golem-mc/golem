@@ -261,7 +261,7 @@ func (c *client) handleUseThrown(hand int32) bool {
 	// thrower's feet, at the pitch the item's own roll gives it — the
 	// player's random in vanilla, and one of the server's own here.
 	// vanilla: SnowballItem.use, EggItem.use, EnderpearlItem.use
-	pitchRng := rand.New(rand.NewSource(seed))
+	pitchRng := entity.NewDice(seed)
 	c.srv.broadcastSoundID(c.theWorld(), sound, soundCategory,
 		pos.X, pos.Y, pos.Z, thrownSoundVolume,
 		float32(0.4/(pitchRng.Float64()*0.4+0.8)))
@@ -445,7 +445,7 @@ func (s *Server) summonThrown(w *world.World, name string, x, y, z float64, tag 
 	if tagged == nil {
 		tagged = nbt.Compound{}
 	}
-	if item, carried := nbt.Get[nbt.Compound](tagged, "Item"); carried {
+	if item, carried := nbt.Get[nbt.Compound](tagged, "Item"); carried && kind != entity.ThrownLlamaSpit {
 		// The id is qualified the way a resource location parses, so an
 		// Item written without a namespace still names the item it meant.
 		if id, ok := nbt.Get[nbt.String](item, "id"); ok {
@@ -515,16 +515,11 @@ func thrownIsSaved(it *thrownEntity) bool {
 	return ok
 }
 
-// thrownOfTag builds the thrown body a saved compound describes, or nil for
+// thrownOfTag builds the thrown body of the saved kind and id a compound describes, or nil for
 // one with no place, identity or stack. The owner's entity ID is resolved
 // when the wake registers it.
 // vanilla: ThrowableItemProjectile.readAdditionalSaveData
-func (s *Server) thrownOfTag(w *world.World, compound nbt.Compound) *thrownEntity {
-	id, _ := nbt.Get[nbt.String](compound, "id")
-	kind, ok := savedThrownKind(string(id))
-	if !ok {
-		return nil
-	}
+func (s *Server) thrownOfTag(w *world.World, kind entity.ThrownKind, id string, compound nbt.Compound) *thrownEntity {
 	x, y, z, ok := entityPositionOfTag(compound)
 	if !ok {
 		return nil
@@ -537,7 +532,7 @@ func (s *Server) thrownOfTag(w *world.World, compound nbt.Compound) *thrownEntit
 	// vanilla: ThrowableItemProjectile.getItem, getDefaultItem
 	stack, ok := storedItemStackOf(compound)
 	if !ok || stack.Empty() {
-		item, found := registry.ItemID(thrownDefaultItem(kind, string(id)))
+		item, found := registry.ItemID(thrownDefaultItem(kind, id))
 		if !found {
 			return nil
 		}

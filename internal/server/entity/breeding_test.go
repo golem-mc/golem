@@ -1,7 +1,6 @@
 package entity
 
 import (
-	"math/rand"
 	"testing"
 )
 
@@ -31,7 +30,7 @@ func TestBreedCourtshipTiming(t *testing.T) {
 				a.Rand.Seed(seed)
 				want := 59 // 30 alternate updates, including the starting tick.
 				if kind == TypeAxolotl {
-					want = 61 + rand.New(rand.NewSource(seed)).Intn(50) // Include the start tick before the duration elapses.
+					want = 61 + NewDice(seed).Intn(50) // Include the start tick before the duration elapses.
 				}
 				tv := breedTickView(a, b)
 				var bredAt int

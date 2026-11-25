@@ -42,9 +42,24 @@ func metaOfMannequin(t *testing.T, meta []servertest.MetaEntry, index uint8) *se
 
 // mannequinArrival is a mannequin as the watcher is first shown it.
 type mannequinArrival struct {
-	id      int32
-	x, y, z float64
-	meta    []servertest.MetaEntry
+	id         int32
+	x, y, z    float64
+	vx, vy, vz float64
+	meta       []servertest.MetaEntry
+}
+
+// mannequinSpawnOf decodes an Add Entity, reporting whether it is a mannequin's.
+func mannequinSpawnOf(data []byte) (mannequinArrival, bool) {
+	r := protocol.NewReader(data)
+	var got mannequinArrival
+	got.id = r.ReadVarInt()
+	r.ReadUUID()
+	if r.ReadVarInt() != protocol.EntityTypeMannequin {
+		return mannequinArrival{}, false
+	}
+	got.x, got.y, got.z = r.ReadF64(), r.ReadF64(), r.ReadF64()
+	got.vx, got.vy, got.vz = r.ReadLpVec3()
+	return got, true
 }
 
 // awaitMannequin runs ticks until the client has been sent a mannequin's
@@ -57,11 +72,8 @@ func awaitMannequin(t *testing.T, c *servertest.Client, srv *server.Server) mann
 		r := protocol.NewReader(data)
 		switch id {
 		case protocol.IDPlaySpawnEntity:
-			entityID := r.ReadVarInt()
-			r.ReadUUID()
-			if r.ReadVarInt() == protocol.EntityTypeMannequin {
-				got.id, got.x, got.y, got.z = entityID, r.ReadF64(), r.ReadF64(), r.ReadF64()
-				spawned = true
+			if arrival, ok := mannequinSpawnOf(data); ok {
+				got, spawned = arrival, true
 			}
 		case protocol.IDPlayEntityMetadata:
 			if spawned && r.ReadVarInt() == got.id {
@@ -277,10 +289,8 @@ func TestATeleportedMannequinMovesForItsWatcher(t *testing.T) {
 		}
 		hr := protocol.NewReader(turned)
 		hr.ReadVarInt()
-		r := protocol.NewReader(moved)
-		r.ReadVarInt()
-		r.ReadVarInt() // position path
-		return r.ReadF64(), r.ReadF64(), r.ReadF64(), r.ReadF32(), r.ReadF32(), hr.ReadU8()
+		sync := servertest.ParseEntityPositionSync(moved)
+		return sync.X, sync.Y, sync.Z, sync.Yaw, sync.Pitch, hr.ReadU8()
 	}
 
 	if x, y, z, yaw, pitch, head := readMove("teleport", `tp @e[type=mannequin,limit=1] 3.5 64 1.5 90 30`); x != 3.5 || y != 64 || z != 1.5 || yaw != 90 || pitch != 30 || head != 64 {

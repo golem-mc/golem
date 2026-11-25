@@ -14,19 +14,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// The wire number of the saddle's equipment slot.
-// vanilla: EquipmentSlot.SADDLE
-const saddleEquipmentSlot = 7
-
-// saddlePayload is the Set Equipment packet of a mob's saddle slot (a copper golem's antenna).
-func saddlePayload(m *entity.Mob) []byte {
-	var b protocol.Buffer
-	b.PutVarInt(m.ID)
-	b.PutU8(saddleEquipmentSlot)
-	b.PutSlot(m.SaddleSlot())
-	return b.Bytes()
-}
-
 // ridingMob reports whether the player sits on a mob.
 func (c *client) ridingMob() bool { return c.mount.Load() != nil }
 
@@ -157,18 +144,15 @@ func (c *client) useOnHorse(ent *mobEntity, hand int32, held protocol.ItemStack,
 	return false, nil
 }
 
-// feedHorse feeds the horse the held food: a meal that does anything is
-// spent outside creative, shows the hearts if love began, plays the eating
-// sound, posts the eat event and swings the arm (SUCCESS_SERVER); one that
-// does nothing passes.
-// vanilla: AbstractHorse.fedFood, AbstractHorse.handleEating, AbstractHorse.eating
+// feedHorse returns whether the meal consumed the interaction.
+// vanilla: AbstractHorse.fedFood, AbstractHorse.handleEating, Mob.interact
 func (c *client) feedHorse(ent *mobEntity, hand int32, held protocol.ItemStack) (bool, error) {
 	s := c.srv
 	s.mobsMu.Lock()
 	m := ent.mob
 	ate, loved := m.FeedHorse(ent.w, held.ItemID)
 	if loved {
-		ent.loveCause = c.player.UUID
+		ent.mob.SetLoveCause(c.player.UUID)
 	}
 	sound, pitch := protocol.SoundHolder{ID: -1}, float32(0)
 	if ate && !m.Silent {
@@ -176,6 +160,7 @@ func (c *client) feedHorse(ent *mobEntity, hand int32, held protocol.ItemStack) 
 		pitch = 1 + (m.Rand.Float32()-m.Rand.Float32())*0.2
 	}
 	x, y, z := m.X, m.Y, m.Z
+	isLlama := entity.IsLlama(m.Type)
 	s.mobsMu.Unlock()
 	if !ate {
 		return false, nil
@@ -186,10 +171,14 @@ func (c *client) feedHorse(ent *mobEntity, hand int32, held protocol.ItemStack) 
 	if sound.ID >= 0 || sound.Name != "" {
 		s.broadcastSoundHolder(ent.w, sound, protocol.SoundCategoryNeutral, x, y, z, 1, pitch)
 	}
-	s.gameEvent(ent.w, rules.GameEventEat, x, y, z, rules.GameEventContext{Mob: ent.uuid})
+	// vanilla: Llama.handleEating plays the sound without posting EAT.
+	if !isLlama {
+		s.gameEvent(ent.w, rules.GameEventEat, x, y, z, rules.GameEventContext{Mob: ent.uuid})
+	}
 	if err := c.consumeHeldOutsideCreative(hand); err != nil {
 		return true, err
 	}
+	s.gameEvent(ent.w, rules.GameEventEntityInteract, x, y, z, c.gameEventContext(0))
 	c.useSwing = swingServer
 	return true, nil
 }

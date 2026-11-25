@@ -128,14 +128,14 @@ func (m *Mob) wolfWetStep(w World, events []MobEvent) []MobEvent {
 	return events
 }
 
-// wolfPrey is Wolf.PREY_SELECTOR; the fox is matched by name.
-func wolfPrey(o *Mob) bool {
-	return o.Type == TypeSheep || o.Type == TypeRabbit || o.Type == registry.EntityTypeFox
-}
+// vanilla: Wolf.PREY_SELECTOR
+var wolfPreyKinds = []MobType{TypeSheep, TypeRabbit, TypeFox}
+
+var skeletonKinds = mobKindsMatching(isSkeletonKind)
 
 // isSkeletonKind is AbstractSkeleton.
-func isSkeletonKind(o *Mob) bool {
-	switch o.Type {
+func isSkeletonKind(kind MobType) bool {
+	switch kind {
 	case TypeSkeleton, TypeStray, TypeBogged, TypeParched, TypeWitherSkeleton:
 		return true
 	}
@@ -173,13 +173,11 @@ func wolfGoals(m *Mob) []Goal {
 		&leapAtTargetGoal{m: m, priority: wolfPriorityLeap},
 		&nearestTargetGoal{m: m, priority: 4, accept: func(t *tickView, p *Player) bool { return m.angryAt(t.w, p) }},
 		&meleeAttackGoal{m: m, priority: wolfPriorityMelee, followUnseen: true},
-		&mobTargetGoal{m: m, priority: 5, wildOnly: true, unsighted: true, matches: wolfPrey},
+		&mobTargetGoal{m: m, priority: 5, wildOnly: true, unsighted: true, kinds: wolfPreyKinds},
 		&followOwnerGoal{m: m},
-		&mobTargetGoal{m: m, priority: 6, wildOnly: true, unsighted: true, matches: func(o *Mob) bool {
-			return o.Type == TypeTurtle && o.IsBaby() && !o.InWater()
-		}},
+		&mobTargetGoal{m: m, priority: 6, wildOnly: true, unsighted: true, kinds: babyTurtleKinds, matches: isBabyTurtleAshore},
 		&breedGoal{m: m, priority: wolfPriorityBreed},
-		&mobTargetGoal{m: m, priority: 7, unsighted: true, matches: isSkeletonKind},
+		&mobTargetGoal{m: m, priority: 7, unsighted: true, kinds: skeletonKinds},
 		&randomStroll{m: m, priority: wolfPriorityStroll},
 		&resetAngerGoal{m: m, alertSame: true, priority: 8},
 		&begGoal{m: m},

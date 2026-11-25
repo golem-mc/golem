@@ -15,8 +15,9 @@ import (
 // LootTable is one loot table: its pools in order, and the functions every
 // stack they produce passes through after the pools' own.
 type LootTable struct {
-	Pools     []LootPool
-	Functions []LootFunction
+	RandomSequence string
+	Pools          []LootPool
+	Functions      []LootFunction
 }
 
 // LootPool is one roll of a table: its entries, its conditions, and the
@@ -182,24 +183,25 @@ type LootItemEntry struct {
 	Functions  []LootFunction
 }
 
-// LootAlternatives is the cascade: the first child whose conditions hold
-// wins and the rest are not asked.
+// LootAlternatives collects candidates in order until a child succeeds.
 type LootAlternatives struct {
 	Children   []LootEntry
 	Conditions []LootCondition
+	Functions  []LootFunction // applied to every stack a child produces
 }
 
 // LootGroup is every child, each its own candidate of the roll, in order.
 type LootGroup struct {
 	Children   []LootEntry
 	Conditions []LootCondition
+	Functions  []LootFunction // applied to every stack a child produces
 }
 
-// LootSequence is every child in order, all or nothing: the first child
-// whose conditions refuse ends the sequence.
+// LootSequence collects candidates in order until a child fails.
 type LootSequence struct {
 	Children   []LootEntry
 	Conditions []LootCondition
+	Functions  []LootFunction // applied to every stack a child produces
 }
 
 // LootEmpty is an entry that produces nothing but can still take the roll.

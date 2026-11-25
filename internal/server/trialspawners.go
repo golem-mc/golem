@@ -19,8 +19,7 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// trialHost is entity.TrialHost for one dimension during one block entity
-// pass; players and mobs are read once, not per spawner.
+// trialHost is entity.TrialHost for one dimension during one block entity pass.
 type trialHost struct {
 	s       *Server
 	dim     *dimension
@@ -28,7 +27,6 @@ type trialHost struct {
 	now     int64
 	clients []*client
 	read    bool
-	mobs    map[uuid.UUID]*entity.Mob
 }
 
 func (h *trialHost) GameTime() int64 { return h.now }
@@ -83,23 +81,23 @@ func (h *trialHost) LineClear(x, y, z int32, px, py, pz float64) bool {
 }
 
 func (h *trialHost) Mob(id uuid.UUID) (entity.TrialMob, bool) {
-	if h.mobs == nil {
-		h.mobs = make(map[uuid.UUID]*entity.Mob)
-		h.s.mobsMu.Lock()
-		herd := h.dim.mobs
-		for _, m := range herd.herd {
-			if ent := herd.book[m]; ent != nil {
-				h.mobs[ent.uuid] = m
-			}
-		}
-		h.s.mobsMu.Unlock()
-	}
-	m := h.mobs[id]
+	h.s.mobsMu.Lock()
+	defer h.s.mobsMu.Unlock()
+	m := h.mobLocked(id)
 	if m == nil {
 		return entity.TrialMob{}, false
 	}
 	_, minY, _, _, maxY, _ := m.BlastBox()
 	return entity.TrialMob{X: m.X, Y: m.Y, Z: m.Z, Height: maxY - minY, Alive: m.Alive()}, true
+}
+
+func (h *trialHost) mobLocked(id uuid.UUID) *entity.Mob {
+	herd := h.dim.mobs
+	m := herd.byUUID[id]
+	if m == nil || herd.book[m] == nil {
+		return nil
+	}
+	return m
 }
 
 func (h *trialHost) StandUp(kind entity.MobType, x, y, z float64, yaw float32, tag nbt.Compound, plain bool, equip func(*entity.Mob)) (uuid.UUID, bool) {
@@ -124,9 +122,6 @@ func (h *trialHost) StandUp(kind entity.MobType, x, y, z float64, yaw float32, t
 	ent := h.s.mobByEntityID(h.dim.w, id)
 	if ent == nil {
 		return uuid.Nil, false
-	}
-	if h.mobs != nil {
-		h.mobs[ent.uuid] = ent.mob
 	}
 	h.s.postEntityPlace(h.dim.w, id)
 	return ent.uuid, true
@@ -178,12 +173,12 @@ func (h *trialHost) BadOmenToTrialOmen(id uuid.UUID) {
 // Discard drops the mob's preserved equipment and removes it.
 // vanilla: Mob.dropPreservedEquipment, Entity.remove(DISCARDED)
 func (h *trialHost) Discard(id uuid.UUID) (x, y, z float64, ok bool) {
-	h.Mob(id)
-	m := h.mobs[id]
+	h.s.mobsMu.Lock()
+	m := h.mobLocked(id)
 	if m == nil {
+		h.s.mobsMu.Unlock()
 		return 0, 0, 0, false
 	}
-	h.s.mobsMu.Lock()
 	drops := m.TakePreservedEquipment()
 	m.Discard()
 	x, y, z = m.X, m.Y, m.Z

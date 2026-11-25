@@ -141,9 +141,9 @@ func (m *Mob) jumpStep(w World) {
 		inWater := m.InWater() && fluidHeight > 0
 		threshold := m.fluidJumpThreshold()
 		if inWater && (!m.OnGround || fluidHeight > threshold) {
-			m.jumpInLiquid()
+			m.jumpInLiquid(fluidWater)
 		} else if m.InLava() && (!m.OnGround || m.lavaFluid.height > threshold) {
-			m.jumpInLiquid()
+			m.jumpInLiquid(fluidLava)
 		} else if (m.OnGround || inWater && fluidHeight <= threshold) && m.noJumpDelay == 0 {
 			m.jumpFromGround(blockJumpFactor(w, m.X, m.Y, m.Z))
 			m.noJumpDelay = 10
@@ -413,6 +413,13 @@ func (m *Mob) move(w World, dx, dy, dz float64) {
 	if dx != 0 || dz != 0 {
 		m.moveHorizontal(w, ctx, dx, dz)
 	}
+	if dy == 0 && (!m.GroundGuess || m.Age > 1) {
+		// vanilla: Entity.move, setOnGroundWithMovement: only a downward move
+		// that collides leaves the flag set. Cleared after moveHorizontal,
+		// which steps up on the flag the move started with. A guessed flag
+		// survives the spawn's first tick, which callers rely on.
+		m.OnGround = false
+	}
 
 	// The block's speed factor scales the horizontal velocity after the move;
 	// then the cells the box ended in set the next move's stuck multiplier.
@@ -623,8 +630,12 @@ func (m *Mob) pushStep(w World, players []Player, others []*Mob, events []MobEve
 	if g := m.push; g != nil {
 		pack = g.candidates(m, 0)
 	}
+	window := NewSectionWindow(m.X-bw/2, m.X+bw/2, m.Y, m.Y+h, m.Z-bw/2, m.Z+bw/2)
 	for _, other := range pack {
 		if other == nil || other == m || !other.Pushable() {
+			continue
+		}
+		if !window.holds(other) {
 			continue
 		}
 		if !boxesOverlap(m.X, m.Y, m.Z, bw, h,
@@ -764,6 +775,9 @@ func cellKey(x, z int) pushCellKey {
 	return pushCellKey(int64(x)<<32 | int64(uint32(z)))
 }
 
+// keyCoords is cellKey's inverse.
+func keyCoords(k pushCellKey) (x, z int) { return int(int32(int64(k) >> 32)), int(int32(k)) }
+
 // cellCoords is the cell's x and z.
 func cellCoords(x, z float64) (cx, cz int) {
 	return int(math.Floor(x / pushCellSide)), int(math.Floor(z / pushCellSide))
@@ -784,8 +798,14 @@ type pushEntry struct {
 	minZ, maxZ float64
 }
 
-func entryOf(m *Mob) pushEntry {
+func (g *pushGrid) entryOf(m *Mob) pushEntry {
 	hw := m.width() / 2
+	if hw > g.wide {
+		g.wide = hw
+	}
+	if hw > g.shellWide && m.IsShulker() {
+		g.shellWide = hw
+	}
 	return pushEntry{
 		m:    m,
 		minX: m.X - hw, maxX: m.X + hw,
@@ -804,20 +824,26 @@ type pushGrid struct {
 	crowd *PushCrowd
 	cells map[pushCellKey][]pushEntry
 	// dense covers compact herds; cells then holds only moves outside its bounds.
-	dense                    []pushBucket
-	entries                  []pushEntry
-	minX, minZ, sizeX, sizeZ int
+	dense   []pushBucket
+	entries []pushEntry
+	rect    denseRect
+	// present marks the types in the snapshot, set by build.
+	present [registry.EntityTypeCount]bool
 	// byID is the snapshot by entity ID, the first mob filed winning a
 	// shared ID; kept between ticks like cells.
 	byID map[int32]*Mob
-	// wide is the widest fully grown half-width in the herd, which widens the
-	// scanned ring so pairs stay exact with a chonky cube present.
-	wide float64
-	// shulkers is whether the herd holds a shulker, whose open shell reaches
-	// past the box the cells hold.
-	shulkers bool
+	// wide bounds the half-width of every box filed this tick, shellWide
+	// that of every shulker's.
+	wide, shellWide float64
+	// caravan is the snapshot's llamas that are leashed or in a caravan, plus
+	// those that joined one this tick: the only ones a caravan goal can pick.
+	caravan []*Mob
+	// keys is the sparse query's scratch of occupied cells.
+	keys []pushCellKey
 	// near is the candidates' scratch, reused gathering to gathering.
 	near []*Mob
+	// shove is a shell's push candidates; o.move queries near meanwhile.
+	shove []*Mob
 	// gathered, when set, adds up the candidates handed out.
 	gathered *int
 	// spare holds emptied cell slices a new cell can take.
@@ -834,6 +860,10 @@ type pushBucket struct {
 
 // build files the snapshot in order, using at most four cell heads per mob.
 func (g *pushGrid) build(mobs []*Mob) {
+	g.present = [registry.EntityTypeCount]bool{}
+	for _, m := range mobs {
+		g.present[m.Type] = true
+	}
 	if len(mobs) == 0 {
 		return
 	}
@@ -844,15 +874,11 @@ func (g *pushGrid) build(mobs []*Mob) {
 		minX, minZ = min(minX, x), min(minZ, z)
 		maxX, maxZ = max(maxX, x), max(maxZ, z)
 	}
-	nx, nz := maxX-minX+1, maxZ-minZ+1
-	limit := 4 * len(mobs)
-	// Divide before multiplying: widely scattered coordinates must not overflow.
-	if nx > 0 && nz > 0 && nx <= limit && nz <= limit/nx {
-		g.minX, g.minZ, g.sizeX, g.sizeZ = minX, minZ, nx, nz
-		g.dense = slices.Grow(g.dense, nx*nz)[:nx*nz]
+	if total, ok := g.rect.set(minX, maxX, minZ, maxZ, 4*len(mobs)); ok {
+		g.dense = slices.Grow(g.dense, total)[:total]
 		for _, m := range mobs {
 			x, z := cellCoords(m.X, m.Z)
-			g.dense[(x-minX)*nz+z-minZ].count++
+			g.dense[g.rect.row(x)+z-g.rect.minZ].count++
 		}
 		g.entries = slices.Grow(g.entries, len(mobs))[:len(mobs)]
 		offset := 0
@@ -873,11 +899,7 @@ func (g *pushGrid) build(mobs []*Mob) {
 
 // denseIndex returns -1 outside the tick's dense rectangle.
 func (g *pushGrid) denseIndex(cell pushCellKey) int {
-	x, z := int(int32(int64(cell)>>32))-g.minX, int(int32(cell))-g.minZ
-	if uint(x) < uint(g.sizeX) && uint(z) < uint(g.sizeZ) {
-		return x*g.sizeZ + z
-	}
-	return -1
+	return g.rect.index(int(int32(int64(cell)>>32)), int(int32(cell)))
 }
 
 func (g *pushGrid) cell(cell pushCellKey) []pushEntry {
@@ -931,11 +953,15 @@ func (g *pushGrid) reset() {
 	g.dense = g.dense[:0]
 	clear(g.entries)
 	g.entries = g.entries[:0]
-	g.sizeX, g.sizeZ = 0, 0
+	g.rect.reset()
 	clear(g.byID)
 	clear(g.near[:cap(g.near)])
 	g.near = g.near[:0]
-	g.wide, g.shulkers, g.gathered, g.crammingSet, g.crowd = 0, false, nil, false, nil
+	clear(g.shove[:cap(g.shove)])
+	g.shove = g.shove[:0]
+	clear(g.caravan)
+	g.caravan = g.caravan[:0]
+	g.wide, g.shellWide, g.gathered, g.crammingSet, g.crowd = 0, 0, nil, false, nil
 }
 
 // file appends e to cell and returns its slot.
@@ -961,21 +987,16 @@ func (g *pushGrid) file(cell pushCellKey, e pushEntry) int {
 	return len(c)
 }
 
-// add buckets a snapshot mob with its index and widens wide by its fully
-// grown half-width, scale attribute included.
+// add buckets a snapshot mob with its index.
 func (g *pushGrid) add(m *Mob, idx int) {
 	m.pushIdx = idx
 	m.pushCell = cellOf(m.X, m.Z)
-	m.pushSlot = g.file(m.pushCell, entryOf(m))
+	m.pushSlot = g.file(m.pushCell, g.entryOf(m))
+	if (m.inCaravan() || m.leashed()) && IsLlama(m.Type) {
+		g.caravan = append(g.caravan, m)
+	}
 	if _, ok := g.byID[m.ID]; !ok {
 		g.byID[m.ID] = m
-	}
-	hw := m.kind().width * m.scale() * m.attrScale() / 2
-	if hw > g.wide {
-		g.wide = hw
-	}
-	if m.Type == TypeShulker {
-		g.shulkers = true
 	}
 }
 
@@ -994,14 +1015,14 @@ func (g *pushGrid) moved(m *Mob) {
 		g.setCell(m.pushCell, c[:last])
 	}
 	m.pushCell = cell
-	m.pushSlot = g.file(cell, entryOf(m))
+	m.pushSlot = g.file(cell, g.entryOf(m))
 }
 
 // refresh rewrites a mob's box copy; a mob not in the grid (added after the
 // snapshot) is ignored.
 func (g *pushGrid) refresh(m *Mob) {
 	if c := g.cell(m.pushCell); m.pushSlot < len(c) && c[m.pushSlot].m == m {
-		c[m.pushSlot] = entryOf(m)
+		c[m.pushSlot] = g.entryOf(m)
 	}
 }
 
@@ -1011,7 +1032,7 @@ func (g *pushGrid) refresh(m *Mob) {
 // keeps the sort small. The result is scratch valid until the next query.
 func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
 	g.gather(m, inflate)
-	slices.SortFunc(g.near, func(a, b *Mob) int { return cmp.Compare(a.pushIdx, b.pushIdx) })
+	sortSnapshot(g.near)
 	return g.near
 }
 
@@ -1019,45 +1040,101 @@ func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
 // overlap the box, in no set order (pushIdx is each one's snapshot order).
 // The result is scratch valid until the next query.
 func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
-	g.near = g.near[:0]
-	hw := m.kind().width * m.scale() * m.attrScale() / 2
-	r := int(math.Ceil((hw + g.wide + inflate) / pushCellSide))
-	cx, cz := cellCoords(m.X, m.Z)
+	hw := m.width() / 2
 	// The same sums boxesOverlap does, once for the query.
-	qw, qh := m.width()/2+inflate, m.height()+inflate
-	qMinX, qMaxX := m.X-qw, m.X+qw
-	qMinY, qMaxY := m.Y-inflate, m.Y+qh
-	qMinZ, qMaxZ := m.Z-qw, m.Z+qw
+	qw, qh := hw+inflate, m.height()+inflate
+	box := AABB{m.X - qw, m.Y - inflate, m.Z - qw, m.X + qw, m.Y + qh, m.Z + qw}
+	return g.gatherBox(box)
+}
+
+// collectInto appends to dst the mobs in cells x0..x1 by z0..z1 whose box
+// crosses box, visiting cells in cell order (in key order when the rectangle
+// is much larger than the occupied cells), and counts the entries it looked
+// at.
+func (g *pushGrid) collectInto(dst []*Mob, x0, x1, z0, z1 int, box AABB) []*Mob {
 	seen := 0
-	collect := func(c []pushEntry) {
-		seen += len(c)
-		for i := range c {
-			o := &c[i]
-			if qMaxX > o.minX && qMinX < o.maxX && qMaxY > o.minY && qMinY < o.maxY && qMaxZ > o.minZ && qMinZ < o.maxZ {
-				g.near = append(g.near, o.m)
+	if g.rect.active() && len(g.cells) == 0 {
+		loX, hiX, loZ, hiZ := g.rect.clip(x0, x1, z0, z1)
+		for x := loX; x <= hiX; x++ {
+			row := g.rect.row(x)
+			for z := loZ; z <= hiZ; z++ {
+				dst = overlapping(dst, g.dense[row+z-g.rect.minZ].entries, box, &seen)
 			}
 		}
-	}
-	if len(g.dense) > 0 && len(g.cells) == 0 {
-		for x := max(cx-r, g.minX); x <= min(cx+r, g.minX+g.sizeX-1); x++ {
-			row := (x - g.minX) * g.sizeZ
-			for z := max(cz-r, g.minZ); z <= min(cz+r, g.minZ+g.sizeZ-1); z++ {
-				collect(g.dense[row+z-g.minZ].entries)
+	} else if w, h := x1-x0+1, z1-z0+1; w*h > len(g.cells)+len(g.dense) {
+		// A wide body makes the square far larger than the occupied cells:
+		// visit those in cell order instead.
+		g.keys = g.keys[:0]
+		for k := range g.cells {
+			if x, z := keyCoords(k); x >= x0 && x <= x1 && z >= z0 && z <= z1 {
+				g.keys = append(g.keys, k)
 			}
+		}
+		loX, hiX, loZ, hiZ := g.rect.clip(x0, x1, z0, z1)
+		for x := loX; x <= hiX; x++ {
+			row := g.rect.row(x)
+			for z := loZ; z <= hiZ; z++ {
+				if len(g.dense[row+z-g.rect.minZ].entries) > 0 {
+					g.keys = append(g.keys, cellKey(x, z))
+				}
+			}
+		}
+		slices.SortFunc(g.keys, func(a, b pushCellKey) int {
+			ax, az := keyCoords(a)
+			bx, bz := keyCoords(b)
+			return cmp.Or(cmp.Compare(ax, bx), cmp.Compare(az, bz))
+		})
+		for _, k := range g.keys {
+			dst = overlapping(dst, g.cell(k), box, &seen)
 		}
 	} else {
 		// Mixed dense and overflow cells still traverse in cell order before
 		// sorting, including ties from bodies outside the snapshot.
-		for x := cx - r; x <= cx+r; x++ {
-			for z := cz - r; z <= cz+r; z++ {
-				collect(g.cell(cellKey(x, z)))
+		for x := x0; x <= x1; x++ {
+			for z := z0; z <= z1; z++ {
+				dst = overlapping(dst, g.cell(cellKey(x, z)), box, &seen)
 			}
 		}
 	}
 	if g.gathered != nil {
 		*g.gathered += seen
 	}
+	return dst
+}
+
+// overlapping appends to dst the mobs in c whose box crosses box and adds
+// len(c) to seen.
+func overlapping(dst []*Mob, c []pushEntry, box AABB, seen *int) []*Mob {
+	*seen += len(c)
+	for i := range c {
+		o := &c[i]
+		if box.maxX > o.minX && box.minX < o.maxX && box.maxY > o.minY && box.minY < o.maxY && box.maxZ > o.minZ && box.minZ < o.maxZ {
+			dst = append(dst, o.m)
+		}
+	}
+	return dst
+}
+
+// gatherBox collects the mobs whose box crosses box, in no set order (sort by
+// pushIdx where the order is observable). The result is scratch valid until
+// the next query.
+func (g *pushGrid) gatherBox(box AABB) []*Mob {
+	g.near = g.gatherBoxInto(g.near[:0], box, g.wide)
 	return g.near
+}
+
+// gatherBoxInto appends to dst the mobs whose box crosses box, searching the
+// cells whose centres lie within reach of it: g.wide finds every kind,
+// g.shellWide only shulkers.
+func (g *pushGrid) gatherBoxInto(dst []*Mob, box AABB, reach float64) []*Mob {
+	x0, z0 := cellCoords(box.minX-reach, box.minZ-reach)
+	x1, z1 := cellCoords(box.maxX+reach, box.maxZ+reach)
+	return g.collectInto(dst, x0, x1, z0, z1, box)
+}
+
+// sortSnapshot orders mobs as the whole-herd scan visits them.
+func sortSnapshot(mobs []*Mob) {
+	slices.SortFunc(mobs, func(a, b *Mob) int { return cmp.Compare(a.pushIdx, b.pushIdx) })
 }
 
 // boxesOverlap is the AABB intersection the pushable list is gathered by.

@@ -1,8 +1,6 @@
 package entity
 
 import (
-	"math/rand"
-
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
 )
@@ -17,7 +15,7 @@ func (m *Mob) rollInfested() {
 		return
 	}
 	if m.infestRng == nil {
-		m.infestRng = rand.New(rand.NewSource(m.Rand.Int63()))
+		m.infestRng = NewDice(m.Rand.Int63())
 	}
 	r := m.infestRng
 	if r.Float32() > rules.InfestedChance {
@@ -32,4 +30,4 @@ func (m *Mob) rollInfested() {
 }
 
 // SeedInfested replaces the dice the infested effect rolls on.
-func (m *Mob) SeedInfested(seed int64) { m.infestRng = rand.New(rand.NewSource(seed)) }
+func (m *Mob) SeedInfested(seed int64) { m.infestRng = NewDice(seed) }

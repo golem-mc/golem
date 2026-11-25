@@ -60,7 +60,7 @@ func (m *Mannequin) EnvironmentStep(w World, hurt func(float64, registry.DamageT
 		return applyLivingEffect(in, protocol.EntityTypeMannequin, m.Health, m.HealthCap(), m.Absorption, m.Heal, hurt)
 	})
 	if len(changes) > 0 {
-		m.revision++
+		m.effectsChanged()
 		m.clampAbsorption()
 		rules.UpdateEffectAttributes(m.Attributes, m.AllEffects())
 		m.Health = min(m.Health, m.HealthCap())

@@ -1021,17 +1021,37 @@ func (s *Server) tickBlockEntities() {
 		// Only a hopper's pull reads the item index; be.Kind is fixed for life.
 		if slices.ContainsFunc(dim.tickingBuf, func(be *world.BlockEntity) bool { return be.Kind == world.KindHopper }) {
 			s.indexItemColumns(dim.w)
+			s.indexCartColumns(dim.w)
 		} else {
 			// The previous dimension's index must not answer for this one.
 			s.dropItemColumns()
+			s.dropCartColumns()
 		}
 		dim.sulfur.reset()
-		s.indexCartColumns(dim.w)
+		var tickCache [8][8]struct {
+			pos        world.ChunkPos
+			generation uint64
+			valid      bool
+			ticks      bool
+		}
 		for _, be := range dim.tickingBuf {
 			if seam := s.blockEntityTickSeam; seam != nil {
 				seam(be)
 			}
-			if be.Sleeping() || !ticks(blockChunk(be.X, be.Z)) {
+			if be.Sleeping() {
+				continue
+			}
+			pos := blockChunk(be.X, be.Z)
+			entry := &tickCache[pos.X&7][pos.Z&7]
+			// A ticket change during the filter must invalidate this entry on the next turn.
+			generation := dim.w.TicketGeneration()
+			if !entry.valid || entry.pos != pos || entry.generation != generation {
+				entry.pos = pos
+				entry.generation = generation
+				entry.ticks = ticks(pos)
+				entry.valid = true
+			}
+			if !entry.ticks {
 				continue
 			}
 			switch {
@@ -1131,17 +1151,6 @@ func (b *furnaceBurn) advance(entity *world.BlockEntity) bool {
 	b.ran = true
 
 	input := entity.Slots[0]
-	result := registry.CookingMatch(entity.Kind.Name(), input)
-	// Smeltable: a recipe matches and the output is empty or the same item
-	// with room for one more.
-	var cooked protocol.ItemStack
-	if result != nil {
-		cooked = registry.CookingResult(result)
-	}
-	canSmelt := result != nil && (entity.Slots[2].Empty() ||
-		(entity.Slots[2].Same(cooked) &&
-			entity.Slots[2].Count+result.ResultCount <= registry.StackMaxStackSize(entity.Slots[2])))
-
 	lit := entity.LitRemaining > 0
 	b.litWas = lit
 	if lit {
@@ -1157,7 +1166,13 @@ func (b *furnaceBurn) advance(entity *world.BlockEntity) bool {
 	if lit || (hasFuel && hasIngredient) {
 		if !hasIngredient {
 			b.resetCook(entity)
-		} else if result != nil {
+		} else if result := registry.CookingMatchCached(entity.Kind.Name(), input, &entity.CookCheck); result != nil {
+			// Smeltable: a recipe matches and the output is empty or the same item
+			// with room for one more.
+			cooked := registry.CookingResult(result)
+			canSmelt := entity.Slots[2].Empty() ||
+				(entity.Slots[2].Same(cooked) &&
+					entity.Slots[2].Count+result.ResultCount <= registry.StackMaxStackSize(entity.Slots[2]))
 			if canSmelt {
 				if !lit {
 					burn, speed := fuelLot(entity.Kind, entity.Slots[1])

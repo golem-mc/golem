@@ -87,3 +87,52 @@ func TestChunkNBTPaletteCompactStates(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveBlockStateOverrides(t *testing.T) {
+	t.Parallel()
+	stairs := func(props map[string]string) nbt.Tag {
+		p := nbt.Compound{}
+		for k, v := range props {
+			p[k] = nbt.String(v)
+		}
+		return nbt.Compound{"id": nbt.String("minecraft:oak_stairs"), "properties": p}
+	}
+	east := registry.MustState("minecraft:oak_stairs", map[string]string{"facing": "east"})
+	for _, tc := range []struct {
+		name  string
+		entry nbt.Tag
+		want  uint16
+		ok    bool
+	}{
+		{"default", nbt.String("minecraft:oak_stairs"), registry.BlockOakStairs.DefaultState(), true},
+		{"override", stairs(map[string]string{"facing": "east"}), east, true},
+		{"unknown property", stairs(map[string]string{"bogus": "x"}), 0, false},
+		{"invalid value", stairs(map[string]string{"facing": "up"}), 0, false},
+	} {
+		got, ok := resolveBlockState(tc.entry)
+		if ok != tc.ok || ok && got != tc.want {
+			t.Errorf("%s: got (%d, %v), want (%d, %v)", tc.name, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func BenchmarkResolveChunkPaletteState(b *testing.B) {
+	bare := nbt.Tag(nbt.String("minecraft:oak_stairs"))
+	override := nbt.Tag(nbt.Compound{
+		"id":         nbt.String("minecraft:oak_stairs"),
+		"properties": nbt.Compound{"facing": nbt.String("east")},
+	})
+	for _, bc := range []struct {
+		name  string
+		entry nbt.Tag
+	}{{"bare", bare}, {"override", override}} {
+		b.Run(bc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, ok := resolveBlockState(bc.entry); !ok {
+					b.Fatal("unresolved")
+				}
+			}
+		})
+	}
+}

@@ -33,7 +33,11 @@ func EntityTypeInTag(id int32, tag string) bool {
 // ItemTagExists reports whether the minecraft:item tag registry defines a tag
 // of the name, which an item predicate's tag argument is looked up against.
 func ItemTagExists(tag string) bool {
-	_, ok := tagsNow.Load().item[tag]
+	return CurrentTagLookup().itemTagExists(tag)
+}
+
+func (lookup *TagLookup) itemTagExists(tag string) bool {
+	_, ok := lookup.item[tag]
 	return ok
 }
 
@@ -59,7 +63,11 @@ func syncTagIndex(sync []TaggedRegistry, registry string) map[string]map[string]
 // DamageTypeTagExists reports whether the minecraft:damage_type registry
 // has a tag of this name.
 func DamageTypeTagExists(tag string) bool {
-	return tagsNow.Load().damageTable.defined[tag]
+	return CurrentTagLookup().DamageTypeTagExists(tag)
+}
+
+func (lookup *TagLookup) DamageTypeTagExists(tag string) bool {
+	return lookup.damageTable.defined[tag]
 }
 
 // EnchantmentInTag reports whether an enchantment is in a minecraft:enchantment
@@ -103,5 +111,9 @@ func enchantmentTagIDs(sync []TaggedRegistry) map[string][]int32 {
 // EnchantmentTagIDs resolves an enchantment tag to member IDs in tag order,
 // the order a weighted draw walks.
 func EnchantmentTagIDs(tag string) []int32 {
-	return tagsNow.Load().enchantmentIDs[tag]
+	return CurrentTagLookup().enchantmentTagIDs(tag)
+}
+
+func (lookup *TagLookup) enchantmentTagIDs(tag string) []int32 {
+	return lookup.enchantmentIDs[tag]
 }

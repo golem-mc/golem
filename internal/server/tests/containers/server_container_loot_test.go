@@ -1,12 +1,15 @@
 package containers
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 )
 
@@ -14,6 +17,52 @@ const (
 	lootTable = "minecraft:chests/village/village_plains_house"
 	lootChest = `minecraft:chest{LootTable:"` + lootTable + `",LootTableSeed:7L}`
 )
+
+// vanilla: HopperBlockEntity.inventoryFull, RandomizableContainerBlockEntity.getItem
+func TestBlockedHopperChecksExactStackLimitBeforePulling(t *testing.T) {
+	t.Parallel()
+	stoneItems := func(slots int, firstCount int32) string {
+		items := make([]string, slots)
+		items[0] = fmt.Sprintf(`{Slot:0b,id:"minecraft:stone",count:%d}`, firstCount)
+		for slot := 1; slot < slots; slot++ {
+			items[slot] = fmt.Sprintf(`{Slot:%db,id:"minecraft:stone",count:64}`, slot)
+		}
+		return strings.Join(items, ",")
+	}
+	for _, tc := range []struct {
+		name    string
+		count   int32
+		pending bool
+	}{
+		{"at limit", 64, true},
+		{"over limit", 65, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := servertest.AttachActor(t)
+			servertest.HoldTicks(t, srv)
+			servertest.Setblock(t, c, 4, 64, 0, `barrel{Items:[`+stoneItems(27, 64)+`]}`)
+			servertest.Setblock(t, c, 4, 65, 0, `hopper[facing=down]{TransferCooldown:0,Items:[`+stoneItems(5, tc.count)+`]}`)
+			servertest.Setblock(t, c, 4, 66, 0, lootChest)
+
+			servertest.RunTicks(t, srv, 1)
+
+			if slots := srv.InventoryAt(4, 65, 0); len(slots) != 5 || slots[0].Count != tc.count {
+				t.Fatalf("the blocked hopper holds %+v, want five stacks with %d items in the first", slots, tc.count)
+			}
+			tag, ok := srv.BlockEntityTagAt(4, 66, 0)
+			if !ok {
+				t.Fatal("the source chest has no block entity tag")
+			}
+			if _, pending := tag["LootTable"]; pending != tc.pending {
+				t.Fatalf("after one ready tick the source loot table is pending = %t, want %t", pending, tc.pending)
+			}
+			if items, _ := nbt.Get[nbt.List](tag, "Items"); !tc.pending && len(items.Items) == 0 {
+				t.Error("the unpacked chest contains no items")
+			}
+		})
+	}
+}
 
 // rolledLoot is what the table rolls into an empty chest under the seed.
 func rolledLoot(t *testing.T) []protocol.ItemStack {
@@ -63,6 +112,30 @@ func TestAChestRollsItsLootTableOnFirstOpen(t *testing.T) {
 	if _, ok := nbt.Get[nbt.List](tag, "Items"); !ok {
 		t.Error("the opened chest saves no Items")
 	}
+	w.ChatCommand("random reset *")
+	w.ExpectCommandFeedbackText("commands.random.reset.all.success", servertest.ItemNumber(0))
+}
+
+func TestUnseededChestFillsFromItsLootSequence(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelSeed = "12345"
+	_, w := servertest.OpenWindowedOps(t, cfg)
+	defer w.Disconnect()
+	servertest.Setblock(t, w.Client, 4, 64, 0, `minecraft:chest{LootTable:"`+lootTable+`"}`)
+	w.UseBlock(4, 64, 0)
+	got := w.ExpectContainerOpen(protocol.MenuGeneric9x3, true, 4, 64, 0)
+	want := make([]protocol.ItemStack, 27)
+	if !rules.FillLoot(lootTable, &rules.LootContext{}, world.NewRandomSequence(12345, lootTable), want) {
+		t.Fatal("the table is unknown")
+	}
+	for i, stack := range want {
+		if !got[i].Equal(stack) {
+			t.Errorf("slot %d = %+v, want %+v from the named sequence", i, got[i], stack)
+		}
+	}
+	w.ChatCommand("random reset *")
+	w.ExpectCommandFeedbackText("commands.random.reset.all.success", servertest.ItemNumber(1))
 }
 
 // TestBreakingAnUnopenedTableChestDropsTheRolledContents: the break rolls the

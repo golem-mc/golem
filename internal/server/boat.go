@@ -141,6 +141,7 @@ func boatShownOf(it *boatEntity) boatShown {
 // last told.
 var boatTracker = trackedKind[*boatEntity, boatShown]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.boats.built = false },
+	pistonBit:        pistonBoats,
 
 	rangeChunks: entity.BoatTrackingRange,
 	passengerRange: func(it *boatEntity) int {
@@ -1040,11 +1041,11 @@ type lootOpener struct {
 }
 
 // lootOpener is the client as the player opening a container. Its saved
-// compound is read now: the roll runs under the container's lock, which ranks
-// below the inventory lock the read takes.
+// compound, ride and pearls included, is read now: the roll runs under the
+// container's lock, which ranks below the inventory lock the read takes.
 func (c *client) lootOpener() lootOpener {
 	this := c.LootEntity()
-	tag := this.NBT()
+	tag := c.lootNBTRiding()()
 	this.NBT = func() nbt.Compound { return tag }
 	// The relations and live facts take locks that rank above the
 	// container's, so they are read now too.
@@ -1053,20 +1054,16 @@ func (c *client) lootOpener() lootOpener {
 }
 
 // fillContainerLoot rolls a pending table for a block container, minecart or
-// chest boat at (x, y, z) for opener, its THIS and luck; a zero seed draws
-// from the server's loot source.
+// chest boat at (x, y, z) for opener, its THIS and luck.
 // vanilla: LootTable.fill
 func (s *Server) fillContainerLoot(w *world.World, x, y, z int32, table string, seed int64, slots []protocol.ItemStack, opener lootOpener) bool {
-	var rng rules.LootRand = s.lootRng
-	if seed != 0 {
-		rng = rules.NewJavaRandom(seed)
-	}
 	// The world answers the location checks the table makes around the
 	// container's own place; a roll without it fails those.
 	ctx := s.mapLootContext(w, x, y, z)
 	ctx.BiomeAt = func(dx, dy, dz int32) string { return w.BiomeAt(x+dx, y+dy, z+dz) }
 	ctx.This, ctx.Luck = opener.this, opener.luck
-	return rules.FillLootReviewed(table, ctx, rng, slots, s.lootReview(w, table, x, y, z))
+	ctx.Random = rules.SeededLootRandom(seed)
+	return rules.FillLootReviewed(table, ctx, s.levelRng, slots, s.lootReview(w, table, x, y, z))
 }
 
 // lootFillFor is the world's container roll made for opener.
@@ -1077,24 +1074,23 @@ func (s *Server) lootFillFor(opener lootOpener) world.LootFill {
 }
 
 // rollLoot is the roll a block entity hiding one item uses, made for opener
-// with tool; a zero seed draws from the server's loot source.
+// with tool.
 // vanilla: BrushableBlockEntity.unpackLootTable, VaultBlockEntity.Server.resolveItemsToEject
 func (s *Server) rollLoot(w *world.World, x, y, z int32, table string, seed int64, opener lootOpener, tool protocol.ItemStack) ([]protocol.ItemStack, bool) {
 	return s.rollLootWith(&rules.LootContext{Level: s.lootLevelAtBlock(w, x, y, z), Tool: rules.ToolOf(tool), This: opener.this, Luck: opener.luck}, table, seed)
 }
 
-// rollLootWith rolls table against ctx; a zero seed draws from the server's
-// loot source, and ok is false for an unknown table.
+// rollLootWith rolls table against ctx, returning false for an unknown table.
 // vanilla: LootTable.getRandomItems
 func (s *Server) rollLootWith(ctx *rules.LootContext, table string, seed int64) ([]protocol.ItemStack, bool) {
-	if _, known := registry.FindLootTable(table); !known {
+	data, known := registry.FindLootTable(table)
+	if !known {
 		return nil, false
 	}
-	var rng rules.LootRand = s.lootRng
 	if seed != 0 {
-		rng = rules.NewJavaRandom(seed)
+		ctx.Random = rules.SeededLootRandom(seed)
 	}
-	return rules.RollLoot(table, ctx, rng), true
+	return rules.RollLootTable(table, data, ctx, s.levelRng), true
 }
 
 // breakBoat lays what a broken boat leaves where it broke — the cargo a
@@ -2461,16 +2457,18 @@ func (s *Server) boatTwinAt(src *boatEntity, to *dimension, pos player.Position)
 }
 
 // savedVehicle is the RootVehicle compound of a rider's file: Attach names
-// the boat, mob or cushion they sit on, Entity is the root of the ride with its mob
-// passengers nested, the player never among them. Nil on foot, or when the
-// ride carries another player. With take, as on leaving, the root and every
-// passenger are discarded, so the file's copy is the only one a rejoin can
-// raise, and a chest boat's cargo goes with it rather than spill twice. The
-// boat and mob locks are taken one after the other, never together.
+// the boat, minecart, mob or cushion they sit on, Entity is the root of the
+// ride with its mob passengers nested, the player never among them. Nil on
+// foot, or when the ride carries another player. With take, as on leaving, the
+// root and every passenger are discarded, so the file's copy is the only one a
+// rejoin can raise, and a container vehicle's cargo goes with it rather than
+// spill twice. The vehicle and mob locks are taken one after the other, never
+// together.
 // vanilla: ServerPlayer.saveParentVehicle, PlayerList.remove
 func (c *client) savedVehicle(take bool) nbt.Compound {
 	s := c.srv
 	boat := c.vehicle.Load()
+	cart := c.minecart.Load()
 	var root *mobEntity
 	var attach uuid.UUID
 	// A file's vehicle not yet raised is saved as the file had it, the seat
@@ -2487,6 +2485,8 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 	}
 	if boat != nil {
 		attach = boat.uuid
+	} else if cart != nil {
+		attach = cart.uuid
 	} else if ent := c.mount.Load(); ent != nil {
 		s.mobsMu.Lock()
 		attach, root = ent.uuid, ent
@@ -2495,6 +2495,8 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 			root = book[root.mob.Vehicle]
 		}
 		if boat = root.vehicle; boat != nil {
+			root = nil
+		} else if cart = root.cart; cart != nil {
 			root = nil
 		}
 		s.mobsMu.Unlock()
@@ -2521,6 +2523,16 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 		}
 		tag, w = boatTag(boat), boat.w
 		s.boatsMu.Unlock()
+	} else if cart != nil {
+		s.minecartsMu.Lock()
+		if cart.cart.Dead {
+			s.minecartsMu.Unlock()
+			return nil
+		}
+		players = len(cart.passengers)
+		mobs = append(mobs, cart.mobs...)
+		tag, w = minecartTag(cart), cart.w
+		s.minecartsMu.Unlock()
 	} else {
 		mobs, w = []*mobEntity{root}, root.w
 	}
@@ -2545,7 +2557,7 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 	if root != nil {
 		tag = mobTagIn(root, book)
 	} else if len(mobs) > 0 {
-		// The carried riders boatTag wrote stay ahead of the mobs.
+		// The carried riders boatTag or minecartTag wrote stay ahead of the mobs.
 		carried, _ := nbt.Get[nbt.List](tag.Entries(), "Passengers")
 		list := nbt.List{Elem: nbt.TypeCompound, Items: slices.Clone(carried.Items)}
 		for _, m := range mobs {
@@ -2556,6 +2568,7 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 	if take {
 		for _, m := range tree {
 			m.vehicle = nil
+			m.cart = nil
 			m.mob.RidesVehicle = false
 			m.mob.Discard()
 		}
@@ -2569,6 +2582,16 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 		boat.scoresSettled = true // vanilla: RemovalReason.UNLOADED_WITH_PLAYER
 		boat.cargo = nil
 		s.boatsMu.Unlock()
+	} else if take && cart != nil {
+		s.minecartsMu.Lock()
+		cart.cart.Dead = true
+		cart.cart.NoLoot = true
+		cart.scoresSettled = true // vanilla: RemovalReason.UNLOADED_WITH_PLAYER
+		cart.cargo = vehicleCargo{}
+		cart.passengers = nil
+		cart.mobs = nil
+		s.minecartsMu.Unlock()
+		c.minecart.Store(nil)
 	}
 	return nbt.Compound{"Attach": nbt.UUIDToIntArray(attach), "Entity": tag}
 }
@@ -2602,7 +2625,7 @@ func savedRideHolds(compound nbt.Compound, identity uuid.UUID) bool {
 	return false
 }
 
-// remountSavedVehicle seats a joining player back on the boat, mob or
+// remountSavedVehicle seats a joining player back on the boat, minecart, mob or
 // cushion their file's RootVehicle names in Attach, the root or any of its passengers. The
 // root is found by identity — woken from its own chunk file beside the
 // player, most turns, whatever chunk the wake of it lands in — and where the
@@ -2641,6 +2664,10 @@ func (s *Server) remountSavedVehicle(c *client, dim *dimension, saved nbt.Compou
 		if s.raiseSavedMob(dim.w, entity) != nil {
 			s.seatOnSavedMob(c, dim.w, attach)
 		}
+		return
+	}
+	if isMinecartTag(id) {
+		s.remountSavedMinecart(c, dim.w, entity, identity, attach)
 		return
 	}
 	s.boatsMu.Lock()

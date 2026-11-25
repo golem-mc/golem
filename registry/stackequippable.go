@@ -9,6 +9,10 @@ import (
 // stores and returns it in its wire shape.
 // vanilla: Equippable.CODEC
 func equippableOf(value nbt.Tag) (protocol.RawComponent, bool) {
+	return CurrentTagLookup().equippableOf(value)
+}
+
+func (lookup *TagLookup) equippableOf(value nbt.Tag) (protocol.RawComponent, bool) {
 	entry, ok := nbt.CompoundView(value)
 	if !ok {
 		return protocol.RawComponent{}, false
@@ -43,7 +47,7 @@ func equippableOf(value nbt.Tag) (protocol.RawComponent, bool) {
 	entities, has := entry["allowed_entities"]
 	out.PutBool(has)
 	if has {
-		set, ok := entitySetOf(entities)
+		set, ok := lookup.entitySetOf(entities)
 		if !ok {
 			return protocol.RawComponent{}, false
 		}
@@ -189,7 +193,7 @@ func putSoundTag(out nbt.CompoundTag, key string, h protocol.SoundHolder, def st
 // entitySetOf reads allowed_entities: a "#tag", an entity type name or a
 // list of names.
 // vanilla: RegistryCodecs.homogeneousList, ByteBufCodecs.holderSet
-func entitySetOf(value nbt.Tag) (protocol.EntityTypeSet, bool) {
+func (lookup *TagLookup) entitySetOf(value nbt.Tag) (protocol.EntityTypeSet, bool) {
 	names := []nbt.Tag{value}
 	if list, ok := value.(nbt.List); ok {
 		names = list.Items
@@ -197,7 +201,7 @@ func entitySetOf(value nbt.Tag) (protocol.EntityTypeSet, bool) {
 	set := protocol.EntityTypeSet{Present: true}
 	if s, ok := value.(nbt.String); ok && len(s) > 0 && s[0] == '#' {
 		set.Tag = Qualify(string(s[1:]))
-		_, known := EntityTypeTagMembers(set.Tag)
+		_, known := lookup.EntityTypeTagMembers(set.Tag)
 		return set, known
 	}
 	set.IDs = make([]int32, 0, len(names))

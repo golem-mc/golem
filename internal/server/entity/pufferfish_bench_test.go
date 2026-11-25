@@ -41,7 +41,7 @@ func BenchmarkPufferfishNoAIStings(b *testing.B) {
 	// The event buffer is reused as the server's live tick does.
 	var events []MobEvent
 	tick := func() {
-		events = mobs.TickInto(events, w, nil, nil, nil, nil)
+		events = mobs.TickInto(events, w, nil, nil, nil, nil, nil)
 		n := 0
 		for _, ev := range events {
 			if ev.Kind == MobAttackedPlayer && ev.Mob.Type == TypePufferfish {

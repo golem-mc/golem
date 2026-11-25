@@ -1,28 +1,30 @@
 package server
 
 import (
+	"errors"
 	"log/slog"
-	"maps"
-	"slices"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/server/datapack"
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
 )
 
 // loadPackLoot reads the enabled packs' loot tables, predicates and item modifiers; a file
-// that fails to decode is logged and skipped, leaving the built-in one.
+// that fails to decode is logged and skipped, leaving the built-in one, except a
+// weighted list whose total weight overflows, which fails the whole load.
 // vanilla: ReloadableServerRegistries.reload, LootDataType
-func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]registry.LootTable, map[string]registry.LootCondition, map[string]registry.LootFunction, error) {
+func loadPackLoot(layers *registry.PackLayers, dirs []string, skip func(file string, err error)) (map[string]registry.LootTable, map[string]registry.LootCondition, map[string]registry.LootFunction, error) {
 	rawTables, err := datapack.LoadResources(dirs, "loot_table", skip)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	tables := make(map[string]registry.LootTable, len(rawTables))
 	for id, raw := range rawTables {
-		table, err := datapack.DecodeLootTable(raw)
+		table, err := datapack.DecodeLootTable(layers, raw)
 		if err != nil {
+			if errors.Is(err, datapack.ErrWeightOverflow) {
+				return nil, nil, nil, err
+			}
 			slog.Error("Couldn't parse element loot_table/" + id + ": " + err.Error())
 			continue
 		}
@@ -34,8 +36,11 @@ func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]
 	}
 	predicates := make(map[string]registry.LootCondition, len(rawPredicates))
 	for id, raw := range rawPredicates {
-		cond, err := datapack.DecodePredicate(raw)
+		cond, err := datapack.DecodePredicate(layers, raw)
 		if err != nil {
+			if errors.Is(err, datapack.ErrWeightOverflow) {
+				return nil, nil, nil, err
+			}
 			slog.Error("Couldn't parse element predicate/" + id + ": " + err.Error())
 			continue
 		}
@@ -47,8 +52,11 @@ func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]
 	}
 	modifiers := make(map[string]registry.LootFunction, len(rawModifiers))
 	for id, raw := range rawModifiers {
-		fn, err := datapack.DecodeItemModifier(raw)
+		fn, err := datapack.DecodeItemModifier(layers, raw)
 		if err != nil {
+			if errors.Is(err, datapack.ErrWeightOverflow) {
+				return nil, nil, nil, err
+			}
 			slog.Error("Couldn't parse element item_modifier/" + id + ": " + err.Error())
 			continue
 		}
@@ -57,9 +65,7 @@ func loadPackLoot(dirs []string, skip func(file string, err error)) (map[string]
 	return tables, predicates, modifiers, nil
 }
 
-// hiddenLoot returns the built-in loot tables a pack's filter hides. A
-// hand-written fishing table cannot be absent, so a hidden one is replaced by
-// a table that rolls nothing in tables.
+// hiddenLoot returns the built-in loot tables a pack's filter hides.
 // vanilla: MultiPackResourceManager
 func hiddenLoot(dirs []string, tables map[string]registry.LootTable) map[string]bool {
 	filters := datapack.LoadFilters(dirs)
@@ -67,16 +73,12 @@ func hiddenLoot(dirs []string, tables map[string]registry.LootTable) map[string]
 		return nil
 	}
 	hidden := map[string]bool{}
-	for _, name := range append(registry.BuiltinLootTableNames(), rules.FishingTableNames...) {
+	for _, name := range registry.BuiltinLootTableNames() {
 		ns, path, _ := strings.Cut(name, ":")
 		if _, packed := tables[name]; packed || !filters.Builtin(ns, "loot_table/"+path+".json") {
 			continue
 		}
-		if slices.Contains(rules.FishingTableNames, name) {
-			tables[name] = registry.LootTable{}
-		} else {
-			hidden[name] = true
-		}
+		hidden[name] = true
 	}
 	return hidden
 }
@@ -93,34 +95,33 @@ func (s *Server) applyPackLoot(tables map[string]registry.LootTable, predicates 
 	registry.ApplyPackLootHiding(tables, predicates, modifiers, hidden)
 }
 
-// loadPackSlotSources reads the enabled packs' slot sources into the
-// registry; a file that fails to decode is logged and skipped. A source that
-// names another resolves it whatever the files' order, so a pass repeats
-// while it still lets one more decode.
+// loadPackSlotSources stages the enabled packs' slot sources in layers; a
+// file that fails to decode is logged and skipped. A source that names
+// another resolves it whatever the files' order, so a pass repeats while it
+// still lets one more decode.
 // vanilla: RegistryDataLoader.RELOADABLE_REGISTRIES
-func loadPackSlotSources(dirs []string, skip func(file string, err error)) error {
+func loadPackSlotSources(layers *registry.PackLayers, dirs []string, skip func(file string, err error)) error {
 	raws, err := datapack.LoadResources(dirs, "slot_source", skip)
 	if err != nil {
 		return err
 	}
-	registry.ApplyPackSlotSources(nil)
 	sources := make(map[string]registry.SlotSource, len(raws))
+	layers.SetSlotSources(sources)
 	for progress := true; progress && len(sources) < len(raws); {
 		progress = false
 		for id, raw := range raws {
 			if _, done := sources[id]; done {
 				continue
 			}
-			if source, err := datapack.DecodeSlotSource(raw); err == nil {
+			if source, err := datapack.DecodeSlotSource(layers, raw); err == nil {
 				sources[id] = source
-				registry.ApplyPackSlotSources(maps.Clone(sources))
 				progress = true
 			}
 		}
 	}
 	for id, raw := range raws {
 		if _, done := sources[id]; !done {
-			_, err := datapack.DecodeSlotSource(raw)
+			_, err := datapack.DecodeSlotSource(layers, raw)
 			slog.Error("Couldn't parse element slot_source/" + id + ": " + err.Error())
 		}
 	}

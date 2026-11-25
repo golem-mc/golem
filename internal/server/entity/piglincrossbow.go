@@ -1,7 +1,5 @@
 package entity
 
-import "github.com/golem-mc/golem/internal/protocol"
-
 const (
 	// piglinCrossbowRange is CrossbowItem.getDefaultProjectileRange: the
 	// crossbow is used within it, and the piglin walks until within one less.
@@ -36,14 +34,10 @@ func (g *piglinCrossbowGoal) Start(*tickView) {}
 // release is CrossbowAttack.stop: drop the draw and the loaded arrow.
 func (g *piglinCrossbowGoal) release() {
 	m := g.m
-	if m.UsingItem {
-		m.SetMetadataUsingItem(false)
-	}
 	if m.ChargingCrossbow {
-		m.SetMetadataChargingCrossbow(false)
-		stack := m.MainHand
-		stack.SetChargedProjectiles(nil)
-		m.SetEquipment(protocol.EquipMainHand, stack)
+		g.cancelCharge()
+	} else if m.UsingItem {
+		m.SetMetadataUsingItem(false)
 	}
 	g.state = crossbowUncharged
 }

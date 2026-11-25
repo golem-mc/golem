@@ -56,6 +56,9 @@ func TestPatrolSpawnerAndLongDistanceWalk(t *testing.T) {
 	c.ChatCommand("gamerule spawn_monsters false")
 	c.ChatCommand("gamerule spawn_monsters true")
 	c.Settle()
+	// An item first: the entity IDs seed the pillagers' dice, and this one
+	// sends the leader's patrol target east, through the streamed chunks.
+	srv.SpawnItemEntity(0.5, 90, 0.5, "minecraft:dirt", 1)
 	srv.PatrolSpawnerPass(9)
 	ids := srv.MobIDsOfKind("minecraft:pillager")
 	// Normal difficulty on a new world: ceil(1.5)+1.

@@ -46,7 +46,14 @@ func BoolField(c Compound, key string) bool {
 
 // FloatField reads a numeric field as a float.
 func FloatField(c Compound, key string) (float32, bool) {
-	switch v := c[key].(type) {
+	return FloatValue(c[key])
+}
+
+// FloatValue reads a numeric tag as a float, converting a long straight to
+// float rather than through a double, which can round onto a float midpoint.
+// vanilla: NumericTag.floatValue
+func FloatValue(tag Tag) (float32, bool) {
+	switch v := tag.(type) {
 	case Byte:
 		return float32(v), true
 	case Short:

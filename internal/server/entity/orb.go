@@ -157,7 +157,7 @@ func NewOrb(id int32, x, y, z, vx, vy, vz float64, value int, seed int64) *Orb {
 		Value:  value,
 		Count:  1,
 		Health: 5,
-		Rand:   rand.New(rand.NewSource(seed)),
+		Rand:   NewDice(seed),
 	}
 }
 
@@ -165,7 +165,7 @@ func NewOrb(id int32, x, y, z, vx, vy, vz float64, value int, seed int64) *Orb {
 // constructor gave has been left unset.
 func (o *Orb) dice() *rand.Rand {
 	if o.Rand == nil {
-		o.Rand = rand.New(rand.NewSource(int64(o.ID)))
+		o.Rand = NewDice(int64(o.ID))
 	}
 	return o.Rand
 }

@@ -24,8 +24,8 @@ func TestPackConditionsReadWeatherTimeAndScores(t *testing.T) {
 		if raining {
 			flag = "true"
 		}
-		return `{"rolls":1,"conditions":[{"type":"minecraft:weather_check","raining":` + flag +
-			`}],"entries":[{"type":"minecraft:item","name":"` + item + `"}]}`
+		return `{"rolls":1,"condition":{"type":"minecraft:weather_check","raining":` + flag +
+			`},"entries":[{"type":"minecraft:item","name":"` + item + `"}]}`
 	}
 	writeFile(t, filepath.Join(data, "loot_table", "rainy.json"),
 		`{"pools":[`+gated(true, "minecraft:diamond")+`,`+gated(false, "minecraft:stick")+`]}`)

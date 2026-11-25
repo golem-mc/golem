@@ -67,7 +67,6 @@ func TestAnUnsupportedChorusFlowerBreaks(t *testing.T) {
 	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Camper", servertest.OpsListing(t, "Camper"))
 
 	srv.StopTick()
-	srv.LootSeed(servertest.CropsSeed)
 
 	servertest.SetFarmBlock(t, c, srv, 5, 64, 0, "minecraft:chorus_flower", map[string]string{"age": "0"})
 	srv.TickPhysics(1)

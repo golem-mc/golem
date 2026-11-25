@@ -37,10 +37,22 @@ func (s *Server) blockPlaced(w *world.World, x, y, z int32, oldState uint16) {
 	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
 }
 
-// updateNeighboursOnBlockSet runs the wake a non-strict /setblock owes even
-// when nothing changed: neighbours of an unchanged cell still hear it. It
-// requests the neighbour update directly, as NotifyChanged would no-op on an
-// unchanged state, then runs blockChanged's tail.
+// blockPlacedHooks is blockPlaced's share a block write owns: the placement
+// hooks and the shape passes, before a block entity's tag loads.
+func (s *Server) blockPlacedHooks(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyPlacedHooks(x, y, z, oldState)
+	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
+}
+
+// blockPlacedWake is blockPlaced's explicit neighbour update, run after
+// blockPlacedHooks and the tag load.
+func (s *Server) blockPlacedWake(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyPlacedWake(x, y, z, oldState)
+	s.finishBlockWake(w, x, y, z, oldState, changes, effects, primes, false, false, false)
+}
+
+// updateNeighboursOnBlockSet wakes neighbours after a successful non-strict
+// /setblock that left the block state unchanged. NotifyChanged skips that case.
 // vanilla: ServerLevel.updateNeighboursOnBlockSet
 func (s *Server) updateNeighboursOnBlockSet(w *world.World, x, y, z int32, oldState uint16) {
 	changes, effects, primes := s.physicsFor(w).NotifyNeighbours(x, y, z, oldState)
@@ -166,10 +178,11 @@ func (s *Server) tellEffectFrom(w *world.World, user *client, e world.Effect) {
 		} else if src := e.GameEventSource; src != nil {
 			ctx = rules.GameEventContext{Player: src.Player, Mob: src.Mob, Sneaking: src.Sneaking}
 		}
-		// A destroyed block is the event's affected state, so a popped carpet
-		// or wool is dampened. vanilla: Level.destroyBlock
-		ctx.Affected = e.BreakDrop
+		ctx.Affected = e.GameEventAffected
 		s.gameEvent(w, e.GameEvent, float64(e.X)+0.5, float64(e.Y)+0.5, float64(e.Z)+0.5, ctx)
+		if e.GameEvent == registry.GameEventNoteBlockPlay {
+			s.allaysHearNote(w, e.X, e.Y, e.Z) // vanilla: Allay.VibrationUser
+		}
 	}
 	if v := e.ListenerEvent; v != nil {
 		source := v.Player
@@ -208,9 +221,6 @@ func (s *Server) tellEffectFrom(w *world.World, user *client, e world.Effect) {
 		if e.BlockActionBlock == protocol.BlockBell && e.BlockAction == 1 {
 			s.villagersHearBell(w, e.X, e.Y, e.Z)
 			s.bellRung(w, e.X, e.Y, e.Z)
-		}
-		if e.BlockActionBlock == protocol.BlockNoteBlock {
-			s.allaysHearNote(w, e.X, e.Y, e.Z)
 		}
 		// vanilla: ServerLevel.runBlockEvents
 		var b protocol.Buffer
@@ -326,6 +336,7 @@ func (s *Server) tickPhysics() {
 		for _, t := range dim.physics.TakeStructureTriggers() {
 			s.runStructureTrigger(dim.w, t)
 		}
+		dim.physics.RecycleTickResults(changes, effects)
 		// Random ticks run after scheduled ticks.
 		s.tickRandomTicks(dim, age)
 		s.setPistonGrid(dim, false)
@@ -336,16 +347,16 @@ func (s *Server) tickPhysics() {
 // drops it after.
 func (s *Server) setPistonGrid(dim *dimension, active bool) {
 	setBodyPistonGrid(&s.mobsMu, &dim.mobs.pistonGrid, active)
-	setBodyPistonGrid(&s.itemsMu, &dim.pistons.items, active)
-	setBodyPistonGrid(&s.orbsMu, &dim.pistons.orbs, active)
-	setBodyPistonGrid(&s.arrowsMu, &dim.pistons.arrows, active)
-	setBodyPistonGrid(&s.tntMu, &dim.pistons.tnts, active)
-	setBodyPistonGrid(&s.fallingMu, &dim.pistons.fallings, active)
-	setBodyPistonGrid(&s.boatsMu, &dim.pistons.boats, active)
-	setBodyPistonGrid(&s.armorStandsMu, &dim.pistons.armorStands, active)
+	setTrackedPistonGrid(s, &itemTracker, &dim.pistons.items, active)
+	setTrackedPistonGrid(s, &orbTracker, &dim.pistons.orbs, active)
+	setTrackedPistonGrid(s, &arrowTracker, &dim.pistons.arrows, active)
+	setTrackedPistonGrid(s, &tntTracker, &dim.pistons.tnts, active)
+	setTrackedPistonGrid(s, &fallingTracker, &dim.pistons.fallings, active)
+	setTrackedPistonGrid(s, &boatTracker, &dim.pistons.boats, active)
+	setTrackedPistonGrid(s, &standTracker, &dim.pistons.armorStands, active)
 	setBodyPistonGrid(&s.fixturesMu, &dim.pistons.fixtures, active)
-	setBodyPistonGrid(&s.minecartsMu, &dim.pistons.minecarts, active)
-	setBodyPistonGrid(&s.endCrystalsMu, &dim.pistons.endCrystals, active)
+	setTrackedPistonGrid(s, &minecartTracker, &dim.pistons.minecarts, active)
+	setTrackedPistonGrid(s, &endCrystalTracker, &dim.pistons.endCrystals, active)
 }
 
 // tickRandomTicks runs a random tick pass over the dimension's chunks within
@@ -893,7 +904,7 @@ func (s *Server) relightChanges(w *world.World, changes []world.BlockChange) {
 	}
 	s.relightBoxesAsync(w, boxes)
 	if s.relightSeam != nil {
-		s.relightSeam(len(boxes), changes)
+		s.relightSeam(len(boxes), slices.Clone(changes))
 	}
 }
 
@@ -1350,6 +1361,9 @@ const (
 	// writeNeighborShapes is the shape pass of a flag-2 write: the rules
 	// reshape and the engine's shape pass, no neighbour update.
 	writeNeighborShapes
+	// writePlacedHooks runs a placement's hooks and shape passes within the
+	// write and leaves the explicit neighbour update to the caller.
+	writePlacedHooks
 	commandBlockWrite = writeShape | writeEntity | writeLight | writeWake
 	strictBlockWrite  = writeEntity | writeLight
 )
@@ -1363,14 +1377,11 @@ func (s *Server) writeBlock(w *world.World, x, y, z int32, state uint16, defined
 }
 
 func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint16, defined map[string]string, policy blockWritePolicy, updates *world.BlockUpdates) bool {
-	var old uint16
-	if updates != nil || policy&(writeEntity|writeWake) != 0 {
-		old = w.BlockAt(x, y, z)
-	}
 	if policy&writeShape != 0 {
 		state = rules.WithDefinedProperties(rules.NeighborShapedState(w, s.levelRng, state, x, y, z), defined)
 	}
-	if !w.SetBlock(x, y, z, state) {
+	old, changed := w.SwapBlock(x, y, z, state)
+	if !changed {
 		return false
 	}
 	if policy&writeCrafter != 0 {
@@ -1382,7 +1393,13 @@ func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint
 		s.replaceBlockEntity(w, x, y, z, old, w.BlockAt(x, y, z))
 	}
 	if policy&(writeLight|writeLightAfter) == writeLight {
-		s.relightAsync(w, x, z)
+		if updates == nil {
+			s.relightAsync(w, x, z)
+		} else if !registry.SameLight(old, state) {
+			// SwapBlock already marked this column. Book the whole chunk so
+			// the lane can coalesce its writes without rescanning light marks.
+			s.bookRelight(w, changeBox{x &^ 15, z &^ 15, x | 15, z | 15})
+		}
 	}
 	if policy&writeNow != 0 {
 		s.broadcastBlockUpdate(w, x, y, z, state)
@@ -1396,7 +1413,10 @@ func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint
 		s.applyBlockUpdates(w, x, y, z, old, state, *updates)
 		return true
 	}
-	if policy&(writeWake|writeNeighborShapes) == writeNeighborShapes {
+	if policy&writePlacedHooks != 0 {
+		s.updateNeighborShapes(w, x, y, z)
+		s.blockPlacedHooks(w, x, y, z, old)
+	} else if policy&(writeWake|writeNeighborShapes) == writeNeighborShapes {
 		s.updateNeighborShapes(w, x, y, z)
 		s.physicsShapePass(w, x, y, z)
 	}

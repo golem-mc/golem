@@ -1,8 +1,6 @@
 package entity
 
 import (
-	"math"
-
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -73,7 +71,7 @@ const maxShulkerShell = 3
 // scaryCandidates is the herd a reach grown by grow around the fish can meet.
 func (m *Mob) scaryCandidates(t *tickView, grow float64) []*Mob {
 	near := grow
-	if m.push != nil && m.push.shulkers {
+	if m.push != nil && m.push.shellWide > 0 {
 		near += maxShulkerShell
 	}
 	return m.herdNear(t, near)
@@ -97,10 +95,6 @@ func inSectionWalk(box AABB, o *Mob) bool {
 		y >= sectionCoord(box.minY-4) && y <= sectionCoord(box.maxY) &&
 		z >= sectionCoord(box.minZ-2) && z <= sectionCoord(box.maxZ+2)
 }
-
-// sectionCoord is the 16-block section holding coordinate v.
-// vanilla: SectionPos.posToSectionCoord
-func sectionCoord(v float64) int { return int(math.Floor(v)) >> 4 }
 
 // scaryMobNear reports whether a scary mob is in the fish's box grown by grow.
 func (m *Mob) scaryMobNear(t *tickView, grow float64) bool {

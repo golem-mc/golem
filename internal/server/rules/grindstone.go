@@ -8,12 +8,6 @@ import (
 // The grindstone's maths: the result slot and what taking it pays.
 // vanilla: GrindstoneMenu.createResult, computeResult, mergeItems, and the
 // result slot's onTake
-//
-// Deliberate difference: vanilla sets an explicit max_damage on a merged
-// pair; here max damage comes from the registry, which for a same-item pair
-// is the same. A stack with its own override keeps it in the unmodelled
-// components, unread and unwritten.
-// vanilla: GrindstoneMenu.mergeItems
 
 // GrindstoneCombine is the result for the two inputs: nothing for two
 // empties or a stack over one; a lone enchanted item without its non-curse
@@ -70,15 +64,13 @@ func grindstoneStripped(copy protocol.ItemStack) protocol.ItemStack {
 }
 
 // grindstoneMerge merges two single same items: remaining durability summed
-// plus a twentieth of the max, capped below the max, keeping the first
-// input's components. An item that neither wears nor breaks pairs only with
-// its twin, as a stack of two.
+// plus a twentieth of the larger max, which the result keeps. An item that
+// neither wears nor breaks pairs only with its twin, as a stack of two.
 // vanilla: GrindstoneMenu.mergeItems, ItemStack.isDamageableItem, ItemStack.matches
 func grindstoneMerge(input, additional protocol.ItemStack) protocol.ItemStack {
-	whole := registry.StackMaxDamage(input)
-	remaining := (whole - input.Damage) + (whole - additional.Damage) + whole*5/100
 	count := int32(1)
-	if !registry.StackDamageable(input) {
+	damageable := registry.StackDamageable(input)
+	if !damageable {
 		if registry.StackMaxStackSize(input) < 2 || !input.Equal(additional) {
 			return protocol.ItemStack{}
 		}
@@ -90,8 +82,12 @@ func grindstoneMerge(input, additional protocol.ItemStack) protocol.ItemStack {
 	// alias the caller's: the merge answers with copies of them.
 	merged.Enchantments = cloneEnchantments(input.Enchantments)
 	merged.StoredEnchantments = cloneEnchantments(input.StoredEnchantments)
-	if registry.StackDamageable(merged) {
-		merged.Damage = max(whole-remaining, 0)
+	if damageable {
+		inputMax, additionalMax := registry.StackMaxDamage(input), registry.StackMaxDamage(additional)
+		maxDamage := max(inputMax, additionalMax)
+		remaining := (inputMax - input.Damage) + (additionalMax - additional.Damage) + maxDamage*5/100
+		registry.SetStackMaxDamage(&merged, maxDamage)
+		merged.SetDamage(max(maxDamage-remaining, 0))
 	}
 	grindstoneMergeCurses(&merged, additional)
 	return grindstoneStripped(merged)

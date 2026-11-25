@@ -48,7 +48,12 @@ func (m *Mob) SaveTo(tag nbt.Compound, gameTime func() int64) {
 // SaveWith inserts server-owned attributes and leash data in their superclass phases.
 func (m *Mob) SaveWith(tag nbt.CompoundTag, gameTime func() int64, keptAttributes nbt.Tag, attributes, leash, raider func()) {
 	tag.Set("Health", nbt.Float(m.Health))
-	m.SaveWithBrain(tag, func() {
+	var sleepingPos nbt.IntArray
+	if m.Type == TypeVillager && m.Sleeping {
+		bed := m.vb.sleepPos
+		sleepingPos = nbt.IntArray{bed.X, bed.Y, bed.Z}
+	}
+	m.SaveWithSleepingPos(tag, func() {
 		if keptAttributes != nil {
 			tag.Set("attributes", nbt.Copy(keptAttributes))
 		} else {
@@ -75,13 +80,7 @@ func (m *Mob) SaveWith(tag nbt.CompoundTag, gameTime func() int64, keptAttribute
 		if effects := effect.Encode(m.AllEffects()); effects != nil {
 			tag.Set("active_effects", *effects)
 		}
-	}, func() {
-		if m.Type == TypeVillager && m.Sleeping {
-			bed := m.vb.sleepPos
-			tag.Set("sleeping_pos", nbt.IntArray{bed.X, bed.Y, bed.Z})
-		}
-		tag.Set("Brain", brainTag(nil))
-	})
+	}, sleepingPos)
 	tag.Set("AbsorptionAmount", nbt.Float(m.Absorption))
 	if equipment := equipmentTag(m); len(equipment.Entries()) > 0 {
 		tag.Set("equipment", equipment)
@@ -94,6 +93,9 @@ func (m *Mob) SaveWith(tag nbt.CompoundTag, gameTime func() int64, keptAttribute
 	}
 	if IsAnimal(m.Type) {
 		tag.Set("InLove", nbt.Int(m.InLove))
+		if m.HasLoveCause {
+			tag.Set("LoveCause", nbt.UUIDToIntArray(m.LoveCause))
+		}
 	}
 	if m.Size > 0 {
 		// vanilla: AbstractCubeMob.addAdditionalSaveData, the size less one
@@ -629,6 +631,8 @@ func (m *Mob) LoadFrom(compound nbt.Compound, w World, gameTime func() int64) {
 		if love, ok := nbt.IntField(compound, "InLove"); ok {
 			m.InLove = int(love)
 		}
+		// A missing or unreadable key clears the reference.
+		m.LoveCause, m.HasLoveCause = nbt.UUIDField(compound, "LoveCause")
 	}
 	m.scalarFields(compound, true)
 	if m.Type == TypeTadpole {
@@ -690,8 +694,8 @@ func (m *Mob) loadEquipment(tag nbt.Tag) {
 		for i, slot := range ArmorSlotNames {
 			m.SetEquipment(protocol.EquipFeet+i, StoredSlot(equipment, slot))
 		}
-		m.loadSaddleSlot(equipment)
-		m.SetEquipment(6, StoredSlot(equipment, "body"))
+		m.SetEquipment(protocol.EquipBody, StoredSlot(equipment, "body"))
+		m.SetEquipment(protocol.EquipSaddle, StoredSlot(equipment, "saddle"))
 	}
 }
 
@@ -741,7 +745,7 @@ var MobSavedKeys = []string{
 	"Air", "NoGravity", "TicksFrozen", "Health", "AbsorptionAmount", "PersistenceRequired",
 	"CanPickUpLoot", "DeathLootTable", "DeathLootTableSeed",
 	"home_pos", "home_radius", "has_egg", "Color", "Sheared", "EggLayTime", "IsChickenJockey",
-	"IsBaby", "CanBreakDoors", "Age", "ForcedAge", "AgeLocked", "InLove", "variant", "sound_variant", "NoAI", "Silent", "Glowing", "LeftHanded",
+	"IsBaby", "CanBreakDoors", "Age", "ForcedAge", "AgeLocked", "InLove", "LoveCause", "variant", "sound_variant", "NoAI", "Silent", "Glowing", "LeftHanded",
 	"RabbitType", "MoreCarrotTicks", "IsScreamingGoat", "HasLeftHorn", "HasRightHorn", "GotFish", "Moistness", "Trusting",
 	"CollarColor", "PuffState", "anchor_pos", "size",
 	"Invulnerable", "FromBucket", "from_bucket", "pickup_timer", "fuse", "type", "HasNectar", "HasStung",
@@ -871,11 +875,8 @@ func equipmentTag(m *Mob) *nbt.OrderedCompound {
 	if !m.Body.Empty() {
 		equipment.Set("body", registry.StackTag(m.Body))
 	}
-	if !m.Horse.Saddle.Empty() {
-		equipment.Set("saddle", registry.StackTag(m.Horse.Saddle))
-	}
-	if !m.Antenna.Empty() {
-		equipment.Set("saddle", registry.StackTag(m.Antenna))
+	if saddle := m.SaddleSlot(); !saddle.Empty() {
+		equipment.Set("saddle", registry.StackTag(saddle))
 	}
 
 	return equipment
@@ -927,15 +928,6 @@ func clampToShort(v int) int16 {
 // clampToByte clamps a counter into 0..255.
 func clampToByte(v int) uint8 {
 	return uint8(min(max(v, 0), 255))
-}
-
-// loadSaddleSlot reads the "saddle" equipment slot into the field the kind keeps it in.
-func (m *Mob) loadSaddleSlot(equipment nbt.Compound) {
-	if m.Type == TypeCopperGolem {
-		m.SetMetadataAntenna(StoredSlot(equipment, "saddle"))
-	} else {
-		m.SetMetadataHorseSaddle(StoredSlot(equipment, "saddle"))
-	}
 }
 
 // loadFreezeConversion reads a skeleton's freeze conversion state.

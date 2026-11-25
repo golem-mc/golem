@@ -92,6 +92,7 @@ type crossbowAttackGoal struct {
 	seeTime    int
 	attackWait int
 	pathDelay  int
+	chargeSlot int
 	// drawn is LivingEntity.getTicksUsingItem.
 	drawn int
 }
@@ -100,7 +101,7 @@ func (g *crossbowAttackGoal) Priority() int    { return g.priority }
 func (g *crossbowAttackGoal) Flags() GoalFlags { return GoalMove | GoalLook }
 
 func (g *crossbowAttackGoal) holdsCrossbow() bool {
-	return g.m.MainHand.ItemID == int32(registry.ItemCrossbow) && !g.m.MainHand.Empty()
+	return isHeldWeapon(g.m.MainHand, registry.ItemCrossbow) || isHeldWeapon(g.m.OffHand, registry.ItemCrossbow)
 }
 
 func (g *crossbowAttackGoal) validTarget(t *tickView) bool { return g.m.targetIn(t) != nil }
@@ -124,13 +125,20 @@ func (g *crossbowAttackGoal) Stop(*tickView) {
 	m.SetMetadataTargetID(0)
 	g.seeTime = 0
 	if m.UsingItem {
-		m.SetMetadataUsingItem(false)
-		m.SetMetadataChargingCrossbow(false)
-		stack := m.MainHand
-		stack.SetChargedProjectiles(nil)
-		m.SetEquipment(protocol.EquipMainHand, stack)
+		g.cancelCharge()
 	}
 	m.stopSeeking()
+}
+
+func (g *crossbowAttackGoal) cancelCharge() {
+	m := g.m
+	m.SetMetadataUsingItem(false)
+	m.SetMetadataChargingCrossbow(false)
+	stack := m.EquipmentSlot(g.chargeSlot)
+	if isHeldWeapon(stack, registry.ItemCrossbow) {
+		stack.SetChargedProjectiles(nil)
+		m.SetEquipment(g.chargeSlot, stack)
+	}
 }
 
 func (g *crossbowAttackGoal) RequiresEveryTick() bool { return true }
@@ -184,18 +192,24 @@ func (g *crossbowAttackGoal) stepCrossbow(t *tickView, p *Player, sees, mayDraw 
 	switch g.state {
 	case crossbowUncharged:
 		if mayDraw {
-			m.startUsingWeapon(registry.ItemCrossbow)
+			g.chargeSlot = m.startUsingWeapon(registry.ItemCrossbow)
 			m.SetMetadataChargingCrossbow(true)
 			g.drawn = 0
 			g.state = crossbowCharging
 		}
 	case crossbowCharging:
-		if !m.UsingItem {
+		stack := &m.MainHand
+		if g.chargeSlot == protocol.EquipOffHand {
+			stack = &m.OffHand
+		}
+		if !m.UsingItem || !isHeldWeapon(*stack, registry.ItemCrossbow) {
+			g.cancelCharge()
 			g.state = crossbowUncharged
+			return
 		}
 		g.drawn++
-		g.chargeSounds(t)
-		if duration := rules.CrossbowChargeTicks(m.MainHand, &rules.EnchContext{Rand: m.Rand}); int32(g.drawn) >= duration {
+		g.chargeSounds(t, stack)
+		if duration := rules.CrossbowChargeTicks(*stack, &rules.EnchContext{Rand: m.Rand}); int32(g.drawn) >= duration {
 			m.SetMetadataUsingItem(false)
 			m.SetMetadataChargingCrossbow(false)
 			g.state = crossbowChargedWaiting
@@ -217,23 +231,23 @@ func (g *crossbowAttackGoal) stepCrossbow(t *tickView, p *Player, sees, mayDraw 
 // chargeSounds is CrossbowItem.onUseTick: the start sound at a fifth of the
 // charge, the middle at half, then the load (an arrow only if none is in).
 // Vanilla plays the first two on the players' channel.
-func (g *crossbowAttackGoal) chargeSounds(t *tickView) {
+func (g *crossbowAttackGoal) chargeSounds(t *tickView, stack *protocol.ItemStack) {
 	m := g.m
-	start, mid, load := rules.CrossbowChargeStep(int32(g.drawn), rules.CrossbowChargeTicks(m.MainHand, &rules.EnchContext{Rand: m.Rand}))
+	start, mid, load := rules.CrossbowChargeStep(int32(g.drawn), rules.CrossbowChargeTicks(*stack, &rules.EnchContext{Rand: m.Rand}))
 	play := func(sound protocol.SoundHolder, volume, pitch float32) {
 		if sound.ID >= 0 || sound.Name != "" {
 			t.events = append(t.events, m.consumeSoundEvent(sound, volume, pitch))
 		}
 	}
 	if start {
-		play(rules.ChargingSounds(m.MainHand).Start, 0.5, 1)
+		play(rules.ChargingSounds(*stack).Start, 0.5, 1)
 	}
 	if mid {
-		play(rules.ChargingSounds(m.MainHand).Mid, 0.5, 1)
+		play(rules.ChargingSounds(*stack).Mid, 0.5, 1)
 	}
-	if load && !m.CrossbowLoaded() {
-		m.loadCrossbow(t.w)
-		play(rules.ChargingSounds(m.MainHand).End, 1, 1/(m.Rand.Float32()*0.5+1)+0.2)
+	if load && len(stack.ChargedProjectiles()) == 0 {
+		g.loadCrossbow(t, *stack)
+		play(rules.ChargingSounds(*stack).End, 1, 1/(m.Rand.Float32()*0.5+1)+0.2)
 	}
 }
 
@@ -244,21 +258,25 @@ func (g *crossbowAttackGoal) chargeSounds(t *tickView) {
 func (g *crossbowAttackGoal) shoot(t *tickView, p *Player) {
 	m := g.m
 	m.NoActionTicks = 0
-	loaded := m.MainHand.ChargedProjectiles()
+	slot := m.weaponHoldingSlot(registry.ItemCrossbow)
+	stack := m.EquipmentSlot(slot)
+	if !isHeldWeapon(stack, registry.ItemCrossbow) {
+		return
+	}
+	loaded := stack.ChargedProjectiles()
 	if len(loaded) == 0 {
 		return
 	}
-	stack := m.MainHand
 	stack.SetChargedProjectiles(nil)
-	m.SetEquipment(protocol.EquipMainHand, stack)
+	m.SetEquipment(slot, stack)
 	originX, originY, originZ, aimX, aimY, aimZ := arrowAim(m, p, crossbowAimLift)
 	inaccuracy := crossbowInaccuracy - crossbowInaccuracyPerLevel*float64(t.w.Difficulty())
-	angles := rules.CrossbowAngles(len(loaded), rules.CrossbowMaxSpread(m.MainHand, m.crossbowEnchContext(t.w)))
+	angles := rules.CrossbowAngles(len(loaded), rules.CrossbowMaxSpread(stack, m.crossbowEnchContext(t.w)))
 	for i, angle := range angles {
 		ax, ay, az := spreadAim(aimX, aimY, aimZ, angle)
 		vx, vy, vz := ShootVelocity(ax, ay, az, crossbowMobPower, inaccuracy, m.Rand)
 		t.events = append(t.events, MobEvent{
-			Mob: m, Kind: MobShotArrow, Crossbow: true,
+			Mob: m, Kind: MobShotArrow, Crossbow: true, Stack: stack,
 			X: originX, Y: originY, Z: originZ, VX: vx, VY: vy, VZ: vz,
 			Damage: ArrowBaseDamage, Player: *p,
 		})
@@ -272,39 +290,43 @@ func (g *crossbowAttackGoal) shoot(t *tickView, p *Player) {
 		}
 		t.events = append(t.events, MobEvent{Mob: m, Kind: MobSounded, SoundID: registry.SoundItemCrossbowShoot, Volume: 1, Pitch: pitch})
 		// vanilla: ProjectileWeaponItem.shoot hurts the weapon per projectile and stops once it is gone
-		if g.wearCrossbow(t) {
+		stack = g.wearCrossbow(t, slot, stack)
+		if stack.Empty() {
 			break
 		}
 	}
 }
 
-// loadCrossbow loads the main-hand crossbow with one arrow per projectile
-// its multishot fires; the load is saved with the crossbow.
 // vanilla: CrossbowItem.tryLoadProjectiles, ProjectileWeaponItem.draw, Monster.getProjectile
-func (m *Mob) loadCrossbow(w ...World) {
-	arrows := make([]protocol.ItemStack, rules.CrossbowProjectileCount(m.MainHand, m.crossbowEnchContext(w...)))
+func (g *crossbowAttackGoal) loadCrossbow(t *tickView, stack protocol.ItemStack) {
+	arrows := make([]protocol.ItemStack, rules.CrossbowProjectileCount(stack, g.m.crossbowEnchContext(t.w)))
 	for i := range arrows {
 		arrows[i] = protocol.ItemStack{ItemID: int32(registry.ItemArrow), Count: 1}
 	}
-	stack := m.MainHand
 	stack.SetChargedProjectiles(arrows)
-	m.SetEquipment(protocol.EquipMainHand, stack)
+	g.m.SetEquipment(g.chargeSlot, stack)
 }
 
-// CrossbowLoaded reports whether the main hand holds charged projectiles.
+// CrossbowLoaded reports whether the selected crossbow holds charged projectiles.
 // vanilla: CrossbowItem.isCharged
-func (m *Mob) CrossbowLoaded() bool { return len(m.MainHand.ChargedProjectiles()) > 0 }
+func (m *Mob) CrossbowLoaded() bool {
+	stack := m.EquipmentSlot(m.weaponHoldingSlot(registry.ItemCrossbow))
+	return isHeldWeapon(stack, registry.ItemCrossbow) && len(stack.ChargedProjectiles()) > 0
+}
 
-// wearCrossbow takes one arrow's wear off the crossbow, clearing the hand
-// and reporting true when it wore through.
-func (g *crossbowAttackGoal) wearCrossbow(t *tickView) bool {
+func (g *crossbowAttackGoal) wearCrossbow(t *tickView, slot int, stack protocol.ItemStack) protocol.ItemStack {
 	m := g.m
-	worn, broke := rules.Wear(m.MainHand, rules.ProcessDurabilityChange(m.MainHand, rules.CrossbowWearPerShot(false), m.Rand))
-	m.SetEquipment(protocol.EquipMainHand, worn)
+	worn, broke := rules.Wear(stack, rules.ProcessDurabilityChange(stack, rules.CrossbowWearPerShot(false), m.Rand))
+	m.SetEquipment(slot, worn)
 	if broke {
-		t.events = append(t.events, MobEvent{Mob: m, Kind: MobHandBroke})
+		// vanilla: LivingEntity.onEquippedItemBroken
+		status := int32(protocol.EntityStatusBreakMainHand)
+		if slot == protocol.EquipOffHand {
+			status = protocol.EntityStatusBreakOffHand
+		}
+		t.events = append(t.events, MobEvent{Mob: m, Kind: MobStatus, Status: status})
 	}
-	return broke
+	return worn
 }
 
 // spreadAim turns the aim angle degrees sideways about the axis the aim and
@@ -344,14 +366,11 @@ func rotateAxis(vx, vy, vz, theta, ax, ay, az float64) (float64, float64, float6
 }
 
 // crossbowEnchContext is the shooter's ENCHANTED_ENTITY loot context.
-func (m *Mob) crossbowEnchContext(worlds ...World) *rules.EnchContext {
-	ctx := &rules.EnchContext{Victim: m.typeID(), Attacker: -1, DirectAttacker: -1, Rand: m.Rand,
-		User: rules.EnchUser{Riding: m.RidesVehicle, InWater: m.InWater()}}
-	if len(worlds) > 0 {
-		w := worlds[0]
-		ctx.Thundering = w.IsThundering()
-		ctx.CanSeeSky = m.seesSkyAbove(w)
-		ctx.Block = registry.BlockOf(w.BlockAt(rules.BlockOf(m.X), rules.BlockOf(m.Y), rules.BlockOf(m.Z)))
+func (m *Mob) crossbowEnchContext(w World) *rules.EnchContext {
+	return &rules.EnchContext{Victim: m.typeID(), Attacker: -1, DirectAttacker: -1, Rand: m.Rand,
+		User:       rules.EnchUser{Riding: m.RidesVehicle, InWater: m.InWater()},
+		Thundering: w.IsThundering(),
+		CanSeeSky:  m.seesSkyAbove(w),
+		Block:      registry.BlockOf(w.BlockAt(rules.BlockOf(m.X), rules.BlockOf(m.Y), rules.BlockOf(m.Z))),
 	}
-	return ctx
 }

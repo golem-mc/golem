@@ -6,6 +6,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -41,7 +42,9 @@ func (h *vaultHost) Players() []entity.TrialPlayer { return h.base.Players() }
 
 // vanilla: VaultBlockEntity.Server.cycleDisplayItemFromLootTable
 func (h *vaultHost) Loot(table string) []protocol.ItemStack {
-	stacks, _ := h.base.s.rollLoot(h.base.dim.w, h.x, h.y, h.z, table, 0, lootOpener{}, protocol.ItemStack{})
+	s := h.base.s
+	ctx := rules.LootContext{Level: s.lootLevelAtBlock(h.base.dim.w, h.x, h.y, h.z), Random: s.levelRng}
+	stacks, _ := s.rollLootWith(&ctx, table, 0)
 	return stacks
 }
 

@@ -72,6 +72,7 @@ func BenchmarkPistonPushCartsAndCrystals(b *testing.B) {
 				s.minecarts = append(s.minecarts, &minecartEntity{w: w, cart: entity.NewMinecart(int32(i+1), x, 64, 0.5)})
 				s.endCrystals = append(s.endCrystals, &endCrystalEntity{w: w, crystal: entity.NewEndCrystal(int32(i+1+bc.away+bc.sweep), x, 64, 0.5)})
 			}
+			s.setPistonGrid(s.allDims()[0], true)
 			pp := &world.PistonPush{X: 1, Y: 64, Z: 0, Dir: 5, Progress: 0.5, Extending: true, Boxes: []world.CollisionBox{{MaxX: 1, MaxY: 1, MaxZ: 1}}}
 			reset := func() {
 				for i := bc.away; i < bc.away+bc.sweep; i++ {

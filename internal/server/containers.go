@@ -161,7 +161,9 @@ func (c *client) setOpenWindow(w *openWindow) {
 	} else if c.container.window != nil && w == nil {
 		c.srv.openContainerWindows.Add(-1)
 	}
+	old := c.container.window
 	c.container.window = w
+	c.srv.viewers.move(c, old, w)
 }
 
 // doubleChestHalf is how many slots each half of a double chest holds.
@@ -175,10 +177,16 @@ func (o *openWindow) halves() [][3]int32 {
 	return [][3]int32{{o.x, o.y, o.z}}
 }
 
+// shows reports whether the window shows block containers; a chest boat's,
+// a cart's, a trade's, a mount's, a plugin's and a virtual one's do not.
+func (o *openWindow) shows() bool {
+	return o.boat == nil && o.cart == nil && o.menu == nil && o.trader == nil && o.mount == nil && !o.virtual
+}
+
 // covers reports whether the window shows the container at the position;
 // a chest boat's covers none.
 func (o *openWindow) covers(w *world.World, x, y, z int32) bool {
-	return o.boat == nil && o.cart == nil && o.menu == nil && !o.virtual && o.w == w && slices.Contains(o.halves(), [3]int32{x, y, z})
+	return o.shows() && o.w == w && slices.Contains(o.halves(), [3]int32{x, y, z})
 }
 
 // slotBase is where the container at the position starts in the window's
@@ -416,7 +424,7 @@ func (v windowView) clickView(inv *player.Inventory) inventory.View {
 		}
 	case windowDouble:
 		if v.be != nil && v.be2 != nil {
-			view.Entity = inventory.Compound{First: containerSlots(v.be, v.w.w), Second: containerSlots(v.be2, v.w.w)}
+			view.Entity = doubleChestSlots(v.be, v.be2, v.w.w)
 		}
 	case windowEnderChest:
 		if inv != nil {
@@ -487,6 +495,14 @@ func (b boatCargo) Peek(slot int) (itemID, count int32) {
 	return b.it.cargo[slot].ItemID, b.it.cargo[slot].Count
 }
 
+// StackPtr is the cargo slot's stack in place for reading.
+func (b boatCargo) StackPtr(slot int) *protocol.ItemStack {
+	if slot < 0 || slot >= len(b.it.cargo) {
+		return nil
+	}
+	return &b.it.cargo[slot]
+}
+
 // Filled is the cargo's occupied-slot mask.
 func (b boatCargo) Filled() uint64 { return filledOf(b.it.cargo) }
 
@@ -532,6 +548,24 @@ type blockEntitySlots struct {
 	kind windowKind
 }
 
+type chestHalfSlots struct {
+	blockEntitySlots
+	other *world.BlockEntity
+}
+
+func doubleChestSlots(first, second *world.BlockEntity, w *world.World) inventory.Pair[chestHalfSlots] {
+	return inventory.Pair[chestHalfSlots]{
+		First:  chestHalfSlots{blockEntitySlots: containerSlots(first, w), other: second},
+		Second: chestHalfSlots{blockEntitySlots: containerSlots(second, w), other: first},
+	}
+}
+
+// Put writes one slot and marks the compound container changed.
+func (b chestHalfSlots) Put(slot int, stack protocol.ItemStack) {
+	b.be.Put(slot, stack)
+	b.w.TouchContainerPair([3]int32{b.be.X, b.be.Y, b.be.Z}, [3]int32{b.other.X, b.other.Y, b.other.Z})
+}
+
 // containerSlots adapts a container block entity; a nil world marks nothing
 // dirty. A non-nil world also rolls a pending loot table, so a caller
 // outside the entity's lock must already have cleared it (an open does,
@@ -562,6 +596,14 @@ func (b blockEntitySlots) Peek(slot int) (itemID, count int32) {
 		return s.ItemID, s.Count
 	}
 	return 0, 0
+}
+
+// StackPtr is the slot's stack in place for reading, nil for one it lacks.
+func (b blockEntitySlots) StackPtr(slot int) *protocol.ItemStack {
+	if slot >= 0 && slot < len(b.be.Slots) {
+		return &b.be.Slots[slot]
+	}
+	return nil
 }
 
 // Put replaces the container slot's stack, dropping any compound the file
@@ -2181,22 +2223,22 @@ func (s *Server) containerViewers(w *world.World, x, y, z int32, except *client,
 		return
 	}
 
-	var buf [8]*client
-	recipients := buf[:0]
+	var buf [8]containerViewer
+	candidates := s.viewers.at(buf[:0], w, x, y, z)
+	if len(candidates) == 0 {
+		return
+	}
+	// Compact the validated viewers in place: the copy is already ours.
+	recipients := candidates[:0]
 	s.mu.RLock()
-	for _, c := range s.clients {
-		if c == except {
-			continue
+	for _, v := range candidates {
+		if v.c != except && s.clients[v.c.player.UUID] == v.c && v.c.openContainerWindow() == v.window {
+			recipients = append(recipients, v)
 		}
-		window := c.openContainerWindow()
-		if window == nil || !window.covers(w, x, y, z) {
-			continue
-		}
-		recipients = append(recipients, c)
 	}
 	s.mu.RUnlock()
-	for _, c := range recipients {
-		fn(c)
+	for _, v := range recipients {
+		fn(v.c)
 	}
 }
 

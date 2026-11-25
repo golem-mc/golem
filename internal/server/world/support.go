@@ -762,7 +762,8 @@ func (p *Physics) scheduleSurvival(x, y, z int32, due int64) {
 // scheduleBooked queues an entry tagged event unless booked already holds the
 // position.
 func (p *Physics) scheduleBooked(booked map[blockKey]bool, x, y, z int32, due int64, event uint8) {
-	p.discardUnloadedTicks(p.w.prepareTick(x, z, true))
+	_, unloaded := p.w.prepareTick(x, z, true, false)
+	p.discardUnloadedTicks(unloaded)
 	key := blockKey{x, y, z}
 	if booked[key] {
 		return
@@ -944,7 +945,7 @@ func (p *Physics) removeWithDrop(x, y, z int32, state uint16, changes *[]BlockCh
 	// by the cell's next block.
 	p.w.RemoveBlockEntity(x, y, z)
 	*changes = append(*changes, physicsChange(x, y, z, state, leave))
-	p.redstoneAfterRemoval(x, y, z, state, false, changes)
+	p.redstoneAfterRemoval(x, y, z, state, false, false, changes)
 	p.neighborUpdate(x, y, z, state, leave, changes)
 	// vanilla: Level.setBlock — the old state's updateIndirectNeighbourShapes
 	// runs before the neighbour shape pass; only redstone wire overrides it,
@@ -976,7 +977,9 @@ func destroyBlockEffect(state uint16, tag nbt.Compound, x, y, z int32) Effect {
 		// vanilla: StrawBedBlock.spawnDestroyParticles — particles only.
 		event = 2014
 	}
-	return Effect{LevelEvent: event, LevelEventData: int32(state), BreakDrop: state, BreakTag: tag, GameEvent: gameEventBlockDestroy, X: x, Y: y, Z: z}
+	// The destroyed state still controls whether the vibration is dampened.
+	return Effect{LevelEvent: event, LevelEventData: int32(state), BreakDrop: state, BreakTag: tag,
+		GameEvent: gameEventBlockDestroy, GameEventAffected: state, X: x, Y: y, Z: z}
 }
 
 // bellShapeUpdate is BellBlock.updateShape's attachment half: a double wall

@@ -163,7 +163,7 @@ func runSummon(src Source, input string, args []string) error {
 		return refuse(src, summonPeacefulKey)
 	}
 
-	id, identity, displayKey, displayArg, ok, err := summonBody(src, name, kind, x, y, z, compound, scalars, values, tagged)
+	id, identity, baseName, ok, err := summonBody(src, name, kind, x, y, z, compound, scalars, values, tagged)
 	if refused := summonErr(src, err, name); refused != nil {
 		return refused
 	}
@@ -175,13 +175,9 @@ func runSummon(src Source, input string, args []string) error {
 	if team, joined := JoinTagTeam(src.Scoreboard(), identity, compound); team != "" && !joined {
 		src.Info("unable to add entity to team (that team probably doesn't exist)", "team", team)
 	}
-	displayName := "entity.minecraft." + strings.TrimPrefix(name, "minecraft:")
-	if displayKey != "" {
-		displayName = displayKey
-	}
-	display := protocol.Text{Translate: displayName}
-	if displayArg != nil {
-		display.With = []protocol.Text{*displayArg}
+	display := protocol.Text{Translate: "entity.minecraft." + strings.TrimPrefix(name, "minecraft:")}
+	if baseName != nil {
+		display = *baseName
 	}
 	if custom := summonDisplayName(compound); custom != nil {
 		display = *custom
@@ -190,13 +186,10 @@ func runSummon(src Source, input string, args []string) error {
 	return feedbackToAdmins(src, summonSuccessKey, display)
 }
 
-// summonBody stands up the body a summon of name makes at x, y, z and answers
-// its id and UUID, the translation key and argument its success line names it
-// by, and whether anything stood up. err is the duplicate-UUID refusal of the
-// kinds that make their body out of the tag. A tag, even an empty one, builds a
-// mob from it and skips finalizeSpawn; without one it runs.
+// summonBody spawns the body and returns its IDs and optional name component.
+// A tag, even an empty one, skips finalizeSpawn for a mob.
 // vanilla: SummonCommand.createEntity
-func summonBody(src Source, name string, kind summonKind, x, y, z float64, compound nbt.Compound, scalars, values map[string]string, tagged bool) (id int32, identity uuid.UUID, displayKey string, displayArg *protocol.Text, ok bool, err error) {
+func summonBody(src Source, name string, kind summonKind, x, y, z float64, compound nbt.Compound, scalars, values map[string]string, tagged bool) (id int32, identity uuid.UUID, display *protocol.Text, ok bool, err error) {
 	switch kind {
 	case summonOrb:
 		// vanilla: ExperienceOrb.readAdditionalSaveData, Entity.load
@@ -210,7 +203,7 @@ func summonBody(src Source, name string, kind summonKind, x, y, z float64, compo
 		// spawns and the line names air.
 		stack, pickupDelay, stackOK := summonItemStack(values, scalars)
 		if !stackOK {
-			displayKey = "block.minecraft.air"
+			display = &protocol.Text{Translate: "block.minecraft.air"}
 			id, identity, ok = 0, uuid.New(), true
 			break
 		}
@@ -219,7 +212,8 @@ func summonBody(src Source, name string, kind summonKind, x, y, z float64, compo
 		if full, whole := registry.StoredStack(itemTag); whole && !full.Empty() {
 			stack = full
 		}
-		displayKey, _ = registry.ItemTranslationKey(stack.ItemID)
+		itemName := rules.ItemTypeName(stack)
+		display = &itemName
 		id, identity, err = src.SummonItem(x, y, z, stack, pickupDelay, nbt.BoolField(compound, "NoGravity"), compound)
 		ok = err == nil
 	case summonLightning:
@@ -244,9 +238,10 @@ func summonBody(src Source, name string, kind summonKind, x, y, z float64, compo
 		// The fall: the block its tag named under BlockState — sand where
 		// the tag named none — read the way a saved fall's wake reads,
 		// falling from the position the command points.
-		displayKey = "entity.minecraft.falling_block_type"
-		block := protocol.Text{Translate: summonBlockKey(compound[entity.BlockStateKeyFalling])}
-		displayArg = &block
+		display = &protocol.Text{
+			Translate: "entity.minecraft.falling_block_type",
+			With:      []protocol.Text{{Translate: summonBlockKey(compound[entity.BlockStateKeyFalling])}},
+		}
 		id, identity, err = src.SummonFallingBlock(x, y, z, compound)
 		ok = err == nil
 	case summonArrow:
@@ -297,7 +292,7 @@ func summonBody(src Source, name string, kind summonKind, x, y, z float64, compo
 			id, identity, ok = src.SummonMob(name, x, y, z)
 		}
 	}
-	return id, identity, displayKey, displayArg, ok, err
+	return id, identity, display, ok, err
 }
 
 // summonErr is what a summon that made its body out of the tag answers with

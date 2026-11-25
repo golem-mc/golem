@@ -163,7 +163,11 @@ func runVillagerTrades(e *env) error {
 			fail("%s: trades is not a tag", file)
 		}
 		readTagOnce(tag[1:], nil)
-		fmt.Fprintf(&sets, "\t%s: {Amount: %d, Duplicates: %t, Tag: %s},\n", gogen.Quote(strings.TrimSuffix(name, ".json")), int(amount), set.boolOr("allow_duplicates", false), gogen.Quote(tag[1:]))
+		var sequence string
+		if set.has("random_sequence") {
+			sequence = fmt.Sprintf(", RandomSequence: %q", qualified(set.str("random_sequence")))
+		}
+		fmt.Fprintf(&sets, "\t%s: {Amount: %d, Duplicates: %t, Tag: %s%s},\n", gogen.Quote(strings.TrimSuffix(name, ".json")), int(amount), set.boolOr("allow_duplicates", false), gogen.Quote(tag[1:]), sequence)
 	}
 	for _, name := range slices.Sorted(maps.Keys(tags)) {
 		fmt.Fprintf(&tagsBody, "\t%s: {%s},\n", gogen.Quote(name), quotedList(tags[name]))

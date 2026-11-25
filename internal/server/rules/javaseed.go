@@ -98,13 +98,20 @@ func (r *JavaRandom) TriangleFloat(mean, spread float32) float32 {
 	return mean + spread*(r.NextFloat()-r.NextFloat())
 }
 
-// LootRand is the random source a loot roll draws from: a *rand.Rand for an
-// unseeded roll, a JavaRandom for a seeded one, whose draws then agree with
-// vanilla's. Float32 is vanilla's nextFloat.
+// LootRand is the random source a loot roll draws from.
 type LootRand interface {
 	Intn(n int) int
 	Int31n(n int32) int32
 	Float32() float32
+}
+
+// SeededLootRandom returns the explicit source for an optional loot seed.
+// vanilla: LootContext.Builder.withOptionalRandomSeed
+func SeededLootRandom(seed int64) LootRand {
+	if seed == 0 {
+		return nil
+	}
+	return NewJavaRandom(seed)
 }
 
 // Intn is vanilla: RandomSource.nextInt(bound).
@@ -116,9 +123,13 @@ func (r *JavaRandom) Int31n(n int32) int32 { return r.NextIntBound(n) }
 // NextBoolean is vanilla: BitRandomSource.nextBoolean, next(1) != 0.
 func (r *JavaRandom) NextBoolean() bool { return r.next(1) != 0 }
 
-// nextBoolean is vanilla's RandomSource.nextBoolean on any LootRand; a
-// 1-bit draw and Intn(2) agree for a JavaRandom.
-func nextBoolean(rng LootRand) bool { return rng.Intn(2) != 0 }
+// vanilla: RandomSource.nextBoolean
+func nextBoolean(rng LootRand) bool {
+	if bits, ok := rng.(interface{ NextBoolean() bool }); ok {
+		return bits.NextBoolean()
+	}
+	return rng.Intn(2) != 0
+}
 
 // lootEnchantRand lets a loot roll's source feed SelectEnchantment, which
 // vanilla's enchantItem draws from the context random itself.

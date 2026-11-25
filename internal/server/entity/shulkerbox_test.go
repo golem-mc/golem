@@ -2,6 +2,7 @@ package entity
 
 import (
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/player"
@@ -167,5 +168,106 @@ func TestShulkerCoveredArmorSurvivesSaveAndReload(t *testing.T) {
 				t.Errorf("mapped %v, covered %v: saved armor attribute = %v, want %v", mapped, covered, armor, want)
 			}
 		}
+	}
+}
+
+// TestAShellShoveRefilesTheMobInThePushGrid: the next shell queries the grid,
+// so a mob a shell moved is filed at its new box at once.
+// vanilla: Shulker.onPeekAmountChange
+func TestAShellShoveRefilesTheMobInThePushGrid(t *testing.T) {
+	w := shulkerFloor(t)
+	m := NewMob(TypeShulker, 1, 0.5, 64, 0.5, 3)
+	pig := NewMob(TypePig, 2, 0.5, 65, 0.5, 4)
+	herd := []*Mob{m, pig}
+	g := takePushGrid(len(herd), nil)
+	defer g.release()
+	g.build(herd)
+	m.push = g
+	openShell(m, w, herd, 3)
+	if pig.Y <= 65 {
+		t.Fatalf("the pig stands at %v, want it lifted", pig.Y)
+	}
+	if got := g.cell(pig.pushCell)[pig.pushSlot]; got != g.entryOf(pig) {
+		t.Errorf("grid holds %+v for the pig, want %+v", got, g.entryOf(pig))
+	}
+}
+
+// TestAShellShoveMeetsLiveHullsInSnapshotOrder: the pig the shell shoves
+// east meets a low half-open hull just ahead and a tall shut one just past
+// it, both within the shove. The grid files the tall one in an earlier cell;
+// met in snapshot order the low one sets the step-up and the pig climbs onto
+// it.
+// vanilla: Shulker.onPeekAmountChange, Entity.collide
+func TestAShellShoveMeetsLiveHullsInSnapshotOrder(t *testing.T) {
+	for _, grid := range []bool{false, true} {
+		w := newTestWorld()
+		m := NewMob(TypeShulker, 1, 0.5, 70, 4.5, 3)
+		m.shulker.face, m.shulker.peekNow = faceWest, 0.15
+		low := NewMob(TypeShulker, 3, 2.5, 70, 4.5, 5)
+		low.shulker.face, low.shulker.peekNow = faceEast, 0.1
+		tall := NewMob(TypeShulker, 4, 2.5, 71, 3.5, 6)
+		// Pressed flush against the low hull's opening, short of the tall one.
+		pig := NewMob(TypePig, 2, low.mobBox().minX-0.45-1e-4, 70.7, 4, 4)
+		pig.OnGround = true
+		herd := []*Mob{m, pig, low, tall}
+		if grid {
+			if cellOf(tall.X, tall.Z) == cellOf(low.X, low.Z) {
+				t.Fatal("the hulls share a grid cell")
+			}
+			g := takePushGrid(len(herd), nil)
+			g.build(herd)
+			m.push = g
+			defer g.release()
+		}
+		m.shulker.peek = shulkerOpenPeek
+		tv := tickView{w: w, others: herd}
+		m.stepShulkerPeek(m.shulkerWorld(&tv), &tv)
+		if pig.Y != 71 {
+			t.Errorf("grid %v: the pig stands at Y %v, want it stepped onto the low hull at 71", grid, pig.Y)
+		}
+	}
+}
+
+// TestAnEndermanKeepsItsOwnCollisionView: the view is refiltered for each
+// mover, so the one an enderman retains for hurt teleports is a copy.
+func TestAnEndermanKeepsItsOwnCollisionView(t *testing.T) {
+	b := &Bodies{World: newTestWorld(), Boxes: make([]AABB, 2), Skip: []int32{0}}
+	m := NewMob(TypeEnderman, 1, 0.5, 64, 0.5, 3)
+	m.endermanStep(b, nil)
+	b.Skip[0] = 1
+	b.Skip = b.Skip[:0]
+	if got := m.enderman.w.(*Bodies).Skip; !slices.Equal(got, []int32{0}) {
+		t.Errorf("retained skip %v, want [0]", got)
+	}
+}
+
+// TestAShellsHullQueryIgnoresAFarWideBody: the live-hull query reaches as
+// far as the widest shulker, so a huge mob elsewhere does not widen it to
+// the whole herd.
+func TestAShellsHullQueryIgnoresAFarWideBody(t *testing.T) {
+	seen := func(giant bool) int {
+		herd := []*Mob{NewMob(TypeShulker, 0, 0.5, 64, 0.5, 0)}
+		for i := range 400 {
+			herd = append(herd, NewMob(TypeCow, int32(i+1), float64(i%20)*4-40, 64, float64(i/20)*4-40, int64(i+1)))
+		}
+		if giant {
+			big := NewMob(TypeCow, 1000, 1000, 64, 1000, 1000)
+			big.SetAttributes(big.BuildAttributes(nbt.List{}))
+			big.attrs.SetBase(registry.AttributeScale, 16)
+			herd = append(herd, big)
+		}
+		g := takePushGrid(len(herd), nil)
+		defer g.release()
+		g.build(herd)
+		herd[0].push = g
+		n := 0
+		g.gathered = &n
+		tv := tickView{w: newTestWorld(), others: herd}
+		herd[0].shulkerWorld(&tv).BodyBoxes(herd[0].mobBox())
+		return n
+	}
+	plain, wide := seen(false), seen(true)
+	if plain == 0 || wide != plain {
+		t.Errorf("the shell's query looked at %d entries, %d with a giant cow far away; want the same", plain, wide)
 	}
 }

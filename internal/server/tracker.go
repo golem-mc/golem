@@ -122,7 +122,8 @@ func (t *bodyTrack[S]) motionDue(vx, vy, vz float64, stopping bool) bool {
 type trackedKind[B any, S any] struct {
 	rangeChunks int
 	// steppedPath sends positions as a stepped path over the ticks
-	// since the last movement tick, for a LivingEntity.
+	// since the last movement tick, for a LivingEntity; a teleport waits for
+	// the next movement tick.
 	// vanilla: SteppedInterpolationTracker
 	steppedPath bool
 	// rangeOf, if not nil, is each body's own range in chunks in place of
@@ -144,6 +145,10 @@ type trackedKind[B any, S any] struct {
 	// frozenSchedule keeps the movement cadence running while physics is held,
 	// including the initial correction of a client's predicted birth step.
 	frozenSchedule bool
+	// motion, if not nil, is the body's velocity for the Set Entity Motion
+	// that goes ahead of each watcher's move on a movement tick.
+	// vanilla: ServerEntity.sendChanges
+	motion func(B) (vx, vy, vz float64)
 
 	lock  func(*Server) *sync.Mutex
 	list  func(*Server) *[]B
@@ -162,6 +167,9 @@ type trackedKind[B any, S any] struct {
 	// invalidatePiston drops cached boxes under the kind lock after a position
 	// or dimension change, including commands interleaved with physics effects.
 	invalidatePiston func(*dimension)
+	// pistonBit is the kind's bit in Server.pistonPopulated; zero for a kind
+	// pushByPiston always visits.
+	pistonBit uint32
 	// tellPose, if not nil, is the pose an absolute Teleport Entity tells in
 	// place of pose, for a body whose range is measured from another point
 	// than the one the client places it at.
@@ -193,6 +201,9 @@ func (k *trackedKind[B, S]) chunkOf(b B) world.ChunkPos {
 // file puts a body in the kind's chunk index under its pose. The caller holds
 // the kind's lock.
 func (k *trackedKind[B, S]) file(s *Server, b B) {
+	if k.pistonBit != 0 {
+		s.pistonPopulated.Or(k.pistonBit)
+	}
 	if k.chunks == nil {
 		return
 	}
@@ -539,6 +550,16 @@ func (v *trackedBody[B, S]) movePacket(was *toldBody[S], mt moveTick) (outbound,
 	return packet, ok
 }
 
+// putAbsolute writes an absolute position sync, a stepped path over stepTicks
+// ticks when that is above 0.
+func putAbsolute(buf *protocol.Buffer, id int32, abs bodyPose, stepTicks int32, onGround bool) {
+	if stepTicks > 0 {
+		protocol.PutEntityPositionSyncStepped(buf, id, abs.x, abs.y, abs.z, stepTicks, abs.yaw, abs.pitch, onGround)
+	} else {
+		protocol.PutEntityPositionSync(buf, id, abs.x, abs.y, abs.z, abs.yaw, abs.pitch, onGround)
+	}
+}
+
 // moveDiff builds the packet a watcher last told of was is owed for a body now
 // at now: an absolute Teleport Entity carrying abs when the step does not fit
 // the relative packets, the on-ground flag has flipped, the body has left a seat
@@ -571,11 +592,7 @@ func moveDiff(id int32, was, now trackedPosition, abs bodyPose, mt moveTick, del
 		now.onGround != was.onGround || !inOneStep(dx, dy, dz):
 		packetID = protocol.IDPlayTeleportEntity
 		buf.Grow(teleportEntityLen)
-		if mt.stepTicks > 0 {
-			protocol.PutEntityPositionSyncStepped(&buf, id, abs.x, abs.y, abs.z, mt.stepTicks, abs.yaw, abs.pitch, now.onGround)
-		} else {
-			protocol.PutEntityPositionSync(&buf, id, abs.x, abs.y, abs.z, abs.yaw, abs.pitch, now.onGround)
-		}
+		putAbsolute(&buf, id, abs, mt.stepTicks, now.onGround)
 	case moved || mt.forced:
 		buf.Grow(entityPositionRotLen)
 		if turned {
@@ -606,6 +623,7 @@ func moveDiff(id int32, was, now trackedPosition, abs bodyPose, mt moveTick, del
 
 // register puts a built body into its kind's list and shows it to every
 // player of its world in range.
+// vanilla: ChunkMap.TrackedEntity.updatePlayer
 func (k *trackedKind[B, S]) register(s *Server, b B) {
 	w := k.world(b)
 	type spot struct {
@@ -638,9 +656,11 @@ func (k *trackedKind[B, S]) register(s *Server, b B) {
 		recipients = append(recipients, sp.c)
 		v.mark(sp.c)
 	}
-	// Built under the lock, from the body as it is; the tick may have moved
-	// it by the time the sends run.
-	shown := k.pairing(b)
+	var shown []outbound
+	if len(recipients) > 0 {
+		// The tick may move the body once the locks are released.
+		shown = k.pairing(b)
+	}
 	mu.Unlock()
 	s.mu.RUnlock()
 
@@ -804,12 +824,29 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 	} else {
 		mt = v.teleportTick()
 	}
+	// The baseline advances on every gate, watched or not, before any watcher
+	// is paired; a watcher paired now has it in its Add Entity, and the
+	// payload is encoded for the first watcher already tracking the body.
+	// vanilla: ServerEntity.sendChanges, ChunkMap.TrackedEntity.updatePlayer
+	var motion []byte
+	motionDue := false
+	if k.motion != nil && mt.gate {
+		vx, vy, vz := k.motion(b)
+		motionDue = v.t.motionDue(vx, vy, vz, true)
+	}
 	for _, i := range v.watchers(near) {
 		wt := watchers[i]
 		if wt.c.theWorld() != v.w {
 			continue // crossed to another dimension since the snapshot
 		}
-		if was, seen := v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out); seen && (mt.teleported || mt.gate) {
+		shows := len(out.shows)
+		if was, seen := v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out); seen && (mt.gate || mt.teleported && !v.k.steppedPath) {
+			if motionDue && len(out.shows) == shows { // not paired by this settle
+				if motion == nil {
+					motion = entityVelocityPayload(v.id, v.t.sentVX, v.t.sentVY, v.t.sentVZ)
+				}
+				out.moves.add(wt.c, outbound{id: protocol.IDPlaySetEntityMotion, data: motion})
+			}
 			v.moveTold(was, wt.c, mt, out)
 		}
 	}

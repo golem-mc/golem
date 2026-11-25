@@ -111,6 +111,7 @@ func TestABoundCreakingTakesNoDamageAndSways(t *testing.T) {
 func TestAnUnboundCreakingDiesToOneBlow(t *testing.T) {
 	t.Parallel()
 	srv, c := creakingWorld(t)
+	servertest.ChargeByHand(t, srv, creakingPlayer, servertest.SwingRecovered)
 	pos := srv.PlayerPosition(creakingPlayer)
 	id := srv.SpawnMob("minecraft:creaking", pos.X+1.5, pos.Y, pos.Z)
 	c.Settle()

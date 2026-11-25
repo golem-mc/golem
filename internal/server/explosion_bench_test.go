@@ -287,6 +287,34 @@ func BenchmarkTNTStoneExplosion(b *testing.B) {
 	}
 }
 
+// BenchmarkTNTHiveExplosion includes releasing an occupant and preparing the hive's loot.
+func BenchmarkTNTHiveExplosion(b *testing.B) {
+	site := newBlastSite(b, [6]int32{3, 13, 59, 68, 3, 13})
+	const x, y, z = 9, world.GroundLevel, 8
+	b.ReportAllocs()
+	for b.Loop() {
+		b.StopTimer()
+		site.rebuild()
+		for _, ent := range site.s.herdOf(site.w).book {
+			site.s.discardSpawned(ent)
+		}
+		site.w.SetBlock(x, y, z, registry.BlockBeehive.DefaultState())
+		site.w.SetBlockEntityTag(x, y, z, "minecraft:beehive", nbt.Compound{
+			"bees": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{
+				"entity_data":       nbt.Compound{"id": nbt.String("minecraft:bee")},
+				"min_ticks_in_hive": nbt.Int(600),
+			}}},
+		})
+		b.StartTimer()
+		site.runBlast(8.5, 8.5)
+		b.StopTimer()
+		if site.s.MobCount() != 1 {
+			b.Fatal("the blast did not release one bee")
+		}
+		b.StartTimer()
+	}
+}
+
 // BenchmarkTNTBlastCrowd is one blast among many primed TNT spread over a
 // plane, as in a chain through a large cube.
 func BenchmarkTNTBlastCrowd(b *testing.B) {

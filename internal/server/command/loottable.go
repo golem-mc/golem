@@ -1,10 +1,8 @@
 package command
 
 import (
-	"slices"
-
+	"errors"
 	"github.com/golem-mc/golem/internal/server/datapack"
-	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -40,7 +38,10 @@ func parseLootTable(text string) (lootTableRef, *ParseError) {
 	if n != len(text) {
 		return lootTableRef{}, &ParseError{Key: "command.unknown.argument", Cursor: n}
 	}
-	table, msg := decodeLootTable(tag)
+	table, msg, err := decodeLootTable(tag)
+	if err != nil {
+		return lootTableRef{}, weightOverflowError(err, len(text))
+	}
 	if msg != "" {
 		return lootTableRef{}, &ParseError{Key: modifierFailedParseKey, With: []string{msg}, Cursor: len(text)}
 	}
@@ -53,24 +54,26 @@ const inlineLootTableName = "minecraft:inline"
 
 // lootTableKnown says whether the server rolls a table by the name.
 func lootTableKnown(name string) bool {
-	if _, ok := registry.FindLootTable(name); ok {
-		return true
-	}
-	return slices.Contains(rules.FishingTableNames, name)
+	_, ok := registry.FindLootTable(name)
+	return ok
 }
 
 // decodeLootTable reads an inline loot table with the data-pack codec. The
-// message is the codec's refusal, empty for none.
+// message is the codec's refusal, empty for none; the error is
+// datapack.ErrWeightOverflow, which is no codec refusal.
 // vanilla: LootTable.DIRECT_CODEC
-func decodeLootTable(tag nbt.Tag) (registry.LootTable, string) {
+func decodeLootTable(tag nbt.Tag) (registry.LootTable, string, error) {
 	table, err := datapack.DecodeLootTableValue(nbtJSON(tag))
+	if errors.Is(err, datapack.ErrWeightOverflow) {
+		return registry.LootTable{}, "", err
+	}
 	if err != nil {
-		return registry.LootTable{}, inlineLootError(err)
+		return registry.LootTable{}, inlineLootError(err), nil
 	}
 	if msg := unknownLootReference(tag); msg != "" {
-		return registry.LootTable{}, msg
+		return registry.LootTable{}, msg, nil
 	}
-	return table, ""
+	return table, "", nil
 }
 
 // unknownLootReference is the refusal of the first loot_table entry naming a

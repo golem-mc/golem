@@ -1025,6 +1025,12 @@ func (s *Server) PlayerHealth(name string) float64 {
 	return -1
 }
 
+// PlayerHoldsChunks reports whether the named online player keeps chunk tickets.
+func (s *Server) PlayerHoldsChunks(name string) bool {
+	c := s.playerClient(name)
+	return c != nil && c.holdsChunks()
+}
+
 // HoldPlayerUnloaded makes the named player's client count as still loading
 // for the rest of the test, so every hurt on them is refused.
 func (s *Server) HoldPlayerUnloaded(name string) {
@@ -1282,12 +1288,10 @@ func (s *Server) SetMobEquipment(id int32, slot string, stack protocol.ItemStack
 		switch slot {
 		case "body":
 			m.SetEquipment(6, stack)
-		case "saddle":
-			m.SetMetadataHorseSaddle(stack)
+		case "saddle", "antenna":
+			m.SetEquipment(protocol.EquipSaddle, stack)
 		case "mainhand":
 			m.SetEquipment(protocol.EquipMainHand, stack)
-		case "antenna":
-			m.SetMetadataAntenna(stack)
 		}
 	}
 }
@@ -1887,7 +1891,7 @@ func (s *Server) BiteBobber(name string, seed int64) bool {
 	for _, it := range s.bobbers {
 		if it.owner == c.player.UUID && !it.hook.Dead {
 			it.hook.Nibble = 1000
-			it.hook.Rand = rand.New(rand.NewSource(seed))
+			s.LootSequenceSeed(rules.FishingLootTable, seed)
 			return true
 		}
 	}
@@ -2617,14 +2621,9 @@ func (s *Server) SpawnCreaturePass(seed int64) {
 	s.tickNaturalSpawning()
 }
 
-// LootSeed replaces the loot tables' dice with a random source seeded by the
-// value given, which is what makes a drop reproducible: the same breaks, the
-// same seed, the same drops. The loot dice roll for every block break and
-// every death after the seed is set, in the order the rolls happen, so a
-// test that plants a seed before its first break sees the same chances land
-// every run.
-func (s *Server) LootSeed(seed int64) {
-	s.lootRng.Seed(seed)
+// LootSequenceSeed restarts a named loot sequence with a fixture's world seed.
+func (s *Server) LootSequenceSeed(id string, seed int64) {
+	s.randomSequences.Reset(id, seed, 0, true, true, true)
 }
 
 // DropSeed replaces the dice a container's contents spill with by one seeded
@@ -4443,6 +4442,21 @@ func (s *Server) SpawnItemEntityDelay(x, y, z float64, item string, count, picku
 	return it.item.ID
 }
 
+// SpawnItemThrownBy is SpawnItemEntityDelay for a drop the named player
+// threw, so its pickup fires the thrown-item advancements.
+func (s *Server) SpawnItemThrownBy(thrower string, x, y, z float64, item string, count, pickupDelay int) int32 {
+	id, ok := registry.ItemID(item)
+	c := s.playerClient(thrower)
+	if !ok || c == nil {
+		return 0
+	}
+	it := s.newItemEntity(s.world, protocol.ItemStack{ItemID: id, Count: int32(count)},
+		x, y-entity.ItemHalfSize, z, 0, 0, 0, pickupDelay)
+	it.thrower = c.player.UUID
+	s.registerFreshItem(it)
+	return it.item.ID
+}
+
 // SpawnItemStack lays a built stack on the ground, past its pickup delay,
 // and returns its entity ID.
 func (s *Server) SpawnItemStack(x, y, z float64, stack protocol.ItemStack) int32 {
@@ -4756,6 +4770,13 @@ func (s *Server) BlastSpillBetween(between func(*world.BlockEntity)) {
 func (s *Server) PlayerTrackBetween(between func()) {
 	s.mu.Lock()
 	s.playerTrackSeam = between
+	s.mu.Unlock()
+}
+
+// CorpseExpiryBetween runs between finding an expired corpse and removing it.
+func (s *Server) CorpseExpiryBetween(between func()) {
+	s.mu.Lock()
+	s.corpseExpirySeam = between
 	s.mu.Unlock()
 }
 
@@ -6695,7 +6716,7 @@ func (s *Server) SetMobInLoveBy(id int32, ticks int, name string) {
 	defer s.mobsMu.Unlock()
 	if ent := s.mobByEntityIDLocked(s.world, id); ent != nil && c != nil {
 		ent.mob.InLove = ticks
-		ent.loveCause = c.player.UUID
+		ent.mob.SetLoveCause(c.player.UUID)
 	}
 }
 

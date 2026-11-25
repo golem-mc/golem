@@ -33,7 +33,7 @@ func (c *client) useOnNautilus(ent *mobEntity, hand int32, held protocol.ItemSta
 		switch {
 		case m.Horse.Saddle.Empty() && m.Wears("saddle", held):
 			held.Count = 1
-			m.SetMetadataHorseSaddle(held)
+			m.SetEquipment(protocol.EquipSaddle, held)
 			m.SaddleDropChance = entity.GuaranteedDropChance
 			equipped = true
 			sound = m.EquipSoundOverride("saddle").Holder()

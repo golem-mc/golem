@@ -37,11 +37,6 @@ type armorStandEntity struct {
 	bodyTrack[*armorStandMeta]
 	portal rules.EntityPortal
 
-	// teleported marks a teleport the watchers have not been told of yet,
-	// told by the next tracking pass, however many came in the tick.
-	// Guarded by the stands lock.
-	teleported bool
-
 	// tags are the scoreboard tags, what the tag selector option matches
 	// and /tag edits. Guarded by the stands lock, like the rest of a
 	// stand's own fields.
@@ -60,11 +55,13 @@ type armorStandEntity struct {
 	metadata *armorStandMeta
 }
 
-// standTracker tracks the armor stands. A stand is told every tick it moves,
-// always by an absolute Teleport Entity (standMove), so the movement
-// schedule and its interval go unused.
+// standTracker tracks the armor stands. A stand is told where it went on a
+// movement tick (every entity.ArmorStandInterval ticks; a teleport waits for
+// the next one), always by an absolute Teleport Entity (standMove).
 var standTracker = trackedKind[*armorStandEntity, *armorStandMeta]{
+	steppedPath:      true,
 	invalidatePiston: func(dim *dimension) { dim.pistons.armorStands.built = false },
+	pistonBit:        pistonArmorStands,
 
 	rangeChunks: entity.ArmorStandTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.armorStandsMu },
@@ -355,8 +352,7 @@ func (c *client) placeArmorStand(hand, x, y, z, face int32) (handled bool, err e
 
 // boxTaken reports whether any non-spectator body's box overlaps the box a
 // placement would fill — vanilla's Level.getEntities(null, box).isEmpty().
-// The players, mobs, stands, crystals, items, orbs, TNT, falling blocks,
-// boats and minecarts are walked, each list under its own lock alone.
+// Each entity list is walked under its own lock alone.
 func (s *Server) boxTaken(w *world.World, box entity.AABB) bool {
 	s.mu.RLock()
 	clients := s.clientsLocked()
@@ -397,7 +393,7 @@ func (s *Server) boxTaken(w *world.World, box entity.AABB) bool {
 	if s.endCrystalBoxTaken(w, box) {
 		return true
 	}
-	return s.looseBoxTaken(w, box)
+	return s.looseBoxTaken(w, box) || s.arrowOrCloudBoxTaken(w, box)
 }
 
 // looseBoxTaken is boxTaken's half over the items, orbs, TNT, falling
@@ -828,6 +824,7 @@ func (o *standSends) send() {
 // already shown where it went and which metadata changed. The stands lock is held.
 func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyPlayers, out *standSends) {
 	body := standTracker.body(ent)
+	mt := body.t.stepDue(entity.ArmorStandInterval, false)
 	now := armorStandMetaOf(ent)
 	var attributes []byte
 	if dirty := ent.stand.Attributes().TakeDirty(); len(dirty) != 0 {
@@ -850,7 +847,9 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 				out.told = append(out.told, outbound{id: protocol.IDPlayUpdateAttributes, data: attributes})
 				out.toldTo = append(out.toldTo, showTo{wh.c, body.w})
 			}
-			standMove(&body, told, wh.c, out)
+			if mt.gate {
+				standMove(&body, told, wh.c, mt, out)
+			}
 		}
 	}
 }
@@ -859,17 +858,20 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 // when it moved past the movement threshold, turned, or was teleported
 // anywhere new, however short the step.
 // vanilla: ServerEntity.sendChanges
-func standMove(v *trackedBody[*armorStandEntity, *armorStandMeta], told *toldBody[*armorStandMeta], c *client, out *standSends) {
+func standMove(v *trackedBody[*armorStandEntity, *armorStandMeta], told *toldBody[*armorStandMeta], c *client, mt moveTick, out *standSends) {
 	now := v.position()
 	dx, dy, dz := now.x-told.x, now.y-told.y, now.z-told.z
-	jumped := v.b.teleported && (dx != 0 || dy != 0 || dz != 0)
+	jumped := mt.teleported && (dx != 0 || dy != 0 || dz != 0)
 	if dx*dx+dy*dy+dz*dz < movedThresholdSq && now.yaw == told.yaw && !jumped {
 		return
 	}
 	told.trackedPosition = now
 	st := v.b.stand
-	out.told = append(out.told, outbound{id: protocol.IDPlayTeleportEntity,
-		data: entityTeleportPayload(v.id, player.Position{X: st.X, Y: st.Y, Z: st.Z, Yaw: st.Yaw}, st.OnGround)})
+	var buf protocol.Buffer
+	buf.Grow(teleportEntityLen)
+	putAbsolute(&buf, v.id, bodyPose{x: st.X, y: st.Y, z: st.Z, yaw: st.Yaw}, mt.stepTicks, st.OnGround)
+	data := buf.Bytes()
+	out.told = append(out.told, outbound{id: protocol.IDPlayTeleportEntity, data: data})
 	out.toldTo = append(out.toldTo, showTo{c, v.w})
 }
 
@@ -885,7 +887,6 @@ func (s *Server) tickArmorStandTracking(watchers []trackingWatcher) {
 		if !ent.stand.Dead {
 			trackStand(ent, watchers, near, &out)
 		}
-		ent.teleported = false
 	}
 	s.unlockTick(&s.armorStandsMu)
 	out.send()
@@ -974,7 +975,6 @@ func (s *Server) tickArmorStands() {
 		}
 		alive = append(alive, ent)
 		trackStand(ent, watchers, near, &out)
-		ent.teleported = false
 	}
 	s.armorStands = alive
 	s.unlockTick(&s.armorStandsMu)

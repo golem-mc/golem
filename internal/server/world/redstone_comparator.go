@@ -40,23 +40,8 @@ func (p *Physics) comparatorOutput(x, y, z int32) int {
 	return out
 }
 
-// containerChanged wakes the comparators reading a container whose contents
-// moved: the four horizontal sides, the cell beyond a conductor there, and both
-// halves of a double chest. tick is the base of the comparator's delay.
-// vanilla: Level.updateNeighbourForOutputSignal, CompoundContainer.setChanged
-func (p *Physics) containerChanged(x, y, z int32, tick int64) {
-	halves := [][3]int32{{x, y, z}}
-	if first, second, ok := p.w.ChestPair(x, y, z); ok {
-		halves = [][3]int32{first, second}
-	}
-	for _, h := range halves {
-		p.analogOutputChanged(h[0], h[1], h[2], tick)
-	}
-}
-
-// analogOutputChanged wakes the comparators reading a block whose state carries
-// its analog output: the four horizontal sides and the cell beyond a conductor
-// there. tick is the base of the comparator's delay.
+// analogOutputChanged wakes comparators beside a position or beyond a conductor
+// next to it. tick is the base of the comparator's delay.
 // vanilla: Level.updateNeighbourForOutputSignal
 func (p *Physics) analogOutputChanged(x, y, z int32, tick int64) {
 	for _, d := range []int{dirNorth, dirSouth, dirEast, dirWest} {
@@ -466,7 +451,7 @@ func (p *Physics) comparatorWrite(x, y, z int32, state uint16, f int, changes *[
 // at HIGH priority when shouldPrioritize says so.
 // vanilla: ComparatorBlock.checkTickOnNeighbor
 func (p *Physics) comparatorCheckTickOnNeighbor(x, y, z int32, state uint16, tick int64) {
-	if p.repeaterWillTick(x, y, z, tick) {
+	if p.hasTickDueAt(blockKey{x, y, z}, tick) {
 		return
 	}
 	f := facingOfState(state)

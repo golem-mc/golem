@@ -42,7 +42,7 @@ func (g *OverworldGenerator) fillTerrain(c *Chunk) {
 	defer protoChunks.Put(proto)
 	proto.Reset()
 	chunk := overworldMaterialChunk{proto, c}
-	g.state.BuildTerrain(chunk, c.x, c.z, g.beardifierAt(c.x, c.z), g.terrainBiomes())
+	g.state.BuildTerrain(chunk, c.x, c.z, g.beardifierAt(c.x, c.z), g.terrainBiomes(c.x, c.z))
 	c.fillFromProto(proto, &g.materialStates, true)
 }
 

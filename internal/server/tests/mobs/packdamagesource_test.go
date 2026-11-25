@@ -19,8 +19,8 @@ func TestAPackLootTableReadsDamageSourcePredicates(t *testing.T) {
 	cfg := servertest.MobTestConfig()
 	cfg.LevelName = t.TempDir()
 	pool := func(predicate, item string) string {
-		return `{"rolls":1,"conditions":[{"type":"minecraft:damage_source_properties","predicate":{` +
-			predicate + `}}],"entries":[{"type":"minecraft:item","name":"minecraft:` + item + `"}]}`
+		return `{"rolls":1,"condition":{"type":"minecraft:damage_source_properties","predicate":{` +
+			predicate + `}},"entries":[{"type":"minecraft:item","name":"minecraft:` + item + `"}]}`
 	}
 	servertest.WritePackFile(t, cfg, "ds", "minecraft/loot_table/entities/zombie.json", `{"pools":[`+
 		pool(`"tags":[{"id":"minecraft:is_fire","expected":true},{"id":"minecraft:is_explosion","expected":false}]`, "diamond")+`,`+
@@ -82,8 +82,8 @@ func TestAPackLootTableSeesTheProjectileOfATridentAndAGhastFireball(t *testing.T
 	cfg := servertest.MobTestConfig()
 	cfg.LevelName = t.TempDir()
 	pool := func(predicate, item string) string {
-		return `{"rolls":1,"conditions":[{"type":"minecraft:damage_source_properties","predicate":{` +
-			predicate + `}}],"entries":[{"type":"minecraft:item","name":"minecraft:` + item + `"}]}`
+		return `{"rolls":1,"condition":{"type":"minecraft:damage_source_properties","predicate":{` +
+			predicate + `}},"entries":[{"type":"minecraft:item","name":"minecraft:` + item + `"}]}`
 	}
 	servertest.WritePackFile(t, cfg, "ds", "minecraft/loot_table/entities/zombie.json", `{"pools":[`+
 		pool(`"direct_entity":{"minecraft:entity_type":"minecraft:arrow"}`, "gold_ingot")+`,`+

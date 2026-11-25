@@ -615,6 +615,7 @@ func bodyVisibleToSnap(body, viewer *pairedPlayer) bool {
 func (s *Server) tickDeadBodies() {
 	s.mu.RLock()
 	clients := s.clientsLocked()
+	between := s.corpseExpirySeam
 	s.mu.RUnlock()
 	for _, c := range clients {
 		if !c.joined() || !c.player.Vitals().Dead || c.holdsDropped.Load() {
@@ -624,26 +625,50 @@ func (s *Server) tickDeadBodies() {
 		if c.deadHealthPending.Load() {
 			continue
 		}
-		if c.deathTicks.Add(1) < corpseTicks {
+		c.trackMu.Lock()
+		expired := !c.traveling.Load() && c.player.Vitals().Dead && c.deathTicks.Add(1) >= corpseTicks
+		c.trackMu.Unlock()
+		if !expired {
 			continue
 		}
-		c.trackMu.Lock()
-		wasGone := c.bodyGone.Swap(true)
-		dim := c.dimension()
-		for _, viewer := range c.seenBy {
-			viewer.sendIn(dim.w, protocol.IDPlayEntityEvent,
-				entityEventPayload(c.player.EntityID, protocol.EntityStatusDeathPoof))
-			viewer.sendIn(dim.w, protocol.IDPlayRemoveEntities, removeEntity(c.player))
+		if between != nil {
+			between()
 		}
-		clear(c.seenBy)
+		c.expireCorpse()
+	}
+}
+
+// expireCorpse removes the body and takes its effects before a respawn can
+// replace it under the same entity ID.
+func (c *client) expireCorpse() {
+	c.trackMu.Lock()
+	if c.traveling.Load() || c.deathTicks.Load() < corpseTicks {
 		c.trackMu.Unlock()
-		// Outside trackMu: the trigger takes the mob and world locks. A rejoined
-		// dead player's body was never shown, so its effects fired at the death.
-		if !wasGone {
-			c.fireDeathEffects()
-		}
-		// The holds go after the effects, which need the chunk loaded.
+		return
+	}
+	wasGone := c.bodyGone.Swap(true)
+	w := c.theWorld()
+	for _, viewer := range c.seenBy {
+		viewer.sendIn(w, protocol.IDPlayEntityEvent,
+			entityEventPayload(c.player.EntityID, protocol.EntityStatusDeathPoof))
+		viewer.sendIn(w, protocol.IDPlayRemoveEntities, removeEntity(c.player))
+	}
+	clear(c.seenBy)
+	var trigger mobEffectTrigger
+	if !wasGone {
+		trigger = c.takeDeathEffects()
+	}
+	c.trackMu.Unlock()
+
+	// Effects need the corpse's chunk and take the mob and world locks.
+	c.srv.fireMobEffectTrigger(trigger)
+	c.trackMu.Lock()
+	drop := !c.traveling.Load() && c.deathTicks.Load() >= corpseTicks
+	if drop {
 		c.holdsDropped.Store(true)
+	}
+	c.trackMu.Unlock()
+	if drop {
 		c.sendChunksAsync()
 	}
 }
@@ -1091,8 +1116,7 @@ const (
 // behind a fast walk.
 // vanilla: ChunkMap$TrackedEntity.getEffectiveRange, DedicatedServer.getScaledTrackingDistance
 func inTrackingRange(px, pz, ex, ez float64, rangeChunks, pct int, radius int32) bool {
-	// Integer division after the multiply, as vanilla's int arithmetic.
-	limit := min(int(radius)*16, pct*rangeChunks*16/100)
+	limit := trackingRangeBlocks(rangeChunks, pct, radius)
 	dx, dz := px-ex, pz-ez
 	if dx*dx+dz*dz > float64(limit*limit) {
 		return false
@@ -1100,6 +1124,11 @@ func inTrackingRange(px, pz, ex, ez float64, rangeChunks, pct int, radius int32)
 	entityChunk := world.ChunkPos{X: world.ChunkOf(ex), Z: world.ChunkOf(ez)}
 	playerChunk := world.ChunkPos{X: world.ChunkOf(px), Z: world.ChunkOf(pz)}
 	return world.InViewOf(entityChunk, playerChunk, radius)
+}
+
+func trackingRangeBlocks(rangeChunks, pct int, radius int32) int {
+	// Integer division after the multiply, as vanilla's int arithmetic.
+	return min(int(radius)*16, pct*rangeChunks*16/100)
 }
 
 // pairing is what shows one body to a client, vanilla

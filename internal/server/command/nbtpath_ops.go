@@ -254,12 +254,11 @@ func (p nbtPath) insert(index int, root nbt.Tag, values []nbt.Tag) (int, *pathEr
 	return changed, nil
 }
 
-// insertListTag puts value at the position of the list given, whose
-// mixed elements the writer holds the way the SNBT reader holds a mixed
-// list.
+// insertListTag puts value at the position of the list given, keeping a
+// mixed list's entries unwrapped as the SNBT reader does.
 // vanilla: ListTag.addTag
 func insertListTag(list *nbt.List, pos int, value nbt.Tag) {
-	whole := nbt.NewList(slices.Insert(list.Items, pos, value))
+	whole := nbt.ListOf(slices.Insert(list.Items, pos, value))
 	list.Elem, list.Items = whole.Elem, whole.Items
 }
 

@@ -14,6 +14,57 @@ import (
 // diamondBlockTable always rolls one diamond block.
 const diamondBlockTable = "minecraft:blocks/diamond_block"
 
+func TestLootRandomSequenceReset(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.ItemCreativeConfig()
+	cfg.LevelSeed = "12345"
+	_, c := servertest.Join(t, cfg, "Alice", servertest.OpsListing(t, "Alice"))
+	const table = "minecraft:entities/zombie"
+	roll := func() int64 {
+		c.ChatCommand("loot spawn ~ ~ ~ loot " + table)
+		reply := c.ExpectPlay(protocol.IDPlaySystemChat)
+		for count := range int32(3) {
+			cmp := protocol.Text{Translate: "commands.drop.success.multiple", With: []protocol.Text{servertest.ItemNumber(int64(count))}}
+			if count != 0 {
+				cmp.Translate = "commands.drop.success.single"
+				cmp.With = append(cmp.With, lootStackText(t, "minecraft:rotten_flesh", count))
+			}
+			var want protocol.Buffer
+			want.PutText(cmp)
+			want.PutBool(false)
+			if bytes.Equal(reply, want.Bytes()) {
+				return int64(count)
+			}
+		}
+		t.Fatal("zombie loot feedback did not report zero to two rotten flesh")
+		return 0
+	}
+
+	roll()
+	c.ChatCommand("random reset *")
+	reply := readFeedback(t, c.ExpectPlay(protocol.IDPlaySystemChat))
+	if reply.Translate != "commands.random.reset.all.success" || len(reply.With) != 1 ||
+		reply.With[0].Number == nil || *reply.With[0].Number < 1 {
+		t.Errorf("reset-all feedback = %+v, want at least one sequence after one loot roll", reply)
+	}
+
+	var first, replay [8]int64
+	for i := range first {
+		first[i] = roll()
+	}
+	c.ChatCommand("random reset " + table)
+	expectResetReply(t, c, table)
+	for i := range replay {
+		replay[i] = roll()
+	}
+	// Vanilla's RandomSequence(12345, "minecraft:entities/zombie").random().nextInt(3).
+	want := [8]int64{0, 0, 1, 2, 2, 2, 2, 0}
+	if first != want || replay != want {
+		t.Errorf("zombie loot before reset = %v, after reset = %v, want %v both times", first, replay, want)
+	}
+	c.Disconnect()
+}
+
 // lootStackText is the stack a /loot run reports, hover included.
 func lootStackText(t *testing.T, item string, count int32) protocol.Text {
 	t.Helper()

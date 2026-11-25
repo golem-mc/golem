@@ -17,7 +17,7 @@ func witchFloor(w testWorld, t testing.TB) {
 	}
 }
 
-func newWitch() *Mob { return NewMob(TypeWitch, 1, 0.5, 64, 0.5, 5) }
+func newWitch() *Mob { return NewMob(TypeWitch, 1, 0.5, 64, 0.5, 2) }
 
 func witchPrey(dist float64) []Player {
 	return []Player{{X: 0.5 + dist, Y: 64, Z: 0.5, EntityID: 7, Huntable: true, Health: 20}}

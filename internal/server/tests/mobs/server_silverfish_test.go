@@ -124,9 +124,15 @@ func TestAHurtSilverfishCallsTheInfestedBlocksOut(t *testing.T) {
 	if left := infestedLeft(srv, 4, 6); left != 6 {
 		t.Fatalf("%d of 6 infested blocks left after 8 ticks, want all: the call waits twenty", left)
 	}
-	srv.TickMobs(16)
-
-	left := infestedLeft(srv, 4, 6)
+	// Stop on the tick the row first changes: a later tick could merge a
+	// silverfish back into stone.
+	left := int32(6)
+	for range 16 {
+		srv.TickMobs(1)
+		if left = infestedLeft(srv, 4, 6); left != 6 {
+			break
+		}
+	}
 	if left == 6 {
 		t.Fatal("no infested block broke after the call")
 	}

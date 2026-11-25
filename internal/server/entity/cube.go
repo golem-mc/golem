@@ -94,6 +94,8 @@ func (m *Mob) SetSpawnSize(special float32) {
 // cubeGoals is AbstractCubeMob.registerGoals with the slime's and the
 // magma cube's own attack and target goals.
 func cubeGoals(m *Mob) []Goal {
+	// vanilla: AbstractCubeMob.registerGoals enables navigation floating
+	m.canFloat = true
 	if m.Type == TypeSulfurCube {
 		return []Goal{&cubeFloatGoal{m: m}, &temptGoal{m: m, priority: 2, reach: 8, stopAt: 1}, &sulfurSearchGoal{m: m}, &cubeRandomDirectionGoal{m: m}, &cubeKeepJumpingGoal{m: m}}
 	}
@@ -313,11 +315,10 @@ type Split struct {
 	Size    int
 }
 
-// Splits is AbstractCubeMob.remove for a dead cube above the smallest: two
-// to four half-size cubes at the corners of a square half its width, half a
-// block up, facing randomly.
+// Splits returns the smaller cubes to spawn when this cube dies.
+// vanilla: AbstractCubeMob.remove, SulfurCube.getSplitCount
 func (m *Mob) Splits() []Split {
-	if !m.isCube() || m.Size <= 1 {
+	if !m.isCube() || m.Size <= 1 || m.SulfurPrimed() {
 		return nil
 	}
 	offset := float32(m.width()) / 2

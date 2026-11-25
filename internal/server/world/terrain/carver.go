@@ -327,7 +327,15 @@ func (c *canyonCarver) carve(g carveRange, r *carverRandom, chunkX, chunkZ, sour
 // vanilla: CanyonWorldCarver.doCarve
 func (c *canyonCarver) doCarve(g carveRange, chunkX, chunkZ int32, tunnelSeed int64, x, y, z float64, thickness, horizontalRotation, verticalRotation float32, distance int32, yScale float64, out *CarvingMask) {
 	r := levelgen.NewLegacyRandom(tunnelSeed)
-	widthFactors := c.widthFactors(g, r)
+	// Local so ordinary heights stay on the stack; each call has its own.
+	var local [384]float32
+	var widthFactors []float32
+	if int(g.depth) <= len(local) {
+		widthFactors = local[:g.depth]
+	} else {
+		widthFactors = make([]float32, g.depth)
+	}
+	c.fillWidthFactors(widthFactors, r)
 	skip := func(xd, yd, zd float64, worldY int32) bool {
 		wf := widthFactors[worldY-g.minY-1]
 		return float64(float64(xd*xd)+float64(zd*zd))*float64(wf)+float64(yd*yd)/6 >= 1
@@ -362,10 +370,10 @@ func (c *canyonCarver) doCarve(g carveRange, chunkX, chunkZ int32, tunnelSeed in
 	}
 }
 
-// widthFactors draws each height's squared width factor, redrawn every
-// widthSmoothness heights on average. vanilla: CanyonWorldCarver.initWidthFactors
-func (c *canyonCarver) widthFactors(g carveRange, r *carverRandom) []float32 {
-	factors := make([]float32, g.depth)
+// fillWidthFactors draws each height's squared width factor into factors,
+// redrawn every widthSmoothness heights on average.
+// vanilla: CanyonWorldCarver.initWidthFactors
+func (c *canyonCarver) fillWidthFactors(factors []float32, r *carverRandom) {
 	widthFactor := float32(1)
 	for i := range factors {
 		if i == 0 || r.NextIntN(c.widthSmoothness) == 0 {
@@ -374,7 +382,6 @@ func (c *canyonCarver) widthFactors(g carveRange, r *carverRandom) []float32 {
 		}
 		factors[i] = float32(widthFactor * widthFactor)
 	}
-	return factors
 }
 
 // updateVerticalRadius narrows the canyon toward its ends.

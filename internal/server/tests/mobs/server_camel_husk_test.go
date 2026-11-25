@@ -13,7 +13,7 @@ import (
 // vanilla: CamelHusk, Husk.finalizeSpawn
 
 // camelHuskSeed makes a natural husk's roll for a camel husk land.
-const camelHuskSeed = 4
+const camelHuskSeed = 11
 
 func mobByID(srv *server.Server, id int32) server.TestMob {
 	for _, m := range srv.Mobs() {

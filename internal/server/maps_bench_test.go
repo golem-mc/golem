@@ -6,9 +6,38 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
+
+func BenchmarkTickMapsDistantFrames(b *testing.B) {
+	for _, count := range []int{0, 1_000, 8_000} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			s, w := newTrackerBenchServer(b)
+			id, data := s.maps.Create(world.DimensionName, 0, 0, 2)
+			data.Locked = true
+			stack := protocol.ItemStack{ItemID: int32(registry.ItemFilledMap), Count: 1}
+			stack.SetMapID(id)
+			for i := range count {
+				f := newFrame(s.nextEntity(), uuid.New(), w, int32(4096+i), world.GroundLevel+1, 0, protocol.FaceSouth, false)
+				f.setItem(stack)
+				s.registerFrame(f)
+			}
+			for _, c := range s.clients {
+				c.player.Inventory(func(inv *player.Inventory) { inv.Slots[9] = stack })
+				c.tickMaps()
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				for _, c := range s.clients {
+					c.tickMaps()
+				}
+			}
+		})
+	}
+}
 
 // BenchmarkMapHolderPass rebuilds every viewer's holder list for one shared map.
 func BenchmarkMapHolderPass(b *testing.B) {

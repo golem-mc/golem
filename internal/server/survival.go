@@ -48,7 +48,15 @@ type damageCause struct {
 	// lands; nil for any other cause.
 	exploder *removedBody
 	directID int32
-	x, y, z  float64
+	// directType is the entity type name of a projectile direct entity, which
+	// is neither a player nor a mob; empty otherwise.
+	directType string
+	// directBurning is the projectile's fire flag when it hit.
+	directBurning bool
+	// directIsSource lets advancement predicates use the projectile itself
+	// as the source when it has no shooter.
+	directIsSource bool
+	x, y, z        float64
 	// weapon belongs to the direct entity, independently of death attribution.
 	// vanilla: DamageSource.getWeaponItem
 	weapon protocol.ItemStack
@@ -62,10 +70,11 @@ type damageCause struct {
 	// vanilla: LivingEntity.applyItemBlocking
 	piercing bool
 	// flying marks a projectile's blow, whose knockback follows its flight
-	// (flightVX, flightVZ) rather than its position.
+	// (flightVX, flightVZ) rather than its position. The flight is in blocks
+	// per tick at the hit; flightVY only feeds a directType's movement.
 	// vanilla: Projectile.calculateHorizontalHurtKnockbackDirection
-	flying             bool
-	flightVX, flightVZ float64
+	flying                       bool
+	flightVX, flightVY, flightVZ float64
 	// posOnly marks a position cause with no entity (/damage at); eventPos one
 	// whose x, y, z the Damage Event also carries.
 	// vanilla: DamageSource.sourcePositionRaw
@@ -1147,15 +1156,12 @@ func (c *client) respawn() error {
 		return nil
 	}
 
-	// Show the new body to watchers again, whether or not the corpse's twenty
-	// ticks ran out.
-	c.bodyGone.Store(false)
-	c.holdsDropped.Store(false)
-
-	// The respawn holds the traveling flag: a change in flight refuses it
-	// before any reset, and the flag keeps the tracker off records the Respawn
-	// invalidates.
-	if !c.traveling.CompareAndSwap(false, true) {
+	// Claim the corpse under the lock that protects its removal. The traveling
+	// flag keeps the tracker off records the Respawn invalidates.
+	c.trackMu.Lock()
+	started := c.traveling.CompareAndSwap(false, true)
+	c.trackMu.Unlock()
+	if !started {
 		return nil
 	}
 	defer c.traveling.Store(false)
@@ -1188,7 +1194,7 @@ func (c *client) respawn() error {
 
 	// A respawn before the corpse's twenty ticks are up removes the body
 	// itself. vanilla: PlayerList.respawn's removePlayerImmediately(KILLED)
-	c.fireDeathEffects()
+	c.srv.fireMobEffectTrigger(c.takeDeathEffects())
 
 	// Only a same-dimension respawn holds the writer for its whole sequence:
 	// what the death queued (its bars included) goes before the Respawn, and a
@@ -1359,14 +1365,11 @@ func (c *client) respawnFromCredits() error {
 		command.Move{Pos: place.position()}, respawnCredits, false)
 }
 
-// fireDeathEffects fires the dead body's oozing, weaving and wind charged
-// and clears its effects without telling the client, so a second call fires
-// nothing. A weaving player's webs appear regardless of mob_griefing.
+// takeDeathEffects clears the dead body's effects and captures the removal
+// trigger so it can run at the corpse's position after the tracking lock is released.
 // vanilla: LivingEntity.remove's triggerOnDeathMobEffects
-func (c *client) fireDeathEffects() {
+func (c *client) takeDeathEffects() mobEffectTrigger {
 	var dying []effect.Instance
-	// Read and cleared in one update, so the tick's removal and a respawn
-	// racing it fire the effects once.
 	c.player.UpdateBody(func(_ *player.Vitals, effects *effect.Set, _ *player.Attributes) {
 		for _, id := range [...]int32{effectOozing, effectWeaving, effectWindCharged} {
 			if in, ok := effects.Get(id); ok {
@@ -1376,11 +1379,11 @@ func (c *client) fireDeathEffects() {
 		effects.Clear()
 	})
 	if len(dying) == 0 {
-		return
+		return mobEffectTrigger{}
 	}
 	pos := c.player.Position()
 	minX, minY, minZ, maxX, maxY, maxZ := c.Box()
-	c.srv.fireMobEffectTrigger(mobEffectTrigger{
+	return mobEffectTrigger{
 		w:      c.theWorld(),
 		player: true,
 		box:    entity.NewAABB(minX, minY, minZ, maxX, maxY, maxZ).Inflate(2),
@@ -1389,7 +1392,7 @@ func (c *client) fireDeathEffects() {
 		effects: dying,
 		killed:  true,
 		height:  maxY - minY,
-	})
+	}
 }
 
 // resetRespawnBody sets up the body a respawn places at pos as newly
@@ -1425,6 +1428,11 @@ func (c *client) resetRespawnBody(pos player.Position, respawn respawnKind) bool
 	c.spear = spearCharge{}
 	c.spearMu.Unlock()
 	c.trackMu.Lock()
+	if respawn == respawnDeath {
+		c.deathTicks.Store(0)
+		c.bodyGone.Store(false)
+		c.holdsDropped.Store(false)
+	}
 	c.sentFire = false
 	c.sentAir = rules.MaxAirSupply
 	c.sentFrozen = 0
@@ -2293,6 +2301,7 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 	attacker := entity.Player{
 		X: from.X, Y: from.Y, Z: from.Z,
 		Yaw:      float64(from.Yaw),
+		Pitch:    float64(from.Pitch),
 		EntityID: c.player.EntityID,
 		Huntable: true,
 		Creative: c.player.GameMode() == protocol.GameModeCreative,

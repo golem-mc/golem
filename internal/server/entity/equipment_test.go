@@ -208,8 +208,15 @@ func TestIndexedLootMatchesDirectPickupOrder(t *testing.T) {
 	if !slices.Equal(direct, want) {
 		t.Fatalf("direct takes = %+v, want %+v", direct, want)
 	}
-	if indexed := mobs.TakeLoot(items); !slices.Equal(indexed, direct) {
+	var grid BoxGrid
+	if indexed := mobs.TakeLootWithGrid(items, &grid); !slices.Equal(indexed, direct) {
 		t.Fatalf("indexed takes = %+v, want %+v", indexed, direct)
+	}
+	// A moved helmet must leave its old cells without disturbing pickup order.
+	items[3].X = 48
+	want = slices.DeleteFunc(want, func(take LootTake) bool { return take.Item == 3 })
+	if indexed := mobs.TakeLootWithGrid(items, &grid); !slices.Equal(indexed, want) {
+		t.Fatalf("indexed takes after moving an item = %+v, want %+v", indexed, want)
 	}
 }
 

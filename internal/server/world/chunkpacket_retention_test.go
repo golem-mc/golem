@@ -24,7 +24,7 @@ func TestChunkPacketRetention(t *testing.T) {
 	churn := func() {
 		for i := range recentChunkPackets + 1 {
 			other := newChunk(int32(i+1), 0)
-			other.lightFormsStale = true
+			other.invalidateLightForms()
 			w.CachedChunkPacket(other)
 		}
 	}

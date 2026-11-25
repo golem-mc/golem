@@ -78,7 +78,9 @@ func TestAZombieReplansAroundABlockPlacedOnItsPath(t *testing.T) {
 	c.MoveToGround(12.5, 64, 0.5, true)
 	c.Settle()
 
-	zombieID := srv.SpawnMob("minecraft:zombie", -5.5, 64, 0.5)
+	// Seeded: the zombie's speed bonus decides the crossing time the 140-tick bound is set on.
+	zombieID := srv.SpawnMobSeeded("minecraft:zombie", -5.5, 64, 0.5, 1)
+	srv.SetMobBaby(zombieID, false)
 	c.ExpectMobSpawn(protocol.EntityTypeZombie)
 	servertest.HoldTicks(t, srv)
 	servertest.WaitForTicks(t, srv, 200, func() bool {
@@ -161,10 +163,10 @@ func TestAKillingAZombieDropsRottenFleshAndPlaysItsDeath(t *testing.T) {
 	// every swing lands whole.
 	servertest.AwaitFullSwing(t, srv, "Gravedigger")
 
+	// The unenchanted loot roll can be empty. Seed the named sequence for a
+	// roll with rotten flesh.
+	srv.LootSequenceSeed("minecraft:entities/zombie", 1)
 	zombieID := srv.SpawnMob("minecraft:zombie", 2.5, 64, 1.5)
-	// The loot rolls from a stream of its own, which the test's seed fixes
-	// however long the zombie wanders first; this one rolls a body's worth
-	// of flesh to watch.
 	c.ExpectMobSpawn(protocol.EntityTypeZombie)
 
 	// Three swings of the sword are the zombie's twenty points of health,
@@ -238,6 +240,7 @@ func TestAKillingAZombieDropsRottenFleshAndPlaysItsDeath(t *testing.T) {
 	// a carrot or a potato, one in forty), which the table rolls too.
 	flesh, _ := registry.ItemID("minecraft:rotten_flesh")
 	rare := map[string]bool{"minecraft:iron_ingot": true, "minecraft:carrot": true, "minecraft:potato": true}
+	fleshDropped := false
 	for _, stack := range drops {
 		name, _ := registry.ItemName(stack.ItemID)
 		if stack.ItemID != flesh {
@@ -246,9 +249,13 @@ func TestAKillingAZombieDropsRottenFleshAndPlaysItsDeath(t *testing.T) {
 			}
 			continue
 		}
+		fleshDropped = true
 		if stack.Count < 1 || stack.Count > 2 {
 			t.Errorf("the dead zombie dropped %d rotten flesh, want the table's range of one to two", stack.Count)
 		}
+	}
+	if !fleshDropped {
+		t.Error("the dead zombie dropped no rotten flesh")
 	}
 
 	// The corpse's twenty ticks: the body goes out of the world once the

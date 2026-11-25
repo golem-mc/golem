@@ -195,9 +195,6 @@ func (t *mobDimTick) event(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent
 	case entity.MobBodyBroke:
 		// vanilla: LivingEntity.onEquippedItemBroken
 		fx.entityEvent(w, ev.Mob.ID, protocol.EntityStatusBreakBody)
-	case entity.MobHandBroke:
-		// vanilla: LivingEntity.onEquippedItemBroken
-		fx.entityEvent(w, ev.Mob.ID, protocol.EntityStatusBreakMainHand)
 	case entity.MobLanded, entity.MobLandingDust:
 		t.landed(fx, ev)
 	case entity.MobJumped, entity.MobSquished:
@@ -455,6 +452,7 @@ func (t *mobDimTick) died(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent)
 	}
 	// The loot killer is whoever last hurt the body, with their current weapon
 	// and whether the killing blow was a melee swing.
+	roll := &deathRoll{mob: ev.Mob}
 	killer := rules.LootKiller{Melee: ev.Mob.HurtByMelee(), ThisNBT: func() nbt.Compound {
 		// vanilla: Entity.saveWithoutId
 		return nbt.PlainCopy(mobDataTag(ent)).(nbt.Compound)
@@ -466,7 +464,7 @@ func (t *mobDimTick) died(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent)
 		killer.AttackerPieces = []rules.EnchPiece{{Stack: p.HeldItem, Slot: "mainhand"}}
 		if k, ok := in.clientByEntityID[ev.Mob.BlowAttackerID()]; ok {
 			killer.Profile = k.lootProfile()
-			killer.PlayerNBT = k.lootNBT
+			roll.attacker = k
 			killer.AttackerPieces = k.enchPieces()
 			killer.AttackerFill = k.playerLootFill
 		}
@@ -480,7 +478,8 @@ func (t *mobDimTick) died(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent)
 		if k, ok := in.clientByEntityID[ev.Mob.PlayerCreditID()]; ok {
 			killer.CreditedPlayer = rules.LootEntity{Type: "minecraft:player",
 				Mainhand: rules.ToolOf(k.heldItem(protocol.HandMain)), ScoreHolder: k.Name(),
-				Profile: k.lootProfile(), NBT: k.lootNBT}
+				Profile: k.lootProfile()}
+			roll.credited = k
 			k.playerLootFill(&killer.CreditedPlayer)
 			killer.Luck = float32(k.luckAttribute())
 			killer.CreditedPieces = k.enchPieces()
@@ -517,11 +516,8 @@ func (t *mobDimTick) died(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent)
 		damageType: ev.Mob.LastDamageType(), causeID: ev.Mob.AttackerID(), drops: -1, xp: -1}
 	if w.BoolRule(world.RuleMobDrops) {
 		killer.ThisHasRaid = mobHasLootRaid(ent, t.raidCenters)
-		drops := mobDrops{
-			w:      w,
-			stacks: ev.Mob.RollDrops(killer, s.lootLevelAt(w, ev.Mob.X, ev.Mob.Y, ev.Mob.Z)),
-			x:      ev.Mob.X, y: ev.Mob.Y, z: ev.Mob.Z,
-		}
+		roll.killer, roll.level = killer, s.lootLevelAt(w, ev.Mob.X, ev.Mob.Y, ev.Mob.Z)
+		drops := mobDrops{w: w, roll: roll, x: ev.Mob.X, y: ev.Mob.Y, z: ev.Mob.Z}
 		// vanilla: WitherBoss.dropCustomDeathLoot
 		if ev.Mob.IsWither() {
 			drops.lasting = []protocol.ItemStack{{ItemID: int32(registry.ItemNetherStar), Count: 1}}
@@ -772,15 +768,10 @@ func (t *mobDimTick) bred(fx *mobEffects, ev entity.MobEvent) {
 	h, w := t.h, t.w
 	// The goal already did the parents' cooldown and love's end; place and
 	// dice are read under the lock, as only the tick moves a mob meanwhile.
-	var cause uuid.UUID
 	var parentCauses [2]uuid.UUID
 	for i, parent := range []*entity.Mob{ev.Mob, ev.Partner} {
 		if ent := h.book[parent]; ent != nil {
-			parentCauses[i] = ent.loveCause
-			if cause == (uuid.UUID{}) {
-				cause = ent.loveCause
-			}
-			ent.loveCause = uuid.UUID{}
+			parentCauses[i] = ent.mob.LoveCause
 		}
 	}
 	fx.births = append(fx.births, mobBirth{
@@ -789,7 +780,6 @@ func (t *mobDimTick) bred(fx *mobEffects, ev entity.MobEvent) {
 		partner:      ev.Partner,
 		motherID:     t.h.MobUUID(ev.Mob),
 		partnerID:    t.h.MobUUID(ev.Partner),
-		cause:        cause,
 		parentCauses: parentCauses,
 		x:            ev.Mob.X, y: ev.Mob.Y, z: ev.Mob.Z,
 		amount: ev.Amount,

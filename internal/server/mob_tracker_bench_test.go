@@ -85,6 +85,42 @@ func benchmarkTickCubesTracked(b *testing.B, kinds ...entity.MobType) {
 	}
 }
 
+// BenchmarkTickMagmaCubesLava keeps 64 small cubes kicking in a lava pool,
+// every kick watched by the players around the grid.
+func BenchmarkTickMagmaCubesLava(b *testing.B) {
+	const cubes = 64
+	s, w := newTrackerBenchServer(b)
+	dim := s.allDims()[0]
+	lava := registry.BlockLava.DefaultState()
+	for x := int32(-16); x < 16; x++ {
+		for z := int32(-16); z < 16; z++ {
+			for y := int32(world.GroundLevel - 3); y < world.GroundLevel; y++ {
+				w.SetBlock(x, y, z, lava)
+			}
+		}
+	}
+	w.FlushLighting()
+	for i := range cubes {
+		x, z := trackerBenchSpot(i)
+		s.spawnMobArriving(dim, entity.TypeMagmaCube, x, float64(world.GroundLevel-2), z, int64(i+1), nil, false, "", false, func(ent *mobEntity) {
+			ent.mob.SetSize(1, true)
+			ent.mob.Persistence = true
+		})
+	}
+	for range 20 {
+		s.tickMobs()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.tickMobs()
+	}
+	b.StopTimer()
+	if n := len(dim.mobs.herd); n != cubes {
+		b.Fatalf("%d magma cubes in the herd after the run, want %d", n, cubes)
+	}
+}
+
 // BenchmarkTickMobsSwimming runs the whole mob tick over a school of cod
 // pathing round stone pillars in a pond, every one watched by every player.
 func BenchmarkTickMobsSwimming(b *testing.B) {

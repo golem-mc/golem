@@ -104,6 +104,9 @@ func (p PackRecipes) Empty() bool {
 	return true
 }
 
+// laterMatch is a cooking recipe that takes an item without being its first match.
+type laterMatch struct{ item, recipe int32 }
+
 // recipeSet is the recipes in force: the built-in tables, or those with the
 // data packs' laid over them. It is replaced whole so a craft never sees half
 // a reload.
@@ -116,6 +119,9 @@ type recipeSet struct {
 	transmute         []TransmuteRecipe
 	dye               []DyeRecipe
 	cooking           [cookingKinds][]CookingRecipe
+	cookingByItem     [cookingKinds][]int32                 // first recipe index per item, -1 for none
+	cookingByID       [cookingKinds]map[string]int32        // first recipe index per id
+	cookingLater      [cookingKinds]map[laterMatch]struct{} // (item, recipe) pairs where the recipe is not the item's first match
 	smithing          []SmithingTransformRecipe
 	trim              []SmithingTrimRecipe
 	brewing           []BrewingRecipe
@@ -215,6 +221,32 @@ func newRecipeSet(s *recipeSet) *recipeSet {
 			}
 		}
 	}
+	for k := range s.cooking {
+		idx := make([]int32, ItemCount)
+		for i := range idx {
+			idx[i] = -1
+		}
+		byID := make(map[string]int32, len(s.cooking[k]))
+		s.cookingByID[k] = byID
+		later := make(map[laterMatch]struct{})
+		for r := range s.cooking[k] {
+			if _, dup := byID[s.cooking[k][r].ID]; !dup {
+				byID[s.cooking[k][r].ID] = int32(r)
+			}
+			for _, id := range s.cooking[k][r].Ingredient {
+				if id < 0 || int(id) >= len(idx) {
+					continue
+				}
+				if idx[id] < 0 {
+					idx[id] = int32(r)
+				} else if idx[id] != int32(r) {
+					later[laterMatch{id, int32(r)}] = struct{}{}
+				}
+			}
+		}
+		s.cookingLater[k] = later
+		s.cookingByItem[k] = idx
+	}
 	s.displayByID = make(map[int32]int, len(s.displays))
 	s.displayByName = make(map[string]int, len(s.displays))
 	for i := range s.displays {
@@ -250,7 +282,7 @@ func newRecipeSet(s *recipeSet) *recipeSet {
 // in force. An empty set with no item tag changed restores the built-in recipes.
 // vanilla: RecipeManager.prepare, RecipeManager.apply
 func ApplyPackRecipes(p PackRecipes) {
-	if p.Empty() && !itemTagsPacked.Load() {
+	if p.Empty() && !CurrentTagLookup().itemTagsPacked {
 		recipesNow.Store(nil)
 		return
 	}
@@ -712,10 +744,13 @@ func ApplyResultPatch(stack *protocol.ItemStack, patch []ResultComponent) bool {
 // RecipeResult returns the recipe's result: the stack with the patch a data
 // pack gave the recipe laid over its components.
 func RecipeResult(id string, stack protocol.ItemStack) protocol.ItemStack {
-	if patch := recipes().results[id]; patch != nil {
-		ApplyResultPatch(&stack, patch)
+	patch := recipes().results[id]
+	if patch == nil {
+		return stack
 	}
-	return stack
+	out := stack
+	ApplyResultPatch(&out, patch)
+	return out
 }
 
 // CookingResult is what one cook of the recipe produces.

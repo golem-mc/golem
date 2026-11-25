@@ -94,7 +94,7 @@ func (p *Physics) bubbleShapeUpdate(x, y, z int32, state uint16, toward int) {
 			p.bookBubble(x, y, z, bubbleWaterDelay)
 		}
 	case state == bubbleUpState || state == bubbleDownState:
-		p.schedule(x, y, z, p.now+p.tickDelayOf(fluidWater))
+		p.scheduleFluid(x, y, z)
 		d := dirDelta[toward]
 		neighbour := p.w.BlockAt(x+d[0], y+d[1], z+d[2])
 		below := p.w.BlockAt(x, y-1, z)

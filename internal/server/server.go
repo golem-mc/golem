@@ -63,6 +63,8 @@ type Server struct {
 	// openContainerWindows may over-count clients removed with a window open,
 	// but never under-counts: zero is only a shortcut for viewer discovery.
 	openContainerWindows atomic.Int32
+	// viewers finds the windows showing a block container by position.
+	viewers containerViewerIndex
 
 	// structures is the template cache /place and the structure blocks share.
 	structures *world.TemplateStore
@@ -443,7 +445,7 @@ type Server struct {
 	relightsRun atomic.Int64
 	// relightWG counts relight results not yet handed to the broadcast or the
 	// flush queue, for WaitRelights.
-	relightWG sync.WaitGroup
+	relightWG world.RelightCompletion
 	// gatewayWG counts gateway moves running off the tick.
 	gatewayWG sync.WaitGroup
 
@@ -492,6 +494,10 @@ type Server struct {
 	// another goroutine can win. s.mu guards it, as the tick reads it each pass.
 	playerTrackSeam func()
 
+	// corpseExpirySeam runs after the tick finds a corpse due for removal.
+	// s.mu guards it.
+	corpseExpirySeam func()
+
 	// playerSendSeam, test-only, opens the window in the tracking pass between
 	// deciding a pairing and sending it, which a step on another goroutine can
 	// win. s.mu guards it, as the tick reads it each pass.
@@ -536,6 +542,9 @@ type Server struct {
 	mobsMu sync.Mutex
 	// waypointPass counts the locator bar passes; tick loop only.
 	waypointPass uint64
+	// The locator bar pass reuses its player list and changed receiver indices.
+	waypointBuf     []waypointPlayer
+	waypointChanged []int
 	// Mob tick scratch maps belong to the tick loop; no reader retains them
 	// after tickMobs returns.
 	mobTickKnown map[uuid.UUID]bool
@@ -548,6 +557,8 @@ type Server struct {
 	mobTickLoaded map[*world.World]map[world.ChunkPos]struct{}
 	// tradeDraws reserves a merchant while a draw loads chunks without mobsMu.
 	tradeDraws map[*entity.Mob]*tradeDrawState
+	// tradeRollMu keeps merchants on the same sequence from interleaving rolls.
+	tradeRollMu sync.Mutex
 	// raidsMu guards the dimensions' raids and raidState. It is taken
 	// before mobsMu and s.mu, never while holding either.
 	raidsMu   sync.Mutex
@@ -593,7 +604,9 @@ type Server struct {
 	tntChunks entity.ChunkIndex[*tntEntity]
 	// tntBlasts indexes tnts by position while tickTNT runs its blasts, so
 	// one blast reads the bodies near it and not the whole list.
-	tntBlasts tntBlastIndex
+	tntBlasts       tntBlastIndex
+	tntBlastTargets []tntBlastTarget
+	tntBlastHits    []rules.BlastHit
 
 	// boltMu guards bolts, the lightning bolts. It is taken alone.
 	boltMu     sync.Mutex
@@ -611,9 +624,10 @@ type Server struct {
 	// under it; a launch only adds. It is taken inside mu where both are
 	// needed, like itemsMu, and with the mob lock by the tick reading bodies a
 	// flight may meet.
-	fireworksMu    sync.Mutex
-	fireworks      []*fireworkEntity
-	fireworkChunks entity.ChunkIndex[*fireworkEntity]
+	fireworksMu     sync.Mutex
+	fireworks       []*fireworkEntity
+	fireworkChunks  entity.ChunkIndex[*fireworkEntity]
+	fireworkTargets []entity.ArrowTarget
 
 	// boatsMu guards boats: the main loop ticks them under it; placing,
 	// mounting, driving or striking one only adds or amends. It is taken inside
@@ -673,6 +687,7 @@ type Server struct {
 	frames      []*frameEntity
 	frameChunks entity.ChunkIndex[*frameEntity]
 	frameCells  map[frameCell][]*frameEntity
+	frameOrder  uint64
 
 	// knotsMu guards knots, leash knots on fences. The main loop polls them
 	// under it; a lead used on a fence, a use on the knot or a blow adds,
@@ -715,6 +730,10 @@ type Server struct {
 	// cushionsMade is set once any cushion is built and never cleared, so
 	// a piston move skips the fixture scan on a server that never had one.
 	cushionsMade atomic.Bool
+	// pistonPopulated has a trackedKind.pistonBit set while the kind may hold a
+	// body: set on filing, refreshed from the list length under the kind's lock
+	// by setPistonGrid. pushByPiston skips a kind whose bit is clear.
+	pistonPopulated atomic.Uint32
 
 	// ops is the operator list from ops.json, written by /op and /deop; it sets
 	// each player's permission level and so their offered commands.
@@ -848,12 +867,14 @@ func newServerWith(cfg *config.Config, seed int64, shared sharedNether, plugins 
 		timeSyncTicks:   defaultTimeSyncTicks,
 		lids:            make(map[lidRecheck]int32),
 		frameCells:      make(map[frameCell][]*frameEntity),
+		frameChunks:     entity.NewRegionalChunkIndex[*frameEntity](),
 		stopReq:         make(chan struct{}),
 		mgmtBound:       make(chan struct{}),
 		stopping:        make(chan struct{}),
 		metrics:         metrics.NewRecorder(tickInterval),
 		tickRate:        tickrate.New(),
 	}
+	s.relightWG.Handle = s.publishRelight
 	s.maxPlayers.Store(int32(cfg.MaxPlayers))
 	s.spawnProtection.Store(int32(cfg.SpawnProtection))
 	motd := protocol.Text{Text: cfg.MOTD}
@@ -1388,8 +1409,8 @@ type client struct {
 	// respawn clears it on their own goroutines, so it is atomic.
 	awaitingRespawn atomic.Bool
 
-	// deathTicks counts ticks a dead body has lain; bodyGone is set once past
-	// corpseTicks and gone from watchers. The respawn clears both.
+	// deathTicks counts ticks a dead body has lain. The tick ages and removes
+	// it under trackMu, which respawn takes to claim and clear the corpse.
 	// vanilla: LivingEntity.deathTime
 	deathTicks atomic.Int32
 	// deathKeeps is the last death's keep decision, taken by the respawn.
@@ -2614,34 +2635,28 @@ func (s *Server) relightAreaAsync(w *world.World, minX, minZ, maxX, maxZ int32) 
 	s.relightBoxesAsync(w, []changeBox{{minX, minZ, maxX, maxZ}})
 }
 
-// relightBoxesAsync books the boxes' relights together and collects their
-// results on one goroutine, so a batch parks one waiter however many chunks it
-// touches. A box needs no relight when its columns carry no light mark: the
-// caller's write set the mark before this call, so an unmarked box was already
-// relit, and a relight running now covers any mark it clears. A write that
-// keeps its light (a fence arm, a stair shape) never marks.
+// relightBoxesAsync books the boxes' relights and handles their results on the
+// light drain. An unmarked box was already relit or the write kept its light.
 func (s *Server) relightBoxesAsync(w *world.World, boxes []changeBox) {
-	var chs []<-chan []world.LightChange
 	for _, b := range boxes {
 		if !w.LightMarkedIn(b.minX, b.minZ, b.maxX, b.maxZ) {
 			continue
 		}
-		s.relightsRun.Add(1)
-		chs = append(chs, w.RelightAreaAsync(b.minX, b.minZ, b.maxX, b.maxZ))
+		s.bookRelight(w, b)
 	}
-	if len(chs) == 0 {
+}
+
+func (s *Server) bookRelight(w *world.World, b changeBox) {
+	s.relightsRun.Add(1)
+	w.RelightAreaTracked(b.minX, b.minZ, b.maxX, b.maxZ, &s.relightWG)
+}
+
+func (s *Server) publishRelight(w *world.World, changed []world.LightChange) {
+	if !s.loopRunning() {
+		s.broadcastLight(w, changed)
 		return
 	}
-	s.relightWG.Go(func() {
-		for _, ch := range chs {
-			changed := <-ch
-			if !s.loopRunning() {
-				s.broadcastLight(w, changed)
-				continue
-			}
-			w.MarkLightChanged(changed)
-		}
-	})
+	w.MarkLightChanged(changed)
 }
 
 // physicsFor returns the world's block-update engine, to which block

@@ -14,6 +14,7 @@ func BenchmarkMobsTickCourtingHerd(b *testing.B) {
 		mobs = append(mobs, NewMob(TypeCow, i+1, x, 64, z, int64(i)))
 	}
 	var events []MobEvent
+	var paths MobPathScratch
 	b.ReportAllocs()
 	b.ResetTimer()
 	for step := range b.N {
@@ -22,6 +23,6 @@ func BenchmarkMobsTickCourtingHerd(b *testing.B) {
 				m.BabyAge, m.InLove = 0, 600
 			}
 		}
-		events = mobs.TickInto(events, w, nil, nil, nil, nil)
+		events = mobs.TickInto(events, w, nil, nil, nil, nil, &paths)
 	}
 }

@@ -48,7 +48,8 @@ func TestCanPlaceItemContainerRules(t *testing.T) {
 	if !CanPlaceItem(shulker, item(t, "minecraft:shulker_box", 1), 0) {
 		t.Error("a shulker box refused a shulker box; only the face rule does")
 	}
-	if canPlaceThroughFace(shulker, item(t, "minecraft:shulker_box", 1), 0) {
+	shulkerItem := item(t, "minecraft:shulker_box", 1)
+	if canPlaceThroughFace(shulker, &shulkerItem, 0) {
 		t.Error("the face rule let a shulker box into a shulker box")
 	}
 

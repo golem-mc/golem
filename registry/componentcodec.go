@@ -14,6 +14,10 @@ const componentCodecRefusal = "No matching codec found"
 // ComponentValueMalformed validates modelled components; unmodelled codecs remain unchecked.
 // vanilla: DataComponentType.codecOrThrow
 func ComponentValueMalformed(key string, tag nbt.Tag) string {
+	return CurrentTagLookup().componentValueMalformed(key, tag)
+}
+
+func (lookup *TagLookup) componentValueMalformed(key string, tag nbt.Tag) string {
 	switch key {
 	case "minecraft:damage", "minecraft:repair_cost":
 		if s, isString := tag.(nbt.String); isString {
@@ -42,7 +46,7 @@ func ComponentValueMalformed(key string, tag nbt.Tag) string {
 		}
 	case "minecraft:dyed_color":
 		// vanilla: ExtraCodecs.RGB_COLOR_CODEC
-		if ComponentRefused(key, tag) {
+		if lookup.componentRefused(key, tag) {
 			switch tag.(type) {
 			case nbt.List, nbt.ByteArray, nbt.IntArray, nbt.LongArray:
 				return componentCodecRefusal
@@ -52,7 +56,7 @@ func ComponentValueMalformed(key string, tag nbt.Tag) string {
 		}
 	case "minecraft:entity_data", "minecraft:block_entity_data":
 		// vanilla: TypedEntityData.codec
-		if ComponentRefused(key, tag) {
+		if lookup.componentRefused(key, tag) {
 			if data, ok := compoundTagOrSNBT(tag); ok {
 				if _, hasID := data.Entries()["id"]; !hasID {
 					return "Expected 'id' field in " + nbt.Stringify(tag)
@@ -71,7 +75,7 @@ func ComponentValueMalformed(key string, tag nbt.Tag) string {
 	case "minecraft:count":
 		return MinMaxIntsTagMalformed(tag)
 	case "minecraft:custom_name", "minecraft:item_name":
-		return TextComponentMalformed(tag)
+		return lookup.textComponentMalformed(tag)
 	case "minecraft:enchantments", "minecraft:stored_enchantments":
 		return enchantmentsComponentTagMalformed(tag)
 	case "minecraft:block_state":
@@ -82,10 +86,10 @@ func ComponentValueMalformed(key string, tag nbt.Tag) string {
 		return ProfileComponentMalformed(tag)
 	case "minecraft:use_remainder":
 		// vanilla: UseRemainder.CODEC
-		if msg, _ := itemTemplateDiagnostic(tag); msg != "" {
+		if msg, _ := lookup.itemTemplateDiagnostic(tag); msg != "" {
 			return msg
 		}
-		if ComponentRefused(key, tag) {
+		if lookup.componentRefused(key, tag) {
 			return componentCodecRefusal
 		}
 	case "minecraft:note_block_sound":
@@ -93,7 +97,7 @@ func ComponentValueMalformed(key string, tag nbt.Tag) string {
 	case "minecraft:writable_book_content", "minecraft:written_book_content":
 		// vanilla: WrittenBookContent.CODEC, WritableBookContent.CODEC
 		var probe protocol.ItemStack
-		if !ReadComponent(&probe, key, tag) {
+		if !lookup.ReadComponent(&probe, key, tag) {
 			return "Invalid book content"
 		}
 
@@ -106,16 +110,16 @@ func ComponentValueMalformed(key string, tag nbt.Tag) string {
 			text := nbt.Stringify(tag)
 			return "Failed to parse either. First: Not a map: " + text + "; Second: Not a string: " + text
 		}
-		if ComponentRefused(key, tag) {
+		if lookup.componentRefused(key, tag) {
 			return componentCodecRefusal
 		}
 	default:
 		if _, fields := recordFieldsOf(key); fields != nil {
-			if msg := recordMalformed(fields, tag); msg != "" {
+			if msg := lookup.recordMalformed(fields, tag); msg != "" {
 				return msg
 			}
 		}
-		if ComponentRefused(key, tag) {
+		if lookup.componentRefused(key, tag) {
 			return componentCodecRefusal
 		}
 	}
@@ -296,7 +300,11 @@ func bannerTranslationKeyTagMalformed(fields nbt.Compound) (string, string) {
 // TextComponentMalformed returns the component codec's diagnostic, or "" on success.
 // vanilla: ComponentSerialization.CODEC
 func TextComponentMalformed(tag nbt.Tag) string {
-	msg, _ := textComponentDiagnostic(tag)
+	return CurrentTagLookup().textComponentMalformed(tag)
+}
+
+func (lookup *TagLookup) textComponentMalformed(tag nbt.Tag) string {
+	msg, _ := lookup.textComponentDiagnostic(tag)
 	return msg
 }
 
@@ -321,24 +329,24 @@ func ParseTextStyle(tag nbt.Tag) (nbt.Compound, string) {
 
 // textComponentDiagnostic retains whether decoding produced a partial value:
 // EitherCodec suppresses its alternative's error when a partial value exists.
-func textComponentDiagnostic(tag nbt.Tag) (string, bool) {
+func (lookup *TagLookup) textComponentDiagnostic(tag nbt.Tag) (string, bool) {
 	switch v := tag.(type) {
 	case nbt.String:
 		return "", true
 	case nbt.List, nbt.ByteArray, nbt.IntArray, nbt.LongArray:
-		msg, partial := textComponentListDiagnostic(tag)
+		msg, partial := lookup.textComponentListDiagnostic(tag)
 		if partial {
 			return msg, true
 		}
 		return textComponentEither(msg, "Not a map: "+nbt.Stringify(tag)), false
 	case nbt.CompoundTag:
 		fields := v.Entries()
-		content, partial := textContentDiagnostic(fields)
+		content, partial := lookup.textContentDiagnostic(fields)
 		extra := ""
 		if value, present := fields["extra"]; present {
-			extra, _ = textComponentListDiagnostic(value)
+			extra, _ = lookup.textComponentListDiagnostic(value)
 		}
-		msg := JoinFieldErrors(textStyleMalformed(fields), extra, content)
+		msg := JoinFieldErrors(lookup.textStyleMalformed(fields), extra, content)
 		if partial {
 			return msg, true
 		}
@@ -349,8 +357,8 @@ func textComponentDiagnostic(tag nbt.Tag) (string, bool) {
 }
 
 // vanilla: ExtraCodecs.nonEmptyList, ListCodec.decode
-func textComponentListDiagnostic(tag nbt.Tag) (string, bool) {
-	return codecListDiagnostic(tag, textComponentDiagnostic, true)
+func (lookup *TagLookup) textComponentListDiagnostic(tag nbt.Tag) (string, bool) {
+	return codecListDiagnostic(tag, lookup.textComponentDiagnostic, true)
 }
 
 // codecListDiagnostic retains the partial list even when all elements fail.
@@ -410,6 +418,10 @@ var textStyleFields = []string{
 }
 
 func textStyleMalformed(fields nbt.Compound) string {
+	return CurrentTagLookup().textStyleMalformed(fields)
+}
+
+func (lookup *TagLookup) textStyleMalformed(fields nbt.Compound) string {
 	msg := ""
 	for _, name := range textStyleFields {
 		value, present := fields[name]
@@ -437,9 +449,9 @@ func textStyleMalformed(fields nbt.Compound) string {
 			if !ok {
 				field = "Not a map: " + nbt.Stringify(value)
 			} else if name == "click_event" {
-				field = clickEventMalformed(event)
+				field = lookup.clickEventMalformed(event)
 			} else {
-				field = hoverEventMalformed(event)
+				field = lookup.hoverEventMalformed(event)
 			}
 		}
 		msg = JoinFieldErrors(field, msg)
@@ -554,15 +566,15 @@ func textListItems(tag nbt.Tag) ([]nbt.Tag, bool) {
 }
 
 // vanilla: ClickEvent.CODEC, ClickEvent.Action.isAllowedFromServer
-func clickEventMalformed(fields nbt.Compound) string {
+func (lookup *TagLookup) clickEventMalformed(fields nbt.Compound) string {
 	if msg := textFieldMalformed(fields, "action", textStringMalformed); msg != "" {
 		return msg
 	}
-	return clickActionMalformed(string(fields["action"].(nbt.String)), fields)
+	return lookup.clickActionMalformed(string(fields["action"].(nbt.String)), fields)
 }
 
 // vanilla: ClickEvent payload codecs, also wrapped by StaticAction.
-func clickActionMalformed(action string, fields nbt.Compound) string {
+func (lookup *TagLookup) clickActionMalformed(action string, fields nbt.Compound) string {
 	key, check := "", textStringMalformed
 	switch action {
 	case "open_file":
@@ -572,7 +584,7 @@ func clickActionMalformed(action string, fields nbt.Compound) string {
 	case "run_command", "suggest_command":
 		key, check = "command", textChatStringMalformed
 	case "show_dialog":
-		key, check = "dialog", DialogRefMalformed
+		key, check = "dialog", lookup.dialogRefMalformed
 	case "change_page":
 		key, check = "page", func(tag nbt.Tag) string {
 			n, ok := nbt.IntValue(tag)
@@ -608,17 +620,17 @@ func textChatStringMalformed(tag nbt.Tag) string {
 }
 
 // vanilla: HoverEvent.CODEC
-func hoverEventMalformed(fields nbt.Compound) string {
+func (lookup *TagLookup) hoverEventMalformed(fields nbt.Compound) string {
 	if msg := textFieldMalformed(fields, "action", textStringMalformed); msg != "" {
 		return msg
 	}
 	switch action := string(fields["action"].(nbt.String)); action {
 	case "show_text":
-		return textFieldMalformed(fields, "value", TextComponentMalformed)
+		return textFieldMalformed(fields, "value", lookup.textComponentMalformed)
 	case "show_entity":
 		msg := ""
 		if name, present := fields["name"]; present {
-			msg = TextComponentMalformed(name)
+			msg = lookup.textComponentMalformed(name)
 		}
 		return JoinFieldErrors(msg,
 			textFieldMalformed(fields, "uuid", textUUIDMalformed),
@@ -627,7 +639,7 @@ func hoverEventMalformed(fields nbt.Compound) string {
 			}),
 		)
 	case "show_item":
-		msg, _ := itemTemplateMapDiagnostic(fields)
+		msg, _ := lookup.itemTemplateMapDiagnostic(fields)
 		return msg
 	default:
 		return "Unknown element name:" + action
@@ -635,23 +647,23 @@ func hoverEventMalformed(fields nbt.Compound) string {
 }
 
 // vanilla: ItemStackTemplate.MAP_CODEC
-func itemTemplateMapDiagnostic(fields nbt.Compound) (string, bool) {
+func (lookup *TagLookup) itemTemplateMapDiagnostic(fields nbt.Compound) (string, bool) {
 	required := textFieldMalformed(fields, "id", textItemMalformed)
 	msg := ""
 	if patch, present := fields["components"]; present {
-		msg = textPatchMalformed(patch)
+		msg = lookup.textPatchMalformed(patch)
 	}
 	return JoinFieldErrors(msg, optionalRange(fields, "count", 1, 99), required), required == ""
 }
 
 // vanilla: ItemStackTemplate.CODEC
-func itemTemplateDiagnostic(tag nbt.Tag) (string, bool) {
+func (lookup *TagLookup) itemTemplateDiagnostic(tag nbt.Tag) (string, bool) {
 	return codecAlternative(tag, func(tag nbt.Tag) (string, bool) {
 		fields, ok := nbt.CompoundView(tag)
 		if !ok {
 			return "Not a map: " + nbt.Stringify(tag), false
 		}
-		return itemTemplateMapDiagnostic(fields)
+		return lookup.itemTemplateMapDiagnostic(fields)
 	}, func(tag nbt.Tag) (string, bool) { msg := textItemMalformed(tag); return msg, msg == "" })
 }
 
@@ -693,7 +705,7 @@ func textUUIDMalformed(tag nbt.Tag) string {
 }
 
 // vanilla: DataComponentPatch.CODEC, UnboundedMapCodec.decode
-func textPatchMalformed(tag nbt.Tag) string {
+func (lookup *TagLookup) textPatchMalformed(tag nbt.Tag) string {
 	fields, ok := nbt.CompoundView(tag)
 	if !ok {
 		return "Not a map: " + nbt.Stringify(tag)
@@ -715,7 +727,7 @@ func textPatchMalformed(tag nbt.Tag) string {
 				failure = "Not a map: " + nbt.Stringify(value)
 			}
 		default:
-			failure = ComponentValueMalformed(name, value)
+			failure = lookup.componentValueMalformed(name, value)
 		}
 		msg = JoinFieldErrors(failure, msg)
 	}
@@ -765,5 +777,9 @@ func MinMaxField(c nbt.Compound, name string) (bound int32, present, ok bool) {
 
 // ComponentDecodes reports whether a component fits the client decoder and its codec accepts it.
 func ComponentDecodes(tag nbt.Tag) bool {
-	return protocol.RawTextFits(tag) && TextComponentMalformed(tag) == ""
+	return CurrentTagLookup().componentDecodes(tag)
+}
+
+func (lookup *TagLookup) componentDecodes(tag nbt.Tag) bool {
+	return protocol.RawTextFits(tag) && lookup.textComponentMalformed(tag) == ""
 }

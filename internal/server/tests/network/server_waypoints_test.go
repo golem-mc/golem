@@ -3,13 +3,16 @@ package network
 import (
 	"iter"
 	"math"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/google/uuid"
@@ -218,6 +221,204 @@ func TestPlayersAppearOnEachOthersLocatorBars(t *testing.T) {
 		t.Errorf("the re-track points at (%d, %d, %d), want five blocks east of the track's (%d, %d, %d)",
 			wp.x, wp.y, wp.z, moverAt.x+5, moverAt.y, moverAt.z)
 	}
+}
+
+// TestAWaypointIsBlockFormInsideTheReceiversViewAndChunkFormOutside moves a
+// transmitter along one axis to the last chunk of the receiver's view and then
+// one chunk past it: each move rebuilds the link, which is made in the block
+// form while the transmitter's chunk is in view and in the chunk form once it
+// is not.
+// vanilla: LivingEntity.makeWaypointConnectionWith
+func TestAWaypointIsBlockFormInsideTheReceiversViewAndChunkFormOutside(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, connect := servertest.Start(t, cfg)
+
+	watcher := connect().Join("Watcher")
+	watcher.Settle()
+	mover := connect().Join("Mover")
+	moverID := protocol.OfflineUUID("Mover")
+	watcher.WatchWaypoints = true
+	servertest.HoldTicks(t, srv)
+
+	// The watcher stands in chunk 0, so the view reaches chunk 2 along x.
+	view := int32(config.MinDistance)
+	moveTo := func(chunkX int32) waypointPacket {
+		t.Helper()
+		x := chunkX*16 + 8
+		// Settle has the server apply the move before the watcher counts
+		// its tick: a tick counted on one connection does not wait for a
+		// packet still queued on another.
+		mover.MoveToGround(float64(x)+0.5, mover.LastTeleport.Y, 0.5, true)
+		mover.Settle()
+		var got waypointPacket
+		if !watcher.ReadTicks(srv, 1, func(id int32, data []byte) bool {
+			if id != protocol.IDPlayWaypoint {
+				return false
+			}
+			wp := parseWaypoint(t, data)
+			if wp.id != moverID || wp.operation != protocol.WaypointTrack {
+				return false
+			}
+			// A track left over from the previous move may still be in flight.
+			if wp.kind == protocol.WaypointTypeChunk && wp.x != chunkX {
+				return false
+			}
+			if wp.kind == protocol.WaypointTypeVec3i && wp.x != x {
+				return false
+			}
+			got = wp
+			return true
+		}) {
+			t.Fatalf("no waypoint track for the mover at chunk %d within a tick", chunkX)
+		}
+		return got
+	}
+
+	if wp := moveTo(view); wp.kind != protocol.WaypointTypeVec3i {
+		t.Errorf("the waypoint at the view's edge is of type %d, want the block form", wp.kind)
+	}
+	wp := moveTo(view + 1)
+	if wp.kind != protocol.WaypointTypeChunk {
+		t.Fatalf("the waypoint just past the view is of type %d, want the chunk form", wp.kind)
+	}
+	if wp.x != view+1 || wp.z != 0 {
+		t.Errorf("the chunk waypoint names (%d, %d), want (%d, 0)", wp.x, wp.z, view+1)
+	}
+}
+
+// vanilla: LivingEntity.makeWaypointConnectionWith, ChunkTrackingView.isInViewDistance
+func TestLocatorBarUsesTheReceiversChunkTrackingView(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance = 4
+	srv, connect := servertest.Start(t, cfg)
+	srv.SetGameRule("locator_bar", false)
+	watcher := connect().Join("Watcher")
+	watcher.WatchWaypoints = true
+	diagonal := connect().Join("Diagonal")
+	axis := connect().Join("Axis")
+	servertest.HoldTicks(t, srv)
+
+	diagonal.MoveToGround(64.5, 64, 64.5, true)
+	axis.MoveToGround(64.5, 64, 0.5, true)
+	diagonal.Settle()
+	axis.Settle()
+	srv.SetGameRule("locator_bar", true)
+
+	want := map[uuid.UUID]waypointPacket{
+		protocol.OfflineUUID("Diagonal"): {kind: protocol.WaypointTypeChunk, x: 4, z: 4},
+		protocol.OfflineUUID("Axis"):     {kind: protocol.WaypointTypeVec3i, x: 64, y: 64},
+	}
+	if !watcher.ReadTicks(srv, 5, func(id int32, data []byte) bool {
+		if id != protocol.IDPlayWaypoint {
+			return false
+		}
+		got := parseWaypoint(t, data)
+		expect, ok := want[got.id]
+		if !ok {
+			return false
+		}
+		if got.operation != protocol.WaypointTrack || got.kind != expect.kind || !got.at(expect.x, expect.y, expect.z) {
+			t.Errorf("waypoint for %s = operation %d, form %d at (%d, %d, %d), want track in form %d at (%d, %d, %d)",
+				got.id, got.operation, got.kind, got.x, got.y, got.z, expect.kind, expect.x, expect.y, expect.z)
+		}
+		delete(want, got.id)
+		return len(want) == 0
+	}) {
+		t.Fatalf("missing waypoint tracks after 5 ticks: %v", want)
+	}
+}
+
+func TestLocatorBarSettlesPairsWithOneOrTwoMovingPlayers(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, first := servertest.Join(t, cfg, "First", func(srv *server.Server) {
+		srv.SetGameRule("locator_bar", false)
+		servertest.FreezeUntilHeld(t, srv)
+	})
+	stationary := servertest.DialServer(t, srv).Join("Stationary")
+	second := servertest.DialServer(t, srv).Join("Second")
+	servertest.HoldTicks(t, srv)
+
+	move := func(client *servertest.Client, x, z float64) {
+		t.Helper()
+		client.MoveToGround(x, client.LastTeleport.Y, z, true)
+		client.Settle()
+	}
+	move(first, 15.5, 0.5)
+	move(stationary, 48.5, 0.5)
+	move(second, 20.5, 0.5)
+	srv.SetGameRule("locator_bar", true)
+	servertest.RunTicks(t, srv, 1)
+	clients := []*servertest.Client{first, stationary, second}
+	for _, client := range clients {
+		client.WatchWaypoints = true
+		client.Settle()
+	}
+
+	firstID, stationaryID, secondID := protocol.OfflineUUID("First"), protocol.OfflineUUID("Stationary"), protocol.OfflineUUID("Second")
+	y := blockOf(first.LastTeleport).y
+	block := func(id uuid.UUID, op, x, z int32) waypointPacket {
+		return waypointPacket{id: id, operation: op, kind: protocol.WaypointTypeVec3i, style: "minecraft:default", x: x, y: y, z: z}
+	}
+	untrack := func(id uuid.UUID) waypointPacket {
+		return waypointPacket{id: id, operation: protocol.WaypointUntrack, kind: protocol.WaypointTypeEmpty, style: "minecraft:default"}
+	}
+	checkTick := func(phase string, want ...[]waypointPacket) {
+		t.Helper()
+		servertest.RunTicks(t, srv, 1)
+		for i, client := range clients {
+			var got []waypointPacket
+			client.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+				if id == protocol.IDPlayWaypoint {
+					got = append(got, parseWaypoint(t, data))
+				}
+				return false
+			})
+			// The transmitter order comes from the tick's player snapshot.
+			// Either order is possible when two transmitters send in one tick.
+			if len(got) == 2 && len(want[i]) == 2 && got[0].id == want[i][1].id {
+				slices.Reverse(got)
+			}
+			if !slices.Equal(got, want[i]) {
+				t.Errorf("%s receiver %d got %+v, want %+v", phase, i, got, want[i])
+			}
+		}
+	}
+
+	// First enters range of Stationary's chunk, so its own bar must update
+	// along with the two receivers of First's waypoint.
+	move(first, 16.5, 0.5)
+	checkTick("one mover",
+		[]waypointPacket{block(stationaryID, protocol.WaypointTrack, 48, 0)},
+		[]waypointPacket{{id: firstID, operation: protocol.WaypointUpdate, kind: protocol.WaypointTypeChunk, style: "minecraft:default", x: 1}},
+		[]waypointPacket{block(firstID, protocol.WaypointUpdate, 16, 0)},
+	)
+
+	move(first, 16.5, 1.5)
+	move(second, 20.5, 1.5)
+	checkTick("two movers",
+		[]waypointPacket{block(secondID, protocol.WaypointUpdate, 20, 1)},
+		[]waypointPacket{block(firstID, protocol.WaypointTrack, 16, 1), block(secondID, protocol.WaypointUpdate, 20, 1)},
+		[]waypointPacket{block(firstID, protocol.WaypointUpdate, 16, 1)},
+	)
+
+	srv.SetGameRule("locator_bar", false)
+	checkTick("rule off",
+		[]waypointPacket{untrack(stationaryID), untrack(secondID)},
+		[]waypointPacket{untrack(firstID), untrack(secondID)},
+		[]waypointPacket{untrack(firstID), untrack(stationaryID)},
+	)
+	srv.SetGameRule("locator_bar", true)
+	checkTick("rule on",
+		[]waypointPacket{block(stationaryID, protocol.WaypointTrack, 48, 0), block(secondID, protocol.WaypointTrack, 20, 1)},
+		[]waypointPacket{block(firstID, protocol.WaypointTrack, 16, 1), block(secondID, protocol.WaypointTrack, 20, 1)},
+		[]waypointPacket{block(firstID, protocol.WaypointTrack, 16, 1), block(stationaryID, protocol.WaypointTrack, 48, 0)},
+	)
+	checkTick("idle", nil, nil, nil)
 }
 
 // TestTheLocatorBarRuleTakesWaypointsOffAndBack checks the gate: with

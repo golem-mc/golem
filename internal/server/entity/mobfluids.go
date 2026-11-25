@@ -86,10 +86,11 @@ func (m *Mob) fluidJumpThreshold() float64 {
 // set it) gets LivingEntity.jumpInLiquid's 0.04 kick; one that cannot gets
 // three tenths of a full leap, which lifts a drowning zombie off a pond's
 // bottom. Vanilla reads only the navigation flag, not the fluid.
-func (m *Mob) jumpInLiquid() {
-	if m.Type == TypeMagmaCube && m.InLava() {
+func (m *Mob) jumpInLiquid(fluid fluidKind) {
+	if m.Type == TypeMagmaCube && fluid == fluidLava {
 		// vanilla: MagmaCube.jumpInLiquid
 		m.VY = float64(0.22 + float32(m.Size)*0.05)
+		m.Impulse = true
 		return
 	}
 	if m.canFloat {

@@ -104,12 +104,21 @@ func (l *launcher) pluginModule(ctx context.Context, path, v string) (mod, versi
 	return "", "", fmt.Errorf("%s@%s: no module provides it: %w", path, v, first)
 }
 
-// latestServerOverride replaces latestServer's lookup; tests set it.
+func (ch updateChannel) query() string {
+	if ch == devChannel {
+		return "HEAD"
+	}
+	return "latest"
+}
+
+// latestServerOverride replaces the stable server lookup in tests.
 var latestServerOverride func(ctx context.Context) (string, error)
 
-// latestServer answers the newest release tag of the server, or its newest
-// commit's pseudo-version while there is no release.
-func (l *launcher) latestServer(ctx context.Context) (string, error) {
+// latestServer answers the newest version of the server on ch.
+func (l *launcher) latestServer(ctx context.Context, ch updateChannel) (string, error) {
+	if ch == devChannel {
+		return l.queryModule(ctx, serverModule+"@"+ch.query())
+	}
 	if latestServerOverride != nil {
 		return latestServerOverride(ctx)
 	}
@@ -124,9 +133,9 @@ func (l *launcher) latestServer(ctx context.Context) (string, error) {
 }
 
 // latestPlugin answers the module of the remote plugin package path and
-// that module's newest version.
-func (l *launcher) latestPlugin(ctx context.Context, path string) (mod, latest string, err error) {
-	return l.pluginModule(ctx, path, "latest")
+// that module's newest version on ch.
+func (l *launcher) latestPlugin(ctx context.Context, path string, ch updateChannel) (mod, latest string, err error) {
+	return l.pluginModule(ctx, path, ch.query())
 }
 
 // pin resolves a version that may be a branch, "latest" or a short query to

@@ -158,9 +158,14 @@ func isSolidFace(state uint16, kind fluidKind, dir int) bool {
 // The sum is normalised into the current's direction.
 func fluidFlowAt(w World, x, y, z int32, cell fluidCell) (fx, fy, fz float64) {
 	own := float32(fluidOwnHeight(cell))
-	for _, d := range [4][2]int32{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+	// The steps east, west, south, north, with their Direction ordinals.
+	dirs := [4][3]int32{{1, 0, 5}, {-1, 0, 4}, {0, 1, 3}, {0, -1, 2}}
+	var neighbourStates [4]uint16
+	for i, d := range dirs {
 		nx, nz := x+d[0], z+d[1]
-		neighbour := fluidCellOf(w.BlockAt(nx, y, nz))
+		state := w.BlockAt(nx, y, nz)
+		neighbourStates[i] = state
+		neighbour := fluidCellOf(state)
 		if neighbour.kind != fluidNone && neighbour.kind != cell.kind {
 			continue // a different fluid is none of this flow's business
 		}
@@ -172,7 +177,7 @@ func fluidFlowAt(w World, x, y, z int32, cell fluidCell) (fx, fy, fz float64) {
 		if neighbourHeight == 0 {
 			// The pour: a dry neighbour is worth a look downward, where
 			// this cell's fluid may be running off the edge.
-			if !registry.BlockOf(w.BlockAt(nx, y, nz)).InTag(registry.TagIDBlocksFluidFlow) {
+			if !registry.BlockOf(state).InTag(registry.TagIDBlocksFluidFlow) {
 				below := fluidCellOf(w.BlockAt(nx, y-1, nz))
 				if below.kind == cell.kind {
 					if belowHeight := float32(fluidOwnHeight(below)); belowHeight > 0 {
@@ -192,9 +197,8 @@ func fluidFlowAt(w World, x, y, z int32, cell fluidCell) (fx, fy, fz float64) {
 	if cell.level >= 8 {
 		// The falling column: a solid face beside it, at its level or the
 		// one above, gives the flow its downward share.
-		// The steps east, west, south, north, with their Direction ordinals.
-		for _, d := range [4][3]int32{{1, 0, 5}, {-1, 0, 4}, {0, 1, 3}, {0, -1, 2}} {
-			if isSolidFace(w.BlockAt(x+d[0], y, z+d[1]), cell.kind, int(d[2])) ||
+		for i, d := range dirs {
+			if isSolidFace(neighbourStates[i], cell.kind, int(d[2])) ||
 				isSolidFace(w.BlockAt(x+d[0], y+1, z+d[1]), cell.kind, int(d[2])) {
 				length := math.Sqrt(fx*fx + fz*fz)
 				if length > 0 {
@@ -346,6 +350,17 @@ func (b AABB) Crosses(o AABB) bool {
 // search around a body asks for. vanilla: AABB.inflate
 func (b AABB) Inflate(d float64) AABB {
 	return AABB{b.minX - d, b.minY - d, b.minZ - d, b.maxX + d, b.maxY + d, b.maxZ + d}
+}
+
+// PlayerTouchBox is the reach for entity touches. A zero vehicle box means the player is on foot.
+// vanilla: Player.aiStep
+func PlayerTouchBox(x, y, z, width, height float64, vehicle AABB) AABB {
+	hw := width / 2
+	if vehicle == (AABB{}) {
+		return NewAABB(x-hw-1, y-0.5, z-hw-1, x+hw+1, y+height+0.5, z+hw+1)
+	}
+	return NewAABB(min(x-hw, vehicle.minX)-1, min(y, vehicle.minY), min(z-hw, vehicle.minZ)-1,
+		max(x+hw, vehicle.maxX)+1, max(y+height, vehicle.maxY), max(z+hw, vehicle.maxZ)+1)
 }
 
 // centerXZ is the centre of the box's horizontal span, where a clipped

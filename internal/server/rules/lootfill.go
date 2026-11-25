@@ -17,10 +17,12 @@ func FillLoot(name string, ctx *LootContext, rng LootRand, slots []protocol.Item
 // they are split and placed; it returns the stacks to place, none to place
 // nothing, the table still counting as rolled.
 func FillLootReviewed(name string, ctx *LootContext, rng LootRand, slots []protocol.ItemStack, review func([]protocol.ItemStack) []protocol.ItemStack) bool {
-	if _, ok := registry.FindLootTable(name); !ok {
+	table, ok := registry.FindLootTable(name)
+	if !ok {
 		return false
 	}
-	stacks := RollLoot(name, ctx, rng)
+	rng = ctx.RandomFor(table.RandomSequence, rng)
+	stacks := rollLootTable(nil, name, table, ctx, rng)
 	if review != nil {
 		stacks = review(stacks)
 	}

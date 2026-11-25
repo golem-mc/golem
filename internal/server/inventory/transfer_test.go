@@ -17,6 +17,12 @@ func (b *testBlock) Slot(i int) protocol.ItemStack       { return b.slots[i] }
 func (b *testBlock) Put(i int, stack protocol.ItemStack) { b.slots[i] = stack }
 func (b *testBlock) Stacks() []protocol.ItemStack        { return b.slots }
 func (b *testBlock) Peek(i int) (int32, int32)           { return b.slots[i].ItemID, b.slots[i].Count }
+func (b *testBlock) StackPtr(i int) *protocol.ItemStack {
+	if i < 0 || i >= len(b.slots) {
+		return nil
+	}
+	return &b.slots[i]
+}
 func (b *testBlock) Filled() uint64 {
 	var m uint64
 	for i, s := range b.slots {
@@ -49,6 +55,97 @@ func TestAddItemMergesThenFillsAndReportsIntoEmpty(t *testing.T) {
 	if !left.Empty() || intoEmpty || hopper.slots[0].Count != 64 || hopper.slots[1].Count != 2 {
 		t.Fatalf("second pour: left %v, intoEmpty %v, slots %v", left, intoEmpty, hopper.slots[:2])
 	}
+
+	custom := &testBlock{kind: KindHopper, slots: make([]protocol.ItemStack, 5)}
+	custom.slots[0] = item(t, "minecraft:stone", 3)
+	custom.slots[0].SetMaxStackSize(4)
+	in := item(t, "minecraft:stone", 3)
+	in.SetMaxStackSize(4)
+	left, intoEmpty = AddItem(custom, in, 0, false)
+	if left.Count != 0 || intoEmpty || custom.slots[0].Count != 4 || custom.slots[1].Count != 2 {
+		t.Fatalf("custom maximum: left %v, intoEmpty %v, slots %v", left, intoEmpty, custom.slots[:2])
+	}
+
+	worn := &testBlock{kind: KindHopper, slots: make([]protocol.ItemStack, 5)}
+	worn.slots[0] = item(t, "minecraft:stone", 5)
+	other := item(t, "minecraft:stone", 1)
+	other.Damage = 1
+	left, _ = AddItem(worn, other, 0, false)
+	if worn.slots[0].Count != 5 || worn.slots[1].Count != 1 || !left.Empty() {
+		t.Fatalf("different components merged: left %v, slots %v", left, worn.slots[:2])
+	}
+}
+
+func BenchmarkAddOneToOccupiedHopper(b *testing.B) {
+	hopper := &testBlock{kind: KindHopper, slots: make([]protocol.ItemStack, 5)}
+	one, full := item(b, "minecraft:stone", 1), item(b, "minecraft:stone", 32)
+	b.ReportAllocs()
+	for b.Loop() {
+		hopper.slots[0] = full
+		left, intoEmpty := AddItem(hopper, one, protocol.FaceTop, false)
+		if !left.Empty() || intoEmpty || hopper.slots[0].Count != 33 {
+			b.Fatalf("left %v, intoEmpty %v, slot %v", left, intoEmpty, hopper.slots[0])
+		}
+	}
+}
+
+func TestHopperEjectIntoCrafter(t *testing.T) {
+	stone := item(t, "minecraft:stone", 2)
+	named := stone
+	named.CustomName = &protocol.Text{Text: "Polished"}
+	capped := stone
+	capped.SetMaxStackSize(2)
+	dirt := item(t, "minecraft:dirt", 32)
+	for _, tc := range []struct {
+		name      string
+		incoming  protocol.ItemStack
+		fill      protocol.ItemStack
+		slots     map[int]protocol.ItemStack
+		disabled  map[int]bool
+		wantSlot  int
+		intoEmpty bool
+	}{
+		{name: "skip disabled empty slot", incoming: stone, disabled: map[int]bool{0: true}, wantSlot: 1, intoEmpty: true},
+		{name: "merge matching components", incoming: named, fill: dirt, slots: map[int]protocol.ItemStack{0: stone, 8: named}, wantSlot: 8},
+		{name: "reject different components", incoming: named, fill: dirt, slots: map[int]protocol.ItemStack{8: stone}, wantSlot: -1},
+		{name: "reject at custom stack limit", incoming: capped, fill: dirt, slots: map[int]protocol.ItemStack{8: capped}, wantSlot: -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hopper := &testBlock{kind: KindHopper, slots: []protocol.ItemStack{tc.incoming}}
+			crafter := &disabledBlock{
+				kind: KindCrafter, slots: make([]protocol.ItemStack, 9),
+				off: tc.disabled,
+			}
+			for i := range crafter.slots {
+				crafter.Put(i, tc.fill)
+			}
+			for i, stack := range tc.slots {
+				crafter.Put(i, stack)
+			}
+			want := slices.Clone(crafter.slots)
+			wantSourceCount := tc.incoming.Count
+			wantMoved := tc.wantSlot >= 0
+			if wantMoved {
+				count := want[tc.wantSlot].Count + 1
+				want[tc.wantSlot] = tc.incoming
+				want[tc.wantSlot].Count = count
+				wantSourceCount--
+			}
+
+			moved, intoEmpty := Eject(hopper, crafter, protocol.FaceTop)
+			if moved != wantMoved || intoEmpty != tc.intoEmpty {
+				t.Errorf("Eject = (%v, %v), want (%v, %v)", moved, intoEmpty, wantMoved, tc.intoEmpty)
+			}
+			if got := hopper.Slot(0); got.Count != wantSourceCount || !got.Same(tc.incoming) {
+				t.Errorf("hopper slot = %v, want %d of %v", got, wantSourceCount, tc.incoming)
+			}
+			for i, stack := range want {
+				if got := crafter.Slot(i); got.Count != stack.Count || !got.Same(stack) {
+					t.Errorf("crafter slot %d = %v, want %v", i, got, stack)
+				}
+			}
+		})
+	}
 }
 
 func TestFurnaceFacesAndShulkerRefusal(t *testing.T) {
@@ -62,7 +159,7 @@ func TestFurnaceFacesAndShulkerRefusal(t *testing.T) {
 	if left, _ := AddItem(furnace, item(t, "minecraft:stone", 1), protocol.FaceTop, true); !left.Empty() || furnace.slots[0].Empty() {
 		t.Error("the furnace's top refused stone")
 	}
-	if canTakeThroughFace(furnace, furnace.slots[1], 1, protocol.FaceBottom) {
+	if canTakeThroughFace(furnace, &furnace.slots[1], 1, protocol.FaceBottom) {
 		t.Error("the furnace's bottom gave up its fuel")
 	}
 
@@ -109,6 +206,38 @@ func TestFullDoubleChestDoesNotAllocate(t *testing.T) {
 		}
 	}); allocations != 0 {
 		t.Errorf("checking a full double chest allocated %g times, want 0", allocations)
+	}
+}
+
+func TestEmptyAndFullMaskFastPaths(t *testing.T) {
+	t.Parallel()
+	chest := &testBlock{kind: KindChest, slots: make([]protocol.ItemStack, 27)}
+	if !Empty(chest) || Full(chest, protocol.FaceTop) {
+		t.Fatal("empty chest reported wrong Empty/Full")
+	}
+	chest.slots[26] = item(t, "minecraft:stone", 64)
+	if Empty(chest) || Full(chest, protocol.FaceTop) {
+		t.Fatal("single-slot chest reported wrong Empty/Full")
+	}
+	for i := range chest.slots {
+		chest.slots[i] = item(t, "minecraft:stone", 64)
+	}
+	if Empty(chest) || !Full(chest, protocol.FaceTop) {
+		t.Fatal("full chest reported wrong Empty/Full")
+	}
+	chest.slots[13].Count = 63
+	if Full(chest, protocol.FaceTop) {
+		t.Fatal("nearly full chest reported Full")
+	}
+
+	// Blocks with >64 slots fall back to scanning past the 64-bit mask.
+	large := &testBlock{kind: KindChest, slots: make([]protocol.ItemStack, 70)}
+	if !Empty(large) {
+		t.Fatal("empty >64-slot block reported non-empty")
+	}
+	large.slots[69] = item(t, "minecraft:stone", 1)
+	if Empty(large) {
+		t.Fatal(">64-slot block with item in slot 69 reported empty")
 	}
 }
 

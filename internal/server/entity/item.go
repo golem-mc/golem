@@ -266,7 +266,7 @@ func (it *Item) dice() *rand.Rand {
 		if it.seeded {
 			seed = it.seed
 		}
-		it.Rand = rand.New(rand.NewSource(seed))
+		it.Rand = NewDice(seed)
 	}
 	return it.Rand
 }

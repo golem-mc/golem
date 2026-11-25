@@ -1295,13 +1295,15 @@ type Player struct {
 	// Passenger says the body rides a vehicle; cramming leaves it out.
 	// vanilla: Entity.isPassenger
 	Passenger bool
-	// OnHappyGhast says the body's root vehicle is a happy ghast.
+	// OnHappyGhast says the player is seated on a happy ghast.
 	// vanilla: HappyGhast.scanPlayerAboveGhast
 	OnHappyGhast bool
 	// BoatDriver and NautilusDriver identify controlling passengers for dolphin following.
 	BoatDriver, NautilusDriver bool
-	// RideBox is the vehicle's min X/Y/Z followed by max X/Y/Z.
-	RideBox [6]float64
+	// RideBox is the immediate vehicle's box, or zero on foot.
+	RideBox AABB
+	// RideRoot is the root vehicle's feet and the top of its dimensions.
+	RideRoot struct{ X, Y, Z, Top float64 }
 
 	// Spectator is a spectator, left out of the despawn's nearest-player
 	// distance.
@@ -1432,7 +1434,9 @@ type Mob struct {
 	VX, VY, VZ          float64
 	Yaw, Pitch, HeadYaw float32
 	OnGround            bool
-	look                lookControl
+	// GroundGuess marks OnGround as the spawn's stand-in, not a saved fact.
+	GroundGuess bool
+	look        lookControl
 
 	Health, MaxHealth float64
 	// damagedEvent marks a hurt not yet told as entity_damage.
@@ -1536,6 +1540,11 @@ type Mob struct {
 	// body seeks a mate. Only a grown body at age zero holds it (the tick clears
 	// it otherwise), and a hurt clears it.
 	InLove int
+	// LoveCause is the player whose feeding caused love, credited with
+	// the birth; HasLoveCause tells a stored all-zero UUID from none.
+	// vanilla: Animal.loveCause
+	LoveCause    uuid.UUID
+	HasLoveCause bool
 	// Persistence is PersistenceRequired, which spares a mob the distance and
 	// idleness despawns.
 	Persistence bool
@@ -1654,10 +1663,8 @@ type Mob struct {
 	RiderKind MobType
 	Rider     *Mob
 	Rand      *rand.Rand
-	// lootSeed seeds the death's loot roll, splitmix64 apart from Rand so the
-	// wander's draws never move it; lootRand is built on first use.
-	// vanilla: LootContext.Builder.create (table random_sequence, else the
-	// level random)
+	// lootSeed seeds the equipment drops, split apart from Rand so wandering
+	// draws never move it; lootRand is built on first use.
 	lootSeed int64
 	lootRand *rand.Rand
 	// DeathLootTable names the table the death rolls instead of the kind's
@@ -2163,6 +2170,8 @@ type Mob struct {
 	// reordered so pushes land in the tick's walk order. Set for one tick and
 	// cleared after.
 	push *pushGrid
+	// tickPaths belongs to the herd and is lent to this body for its tick.
+	tickPaths *MobPathScratch
 	// prey is the tick's villagers, traders, iron golems, turtles and axolotls
 	// in herd order, which the zombie's mob targets scan instead of the herd;
 	// preyKnown is false where no tick built it. Set for one tick.
@@ -2206,7 +2215,7 @@ func NewMob(t MobType, id int32, x, y, z float64, seed int64) *Mob {
 	if k == nil {
 		panic("entity: unknown mob type " + t.Name())
 	}
-	rng := rand.New(rand.NewSource(seed))
+	rng := NewDice(seed)
 	m := &Mob{
 		ID:        id,
 		Type:      t,
@@ -2282,7 +2291,7 @@ func NewMob(t MobType, id int32, x, y, z float64, seed int64) *Mob {
 		m.ai.wire(ocelotGoals(m)...)
 	} else if t == TypeParrot {
 		// Standalone simulations have a separate stream until a level binds its own.
-		m.SetParrotSoundRandom(rand.New(rand.NewSource(seed ^ spawnDiceSalt)))
+		m.SetParrotSoundRandom(NewDice(seed ^ spawnDiceSalt))
 		m.ai.wire(parrotGoals(m)...)
 	} else if IsEquine(t) {
 		m.ai.wire(horseGoals(m)...)
@@ -2420,6 +2429,9 @@ func NewMob(t MobType, id int32, x, y, z float64, seed int64) *Mob {
 	}
 	return m
 }
+
+// SetLoveCause records the player whose feeding caused love.
+func (m *Mob) SetLoveCause(id uuid.UUID) { m.LoveCause, m.HasLoveCause = id, true }
 
 // RecordSlot is the server's unsaved record index, or zero when unfiled.
 // The server's mob lock guards it.
@@ -2750,7 +2762,7 @@ func (m *Mob) FinalizeStructureSpawnAt(dice Dice, ctx rules.SpawnContext, local 
 // generation rolls: vanilla's is not the mob's own, so it is a stream salted
 // off the loot seed that moves neither the mob's dice nor its loot.
 func (m *Mob) SpawnDice() Dice {
-	return GoDice{rand.New(rand.NewSource(m.lootSeed ^ spawnDiceSalt))}
+	return GoDice{NewDice(m.lootSeed ^ spawnDiceSalt)}
 }
 
 // spawnDiceSalt gives SpawnDice its own seed.
@@ -2899,7 +2911,7 @@ func (m *Mob) finalizeSpawn(dice Dice, ctx rules.SpawnContext, group *SpawnGroup
 	// vanilla: AbstractSkeleton.finalizeSpawn rolls loot pickup scaled by the
 	// special multiplier.
 	if m.is(TypeSkeleton) {
-		m.CanPickUpLoot = rand.New(rand.NewSource(m.lootSeed^lootPickupSalt)).Float64() < lootPickupOdds*float64(local.Special)
+		m.CanPickUpLoot = NewDice(m.lootSeed^lootPickupSalt).Float64() < lootPickupOdds*float64(local.Special)
 	}
 	if m.isPiglin() {
 		m.finalizePiglin(dice, local, structure)
@@ -3632,6 +3644,20 @@ func (m *Mob) BlastBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
 	return m.X - hw, m.Y, m.Z - hw, m.X + hw, m.Y + m.height(), m.Z + hw
 }
 
+// BlastBoxHits reports whether BlastBox intersects the box. It tests X and Z
+// first so a body that misses horizontally never computes its height.
+func (m *Mob) BlastBoxHits(minX, minY, minZ, maxX, maxY, maxZ float64) bool {
+	if m.Type == TypeShulker {
+		bMinX, bMinY, bMinZ, bMaxX, bMaxY, bMaxZ := m.shulkerBox().Corners()
+		return minX < bMaxX && maxX > bMinX && minY < bMaxY && maxY > bMinY && minZ < bMaxZ && maxZ > bMinZ
+	}
+	hw := m.width() / 2
+	if !(minX < m.X+hw && maxX > m.X-hw && minZ < m.Z+hw && maxZ > m.Z-hw) {
+		return false
+	}
+	return minY < m.Y+m.height() && maxY > m.Y
+}
+
 // EyePosition is getEyePosition, where an explosion's knockback is directed
 // from.
 func (m *Mob) EyePosition() (x, y, z float64) {
@@ -3894,11 +3920,13 @@ func (m *Mob) HurtByFirework(amount float64, damageType registry.DamageType, cau
 
 // HurtByCommand is /damage: causeID (0 for none) is kept for
 // retaliation and kill credit, and a whole hit shoves away from (fromX, fromZ)
-// unless the type is no_knockback. Results are landed and softened.
+// unless the type is no_knockback. When from is non-nil (a by/from entity),
+// a filled sulfur cube bends its shove by the attacker's aim. Results are
+// landed and softened.
 // vanilla: DamageCommand.damage, LivingEntity.hurtServer
-func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, causeIsPlayer, causeCreative bool, fromX, fromZ float64) (landed, softened bool) {
+func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, causeIsPlayer, causeCreative bool, fromX, fromZ float64, from ...*HitSource) (landed, softened bool) {
 	if causeID != 0 {
-		return m.hurtByDamage(amount, damageType, causeID, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z)
+		return m.hurtByDamage(amount, damageType, causeID, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z, from...)
 	}
 	landed, softened = m.HurtByWorld(amount, damageType)
 	if landed && !softened && !damageType.InTag(registry.DamageTypeTagIDNoKnockback) {
@@ -4524,7 +4552,7 @@ func (m *Mob) HurtByMob(amount float64, source *Mob) bool {
 // HurtByMobOwned is HurtByMob with ownerID, the entity ID of a tame wolf
 // source's owner in this level (0 when absent), who takes the player credit.
 func (m *Mob) HurtByMobOwned(amount float64, source *Mob, ownerID int32) bool {
-	return m.hurtByMob(amount, rules.DamageTypeMobAttack, source, ownerID)
+	return m.hurtByMob(amount, rules.DamageTypeMobAttack, source, ownerID, nil)
 }
 
 // HurtByRam is HurtByMob for a goat's ram: mob_attack_no_aggro, so the victim
@@ -4538,10 +4566,20 @@ func (m *Mob) HurtByRam(amount float64, source *Mob) bool {
 // or beam), still knocked back by the direct entity.
 // vanilla: LivingEntity.hurtServer
 func (m *Mob) HurtByMobAs(amount float64, damageType registry.DamageType, source *Mob) bool {
-	return m.hurtByMob(amount, damageType, source, 0)
+	return m.hurtByMob(amount, damageType, source, 0, nil)
 }
 
-func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *Mob, ownerID int32) (landed bool) {
+// HurtByMobVia is HurtByMobAs for a blow whose direct entity is not source
+// (an evoker's fangs): source is the causing entity, and the shove points
+// away from (fromX, fromZ), the direct entity's position.
+// vanilla: LivingEntity.hurtServer, DamageSource.getSourcePosition
+func (m *Mob) HurtByMobVia(amount float64, damageType registry.DamageType, source *Mob, fromX, fromZ float64) bool {
+	return m.hurtByMob(amount, damageType, source, 0, &[2]float64{fromX, fromZ})
+}
+
+// hurtByMob's push, when non-nil, is the point the shove points away from
+// instead of source's feet.
+func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *Mob, ownerID int32, push *[2]float64) (landed bool) {
 	if m.dragon != nil {
 		defer func(accepted bool) { landed = landed || accepted }(m.dragonAccepts(amount))
 	}
@@ -4550,8 +4588,17 @@ func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *
 		return false
 	}
 	from := source.HitSource()
+	// The source's feet are read when the shove is applied: throughWindow
+	// can run a listener that moves it.
+	pushFrom := func() (float64, float64) {
+		if push != nil {
+			return push[0], push[1]
+		}
+		return source.X, source.Z
+	}
 	if m.sulfurBlocked(damageType) {
-		m.hitKnockback(&from, source.X-m.X, source.Z-m.Z, amount)
+		fromX, fromZ := pushFrom()
+		m.hitKnockback(&from, fromX-m.X, fromZ-m.Z, amount)
 		return true
 	}
 	mayLand, soft := m.throughWindow(amount, damageType, false, true, false, hurtContext{causeID: source.ID})
@@ -4589,7 +4636,8 @@ func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *
 	if soft {
 		return true
 	}
-	m.hitKnockback(&from, source.X-m.X, source.Z-m.Z, amount)
+	fromX, fromZ := pushFrom()
+	m.hitKnockback(&from, fromX-m.X, fromZ-m.Z, amount)
 	return true
 }
 

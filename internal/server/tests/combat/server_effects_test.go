@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -285,6 +286,69 @@ func TestEffectCommand(t *testing.T) {
 	if want := feedback("commands.effect.give.success.single", speedName, servertest.PlayerDisplayComponent("Potion"),
 		protocol.Text{Number: &five}); !bytes.Equal(said, want) {
 		t.Errorf("hidden-particles give feedback = % X, want % X", said, want)
+	}
+}
+
+func TestPlayerEffectParticleRefresh(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.SurvivalTestConfig(), servertest.OpsListing(t, "Affected"))
+	watcher := connect().Join("Watcher")
+	affected := connect().Join("Affected")
+	entityID := watcher.ExpectPlayerAdded("Affected")
+	servertest.HoldTicks(t, srv)
+
+	readParticles := func(packetID int32, data []byte) ([][2]int32, bool) {
+		if packetID != protocol.IDPlayEntityMetadata {
+			return nil, false
+		}
+		return effectParticlesOf(watcher, protocol.NewReader(data), entityID)
+	}
+	awaitParticles := func(name string, want [][2]int32) {
+		t.Helper()
+		if !watcher.ReadTicks(srv, 2, func(packetID int32, data []byte) bool {
+			got, ok := readParticles(packetID, data)
+			if ok && !slices.Equal(got, want) {
+				t.Errorf("%s particles = %v, want %v", name, got, want)
+			}
+			return ok
+		}) {
+			t.Fatalf("%s sent no particle metadata to the watcher", name)
+		}
+	}
+
+	for _, tc := range []struct {
+		name     string
+		effectID int32
+		particle [2]int32
+		resends  bool
+	}{
+		{"trial_omen", registry.MobEffectTrialOmen, [2]int32{protocol.ParticleTrialOmen, 0}, false},
+		{"raid_omen", registry.MobEffectRaidOmen, [2]int32{protocol.ParticleRaidOmen, 0}, false},
+		{"speed", registry.MobEffectSpeed, [2]int32{protocol.ParticleEntityEffect, -0x1000000 | 3402751}, true},
+	} {
+		affected.ChatCommand("effect give @s " + tc.name + " 30")
+		affected.ExpectWithinTicks(srv, 2, protocol.IDPlayUpdateMobEffect)
+		awaitParticles(tc.name+" addition", [][2]int32{tc.particle})
+
+		affected.ChatCommand("effect give @s " + tc.name + " 60")
+		got := servertest.MobEffectFor(affected.ExpectWithinTicks(srv, 2, protocol.IDPlayUpdateMobEffect))
+		if got.Effect != tc.effectID || got.Duration != 1200 {
+			t.Fatalf("%s refresh = %+v, want effect %d for 1200 ticks", tc.name, got, tc.effectID)
+		}
+		if tc.resends {
+			awaitParticles(tc.name+" refresh", [][2]int32{tc.particle})
+		} else {
+			watcher.ReadTicks(srv, 2, func(packetID int32, data []byte) bool {
+				if got, ok := readParticles(packetID, data); ok {
+					t.Errorf("%s refresh sent particle metadata %v to the watcher", tc.name, got)
+				}
+				return false
+			})
+		}
+
+		affected.ChatCommand("effect clear @s")
+		affected.ExpectWithinTicks(srv, 2, protocol.IDPlayRemoveMobEffect)
+		awaitParticles(tc.name+" removal", nil)
 	}
 }
 

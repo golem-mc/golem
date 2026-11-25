@@ -35,19 +35,27 @@ func TestFluidSlopeDistanceBound(t *testing.T) {
 				w.SetBlock(x, 63, z, states[rng.Intn(2)])
 			}
 		}
-		ctx := p.newSpreadContext(0, 64, 0, fluidWater)
+		// Keep the oracle's cell cache independent of the candidate's search cache.
+		ctx := newSpreadContext(p.w, 0, 64, 0, fluidWater)
+		bounded := newSpreadContext(p.w, 0, 64, 0, fluidWater)
 		for start, d := range horizontal4 {
 			ctx.state(d[0], d[1])
+			bounded.state(d[0], d[1])
 			i, _ := ctx.index(d[0], d[1])
 			for from := range horizontal4 {
 				ref := ctx.slopeDistanceRef(i, 1, from, reach)
-				for r := 0; r <= reach; r++ {
-					// Use an independent cache so the reference cannot pre-load the bounded walk.
-					bounded := p.newSpreadContext(0, 64, 0, fluidWater)
-					bounded.state(d[0], d[1])
+				for step := 0; step <= reach; step++ {
+					r := step
+					if plane%2 != 0 {
+						r = reach - step
+					}
+					want := ref
+					if ref > max(r, 1) {
+						want = 1000
+					}
 					got := bounded.slopeDistance(i, 1, from, r)
-					if (ref <= r && got != ref) || (ref > r && got <= r) {
-						t.Fatalf("plane=%d start=%d from=%d bound=%d: got %d, unbounded %d", plane, start, from, r, got, ref)
+					if got != want {
+						t.Fatalf("plane=%d start=%d from=%d bound=%d: got %d, want %d (unbounded %d)", plane, start, from, r, got, want, ref)
 					}
 				}
 			}
@@ -95,6 +103,57 @@ func (c *spreadContext) slopeDistanceRef(i, pass, from, reach int) int {
 	return lowest
 }
 
+func TestFluidSlopeTerminalMissAcrossDirections(t *testing.T) {
+	const north, east, west = 0, 1, 3
+	for _, tc := range []struct {
+		name      string
+		reader    fluidSpreadTestReader
+		warmNorth bool
+	}{
+		{
+			name: "unchecked neighbor over a hole",
+			reader: fluidSpreadTestReader{
+				surface:   map[[2]int32]uint16{{1, 0}: stoneState, {0, 1}: stoneState, {-1, 0}: stoneState},
+				floorHole: &[2]int32{0, -1},
+			},
+		},
+		{
+			name:      "solid neighbors with a hole two steps away",
+			reader:    fluidSpreadTestReader{floorHole: &[2]int32{2, 0}},
+			warmNorth: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := newSpreadContext(&tc.reader, 0, 64, 0, fluidWater)
+			ref := newSpreadContext(&tc.reader, 0, 64, 0, fluidWater)
+			ctx.state(0, 0)
+			ref.state(0, 0)
+			i, _ := ctx.index(0, 0)
+			check := func(from, reach, want int) {
+				t.Helper()
+				if got := ref.slopeDistanceRef(i, 1, from, reach); got != want {
+					t.Fatalf("oracle from=%d reach=%d: got %d, want %d", from, reach, got, want)
+				}
+				if got := ctx.slopeDistance(i, 1, from, reach); got != want {
+					t.Fatalf("slope from=%d reach=%d: got %d, want %d", from, reach, got, want)
+				}
+			}
+			if !tc.warmNorth {
+				check(north, 1, 1000)
+				check(east, 1, 1)
+				return
+			}
+			ctx.isHole(0, -1)
+			check(north, 1, 1000)
+			check(west, 1, 1000)
+			if ctx.failedDepth[i][west] != 0 {
+				t.Error("the second entry scanned a cell already proven to have no adjacent hole")
+			}
+			check(west, 2, 2)
+		})
+	}
+}
+
 func TestFluidSlopeTagReload(t *testing.T) {
 	t.Cleanup(func() { registry.ApplyPackTags(nil) })
 
@@ -118,7 +177,7 @@ func TestFluidSlopeTagReload(t *testing.T) {
 	}
 
 	// Built-in tags include torch in washed_away_by_fluids.
-	before := p.newSpreadContext(8, 64, 8, fluidWater)
+	before := newSpreadContext(p.w, 8, 64, 8, fluidWater)
 	if !before.isHole(8, 10) || !before.isHole(9, 10) {
 		t.Fatal("torch floor not classified as a hole under built-in tags")
 	}
@@ -133,7 +192,7 @@ func TestFluidSlopeTagReload(t *testing.T) {
 			{ID: "minecraft:oak_stairs", Required: true},
 		}},
 	}})
-	after := p.newSpreadContext(8, 64, 8, fluidWater)
+	after := newSpreadContext(p.w, 8, 64, 8, fluidWater)
 	if after.isHole(8, 10) || after.isHole(9, 10) {
 		t.Fatal("torch floor still classified as a hole after removal from washed_away_by_fluids")
 	}
@@ -148,11 +207,66 @@ func TestFluidSlopeTagReload(t *testing.T) {
 
 	// Restoring built-in tags makes a fresh spread see the hole again.
 	registry.ApplyPackTags(nil)
-	restored := p.newSpreadContext(8, 64, 8, fluidWater)
+	restored := newSpreadContext(p.w, 8, 64, 8, fluidWater)
 	if !restored.isHole(8, 10) || !restored.isHole(9, 10) {
 		t.Fatal("torch floor not classified as a hole after restoring built-in tags")
 	}
 	if got := searchSouth(&restored); got != 1 {
 		t.Fatalf("slope distance after restore = %d, want 1", got)
+	}
+}
+
+type fluidSpreadTestReader struct {
+	surface    map[[2]int32]uint16
+	floorHole  *[2]int32
+	floorReads int
+}
+
+func (r *fluidSpreadTestReader) BlockAt(x, y, z int32) uint16 {
+	switch y {
+	case 63:
+		r.floorReads++
+		if r.floorHole != nil && *r.floorHole == [2]int32{x, z} {
+			return airState
+		}
+		return stoneState
+	case 64:
+		if state, ok := r.surface[[2]int32{x, z}]; ok {
+			return state
+		}
+	}
+	return airState
+}
+
+func (r *fluidSpreadTestReader) BoolRule(GameRuleIndex) bool { return true }
+
+func TestFluidSpreadSkipsUnneededHoleReads(t *testing.T) {
+	source, flowing := waterByLevel[0], waterByLevel[1]
+	for _, tc := range []struct {
+		name  string
+		sides [4]uint16 // north, east, south, west
+		want  [4]bool
+	}{
+		{name: "same fluid", sides: [4]uint16{flowing, flowing, flowing, flowing}},
+		{name: "single outlet", sides: [4]uint16{stoneState, airState, stoneState, stoneState}, want: [4]bool{1: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &fluidSpreadTestReader{surface: map[[2]int32]uint16{{0, 0}: source}}
+			for i, d := range horizontal4 {
+				r.surface[d] = tc.sides[i]
+			}
+			flows, winners := fluidSideFlows(r, 0, 64, 0, source, fluidHolding(source), fluidBehaviours[fluidWater])
+			if winners != tc.want {
+				t.Fatalf("winning directions = %v, want %v", winners, tc.want)
+			}
+			for i, won := range winners {
+				if won && flows[i] != fluidHolding(flowing) {
+					t.Errorf("flow in direction %d = %+v, want level-1 water", i, flows[i])
+				}
+			}
+			if r.floorReads != 0 {
+				t.Errorf("fluid spread read %d floor cells with no outlets to rank, want 0", r.floorReads)
+			}
+		})
 	}
 }

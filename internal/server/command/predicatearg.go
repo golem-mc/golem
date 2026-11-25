@@ -2,6 +2,7 @@ package command
 
 import (
 	"encoding/json"
+	"errors"
 	"math/rand"
 
 	"github.com/golem-mc/golem/internal/commandsyntax"
@@ -25,6 +26,7 @@ type lootWorld interface {
 	ClockTime(clock string) (worldAge, total int64, ok bool)
 	Scoreboard() Scoreboard
 	ReadCommandStorage(id string, fn func(storage nbt.CompoundTag))
+	LootRandom(id string) rules.LootRand
 }
 
 // fillLootWorld points the context's location checks at the block pos is in
@@ -62,6 +64,8 @@ func (r lootReads) StorageNumber(storage, path string) (nbt.Tag, bool) {
 }
 
 func (r lootReads) Storage(id string) nbt.Compound { return Storage(r.w.ReadCommandStorage, id) }
+
+func (r lootReads) LootRandom(id string) rules.LootRand { return r.w.LootRandom(id) }
 
 // Storage is a copy of the storage use opens, read under its lock.
 // vanilla: CommandStorage.get
@@ -118,10 +122,10 @@ func (w lootPredicateWant) filter(src Source) func(Entity) bool {
 // parsePredicate reads a predicate argument: an identifier names a pack
 // predicate and anything else is an inline condition's SNBT. The refusals
 // stand at the argument's end.
-// vanilla: ResourceOrIdArgument.lootCondition
-func parsePredicate(text string) (registry.LootCondition, *ParseError) {
+// vanilla: ResourceOrIdArgument.lootPredicate
+func parsePredicate(text string, layers *registry.PackLayers) (registry.LootCondition, *ParseError) {
 	if name, n, ok := readIdentifier(text); ok && n == len(text) {
-		if cond, found := registry.FindPredicate(registry.Qualify(name)); found {
+		if cond, found := layers.FindPredicate(registry.Qualify(name)); found {
 			return cond, nil
 		}
 		return nil, &ParseError{
@@ -141,18 +145,22 @@ func parsePredicate(text string) (registry.LootCondition, *ParseError) {
 	data, err := json.Marshal(datapack.TagJSON(tag))
 	if err == nil {
 		var cond registry.LootCondition
-		if cond, err = datapack.DecodePredicate(data); err == nil {
+		if cond, err = datapack.DecodePredicate(layers, data); err == nil {
 			return cond, nil
 		}
+	}
+	if errors.Is(err, datapack.ErrWeightOverflow) {
+		return nil, weightOverflowError(err, len(text))
 	}
 	return nil, &ParseError{Key: modifierFailedParseKey, With: []string{err.Error()}, Cursor: len(text)}
 }
 
-// checkPredicateArgument holds the predicate argument to parsePredicate while
-// the walk reads it.
-func checkPredicateArgument(text string) *ParseError {
-	_, err := parsePredicate(text)
-	return err
+// predicateArgumentCheck binds a predicate argument to the dispatcher's registries.
+func predicateArgumentCheck(layers *registry.PackLayers) func(string) *ParseError {
+	return func(text string) *ParseError {
+		_, err := parsePredicate(text, layers)
+		return err
+	}
 }
 
 // FillLootWorld points ctx's location and level reads at src, at pos.
