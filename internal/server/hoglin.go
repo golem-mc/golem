@@ -51,8 +51,9 @@ func hoglinThrowMob(strike mobStrike, victim *entity.Mob) {
 // hoglinConverted spawns the zoglin in the hoglin's place, nauseous for ten
 // seconds, with the conversion sound. vanilla: Hoglin.finishConversion
 func (s *Server) hoglinConverted(cv mobConversion, zoglin *entity.Mob) {
+	ent := convertedEntity(cv.old, zoglin, cv.w, conversionParams{keepEquipment: true})
 	zoglin.AddEffect(blowEffect(registry.MobEffectNausea, 200, 0))
-	s.addRiddenConversion(cv.old, convertedEntity(cv.old, zoglin, cv.w, true))
+	s.addRiddenConversion(cv.old, ent)
 	old := cv.old.mob
 	s.broadcastVoiceID(cv.w, old.Type, old.Silent, old.X, old.Y, old.Z,
 		registry.SoundEntityHoglinConvertedToZombified, old.SoundVolume(), old.VoicePitch())

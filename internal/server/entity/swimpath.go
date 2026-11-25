@@ -1,8 +1,8 @@
 package entity
 
 import (
-	"container/heap"
 	"math"
+	"sync"
 
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
@@ -20,11 +20,14 @@ const (
 	swimVerticalReach = 0.5
 	// swimVisitedPerRange is the nodes opened per block of follow range.
 	swimVisitedPerRange = 16
+	// swimDenseMaxRange matches pathScratch.prepare's 33^3 dense box cap.
+	swimDenseMaxRange = 16
 )
 
 // swimNode is one cell of a search, PathFinder's Node.
 type swimNode struct {
 	cell     Waypoint
+	epoch    uint32
 	g        float64
 	walked   float64
 	from     *swimNode
@@ -44,17 +47,162 @@ type swimEntry struct {
 
 type swimOpen []swimEntry
 
-func (h swimOpen) Len() int { return len(h) }
-func (h swimOpen) Less(i, j int) bool {
+func (h swimOpen) less(i, j int) bool {
 	return h[i].f < h[j].f || h[i].f == h[j].f && h[i].order < h[j].order
 }
-func (h swimOpen) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
-func (h *swimOpen) Push(x any)   { *h = append(*h, x.(swimEntry)) }
-func (h *swimOpen) Pop() any {
-	old := *h
-	last := old[len(old)-1]
-	*h = old[:len(old)-1]
-	return last
+
+func (h *swimOpen) push(e swimEntry) {
+	*h = append(*h, e)
+	s := *h
+	i := len(s) - 1
+	for i > 0 {
+		parent := (i - 1) / 2
+		if !s.less(i, parent) {
+			break
+		}
+		s[i], s[parent] = s[parent], s[i]
+		i = parent
+	}
+}
+
+func (h *swimOpen) pop() swimEntry {
+	s := *h
+	top, n := s[0], len(s)-1
+	s[0] = s[n]
+	s[n] = swimEntry{}
+	s = s[:n]
+	for i := 0; ; {
+		child := 2*i + 1
+		if child >= n {
+			break
+		}
+		if child+1 < n && s.less(child+1, child) {
+			child++
+		}
+		if !s.less(child, i) {
+			break
+		}
+		s[i], s[child] = s[child], s[i]
+		i = child
+	}
+	*h = s
+	return top
+}
+
+// swimScratch is the working memory of one water-bound search, reset between
+// searches. Searches within swimDenseMaxRange use an epoch-stamped dense grid;
+// larger ranges fall back to a map.
+type swimScratch struct {
+	cells  []swimNode
+	nodes  map[Waypoint]*swimNode
+	origin Waypoint
+	side   int32
+	epoch  uint32
+	open   swimOpen
+}
+
+var swimScratchPool = sync.Pool{New: func() any { return new(swimScratch) }}
+
+// prepare sizes the dense grid for a box of radius maxRange around start, or
+// leaves side 0 to fall back to the map when maxRange exceeds swimDenseMaxRange.
+func (s *swimScratch) prepare(start Waypoint, maxRange int32) {
+	s.side = 0
+	s.open = s.open[:0]
+	if maxRange < 0 || maxRange > swimDenseMaxRange {
+		if s.nodes == nil {
+			s.nodes = make(map[Waypoint]*swimNode)
+		}
+		return
+	}
+	s.side = 2*maxRange + 1
+	s.origin = Waypoint{start.X - maxRange, start.Y - maxRange, start.Z - maxRange}
+	n := int(s.side * s.side * s.side)
+	if len(s.cells) < n {
+		s.cells = make([]swimNode, n)
+	}
+	s.epoch++
+	if s.epoch == 0 {
+		clear(s.cells)
+		s.epoch = 1
+	}
+}
+
+func (s *swimScratch) nodeAt(c Waypoint) *swimNode {
+	if s.side != 0 {
+		x, y, z := uint32(c.X-s.origin.X), uint32(c.Y-s.origin.Y), uint32(c.Z-s.origin.Z)
+		side := uint32(s.side)
+		if max(x, y, z) < side {
+			n := &s.cells[(x*side+y)*side+z]
+			if n.epoch != s.epoch {
+				*n = swimNode{cell: c, epoch: s.epoch}
+			}
+			return n
+		}
+		if s.nodes == nil {
+			s.nodes = make(map[Waypoint]*swimNode)
+		}
+	}
+	n, ok := s.nodes[c]
+	if !ok {
+		n = &swimNode{cell: c}
+		s.nodes[c] = n
+	}
+	return n
+}
+
+// accepted is SwimNodeEvaluator.findAcceptedNode: a node only for water.
+func (s *swimScratch) accepted(w World, ew, eh int32, c Waypoint, breach bool) *swimNode {
+	n := s.nodeAt(c)
+	if !n.accepted {
+		n.accepted = true
+		n.valid = swimCellOpen(w, ew, eh, c.X, c.Y, c.Z)
+		if breach && rules.IsAir(w.BlockAt(c.X, c.Y, c.Z)) && waterPathfindable(w.BlockAt(c.X, c.Y-1, c.Z)) {
+			// vanilla: SwimNodeEvaluator.getPathTypeOfMob, BREACH
+			n.valid = true
+		}
+	}
+	if !n.valid {
+		return nil
+	}
+	return n
+}
+
+func (s *swimScratch) reset() {
+	clear(s.nodes)
+	clear(s.open)
+	s.open = s.open[:0]
+}
+
+func (s *swimScratch) fits() bool {
+	return len(s.nodes) <= scratchKeep
+}
+
+func (s *swimScratch) release() {
+	keep := s.fits()
+	s.reset()
+	if keep {
+		swimScratchPool.Put(s)
+	}
+}
+
+func (p *MobPathScratch) findSwimPath(w World, ew, eh int32, start, target Waypoint, reach int32, maxLength float64, maxVisited int, breach bool) []Waypoint {
+	if p == nil {
+		s := swimScratchPool.Get().(*swimScratch)
+		path := findSwimPathBreaching(s, w, ew, eh, start, target, reach, maxLength, maxVisited, breach)
+		s.release()
+		return path
+	}
+	if p.swim == nil {
+		p.swim = new(swimScratch)
+	}
+	s := p.swim
+	path := findSwimPathBreaching(s, w, ew, eh, start, target, reach, maxLength, maxVisited, breach)
+	if !s.fits() {
+		p.swim = &swimScratch{cells: s.cells, epoch: s.epoch}
+		return path
+	}
+	s.reset()
+	return path
 }
 
 // swimHorizontal is Direction.Plane.HORIZONTAL as (x, z), each followed
@@ -120,43 +268,24 @@ func swimCellOpen(w World, ew, eh, x, y, z int32) bool {
 // start; maxVisited bounds nodes opened.
 // vanilla: PathFinder.findPath
 func findSwimPath(w World, ew, eh int32, start, target Waypoint, reach int32, maxLength float64, maxVisited int) []Waypoint {
-	return findSwimPathBreaching(w, ew, eh, start, target, reach, maxLength, maxVisited, false)
+	return (*MobPathScratch)(nil).findSwimPath(w, ew, eh, start, target, reach, maxLength, maxVisited, false)
 }
 
-func findSwimPathBreaching(w World, ew, eh int32, start, target Waypoint, reach int32, maxLength float64, maxVisited int, breach bool) []Waypoint {
-	nodes := map[Waypoint]*swimNode{}
-	nodeAt := func(c Waypoint) *swimNode {
-		n, ok := nodes[c]
-		if !ok {
-			n = &swimNode{cell: c}
-			nodes[c] = n
-		}
-		return n
+func findSwimPathBreaching(s *swimScratch, w World, ew, eh int32, start, target Waypoint, reach int32, maxLength float64, maxVisited int, breach bool) []Waypoint {
+	maxRange := int32(-1)
+	if maxLength <= 0 {
+		maxRange = 0
+	} else if maxLength <= swimDenseMaxRange {
+		maxRange = int32(math.Ceil(maxLength))
 	}
-	// accepted is SwimNodeEvaluator.findAcceptedNode: a node only for water.
-	accepted := func(c Waypoint) *swimNode {
-		n := nodeAt(c)
-		if !n.accepted {
-			n.accepted = true
-			n.valid = swimCellOpen(w, ew, eh, c.X, c.Y, c.Z)
-			if breach && rules.IsAir(w.BlockAt(c.X, c.Y, c.Z)) && waterPathfindable(w.BlockAt(c.X, c.Y-1, c.Z)) {
-				// vanilla: SwimNodeEvaluator.getPathTypeOfMob, BREACH
-				n.valid = true
-			}
-		}
-		if !n.valid {
-			return nil
-		}
-		return n
-	}
-	var open swimOpen
+	s.prepare(start, maxRange)
 	var counter int
-	from := nodeAt(start)
+	from := s.nodeAt(start)
 	best, bestH := from, distanceTo(start, target)
 	from.inOpen = true
-	heap.Push(&open, swimEntry{node: from, f: bestH})
-	for count := 1; open.Len() > 0 && count < maxVisited; count++ {
-		cur := heap.Pop(&open).(swimEntry).node
+	s.open.push(swimEntry{node: from, f: bestH})
+	for count := 1; len(s.open) > 0 && count < maxVisited; count++ {
+		cur := s.open.pop().node
 		if cur.closed {
 			continue
 		}
@@ -172,7 +301,7 @@ func findSwimPathBreaching(w World, ew, eh int32, start, target Waypoint, reach 
 		var found [10]*swimNode
 		n := 0
 		for i, d := range swimOrthogonal {
-			node := accepted(Waypoint{cur.cell.X + d[0], cur.cell.Y + d[1], cur.cell.Z + d[2]})
+			node := s.accepted(w, ew, eh, Waypoint{cur.cell.X + d[0], cur.cell.Y + d[1], cur.cell.Z + d[2]}, breach)
 			around[i] = node
 			if node != nil && !node.closed {
 				found[n] = node
@@ -185,7 +314,7 @@ func findSwimPathBreaching(w World, ew, eh int32, start, target Waypoint, reach 
 			if !swimSideOpen(around, d) || !swimSideOpen(around, e) {
 				continue
 			}
-			node := accepted(Waypoint{cur.cell.X + d[0] + e[0], cur.cell.Y, cur.cell.Z + d[1] + e[1]})
+			node := s.accepted(w, ew, eh, Waypoint{cur.cell.X + d[0] + e[0], cur.cell.Y, cur.cell.Z + d[1] + e[1]}, breach)
 			if node != nil && !node.closed {
 				found[n] = node
 				n++
@@ -210,15 +339,17 @@ func findSwimPathBreaching(w World, ew, eh int32, start, target Waypoint, reach 
 			}
 			counter++
 			node.inOpen = true
-			heap.Push(&open, swimEntry{node: node, f: g + h*swimHeuristicWeight, order: counter})
+			s.open.push(swimEntry{node: node, f: g + h*swimHeuristicWeight, order: counter})
 		}
 	}
-	var path []Waypoint
+	depth := 0
 	for n := best; n != nil; n = n.from {
-		path = append(path, n.cell)
+		depth++
 	}
-	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
-		path[i], path[j] = path[j], path[i]
+	path := make([]Waypoint, depth)
+	for n := best; n != nil; n = n.from {
+		depth--
+		path[depth] = n.cell
 	}
 	return path
 }
@@ -261,7 +392,7 @@ func (m *Mob) createSwimPath(w World, x, y, z float64, reach int32) (path []Wayp
 	end = cellAt(x, y, z)
 	ew, eh := o.footprintCells()
 	rng := o.followRange()
-	return findSwimPathBreaching(w, ew, eh, o.swimStart(), end, reach, rng, int(math.Floor(rng*swimVisitedPerRange)), o.Type == TypeDolphin), end, true
+	return m.tickPaths.findSwimPath(w, ew, eh, o.swimStart(), end, reach, rng, int(math.Floor(rng*swimVisitedPerRange)), o.Type == TypeDolphin), end, true
 }
 
 // SwimTo is swimTo for a caller outside the package.
@@ -305,16 +436,12 @@ func (m *Mob) swimNavTickAt(w World, speed float64) {
 		return
 	}
 	node := n.path[0]
-	reach := 0.75 - m.width()/2
-	if m.width() > 0.75 {
-		reach = m.width() / 2
-	}
 	waterBound := !m.usesAmphibiousNavigation()
 	verticalReach := swimVerticalReach
 	if !waterBound {
 		verticalReach = groundVerticalReach
 	}
-	reached := math.Abs(m.X-(float64(node.X)+0.5)) < reach && math.Abs(m.Z-(float64(node.Z)+0.5)) < reach &&
+	reached := m.atWaypoint(m.X-(float64(node.X)+0.5), m.Z-(float64(node.Z)+0.5)) &&
 		math.Abs(m.Y-float64(node.Y)) < verticalReach
 	if reached || m.cutsPathCorner(w, waterBound) {
 		n.advance()

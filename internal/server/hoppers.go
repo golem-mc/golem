@@ -373,6 +373,9 @@ func (s *Server) tickHopper(w *world.World, be *world.BlockEntity, age int64) {
 		}
 		return false
 	})
+	if !turn.moved && !turn.partial {
+		return
+	}
 	sets := [2]containerTarget{turn.pushed, turn.pulled}
 	if c := synced[0]; c != nil {
 		s.syncContainerViewers(w, c.X, c.Y, c.Z)
@@ -411,7 +414,7 @@ func (s *Server) hopperStep(w *world.World, b *world.BlockEntity, gate *hopperGa
 		t.pushed = s.hopperEject(w, self, gate)
 		t.moved = t.pushed != nil
 	}
-	if !slotsFull(b.Slots) {
+	if !b.HopperFull() {
 		var suckMoved bool
 		suckMoved, t.pulled, t.partial, t.taken, t.shrunk = s.hopperSuck(w, self, gate)
 		t.moved = suckMoved || t.moved
@@ -535,6 +538,15 @@ func (s *Server) notifyItemsAbsorbed(w *world.World, taken, shrunk []*itemEntity
 	s.sendItemMetadata(updates)
 }
 
+func itemChunkArea(minX, minZ, maxX, maxZ float64) chunkArea {
+	return chunkArea{
+		minX: world.ChunkOf(minX - entity.ItemHalfSize),
+		minZ: world.ChunkOf(minZ - entity.ItemHalfSize),
+		maxX: world.ChunkOf(maxX + entity.ItemHalfSize),
+		maxZ: world.ChunkOf(maxZ + entity.ItemHalfSize),
+	}
+}
+
 // itemEntitiesIn gathers w's live item entities whose boxes reach into the
 // box under the items lock, in the order vanilla visits entity sections
 // (lower X first, then Z, then Y) and by registration within a section.
@@ -543,12 +555,7 @@ func (s *Server) itemEntitiesIn(w *world.World, minX, minY, minZ, maxX, maxY, ma
 	if minX >= maxX || minY >= maxY || minZ >= maxZ {
 		return nil
 	}
-	area := chunkArea{
-		minX: world.ChunkOf(minX - entity.ItemHalfSize),
-		minZ: world.ChunkOf(minZ - entity.ItemHalfSize),
-		maxX: world.ChunkOf(maxX + entity.ItemHalfSize),
-		maxZ: world.ChunkOf(maxZ + entity.ItemHalfSize),
-	}
+	area := itemChunkArea(minX, minZ, maxX, maxZ)
 	s.itemsMu.Lock()
 	defer s.itemsMu.Unlock()
 	var found []*itemEntity
@@ -609,7 +616,7 @@ func (s *Server) syncContainerViewers(w *world.World, x, y, z int32) {
 	})
 }
 
-// slotsEmpty and slotsFull read the hopper's own slots in place: a Slot call
+// slotsEmpty reads the hopper's own slots in place: a Slot call
 // copies the 144-byte stack.
 func slotsEmpty(slots []protocol.ItemStack) bool {
 	for i := range slots {
@@ -620,21 +627,13 @@ func slotsEmpty(slots []protocol.ItemStack) bool {
 	return true
 }
 
-func slotsFull(slots []protocol.ItemStack) bool {
-	for i := range slots {
-		if slots[i].Count <= 0 || slots[i].Count < registry.StackMaxStackSizePtr(&slots[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// itemColumns is the block columns a live item's box reaches in one world,
-// built for the block entity tick so a hopper with no item over it skips the
-// scan of every item. Guarded by itemsMu.
+// itemColumns records columns reached by items in the chunks already queried
+// during one world's block-entity pass. Removals leave harmless positives for
+// the exact box query, and arrivals add their columns immediately. Guarded by itemsMu.
 type itemColumns struct {
-	w    *world.World
-	cols map[[2]int32]struct{}
+	w       *world.World
+	cols    map[[2]int32]struct{}
+	scanned map[world.ChunkPos]struct{}
 }
 
 func (c *itemColumns) add(it *itemEntity) {
@@ -649,19 +648,18 @@ func (c *itemColumns) add(it *itemEntity) {
 	}
 }
 
-// indexItemColumns builds the index for w; dropItemColumns ends it.
+// indexItemColumns starts a fresh pass for w.
 func (s *Server) indexItemColumns(w *world.World) {
 	s.itemsMu.Lock()
 	defer s.itemsMu.Unlock()
 	idx := &s.itemColBuffer
 	idx.w = w
 	if idx.cols == nil {
-		idx.cols = make(map[[2]int32]struct{}, len(s.items))
+		idx.cols = make(map[[2]int32]struct{})
+		idx.scanned = make(map[world.ChunkPos]struct{})
 	} else {
 		clear(idx.cols)
-	}
-	for _, it := range s.items {
-		idx.add(it)
+		clear(idx.scanned)
 	}
 	s.itemCols = idx
 }
@@ -679,6 +677,17 @@ func (s *Server) itemsOverColumn(w *world.World, x, z int32) bool {
 	idx := s.itemCols
 	if idx == nil || idx.w != w {
 		return true
+	}
+	minX, minZ := float64(x), float64(z)
+	area := itemChunkArea(minX, minZ, minX+1, minZ+1)
+	for pos := range area.each {
+		if _, ok := idx.scanned[pos]; ok {
+			continue
+		}
+		idx.scanned[pos] = struct{}{}
+		for it := range s.itemChunks.In(pos) {
+			idx.add(it)
+		}
 	}
 	_, ok := idx.cols[[2]int32{x, z}]
 	return ok

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"cmp"
+	"math"
 	"slices"
 	"sync"
 
@@ -49,6 +51,7 @@ func (s *Server) tickArrows() {
 		s.readArrowHanging(&hv)
 	}
 	alive := s.arrows[:0]
+	var scratch arrowTargetScratch
 	for _, it := range s.arrows {
 		if it.arrow.Dead {
 			arrowTracker.unfile(it)
@@ -59,7 +62,7 @@ func (s *Server) tickArrows() {
 			alive = append(alive, it)
 			continue
 		}
-		s.stepArrow(&fx, &in, &hv, it)
+		s.stepArrow(&fx, &in, &hv, &scratch, it)
 		// Expired in the ground or spent on a mob: vanilla's discard.
 		if it.arrow.Dead {
 			removals[it.w] = append(removals[it.w], it.arrow.ID)
@@ -109,9 +112,7 @@ type arrowTickInputs struct {
 	crystalsByWorld map[*world.World][]entity.ArrowTarget
 	// cushionsByWorld is the cushions' boxes, read under the fixtures lock.
 	cushionsByWorld map[*world.World][]entity.ArrowTarget
-	// worldTargets is each world's mob and player targets, built lazily by
-	// the first arrow of the world; the arrow and mob locks are held for the
-	// pass, so the herd cannot change under it.
+	// worldTargets is the shared part of each world's target search.
 	worldTargets map[*world.World]*arrowWorldTargets
 	// spareByOwner maps a player on a team without friendly fire to the
 	// entity IDs of every member of that team, itself included: the bodies
@@ -120,11 +121,19 @@ type arrowTickInputs struct {
 	spareByOwner map[int32][]int32
 }
 
-// arrowWorldTargets is one world's bodies as targets, shared by its arrows.
+// arrowWorldTargets holds the player and mannequin snapshots and the
+// vertical bounds of the mob chunks searched so far.
 type arrowWorldTargets struct {
-	targets []entity.ArrowTarget // mobs in herd order, then players
-	index   map[int32]int        // entity ID -> index in targets
-	bodies  arrowBodies
+	targets    []entity.ArrowTarget // players, then mannequins
+	index      map[int32]int
+	clients    map[int32]*client
+	mobHeights map[world.ChunkPos][2]float64
+}
+
+type arrowTargetScratch struct {
+	targets []entity.ArrowTarget
+	mobs    []*entity.Mob
+	byID    map[int32]*entity.Mob
 }
 
 // newArrowTickInputs makes the empty inputs of a tick. It is small enough to
@@ -324,10 +333,10 @@ type arrowBodies struct {
 // stepArrow runs one arrow's tick, the arrow and mob locks held: its targets
 // gathered, its step against the world, its watchers settled and its events
 // turned into fx's kinds.
-func (s *Server) stepArrow(fx *arrowEffects, in *arrowTickInputs, hv *arrowHangingView, it *arrowEntity) {
+func (s *Server) stepArrow(fx *arrowEffects, in *arrowTickInputs, hv *arrowHangingView, scratch *arrowTargetScratch, it *arrowEntity) {
 	var bodies arrowBodies
 	dim := s.dimensionOfWorld(it.w)
-	targets, owner := arrowTargets(it, dim, in, hv, &bodies)
+	targets, owner := s.arrowTargets(it, dim, in, hv, scratch, &bodies)
 
 	// pvp off: a shot a player owns passes every player by — no hit,
 	// no ignite, no deflection — its own shooter's body included.
@@ -371,6 +380,7 @@ func (s *Server) stepArrow(fx *arrowEffects, in *arrowTickInputs, hv *arrowHangi
 		it.arrow.BindLoot = s.arrowLootBinder(it, &bodies)
 	}
 	events := it.arrow.Step(it.w, owner, targets)
+	it.arrow.BindLoot = nil
 	if asking {
 		if ask, held := s.arrowHitAskOf(it, &bodies, before.HitAllowed, events); held {
 			*it.arrow = before
@@ -393,60 +403,86 @@ func (s *Server) stepArrow(fx *arrowEffects, in *arrowTickInputs, hv *arrowHangi
 	fx.watchArrow(it, in.watchers[it.w], in.nearby[it.w], events)
 }
 
-// arrowTargets is what one arrow's flight may meet: the arrow's own
-// dimension's mobs, read under the mob lock, and players, built from the
-// places read before any of it, filled into bodies; then the frames, the
-// paintings, the knots, the hulls and the stands whose boxes its swept box
-// reaches. owner is the shooter's own body among them, the one the flight's
-// first ticks cannot hit, nil when it is not in the dimension.
-func arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInputs, hv *arrowHangingView, bodies *arrowBodies) (targets []entity.ArrowTarget, owner *entity.ArrowTarget) {
-	wt := in.worldTargets[it.w]
+func (in *arrowTickInputs) targetsIn(w *world.World) *arrowWorldTargets {
+	wt := in.worldTargets[w]
 	if wt == nil {
-		wt = &arrowWorldTargets{
-			index:  make(map[int32]int, len(dim.mobs.herd)),
-			bodies: arrowBodies{mobs: make(map[int32]*entity.Mob, len(dim.mobs.herd)), clients: make(map[int32]*client)},
+		wt = &arrowWorldTargets{}
+		watchers, mannequins := in.watchers[w], in.mannequins.byWorld[w]
+		if count := len(watchers) + len(mannequins); count != 0 {
+			wt.targets = make([]entity.ArrowTarget, 0, count)
+			wt.index = make(map[int32]int, count)
 		}
-		for _, m := range dim.mobs.herd {
-			start := len(wt.targets)
-			wt.index[m.ID] = start
-			wt.targets = entity.MobProjectileTargets(wt.targets, m, mobEntityType(m.Type), in.boatRoots[m.ID])
-			for _, target := range wt.targets[start:] {
-				wt.bodies.mobs[target.EntityID] = m
-			}
+		if len(watchers) != 0 {
+			wt.clients = make(map[int32]*client, len(watchers))
 		}
-		for _, w := range in.watchers[it.w] {
-			target := w.c.projectileTarget(w.pos, projectileUnhittable(w.c))
-			target.RootVehicle = in.boatRoots[w.c.player.EntityID]
-			wt.index[w.c.player.EntityID] = len(wt.targets)
+		for _, watcher := range watchers {
+			target := watcher.c.projectileTarget(watcher.pos, projectileUnhittable(watcher.c))
+			target.RootVehicle = in.boatRoots[target.EntityID]
 			wt.targets = append(wt.targets, target)
-			wt.bodies.clients[w.c.player.EntityID] = w.c
+			wt.clients[target.EntityID] = watcher.c
 		}
-		for _, target := range in.mannequins.byWorld[it.w] {
-			wt.index[target.EntityID] = len(wt.targets)
-			wt.targets = append(wt.targets, target)
+		wt.targets = append(wt.targets, mannequins...)
+		byID := func(a, b entity.ArrowTarget) int { return cmp.Compare(a.EntityID, b.EntityID) }
+		slices.SortFunc(wt.targets[:len(watchers)], byID)
+		slices.SortFunc(wt.targets[len(watchers):], byID)
+		for i, target := range wt.targets {
+			wt.index[target.EntityID] = i
 		}
 		if in.worldTargets == nil {
 			in.worldTargets = make(map[*world.World]*arrowWorldTargets)
 		}
-		in.worldTargets[it.w] = wt
+		in.worldTargets[w] = wt
 	}
-	*bodies = wt.bodies
-	// Capped, so a sliver appended below copies instead of writing into the
-	// shared list.
+	return wt
+}
+
+// arrowTargets gathers the bodies the arrow might hit and its shooter.
+// The arrow and mob locks are held until the scratch is done being read.
+func (s *Server) arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInputs, hv *arrowHangingView, scratch *arrowTargetScratch, bodies *arrowBodies) (targets []entity.ArrowTarget, owner *entity.ArrowTarget) {
+	wt := in.targetsIn(it.w)
+	bodies.clients = wt.clients
+	scratch.targets = scratch.targets[:0]
+	clear(scratch.byID)
+	// Capped so a sliver appended below cannot write into the shared list.
 	targets = wt.targets[:len(wt.targets):len(wt.targets)]
-	if i, ok := wt.index[it.arrow.OwnerID]; ok {
+	ownerID := it.arrow.OwnerID
+	var mobOwner *entity.Mob
+	if i, ok := wt.index[ownerID]; ok {
 		owner = &targets[i]
+	} else if ownerID != 0 {
+		if ent := s.mobByEntityIDLocked(it.w, ownerID); ent != nil {
+			mobOwner = ent.mob
+		}
 	}
-	// A lodged arrow's step never sweeps entities (vanilla:
-	// AbstractArrow.tick, inGround branch), so it needs no slivers.
+	// The lodged branch never sweeps entities. Loyalty still needs the owner.
+	// vanilla: AbstractArrow.tick, ThrownTrident.tick
 	if it.arrow.InGround {
+		if mobOwner != nil {
+			owner = scratch.addMob(mobOwner, ownerID, in.boatRoots[mobOwner.ID])
+		}
+		bodies.mobs = scratch.byID
 		return targets, owner
 	}
+	boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY, boxMaxZ := it.arrow.SweptBox()
+	if len(dim.mobs.book) != 0 {
+		// SweptBox already includes the horizontal block of inflation.
+		// vanilla: AbstractArrow.findHitEntities
+		box := [6]float64{boxMinX, boxMinY - 1, boxMinZ, boxMaxX, boxMaxY + 1, boxMaxZ}
+		for _, m := range wt.mobsInSweep(dim.mobs, box, mobOwner, scratch) {
+			shooter := scratch.addMob(m, ownerID, in.boatRoots[m.ID])
+			if shooter != nil {
+				owner = shooter
+			}
+		}
+		if len(scratch.targets) != 0 {
+			targets = append(scratch.targets, targets...)
+		}
+	}
+	bodies.mobs = scratch.byID
 	// The frames and the paintings of the dimension whose slivers the
 	// flight line can reach, their boxes what a shaft meets as
 	// readily as a body's. The world's whole lists were read once
 	// for the tick; this is the cut to the arrow's own swept box.
-	boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY, boxMaxZ := it.arrow.SweptBox()
 	for _, f := range hv.frames[it.w] {
 		if !rules.BoxesIntersect(
 			[3]float64{boxMinX, boxMinY, boxMinZ}, [3]float64{boxMaxX, boxMaxY, boxMaxZ},
@@ -531,7 +567,103 @@ func arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInputs, hv *arro
 			targets = append(targets, b)
 		}
 	}
+	if len(targets) > len(wt.targets) {
+		scratch.targets = targets
+	}
 	return targets, owner
+}
+
+// mobsInSweep uses the live chunk filings. Place.SetPos refiles under mobsMu
+// as each mob moves, and the mob tick runs before the arrow tick.
+func (wt *arrowWorldTargets) mobsInSweep(h *mobHerd, box [6]float64, owner *entity.Mob, scratch *arrowTargetScratch) []*entity.Mob {
+	mobs := scratch.mobs[:0]
+	if owner != nil {
+		mobs = append(mobs, owner)
+	}
+	if wt.mobHeights == nil {
+		wt.mobHeights = make(map[world.ChunkPos][2]float64)
+	}
+	if area, ok := smallChunkArea(&box); ok {
+		for pos := range area.each {
+			mobs = wt.mobsInSweepChunk(mobs, h, pos, box, owner)
+		}
+	} else {
+		// A long flight can span more chunks than are occupied in the world.
+		area, bounded := chunkAreaOf(&box)
+		for pos := range h.chunks.Occupied() {
+			if !bounded || area.contains(pos) {
+				mobs = wt.mobsInSweepChunk(mobs, h, pos, box, owner)
+			}
+		}
+	}
+	// Dragon parts can lie outside the padding around their parent's chunk.
+	// vanilla: Level.getEntities
+	for _, m := range h.dragonBodies {
+		if m == owner {
+			continue
+		}
+		for part := range 8 {
+			b := m.DragonPartBox(part)
+			if rules.BoxesIntersect(
+				[3]float64{box[0], box[1], box[2]}, [3]float64{box[3], box[4], box[5]},
+				[3]float64{b.MinX, b.MinY, b.MinZ}, [3]float64{b.MaxX, b.MaxY, b.MaxZ}) {
+				mobs = append(mobs, m)
+				break
+			}
+		}
+	}
+	slices.SortFunc(mobs, func(a, b *entity.Mob) int { return cmp.Compare(a.ID, b.ID) })
+	scratch.mobs = mobs
+	return mobs
+}
+
+func (wt *arrowWorldTargets) mobsInSweepChunk(dst []*entity.Mob, h *mobHerd, pos world.ChunkPos, box [6]float64, owner *entity.Mob) []*entity.Mob {
+	// Cache the bounds so a volley above a crowded chunk only walks it once.
+	heights, cached := wt.mobHeights[pos]
+	if cached {
+		if heights[1] <= box[1] || heights[0] >= box[4] {
+			return dst
+		}
+	} else {
+		heights = [2]float64{math.Inf(1), math.Inf(-1)}
+	}
+	h.chunks.Visit(pos, func(m *entity.Mob) bool {
+		if m.Type == entity.TypeEnderDragon {
+			return true
+		}
+		x0, y0, z0, x1, y1, z1 := m.BlastBox()
+		if !cached {
+			heights[0] = min(heights[0], y0)
+			heights[1] = max(heights[1], y1)
+		}
+		if m != owner && rules.BoxesIntersect(
+			[3]float64{box[0], box[1], box[2]}, [3]float64{box[3], box[4], box[5]},
+			[3]float64{x0, y0, z0}, [3]float64{x1, y1, z1}) {
+			dst = append(dst, m)
+		}
+		return true
+	})
+	if !cached {
+		wt.mobHeights[pos] = heights
+	}
+	return dst
+}
+
+func (scratch *arrowTargetScratch) addMob(m *entity.Mob, ownerID, root int32) *entity.ArrowTarget {
+	start := len(scratch.targets)
+	scratch.targets = entity.MobProjectileTargets(scratch.targets, m, mobEntityType(m.Type), root)
+	if scratch.byID == nil {
+		scratch.byID = make(map[int32]*entity.Mob)
+	}
+	var owner *entity.ArrowTarget
+	for i := start; i < len(scratch.targets); i++ {
+		target := &scratch.targets[i]
+		scratch.byID[target.EntityID] = m
+		if target.EntityID == ownerID {
+			owner = target
+		}
+	}
+	return owner
 }
 
 // watchArrow settles the watchers of an arrow that has stepped: its velocity,
@@ -694,6 +826,7 @@ func (s *Server) arrowHitTarget(fx *arrowEffects, in *arrowTickInputs, hv *arrow
 		fx.mannequinHits = append(fx.mannequinHits, arrowMannequinHit{ent: in.mannequins.byID[target.EntityID], arrow: it, event: ev, creative: shooterCreative(it.arrow.OwnerID, bodies.clients)})
 	case bodies.mobs[target.EntityID] != nil:
 		m := bodies.mobs[target.EntityID]
+		before := entity.ChunkAt(m.X, m.Z)
 		fx.ownerHurts = markOwnerHurt(fx.ownerHurts, bodies.clients, it.arrow.OwnerID, m.ID)
 		priorFire := m.FireTicks
 		// vanilla: AbstractArrow.onHitEntity skips an enderman
@@ -701,12 +834,10 @@ func (s *Server) arrowHitTarget(fx *arrowEffects, in *arrowTickInputs, hv *arrow
 			m.IgniteForTicksBy(int(ev.IgniteTicks), entity.CombustSource{By: pluginEntity{id: it.uuid}})
 		}
 		hit := s.arrowHurtMob(it, dim, m, ev, shooterIsPlayer(it.arrow.OwnerID, bodies.clients), shooterCreative(it.arrow.OwnerID, bodies.clients), shooterHitSource(it.arrow.OwnerID, bodies, m))
-		// A projectile dodge can teleport the mob before the next arrow's query.
-		wt := in.worldTargets[it.w]
-		i := wt.index[m.ID]
-		root := wt.targets[i].RootVehicle
-		wt.targets[i] = entity.MobTarget(m.ID, mobEntityType(m.Type), m)
-		wt.targets[i].RootVehicle = root
+		// A dodge can refile the mob before the next arrow's query.
+		heights := in.worldTargets[it.w].mobHeights
+		delete(heights, before)
+		delete(heights, entity.ChunkAt(m.X, m.Z))
 		if hit.victimID == 0 && !it.arrow.Trident {
 			// A refused hurt puts back the burn the arrow lit.
 			// vanilla: AbstractArrow.onHitEntity

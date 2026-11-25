@@ -81,26 +81,34 @@ func BenchmarkArrowFrameSweep(b *testing.B) {
 // hundred stuck, two hundred hanging in the air with no gravity, none in
 // reach of a body. Every arrow is kept from its discard, so each iteration
 // ticks the same set.
-func BenchmarkTickArrows(b *testing.B) { benchTickArrows(b, 40, arrowsStill, 0) }
+func BenchmarkTickArrows(b *testing.B) { benchTickArrows(b, 300, 40, arrowsStill, 0) }
 
 // BenchmarkTickArrowsHerd is BenchmarkTickArrows beside two thousand cows.
-func BenchmarkTickArrowsHerd(b *testing.B) { benchTickArrows(b, 2000, arrowsStill, 0) }
+func BenchmarkTickArrowsHerd(b *testing.B) { benchTickArrows(b, 300, 2000, arrowsStill, 0) }
+
+func BenchmarkTickArrowsOneLodgedInHerd(b *testing.B) {
+	for _, cows := range []int{0, 2000} {
+		b.Run(strconv.Itoa(cows), func(b *testing.B) {
+			benchTickArrows(b, 1, cows, arrowsLodged, 0)
+		})
+	}
+}
 
 // BenchmarkTickArrowsFlying is BenchmarkTickArrows with every arrow flying
 // sideways through air with no gravity, 2.5 blocks a tick, put back at its
 // start before each tick so it never leaves the held chunks.
-func BenchmarkTickArrowsFlying(b *testing.B) { benchTickArrows(b, 40, arrowsFlying, 0) }
+func BenchmarkTickArrowsFlying(b *testing.B) { benchTickArrows(b, 300, 40, arrowsFlying, 0) }
 
 // BenchmarkTickArrowsFlyingBurning is BenchmarkTickArrowsFlying with every
 // arrow on fire.
-func BenchmarkTickArrowsFlyingBurning(b *testing.B) { benchTickArrows(b, 40, arrowsBurning, 0) }
+func BenchmarkTickArrowsFlyingBurning(b *testing.B) { benchTickArrows(b, 300, 40, arrowsBurning, 0) }
 
 // BenchmarkTickArrowsMannequins runs flying arrows beside forty mannequins,
 // with the larger case adding 1,960 distant bodies to the target snapshot.
 func BenchmarkTickArrowsMannequins(b *testing.B) {
 	for _, count := range []int{40, 2000} {
 		b.Run(strconv.Itoa(count), func(b *testing.B) {
-			benchTickArrows(b, 0, arrowsFlying, count)
+			benchTickArrows(b, 300, 0, arrowsFlying, count)
 		})
 	}
 }
@@ -111,9 +119,10 @@ const (
 	arrowsStill arrowsMotion = iota
 	arrowsFlying
 	arrowsBurning
+	arrowsLodged
 )
 
-func benchTickArrows(b *testing.B, cows int, motion arrowsMotion, mannequins int) {
+func benchTickArrows(b *testing.B, arrows, cows int, motion arrowsMotion, mannequins int) {
 	cfg := config.Default()
 	cfg.OnlineMode = false
 	cfg.LevelName = b.TempDir()
@@ -157,21 +166,23 @@ func benchTickArrows(b *testing.B, cows int, motion arrowsMotion, mannequins int
 	type start struct{ x, z float64 }
 	var flying, grounded []*entity.Arrow
 	var starts []start
-	for i := range 300 {
+	for i := range arrows {
 		x, z := float64(i%20)*1.5-15+0.25, float64(i/20)*1.5-11+0.25
-		it := newArrowEntity(s, w, x, world.GroundLevel+10, z, 0, 0, 0, 0, 0,
+		y := float64(world.GroundLevel + 10)
+		if motion == arrowsLodged {
+			y = world.GroundLevel - 0.5
+		}
+		it := newArrowEntity(s, w, x, y, z, 0, 0, 0, 0, 0,
 			false, entity.ArrowBaseDamage, entity.PickupDisallowed, 0, uuid.Nil,
 			protocol.ItemStack{}, 0)
-		if motion != arrowsStill {
+		if motion == arrowsFlying || motion == arrowsBurning {
 			it.arrow.NoGravity = true
 			flying = append(flying, it.arrow)
 			starts = append(starts, start{x, z})
-		} else if i%3 == 0 {
-			// Stuck in the air whose state it last met, so the tick
-			// finds nothing changed under it and does not let it fall.
+		} else if motion == arrowsLodged || i%3 == 0 {
 			it.arrow.InGround = true
 			grounded = append(grounded, it.arrow)
-			it.arrow.LastState = w.BlockAt(int32(math.Floor(x)), world.GroundLevel+10, int32(math.Floor(z)))
+			it.arrow.LastState = w.BlockAt(int32(math.Floor(x)), int32(math.Floor(y)), int32(math.Floor(z)))
 		} else {
 			it.arrow.NoGravity = true
 		}
@@ -215,7 +226,7 @@ func benchTickArrows(b *testing.B, cows int, motion arrowsMotion, mannequins int
 	s.arrowsMu.Lock()
 	n := len(s.arrows)
 	s.arrowsMu.Unlock()
-	if n != 300 {
-		b.Fatalf("%d arrows after the run, want 300", n)
+	if n != arrows {
+		b.Fatalf("%d arrows after the run, want %d", n, arrows)
 	}
 }

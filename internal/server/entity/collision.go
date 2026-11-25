@@ -9,10 +9,20 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/registry"
 )
 
 // Box collision: the per-axis clip against blocks' real collision shapes,
 // and the overlap test for item burial and step-up headroom.
+
+// canStandOn checks the top face for a body that cannot sneak.
+// vanilla: BlockStateBase.entityCanStandOn, ScaffoldingBlock.getCollisionShape
+func canStandOn(state uint16, cellY int32, feetY float64) bool {
+	if registry.BlockOf(state) == registry.BlockScaffolding {
+		return world.BodyAbove(feetY, float64(cellY)+1)
+	}
+	return faceFull(state, faceUp)
+}
 
 // The axes a clip moves along, the order the box's coordinates index by.
 const (

@@ -568,3 +568,25 @@ func TestAPathStepsOntoAFenceOnlyWithPermission(t *testing.T) {
 		}
 	}
 }
+
+// vanilla: PathNavigation.followThePath
+func TestNarrowMobReachesWaypointPerAxis(t *testing.T) {
+	m := NewMob(TypeFox, 1, 0.5, 64, 0.5, 1)
+	reach := float64(float32(0.75) - float32(m.width())/2)
+	for _, tc := range []struct {
+		name   string
+		dx, dz float64
+		want   bool
+	}{
+		{"diagonal offset", 0.4, 0.4, true},
+		{"negative diagonal offset", -0.4, 0.4, true},
+		{"x at limit", reach, 0, false},
+		{"z at limit", 0, -reach, false},
+		{"just inside", reach - 1e-6, reach - 1e-6, true},
+		{"one axis out", 0.1, 0.5, false},
+	} {
+		if got := m.atWaypoint(tc.dx, tc.dz); got != tc.want {
+			t.Errorf("%s: atWaypoint(%v, %v) = %t, want %t", tc.name, tc.dx, tc.dz, got, tc.want)
+		}
+	}
+}

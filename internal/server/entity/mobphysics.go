@@ -791,8 +791,11 @@ type pushEntry struct {
 	minZ, maxZ float64
 }
 
-func entryOf(m *Mob) pushEntry {
+func (g *pushGrid) entryOf(m *Mob) pushEntry {
 	hw := m.width() / 2
+	if hw > g.wide {
+		g.wide = hw
+	}
 	return pushEntry{
 		m:    m,
 		minX: m.X - hw, maxX: m.X + hw,
@@ -819,8 +822,7 @@ type pushGrid struct {
 	// byID is the snapshot by entity ID, the first mob filed winning a
 	// shared ID; kept between ticks like cells.
 	byID map[int32]*Mob
-	// wide is the widest fully grown half-width in the herd, which widens the
-	// scanned ring so pairs stay exact with a chonky cube present.
+	// wide bounds the half-width of every box filed this tick.
 	wide float64
 	// caravan is the snapshot's llamas that are leashed or in a caravan, plus
 	// those that joined one this tick: the only ones a caravan goal can pick.
@@ -970,21 +972,16 @@ func (g *pushGrid) file(cell pushCellKey, e pushEntry) int {
 	return len(c)
 }
 
-// add buckets a snapshot mob with its index and widens wide by its fully
-// grown half-width.
+// add buckets a snapshot mob with its index.
 func (g *pushGrid) add(m *Mob, idx int) {
 	m.pushIdx = idx
 	m.pushCell = cellOf(m.X, m.Z)
-	m.pushSlot = g.file(m.pushCell, entryOf(m))
+	m.pushSlot = g.file(m.pushCell, g.entryOf(m))
 	if (m.inCaravan() || m.leashed()) && IsLlama(m.Type) {
 		g.caravan = append(g.caravan, m)
 	}
 	if _, ok := g.byID[m.ID]; !ok {
 		g.byID[m.ID] = m
-	}
-	hw := m.kind().width * m.scale() * m.attrScale() / 2
-	if hw > g.wide {
-		g.wide = hw
 	}
 }
 
@@ -1003,14 +1000,14 @@ func (g *pushGrid) moved(m *Mob) {
 		g.setCell(m.pushCell, c[:last])
 	}
 	m.pushCell = cell
-	m.pushSlot = g.file(cell, entryOf(m))
+	m.pushSlot = g.file(cell, g.entryOf(m))
 }
 
 // refresh rewrites a mob's box copy; a mob not in the grid (added after the
 // snapshot) is ignored.
 func (g *pushGrid) refresh(m *Mob) {
 	if c := g.cell(m.pushCell); m.pushSlot < len(c) && c[m.pushSlot].m == m {
-		c[m.pushSlot] = entryOf(m)
+		c[m.pushSlot] = g.entryOf(m)
 	}
 }
 
@@ -1030,13 +1027,14 @@ func (g *pushGrid) candidates(m *Mob, inflate float64) []*Mob {
 func (g *pushGrid) gather(m *Mob, inflate float64) []*Mob {
 	g.near = g.near[:0]
 	hw := m.width() / 2
-	r := int(math.Ceil((hw + g.wide + inflate) / pushCellSide))
-	cx, cz := cellCoords(m.X, m.Z)
 	// The same sums boxesOverlap does, once for the query.
-	qw, qh := m.width()/2+inflate, m.height()+inflate
+	qw, qh := hw+inflate, m.height()+inflate
 	q := pushQuery{
 		minX: m.X - qw, maxX: m.X + qw, minY: m.Y - inflate, maxY: m.Y + qh, minZ: m.Z - qw, maxZ: m.Z + qw}
-	g.gatherCells(cx-r, cx+r, cz-r, cz+r, &q)
+	// A target can overlap even when its centre is outside the query box.
+	loCX, loCZ := cellCoords(q.minX-g.wide, q.minZ-g.wide)
+	hiCX, hiCZ := cellCoords(q.maxX+g.wide, q.maxZ+g.wide)
+	g.gatherCells(loCX, hiCX, loCZ, hiCZ, &q)
 	return g.near
 }
 

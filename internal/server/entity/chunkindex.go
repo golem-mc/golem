@@ -2,6 +2,7 @@ package entity
 
 import (
 	"iter"
+	"maps"
 
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/google/uuid"
@@ -84,13 +85,18 @@ type chunkEntry[T any] struct {
 // another index leaves it first.
 func (ix *ChunkIndex[T]) Add(body T, f *Filing, pos world.ChunkPos, id uuid.UUID) {
 	if f.ix != nil {
-		if f.ix == filer(ix) && f.id == id && ix.owns(f) {
+		if f.id == id && ix.Contains(f) {
 			f.Refile(pos)
 			return
 		}
 		f.Unfile()
 	}
 	ix.insert(body, f, pos, id)
+}
+
+// Contains reports whether f itself is filed in ix.
+func (ix *ChunkIndex[T]) Contains(f *Filing) bool {
+	return f.ix == filer(ix) && ix.owns(f)
 }
 
 func (ix *ChunkIndex[T]) insert(body T, f *Filing, pos world.ChunkPos, id uuid.UUID) {
@@ -179,12 +185,24 @@ func (ix *ChunkIndex[T]) ByUUID(id uuid.UUID) (T, bool) {
 // remove nothing while ranging, and do not keep it past the lock.
 func (ix *ChunkIndex[T]) In(pos world.ChunkPos) iter.Seq[T] {
 	return func(yield func(T) bool) {
-		for _, e := range ix.cells[pos] {
-			if !yield(e.body) {
-				return
-			}
+		ix.Visit(pos, yield)
+	}
+}
+
+// Visit passes each body in pos to yield, stopping when it returns false.
+// The caller holds the index's lock and must keep the cell unchanged.
+func (ix *ChunkIndex[T]) Visit(pos world.ChunkPos, yield func(T) bool) bool {
+	for _, e := range ix.cells[pos] {
+		if !yield(e.body) {
+			return false
 		}
 	}
+	return true
+}
+
+// Occupied yields the index's nonempty chunks under the bodies' lock.
+func (ix *ChunkIndex[T]) Occupied() iter.Seq[world.ChunkPos] {
+	return maps.Keys(ix.cells)
 }
 
 // ChunksIn yields chunks in the inclusive rectangle, skipping empty regions

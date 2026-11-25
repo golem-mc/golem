@@ -219,6 +219,70 @@ func BenchmarkHopperCachedFailedPull(b *testing.B) {
 	}
 }
 
+// BenchmarkFullBlockedHopper measures a tick of an enabled, full hopper pointing
+// into a full barrel, after its push failed once.
+func BenchmarkFullBlockedHopper(b *testing.B) {
+	hopper := registry.MustState("minecraft:hopper", map[string]string{"facing": "down", "enabled": "true"})
+	barrel := registry.MustState("minecraft:barrel", map[string]string{"facing": "up", "open": "false"})
+	for _, c := range []struct {
+		name string
+		max  int32
+	}{{"default", 0}, {"max16", 16}} {
+		b.Run(c.name, func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 1)
+			w.SetBlock(1, 64, 1, barrel)
+			bar := w.EnsureBlockEntity(1, 64, 1, world.KindBarrel)
+			w.SetBlock(1, 65, 1, hopper)
+			be := w.EnsureBlockEntity(1, 65, 1, world.KindHopper)
+			stack := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 64}
+			if c.max > 0 {
+				stack.SetMaxStackSize(c.max)
+				stack.Count = c.max
+			}
+			for i := range bar.Len() {
+				bar.Put(i, stack)
+			}
+			for i := range be.Len() {
+				be.Put(i, stack)
+			}
+			w.FlushLighting()
+			age := int64(1)
+			s.tickHopper(w, be, age)
+			if !be.HopperTargets.Push.Failed {
+				b.Fatal("push did not fail")
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				age++
+				s.tickHopper(w, be, age)
+			}
+		})
+	}
+}
+
+// BenchmarkHopperDistantItems measures the block-entity pass with one hopper
+// and N drops outside its pickup area.
+func BenchmarkHopperDistantItems(b *testing.B) {
+	stone := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
+	for _, n := range []int{0, 1024, 8192} {
+		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 0)
+			b.Cleanup(w.HoldEntityTicking(world.ChunkPos{X: 0, Z: 0}))
+			w.SetBlock(4, 64, 4, registry.BlockHopper.DefaultState())
+			w.EnsureBlockEntity(4, 64, 4, world.KindHopper)
+			for i := range n {
+				s.spawnItem(w, stone, float64(100+i%64), 65, 2, 0, 0, 0, 0)
+			}
+			s.tickBlockEntities()
+			b.ReportAllocs()
+			for b.Loop() {
+				s.tickBlockEntities()
+			}
+		})
+	}
+}
+
 // BenchmarkHopperItemBox measures hopper item-box queries with N unrelated
 // items in distant chunks.
 func BenchmarkHopperItemBox(b *testing.B) {

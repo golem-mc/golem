@@ -121,3 +121,58 @@ func BenchmarkStaleChunkLightForm(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkLightQueueLava measures the queue a lone lava light grows and the
+// array it retains.
+func BenchmarkLightQueueLava(b *testing.B) {
+	c := newChunk(0, 0)
+	c.SetBlock(8, 64, 8, registry.BlockStates["minecraft:lava"])
+	ctx := lightCtx{alone: c}
+	var q *lightQueue
+	b.ReportAllocs()
+	for b.Loop() {
+		c.blockLight = [lightSections]*[lightArrayLen]byte{}
+		q = &lightQueue{}
+		c.lightSet(blockLayer, 8, 64, 8, 15)
+		q.push(8, 64, 8, 15, blockLayer|allDirs)
+		ctx.runIncreases(q)
+		if got := c.lightGet(&c.blockLight, 8, 78, 8); got != 1 {
+			b.Fatalf("light at (8,78,8) = %d, want 1", got)
+		}
+	}
+	b.ReportMetric(float64(cap(q.entries)), "cap")
+}
+
+// BenchmarkLightDecrease measures clearing a lone level-15 block light and
+// draining the queues, with the light arrays restored each iteration.
+func BenchmarkLightDecrease(b *testing.B) {
+	c := newChunk(0, 0)
+	ctx := lightCtx{alone: c}
+	dq, iq := &lightQueue{}, &lightQueue{}
+	c.lightSet(blockLayer, 8, 64, 8, 15)
+	iq.push(8, 64, 8, 15, blockLayer|allDirs)
+	ctx.runIncreases(iq)
+	var saved [lightSections][lightArrayLen]byte
+	for si, s := range c.blockLight {
+		if s != nil {
+			saved[si] = *s
+		}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		for si, s := range c.blockLight {
+			if s != nil {
+				*s = saved[si]
+			}
+		}
+		dq.entries, dq.head = dq.entries[:0], 0
+		iq.entries, iq.head = iq.entries[:0], 0
+		c.lightSet(blockLayer, 8, 64, 8, 0)
+		dq.push(8, 64, 8, 15, blockLayer|allDirs)
+		ctx.runDecreases(dq, iq)
+		ctx.runIncreases(iq)
+		if got := c.lightGet(&c.blockLight, 8, 78, 8); got != 0 {
+			b.Fatalf("light at (8,78,8) = %d, want 0", got)
+		}
+	}
+}

@@ -51,10 +51,8 @@ func illusionerGoals(m *Mob) []Goal {
 		newObtainBannerGoal(m),
 		&nearestTargetGoal{m: m, priority: 2, memory: evokerMemory},
 		newCreakingAvoidGoal(m, 3, evokerAvoidRun, 1.2),
-		&mobTargetGoal{m: m, priority: 3, unsighted: true, memory: evokerMemory, matches: illagerVillagerTarget},
-		&mobTargetGoal{m: m, priority: 3, unsighted: true, memory: evokerMemory, matches: func(o *Mob) bool {
-			return o.Type == TypeIronGolem
-		}},
+		&mobTargetGoal{m: m, priority: 3, unsighted: true, memory: evokerMemory, kinds: abstractVillagerKinds, matches: illagerVillagerTarget},
+		&mobTargetGoal{m: m, priority: 3, unsighted: true, memory: evokerMemory, kinds: ironGolemKinds},
 		&spellGoal{m: m, priority: 4, spell: mirrorSpell{}},
 		&spellGoal{m: m, priority: 5, spell: &blindnessSpell{}},
 		&rangedAttackGoal{m: m, priority: 6, walk: illusionerBowWalk},

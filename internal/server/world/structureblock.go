@@ -48,6 +48,16 @@ func (m StructureMode) StateName() string {
 	return strings.ToLower(structureModeNames[m])
 }
 
+func structureModeOfState(state uint16) StructureMode {
+	mode := registry.StateValue(state, registry.PropMode)
+	for m := StructureSave; m <= StructureData; m++ {
+		if mode == m.StateName() {
+			return m
+		}
+	}
+	return StructureLoad
+}
+
 // StructureBlock is the data of a structure block entity.
 // vanilla: StructureBlockEntity
 type StructureBlock struct {
@@ -432,9 +442,8 @@ func MergeStructureBlock(old nbt.Compound, s StructureBlock) nbt.Compound {
 	return out
 }
 
-// StructureBlockAt reads the position's structure block entity, standing up a
-// default one for a structure block without one (as a command or fill lays it).
-// ok is false for other blocks.
+// StructureBlockAt reads the position's structure block entity, creating one
+// from the block state if needed. ok is false for other blocks.
 func (w *World) StructureBlockAt(x, y, z int32) (s StructureBlock, tag nbt.Compound, ok bool) {
 	if tag, ok = w.BlockEntityTag(x, y, z); ok {
 		if id, _ := nbt.Get[nbt.String](tag, "id"); id == KindStructureBlock {
@@ -446,13 +455,7 @@ func (w *World) StructureBlockAt(x, y, z int32) (s StructureBlock, tag nbt.Compo
 	if registry.BlockOf(state) != registry.BlockStructureBlock {
 		return s, nil, false
 	}
-	mode := StructureLoad
-	for m := StructureSave; m <= StructureData; m++ {
-		if registry.StateValue(state, registry.PropMode) == m.StateName() {
-			mode = m
-		}
-	}
-	s = NewStructureBlock(mode)
+	s = NewStructureBlock(structureModeOfState(state))
 	w.SetBlockEntityTag(x, y, z, KindStructureBlock, s.Compound())
 	tag, ok = w.BlockEntityTag(x, y, z)
 	return s, tag, ok

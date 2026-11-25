@@ -64,7 +64,7 @@ func TestAPanickingCommandAnswersCommandFailed(t *testing.T) {
 // of its run.
 // vanilla: ServerFunctionManager.execute
 func TestAPanickingFunctionLineEndsItsRunSilently(t *testing.T) {
-	fn, err := compileFunction(PermLevelGamemasters, "t:boom", []string{"say first", "say second"})
+	fn, err := compileFunction(ForLevel(PermLevelGamemasters), PermLevelGamemasters, "t:boom", []string{"say first", "say second"})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/command"
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
 )
@@ -113,6 +114,20 @@ func (e *entitySnapshot) Damage(amount float32, damageType registry.DamageType, 
 	if !ok {
 		return e.damageNonliving(amount, damageType, origin, cause)
 	}
+	var hitFrom *entity.HitSource
+	causing := origin.Cause
+	if causing == nil {
+		causing = origin.Direct
+	}
+	// Read player position before taking mobsMu to preserve lock order.
+	if p, ok := causing.(*client); ok {
+		pos := p.player.Position()
+		hs := entity.PlayerHitSource(p.sized(entity.Player{
+			X: pos.X, Y: pos.Y, Z: pos.Z,
+			Yaw: float64(pos.Yaw), Pitch: float64(pos.Pitch),
+		}))
+		hitFrom = &hs
+	}
 	s, w := e.srv, ref.w
 	s.mobsMu.Lock()
 	m := ref.mob
@@ -120,13 +135,28 @@ func (e *entitySnapshot) Damage(amount float32, damageType registry.DamageType, 
 		s.mobsMu.Unlock()
 		return false
 	}
+	if hitFrom == nil {
+		if snap, ok := causing.(*entitySnapshot); ok {
+			if mob, ok := snap.ref.(*mobEntity); ok {
+				hs := mob.mob.HitSource()
+				hitFrom = &hs
+			} else {
+				pos := snap.pos
+				eye := pos.Y + float64(float32(snap.box[4]-snap.box[1])*0.85)
+				hitFrom = &entity.HitSource{
+					X: pos.X, Y: pos.Y, Z: pos.Z, Eye: eye,
+					Yaw: float64(pos.Yaw), Pitch: float64(pos.Pitch),
+				}
+			}
+		}
+	}
 	// With no source the shove's direction has no length, so knockback
 	// picks a random one. vanilla: LivingEntity.dealDefaultKnockback
 	src := damageCause{x: m.X, z: m.Z}
 	if cause != nil {
 		src = *cause
 	}
-	landed, softened := m.HurtByCommand(float64(amount), damageType, src.entityID, src.player, src.creative, src.x, src.z)
+	landed, softened := m.HurtByCommand(float64(amount), damageType, src.entityID, src.player, src.creative, src.x, src.z, hitFrom)
 	var health []byte
 	var sends []mobSend
 	if landed {

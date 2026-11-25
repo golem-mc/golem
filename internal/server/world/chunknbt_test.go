@@ -906,7 +906,8 @@ func TestLoadChunkStoredAtWrongPositionIsRelocated(t *testing.T) {
 }
 
 func sectionTallies(s *section) [8]int {
-	return [8]int{s.ticking, s.emitting, s.listening, s.rods, s.catalysts, s.eggs, int(s.touches.Load()), s.colliding}
+	return [8]int{s.ticking, s.emitting, len(s.sculkCells(vibrationListenerCell)), s.rods,
+		len(s.sculkCells(sculkCatalystCell)), s.eggs, int(s.touches.Load()), s.colliding}
 }
 
 func checkSectionTallies(t *testing.T, s *section) {

@@ -408,27 +408,35 @@ func (c *client) AddItem(stack protocol.ItemStack) bool {
 func (c *client) LootEntity() rules.LootEntity {
 	v := c.player.Vitals()
 	out := rules.LootEntity{Type: "minecraft:player", OnFire: rules.OnFire(&v), ScoreHolder: c.Name(), Profile: c.lootProfile(), Player: c.lootPlayer(),
-		NBT: func() nbt.Compound {
-			tag, ok := c.DataTag()
-			if !ok {
-				return nil
-			}
-			return tag.Entries()
-		}}
+		NBT: c.lootNBT}
 	command.FillLootEntity(&out, c)
 	out.Team, _ = c.srv.scoreboard.PlayerTeam(c.player.Name)
 	return out
 }
 
-// lootNBT is the player's compound a loot table's copy_custom_data reads,
-// nil for a joining player. It takes the player's locks, which come after the
-// mob lock.
+// lootNBT can run during a roll that already holds the mob or projectile lock,
+// which the ride and pearls need, so it carries neither; a roll that can read
+// them first takes lootNBTRiding.
 // vanilla: ContextNbtProvider, NbtPredicate.getEntityTagToCompare
-func (c *client) lootNBT() nbt.Compound {
-	tag, ok := c.DataTag()
-	if !ok {
+func (c *client) lootNBT() nbt.Compound { return c.lootTag(nil, nil) }
+
+// lootNBTRiding reads the ride and flying pearls now, with no server lock
+// held, for a roll that reads the rest of the compound later.
+// vanilla: ServerPlayer.saveParentVehicle, ServerPlayer.saveEnderPearls
+func (c *client) lootNBTRiding() func() nbt.Compound {
+	if c.player == nil {
+		return c.lootNBT
+	}
+	vehicle, pearls := c.savedVehicle(false), c.srv.savedPearlTags(c.player.UUID)
+	return func() nbt.Compound { return c.lootTag(vehicle, pearls) }
+}
+
+func (c *client) lootTag(vehicle nbt.Compound, pearls []nbt.Tag) nbt.Compound {
+	if c.player == nil {
 		return nil
 	}
+	tag := c.playerSaveState(vehicle, pearls)
+	c.addSelectedItem(tag)
 	return tag.Entries()
 }
 

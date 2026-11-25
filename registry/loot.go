@@ -187,18 +187,21 @@ type LootItemEntry struct {
 type LootAlternatives struct {
 	Children   []LootEntry
 	Conditions []LootCondition
+	Functions  []LootFunction // applied to every stack a child produces
 }
 
 // LootGroup is every child, each its own candidate of the roll, in order.
 type LootGroup struct {
 	Children   []LootEntry
 	Conditions []LootCondition
+	Functions  []LootFunction // applied to every stack a child produces
 }
 
 // LootSequence collects candidates in order until a child fails.
 type LootSequence struct {
 	Children   []LootEntry
 	Conditions []LootCondition
+	Functions  []LootFunction // applied to every stack a child produces
 }
 
 // LootEmpty is an entry that produces nothing but can still take the roll.
