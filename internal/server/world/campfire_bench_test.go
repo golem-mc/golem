@@ -41,6 +41,7 @@ func BenchmarkCampfireTick(b *testing.B) {
 				registry.ApplyPackRecipes(p)
 			}
 			be := &BlockEntity{Kind: KindCampfire, Slots: make([]protocol.ItemStack, CampfireSlots)}
+			be.CookCheck = c.hint
 			b.ReportAllocs()
 			for b.Loop() {
 				for i := range be.Slots {
@@ -51,7 +52,6 @@ func BenchmarkCampfireTick(b *testing.B) {
 						be.CampfireProgress[i] = 99
 					}
 				}
-				be.CookCheck = c.hint
 				be.CampfireTick(true)
 			}
 		})

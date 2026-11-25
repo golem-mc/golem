@@ -129,7 +129,13 @@ func TestACampfireKeepsItsLastMatchingRecipeForOverlappingInputs(t *testing.T) {
 	srv.SetBlock(relit, 64, 0, lit)
 	put(primed, "minecraft:bone")
 	put(relit, "minecraft:bone")
-	servertest.TickBlockEntitiesByHand(srv, cookTicks)
+	// The food placed takes the first match's cook time; the hint only picks
+	// the result when it finishes.
+	servertest.TickBlockEntitiesByHand(srv, laterCookTicks)
+	if !holds(srv.InventoryAt(primed, 64, 0), registry.ItemBone) {
+		t.Errorf("a primed campfire finished its bone after %d ticks, want the first recipe's %d", laterCookTicks, cookTicks)
+	}
+	servertest.TickBlockEntitiesByHand(srv, cookTicks-laterCookTicks)
 
 	drops := func(x int32) (sticks, bowls int) {
 		for _, it := range srv.ItemsInDimension("minecraft:overworld") {
@@ -154,4 +160,14 @@ func TestACampfireKeepsItsLastMatchingRecipeForOverlappingInputs(t *testing.T) {
 	if sticks, bowls := drops(relit); sticks != 1 || bowls != 1 {
 		t.Errorf("a relit campfire dropped %d sticks and %d bowls, want a bowl then a stick", sticks, bowls)
 	}
+}
+
+// holds reports whether any of stacks is item.
+func holds(stacks []protocol.ItemStack, item registry.Item) bool {
+	for _, st := range stacks {
+		if registry.Item(st.ItemID) == item && st.Count > 0 {
+			return true
+		}
+	}
+	return false
 }
