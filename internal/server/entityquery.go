@@ -88,6 +88,23 @@ func (h *mobHerd) mobsInArea(area chunkArea, indexed bool, yield func(*entity.Mo
 	}
 }
 
+// mobsInAreaWide is mobsInArea for a query whose bodies may exceed the area's
+// padding: an indexed visit skips the wide kinds in the chunk pass when any
+// are filed and then visits each of them once, so none is seen twice.
+func (h *mobHerd) mobsInAreaWide(area chunkArea, indexed bool, yield func(*entity.Mob)) {
+	h.mobsInArea(area, indexed, func(m *entity.Mob) bool {
+		if !indexed || len(h.widePiercingBodies) == 0 || !m.MayExceedPiercingPadding() {
+			yield(m)
+		}
+		return true
+	})
+	if indexed {
+		for _, m := range h.widePiercingBodies {
+			yield(m)
+		}
+	}
+}
+
 func newEntityQuery(filters *command.EntityQuery) entityQuery {
 	return entityQuery{EntityQuery: filters, before: math.MaxInt32 + 1, after: math.MinInt32 - 1}
 }

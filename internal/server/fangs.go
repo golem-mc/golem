@@ -1,7 +1,6 @@
 package server
 
 import (
-	"cmp"
 	"math"
 	"slices"
 	"sync"
@@ -201,34 +200,29 @@ func (s *Server) fangsBite(it fangsEffect) {
 		}
 		victims = append(victims, m)
 	}
+	indexed := false
 	if len(h.book) != 0 {
 		bounds := [6]float64{minX - entity.PiercingMobPadding, 0, minZ - entity.PiercingMobPadding,
 			maxX + entity.PiercingMobPadding, 0, maxZ + entity.PiercingMobPadding}
-		area, indexed := smallChunkArea(&bounds)
-		h.mobsInArea(area, indexed, func(m *entity.Mob) bool {
-			if !indexed || len(h.widePiercingBodies) == 0 || !m.MayExceedPiercingPadding() {
-				consider(m)
-			}
-			return true
-		})
-		if indexed {
-			for _, m := range h.widePiercingBodies {
-				consider(m)
-			}
-		}
+		var area chunkArea
+		area, indexed = smallChunkArea(&bounds)
+		h.mobsInAreaWide(area, indexed, consider)
 	}
-	if len(victims) > 1 {
+	if indexed && len(victims) > 1 {
 		// The index visits by chunk; damage goes in herd order.
-		rank := make(map[*entity.Mob]int, len(victims))
+		hit := make(map[*entity.Mob]struct{}, len(victims))
 		for _, m := range victims {
-			rank[m] = -1
+			hit[m] = struct{}{}
 		}
-		for i, m := range h.herd {
-			if _, ok := rank[m]; ok {
-				rank[m] = i
+		victims = victims[:0]
+		for _, m := range h.herd {
+			if _, ok := hit[m]; ok {
+				victims = append(victims, m)
+				if len(victims) == len(hit) {
+					break
+				}
 			}
 		}
-		slices.SortFunc(victims, func(a, b *entity.Mob) int { return cmp.Compare(rank[a], rank[b]) })
 	}
 	s.mobsMu.Unlock()
 
