@@ -222,6 +222,11 @@ func (s *Server) crossArrowPortalsLocked(fx *arrowEffects, gate entityGate) (fly
 			arrowTracker.unfile(it)
 			continue
 		}
+		if it.spawning {
+			// Portals wait for the arrow's first tick, after its spawn effects.
+			portalAlive = append(portalAlive, it)
+			continue
+		}
 		state, kind, due := gate.stepPortal(it.w, it.arrow.X, it.arrow.Y, it.arrow.Z, &it.portal, projectileCooldownTicks)
 		s.notePortalTouch(nil, it.uuid, it.w, it.arrow.X, it.arrow.Y, it.arrow.Z, state)
 		if !due {

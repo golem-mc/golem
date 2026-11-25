@@ -2,6 +2,7 @@ package combat
 
 import (
 	"fmt"
+	"math"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -229,6 +230,8 @@ type spawnStepper struct {
 	srv     atomic.Pointer[server.Server]
 	spawned atomic.Int32
 	stepped atomic.Bool
+	// gateway puts an end gateway at each projectile's cell, sending it to (8, 64, 8).
+	gateway bool
 }
 
 func (p *spawnStepper) Enable(s plugin.Server) error {
@@ -243,7 +246,17 @@ func (p *spawnStepper) Enable(s plugin.Server) error {
 				shots, before = append(shots, body), append(before, body.Pos())
 			}
 		}
+		if p.gateway {
+			for _, pos := range before {
+				cell := plugin.BlockPos{X: int(math.Floor(pos.X)), Y: int(math.Floor(pos.Y)), Z: int(math.Floor(pos.Z))}
+				e.Entity.World().SetBlockState(cell, plugin.DefaultState(registry.BlockEndGateway), plugin.UpdateAll)
+				p.srv.Load().SetEndGatewayExit(int32(cell.X), int32(cell.Y), int32(cell.Z), 8, 64, 8, true)
+			}
+		}
 		p.srv.Load().TickProjectiles()
+		if p.gateway {
+			p.srv.Load().WaitGatewayMoves()
+		}
 		for i, body := range shots {
 			if body.Pos() != before[i] {
 				p.stepped.Store(true)
@@ -263,7 +276,7 @@ func TestCrossbowSpawnEffectsRunBeforeFirstStep(t *testing.T) {
 	for _, item := range []string{"minecraft:arrow", "minecraft:firework_rocket"} {
 		cfg := servertest.BowTestConfig()
 		cfg.LevelName = ammoPack(t)
-		stepper := &spawnStepper{}
+		stepper := &spawnStepper{gateway: item == "minecraft:arrow"}
 		srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "stepper", Plugin: stepper}})
 		stepper.srv.Store(srv)
 		c := servertest.DialServer(t, srv)
@@ -280,13 +293,14 @@ func TestCrossbowSpawnEffectsRunBeforeFirstStep(t *testing.T) {
 			b.PutF32(-90)
 			b.PutF32(0)
 		})
-		// The listener runs on a tick once the connection has read the use.
-		for i := 0; stepper.spawned.Load() == 0; i++ {
-			if i == 400 {
+		// The listener runs on a tick once the connection has queued its call.
+		for stepper.spawned.Load() == 0 {
+			select {
+			case <-srv.PluginCallsQueued():
+			case <-time.After(10 * time.Second):
 				t.Fatalf("%s: the spawn effect summoned nothing", item)
 			}
 			servertest.RunTicks(t, srv, 1)
-			time.Sleep(5 * time.Millisecond)
 		}
 		c.Settle()
 		if stepper.stepped.Load() {
@@ -301,6 +315,12 @@ func TestCrossbowSpawnEffectsRunBeforeFirstStep(t *testing.T) {
 		servertest.RunTicks(t, srv, 1)
 		if fmt.Sprint(srv.RunLine(get)) == pos {
 			t.Errorf("%s: the projectile did not step once its spawn effects ran", item)
+		}
+		if stepper.gateway {
+			srv.WaitGatewayMoves()
+			if arrows := srv.ArrowsInDimension("minecraft:overworld"); len(arrows) != 1 || math.Abs(arrows[0].X-8.5) > 2 {
+				t.Errorf("%s: arrows %+v, want the gateway to have moved the arrow after its effects", item, arrows)
+			}
 		}
 	}
 }

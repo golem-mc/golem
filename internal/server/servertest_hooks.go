@@ -233,6 +233,10 @@ func (s *Server) StopTick() { s.stopTick() }
 // or after Shutdown, is safe.
 func (s *Server) DisablePlugins() { s.disablePlugins() }
 
+// PluginCallsQueued is signalled when a connection queues a plugin call, so
+// a held test can run the tick that serves it once it is pending.
+func (s *Server) PluginCallsQueued() <-chan struct{} { return s.plugins.CallsQueued() }
+
 // FlushSaves waits for the chunk saves queued in every dimension. Tests call
 // it once they have stopped driving the world, before their world directory is
 // removed, so the removal does not race a save still in flight on the I/O pool.
