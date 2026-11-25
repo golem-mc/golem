@@ -320,13 +320,24 @@ func (mobs Mobs) SenseWantedItemsWithGrid(w World, items []LootItem, grid *BoxGr
 		b.hasWanted = false
 		staged := stagedSlots{main: m.MainHand, off: m.OffHand, worn: m.Worn}
 		best := float64(piglinScanRange * piglinScanRange)
+		searchBox := func() AABB {
+			return m.mobBox().inflate(piglinScanRange, piglinScanHeight, piglinScanRange)
+		}
+		var box AABB
+		boxReady := false
 		consider := func(it *LootItem) {
-			dx, dy, dz := it.X-m.X, it.Y-m.Y, it.Z-m.Z
-			if it.Stack.Empty() || dx > piglinScanRange || dx < -piglinScanRange || dy > piglinScanHeight || dy < -piglinScanHeight || dz > piglinScanRange || dz < -piglinScanRange {
+			if it.Stack.Empty() {
 				return
 			}
-			d := dx*dx + dy*dy + dz*dz
-			if d >= best || !rayClear(w, m.X, m.Y+m.eyeHeight(), m.Z, it.X, it.Y+itemEyeHeight, it.Z) {
+			d := Dist2(m.X, m.Y, m.Z, it.X, it.Y, it.Z)
+			if d >= best {
+				return
+			}
+			// The direct scan needs a box only once a drop is within the distance limit.
+			if !boxReady {
+				box, boxReady = searchBox(), true
+			}
+			if !box.Crosses(it.box()) || !rayClear(w, m.X, m.Y+m.eyeHeight(), m.Z, it.X, it.Y+itemEyeHeight, it.Z) {
 				return
 			}
 			if _, _, ok := staged.take(m, it.Stack); ok {
@@ -334,15 +345,12 @@ func (mobs Mobs) SenseWantedItemsWithGrid(w World, items []LootItem, grid *BoxGr
 			}
 		}
 		if grid == nil {
-			for _, it := range items {
-				consider(&it)
+			for i := range items {
+				consider(&items[i])
 			}
 			continue
 		}
-		box := m.mobBox()
-		box.minX, box.maxX = box.minX-piglinScanRange, box.maxX+piglinScanRange
-		box.minY, box.maxY = box.minY-piglinScanHeight, box.maxY+piglinScanHeight
-		box.minZ, box.maxZ = box.minZ-piglinScanRange, box.maxZ+piglinScanRange
+		box, boxReady = searchBox(), true
 		grid.Query(box, func(i int32) { consider(&items[i]) })
 	}
 }
