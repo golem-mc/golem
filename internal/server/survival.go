@@ -48,16 +48,14 @@ type damageCause struct {
 	// lands; nil for any other cause.
 	exploder *removedBody
 	directID int32
-	// projectileOwnerless makes the Damage Event name the projectile as its
-	// cause too. vanilla: AbstractArrow.onHitEntity, ThrownTrident.onHitEntity
-	projectileOwnerless bool
 	// directType is the entity type name of a projectile direct entity, which
 	// is neither a player nor a mob; empty otherwise.
 	directType string
 	// directBurning is the projectile's fire flag when it hit.
 	directBurning bool
-	// directIsSource lets advancement predicates use the projectile itself
-	// as the source when it has no shooter.
+	// directIsSource makes the projectile itself the source when it has no
+	// shooter: advancement predicates and the Damage Event's cause ID use it.
+	// vanilla: AbstractArrow.onHitEntity, ThrownTrident.onHitEntity
 	directIsSource bool
 	x, y, z        float64
 	// weapon belongs to the direct entity, independently of death attribution.
@@ -299,7 +297,7 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 		wireCause := direct
 		if cause != nil && cause.directID != 0 {
 			direct = cause.directID
-			if cause.projectileOwnerless {
+			if cause.directIsSource {
 				wireCause = direct
 			}
 		}
