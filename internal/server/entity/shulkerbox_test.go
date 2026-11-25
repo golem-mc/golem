@@ -271,3 +271,31 @@ func TestAShellsHullQueryIgnoresAFarWideBody(t *testing.T) {
 		t.Errorf("the shell's query looked at %d entries, %d with a giant cow far away; want the same", plain, wide)
 	}
 }
+
+// TestAnOpeningShulkerLeavesItsRideChainUnmoved: the shell pushes a free
+// mob but not its own vehicle or another mount of the chain.
+func TestAnOpeningShulkerLeavesItsRideChainUnmoved(t *testing.T) {
+	for _, grid := range []bool{false, true} {
+		w := newTestWorld()
+		m := NewMob(TypeShulker, 1, 0.5, 64, 0.5, 1)
+		m.shulker.face = faceDown
+		pig := NewMob(TypePig, 2, 0.5, 65, 0.5, 2)
+		sibling := NewMob(TypePig, 3, 0.5, 65, 0.5, 3)
+		free := NewMob(TypePig, 4, 0.5, 65, 0.5, 4)
+		m.Vehicle, sibling.Vehicle = pig, pig
+		herd := []*Mob{m, pig, sibling, free}
+		if grid {
+			g := takePushGrid(len(herd), nil)
+			g.build(herd)
+			m.push = g
+			defer g.release()
+		}
+		openShell(m, w, herd, 1)
+		if pig.Y != 65 || sibling.Y != 65 {
+			t.Errorf("grid %v: chain moved to %v, %v", grid, pig.X, sibling.X)
+		}
+		if free.Y == 65 {
+			t.Errorf("grid %v: the free pig was not pushed", grid)
+		}
+	}
+}
