@@ -1,6 +1,7 @@
 package world
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
@@ -192,4 +193,30 @@ func fallsAfterReload(t *testing.T, waterlogged bool) int {
 		falls += len(f)
 	}
 	return falls
+}
+
+func BenchmarkChunkTicksDistant(b *testing.B) {
+	for _, n := range []int{0, 4096, 65536} {
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			w := newTestWorld(b, NewFlatGenerator())
+			b.Cleanup(func() { w.Close() })
+			w.Acquire(ChunkPos{})
+			p := NewPhysics(w)
+			water := fluidTypeOf(fluidHolding(waterByLevel[0]))
+			p.mu.Lock()
+			p.insertTick(blockKey{0, 64, 0}, water, 200, tickPriorityNormal)
+			for i := range int32(n) {
+				p.insertTick(blockKey{16 + i%256, 64, i / 256}, water, 200, tickPriorityNormal)
+			}
+			p.mu.Unlock()
+			p.chunkTicks(ChunkPos{})
+			p.chunkTicks(ChunkPos{})
+			b.ReportAllocs()
+			for b.Loop() {
+				if got := p.chunkTicks(ChunkPos{}); len(got.fluid) != 1 || len(got.block) != 0 {
+					b.Fatalf("got %d fluid, %d block entries, want one fluid", len(got.fluid), len(got.block))
+				}
+			}
+		})
+	}
 }

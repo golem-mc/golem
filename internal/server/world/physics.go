@@ -623,7 +623,9 @@ type Physics struct {
 	// randomTickKeys is RandomTick's sort buffer, reused between ticks.
 	randomTickKeys []uint64
 	queue          tickQueue
-	pending        map[blockKey]bool
+	// chunkIdx caches where each chunk's entries sit in queue; see tickIndex.
+	chunkIdx tickIndex
+	pending  map[blockKey]bool
 	// fluidBooked holds the fluid visits queued, one per position and type.
 	fluidBooked map[fluidBook]struct{}
 	finalizeSeq map[blockKey]int64
@@ -1105,7 +1107,7 @@ func (p *Physics) releaseParked() {
 			continue
 		}
 		for _, t := range ts {
-			p.queue.push(t)
+			p.pushTick(t)
 		}
 		delete(p.parked, cp)
 	}
@@ -1193,7 +1195,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		if next.due > p.now {
 			break
 		}
-		p.queue.pop()
+		p.popTick()
 		// A spent budget leaves its kind queued while the other keeps draining.
 		if blocks >= maxBlockTicksPerTick || fluids >= maxFluidTicksPerTick {
 			fluid := next.fluid != 0
@@ -1396,7 +1398,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		}
 	}
 	for _, t := range deferred {
-		p.queue.push(t)
+		p.pushTick(t)
 	}
 	p.handlingTick = false
 	// The block entities tick after the scheduled ticks.
@@ -1477,7 +1479,7 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 		p.pending[key] = true
 	}
 	p.seq++
-	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ})
+	p.pushTick(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ})
 	if priority == tickPriorityFinalize && typ == 0 {
 		p.finalizeSeq[key] = p.seq
 	}
@@ -1541,8 +1543,7 @@ func (p *Physics) ClearTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) {
 		}
 		kept = append(kept, t)
 	}
-	p.queue = kept
-	p.queue.init()
+	p.setTicks(kept)
 }
 
 // dropTickIn reports whether ClearTicksIn removes t, forgetting its booking.
@@ -1604,7 +1605,7 @@ func (p *Physics) schedulePistonEvent(x, y, z int32, dir int8, typ uint8) {
 	}
 	p.pendingEvent[key] = event
 	p.seq++
-	p.queue.push(scheduledTick{
+	p.pushTick(scheduledTick{
 		pos: key, due: p.now + p.eventDelay, priority: tickPriorityEvent, seq: p.seq, event: event,
 	})
 }

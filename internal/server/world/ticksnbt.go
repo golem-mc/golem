@@ -152,37 +152,38 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	var out chunkTicks
-	add := func(t scheduledTick) {
-		if t.pos.x>>4 != pos.X || t.pos.z>>4 != pos.Z || p.tickCancelled(t) {
-			return
-		}
-		if !isTickEvent(t.event) {
-			return
-		}
-		st := savedTick{
-			x: t.pos.x, y: t.pos.y, z: t.pos.z,
-			delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority),
-		}
-		if t.fluid != 0 {
-			st.id = t.fluid.name()
-			out.fluid = append(out.fluid, st)
-			return
-		}
-		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
-		name, _, ok := registry.BlockStateName(state)
-		if !ok {
-			return
-		}
-		st.id = name
-		out.block = append(out.block, st)
-	}
-	for _, t := range p.queue {
-		add(t)
-	}
+	add := func(t scheduledTick) { p.collectTick(&out, pos, t) }
+	p.queuedIn(pos, add)
 	for _, t := range p.parked[pos] {
 		add(t)
 	}
 	return out
+}
+
+// collectTick adds t to out when it is a saved tick of chunk pos.
+func (p *Physics) collectTick(out *chunkTicks, pos ChunkPos, t scheduledTick) {
+	if t.pos.x>>4 != pos.X || t.pos.z>>4 != pos.Z || p.tickCancelled(t) {
+		return
+	}
+	if !isTickEvent(t.event) {
+		return
+	}
+	st := savedTick{
+		x: t.pos.x, y: t.pos.y, z: t.pos.z,
+		delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority),
+	}
+	if t.fluid != 0 {
+		st.id = t.fluid.name()
+		out.fluid = append(out.fluid, st)
+		return
+	}
+	state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
+	name, _, ok := registry.BlockStateName(state)
+	if !ok {
+		return
+	}
+	st.id = name
+	out.block = append(out.block, st)
 }
 
 // isTickEvent reports whether a queue entry tagged event is a scheduled tick
@@ -297,8 +298,7 @@ func (p *Physics) discardUnloadedTicks(unloaded []ChunkPos) {
 			}
 			kept = append(kept, t)
 		}
-		p.queue = kept
-		p.queue.init()
+		p.setTicks(kept)
 	}
 }
 
@@ -383,5 +383,55 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 		}
 	default:
 		delete(p.pendingEvent, t.pos)
+	}
+}
+
+// tickIndex maps a chunk to the offsets of its entries in Physics.queue, in
+// slice order, so a save reads one chunk's ticks without scanning the heap.
+// It holds offsets only; every queue mutation goes through pushTick, popTick
+// or setTicks, which drop it. Only under p.mu.
+type tickIndex struct {
+	byChunk map[ChunkPos][]int32
+	// scanned is set once a snapshot scanned the heap: the index is built on
+	// the next snapshot that finds the heap unchanged.
+	scanned bool
+}
+
+func (p *Physics) pushTick(t scheduledTick) {
+	p.chunkIdx = tickIndex{}
+	p.queue.push(t)
+}
+
+func (p *Physics) popTick() scheduledTick {
+	p.chunkIdx = tickIndex{}
+	return p.queue.pop()
+}
+
+// setTicks replaces the heap's entries with kept and restores heap order.
+func (p *Physics) setTicks(kept tickQueue) {
+	p.chunkIdx = tickIndex{}
+	p.queue = kept
+	p.queue.init()
+}
+
+// queuedIn calls f on the heap entries of chunk pos, in heap slice order.
+func (p *Physics) queuedIn(pos ChunkPos, f func(scheduledTick)) {
+	if p.chunkIdx.byChunk == nil {
+		if !p.chunkIdx.scanned {
+			p.chunkIdx.scanned = true
+			for _, t := range p.queue {
+				f(t)
+			}
+			return
+		}
+		idx := make(map[ChunkPos][]int32)
+		for i, t := range p.queue {
+			cp := ChunkPos{X: t.pos.x >> 4, Z: t.pos.z >> 4}
+			idx[cp] = append(idx[cp], int32(i))
+		}
+		p.chunkIdx.byChunk = idx
+	}
+	for _, i := range p.chunkIdx.byChunk[pos] {
+		f(p.queue[i])
 	}
 }
