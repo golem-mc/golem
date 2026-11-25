@@ -1141,7 +1141,7 @@ func (w *World) SwapBlock(x, y, z int32, state uint16) (old uint16, changed bool
 		w.journal = append(w.journal, journalEntry{x, y, z, old, state})
 	}
 	if be := loaded.chunk.blockEntity(x, y, z); be != nil {
-		be.Wake()
+		be.StateWritten()
 	}
 	if old != airState && shulkerBoxBlocks[registry.BlockOf(old)] {
 		w.shulkerLidsOpen.Delete([3]int32{x, y, z})
@@ -1291,7 +1291,7 @@ func (w *World) SetBlocks(changes []BlockChange) []BlockChange {
 		loaded.chunk.SetBlock(lx, ch.Y, lz, ch.State)
 		w.updateRedstoneBlockCounts(old, ch.State)
 		if be := loaded.chunk.blockEntity(ch.X, ch.Y, ch.Z); be != nil {
-			be.Wake()
+			be.StateWritten()
 		}
 		if old != airState && shulkerBoxBlocks[registry.BlockOf(old)] {
 			w.shulkerLidsOpen.Delete([3]int32{ch.X, ch.Y, ch.Z})
@@ -1564,20 +1564,35 @@ func (w *World) BlockAt(x, y, z int32) uint16 {
 	if loaded := w.nearAt(pos); loaded != nil {
 		return loaded.chunk.sharedBlockAt(x&15, y, z&15)
 	}
+	if chunk := w.sharedChunkOnNearMiss(pos); chunk != nil {
+		return chunk.sharedBlockAt(x&15, y, z&15)
+	}
+	return airState
+}
+
+// sharedChunkAt returns pos's loaded chunk for lock-free sharedBlockAt reads,
+// or nil if not loaded.
+func (w *World) sharedChunkAt(pos ChunkPos) *Chunk {
+	if loaded := w.nearAt(pos); loaded != nil {
+		return loaded.chunk
+	}
+	return w.sharedChunkOnNearMiss(pos)
+}
+
+func (w *World) sharedChunkOnNearMiss(pos ChunkPos) *Chunk {
 	w.mu.RLock()
 	loaded, ok := w.chunks[pos]
 	if !ok {
 		w.mu.RUnlock()
-		return airState
+		return nil
 	}
-	// Two chunks sharing a slot (more than nearSlots chunks apart on an axis)
-	// take it from each other on a miss, so a run of reads in one chunk hits.
+	// Chunks sharing a slot take it from each other on a miss, so a run of
+	// reads in one chunk hits.
 	if slot := &w.near[nearIndex(pos)]; slot.Load() != loaded {
 		slot.Store(loaded)
 	}
-	state := loaded.chunk.BlockAt(x&15, y, z&15)
 	w.mu.RUnlock()
-	return state
+	return loaded.chunk
 }
 
 // blockReader reads blocks under one hold of the read lock with a last-chunk

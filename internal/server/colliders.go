@@ -69,7 +69,6 @@ func (w *mobCollisionWorld) reset(level *world.World, hulls []entity.AABB, herd 
 // its Skip storage lasts until the next mover's synchronous tick starts.
 // vanilla: Entity.isPassengerOfSameVehicle
 func (w *mobCollisionWorld) ForMob(m *entity.Mob) entity.World {
-	b := w.Bodies
 	w.skip = w.skip[:0]
 	w.riders = append(w.riders, m.RootVehicle())
 	for len(w.riders) > 0 {
@@ -82,6 +81,7 @@ func (w *mobCollisionWorld) ForMob(m *entity.Mob) entity.World {
 		}
 		w.riders = append(w.riders, other.Passengers...)
 	}
-	b.Skip = w.skip
-	return b
+	w.Skip = w.skip
+	// A pointer, so handing the view out allocates nothing.
+	return &w.Bodies
 }

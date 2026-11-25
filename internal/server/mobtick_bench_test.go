@@ -101,6 +101,28 @@ func BenchmarkTickMobsCalves(b *testing.B) {
 	})
 }
 
+// BenchmarkTickMobsCowsInHerd is BenchmarkTickMobsShulkersInHerd without the
+// shulkers: the herd and the spectator alone.
+func BenchmarkTickMobsCowsInHerd(b *testing.B) {
+	benchTickMobs(b, herdMix(0), 96, 2000, benchMobSpectator(b))
+}
+
+// BenchmarkTickMobsShulkersInHerd is BenchmarkTickMobs with 2000 cows and 50
+// shulkers added and a spectator, so the herd ticks and each shulker's
+// collision and push queries run beside a large herd.
+func BenchmarkTickMobsShulkersInHerd(b *testing.B) {
+	benchTickMobs(b, herdMix(50), 96, 2000, benchMobSpectator(b))
+}
+
+// herdMix is the BenchmarkTickMobs mix plus 2000 cows and shulkers shulkers.
+func herdMix(shulkers int) []mobMix {
+	return []mobMix{
+		{entity.TypeCow, 45 + 2000}, {entity.TypePig, 45}, {entity.TypeSheep, 45}, {entity.TypeChicken, 35},
+		{entity.TypeZombie, 8}, {entity.TypeSkeleton, 8}, {entity.TypeCreeper, 7}, {entity.TypeSpider, 7},
+		{entity.TypeShulker, shulkers},
+	}
+}
+
 // BenchmarkTickMobsFrogs ticks a thousand frogs with no tongue targets.
 func BenchmarkTickMobsFrogs(b *testing.B) {
 	benchTickMobs(b, []mobMix{{entity.TypeFrog, 1000}}, 96, 1000, benchMobSpectator(b))
