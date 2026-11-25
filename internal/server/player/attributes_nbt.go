@@ -55,6 +55,9 @@ func (a *Attributes) save(loaded *nbt.List, skip map[string]bool, includeDefault
 				items = append(items, packInstance(a.instances[attr.ID]))
 				continue
 			}
+			if ok && a.supplier != nil && !a.Has(registry.AttributeID(attr.ID)) {
+				continue // vanilla: AttributeMap.load skips what the supplier lacks
+			}
 			items = append(items, item)
 		}
 	}
