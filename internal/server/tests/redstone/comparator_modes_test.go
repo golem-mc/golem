@@ -27,3 +27,17 @@ func TestComparatorModeTogglesKeepItsInputAndFacing(t *testing.T) {
 		}
 	}
 }
+
+func TestComparatorClickDropsRepeaterAboveIt(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.AttachActor(t)
+	servertest.HoldTicks(t, srv)
+	servertest.LayComparatorScene(t, c, srv, 5, 64, 0)
+	// strict skips the neighbour update that would drop it at placement.
+	servertest.Setblock(t, c, 5, 65, 0, "minecraft:repeater[facing=west] strict")
+	servertest.ExpectBlockNamed(t, srv, 5, 65, 0, "minecraft:repeater", nil)
+	c.UseBlock(5, 64, 0)
+	c.Settle()
+	servertest.ExpectAir(t, srv, [3]int32{5, 65, 0})
+	servertest.ExpectOneDroppedItem(t, srv, "minecraft:repeater")
+}
