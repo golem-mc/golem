@@ -337,7 +337,7 @@ func (c *client) useJukebox(hand, x, y, z int32) bool {
 	c.awardStat(player.Custom(registry.CustomStatPlayRecord), 1)
 	before := w.BlockAt(x, y, z)
 	c.srv.setJukeboxHasRecord(w, x, y, z, true)
-	if now, version, live := jukeboxSongNow(be); live && now == song && version == started {
+	if jukeboxStillPlays(be, started) {
 		c.srv.broadcastLevelEvent(w,
 			protocol.WorldEventJukeboxPlay, x, y, z, registry.JukeboxSongID(song))
 	}
@@ -368,7 +368,7 @@ func (c *client) ejectJukebox(w *world.World, be *world.BlockEntity, x, y, z int
 		return true
 	}
 	c.srv.setJukeboxHasRecord(w, x, y, z, false)
-	if now, _, live := jukeboxSongNow(be); playing && live && now == "" {
+	if playing && jukeboxStillSilent(be) {
 		c.srv.broadcastLevelEvent(w,
 			protocol.WorldEventJukeboxStop, x, y, z, 0)
 	}
