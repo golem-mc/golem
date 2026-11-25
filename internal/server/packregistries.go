@@ -118,8 +118,8 @@ func loadPackBiomes(dirs []string, skip func(file string, err error)) error {
 // loadPackEnchantments decodes the packs' enchantment files into the
 // definitions the rules read, over the built-in ones. What the tree cannot
 // represent is left out with a Warn naming the enchantment; a file that fails
-// the required fields keeps the built-in definition, if any. A retired
-// replace provider type fails world loading.
+// the required fields keeps the built-in definition, if any. Retired block
+// state provider types fail world loading.
 // vanilla: Enchantment.DIRECT_CODEC
 func loadPackEnchantments(dirs []string, skip func(file string, err error)) error {
 	files, err := datapack.LoadResources(dirs, "enchantment", skip)
