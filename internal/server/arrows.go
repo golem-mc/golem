@@ -594,60 +594,98 @@ func (s *Server) spawnArrowFrom(w *world.World, x, y, z, vx, vy, vz float64,
 // the new arrow, then the weapon's when the two are different items.
 // vanilla: Projectile.applyOnProjectileSpawned
 func (s *Server) arrowSpawnedFrom(it *arrowEntity, ammo, weapon protocol.ItemStack) {
-	if ammo.Empty() {
-		s.arrowSpawned(it, weapon)
+	if !ammo.Empty() && weapon.ItemID == ammo.ItemID {
+		weapon = protocol.ItemStack{}
+	}
+	if len(ammo.Enchantments) == 0 && len(weapon.Enchantments) == 0 {
 		return
 	}
-	s.arrowSpawned(it, ammo)
-	if !weapon.Empty() && weapon.ItemID != ammo.ItemID {
-		s.arrowSpawned(it, weapon)
-	}
+	p := spawnedProjectile{w: it.w, typ: it.entityType, body: it}
+	s.projectileSpawned(ammo, p)
+	s.projectileSpawned(weapon, p)
 }
 
-// arrowSpawned runs the item's projectile_spawned effects at the new arrow.
-func (s *Server) arrowSpawned(it *arrowEntity, item protocol.ItemStack) {
+// spawnedProjectile is the projectile a projectile_spawned walk runs at.
+type spawnedProjectile struct {
+	w    *world.World
+	typ  int32
+	body spawnedBody
+}
+
+// spawnedBody reads a projectile under its kind's lock, which the caller
+// must not hold.
+type spawnedBody interface {
+	// spawnedTarget is the body as it stands now.
+	spawnedTarget(s *Server) enchantTarget
+	// spawnedSnapshot freezes the body for a requirement; nil once it is gone.
+	spawnedSnapshot(s *Server) *entitySnapshot
+}
+
+// spawnedIgniter is a spawnedBody an ignite effect sets burning.
+type spawnedIgniter interface {
+	ignite(s *Server, ticks int32)
+}
+
+func (it *arrowEntity) spawnedTarget(s *Server) enchantTarget {
+	s.arrowsMu.Lock()
+	defer s.arrowsMu.Unlock()
 	a := it.arrow
-	ctx := s.spawnedContext(it.w, [3]float64{a.X, a.Y, a.Z}, it.entityType, func() *rules.LootEntity {
-		snap := s.arrowSnapshot(it, nil)
-		if snap == nil {
-			return &rules.LootEntity{Type: arrowTypeName(it)}
-		}
-		return snapshotLoot(snap)()
-	})
-	s.projectileSpawned(it.w, item, enchantTarget{uuid: it.uuid, x: a.X, y: a.Y, z: a.Z, width: .5, height: .5, entityID: a.ID, causeID: a.OwnerID},
-		ctx, func(ticks int32) {
-			s.arrowsMu.Lock()
-			a.FireTicks = max(a.FireTicks, int(ticks))
-			s.arrowsMu.Unlock()
-		})
+	return enchantTarget{uuid: it.uuid, x: a.X, y: a.Y, z: a.Z, width: .5, height: .5, entityID: a.ID, causeID: a.OwnerID}
+}
+
+func (it *arrowEntity) spawnedSnapshot(s *Server) *entitySnapshot {
+	s.arrowsMu.Lock()
+	defer s.arrowsMu.Unlock()
+	return s.arrowSnapshot(it, nil)
+}
+
+func (it *arrowEntity) ignite(s *Server, ticks int32) {
+	s.arrowsMu.Lock()
+	it.arrow.FireTicks = max(it.arrow.FireTicks, int(ticks))
+	s.arrowsMu.Unlock()
 }
 
 // spawnedContext is the context a projectile_spawned requirement reads: the
-// projectile as "this" and its position as the origin.
+// projectile as "this" and where it stands now as the origin.
 // vanilla: Enchantment.entityContext
-func (s *Server) spawnedContext(w *world.World, at [3]float64, typ int32, body func() *rules.LootEntity) *rules.EnchContext {
+func (s *Server) spawnedContext(p spawnedProjectile) *rules.EnchContext {
+	t := p.body.spawnedTarget(s)
+	origin := [3]float64{t.x, t.y, t.z}
 	return &rules.EnchContext{
-		Victim: typ,
+		Victim: p.typ,
 		Rand:   s.levelRng,
-		BodyOf: body,
-		LocationOf: func(ctx *rules.EnchContext) {
-			fillEnchLocation(ctx, w, at[0], at[1], at[2])
+		BodyOf: func() *rules.LootEntity {
+			if load := snapshotLoot(p.body.spawnedSnapshot(s)); load != nil {
+				return load()
+			}
+			return &rules.LootEntity{Type: registry.EntityType(p.typ).Name()}
+		},
+		Place: func(this bool) rules.EnchPlace {
+			at := origin
+			if this {
+				t := p.body.spawnedTarget(s)
+				at = [3]float64{t.x, t.y, t.z}
+			}
+			return enchPlaceAt(p.w, at[0], at[1], at[2])
 		},
 		LootWorld: func(loot *rules.LootContext) {
-			s.fillBlowWorld(w, loot, at)
+			s.fillLootOrigin(p.w, loot, origin)
 		},
 	}
 }
 
-// projectileSpawned runs the item's projectile_spawned effects at a new
-// projectile in order; ignite, when not nil, sets the projectile's burn.
+// projectileSpawned runs the item's projectile_spawned effects at the
+// projectile in order, each where the projectile stands when it runs.
 // vanilla: EnchantmentHelper.onProjectileSpawned
-func (s *Server) projectileSpawned(w *world.World, item protocol.ItemStack, body enchantTarget, ctx *rules.EnchContext, ignite func(ticks int32)) {
-	rules.VisitProjectileSpawned(item, ctx, func(e rules.LeveledEffect) {
-		if ignite != nil && e.Effect.Duration != nil {
-			ignite(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Effect.Duration, e.Level))))
+func (s *Server) projectileSpawned(item protocol.ItemStack, p spawnedProjectile) {
+	if len(item.Enchantments) == 0 {
+		return
+	}
+	rules.VisitProjectileSpawned(item, func() *rules.EnchContext { return s.spawnedContext(p) }, func(e rules.LeveledEffect) {
+		if ig, ok := p.body.(spawnedIgniter); ok && e.Effect.Duration != nil {
+			ig.ignite(s, rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Effect.Duration, e.Level))))
 		}
-		s.applyPackEffects(w, e.Effect, e.Level, body)
+		s.applyPackEffects(p.w, e.Effect, e.Level, p.body.spawnedTarget(s))
 	})
 }
 
@@ -691,7 +729,7 @@ func (s *Server) spawnTrident(w *world.World, x, y, z, vx, vy, vz float64,
 	it.arrow.Yaw, it.arrow.Pitch = yaw, pitch
 	it.arrow.Foil = tridentFoil(&stack)
 	if s.launchArrow(it) {
-		s.arrowSpawned(it, stack)
+		s.arrowSpawnedFrom(it, protocol.ItemStack{}, stack)
 	}
 	return it.arrow.ID
 }
@@ -1084,7 +1122,7 @@ func (s *Server) spawnMobShot(shot mobShot) {
 		it.arrow.PierceLevel = rules.PiercingLevel(shot.weapon, protocol.ItemStack{ItemID: int32(registry.ItemArrow), Count: 1}, &rules.EnchContext{Rand: s.levelRng})
 	}
 	if s.launchArrow(it) {
-		s.arrowSpawned(it, shot.weapon)
+		s.arrowSpawnedFrom(it, protocol.ItemStack{}, shot.weapon)
 	}
 }
 

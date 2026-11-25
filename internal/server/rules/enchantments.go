@@ -56,10 +56,11 @@ type EnchContext struct {
 	// "this" that asks after movement, ground contact or age.
 	Body  *LootEntity
 	World BlockAt
-	// LocationOf sets Thundering, CanSeeSky and Block on the first
-	// condition that reads them, so a walk whose entries never test the
-	// location does not read the world.
-	LocationOf func(*EnchContext)
+	// Place, when set, reads the weather, sky and block a location
+	// condition tests each time one asks: at the origin, or at "this"'s
+	// current position when this is set. Nil tests Thundering, CanSeeSky
+	// and Block.
+	Place func(this bool) EnchPlace
 	// BodyOf builds Body on the first predicate that reads it, so a walk
 	// whose entries never test the body does not snapshot it.
 	BodyOf func() *LootEntity
@@ -69,6 +70,12 @@ type EnchContext struct {
 	// LootWorld fills the level and origin of a loot condition's context;
 	// nil leaves them unset.
 	LootWorld func(*LootContext)
+}
+
+// EnchPlace is the weather, sky and block a location condition reads.
+type EnchPlace struct {
+	Thundering, CanSeeSky bool
+	Block                 registry.Block
 }
 
 // EnchUser is the state an entity_properties "this" test reads on the body
@@ -203,10 +210,9 @@ func enchCondition(c *registry.EnchCondition, ctx *EnchContext) bool {
 	}
 	switch c.Kind {
 	case registry.EnchCondWeatherCheck:
-		ctx.location()
-		return c.Thundering == nil || *c.Thundering == ctx.Thundering
+		return c.Thundering == nil || *c.Thundering == ctx.place(false).Thundering
 	case registry.EnchCondLocationCheck:
-		return enchLocationMatches(c, ctx)
+		return enchLocationMatches(c, ctx.place(false))
 	case registry.EnchCondMatchTool:
 		// Vanilla's MatchTool: no tool in the context refuses, as does a
 		// tool outside the predicate's item set.
@@ -257,7 +263,8 @@ func enchCondition(c *registry.EnchCondition, ctx *EnchContext) bool {
 				(c.MinFallDistance == nil || ctx.DirectAttackerFallDistance >= *c.MinFallDistance)
 		}
 		if c.CanSeeSky != nil || c.BlockTag != "" {
-			return c.Entity == "this" && enchLocationMatches(c, ctx)
+			// vanilla: EntityLocationPredicate reads the entity's own position
+			return c.Entity == "this" && enchLocationMatches(c, ctx.place(true))
 		}
 		if c.EntityTypeTag != "" {
 			return registry.EntityTypeInTag(entity, c.EntityTypeTag)
@@ -314,18 +321,17 @@ func enchEntityStateMatches(s *registry.EnchEntityState, u *EnchUser) bool {
 	return s.FoodMin == nil || u.Food >= *s.FoodMin
 }
 
-// location runs LocationOf once.
-func (ctx *EnchContext) location() {
-	if f := ctx.LocationOf; f != nil {
-		ctx.LocationOf = nil
-		f(ctx)
+// place is where a location condition reads, at the origin or at "this".
+func (ctx *EnchContext) place(this bool) EnchPlace {
+	if ctx.Place != nil {
+		return ctx.Place(this)
 	}
+	return EnchPlace{Thundering: ctx.Thundering, CanSeeSky: ctx.CanSeeSky, Block: ctx.Block}
 }
 
-func enchLocationMatches(c *registry.EnchCondition, ctx *EnchContext) bool {
-	ctx.location()
-	return (c.CanSeeSky == nil || *c.CanSeeSky == ctx.CanSeeSky) &&
-		(c.BlockTag == "" || ctx.Block.InTag(registry.BlockTagOf(c.BlockTag)))
+func enchLocationMatches(c *registry.EnchCondition, at EnchPlace) bool {
+	return (c.CanSeeSky == nil || *c.CanSeeSky == at.CanSeeSky) &&
+		(c.BlockTag == "" || at.Block.InTag(registry.BlockTagOf(c.BlockTag)))
 }
 
 // TridentHitEffects reads the thrown weapon's summon and sound effects for a landed hit.
@@ -766,18 +772,28 @@ type LeveledEffect struct {
 
 // VisitProjectileSpawned tests the item's projectile_spawned entries one at a
 // time, each at its enchantment's level, and calls visit for each that passes
-// before the next is tested, so a requirement reads the projectile as the
-// earlier effects left it.
-// vanilla: EnchantmentHelper.onProjectileSpawned, Enchantment.applyEffects
-func VisitProjectileSpawned(weapon protocol.ItemStack, ctx *EnchContext, visit func(LeveledEffect)) {
-	for _, ench := range enchantsOn(weapon) {
-		here := *ctx
-		here.Level = ench.level
-		for _, spawned := range ench.def.Effects.ProjectileSpawned {
-			here.Body = nil
-			if enchCondition(spawned.Requires, &here) {
-				visit(LeveledEffect{ench.level, spawned.Effect})
+// before the next is tested, so a requirement reads the projectile and the
+// world as the earlier effects left them. ctxOf builds the requirement
+// context, its origin where the projectile stands as an enchantment's walk
+// starts; it is not called for an enchantment whose entries require nothing.
+// vanilla: EnchantmentHelper.onProjectileSpawned, Enchantment.onProjectileSpawned
+func VisitProjectileSpawned(item protocol.ItemStack, ctxOf func() *EnchContext, visit func(LeveledEffect)) {
+	var enchBuf [4]enchInstance
+	for _, ench := range enchantsOnInto(enchBuf[:0], item) {
+		entries := ench.def.Effects.ProjectileSpawned
+		var ctx *EnchContext
+		if slices.ContainsFunc(entries, func(e registry.EnchSpawned) bool { return e.Requires != nil }) {
+			ctx = ctxOf()
+			ctx.Level = ench.level
+		}
+		for _, spawned := range entries {
+			if spawned.Requires != nil {
+				ctx.Body = nil
+				if !enchCondition(spawned.Requires, ctx) {
+					continue
+				}
 			}
+			visit(LeveledEffect{ench.level, spawned.Effect})
 		}
 	}
 }

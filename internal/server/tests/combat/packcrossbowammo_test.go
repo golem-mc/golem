@@ -22,6 +22,12 @@ func runFunction(name, requirements string) string {
 	return `{"effect":{"type":"minecraft:run_function","function":"pack:` + name + `"}` + requirements + `}`
 }
 
+// replaceWith is a replace_block effect writing block at the projectile.
+func replaceWith(block, requirements string) string {
+	return `{"effect":{"type":"minecraft:replace_block","block_state":{"type":"minecraft:simple_state_provider","state":{"id":"minecraft:` +
+		block + `"}}}` + requirements + `}`
+}
+
 // ammoPack has the enchantments pk:weapon and pk:ammo, whose functions tag the
 // projectile "weapon" or "ammo", and pk:flame, which ignites it for 100 s.
 // The ammo function also tags an arrow that is not yet burning "cold"; "typed"
@@ -39,6 +45,11 @@ func ammoPack(t *testing.T) string {
 		"data/pk/enchantment/sky.json": spawnEnchantment(runFunction("sky", `,"requirements":{"type":"minecraft:location_check","predicate":{"can_see_sky":true}}`)),
 		"data/pk/enchantment/moved.json": spawnEnchantment(runFunction("move", "") + "," +
 			runFunction("aftermove", `,"requirements":{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Pos:[5.5d,64.0d,0.5d]}"}}`)),
+		"data/pk/enchantment/retarget.json": spawnEnchantment(runFunction("move", "") + "," + replaceWith("gold_block", "")),
+		"data/pk/enchantment/restone.json": spawnEnchantment(
+			replaceWith("stone", `,"requirements":{"type":"minecraft:location_check","predicate":{"block":{"blocks":"#minecraft:air"}}}`) + "," +
+				runFunction("onstone", `,"requirements":{"type":"minecraft:location_check","predicate":{"block":{"blocks":"#minecraft:base_stone_overworld"}}}`)),
+		"data/pack/function/onstone.mcfunction":     "tag @s add onstone\n",
 		"data/pack/function/sky.mcfunction":         "tag @s add sky\n",
 		"data/pack/function/move.mcfunction":        "tp @s 5 64 0\n",
 		"data/pack/function/aftermove.mcfunction":   "tag @s add aftermove\n",
@@ -162,5 +173,25 @@ func TestCrossbowRocketRequirementSeesMove(t *testing.T) {
 	srv := fireLoadedWith(t, "pk:weapon", "minecraft:firework_rocket", "pk:moved")
 	if !hasEntity(srv, "type=firework_rocket,tag=aftermove") {
 		t.Error("the requirement read the rocket at its old position")
+	}
+}
+
+// A block effect after a teleport writes where the projectile now stands.
+// vanilla: Enchantment.onProjectileSpawned, ReplaceBlock.apply
+func TestCrossbowSpawnEffectReplacesAtMovedProjectile(t *testing.T) {
+	for _, item := range []string{"minecraft:arrow", "minecraft:firework_rocket"} {
+		srv := fireLoadedWith(t, "pk:weapon", item, "pk:retarget")
+		if !executeHolds(srv.RunLine("execute if block 5 64 0 minecraft:gold_block")) {
+			t.Errorf("%s: no gold block where the projectile was moved to", item)
+		}
+	}
+}
+
+// A requirement reads the world as the previous entry left it.
+// vanilla: Enchantment.applyEffects, LocationCheck.test
+func TestCrossbowSpawnRequirementSeesPlacedBlock(t *testing.T) {
+	srv := fireLoadedWith(t, "pk:weapon", "minecraft:arrow", "pk:restone")
+	if !hasEntity(srv, "type=arrow,tag=onstone") {
+		t.Error("the requirement did not see the stone the previous entry placed")
 	}
 }

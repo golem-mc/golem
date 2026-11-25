@@ -880,3 +880,16 @@ func (s *Server) announceBursts(bursts []fireworkBurst) {
 		s.gameEvent(burst.it.w, rules.GameEventExplode, burst.x, burst.y, burst.z, rules.GameEventContext{Player: burst.it.ownerUUID})
 	}
 }
+
+func (it *fireworkEntity) spawnedTarget(s *Server) enchantTarget {
+	s.fireworksMu.Lock()
+	defer s.fireworksMu.Unlock()
+	r := it.rocket
+	return enchantTarget{uuid: it.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25, entityID: r.ID, causeID: it.ownerID}
+}
+
+func (it *fireworkEntity) spawnedSnapshot(s *Server) *entitySnapshot {
+	s.fireworksMu.Lock()
+	defer s.fireworksMu.Unlock()
+	return s.fireworkSnapshot(it, nil)
+}
