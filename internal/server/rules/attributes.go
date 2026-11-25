@@ -235,11 +235,28 @@ func UpdateSupportedEffectAttributes(a *player.Attributes, active []effect.Insta
 	updateEffectAttributes(a, active, func(em effectModifier) bool { return a.Has(em.attribute) })
 }
 
-// HasEffectModifier reports whether any active effect carries an attribute modifier.
-func HasEffectModifier(active []effect.Instance) bool {
-	return slices.ContainsFunc(effectModifiers, func(em effectModifier) bool {
-		return slices.ContainsFunc(active, func(in effect.Instance) bool { return in.ID == em.effect })
-	})
+// HasEffectModifier reports whether the effect carries an attribute modifier.
+func HasEffectModifier(id int32) bool {
+	return slices.ContainsFunc(effectModifiers, func(em effectModifier) bool { return em.effect == id })
+}
+
+// ApplyEffectChange puts on or takes off the one modifier of the changed
+// effect, where the map has its attribute.
+// vanilla: MobEffect.addAttributeModifiers, removeAttributeModifiers
+func ApplyEffectChange(a *player.Attributes, ch effect.Change) {
+	for _, em := range effectModifiers {
+		if em.effect == ch.Instance.ID && a.Has(em.attribute) {
+			em.apply(a, ch.Instance, ch.Kind != effect.Removed)
+		}
+	}
+}
+
+// ApplyActiveEffects puts on the modifiers of the active effects, touching
+// no other effect's.
+func ApplyActiveEffects(a *player.Attributes, active []effect.Instance) {
+	for _, in := range active {
+		ApplyEffectChange(a, effect.Change{Kind: effect.Added, Instance: in})
+	}
 }
 
 // UpdateEffectAttributesOf is UpdateEffectAttributes for the modifiers on one

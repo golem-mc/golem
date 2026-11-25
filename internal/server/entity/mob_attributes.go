@@ -349,6 +349,7 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 		m.syncShulkerArmor(a)
 	}
 	m.SyncSpeedModifiers(a)
+	rules.ApplyActiveEffects(a, m.effects.All())
 	return a
 }
 
@@ -393,10 +394,10 @@ const (
 	modSuffocating = "minecraft:suffocating"
 )
 
-// SyncSpeedModifiers updates the body's movement modifiers and Jump Boost's
-// safe fall distance so the simulation and attribute packets agree.
+// SyncSpeedModifiers updates the body's own movement modifiers so the
+// simulation and attribute packets agree.
 // vanilla: LivingEntity.tryAddFrost, Witch.aiStep, Zombie.tick,
-// EnderMan.setTarget, Strider.setSuffocating, MobEffects.SPEED, SLOWNESS, JUMP_BOOST
+// EnderMan.setTarget, Strider.setSuffocating
 func (m *Mob) SyncSpeedModifiers(a *player.Attributes) {
 	if m.Type == TypeSulfurCube {
 		m.syncSulfurModifiers(a)
@@ -407,7 +408,6 @@ func (m *Mob) SyncSpeedModifiers(a *player.Attributes) {
 	} else {
 		a.RemoveModifier(registry.AttributeMovementSpeed, modFrost)
 	}
-	rules.UpdateSupportedEffectAttributes(a, m.effects.All())
 	switch {
 	case m.IsStrider():
 		if m.StriderCold() {

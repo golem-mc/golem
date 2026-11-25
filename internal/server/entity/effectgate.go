@@ -39,7 +39,9 @@ func (m *Mob) RemoveEffect(id int32) (effect.Change, bool) {
 		}
 	}
 	change, ok := m.LivingEffects.RemoveEffect(id)
-	m.syncEffectAttributes()
+	if ok {
+		m.effectChanged(change, false)
+	}
 	return change, ok
 }
 
@@ -50,7 +52,9 @@ func (m *Mob) ClearEffects() []effect.Change {
 	cause := m.takeEffectCause()
 	if m.EffectGate == nil || !m.EffectGate.Listening() {
 		changes := m.LivingEffects.ClearEffects()
-		m.syncEffectAttributes()
+		for _, ch := range changes {
+			m.effectChanged(ch, false)
+		}
 		return changes
 	}
 	var changes []effect.Change
@@ -61,8 +65,8 @@ func (m *Mob) ClearEffects() []effect.Change {
 		}
 		if ch, ok := m.LivingEffects.RemoveEffect(in.ID); ok {
 			changes = append(changes, ch)
+			m.effectChanged(ch, false)
 		}
 	}
-	m.syncEffectAttributes()
 	return changes
 }

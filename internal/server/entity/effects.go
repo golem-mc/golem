@@ -90,7 +90,9 @@ func (m *Mob) effectsStep(events []MobEvent) []MobEvent {
 	}
 	if len(changes) > 0 {
 		m.effectsChanged()
-		m.syncEffectAttributes()
+		for _, ch := range changes {
+			m.effectChanged(ch, false)
+		}
 		m.clampAbsorption()
 	}
 	return events
@@ -194,29 +196,28 @@ func (m *Mob) AddEffect(in effect.Instance) (effect.Change, bool) {
 		in = edited
 	}
 	change, ok := m.LivingEffects.AddEffect(in)
-	m.syncEffectAttributes()
+	if ok {
+		m.effectChanged(change, true)
+	}
 	return change, ok
 }
 
-// RestoreEffects loads the set from an entity file's active_effects.
-func (m *Mob) RestoreEffects(e effect.Set) {
-	m.LivingEffects.RestoreEffects(e)
-	m.syncEffectAttributes()
-}
-
-// syncEffectAttributes puts every effect's attribute modifiers on the body's
-// map when an effect starts or ends, and trims health to the new maximum. An
-// effect with a modifier gives a body with no map one.
-// vanilla: LivingEntity.onEffectAdded, onEffectsRemoved, MobEffect.addAttributeModifiers
-func (m *Mob) syncEffectAttributes() {
+// effectChanged puts the changed effect's attribute modifier on the body's
+// map and trims health to the new maximum. An added effect with a modifier
+// gives a body with no map one; a tick's notification does not.
+// vanilla: LivingEntity.onEffectAdded, onEffectUpdated, onEffectsRemoved
+func (m *Mob) effectChanged(ch effect.Change, mayBuild bool) {
+	if !rules.HasEffectModifier(ch.Instance.ID) {
+		return
+	}
 	if m.attrs == nil {
-		if !rules.HasEffectModifier(m.effects.All()) {
+		if !mayBuild || ch.Kind == effect.Removed {
 			return
 		}
 		m.SetAttributes(m.BuildAttributes(nbt.List{}))
 	}
-	rules.UpdateSupportedEffectAttributes(m.attrs, m.effects.All())
-	m.Health = min(m.Health, m.healthCap())
+	rules.ApplyEffectChange(m.attrs, ch)
+	m.OnAttributeUpdated()
 }
 
 // AddEffect gives a living body an effect after its type immunity check.
