@@ -66,11 +66,6 @@ func signWaxed(t *testing.T, data nbt.Compound) bool {
 	return waxed != 0
 }
 
-// seePacket is what pumpTicks watches for: one packet id, nothing else.
-func seePacket(id int32) func(int32, []byte) bool {
-	return func(got int32, _ []byte) bool { return got == id }
-}
-
 // placeSignFront stands a player south of the cell x, z holding a sign, and
 // places it on the ground at (x, 64, z) facing them, the position every test
 // in this file wants its signs at. Writing happens in the caller, through
@@ -169,16 +164,19 @@ func TestTheSignsBackSideEditsFromTheBack(t *testing.T) {
 func TestAWaxedSignRefusesAnUpdate(t *testing.T) {
 	t.Parallel()
 	srv, c := signActor(t, "Waxer")
+	servertest.HoldTicks(t, srv)
 
 	placeSignFront(c, "minecraft:oak_sign", 4, 7)
 	c.AwaitOpenSignEditor()
+	// The placement's unwaxed snapshot is sent on the next tick.
+	c.ReadTicks(srv, 1, func(int32, []byte) bool { return false })
 
 	// The honeycomb waxes while the edit is the waxer's own.
 	servertest.GiveHeldItem(c, "minecraft:honeycomb")
 	c.PlaceBlock(4, 64, 7, protocol.FaceTop)
-	_, _, _, beType, data := c.AwaitBlockEntityData()
-	if beType != protocol.BlockEntitySign {
-		t.Fatalf("wax block entity type = %d, want %d", beType, protocol.BlockEntitySign)
+	x, y, z, beType, data := c.AwaitBlockEntityData()
+	if x != 4 || y != 64 || z != 7 || beType != protocol.BlockEntitySign {
+		t.Fatalf("wax block entity at (%d,%d,%d), type %d, want (4,64,7), type %d", x, y, z, beType, protocol.BlockEntitySign)
 	}
 	if !signWaxed(t, data) {
 		t.Fatal("the waxed sign's block entity is not waxed")
@@ -193,24 +191,21 @@ func TestAWaxedSignRefusesAnUpdate(t *testing.T) {
 		t.Errorf("wax sound = %q, want item.honeycomb.wax_on", name)
 	}
 
-	// The flushes of the sign's placement and its wax are still to come:
-	// their block entity data is read past before the update is sent.
-	c.PumpTicks(srv, 3, func(int32, []byte) bool { return false })
+	// Finish the wax interaction's tick before checking for an edit response.
+	c.ReadTicks(srv, 1, func(int32, []byte) bool { return false })
 
 	// The update of a waxed sign is dropped, editor or none.
 	c.SendSignUpdate(4, 64, 7, true, [4]string{"Nope", "Nope", "Nope", "Nope"})
-	if c.PumpTicks(srv, 3, seePacket(protocol.IDPlayBlockEntityData)) {
-		t.Error("a waxed sign answered an update with block entity data")
-	}
+	c.ExpectNoneWithinTicks(srv, 3, servertest.PacketIs(protocol.IDPlayBlockEntityData))
 
 	// A bare hand on the waxed sign wobbles and opens nothing.
+	c.SetCreativeSlot(player.HotbarSlot, protocol.ItemStack{})
+	c.Settle()
 	c.UseBlock(4, 64, 7)
 	if name := c.AwaitSoundName(); name != "minecraft:block.sign.waxed_interact_fail" {
 		t.Errorf("waxed sign click sound = %q, want the wobble", name)
 	}
-	if c.PumpTicks(srv, 3, seePacket(protocol.IDPlayOpenSignEditor)) {
-		t.Error("a waxed sign opened an editor")
-	}
+	c.ExpectNoneWithinTicks(srv, 3, servertest.PacketIs(protocol.IDPlayOpenSignEditor))
 }
 
 // TestApplyingGlowDyeAndWaxToASign runs the items that change what a sign
