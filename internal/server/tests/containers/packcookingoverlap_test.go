@@ -10,15 +10,16 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// cookTicks is the cooking time of both overlap recipes.
-const cookTicks = 10
+// cookTicks is the first overlap recipe's cooking time; the second takes one
+// tick less, so a duration taken from the wrong recipe shows.
+const cookTicks, laterCookTicks = 10, 9
 
 // overlapPack writes two recipes of kind taking bone, the first making a stick
 // and the second, whose other input is string, a bowl.
 func overlapPack(t *testing.T, cfg *config.Config, kind string) {
 	t.Helper()
 	servertest.WritePackFile(t, cfg, "p", "pk/recipe/a.json", `{"type":"minecraft:`+kind+`","ingredient":["minecraft:feather","minecraft:bone"],"cookingtime":10,"result":{"id":"minecraft:stick"}}`)
-	servertest.WritePackFile(t, cfg, "p", "pk/recipe/b.json", `{"type":"minecraft:`+kind+`","ingredient":["minecraft:bone","minecraft:string"],"cookingtime":10,"result":{"id":"minecraft:bowl"}}`)
+	servertest.WritePackFile(t, cfg, "p", "pk/recipe/b.json", `{"type":"minecraft:`+kind+`","ingredient":["minecraft:bone","minecraft:string"],"cookingtime":9,"result":{"id":"minecraft:bowl"}}`)
 }
 
 // vanilla: RecipeManager.createCheck, AbstractFurnaceBlockEntity.setItem, serverTick
@@ -78,9 +79,13 @@ func TestAFurnaceKeepsItsLastMatchingRecipeForOverlappingInputs(t *testing.T) {
 	w.CloseWindow()
 	load(idle, 6, 5)
 	load(primed, 1)
-	servertest.TickBlockEntitiesByHand(srv, cookTicks)
+	servertest.TickBlockEntitiesByHand(srv, laterCookTicks)
 	bowls := bowl
 	bowls.Count = 2
+	if got := output(primed); !got.Equal(bowls) {
+		t.Errorf("a primed furnace's output is %+v after %d ticks, want two bowls from the later recipe's cook time", got, laterCookTicks)
+	}
+	servertest.TickBlockEntitiesByHand(srv, cookTicks-laterCookTicks)
 	if got := output(fresh); !got.Equal(stick) {
 		t.Errorf("an unprimed furnace made %+v, want the first recipe's stick", got)
 	}

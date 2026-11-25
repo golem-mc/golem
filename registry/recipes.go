@@ -333,8 +333,10 @@ func CookingMatchCached(kind string, stack protocol.ItemStack, last *string) *Co
 	if last != nil {
 		// Only a recipe that is not an item's first match needs the hint lookup.
 		if *last != "" && set.cooking[k][i].ID != *last {
-			if j, ok := set.cookingOverlap[k][*last]; ok && slices.Contains(set.cooking[k][j].Ingredient, stack.ItemID) {
-				return &set.cooking[k][j]
+			if j, ok := set.cookingByID[k][*last]; ok {
+				if _, later := set.cookingLater[k][laterMatch{stack.ItemID, j}]; later {
+					return &set.cooking[k][j]
+				}
 			}
 		}
 		*last = set.cooking[k][i].ID

@@ -104,6 +104,9 @@ func (p PackRecipes) Empty() bool {
 	return true
 }
 
+// laterMatch is a cooking recipe that takes an item without being its first match.
+type laterMatch struct{ item, recipe int32 }
+
 // recipeSet is the recipes in force: the built-in tables, or those with the
 // data packs' laid over them. It is replaced whole so a craft never sees half
 // a reload.
@@ -116,9 +119,9 @@ type recipeSet struct {
 	transmute         []TransmuteRecipe
 	dye               []DyeRecipe
 	cooking           [cookingKinds][]CookingRecipe
-	cookingByItem     [cookingKinds][]int32          // first recipe index per item, -1 for none
-	cookingByID       [cookingKinds]map[string]int32 // first recipe index per id
-	cookingOverlap    [cookingKinds]map[string]int32 // byID restricted to recipes that are a later match for some item
+	cookingByItem     [cookingKinds][]int32                 // first recipe index per item, -1 for none
+	cookingByID       [cookingKinds]map[string]int32        // first recipe index per id
+	cookingLater      [cookingKinds]map[laterMatch]struct{} // (item, recipe) pairs where the recipe is not the item's first match
 	smithing          []SmithingTransformRecipe
 	trim              []SmithingTrimRecipe
 	brewing           []BrewingRecipe
@@ -225,7 +228,7 @@ func newRecipeSet(s *recipeSet) *recipeSet {
 		}
 		byID := make(map[string]int32, len(s.cooking[k]))
 		s.cookingByID[k] = byID
-		later := make(map[int32]bool)
+		later := make(map[laterMatch]struct{})
 		for r := range s.cooking[k] {
 			if _, dup := byID[s.cooking[k][r].ID]; !dup {
 				byID[s.cooking[k][r].ID] = int32(r)
@@ -237,17 +240,11 @@ func newRecipeSet(s *recipeSet) *recipeSet {
 				if idx[id] < 0 {
 					idx[id] = int32(r)
 				} else if idx[id] != int32(r) {
-					later[int32(r)] = true
+					later[laterMatch{id, int32(r)}] = struct{}{}
 				}
 			}
 		}
-		overlap := make(map[string]int32)
-		for id, r := range byID {
-			if later[r] {
-				overlap[id] = r
-			}
-		}
-		s.cookingOverlap[k] = overlap
+		s.cookingLater[k] = later
 		s.cookingByItem[k] = idx
 	}
 	s.displayByID = make(map[int32]int, len(s.displays))
