@@ -248,14 +248,15 @@ type mobHerd struct {
 	lootExtra func(*mobHerd, *mobEntity) func(*rules.LootEntity)
 	// records uses stable, one-based slots independent of herd compaction;
 	// freeRecords holds vacant slots. Both are guarded by mobsMu.
-	records      []*mobEntity
-	freeRecords  []int
-	byUUID       map[uuid.UUID]*entity.Mob
-	byID         map[int32]*mobEntity // includes the IDs reserved for dragon parts
-	dragonBodies []*entity.Mob
-	dying        []dyingMob
-	woken        map[world.ChunkPos]struct{}
-	carried      map[world.ChunkPos][]nbt.Tag
+	records            []*mobEntity
+	freeRecords        []int
+	byUUID             map[uuid.UUID]*entity.Mob
+	byID               map[int32]*mobEntity // includes the IDs reserved for dragon parts
+	dragonBodies       []*entity.Mob
+	widePiercingBodies []*entity.Mob
+	dying              []dyingMob
+	woken              map[world.ChunkPos]struct{}
+	carried            map[world.ChunkPos][]nbt.Tag
 	// listed is the chunks whose entity file has to be written when they
 	// leave even empty, or the next load would generate the animals again.
 	listed map[world.ChunkPos]bool
@@ -327,6 +328,9 @@ func (h *mobHerd) remember(ent *mobEntity) {
 				h.byID[ent.mob.ID+1+part] = ent
 			}
 		}
+		if ent.mob.MayExceedPiercingPadding() {
+			h.widePiercingBodies = append(h.widePiercingBodies, ent.mob)
+		}
 	}
 	h.records[slot-1] = ent
 	ent.mob.SetRecordSlot(slot)
@@ -355,6 +359,9 @@ func (h *mobHerd) forget(m *entity.Mob) {
 			for part := range int32(8) {
 				delete(h.byID, m.ID+1+part)
 			}
+		}
+		if m.MayExceedPiercingPadding() {
+			h.widePiercingBodies = slices.DeleteFunc(h.widePiercingBodies, func(wide *entity.Mob) bool { return wide == m })
 		}
 		delete(h.book, m)
 		m.Unfile()
