@@ -2,7 +2,6 @@ package world
 
 import (
 	"fmt"
-	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
@@ -91,16 +90,13 @@ func TestSectionPackedResizeKeepsOldReaders(t *testing.T) {
 	}
 }
 
-// recountReference is the per-cell classification recalcCounts must equal.
-func recountReference(states *[blocksPerSection]uint16) (s section, touches, shapes int32) {
+// recountReference builds a section cell by cell, the path recalcCounts must equal.
+func recountReference(states *[blocksPerSection]uint16) *section {
+	var s section
 	for i, state := range states {
-		s.countState(state, 1, &touches, &shapes)
-		if kind := sculkCellKindOf(registry.BlockOf(state)); kind != noSculkCell {
-			cells := s.sculkList(kind)
-			*cells = append(*cells, uint16(i))
-		}
+		s.set(i, state, false)
 	}
-	return s, touches, shapes
+	return &s
 }
 
 func TestRecalcCountsMatchesPerCell(t *testing.T) {
@@ -116,17 +112,8 @@ func TestRecalcCountsMatchesPerCell(t *testing.T) {
 	check := func(t *testing.T, s *section, states *[blocksPerSection]uint16) {
 		t.Helper()
 		s.recalcCounts()
-		want, touches, shapes := recountReference(states)
-		if s.ticking != want.ticking || s.emitting != want.emitting || s.colliding != want.colliding ||
-			s.rods != want.rods || s.eggs != want.eggs || s.portals != want.portals ||
-			s.pois != want.pois || s.comparators != want.comparators ||
-			s.touches.Load() != touches || s.shapes.Load() != shapes {
+		if want := recountReference(states); !sameCounts(s, want) {
 			t.Fatalf("counts differ: got %+v want %+v", s, want)
-		}
-		for _, kind := range []sculkCellKind{vibrationListenerCell, sculkCatalystCell} {
-			if !slices.Equal(s.sculkCells(kind), want.sculkCells(kind)) {
-				t.Fatalf("sculk kind %d: got %v want %v", kind, s.sculkCells(kind), want.sculkCells(kind))
-			}
 		}
 	}
 	for _, n := range []int{1, 2, 5, 16, 17, 33, 65, 129, 257, 600} {
@@ -178,7 +165,25 @@ func TestRecalcCountsMatchesPerCell(t *testing.T) {
 		if blocks.bits != 6 || blocks.used < 40 {
 			t.Fatalf("bits=%d used=%d", blocks.bits, blocks.used)
 		}
-		blocks.words[len(blocks.words)-1] |= ^uint64(0) << ((blocksPerSection - (len(blocks.words)-1)*blocks.perWord) * blocks.bits)
+		// Fill the unused complete slots of the last word with stone, which
+		// would change every counter if they were read.
+		stone := -1
+		for slot, state := range blocks.palette[:blocks.used] {
+			if uint16(state) == pool[1] {
+				stone = slot
+			}
+		}
+		if stone < 0 {
+			t.Fatal("stone not in palette")
+		}
+		last := len(blocks.words) - 1
+		for i := blocksPerSection; i < len(blocks.words)*blocks.perWord; i++ {
+			shift := (i - last*blocks.perWord) * blocks.bits
+			blocks.words[last] |= uint64(stone) << shift
+		}
+		if len(blocks.words)*blocks.perWord == blocksPerSection {
+			t.Fatal("no padding slots")
+		}
 		check(t, &s, &states)
 	})
 }

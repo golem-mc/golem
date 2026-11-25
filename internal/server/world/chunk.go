@@ -576,16 +576,23 @@ func (s *section) recalcCounts() {
 	s.shapes.Store(0)
 	s.colliding, s.comparators = 0, 0
 	var touches, shapes int32
-	sculk := false
+	var sculk [sculkCellKinds]int
 	blocks := s.blocks.Load()
 	switch {
 	case blocks == nil:
-		if s.countState(s.fill, blocksPerSection, &touches, &shapes) {
-			s.fillSculk(nil)
+		if kind := s.countState(s.fill, blocksPerSection, &touches, &shapes); kind != noSculkCell {
+			cells := make([]uint16, blocksPerSection)
+			for i := range cells {
+				cells[i] = uint16(i)
+			}
+			*s.sculkList(kind) = cells
 		}
 	case blocks.palette == nil:
 		for i := range blocksPerSection {
-			sculk = s.countState(blocks.get(i), 1, &touches, &shapes) || sculk
+			if kind := s.countState(blocks.get(i), 1, &touches, &shapes); kind != noSculkCell {
+				cells := s.sculkList(kind)
+				*cells = append(*cells, uint16(i))
+			}
 		}
 	default:
 		// Same walk as blockWords.unpack, so a padded last word is ignored.
@@ -600,22 +607,22 @@ func (s *section) recalcCounts() {
 		}
 		for slot := range min(blocks.used, len(freq)) {
 			if n := freq[slot]; n > 0 {
-				sculk = s.countState(uint16(blocks.palette[slot]), int(n), &touches, &shapes) || sculk
+				if kind := s.countState(uint16(blocks.palette[slot]), int(n), &touches, &shapes); kind != noSculkCell {
+					sculk[kind] += int(n)
+				}
 			}
 		}
-	}
-	if sculk {
-		var states [blocksPerSection]uint16
-		blocks.unpack(&states)
-		s.fillSculk(&states)
+		if sculk != [sculkCellKinds]int{} {
+			s.indexDecodedSculkCells(blocks, sculk)
+		}
 	}
 	s.touches.Store(touches)
 	s.shapes.Store(shapes)
 }
 
 // countState adds n cells of state to the counters. It reports whether the
-// state is a sculk listener or catalyst, whose cell positions the caller adds.
-func (s *section) countState(state uint16, n int, touches, shapes *int32) bool {
+// state's sculk cell kind, or noSculkCell; the caller lists those cells.
+func (s *section) countState(state uint16, n int, touches, shapes *int32) sculkCellKind {
 	if randomlyTicking(state) {
 		s.ticking += n
 	}
@@ -647,22 +654,7 @@ func (s *section) countState(state uint16, n int, touches, shapes *int32) bool {
 	if isShapeBlock[block] {
 		*shapes += int32(n)
 	}
-	return sculkCellKindOf(block) != noSculkCell
-}
-
-// fillSculk lists listener and catalyst cells in cell order; nil states means
-// every cell holds the section's uniform fill.
-func (s *section) fillSculk(states *[blocksPerSection]uint16) {
-	for i := range blocksPerSection {
-		state := s.fill
-		if states != nil {
-			state = states[i]
-		}
-		if kind := sculkCellKindOf(registry.BlockOf(state)); kind != noSculkCell {
-			cells := s.sculkList(kind)
-			*cells = append(*cells, uint16(i))
-		}
-	}
+	return sculkCellKindOf(block)
 }
 
 // scratchBuffers pools the buffers a payload is built in before it is copied
