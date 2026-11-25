@@ -26,6 +26,80 @@ func (r *fluidPourTestReader) BlockAt(x, y, z int32) uint16 {
 
 func (r *fluidPourTestReader) BoolRule(GameRuleIndex) bool { return r.convert }
 
+// vanilla: FlowingFluid.getNewLiquid
+func TestNewLiquidStopsAtSecondReachableSource(t *testing.T) {
+	const x, y, z = 8, 80, 8
+	neighbors := [4][3]int32{{x, y, z - 1}, {x + 1, y, z}, {x, y, z + 1}, {x - 1, y, z}}
+	below, above := [3]int32{x, y - 1, z}, [3]int32{x, y + 1, z}
+	walledSource, ok := registry.WithProps(registry.BlockOakStairs.DefaultState(),
+		registry.PropValue{P: registry.PropFacing, V: "south"},
+		registry.PropValue{P: registry.PropWaterlogged, V: "true"},
+	)
+	if !ok || !fluidHolding(walledSource).isSource() || passWall(airState, 2, false, walledSource) {
+		t.Fatal("north neighbor must hold a source behind its south face")
+	}
+	for _, fluid := range []struct {
+		name        string
+		kind, other fluidKind
+		flowAmount  int
+	}{
+		{"water", fluidWater, fluidLava, 7},
+		{"lava", fluidLava, fluidWater, 6},
+	} {
+		source := fluidStateAt(fluid.kind, 0)
+		falling := fluidStateAt(fluid.kind, 8)
+		other := fluidStateAt(fluid.other, 0)
+		sourceResult := fluidState{kind: fluid.kind, amount: 8}
+		fallingResult := fluidState{kind: fluid.kind, amount: 8, falling: true}
+		flowResult := fluidState{kind: fluid.kind, amount: fluid.flowAmount}
+		allSources := [4]uint16{source, source, source, source}
+		type liquidCase struct {
+			name       string
+			sides      [4]uint16
+			convert    bool
+			floor, top uint16
+			horizontal int
+			vertical   [][3]int32
+			want       fluidState
+		}
+		cases := []liquidCase{
+			{"solid floor precedes fluid above", allSources, true, stoneState, source, 2, [][3]int32{below}, sourceResult},
+			{"source below", allSources, true, source, airState, 2, [][3]int32{below}, sourceResult},
+			{"conversion disabled", allSources, false, stoneState, airState, 2, [][3]int32{above}, flowResult},
+			{"unsupported", allSources, true, airState, airState, 2, [][3]int32{below, above}, flowResult},
+			{"unsupported with fluid above", allSources, true, airState, source, 2, [][3]int32{below, above}, fallingResult},
+			{"conversion disabled with fluid above", allSources, false, stoneState, source, 2, [][3]int32{above}, fallingResult},
+			{"falling neighbor delays second source", [4]uint16{falling, source, source, airState}, true, stoneState, airState, 3, [][3]int32{below}, sourceResult},
+			{"one matching source", [4]uint16{other, source, falling, airState}, true, stoneState, airState, 4, [][3]int32{above}, flowResult},
+		}
+		if fluid.kind == fluidWater {
+			cases = append(cases,
+				liquidCase{"wall delays second source", [4]uint16{walledSource, source, source, airState}, true, stoneState, airState, 3, [][3]int32{below}, sourceResult},
+				liquidCase{"wall leaves one reachable source", [4]uint16{walledSource, source, airState, airState}, true, stoneState, airState, 4, [][3]int32{above}, flowResult},
+			)
+		}
+		for _, tc := range cases {
+			t.Run(fluid.name+"/"+tc.name, func(t *testing.T) {
+				r := &fluidPourTestReader{
+					convert: tc.convert,
+					cells:   map[[3]int32]uint16{below: tc.floor, above: tc.top},
+				}
+				for i, pos := range neighbors {
+					r.cells[pos] = tc.sides[i]
+				}
+				got := newLiquidAt(r, x, y, z, airState, fluidBehaviours[fluid.kind])
+				if got != tc.want {
+					t.Errorf("center fluid = %+v, want %+v", got, tc.want)
+				}
+				wantReads := slices.Concat(neighbors[:tc.horizontal], tc.vertical)
+				if !slices.Equal(r.reads, wantReads) {
+					t.Errorf("read %v, want %v", r.reads, wantReads)
+				}
+			})
+		}
+	}
+}
+
 func TestDownwardLiquidMatchesNewLiquid(t *testing.T) {
 	waterloggedFence, ok := registry.WithBool(registry.BlockOakFence.DefaultState(), registry.PropWaterlogged, true)
 	if !ok {
