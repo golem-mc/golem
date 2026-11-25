@@ -789,6 +789,9 @@ type Physics struct {
 	// them through takeWake under mu, so one caller never clears another's.
 	effects    []Effect
 	wakePrimes []TNTPrime
+	// physicsAsked holds the answers of one write's BlockPhysicsEvent asks, by
+	// neighbour and written cell, so its wake and shape pass ask once.
+	physicsAsked map[[6]int32]bool
 
 	// rides are the cells of the moving pistons still sweeping, in creation
 	// order.
@@ -912,6 +915,7 @@ func NewPhysics(w *World) *Physics {
 func (p *Physics) takeWake() ([]Effect, []TNTPrime) {
 	effects, primes := p.effects, p.wakePrimes
 	p.effects, p.wakePrimes = nil, nil
+	p.physicsAsked = nil
 	return effects, primes
 }
 
@@ -948,8 +952,11 @@ func (p *Physics) NotifyPlacedHooks(x, y, z int32, oldState uint16) ([]BlockChan
 	}
 	var changes []BlockChange
 	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	p.physicsAsked = nil
 	p.shapePass(x, y, z, oldState, newState, &changes)
+	asked := p.physicsAsked // NotifyPlacedWake is the same write's wake
 	effects, primes := p.takeWake()
+	p.physicsAsked = asked
 	return changes, effects, primes
 }
 
@@ -984,6 +991,7 @@ func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([
 	p.redstoneAfterRemoval(x, y, z, oldState, false, false, &changes)
 	p.containerRemoved(x, y, z, oldState, newState)
 	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	p.physicsAsked = nil
 	if handNew {
 		p.updateAsNeighbor(x, y, z, &changes, true, oldState, newState, [3]int32{})
 		p.wakeNeighbors(x, y, z, newState, newState, &changes)
@@ -1037,6 +1045,7 @@ func (p *Physics) ShapeUpdateNeighbors(x, y, z int32) ([]BlockChange, []Effect, 
 	defer p.mu.Unlock()
 	var changes []BlockChange
 	p.effects, p.wakePrimes = nil, nil
+	p.physicsAsked = nil
 	p.shapeUpdateNeighbors(x, y, z, &changes)
 	effects, primes := p.takeWake()
 	return changes, effects, primes
@@ -1855,11 +1864,8 @@ func (p *Physics) wakeNeighbors(x, y, z int32, old, changed uint16, changes *[]B
 	for _, d := range [6][3]int32{
 		{0, -1, 0}, {0, 1, 0}, {-1, 0, 0}, {1, 0, 0}, {0, 0, -1}, {0, 0, 1},
 	} {
-		if listens {
-			hd := HookDecision{Kind: HookPhysics, X: x + d[0], Y: y + d[1], Z: z + d[2], Old: p.w.BlockAt(x+d[0], y+d[1], z+d[2]), From: [3]int32{x, y, z}}
-			if p.ask(&hd) {
-				continue
-			}
+		if listens && p.physicsVetoed(x+d[0], y+d[1], z+d[2], [3]int32{x, y, z}) {
+			continue
 		}
 		p.updateAsNeighbor(x+d[0], y+d[1], z+d[2], changes, false, old, changed, [3]int32{-d[0], -d[1], -d[2]})
 	}
