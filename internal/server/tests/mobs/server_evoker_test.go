@@ -322,26 +322,23 @@ func TestFangsHurtAMobWithTheJawsAsDirectSource(t *testing.T) {
 // vanilla: EvokerFangs.tick, EntitySectionStorage.forEachAccessibleNonEmptySection
 func TestFangsFindOversizedMobsOnlyThroughTheirSections(t *testing.T) {
 	t.Parallel()
-	srv, connect := servertest.Start(t, servertest.HostileTestConfig())
-	c := connect().Join("Observer")
+	cfg := servertest.HostileTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, _ := servertest.Join(t, cfg, "Observer")
 	servertest.HoldTicks(t, srv)
-	c.MoveToGround(0.5, 64, 0.5, true)
-	for _, tc := range []struct {
-		name string
-		x    float64
-		hurt bool
-	}{{"outside the searched sections", 46.5, false}, {"inside the searched sections", 30.5, true}} {
-		t.Run(tc.name, func(t *testing.T) {
-			ghast := srv.SpawnMob("minecraft:ghast", tc.x, 80, 0.5)
-			srv.SetMobNoAI(ghast)
-			identity, _ := srv.MobUUID(ghast)
-			srv.RunLine("attribute " + identity + " minecraft:scale base set 16")
-			before, _ := srv.MobHealth(ghast)
-			srv.SpawnFangs(16, 80, 0.5, 0)
-			servertest.RunTicks(t, srv, 8)
-			if got, _ := srv.MobHealth(ghast); (got < before) != tc.hurt {
-				t.Errorf("health = %v from %v, want hurt %v", got, before, tc.hurt)
-			}
-		})
+	var ghasts [2]int32
+	for i, x := range []float64{46.5, 30.5} {
+		ghasts[i] = srv.SpawnMob("minecraft:ghast", x, 80, 0.5)
+		srv.SetMobNoAI(ghasts[i])
+		identity, _ := srv.MobUUID(ghasts[i])
+		srv.RunLine("attribute " + identity + " minecraft:scale base set 16")
+	}
+	srv.SpawnFangs(16, 80, 0.5, 0)
+	servertest.RunTicks(t, srv, 8)
+	for i, want := range []float64{10, 4} {
+		got, ok := srv.MobHealth(ghasts[i])
+		if !ok || got != want {
+			t.Errorf("ghast %d health = %v (present %v), want %v", i, got, ok, want)
+		}
 	}
 }
