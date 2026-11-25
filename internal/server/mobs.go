@@ -2418,6 +2418,7 @@ func (s *Server) standMobArriving(dim *dimension, kind entity.MobType, x, y, z f
 	// Grounded only over a block: a blow before the first tick lifts a grounded
 	// spawn, and an airborne one cannot jump a fence before its first fall.
 	m.OnGround = spawnStandsOnGround(dim.w, x, y, z)
+	m.GroundGuess = true
 	ent := &mobEntity{
 		mob:  m,
 		w:    dim.w,
