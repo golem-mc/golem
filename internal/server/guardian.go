@@ -61,20 +61,21 @@ func (s *Server) hurtMobBy(w *world.World, m, source *entity.Mob, amount float64
 	s.hurtMobByThen(w, m, source, amount, damageType, nil)
 }
 
-// hurtMobVia is hurtMobBy for a blow dealt through the entity directID, whose
-// handle direct names to damage listeners even when it is already gone.
-func (s *Server) hurtMobVia(w *world.World, m, source *entity.Mob, directID int32, direct *removedBody, amount float64, damageType registry.DamageType) {
-	s.hurtMobByDirect(w, m, source, directID+1, direct, amount, damageType, nil)
-}
-
 // hurtMobByThen applies a kind's additional push before collecting hurt packets.
 func (s *Server) hurtMobByThen(w *world.World, m, source *entity.Mob, amount float64, damageType registry.DamageType, after func()) {
-	s.hurtMobByDirect(w, m, source, 0, nil, amount, damageType, after)
+	s.hurtMobVia(w, m, source, nil, amount, damageType, after)
 }
 
-// hurtMobByDirect is hurtMobByThen with the direct entity's ID plus one (0 for
-// the source); removed is the direct entity's handle for listeners, nil for none.
-func (s *Server) hurtMobByDirect(w *world.World, m, source *entity.Mob, direct int32, removed *removedBody, amount float64, damageType registry.DamageType, after func()) {
+// directBody is the entity that carried a blow struck through another's cause.
+type directBody struct {
+	id      int32
+	x, z    float64
+	removed *removedBody // handle for listeners when the body is already gone
+}
+
+// hurtMobVia is hurtMobByThen with direct, the body that carried the blow
+// when it is not source: the event names it and the shove points away from it.
+func (s *Server) hurtMobVia(w *world.World, m, source *entity.Mob, direct *directBody, amount float64, damageType registry.DamageType, after func()) {
 	s.mobsMu.Lock()
 	ent := s.herdOf(w).book[m]
 	if ent == nil || m.Dead {
@@ -82,9 +83,9 @@ func (s *Server) hurtMobByDirect(w *world.World, m, source *entity.Mob, direct i
 		return
 	}
 	var landed bool
-	if direct != 0 {
-		s.pendingExploder = removed
-		landed = m.HurtByMobVia(amount, damageType, source, direct-1)
+	if direct != nil {
+		s.pendingExploder = direct.removed
+		landed = m.HurtByMobVia(amount, damageType, source, direct.id, direct.x, direct.z)
 		s.pendingExploder = nil // under mobsMu, which guards it
 	} else {
 		landed = m.HurtByMobAs(amount, damageType, source)
@@ -97,7 +98,11 @@ func (s *Server) hurtMobByDirect(w *world.World, m, source *entity.Mob, direct i
 		}
 		health = ent.syncHealth()
 		cause := causeEntityID(&damageCause{entityID: source.ID})
-		sends = mobHurtToldBy(w, m, damageType, cause, cause, nil)
+		directID := cause
+		if direct != nil {
+			directID = direct.id + 1
+		}
+		sends = mobHurtToldBy(w, m, damageType, cause, directID, nil)
 		sends = append(sends, mobSend{w: w, id: protocol.IDPlaySetEntityMotion,
 			data: entityVelocityPayload(m.ID, m.VX, m.VY, m.VZ)})
 	}

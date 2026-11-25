@@ -128,24 +128,22 @@ func BenchmarkTickOwnedFangsBite(b *testing.B) {
 	}
 }
 
-type fangDamageListener struct{}
-
-func (fangDamageListener) Enable(srv plugin.Server) error {
-	plugin.Listen(srv, func(*plugin.EntityDamageEvent) {})
-	return nil
-}
-func (fangDamageListener) Disable() {}
-
-// BenchmarkTickOwnedFangsBiteLands repeats an evoker's bites that land on
-// unallied cows, each hurt dispatching to an EntityDamageEvent listener.
-func BenchmarkTickOwnedFangsBiteLands(b *testing.B) {
-	s, w := newTrackerBenchServer(b, plugin.Registration{Name: "bench", Plugin: fangDamageListener{}})
-	s.enablePlugins()
-	s.plugins.BindTick() // a listener runs inline on the tick goroutine
-	owner := s.SpawnMob("minecraft:evoker", 17.5, -60, 0.5)
-	for i := range trackerBenchBodies {
+// BenchmarkTickFangsBiteOwned repeats 100 bites by an evoker's fangs on a
+// pig each. Resetting the attack models and the victims is timed identically
+// on both sides, so every pass reaches the bite and every bite lands.
+func BenchmarkTickFangsBiteOwned(b *testing.B) {
+	const count = 100
+	s, w := newTrackerBenchServer(b)
+	owner := s.SpawnMob("minecraft:evoker", 14.5, -60, 14.5)
+	var pigs []*entity.Mob
+	for i := range count {
 		x, z := trackerBenchSpot(i)
-		s.SpawnMob("minecraft:cow", x, -60, z)
+		id := s.SpawnMob("minecraft:pig", x, -60, z)
+		for _, m := range s.herdOf(w).herd {
+			if m.ID == id {
+				pigs = append(pigs, m)
+			}
+		}
 		s.spawnFangs(fangsCast{w: w, owner: owner, x: x, y: -60, z: z})
 	}
 	b.ReportAllocs()
@@ -155,15 +153,9 @@ func BenchmarkTickOwnedFangsBiteLands(b *testing.B) {
 			f := it.fangs
 			it.fangs = entity.NewEvokerFangs(f.ID, f.X, f.Y, f.Z, 0, -7, owner)
 		}
-		s.tickFangs()
-		b.StopTimer()
-		for _, ent := range s.herdOf(w).herd {
-			if ent.Dead {
-				continue
-			}
-			ent.Health = 1000
-			ent.InvulnTicks = 0
+		for _, m := range pigs {
+			m.Health, m.InvulnTicks, m.Dead = m.MaxHealth, 0, false
 		}
-		b.StartTimer()
+		s.tickFangs()
 	}
 }

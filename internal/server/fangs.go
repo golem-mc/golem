@@ -185,8 +185,11 @@ func (s *Server) fangsBite(it fangsEffect) {
 		ownerUUID = ent.uuid
 	}
 	lookup := s.fangsAllyByUUIDLocked
+	// A body is found only through the sections its feet are filed in, however
+	// wide its box. vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+	window := entity.NewSectionWindow(minX, maxX, minY, maxY, minZ, maxZ)
 	for _, m := range h.herd {
-		if m.Dead || m == owner.Mob {
+		if m.Dead || m == owner.Mob || !window.HoldsAt(m.X, m.Y, m.Z) {
 			continue
 		}
 		if owner.Mob != nil && owner.Mob.EvokerFangsDirectAlly(m, ownerUUID) {
@@ -242,7 +245,7 @@ func (s *Server) fangsBite(it fangsEffect) {
 			s.hurtMobPlain(w, m, entity.FangsDamage, rules.DamageTypeMagic)
 			continue
 		}
-		s.hurtMobVia(w, m, owner.Mob, it.id, fang, entity.FangsDamage, rules.DamageTypeIndirectMagic)
+		s.hurtMobVia(w, m, owner.Mob, &directBody{id: it.id, x: it.x, z: it.z, removed: fang}, entity.FangsDamage, rules.DamageTypeIndirectMagic, nil)
 	}
 }
 
