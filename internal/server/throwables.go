@@ -504,6 +504,8 @@ func savedThrownKind(id string) (entity.ThrownKind, bool) {
 		return entity.ThrownWitherSkull, true
 	case "minecraft:shulker_bullet":
 		return entity.ThrownShulkerBullet, true
+	case "minecraft:llama_spit":
+		return entity.ThrownLlamaSpit, true
 	}
 	return 0, false
 }
@@ -536,7 +538,7 @@ func (s *Server) thrownOfTag(w *world.World, compound nbt.Compound) *thrownEntit
 	// A missing or empty Item loads the type's default item.
 	// vanilla: ThrowableItemProjectile.getItem, getDefaultItem
 	stack, ok := storedItemStackOf(compound)
-	if !ok || stack.Empty() {
+	if kind == entity.ThrownLlamaSpit || !ok || stack.Empty() {
 		item, found := registry.ItemID(thrownDefaultItem(kind, string(id)))
 		if !found {
 			return nil

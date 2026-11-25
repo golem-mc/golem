@@ -1845,7 +1845,7 @@ func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known m
 		case "minecraft:snowball", "minecraft:egg", "minecraft:ender_pearl",
 			"minecraft:splash_potion", "minecraft:lingering_potion", "minecraft:experience_bottle",
 			"minecraft:wind_charge", "minecraft:small_fireball", "minecraft:fireball", "minecraft:dragon_fireball",
-			"minecraft:wither_skull", "minecraft:shulker_bullet":
+			"minecraft:wither_skull", "minecraft:shulker_bullet", "minecraft:llama_spit":
 			if ent := s.thrownOfTag(h.w, compound); ent != nil {
 				woken.thrown = append(woken.thrown, ent)
 				known[ent.uuid] = true

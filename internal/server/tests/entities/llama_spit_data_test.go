@@ -1,10 +1,13 @@
 package entities
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/nbt"
 )
 
 // vanilla: LlamaSpit, Projectile.addAdditionalSaveData, Projectile.readAdditionalSaveData
@@ -33,4 +36,45 @@ func TestLlamaSpitHasNoItemData(t *testing.T) {
 	servertest.AwaitSystemChatSaying(t, c, "commands.summon.success")
 	c.ChatCommand("data get entity @e[type=minecraft:llama_spit,tag=loaded,limit=1] Item")
 	c.ExpectCommandFailure(missingItem)
+}
+
+// vanilla: EntityType.LLAMA_SPIT, Projectile.addAdditionalSaveData
+func TestLlamaSpitSurvivesARestart(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelName = t.TempDir()
+	srv, c := servertest.Join(t, cfg, "Tester", servertest.OpsListing(t, "Tester"))
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand("summon minecraft:llama_spit 4.5 70.5 4.5 {NoGravity:1b}")
+	servertest.AwaitSystemChatSaying(t, c, "commands.summon.success")
+	var saved nbt.Compound
+	srv.FlushMobs()
+	servertest.EntityFileIs(t, cfg.LevelName, world.ChunkPos{}, "minecraft:llama_spit", func(tag nbt.Compound) {
+		saved = tag
+		if _, ok := tag["Item"]; ok {
+			t.Error("saved llama spit has an Item")
+		}
+	})
+	c.Disconnect()
+	srv.Shutdown()
+
+	restarted := *cfg
+	againSrv, connect := servertest.Start(t, &restarted, servertest.OpsListing(t, "Tester"))
+	servertest.FreezeUntilHeld(t, againSrv)
+	again := connect().Join("Tester")
+	servertest.HoldTicks(t, againSrv)
+	servertest.UntilTicks(t, againSrv, 20, "saved spit wakes", func() bool {
+		return len(againSrv.SelectedEntities("minecraft:llama_spit")) == 1
+	})
+	again.ChatCommand("data get entity @e[type=minecraft:llama_spit,limit=1] Item")
+	again.ExpectCommandFailure(servertest.CommandErrorMessageForTest("arguments.nbtpath.nothing_found", "Item"))
+	againSrv.FlushMobs()
+	servertest.EntityFileIs(t, cfg.LevelName, world.ChunkPos{}, "minecraft:llama_spit", func(tag nbt.Compound) {
+		if !reflect.DeepEqual(tag["UUID"], saved["UUID"]) || !reflect.DeepEqual(tag["Pos"], saved["Pos"]) {
+			t.Errorf("restored UUID/Pos = %v %v, want %v %v", tag["UUID"], tag["Pos"], saved["UUID"], saved["Pos"])
+		}
+		if _, ok := tag["Item"]; ok {
+			t.Error("restored llama spit has an Item")
+		}
+	})
 }
