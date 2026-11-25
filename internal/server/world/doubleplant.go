@@ -85,32 +85,31 @@ func doublePlantSurvives(w BlockReader, state uint16, x, y, z int32) bool {
 	return below.InTag(registry.TagIDSupportsVegetation)
 }
 
-// doublePlantUpdate answers a two-tall plant's neighbour change, reporting
-// whether it was one: a half whose partner is gone breaks, as does a lower half
-// without ground.
-// vanilla: DoublePlantBlock.updateShape
-func (p *Physics) doublePlantUpdate(x, y, z int32, state uint16, placed bool, from [3]int32, changes *[]BlockChange) bool {
-	block := registry.BlockOf(state)
-	if !block.IsDoublePlant() {
-		return false
-	}
-	if !isDoublePlantState(block, stateIntOr(state, registry.PropAge, 0)) {
-		return false
-	}
-	if placed || from[0] != 0 || from[2] != 0 {
-		return true
-	}
-	half := registry.StateValue(state, registry.PropHalf)
-	lower := half == "lower"
-	if lower == (from[1] == 1) {
+// isDoublePlantHalf reports whether state, of block, is a two-tall plant half;
+// only a pitcher crop's age matters.
+func isDoublePlantHalf(block registry.Block, state uint16) bool {
+	return block.IsDoublePlant() && (block != registry.BlockPitcherCrop || isDoublePlantState(block, stateIntOr(state, registry.PropAge, 0)))
+}
+
+// doublePlantUpdate answers the shape update of a two-tall plant half (state,
+// of block) from the neighbour at from: a half whose partner is gone breaks, as
+// does one that cannot survive. The caller has checked isDoublePlantHalf.
+// vanilla: DoublePlantBlock.updateShape, VegetationBlock.updateShape
+func (p *Physics) doublePlantUpdate(x, y, z int32, block registry.Block, state uint16, from [3]int32, changes *[]BlockChange) {
+	lower := registry.StateValue(state, registry.PropHalf) == "lower"
+	partnerChecked := from[0] == 0 && from[2] == 0 && lower == (from[1] == 1)
+	if partnerChecked {
 		partner := p.w.BlockAt(x, y+from[1], z)
-		if registry.BlockOf(partner) != block || registry.StateValue(partner, registry.PropHalf) == half {
+		if registry.BlockOf(partner) != block || (registry.StateValue(partner, registry.PropHalf) == "lower") == lower {
 			p.breakWithDrop(x, y, z, changes)
+			return
 		}
-		return true
+		if !lower {
+			// The lower partner just found is what the upper half survives on.
+			return
+		}
 	}
-	if lower && from[1] == -1 && !p.w.DoublePlantSurvives(state, x, y, z) {
+	if !p.w.DoublePlantSurvives(state, x, y, z) {
 		p.breakWithDrop(x, y, z, changes)
 	}
-	return true
 }

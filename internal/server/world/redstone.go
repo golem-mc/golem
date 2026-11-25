@@ -724,6 +724,14 @@ func (p *Physics) shapeUpdateBody(x, y, z int32, d [3]int32, changes *[]BlockCha
 		}
 		return
 	}
+	if isDoublePlantHalf(block, state) {
+		// A BlockPhysicsEvent veto of this neighbour covers its shape update too.
+		if p.listens(HookPhysics) && p.physicsVetoed(x, y, z, [3]int32{x - d[0], y - d[1], z - d[2]}) {
+			return
+		}
+		p.doublePlantUpdate(x, y, z, block, state, [3]int32{-d[0], -d[1], -d[2]}, changes)
+		return
+	}
 	// The fruit-facing conversion answers before the stem's support check, and
 	// its write keeps the shape flags: no neighbour wakes.
 	// vanilla: AttachedStemBlock.updateShape, Block.updateOrDestroy
