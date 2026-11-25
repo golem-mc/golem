@@ -1451,18 +1451,20 @@ func (s *Server) tickJukebox(w *world.World, be *world.BlockEntity) {
 	w.Touch(be.X, be.Y, be.Z)
 }
 
-// jukeboxSongNow is the song be plays now, "" for none, and whether be is
-// still in the world. A BLOCK_CHANGE listener runs synchronously and may
-// change or break the record, so a play or stop sent after the event checks
-// this first.
-func jukeboxSongNow(be *world.BlockEntity) (song string, live bool) {
+// jukeboxSongNow is the song be plays now, "" for none, its inventory
+// version and whether be is still in the world. A BLOCK_CHANGE listener runs
+// synchronously and may change or break the record, so a play or stop sent
+// after the event checks this first; a play also requires the version of the
+// write that started it, as a same-song replacement would otherwise play twice.
+func jukeboxSongNow(be *world.BlockEntity) (song string, version uint64, live bool) {
 	be.UseLive(func(b *world.BlockEntity) {
 		live = true
+		version = b.InventoryVersion()
 		if b.JukeboxPlaying() {
 			song, _ = b.JukeboxSong()
 		}
 	})
-	return song, live
+	return song, version, live
 }
 
 // syncJukeboxRecord reconciles a jukebox after a hopper move: an arrived
@@ -1488,9 +1490,13 @@ func (s *Server) syncJukeboxRecord(w *world.World, be *world.BlockEntity) {
 		if hasRecord {
 			return
 		}
-		be.Use(func(b *world.BlockEntity) { b.TicksSinceSongStarted = 0 })
+		var started uint64
+		be.Use(func(b *world.BlockEntity) {
+			b.TicksSinceSongStarted = 0
+			started = b.InventoryVersion()
+		})
 		s.setJukeboxHasRecord(w, be.X, be.Y, be.Z, true)
-		if now, live := jukeboxSongNow(be); live && now == song {
+		if now, version, live := jukeboxSongNow(be); live && now == song && version == started {
 			s.broadcastLevelEvent(w,
 				protocol.WorldEventJukeboxPlay, be.X, be.Y, be.Z, registry.JukeboxSongID(song))
 		}
@@ -1499,7 +1505,7 @@ func (s *Server) syncJukeboxRecord(w *world.World, be *world.BlockEntity) {
 	if hasRecord {
 		be.Use(func(b *world.BlockEntity) { b.TicksSinceSongStarted = -1 })
 		s.setJukeboxHasRecord(w, be.X, be.Y, be.Z, false)
-		if now, live := jukeboxSongNow(be); songSet && live && now == "" {
+		if now, _, live := jukeboxSongNow(be); songSet && live && now == "" {
 			s.broadcastLevelEvent(w,
 				protocol.WorldEventJukeboxStop, be.X, be.Y, be.Z, 0)
 		}

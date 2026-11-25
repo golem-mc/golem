@@ -319,9 +319,11 @@ func (c *client) useJukebox(hand, x, y, z int32) bool {
 	one := held
 	one.Count = 1
 	inserted := false
+	var started uint64
 	be.Use(func(b *world.BlockEntity) {
 		if b.Slots[0].Empty() {
 			b.Put(0, one)
+			started = b.InventoryVersion()
 			// The song starts now; a jukebox loaded without the ticks tag carries -1
 			// and is not playing until this.
 			b.TicksSinceSongStarted = 0
@@ -335,7 +337,7 @@ func (c *client) useJukebox(hand, x, y, z int32) bool {
 	c.awardStat(player.Custom(registry.CustomStatPlayRecord), 1)
 	before := w.BlockAt(x, y, z)
 	c.srv.setJukeboxHasRecord(w, x, y, z, true)
-	if now, live := jukeboxSongNow(be); live && now == song {
+	if now, version, live := jukeboxSongNow(be); live && now == song && version == started {
 		c.srv.broadcastLevelEvent(w,
 			protocol.WorldEventJukeboxPlay, x, y, z, registry.JukeboxSongID(song))
 	}
@@ -366,7 +368,7 @@ func (c *client) ejectJukebox(w *world.World, be *world.BlockEntity, x, y, z int
 		return true
 	}
 	c.srv.setJukeboxHasRecord(w, x, y, z, false)
-	if now, live := jukeboxSongNow(be); playing && live && now == "" {
+	if now, _, live := jukeboxSongNow(be); playing && live && now == "" {
 		c.srv.broadcastLevelEvent(w,
 			protocol.WorldEventJukeboxStop, x, y, z, 0)
 	}

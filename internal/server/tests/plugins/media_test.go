@@ -368,3 +368,37 @@ func TestPluginJukeboxInsertClearedByListenerSendsNoPlay(t *testing.T) {
 		}
 	})
 }
+
+// TestPluginJukeboxInsertReplacedBySameSongSendsOnePlay has the first
+// block_change listener replace the inserted disc with the same song: the
+// client gets the replacement's play only.
+// vanilla: JukeboxSongPlayer.play
+func TestPluginJukeboxInsertReplacedBySameSongSendsOnePlay(t *testing.T) {
+	t.Parallel()
+	var replaced atomic.Bool
+	srv, _, c, _ := jukeboxInsertScene(t, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.GenericGameEvent) {
+			if !jukeboxBlockChange(e) || e.Entity != nil || !replaced.CompareAndSwap(false, true) {
+				return
+			}
+			b, _ := e.World.BlockEntity(plugin.BlockPos{X: 2, Y: 64, Z: 0})
+			b.(plugin.Jukebox).SetRecord(plugin.NewStack(registry.ItemMusicDiscCat, 1))
+		})
+	})
+	ids, payloads := useJukeboxFrozen(t, srv, c)
+	if !replaced.Load() {
+		t.Fatal("the listener did not replace the record")
+	}
+	var events []int32
+	for i, id := range ids {
+		if id != protocol.IDPlayWorldEvent {
+			continue
+		}
+		if event := protocol.NewReader(payloads[i]).ReadI32(); event == protocol.WorldEventJukeboxPlay || event == protocol.WorldEventJukeboxStop {
+			events = append(events, event)
+		}
+	}
+	if len(events) != 1 || events[0] != protocol.WorldEventJukeboxPlay {
+		t.Errorf("jukebox level events %v, want one play (%d)", events, protocol.WorldEventJukeboxPlay)
+	}
+}
