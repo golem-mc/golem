@@ -178,9 +178,9 @@ func (o *openWindow) halves() [][3]int32 {
 }
 
 // shows reports whether the window shows block containers; a chest boat's,
-// a cart's, a plugin's and a virtual one's do not.
+// a cart's, a trade's, a mount's, a plugin's and a virtual one's do not.
 func (o *openWindow) shows() bool {
-	return o.boat == nil && o.cart == nil && o.menu == nil && !o.virtual
+	return o.boat == nil && o.cart == nil && o.menu == nil && o.trader == nil && o.mount == nil && !o.virtual
 }
 
 // covers reports whether the window shows the container at the position;
