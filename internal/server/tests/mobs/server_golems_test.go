@@ -117,6 +117,35 @@ func TestACarvedPumpkinOnSnowBuildsASnowGolem(t *testing.T) {
 	c.ExpectBlockAck()
 }
 
+// vanilla: CarvedPumpkinBlock.trySpawnGolem, BlockPattern.find
+func TestNearbyPumpkinBuildsSnowGolem(t *testing.T) {
+	t.Parallel()
+	srv, c, watcher := golemScene(t, "minecraft:carved_pumpkin")
+	stone := registry.BlockStone.DefaultState()
+	for x := range int32(2) {
+		for z := int32(1); z <= 3; z++ {
+			srv.SetBlock(x, 79, z, stone)
+		}
+	}
+	c.MoveToGround(0.5, 80, 1.5, true)
+	c.Settle()
+	watcher.Settle()
+	servertest.HoldTicks(t, srv)
+
+	srv.SetBlock(1, 82, 3, registry.BlockCarvedPumpkin.DefaultState())
+	snow := registry.BlockSnowBlock.DefaultState()
+	srv.SetBlock(1, 80, 3, snow)
+	srv.SetBlock(1, 81, 3, snow)
+	c.PlaceBlock(0, 79, 3, protocol.FaceTop)
+	spawn := c.ExpectWithinTicks(srv, 2, protocol.IDPlaySpawnEntity)
+	c.Unread(servertest.PushedPacket{Id: protocol.IDPlaySpawnEntity, Data: spawn})
+	pattern := [][3]int32{{1, 82, 3}, {1, 81, 3}, {1, 80, 3}}
+	assertGolemBuild(t, srv, c, watcher, protocol.EntityTypeSnowGolem, 4, float64(float32(0.2)), pattern, pattern[2], 0x10)
+	if got := registry.BlockOf(srv.BlockAt(0, 80, 3)); got != registry.BlockCarvedPumpkin {
+		t.Errorf("the triggering pumpkin's cell holds %v, want a carved pumpkin", got)
+	}
+}
+
 // TestACarvedPumpkinOnIronBuildsAnIronGolem: the T of four iron blocks under
 // the pumpkin, its arms' corner cells left empty; the built golem carries the
 // player-created bit vanilla's trySpawnGolem sets on it.

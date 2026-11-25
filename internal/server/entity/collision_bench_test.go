@@ -36,3 +36,26 @@ func BenchmarkClipMoveFlatGround(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkClipMoveMixedHulls clips a walking box against a tall far hull and
+// a low near one, in both orders, so the obstacle top resets on each.
+func BenchmarkClipMoveMixedHulls(b *testing.B) {
+	pig := AABB{0, 63.6, 0, 0.6, 64.4, 0.6}
+	near := AABB{0.7, 63, 0, 1.7, 64, 1}
+	far := AABB{1.1, 63, 0, 2.1, 66, 1}
+	for _, tc := range []struct {
+		name  string
+		hulls []AABB
+	}{
+		{"far-first", []AABB{far, near}},
+		{"near-first", []AABB{near, far}},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			w := hullWorld{testWorld: newTestWorld(), hulls: tc.hulls}
+			b.ReportAllocs()
+			for b.Loop() {
+				clipMove(w, collideCtx{}, pig, axisX, 1)
+			}
+		})
+	}
+}

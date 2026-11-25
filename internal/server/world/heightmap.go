@@ -29,19 +29,29 @@ func heightmapSolid(state uint16) bool {
 	return registry.BlockOf(state).InTag(registry.TagIDBlocksMotionInHeightmap)
 }
 
+// heightmapTop is the highest y a block can be at in the chunk, or one below
+// the floor when every section in the dimension's band is uniform air. A flat
+// chunk is mostly air, and air above holds nothing.
+// vanilla: ChunkAccess.getHighestSectionPosition
+func (w *World) heightmapTop(c *Chunk) int32 {
+	ceiling := w.dim.minY + w.dim.height - 1
+	for s := (ceiling - worldMinY) / sectionSize; s >= (w.dim.minY-worldMinY)/sectionSize; s-- {
+		if !c.sections[s].isUniform(airState) {
+			return min(ceiling, worldMinY+(s+1)*sectionSize-1)
+		}
+	}
+	return w.dim.minY - 1
+}
+
 // heightmapColumn returns a column's three heightmap values: the highest
 // matching block's height above the floor plus one, 0 for none.
 // vanilla: Heightmap.Types
 func (w *World) heightmapColumn(c *Chunk, lx, lz int32) (surface, motion, noLeaves int32) {
-	top := w.dim.minY + w.dim.height - 1
-	// Start at the highest non-uniform-air section; air above holds nothing and
-	// a flat chunk is mostly air.
-	for s := (top - worldMinY) / sectionSize; s >= 0; s-- {
-		if !c.sections[s].isUniform(airState) {
-			top = min(top, worldMinY+(s+1)*sectionSize-1)
-			break
-		}
-	}
+	return w.heightmapColumnBelow(c, lx, lz, w.heightmapTop(c))
+}
+
+// heightmapColumnBelow is heightmapColumn for a top from heightmapTop.
+func (w *World) heightmapColumnBelow(c *Chunk, lx, lz, top int32) (surface, motion, noLeaves int32) {
 	for y := top; y >= w.dim.minY; y-- {
 		state := c.BlockAt(lx, y, lz)
 		// Unknown states are treated as air.
@@ -104,7 +114,7 @@ func (w *World) highestOf(table *[65536]bool, x, z int32) int32 {
 	if !ok {
 		return empty
 	}
-	for y := w.dim.minY + w.dim.height - 1; y >= w.dim.minY; y-- {
+	for y := w.heightmapTop(loaded.chunk); y >= w.dim.minY; y-- {
 		if table[loaded.chunk.BlockAt(lx, y, lz)] {
 			return y
 		}
@@ -120,9 +130,10 @@ func (w *World) encodeHeightmaps(c *Chunk) []byte {
 	perLong := 64 / bits
 
 	var values [3][sectionSize * sectionSize]uint64
+	top := w.heightmapTop(c)
 	for lx := range int32(sectionSize) {
 		for lz := range int32(sectionSize) {
-			surface, motion, noLeaves := w.heightmapColumn(c, lx, lz)
+			surface, motion, noLeaves := w.heightmapColumnBelow(c, lx, lz, top)
 			i := int(lz*sectionSize + lx) // the fastest-increasing coordinate is x
 			values[0][i] = uint64(surface)
 			values[1][i] = uint64(motion)

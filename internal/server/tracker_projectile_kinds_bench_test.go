@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 
@@ -85,6 +86,41 @@ func BenchmarkTickFireworksTracked(b *testing.B) {
 	b.StopTimer()
 	if n := len(s.fireworks); n != trackerBenchBodies {
 		b.Fatalf("%d rockets after the run, want %d", n, trackerBenchBodies)
+	}
+}
+
+func BenchmarkRegisterUnseenFirework(b *testing.B) {
+	s, w := newBlockBenchServer(b, 0)
+	stack := protocol.ItemStack{ItemID: int32(registry.ItemFireworkRocket), Count: 1}
+	rocket := s.newFirework(w, stack, 0.5, 70, 0.5, 0, uuid.Nil, 0)
+	b.ReportAllocs()
+	for b.Loop() {
+		s.registerFirework(rocket)
+		fireworkTracker.unfile(rocket)
+		s.fireworks = s.fireworks[:0]
+	}
+}
+
+// BenchmarkWholeTickFireworksFrozen measures a frozen tick with and without
+// rockets in range of the connected players.
+func BenchmarkWholeTickFireworksFrozen(b *testing.B) {
+	for _, count := range []int{0, trackerBenchBodies} {
+		b.Run(fmt.Sprintf("%d_rockets", count), func(b *testing.B) {
+			s, _ := newIdlePlayersBenchServer(b, trackerBenchWatchers)
+			s.tickRate.SetFrozen(true)
+			for i := range count {
+				x, z := trackerBenchSpot(i)
+				s.SpawnFireworkAtAngle(x, float64(world.GroundLevel)+5, z, 1.6, 0, 0, 30)
+			}
+			for range 20 {
+				s.tick()
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				s.tick()
+			}
+		})
 	}
 }
 

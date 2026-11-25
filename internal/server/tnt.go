@@ -219,7 +219,7 @@ func (s *Server) tickTNT() {
 		}
 
 		body := tntTracker.body(it)
-		mt := body.schedule(nil)
+		mt := body.schedule(false)
 
 		// This TNT type tracks its own delta, so any velocity change goes
 		// out at once, whatever the schedule says, to the watchers alone,

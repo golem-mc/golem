@@ -114,6 +114,7 @@ func TestACommandTeleportResetsAFallingMannequinMotionForItsWatcher(t *testing.T
 	// One tick at a time: the stop and the sync on the command's gate, nothing
 	// on the tick between, the straight fall on the next gate with a sync, as
 	// the ground flag clears (one step of 0.0784 down).
+	var grounds []bool
 	tick := func() string {
 		var events []string
 		c.ReadTicks(srv, 1, func(packet int32, data []byte) bool {
@@ -131,6 +132,7 @@ func TestACommandTeleportResetsAFallingMannequinMotionForItsWatcher(t *testing.T
 				}
 			case protocol.IDPlayTeleportEntity:
 				if sync := servertest.ParseEntityPositionSync(data); sync.ID == id {
+					grounds = append(grounds, sync.OnGround)
 					if sync.X == 3.5 && sync.Y == 120 && sync.Z == 3.5 {
 						events = append(events, "sync")
 					} else {
@@ -150,6 +152,10 @@ func TestACommandTeleportResetsAFallingMannequinMotionForItsWatcher(t *testing.T
 		if got := tick(); got != want {
 			t.Fatalf("tick %d after the teleport: watcher saw %s, want %s", i, got, want)
 		}
+	}
+	// The destination sync keeps the command's ground flag; the next one is midair.
+	if len(grounds) != 2 || !grounds[0] || grounds[1] {
+		t.Errorf("onGround of the two syncs = %v, want [true false]", grounds)
 	}
 }
 

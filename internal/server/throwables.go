@@ -515,16 +515,11 @@ func thrownIsSaved(it *thrownEntity) bool {
 	return ok
 }
 
-// thrownOfTag builds the thrown body a saved compound describes, or nil for
+// thrownOfTag builds the thrown body of the saved kind and id a compound describes, or nil for
 // one with no place, identity or stack. The owner's entity ID is resolved
 // when the wake registers it.
 // vanilla: ThrowableItemProjectile.readAdditionalSaveData
-func (s *Server) thrownOfTag(w *world.World, compound nbt.Compound) *thrownEntity {
-	id, _ := nbt.Get[nbt.String](compound, "id")
-	kind, ok := savedThrownKind(string(id))
-	if !ok {
-		return nil
-	}
+func (s *Server) thrownOfTag(w *world.World, kind entity.ThrownKind, id string, compound nbt.Compound) *thrownEntity {
 	x, y, z, ok := entityPositionOfTag(compound)
 	if !ok {
 		return nil
@@ -537,7 +532,7 @@ func (s *Server) thrownOfTag(w *world.World, compound nbt.Compound) *thrownEntit
 	// vanilla: ThrowableItemProjectile.getItem, getDefaultItem
 	stack, ok := storedItemStackOf(compound)
 	if !ok || stack.Empty() {
-		item, found := registry.ItemID(thrownDefaultItem(kind, string(id)))
+		item, found := registry.ItemID(thrownDefaultItem(kind, id))
 		if !found {
 			return nil
 		}

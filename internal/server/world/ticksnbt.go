@@ -1,6 +1,9 @@
 package world
 
 import (
+	"cmp"
+	"slices"
+
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -13,6 +16,8 @@ type savedTick struct {
 	x, y, z  int32
 	delay    int32
 	priority int32
+	// seq is the booking order of a snapshot entry, for sorting; not saved.
+	seq int64
 }
 
 // decodeSavedTicks reads block_ticks or fluid_ticks; an entry missing its id or
@@ -70,21 +75,25 @@ type loadedTick struct {
 	fluid bool
 }
 
-// ticksOfChunk is the ticks physics holds for the chunk, set by NewPhysics.
+// ticksOfChunk snapshots the chunk's saved ticks, using the source set by
+// NewPhysics when present.
 // Called with no world lock held: the engine's lock is taken before the
 // world's.
 func (w *World) ticksOfChunk(pos ChunkPos) chunkTicks {
 	w.mu.RLock()
-	source := w.tickSource
-	w.mu.RUnlock()
-	var out chunkTicks
-	if source != nil {
-		out = source(pos)
+	if source := w.tickSource; source != nil {
+		w.mu.RUnlock()
+		return source(pos)
 	}
-	// Ticks read from the file and not yet taken by the engine still belong to
-	// the chunk.
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	out := w.loadedTicksOfChunk(pos)
+	w.mu.RUnlock()
+	return out
+}
+
+// loadedTicksOfChunk copies the ticks still waiting for physics to adopt
+// them. The caller holds w.mu.
+func (w *World) loadedTicksOfChunk(pos ChunkPos) chunkTicks {
+	var out chunkTicks
 	for _, t := range w.pendingLoaded {
 		if t.x>>4 != pos.X || t.z>>4 != pos.Z {
 			continue
@@ -150,30 +159,27 @@ func (w *World) prepareTick(x, z int32, dirty, takeLoaded bool) (loaded []loaded
 // them; piston-event entries are block events, not ticks, and are not saved.
 func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	var out chunkTicks
+	// Snapshot both lists under p.mu so adoption cannot move an entry
+	// between the two reads. The loaded entries retain their file order
+	// and precede any new bookings.
+	p.w.mu.RLock()
+	out := p.w.loadedTicksOfChunk(pos)
+	p.w.mu.RUnlock()
+	pendingBlocks, pendingFluids := len(out.block), len(out.fluid)
 	add := func(t scheduledTick) {
-		if t.pos.x>>4 != pos.X || t.pos.z>>4 != pos.Z || p.tickCancelled(t) {
-			return
-		}
-		if !isTickEvent(t.event) {
+		if t.pos.x>>4 != pos.X || t.pos.z>>4 != pos.Z || p.tickCancelled(t) || !isTickEvent(t.event) {
 			return
 		}
 		st := savedTick{
 			x: t.pos.x, y: t.pos.y, z: t.pos.z,
-			delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority),
+			delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority), seq: t.seq,
 		}
 		if t.fluid != 0 {
 			st.id = t.fluid.name()
 			out.fluid = append(out.fluid, st)
 			return
 		}
-		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
-		name, _, ok := registry.BlockStateName(state)
-		if !ok {
-			return
-		}
-		st.id = name
+		st.id = bookedBlockName(t)
 		out.block = append(out.block, st)
 	}
 	for _, t := range p.queue {
@@ -182,6 +188,15 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 	for _, t := range p.parked[pos] {
 		add(t)
 	}
+	p.mu.Unlock()
+	// The heap's backing slice is in heap order, not booking order; the
+	// reload hands out sub-tick order from the saved list, and due and
+	// priority are restored from each entry. Sorted after the unlock so
+	// Physics.Tick is not held up.
+	// vanilla: LevelChunkTicks.pack
+	bySeq := func(a, b savedTick) int { return cmp.Compare(a.seq, b.seq) }
+	slices.SortFunc(out.block[pendingBlocks:], bySeq)
+	slices.SortFunc(out.fluid[pendingFluids:], bySeq)
 	return out
 }
 
@@ -191,7 +206,7 @@ func isTickEvent(event uint8) bool {
 	switch event {
 	case 0, leafTickEvent, coralTickEvent, redstoneTickEvent, sculkTickEvent, lightningRodTickEvent,
 		driedGhastHydrationEvent, frogspawnHatchEvent, snifferEggHatchEvent, cauldronDripEvent, survivalTickEvent,
-		scaffoldingTickEvent:
+		scaffoldingTickEvent, dirtPathTickEvent, farmlandTickEvent:
 		return true
 	}
 	return false
@@ -303,16 +318,30 @@ func (p *Physics) discardUnloadedTicks(unloaded []ChunkPos) {
 }
 
 // adoptBlockTick books a block tick for the block named id at a cell holding
-// state, tagged and booked as that block's own ticks are; it is dropped when
-// the cell holds another block, as vanilla's tick would find one. Runs under
-// p.mu.
-// vanilla: ServerLevel.tickBlock
+// state, tagged and booked as that block's own ticks are; apart from a soil
+// block's, which dispatch checks, it is dropped when the cell holds another
+// block. Runs under p.mu.
 func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int64, priority int) {
+	// vanilla: TickPriority.byValue clamps an out-of-range saved priority.
+	priority = max(tickPriorityExtremelyHigh, min(priority, 3))
+	// vanilla: ServerLevel.tickBlock checks the cell's block against the booked type.
+	switch id {
+	case registry.BlockDirtPath.Name():
+		p.scheduleSoil(registry.BlockDirtPath, x, y, z, due, priority)
+		return
+	case registry.BlockFarmland.Name():
+		p.scheduleSoil(registry.BlockFarmland, x, y, z, due, priority)
+		return
+	}
 	name, _, ok := registry.BlockStateName(state)
 	if !ok || name != id {
 		return
 	}
 	switch block := registry.BlockOf(state); {
+	case block == registry.BlockMovingPiston:
+		// A ride's landing whatever priority it was saved at.
+		// vanilla: PistonMovingBlockEntity.tick
+		p.schedulePistonFinalize(x, y, z, due)
 	case block == registry.BlockFrogspawn:
 		p.scheduleBooked(p.frogspawnBooked, x, y, z, due, frogspawnHatchEvent)
 	case block == registry.BlockSnifferEgg:
@@ -361,6 +390,10 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 		delete(p.leafBooked, t.pos)
 	case scaffoldingTickEvent:
 		delete(p.scaffoldingBooked, t.pos)
+	case dirtPathTickEvent:
+		delete(p.dirtPathBooked, t.pos)
+	case farmlandTickEvent:
+		delete(p.farmlandBooked, t.pos)
 	case coralTickEvent:
 		delete(p.coralBooked, t.pos)
 	case redstoneTickEvent:
@@ -377,10 +410,11 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 			delete(p.fluidBooked, fluidBook{t.pos, t.fluid})
 			return
 		}
-		delete(p.pending, t.pos)
 		if t.priority == tickPriorityFinalize {
 			delete(p.finalizeSeq, t.pos)
+			return
 		}
+		delete(p.pending, t.pos)
 	default:
 		delete(p.pendingEvent, t.pos)
 	}

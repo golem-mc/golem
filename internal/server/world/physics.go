@@ -71,17 +71,19 @@ var updateShapeOrder = [6][3]int32{
 }
 
 // TickPriority ranks, smaller more urgent: among ticks due the same instant the
-// higher priority runs first. The two below the block ticks are the piston
-// passes: vanilla drains block events after the scheduled-tick pass, and block
-// entities (moving pistons landing) after the events, so both wait for every
-// block tick of their game tick, the landing after the events.
+// higher priority runs first. Block ticks use vanilla's -3..3; the two after
+// them are the piston passes, outside that range so no saved or copied tick
+// takes one: vanilla drains block events after the scheduled-tick pass, and
+// block entities (moving pistons landing) after the events, so both wait for
+// every block tick of their game tick, the landing after the events.
+// vanilla: TickPriority
 const (
 	tickPriorityExtremelyHigh = -3
 	tickPriorityVeryHigh      = -2
 	tickPriorityHigh          = -1
 	tickPriorityNormal        = 0
-	tickPriorityEvent         = 1
-	tickPriorityFinalize      = 2
+	tickPriorityEvent         = 4
+	tickPriorityFinalize      = 5
 )
 
 // fluidKind numbers the two fluids; the zero value is no fluid, what every
@@ -504,6 +506,9 @@ type scheduledTick struct {
 	event    uint8
 	// fluid is the booked fluid type of a fluid visit, zero for any other.
 	fluid fluidType
+	// block is the block a block tick was booked for (air is a valid type);
+	// vanilla's ScheduledTick keeps the type it was booked for.
+	block registry.Block
 }
 
 // tickQueue orders ticks by due time, then priority (smaller more urgent), then
@@ -674,6 +679,11 @@ type Physics struct {
 	// waterlogged leaf's fluid tick so neither delays the other. Set when
 	// booked, cleared when run.
 	leafBooked map[blockKey]bool
+	// dirtPathBooked marks dirt paths with a tick booked, apart from the
+	// pending visit a replaced farmland leaves at the same position.
+	dirtPathBooked map[blockKey]bool
+	// farmlandBooked is the same for farmland.
+	farmlandBooked map[blockKey]bool
 	// scaffoldingBooked keeps stability visits apart from fluid visits.
 	scaffoldingBooked map[blockKey]bool
 
@@ -876,6 +886,8 @@ func NewPhysics(w *World) *Physics {
 		cauldronBooked:      make(map[blockKey]bool),
 		leafBooked:          make(map[blockKey]bool),
 		scaffoldingBooked:   make(map[blockKey]bool),
+		dirtPathBooked:      make(map[blockKey]bool),
+		farmlandBooked:      make(map[blockKey]bool),
 		coralBooked:         make(map[blockKey]bool),
 		redstoneBooked:      make(map[blockKey]bool),
 		sculkBooked:         make(map[blockKey]bool),
@@ -1161,7 +1173,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 	// due visits. Each carries the tick it was made in, so the comparator's
 	// delay runs from then, not from this drain.
 	for _, c := range p.w.takeContainerChanges() {
-		p.containerChanged(c.pos[0], c.pos[1], c.pos[2], c.tick)
+		p.analogOutputChanged(c.pos[0], c.pos[1], c.pos[2], c.tick)
 	}
 
 	// Generated ticks and fluid post-processing visits run on
@@ -1229,6 +1241,10 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			delete(p.leafBooked, next.pos)
 		case scaffoldingTickEvent:
 			delete(p.scaffoldingBooked, next.pos)
+		case dirtPathTickEvent:
+			delete(p.dirtPathBooked, next.pos)
+		case farmlandTickEvent:
+			delete(p.farmlandBooked, next.pos)
 		case coralTickEvent:
 			delete(p.coralBooked, next.pos)
 		case redstoneTickEvent:
@@ -1244,7 +1260,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		default:
 			if next.fluid != 0 {
 				delete(p.fluidBooked, fluidBook{next.pos, next.fluid})
-			} else {
+			} else if next.priority != tickPriorityFinalize {
 				delete(p.pending, next.pos)
 			}
 		}
@@ -1295,6 +1311,21 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		if next.event == leafTickEvent {
 			blocks++
 			p.leafTick(x, y, z, state, &changes)
+			continue
+		}
+		if next.event == dirtPathTickEvent {
+			blocks++
+			if block == registry.BlockDirtPath {
+				// vanilla: PathBlock.tick
+				p.turnSoilToDirt(x, y, z, &changes, &p.effects)
+			}
+			continue
+		}
+		if next.event == farmlandTickEvent {
+			blocks++
+			if block == registry.BlockFarmland {
+				p.farmlandSurvivalScheduled(x, y, z, &changes)
+			}
 			continue
 		}
 		if next.event == scaffoldingTickEvent {
@@ -1356,16 +1387,6 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		}
 		// The farm families' one-tick deaths, booked by updateShape when
 		// placement or a neighbour change leaves them unable to survive.
-		if block == registry.BlockFarmland {
-			blocks++
-			p.farmlandSurvivalScheduled(x, y, z, &changes)
-			continue
-		}
-		if block == registry.BlockDirtPath {
-			blocks++
-			p.dirtPathSurvivalScheduled(x, y, z, &changes)
-			continue
-		}
 		if block == registry.BlockSugarCane {
 			blocks++
 			p.caneSurvivalScheduled(x, y, z, &changes)
@@ -1470,6 +1491,12 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 			return
 		}
 		p.fluidBooked[book] = struct{}{}
+	} else if priority == tickPriorityFinalize {
+		// A landing is a block-entity tick: it neither waits behind nor holds
+		// back an ordinary block tick of the cell.
+		if _, ok := p.finalizeSeq[key]; ok {
+			return
+		}
 	} else {
 		if p.pending[key] {
 			return
@@ -1477,7 +1504,11 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 		p.pending[key] = true
 	}
 	p.seq++
-	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ})
+	t := scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ}
+	if typ == 0 {
+		t.block = registry.BlockOf(p.w.BlockAt(key.x, key.y, key.z))
+	}
+	p.queue.push(t)
 	if priority == tickPriorityFinalize && typ == 0 {
 		p.finalizeSeq[key] = p.seq
 	}
@@ -1505,13 +1536,10 @@ func (p *Physics) BlockTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) BlockTicks {
 			t.pos.z < loZ || t.pos.z > hiZ {
 			continue
 		}
-		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
 		if t.fluid != 0 {
 			continue
 		}
-		if name, _, ok := registry.BlockStateName(state); ok {
-			out = append(out, boxTick{tick: t, id: name})
-		}
+		out = append(out, boxTick{tick: t, id: bookedBlockName(t)})
 	}
 	p.mu.Unlock()
 	slices.SortFunc(out, func(a, b boxTick) int {
@@ -1578,7 +1606,8 @@ func (p *Physics) allTicks(yield func(scheduledTick) bool) {
 
 // ScheduleBlockTicks books ticks on p offset by (offX, offY, offZ), keeping
 // each one's due tick, priority and order; one whose cell now holds another
-// block is dropped, and a cell with a tick pending keeps its own.
+// block is dropped (a soil block's is not, see adoptBlockTick), and a cell
+// with a tick pending keeps its own.
 // vanilla: LevelTicks.copyAreaFrom
 func (p *Physics) ScheduleBlockTicks(ticks BlockTicks, offX, offY, offZ int32) {
 	p.mu.Lock()
@@ -1623,7 +1652,6 @@ func (p *Physics) schedulePistonFinalize(x, y, z int32, due int64) {
 func (p *Physics) cancelPistonFinalize(x, y, z int32) {
 	key := blockKey{x, y, z}
 	if seq, ok := p.finalizeSeq[key]; ok {
-		delete(p.pending, key)
 		delete(p.finalizeSeq, key)
 		p.cancelled[seq] = struct{}{}
 	}
@@ -1635,6 +1663,24 @@ func (p *Physics) tickCancelled(t scheduledTick) bool {
 	}
 	_, ok := p.cancelled[t.seq]
 	return ok
+}
+
+// hasTickDueAt reports whether the active queue contains a live visit
+// at pos with the requested due tick. Runs under p.mu.
+func (p *Physics) hasTickDueAt(pos blockKey, due int64) bool {
+	return p.hasTickDueIn(0, pos, due)
+}
+
+func (p *Physics) hasTickDueIn(i int, pos blockKey, due int64) bool {
+	// A heap child can only be due at the same time as its parent or later.
+	if i >= len(p.queue) || p.queue[i].due > due {
+		return false
+	}
+	t := p.queue[i]
+	if t.due == due && t.pos == pos && !p.tickCancelled(t) {
+		return true
+	}
+	return p.hasTickDueIn(2*i+1, pos, due) || p.hasTickDueIn(2*i+2, pos, due)
 }
 
 // set writes a block, records the change and runs the position's neighbour
@@ -2036,13 +2082,13 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	// vanilla: Block.updateFromNeighbourShapes, FarmlandBlock.updateShape, PathBlock.updateShape
 	if block == registry.BlockFarmland && (placed || from == [3]int32{0, 1, 0}) {
 		if !farmlandCanSurvive(p.w, x, y, z) {
-			p.schedule(x, y, z, p.now+farmlandTickDelay)
+			p.scheduleSoil(registry.BlockFarmland, x, y, z, p.now+farmlandTickDelay, tickPriorityNormal)
 		}
 		return
 	}
 	if block == registry.BlockDirtPath && (placed || from == [3]int32{0, 1, 0}) {
 		if !dirtPathCanSurvive(p.w, x, y, z) {
-			p.schedule(x, y, z, p.now+dirtPathTickDelay)
+			p.scheduleSoil(registry.BlockDirtPath, x, y, z, p.now+dirtPathTickDelay, tickPriorityNormal)
 		}
 		return
 	}
@@ -2263,21 +2309,19 @@ func newLiquidAt(w fluidSpreadReader, x, y, z int32, state uint16, b fluidBehavi
 		if !passWall(state, axis, positive, ns) {
 			continue
 		}
-		if nfs.isSource() {
-			sources++
-		}
 		if nfs.amount > highest {
 			highest = nfs.amount
 		}
-	}
-	if sources >= 2 && w.BoolRule(b.conversionRule) {
-		// Two sources beside over body-holding ground, or a same-fluid source
-		// below, make an infinite-pool source.
-		belowState := w.BlockAt(x, y-1, z)
-		belowFS := fluidHolding(belowState)
-		if collisionSolid(belowState) || (belowFS.kind == kind && belowFS.isSource()) {
-			return fluidState{kind: kind, amount: 8}
+		if nfs.isSource() {
+			sources++
+			if sources == 2 {
+				// A source already supplies the maximum neighbor amount.
+				break
+			}
 		}
+	}
+	if sources >= 2 && w.BoolRule(b.conversionRule) && supportsFluidSource(w.BlockAt(x, y-1, z), kind) {
+		return fluidState{kind: kind, amount: 8}
 	}
 	if y < worldMinY+worldHeight {
 		aboveState := w.BlockAt(x, y+1, z)
@@ -2290,6 +2334,24 @@ func newLiquidAt(w fluidSpreadReader, x, y, z int32, state uint16, b fluidBehavi
 		return fluidState{}
 	}
 	return fluidState{kind: kind, amount: amount}
+}
+
+func supportsFluidSource(state uint16, kind fluidKind) bool {
+	if collisionSolid(state) {
+		return true
+	}
+	f := blocklogic.FluidOf(state)
+	return f.Kind == kind && f.IsSource()
+}
+
+// The downward face is already open in both directions. With matching fluid
+// above and no support for source conversion, the neighbors cannot affect the
+// level.
+func downwardLiquidAt(w fluidSpreadReader, x, y, z int32, originState, destinationState uint16, b fluidBehaviour) fluidState {
+	if blocklogic.FluidOf(originState).Kind == b.kind && !supportsFluidSource(w.BlockAt(x, y-1, z), b.kind) {
+		return fluidState{kind: b.kind, amount: 8, falling: true}
+	}
+	return newLiquidAt(w, x, y, z, destinationState, b)
 }
 
 // spread pours down first, where the face below is open and the cell will take
@@ -2305,11 +2367,11 @@ func (p *Physics) spread(x, y, z int32, fs fluidState, changes *[]BlockChange) {
 	bx, by, bz := x, y-1, z
 	belowState := p.w.BlockAt(bx, by, bz) // air past the world's floor
 	if canMaybePassThrough(fs.kind, state, 1, false, belowState, fluidHolding(belowState)) {
-		newBelow := newLiquidAt(p.w, bx, by, bz, belowState, p.behaviourOf(fs.kind))
+		newBelow := downwardLiquidAt(p.w, bx, by, bz, state, belowState, p.behaviourOf(fs.kind))
 		if canReplaceWith(p.w, fluidHolding(belowState), bx, by, bz, newBelow.kind, true) &&
 			canHoldSpecific(belowState, newBelow) {
 			p.spreadTo(bx, by, bz, belowState, newBelow, [3]int32{x, y, z}, changes)
-			if p.sourceNeighborCount(x, y, z, fs.kind) >= 3 {
+			if pourSurroundedBySources(p.w, x, y, z, fs.kind) {
 				// Hemmed in by sources on three sides, the pour also floods.
 				p.spreadToSides(x, y, z, state, fs, changes)
 			}
@@ -2445,6 +2507,7 @@ const (
 	cellKnown
 	cellHoleKnown
 	cellHole
+	cellNoAdjacentHole
 )
 
 // cellFlags classifies the state for this spread's fluid and tag snapshot.
@@ -2598,7 +2661,7 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		state          uint16
 		eligible, hole bool
 	}
-	hasHole, anyDiffers := false, false
+	anyDiffers := false
 	eligible := 0
 	for i, d := range horizontal4 {
 		tx, tz := x+d[0], z+d[1]
@@ -2618,14 +2681,24 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		side.state = tState
 		side.held = tFS
 		side.eligible = true
-		side.hole = c.isHole(tx, tz)
-		hasHole = hasHole || side.hole
 		eligible++
 		anyDiffers = anyDiffers || tFS.kind != fs.kind
 	}
 	// Every eligible side already holds this fluid, which no write replaces.
 	if !anyDiffers {
 		return flows, winners
+	}
+	hasHole := false
+	if eligible > 1 {
+		// Already-wet sides can still outrank a side that can receive a write.
+		for i, d := range horizontal4 {
+			side := &sides[i]
+			if !side.eligible {
+				continue
+			}
+			side.hole = c.isHole(x+d[0], z+d[1])
+			hasHole = hasHole || side.hole
+		}
 	}
 	lowest := 1000
 	for i, d := range horizontal4 {
@@ -2684,8 +2757,11 @@ func (c *spreadContext) slopeDistance(i, pass, from, reach int) int {
 	if *failedDepth >= depth {
 		return 1000
 	}
-	lowest := 1000
 	flags := c.flags[i]
+	if depth == 1 && flags&cellNoAdjacentHole != 0 {
+		return 1000
+	}
+	lowest := 1000
 	for d, step := range spreadStep {
 		if d == from {
 			continue
@@ -2722,20 +2798,33 @@ func (c *spreadContext) slopeDistance(i, pass, from, reach int) int {
 	}
 	if lowest == 1000 {
 		*failedDepth = depth
+		// The scan ruled out three exits. Use only cached facts for the skipped face.
+		nf := c.flags[i+spreadStep[from]]
+		if nf&cellKnown != 0 && (nf&cellEnterable == 0 || nf&(cellHoleKnown|cellHole) == cellHoleKnown) {
+			c.flags[i] |= cellNoAdjacentHole
+		}
 	}
 	return lowest
 }
 
-// sourceNeighborCount counts same-fluid sources beside a cell, the hem a pour
-// needs to also flood.
-func (p *Physics) sourceNeighborCount(x, y, z int32, kind fluidKind) int {
-	count := 0
+// vanilla: FlowingFluid.sourceNeighborCount
+func pourSurroundedBySources(w BlockReader, x, y, z int32, kind fluidKind) bool {
+	sources, misses := 0, 0
 	for _, d := range horizontal4 {
-		if fs := fluidHolding(p.w.BlockAt(x+d[0], y, z+d[1])); fs.kind == kind && fs.isSource() {
-			count++
+		f := blocklogic.FluidOf(w.BlockAt(x+d[0], y, z+d[1]))
+		if f.Kind == kind && f.IsSource() {
+			sources++
+			if sources == 3 {
+				return true
+			}
+		} else {
+			misses++
+			if misses == 2 {
+				return false
+			}
 		}
 	}
-	return count
+	return false
 }
 
 // spreadTo writes the flow into a cell. A container takes a water source

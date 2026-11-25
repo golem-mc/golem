@@ -30,7 +30,7 @@ func BenchmarkNaturalSpawnPass(b *testing.B) {
 					passes := []entity.SpawnPass{entity.NewSpawnPass(entity.CategoryMonster, &counts[entity.CategoryMonster], -1), entity.NewSpawnPass(entity.CategoryCreature, &counts[entity.CategoryCreature], -1), entity.NewSpawnPass(entity.CategoryWaterCreature, &counts[entity.CategoryWaterCreature], -1), entity.NewSpawnPass(entity.CategoryUndergroundWater, &counts[entity.CategoryUndergroundWater], -1), entity.NewSpawnPass(entity.CategoryAmbient, &counts[entity.CategoryAmbient], -1), entity.NewSpawnPass(entity.CategoryWaterAmbient, &counts[entity.CategoryWaterAmbient], -1), entity.NewSpawnPass(entity.CategoryAxolotls, &counts[entity.CategoryAxolotls], -1)}
 					var potential entity.SpawnPotential
 					potential.Add(0, 30, 0, 0.7)
-					entity.SpawnNaturally(w, rng, chunks, players, nil, &potential, passes, 289, func(r entity.SpawnRequest) {
+					entity.SpawnNaturally(w, rng, chunks, players, nil, &potential, passes, 289, nil, func(r entity.SpawnRequest) {
 						m := entity.NewMob(r.Type, 1, r.X, r.Y, r.Z, 1)
 						m.FinalizeSpawn(entity.GoDice{Rand: rng}, w.Biome(int32(r.X), int32(r.Y), int32(r.Z)), r.Group, rules.LocalDifficulty{})
 						requests++

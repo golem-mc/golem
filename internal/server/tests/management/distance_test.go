@@ -22,15 +22,17 @@ func TestServerSettingsDistances(t *testing.T) {
 	pos := alex.Pos()
 	cx, cz := world.ChunkOf(pos.X), world.ChunkOf(pos.Z)
 	forgotten := make(map[world.ChunkPos]bool)
-	for x := cx - alex.ChunkRadius; x <= cx+alex.ChunkRadius; x++ {
-		for z := cz - alex.ChunkRadius; z <= cz+alex.ChunkRadius; z++ {
-			if max(abs(x-cx), abs(z-cz)) > 2 {
-				forgotten[world.ChunkPos{X: x, Z: z}] = false
+	centre := world.ChunkPos{X: cx, Z: cz}
+	for x := cx - alex.ChunkRadius - 1; x <= cx+alex.ChunkRadius+1; x++ {
+		for z := cz - alex.ChunkRadius - 1; z <= cz+alex.ChunkRadius+1; z++ {
+			p := world.ChunkPos{X: x, Z: z}
+			if world.InSendView(p, centre, alex.ChunkRadius) && !world.InSendView(p, centre, 2) {
+				forgotten[p] = false
 			}
 		}
 	}
-	if len(forgotten) != 56 {
-		t.Fatalf("join leaves %d chunks outside the view of 2, want 56", len(forgotten))
+	if want := int(servertest.ViewChunks(alex.ChunkRadius) - servertest.ViewChunks(2)); len(forgotten) != want {
+		t.Fatalf("join leaves %d chunks outside the view of 2, want %d", len(forgotten), want)
 	}
 
 	sameJSON(t, "view_distance", result(t, c, "serversettings/view_distance", nil), `10`)
@@ -87,5 +89,3 @@ func TestServerSettingsDistances(t *testing.T) {
 		}
 	}
 }
-
-func abs(v int32) int32 { return max(v, -v) }

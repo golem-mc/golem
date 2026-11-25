@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"math/big"
 	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -35,4 +36,44 @@ func BundleRemoveFirst(bundle protocol.ItemStack) (rest, removed protocol.ItemSt
 	rest = bundle
 	rest.SetBundleContents(slices.Delete(slices.Clone(items), 0, 1))
 	return rest, items[0], true
+}
+
+// BundleAccepts reports whether a stack may be inserted into a bundle. Weighing
+// a stored entry does not check it.
+// vanilla: BundleContents.canItemBeInBundle
+func BundleAccepts(stack protocol.ItemStack) bool {
+	return !stack.Empty() && !registry.Item(stack.ItemID).InTag(registry.ItemTagIDShulkerBoxes)
+}
+
+// BundleItemWeight returns an item's weight inside a bundle, ok false for an
+// empty stack: 1/maxStackSize, any stack carrying bundle_contents 1/16 plus its
+// own contents' weight, a stack with bees inside a whole bundle.
+// vanilla: BundleContents.getWeight
+func BundleItemWeight(stack protocol.ItemStack) (*big.Rat, bool) {
+	if stack.Empty() {
+		return nil, false
+	}
+	if contents, ok := stack.BundleContentsOf(); ok {
+		inner := BundleItemsWeight(contents)
+		return inner.Add(inner, big.NewRat(1, 16)), true
+	}
+	if !stack.Removes(protocol.DataComponentBundleContents) && registry.ItemHasComponentDefault(stack.ItemID, "minecraft:bundle_contents") {
+		return big.NewRat(1, 16), true
+	}
+	if bees, ok := stack.BeesOf(); ok && len(bees) > 0 {
+		return big.NewRat(1, 1), true
+	}
+	return big.NewRat(1, int64(registry.StackMaxStackSize(stack))), true
+}
+
+// BundleItemsWeight returns the total weight of a bundle's stored stacks.
+// vanilla: BundleContents.computeContentWeight
+func BundleItemsWeight(items []protocol.ItemStack) *big.Rat {
+	total := new(big.Rat)
+	for _, item := range items {
+		if weight, ok := BundleItemWeight(item); ok {
+			total.Add(total, weight.Mul(weight, big.NewRat(int64(item.Count), 1)))
+		}
+	}
+	return total
 }

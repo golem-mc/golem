@@ -83,3 +83,36 @@ func BenchmarkFollowParentShouldContinue(b *testing.B) {
 		})
 	}
 }
+
+// TestFollowParentFindsRiderSeatedAcrossCell: a grown cow its pig carries
+// into another push cell during Mobs.Tick is found by a calf at the edge of
+// the search that ticks after them, as the whole-herd scan finds it.
+func TestFollowParentFindsRiderSeatedAcrossCell(t *testing.T) {
+	w := newTestWorld()
+	floor64(w, t)
+	pig := NewMob(TypePig, 2, -0.1, 64, 0.5, 2)
+	pig.OnGround = true
+	pig.VX = 0.4
+	cow := NewMob(TypeCow, 3, -0.1, 64, 0.5, 3)
+	Ride(pig, cow)
+	herd := Mobs{pig, cow}
+	// Enough bodies for the tick to serve searches from the push grid.
+	for i := range villagerGridMinHerd {
+		id := int32(10 + i)
+		herd = append(herd, NewMob(TypeCow, id, 60+float64(i), 64, 60, int64(id)))
+	}
+	calf := NewMob(TypeCow, 1, 8.85, 64, 0.5, 1)
+	calf.BabyAge = -24000
+	calf.ai.goals, calf.ai.running = nil, nil
+	follow := &followParentGoal{m: calf}
+	calf.ai.wire(follow)
+	herd = append(herd, calf)
+
+	herd.Tick(w, nil, nil)
+	if cow.X < 0 {
+		t.Fatalf("the carried cow stayed at X=%v, want it carried across X=0", cow.X)
+	}
+	if follow.parent != cow {
+		t.Fatalf("calf chose %v, want the carried cow", follow.parent)
+	}
+}

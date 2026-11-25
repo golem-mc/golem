@@ -80,6 +80,42 @@ func TestAnOpeningShellPushesTheMobInItsWay(t *testing.T) {
 	}
 }
 
+// hullWorld is a test world whose bodies are the given hulls, in order.
+type hullWorld struct {
+	testWorld
+	hulls []AABB
+}
+
+func (h hullWorld) BodyBoxes(AABB) []AABB { return h.hulls }
+
+// TestAStepUpObstacleFollowsTheNearestHull: a tall far hull met before a low
+// near one (a parked body ahead of a live shell, or the reverse) does not
+// keep its top as the step-up obstacle once the near hull tightens the
+// clamp, in either direction.
+// vanilla: Entity.collide, Shapes.collide
+func TestAStepUpObstacleFollowsTheNearestHull(t *testing.T) {
+	pig := AABB{0, 63.6, 0, 0.6, 64.4, 0.6}
+	for _, dir := range []float64{1, -1} {
+		// near is 0.1 away on the move's axis with top 64; far is 0.5 away
+		// with top 66.
+		near := AABB{0.7, 63, 0, 1.7, 64, 1}
+		far := AABB{1.1, 63, 0, 2.1, 66, 1}
+		mover := pig
+		if dir < 0 {
+			mover = AABB{1.5, 63.6, 0, 2.1, 64.4, 0.6}
+			near = AABB{0.4, 63, 0, 1.4, 64, 1}
+			far = AABB{-0.5, 63, 0, 1, 66, 1}
+		}
+		for _, order := range [][]AABB{{far, near}, {near, far}} {
+			w := hullWorld{testWorld: newTestWorld(), hulls: order}
+			_, top, blocked := clipMove(w, collideCtx{}, mover, 0, dir)
+			if !blocked || top != 64 {
+				t.Errorf("direction %v, hulls %v: step-up obstacle top %v (blocked %v), want 64", dir, order, top, blocked)
+			}
+		}
+	}
+}
+
 // TestAShulkerKeepsItsColourInItsFile: Color is the dye id, 16 for none, and
 // anything past 15 reads as undyed.
 // vanilla: Shulker.readAdditionalSaveData, addAdditionalSaveData

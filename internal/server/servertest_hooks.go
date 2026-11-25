@@ -233,6 +233,10 @@ func (s *Server) StopTick() { s.stopTick() }
 // or after Shutdown, is safe.
 func (s *Server) DisablePlugins() { s.disablePlugins() }
 
+// PluginCallsQueued is signalled when a connection queues a plugin call, so
+// a held test can run the tick that serves it once it is pending.
+func (s *Server) PluginCallsQueued() <-chan struct{} { return s.plugins.CallsQueued() }
+
 // FlushSaves waits for the chunk saves queued in every dimension. Tests call
 // it once they have stopped driving the world, before their world directory is
 // removed, so the removal does not race a save still in flight on the I/O pool.
@@ -408,6 +412,9 @@ func (s *Server) SetLoadedBlock(x, y, z int32, state uint16) {
 	s.world.ReleaseWait(pos, &saves)
 	saves.Wait()
 }
+
+// ForgetLodestoneAnswers drops the overworld's kept lodestone answers.
+func (s *Server) ForgetLodestoneAnswers() { s.world.ForgetLodestones() }
 
 // ScanOverworldBlocks walks the generated overworld inside the block square
 // x0..x1 by z0..z1, between the Y bounds given, and calls visit with the Y
@@ -1023,6 +1030,12 @@ func (s *Server) PlayerHealth(name string) float64 {
 		return c.player.Vitals().Health
 	}
 	return -1
+}
+
+// PlayerHoldsChunks reports whether the named online player keeps chunk tickets.
+func (s *Server) PlayerHoldsChunks(name string) bool {
+	c := s.playerClient(name)
+	return c != nil && c.holdsChunks()
 }
 
 // HoldPlayerUnloaded makes the named player's client count as still loading
@@ -4767,6 +4780,13 @@ func (s *Server) PlayerTrackBetween(between func()) {
 	s.mu.Unlock()
 }
 
+// CorpseExpiryBetween runs between finding an expired corpse and removing it.
+func (s *Server) CorpseExpiryBetween(between func()) {
+	s.mu.Lock()
+	s.corpseExpirySeam = between
+	s.mu.Unlock()
+}
+
 // PlayerSendBetween holds open the window the players' tracking pass leaves
 // between deciding a pairing and sending it, running between there the way a
 // step from another connection would: a spawn the mover's step then doubles,
@@ -4930,6 +4950,14 @@ func (s *Server) SetPhysicsSeed(seed int64) {
 	for _, dim := range s.allDims() {
 		dim.physics.SetSeed(seed)
 	}
+}
+
+// TickProjectiles runs the arrow and rocket passes once, as the main loop
+// runs them. A plugin listener calls it to step a projectile between two of
+// the server's own steps.
+func (s *Server) TickProjectiles() {
+	s.tickArrows()
+	s.tickFireworks()
 }
 
 // TickEntities runs the entity passes the main loop runs after the physics,
@@ -7850,7 +7878,8 @@ func (s *Server) SetMannequinForTest(id int32, health, fall float64) {
 	defer s.mannequinsMu.Unlock()
 	for _, it := range s.mannequins {
 		if it.mannequin.ID == id {
-			it.mannequin.Health, it.mannequin.FallDistance = health, fall
+			it.mannequin.SetHealth(health)
+			it.mannequin.FallDistance = fall
 		}
 	}
 }

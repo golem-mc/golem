@@ -17,6 +17,7 @@ func hopperRefresh(w *world.World, cache *world.HopperTargetCache, x, y, z int32
 		(cache.Paired && cache.PartnerStamp != w.ContainerStamp(cache.Partner[0], cache.Partner[1])) {
 		*cache = world.HopperTargetCache{Known: true, Position: [3]int32{x, y, z}, Stamp: stamp, Tags: tags}
 		state := w.BlockAt(x, y, z)
+		cache.MouthBlocked = world.ContainerMouthBlock(state) || world.HopperBlockedBy(state, registry.CollisionShapeFull(state))
 		if world.IsChestBlock(registry.BlockOf(state)) && registry.StateValue(state, registry.PropType) != "single" {
 			dx, dz := world.ChestPartnerStep(state)
 			cache.Paired = true
