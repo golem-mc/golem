@@ -2524,6 +2524,12 @@ func (c *spreadContext) loadChunk(q uint, cx, cz int32) {
 	}
 }
 
+// quadrant maps a position to its chunk's slot in the 2x2 cache; small enough
+// to inline on the slope search's hot path.
+func (c *spreadContext) quadrant(x, z int32) uint {
+	return uint((x>>4-c.cx0)|(z>>4-c.cz0)<<1) & 3
+}
+
 // index maps a position to its cell, or reports it outside the square.
 func (c *spreadContext) index(x, z int32) (int, bool) {
 	dx, dz := x-c.ox+spreadReach, z-c.oz+spreadReach
@@ -2567,10 +2573,10 @@ func (c *spreadContext) load(i int) {
 	z := c.oz + int32(off[1]) - spreadReach
 	var state uint16
 	if c.world != nil {
-		cx, cz := x>>4, z>>4
-		q := uint((cx-c.cx0)|(cz-c.cz0)<<1) & 3
-		if c.chunksLoaded&(1<<q) == 0 {
-			c.loadChunk(q, cx, cz)
+		q := c.quadrant(x, z)
+		if c.chunksLoaded>>q&1 == 0 {
+			// A missing chunk stays unloaded, which keeps the World.BlockAt fallback.
+			c.loadChunk(q, x>>4, z>>4)
 		}
 		if b := c.topWords[q]; b != nil {
 			state = b.load(c.topYOff | int(z&15)<<4 | int(x&15))
@@ -2582,6 +2588,12 @@ func (c *spreadContext) load(i int) {
 	} else {
 		state = c.w.BlockAt(x, c.y, z)
 	}
+	c.seed(i, state)
+}
+
+// seed stores a cell's state and classification, reusing the last one computed
+// for the same state.
+func (c *spreadContext) seed(i int, state uint16) {
 	c.states[i] = state
 	if c.lastFlags&cellKnown != 0 && state == c.lastState {
 		c.flags[i] = c.lastFlags
@@ -2625,7 +2637,8 @@ func (c *spreadContext) isHole(x, z int32) bool {
 	return c.holeAt(i)
 }
 
-// holeAt caches whether an already loaded cell hangs over a hole.
+// holeAt caches whether a seeded cell hangs over a hole, resolving its chunk
+// if the seed did not.
 func (c *spreadContext) holeAt(i int) bool {
 	if c.flags[i]&cellHoleKnown == 0 {
 		off := spreadOffsets[i]
@@ -2634,7 +2647,11 @@ func (c *spreadContext) holeAt(i int) bool {
 		top := c.states[i]
 		var below uint16
 		if c.world != nil {
-			q := uint((x>>4-c.cx0)|(z>>4-c.cz0)<<1) & 3
+			q := c.quadrant(x, z)
+			if c.chunksLoaded>>q&1 == 0 {
+				// A missing chunk stays unloaded, which keeps the World.BlockAt fallback.
+				c.loadChunk(q, x>>4, z>>4)
+			}
 			if b := c.belowWords[q]; b != nil {
 				below = b.load(c.belowYOff | int(z&15)<<4 | int(x&15))
 			} else if c.chunksLoaded&(1<<q) != 0 {
@@ -2686,9 +2703,6 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 	if gate <= 0 {
 		return flows, winners
 	}
-	var ctx spreadContext
-	ctx.init(w, x, y, z, fs.kind)
-	c := &ctx
 	var sides [4]struct {
 		into, held     fluidState
 		state          uint16
@@ -2698,7 +2712,7 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 	eligible := 0
 	for i, d := range horizontal4 {
 		tx, tz := x+d[0], z+d[1]
-		tState := c.state(tx, tz)
+		tState := w.BlockAt(tx, y, tz)
 		tFS := fluidHolding(tState)
 		axis, positive := faceOf(d[0], d[1])
 		if !canMaybePassThrough(fs.kind, state, axis, positive, tState, tFS) {
@@ -2722,19 +2736,27 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		return flows, winners
 	}
 	hasHole := false
+	var c *spreadContext
 	if eligible > 1 {
-		// Already-wet sides can still outrank a side that can receive a write.
-		for i, d := range horizontal4 {
+		var ctx spreadContext
+		c = &ctx
+		// Only ranking competing sides needs the slope-search cache.
+		c.init(w, x, y, z, fs.kind)
+		// A hole check reads only its own cell and the one below, so seed and
+		// test each side in turn; all are seeded before the recursive search.
+		for i := range horizontal4 {
 			side := &sides[i]
 			if !side.eligible {
 				continue
 			}
-			side.hole = c.isHole(x+d[0], z+d[1])
+			ci := spreadCenter + spreadStep[i]
+			c.seed(ci, side.state)
+			side.hole = c.holeAt(ci)
 			hasHole = hasHole || side.hole
 		}
 	}
 	lowest := 1000
-	for i, d := range horizontal4 {
+	for i := range horizontal4 {
 		side := &sides[i]
 		if !side.eligible || (hasHole && !side.hole) {
 			continue
@@ -2742,8 +2764,7 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		distance := 0
 		// A lone outlet wins at any distance.
 		if !hasHole && eligible > 1 {
-			ti, _ := c.index(x+d[0], z+d[1])
-			distance = c.slopeDistance(ti, 1, i^2, min(b.slopeFindDistance, lowest))
+			distance = c.slopeDistance(spreadCenter+spreadStep[i], 1, i^2, min(b.slopeFindDistance, lowest))
 		}
 		if distance < lowest {
 			winners = [4]bool{}
@@ -2777,6 +2798,9 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 
 // spreadStep follows horizontal4's north, east, south, west order.
 var spreadStep = [4]int{-spreadSide, 1, spreadSide, -1}
+
+// spreadCenter is the origin's cell.
+const spreadCenter = spreadReach*spreadSide + spreadReach
 
 // slopeDistance finds the nearest hole without stepping back. i is a loaded
 // cell in the cached square, which the walk cannot leave; from is the
