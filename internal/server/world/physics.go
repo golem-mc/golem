@@ -952,7 +952,7 @@ func (p *Physics) NotifyPlacedWake(x, y, z int32, oldState uint16) ([]BlockChang
 	newState := p.w.BlockAt(x, y, z)
 	var changes []BlockChange
 	if registry.BlockOf(oldState) != registry.BlockOf(newState) {
-		p.redstoneRemovalReactions(x, y, z, oldState, false, &changes)
+		p.redstoneAfterRemoval(x, y, z, oldState, false, true, &changes)
 		p.containerRemoved(x, y, z, oldState, newState)
 	}
 	p.updateAsNeighbor(x, y, z, &changes, true, oldState, newState, [3]int32{})
@@ -969,7 +969,7 @@ func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([
 		return nil, nil, nil
 	}
 	var changes []BlockChange
-	p.redstoneAfterRemoval(x, y, z, oldState, false, &changes)
+	p.redstoneAfterRemoval(x, y, z, oldState, false, false, &changes)
 	p.containerRemoved(x, y, z, oldState, newState)
 	p.redstoneOnPlace(x, y, z, oldState, &changes)
 	if handNew {

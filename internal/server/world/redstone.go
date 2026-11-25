@@ -163,19 +163,10 @@ const (
 // redstoneAfterRemoval is the affect-neighbours-after-removal half of the wake:
 // a removed wire, torch or powered lever, button or plate wakes what it fed.
 // byPiston is vanilla's movedByPiston: true skips the source wake (a piston's
-// destroy passes false, like every other removal).
-func (p *Physics) redstoneAfterRemoval(x, y, z int32, oldState uint16, byPiston bool, changes *[]BlockChange) {
-	// A removed ride does not land: its block entity vanishes.
-	if registry.BlockOf(oldState) == registry.BlockMovingPiston {
-		p.w.RemoveBlockEntity(x, y, z)
-	}
-	p.redstoneRemovalReactions(x, y, z, oldState, byPiston, changes)
-}
-
-// redstoneRemovalReactions is redstoneAfterRemoval without the ride's block
-// entity cleanup, for a caller whose block write already ran it and loaded a
-// replacement block entity since.
-func (p *Physics) redstoneRemovalReactions(x, y, z int32, oldState uint16, byPiston bool, changes *[]BlockChange) {
+// destroy passes false, like every other removal). entityReplaced says the
+// block write already removed a ride's block entity and may have loaded a
+// replacement's since, so the ride's cleanup must not run again.
+func (p *Physics) redstoneAfterRemoval(x, y, z int32, oldState uint16, byPiston, entityReplaced bool, changes *[]BlockChange) {
 	if int(oldState) >= registry.StateCount {
 		return
 	}
@@ -261,10 +252,14 @@ func (p *Physics) redstoneRemovalReactions(x, y, z int32, oldState uint16, byPis
 			p.breakWithDrop(bx, by, bz, changes)
 		}
 	case oldBlock == registry.BlockMovingPiston:
-		// The still-extended base of a head's ride goes with the ride, as a
-		// player break's destroy hook leaves no extended base. No landing
-		// write: the section write that removed the ride ran first, so the
-		// final tick's moving-piston check finds the cell changed.
+		// A removed ride does not land: its block entity vanishes, and the
+		// still-extended base of a head's ride goes too, as a player break's
+		// destroy hook leaves no extended base. No landing write: the section
+		// write that removed the ride ran first, so the final tick's
+		// moving-piston check finds the cell changed.
+		if !entityReplaced {
+			p.w.RemoveBlockEntity(x, y, z)
+		}
 		bx, by, bz := pistonShift(x, y, z, blocklogic.Opposite(facingOfState(oldState)), 1)
 		if bs := p.w.BlockAt(bx, by, bz); pistonBlocks[registry.BlockOf(bs)] && registry.StateBool(bs, registry.PropExtended) {
 			p.set(bx, by, bz, airState, changes)

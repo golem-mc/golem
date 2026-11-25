@@ -1,6 +1,7 @@
 package blocks
 
 import (
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"testing"
@@ -241,7 +242,9 @@ func TestAShelfSideChainLinksItsPoweredNeighbours(t *testing.T) {
 // vanilla: ServerLevel.updateNeighboursOnBlockSet, ShelfBlock.affectNeighborsAfterRemoval
 func TestASetblockWithATagKeepsAPoweredShelfLinked(t *testing.T) {
 	t.Parallel()
-	srv, c := servertest.AttachActor(t)
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
 	servertest.HoldTicks(t, srv)
 
 	servertest.Setblock(t, c, 3, 64, 5, "redstone_block")
