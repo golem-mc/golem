@@ -341,7 +341,10 @@ func (ctx *lightCtx) runIncreases(iq *lightQueue) {
 		if e.v <= 1 {
 			continue
 		}
-		fromState, _ := ctx.blockAt(e.x, e.y, e.z)
+		fromState := e.statePlusOne - 1
+		if e.statePlusOne == 0 {
+			fromState, _ = ctx.blockAt(e.x, e.y, e.z)
+		}
 		for _, n := range lightNeighbors {
 			nx, ny, nz := e.x+n.dx, e.y+n.dy, e.z+n.dz
 			if !contains(ny) || int(e.layer)&dirBit(n.dir) == 0 {
@@ -367,7 +370,7 @@ func (ctx *lightCtx) runIncreases(iq *lightQueue) {
 			ctx.writeLightNibble(c, layer, si, i, high, cand)
 			// A level-1 cell spreads nothing, so it is written but not queued.
 			if cand > 1 {
-				iq.push(nx, ny, nz, cand, layer|allDirs&^dirBit(n.dir^1))
+				iq.pushWithState(nx, ny, nz, cand, layer|allDirs&^dirBit(n.dir^1), nbState+1)
 			}
 		}
 	}
