@@ -2,6 +2,7 @@ package server
 
 import (
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -38,12 +39,15 @@ func (s *Server) publishPacks(dirs []string) (*loadedFunctions, error) {
 	if lookup := s.preparePackTags(packTags); lookup != nil {
 		layers.SetTags(lookup)
 	}
-	// Before the loot: a table's context provider names resolve against them.
 	ints, floats, err := loadPackContextProviders(dirs, skip)
 	if err != nil {
 		return nil, err
 	}
 	layers.SetContextProviders(ints, floats)
+	// Providers can reference each other and tags from the candidate packs.
+	if err := datapack.ValidatePackContextProviders(layers, ints, floats); err != nil {
+		return nil, err
+	}
 	// Before the loot: a slots entry's source names resolve against them.
 	if err := loadPackSlotSources(layers, dirs, skip); err != nil {
 		return nil, err
@@ -195,21 +199,18 @@ func (p *serverPacks) selectLocked(ids []string) error {
 	return nil
 }
 
-// ReloadAll rescans the pack folders, enables newly found packs, and reloads
-// like Select. vanilla: ReloadCommand.discoverNewPacks
+// ReloadAll rescans and includes packs that the world's last successful
+// reload did not disable. vanilla: ReloadCommand.discoverNewPacks
 func (p *serverPacks) ReloadAll() error {
 	p.srv.packReloadMu.Lock()
 	defer p.srv.packReloadMu.Unlock()
-	known := map[string]bool{}
-	for _, pk := range p.Available() {
-		known[pk.ID] = true
-	}
 	if err := p.Reload(); err != nil {
 		return err
 	}
+	_, disabled, _ := p.srv.world.DataPacks()
 	selected := p.SelectedIDs()
 	for _, pk := range p.Available() {
-		if !known[pk.ID] {
+		if pk.Source == datapack.SourceWorld && !slices.Contains(disabled, pk.ID) && !slices.Contains(selected, pk.ID) {
 			selected = append(selected, pk.ID)
 		}
 	}
