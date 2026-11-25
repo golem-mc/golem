@@ -132,12 +132,13 @@ func putMannequinLabel(b *protocol.Buffer, m *entity.Mannequin) {
 // field with all, the ones off their default without; nil when none is.
 // vanilla: SynchedEntityData.getNonDefaultValues, packDirty
 func mannequinMetadataPayload(ent *mannequinEntity, all bool) []byte {
-	return mannequinFieldsPayload(ent, func(f mannequinField) bool { return all || !f.initial(ent) })
+	return mannequinFieldsPayload(ent, all, func(f mannequinField) bool { return all || !f.initial(ent) })
 }
 
 // mannequinFieldsPayload builds the packet of the fields send picks; nil
-// when it picks none.
-func mannequinFieldsPayload(m *mannequinEntity, send func(mannequinField) bool) []byte {
+// when it picks none. advance moves the tick baseline to what was written, so
+// a read-only snapshot (pairing) leaves pending changes for the tracking pass.
+func mannequinFieldsPayload(m *mannequinEntity, advance bool, send func(mannequinField) bool) []byte {
 	var b protocol.Buffer
 	for _, f := range mannequinFields {
 		if !send(f) {
@@ -148,7 +149,7 @@ func mannequinFieldsPayload(m *mannequinEntity, send func(mannequinField) bool) 
 		}
 		b.PutMetadata(f.index, f.typ)
 		f.put(&b, m)
-		if f.tick != nil && m.metadata != nil {
+		if advance && f.tick != nil && m.metadata != nil {
 			m.metadata[f.index] = f.tick(m)
 		}
 	}
@@ -177,7 +178,7 @@ func mannequinTickMetadata(ent *mannequinEntity) []byte {
 	if ent.metadata == nil {
 		ent.metadata = make(map[uint8]uint64)
 	}
-	return mannequinFieldsPayload(ent, func(f mannequinField) bool {
+	return mannequinFieldsPayload(ent, true, func(f mannequinField) bool {
 		if f.tick == nil {
 			return false
 		}

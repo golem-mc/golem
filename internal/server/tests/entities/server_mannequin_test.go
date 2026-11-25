@@ -470,3 +470,21 @@ func TestAMannequinDamagedToDeathIsRemoved(t *testing.T) {
 		t.Error("a selector still finds the removed mannequin")
 	}
 }
+
+// TestAMannequinPairingLeavesPendingHealthForTheTrackingPass checks that a
+// watcher joining before the tracking pass neither starves the existing
+// watcher of a pending health change nor sees it as stale.
+// vanilla: ServerEntity.addPairing, sendChanges
+func TestAMannequinPairingLeavesPendingHealthForTheTrackingPass(t *testing.T) {
+	t.Parallel()
+	srv, c := joinMannequinOp(t, "Owner")
+	c.ChatCommand("summon minecraft:mannequin ~ ~ ~1")
+	id := awaitMannequin(t, c, srv).id
+	c.ChatCommand("damage @e[type=minecraft:mannequin,limit=1] 1")
+	late := servertest.DialServer(t, srv)
+	late.Join("Late")
+	seen := readMannequinHurt(c, srv, id, 5, func(s *mannequinHurtSeen) bool { return s.healthSent })
+	if !seen.healthSent || seen.health != 19 {
+		t.Errorf("existing watcher health sent=%v value=%v, want 19", seen.healthSent, seen.health)
+	}
+}

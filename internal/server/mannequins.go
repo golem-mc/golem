@@ -80,7 +80,6 @@ func mannequinDirtyAttributes(ent *mannequinEntity) []byte {
 
 // mannequinPairing introduces a mannequin with its metadata and equipment.
 func mannequinPairing(ent *mannequinEntity) []outbound {
-	mannequinTickMetadata(ent)
 	m := ent.mannequin
 	spawn := spawnEntityPayload(spawnEntity{
 		id: m.ID, uuid: ent.uuid, typ: protocol.EntityTypeMannequin,
@@ -113,6 +112,7 @@ func (s *Server) registerMannequin(ent *mannequinEntity) {
 	// The tracker's baseline starts at the spawn velocity, so a later stop is a change.
 	// vanilla: ServerEntity.<init>
 	ent.sentVX, ent.sentVY, ent.sentVZ = ent.mannequin.VX, ent.mannequin.VY, ent.mannequin.VZ
+	mannequinTickMetadata(ent) // seeds the baseline the tracking pass compares against
 	mannequinTracker.register(s, ent)
 }
 
@@ -484,7 +484,7 @@ func (c *client) nameMannequin(target int32, held protocol.ItemStack) bool {
 	visible := ent.custom.visible
 	ent.custom = customNameOfStack(held)
 	ent.custom.visible = visible
-	payload := mannequinFieldsPayload(ent, func(f mannequinField) bool {
+	payload := mannequinFieldsPayload(ent, true, func(f mannequinField) bool {
 		return f.index == protocol.MetadataIndexCustomName
 	})
 	s.mannequinsMu.Unlock()
