@@ -9,19 +9,32 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
-	"github.com/golem-mc/golem/registry"
 )
 
 // Box collision: the per-axis clip against blocks' real collision shapes,
 // and the overlap test for item burial and step-up headroom.
 
 // canStandOn checks the top face for a body that cannot sneak.
-// vanilla: BlockStateBase.entityCanStandOn, ScaffoldingBlock.getCollisionShape
+// vanilla: BlockStateBase.entityCanStandOn
 func canStandOn(state uint16, cellY int32, feetY float64) bool {
-	if registry.BlockOf(state) == registry.BlockScaffolding {
-		return world.BodyAbove(feetY, float64(cellY)+1)
+	return faceFullFor(state, cellY, feetY, faceUp)
+}
+
+// faceFullFor is faceFull for the block at row cellY as a body with its feet
+// at feetY collides with it: scaffolding's shape depends on the feet.
+// vanilla: BlockBehaviour.isFaceFull, ScaffoldingBlock.getCollisionShape
+func faceFullFor(state uint16, cellY int32, feetY float64, face uint8) bool {
+	if boxes, ok := world.ScaffoldingBoxes(state, cellY, feetY); ok {
+		// Only a plate spanning the whole cell can fill a scaffold's top or bottom face.
+		for _, b := range boxes {
+			if b.MinX == 0 && b.MaxX == 1 && b.MinZ == 0 && b.MaxZ == 1 &&
+				(face == faceUp && b.MaxY == 1 || face == faceDown && b.MinY == 0) {
+				return true
+			}
+		}
+		return false
 	}
-	return faceFull(state, faceUp)
+	return faceFull(state, face)
 }
 
 // The axes a clip moves along, the order the box's coordinates index by.
