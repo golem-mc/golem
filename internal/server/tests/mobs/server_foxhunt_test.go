@@ -184,9 +184,14 @@ func TestASnowFoxHuntsCodButNotPufferfish(t *testing.T) {
 			if foxState(t, srv, fox).Variant != 1 {
 				t.Fatal("the fox is not a snow fox")
 			}
+			ticks := 0
 			fish := srv.SpawnMobSeeded(tc.fish, foxX+5, 63.3, 0.5, tc.seed)
 			for range 600 {
 				servertest.RunTicks(t, srv, 1)
+				if !tc.wantDead && srv.MobTargetID(fox) != 0 && ticks < 32 {
+					t.Fatalf("fox targets the pufferfish at tick %d", ticks)
+				}
+				ticks++
 				if !mobAlive(srv, fish) {
 					break
 				}
