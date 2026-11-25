@@ -132,6 +132,11 @@ func MobTarget(id, entityType int32, m *Mob) ArrowTarget {
 	}
 }
 
+// Box is the projectile target's uninflated hitbox.
+func (t *ArrowTarget) Box() AABB {
+	return AABB{t.MinX, t.MinY, t.MinZ, t.MaxX, t.MaxY, t.MaxZ}
+}
+
 // PlayerTarget is a player as an arrow target: the standing 0.6 by 1.8 box,
 // the player entity type ID, and standing eye height. unhittable marks a
 // spectator.
