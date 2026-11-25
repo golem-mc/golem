@@ -40,7 +40,7 @@ func (s *Server) thornsOnOwner(w *world.World, victim *client, ownerID int32, da
 		s.postAttack(w, attackBody{player: owner}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
 	} else if ent := s.mobByEntityIDAnyDim(ownerID); ent != nil {
 		ctx.Attacker = mobEntityType(ent.mob.Type)
-		s.postAttack(w, attackBody{mob: ent.mob}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
+		s.postAttack(w, attackBody{mob: ent.mob, w: ent.w}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
 	}
 }
 

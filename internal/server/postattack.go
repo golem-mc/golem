@@ -17,6 +17,16 @@ type attackBody struct {
 	player    *client
 	mob       *entity.Mob
 	mannequin *mannequinEntity
+	// w is the world a mob body lives in when it is not the hit's; nil means the hit's.
+	w *world.World
+}
+
+// at is the world holding b's body, given the world of the hit.
+func (b attackBody) at(w *world.World) *world.World {
+	if b.w != nil {
+		return b.w
+	}
+	return w
 }
 
 func (s *Server) attackBodyEntity(b attackBody) plugin.Entity {
@@ -39,7 +49,7 @@ func (s *Server) attackBodyEntityLocked(w *world.World, b attackBody) plugin.Ent
 	case b.player != nil:
 		return pluginPlayer{c: b.player}
 	case b.mob != nil:
-		if ent := s.herdOf(w).book[b.mob]; ent != nil {
+		if ent := s.herdOf(b.at(w)).book[b.mob]; ent != nil {
 			return pendingMob{id: ent.uuid}
 		}
 	case b.mannequin != nil:
@@ -61,7 +71,7 @@ func (b attackBody) cause(s *Server, w *world.World) *damageCause {
 	s.mobsMu.Lock()
 	defer s.mobsMu.Unlock()
 	m := b.mob
-	return &damageCause{entityID: m.ID, x: m.X, y: m.Y, z: m.Z, weapon: m.MainHand, killer: s.mobKiller(s.herdOf(w).book[m]), shove: true}
+	return &damageCause{entityID: m.ID, x: m.X, y: m.Y, z: m.Z, weapon: m.MainHand, killer: s.mobKiller(s.herdOf(b.at(w)).book[m]), shove: true}
 }
 
 // postAttack dispatches weapon and victim-equipment actions for a landed hit.
@@ -147,6 +157,9 @@ func (s *Server) postAttack(w *world.World, attacker, victim attackBody, weapon 
 
 func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rules.PostAttackAction, cause *damageCause, when velocitySync) {
 	e := a.Effect
+	// The target's feedback and position effects belong to its own world.
+	hitW := w
+	w = target.at(w)
 	var x, y, z float64
 	var silent bool
 	var body enchantTarget
@@ -235,7 +248,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			}
 		}
 		if e.Duration != nil {
-			m.IgniteForTicksBy(int(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level)))), entity.CombustSource{By: s.attackBodyEntityLocked(w, owner)})
+			m.IgniteForTicksBy(int(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level)))), entity.CombustSource{By: s.attackBodyEntityLocked(hitW, owner)})
 		}
 		if i := e.ApplyImpulse; i != nil {
 			impulse := rules.LookImpulse(float32(m.Yaw), float32(m.Pitch), i.CoordinateScale, float64(rules.EnchLevelValueAt(i.Magnitude, a.Level)))
@@ -291,7 +304,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 		}
 	}
 	if e.ChangeItemDamage != nil {
-		s.wearPostAttack(w, owner, a.Piece, int32(rules.EnchLevelValueAt(e.ChangeItemDamage, a.Level)))
+		s.wearPostAttack(hitW, owner, a.Piece, int32(rules.EnchLevelValueAt(e.ChangeItemDamage, a.Level)))
 	}
 }
 
@@ -334,7 +347,7 @@ func (s *Server) wearPostAttack(w *world.World, owner attackBody, piece int, amo
 		id := owner.mob.ID
 		s.mobsMu.Unlock()
 		if status != 0 {
-			s.broadcastWorld(w, protocol.IDPlayEntityEvent, entityEventPayload(id, status))
+			s.broadcastWorld(owner.at(w), protocol.IDPlayEntityEvent, entityEventPayload(id, status))
 		}
 	}
 }
@@ -366,7 +379,7 @@ func (s *Server) bindBlowLoot(w *world.World, ctx *rules.EnchContext, attacker, 
 					s.mobsMu.Lock()
 					defer s.mobsMu.Unlock()
 				}
-				if ent := s.herdOf(w).book[b.mob]; ent != nil {
+				if ent := s.herdOf(b.at(w)).book[b.mob]; ent != nil {
 					return s.mobLootLocked(ent)
 				}
 				return nil

@@ -104,6 +104,7 @@ func (s *Server) registerFangs(it *fangsEntity) {
 type fangsEffect struct {
 	w         *world.World
 	id, owner int32
+	ownerUUID uuid.UUID
 	x, y, z   float64
 }
 
@@ -127,7 +128,7 @@ func (s *Server) tickFangs() {
 		if spike || bite {
 			// The effects must not read a command's concurrent position or owner write.
 			f := it.fangs
-			at := fangsEffect{w: it.w, id: f.ID, owner: f.OwnerID, x: f.X, y: f.Y, z: f.Z}
+			at := fangsEffect{w: it.w, id: f.ID, owner: f.OwnerID, ownerUUID: it.ownerUUID, x: f.X, y: f.Y, z: f.Z}
 			if spike {
 				fx.spikes = append(fx.spikes, at)
 			}
@@ -179,14 +180,15 @@ func (s *Server) fangsBite(it fangsEffect) {
 	h := s.herdOf(w)
 	owner := entity.AllianceMember{}
 	var ownerUUID uuid.UUID
-	// An ID reserved for a dragon part maps to its parent, which is not that ID's mob.
-	// The owner may be loaded in another dimension. vanilla: ServerLevel.getEntity
+	ownerID := it.owner
 	ownerW := w
-	ent, dim := s.mobByEntityIDAnyDimLocked(it.owner)
-	if ent != nil && !ent.mob.Dead && !ent.mob.Discarded() {
+	// The owner is found by identity: a dimension transfer gives it a new entity ID.
+	// vanilla: EntityReference.getEntity
+	if ent, dim := s.mobByUUIDAnyDimLocked(it.ownerUUID, w); ent != nil {
+		ownerW = dim.w
 		owner = entity.AllianceMember{Mob: ent.mob, Team: ent.mob.Team}
 		ownerUUID = ent.uuid
-		ownerW = dim.w
+		ownerID = ent.mob.ID
 	}
 	lookup := s.fangsAllyByUUIDLocked
 	var victims []*entity.Mob
@@ -264,14 +266,14 @@ func (s *Server) fangsBite(it fangsEffect) {
 		if allied {
 			continue
 		}
-		cause := &damageCause{entityID: it.owner, directID: it.id + 1, x: it.x, y: it.y, z: it.z,
-			killer: s.entityKiller(ownerW, it.owner)}
+		cause := &damageCause{entityID: ownerID, directID: it.id + 1, x: it.x, y: it.y, z: it.z,
+			killer: s.entityKiller(ownerW, ownerID)}
 		damage := rules.ScaledWithDifficulty(entity.FangsDamage, w.Difficulty())
 		if landed, softened := c.hurt(damage, rules.DamageTypeIndirectMagic, cause); landed {
 			if !softened {
 				c.knockbackFromPoint(w, it.x, it.y, it.z, syncVelocityAfterTravel)
 			}
-			s.thornsOnOwner(w, c, it.owner, rules.DamageTypeIndirectMagic, -1)
+			s.thornsOnOwner(w, c, ownerID, rules.DamageTypeIndirectMagic, -1)
 		}
 	}
 	for _, m := range victims {

@@ -2639,6 +2639,32 @@ func (s *Server) mobByEntityIDAnyDimLocked(id int32) (*mobEntity, *dimension) {
 	return nil, nil
 }
 
+// mobByUUIDAnyDimLocked finds a live mob by identity, looking in first before
+// the other dimensions, with its dimension. The caller holds mobsMu.
+// vanilla: ServerLevel.getEntity(UUID), Entity.level().getServer().getLevel
+func (s *Server) mobByUUIDAnyDimLocked(id uuid.UUID, first *world.World) (*mobEntity, *dimension) {
+	if id == uuid.Nil {
+		return nil, nil
+	}
+	find := func(dim *dimension) *mobEntity {
+		if m := dim.mobs.byUUID[id]; m != nil && !m.Dead && !m.Discarded() {
+			return dim.mobs.book[m]
+		}
+		return nil
+	}
+	if d := s.dimensionOfWorld(first); d != nil {
+		if ent := find(d); ent != nil {
+			return ent, d
+		}
+	}
+	for _, dim := range s.allDims() {
+		if ent := find(dim); ent != nil {
+			return ent, dim
+		}
+	}
+	return nil, nil
+}
+
 // mobNameByID is the display name of the mob with this ID in w, false for
 // none. Read under mobsMu, which guards name tag names.
 func (s *Server) mobNameByID(w *world.World, id int32) (string, bool) {

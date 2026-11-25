@@ -7483,6 +7483,12 @@ func (s *Server) SpawnFangs(x, y, z float64, ownerID int32) {
 	s.spawnFangs(fangsCast{w: s.world, owner: ownerID, x: x, y: y, z: z, warmup: 0})
 }
 
+// SpawnFangsWarmup raises fangs that bite after the warmup in ticks, owned by
+// the mob with the ID given.
+func (s *Server) SpawnFangsWarmup(x, y, z float64, ownerID int32, warmup int) {
+	s.spawnFangs(fangsCast{w: s.world, owner: ownerID, x: x, y: y, z: z, warmup: warmup})
+}
+
 // RunWindBurst bursts a wind charge at the centre given, owned by nobody.
 func (s *Server) RunWindBurst(x, y, z float64) {
 	s.burstWindCharge(windBurst{w: s.world, x: x, y: y, z: z, rng: rand.New(rand.NewSource(1))})
