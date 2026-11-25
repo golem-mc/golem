@@ -682,8 +682,7 @@ func (w *World) holdLocked(pos ChunkPos) *Chunk {
 // world lock so chunks prepare in parallel without holding readers up.
 func (w *World) readyChunk(pos ChunkPos) (*Chunk, *[16][16]int32, bool) {
 	c, err := w.loadChunk(pos)
-	var old *unsupportedVersionError
-	if errors.As(err, &old) {
+	if old, ok := errors.AsType[*unsupportedVersionError](err); ok {
 		// Terrain generated over the stored chunk would hide it from the
 		// player; the record stays on disk (marked unreadable, never saved).
 		if !w.oldVersionLogged.Swap(true) {

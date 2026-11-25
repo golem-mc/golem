@@ -1,6 +1,7 @@
 package world
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/golem-mc/golem/nbt"
@@ -38,10 +39,8 @@ func isLegacyStack(entries nbt.Compound) bool {
 func holdsUnfixableItem(tag nbt.Tag) bool {
 	switch v := tag.(type) {
 	case nbt.List:
-		for _, item := range v.Items {
-			if holdsUnfixableItem(item) {
-				return true
-			}
+		if slices.ContainsFunc(v.Items, holdsUnfixableItem) {
+			return true
 		}
 	case nbt.CompoundTag:
 		entries := v.Entries()
