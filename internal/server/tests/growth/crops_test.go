@@ -457,13 +457,13 @@ func TestAFallingPlayerTramplesFarmland(t *testing.T) {
 	}
 }
 
-// landingChanges drops the player from (x, 74, z) to y 64 and returns the
+// landingChanges drops the player from (x, 74, z) to y and returns the
 // block changes the landing sends, read at the connection barrier with the
 // loop stopped.
-func landingChanges(t *testing.T, srv *server.Server, c *servertest.Client, x, z float64) map[[3]int32]uint16 {
+func landingChanges(t *testing.T, srv *server.Server, c *servertest.Client, x, y, z float64) map[[3]int32]uint16 {
 	t.Helper()
 	c.MoveTo(x, 74, z, 0, 0)
-	c.MoveTo(x, 64, z, 0, 0)
+	c.MoveTo(x, y, z, 0, 0)
 	got := map[[3]int32]uint16{}
 	c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
 		for _, ch := range servertest.BlockChangesIn(t, id, data) {
@@ -486,7 +486,7 @@ func TestAPlayerTramplesTheFarmlandUnderAnEdgeLanding(t *testing.T) {
 	servertest.SetFarmBlock(t, c, srv, 0, 64, 0, "minecraft:wheat", map[string]string{"age": "7"})
 	servertest.SetFarmBlock(t, c, srv, 1, 63, 0, "minecraft:air", nil)
 
-	got := landingChanges(t, srv, c, 1.125, 0.5)
+	got := landingChanges(t, srv, c, 1.125, farmlandTop, 0.5)
 
 	dirt := servertest.CropsStateOf(t, "minecraft:dirt", nil)
 	air := servertest.CropsStateOf(t, "minecraft:air", nil)
@@ -501,9 +501,13 @@ func TestAPlayerTramplesTheFarmlandUnderAnEdgeLanding(t *testing.T) {
 	}
 }
 
+// farmlandTop is the farmland's collision height over its cell's floor, 15/16.
+const farmlandTop = 63.9375
+
 // TestAPlayerKeepsFarmlandBesideTheStoneItLandsOn checks a corner landing
-// whose feet overlap farmland and stone: the stone is nearer the centre and
-// supports the player, so the farmland and its crop stay.
+// whose feet overlap farmland and stone: the farmland's shape stops below
+// the feet, so the stone supports the player and the farmland and its crop
+// stay.
 func TestAPlayerKeepsFarmlandBesideTheStoneItLandsOn(t *testing.T) {
 	t.Parallel()
 	srv, c := servertest.Join(t, servertest.SurvivalConfig(), "Camper", servertest.OpsListing(t, "Camper"))
@@ -514,11 +518,35 @@ func TestAPlayerKeepsFarmlandBesideTheStoneItLandsOn(t *testing.T) {
 	servertest.SetFarmBlock(t, c, srv, 1, 63, 0, "minecraft:air", nil)
 	servertest.SetFarmBlock(t, c, srv, 1, 63, 1, "minecraft:air", nil)
 
-	got := landingChanges(t, srv, c, 1.125, 1.125)
+	got := landingChanges(t, srv, c, 1.125, 64, 1.125)
 
 	farmland := srv.BlockAt(0, 63, 0)
 	if st := servertest.CropsStateOf(t, "minecraft:dirt", nil); farmland == st {
 		t.Errorf("the farmland beside the stone was trampled (changes %v)", got)
+	}
+	if srv.BlockAt(0, 64, 0) == servertest.CropsStateOf(t, "minecraft:air", nil) {
+		t.Errorf("the wheat above the farmland broke (changes %v)", got)
+	}
+}
+
+// TestAPlayerTramplesTheGreaterOfTwoEqualSupports checks a landing equally
+// far from farmland and a dirt path of the same height: the support is the
+// cell with the greater Z, so the farmland and its crop stay.
+func TestAPlayerTramplesTheGreaterOfTwoEqualSupports(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.SurvivalConfig(), "Camper", servertest.OpsListing(t, "Camper"))
+	srv.StopTick()
+
+	servertest.SetFarmBlock(t, c, srv, 0, 63, 0, "minecraft:farmland", map[string]string{"moisture": "7"})
+	servertest.SetFarmBlock(t, c, srv, 0, 64, 0, "minecraft:wheat", map[string]string{"age": "7"})
+	servertest.SetFarmBlock(t, c, srv, 0, 63, 1, "minecraft:dirt_path", nil)
+	servertest.SetFarmBlock(t, c, srv, 1, 63, 0, "minecraft:air", nil)
+	servertest.SetFarmBlock(t, c, srv, 1, 63, 1, "minecraft:air", nil)
+
+	got := landingChanges(t, srv, c, 1.125, farmlandTop, 1)
+
+	if srv.BlockAt(0, 63, 0) == servertest.CropsStateOf(t, "minecraft:dirt", nil) {
+		t.Errorf("the farmland was trampled instead of the path supporting (changes %v)", got)
 	}
 	if srv.BlockAt(0, 64, 0) == servertest.CropsStateOf(t, "minecraft:air", nil) {
 		t.Errorf("the wheat above the farmland broke (changes %v)", got)

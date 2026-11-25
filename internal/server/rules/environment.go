@@ -568,108 +568,32 @@ func OnPos(w BlockAt, x, y, z, halfWidth float64) uint16 {
 // OnPosCell is OnPos with the cell of the block it found; air gets the cell
 // under the centre.
 func OnPosCell(w BlockAt, x, y, z, halfWidth float64) (int32, int32, int32, uint16) {
-	return onPosCell(w, x, y, z, halfWidth, false)
+	return onPosCell(w, x, y, z, halfWidth)
 }
 
-// FeetSupport is OnPos for a body at rest on its feet: a found block whose
-// collision stops short of the feet (a shelf mushroom's short stalk beside
-// its backing stone) gives way to a footprint block in the same row whose
-// collision reaches them, so a slime or stone beside it decides the
-// restitution.
-// vanilla: Entity.getOnPos, mainSupportingBlockPos
-func FeetSupport(w BlockAt, x, feetY, z, halfWidth float64) uint16 {
-	_, _, _, state := onPosCell(w, x, feetY, z, halfWidth, true)
-	return state
-}
-
-// onPosCell is the one support selector: the colliding cell under the
-// centre, else the first in the footprint. With reach, a colliding cell
-// whose shape stops short of y gives way to one that reaches it, and is
-// the answer only when none does.
-func onPosCell(w BlockAt, x, y, z, halfWidth float64, reach bool) (int32, int32, int32, uint16) {
-	sx, sy, sz, sstate := standingBlock(w, x, y, z, halfWidth)
-	if isPostBlock(sstate) {
+// onPosCell resolves the support once (supportCell) and reads the legacy
+// cell in its column, a fifth of a block below the feet; a fence, wall or
+// gate support is the answer whole. Without a support the cell under the
+// centre answers, and only a block with collision counts there: a flower
+// supports nothing.
+// vanilla: Entity.getOnPosLegacy
+func onPosCell(w BlockAt, x, y, z, halfWidth float64) (int32, int32, int32, uint16) {
+	sx, sy, sz, sstate, found := supportCell(w, x, y, z, halfWidth)
+	if found && isPostBlock(sstate) {
 		return sx, sy, sz, sstate
 	}
 	cy := int32(math.Floor(y - 0.2))
-	cx, cz := int32(math.Floor(x)), int32(math.Floor(z))
-	// Only a block with collision carries a body: a flower under the centre
-	// gives way to the hay beside it, as a flower beside an edge supports
-	// nothing.
-	fx, fz, fallback := cx, cz, airState
-	pick := func(xx, zz int32) bool {
-		state := sstate
-		if xx != sx || cy != sy || zz != sz {
-			state = w.BlockAt(xx, cy, zz)
-		}
-		if registry.CollisionHeight(state) <= 0 {
-			return false
-		}
-		if !reach || reachesFeet(state, cy, y) {
-			fx, fz, fallback = xx, zz, state
-			return true
-		}
-		if fallback == airState {
-			fx, fz, fallback = xx, zz, state
-		}
-		return false
+	if !found {
+		sx, sz = int32(math.Floor(x)), int32(math.Floor(z))
 	}
-	if pick(cx, cz) {
-		return fx, cy, fz, fallback
+	state := sstate
+	if !found || sy != cy {
+		state = w.BlockAt(sx, cy, sz)
 	}
-	for _, c := range footprintNearestFirst(x, z, halfWidth) {
-		if (c.x != cx || c.z != cz) && pick(c.x, c.z) {
-			return fx, cy, fz, fallback
-		}
+	if !found && registry.CollisionHeight(state) <= 0 {
+		state = airState
 	}
-	return fx, cy, fz, fallback
-}
-
-type footprintCell struct {
-	x, z int32
-	d    float64
-}
-
-// footprintNearestFirst lists the columns the box overlaps, nearest to the
-// centre first, ties by lower Z then X: findSupportingBlock keeps the
-// nearest colliding cell, so a corner landing rests on the stone nearer the
-// centre, not the farmland the scan reached first.
-// vanilla: CollisionGetter.findSupportingBlock
-func footprintNearestFirst(x, z, halfWidth float64) []footprintCell {
-	minX, maxX := CellRange(x-halfWidth, x+halfWidth)
-	minZ, maxZ := CellRange(z-halfWidth, z+halfWidth)
-	var buf [9]footprintCell
-	cells := buf[:0]
-	for zz := minZ; zz <= maxZ; zz++ {
-		for xx := minX; xx <= maxX; xx++ {
-			dx, dz := float64(xx)+0.5-x, float64(zz)+0.5-z
-			c := footprintCell{xx, zz, dx*dx + dz*dz}
-			i := len(cells)
-			cells = append(cells, c)
-			for i > 0 && cells[i-1].d > c.d {
-				cells[i] = cells[i-1]
-				i--
-			}
-			cells[i] = c
-		}
-	}
-	return cells
-}
-
-// reachesFeet reports whether a collision box of the state in row cellY
-// tops out at the feet. A state whose shape is not a plain box list reaches
-// when it collides at all; an empty shape never does.
-func reachesFeet(state uint16, cellY int32, feetY float64) bool {
-	boxes, plain := world.PlainCollision(state)
-	if !plain {
-		return registry.CollisionHeight(state) > 0
-	}
-	for _, b := range boxes {
-		if float64(cellY)+b.MaxY >= feetY-1e-5 {
-			return true
-		}
-	}
-	return false
+	return sx, cy, sz, state
 }
 
 // isPostBlock reports whether a state is a fence, wall or fence gate, the
@@ -683,55 +607,56 @@ func isPostBlock(state uint16) bool {
 
 var fenceGateBlocks = registry.BlocksInGroup(registry.GroupFenceGate)
 
-// StandingBlock is the cell a body stands on: the first colliding cell the
-// feet box overlaps 1e-5 below the feet, centre column first; else the cell
-// below reaching the feet (a fence's 1.5 post); else the cell under the
-// centre. The box scan stands in for mainSupportingBlockPos, which this
-// server does not keep.
+// StandingBlock is the cell a body stands on: the supporting block, else
+// the cell under the centre.
 // vanilla: Entity.getOnPos, mainSupportingBlockPos
 func StandingBlock(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32) {
 	bx, by, bz, _ = standingBlock(w, x, y, z, halfWidth)
 	return bx, by, bz
 }
 
-// standingBlock is StandingBlock with the state it read at the answer, so a
-// caller need not read the cell again. Reads each cell at most once per row.
+// standingBlock is StandingBlock with the state it read at the answer.
 func standingBlock(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32, state uint16) {
-	const eps = 1e-5
+	bx, by, bz, state, _ = supportCell(w, x, y, z, halfWidth)
+	return bx, by, bz, state
+}
+
+// supportCell finds the supporting block: among the cells whose collision
+// crosses the 1e-6 slab under the feet, the nearest to the position, equal
+// distances going to the greater Y, then Z, then X. The row of the feet is
+// tried before the one below, where a fence's post reaches up. Without one
+// it answers the cell under the centre and its state, found false.
+// vanilla: Entity.setOnGroundWithMovement, CollisionGetter.findSupportingBlock
+func supportCell(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32, state uint16, found bool) {
+	const slab = 1e-6
 	cx, cz := int32(math.Floor(x)), int32(math.Floor(z))
-	cy := int32(math.Floor(y - eps))
-	// centre is the state read at (cx, cy, cz), kept for the miss answer.
+	cy := int32(math.Floor(y - slab))
+	minX, maxX := CellRange(x-halfWidth, x+halfWidth)
+	minZ, maxZ := CellRange(z-halfWidth, z+halfWidth)
 	var centre uint16
-	scan := func(yy int32, reach float64) (int32, int32, uint16, bool) {
-		ok := func(xx, zz int32) (uint16, bool) {
-			s := w.BlockAt(xx, yy, zz)
-			h := registry.CollisionHeight(s)
-			return s, h > 0 && float64(yy)+h >= reach
-		}
-		s, found := ok(cx, cz)
-		if yy == cy {
-			centre = s
+	for row := cy; row >= cy-1; row-- {
+		bestD := math.Inf(1)
+		for zz := minZ; zz <= maxZ; zz++ {
+			for xx := minX; xx <= maxX; xx++ {
+				s := w.BlockAt(xx, row, zz)
+				if row == cy && xx == cx && zz == cz {
+					centre = s
+				}
+				if !world.StateCollides(s, xx, row, zz, x-halfWidth, y-slab, z-halfWidth, x+halfWidth, y, z+halfWidth) {
+					continue
+				}
+				dx, dz := float64(xx)+0.5-x, float64(zz)+0.5-z
+				// Cells come in ascending Z then X, so <= leaves the greater of equals.
+				if d := dx*dx + dz*dz; d <= bestD {
+					bestD, bx, by, bz, state, found = d, xx, row, zz, s, true
+				}
+			}
 		}
 		if found {
-			return cx, cz, s, true
+			return bx, by, bz, state, true
 		}
-		for _, c := range footprintNearestFirst(x, z, halfWidth) {
-			if c.x == cx && c.z == cz {
-				continue
-			}
-			if s, found := ok(c.x, c.z); found {
-				return c.x, c.z, s, true
-			}
-		}
-		return 0, 0, 0, false
 	}
-	if xx, zz, s, found := scan(cy, math.Inf(-1)); found {
-		return xx, cy, zz, s
-	}
-	if xx, zz, s, found := scan(cy-1, y-eps); found {
-		return xx, cy - 1, zz, s
-	}
-	return cx, cy, cz, centre
+	return cx, cy, cz, centre, false
 }
 
 // FrostSlowAir reports whether the block the frost slow reads under a body

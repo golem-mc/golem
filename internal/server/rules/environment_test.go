@@ -347,6 +347,7 @@ var standingFixtures = func(t testing.TB) []struct {
 		{"centred stone", stubBlocks{{0, 63, 0}: stone}, 0.5, 64, 0.5, 1},
 		{"stone edge", stubBlocks{{0, 63, 0}: stone}, 1.1, 64, 0.5, 3},
 		{"fence", stubBlocks{{0, 63, 0}: fence}, 0.5, 64.5, 0.5, 2},
+		{"corner", stubBlocks{{0, 63, 0}: stone, {1, 63, 1}: stone}, 1.05, 64, 1.05, 4},
 	}
 }
 
@@ -356,7 +357,7 @@ func TestOnPosCellReadsEachCellOnce(t *testing.T) {
 	for _, tc := range standingFixtures(t) {
 		w := &countingBlocks{stubBlocks: tc.w}
 		bx, by, bz := StandingBlock(tc.w, tc.x, tc.y, tc.z, 0.125)
-		ox, oy, oz, state := onPosCell(w, tc.x, tc.y, tc.z, 0.125, false)
+		ox, oy, oz, state := onPosCell(w, tc.x, tc.y, tc.z, 0.125)
 		if ox != bx || oy != by || oz != bz || state != tc.w[[3]int32{bx, by, bz}] {
 			t.Errorf("%s: got (%d,%d,%d) state %d, want (%d,%d,%d)", tc.name, ox, oy, oz, state, bx, by, bz)
 		}
@@ -371,8 +372,33 @@ func BenchmarkOnPosCell(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for range b.N {
-				onPosCell(tc.w, tc.x, tc.y, tc.z, 0.125, false)
+				onPosCell(tc.w, tc.x, tc.y, tc.z, 0.125)
 			}
 		})
+	}
+}
+
+// TestSupportCellPrefersTheNearestThenTheGreater checks the support choice:
+// a shape stopping below the feet is no support, the nearest crossing cell
+// wins, the centre column among them, and equal distances go to the greater
+// Z, then X.
+func TestSupportCellPrefersTheNearestThenTheGreater(t *testing.T) {
+	stone := stateOf(t, "minecraft:stone")
+	path := stateOf(t, "minecraft:dirt_path")
+	for _, tc := range []struct {
+		name         string
+		w            stubBlocks
+		x, y, z      float64
+		wantX, wantZ int32
+	}{
+		{"short block gives way to stone", stubBlocks{{0, 63, 0}: path, {0, 63, 1}: stone}, 0.5, 64, 0.875, 0, 1},
+		{"equal Z goes to the greater", stubBlocks{{0, 63, 0}: path, {0, 63, 1}: path}, 0.5, 63.9375, 1, 0, 1},
+		{"equal X goes to the greater", stubBlocks{{0, 63, 0}: path, {1, 63, 0}: path}, 1, 63.9375, 0.5, 1, 0},
+		{"centre column beats a corner", stubBlocks{{0, 63, 0}: stone, {1, 63, 1}: stone}, 0.95, 64, 0.95, 0, 0},
+	} {
+		bx, _, bz, _, found := supportCell(tc.w, tc.x, tc.y, tc.z, 0.3)
+		if !found || bx != tc.wantX || bz != tc.wantZ {
+			t.Errorf("%s: got (%d,%d) found %v, want (%d,%d)", tc.name, bx, bz, found, tc.wantX, tc.wantZ)
+		}
 	}
 }
