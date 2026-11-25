@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
@@ -56,21 +57,29 @@ func TestPlayerTakesCrammingDamage(t *testing.T) {
 	}
 }
 
+// twoPlayerCrammingScene joins Stayer and Bystander, both in the spawn chunk,
+// before the loop is held, with Stayer at x=11.5 and the rule at limit.
+func twoPlayerCrammingScene(t *testing.T, limit int32) (*server.Server, *servertest.Client) {
+	t.Helper()
+	srv, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Stayer", servertest.OpsListing(t, "Stayer"))
+	other := servertest.DialServer(t, srv).Join("Bystander")
+	servertest.HoldTicks(t, srv)
+	c.MoveToGround(11.5, 64, 0.5, true)
+	c.Settle()
+	other.MoveToGround(14.5, 64, 12.5, true)
+	other.Settle()
+	srv.SetGameRule("natural_health_regeneration", false)
+	srv.SetGameRuleValue("max_entity_cramming", limit)
+	return srv, c
+}
+
 // TestCrammingIgnoresAMobOnlyAnotherPlayerReaches: a scaled cow whose box
 // overlaps a player but is filed beyond that player's sections is not
 // counted, though another player's search reaches it.
 // vanilla: LivingEntity.pushEntities, EntitySectionStorage.forEachAccessibleNonEmptySection
 func TestCrammingIgnoresAMobOnlyAnotherPlayerReaches(t *testing.T) {
 	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Stayer", servertest.OpsListing(t, "Stayer"))
-	servertest.HoldTicks(t, srv)
-	c.MoveToGround(11.5, 64, 0.5, true)
-	c.Settle()
-	other := servertest.DialServer(t, srv).Join("Bystander")
-	other.MoveToGround(18, 64, 12.5, true)
-	other.Settle()
-	srv.SetGameRule("natural_health_regeneration", false)
-	srv.SetGameRuleValue("max_entity_cramming", 1)
+	srv, c := twoPlayerCrammingScene(t, 1)
 	cow := srv.SpawnMob("minecraft:cow", 18, 64, 0.5)
 	srv.SetMobNoAI(cow)
 	c.ChatCommand("attribute @e[type=minecraft:cow,limit=1] minecraft:scale base set 16")
@@ -78,5 +87,19 @@ func TestCrammingIgnoresAMobOnlyAnotherPlayerReaches(t *testing.T) {
 	servertest.RunTicks(t, srv, 20)
 	if hp := srv.PlayerHealth("Stayer"); hp != 20 {
 		t.Fatalf("health = %v, want 20: the cow is filed outside the player's sections", hp)
+	}
+}
+
+// TestCrammingCountsAMobBothPlayersReachOnce: one cow in a chunk both
+// players search counts once against a limit of two.
+// vanilla: LivingEntity.pushEntities
+func TestCrammingCountsAMobBothPlayersReachOnce(t *testing.T) {
+	t.Parallel()
+	srv, _ := twoPlayerCrammingScene(t, 2)
+	cow := srv.SpawnMob("minecraft:cow", 11.5, 64, 0.5)
+	srv.SetMobNoAI(cow)
+	servertest.RunTicks(t, srv, 20)
+	if hp := srv.PlayerHealth("Stayer"); hp != 20 {
+		t.Fatalf("health = %v, want 20: the cow was counted twice", hp)
 	}
 }

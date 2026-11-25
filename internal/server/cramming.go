@@ -160,22 +160,20 @@ func (s *Server) buildCrammingCrowd(cc *crammingCrowd) {
 		indexed := true
 		for p := 0; p < cw.players && indexed; p++ {
 			bounds := cw.bodies[p].box.Bounds()
-			_, indexed = smallChunkArea(&bounds)
+			var area chunkArea
+			if area, indexed = smallChunkArea(&bounds); indexed {
+				area.each(func(pos world.ChunkPos) bool {
+					cc.visited[pos] = struct{}{}
+					return true
+				})
+			}
 		}
 		if !indexed {
 			herd.mobsInArea(chunkArea{}, false, file)
 			continue
 		}
-		for p := 0; p < cw.players; p++ {
-			bounds := cw.bodies[p].box.Bounds()
-			area, _ := smallChunkArea(&bounds)
-			area.each(func(pos world.ChunkPos) bool {
-				if _, seen := cc.visited[pos]; !seen {
-					cc.visited[pos] = struct{}{}
-					herd.chunks.Visit(pos, file)
-				}
-				return true
-			})
+		for pos := range cc.visited {
+			herd.chunks.Visit(pos, file)
 		}
 	}
 	s.unlockTick(&s.mobsMu)
