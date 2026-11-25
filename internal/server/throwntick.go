@@ -79,10 +79,6 @@ type thrownWorld struct {
 	// entity ID. A body's mobs are gathered per body.
 	targets []entity.ArrowTarget
 	index   map[int32]int
-	// widest is the largest half width among the herd; widestKnown is set
-	// once it is read this tick.
-	widest      float64
-	widestKnown bool
 }
 
 // thrownTickInputs is what the thrown tick reads before and as it steps.
@@ -365,20 +361,6 @@ func (s *Server) gatherTargets(in *thrownTickInputs, it *thrownEntity, tw *throw
 	return owner
 }
 
-// widestMob is the largest half width of a mob in the world's herd, read
-// once per tick: a mob is filed by its centre, so a query reaches this far
-// beyond its box for the chunks of a scaled mob.
-func (tw *thrownWorld) widestMob() float64 {
-	if !tw.widestKnown {
-		tw.widest, tw.widestKnown = 0, true
-		for _, m := range tw.dim.mobs.herd {
-			minX, _, _, maxX, _, _ := m.BlastBox()
-			tw.widest = max(tw.widest, (maxX-minX)/2)
-		}
-	}
-	return tw.widest
-}
-
 // mobTargets appends to targets the mobs the body may meet or splash, sorted
 // by entity ID so the nearest-hit tie-break is stable, with tw.bodies.mobs
 // holding them. ownerAt is the thrower's first entry in the result, -1 when
@@ -397,7 +379,7 @@ func (in *thrownTickInputs) mobTargets(targets []entity.ArrowTarget, s *Server, 
 	}
 	box[0], box[1], box[2], box[3], box[4], box[5] = box[0]-grow, box[1]-grow, box[2]-grow, box[3]+grow, box[4]+grow, box[5]+grow
 	reach := box
-	wide := tw.widestMob()
+	wide := tw.dim.mobs.widest
 	reach[0], reach[2], reach[3], reach[5] = reach[0]-wide, reach[2]-wide, reach[3]+wide, reach[5]+wide
 	area, indexed := smallChunkArea(&reach)
 	in.mobsNear = in.mobsNear[:0]
