@@ -151,6 +151,9 @@ type Bodies struct {
 	Boxes []AABB
 	Grid  *BoxGrid // indexes Boxes; nil means test every box
 	Skip  []int32  // indices of Boxes left out (the mover and its ride chain)
+	// Drop, when set, marks by index more Boxes left out; built once per
+	// snapshot, so a long list costs no scan per hit.
+	Drop []bool
 }
 
 // BodyBoxes returns the snapshot's boxes whose insides meet box (touching
@@ -160,18 +163,22 @@ func (b Bodies) BodyBoxes(box AABB) []AABB {
 	var out []AABB
 	if b.Grid != nil {
 		b.Grid.Query(box, func(i int32) {
-			if body := b.Boxes[i]; box.Crosses(body) && !slices.Contains(b.Skip, i) {
+			if body := b.Boxes[i]; box.Crosses(body) && !b.dropped(i) {
 				out = append(out, body)
 			}
 		})
 		return out
 	}
 	for i, body := range b.Boxes {
-		if box.Crosses(body) && !slices.Contains(b.Skip, int32(i)) {
+		if box.Crosses(body) && !b.dropped(int32(i)) {
 			out = append(out, body)
 		}
 	}
 	return out
+}
+
+func (b Bodies) dropped(i int32) bool {
+	return b.Drop != nil && b.Drop[i] || slices.Contains(b.Skip, i)
 }
 
 // ClampToBorder forwards to the world's, so a random teleport is still held

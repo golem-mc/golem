@@ -10,8 +10,8 @@ import (
 	"github.com/golem-mc/golem/internal/config"
 )
 
-// TestIndexedVehicleQueryMatchesLinearScan checks the column index offers the
-// same candidates in the same order as the unindexed scan.
+// TestIndexedVehicleQueryMatchesLinearScan checks both lookup paths against
+// the ordered scan and its random draw.
 func TestIndexedVehicleQueryMatchesLinearScan(t *testing.T) {
 	cfg := config.Default()
 	cfg.OnlineMode = false
@@ -24,25 +24,47 @@ func TestIndexedVehicleQueryMatchesLinearScan(t *testing.T) {
 	s.SetSpawning(false)
 	t.Cleanup(s.Shutdown)
 	w := s.world
-	// Overlapping hulls on the x=0 chunk boundary and a far, nonintersecting one.
-	s.spawnBoat(w, "minecraft:oak_chest_boat", -0.2, 64, 0.5, 0, customName{})
-	s.spawnBoat(w, "minecraft:birch_chest_boat", 0.1, 64, 0.5, 0, customName{})
-	s.spawnMinecart(w, "minecraft:chest_minecart", -0.3, 64, 0.5)
-	s.spawnMinecart(w, "minecraft:chest_minecart", 0.2, 64, 0.5)
 	excluded := s.spawnMinecart(w, "minecraft:chest_minecart", 0, 64, 0.5)
-	s.spawnMinecart(w, "minecraft:chest_minecart", 8, 64, 8)
+	s.spawnMinecart(w, "minecraft:chest_minecart", 64, 64, 80)
+	s.spawnMinecart(w, "minecraft:minecart", -0.2, 64, 0.5)
+	s.spawnBoat(w, "minecraft:oak_chest_boat", -0.2, 65, 0.5, 0, customName{}) // touches the top face
 
-	for seed := range int64(40) {
-		s.levelRng = mrand.New(mrand.NewSource(seed))
-		linear := s.entityContainerAt(w, 0, 64.5, 0.5, excluded)
-		s.indexCartColumns(w)
-		s.levelRng = mrand.New(mrand.NewSource(seed))
-		indexed := s.entityContainerAt(w, 0, 64.5, 0.5, excluded)
-		s.dropCartColumns()
-		if linear == nil || indexed == nil || linear != indexed {
-			t.Fatalf("seed %d: linear %v, indexed %v", seed, linear, indexed)
-		}
+	check := func(name string, ordered ...containerTarget) {
+		t.Run(name, func(t *testing.T) {
+			for _, indexed := range []bool{false, true} {
+				if indexed {
+					s.indexCartColumns(w)
+					t.Cleanup(s.dropCartColumns)
+				}
+				for seed := range int64(40) {
+					rng := mrand.New(mrand.NewSource(seed))
+					var want containerTarget
+					if len(ordered) > 0 {
+						want = ordered[rng.Intn(len(ordered))]
+					}
+					s.levelRng = mrand.New(mrand.NewSource(seed))
+					got := s.entityContainerAt(w, 0, 64.5, 0.5, excluded)
+					if got != want {
+						t.Fatalf("indexed %t, seed %d: target %v, want %v", indexed, seed, got, want)
+					}
+					if got, want := s.levelRng.Int63(), rng.Int63(); got != want {
+						t.Fatalf("indexed %t, seed %d: next draw %d, want %d", indexed, seed, got, want)
+					}
+				}
+			}
+		})
 	}
+
+	check("zero")
+	// Spawn one boat across the boundary, then interleave carts and boats so
+	// chunk traversal and spawn order both differ from the ordered scan.
+	westBoat := s.spawnBoat(w, "minecraft:oak_chest_boat", -0.2, 64, 0.5, 0, customName{})
+	check("one", boatTarget{s: s, it: westBoat})
+	eastCart := s.spawnMinecart(w, "minecraft:chest_minecart", 0.2, 64, 0.5)
+	eastBoat := s.spawnBoat(w, "minecraft:birch_chest_boat", 0.1, 64, 0.5, 0, customName{})
+	westCart := s.spawnMinecart(w, "minecraft:chest_minecart", -0.3, 64, 0.5)
+	check("several", cartTarget{s: s, it: eastCart}, cartTarget{s: s, it: westCart},
+		boatTarget{s: s, it: westBoat}, boatTarget{s: s, it: eastBoat})
 }
 
 // TestVehicleQuerySurvivesIndexDropWhileWaitingForBoats drops the index while

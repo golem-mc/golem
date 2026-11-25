@@ -301,17 +301,17 @@ func (m *Mob) attrPaced() bool { return m.family() != TypeGhast }
 // stays pending: a load lets the next tick announce it.
 func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	a := player.NewAttributes(m.AttributeSupplier())
-	a.Instance(registry.AttributeMovementSpeed)
-	// Vanilla instantiates movement_speed and the equipment's attributes in
-	// the first tick, not with the map.
-	synthetic := []registry.AttributeID{registry.AttributeMovementSpeed}
+	if m.is(TypeZombie) {
+		// vanilla: Zombie.setBaby
+		a.Instance(registry.AttributeMovementSpeed)
+	}
 	if m.Size > 0 {
 		a.Instance(registry.AttributeMaxHealth)
 		if m.Type == TypeMagmaCube {
 			a.Instance(registry.AttributeArmor)
 		}
 	}
-	if m.NativeAttributeInstances() {
+	if m.Type == TypeRabbit {
 		a.Instance(registry.AttributeAttackDamage)
 	}
 	if m.KillerBunny() {
@@ -337,8 +337,14 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	}
 	m.syncFollowSpawnBonus(a)
 	m.syncZombieTraits(a)
+	synthetic := make([]registry.AttributeID, 0, registry.NumAttributes)
 	for _, sl := range m.equipmentSlots() {
 		applyEquipment(a, sl.stack, sl.name, &synthetic)
+	}
+	// vanilla: LivingEntity.detectEquipmentUpdates precedes removeFrost.
+	if !a.Instantiated(registry.AttributeMovementSpeed) {
+		a.Instance(registry.AttributeMovementSpeed)
+		synthetic = append(synthetic, registry.AttributeMovementSpeed)
 	}
 	// The mark must follow every Instance above; Load and the sync below
 	// instantiate for real and clear it.
@@ -356,8 +362,9 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 
 // NativeAttributeInstances reports whether the kind instantiates attributes
 // itself before any command touches the map.
-// vanilla: Rabbit.setVariant gets attack_damage on load and spawn
-func (m *Mob) NativeAttributeInstances() bool { return m.Type == TypeRabbit }
+// vanilla: Rabbit.setVariant gets attack_damage on load and spawn,
+// Zombie.setBaby gets movement_speed
+func (m *Mob) NativeAttributeInstances() bool { return m.Type == TypeRabbit || m.is(TypeZombie) }
 
 // Ticked reports whether the body has run a tick.
 func (m *Mob) Ticked() bool { return m.ticked }
@@ -491,15 +498,26 @@ func (m *Mob) attrScale() float64 {
 	return s
 }
 
-// OnAttributeUpdated applies an attribute change's limits to the body:
-// health above the new maximum trims down to it. Callers hold the mob lock.
-// A scale change reaches the box at its next read, deliberately without
-// vanilla's fudgePositionAfterSizeChange.
+// EditAttributes applies an edit under the mob lock and reports a scale change.
 // vanilla: LivingEntity.onAttributeUpdated
-func (m *Mob) OnAttributeUpdated() {
-	if m.Health > m.healthCap() {
-		m.SetMetadataHealth(m.healthCap())
+func (m *Mob) EditAttributes(w World, edit func(*player.Attributes)) bool {
+	oldScale := m.attrScale()
+	oldWidth, oldHeight := m.width(), m.height()
+	edit(m.attrs)
+	if cap := m.healthCap(); m.Health > cap {
+		m.SetMetadataHealth(cap)
 	}
+	if m.attrScale() == oldScale {
+		return false
+	}
+	// vanilla: Vex.tick holds noPhysics through the dimension refresh.
+	if m.Type != TypeVex {
+		m.refreshDimensions(w, oldWidth, oldHeight)
+		if m.IsShulker() && !m.RidesVehicle {
+			m.snapShulker()
+		}
+	}
+	return true
 }
 
 // savedAttrEdits reports whether the saved attributes list holds an

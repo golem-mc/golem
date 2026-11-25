@@ -82,11 +82,29 @@ func (m *Mob) stepShulkerPeek(w World, t *tickView) {
 	t.events = append(t.events, MobEvent{Mob: m, Kind: MobShulkerShoved, VX: delta[0], VY: delta[1], VZ: delta[2],
 		Slab: [6]float64{slab.minX, slab.minY, slab.minZ, slab.maxX, slab.maxY, slab.maxZ}})
 	// A vex holds noPhysics, so the shell does not move it.
-	for _, o := range t.others {
+	others := t.others
+	if g := m.push; g != nil {
+		// The entries are body boxes, which is what mobBox is for a non-shulker.
+		g.shove = g.gatherBoxInto(g.shove[:0], slab, g.wide)
+		others = g.shove
+		sortSnapshot(others)
+	}
+	var root *Mob
+	for _, o := range others {
 		if o == m || o.IsShulker() || o.Type == TypeVex || !o.Alive() || !slab.Crosses(o.mobBox()) {
 			continue
 		}
+		// vanilla: Entity.isPassengerOfSameVehicle
+		if root == nil {
+			root = m.RootVehicle()
+		}
+		if o.RootVehicle() == root {
+			continue
+		}
 		o.move(w, delta[0], delta[1], delta[2])
+		if m.push != nil {
+			m.push.moved(o)
+		}
 	}
 }
 

@@ -39,19 +39,13 @@ func (s *Server) mannequinTargets() mannequinTargetSnapshot {
 	return snapshot
 }
 
-// mannequinEffectPackets synchronizes effect attributes and metadata with the lock held.
-func mannequinEffectPackets(ent *mannequinEntity) []outbound {
+// syncMannequinEffects applies the effects' modifiers and health cap with the
+// lock held; the next tracking pass sends the dirty attributes and metadata
+// after the movement.
+func syncMannequinEffects(ent *mannequinEntity) {
 	m := ent.mannequin
 	rules.UpdateEffectAttributes(m.Attributes, m.AllEffects())
-	m.Health = min(m.Health, m.HealthCap())
-	var packets []outbound
-	if data := mannequinTickMetadata(ent); data != nil {
-		packets = append(packets, outbound{id: protocol.IDPlayEntityMetadata, data: data})
-	}
-	if attrs := m.Attributes.TakeDirty(); len(attrs) > 0 {
-		packets = append(packets, outbound{id: protocol.IDPlayUpdateAttributes, data: attributesPayload(m.ID, attrs)})
-	}
-	return packets
+	m.SetHealth(min(m.Health, m.HealthCap()))
 }
 
 type mannequinEffectTell struct {
@@ -88,13 +82,11 @@ func (s *Server) landMannequinEffects(tell mannequinEffectTell) {
 			hurts = append(hurts, hurt)
 		}
 	})
-	packets := mannequinEffectPackets(ent)
-	watchers := trackedWatchers(ent.tracked)
+	syncMannequinEffects(ent)
 	s.mannequinsMu.Unlock()
 	for _, hurt := range hurts {
 		s.tellMannequinHurt(hurt)
 	}
-	s.tellWatchers(tell.w, watchers, packets)
 }
 
 func (s *Server) douseMannequin(w *world.World, ent *mannequinEntity) {
@@ -106,8 +98,7 @@ func (s *Server) douseMannequin(w *world.World, ent *mannequinEntity) {
 	m := ent.mannequin
 	m.FireTicks = 0
 	x, y, z := m.X, m.Y, m.Z
-	packets, watchers := mannequinEffectPackets(ent), trackedWatchers(ent.tracked)
+	syncMannequinEffects(ent)
 	s.mannequinsMu.Unlock()
 	s.broadcastSoundPacketExcept(w, nil, s.extinguishSound(protocol.SoundCategoryNeutral, x, y, z))
-	s.tellWatchers(w, watchers, packets)
 }

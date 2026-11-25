@@ -9,14 +9,24 @@ import (
 // vanilla: FlowingFluid.getSpread, WaterFluid.getTickDelay
 func TestWaterSpreadsToBothAdjacentDrops(t *testing.T) {
 	t.Parallel()
+	testWaterSpreadsToBothAdjacentDrops(t, 4)
+}
+
+func TestWaterSpreadsToAdjacentDropAcrossChunkBorder(t *testing.T) {
+	t.Parallel()
+	testWaterSpreadsToBothAdjacentDrops(t, 16)
+}
+
+func testWaterSpreadsToBothAdjacentDrops(t *testing.T, x int32) {
+	t.Helper()
 	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Builder", servertest.OpsListing(t, "Builder"))
 	servertest.HoldTicks(t, srv)
-	const y = 64
-	drops := [][2]int32{{4, 3}, {3, 4}}
+	const y, z = 64, 4
+	drops := [][2]int32{{x, z - 1}, {x - 1, z}}
 	for _, p := range drops {
 		servertest.Setblock(t, c, p[0], y-1, p[1], "air")
 	}
-	servertest.Setblock(t, c, 4, y, 4, "water")
+	servertest.Setblock(t, c, x, y, z, "water")
 	servertest.RunTicks(t, srv, 4)
 	for _, p := range drops {
 		if name, _ := servertest.StateProps(srv.BlockAt(p[0], y, p[1])); name != "minecraft:air" {
@@ -30,7 +40,7 @@ func TestWaterSpreadsToBothAdjacentDrops(t *testing.T) {
 			t.Errorf("side %v at tick 5 = %s %v, want level-1 water", p, name, props)
 		}
 	}
-	for _, p := range [][2]int32{{5, 4}, {4, 5}} {
+	for _, p := range [][2]int32{{x + 1, z}, {x, z + 1}} {
 		if name, _ := servertest.StateProps(srv.BlockAt(p[0], y, p[1])); name != "minecraft:air" {
 			t.Errorf("side %v at tick 5 = %s, want air", p, name)
 		}

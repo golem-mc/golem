@@ -45,22 +45,27 @@ type fireworkEntity struct {
 	tags nbt.StringSet
 	// custom is the custom name, guarded like tags.
 	custom customName
+
+	// spawning holds the rocket out of its tick while its spawn effects run.
+	// Guarded by the firework lock once registered.
+	spawning bool
 }
 
 // fireworkTracker tracks the rockets. A rocket's flight is never on the
 // ground, and its Teleport Entity carries no velocity: the motion packets do.
 var fireworkTracker = trackedKind[*fireworkEntity, struct{}]{
-	rangeChunks: entity.FireworkTrackingRange,
-	interval:    entity.FireworkUpdateInterval,
-	lock:        func(s *Server) *sync.Mutex { return &s.fireworksMu },
-	list:        func(s *Server) *[]*fireworkEntity { return &s.fireworks },
-	chunks:      func(s *Server) *entity.ChunkIndex[*fireworkEntity] { return &s.fireworkChunks },
-	filing:      func(it *fireworkEntity) *entity.Filing { return &it.rocket.Filing },
-	uuid:        func(it *fireworkEntity) uuid.UUID { return it.uuid },
-	track:       func(it *fireworkEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
-	world:       func(it *fireworkEntity) *world.World { return it.w },
-	id:          func(it *fireworkEntity) int32 { return it.rocket.ID },
-	dead:        func(it *fireworkEntity) bool { return it.rocket.Dead },
+	rangeChunks:    entity.FireworkTrackingRange,
+	interval:       entity.FireworkUpdateInterval,
+	frozenSchedule: true,
+	lock:           func(s *Server) *sync.Mutex { return &s.fireworksMu },
+	list:           func(s *Server) *[]*fireworkEntity { return &s.fireworks },
+	chunks:         func(s *Server) *entity.ChunkIndex[*fireworkEntity] { return &s.fireworkChunks },
+	filing:         func(it *fireworkEntity) *entity.Filing { return &it.rocket.Filing },
+	uuid:           func(it *fireworkEntity) uuid.UUID { return it.uuid },
+	track:          func(it *fireworkEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
+	world:          func(it *fireworkEntity) *world.World { return it.w },
+	id:             func(it *fireworkEntity) int32 { return it.rocket.ID },
+	dead:           func(it *fireworkEntity) bool { return it.rocket.Dead },
 	pose: func(it *fireworkEntity) bodyPose {
 		r := it.rocket
 		return bodyPose{x: r.X, y: r.Y, z: r.Z, yaw: r.Yaw, pitch: r.Pitch}
@@ -145,7 +150,7 @@ func (c *client) launchFireworkOnFace(hand, x, y, z, face int32, cursorX, cursor
 func (s *Server) spawnFirework(w *world.World, stack protocol.ItemStack, x, y, z float64,
 	ownerID int32, ownerUUID uuid.UUID, attached int32) *fireworkEntity {
 	it := s.newFirework(w, stack, x, y, z, ownerID, ownerUUID, attached)
-	s.registerFirework(it)
+	s.launchFirework(it)
 	return it
 }
 
@@ -171,13 +176,14 @@ func (s *Server) newFirework(w *world.World, stack protocol.ItemStack, x, y, z f
 	id := s.nextEntity()
 	rocket := entity.NewFirework(id, x, y, z, ownerID, flight, explosions, attached,
 		s.entitySeed(id))
-	carried := stack
-	carried.Count = 1
+	// The rocket keeps the launching stack's count; callers that launch one
+	// item of a stack pass a single-item stack.
+	// vanilla: FireworkRocketEntity.<init> copies the stack
 	it := &fireworkEntity{
 		rocket:    rocket,
 		w:         w,
 		uuid:      uuid.New(),
-		stack:     carried,
+		stack:     stack,
 		ownerID:   ownerID,
 		ownerUUID: ownerUUID,
 	}
@@ -253,10 +259,13 @@ func (s *Server) killFirework(it *fireworkEntity) {
 	s.fireworksMu.Lock()
 	fireworkTracker.unfile(it)
 	s.fireworks = slices.DeleteFunc(s.fireworks, func(o *fireworkEntity) bool { return o == it })
+	held := it.held
 	s.fireworksMu.Unlock()
 	s.entityDestroyed(it.uuid)
-	s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
-		removeEntitiesPayload([]int32{it.rocket.ID}))
+	if !held {
+		s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
+			removeEntitiesPayload([]int32{it.rocket.ID}))
+	}
 }
 
 // teleportFirework moves a rocket to the position given, its flight
@@ -506,7 +515,7 @@ func (s *Server) tickFireworks() {
 			fireworkTracker.unfile(it)
 			continue // the life ran out before this tick
 		}
-		if !gate.ticks(it.w, it.rocket.X, it.rocket.Z) {
+		if it.spawning || !gate.ticks(it.w, it.rocket.X, it.rocket.Z) {
 			held = append(held, it)
 			alive = append(alive, it)
 			continue
@@ -643,7 +652,7 @@ func (s *Server) tickFireworks() {
 		// alone, the newly paired included.
 		// vanilla: ServerEntity.sendChanges, sendToTrackingPlayers
 		body := fireworkTracker.body(it)
-		mt := body.schedule(nil)
+		mt := body.schedule(false)
 		var motion *outbound
 		if mt.gate && it.motionDue(it.rocket.VX, it.rocket.VY, it.rocket.VZ, false) {
 			motion = &outbound{id: protocol.IDPlaySetEntityMotion,
@@ -877,4 +886,23 @@ func (s *Server) announceBursts(bursts []fireworkBurst) {
 	for _, burst := range bursts {
 		s.gameEvent(burst.it.w, rules.GameEventExplode, burst.x, burst.y, burst.z, rules.GameEventContext{Player: burst.it.ownerUUID})
 	}
+}
+
+func (it *fireworkEntity) spawnedTarget(s *Server) enchantTarget {
+	s.fireworksMu.Lock()
+	defer s.fireworksMu.Unlock()
+	r := it.rocket
+	return enchantTarget{uuid: it.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25, entityID: r.ID, causeID: it.ownerID}
+}
+
+func (it *fireworkEntity) spawnedSnapshot(s *Server) *entitySnapshot {
+	s.fireworksMu.Lock()
+	defer s.fireworksMu.Unlock()
+	return s.fireworkSnapshot(it, nil)
+}
+
+func (it *fireworkEntity) spawned(s *Server) {
+	s.fireworksMu.Lock()
+	it.spawning = false
+	s.fireworksMu.Unlock()
 }

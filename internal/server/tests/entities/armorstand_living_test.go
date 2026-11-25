@@ -90,7 +90,8 @@ func TestArmorStandGlowingExpires(t *testing.T) {
 	if got := standLivingData(t, c, `active_effects[{id:"minecraft:glowing"}].duration`); got != "1" {
 		t.Errorf("after 19 ticks glowing duration = %s, want 1", got)
 	}
-	servertest.RunTicks(t, srv, 1)
+	// The tick the effect expires in steps after tracking; the next tells it.
+	servertest.RunTicks(t, srv, 2)
 	checkStandFlags(t, c, stand.EntityID, 0)
 	standCommandText(t, c, "data get entity "+livingStand+" active_effects", "arguments.nbtpath.nothing_found")
 }

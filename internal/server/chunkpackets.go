@@ -14,7 +14,7 @@ func (c *client) syncPendingPackets() {
 		next[pos] = struct{}{}
 	}
 	for pos := range c.generating {
-		if world.InViewOf(pos, c.center, c.radius) {
+		if world.InSendView(pos, c.center, c.radius) {
 			next[pos] = struct{}{}
 		}
 	}

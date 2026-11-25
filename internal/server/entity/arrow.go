@@ -132,6 +132,11 @@ func MobTarget(id, entityType int32, m *Mob) ArrowTarget {
 	}
 }
 
+// Box is the projectile target's uninflated hitbox.
+func (t *ArrowTarget) Box() AABB {
+	return AABB{t.MinX, t.MinY, t.MinZ, t.MaxX, t.MaxY, t.MaxZ}
+}
+
 // PlayerTarget is a player as an arrow target: the standing 0.6 by 1.8 box,
 // the player entity type ID, and standing eye height. unhittable marks a
 // spectator.
@@ -228,10 +233,10 @@ type ArrowEvent struct {
 	Target  ArrowTarget
 	Damage  float64
 	X, Y, Z float64
-	// VX and VZ are the horizontal flight at a body impact, before a later
-	// block landing or deflection changes the shaft's velocity.
-	VX, VZ    float64
-	Collector int32
+	// VX, VY and VZ are the flight at a body impact, before a later block
+	// landing or deflection changes the shaft's velocity.
+	VX, VY, VZ float64
+	Collector  int32
 	// BlockHit is the block met, its entry face and crossing point, distinct
 	// from X, Y, Z (the drawn-back resting place). Only on ArrowStuck, for the
 	// blocks that react to a projectile hit.
@@ -626,7 +631,7 @@ func (a *Arrow) step(w World, owner *ArrowTarget, targets []ArrowTarget) []Arrow
 			Target: *hit,
 			Damage: a.hitDamage(hit),
 			X:      hitX, Y: hitY, Z: hitZ,
-			VX: a.VX, VZ: a.VZ,
+			VX: a.VX, VY: a.VY, VZ: a.VZ,
 			IgniteTicks: a.igniteForTicks(),
 			HitSound:    a.HitSound,
 		}

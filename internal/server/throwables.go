@@ -445,7 +445,7 @@ func (s *Server) summonThrown(w *world.World, name string, x, y, z float64, tag 
 	if tagged == nil {
 		tagged = nbt.Compound{}
 	}
-	if item, carried := nbt.Get[nbt.Compound](tagged, "Item"); carried {
+	if item, carried := nbt.Get[nbt.Compound](tagged, "Item"); carried && kind != entity.ThrownLlamaSpit {
 		// The id is qualified the way a resource location parses, so an
 		// Item written without a namespace still names the item it meant.
 		if id, ok := nbt.Get[nbt.String](item, "id"); ok {
@@ -515,16 +515,11 @@ func thrownIsSaved(it *thrownEntity) bool {
 	return ok
 }
 
-// thrownOfTag builds the thrown body a saved compound describes, or nil for
+// thrownOfTag builds the thrown body of the saved kind and id a compound describes, or nil for
 // one with no place, identity or stack. The owner's entity ID is resolved
 // when the wake registers it.
 // vanilla: ThrowableItemProjectile.readAdditionalSaveData
-func (s *Server) thrownOfTag(w *world.World, compound nbt.Compound) *thrownEntity {
-	id, _ := nbt.Get[nbt.String](compound, "id")
-	kind, ok := savedThrownKind(string(id))
-	if !ok {
-		return nil
-	}
+func (s *Server) thrownOfTag(w *world.World, kind entity.ThrownKind, id string, compound nbt.Compound) *thrownEntity {
 	x, y, z, ok := entityPositionOfTag(compound)
 	if !ok {
 		return nil
@@ -537,7 +532,7 @@ func (s *Server) thrownOfTag(w *world.World, compound nbt.Compound) *thrownEntit
 	// vanilla: ThrowableItemProjectile.getItem, getDefaultItem
 	stack, ok := storedItemStackOf(compound)
 	if !ok || stack.Empty() {
-		item, found := registry.ItemID(thrownDefaultItem(kind, string(id)))
+		item, found := registry.ItemID(thrownDefaultItem(kind, id))
 		if !found {
 			return nil
 		}
@@ -590,6 +585,11 @@ func (s *Server) thrownOfFields(w *world.World, kind entity.ThrownKind, stackOf 
 func (s *Server) registerThrown(it *thrownEntity) {
 	s.resolveBulletTarget(it)
 	thrownTracker.register(s, it)
+	s.thrownRegistered(it)
+}
+
+// thrownRegistered is what a shown thrown body needs after the tracker has it.
+func (s *Server) thrownRegistered(it *thrownEntity) {
 	// The ticket goes down at once: a pearl in a chunk nothing ticks would
 	// never step to place it.
 	if it.throwable.Kind == entity.ThrownEnderPearl {
@@ -671,10 +671,6 @@ type potionBreak struct {
 	// mobs are the mob tells the spray's effects turned, each the packets
 	// for its watchers.
 	mobs []splashMobTell
-
-	// splashed are the IDs of the mobs the spray reached, which a dodge may
-	// have teleported.
-	splashed []int32
 
 	// players are the players the spray reached, each with the instances
 	// their bodies are to be given.
@@ -853,7 +849,6 @@ func (s *Server) potionBreakOf(it *thrownEntity, dim *dimension, mobsByID map[in
 				continue
 			}
 			if m := mobsByID[target.EntityID]; m != nil {
-				shl.splashed = append(shl.splashed, m.ID)
 				m.Rehydrate()
 				owner := it.throwable.OwnerID
 				if landed, softened := m.HurtByWaterSplash(it.throwable.X, it.throwable.Z, owner,
@@ -909,7 +904,6 @@ func (s *Server) potionBreakOf(it *thrownEntity, dim *dimension, mobsByID map[in
 			continue
 		}
 		if m := mobsByID[hit.Target.EntityID]; m != nil {
-			shl.splashed = append(shl.splashed, m.ID)
 			if ent := dim.mobs.book[m]; deferred && ent != nil {
 				shl.pending = append(shl.pending, pendingSplash{mob: m.ID, id: ent.uuid, scale: hit.Scale, src: src})
 				continue
@@ -1077,10 +1071,13 @@ func thrownTeleportPayload(t *entity.Thrown) []byte {
 func (s *Server) killThrown(it *thrownEntity) {
 	s.arrowsMu.Lock()
 	it.throwable.Dead = true
+	held := it.held
 	s.arrowsMu.Unlock()
 	s.entityDestroyed(it.uuid)
-	s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
-		removeEntitiesPayload([]int32{it.throwable.ID}))
+	if !held {
+		s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
+			removeEntitiesPayload([]int32{it.throwable.ID}))
+	}
 }
 
 // teleportThrown moves a thrown body to the position given and stops it.

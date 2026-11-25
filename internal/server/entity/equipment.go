@@ -321,14 +321,20 @@ func (m *Mob) lootPickupEligible() bool {
 		(m.Type != TypeSulfurCube || !m.IsBaby() && !m.NoAI && m.sulfur.pickupTimer <= 0)
 }
 
-func (mobs Mobs) lootGrid(items []LootItem, grid *BoxGrid) *BoxGrid {
+// PrepareLootGrid indexes a snapshot shared by sensing and ordinary pickup.
+// A nil result directs both passes to scan the snapshot.
+func (mobs Mobs) PrepareLootGrid(items []LootItem, grid *BoxGrid, mobGriefing bool) *BoxGrid {
+	return mobs.lootGrid(items, grid, true, mobGriefing)
+}
+
+func (mobs Mobs) lootGrid(items []LootItem, grid *BoxGrid, sense, pickUp bool) *BoxGrid {
 	const minPickers, minItems = 8, 32
 	if len(mobs) < minPickers || len(items) < minItems {
 		return nil
 	}
 	eligible := 0
 	for _, m := range mobs {
-		if m.lootPickupEligible() {
+		if pickUp && m.lootPickupEligible() || sense && m.wantedItemScanDue(pickUp) {
 			eligible++
 			if eligible == minPickers {
 				break
@@ -359,7 +365,11 @@ func (mobs Mobs) TakeLoot(items []LootItem) []LootTake {
 
 // TakeLootWithGrid decides pickups using the caller's reusable spatial index.
 func (mobs Mobs) TakeLootWithGrid(items []LootItem, grid *BoxGrid) []LootTake {
-	grid = mobs.lootGrid(items, grid)
+	return mobs.TakeLootWithPreparedGrid(items, mobs.lootGrid(items, grid, false, true))
+}
+
+// TakeLootWithPreparedGrid decides pickups from the indexed snapshot or scans it if grid is nil.
+func (mobs Mobs) TakeLootWithPreparedGrid(items []LootItem, grid *BoxGrid) []LootTake {
 	var takes []LootTake
 	for _, m := range mobs {
 		if !m.lootPickupEligible() {

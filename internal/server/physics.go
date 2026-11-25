@@ -180,6 +180,9 @@ func (s *Server) tellEffectFrom(w *world.World, user *client, e world.Effect) {
 		}
 		ctx.Affected = e.GameEventAffected
 		s.gameEvent(w, e.GameEvent, float64(e.X)+0.5, float64(e.Y)+0.5, float64(e.Z)+0.5, ctx)
+		if e.GameEvent == registry.GameEventNoteBlockPlay {
+			s.allaysHearNote(w, e.X, e.Y, e.Z) // vanilla: Allay.VibrationUser
+		}
 	}
 	if v := e.ListenerEvent; v != nil {
 		source := v.Player
@@ -218,9 +221,6 @@ func (s *Server) tellEffectFrom(w *world.World, user *client, e world.Effect) {
 		if e.BlockActionBlock == protocol.BlockBell && e.BlockAction == 1 {
 			s.villagersHearBell(w, e.X, e.Y, e.Z)
 			s.bellRung(w, e.X, e.Y, e.Z)
-		}
-		if e.BlockActionBlock == protocol.BlockNoteBlock {
-			s.allaysHearNote(w, e.X, e.Y, e.Z)
 		}
 		// vanilla: ServerLevel.runBlockEvents
 		var b protocol.Buffer
@@ -604,6 +604,11 @@ type bodyShove struct {
 	w *world.World
 	// mobs adds the mobs to a shove that is not block growth (a lid's).
 	mobs bool
+	// ownBoat and ownCart are the vehicle a shell rides, which is in its own
+	// root chain and so not shoved.
+	// vanilla: Entity.isPassengerOfSameVehicle
+	ownBoat *boatEntity
+	ownCart *minecartEntity
 }
 
 // shoveOnLids moves the bodies resting in each lid that opened this tick;
@@ -847,7 +852,7 @@ func (s *Server) collectFallingsToPush(w *world.World, sh bodyShove) []func() {
 // returning their teleports.
 func (s *Server) collectBoatsToPush(w *world.World, sh bodyShove) []func() {
 	return collectGrownLift(&s.boatsMu, &s.boats, sh,
-		func(it *boatEntity) bool { return it.boat.Dead || it.w != w },
+		func(it *boatEntity) bool { return it.boat.Dead || it.w != w || it == sh.ownBoat },
 		func(it *boatEntity) (minX, minY, minZ, maxX, maxY, maxZ float64) { return it.boat.BlastBox() },
 		func(it *boatEntity, sh bodyShove) func() {
 			to := player.Position{X: it.boat.X + sh.dx, Y: it.boat.Y + sh.dy, Z: it.boat.Z + sh.dz}
@@ -859,7 +864,7 @@ func (s *Server) collectBoatsToPush(w *world.World, sh bodyShove) []func() {
 // collectMinecartsToPush gathers carts under minecartsMu; their tick seats riders.
 func (s *Server) collectMinecartsToPush(w *world.World, sh bodyShove) []func() {
 	return collectGrownLift(&s.minecartsMu, &s.minecarts, sh,
-		func(it *minecartEntity) bool { return it.cart.Dead || it.w != w },
+		func(it *minecartEntity) bool { return it.cart.Dead || it.w != w || it == sh.ownCart },
 		func(it *minecartEntity) (minX, minY, minZ, maxX, maxY, maxZ float64) { return it.cart.BlastBox() },
 		func(it *minecartEntity, sh bodyShove) func() {
 			x, y, z := it.cart.X+sh.dx, it.cart.Y+sh.dy, it.cart.Z+sh.dz

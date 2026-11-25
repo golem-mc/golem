@@ -1,16 +1,17 @@
 package mobs
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
-
+	"cmp"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
@@ -154,8 +155,13 @@ func TestVanillaMobTagsSurviveALoadAndSave(t *testing.T) {
 			if moving[key] {
 				continue
 			}
-			if !reflect.DeepEqual(got[key], value) {
-				t.Errorf("the %s %s saved %s = %v, want the loaded %v", want["id"], id, key, got[key], value)
+			actual := got[key]
+			if key == "attributes" {
+				// vanilla: AttributeMap.pack traverses by JVM holder identity hash.
+				actual, value = sortSavedMobAttributes(actual), sortSavedMobAttributes(value)
+			}
+			if !reflect.DeepEqual(actual, value) {
+				t.Errorf("the %s %s saved %s = %v, want the loaded %v", want["id"], id, key, actual, value)
 			}
 		}
 		for key := range got {
@@ -173,6 +179,23 @@ func TestVanillaMobTagsSurviveALoadAndSave(t *testing.T) {
 			}
 		}
 	}
+}
+
+func sortSavedMobAttributes(tag nbt.Tag) nbt.Tag {
+	list, ok := tag.(nbt.List)
+	if !ok {
+		return tag
+	}
+	attributeID := func(item nbt.Tag) nbt.String {
+		entry, _ := nbt.CompoundView(item)
+		id, _ := nbt.Get[nbt.String](entry, "id")
+		return id
+	}
+	list.Items = slices.Clone(list.Items)
+	slices.SortFunc(list.Items, func(a, b nbt.Tag) int {
+		return cmp.Compare(attributeID(a), attributeID(b))
+	})
+	return list
 }
 
 // TestANameTagNamesAMobForGood names a pig with a name tag: the name goes

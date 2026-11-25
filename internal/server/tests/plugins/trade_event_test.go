@@ -124,3 +124,95 @@ func TestPluginEntityTransformEvent(t *testing.T) {
 		t.Errorf("allowed: pigs %d, piglins %d", len(srv.MobIDsOfKind("minecraft:pig")), len(srv.MobIDsOfKind("minecraft:zombified_piglin")))
 	}
 }
+
+// TestPluginHeldProjectileTeleportAndQueries checks a projectile a launch
+// listener has not yet accepted is invisible to spatial queries, and one moved
+// to another world during the callback appears there only once accepted, and
+// stays the spawn listener's to cancel when moved into an unloaded chunk.
+// vanilla: Entity.teleportCrossDimension, Projectile.spawnProjectile
+func TestPluginHeldProjectileTeleportAndQueries(t *testing.T) {
+	t.Parallel()
+	var host plugin.Server
+	var queried, cancel, cancelSpawn bool
+	var moveTo *plugin.Vec3
+	launches, spawns, invalid, seen := 0, 0, 0, -1
+	srv, _, c := blockScene(t, "minecraft:snowball", false, func(s plugin.Server) {
+		host = s
+		plugin.Listen(s, func(e *plugin.ProjectileLaunchEvent) {
+			launches++
+			if moveTo != nil {
+				nether, ok := host.World(plugin.MinecraftKey("the_nether"))
+				if !ok {
+					t.Error("no nether")
+					return
+				}
+				if !e.Projectile.Teleport(plugin.Location{World: nether, Pos: *moveTo}, plugin.TeleportPlugin) {
+					t.Error("the move was refused")
+				}
+				if !e.Projectile.IsValid() {
+					invalid++
+				}
+			}
+			if queried {
+				seen = 0
+				for _, o := range host.Overworld().EntitiesIn(plugin.Box{Min: plugin.Vec3{X: -64, Y: 0, Z: -64}, Max: plugin.Vec3{X: 64, Y: 128, Z: 64}}) {
+					if o.Type() == registry.EntityTypeSnowball {
+						seen++
+					}
+				}
+			}
+			e.SetCancelled(cancel)
+		})
+		plugin.Listen(s, func(e *plugin.EntitySpawnEvent) {
+			if e.Entity.Type() != registry.EntityTypeSnowball {
+				return
+			}
+			spawns++
+			e.SetCancelled(cancelSpawn)
+		})
+	})
+	shoot := func() {
+		calls := expectCalls(srv)
+		srv.GiveSlot("Miner", player.HotbarSlot, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:snowball"), Count: 1})
+		before := launches
+		c.UseItemRightClicks(protocol.HandMain)
+		calls.settle(t, c, nil)
+		if launches != before+1 {
+			t.Fatalf("the throw ran %d launch events, want 1", launches-before)
+		}
+	}
+	count := func(dim string) int { return len(srv.ThrownInDimension(dim)) }
+	shoot()
+	if count("minecraft:overworld") != 1 {
+		t.Fatalf("an allowed launch left %d snowballs", count("minecraft:overworld"))
+	}
+	queried, cancel = true, true
+	shoot()
+	if seen != 1 {
+		t.Errorf("a query during the launch saw %d snowballs, want the 1 already live", seen)
+	}
+	queried = false
+	if count("minecraft:overworld") != 1 {
+		t.Errorf("a cancelled launch left %d snowballs", count("minecraft:overworld"))
+	}
+	moveTo, cancel = &plugin.Vec3{X: 0.5, Y: 70, Z: 0.5}, false
+	shoot()
+	if count("minecraft:the_nether") != 1 {
+		t.Errorf("after an accepted move: %d snowballs in the nether, want 1", count("minecraft:the_nether"))
+	}
+	cancel = true
+	shoot()
+	if count("minecraft:the_nether") != 1 {
+		t.Errorf("a cancelled move left %d snowballs in the nether, want 1", count("minecraft:the_nether"))
+	}
+	// Far from any loaded chunk of the nether.
+	moveTo, cancel, cancelSpawn = &plugin.Vec3{X: 20000.5, Y: 70, Z: 20000.5}, false, true
+	before := spawns
+	shoot()
+	if invalid != 0 || spawns != before+1 {
+		t.Errorf("after a move into an unloaded chunk: %d launches saw an invalid handle and %d spawn events ran, want 0 and 1", invalid, spawns-before)
+	}
+	if count("minecraft:the_nether") != 1 {
+		t.Errorf("a spawn cancelled after a move into an unloaded chunk left %d snowballs in the nether, want 1", count("minecraft:the_nether"))
+	}
+}

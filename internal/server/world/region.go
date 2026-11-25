@@ -100,6 +100,9 @@ type regionFile struct {
 	// anyUnreadable mirrors whether unreadable has any bit set, so the cache
 	// can ask in O(1) whether the file must stay open.
 	anyUnreadable bool
+	// pastEnd marks the entries opened with an offset past the end of the
+	// file: the loader reads them as absent, a peek as a failed read.
+	pastEnd [chunksPerRegion]bool
 }
 
 // regionCoords is the region of a chunk, (x >> 5, z >> 5); Go's arithmetic
@@ -132,7 +135,21 @@ func openRegion(path string, format saveFormat) (*regionFile, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create region directory: %w", err)
 	}
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	return openRegionFile(path, format, true)
+}
+
+// peekRegion opens an existing region file without changing it: a missing
+// file, or one too short for its header, is an error.
+func peekRegion(path string, format saveFormat) (*regionFile, error) {
+	return openRegionFile(path, format, false)
+}
+
+func openRegionFile(path string, format saveFormat, create bool) (*regionFile, error) {
+	flag := os.O_RDWR
+	if create {
+		flag |= os.O_CREATE
+	}
+	file, err := os.OpenFile(path, flag, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -145,6 +162,10 @@ func openRegion(path string, format saveFormat) (*regionFile, error) {
 		return nil, fmt.Errorf("stat %s: %w", path, err)
 	}
 	if stat.Size() < regionHeaderLen {
+		if !create {
+			file.Close()
+			return nil, fmt.Errorf("%s: header truncated to %d bytes", path, stat.Size())
+		}
 		// A new or truncated file: write an empty header so both tables exist
 		// before any data is appended.
 		if err := file.Truncate(regionHeaderLen); err != nil {
@@ -168,6 +189,7 @@ func openRegion(path string, format saveFormat) (*regionFile, error) {
 			slog.Warn("region file entry points past the end of the file, ignoring it",
 				"file", path, "index", i, "sector", sector)
 			rf.offsets[i] = 0
+			rf.pastEnd[i] = true
 			continue
 		}
 		if sector >= regionHeaderLen/sectorSize {
@@ -219,17 +241,35 @@ func (rf *regionFile) allocate(count int) int {
 // the chunk unreadable and later writes to it are refused.
 // vanilla: RegionFile.getChunkDataInputStream
 func (rf *regionFile) readChunk(pos ChunkPos) ([]byte, error) {
+	data, err := rf.chunkData(pos, false)
+	if err != nil {
+		rf.markUnreadable(regionIndex(pos.X, pos.Z))
+	}
+	return data, err
+}
+
+// peekChunk is readChunk that leaves the record unmarked on a failure, for a
+// reader that does not decide whether the chunk may be written. It fails on an
+// entry the loader reads as absent but vanilla calls invalid: an offset past
+// the end of the file, or a nonzero offset with zero sectors.
+// vanilla: RegionFile.getChunkDataInputStream
+func (rf *regionFile) peekChunk(pos ChunkPos) ([]byte, error) {
+	return rf.chunkData(pos, true)
+}
+
+// chunkData reads and decodes the chunk's record, nil if absent.
+func (rf *regionFile) chunkData(pos ChunkPos, peek bool) ([]byte, error) {
 	index := regionIndex(pos.X, pos.Z)
-	compType, payload, err := rf.readRecord(index)
-	if err == nil && payload != nil {
+	compType, payload, err := rf.readRecord(index, peek)
+	if err == nil && payload == nil {
+		return nil, nil
+	}
+	if err == nil {
 		var data []byte
 		if data, err = rf.decodeRecord(pos, compType, payload); err == nil {
 			return data, nil
 		}
-	} else if err == nil {
-		return nil, nil
 	}
-	rf.markUnreadable(index)
 	return nil, fmt.Errorf("chunk %d in %s: %w", index, rf.path, err)
 }
 
@@ -268,12 +308,18 @@ func (rf *regionFile) hasUnreadable() bool {
 
 // readRecord returns the chunk's compression type and compressed payload, nil
 // if absent.
-func (rf *regionFile) readRecord(index int) (byte, []byte, error) {
+func (rf *regionFile) readRecord(index int, peek bool) (byte, []byte, error) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	if peek && rf.pastEnd[index] {
+		return 0, nil, errors.New("its offset points past the end of the file")
+	}
 	offset := rf.offsets[index]
 	sector, count := int(offset>>8), int(offset&0xFF)
+	if peek && offset != 0 && count == 0 {
+		return 0, nil, errors.New("it occupies zero sectors")
+	}
 	if offset == 0 || count == 0 {
 		return 0, nil, nil // vanilla drops a zero-sector entry as absent
 	}
@@ -447,6 +493,7 @@ func (rf *regionFile) writeChunk(pos ChunkPos, nbtData []byte) error {
 		rf.free(sector, sectors)
 		return err
 	}
+	rf.pastEnd[index] = false
 	if staged != "" {
 		// The staged payload is renamed only once the header points at the
 		// stub, so a crash between leaves the old copy readable.
@@ -479,6 +526,7 @@ func (rf *regionFile) removeChunk(pos ChunkPos) error {
 	}
 	old := rf.offsets[index]
 	if old == 0 {
+		rf.pastEnd[index] = false
 		return nil
 	}
 	wasExternal, err := rf.chunkExternal(index)

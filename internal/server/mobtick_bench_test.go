@@ -83,6 +83,59 @@ func BenchmarkTickMobsTicketed(b *testing.B) {
 	})
 }
 
+// BenchmarkTickMobsCalves is a thousand cows in 96 blocks, every second one
+// a calf, and a spectator so the herd keeps ticking: each calf looks for a
+// parent.
+func BenchmarkTickMobsCalves(b *testing.B) {
+	benchTickMobs(b, []mobMix{{entity.TypeCow, 1000}}, 96, 900, func(s *Server, rng *rand.Rand) {
+		dim := s.allDims()[0]
+		s.mobsMu.Lock()
+		for i, m := range dim.mobs.herd {
+			if i%2 == 0 {
+				m.SetBaby(true)
+				m.BabyAge = -1 << 30
+			}
+		}
+		s.mobsMu.Unlock()
+		benchMobSpectator(b)(s, rng)
+	})
+}
+
+// BenchmarkTickMobsCowsInHerd is BenchmarkTickMobsShulkersInHerd without the
+// shulkers: the herd and the spectator alone.
+func BenchmarkTickMobsCowsInHerd(b *testing.B) {
+	benchTickMobs(b, herdMix(0), 96, 2000, benchMobSpectator(b))
+}
+
+func BenchmarkTickMobsCalfFollow(b *testing.B) {
+	benchTickMobs(b, []mobMix{{entity.TypeCow, 400}, {entity.TypePig, 100}}, 96, 500,
+		benchMobSpectator(b), func(s *Server, _ *rand.Rand) {
+			s.mobsMu.Lock()
+			defer s.mobsMu.Unlock()
+			for _, m := range s.allDims()[0].mobs.herd {
+				if m.Type == entity.TypeCow && m.ID%2 == 0 {
+					m.SetBaby(true)
+				}
+			}
+		})
+}
+
+// BenchmarkTickMobsShulkersInHerd is BenchmarkTickMobs with 2000 cows and 50
+// shulkers added and a spectator, so the herd ticks and each shulker's
+// collision and push queries run beside a large herd.
+func BenchmarkTickMobsShulkersInHerd(b *testing.B) {
+	benchTickMobs(b, herdMix(50), 96, 2000, benchMobSpectator(b))
+}
+
+// herdMix is the BenchmarkTickMobs mix plus 2000 cows and shulkers shulkers.
+func herdMix(shulkers int) []mobMix {
+	return []mobMix{
+		{entity.TypeCow, 45 + 2000}, {entity.TypePig, 45}, {entity.TypeSheep, 45}, {entity.TypeChicken, 35},
+		{entity.TypeZombie, 8}, {entity.TypeSkeleton, 8}, {entity.TypeCreeper, 7}, {entity.TypeSpider, 7},
+		{entity.TypeShulker, shulkers},
+	}
+}
+
 // BenchmarkTickMobsFrogs ticks a thousand frogs with no tongue targets.
 func BenchmarkTickMobsFrogs(b *testing.B) {
 	benchTickMobs(b, []mobMix{{entity.TypeFrog, 1000}}, 96, 1000, benchMobSpectator(b))
@@ -133,9 +186,35 @@ type mobMix struct {
 	n    int
 }
 
+// BenchmarkTickFrozenMobTracking tracks two hundred frozen pigs from a nearby watcher.
+func BenchmarkTickFrozenMobTracking(b *testing.B) {
+	s := benchMobHerd(b, []mobMix{{entity.TypePig, 200}}, 32, 200, benchMobSpectator(b))
+	s.tickRate.SetFrozen(true)
+	s.tickRate.Tick()
+	watchers := s.trackingWatchers()
+	b.ReportAllocs()
+	for b.Loop() {
+		s.tickMobTracking(watchers)
+	}
+}
+
 // benchTickMobs runs the mob tick over mix spread across span blocks; each
 // setup runs after the spawns.
 func benchTickMobs(b *testing.B, mix []mobMix, span float64, minHerd int, setups ...func(*Server, *rand.Rand)) {
+	s := benchMobHerd(b, mix, span, minHerd, setups...)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.tickMobs()
+	}
+	b.StopTimer()
+	s.mobsMu.Lock()
+	b.ReportMetric(float64(len(s.allDims()[0].mobs.herd)), "mobs")
+	s.mobsMu.Unlock()
+}
+
+func benchMobHerd(b *testing.B, mix []mobMix, span float64, minHerd int, setups ...func(*Server, *rand.Rand)) *Server {
+	b.Helper()
 	cfg := config.Default()
 	cfg.OnlineMode = false
 	cfg.LevelName = b.TempDir()
@@ -194,16 +273,7 @@ func benchTickMobs(b *testing.B, mix []mobMix, span float64, minHerd int, setups
 	if herd < minHerd {
 		b.Fatalf("%d mobs in the herd after the settling ticks, want at least %d", herd, minHerd)
 	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		s.tickMobs()
-	}
-	b.StopTimer()
-	s.mobsMu.Lock()
-	b.ReportMetric(float64(len(dim.mobs.herd)), "mobs")
-	s.mobsMu.Unlock()
+	return s
 }
 
 // BenchmarkTickMobsNoMobs runs the mob tick with no mob in the world: one

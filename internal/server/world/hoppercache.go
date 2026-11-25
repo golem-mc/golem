@@ -40,9 +40,9 @@ type HopperTargets struct {
 	Full        bool
 }
 
-// HopperTargetCache holds block-container identities and failed-transfer
-// versions. A missing block container still searches the entity column on each
-// attempt, preserving random vehicle selection and movement between ticks.
+// HopperTargetCache holds block-container identities, mouth obstruction and
+// failed-transfer versions. A missing block container still searches the entity
+// column on each attempt, preserving random vehicle selection and movement between ticks.
 type HopperTargetCache struct {
 	Known        bool
 	Tags         uint64
@@ -53,6 +53,7 @@ type HopperTargetCache struct {
 	Paired       bool
 	Entities     [2]*BlockEntity
 	Composter    bool
+	MouthBlocked bool
 	Failed       bool
 	SelfVersion  uint64
 	Versions     [2]uint64

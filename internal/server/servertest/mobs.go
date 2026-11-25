@@ -1151,6 +1151,7 @@ type SpawnedMob struct {
 	MobFlags    uint8
 	// BaseFlags is the shared flags byte at index 0, told only when set.
 	BaseFlags uint8
+	NoGravity bool
 	// Pose is the pose at index 6, told only when not standing or when it
 	// went back to standing.
 	Pose int32
@@ -1516,6 +1517,11 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 		switch index {
 		case protocol.MetadataIndexSilent:
 			meta.ReadBool()
+		case protocol.MetadataIndexNoGravity:
+			if fieldType != protocol.MetadataBoolean {
+				c.T.Fatalf("no gravity field type = %d, want %d (a boolean)", fieldType, protocol.MetadataBoolean)
+			}
+			mob.NoGravity = meta.ReadBool()
 		case protocol.MetadataIndexCustomName:
 			if fieldType != protocol.MetadataOptionalText {
 				c.T.Fatalf("custom name field type = %d, want %d (an optional text)", fieldType, protocol.MetadataOptionalText)

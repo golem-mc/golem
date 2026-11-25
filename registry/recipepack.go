@@ -104,6 +104,9 @@ func (p PackRecipes) Empty() bool {
 	return true
 }
 
+// laterMatch is a cooking recipe that takes an item without being its first match.
+type laterMatch struct{ item, recipe int32 }
+
 // recipeSet is the recipes in force: the built-in tables, or those with the
 // data packs' laid over them. It is replaced whole so a craft never sees half
 // a reload.
@@ -116,7 +119,9 @@ type recipeSet struct {
 	transmute         []TransmuteRecipe
 	dye               []DyeRecipe
 	cooking           [cookingKinds][]CookingRecipe
-	cookingByItem     [cookingKinds][]int32 // first recipe index per item, -1 for none
+	cookingByItem     [cookingKinds][]int32                 // first recipe index per item, -1 for none
+	cookingByID       [cookingKinds]map[string]int32        // first recipe index per id
+	cookingLater      [cookingKinds]map[laterMatch]struct{} // (item, recipe) pairs where the recipe is not the item's first match
 	smithing          []SmithingTransformRecipe
 	trim              []SmithingTrimRecipe
 	brewing           []BrewingRecipe
@@ -221,13 +226,25 @@ func newRecipeSet(s *recipeSet) *recipeSet {
 		for i := range idx {
 			idx[i] = -1
 		}
+		byID := make(map[string]int32, len(s.cooking[k]))
+		s.cookingByID[k] = byID
+		later := make(map[laterMatch]struct{})
 		for r := range s.cooking[k] {
+			if _, dup := byID[s.cooking[k][r].ID]; !dup {
+				byID[s.cooking[k][r].ID] = int32(r)
+			}
 			for _, id := range s.cooking[k][r].Ingredient {
-				if id >= 0 && int(id) < len(idx) && idx[id] < 0 {
+				if id < 0 || int(id) >= len(idx) {
+					continue
+				}
+				if idx[id] < 0 {
 					idx[id] = int32(r)
+				} else if idx[id] != int32(r) {
+					later[laterMatch{id, int32(r)}] = struct{}{}
 				}
 			}
 		}
+		s.cookingLater[k] = later
 		s.cookingByItem[k] = idx
 	}
 	s.displayByID = make(map[int32]int, len(s.displays))

@@ -29,7 +29,7 @@ func BenchmarkSoilToDirt(b *testing.B) {
 				for b.Loop() {
 					now++
 					w.SetBlock(x, y, z, tc.state)
-					p.schedule(x, y, z, now)
+					p.scheduleSoil(registry.BlockOf(tc.state), x, y, z, now, tickPriorityNormal)
 					changes, _, _, effects := p.Tick(now)
 					p.RecycleTickResults(changes, effects)
 				}

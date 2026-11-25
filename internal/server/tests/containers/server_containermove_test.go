@@ -511,6 +511,11 @@ func TestADispenserGrowsWithItsBoneMeal(t *testing.T) {
 	if !ok {
 		t.Fatal("the registry holds no wheat")
 	}
+	farmland, ok := registry.FindState("minecraft:farmland", map[string]string{"moisture": "7"})
+	if !ok {
+		t.Fatal("the registry holds no farmland")
+	}
+	srv.SetLoadedBlock(4, 63, 1, farmland)
 	srv.SetLoadedBlock(4, 64, 1, young)
 
 	srv.StopTick()

@@ -71,3 +71,40 @@ func TestADeadPlayersBodyLeavesTheirWatchersAfterTwentyTicks(t *testing.T) {
 		t.Error("the respawned body was not shown to the watcher again")
 	}
 }
+
+func TestCorpseExpiryKeepsRespawnedBody(t *testing.T) {
+	t.Parallel()
+	srv, watcher, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Watcher", servertest.OpsListing(t, "Victim"))
+	victim := servertest.DialServer(t, srv)
+	id := victim.JoinAs("Victim")
+	if got := watcher.ExpectPlayerAdded("Victim"); got != id {
+		t.Fatalf("watcher saw entity %d, want victim %d", got, id)
+	}
+	victim.Settle()
+	servertest.HoldTicks(t, srv)
+
+	victim.ChatCommand("kill")
+	victim.Settle()
+	servertest.RunTicks(t, srv, 19)
+	watcher.Settle()
+	expired := false
+	srv.CorpseExpiryBetween(func() {
+		expired = true
+		victim.PerformRespawn()
+		victim.ExpectRespawnThroughTeleport()
+		victim.Settle()
+		if _, removed, spawned := bodyEvents(watcher, srv, id, 0); !removed || !spawned {
+			t.Fatalf("respawn while the tick was paused: removal %v, spawn %v, want both", removed, spawned)
+		}
+	})
+	srv.RunTick()
+	if !expired {
+		t.Fatal("the twentieth death tick did not reach corpse expiry")
+	}
+	if poof, removed, _ := bodyEvents(watcher, srv, id, 1); poof || removed {
+		t.Errorf("expired tick affected the live body: poof %v, removal %v", poof, removed)
+	}
+	if !srv.PlayerHoldsChunks("Victim") {
+		t.Error("expired tick dropped the respawned player's chunk holds")
+	}
+}

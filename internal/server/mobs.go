@@ -248,14 +248,15 @@ type mobHerd struct {
 	lootExtra func(*mobHerd, *mobEntity) func(*rules.LootEntity)
 	// records uses stable, one-based slots independent of herd compaction;
 	// freeRecords holds vacant slots. Both are guarded by mobsMu.
-	records      []*mobEntity
-	freeRecords  []int
-	byUUID       map[uuid.UUID]*entity.Mob
-	byID         map[int32]*mobEntity // includes the IDs reserved for dragon parts
-	dragonBodies []*entity.Mob
-	dying        []dyingMob
-	woken        map[world.ChunkPos]struct{}
-	carried      map[world.ChunkPos][]nbt.Tag
+	records            []*mobEntity
+	freeRecords        []int
+	byUUID             map[uuid.UUID]*entity.Mob
+	byID               map[int32]*mobEntity // includes the IDs reserved for dragon parts
+	dragonBodies       []*entity.Mob
+	widePiercingBodies []*entity.Mob
+	dying              []dyingMob
+	woken              map[world.ChunkPos]struct{}
+	carried            map[world.ChunkPos][]nbt.Tag
 	// listed is the chunks whose entity file has to be written when they
 	// leave even empty, or the next load would generate the animals again.
 	listed map[world.ChunkPos]bool
@@ -275,6 +276,8 @@ type mobHerd struct {
 	// dragons counts the ender dragons in herd the same way, so a tick with
 	// none skips the crystal and fight passes over the herd.
 	dragons atomic.Int32
+	// illagers lets the banner pass skip this herd. Guarded by mobsMu.
+	illagers int32
 	// leashWaits is the mobs that joined carrying a saved lead, which the
 	// mob tick re-ties to their holder or lets go after the grace.
 	leashWaits []*mobEntity
@@ -293,6 +296,10 @@ func (h *mobHerd) count(m *entity.Mob, n int32) {
 		h.wardens.Add(n)
 	case entity.TypeEnderDragon:
 		h.dragons.Add(n)
+	default:
+		if entity.IsIllagerType(m.Type) {
+			h.illagers += n
+		}
 	}
 }
 
@@ -327,6 +334,9 @@ func (h *mobHerd) remember(ent *mobEntity) {
 				h.byID[ent.mob.ID+1+part] = ent
 			}
 		}
+		if ent.mob.MayExceedPiercingPadding() {
+			h.widePiercingBodies = append(h.widePiercingBodies, ent.mob)
+		}
 	}
 	h.records[slot-1] = ent
 	ent.mob.SetRecordSlot(slot)
@@ -356,6 +366,9 @@ func (h *mobHerd) forget(m *entity.Mob) {
 				delete(h.byID, m.ID+1+part)
 			}
 		}
+		if m.MayExceedPiercingPadding() {
+			h.widePiercingBodies = slices.DeleteFunc(h.widePiercingBodies, func(wide *entity.Mob) bool { return wide == m })
+		}
 		delete(h.book, m)
 		m.Unfile()
 	}
@@ -384,6 +397,7 @@ func (h *mobHerd) setHerd(herd entity.Mobs) {
 	h.version++
 	h.wardens.Store(0)
 	h.dragons.Store(0)
+	h.illagers = 0
 	for _, m := range herd {
 		h.count(m, 1)
 	}
@@ -699,53 +713,50 @@ func (s *Server) sendMobSends(sends []mobSend) {
 	}
 }
 
-// tickMobTracking updates frozen mob visibility and collects pufferfish
-// contacts for players whose own ticks still run.
+// tickMobTracking advances the tracker on frozen loop ticks, even between
+// game steps. Players can still touch a pufferfish while its physics is held.
 // vanilla: ChunkMap.tick
 func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 	near := nearbyTracking(watchers)
 	defer near.release()
-	var sends []mobSend
+	gate := s.newEntityGate()
+	held := !s.tickRate.Running()
+	sends := s.mobTickSends[:0]
+	s.mobTickSends = nil
 	var pufferTouches []pufferTouch
 	s.lockTick(&s.mobsMu)
 	for _, dim := range s.allDims() {
+		centres := gate.centres[dim.w]
 		for _, m := range dim.mobs.herd {
-			ent := dim.mobs.book[m]
+			ent := dim.mobs.record(m)
 			if ent == nil {
 				continue
 			}
-			if puff := m.PuffState(); m.Type == entity.TypePufferfish && puff > 0 && m.Alive() {
-				pufferTouches = append(pufferTouches, pufferTouch{
-					box: entity.NewAABB(m.BlastBox()),
-					strike: mobStrike{
-						w: dim.w, mob: m, uuidText: ent.uuidText, killer: s.mobKiller(ent),
-						x: m.X, y: m.Y, z: m.Z, damage: float64(1 + puff), touch: true, puff: puff,
-					},
-				})
+			if touch, ok := pufferTouchOf(dim.w, m, ent); held && ok {
+				pufferTouches = append(pufferTouches, touch)
 			}
 			body := mobTracker.body(ent)
-			motion := mobMovement{seated: ent.seated()}
-			// The cadence runs on, so a teleport waits for the next gate.
-			// vanilla: ServerEntity.sendChanges
-			mt := body.t.ride(body.t.stepDue(m.UpdateInterval(), false), motion.seated)
-			mt.teleported = ent.teleported
+			var motion mobMovement
+			var mt moveTick
+			if ent.teleported || m.Impulse || entityTicksIn(dim.w, centres, gate.reach, herdChunk(m)) {
+				motion.seated = ent.seated()
+				mt = ent.movementTick(motion.seated)
+			}
 			for _, i := range body.watchers(near) {
 				wt := watchers[i]
 				if wt.c.theWorld() != dim.w {
 					continue // crossed to another dimension since the snapshot
 				}
-				_, told := ent.tracked.get(wt.c)
-				if was, seen := mobSettle(&body, wt.c, wt.x, wt.z, wt.chunkRadius, &sends); seen && told && mt.gate && mt.teleported {
+				before := len(sends)
+				if was, seen := mobSettle(&body, wt.c, wt.x, wt.z, wt.chunkRadius, &sends); seen && mt.gate && len(sends) == before {
 					motion.move(&body, was, wt.c, mt, &sends)
 				}
-			}
-			if mt.gate {
-				ent.teleported = false
 			}
 		}
 	}
 	s.unlockTick(&s.mobsMu)
 	s.sendMobSends(sends)
+	s.recycleMobTickSends(sends)
 	s.applyPufferTouches(watchers, pufferTouches)
 }
 
@@ -1842,15 +1853,6 @@ func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known m
 				known[ent.uuid] = true
 				continue
 			}
-		case "minecraft:snowball", "minecraft:egg", "minecraft:ender_pearl",
-			"minecraft:splash_potion", "minecraft:lingering_potion", "minecraft:experience_bottle",
-			"minecraft:wind_charge", "minecraft:small_fireball", "minecraft:fireball", "minecraft:dragon_fireball",
-			"minecraft:wither_skull", "minecraft:shulker_bullet":
-			if ent := s.thrownOfTag(h.w, compound); ent != nil {
-				woken.thrown = append(woken.thrown, ent)
-				known[ent.uuid] = true
-				continue
-			}
 		case cloudEntityID:
 			if ent := s.cloudOfTag(h.w, compound); ent != nil {
 				woken.clouds = append(woken.clouds, ent)
@@ -1870,8 +1872,14 @@ func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known m
 				continue
 			}
 		default:
-			// Each boat kind's id is its own name, so no constant names them.
-			if string(id) != "" && entity.BoatKind(string(id)) != "" {
+			if kind, ok := savedThrownKind(string(id)); ok {
+				if ent := s.thrownOfTag(h.w, kind, string(id), compound); ent != nil {
+					woken.thrown = append(woken.thrown, ent)
+					known[ent.uuid] = true
+					continue
+				}
+			} else if id != "" && entity.BoatKind(string(id)) != "" {
+				// Each boat kind's id is its own name, so no constant names them.
 				if ent := boatOfTag(s, h.w, compound); ent != nil {
 					woken.boats = append(woken.boats, ent)
 					known[ent.uuid] = true
@@ -2411,6 +2419,7 @@ func (s *Server) standMobArriving(dim *dimension, kind entity.MobType, x, y, z f
 	// Grounded only over a block: a blow before the first tick lifts a grounded
 	// spawn, and an airborne one cannot jump a fence before its first fall.
 	m.OnGround = spawnStandsOnGround(dim.w, x, y, z)
+	m.GroundGuess = true
 	ent := &mobEntity{
 		mob:  m,
 		w:    dim.w,
@@ -2556,6 +2565,10 @@ func (s *Server) spawnTaggedMob(dim *dimension, kind entity.MobType, x, y, z flo
 	var riders wakeResult
 	mobs := s.standWithRiders(s.herdOf(dim.w), ent, compound, &riders)
 	for _, r := range mobs[1:] {
+		// A rider is spawned at the summon position and reaches its seat on
+		// its first ride tick.
+		// vanilla: EntityType.loadEntityRecursive, Entity.positionRider
+		r.mob.SetPos(x, y, z)
 		if r.spawnReason == 0 {
 			r.spawnReason = ent.spawnReason
 		}
@@ -2702,14 +2715,36 @@ func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch floa
 	logTeleported("mob", to, by, "kind", ent.mob.Type)
 }
 
-// commandTeleportMob is teleportMob that also lands a mob that is not gliding.
-// vanilla: TeleportCommand.performTeleport
-func (s *Server) commandTeleportMob(ent *mobEntity, to player.Position, by string) {
+// turnTeleportMob is a command's or plugin's teleport within the dimension:
+// it turns the mob and its riders by move's transition, or the mob alone to
+// move's angles for a facing clause, and a /teleport also lands a mob that is
+// not gliding. The riders are marked pending, so the tracker tells their turn
+// even while ticks are frozen.
+// vanilla: TeleportCommand.performTeleport, Entity.teleportSameDimension
+func (s *Server) turnTeleportMob(ent *mobEntity, move command.Move, by string) {
 	s.mobsMu.Lock()
-	s.placeMob(ent, to, to.Yaw, to.Pitch)
+	// A relative turn is worked out from the mob's angles now, which an
+	// earlier target in the command may have changed.
+	if move.Command && move.LookAt == nil && !move.KeepRotation {
+		move = move.AgainstAngles(ent.mob.Yaw, ent.mob.Pitch)
+	}
+	to := move.Pos
+	turn := teleportTurn(move)
+	book := s.herdOf(ent.w).book
+	// Before the mount turns: a rider's turn keeps its angle to the mount.
+	entity.TurnPassengers(ent.mob, turn, func(p *entity.Mob) {
+		if rider := book[p]; rider != nil {
+			rider.teleported = true
+		}
+	})
+	yaw, pitch := to.Yaw, to.Pitch
+	if move.LookAt == nil {
+		yaw, pitch = turn.Apply(ent.mob.Yaw, ent.mob.Pitch)
+	}
+	s.placeMob(ent, to, yaw, pitch)
 	// Under the same lock, so no tick tells the teleport without the flag.
 	// vanilla: LivingEntity.isFallFlying
-	if !ent.mob.FallFlying {
+	if move.Command && !ent.mob.FallFlying {
 		ent.mob.OnGround = true
 	}
 	s.mobsMu.Unlock()
@@ -2868,6 +2903,18 @@ type mobMovement struct {
 	seated   bool
 	head     uint8
 	headRead bool
+}
+
+// movementTick takes the impulse and any teleport due on this tracking tick.
+func (ent *mobEntity) movementTick(seated bool) moveTick {
+	m := ent.mob
+	mt := ent.ride(ent.stepDue(m.UpdateInterval(), m.Impulse), seated)
+	m.Impulse = false
+	mt.teleported = ent.teleported
+	if mt.gate {
+		ent.teleported = false
+	}
+	return mt
 }
 
 // move tells one watcher where the mob went: the velocity first once it
@@ -3277,25 +3324,28 @@ func mobEquipmentPayload(ent *mobEntity) []byte {
 	return equipmentEntriesPayload(m.ID, slots[:], used)
 }
 
-// tickMobCompasses clears invalid targets on equipped compasses.
+// tickMobCompasses clears invalid targets on equipped compasses. A target
+// in a saved chunk the probe cannot answer is noted and left, for the caller to
+// resolve with no lock held and tick again.
 // vanilla: EntityEquipment.tick, CompassItem.inventoryTick
-func tickMobCompasses(m *entity.Mob, w *world.World, dim string) {
+func tickMobCompasses(m *entity.Mob, probe *lodestoneProbe, dim string) {
+	w := probe.w
 	bottom, top := w.MinY(), w.MinY()+w.Height()
-	if cleared, ok := rules.ClearLostLodestone(w, m.MainHand, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.MainHand, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipMainHand, cleared)
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.OffHand, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.OffHand, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipOffHand, cleared)
 	}
 	for i := range m.Worn {
-		if cleared, ok := rules.ClearLostLodestone(w, m.Worn[i], dim, bottom, top); ok {
+		if cleared, ok := rules.ClearLostLodestone(probe, m.Worn[i], dim, bottom, top); ok {
 			m.SetEquipment(protocol.EquipFeet+i, cleared)
 		}
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.Body, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.Body, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipBody, cleared)
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.SaddleSlot(), dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.SaddleSlot(), dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipSaddle, cleared)
 	}
 }

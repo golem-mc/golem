@@ -2,6 +2,7 @@ package entity
 
 import (
 	"math"
+	"slices"
 
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -296,6 +297,12 @@ func (g *endermanLookGoal) RequiresEveryTick() bool { return false }
 // vanilla: EnderMan.setTarget, LivingEntity.aiStep, EnderMan.customServerAiStep
 func (m *Mob) endermanStep(w World, events []MobEvent) []MobEvent {
 	e := &m.enderman
+	// The view is shared and refiltered for each mover; keep this one's own.
+	if b, ok := w.(*Bodies); ok {
+		own := *b
+		own.Skip = slices.Clone(b.Skip)
+		w = &own
+	}
 	e.w = w
 	events = append(events, e.hurtTeleports...)
 	e.hurtTeleports = e.hurtTeleports[:0]

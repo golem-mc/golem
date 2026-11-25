@@ -30,6 +30,9 @@ func (s *Server) tickRaiderBanners() {
 	var seekers []bannerSeeker
 	s.lockTick(&s.mobsMu)
 	for _, dim := range s.allDims() {
+		if dim.mobs.illagers == 0 {
+			continue
+		}
 		for _, m := range dim.mobs.herd {
 			if !entity.IsIllagerType(m.Type) {
 				continue
