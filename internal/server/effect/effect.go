@@ -208,6 +208,10 @@ const (
 type Change struct {
 	Kind     ChangeKind
 	Instance Instance
+	// DurationOnly marks a tick's periodic duration notification: the effect
+	// itself is unchanged, so its attribute modifier is left alone.
+	// vanilla: LivingEntity.tickEffects
+	DurationOnly bool
 }
 
 // Set is the active effects of one body, at most one instance per effect.
@@ -347,7 +351,7 @@ func (s *Set) Tick(age int32, apply func(in *Instance) bool) []Change {
 			continue
 		}
 		if in.Duration%600 == 0 {
-			changes = append(changes, Change{Kind: Updated, Instance: *cloneInstance(in)})
+			changes = append(changes, Change{Kind: Updated, Instance: *cloneInstance(in), DurationOnly: true})
 		}
 	}
 	return changes

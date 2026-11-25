@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/effect"
@@ -155,7 +156,8 @@ func TestMovementAndDamageEffectsScaleAMob(t *testing.T) {
 		for n, amp := range tc.effects {
 			give(z, n, amp)
 		}
-		if !closeEnough(z.pace(), tc.pace) || !closeEnough(z.attackDamage(), tc.hit) {
+		// The pace comes off the map, whose modifiers are float32 amounts.
+		if math.Abs(z.pace()-tc.pace) > 1e-7 || !closeEnough(z.attackDamage(), tc.hit) {
 			t.Errorf("%s: pace %v damage %v, want %v and %v", tc.name, z.pace(), z.attackDamage(), tc.pace, tc.hit)
 		}
 	}

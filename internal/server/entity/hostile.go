@@ -666,7 +666,7 @@ func (m *Mob) attackDamage() float64 {
 		if m.hoglinKind() && m.IsBaby() {
 			base += hoglinBabyAttack - m.kind().attackDamage
 		}
-		return m.effectAttackDamage(base)
+		return base
 	} else {
 		if m.hoglinKind() && m.IsBaby() {
 			// vanilla: Hoglin.ageBoundaryReached, Zoglin.setBaby

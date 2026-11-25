@@ -5,6 +5,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -89,6 +90,11 @@ func (m *Mob) effectsStep(events []MobEvent) []MobEvent {
 	}
 	if len(changes) > 0 {
 		m.effectsChanged()
+		for _, ch := range changes {
+			if !ch.DurationOnly {
+				m.effectChanged(ch, false)
+			}
+		}
 		m.clampAbsorption()
 	}
 	return events
@@ -191,7 +197,32 @@ func (m *Mob) AddEffect(in effect.Instance) (effect.Change, bool) {
 		}
 		in = edited
 	}
-	return m.LivingEffects.AddEffect(in)
+	change, ok := m.LivingEffects.AddEffect(in)
+	if ok {
+		m.effectChanged(change, true)
+	}
+	return change, ok
+}
+
+// effectChanged puts the changed effect's attribute modifier on the body's
+// map and trims health to the new maximum. An added effect with a modifier
+// gives a body with no map one; a tick's notification does not.
+// vanilla: LivingEntity.onEffectAdded, onEffectUpdated, onEffectsRemoved
+func (m *Mob) effectChanged(ch effect.Change, mayBuild bool) {
+	if !rules.HasEffectModifier(ch.Instance.ID) {
+		return
+	}
+	if m.attrs == nil {
+		if !mayBuild || ch.Kind == effect.Removed {
+			return
+		}
+		m.SetAttributes(m.BuildAttributes(nbt.List{}))
+	}
+	rules.ApplyEffectChange(m.attrs, ch)
+	// No effect modifier touches scale, so the box needs no refresh.
+	if cap := m.healthCap(); m.Health > cap {
+		m.SetMetadataHealth(cap)
+	}
 }
 
 // AddEffect gives a living body an effect after its type immunity check.

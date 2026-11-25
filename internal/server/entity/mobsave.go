@@ -2,6 +2,7 @@ package entity
 
 import (
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -665,9 +666,15 @@ func (m *Mob) LoadFrom(compound nbt.Compound, w World, gameTime func() int64) {
 	if chances, ok := nbt.Get[nbt.Compound](compound, "drop_chances"); ok {
 		m.DropChances, m.BodyDropChance, m.SaddleDropChance = ReadDropChances(chances)
 	}
-	// The effects the file kept on the body, woken with it.
+	// The effects the file kept on the body, woken with it. Their modifiers
+	// come from the saved attributes, not from the effects.
 	if list, ok := nbt.Get[nbt.List](compound, "active_effects"); ok {
 		m.RestoreEffects(effect.Decode(list))
+		if m.attrs == nil && slices.ContainsFunc(m.effects.All(), func(in effect.Instance) bool { return rules.HasEffectModifier(in.ID) }) {
+			// An effect with a modifier needs the map the file's modifiers sit in.
+			saved, _ := nbt.Get[nbt.List](compound, "attributes")
+			m.SetAttributes(m.BuildAttributes(saved))
+		}
 	}
 	if m.Type == TypeZombieVillager {
 		difficulty := rules.DifficultyNormal

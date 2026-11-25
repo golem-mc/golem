@@ -2488,6 +2488,7 @@ func (m *Mob) SetBaby(baby bool) {
 	if wasBaby != m.IsBaby() {
 		m.syncSulfurSize()
 	}
+	m.syncPiglinBabySpeed(m.attrs)
 	m.syncFlyingGoals()
 }
 
@@ -3552,8 +3553,8 @@ func (m *Mob) pace() float64 {
 			speed *= 1.5
 		}
 		if m.Type == TypePiglin && m.IsBaby() {
-			// vanilla: Piglin.SPEED_MODIFIER_BABY, ADD_MULTIPLIED_BASE
-			speed *= 1.2
+			// vanilla: Piglin.SPEED_MODIFIER_BABY, ADD_MULTIPLIED_BASE 0.2f
+			speed += speed * float64(float32(0.2))
 		}
 	}
 	if m.Type == TypeRavager {
