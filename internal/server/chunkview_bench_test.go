@@ -39,8 +39,9 @@ func benchChunkViewMoves(b *testing.B, asked int32, settle bool) {
 		cacheRadius = radius
 	}
 	var holds []world.ChunkPos
-	for x := -cacheRadius; x <= cacheRadius+1; x++ {
-		for z := -cacheRadius; z <= cacheRadius; z++ {
+	// Both centers' send views, which reach one chunk past the radius.
+	for x := -cacheRadius - 1; x <= cacheRadius+2; x++ {
+		for z := -cacheRadius - 1; z <= cacheRadius+1; z++ {
 			p := world.ChunkPos{X: x, Z: z}
 			w.Acquire(p)
 			holds = append(holds, p)
@@ -61,6 +62,7 @@ func benchChunkViewMoves(b *testing.B, asked int32, settle bool) {
 	if len(c.generating) != 0 || len(c.pendingGeneration) != 0 {
 		b.Fatal("benchmark terrain was not cached")
 	}
+	initialSend := len(c.pendingSend)
 	for _, p := range c.pendingSend {
 		c.markSent(p)
 	}
@@ -82,9 +84,10 @@ func benchChunkViewMoves(b *testing.B, asked int32, settle bool) {
 		if len(c.pendingHolds) != 0 || len(c.generating) != 0 {
 			b.Fatal("load holds did not settle")
 		}
-	} else if want := (2*load+1)*(2*load+1) - int((2*radius+1)*(2*radius+1)); len(c.pendingHolds) != want {
+	} else if want := (2*load+1)*(2*load+1) - initialSend; len(c.pendingHolds) != want {
 		b.Fatalf("queued holds = %d, want %d", len(c.pendingHolds), want)
 	}
+	c.pendingSend = nil
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := range b.N {

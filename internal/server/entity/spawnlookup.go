@@ -212,7 +212,9 @@ var emptyNaturalList spawnList
 
 // naturalSpawnContext retains origin references, never position-dependent overrides.
 type naturalSpawnContext struct {
-	w               SpawnWorld
+	w SpawnWorld
+	// ticking says whether a landing chunk entity-ticks; nil accepts any loaded chunk.
+	ticking         func(ChunkPos) bool
 	chunk           *world.SpawnChunk
 	table           *biomeSpawnTable
 	references      uint16
