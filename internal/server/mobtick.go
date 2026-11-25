@@ -843,7 +843,7 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 			m.CreakingOrphaned(creakingOrphaned(w, ent))
 		}
 	}
-	ew := t.dim.colliders[mobCollisions].reset(w, t.hulls[w], h.herd)
+	ew := t.dim.colliders[mobCollisions].reset(w, t.hulls[w], h.herd, true)
 	h.herd.BlocksChanged(ew, t.navChanges, &h.paths)
 	var crowd *entity.PushCrowd
 	if len(t.dim.vehicles.Bodies) > 0 {

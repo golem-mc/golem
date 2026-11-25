@@ -80,39 +80,39 @@ func TestAnOpeningShellPushesTheMobInItsWay(t *testing.T) {
 	}
 }
 
-// TestAShellShoveReadsShulkerHullsInHerdOrder: a pig shoved east toward a
-// low shell, with a taller one just past it, steps onto the low one. The
-// taller shell's grid cell comes first; read in that order, its top would
-// stand as the obstacle and refuse the step.
-// vanilla: Shulker.onPeekAmountChange, Entity.collide
-func TestAShellShoveReadsShulkerHullsInHerdOrder(t *testing.T) {
-	w := newTestWorld()
-	opener := NewMob(TypeShulker, 1, 1.5, 63, 0.5, 3)
-	opener.shulker.face, opener.shulker.peekNow = faceWest, 0.4
-	// Both shells open west: the low one to X 2.5 (top 64), the tall one to
-	// about X 2.55 (top 65). The pig straddles both on Z, 0.01 short of the
-	// low one; the shove carries it 0.076.
-	low := NewMob(TypeShulker, 2, 3.5, 63, 0.5, 4)
-	low.shulker.face, low.shulker.peekNow = faceEast, 0.5
-	tall := NewMob(TypeShulker, 3, 3.5, 64, -0.5, 5)
-	tall.shulker.face, tall.shulker.peekNow = faceEast, 0.468
-	pig := NewMob(TypePig, 4, 2.04, 63.6, 0, 6)
-	pig.OnGround = true
-	herd := []*Mob{opener, low, tall, pig}
-	grid := takePushGrid(len(herd), nil)
-	defer grid.release()
-	grid.build(herd)
-	if cellOf(tall.X, tall.Z) == cellOf(low.X, low.Z) {
-		t.Fatal("the shells share a grid cell; the fixture no longer orders them apart")
-	}
-	for _, m := range herd {
-		m.push = grid
-	}
-	opener.shulker.peek = shulkerOpenPeek
-	tv := tickView{w: w, others: herd}
-	opener.stepShulkerPeek(opener.shulkerWorld(&tv), &tv)
-	if math.Abs(pig.Y-64) > 1e-9 {
-		t.Errorf("the shoved pig stands at Y %v, want 64 on the low shell", pig.Y)
+// hullWorld is a test world whose bodies are the given hulls, in order.
+type hullWorld struct {
+	testWorld
+	hulls []AABB
+}
+
+func (h hullWorld) BodyBoxes(AABB) []AABB { return h.hulls }
+
+// TestAStepUpObstacleFollowsTheNearestHull: a tall far hull met before a low
+// near one (a parked body ahead of a live shell, or the reverse) does not
+// keep its top as the step-up obstacle once the near hull tightens the
+// clamp, in either direction.
+// vanilla: Entity.collide, Shapes.collide
+func TestAStepUpObstacleFollowsTheNearestHull(t *testing.T) {
+	pig := AABB{0, 63.6, 0, 0.6, 64.4, 0.6}
+	for _, dir := range []float64{1, -1} {
+		// near is 0.1 away on the move's axis with top 64; far is 0.5 away
+		// with top 66.
+		near := AABB{0.7, 63, 0, 1.7, 64, 1}
+		far := AABB{1.1, 63, 0, 2.1, 66, 1}
+		mover := pig
+		if dir < 0 {
+			mover = AABB{1.5, 63.6, 0, 2.1, 64.4, 0.6}
+			near = AABB{0.4, 63, 0, 1.4, 64, 1}
+			far = AABB{-0.5, 63, 0, 1, 66, 1}
+		}
+		for _, order := range [][]AABB{{far, near}, {near, far}} {
+			w := hullWorld{testWorld: newTestWorld(), hulls: order}
+			_, top, blocked := clipMove(w, collideCtx{}, mover, 0, dir)
+			if !blocked || top != 64 {
+				t.Errorf("direction %v, hulls %v: step-up obstacle top %v (blocked %v), want 64", dir, order, top, blocked)
+			}
+		}
 	}
 }
 

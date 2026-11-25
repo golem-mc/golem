@@ -27,7 +27,7 @@ func (s *Server) collidersByWorld(pass collisionPass) map[*world.World]entity.Wo
 	defer s.mobsMu.Unlock()
 	out := make(map[*world.World]entity.World, len(s.allDims()))
 	for _, dim := range s.allDims() {
-		out[dim.w] = dim.colliders[pass].reset(dim.w, hulls[dim.w], dim.mobs.herd)
+		out[dim.w] = dim.colliders[pass].reset(dim.w, hulls[dim.w], dim.mobs.herd, false)
 	}
 	return out
 }
@@ -44,24 +44,29 @@ type mobCollisionWorld struct {
 	view entity.Bodies
 }
 
-// reset requires mobsMu; the hulls were read before taking it. The returned
-// view is valid until this dimension's same pass rebuilds it next tick.
-func (w *mobCollisionWorld) reset(level *world.World, hulls []entity.AABB, herd entity.Mobs) entity.World {
+// reset requires mobsMu; the hulls were read before taking it. markShulkers
+// builds the mask ForMob drops for a shulker; only the mob pass reads it. The
+// returned view is valid until this dimension's same pass rebuilds it next tick.
+func (w *mobCollisionWorld) reset(level *world.World, hulls []entity.AABB, herd entity.Mobs, markShulkers bool) entity.World {
 	w.World = level
 	w.Boxes = append(w.Boxes[:0], hulls...)
 	w.grid.Cell = 4
 	w.grid.Reset()
 	w.Grid = &w.grid
 	clear(w.mobs)
-	w.shulkers = slices.Grow(w.shulkers[:0], len(hulls))[:len(hulls)]
-	clear(w.shulkers)
+	if markShulkers {
+		w.shulkers = slices.Grow(w.shulkers[:0], len(hulls))[:len(hulls)]
+		clear(w.shulkers)
+	}
 	for _, m := range herd {
 		if m.CollidesWithAny() {
 			if w.mobs == nil {
 				w.mobs = make(map[*entity.Mob]int32)
 			}
 			w.mobs[m] = int32(len(w.Boxes))
-			w.shulkers = append(w.shulkers, m.IsShulker())
+			if markShulkers {
+				w.shulkers = append(w.shulkers, m.IsShulker())
+			}
 			w.Boxes = append(w.Boxes, entity.NewAABB(m.BlastBox()))
 		}
 	}

@@ -17,7 +17,7 @@ func BenchmarkSolidCollisionSnapshot(b *testing.B) {
 			var snapshot mobCollisionWorld
 			b.ReportAllocs()
 			for b.Loop() {
-				w := snapshot.reset(nil, nil, herd).(*mobCollisionWorld)
+				w := snapshot.reset(nil, nil, herd, true).(*mobCollisionWorld)
 				for _, m := range herd {
 					boxes := w.ForMob(m).(entity.BodyWorld).BodyBoxes(entity.NewAABB(m.BlastBox()).Inflate(0.1))
 					if len(boxes) != 0 {
