@@ -248,12 +248,14 @@ type mobHerd struct {
 	lootExtra func(*mobHerd, *mobEntity) func(*rules.LootEntity)
 	// records uses stable, one-based slots independent of herd compaction;
 	// freeRecords holds vacant slots. Both are guarded by mobsMu.
-	records     []*mobEntity
-	freeRecords []int
-	byUUID      map[uuid.UUID]*entity.Mob
-	dying       []dyingMob
-	woken       map[world.ChunkPos]struct{}
-	carried     map[world.ChunkPos][]nbt.Tag
+	records      []*mobEntity
+	freeRecords  []int
+	byUUID       map[uuid.UUID]*entity.Mob
+	byID         map[int32]*mobEntity // includes the IDs reserved for dragon parts
+	dragonBodies []*entity.Mob
+	dying        []dyingMob
+	woken        map[world.ChunkPos]struct{}
+	carried      map[world.ChunkPos][]nbt.Tag
 	// listed is the chunks whose entity file has to be written when they
 	// leave even empty, or the next load would generate the animals again.
 	listed map[world.ChunkPos]bool
@@ -304,7 +306,7 @@ func (h *mobHerd) record(m *entity.Mob) *mobEntity {
 	return nil
 }
 
-// remember indexes a registered body by slot, pointer and UUID. The caller holds mobsMu.
+// remember indexes a registered body. The caller holds mobsMu.
 func (h *mobHerd) remember(ent *mobEntity) {
 	slot := ent.mob.RecordSlot()
 	if h.record(ent.mob) == nil {
@@ -314,6 +316,16 @@ func (h *mobHerd) remember(ent *mobEntity) {
 		} else {
 			slot = len(h.records) + 1
 			h.records = append(h.records, nil)
+		}
+		if h.byID == nil {
+			h.byID = make(map[int32]*mobEntity)
+		}
+		h.byID[ent.mob.ID] = ent
+		if ent.mob.Type == entity.TypeEnderDragon {
+			h.dragonBodies = append(h.dragonBodies, ent.mob)
+			for part := range int32(8) {
+				h.byID[ent.mob.ID+1+part] = ent
+			}
 		}
 	}
 	h.records[slot-1] = ent
@@ -337,6 +349,13 @@ func (h *mobHerd) forget(m *entity.Mob) {
 		h.freeRecords = append(h.freeRecords, slot)
 		m.SetRecordSlot(0)
 		delete(h.byUUID, ent.uuid)
+		delete(h.byID, m.ID)
+		if m.Type == entity.TypeEnderDragon {
+			h.dragonBodies = slices.DeleteFunc(h.dragonBodies, func(dragon *entity.Mob) bool { return dragon == m })
+			for part := range int32(8) {
+				delete(h.byID, m.ID+1+part)
+			}
+		}
 		delete(h.book, m)
 		m.Unfile()
 	}
@@ -2602,13 +2621,7 @@ func (s *Server) mobByEntityID(w *world.World, id int32) *mobEntity {
 
 // mobByEntityIDLocked is mobByEntityID for a caller already holding mobsMu.
 func (s *Server) mobByEntityIDLocked(w *world.World, id int32) *mobEntity {
-	h := s.herdOf(w)
-	for _, m := range h.herd {
-		if m.ID == id || (m.Type == entity.TypeEnderDragon && id > m.ID && id <= m.ID+8) {
-			return h.book[m]
-		}
-	}
-	return nil
+	return s.herdOf(w).byID[id]
 }
 
 // mobNameByID is the display name of the mob with this ID in w, false for

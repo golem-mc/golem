@@ -184,12 +184,19 @@ func (ix *ChunkIndex[T]) ByUUID(id uuid.UUID) (T, bool) {
 // remove nothing while ranging, and do not keep it past the lock.
 func (ix *ChunkIndex[T]) In(pos world.ChunkPos) iter.Seq[T] {
 	return func(yield func(T) bool) {
-		for _, e := range ix.cells[pos] {
-			if !yield(e.body) {
-				return
-			}
+		ix.Visit(pos, yield)
+	}
+}
+
+// Visit passes each body in pos to yield, stopping when it returns false.
+// The caller holds the index's lock and must keep the cell unchanged.
+func (ix *ChunkIndex[T]) Visit(pos world.ChunkPos, yield func(T) bool) bool {
+	for _, e := range ix.cells[pos] {
+		if !yield(e.body) {
+			return false
 		}
 	}
+	return true
 }
 
 // ChunksIn yields chunks in the inclusive rectangle, skipping empty regions
