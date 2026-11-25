@@ -4,6 +4,7 @@ import (
 	"math/rand/v2"
 	"slices"
 	"testing"
+	"unsafe"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/registry"
@@ -11,6 +12,13 @@ import (
 
 // Block state IDs for tests.
 var torchState = registry.BlockStates["minecraft:torch"]
+
+func TestLightEntrySize(t *testing.T) {
+	t.Parallel()
+	if got := unsafe.Sizeof(lightEntry{}); got != 16 {
+		t.Errorf("light entry size = %d bytes, want 16", got)
+	}
+}
 
 // TestFlatChunkSkyLight checks that a freshly generated flat chunk has full
 // sky light (15) above ground and no sky light (0) in the stone below it.
