@@ -48,6 +48,9 @@ type damageCause struct {
 	// lands; nil for any other cause.
 	exploder *removedBody
 	directID int32
+	// projectileOwnerless makes the Damage Event name the projectile as its
+	// cause too. vanilla: AbstractArrow.onHitEntity, ThrownTrident.onHitEntity
+	projectileOwnerless bool
 	// directType is the entity type name of a projectile direct entity, which
 	// is neither a player nor a mob; empty otherwise.
 	directType string
@@ -290,8 +293,12 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 	// flinch stay back.
 	if !softened {
 		direct := causeEntityID(cause)
+		wireCause := direct
 		if cause != nil && cause.directID != 0 {
 			direct = cause.directID
+			if cause.projectileOwnerless {
+				wireCause = direct
+			}
 		}
 		// A blocked blow plays the item's sound in place of the damage event.
 		// vanilla: LivingEntity.hurtServer
@@ -299,7 +306,7 @@ func (c *client) hurtFalling(amount float64, damageType registry.DamageType, cau
 			c.playShieldBlock(blockSound)
 		} else {
 			c.srv.broadcastWorld(c.theWorld(), protocol.IDPlayDamageEvent,
-				damageEventPayloadAt(c.player.EntityID, damageType, causeEntityID(cause), direct, damageEventPos(cause)))
+				damageEventPayloadAt(c.player.EntityID, damageType, wireCause, direct, damageEventPos(cause)))
 		}
 		// Only the victim is told, and only of an unblocked hit that knocks back.
 		// vanilla: ServerPlayer.indicateDamage via LivingEntity.dealDefaultKnockback
