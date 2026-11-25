@@ -2459,16 +2459,16 @@ func (c *spreadContext) loadChunk(q uint, cx, cz int32) {
 	}
 }
 
-// loadQuadrant resolves the chunk holding (x, z) once, so a hole check reads
-// its storage instead of World.BlockAt. A missing chunk keeps that fallback.
-func (c *spreadContext) loadQuadrant(x, z int32) {
-	if c.world == nil {
-		return
-	}
+// loadQuadrant resolves the chunk holding (x, z) once and returns its
+// quadrant, so reads use its storage instead of World.BlockAt. A missing chunk
+// stays unloaded, which keeps that fallback.
+func (c *spreadContext) loadQuadrant(x, z int32) uint {
 	cx, cz := x>>4, z>>4
-	if q := uint((cx-c.cx0)|(cz-c.cz0)<<1) & 3; c.chunksLoaded&(1<<q) == 0 {
+	q := uint((cx-c.cx0)|(cz-c.cz0)<<1) & 3
+	if c.chunksLoaded&(1<<q) == 0 {
 		c.loadChunk(q, cx, cz)
 	}
+	return q
 }
 
 // index maps a position to its cell, or reports it outside the square.
@@ -2513,11 +2513,7 @@ func (c *spreadContext) load(i int) {
 	z := c.oz + int32(off[1]) - spreadReach
 	var state uint16
 	if c.world != nil {
-		cx, cz := x>>4, z>>4
-		q := uint((cx-c.cx0)|(cz-c.cz0)<<1) & 3
-		if c.chunksLoaded&(1<<q) == 0 {
-			c.loadChunk(q, cx, cz)
-		}
+		q := c.loadQuadrant(x, z)
 		if b := c.topWords[q]; b != nil {
 			state = b.load(c.topYOff | int(z&15)<<4 | int(x&15))
 		} else if c.chunksLoaded&(1<<q) != 0 {
@@ -2685,7 +2681,9 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 				continue
 			}
 			ci := spreadCenter + spreadStep[i]
-			c.loadQuadrant(x+d[0], z+d[1])
+			if c.world != nil {
+				c.loadQuadrant(x+d[0], z+d[1])
+			}
 			c.seed(ci, side.state)
 			side.hole = c.holeAt(ci)
 			hasHole = hasHole || side.hole
