@@ -3,6 +3,7 @@ package entities
 import (
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -118,6 +119,41 @@ func TestTickedNoAICowSavesDefaultMovementSpeed(t *testing.T) {
 	c.Settle()
 	if reloaded := equineAttributes(t, c, selector); !reflect.DeepEqual(reloaded, want) {
 		t.Errorf("reloaded cow attributes = %v, want %v", reloaded, want)
+	}
+}
+
+// vanilla: AttributeMap.pack
+func TestEquippedZombieAttributeOrder(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, livingSavedConfig(), "Scribe", servertest.OpsListing(t, "Scribe"))
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand(`summon zombie ~ ~ ~3 {NoAI:1b,NoGravity:1b,IsBaby:0b,PersistenceRequired:1b,Tags:["attr_order"],equipment:{mainhand:{id:"minecraft:iron_sword",count:1}}}`)
+	servertest.AwaitSystemChatSaying(t, c, "commands.summon.success")
+	servertest.RunTicks(t, srv, 20)
+	c.Settle()
+
+	// Recorded from a vanilla 26.3 server after stepping 20 ticks.
+	const want = `[{id: "minecraft:movement_speed", base: 0.23000000417232513d}, {id: "minecraft:attack_damage", base: 3.0d}]`
+	parse := func(text string) nbt.List {
+		t.Helper()
+		tag, err := nbt.ParseSNBT("{attributes:" + text + "}")
+		if err != nil {
+			t.Fatal(err)
+		}
+		list, ok := nbt.Get[nbt.List](tag, "attributes")
+		if !ok {
+			t.Fatalf("attributes did not contain a list: %s", text)
+		}
+		return list
+	}
+	data := livingData(t, c, "@e[type=zombie,tag=attr_order,limit=1]", "attributes")
+	// An iron sword also supplies attack_speed, which the zombie's supplier lacks.
+	got := slices.DeleteFunc(parse(data).Items, func(item nbt.Tag) bool {
+		entry, _ := nbt.CompoundView(item)
+		return entry["id"] == nbt.String("minecraft:attack_speed")
+	})
+	if !reflect.DeepEqual(got, parse(want).Items) {
+		t.Fatalf("equipped zombie attributes = %s, want %s", data, want)
 	}
 }
 

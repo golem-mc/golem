@@ -15,12 +15,26 @@ func BenchmarkEntityChunkWake(b *testing.B) {
 	tags := []nbt.Tag{nbt.PlainCopy(arrowTag(arrow))}
 	s := &Server{}
 	h := &mobHerd{}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		woken := h.standUp(world.ChunkPos{}, tags, s, make(map[uuid.UUID]bool), false, true)
-		if len(woken.arrows) != 1 {
-			b.Fatal("arrow did not wake")
+	charge := &thrownEntity{uuid: uuid.New(), throwable: &entity.Thrown{ID: 2, X: 1, Y: 70, Z: 4, VY: 0.1, Kind: entity.ThrownWindCharge}}
+	thrownTags := []nbt.Tag{nbt.PlainCopy(thrownTag(charge))}
+	b.Run("arrow", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for range b.N {
+			woken := h.standUp(world.ChunkPos{}, tags, s, make(map[uuid.UUID]bool), false, true)
+			if len(woken.arrows) != 1 {
+				b.Fatal("arrow did not wake")
+			}
 		}
-	}
+	})
+	b.Run("windcharge", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for range b.N {
+			woken := h.standUp(world.ChunkPos{}, thrownTags, s, make(map[uuid.UUID]bool), false, true)
+			if len(woken.thrown) != 1 {
+				b.Fatal("wind charge did not wake")
+			}
+		}
+	})
 }

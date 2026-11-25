@@ -308,8 +308,16 @@ func pairCell(recipe *ShapelessRecipe, cells []protocol.ItemStack, cell int, mat
 // CookingMatch returns the recipe a stack cooks under for a block entity
 // kind (smelting, blasting, smoking or campfire), or nil; a kind cooking
 // none of the four falls back to smelting.
-// vanilla: AbstractFurnaceBlockEntity.quickCheck, one RecipeType apiece.
+// vanilla: RecipeManager.getRecipeFor
 func CookingMatch(kind string, stack protocol.ItemStack) *CookingRecipe {
+	return CookingMatchCached(kind, stack, nil)
+}
+
+// CookingMatchCached is CookingMatch for a block entity's own check: the
+// recipe that last matched, kept in *last, wins over an earlier match while
+// it still takes the stack.
+// vanilla: RecipeManager.createCheck, RecipeManager.getRecipeFor with a hint
+func CookingMatchCached(kind string, stack protocol.ItemStack, last *string) *CookingRecipe {
 	if stack.Empty() {
 		return nil
 	}
@@ -318,20 +326,31 @@ func CookingMatch(kind string, stack protocol.ItemStack) *CookingRecipe {
 	if stack.ItemID < 0 || int(stack.ItemID) >= len(set.cookingByItem[k]) {
 		return nil
 	}
-	if i := set.cookingByItem[k][stack.ItemID]; i >= 0 {
-		return &set.cooking[k][i]
+	i := set.cookingByItem[k][stack.ItemID]
+	if i < 0 {
+		return nil
 	}
-	return nil
+	if last != nil {
+		// Only a recipe that is not an item's first match needs the hint lookup.
+		if *last != "" && set.cooking[k][i].ID != *last {
+			if j, ok := set.cookingByID[k][*last]; ok {
+				if _, later := set.cookingLater[k][laterMatch{stack.ItemID, j}]; later {
+					return &set.cooking[k][j]
+				}
+			}
+		}
+		*last = set.cooking[k][i].ID
+	}
+	return &set.cooking[k][i]
 }
 
 // CookingRecipeByID returns a cooking kind's recipe by the id a RecipesUsed
 // compound keys it by, or false.
 func CookingRecipeByID(kind, id string) (*CookingRecipe, bool) {
-	table := cookingTable(kind)
-	for i := range table {
-		if table[i].ID == id {
-			return &table[i], true
-		}
+	set := recipes()
+	k := cookingKindOf(kind)
+	if i, ok := set.cookingByID[k][id]; ok {
+		return &set.cooking[k][i], true
 	}
 	return nil, false
 }

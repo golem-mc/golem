@@ -759,9 +759,17 @@ func (p *Physics) scheduleSurvival(x, y, z int32, due int64) {
 	p.scheduleBooked(p.survivalBooked, x, y, z, due, survivalTickEvent)
 }
 
-// scheduleBooked queues an entry tagged event unless booked already holds the
-// position.
+// scheduleBooked queues an entry tagged event, booked for the cell's block,
+// unless booked already holds the position.
+// vanilla: ScheduledTick.type
 func (p *Physics) scheduleBooked(booked map[blockKey]bool, x, y, z int32, due int64, event uint8) {
+	p.scheduleBookedFor(booked, x, y, z, due, tickPriorityNormal, event, registry.BlockAir)
+}
+
+// scheduleBookedFor is scheduleBooked with the tick's priority and the block it
+// is booked for (BlockAir for the cell's block, read once the tick is known to
+// be new).
+func (p *Physics) scheduleBookedFor(booked map[blockKey]bool, x, y, z int32, due int64, priority int, event uint8, block registry.Block) {
 	_, unloaded := p.w.prepareTick(x, z, true, false)
 	p.discardUnloadedTicks(unloaded)
 	key := blockKey{x, y, z}
@@ -769,9 +777,12 @@ func (p *Physics) scheduleBooked(booked map[blockKey]bool, x, y, z int32, due in
 		return
 	}
 	booked[key] = true
+	if block == registry.BlockAir {
+		block = registry.BlockOf(p.w.BlockAt(x, y, z))
+	}
 	p.seq++
 	p.queue.push(scheduledTick{
-		pos: key, due: due, priority: tickPriorityNormal, seq: p.seq, event: event,
+		pos: key, due: due, priority: priority, seq: p.seq, event: event, block: block,
 	})
 }
 
@@ -945,7 +956,7 @@ func (p *Physics) removeWithDrop(x, y, z int32, state uint16, changes *[]BlockCh
 	// by the cell's next block.
 	p.w.RemoveBlockEntity(x, y, z)
 	*changes = append(*changes, physicsChange(x, y, z, state, leave))
-	p.redstoneAfterRemoval(x, y, z, state, false, changes)
+	p.redstoneAfterRemoval(x, y, z, state, false, false, changes)
 	p.neighborUpdate(x, y, z, state, leave, changes)
 	// vanilla: Level.setBlock — the old state's updateIndirectNeighbourShapes
 	// runs before the neighbour shape pass; only redstone wire overrides it,

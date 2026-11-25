@@ -68,7 +68,7 @@ type bodyTrack[S any] struct {
 
 	movementSchedule
 	// needsSync is vanilla's needsSync: a /data load asks for a movement
-	// tick off the period. The kind's tick hands takeSync to schedule.
+	// tick off the period. The kind's tick hands takeSync() to schedule.
 	// vanilla: Entity.load, ServerEntity.sendChanges
 	needsSync bool
 
@@ -175,6 +175,16 @@ type trackedKind[B any, S any] struct {
 	// than the one the client places it at.
 	tellPose func(B) bodyPose
 	pairing  func(B) []outbound
+	// delta, if not nil, is read under the lock before the movement gate and
+	// gives the dirty data the watchers already told get after the movement.
+	// It asks for an off-period movement tick by setting needsSync when a
+	// synched value changed.
+	// vanilla: ServerEntity.sendChanges, sendDirtyEntityData
+	delta func(B) []byte
+	// dirtyAttributes, if not nil, takes the changed attributes, sent after
+	// the data; only a movement tick takes them, so a changed attribute alone
+	// waits for the next one.
+	dirtyAttributes func(B) []byte
 	// own is the kind's state a pairing tells; nil for a kind with none.
 	own func(B) S
 	// all, if not nil, walks the bodies in place of list, for a kind kept
@@ -352,14 +362,14 @@ type moveTick struct {
 	stepTicks int32
 }
 
-// schedule advances the body's movement schedule one tick. synced, if not
-// nil, is asked for a movement tick off the period, and only off it.
-func (v *trackedBody[B, S]) schedule(synced func() bool) moveTick {
+// schedule advances the body's movement schedule one tick. synced is the sync
+// flag the tick took, which opens a movement tick off the period.
+func (v *trackedBody[B, S]) schedule(synced bool) moveTick {
 	interval := v.k.interval
 	if v.k.intervalOf != nil {
 		interval = v.k.intervalOf(v.b)
 	}
-	return v.t.step(interval, synced)
+	return v.t.stepDue(interval, synced)
 }
 
 // teleportTick is the movement tick of a kind with no schedule of its own: it
@@ -368,13 +378,9 @@ func (v *trackedBody[B, S]) teleportTick() moveTick {
 	return v.t.takeTeleport()
 }
 
-// step advances one movement tick and reports what this one owes. synced, if
-// not nil, is asked for a movement tick off the period.
-func (m *movementSchedule) step(interval int, synced func() bool) moveTick {
-	return m.advance(m.tickCount%interval == 0 || (synced != nil && synced()))
-}
-
-// stepDue takes an already available sync flag without a callback dispatch.
+// stepDue advances one movement tick and reports what it owes. synced opens
+// one off the period; the caller takes it on every tick, so a scheduled tick
+// consumes it too.
 func (m *movementSchedule) stepDue(interval int, synced bool) moveTick {
 	return m.advance(m.tickCount%interval == 0 || synced)
 }
@@ -449,7 +455,10 @@ type sendList struct{ entries *[]sendEntry }
 
 type sendEntry struct {
 	to *client
-	p  outbound
+	// w, if not nil, is the world the packet belongs to; a client that left
+	// it is not sent the packet.
+	w *world.World
+	p outbound
 }
 
 var sendEntries = sync.Pool{New: func() any { return new([]sendEntry) }}
@@ -458,7 +467,13 @@ func (l *sendList) add(c *client, p outbound) {
 	if l.entries == nil {
 		l.entries = sendEntries.Get().(*[]sendEntry)
 	}
-	*l.entries = append(*l.entries, sendEntry{c, p})
+	*l.entries = append(*l.entries, sendEntry{to: c, p: p})
+}
+
+// addIn queues a packet for c only while c stays in w.
+func (l *sendList) addIn(c *client, w *world.World, p outbound) {
+	l.add(c, p)
+	(*l.entries)[len(*l.entries)-1].w = w
 }
 
 // drain hands every queued packet to f instead of sending it, and releases
@@ -481,7 +496,7 @@ func (l *sendList) send() {
 		return
 	}
 	for _, e := range *l.entries {
-		e.to.sendOutboundIn(nil, e.p)
+		e.to.sendOutboundIn(e.w, e.p)
 	}
 	// Cleared, so a pooled list holds no client or payload alive.
 	clear(*l.entries)
@@ -623,6 +638,7 @@ func moveDiff(id int32, was, now trackedPosition, abs bodyPose, mt moveTick, del
 
 // register puts a built body into its kind's list and shows it to every
 // player of its world in range.
+// vanilla: ChunkMap.TrackedEntity.updatePlayer
 func (k *trackedKind[B, S]) register(s *Server, b B) {
 	w := k.world(b)
 	type spot struct {
@@ -655,9 +671,11 @@ func (k *trackedKind[B, S]) register(s *Server, b B) {
 		recipients = append(recipients, sp.c)
 		v.mark(sp.c)
 	}
-	// Built under the lock, from the body as it is; the tick may have moved
-	// it by the time the sends run.
-	shown := k.pairing(b)
+	var shown []outbound
+	if len(recipients) > 0 {
+		// The tick may move the body once the locks are released.
+		shown = k.pairing(b)
+	}
 	mu.Unlock()
 	s.mu.RUnlock()
 
@@ -815,11 +833,18 @@ func (k *trackedKind[B, S]) pass(s *Server, watchers []trackingWatcher, running 
 // settleBody runs one live body's share of a pass, under the kind lock.
 func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *nearbyPlayers, running bool, out *trackSends) {
 	v := k.body(b)
+	var metadata, attributes []byte
+	if k.delta != nil {
+		metadata = k.delta(b)
+	}
 	var mt moveTick
 	if running || k.alwaysPosition || k.frozenSchedule {
-		mt = v.schedule(v.t.takeSync)
+		mt = v.schedule(v.t.takeSync())
 	} else {
 		mt = v.teleportTick()
+	}
+	if mt.gate && k.dirtyAttributes != nil {
+		attributes = k.dirtyAttributes(b)
 	}
 	// The baseline advances on every gate, watched or not, before any watcher
 	// is paired; a watcher paired now has it in its Add Entity, and the
@@ -836,15 +861,28 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 		if wt.c.theWorld() != v.w {
 			continue // crossed to another dimension since the snapshot
 		}
-		shows := len(out.shows)
-		if was, seen := v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out); seen && (mt.gate || mt.teleported && !v.k.steppedPath) {
-			if motionDue && len(out.shows) == shows { // not paired by this settle
+		paired := len(out.showTos)
+		was, seen := v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out)
+		if !seen {
+			continue
+		}
+		if mt.gate || mt.teleported && !v.k.steppedPath {
+			if motionDue && len(out.showTos) == paired { // not paired by this settle
 				if motion == nil {
 					motion = entityVelocityPayload(v.id, v.t.sentVX, v.t.sentVY, v.t.sentVZ)
 				}
 				out.moves.add(wt.c, outbound{id: protocol.IDPlaySetEntityMotion, data: motion})
 			}
 			v.moveTold(was, wt.c, mt, out)
+		}
+		// A watcher just paired was told the current state.
+		if len(out.showTos) == paired {
+			if metadata != nil {
+				out.moves.addIn(wt.c, v.w, outbound{id: protocol.IDPlayEntityMetadata, data: metadata})
+			}
+			if attributes != nil {
+				out.moves.addIn(wt.c, v.w, outbound{id: protocol.IDPlayUpdateAttributes, data: attributes})
+			}
 		}
 	}
 }

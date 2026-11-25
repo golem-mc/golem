@@ -17,7 +17,7 @@ func TestMobTargetKindsMatchTheirPredicates(t *testing.T) {
 		{"illager", illagerKinds, IsIllagerType},
 		{"raider", raiderKinds, isRaiderType},
 		{"healable raider", witchRaiderKinds, func(kind MobType) bool { return isRaiderType(kind) && kind != TypeWitch }},
-		{"fish", fishKinds, FishKind},
+		{"schooling fish", schoolingFishKinds, func(t MobType) bool { return FishKind(t) && t != TypePufferfish }},
 		{"piglin", piglinKinds, piglinKind},
 		{"villager", abstractVillagerKinds, isAbstractVillager},
 	} {

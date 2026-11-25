@@ -1434,7 +1434,9 @@ type Mob struct {
 	VX, VY, VZ          float64
 	Yaw, Pitch, HeadYaw float32
 	OnGround            bool
-	look                lookControl
+	// GroundGuess marks OnGround as the spawn's stand-in, not a saved fact.
+	GroundGuess bool
+	look        lookControl
 
 	Health, MaxHealth float64
 	// damagedEvent marks a hurt not yet told as entity_damage.
@@ -3643,6 +3645,20 @@ func (m *Mob) BlastBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
 	return m.X - hw, m.Y, m.Z - hw, m.X + hw, m.Y + m.height(), m.Z + hw
 }
 
+// BlastBoxHits reports whether BlastBox intersects the box. It tests X and Z
+// first so a body that misses horizontally never computes its height.
+func (m *Mob) BlastBoxHits(minX, minY, minZ, maxX, maxY, maxZ float64) bool {
+	if m.Type == TypeShulker {
+		bMinX, bMinY, bMinZ, bMaxX, bMaxY, bMaxZ := m.shulkerBox().Corners()
+		return minX < bMaxX && maxX > bMinX && minY < bMaxY && maxY > bMinY && minZ < bMaxZ && maxZ > bMinZ
+	}
+	hw := m.width() / 2
+	if !(minX < m.X+hw && maxX > m.X-hw && minZ < m.Z+hw && maxZ > m.Z-hw) {
+		return false
+	}
+	return minY < m.Y+m.height() && maxY > m.Y
+}
+
 // EyePosition is getEyePosition, where an explosion's knockback is directed
 // from.
 func (m *Mob) EyePosition() (x, y, z float64) {
@@ -4537,7 +4553,7 @@ func (m *Mob) HurtByMob(amount float64, source *Mob) bool {
 // HurtByMobOwned is HurtByMob with ownerID, the entity ID of a tame wolf
 // source's owner in this level (0 when absent), who takes the player credit.
 func (m *Mob) HurtByMobOwned(amount float64, source *Mob, ownerID int32) bool {
-	return m.hurtByMob(amount, rules.DamageTypeMobAttack, source, ownerID)
+	return m.hurtByMob(amount, rules.DamageTypeMobAttack, source, ownerID, nil)
 }
 
 // HurtByRam is HurtByMob for a goat's ram: mob_attack_no_aggro, so the victim
@@ -4551,10 +4567,20 @@ func (m *Mob) HurtByRam(amount float64, source *Mob) bool {
 // or beam), still knocked back by the direct entity.
 // vanilla: LivingEntity.hurtServer
 func (m *Mob) HurtByMobAs(amount float64, damageType registry.DamageType, source *Mob) bool {
-	return m.hurtByMob(amount, damageType, source, 0)
+	return m.hurtByMob(amount, damageType, source, 0, nil)
 }
 
-func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *Mob, ownerID int32) (landed bool) {
+// HurtByMobVia is HurtByMobAs for a blow whose direct entity is not source
+// (an evoker's fangs): source is the causing entity, and the shove points
+// away from (fromX, fromZ), the direct entity's position.
+// vanilla: LivingEntity.hurtServer, DamageSource.getSourcePosition
+func (m *Mob) HurtByMobVia(amount float64, damageType registry.DamageType, source *Mob, fromX, fromZ float64) bool {
+	return m.hurtByMob(amount, damageType, source, 0, &[2]float64{fromX, fromZ})
+}
+
+// hurtByMob's push, when non-nil, is the point the shove points away from
+// instead of source's feet.
+func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *Mob, ownerID int32, push *[2]float64) (landed bool) {
 	if m.dragon != nil {
 		defer func(accepted bool) { landed = landed || accepted }(m.dragonAccepts(amount))
 	}
@@ -4563,8 +4589,17 @@ func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *
 		return false
 	}
 	from := source.HitSource()
+	// The source's feet are read when the shove is applied: throughWindow
+	// can run a listener that moves it.
+	pushFrom := func() (float64, float64) {
+		if push != nil {
+			return push[0], push[1]
+		}
+		return source.X, source.Z
+	}
 	if m.sulfurBlocked(damageType) {
-		m.hitKnockback(&from, source.X-m.X, source.Z-m.Z, amount)
+		fromX, fromZ := pushFrom()
+		m.hitKnockback(&from, fromX-m.X, fromZ-m.Z, amount)
 		return true
 	}
 	mayLand, soft := m.throughWindow(amount, damageType, false, true, false, hurtContext{causeID: source.ID})
@@ -4602,7 +4637,8 @@ func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *
 	if soft {
 		return true
 	}
-	m.hitKnockback(&from, source.X-m.X, source.Z-m.Z, amount)
+	fromX, fromZ := pushFrom()
+	m.hitKnockback(&from, fromX-m.X, fromZ-m.Z, amount)
 	return true
 }
 
@@ -5662,6 +5698,9 @@ func (m *Mob) animalAIStep(t *tickView) {
 		m.catTick(t)
 	}
 	if m.NoAI {
+		if m.Type == TypePufferfish && m.Alive() {
+			t.events = m.pufferStings(t, t.events)
+		}
 		return
 	}
 	switch m.Type {

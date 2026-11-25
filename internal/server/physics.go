@@ -37,6 +37,20 @@ func (s *Server) blockPlaced(w *world.World, x, y, z int32, oldState uint16) {
 	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
 }
 
+// blockPlacedHooks is blockPlaced's share a block write owns: the placement
+// hooks and the shape passes, before a block entity's tag loads.
+func (s *Server) blockPlacedHooks(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyPlacedHooks(x, y, z, oldState)
+	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
+}
+
+// blockPlacedWake is blockPlaced's explicit neighbour update, run after
+// blockPlacedHooks and the tag load.
+func (s *Server) blockPlacedWake(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyPlacedWake(x, y, z, oldState)
+	s.finishBlockWake(w, x, y, z, oldState, changes, effects, primes, false, false, false)
+}
+
 // updateNeighboursOnBlockSet wakes neighbours after a successful non-strict
 // /setblock that left the block state unchanged. NotifyChanged skips that case.
 // vanilla: ServerLevel.updateNeighboursOnBlockSet
@@ -166,6 +180,9 @@ func (s *Server) tellEffectFrom(w *world.World, user *client, e world.Effect) {
 		}
 		ctx.Affected = e.GameEventAffected
 		s.gameEvent(w, e.GameEvent, float64(e.X)+0.5, float64(e.Y)+0.5, float64(e.Z)+0.5, ctx)
+		if e.GameEvent == registry.GameEventNoteBlockPlay {
+			s.allaysHearNote(w, e.X, e.Y, e.Z) // vanilla: Allay.VibrationUser
+		}
 	}
 	if v := e.ListenerEvent; v != nil {
 		source := v.Player
@@ -204,9 +221,6 @@ func (s *Server) tellEffectFrom(w *world.World, user *client, e world.Effect) {
 		if e.BlockActionBlock == protocol.BlockBell && e.BlockAction == 1 {
 			s.villagersHearBell(w, e.X, e.Y, e.Z)
 			s.bellRung(w, e.X, e.Y, e.Z)
-		}
-		if e.BlockActionBlock == protocol.BlockNoteBlock {
-			s.allaysHearNote(w, e.X, e.Y, e.Z)
 		}
 		// vanilla: ServerLevel.runBlockEvents
 		var b protocol.Buffer
@@ -1347,6 +1361,9 @@ const (
 	// writeNeighborShapes is the shape pass of a flag-2 write: the rules
 	// reshape and the engine's shape pass, no neighbour update.
 	writeNeighborShapes
+	// writePlacedHooks runs a placement's hooks and shape passes within the
+	// write and leaves the explicit neighbour update to the caller.
+	writePlacedHooks
 	commandBlockWrite = writeShape | writeEntity | writeLight | writeWake
 	strictBlockWrite  = writeEntity | writeLight
 )
@@ -1396,7 +1413,10 @@ func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint
 		s.applyBlockUpdates(w, x, y, z, old, state, *updates)
 		return true
 	}
-	if policy&(writeWake|writeNeighborShapes) == writeNeighborShapes {
+	if policy&writePlacedHooks != 0 {
+		s.updateNeighborShapes(w, x, y, z)
+		s.blockPlacedHooks(w, x, y, z, old)
+	} else if policy&(writeWake|writeNeighborShapes) == writeNeighborShapes {
 		s.updateNeighborShapes(w, x, y, z)
 		s.physicsShapePass(w, x, y, z)
 	}

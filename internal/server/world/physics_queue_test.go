@@ -60,3 +60,42 @@ func TestScheduledTickQueueOrder(t *testing.T) {
 		})
 	}
 }
+
+func TestHasTickDueAtMatchesLinearScan(t *testing.T) {
+	const due = 100
+	pos := blockKey{1, 64, 1}
+	overdue := scheduledTick{pos: pos, due: due - 1}
+	future := scheduledTick{pos: pos, due: due + 1}
+	water := fluidTypeOf(fluidHolding(waterByLevel[0]))
+	fluid := scheduledTick{pos: pos, due: due, fluid: water, seq: 2}
+	event := scheduledTick{pos: pos, due: due, event: redstoneTickEvent}
+	cancelled := scheduledTick{pos: pos, due: due, priority: tickPriorityFinalize, seq: 3}
+	rebooked := scheduledTick{pos: pos, due: due, priority: tickPriorityFinalize, seq: 4}
+	other := scheduledTick{pos: blockKey{1, 65, 1}, due: due, seq: 1}
+
+	for _, tc := range []struct {
+		name  string
+		queue tickQueue
+	}{
+		{"parked only", nil},
+		{"overdue only", tickQueue{overdue}},
+		{"future only", tickQueue{future}},
+		{"same due at a different position", tickQueue{other}},
+		{"cancelled only", tickQueue{cancelled}},
+		{"event due now", tickQueue{event}},
+		{"fluid under an overdue parent", tickQueue{overdue, other, fluid, future}},
+		{"rebooked under a cancelled parent", tickQueue{cancelled, rebooked}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Physics{queue: tc.queue, cancelled: map[int64]struct{}{cancelled.seq: {}}}
+			p.queue.init()
+			p.park(event)
+			want := slices.ContainsFunc(p.queue, func(tick scheduledTick) bool {
+				return tick.pos == pos && tick.due == due && !p.tickCancelled(tick)
+			})
+			if got := p.hasTickDueAt(pos, due); got != want {
+				t.Errorf("hasTickDueAt(%v, %d) = %t, linear scan = %t", pos, due, got, want)
+			}
+		})
+	}
+}

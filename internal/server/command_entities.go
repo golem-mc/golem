@@ -872,10 +872,8 @@ func (e *entitySnapshot) changeLivingEffects(change func(effectBody) []effect.Ch
 	if ref, ok := e.ref.(*mannequinEntity); ok {
 		s.mannequinsMu.Lock()
 		changes := change(ref.mannequin)
-		packets := mannequinEffectPackets(ref)
-		watchers := trackedWatchers(ref.tracked)
+		syncMannequinEffects(ref)
 		s.mannequinsMu.Unlock()
-		s.tellWatchers(ref.w, watchers, packets)
 		return len(changes) > 0
 	}
 	ref, ok := e.ref.(*mobEntity)
@@ -919,11 +917,54 @@ func (e *entitySnapshot) Kill() {
 	e.srv.flushDestroyed()
 }
 
+// teleportTurn is the rotation transition move gives a mob and its riders.
+// A facing clause turns only the mount, after the teleport, so the
+// riders get a zero relative turn; only /teleport wraps its angles. A
+// coordinate-only /teleport has zero relative offsets, and a plugin's
+// rewritten destination has no relative axes, so both follow the flags.
+// vanilla: TeleportCommand.performTeleport, LookAt.perform
+func teleportTurn(move command.Move) entity.Turn {
+	if move.LookAt != nil {
+		return entity.Turn{RelYaw: true, RelPitch: true}
+	}
+	t := entity.Turn{Yaw: move.Pos.Yaw, Pitch: move.Pos.Pitch}
+	if !move.Command {
+		return t
+	}
+	// A relative axis turns by the wrapped offset, not to move.Pos, whose
+	// pitch is already clamped.
+	t.RelYaw, t.RelPitch = move.RelYaw, move.RelPitch
+	if t.RelYaw {
+		t.Yaw = move.Offset.Yaw
+	}
+	if t.RelPitch {
+		t.Pitch = move.Offset.Pitch
+	}
+	return t
+}
+
 // Teleport is Entity.teleportTo: an absolute Teleport Entity to the
 // entity's viewers, or teleportAcross for another dimension. A non-player
 // always gets its absolute destination, so a facing clause turns it here
 // rather than via the client-only Player Look At.
 func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
+	if ref, ok := e.ref.(*mobEntity); ok && move.Command {
+		// The event reports where this target is and turns to now, which an
+		// earlier target in the command may have changed.
+		e.srv.mobsMu.Lock()
+		m := ref.mob
+		e.pos = player.Position{X: m.X, Y: m.Y, Z: m.Z, Yaw: m.Yaw, Pitch: m.Pitch}
+		e.srv.mobsMu.Unlock()
+		switch {
+		case move.LookAt != nil:
+			// The facing clause's angles stand.
+		case move.KeepRotation:
+			move.Pos.Yaw, move.Pos.Pitch = e.pos.Yaw, e.pos.Pitch
+		default:
+			move = move.AgainstAngles(e.pos.Yaw, e.pos.Pitch)
+		}
+	}
+	asked := move.Pos
 	move, dim, ok := e.srv.pluginTeleport(e, move, dim, by)
 	if !ok {
 		return
@@ -935,11 +976,11 @@ func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
 	}
 	switch ref := e.ref.(type) {
 	case *mobEntity:
-		if move.Command {
-			e.srv.commandTeleportMob(ref, to, by)
-		} else {
-			e.srv.teleportMob(ref, to, to.Yaw, to.Pitch, by)
+		if move.LookAt != nil && (move.Pos.Yaw != asked.Yaw || move.Pos.Pitch != asked.Pitch) {
+			// A listener's angles replace a facing clause's.
+			move.LookAt = nil
 		}
+		e.srv.turnTeleportMob(ref, move, by)
 	case *itemEntity:
 		e.srv.teleportItem(ref, to, by)
 	case *arrowEntity:
@@ -1344,7 +1385,9 @@ func (ws worldScope) Entities(filters command.EntityQuery) []command.Entity {
 func (ws worldScope) query(q entityQuery) []command.Entity {
 	s := ws.srv
 	if q.Box != nil && q.chunk == nil && q.UUID == nil {
-		q.area = smallChunkArea(q.Box)
+		if area, ok := smallChunkArea(q.Box); ok {
+			q.area = &area
+		}
 	}
 	// Bound maintenance is linear in the batch size; larger limits collect once.
 	if q.Limit > 0 && q.Limit <= 16 {
@@ -1509,7 +1552,7 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 			if q.chunk != nil && !ix.Has(*q.chunk) {
 				return out
 			}
-			indexed = bodiesInChunks(ix, q)
+			indexed = func(yield func(E) bool) { bodiesInChunks(ix, q.chunk, q.area, yield) }
 		}
 		if q.candidates != nil {
 			q.kind = &entityQueryKind{mu: mu, snapshot: func(ref any, query *entityQuery) *entitySnapshot {
@@ -1600,11 +1643,12 @@ func (s *Server) appendMobSnapshots(out []command.Entity, q *entityQuery) []comm
 				appendMob(ent, dim.name)
 			}
 		} else if q.chunk != nil || q.area != nil {
-			for m := range bodiesInChunks(&dim.mobs.chunks, q) {
+			bodiesInChunks(&dim.mobs.chunks, q.chunk, q.area, func(m *entity.Mob) bool {
 				if ent := dim.mobs.record(m); ent != nil {
 					appendMob(ent, dim.name)
 				}
-			}
+				return true
+			})
 		} else {
 			for _, ent := range dim.mobs.book {
 				appendMob(ent, dim.name)
@@ -2074,7 +2118,7 @@ func (e *entitySnapshot) WithAttributes(fn func(a *player.Attributes)) {
 		e.srv.mannequinsMu.Lock()
 		defer e.srv.mannequinsMu.Unlock()
 		fn(ref.mannequin.Attributes)
-		ref.mannequin.Health = min(ref.mannequin.Health, ref.mannequin.HealthCap())
+		ref.mannequin.SetHealth(min(ref.mannequin.Health, ref.mannequin.HealthCap()))
 		return
 	}
 	ref, ok := e.ref.(*mobEntity)
@@ -2087,8 +2131,9 @@ func (e *entitySnapshot) WithAttributes(fn func(a *player.Attributes)) {
 	if m.Attributes() == nil {
 		m.SetAttributes(m.BuildAttributes(savedAttributes(ref.saved)))
 	}
-	fn(m.Attributes())
-	m.OnAttributeUpdated()
+	if m.EditAttributes(ref.w, fn) {
+		e.srv.herdOf(ref.w).pistonGrid.built = false
+	}
 }
 
 func (s *Server) teleportMobAcross(ref *mobEntity, to *dimension, at player.Position, yaw, pitch float32) (alive bool, from *world.World, oldID int32, register func(), severed []seatNews) {

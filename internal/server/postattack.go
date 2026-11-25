@@ -211,12 +211,11 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			shove := &mannequinKnockback{x: cause.x, z: cause.z}
 			hurt, landed = s.hurtMannequinLocked(ent, hit.Damage, hit.DamageType, cause.entityID+1, cause.entityID+1, nil, creativeClient(owner.player), shove)
 		}
-		packets, watchers := mannequinEffectPackets(ent), trackedWatchers(ent.tracked)
+		syncMannequinEffects(ent)
 		s.mannequinsMu.Unlock()
 		if landed {
 			s.tellMannequinHurt(hurt)
 		}
-		s.tellWatchers(w, watchers, packets)
 	} else {
 		s.mobsMu.Lock()
 		m := target.mob
@@ -390,6 +389,11 @@ func (s *Server) fillBlowWorld(w *world.World, loot *rules.LootContext, at [3]fl
 	if p := loot.This.Place; p != nil {
 		at = [3]float64{p.X, p.Y, p.Z}
 	}
+	s.fillLootOrigin(w, loot, at)
+}
+
+// fillLootOrigin points loot's origin and its level, block and biome reads at at.
+func (s *Server) fillLootOrigin(w *world.World, loot *rules.LootContext, at [3]float64) {
 	x, y, z := rules.BlockOf(at[0]), rules.BlockOf(at[1]), rules.BlockOf(at[2])
 	loot.BlockAt = func(dx, dy, dz int32) uint16 { return w.BlockAt(x+dx, y+dy, z+dz) }
 	loot.BiomeAt = func(dx, dy, dz int32) string { return w.BiomeAt(x+dx, y+dy, z+dz) }

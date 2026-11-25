@@ -17,12 +17,12 @@ func putProjectileFields(tag nbt.CompoundTag, owner uuid.UUID, leftOwner, shot b
 	tag.Set("HasBeenShot", boolTag(shot))
 }
 
-// thrownSavesItem reports whether a thrown body saves an Item; the wind
-// charge, wither skull and shulker bullet draw no stack.
-// vanilla: Fireball.addAdditionalSaveData, ThrowableItemProjectile.addAdditionalSaveData
+// thrownSavesItem reports whether a thrown body's NBT includes an item stack.
+// vanilla: Projectile.addAdditionalSaveData, Fireball.addAdditionalSaveData, ThrowableItemProjectile.addAdditionalSaveData
 func thrownSavesItem(kind entity.ThrownKind) bool {
 	switch kind {
-	case entity.ThrownDragonFireball, entity.ThrownWindCharge, entity.ThrownBreezeWindCharge, entity.ThrownWitherSkull, entity.ThrownShulkerBullet:
+	case entity.ThrownDragonFireball, entity.ThrownWindCharge, entity.ThrownBreezeWindCharge,
+		entity.ThrownWitherSkull, entity.ThrownShulkerBullet, entity.ThrownLlamaSpit:
 		return false
 	}
 	return true

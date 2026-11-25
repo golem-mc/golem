@@ -51,6 +51,14 @@ func (c *regionCache) get(rx, rz int32) (*regionFile, error) {
 	if c == nil {
 		return nil, errWorldClosed
 	}
+	return c.getWith(rx, rz, c.open)
+}
+
+// getWith is get that opens a miss with open instead of the cache's opener.
+func (c *regionCache) getWith(rx, rz int32, open func(rx, rz int32) (*regionFile, error)) (*regionFile, error) {
+	if c == nil {
+		return nil, errWorldClosed
+	}
 	key := [2]int32{rx, rz}
 	if el, ok := c.entries[key]; ok {
 		c.lru.MoveToFront(el)
@@ -58,7 +66,7 @@ func (c *regionCache) get(rx, rz int32) (*regionFile, error) {
 		c.refs[rf]++
 		return rf, nil
 	}
-	rf, err := c.open(rx, rz)
+	rf, err := open(rx, rz)
 	if err != nil {
 		return nil, err
 	}

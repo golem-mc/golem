@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // The piston engine's black-box checks: a piston on the flat ground, its
@@ -15,6 +16,12 @@ import (
 func pistonRow(t *testing.T, sticky bool) (*World, *Physics, map[string]uint16) {
 	t.Helper()
 	w, p := newPhysicsWorld(t)
+	return w, p, pistonRowBlocks(t, sticky)
+}
+
+// pistonRowBlocks is the block states the piston tests place.
+func pistonRowBlocks(t *testing.T, sticky bool) map[string]uint16 {
+	t.Helper()
 	blocks := map[string]uint16{}
 	if sticky {
 		blocks["piston"] = rsState(t, "minecraft:sticky_piston", map[string]string{"facing": "east", "extended": "false"})
@@ -31,7 +38,7 @@ func pistonRow(t *testing.T, sticky bool) (*World, *Physics, map[string]uint16) 
 	blocks["grass"] = rsState(t, "minecraft:short_grass", nil)
 	blocks["obsidian"] = rsState(t, "minecraft:obsidian", nil)
 	blocks["power"] = rsState(t, "minecraft:redstone_block", nil)
-	return w, p, blocks
+	return blocks
 }
 
 // pistonRowCells reads the row the tests build on: x from 9 to 16 on the
@@ -461,4 +468,79 @@ func TestPistonRideSurvivesChunkSaveAndLoad(t *testing.T) {
 	if plugins, ok := nbt.Get[nbt.Compound](reloadedTag, "plugins"); !ok || plugins["test:flag"] != nbt.Byte(1) {
 		t.Fatalf("reloaded plugins = %v, want test:flag=1", reloadedTag["plugins"])
 	}
+}
+
+// TestLandingSavedAtLowPriorityStillLands adopts a ride's landings saved at
+// p=2: they stay landings, left out of a copy and a clear, and land.
+// vanilla: PistonMovingBlockEntity.tick, LevelTicks.copyAreaFrom, LevelTicks.clearArea
+func TestLandingSavedAtLowPriorityStillLands(t *testing.T) {
+	w, p := newOneChunkPhysics(t)
+	blocks := pistonRowBlocks(t, false)
+	clock := pistonSetup(t, w, p, blocks, false, map[int32]uint16{11: blocks["dirt"]}, nil)
+	pistonPowerOn(t, w, p, blocks, &clock)
+	p.mu.Lock()
+	kept := p.queue[:0]
+	for _, tk := range p.queue {
+		if tk.priority != tickPriorityFinalize || tk.fluid != 0 {
+			kept = append(kept, tk)
+			continue
+		}
+		p.forgetBooking(tk)
+		w.pendingLoaded = append(w.pendingLoaded, loadedTick{
+			id: registry.BlockMovingPiston.Name(), x: tk.pos.x, y: tk.pos.y, z: tk.pos.z,
+			delay: int32(tk.due - p.now), priority: 2})
+	}
+	p.queue = kept
+	p.queue.init()
+	if len(w.pendingLoaded) != 2 {
+		t.Fatalf("%d landings queued, want 2", len(w.pendingLoaded))
+	}
+	p.adoptLoadedTicks()
+	p.mu.Unlock()
+	if ticks := p.BlockTicksIn(11, 64, 9, 12, 64, 9); len(ticks) != 0 {
+		t.Errorf("copied ticks = %+v, want none", ticks)
+	}
+	p.ClearTicksIn(11, 64, 9, 12, 64, 9)
+	created := clock
+	for clock < created+2 {
+		clock++
+		p.Tick(clock)
+	}
+	for x, want := range map[int32]string{10: "minecraft:piston", 11: "minecraft:piston_head", 12: "minecraft:dirt"} {
+		if got, _ := rsNameAt(t, w, x, 64, 9); got != want {
+			t.Errorf("cell x=%d holds %s, want %s", x, got, want)
+		}
+	}
+}
+
+// TestLandingIsBookedApartFromABlockTick saves a piston pushing frosted ice
+// while the ride is moving, with the ice's block tick still pending at the
+// head's cell, and checks the reloaded ride lands.
+// vanilla: FrostedIceBlock.onPlace, PistonMovingBlockEntity.tick, LevelChunkTicks.schedule
+func TestLandingIsBookedApartFromABlockTick(t *testing.T) {
+	w, p, dir := newSavedWorldAround(t, 0, 0)
+	blocks := pistonRowBlocks(t, false)
+	ice := rsState(t, "minecraft:frosted_ice", map[string]string{"age": "0"})
+	clock := pistonSetup(t, w, p, blocks, false, map[int32]uint16{11: ice}, nil)
+	pistonPowerOn(t, w, p, blocks, &clock)
+	wantRow(t, w, map[int32]string{10: "minecraft:piston", 11: "minecraft:moving_piston", 12: "minecraft:moving_piston"})
+	p.mu.Lock()
+	iceTick := false
+	for _, tk := range p.queue {
+		if tk.pos == (blockKey{11, 64, 9}) && tk.priority != tickPriorityFinalize {
+			iceTick = true
+		}
+	}
+	p.mu.Unlock()
+	if !iceTick {
+		t.Fatal("the ice's block tick is not pending at the head's cell")
+	}
+
+	// The reloaded engine adopts the saved ticks on its first tick, so the
+	// landing two ticks out runs on the third.
+	w, p = reopenWorldAround(t, w, dir, 0, 0)
+	for clock = 1; clock <= 3; clock++ {
+		p.Tick(clock)
+	}
+	wantRow(t, w, map[int32]string{10: "minecraft:piston", 11: "minecraft:piston_head", 12: "minecraft:frosted_ice"})
 }

@@ -1,6 +1,7 @@
 package world
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
@@ -138,4 +139,149 @@ func TestNoLeavesHeight(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLiveColumnHeightMatchesFullScan(t *testing.T) {
+	t.Parallel()
+
+	for _, dim := range []string{DimensionName, NetherName, EndName} {
+		t.Run(dim, func(t *testing.T) {
+			t.Parallel()
+			c := newChunk(0, 0)
+			w := &World{
+				dim:    dimensionShapes[dim],
+				chunks: map[ChunkPos]*loadedChunk{{}: {chunk: c}},
+			}
+			floor := w.dim.minY
+			ceiling := floor + w.dim.height - 1
+			queries := []struct {
+				name   string
+				height func(int32, int32) int32
+				counts *[65536]bool
+			}{
+				{"NoLeavesHeight", w.NoLeavesHeight, &noLeavesBlockingByState},
+				{"OceanFloorHeight", w.OceanFloorHeight, &oceanFloorByState},
+			}
+			check := func(chunk *Chunk, x, z int32) {
+				t.Helper()
+				for _, query := range queries {
+					want := floor - 1
+					if chunk != nil {
+						for y := ceiling; y >= floor; y-- {
+							if query.counts[chunk.BlockAt(x, y, z)] {
+								want = y
+								break
+							}
+						}
+					}
+					if got := query.height(x, z); got != want {
+						t.Errorf("%s(%d, %d) = %d, want %d", query.name, x, z, got, want)
+					}
+				}
+			}
+
+			check(c, 8, 8)
+			check(nil, -1, 8)
+
+			stone := registry.BlockStone.DefaultState()
+			leaves := registry.BlockOakLeaves.DefaultState()
+			c.SetBlock(8, floor, 8, stone)
+			c.SetBlock(8, floor+1, 8, leaves)
+			c.SetBlock(9, floor, 8, stone)
+			c.SetBlock(9, floor+1, 8, leaves)
+			c.SetBlock(9, floor+2, 8, registry.BlockWater.DefaultState())
+			check(c, 8, 8)
+			check(c, 9, 8)
+			check(c, 10, 8)
+
+			c.SetBlock(8, ceiling, 8, stone)
+			check(c, 8, 8)
+			check(c, 9, 8)
+		})
+	}
+}
+
+// TestHeightmapTopMatchesFullScan checks the shared top-section bound against
+// a scan of every block in the dimension, for a void chunk, blocks at each
+// dimension limit, one high block and storage below the dimension floor.
+func TestHeightmapTopMatchesFullScan(t *testing.T) {
+	t.Parallel()
+
+	stone := registry.BlockStates["minecraft:stone"]
+	for _, tc := range []struct {
+		name   string
+		dim    string
+		blocks map[[3]int32]uint16
+	}{
+		{"void end", EndName, nil},
+		{"end limits", EndName, map[[3]int32]uint16{{0, 0, 0}: stone, {15, 255, 15}: stone}},
+		{"end high one column", EndName, map[[3]int32]uint16{{7, 200, 3}: stone}},
+		{"end below floor", EndName, map[[3]int32]uint16{{1, -5, 1}: stone}},
+		{"overworld limits", DimensionName, map[[3]int32]uint16{{0, -64, 0}: stone, {15, 319, 15}: stone}},
+		{"overworld void", DimensionName, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := &World{dim: dimensionShapes[tc.dim]}
+			c := newChunk(0, 0)
+			for pos, state := range tc.blocks {
+				c.SetBlock(pos[0], pos[1], pos[2], state)
+			}
+			got := decodeHeightmaps(t, w.encodeHeightmaps(c), heightmapBits(w.dim.height))
+			for lx := range int32(16) {
+				for lz := range int32(16) {
+					var want [3]int32
+					for y := w.dim.minY + w.dim.height - 1; y >= w.dim.minY; y-- {
+						state := c.BlockAt(lx, y, lz)
+						if IsAirState(state) {
+							continue
+						}
+						raw := y - w.dim.minY + 1
+						if want[0] == 0 {
+							want[0] = raw
+						}
+						if want[1] == 0 && motionBlockingByState[state] {
+							want[1] = raw
+						}
+						if want[2] == 0 && noLeavesBlockingByState[state] {
+							want[2] = raw
+						}
+					}
+					i := lz*16 + lx
+					if g := [3]int32{got[0][i], got[1][i], got[2][i]}; g != want {
+						t.Fatalf("column %d,%d = %v, want %v", lx, lz, g, want)
+					}
+					s, m, n := w.heightmapColumn(c, lx, lz)
+					if [3]int32{s, m, n} != want {
+						t.Fatalf("heightmapColumn %d,%d = %d/%d/%d, want %v", lx, lz, s, m, n, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+// decodeHeightmaps unpacks the three maps of an encodeHeightmaps payload; every
+// varint in it fits one byte.
+func decodeHeightmaps(t *testing.T, b []byte, bits int) [3][256]int32 {
+	t.Helper()
+	perLong := 64 / bits
+	longs := (256 + perLong - 1) / perLong
+	if b[0] != 3 {
+		t.Fatalf("map count %d, want 3", b[0])
+	}
+	b = b[1:]
+	var out [3][256]int32
+	for k := range 3 {
+		if int(b[1]) != longs {
+			t.Fatalf("map %d has %d longs, want %d", k, b[1], longs)
+		}
+		b = b[2:]
+		for i := range 256 {
+			word := binary.BigEndian.Uint64(b[i/perLong*8:])
+			out[k][i] = int32(word >> (i % perLong * bits) & (1<<bits - 1))
+		}
+		b = b[longs*8:]
+	}
+	return out
 }
