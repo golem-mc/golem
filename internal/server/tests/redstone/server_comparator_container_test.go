@@ -4,13 +4,13 @@ package redstone
 // CompoundContainer.setChanged, ComparatorBlock.newBlockEntity
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
-	"github.com/golem-mc/golem/internal/server/servertest"
-
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
+	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -75,6 +75,68 @@ func TestComparatorFollowsADoubleChestChangedThroughItsWindow(t *testing.T) {
 
 	servertest.ExpectWirePower(t, srv, 4, 64, -2, "5")
 	servertest.ExpectWirePower(t, srv, 5, 64, -2, "5")
+}
+
+func TestDoubleChestComparatorWakeDependsOnHowTheSlotChanges(t *testing.T) {
+	t.Parallel()
+	const name = "Testificate"
+	srv, c := servertest.Dial(t, servertest.BlockTestConfig(), servertest.OpsListing(t, name), func(s *server.Server) {
+		servertest.FreezeUntilHeld(t, s)
+	})
+	w := servertest.WindowedOf(t, name, c)
+	servertest.HoldTicks(t, srv)
+
+	servertest.Setblock(t, c, 13, 64, 0, "chest[facing=north,type=left]")
+	servertest.Setblock(t, c, 14, 64, 0, "chest[facing=north,type=right]")
+	servertest.Setblock(t, c, 15, 64, 0, "stone")
+	servertest.Setblock(t, c, 17, 64, 0, "redstone_wire")
+	servertest.Setblock(t, c, 16, 64, 0, "comparator[facing=west]")
+	servertest.RunTicks(t, srv, 4)
+
+	expectPower := func(action string, powers ...string) {
+		t.Helper()
+		for tick, want := range powers {
+			if tick > 0 {
+				servertest.RunTicks(t, srv, 1)
+			}
+			if got := servertest.WirePowerAt(srv, 17, 64, 0); got != want {
+				t.Fatalf("%s, tick %d: wire power = %q, want %q", action, tick, got, want)
+			}
+		}
+	}
+	dirt := servertest.ItemStack(t, "minecraft:dirt", 1)
+	expectChestSlot := func(x int32, want protocol.ItemStack) {
+		t.Helper()
+		if slots := srv.InventoryAt(x, 64, 0); len(slots) == 0 || !slots[0].Equal(want) {
+			t.Fatalf("chest at x=%d has slots %+v, want %+v in slot 0", x, slots, want)
+		}
+	}
+	replace := func(x int32, item string, want protocol.ItemStack) {
+		t.Helper()
+		c.ChatCommand(fmt.Sprintf("item replace block %d 64 0 container.0 with %s", x, item))
+		c.Settle()
+		expectChestSlot(x, want)
+	}
+	replace(13, "minecraft:dirt", dirt)
+	expectPower("command into the far half", "0", "0", "0", "0")
+
+	replace(14, "minecraft:dirt", dirt)
+	expectPower("command into the near half", "0", "0", "1")
+
+	replace(13, "minecraft:air", protocol.ItemStack{})
+	replace(14, "minecraft:air", protocol.ItemStack{})
+	expectPower("clear both halves", "1", "1", "0")
+
+	w.FacePlayer(13.5, 64, 3.5, 180, 0)
+	w.SetCreativeSlot(36, dirt)
+	w.UseBlock(13, 64, 0)
+	w.ExpectContainerOpen(protocol.MenuGeneric9x6, true, 13, 64, 0)
+	// Slot 27 is in the far half, which opens second in this pair.
+	w.Click(27, 0, protocol.ClickModeSwap)
+	w.ExpectClickResult(map[int16]protocol.ItemStack{27: dirt, 81: {}}, protocol.ItemStack{})
+	expectChestSlot(13, dirt)
+	expectChestSlot(14, protocol.ItemStack{})
+	expectPower("window click into the far half", "0", "0", "1")
 }
 
 // TestAComparatorBehindAConductorSeesTheFartherChestHalfTwoTicksLater changes
