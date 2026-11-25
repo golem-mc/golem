@@ -276,8 +276,8 @@ type Landing struct {
 	// Ground is the block under the feet, the supporting block vanilla's
 	// getOnPosLegacy reads a landing's fallOn from.
 	Ground uint16
-	// GroundX and GroundZ are the column of the Ground cell.
-	GroundX, GroundZ int32
+	// GroundX, GroundY and GroundZ are the Ground cell.
+	GroundX, GroundY, GroundZ int32
 	// Feet is the block in the feet cell, which the powder snow's
 	// entityInside checks alone: PowderSnowBlock's getInBlockState().is(this).
 	Feet uint16
