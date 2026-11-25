@@ -414,6 +414,20 @@ func TestAPunchedMannequinIsHurt(t *testing.T) {
 	}
 }
 
+// TestAMannequinLoadedWithZeroHealthKeepsItsPose checks that a mannequin
+// summoned with no health shows its saved pose, not the dying one: only a
+// lethal hit sets that.
+// vanilla: Mannequin.readAdditionalSaveData, LivingEntity.die
+func TestAMannequinLoadedWithZeroHealthKeepsItsPose(t *testing.T) {
+	t.Parallel()
+	srv, c := joinMannequinOp(t, "Loader")
+	c.ChatCommand("summon minecraft:mannequin ~ ~ ~1 {Health:0f,pose:\"crouching\"}")
+	got := awaitMannequin(t, c, srv)
+	if pose := metaOfMannequin(t, got.meta, protocol.MetadataIndexPose).VarintVal; pose != protocol.PoseSneaking {
+		t.Errorf("pose = %d, want crouching %d", pose, protocol.PoseSneaking)
+	}
+}
+
 // TestAMannequinDamagedToDeathIsRemoved checks that /damage for its whole
 // health kills a mannequin: the death sound, the dying pose and entity
 // event 3, then, after its 20 ticks of dying, the poof and its removal.

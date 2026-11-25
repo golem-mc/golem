@@ -67,8 +67,8 @@ var mannequinFields = []mannequinField{
 		func(b *protocol.Buffer, m *mannequinEntity) { b.PutBool(m.custom.visible) },
 		func(m *mannequinEntity) bool { return !m.custom.visible }, nil},
 	{protocol.MetadataIndexPose, protocol.MetadataPose,
-		func(b *protocol.Buffer, m *mannequinEntity) { b.PutVarInt(mannequinPose(m)) },
-		func(m *mannequinEntity) bool { return mannequinPose(m) == protocol.PoseStanding }, func(m *mannequinEntity) uint64 { return uint64(mannequinPose(m)) }},
+		func(b *protocol.Buffer, m *mannequinEntity) { b.PutVarInt(m.mannequin.Pose) },
+		func(m *mannequinEntity) bool { return m.mannequin.Pose == protocol.PoseStanding }, func(m *mannequinEntity) uint64 { return uint64(m.mannequin.Pose) }},
 	{protocol.MetadataIndexLivingHealth, protocol.MetadataFloat,
 		func(b *protocol.Buffer, m *mannequinEntity) { b.PutF32(float32(m.mannequin.Health)) },
 		func(m *mannequinEntity) bool { return m.mannequin.Health == 1 }, func(m *mannequinEntity) uint64 { return m.mannequin.HealthWrites }},
@@ -157,15 +157,6 @@ func mannequinFieldsPayload(m *mannequinEntity, send func(mannequinField) bool) 
 	}
 	b.EndMetadata()
 	return b.Bytes()
-}
-
-// mannequinPose is the pose the clients are told: dying once the health is
-// gone. vanilla: LivingEntity.die
-func mannequinPose(m *mannequinEntity) int32 {
-	if m.mannequin.Dying() {
-		return protocol.PoseDying
-	}
-	return m.mannequin.Pose
 }
 
 func mannequinFlags(ent *mannequinEntity) byte {

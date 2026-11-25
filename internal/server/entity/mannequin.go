@@ -174,6 +174,9 @@ func (m *Mannequin) HurtBy(amount float64, typ registry.DamageType, bypassesCool
 	amount = m.hurtAfterEffects(amount, typ)
 	// LivingEntity's health and damage are floats, including successive hurts.
 	m.SetHealth(float64(max(float32(m.Health)-float32(amount), 0)))
+	if m.Dying() {
+		m.Pose = protocol.PoseDying // vanilla: LivingEntity.die
+	}
 	return true, softened, m.Dying()
 }
 
