@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"math"
 	"slices"
 
@@ -74,8 +75,8 @@ type thrownWorld struct {
 	dim      *dimension
 	bodies   arrowBodies
 	frames   map[int32]entitySliver
-	// targets is the herd's targets in herd order, then the players'; index
-	// is each body's first entry in it, by entity ID.
+	// targets is the players' targets; index is each one's entry in it, by
+	// entity ID. A body's mobs are gathered per body.
 	targets []entity.ArrowTarget
 	index   map[int32]int
 }
@@ -91,10 +92,12 @@ type thrownTickInputs struct {
 	boatsByWorld map[*world.World][]entity.ArrowTarget
 	boatsByID    map[int32]bool
 	boatRoots    map[int32]int32
-	// near is the stepping body's share of the pickable projectiles.
-	near []entity.ArrowTarget
-	// targets is the stepping body's: its world's shared targets, copied into
-	// buf when the body has more of its own.
+	// mobsNear, mobBuf and mobAt are the stepping body's mobs, their targets
+	// and each mob's first entry in them.
+	mobsNear []*entity.Mob
+	mobBuf   []entity.ArrowTarget
+	mobAt    map[int32]int
+	// targets is the stepping body's, built in buf.
 	targets []entity.ArrowTarget
 	buf     []entity.ArrowTarget
 }
@@ -157,18 +160,9 @@ func (in *thrownTickInputs) stepWorld(s *Server, w *world.World) *thrownWorld {
 		return tw
 	}
 	tw.dim = s.dimensionOfWorld(w)
-	herd := tw.dim.mobs.herd
-	tw.bodies = arrowBodies{mobs: make(map[int32]*entity.Mob, len(herd)), clients: make(map[int32]*client, len(tw.watchers))}
-	tw.index = make(map[int32]int, len(herd)+len(tw.watchers))
-	tw.targets = make([]entity.ArrowTarget, 0, len(herd)+len(tw.watchers))
-	for _, m := range herd {
-		start := len(tw.targets)
-		tw.index[m.ID] = start
-		tw.targets = entity.MobProjectileTargets(tw.targets, m, mobEntityType(m.Type), in.boatRoots[m.ID])
-		for _, target := range tw.targets[start:] {
-			tw.bodies.mobs[target.EntityID] = m
-		}
-	}
+	tw.bodies = arrowBodies{mobs: make(map[int32]*entity.Mob), clients: make(map[int32]*client, len(tw.watchers))}
+	tw.index = make(map[int32]int, len(tw.watchers))
+	tw.targets = make([]entity.ArrowTarget, 0, len(tw.watchers))
 	for _, w := range tw.watchers {
 		target := w.c.projectileTarget(w.pos, w.unhittable)
 		target.RootVehicle = in.boatRoots[w.c.player.EntityID]
@@ -255,7 +249,7 @@ func (s *Server) stepThrown(fx *thrownEffects, in *thrownTickInputs, it *thrownE
 	// No discard for a removed owner: vanilla's getOwner never returns one,
 	// so AbstractHurtingProjectile.tick's owner.isRemoved() never holds.
 	// vanilla: EntityReference.getEntity
-	owner := in.gatherTargets(it, tw)
+	owner := s.gatherTargets(in, it, tw)
 
 	// A pearl carries its owner to vanilla's oldPosition, not the hit point.
 	fromX, fromY, fromZ := t.X, t.Y, t.Z
@@ -323,80 +317,122 @@ func (s *Server) stepThrown(fx *thrownEffects, in *thrownTickInputs, it *thrownE
 		if t.Kind == entity.ThrownEnderPearl {
 			fx.pearlHolds = append(fx.pearlHolds, it)
 		}
-		tw.refreshHitMobs(events, nil, in.boatRoots)
 		return true
 	}
-	splashed := s.endThrown(fx, in, tw, it, events, fromX, fromY, fromZ)
-	tw.refreshHitMobs(events, splashed, in.boatRoots)
+	s.endThrown(fx, in, tw, it, events, fromX, fromY, fromZ)
 	return false
 }
 
-// refreshHitMobs rewrites the shared targets of the mobs events hit and of
-// the mobs a potion's spray reached (splashed), whose dodge may have
-// teleported them, for the next flight's query. It runs after the body's
-// break, which reads the boxes the flight met.
-// vanilla: Enderman.hurtServer
-func (tw *thrownWorld) refreshHitMobs(events []entity.ThrownEvent, splashed []int32, boatRoots map[int32]int32) {
-	refresh := func(id int32) {
-		if m := tw.bodies.mobs[id]; m != nil {
-			// A mob's entries are rewritten in place: the same count, a
-			// dragon's parts included.
-			i := tw.index[m.ID]
-			entity.MobProjectileTargets(tw.targets[i:i], m, mobEntityType(m.Type), boatRoots[m.ID])
-		}
-	}
-	for _, ev := range events {
-		if ev.Kind == entity.ThrownHitTarget {
-			refresh(ev.Target.EntityID)
-		}
-	}
-	for _, id := range splashed {
-		refresh(id)
-	}
-}
-
-// gatherTargets sets in.targets to what a flight may meet: its world's
-// mobs, players, paintings, frames, hulls, cushions, stands, crystals,
+// gatherTargets sets in.targets to what a flight may meet: the mobs near it, players, paintings, frames, hulls, cushions, stands, crystals,
 // shulker bullets and redirectable bodies. owner is the thrower's body
 // among them, which the first ticks cannot hit; nil when not there.
-func (in *thrownTickInputs) gatherTargets(it *thrownEntity, tw *thrownWorld) (owner *entity.ArrowTarget) {
-	extra := len(in.paintings.byWorld[it.w]) + len(in.frames[it.w]) + len(in.boatsByWorld[it.w]) + len(in.cushions[it.w]) + len(in.stands[it.w])
-	if it.throwable.Kind.IsPotion() {
+func (s *Server) gatherTargets(in *thrownTickInputs, it *thrownEntity, tw *thrownWorld) (owner *entity.ArrowTarget) {
+	t := it.throwable
+	mobTargets := in.mobTargets(s, it, tw)
+	ownerAt := -1
+	if i, ok := in.mobAt[t.OwnerID]; ok {
+		ownerAt = i
+	}
+	extra := len(tw.targets) + len(in.paintings.byWorld[it.w]) + len(in.frames[it.w]) + len(in.boatsByWorld[it.w]) + len(in.cushions[it.w]) + len(in.stands[it.w])
+	if t.Kind.IsPotion() {
 		extra += len(in.mannequins.byWorld[it.w])
 	}
-	if !it.throwable.Kind.IsWindCharge() {
+	if !t.Kind.IsWindCharge() {
 		extra += len(in.crystals[it.w])
 	}
-	in.near = in.near[:0]
-	for _, p := range in.projectiles[it.w] {
-		if it.throwable.CanHitProjectile(p) {
-			in.near = append(in.near, p)
+	targets := append(slices.Grow(in.buf[:0], len(mobTargets)+extra), mobTargets...)
+	targets = append(targets, tw.targets...)
+	if ownerAt < 0 {
+		if i, ok := tw.index[t.OwnerID]; ok {
+			ownerAt = len(mobTargets) + i
 		}
-	}
-	extra += len(in.near)
-	// The shared list itself when the body has nothing of its own, so most
-	// bodies copy nothing; a hit refreshes it only after the body's step.
-	targets := tw.targets[:len(tw.targets):len(tw.targets)]
-	if extra > 0 {
-		targets = append(slices.Grow(in.buf[:0], len(tw.targets)+extra), tw.targets...)
-		in.buf = targets
-	}
-	if i, ok := tw.index[it.throwable.OwnerID]; ok {
-		owner = &targets[i]
 	}
 	targets = in.appendHangings(targets, it.w)
 	targets = append(targets, in.boatsByWorld[it.w]...)
 	targets = append(targets, in.cushions[it.w]...)
 	targets = append(targets, in.stands[it.w]...)
-	if !it.throwable.Kind.IsWindCharge() {
+	if !t.Kind.IsWindCharge() {
 		targets = append(targets, in.crystals[it.w]...)
 	}
-	targets = append(targets, in.near...)
-	if it.throwable.Kind.IsPotion() {
+	for _, p := range in.projectiles[it.w] {
+		if t.CanHitProjectile(p) {
+			targets = append(targets, p)
+		}
+	}
+	if t.Kind.IsPotion() {
 		targets = append(targets, in.mannequins.byWorld[it.w]...)
 	}
-	in.targets = targets
+	in.buf, in.targets = targets, targets
+	if ownerAt >= 0 {
+		owner = &targets[ownerAt]
+	}
 	return owner
+}
+
+// mobTargets is the targets of the mobs the body may meet or splash, sorted
+// by entity ID so the nearest-hit tie-break is stable, with in.mobAt each
+// mob's first entry and tw.bodies.mobs holding them. The thrower and a
+// bullet's target are always among them. Mobs refile under mobsMu, which is held, so the chunk index is
+// current and the padding only covers bodies filed across a border.
+func (in *thrownTickInputs) mobTargets(s *Server, it *thrownEntity, tw *thrownWorld) []entity.ArrowTarget {
+	t := it.throwable
+	box := t.MoveBox()
+	// The flight's velocity is edited before the sweep, so look a block
+	// further. A splash reaches 4 blocks out from the hit.
+	// vanilla: ThrownPotion.onHit inflate(4.0, 2.0, 4.0)
+	grow := 1.0
+	if t.Kind.IsPotion() || t.Kind == entity.ThrownDragonFireball {
+		grow += 5
+	}
+	box[0], box[1], box[2], box[3], box[4], box[5] = box[0]-grow, box[1]-grow, box[2]-grow, box[3]+grow, box[4]+grow, box[5]+grow
+	area, indexed := smallChunkArea(&box)
+	in.mobsNear = in.mobsNear[:0]
+	tw.dim.mobs.mobsInArea(area, indexed, func(m *entity.Mob) bool {
+		// A chunk holds far more than the box's share; the margin covers a
+		// wide body (slime, ghast) filed by its centre.
+		const margin = 3.0
+		if m.X < box[0]-margin || m.X > box[3]+margin || m.Z < box[2]-margin || m.Z > box[5]+margin {
+			return true
+		}
+		if m.Type == entity.TypeShulker {
+			_, bottom, _, _, top, _ := m.BlastBox()
+			if bottom > box[4] || top < box[1] {
+				return true
+			}
+		} else if m.Y > box[4] || m.Y+m.BbHeight() < box[1] {
+			return true
+		}
+		in.mobsNear = append(in.mobsNear, m)
+		return true
+	})
+	// The thrower, and the mob a bullet homes on, wherever they are.
+	for _, id := range [...]int32{t.OwnerID, t.BulletTargetID()} {
+		if ent := s.mobByEntityIDLocked(it.w, id); ent != nil && !slices.Contains(in.mobsNear, ent.mob) {
+			in.mobsNear = append(in.mobsNear, ent.mob)
+		}
+	}
+	// A dragon's parts reach beyond the chunks around its feet.
+	for _, m := range tw.dim.mobs.dragonBodies {
+		if !slices.Contains(in.mobsNear, m) {
+			in.mobsNear = append(in.mobsNear, m)
+		}
+	}
+	slices.SortFunc(in.mobsNear, func(a, b *entity.Mob) int { return cmp.Compare(a.ID, b.ID) })
+	clear(in.mobAt)
+	if in.mobAt == nil {
+		in.mobAt = make(map[int32]int)
+	}
+	targets := in.mobBuf[:0]
+	for _, m := range in.mobsNear {
+		start := len(targets)
+		in.mobAt[m.ID] = start
+		targets = entity.MobProjectileTargets(targets, m, mobEntityType(m.Type), in.boatRoots[m.ID])
+		for _, target := range targets[start:] {
+			tw.bodies.mobs[target.EntityID] = m
+		}
+	}
+	in.mobBuf = targets
+	return targets
 }
 
 // watchThrown settles a stepped body's watchers and, while it flies, tells

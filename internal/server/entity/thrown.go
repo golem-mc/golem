@@ -678,6 +678,13 @@ func (t *Thrown) thrownBox() ArrowTarget {
 	}
 }
 
+// MoveBox is thrownBox as min and max corners (x, y, z, x, y, z), what a
+// flight may meet this tick.
+func (t *Thrown) MoveBox() [6]float64 {
+	b := t.thrownBox()
+	return [6]float64{b.MinX, b.MinY, b.MinZ, b.MaxX, b.MaxY, b.MaxZ}
+}
+
 // sweepThrownTargets returns the body whose box (grown by the age's margin)
 // the flight line enters first, and the entry point (an EntityHitResult's
 // location). A box already containing the start is passed through. The
