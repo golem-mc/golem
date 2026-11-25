@@ -1150,7 +1150,7 @@ func (w *World) SwapBlock(x, y, z int32, state uint16) (old uint16, changed bool
 	if old != airState && shulkerBoxBlocks[registry.BlockOf(old)] {
 		w.shulkerLidsOpen.Delete([3]int32{x, y, z})
 	}
-	w.updateMotion(loaded, x&15, z&15)
+	w.updateMotion(loaded, x&15, y, z&15, state)
 	w.updateSurface(loaded, x&15, y, z&15, state)
 	w.afterWrite(loaded)
 	return old, true
@@ -1196,11 +1196,22 @@ func (w *World) afterWrite(loaded *loadedChunk) {
 	loaded.markDirty()
 }
 
-// updateMotion refreshes the written column's MOTION_BLOCKING height so the
-// rain needs no rescan. The caller holds w.mu.
-func (w *World) updateMotion(loaded *loadedChunk, lx, lz int32) {
-	if loaded.motion != nil {
-		loaded.motion[lx][lz] = w.motionHeight(loaded.chunk, lx, lz)
+// updateMotion keeps the written column's MOTION_BLOCKING height true without
+// a rescan: a write below the top changes nothing, a blocking one raises the
+// top, and only removing the top block searches downward. The caller holds
+// w.mu.
+// vanilla: Heightmap.update
+func (w *World) updateMotion(loaded *loadedChunk, lx, y, lz int32, state uint16) {
+	if loaded.motion == nil || !contains(y) {
+		return
+	}
+	h := &loaded.motion[lx][lz]
+	switch {
+	case y < *h:
+	case motionBlockingByState[state]:
+		*h = y
+	case y == *h:
+		*h = w.motionHeightFrom(loaded.chunk, lx, lz, y-1)
 	}
 }
 
@@ -1300,7 +1311,7 @@ func (w *World) SetBlocks(changes []BlockChange) []BlockChange {
 		if old != airState && shulkerBoxBlocks[registry.BlockOf(old)] {
 			w.shulkerLidsOpen.Delete([3]int32{ch.X, ch.Y, ch.Z})
 		}
-		w.updateMotion(loaded, lx, lz)
+		w.updateMotion(loaded, lx, ch.Y, lz, ch.State)
 		w.updateSurface(loaded, lx, ch.Y, lz, ch.State)
 	}
 	for _, loaded := range touched {

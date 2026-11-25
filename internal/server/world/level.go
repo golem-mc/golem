@@ -807,7 +807,13 @@ func (w *World) motionBlockingHeight(x, z int32) int32 {
 // motionHeight is the y of one column's highest motion-blocking block, or one
 // below the floor for none.
 func (w *World) motionHeight(c *Chunk, lx, lz int32) int32 {
-	for y := int32(worldMinY + worldHeight - 1); y >= worldMinY; {
+	return w.motionHeightFrom(c, lx, lz, worldMinY+worldHeight-1)
+}
+
+// motionHeightFrom is motionHeight scanning from y downward, for a caller that
+// knows nothing above y qualifies.
+func (w *World) motionHeightFrom(c *Chunk, lx, lz, from int32) int32 {
+	for y := from; y >= worldMinY; {
 		s := &c.sections[(y-worldMinY)/sectionSize]
 		if s.isUniform(airState) {
 			// An all-air section holds nothing: skip below its floor in one
