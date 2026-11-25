@@ -166,8 +166,9 @@ func (fx fangsEffects) apply(s *Server) {
 }
 
 // fangsBite hurts every living body in reach except the owner and its
-// allies. Ownerless fangs hurt everything with plain magic damage, unscaled
-// and without knockback. vanilla: EvokerFangs.dealDamageTo
+// allies. The owner is a mob in the herd or a player. Ownerless fangs hurt
+// everything with plain magic damage, unscaled and without knockback.
+// vanilla: EvokerFangs.dealDamageTo
 func (s *Server) fangsBite(it fangsEffect) {
 	w := it.w
 	body := entity.EvokerFangs{X: it.x, Y: it.y, Z: it.z}
@@ -201,12 +202,28 @@ func (s *Server) fangsBite(it fangsEffect) {
 		}
 	}
 	s.mu.RUnlock()
+	var ownerPlayer *client
+	if owner == nil && it.owner != 0 {
+		for _, c := range clients {
+			if c.player.EntityID == it.owner {
+				ownerPlayer = c
+			}
+		}
+	}
+	var team string
+	var allies map[uuid.UUID]bool
+	if ownerPlayer != nil {
+		team, allies = ownerPlayer.alliesAmong(clients)
+	}
 	for _, c := range clients {
+		if c == ownerPlayer || team != "" && s.playerTeamIs(c, team) {
+			continue
+		}
 		cMinX, cMinY, cMinZ, cMaxX, cMaxY, cMaxZ := c.Box()
 		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, cMinX, cMinY, cMinZ, cMaxX, cMaxY, cMaxZ) {
 			continue
 		}
-		if owner == nil {
+		if owner == nil && ownerPlayer == nil {
 			c.hurt(entity.FangsDamage, rules.DamageTypeMagic, &damageCause{x: it.x, y: it.y, z: it.z})
 			continue
 		}
@@ -221,12 +238,51 @@ func (s *Server) fangsBite(it fangsEffect) {
 		}
 	}
 	for _, m := range victims {
+		if ownerPlayer != nil {
+			if !alliedTo(ownerPlayer.player.UUID, team, allies, m) {
+				s.hurtMobByPlayerFangs(w, m, it, ownerPlayer)
+			}
+			continue
+		}
 		if owner == nil {
 			s.hurtMobPlain(w, m, entity.FangsDamage, rules.DamageTypeMagic)
 			continue
 		}
 		s.hurtMobBy(w, m, owner, entity.FangsDamage, rules.DamageTypeIndirectMagic)
 	}
+}
+
+// playerTeamIs reports whether c is on the named team.
+func (s *Server) playerTeamIs(c *client, team string) bool {
+	t, ok := s.scoreboard.PlayerTeam(c.player.Name)
+	return ok && t == team
+}
+
+// hurtMobByPlayerFangs bites m as indirect magic caused by the owner player,
+// who gets the kill credit, and tells its watchers.
+func (s *Server) hurtMobByPlayerFangs(w *world.World, m *entity.Mob, it fangsEffect, owner *client) {
+	creative := owner.player.GameMode() == protocol.GameModeCreative
+	s.mobsMu.Lock()
+	ent := s.herdOf(w).book[m]
+	if ent == nil || m.Dead {
+		s.mobsMu.Unlock()
+		return
+	}
+	landed, softened := m.HurtByCommand(entity.FangsDamage, rules.DamageTypeIndirectMagic, it.owner, true, creative, it.x, it.z)
+	var health []byte
+	var sends []mobSend
+	if landed {
+		health = ent.syncHealth()
+		if !softened {
+			sends = mobHurtToldBy(w, m, rules.DamageTypeIndirectMagic, causeEntityID(&damageCause{entityID: it.owner}), causeEntityID(&damageCause{entityID: it.id + 1}), nil)
+		}
+	}
+	s.mobsMu.Unlock()
+	if !landed {
+		return
+	}
+	s.broadcastWorld(w, protocol.IDPlayEntityMetadata, health)
+	s.sendMobSends(sends)
 }
 
 // hurtMobPlain hurts m with no source and tells its watchers.
