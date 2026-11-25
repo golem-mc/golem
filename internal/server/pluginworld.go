@@ -48,10 +48,11 @@ func (w pluginWorld) Dimension() plugin.Key {
 	k, _ := plugin.ParseKey(registryEntry(r.Entries, int64(w.dim.typeID)))
 	return k
 }
-func (w pluginWorld) Seed() int64 { return w.dim.w.SeedValue() }
-func (w pluginWorld) MinY() int   { return int(w.dim.w.MinY()) }
-func (w pluginWorld) Height() int { return int(w.dim.w.Height()) }
-func (w pluginWorld) Time() int64 { age, _ := w.dim.w.Time(); return age }
+func (w pluginWorld) Seed() int64        { return w.dim.w.SeedValue() }
+func (w pluginWorld) MinY() int          { return int(w.dim.w.MinY()) }
+func (w pluginWorld) Height() int        { return int(w.dim.w.Height()) }
+func (w pluginWorld) LogicalHeight() int { return int(w.dim.w.LogicalHeight()) }
+func (w pluginWorld) Time() int64        { age, _ := w.dim.w.Time(); return age }
 func (w pluginWorld) DayTime() int64 {
 	clock, ok := w.dim.w.DefaultClock()
 	if !ok {
