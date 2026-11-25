@@ -139,3 +139,58 @@ func TestNoLeavesHeight(t *testing.T) {
 		})
 	}
 }
+
+// TestHeightmapTopMatchesFullScan checks the shared top-section bound against
+// a scan of every block in the dimension, for a void chunk, blocks at each
+// dimension limit, one high block and storage below the dimension floor.
+func TestHeightmapTopMatchesFullScan(t *testing.T) {
+	t.Parallel()
+
+	stone := registry.BlockStates["minecraft:stone"]
+	for _, tc := range []struct {
+		name   string
+		dim    string
+		blocks map[[3]int32]uint16
+	}{
+		{"void end", EndName, nil},
+		{"end limits", EndName, map[[3]int32]uint16{{0, 0, 0}: stone, {15, 255, 15}: stone}},
+		{"end high one column", EndName, map[[3]int32]uint16{{7, 200, 3}: stone}},
+		{"end below floor", EndName, map[[3]int32]uint16{{1, -5, 1}: stone}},
+		{"overworld limits", DimensionName, map[[3]int32]uint16{{0, -64, 0}: stone, {15, 319, 15}: stone}},
+		{"overworld void", DimensionName, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := &World{dim: dimensionShapes[tc.dim]}
+			c := newChunk(0, 0)
+			for pos, state := range tc.blocks {
+				c.SetBlock(pos[0], pos[1], pos[2], state)
+			}
+			for lx := range int32(16) {
+				for lz := range int32(16) {
+					var want [3]int32
+					for y := w.dim.minY + w.dim.height - 1; y >= w.dim.minY; y-- {
+						state := c.BlockAt(lx, y, lz)
+						if IsAirState(state) {
+							continue
+						}
+						raw := y - w.dim.minY + 1
+						if want[0] == 0 {
+							want[0] = raw
+						}
+						if want[1] == 0 && motionBlockingByState[state] {
+							want[1] = raw
+						}
+						if want[2] == 0 && noLeavesBlockingByState[state] {
+							want[2] = raw
+						}
+					}
+					s, m, n := w.heightmapColumn(c, lx, lz)
+					if [3]int32{s, m, n} != want {
+						t.Fatalf("column %d,%d = %d/%d/%d, want %v", lx, lz, s, m, n, want)
+					}
+				}
+			}
+		})
+	}
+}
