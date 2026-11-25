@@ -51,6 +51,10 @@ type fireworkEntity struct {
 	fire bool
 	// skipStep holds back the next step of a rocket a mob shot this tick.
 	skipStep bool
+
+	// spawning holds the rocket out of its tick while its spawn effects run.
+	// Guarded by the firework lock once registered.
+	spawning bool
 }
 
 // fireworkTracker tracks the rockets. A rocket's flight is never on the
@@ -559,7 +563,7 @@ func (s *Server) tickFireworks() {
 			alive = append(alive, it)
 			continue
 		}
-		if !gate.ticks(it.w, it.rocket.X, it.rocket.Z) {
+		if it.spawning || !gate.ticks(it.w, it.rocket.X, it.rocket.Z) {
 			held = append(held, it)
 			alive = append(alive, it)
 			continue
@@ -687,7 +691,7 @@ func (s *Server) tickFireworks() {
 		// vanilla: ServerEntity.sendChanges, sendToTrackingPlayers, sendDirtyEntityData
 		body := fireworkTracker.body(it)
 		meta := fireworkBurnDelta(it)
-		mt := body.schedule(func() bool { return meta != nil })
+		mt := body.schedule(meta != nil)
 		var motion *outbound
 		if mt.gate && it.motionDue(it.rocket.VX, it.rocket.VY, it.rocket.VZ, false) {
 			motion = &outbound{id: protocol.IDPlaySetEntityMotion,
@@ -926,4 +930,29 @@ func (s *Server) announceBursts(bursts []fireworkBurst) {
 	for _, burst := range bursts {
 		s.gameEvent(burst.it.w, rules.GameEventExplode, burst.x, burst.y, burst.z, rules.GameEventContext{Player: burst.it.ownerUUID})
 	}
+}
+
+func (it *fireworkEntity) spawnedTarget(s *Server) enchantTarget {
+	s.fireworksMu.Lock()
+	defer s.fireworksMu.Unlock()
+	r := it.rocket
+	return enchantTarget{uuid: it.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25, entityID: r.ID, causeID: it.ownerID}
+}
+
+func (it *fireworkEntity) spawnedSnapshot(s *Server) *entitySnapshot {
+	s.fireworksMu.Lock()
+	defer s.fireworksMu.Unlock()
+	return s.fireworkSnapshot(it, nil)
+}
+
+func (it *fireworkEntity) spawned(s *Server) {
+	s.fireworksMu.Lock()
+	it.spawning = false
+	s.fireworksMu.Unlock()
+}
+
+func (it *fireworkEntity) ignite(s *Server, ticks int32) {
+	s.fireworksMu.Lock()
+	it.rocket.FireTicks = max(it.rocket.FireTicks, int(ticks))
+	s.fireworksMu.Unlock()
 }

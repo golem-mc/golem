@@ -195,13 +195,11 @@ func (c *client) fireCrossbow(hand int32) {
 		it := newArrowEntity(s, c.theWorld(),
 			pos.X, pos.Y+c.dims(c.player.Appearance().Pose).EyeHeight-entity.ArrowSpawnBelow, pos.Z,
 			vx, vy, vz, yaw, pitch, true, entity.ArrowBaseDamage, pickup,
-			c.player.EntityID, c.player.UUID, crossbow, max(rules.ProjectileIgniteTicks(crossbow), rules.ProjectileIgniteTicks(projectile)))
+			c.player.EntityID, c.player.UUID, crossbow, 0)
 		armArrow(it, projectile)
 		it.arrow.PierceLevel = rules.PiercingLevel(crossbow, projectile, &rules.EnchContext{Rand: s.levelRng})
 		it.arrow.HitSound = crossbowHitSound
-		if s.launchArrow(it) {
-			s.arrowSpawned(it, crossbow)
-		}
+		s.launchArrowFrom(it, projectile, crossbow)
 		c.shotSoundAndWear(hand, i, firework)
 		if c.heldItem(hand).Empty() {
 			break
@@ -212,9 +210,9 @@ func (c *client) fireCrossbow(hand int32) {
 	c.awardItemStat(registry.StatTypeUsed, crossbow.ItemID, 1)
 }
 
-// spawnCrossbowRocket launches a loaded rocket along the velocity, burning for
-// its stack's ignite, and runs its projectile_spawned effects. deferStep holds
-// back the first step to the next tick, for a mob's shot made in the mob pass.
+// spawnCrossbowRocket launches a loaded rocket along the velocity and runs its
+// stack's projectile_spawned effects, ignite included. deferStep holds back the
+// first step to the next tick, for a mob's shot made in the mob pass.
 // vanilla: CrossbowItem.createProjectile, Projectile.applyOnProjectileSpawned
 func (s *Server) spawnCrossbowRocket(w *world.World, stack protocol.ItemStack, x, y, z, vx, vy, vz float64,
 	ownerID int32, ownerUUID uuid.UUID, deferStep bool) {
@@ -227,11 +225,12 @@ func (s *Server) spawnCrossbowRocket(w *world.World, stack protocol.ItemStack, x
 	r.ShotAtAngle = true
 	r.VX, r.VY, r.VZ = vx, vy, vz
 	r.Yaw, r.Pitch = yaw, pitch
-	r.FireTicks = int(rules.ProjectileIgniteTicks(stack))
 	rocket.skipStep = deferStep
+	rocket.spawning = len(stack.Enchantments) > 0
 	s.registerFirework(rocket)
-	s.projectileSpawned(w, stack, enchantTarget{uuid: rocket.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25,
-		entityID: r.ID, causeID: ownerID})
+	if rocket.spawning {
+		s.spawnEffects(spawnedProjectile{w: w, typ: protocol.EntityTypeFireworkRocket, body: rocket}, stack, protocol.ItemStack{})
+	}
 }
 
 // shotSoundAndWear plays the index-th projectile's shot sound and wears the

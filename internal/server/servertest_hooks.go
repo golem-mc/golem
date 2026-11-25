@@ -233,6 +233,10 @@ func (s *Server) StopTick() { s.stopTick() }
 // or after Shutdown, is safe.
 func (s *Server) DisablePlugins() { s.disablePlugins() }
 
+// PluginCallsQueued is signalled when a connection queues a plugin call, so
+// a held test can run the tick that serves it once it is pending.
+func (s *Server) PluginCallsQueued() <-chan struct{} { return s.plugins.CallsQueued() }
+
 // FlushSaves waits for the chunk saves queued in every dimension. Tests call
 // it once they have stopped driving the world, before their world directory is
 // removed, so the removal does not race a save still in flight on the I/O pool.
@@ -408,6 +412,9 @@ func (s *Server) SetLoadedBlock(x, y, z int32, state uint16) {
 	s.world.ReleaseWait(pos, &saves)
 	saves.Wait()
 }
+
+// ForgetLodestoneAnswers drops the overworld's kept lodestone answers.
+func (s *Server) ForgetLodestoneAnswers() { s.world.ForgetLodestones() }
 
 // ScanOverworldBlocks walks the generated overworld inside the block square
 // x0..x1 by z0..z1, between the Y bounds given, and calls visit with the Y
@@ -4945,6 +4952,14 @@ func (s *Server) SetPhysicsSeed(seed int64) {
 	}
 }
 
+// TickProjectiles runs the arrow and rocket passes once, as the main loop
+// runs them. A plugin listener calls it to step a projectile between two of
+// the server's own steps.
+func (s *Server) TickProjectiles() {
+	s.tickArrows()
+	s.tickFireworks()
+}
+
 // TickEntities runs the entity passes the main loop runs after the physics,
 // the items and the arrows and the throwables and the fishing hooks and the orbs and the primed
 // bodies, n times over, exactly as the main loop's own passes run them. It
@@ -7863,7 +7878,8 @@ func (s *Server) SetMannequinForTest(id int32, health, fall float64) {
 	defer s.mannequinsMu.Unlock()
 	for _, it := range s.mannequins {
 		if it.mannequin.ID == id {
-			it.mannequin.Health, it.mannequin.FallDistance = health, fall
+			it.mannequin.SetHealth(health)
+			it.mannequin.FallDistance = fall
 		}
 	}
 }

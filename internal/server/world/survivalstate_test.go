@@ -48,7 +48,7 @@ func TestNeighbourStateProperties(t *testing.T) {
 	w.SetBlock(x, y, z, state("glow_lichen", map[string]string{"north": "true", "east": "true", "waterlogged": "true"}))
 	w.SetBlock(x, y, z-1, stoneState)
 	w.SetBlock(x+1, y, z, airState)
-	p.trimFaces(x, y, z, w.BlockAt(x, y, z), dirEast, &changes)
+	p.trimFaces(x, y, z, w.BlockAt(x, y, z), dirEast, &changes, false)
 	check(state("glow_lichen", map[string]string{"north": "true", "waterlogged": "true"}))
 
 	w.SetBlock(x, y, z, state("bell", map[string]string{"attachment": "double_wall", "facing": "east", "powered": "true"}))

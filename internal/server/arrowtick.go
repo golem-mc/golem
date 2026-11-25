@@ -57,7 +57,7 @@ func (s *Server) tickArrows() {
 			arrowTracker.unfile(it)
 			continue // hit, picked up, or expired before this tick
 		}
-		if !gate.ticks(it.w, it.arrow.X, it.arrow.Z) {
+		if it.spawning || !gate.ticks(it.w, it.arrow.X, it.arrow.Z) {
 			held = append(held, it)
 			alive = append(alive, it)
 			continue
@@ -220,6 +220,11 @@ func (s *Server) crossArrowPortalsLocked(fx *arrowEffects, gate entityGate) (fly
 	for _, it := range s.arrows {
 		if it.arrow.Dead {
 			arrowTracker.unfile(it)
+			continue
+		}
+		if it.spawning {
+			// Portals wait for the arrow's first tick, after its spawn effects.
+			portalAlive = append(portalAlive, it)
 			continue
 		}
 		state, kind, due := gate.stepPortal(it.w, it.arrow.X, it.arrow.Y, it.arrow.Z, &it.portal, projectileCooldownTicks)
@@ -688,7 +693,7 @@ func (scratch *arrowTargetScratch) addMob(m *entity.Mob, ownerID, root int32) *e
 // held.
 func (fx *arrowEffects) watchArrow(it *arrowEntity, watchers []arrowWatcher, near *nearbyPlayers, events []entity.ArrowEvent) {
 	body := arrowTracker.body(it)
-	mt := body.schedule(it.takeSync)
+	mt := body.schedule(it.takeSync())
 
 	// Velocity updates go to the watchers alone, including newly paired ones.
 	// vanilla: ServerEntity.sendChanges, sendToTrackingPlayers

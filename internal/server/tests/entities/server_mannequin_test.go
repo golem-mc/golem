@@ -335,6 +335,8 @@ type mannequinHurtSeen struct {
 	healthSent  bool
 	statuses    []uint8
 	removed     bool
+	// order is the damage event, death event and health or pose metadata as they arrived.
+	order []string
 }
 
 // readMannequinHurt reads n ticks of what the client is told of the
@@ -349,6 +351,7 @@ func readMannequinHurt(c *servertest.Client, srv *server.Server, id int32, n int
 			if r.ReadVarInt() == id {
 				r.ReadVarInt() // damage type
 				seen.damageEvent, seen.causeID = true, r.ReadVarInt()
+				seen.order = append(seen.order, "damage")
 			}
 		case protocol.IDPlaySoundEffect:
 			sound, _, _, _, _, _, _ := servertest.ReadAmbient(c.T, data)
@@ -363,13 +366,18 @@ func readMannequinHurt(c *servertest.Client, srv *server.Server, id int32, n int
 			}
 			if e := servertest.MetaOf(meta, protocol.MetadataIndexLivingHealth); e != nil {
 				seen.health, seen.healthSent = e.FloatVal, true
+				seen.order = append(seen.order, "meta")
 			}
 			if e := servertest.MetaOf(meta, protocol.MetadataIndexPose); e != nil {
 				seen.pose, seen.poseSent = e.VarintVal, true
 			}
 		case protocol.IDPlayEntityEvent:
 			if r.ReadI32() == id {
-				seen.statuses = append(seen.statuses, r.ReadU8())
+				status := r.ReadU8()
+				seen.statuses = append(seen.statuses, status)
+				if status == protocol.EntityStatusDeath {
+					seen.order = append(seen.order, "death")
+				}
 			}
 		case protocol.IDPlayRemoveEntities:
 			for range r.ReadVarInt() {
@@ -407,6 +415,20 @@ func TestAPunchedMannequinIsHurt(t *testing.T) {
 	}
 }
 
+// TestAMannequinLoadedWithZeroHealthKeepsItsPose checks that a mannequin
+// summoned with no health shows its saved pose, not the dying one: only a
+// lethal hit sets that.
+// vanilla: Mannequin.readAdditionalSaveData, LivingEntity.die
+func TestAMannequinLoadedWithZeroHealthKeepsItsPose(t *testing.T) {
+	t.Parallel()
+	srv, c := joinMannequinOp(t, "Loader")
+	c.ChatCommand("summon minecraft:mannequin ~ ~ ~1 {Health:0f,pose:\"crouching\"}")
+	got := awaitMannequin(t, c, srv)
+	if pose := metaOfMannequin(t, got.meta, protocol.MetadataIndexPose).VarintVal; pose != protocol.PoseSneaking {
+		t.Errorf("pose = %d, want crouching %d", pose, protocol.PoseSneaking)
+	}
+}
+
 // TestAMannequinDamagedToDeathIsRemoved checks that /damage for its whole
 // health kills a mannequin: the death sound, the dying pose and entity
 // event 3, then, after its 20 ticks of dying, the poof and its removal.
@@ -419,8 +441,12 @@ func TestAMannequinDamagedToDeathIsRemoved(t *testing.T) {
 
 	c.ChatCommand("damage @e[type=mannequin,limit=1] 20")
 	seen := readMannequinHurt(c, srv, id, 3, func(s *mannequinHurtSeen) bool {
-		return slices.Contains(s.statuses, protocol.EntityStatusDeath)
+		return slices.Contains(s.statuses, protocol.EntityStatusDeath) && s.healthSent && s.poseSent
 	})
+	// The health and the dying pose follow the damage and death events.
+	if want := []string{"damage", "death", "meta"}; !slices.Equal(seen.order, want) {
+		t.Errorf("order = %v, want %v", seen.order, want)
+	}
 	if !slices.Contains(seen.statuses, protocol.EntityStatusDeath) {
 		t.Fatalf("entity events = %v, want the death %d", seen.statuses, protocol.EntityStatusDeath)
 	}
@@ -443,5 +469,113 @@ func TestAMannequinDamagedToDeathIsRemoved(t *testing.T) {
 	}
 	if selects(c, srv, "@e[type=mannequin]", "gone") {
 		t.Error("a selector still finds the removed mannequin")
+	}
+}
+
+// TestAMannequinPairingLeavesPendingHealthForTheTrackingPass checks that a
+// watcher joining before the tracking pass neither starves the existing
+// watcher of a pending health change nor sees it as stale.
+// vanilla: ServerEntity.addPairing, sendChanges
+func TestAMannequinPairingLeavesPendingHealthForTheTrackingPass(t *testing.T) {
+	t.Parallel()
+	srv, c := joinMannequinOp(t, "Owner")
+	c.ChatCommand("summon minecraft:mannequin ~ ~ ~1")
+	id := awaitMannequin(t, c, srv).id
+	c.ChatCommand("damage @e[type=minecraft:mannequin,limit=1] 1")
+	late := servertest.DialServer(t, srv)
+	late.Join("Late")
+	seen := readMannequinHurt(c, srv, id, 5, func(s *mannequinHurtSeen) bool { return s.healthSent })
+	if !seen.healthSent || seen.health != 19 {
+		t.Errorf("existing watcher health sent=%v value=%v, want 19", seen.healthSent, seen.health)
+	}
+}
+
+// TestAMannequinPairsAWatcherFromItsLastSentFlags checks that a watcher
+// joining while a glow is pending is paired from what the clients were last
+// sent, and that the pairing leaves the glow dirty: cleared again before the
+// tracking pass, it still opens that tick's movement, so a teleport arrives
+// off the period, and no watcher is left outlined.
+// vanilla: ServerEntity.sendPairingData, sendChanges, LivingEntity.updateDirtyEffects
+func TestAMannequinPairsAWatcherFromItsLastSentFlags(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, mannequinConfig(), "Owner")
+	servertest.HoldTicks(t, srv)
+	// A hidden effect stays, so the clear leaves the particles as they were.
+	srv.RunLine(`summon minecraft:mannequin 0.5 100 0.5 {Tags:[s],NoGravity:1b}`)
+	srv.RunLine(`effect give @e[tag=s,limit=1] minecraft:speed 100 0 true`)
+	servertest.RunTicks(t, srv, 1)
+	c.Settle()
+	// Calibrate: a lone teleport arrives on a scheduled tick (every 2), so
+	// the next tick is off the period.
+	srv.RunLine(`tp @e[tag=s,limit=1] 0.5 101 0.5`)
+	var id int32
+	if !c.ReadTicks(srv, 2, func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlayTeleportEntity {
+			return false
+		}
+		sync := servertest.ParseEntityPositionSync(data)
+		id = sync.ID
+		return sync.Y == 101
+	}) {
+		t.Fatal("no calibration teleport")
+	}
+	c.Settle()
+	srv.RunLine(`effect give @e[tag=s,limit=1] minecraft:glowing 100 0 true`)
+	late := servertest.DialServer(t, srv)
+	late.JoinKeeping("Late")
+	srv.RunLine(`effect clear @e[tag=s,limit=1] minecraft:glowing`)
+	srv.RunLine(`tp @e[tag=s,limit=1] 0.5 105 0.5`)
+	glowingOf := func(data []byte) (glowing, sent bool) {
+		r := protocol.NewReader(data)
+		if r.ReadVarInt() != id {
+			return false, false
+		}
+		meta, ok := servertest.ReadMetadata(r)
+		if !ok {
+			t.Fatal("the mannequin's metadata carries a field this reader does not know")
+		}
+		if e := servertest.MetaOf(meta, protocol.MetadataIndexEntityFlags); e != nil {
+			return e.ByteVal&protocol.EntityFlagGlowing != 0, true
+		}
+		return false, false
+	}
+	teleported := c.ReadTicks(srv, 1, func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlayTeleportEntity {
+			return false
+		}
+		sync := servertest.ParseEntityPositionSync(data)
+		return sync.ID == id && sync.Y == 105
+	})
+	if !teleported {
+		t.Error("the teleport waited for the scheduled tick: the pairing consumed the dirty glow")
+	}
+	// The first metadata after the spawn is the pairing's.
+	spawned, paired, glowing := false, false, false
+	late.ReadTicks(srv, 0, func(pid int32, data []byte) bool {
+		switch pid {
+		case protocol.IDPlaySpawnEntity:
+			if arrival, ok := mannequinSpawnOf(data); ok && arrival.id == id {
+				spawned = true
+			}
+		case protocol.IDPlayEntityMetadata:
+			if !spawned || servertest.MetadataEntityID(data) != id {
+				return false
+			}
+			g, sent := glowingOf(data)
+			if !paired && g {
+				t.Error("the late watcher was paired with the pending glow, not the last sent flags")
+			}
+			if sent {
+				glowing = g
+			}
+			paired = true
+		}
+		return false
+	})
+	if !spawned {
+		t.Fatal("the late watcher was never shown the mannequin")
+	}
+	if glowing {
+		t.Error("the late watcher still sees the mannequin glowing after the effect was cleared")
 	}
 }

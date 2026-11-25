@@ -20,11 +20,15 @@ type entityGate struct {
 // newEntityGate reads the players' places, so it is built before any kind
 // lock is taken.
 func (s *Server) newEntityGate() entityGate {
-	dims := s.allDims()
-	g := entityGate{centres: make(map[*world.World][]world.ChunkPos, len(dims)), reach: s.simulationDistance.Load()}
 	s.mu.RLock()
 	clients := s.clientsLocked()
 	s.mu.RUnlock()
+	return s.newEntityGateOf(clients)
+}
+
+// newEntityGateOf is newEntityGate over a client list the caller already holds.
+func (s *Server) newEntityGateOf(clients []*client) entityGate {
+	g := entityGate{centres: make(map[*world.World][]world.ChunkPos, len(s.allDims())), reach: s.simulationDistance.Load()}
 	for _, c := range clients {
 		if c.player == nil || !c.simulates() {
 			continue

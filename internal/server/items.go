@@ -445,7 +445,7 @@ func (s *Server) tickItems() {
 		// Send the pre-physics baseline: the client predicts this tick's
 		// movement from it. vanilla: ChunkMap.tick, ServerEntity.sendChanges
 		body := itemTracker.body(it)
-		mt := body.schedule(it.item.TakeSync)
+		mt := body.schedule(it.item.TakeSync())
 		var motion []byte
 		if mt.gate && it.motionDue(it.item.VX, it.item.VY, it.item.VZ, true) {
 			motion = entityVelocityPayload(it.item.ID, it.item.VX, it.item.VY, it.item.VZ)
