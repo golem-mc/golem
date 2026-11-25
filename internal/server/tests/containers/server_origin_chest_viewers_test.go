@@ -93,7 +93,6 @@ func TestOriginChestChangesLeaveTradeAndMountWindowsAlone(t *testing.T) {
 			// The shaft keeps the chest unblocked and the opener in reach.
 			breaker.ChatCommand("fill 0 1 0 0 2 0 minecraft:air")
 			breaker.ChatCommand("tp Breaker 0.5 1 0.5")
-			servertest.RunTicks(t, srv, 1)
 			lids(0)
 			// Open and close land on one tick boundary, so the recheck the
 			// open booked is the one five ticks on, and it finds no opener.
