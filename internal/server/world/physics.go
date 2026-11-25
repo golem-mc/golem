@@ -1895,14 +1895,18 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 			return
 		}
 	}
-	// A container's fluid visit spreads through the faces its shape leaves
-	// open. Kelp and seagrass hold water without a waterlogged property.
-	// vanilla: SimpleWaterloggedBlock.placeLiquid, FenceBlock.updateShape,
-	// SpeleothemBlock.updateShape
-	if fs.kind != fluidNone && fluidContainer(state) {
-		p.bookFluid(x, y, z, fs)
-	}
 	block := registry.BlockOf(state)
+	// Tall seagrass holds water but inherits DoublePlantBlock.updateShape,
+	// which books no fluid tick.
+	if fs.kind != fluidNone && block != registry.BlockTallSeagrass {
+		// For seagrass and sea pickles, BlockInput.place keeps the state
+		// after a failed support check, but the shape offer books no water.
+		// vanilla: SeagrassBlock.updateShape, SeaPickleBlock.updateShape
+		if !placed || (block != registry.BlockSeagrass && block != registry.BlockSeaPickle) ||
+			canSurvive(p.w, x, y, z, state) {
+			p.bookFluid(x, y, z, fs)
+		}
+	}
 	if placed && block == registry.BlockFrogspawn && registry.BlockOf(old) != block {
 		p.scheduleFrogspawn(x, y, z)
 	}
