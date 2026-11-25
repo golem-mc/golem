@@ -720,6 +720,14 @@ func (p *Physics) shapeUpdateBody(x, y, z int32, d [3]int32, changes *[]BlockCha
 		}
 		return
 	}
+	if survivalOf[state].watch != 0 && !railBlocks[block] && !isDoorLike[block] {
+		// A neighbour's write the block's support depends on; a rail checks
+		// support only in neighborChanged.
+		// vanilla: FaceAttachedHorizontalDirectionalBlock.updateShape
+		if p.supportCheck(x, y, z, state, blocklogic.Opposite(directionOf(d)), changes) {
+			return
+		}
+	}
 	if isDoorLike[block] {
 		p.doorLikeShapeUpdate(x, y, z, d, changes)
 	}
