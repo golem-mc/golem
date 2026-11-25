@@ -1867,7 +1867,7 @@ func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known m
 					known[ent.uuid] = true
 					continue
 				}
-			} else if entity.BoatKind(string(id)) != "" {
+			} else if id != "" && entity.BoatKind(string(id)) != "" {
 				// Each boat kind's id is its own name, so no constant names them.
 				if ent := boatOfTag(s, h.w, compound); ent != nil {
 					woken.boats = append(woken.boats, ent)
