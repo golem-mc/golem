@@ -543,7 +543,7 @@ func EjectGated[S, D Block](src S, dest D, face int32, gate Gate) (moved, intoEm
 	if !single && Full(dest, face) {
 		return false, false
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i < 64 && filled&(1<<i) == 0 {
 			continue
 		}
