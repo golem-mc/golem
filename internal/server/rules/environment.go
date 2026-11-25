@@ -617,16 +617,43 @@ func onPosCell(w BlockAt, x, y, z, halfWidth float64, reach bool) (int32, int32,
 	if pick(cx, cz) {
 		return fx, cy, fz, fallback
 	}
-	minX, maxX := CellRange(x-halfWidth, x+halfWidth)
-	minZ, maxZ := CellRange(z-halfWidth, z+halfWidth)
-	for zz := minZ; zz <= maxZ; zz++ {
-		for xx := minX; xx <= maxX; xx++ {
-			if (xx != cx || zz != cz) && pick(xx, zz) {
-				return fx, cy, fz, fallback
-			}
+	for _, c := range footprintNearestFirst(x, z, halfWidth) {
+		if (c.x != cx || c.z != cz) && pick(c.x, c.z) {
+			return fx, cy, fz, fallback
 		}
 	}
 	return fx, cy, fz, fallback
+}
+
+type footprintCell struct {
+	x, z int32
+	d    float64
+}
+
+// footprintNearestFirst lists the columns the box overlaps, nearest to the
+// centre first, ties by lower Z then X: findSupportingBlock keeps the
+// nearest colliding cell, so a corner landing rests on the stone nearer the
+// centre, not the farmland the scan reached first.
+// vanilla: CollisionGetter.findSupportingBlock
+func footprintNearestFirst(x, z, halfWidth float64) []footprintCell {
+	minX, maxX := CellRange(x-halfWidth, x+halfWidth)
+	minZ, maxZ := CellRange(z-halfWidth, z+halfWidth)
+	var buf [9]footprintCell
+	cells := buf[:0]
+	for zz := minZ; zz <= maxZ; zz++ {
+		for xx := minX; xx <= maxX; xx++ {
+			dx, dz := float64(xx)+0.5-x, float64(zz)+0.5-z
+			c := footprintCell{xx, zz, dx*dx + dz*dz}
+			i := len(cells)
+			cells = append(cells, c)
+			for i > 0 && cells[i-1].d > c.d {
+				cells[i] = cells[i-1]
+				i--
+			}
+			cells[i] = c
+		}
+	}
+	return cells
 }
 
 // reachesFeet reports whether a collision box of the state in row cellY
@@ -673,8 +700,6 @@ func standingBlock(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32, sta
 	const eps = 1e-5
 	cx, cz := int32(math.Floor(x)), int32(math.Floor(z))
 	cy := int32(math.Floor(y - eps))
-	minX, maxX := CellRange(x-halfWidth, x+halfWidth)
-	minZ, maxZ := CellRange(z-halfWidth, z+halfWidth)
 	// centre is the state read at (cx, cy, cz), kept for the miss answer.
 	var centre uint16
 	scan := func(yy int32, reach float64) (int32, int32, uint16, bool) {
@@ -690,14 +715,12 @@ func standingBlock(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32, sta
 		if found {
 			return cx, cz, s, true
 		}
-		for zz := minZ; zz <= maxZ; zz++ {
-			for xx := minX; xx <= maxX; xx++ {
-				if xx == cx && zz == cz {
-					continue
-				}
-				if s, found := ok(xx, zz); found {
-					return xx, zz, s, true
-				}
+		for _, c := range footprintNearestFirst(x, z, halfWidth) {
+			if c.x == cx && c.z == cz {
+				continue
+			}
+			if s, found := ok(c.x, c.z); found {
+				return c.x, c.z, s, true
 			}
 		}
 		return 0, 0, 0, false

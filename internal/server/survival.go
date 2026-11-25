@@ -1545,7 +1545,7 @@ func (c *client) trackMovement(was, now player.Position) {
 	c.splashEvent(was, now, water != rules.Dry)
 	c.stepEvent(was, now, look, water != rules.Dry)
 	if landedFall > 0 {
-		c.trampleUnderfoot(landedFall, now)
+		c.trampleUnderfoot(landedFall, landing)
 		c.trampleTurtleEgg(world.TurtleEggLandOdds)
 		// vanilla: Entity.checkFallDamage
 		c.srv.gameEvent(c.theWorld(), rules.GameEventHitGround, now.X, now.Y, now.Z, c.gameEventContext(landing.Ground))
@@ -1600,12 +1600,12 @@ func (c *client) bounceLanded(now player.Position) {
 // spawn protection and a body too small in its pose (crawling, swimming)
 // keep the farmland. Unlike vanilla, a gated landing rolls no dice.
 // vanilla: FarmlandBlock.fallOn
-func (c *client) trampleUnderfoot(fallDistance float64, now player.Position) {
+func (c *client) trampleUnderfoot(fallDistance float64, landing rules.Landing) {
 	w := c.theWorld()
 	dims := c.dims(c.player.Appearance().Pose)
-	// The block is the one supporting the footprint, not the one under the
-	// centre: an edge landing tramples the farmland the feet overlap.
-	x, ground, z, _ := rules.OnPosCell(w, now.X, now.Y, now.Z, dims.Width/2)
+	// The landing's supporting block, not the one under the centre: an edge
+	// landing tramples the farmland the feet rest on.
+	x, ground, z := landing.GroundX, landing.GroundY, landing.GroundZ
 	if c.underSpawnProtection(x, z) {
 		return
 	}
@@ -1926,10 +1926,11 @@ func (c *client) landingAt(now, was player.Position) rules.Landing {
 	w := c.theWorld()
 	dims := c.dims(c.player.Appearance().Pose)
 	overlapped, _, _ := c.overlapCells(now, dims.Width/2, dims.Height)
-	gx, _, gz, ground := rules.OnPosCell(w, now.X, now.Y, now.Z, dims.Width/2)
+	gx, gy, gz, ground := rules.OnPosCell(w, now.X, now.Y, now.Z, dims.Width/2)
 	return rules.Landing{
 		Ground:     ground,
 		GroundX:    gx,
+		GroundY:    gy,
 		GroundZ:    gz,
 		Feet:       w.BlockAt(int32(math.Floor(now.X)), int32(math.Floor(now.Y)), int32(math.Floor(now.Z))),
 		Overlapped: overlapped,
