@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/plugin"
+	"github.com/golem-mc/golem/registry"
 )
 
 // BenchmarkReadMobTickInputsShortLived measures the UUID scan with live fangs
@@ -84,21 +87,62 @@ func BenchmarkTickBoltsVisualOnly(b *testing.B) {
 
 // BenchmarkTickFangsBite repeats 200 ownerless bites with eight watchers.
 // Resetting the attack models is timed identically on both sides, so every
-// pass reaches the bite without expiring or advancing a world clock.
+// pass reaches the bite without expiring or advancing a world clock. The
+// scaled case stands the watchers at scale 16 inside the bite grid, so each
+// overlapping bite checks the section its box reaches.
 func BenchmarkTickFangsBite(b *testing.B) {
-	s, w := newTrackerBenchServer(b)
-	for i := range trackerBenchBodies {
-		x, z := trackerBenchSpot(i)
-		s.spawnFangs(fangsCast{w: w, x: x, y: -60, z: z})
-	}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		for _, it := range s.fangs.list {
-			f := it.fangs
-			it.fangs = entity.NewEvokerFangs(f.ID, f.X, f.Y, f.Z, 0, -7, 0)
+	for _, scaled := range []bool{false, true} {
+		name := "watchers_away"
+		if scaled {
+			name = "scaled_players_in_grid"
 		}
-		s.tickFangs()
+		b.Run(name, func(b *testing.B) {
+			s, w := newTrackerBenchServer(b)
+			if scaled {
+				i := 0
+				s.mu.RLock()
+				for _, c := range s.clients {
+					x, z := trackerBenchSpot(i * 27)
+					i++
+					c.player.SetPosition(player.Position{X: x, Y: -60, Z: z})
+					c.player.UpdateVitals(func(v *player.Vitals) { v.GameMode = protocol.GameModeSurvival })
+					c.player.Attributes(func(a *player.Attributes) { a.SetBase(registry.AttributeScale, 16) })
+				}
+				s.mu.RUnlock()
+			}
+			for i := range trackerBenchBodies {
+				x, z := trackerBenchSpot(i)
+				s.spawnFangs(fangsCast{w: w, x: x, y: -60, z: z})
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				for _, it := range s.fangs.list {
+					f := it.fangs
+					it.fangs = entity.NewEvokerFangs(f.ID, f.X, f.Y, f.Z, 0, -7, 0)
+				}
+				// Timed identically on both sides: keep every bite landing.
+				s.mu.RLock()
+				for _, c := range s.clients {
+					c.player.UpdateVitals(func(v *player.Vitals) {
+						v.Health, v.Dead, v.InvulnerableTicks = 20, false, 0
+					})
+				}
+				s.mu.RUnlock()
+				s.tickFangs()
+			}
+			if scaled {
+				hurt := false
+				s.mu.RLock()
+				for _, c := range s.clients {
+					hurt = hurt || c.player.Vitals().Health < 20
+				}
+				s.mu.RUnlock()
+				if !hurt {
+					b.Fatal("no scaled player was bitten")
+				}
+			}
+		})
 	}
 }
 
