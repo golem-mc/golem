@@ -2620,9 +2620,6 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 	if gate <= 0 {
 		return flows, winners
 	}
-	var ctx spreadContext
-	ctx.init(w, x, y, z, fs.kind)
-	c := &ctx
 	var sides [4]struct {
 		into, held     fluidState
 		state          uint16
@@ -2632,7 +2629,7 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 	eligible := 0
 	for i, d := range horizontal4 {
 		tx, tz := x+d[0], z+d[1]
-		tState := c.state(tx, tz)
+		tState := w.BlockAt(tx, y, tz)
 		tFS := fluidHolding(tState)
 		axis, positive := faceOf(d[0], d[1])
 		if !canMaybePassThrough(fs.kind, state, axis, positive, tState, tFS) {
@@ -2656,7 +2653,19 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		return flows, winners
 	}
 	hasHole := false
+	var c *spreadContext
 	if eligible > 1 {
+		var ctx spreadContext
+		c = &ctx
+		// Only ranking competing sides needs the slope-search cache.
+		c.init(w, x, y, z, fs.kind)
+		for i, d := range horizontal4 {
+			if side := &sides[i]; side.eligible {
+				ti, _ := c.index(x+d[0], z+d[1])
+				c.states[ti] = side.state
+				c.flags[ti] = c.cellFlags(side.state) | cellKnown
+			}
+		}
 		// Already-wet sides can still outrank a side that can receive a write.
 		for i, d := range horizontal4 {
 			side := &sides[i]
