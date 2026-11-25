@@ -1048,7 +1048,7 @@ func (s *Server) spawnMobShot(shot mobShot) {
 	}
 	if isFireworkRocket(ammo) {
 		s.spawnCrossbowRocket(shot.w, ammo, shot.x, shot.y, shot.z, shot.vx, shot.vy, shot.vz,
-			shot.shooter, shot.shooterUUID)
+			shot.shooter, shot.shooterUUID, true)
 		return
 	}
 	yaw, pitch := entity.ArrowAngles(shot.vx, shot.vy, shot.vz)

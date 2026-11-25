@@ -360,3 +360,33 @@ func TestPillagerFiresHeldAmmo(t *testing.T) {
 		})
 	}
 }
+
+// TestAPillagersRocketFliesFromTheTickAfterItsShot: a mob's rocket is shown on
+// the tick it is shot, at age 0 and unlit; its first step, which lights it, is
+// the next tick's.
+// vanilla: EntityTickList.forEach, FireworkRocketEntity.tick
+func TestAPillagersRocketFliesFromTheTickAfterItsShot(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.HostileTestConfig()
+	cfg.GameMode = "creative"
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, _ := servertest.Join(t, cfg, "Observer")
+	servertest.HoldTicks(t, srv)
+	srv.SetDifficulty(rules.DifficultyHard)
+	srv.RunLine(`summon minecraft:villager 2.5 64 0.5 {NoAI:1b}`)
+	srv.RunLine(`summon minecraft:pillager 6.5 64 0.5 {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:crossbow",count:1,components:{"minecraft:charged_projectiles":[{id:"minecraft:firework_rocket",count:1,components:{"minecraft:enchantments":{"minecraft:flame":1}}}]}}},attributes:[{id:"minecraft:movement_speed",base:0.0d}]}`)
+	servertest.UntilTicks(t, srv, 120, "the pillager to shoot its rocket", func() bool { return srv.FireworkCount() > 0 })
+	if got := savedField(t, srv, "firework_rocket", "Life"); got != "0" {
+		t.Errorf("Life on the shot tick = %s, want 0", got)
+	}
+	if got := savedField(t, srv, "firework_rocket", "Fire"); got != "2000s" {
+		t.Errorf("Fire on the shot tick = %s, want 2000s", got)
+	}
+	servertest.RunTicks(t, srv, 1)
+	if got := savedField(t, srv, "firework_rocket", "Life"); got != "1" {
+		t.Errorf("Life one tick later = %s, want 1", got)
+	}
+	if got := savedField(t, srv, "firework_rocket", "Fire"); got != "1999s" {
+		t.Errorf("Fire one tick later = %s, want 1999s", got)
+	}
+}

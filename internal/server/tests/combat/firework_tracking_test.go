@@ -199,3 +199,25 @@ func TestAFireworkRocketsBurnIsToldOnceToAWatcherPairedOnItsLightingTick(t *test
 		t.Fatalf("the fire flag was told %d times to a watcher paired on the lighting tick; want once", set)
 	}
 }
+
+// TestAFireworkRocketKeepsANegativeFireValue merges a negative Fire into a
+// rocket: it reads back as written.
+// vanilla: Entity.readAdditionalSaveData, Entity.saveWithoutId
+func TestAFireworkRocketKeepsANegativeFireValue(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, _ := servertest.Join(t, cfg, "Watcher")
+	servertest.HoldTicks(t, srv)
+	rocket := srv.SpawnFireworkAtAngle(0.5, 65, 0.5, 0, 0, 0, 200)
+	srv.RunLine("data merge entity " + rocket.UUID.String() + " {Fire:-20s}")
+	for _, text := range srv.RunLine("data get entity " + rocket.UUID.String() + " Fire") {
+		if text.Translate == "commands.data.entity.query" && len(text.With) == 2 {
+			if got := text.With[1].Plain(); got != "-20s" {
+				t.Fatalf("Fire = %s, want -20s", got)
+			}
+			return
+		}
+	}
+	t.Fatal("no Fire answer")
+}

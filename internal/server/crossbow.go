@@ -178,7 +178,7 @@ func (c *client) fireCrossbow(hand int32) {
 		if firework {
 			s.spawnCrossbowRocket(c.theWorld(), projectile, pos.X,
 				pos.Y+c.dims(c.player.Appearance().Pose).EyeHeight-0.15, pos.Z,
-				vx, vy, vz, c.player.EntityID, c.player.UUID)
+				vx, vy, vz, c.player.EntityID, c.player.UUID, false)
 			c.shotSoundAndWear(hand, i, firework)
 			if c.heldItem(hand).Empty() {
 				break
@@ -213,10 +213,11 @@ func (c *client) fireCrossbow(hand int32) {
 }
 
 // spawnCrossbowRocket launches a loaded rocket along the velocity, burning for
-// fireTicks, and runs the rocket stack's projectile_spawned effects.
+// its stack's ignite, and runs its projectile_spawned effects. deferStep holds
+// back the first step to the next tick, for a mob's shot made in the mob pass.
 // vanilla: CrossbowItem.createProjectile, Projectile.applyOnProjectileSpawned
 func (s *Server) spawnCrossbowRocket(w *world.World, stack protocol.ItemStack, x, y, z, vx, vy, vz float64,
-	ownerID int32, ownerUUID uuid.UUID) {
+	ownerID int32, ownerUUID uuid.UUID, deferStep bool) {
 	yaw, pitch := entity.ArrowAngles(vx, vy, vz)
 	rocket := s.newFirework(w, stack, x, y, z, ownerID, ownerUUID, 0)
 	// The rocket carries the whole loaded stack, count and all.
@@ -227,6 +228,7 @@ func (s *Server) spawnCrossbowRocket(w *world.World, stack protocol.ItemStack, x
 	r.VX, r.VY, r.VZ = vx, vy, vz
 	r.Yaw, r.Pitch = yaw, pitch
 	r.FireTicks = int(rules.ProjectileIgniteTicks(stack))
+	rocket.skipStep = deferStep
 	s.registerFirework(rocket)
 	s.projectileSpawned(w, stack, enchantTarget{uuid: rocket.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25,
 		entityID: r.ID, causeID: ownerID})

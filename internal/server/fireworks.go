@@ -48,6 +48,8 @@ type fireworkEntity struct {
 	// from the burn, so a rocket launched burning pairs unlit.
 	// vanilla: Entity.baseTick's setSharedFlagOnFire
 	fire bool
+	// skipStep holds back the next step of a rocket a mob shot this tick.
+	skipStep bool
 }
 
 // fireworkTracker tracks the rockets. A rocket's flight is never on the
@@ -237,7 +239,7 @@ func applyFireworkTag(it *fireworkEntity, compound nbt.Compound) {
 	it.portal.Cooldown = portalCooldownOf(compound)
 	it.tags.Reset(tagsOfTag(compound))
 	it.custom = customNameOfTag(compound)
-	rocket.FireTicks = fireOfTag(compound)
+	rocket.FireTicks = int(shortFieldOf(compound, "Fire"))
 }
 
 // registerFirework puts a built rocket into the world and shows it to every
@@ -422,6 +424,20 @@ func fireworkWatchers(clients []*client) map[*world.World][]fireworkWatcher {
 	return watchers
 }
 
+// fireworkLaunchSound queues the launch sound for the watchers within its
+// volume's earshot.
+func fireworkLaunchSound(it *fireworkEntity, watchers []fireworkWatcher, sounds *sendList) {
+	r := it.rocket
+	earshot := soundRange(fireworkLaunchVolume)
+	launch := soundEffectIDAt(registry.SoundEntityFireworkRocketLaunch,
+		protocol.SoundCategoryAmbient, r.X, r.Y, r.Z, fireworkLaunchVolume, 1.0)
+	for _, watch := range watchers {
+		if entity.Dist2(r.X, r.Y, r.Z, watch.pos.X, watch.pos.Y, watch.pos.Z) < earshot*earshot {
+			sounds.add(watch.c, outbound{id: protocol.IDPlaySoundEffect, data: launch})
+		}
+	}
+}
+
 // tickFireworks runs one game tick of every rocket. The players are read
 // with nothing held; the flight and the mobs' hurt run under the rocket and
 // mob locks; the players' hurt and the sends run after the locks are down.
@@ -443,18 +459,18 @@ func (s *Server) tickFireworks() {
 	defer releaseNearbyWorlds(near)
 
 	var (
-		out                    trackSends
-		motions, sounds, metas sendList
-		removals               = make(map[*world.World][]int32)
-		bursts                 []fireworkBurst
-		mobHits                []thrownMobHit
-		gates                  []gatewayTouch
-		targetHits             []targetBlockHit
-		projectileHits         []projectileBlockHit
-		splashes               []projectileSplash
-		landings               []projectileLanding
-		shots                  []projectileShot
-		deflects               []breezeDeflect
+		out             trackSends
+		motions, sounds sendList
+		removals        = make(map[*world.World][]int32)
+		bursts          []fireworkBurst
+		mobHits         []thrownMobHit
+		gates           []gatewayTouch
+		targetHits      []targetBlockHit
+		projectileHits  []projectileBlockHit
+		splashes        []projectileSplash
+		landings        []projectileLanding
+		shots           []projectileShot
+		deflects        []breezeDeflect
 	)
 
 	boatsByWorld, _, boatRoots := s.boatSnapshots()
@@ -470,14 +486,18 @@ func (s *Server) tickFireworks() {
 			fireworkTracker.unfile(it)
 			continue // the life ran out before this tick
 		}
+		if it.skipStep { // shot by a mob this tick; vanilla: EntityTickList.forEach
+			it.skipStep = false
+			alive = append(alive, it)
+			continue
+		}
 		if !gate.ticks(it.w, it.rocket.X, it.rocket.Z) {
 			held = append(held, it)
 			alive = append(alive, it)
 			continue
 		}
 
-		// A boost rocket whose rider has left the world stands where the
-		// last follow put it until its life ends.
+		// A boost rocket whose rider left stands still until its life ends.
 		var carrier *entity.FireworkCarrier
 		if it.rocket.AttachedTo != 0 {
 			for _, watch := range watchers[it.w] {
@@ -492,8 +512,7 @@ func (s *Server) tickFireworks() {
 			}
 		}
 
-		// The bodies a free flight may meet. The launcher's own is pointed
-		// out: the flight cannot hit it until it has left it.
+		// The bodies a free flight may meet; the launcher's is pointed out.
 		var targets []entity.ArrowTarget
 		dim := s.dimensionOfWorld(it.w)
 		targets = append(targets, boatsByWorld[it.w]...)
@@ -554,19 +573,10 @@ func (s *Server) tickFireworks() {
 			}
 		}
 
-		// The launch sound plays from where the first tick's rise took the
-		// rocket, to the players within its volume's earshot.
+		// The launch sound plays where the first tick's rise took the rocket.
 		// vanilla: FireworkRocketEntity.tick's life == 0, ServerLevel.playSeededSound
 		if first {
-			earshot := soundRange(fireworkLaunchVolume)
-			launch := soundEffectIDAt(registry.SoundEntityFireworkRocketLaunch,
-				protocol.SoundCategoryAmbient,
-				it.rocket.X, it.rocket.Y, it.rocket.Z, fireworkLaunchVolume, 1.0)
-			for _, watch := range watchers[it.w] {
-				if entity.Dist2(it.rocket.X, it.rocket.Y, it.rocket.Z, watch.pos.X, watch.pos.Y, watch.pos.Z) < earshot*earshot {
-					sounds.add(watch.c, outbound{id: protocol.IDPlaySoundEffect, data: launch})
-				}
-			}
+			fireworkLaunchSound(it, watchers[it.w], &sounds)
 		}
 
 		if it.rocket.Dead {
@@ -595,12 +605,10 @@ func (s *Server) tickFireworks() {
 				})
 			}
 		}
-		// The velocity goes out on a movement tick only, to the watchers
-		// alone, the newly paired included.
-		// vanilla: ServerEntity.sendChanges, sendToTrackingPlayers
+		// The velocity goes out on a movement tick only, the newly paired
+		// included; a burn lit or put out is dirty data, one off the period.
+		// vanilla: ServerEntity.sendChanges, sendToTrackingPlayers, sendDirtyEntityData
 		body := fireworkTracker.body(it)
-		// A burn lit or put out this tick is dirty data: a movement tick off
-		// the period. vanilla: ServerEntity.sendChanges, sendDirtyEntityData
 		meta := fireworkBurnDelta(it)
 		mt := body.schedule(func() bool { return meta != nil })
 		var motion *outbound
@@ -622,9 +630,9 @@ func (s *Server) tickFireworks() {
 			if motion != nil {
 				motions.add(watch.c, *motion)
 			}
-			// A watcher paired by this settle has the flag in its pairing.
+			// A watcher paired by this settle has the flag already.
 			if meta != nil && len(out.shows) == shows {
-				metas.add(watch.c, *meta)
+				motions.add(watch.c, *meta)
 			}
 			body.moveTold(was, watch.c, mt, &out)
 		}
@@ -746,7 +754,6 @@ func (s *Server) tickFireworks() {
 	}
 	out.send()
 	motions.send()
-	metas.send()
 	sounds.send()
 	// The mob hits' telling, the hurts having been taken under the mob lock.
 	// vanilla: LivingEntity.hurtServer
