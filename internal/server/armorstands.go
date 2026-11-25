@@ -837,6 +837,8 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 	if dirty := ent.stand.Attributes().TakeDirty(); len(dirty) != 0 {
 		attributes = attributesPayload(body.id, dirty)
 	}
+	// move is the pass's Teleport Entity, encoded for the first watcher due it.
+	var move []byte
 	for _, i := range body.watchers(near) {
 		wh := watchers[i]
 		if wh.c.theWorld() != ent.w {
@@ -845,7 +847,7 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 		_, shown := ent.tracked.get(wh.c)
 		if told, seen := body.settle(wh.c, wh.x, wh.z, wh.chunkRadius, &out.trackSends); seen && shown {
 			if mt.gate {
-				standMove(&body, told, wh.c, mt, out)
+				standMove(&body, told, wh.c, mt, &move, out)
 			}
 			if now != told.own {
 				data := armorStandMetadataTable(body.id, now, told.own, armorStandMetaTick)
@@ -863,9 +865,10 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 
 // standMove tells one watcher where the stand went, with a Teleport Entity
 // when it moved past the movement threshold, turned, or was teleported
-// anywhere new, however short the step.
+// anywhere new, however short the step. The payload is the same for every
+// watcher, so it is encoded into *move once per pass.
 // vanilla: ServerEntity.sendChanges
-func standMove(v *trackedBody[*armorStandEntity, *armorStandMeta], told *toldBody[*armorStandMeta], c *client, mt moveTick, out *standSends) {
+func standMove(v *trackedBody[*armorStandEntity, *armorStandMeta], told *toldBody[*armorStandMeta], c *client, mt moveTick, move *[]byte, out *standSends) {
 	now := v.position()
 	dx, dy, dz := now.x-told.x, now.y-told.y, now.z-told.z
 	jumped := mt.teleported && (dx != 0 || dy != 0 || dz != 0)
@@ -873,12 +876,14 @@ func standMove(v *trackedBody[*armorStandEntity, *armorStandMeta], told *toldBod
 		return
 	}
 	told.trackedPosition = now
-	st := v.b.stand
-	var buf protocol.Buffer
-	buf.Grow(teleportEntityLen)
-	putAbsolute(&buf, v.id, bodyPose{x: st.X, y: st.Y, z: st.Z, yaw: st.Yaw}, mt.stepTicks, st.OnGround)
-	data := buf.Bytes()
-	out.told = append(out.told, outbound{id: protocol.IDPlayTeleportEntity, data: data})
+	if *move == nil {
+		st := v.b.stand
+		var buf protocol.Buffer
+		buf.Grow(teleportEntityLen)
+		putAbsolute(&buf, v.id, bodyPose{x: st.X, y: st.Y, z: st.Z, yaw: st.Yaw}, mt.stepTicks, st.OnGround)
+		*move = buf.Bytes()
+	}
+	out.told = append(out.told, outbound{id: protocol.IDPlayTeleportEntity, data: *move})
 	out.toldTo = append(out.toldTo, showTo{c, v.w})
 }
 
