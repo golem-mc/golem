@@ -253,13 +253,21 @@ func syncEquipmentModifiers(a *player.Attributes, slots [7]equipmentSlot, previo
 		if !changed[i] {
 			continue
 		}
-		applyEquipment(a, sl.stack, sl.name)
+		applyEquipment(a, sl.stack, sl.name, nil)
 		previous[i] = sl.stack
 	}
 }
 
-func applyEquipment(a *player.Attributes, stack protocol.ItemStack, slot string) {
+// applyEquipment adds the stack's slot modifiers for attributes the map has;
+// when fresh is non-nil it collects the IDs this call instantiated.
+func applyEquipment(a *player.Attributes, stack protocol.ItemStack, slot string, fresh *[]registry.AttributeID) {
 	for _, mod := range rules.EquipmentModifiers(stack, slot) {
+		if !a.Has(mod.Attribute) {
+			continue // vanilla: AttributeMap.getInstance is null
+		}
+		if fresh != nil && !a.Instantiated(mod.Attribute) {
+			*fresh = append(*fresh, mod.Attribute)
+		}
 		a.AddModifier(mod.Attribute, player.Modifier{ID: mod.ID, Amount: mod.Amount, Operation: mod.Operation})
 	}
 }
@@ -331,13 +339,7 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	m.syncZombieTraits(a)
 	synthetic := make([]registry.AttributeID, 0, registry.NumAttributes)
 	for _, sl := range m.equipmentSlots() {
-		for _, mod := range rules.EquipmentModifiers(sl.stack, sl.name) {
-			if !a.Instantiated(mod.Attribute) {
-				synthetic = append(synthetic, mod.Attribute)
-				a.Instance(mod.Attribute)
-			}
-		}
-		applyEquipment(a, sl.stack, sl.name)
+		applyEquipment(a, sl.stack, sl.name, &synthetic)
 	}
 	// vanilla: LivingEntity.detectEquipmentUpdates precedes removeFrost.
 	if !a.Instantiated(registry.AttributeMovementSpeed) {

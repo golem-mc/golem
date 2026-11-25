@@ -30,7 +30,7 @@ func ApplyLocatedMods(a *player.Attributes, apply, remove []rules.LocatedAction)
 		}
 	}
 	for _, act := range apply {
-		if m, ok := act.LocatedAttributeModifier(); ok && act.Became {
+		if m, ok := act.LocatedAttributeModifier(); ok && act.Became && a.Has(m.Attribute) {
 			a.RemoveModifier(m.Attribute, m.ID)
 			a.AddModifier(m.Attribute, player.Modifier{ID: m.ID, Amount: m.Amount, Operation: m.Operation})
 		}
