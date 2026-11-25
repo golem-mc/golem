@@ -52,7 +52,7 @@ func (b *BlockEntity) CampfireTick(lit bool) (results []protocol.ItemStack, chan
 // slot to be asked again next tick. cook may release the entity's lock, so a
 // slot that changed meanwhile is left alone.
 func (b *BlockEntity) CampfireTickWith(lit bool, cook func(slot int, source, result protocol.ItemStack) (protocol.ItemStack, bool)) (results []protocol.ItemStack, changed bool) {
-	if b.cookReset.Swap(false) {
+	if b.cookReset.Load() && b.cookReset.Swap(false) {
 		b.CookCheck = ""
 	}
 	for slot := range b.Slots {
