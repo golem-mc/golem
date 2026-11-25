@@ -220,9 +220,10 @@ func (s *Server) pluginCommandTree(src command.Source, level int) *command.Node 
 	}
 	perms := r.perms
 	r.mu.Unlock()
-	sender := s.pluginCommandSender(src)
 	key := treeKey{level: level, plugins: s.plugins.Any()}
+	var sender plugin.CommandSender
 	if len(perms) != 0 {
+		sender = s.pluginCommandSender(src)
 		sig := make([]byte, len(perms))
 		for i, p := range perms {
 			sig[i] = '0'
@@ -248,6 +249,9 @@ func (s *Server) pluginCommandTree(src command.Source, level int) *command.Node 
 	roots = append(roots, s.pluginsRoots(taken)...)
 	if hasCommands || key.plugins {
 		roots = append(roots, minecraftAliases(base, roots)...)
+	}
+	if sender == nil {
+		sender = s.pluginCommandSender(src)
 	}
 	tree := command.Extend(base, roots, func(n *command.Node) bool { return n.Permission == "" || s.plugins.HasPermission(sender, n.Permission) })
 	r.mu.Lock()
