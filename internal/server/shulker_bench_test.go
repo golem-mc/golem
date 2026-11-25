@@ -39,12 +39,12 @@ func BenchmarkShulkerTeamDefence(b *testing.B) {
 	}
 }
 
-// BenchmarkShulkerShellShoves ticks ten shells through repeated opening and
-// closing cycles, with twenty items reset over their swept slabs each tick and
-// each shell riding a mob, beside an unrelated mob in its slab.
+// BenchmarkShulkerShellShoves ticks ten shells opening east through the ravager
+// each one rides, repeating opening and closing cycles. An unrelated pig and
+// twenty items are reset into each swept slab every tick.
 func BenchmarkShulkerShellShoves(b *testing.B) {
 	s, w := newCommandBenchServer(b, 0)
-	var shells []*entity.Mob
+	var shells, others []*entity.Mob
 	var items []*itemEntity
 	stone, _ := registry.ItemID("minecraft:stone")
 	for i := range 10 {
@@ -52,14 +52,16 @@ func BenchmarkShulkerShellShoves(b *testing.B) {
 		id := s.spawnMobInDim(s.allDims()[0], entity.TypeShulker, x, world.GroundLevel, z, int64(i), nil)
 		m := s.mobByEntityIDLocked(w, id).mob
 		m.NoAI = true
+		m.SetMetadataShulkerFace(4)
 		shells = append(shells, m)
-		carrier := s.mobByEntityIDLocked(w, s.spawnMobInDim(s.allDims()[0], entity.TypePig, x, world.GroundLevel, z, int64(i), nil)).mob
+		carrier := s.mobByEntityIDLocked(w, s.spawnMobInDim(s.allDims()[0], entity.TypeRavager, x, world.GroundLevel, z, int64(i), nil)).mob
 		carrier.NoAI, carrier.Persistence = true, true
 		m.Vehicle = carrier
-		other := s.mobByEntityIDLocked(w, s.spawnMobInDim(s.allDims()[0], entity.TypePig, x, world.GroundLevel+0.9, z, int64(i), nil)).mob
+		other := s.mobByEntityIDLocked(w, s.spawnMobInDim(s.allDims()[0], entity.TypePig, x+1.2, world.GroundLevel, z, int64(i), nil)).mob
 		other.NoAI, other.NoGravity, other.Persistence = true, true, true
+		others = append(others, other)
 		for range 2 {
-			items = append(items, s.spawnItem(w, protocol.ItemStack{ItemID: stone, Count: 1}, x, world.GroundLevel+1.125, z, 0, 0, 0, 1000))
+			items = append(items, s.spawnItem(w, protocol.ItemStack{ItemID: stone, Count: 1}, x+1, world.GroundLevel+0.5, z, 0, 0, 0, 1000))
 		}
 	}
 	b.ReportAllocs()
@@ -75,8 +77,12 @@ func BenchmarkShulkerShellShoves(b *testing.B) {
 			}
 		}
 		for j, it := range items {
-			_, _, _, _, top, _ := shells[j/2].BlastBox()
-			it.item.Y = top + entity.ItemHalfSize
+			_, _, _, maxX, _, _ := shells[j/2].BlastBox()
+			it.item.X = maxX + entity.ItemHalfSize
+		}
+		for j, o := range others {
+			_, _, _, maxX, _, _ := shells[j].BlastBox()
+			o.X = maxX + 0.3
 		}
 		s.tickMobs()
 	}

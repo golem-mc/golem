@@ -1,8 +1,8 @@
 package mobs
 
 import (
+	"fmt"
 	"math"
-	"strconv"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -76,40 +76,54 @@ func TestAShulkerUnderALilyPadTakesTheStoneBeside(t *testing.T) {
 	}
 }
 
-// TestAnOpeningShellDoesNotShoveItsOwnVehicle: a shell riding a boat or a
-// mob leaves that carrier in place while the free mob in its swept slab (a ravager, too wide to board a boat) moves.
-// Mounting resets the shell to face down, so the test turns it west and it
-// opens east, through the carrier's box.
+// TestAnOpeningShellDoesNotShoveItsOwnVehicle: a shell riding a boat, a
+// minecart or a mob leaves that carrier in place while the free ravager in its
+// swept slab moves. The shell is scaled to 0.75 so the slab lies inside the
+// carrier's box, and mounting resets it to face down, so the test turns it
+// west and it opens east. Over a cart the ravager stands on the cart's box,
+// which keeps ordinary cart collisions out of the measurement.
 // vanilla: Shulker.onPeekAmountChange, Entity.isPassengerOfSameVehicle
 func TestAnOpeningShellDoesNotShoveItsOwnVehicle(t *testing.T) {
 	t.Parallel()
-	for _, carrier := range []string{"boat", "pig"} {
+	for _, carrier := range []string{"boat", "minecart", "pig"} {
 		t.Run(carrier, func(t *testing.T) {
 			t.Parallel()
 			srv, _ := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
 			servertest.HoldTicks(t, srv)
 			srv.RunLine(`fill -2 99 -2 4 99 2 stone`)
-			if carrier == "boat" {
+			var cart int32
+			switch carrier {
+			case "boat":
 				srv.RunLine(`summon oak_boat 0.5 100 0.5 {NoGravity:1b}`)
-			} else {
+			case "minecart":
+				cart = srv.SpawnMinecartOfKind("minecraft:minecart", 0.5, 100, 0.5)
+			default:
 				srv.RunLine(`summon pig 0.5 100 0.5 {NoAI:1b}`)
 			}
-			srv.RunLine(`summon shulker 0.5 100 0.5 {NoAI:1b,Tags:[shell]}`)
+			srv.RunLine(`summon shulker 0.5 100 0.5 {NoAI:1b,Tags:[shell],attributes:[{id:"minecraft:scale",base:0.75d}]}`)
 			srv.RunLine(`ride @e[tag=shell,limit=1] mount @e[type=` + carrier + `,limit=1]`)
 			servertest.RunTicks(t, srv, 1)
 			shell := srv.MobIDsOfKind("minecraft:shulker")[0]
 			srv.RunLine(`data merge entity @e[tag=shell,limit=1] {AttachFace:4b}`)
 			sx, sy, sz, _ := srv.MobPos(shell)
 			carrierX := func() float64 {
-				if carrier == "boat" {
+				switch carrier {
+				case "boat":
 					x, _, _, _, _, _ := srv.BoatState(srv.BoatIDs()[0])
+					return x
+				case "minecart":
+					x, _, _, _, _ := srv.MinecartState(cart)
 					return x
 				}
 				x, _, _, _ := srv.MobPos(srv.MobIDsOfKind("minecraft:pig")[0])
 				return x
 			}
-			srv.RunLine(`summon ravager ` + strconv.FormatFloat(sx+1.4, 'f', -1, 64) + ` ` + strconv.FormatFloat(sy, 'f', -1, 64) + ` ` +
-				strconv.FormatFloat(sz, 'f', -1, 64) + ` {NoAI:1b,NoGravity:1b}`)
+			// A minecart's box is 0.7 tall; the shell's slab is 0.75 tall.
+			fy := sy
+			if carrier == "minecart" {
+				fy = 100.72
+			}
+			srv.RunLine(fmt.Sprintf(`summon ravager %g %g %g {NoAI:1b,NoGravity:1b}`, sx+1.2, fy, sz))
 			free := srv.MobIDsOfKind("minecraft:ravager")[0]
 			beforeCarrier := carrierX()
 			beforeFree, _, _, _ := srv.MobPos(free)
@@ -119,7 +133,7 @@ func TestAnOpeningShellDoesNotShoveItsOwnVehicle(t *testing.T) {
 				t.Errorf("%s x = %v after the shell opened, want %v", carrier, got, beforeCarrier)
 			}
 			if got, _, _, _ := srv.MobPos(free); got <= beforeFree {
-				t.Errorf("free ravager x = %v after the shell opened, want above %v", got, beforeFree)
+				t.Errorf("free ravager x = %v after the shell opened, want above %v (shell y %v)", got, beforeFree, sy)
 			}
 		})
 	}
