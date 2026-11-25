@@ -37,7 +37,12 @@ func Main() {
 		slog.Warn("could not open the log files", "error", logErr)
 	}
 	startProfiling()
-	if err := run(logs); err != nil {
+	pending, clean := crashOutput(".")
+	defer logPanic(pending)
+	testCrashHook()
+	err := run(logs)
+	clean()
+	if err != nil {
 		if !errors.Is(err, errStartFailed) {
 			slog.Error(err.Error())
 		}
