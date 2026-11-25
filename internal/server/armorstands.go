@@ -944,7 +944,9 @@ func (s *Server) tickArmorStands() {
 		s.notePortalTouch(nil, ent.uuid, ent.w, ent.stand.X, ent.stand.Y, ent.stand.Z, state)
 		if kind, due := ent.portal.Step(state, rules.PortalTransitionTime, portalCooldownTicks); due {
 			standTracker.unfile(ent)
-			travels = append(travels, armorStandPortalTravel{ent: ent, kind: kind})
+			// The watchers left after any pre-step pass get the removal.
+			watchers := trackedWatchers(ent.tracked)
+			travels = append(travels, armorStandPortalTravel{ent: ent, kind: kind, watchers: watchers})
 			continue
 		}
 		from := ent.stand.Box()
@@ -1019,7 +1021,7 @@ func (s *Server) tickArmorStands() {
 	}
 	s.touchGateways(gates)
 	for _, tr := range travels {
-		s.finishArmorStandTravel(tr.ent, tr.kind)
+		s.finishArmorStandTravel(tr.ent, tr.kind, tr.watchers)
 	}
 }
 
@@ -1031,13 +1033,14 @@ type tornStand struct {
 
 // armorStandPortalTravel is one stand the portal pass caught.
 type armorStandPortalTravel struct {
-	ent  *armorStandEntity
-	kind rules.PortalKind
+	ent      *armorStandEntity
+	kind     rules.PortalKind
+	watchers []uuid.UUID
 }
 
 // finishArmorStandTravel sends one stand the portal pass caught across its
 // portal, equipment and all.
-func (s *Server) finishArmorStandTravel(ent *armorStandEntity, kind rules.PortalKind) {
+func (s *Server) finishArmorStandTravel(ent *armorStandEntity, kind rules.PortalKind, watchers []uuid.UUID) {
 	standTracker.crossPortal(s, ent, kind, s.registerArmorStand, func(to *world.World, at player.Position) (*armorStandEntity, bool) {
 		twin := armorStandOfTag(s, to, armorStandTag(ent).Entries())
 		if twin == nil {
@@ -1046,7 +1049,7 @@ func (s *Server) finishArmorStandTravel(ent *armorStandEntity, kind rules.Portal
 		twin.stand.SetPos(at.X, at.Y, at.Z)
 		twin.stand.Yaw = at.Yaw
 		return twin, true
-	})
+	}, &watchers)
 }
 
 // summonArmorStand stands a /summon's stand up at the position given: a

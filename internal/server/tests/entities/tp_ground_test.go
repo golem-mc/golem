@@ -1,7 +1,6 @@
 package entities
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -72,15 +71,18 @@ func TestTeleportedStandShortHopIsToldOnItsNextGate(t *testing.T) {
 	}
 }
 
-// A stand that a /tp takes out of one watcher's range and that breaks or
-// falls out of the world in the same tick sends that watcher one removal;
-// the watcher still in range gets the destination sync, then one removal.
+// A stand that a /tp takes out of one watcher's range and that breaks, falls
+// out of the world or enters an End portal in the same tick sends that
+// watcher one removal; the watcher still in range gets the destination sync
+// at its position with onGround, then one removal.
 // vanilla: ChunkMap.TrackedEntity.updatePlayer, ServerEntity.removePairing
 func TestTeleportedStandThatEndsSendsOneRemovalPerWatcher(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, nbt, dest string }{
-		{"broken", "Health:1.0f,Fire:20s", "60.5 150 0.5"},
-		{"voided", "", "60.5 -200 0.5"},
+		{"broken", "Health:1.0f,Fire:20s", "33.5 150 0.5"},
+		{"voided", "", "33.5 -200 0.5"},
+		// The portal block lies at the destination; the stand has physics.
+		{"portal", "", "33.5 150 0.5"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -88,38 +90,48 @@ func TestTeleportedStandThatEndsSendsOneRemovalPerWatcher(t *testing.T) {
 			bob := connect().Join("Bob")
 			alice.ExpectPlayerAdded("Bob")
 			servertest.HoldTicks(t, srv)
-			srv.RunLine(`tp Bob 40 150 0`)
-			srv.RunLine(`summon armor_stand 20.5 150 0.5 {Tags:[b],NoGravity:1b,` + tc.nbt + `}`)
-			spawn := alice.ExpectWithinTicks(srv, 6, protocol.IDPlaySpawnEntity)
+			srv.RunLine(`tp Bob 8.5 150 0.5`)
+			gravity := "NoGravity:1b,"
+			if tc.name == "portal" {
+				gravity = ""
+				srv.RunLine(`setblock 33 150 0 end_portal`)
+			}
+			srv.RunLine(`summon armor_stand 20.5 150 0.5 {Tags:[b],` + gravity + tc.nbt + `}`)
+			standID := protocol.NewReader(alice.ExpectWithinTicks(srv, 6, protocol.IDPlaySpawnEntity)).ReadVarInt()
 			bob.ExpectWithinTicks(srv, 0, protocol.IDPlaySpawnEntity)
-			// The removal of this stand: one id, the stand's.
-			standID := protocol.NewReader(spawn).ReadVarInt()
-			removal := []byte{1, byte(standID)} // ids below 128 are one VarInt byte
 			// On a movement tick the next /tp is told before the step.
 			srv.RunLine(`tp @e[tag=b,limit=1] ` + tc.dest)
 			if tc.name == "broken" {
 				srv.RunLine(`data merge entity @e[tag=b,limit=1] {Fire:20s,Health:1.0f}`)
 			}
 			servertest.RunTicks(t, srv, 1)
-			count := func(c *servertest.Client) (removals, syncs int) {
+			// events are the stand's packets in arrival order: "sync" or "removal".
+			events := func(c *servertest.Client) (got []string) {
 				c.ReadTicks(srv, 0, func(pid int32, d []byte) bool {
 					switch pid {
 					case protocol.IDPlayRemoveEntities:
-						if bytes.Equal(d, removal) {
-							removals++
+						for _, id := range servertest.RemovedIDs(t, d) {
+							if id == standID {
+								got = append(got, "removal")
+							}
 						}
 					case protocol.IDPlayTeleportEntity:
-						syncs++
+						if sync := servertest.ParseEntityPositionSync(d); sync.ID == standID {
+							if tc.name != "voided" && (sync.X != 33.5 || !sync.OnGround) {
+								t.Errorf("sync %+v, want x 33.5 with onGround", sync)
+							}
+							got = append(got, "sync")
+						}
 					}
 					return false
 				})
 				return
 			}
-			if r, _ := count(alice); r != 1 {
-				t.Errorf("out-of-range watcher got %d removals, want 1", r)
+			if got := events(alice); len(got) != 1 || got[0] != "removal" {
+				t.Errorf("out-of-range watcher got %v, want one removal", got)
 			}
-			if r, _ := count(bob); r != 1 {
-				t.Errorf("in-range watcher got %d removals, want 1", r)
+			if got := events(bob); len(got) != 2 || got[0] != "sync" || got[1] != "removal" {
+				t.Errorf("in-range watcher got %v, want a sync then one removal", got)
 			}
 		})
 	}
