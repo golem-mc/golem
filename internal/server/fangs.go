@@ -239,7 +239,7 @@ func (s *Server) fangsBite(it fangsEffect) {
 			s.hurtMobPlain(w, m, entity.FangsDamage, rules.DamageTypeMagic)
 			continue
 		}
-		s.hurtMobBy(w, m, owner.Mob, entity.FangsDamage, rules.DamageTypeIndirectMagic)
+		s.hurtMobVia(w, m, owner.Mob, &directBody{id: it.id, x: it.x, z: it.z}, entity.FangsDamage, rules.DamageTypeIndirectMagic, nil)
 	}
 }
 
