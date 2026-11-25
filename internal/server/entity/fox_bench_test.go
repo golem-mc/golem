@@ -103,6 +103,10 @@ func BenchmarkFoxFishGoal(b *testing.B) {
 			for i := range 64 {
 				others = append(others, NewMob(tc.fish, int32(i+2), float64(i%8)+2.5, 64, float64(i/8)+0.5, int64(i)))
 			}
+			grid := takePushGrid(len(others), nil)
+			defer grid.release()
+			grid.build(others)
+			fox.push = grid
 			view := &tickView{w: w, others: others}
 			goal := &foxPreyGoals(fox)[2].(*foxPreyGoal).mobTargetGoal
 			goal.eager = true

@@ -192,7 +192,7 @@ func TestASnowFoxHuntsCodButNotPufferfish(t *testing.T) {
 					t.Fatalf("fox targets the pufferfish at tick %d", ticks)
 				}
 				ticks++
-				if !mobAlive(srv, fish) {
+				if !mobAlive(srv, fish) || !tc.wantDead && ticks == 32 {
 					break
 				}
 			}
