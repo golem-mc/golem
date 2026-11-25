@@ -72,7 +72,12 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 			light = w.chunkLightWired(c)
 		}
 		var ownBuf [16]*BlockEntity
-		own := c.appendBlockEntities(ownBuf[:0])
+		var own []*BlockEntity
+		if len(c.entityOrder) <= len(ownBuf) {
+			own = c.appendBlockEntities(ownBuf[:0])
+		} else {
+			own = c.appendBlockEntities(nil)
+		}
 		rides := c.snapshotPistonRides()
 		// Snapshot the carried compounds under the lock: a command setting one
 		// replaces the list, and a save reads it. Trial spawners' block state
