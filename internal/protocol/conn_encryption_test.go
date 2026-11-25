@@ -168,3 +168,40 @@ func TestEncryptedWritesMatchStreamWriter(t *testing.T) {
 		})
 	}
 }
+
+func TestCFB8MatchesOpenSSLVector(t *testing.T) {
+	seq := make([]byte, 32)
+	for i := range seq {
+		seq[i] = byte(i)
+	}
+	key := seq[:16]
+	plain := seq
+	const want = "0a22f796e1b93e9032cff804838adfc3a5e4b3ffdd47108575533e672ef5d8ef"
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, split := range []int{0, 1, 15, 19} {
+		buf := bytes.Clone(plain)
+		enc := newCFB8(block, key, false)
+		if split == 0 {
+			enc.XORKeyStream(buf, buf)
+		} else {
+			enc.XORKeyStream(buf[:split], buf[:split])
+			enc.XORKeyStream(buf[split:], buf[split:])
+		}
+		if got := fmt.Sprintf("%x", buf); got != want {
+			t.Fatalf("split %d: encrypt = %s, want %s", split, got, want)
+		}
+		dec := newCFB8(block, key, true)
+		if split == 0 {
+			dec.XORKeyStream(buf, buf)
+		} else {
+			dec.XORKeyStream(buf[:split], buf[:split])
+			dec.XORKeyStream(buf[split:], buf[split:])
+		}
+		if !bytes.Equal(buf, plain) {
+			t.Fatalf("split %d: decrypt = %x, want %x", split, buf, plain)
+		}
+	}
+}
