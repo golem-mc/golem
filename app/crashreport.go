@@ -1,11 +1,15 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
+	"strings"
+	"syscall"
 	"time"
 )
 
@@ -54,9 +58,14 @@ func crashOutput(dir string) (pending string, cleanup func()) {
 
 // adoptPending renames the pending files a crashed run left in cdir to
 // crash-<mtime>-server.txt and logs a WARN for each; empty ones are removed.
+// A file whose pid (in its name) is still running belongs to a live server
+// and is left alone.
 func adoptPending(cdir string) {
 	files, _ := filepath.Glob(filepath.Join(cdir, pendingPrefix+"*.txt"))
 	for _, p := range files {
+		if pendingOwnerAlive(p) {
+			continue
+		}
 		st, err := os.Stat(p)
 		if err != nil {
 			continue
@@ -79,6 +88,22 @@ func adoptPending(cdir string) {
 		}
 		slog.Warn("the previous run crashed; see " + crashDir + "/" + name)
 	}
+}
+
+// pendingOwnerAlive reports whether the process whose pid is in the pending
+// file's name still runs.
+func pendingOwnerAlive(path string) bool {
+	name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), pendingPrefix), ".txt")
+	pid, err := strconv.Atoi(name)
+	if err != nil || pid <= 0 {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	err = proc.Signal(syscall.Signal(0))
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // logPanic, deferred in the main goroutine, logs a panic as an ERROR and

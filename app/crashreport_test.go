@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -64,5 +65,36 @@ func TestCleanStopLeavesNoCrashReport(t *testing.T) {
 	left, _ := os.ReadDir(filepath.Join(dir, "crash-reports"))
 	if len(left) != 0 {
 		t.Fatalf("crash-reports = %v", left)
+	}
+}
+
+func TestLivePendingFileSurvivesSecondStart(t *testing.T) {
+	dir := t.TempDir()
+	cdir := filepath.Join(dir, "crash-reports")
+	if err := os.MkdirAll(cdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The test process is the live owner of the first pending file.
+	live := filepath.Join(cdir, ".pending-"+strconv.Itoa(os.Getpid())+".txt")
+	if err := os.WriteFile(live, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Run a second start whose own pid is another, so seed a non-empty file
+	// under the parent's pid too.
+	ppid := filepath.Join(cdir, ".pending-"+strconv.Itoa(os.Getppid())+".txt")
+	if err := os.WriteFile(ppid, []byte("trace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runHelper(t, dir, "--help"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if _, err := os.Stat(live); err != nil {
+		t.Fatalf("empty live pending file removed: %v", err)
+	}
+	if b, err := os.ReadFile(ppid); err != nil || string(b) != "trace" {
+		t.Fatalf("non-empty live pending file touched: %v %q", err, b)
+	}
+	if r, _ := filepath.Glob(filepath.Join(cdir, "crash-*-server.txt")); len(r) != 0 {
+		t.Fatalf("reports = %v", r)
 	}
 }
