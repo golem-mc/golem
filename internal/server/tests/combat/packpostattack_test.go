@@ -7,9 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -147,6 +149,54 @@ func TestPackWeaponPostAttackActions(t *testing.T) {
 	}
 	if got := srv.InventorySlot(name, player.HotbarSlot).Damage; got != 4 {
 		t.Errorf("weapon wear %d, want 3 effect + 1 attack", got)
+	}
+}
+
+// A post-attack effect that takes the level runs in the fangs' level, at the
+// body of the evoker hit back from another dimension; a function runs as the
+// evoker, at its position and rotation, but in that level.
+// vanilla: EvokerFangs.dealDamageTo, ReplaceBlock.apply, RunFunction.apply
+func TestPackEffectOnFangsOwnerRunsInTheFangsLevel(t *testing.T) {
+	// The evoker stands at (0.5, 64, 0.5) facing east (yaw -90), so ^ ^-1 ^2 is
+	// (2, 63, 0); a lost rotation would put the marker at (0, 63, 2).
+	for name, tc := range map[string]struct {
+		effect  string
+		x, z    int32
+		blockID string
+	}{
+		"replace_block": {`{"type":"minecraft:replace_block","block_state":{"id":"minecraft:gold_block"},"offset":[0,-1,0]}`, 0, 0, "minecraft:gold_block"},
+		"run_function":  {`{"type":"minecraft:run_function","function":"pk:mark"}`, 2, 0, "minecraft:emerald_block"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := servertest.HostileTestConfig()
+			cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+			cfg.LevelName = postAttackPack(t, "chest", "#minecraft:enchantable/chest_armor", packPostAttack("victim", "attacker", tc.effect))
+			mark := filepath.Join(cfg.LevelName, "datapacks", "targets", "data", "pk", "function", "mark.mcfunction")
+			if err := os.MkdirAll(filepath.Dir(mark), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(mark, []byte("execute if entity @s[type=minecraft:evoker] run setblock ^ ^-1 ^2 minecraft:emerald_block\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			const wearer = "Wearer"
+			srv, c, _ := servertest.JoinAs(t, cfg, wearer)
+			servertest.HoldTicks(t, srv)
+			srv.GiveSlot(wearer, player.ArmorSlot+1, servertest.EnchantedStack(t, "minecraft:iron_chestplate", "pk:targets", 1))
+			t.Cleanup(srv.HoldChunkInDimension(world.NetherName, 0, 0))
+			evoker := srv.SpawnMobInDimension("minecraft:evoker", world.NetherName, 0.5, 64, 0.5)
+			srv.SetMobNoAI(evoker)
+			srv.RunLine("execute in minecraft:the_nether run tp @e[type=minecraft:evoker,limit=1] 0.5 64 0.5 -90 0")
+			at := srv.PlayerPosition(wearer)
+			srv.SpawnFangs(at.X, at.Y, at.Z, evoker)
+			c.ReadTicks(srv, 8, func(int32, []byte) bool { return false })
+			want, _ := registry.BlockByName(tc.blockID)
+			if got := registry.BlockOf(srv.BlockAt(tc.x, 63, tc.z)); got != want {
+				t.Errorf("overworld block at (%d, 63, %d) is %s, want %s", tc.x, tc.z, got.Name(), tc.blockID)
+			}
+			if got := registry.BlockOf(srv.BlockInDimension(world.NetherName, tc.x, 63, tc.z)); got == want {
+				t.Errorf("nether block at (%d, 63, %d) is %s, want the effect to leave that level alone", tc.x, tc.z, tc.blockID)
+			}
+		})
 	}
 }
 

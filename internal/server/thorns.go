@@ -38,9 +38,14 @@ func (s *Server) thornsOnOwner(w *world.World, victim *client, ownerID int32, da
 	if owner := s.entityClient(ownerID); owner != nil {
 		s.thornsOnPlayerOwner(w, victim, owner, protocol.ItemStack{}, damageType, directAttacker)
 	} else if ent := s.mobByEntityID(w, ownerID); ent != nil {
-		ctx.Attacker = mobEntityType(ent.mob.Type)
-		s.postAttack(w, attackBody{mob: ent.mob}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
+		s.thornsOnMobOwner(w, victim, ent.mob, w, ctx)
 	}
+}
+
+// thornsOnMobOwner hits back a mob owner already resolved, living in ownerW.
+func (s *Server) thornsOnMobOwner(w *world.World, victim *client, owner *entity.Mob, ownerW *world.World, ctx *rules.EnchContext) {
+	ctx.Attacker = mobEntityType(owner.Type)
+	s.postAttack(w, attackBody{mob: owner, w: ownerW}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
 }
 
 // thornsOnPlayerOwner is thornsOnOwner for an owner already resolved to a

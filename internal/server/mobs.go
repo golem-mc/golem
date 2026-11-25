@@ -2628,6 +2628,48 @@ func (s *Server) mobByEntityIDLocked(w *world.World, id int32) *mobEntity {
 	return s.herdOf(w).byID[id]
 }
 
+// mobByEntityIDAnyDimLocked finds a mob by entity ID in whichever dimension
+// holds it, with that dimension. An ID reserved for a dragon part maps to its
+// parent, which is not that ID's mob. The caller holds mobsMu.
+func (s *Server) mobByEntityIDAnyDimLocked(id int32) (*mobEntity, *dimension) {
+	for _, dim := range s.allDims() {
+		if ent := dim.mobs.byID[id]; ent != nil && ent.mob.ID == id {
+			return ent, dim
+		}
+	}
+	return nil, nil
+}
+
+// mobByUUIDLocked finds a mob by identity, trying first (nil for none)
+// before the other dimensions, with its dimension. A removed mob is skipped;
+// the caller checks the rest of its eligibility and holds mobsMu.
+// vanilla: ServerLevel.getEntity(UUID), Entity.level().getServer().getLevel
+func (s *Server) mobByUUIDLocked(id uuid.UUID, first *dimension) (*mobEntity, *dimension) {
+	if id == uuid.Nil {
+		return nil, nil
+	}
+	find := func(dim *dimension) *mobEntity {
+		if m := dim.mobs.byUUID[id]; m != nil && !m.Discarded() {
+			return dim.mobs.book[m]
+		}
+		return nil
+	}
+	if first != nil {
+		if ent := find(first); ent != nil {
+			return ent, first
+		}
+	}
+	for _, dim := range s.allDims() {
+		if dim == first {
+			continue
+		}
+		if ent := find(dim); ent != nil {
+			return ent, dim
+		}
+	}
+	return nil, nil
+}
+
 // mobNameByID is the display name of the mob with this ID in w, false for
 // none. Read under mobsMu, which guards name tag names.
 func (s *Server) mobNameByID(w *world.World, id int32) (string, bool) {
