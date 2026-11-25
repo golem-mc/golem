@@ -71,17 +71,19 @@ var updateShapeOrder = [6][3]int32{
 }
 
 // TickPriority ranks, smaller more urgent: among ticks due the same instant the
-// higher priority runs first. The two below the block ticks are the piston
-// passes: vanilla drains block events after the scheduled-tick pass, and block
-// entities (moving pistons landing) after the events, so both wait for every
-// block tick of their game tick, the landing after the events.
+// higher priority runs first. Block ticks use vanilla's -3..3; the two after
+// them are the piston passes, outside that range so no saved or copied tick
+// takes one: vanilla drains block events after the scheduled-tick pass, and
+// block entities (moving pistons landing) after the events, so both wait for
+// every block tick of their game tick, the landing after the events.
+// vanilla: TickPriority
 const (
 	tickPriorityExtremelyHigh = -3
 	tickPriorityVeryHigh      = -2
 	tickPriorityHigh          = -1
 	tickPriorityNormal        = 0
-	tickPriorityEvent         = 1
-	tickPriorityFinalize      = 2
+	tickPriorityEvent         = 4
+	tickPriorityFinalize      = 5
 )
 
 // fluidKind numbers the two fluids; the zero value is no fluid, what every
@@ -504,6 +506,9 @@ type scheduledTick struct {
 	event    uint8
 	// fluid is the booked fluid type of a fluid visit, zero for any other.
 	fluid fluidType
+	// block is the block a block tick was booked for (air is a valid type);
+	// vanilla's ScheduledTick keeps the type it was booked for.
+	block registry.Block
 }
 
 // tickQueue orders ticks by due time, then priority (smaller more urgent), then
@@ -623,7 +628,9 @@ type Physics struct {
 	// randomTickKeys is RandomTick's sort buffer, reused between ticks.
 	randomTickKeys []uint64
 	queue          tickQueue
-	pending        map[blockKey]bool
+	// chunkIdx caches where each chunk's entries sit in queue; see tickIndex.
+	chunkIdx tickIndex
+	pending  map[blockKey]bool
 	// fluidBooked holds the fluid visits queued, one per position and type.
 	fluidBooked map[fluidBook]struct{}
 	finalizeSeq map[blockKey]int64
@@ -674,6 +681,11 @@ type Physics struct {
 	// waterlogged leaf's fluid tick so neither delays the other. Set when
 	// booked, cleared when run.
 	leafBooked map[blockKey]bool
+	// dirtPathBooked marks dirt paths with a tick booked, apart from the
+	// pending visit a replaced farmland leaves at the same position.
+	dirtPathBooked map[blockKey]bool
+	// farmlandBooked is the same for farmland.
+	farmlandBooked map[blockKey]bool
 	// scaffoldingBooked keeps stability visits apart from fluid visits.
 	scaffoldingBooked map[blockKey]bool
 
@@ -779,6 +791,9 @@ type Physics struct {
 	// them through takeWake under mu, so one caller never clears another's.
 	effects    []Effect
 	wakePrimes []TNTPrime
+	// physicsAsked holds the answers of one write's BlockPhysicsEvent asks, by
+	// neighbour and written cell, so its wake and shape pass ask once.
+	physicsAsked map[[6]int32]bool
 
 	// rides are the cells of the moving pistons still sweeping, in creation
 	// order.
@@ -876,6 +891,8 @@ func NewPhysics(w *World) *Physics {
 		cauldronBooked:      make(map[blockKey]bool),
 		leafBooked:          make(map[blockKey]bool),
 		scaffoldingBooked:   make(map[blockKey]bool),
+		dirtPathBooked:      make(map[blockKey]bool),
+		farmlandBooked:      make(map[blockKey]bool),
 		coralBooked:         make(map[blockKey]bool),
 		redstoneBooked:      make(map[blockKey]bool),
 		sculkBooked:         make(map[blockKey]bool),
@@ -900,6 +917,7 @@ func NewPhysics(w *World) *Physics {
 func (p *Physics) takeWake() ([]Effect, []TNTPrime) {
 	effects, primes := p.effects, p.wakePrimes
 	p.effects, p.wakePrimes = nil, nil
+	p.physicsAsked = nil
 	return effects, primes
 }
 
@@ -936,8 +954,11 @@ func (p *Physics) NotifyPlacedHooks(x, y, z int32, oldState uint16) ([]BlockChan
 	}
 	var changes []BlockChange
 	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	p.physicsAsked = nil
 	p.shapePass(x, y, z, oldState, newState, &changes)
+	asked := p.physicsAsked // NotifyPlacedWake is the same write's wake
 	effects, primes := p.takeWake()
+	p.physicsAsked = asked
 	return changes, effects, primes
 }
 
@@ -972,6 +993,7 @@ func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([
 	p.redstoneAfterRemoval(x, y, z, oldState, false, false, &changes)
 	p.containerRemoved(x, y, z, oldState, newState)
 	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	p.physicsAsked = nil
 	if handNew {
 		p.updateAsNeighbor(x, y, z, &changes, true, oldState, newState, [3]int32{})
 		p.wakeNeighbors(x, y, z, newState, newState, &changes)
@@ -1025,6 +1047,7 @@ func (p *Physics) ShapeUpdateNeighbors(x, y, z int32) ([]BlockChange, []Effect, 
 	defer p.mu.Unlock()
 	var changes []BlockChange
 	p.effects, p.wakePrimes = nil, nil
+	p.physicsAsked = nil
 	p.shapeUpdateNeighbors(x, y, z, &changes)
 	effects, primes := p.takeWake()
 	return changes, effects, primes
@@ -1048,9 +1071,6 @@ func (p *Physics) SurvivalShapeUpdates(x, y, z int32) ([]BlockChange, []Effect, 
 		}
 		if survivalOf[state].watch != 0 {
 			p.supportCheck(nx, ny, nz, state, blocklogic.Opposite(directionOf(d)), &changes)
-		} else {
-			// The halves of a double plant answer for each other.
-			p.doublePlantUpdate(nx, ny, nz, state, false, [3]int32{-d[0], -d[1], -d[2]}, &changes)
 		}
 	}
 	effects, primes := p.takeWake()
@@ -1105,7 +1125,7 @@ func (p *Physics) releaseParked() {
 			continue
 		}
 		for _, t := range ts {
-			p.queue.push(t)
+			p.pushTick(t)
 		}
 		delete(p.parked, cp)
 	}
@@ -1193,7 +1213,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		if next.due > p.now {
 			break
 		}
-		p.queue.pop()
+		p.popTick()
 		// A spent budget leaves its kind queued while the other keeps draining.
 		if blocks >= maxBlockTicksPerTick || fluids >= maxFluidTicksPerTick {
 			fluid := next.fluid != 0
@@ -1229,6 +1249,10 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			delete(p.leafBooked, next.pos)
 		case scaffoldingTickEvent:
 			delete(p.scaffoldingBooked, next.pos)
+		case dirtPathTickEvent:
+			delete(p.dirtPathBooked, next.pos)
+		case farmlandTickEvent:
+			delete(p.farmlandBooked, next.pos)
 		case coralTickEvent:
 			delete(p.coralBooked, next.pos)
 		case redstoneTickEvent:
@@ -1244,7 +1268,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		default:
 			if next.fluid != 0 {
 				delete(p.fluidBooked, fluidBook{next.pos, next.fluid})
-			} else {
+			} else if next.priority != tickPriorityFinalize {
 				delete(p.pending, next.pos)
 			}
 		}
@@ -1295,6 +1319,21 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		if next.event == leafTickEvent {
 			blocks++
 			p.leafTick(x, y, z, state, &changes)
+			continue
+		}
+		if next.event == dirtPathTickEvent {
+			blocks++
+			if block == registry.BlockDirtPath {
+				// vanilla: PathBlock.tick
+				p.turnSoilToDirt(x, y, z, &changes, &p.effects)
+			}
+			continue
+		}
+		if next.event == farmlandTickEvent {
+			blocks++
+			if block == registry.BlockFarmland {
+				p.farmlandSurvivalScheduled(x, y, z, &changes)
+			}
 			continue
 		}
 		if next.event == scaffoldingTickEvent {
@@ -1356,16 +1395,6 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		}
 		// The farm families' one-tick deaths, booked by updateShape when
 		// placement or a neighbour change leaves them unable to survive.
-		if block == registry.BlockFarmland {
-			blocks++
-			p.farmlandSurvivalScheduled(x, y, z, &changes)
-			continue
-		}
-		if block == registry.BlockDirtPath {
-			blocks++
-			p.dirtPathSurvivalScheduled(x, y, z, &changes)
-			continue
-		}
 		if block == registry.BlockSugarCane {
 			blocks++
 			p.caneSurvivalScheduled(x, y, z, &changes)
@@ -1396,7 +1425,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		}
 	}
 	for _, t := range deferred {
-		p.queue.push(t)
+		p.pushTick(t)
 	}
 	p.handlingTick = false
 	// The block entities tick after the scheduled ticks.
@@ -1461,6 +1490,31 @@ func (p *Physics) bookTick(x, y, z int32, typ fluidType, due int64, priority int
 	p.insertTick(blockKey{x, y, z}, typ, due, priority)
 }
 
+// dropTickIndex forgets the chunk index after a queue mutation. The stores are
+// skipped while no snapshot has scanned the heap, the common case between saves.
+func (p *Physics) dropTickIndex() {
+	if p.chunkIdx.scanned {
+		p.chunkIdx = tickIndex{}
+	}
+}
+
+func (p *Physics) pushTick(t scheduledTick) {
+	p.dropTickIndex()
+	p.queue.push(t)
+}
+
+func (p *Physics) popTick() scheduledTick {
+	p.dropTickIndex()
+	return p.queue.pop()
+}
+
+// setTicks replaces the heap's entries with kept and restores heap order.
+func (p *Physics) setTicks(kept tickQueue) {
+	p.dropTickIndex()
+	p.queue = kept
+	p.queue.init()
+}
+
 // insertTick queues a visit unless one is waiting for the same key and fluid
 // type. Runs under p.mu.
 func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority int) {
@@ -1470,6 +1524,12 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 			return
 		}
 		p.fluidBooked[book] = struct{}{}
+	} else if priority == tickPriorityFinalize {
+		// A landing is a block-entity tick: it neither waits behind nor holds
+		// back an ordinary block tick of the cell.
+		if _, ok := p.finalizeSeq[key]; ok {
+			return
+		}
 	} else {
 		if p.pending[key] {
 			return
@@ -1477,7 +1537,11 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 		p.pending[key] = true
 	}
 	p.seq++
-	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ})
+	t := scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ}
+	if typ == 0 {
+		t.block = registry.BlockOf(p.w.BlockAt(key.x, key.y, key.z))
+	}
+	p.pushTick(t)
 	if priority == tickPriorityFinalize && typ == 0 {
 		p.finalizeSeq[key] = p.seq
 	}
@@ -1505,13 +1569,10 @@ func (p *Physics) BlockTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) BlockTicks {
 			t.pos.z < loZ || t.pos.z > hiZ {
 			continue
 		}
-		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
 		if t.fluid != 0 {
 			continue
 		}
-		if name, _, ok := registry.BlockStateName(state); ok {
-			out = append(out, boxTick{tick: t, id: name})
-		}
+		out = append(out, boxTick{tick: t, id: bookedBlockName(t)})
 	}
 	p.mu.Unlock()
 	slices.SortFunc(out, func(a, b boxTick) int {
@@ -1541,8 +1602,7 @@ func (p *Physics) ClearTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) {
 		}
 		kept = append(kept, t)
 	}
-	p.queue = kept
-	p.queue.init()
+	p.setTicks(kept)
 }
 
 // dropTickIn reports whether ClearTicksIn removes t, forgetting its booking.
@@ -1578,7 +1638,8 @@ func (p *Physics) allTicks(yield func(scheduledTick) bool) {
 
 // ScheduleBlockTicks books ticks on p offset by (offX, offY, offZ), keeping
 // each one's due tick, priority and order; one whose cell now holds another
-// block is dropped, and a cell with a tick pending keeps its own.
+// block is dropped (a soil block's is not, see adoptBlockTick), and a cell
+// with a tick pending keeps its own.
 // vanilla: LevelTicks.copyAreaFrom
 func (p *Physics) ScheduleBlockTicks(ticks BlockTicks, offX, offY, offZ int32) {
 	p.mu.Lock()
@@ -1604,7 +1665,7 @@ func (p *Physics) schedulePistonEvent(x, y, z int32, dir int8, typ uint8) {
 	}
 	p.pendingEvent[key] = event
 	p.seq++
-	p.queue.push(scheduledTick{
+	p.pushTick(scheduledTick{
 		pos: key, due: p.now + p.eventDelay, priority: tickPriorityEvent, seq: p.seq, event: event,
 	})
 }
@@ -1623,7 +1684,6 @@ func (p *Physics) schedulePistonFinalize(x, y, z int32, due int64) {
 func (p *Physics) cancelPistonFinalize(x, y, z int32) {
 	key := blockKey{x, y, z}
 	if seq, ok := p.finalizeSeq[key]; ok {
-		delete(p.pending, key)
 		delete(p.finalizeSeq, key)
 		p.cancelled[seq] = struct{}{}
 	}
@@ -1830,11 +1890,8 @@ func (p *Physics) wakeNeighbors(x, y, z int32, old, changed uint16, changes *[]B
 	for _, d := range [6][3]int32{
 		{0, -1, 0}, {0, 1, 0}, {-1, 0, 0}, {1, 0, 0}, {0, 0, -1}, {0, 0, 1},
 	} {
-		if listens {
-			hd := HookDecision{Kind: HookPhysics, X: x + d[0], Y: y + d[1], Z: z + d[2], Old: p.w.BlockAt(x+d[0], y+d[1], z+d[2]), From: [3]int32{x, y, z}}
-			if p.ask(&hd) {
-				continue
-			}
+		if listens && p.physicsVetoed(x+d[0], y+d[1], z+d[2], [3]int32{x, y, z}) {
+			continue
 		}
 		p.updateAsNeighbor(x+d[0], y+d[1], z+d[2], changes, false, old, changed, [3]int32{-d[0], -d[1], -d[2]})
 	}
@@ -1931,7 +1988,9 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	if placed && block == registry.BlockSnifferEgg && registry.BlockOf(old) != block {
 		p.scheduleSnifferEgg(x, y, z)
 	}
-	if p.doublePlantUpdate(x, y, z, state, placed, from, changes) {
+	if isDoublePlantHalf(block, state) {
+		// Neighbour changes reach a half through the shape pass only.
+		// vanilla: VegetationBlock has no neighborChanged
 		return
 	}
 	if (placed || neighbors) && p.spongeChanged(x, y, z, block, placed, old, changes) {
@@ -2046,7 +2105,9 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	}
 	if block == registry.BlockAttachedMelonStem || block == registry.BlockAttachedPumpkinStem {
 		if !placed && from != ([3]int32{}) {
-			p.attachedStemUpdateShape(x, y, z, state, from, changed, changes)
+			if next, ok := attachedStemShape(state, from, changed); ok {
+				p.setShaped(x, y, z, next, changes)
+			}
 		}
 		return
 	}
@@ -2054,13 +2115,13 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	// vanilla: Block.updateFromNeighbourShapes, FarmlandBlock.updateShape, PathBlock.updateShape
 	if block == registry.BlockFarmland && (placed || from == [3]int32{0, 1, 0}) {
 		if !farmlandCanSurvive(p.w, x, y, z) {
-			p.schedule(x, y, z, p.now+farmlandTickDelay)
+			p.scheduleSoil(registry.BlockFarmland, x, y, z, p.now+farmlandTickDelay, tickPriorityNormal)
 		}
 		return
 	}
 	if block == registry.BlockDirtPath && (placed || from == [3]int32{0, 1, 0}) {
 		if !dirtPathCanSurvive(p.w, x, y, z) {
-			p.schedule(x, y, z, p.now+dirtPathTickDelay)
+			p.scheduleSoil(registry.BlockDirtPath, x, y, z, p.now+dirtPathTickDelay, tickPriorityNormal)
 		}
 		return
 	}

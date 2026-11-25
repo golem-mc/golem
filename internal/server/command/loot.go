@@ -607,7 +607,7 @@ func FillLootEntity(out *rules.LootEntity, e Entity) {
 		return [3]int32{rules.BlockOf(pos.X), rules.BlockOf(pos.Y - d), rules.BlockOf(pos.Z)}
 	}
 	out.Place = &rules.LootPlace{X: pos.X, Y: pos.Y, Z: pos.Z, OnPos: below(1.0e-5), AffectingPos: below(0.500001), OnGround: pos.OnGround}
-	out.SlotStacks = func(name string) []protocol.ItemStack { return entitySlotStacks(e, name) }
+	out.SlotAccess = func(name string) []rules.SlotAccess { return entitySlotAccess(e, name) }
 	out.Slot = func(name string) ([]rules.LootTool, bool) {
 		slots, known := itemSlots(name)
 		var stacks []rules.LootTool

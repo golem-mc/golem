@@ -457,6 +457,102 @@ func TestAFallingPlayerTramplesFarmland(t *testing.T) {
 	}
 }
 
+// landingChanges drops the player from (x, 74, z) to y and returns the
+// block changes the landing sends, read at the connection barrier with the
+// loop stopped.
+func landingChanges(t *testing.T, srv *server.Server, c *servertest.Client, x, y, z float64) map[[3]int32]uint16 {
+	t.Helper()
+	c.MoveTo(x, 74, z, 0, 0)
+	c.MoveTo(x, y, z, 0, 0)
+	got := map[[3]int32]uint16{}
+	c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+		for _, ch := range servertest.BlockChangesIn(t, id, data) {
+			got[[3]int32{ch.X, ch.Y, ch.Z}] = ch.State
+		}
+		return false
+	})
+	return got
+}
+
+// TestAPlayerTramplesTheFarmlandUnderAnEdgeLanding checks a landing whose
+// centre is past the farmland's edge over air: the feet still rest on the
+// farmland, so it is the one trampled and its crop breaks.
+func TestAPlayerTramplesTheFarmlandUnderAnEdgeLanding(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.SurvivalConfig(), "Camper", servertest.OpsListing(t, "Camper"))
+	srv.StopTick()
+
+	servertest.SetFarmBlock(t, c, srv, 0, 63, 0, "minecraft:farmland", map[string]string{"moisture": "7"})
+	servertest.SetFarmBlock(t, c, srv, 0, 64, 0, "minecraft:wheat", map[string]string{"age": "7"})
+	servertest.SetFarmBlock(t, c, srv, 1, 63, 0, "minecraft:air", nil)
+
+	got := landingChanges(t, srv, c, 1.125, farmlandTop, 0.5)
+
+	dirt := servertest.CropsStateOf(t, "minecraft:dirt", nil)
+	air := servertest.CropsStateOf(t, "minecraft:air", nil)
+	if got[[3]int32{0, 63, 0}] != dirt {
+		t.Errorf("farmland update = %d, want dirt %d (changes %v)", got[[3]int32{0, 63, 0}], dirt, got)
+	}
+	if st, ok := got[[3]int32{0, 64, 0}]; !ok || st != air {
+		t.Errorf("wheat update = %d (sent %v), want air %d", st, ok, air)
+	}
+	if _, ok := got[[3]int32{1, 63, 0}]; ok {
+		t.Errorf("the air beside the farmland changed: %v", got)
+	}
+}
+
+// farmlandTop is the farmland's collision height over its cell's floor, 15/16.
+const farmlandTop = 63.9375
+
+// TestAPlayerKeepsFarmlandBesideTheStoneItLandsOn checks a corner landing
+// whose feet overlap farmland and stone: the farmland's shape stops below
+// the feet, so the stone supports the player and the farmland and its crop
+// stay.
+func TestAPlayerKeepsFarmlandBesideTheStoneItLandsOn(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.SurvivalConfig(), "Camper", servertest.OpsListing(t, "Camper"))
+	srv.StopTick()
+
+	servertest.SetFarmBlock(t, c, srv, 0, 63, 0, "minecraft:farmland", map[string]string{"moisture": "7"})
+	servertest.SetFarmBlock(t, c, srv, 0, 64, 0, "minecraft:wheat", map[string]string{"age": "7"})
+	servertest.SetFarmBlock(t, c, srv, 1, 63, 0, "minecraft:air", nil)
+	servertest.SetFarmBlock(t, c, srv, 1, 63, 1, "minecraft:air", nil)
+
+	got := landingChanges(t, srv, c, 1.125, 64, 0.875)
+
+	farmland := srv.BlockAt(0, 63, 0)
+	if st := servertest.CropsStateOf(t, "minecraft:dirt", nil); farmland == st {
+		t.Errorf("the farmland beside the stone was trampled (changes %v)", got)
+	}
+	if srv.BlockAt(0, 64, 0) == servertest.CropsStateOf(t, "minecraft:air", nil) {
+		t.Errorf("the wheat above the farmland broke (changes %v)", got)
+	}
+}
+
+// TestAPlayerTramplesTheGreaterOfTwoEqualSupports checks a landing equally
+// far from farmland and a dirt path of the same height: the support is the
+// cell with the greater Z, so the farmland and its crop stay.
+func TestAPlayerTramplesTheGreaterOfTwoEqualSupports(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.SurvivalConfig(), "Camper", servertest.OpsListing(t, "Camper"))
+	srv.StopTick()
+
+	servertest.SetFarmBlock(t, c, srv, 0, 63, 0, "minecraft:farmland", map[string]string{"moisture": "7"})
+	servertest.SetFarmBlock(t, c, srv, 0, 64, 0, "minecraft:wheat", map[string]string{"age": "7"})
+	servertest.SetFarmBlock(t, c, srv, 0, 63, 1, "minecraft:dirt_path", nil)
+	servertest.SetFarmBlock(t, c, srv, 1, 63, 0, "minecraft:air", nil)
+	servertest.SetFarmBlock(t, c, srv, 1, 63, 1, "minecraft:air", nil)
+
+	got := landingChanges(t, srv, c, 1.125, farmlandTop, 1)
+
+	if srv.BlockAt(0, 63, 0) == servertest.CropsStateOf(t, "minecraft:dirt", nil) {
+		t.Errorf("the farmland was trampled instead of the path supporting (changes %v)", got)
+	}
+	if srv.BlockAt(0, 64, 0) == servertest.CropsStateOf(t, "minecraft:air", nil) {
+		t.Errorf("the wheat above the farmland broke (changes %v)", got)
+	}
+}
+
 // TestAMobTramplesFarmland checks the mob's landing: a cow heavy enough by
 // its own shape, falling onto a farm square while the mob griefing rule
 // stands, tramples the square under its feet the way the player's landing

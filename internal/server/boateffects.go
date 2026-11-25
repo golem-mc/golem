@@ -182,7 +182,7 @@ func (s *Server) finishBoatTravel(it *boatEntity, kind rules.PortalKind) {
 		twin.boat.Yaw = at.Yaw
 		twin.firstX, twin.firstY, twin.firstZ = at.X, at.Y, at.Z
 		return twin, true
-	})
+	}, nil)
 }
 
 // moveBoatWithRiders carries a hull and everyone aboard into another

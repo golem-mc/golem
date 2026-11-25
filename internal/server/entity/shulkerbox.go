@@ -89,8 +89,16 @@ func (m *Mob) stepShulkerPeek(w World, t *tickView) {
 		others = g.shove
 		sortSnapshot(others)
 	}
+	var root *Mob
 	for _, o := range others {
 		if o == m || o.IsShulker() || o.Type == TypeVex || !o.Alive() || !slab.Crosses(o.mobBox()) {
+			continue
+		}
+		// vanilla: Entity.isPassengerOfSameVehicle
+		if root == nil {
+			root = m.RootVehicle()
+		}
+		if o.RootVehicle() == root {
 			continue
 		}
 		o.move(w, delta[0], delta[1], delta[2])

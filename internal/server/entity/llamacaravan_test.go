@@ -215,32 +215,31 @@ func TestCaravanSearchReachesTheSectionBelow(t *testing.T) {
 	}
 }
 
-// TestCaravanGridReachesAScaledLead: the grid's reach counts the scale
-// attribute, so a big lead whose box overlaps the window is found like in
-// the herd scan.
+// TestCaravanGridFindsAScaledLeadAcrossCells: the grid's reach counts the
+// scale attribute, so a scale-12 lead whose box overlaps the window is found
+// with the list forced onto the grid.
 // vanilla: LlamaFollowCaravanGoal.canUse
-func TestCaravanGridReachesAScaledLead(t *testing.T) {
-	w := newTestWorld()
-	herd := make([]*Mob, 0, 70)
-	lead := NewMob(TypeLlama, 1, 157.0, 64, 159.5, 1)
+func TestCaravanGridFindsAScaledLeadAcrossCells(t *testing.T) {
+	lead := NewMob(TypeLlama, 1, 164.1, 64, 159.5, 1)
 	lead.LeashHolderID = 99
 	lead.SetAttributes(lead.BuildAttributes(nbt.List{}))
-	lead.attrs.SetBase(registry.AttributeScale, 16)
-	follower := NewMob(TypeLlama, 2, 141.5, 64, 159.5, 2)
-	herd = append(herd, lead, follower)
+	lead.attrs.SetBase(registry.AttributeScale, 12)
+	follower := NewMob(TypeLlama, 2, 149.9, 64, 159.5, 2)
+	herd := []*Mob{lead, follower}
 	for i := range 64 {
 		far := NewMob(TypeLlama, int32(10+i), 1000.5+float64(i)*20, 64, 0.5, int64(i))
 		far.LeashHolderID = 99
 		herd = append(herd, far)
 	}
 	g := takePushGrid(len(herd), nil)
+	defer g.release()
 	g.build(herd)
 	for _, m := range herd {
 		m.push = g
 	}
-	defer g.release()
-	if !(&caravanGoal{m: follower, speed: llamaCaravanSpeed}).CanStart(&tickView{w: w, others: herd}) {
-		t.Error("the llama missed a scaled lead whose box overlaps its search window")
+	view := &tickView{w: newTestWorld(), others: herd}
+	if !(&caravanGoal{m: follower, speed: llamaCaravanSpeed}).CanStart(view) || follower.Horse.head != lead {
+		t.Error("the grid missed the scale-12 lead overlapping the search window")
 	}
 }
 

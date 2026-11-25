@@ -26,6 +26,9 @@ func (a *Attributes) SaveExcept(loaded *nbt.List, skip map[string]bool) *nbt.Lis
 				items = append(items, packInstance(a.instances[attr.ID]))
 				continue
 			}
+			if ok && a.supplier != nil && !a.Has(registry.AttributeID(attr.ID)) {
+				continue // vanilla: AttributeMap.load skips what the supplier lacks
+			}
 			items = append(items, item)
 		}
 	}
@@ -54,9 +57,14 @@ func (a *Attributes) SavePlayer(loaded *nbt.List) *nbt.List {
 
 // SaveInstances packs mob and armor-stand instances, including defaults.
 // A synthetic instance is included if loaded from disk or withSynthetic is set.
+// It is nil for nothing to save, and an empty list when every loaded entry was
+// dropped, which must replace the loaded list.
 func (a *Attributes) SaveInstances(loaded *nbt.List, withSynthetic bool) *nbt.List {
 	list := a.pack(loaded, withSynthetic)
 	if len(list.Items) == 0 {
+		if loaded != nil && len(loaded.Items) > 0 {
+			return &nbt.List{Elem: nbt.TypeEnd}
+		}
 		return nil
 	}
 	return &list
@@ -91,9 +99,11 @@ func (a *Attributes) pack(loaded *nbt.List, withSynthetic bool) nbt.List {
 	}
 	if loaded != nil {
 		for _, item := range loaded.Items {
-			if attr, ok := savedAttribute(item); !ok || !packed.has(registry.AttributeID(attr.ID)) {
-				items = append(items, item)
+			attr, ok := savedAttribute(item)
+			if ok && (packed.has(registry.AttributeID(attr.ID)) || a.supplier != nil && !a.Has(registry.AttributeID(attr.ID))) {
+				continue // vanilla: AttributeMap.load skips what the supplier lacks
 			}
+			items = append(items, item)
 		}
 	}
 	return nbt.List{Elem: nbt.TypeCompound, Items: items}

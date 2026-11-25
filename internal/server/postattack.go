@@ -9,6 +9,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
+	"github.com/google/uuid"
 )
 
 // attackBody identifies a living participant without holding its body lock.
@@ -17,6 +18,16 @@ type attackBody struct {
 	player    *client
 	mob       *entity.Mob
 	mannequin *mannequinEntity
+	// w is the world a mob body lives in when it is not the hit's; nil means the hit's.
+	w *world.World
+}
+
+// at is the world holding b's body, given the world of the hit.
+func (b attackBody) at(w *world.World) *world.World {
+	if b.w != nil {
+		return b.w
+	}
+	return w
 }
 
 func (s *Server) attackBodyEntity(b attackBody) plugin.Entity {
@@ -39,7 +50,7 @@ func (s *Server) attackBodyEntityLocked(w *world.World, b attackBody) plugin.Ent
 	case b.player != nil:
 		return pluginPlayer{c: b.player}
 	case b.mob != nil:
-		if ent := s.herdOf(w).book[b.mob]; ent != nil {
+		if ent := s.herdOf(b.at(w)).book[b.mob]; ent != nil {
 			return pendingMob{id: ent.uuid}
 		}
 	case b.mannequin != nil:
@@ -61,7 +72,7 @@ func (b attackBody) cause(s *Server, w *world.World) *damageCause {
 	s.mobsMu.Lock()
 	defer s.mobsMu.Unlock()
 	m := b.mob
-	return &damageCause{entityID: m.ID, x: m.X, y: m.Y, z: m.Z, weapon: m.MainHand, killer: s.mobKiller(s.herdOf(w).book[m]), shove: true}
+	return &damageCause{entityID: m.ID, x: m.X, y: m.Y, z: m.Z, weapon: m.MainHand, killer: s.mobKiller(s.herdOf(b.at(w)).book[m]), shove: true}
 }
 
 // postAttack dispatches weapon and victim-equipment actions for a landed hit.
@@ -147,6 +158,9 @@ func (s *Server) postAttack(w *world.World, attacker, victim attackBody, weapon 
 
 func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rules.PostAttackAction, cause *damageCause, when velocitySync) {
 	e := a.Effect
+	// The target's body and feedback live in its own world; effects that take
+	// the level run in the hit's. vanilla: Enchantment.applyEffects
+	tw := target.at(w)
 	var x, y, z float64
 	var silent bool
 	var body enchantTarget
@@ -211,16 +225,15 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			shove := &mannequinKnockback{x: cause.x, z: cause.z}
 			hurt, landed = s.hurtMannequinLocked(ent, hit.Damage, hit.DamageType, cause.entityID+1, cause.entityID+1, nil, creativeClient(owner.player), shove)
 		}
-		packets, watchers := mannequinEffectPackets(ent), trackedWatchers(ent.tracked)
+		syncMannequinEffects(ent)
 		s.mannequinsMu.Unlock()
 		if landed {
 			s.tellMannequinHurt(hurt)
 		}
-		s.tellWatchers(w, watchers, packets)
 	} else {
 		s.mobsMu.Lock()
 		m := target.mob
-		ent := s.herdOf(w).book[m]
+		ent := s.herdOf(tw).book[m]
 		if ent == nil {
 			s.mobsMu.Unlock()
 			return
@@ -250,7 +263,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			} else if owner.mob != nil {
 				landed = m.HurtByMobAs(hit.Damage, hit.DamageType, owner.mob)
 			} else {
-				landed, softened = m.HurtByCommand(hit.Damage, hit.DamageType, cause.entityID, false, false, cause.x, cause.z)
+				landed, softened = m.HurtByCommand(hit.Damage, hit.DamageType, cause.entityID, uuid.Nil, false, false, cause.x, cause.z)
 			}
 		}
 		health := ent.syncHealth()
@@ -259,17 +272,21 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 		sound, volume, pitch := mobSound(m, true), m.SoundVolume(), m.VoicePitch()
 		vx, vy, vz := m.VX, m.VY, m.VZ
 		s.mobsMu.Unlock()
-		s.tellSplashMob(w, tell)
+		s.tellSplashMob(tw, tell)
 		if e.ApplyImpulse != nil {
-			s.broadcastWorld(w, protocol.IDPlaySetEntityMotion, entityVelocityPayload(id, vx, vy, vz))
+			s.broadcastWorld(tw, protocol.IDPlaySetEntityMotion, entityVelocityPayload(id, vx, vy, vz))
 		}
 		if landed {
-			s.broadcastWorld(w, protocol.IDPlayEntityMetadata, health)
+			s.broadcastWorld(tw, protocol.IDPlayEntityMetadata, health)
 			if !softened {
-				s.broadcastWorld(w, protocol.IDPlayDamageEvent, damageEventPayload(id, hit.DamageType, causeEntityID(cause), causeEntityID(cause)))
-				s.broadcastVoice(w, kind, silent, x, y, z, sound, volume, pitch)
+				// The hit's level does not track a mob in another dimension, so no damage event.
+				// vanilla: ServerLevel.broadcastDamageEvent
+				if tw == w {
+					s.broadcastWorld(w, protocol.IDPlayDamageEvent, damageEventPayload(id, hit.DamageType, causeEntityID(cause), causeEntityID(cause)))
+				}
+				s.broadcastVoice(tw, kind, silent, x, y, z, sound, volume, pitch)
 				if hit.DamageType == registry.DamageTypeThorns {
-					s.broadcastSoundID(w, thornsHitSound, category, x, y, z, 1, 1)
+					s.broadcastSoundID(tw, thornsHitSound, category, x, y, z, 1, 1)
 				}
 			}
 		}
@@ -335,7 +352,7 @@ func (s *Server) wearPostAttack(w *world.World, owner attackBody, piece int, amo
 		id := owner.mob.ID
 		s.mobsMu.Unlock()
 		if status != 0 {
-			s.broadcastWorld(w, protocol.IDPlayEntityEvent, entityEventPayload(id, status))
+			s.broadcastWorld(owner.at(w), protocol.IDPlayEntityEvent, entityEventPayload(id, status))
 		}
 	}
 }
@@ -367,7 +384,7 @@ func (s *Server) bindBlowLoot(w *world.World, ctx *rules.EnchContext, attacker, 
 					s.mobsMu.Lock()
 					defer s.mobsMu.Unlock()
 				}
-				if ent := s.herdOf(w).book[b.mob]; ent != nil {
+				if ent := s.herdOf(b.at(w)).book[b.mob]; ent != nil {
 					return s.mobLootLocked(ent)
 				}
 				return nil
@@ -390,6 +407,11 @@ func (s *Server) fillBlowWorld(w *world.World, loot *rules.LootContext, at [3]fl
 	if p := loot.This.Place; p != nil {
 		at = [3]float64{p.X, p.Y, p.Z}
 	}
+	s.fillLootOrigin(w, loot, at)
+}
+
+// fillLootOrigin points loot's origin and its level, block and biome reads at at.
+func (s *Server) fillLootOrigin(w *world.World, loot *rules.LootContext, at [3]float64) {
 	x, y, z := rules.BlockOf(at[0]), rules.BlockOf(at[1]), rules.BlockOf(at[2])
 	loot.BlockAt = func(dx, dy, dz int32) uint16 { return w.BlockAt(x+dx, y+dy, z+dz) }
 	loot.BiomeAt = func(dx, dy, dz int32) string { return w.BiomeAt(x+dx, y+dy, z+dz) }

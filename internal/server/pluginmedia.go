@@ -26,9 +26,11 @@ func (b pluginJukebox) SetRecord(record plugin.ItemStack) {
 	}
 	song, playable := registry.JukeboxSongForStack(stack)
 	wasPlaying := false
+	var written uint64
 	if !b.mutate(func(e *world.BlockEntity) {
 		wasPlaying = e.JukeboxPlaying()
 		e.Put(0, stack)
+		written = e.InventoryVersion()
 		e.TicksSinceSongStarted = -1
 		if playable {
 			e.TicksSinceSongStarted = 0
@@ -40,11 +42,11 @@ func (b pluginJukebox) SetRecord(record plugin.ItemStack) {
 	s, w := b.world.srv, b.world.dim.w
 	x, y, z := b.entity.X, b.entity.Y, b.entity.Z
 	s.setJukeboxHasRecord(w, x, y, z, !stack.Empty())
-	s.gameEvent(w, rules.GameEventBlockChange, float64(x)+.5, float64(y)+.5, float64(z)+.5,
-		rules.GameEventContext{Affected: w.BlockAt(x, y, z)})
 	if playable {
-		s.broadcastLevelEvent(w, protocol.WorldEventJukeboxPlay, x, y, z, registry.JukeboxSongID(song))
-	} else if wasPlaying {
+		if jukeboxStillPlays(b.entity, written) {
+			s.broadcastLevelEvent(w, protocol.WorldEventJukeboxPlay, x, y, z, registry.JukeboxSongID(song))
+		}
+	} else if wasPlaying && jukeboxStillSilent(b.entity) {
 		s.broadcastLevelEvent(w, protocol.WorldEventJukeboxStop, x, y, z, 0)
 	}
 	if playable || wasPlaying {

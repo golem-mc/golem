@@ -14,7 +14,7 @@ func edgeRig(t *testing.T, setup ...func(*server.Server)) (*server.Server, *serv
 	t.Helper()
 	srv, connect := servertest.Start(t, servertest.BlockTestConfig(), setup...)
 	builder := connect().Join("Builder")
-	edge := servertest.JoinAtViewEdge(t, connect, "Edge")
+	edge := servertest.JoinAtViewEdge(t, srv, connect, "Edge")
 	servertest.HoldTicks(t, srv)
 	readTold(t, srv, builder)
 	readPackets(t, srv, edge)

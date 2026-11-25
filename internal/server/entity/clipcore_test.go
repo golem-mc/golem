@@ -34,6 +34,9 @@ func clipMoveEveryCell(w World, c collideCtx, b AABB, axis int, d float64) (AABB
 		}
 		if d > 0 && hi[axis] <= oLo[axis] {
 			gap := oLo[axis] - hi[axis]
+			if gap < allowed-physicsEpsilon {
+				obstacleTop = math.Inf(-1)
+			}
 			if gap < allowed {
 				allowed = gap
 			}
@@ -42,6 +45,9 @@ func clipMoveEveryCell(w World, c collideCtx, b AABB, axis int, d float64) (AABB
 			}
 		} else if d < 0 && lo[axis] >= oHi[axis] {
 			gap := oHi[axis] - lo[axis]
+			if gap > allowed+physicsEpsilon {
+				obstacleTop = math.Inf(-1)
+			}
 			if gap > allowed {
 				allowed = gap
 			}

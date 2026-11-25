@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
@@ -172,6 +174,40 @@ func BenchmarkTickOwnedFangsBite(b *testing.B) {
 	}
 }
 
+// BenchmarkTickPlayerOwnedFangsBite repeats a player's bites among mobs on
+// their team so each bite checks alliances without changing the herd.
+func BenchmarkTickPlayerOwnedFangsBite(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	var owner *client
+	s.mu.RLock()
+	for _, c := range s.clients {
+		owner = c
+		break
+	}
+	s.mu.RUnlock()
+	s.mobsMu.Lock()
+	s.mobInputs.clientByEntityID = map[int32]*client{owner.player.EntityID: owner}
+	s.mobInputs.playerTeams = map[uuid.UUID]string{owner.player.UUID: "t"}
+	s.mobsMu.Unlock()
+	for i := range trackerBenchBodies {
+		x, z := trackerBenchSpot(i)
+		id := s.SpawnMob("minecraft:vindicator", x, -60, z)
+		s.mobsMu.Lock()
+		s.herdOf(w).byID[id].mob.Team = "t"
+		s.mobsMu.Unlock()
+		s.spawnFangs(fangsCast{w: w, owner: owner.player.EntityID, x: x, y: -60, z: z})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		for _, it := range s.fangs.list {
+			f := it.fangs
+			it.fangs = entity.NewEvokerFangs(f.ID, f.X, f.Y, f.Z, 0, -7, owner.player.EntityID)
+		}
+		s.tickFangs()
+	}
+}
+
 // BenchmarkTickFangsBiteOwned repeats 100 bites by an evoker's fangs on a
 // pig each. Resetting the attack models and the victims is timed identically
 // on both sides, so every pass reaches the bite and every bite lands.
@@ -196,6 +232,47 @@ func BenchmarkTickFangsBiteOwned(b *testing.B) {
 		for _, it := range s.fangs.list {
 			f := it.fangs
 			it.fangs = entity.NewEvokerFangs(f.ID, f.X, f.Y, f.Z, 0, -7, owner)
+		}
+		for _, m := range pigs {
+			m.Health, m.InvulnTicks, m.Dead = m.MaxHealth, 0, false
+		}
+		s.tickFangs()
+	}
+}
+
+// BenchmarkTickPlayerOwnedFangsBiteLanded repeats 100 bites by a player's
+// fangs on a pig each, none on the owner's team, so every bite lands. Resetting
+// the victims is timed identically on both sides.
+func BenchmarkTickPlayerOwnedFangsBiteLanded(b *testing.B) {
+	const count = 100
+	s, w := newTrackerBenchServer(b)
+	var owner *client
+	s.mu.RLock()
+	for _, c := range s.clients {
+		owner = c
+		break
+	}
+	s.mu.RUnlock()
+	s.mobsMu.Lock()
+	s.mobInputs.clientByEntityID = map[int32]*client{owner.player.EntityID: owner}
+	s.mobsMu.Unlock()
+	var pigs []*entity.Mob
+	for i := range count {
+		x, z := trackerBenchSpot(i)
+		id := s.SpawnMob("minecraft:pig", x, -60, z)
+		for _, m := range s.herdOf(w).herd {
+			if m.ID == id {
+				pigs = append(pigs, m)
+			}
+		}
+		s.spawnFangs(fangsCast{w: w, owner: owner.player.EntityID, x: x, y: -60, z: z})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		for _, it := range s.fangs.list {
+			f := it.fangs
+			it.fangs = entity.NewEvokerFangs(f.ID, f.X, f.Y, f.Z, 0, -7, owner.player.EntityID)
 		}
 		for _, m := range pigs {
 			m.Health, m.InvulnTicks, m.Dead = m.MaxHealth, 0, false

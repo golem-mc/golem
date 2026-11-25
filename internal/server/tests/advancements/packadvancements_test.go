@@ -1018,3 +1018,52 @@ func TestPackHurtEntityFiresOnAPlayerLitTNTBlastOfTheEnderDragon(t *testing.T) {
 	srv.SpawnPlayerTNT("Packer", 20.5, 64, 4.5, 1)
 	servertest.UntilTicks(t, srv, 5, "the player-lit blast's hurt of the dragon", func() bool { return srv.AdvancementObtained("Packer", "pk:dragon", "c") })
 }
+
+// TestPackKilledEntityByFangsIsIndirectMagic: a player's fangs that kill a mob
+// fire a player_killed_entity criterion for indirect magic with the fangs as
+// the direct entity, not one for the player's own attack.
+// vanilla: EvokerFangs.dealDamageTo, KilledTrigger.TriggerInstance.matches, DamageSourcePredicate.matches
+func TestPackKilledEntityByFangsIsIndirectMagic(t *testing.T) {
+	cfg, data := packConfig(t)
+	// A one-member tag: bypasses_armor would also hold plain magic.
+	writePackFile(t, filepath.Join(data, "pk", "tags", "damage_type", "indirect_magic.json"), `{"values":["minecraft:indirect_magic"]}`)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "fangs", "player_killed_entity",
+		`{"killing_blow":{"tags":[{"id":"#pk:indirect_magic","expected":true}],"direct_entity":{"minecraft:entity_type":"minecraft:evoker_fangs"}}}`)
+	packCriterion(t, dir, "melee", "player_killed_entity", `{"killing_blow":{"direct_entity":{"minecraft:entity_type":"minecraft:player"}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+	id := srv.SpawnMob("minecraft:husk", 3.5, 64, 0.5)
+	srv.SetMobNoAI(id)
+	srv.SetMobHealth(id, 4)
+	owner := nbt.Stringify(nbt.Compound{"Owner": nbt.UUIDToIntArray(protocol.OfflineUUID("Packer"))})
+	srv.RunLine("summon minecraft:evoker_fangs 3.5 64 0.5 " + owner)
+	servertest.UntilTicks(t, srv, 9, "the fangs' kill", func() bool { return srv.AdvancementObtained("Packer", "pk:fangs", "c") })
+	if srv.AdvancementObtained("Packer", "pk:melee", "c") {
+		t.Error("a fang's kill fired the direct-attack criterion")
+	}
+}
+
+// TestPackKilledPlayerByFangsHasFangsDirect: a player's fangs that kill another
+// player fire the criterion naming the fangs as the direct entity.
+// vanilla: EvokerFangs.dealDamageTo, DamageSourcePredicate.matches
+func TestPackKilledPlayerByFangsHasFangsDirect(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "fangs", "player_killed_entity",
+		`{"killing_blow":{"tags":[{"id":"minecraft:bypasses_armor","expected":true}],"direct_entity":{"minecraft:entity_type":"minecraft:evoker_fangs"}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	foe := servertest.DialServer(t, srv).Join("Foe")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+	foe.MoveTo(3.5, 64, 0.5, 0, 0)
+	foe.SettleKeeping()
+	srv.SetPlayerGameMode("Foe", protocol.GameModeSurvival)
+	srv.SetHealth("Foe", 4)
+	owner := nbt.Stringify(nbt.Compound{"Owner": nbt.UUIDToIntArray(protocol.OfflineUUID("Packer"))})
+	srv.RunLine("summon minecraft:evoker_fangs 3.5 64 0.5 " + owner)
+	servertest.UntilTicks(t, srv, 9, "the fangs' kill of a player", func() bool { return srv.AdvancementObtained("Packer", "pk:fangs", "c") })
+}

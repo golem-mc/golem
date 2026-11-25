@@ -11,6 +11,8 @@ import (
 type villagerSignal struct {
 	w     *world.World
 	event entity.MobEvent
+	// mob is the signalling villager's identity, read under the herd lock.
+	mob uuid.UUID
 }
 
 // villagersHearBell runs after block effects, including redstone rings.
@@ -36,6 +38,6 @@ func (s *Server) applyVillagerSignal(signal villagerSignal) {
 		}
 		s.ringBell(signal.w, x, y, z, uint8(registry.StateFacing(state)), rules.GameEventContext{}, nil)
 	} else {
-		s.spawnFirework(signal.w, e.Stack, e.X, e.Y, e.Z, e.Mob.ID, uuid.Nil, 0)
+		s.spawnFirework(signal.w, e.Stack, e.X, e.Y, e.Z, e.Mob.ID, signal.mob, 0)
 	}
 }

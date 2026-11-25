@@ -380,6 +380,14 @@ func thrownHitMargin(tickCount int) float64 {
 // angles a fifth toward the velocity, and settle the thrower exclusion at
 // the new position, in Projectile.tick's order.
 func (t *Thrown) Step(w World, owner *ArrowTarget, targets []ArrowTarget) []ThrownEvent {
+	return t.StepGather(w, func(*Thrown) (*ArrowTarget, []ArrowTarget) { return owner, targets })
+}
+
+// StepGather is Step with the thrower and targets asked for once the
+// velocity of the move is settled, so a caller can query by MoveBox. A
+// shulker bullet asks first, for its steering. gather is not called for a body
+// that is dead or falls out of the world this tick.
+func (t *Thrown) StepGather(w World, gather func(*Thrown) (*ArrowTarget, []ArrowTarget)) []ThrownEvent {
 	if t.Dead {
 		return nil
 	}
@@ -400,6 +408,7 @@ func (t *Thrown) Step(w World, owner *ArrowTarget, targets []ArrowTarget) []Thro
 	}
 
 	if t.Kind == ThrownLlamaSpit {
+		owner, targets := gather(t)
 		return t.stepSpit(w, owner, targets)
 	}
 
@@ -424,8 +433,11 @@ func (t *Thrown) Step(w World, owner *ArrowTarget, targets []ArrowTarget) []Thro
 	// flight (ShulkerBullet.tick's super.tick), the others' after the move.
 	var bulletTarget *ArrowTarget
 	var splash []ThrownEvent
+	var owner *ArrowTarget
+	var targets []ArrowTarget
 	bullet := t.Kind == ThrownShulkerBullet
 	if bullet {
+		owner, targets = gather(t)
 		splash = t.touchWater(w)
 		bulletTarget = t.steerBullet(targets)
 	} else if !t.NoGravity {
@@ -452,6 +464,10 @@ func (t *Thrown) Step(w World, owner *ArrowTarget, targets []ArrowTarget) []Thro
 			t.VY *= thrownAirDrag
 			t.VZ *= thrownAirDrag
 		}
+	}
+
+	if !bullet {
+		owner, targets = gather(t)
 	}
 
 	// The move: clip against blocks first (a block hit ends the flight),
@@ -667,14 +683,30 @@ func (t *Thrown) RestoreLeftOwner(left bool) { t.leftOwner = left }
 // thrownBox is the body's box grown along the flight and by a block each
 // way, for Projectile.isOutsideOwnerCollisionRange.
 func (t *Thrown) thrownBox() ArrowTarget {
+	return t.thrownBoxFor(t.VX, t.VY, t.VZ)
+}
+
+func (t *Thrown) thrownBoxFor(vx, vy, vz float64) ArrowTarget {
 	grow := ThrownHalfSize + 1
 	return ArrowTarget{
-		MinX: math.Min(t.X, t.X+t.VX) - grow,
-		MinY: math.Min(t.Y, t.Y+t.VY) - 1,
-		MinZ: math.Min(t.Z, t.Z+t.VZ) - grow,
-		MaxX: math.Max(t.X, t.X+t.VX) + grow,
-		MaxY: math.Max(t.Y, t.Y+t.VY) + ThrownHeight + 1,
-		MaxZ: math.Max(t.Z, t.Z+t.VZ) + grow,
+		MinX: math.Min(t.X, t.X+vx) - grow,
+		MinY: math.Min(t.Y, t.Y+vy) - 1,
+		MinZ: math.Min(t.Z, t.Z+vz) - grow,
+		MaxX: math.Max(t.X, t.X+vx) + grow,
+		MaxY: math.Max(t.Y, t.Y+vy) + ThrownHeight + 1,
+		MaxZ: math.Max(t.Z, t.Z+vz) + grow,
+	}
+}
+
+// MoveBox is the box (x, y, z, x, y, z) of what the move may meet: the
+// kind's own box swept over the velocity StepGather has settled, grown by a
+// block. A shulker bullet's steering is not modelled; callers pad it.
+// vanilla: ProjectileUtil.getEntityHitResult
+func (t *Thrown) MoveBox() [6]float64 {
+	b := t.blockBox(t.X, t.Y, t.Z)
+	return [6]float64{
+		math.Min(b.minX, b.minX+t.VX) - 1, math.Min(b.minY, b.minY+t.VY) - 1, math.Min(b.minZ, b.minZ+t.VZ) - 1,
+		math.Max(b.maxX, b.maxX+t.VX) + 1, math.Max(b.maxY, b.maxY+t.VY) + 1, math.Max(b.maxZ, b.maxZ+t.VZ) + 1,
 	}
 }
 

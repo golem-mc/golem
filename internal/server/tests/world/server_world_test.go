@@ -7,7 +7,12 @@ import (
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/world"
 )
+
+// joinTicks bounds the radius-two join: six batches at the opening pace of
+// nine chunks a tick, with room for a loaded runner.
+const joinTicks = 200
 
 func TestDistancesFollowTheConfig(t *testing.T) {
 	t.Parallel()
@@ -16,7 +21,8 @@ func TestDistancesFollowTheConfig(t *testing.T) {
 	// Shorter than the render distance of 4 the test client asks for, so that
 	// it is the server's setting that bounds the world it is sent.
 	cfg.ViewDistance = 2
-	cfg.SimulationDistance = 3
+	// Inside the send view's reach, so the view alone holds its outer ring.
+	cfg.SimulationDistance = 2
 
 	srv, c := servertest.Dial(t, cfg)
 	c.Login("Testificate")
@@ -38,27 +44,38 @@ func TestDistancesFollowTheConfig(t *testing.T) {
 
 	// The chunks arrive in batches the client's acknowledgements pace
 	// rather than one: read the whole view before the server's holds are
-	// judged. The client was sent the five by five the render distance of
-	// 4 bounds the server's view distance to, but the world holds the
-	// simulation distance's seven by seven for its own work - the
-	// natural spawn and the ticking among it - and those holds are taken
-	// after the batch, so they are waited for.
-	var chunks int32
-	for packetID, data := range c.Packets(servertest.JoinTimeout) {
-		switch packetID {
+	// judged. The client was sent the view the render distance of
+	// 4 bounds the server's view distance to, plus the neighbor ring the client
+	// needs to light its edge chunks: seven by seven, as vanilla sends. The
+	// world holds that area too, wider than the simulation distance's five by
+	// five; the holds are taken after the batch, so they are waited for.
+	var chunks, batched int32
+	batches := 0
+	if !c.ReadTicks(srv, joinTicks, func(id int32, data []byte) bool {
+		switch id {
 		case protocol.IDPlayChunkData:
 			chunks++
 		case protocol.IDPlayChunkBatchFinished:
-			if got := protocol.NewReader(data).ReadVarInt(); got > 9 {
+			got := protocol.NewReader(data).ReadVarInt()
+			// Only the first batch is bound by the opening pace; the client's
+			// acknowledgements widen the later ones.
+			if batches == 0 && got > 9 {
 				t.Errorf("batch size = %d, want no batch above the nine chunks per tick the server opens at", got)
 			}
+			batches++
+			batched += got
+			// The last batch is read through its end, so a chunk past the
+			// 49 is counted and every chunk sent was in a batch.
+			return chunks >= 7*7
 		}
-		if chunks == 5*5 {
-			servertest.PollUntil(t, 30*time.Second, func() bool { return srv.LoadedChunks() == 7*7 })
-			return
-		}
+		return false
+	}) {
+		t.Fatalf("the join sent %d chunks within %d ticks, want %d", chunks, joinTicks, 7*7)
 	}
-	t.Fatalf("the join did not finish within %s", servertest.JoinTimeout)
+	if chunks != 7*7 || batched != chunks {
+		t.Errorf("join sent %d chunks, %d in batches, want %d", chunks, batched, 7*7)
+	}
+	servertest.UntilTicks(t, srv, joinTicks, "the join's 7x7 chunks held", func() bool { return srv.LoadedChunks() == 7*7 })
 }
 
 func TestChunksFollowThePlayer(t *testing.T) {
@@ -75,7 +92,7 @@ func TestChunksFollowThePlayer(t *testing.T) {
 
 	// Joining held the simulation distance's 21x21 square around spawn, in
 	// chunk (0, 0), for the world's own work, of which the client was sent
-	// the 9x9 its render distance of 4 bounds the view distance to. The
+	// the view its render distance of 4 bounds the view distance to. The
 	// holds are taken after the batch that ends the loading screen, so they
 	// are waited for.
 	servertest.PollUntil(t, 30*time.Second, func() bool { return srv.LoadedChunks() == 21*21 })
@@ -95,37 +112,59 @@ func TestChunksFollowThePlayer(t *testing.T) {
 		t.Errorf("center chunk = (%d, %d), want (1, 0)", x, z)
 	}
 
-	dropped := map[int32]bool{}
-	for range 9 {
-		r := protocol.NewReader(c.ExpectPlay(protocol.IDPlayUnloadChunk))
-		// The coordinates are inverted on the wire, the client reading them as
-		// one long.
-		z, x := r.ReadI32(), r.ReadI32()
-		if x != -4 {
-			t.Errorf("unloaded chunk (%d, %d), want the column at x=-4", x, z)
+	// The send view is vanilla's neighbor-inclusive one, rounded at its
+	// corners: one step east at radius 4 drops column -5 and gains column 6 on
+	// rows -4..4, and drops column -4 and gains column 5 on rows -5 and 5.
+	// vanilla: ChunkTrackingView.difference
+	dropped, arrived := map[world.ChunkPos]int{}, map[world.ChunkPos]int{}
+	for z := int32(-4); z <= 4; z++ {
+		dropped[world.ChunkPos{X: -5, Z: z}] = 0
+		arrived[world.ChunkPos{X: 6, Z: z}] = 0
+	}
+	for _, z := range []int32{-5, 5} {
+		dropped[world.ChunkPos{X: -4, Z: z}] = 0
+		arrived[world.ChunkPos{X: 5, Z: z}] = 0
+	}
+	batchSize := int32(-1)
+	if !c.ReadTicks(srv, 200, func(id int32, data []byte) bool {
+		r := protocol.NewReader(data)
+		switch id {
+		case protocol.IDPlayUnloadChunk:
+			// The coordinates are inverted on the wire, the client reading them as
+			// one long.
+			z, x := r.ReadI32(), r.ReadI32()
+			p := world.ChunkPos{X: x, Z: z}
+			if _, ok := dropped[p]; !ok {
+				t.Errorf("unloaded chunk (%d, %d), which is not a chunk the view left", x, z)
+			}
+			dropped[p]++
+		case protocol.IDPlayChunkData:
+			x, z := r.ReadI32(), r.ReadI32()
+			p := world.ChunkPos{X: x, Z: z}
+			if _, ok := arrived[p]; !ok {
+				t.Errorf("received chunk (%d, %d), which is not a chunk the view gained", x, z)
+			}
+			arrived[p]++
+		case protocol.IDPlayChunkBatchFinished:
+			batchSize = r.ReadVarInt()
+			return true
 		}
-		dropped[z] = true
+		return false
+	}) {
+		t.Fatal("the chunk batch did not finish")
 	}
-	if len(dropped) != 9 {
-		t.Errorf("unloaded %d distinct chunks, want 9", len(dropped))
-	}
-
-	c.ExpectPlay(protocol.IDPlayChunkBatchStart)
-	arrived := map[int32]bool{}
-	for range 9 {
-		r := protocol.NewReader(c.ExpectPlay(protocol.IDPlayChunkData))
-		x, z := r.ReadI32(), r.ReadI32()
-		if x != 5 {
-			t.Errorf("received chunk (%d, %d), want the column at x=5", x, z)
+	for p, n := range dropped {
+		if n != 1 {
+			t.Errorf("chunk (%d, %d) unloaded %d times, want once", p.X, p.Z, n)
 		}
-		arrived[z] = true
 	}
-	if len(arrived) != 9 {
-		t.Errorf("received %d distinct chunks, want 9", len(arrived))
+	for p, n := range arrived {
+		if n != 1 {
+			t.Errorf("chunk (%d, %d) sent %d times, want once", p.X, p.Z, n)
+		}
 	}
-	batch := protocol.NewReader(c.ExpectPlay(protocol.IDPlayChunkBatchFinished))
-	if got := batch.ReadVarInt(); got != 9 {
-		t.Errorf("batch size = %d, want 9", got)
+	if batchSize != int32(len(arrived)) {
+		t.Errorf("batch size = %d, want %d", batchSize, len(arrived))
 	}
 
 	// The area is the same size as it was, only somewhere else: the held

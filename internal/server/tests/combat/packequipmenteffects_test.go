@@ -1,36 +1,12 @@
 package combat
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
-	"github.com/golem-mc/golem/registry"
 )
-
-// packEnchantments writes the enchantment files (by path under data/) into a
-// data pack of a fresh level directory and returns it. The registry tables are
-// process-wide, so the tests using it are not parallel and put them back.
-func packEnchantments(t *testing.T, files map[string]string) string {
-	t.Helper()
-	t.Cleanup(func() { registry.ApplyPackRegistries(nil); registry.ApplyPackEnchantments(nil) })
-	dir := t.TempDir()
-	pack := filepath.Join(dir, "datapacks", "p")
-	files["pack.mcmeta"] = `{"pack":{"description":"p"}}`
-	for file, body := range files {
-		path := filepath.Join(pack, file)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return dir
-}
 
 const helmetEnchantment = `{"anvil_cost":1,"description":{"text":"E"},"max_level":1,"weight":1,
 	"min_cost":{"base":1,"per_level_above_first":0},"max_cost":{"base":50,"per_level_above_first":0},
@@ -41,7 +17,7 @@ const helmetEnchantment = `{"anvil_cost":1,"description":{"text":"E"},"max_level
 func takeOffHelmet(t *testing.T, name, enchantment string, files map[string]string) (stayed bool) {
 	t.Helper()
 	cfg := servertest.BowTestConfig()
-	cfg.LevelName = packEnchantments(t, files)
+	cfg.LevelName = servertest.PackEnchantments(t, files)
 	srv, c := servertest.Dial(t, cfg)
 	w := servertest.WindowedOf(t, name, c)
 	servertest.HoldTicks(t, srv)
@@ -89,7 +65,7 @@ func TestPackDamageImmunityKeepsTheWearerOutOfLavaHarm(t *testing.T) {
 	} {
 		t.Run(tc.boots, func(t *testing.T) {
 			cfg := servertest.BowTestConfig()
-			cfg.LevelName = packEnchantments(t, map[string]string{"data/pk/enchantment/fireproof.json": files["data/pk/enchantment/fireproof.json"]})
+			cfg.LevelName = servertest.PackEnchantments(t, map[string]string{"data/pk/enchantment/fireproof.json": files["data/pk/enchantment/fireproof.json"]})
 			srv, c, _ := servertest.JoinAs(t, cfg, name)
 			servertest.HoldTicks(t, srv)
 			srv.SetBlock(0, 64, 0, servertest.MustState(t, "minecraft:lava", nil))

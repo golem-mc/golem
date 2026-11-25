@@ -144,8 +144,8 @@ func TestZombiesSpawnAtNight(t *testing.T) {
 // expected both to hold the simulation distance's world for the player and to
 // grow monsters in chunks the client never asked for - the ones the server
 // keeps loaded for the world's own sake. A chunk is counted beyond the ask
-// when it stands outside the four-chunk square the login's render distance
-// covers.
+// when it stands outside the send view of the login's render distance, the
+// neighbor ring included.
 func TestSpawnPassReachesSimulationDistance(t *testing.T) {
 	t.Parallel()
 	cfg := servertest.SpawningTestConfig()
@@ -163,16 +163,43 @@ func TestSpawnPassReachesSimulationDistance(t *testing.T) {
 	for seed := int64(1); seed <= spawnPasses; seed++ {
 		srv.SpawnPass(seed)
 	}
+	pp := srv.PlayerPosition("Watcher")
+	centre := world.ChunkPos{X: world.ChunkOf(pp.X), Z: world.ChunkOf(pp.Z)}
 	beyond := 0
 	for _, m := range srv.Mobs() {
-		cx := world.ChunkOf(m.X)
-		cz := world.ChunkOf(m.Z)
-		if cx < -4 || cx > 4 || cz < -4 || cz > 4 {
+		if !world.InSendView(world.ChunkPos{X: world.ChunkOf(m.X), Z: world.ChunkOf(m.Z)}, centre, 4) {
 			beyond++
 		}
 	}
 	if beyond == 0 {
-		t.Fatal("no monster stands beyond the four chunks the client asked for, want the passes to reach the simulation distance")
+		t.Fatal("no monster stands beyond the send view of the four chunks the client asked for, want the passes to reach the simulation distance")
+	}
+}
+
+// TestSpawnPassStaysInsideTheSimulationDistance: with the view and simulation
+// distances both 4, the send view's fifth ring is loaded but does not
+// entity-tick, so no pack starts or lands there.
+// vanilla: ServerChunkCache.tickChunks, NaturalSpawner.isRightDistanceToPlayerAndSpawnPoint
+func TestSpawnPassStaysInsideTheSimulationDistance(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SpawningTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = 4, 4
+	srv, _ := zombieTests(t, cfg)
+	srv.SetDayTime(midnight)
+
+	for seed := int64(1); seed <= spawnPasses; seed++ {
+		srv.SpawnPass(seed)
+	}
+	pp := srv.PlayerPosition("Watcher")
+	cx0, cz0 := world.ChunkOf(pp.X), world.ChunkOf(pp.Z)
+	mobs := srv.Mobs()
+	if len(mobs) == 0 {
+		t.Fatal("no monster spawned")
+	}
+	for _, m := range mobs {
+		if dx, dz := world.ChunkOf(m.X)-cx0, world.ChunkOf(m.Z)-cz0; max(world.Abs32(dx), world.Abs32(dz)) > 4 {
+			t.Errorf("%s spawned in chunk offset (%d, %d), outside the simulation distance of 4", m.Kind, dx, dz)
+		}
 	}
 }
 

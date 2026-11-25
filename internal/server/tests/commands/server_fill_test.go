@@ -286,7 +286,7 @@ func TestFillAnswersTheMaximumRegionPromptly(t *testing.T) {
 	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Testificate"))
 	c := connect().Join("Testificate")
 	// Watch the fill from the border of its chunks' view as well.
-	edge := servertest.JoinAtViewEdge(t, connect, "Edge")
+	edge := servertest.JoinAtViewEdge(t, srv, connect, "Edge")
 	servertest.HoldTicks(t, srv)
 
 	stone, ok := registry.FindState("minecraft:stone", nil)

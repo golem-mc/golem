@@ -1,6 +1,7 @@
 package mobs
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -340,5 +342,175 @@ func TestFangsFindOversizedMobsOnlyThroughTheirSections(t *testing.T) {
 		if !ok || got != want {
 			t.Errorf("ghast %d health = %v (present %v), want %v", i, got, ok, want)
 		}
+	}
+}
+
+// damageEventOf reads the damage type and cause of the first damage event on victim.
+func damageEventOf(c *servertest.Client, srv *server.Server, ticks int, victim int32) (damageType, cause int32) {
+	c.ReadTicks(srv, ticks, func(pid int32, data []byte) bool {
+		if pid == protocol.IDPlayDamageEvent {
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() == victim {
+				damageType = r.ReadVarInt()
+				cause = r.ReadVarInt()
+				return true
+			}
+		}
+		return false
+	})
+	return damageType, cause
+}
+
+// TestFangsKeepTheirOwnerAcrossDimensions: fangs owned by an evoker loaded in
+// the nether spare an allied vindicator and hurt a pig with the evoker as the
+// cause of the indirect magic damage, which the pig then names as its attacker.
+// vanilla: EvokerFangs.dealDamageTo, EntityReference.getEntity
+func TestFangsKeepTheirOwnerAcrossDimensions(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.HostileTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Target", servertest.OpsListing(t, "Target"))
+	servertest.HoldTicks(t, srv)
+	t.Cleanup(srv.HoldChunkInDimension(world.NetherName, 0, 0))
+	evoker := srv.SpawnMobInDimension(evokerKind, world.NetherName, 0.5, 64, 0.5)
+	srv.SetMobNoAI(evoker)
+	pig := srv.SpawnMob("minecraft:pig", 10.5, 64, 0.5)
+	ally := srv.SpawnMob("minecraft:vindicator", 10.5, 64, 0.5)
+	for _, id := range []int32{pig, ally} {
+		srv.SetMobNoAI(id)
+		srv.SetMobHealth(id, 100)
+	}
+	srv.SpawnFangs(10.5, 64, 0.5, evoker)
+	damageType, cause := damageEventOf(c, srv, 8, pig)
+	if want := registry.MustID("minecraft:damage_type", "minecraft:indirect_magic"); damageType != want {
+		t.Errorf("damage type = %d, want indirect magic %d", damageType, want)
+	}
+	if cause != evoker+1 {
+		t.Errorf("damage cause = %d, want the nether evoker %d", cause, evoker+1)
+	}
+	if hp, _ := srv.MobHealth(ally); hp < 100 {
+		t.Errorf("vindicator health = %v, want it spared as the evoker's ally", hp)
+	}
+	c.ChatCommand("execute as @e[type=minecraft:pig,limit=1] on attacker run say hi")
+	said := false
+	c.ReadTicks(srv, 2, func(pid int32, data []byte) bool {
+		if pid == protocol.IDPlayDisguisedChat {
+			said = bytes.Contains(bytes.ToLower(data), []byte("evoker"))
+		}
+		return said
+	})
+	if !said {
+		t.Error("the pig's attacker relation did not find the nether evoker as the speaker")
+	}
+}
+
+// TestFangsFollowTheirOwnerThroughATransferDuringWarmup: the evoker crosses to
+// the nether after raising its fangs, which then spare its ally and hurt a pig
+// as the evoker's new body.
+// vanilla: EvokerFangs.dealDamageTo, EntityReference.getEntity
+func TestFangsFollowTheirOwnerThroughATransferDuringWarmup(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.HostileTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Target")
+	servertest.HoldTicks(t, srv)
+	pig := srv.SpawnMob("minecraft:pig", 10.5, 64, 0.5)
+	ally := srv.SpawnMob("minecraft:vindicator", 10.5, 64, 0.5)
+	for _, id := range []int32{pig, ally} {
+		srv.SetMobNoAI(id)
+		srv.SetMobHealth(id, 100)
+	}
+	owner := srv.SpawnMob(evokerKind, 40.5, 64, 40.5)
+	srv.SpawnFangsWarmup(10.5, 64, 0.5, owner, 4)
+	t.Cleanup(srv.HoldChunkInDimension(world.NetherName, 0, 0))
+	srv.RunLine("execute in minecraft:the_nether run tp @e[type=minecraft:evoker,limit=1] 0.5 64 0.5")
+	mobs := srv.MobsInDimension(world.NetherName)
+	if len(mobs) != 1 || mobs[0].ID == owner {
+		t.Fatalf("the nether holds %+v, want the evoker under a new ID (was %d)", mobs, owner)
+	}
+	srv.SetMobNoAI(mobs[0].ID)
+	_, cause := damageEventOf(c, srv, 14, pig)
+	if cause != mobs[0].ID+1 {
+		t.Errorf("damage cause = %d, want the evoker's new body %d", cause, mobs[0].ID+1)
+	}
+	if hp, _ := srv.MobHealth(ally); hp < 100 {
+		t.Errorf("vindicator health = %v, want it spared as the evoker's ally", hp)
+	}
+}
+
+// TestFangsThornsReachAnOwnerInAnotherDimension: a Thorns VII wearer bitten by
+// fangs hurts the evoker that owns them from the nether. A nether player
+// tracking the evoker hears its hurt and the Thorns sounds but gets no damage
+// event, which goes through the bite's level.
+// vanilla: EvokerFangs.dealDamageTo, EnchantmentHelper.doPostAttackEffects, ServerLevel.broadcastDamageEvent
+func TestFangsThornsReachAnOwnerInAnotherDimension(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.HostileTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Target"))
+	c := connect().Join("Target")
+	watcher := connect().Join("Watcher")
+	srv.MovePlayerToDimension("Watcher", world.NetherName, 0, 64, 4)
+	watcher.Settle()
+	servertest.HoldTicks(t, srv)
+	srv.GiveSlot("Target", player.ArmorSlot+1, servertest.EnchantedStack(t, "minecraft:diamond_chestplate", "minecraft:thorns", 7))
+	t.Cleanup(srv.HoldChunkInDimension(world.NetherName, 0, 0))
+	// Out of the netherrack, so no suffocation hurts the evoker or takes its invulnerability window.
+	for y := int32(64); y <= 65; y++ {
+		if !srv.SetBlockInDimension(world.NetherName, 0, y, 0, registry.BlockAir.DefaultState()) {
+			t.Fatalf("could not clear the nether block at y %d", y)
+		}
+	}
+	evoker := srv.SpawnMobInDimension(evokerKind, world.NetherName, 0.5, 64, 0.5)
+	srv.SetMobNoAI(evoker)
+	at := srv.PlayerPosition("Target")
+	srv.SpawnFangs(at.X, at.Y, at.Z, evoker)
+	tracked, hurt, thorns, damaged := false, false, false, false
+	watcher.ReadTicks(srv, 8, func(pid int32, data []byte) bool {
+		switch pid {
+		case protocol.IDPlaySpawnEntity:
+			tracked = tracked || protocol.NewReader(data).ReadVarInt() == evoker
+		case protocol.IDPlayDamageEvent:
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() == evoker {
+				damaged = true
+			}
+		case protocol.IDPlaySoundEffect:
+			name, _, _, _, _, _, _ := servertest.ReadAmbient(t, data)
+			switch name {
+			case "minecraft:entity.evoker.hurt":
+				hurt = true
+			case "minecraft:enchant.thorns.hit":
+				thorns = true
+			}
+		}
+		return false
+	})
+	if !tracked {
+		t.Fatal("the nether watcher was never sent the evoker")
+	}
+	if !hurt || !thorns {
+		t.Errorf("the nether watcher heard evoker hurt %v, thorns %v; want both", hurt, thorns)
+	}
+	if damaged {
+		t.Error("the nether watcher got a damage event for the evoker, want none from another level")
+	}
+	hp, ok := srv.MobHealthInDimension(world.NetherName, evoker)
+	if !ok {
+		t.Fatal("the nether evoker is gone")
+	}
+	if hp >= 24 {
+		t.Errorf("nether evoker health = %v, want it hurt by the thorns", hp)
+	}
+	c.ChatCommand("execute on attacker run say hi")
+	said := false
+	c.ReadTicks(srv, 2, func(pid int32, data []byte) bool {
+		if pid == protocol.IDPlayDisguisedChat {
+			said = bytes.Contains(bytes.ToLower(data), []byte("evoker"))
+		}
+		return said
+	})
+	if !said {
+		t.Error("the player's attacker relation did not find the nether evoker as the speaker")
 	}
 }

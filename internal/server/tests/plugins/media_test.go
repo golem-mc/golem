@@ -2,8 +2,13 @@ package plugins_test
 
 import (
 	"reflect"
+	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
@@ -205,5 +210,240 @@ func TestPluginMediaEditsSaveReload(t *testing.T) {
 				t.Error("stale book setter edited replacement")
 			}
 		})
+	})
+}
+
+// TestPluginJukeboxRecordReplacePostsOneBlockChange replaces an occupied
+// record: the change is one block_change vibration, not one per step.
+// vanilla: JukeboxBlockEntity.setTheItem
+func TestPluginJukeboxRecordReplacePostsOneBlockChange(t *testing.T) {
+	t.Parallel()
+	srv, h, run := worldPlugin(t, servertest.BlockTestConfig())
+	srv.SetTickFrozen(true)
+	w := srv.OverworldWorld()
+	w.Acquire(world.ChunkPos{})
+	defer w.Release(world.ChunkPos{})
+	w.SetBlock(1, 80, 1, registry.BlockJukebox.DefaultState())
+	w.EnsureBlockEntity(1, 80, 1, world.KindJukebox)
+	var jukebox plugin.Jukebox
+	run(func() {
+		j, _ := h.Overworld().BlockEntity(plugin.BlockPos{X: 1, Y: 80, Z: 1})
+		jukebox, _ = j.(plugin.Jukebox)
+	})
+	if jukebox == nil {
+		t.Fatal("jukebox handle missing")
+	}
+	run(func() { jukebox.SetRecord(plugin.NewStack(registry.ItemMusicDiscCat, 1)) })
+
+	var events atomic.Int32
+	srv.ObserveGameEvents(func(event string, x, y, z float64) {
+		if event == "minecraft:block_change" && x == 1.5 && y == 80.5 && z == 1.5 {
+			events.Add(1)
+		}
+	})
+	run(func() { jukebox.SetRecord(plugin.NewStack(registry.ItemMusicDisc13, 1)) })
+	if got := events.Load(); got != 1 {
+		t.Errorf("replacing the record posted %d block_change events, want 1", got)
+	}
+}
+
+// jukeboxInsertScene puts an empty jukebox at the dig target for a held
+// disc of cat, with listen's listeners, and returns a run for plugin tasks on
+// the held loop.
+func jukeboxInsertScene(t *testing.T, listen func(plugin.Server)) (*server.Server, plugin.Server, *servertest.Client, func(func())) {
+	t.Helper()
+	srv, host, c := blockScene(t, "minecraft:music_disc_cat", false, listen)
+	d := servertest.DigTarget
+	srv.SetBlock(d[0], d[1], d[2], servertest.BlockState(t, "minecraft:jukebox"))
+	c.Settle()
+	return srv, host, c, func(f func()) {
+		t.Helper()
+		ran := false
+		host.Scheduler().RunTask(func() { f(); ran = true })
+		servertest.RunTicks(t, srv, 1)
+		if !ran {
+			t.Fatal("plugin task did not complete")
+		}
+	}
+}
+
+// useJukeboxFrozen clicks the jukebox with the game frozen and the loop free,
+// so the use and its listeners run without the world moving, and holds the
+// loop again once the use is answered.
+func useJukeboxFrozen(t *testing.T, srv *server.Server, c *servertest.Client) (ids []int32, payloads [][]byte) {
+	t.Helper()
+	srv.SetTickFrozen(true)
+	servertest.ReleaseTicks(t, srv)
+	d := servertest.DigTarget
+	c.PlaceBlock(d[0], d[1], d[2], protocol.FaceTop)
+	c.SettleAndCollect(func(id int32, data []byte) {
+		ids = append(ids, id)
+		payloads = append(payloads, data)
+	})
+	servertest.HoldTicks(t, srv)
+	return ids, payloads
+}
+
+// jukeboxBlockChange reports whether e is block_change at the dig target's
+// jukebox.
+func jukeboxBlockChange(e *plugin.GenericGameEvent) bool {
+	return e.Event == plugin.MinecraftKey("block_change") && e.Pos == (plugin.Vec3{X: 2.5, Y: 64.5, Z: 0.5})
+}
+
+// TestPluginJukeboxInsertEventsStayInJukeboxWorld moves the inserting player
+// to another world from the first block_change listener; the player-attributed
+// one still fires in the jukebox's world.
+// vanilla: JukeboxPlayable.tryInsertIntoJukebox
+func TestPluginJukeboxInsertEventsStayInJukeboxWorld(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var worlds []plugin.Key
+	var host plugin.Server
+	var flat plugin.World
+	srv, host, c, run := jukeboxInsertScene(t, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.GenericGameEvent) {
+			if !jukeboxBlockChange(e) {
+				return
+			}
+			mu.Lock()
+			worlds = append(worlds, e.World.Key())
+			mu.Unlock()
+			if e.Entity == nil {
+				p, _ := host.PlayerNamed("Miner")
+				p.Teleport(plugin.Location{World: flat, Pos: plugin.Vec3{X: 8.5, Y: 4, Z: 8.5}}, plugin.TeleportPlugin)
+			}
+		})
+	})
+	flat = createFlat(t, run, host, &flatGen{})
+	useJukeboxFrozen(t, srv, c)
+	run(func() {
+		if p, _ := host.PlayerNamed("Miner"); p == nil || p.World().Key() != flatKey {
+			t.Fatal("the listener did not move the player")
+		}
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	overworld := plugin.MinecraftKey("overworld")
+	if !slices.Equal(worlds, []plugin.Key{overworld, overworld}) {
+		t.Errorf("block_change events in %v, want both in the overworld", worlds)
+	}
+}
+
+// TestPluginJukeboxInsertClearedByListenerSendsNoPlay clears the inserted
+// disc from the first block_change listener: the client is told to stop the
+// song and never to play it.
+// vanilla: JukeboxSongPlayer.play, stop
+func TestPluginJukeboxInsertClearedByListenerSendsNoPlay(t *testing.T) {
+	t.Parallel()
+	var cleared atomic.Bool
+	srv, host, c, run := jukeboxInsertScene(t, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.GenericGameEvent) {
+			if !jukeboxBlockChange(e) || e.Entity != nil || !cleared.CompareAndSwap(false, true) {
+				return
+			}
+			b, _ := e.World.BlockEntity(plugin.BlockPos{X: 2, Y: 64, Z: 0})
+			b.(plugin.Jukebox).SetRecord(plugin.ItemStack{})
+		})
+	})
+	ids, payloads := useJukeboxFrozen(t, srv, c)
+	if !cleared.Load() {
+		t.Fatal("the listener did not clear the record")
+	}
+	var events []int32
+	for i, id := range ids {
+		if id != protocol.IDPlayWorldEvent {
+			continue
+		}
+		if event := protocol.NewReader(payloads[i]).ReadI32(); event == protocol.WorldEventJukeboxPlay || event == protocol.WorldEventJukeboxStop {
+			events = append(events, event)
+		}
+	}
+	if !slices.Equal(events, []int32{protocol.WorldEventJukeboxStop}) {
+		t.Errorf("jukebox level events %v, want only stop (%d)", events, protocol.WorldEventJukeboxStop)
+	}
+	run(func() {
+		b, _ := host.Overworld().BlockEntity(plugin.BlockPos{X: 2, Y: 64, Z: 0})
+		if j := b.(plugin.Jukebox); !j.Record().Empty() || j.Playing() {
+			t.Error("the cleared jukebox holds a record or plays")
+		}
+	})
+}
+
+// TestPluginJukeboxInsertReplacedBySameSongSendsOnePlay has the first
+// block_change listener replace the inserted disc with the same song: the
+// client gets the replacement's play only.
+// vanilla: JukeboxSongPlayer.play
+func TestPluginJukeboxInsertReplacedBySameSongSendsOnePlay(t *testing.T) {
+	t.Parallel()
+	var replaced atomic.Bool
+	srv, _, c, _ := jukeboxInsertScene(t, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.GenericGameEvent) {
+			if !jukeboxBlockChange(e) || e.Entity != nil || !replaced.CompareAndSwap(false, true) {
+				return
+			}
+			b, _ := e.World.BlockEntity(plugin.BlockPos{X: 2, Y: 64, Z: 0})
+			b.(plugin.Jukebox).SetRecord(plugin.NewStack(registry.ItemMusicDiscCat, 1))
+		})
+	})
+	ids, payloads := useJukeboxFrozen(t, srv, c)
+	if !replaced.Load() {
+		t.Fatal("the listener did not replace the record")
+	}
+	var events []int32
+	for i, id := range ids {
+		if id != protocol.IDPlayWorldEvent {
+			continue
+		}
+		if event := protocol.NewReader(payloads[i]).ReadI32(); event == protocol.WorldEventJukeboxPlay || event == protocol.WorldEventJukeboxStop {
+			events = append(events, event)
+		}
+	}
+	if len(events) != 1 || events[0] != protocol.WorldEventJukeboxPlay {
+		t.Errorf("jukebox level events %v, want one play (%d)", events, protocol.WorldEventJukeboxPlay)
+	}
+}
+
+// TestPluginJukeboxNestedReplacementClearedSendsNoPlay has the first
+// block_change listener replace the disc and the replacement's own listener
+// clear it: the client is told to stop and never to play either disc.
+// vanilla: JukeboxSongPlayer.play, stop
+func TestPluginJukeboxNestedReplacementClearedSendsNoPlay(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	srv, host, c, run := jukeboxInsertScene(t, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.GenericGameEvent) {
+			if !jukeboxBlockChange(e) || e.Entity != nil {
+				return
+			}
+			n := calls.Add(1)
+			if n > 2 {
+				return
+			}
+			b, _ := e.World.BlockEntity(plugin.BlockPos{X: 2, Y: 64, Z: 0})
+			if n == 1 {
+				b.(plugin.Jukebox).SetRecord(plugin.NewStack(registry.ItemMusicDisc13, 1))
+			} else {
+				b.(plugin.Jukebox).SetRecord(plugin.ItemStack{})
+			}
+		})
+	})
+	ids, payloads := useJukeboxFrozen(t, srv, c)
+	var events []int32
+	for i, id := range ids {
+		if id != protocol.IDPlayWorldEvent {
+			continue
+		}
+		if event := protocol.NewReader(payloads[i]).ReadI32(); event == protocol.WorldEventJukeboxPlay || event == protocol.WorldEventJukeboxStop {
+			events = append(events, event)
+		}
+	}
+	if !slices.Equal(events, []int32{protocol.WorldEventJukeboxStop}) {
+		t.Errorf("jukebox level events %v, want only stop (%d)", events, protocol.WorldEventJukeboxStop)
+	}
+	run(func() {
+		b, _ := host.Overworld().BlockEntity(plugin.BlockPos{X: 2, Y: 64, Z: 0})
+		if j := b.(plugin.Jukebox); !j.Record().Empty() || j.Playing() {
+			t.Error("the cleared jukebox holds a record or plays")
+		}
 	})
 }

@@ -751,6 +751,24 @@ func (ws worldScope) SetItemInContainerAt(x, y, z int32, slot int, stack protoco
 	ws.srv.syncContainerViewers(w, x, y, z)
 }
 
+// UpdateItemInContainerAt stores the stack in the slot without the slot's
+// setItem effects, then tells viewers and marks the chunk.
+func (ws worldScope) UpdateItemInContainerAt(x, y, z int32, slot int, stack protocol.ItemStack) {
+	w := ws.in().w
+	be := w.BlockEntity(x, y, z)
+	if be == nil {
+		return
+	}
+	be.Use(func(b *world.BlockEntity) {
+		if slot < 0 || slot >= b.Len() {
+			return
+		}
+		b.PutKeepingCook(slot, stack)
+		w.Touch(x, y, z)
+	})
+	ws.srv.syncContainerViewers(w, x, y, z)
+}
+
 // CanPlaceItemInContainerAt is the slot's own rule for the stack.
 // vanilla: Container.canPlaceItem
 func (ws worldScope) CanPlaceItemInContainerAt(x, y, z int32, slot int, stack protocol.ItemStack) bool {

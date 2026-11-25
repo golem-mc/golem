@@ -253,13 +253,21 @@ func syncEquipmentModifiers(a *player.Attributes, slots [7]equipmentSlot, previo
 		if !changed[i] {
 			continue
 		}
-		applyEquipment(a, sl.stack, sl.name)
+		applyEquipment(a, sl.stack, sl.name, nil)
 		previous[i] = sl.stack
 	}
 }
 
-func applyEquipment(a *player.Attributes, stack protocol.ItemStack, slot string) {
+// applyEquipment adds the stack's slot modifiers for attributes the map has;
+// when fresh is non-nil it collects the IDs this call instantiated.
+func applyEquipment(a *player.Attributes, stack protocol.ItemStack, slot string, fresh *[]registry.AttributeID) {
 	for _, mod := range rules.EquipmentModifiers(stack, slot) {
+		if !a.Has(mod.Attribute) {
+			continue // vanilla: AttributeMap.getInstance is null
+		}
+		if fresh != nil && !a.Instantiated(mod.Attribute) {
+			*fresh = append(*fresh, mod.Attribute)
+		}
 		a.AddModifier(mod.Attribute, player.Modifier{ID: mod.ID, Amount: mod.Amount, Operation: mod.Operation})
 	}
 }
@@ -331,13 +339,7 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	m.syncZombieTraits(a)
 	synthetic := make([]registry.AttributeID, 0, registry.NumAttributes)
 	for _, sl := range m.equipmentSlots() {
-		for _, mod := range rules.EquipmentModifiers(sl.stack, sl.name) {
-			if !a.Instantiated(mod.Attribute) {
-				synthetic = append(synthetic, mod.Attribute)
-				a.Instance(mod.Attribute)
-			}
-		}
-		applyEquipment(a, sl.stack, sl.name)
+		applyEquipment(a, sl.stack, sl.name, &synthetic)
 	}
 	// vanilla: LivingEntity.detectEquipmentUpdates precedes removeFrost.
 	if !a.Instantiated(registry.AttributeMovementSpeed) {
@@ -354,8 +356,23 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	if m.IsShulker() {
 		m.syncShulkerArmor(a)
 	}
+	m.syncPiglinBabySpeed(a)
 	m.SyncSpeedModifiers(a)
 	return a
+}
+
+// syncPiglinBabySpeed replaces the piglin's transient baby modifier, so a
+// command's edit lasts until the next baby-state write or load.
+// vanilla: Piglin.setBaby, Piglin.SPEED_MODIFIER_BABY
+func (m *Mob) syncPiglinBabySpeed(a *player.Attributes) {
+	if m.Type != TypePiglin || a == nil {
+		return
+	}
+	a.RemoveModifier(registry.AttributeMovementSpeed, modBaby)
+	if m.IsBaby() {
+		a.AddModifier(registry.AttributeMovementSpeed, player.Modifier{ID: modBaby, Amount: float64(float32(0.2)),
+			Operation: registry.AttributeAddMultipliedBase})
+	}
 }
 
 // NativeAttributeInstances reports whether the kind instantiates attributes
@@ -400,10 +417,10 @@ const (
 	modSuffocating = "minecraft:suffocating"
 )
 
-// SyncSpeedModifiers updates the body's movement modifiers and Jump Boost's
-// safe fall distance so the simulation and attribute packets agree.
+// SyncSpeedModifiers updates the body's own movement modifiers so the
+// simulation and attribute packets agree.
 // vanilla: LivingEntity.tryAddFrost, Witch.aiStep, Zombie.tick,
-// EnderMan.setTarget, Strider.setSuffocating, MobEffects.SPEED, SLOWNESS, JUMP_BOOST
+// EnderMan.setTarget, Strider.setSuffocating
 func (m *Mob) SyncSpeedModifiers(a *player.Attributes) {
 	if m.Type == TypeSulfurCube {
 		m.syncSulfurModifiers(a)
@@ -414,8 +431,6 @@ func (m *Mob) SyncSpeedModifiers(a *player.Attributes) {
 	} else {
 		a.RemoveModifier(registry.AttributeMovementSpeed, modFrost)
 	}
-	rules.UpdateEffectAttributesOf(a, m.effects.All(), registry.AttributeMovementSpeed)
-	rules.UpdateEffectAttributesOf(a, m.effects.All(), registry.AttributeSafeFallDistance)
 	switch {
 	case m.IsStrider():
 		if m.StriderCold() {
