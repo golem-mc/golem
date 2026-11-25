@@ -72,6 +72,7 @@ func BenchmarkWantedItemSensing(b *testing.B) {
 					m.CanPickUpLoot = true
 					mobs[i] = m
 				}
+				var scratch BoxGrid
 				b.ReportAllocs()
 				for b.Loop() {
 					if kind.typ == TypePiglin {
@@ -79,7 +80,8 @@ func BenchmarkWantedItemSensing(b *testing.B) {
 							m.barter.scanIn = 1
 						}
 					}
-					mobs.SenseWantedItems(w, items[:n])
+					grid := mobs.PrepareLootGrid(items[:n], &scratch, true)
+					mobs.SenseWantedItemsWithGrid(w, items[:n], grid, true)
 					for _, m := range mobs {
 						if m.barter.hasWanted || m.sulfur.hasWanted {
 							b.Fatalf("mob %d wanted a distant item", m.ID)
