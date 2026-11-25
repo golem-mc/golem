@@ -141,7 +141,7 @@ func (t singleTarget) use(w *world.World, move containerMove) (moved bool) {
 func (t *pairTarget) use(w *world.World, move containerMove) (moved bool) {
 	t.bes[0].UseLive(func(right *world.BlockEntity) {
 		t.bes[1].UseLive(func(left *world.BlockEntity) {
-			moved = applyContainerMove(move, inventory.Compound{First: containerSlots(right, w), Second: containerSlots(left, w)}, right)
+			moved = applyContainerMove(move, inventory.Pair[blockEntitySlots]{First: containerSlots(right, w), Second: containerSlots(left, w)}, right)
 		})
 	})
 	return moved
