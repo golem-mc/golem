@@ -46,16 +46,15 @@ func gameEventOf(o obj) registry.GameEvent {
 	return ev
 }
 
-const legacySimpleStateProvider = "minecraft:simple_state_provider"
-
-// ErrLegacySimpleStateProvider is a registry decoding error that prevents world load.
-var ErrLegacySimpleStateProvider = errors.New("unknown block state provider type " + legacySimpleStateProvider)
+// ErrRemovedBlockStateProvider reports a retired provider type that prevents world loading.
+var ErrRemovedBlockStateProvider = errors.New("unknown block state provider type")
 
 // vanilla: BlockStateProviderTypes.bootstrap
 func stateProviderType(o obj) string {
 	kind := registry.Qualify(requireStr(o, "type"))
-	if kind == legacySimpleStateProvider {
-		panic(lootFailure{fatal: ErrLegacySimpleStateProvider})
+	switch kind {
+	case "minecraft:simple_state_provider", "minecraft:rotated_block_provider", "minecraft:randomized_int_state_provider":
+		panic(lootFailure{fatal: fmt.Errorf("%w %s", ErrRemovedBlockStateProvider, kind)})
 	}
 	return kind
 }
@@ -178,9 +177,6 @@ func optPredicate(o obj) *registry.EnchBlockPredicate {
 	return nil
 }
 
-// ErrRemovedBlockStateProvider reports a retired provider type in a replace effect.
-var ErrRemovedBlockStateProvider = errors.New("removed block state provider type")
-
 // stateProvider reads a block_state provider: a simple one gives its state, a
 // pure one its raw JSON for the server to compile.
 // vanilla: BlockStateProvider.CODEC
@@ -196,11 +192,14 @@ func stateProvider(v any) (state uint16, raw any) {
 func checkReplaceProvider(o obj) {
 	kind := stateProviderType(o)
 	switch kind {
-	case "minecraft:simple", "minecraft:rotated_block_provider", "minecraft:weighted", "minecraft:noise",
-		"minecraft:noise_threshold", "minecraft:dual_noise":
-	case "minecraft:randomized_int", "minecraft:randomized_int_state_provider":
-		if source, ok := required(o, "source").(obj); ok && source["type"] != nil {
-			checkReplaceProvider(source)
+	case "minecraft:simple", "minecraft:weighted", "minecraft:noise", "minecraft:noise_threshold", "minecraft:dual_noise":
+	case "minecraft:rotated", "minecraft:randomized_int":
+		key := "source"
+		if kind == "minecraft:rotated" {
+			key = "state"
+		}
+		if inner, ok := required(o, key).(obj); ok && inner["type"] != nil {
+			checkReplaceProvider(inner)
 		}
 	case "minecraft:weighted_state_provider", "minecraft:noise_provider",
 		"minecraft:noise_threshold_provider", "minecraft:dual_noise_provider":
