@@ -193,7 +193,7 @@ func foxPreyGoals(m *Mob) []Goal {
 		&foxPreyGoal{mobTargetGoal{m: m, unsighted: true, interval: foxLandScan, kinds: foxStalkableKinds}, 4, 6},
 		&foxPreyGoal{mobTargetGoal{m: m, unsighted: true, interval: foxLandScan,
 			kinds: babyTurtleKinds, matches: isBabyTurtleAshore}, 4, 6},
-		&foxPreyGoal{mobTargetGoal{m: m, unsighted: true, interval: foxFishScan, kinds: fishKinds}, 6, 4},
+		&foxPreyGoal{mobTargetGoal{m: m, unsighted: true, interval: foxFishScan, kinds: schoolingFishKinds}, 6, 4},
 	}
 }
 

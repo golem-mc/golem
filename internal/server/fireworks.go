@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"math"
 	"slices"
 	"sync"
@@ -49,17 +50,18 @@ type fireworkEntity struct {
 // fireworkTracker tracks the rockets. A rocket's flight is never on the
 // ground, and its Teleport Entity carries no velocity: the motion packets do.
 var fireworkTracker = trackedKind[*fireworkEntity, struct{}]{
-	rangeChunks: entity.FireworkTrackingRange,
-	interval:    entity.FireworkUpdateInterval,
-	lock:        func(s *Server) *sync.Mutex { return &s.fireworksMu },
-	list:        func(s *Server) *[]*fireworkEntity { return &s.fireworks },
-	chunks:      func(s *Server) *entity.ChunkIndex[*fireworkEntity] { return &s.fireworkChunks },
-	filing:      func(it *fireworkEntity) *entity.Filing { return &it.rocket.Filing },
-	uuid:        func(it *fireworkEntity) uuid.UUID { return it.uuid },
-	track:       func(it *fireworkEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
-	world:       func(it *fireworkEntity) *world.World { return it.w },
-	id:          func(it *fireworkEntity) int32 { return it.rocket.ID },
-	dead:        func(it *fireworkEntity) bool { return it.rocket.Dead },
+	rangeChunks:    entity.FireworkTrackingRange,
+	interval:       entity.FireworkUpdateInterval,
+	frozenSchedule: true,
+	lock:           func(s *Server) *sync.Mutex { return &s.fireworksMu },
+	list:           func(s *Server) *[]*fireworkEntity { return &s.fireworks },
+	chunks:         func(s *Server) *entity.ChunkIndex[*fireworkEntity] { return &s.fireworkChunks },
+	filing:         func(it *fireworkEntity) *entity.Filing { return &it.rocket.Filing },
+	uuid:           func(it *fireworkEntity) uuid.UUID { return it.uuid },
+	track:          func(it *fireworkEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
+	world:          func(it *fireworkEntity) *world.World { return it.w },
+	id:             func(it *fireworkEntity) int32 { return it.rocket.ID },
+	dead:           func(it *fireworkEntity) bool { return it.rocket.Dead },
 	pose: func(it *fireworkEntity) bodyPose {
 		r := it.rocket
 		return bodyPose{x: r.X, y: r.Y, z: r.Z, yaw: r.Yaw, pitch: r.Pitch}
@@ -392,7 +394,67 @@ func fireworkWatchers(clients []*client) map[*world.World][]fireworkWatcher {
 			c: c, pos: pos, movement: c.player.KnownMovement(), chunkRadius: c.chunkRadius(),
 		})
 	}
+	for _, list := range watchers {
+		slices.SortFunc(list, func(a, b fireworkWatcher) int {
+			return cmp.Compare(a.c.player.EntityID, b.c.player.EntityID)
+		})
+	}
 	return watchers
+}
+
+func fireworkTargetOrder(a, b entity.ArrowTarget) int { return cmp.Compare(a.EntityID, b.EntityID) }
+
+type fireworkMobArea struct {
+	herd       *mobHerd
+	chunks     chunkArea
+	minY, maxY float64
+	attached   int32
+}
+
+type fireworkMobQuery struct {
+	last  fireworkMobArea
+	count int
+}
+
+// collect reuses the mob prefix for consecutive rockets crossing the same area.
+// The sweep checks the precise X and Z bounds for each rocket.
+func (q *fireworkMobQuery) collect(targets []entity.ArrowTarget, h *mobHerd, box entity.AABB, attached int32, roots map[int32]int32) []entity.ArrowTarget {
+	minX, minY, minZ, maxX, maxY, maxZ := box.Corners()
+	bounds := [6]float64{minX, minY, minZ, maxX, maxY, maxZ}
+	area, indexed := smallChunkArea(&bounds)
+	var key fireworkMobArea
+	if indexed {
+		key = fireworkMobArea{herd: h, chunks: area, minY: minY, maxY: maxY, attached: attached}
+		if key == q.last {
+			return targets[:q.count]
+		}
+	}
+	targets = targets[:0]
+	h.mobsInArea(area, indexed, func(m *entity.Mob) bool {
+		if m.ID == attached || m.Type == entity.TypeEnderDragon {
+			return true
+		}
+		if m.Type == entity.TypeShulker {
+			_, bottom, _, _, top, _ := m.BlastBox()
+			if bottom > maxY || top < minY {
+				return true
+			}
+		} else if m.Y > maxY || m.Y+m.BbHeight() < minY {
+			return true
+		}
+		targets = entity.MobProjectileTargets(targets, m, mobEntityType(m.Type), roots[m.ID])
+		return true
+	})
+	// A dragon's parts can be outside the chunks queried around its feet.
+	// vanilla: Level.getEntities
+	for _, m := range h.dragonBodies {
+		if m.ID != attached {
+			targets = entity.MobProjectileTargets(targets, m, mobEntityType(m.Type), roots[m.ID])
+		}
+	}
+	slices.SortFunc(targets, fireworkTargetOrder)
+	q.last, q.count = key, len(targets)
+	return targets
 }
 
 // tickFireworks runs one game tick of every rocket. The players are read
@@ -431,12 +493,17 @@ func (s *Server) tickFireworks() {
 	)
 
 	boatsByWorld, _, boatRoots := s.boatSnapshots()
+	for _, boats := range boatsByWorld {
+		slices.SortFunc(boats, fireworkTargetOrder)
+	}
 	fixtures := s.readProjectileTargetSnapshots()
 	gate := s.newEntityGate()
 	var held []*fireworkEntity
 	defer func() { fireworkTracker.dormantPass(s, held) }()
 	s.lockTick(&s.fireworksMu)
 	s.lockTick(&s.mobsMu)
+	var mobQuery fireworkMobQuery
+	targets := s.fireworkTargets[:0]
 	alive := s.fireworks[:0]
 	for _, it := range s.fireworks {
 		if it.rocket.Dead {
@@ -465,17 +532,8 @@ func (s *Server) tickFireworks() {
 			}
 		}
 
-		// The bodies a free flight may meet. The launcher's own is pointed
-		// out: the flight cannot hit it until it has left it.
-		var targets []entity.ArrowTarget
 		dim := s.dimensionOfWorld(it.w)
-		targets = append(targets, boatsByWorld[it.w]...)
-		for _, m := range dim.mobs.herd {
-			if m.ID == it.rocket.AttachedTo {
-				continue // never the body the rocket rides
-			}
-			targets = entity.MobProjectileTargets(targets, m, mobEntityType(m.Type), boatRoots[m.ID])
-		}
+		targets = mobQuery.collect(targets, dim.mobs, it.rocket.MoveBox(carrier), it.rocket.AttachedTo, boatRoots)
 		for _, watch := range watchers[it.w] {
 			if watch.c.player.EntityID == it.rocket.AttachedTo {
 				continue
@@ -484,16 +542,29 @@ func (s *Server) tickFireworks() {
 			target.RootVehicle = boatRoots[watch.c.player.EntityID]
 			targets = append(targets, target)
 		}
+		targets = append(targets, boatsByWorld[it.w]...)
 		targets = fixtures.appendHangings(targets, it.w)
 		targets = append(targets, fixtures.cushions[it.w]...)
 		targets = append(targets, fixtures.stands[it.w]...)
 		targets = append(targets, fixtures.crystals[it.w]...)
 		targets = append(targets, fixtures.projectiles[it.w]...)
 		var owner *entity.ArrowTarget
-		for i := range targets {
-			if it.rocket.OwnerID != 0 && targets[i].EntityID == it.rocket.OwnerID {
-				owner = &targets[i]
-				break
+		ownerID := it.rocket.OwnerID
+		var mountedOwner entity.ArrowTarget
+		if !it.rocket.LeftOwner() && ownerID != 0 && ownerID != it.rocket.AttachedTo {
+			for i := range targets {
+				if targets[i].EntityID == ownerID {
+					owner = &targets[i]
+					break
+				}
+			}
+			// The boat or another rider can still overlap the old flight box.
+			if owner == nil && boatRoots[ownerID] != 0 {
+				if source := s.mobByEntityIDLocked(it.w, ownerID); source != nil {
+					mountedOwner = entity.MobTarget(ownerID, mobEntityType(source.mob.Type), source.mob)
+					mountedOwner.RootVehicle = boatRoots[ownerID]
+					owner = &mountedOwner
+				}
 			}
 		}
 
@@ -508,7 +579,11 @@ func (s *Server) tickFireworks() {
 				landings = append(landings, projectileLanding{w: it.w, x: ev.X, y: ev.Y, z: ev.Z, ownerUUID: it.ownerUUID})
 			}
 			if ev.Kind == entity.FireworkDeflected {
-				deflects = appendDeflectBy(deflects, it.w, dim.mobs.herd, ev.Target.EntityID)
+				if source := s.mobByEntityIDLocked(it.w, ev.Target.EntityID); source != nil {
+					if deflect, ok := deflectedBy(it.w, source.mob); ok {
+						deflects = append(deflects, deflect)
+					}
+				}
 			}
 			if ev.Kind == entity.FireworkSplashed {
 				splashes = append(splashes, projectileSplash{w: it.w, x: ev.X, y: ev.Y, z: ev.Z,
@@ -596,63 +671,10 @@ func (s *Server) tickFireworks() {
 		alive = append(alive, it)
 	}
 	s.fireworks = alive
+	s.fireworkTargets = targets[:0]
 
-	// The bursts' hurt of the mobs, under the mob lock: the falloff by the
-	// distance to the mob's feet, behind the burst's line-of-sight check.
-	// vanilla: FireworkRocketEntity.dealExplosionDamage
 	for _, burst := range bursts {
-		amount := rules.FireworkBurstDamage(burst.explosions)
-		if amount <= 0 {
-			continue
-		}
-		dim := s.dimensionOfWorld(burst.it.w)
-		for _, m := range dim.mobs.herd {
-			d := math.Sqrt(entity.Dist2(burst.x, burst.y, burst.z, m.X, m.Y, m.Z))
-			if !rules.FireworkBurstInBurstRange(d) {
-				continue
-			}
-			minX, minY, minZ, maxX, maxY, maxZ := m.BlastBox()
-			if !rules.FireworkBurstVisible(burst.it.w,
-				burst.x, burst.y, burst.z, minX, minY, minZ, maxX, maxY, maxZ) {
-				continue
-			}
-			owner := s.entityClient(burst.it.ownerID)
-			from := ownerHitSource(m, owner, func() *entity.Mob {
-				for _, source := range dim.mobs.herd {
-					if source.ID == burst.it.ownerID {
-						return source
-					}
-				}
-				return nil
-			})
-			landed, softened := m.HurtByFirework(rules.FireworkBurstFalloffDamage(amount, d),
-				rules.DamageTypeFireworks, burst.it.ownerID,
-				owner != nil, creativeClient(owner),
-				burst.x, burst.z, from)
-			if !landed {
-				continue
-			}
-			hit := thrownMobHit{
-				damageType: rules.DamageTypeFireworks,
-				w:          burst.it.w,
-				victimID:   m.ID,
-				kind:       m.Type,
-				sound:      mobSound(m, true),
-				volume:     m.SoundVolume(),
-				pitch:      m.VoicePitch(),
-				silent:     m.Silent,
-				causeID:    causeEntityID(&damageCause{entityID: burst.it.ownerID}),
-				directID:   causeEntityID(&damageCause{entityID: burst.it.rocket.ID}),
-				x:          m.X, y: m.Y, z: m.Z,
-				vx: m.VX, vy: m.VY, vz: m.VZ,
-				softened: softened,
-			}
-			if ent := dim.mobs.book[m]; ent != nil {
-				hit.health = ent.syncHealth()
-				hit.watchers = trackedWatchers(ent.tracked)
-			}
-			mobHits = append(mobHits, hit)
-		}
+		mobHits = s.burstMobsLocked(mobHits, burst, clients)
 	}
 	s.unlockTick(&s.mobsMu)
 	s.unlockTick(&s.fireworksMu)

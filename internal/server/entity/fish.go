@@ -96,12 +96,13 @@ type fishState struct {
 // IsFish reports whether the mob is a cod, salmon, tropical fish or pufferfish.
 func (m *Mob) IsFish() bool { return FishKind(m.Type) }
 
-var fishKinds = mobKindsMatching(FishKind)
-
 // FishKind reports whether the type is a cod, salmon, tropical fish or pufferfish.
 func FishKind(t MobType) bool {
 	return t == TypeCod || t == TypeSalmon || t == TypeTropicalFish || t == TypePufferfish
 }
+
+// schoolingFishKinds are the AbstractSchoolingFish types: every fish but the pufferfish.
+var schoolingFishKinds = []MobType{TypeCod, TypeSalmon, TypeTropicalFish}
 
 // maxSchoolSize is AbstractSchoolingFish.getMaxSchoolSize: the salmon's five,
 // otherwise AbstractFish.getMaxSpawnClusterSize' eight.

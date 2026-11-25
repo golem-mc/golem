@@ -89,6 +89,65 @@ func BenchmarkAddOneToOccupiedHopper(b *testing.B) {
 	}
 }
 
+func TestHopperEjectIntoCrafter(t *testing.T) {
+	stone := item(t, "minecraft:stone", 2)
+	named := stone
+	named.CustomName = &protocol.Text{Text: "Polished"}
+	capped := stone
+	capped.SetMaxStackSize(2)
+	dirt := item(t, "minecraft:dirt", 32)
+	for _, tc := range []struct {
+		name      string
+		incoming  protocol.ItemStack
+		fill      protocol.ItemStack
+		slots     map[int]protocol.ItemStack
+		disabled  map[int]bool
+		wantSlot  int
+		intoEmpty bool
+	}{
+		{name: "skip disabled empty slot", incoming: stone, disabled: map[int]bool{0: true}, wantSlot: 1, intoEmpty: true},
+		{name: "merge matching components", incoming: named, fill: dirt, slots: map[int]protocol.ItemStack{0: stone, 8: named}, wantSlot: 8},
+		{name: "reject different components", incoming: named, fill: dirt, slots: map[int]protocol.ItemStack{8: stone}, wantSlot: -1},
+		{name: "reject at custom stack limit", incoming: capped, fill: dirt, slots: map[int]protocol.ItemStack{8: capped}, wantSlot: -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hopper := &testBlock{kind: KindHopper, slots: []protocol.ItemStack{tc.incoming}}
+			crafter := &disabledBlock{
+				kind: KindCrafter, slots: make([]protocol.ItemStack, 9),
+				off: tc.disabled,
+			}
+			for i := range crafter.slots {
+				crafter.Put(i, tc.fill)
+			}
+			for i, stack := range tc.slots {
+				crafter.Put(i, stack)
+			}
+			want := slices.Clone(crafter.slots)
+			wantSourceCount := tc.incoming.Count
+			wantMoved := tc.wantSlot >= 0
+			if wantMoved {
+				count := want[tc.wantSlot].Count + 1
+				want[tc.wantSlot] = tc.incoming
+				want[tc.wantSlot].Count = count
+				wantSourceCount--
+			}
+
+			moved, intoEmpty := Eject(hopper, crafter, protocol.FaceTop)
+			if moved != wantMoved || intoEmpty != tc.intoEmpty {
+				t.Errorf("Eject = (%v, %v), want (%v, %v)", moved, intoEmpty, wantMoved, tc.intoEmpty)
+			}
+			if got := hopper.Slot(0); got.Count != wantSourceCount || !got.Same(tc.incoming) {
+				t.Errorf("hopper slot = %v, want %d of %v", got, wantSourceCount, tc.incoming)
+			}
+			for i, stack := range want {
+				if got := crafter.Slot(i); got.Count != stack.Count || !got.Same(stack) {
+					t.Errorf("crafter slot %d = %v, want %v", i, got, stack)
+				}
+			}
+		})
+	}
+}
+
 func TestFurnaceFacesAndShulkerRefusal(t *testing.T) {
 	furnace := &testBlock{kind: KindFurnace, slots: make([]protocol.ItemStack, 3)}
 	if left, _ := AddItem(furnace, item(t, "minecraft:stone", 1), protocol.FaceNorth, true); left.Empty() {

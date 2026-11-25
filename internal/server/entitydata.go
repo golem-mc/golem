@@ -381,8 +381,10 @@ func applyThrownRest(it *thrownEntity, compound nbt.Compound) {
 	t := it.throwable
 	it.shot = nbt.BoolField(compound, "HasBeenShot")
 	t.Yaw, t.Pitch = entityRotationOfTag(compound)
-	if stack, ok := storedItemStackOf(compound); ok && !stack.Empty() {
-		it.stack = stack
+	if t.Kind != entity.ThrownLlamaSpit {
+		if stack, ok := storedItemStackOf(compound); ok && !stack.Empty() {
+			it.stack = stack
+		}
 	}
 	t.NoGravity = nbt.BoolField(compound, "NoGravity")
 	t.Silent = nbt.BoolField(compound, "Silent")

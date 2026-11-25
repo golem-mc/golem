@@ -139,16 +139,12 @@ func conduitTargetEntity(herd *mobHerd, target uuid.UUID, x, y, z int32) *mobEnt
 	if target == uuid.Nil {
 		return nil
 	}
-	for m, ent := range herd.book {
-		if ent.uuid != target || !m.Alive() {
-			continue
-		}
-		if !rules.ConduitReaches(x, y, z, m.X, m.Y, m.Z, rules.ConduitHuntRange) {
-			continue
-		}
-		return ent
+	m := herd.byUUID[target]
+	ent := herd.book[m]
+	if ent == nil || !m.Alive() || !rules.ConduitReaches(x, y, z, m.X, m.Y, m.Z, rules.ConduitHuntRange) {
+		return nil
 	}
-	return nil
+	return ent
 }
 
 // conduitCandidates lists the Enemy mobs whose box meets the hunt cube and

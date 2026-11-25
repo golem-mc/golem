@@ -163,8 +163,10 @@ const (
 // redstoneAfterRemoval is the affect-neighbours-after-removal half of the wake:
 // a removed wire, torch or powered lever, button or plate wakes what it fed.
 // byPiston is vanilla's movedByPiston: true skips the source wake (a piston's
-// destroy passes false, like every other removal).
-func (p *Physics) redstoneAfterRemoval(x, y, z int32, oldState uint16, byPiston bool, changes *[]BlockChange) {
+// destroy passes false, like every other removal). entityReplaced says the
+// block write already removed a ride's block entity and may have loaded a
+// replacement's since, so the ride's cleanup must not run again.
+func (p *Physics) redstoneAfterRemoval(x, y, z int32, oldState uint16, byPiston, entityReplaced bool, changes *[]BlockChange) {
 	if int(oldState) >= registry.StateCount {
 		return
 	}
@@ -255,7 +257,9 @@ func (p *Physics) redstoneAfterRemoval(x, y, z int32, oldState uint16, byPiston 
 		// destroy hook leaves no extended base. No landing write: the section
 		// write that removed the ride ran first, so the final tick's
 		// moving-piston check finds the cell changed.
-		p.w.RemoveBlockEntity(x, y, z)
+		if !entityReplaced {
+			p.w.RemoveBlockEntity(x, y, z)
+		}
 		bx, by, bz := pistonShift(x, y, z, blocklogic.Opposite(facingOfState(oldState)), 1)
 		if bs := p.w.BlockAt(bx, by, bz); pistonBlocks[registry.BlockOf(bs)] && registry.StateBool(bs, registry.PropExtended) {
 			p.set(bx, by, bz, airState, changes)
@@ -412,7 +416,7 @@ func (p *Physics) redstoneNeighborChanged(x, y, z int32, state uint16, changes *
 		p.wireUpdatePower(x, y, z, changes)
 	case reactTorch:
 		lit := registry.StateLit(cur)
-		if lit == p.torchShouldBeLit(x, y, z, registry.BlockOf(cur), cur) && !p.torchWillTick(x, y, z) {
+		if lit == p.torchShouldBeLit(x, y, z, registry.BlockOf(cur), cur) && !p.hasTickDueAt(blockKey{x, y, z}, p.now) {
 			p.schedulePriority(x, y, z, p.now+torchTickDelay, tickPriorityNormal)
 		}
 	case reactRail:

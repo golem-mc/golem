@@ -1041,6 +1041,12 @@ func (s *Server) PlayerHealth(name string) float64 {
 	return -1
 }
 
+// PlayerHoldsChunks reports whether the named online player keeps chunk tickets.
+func (s *Server) PlayerHoldsChunks(name string) bool {
+	c := s.playerClient(name)
+	return c != nil && c.holdsChunks()
+}
+
 // HoldPlayerUnloaded makes the named player's client count as still loading
 // for the rest of the test, so every hurt on them is refused.
 func (s *Server) HoldPlayerUnloaded(name string) {
@@ -4780,6 +4786,13 @@ func (s *Server) BlastSpillBetween(between func(*world.BlockEntity)) {
 func (s *Server) PlayerTrackBetween(between func()) {
 	s.mu.Lock()
 	s.playerTrackSeam = between
+	s.mu.Unlock()
+}
+
+// CorpseExpiryBetween runs between finding an expired corpse and removing it.
+func (s *Server) CorpseExpiryBetween(between func()) {
+	s.mu.Lock()
+	s.corpseExpirySeam = between
 	s.mu.Unlock()
 }
 

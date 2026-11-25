@@ -626,6 +626,7 @@ func moveDiff(id int32, was, now trackedPosition, abs bodyPose, mt moveTick, del
 
 // register puts a built body into its kind's list and shows it to every
 // player of its world in range.
+// vanilla: ChunkMap.TrackedEntity.updatePlayer
 func (k *trackedKind[B, S]) register(s *Server, b B) { k.enroll(s, b, false) }
 
 // hold files a body in the chunk index only, so plugin handles resolve it
@@ -723,9 +724,11 @@ func (k *trackedKind[B, S]) enroll(s *Server, b B, filed bool) bool {
 		recipients = append(recipients, sp.c)
 		v.mark(sp.c)
 	}
-	// Built under the lock, from the body as it is; the tick may have moved
-	// it by the time the sends run.
-	shown := k.pairing(b)
+	var shown []outbound
+	if len(recipients) > 0 {
+		// The tick may move the body once the locks are released.
+		shown = k.pairing(b)
+	}
 	mu.Unlock()
 	s.mu.RUnlock()
 

@@ -32,8 +32,7 @@ type cloudEntity struct {
 	cloud       *entity.Cloud
 	w           *world.World
 	uuid        uuid.UUID
-	// colour is the particle's ARGB, the potion's colour as its world event
-	// played.
+	// colour is the potion's colour before forcing the particle's alpha.
 	colour int32
 	// contents is the shattered stack's potion contents, kept whole for the
 	// potion_contents NBT /data get reads.
@@ -145,7 +144,8 @@ func cloudMetadataTable(it *cloudEntity, told cloudShown, particle bool, name cu
 			b.PutRaw(data)
 		} else {
 			b.PutVarInt(protocol.ParticleEntityEffect)
-			b.PutI32(it.colour)
+			// vanilla: AreaEffectCloud.updateParticle uses ARGB.opaque.
+			b.PutI32(it.colour | -0x1000000)
 		}
 		wrote = true
 	}
@@ -271,10 +271,6 @@ func applyCloudTagWith(it *cloudEntity, compound nbt.Compound, upgradeLegacy boo
 	cloud.RadiusOnUse = float32(floatFieldOr(compound, "RadiusOnUse", 0))
 	cloud.Reload(intFieldOf(compound, "Age"), float32(math.Max(0, math.Min(32, floatFieldOr(compound, "Radius", 3)))), float32(floatFieldOr(compound, "RadiusPerTick", 0)))
 	it.contents, it.durationScale, it.colour = contents, float32(scale), rules.PotionColour(contents)
-	if contents.CustomColor != nil {
-		// vanilla: AreaEffectCloud.updateParticle uses ARGB.opaque.
-		it.colour = *contents.CustomColor | -0x1000000
-	}
 	owner := entityUUIDFieldOf(compound, "Owner")
 	if owner != it.ownerUUID {
 		it.ownerDragon = false

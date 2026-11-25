@@ -174,21 +174,56 @@ func (s *Server) fangsBite(it fangsEffect) {
 	minX, minY, minZ, maxX, maxY, maxZ := body.BiteBox()
 
 	s.mobsMu.Lock()
-	var owner *entity.Mob
-	var victims []*entity.Mob
-	herd := s.herdOf(w).herd
-	for _, m := range herd {
-		if m.ID == it.owner && !m.Dead {
-			owner = m
-		}
+	h := s.herdOf(w)
+	owner := entity.AllianceMember{}
+	var ownerUUID uuid.UUID
+	// An ID reserved for a dragon part maps to its parent, which is not that ID's mob.
+	if ent := h.byID[it.owner]; ent != nil && ent.mob.ID == it.owner && !ent.mob.Dead && !ent.mob.Discarded() {
+		owner = entity.AllianceMember{Mob: ent.mob, Team: ent.mob.Team}
+		ownerUUID = ent.uuid
 	}
-	for _, m := range herd {
-		if m.Dead || m == owner || entity.FangsAllied(owner, m, herd) {
-			continue
+	lookup := s.fangsAllyByUUIDLocked
+	var victims []*entity.Mob
+	// A body is found only through the sections its feet are filed in, however
+	// wide its box. vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+	window := entity.NewSectionWindow(minX, maxX, minY, maxY, minZ, maxZ)
+	consider := func(m *entity.Mob) bool {
+		if m.Dead || m == owner.Mob || !window.HoldsAt(m.X, m.Y, m.Z) {
+			return true
 		}
-		mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ := m.BlastBox()
-		if boxHits(minX, minY, minZ, maxX, maxY, maxZ, mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ) {
-			victims = append(victims, m)
+		if !m.BlastBoxHits(minX, minY, minZ, maxX, maxY, maxZ) {
+			return true
+		}
+		if owner.Mob != nil && owner.Mob.EvokerFangsDirectAlly(m, ownerUUID) {
+			return true
+		}
+		if owner.Mob != nil && entity.FangsAllied(owner, entity.AllianceMember{Mob: m, Team: m.Team}, lookup) {
+			return true
+		}
+		victims = append(victims, m)
+		return true
+	}
+	indexed := false
+	if len(h.book) != 0 {
+		// smallChunkArea adds the same two-block margin as the window.
+		var area chunkArea
+		area, indexed = smallChunkArea(&[6]float64{minX, minY, minZ, maxX, maxY, maxZ})
+		h.mobsInArea(area, indexed, consider)
+	}
+	if indexed && len(victims) > 1 {
+		// The index visits by chunk; damage goes in herd order.
+		hit := make(map[*entity.Mob]struct{}, len(victims))
+		for _, m := range victims {
+			hit[m] = struct{}{}
+		}
+		victims = victims[:0]
+		for _, m := range h.herd {
+			if _, ok := hit[m]; ok {
+				victims = append(victims, m)
+				if len(victims) == len(hit) {
+					break
+				}
+			}
 		}
 	}
 	s.mobsMu.Unlock()
@@ -202,12 +237,25 @@ func (s *Server) fangsBite(it fangsEffect) {
 	}
 	s.mu.RUnlock()
 	for _, c := range clients {
-		cMinX, cMinY, cMinZ, cMaxX, cMaxY, cMaxZ := c.Box()
-		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, cMinX, cMinY, cMinZ, cMaxX, cMaxY, cMaxZ) {
+		// One position read for the box and the section, which the connection goroutine may move between reads.
+		pos := c.player.Position()
+		cb := c.bodyBoxAt(pos)
+		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, cb[0], cb[1], cb[2], cb[3], cb[4], cb[5]) {
 			continue
 		}
-		if owner == nil {
+		// A scaled player's box can reach past the sections its feet are filed in.
+		// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+		if !window.HoldsAt(pos.X, pos.Y, pos.Z) {
+			continue
+		}
+		if owner.Mob == nil {
 			c.hurt(entity.FangsDamage, rules.DamageTypeMagic, &damageCause{x: it.x, y: it.y, z: it.z})
+			continue
+		}
+		s.mobsMu.Lock()
+		allied := entity.FangsAllied(owner, lookup(c.player.UUID), lookup)
+		s.mobsMu.Unlock()
+		if allied {
 			continue
 		}
 		cause := &damageCause{entityID: it.owner, directID: it.id + 1, x: it.x, y: it.y, z: it.z,
@@ -221,12 +269,26 @@ func (s *Server) fangsBite(it fangsEffect) {
 		}
 	}
 	for _, m := range victims {
-		if owner == nil {
+		if owner.Mob == nil {
 			s.hurtMobPlain(w, m, entity.FangsDamage, rules.DamageTypeMagic)
 			continue
 		}
-		s.hurtMobBy(w, m, owner, entity.FangsDamage, rules.DamageTypeIndirectMagic)
+		s.hurtMobVia(w, m, owner.Mob, &directBody{id: it.id, x: it.x, z: it.z}, entity.FangsDamage, rules.DamageTypeIndirectMagic, nil)
 	}
+}
+
+// vanilla: EntityReference.getEntity
+func (s *Server) fangsAllyByUUIDLocked(id uuid.UUID) entity.AllianceMember {
+	for _, dim := range s.allDims() {
+		if m := dim.mobs.byUUID[id]; m != nil && !m.Discarded() {
+			return entity.AllianceMember{Mob: m, Team: m.Team}
+		}
+	}
+	// The mob pass snapshots online players' teams before fangs tick.
+	if team, online := s.mobInputs.playerTeams[id]; online {
+		return entity.AllianceMember{Player: id, Team: team}
+	}
+	return entity.AllianceMember{}
 }
 
 // hurtMobPlain hurts m with no source and tells its watchers.
