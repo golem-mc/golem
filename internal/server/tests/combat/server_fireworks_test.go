@@ -755,7 +755,7 @@ func TestACrossbowRocketKeepsTheChargedStackCount(t *testing.T) {
 	servertest.HoldTicks(t, srv)
 	servertest.UseHeld(c, -90, 0)
 
-	traffic := readFireworkTraffic(c, srv, 5)
+	traffic := readFireworkTraffic(c, srv, 0)
 	fired := traffic.fireworkOf()
 	if fired == nil {
 		t.Fatal("no firework rocket came into the world for the crossbow shot")
