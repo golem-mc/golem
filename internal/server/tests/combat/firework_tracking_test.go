@@ -1,12 +1,91 @@
 package combat
 
 import (
+	"math"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
+
+// vanilla: ChunkMap.tick, ServerEntity.sendChanges, FireworkRocketEntity.tick
+func TestACrossbowRocketMovesOnceOnItsFirstFrozenStep(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Launcher", servertest.OpsListing(t, "Launcher"))
+	servertest.HoldTicks(t, srv)
+	c.MoveTo(0.5, 65, 3.5, -90, 0)
+	c.ChatCommand("tick freeze")
+	c.ExpectTickingState(20, true)
+
+	crossbow := servertest.ItemStack(t, "minecraft:crossbow", 1)
+	crossbow.SetChargedProjectiles([]protocol.ItemStack{servertest.FireworkStack(1, 0)})
+	srv.GiveSlot("Launcher", 36, crossbow)
+	servertest.DrawBow(c, -90, 0)
+	frozen := readFireworkTraffic(c, srv, 1)
+	rocket := frozen.fireworkOf()
+	if rocket == nil || rocket.Vx < 1 {
+		t.Fatalf("eastbound rocket spawn = %+v", rocket)
+	}
+	if life, _, ok := srv.FireworkState(rocket.Uuid); !ok || life != 0 {
+		t.Fatalf("frozen rocket life = %d, present = %v, want 0", life, ok)
+	}
+
+	c.ChatCommand("tick step 1")
+	c.ExpectTickingStep(1)
+	stepped := readFireworkTraffic(c, srv, 1)
+	if life, _, ok := srv.FireworkState(rocket.Uuid); !ok || life != 1 {
+		t.Fatalf("stepped rocket life = %d, present = %v, want 1", life, ok)
+	}
+
+	// The server's packets can arrive before the client runs its one tick.
+	// Relative movement is decoded from the packet baseline, then the
+	// rocket simulates flight from that position using its known velocity.
+	clientX, vx := rocket.X, rocket.Vx
+	for _, move := range stepped.positions {
+		if move.Id == rocket.EntityID && move.Dx != 0 {
+			clientX = (math.Round(clientX*4096) + float64(move.Dx)) / 4096
+		}
+	}
+	for _, move := range stepped.teleports {
+		if move.Id == rocket.EntityID {
+			clientX = move.X
+		}
+	}
+	for _, motion := range stepped.motions {
+		if motion.Id == rocket.EntityID {
+			vx = motion.Vx
+		}
+	}
+	clientX += vx
+
+	c.ChatCommand("data get entity @e[type=minecraft:firework_rocket,limit=1] Pos[0]")
+	reply := servertest.FeedbackComponent(t, c)
+	if reply.Translate != "commands.data.entity.query" || len(reply.With) != 2 {
+		t.Fatalf("rocket Pos[0] query returned %+v", reply)
+	}
+	serverX, err := strconv.ParseFloat(strings.TrimSuffix(reply.With[1].Plain(), "d"), 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(clientX-serverX) > 1.0/4096 {
+		t.Errorf("rocket after one stepped tick: client x = %.6f, server x = %.6f", clientX, serverX)
+	}
+	if math.Abs(serverX-(rocket.X+rocket.Vx)) > 1.0/4096 {
+		t.Errorf("server x = %.6f, want one velocity step from %.6f at %.6f", serverX, rocket.X, rocket.Vx)
+	}
+
+	// The first position packet was due while the rocket still stood at
+	// its launch point, before the client's tick step was scheduled.
+	for _, move := range frozen.positions {
+		if move.Id == rocket.EntityID && move.Dx == 0 && move.Dy == 0 && move.Dz == 0 {
+			return
+		}
+	}
+	t.Error("the frozen tracking tick did not send the rocket's launch position")
+}
 
 // TestAFireworkRocketsVelocityGoesToItsWatchersAlone flies a rocket beside
 // one player while another stands past its tracking range: the velocity

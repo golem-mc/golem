@@ -57,7 +57,7 @@ func catGoals(m *Mob) []Goal {
 		newFloatGoal(m),
 		&panicGoal{m: m, tame: true},
 		&mobTargetGoal{m: m, priority: catPriorityHunt, victim: TypeRabbit, wildOnly: true, unsighted: true},
-		&mobTargetGoal{m: m, priority: catPriorityHunt, wildOnly: true, unsighted: true, matches: isBabyTurtleAshore},
+		&mobTargetGoal{m: m, priority: catPriorityHunt, wildOnly: true, unsighted: true, kinds: babyTurtleKinds, matches: isBabyTurtleAshore},
 		&sitGoal{m: m},
 		&catRelaxOnOwnerGoal{m: m},
 		m.catTempt,
@@ -74,6 +74,8 @@ func catGoals(m *Mob) []Goal {
 }
 
 // isBabyTurtleAshore is Turtle.BABY_ON_LAND_SELECTOR.
+var babyTurtleKinds = []MobType{TypeTurtle}
+
 func isBabyTurtleAshore(o *Mob) bool { return o.Type == TypeTurtle && o.IsBaby() && !o.InWater() }
 
 // finalizeCat rolls the variant from the cat_variant spawn conditions, then

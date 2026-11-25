@@ -763,7 +763,7 @@ func (t *herdTick) tick(m *Mob) {
 	}
 	if v := m.Vehicle; v != nil {
 		v.seatPassenger(m)
-		t.grid.refresh(m)
+		t.grid.moved(m)
 	}
 	t.tickRiders(m)
 }

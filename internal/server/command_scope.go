@@ -751,6 +751,24 @@ func (ws worldScope) SetItemInContainerAt(x, y, z int32, slot int, stack protoco
 	ws.srv.syncContainerViewers(w, x, y, z)
 }
 
+// UpdateItemInContainerAt stores the stack in the slot without the slot's
+// setItem effects, then tells viewers and marks the chunk.
+func (ws worldScope) UpdateItemInContainerAt(x, y, z int32, slot int, stack protocol.ItemStack) {
+	w := ws.in().w
+	be := w.BlockEntity(x, y, z)
+	if be == nil {
+		return
+	}
+	be.Use(func(b *world.BlockEntity) {
+		if slot < 0 || slot >= b.Len() {
+			return
+		}
+		b.PutKeepingCook(slot, stack)
+		w.Touch(x, y, z)
+	})
+	ws.srv.syncContainerViewers(w, x, y, z)
+}
+
 // CanPlaceItemInContainerAt is the slot's own rule for the stack.
 // vanilla: Container.canPlaceItem
 func (ws worldScope) CanPlaceItemInContainerAt(x, y, z int32, slot int, stack protocol.ItemStack) bool {
@@ -867,28 +885,43 @@ func (ws worldScope) SetBlockTagged(x, y, z int32, state uint16, defined map[str
 	if strict {
 		policy = strictBlockWrite
 	}
+	// A block entity's tag loads before the explicit neighbour wake, so a
+	// neighbour reads the loaded state (a playing jukebox's signal); the shape
+	// pass stays in the block write, before the load. Strict loads the tag too.
+	// vanilla: BlockInput.place, SetBlockCommand.setBlock
+	entityType, hasEntity := blockEntityTypeOf(state)
+	hasTag := hasEntity && tag != nil && tag.Entries() != nil
+	deferWake := !strict && hasTag
+	if deferWake {
+		policy = policy&^writeWake | writePlacedHooks
+	}
+	old := w.BlockAt(x, y, z)
 	changed := ws.writeBlock(x, y, z, state, defined, policy)
 	if !strict {
 		// BlockInput's shape pass also runs when Level.setBlock finds a match.
 		ws.srv.physicsFor(w).PlacementShapeUpdates(x, y, z, state)
 	}
 	if !changed {
-		// The block already matched; the tag still applies if it changes the
-		// block entity, which returns true.
-		return ws.retagBlockEntity(x, y, z, state, tag)
-	}
-	// A block argument without NBT arrives as a typed nil map.
-	if tag == nil || tag.Entries() == nil {
+		if !ws.retagBlockEntity(x, y, z, state, tag) {
+			return false
+		}
+		// vanilla: SetBlockCommand.setBlock wakes neighbours after the tag loads.
+		if !strict {
+			ws.srv.updateNeighboursOnBlockSet(w, x, y, z, w.BlockAt(x, y, z))
+		}
 		return true
 	}
-	entityType, hasEntity := blockEntityTypeOf(state)
-	if !hasEntity {
+	// A block argument without NBT arrives as a typed nil map.
+	if !hasTag {
 		return true
 	}
 	previousAuto := commandBlockAutoAt(w, x, y, z)
 	w.SetBlockEntityTag(x, y, z, entityType, tag)
 	ws.srv.markChanged(w, x, y, z)
 	ws.srv.commandBlockTagLoaded(w, x, y, z, previousAuto)
+	if deferWake {
+		ws.srv.blockPlacedWake(w, x, y, z, old)
+	}
 	return true
 }
 

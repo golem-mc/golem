@@ -310,9 +310,9 @@ type arrowPlayerHit struct {
 	// the arrow lock with the rest of its state.
 	effects []effect.Instance
 	// custom is the arrow's custom name, read under the arrow lock.
-	custom  customName
-	x, y, z float64
-	vx, vz  float64
+	custom     customName
+	x, y, z    float64
+	vx, vy, vz float64
 }
 
 // shooterOf returns what there is to name of the shooter of the hit: the

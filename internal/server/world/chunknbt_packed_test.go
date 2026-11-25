@@ -1,6 +1,7 @@
 package world
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
@@ -30,6 +31,11 @@ func TestDecodeSectionBlocksPacked(t *testing.T) {
 			t.Parallel()
 			tc.states = append([]uint16(nil), tc.states...)
 			tc.states[1] = registry.BlockOakFence.DefaultState()
+			tc.states[0] = registry.BlockSculkSensor.DefaultState()
+			tc.states[len(tc.states)-1] = registry.BlockSculkCatalyst.DefaultState()
+			if tc.name == "duplicate palette" {
+				tc.states[2] = tc.states[0]
+			}
 			indices := make([]uint16, blocksPerSection)
 			want := make([]uint16, blocksPerSection)
 			for i := range indices {
@@ -104,8 +110,10 @@ func states(n int) []uint16 {
 }
 
 func sameCounts(a, b *section) bool {
-	return a.ticking == b.ticking && a.emitting == b.emitting && a.listening == b.listening &&
-		a.rods == b.rods && a.catalysts == b.catalysts && a.eggs == b.eggs && a.portals == b.portals &&
+	return a.ticking == b.ticking && a.emitting == b.emitting && a.rods == b.rods &&
+		a.eggs == b.eggs && a.portals == b.portals &&
 		a.pois == b.pois && a.colliding == b.colliding && a.comparators == b.comparators &&
-		a.touches.Load() == b.touches.Load() && a.shapes.Load() == b.shapes.Load()
+		a.touches.Load() == b.touches.Load() && a.shapes.Load() == b.shapes.Load() &&
+		slices.Equal(a.sculkCells(vibrationListenerCell), b.sculkCells(vibrationListenerCell)) &&
+		slices.Equal(a.sculkCells(sculkCatalystCell), b.sculkCells(sculkCatalystCell))
 }

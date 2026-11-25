@@ -692,6 +692,8 @@ type armorStandBreak struct {
 	equipment bool
 	// particles sends the ten oak-plank block particles.
 	particles bool
+	// removed says the removal already went to the stand's watchers.
+	removed bool
 }
 
 // breakArmorStandTail is the half of a stand's end that runs after the
@@ -701,8 +703,10 @@ type armorStandBreak struct {
 // the stand item at the stand's own cell, the equipment a block above.
 // vanilla: ArmorStand.brokenByPlayer, brokenByAnything, showBreakingParticles
 func (s *Server) breakArmorStandTail(ent *armorStandEntity, brk armorStandBreak) {
-	s.broadcastWorld(ent.w, protocol.IDPlayRemoveEntities,
-		removeEntitiesPayload([]int32{ent.stand.ID}))
+	if !brk.removed {
+		s.broadcastWorld(ent.w, protocol.IDPlayRemoveEntities,
+			removeEntitiesPayload([]int32{ent.stand.ID}))
+	}
 	s.broadcastSoundID(ent.w, soundArmorStandBreak, protocol.SoundCategoryNeutral,
 		ent.stand.X, ent.stand.Y, ent.stand.Z, 1.0, 1.0)
 	if brk.particles {
@@ -904,10 +908,10 @@ func (s *Server) tickArmorStands() {
 	defer near.release()
 
 	var (
-		broken []*armorStandEntity
+		broken []tornStand
 		// voided are the stands that fell out of the world: removed with
 		// nothing laid down.
-		voided []*armorStandEntity
+		voided []tornStand
 		out    standSends
 		gates  []gatewayTouch
 		// travels are the stands the portal pass caught.
@@ -923,6 +927,10 @@ func (s *Server) tickArmorStands() {
 			standTracker.unfile(ent)
 			continue // a punch or a blast took it out; its tail ran there
 		}
+		// Tracking runs before the step, so a gate tells the pose the last
+		// tick left, a /tp's included.
+		// vanilla: ServerChunkCache.tick, ServerLevel.tick
+		trackStand(ent, watchers, near, &out)
 		// The portal pass runs ahead of the step, as for items; only a stand
 		// with physics is inside a block. vanilla: ArmorStand.hasPhysics
 		state := airBlockState
@@ -932,27 +940,37 @@ func (s *Server) tickArmorStands() {
 		s.notePortalTouch(nil, ent.uuid, ent.w, ent.stand.X, ent.stand.Y, ent.stand.Z, state)
 		if kind, due := ent.portal.Step(state, rules.PortalTransitionTime, portalCooldownTicks); due {
 			standTracker.unfile(ent)
-			travels = append(travels, armorStandPortalTravel{ent: ent, kind: kind})
+			// The watchers left after any pre-step pass get the removal.
+			watchers := trackedWatchers(ent.tracked)
+			travels = append(travels, armorStandPortalTravel{ent: ent, kind: kind, watchers: watchers})
 			continue
 		}
 		from := ent.stand.Box()
 		if ev := ent.stand.Step(ent.w); len(ev) > 0 {
-			torn := false
+			var torn, fell, broke bool
 			for _, item := range ev {
 				switch item.Kind {
 				case entity.ArmorStandVoided:
-					voided = append(voided, ent)
-					torn = true
+					fell, torn = true, true
 				case entity.ArmorStandBroke:
 					// The health the tick took ran out; the tail — the removal,
 					// the sound, the drops — runs once the lock is given back.
-					broken = append(broken, ent)
-					torn = true
+					broke, torn = true, true
 				case entity.ArmorStandLocated:
 					located = append(located, standLocated{ent: ent, x: item.X, y: item.Y, z: item.Z, changed: item.Level})
 				}
 			}
 			if torn {
+				// The watchers left after the pre-step pass dropped any the
+				// teleport took out of range; the removal goes to them only.
+				// vanilla: ServerEntity.removePairing
+				t := tornStand{ent, trackedWatchers(ent.tracked)}
+				if fell {
+					voided = append(voided, t)
+				}
+				if broke {
+					broken = append(broken, t)
+				}
 				standTracker.unfile(ent)
 				continue
 			}
@@ -974,10 +992,11 @@ func (s *Server) tickArmorStands() {
 			}
 		}
 		alive = append(alive, ent)
-		trackStand(ent, watchers, near, &out)
 	}
 	s.armorStands = alive
 	s.unlockTick(&s.armorStandsMu)
+	// Before the removals: a stand told its pose may break this tick.
+	out.send()
 	s.runBodyLandings(bodyLandings)
 
 	var disks []mobDisk
@@ -986,29 +1005,35 @@ func (s *Server) tickArmorStands() {
 	}
 	s.applyDisks(disks)
 
-	for _, ent := range broken {
-		s.breakArmorStandTail(ent, armorStandBreak{equipment: true})
+	for _, t := range broken {
+		s.tellWatchers(t.ent.w, t.watchers, []outbound{{id: protocol.IDPlayRemoveEntities, data: removeEntitiesPayload([]int32{t.ent.stand.ID})}})
+		s.breakArmorStandTail(t.ent, armorStandBreak{equipment: true, removed: true})
 	}
-	for _, ent := range voided {
-		s.broadcastWorld(ent.w, protocol.IDPlayRemoveEntities,
-			removeEntitiesPayload([]int32{ent.stand.ID}))
+	for _, t := range voided {
+		s.tellWatchers(t.ent.w, t.watchers, []outbound{{id: protocol.IDPlayRemoveEntities, data: removeEntitiesPayload([]int32{t.ent.stand.ID})}})
 	}
-	out.send()
 	s.touchGateways(gates)
 	for _, tr := range travels {
-		s.finishArmorStandTravel(tr.ent, tr.kind)
+		s.finishArmorStandTravel(tr.ent, tr.kind, tr.watchers)
 	}
+}
+
+// tornStand is a stand the tick ended, with the watchers its removal goes to.
+type tornStand struct {
+	ent      *armorStandEntity
+	watchers []uuid.UUID
 }
 
 // armorStandPortalTravel is one stand the portal pass caught.
 type armorStandPortalTravel struct {
-	ent  *armorStandEntity
-	kind rules.PortalKind
+	ent      *armorStandEntity
+	kind     rules.PortalKind
+	watchers []uuid.UUID
 }
 
 // finishArmorStandTravel sends one stand the portal pass caught across its
 // portal, equipment and all.
-func (s *Server) finishArmorStandTravel(ent *armorStandEntity, kind rules.PortalKind) {
+func (s *Server) finishArmorStandTravel(ent *armorStandEntity, kind rules.PortalKind, watchers []uuid.UUID) {
 	standTracker.crossPortal(s, ent, kind, s.registerArmorStand, func(to *world.World, at player.Position) (*armorStandEntity, bool) {
 		twin := armorStandOfTag(s, to, armorStandTag(ent).Entries())
 		if twin == nil {
@@ -1017,7 +1042,7 @@ func (s *Server) finishArmorStandTravel(ent *armorStandEntity, kind rules.Portal
 		twin.stand.SetPos(at.X, at.Y, at.Z)
 		twin.stand.Yaw = at.Yaw
 		return twin, true
-	})
+	}, &watchers)
 }
 
 // summonArmorStand stands a /summon's stand up at the position given: a

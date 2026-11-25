@@ -1399,6 +1399,8 @@ const (
 	EquipLegs     = 3
 	EquipChest    = 4
 	EquipHead     = 5
+	EquipBody     = 6
+	EquipSaddle   = 7
 )
 
 // Game modes.

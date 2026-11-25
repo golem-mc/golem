@@ -589,7 +589,7 @@ func (s *Server) finishMinecartTravel(it *minecartEntity, kind rules.PortalKind)
 		twin.cart.SetPos(at.X, at.Y, at.Z)
 		twin.cart.Yaw = at.Yaw
 		return twin, true
-	})
+	}, nil)
 }
 
 // minecartBreak is what a broken cart leaves: its own item, unless the end

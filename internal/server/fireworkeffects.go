@@ -1,12 +1,93 @@
 package server
 
 import (
+	"cmp"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"math"
 	"slices"
 )
+
+// burstMobsLocked applies one burst while fireworksMu and mobsMu are held.
+// vanilla: FireworkRocketEntity.dealExplosionDamage
+func (s *Server) burstMobsLocked(mobHits []thrownMobHit, burst fireworkBurst, clients []*client) []thrownMobHit {
+	amount := rules.FireworkBurstDamage(burst.explosions)
+	if amount <= 0 {
+		return mobHits
+	}
+	dim := s.dimensionOfWorld(burst.it.w)
+	box := burst.it.rocket.Box().Inflate(rules.FireworkBurstRadius)
+	minX, minY, minZ, maxX, maxY, maxZ := box.Corners()
+	bounds := [6]float64{minX, minY, minZ, maxX, maxY, maxZ}
+	area, indexed := smallChunkArea(&bounds)
+	// Damage listeners can move or remove bodies while the locks are released.
+	var nearbyBuffer [16]*entity.Mob
+	nearby := nearbyBuffer[:0]
+	dim.mobs.mobsInArea(area, indexed, func(m *entity.Mob) bool {
+		if box.Crosses(entity.NewAABB(m.BlastBox())) {
+			nearby = append(nearby, m)
+		}
+		return true
+	})
+	slices.SortFunc(nearby, func(a, b *entity.Mob) int { return cmp.Compare(a.ID, b.ID) })
+	var owner *client
+	for _, c := range clients {
+		if c.player != nil && c.player.EntityID == burst.it.ownerID {
+			owner = c
+			break
+		}
+	}
+	shooter := func() *entity.Mob {
+		if source := s.mobByEntityIDLocked(burst.it.w, burst.it.ownerID); source != nil {
+			return source.mob
+		}
+		return nil
+	}
+	for _, m := range nearby {
+		if dim.mobs.record(m) == nil {
+			continue
+		}
+		d := math.Sqrt(entity.Dist2(burst.x, burst.y, burst.z, m.X, m.Y, m.Z))
+		if !rules.FireworkBurstInBurstRange(d) {
+			continue
+		}
+		minX, minY, minZ, maxX, maxY, maxZ := m.BlastBox()
+		if !rules.FireworkBurstVisible(burst.it.w,
+			burst.x, burst.y, burst.z, minX, minY, minZ, maxX, maxY, maxZ) {
+			continue
+		}
+		from := ownerHitSource(m, owner, shooter)
+		landed, softened := m.HurtByFirework(rules.FireworkBurstFalloffDamage(amount, d),
+			rules.DamageTypeFireworks, burst.it.ownerID,
+			owner != nil, creativeClient(owner),
+			burst.x, burst.z, from)
+		if !landed {
+			continue
+		}
+		hit := thrownMobHit{
+			damageType: rules.DamageTypeFireworks,
+			w:          burst.it.w,
+			victimID:   m.ID,
+			kind:       m.Type,
+			sound:      mobSound(m, true),
+			volume:     m.SoundVolume(),
+			pitch:      m.VoicePitch(),
+			silent:     m.Silent,
+			causeID:    causeEntityID(&damageCause{entityID: burst.it.ownerID}),
+			directID:   causeEntityID(&damageCause{entityID: burst.it.rocket.ID}),
+			x:          m.X, y: m.Y, z: m.Z,
+			vx: m.VX, vy: m.VY, vz: m.VZ,
+			softened: softened,
+		}
+		if ent := dim.mobs.book[m]; ent != nil {
+			hit.health = ent.syncHealth()
+			hit.watchers = trackedWatchers(ent.tracked)
+		}
+		mobHits = append(mobHits, hit)
+	}
+	return mobHits
+}
 
 func (s *Server) burstArmorStands(bursts []fireworkBurst) {
 	// A burst breaks any visible armor stand in reach outright, whatever the

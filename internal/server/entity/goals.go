@@ -1394,7 +1394,7 @@ func (g *followParentGoal) ShouldContinue(t *tickView) bool {
 	if g.oneShot {
 		return false
 	}
-	if !g.m.IsBaby() || g.parent == nil || !slices.Contains(t.others, g.parent) || !g.parent.Alive() {
+	if !g.m.IsBaby() || g.parent == nil || t.mobByID(g.parent.ID) != g.parent || !g.parent.Alive() {
 		return false
 	}
 	d := Dist2(g.m.X, g.m.Y, g.m.Z, g.parent.X, g.parent.Y, g.parent.Z)
@@ -1413,6 +1413,14 @@ func (g *followParentGoal) Tick(t *tickView) {
 		return
 	}
 	g.recalc = reducedTickDelay(followReplan)
+	if g.ranged == nil {
+		// vanilla: GroundPathNavigation.canUpdatePath declines the request
+		// until the child lands, even though FollowParentGoal keeps running.
+		walker := g.m.navOf()
+		if !walker.kind().flying && !walker.RidesVehicle && !walker.canUpdatePath() {
+			return
+		}
+	}
 	pace := g.m.kind().followPace
 	if g.m.Type == TypeAxolotl && !g.m.InWater() {
 		pace = 0.15
