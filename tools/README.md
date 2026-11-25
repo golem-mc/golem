@@ -97,7 +97,15 @@ mise exec -- go run ./tools/clientctl state
 mise exec -- go run ./tools/clientctl chat "/give @s minecraft:diamond_sword"
 mise exec -- go run ./tools/clientctl input -forward -ticks 30 -pitch 70
 mise exec -- go run ./tools/clientctl screenshot /tmp/shot.png
+mise exec -- go run ./tools/clientctl use -ticks 25   # hold the use key 25 client ticks: draws a bow, then fires it
 ```
+
+`use` and `attack` are one click; with `-ticks N` they hold the key (the
+game's own key handling, so the item stays in use) for N client ticks and
+release it, and answer with `using` (an item was in use just before the
+release) and `item`. `-ticks -1` holds until `use -ticks 0` (or `use -release`),
+to look at the state mid-hold. A held `attack` only digs while the client has
+the mouse grabbed.
 
 `GET /state` returns the player (position, health, food, game mode and so
 on), the inventory and equipment, the open screen, nearby entities, the chat

@@ -66,6 +66,12 @@ func TestCommandsBecomeTheAgentsCalls(t *testing.T) {
 		{[]string{"drop", "-all"}, `POST /drop {"all":true}`},
 		{[]string{"connect", "127.0.0.1:25565"}, `POST /connect {"address":"127.0.0.1:25565"}`},
 		{[]string{"screenshot", "/tmp/s.png"}, `POST /screenshot {"path":"/tmp/s.png"}`},
+		{[]string{"use"}, `POST /use {}`},
+		{[]string{"use", "-ticks", "30"}, `POST /use {"ticks":30}`},
+		{[]string{"use", "-ticks", "-1"}, `POST /use {"ticks":-1}`},
+		{[]string{"use", "-ticks", "0"}, `POST /use {"ticks":0}`},
+		{[]string{"use", "-release"}, `POST /use {"ticks":0}`},
+		{[]string{"attack", "-ticks", "40"}, `POST /attack {"ticks":40}`},
 		{[]string{"input", "-forward", "-ticks", "30", "-pitch", "70"}, `POST /input {"back":false,"forward":true,"jump":false,"left":false,"pitch":70,"right":false,"sneak":false,"sprint":false,"ticks":30}`},
 	} {
 		a.calls = nil
@@ -83,7 +89,7 @@ func TestWrongArgumentsAreRefusedBeforeAnyCall(t *testing.T) {
 	for _, args := range [][]string{
 		{"chat", "hello", "world"}, {"chat"}, {"slot"}, {"slot", "1", "2"},
 		{"state", "extra"}, {"drop", "now"}, {"click", "-button", "1"}, {"click", "x"},
-		{"click", "-nope", "5"}, {"click", "5", "-button"}, {"click", "--", "-x", "-y"},
+		{"use", "-ticks", "x"}, {"use", "-ticks", "5", "-release"}, {"use", "now"}, {"click", "-nope", "5"}, {"click", "5", "-button"}, {"click", "--", "-x", "-y"},
 	} {
 		if code, _, _ := drive(t, a, args...); code != 2 {
 			t.Errorf("%v: exit %d, want 2", args, code)
