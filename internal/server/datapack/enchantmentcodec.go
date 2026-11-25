@@ -123,6 +123,9 @@ func (d *enchantmentDecoder) keep(where string, f func()) (kept bool) {
 		switch r := recover().(type) {
 		case nil:
 		case lootFailure:
+			if r.fatal != nil {
+				panic(r)
+			}
 			if r.msg != "" {
 				d.dropped = append(d.dropped, where+": "+r.msg)
 			}

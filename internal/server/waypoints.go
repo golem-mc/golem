@@ -145,7 +145,7 @@ func (s *Server) tickWaypoints() {
 	// Read the attribute map after releasing the player list lock: its lock
 	// sits below that one, and the tick's attribute refresh takes it in
 	// between.
-	anyChanged := false
+	changed := s.waypointChanged[:0]
 	for i := range present {
 		p := &present[i]
 		p.c.player.Attributes(func(a *player.Attributes) {
@@ -159,14 +159,23 @@ func (s *Server) tickWaypoints() {
 		forgot := p.c.waypointsForgot.Swap(false)
 		p.changed = forgot || stamp != p.c.waypointSeen
 		p.c.waypointSeen = stamp
-		anyChanged = anyChanged || p.changed
+		if p.changed {
+			changed = append(changed, i)
+		}
 	}
-	if anyChanged {
+	s.waypointChanged = changed
+	if len(changed) != 0 {
 		for i := range present {
 			t := &present[i]
 			t.c.trackMu.Lock()
-			for j := range present {
-				if i != j && (t.changed || present[j].changed) {
+			if t.changed {
+				for j := range present {
+					if i != j {
+						settleWaypointLocked(rule, t, &present[j])
+					}
+				}
+			} else {
+				for _, j := range changed {
 					settleWaypointLocked(rule, t, &present[j])
 				}
 			}

@@ -1161,7 +1161,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 	// due visits. Each carries the tick it was made in, so the comparator's
 	// delay runs from then, not from this drain.
 	for _, c := range p.w.takeContainerChanges() {
-		p.containerChanged(c.pos[0], c.pos[1], c.pos[2], c.tick)
+		p.analogOutputChanged(c.pos[0], c.pos[1], c.pos[2], c.tick)
 	}
 
 	// Generated ticks and fluid post-processing visits run on
@@ -2281,11 +2281,15 @@ func newLiquidAt(w fluidSpreadReader, x, y, z int32, state uint16, b fluidBehavi
 		if !passWall(state, axis, positive, ns) {
 			continue
 		}
-		if nfs.isSource() {
-			sources++
-		}
 		if nfs.amount > highest {
 			highest = nfs.amount
+		}
+		if nfs.isSource() {
+			sources++
+			if sources == 2 {
+				// A source already supplies the maximum neighbor amount.
+				break
+			}
 		}
 	}
 	if sources >= 2 && w.BoolRule(b.conversionRule) && supportsFluidSource(w.BlockAt(x, y-1, z), kind) {
@@ -2475,6 +2479,7 @@ const (
 	cellKnown
 	cellHoleKnown
 	cellHole
+	cellNoAdjacentHole
 )
 
 // cellFlags classifies the state for this spread's fluid and tag snapshot.
@@ -2724,8 +2729,11 @@ func (c *spreadContext) slopeDistance(i, pass, from, reach int) int {
 	if *failedDepth >= depth {
 		return 1000
 	}
-	lowest := 1000
 	flags := c.flags[i]
+	if depth == 1 && flags&cellNoAdjacentHole != 0 {
+		return 1000
+	}
+	lowest := 1000
 	for d, step := range spreadStep {
 		if d == from {
 			continue
@@ -2762,6 +2770,11 @@ func (c *spreadContext) slopeDistance(i, pass, from, reach int) int {
 	}
 	if lowest == 1000 {
 		*failedDepth = depth
+		// The scan ruled out three exits. Use only cached facts for the skipped face.
+		nf := c.flags[i+spreadStep[from]]
+		if nf&cellKnown != 0 && (nf&cellEnterable == 0 || nf&(cellHoleKnown|cellHole) == cellHoleKnown) {
+			c.flags[i] |= cellNoAdjacentHole
+		}
 	}
 	return lowest
 }

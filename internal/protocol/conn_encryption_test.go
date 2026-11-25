@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,48 @@ func (c encryptionConn) Write(b []byte) (int, error)    { return c.w.Write(b) }
 func (encryptionConn) SetWriteDeadline(time.Time) error { return nil }
 
 const encryptedReadSecret = "0123456789abcdef"
+
+func TestCFB8MatchesOpenSSLVector(t *testing.T) {
+	var plaintext [32]byte
+	for i := range plaintext {
+		plaintext[i] = byte(i)
+	}
+	iv := plaintext[:aes.BlockSize]
+	block, err := aes.NewCipher(iv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, err := hex.DecodeString("0a22f796e1b93e9032cff804838adfc3a5e4b3ffdd47108575533e672ef5d8ef")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, direction := range []struct {
+		name    string
+		decrypt bool
+		in      []byte
+		want    []byte
+	}{
+		{"encrypt", false, plaintext[:], ciphertext},
+		{"decrypt", true, ciphertext, plaintext[:]},
+	} {
+		t.Run(direction.name, func(t *testing.T) {
+			for _, ends := range [][]int{{len(plaintext)}, {1, 15, 19, len(plaintext)}} {
+				stream := newCFB8(block, iv, direction.decrypt)
+				buf := bytes.Clone(direction.in)
+				start := 0
+				for _, end := range ends {
+					chunk := buf[start:end]
+					stream.XORKeyStream(chunk, chunk)
+					start = end
+				}
+				if !bytes.Equal(buf, direction.want) {
+					t.Errorf("chunk ends %v: got %x, want %x", ends, buf, direction.want)
+				}
+			}
+		})
+	}
+}
 
 func encryptReadFrames(t testing.TB, wire []byte) {
 	t.Helper()

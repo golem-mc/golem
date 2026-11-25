@@ -87,3 +87,44 @@ func BenchmarkScheduledTickQueueHeld(b *testing.B) {
 		p.Tick(now)
 	}
 }
+
+// BenchmarkDistantComparatorTouches touches 1,024 hoppers per tick, with no
+// comparator and with one outside every hopper's reach.
+func BenchmarkDistantComparatorTouches(b *testing.B) {
+	for _, name := range []string{"empty", "distant"} {
+		b.Run(name, func(b *testing.B) {
+			w := newTestWorld(b, NewFlatGenerator())
+			b.Cleanup(func() { w.Close() })
+			for cx := range int32(2) {
+				for cz := range int32(2) {
+					w.Acquire(ChunkPos{X: cx, Z: cz})
+				}
+			}
+			w.Acquire(ChunkPos{X: 12, Z: 0})
+			hopper := registry.BlockHopper.DefaultState()
+			for x := range int32(32) {
+				for z := range int32(32) {
+					w.SetBlock(x, 64, z, hopper)
+				}
+			}
+			if name == "distant" {
+				w.SetBlock(192, 64, 0, registry.BlockComparator.DefaultState())
+			}
+			w.FlushLighting()
+			p := NewPhysics(w)
+			var now int64
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				w.TickTime()
+				now++
+				for x := range int32(32) {
+					for z := range int32(32) {
+						w.Touch(x, 64, z)
+					}
+				}
+				p.Tick(now)
+			}
+		})
+	}
+}

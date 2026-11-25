@@ -1326,31 +1326,58 @@ func (w *World) updateRedstoneBlockCounts(old, state uint16) {
 	}
 }
 
-// Touch marks the block's chunk dirty without changing a block, vanilla's
-// setChanged for a block entity whose contents moved, so a chest's, furnace's
-// or hopper's contents reach disk at the next save. The position also waits for
-// the next physics tick to wake its comparators.
+// Touch marks a block entity's chunk dirty and queues a comparator wake from
+// its position. vanilla: BlockEntity.setChanged
 func (w *World) Touch(x, y, z int32) {
-	pos := ChunkPos{X: x >> 4, Z: z >> 4}
+	w.touchContainers([3]int32{x, y, z}, nil)
+}
+
+// TouchContainerPair marks both halves of a compound container changed on
+// the same tick. vanilla: CompoundContainer.setChanged
+func (w *World) TouchContainerPair(first, second [3]int32) {
+	w.touchContainers(first, &second)
+}
+
+func (w *World) touchContainers(first [3]int32, second *[3]int32) {
+	pos := ChunkPos{X: first[0] >> 4, Z: first[2] >> 4}
 	// A comparator added after the touch reads the container on placement.
 	if w.comparatorBlocks.Load() == 0 {
-		if loaded := w.nearAt(pos); loaded != nil && loaded.markDirty() {
-			return
-		}
-		w.mu.RLock()
-		defer w.mu.RUnlock()
-		if loaded := w.chunks[pos]; loaded != nil {
-			loaded.markDirty()
+		w.touchContainerChunk(pos)
+		if second != nil {
+			other := ChunkPos{X: second[0] >> 4, Z: second[2] >> 4}
+			if other != pos {
+				w.touchContainerChunk(other)
+			}
 		}
 		return
 	}
 	tick := w.timeWorld().worldAge.Load()
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	wake := w.comparatorBlocks.Load() != 0
+	w.touchContainerAt(first, pos, tick, wake)
+	if second != nil {
+		w.touchContainerAt(*second, ChunkPos{X: second[0] >> 4, Z: second[2] >> 4}, tick, wake)
+	}
+}
+
+func (w *World) touchContainerChunk(pos ChunkPos) {
+	if loaded := w.nearAt(pos); loaded != nil && loaded.markDirty() {
+		return
+	}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if loaded := w.chunks[pos]; loaded != nil {
+		loaded.markDirty()
+	}
+}
+
+// touchContainerAt requires w.mu for writing.
+func (w *World) touchContainerAt(at [3]int32, pos ChunkPos, tick int64, wake bool) {
 	if loaded, ok := w.loadedAt(pos); ok {
 		loaded.markDirty()
-		if w.comparatorBlocks.Load() != 0 {
-			w.containerChanges = append(w.containerChanges, containerChange{pos: posKey{x, y, z}, tick: tick})
+		if wake {
+			w.containerChanges = append(w.containerChanges, containerChange{pos: at, tick: tick})
 		}
 	}
 }
@@ -1372,6 +1399,7 @@ func (w *World) takeContainerChanges() []containerChange {
 	if w.comparatorBlocks.Load() == 0 {
 		return nil
 	}
+	changes = w.filterContainerChanges(changes)
 	if len(changes) < 2 {
 		return changes
 	}
@@ -1394,6 +1422,37 @@ func (w *World) takeContainerChanges() []containerChange {
 		unique = append(unique, c)
 	}
 	return unique
+}
+
+// filterContainerChanges keeps, in order and in place, the changes with a
+// comparator in the same Y section within three blocks horizontally.
+// analogOutputChanged checks the exact cells from each changed position.
+// The caller holds w.mu.
+func (w *World) filterContainerChanges(changes []containerChange) []containerChange {
+	kept := changes[:0]
+	for _, c := range changes {
+		if w.comparatorNear(c.pos) {
+			kept = append(kept, c)
+		}
+	}
+	return kept
+}
+
+// comparatorNear reports whether a loaded chunk within three blocks of pos
+// holds a comparator in pos's section. The caller holds w.mu.
+func (w *World) comparatorNear(pos posKey) bool {
+	if !contains(pos[1]) {
+		return false
+	}
+	si := (pos[1] - worldMinY) / sectionSize
+	for cx := (pos[0] - 3) >> 4; cx <= (pos[0]+3)>>4; cx++ {
+		for cz := (pos[2] - 3) >> 4; cz <= (pos[2]+3)>>4; cz++ {
+			if l, ok := w.loadedAt(ChunkPos{X: cx, Z: cz}); ok && l.chunk.sections[si].comparators != 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // takePendingGenerated returns and clears the generated chunks' scheduled

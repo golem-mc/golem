@@ -33,7 +33,7 @@ func enchGameEvent(o obj) string {
 func enchBlockState(v any) string {
 	if o, ok := v.(map[string]any); ok && o["type"] != nil {
 		p := obj(o)
-		if t := qualified(p.str("type")); t != "minecraft:simple_state_provider" && t != "minecraft:simple" {
+		if t := qualified(p.str("type")); t != "minecraft:simple" {
 			noShape("a block state provider of type %s", t)
 		}
 		unknownKeys(p, "a simple state provider", "type", "state")

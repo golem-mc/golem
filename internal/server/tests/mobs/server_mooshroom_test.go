@@ -5,6 +5,7 @@ import (
 
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -332,5 +333,32 @@ func assertAlliumStew(t *testing.T, stack protocol.ItemStack) {
 	effects := stack.SuspiciousStewEffectsOf()
 	if stack.ItemID != int32(registry.ItemSuspiciousStew) || len(effects) != 1 || effects[0].Effect != registry.MustMobEffect("minecraft:fire_resistance") || effects[0].Duration != 60 {
 		t.Fatalf("stew %+v effects %+v, want fire resistance for 60 ticks", stack, effects)
+	}
+}
+
+func TestBrownMooshroomRejectsShelfMushroom(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.MobTestConfig()
+	cfg.GameMode = "survival"
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Florist", servertest.OpsListing(t, "Florist"))
+	c.MoveToGround(2.5, 64, 5.5, true)
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand(`summon minecraft:mooshroom 5.5 64 5.5 {Type:"brown",NoAI:1b}`)
+	cow := c.ExpectMobSpawn(protocol.EntityTypeMooshroom)
+	srv.GiveSlot("Florist", player.HotbarSlot, protocol.ItemStack{ItemID: int32(registry.ItemShelfMushroom), Count: 2})
+	c.Settle()
+	c.UseOn(cow.EntityID)
+	c.Settle()
+	if got := srv.InventorySlot("Florist", player.HotbarSlot); got.ItemID != int32(registry.ItemShelfMushroom) || got.Count != 2 {
+		t.Fatalf("shelf mushroom stack %+v, want count 2", got)
+	}
+	srv.GiveSlot("Florist", player.HotbarSlot, servertest.ItemStack(t, "minecraft:bowl", 1))
+	c.Settle()
+	c.UseOn(cow.EntityID)
+	slot, stack := c.ExpectContainerSlot()
+	if slot != int16(player.HotbarSlot) || stack.ItemID != int32(registry.ItemMushroomStew) || stack.Count != 1 {
+		t.Fatalf("bowl gave slot %d %+v, want one mushroom stew in slot %d", slot, stack, player.HotbarSlot)
 	}
 }
