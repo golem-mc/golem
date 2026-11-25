@@ -759,9 +759,17 @@ func (p *Physics) scheduleSurvival(x, y, z int32, due int64) {
 	p.scheduleBooked(p.survivalBooked, x, y, z, due, survivalTickEvent)
 }
 
-// scheduleBooked queues an entry tagged event unless booked already holds the
-// position.
+// scheduleBooked queues an entry tagged event, booked for the cell's block,
+// unless booked already holds the position.
+// vanilla: ScheduledTick.type
 func (p *Physics) scheduleBooked(booked map[blockKey]bool, x, y, z int32, due int64, event uint8) {
+	p.scheduleBookedFor(booked, x, y, z, due, tickPriorityNormal, event, registry.BlockAir)
+}
+
+// scheduleBookedFor is scheduleBooked with the tick's priority and the block it
+// is booked for (BlockAir for the cell's block, read once the tick is known to
+// be new).
+func (p *Physics) scheduleBookedFor(booked map[blockKey]bool, x, y, z int32, due int64, priority int, event uint8, block registry.Block) {
 	_, unloaded := p.w.prepareTick(x, z, true, false)
 	p.discardUnloadedTicks(unloaded)
 	key := blockKey{x, y, z}
@@ -769,9 +777,12 @@ func (p *Physics) scheduleBooked(booked map[blockKey]bool, x, y, z int32, due in
 		return
 	}
 	booked[key] = true
+	if block == registry.BlockAir {
+		block = registry.BlockOf(p.w.BlockAt(x, y, z))
+	}
 	p.seq++
 	p.pushTick(scheduledTick{
-		pos: key, due: due, priority: tickPriorityNormal, seq: p.seq, event: event,
+		pos: key, due: due, priority: priority, seq: p.seq, event: event, block: block,
 	})
 }
 

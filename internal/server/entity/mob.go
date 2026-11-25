@@ -5697,6 +5697,9 @@ func (m *Mob) animalAIStep(t *tickView) {
 		m.catTick(t)
 	}
 	if m.NoAI {
+		if m.Type == TypePufferfish && m.Alive() {
+			t.events = m.pufferStings(t, t.events)
+		}
 		return
 	}
 	switch m.Type {

@@ -226,15 +226,25 @@ func (s *ItemStack) SetGlintOverride(override int8) {
 }
 
 // SetContainer writes the container contents, restoring the component if it was
-// removed.
+// removed; an empty slice resets the component to its default.
 func (s *ItemStack) SetContainer(contents []ItemStack) {
+	s.SetContainerPatch(contents, false)
+}
+
+// SetContainerPatch writes the minecraft:container patch, keeping an explicit
+// empty patch when keepEmpty is true and otherwise resetting to the item's
+// default.
+func (s *ItemStack) SetContainerPatch(contents []ItemStack, keepEmpty bool) {
+	if len(contents) == 0 && !keepEmpty {
+		s.ResetComponent(DataComponentContainer)
+		return
+	}
+	if contents == nil {
+		contents = []ItemStack{}
+	}
 	s.Container = contents
 	s.clearRemoval(DataComponentContainer)
-	if len(contents) > 0 {
-		s.NotePatch(DataComponentContainer)
-	} else {
-		s.ForgetPatch(DataComponentContainer)
-	}
+	s.NotePatch(DataComponentContainer)
 }
 
 // SetRecipes writes the knowledge book recipes, restoring the component if it

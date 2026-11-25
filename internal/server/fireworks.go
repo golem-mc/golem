@@ -172,13 +172,14 @@ func (s *Server) newFirework(w *world.World, stack protocol.ItemStack, x, y, z f
 	id := s.nextEntity()
 	rocket := entity.NewFirework(id, x, y, z, ownerID, flight, explosions, attached,
 		s.entitySeed(id))
-	carried := stack
-	carried.Count = 1
+	// The rocket keeps the launching stack's count; callers that launch one
+	// item of a stack pass a single-item stack.
+	// vanilla: FireworkRocketEntity.<init> copies the stack
 	it := &fireworkEntity{
 		rocket:    rocket,
 		w:         w,
 		uuid:      uuid.New(),
-		stack:     carried,
+		stack:     stack,
 		ownerID:   ownerID,
 		ownerUUID: ownerUUID,
 	}

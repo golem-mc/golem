@@ -1478,7 +1478,7 @@ func UntrustedComponents(stack protocol.ItemStack) []int32 {
 	if len(stack.StoredEnchantments) > 0 {
 		ids = append(ids, protocol.DataComponentStoredEnchantments)
 	}
-	if len(stack.Container) > 0 {
+	if stack.Container != nil {
 		ids = append(ids, protocol.DataComponentContainer)
 	}
 	for _, raw := range stack.Raw {
