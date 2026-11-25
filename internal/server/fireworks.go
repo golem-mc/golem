@@ -144,7 +144,7 @@ func (c *client) launchFireworkOnFace(hand, x, y, z, face int32, cursorX, cursor
 func (s *Server) spawnFirework(w *world.World, stack protocol.ItemStack, x, y, z float64,
 	ownerID int32, ownerUUID uuid.UUID, attached int32) *fireworkEntity {
 	it := s.newFirework(w, stack, x, y, z, ownerID, ownerUUID, attached)
-	s.registerFirework(it)
+	s.launchFirework(it)
 	return it
 }
 

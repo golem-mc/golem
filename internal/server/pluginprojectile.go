@@ -20,6 +20,12 @@ func (s *Server) launchThrown(it *thrownEntity) bool {
 	return s.projectileLaunched(it.uuid) && s.bodySpawned(it.uuid, plugin.SpawnDefault)
 }
 
+// launchFirework is launchArrow for a firework rocket.
+func (s *Server) launchFirework(it *fireworkEntity) bool {
+	s.registerFirework(it)
+	return s.projectileLaunched(it.uuid) && s.bodySpawned(it.uuid, plugin.SpawnDefault)
+}
+
 // projectileLaunched fires ProjectileLaunchEvent for a projectile just put in
 // the world and discards it on a cancel. It is registered first so the
 // handle resolves, so watchers in range see it appear and go in the same

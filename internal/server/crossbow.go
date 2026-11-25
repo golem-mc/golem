@@ -198,10 +198,11 @@ func (c *client) fireCrossbow(hand int32) {
 			rocket.rocket.ShotAtAngle = true
 			rocket.rocket.VX, rocket.rocket.VY, rocket.rocket.VZ = vx, vy, vz
 			rocket.rocket.Yaw, rocket.rocket.Pitch = yaw, pitch
-			s.registerFirework(rocket)
-			r := rocket.rocket
-			s.projectileSpawned(c.theWorld(), crossbow, enchantTarget{uuid: rocket.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25,
-				entityID: r.ID, causeID: c.player.EntityID})
+			if s.launchFirework(rocket) {
+				r := rocket.rocket
+				s.projectileSpawned(c.theWorld(), crossbow, enchantTarget{uuid: rocket.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25,
+					entityID: r.ID, causeID: c.player.EntityID})
+			}
 			c.shotSoundAndWear(hand, i, firework)
 			if c.heldItem(hand).Empty() {
 				break
