@@ -2,6 +2,7 @@ package entity
 
 import (
 	"iter"
+	"maps"
 
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/google/uuid"
@@ -197,6 +198,11 @@ func (ix *ChunkIndex[T]) Visit(pos world.ChunkPos, yield func(T) bool) bool {
 		}
 	}
 	return true
+}
+
+// Occupied yields the index's nonempty chunks under the bodies' lock.
+func (ix *ChunkIndex[T]) Occupied() iter.Seq[world.ChunkPos] {
+	return maps.Keys(ix.cells)
 }
 
 // ChunksIn yields chunks in the inclusive rectangle, skipping empty regions

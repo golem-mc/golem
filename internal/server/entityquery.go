@@ -41,6 +41,15 @@ func (a chunkArea) each(yield func(world.ChunkPos) bool) {
 }
 
 func smallChunkArea(b *[6]float64) (chunkArea, bool) {
+	a, ok := chunkAreaOf(b)
+	if !ok {
+		return chunkArea{}, false
+	}
+	width, depth := int64(a.maxX-a.minX+1), int64(a.maxZ-a.minZ+1)
+	return a, width*depth <= 256
+}
+
+func chunkAreaOf(b *[6]float64) (chunkArea, bool) {
 	// Bodies filed across a border can still overlap the box.
 	// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
 	const padding = 2.0
@@ -51,9 +60,11 @@ func smallChunkArea(b *[6]float64) (chunkArea, bool) {
 		math.MinInt32 <= minZ && minZ <= maxZ && maxZ < math.MaxInt32+1) {
 		return chunkArea{}, false
 	}
-	a := chunkArea{world.ChunkOf(minX), world.ChunkOf(minZ), world.ChunkOf(maxX), world.ChunkOf(maxZ)}
-	width, depth := int64(a.maxX-a.minX+1), int64(a.maxZ-a.minZ+1)
-	return a, width*depth <= 256
+	return chunkArea{world.ChunkOf(minX), world.ChunkOf(minZ), world.ChunkOf(maxX), world.ChunkOf(maxZ)}, true
+}
+
+func (a chunkArea) contains(pos world.ChunkPos) bool {
+	return pos.X >= a.minX && pos.X <= a.maxX && pos.Z >= a.minZ && pos.Z <= a.maxZ
 }
 
 func bodiesInChunks[E any](ix *entity.ChunkIndex[E], chunk *world.ChunkPos, area *chunkArea, yield func(E) bool) {
