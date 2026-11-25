@@ -146,14 +146,6 @@ func VibrationFrequency(event registry.GameEvent) int {
 	return vibrationFrequency[event]
 }
 
-// listensForVibrations reports whether a state is a vibration listener the
-// sections count.
-func listensForVibrations(state uint16) bool {
-	b := registry.BlockOf(state)
-	return b == registry.BlockSculkSensor || b == registry.BlockCalibratedSculkSensor ||
-		b == registry.BlockSculkShrieker
-}
-
 // offer keeps a tick's first candidate unless a nearer one, or an equally near
 // one of higher frequency, arrives that tick.
 // vanilla: VibrationSelector.shouldReplaceVibration
@@ -181,39 +173,7 @@ func vibrationStrength(distance float32, radius int) int {
 // cz), by squared block distance, skipping sections with none.
 // vanilla: EuclideanGameEventListenerRegistry.getPostableListenerPosition
 func (w *World) vibrationListenersNear(cx, cy, cz, r int32, buf []blockKey) []blockKey {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	minSec := max((cy-r-worldMinY)>>4, 0)
-	maxSec := min((cy+r-worldMinY)>>4, sectionCount-1)
-	for chx := (cx - r) >> 4; chx <= (cx+r)>>4; chx++ {
-		for chz := (cz - r) >> 4; chz <= (cz+r)>>4; chz++ {
-			loaded, ok := w.loadedAt(ChunkPos{X: chx, Z: chz})
-			if !ok {
-				continue
-			}
-			for sec := minSec; sec <= maxSec; sec++ {
-				s := &loaded.chunk.sections[sec]
-				if s.listening == 0 {
-					continue
-				}
-				baseY := worldMinY + sec*sectionSize
-				for y := max(cy-r, baseY); y <= min(cy+r, baseY+sectionSize-1); y++ {
-					for z := max(cz-r, chz<<4); z <= min(cz+r, chz<<4+15); z++ {
-						for x := max(cx-r, chx<<4); x <= min(cx+r, chx<<4+15); x++ {
-							dx, dy, dz := x-cx, y-cy, z-cz
-							if dx*dx+dy*dy+dz*dz > r*r {
-								continue
-							}
-							if listensForVibrations(s.at(blockIndex(x&15, y-baseY, z&15))) {
-								buf = append(buf, blockKey{x, y, z})
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return buf
+	return w.sculkCellsNear(cx, cy, cz, r, vibrationListenerCell, buf)
 }
 
 // Vibrate posts a vibration to the sensors in range; an inactive sensor with

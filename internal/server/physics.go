@@ -37,6 +37,20 @@ func (s *Server) blockPlaced(w *world.World, x, y, z int32, oldState uint16) {
 	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
 }
 
+// blockPlacedHooks is blockPlaced's share a block write owns: the placement
+// hooks and the shape passes, before a block entity's tag loads.
+func (s *Server) blockPlacedHooks(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyPlacedHooks(x, y, z, oldState)
+	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
+}
+
+// blockPlacedWake is blockPlaced's explicit neighbour update, run after
+// blockPlacedHooks and the tag load.
+func (s *Server) blockPlacedWake(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyPlacedWake(x, y, z, oldState)
+	s.finishBlockWake(w, x, y, z, oldState, changes, effects, primes, false, false, false)
+}
+
 // updateNeighboursOnBlockSet wakes neighbours after a successful non-strict
 // /setblock that left the block state unchanged. NotifyChanged skips that case.
 // vanilla: ServerLevel.updateNeighboursOnBlockSet
@@ -1347,6 +1361,9 @@ const (
 	// writeNeighborShapes is the shape pass of a flag-2 write: the rules
 	// reshape and the engine's shape pass, no neighbour update.
 	writeNeighborShapes
+	// writePlacedHooks runs a placement's hooks and shape passes within the
+	// write and leaves the explicit neighbour update to the caller.
+	writePlacedHooks
 	commandBlockWrite = writeShape | writeEntity | writeLight | writeWake
 	strictBlockWrite  = writeEntity | writeLight
 )
@@ -1396,7 +1413,10 @@ func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint
 		s.applyBlockUpdates(w, x, y, z, old, state, *updates)
 		return true
 	}
-	if policy&(writeWake|writeNeighborShapes) == writeNeighborShapes {
+	if policy&writePlacedHooks != 0 {
+		s.updateNeighborShapes(w, x, y, z)
+		s.blockPlacedHooks(w, x, y, z, old)
+	} else if policy&(writeWake|writeNeighborShapes) == writeNeighborShapes {
 		s.updateNeighborShapes(w, x, y, z)
 		s.physicsShapePass(w, x, y, z)
 	}

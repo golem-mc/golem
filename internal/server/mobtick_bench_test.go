@@ -97,21 +97,13 @@ func BenchmarkTickMobsCalves(b *testing.B) {
 			}
 		}
 		s.mobsMu.Unlock()
-		p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
-		p.SetPosition(player.Position{Y: float64(world.GroundLevel)})
-		p.UpdateVitals(func(v *player.Vitals) { v.GameMode = protocol.GameModeSpectator })
-		c := &client{srv: s, player: p}
-		c.dim.Store(dim)
-		s.mu.Lock()
-		s.assignPlayerSlot(c)
-		s.clients[p.UUID] = c
-		s.mu.Unlock()
-		b.Cleanup(func() {
-			s.mu.Lock()
-			clear(s.clients)
-			s.mu.Unlock()
-		})
+		benchMobSpectator(b)(s, rng)
 	})
+}
+
+// BenchmarkTickMobsFrogs ticks a thousand frogs with no tongue targets.
+func BenchmarkTickMobsFrogs(b *testing.B) {
+	benchTickMobs(b, []mobMix{{entity.TypeFrog, 1000}}, 96, 1000, benchMobSpectator(b))
 }
 
 // BenchmarkTickMobsDenseAvoiders packs mobs into a collection area with no threats.
@@ -124,23 +116,32 @@ func BenchmarkTickMobsDenseAvoiders(b *testing.B) {
 		{"wolves", entity.TypeWolf},
 	} {
 		b.Run(herd.name, func(b *testing.B) {
-			benchTickMobs(b, []mobMix{{herd.kind, 400}}, 20, 400, func(s *Server, _ *rand.Rand) {
-				p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
-				p.SetPosition(player.Position{Y: float64(world.GroundLevel)})
-				p.UpdateVitals(func(v *player.Vitals) { v.GameMode = protocol.GameModeSpectator })
-				c := &client{srv: s, player: p}
-				c.dim.Store(s.allDims()[0])
-				s.mu.Lock()
-				s.assignPlayerSlot(c)
-				s.clients[p.UUID] = c
-				s.mu.Unlock()
-				// The spectator has no connection to shut down with the server.
-				b.Cleanup(func() {
-					s.mu.Lock()
-					delete(s.clients, p.UUID)
-					s.mu.Unlock()
-				})
-			})
+			benchTickMobs(b, []mobMix{{herd.kind, 400}}, 20, 400, benchMobSpectator(b))
+		})
+	}
+}
+
+// BenchmarkTickMobsWolfPack ticks a thousand wolves with a spectator and no prey.
+func BenchmarkTickMobsWolfPack(b *testing.B) {
+	benchTickMobs(b, []mobMix{{entity.TypeWolf, 1000}}, 96, 1000, benchMobSpectator(b))
+}
+
+func benchMobSpectator(b *testing.B) func(*Server, *rand.Rand) {
+	return func(s *Server, _ *rand.Rand) {
+		p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
+		p.SetPosition(player.Position{Y: float64(world.GroundLevel)})
+		p.UpdateVitals(func(v *player.Vitals) { v.GameMode = protocol.GameModeSpectator })
+		c := &client{srv: s, player: p}
+		c.dim.Store(s.allDims()[0])
+		s.mu.Lock()
+		s.assignPlayerSlot(c)
+		s.clients[p.UUID] = c
+		s.mu.Unlock()
+		// The spectator has no connection to shut down with the server.
+		b.Cleanup(func() {
+			s.mu.Lock()
+			delete(s.clients, p.UUID)
+			s.mu.Unlock()
 		})
 	}
 
