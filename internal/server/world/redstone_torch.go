@@ -90,12 +90,3 @@ func (p *Physics) redstoneWakeAround(x, y, z int32, changes *[]BlockChange) {
 		p.wireWakeNeighbors(x+dirDelta[d][0], y+dirDelta[d][1], z+dirDelta[d][2], changes)
 	}
 }
-
-func (p *Physics) torchWillTick(x, y, z int32) bool {
-	for _, t := range p.queue {
-		if t.pos.x == x && t.pos.y == y && t.pos.z == z && t.due == p.now && !p.tickCancelled(t) {
-			return true
-		}
-	}
-	return false
-}

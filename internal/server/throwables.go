@@ -475,36 +475,36 @@ func (s *Server) summonThrown(w *world.World, name string, x, y, z float64, tag 
 }
 
 // savedThrownKind is the kind a chunk file keeps a thrown body of, by entity
-// type; false for a type that is no thrown kind.
-func savedThrownKind(typ registry.EntityType) (entity.ThrownKind, bool) {
-	switch typ {
-	case registry.EntityTypeSnowball:
+// id; false for an id that is no thrown kind.
+func savedThrownKind(id string) (entity.ThrownKind, bool) {
+	switch id {
+	case "minecraft:snowball":
 		return entity.ThrownSnowball, true
-	case registry.EntityTypeEgg:
+	case "minecraft:egg":
 		return entity.ThrownEgg, true
-	case registry.EntityTypeEnderPearl:
+	case "minecraft:ender_pearl":
 		return entity.ThrownEnderPearl, true
-	case registry.EntityTypeSplashPotion:
+	case "minecraft:splash_potion":
 		return entity.ThrownSplashPotion, true
-	case registry.EntityTypeLingeringPotion:
+	case "minecraft:lingering_potion":
 		return entity.ThrownLingeringPotion, true
-	case registry.EntityTypeExperienceBottle:
+	case "minecraft:experience_bottle":
 		return entity.ThrownExperienceBottle, true
-	case registry.EntityTypeBreezeWindCharge:
+	case "minecraft:breeze_wind_charge":
 		return entity.ThrownBreezeWindCharge, true
-	case registry.EntityTypeWindCharge:
+	case "minecraft:wind_charge":
 		return entity.ThrownWindCharge, true
-	case registry.EntityTypeSmallFireball:
+	case "minecraft:small_fireball":
 		return entity.ThrownSmallFireball, true
-	case registry.EntityTypeFireball:
+	case "minecraft:fireball":
 		return entity.ThrownLargeFireball, true
-	case registry.EntityTypeDragonFireball:
+	case "minecraft:dragon_fireball":
 		return entity.ThrownDragonFireball, true
-	case registry.EntityTypeWitherSkull:
+	case "minecraft:wither_skull":
 		return entity.ThrownWitherSkull, true
-	case registry.EntityTypeShulkerBullet:
+	case "minecraft:shulker_bullet":
 		return entity.ThrownShulkerBullet, true
-	case registry.EntityTypeLlamaSpit:
+	case "minecraft:llama_spit":
 		return entity.ThrownLlamaSpit, true
 	}
 	return 0, false
@@ -513,21 +513,15 @@ func savedThrownKind(typ registry.EntityType) (entity.ThrownKind, bool) {
 // thrownIsSaved reports whether a thrown body is of a kind the chunk file
 // keeps.
 func thrownIsSaved(it *thrownEntity) bool {
-	_, ok := savedThrownKind(registry.EntityType(it.throwable.Kind.EntityType()))
+	_, ok := savedThrownKind(registry.EntityTypes[it.throwable.Kind.EntityType()])
 	return ok
 }
 
-// thrownOfTag builds the thrown body a saved compound describes, or nil for
+// thrownOfTag builds the thrown body of the saved kind and id a compound describes, or nil for
 // one with no place, identity or stack. The owner's entity ID is resolved
 // when the wake registers it.
 // vanilla: ThrowableItemProjectile.readAdditionalSaveData
-func (s *Server) thrownOfTag(w *world.World, compound nbt.Compound) *thrownEntity {
-	id, _ := nbt.Get[nbt.String](compound, "id")
-	typ, _ := registry.EntityTypeByName(string(id))
-	kind, ok := savedThrownKind(typ)
-	if !ok {
-		return nil
-	}
+func (s *Server) thrownOfTag(w *world.World, kind entity.ThrownKind, id string, compound nbt.Compound) *thrownEntity {
 	x, y, z, ok := entityPositionOfTag(compound)
 	if !ok {
 		return nil
@@ -540,7 +534,7 @@ func (s *Server) thrownOfTag(w *world.World, compound nbt.Compound) *thrownEntit
 	// vanilla: ThrowableItemProjectile.getItem, getDefaultItem
 	stack, ok := storedItemStackOf(compound)
 	if kind == entity.ThrownLlamaSpit || !ok || stack.Empty() {
-		item, found := registry.ItemID(thrownDefaultItem(kind, string(id)))
+		item, found := registry.ItemID(thrownDefaultItem(kind, id))
 		if !found {
 			return nil
 		}

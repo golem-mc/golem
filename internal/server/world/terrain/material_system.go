@@ -46,7 +46,11 @@ func (s *MaterialSystem) surfaceDepth(x, z int32, rnd levelgen.RandomSource) int
 
 // band is vanilla: MaterialSystem.getBand.
 func (s *MaterialSystem) band(x, y, z int32) Material {
-	offset := int32(math.Floor(float64(float32(s.clayBandsOffset.Get3D(float64(x), 0, float64(z))*4.0)) + 0.5))
+	return s.bandFromNoise(y, s.clayBandsOffset.Get3D(float64(x), 0, float64(z)))
+}
+
+func (s *MaterialSystem) bandFromNoise(y int32, sample float32) Material {
+	offset := int32(math.Floor(float64(float32(sample*4.0)) + 0.5))
 	return s.bands[(y+offset+clayBandCount)%clayBandCount]
 }
 
@@ -144,17 +148,19 @@ func (s *MaterialSystem) BuildSurface(chunk SurfaceChunk, chunkX, chunkZ int32, 
 			ctx.updateXZ(blockX, blockZ, gradX, gradZ)
 			stoneAbove, waterHeight, nextCeilingStoneY := int32(0), int32(noWater), int32(math.MaxInt32)
 			for y := height; y >= minY; y-- {
-				switch col.block(y) {
-				case ColumnAir:
-					stoneAbove, waterHeight = 0, noWater
-					continue
-				case ColumnFluid:
-					if waterHeight == noWater {
-						waterHeight = y + 1
+				// y at or above nextCeilingStoneY lies in the stone run already
+				// classified; rule writes only touch the current y.
+				if y < nextCeilingStoneY {
+					switch col.block(y) {
+					case ColumnAir:
+						stoneAbove, waterHeight = 0, noWater
+						continue
+					case ColumnFluid:
+						if waterHeight == noWater {
+							waterHeight = y + 1
+						}
+						continue
 					}
-					continue
-				}
-				if nextCeilingStoneY >= y {
 					nextCeilingStoneY = wayBelowMinY
 					for lookahead := y - 1; lookahead >= minY-1; lookahead-- {
 						if !isStone(col.block(lookahead)) {

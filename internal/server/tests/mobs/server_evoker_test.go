@@ -1,14 +1,17 @@
 package mobs
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -156,6 +159,85 @@ func TestFangsSpareAnIllager(t *testing.T) {
 	}
 }
 
+// vanilla: EvokerFangs.dealDamageTo, Entity.isAlliedTo, OwnableEntity.getRootOwner
+func TestFangsRespectMobAlliances(t *testing.T) {
+	t.Parallel()
+	srv, connect := servertest.Start(t, servertest.HostileTestConfig())
+	c := connect().Join("Observer")
+	servertest.HoldTicks(t, srv)
+	srv.RunLine("team add red")
+	srv.RunLine("team add blue")
+	srv.RunLine("team join red Observer")
+	spawn := func(kind, team string, x, z float64) int32 {
+		id := srv.SpawnMob(kind, x, 64, z)
+		srv.SetMobNoAI(id)
+		if team != "" {
+			identity, _ := srv.MobUUID(id)
+			srv.RunLine("team join " + team + " " + identity)
+		}
+		return id
+	}
+	evoker := spawn(evokerKind, "", 1.5, 14.5)
+	redEvoker := spawn(evokerKind, "red", 4.5, 14.5)
+	blueIllager := spawn("minecraft:pillager", "blue", 7.5, 14.5)
+	redCow := spawn("minecraft:cow", "red", 10.5, 14.5)
+	middleVex := spawn(vexKind, "", 13.5, 14.5)
+	srv.SetMobVexOwner(middleVex, evoker)
+
+	for i, tc := range []struct {
+		name, kind, team string
+		caster, summoner int32
+		reverse, cycle   bool
+		playerRoot       bool
+		damage           float64
+	}{
+		{name: "same team", kind: "minecraft:cow", team: "red", caster: redEvoker},
+		{name: "unteamed illagers", kind: "minecraft:vindicator", caster: evoker},
+		{name: "different teams", kind: "minecraft:vindicator", team: "blue", caster: redEvoker, damage: 6},
+		{name: "only one on a team", kind: "minecraft:vindicator", caster: redEvoker, damage: 6},
+		{name: "root is the caster", kind: vexKind, caster: evoker, summoner: middleVex},
+		{name: "root is a teammate", kind: vexKind, caster: redEvoker, summoner: redCow},
+		{name: "root is an online teammate", kind: vexKind, caster: redEvoker, playerRoot: true},
+		{name: "root is an enemy illager", kind: vexKind, caster: redEvoker, summoner: blueIllager, damage: 6},
+		{name: "victim considers the owner an ally", kind: evokerKind, caster: middleVex, reverse: true},
+		{name: "cycle has no root", kind: vexKind, caster: evoker, summoner: middleVex, cycle: true, damage: 6},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			x, z := 2.5+3*float64(i%4), 2.5+3*float64(i/4)
+			target := spawn(tc.kind, tc.team, x, z)
+			if tc.summoner != 0 {
+				srv.SetMobVexOwner(target, tc.summoner)
+			}
+			if tc.playerRoot {
+				identity, _ := srv.MobUUID(target)
+				owner := nbt.UUIDToIntArray(protocol.OfflineUUID("Observer"))
+				srv.RunLine(fmt.Sprintf("data merge entity %s {owner:[I;%d,%d,%d,%d]}", identity, owner[0], owner[1], owner[2], owner[3]))
+			}
+			if tc.reverse || tc.cycle {
+				srv.SetMobVexOwner(middleVex, target)
+			}
+			before, ok := srv.MobHealth(target)
+			if !ok {
+				t.Fatal("target missing before the bite")
+			}
+			srv.SpawnFangs(x, 64, z, tc.caster)
+			servertest.RunTicks(t, srv, 8)
+			if got, ok := srv.MobHealth(target); !ok || got != before-tc.damage {
+				t.Errorf("health after bite = %v (found %v), want %v", got, ok, before-tc.damage)
+			}
+		})
+	}
+
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	before := srv.PlayerHealth("Observer")
+	srv.SpawnFangs(0.5, 64, 0.5, redEvoker)
+	servertest.RunTicks(t, srv, 8)
+	if got := srv.PlayerHealth("Observer"); got != before {
+		t.Errorf("same-team player health after bite = %v, want %v", got, before)
+	}
+}
+
 // TestAnEvokerTurnsBlueSheepRed: with nothing to hunt, the wololo spell dyes
 // a blue sheep in reach red, and mob griefing off forbids it.
 // vanilla: Evoker.EvokerWololoSpellGoal
@@ -175,6 +257,88 @@ func TestAnEvokerTurnsBlueSheepRed(t *testing.T) {
 		}
 		if got := srv.MobColour(sheep); got != want {
 			t.Errorf("mob_griefing %v: sheep colour = %q, want %q", griefing, got, want)
+		}
+	}
+}
+
+// TestFangsHurtAMobWithTheJawsAsDirectSource: with the evoker and the jaws on
+// opposite sides of the victim, the damage is the evoker's, the event names
+// the spawned jaws as the direct entity, and the shove points away from them.
+// vanilla: EvokerFangs.dealDamageTo, DamageSource.getSourcePosition
+func TestFangsHurtAMobWithTheJawsAsDirectSource(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.HostileTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Target")
+	servertest.HoldTicks(t, srv)
+	evoker := srv.SpawnMob(evokerKind, 14.5, 64, 0.5)
+	srv.SetMobNoAI(evoker)
+	pig := srv.SpawnMob("minecraft:pig", 10.5, 64, 0.5)
+	srv.SetMobNoAI(pig)
+	srv.SpawnFangs(9.7, 64, 0.5, evoker)
+	var fangs, cause, direct int32
+	var vx float64
+	var hurt, shoved bool
+	// A zero-warmup fang bites on its eighth tick.
+	c.ReadTicks(srv, 8, func(pid int32, data []byte) bool {
+		switch pid {
+		case protocol.IDPlaySpawnEntity:
+			if kind, e, _, _ := servertest.ReadSpawnEntity(t, data); kind == int32(registry.EntityTypeEvokerFangs) {
+				fangs = e.EntityID
+			}
+		case protocol.IDPlayDamageEvent:
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() == pig {
+				r.ReadVarInt()
+				cause, direct = r.ReadVarInt(), r.ReadVarInt()
+				hurt = true
+			}
+		case protocol.IDPlaySetEntityMotion:
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() == pig {
+				vx, _, _ = r.ReadLpVec3()
+				shoved = shoved || hurt
+			}
+		}
+		return false
+	})
+	if fangs == 0 || !hurt {
+		t.Fatalf("fangs spawned = %d, pig hurt = %v", fangs, hurt)
+	}
+	if cause != evoker+1 {
+		t.Errorf("damage cause = %d, want the evoker %d", cause, evoker+1)
+	}
+	if direct != fangs+1 {
+		t.Errorf("direct entity = %d, want the jaws %d", direct, fangs+1)
+	}
+	if !shoved || vx <= 0 {
+		t.Errorf("pig motion after the bite = %v (sent %v), want a shove away from the jaws (+x)", vx, shoved)
+	}
+}
+
+// TestFangsFindOversizedMobsOnlyThroughTheirSections: a ghast scaled to 64
+// blocks wide, filed two sections away, keeps its health although its box
+// overlaps the bite, while one filed in the searched sections is hurt.
+// vanilla: EvokerFangs.tick, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestFangsFindOversizedMobsOnlyThroughTheirSections(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.HostileTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, _ := servertest.Join(t, cfg, "Observer")
+	servertest.HoldTicks(t, srv)
+	var ghasts [2]int32
+	for i, x := range []float64{46.5, 30.5} {
+		ghasts[i] = srv.SpawnMob("minecraft:ghast", x, 80, 0.5)
+		srv.SetMobNoAI(ghasts[i])
+		identity, _ := srv.MobUUID(ghasts[i])
+		srv.RunLine("attribute " + identity + " minecraft:scale base set 16")
+	}
+	srv.SpawnFangs(16, 80, 0.5, 0)
+	servertest.RunTicks(t, srv, 8)
+	for i, want := range []float64{10, 4} {
+		got, ok := srv.MobHealth(ghasts[i])
+		if !ok || got != want {
+			t.Errorf("ghast %d health = %v (present %v), want %v", i, got, ok, want)
 		}
 	}
 }

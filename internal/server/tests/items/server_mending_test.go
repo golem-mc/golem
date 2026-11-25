@@ -1,10 +1,10 @@
 package items
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
 // The mending tests: the repair pass of an orb's pickup, read from the wire
@@ -54,5 +54,32 @@ func TestAnOrbMendsADamagedHeldItem(t *testing.T) {
 		report := w.LastExperience()
 		t.Errorf("the bar took %d points (level %d, progress %g) of a pickup the pickaxe mended whole",
 			report.Total, report.Level, report.Progress)
+	}
+}
+
+func TestAnOrbSkipsAnUnbreakableMendingTool(t *testing.T) {
+	t.Parallel()
+	cfg, _ := servertest.ExperienceSetup(t)
+	srv, c, _ := servertest.JoinAs(t, cfg, "Mender")
+	servertest.HoldTicks(t, srv)
+
+	pick := servertest.EnchantedStack(t, "minecraft:diamond_pickaxe", "minecraft:mending", 1)
+	pick.Damage = 100
+	pick.Unbreakable = true
+	srv.GiveSlot("Mender", player.HotbarSlot, pick)
+
+	w := servertest.NewOrbWatcher(t, c)
+	srv.SpawnOrb(0.5, 64, 0.5, 5)
+	// The server sends the XP update before announcing the pickup.
+	w.ReadUntilTicks(srv, 240, func() bool { return len(w.Takes) > 0 })
+
+	if len(w.Takes) != 1 {
+		t.Fatalf("orb pickups = %d, want 1", len(w.Takes))
+	}
+	if got := srv.InventorySlot("Mender", player.HotbarSlot).Damage; got != 100 {
+		t.Errorf("pickaxe damage after pickup = %d, want 100", got)
+	}
+	if got := w.LastExperience().Total; got != 5 {
+		t.Errorf("experience total after pickup = %d, want 5", got)
 	}
 }
