@@ -46,11 +46,6 @@ func faceStep(face int32) (int32, int32, int32) {
 	return offset[0], offset[1], offset[2]
 }
 
-// blockFacing reads a block's facing property, down if it has none.
-func blockFacing(w *world.World, x, y, z int32) int32 {
-	return stateFacing(w.BlockAt(x, y, z))
-}
-
 // stateFacing is the face a state points at, FaceBottom for one without facing.
 func stateFacing(id uint16) int32 {
 	if !registry.StateHasFacing(id) {
