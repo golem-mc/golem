@@ -271,12 +271,6 @@ func ApplyEffectChange(a *player.Attributes, ch effect.Change) {
 	}
 }
 
-// UpdateEffectAttributesOf is UpdateEffectAttributes for the modifiers on one
-// attribute.
-func UpdateEffectAttributesOf(a *player.Attributes, active []effect.Instance, attribute registry.AttributeID) {
-	updateEffectAttributes(a, active, func(em effectModifier) bool { return em.attribute == attribute })
-}
-
 func updateEffectAttributes(a *player.Attributes, active []effect.Instance, want func(effectModifier) bool) {
 	for _, em := range effectModifiers {
 		if !want(em) {
