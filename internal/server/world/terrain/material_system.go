@@ -46,7 +46,11 @@ func (s *MaterialSystem) surfaceDepth(x, z int32, rnd levelgen.RandomSource) int
 
 // band is vanilla: MaterialSystem.getBand.
 func (s *MaterialSystem) band(x, y, z int32) Material {
-	offset := int32(math.Floor(float64(float32(s.clayBandsOffset.Get3D(float64(x), 0, float64(z))*4.0)) + 0.5))
+	return s.bandFromNoise(y, s.clayBandsOffset.Get3D(float64(x), 0, float64(z)))
+}
+
+func (s *MaterialSystem) bandFromNoise(y int32, sample float32) Material {
+	offset := int32(math.Floor(float64(float32(sample*4.0)) + 0.5))
 	return s.bands[(y+offset+clayBandCount)%clayBandCount]
 }
 

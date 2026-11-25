@@ -94,7 +94,8 @@ func ifTrue(cond materialCondition, then materialRule) materialRule {
 
 // bandlands is vanilla: BandlandsRule.
 func bandlands(c *materialContext) ruleFn {
-	return func(x, y, z int32) (Material, bool) { return c.sys.band(x, y, z), true }
+	sample := c.noise(c.sys.clayBandsOffset, false)
+	return func(_, y, _ int32) (Material, bool) { return c.sys.bandFromNoise(y, float32(sample())), true }
 }
 
 // oreVein is vanilla: OreVeinRule.
