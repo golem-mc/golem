@@ -1,20 +1,33 @@
 package registry
 
-// PackLayers is a pack load's context providers and slot sources, which its
-// loot and advancements resolve names against before Publish puts them in
-// force, and the tags in force when the load began. A nil *PackLayers reads
-// the layers in force.
+// PackLayers holds the registry lookups used to decode candidate pack resources
+// and compile functions. A nil *PackLayers reads the layers in force.
 type PackLayers struct {
-	tags        *tagState
-	itemTags    bool
+	tags        *TagLookup
+	publishTags bool
 	providers   *contextProviderLayer
 	slotSources map[string]SlotSource
+	predicates  map[string]LootCondition
 }
 
 // StagePackLayers starts a pack load's layers: no pack context providers
 // or slot sources yet, and the tags now in force.
 func StagePackLayers() *PackLayers {
-	return &PackLayers{tags: tagsNow.Load(), itemTags: itemTagsPacked.Load(), providers: &contextProviderLayer{}}
+	return &PackLayers{tags: CurrentTagLookup(), providers: &contextProviderLayer{}}
+}
+
+// SetTags stages a replacement tag lookup for decoding and publication.
+func (l *PackLayers) SetTags(tags *TagLookup) {
+	l.tags = tags
+	l.publishTags = true
+}
+
+// TagLookup returns the tag snapshot used to decode pack resources.
+func (l *PackLayers) TagLookup() *TagLookup {
+	if l == nil {
+		return CurrentTagLookup()
+	}
+	return l.tags
 }
 
 // SetContextProviders stages the packs' context int and float providers.
@@ -26,18 +39,27 @@ func (l *PackLayers) SetContextProviders(ints, floats map[string][]byte) {
 // map until Publish.
 func (l *PackLayers) SetSlotSources(sources map[string]SlotSource) { l.slotSources = sources }
 
-// Publish puts the staged context providers and slot sources in force.
-func (l *PackLayers) Publish() {
-	packContextProviders.Store(l.providers)
-	ApplyPackSlotSources(l.slotSources)
+// SetPredicates stages the decoded pack predicates for function compilation.
+func (l *PackLayers) SetPredicates(predicates map[string]LootCondition) { l.predicates = predicates }
+
+// FindPredicate reads a staged predicate or falls back to the built-ins.
+func (l *PackLayers) FindPredicate(name string) (LootCondition, bool) {
+	if l == nil {
+		return FindPredicate(name)
+	}
+	if cond, ok := l.predicates[name]; ok {
+		return cond, true
+	}
+	return findBuiltinPredicate(name)
 }
 
-// RestoreTags puts the tags in force at StagePackLayers back. It bumps the
-// tag generation: caches keyed on it may have been filled from tags since.
-func (l *PackLayers) RestoreTags() {
-	tagsNow.Store(l.tags)
-	itemTagsPacked.Store(l.itemTags)
-	tagsGeneration.Add(1)
+// Publish puts the staged tags, context providers and slot sources in force.
+func (l *PackLayers) Publish() {
+	if l.publishTags {
+		l.tags.Publish()
+	}
+	packContextProviders.Store(l.providers)
+	ApplyPackSlotSources(l.slotSources)
 }
 
 // HasContextProvider reports whether a context provider entry has the

@@ -439,8 +439,8 @@ var unseededEntityKeys = map[[2]string]bool{
 	{"minecraft:shulker", "Rotation"}:     true, // vanilla: LivingEntity.<init> (unseeded yaw; end-city sentries skip finalizeSpawn)
 }
 
-// tagsEqual is reflect.DeepEqual, except that two lists with no items are
-// equal whatever their element types, at any depth.
+// tagsEqual compares NBT tags by value, treating plain and ordered compounds
+// alike and treating any two empty lists as equal regardless of element type.
 func tagsEqual(a, b nbt.Tag) bool {
 	switch a := a.(type) {
 	case nbt.List:
@@ -452,9 +452,9 @@ func tagsEqual(a, b nbt.Tag) bool {
 			return true
 		}
 		return a.Elem == b.Elem && slices.EqualFunc(a.Items, b.Items, tagsEqual)
-	case nbt.Compound:
-		b, ok := b.(nbt.Compound)
-		return ok && maps.EqualFunc(a, b, tagsEqual)
+	case nbt.CompoundTag:
+		b, ok := b.(nbt.CompoundTag)
+		return ok && maps.EqualFunc(a.Entries(), b.Entries(), tagsEqual)
 	}
 	return reflect.DeepEqual(a, b)
 }
@@ -609,15 +609,15 @@ func (rep *blockEntityReport) addChunk(v, o *chunkData, pairs map[[2]string]int,
 		default:
 			rep.Vanilla++
 			rep.Ours++
-			if reflect.DeepEqual(vb["id"], ob["id"]) {
+			if tagsEqual(vb["id"], ob["id"]) {
 				rep.SameID++
 			}
-			if reflect.DeepEqual(vb, ob) {
+			if tagsEqual(vb, ob) {
 				rep.Identical++
 				continue
 			}
 			for key, tag := range vb {
-				if other, ok := ob[key]; !ok || !reflect.DeepEqual(tag, other) {
+				if other, ok := ob[key]; !ok || !tagsEqual(tag, other) {
 					keys = append(keys, key)
 				}
 			}

@@ -3,6 +3,9 @@ package entity
 import (
 	"math/rand"
 	"testing"
+
+	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // TestLlamaJoinsALeashedCaravanAndLeavesWhenItBreaks: a llama falls in behind
@@ -149,5 +152,157 @@ func TestLlamaCaravanSearchInALargeHerdMatchesTheWholeHerd(t *testing.T) {
 	}
 	if joined == 0 {
 		t.Fatal("no llama joined a caravan")
+	}
+}
+
+// TestCaravanSearchStaysInTheEntitySectionWindow: a scaled lead whose box
+// reaches the search window but whose position is filed in a section the
+// window misses is not joined, in the herd scan and the grid alike.
+// vanilla: LlamaFollowCaravanGoal.canUse, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestCaravanSearchStaysInTheEntitySectionWindow(t *testing.T) {
+	w := newTestWorld()
+	for _, grid := range []bool{false, true} {
+		herd := make([]*Mob, 0, 70)
+		lead := NewMob(TypeLlama, 1, 160.5, 64, 159.5, 1)
+		lead.LeashHolderID = 99
+		lead.SetAttributes(lead.BuildAttributes(nbt.List{}))
+		lead.attrs.SetBase(registry.AttributeScale, 12)
+		follower := NewMob(TypeLlama, 2, 146.5, 64, 159.5, 2)
+		herd = append(herd, lead, follower)
+		for i := range 64 {
+			// The grid case fills the candidate list past the grid's
+			// threshold with leashed llamas far from the follower.
+			if grid {
+				far := NewMob(TypeLlama, int32(10+i), 1000.5+float64(i)*20, 64, 0.5, int64(i))
+				far.LeashHolderID = 99
+				herd = append(herd, far)
+				continue
+			}
+			herd = append(herd, NewMob(TypeCow, int32(10+i), 0.5+float64(i), 64, 0.5, int64(i)))
+		}
+		view := &tickView{w: w, others: herd}
+		if grid {
+			g := takePushGrid(len(herd), nil)
+			g.build(herd)
+			for _, m := range herd {
+				m.push = g
+			}
+			defer g.release()
+		}
+		if (&caravanGoal{m: follower, speed: llamaCaravanSpeed}).CanStart(view) {
+			t.Errorf("grid=%v: the llama joined a lead filed outside the search sections", grid)
+		}
+		follower.X = 150.5
+		if !(&caravanGoal{m: follower, speed: llamaCaravanSpeed}).CanStart(view) {
+			t.Errorf("grid=%v: the llama did not join a lead in the search sections", grid)
+		}
+	}
+}
+
+// TestCaravanSearchReachesTheSectionBelow: the window reaches 4 blocks below
+// the query box, so a tall lead filed in the section under it is found.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestCaravanSearchReachesTheSectionBelow(t *testing.T) {
+	w := newTestWorld()
+	lead := NewMob(TypeLlama, 1, 156.5, 63, 159.5, 1)
+	lead.LeashHolderID = 99
+	lead.SetAttributes(lead.BuildAttributes(nbt.List{}))
+	lead.attrs.SetBase(registry.AttributeScale, 4)
+	follower := NewMob(TypeLlama, 2, 150.5, 70, 159.5, 2)
+	view := &tickView{w: w, others: []*Mob{lead, follower}}
+	if !(&caravanGoal{m: follower, speed: llamaCaravanSpeed}).CanStart(view) {
+		t.Error("the llama missed a lead filed in the section below the window")
+	}
+}
+
+// TestCaravanGridFindsAScaledLeadAcrossCells: the grid's reach counts the
+// scale attribute, so a scale-12 lead whose box overlaps the window is found
+// with the list forced onto the grid.
+// vanilla: LlamaFollowCaravanGoal.canUse
+func TestCaravanGridFindsAScaledLeadAcrossCells(t *testing.T) {
+	lead := NewMob(TypeLlama, 1, 164.1, 64, 159.5, 1)
+	lead.LeashHolderID = 99
+	lead.SetAttributes(lead.BuildAttributes(nbt.List{}))
+	lead.attrs.SetBase(registry.AttributeScale, 12)
+	follower := NewMob(TypeLlama, 2, 149.9, 64, 159.5, 2)
+	herd := []*Mob{lead, follower}
+	for i := range 64 {
+		far := NewMob(TypeLlama, int32(10+i), 1000.5+float64(i)*20, 64, 0.5, int64(i))
+		far.LeashHolderID = 99
+		herd = append(herd, far)
+	}
+	g := takePushGrid(len(herd), nil)
+	defer g.release()
+	g.build(herd)
+	for _, m := range herd {
+		m.push = g
+	}
+	view := &tickView{w: newTestWorld(), others: herd}
+	if !(&caravanGoal{m: follower, speed: llamaCaravanSpeed}).CanStart(view) || follower.Horse.head != lead {
+		t.Error("the grid missed the scale-12 lead overlapping the search window")
+	}
+}
+
+// TestPushIgnoresAScaledBodyFiledInTheNextSection: a scale-16 cow whose box
+// overlaps an ordinary one is neither pushed nor counted when its position is
+// filed outside the sections the ordinary cow's box touches, grid or not.
+// vanilla: LivingEntity.pushEntities, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestPushIgnoresAScaledBodyFiledInTheNextSection(t *testing.T) {
+	w := newTestWorld()
+	for _, x := range []float64{146, 142} {
+		cow := NewMob(TypeCow, 1, 139.5, 64, 0.5, 1)
+		giant := NewMob(TypeCow, 2, x, 64, 0.5, 2)
+		giant.SetAttributes(giant.BuildAttributes(nbt.List{}))
+		giant.attrs.SetBase(registry.AttributeScale, 16)
+		herd := []*Mob{cow, giant}
+		g := takePushGrid(len(herd), nil)
+		g.build(herd)
+		for _, m := range herd {
+			m.push = g
+		}
+		cow.pushStep(w, nil, herd, nil)
+		g.release()
+		// x=146 is section 9, the cow's box reaches section 8 only.
+		if pushed := cow.VX != 0; pushed != (x == 142) {
+			t.Errorf("giant at x=%v: cow pushed=%v", x, pushed)
+		}
+	}
+}
+
+// TestGatherSkipsEmptyCellsOfAWideQuery: a scale-16 slime far off widens every
+// query, and the sparse grid still hands out the same candidates in the same
+// order as a full scan.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestGatherSkipsEmptyCellsOfAWideQuery(t *testing.T) {
+	herd := make([]*Mob, 0, 41)
+	for i := range 40 {
+		herd = append(herd, NewMob(TypeZombie, int32(i), float64(i%8)*0.5-2, 64, float64(i/8)*0.5-1, int64(i)))
+	}
+	slime := NewMob(TypeSlime, 100, 100000.5, 64, 0.5, 100)
+	slime.Size = 127
+	slime.SetAttributes(slime.BuildAttributes(nbt.List{}))
+	slime.attrs.SetBase(registry.AttributeScale, 16)
+	herd = append(herd, slime)
+	g := takePushGrid(len(herd), nil)
+	defer g.release()
+	g.build(herd)
+	if len(g.dense) != 0 {
+		t.Fatal("the herd should be sparse")
+	}
+	m := herd[0]
+	var want []*Mob
+	for _, o := range herd {
+		if boxesOverlap(m.X, m.Y, m.Z, m.width(), m.height(), o.X, o.Y, o.Z, o.width(), o.height()) {
+			want = append(want, o)
+		}
+	}
+	got := g.candidates(m, 0)
+	if len(got) != len(want) {
+		t.Fatalf("got %d candidates, want %d", len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("candidate %d differs", i)
+		}
 	}
 }

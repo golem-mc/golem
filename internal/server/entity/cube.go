@@ -315,11 +315,10 @@ type Split struct {
 	Size    int
 }
 
-// Splits is AbstractCubeMob.remove for a dead cube above the smallest: two
-// to four half-size cubes at the corners of a square half its width, half a
-// block up, facing randomly.
+// Splits returns the smaller cubes to spawn when this cube dies.
+// vanilla: AbstractCubeMob.remove, SulfurCube.getSplitCount
 func (m *Mob) Splits() []Split {
-	if !m.isCube() || m.Size <= 1 {
+	if !m.isCube() || m.Size <= 1 || m.SulfurPrimed() {
 		return nil
 	}
 	offset := float32(m.width()) / 2

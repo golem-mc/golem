@@ -4,12 +4,12 @@ import (
 	"math"
 	"testing"
 
-	"github.com/golem-mc/golem/internal/server/servertest"
-
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -119,6 +119,42 @@ func TestASpearJabPiercesEveryBodyInItsReach(t *testing.T) {
 		if got := mobHealthNow(t, srv, id); math.Abs(got-want) > 0.01 {
 			t.Errorf("zombie %d after the jab = %v, want %v", id, got, want)
 		}
+	}
+	if got := srv.InventorySlot("Piercer", player.HotbarSlot).Damage; got != 2 {
+		t.Errorf("the spear's damage after a jab through two bodies = %d, want 2", got)
+	}
+}
+
+func TestASpearJabHitsBodiesAcrossChunkBorders(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.CombatTestConfig(), "Piercer", func(s *server.Server) {
+		servertest.FreezeUntilHeld(t, s)
+	})
+	servertest.HoldTicks(t, srv)
+	c.FacePlayer(10.5, 64, -18.5, 0, 0)
+	c.Settle()
+
+	spear := servertest.MustItemID(t, "minecraft:wooden_spear")
+	srv.GiveSlot("Piercer", player.HotbarSlot, protocol.ItemStack{ItemID: spear, Count: 1})
+	srv.TickSurvival()
+	zombie := srv.SpawnMob("minecraft:zombie", 10.5, 64, -15.2)
+	srv.SetMobBaby(zombie, false)
+	// The cow's feet are in the next X chunk, beyond the ordinary two-block query padding.
+	cow := srv.SpawnMobTagged("minecraft:cow", 16.25, 64, -14.5, nbt.Compound{
+		"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(16)},
+		}},
+	})
+	zombieFull, cowFull := mobHealthNow(t, srv, zombie), mobHealthNow(t, srv, cow)
+
+	chargeByHand(t, srv, "Piercer", 13)
+	c.Stab()
+	c.Settle()
+	if got := mobHealthNow(t, srv, zombie); got >= zombieFull {
+		t.Errorf("the zombie across the negative Z border kept its health at %v", got)
+	}
+	if got := mobHealthNow(t, srv, cow); got >= cowFull {
+		t.Errorf("the scaled cow across the X border kept its health at %v", got)
 	}
 	if got := srv.InventorySlot("Piercer", player.HotbarSlot).Damage; got != 2 {
 		t.Errorf("the spear's damage after a jab through two bodies = %d, want 2", got)
@@ -360,6 +396,7 @@ func chargeSpearTicks(t *testing.T, stride float64, ticks int, zombieZ float64) 
 		ItemID: servertest.MustItemID(t, "minecraft:iron_spear"), Count: 1})
 	srv.TickSurvival()
 	zombie := srv.SpawnMob("minecraft:zombie", 5.5, 64, zombieZ)
+	srv.SetMobBaby(zombie, false)
 	before = mobHealthNow(t, srv, zombie)
 	c.UseItemRightClicks(protocol.HandMain)
 	c.Settle()

@@ -22,7 +22,7 @@ func wideFloor(w testWorld, t testing.TB) {
 	}
 }
 
-func newEnderman() *Mob { return NewMob(TypeEnderman, 1, 0.5, 64, 0.5, 11) }
+func newEnderman() *Mob { return NewMob(TypeEnderman, 1, 0.5, 64, 0.5, 2) }
 
 // gazeAt turns the player to look straight at the enderman's eyes.
 func gazeAt(p *Player, m *Mob) {

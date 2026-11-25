@@ -3,6 +3,7 @@ package server
 import (
 	"math"
 	"math/rand"
+	"slices"
 	"sync"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -43,10 +44,11 @@ const (
 // bobberEntity is one hook in a world: the entity.Bobber the simulation
 // runs, and the angler whose use decides its life.
 type bobberEntity struct {
-	hook  *entity.Bobber
-	w     *world.World
-	uuid  uuid.UUID
-	owner uuid.UUID
+	hook        *entity.Bobber
+	w           *world.World
+	uuid        uuid.UUID
+	owner       uuid.UUID
+	hookedExtra bobberExtraRef
 	bodyTrack[bobberTold]
 	shotMark
 
@@ -337,12 +339,8 @@ func (s *Server) hookedPluginEntity(it *bobberEntity) plugin.Entity {
 	if body := s.relatedByID(it.w, id); body != nil {
 		return s.pluginAdapter.pluginEntityOf(body)
 	}
-	s.itemsMu.Lock()
-	defer s.itemsMu.Unlock()
-	for _, lying := range s.items {
-		if lying.item.ID == id {
-			return pluginItemEntity{pluginEntity{host: s.pluginAdapter, id: lying.uuid}}
-		}
+	if ref := it.hookedExtra; ref.kind == bobberItemTargets && ref.kind.lookup(s, it.w, id, ref.uuid).EntityID == id {
+		return pluginItemEntity{pluginEntity{host: s.pluginAdapter, id: ref.uuid}}
 	}
 	return nil
 }
@@ -371,115 +369,30 @@ func (s *Server) pullHookedBody(it *bobberEntity, angler player.Position) (pulle
 	dy := (angler.Y - hook.Y) * 0.1
 	dz := (angler.Z - hook.Z) * 0.1
 
-	s.mobsMu.Lock()
-	var mob *entity.Mob
-	var watchers []uuid.UUID
-	for _, dim := range s.allDims() {
-		for _, m := range dim.mobs.herd {
-			if m.ID == hook.HookedID {
-				m.VX += dx
-				m.VY += dy
-				m.VZ += dz
-				mob = m
-				if ent := dim.mobs.book[m]; ent != nil {
-					watchers = trackedWatchers(ent.tracked)
-				}
+	id := hook.HookedID
+	if ref := it.hookedExtra; ref.kind != nil {
+		pulled = ref.kind.pull(s, it.w, id, ref.uuid, dx, dy, dz)
+		wasItem = pulled && ref.kind == bobberItemTargets
+	} else {
+		s.mobsMu.Lock()
+		ent := s.mobByEntityIDLocked(it.w, id)
+		if ent != nil && ent.mob.ID == id {
+			m := ent.mob
+			m.VX += dx
+			m.VY += dy
+			m.VZ += dz
+			watchers := trackedWatchers(ent.tracked)
+			motion := entityVelocityPayload(id, m.VX, m.VY, m.VZ)
+			s.mobsMu.Unlock()
+			s.tellWatchers(it.w, watchers, []outbound{{id: protocol.IDPlaySetEntityMotion, data: motion}})
+			pulled = true
+		} else {
+			s.mobsMu.Unlock()
+			if other := s.clientByEntityID(id); other != nil && other.theWorld() == it.w {
+				// The hooked client's own entity event applies the pull.
+				pulled = true
 			}
 		}
-	}
-	vx, vy, vz := 0.0, 0.0, 0.0
-	if mob != nil {
-		vx, vy, vz = mob.VX, mob.VY, mob.VZ
-	}
-	s.mobsMu.Unlock()
-	if mob != nil {
-		s.tellWatchers(it.w, watchers, []outbound{{id: protocol.IDPlaySetEntityMotion,
-			data: entityVelocityPayload(mob.ID, vx, vy, vz)}})
-		pulled = true
-	}
-
-	s.itemsMu.Lock()
-	for _, lying := range s.items {
-		if lying.item.ID == hook.HookedID && !lying.item.Dead {
-			lying.item.VX += dx
-			lying.item.VY += dy
-			lying.item.VZ += dz
-			// The item's own tick carries the shove to the watchers.
-			pulled, wasItem = true, true
-		}
-	}
-	s.itemsMu.Unlock()
-
-	// The rest of the bodies a hook may take: each moved the same way, its
-	// own tick carrying the velocity to the watchers. A hanging painting or
-	// frame keeps no velocity here, so the pull is only the unhook.
-	s.tntMu.Lock()
-	for _, primed := range s.tnts {
-		if primed.tnt.ID == hook.HookedID && !primed.tnt.Dead {
-			primed.tnt.Push(dx, dy, dz)
-			pulled = true
-		}
-	}
-	s.tntMu.Unlock()
-
-	s.boatsMu.Lock()
-	for _, boat := range s.boats {
-		if boat.boat.ID == hook.HookedID && !boat.boat.Dead {
-			boat.boat.VX += dx
-			boat.boat.VY += dy
-			boat.boat.VZ += dz
-			pulled = true
-		}
-	}
-	s.boatsMu.Unlock()
-
-	s.fallingMu.Lock()
-	for _, fall := range s.fallings {
-		if fall.fb.ID == hook.HookedID && !fall.fb.Dead {
-			fall.fb.Push(dx, dy, dz)
-			pulled = true
-		}
-	}
-	s.fallingMu.Unlock()
-
-	s.framesMu.Lock()
-	for _, frame := range s.frames {
-		if frame.id == hook.HookedID {
-			pulled = true
-		}
-	}
-	s.framesMu.Unlock()
-
-	s.paintingsMu.Lock()
-	for _, painting := range s.paintings {
-		if painting.id == hook.HookedID {
-			pulled = true
-		}
-	}
-	s.paintingsMu.Unlock()
-
-	s.armorStandsMu.Lock()
-	for _, stand := range s.armorStands {
-		if stand.stand.ID == hook.HookedID && !stand.stand.Dead {
-			stand.stand.VX += dx
-			stand.stand.VY += dy
-			stand.stand.VZ += dz
-			pulled = true
-		}
-	}
-	s.armorStandsMu.Unlock()
-
-	s.mu.RLock()
-	found := false
-	for _, other := range s.clients {
-		if other.player != nil && other.player.EntityID == hook.HookedID {
-			found = true
-		}
-	}
-	s.mu.RUnlock()
-	if found {
-		// The player's pull is their client's own, off the event below.
-		pulled = true
 	}
 	if pulled {
 		s.broadcastWorld(it.w, protocol.IDPlayEntityEvent,
@@ -576,15 +489,24 @@ type bobberBiteSound struct {
 // a hook may take are read before the bobber and mob locks; the sends run
 // after them.
 func (s *Server) tickBobbers() {
-	// No hook out: the item boxes and owner reads below would be work for
-	// nothing.
+	// The extra body locks precede the hook and mob locks. Capture the hook
+	// queries first so the other kinds can answer them under their own locks.
+	var firstQuery [1]bobberTargetQuery
+	queries := firstQuery[:0]
+	queryIndex := make(map[*bobberEntity]int)
 	s.lockTick(&s.bobbersMu)
-	none := len(s.bobbers) == 0
+	for _, it := range s.bobbers {
+		if !it.hook.Dead {
+			queryIndex[it] = len(queries)
+			queries = append(queries, bobberTargetQuery{w: it.w, box: bobberSearchBox(it.hook),
+				hookedID: it.hook.HookedID, hookedExtra: it.hookedExtra})
+		}
+	}
+	hasBobbers := len(s.bobbers) != 0
 	s.unlockTick(&s.bobbersMu)
-	if none {
+	if !hasBobbers {
 		return
 	}
-
 	// The players of every world, read before any lock.
 	type angler struct {
 		c           *client
@@ -594,7 +516,6 @@ func (s *Server) tickBobbers() {
 		rod         bool
 		canInteract bool
 		id          int32
-		uuid        uuid.UUID
 	}
 	s.mu.RLock()
 	byUUID := make(map[uuid.UUID]*angler, len(s.clients))
@@ -606,7 +527,7 @@ func (s *Server) tickBobbers() {
 		a := &angler{
 			c: c, w: c.theWorld(), pos: c.player.Position(), chunkRadius: c.chunkRadius(),
 			canInteract: !c.player.Vitals().Dead && c.player.GameMode() != protocol.GameModeSpectator,
-			id:          c.player.EntityID, uuid: c.player.UUID,
+			id:          c.player.EntityID,
 		}
 		a.rod = isFishingRod(c.heldItem(protocol.HandMain)) || isFishingRod(c.heldItem(protocol.HandOff))
 		byUUID[c.player.UUID] = a
@@ -618,23 +539,27 @@ func (s *Server) tickBobbers() {
 	})
 	defer releaseNearbyWorlds(near)
 
-	// The bodies other than mobs and players, read before the hook pass.
-	extraTargets := s.bobberExtraTargets()
-	_, _, boatRoots := s.boatSnapshots()
-	s.lockTick(&s.itemsMu)
-	for _, lying := range s.items {
-		if lying.item.Dead {
-			continue
+	var roots map[int32]int32
+	playerTargets := make(map[*world.World][]entity.ArrowTarget)
+	for i := range queries {
+		q := &queries[i]
+		if _, seen := playerTargets[q.w]; !seen {
+			list := watchers[q.w]
+			for _, a := range list {
+				roots = s.bobberVehicleRoots(a.c, a.w, roots)
+			}
+			targets := make([]entity.ArrowTarget, 0, len(list))
+			for _, a := range list {
+				// Dead and spectating players cannot keep a hook attached.
+				target := a.c.projectileTarget(a.pos, !a.canInteract)
+				target.RootVehicle = roots[a.id]
+				targets = append(targets, target)
+			}
+			slices.SortFunc(targets, bobberTargetOrder)
+			playerTargets[q.w] = targets
 		}
-		minX, minY, minZ, maxX, maxY, maxZ := lying.item.BlastBox()
-		extraTargets[lying.w] = append(extraTargets[lying.w], entity.ArrowTarget{
-			EntityID: lying.item.ID,
-			Type:     protocol.EntityTypeItem,
-			MinX:     minX, MinY: minY, MinZ: minZ,
-			MaxX: maxX, MaxY: maxY, MaxZ: maxZ,
-		})
+		q.readExtras(s)
 	}
-	s.unlockTick(&s.itemsMu)
 
 	// gone holds the removals, for a watcher the range has left or a hook
 	// that died, sent after everything else.
@@ -653,11 +578,8 @@ func (s *Server) tickBobbers() {
 	)
 
 	listening := s.plugins != nil && s.plugins.Has(pluginruntime.PlayerFish)
-	type bobberWorldTargets struct {
-		targets []entity.ArrowTarget
-		index   map[int32]int // a mob's or player's entry, by entity ID
-	}
-	worldTargets := make(map[*world.World]*bobberWorldTargets)
+	var targetStorage [8]entity.ArrowTarget
+	targets := targetStorage[:0]
 	s.lockTick(&s.bobbersMu)
 	s.lockTick(&s.mobsMu)
 	alive := s.bobbers[:0]
@@ -667,50 +589,40 @@ func (s *Server) tickBobbers() {
 			continue
 		}
 
-		// A hook's step moves no body, so one list per world serves the tick.
-		wt := worldTargets[it.w]
-		if wt == nil {
-			herd := s.dimensionOfWorld(it.w).mobs.herd
-			wt = &bobberWorldTargets{index: make(map[int32]int, len(herd)+len(watchers[it.w]))}
-			for _, m := range herd {
-				wt.index[m.ID] = len(wt.targets)
-				wt.targets = entity.MobProjectileTargets(wt.targets, m, mobEntityType(m.Type), boatRoots[m.ID])
-			}
-			for _, a := range watchers[it.w] {
-				// A dead or spectating player is no body to hold: vanilla's
-				// canInteractWithLevel, which unhooks the hook.
-				target := a.c.projectileTarget(a.pos, !a.canInteract)
-				target.RootVehicle = boatRoots[a.id]
-				wt.index[a.id] = len(wt.targets)
-				wt.targets = append(wt.targets, target)
-			}
-			wt.targets = append(wt.targets, extraTargets[it.w]...)
-			worldTargets[it.w] = wt
+		i, ok := queryIndex[it]
+		// A cast or teleport interleaved with the snapshots takes its first
+		// step with a matching query on the next tick.
+		if !ok || queries[i].box != bobberSearchBox(it.hook) || queries[i].hookedID != it.hook.HookedID {
+			alive = append(alive, it)
+			continue
 		}
-		targets := wt.targets
-		var ownerBody *entity.ArrowTarget
-		if i, ok := wt.index[it.hook.OwnerID]; ok {
-			ownerBody = &targets[i]
+		q := &queries[i]
+		players := playerTargets[it.w]
+		targets = q.mobTargets(targets[:0], s.herdOf(it.w), roots)
+		targets = append(targets, players...)
+		for _, extra := range q.extras {
+			targets = append(targets, extra.ArrowTarget)
 		}
 
-		// The angler still fishing, or the hook is out for good.
 		// vanilla: FishingHook.shouldStopFishing
 		var owner *entity.BobberOwner
 		if a := byUUID[it.owner]; a != nil {
 			dx := a.pos.X - it.hook.X
 			dy := a.pos.Y - it.hook.Y
 			dz := a.pos.Z - it.hook.Z
-			if ownerBody == nil {
-				ownerBody = &entity.ArrowTarget{}
-			}
+			body := bobberPlayerTarget(players, it.hook.OwnerID)
 			owner = &entity.BobberOwner{
-				Body:    *ownerBody,
+				Body:    body,
 				Fishing: a.canInteract && a.rod && a.w == it.w && dx*dx+dy*dy+dz*dz <= bobberOwnerRangeSquared,
 			}
 		}
+		hooked := q.hookedTarget(s, players)
 		it.queue(&shots, it.w, it.hook.X, it.hook.Y, it.hook.Z, it.owner)
 		nibbling := it.hook.Nibble > 0
-		events := it.hook.Step(it.w, owner, targets)
+		events := it.hook.Step(it.w, owner, &hooked, targets)
+		if it.hook.HookedID != q.hookedID {
+			it.hookedExtra = q.extraRef(it.hook.HookedID)
+		}
 		if it.hook.LandedFall > 0 {
 			it.hook.LandedFall = 0
 			bodyLandings = append(bodyLandings, bodyLanding{w: it.w, x: it.hook.X, y: it.hook.Y, z: it.hook.Z, halfWidth: entity.BobberHalfSize})
@@ -878,71 +790,6 @@ type bobberParticle struct {
 	x, y, z           float64
 	dx, dy, dz, speed float32
 	count             int32
-}
-
-// bobberExtraTargets gathers the boxes of the bodies other than mobs,
-// players and items a hook may take, each read under its kind's own lock.
-// A marker stand has no box and is left out.
-// vanilla: Entity.canBeHitByProjectile
-func (s *Server) bobberExtraTargets() map[*world.World][]entity.ArrowTarget {
-	targets := make(map[*world.World][]entity.ArrowTarget)
-	add := func(w *world.World, id, typ int32, minX, minY, minZ, maxX, maxY, maxZ float64) {
-		targets[w] = append(targets[w], entity.ArrowTarget{
-			EntityID: id, Type: typ,
-			MinX: minX, MinY: minY, MinZ: minZ,
-			MaxX: maxX, MaxY: maxY, MaxZ: maxZ,
-		})
-	}
-	s.tntMu.Lock()
-	for _, primed := range s.tnts {
-		if primed.tnt.Dead {
-			continue
-		}
-		minX, minY, minZ, maxX, maxY, maxZ := primed.tnt.BlastBox()
-		add(primed.w, primed.tnt.ID, protocol.EntityTypeTnt, minX, minY, minZ, maxX, maxY, maxZ)
-	}
-	s.tntMu.Unlock()
-	s.boatsMu.Lock()
-	for _, boat := range s.boats {
-		if boat.boat.Dead {
-			continue
-		}
-		minX, minY, minZ, maxX, maxY, maxZ := boat.boat.BlastBox()
-		add(boat.w, boat.boat.ID, boat.entityTypeID(), minX, minY, minZ, maxX, maxY, maxZ)
-		targets[boat.w][len(targets[boat.w])-1].RootVehicle = boat.boat.ID
-	}
-	s.boatsMu.Unlock()
-	s.fallingMu.Lock()
-	for _, fall := range s.fallings {
-		if fall.fb.Dead {
-			continue
-		}
-		minX, minY, minZ, maxX, maxY, maxZ := fall.fb.BlastBox()
-		add(fall.w, fall.fb.ID, protocol.EntityTypeFallingBlock, minX, minY, minZ, maxX, maxY, maxZ)
-	}
-	s.fallingMu.Unlock()
-	s.framesMu.Lock()
-	for _, frame := range s.frames {
-		add(frame.w, frame.id, frameEntityType(frame),
-			frame.minX, frame.minY, frame.minZ, frame.maxX, frame.maxY, frame.maxZ)
-	}
-	s.framesMu.Unlock()
-	s.paintingsMu.Lock()
-	for _, painting := range s.paintings {
-		add(painting.w, painting.id, protocol.EntityTypePainting,
-			painting.minX, painting.minY, painting.minZ, painting.maxX, painting.maxY, painting.maxZ)
-	}
-	s.paintingsMu.Unlock()
-	s.armorStandsMu.Lock()
-	for _, stand := range s.armorStands {
-		if stand.stand.Dead || stand.stand.Marker {
-			continue
-		}
-		minX, minY, minZ, maxX, maxY, maxZ := stand.stand.BlastBox()
-		add(stand.w, stand.stand.ID, protocol.EntityTypeArmorStand, minX, minY, minZ, maxX, maxY, maxZ)
-	}
-	s.armorStandsMu.Unlock()
-	return targets
 }
 
 // isFishingRod reports whether the stack is the rod.

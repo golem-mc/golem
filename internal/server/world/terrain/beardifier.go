@@ -182,9 +182,3 @@ func fastInvSqrt(x float64) float64 {
 	x = math.Float64frombits(uint64(i))
 	return x * (1.5 - float64(half*x*x))
 }
-
-// BeardifierForChunk selects the pieces and junctions within twelve blocks of a chunk.
-// vanilla: Beardifier.forStructuresInChunk
-func BeardifierForChunk(cx, cz int32, pieces []levelgen.BeardPiece) *Beardifier {
-	return NewBeardifier(levelgen.SelectBeards(cx, cz, pieces))
-}

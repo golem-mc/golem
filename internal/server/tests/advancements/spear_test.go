@@ -30,7 +30,7 @@ func TestASpearChargeThroughFiveMobsObtainsSpearManyMobs(t *testing.T) {
 			// The stopped loop never moves the mobs, so the stacked zombies
 			// meet the spear on the same tick.
 			for range tc.zombies {
-				srv.SpawnMob("minecraft:zombie", 5.5, 64, 12.5)
+				srv.SetMobBaby(srv.SpawnMob("minecraft:zombie", 5.5, 64, 12.5), false)
 			}
 			c.UseItemRightClicks(protocol.HandMain)
 			c.Settle()

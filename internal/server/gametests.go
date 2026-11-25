@@ -669,5 +669,5 @@ func (s *Server) setTestInstanceStatus(w *world.World, pos [3]int32, status int3
 func (s *Server) storeTestInstanceTag(w *world.World, x, y, z int32, tag nbt.Compound) {
 	w.SetBlockEntityTag(x, y, z, kindTestInstanceBlock, tag)
 	s.markChanged(w, x, y, z)
-	s.tellBlockEntity(w, x, y, z, kindTestInstanceBlock, false)
+	s.tellCarriedBlockEntity(w, x, y, z, kindTestInstanceBlock)
 }

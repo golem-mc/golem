@@ -76,10 +76,6 @@ func (p *Physics) noteBlockShapeUpdate(x, y, z int32, d [3]int32, state uint16, 
 	}
 }
 
-// playNote is the note block's block event: the instrument's sound at volume 3
-// in records, and the Block Action the client draws the particle from. A
-// base-block instrument sounds only under air; a custom head without
-// note_block_sound cancels the event.
 // vanilla: NoteBlock.playNote, NoteBlock.triggerEvent
 func (p *Physics) playNote(x, y, z int32, state uint16, byUser bool) {
 	instrument := registry.StateValue(state, registry.PropInstrument)
@@ -96,12 +92,15 @@ func (p *Physics) playNote(x, y, z int32, state uint16, byUser bool) {
 		}
 		instrument, note = d.Instrument, d.Note
 	}
+	event := Effect{X: x, Y: y, Z: z, GameEvent: GameEventNoteBlockPlay, GameEventByUser: byUser}
 	sound := registry.NoteBlockSound(instrument)
 	var customSound string
 	if instrument == "custom_head" {
 		tag, _ := p.w.BlockEntityTag(x, y+1, z)
 		s, ok := nbt.Get[nbt.String](tag, "note_block_sound")
 		if !ok {
+			// A silent head still posts the vibration.
+			p.effects = append(p.effects, event)
 			return
 		}
 		customSound = string(s)
@@ -111,7 +110,7 @@ func (p *Physics) playNote(x, y, z int32, state uint16, byUser bool) {
 		// vanilla: NoteBlock.getPitchFromNote
 		pitch = float32(math.Pow(2, float64(note-12)/12))
 	}
-	p.effects = append(p.effects, Effect{
+	p.effects = append(p.effects, event, Effect{
 		SoundID:          sound,
 		CustomSound:      customSound,
 		SoundCategory:    protocol.SoundCategoryRecord,
@@ -122,7 +121,5 @@ func (p *Physics) playNote(x, y, z int32, state uint16, byUser bool) {
 		Pitch:            pitch,
 		HasBlockAction:   true,
 		BlockActionBlock: protocol.BlockNoteBlock,
-		GameEvent:        GameEventNoteBlockPlay,
-		GameEventByUser:  byUser, // vanilla: NoteBlock.playNote
 	})
 }

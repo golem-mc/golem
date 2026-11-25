@@ -32,14 +32,24 @@ func TestDecodeSlotSource(t *testing.T) {
 	}
 }
 
-// TestDecodeResolvesStagedLayers checks that a pack load's loot resolves
-// provider and slot source names against its staged layers, which the
-// layers in force do not see before Publish.
+// TestDecodeResolvesStagedLayers checks that loot and its nested predicates
+// resolve names against the same candidate layers.
 func TestDecodeResolvesStagedLayers(t *testing.T) {
 	layers := registry.StagePackLayers()
+	tags, problems := registry.BuildPackTags(registry.PackTags{
+		"minecraft:block": {"p:blocks": {Entries: []registry.PackTagEntry{{ID: "minecraft:stone", Required: true}}}},
+	})
+	if len(problems) != 0 {
+		t.Fatalf("building candidate tags: %v", problems)
+	}
+	layers.SetTags(tags)
 	layers.SetContextProviders(map[string][]byte{"p:n": []byte(`3`)}, nil)
 	layers.SetSlotSources(map[string]registry.SlotSource{"p:s": registry.SlotEmptySource{}})
-	table := []byte(`{"pools":[{"rolls":"p:n","entries":[{"type":"minecraft:slots","slot_source":"p:s"}]}]}`)
+	table := []byte(`{"pools":[{
+		"rolls":{"type":"minecraft:conditional",
+			"condition":{"type":"minecraft:match_block","blocks":"#p:blocks"},"on_true":"p:n"},
+		"entries":[{"type":"minecraft:slots","slot_source":"p:s"}]
+	}]}`)
 	if _, err := DecodeLootTable(layers, table); err != nil {
 		t.Errorf("staged layers: %v", err)
 	}

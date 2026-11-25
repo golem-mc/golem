@@ -146,18 +146,22 @@ func (m *Mob) sulfurTouches(players []Player, events []MobEvent) []MobEvent {
 		return events
 	}
 	prof := m.sulfurProf()
-	minX, minY, minZ, maxX, maxY, maxZ := m.BlastBox()
+	box := m.mobBox()
 	for i := range players {
 		p := &players[i]
-		pw, ph, _ := p.box()
-		if p.Dead || p.Spectator ||
-			p.X+pw/2+1 <= minX || p.X-pw/2-1 >= maxX ||
-			p.Z+pw/2+1 <= minZ || p.Z-pw/2-1 >= maxZ ||
-			p.Y+ph+0.5 <= minY || p.Y-0.5 >= maxY {
+		if p.Dead || p.Spectator {
 			continue
 		}
-		dx, dz := m.X-p.X, m.Z-p.Z
-		if math.Hypot(dx, dz) >= sulfurPushRange || p.Y > maxY || p.Y+ph <= minY {
+		pw, ph, _ := p.box()
+		if !PlayerTouchBox(p.X, p.Y, p.Z, pw, ph, p.RideBox).Crosses(box) {
+			continue
+		}
+		x, y, z, top := p.X, p.Y, p.Z, p.Y+ph
+		if p.RideBox != (AABB{}) {
+			x, y, z, top = p.RideRoot.X, p.RideRoot.Y, p.RideRoot.Z, p.RideRoot.Top
+		}
+		dx, dz := m.X-x, m.Z-z
+		if math.Hypot(dx, dz) >= sulfurPushRange || y > box.maxY || top <= box.minY {
 			continue
 		}
 		knockback := math.Max(0, 1-m.KnockbackResistance())
@@ -175,8 +179,7 @@ func (m *Mob) sulfurTouches(players []Player, events []MobEvent) []MobEvent {
 		threshold := float64(prof.pushThreshold)
 		if px*px+py*py+pz*pz > threshold*threshold && m.sulfur.pushCooldown <= 0 {
 			m.sulfur.pushCooldown = int(prof.pushCooldown * 20)
-			events = append(events, MobEvent{Mob: m, Kind: MobSounded, SoundID: prof.pushSound, Volume: 1,
-				Pitch: (m.Rand.Float32()-m.Rand.Float32())*0.2 + 1})
+			events = append(events, MobEvent{Mob: m, Kind: MobSounded, SoundID: prof.pushSound, Volume: 1, Pitch: 1})
 		}
 		m.VX, m.VY, m.VZ = m.VX+px, m.VY+py, m.VZ+pz
 		m.Impulse = true

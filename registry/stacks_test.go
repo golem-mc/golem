@@ -614,3 +614,31 @@ func TestAConsumableComponentSurvivesTheStoredForm(t *testing.T) {
 		t.Errorf("inline default sound reloaded as %+v", own.Sound)
 	}
 }
+
+func TestExplicitEmptyBundleContentsSurvivesTheStackCodec(t *testing.T) {
+	stone := protocol.ItemStack{ItemID: MustItem("minecraft:stone"), Count: 1}
+	if !ReadComponent(&stone, "minecraft:bundle_contents", nbt.List{Elem: nbt.TypeEnd}) {
+		t.Fatal("ReadComponent refused empty SNBT list for minecraft:bundle_contents")
+	}
+	if contents, ok := stone.BundleContentsOf(); !ok || len(contents) != 0 {
+		t.Fatalf("stone.BundleContentsOf() = (%v, %v), want empty explicit component", contents, ok)
+	}
+	tag := StackTag(stone)
+	back, ok := StoredStack(tag)
+	if !ok {
+		t.Fatal("StoredStack refused stone with empty bundle_contents")
+	}
+	if contents, ok := back.BundleContentsOf(); !ok || len(contents) != 0 {
+		t.Errorf("reloaded stone.BundleContentsOf() = (%v, %v), want empty explicit component", contents, ok)
+	}
+
+	// Empty bundle_contents on a bundle equals its default and is omitted.
+	bundle := protocol.ItemStack{ItemID: MustItem("minecraft:bundle"), Count: 1}
+	bundle.Remove(protocol.DataComponentBundleContents)
+	if !ReadComponent(&bundle, "minecraft:bundle_contents", nbt.List{Elem: nbt.TypeEnd}) {
+		t.Fatal("ReadComponent refused empty list on bundle")
+	}
+	if _, ok := bundle.BundleContentsOf(); ok || bundle.Removes(protocol.DataComponentBundleContents) {
+		t.Errorf("bundle after empty bundle_contents = %+v, want unpatched default", bundle)
+	}
+}

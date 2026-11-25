@@ -10,18 +10,20 @@ import (
 
 // tradeSetDef is a trade set before its tag is resolved to trades.
 type tradeSetDef struct {
-	Amount     int
-	Duplicates bool
-	Tag        string // the villager_trade tag the set draws from
+	Amount         int
+	Duplicates     bool
+	Tag            string // the villager_trade tag the set draws from
+	RandomSequence string
 }
 
 // PackTradeSet is a trade_set file: the trades holder set is a tag or a list
 // of trade ids.
 // vanilla: TradeSet
 type PackTradeSet struct {
-	Amount     int
-	Duplicates bool
-	Trades     []PackTagEntry
+	Amount         int
+	Duplicates     bool
+	Trades         []PackTagEntry
+	RandomSequence string
 }
 
 // tradeSets is the built-in trade sets, resolved from the generated tables.
@@ -77,7 +79,8 @@ func BuildTradeSets(trades map[string]VillagerTrade, tags map[string]PackTag, se
 
 	defs := make(map[string]PackTradeSet, len(builtinTradeSets)+len(sets))
 	for name, d := range builtinTradeSets {
-		defs[name] = PackTradeSet{Amount: d.Amount, Duplicates: d.Duplicates, Trades: []PackTagEntry{{ID: d.Tag, Tag: true, Required: true}}}
+		defs[name] = PackTradeSet{Amount: d.Amount, Duplicates: d.Duplicates, RandomSequence: d.RandomSequence,
+			Trades: []PackTagEntry{{ID: d.Tag, Tag: true, Required: true}}}
 	}
 	for id, d := range sets {
 		defs[tradeSetName(id)] = d
@@ -109,7 +112,7 @@ func BuildTradeSets(trades map[string]VillagerTrade, tags map[string]PackTag, se
 		if !ok {
 			continue
 		}
-		set := TradeSet{Amount: d.Amount, Duplicates: d.Duplicates, Trades: make([]VillagerTrade, len(ids))}
+		set := TradeSet{Amount: d.Amount, Duplicates: d.Duplicates, RandomSequence: d.RandomSequence, Trades: make([]VillagerTrade, len(ids))}
 		for i, id := range ids {
 			if t, ok := trades[id]; ok {
 				set.Trades[i] = t

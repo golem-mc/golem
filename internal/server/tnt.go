@@ -64,6 +64,7 @@ type tntEntity struct {
 // last told.
 var tntTracker = trackedKind[*tntEntity, int]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.tnts.built = false },
+	pistonBit:        pistonTNTs,
 
 	rangeChunks: entity.TNTTrackingRange,
 	interval:    entity.TNTUpdateInterval,
@@ -131,11 +132,24 @@ func (s *Server) tickTNT() {
 	}
 	var travels []tntPortalTravel
 	var gates []gatewayTouch
+	limit := s.Config.MaxTNTPerTick
+	var portalTicked, ticked map[*world.World]int
+	if limit > 0 {
+		portalTicked = make(map[*world.World]int)
+		ticked = make(map[*world.World]int)
+	}
 	portalAlive := s.tnts[:0]
 	for _, it := range s.tnts {
 		if it.tnt.Dead {
 			tntTracker.unfile(it)
 			continue
+		}
+		if limit > 0 {
+			if portalTicked[it.w] >= limit || !gate.ticks(it.w, it.tnt.X, it.tnt.Z) {
+				portalAlive = append(portalAlive, it)
+				continue
+			}
+			portalTicked[it.w]++
 		}
 		state, kind, due := gate.stepPortal(it.w, it.tnt.X, it.tnt.Y, it.tnt.Z, &it.portal, portalCooldownTicks)
 		s.notePortalTouch(nil, it.uuid, it.w, it.tnt.X, it.tnt.Y, it.tnt.Z, state)
@@ -149,6 +163,10 @@ func (s *Server) tickTNT() {
 			portalAlive = append(portalAlive, it)
 			continue
 		}
+		// Travellers leave the physics pass, but spent a slot in this world.
+		if limit > 0 {
+			ticked[it.w]++
+		}
 		tntTracker.unfile(it)
 		travels = append(travels, tntPortalTravel{it: it, kind: kind})
 	}
@@ -158,21 +176,14 @@ func (s *Server) tickTNT() {
 	// ticked counts the TNT stepped per world against max-tnt-per-tick; a
 	// TNT past it keeps its place in the list, so the earliest-primed go on
 	// first and none starves.
-	var ticked map[*world.World]int
-	limit := s.Config.MaxTNTPerTick
 	for _, it := range s.tnts {
 		if it.tnt.Dead {
 			tntTracker.unfile(it)
 			continue // the fuse ran out before this tick
 		}
-		if limit > 0 {
-			if ticked == nil {
-				ticked = make(map[*world.World]int)
-			}
-			if ticked[it.w] >= limit {
-				alive = append(alive, it)
-				continue
-			}
+		if limit > 0 && ticked[it.w] >= limit {
+			alive = append(alive, it)
+			continue
 		}
 		if !gate.ticks(it.w, it.tnt.X, it.tnt.Z) {
 			held = append(held, it)
@@ -394,7 +405,7 @@ func (s *Server) newTNTEntity(w *world.World, x, y, z float64, fuse int, ownerID
 	state := registry.BlockTnt.DefaultState()
 	id := s.nextEntity()
 	seed := s.entitySeed(id)
-	dice := rand.New(rand.NewSource(seed))
+	dice := entity.NewDice(seed)
 	var vx, vy, vz float64
 	if nudge {
 		// The nudge rolls the body's own stream from its start, which the
@@ -638,6 +649,7 @@ type tntBlastIndex struct {
 	grid   entity.BoxGrid
 	bodies []*tntEntity
 	hits   []int32
+	out    []*tntEntity
 	active bool
 }
 
@@ -647,10 +659,18 @@ func (x *tntBlastIndex) build(list []*tntEntity) {
 	x.grid.Reset()
 	clear(x.bodies)
 	x.bodies = x.bodies[:0]
-	for _, it := range list {
-		i := int32(len(x.bodies))
-		x.bodies = append(x.bodies, it)
-		x.grid.Add(i, entity.NewAABB(it.tnt.X, it.tnt.Y, it.tnt.Z, it.tnt.X, it.tnt.Y, it.tnt.Z))
+	if len(list) > 0 {
+		minX, maxX := list[0].tnt.X, list[0].tnt.X
+		minZ, maxZ := list[0].tnt.Z, list[0].tnt.Z
+		for _, it := range list[1:] {
+			minX, maxX = min(minX, it.tnt.X), max(maxX, it.tnt.X)
+			minZ, maxZ = min(minZ, it.tnt.Z), max(maxZ, it.tnt.Z)
+		}
+		x.grid.SetPointBounds(minX, maxX, minZ, maxZ, len(list))
+		x.bodies = append(x.bodies, list...)
+		for i, it := range list {
+			x.grid.AddPoint(int32(i), it.tnt.X, it.tnt.Z)
+		}
 	}
 	x.active = true
 }
@@ -661,6 +681,8 @@ func (x *tntBlastIndex) drop() {
 	x.grid.Reset()
 	clear(x.bodies)
 	x.bodies = x.bodies[:0]
+	clear(x.out)
+	x.out = x.out[:0]
 }
 
 // near returns the bodies of list within radius of the point, in list
@@ -676,9 +698,11 @@ func (x *tntBlastIndex) near(list []*tntEntity, cx, cy, cz, radius float64) []*t
 	x.grid.QueryPoints(entity.NewAABB(cx-radius, cy-radius, cz-radius, cx+radius, cy+radius, cz+radius),
 		func(i int32) { x.hits = append(x.hits, i) })
 	slices.Sort(x.hits)
-	out := make([]*tntEntity, 0, len(x.hits)+len(list)-n)
+	clear(x.out)
+	x.out = x.out[:0]
 	for _, i := range x.hits {
-		out = append(out, x.bodies[i])
+		x.out = append(x.out, x.bodies[i])
 	}
-	return append(out, list[n:]...)
+	x.out = append(x.out, list[n:]...)
+	return x.out
 }

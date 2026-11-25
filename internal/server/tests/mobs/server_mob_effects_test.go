@@ -111,6 +111,52 @@ func TestEffectGivePoisonsAMobOnItsRhythm(t *testing.T) {
 	}
 }
 
+// vanilla: LivingEntity.updateInvisibilityStatus, areAllEffectsAmbient
+func TestMobEffectAmbienceSurvivesClearing(t *testing.T) {
+	t.Parallel()
+	const name = "Observer"
+	srv, c := servertest.Join(t, servertest.MobTestConfig(), name, servertest.OpsListing(t, name))
+	servertest.HoldTicks(t, srv)
+	cow := summonedNoAI(c, "minecraft:cow", protocol.EntityTypeCow, "4.5 64 0.5")
+	c.Settle()
+	bodies := map[int32]bool{cow.EntityID: true}
+	for _, step := range []struct {
+		command                 string
+		ambient, hasAmbient     bool
+		particles, hasParticles bool
+	}{
+		{"effect give @e[type=cow,limit=1] poison 60 0 true", true, true, false, false},
+		{"effect clear @e[type=cow,limit=1]", false, false, false, false},
+		{`data merge entity @e[type=cow,limit=1] {active_effects:[{id:"minecraft:poison",duration:1200,ambient:1b}]}`, false, false, true, true},
+		{"effect clear @e[type=cow,limit=1]", false, false, false, true},
+		{"effect give @e[type=cow,limit=1] poison 60", false, true, true, true},
+		{`data merge entity @e[type=cow,limit=1] {active_effects:[{id:"minecraft:poison",duration:1200,show_particles:0b}]}`, true, true, false, true},
+	} {
+		var ambient, hasAmbient, particles, hasParticles bool
+		record := func(id int32, data []byte) {
+			if id != protocol.IDPlayEntityMetadata {
+				return
+			}
+			if m, ok := servertest.ReadBodyMetadata(c, data, bodies); ok {
+				if m.HasAmbient {
+					ambient, hasAmbient = m.Ambient, true
+				}
+				if m.HasParticles {
+					particles, hasParticles = len(m.Particles) > 0, true
+				}
+			}
+		}
+		c.ChatCommand(step.command)
+		c.SettleAndCollect(record)
+		servertest.RunTicks(t, srv, 1)
+		c.SettleAndCollect(record)
+		if ambient != step.ambient || hasAmbient != step.hasAmbient || particles != step.particles || hasParticles != step.hasParticles {
+			t.Errorf("/%s sent ambience %t (present %t), nonempty particles %t (present %t); want %t (%t), %t (%t)",
+				step.command, ambient, hasAmbient, particles, hasParticles, step.ambient, step.hasAmbient, step.particles, step.hasParticles)
+		}
+	}
+}
+
 // TestInstantHealthAndHarmTurnOnTheUndead checks the two instant effects
 // against the minecraft:inverted_healing_and_harm the zombie carries: a
 // health the zombie is given takes six off it as magic, a harm gives four
@@ -483,4 +529,75 @@ func TestAbsorptionOnAMobIsNeverTold(t *testing.T) {
 			t.Errorf("the saved zombie's AbsorptionAmount = %v, want 8f", compound["AbsorptionAmount"])
 		}
 	})
+}
+
+// TestExtendingColoredMobEffectResendsParticles checks that extending a cow's
+// sole visible Speed effect at the same amplifier resends its colored particle
+// metadata (both through /effect and through /data merge), without repeating on
+// the next tick, while extending a fixed-particle effect (infested) does not.
+// vanilla: LivingEntity.updateSynchronizedMobEffectParticles, MobEffect.createParticleOptions
+func TestExtendingColoredMobEffectResendsParticles(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.MobTestConfig(), "Watcher", servertest.OpsListing(t, "Watcher"))
+	c.Settle()
+
+	cow := srv.SpawnMob("minecraft:cow", 4.5, 64, 0.5)
+	c.ExpectMobSpawn(protocol.EntityTypeCow)
+	srv.StopTick()
+	c.Settle()
+
+	wantSpeed := [2]int32{protocol.ParticleEntityEffect, -0x1000000 | int32(registry.MobEffectOf(registry.MobEffectSpeed).Color)}
+	first := c.Give("effect give @e[type=minecraft:cow] minecraft:speed 30 0", cow)
+	if got := first.Particles[cow]; len(got) != 1 || got[0] != wantSpeed {
+		t.Fatalf("initial speed particles = %v, want [%v]", got, wantSpeed)
+	}
+
+	extended := c.Give("effect give @e[type=minecraft:cow] minecraft:speed 60 0", cow)
+	if got := extended.Particles[cow]; len(got) != 1 || got[0] != wantSpeed {
+		t.Errorf("extended speed particles = %v, want [%v]", got, wantSpeed)
+	}
+
+	// Advancing a tick must not repeat the already-sent particle metadata.
+	bodies := map[int32]bool{cow: true}
+	var afterTick [][][2]int32
+	srv.TickMobs(1)
+	c.SettleAndCollect(func(id int32, data []byte) {
+		if id != protocol.IDPlayEntityMetadata {
+			return
+		}
+		if m, mine := servertest.ReadBodyMetadata(c, data, bodies); mine && m.HasParticles {
+			afterTick = append(afterTick, m.Particles)
+		}
+	})
+	if len(afterTick) != 0 {
+		t.Errorf("next tick resent particles = %v, want none", afterTick)
+	}
+
+	// A /data merge rewriting active_effects goes through the tracked metadata delta.
+	var merged [][][2]int32
+	c.ChatCommand(`data merge entity @e[type=minecraft:cow,limit=1] {active_effects:[{id:"minecraft:speed",duration:2400,amplifier:0b}]}`)
+	c.SettleAndCollect(func(id int32, data []byte) {
+		if id != protocol.IDPlayEntityMetadata {
+			return
+		}
+		if m, mine := servertest.ReadBodyMetadata(c, data, bodies); mine && m.HasParticles {
+			merged = append(merged, m.Particles)
+		}
+	})
+	if len(merged) != 1 || len(merged[0]) != 1 || merged[0][0] != wantSpeed {
+		t.Errorf("data merge speed particles = %v, want [[%v]]", merged, wantSpeed)
+	}
+
+	// A fixed-particle effect (SimpleParticleType singleton in vanilla) does not
+	// resend when refreshed with the same particle list.
+	c.Give("effect clear @e[type=minecraft:cow]", cow)
+	wantInfested := [2]int32{protocol.ParticleInfested, 0}
+	infested := c.Give("effect give @e[type=minecraft:cow] minecraft:infested 30 0", cow)
+	if got := infested.Particles[cow]; len(got) != 1 || got[0] != wantInfested {
+		t.Fatalf("initial infested particles = %v, want [%v]", got, wantInfested)
+	}
+	refreshedInfested := c.Give("effect give @e[type=minecraft:cow] minecraft:infested 60 0", cow)
+	if got := refreshedInfested.Particles[cow]; len(got) != 0 {
+		t.Errorf("extended infested particles = %v, want none", got)
+	}
 }

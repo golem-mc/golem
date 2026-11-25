@@ -284,9 +284,10 @@ func TestMagmaCubeLavaKickMovement(t *testing.T) {
 	c.Settle()
 
 	_, lastVY, _, _ := srv.MobVelocity(id)
-	// The first kick comes on tick 8 of this fixture, before the second
-	// movement gate would have carried the position.
-	for range 12 {
+	// The first kick comes within a few ticks of the fixture's start (its
+	// jump delay is random), before the second movement gate would have
+	// carried the position.
+	for range 40 {
 		seen := c.ReadTicks(srv, 1, func(pid int32, data []byte) bool {
 			switch pid {
 			case protocol.IDPlayTeleportEntity, protocol.IDPlayEntityPosition, protocol.IDPlayEntityPositionRot:
@@ -305,4 +306,24 @@ func TestMagmaCubeLavaKickMovement(t *testing.T) {
 		lastVY = vy
 	}
 	t.Fatal("the cube never kicked in the lava")
+}
+
+// A mob's OnGround written through /data before its first tick does not
+// survive a level move on that tick.
+// vanilla: Entity.move, Entity.load
+func TestDataMergedOnGroundClearsOnLevelMove(t *testing.T) {
+	t.Parallel()
+	srv, _ := servertest.Join(t, tpGroundConfig(), "Watcher")
+	servertest.HoldTicks(t, srv)
+	srv.RunLine(`fill -3 200 -3 3 200 3 smooth_stone`)
+	srv.RunLine(`summon minecraft:pig 0.5 201 0.5`)
+	id := srv.MobIDsOfKind("minecraft:pig")[0]
+	srv.RunLine(`data merge entity @e[type=pig,limit=1] {OnGround:1b,Motion:[0.3d,0d,0d]}`)
+	if !srv.MobOnGround(id) {
+		t.Fatal("/data merge did not set the pig's OnGround")
+	}
+	servertest.RunTicks(t, srv, 1)
+	if srv.MobOnGround(id) {
+		t.Error("pig still on the ground after its first level move")
+	}
 }

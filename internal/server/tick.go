@@ -472,6 +472,7 @@ func (s *Server) tick() {
 		thrownTracker.frozenPass(s, watchers)
 		bobberTracker.frozenPass(s, watchers)
 		tntTracker.frozenPass(s, watchers)
+		fireworkTracker.frozenPass(s, watchers)
 		fallingTracker.frozenPass(s, watchers)
 		boatTracker.frozenPass(s, watchers)
 		cloudTracker.frozenPass(s, watchers)

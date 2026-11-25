@@ -109,6 +109,29 @@ func TestChangesInTwoSectionsArriveBottomUp(t *testing.T) {
 	}
 }
 
+func TestSectionBlockPacketsKeepTheirOwnPayloads(t *testing.T) {
+	t.Parallel()
+	srv, c := tellRig(t)
+	stone := servertest.BlockState(t, "minecraft:stone")
+	dirt := servertest.BlockState(t, "minecraft:dirt")
+	lower := []servertest.BlockChange{{X: 1, Y: 70, Z: 2, State: dirt}, {X: 2, Y: 68, Z: 3, State: stone}}
+	upper := []servertest.BlockChange{{X: 9, Y: 90, Z: 7, State: stone}, {X: 4, Y: 95, Z: 2, State: dirt}}
+
+	var cells [][3]int32
+	for _, cell := range slices.Concat(upper, lower) {
+		srv.SetBlock(cell.X, cell.Y, cell.Z, cell.State)
+		cells = append(cells, [3]int32{cell.X, cell.Y, cell.Z})
+	}
+	srv.TellBlockChanges(cells...)
+	got := readTold(t, srv, c)
+	if len(got) != 2 || !got[0].section() || !got[1].section() {
+		t.Fatalf("got %+v, want two Section Blocks Updates", got)
+	}
+	if !slices.Equal(got[0].cells, lower) || !slices.Equal(got[1].cells, upper) {
+		t.Fatalf("got %+v, want lower %v followed by upper %v", got, lower, upper)
+	}
+}
+
 // A block entity with an update packet follows its block's update, in the
 // single and the section case alike.
 // vanilla: ChunkHolder.broadcastBlockEntityIfNeeded

@@ -180,6 +180,26 @@ func TestBreakingTheHeartKillsItsCreaking(t *testing.T) {
 	}
 }
 
+// vanilla: CreakingHeartBlock.onExplosionHit
+func TestBlastingTheHeartKillsItsCreaking(t *testing.T) {
+	t.Parallel()
+	srv, _ := creakingWorldIn(t, "creative")
+	hx, hy, hz := plantHeart(t, srv, false)
+	srv.SetDayTime(18000)
+	awaitCreaking(t, srv)
+	servertest.HoldTicks(t, srv)
+
+	if srv.SpawnTNT(float64(hx)+1.5, float64(hy), float64(hz)+0.5, 1) == 0 {
+		t.Fatal("the primed body never stood up")
+	}
+	servertest.UntilTicks(t, srv, 20, "the heart to break", func() bool {
+		return registry.BlockOf(srv.BlockAt(hx, hy, hz)) == registry.BlockAir
+	})
+	servertest.UntilTicks(t, srv, 60, "the creaking to finish tearing down", func() bool {
+		return len(creakingsOf(srv)) == 0
+	})
+}
+
 // TestAHeartsComparatorReadsItsCreakingsDistance: a comparator beside the heart
 // reads 15 less a fifteenth of the creaking's distance in 32 blocks, rounded
 // down, and nothing without a creaking.

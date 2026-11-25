@@ -141,6 +141,7 @@ func boatShownOf(it *boatEntity) boatShown {
 // last told.
 var boatTracker = trackedKind[*boatEntity, boatShown]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.boats.built = false },
+	pistonBit:        pistonBoats,
 
 	rangeChunks: entity.BoatTrackingRange,
 	passengerRange: func(it *boatEntity) int {
@@ -1040,11 +1041,11 @@ type lootOpener struct {
 }
 
 // lootOpener is the client as the player opening a container. Its saved
-// compound is read now: the roll runs under the container's lock, which ranks
-// below the inventory lock the read takes.
+// compound, ride and pearls included, is read now: the roll runs under the
+// container's lock, which ranks below the inventory lock the read takes.
 func (c *client) lootOpener() lootOpener {
 	this := c.LootEntity()
-	tag := this.NBT()
+	tag := c.lootNBTRiding()()
 	this.NBT = func() nbt.Compound { return tag }
 	// The relations and live facts take locks that rank above the
 	// container's, so they are read now too.
@@ -2456,16 +2457,18 @@ func (s *Server) boatTwinAt(src *boatEntity, to *dimension, pos player.Position)
 }
 
 // savedVehicle is the RootVehicle compound of a rider's file: Attach names
-// the boat, mob or cushion they sit on, Entity is the root of the ride with its mob
-// passengers nested, the player never among them. Nil on foot, or when the
-// ride carries another player. With take, as on leaving, the root and every
-// passenger are discarded, so the file's copy is the only one a rejoin can
-// raise, and a chest boat's cargo goes with it rather than spill twice. The
-// boat and mob locks are taken one after the other, never together.
+// the boat, minecart, mob or cushion they sit on, Entity is the root of the
+// ride with its mob passengers nested, the player never among them. Nil on
+// foot, or when the ride carries another player. With take, as on leaving, the
+// root and every passenger are discarded, so the file's copy is the only one a
+// rejoin can raise, and a container vehicle's cargo goes with it rather than
+// spill twice. The vehicle and mob locks are taken one after the other, never
+// together.
 // vanilla: ServerPlayer.saveParentVehicle, PlayerList.remove
 func (c *client) savedVehicle(take bool) nbt.Compound {
 	s := c.srv
 	boat := c.vehicle.Load()
+	cart := c.minecart.Load()
 	var root *mobEntity
 	var attach uuid.UUID
 	// A file's vehicle not yet raised is saved as the file had it, the seat
@@ -2482,6 +2485,8 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 	}
 	if boat != nil {
 		attach = boat.uuid
+	} else if cart != nil {
+		attach = cart.uuid
 	} else if ent := c.mount.Load(); ent != nil {
 		s.mobsMu.Lock()
 		attach, root = ent.uuid, ent
@@ -2490,6 +2495,8 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 			root = book[root.mob.Vehicle]
 		}
 		if boat = root.vehicle; boat != nil {
+			root = nil
+		} else if cart = root.cart; cart != nil {
 			root = nil
 		}
 		s.mobsMu.Unlock()
@@ -2516,6 +2523,16 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 		}
 		tag, w = boatTag(boat), boat.w
 		s.boatsMu.Unlock()
+	} else if cart != nil {
+		s.minecartsMu.Lock()
+		if cart.cart.Dead {
+			s.minecartsMu.Unlock()
+			return nil
+		}
+		players = len(cart.passengers)
+		mobs = append(mobs, cart.mobs...)
+		tag, w = minecartTag(cart), cart.w
+		s.minecartsMu.Unlock()
 	} else {
 		mobs, w = []*mobEntity{root}, root.w
 	}
@@ -2540,7 +2557,7 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 	if root != nil {
 		tag = mobTagIn(root, book)
 	} else if len(mobs) > 0 {
-		// The carried riders boatTag wrote stay ahead of the mobs.
+		// The carried riders boatTag or minecartTag wrote stay ahead of the mobs.
 		carried, _ := nbt.Get[nbt.List](tag.Entries(), "Passengers")
 		list := nbt.List{Elem: nbt.TypeCompound, Items: slices.Clone(carried.Items)}
 		for _, m := range mobs {
@@ -2551,6 +2568,7 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 	if take {
 		for _, m := range tree {
 			m.vehicle = nil
+			m.cart = nil
 			m.mob.RidesVehicle = false
 			m.mob.Discard()
 		}
@@ -2564,6 +2582,16 @@ func (c *client) savedVehicle(take bool) nbt.Compound {
 		boat.scoresSettled = true // vanilla: RemovalReason.UNLOADED_WITH_PLAYER
 		boat.cargo = nil
 		s.boatsMu.Unlock()
+	} else if take && cart != nil {
+		s.minecartsMu.Lock()
+		cart.cart.Dead = true
+		cart.cart.NoLoot = true
+		cart.scoresSettled = true // vanilla: RemovalReason.UNLOADED_WITH_PLAYER
+		cart.cargo = vehicleCargo{}
+		cart.passengers = nil
+		cart.mobs = nil
+		s.minecartsMu.Unlock()
+		c.minecart.Store(nil)
 	}
 	return nbt.Compound{"Attach": nbt.UUIDToIntArray(attach), "Entity": tag}
 }
@@ -2597,7 +2625,7 @@ func savedRideHolds(compound nbt.Compound, identity uuid.UUID) bool {
 	return false
 }
 
-// remountSavedVehicle seats a joining player back on the boat, mob or
+// remountSavedVehicle seats a joining player back on the boat, minecart, mob or
 // cushion their file's RootVehicle names in Attach, the root or any of its passengers. The
 // root is found by identity — woken from its own chunk file beside the
 // player, most turns, whatever chunk the wake of it lands in — and where the
@@ -2636,6 +2664,10 @@ func (s *Server) remountSavedVehicle(c *client, dim *dimension, saved nbt.Compou
 		if s.raiseSavedMob(dim.w, entity) != nil {
 			s.seatOnSavedMob(c, dim.w, attach)
 		}
+		return
+	}
+	if isMinecartTag(id) {
+		s.remountSavedMinecart(c, dim.w, entity, identity, attach)
 		return
 	}
 	s.boatsMu.Lock()

@@ -71,22 +71,34 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 			c.lightFormsMu.Unlock()
 			light = w.chunkLightWired(c)
 		}
-		own := c.blockEntities()
+		var ownBuf [16]*BlockEntity
+		var own []*BlockEntity
+		if len(c.entityOrder) <= len(ownBuf) {
+			own = c.appendBlockEntities(ownBuf[:0])
+		} else {
+			own = c.appendBlockEntities(nil)
+		}
+		rides := c.snapshotPistonRides()
 		// Snapshot the carried compounds under the lock: a command setting one
 		// replaces the list, and a save reads it. Trial spawners' block state
 		// is read under the same lock.
 		carried := slices.Clone(c.carriedBlockEntities.Items)
 		active := c.activeTrialSpawners(carried)
 		w.mu.RUnlock()
+		sortPistonRides(rides)
 
 		// The block entities go out packed with their update tags (a sign's
 		// text, a banner's patterns, a container only its place). This is the
 		// only place a client learns they exist. They are written first, to
 		// scratch, so the payload is allocated once at its size.
 		entities := scratchBuffer()
-		putBlockEntities(entities, own, carried, active)
-		defer scratchBuffers.Put(entities)
+		if len(own)+len(rides)+len(carried) == 0 {
+			entities.PutU8(0)
+		} else {
+			putBlockEntities(entities, own, rides, carried, active)
+		}
 		if unchanged && bytes.Equal(entities.Bytes(), c.packet.entities) {
+			scratchBuffers.Put(entities)
 			return c.packet.packet
 		}
 		var b protocol.Buffer
@@ -99,6 +111,7 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 		b.PutRaw(entities.Bytes())
 		b.PutRaw(light)
 		next.light, next.entities = light, slices.Clone(entities.Bytes())
+		scratchBuffers.Put(entities)
 		next.packet = protocol.NewCachedPacket(protocol.IDPlayChunkData, b.Bytes())
 		c.packet = next
 		return next.packet

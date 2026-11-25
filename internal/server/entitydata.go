@@ -4,7 +4,6 @@ import (
 	"github.com/golem-mc/golem/internal/server/effect"
 	"maps"
 	"math"
-	"math/rand"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -382,8 +381,10 @@ func applyThrownRest(it *thrownEntity, compound nbt.Compound) {
 	t := it.throwable
 	it.shot = nbt.BoolField(compound, "HasBeenShot")
 	t.Yaw, t.Pitch = entityRotationOfTag(compound)
-	if stack, ok := storedItemStackOf(compound); ok && !stack.Empty() {
-		it.stack = stack
+	if t.Kind != entity.ThrownLlamaSpit {
+		if stack, ok := storedItemStackOf(compound); ok && !stack.Empty() {
+			it.stack = stack
+		}
 	}
 	t.NoGravity = nbt.BoolField(compound, "NoGravity")
 	t.Silent = nbt.BoolField(compound, "Silent")
@@ -890,7 +891,7 @@ func tntOfTag(s *Server, w *world.World, compound nbt.Compound) *tntEntity {
 		tnt:  entity.NewTNT(eid, x, y, z, vx, vy, vz, fuse, state, 0),
 		uuid: identity,
 		w:    w,
-		rand: rand.New(rand.NewSource(s.entitySeed(eid))),
+		rand: entity.NewDice(s.entitySeed(eid)),
 	}
 	applyTNTTag(it, compound)
 	return it

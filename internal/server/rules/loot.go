@@ -129,10 +129,10 @@ type LootEntity struct {
 	// false for a name that is no range; nil where the caller cannot say.
 	// vanilla: SlotsPredicate.matches over Entity.getSlot
 	Slot func(name string) ([]LootTool, bool)
-	// SlotStacks reads a copy of the stack in each slot a range's name
-	// spans, empty slots included; nil where the caller cannot say.
+	// SlotAccess returns the slots a range's name spans, empty slots included;
+	// nil where the caller cannot say.
 	// vanilla: SlotProvider.getSlotsFromRange
-	SlotStacks func(name string) []protocol.ItemStack
+	SlotAccess func(name string) []SlotAccess
 }
 
 // LootPlace is a body's position and the blocks under it.
@@ -280,14 +280,14 @@ type LevelReads interface {
 // answering its scores and storages; nil reads find neither.
 // vanilla: LootParams.Builder(ServerLevel), LootContextParams.ORIGIN
 func LevelAt(w LevelWorld, reads LevelReads, x, y, z float64) LootLevel {
-	return lootLevelAt{w: w, reads: reads, x: x, y: y, z: z, origin: true}
+	return &lootLevelAt{w: w, reads: reads, x: x, y: y, z: z, origin: true}
 }
 
 // LevelWithoutOrigin is w as the level of a roll with no origin: a positional
 // attribute reads its default.
 // vanilla: LootContextParamSets.EMPTY, EnvironmentAttributeReader.getValue(LootContext, EnvironmentAttribute)
 func LevelWithoutOrigin(w LevelWorld, reads LevelReads) LootLevel {
-	return lootLevelAt{w: w, reads: reads}
+	return &lootLevelAt{w: w, reads: reads}
 }
 
 type lootLevelAt struct {
@@ -397,10 +397,10 @@ type LootContext struct {
 	// minecraft:container (a broken shulker box's contents); nil at no
 	// container.
 	Container []protocol.ItemStack
-	// ContainerSlots reads the slots a range's name spans off the container
-	// a command's slot source reads; nil outside one.
+	// ContainerSlots returns the slots a range's name spans off the container
+	// a command's slot source addresses; nil outside one.
 	// vanilla: LootContextParams.CONTAINER
-	ContainerSlots func(name string) []protocol.ItemStack
+	ContainerSlots func(name string) []SlotAccess
 	// CustomName is the block entity's name, copied by copy_components'
 	// minecraft:custom_name; nil when unnamed.
 	CustomName *protocol.Text
@@ -445,6 +445,16 @@ type LootContext struct {
 	// Luck of the Sea added), which bonus rolls and entry quality scale by.
 	// vanilla: LootContext.getLuck
 	Luck float32
+}
+
+// SetBlockOrigin moves a roll and its level's positional reads to the block centre.
+func (c *LootContext) SetBlockOrigin(x, y, z int32) {
+	c.Origin = [3]float64{float64(x) + 0.5, float64(y) + 0.5, float64(z) + 0.5}
+	c.HasOrigin = true
+	if level, ok := c.Level.(*lootLevelAt); ok {
+		level.x, level.y, level.z = c.Origin[0], c.Origin[1], c.Origin[2]
+		level.origin = true
+	}
 }
 
 // lootStack is a stack in flight; functions may still change the item
@@ -572,7 +582,8 @@ type LootKiller struct {
 type lootRoller struct {
 	ctx     *LootContext
 	rng     LootRand
-	visited map[string]bool
+	root    string
+	visited map[string]bool // sub-tables being rolled; made on the first reference
 	// predicates are the loaded predicates being evaluated, which a
 	// reference may not loop back to.
 	predicates map[string]bool
@@ -598,26 +609,32 @@ func TestLootCondition(c registry.LootCondition, ctx *LootContext, rng LootRand)
 // the stacks split at each item's maximum, without emptied stacks or items
 // this version lacks.
 func RollLoot(name string, ctx *LootContext, rng LootRand) []protocol.ItemStack {
+	return RollLootInto(nil, name, ctx, rng)
+}
+
+// RollLootInto appends a named table's drops to dst.
+func RollLootInto(dst []protocol.ItemStack, name string, ctx *LootContext, rng LootRand) []protocol.ItemStack {
 	table, ok := registry.FindLootTable(name)
 	if !ok {
-		return nil
+		return dst
 	}
-	return RollLootTable(name, table, ctx, rng)
+	return rollLootTable(dst, name, table, ctx, ctx.RandomFor(table.RandomSequence, rng))
 }
 
 // RollLootTable rolls a table the caller holds, such as an inline one a
 // command carries; name is the table's own, which a reference entry may not
 // loop back to.
 func RollLootTable(name string, table registry.LootTable, ctx *LootContext, rng LootRand) []protocol.ItemStack {
-	return rollLootTable(name, table, ctx, ctx.lootRandom(table.RandomSequence, rng))
+	return rollLootTable(nil, name, table, ctx, ctx.RandomFor(table.RandomSequence, rng))
 }
 
+// RandomFor selects the explicit source, named sequence or level random for a roll.
 // vanilla: LootContext.Builder.create
-func (ctx *LootContext) lootRandom(sequence string, fallback LootRand) LootRand {
+func (ctx *LootContext) RandomFor(sequence string, fallback LootRand) LootRand {
 	if ctx.Random != nil {
 		return ctx.Random
 	}
-	if level, ok := ctx.Level.(lootLevelAt); ok {
+	if level, ok := ctx.Level.(*lootLevelAt); ok {
 		if reads, ok := level.reads.(interface{ LootRandom(string) LootRand }); ok {
 			return reads.LootRandom(sequence)
 		}
@@ -625,124 +642,125 @@ func (ctx *LootContext) lootRandom(sequence string, fallback LootRand) LootRand 
 	return fallback
 }
 
-func rollLootTable(name string, table registry.LootTable, ctx *LootContext, rng LootRand) []protocol.ItemStack {
-	r := lootRoller{ctx: ctx, rng: rng, visited: map[string]bool{name: true}}
-	var stacks []lootStack
-	// Wrapping this callback with the subtable's emitter makes both escape.
-	// vanilla: LootTable.getRandomItemsRaw
-	emit := func(s lootStack) {
-		for _, f := range table.Functions {
-			s = r.function(f, s)
-		}
-		if s.count > 0 {
-			stacks = append(stacks, s)
-		}
-	}
-	for i := range table.Pools {
-		r.pool(&table.Pools[i], emit)
-	}
-	return splitStacks(stacks)
+func rollLootTable(dst []protocol.ItemStack, name string, table registry.LootTable, ctx *LootContext, rng LootRand) []protocol.ItemStack {
+	r := lootRoller{ctx: ctx, rng: rng, root: name}
+	var small [8][]registry.LootFunction
+	r.rollTable(&table, lootOutput{functions: small[:0], stacks: &dst})
+	return dst
 }
 
-// splitStacks turns the stacks in flight into item stacks, one per stack
-// size.
-func splitStacks(stacks []lootStack) []protocol.ItemStack {
-	var out []protocol.ItemStack
-	for _, s := range stacks {
-		if s.ready != nil {
-			out = append(out, *s.ready)
-			continue
-		}
-		id := int32(s.item)
-		max := int32(registry.MaxStackSize(id))
-		if max <= 0 {
-			max = 64
-		}
-		for count := s.count; count > 0; {
-			n := min(count, max)
-			// Every split carries a copy of all the stack's components.
-			// vanilla: LootTable.createStackSplitter (copyWithCount)
-			stack := s.rest
-			stack.ItemID, stack.Count, stack.Container, stack.CustomName = id, n, slices.Clone(s.container), s.customName
-			stack.Raw, stack.Damage, stack.MapDecorations = append(slices.Clone(s.components), s.modified...), s.damage, s.mapDecorations
-			stack.Enchantments, stack.StoredEnchantments, stack.ContainerLoot = s.enchantments, s.stored, s.containerLoot
-			if s.hasTrim {
-				stack.SetTrim(s.trimMaterial, s.trimPattern)
-			}
-			if s.hasOminous {
-				stack.SetOminousBottleAmplifier(s.ominous)
-			}
-			if s.hasInstrument {
-				stack.SetInstrument(s.instrument)
-			}
-			if s.itemName != nil {
-				stack.SetItemName(*s.itemName)
-			}
-			out = append(out, stack)
-			count -= n
-		}
+// lootOutput keeps the active modifiers in outermost-first order. A nested
+// roll can extend the list while its caller continues to use its own prefix.
+// vanilla: LootTable.getRandomItemsRaw
+type lootOutput struct {
+	functions [][]registry.LootFunction
+	stacks    *[]protocol.ItemStack
+}
+
+func (out lootOutput) withFunctions(funcs []registry.LootFunction) lootOutput {
+	if len(funcs) > 0 {
+		out.functions = append(out.functions, funcs)
 	}
 	return out
 }
 
-// pool rolls one pool of a table: the conditions it happens under, the
-// rolls it makes, and its own functions laid over every stack the entries
-// give before the table's see it.
-func (r *lootRoller) pool(p *registry.LootPool, out func(lootStack)) {
+func (r *lootRoller) emit(s lootStack, out lootOutput) {
+	for _, functions := range slices.Backward(out.functions) {
+		for _, f := range functions {
+			s = r.function(f, s)
+		}
+	}
+	if s.count > 0 {
+		*out.stacks = appendSplitLootStack(*out.stacks, s)
+	}
+}
+
+// appendSplitLootStack appends a stack in flight as stacks of at most the
+// item's stack size.
+func appendSplitLootStack(out []protocol.ItemStack, s lootStack) []protocol.ItemStack {
+	if s.ready != nil {
+		return append(out, *s.ready)
+	}
+	id := int32(s.item)
+	max := int32(registry.MaxStackSize(id))
+	if max <= 0 {
+		max = 64
+	}
+	for count := s.count; count > 0; {
+		n := min(count, max)
+		// vanilla: LootTable.createStackSplitter (copyWithCount)
+		stack := s.rest
+		stack.ItemID, stack.Count, stack.Container, stack.CustomName = id, n, slices.Clone(s.container), s.customName
+		stack.Raw, stack.Damage, stack.MapDecorations = append(slices.Clone(s.components), s.modified...), s.damage, s.mapDecorations
+		stack.Enchantments, stack.StoredEnchantments, stack.ContainerLoot = s.enchantments, s.stored, s.containerLoot
+		if s.hasTrim {
+			stack.SetTrim(s.trimMaterial, s.trimPattern)
+		}
+		if s.hasOminous {
+			stack.SetOminousBottleAmplifier(s.ominous)
+		}
+		if s.hasInstrument {
+			stack.SetInstrument(s.instrument)
+		}
+		if s.itemName != nil {
+			stack.SetItemName(*s.itemName)
+		}
+		out = append(out, stack)
+		count -= n
+	}
+	return out
+}
+
+// pool rolls one pool of a table, applying its functions before the table's.
+func (r *lootRoller) pool(p *registry.LootPool, out lootOutput) {
 	if !r.conditions(p.Conditions) {
 		return
 	}
-	decorated := func(s lootStack) {
-		for _, f := range p.Functions {
-			s = r.function(f, s)
-		}
-		out(s)
-	}
+	out = out.withFunctions(p.Functions)
 	// vanilla: LootPool.addRandomItems
 	rolls := r.numInt(p.Rolls) + int32(math.Floor(float64(float32(r.numFloat(p.BonusRolls))*r.ctx.Luck)))
 	for range rolls {
-		r.pickOne(p.Entries, decorated)
+		r.pickOne(p.Entries, out)
 	}
 }
 
-// lootCandidate is one choice a pool's roll can land on: an entry that
-// expanded into the running, how much of the weight it takes, and the
-// making of its stacks.
+// A candidate with no entry is one raw item from an expanded tag.
 type lootCandidate struct {
+	entry  registry.LootEntry
+	item   registry.Item
 	weight int32
-	create func(out func(lootStack))
+	// wraps are the modifiers of the composite entries around it, outermost first.
+	wraps [][]registry.LootFunction
 }
 
-// pickOne makes one choice among a pool's entries: every entry is expanded
-// into the candidates it contributes, and the one the weighted dice land
-// on makes its stacks. A single candidate rolls no dice.
-func (r *lootRoller) pickOne(entries []registry.LootEntry, out func(lootStack)) {
-	var valid []lootCandidate
+// pickOne makes one weighted choice across all expanded entries. A single
+// candidate rolls no dice.
+func (r *lootRoller) pickOne(entries []registry.LootEntry, out lootOutput) {
+	var small [4]lootCandidate
+	valid := small[:0]
+	for _, entry := range entries {
+		_, valid = r.expand(entry, valid)
+	}
+	positive := valid[:0]
 	total := int32(0)
-	for i := range entries {
-		ok, cands := r.expand(&entries[i])
-		if !ok {
-			continue
-		}
-		for _, c := range cands {
-			if c.weight > 0 {
-				valid = append(valid, c)
-				total += c.weight
-			}
+	for _, c := range valid {
+		if c.weight > 0 {
+			positive = append(positive, c)
+			total += c.weight
 		}
 	}
-	if len(valid) == 0 || total == 0 {
+	if len(positive) == 0 || total == 0 {
 		return
 	}
-	if len(valid) == 1 {
-		valid[0].create(out)
+	if len(positive) == 1 {
+		r.create(positive[0], out)
 		return
 	}
 	index := r.rng.Int31n(total)
-	for _, c := range valid {
+	for _, c := range positive {
 		index -= c.weight
 		if index < 0 {
-			c.create(out)
+			r.create(c, out)
 			return
 		}
 	}
@@ -755,164 +773,158 @@ func (r *lootRoller) weight(weight, quality int32) int32 {
 	return max(int32(math.Floor(float64(float32(weight)+float32(quality)*r.ctx.Luck))), 0)
 }
 
-// expand reports whether an entry can run and its candidates for the pool's
-// choice. Composites recurse: alternatives take the first child that can,
-// sequence all or none, group every one that can.
-func (r *lootRoller) expand(e *registry.LootEntry) (bool, []lootCandidate) {
-	switch k := (*e).(type) {
-	case registry.LootItemEntry:
-		if !r.conditions(k.Conditions) {
-			return false, nil
-		}
-		return true, []lootCandidate{{weight: r.weight(k.Weight, k.Quality), create: func(out func(lootStack)) {
-			s := lootStack{item: k.Item, count: 1}
-			for _, f := range k.Functions {
-				s = r.function(f, s)
-			}
-			out(s)
-		}}}
-	case registry.LootEmpty:
-		if !r.conditions(k.Conditions) {
-			return false, nil
-		}
-		// An empty entry takes the roll and gives nothing back.
-		return true, []lootCandidate{{weight: r.weight(k.Weight, k.Quality), create: func(out func(lootStack)) {}}}
-	case registry.LootTag:
-		if !r.conditions(k.Conditions) {
-			return false, nil
-		}
-		if !k.Expand {
-			return true, []lootCandidate{{weight: r.weight(k.Weight, k.Quality), create: func(out func(lootStack)) {
-				for _, item := range k.Items {
-					s := lootStack{item: item, count: 1}
-					for _, f := range k.Functions {
-						s = r.function(f, s)
-					}
-					out(s)
-				}
-			}}}
-		}
-		// An expanded tag puts every item of it forward as its own
-		// candidate, each at the tag's weight and each without the tag's
-		// functions - the raw items.
-		cands := make([]lootCandidate, 0, len(k.Items))
-		for _, item := range k.Items {
-			cands = append(cands, lootCandidate{weight: r.weight(k.Weight, k.Quality), create: func(out func(lootStack)) {
-				out(lootStack{item: item, count: 1})
-			}})
-		}
-		return true, cands
-	case registry.LootReference:
-		if !r.conditions(k.Conditions) {
-			return false, nil
-		}
-		return true, []lootCandidate{{weight: r.weight(k.Weight, k.Quality), create: func(out func(lootStack)) {
-			if k.Inline != nil {
-				r.rollTable(k.Inline, k.Functions, out)
-				return
-			}
-			r.subTable(k.Table, k.Functions, out)
-		}}}
-	case registry.LootSlots:
-		if !r.conditions(k.Conditions) {
-			return false, nil
-		}
-		// vanilla: SlotLoot.createItemStack
-		return true, []lootCandidate{{weight: r.weight(k.Weight, k.Quality), create: func(out func(lootStack)) {
-			for _, stack := range SlotSourceStacks(k.Source, r.ctx) {
-				if stack.Empty() {
-					continue
-				}
-				s := lootStack{ready: &stack, count: stack.Count}
-				for _, f := range k.Functions {
-					s = r.function(f, s)
-				}
-				out(s)
-			}
-		}}}
-	case registry.LootDynamic:
-		if !r.conditions(k.Conditions) {
-			return false, nil
-		}
-		// A dynamic entry's stacks come from the looted thing (a decorated
-		// pot's sherds). It still wins its alternatives when empty, so a
-		// cracked pot with no sherds does not drop whole instead.
-		supplies := r.ctx.Dynamic[k.Name]
-		return true, []lootCandidate{{weight: r.weight(k.Weight, k.Quality), create: func(out func(lootStack)) {
-			for _, supply := range supplies {
-				out(lootStack{item: registry.Item(supply.ItemID), count: supply.Count})
-			}
-		}}}
-	case registry.LootAlternatives:
-		if !r.conditions(k.Conditions) {
-			return false, nil
-		}
-		for i := range k.Children {
-			if ok, cands := r.expand(&k.Children[i]); ok {
-				return true, cands
-			}
-		}
-		return false, nil
-	case registry.LootSequence:
-		if !r.conditions(k.Conditions) {
-			return false, nil
-		}
-		var cands []lootCandidate
-		for i := range k.Children {
-			ok, more := r.expand(&k.Children[i])
-			if !ok {
-				return false, nil
-			}
-			cands = append(cands, more...)
-		}
-		return true, cands
-	case registry.LootGroup:
-		if !r.conditions(k.Conditions) {
-			return false, nil
-		}
-		var cands []lootCandidate
-		for i := range k.Children {
-			if ok, more := r.expand(&k.Children[i]); ok {
-				cands = append(cands, more...)
-			}
-		}
-		return true, cands
+func (r *lootRoller) expandSingle(dst []lootCandidate, entry registry.LootEntry, conditions []registry.LootCondition, weight, quality int32) (bool, []lootCandidate) {
+	if !r.conditions(conditions) {
+		return false, dst
 	}
-	return false, nil
+	return true, append(dst, lootCandidate{entry: entry, weight: r.weight(weight, quality)})
 }
 
-// subTable rolls another table into this one (LootReference: the sheep's
-// colour table). The entry's functions run on each stack after the
-// sub-table's own; the outer pool's and table's run later still, as they
-// decorate the consumer it rolls into.
-func (r *lootRoller) subTable(name string, funcs []registry.LootFunction, out func(lootStack)) {
-	if r.visited[name] {
-		// A table that loops back on itself stops here.
+// expand appends candidates even if the entry ultimately fails. A successful
+// entry can also produce no candidates.
+// vanilla: ComposableEntryContainer.expand
+func (r *lootRoller) expand(entry registry.LootEntry, dst []lootCandidate) (bool, []lootCandidate) {
+	var funcs []registry.LootFunction
+	switch k := entry.(type) {
+	case registry.LootAlternatives:
+		funcs = k.Functions
+	case registry.LootGroup:
+		funcs = k.Functions
+	case registry.LootSequence:
+		funcs = k.Functions
+	}
+	if len(funcs) == 0 {
+		return r.expandRaw(entry, dst)
+	}
+	// vanilla: LootPoolEntryContainer.adjustOutput
+	start := len(dst)
+	ok, dst := r.expandRaw(entry, dst)
+	for i := start; i < len(dst); i++ {
+		dst[i].wraps = append([][]registry.LootFunction{funcs}, dst[i].wraps...)
+	}
+	return ok, dst
+}
+
+func (r *lootRoller) expandRaw(entry registry.LootEntry, dst []lootCandidate) (bool, []lootCandidate) {
+	switch k := entry.(type) {
+	case registry.LootItemEntry:
+		return r.expandSingle(dst, entry, k.Conditions, k.Weight, k.Quality)
+	case registry.LootEmpty:
+		return r.expandSingle(dst, entry, k.Conditions, k.Weight, k.Quality)
+	case registry.LootTag:
+		if !k.Expand {
+			return r.expandSingle(dst, entry, k.Conditions, k.Weight, k.Quality)
+		}
+		if !r.conditions(k.Conditions) {
+			return false, dst
+		}
+		weight := r.weight(k.Weight, k.Quality)
+		for _, item := range k.Items {
+			dst = append(dst, lootCandidate{item: item, weight: weight})
+		}
+		return true, dst
+	case registry.LootReference:
+		return r.expandSingle(dst, entry, k.Conditions, k.Weight, k.Quality)
+	case registry.LootSlots:
+		return r.expandSingle(dst, entry, k.Conditions, k.Weight, k.Quality)
+	case registry.LootDynamic:
+		return r.expandSingle(dst, entry, k.Conditions, k.Weight, k.Quality)
+	case registry.LootAlternatives:
+		if !r.conditions(k.Conditions) {
+			return false, dst
+		}
+		for _, child := range k.Children {
+			var ok bool
+			ok, dst = r.expand(child, dst)
+			if ok {
+				return true, dst
+			}
+		}
+	case registry.LootSequence:
+		if !r.conditions(k.Conditions) {
+			return false, dst
+		}
+		for _, child := range k.Children {
+			var ok bool
+			ok, dst = r.expand(child, dst)
+			if !ok {
+				return false, dst
+			}
+		}
+		return true, dst
+	case registry.LootGroup:
+		if !r.conditions(k.Conditions) {
+			return false, dst
+		}
+		// vanilla: EntryGroup.compose (one child delegates, so its failure propagates)
+		if len(k.Children) == 1 {
+			return r.expand(k.Children[0], dst)
+		}
+		for _, child := range k.Children {
+			_, dst = r.expand(child, dst)
+		}
+		return true, dst
+	}
+	return false, dst
+}
+
+func (r *lootRoller) create(c lootCandidate, out lootOutput) {
+	for _, w := range c.wraps {
+		out = out.withFunctions(w)
+	}
+	switch k := c.entry.(type) {
+	case nil:
+		r.emit(lootStack{item: c.item, count: 1}, out)
+	case registry.LootItemEntry:
+		out = out.withFunctions(k.Functions)
+		r.emit(lootStack{item: k.Item, count: 1}, out)
+	case registry.LootTag:
+		out = out.withFunctions(k.Functions)
+		for _, item := range k.Items {
+			r.emit(lootStack{item: item, count: 1}, out)
+		}
+	case registry.LootReference:
+		out = out.withFunctions(k.Functions)
+		if k.Inline != nil {
+			r.rollTable(k.Inline, out)
+		} else {
+			r.subTable(k.Table, out)
+		}
+	case registry.LootSlots:
+		out = out.withFunctions(k.Functions)
+		for _, stack := range SlotSourceStacks(k.Source, r.ctx) {
+			if !stack.Empty() {
+				r.emit(lootStack{ready: &stack, count: stack.Count}, out)
+			}
+		}
+	case registry.LootDynamic:
+		for _, supply := range r.ctx.Dynamic[k.Name] {
+			r.emit(lootStack{item: registry.Item(supply.ItemID), count: supply.Count}, out)
+		}
+	}
+}
+
+// subTable protects the active path of named table references from cycles.
+func (r *lootRoller) subTable(name string, out lootOutput) {
+	if name == r.root || r.visited[name] {
 		return
 	}
 	sub, ok := registry.FindLootTable(name)
 	if !ok {
 		return
 	}
+	if r.visited == nil {
+		r.visited = map[string]bool{}
+	}
 	r.visited[name] = true
 	defer delete(r.visited, name)
-	r.rollTable(&sub, funcs, out)
+	r.rollTable(&sub, out)
 }
 
-// rollTable rolls a table's pools into out, running the table's functions
-// and then the entry's on each stack.
-func (r *lootRoller) rollTable(sub *registry.LootTable, funcs []registry.LootFunction, out func(lootStack)) {
-	inner := func(s lootStack) {
-		for _, f := range sub.Functions {
-			s = r.function(f, s)
-		}
-		for _, f := range funcs {
-			s = r.function(f, s)
-		}
-		out(s)
-	}
-	for i := range sub.Pools {
-		r.pool(&sub.Pools[i], inner)
+func (r *lootRoller) rollTable(table *registry.LootTable, out lootOutput) {
+	out = out.withFunctions(table.Functions)
+	for i := range table.Pools {
+		r.pool(&table.Pools[i], out)
 	}
 }
 

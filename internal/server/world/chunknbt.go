@@ -108,7 +108,8 @@ func encodeChunkNBTWith(c *Chunk, live []nbt.Tag, ticks chunkTicks) (nbt.Compoun
 		root["lightCorrect"] = nbt.Byte(1)
 		root["LightData"] = nbt.ByteArray(c.lightForm())
 	}
-	blockEntities := make([]nbt.Tag, 0, len(live)+len(c.carriedBlockEntities.Items))
+	pistonTags := c.encodePistonRides()
+	blockEntities := make([]nbt.Tag, 0, len(live)+len(pistonTags)+len(c.carriedBlockEntities.Items))
 	// A file older than the furnace burn-time fixer gets furnace progress under
 	// the old names, so the fixer does not run over the current ones.
 	if c.claimedVersion() < furnaceBurnTimeVersion {
@@ -119,6 +120,7 @@ func encodeChunkNBTWith(c *Chunk, live []nbt.Tag, ticks chunkTicks) (nbt.Compoun
 		}
 	}
 	blockEntities = append(blockEntities, live...)
+	blockEntities = append(blockEntities, pistonTags...)
 	blockEntities = append(blockEntities, c.carriedBlockEntities.Items...)
 	if len(blockEntities) > 0 {
 		root["block_entities"] = nbt.List{Elem: nbt.TypeCompound, Items: blockEntities}
@@ -478,6 +480,10 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 			if c.dataVersion != 0 && c.dataVersion < furnaceBurnTimeVersion {
 				fixFurnaceBurnTime(compound)
 			}
+			if ride, ok := decodePistonRide(compound.Entries()); ok {
+				c.setPistonRide(ride)
+				continue
+			}
 			if live, ok := decodeBlockEntity(compound.Entries()); ok {
 				c.setBlockEntity(live)
 				continue
@@ -495,7 +501,7 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 	// LightData and is relit in Acquire.
 	if lightData, ok := nbt.Get[nbt.ByteArray](root, "LightData"); ok {
 		if c.decodeLight(lightData) {
-			c.lightFormsStale = true
+			c.lightFormsInit = true
 			c.lightCorrect = true
 		}
 	}
@@ -561,35 +567,42 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 			len(data), blocksPerSection, bitsPerEntry, need)
 	}
 
-	blocks := newBlockWords(stateIDs[0])
 	// Counts must represent all 4096 cells, including an explicit uniform array.
 	counts := make([]uint32, len(stateIDs))
-	mask := uint64(1)<<bitsPerEntry - 1
-	i := 0
-	for _, long := range data {
-		word := uint64(long)
-		for j := 0; j < perLong && i < blocksPerSection; j++ {
-			pIdx := int(word & mask)
-			word >>= bitsPerEntry
-			state := uint16(airState)
-			if pIdx < len(stateIDs) {
-				state = stateIDs[pIdx]
-				counts[pIdx]++
+	blocks := adoptPackedBlocks(stateIDs, data, bitsPerEntry, counts)
+	if blocks == nil {
+		clear(counts)
+		blocks = newBlockWords(stateIDs[0])
+		mask := uint64(1)<<bitsPerEntry - 1
+		i := 0
+		for _, long := range data {
+			word := uint64(long)
+			for j := 0; j < perLong && i < blocksPerSection; j++ {
+				pIdx := int(word & mask)
+				word >>= bitsPerEntry
+				state := uint16(airState)
+				if pIdx < len(stateIDs) {
+					state = stateIDs[pIdx]
+					counts[pIdx]++
+				}
+				blocks = blocks.put(i, state, false)
+				i++
 			}
-			blocks = blocks.put(i, state, false)
-			i++
-		}
-		if i == blocksPerSection {
-			break
+			if i == blocksPerSection {
+				break
+			}
 		}
 	}
 	s.fill = stateIDs[0]
 	s.spawn.Store(nil)
 	s.tickMask.Store(nil)
 	s.blocks.Store(blocks)
-	s.ticking, s.emitting, s.listening, s.rods, s.catalysts, s.eggs, s.portals, s.pois = 0, 0, 0, 0, 0, 0, 0, 0
+	s.ticking, s.emitting, s.rods, s.eggs, s.portals, s.pois = 0, 0, 0, 0, 0, 0
+	s.sculk = nil
 	s.touches.Store(0)
+	s.shapes.Store(0)
 	s.colliding, s.comparators = 0, 0
+	var sculkCounts [sculkCellKinds]int
 	// Invalid indices read as air, which contributes to none of these tallies.
 	for pIdx, state := range stateIDs {
 		n := int(counts[pIdx])
@@ -602,22 +615,19 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 		if registry.LightEmission(state) > 0 {
 			s.emitting += n
 		}
-		if listensForVibrations(state) {
-			s.listening += n
-		}
 		if MayCollide(state) {
 			s.colliding += n
 		}
 		if isLightningRod(state) {
 			s.rods += n
 		}
-		if isSculkCatalyst(state) {
-			s.catalysts += n
-		}
 		if IsTurtleEgg(state) {
 			s.eggs += n
 		}
 		block := registry.BlockOf(state)
+		if kind := sculkCellKindOf(block); kind != noSculkCell {
+			sculkCounts[kind] += n
+		}
 		switch block {
 		case registry.BlockNetherPortal:
 			s.portals += n
@@ -630,8 +640,57 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 		if isTouchBlock[block] {
 			s.touches.Add(int32(n))
 		}
+		if isShapeBlock[block] {
+			s.shapes.Add(int32(n))
+		}
+	}
+	if sculkCounts != [sculkCellKinds]int{} {
+		s.indexDecodedSculkCells(blocks, sculkCounts)
 	}
 	return nil
+}
+
+// adoptPackedBlocks builds storage straight from the saved words when the file's
+// palette already is the in-memory layout: width 4-8, distinct states and every
+// index inside the palette. It counts each index into counts and returns nil
+// (counts then meaningless) for anything else, which the cell-by-cell decoder
+// handles. data holds at least a section's words.
+// vanilla: PalettedContainer.unpack
+func adoptPackedBlocks(stateIDs []uint16, data nbt.LongArray, bitsPerEntry int, counts []uint32) *blockWords {
+	if bitsPerEntry > maxIndirectBits {
+		return nil
+	}
+	b := makeBlockWords(bitsPerEntry)
+	for _, state := range stateIDs {
+		if b.paletteSlot(state) != b.used {
+			return nil
+		}
+		b.palette[b.used] = uint32(state)
+		b.indexSlot(state, b.used)
+		b.used++
+	}
+	words := data[:len(b.words)]
+	mask, n := b.mask, len(stateIDs)
+	cell := 0
+	for w, long := range words {
+		word := uint64(long)
+		take := min(b.perWord, blocksPerSection-cell)
+		for range take {
+			pIdx := int(word & mask)
+			if pIdx >= n {
+				return nil
+			}
+			counts[pIdx]++
+			word >>= bitsPerEntry
+		}
+		if take < b.perWord {
+			// Padding past the last cell is not part of the section.
+			long &= int64(1)<<(take*bitsPerEntry) - 1
+		}
+		b.words[w] = uint64(long)
+		cell += take
+	}
+	return b
 }
 
 // packedIndices reads count indices of bitsPerEntry bits from a packed long
@@ -717,8 +776,7 @@ func resolveBlockState(entry nbt.Tag) (id uint16, ok bool) {
 	}
 	// FindState falls back to the default state for unmatched properties, and
 	// reading that would drop the stored values on the next save.
-	_, stateProps, _ := registry.BlockStateName(id)
-	have := registry.ParseStateProps(stateProps)
+	have := registry.StateProps(id)
 	for k, v := range overrides {
 		if have[k] != v {
 			return airState, false

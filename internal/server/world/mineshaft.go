@@ -805,10 +805,7 @@ func (w *mineshaftWriter) postCorridor() {
 		}
 		p.placedSpider.Store(true)
 		w.r.set(wx, wy, wz, st.spawner)
-		w.r.placeBlockEntity(wx, wy, wz, st.spawner, nbt.Compound{
-			"id":        nbt.String(KindSpawner.Name()),
-			"SpawnData": nbt.Compound{"entity": nbt.Compound{"id": nbt.String("minecraft:cave_spider")}},
-		})
+		w.r.placeBlockEntity(wx, wy, wz, st.spawner, freshSpawnerTag("minecraft:cave_spider"))
 	}
 	for x := int32(0); x <= 2; x++ {
 		for z := int32(0); z <= length; z++ {

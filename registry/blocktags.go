@@ -106,7 +106,11 @@ func NameInTag(name string, t BlockTagID) bool {
 // BlockTagMembers returns the names of the blocks a block tag groups, after
 // the data packs, or false for a tag nothing defines.
 func BlockTagMembers(tag string) ([]string, bool) {
-	m, ok := tagsNow.Load().blockTags[tag]
+	return CurrentTagLookup().BlockTagMembers(tag)
+}
+
+func (lookup *TagLookup) BlockTagMembers(tag string) ([]string, bool) {
+	m, ok := lookup.blockTags[tag]
 	return m, ok
 }
 

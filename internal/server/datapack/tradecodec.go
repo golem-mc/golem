@@ -92,9 +92,9 @@ func DecodeVillagerTrade(data []byte) (trade registry.VillagerTrade, err error) 
 		if _, both := t["given_item_modifiers"]; both {
 			fail("both given_item_modifier and given_item_modifiers")
 		}
-		trade.Modifiers = (lootDecoder{legacyFunctions: true}).modifierHolders(v)
+		trade.Modifiers = (lootDecoder{ResourceDecoder: liveResourceDecoder(), legacyFunctions: true}).modifierHolders(v)
 	} else {
-		trade.Modifiers = (lootDecoder{legacyFunctions: true}).modifierHolders(t["given_item_modifiers"])
+		trade.Modifiers = (lootDecoder{ResourceDecoder: liveResourceDecoder(), legacyFunctions: true}).modifierHolders(t["given_item_modifiers"])
 	}
 	if v, ok := t["double_trade_price_enchantments"]; ok {
 		trade.DoublePrice = holderSet(v, "enchantment", registry.EnchantmentTagMembers)
@@ -108,6 +108,10 @@ func DecodeVillagerTrade(data []byte) (trade registry.VillagerTrade, err error) 
 // tradeResult reads a result template, independently of wanted-item predicates.
 // vanilla: ItemStackTemplate.CODEC, ItemStackTemplate.MAP_CODEC
 func tradeResult(v any) protocol.ItemStack {
+	return liveResourceDecoder().tradeResult(v)
+}
+
+func (decoder ResourceDecoder) tradeResult(v any) protocol.ItemStack {
 	if name, ok := v.(string); ok {
 		return protocol.ItemStack{ItemID: recipeItem(name), Count: 1}
 	}
@@ -123,7 +127,7 @@ func tradeResult(v any) protocol.ItemStack {
 	if components, ok := o["components"]; ok {
 		for name, value := range object(components, "components") {
 			tag, n, err := nbt.ParseValueTag(snbt(value))
-			if err != nil || n == 0 || !registry.ReadComponent(&stack, name, tag) {
+			if err != nil || n == 0 || !decoder.tags.ReadComponent(&stack, name, tag) {
 				fail("Failed to decode %s: %s", name, snbt(value))
 			}
 		}
@@ -194,6 +198,9 @@ func DecodeTradeSet(data []byte) (set registry.PackTradeSet, err error) {
 	set.Amount = int(amount)
 	if b, ok := o["allow_duplicates"].(bool); ok {
 		set.Duplicates = b
+	}
+	if sequence, ok := o["random_sequence"]; ok {
+		set.RandomSequence = qualifiedID(str(sequence, "random_sequence"), "random_sequence")
 	}
 	switch trades := required(o, "trades").(type) {
 	case string:

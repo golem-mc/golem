@@ -2,6 +2,7 @@ package server
 
 import (
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -23,49 +24,30 @@ func (s *Server) loadFunctions(dirs []string) error {
 	return nil
 }
 
-// publishPacks reads the packs in dirs and publishes their resources, but
-// not the function library, which it returns for the caller to store. On an
-// error nothing it publishes stays published.
+// publishPacks validates the candidate resources before publishing them and
+// returns the loaded function library for the caller to store.
 // vanilla: MinecraftServer.reloadResources
-func (s *Server) publishPacks(dirs []string) (_ *loadedFunctions, err error) {
+func (s *Server) publishPacks(dirs []string) (*loadedFunctions, error) {
 	skip := func(file string, err error) {
 		slog.Warn("Skipping data pack file " + file + ": " + err.Error())
 	}
 	layers := registry.StagePackLayers()
-	tagsApplied := s.packTagsApplied
-	defer func() {
-		if err != nil {
-			layers.RestoreTags()
-			s.packTagsApplied = tagsApplied
-		}
-	}()
-	files, err := datapack.LoadFunctions(dirs, skip)
-	if err != nil {
-		return nil, err
-	}
-	fns := command.CompileFunctions(files, s.Config.FunctionPermissionLevel, func(id string, err error) {
-		slog.Error("Failed to load function " + id + ": " + err.Error())
-	})
-	tags, err := datapack.LoadFunctionTags(dirs, skip)
-	if err != nil {
-		return nil, err
-	}
-	fns.LoadTags(tags, func(id string, err error) {
-		slog.Error("Couldn't load tag " + id + " as it is missing following references: " + err.Error())
-	})
 	packTags, err := loadPackTags(dirs, skip)
 	if err != nil {
 		return nil, err
 	}
-	// The tags go in force before the decoders below run: the item component
-	// codecs they call read the tags in force. The other layers stay staged.
-	s.applyPackTags(packTags)
-	// Before the loot: a table's context provider names resolve against them.
+	if lookup := s.preparePackTags(packTags); lookup != nil {
+		layers.SetTags(lookup)
+	}
 	ints, floats, err := loadPackContextProviders(dirs, skip)
 	if err != nil {
 		return nil, err
 	}
 	layers.SetContextProviders(ints, floats)
+	// Providers can reference each other and tags from the candidate packs.
+	if err := datapack.ValidatePackContextProviders(layers, ints, floats); err != nil {
+		return nil, err
+	}
 	// Before the loot: a slots entry's source names resolve against them.
 	if err := loadPackSlotSources(layers, dirs, skip); err != nil {
 		return nil, err
@@ -81,15 +63,33 @@ func (s *Server) publishPacks(dirs []string) (_ *loadedFunctions, err error) {
 		return nil, err
 	}
 	// After the tags too: an ingredient's tag resolves against the loaded tags.
-	recipes, err := loadPackRecipes(dirs, skip)
+	recipes, err := loadPackRecipes(dirs, datapack.NewResourceDecoder(layers), skip)
 	if err != nil {
 		return nil, err
 	}
+	layers.SetPredicates(predicates)
+	files, err := datapack.LoadFunctions(dirs, skip)
+	if err != nil {
+		return nil, err
+	}
+	fns := command.CompileFunctions(files, s.Config.FunctionPermissionLevel, layers, func(id string, err error) {
+		slog.Error("Failed to load function " + id + ": " + err.Error())
+	})
+	tags, err := datapack.LoadFunctionTags(dirs, skip)
+	if err != nil {
+		return nil, err
+	}
+	fns.LoadTags(tags, func(id string, err error) {
+		slog.Error("Couldn't load tag " + id + " as it is missing following references: " + err.Error())
+	})
+	hiddenTables := hiddenLoot(dirs, tables)
+	// vanilla: ReloadableServerResources.updateComponentsAndStaticRegistryTags
 	layers.Publish()
+	s.packTagsApplied = len(packTags) > 0
 	s.templateFiles.SetPacks(dirs)
 	s.structures.Clear()
 	s.applyPackAdvancements(packAdvancements, hiddenAdvancements)
-	s.applyPackLoot(tables, predicates, modifiers, hiddenLoot(dirs, tables))
+	s.applyPackLoot(tables, predicates, modifiers, hiddenTables)
 	s.applyPackRecipes(recipes)
 	// A new recipe or ingredient tag can make unchanged contents tickable.
 	for _, dim := range s.allDims() {
@@ -199,21 +199,18 @@ func (p *serverPacks) selectLocked(ids []string) error {
 	return nil
 }
 
-// ReloadAll rescans the pack folders, enables newly found packs, and reloads
-// like Select. vanilla: ReloadCommand.discoverNewPacks
+// ReloadAll rescans and includes packs that the world's last successful
+// reload did not disable. vanilla: ReloadCommand.discoverNewPacks
 func (p *serverPacks) ReloadAll() error {
 	p.srv.packReloadMu.Lock()
 	defer p.srv.packReloadMu.Unlock()
-	known := map[string]bool{}
-	for _, pk := range p.Available() {
-		known[pk.ID] = true
-	}
 	if err := p.Reload(); err != nil {
 		return err
 	}
+	_, disabled, _ := p.srv.world.DataPacks()
 	selected := p.SelectedIDs()
 	for _, pk := range p.Available() {
-		if !known[pk.ID] {
+		if pk.Source == datapack.SourceWorld && !slices.Contains(disabled, pk.ID) && !slices.Contains(selected, pk.ID) {
 			selected = append(selected, pk.ID)
 		}
 	}

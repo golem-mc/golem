@@ -625,3 +625,26 @@ func (m *Mob) SetGoatRamCooldown(ticks int) { m.Goat.ram.cooldown = ticks }
 
 // RamCooldown reports the RAM_COOLDOWN_TICKS memory, 0 when absent.
 func (m *Mob) RamCooldown() int { return m.Goat.ram.cooldown }
+
+// SetLoadedYaw is Entity.load's rotation: head yaw is set before body yaw,
+// and a goat's head stays within 15 degrees of the body it had before, 0 on
+// a fresh mob.
+// vanilla: Entity.load, Goat.setYHeadRot
+func (m *Mob) SetLoadedYaw(yaw float32) {
+	m.Yaw, m.HeadYaw = yaw, yaw
+	if m.Type == TypeGoat {
+		var body float32
+		if m.look.bodyYawSet {
+			body = m.look.bodyYaw
+		}
+		diff := float32(wrapDegrees(float64(yaw - body)))
+		lim := m.maxHeadYRot()
+		m.HeadYaw = body + max(-lim, min(lim, diff))
+	}
+	m.look.bodyYaw, m.look.bodyYawSet = yaw, true
+}
+
+// SeedBodyYaw sets the body yaw a fresh mob spawns with, ahead of any
+// SetLoadedYaw.
+// vanilla: EntityType.create
+func (m *Mob) SeedBodyYaw(yaw float32) { m.look.bodyYaw, m.look.bodyYawSet = yaw, true }

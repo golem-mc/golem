@@ -47,6 +47,7 @@ type orbEntity struct {
 // Teleport Entity carries no velocity: the motion packets do.
 var orbTracker = trackedKind[*orbEntity, struct{}]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.orbs.built = false },
+	pistonBit:        pistonOrbs,
 
 	rangeChunks: entity.OrbTracking,
 	interval:    entity.OrbInterval,

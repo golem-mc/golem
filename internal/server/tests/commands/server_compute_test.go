@@ -147,12 +147,49 @@ func TestComputeRefusals(t *testing.T) {
 	c.ChatCommand(`compute default float {type:"minecraft:div",left:1,right:0}`)
 	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.unnamed.invalid", "Infinity"))
 
+	// The command's context has enchantment level 0, so a lookup reads index
+	// -1 and throws past the arithmetic catch, through /data's too.
+	// vanilla: LevelBasedValue.Lookup.calculate, Commands.performCommand
+	const lookup = `{type:"minecraft:enchantment_level",amount:{type:"minecraft:lookup",values:[L;1L,2L],fallback:7}}`
+	for _, command := range []string{
+		"compute default float " + lookup + " 1",
+		"data modify storage t:s v set compute default float " + lookup,
+	} {
+		c.ChatCommand(command)
+		if got := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat); !bytes.Equal(got, servertest.CommandErrorMessageForTest("command.failed")) {
+			t.Errorf("%s: answered % X, want command.failed", command, got)
+		}
+	}
+
 	c.ChatCommand("compute default integer pk:none")
 	if got := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat); !bytes.Equal(got,
 		servertest.CommandErrorMessageForTest("argument.resource_or_id.no_such_element", "pk:none", "minecraft:context_int_provider")) {
 		t.Errorf("an unknown provider answered % X, want the no such element refusal", got)
 	}
 	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+
+	// Array and zero-weight lists the shared list decoder accepts; both forms
+	// send an exact result as an integer.
+	// vanilla: ComputeCommand.printExactOutput
+	for _, tc := range []struct {
+		command string
+		want    int64
+	}{
+		{`compute default integer {type:"minecraft:add",inputs:[B;1b,2b]}`, 3},
+		{`compute default float {type:"minecraft:add",inputs:[L;2L,3L]} 1`, 5},
+		{`compute default float {type:"minecraft:add",inputs:[L;9007199791611905L,-9007199254740992L]} 1`, 1073741824},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:5,weight:1},{data:9,weight:0}]}`, 5},
+	} {
+		c.ChatCommand(tc.command)
+		r := protocol.NewReader(c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat))
+		got, ok := protocol.ReadText(r)
+		if !ok {
+			t.Fatalf("%s: decode feedback: %v", tc.command, r.Err())
+		}
+		if got.Translate != "command.compute.result.unnamed.exact" || len(got.With) != 1 || got.With[0].Number == nil || *got.With[0].Number != tc.want {
+			t.Errorf("%s: feedback = %+v, want exact %d", tc.command, got, tc.want)
+		}
+	}
 
 	// A refusal's wording: the typed branch of the number-or-provider codec,
 	// or the case list's own error where an element failed.
@@ -190,9 +227,36 @@ func TestComputeRefusals(t *testing.T) {
 			either + missing("on_true", `{type:"minecraft:conditional"}`) + "; " + missing("condition", `{type:"minecraft:conditional"}`)},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{}]}`,
 			missing("value", "{}") + "; " + missing("condition", "{}")},
+		{`compute default integer {type:"minecraft:number_dispatcher",cases:[B;1b,2b]}`, "Not a map: 2b; Not a map: 1b"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[B;1b,2b]}`,
+			either + "Not a map: 2b; Not a map: 1b; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[L;]}`,
+			either + "Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[1,{data:5,weight:0}]}`,
+			either + "Not a map: 1; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[1,{data:5,weight:1}]}`, "Not a map: 1"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:9,weight:0},{data:5}]}`,
+			either + missing("weight", "{data:5}") + "; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:5,weight:-1}]}`,
+			either + "Value must be non-negative: -1; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:{type:"minecraft:number_dispatcher",cases:[B;1b,2b]},weight:1}]}`,
+			"Not a map: 2b; Not a map: 1b"},
+		{`compute default integer {type:"minecraft:number_dispatcher",cases:[L;1L,2L]}`, "Not a map: 2L; Not a map: 1L"},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{},{}]}`,
 			missing("value", "{}") + "; " + missing("condition", "{}") + "; " +
 				missing("value", "{}") + "; " + missing("condition", "{}")},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"}]}`,
+			either + "Not a number; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"},{data:2,weight:1}]}`,
+			"Not a number"},
+		{`compute default float {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"},{data:2,weight:1}]} 1`,
+			"Not a number"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"},{weight:1}]}`,
+			either + missing("data", "{weight:1}") + "; Not a number; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"},{data:2}]}`,
+			either + missing("weight", "{data:2}") + "; Not a number; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"},{data:{type:"minecraft:constant"},weight:1}]}`,
+			either + either + missing("value", invalidDefault) + "; Not a number; Weighted list must contain at least one entry with non-zero weight"},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{},1]}`,
 			"Not a map: 1; " + missing("value", "{}") + "; " + missing("condition", "{}")},
 	} {

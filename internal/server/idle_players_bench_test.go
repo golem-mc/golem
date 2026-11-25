@@ -14,6 +14,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
@@ -233,6 +234,42 @@ func BenchmarkTickWaypointsMoving(b *testing.B) {
 			c.player.SetPosition(pos)
 		}
 		s.tickWaypoints()
+	}
+}
+
+// BenchmarkTickWaypointsOneMover settles a hundred players' locator bars
+// while one of them moves within the same block.
+func BenchmarkTickWaypointsOneMover(b *testing.B) {
+	s, clients := newIdlePlayersBenchServer(b, 100)
+	for range 2 {
+		s.tickWaypoints()
+	}
+	mover := clients[0].player
+	pos := mover.Position()
+	originalX := pos.X
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		pos.X = originalX + float64(i%2)*0.01
+		mover.SetPosition(pos)
+		s.tickWaypoints()
+	}
+}
+
+func BenchmarkWaypointTrackForms(b *testing.B) {
+	receivers := []waypointPlayer{{waypointPoint: waypointPointAt(0.5, 64, 0.5), radius: 4}}
+	transmitters := []waypointPoint{
+		waypointPointAt(16.5, 64, 16.5),
+		waypointPointAt(64.5, 64, 0.5),
+		waypointPointAt(64.5, 64, 64.5),
+		waypointPointAt(80.5, 64, 80.5),
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		for i := range transmitters {
+			v := waypointViewOf(&transmitters[i], &receivers[0])
+			rules.NewWaypointConnection(&v)
+		}
 	}
 }
 

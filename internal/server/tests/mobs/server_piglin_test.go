@@ -1,9 +1,11 @@
 package mobs
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
@@ -35,6 +37,7 @@ func TestAPiglinHuntsAPlayerWithoutGoldArmour(t *testing.T) {
 	t.Parallel()
 	_, playerID, srv := piglinWorld(t)
 	p := srv.SpawnMob(barterPiglin, 6.5, 64, 0.5)
+	srv.SetMobBaby(p, false) // the seeded spawn roll may make a baby, which hunts no one
 	if !huntsWithin(t, srv, p, playerID, 100) {
 		t.Fatal("the piglin never took the unarmoured player as its target")
 	}
@@ -46,6 +49,7 @@ func TestAPiglinIgnoresAPlayerWearingAnyGoldArmour(t *testing.T) {
 	c.ChatCommand("item replace entity Slayer armor.feet with minecraft:golden_boots")
 	c.Settle()
 	p := srv.SpawnMob(barterPiglin, 6.5, 64, 0.5)
+	srv.SetMobBaby(p, false) // the seeded spawn roll may make a baby, which hunts no one
 	if huntsWithin(t, srv, p, playerID, 200) {
 		t.Fatal("the piglin hunts a player wearing golden boots")
 	}
@@ -76,6 +80,7 @@ func TestAPiglinAdmiresAGoldIngotThenThrowsABarterItem(t *testing.T) {
 	t.Parallel()
 	c, _, srv := barterWorld(t)
 	p := srv.SpawnMob(barterPiglin, 5.5, 64, 0.5)
+	srv.SetMobBaby(p, false) // the seeded spawn roll may make a baby, which does not barter
 	c.ChatCommand(`summon item 5.5 64 0.5 {Item:{id:"minecraft:gold_ingot",count:1}}`)
 	c.Settle()
 	servertest.UntilTicks(t, srv, 40, "the piglin taking the ingot", func() bool {
@@ -100,6 +105,42 @@ func TestAPiglinAdmiresAGoldIngotThenThrowsABarterItem(t *testing.T) {
 		if it.Item == "minecraft:gold_ingot" {
 			t.Errorf("the barter returned the ingot itself")
 		}
+	}
+}
+
+// vanilla: NearestItemSensor.doTick, StartAdmiringItemIfSeen, PiglinAi.updateActivity
+func TestAPiglinAdmiresGoldInsideItsVerticalSearchBox(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		y    int
+		want bool
+	}{
+		{"inside", 81, true},
+		{"above", 82, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := servertest.HostileTestConfig()
+			srv, c := servertest.Join(t, cfg, "Slayer", servertest.OpsListing(t, "Slayer"), func(srv *server.Server) {
+				servertest.FreezeUntilHeld(t, srv)
+			})
+			servertest.HoldTicks(t, srv)
+			c.ChatCommand("gamemode creative")
+			c.MoveToGround(2.5, 64, 0.5, true)
+			// The shield keeps the piglin in its admire activity without trying to walk to the distant ingot.
+			c.ChatCommand(`summon piglin 5.5 64 0.5 {IsImmuneToZombification:1b,CanPickUpLoot:1b,IsBaby:0b,equipment:{offhand:{id:"minecraft:shield",count:1}},attributes:[{id:"minecraft:movement_speed",base:0d}]}`)
+			c.ChatCommand(fmt.Sprintf(`summon item 5.5 %d 0.5 {NoGravity:1b,Item:{id:"minecraft:gold_ingot",count:1}}`, tc.y))
+			c.Settle()
+			if got := c.ReadTicks(srv, 40, func(id int32, data []byte) bool {
+				if id != protocol.IDPlaySoundEffect {
+					return false
+				}
+				name, _, _, _, _, _, _ := servertest.ReadAmbient(t, data)
+				return name == "minecraft:entity.piglin.admiring_item"
+			}); got != tc.want {
+				t.Errorf("heard piglin admire an ingot at Y=%d: %t, want %t", tc.y, got, tc.want)
+			}
+		})
 	}
 }
 

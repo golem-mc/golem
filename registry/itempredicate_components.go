@@ -146,14 +146,18 @@ func optionalBounds(fields nbt.Compound, key string) (lo, hi int64, ok bool) {
 // not model).
 // vanilla: DataComponentPredicates
 func DecodeComponentPredicate(name string, value nbt.Tag) (test func(protocol.ItemStack) bool, typed, ok bool) {
+	return CurrentTagLookup().decodeComponentPredicate(name, value)
+}
+
+func (lookup *TagLookup) decodeComponentPredicate(name string, value nbt.Tag) (test func(protocol.ItemStack) bool, typed, ok bool) {
 	switch name {
 	case "minecraft:enchantments", "minecraft:stored_enchantments":
-		test, ok = decodeEnchantmentsTest(name == "minecraft:stored_enchantments", value)
+		test, ok = lookup.decodeEnchantmentsTest(name == "minecraft:stored_enchantments", value)
 		return test, true, ok
 	case "minecraft:firework_explosion", "minecraft:fireworks", "minecraft:trim", "minecraft:jukebox_playable",
 		"minecraft:villager/variant", "minecraft:writable_book_content", "minecraft:written_book_content",
 		"minecraft:attribute_modifiers", "minecraft:potion_contents":
-		test, ok = decodeMorePredicate(name, value)
+		test, ok = lookup.decodeMorePredicate(name, value)
 		return test, true, ok
 	case "minecraft:container", "minecraft:bundle_contents":
 		fields, isCompound := nbt.CompoundView(value)
@@ -170,8 +174,8 @@ func DecodeComponentPredicate(name string, value nbt.Tag) (test func(protocol.It
 				}
 				return items, hand.Container != nil || (!hand.Removes(protocol.DataComponentContainer) && ItemHasComponentDefault(hand.ItemID, name))
 			}
-			items := hand.BundleContents()
-			return items, items != nil || (!hand.Removes(protocol.DataComponentBundleContents) && ItemHasComponentDefault(hand.ItemID, name))
+			items, explicit := hand.BundleContentsOf()
+			return items, explicit || (!hand.Removes(protocol.DataComponentBundleContents) && ItemHasComponentDefault(hand.ItemID, name))
 		}
 		var coll *collectionTest[protocol.ItemStack]
 		if raw, ok := fields["items"]; ok {
@@ -180,7 +184,7 @@ func DecodeComponentPredicate(name string, value nbt.Tag) (test func(protocol.It
 				if !ok {
 					return nil, false
 				}
-				return DecodeItemPredicate(entry).Matches, true
+				return lookup.DecodeItemPredicate(entry).Matches, true
 			})
 			if !ok {
 				return nil, true, false
@@ -198,7 +202,7 @@ func DecodeComponentPredicate(name string, value nbt.Tag) (test func(protocol.It
 // decodeEnchantmentsTest reads the list of EnchantmentPredicate: each needs a
 // listed enchantment (any when unlisted) at a level in range.
 // vanilla: EnchantmentsPredicate.codec, EnchantmentPredicate.containedIn
-func decodeEnchantmentsTest(stored bool, value nbt.Tag) (stackTest, bool) {
+func (lookup *TagLookup) decodeEnchantmentsTest(stored bool, value nbt.Tag) (stackTest, bool) {
 	list, ok := value.(nbt.List)
 	if !ok {
 		return nil, false
@@ -222,7 +226,7 @@ func decodeEnchantmentsTest(stored bool, value nbt.Tag) (stackTest, bool) {
 		}
 		e.any = e.min == -1<<31 && e.max == 1<<31-1
 		if raw, ok := fields["enchantments"]; ok {
-			if e.ids, ok = decodeEnchantmentSet(raw); !ok {
+			if e.ids, ok = lookup.decodeEnchantmentSet(raw); !ok {
 				return nil, false
 			}
 			e.listed = true
@@ -268,14 +272,14 @@ func decodeEnchantmentsTest(stored bool, value nbt.Tag) (stackTest, bool) {
 // decodeEnchantmentSet reads an enchantment holder set: one name, a #tag or a
 // list of names.
 // vanilla: RegistryCodecs.homogeneousList
-func decodeEnchantmentSet(tag nbt.Tag) ([]int32, bool) {
+func (lookup *TagLookup) decodeEnchantmentSet(tag nbt.Tag) ([]int32, bool) {
 	one := func(s string) ([]int32, bool) {
 		if tagName, isTag := strings.CutPrefix(s, "#"); isTag {
 			tagName = Qualify(tagName)
-			if _, ok := EnchantmentTagMembers(tagName); !ok {
+			if _, ok := lookup.EnchantmentTagMembers(tagName); !ok {
 				return nil, false
 			}
-			return EnchantmentTagIDs(tagName), true
+			return lookup.enchantmentTagIDs(tagName), true
 		}
 		id, ok := EnchantmentID(Qualify(s))
 		return []int32{id}, ok

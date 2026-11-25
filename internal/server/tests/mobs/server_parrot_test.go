@@ -75,7 +75,7 @@ func TestSeedsTameAParrotAndTheOwnerSitsIt(t *testing.T) {
 // runs the loop until it has landed on the shoulder.
 func perchedParrot(t *testing.T, srv *server.Server, variant int) int32 {
 	t.Helper()
-	id := srv.SpawnMobSeeded(parrotType, 0.5, 64, 0.5, 3)
+	id := srv.SpawnMobSeeded(parrotType, 0.5, 64, 0.5, 2)
 	srv.SetParrotVariant(id, variant)
 	if !srv.TameMobFor(id, "Keeper") {
 		t.Fatal("could not tame the parrot")
@@ -94,7 +94,7 @@ func perchedParrot(t *testing.T, srv *server.Server, variant int) int32 {
 func TestATamedParrotLandsOnItsOwnersShoulder(t *testing.T) {
 	t.Parallel()
 	srv, _ := parrotScene(t, "minecraft:air", 0)
-	id := srv.SpawnMobSeeded(parrotType, 0.5, 64, 0.5, 3)
+	id := srv.SpawnMobSeeded(parrotType, 0.5, 64, 0.5, 2)
 	srv.SetParrotVariant(id, 3)
 	srv.TameMobFor(id, "Keeper")
 	servertest.RunTicks(t, srv, 60)
@@ -196,7 +196,7 @@ func TestShoulderMetadataIsSentOnLandingAndDrop(t *testing.T) {
 func shoulderSoundScene(t *testing.T, silent bool) (*server.Server, *servertest.Client) {
 	t.Helper()
 	srv, c := parrotScene(t, "minecraft:air", 0)
-	id := srv.SpawnMobSeeded(parrotType, 0.5, 64, 0.5, 3)
+	id := srv.SpawnMobSeeded(parrotType, 0.5, 64, 0.5, 2)
 	srv.TameMobFor(id, "Keeper")
 	servertest.RunTicks(t, srv, 100)
 	srv.SetMobSilent(id, silent)

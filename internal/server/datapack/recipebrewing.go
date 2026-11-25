@@ -5,20 +5,20 @@ import "github.com/golem-mc/golem/registry"
 // brewingRecipes expands an input potion set into the table's one-potion rows.
 // The table cannot represent reagent predicates or arbitrary output components.
 // vanilla: BrewingRecipe.MAP_CODEC, PotionIngredient.MAP_CODEC, PotionsPredicate.CODEC
-func brewingRecipes(id string, o obj) []registry.BrewingRecipe {
+func (decoder ResourceDecoder) brewingRecipes(id string, o obj) []registry.BrewingRecipe {
 	input := object(required(o, "input"), "input")
 	unknownKeys(input, "brewing input", "item", "potion_contents")
-	items := recipeIngredient(required(input, "item")).Items
+	items := decoder.recipeIngredient(required(input, "item")).Items
 	reagent := object(required(o, "reagent"), "reagent")
 	unknownKeys(reagent, "brewing reagent", "item")
-	reagents := recipeIngredient(required(reagent, "item")).Items
+	reagents := decoder.recipeIngredient(required(reagent, "item")).Items
 
 	potions := []int32{-1}
 	if v, ok := input["potion_contents"]; ok {
 		predicate := object(v, "input.potion_contents")
 		unknownKeys(predicate, "input.potion_contents", "potions")
 		potions = nil
-		for _, name := range holderSet(required(predicate, "potions"), "potion", registry.PotionTagMembers) {
+		for _, name := range holderSet(required(predicate, "potions"), "potion", decoder.tags.PotionTagMembers) {
 			potions = append(potions, recipePotion(name))
 		}
 		if len(potions) == 0 {

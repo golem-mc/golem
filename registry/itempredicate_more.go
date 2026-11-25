@@ -162,7 +162,7 @@ func decodeFireworkTest(tag nbt.Tag) (func(nbt.Compound) bool, bool) {
 // decodeMorePredicate reads the partial predicates that run over a component's
 // saved form.
 // vanilla: DataComponentPredicates
-func decodeMorePredicate(name string, value nbt.Tag) (stackTest, bool) {
+func (lookup *TagLookup) decodeMorePredicate(name string, value nbt.Tag) (stackTest, bool) {
 	fields, isCompound := nbt.CompoundView(value)
 	switch name {
 	case "minecraft:firework_explosion":
@@ -197,8 +197,8 @@ func decodeMorePredicate(name string, value nbt.Tag) (stackTest, bool) {
 		if !isCompound {
 			return nil, false
 		}
-		material, hasMaterial, ok1 := optionalSet(fields, "material", syncedEntry("minecraft:trim_material"), SyncTagMembers("minecraft:trim_material"))
-		pattern, hasPattern, ok2 := optionalSet(fields, "pattern", syncedEntry("minecraft:trim_pattern"), SyncTagMembers("minecraft:trim_pattern"))
+		material, hasMaterial, ok1 := optionalSet(fields, "material", syncedEntry("minecraft:trim_material"), lookup.syncTagMembers("minecraft:trim_material"))
+		pattern, hasPattern, ok2 := optionalSet(fields, "pattern", syncedEntry("minecraft:trim_pattern"), lookup.syncTagMembers("minecraft:trim_pattern"))
 		if !ok1 || !ok2 {
 			return nil, false
 		}
@@ -210,7 +210,7 @@ func decodeMorePredicate(name string, value nbt.Tag) (stackTest, bool) {
 		if !isCompound {
 			return nil, false
 		}
-		songs, has, ok := optionalSet(fields, "song", syncedEntry("minecraft:jukebox_song"), SyncTagMembers("minecraft:jukebox_song"))
+		songs, has, ok := optionalSet(fields, "song", syncedEntry("minecraft:jukebox_song"), lookup.syncTagMembers("minecraft:jukebox_song"))
 		if !ok {
 			return nil, false
 		}
@@ -219,7 +219,7 @@ func decodeMorePredicate(name string, value nbt.Tag) (stackTest, bool) {
 			return present && (!has || slices.Contains(songs, Qualify(song)))
 		}, true
 	case "minecraft:villager/variant":
-		types, ok := decodeNameSet(value, syncedEntry("minecraft:villager_type"), SyncTagMembers("minecraft:villager_type"))
+		types, ok := decodeNameSet(value, syncedEntry("minecraft:villager_type"), lookup.syncTagMembers("minecraft:villager_type"))
 		return func(hand protocol.ItemStack) bool {
 			tag, present := componentTag(hand, name)
 			s, isString := tag.(nbt.String)
@@ -232,7 +232,7 @@ func decodeMorePredicate(name string, value nbt.Tag) (stackTest, bool) {
 	case "minecraft:attribute_modifiers":
 		return decodeAttributeTest(fields, isCompound)
 	case "minecraft:potion_contents":
-		return decodePotionTest(fields, isCompound)
+		return lookup.decodePotionTest(fields, isCompound)
 	}
 	return nil, false
 }
@@ -434,11 +434,11 @@ type potionEffect struct {
 // decodePotionTest reads PotionsPredicate: a potion set and a collection of
 // MobEffectsPredicate over the potion's own effects and the custom ones.
 // vanilla: PotionsPredicate.Matches, PotionContents.getAllEffects
-func decodePotionTest(fields nbt.Compound, isCompound bool) (stackTest, bool) {
+func (lookup *TagLookup) decodePotionTest(fields nbt.Compound, isCompound bool) (stackTest, bool) {
 	if !isCompound {
 		return nil, false
 	}
-	potions, hasPotions, ok := optionalSet(fields, "potions", func(n string) bool { _, ok := PotionID(n); return ok }, PotionTagMembers)
+	potions, hasPotions, ok := optionalSet(fields, "potions", func(n string) bool { _, ok := PotionID(n); return ok }, lookup.PotionTagMembers)
 	if !ok {
 		return nil, false
 	}

@@ -58,8 +58,7 @@ type entitySnapshot struct {
 	dim           string
 	pos           player.Position
 	box           [6]float64
-	// tags are the scoreboard tags, copied with the snapshot so later /tag
-	// changes do not show through.
+	// tags are captured alongside the other selector fields.
 	tags []string
 }
 
@@ -118,6 +117,14 @@ func (e *entitySnapshot) Alive() bool { return e.alive }
 
 // Tags are the snapshot's scoreboard tags. vanilla: Entity.entityTags
 func (e *entitySnapshot) Tags() []string { return e.tags }
+
+// MatchesLiveTag tests the live set because a function reuses its @s snapshot
+// across commands. vanilla: EntitySelectorOptions.bootStrap
+func (e *entitySnapshot) MatchesLiveTag(filter command.TagFilter) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return filter.Passes(e.liveTags.Len(), e.liveTags.Contains)
+}
 
 // AddTag adds a scoreboard tag to the live body. vanilla: Entity.addTag
 func (e *entitySnapshot) AddTag(tag string) bool {
@@ -587,7 +594,7 @@ func (e *entitySnapshot) ItemIn(slot command.ItemSlot) (protocol.ItemStack, bool
 		case command.ItemSlotBody:
 			return ref.mob.Body, true
 		case command.ItemSlotSaddle:
-			return ref.mob.Horse.Saddle, true
+			return ref.mob.EquipmentSlot(protocol.EquipSaddle), true
 		}
 	case *armorStandEntity:
 		e.srv.armorStandsMu.Lock()
@@ -655,9 +662,9 @@ func (e *entitySnapshot) SetItemIn(slot command.ItemSlot, stack protocol.ItemSta
 			return false
 		}
 		if slot == command.ItemSlotBody {
-			ref.mob.SetEquipment(6, stack)
+			ref.mob.SetEquipment(protocol.EquipBody, stack)
 		} else {
-			ref.mob.SetMetadataHorseSaddle(stack)
+			ref.mob.SetEquipment(protocol.EquipSaddle, stack)
 		}
 		return true
 	}
@@ -713,7 +720,7 @@ func (e *entitySnapshot) SetItemIn(slot command.ItemSlot, stack protocol.ItemSta
 		}
 		m.SyncEquipmentModifiers()
 		slots := mannequinEquipmentNow(m)
-		equipment := equipmentEntriesPayload(m.ID, &slots, []int{wire})
+		equipment := equipmentEntriesPayload(m.ID, slots[:], []int{wire})
 		watchers, w := trackedWatchers(ref.tracked), ref.w
 		e.srv.mannequinsMu.Unlock()
 		e.srv.tellWatchers(w, watchers, []outbound{{id: protocol.IDPlayEntityEquipment, data: equipment}})
@@ -1335,7 +1342,9 @@ func (ws worldScope) Entities(filters command.EntityQuery) []command.Entity {
 func (ws worldScope) query(q entityQuery) []command.Entity {
 	s := ws.srv
 	if q.Box != nil && q.chunk == nil && q.UUID == nil {
-		q.area = smallChunkArea(q.Box)
+		if area, ok := smallChunkArea(q.Box); ok {
+			q.area = &area
+		}
 	}
 	// Bound maintenance is linear in the batch size; larger limits collect once.
 	if q.Limit > 0 && q.Limit <= 16 {
@@ -1500,7 +1509,7 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 			if q.chunk != nil && !ix.Has(*q.chunk) {
 				return out
 			}
-			indexed = bodiesInChunks(ix, q)
+			indexed = func(yield func(E) bool) { bodiesInChunks(ix, q.chunk, q.area, yield) }
 		}
 		if q.candidates != nil {
 			q.kind = &entityQueryKind{mu: mu, snapshot: func(ref any, query *entityQuery) *entitySnapshot {
@@ -1591,11 +1600,12 @@ func (s *Server) appendMobSnapshots(out []command.Entity, q *entityQuery) []comm
 				appendMob(ent, dim.name)
 			}
 		} else if q.chunk != nil || q.area != nil {
-			for m := range bodiesInChunks(&dim.mobs.chunks, q) {
+			bodiesInChunks(&dim.mobs.chunks, q.chunk, q.area, func(m *entity.Mob) bool {
 				if ent := dim.mobs.record(m); ent != nil {
 					appendMob(ent, dim.name)
 				}
-			}
+				return true
+			})
 		} else {
 			for _, ent := range dim.mobs.book {
 				appendMob(ent, dim.name)
@@ -2078,8 +2088,9 @@ func (e *entitySnapshot) WithAttributes(fn func(a *player.Attributes)) {
 	if m.Attributes() == nil {
 		m.SetAttributes(m.BuildAttributes(savedAttributes(ref.saved)))
 	}
-	fn(m.Attributes())
-	m.OnAttributeUpdated()
+	if m.EditAttributes(ref.w, fn) {
+		e.srv.herdOf(ref.w).pistonGrid.built = false
+	}
 }
 
 func (s *Server) teleportMobAcross(ref *mobEntity, to *dimension, at player.Position, yaw, pitch float32) (alive bool, from *world.World, oldID int32, register func(), severed []seatNews) {

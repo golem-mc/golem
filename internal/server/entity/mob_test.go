@@ -241,7 +241,7 @@ func TestAHurtCowPanicsWhileItsHurtIsFresh(t *testing.T) {
 	w := newTestWorld()
 	floor(w, -30, -30, 30, 30, 63, stone)
 
-	cow := NewMob(TypeCow, 1, 0.5, 64, 0.5, 1)
+	cow := NewMob(TypeCow, 1, 0.5, 64, 0.5, 2)
 	if !cow.TakeDamage(3, Player{X: 0.5, Y: 64, Z: 1.5}) {
 		t.Fatal("the hit did not land")
 	}
@@ -744,5 +744,29 @@ func TestASpiderPackSharesOneHardEffect(t *testing.T) {
 	}
 	if rolled == 0 || rolled > 60 {
 		t.Errorf("%d of 200 hard packs rolled an effect, want about 20", rolled)
+	}
+}
+
+// movingGate moves a mob while the hurt asks it, as a plugin listener may.
+type movingGate struct {
+	to *Mob
+	x  float64
+}
+
+func (g movingGate) Listening() bool { return true }
+func (g movingGate) Ask(*HurtProbe)  { g.to.X = g.x }
+
+// TestAMobBlowShovesFromTheAttackersPositionAfterTheGate: a listener that
+// moves the attacker while the hurt is asked changes the shove's direction.
+// vanilla: LivingEntity.hurtServer, DamageSource.getSourcePosition
+func TestAMobBlowShovesFromTheAttackersPositionAfterTheGate(t *testing.T) {
+	cow := NewMob(TypeCow, 1, 0.5, 64, 0.5, 1)
+	zombie := NewMob(TypeZombie, 2, 2.5, 64, 0.5, 2)
+	cow.Gate = movingGate{to: zombie, x: -1.5}
+	if !cow.HurtByMob(2, zombie) {
+		t.Fatal("the blow did not land")
+	}
+	if cow.VX <= 0 {
+		t.Errorf("cow vx = %v, want a shove away from the attacker's new place (+x)", cow.VX)
 	}
 }

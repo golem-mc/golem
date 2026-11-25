@@ -96,3 +96,45 @@ func TestADrownedStaysDownByDay(t *testing.T) {
 		t.Errorf("the drowned rose to %v by day with nothing to chase", highest)
 	}
 }
+
+func TestDrownedBeachScaffoldingUsesFeetHeight(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.HostileTestConfig()
+	cfg.GameMode = "creative"
+	srv, _ := servertest.Join(t, cfg, "Diver", func(s *server.Server) {
+		servertest.FreezeUntilHeld(t, s)
+	})
+	servertest.HoldTicks(t, srv)
+	srv.SetDayTime(servertest.Midnight)
+
+	const y = 70
+	stone := registry.BlockStone.DefaultState()
+	water := registry.BlockWater.DefaultState()
+	scaffold, _ := registry.WithInt(registry.BlockScaffolding.DefaultState(), registry.PropDistance, 0)
+	for _, tc := range []struct {
+		name     string
+		z        int32
+		feetY    float64
+		wantPace float64
+	}{
+		{name: "below plate", z: 3, feetY: y + 0.5},
+		{name: "above plate", z: 12, feetY: y + 1.25, wantPace: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for x := int32(4); x <= 8; x++ {
+				srv.SetBlock(x, y-1, tc.z, stone)
+				srv.SetBlock(x, y, tc.z, water)
+			}
+			if !srv.SetBlock(8, y, tc.z, scaffold) {
+				t.Fatal("could not place the scaffolding beach")
+			}
+			srv.SetBlock(4, y+1, tc.z, water)
+			id := srv.SpawnMobSeeded("minecraft:drowned", 4.5, tc.feetY, float64(tc.z)+0.5, 1)
+			// Run the goal search once with scaffolding as the only clear beach.
+			srv.TickMobs(1)
+			if got := srv.MobNavSpeedFactor(id); got != tc.wantPace {
+				t.Errorf("drowned's navigation pace = %v, want %v", got, tc.wantPace)
+			}
+		})
+	}
+}

@@ -2,6 +2,7 @@ package entity
 
 import (
 	"math"
+	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/effect"
@@ -76,6 +77,9 @@ func (m *Mob) hasEffect(id int32) bool {
 // DrinkingPotion is Witch.isDrinkingPotion.
 func (m *Mob) DrinkingPotion() bool { return m.Type == TypeWitch && m.witch.drinking }
 
+// vanilla: Witch.registerGoals
+var witchRaiderKinds = slices.DeleteFunc(slices.Clone(raiderKinds), func(kind MobType) bool { return kind == TypeWitch })
+
 // witchGoals is Witch.registerGoals with Raider's: FloatGoal
 // 1, RangedAttackGoal 2, stroll 2, looks 3, then HurtByTargetGoal 1 sparing
 // raiders, a raider to heal 2 and the nearest player 3.
@@ -87,9 +91,8 @@ func witchGoals(m *Mob) []Goal {
 		&hurtByGoal{m: m, priority: 1, ignore: isRaiderType},
 		&witchAttackGoal{m: m},
 		&randomStroll{m: m, priority: 2},
-		&mobTargetGoal{m: m, priority: 2, eager: true,
+		&mobTargetGoal{m: m, priority: 2, eager: true, kinds: witchRaiderKinds,
 			gate:    func() bool { return m.witch.healCooldown <= 0 && m.Rand.Intn(2) == 0 && m.InRaid },
-			matches: func(o *Mob) bool { return isRaiderType(o.Type) && o.Type != TypeWitch },
 			started: func() { m.witch.healCooldown = reducedTickDelay(witchHealCooldown) },
 		},
 		&nearestTargetGoal{m: m, priority: 3, refuse: func() bool { return m.witch.healCooldown > 0 }},

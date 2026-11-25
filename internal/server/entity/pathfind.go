@@ -871,9 +871,7 @@ func (m *Mob) maxPathLength() float64 {
 // never overestimates, so the first arrival is a shortest path.
 // vanilla: PathFinder.findPath
 func findPath(w World, f footprint, from, to Waypoint, maxRange, reachRange int32) ([]Waypoint, bool) {
-	s := getPathScratch(manhattan(from, to))
-	defer s.release()
-	return s.search(w, f, from, to, maxRange, reachRange)
+	return (*MobPathScratch)(nil).findPath(w, f, from, to, maxRange, reachRange)
 }
 
 // search is findPath over the scratch's memory, which must be empty.
@@ -1178,7 +1176,7 @@ func (m *Mob) createPath(w World, x, y, z float64) ([]Waypoint, Waypoint, bool) 
 		return nil, end, true
 	}
 	// vanilla: MeleeAttackGoal.canUse plans createPath(target, 0)
-	path, _ := findPath(w, foot, o.cell(), target, int32(o.maxPathLength()), 0)
+	path, _ := m.tickPaths.findPath(w, foot, o.cell(), target, int32(o.maxPathLength()), 0)
 	return o.trimForSun(w, raiseCauldronNodes(w, path)), end, true
 }
 
@@ -1299,7 +1297,7 @@ func (m *Mob) seekTo(w World, x, y, z float64, speedFactor float64, reachRange i
 	if !ok {
 		return false
 	}
-	path, reached := findPath(w, foot, o.cell(), target, int32(o.maxPathLength()), reachRange)
+	path, reached := m.tickPaths.findPath(w, foot, o.cell(), target, int32(o.maxPathLength()), reachRange)
 	// A partial path to an unreachable target still stands; only no
 	// standable cell, or an empty unreached result, is no path.
 	if len(path) == 0 && !reached {
@@ -1318,7 +1316,7 @@ func (m *Mob) recomputePath(w World) {
 	if o.nav.navTick-o.nav.lastRecompute > 20 && o.canUpdatePath() {
 		end, reach, pace := o.nav.end, o.nav.reach, o.nav.speedFactor
 		o.nav.path = nil
-		o.seekTo(w, float64(end.X)+0.5, float64(end.Y), float64(end.Z)+0.5, pace, reach)
+		m.seekTo(w, float64(end.X)+0.5, float64(end.Y), float64(end.Z)+0.5, pace, reach)
 		o.nav.lastRecompute = o.nav.navTick
 		o.nav.delayedRecompute = false
 	} else {
@@ -1329,7 +1327,7 @@ func (m *Mob) recomputePath(w World) {
 // BlocksChanged replans the path of every mob whose walk a changed block's
 // cell (one whose collision shape changed) lies near.
 // vanilla: PathNavigation.shouldRecomputePath
-func (h Mobs) BlocksChanged(w World, cells []Waypoint) {
+func (h Mobs) BlocksChanged(w World, cells []Waypoint, paths *MobPathScratch) {
 	if len(cells) == 0 {
 		return
 	}
@@ -1348,7 +1346,9 @@ func (h Mobs) BlocksChanged(w World, cells []Waypoint) {
 		for _, c := range cells {
 			dx, dy, dz := float64(c.X)+0.5-mx, float64(c.Y)+0.5-my, float64(c.Z)+0.5-mz
 			if dx*dx+dy*dy+dz*dz < n*n {
+				m.tickPaths = paths
 				m.recomputePath(w)
+				m.tickPaths = nil
 				break
 			}
 		}
@@ -1362,7 +1362,7 @@ func (m *Mob) pathFootprint(w World) footprint {
 	foot.overFences = IsCamel(m.Type)
 	foot.floats = m.canFloat
 	foot.flatDistance = m.Type == TypeWarden
-	foot.amphibious = m.Type == TypeTurtle || m.Type == TypeAxolotl || m.Type == TypeFrog || m.Type == TypeDrowned
+	foot.amphibious = m.usesAmphibiousNavigation()
 	foot.openDoors = m.canOpenDoors()
 	foot.maxFall = m.maxFallDistance(w)
 	m.setFireMaluses(&foot)
@@ -1430,20 +1430,94 @@ func waypointPoint(node Waypoint, width float64) (x, z float64) {
 	return float64(node.X) + offset, float64(node.Z) + offset
 }
 
-// atWaypoint reports whether dx, dz from a node's centre reach it. A body
-// wider than 0.75 steers to its footprint corner, so it is reached per axis
-// within half its width; narrower ones use waypointReached.
-// vanilla: PathNavigation.maxDistanceToWaypoint
+// atWaypoint reports whether dx, dz from a node's centre reach it: strictly
+// inside maxDistanceToWaypoint on each axis, which is half the width for a
+// body wider than 0.75 and 0.75 - width/2 otherwise. The width and threshold
+// are float32, so the threshold is not the float64 difference.
+// Ground, water-bound and amphibious navigation share it; each keeps its own
+// vertical limit.
+// vanilla: PathNavigation.followThePath
 func (m *Mob) atWaypoint(dx, dz float64) bool {
-	if w := m.width(); w > 0.75 {
-		return math.Abs(dx) < w/2 && math.Abs(dz) < w/2
+	w := float32(m.width())
+	reach := 0.75 - w/2
+	if w > 0.75 {
+		reach = w / 2
 	}
-	return math.Hypot(dx, dz) <= waypointReached
+	return math.Abs(dx) < float64(reach) && math.Abs(dz) < float64(reach)
 }
 
-// waypointReached is the reach radius around a waypoint's centre, well
-// within a step so the mob banks it a tick early rather than circling.
-const waypointReached = 0.35
+// vanilla: PathNavigation.getMaxVerticalDistanceToWaypoint
+const groundVerticalReach = 1.0
+
+func (m *Mob) usesAmphibiousNavigation() bool {
+	return m.Type == TypeTurtle || m.Type == TypeAxolotl || m.Type == TypeFrog || m.Type == TypeDrowned
+}
+
+// vanilla: GroundPathNavigation.getSurfaceY
+func (m *Mob) groundNavigationY(w World) float64 {
+	if !m.canFloat || !m.InWater() {
+		return math.Floor(m.Y + 0.5)
+	}
+	feet := m.cell()
+	for y := feet.Y; y <= feet.Y+16; y++ {
+		if !rules.IsWater(w.BlockAt(feet.X, y, feet.Z)) {
+			return float64(y)
+		}
+	}
+	return float64(feet.Y)
+}
+
+// cutsPathCorner is PathNavigation.shouldTargetNextNodeInDirection.
+func (m *Mob) cutsPathCorner(w World, waterBound bool) bool {
+	if len(m.nav.path) < 2 {
+		return false
+	}
+	amphibious := m.usesAmphibiousNavigation()
+	var y float64
+	if waterBound || amphibious {
+		y = m.Y + m.height()*0.5
+	} else {
+		y = m.groundNavigationY(w)
+	}
+	cur, next := m.nav.path[0], m.nav.path[1]
+	toCur := vec3{float64(cur.X) + 0.5 - m.X, float64(cur.Y) - y, float64(cur.Z) + 0.5 - m.Z}
+	curSq := toCur.x*toCur.x + toCur.y*toCur.y + toCur.z*toCur.z
+	if curSq >= 4 {
+		return false
+	}
+	if (waterBound || amphibious && (m.InWater() || m.InLava())) && m.swimMovesDirectly(w, y) {
+		return waterBound || m.canCutCorner(w, cur)
+	}
+	toNext := vec3{float64(next.X) + 0.5 - m.X, float64(next.Y) - y, float64(next.Z) + 0.5 - m.Z}
+	nextSq := toNext.x*toNext.x + toNext.y*toNext.y + toNext.z*toNext.z
+	if nextSq >= curSq && curSq >= 0.5 {
+		return false
+	}
+	a, b := toCur.normalize(), toNext.normalize()
+	return a.x*b.x+a.y*b.y+a.z*b.z < 0 && (waterBound || m.canCutCorner(w, cur))
+}
+
+// Waypoints hold coordinates, so classify the node against the current terrain.
+// vanilla: PathNavigation.canCutCorner, Frog.FrogPathNavigation.canCutCorner
+func (m *Mob) canCutCorner(w World, node Waypoint) bool {
+	switch positionPathType(w, node.X, node.Y, node.Z) {
+	case pathNearFire, pathNearDamaging:
+		return false
+	case pathWaterBorder:
+		if m.Type == TypeFrog {
+			return false
+		}
+	case pathWater:
+		if m.Type == TypeFrog && !amphibiousOpenWater(w, node.X, node.Y, node.Z) {
+			return false
+		}
+	}
+	if m.canOpenDoors() {
+		width, height := m.footprintCells()
+		return !doorInFootprint(w, footprint{fw: width, fh: height}, node.X, node.Y, node.Z)
+	}
+	return true
+}
 
 // closerToCentre is Vec3i.closerToCenterThan: pos within distance of the
 // block's centre.
@@ -1469,15 +1543,16 @@ func (m *Mob) navigate(w World) {
 	}
 	o.nav.navTick++
 	if o.nav.delayedRecompute {
-		o.recomputePath(w)
+		m.recomputePath(w)
 	}
-	for len(o.nav.path) > 0 {
-		centreX := float64(o.nav.path[0].X) + 0.5
-		centreZ := float64(o.nav.path[0].Z) + 0.5
-		if (!o.atWaypoint(centreX-o.X, centreZ-o.Z) || o.swimsBelow(o.nav.path[0])) && !o.turtleCutsCorner(w) {
-			break
+	if len(o.nav.path) > 0 {
+		node := o.nav.path[0]
+		// vanilla: PathNavigation.followThePath
+		centreX, centreZ := float64(node.X)+0.5, float64(node.Z)+0.5
+		reached := o.atWaypoint(centreX-o.X, centreZ-o.Z) && math.Abs(o.Y-float64(node.Y)) < groundVerticalReach
+		if reached || o.cutsPathCorner(w, false) {
+			o.nav.advance()
 		}
-		o.nav.advance()
 	}
 	if len(o.nav.path) == 0 {
 		if !o.nav.climbSet {

@@ -108,9 +108,9 @@ var playerBases = func() *[registry.NumAttributes]float64 {
 // startingAttributes are the three instances a vanilla server sends every
 // player at join or rejoin; equipment adds the rest with its modifiers.
 var startingAttributes = []registry.AttributeID{
+	registry.AttributeMovementSpeed,
 	registry.AttributeBlockInteractionRange,
 	registry.AttributeEntityInteractionRange,
-	registry.AttributeMovementSpeed,
 }
 
 // attributeSet is a set of attributes by ID, one bit each.
@@ -123,10 +123,13 @@ func (s attributeSet) has(id registry.AttributeID) bool { return s&(1<<id) != 0 
 // is a fresh player's, not yet introduced.
 // vanilla: AttributeMap, with LivingEntity.lastEquipmentItems
 type Attributes struct {
-	instances   [registry.NumAttributes]*AttributeInstance
-	dirty       attributeSet
-	initialized bool
-	introduced  bool
+	instances [registry.NumAttributes]*AttributeInstance
+	// Keep insertion history inline because pairing builds throwaway maps.
+	insertionOrder [registry.NumAttributes]uint8
+	instanceCount  uint8
+	dirty          attributeSet
+	initialized    bool
+	introduced     bool
 	// synthetic marks instances this server made for pairing and equipment
 	// before vanilla would have; an explicit Instance clears the mark.
 	synthetic attributeSet
@@ -163,12 +166,22 @@ func (a *Attributes) init() {
 	if a.initialized {
 		return
 	}
+	a.initBases()
+	if a.supplier == nil {
+		a.initStartingAttributes()
+	}
+}
+
+func (a *Attributes) initStartingAttributes() {
+	for _, id := range startingAttributes {
+		a.Instance(id)
+	}
+}
+
+func (a *Attributes) initBases() {
 	a.initialized = true
 	if a.supplier == nil {
 		a.has, a.bases = playerAttributes, playerBases
-		for _, id := range startingAttributes {
-			a.Instance(id)
-		}
 		return
 	}
 	bases := new([registry.NumAttributes]float64)
@@ -186,14 +199,14 @@ func (a *Attributes) init() {
 
 // withBasesOnly is a fresh map holding the base of every instance and none of
 // its modifiers, not yet introduced to a client.
-func (a Attributes) withBasesOnly() Attributes {
-	out := Attributes{supplier: a.supplier}
-	out.init()
-	for id, in := range a.instances {
-		if in != nil {
-			out.instances[id] = &AttributeInstance{Attribute: in.Attribute, Base: in.Base}
-		}
+// vanilla: ServerPlayer.restoreFrom, AttributeMap.assignBaseValues
+func (a *Attributes) withBasesOnly() Attributes {
+	var out Attributes
+	out.initBases()
+	for _, id := range packedAttributeOrder(a.insertionOrder[:a.instanceCount]) {
+		out.Instance(id).Base = a.instances[id].Base
 	}
+	out.initStartingAttributes()
 	return out
 }
 
@@ -201,12 +214,21 @@ func (a Attributes) withBasesOnly() Attributes {
 // vanilla: AttributeMap.getInstance
 func (a *Attributes) Instance(id registry.AttributeID) *AttributeInstance {
 	a.init()
-	a.synthetic &^= 1 << id
 	if in := a.instances[id]; in != nil {
+		if a.synthetic.has(id) {
+			a.synthetic &^= 1 << id
+			// Pairing made this instance early. Insert it at its first native use.
+			order := a.insertionOrder[:a.instanceCount]
+			i := slices.Index(order, uint8(id))
+			copy(order[i:], order[i+1:])
+			order[len(order)-1] = uint8(id)
+		}
 		return in
 	}
 	in := &AttributeInstance{Attribute: id.Attribute(), Base: a.bases[id]}
 	a.instances[id] = in
+	a.insertionOrder[a.instanceCount] = uint8(id)
+	a.instanceCount++
 	return in
 }
 
@@ -250,6 +272,21 @@ func (a *Attributes) AddModifier(id registry.AttributeID, m Modifier) {
 	} else {
 		in.Modifiers = append(in.Modifiers, m)
 	}
+	a.markDirty(in)
+}
+
+// ReplaceModifier puts a modifier on an attribute; one of the same ID that
+// differs is removed first, so the new one goes last.
+// vanilla: MobEffect.removeAttributeModifiers, addAttributeModifiers
+func (a *Attributes) ReplaceModifier(id registry.AttributeID, m Modifier) {
+	in := a.Instance(id)
+	if i := slices.IndexFunc(in.Modifiers, func(o Modifier) bool { return o.ID == m.ID }); i >= 0 {
+		if in.Modifiers[i] == m {
+			return
+		}
+		in.Modifiers = slices.Delete(in.Modifiers, i, i+1)
+	}
+	in.Modifiers = append(in.Modifiers, m)
 	a.markDirty(in)
 }
 

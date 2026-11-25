@@ -42,7 +42,7 @@ type tntCartEffects struct {
 
 // newCartRng is a cart's own dice.
 func (s *Server) newCartRng(id int32) *rand.Rand {
-	return rand.New(rand.NewSource(s.entitySeed(id)))
+	return entity.NewDice(s.entitySeed(id))
 }
 
 // tntCartEnv is what the cart's decisions read of the server. The cart lock

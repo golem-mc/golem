@@ -28,8 +28,18 @@ func TestPlayerSavedNBT(t *testing.T) {
 			t.Errorf("selector %s: %+v", predicate, line)
 		}
 	}
+	for _, step := range []struct{ command, feedback string }{
+		{"effect give @s speed 30 1", "commands.effect.give.success.single"},
+		{"effect clear @s", "commands.effect.clear.everything.success.single"},
+	} {
+		c.ChatCommand(step.command)
+		line, _ := protocol.ReadText(protocol.NewReader(c.NextSystemChat()))
+		if line.Translate != step.feedback {
+			t.Fatalf("%s returned %q, want %s", step.command, line.Translate, step.feedback)
+		}
+	}
 	attrs := livingData(t, c, "@s", "attributes")
-	want := `[{id: "minecraft:block_interaction_range", base: 4.5d}, {id: "minecraft:entity_interaction_range", base: 3.0d}, {id: "minecraft:movement_speed", base: 0.10000000149011612d}, {id: "minecraft:waypoint_transmit_range", base: 6.0E7d}]`
+	want := `[{id: "minecraft:movement_speed", base: 0.10000000149011612d}, {id: "minecraft:entity_interaction_range", base: 3.0d}, {id: "minecraft:waypoint_transmit_range", base: 6.0E7d}, {id: "minecraft:block_interaction_range", base: 4.5d}]`
 	if attrs != want {
 		t.Errorf("attributes = %s, want %s", attrs, want)
 	}

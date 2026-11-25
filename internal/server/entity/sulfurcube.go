@@ -221,27 +221,38 @@ func (m *Mob) sulfurStep() {
 	}
 }
 
+func (m *Mob) canSearchSulfurItems() bool {
+	return m.Alive() && !m.IsBaby() && !m.SulfurCubeFilled() && m.sulfur.pickupTimer <= 0
+}
+
 // vanilla: SulfurCubeSearchForItemsGoal.canUse
-func (m *Mob) senseSulfurItems(items []LootItem) {
+func (m *Mob) senseSulfurItems(items []LootItem, grid *BoxGrid) {
 	m.sulfur.hasWanted = false
-	if !m.Alive() || m.IsBaby() || m.SulfurCubeFilled() || m.sulfur.pickupTimer > 0 {
+	if !m.canSearchSulfurItems() {
 		return
 	}
 	best := 1e30
 	box := m.mobBox()
-	for _, it := range items {
+	consider := func(it *LootItem) {
 		if it.Stack.Empty() ||
 			it.X+halfSize < box.minX-8 || it.X-halfSize > box.maxX+8 ||
 			it.Y+halfSize < box.minY-8 || it.Y-halfSize > box.maxY+8 ||
 			it.Z+halfSize < box.minZ-8 || it.Z-halfSize > box.maxZ+8 ||
 			!registry.Item(it.Stack.ItemID).InTag(registry.ItemTagIDSulfurCubeSwallowable) {
-			continue
+			return
 		}
 		if d := Dist2(m.X, m.Y, m.Z, it.X, it.Y, it.Z); d < best {
 			best = d
-			m.sulfur.wanted, m.sulfur.hasWanted, m.sulfur.wantedUntil = it, true, m.Age+2
+			m.sulfur.wanted, m.sulfur.hasWanted, m.sulfur.wantedUntil = *it, true, m.Age+2
 		}
 	}
+	if grid == nil {
+		for i := range items {
+			consider(&items[i])
+		}
+		return
+	}
+	grid.Query(box.Inflate(8), func(i int32) { consider(&items[i]) })
 }
 
 type sulfurSearchGoal struct{ m *Mob }

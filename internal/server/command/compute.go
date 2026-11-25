@@ -1,6 +1,7 @@
 package command
 
 import (
+	"errors"
 	"math"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -245,6 +246,16 @@ func readComputeProvider(src Source, input string, rest []string) (p registry.Lo
 	return p, rest[0], rest[1+span:]
 }
 
+// evalFailed answers a provider that threw: an uncaught exception is
+// command.failed, an ArithmeticException the invalid value.
+// vanilla: Commands.performCommand, ComputeCommand.computeAsInt
+func evalFailed(src Source, p registry.LootNumber, err error) error {
+	if errors.Is(err, rules.ErrLookupIndex) {
+		return refuse(src, "command.failed")
+	}
+	return invalidValue(src, p, err.Error())
+}
+
 // vanilla: ComputeCommand.throwInvalidValue
 func invalidValue(src Source, p registry.LootNumber, value string) error {
 	reason := protocol.Text{Text: value}
@@ -267,7 +278,7 @@ func computeFeedback(src Source, p registry.LootNumber, unnamedKey, namedKey str
 func computeInt(src Source, lc *rules.LootContext, p registry.LootNumber) (int32, error) {
 	v, err := rules.EvalIntProvider(p, lc, src.Random())
 	if err != nil {
-		return 0, invalidValue(src, p, err.Error())
+		return 0, evalFailed(src, p, err)
 	}
 	n := int64(v)
 	return resultOf(v, computeFeedback(src, p, computeExactKey, computeNamedExactKey, protocol.Text{Number: &n}))
@@ -278,7 +289,7 @@ func computeInt(src Source, lc *rules.LootContext, p registry.LootNumber) (int32
 func computeFloat(src Source, lc *rules.LootContext, p registry.LootNumber, scale float32) (int32, error) {
 	original, err := rules.EvalFloatProvider(p, lc, src.Random())
 	if err != nil {
-		return 0, invalidValue(src, p, err.Error())
+		return 0, evalFailed(src, p, err)
 	}
 	if f := float64(original); math.IsNaN(f) || math.IsInf(f, 0) {
 		return 0, invalidValue(src, p, formatJavaFloat(original))

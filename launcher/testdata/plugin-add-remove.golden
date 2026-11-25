@@ -50,9 +50,10 @@ one fails, nothing is written and the failing path is named. With no argument,
 on a terminal, a list of the known plugins opens: space ticks, enter installs,
 q cancels.
 
-Without a version the latest release tag (go's module query @latest) is looked
-up and written pinned. The path may be a package inside a module; the module's other listed packages move to the same
-version. A local package directory (./dir, in a module) is written as it is.
+Without a version, the latest version on the configured channel is pinned.
+The path may be a package inside a module. The module's other listed packages
+move to the same version. A local package directory (./dir, in a module) is
+written as it is.
 Adding a listed plugin with a version changes its version. launcher.json is
 written only if the result builds.
 

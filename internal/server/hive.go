@@ -60,7 +60,7 @@ func (c *client) useBeehive(hand, x, y, z int32) bool {
 		if len(hiveBees(w, x, y, z).Items) > 0 {
 			c.srv.angerBeesAround(w, x, y, z)
 		}
-		c.srv.releaseHiveBees(w, x, y, z, hive, c, true, true)
+		c.srv.releaseHiveBees(w, x, y, z, hive, c, true)
 	}
 	return true
 }
@@ -106,29 +106,25 @@ func (c *client) collectHive(x, y, z int32, state uint16) func() {
 	}
 }
 
-// releaseHiveBees frees the stored bees and, with forget, removes them
-// from the block entity. emergency frees them regardless of time, weather
-// and a blocked front. vanilla: BeehiveBlockEntity.emptyAllLivingFromHive
-func (s *Server) releaseHiveBees(w *world.World, x, y, z int32, state uint16, by *client, forget, emergency bool) {
+// releaseHiveBees removes successfully freed bees from the block entity.
+// emergency bypasses time, weather and a blocked front.
+// vanilla: BeehiveBlockEntity.emptyAllLivingFromHive
+func (s *Server) releaseHiveBees(w *world.World, x, y, z int32, state uint16, by *client, emergency bool) {
 	list := hiveBees(w, x, y, z)
 	if len(list.Items) == 0 {
 		return
 	}
 	kept := s.spawnHiveBees(w, x, y, z, state, list, by, rules.HiveSedated(w.BlockAt, x, y, z), emergency)
-	if !forget {
-		return
+	if len(kept) < len(list.Items) {
+		w.SetCarriedField(x, y, z, "bees", nbt.List{Elem: nbt.TypeCompound, Items: kept})
 	}
-	tag, _ := w.BlockEntityTag(x, y, z)
-	next := maps.Clone(tag)
-	next["bees"] = nbt.List{Elem: nbt.TypeCompound, Items: kept}
-	w.ReplaceCarried(x, y, z, next)
 }
 
 // releaseHiveAndResetHoney empties a full hive and frees its bees with no
 // player to anger them. vanilla: BeehiveBlock.releaseBeesAndResetHoneyLevel
 func (s *Server) releaseHiveAndResetHoney(w *world.World, x, y, z int32, state uint16) {
 	s.emptyHive(w, x, y, z, state)
-	s.releaseHiveBees(w, x, y, z, w.BlockAt(x, y, z), nil, true, false)
+	s.releaseHiveBees(w, x, y, z, w.BlockAt(x, y, z), nil, false)
 }
 
 // spawnHiveBees spawns stored bees at the hive's front and returns those
@@ -197,7 +193,7 @@ func (s *Server) spawnOccupant(w *world.World, x, y, z, dx, dz int32, frontBlock
 		tag["InLove"] = nbt.Int(max(0, love-ticks))
 	}
 	px, py, pz := rules.HiveReleaseSpot(x, y, z, dx, dz, frontBlocked, 0.55, 0.5)
-	if _, err := s.spawnSummonedMobFacing(s.dimensionOfWorld(w), entity.TypeBee, px, py, pz, tag, prep); err != nil {
+	if _, spawned, _ := s.spawnTaggedMob(s.dimensionOfWorld(w), entity.TypeBee, px, py, pz, tag, prep); !spawned {
 		return false
 	}
 	s.broadcastSoundID(w, registry.SoundBlockBeehiveExit, protocol.SoundCategoryBlock,
@@ -286,7 +282,7 @@ func (s *Server) emptyHiveNearFire(w *world.World, x, y, z int32) {
 		return
 	}
 	if state := w.BlockAt(x, y, z); isHiveState(state) {
-		s.releaseHiveBees(w, x, y, z, state, nil, true, true)
+		s.releaseHiveBees(w, x, y, z, state, nil, true)
 	}
 }
 
@@ -298,7 +294,7 @@ func (s *Server) emptyHivesBesideFire(w *world.World, x, y, z int32) {
 	}
 	for _, d := range [6][3]int32{{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}} {
 		if nx, ny, nz := x+d[0], y+d[1], z+d[2]; isHiveState(w.BlockAt(nx, ny, nz)) {
-			s.releaseHiveBees(w, nx, ny, nz, w.BlockAt(nx, ny, nz), nil, true, true)
+			s.releaseHiveBees(w, nx, ny, nz, w.BlockAt(nx, ny, nz), nil, true)
 		}
 	}
 }

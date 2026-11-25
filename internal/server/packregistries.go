@@ -1,6 +1,8 @@
 package server
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -135,6 +137,9 @@ func loadPackEnchantments(dirs []string, skip func(file string, err error)) erro
 	for name, data := range files {
 		def, dropped, err := datapack.DecodeEnchantmentWith(name, data, predicate)
 		if err != nil {
+			if errors.Is(err, datapack.ErrLegacySimpleStateProvider) {
+				return fmt.Errorf("enchantment %s: %w", name, err)
+			}
 			skip(name, err)
 			continue
 		}

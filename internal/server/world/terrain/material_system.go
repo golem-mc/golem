@@ -46,7 +46,11 @@ func (s *MaterialSystem) surfaceDepth(x, z int32, rnd levelgen.RandomSource) int
 
 // band is vanilla: MaterialSystem.getBand.
 func (s *MaterialSystem) band(x, y, z int32) Material {
-	offset := int32(math.Floor(float64(float32(s.clayBandsOffset.Get3D(float64(x), 0, float64(z))*4.0)) + 0.5))
+	return s.bandFromNoise(y, s.clayBandsOffset.Get3D(float64(x), 0, float64(z)))
+}
+
+func (s *MaterialSystem) bandFromNoise(y int32, sample float32) Material {
+	offset := int32(math.Floor(float64(float32(sample*4.0)) + 0.5))
 	return s.bands[(y+offset+clayBandCount)%clayBandCount]
 }
 
@@ -144,17 +148,19 @@ func (s *MaterialSystem) BuildSurface(chunk SurfaceChunk, chunkX, chunkZ int32, 
 			ctx.updateXZ(blockX, blockZ, gradX, gradZ)
 			stoneAbove, waterHeight, nextCeilingStoneY := int32(0), int32(noWater), int32(math.MaxInt32)
 			for y := height; y >= minY; y-- {
-				switch col.block(y) {
-				case ColumnAir:
-					stoneAbove, waterHeight = 0, noWater
-					continue
-				case ColumnFluid:
-					if waterHeight == noWater {
-						waterHeight = y + 1
+				// y at or above nextCeilingStoneY lies in the stone run already
+				// classified; rule writes only touch the current y.
+				if y < nextCeilingStoneY {
+					switch col.block(y) {
+					case ColumnAir:
+						stoneAbove, waterHeight = 0, noWater
+						continue
+					case ColumnFluid:
+						if waterHeight == noWater {
+							waterHeight = y + 1
+						}
+						continue
 					}
-					continue
-				}
-				if nextCeilingStoneY >= y {
 					nextCeilingStoneY = wayBelowMinY
 					for lookahead := y - 1; lookahead >= minY-1; lookahead-- {
 						if !isStone(col.block(lookahead)) {
@@ -188,17 +194,14 @@ func surfaceGradients(chunk SurfaceChunk, x, z int32) (gradX, gradZ int32) {
 
 // topMaterial is the block the rule puts at the top of a column at x, y, z,
 // with ok false where it places none. vanilla: MaterialSystem.topMaterial
-func (s *MaterialSystem) topMaterial(chunk SurfaceChunk, nc *NoiseChunk, biomes Biomes, x, y, z int32, underFluid bool) (m Material, ok bool) {
-	ctx := newMaterialContext(s, nc, NewVolume(1, 1, 1, x, y, z), biomes, nil)
-	defer ctx.close()
-	rule := s.rule(ctx)
+func (c *materialContext) topMaterial(rule ruleFn, chunk SurfaceChunk, x, y, z int32, underFluid bool) (Material, bool) {
 	gradX, gradZ := surfaceGradients(chunk, x&15, z&15)
-	ctx.updateXZ(x, z, gradX, gradZ)
+	c.updateXZ(x, z, gradX, gradZ)
 	water := int32(noWater)
 	if underFluid {
 		water = y + 1
 	}
-	ctx.updateY(1, 1, water, y)
+	c.updateY(1, 1, water, y)
 	return rule(x, y, z)
 }
 

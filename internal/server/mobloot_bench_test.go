@@ -12,6 +12,79 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
+func newMobLootFixture(tb testing.TB) *Server {
+	tb.Helper()
+	cfg := config.Default()
+	cfg.LevelName, cfg.LevelType = tb.TempDir(), TestFlatLevelType
+	s, err := newServer(cfg, 1)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(s.Shutdown)
+	for _, dim := range s.allDims()[:2] {
+		for i := range 64 {
+			x, z := float64(i%8)*8, float64(i/8)*8
+			m := entity.NewMob(entity.TypeZombie, s.nextEntity(), x, 64, z, int64(i+1))
+			m.CanPickUpLoot, m.NoAI = true, true
+			s.addMob(&mobEntity{mob: m, w: dim.w, uuid: uuid.New()})
+		}
+	}
+	return s
+}
+
+func addDistantMobLoot(s *Server) {
+	helmet := protocol.ItemStack{ItemID: int32(registry.ItemIronHelmet), Count: 1}
+	for _, dim := range s.allDims()[:2] {
+		// Spread the items across enough cells to exercise the loot grid.
+		for i := range 64 {
+			x, z := float64(128+i%8*8), float64(i/8*8)
+			s.spawnItem(dim.w, helmet, x, 64, z, 0, 0, 0, 0)
+		}
+	}
+}
+
+func warmMobLoot(s *Server) {
+	for range 64 {
+		s.tickMobLoot()
+	}
+}
+
+func TestTickMobLootSteadyStateAllocations(t *testing.T) {
+	s := newMobLootFixture(t)
+	addDistantMobLoot(s)
+	warmMobLoot(s)
+	const ticks = 128
+	if n := testing.AllocsPerRun(1, func() {
+		for range ticks {
+			s.tickMobLoot()
+		}
+	}); n != 0 {
+		t.Fatalf("tickMobLoot with distant items allocated %g times over %d ticks, want zero", n, ticks)
+	}
+}
+
+func BenchmarkTickMobLoot(b *testing.B) {
+	for _, tc := range []struct {
+		name  string
+		items bool
+	}{
+		{name: "NoItems"},
+		{name: "DistantItems", items: true},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			s := newMobLootFixture(b)
+			if tc.items {
+				addDistantMobLoot(s)
+			}
+			warmMobLoot(s)
+			b.ReportAllocs()
+			for b.Loop() {
+				s.tickMobLoot()
+			}
+		})
+	}
+}
+
 // BenchmarkMobEquipmentPickup runs the complete loot pass with 64 actual
 // equipment takes per iteration, including deferred sound/game-event dispatch.
 // Movement and network clients are excluded; resetting equipment and ground

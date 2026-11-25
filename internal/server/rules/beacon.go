@@ -106,17 +106,15 @@ func BeaconEffectAmplifier(levels int, primary, secondary int32) int32 {
 	return 0
 }
 
-// BeaconInReach reports whether a player box (0.6 by 1.8) with feet at (px,
-// py, pz) meets the beacon's block inflated by reach, extended to any height
-// above.
+// BeaconReachBounds is the beacon's block inflated by reach and extended
+// upward by the dimension height, as min and max corners; a player box
+// counts when it strictly overlaps them (BoxesIntersect).
 // vanilla: BeaconBlockEntity.applyEffects
 // (AABB(worldPos).inflate(range).expandTowards(0, height, 0))
-func BeaconInReach(reach, px, py, pz float64, bx, by, bz int32) bool {
-	minX, maxX := float64(bx)-reach, float64(bx)+1+reach
-	minZ, maxZ := float64(bz)-reach, float64(bz)+1+reach
-	return px+0.3 > minX && px-0.3 < maxX &&
-		py+1.8 > float64(by)-reach &&
-		pz+0.3 > minZ && pz-0.3 < maxZ
+func BeaconReachBounds(reach float64, height int32, bx, by, bz int32) (lo, hi [3]float64) {
+	lo = [3]float64{float64(bx) - reach, float64(by) - reach, float64(bz) - reach}
+	hi = [3]float64{float64(bx) + 1 + reach, float64(by) + 1 + reach + float64(height), float64(bz) + 1 + reach}
+	return lo, hi
 }
 
 // BeaconUpdateTicks is the interval the beacon counts its pyramid and

@@ -99,6 +99,24 @@ func (c *Client) AwaitSoundNamed(name string) (x, y, z int32, volume float32) {
 	return 0, 0, 0, 0
 }
 
+// ReadSpawnEntity decodes a Spawn Entity packet into its entity type and
+// body, plus the body yaw and head yaw in degrees.
+func ReadSpawnEntity(t *testing.T, data []byte) (kind int32, e CapturedEntity, yaw, head float32) {
+	t.Helper()
+	r := protocol.NewReader(data)
+	e = CapturedEntity{EntityID: r.ReadVarInt(), Uuid: r.ReadUUID()}
+	kind = r.ReadVarInt()
+	e.X, e.Y, e.Z = r.ReadF64(), r.ReadF64(), r.ReadF64()
+	r.ReadLpVec3() // velocity
+	r.ReadAngle()  // Pitch
+	yaw, head = r.ReadAngle(), r.ReadAngle()
+	r.ReadVarInt() // type-specific data
+	if err := r.Err(); err != nil {
+		t.Fatalf("spawn entity: %v", err)
+	}
+	return kind, e, yaw, head
+}
+
 // AwaitNextSpawn reads until the next Spawn Entity of any kind and hands
 // back its entity type and body, so a test can assert which of two arrivals
 // the wire carried first.
@@ -109,18 +127,7 @@ func (c *Client) AwaitNextSpawn() (int32, CapturedEntity) {
 		if packetID != protocol.IDPlaySpawnEntity {
 			continue
 		}
-		r := protocol.NewReader(data)
-		e := CapturedEntity{EntityID: r.ReadVarInt(), Uuid: r.ReadUUID()}
-		kind := r.ReadVarInt()
-		e.X, e.Y, e.Z = r.ReadF64(), r.ReadF64(), r.ReadF64()
-		r.ReadLpVec3() // velocity
-		r.ReadAngle()  // Pitch
-		r.ReadAngle()  // Yaw
-		r.ReadAngle()  // head yaw
-		r.ReadVarInt() // type-specific data
-		if err := r.Err(); err != nil {
-			c.T.Fatalf("spawn entity: %v", err)
-		}
+		kind, e, _, _ := ReadSpawnEntity(c.T, data)
 		return kind, e
 	}
 	c.T.Fatalf("no spawn entity arrived within %s", ExpectTimeout)
@@ -629,8 +636,8 @@ type BodyMetadata struct {
 	HasAbsorb    bool
 	Particles    [][2]int32
 	HasParticles bool
-	ambient      bool
-	hasAmbient   bool
+	Ambient      bool
+	HasAmbient   bool
 }
 
 // ReadBodyMetadata parses a Set Entity Metadata packet of one of the
@@ -667,8 +674,8 @@ func ReadBodyMetadata(c *Client, data []byte, bodies map[int32]bool) (BodyMetada
 			if fieldType != protocol.MetadataBoolean {
 				c.T.Fatalf("effect ambient field type = %d, want %d", fieldType, protocol.MetadataBoolean)
 			}
-			m.ambient = r.ReadU8() != 0
-			m.hasAmbient = true
+			m.Ambient = r.ReadBool()
+			m.HasAmbient = true
 		case protocol.MetadataIndexLivingHealth:
 			if fieldType != protocol.MetadataFloat {
 				c.T.Fatalf("health field type = %d, want %d", fieldType, protocol.MetadataFloat)
@@ -1105,8 +1112,15 @@ type SpawnedMob struct {
 	HasFoxType, HasFoxFlags bool
 	Baby                    bool
 	HasBaby                 bool
-	GolemFlags              uint8
-	HasGolemFlags           bool
+	// LlamaStrength and LlamaVariant are a llama's VarInts; absent (Has false)
+	// is the client's default.
+	LlamaStrength, LlamaVariant       int32
+	HasLlamaStrength, HasLlamaVariant bool
+	GolemFlags                        uint8
+	HasGolemFlags                     bool
+	// ArmadilloState is the armadillo's state enum (0 idle, 1 rolling, 2 scared, 3 unrolling).
+	ArmadilloState    int32
+	HasArmadilloState bool
 	// CopperWeather is a copper golem's non-default weathering stage.
 	CopperWeather int
 	Powered       bool
@@ -1135,6 +1149,7 @@ type SpawnedMob struct {
 	MobFlags    uint8
 	// BaseFlags is the shared flags byte at index 0, told only when set.
 	BaseFlags uint8
+	NoGravity bool
 	// Pose is the pose at index 6, told only when not standing or when it
 	// went back to standing.
 	Pose int32
@@ -1337,6 +1352,18 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 			break
 		}
 		fieldType := meta.ReadVarInt()
+		// Decided before any other decoder: none may consume an armadillo's
+		// state or take the state serializer.
+		if index == protocol.MetadataIndexArmadilloState && (mob.TypeID == protocol.EntityTypeArmadillo || fieldType == protocol.MetadataArmadilloState) {
+			if mob.TypeID != protocol.EntityTypeArmadillo || fieldType != protocol.MetadataArmadilloState {
+				c.T.Fatalf("index %d of entity type %d has serializer %d, want an armadillo state on an armadillo only", index, mob.TypeID, fieldType)
+			}
+			mob.ArmadilloState, mob.HasArmadilloState = meta.ReadVarInt(), true
+			continue
+		}
+		if c.readLlamaField(mob, meta, index, fieldType) {
+			continue
+		}
 		if index == protocol.MetadataIndexAir && fieldType == protocol.MetadataVarInt {
 			mob.Air = meta.ReadVarInt()
 			continue
@@ -1487,6 +1514,11 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 		switch index {
 		case protocol.MetadataIndexSilent:
 			meta.ReadBool()
+		case protocol.MetadataIndexNoGravity:
+			if fieldType != protocol.MetadataBoolean {
+				c.T.Fatalf("no gravity field type = %d, want %d (a boolean)", fieldType, protocol.MetadataBoolean)
+			}
+			mob.NoGravity = meta.ReadBool()
 		case protocol.MetadataIndexCustomName:
 			if fieldType != protocol.MetadataOptionalText {
 				c.T.Fatalf("custom name field type = %d, want %d (an optional text)", fieldType, protocol.MetadataOptionalText)
@@ -1615,6 +1647,40 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 	if meta.Remaining() != 0 {
 		c.T.Errorf("mob metadata has %d bytes left over", meta.Remaining())
 	}
+}
+
+// readLlamaField decodes a llama or trader llama's horse flags, chest,
+// strength and variant fields and reports whether index was one of them.
+// It fails the test on a serializer other than the one vanilla declares.
+func (c *Client) readLlamaField(mob *SpawnedMob, meta *protocol.Reader, index uint8, fieldType int32) bool {
+	if mob.TypeID != protocol.EntityTypeLlama && mob.TypeID != protocol.EntityTypeTraderLlama {
+		return false
+	}
+	var want int32
+	switch index {
+	case protocol.MetadataIndexHorseFlags:
+		want = protocol.MetadataByte
+	case protocol.MetadataIndexChestedHorseChest:
+		want = protocol.MetadataBoolean
+	case protocol.MetadataIndexLlamaStrength, protocol.MetadataIndexLlamaVariant:
+		want = protocol.MetadataVarInt
+	default:
+		return false
+	}
+	if fieldType != want {
+		c.T.Fatalf("llama field %d type = %d, want %d", index, fieldType, want)
+	}
+	switch index {
+	case protocol.MetadataIndexHorseFlags:
+		meta.ReadU8()
+	case protocol.MetadataIndexChestedHorseChest:
+		meta.ReadBool()
+	case protocol.MetadataIndexLlamaStrength:
+		mob.LlamaStrength, mob.HasLlamaStrength = meta.ReadVarInt(), true
+	default:
+		mob.LlamaVariant, mob.HasLlamaVariant = meta.ReadVarInt(), true
+	}
+	return true
 }
 
 // isBlazeType reports whether the entity type is a blaze.

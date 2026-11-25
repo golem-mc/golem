@@ -24,6 +24,8 @@ import (
 // it into an error.
 type lootFailure struct {
 	msg string
+	// fatal carries a registry decoding error past the enchantment's entry fallback.
+	fatal error
 	// An optional field or list supplies a partial result to Codec.either.
 	partial bool
 	// overflow is a weighted list's total weight overflowing; the error is
@@ -37,6 +39,10 @@ func recoverLoot(err *error) {
 	switch r := recover().(type) {
 	case nil:
 	case lootFailure:
+		if r.fatal != nil {
+			*err = r.fatal
+			return
+		}
 		if r.overflow {
 			*err = ErrWeightOverflow
 			return
@@ -75,7 +81,8 @@ func parseJSON(data []byte) any {
 // DecodeLootTable reads one loot table file, resolving names against layers.
 func DecodeLootTable(layers *registry.PackLayers, data []byte) (table registry.LootTable, err error) {
 	defer recoverLoot(&err)
-	return (lootDecoder{legacyFunctions: true, layers: layers}).lootTable(object(parseJSON(data), "loot table")), nil
+	decoder := NewResourceDecoder(layers)
+	return (lootDecoder{ResourceDecoder: decoder, legacyFunctions: true}).lootTable(object(parseJSON(data), "loot table")), nil
 }
 
 // DecodeLootTableValue reads a loot table already parsed into the shapes
@@ -83,7 +90,7 @@ func DecodeLootTable(layers *registry.PackLayers, data []byte) (table registry.L
 // the current type discriminator; file decoders also accept function.
 func DecodeLootTableValue(v any) (table registry.LootTable, err error) {
 	defer recoverLoot(&err)
-	return (lootDecoder{inlineLootTable: true}).lootTable(object(v, "loot table")), nil
+	return (lootDecoder{ResourceDecoder: liveResourceDecoder(), inlineLootTable: true}).lootTable(object(v, "loot table")), nil
 }
 
 func init() {
@@ -93,9 +100,12 @@ func init() {
 // DecodePredicate reads a predicate file: a condition, or a list that must
 // all hold. It resolves names against layers.
 // vanilla: LootDataType.PREDICATES
-func DecodePredicate(layers *registry.PackLayers, data []byte) (cond registry.LootCondition, err error) {
+func DecodePredicate(layers *registry.PackLayers, data []byte) (registry.LootCondition, error) {
+	return (lootDecoder{ResourceDecoder: NewResourceDecoder(layers)}).decodePredicate(data)
+}
+
+func (d lootDecoder) decodePredicate(data []byte) (cond registry.LootCondition, err error) {
 	defer recoverLoot(&err)
-	d := lootDecoder{layers: layers}
 	v := parseJSON(data)
 	if list, ok := v.([]any); ok {
 		terms := make([]registry.LootCondition, len(list))
@@ -112,7 +122,8 @@ func DecodePredicate(layers *registry.PackLayers, data []byte) (cond registry.Lo
 // vanilla: LootDataType.MODIFIERS
 func DecodeItemModifier(layers *registry.PackLayers, data []byte) (fn registry.LootFunction, err error) {
 	defer recoverLoot(&err)
-	return (lootDecoder{legacyFunctions: true, layers: layers}).itemModifier(parseJSON(data)), nil
+	decoder := NewResourceDecoder(layers)
+	return (lootDecoder{ResourceDecoder: decoder, legacyFunctions: true}).itemModifier(parseJSON(data)), nil
 }
 
 // DecodeItemModifierValue reads an item modifier already parsed into the
@@ -121,16 +132,16 @@ func DecodeItemModifier(layers *registry.PackLayers, data []byte) (fn registry.L
 // discriminator; file decoders also accept the legacy function discriminator.
 func DecodeItemModifierValue(v any) (fn registry.LootFunction, err error) {
 	defer recoverLoot(&err)
-	return (lootDecoder{}).itemModifier(v), nil
+	return (lootDecoder{ResourceDecoder: liveResourceDecoder()}).itemModifier(v), nil
 }
 
-// lootDecoder keeps file compatibility and inline loot-table codec errors
-// separate, and resolves context provider and slot source names against
-// layers, nil for the ones in force.
+// lootDecoder keeps file compatibility and inline loot-table codec errors separate.
 type lootDecoder struct {
+	ResourceDecoder
 	legacyFunctions bool
 	inlineLootTable bool
-	layers          *registry.PackLayers
+	// nbtInput is a command's inline SNBT rather than a JSON file.
+	nbtInput bool
 }
 
 // itemModifier reads a typed function, or else a holder set of modifiers run
@@ -342,11 +353,11 @@ func (d lootDecoder) entry(o obj) registry.LootEntry {
 		}
 		switch kind {
 		case "minecraft:alternatives":
-			return registry.LootAlternatives{Children: children, Conditions: conds}
+			return registry.LootAlternatives{Children: children, Conditions: conds, Functions: d.modifiers(o)}
 		case "minecraft:group":
-			return registry.LootGroup{Children: children, Conditions: conds}
+			return registry.LootGroup{Children: children, Conditions: conds, Functions: d.modifiers(o)}
 		}
-		return registry.LootSequence{Children: children, Conditions: conds}
+		return registry.LootSequence{Children: children, Conditions: conds, Functions: d.modifiers(o)}
 	case "minecraft:empty":
 		return registry.LootEmpty{Weight: weight, Quality: quality, Conditions: conds}
 	case "minecraft:loot_table":
@@ -360,11 +371,11 @@ func (d lootDecoder) entry(o obj) registry.LootEntry {
 	case "minecraft:tag":
 		if items, ok := o["items"]; ok {
 			// vanilla: TagEntry.MAP_CODEC, ExpandableContainerBase.expandableFields
-			return registry.LootTag{Items: lootItems(holderSet(items, "item", registry.ItemTagMembers)), Expand: flag(o, "expand", false), Weight: weight, Conditions: conds, Functions: d.modifiers(o)}
+			return registry.LootTag{Items: lootItems(holderSet(items, "item", d.tags.ItemTagMembers)), Expand: flag(o, "expand", false), Weight: weight, Conditions: conds, Functions: d.modifiers(o)}
 		}
 		// A pack in the earlier format names the tag and must say expand; a tag no pack
 		// defines holds nothing.
-		items, _ := registry.ItemTagMembers(registry.Qualify(strings.TrimPrefix(requireStr(o, "name"), "#")))
+		items, _ := d.tags.ItemTagMembers(registry.Qualify(strings.TrimPrefix(requireStr(o, "name"), "#")))
 		items = slices.Clone(items)
 		slices.Sort(items)
 		return registry.LootTag{Items: lootItems(items), Expand: requireFlag(o, "expand"), Weight: weight, Quality: quality, Conditions: conds, Functions: d.modifiers(o)}
@@ -408,18 +419,13 @@ func holderSet(v any, kind string, members func(string) ([]string, bool)) []stri
 }
 
 // conditions reads the optional condition holder of a pool, an entry or a
-// function. A pack in the earlier format lists them under conditions
-// instead, which is still read.
+// function.
 // vanilla: LootItemCondition.CODEC.optionalFieldOf("condition")
 func (d lootDecoder) conditions(o obj) []registry.LootCondition {
 	if v, ok := o["condition"]; ok {
 		return []registry.LootCondition{d.conditionHolder(v)}
 	}
-	var out []registry.LootCondition
-	for _, c := range list(o["conditions"], "conditions") {
-		out = append(out, d.condition(object(c, "condition")))
-	}
-	return out
+	return nil
 }
 
 // conditionHolder reads a predicate's name, resolved when evaluated, or an
@@ -460,6 +466,10 @@ func sortedKeys[V any](m map[string]V) []string {
 // condition reads a condition of tools/gen loot's set, plus reference and
 // the weather, time, score, environment and value checks.
 // vanilla: LootItemConditions
+func condition(c obj) registry.LootCondition {
+	return (lootDecoder{ResourceDecoder: liveResourceDecoder()}).condition(c)
+}
+
 func (d lootDecoder) condition(c obj) registry.LootCondition {
 	kind := registry.Qualify(requireStr(c, "type"))
 	switch kind {
@@ -468,7 +478,7 @@ func (d lootDecoder) condition(c obj) registry.LootCondition {
 	case "minecraft:killed_by_player":
 		return registry.LootKilledByPlayer{}
 	case "minecraft:match_tool":
-		return registry.LootMatchTool{Predicate: itemPredicate(object(valueOr(c, "predicate", obj{}), "predicate"))}
+		return registry.LootMatchTool{Predicate: d.itemPredicate(object(valueOr(c, "predicate", obj{}), "predicate"))}
 	case "minecraft:random_chance":
 		return registry.LootRandomChance{Chance: d.floatAt(c, "chance")}
 	case "minecraft:random_chance_with_enchanted_bonus":
@@ -502,14 +512,14 @@ func (d lootDecoder) condition(c obj) registry.LootCondition {
 		unknownKeys(c, "match_block", "type", "blocks", "state")
 		out := registry.LootMatchBlock{Properties: stateProperties(c["state"])}
 		if raw := c["blocks"]; raw != nil {
-			out.Blocks = holderSet(raw, "block", registry.BlockTagMembers)
+			out.Blocks = holderSet(raw, "block", d.tags.BlockTagMembers)
 			if out.Blocks == nil {
 				out.Blocks = []string{}
 			}
 		}
 		return out
 	case "minecraft:location_check":
-		out := locationPredicate(object(valueOr(c, "predicate", obj{}), "predicate"))
+		out := d.locationPredicate(object(valueOr(c, "predicate", obj{}), "predicate"))
 		out.OffsetX, out.OffsetY, out.OffsetZ = int32(optNum(c, "offsetX", 0)), int32(optNum(c, "offsetY", 0)), int32(optNum(c, "offsetZ", 0))
 		return out
 	case "minecraft:entity_properties":
@@ -517,9 +527,9 @@ func (d lootDecoder) condition(c obj) registry.LootCondition {
 		if entity == "" {
 			entity = "this"
 		}
-		return registry.LootEntityProperties{Entity: entity, Predicate: entityPredicate(object(valueOr(c, "predicate", obj{}), "predicate"))}
+		return registry.LootEntityProperties{Entity: entity, Predicate: d.entityPredicate(object(valueOr(c, "predicate", obj{}), "predicate"))}
 	case "minecraft:damage_source_properties":
-		return damageSource(object(valueOr(c, "predicate", obj{}), "predicate"))
+		return d.damageSource(object(valueOr(c, "predicate", obj{}), "predicate"))
 	case "minecraft:inverted":
 		return registry.LootInverted{Term: d.conditionHolder(required(c, "term"))}
 	case "minecraft:any_of", "minecraft:all_of":
@@ -613,7 +623,7 @@ func contextRange(v any, provider func(any) registry.LootNumber) registry.LootRa
 	return registry.LootRange{Exact: provider(v)}
 }
 
-func damageSource(p obj) registry.LootCondition {
+func (decoder ResourceDecoder) damageSource(p obj) registry.LootCondition {
 	unknownKeys(p, "damage source predicate", "tags", "direct_entity", "source_entity", "is_direct")
 	// The shapes the generated tables write: one expected tag, optionally with
 	// a direct entity type; or only a source entity type and frog variant.
@@ -627,7 +637,7 @@ func damageSource(p obj) registry.LootCondition {
 				}
 			}
 			if len(p) == 1 || direct != "" {
-				return damageTypeSet(required(tag, "id"), direct)
+				return decoder.damageTypeSet(required(tag, "id"), direct)
 			}
 		}
 	}
@@ -650,11 +660,11 @@ func damageSource(p obj) registry.LootCondition {
 	var out registry.LootDamageSource
 	for _, x := range list(valueOr(p, "tags", []any{}), "tags") {
 		t := object(x, "a damage source tag")
-		out.Tags = append(out.Tags, registry.LootDamageTag{Set: damageHolderSet(required(t, "id")), Expected: requireFlag(t, "expected")})
+		out.Tags = append(out.Tags, registry.LootDamageTag{Set: decoder.damageHolderSet(required(t, "id")), Expected: requireFlag(t, "expected")})
 	}
 	for key, dst := range map[string]**registry.LootEntityPredicate{"direct_entity": &out.Direct, "source_entity": &out.Source} {
 		if v, ok := p[key]; ok {
-			e := entityPredicate(object(v, key))
+			e := decoder.entityPredicate(object(v, key))
 			*dst = &e
 		}
 	}
@@ -664,8 +674,8 @@ func damageSource(p obj) registry.LootCondition {
 	return out
 }
 
-func damageTypeSet(id any, direct string) registry.LootCondition {
-	set := damageHolderSet(id)
+func (decoder ResourceDecoder) damageTypeSet(id any, direct string) registry.LootCondition {
+	set := decoder.damageHolderSet(id)
 	if set.IsTag || len(set.Types) == 1 {
 		return registry.LootDamageSource{DamageTypes: set, DirectType: direct}
 	}
@@ -680,6 +690,10 @@ func damageTypeSet(id any, direct string) registry.LootCondition {
 // remain readable for packs in the earlier format when no damage type has that name.
 // vanilla: TagPredicate.codec
 func damageHolderSet(id any) *registry.DamageTypeSet {
+	return liveResourceDecoder().damageHolderSet(id)
+}
+
+func (decoder ResourceDecoder) damageHolderSet(id any) *registry.DamageTypeSet {
 	types, _ := registry.Get("minecraft:damage_type")
 	known := func(v any) registry.DamageType {
 		name := registry.Qualify(str(v, "damage type"))
@@ -691,7 +705,7 @@ func damageHolderSet(id any) *registry.DamageTypeSet {
 	switch v := id.(type) {
 	case string:
 		name := registry.Qualify(strings.TrimPrefix(v, "#"))
-		if strings.HasPrefix(v, "#") || types.ID(name) < 0 && registry.DamageTypeTagExists(name) {
+		if strings.HasPrefix(v, "#") || types.ID(name) < 0 && decoder.tags.DamageTypeTagExists(name) {
 			return &registry.DamageTypeSet{Tag: registry.DamageTypeTagOf(name), IsTag: true}
 		}
 		return &registry.DamageTypeSet{Types: []registry.DamageType{known(v)}}
@@ -706,15 +720,15 @@ func damageHolderSet(id any) *registry.DamageTypeSet {
 	return nil
 }
 
-func itemPredicate(p obj) registry.LootItemPredicate {
+func (decoder ResourceDecoder) itemPredicate(p obj) registry.LootItemPredicate {
 	unknownKeys(p, "item predicate", "items", "count", "components", "predicates")
 	var out registry.LootItemPredicate
 	if needsFullItemPredicate(p) {
-		full := registry.DecodeItemPredicate(nbtOf(p))
+		full := decoder.tags.DecodeItemPredicate(nbtOf(p))
 		out.Full = &full
 	}
 	if items, ok := p["items"]; ok {
-		out.Items = holderSet(items, "item", registry.ItemTagMembers)
+		out.Items = holderSet(items, "item", decoder.tags.ItemTagMembers)
 	}
 	if preds, ok := p["predicates"]; ok {
 		po := object(preds, "predicates")
@@ -744,7 +758,7 @@ func itemPredicate(p obj) registry.LootItemPredicate {
 				unknownKeys(eo, "enchantment predicate", "enchantments", "levels")
 				var ench registry.LootEnchantments
 				if names, has := eo["enchantments"]; has {
-					ench.Enchantments = holderSet(names, "enchantment", registry.EnchantmentTagMembers)
+					ench.Enchantments = holderSet(names, "enchantment", decoder.tags.EnchantmentTagMembers)
 				}
 				switch lv := eo["levels"].(type) {
 				case nil:
@@ -866,7 +880,7 @@ func componentTests(predicates obj) []registry.LootComponentTest {
 // locationPredicate reads a LocationPredicate; an empty one matches every
 // loaded position.
 // vanilla: LocationPredicate.CODEC
-func locationPredicate(predicate obj) registry.LootLocationCheck {
+func (decoder ResourceDecoder) locationPredicate(predicate obj) registry.LootLocationCheck {
 	unknownKeys(predicate, "location predicate", "position", "biomes", "structures", "dimension", "smokey", "light", "block", "fluid", "can_see_sky")
 	var out registry.LootLocationCheck
 	if v, ok := predicate["position"]; ok {
@@ -902,7 +916,7 @@ func locationPredicate(predicate obj) registry.LootLocationCheck {
 		}
 	}
 	if raw := predicate["biomes"]; raw != nil {
-		out.Biomes = holderSet(raw, "worldgen/biome", registry.BiomeTagMembers)
+		out.Biomes = holderSet(raw, "worldgen/biome", decoder.tags.BiomeTagMembers)
 	}
 	if raw := predicate["structures"]; raw != nil {
 		out.Structures = holderSet(raw, "worldgen/structure", registry.StructureTagMembers)
@@ -947,7 +961,7 @@ func fluidTagMembers(tag string) ([]string, bool) {
 
 // playerPredicate reads PlayerPredicate.
 // vanilla: PlayerPredicate.CODEC
-func playerPredicate(o obj) *registry.LootPlayerPredicate {
+func (decoder ResourceDecoder) playerPredicate(o obj) *registry.LootPlayerPredicate {
 	unknownKeys(o, "player predicate", "level", "food", "gamemode", "stats", "recipes", "advancements", "looking_at", "input")
 	out := &registry.LootPlayerPredicate{}
 	out.LevelMin, out.LevelMax = intRange(o["level"])
@@ -1002,7 +1016,7 @@ func playerPredicate(o obj) *registry.LootPlayerPredicate {
 		}
 	}
 	if v, ok := o["looking_at"]; ok {
-		nested := entityPredicate(object(v, "looking_at"))
+		nested := decoder.entityPredicate(object(v, "looking_at"))
 		out.LookingAt = &nested
 	}
 	if v, ok := o["input"]; ok {
@@ -1036,6 +1050,10 @@ func doubleRange(o obj, key string) registry.AdvancementRange {
 }
 
 func entityPredicate(p obj) registry.LootEntityPredicate {
+	return liveResourceDecoder().entityPredicate(p)
+}
+
+func (decoder ResourceDecoder) entityPredicate(p obj) registry.LootEntityPredicate {
 	unknownKeys(p, "entity predicate", "minecraft:flags", "minecraft:vehicle", "minecraft:components",
 		"minecraft:type_specific/sheep", "minecraft:type_specific/cube_mob", "minecraft:type_specific/raider", "minecraft:entity_type", "minecraft:equipment",
 		"minecraft:type_specific/player", "minecraft:type_specific/lightning", "minecraft:type_specific/fishing_hook", "minecraft:predicates",
@@ -1060,7 +1078,7 @@ func entityPredicate(p obj) registry.LootEntityPredicate {
 	} {
 		if v, ok := p[key]; ok {
 			obj := object(v, key)
-			nested := entityPredicate(obj)
+			nested := decoder.entityPredicate(obj)
 			if key == "minecraft:vehicle" && len(obj) == 1 && nested.Type != "" {
 				// The generated tables write a plain vehicle type this way.
 				out.Vehicle = nested.Type
@@ -1073,7 +1091,7 @@ func entityPredicate(p obj) registry.LootEntityPredicate {
 		"minecraft:location": &out.Location, "minecraft:stepping_on": &out.SteppingOn, "minecraft:movement_affected_by": &out.MovementAffectedBy,
 	} {
 		if v, ok := p[key]; ok {
-			loc := locationPredicate(object(v, key))
+			loc := decoder.locationPredicate(object(v, key))
 			*dst = &loc
 		}
 	}
@@ -1095,7 +1113,7 @@ func entityPredicate(p obj) registry.LootEntityPredicate {
 			if SlotRangeKnown != nil && !SlotRangeKnown(name) {
 				fail("unknown slot range %s", name)
 			}
-			out.Slots = append(out.Slots, registry.LootSlotPredicate{Slots: name, Item: itemPredicate(object(item, "item predicate"))})
+			out.Slots = append(out.Slots, registry.LootSlotPredicate{Slots: name, Item: decoder.itemPredicate(object(item, "item predicate"))})
 		}
 		slices.SortFunc(out.Slots, func(a, b registry.LootSlotPredicate) int { return strings.Compare(a.Slots, b.Slots) })
 	}
@@ -1166,7 +1184,7 @@ func entityPredicate(p obj) registry.LootEntityPredicate {
 		out.ComponentTests = componentTests(object(v, "predicates"))
 	}
 	if v, ok := p["minecraft:type_specific/player"]; ok {
-		out.Player = playerPredicate(object(v, "player predicate"))
+		out.Player = decoder.playerPredicate(object(v, "player predicate"))
 	}
 	if v, ok := p["minecraft:type_specific/lightning"]; ok {
 		bolt := object(v, "lightning predicate")
@@ -1174,7 +1192,7 @@ func entityPredicate(p obj) registry.LootEntityPredicate {
 		out.Lightning = &registry.LootLightningPredicate{}
 		out.Lightning.FiredMin, out.Lightning.FiredMax = intRange(bolt["blocks_set_on_fire"])
 		if struck, has := bolt["entity_struck"]; has {
-			nested := entityPredicate(object(struck, "entity_struck"))
+			nested := decoder.entityPredicate(object(struck, "entity_struck"))
 			out.Lightning.Struck = &nested
 		}
 	}
@@ -1205,7 +1223,7 @@ func entityPredicate(p obj) registry.LootEntityPredicate {
 	if v, ok := p["minecraft:entity_type"]; ok {
 		typ := str(v, "entity type")
 		if tag, isTag := strings.CutPrefix(typ, "#"); isTag {
-			out.Types = tagMembers("entity type", tag, registry.EntityTypeTagMembers)
+			out.Types = tagMembers("entity type", tag, decoder.tags.EntityTypeTagMembers)
 		} else {
 			out.Type = registry.Qualify(typ)
 		}
@@ -1218,7 +1236,7 @@ func entityPredicate(p obj) registry.LootEntityPredicate {
 			"body": &out.Body, "mainhand": &out.Mainhand, "offhand": &out.Offhand,
 		} {
 			if slot, has := equipment[key]; has {
-				pred := itemPredicate(object(slot, key))
+				pred := decoder.itemPredicate(object(slot, key))
 				*dst = &pred
 			}
 		}
@@ -1376,12 +1394,12 @@ func (d lootDecoder) modifierHolders(v any) []registry.LootFunction {
 	return out
 }
 
-func enchantOptions(f obj) (names []string, tag string) {
+func (decoder ResourceDecoder) enchantOptions(f obj) (names []string, tag string) {
 	v, ok := f["options"]
 	if !ok {
 		return nil, ""
 	}
-	names = holderSet(v, "enchantment", registry.EnchantmentTagMembers)
+	names = holderSet(v, "enchantment", decoder.tags.EnchantmentTagMembers)
 	if s, isTag := v.(string); isTag {
 		if name, ok := strings.CutPrefix(s, "#"); ok {
 			// The members are read when the function runs, so a reload of the tag applies.
@@ -1506,7 +1524,7 @@ func (d lootDecoder) function(f obj) registry.LootFunction {
 	case "minecraft:set_random_potion":
 		var options []string
 		if v, ok := f["options"]; ok {
-			options = holderSet(v, "potion", registry.PotionTagMembers)
+			options = holderSet(v, "potion", d.tags.PotionTagMembers)
 		}
 		return registry.LootSetRandomPotion{Options: options, Conditions: conds}
 	case "minecraft:set_potion":
@@ -1543,7 +1561,7 @@ func (d lootDecoder) function(f obj) registry.LootFunction {
 			SkipExistingChunks: flag(f, "skip_existing_chunks", true), Conditions: conds,
 		}
 	case "minecraft:set_instrument":
-		return registry.LootSetInstrument{Options: holderSet(f["options"], "instrument", registry.InstrumentTagMembers), Conditions: conds}
+		return registry.LootSetInstrument{Options: holderSet(f["options"], "instrument", d.tags.InstrumentTagMembers), Conditions: conds}
 	case "minecraft:copy_state":
 		return registry.LootCopyState{Block: registry.Qualify(requireStr(f, "block")), Properties: stringList(f["properties"]), Conditions: conds}
 	case "minecraft:set_damage":
@@ -1555,10 +1573,10 @@ func (d lootDecoder) function(f obj) registry.LootFunction {
 		}
 		return registry.LootSetEnchantments{Enchantments: levels, Add: flag(f, "add", false), Conditions: conds}
 	case "minecraft:enchant_randomly":
-		options, tag := enchantOptions(f)
+		options, tag := d.enchantOptions(f)
 		return registry.LootEnchantRandomly{Options: options, OptionsTag: tag, OnlyCompatible: flag(f, "only_compatible", true), IncludeAdditionalCost: flag(f, "include_additional_cost_component", false), Conditions: conds}
 	case "minecraft:enchant_with_levels":
-		options, tag := enchantOptions(f)
+		options, tag := d.enchantOptions(f)
 		return registry.LootEnchantWithLevels{Levels: d.intAt(f, "levels"), Options: options, OptionsTag: tag, IncludeAdditionalCost: flag(f, "include_additional_cost_component", false), Conditions: conds}
 	case "minecraft:filtered":
 		branch := func(key string) registry.LootFunction {
@@ -1570,7 +1588,7 @@ func (d lootDecoder) function(f obj) registry.LootFunction {
 			}
 			return nil
 		}
-		return registry.LootFiltered{Predicate: itemPredicate(object(f["item_filter"], "item_filter")),
+		return registry.LootFiltered{Predicate: d.itemPredicate(object(f["item_filter"], "item_filter")),
 			OnPass: branch("on_pass"), OnFail: branch("on_fail"), Conditions: conds}
 	case "minecraft:copy_custom_data":
 		return registry.LootCopyCustomData{Source: nbtSource(required(f, "source")), Ops: copyOps(f["ops"]), Conditions: conds}

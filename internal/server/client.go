@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"github.com/golem-mc/golem/internal/config"
 	"runtime/debug"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -72,11 +73,10 @@ func (c *client) handleClientInformation(r *protocol.Reader) error {
 	chatMode = protocol.IDWrap(chatMode, protocol.ChatModeHidden+1)
 	mainHand = protocol.IDOrZero(mainHand, protocol.MainHandRight+1)
 
-	if viewDistance > 0 {
-		// Atomic: the chunk sender reads it on its own goroutine to size sends,
-		// and this runs on the read loop.
-		c.viewDistance.Store(int32(viewDistance))
-	}
+	// Atomic: the chunk sender reads it on its own goroutine to size sends,
+	// and this runs on the read loop.
+	// vanilla: ChunkMap.getPlayerViewDistance clamps every request to [2, server distance]
+	c.viewDistance.Store(max(int32(viewDistance), config.MinDistance))
 	c.skinParts = skinParts
 	c.language = locale
 	if c.srv.plugins != nil {

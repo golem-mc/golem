@@ -15,7 +15,7 @@ import (
 func TestFillFromProtoMatchesSetBlock(t *testing.T) {
 	t.Parallel()
 	var states [256]uint16
-	for i, name := range []string{"air", "stone", "lava", "glowstone", "magma_block", "sculk_catalyst", "lightning_rod", "sculk_sensor", "stone_pressure_plate"} {
+	for i, name := range []string{"air", "stone", "lava", "glowstone", "magma_block", "sculk_catalyst", "lightning_rod", "sculk_sensor", "stone_pressure_plate", "oak_fence"} {
 		s, ok := registry.FindState("minecraft:"+name, nil)
 		if !ok {
 			t.Fatalf("no %s", name)
@@ -29,9 +29,17 @@ func TestFillFromProtoMatchesSetBlock(t *testing.T) {
 			for y := range int32(256) {
 				// Sparse above 64 and empty above 192, so sections come out
 				// mixed, uniform and untouched.
-				if m := terrain.Material(rng.IntN(9)); y < 64 || (y < 192 && rng.IntN(16) == 0) {
+				if m := terrain.Material(rng.IntN(10)); y < 64 || (y < 192 && rng.IntN(16) == 0) {
 					dense.Set(x, y, z, m)
 				}
+			}
+		}
+	}
+	// One section of fence, so the uniform fill counts shape blocks too.
+	for z := range int32(16) {
+		for x := range int32(16) {
+			for y := int32(128); y < 144; y++ {
+				dense.Set(x, y, z, terrain.Material(9))
 			}
 		}
 	}
@@ -67,6 +75,7 @@ func TestFillFromProtoMatchesSetBlock(t *testing.T) {
 				}
 			}
 			got.fillFromProto(proto, &states, keepAir)
+			var shapeSections, uniformShapes int
 			for sy := range want.sections {
 				w, g := &want.sections[sy], &got.sections[sy]
 				checkRandomTickCount(t, w)
@@ -76,10 +85,18 @@ func TestFillFromProtoMatchesSetBlock(t *testing.T) {
 						t.Fatalf("%s keepAir %v: section %d index %d: got %d, want %d", tc.name, keepAir, sy, i, g.at(i), w.at(i))
 					}
 				}
-				if [7]int{int(w.ticking), int(w.emitting), int(w.listening), int(w.rods), int(w.catalysts), int(w.eggs), int(w.touches.Load())} !=
-					[7]int{int(g.ticking), int(g.emitting), int(g.listening), int(g.rods), int(g.catalysts), int(g.eggs), int(g.touches.Load())} {
+				if !sameCounts(w, g) {
 					t.Errorf("%s keepAir %v: section %d counts differ", tc.name, keepAir, sy)
 				}
+				if g.shapes.Load() > 0 {
+					shapeSections++
+				}
+				if g.shapes.Load() == blocksPerSection {
+					uniformShapes++
+				}
+			}
+			if tc.proto == dense && (shapeSections == 0 || uniformShapes == 0) {
+				t.Errorf("keepAir %v: shape counts %d sections, %d uniform; want both positive", keepAir, shapeSections, uniformShapes)
 			}
 			if got.lightDirty != want.lightDirty || got.lightOverflow != want.lightOverflow {
 				t.Errorf("%s keepAir %v: light marks differ", tc.name, keepAir)

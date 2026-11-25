@@ -19,20 +19,50 @@ import (
 
 func init() {
 	registry.DecodeContextProvider = func(data []byte, float bool) (registry.LootNumber, string) {
-		tag, err := JSONTag(data)
-		if err != nil {
-			return nil, err.Error()
-		}
-		decode := DecodeIntProvider
-		if float {
-			decode = DecodeFloatProvider
-		}
-		n, msg, err := decode(tag)
-		if err != nil {
-			return nil, err.Error()
-		}
-		return n, msg
+		return (lootDecoder{ResourceDecoder: liveResourceDecoder()}).decodeProviderJSON(data, float)
 	}
+}
+
+// ValidatePackContextProviders decodes both provider registries against the staged layers.
+// vanilla: ResourceManagerRegistryLoadTask.load, RegistryDataLoader.RELOADABLE_REGISTRIES
+func ValidatePackContextProviders(layers *registry.PackLayers, ints, floats map[string][]byte) error {
+	d := lootDecoder{ResourceDecoder: NewResourceDecoder(layers)}
+	for _, entries := range []struct {
+		kind  string
+		float bool
+		files map[string][]byte
+	}{
+		{"context_int_provider", false, ints},
+		{"context_float_provider", true, floats},
+	} {
+		for _, name := range sortedKeys(entries.files) {
+			if _, msg := d.decodeProviderJSON(entries.files[name], entries.float); msg != "" {
+				return fmt.Errorf("%s %s: %s", entries.kind, name, msg)
+			}
+		}
+	}
+	return nil
+}
+
+func (d lootDecoder) decodeProviderJSON(data []byte, float bool) (registry.LootNumber, string) {
+	tag, err := JSONTag(data)
+	if err != nil {
+		return nil, err.Error()
+	}
+	// JSONTag reads the first value; a registry file must consume the document.
+	// vanilla: StrictJsonParser.parse
+	if !json.Valid(data) {
+		return nil, "trailing data after the JSON value"
+	}
+	decode := d.decodeInt
+	if float {
+		decode = d.decodeFloat
+	}
+	n, msg, err := decode(tag)
+	if err != nil {
+		return nil, err.Error()
+	}
+	return n, msg
 }
 
 // partialMark prefixes an error whose codec result has a partial value.
@@ -49,55 +79,68 @@ const WeightOverflowMsg = "Sum of weights must be <= 2147483647"
 // ErrWeightOverflow is WeightOverflowMsg as an error.
 var ErrWeightOverflow = errors.New(WeightOverflowMsg) //nolint:staticcheck // vanilla's wording
 
-// eitherNumberOr wraps the typed branch's error of Codec.either(number, typed).
-func eitherNumberOr(msg string) string {
+// settled drops a partial result, keeping its error.
+func settled(p registry.LootNumber, msg string) (registry.LootNumber, string) {
 	if rest, ok := strings.CutPrefix(msg, partialMark); ok {
-		return rest
+		return nil, rest
 	}
-	return "Failed to parse either. First: Not a number; Second: " + msg
+	return p, msg
+}
+
+// eitherNumberOr is Codec.either(number, typed) over the typed branch's
+// result; a partial result passes through.
+func eitherNumberOr(p registry.LootNumber, msg string) (registry.LootNumber, string) {
+	if msg == "" || strings.HasPrefix(msg, partialMark) {
+		return p, msg
+	}
+	return nil, "Failed to parse either. First: Not a number; Second: " + msg
 }
 
 // DecodeIntProvider reads a context int provider: a bare number or a
-// compound with a type. The error is ErrWeightOverflow, which no codec
-// message carries; the message is the codec's refusal otherwise.
+// compound with a type, read from a command's inline SNBT. The error is
+// ErrWeightOverflow, which no codec message carries; the message is the
+// codec's refusal otherwise.
 // vanilla: ContextIntProviders.DIRECT_CODEC
 func DecodeIntProvider(tag nbt.Tag) (registry.LootNumber, string, error) {
-	return lootDecoder{}.decodeInt(tag)
+	return (lootDecoder{ResourceDecoder: liveResourceDecoder(), nbtInput: true}).decodeInt(tag)
 }
 
 func (d lootDecoder) decodeInt(tag nbt.Tag) (registry.LootNumber, string, error) {
-	return decodeProvider(tag, func(tag nbt.Tag) (registry.LootNumber, string) {
-		if v, ok := nbt.IntValue(tag); ok {
-			return registry.LootConstant{Value: float64(v)}, ""
-		}
-		return d.decodeTyped(tag, "context_int_provider_type", intTypes)
-	})
+	return decodeProvider(tag, d.intOrPartial)
+}
+
+// intOrPartial is decodeInt keeping a partial result.
+func (d lootDecoder) intOrPartial(tag nbt.Tag) (registry.LootNumber, string) {
+	if v, ok := nbt.IntValue(tag); ok {
+		return registry.LootConstant{Value: float64(v)}, ""
+	}
+	return eitherNumberOr(d.decodeTyped(tag, "context_int_provider_type", intTypes))
 }
 
 // DecodeFloatProvider reads a context float provider.
 // vanilla: ContextFloatProviders.DIRECT_CODEC
 func DecodeFloatProvider(tag nbt.Tag) (registry.LootNumber, string, error) {
-	return lootDecoder{}.decodeFloat(tag)
+	return (lootDecoder{ResourceDecoder: liveResourceDecoder(), nbtInput: true}).decodeFloat(tag)
 }
 
 func (d lootDecoder) decodeFloat(tag nbt.Tag) (registry.LootNumber, string, error) {
-	return decodeProvider(tag, func(tag nbt.Tag) (registry.LootNumber, string) {
-		if v, ok := tagFloat(tag); ok {
-			return registry.LootConstant{Value: float64(v)}, ""
-		}
-		return d.decodeTyped(tag, "context_float_provider_type", floatTypes)
-	})
+	return decodeProvider(tag, d.floatOrPartial)
 }
 
-// decodeProvider runs decode, whose typed branch's error is wrapped as
-// Codec.either's. A weight overflow panics out of the nested decoders, as
-// vanilla's constructor throws, and ends here as an error.
+func (d lootDecoder) floatOrPartial(tag nbt.Tag) (registry.LootNumber, string) {
+	if v, ok := nbt.FloatValue(tag); ok {
+		return registry.LootConstant{Value: float64(v)}, ""
+	}
+	return eitherNumberOr(d.decodeTyped(tag, "context_float_provider_type", floatTypes))
+}
+
+// decodeProvider runs decode and drops a partial result. A weight overflow
+// panics out of the nested decoders, as vanilla's constructor throws, and
+// ends here as an error.
 func decodeProvider(tag nbt.Tag, decode func(nbt.Tag) (registry.LootNumber, string)) (n registry.LootNumber, msg string, err error) {
 	defer recoverLoot(&err)
-	if n, msg = decode(tag); msg != "" {
-		return nil, eitherNumberOr(msg), nil
-	}
-	return n, "", nil
+	n, msg = settled(decode(tag))
+	return n, msg, nil
 }
 
 // ProviderRef is the context_int_provider (or, when float,
@@ -128,7 +171,7 @@ func (d lootDecoder) decodeCondition(tag nbt.Tag) (registry.LootCondition, strin
 	if err != nil {
 		return nil, err.Error()
 	}
-	cond, err := DecodePredicate(d.layers, data)
+	cond, err := d.decodePredicate(data)
 	if errors.Is(err, ErrWeightOverflow) {
 		panic(lootFailure{msg: WeightOverflowMsg, overflow: true})
 	}
@@ -180,27 +223,20 @@ func conditionalOf(nested func(lootDecoder, nbt.Tag) (registry.LootNumber, strin
 		if !ok {
 			return nil, "Not a list: " + nbt.Stringify(casesTag)
 		}
-		var cases []registry.LootDispatchCase
-		var caseMsgs []string
-		for _, e := range items {
+		cases, caseMsgs := decodeEach(items, func(e nbt.Tag) (registry.LootDispatchCase, string) {
 			cc, ok := e.(nbt.Compound)
 			if !ok {
-				caseMsgs = append(caseMsgs, "Not a map: "+nbt.Stringify(e))
-				continue
+				return registry.LootDispatchCase{}, "Not a map: " + nbt.Stringify(e)
 			}
 			test, testMsg := condField(d, cc)
 			v, valueMsg := required(d, cc, "value")
 			if msg := registry.JoinFieldErrors(valueMsg, testMsg); msg != "" {
-				caseMsgs = append(caseMsgs, msg)
-				continue
+				return registry.LootDispatchCase{}, msg
 			}
-			cases = append(cases, registry.LootDispatchCase{Condition: test, Value: v})
-		}
-		// vanilla: ListCodec.decode keeps going and merges every element's error,
-		// DataResult.apply2stable prepending the newest, so cases report last first.
-		slices.Reverse(caseMsgs)
+			return registry.LootDispatchCase{Condition: test, Value: v}, ""
+		})
 		if msg := registry.JoinFieldErrors(caseMsgs...); msg != "" {
-			return nil, partialMark + msg
+			return cases, partialMark + msg
 		}
 		return cases, ""
 	}
@@ -212,7 +248,7 @@ func conditionalOf(nested func(lootDecoder, nbt.Tag) (registry.LootNumber, strin
 			// vanilla: OptionalFieldCodec.decode supplies a partial default on error,
 			// so only missing or non-list cases leave the record without a value.
 			if casesErr == "" || partial {
-				return nil, partialMark + msg
+				return registry.LootDispatcher{Cases: cases, Default: def}, partialMark + msg
 			}
 			return nil, msg
 		}
@@ -269,10 +305,15 @@ func (d lootDecoder) nestedInt(c nbt.Compound, key string) (registry.LootNumber,
 }
 
 func (d lootDecoder) nestedIntTag(t nbt.Tag) (registry.LootNumber, string) {
+	return settled(d.nestedIntOrPartial(t))
+}
+
+// nestedIntOrPartial is nestedIntTag keeping a partial result.
+func (d lootDecoder) nestedIntOrPartial(t nbt.Tag) (registry.LootNumber, string) {
 	if s, ok := t.(nbt.String); ok {
 		return d.providerRef(string(s), false)
 	}
-	return decodeNested(t, d.decodeInt)
+	return d.intOrPartial(t)
 }
 
 func (d lootDecoder) nestedFloat(c nbt.Compound, key string) (registry.LootNumber, string) {
@@ -284,37 +325,49 @@ func (d lootDecoder) nestedFloat(c nbt.Compound, key string) (registry.LootNumbe
 }
 
 func (d lootDecoder) nestedFloatTag(t nbt.Tag) (registry.LootNumber, string) {
+	return settled(d.nestedFloatOrPartial(t))
+}
+
+func (d lootDecoder) nestedFloatOrPartial(t nbt.Tag) (registry.LootNumber, string) {
 	if s, ok := t.(nbt.String); ok {
 		return d.providerRef(string(s), true)
 	}
-	return decodeNested(t, d.decodeFloat)
+	return d.floatOrPartial(t)
 }
 
-// decodeNested reads an inline provider inside another, re-raising an
-// overflow for the outermost entry point.
-func decodeNested(t nbt.Tag, decode func(nbt.Tag) (registry.LootNumber, string, error)) (registry.LootNumber, string) {
-	n, msg, err := decode(t)
-	if err != nil {
-		panic(lootFailure{msg: err.Error(), overflow: true})
-	}
-	return n, msg
-}
-
-// listItems is the elements of a list, or of an int array: a JSON list of
-// ints converts to one.
+// listItems is the elements of a list or typed array.
 // vanilla: NbtOps.getStream
 func listItems(t nbt.Tag) ([]nbt.Tag, bool) {
-	switch t := t.(type) {
-	case nbt.List:
-		return t.Items, true
-	case nbt.IntArray:
-		items := make([]nbt.Tag, len(t))
-		for i, v := range t {
-			items[i] = nbt.Int(v)
-		}
-		return items, true
+	// A list keeps its entries as written: a literal {"": x} compound is not
+	// a mixed-list wrapper, so nbt.ListElement must not strip it.
+	if l, ok := t.(nbt.List); ok {
+		return l.Items, true
 	}
-	return nil, false
+	seq := nbt.CollectionValues(t)
+	if seq == nil {
+		return nil, false
+	}
+	return slices.Collect(seq), true
+}
+
+// decodeEach decodes every element, keeping the successes and partial
+// results in order and every failure's message, newest first.
+// vanilla: ListCodec.decode, DataResult.apply2stable
+func decodeEach[T any](items []nbt.Tag, one func(nbt.Tag) (T, string)) ([]T, []string) {
+	var out []T
+	var msgs []string
+	for _, item := range items {
+		v, msg := one(item)
+		rest, partial := strings.CutPrefix(msg, partialMark)
+		if msg == "" || partial {
+			out = append(out, v)
+		}
+		if rest != "" {
+			msgs = append(msgs, rest)
+		}
+	}
+	slices.Reverse(msgs)
+	return out, msgs
 }
 
 // listOf decodes the elements of a list field with one decoder.
@@ -336,14 +389,6 @@ func listOf[T any](c nbt.Compound, key string, one func(nbt.Tag) (T, string)) ([
 		out = append(out, v)
 	}
 	return out, ""
-}
-
-// tagFloat reads a number the way Codec.FLOAT does.
-func tagFloat(tag nbt.Tag) (float32, bool) {
-	if v, ok := nbt.NumberValue(tag); ok {
-		return float32(v), true
-	}
-	return 0, false
 }
 
 func unary(nested func(lootDecoder, nbt.Compound, string) (registry.LootNumber, string), op string) providerDecoder {
@@ -392,23 +437,20 @@ func weightedChoice(nested func(lootDecoder, nbt.Tag) (registry.LootNumber, stri
 		if !ok {
 			return nil, "Not a list: " + nbt.Stringify(t)
 		}
-		if len(items) == 0 {
-			return nil, "List must have contents"
+		type entry struct {
+			value  registry.LootNumber
+			weight int32
 		}
+		entries, msgs := decodeEach(items, func(item nbt.Tag) (entry, string) {
+			v, weight, msg := weightedEntry(d, item, nested)
+			return entry{v, weight}, msg
+		})
 		var out registry.LootWeightedList
 		var total int64
-		var firstMsg string
-		for _, item := range items {
-			v, weight, msg := weightedEntry(d, item, nested)
-			if msg != "" {
-				if firstMsg == "" {
-					firstMsg = msg
-				}
-				continue
-			}
-			out.Values = append(out.Values, v)
-			out.Weights = append(out.Weights, int64(weight))
-			total += int64(weight)
+		for _, e := range entries {
+			out.Values = append(out.Values, e.value)
+			out.Weights = append(out.Weights, int64(e.weight))
+			total += int64(e.weight)
 		}
 		// The constructor runs on the entries the list codec kept, so an
 		// element's error does not hide the overflow.
@@ -416,37 +458,59 @@ func weightedChoice(nested func(lootDecoder, nbt.Tag) (registry.LootNumber, stri
 		if total > math.MaxInt32 {
 			panic(lootFailure{msg: WeightOverflowMsg, overflow: true})
 		}
-		if firstMsg != "" {
-			return nil, firstMsg
+		// vanilla: WeightedList's non-zero check runs on the partial list.
+		if total == 0 {
+			msg := registry.JoinFieldErrors(append(msgs, "Weighted list must contain at least one entry with non-zero weight")...)
+			return nil, msg
+		}
+		if msg := registry.JoinFieldErrors(msgs...); msg != "" {
+			return out, partialMark + msg
 		}
 		return out, ""
 	}
 }
 
-// weightedEntry reads one data and weight entry of a distribution list.
+// weightedEntry decodes one data and weight entry of a weighted list; a
+// partial data with a valid weight is a partial entry.
+// vanilla: Weighted.codec, DataResult.apply2stable
 func weightedEntry(d lootDecoder, item nbt.Tag, nested func(lootDecoder, nbt.Tag) (registry.LootNumber, string)) (registry.LootNumber, int32, string) {
-	entry, ok := nbt.ListElement(item).(nbt.Compound)
+	entry, ok := item.(nbt.Compound)
 	if !ok {
 		return nil, 0, "Not a map: " + nbt.Stringify(item)
 	}
-	data, msg := fieldOf(entry, "data")
-	if msg != "" {
-		return nil, 0, msg
+	var v registry.LootNumber
+	data, dataMsg := fieldOf(entry, "data")
+	if dataMsg == "" {
+		v, dataMsg = nested(d, data)
 	}
-	v, msg := nested(d, data)
-	if msg != "" {
-		return nil, 0, msg
-	}
-	weight := int32(1)
-	if w, present := entry["weight"]; present {
+	var weight int32
+	w, weightMsg := fieldOf(entry, "weight")
+	if weightMsg == "" {
+		var ok bool
 		if weight, ok = nbt.IntValue(w); !ok {
-			return nil, 0, "Not a number: " + nbt.Stringify(w)
+			weightMsg = d.notANumber(w)
+		} else if weight < 0 {
+			weightMsg = fmt.Sprintf("Value must be non-negative: %d", weight)
 		}
-		if weight < 1 {
-			return nil, 0, fmt.Sprintf("Value %d outside of range [1:2147483647]", weight)
-		}
+	}
+	dataMsg, partial := strings.CutPrefix(dataMsg, partialMark)
+	if partial && weightMsg == "" {
+		return v, weight, partialMark + dataMsg
+	}
+	if msg := registry.JoinFieldErrors(weightMsg, dataMsg); msg != "" {
+		return nil, 0, msg
 	}
 	return v, weight, ""
+}
+
+// notANumber is the codec error of a non-numeric value: NbtOps leaves the
+// value out, JsonOps appends it.
+// vanilla: NbtOps.getNumberValue, JsonOps.getNumberValue
+func (d lootDecoder) notANumber(t nbt.Tag) string {
+	if d.nbtInput {
+		return "Not a number"
+	}
+	return "Not a number: " + nbt.Stringify(t)
 }
 
 var entityTargetNames = []string{"this", "attacker", "direct_attacker", "attacking_player", "target_entity", "interacting_entity"}
@@ -622,7 +686,7 @@ func init() {
 			}
 			return registry.LootConvert{Input: in}, ""
 		},
-		"weighted_list": weightedChoice(lootDecoder.nestedIntTag),
+		"weighted_list": weightedChoice(lootDecoder.nestedIntOrPartial),
 		"score": func(d lootDecoder, c nbt.Compound) (registry.LootNumber, string) {
 			var out registry.LootScore
 			holderTag, holderMsg := fieldOf(c, "target")
@@ -700,7 +764,7 @@ func init() {
 			if msg != "" {
 				return nil, msg
 			}
-			v, ok := tagFloat(t)
+			v, ok := nbt.FloatValue(t)
 			if !ok {
 				return nil, "Not a number: " + nbt.Stringify(t)
 			}
@@ -721,7 +785,7 @@ func init() {
 			}
 			return registry.LootConvert{Input: in}, ""
 		},
-		"weighted_list": weightedChoice(lootDecoder.nestedFloatTag),
+		"weighted_list": weightedChoice(lootDecoder.nestedFloatOrPartial),
 		"storage":       storage(lootDecoder.nestedFloatTag),
 	}
 }

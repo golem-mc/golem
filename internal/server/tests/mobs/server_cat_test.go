@@ -250,9 +250,9 @@ func TestAWildCatRunsFromAPlayerButATameOneStays(t *testing.T) {
 // vanilla: CatVariants.bootstrap, MoonBrightnessCheck
 func TestAllBlackCatsSpawnUnderAFullMoon(t *testing.T) {
 	t.Parallel()
-	// Seed 4 draws all_black among eleven variants and, with all_black out
+	// Seed 2 draws all_black among eleven variants and, with all_black out
 	// of the draw, white among ten.
-	const seed = 4
+	const seed = 2
 	for _, tc := range []struct {
 		day      int64
 		allBlack bool

@@ -3,6 +3,7 @@ package commands
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/registry"
@@ -92,4 +93,86 @@ func TestLootInlineTable(t *testing.T) {
 		servertest.CommandErrorMessageForTest("argument.resource_or_id.failed_to_parse", "No key rolls in MapLike[{}]"),
 		servertest.CommandErrorContextForTest(command, len(command)))
 	c.Disconnect()
+}
+
+// vanilla: SequentialEntry.compose, AlternativesEntry.compose, LootPool.addRandomItem
+func TestLootSequenceKeepsCandidatesBeforeFailure(t *testing.T) {
+	t.Parallel()
+	const emerald = `{type:"minecraft:item",name:"minecraft:emerald"}`
+	const sequence = `{type:"minecraft:sequence",children:[` +
+		`{type:"minecraft:item",name:"minecraft:stick"},` +
+		`{type:"minecraft:item",name:"minecraft:diamond",condition:{type:"minecraft:random_chance",chance:0}},` +
+		emerald + `]}`
+	for _, tc := range []struct {
+		name  string
+		entry string
+	}{
+		{"sequence", sequence},
+		// The fallback succeeds and has no weight in the pool's choice.
+		{"successful fallback", `{type:"minecraft:alternatives",children:[` + sequence + `,{type:"minecraft:empty",weight:0}]}`},
+		{"failed alternative stops outer sequence", `{type:"minecraft:sequence",children:[` +
+			`{type:"minecraft:alternatives",children:[` + sequence + `]},` + emerald + `]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, c := dialItemBarrel(t)
+			c.ChatCommand(`loot insert 2 64 3 loot {pools:[{rolls:1,entries:[` + tc.entry + `]}]}`)
+			feedback := c.ExpectPlay(protocol.IDPlaySystemChat)
+			if got := barrelItems(srv, "minecraft:stick"); got != 1 {
+				t.Fatalf("loot awarded %d sticks, want one stick", got)
+			}
+			servertest.ExpectFeedbackSoon(t, c, [][]byte{feedback}, "commands.drop.success.single",
+				servertest.ItemNumber(1), lootStackText(t, "minecraft:stick", 1))
+			c.Disconnect()
+		})
+	}
+}
+
+// vanilla: EntryGroup.compose, AlternativesEntry.compose
+func TestLootSingleChildGroupFailureFallsThrough(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.ItemCreativeConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand(`loot give @s loot {pools:[{rolls:1,entries:[{type:"minecraft:alternatives",children:[` +
+		`{type:"minecraft:group",children:[{type:"minecraft:item",name:"minecraft:diamond",condition:{type:"minecraft:random_chance",chance:0}}]},` +
+		`{type:"minecraft:item",name:"minecraft:stick"}]}]}]}`)
+	r := protocol.NewReader(c.ExpectWithinTicks(srv, 0, protocol.IDPlayContainerSlot))
+	r.ReadVarInt() // container
+	r.ReadVarInt() // state
+	slot := r.ReadI16()
+	if got := servertest.MustReadSlot(t, r); slot != 36 || got.ItemID != servertest.MustItem("minecraft:stick") || got.Count != 1 || r.Err() != nil {
+		t.Fatalf("slot update = %d, %+v, %v, want one stick in the main hand", slot, got, r.Err())
+	}
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+	c.Disconnect()
+}
+
+// vanilla: LootPoolEntryContainer.adjustOutput
+func TestLootCompositeEntryModifier(t *testing.T) {
+	t.Parallel()
+	const stick = `{type:"minecraft:item",name:"minecraft:stick"}`
+	const modifier = `,modifier:{type:"minecraft:set_count",count:2}`
+	for _, tc := range []struct {
+		name  string
+		entry string
+	}{
+		{"group", `{type:"minecraft:group",children:[` + stick + `]` + modifier + `}`},
+		{"alternatives", `{type:"minecraft:alternatives",children:[` + stick + `]` + modifier + `}`},
+		{"sequence", `{type:"minecraft:sequence",children:[` + stick + `]` + modifier + `}`},
+		// The inner modifier runs first, then the outer one replaces the count.
+		{"nested", `{type:"minecraft:group",children:[{type:"minecraft:group",children:[` + stick + `],` +
+			`modifier:{type:"minecraft:set_count",count:5}}]` + modifier + `}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, c := dialItemBarrel(t)
+			c.ChatCommand(`loot insert 2 64 3 loot {pools:[{rolls:1,entries:[` + tc.entry + `]}]}`)
+			c.ExpectPlay(protocol.IDPlaySystemChat)
+
+			if got := barrelItems(srv, "minecraft:stick"); got != 2 {
+				t.Fatalf("loot awarded %d sticks, want two", got)
+			}
+			c.Disconnect()
+		})
+	}
 }
