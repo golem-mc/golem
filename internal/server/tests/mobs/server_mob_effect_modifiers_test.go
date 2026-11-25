@@ -23,6 +23,7 @@ func TestHealthBoostRaisesAMobsMaximumHealth(t *testing.T) {
 	pig := c.ExpectMobSpawn(protocol.EntityTypePig)
 	c.ChatCommand("effect give @e[type=minecraft:pig,limit=1] minecraft:health_boost 60 1")
 	c.ChatCommand("effect give @e[type=minecraft:pig,limit=1] minecraft:regeneration 60 4")
+	c.Settle()
 	servertest.RunTicks(t, srv, 80)
 	if got, ok := srv.MobHealth(pig.EntityID); !ok || got != 18 {
 		t.Errorf("health = %v (%v), want 18", got, ok)
