@@ -89,13 +89,11 @@ func TestMarkerArmorStandFireExpires(t *testing.T) {
 			if r.ReadVarInt() != stand.EntityID {
 				return false
 			}
-			entries, _ := servertest.ReadMetadata(r)
-			for _, e := range entries {
-				if e.Index == protocol.MetadataIndexEntityFlags && e.ByteVal&protocol.EntityFlagOnFire == want {
-					return true
-				}
+			flags, ok := servertest.ReadEntityFlags(r)
+			if !ok {
+				t.Fatalf("metadata packet carries no entity flags")
 			}
-			return false
+			return flags&protocol.EntityFlagOnFire == want
 		})
 	}
 	if !sawFlags(protocol.EntityFlagOnFire) {
