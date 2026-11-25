@@ -83,6 +83,11 @@ func BenchmarkTickMobsTicketed(b *testing.B) {
 	})
 }
 
+// BenchmarkTickMobsFrogs ticks a thousand frogs with no tongue targets.
+func BenchmarkTickMobsFrogs(b *testing.B) {
+	benchTickMobs(b, []mobMix{{entity.TypeFrog, 1000}}, 96, 1000, benchMobSpectator(b))
+}
+
 // BenchmarkTickMobsDenseAvoiders packs mobs into a collection area with no threats.
 func BenchmarkTickMobsDenseAvoiders(b *testing.B) {
 	for _, herd := range []struct {
