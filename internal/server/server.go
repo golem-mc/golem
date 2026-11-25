@@ -1211,6 +1211,10 @@ type respawnPos struct {
 
 // client is a connection and its state from handshake to play.
 type client struct {
+	// onGroundNoBlocks is whether the last on-ground check found no supporting
+	// block; the movement step reads it to skip the support retry.
+	// vanilla: Entity.onGroundNoBlocks
+	onGroundNoBlocks bool
 	// compassProbe is the lodestone tick's scratch, reused across ticks.
 	compassProbe lodestoneProbe
 	// compassRead, when set, runs between the compass tick's saved-chunk read

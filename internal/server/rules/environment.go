@@ -676,26 +676,32 @@ func searchSupport(w BlockAt, x, y, z, boxX, boxZ, halfWidth float64, skipCentre
 	return bx, by, bz, state, found
 }
 
-// OnPosCellMoved is OnPosCell for a body that has just moved by (dx, dz) and
-// is on the ground: when nothing supports it where it is, the support is
-// searched again with the feet box moved back by the movement, so a landing
-// whose box has just cleared the edge still rests on that block. The state
-// before the step is not kept, so the retry is made on every such landing.
+// OnPosCellMoved is OnPosCell for a body on the ground that has just moved
+// by (dx, dz). When nothing supports it where it is and the previous check
+// did not already come up empty (noBlocks), the support is searched again
+// with the feet box moved back by the movement, so a box that has just
+// cleared an edge still rests on that block. unsupported is the new noBlocks:
+// whether no support was found at all.
 // vanilla: Entity.checkSupportingBlock
-func OnPosCellMoved(w BlockAt, x, y, z, halfWidth, dx, dz float64) (int32, int32, int32, uint16) {
-	if _, _, _, _, found := supportCell(w, x, y, z, halfWidth); !found && (dx != 0 || dz != 0) {
-		if sx, sy, sz, state, ok := searchSupport(w, x, y, z, x-dx, z-dz, halfWidth, false); ok {
-			if isPostBlock(state) {
-				return sx, sy, sz, state
+func OnPosCellMoved(w BlockAt, x, y, z, halfWidth, dx, dz float64, noBlocks bool) (sx, sy, sz int32, state uint16, unsupported bool) {
+	if _, _, _, _, found := supportCell(w, x, y, z, halfWidth); found {
+		sx, sy, sz, state = onPosCell(w, x, y, z, halfWidth)
+		return sx, sy, sz, state, false
+	}
+	if !noBlocks && (dx != 0 || dz != 0) {
+		if bx, by, bz, st, ok := searchSupport(w, x, y, z, x-dx, z-dz, halfWidth, false); ok {
+			if isPostBlock(st) {
+				return bx, by, bz, st, false
 			}
 			cy := int32(math.Floor(y - 0.2))
-			if sy != cy {
-				state = w.BlockAt(sx, cy, sz)
+			if by != cy {
+				st = w.BlockAt(bx, cy, bz)
 			}
-			return sx, cy, sz, state
+			return bx, cy, bz, st, false
 		}
 	}
-	return onPosCell(w, x, y, z, halfWidth)
+	sx, sy, sz, state = onPosCell(w, x, y, z, halfWidth)
+	return sx, sy, sz, state, true
 }
 
 // FrostSlowAir reports whether the block the frost slow reads under a body
