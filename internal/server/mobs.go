@@ -248,12 +248,14 @@ type mobHerd struct {
 	lootExtra func(*mobHerd, *mobEntity) func(*rules.LootEntity)
 	// records uses stable, one-based slots independent of herd compaction;
 	// freeRecords holds vacant slots. Both are guarded by mobsMu.
-	records     []*mobEntity
-	freeRecords []int
-	byUUID      map[uuid.UUID]*entity.Mob
-	dying       []dyingMob
-	woken       map[world.ChunkPos]struct{}
-	carried     map[world.ChunkPos][]nbt.Tag
+	records      []*mobEntity
+	freeRecords  []int
+	byUUID       map[uuid.UUID]*entity.Mob
+	byID         map[int32]*mobEntity
+	dragonBodies map[*entity.Mob]*mobEntity
+	dying        []dyingMob
+	woken        map[world.ChunkPos]struct{}
+	carried      map[world.ChunkPos][]nbt.Tag
 	// listed is the chunks whose entity file has to be written when they
 	// leave even empty, or the next load would generate the animals again.
 	listed map[world.ChunkPos]bool
@@ -304,7 +306,7 @@ func (h *mobHerd) record(m *entity.Mob) *mobEntity {
 	return nil
 }
 
-// remember indexes a registered body by slot, pointer and UUID. The caller holds mobsMu.
+// remember indexes a registered body. The caller holds mobsMu.
 func (h *mobHerd) remember(ent *mobEntity) {
 	slot := ent.mob.RecordSlot()
 	if h.record(ent.mob) == nil {
@@ -319,6 +321,13 @@ func (h *mobHerd) remember(ent *mobEntity) {
 	h.records[slot-1] = ent
 	ent.mob.SetRecordSlot(slot)
 	h.book[ent.mob] = ent
+	h.byID[ent.mob.ID] = ent
+	if ent.mob.Type == entity.TypeEnderDragon {
+		if h.dragonBodies == nil {
+			h.dragonBodies = make(map[*entity.Mob]*mobEntity)
+		}
+		h.dragonBodies[ent.mob] = ent
+	}
 	h.chunks.Add(ent.mob, &ent.mob.Filing, entity.ChunkAt(ent.mob.X, ent.mob.Z), ent.uuid)
 	if h.lootExtra != nil {
 		ent.mob.LootExtra = h.lootExtra(h, ent)
@@ -338,6 +347,8 @@ func (h *mobHerd) forget(m *entity.Mob) {
 		m.SetRecordSlot(0)
 		delete(h.byUUID, ent.uuid)
 		delete(h.book, m)
+		delete(h.byID, m.ID)
+		delete(h.dragonBodies, m)
 		m.Unfile()
 	}
 }
@@ -376,6 +387,7 @@ func newMobHerd(w *world.World) *mobHerd {
 		w:       w,
 		book:    make(map[*entity.Mob]*mobEntity),
 		byUUID:  make(map[uuid.UUID]*entity.Mob),
+		byID:    make(map[int32]*mobEntity),
 		woken:   make(map[world.ChunkPos]struct{}),
 		carried: make(map[world.ChunkPos][]nbt.Tag),
 		listed:  make(map[world.ChunkPos]bool),
@@ -2603,9 +2615,12 @@ func (s *Server) mobByEntityID(w *world.World, id int32) *mobEntity {
 // mobByEntityIDLocked is mobByEntityID for a caller already holding mobsMu.
 func (s *Server) mobByEntityIDLocked(w *world.World, id int32) *mobEntity {
 	h := s.herdOf(w)
-	for _, m := range h.herd {
-		if m.ID == id || (m.Type == entity.TypeEnderDragon && id > m.ID && id <= m.ID+8) {
-			return h.book[m]
+	if ent := h.byID[id]; ent != nil {
+		return ent
+	}
+	for m, ent := range h.dragonBodies {
+		if id > m.ID && id <= m.ID+8 {
+			return ent
 		}
 	}
 	return nil
