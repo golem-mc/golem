@@ -513,29 +513,34 @@ func TestLandingSavedAtLowPriorityStillLands(t *testing.T) {
 	}
 }
 
-// TestLandingIsBookedApartFromABlockTick books a block tick and a landing at a
-// moving piston's cell: both queue, and after a save and reload the landing is
-// still pending.
-// vanilla: PistonMovingBlockEntity.tick, LevelChunkTicks.schedule
+// TestLandingIsBookedApartFromABlockTick saves a piston pushing frosted ice
+// while the ride is moving, with the ice's block tick still pending at the
+// head's cell, and checks the reloaded ride lands.
+// vanilla: FrostedIceBlock.onPlace, PistonMovingBlockEntity.tick, LevelChunkTicks.schedule
 func TestLandingIsBookedApartFromABlockTick(t *testing.T) {
 	w, p, dir := newSavedWorldAround(t, 0, 0)
-	const x, y, z = 4, 64, 4
-	ride := movingPistonStateOf(dirEast, false)
-	w.SetBlock(x, y, z, ride)
+	blocks := pistonRowBlocks(t, false)
+	ice := rsState(t, "minecraft:frosted_ice", map[string]string{"age": "0"})
+	clock := pistonSetup(t, w, p, blocks, false, map[int32]uint16{11: ice}, nil)
+	pistonPowerOn(t, w, p, blocks, &clock)
+	wantRow(t, w, map[int32]string{10: "minecraft:piston", 11: "minecraft:moving_piston", 12: "minecraft:moving_piston"})
 	p.mu.Lock()
-	p.schedule(x, y, z, 5)
-	p.schedulePistonFinalize(x, y, z, 5)
-	p.schedulePistonFinalize(x, y, z, 6)
-	if len(p.queue) != 2 {
-		t.Errorf("%d entries queued, want a block tick and one landing", len(p.queue))
+	iceTick := false
+	for _, tk := range p.queue {
+		if tk.pos == (blockKey{11, 64, 9}) && tk.priority != tickPriorityFinalize {
+			iceTick = true
+		}
 	}
 	p.mu.Unlock()
-
-	w, p = reopenWorldAround(t, w, dir, 0, 0)
-	p.Tick(0)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if _, ok := p.finalizeSeq[blockKey{x, y, z}]; !ok {
-		t.Error("the landing was lost across a reload")
+	if !iceTick {
+		t.Fatal("the ice's block tick is not pending at the head's cell")
 	}
+
+	// The reloaded engine adopts the saved ticks on its first tick, so the
+	// landing two ticks out runs on the third.
+	w, p = reopenWorldAround(t, w, dir, 0, 0)
+	for clock = 1; clock <= 3; clock++ {
+		p.Tick(clock)
+	}
+	wantRow(t, w, map[int32]string{10: "minecraft:piston", 11: "minecraft:piston_head", 12: "minecraft:frosted_ice"})
 }
