@@ -87,9 +87,8 @@ func RepairFromXp(pieces []EnchPiece, xp int, rng *rand.Rand) ([]int32, int) {
 	for i := range pieces {
 		stack := pieces[i].Stack
 		damage[i] = stack.Damage
-		if stack.Empty() || stack.Damage <= 0 || registry.StackMaxDamage(stack) <= 0 {
-			// Vanilla's candidate test is ItemStack.isDamaged, which an
-			// item with no whole life always fails.
+		// vanilla: ItemStack.isDamaged
+		if stack.Empty() || stack.Damage <= 0 || !registry.StackDamageable(stack) {
 			continue
 		}
 		for _, ench := range enchantsOn(stack) {
