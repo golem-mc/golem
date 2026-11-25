@@ -225,8 +225,20 @@ func (s *Server) fangsBite(it fangsEffect) {
 			s.hurtMobPlain(w, m, entity.FangsDamage, rules.DamageTypeMagic)
 			continue
 		}
-		s.hurtMobBy(w, m, owner, entity.FangsDamage, rules.DamageTypeIndirectMagic)
+		s.hurtMobVia(w, m, owner, it.id, entity.FangsDamage, rules.DamageTypeIndirectMagic)
 	}
+}
+
+// fangsByEntityID is the fangs with this entity ID in w, nil for none.
+func (s *Server) fangsByEntityID(w *world.World, id int32) *fangsEntity {
+	s.fangs.mu.Lock()
+	defer s.fangs.mu.Unlock()
+	for _, it := range s.fangs.list {
+		if it.fangs.ID == id && it.w == w {
+			return it
+		}
+	}
+	return nil
 }
 
 // hurtMobPlain hurts m with no source and tells its watchers.

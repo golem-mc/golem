@@ -4538,7 +4538,7 @@ func (m *Mob) HurtByMob(amount float64, source *Mob) bool {
 // HurtByMobOwned is HurtByMob with ownerID, the entity ID of a tame wolf
 // source's owner in this level (0 when absent), who takes the player credit.
 func (m *Mob) HurtByMobOwned(amount float64, source *Mob, ownerID int32) bool {
-	return m.hurtByMob(amount, rules.DamageTypeMobAttack, source, ownerID)
+	return m.hurtByMob(amount, rules.DamageTypeMobAttack, source, ownerID, 0)
 }
 
 // HurtByRam is HurtByMob for a goat's ram: mob_attack_no_aggro, so the victim
@@ -4552,10 +4552,17 @@ func (m *Mob) HurtByRam(amount float64, source *Mob) bool {
 // or beam), still knocked back by the direct entity.
 // vanilla: LivingEntity.hurtServer
 func (m *Mob) HurtByMobAs(amount float64, damageType registry.DamageType, source *Mob) bool {
-	return m.hurtByMob(amount, damageType, source, 0)
+	return m.hurtByMob(amount, damageType, source, 0, 0)
 }
 
-func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *Mob, ownerID int32) (landed bool) {
+// HurtByMobVia is HurtByMobAs for a blow dealt through another entity (a fang
+// of the source's), whose ID the damage event names as the direct entity.
+// vanilla: DamageSources.indirectMagic
+func (m *Mob) HurtByMobVia(amount float64, damageType registry.DamageType, source *Mob, directEntityID int32) bool {
+	return m.hurtByMob(amount, damageType, source, 0, directEntityID+1)
+}
+
+func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *Mob, ownerID, directID int32) (landed bool) {
 	if m.dragon != nil {
 		defer func(accepted bool) { landed = landed || accepted }(m.dragonAccepts(amount))
 	}
@@ -4568,7 +4575,7 @@ func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *
 		m.hitKnockback(&from, source.X-m.X, source.Z-m.Z, amount)
 		return true
 	}
-	mayLand, soft := m.throughWindow(amount, damageType, false, true, false, hurtContext{causeID: source.ID})
+	mayLand, soft := m.throughWindow(amount, damageType, false, true, false, hurtContext{causeID: source.ID, directID: directID})
 	if mayLand == 0 {
 		return false
 	}

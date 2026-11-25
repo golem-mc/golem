@@ -42,6 +42,11 @@ func (s *Server) relatedByID(w *world.World, id int32) command.Entity {
 		defer s.knotsMu.Unlock()
 		return s.knotSnapshot(k, nil)
 	}
+	if f := s.fangsByEntityID(w, id); f != nil {
+		s.fangs.mu.Lock()
+		defer s.fangs.mu.Unlock()
+		return s.fangsSnapshot(f, nil)
+	}
 	return nil
 }
 

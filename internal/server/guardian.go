@@ -61,15 +61,31 @@ func (s *Server) hurtMobBy(w *world.World, m, source *entity.Mob, amount float64
 	s.hurtMobByThen(w, m, source, amount, damageType, nil)
 }
 
+// hurtMobVia is hurtMobBy for a blow dealt through the entity directID.
+func (s *Server) hurtMobVia(w *world.World, m, source *entity.Mob, directID int32, amount float64, damageType registry.DamageType) {
+	s.hurtMobByDirect(w, m, source, directID+1, amount, damageType, nil)
+}
+
 // hurtMobByThen applies a kind's additional push before collecting hurt packets.
 func (s *Server) hurtMobByThen(w *world.World, m, source *entity.Mob, amount float64, damageType registry.DamageType, after func()) {
+	s.hurtMobByDirect(w, m, source, 0, amount, damageType, after)
+}
+
+// hurtMobByDirect is hurtMobByThen with the direct entity's ID plus one (0 for
+// the source).
+func (s *Server) hurtMobByDirect(w *world.World, m, source *entity.Mob, direct int32, amount float64, damageType registry.DamageType, after func()) {
 	s.mobsMu.Lock()
 	ent := s.herdOf(w).book[m]
 	if ent == nil || m.Dead {
 		s.mobsMu.Unlock()
 		return
 	}
-	landed := m.HurtByMobAs(amount, damageType, source)
+	var landed bool
+	if direct != 0 {
+		landed = m.HurtByMobVia(amount, damageType, source, direct-1)
+	} else {
+		landed = m.HurtByMobAs(amount, damageType, source)
+	}
 	var health []byte
 	var sends []mobSend
 	if landed {

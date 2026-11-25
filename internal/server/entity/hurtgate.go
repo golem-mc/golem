@@ -45,6 +45,7 @@ type HurtProbe struct {
 // parameters do not; throughWindow consumes it.
 type hurtContext struct {
 	causeID       int32
+	directID      int32 // direct entity's ID plus one, 0 for the causing one
 	effectiveness float64
 }
 
@@ -64,7 +65,7 @@ func (m *Mob) previewHurt(amount float64, damageType registry.DamageType, effect
 // askHurt puts a hurt of amount to the gate and returns the amount to land,
 // false when the gate refused it or the mob died meanwhile.
 func (m *Mob) askHurt(amount float64, damageType registry.DamageType, ctx hurtContext) (float64, bool) {
-	p := &HurtProbe{Mob: m, Type: damageType, CauseID: ctx.causeID, Amount: amount,
+	p := &HurtProbe{Mob: m, Type: damageType, CauseID: ctx.causeID, Direct: ctx.directID, Amount: amount,
 		Final: m.previewHurt(amount, damageType, ctx.effectiveness)}
 	m.Gate.Ask(p)
 	if p.Cancel || p.Amount <= 0 || m.Dead {
