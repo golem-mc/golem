@@ -1147,15 +1147,12 @@ func (c *client) respawn() error {
 		return nil
 	}
 
-	// Show the new body to watchers again, whether or not the corpse's twenty
-	// ticks ran out.
-	c.bodyGone.Store(false)
-	c.holdsDropped.Store(false)
-
-	// The respawn holds the traveling flag: a change in flight refuses it
-	// before any reset, and the flag keeps the tracker off records the Respawn
-	// invalidates.
-	if !c.traveling.CompareAndSwap(false, true) {
+	// Claim the corpse under the lock that protects its removal. The traveling
+	// flag keeps the tracker off records the Respawn invalidates.
+	c.trackMu.Lock()
+	started := c.traveling.CompareAndSwap(false, true)
+	c.trackMu.Unlock()
+	if !started {
 		return nil
 	}
 	defer c.traveling.Store(false)
@@ -1188,7 +1185,7 @@ func (c *client) respawn() error {
 
 	// A respawn before the corpse's twenty ticks are up removes the body
 	// itself. vanilla: PlayerList.respawn's removePlayerImmediately(KILLED)
-	c.fireDeathEffects()
+	c.srv.fireMobEffectTrigger(c.takeDeathEffects())
 
 	// Only a same-dimension respawn holds the writer for its whole sequence:
 	// what the death queued (its bars included) goes before the Respawn, and a
@@ -1359,14 +1356,11 @@ func (c *client) respawnFromCredits() error {
 		command.Move{Pos: place.position()}, respawnCredits, false)
 }
 
-// fireDeathEffects fires the dead body's oozing, weaving and wind charged
-// and clears its effects without telling the client, so a second call fires
-// nothing. A weaving player's webs appear regardless of mob_griefing.
+// takeDeathEffects clears the dead body's effects and captures the removal
+// trigger so it can run at the corpse's position after the tracking lock is released.
 // vanilla: LivingEntity.remove's triggerOnDeathMobEffects
-func (c *client) fireDeathEffects() {
+func (c *client) takeDeathEffects() mobEffectTrigger {
 	var dying []effect.Instance
-	// Read and cleared in one update, so the tick's removal and a respawn
-	// racing it fire the effects once.
 	c.player.UpdateBody(func(_ *player.Vitals, effects *effect.Set, _ *player.Attributes) {
 		for _, id := range [...]int32{effectOozing, effectWeaving, effectWindCharged} {
 			if in, ok := effects.Get(id); ok {
@@ -1376,11 +1370,11 @@ func (c *client) fireDeathEffects() {
 		effects.Clear()
 	})
 	if len(dying) == 0 {
-		return
+		return mobEffectTrigger{}
 	}
 	pos := c.player.Position()
 	minX, minY, minZ, maxX, maxY, maxZ := c.Box()
-	c.srv.fireMobEffectTrigger(mobEffectTrigger{
+	return mobEffectTrigger{
 		w:      c.theWorld(),
 		player: true,
 		box:    entity.NewAABB(minX, minY, minZ, maxX, maxY, maxZ).Inflate(2),
@@ -1389,7 +1383,7 @@ func (c *client) fireDeathEffects() {
 		effects: dying,
 		killed:  true,
 		height:  maxY - minY,
-	})
+	}
 }
 
 // resetRespawnBody sets up the body a respawn places at pos as newly
@@ -1425,6 +1419,11 @@ func (c *client) resetRespawnBody(pos player.Position, respawn respawnKind) bool
 	c.spear = spearCharge{}
 	c.spearMu.Unlock()
 	c.trackMu.Lock()
+	if respawn == respawnDeath {
+		c.deathTicks.Store(0)
+		c.bodyGone.Store(false)
+		c.holdsDropped.Store(false)
+	}
 	c.sentFire = false
 	c.sentAir = rules.MaxAirSupply
 	c.sentFrozen = 0

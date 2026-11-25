@@ -494,6 +494,10 @@ type Server struct {
 	// another goroutine can win. s.mu guards it, as the tick reads it each pass.
 	playerTrackSeam func()
 
+	// corpseExpirySeam runs after the tick finds a corpse due for removal.
+	// s.mu guards it.
+	corpseExpirySeam func()
+
 	// playerSendSeam, test-only, opens the window in the tracking pass between
 	// deciding a pairing and sending it, which a step on another goroutine can
 	// win. s.mu guards it, as the tick reads it each pass.
@@ -1404,8 +1408,8 @@ type client struct {
 	// respawn clears it on their own goroutines, so it is atomic.
 	awaitingRespawn atomic.Bool
 
-	// deathTicks counts ticks a dead body has lain; bodyGone is set once past
-	// corpseTicks and gone from watchers. The respawn clears both.
+	// deathTicks counts ticks a dead body has lain. The tick ages and removes
+	// it under trackMu, which respawn takes to claim and clear the corpse.
 	// vanilla: LivingEntity.deathTime
 	deathTicks atomic.Int32
 	// deathKeeps is the last death's keep decision, taken by the respawn.
