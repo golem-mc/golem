@@ -295,15 +295,18 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	a := player.NewAttributes(m.AttributeSupplier())
 	a.Instance(registry.AttributeMovementSpeed)
 	// Vanilla instantiates movement_speed and the equipment's attributes in
-	// the first tick, not with the map.
+	// the first tick, not with the map; a zombie's setBaby does it on load.
 	synthetic := []registry.AttributeID{registry.AttributeMovementSpeed}
+	if m.is(TypeZombie) {
+		synthetic = synthetic[:0]
+	}
 	if m.Size > 0 {
 		a.Instance(registry.AttributeMaxHealth)
 		if m.Type == TypeMagmaCube {
 			a.Instance(registry.AttributeArmor)
 		}
 	}
-	if m.NativeAttributeInstances() {
+	if m.Type == TypeRabbit {
 		a.Instance(registry.AttributeAttackDamage)
 	}
 	if m.KillerBunny() {
@@ -354,8 +357,9 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 
 // NativeAttributeInstances reports whether the kind instantiates attributes
 // itself before any command touches the map.
-// vanilla: Rabbit.setVariant gets attack_damage on load and spawn
-func (m *Mob) NativeAttributeInstances() bool { return m.Type == TypeRabbit }
+// vanilla: Rabbit.setVariant gets attack_damage on load and spawn,
+// Zombie.setBaby gets movement_speed
+func (m *Mob) NativeAttributeInstances() bool { return m.Type == TypeRabbit || m.is(TypeZombie) }
 
 // Ticked reports whether the body has run a tick.
 func (m *Mob) Ticked() bool { return m.ticked }
