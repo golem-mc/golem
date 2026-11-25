@@ -1,10 +1,12 @@
 package movement
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -166,19 +168,29 @@ func TestFallingBlockSurvivesARestart(t *testing.T) {
 }
 
 // TestTiedFallsDispatchInBookingOrderAfterARestart books two sand falls due
-// the same tick, farther x first, with the world frozen, restarts the server
-// and checks the first-booked block is the first to fall.
+// the same tick, farther x first, with the world frozen and two quicker
+// scaffolding visits between them (which reorder the queue's heap slice),
+// restarts the server and checks the first-booked block is the first to fall.
 func TestTiedFallsDispatchInBookingOrderAfterARestart(t *testing.T) {
 	t.Parallel()
 	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance = config.MinDistance
+	cfg.SimulationDistance = config.MinDistance
 	srv, c := servertest.Join(t, cfg, "Builder", servertest.OpsListing(t, "Builder"))
 	servertest.FreezeUntilHeld(t, srv)
 
-	// Booked out of x order, so a position sort cannot pass.
+	// Sand is due in two ticks, scaffolding in one; booked out of x order,
+	// so a position sort cannot pass.
 	sand, _ := registry.FindState("minecraft:sand", nil)
-	c.ChatCommand("setblock 9 70 3 sand")
-	c.AwaitBlockState(9, 70, 3, uint16(sand))
-	c.ChatCommand("setblock 3 70 3 sand")
+	for _, b := range []struct {
+		x, y, z int
+		block   string
+	}{
+		{9, 70, 3, "sand"}, {7, 64, 5, "scaffolding"}, {3, 70, 3, "sand"}, {5, 64, 5, "scaffolding"},
+	} {
+		c.ChatCommand(fmt.Sprintf("setblock %d %d %d %s", b.x, b.y, b.z, b.block))
+		c.Settle()
+	}
 	c.AwaitBlockState(3, 70, 3, uint16(sand))
 	srv.Shutdown()
 
@@ -190,12 +202,22 @@ func TestTiedFallsDispatchInBookingOrderAfterARestart(t *testing.T) {
 	again.Configure()
 	again.EnterWorld("Builder")
 	servertest.HoldTicks(t, restartedSrv)
-	servertest.RunTicks(t, restartedSrv, 5)
 
-	first := again.AwaitFallingSpawn()
-	second := again.AwaitFallingSpawn()
-	if first.X != 9.5 || second.X != 3.5 {
-		t.Errorf("falls spawned at x = %g then %g, want 9.5 then 3.5", first.X, second.X)
+	var xs []float64
+	again.ReadTicks(restartedSrv, 3, func(id int32, data []byte) bool {
+		if id != protocol.IDPlaySpawnEntity {
+			return false
+		}
+		r := protocol.NewReader(data)
+		r.ReadVarInt()
+		r.ReadUUID()
+		if r.ReadVarInt() == protocol.EntityTypeFallingBlock {
+			xs = append(xs, r.ReadF64())
+		}
+		return len(xs) == 2
+	})
+	if len(xs) != 2 || xs[0] != 9.5 || xs[1] != 3.5 {
+		t.Errorf("falls spawned at x = %v, want [9.5 3.5]", xs)
 	}
 }
 
