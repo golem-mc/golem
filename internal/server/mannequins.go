@@ -26,13 +26,12 @@ type mannequinEntity struct {
 	w         *world.World
 	uuid      uuid.UUID
 	bodyTrack[struct{}]
-	tags     nbt.StringSet
-	custom   customName
-	look     entityLook
-	metadata map[uint8]uint64
-	// published is the wire form of each ticking field as last sent.
-	published map[uint8]mannequinPublished
-	shown     mannequinShown
+	tags   nbt.StringSet
+	custom customName
+	look   entityLook
+	// sync is the state of each mannequinFields entry, by position.
+	sync  []mannequinSynched
+	shown mannequinShown
 }
 
 // mannequinTracker tracks mannequin travel and commanded teleports.
@@ -83,6 +82,7 @@ func mannequinDirtyAttributes(ent *mannequinEntity) []byte {
 // mannequinPairing introduces a mannequin with its metadata and equipment.
 func mannequinPairing(ent *mannequinEntity) []outbound {
 	m := ent.mannequin
+	refreshMannequinSynched(ent)
 	spawn := spawnEntityPayload(spawnEntity{
 		id: m.ID, uuid: ent.uuid, typ: protocol.EntityTypeMannequin,
 		x: m.X, y: m.Y, z: m.Z, vx: ent.sentVX, vy: ent.sentVY, vz: ent.sentVZ,
@@ -486,7 +486,7 @@ func (c *client) nameMannequin(target int32, held protocol.ItemStack) bool {
 	visible := ent.custom.visible
 	ent.custom = customNameOfStack(held)
 	ent.custom.visible = visible
-	payload := mannequinFieldsPayload(ent, true, func(f mannequinField) bool {
+	payload := mannequinFieldsPayload(ent, true, func(_ int, f mannequinField) bool {
 		return f.index == protocol.MetadataIndexCustomName
 	})
 	s.mannequinsMu.Unlock()

@@ -132,56 +132,82 @@ func putMannequinLabel(b *protocol.Buffer, m *entity.Mannequin) {
 // field with all, the ones off their default without; nil when none is.
 // vanilla: SynchedEntityData.getNonDefaultValues, packDirty
 func mannequinMetadataPayload(ent *mannequinEntity, all bool) []byte {
-	return mannequinFieldsPayload(ent, all, func(f mannequinField) bool {
+	return mannequinFieldsPayload(ent, all, func(i int, f mannequinField) bool {
 		if all {
 			return true
 		}
-		if p, ok := ent.published[f.index]; ok {
-			return !p.initial
+		if f.tick != nil && ent.synched()[i].known {
+			return !ent.synched()[i].initial
 		}
 		return !f.initial(ent)
 	})
 }
 
-// mannequinPublished is what the clients were last told of a ticking field.
-type mannequinPublished struct {
+// mannequinSynched is one ticking field as last seen and as last sent.
+type mannequinSynched struct {
+	known bool
+	key   uint64
+	// dirty is a change seen between passes, kept when the key moves back.
+	// vanilla: SynchedEntityData.DataItem.dirty
+	dirty bool
+	// initial and wire are the value the clients were last sent, which a
+	// watcher paired before the next pass is told; wire is reused.
+	// vanilla: ServerEntity.trackedDataValues
 	initial bool
 	wire    []byte
 }
 
-// publish records the field as the tracking pass sends it now, so a watcher
-// paired before the next pass is told this and not a change still pending.
-// vanilla: ServerEntity.sendPairingData (cached non-default values)
-func (m *mannequinEntity) publish(f mannequinField) {
+func (m *mannequinEntity) synched() []mannequinSynched {
+	if m.sync == nil {
+		m.sync = make([]mannequinSynched, len(mannequinFields))
+	}
+	return m.sync
+}
+
+// observe reads ticking field i's key, marking it dirty when it moved; the
+// first read also records the value as sent. It reports that first read.
+// vanilla: SynchedEntityData.set
+func (m *mannequinEntity) observe(i int) bool {
+	f, st := mannequinFields[i], &m.synched()[i]
+	key := f.tick(m)
+	if st.known {
+		st.dirty = st.dirty || st.key != key
+		st.key = key
+		return false
+	}
 	var b protocol.Buffer
 	f.put(&b, m)
-	if m.published == nil {
-		m.published = make(map[uint8]mannequinPublished)
-	}
-	m.published[f.index] = mannequinPublished{initial: f.initial(m), wire: b.Bytes()}
+	*st = mannequinSynched{known: true, key: key, initial: f.initial(m), wire: append(st.wire[:0], b.Bytes()...)}
+	return true
 }
 
 // mannequinFieldsPayload builds the packet of the fields send picks; nil
-// when it picks none. advance moves the tick baseline to what was written, so
-// a read-only snapshot (pairing) leaves pending changes for the tracking pass.
-func mannequinFieldsPayload(m *mannequinEntity, advance bool, send func(mannequinField) bool) []byte {
+// when it picks none. advance records each ticking field as sent, so a
+// read-only snapshot (pairing) leaves pending changes for the tracking pass.
+func mannequinFieldsPayload(m *mannequinEntity, advance bool, send func(int, mannequinField) bool) []byte {
 	var b protocol.Buffer
-	for _, f := range mannequinFields {
-		if !send(f) {
+	for i, f := range mannequinFields {
+		if !send(i, f) {
 			continue
 		}
 		if b.Len() == 0 {
 			b.PutVarInt(m.mannequin.ID)
 		}
 		b.PutMetadata(f.index, f.typ)
-		if p, ok := m.published[f.index]; ok && !advance {
-			b.PutRaw(p.wire)
-		} else {
+		if f.tick == nil {
 			f.put(&b, m)
+			continue
 		}
-		if advance && f.tick != nil && m.metadata != nil {
-			m.metadata[f.index] = f.tick(m)
-			m.publish(f)
+		st := &m.synched()[i]
+		if !advance && st.known {
+			b.PutRaw(st.wire)
+			continue
+		}
+		start := b.Len()
+		f.put(&b, m)
+		if advance {
+			st.known, st.key, st.dirty, st.initial = true, f.tick(m), false, f.initial(m)
+			st.wire = append(st.wire[:0], b.Bytes()[start:]...)
 		}
 	}
 	if b.Len() == 0 {
@@ -203,24 +229,24 @@ func mannequinFlags(ent *mannequinEntity) byte {
 	return flags
 }
 
-// mannequinTickMetadata compares the ticking fields from the same table as spawn and /data.
-// The mannequin lock is held.
+// mannequinTickMetadata sends the ticking fields that changed since the
+// last pass, from the same table as spawn and /data. The mannequin lock is held.
+// vanilla: ServerEntity.sendDirtyEntityData
 func mannequinTickMetadata(ent *mannequinEntity) []byte {
-	if ent.metadata == nil {
-		ent.metadata = make(map[uint8]uint64)
-	}
-	return mannequinFieldsPayload(ent, true, func(f mannequinField) bool {
-		if f.tick == nil {
-			return false
-		}
-		key := f.tick(ent)
-		old, known := ent.metadata[f.index]
-		ent.metadata[f.index] = key
-		if !known {
-			ent.publish(f)
-		}
-		return known && old != key
+	return mannequinFieldsPayload(ent, true, func(i int, f mannequinField) bool {
+		return f.tick != nil && !ent.observe(i) && ent.sync[i].dirty
 	})
+}
+
+// refreshMannequinSynched reads every ticking field before a pairing, so a
+// change it sees stays dirty for the next pass even if it is undone first.
+// vanilla: ServerEntity.sendPairingData (Entity.updateDataBeforeSync)
+func refreshMannequinSynched(ent *mannequinEntity) {
+	for i, f := range mannequinFields {
+		if f.tick != nil {
+			ent.observe(i)
+		}
+	}
 }
 
 // mannequinShown is the effect particles and ambient flag the mannequin

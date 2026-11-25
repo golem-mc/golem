@@ -490,38 +490,84 @@ func TestAMannequinPairingLeavesPendingHealthForTheTrackingPass(t *testing.T) {
 }
 
 // TestAMannequinPairsAWatcherFromItsLastSentFlags checks that a watcher
-// joining while a glow is pending, which is cleared before the tracking pass,
-// is never left outlined: it is paired from what the clients were last sent.
-// vanilla: ServerEntity.sendPairingData, sendChanges
+// joining while a glow is pending is paired from what the clients were last
+// sent, and that the pairing leaves the glow dirty: cleared again before the
+// tracking pass, it still opens that tick's movement, so a teleport arrives
+// off the period, and no watcher is left outlined.
+// vanilla: ServerEntity.sendPairingData, sendChanges, LivingEntity.updateDirtyEffects
 func TestAMannequinPairsAWatcherFromItsLastSentFlags(t *testing.T) {
 	t.Parallel()
-	srv, c := joinMannequinOp(t, "Owner")
-	c.ChatCommand("summon minecraft:mannequin ~ ~ ~1")
-	id := awaitMannequin(t, c, srv).id
+	srv, c := servertest.Join(t, mannequinConfig(), "Owner")
+	servertest.HoldTicks(t, srv)
+	// A hidden effect stays, so the clear leaves the particles as they were.
+	srv.RunLine(`summon minecraft:mannequin 0.5 100 0.5 {Tags:[s],NoGravity:1b}`)
+	srv.RunLine(`effect give @e[tag=s,limit=1] minecraft:speed 100 0 true`)
 	servertest.RunTicks(t, srv, 1)
-	c.ChatCommand("effect give @e[type=minecraft:mannequin,limit=1] minecraft:glowing 100 0 true")
+	c.Settle()
+	// Calibrate: a lone teleport arrives on a scheduled tick (every 2), so
+	// the next tick is off the period.
+	srv.RunLine(`tp @e[tag=s,limit=1] 0.5 101 0.5`)
+	var id int32
+	if !c.ReadTicks(srv, 2, func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlayTeleportEntity {
+			return false
+		}
+		sync := servertest.ParseEntityPositionSync(data)
+		id = sync.ID
+		return sync.Y == 101
+	}) {
+		t.Fatal("no calibration teleport")
+	}
+	c.Settle()
+	srv.RunLine(`effect give @e[tag=s,limit=1] minecraft:glowing 100 0 true`)
 	late := servertest.DialServer(t, srv)
 	late.JoinKeeping("Late")
-	c.ChatCommand("effect clear @e[type=minecraft:mannequin,limit=1] minecraft:glowing")
-	glowing, spawned := false, false
-	late.ReadTicks(srv, 4, func(pid int32, data []byte) bool {
+	srv.RunLine(`effect clear @e[tag=s,limit=1] minecraft:glowing`)
+	srv.RunLine(`tp @e[tag=s,limit=1] 0.5 105 0.5`)
+	glowingOf := func(data []byte) (glowing, sent bool) {
 		r := protocol.NewReader(data)
+		if r.ReadVarInt() != id {
+			return false, false
+		}
+		meta, ok := servertest.ReadMetadata(r)
+		if !ok {
+			t.Fatal("the mannequin's metadata carries a field this reader does not know")
+		}
+		if e := servertest.MetaOf(meta, protocol.MetadataIndexEntityFlags); e != nil {
+			return e.ByteVal&protocol.EntityFlagGlowing != 0, true
+		}
+		return false, false
+	}
+	teleported := c.ReadTicks(srv, 1, func(pid int32, data []byte) bool {
+		if pid != protocol.IDPlayTeleportEntity {
+			return false
+		}
+		sync := servertest.ParseEntityPositionSync(data)
+		return sync.ID == id && sync.Y == 105
+	})
+	if !teleported {
+		t.Error("the teleport waited for the scheduled tick: the pairing consumed the dirty glow")
+	}
+	// The first metadata after the spawn is the pairing's.
+	spawned, paired, glowing := false, false, false
+	late.ReadTicks(srv, 0, func(pid int32, data []byte) bool {
 		switch pid {
 		case protocol.IDPlaySpawnEntity:
 			if arrival, ok := mannequinSpawnOf(data); ok && arrival.id == id {
 				spawned = true
-				if e := servertest.MetaOf(arrival.meta, protocol.MetadataIndexEntityFlags); e != nil {
-					glowing = e.ByteVal&protocol.EntityFlagGlowing != 0
-				}
 			}
 		case protocol.IDPlayEntityMetadata:
-			if r.ReadVarInt() == id {
-				if meta, ok := servertest.ReadMetadata(r); ok {
-					if e := servertest.MetaOf(meta, protocol.MetadataIndexEntityFlags); e != nil {
-						glowing = e.ByteVal&protocol.EntityFlagGlowing != 0
-					}
-				}
+			if !spawned || servertest.MetadataEntityID(data) != id {
+				return false
 			}
+			g, sent := glowingOf(data)
+			if !paired && g {
+				t.Error("the late watcher was paired with the pending glow, not the last sent flags")
+			}
+			if sent {
+				glowing = g
+			}
+			paired = true
 		}
 		return false
 	})
