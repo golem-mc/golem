@@ -139,6 +139,16 @@ func TestCookingMatchAgreesWithLinearWalk(t *testing.T) {
 	ApplyPackRecipes(PackRecipes{Cooking: [cookingKinds][]PackCooking{CookingSmelting: {{
 		Name: "pk:stick", Ingredient: BookIngredient{Items: []int32{stick.ItemID}}, ResultID: planks.ItemID, ResultCount: 1, Duration: 20}}}})
 	check("pack")
+	// Two pack recipes share an ingredient: the first listed wins.
+	bone := stackOf(t, "minecraft:bone")
+	ApplyPackRecipes(PackRecipes{Cooking: [cookingKinds][]PackCooking{CookingSmelting: {
+		{Name: "pk:first", Ingredient: BookIngredient{Items: []int32{stick.ItemID}}, ResultID: planks.ItemID, ResultCount: 1, Duration: 20},
+		{Name: "pk:second", Ingredient: BookIngredient{Items: []int32{stick.ItemID}}, ResultID: bone.ItemID, ResultCount: 1, Duration: 20},
+	}}})
+	check("pack overlap")
+	if got := CookingMatch("minecraft:furnace", stick); got == nil || got.ResultID != planks.ItemID {
+		t.Errorf("overlapping pack recipes match %+v, want the first (planks)", got)
+	}
 	if CookingMatch("minecraft:furnace", stick) == nil {
 		t.Error("pack recipe not matched")
 	}
