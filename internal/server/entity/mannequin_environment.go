@@ -63,7 +63,7 @@ func (m *Mannequin) EnvironmentStep(w World, hurt func(float64, registry.DamageT
 		m.effectsChanged()
 		m.clampAbsorption()
 		rules.UpdateEffectAttributes(m.Attributes, m.AllEffects())
-		m.Health = min(m.Health, m.HealthCap())
+		m.SetHealth(min(m.Health, m.HealthCap()))
 	}
 	return
 }
@@ -93,7 +93,7 @@ func (m *Mannequin) HealthCap() float64 { return rules.MaxHealthOf(&m.effects, m
 // Heal restores health up to the effect-adjusted cap.
 func (m *Mannequin) Heal(amount float64) {
 	if !m.Dying() {
-		m.Health = math.Min(m.HealthCap(), m.Health+amount)
+		m.SetHealth(math.Min(m.HealthCap(), m.Health+amount))
 	}
 }
 

@@ -164,6 +164,25 @@ func BenchmarkTickArmorStandsMoving(b *testing.B) {
 	}
 }
 
+// BenchmarkTickArmorStandsMovingDirty is BenchmarkTickArmorStandsMoving with
+// every stand's synched data changed each tick as well.
+func BenchmarkTickArmorStandsMovingDirty(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	spawnBenchStands(s, w)
+	for range 40 {
+		s.tickArmorStands()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		for _, ent := range s.armorStands {
+			ent.stand.Y = float64(world.GroundLevel) + float64(i%2)
+			ent.stand.Invisible = i%2 == 1
+		}
+		s.tickArmorStands()
+	}
+}
+
 // BenchmarkFrozenTrackingItems runs the frozen world's item tracking pass,
 // with every player in range of every stack.
 func BenchmarkFrozenTrackingItems(b *testing.B) {

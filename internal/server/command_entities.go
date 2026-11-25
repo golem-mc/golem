@@ -872,10 +872,8 @@ func (e *entitySnapshot) changeLivingEffects(change func(effectBody) []effect.Ch
 	if ref, ok := e.ref.(*mannequinEntity); ok {
 		s.mannequinsMu.Lock()
 		changes := change(ref.mannequin)
-		packets := mannequinEffectPackets(ref)
-		watchers := trackedWatchers(ref.tracked)
+		syncMannequinEffects(ref)
 		s.mannequinsMu.Unlock()
-		s.tellWatchers(ref.w, watchers, packets)
 		return len(changes) > 0
 	}
 	ref, ok := e.ref.(*mobEntity)
@@ -2120,7 +2118,7 @@ func (e *entitySnapshot) WithAttributes(fn func(a *player.Attributes)) {
 		e.srv.mannequinsMu.Lock()
 		defer e.srv.mannequinsMu.Unlock()
 		fn(ref.mannequin.Attributes)
-		ref.mannequin.Health = min(ref.mannequin.Health, ref.mannequin.HealthCap())
+		ref.mannequin.SetHealth(min(ref.mannequin.Health, ref.mannequin.HealthCap()))
 		return
 	}
 	ref, ok := e.ref.(*mobEntity)
