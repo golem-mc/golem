@@ -176,18 +176,16 @@ func encodeSectionNBT(s *section, y int32) nbt.Compound {
 		// One packed index per cell, at the width the palette's entries need.
 		// A cell array holding one biome (a whole-section /fillbiome) has no
 		// width to pack at, so it saves as the single-entry form.
-		cellPalette, index := s.biomePalette()
+		var palette [biomesPerSection]int32
+		var cellIndices [biomesPerSection]uint16
+		cellPalette := palette[:s.biomePalette(&palette, &cellIndices)]
 		entries := make([]nbt.Tag, len(cellPalette))
 		for i, biome := range cellPalette {
 			entries[i] = nbt.String(biomeName(biome))
 		}
-		cellIndices := make([]uint16, len(s.biomes))
-		for i, biome := range s.biomes {
-			cellIndices[i] = index[biome]
-		}
 		biomes = nbt.Compound{"palette": nbt.List{Elem: nbt.TypeString, Items: entries}}
 		if len(cellPalette) > 1 {
-			biomes["data"] = packLongs(cellIndices, bits.Len(uint(len(cellPalette)-1)))
+			biomes["data"] = packLongs(cellIndices[:], bits.Len(uint(len(cellPalette)-1)))
 		}
 	}
 
