@@ -29,6 +29,11 @@ func init() {
 	mobTracking[TypeVindicator] = tracking{rangeChunks: 8, updateInterval: 3}
 }
 
+var (
+	illagerKinds = mobKindsMatching(IsIllagerType)
+	raiderKinds  = mobKindsMatching(isRaiderType)
+)
+
 // IsIllagerType reports whether the type is in the minecraft:illager entity
 // type tag, which minecraft:illager_friends lists.
 func IsIllagerType(t MobType) bool {
@@ -94,6 +99,11 @@ func (m *Mob) finalizeVindicator(dice Dice, local rules.LocalDifficulty) {
 	m.rollSpawnEnchantments(dice, local)
 }
 
+var (
+	abstractVillagerKinds = mobKindsMatching(isAbstractVillager)
+	ironGolemKinds        = []MobType{TypeIronGolem}
+)
+
 // isAbstractVillager reports whether t is an AbstractVillager: a villager or
 // a wandering trader.
 func isAbstractVillager(t MobType) bool { return t == TypeVillager || t == TypeWanderingTrader }
@@ -113,8 +123,8 @@ func illagerTargets(m *Mob, villagerUnsighted bool) []Goal {
 	return []Goal{
 		&hurtByGoal{m: m, priority: 1, alertOthers: true, ignore: isRaiderType},
 		&nearestTargetGoal{m: m, priority: 2},
-		&mobTargetGoal{m: m, priority: 3, unsighted: villagerUnsighted, matches: illagerVillagerTarget},
-		&mobTargetGoal{m: m, priority: 3, matches: func(o *Mob) bool { return o.Type == TypeIronGolem }},
+		&mobTargetGoal{m: m, priority: 3, unsighted: villagerUnsighted, kinds: abstractVillagerKinds, matches: illagerVillagerTarget},
+		&mobTargetGoal{m: m, priority: 3, kinds: ironGolemKinds},
 	}
 }
 
