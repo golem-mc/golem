@@ -30,7 +30,7 @@ func runFunction(name, requirements string) string {
 
 // replaceWith is a replace_block effect writing block at the projectile.
 func replaceWith(block, requirements string) string {
-	return `{"effect":{"type":"minecraft:replace_block","block_state":{"type":"minecraft:simple_state_provider","state":{"id":"minecraft:` +
+	return `{"effect":{"type":"minecraft:replace_block","block_state":{"type":"minecraft:simple","state":{"id":"minecraft:` +
 		block + `"}}}` + requirements + `}`
 }
 
