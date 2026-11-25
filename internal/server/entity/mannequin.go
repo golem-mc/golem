@@ -87,7 +87,7 @@ func MannequinDimensions(pose int32) (width, height float64) {
 		return MannequinWidth, 1.5
 	case protocol.PoseSwimming, protocol.PoseFallFlying:
 		return MannequinWidth, 0.6
-	case protocol.PoseSleeping:
+	case protocol.PoseSleeping, protocol.PoseDying:
 		return 0.2, 0.2
 	}
 	return MannequinWidth, MannequinHeight

@@ -30,7 +30,9 @@ type mannequinEntity struct {
 	custom   customName
 	look     entityLook
 	metadata map[uint8]uint64
-	shown    mannequinShown
+	// published is the wire form of each ticking field as last sent.
+	published map[uint8]mannequinPublished
+	shown     mannequinShown
 }
 
 // mannequinTracker tracks mannequin travel and commanded teleports.

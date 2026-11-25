@@ -488,3 +488,47 @@ func TestAMannequinPairingLeavesPendingHealthForTheTrackingPass(t *testing.T) {
 		t.Errorf("existing watcher health sent=%v value=%v, want 19", seen.healthSent, seen.health)
 	}
 }
+
+// TestAMannequinPairsAWatcherFromItsLastSentFlags checks that a watcher
+// joining while a glow is pending, which is cleared before the tracking pass,
+// is never left outlined: it is paired from what the clients were last sent.
+// vanilla: ServerEntity.sendPairingData, sendChanges
+func TestAMannequinPairsAWatcherFromItsLastSentFlags(t *testing.T) {
+	t.Parallel()
+	srv, c := joinMannequinOp(t, "Owner")
+	c.ChatCommand("summon minecraft:mannequin ~ ~ ~1")
+	id := awaitMannequin(t, c, srv).id
+	servertest.RunTicks(t, srv, 1)
+	c.ChatCommand("effect give @e[type=minecraft:mannequin,limit=1] minecraft:glowing 100 0 true")
+	late := servertest.DialServer(t, srv)
+	late.JoinKeeping("Late")
+	c.ChatCommand("effect clear @e[type=minecraft:mannequin,limit=1] minecraft:glowing")
+	glowing, spawned := false, false
+	late.ReadTicks(srv, 4, func(pid int32, data []byte) bool {
+		r := protocol.NewReader(data)
+		switch pid {
+		case protocol.IDPlaySpawnEntity:
+			if arrival, ok := mannequinSpawnOf(data); ok && arrival.id == id {
+				spawned = true
+				if e := servertest.MetaOf(arrival.meta, protocol.MetadataIndexEntityFlags); e != nil {
+					glowing = e.ByteVal&protocol.EntityFlagGlowing != 0
+				}
+			}
+		case protocol.IDPlayEntityMetadata:
+			if r.ReadVarInt() == id {
+				if meta, ok := servertest.ReadMetadata(r); ok {
+					if e := servertest.MetaOf(meta, protocol.MetadataIndexEntityFlags); e != nil {
+						glowing = e.ByteVal&protocol.EntityFlagGlowing != 0
+					}
+				}
+			}
+		}
+		return false
+	})
+	if !spawned {
+		t.Fatal("the late watcher was never shown the mannequin")
+	}
+	if glowing {
+		t.Error("the late watcher still sees the mannequin glowing after the effect was cleared")
+	}
+}

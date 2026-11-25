@@ -132,7 +132,33 @@ func putMannequinLabel(b *protocol.Buffer, m *entity.Mannequin) {
 // field with all, the ones off their default without; nil when none is.
 // vanilla: SynchedEntityData.getNonDefaultValues, packDirty
 func mannequinMetadataPayload(ent *mannequinEntity, all bool) []byte {
-	return mannequinFieldsPayload(ent, all, func(f mannequinField) bool { return all || !f.initial(ent) })
+	return mannequinFieldsPayload(ent, all, func(f mannequinField) bool {
+		if all {
+			return true
+		}
+		if p, ok := ent.published[f.index]; ok {
+			return !p.initial
+		}
+		return !f.initial(ent)
+	})
+}
+
+// mannequinPublished is what the clients were last told of a ticking field.
+type mannequinPublished struct {
+	initial bool
+	wire    []byte
+}
+
+// publish records the field as the tracking pass sends it now, so a watcher
+// paired before the next pass is told this and not a change still pending.
+// vanilla: ServerEntity.sendPairingData (cached non-default values)
+func (m *mannequinEntity) publish(f mannequinField) {
+	var b protocol.Buffer
+	f.put(&b, m)
+	if m.published == nil {
+		m.published = make(map[uint8]mannequinPublished)
+	}
+	m.published[f.index] = mannequinPublished{initial: f.initial(m), wire: b.Bytes()}
 }
 
 // mannequinFieldsPayload builds the packet of the fields send picks; nil
@@ -148,9 +174,14 @@ func mannequinFieldsPayload(m *mannequinEntity, advance bool, send func(mannequi
 			b.PutVarInt(m.mannequin.ID)
 		}
 		b.PutMetadata(f.index, f.typ)
-		f.put(&b, m)
+		if p, ok := m.published[f.index]; ok && !advance {
+			b.PutRaw(p.wire)
+		} else {
+			f.put(&b, m)
+		}
 		if advance && f.tick != nil && m.metadata != nil {
 			m.metadata[f.index] = f.tick(m)
+			m.publish(f)
 		}
 	}
 	if b.Len() == 0 {
@@ -185,6 +216,9 @@ func mannequinTickMetadata(ent *mannequinEntity) []byte {
 		key := f.tick(ent)
 		old, known := ent.metadata[f.index]
 		ent.metadata[f.index] = key
+		if !known {
+			ent.publish(f)
+		}
 		return known && old != key
 	})
 }
