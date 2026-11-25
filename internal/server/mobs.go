@@ -706,22 +706,26 @@ func (s *Server) sendMobSends(sends []mobSend) {
 	}
 }
 
-// tickMobTracking updates frozen mob visibility and collects pufferfish
-// contacts for players whose own ticks still run.
+// tickMobTracking advances the tracker on frozen loop ticks, even between
+// game steps. Players can still touch a pufferfish while its physics is held.
 // vanilla: ChunkMap.tick
 func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 	near := nearbyTracking(watchers)
 	defer near.release()
-	var sends []mobSend
+	gate := s.newEntityGate()
+	held := !s.tickRate.Running()
+	sends := s.mobTickSends[:0]
+	s.mobTickSends = nil
 	var pufferTouches []pufferTouch
 	s.lockTick(&s.mobsMu)
 	for _, dim := range s.allDims() {
+		centres := gate.centres[dim.w]
 		for _, m := range dim.mobs.herd {
-			ent := dim.mobs.book[m]
+			ent := dim.mobs.record(m)
 			if ent == nil {
 				continue
 			}
-			if puff := m.PuffState(); m.Type == entity.TypePufferfish && puff > 0 && m.Alive() {
+			if puff := m.PuffState(); held && m.Type == entity.TypePufferfish && puff > 0 && m.Alive() {
 				pufferTouches = append(pufferTouches, pufferTouch{
 					box: entity.NewAABB(m.BlastBox()),
 					strike: mobStrike{
@@ -731,28 +735,27 @@ func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 				})
 			}
 			body := mobTracker.body(ent)
-			motion := mobMovement{seated: ent.seated()}
-			// The cadence runs on, so a teleport waits for the next gate.
-			// vanilla: ServerEntity.sendChanges
-			mt := body.t.ride(body.t.stepDue(m.UpdateInterval(), false), motion.seated)
-			mt.teleported = ent.teleported
+			var motion mobMovement
+			var mt moveTick
+			if ent.teleported || m.Impulse || entityTicksIn(dim.w, centres, gate.reach, herdChunk(m)) {
+				motion.seated = ent.seated()
+				mt = ent.movementTick(motion.seated)
+			}
 			for _, i := range body.watchers(near) {
 				wt := watchers[i]
 				if wt.c.theWorld() != dim.w {
 					continue // crossed to another dimension since the snapshot
 				}
-				_, told := ent.tracked.get(wt.c)
-				if was, seen := mobSettle(&body, wt.c, wt.x, wt.z, wt.chunkRadius, &sends); seen && told && mt.gate && mt.teleported {
+				before := len(sends)
+				if was, seen := mobSettle(&body, wt.c, wt.x, wt.z, wt.chunkRadius, &sends); seen && mt.gate && len(sends) == before {
 					motion.move(&body, was, wt.c, mt, &sends)
 				}
-			}
-			if mt.gate {
-				ent.teleported = false
 			}
 		}
 	}
 	s.unlockTick(&s.mobsMu)
 	s.sendMobSends(sends)
+	s.recycleMobTickSends(sends)
 	s.applyPufferTouches(watchers, pufferTouches)
 }
 
@@ -2879,6 +2882,18 @@ type mobMovement struct {
 	seated   bool
 	head     uint8
 	headRead bool
+}
+
+// movementTick takes the impulse and any teleport due on this tracking tick.
+func (ent *mobEntity) movementTick(seated bool) moveTick {
+	m := ent.mob
+	mt := ent.ride(ent.stepDue(m.UpdateInterval(), m.Impulse), seated)
+	m.Impulse = false
+	mt.teleported = ent.teleported
+	if mt.gate {
+		ent.teleported = false
+	}
+	return mt
 }
 
 // move tells one watcher where the mob went: the velocity first once it
