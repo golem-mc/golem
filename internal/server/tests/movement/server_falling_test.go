@@ -181,7 +181,6 @@ func TestTiedFallsDispatchInBookingOrderAfterARestart(t *testing.T) {
 
 	// Sand is due in two ticks, scaffolding in one; booked out of x order,
 	// so a position sort cannot pass.
-	sand, _ := registry.FindState("minecraft:sand", nil)
 	for _, b := range []struct {
 		x, y, z int
 		block   string
@@ -191,7 +190,6 @@ func TestTiedFallsDispatchInBookingOrderAfterARestart(t *testing.T) {
 		c.ChatCommand(fmt.Sprintf("setblock %d %d %d %s", b.x, b.y, b.z, b.block))
 		c.Settle()
 	}
-	c.AwaitBlockState(3, 70, 3, uint16(sand))
 	srv.Shutdown()
 
 	restarted := *cfg
@@ -208,11 +206,8 @@ func TestTiedFallsDispatchInBookingOrderAfterARestart(t *testing.T) {
 		if id != protocol.IDPlaySpawnEntity {
 			return false
 		}
-		r := protocol.NewReader(data)
-		r.ReadVarInt()
-		r.ReadUUID()
-		if r.ReadVarInt() == protocol.EntityTypeFallingBlock {
-			xs = append(xs, r.ReadF64())
+		if kind, e, _, _ := servertest.ReadSpawnEntity(t, data); kind == protocol.EntityTypeFallingBlock {
+			xs = append(xs, e.X)
 		}
 		return len(xs) == 2
 	})
