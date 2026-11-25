@@ -2,6 +2,7 @@ package datapack
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -87,6 +88,14 @@ func TestDecodeEnchantmentMatchesGeneratedTable(t *testing.T) {
 	}
 }
 
+func TestDecodeEnchantmentUnknownEffectTypeFails(t *testing.T) {
+	_, _, err := DecodeEnchantment("pk:x", []byte(`{"supported_items":"minecraft:bow","max_level":1,
+		"effects":{"minecraft:post_attack":[{"enchanted":"attacker","affected":"victim","effect":{"type":"minecraft:no_such_effect"}}]}}`))
+	if err == nil || errors.Is(err, ErrUnsupported) {
+		t.Errorf("error %v: want a rejection, not an unsupported entry", err)
+	}
+}
+
 func TestDecodeEnchantmentItemSets(t *testing.T) {
 	def, dropped, err := DecodeEnchantment("pk:x", []byte(`{
 		"supported_items":["minecraft:diamond_sword","iron_sword"],
@@ -95,7 +104,7 @@ func TestDecodeEnchantmentItemSets(t *testing.T) {
 		"max_level":2,
 		"effects":{"minecraft:damage":[{"effect":{"type":"minecraft:add","value":{"type":"minecraft:linear","base":5,"per_level_above_first":5}}}],
 			"minecraft:tick":[],
-			"minecraft:post_attack":[{"enchanted":"attacker","affected":"victim","effect":{"type":"minecraft:no_such_effect"}}]}}`))
+			"minecraft:post_attack":[{"enchanted":"attacker","affected":"victim","effect":{"type":"minecraft:apply_impulse","direction":[0,1,0],"coordinate_scale":[1,1,1],"magnitude":1}}]}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,8 +192,8 @@ func TestDecodeEnchantmentExponentialAndPredicateReference(t *testing.T) {
 }
 
 // TestDecodeEnchantmentLootRequirements keeps a requirement the enchantment
-// codec has no variant for as a loot condition, and still drops one the loot
-// codec refuses.
+// codec has no variant for as a loot condition; one the loot codec refuses
+// fails the file.
 func TestDecodeEnchantmentLootRequirements(t *testing.T) {
 	t.Parallel()
 	effect := func(requirements string) []byte {
@@ -201,8 +210,6 @@ func TestDecodeEnchantmentLootRequirements(t *testing.T) {
 		{`{"type":"minecraft:entity_properties","entity":"attacker","predicate":{"minecraft:flags":{"is_sneaking":true}}}`, true},
 		{`{"type":"minecraft:inverted","term":{"type":"minecraft:entity_scores","entity":"this","scores":{"x":1}}}`, true},
 		{`{"type":"minecraft:location_check","predicate":{"dimension":"minecraft:the_end"}}`, true},
-		{`{"type":"minecraft:no_such_condition"}`, false},
-		{`{"condition":"minecraft:entity_scores","entity":"this","scores":{"x":1}}`, false},
 	} {
 		def, dropped, err := DecodeEnchantment("pk:loot", effect(tc.requirements))
 		if err != nil {
@@ -214,17 +221,22 @@ func TestDecodeEnchantmentLootRequirements(t *testing.T) {
 	}
 }
 
+func TestDecodeEnchantmentUnknownConditionFails(t *testing.T) {
+	_, _, err := DecodeEnchantment("pk:x", []byte(`{"supported_items":"minecraft:bow","max_level":1,
+		"effects":{"minecraft:damage":[{"effect":{"type":"minecraft:add","value":1},"requirements":{"type":"minecraft:no_such_condition"}}]}}`))
+	if err == nil || errors.Is(err, ErrUnsupported) {
+		t.Errorf("error %v: want a rejection", err)
+	}
+}
+
 func TestEnchantmentLegacyConditionKeyRefused(t *testing.T) {
-	def, dropped, err := DecodeEnchantment("pk:legacy", []byte(`{"description":{"text":"x"},"max_level":1,"weight":1,"anvil_cost":1,
+	_, _, err := DecodeEnchantment("pk:legacy", []byte(`{"description":{"text":"x"},"max_level":1,"weight":1,"anvil_cost":1,
 		"min_cost":{"base":1,"per_level_above_first":0},"max_cost":{"base":9,"per_level_above_first":0},
 		"slots":["mainhand"],"supported_items":"#minecraft:enchantable/weapon",
 		"effects":{"minecraft:damage":[{"effect":{"type":"minecraft:add","value":1},
 		"requirements":{"condition":"minecraft:entity_scores","entity":"this","scores":{"x":1}}}]}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(def.Effects.Damage) != 0 || len(dropped) != 1 || !strings.Contains(dropped[0], "No key type in MapLike[") {
-		t.Fatalf("effects %v, dropped %v: want the entry refused with No key type", def.Effects.Damage, dropped)
+	if err == nil || errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "No key type in MapLike[") {
+		t.Fatalf("error %v: want the file refused with No key type", err)
 	}
 }
 

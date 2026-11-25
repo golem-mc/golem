@@ -31,9 +31,20 @@ type lootFailure struct {
 	// overflow is a weighted list's total weight overflowing; the error is
 	// ErrWeightOverflow.
 	overflow bool
+	// unsupported marks input vanilla accepts but this server cannot represent.
+	unsupported bool
 }
 
+// ErrUnsupported marks a decode failure of input vanilla accepts but the
+// server cannot represent, as opposed to input vanilla's codec rejects.
+var ErrUnsupported = errors.New("unsupported")
+
 func fail(format string, args ...any) { panic(lootFailure{msg: fmt.Sprintf(format, args...)}) }
+
+// unsupported fails like fail for input vanilla's codec accepts.
+func unsupported(format string, args ...any) {
+	panic(lootFailure{msg: fmt.Sprintf(format, args...), unsupported: true})
+}
 
 func recoverLoot(err *error) {
 	switch r := recover().(type) {
@@ -48,6 +59,9 @@ func recoverLoot(err *error) {
 			return
 		}
 		*err = errors.New(r.msg)
+		if r.unsupported {
+			*err = fmt.Errorf("%w: %s", ErrUnsupported, r.msg)
+		}
 	default:
 		panic(r)
 	}
@@ -253,7 +267,7 @@ func flag(o obj, key string, def bool) bool {
 func unknownKeys(o obj, what string, known ...string) {
 	for k := range o {
 		if !slices.Contains(known, k) {
-			fail("%s field %q is not supported by this server", what, k)
+			unsupported("%s field %q is not supported by this server", what, k)
 		}
 	}
 }
