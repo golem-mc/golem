@@ -165,6 +165,40 @@ func TestFallingBlockSurvivesARestart(t *testing.T) {
 	waitForBlock(t, restartedSrv, 5, 64, 3, func(s uint16) bool { return s == sand })
 }
 
+// TestTiedFallsDispatchInBookingOrderAfterARestart books two sand falls due
+// the same tick, farther x first, with the world frozen, restarts the server
+// and checks the first-booked block is the first to fall.
+func TestTiedFallsDispatchInBookingOrderAfterARestart(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	srv, c := servertest.Join(t, cfg, "Builder", servertest.OpsListing(t, "Builder"))
+	servertest.FreezeUntilHeld(t, srv)
+
+	// Booked out of x order, so a position sort cannot pass.
+	sand, _ := registry.FindState("minecraft:sand", nil)
+	c.ChatCommand("setblock 9 70 3 sand")
+	c.AwaitBlockState(9, 70, 3, uint16(sand))
+	c.ChatCommand("setblock 3 70 3 sand")
+	c.AwaitBlockState(3, 70, 3, uint16(sand))
+	srv.Shutdown()
+
+	restarted := *cfg
+	restartedSrv, reconnect := servertest.Start(t, &restarted)
+	servertest.FreezeUntilHeld(t, restartedSrv)
+	again := reconnect()
+	again.Login("Builder")
+	again.Configure()
+	again.EnterWorld("Builder")
+	servertest.HoldTicks(t, restartedSrv)
+	servertest.RunTicks(t, restartedSrv, 5)
+
+	first := again.AwaitFallingSpawn()
+	second := again.AwaitFallingSpawn()
+	if first.X != 9.5 || second.X != 3.5 {
+		t.Errorf("falls spawned at x = %g then %g, want 9.5 then 3.5", first.X, second.X)
+	}
+}
+
 // TestAFallingAnvilHurtsThePlayerUnderIt checks the landing's hurt on the
 // wire: an anvil hung over a survival player comes down through their cell
 // and squashes them for vanilla's per-block damage, told as a Damage Event

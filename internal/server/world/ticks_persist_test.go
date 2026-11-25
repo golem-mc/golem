@@ -1,6 +1,7 @@
 package world
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
@@ -10,6 +11,12 @@ import (
 // around the origin held and a fresh physics engine.
 func reopenWorld(t *testing.T, w *World, dir string) (*World, *Physics) {
 	t.Helper()
+	return reopenWorldAround(t, w, dir, -1, 2)
+}
+
+// reopenWorldAround is reopenWorld holding chunks lo..hi on each axis.
+func reopenWorldAround(t *testing.T, w *World, dir string, lo, hi int32) (*World, *Physics) {
+	t.Helper()
 	w.Save()
 	w.Close()
 	w2, err := NewWorld(dir, NewFlatGenerator())
@@ -17,8 +24,8 @@ func reopenWorld(t *testing.T, w *World, dir string) (*World, *Physics) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	t.Cleanup(func() { w2.Close() })
-	for cx := int32(-1); cx <= 2; cx++ {
-		for cz := int32(-1); cz <= 2; cz++ {
+	for cx := lo; cx <= hi; cx++ {
+		for cz := lo; cz <= hi; cz++ {
 			w2.Acquire(ChunkPos{X: cx, Z: cz})
 		}
 	}
@@ -27,14 +34,20 @@ func reopenWorld(t *testing.T, w *World, dir string) (*World, *Physics) {
 
 func newSavedWorld(t *testing.T) (*World, *Physics, string) {
 	t.Helper()
+	return newSavedWorldAround(t, -1, 2)
+}
+
+// newSavedWorldAround is newSavedWorld holding chunks lo..hi on each axis.
+func newSavedWorldAround(t *testing.T, lo, hi int32) (*World, *Physics, string) {
+	t.Helper()
 	t.Parallel()
 	dir := t.TempDir()
 	w, err := NewWorld(dir, NewFlatGenerator())
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	for cx := int32(-1); cx <= 2; cx++ {
-		for cz := int32(-1); cz <= 2; cz++ {
+	for cx := lo; cx <= hi; cx++ {
+		for cz := lo; cz <= hi; cz++ {
 			w.Acquire(ChunkPos{X: cx, Z: cz})
 		}
 	}
@@ -198,29 +211,23 @@ func fallsAfterReload(t *testing.T, waterlogged bool) int {
 // due and priority around heap reorderings and checks the file lists them in
 // booking order (the order vanilla packs them in).
 func TestTiedTicksKeepBookingOrderAcrossReload(t *testing.T) {
-	w, p, dir := newSavedWorld(t)
+	w, p, dir := newSavedWorldAround(t, 0, 0)
 	waterSource := fluidType(fluidWater)<<1 | 1
+	// Booked out of coordinate order so a position sort cannot pass.
 	p.mu.Lock()
-	p.insertTick(blockKey{1, GroundLevel, 1}, waterSource, 100, 0) // A
-	p.insertTick(blockKey{2, GroundLevel, 1}, waterSource, 50, 0)
-	p.insertTick(blockKey{3, GroundLevel, 1}, waterSource, 100, 0) // B
-	p.insertTick(blockKey{4, GroundLevel, 1}, waterSource, 25, 0)
+	p.insertTick(blockKey{3, GroundLevel, 1}, waterSource, 100, 0) // A
+	p.insertTick(blockKey{1, GroundLevel, 1}, waterSource, 50, 0)
+	p.insertTick(blockKey{4, GroundLevel, 1}, waterSource, 100, 0) // B
+	p.insertTick(blockKey{2, GroundLevel, 1}, waterSource, 25, 0)
 	p.mu.Unlock()
 
-	w, p = reopenWorld(t, w, dir)
-	p.Tick(0)
+	w, _ = reopenWorldAround(t, w, dir, 0, 0)
 	var got []int32
 	for _, st := range w.ticksOfChunk(ChunkPos{}).fluid {
 		got = append(got, st.x)
 	}
-	want := []int32{1, 2, 3, 4}
-	if len(got) != len(want) {
+	if want := []int32{3, 1, 4, 2}; !slices.Equal(got, want) {
 		t.Fatalf("reloaded fluid ticks x = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("reloaded fluid ticks x = %v, want %v", got, want)
-		}
 	}
 }
 
@@ -228,7 +235,7 @@ func TestTiedTicksKeepBookingOrderAcrossReload(t *testing.T) {
 // same tick, with shorter fluid visits between them, and checks that after a
 // save and reload the first-booked sand is the first to fall.
 func TestTiedTicksDispatchInBookingOrderAfterReload(t *testing.T) {
-	w, p, dir := newSavedWorld(t)
+	w, p, dir := newSavedWorldAround(t, 0, 0)
 	sand, _ := registry.FindState("minecraft:sand", nil)
 	waterSource := fluidType(fluidWater)<<1 | 1
 	y := int32(GroundLevel + 4)
@@ -242,7 +249,7 @@ func TestTiedTicksDispatchInBookingOrderAfterReload(t *testing.T) {
 	p.insertTick(blockKey{4, GroundLevel, 1}, waterSource, p.now+1, 0)
 	p.mu.Unlock()
 
-	_, p = reopenWorld(t, w, dir)
+	_, p = reopenWorldAround(t, w, dir, 0, 0)
 	var got []int32
 	for clock := int64(1); clock <= 10 && len(got) < 2; clock++ {
 		_, falls, _, _ := p.Tick(clock)
