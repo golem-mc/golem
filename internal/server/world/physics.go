@@ -2288,14 +2288,8 @@ func newLiquidAt(w fluidSpreadReader, x, y, z int32, state uint16, b fluidBehavi
 			highest = nfs.amount
 		}
 	}
-	if sources >= 2 && w.BoolRule(b.conversionRule) {
-		// Two sources beside over body-holding ground, or a same-fluid source
-		// below, make an infinite-pool source.
-		belowState := w.BlockAt(x, y-1, z)
-		belowFS := fluidHolding(belowState)
-		if collisionSolid(belowState) || (belowFS.kind == kind && belowFS.isSource()) {
-			return fluidState{kind: kind, amount: 8}
-		}
+	if sources >= 2 && w.BoolRule(b.conversionRule) && supportsFluidSource(w.BlockAt(x, y-1, z), kind) {
+		return fluidState{kind: kind, amount: 8}
 	}
 	if y < worldMinY+worldHeight {
 		aboveState := w.BlockAt(x, y+1, z)
@@ -2308,6 +2302,24 @@ func newLiquidAt(w fluidSpreadReader, x, y, z int32, state uint16, b fluidBehavi
 		return fluidState{}
 	}
 	return fluidState{kind: kind, amount: amount}
+}
+
+func supportsFluidSource(state uint16, kind fluidKind) bool {
+	if collisionSolid(state) {
+		return true
+	}
+	f := blocklogic.FluidOf(state)
+	return f.Kind == kind && f.IsSource()
+}
+
+// The downward face is already open in both directions. With matching fluid
+// above and no support for source conversion, the neighbors cannot affect the
+// level.
+func downwardLiquidAt(w fluidSpreadReader, x, y, z int32, originState, destinationState uint16, b fluidBehaviour) fluidState {
+	if blocklogic.FluidOf(originState).Kind == b.kind && !supportsFluidSource(w.BlockAt(x, y-1, z), b.kind) {
+		return fluidState{kind: b.kind, amount: 8, falling: true}
+	}
+	return newLiquidAt(w, x, y, z, destinationState, b)
 }
 
 // spread pours down first, where the face below is open and the cell will take
@@ -2323,11 +2335,11 @@ func (p *Physics) spread(x, y, z int32, fs fluidState, changes *[]BlockChange) {
 	bx, by, bz := x, y-1, z
 	belowState := p.w.BlockAt(bx, by, bz) // air past the world's floor
 	if canMaybePassThrough(fs.kind, state, 1, false, belowState, fluidHolding(belowState)) {
-		newBelow := newLiquidAt(p.w, bx, by, bz, belowState, p.behaviourOf(fs.kind))
+		newBelow := downwardLiquidAt(p.w, bx, by, bz, state, belowState, p.behaviourOf(fs.kind))
 		if canReplaceWith(p.w, fluidHolding(belowState), bx, by, bz, newBelow.kind, true) &&
 			canHoldSpecific(belowState, newBelow) {
 			p.spreadTo(bx, by, bz, belowState, newBelow, [3]int32{x, y, z}, changes)
-			if p.sourceNeighborCount(x, y, z, fs.kind) >= 3 {
+			if pourSurroundedBySources(p.w, x, y, z, fs.kind) {
 				// Hemmed in by sources on three sides, the pour also floods.
 				p.spreadToSides(x, y, z, state, fs, changes)
 			}
@@ -2754,16 +2766,24 @@ func (c *spreadContext) slopeDistance(i, pass, from, reach int) int {
 	return lowest
 }
 
-// sourceNeighborCount counts same-fluid sources beside a cell, the hem a pour
-// needs to also flood.
-func (p *Physics) sourceNeighborCount(x, y, z int32, kind fluidKind) int {
-	count := 0
+// vanilla: FlowingFluid.sourceNeighborCount
+func pourSurroundedBySources(w BlockReader, x, y, z int32, kind fluidKind) bool {
+	sources, misses := 0, 0
 	for _, d := range horizontal4 {
-		if fs := fluidHolding(p.w.BlockAt(x+d[0], y, z+d[1])); fs.kind == kind && fs.isSource() {
-			count++
+		f := blocklogic.FluidOf(w.BlockAt(x+d[0], y, z+d[1]))
+		if f.Kind == kind && f.IsSource() {
+			sources++
+			if sources == 3 {
+				return true
+			}
+		} else {
+			misses++
+			if misses == 2 {
+				return false
+			}
 		}
 	}
-	return count
+	return false
 }
 
 // spreadTo writes the flow into a cell. A container takes a water source
