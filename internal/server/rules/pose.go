@@ -25,10 +25,25 @@ type PlayerDimensions struct {
 }
 
 // Scaled is the shape grown by s in width, height and eye height.
+// A scale other than 1 gives single-precision products, as the float fields
+// do; scale 1 keeps the table's values so unscaled players stay unchanged.
 // vanilla: EntityDimensions.scale
 func (d PlayerDimensions) Scaled(s float64) PlayerDimensions {
-	return PlayerDimensions{Width: d.Width * s, Height: d.Height * s, EyeHeight: d.EyeHeight * s}
+	if s == 1 {
+		return d
+	}
+	f := float32(s)
+	return PlayerDimensions{
+		Width:     float64(float32(d.Width) * f),
+		Height:    float64(float32(d.Height) * f),
+		EyeHeight: float64(float32(d.EyeHeight) * f),
+	}
 }
+
+// MaxPlayerHalfWidth bounds a player's box half-width: the widest pose, 0.6,
+// at the scale attribute's maximum of 16.
+// vanilla: Attributes.SCALE (range 0.0625 to 16)
+const MaxPlayerHalfWidth = float64(float32(0.6) * 16 / 2)
 
 // The poses' shapes.
 // vanilla: Avatar.POSES

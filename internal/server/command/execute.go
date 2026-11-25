@@ -192,6 +192,11 @@ func storeKind(execute *Node, kind string) *Node {
 	objective := redirectTo(execute, &Node{Type: NodeArgument, Name: "objective", Parser: ParserObjective})
 	targets := scoreHolderArg("targets", true)
 	targets.Children = []*Node{objective}
+	path := func() *Node {
+		node := pathArg("path")
+		node.Children = nbtStoreTypes(execute)
+		return node
+	}
 	return &Node{Type: NodeLiteral, Name: kind, Children: []*Node{
 		{Type: NodeLiteral, Name: "score", Children: []*Node{
 			targets,
@@ -207,18 +212,15 @@ func storeKind(execute *Node, kind string) *Node {
 			{Type: NodeArgument, Name: "target", Parser: ParserEntity,
 				Properties: func(b *protocol.Buffer) { b.PutU8(1) },
 				EntityArg:  &EntityArg{Single: true},
-				Children: []*Node{{Type: NodeArgument, Name: "path", Parser: ParserNbtPath,
-					Children: nbtStoreTypes(execute)}}},
+				Children:   []*Node{path()}},
 		}},
 		{Type: NodeLiteral, Name: "block", Children: []*Node{
 			{Type: NodeArgument, Name: "target", Parser: ParserBlockPos,
-				Children: []*Node{{Type: NodeArgument, Name: "path", Parser: ParserNbtPath,
-					Children: nbtStoreTypes(execute)}}},
+				Children: []*Node{path()}},
 		}},
 		{Type: NodeLiteral, Name: "storage", Children: []*Node{
 			{Type: NodeArgument, Name: "target", Parser: ParserResourceLoc,
-				Children: []*Node{{Type: NodeArgument, Name: "path", Parser: ParserNbtPath,
-					Children: nbtStoreTypes(execute)}}},
+				Children: []*Node{path()}},
 		}},
 	}}
 }
@@ -229,7 +231,8 @@ func nbtStoreTypes(execute *Node) []*Node {
 	// One shared scale argument stands behind every type word, the way the
 	// vanilla tree carries a single node six of its chains point at.
 	scale := redirectTo(execute, &Node{Type: NodeArgument, Name: "scale", Parser: ParserDouble,
-		Properties: func(b *protocol.Buffer) { b.PutU8(0) }})
+		Properties: func(b *protocol.Buffer) { b.PutU8(0) },
+		Check:      checkDoubleArg})
 	types := []string{"int", "float", "short", "long", "double", "byte"}
 	nodes := make([]*Node, len(types))
 	for i, name := range types {
@@ -282,7 +285,7 @@ func conditionalNode(execute *Node, name string, expected bool) *Node {
 				EntityArg:  &EntityArg{}}),
 		}},
 		{Type: NodeLiteral, Name: "predicate", Children: []*Node{
-			redirectTo(execute, &Node{Type: NodeArgument, Name: "predicate", Parser: ParserLootPredicate, Executable: true, Check: checkPredicateArgument}),
+			redirectTo(execute, &Node{Type: NodeArgument, Name: "predicate", Parser: ParserLootPredicate, Executable: true, Check: predicateArgumentCheck(nil)}),
 		}},
 		{Type: NodeLiteral, Name: "function", Children: []*Node{
 			redirectTo(execute, &Node{Type: NodeArgument, Name: "name", Parser: ParserFunction,
@@ -1297,7 +1300,7 @@ func stepSummon(src Source, ctxs []execContext, forked bool, rest []string) ([]e
 			_, id, err = view.SummonItem(ctx.pos.X, ctx.pos.Y, ctx.pos.Z, protocol.ItemStack{}, 10, false, nil)
 			made = true
 		} else {
-			_, id, _, _, made, err = summonBody(view, name, kind, ctx.pos.X, ctx.pos.Y, ctx.pos.Z, nil, nil, nil, false)
+			_, id, _, made, err = summonBody(view, name, kind, ctx.pos.X, ctx.pos.Y, ctx.pos.Z, nil, nil, nil, false)
 		}
 		if made && err == nil {
 			if found := view.Entities(EntityQuery{UUID: &id}); len(found) > 0 {
@@ -1472,7 +1475,7 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 		// The argument is a pack predicate's name or an inline one.
 		text, span := itemPredicateText(tokens, at+2)
 		next, ask := expectOver(src, ctxs, expected, false, func(view Source) condAnswer {
-			cond, err := parsePredicate(text)
+			cond, err := parsePredicate(text, nil)
 			if err != nil {
 				return condAnswer{}
 			}
@@ -1942,9 +1945,7 @@ func stepStore(src Source, ctxs []execContext, forked bool, rest []string, token
 				continue
 			}
 			target := dataTarget{src: view, kind: dataTargetBlock, x: x, y: y, z: z}
-			if next, ok = withNBTStore(next, ctx, target, rest, tokens, 6, pathSpan); !ok {
-				src.Debug("execute store path or scale did not parse", "args", rest[6:])
-			}
+			next = withNBTStore(next, ctx, target, rest, tokens, 6, pathSpan)
 		}
 		return next, 8 + pathSpan, nil
 	case "entity":
@@ -1967,9 +1968,7 @@ func stepStore(src Source, ctxs []execContext, forked bool, rest []string, token
 			if writer, ok := bodies[0].(DataWriter); ok {
 				target.writeEntity = writer.SetDataTag
 			}
-			if next, ok = withNBTStore(next, ctx, target, rest, tokens, 3+span, pathSpan); !ok {
-				src.Debug("execute store path or scale did not parse", "args", rest[3+span:])
-			}
+			next = withNBTStore(next, ctx, target, rest, tokens, 3+span, pathSpan)
 		}
 		return next, 5 + span + pathSpan, nil
 	default:
@@ -1984,28 +1983,25 @@ func stepStore(src Source, ctxs []execContext, forked bool, rest []string, token
 				continue
 			}
 			target := dataTarget{src: view, kind: dataTargetStorage, id: id}
-			if next, ok = withNBTStore(next, ctx, target, rest, tokens, 4, pathSpan); !ok {
-				src.Debug("execute store path or scale did not parse", "args", rest[4:])
-			}
+			next = withNBTStore(next, ctx, target, rest, tokens, 4, pathSpan)
 		}
 		return next, 6 + pathSpan, nil
 	}
 }
 
-// withNBTStore appends ctx to next carrying one more store, the NBT kind's
-// write into target: the path at rest[at:at+pathSpan], then the type word
-// and the scale. ok is false where those did not read, ctx then dropped.
-func withNBTStore(next []execContext, ctx execContext, target dataTarget, rest []string, tokens []Token, at, pathSpan int) ([]execContext, bool) {
+// withNBTStore attaches a write to target using the path, type and scale
+// already checked by the command tree.
+func withNBTStore(next []execContext, ctx execContext, target dataTarget, rest []string, tokens []Token, at, pathSpan int) []execContext {
 	if at+pathSpan+2 > len(rest) {
-		return next, false
+		return next
 	}
 	path, err := parseNBTPath(wordsInTokens(tokens, rest, at, pathSpan))
 	if err != nil {
-		return next, false
+		return next
 	}
 	scale, perr := readDoubleWord(rest[at+pathSpan+1])
 	if perr != nil {
-		return next, false
+		return next
 	}
 	typeWord := rest[at+pathSpan]
 	storeResult := rest[1] == "result"
@@ -2016,7 +2012,7 @@ func withNBTStore(next []execContext, ctx execContext, target dataTarget, rest [
 		target.storeData(path, scaledTag(typeWord, float64(value)*scale))
 		return nil
 	})
-	return append(next, ctx), true
+	return append(next, ctx)
 }
 
 // storeData sets tag at path in the target's compound and writes it back; an

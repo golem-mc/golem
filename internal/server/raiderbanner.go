@@ -30,6 +30,9 @@ func (s *Server) tickRaiderBanners() {
 	var seekers []bannerSeeker
 	s.lockTick(&s.mobsMu)
 	for _, dim := range s.allDims() {
+		if dim.mobs.illagers == 0 {
+			continue
+		}
 		for _, m := range dim.mobs.herd {
 			if !entity.IsIllagerType(m.Type) {
 				continue
@@ -85,7 +88,7 @@ func (s *Server) tickRaiderBanners() {
 // bannerTakes turns the banners the dimension's raiders reached into takes of
 // the head slot, one per wave. The mob lock is held.
 // vanilla: Raider.pickUpItem
-func (s *Server) bannerTakes(dim *dimension, ground []mobLootItem, mobGriefing bool) []mobLootTake {
+func (s *Server) bannerTakes(dim *dimension, mobGriefing bool) []mobLootTake {
 	var takes []mobLootTake
 	taken := map[*raid.Raid]map[int]bool{}
 	var banners []int
@@ -106,17 +109,17 @@ func (s *Server) bannerTakes(dim *dimension, ground []mobLootItem, mobGriefing b
 		}
 		if !filtered {
 			banner := ominousBanner()
-			for i, g := range ground {
-				if g.loot.Stack.Equal(banner) {
+			for i := range dim.mobLootView {
+				if dim.mobLootView[i].Stack.Equal(banner) {
 					banners = append(banners, i)
 				}
 			}
 			filtered = true
 		}
 		for _, i := range banners {
-			g := ground[i]
-			goal := ok && g.it.item.ID == id
-			if !goal && (!nearby || !m.CanPickUpCaptainBanner(g.loot)) {
+			it, loot := dim.mobLootGround[i], dim.mobLootView[i]
+			goal := ok && it.item.ID == id
+			if !goal && (!nearby || !m.CanPickUpCaptainBanner(loot)) {
 				continue
 			}
 			if taken[ref.raid] == nil {
@@ -124,7 +127,7 @@ func (s *Server) bannerTakes(dim *dimension, ground []mobLootItem, mobGriefing b
 			}
 			taken[ref.raid][ref.wave] = true
 			takes = append(takes, mobLootTake{
-				w: dim.w, it: g.it, stack: g.loot.Stack, leads: ref, mobUUID: ent.uuid,
+				w: dim.w, it: it, stack: loot.Stack, leads: ref, mobUUID: ent.uuid,
 				take: entity.LootTake{Mob: m, Item: i, Slot: "head", Count: 1, Banner: true},
 			})
 			break

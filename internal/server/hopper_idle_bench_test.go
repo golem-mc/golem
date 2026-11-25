@@ -43,6 +43,33 @@ func newBlockBenchServer(b *testing.B, chunks int32) (*Server, *world.World) {
 	return s, w
 }
 
+// BenchmarkEmptyHopperField measures a block entity pass over 1,024 enabled hoppers with air above.
+func BenchmarkEmptyHopperField(b *testing.B) {
+	s, w := newBlockBenchServer(b, 2)
+	for x := range int32(2) {
+		for z := range int32(2) {
+			b.Cleanup(w.HoldEntityTicking(world.ChunkPos{X: x, Z: z}))
+		}
+	}
+	hopper := registry.MustState("minecraft:hopper", map[string]string{"facing": "down", "enabled": "true"})
+	for x := range int32(32) {
+		for z := range int32(32) {
+			w.SetBlock(x, 64, z, hopper)
+			w.EnsureBlockEntity(x, 64, z, world.KindHopper)
+		}
+	}
+	w.FlushLighting()
+	for range 10 {
+		w.TickTime()
+		s.tickBlockEntities()
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		w.TickTime()
+		s.tickBlockEntities()
+	}
+}
+
 // BenchmarkIdleHoppers is one block entity tick over 16384 hoppers with
 // nothing to move.
 func BenchmarkIdleHoppers(b *testing.B) {
@@ -151,20 +178,30 @@ func BenchmarkIdleHoppers(b *testing.B) {
 	})
 }
 
-// BenchmarkVehicleColumnDispatch is one block entity tick over 200 spaced
-// chest boats, without and with one hopper.
+// BenchmarkVehicleColumnDispatch is one block entity tick over chest boats,
+// with no hopper, one hopper clear of them, one hopper and no boats, and one
+// hopper with 8 boats in the box above it.
 func BenchmarkVehicleColumnDispatch(b *testing.B) {
-	for _, hoppers := range []int{0, 1} {
-		name := "no_hopper"
-		if hoppers == 1 {
-			name = "one_hopper"
-		}
-		b.Run(name, func(b *testing.B) {
+	for _, bc := range []struct {
+		name          string
+		spaced, above int
+		hopper        bool
+	}{
+		{"no_hopper", 200, 0, false},
+		{"one_hopper", 200, 0, true},
+		{"empty_index", 0, 0, true},
+		{"overlapping_boats", 200, 8, true},
+	} {
+		b.Run(bc.name, func(b *testing.B) {
 			s, w := newBlockBenchServer(b, 0)
-			for i := range 200 {
+			for i := range bc.spaced {
 				s.spawnBoat(w, "minecraft:oak_chest_boat", float64((i%20)*4), 64, float64(10+(i/20)*4), 0, customName{})
 			}
-			if hoppers == 1 {
+			// The hopper at (0, 64, 0) pulls from the unit box centred on (0.5, 65.5, 0.5).
+			for range bc.above {
+				s.spawnBoat(w, "minecraft:oak_chest_boat", 0.5, 65, 0.5, 0, customName{})
+			}
+			if bc.hopper {
 				w.SetBlock(0, 64, 0, registry.MustState("minecraft:hopper", map[string]string{"facing": "down", "enabled": "true"}))
 				w.EnsureBlockEntity(0, 64, 0, world.KindHopper)
 				// Without the hold the block entity pass skips the hopper.

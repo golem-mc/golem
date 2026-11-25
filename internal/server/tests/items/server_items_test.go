@@ -135,7 +135,7 @@ func TestCreativePlayerPicksUpADroppedStack(t *testing.T) {
 
 	// The stack stands where the player does, so the pickup range covers it
 	// once the drop's ten-tick delay runs out.
-	srv.SpawnItemEntity(0.5, 64, 0.5, "minecraft:dirt", 1)
+	srv.SpawnItemEntity(0.5, 64.125, 0.5, "minecraft:dirt", 1)
 	item := c.ExpectDroppedItem()
 
 	slot, stack := c.ExpectContainerSlot()

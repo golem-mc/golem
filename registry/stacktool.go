@@ -20,7 +20,7 @@ var blockNamesByID = func() map[int32]string {
 
 // toolOf reads a minecraft:tool value in the shape its codec stores.
 // vanilla: Tool.CODEC, Tool.Rule.CODEC
-func toolOf(value nbt.Tag) (protocol.ToolComponent, bool) {
+func (lookup *TagLookup) toolOf(value nbt.Tag) (protocol.ToolComponent, bool) {
 	entry, ok := nbt.CompoundView(value)
 	if !ok {
 		return protocol.ToolComponent{}, false
@@ -31,7 +31,7 @@ func toolOf(value nbt.Tag) (protocol.ToolComponent, bool) {
 		return protocol.ToolComponent{}, false
 	}
 	for _, item := range rules.Items {
-		rule, ok := toolRuleOf(item)
+		rule, ok := lookup.toolRuleOf(item)
 		if !ok {
 			return protocol.ToolComponent{}, false
 		}
@@ -61,12 +61,12 @@ func toolOf(value nbt.Tag) (protocol.ToolComponent, bool) {
 	return tool, true
 }
 
-func toolRuleOf(value nbt.Tag) (protocol.ToolRule, bool) {
+func (lookup *TagLookup) toolRuleOf(value nbt.Tag) (protocol.ToolRule, bool) {
 	entry, ok := nbt.CompoundView(value)
 	if !ok {
 		return protocol.ToolRule{}, false
 	}
-	set, ok := blockSetOf(entry["blocks"])
+	set, ok := lookup.blockSetOf(entry["blocks"])
 	if !ok {
 		return protocol.ToolRule{}, false
 	}
@@ -91,13 +91,13 @@ func toolRuleOf(value nbt.Tag) (protocol.ToolRule, bool) {
 // blockSetOf reads a block holder set: a "#tag", one block, or a list of
 // blocks and tags' worth of names.
 // vanilla: RegistryCodecs.homogeneousList
-func blockSetOf(value nbt.Tag) (protocol.BlockPredicateSet, bool) {
+func (lookup *TagLookup) blockSetOf(value nbt.Tag) (protocol.BlockPredicateSet, bool) {
 	set := protocol.BlockPredicateSet{Present: true}
 	switch v := value.(type) {
 	case nbt.String:
 		if tag, isTag := strings.CutPrefix(string(v), "#"); isTag {
 			tag = Qualify(tag)
-			if !protocol.ValidIdentifier(tag) || !BlockTagKnown(tag) {
+			if !protocol.ValidIdentifier(tag) || !lookup.blockTagKnown(tag) {
 				return set, false
 			}
 			set.Tag = tag

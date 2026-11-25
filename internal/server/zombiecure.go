@@ -28,7 +28,7 @@ func (c *client) cureZombieVillager(ent *mobEntity, hand int32) error {
 // zombieVillagerCured applies ZombieVillager.finishConversion after the mob lock.
 func (s *Server) zombieVillagerCured(cv mobConversion, m *entity.Mob) {
 	old := cv.old.mob
-	ent := convertedEntity(cv.old, m, cv.w, false)
+	ent := convertedEntity(cv.old, m, cv.w, conversionParams{})
 	drops := m.CuredFrom(old)
 	// CONVERSION finalizes the villager type without the zombie attribute roll.
 	m.FinalizeSpawn(m.SpawnDice(), cv.w.Biome(rules.BlockOf(old.X), rules.BlockOf(old.Y), rules.BlockOf(old.Z)), nil, rules.NewLocalDifficulty(cv.w.Difficulty(), s.effectiveDifficultyAt(cv.w, old.X, old.Z)))
@@ -51,11 +51,12 @@ func (s *Server) zombieVillagerCured(cv mobConversion, m *entity.Mob) {
 }
 
 // villagerInfected spawns the zombie villager a zombie's kill made.
-// vanilla: Zombie.killedEntity
+// vanilla: Zombie.convertVillagerToZombieVillager
 func (s *Server) villagerInfected(cv mobConversion, m *entity.Mob) {
 	old := cv.old.mob
+	ent := convertedEntity(cv.old, m, cv.w, conversionParams{keepEquipment: true, keepLootPickup: true})
 	m.InfectedFrom(old, rules.SpecialMultiplier(s.effectiveDifficultyAt(cv.w, old.X, old.Z)))
-	s.addRiddenConversion(cv.old, convertedEntity(cv.old, m, cv.w, false))
+	s.addRiddenConversion(cv.old, ent)
 	if !cv.infectionSilent {
 		s.broadcastLevelEvent(cv.w, protocol.WorldEventZombieVillagerInfected, cv.infectionX, cv.infectionY, cv.infectionZ, 0)
 	}

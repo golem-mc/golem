@@ -105,9 +105,6 @@ type waypointPlayer struct {
 	transmit, receive float64
 	spectator         bool
 	changed           bool
-	// visible reports whether a chunk is within this player's view, built
-	// once per tick so a pairing's view does not allocate.
-	visible func(x, z int32) bool
 	// Every track/update in this pass names the snapshot's coordinates.
 	// Queued payloads are immutable and shared by receivers of the same form.
 	payloads [protocol.WaypointUpdate + 1][2][]byte
@@ -131,7 +128,8 @@ type waypointStamp struct {
 func (s *Server) tickWaypoints() {
 	rule := s.world.BoolRule(world.RuleLocatorBar)
 	s.mu.RLock()
-	present := make([]waypointPlayer, 0, len(s.clients))
+	old := len(s.waypointBuf)
+	present := s.waypointBuf[:0]
 	for _, c := range s.clients {
 		if c.player == nil || c.keepAlive == nil {
 			continue
@@ -147,7 +145,7 @@ func (s *Server) tickWaypoints() {
 	// Read the attribute map after releasing the player list lock: its lock
 	// sits below that one, and the tick's attribute refresh takes it in
 	// between.
-	anyChanged := false
+	changed := s.waypointChanged[:0]
 	for i := range present {
 		p := &present[i]
 		p.c.player.Attributes(func(a *player.Attributes) {
@@ -161,15 +159,23 @@ func (s *Server) tickWaypoints() {
 		forgot := p.c.waypointsForgot.Swap(false)
 		p.changed = forgot || stamp != p.c.waypointSeen
 		p.c.waypointSeen = stamp
-		anyChanged = anyChanged || p.changed
+		if p.changed {
+			changed = append(changed, i)
+		}
 	}
-	if anyChanged {
-		setWaypointVisibility(present)
+	s.waypointChanged = changed
+	if len(changed) != 0 {
 		for i := range present {
 			t := &present[i]
 			t.c.trackMu.Lock()
-			for j := range present {
-				if i != j && (t.changed || present[j].changed) {
+			if t.changed {
+				for j := range present {
+					if i != j {
+						settleWaypointLocked(rule, t, &present[j])
+					}
+				}
+			} else {
+				for _, j := range changed {
 					settleWaypointLocked(rule, t, &present[j])
 				}
 			}
@@ -177,15 +183,10 @@ func (s *Server) tickWaypoints() {
 		}
 	}
 	s.tickMobWaypoints(rule, present)
-}
-
-// setWaypointVisibility builds each receiver's view test once per tick.
-func setWaypointVisibility(present []waypointPlayer) {
-	for i := range present {
-		chunk, radius := present[i].chunk, present[i].radius
-		present[i].visible = func(x, z int32) bool {
-			return world.InViewOf(world.ChunkPos{X: x, Z: z}, chunk, radius)
-		}
+	// Drop the client pointers of players who left, so they can be collected.
+	s.waypointBuf = present
+	if n := len(present); n < old {
+		clear(s.waypointBuf[n:old])
 	}
 }
 
@@ -197,7 +198,7 @@ func waypointViewOf(t *waypointPoint, v *waypointPlayer) rules.WaypointView {
 		BlockX: t.blockX, BlockY: t.blockY, BlockZ: t.blockZ,
 		ChunkX: t.chunk.X, ChunkZ: t.chunk.Z,
 		DX: v.x - t.x, DZ: v.z - t.z,
-		ChunkVisible: v.visible,
+		ViewerChunkX: v.chunk.X, ViewerChunkZ: v.chunk.Z, ViewerRadius: v.radius,
 	}
 }
 
@@ -255,7 +256,8 @@ func settleWaypointLocked(rule bool, t, v *waypointPlayer) {
 	if !v.c.joined() {
 		return
 	}
-	view := waypointViewOf(&t.waypointPoint, v)
+	v0 := waypointViewOf(&t.waypointPoint, v)
+	view := &v0
 	hold := rule && t.transmit > 0 && v.receive > 0 &&
 		!rules.WaypointIgnoresReceiver(t.spectator, v.spectator, view.Dist, t.transmit, v.receive)
 
@@ -297,7 +299,7 @@ func settleWaypointLocked(rule bool, t, v *waypointPlayer) {
 
 // trackWaypointPair pairs a receiver with a transmitter and sends the
 // track, replacing any record of the pair.
-func trackWaypointPair(t, v *waypointPlayer, view rules.WaypointView) {
+func trackWaypointPair(t, v *waypointPlayer, view *rules.WaypointView) {
 	link := &waypointLink{viewer: v.c, WaypointConnection: rules.NewWaypointConnection(view)}
 	sendWaypoint(t, v, protocol.WaypointTrack, link)
 	t.c.waypoints.set(v.c, link)

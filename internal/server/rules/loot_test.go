@@ -3,11 +3,47 @@ package rules
 import (
 	"maps"
 	"math/rand"
+	"slices"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/registry"
 )
+
+// vanilla: LootTable.getRandomItemsRaw, LootTable.createStackSplitter
+func TestNestedLootAppliesModifiersBeforeSplitting(t *testing.T) {
+	count := func(n float64, add bool) []registry.LootFunction {
+		return []registry.LootFunction{registry.LootSetCount{Count: registry.LootConstant{Value: n}, Add: add}}
+	}
+	once := registry.LootConstant{Value: 1}
+	inner := registry.LootTable{
+		Functions: count(60, false),
+		Pools: []registry.LootPool{{
+			Rolls:     once,
+			Functions: count(100, true),
+			Entries:   []registry.LootEntry{registry.LootItemEntry{Item: registry.ItemStick, Weight: 1}},
+		}},
+	}
+	outer := registry.LootTable{
+		Functions: count(6, true),
+		Pools: []registry.LootPool{{
+			Rolls:     once,
+			Functions: count(5, true),
+			Entries:   []registry.LootEntry{registry.LootReference{Inline: &inner, Weight: 1, Functions: count(4, true)}},
+		}, {
+			Rolls:   once,
+			Entries: []registry.LootEntry{registry.LootItemEntry{Item: registry.ItemDiamond, Weight: 1}},
+		}},
+	}
+	var got []lootDrop
+	for _, stack := range RollLootTable("test:nested", outer, &LootContext{}, rand.New(rand.NewSource(1))) {
+		got = append(got, lootDrop{registry.Item(stack.ItemID).Name(), stack.Count})
+	}
+	want := []lootDrop{{"minecraft:stick", 64}, {"minecraft:stick", 11}, {"minecraft:diamond", 7}}
+	if !slices.Equal(got, want) {
+		t.Errorf("loot = %v, want %v", got, want)
+	}
+}
 
 // The loot engine against the generated tables, formula by formula: each
 // test rolls a table the data pack carries many times over with a seeded

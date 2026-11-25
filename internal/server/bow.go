@@ -226,30 +226,45 @@ func (c *client) releaseBow() {
 		return
 	}
 
-	// Speed is power*3 with inaccuracy 1 (vanilla: Projectile.shoot); a full
-	// draw is critical. Infinity can make the arrow free (vanilla:
-	// ProjectileWeaponItem.useAmmo); a free or creative arrow is a pickup for
-	// creative players only. The bow is the fired-from weapon whose
-	// enchantments the hit reads; a flame bow sets the arrow alight.
 	pos := c.player.Position()
 	ammoUse := int32(0) // infinite materials spend nothing
 	if !creative {
 		ammoUse = rules.ProcessAmmoUse(held, ammo.stack)
 	}
-	free := ammoUse == 0
-	power, consume, ok := c.shootBowAllowed(held, power, !free)
-	if !ok {
-		return
+	// vanilla: ProjectileWeaponItem.useAmmo, BowItem.releaseUsing
+	// An empty draw still plays the sound and counts as a use.
+	fired := ammoUse <= ammo.stack.Count
+	if fired {
+		var consume, ok bool
+		power, consume, ok = c.shootBowAllowed(held, power, ammoUse != 0)
+		if !ok {
+			return
+		}
+		// A listener can also request consumption on a free shot.
+		if consume && ammo.ok && !c.consumeAmmo(ammo, max(1, ammoUse)) {
+			return
+		}
+		pickup := entity.PickupAllowed
+		if creative || !consume {
+			pickup = entity.PickupCreativeOnly
+		}
+		c.spawnBowArrow(pos, held, ammo.stack, power, pickup)
 	}
-	free = !consume
-	if !free && ammo.ok {
-		c.consumeAmmo(ammo)
+
+	// vanilla: BowItem.releaseUsing
+	c.srv.broadcastSoundID(c.theWorld(), registry.SoundEntityArrowShoot, protocol.SoundCategoryPlayer,
+		pos.X, pos.Y, pos.Z, 1.0,
+		float32(1.0/(c.srv.levelRng.Float64()*0.4+1.2)+power*0.5))
+	c.awardItemStat(registry.StatTypeUsed, held.ItemID, 1)
+	if fired {
+		c.wearHeld(hand, 1) // vanilla: ProjectileWeaponItem.getDurabilityUse
 	}
-	pickup := map[bool]entity.ArrowPickup{true: entity.PickupCreativeOnly, false: entity.PickupAllowed}[creative || free]
-	fireTicks := rules.ProjectileIgniteTicks(held)
-	rng := c.srv.levelRng
+	c.startUseCooldown(held)
+}
+
+func (c *client) spawnBowArrow(pos player.Position, bow, ammo protocol.ItemStack, power float64, pickup entity.ArrowPickup) {
 	aimX, aimY, aimZ := entity.LookVector(pos.Yaw, pos.Pitch)
-	vx, vy, vz := entity.ShootVelocity(aimX, aimY, aimZ, power*3.0, 1.0, rng)
+	vx, vy, vz := entity.ShootVelocity(aimX, aimY, aimZ, power*3.0, 1.0, c.srv.levelRng)
 	// The spawn's heading is the bow velocity's: vanilla Projectile.shoot sets
 	// yRot/xRot before shootFromRotation adds getKnownMovement.
 	yaw, pitch := entity.ArrowAngles(vx, vy, vz)
@@ -261,43 +276,39 @@ func (c *client) releaseBow() {
 	if !pos.OnGround {
 		vy += movement.Y
 	}
-	s := c.srv
-	s.spawnArrowFrom(c.theWorld(),
+	// vanilla: Projectile.applyOnProjectileSpawned, Entity.igniteForTicks
+	fireTicks := max(rules.ProjectileIgniteTicks(ammo), rules.ProjectileIgniteTicks(bow))
+	c.srv.spawnArrowFrom(c.theWorld(),
 		pos.X, pos.Y+c.dims(c.player.Appearance().Pose).EyeHeight-entity.ArrowSpawnBelow, pos.Z,
 		vx, vy, vz, yaw, pitch,
 		power == 1.0, entity.ArrowBaseDamage,
 		pickup,
-		c.player.EntityID, c.player.UUID, held, fireTicks, ammo.stack)
-	// Played from the shooter's feet (vanilla: BowItem.releaseUsing), pitch
-	// 1/(rand*0.4+1.2) + power*0.5.
-	s.broadcastSoundID(c.theWorld(), registry.SoundEntityArrowShoot, protocol.SoundCategoryPlayer,
-		pos.X, pos.Y, pos.Z, 1.0,
-		float32(1.0/(rng.Float64()*0.4+1.2)+power*0.5))
-	// vanilla: BowItem.releaseUsing
-	c.awardItemStat(registry.StatTypeUsed, held.ItemID, 1)
-	// vanilla: getDurabilityUse, one per shot.
-	c.wearHeld(hand, 1)
-	c.startUseCooldown(held)
+		c.player.EntityID, c.player.UUID, bow, fireTicks, ammo)
 }
 
-// consumeAmmo takes one arrow from the slot and sends it, since the client
-// waits for the server's decrement; watchers get an equipment update if the
-// slot is visible.
-func (c *client) consumeAmmo(ammo bowFind) {
+// consumeAmmo takes count from the selected stack if it can still pay.
+func (c *client) consumeAmmo(ammo bowFind, count int32) bool {
 	var payload []byte
 	var visible bool
 	c.player.Inventory(func(inv *player.Inventory) {
 		stack := inv.Slots[ammo.slot]
-		stack.Count--
-		if stack.Count <= 0 {
+		if stack.Count < count || !stack.Same(ammo.stack) {
+			return
+		}
+		stack.Count -= count
+		if stack.Empty() {
 			stack = protocol.ItemStack{}
 		}
 		inv.Set(ammo.slot, stack)
 		payload = inv.WindowSlot(playerWindowID, int32(ammo.slot), stack)
 		visible = player.VisibleSlot(inv, ammo.slot)
 	})
+	if payload == nil {
+		return false
+	}
 	c.send(protocol.IDPlayContainerSlot, payload)
 	if visible {
 		c.broadcastEquipment()
 	}
+	return true
 }

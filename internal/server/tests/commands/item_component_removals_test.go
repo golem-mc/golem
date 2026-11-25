@@ -324,3 +324,59 @@ func TestRemovedDefaultConsumers(t *testing.T) {
 		t.Errorf("goat_horn[!instrument] use sent sounds=%d cooldowns=%d, want 0/0", sounds, cooldowns)
 	}
 }
+
+func TestItemReplaceExplicitEmptyBundleContents(t *testing.T) {
+	t.Parallel()
+	const name = "Tester"
+	srv, c := servertest.Join(t, servertest.CombatTestConfig(), name, servertest.OpsListing(t, name))
+	servertest.HoldTicks(t, srv)
+
+	c.ChatCommand("item replace entity @s hotbar.0 with stone[bundle_contents=[]]")
+	updates, chats := servertest.AwaitSlotUpdates(t, c, 1)
+	if !slices.ContainsFunc(chats, func(chat []byte) bool { return bytes.Contains(chat, []byte(itemEntitySetSingleKey)) }) {
+		servertest.AwaitSystemChatSaying(t, c, itemEntitySetSingleKey)
+	}
+	got := updates[0].Stack
+	if updates[0].Slot != 36 || got.ItemID != int32(registry.ItemStone) || got.Count != 1 {
+		t.Fatalf("slot update = %+v, want 1x stone in slot 36", updates[0])
+	}
+	if !slices.ContainsFunc(got.Raw, func(raw protocol.RawComponent) bool {
+		return raw.Type == protocol.DataComponentBundleContents
+	}) || len(got.BundleContents()) != 0 {
+		t.Fatalf("wire stack = %+v, want explicit empty bundle_contents component", got)
+	}
+
+	c.ChatCommand("data get entity @s Inventory[{Slot:0b}].components")
+	components := servertest.FeedbackComponent(t, c)
+	if components.Translate != "commands.data.entity.query" || len(components.With) != 2 ||
+		!strings.Contains(components.With[1].Plain(), `"minecraft:bundle_contents": []`) {
+		t.Errorf("stone components = %s, want minecraft:bundle_contents: []", components.Plain())
+	}
+
+	for _, pred := range []string{"stone[bundle_contents]", "stone[bundle_contents=[]]", "stone[bundle_contents~{}]"} {
+		c.ChatCommand("clear @s " + pred + " 0")
+		if line := servertest.FeedbackComponent(t, c); line.Translate != "commands.clear.test.single" {
+			t.Errorf("clear %s = %s, want commands.clear.test.single", pred, line.Plain())
+		}
+	}
+
+	// Empty bundle_contents on a bundle matches its prototype default and stays unpatched.
+	c.ChatCommand("item replace entity @s hotbar.0 with bundle[bundle_contents=[]]")
+	updates, chats = servertest.AwaitSlotUpdates(t, c, 1)
+	if !slices.ContainsFunc(chats, func(chat []byte) bool { return bytes.Contains(chat, []byte(itemEntitySetSingleKey)) }) {
+		servertest.AwaitSystemChatSaying(t, c, itemEntitySetSingleKey)
+	}
+	bundle := updates[0].Stack
+	if bundle.ItemID != int32(registry.ItemBundle) || bundle.Removes(protocol.DataComponentBundleContents) ||
+		slices.ContainsFunc(bundle.Raw, func(raw protocol.RawComponent) bool {
+			return raw.Type == protocol.DataComponentBundleContents
+		}) {
+		t.Errorf("bundle[bundle_contents=[]] = %+v, want unpatched default bundle", bundle)
+	}
+
+	// Non-compound list entries remain malformed.
+	c.ChatCommand("item replace entity @s hotbar.0 with stone[bundle_contents=[5]]")
+	if line := servertest.FeedbackComponent(t, c); !strings.Contains(line.Plain(), "Malformed 'minecraft:bundle_contents' component") {
+		t.Errorf("stone[bundle_contents=[5]] feedback = %s, want malformed bundle_contents error", line.Plain())
+	}
+}

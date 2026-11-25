@@ -152,7 +152,7 @@ func TestAFoxSeeksShelterByDay(t *testing.T) {
 	}
 	srv.RelightAt(foxBlock+1, 0)
 	srv.RelightAt(foxBlock+9, 0)
-	id := srv.SpawnMob(foxType, foxX, 64, 0.5)
+	id := srv.SpawnMobSeeded(foxType, foxX, 64, 0.5, 1)
 	servertest.UntilTicks(t, srv, 3000, "the fox asleep under the roof", func() bool {
 		st := foxState(t, srv, id)
 		return st.Sleeping && st.X > foxBlock+1

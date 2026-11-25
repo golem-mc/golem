@@ -81,18 +81,30 @@ func (g *rangedAttackGoal) CanStart(*tickView) bool {
 	return g.m.TargetID != 0 && g.m.holdsBow()
 }
 
-// startUsingWeapon starts a use in the hand holding weapon, the main hand
-// when it does. vanilla: LivingEntity.startUsingItem,
-// ProjectileUtil.getWeaponHoldingHand
-func (m *Mob) startUsingWeapon(weapon registry.Item) {
+func isHeldWeapon(stack protocol.ItemStack, weapon registry.Item) bool {
+	return registry.Item(stack.ItemID) == weapon && !stack.Empty()
+}
+
+// vanilla: ProjectileUtil.getWeaponHoldingHand
+func (m *Mob) weaponHoldingSlot(weapon registry.Item) int {
+	if isHeldWeapon(m.MainHand, weapon) {
+		return protocol.EquipMainHand
+	}
+	return protocol.EquipOffHand
+}
+
+// startUsingWeapon starts a use and returns the selected equipment slot.
+// vanilla: LivingEntity.startUsingItem
+func (m *Mob) startUsingWeapon(weapon registry.Item) int {
+	slot := m.weaponHoldingSlot(weapon)
 	m.SetMetadataUsingItem(true)
-	m.SetMetadataUseOffHand(m.MainHand.Empty() || registry.Item(m.MainHand.ItemID) != weapon)
+	m.SetMetadataUseOffHand(slot == protocol.EquipOffHand)
+	return slot
 }
 
 // holdsBow is LivingEntity.isHolding(Items.BOW), in either hand.
 func (m *Mob) holdsBow() bool {
-	held := func(s protocol.ItemStack) bool { return !s.Empty() && registry.Item(s.ItemID) == registry.ItemBow }
-	return held(m.MainHand) || held(m.OffHand)
+	return isHeldWeapon(m.MainHand, registry.ItemBow) || isHeldWeapon(m.OffHand, registry.ItemBow)
 }
 
 func (g *rangedAttackGoal) Start(*tickView) {

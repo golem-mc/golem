@@ -342,6 +342,23 @@ func (f *fixture) publish(path, version, require string, files map[string]string
 	}
 }
 
+func (f *fixture) publishHead(path, version, require string, files map[string]string) {
+	f.t.Helper()
+	f.publish(path, version, require, files)
+	dir := filepath.Join(f.proxy, path, "@v")
+	info, err := os.ReadFile(filepath.Join(dir, version+".info"))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	head, err := module.EscapeVersion("HEAD")
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, head+".info"), info, 0o644); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
 // run runs the launcher with args and the fixture's -config and -cache.
 func (f *fixture) run(args ...string) (stdout, stderr string, err error) {
 	var out, errw bytes.Buffer
@@ -583,6 +600,139 @@ func TestOutdatedAndUpdate(t *testing.T) {
 	}
 }
 
+func TestChannelCommand(t *testing.T) {
+	const initial = `{"server":"v1.0.0","plugins":["example.com/warps@v1.0.0"]}`
+	f := newFixture(t, initial)
+	if got := f.must("channel"); got != "stable\n" {
+		t.Errorf("channel = %q, want stable", got)
+	}
+	if got, err := os.ReadFile(f.config); err != nil || string(got) != initial {
+		t.Errorf("reading channel changed launcher.json: %s (%v)", got, err)
+	}
+	if got := f.must("channel", "dev"); !strings.Contains(got, "run golem-launcher update to move to the newest dev versions\n") {
+		t.Errorf("channel dev = %q", got)
+	}
+	if got, err := os.ReadFile(f.config); err != nil || !bytes.Contains(got, []byte(`"channel": "dev"`)) {
+		t.Errorf("launcher.json = %s (%v), want the dev channel", got, err)
+	}
+	if got := f.loadCfg(); got.Server != "v1.0.0" || !slices.Equal(got.Plugins, []string{"example.com/warps@v1.0.0"}) {
+		t.Errorf("channel dev changed the versions: %+v", got)
+	}
+	for _, args := range [][]string{{"channel", "preview"}, {"channel", "stable", "dev"}} {
+		_, _, err := f.run(args...)
+		if _, ok := errors.AsType[usageError](err); !ok {
+			t.Errorf("%v = %v, want a usage error", args, err)
+		}
+	}
+	if got := f.must("channel"); got != "dev\n" {
+		t.Errorf("channel after invalid commands = %q, want dev", got)
+	}
+}
+
+const (
+	serverHead = "v1.5.1-0.20260101000000-aaaaaaaaaaaa"
+	warpsHead  = "v1.1.1-0.20260101000000-bbbbbbbbbbbb"
+	kitHead    = "v1.3.1-0.20260101000000-cccccccccccc"
+)
+
+func TestUpdateChannels(t *testing.T) {
+	for _, tc := range []struct{ channel, server, warps, kit string }{
+		{"stable", "v1.5.0", "v1.1.0", "v1.3.0"},
+		{"dev", serverHead, warpsHead, kitHead},
+	} {
+		t.Run(tc.channel, func(t *testing.T) {
+			f := newStartFixture(t, `{"server":"v1.0.0","plugins":["example.com/warps@v1.0.0","example.com/kit/spawn@v1.0.0","example.com/kit/homes@v1.0.0","./mine"]}`, "", "v1.5.0")
+			local := filepath.Join(f.dir, "mine")
+			writeMod(t, local, "example.com/mine")
+			if err := os.WriteFile(filepath.Join(local, "mine.go"), []byte("package mine\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			f.publishKit()
+			f.publishHead(serverModule, serverHead, "", map[string]string{"app/app.go": "package app\nfunc Main() {}\n"})
+			f.publishHead("example.com/warps", warpsHead, serverModule+" "+serverHead, map[string]string{"warps.go": "package warps\n"})
+			f.publishHead("example.com/kit", kitHead, "", map[string]string{"spawn/spawn.go": "package spawn\n", "homes/homes.go": "package homes\n"})
+			if tc.channel == "dev" {
+				f.must("channel", "dev")
+				out := f.must("outdated")
+				for _, want := range []string{serverHead, warpsHead, kitHead} {
+					if !strings.Contains(out, want) {
+						t.Errorf("outdated lacks %s:\n%s", want, out)
+					}
+				}
+			}
+			f.must("update")
+			want := []string{"example.com/warps@" + tc.warps, "example.com/kit/spawn@" + tc.kit, "example.com/kit/homes@" + tc.kit, "./mine"}
+			if got := f.loadCfg(); got.Server != tc.server || !slices.Equal(got.Plugins, want) {
+				t.Fatalf("after %s update: %+v, want server %s and plugins %q", tc.channel, got, tc.server, want)
+			}
+			if tc.channel == "dev" {
+				f.must("channel", "stable")
+				if out := f.must("outdated"); !strings.Contains(out, "everything is up to date") {
+					t.Errorf("outdated after switching to stable = %q", out)
+				}
+				f.must("update")
+				if got := f.loadCfg(); got.Server != tc.server || !slices.Equal(got.Plugins, want) {
+					t.Errorf("stable update changed newer pins: %+v", got)
+				}
+			}
+		})
+	}
+}
+
+func TestLatestCommandsOnDevChannel(t *testing.T) {
+	f := newFixture(t, `{"channel":"dev","server":"v1.0.0","plugins":[]}`)
+	f.publishKit()
+	f.publishHead(serverModule, serverHead, "", map[string]string{"app/app.go": "package app\nfunc Main() {}\n"})
+	f.publishHead("example.com/kit", kitHead, serverModule+" "+serverHead, map[string]string{"spawn/spawn.go": "package spawn\n"})
+
+	f.must("server", "latest")
+	if got := f.loadCfg().Server; got != serverHead {
+		t.Errorf("server latest pinned %s, want %s", got, serverHead)
+	}
+	f.must("plugin", "add", "example.com/kit/spawn")
+	if got := f.loadCfg().Plugins; !slices.Equal(got, []string{"example.com/kit/spawn@" + kitHead}) {
+		t.Errorf("plugin add pinned %q, want example.com/kit/spawn@%s", got, kitHead)
+	}
+	out := f.must("plugin", "list")
+	if want := regexp.MustCompile(`example.com/kit/spawn\s+` + regexp.QuoteMeta(kitHead) + `\s+remote\s+` + regexp.QuoteMeta(kitHead)); !want.MatchString(out) {
+		t.Errorf("plugin list lacks the dev version in the latest column:\n%s", out)
+	}
+}
+
+func TestDevUpdateRefusedNeedingNewerServer(t *testing.T) {
+	const initial = `{"channel":"dev","server":"v1.0.0","plugins":["example.com/warps@v1.0.0"]}`
+	f := newFixture(t, initial)
+	f.publish(serverModule, "v1.6.0", "", map[string]string{"app/app.go": "package app\nfunc Main() {}\n"})
+	f.publishHead(serverModule, serverHead, "", map[string]string{"app/app.go": "package app\nfunc Main() {}\n"})
+	f.publishHead("example.com/warps", warpsHead, serverModule+" v1.6.0", map[string]string{"warps.go": "package warps\n"})
+	if _, _, err := f.run("update"); err == nil || !strings.Contains(err.Error(), "golem-launcher server v1.6.0") {
+		t.Errorf("update = %v, want a refusal naming the server the plugin needs", err)
+	}
+	if got, err := os.ReadFile(f.config); err != nil || string(got) != initial {
+		t.Errorf("refused update changed launcher.json: %s (%v)", got, err)
+	}
+}
+
+func TestStartNoticesFollowChannel(t *testing.T) {
+	f := newStartFixture(t, `{"server":"v1.0.0","plugins":[]}`, "", "v1.5.0")
+	f.publishHead(serverModule, serverHead, "", map[string]string{"app/app.go": "package app\nfunc Main() {}\n"})
+	if got := f.start(); got != serverNotice+updateHint {
+		t.Errorf("stable start printed %q", got)
+	}
+	f.must("channel", "dev")
+	n := f.releases.count()
+	if got := f.start(); !strings.Contains(got, "golem "+serverHead+" is out (you run v1.0.0)") {
+		t.Errorf("dev start printed %q", got)
+	}
+	if f.releases.count() != n {
+		t.Error("the dev server check asked for a release")
+	}
+	f.must("channel", "stable")
+	if got := f.start(); got != serverNotice+updateHint || f.releases.count() != n {
+		t.Errorf("start after switching back to stable printed %q with %d release requests, want %d", got, f.releases.count(), n)
+	}
+}
+
 func TestCheckReportsWhatFails(t *testing.T) {
 	f := newFixture(t, `{"server": "v1.0.0", "plugins": ["example.com/warps@v1.1.0"]}`)
 	_, _, err := f.run("check")
@@ -661,10 +811,11 @@ Usage:
 Commands:
   run            build if needed, then run the server (the default)
   build          build only and print the binary's path (for CI or a Docker image)
-  plugin add     add plugins, pinned (no version: the latest release tag)
+  plugin add     add plugins, pinned (no version: the latest on this channel)
   plugin remove  remove a plugin
   plugin list    list plugins: pinned version, local or remote, latest available
   server         show the server version, or set it
+  channel        show or set the update channel
   outdated       show newer versions of the server and each plugin
   update         move the server and plugins to their latest versions, pinned
   check          resolve and run every build check without building
@@ -687,6 +838,9 @@ launcher.json, pinned to exact versions (the commands above edit it):
       "./my-plugin"
     ]
   }
+
+Use golem-launcher channel [stable|dev] to view or set where updates come
+from. Stable follows releases (the default). Dev follows the newest commits.
 
 Server options follow --; see them with: golem-launcher -- --help
 Plugins and the launcher.json format: docs/plugins.md

@@ -16,6 +16,12 @@ func init() {
 	protocol.DialogRefValid = func(tag nbt.Tag) bool { return DialogRefMalformed(tag) == "" }
 }
 
+func (lookup *TagLookup) styledTextOf(tag nbt.Tag) (protocol.Text, bool) {
+	return protocol.StyledTextWithDialog(tag, func(dialog nbt.Tag) bool {
+		return lookup.dialogRefMalformed(dialog) == ""
+	})
+}
+
 // DialogMalformed reports inline-dialog codec refusals in codec field order.
 // vanilla: Dialog.DIRECT_CODEC, CommonDialogData.MAP_CODEC
 func DialogMalformed(c nbt.Compound) string {
@@ -24,6 +30,10 @@ func DialogMalformed(c nbt.Compound) string {
 }
 
 func dialogDiagnostic(c nbt.Compound) (string, bool) {
+	return CurrentTagLookup().dialogDiagnostic(c)
+}
+
+func (lookup *TagLookup) dialogDiagnostic(c nbt.Compound) (string, bool) {
 	if msg := textFieldMalformed(c, "type", func(tag nbt.Tag) string {
 		return textRegistryMalformed(tag, "minecraft:dialog_type", func(name string) bool {
 			return ValidDialogType(strings.TrimPrefix(name, "minecraft:"))
@@ -31,23 +41,23 @@ func dialogDiagnostic(c nbt.Compound) (string, bool) {
 	}); msg != "" {
 		return msg, false
 	}
-	common, partial := dialogCommonDiagnostic(c)
+	common, partial := lookup.dialogCommonDiagnostic(c)
 	switch DialogKind(c) {
 	case "notice":
-		return JoinFieldErrors(optionalButton(c, "action"), common), partial
+		return JoinFieldErrors(lookup.optionalButton(c, "action"), common), partial
 	case "confirmation":
-		return JoinFieldErrors(requiredButton(c, "no"), requiredButton(c, "yes"), common),
-			partial && buttonHasPartial(c["no"]) && buttonHasPartial(c["yes"])
+		return JoinFieldErrors(lookup.requiredButton(c, "no"), lookup.requiredButton(c, "yes"), common),
+			partial && lookup.buttonHasPartial(c["no"]) && lookup.buttonHasPartial(c["yes"])
 	case "multi_action":
 		msg, has := codecFieldDiagnostic(c, "actions", func(tag nbt.Tag) (string, bool) {
-			return codecListDiagnostic(tag, buttonDiagnostic, true)
+			return codecListDiagnostic(tag, lookup.buttonDiagnostic, true)
 		})
-		return JoinFieldErrors(dialogListTail(c, false), msg, common), partial && has
+		return JoinFieldErrors(lookup.dialogListTail(c, false), msg, common), partial && has
 	case "server_links":
-		return JoinFieldErrors(dialogListTail(c, true), common), partial
+		return JoinFieldErrors(lookup.dialogListTail(c, true), common), partial
 	case "dialog_list":
-		msg, has := codecFieldDiagnostic(c, "dialogs", dialogHoldersDiagnostic)
-		return JoinFieldErrors(dialogListTail(c, true), msg, common), partial && has
+		msg, has := codecFieldDiagnostic(c, "dialogs", lookup.dialogHoldersDiagnostic)
+		return JoinFieldErrors(lookup.dialogListTail(c, true), msg, common), partial && has
 	}
 	return common, partial
 }
@@ -58,7 +68,7 @@ func DialogKind(c nbt.Compound) string {
 	return strings.TrimPrefix(Qualify(string(s)), "minecraft:")
 }
 
-func dialogCommonDiagnostic(c nbt.Compound) (string, bool) {
+func (lookup *TagLookup) dialogCommonDiagnostic(c nbt.Compound) (string, bool) {
 	after := "close"
 	afterError := ""
 	if v, ok := c["after_action"]; ok {
@@ -70,10 +80,10 @@ func dialogCommonDiagnostic(c nbt.Compound) (string, bool) {
 			}
 		}
 	}
-	title, partial := codecFieldDiagnostic(c, "title", textComponentDiagnostic)
-	msg := JoinFieldErrors(dialogInputs(c), dialogBodies(c), afterError,
+	title, partial := codecFieldDiagnostic(c, "title", lookup.textComponentDiagnostic)
+	msg := JoinFieldErrors(lookup.dialogInputs(c), lookup.dialogBodies(c), afterError,
 		optionalBool(c, "pause"), optionalBool(c, "can_close_with_escape"),
-		optionalComponent(c, "external_title"), title)
+		lookup.optionalComponent(c, "external_title"), title)
 	pause := true
 	if b, ok := boolOf(c["pause"]); ok {
 		pause = b
@@ -84,16 +94,16 @@ func dialogCommonDiagnostic(c nbt.Compound) (string, bool) {
 	return msg, partial
 }
 
-func dialogBodies(c nbt.Compound) string {
+func (lookup *TagLookup) dialogBodies(c nbt.Compound) string {
 	if tag, ok := c["body"]; ok {
-		msg, _ := compactListDiagnostic(tag, dialogBodyDiagnostic)
+		msg, _ := compactListDiagnostic(tag, lookup.dialogBodyDiagnostic)
 		return msg
 	}
 	return ""
 }
 
 // vanilla: DialogBody.DIALOG_BODY_CODEC, PlainMessage.MAP_CODEC, ItemBody.MAP_CODEC
-func dialogBodyDiagnostic(tag nbt.Tag) (string, bool) {
+func (lookup *TagLookup) dialogBodyDiagnostic(tag nbt.Tag) (string, bool) {
 	b, ok := nbt.CompoundView(tag)
 	if !ok {
 		return "Not a map: " + nbt.Stringify(tag), false
@@ -106,37 +116,37 @@ func dialogBodyDiagnostic(tag nbt.Tag) (string, bool) {
 		return msg, false
 	}
 	if DialogKind(b) == "plain_message" {
-		return plainMessageMapDiagnostic(b)
+		return lookup.plainMessageMapDiagnostic(b)
 	}
-	required, partial := codecFieldDiagnostic(b, "item", itemTemplateDiagnostic)
+	required, partial := codecFieldDiagnostic(b, "item", lookup.itemTemplateDiagnostic)
 	description := ""
 	if value, present := b["description"]; present {
-		description = plainMessageCheck(value)
+		description = lookup.plainMessageCheck(value)
 	}
 	return JoinFieldErrors(optionalRange(b, "height", 1, 256), optionalRange(b, "width", 1, 256),
 		optionalBool(b, "show_tooltip"), optionalBool(b, "show_decorations"), description, required), partial
 }
 
 // vanilla: PlainMessage.MAP_CODEC
-func plainMessageMapDiagnostic(b nbt.Compound) (string, bool) {
-	msg, partial := codecFieldDiagnostic(b, "contents", textComponentDiagnostic)
+func (lookup *TagLookup) plainMessageMapDiagnostic(b nbt.Compound) (string, bool) {
+	msg, partial := codecFieldDiagnostic(b, "contents", lookup.textComponentDiagnostic)
 	return JoinFieldErrors(optionalRange(b, "width", 1, 1024), msg), partial
 }
 
 // vanilla: PlainMessage.CODEC
-func plainMessageCheck(tag nbt.Tag) string {
+func (lookup *TagLookup) plainMessageCheck(tag nbt.Tag) string {
 	msg, _ := codecAlternative(tag, func(tag nbt.Tag) (string, bool) {
 		b, ok := nbt.CompoundView(tag)
 		if !ok {
 			return "Not a map: " + nbt.Stringify(tag), false
 		}
-		return plainMessageMapDiagnostic(b)
-	}, textComponentDiagnostic)
+		return lookup.plainMessageMapDiagnostic(b)
+	}, lookup.textComponentDiagnostic)
 	return msg
 }
 
 // vanilla: Input.CODEC
-func dialogInputs(c nbt.Compound) string {
+func (lookup *TagLookup) dialogInputs(c nbt.Compound) string {
 	tag, ok := c["inputs"]
 	if !ok {
 		return ""
@@ -156,14 +166,14 @@ func dialogInputs(c nbt.Compound) string {
 			}
 			return ""
 		})
-		control := inputControlCheck(in)
+		control := lookup.inputControlCheck(in)
 		return JoinFieldErrors(control, key), key == "" && control == ""
 	}, false)
 	return msg
 }
 
 // vanilla: HolderSetCodec, TagKey.hashedCodec
-func dialogHoldersDiagnostic(tag nbt.Tag) (string, bool) {
+func (lookup *TagLookup) dialogHoldersDiagnostic(tag nbt.Tag) (string, bool) {
 	tagError := textStringMalformed(tag)
 	if name, ok := tag.(nbt.String); ok {
 		if after, ok0 := strings.CutPrefix(string(name), "#"); ok0 {
@@ -180,23 +190,25 @@ func dialogHoldersDiagnostic(tag nbt.Tag) (string, bool) {
 			tagError = "Not a tag id"
 		}
 	}
-	msg, partial := compactListDiagnostic(tag, dialogRefDiagnostic)
+	msg, partial := compactListDiagnostic(tag, lookup.dialogRefDiagnostic)
 	if msg == "" || partial {
 		return msg, partial
 	}
 	return profileEitherMalformed(tagError, msg), false
 }
 
-func buttonHasPartial(tag nbt.Tag) bool {
+func (lookup *TagLookup) buttonHasPartial(tag nbt.Tag) bool {
 	b, ok := nbt.CompoundView(tag)
 	if !ok || b["label"] == nil {
 		return false
 	}
-	_, partial := textComponentDiagnostic(b["label"])
+	_, partial := lookup.textComponentDiagnostic(b["label"])
 	return partial
 }
 
-func buttonDiagnostic(tag nbt.Tag) (string, bool) { return buttonCheck(tag), buttonHasPartial(tag) }
+func (lookup *TagLookup) buttonDiagnostic(tag nbt.Tag) (string, bool) {
+	return lookup.buttonCheck(tag), lookup.buttonHasPartial(tag)
+}
 
 func dialogTagExists(name string) bool {
 	for _, r := range Tags {
@@ -215,12 +227,16 @@ func dialogTagExists(name string) bool {
 // DialogRefMalformed checks a registry id or inline dialog; tags require a dialogs list.
 // vanilla: Dialog.CODEC
 func DialogRefMalformed(item nbt.Tag) string {
-	msg, _ := dialogRefDiagnostic(item)
+	return CurrentTagLookup().dialogRefMalformed(item)
+}
+
+func (lookup *TagLookup) dialogRefMalformed(item nbt.Tag) string {
+	msg, _ := lookup.dialogRefDiagnostic(item)
 	return msg
 }
 
 // vanilla: RegistryFileCodec.decode
-func dialogRefDiagnostic(item nbt.Tag) (string, bool) {
+func (lookup *TagLookup) dialogRefDiagnostic(item nbt.Tag) (string, bool) {
 	if id, ok := item.(nbt.String); ok && protocol.ValidIdentifier(string(id)) {
 		reg, _ := Get(DialogRegistry)
 		name := Qualify(string(id))
@@ -233,7 +249,7 @@ func dialogRefDiagnostic(item nbt.Tag) (string, bool) {
 	if !ok {
 		return "Not a map: " + nbt.Stringify(item), false
 	}
-	return dialogDiagnostic(fields)
+	return lookup.dialogDiagnostic(fields)
 }
 
 // ValidDialogType reports whether a dialog type is registered.
@@ -242,7 +258,7 @@ func ValidDialogType(kind string) bool {
 	return ok
 }
 
-func dialogListTail(c nbt.Compound, buttonWidth bool) string {
+func (lookup *TagLookup) dialogListTail(c nbt.Compound, buttonWidth bool) string {
 	columns := ""
 	if v, ok := c["columns"]; ok {
 		columns = positiveIntMalformed(v)
@@ -251,7 +267,7 @@ func dialogListTail(c nbt.Compound, buttonWidth bool) string {
 	if buttonWidth {
 		width = optionalRange(c, "button_width", 1, 1024)
 	}
-	return JoinFieldErrors(width, columns, optionalButton(c, "exit_action"))
+	return JoinFieldErrors(width, columns, lookup.optionalButton(c, "exit_action"))
 }
 
 func positiveIntMalformed(tag nbt.Tag) string {
@@ -265,7 +281,7 @@ func positiveIntMalformed(tag nbt.Tag) string {
 	return ""
 }
 
-func buttonCheck(tag nbt.Tag) string {
+func (lookup *TagLookup) buttonCheck(tag nbt.Tag) string {
 	b, ok := nbt.CompoundView(tag)
 	if !ok {
 		return "Not a map: " + nbt.Stringify(tag)
@@ -284,15 +300,15 @@ func buttonCheck(tag nbt.Tag) string {
 			actionError = msg
 		} else {
 			kind := strings.TrimPrefix(Qualify(string(a["type"].(nbt.String))), "minecraft:")
-			actionError = actionPayloadCheck(kind, a)
+			actionError = lookup.actionPayloadCheck(kind, a)
 		}
 	}
 	return JoinFieldErrors(actionError, optionalRange(b, "width", 1, 1024),
-		optionalComponent(b, "tooltip"), requiredComponent(b, "label"))
+		lookup.optionalComponent(b, "tooltip"), lookup.requiredComponent(b, "label"))
 }
 
 // vanilla: ClickEvent.*.CODEC, CommandTemplate.MAP_CODEC, CustomAll.MAP_CODEC
-func actionPayloadCheck(kind string, a nbt.Compound) string {
+func (lookup *TagLookup) actionPayloadCheck(kind string, a nbt.Compound) string {
 	switch kind {
 	case "dynamic/run_command":
 		return textFieldMalformed(a, "template", func(tag nbt.Tag) string {
@@ -314,7 +330,7 @@ func actionPayloadCheck(kind string, a nbt.Compound) string {
 		}
 		return JoinFieldErrors(additions, textFieldMalformed(a, "id", resourceLocationMalformed))
 	default:
-		return clickActionMalformed(kind, a)
+		return lookup.clickActionMalformed(kind, a)
 	}
 }
 
@@ -364,39 +380,39 @@ func validVariableName(name string) bool {
 	return true
 }
 
-func requiredButton(c nbt.Compound, key string) string {
+func (lookup *TagLookup) requiredButton(c nbt.Compound, key string) string {
 	v, ok := c[key]
 	if !ok {
 		return "No key " + key + " in MapLike[" + nbt.Stringify(c) + "]"
 	}
-	return buttonCheck(v)
+	return lookup.buttonCheck(v)
 }
 
-func optionalButton(c nbt.Compound, key string) string {
+func (lookup *TagLookup) optionalButton(c nbt.Compound, key string) string {
 	if v, ok := c[key]; ok {
-		return buttonCheck(v)
+		return lookup.buttonCheck(v)
 	}
 	return ""
 }
 
-func requiredComponent(c nbt.Compound, key string) string {
+func (lookup *TagLookup) requiredComponent(c nbt.Compound, key string) string {
 	v, ok := c[key]
 	if !ok {
 		return "No key " + key + " in MapLike[" + nbt.Stringify(c) + "]"
 	}
-	return componentCheck(v)
+	return lookup.componentCheck(v)
 }
 
-func optionalComponent(c nbt.Compound, key string) string {
+func (lookup *TagLookup) optionalComponent(c nbt.Compound, key string) string {
 	if v, ok := c[key]; ok {
-		return componentCheck(v)
+		return lookup.componentCheck(v)
 	}
 	return ""
 }
 
 // vanilla: ComponentSerialization.CODEC
-func componentCheck(v nbt.Tag) string {
-	return TextComponentMalformed(v)
+func (lookup *TagLookup) componentCheck(v nbt.Tag) string {
+	return lookup.textComponentMalformed(v)
 }
 
 func optionalBool(c nbt.Compound, key string) string {
@@ -452,7 +468,7 @@ var actionTypes = map[string]struct{}{
 }
 
 // vanilla: TextInput, NumberRangeInput, SingleOptionInput, BooleanInput
-func inputControlCheck(in nbt.Compound) string {
+func (lookup *TagLookup) inputControlCheck(in nbt.Compound) string {
 	if msg := textFieldMalformed(in, "type", func(tag nbt.Tag) string {
 		return textRegistryMalformed(tag, "minecraft:input_control_type", func(name string) bool {
 			switch name {
@@ -464,7 +480,7 @@ func inputControlCheck(in nbt.Compound) string {
 	}); msg != "" {
 		return msg
 	}
-	if msg := requiredComponent(in, "label"); msg != "" {
+	if msg := lookup.requiredComponent(in, "label"); msg != "" {
 		return msg
 	}
 	switch DialogKind(in) {
@@ -476,7 +492,7 @@ func inputControlCheck(in nbt.Compound) string {
 	case "text":
 		return textInputCheck(in)
 	case "single_option":
-		return optionCheck(in)
+		return lookup.optionCheck(in)
 	case "number_range":
 		return numberRangeCheck(in)
 	}
@@ -533,7 +549,7 @@ func textInputCheck(in nbt.Compound) string {
 
 // optionCheck checks a single_option control: a non-empty "options" list of
 // ids or {id, display, initial} entries, at most one of them initial.
-func optionCheck(in nbt.Compound) string {
+func (lookup *TagLookup) optionCheck(in nbt.Compound) string {
 	if msg := optionalRange(in, "width", 1, 1024); msg != "" {
 		return msg
 	}
@@ -559,7 +575,7 @@ func optionCheck(in nbt.Compound) string {
 			if _, isString := o.Entries()["id"].(nbt.String); !isString {
 				return "No key id in " + nbt.Stringify(o)
 			}
-			if msg := optionalComponent(o.Entries(), "display"); msg != "" {
+			if msg := lookup.optionalComponent(o.Entries(), "display"); msg != "" {
 				return msg
 			}
 			if msg := optionalBool(o.Entries(), "initial"); msg != "" {

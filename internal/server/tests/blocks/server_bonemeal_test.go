@@ -1,15 +1,16 @@
 package blocks
 
 import (
-	"github.com/golem-mc/golem/internal/config"
-	"github.com/golem-mc/golem/internal/server/servertest"
 	"slices"
 	"strconv"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -985,4 +986,181 @@ func TestBoneMealOnWarpedNyliumPlacesCover(t *testing.T) {
 	if !found {
 		t.Error("bone meal on warped nylium placed no warped roots or nether sprouts")
 	}
+}
+
+// TestMushroomBoneMealCeiling checks that a small mushroom whose huge form
+// cannot fit under the build ceiling refuses the bone meal: red needs
+// Y+4+2 and brown Y+4+3 inside the world, and only an accepted use costs one,
+// whether or not the roll grows the mushroom.
+func TestMushroomBoneMealCeiling(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.SurvivalConfig(), "Farmer", servertest.OpsListing(t, "Farmer"))
+
+	srv.StopTick()
+	servertest.SeedPhysics(t, srv, servertest.CropsSeed)
+
+	boneMeal, ok := registry.ItemID("minecraft:bone_meal")
+	if !ok {
+		t.Fatal("the item registry has no bone meal")
+	}
+	for _, tc := range []struct {
+		mushroom string
+		y        int32
+		accepted bool
+	}{
+		{"minecraft:red_mushroom", 313, true},
+		{"minecraft:red_mushroom", 314, false},
+		{"minecraft:brown_mushroom", 312, true},
+		{"minecraft:brown_mushroom", 313, false},
+	} {
+		servertest.SetFarmBlock(t, c, srv, 5, tc.y-1, 0, "minecraft:mycelium", nil)
+		servertest.SetFarmBlock(t, c, srv, 5, tc.y, 0, tc.mushroom, nil)
+		srv.GiveSlot("Farmer", player.HotbarSlot, protocol.ItemStack{ItemID: boneMeal, Count: 8})
+		c.MoveToGround(4.5, float64(tc.y), 1.5, true)
+		c.Settle()
+
+		c.UseBlock(5, tc.y, 0)
+		c.SettleKeeping()
+		srv.FlushBlockAcks()
+
+		want := int32(8)
+		if tc.accepted {
+			want = 7
+		}
+		if got := srv.InventorySlot("Farmer", player.HotbarSlot); got.Count != want {
+			t.Errorf("%s at Y=%d: %d bone meal left, want %d", tc.mushroom, tc.y, got.Count, want)
+		}
+	}
+}
+
+// checkBonemealCeiling clicks bone meal on each target at the Nether ceiling
+// (Y=255, refused, stack kept, no growth event) and one block below (Y=254,
+// one spent, growth event at the target). A target with a substrate gets it
+// placed under it.
+func checkBonemealCeiling(t *testing.T, targets [][2]string) {
+	t.Helper()
+	srv, c := servertest.Join(t, servertest.NetherTestConfig(t, servertest.SurvivalConfig()), "Farmer")
+	servertest.HoldTicks(t, srv)
+	servertest.SeedPhysics(t, srv, servertest.CropsSeed)
+
+	srv.MovePlayerToDimension("Farmer", world.NetherName, 4.5, 254, -2.5)
+	if !c.Pump(servertest.JoinTimeout, nil, func(int32, []byte) bool {
+		return srv.PlayerDimension("Farmer") == world.NetherName &&
+			srv.ChunkLoadedInDimension(world.NetherName, 4, 0)
+	}) {
+		t.Fatal("the Nether never loaded around the test column")
+	}
+	c.Settle()
+
+	boneMeal := int32(registry.ItemBoneMeal)
+	air := servertest.BlockState(t, "minecraft:air")
+	var seq int32
+
+	for _, pair := range targets {
+		target := servertest.BlockState(t, pair[0])
+		for _, tc := range []struct {
+			y         int32
+			wantCount int32
+			wantEvent bool
+		}{
+			{y: 255, wantCount: 3, wantEvent: false},
+			{y: 254, wantCount: 2, wantEvent: true},
+		} {
+			for y := int32(253); y <= 255; y++ {
+				srv.SetBlockInDimension(world.NetherName, 4, y, 0, air)
+			}
+			if pair[1] != "" {
+				srv.SetBlockInDimension(world.NetherName, 4, tc.y-1, 0, servertest.BlockState(t, pair[1]))
+			}
+			srv.SetBlockInDimension(world.NetherName, 4, tc.y, 0, target)
+			srv.GiveSlot("Farmer", player.HotbarSlot, protocol.ItemStack{ItemID: boneMeal, Count: 3})
+			c.Settle()
+
+			seq++
+			c.UseBlockSeq(4, tc.y, 0, protocol.FaceNorth, seq)
+			gotEvent := false
+			c.SettleAndCollect(func(id int32, data []byte) {
+				if id != protocol.IDPlayWorldEvent {
+					return
+				}
+				r := protocol.NewReader(data)
+				if r.ReadI32() != protocol.WorldEventBonemeal {
+					return
+				}
+				ex, ey, ez := r.ReadPosition()
+				if ex != 4 || ey != tc.y || ez != 0 {
+					t.Errorf("%s at Y=%d: bone meal event at (%d, %d, %d), want (4, %d, 0)", pair[0], tc.y, ex, ey, ez, tc.y)
+				}
+				gotEvent = true
+			})
+			if gotEvent != tc.wantEvent {
+				t.Errorf("%s at Y=%d: growth level event sent = %v, want %v", pair[0], tc.y, gotEvent, tc.wantEvent)
+			}
+			if got := srv.InventorySlot("Farmer", player.HotbarSlot); got.Count != tc.wantCount {
+				t.Errorf("%s at Y=%d: %d bone meal left, want %d", pair[0], tc.y, got.Count, tc.wantCount)
+			}
+			if pair[0] == "minecraft:short_grass" || pair[0] == "minecraft:fern" {
+				checkTallPlantHalves(t, srv, pair[0], tc.y, tc.wantEvent)
+			}
+		}
+	}
+}
+
+// checkTallPlantHalves checks the column at (4, y, 0) after bone meal on a
+// short grass or fern: both halves of the tall plant when it grew, the
+// original plant alone when it was refused.
+func checkTallPlantHalves(t *testing.T, srv *server.Server, short string, y int32, grew bool) {
+	t.Helper()
+	at := func(y int32) (string, map[string]string) {
+		return servertest.StateProps(srv.BlockInDimension(world.NetherName, 4, y, 0))
+	}
+	if !grew {
+		if name, _ := at(y); name != short {
+			t.Errorf("%s at Y=%d: refused use left %s", short, y, name)
+		}
+		return
+	}
+	tall := "minecraft:tall_grass"
+	if short == "minecraft:fern" {
+		tall = "minecraft:large_fern"
+	}
+	if name, props := at(y); name != tall || props["half"] != "lower" {
+		t.Errorf("%s at Y=%d: lower half is %s %v, want %s half=lower", short, y, name, props, tall)
+	}
+	if name, props := at(y + 1); name != tall || props["half"] != "upper" {
+		t.Errorf("%s at Y=%d: upper half is %s %v, want %s half=upper", short, y, name, props, tall)
+	}
+}
+
+// TestNyliumBonemealUsesDimensionCeiling checks that nylium checks the active
+// dimension's build height rather than the overworld's.
+// vanilla: NyliumBlock.isValidBonemealTarget, BoneMealItem.growCrop
+func TestNyliumBonemealUsesDimensionCeiling(t *testing.T) {
+	t.Parallel()
+	checkBonemealCeiling(t, [][2]string{
+		{"minecraft:crimson_nylium", ""},
+		{"minecraft:warped_nylium", ""},
+	})
+}
+
+// TestNetherFungusBonemealUsesDimensionCeiling checks that a fungus needs
+// buildable space above it in the active dimension.
+// vanilla: NetherFungusBlock.isValidBonemealTarget, BoneMealItem.growCrop
+func TestNetherFungusBonemealUsesDimensionCeiling(t *testing.T) {
+	t.Parallel()
+	checkBonemealCeiling(t, [][2]string{
+		{"minecraft:crimson_fungus", "minecraft:crimson_nylium"},
+		{"minecraft:warped_fungus", "minecraft:warped_nylium"},
+	})
+}
+
+// TestTallGrassBonemealUsesDimensionCeiling checks that short grass and a fern
+// need room for the upper half below the dimension's build height.
+// vanilla: TallGrassBlock.isValidBonemealTarget, BoneMealItem.growCrop
+func TestTallGrassBonemealUsesDimensionCeiling(t *testing.T) {
+	t.Parallel()
+	checkBonemealCeiling(t, [][2]string{
+		{"minecraft:short_grass", "minecraft:dirt"},
+		{"minecraft:fern", "minecraft:dirt"},
+	})
 }

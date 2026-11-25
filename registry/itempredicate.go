@@ -38,9 +38,13 @@ type ItemPredicate struct {
 // field is optional, so a rejected one leaves the rest.
 // vanilla: ItemPredicate.CODEC
 func DecodeItemPredicate(lock nbt.Compound) ItemPredicate {
+	return CurrentTagLookup().DecodeItemPredicate(lock)
+}
+
+func (lookup *TagLookup) DecodeItemPredicate(lock nbt.Compound) ItemPredicate {
 	pred := ItemPredicate{min: int64(math.MinInt32), max: int64(math.MaxInt32)}
 	if items, ok := lock["items"]; ok {
-		decodePredicateItems(&pred, items)
+		lookup.decodePredicateItems(&pred, items)
 	}
 	if count, ok := lock["count"]; ok {
 		decodePredicateCount(&pred, count)
@@ -49,7 +53,7 @@ func DecodeItemPredicate(lock nbt.Compound) ItemPredicate {
 		for key, value := range exact {
 			switch Qualify(key) {
 			case "minecraft:custom_name":
-				if name, ok := protocol.StyledTextOf(value); ok {
+				if name, ok := lookup.styledTextOf(value); ok {
 					pred.name = &name
 				}
 			case "minecraft:damage":
@@ -64,7 +68,7 @@ func DecodeItemPredicate(lock nbt.Compound) ItemPredicate {
 				name := Qualify(key)
 				if ItemComponents[name] {
 					probe := protocol.ItemStack{ItemID: 1, Count: 1}
-					if ReadComponent(&probe, name, value) {
+					if lookup.ReadComponent(&probe, name, value) {
 						if pred.exact == nil {
 							pred.exact = map[string]nbt.Tag{}
 						}
@@ -96,7 +100,7 @@ func DecodeItemPredicate(lock nbt.Compound) ItemPredicate {
 			default:
 				name := Qualify(key)
 				// A type or value that does not read drops its entry.
-				if test, _, ok := DecodeComponentPredicate(name, value); ok {
+				if test, _, ok := lookup.decodeComponentPredicate(name, value); ok {
 					pred.tests = append(pred.tests, test)
 				}
 			}
@@ -110,11 +114,11 @@ func DecodeItemPredicate(lock nbt.Compound) ItemPredicate {
 // tag, unknown bare item or other shape drops the field; an emptied list
 // matches nothing.
 // vanilla: RegistryCodecs.homogeneousList, HolderSetCodec
-func decodePredicateItems(pred *ItemPredicate, items nbt.Tag) {
+func (lookup *TagLookup) decodePredicateItems(pred *ItemPredicate, items nbt.Tag) {
 	if name, ok := items.(nbt.String); ok {
 		if strings.HasPrefix(string(name), "#") {
 			tag := Qualify(string(name)[1:])
-			if !ItemTagExists(tag) {
+			if !lookup.itemTagExists(tag) {
 				return
 			}
 			pred.hasItems, pred.tag = true, tag

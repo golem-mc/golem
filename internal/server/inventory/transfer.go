@@ -22,20 +22,27 @@ type Block interface {
 	Len() int
 	// Peek is the slot's item and count, read without copying the stack.
 	Peek(slot int) (itemID, count int32)
+	// StackPtr is the slot's stack in place for reading, or nil if out of range
+	// or unbacked; writes go through Put.
+	StackPtr(slot int) *protocol.ItemStack
 	// Filled is the mask of slots holding items: bit i is set exactly when
 	// slot i's count is positive (at most 64 slots).
 	Filled() uint64
 	Kind() Kind
 }
 
-// Compound is two blocks as one, the first's slots then the second's: a
-// double chest's 54, right half first. vanilla: CompoundContainer
-type Compound struct {
-	First, Second Block
+// Pair is two blocks as one, the first's slots then the second's: a
+// double chest's 54, right half first. The halves keep their concrete type so
+// value adapters need no heap box. vanilla: CompoundContainer
+type Pair[B Block] struct {
+	First, Second B
 }
 
+// Compound is a Pair of interface-typed halves, for window and interface callers.
+type Compound = Pair[Block]
+
 // Slot is what the given one of the pair's slots holds.
-func (c Compound) Slot(slot int) protocol.ItemStack {
+func (c Pair[B]) Slot(slot int) protocol.ItemStack {
 	if n := c.First.Len(); slot >= n {
 		return c.Second.Slot(slot - n)
 	}
@@ -43,18 +50,26 @@ func (c Compound) Slot(slot int) protocol.ItemStack {
 }
 
 // Peek is the item and count of the given one of the pair's slots.
-func (c Compound) Peek(slot int) (itemID, count int32) {
+func (c Pair[B]) Peek(slot int) (itemID, count int32) {
 	if n := c.First.Len(); slot >= n {
 		return c.Second.Peek(slot - n)
 	}
 	return c.First.Peek(slot)
 }
 
+// StackPtr is the given slot's stack in place for reading.
+func (c Pair[B]) StackPtr(slot int) *protocol.ItemStack {
+	if n := c.First.Len(); slot >= n {
+		return c.Second.StackPtr(slot - n)
+	}
+	return c.First.StackPtr(slot)
+}
+
 // Filled is the pair's masks joined, the second half above the first's slots.
-func (c Compound) Filled() uint64 { return c.First.Filled() | c.Second.Filled()<<c.First.Len() }
+func (c Pair[B]) Filled() uint64 { return c.First.Filled() | c.Second.Filled()<<c.First.Len() }
 
 // Put replaces what the given one of the pair's slots holds.
-func (c Compound) Put(slot int, stack protocol.ItemStack) {
+func (c Pair[B]) Put(slot int, stack protocol.ItemStack) {
 	if n := c.First.Len(); slot >= n {
 		c.Second.Put(slot-n, stack)
 		return
@@ -63,15 +78,15 @@ func (c Compound) Put(slot int, stack protocol.ItemStack) {
 }
 
 // Stacks is a copy of the pair's slots.
-func (c Compound) Stacks() []protocol.ItemStack {
+func (c Pair[B]) Stacks() []protocol.ItemStack {
 	return append(slices.Clone(c.First.Stacks()), c.Second.Stacks()...)
 }
 
 // Len is how many slots the pair has: both halves'.
-func (c Compound) Len() int { return c.First.Len() + c.Second.Len() }
+func (c Pair[B]) Len() int { return c.First.Len() + c.Second.Len() }
 
 // Kind is the double chest's window.
-func (c Compound) Kind() Kind { return KindDoubleChest }
+func (c Pair[B]) Kind() Kind { return KindDoubleChest }
 
 // slotRange is 0..n-1 for every block size, shared and never written:
 // vanilla's CACHED_SLOTS, so a move allocates no slot list.
@@ -173,11 +188,12 @@ func CanPlaceItem[B Block](b B, stack protocol.ItemStack, slot int) bool {
 	switch b.Kind() {
 	case KindBrewingStand:
 		// vanilla: BrewingStandBlockEntity.canPlaceItem
-		return canPlaceThroughFace(b, stack, slot)
+		return canPlaceThroughFace(b, &stack, slot)
 	case KindJukebox:
 		// vanilla: JukeboxBlockEntity.canPlaceItem
 		_, ok := registry.JukeboxSongForStack(stack)
-		return ok && b.Slot(slot).Empty()
+		_, count := b.Peek(slot)
+		return ok && count <= 0
 	case KindCrafter:
 		return crafterCanPlace(b, slot)
 	case KindShelf:
@@ -185,12 +201,12 @@ func CanPlaceItem[B Block](b B, stack protocol.ItemStack, slot int) bool {
 		if s, ok := any(b).(storedBlock); ok && s.Stored(slot) {
 			return false
 		}
-		in := b.Slot(slot)
-		return in.Empty() || in.Count < registry.StackMaxStackSize(stack)
+		_, count := b.Peek(slot)
+		return count <= 0 || count < registry.StackMaxStackSizePtr(&stack)
 	case KindShulker, KindComposterInput, KindComposterOutput, KindComposterFull:
 		return true
 	}
-	return canPlaceThroughFace(b, stack, slot)
+	return canPlaceThroughFace(b, &stack, slot)
 }
 
 // crafterCanPlace: an enabled, non-full slot that is empty or has no later
@@ -200,23 +216,33 @@ func crafterCanPlace[B Block](b B, slot int) bool {
 	if blockSlotDisabled(b, slot) {
 		return false
 	}
-	in := b.Slot(slot)
-	if in.Empty() {
+	in := b.StackPtr(slot)
+	if in == nil || in.Count <= 0 {
 		return true
 	}
-	if in.Count >= registry.StackMaxStackSize(in) {
+	if in.Count >= registry.StackMaxStackSizePtr(in) {
 		return false
 	}
 	for i := slot + 1; i < b.Len() && i < 9; i++ {
 		if blockSlotDisabled(b, i) {
 			continue
 		}
-		other := b.Slot(i)
-		if other.Empty() || (other.Count < in.Count && other.Same(in)) {
+		other := b.StackPtr(i)
+		if other == nil || other.Count <= 0 || (other.Count < in.Count && other.SamePtr(in)) {
 			return false
 		}
 	}
 	return true
+}
+
+// isPlainContainer reports a non-worldly container whose slots accept any stack
+// through any face.
+func isPlainContainer(kind Kind) bool {
+	switch kind {
+	case KindHopper, KindChest, KindDoubleChest, KindBarrel, KindDispenser, KindDropper:
+		return true
+	}
+	return false
 }
 
 // canPlaceThroughFace: furnace input anything, fuel slot fuel (an empty
@@ -224,17 +250,21 @@ func crafterCanPlace[B Block](b B, slot int) bool {
 // or empty bottle, ingredient and fuel theirs; a shulker box not its own
 // kind; the composter input one compostable, its output nothing.
 // vanilla: canPlaceItemInContainer
-func canPlaceThroughFace[B Block](b B, stack protocol.ItemStack, slot int) bool {
+func canPlaceThroughFace[B Block](b B, stack *protocol.ItemStack, slot int) bool {
+	if isPlainContainer(b.Kind()) {
+		return true
+	}
 	switch b.Kind() {
 	case KindFurnace, KindBlastFurnace, KindSmoker:
 		switch slot {
 		case 0:
 			return true
 		case 1:
-			if IsCookingFuel(stack) {
+			if IsCookingFuel(*stack) {
 				return true
 			}
-			return registry.Item(stack.ItemID) == registry.ItemBucket && registry.Item(b.Slot(1).ItemID) != registry.ItemBucket
+			id, _ := b.Peek(1)
+			return registry.Item(stack.ItemID) == registry.ItemBucket && registry.Item(id) != registry.ItemBucket
 		default:
 			return false
 		}
@@ -242,20 +272,21 @@ func canPlaceThroughFace[B Block](b B, stack protocol.ItemStack, slot int) bool 
 		switch slot {
 		case 0, 1, 2:
 			// vanilla: BrewingStandBlockEntity.canPlaceItem
-			return isPotionBottle(stack) && b.Slot(slot).Empty()
+			_, count := b.Peek(slot)
+			return isPotionBottle(*stack) && count <= 0
 		case 3:
 			return isBrewingIngredient(registry.Item(stack.ItemID))
 		case 4:
-			return IsBrewingFuel(stack)
+			return IsBrewingFuel(*stack)
 		}
 		return false
 	case KindCrafter:
 		return crafterAccepts(b, slot, stack)
 	case KindShulker:
-		return !isShulkerBoxItem(stack)
+		return !isShulkerBoxItem(*stack)
 	case KindJukebox:
 		// vanilla: JukeboxBlockEntity.canPlaceItem
-		_, ok := registry.JukeboxSongForStack(stack)
+		_, ok := registry.JukeboxSongForStack(*stack)
 		return ok
 	case KindChiseledBookshelf:
 		// Only shelf books (the item tag), and with a stack size of one only
@@ -266,14 +297,15 @@ func canPlaceThroughFace[B Block](b B, stack protocol.ItemStack, slot int) bool 
 		if s, ok := any(b).(storedBlock); ok && s.Stored(slot) {
 			return false
 		}
-		return registry.Item(stack.ItemID).InTag(registry.ItemTagIDBookshelfBooks) && b.Slot(slot).Empty()
+		_, count := b.Peek(slot)
+		return registry.Item(stack.ItemID).InTag(registry.ItemTagIDBookshelfBooks) && count <= 0
 	case KindComposterInput:
 		// The container takes one item and then refuses.
 		// vanilla: ComposterBlock.InputContainer.canPlaceItemThroughFace
 		if s, ok := any(b).(storedBlock); ok && s.Stored(slot) {
 			return false
 		}
-		return isCompostable(stack)
+		return isCompostable(*stack)
 	case KindComposterOutput, KindComposterFull:
 		return false
 	default:
@@ -285,24 +317,26 @@ func canPlaceThroughFace[B Block](b B, stack protocol.ItemStack, slot int) bool 
 // slot its even spread picks, the first enabled empty cell, else the enabled
 // cell with the smallest same-item stack.
 // vanilla: CrafterBlockEntity.canPlaceItem
-func crafterAccepts[B Block](b B, slot int, stack protocol.ItemStack) bool {
+func crafterAccepts[B Block](b B, slot int, stack *protocol.ItemStack) bool {
 	return crafterTarget(b, stack) == slot
 }
 
 // crafterTarget is the cell a stack goes into, -1 when every enabled cell
 // holds a different item.
-func crafterTarget[B Block](b B, stack protocol.ItemStack) int {
+func crafterTarget[B Block](b B, stack *protocol.ItemStack) int {
 	best := -1
+	var bestCount int32
 	for i := 0; i < b.Len(); i++ {
 		if blockSlotDisabled(b, i) {
 			continue
 		}
-		in := b.Slot(i)
-		if in.Empty() {
+		in := b.StackPtr(i)
+		if in == nil || in.Count <= 0 {
 			return i
 		}
-		if sameStack(in, stack) && (best < 0 || in.Count < b.Slot(best).Count) {
+		if in.SamePtr(stack) && (best < 0 || in.Count < bestCount) {
 			best = i
+			bestCount = in.Count
 		}
 	}
 	return best
@@ -321,7 +355,7 @@ func blockSlotDisabled[B Block](b B, slot int) bool {
 // or water buckets, the brewing ingredient slot only leftover empty bottles,
 // the composter output only bone meal. The composter input gives nothing.
 // vanilla: canTakeItemFromContainer
-func canTakeThroughFace[B Block](b B, stack protocol.ItemStack, slot int, face int32) bool {
+func canTakeThroughFace[B Block](b B, stack *protocol.ItemStack, slot int, face int32) bool {
 	if b.Kind().Cooking() && face == protocol.FaceBottom && slot == 1 {
 		return registry.Item(stack.ItemID) == registry.ItemWaterBucket || registry.Item(stack.ItemID) == registry.ItemBucket
 	}
@@ -346,8 +380,17 @@ func isCompostable(stack protocol.ItemStack) bool {
 
 // Full is vanilla's isFullContainer over the slots a face reads.
 func Full[B Block](b B, face int32) bool {
+	if !isWorldly(b.Kind()) {
+		if n := b.Len(); n > 0 && n <= 64 {
+			allMask := ^uint64(0) >> (64 - n)
+			if b.Filled()&allMask != allMask {
+				return false
+			}
+		}
+	}
 	for _, slot := range slotsForFace(b, face) {
-		if _, count := b.Peek(slot); count <= 0 || count < registry.StackMaxStackSize(b.Slot(slot)) {
+		s := b.StackPtr(slot)
+		if s == nil || s.Count <= 0 || s.Count < registry.StackMaxStackSizePtr(s) {
 			return false
 		}
 	}
@@ -356,6 +399,9 @@ func Full[B Block](b B, face int32) bool {
 
 // Empty tells whether a block holds nothing at all.
 func Empty[B Block](b B) bool {
+	if b.Len() <= 64 {
+		return b.Filled() == 0
+	}
 	for i := 0; i < b.Len(); i++ {
 		if _, count := b.Peek(i); count > 0 {
 			return false
@@ -370,49 +416,104 @@ func Empty[B Block](b B) bool {
 // chained cooldown.
 // vanilla: HopperBlockEntity.addItem
 func AddItem[B Block](dest B, stack protocol.ItemStack, face int32, throughFace bool) (left protocol.ItemStack, intoEmpty bool) {
+	intoEmpty = addItemPtr(dest, &stack, face, throughFace)
+	return stack, intoEmpty
+}
+
+// addItemPtr is AddItem mutating *stack in place.
+func addItemPtr[B Block](dest B, stack *protocol.ItemStack, face int32, throughFace bool) (intoEmpty bool) {
 	slots := allSlots(dest)
 	if throughFace && isWorldly(dest.Kind()) {
 		slots = slotsForFace(dest, face)
 	}
 	wasEmpty := Empty(dest)
+	plain := isPlainContainer(dest.Kind())
 	changed := false
 	for _, slot := range slots {
-		if stack.Empty() {
+		if stack.Count <= 0 {
 			break
 		}
-		var moved bool
-		stack, moved = tryMoveInItem(dest, stack, slot)
-		changed = changed || moved
+		if tryMoveInItem(dest, stack, slot, plain) {
+			changed = true
+		}
 	}
-	return stack, wasEmpty && changed
+	return wasEmpty && changed
 }
 
-// tryMoveInItem is vanilla's tryMoveInItem: one slot's share of a pour.
-func tryMoveInItem[B Block](dest B, stack protocol.ItemStack, slot int) (protocol.ItemStack, bool) {
-	if !canPlaceThroughFace(dest, stack, slot) {
-		return stack, false
+// addOneItem pours a single item of stack into dest's face slots without
+// mutating or copying stack unless an empty slot accepts it.
+func addOneItem[B Block](dest B, stack *protocol.ItemStack, face int32, throughFace bool) (moved, intoEmpty bool) {
+	kind := dest.Kind()
+	slots := allSlots(dest)
+	if throughFace && isWorldly(kind) {
+		slots = slotsForFace(dest, face)
 	}
-	id, count := dest.Peek(slot)
-	if count <= 0 {
-		dest.Put(slot, stack)
-		return protocol.ItemStack{}, true
+	checkPlacement := !isPlainContainer(kind)
+	if kind == KindCrafter {
+		target := crafterTarget(dest, stack)
+		if target < 0 {
+			return false, false
+		}
+		// Crafters expose the whole grid in slot order on every face.
+		slots = slots[target : target+1]
+		checkPlacement = false
+	}
+	wasEmpty := Empty(dest)
+	for _, slot := range slots {
+		if checkPlacement && !canPlaceThroughFace(dest, stack, slot) {
+			continue
+		}
+		item := dest.StackPtr(slot)
+		if item == nil || item.Count <= 0 {
+			one := *stack
+			one.Count = 1
+			dest.Put(slot, one)
+			return true, wasEmpty
+		}
+		// Room and item first: a full or foreign slot is the common refusal and
+		// needs neither the stack nor a component comparison.
+		if item.ItemID != stack.ItemID {
+			continue
+		}
+		if item.Count >= registry.StackMaxStackSizePtr(item) || !item.SamePtr(stack) {
+			continue
+		}
+		updated := *item
+		updated.Count++
+		dest.Put(slot, updated)
+		return true, wasEmpty
+	}
+	return false, false
+}
+
+// tryMoveInItem is vanilla's tryMoveInItem: one slot's share of a pour. It
+// takes what the slot accepts out of *stack and reports whether it moved any.
+func tryMoveInItem[B Block](dest B, stack *protocol.ItemStack, slot int, plain bool) bool {
+	if !plain && !canPlaceThroughFace(dest, stack, slot) {
+		return false
+	}
+	item := dest.StackPtr(slot)
+	if item == nil || item.Count <= 0 {
+		dest.Put(slot, *stack)
+		*stack = protocol.ItemStack{}
+		return true
 	}
 	// Room and item first: a full or foreign slot is the common refusal and
 	// needs neither the stack nor a component comparison.
-	if id != stack.ItemID {
-		return stack, false
+	if item.ItemID != stack.ItemID {
+		return false
 	}
-	item := dest.Slot(slot)
-	move := min(registry.StackMaxStackSize(item)-item.Count, stack.Count)
+	move := min(registry.StackMaxStackSizePtr(item)-item.Count, stack.Count)
 	// move > 0 means item.Count is under its maximum, vanilla's canMergeItems
 	// capacity check.
-	if move <= 0 || !item.Same(stack) {
-		return stack, false
+	if move <= 0 || !item.SamePtr(stack) {
+		return false
 	}
 	stack.Count -= move
-	item.Count += move
-	dest.Put(slot, item)
-	return stack, true
+	updated := *item
+	updated.Count += move
+	dest.Put(slot, updated)
+	return true
 }
 
 // Gate lets a caller veto or replace the one item a hopper move is about to
@@ -433,24 +534,34 @@ func EjectGated[S, D Block](src S, dest D, face int32, gate Gate) (moved, intoEm
 	if Full(dest, face) {
 		return false, false
 	}
+	filled := src.Filled()
+	if filled == 0 && src.Len() <= 64 {
+		return false, false
+	}
 	for i := 0; i < src.Len(); i++ {
-		if _, count := src.Peek(i); count <= 0 {
+		if i < 64 && filled&(1<<i) == 0 {
 			continue
 		}
-		stack := src.Slot(i)
-		one := stack
-		one.Count = 1
+		stack := src.StackPtr(i)
+		if stack == nil || stack.Count <= 0 {
+			continue
+		}
+		var ok, into bool
 		if gate != nil {
-			var ok bool
+			one := *stack
+			one.Count = 1
 			if one, ok = gate.Check(one); !ok {
 				return false, false
 			}
+			into = addItemPtr(dest, &one, face, true)
+			ok = one.Count <= 0
+		} else {
+			ok, into = addOneItem(dest, stack, face, true)
 		}
-		left, into := AddItem(dest, one, face, true)
-		if !left.Empty() {
+		if !ok {
 			continue
 		}
-		src.Put(i, shrunk(stack))
+		shrinkSlot(src, i, stack)
 		return true, into
 	}
 	return false, false
@@ -467,40 +578,48 @@ func Suck[S, D Block](src S, hopper D) (moved, intoEmpty bool) {
 // hopper could take from, before the hopper is tried.
 func SuckGated[S, D Block](src S, hopper D, gate Gate) (moved, intoEmpty bool) {
 	filled := src.Filled()
-	if filled == 0 {
+	if filled == 0 && src.Len() <= 64 {
 		return false, false
 	}
 	for _, slot := range slotsForFace(src, protocol.FaceBottom) {
 		if slot < 64 && filled&(1<<slot) == 0 {
 			continue
 		}
-		stack := src.Slot(slot)
+		stack := src.StackPtr(slot)
+		if stack == nil || stack.Count <= 0 {
+			continue
+		}
 		if !canTakeThroughFace(src, stack, slot, protocol.FaceBottom) {
 			continue
 		}
-		one := stack
-		one.Count = 1
+		var ok, into bool
 		if gate != nil {
-			var ok bool
+			one := *stack
+			one.Count = 1
 			if one, ok = gate.Check(one); !ok {
 				return false, false
 			}
+			into = addItemPtr(hopper, &one, 0, false)
+			ok = one.Count <= 0
+		} else {
+			ok, into = addOneItem(hopper, stack, 0, false)
 		}
-		left, into := AddItem(hopper, one, 0, false)
-		if !left.Empty() {
+		if !ok {
 			continue
 		}
-		src.Put(slot, shrunk(stack))
+		shrinkSlot(src, slot, stack)
 		return true, into
 	}
 	return false, false
 }
 
-// shrunk is a stack one item smaller, empty once it runs out.
-func shrunk(stack protocol.ItemStack) protocol.ItemStack {
-	stack.Count--
-	if stack.Count <= 0 {
-		return protocol.ItemStack{}
+// shrinkSlot decrements slot's stack by one, clearing it when it runs out.
+func shrinkSlot[B Block](b B, slot int, stack *protocol.ItemStack) {
+	if stack.Count <= 1 {
+		b.Put(slot, protocol.ItemStack{})
+		return
 	}
-	return stack
+	updated := *stack
+	updated.Count--
+	b.Put(slot, updated)
 }

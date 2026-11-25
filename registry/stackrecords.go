@@ -23,19 +23,19 @@ func recordFieldsOf(name string) (int32, []protocol.RecordField) {
 // vanilla: UseEffects.CODEC, SwingAnimation.CODEC, KineticWeapon.CODEC,
 // PiercingWeapon.CODEC, CookingFuel.CODEC, BrewingFuel.CODEC,
 // VillagerFood.CODEC, MobVisibility.CODEC
-func readRecordComponent(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
+func (lookup *TagLookup) readRecordComponent(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
 	id, fields := recordFieldsOf(name)
 	if fields == nil {
 		return false, false
 	}
-	values, ok := recordValuesOf(fields, value)
+	values, ok := lookup.recordValuesOf(fields, value)
 	if ok {
 		stack.SetRecord(id, values)
 	}
 	return ok, true
 }
 
-func recordValuesOf(fields []protocol.RecordField, value nbt.Tag) ([]any, bool) {
+func (lookup *TagLookup) recordValuesOf(fields []protocol.RecordField, value nbt.Tag) ([]any, bool) {
 	entry, ok := nbt.CompoundView(value)
 	if !ok {
 		return nil, false
@@ -50,14 +50,14 @@ func recordValuesOf(fields []protocol.RecordField, value nbt.Tag) ([]any, bool) 
 			values[i] = f.Def
 			continue
 		}
-		if values[i], ok = recordFieldOf(f, tag); !ok {
+		if values[i], ok = lookup.recordFieldOf(f, tag); !ok {
 			return nil, false
 		}
 	}
 	return values, true
 }
 
-func recordFieldOf(f protocol.RecordField, tag nbt.Tag) (any, bool) {
+func (lookup *TagLookup) recordFieldOf(f protocol.RecordField, tag nbt.Tag) (any, bool) {
 	switch f.Kind {
 	case protocol.RecordBool:
 		_, ok := nbt.ByteValue(tag)
@@ -89,9 +89,9 @@ func recordFieldOf(f protocol.RecordField, tag nbt.Tag) (any, bool) {
 	case protocol.RecordSound:
 		return soundHolderOf(tag)
 	case protocol.RecordEntitySet:
-		return entitySetOf(tag)
+		return lookup.entitySetOf(tag)
 	default:
-		return recordValuesOf(f.Fields, tag)
+		return lookup.recordValuesOf(f.Fields, tag)
 	}
 }
 
@@ -173,7 +173,7 @@ func withRecordTags(components nbt.Compound, stack protocol.ItemStack) nbt.Compo
 // errors last field first, or "" when it parses or the failure is a sound
 // or entity set the codec names with a registry's own text.
 // vanilla: RecordCodecBuilder, MapCodec.decode
-func recordMalformed(fields []protocol.RecordField, tag nbt.Tag) string {
+func (lookup *TagLookup) recordMalformed(fields []protocol.RecordField, tag nbt.Tag) string {
 	entry, ok := nbt.CompoundView(tag)
 	if !ok {
 		return "Not a map: " + nbt.Stringify(tag)
@@ -182,7 +182,7 @@ func recordMalformed(fields []protocol.RecordField, tag nbt.Tag) string {
 	for _, f := range fields {
 		failure := ""
 		if value, has := entry[f.Key]; has {
-			failure = recordFieldMalformed(f, value)
+			failure = lookup.recordFieldMalformed(f, value)
 		} else if f.Mode == protocol.FieldRequired {
 			failure = "No key " + f.Key + " in MapLike[" + nbt.Stringify(tag) + "]"
 		}
@@ -191,7 +191,7 @@ func recordMalformed(fields []protocol.RecordField, tag nbt.Tag) string {
 	return msg
 }
 
-func recordFieldMalformed(f protocol.RecordField, tag nbt.Tag) string {
+func (lookup *TagLookup) recordFieldMalformed(f protocol.RecordField, tag nbt.Tag) string {
 	switch f.Kind {
 	case protocol.RecordBool:
 		return textNumberMalformed(tag)
@@ -216,15 +216,15 @@ func recordFieldMalformed(f protocol.RecordField, tag nbt.Tag) string {
 		if !ok {
 			return "Not a string"
 		}
-		if _, ok := recordFieldOf(f, tag); !ok {
+		if _, ok := lookup.recordFieldOf(f, tag); !ok {
 			return "Unknown element name:" + string(name)
 		}
 	case protocol.RecordResInt, protocol.RecordResFloat:
-		if _, ok := recordFieldOf(f, tag); !ok {
+		if _, ok := lookup.recordFieldOf(f, tag); !ok {
 			return "Failed to parse either. First: Not a number; Second: " + resourceLocationMalformed(tag)
 		}
 	case protocol.RecordNested:
-		return recordMalformed(f.Fields, tag)
+		return lookup.recordMalformed(f.Fields, tag)
 	}
 	return ""
 }

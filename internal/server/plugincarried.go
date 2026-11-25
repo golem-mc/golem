@@ -40,7 +40,7 @@ func (b pluginCarriedBlockEntity) Data() plugin.Data {
 func (b pluginCarriedBlockEntity) write(change func(nbt.Compound)) {
 	if b.entity.Edit(change) {
 		p := b.entity.Pos()
-		b.world.srv.tellBlockEntity(b.world.dim.w, p[0], p[1], p[2], b.entity.Kind(), false)
+		b.world.srv.tellCarriedBlockEntity(b.world.dim.w, p[0], p[1], p[2], b.entity.Kind())
 	}
 }
 

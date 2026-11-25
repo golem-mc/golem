@@ -214,7 +214,12 @@ type BlockEntity struct {
 	// Furnace progress in ticks: the current smelt's progress and length, and
 	// the current fuel lot's remaining and total burn. Zero for a chest.
 	CookingSpent, CookingTotal int32
-	LitRemaining, LitTotal     int32
+	// CookCheck is the id of the cooking recipe that last matched, which wins
+	// over an earlier recipe taking the same input; not saved.
+	// vanilla: AbstractFurnaceBlockEntity.quickCheck, CampfireBlock.getTicker
+	CookCheck              string
+	cookReset              atomic.Bool // a state write asks the campfire to drop CookCheck
+	LitRemaining, LitTotal int32
 	// SpeedMultiplier is what the fuel last lit (a furnace) or loaded (a
 	// brewing stand) divides the recipe's time by; nought counts as 1.
 	// vanilla: AbstractFurnaceBlockEntity.speedMultiplier
@@ -305,23 +310,6 @@ type BlockEntity struct {
 	// vanilla: BeaconBlockEntity.primaryPower, secondaryPower, levels
 	BeaconLevels                   int
 	BeaconPrimary, BeaconSecondary int32
-
-	// The moving piston's ride (PistonMovingBlockEntity): the carried state,
-	// the piston's facing, whether this is the extend or the pull home, and
-	// whether the ride is the head. The engine does not animate vanilla's
-	// two-tick move (its write is already where the last tick lands), but the
-	// entity lives exactly as long because rules read it: a sticky retraction
-	// checks the moving block ahead, and the zero-tick retraction asks when it
-	// was made. CreatedTick is that: the tick whose block event wrote it.
-	MovedState  uint16
-	PistonDir   int8
-	Extending   bool
-	IsSource    bool
-	CreatedTick int64
-	// RideProgress is the ride's progress, 0 to 1, that body sweeps read
-	// collision at; refreshed per tick, not saved.
-	// vanilla: PistonMovingBlockEntity.progress
-	RideProgress float64
 
 	// The spawner's BaseSpawner numbers: the next spawn's delay and the bounds
 	// it is rolled between, plus count, neighbourhood and ranges. Saved as
@@ -676,8 +664,8 @@ func (b *BlockEntity) Put(slot int, stack protocol.ItemStack) {
 	// recomputes the total); emptying the slot is a change, the same item at
 	// another count is not.
 	// vanilla: AbstractFurnaceBlockEntity.setItem
-	if slot == 0 && IsCooking(b.Kind) && (stack.Empty() || !stack.Same(b.Slots[0])) {
-		b.CookingTotal = b.CookTotalOf(registry.CookingMatch(b.Kind.Name(), stack))
+	if slot == 0 && IsCooking(b.Kind) && (stack.Empty() || !stack.SamePtr(&b.Slots[0])) {
+		b.CookingTotal = b.CookTotalOf(registry.CookingMatchCached(b.Kind.Name(), stack, &b.CookCheck))
 		b.CookingSpent = 0
 	}
 	// A write into a disabled grid slot enables it first, even an empty one.
@@ -697,7 +685,9 @@ func (b *BlockEntity) PutKeepingCook(slot int, stack protocol.ItemStack) {
 	b.Wake()
 	b.inventoryVersion.Add(1)
 	b.Slots[slot] = stack
-	delete(b.Stored, slot)
+	if len(b.Stored) > 0 {
+		delete(b.Stored, slot)
+	}
 	b.setFilled(slot, stack.Count > 0)
 }
 
@@ -1241,7 +1231,10 @@ func (c *Chunk) carriedBlockEntityAt(x, y, z int32) (nbt.Compound, bool) {
 // if none.
 func (c *Chunk) removeBlockEntity(x, y, z int32) *BlockEntity {
 	key := entityKey(x, y, z)
-	b := c.entities[key]
+	b, ok := c.entities[key]
+	if !ok {
+		return nil
+	}
 	delete(c.entities, key)
 	c.dropEntityOrder(key)
 	return b
@@ -1250,7 +1243,13 @@ func (c *Chunk) removeBlockEntity(x, y, z int32) *BlockEntity {
 // blockEntities lists the chunk's entities in insertion order, vanilla's ticker
 // order and a deterministic save order so two saves give the same bytes.
 func (c *Chunk) blockEntities() []*BlockEntity {
-	out := make([]*BlockEntity, 0, len(c.entityOrder))
+	return c.appendBlockEntities(nil)
+}
+
+// appendBlockEntities appends the entities in blockEntities' order to out,
+// growing it once for all of them.
+func (c *Chunk) appendBlockEntities(out []*BlockEntity) []*BlockEntity {
+	out = slices.Grow(out, len(c.entityOrder))
 	for _, key := range c.entityOrder {
 		if b := c.entities[key]; b != nil {
 			out = append(out, b)
@@ -1299,6 +1298,7 @@ func (w *World) EnsureBlockEntity(x, y, z int32, kind BlockEntityKind) *BlockEnt
 		// vanilla: CrafterBlock.newBlockEntity
 		created.Triggered = registry.StateBool(loaded.chunk.BlockAt(x&15, y, z&15), registry.PropTriggered)
 	}
+	loaded.chunk.removePistonRide(x, y, z)
 	loaded.chunk.setBlockEntity(created)
 	loaded.containerGen.Add(1)
 	w.appendBlockEntityOrder(created)
@@ -1308,7 +1308,7 @@ func (w *World) EnsureBlockEntity(x, y, z int32, kind BlockEntityKind) *BlockEnt
 
 // EnsureBlockEntityForBlock gives the block now at the position the block
 // entity vanilla gives every block of its type, when it has none: a fresh
-// spawner, or a carried compound with the type's empty save for a type this
+// spawner, or a carried compound with the type's default data for a type this
 // server does not model (the client draws banners, heads and the enchanting
 // table's book only from one). The other modelled kinds are the callers' to
 // create; a piston's is its moving block's.
@@ -1321,10 +1321,12 @@ func (w *World) EnsureBlockEntityForBlock(x, y, z int32) {
 		w.mu.RUnlock()
 		return
 	}
-	block := registry.BlockOf(loaded.chunk.BlockAt(x&15, y, z&15))
+	state := loaded.chunk.BlockAt(x&15, y, z&15)
+	block := registry.BlockOf(state)
 	id, has := registry.BlockEntityTypes[block.Name()]
 	_, carried := loaded.chunk.carriedBlockEntityAt(x, y, z)
-	live := loaded.chunk.blockEntity(x, y, z) != nil
+	_, ride := loaded.chunk.pistonRide(x, y, z)
+	live := loaded.chunk.blockEntity(x, y, z) != nil || ride
 	w.mu.RUnlock()
 	if !has || carried || live {
 		return
@@ -1333,13 +1335,9 @@ func (w *World) EnsureBlockEntityForBlock(x, y, z int32) {
 	switch {
 	case kind == KindSpawner:
 		w.EnsureBlockEntity(x, y, z, kind)
-	case containerKind(kind):
+	case containerKind(kind) || kind == KindPiston:
 	default:
-		save := nbt.Compound{"components": nbt.Compound{}}
-		if id == "minecraft:end_gateway" {
-			save["Age"] = nbt.Long(0)
-		}
-		w.SetBlockEntityTag(x, y, z, id, save)
+		w.SetBlockEntityTag(x, y, z, id, freshCarriedTag(block, state))
 	}
 }
 
@@ -1431,13 +1429,16 @@ func (w *World) RemoveBlockEntity(x, y, z int32) *BlockEntity {
 	if b != nil {
 		loaded.containerGen.Add(1)
 	}
-	if loaded.chunk.removeCarriedBlockEntity(x, y, z) > 0 {
-		loaded.dirty = true
+	ride := loaded.chunk.removePistonRide(x, y, z)
+	carried := loaded.chunk.removeCarriedBlockEntity(x, y, z) > 0
+	if carried {
 		w.syncTickingChunk(pos, loaded.chunk)
+	}
+	if b != nil || ride || carried {
+		loaded.markDirty()
 	}
 	if b != nil {
 		w.removeBlockEntityOrder(b)
-		loaded.markDirty()
 		b.removed.Store(true)
 	}
 	w.mu.Unlock()
@@ -1521,8 +1522,14 @@ func (w *World) SetBlockEntityTag(x, y, z int32, entityType string, data nbt.Com
 		return KindNone, false
 	}
 	// vanilla: MovingPistonBlock.newBlockEntity returns null; only piston
-	// movement creates its entity. Chunk loads still use decodeBlockEntity.
+	// movement creates its entity, though commands can update an existing ride.
 	if entityType == KindPiston.Name() {
+		if r, ok := loaded.chunk.pistonRide(x, y, z); ok {
+			r.loadFrom(entry)
+			loaded.chunk.setPistonRide(r)
+			loaded.markDirty()
+			return KindPiston, true
+		}
 		return KindNone, false
 	}
 	if be, ok := decodeBlockEntity(entry); ok {
@@ -1532,6 +1539,7 @@ func (w *World) SetBlockEntityTag(x, y, z int32, entityType string, data nbt.Com
 			w.removeBlockEntityOrder(old)
 			old.removed.Store(true)
 		}
+		loaded.chunk.removePistonRide(x, y, z)
 		loaded.chunk.setBlockEntity(be)
 		loaded.containerGen.Add(1)
 		w.appendBlockEntityOrder(be)
@@ -1581,6 +1589,13 @@ func (w *World) savedBlockEntity(x, y, z int32) (tag nbt.CompoundTag, carried, o
 	}
 	be := loaded.chunk.blockEntity(x, y, z)
 	if be == nil {
+		if r, found := loaded.chunk.pistonRide(x, y, z); found {
+			w.mu.RUnlock()
+			tag := r.saveTag()
+			// vanilla: PistonMovingBlockEntity.saveAdditional writes progressO.
+			tag.Set("progress", nbt.Float(r.rideProgress))
+			return tag, false, true
+		}
 		compound, found := loaded.chunk.carriedBlockEntityAt(x, y, z)
 		w.mu.RUnlock()
 		return compound, found, found
@@ -2125,7 +2140,7 @@ func (b *BlockEntity) loadFrom(entry nbt.Compound) {
 	b.Stored = nil
 	// The runtime state no save carries starts over.
 	b.BrewingIngredient, b.BrewingBottles = 0, nil
-	b.TickedGameTime, b.Openers, b.CreatedTick = 0, 0, 0
+	b.TickedGameTime, b.Openers = 0, 0
 	b.hopperSlept = false
 	b.ConduitActive, b.ConduitNextAmbient, b.CreakingTicker = false, 0, 0
 	b.Bell = BellState{}
@@ -2141,7 +2156,7 @@ func containerKind(kind BlockEntityKind) bool {
 	switch kind {
 	case KindChest, KindTrappedChest, KindFurnace, KindBlastFurnace, KindSmoker,
 		KindBrewingStand, KindCrafter, KindBarrel, KindShulkerBox, KindEnderChest,
-		KindDispenser, KindDropper, KindHopper, KindComparator, KindPiston,
+		KindDispenser, KindDropper, KindHopper, KindComparator,
 		KindSpawner, KindCommandBlock, KindBell, KindSign, KindHangingSign,
 		KindJukebox, KindDaylightDetector, KindBeacon, KindDecoratedPot, KindShelf,
 		KindChiseledBookshelf, KindConduit, KindCreakingHeart, KindLectern,
@@ -2349,18 +2364,14 @@ func (b *BlockEntity) SetSpawnEntityID(id string) {
 }
 
 // RollSpawnPotential puts a weighted pick of SpawnPotentials in SpawnData (intn
-// is the level random's nextInt) and reports whether it picked. Without
-// potentials, SpawnData is the list's one entry, as load defaults it; with
-// all-zero weights the data stays. Call it inside Use.
+// is the level random's nextInt) and reports whether it picked. With no
+// potentials or all-zero weights nothing is drawn and the data stays; load
+// defaults only an omitted list to one entry. Call it inside Use.
 // vanilla: WeightedList.getRandom, BaseSpawner.load
 func (b *BlockEntity) RollSpawnPotential(intn func(int) int) bool {
 	total := 0
 	for _, item := range b.SpawnPotentials.Items {
 		total += spawnPotentialWeight(item)
-	}
-	if len(b.SpawnPotentials.Items) == 0 && b.SpawnData != nil {
-		intn(1)
-		return true
 	}
 	if total <= 0 {
 		return false
@@ -2477,7 +2488,7 @@ func (b *BlockEntity) UpdateTag() nbt.Compound {
 // each modelled entity is read under its own lock, never taken with the world's
 // held (see World.mu).
 // vanilla: BlockEntity.getUpdateTag
-func putBlockEntities(b *protocol.Buffer, own []*BlockEntity, carried []nbt.Tag, active map[posKey]bool) {
+func putBlockEntities(b *protocol.Buffer, own []*BlockEntity, rides []pistonRide, carried []nbt.Tag, active map[posKey]bool) {
 	type entry struct {
 		packed uint8
 		y      int16
@@ -2486,7 +2497,11 @@ func putBlockEntities(b *protocol.Buffer, own []*BlockEntity, carried []nbt.Tag,
 	}
 	// Filter before writing the count, so a type the client's registry cannot
 	// number is left out of both.
-	entries := make([]entry, 0, len(own)+len(carried))
+	var entryBuf [16]entry
+	entries := entryBuf[:0]
+	if n := len(own) + len(rides) + len(carried); n > len(entryBuf) {
+		entries = make([]entry, 0, n)
+	}
 	for _, be := range own {
 		id := blockEntityID(be.Kind)
 		if id < 0 {
@@ -2497,6 +2512,15 @@ func putBlockEntities(b *protocol.Buffer, own []*BlockEntity, carried []nbt.Tag,
 			be.Use(func(b *BlockEntity) { e.tag = b.UpdateTag() })
 		}
 		entries = append(entries, e)
+	}
+	for i := range rides {
+		r := &rides[i]
+		entries = append(entries, entry{
+			packed: uint8(r.x&0xF)<<4 | uint8(r.z&0xF),
+			y:      int16(r.y),
+			typeID: protocol.BlockEntityPiston,
+			tag:    r.updateTag(),
+		})
 	}
 	for _, item := range carried {
 		compound, ok := nbt.CompoundView(item)

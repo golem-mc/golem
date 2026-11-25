@@ -359,12 +359,3 @@ func (p *strongholdPiece) tag(name string) int {
 	}
 	return 0
 }
-
-// nbtSilverfishSpawner is the portal room's spawner as a fresh block entity
-// holds it. vanilla: BaseSpawner.setEntityId
-func nbtSilverfishSpawner() nbt.Compound {
-	return nbt.Compound{
-		"id":        nbt.String(KindSpawner.Name()),
-		"SpawnData": nbt.Compound{"entity": nbt.Compound{"id": nbt.String("minecraft:silverfish")}},
-	}
-}

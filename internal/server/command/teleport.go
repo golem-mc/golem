@@ -273,8 +273,13 @@ func runTeleport(src Source, input string, words []string) (int32, error) {
 			return 0, nil
 		}
 		relYaw, relPitch = ryaw.relative, rpitch.relative
-		// vanilla: TeleportCommand.performTeleport
-		yaw, pitch = WrapDegrees(float32(ryaw.resolve(float64(at.Yaw)))), WrapDegrees(float32(rpitch.resolve(float64(at.Pitch))))
+		yaw, pitch = float32(ryaw.resolve(float64(at.Yaw))), float32(rpitch.resolve(float64(at.Pitch)))
+		if !relYaw {
+			yaw = WrapDegrees(yaw)
+		}
+		if !relPitch {
+			pitch = WrapDegrees(pitch)
+		}
 	default:
 		// No rotation given: vanilla sends each target a zero rotation
 		// offset, so the client keeps the facing it already has.
@@ -332,6 +337,17 @@ func resolvedMove(move Move, target Entity) Move {
 		// The turn rides the Player Look At, so the position packet carries
 		// a zero rotation offset. vanilla: TeleportCommand.getRelatives
 		move.Offset.Yaw, move.Offset.Pitch = 0, 0
+		return move
+	}
+	// vanilla: TeleportCommand.performTeleport wraps the offset before
+	// PositionMoveRotation.calculateAbsolute adds it to the target's angle.
+	if move.RelYaw {
+		move.Offset.Yaw = WrapDegrees(move.Offset.Yaw)
+		move.Pos.Yaw = cur.Yaw + move.Offset.Yaw
+	}
+	if move.RelPitch {
+		move.Offset.Pitch = WrapDegrees(move.Offset.Pitch)
+		move.Pos.Pitch = ClampPitch(cur.Pitch + move.Offset.Pitch)
 	}
 	return move
 }

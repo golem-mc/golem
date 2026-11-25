@@ -12,6 +12,52 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
+func TestGeneratedSourceWaterInSeed12345(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	w, err := world.NewWorld(dir, world.NewOverworldGenerator(12345))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	pos := world.ChunkPos{X: 1, Z: 0}
+	w.Acquire(pos)
+	defer w.Release(pos)
+
+	// The ruined portal clears the cell, then post-processing refills it from
+	// the water above magma before that water becomes a bubble column.
+	// vanilla: LevelChunk.postProcessGeneration
+	want := registry.BlockWater.DefaultState()
+	if got := w.BlockAt(18, 13, 1); got != want {
+		t.Fatalf("block at (18, 13, 1) = %s (state %d), want source water (state %d)", registry.BlockOf(got).Name(), got, want)
+	}
+	if got := registry.BlockOf(w.BlockAt(18, 13, 0)); got != registry.BlockBubbleColumn {
+		t.Errorf("block at (18, 13, 0) = %s, want bubble column", got.Name())
+	}
+
+	w.Save()
+	w.FlushSaves()
+	root := servertest.ReadBlockChunkNBT(t, servertest.DimensionRegionPath(dir, "minecraft:overworld", pos), pos)
+	ticks, _ := nbt.Get[nbt.List](root, "fluid_ticks")
+	for _, item := range ticks.Items {
+		tick := item.(nbt.Compound)
+		x, _ := nbt.IntField(tick, "x")
+		y, _ := nbt.IntField(tick, "y")
+		z, _ := nbt.IntField(tick, "z")
+		if x != 18 || y != 13 || z != 1 {
+			continue
+		}
+		id, _ := nbt.Get[nbt.String](tick, "i")
+		delay, _ := nbt.IntField(tick, "t")
+		priority, _ := nbt.IntField(tick, "p")
+		if id != "minecraft:water" || delay != 5 || priority != 0 {
+			t.Fatalf("unexpected fluid tick at (18, 13, 1): %v", tick)
+		}
+		return
+	}
+	t.Error("new water source has no five-tick fluid update")
+}
+
 // TestReportedStandingWaterMatchesVanilla pins the frozen vanilla reference run:
 // seed -7863699016225221906, chunks (-1,-4)..(0,-2). The reported (10,56,-55)
 // is in (0,-4); the southern neighbours also contain waterlogged glow lichen

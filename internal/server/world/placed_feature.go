@@ -358,7 +358,7 @@ func (c providerCompiler) state(v any) stateProvider {
 		return func(*decorRegion, [3]int32) uint16 { return s }
 	}
 	switch jtype(o) {
-	case "simple_state_provider", "simple":
+	case "simple":
 		jonly(o, "state")
 		s := compileBlockState(o["state"])
 		return func(*decorRegion, [3]int32) uint16 { return s }

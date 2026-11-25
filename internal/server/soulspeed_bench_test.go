@@ -6,6 +6,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
@@ -13,12 +14,13 @@ import (
 )
 
 // BenchmarkTickAttributes steps one walking player's attribute tick, with and
-// without Soul Speed boots on soul sand, moving a block each tick.
+// without Soul Speed boots or a Speed effect on soul sand, moving a block each tick.
 func BenchmarkTickAttributes(b *testing.B) {
 	for _, tc := range []struct {
 		name      string
 		enchanted bool
-	}{{"plain", false}, {"soul_speed", true}} {
+		speed     bool
+	}{{"plain", false, false}, {"soul_speed", true, false}, {"speed_effect", false, true}} {
 		b.Run(tc.name, func(b *testing.B) {
 			logger := slog.Default()
 			slog.SetDefault(slog.New(slog.DiscardHandler))
@@ -49,6 +51,11 @@ func BenchmarkTickAttributes(b *testing.B) {
 			giveBoots := func() {
 				p.Inventory(func(inv *player.Inventory) {
 					inv.Set(player.ArmorSlot+3, protocol.ItemStack{ItemID: boots, Count: 1, Enchantments: map[int32]int32{soulSpeed: 3}})
+				})
+			}
+			if tc.speed {
+				p.UpdateBody(func(_ *player.Vitals, e *effect.Set, _ *player.Attributes) {
+					e.Add(effect.Instance{ID: registry.MobEffectSpeed, Amplifier: 1, Duration: 1 << 30})
 				})
 			}
 			c := &client{srv: s, player: p}

@@ -195,7 +195,7 @@ func NewBobber(id int32, x, eyeY, z, yaw, pitch float64, ownerID int32, seed int
 	}
 	// Each axis: 0.6 of the line plus a triangle roll around 0.5 with
 	// deviation 0.0172275 × 0.6, two draws per axis from the hook's source.
-	r := rand.New(rand.NewSource(seed))
+	r := NewDice(seed)
 	dist := math.Sqrt(rayX*rayX + rayY*rayY + rayZ*rayZ)
 	triangle := 0.0103365 * (r.Float64() - r.Float64())
 	vx := rayX * (0.6/dist + 0.5 + triangle)
@@ -227,7 +227,7 @@ func NewBobber(id int32, x, eyeY, z, yaw, pitch float64, ownerID int32, seed int
 // machine runs (hooked rides its body, bobbing drifts and counts down,
 // flying sweeps for bodies); then dry-flight gravity, the move, rotation
 // easing and drag.
-func (b *Bobber) Step(w World, owner *BobberOwner, targets []ArrowTarget) []BobberEvent {
+func (b *Bobber) Step(w World, owner *BobberOwner, hooked *ArrowTarget, targets []ArrowTarget) []BobberEvent {
 	if b.Dead {
 		return nil
 	}
@@ -295,7 +295,7 @@ func (b *Bobber) Step(w World, owner *BobberOwner, targets []ArrowTarget) []Bobb
 	events := splash
 	switch b.State {
 	case BobberHookedInEntity:
-		if body := bobberTargetByID(b.HookedID, targets); body != nil {
+		if body := hooked; body != nil && body.EntityID == b.HookedID && !body.Unhittable {
 			// vanilla: FishingHook.tick
 			b.SetPos((body.MinX+body.MaxX)/2, body.MinY+0.8*(body.MaxY-body.MinY), (body.MinZ+body.MaxZ)/2)
 			return splash
@@ -389,12 +389,13 @@ func (b *Bobber) sweepFlight(w World, ownerVehicle int32, targets []ArrowTarget)
 	endX, endY, endZ := clip.end(b.X, b.Y, b.Z, b.VX, b.VY, b.VZ)
 	// The nearest crossing wins, not the list's first (getEntityHitResult).
 	margin := thrownHitMargin(b.TickCount)
+	box := b.MoveBox()
 	dx, dy, dz := endX-b.X, endY-b.Y, endZ-b.Z
 	var nearest *ArrowTarget
 	nearestT := math.Inf(1)
 	for i := range targets {
 		target := &targets[i]
-		if target.Unhittable {
+		if target.Unhittable || !box.Crosses(target.Box()) {
 			continue // vanilla: Entity.canBeHitByProjectile
 		}
 		if ownerExcluded(b.OwnerID, ownerVehicle, b.leftOwner, target) {
@@ -611,18 +612,6 @@ func openWaterLayer(w World, x0, y, z0, x1, z1 int32) openWaterKind {
 	return kind
 }
 
-// bobberTargetByID finds the hooked body, nil when it is gone, in another
-// world, or no longer interactable (canInteractWithLevel: dead or
-// spectator).
-func bobberTargetByID(id int32, targets []ArrowTarget) *ArrowTarget {
-	for i := range targets {
-		if targets[i].EntityID == id && !targets[i].Unhittable {
-			return &targets[i]
-		}
-	}
-	return nil
-}
-
 // bobberFluidPush adds the current's push to the hook (baseTick;
 // isPushedByFluid is true for it).
 func (b *Bobber) bobberFluidPush(w World) {
@@ -664,14 +653,33 @@ func (b *Bobber) BlastBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
 // bobberBox is the hook's box grown along the flight and by a block each
 // way, for Projectile.isOutsideOwnerCollisionRange.
 func (b *Bobber) bobberBox() ArrowTarget {
-	return ArrowTarget{
-		MinX: math.Min(b.X, b.X+b.VX) - BobberHalfSize - 1,
-		MinY: math.Min(b.Y, b.Y+b.VY) - 1,
-		MinZ: math.Min(b.Z, b.Z+b.VZ) - BobberHalfSize - 1,
-		MaxX: math.Max(b.X, b.X+b.VX) + BobberHalfSize + 1,
-		MaxY: math.Max(b.Y, b.Y+b.VY) + BobberHeight + 1,
-		MaxZ: math.Max(b.Z, b.Z+b.VZ) + BobberHalfSize + 1,
+	box := b.MoveBox()
+	return ArrowTarget{MinX: box.minX, MinY: box.minY, MinZ: box.minZ, MaxX: box.maxX, MaxY: box.maxY, MaxZ: box.maxZ}
+}
+
+// MoveBox encloses the hook's swept flight before clipping against blocks.
+// vanilla: FishingHook.checkCollision, ProjectileUtil.getHitResultOnMoveVector
+func (b *Bobber) MoveBox() AABB {
+	return projectileMoveBox(b.bobberCollisionBox(), b.VX, b.VY, b.VZ)
+}
+
+func projectileMoveBox(box AABB, vx, vy, vz float64) AABB {
+	const margin = 1.0 // vanilla: ProjectileUtil.getHitResult
+	return AABB{
+		box.minX + min(0, vx) - margin, box.minY + min(0, vy) - margin, box.minZ + min(0, vz) - margin,
+		box.maxX + max(0, vx) + margin, box.maxY + max(0, vy) + margin, box.maxZ + max(0, vz) + margin,
 	}
+}
+
+// TargetSearchBox also covers the current impulses applied before the sweep.
+func (b *Bobber) TargetSearchBox() AABB {
+	const currentMargin = waterCurrent + max(fastLavaCurrent, currentStartPush)
+	return b.MoveBox().Inflate(currentMargin)
+}
+
+// NeedsCollisionTargets reports whether the hook sweeps or checks its owner's vehicle group.
+func (b *Bobber) NeedsCollisionTargets() bool {
+	return !b.leftOwner || b.State == BobberFlying && b.HookedID == 0
 }
 
 // move is Entity.move with collision: the vertical first (a stopped fall is

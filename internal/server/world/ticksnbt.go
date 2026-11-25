@@ -1,6 +1,9 @@
 package world
 
 import (
+	"cmp"
+	"slices"
+
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -13,6 +16,8 @@ type savedTick struct {
 	x, y, z  int32
 	delay    int32
 	priority int32
+	// seq is the booking order of a snapshot entry, for sorting; not saved.
+	seq int64
 }
 
 // decodeSavedTicks reads block_ticks or fluid_ticks; an entry missing its id or
@@ -70,21 +75,25 @@ type loadedTick struct {
 	fluid bool
 }
 
-// ticksOfChunk is the ticks physics holds for the chunk, set by NewPhysics.
+// ticksOfChunk snapshots the chunk's saved ticks, using the source set by
+// NewPhysics when present.
 // Called with no world lock held: the engine's lock is taken before the
 // world's.
 func (w *World) ticksOfChunk(pos ChunkPos) chunkTicks {
 	w.mu.RLock()
-	source := w.tickSource
-	w.mu.RUnlock()
-	var out chunkTicks
-	if source != nil {
-		out = source(pos)
+	if source := w.tickSource; source != nil {
+		w.mu.RUnlock()
+		return source(pos)
 	}
-	// Ticks read from the file and not yet taken by the engine still belong to
-	// the chunk.
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	out := w.loadedTicksOfChunk(pos)
+	w.mu.RUnlock()
+	return out
+}
+
+// loadedTicksOfChunk copies the ticks still waiting for physics to adopt
+// them. The caller holds w.mu.
+func (w *World) loadedTicksOfChunk(pos ChunkPos) chunkTicks {
+	var out chunkTicks
 	for _, t := range w.pendingLoaded {
 		if t.x>>4 != pos.X || t.z>>4 != pos.Z {
 			continue
@@ -128,45 +137,49 @@ func (w *World) dropChunkTicks(pos ChunkPos) {
 	w.unloadedChunks = append(w.unloadedChunks, pos)
 }
 
-// prepareTick takes the unloads that must precede a new booking and, for a
-// scheduled tick, flags its chunk for a save. Vanilla does not mark a chunk
-// unsaved for a new tick, losing ticks booked after the last save on shutdown.
-func (w *World) prepareTick(x, z int32, dirty bool) []ChunkPos {
+// prepareTick takes the unloads that must precede a new booking, with
+// takeLoaded the loaded ticks too, and, for a scheduled tick, flags its chunk
+// for a save. Vanilla does not mark a chunk unsaved for a new tick, losing
+// ticks booked after the last save on shutdown.
+func (w *World) prepareTick(x, z int32, dirty, takeLoaded bool) (loaded []loadedTick, unloaded []ChunkPos) {
 	pos := ChunkPos{X: x >> 4, Z: z >> 4}
 	w.mu.Lock()
-	unloaded := w.unloadedChunks
-	w.unloadedChunks = nil
-	if loaded, ok := w.chunks[pos]; ok && dirty {
-		loaded.markDirty()
+	unloaded, w.unloadedChunks = w.unloadedChunks, nil
+	if takeLoaded {
+		loaded, w.pendingLoaded = w.pendingLoaded, nil
+	}
+	if c, ok := w.chunks[pos]; ok && dirty {
+		c.markDirty()
 	}
 	w.mu.Unlock()
-	return unloaded
+	return loaded, unloaded
 }
 
 // chunkTicks is physics' pending ticks inside the chunk, as the file lists
 // them; piston-event entries are block events, not ticks, and are not saved.
 func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	var out chunkTicks
+	// Snapshot both lists under p.mu so adoption cannot move an entry
+	// between the two reads. The loaded entries retain their file order
+	// and precede any new bookings.
+	p.w.mu.RLock()
+	out := p.w.loadedTicksOfChunk(pos)
+	p.w.mu.RUnlock()
+	pendingBlocks, pendingFluids := len(out.block), len(out.fluid)
 	add := func(t scheduledTick) {
-		if t.pos.x>>4 != pos.X || t.pos.z>>4 != pos.Z || p.tickCancelled(t) {
-			return
-		}
-		if !isTickEvent(t.event) {
+		if t.pos.x>>4 != pos.X || t.pos.z>>4 != pos.Z || p.tickCancelled(t) || !isTickEvent(t.event) {
 			return
 		}
 		st := savedTick{
 			x: t.pos.x, y: t.pos.y, z: t.pos.z,
-			delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority),
+			delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority), seq: t.seq,
 		}
-		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
-		if isFluidTick(t.event, state) {
-			st.id = fluidTickName(fluidHolding(state))
+		if t.fluid != 0 {
+			st.id = t.fluid.name()
 			out.fluid = append(out.fluid, st)
 			return
 		}
-		name, _, ok := registry.BlockStateName(state)
+		name, _, ok := registry.BlockStateName(p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z))
 		if !ok {
 			return
 		}
@@ -179,6 +192,15 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 	for _, t := range p.parked[pos] {
 		add(t)
 	}
+	p.mu.Unlock()
+	// The heap's backing slice is in heap order, not booking order; the
+	// reload hands out sub-tick order from the saved list, and due and
+	// priority are restored from each entry. Sorted after the unlock so
+	// Physics.Tick is not held up.
+	// vanilla: LevelChunkTicks.pack
+	bySeq := func(a, b savedTick) int { return cmp.Compare(a.seq, b.seq) }
+	slices.SortFunc(out.block[pendingBlocks:], bySeq)
+	slices.SortFunc(out.fluid[pendingFluids:], bySeq)
 	return out
 }
 
@@ -187,28 +209,52 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 func isTickEvent(event uint8) bool {
 	switch event {
 	case 0, leafTickEvent, coralTickEvent, redstoneTickEvent, sculkTickEvent, lightningRodTickEvent,
-		driedGhastHydrationEvent, frogspawnHatchEvent, snifferEggHatchEvent, cauldronDripEvent, survivalTickEvent:
+		driedGhastHydrationEvent, frogspawnHatchEvent, snifferEggHatchEvent, cauldronDripEvent, survivalTickEvent,
+		scaffoldingTickEvent:
 		return true
 	}
 	return false
 }
 
-// isFluidTick reports whether a tick entry tagged event on a cell holding state
-// is a fluid tick: an untagged visit to a fluid-holding cell. A waterlogged
-// block's untagged block tick counts as one too.
-func isFluidTick(event uint8, state uint16) bool {
-	return event == 0 && fluidHolding(state).kind != fluidNone
+// fluidType is a fluid as vanilla's registry tells them apart: water and
+// flowing water are two, as are lava and flowing lava. Zero is none.
+type fluidType uint8
+
+// fluidBook is a fluid visit's booking: one per position and type.
+type fluidBook struct {
+	pos blockKey
+	typ fluidType
 }
 
-func fluidTickName(fs fluidState) string {
+func fluidTypeOf(fs fluidState) fluidType {
+	t := fluidType(fs.kind) << 1
+	if fs.isSource() {
+		t |= 1
+	}
+	return t
+}
+
+func (t fluidType) name() string {
 	name := "minecraft:water"
-	if fs.kind == fluidLava {
+	if fluidKind(t>>1) == fluidLava {
 		name = "minecraft:lava"
 	}
-	if fs.isSource() {
+	if t&1 != 0 {
 		return name
 	}
 	return "minecraft:flowing_" + name[len("minecraft:"):]
+}
+
+// fluidTypeNamed is the type a saved fluid tick names, zero for an unknown one.
+func fluidTypeNamed(name string) fluidType {
+	for _, kind := range []fluidKind{fluidWater, fluidLava} {
+		for _, src := range []fluidType{0, 1} {
+			if t := fluidType(kind)<<1 | src; t.name() == name {
+				return t
+			}
+		}
+	}
+	return 0
 }
 
 // adoptLoadedTicks drops the ticks of unloaded chunks and queues loaded ones; a
@@ -216,19 +262,25 @@ func fluidTickName(fs fluidState) string {
 // find another block. Runs under p.mu.
 // vanilla: ServerLevel.tickBlock
 func (p *Physics) adoptLoadedTicks() {
-	loaded, unloaded := p.w.takeLoadedTicks()
+	p.adoptTicks(p.w.takeLoadedTicks())
+}
+
+// adoptTicks discards the unloaded chunks' ticks and then queues loaded.
+// Runs under p.mu.
+func (p *Physics) adoptTicks(loaded []loadedTick, unloaded []ChunkPos) {
 	p.discardUnloadedTicks(unloaded)
 	for _, t := range loaded {
-		state := p.w.BlockAt(t.x, t.y, t.z)
 		due := p.now + int64(t.delay)
 		if t.fluid {
-			// vanilla: ServerLevel.tickFluid needs the exact fluid type.
-			if fs := fluidHolding(state); fs.kind != fluidNone && fluidTickName(fs) == t.id {
-				p.schedulePriority(t.x, t.y, t.z, due, int(t.priority))
+			// The booking keeps its saved type whatever the cell holds now;
+			// dispatch checks the cell.
+			// vanilla: LevelChunkTicks.<init>, ServerLevel.tickFluid
+			if typ := fluidTypeNamed(t.id); typ != 0 {
+				p.insertTick(blockKey{t.x, t.y, t.z}, typ, due, int(t.priority))
 			}
 			continue
 		}
-		p.adoptBlockTick(t.x, t.y, t.z, state, t.id, due, int(t.priority))
+		p.adoptBlockTick(t.x, t.y, t.z, p.w.BlockAt(t.x, t.y, t.z), t.id, due, int(t.priority))
 	}
 }
 
@@ -290,6 +342,8 @@ func (p *Physics) adoptBlockTick(x, y, z int32, state uint16, id string, due int
 		p.scheduleBooked(p.cauldronBooked, x, y, z, due, cauldronDripEvent)
 	case block.IsLeaves():
 		p.scheduleLeaf(x, y, z, due)
+	case block == registry.BlockScaffolding:
+		p.scheduleScaffolding(x, y, z, due)
 	case isLivingCoral(block):
 		p.scheduleBooked(p.coralBooked, x, y, z, due, coralTickEvent)
 	case isSculkSensor(block), name == sculkShrieker:
@@ -324,6 +378,8 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 		delete(p.cauldronBooked, t.pos)
 	case leafTickEvent:
 		delete(p.leafBooked, t.pos)
+	case scaffoldingTickEvent:
+		delete(p.scaffoldingBooked, t.pos)
 	case coralTickEvent:
 		delete(p.coralBooked, t.pos)
 	case redstoneTickEvent:
@@ -336,6 +392,10 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 		delete(p.survivalBooked, t.pos)
 		delete(p.fallBooked, t.pos)
 	case 0:
+		if t.fluid != 0 {
+			delete(p.fluidBooked, fluidBook{t.pos, t.fluid})
+			return
+		}
 		delete(p.pending, t.pos)
 		if t.priority == tickPriorityFinalize {
 			delete(p.finalizeSeq, t.pos)

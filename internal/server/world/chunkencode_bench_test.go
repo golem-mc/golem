@@ -55,6 +55,21 @@ func BenchmarkChunkPacket(b *testing.B) {
 			w.ChunkPacket(loaded)
 		}
 	})
+
+	p := NewPhysics(w)
+	ride := movingPistonStateOf(dirEast, false)
+	dirt := registry.BlockDirt.DefaultState()
+	for i := range 4 {
+		x := int32(i)
+		w.SetBlock(x, GroundLevel+1, 7, ride)
+		p.pistonRideCreate([3]int32{x, GroundLevel + 1, 7}, ride, dirt, dirEast, true, false)
+	}
+	b.Run("4pistonrides", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			w.ChunkPacket(loaded)
+		}
+	})
 }
 
 // BenchmarkSaveChunk is the cost of writing one dirty chunk of the flat world

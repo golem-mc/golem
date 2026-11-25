@@ -312,7 +312,7 @@ func (s *Server) prepareTradeDraw(w *world.World, m *entity.Mob) mobTradeDraw {
 		x: rules.BlockOf(m.X), y: rules.BlockOf(m.Y), z: rules.BlockOf(m.Z),
 		previous: previous, finished: state.tail,
 		// The draw must not share the mob's RNG after releasing its lock.
-		rng: rand.New(rand.NewSource(m.Rand.Int63()))}
+		rng: entity.NewDice(m.Rand.Int63())}
 }
 
 // finishTradeDraw searches and renders maps without the mob lock, then publishes offers.
@@ -323,11 +323,13 @@ func (s *Server) finishTradeDraw(draw mobTradeDraw) {
 		<-draw.previous
 	}
 	var tag nbt.Compound
+	s.tradeRollMu.Lock()
 	for _, name := range draw.sets {
 		if set, ok := registry.FindTradeSet(name); ok {
 			tag = inventory.DrawOffers(tag, set, draw.variant, draw.rng, s.mapLootContext(draw.w, draw.x, draw.y, draw.z))
 		}
 	}
+	s.tradeRollMu.Unlock()
 	tag = s.askAcquiredTrades(draw, tag)
 	s.mobsMu.Lock()
 	// vanilla: AbstractVillager.getOffers publishes a list even without a trade set.

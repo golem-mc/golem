@@ -141,12 +141,22 @@ func (r *decorRegion) placeMonsterRoom(p [3]int32) bool {
 	set(ox, oy, oz, st.spawner)
 	if registry.BlockOf(r.get(ox, oy, oz)) == st.spawnerBlock {
 		mob := monsterRoomMobs[rng.NextIntN(int32(len(monsterRoomMobs)))]
-		r.placeBlockEntity(ox, oy, oz, st.spawner, nbt.Compound{
-			"id":        nbt.String(KindSpawner.Name()),
-			"SpawnData": nbt.Compound{"entity": nbt.Compound{"id": nbt.String(mob)}},
-		})
+		r.placeBlockEntity(ox, oy, oz, st.spawner, freshSpawnerTag(mob))
 	}
 	return true
+}
+
+// freshSpawnerTag is a spawner block entity right after setEntityId: the mob in
+// SpawnData and an explicit empty SpawnPotentials: an omitted list loads as one
+// weighted entry, so the empty list must be written out.
+// vanilla: BaseSpawner.load (BaseSpawner.java:187)
+// vanilla: BaseSpawner.setEntityId, BaseSpawner.save
+func freshSpawnerTag(mob string) nbt.Compound {
+	return nbt.Compound{
+		"id":              nbt.String(KindSpawner.Name()),
+		"SpawnData":       nbt.Compound{"entity": nbt.Compound{"id": nbt.String(mob)}},
+		"SpawnPotentials": nbt.List{},
+	}
 }
 
 // chestFacing is the monsterRoomDirs index a chest faces: away from its one

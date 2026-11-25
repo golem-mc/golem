@@ -24,20 +24,11 @@ func EmptiedHive(state uint16) uint16 {
 	return state
 }
 
-// HiveSedated reports whether a lit campfire sits within five cells below the
-// hive, with at most one cell whose collision blocks the smoke between them.
+// HiveSedated reports whether campfire smoke reaches the hive at (x, y, z),
+// reading blocks through blockAt.
 // vanilla: CampfireBlock.isSmokeyPos
-func HiveSedated(w BlockReader, x, y, z int32) bool {
-	for i := int32(1); i <= 5; i++ {
-		state := w.BlockAt(x, y-i, z)
-		if registry.IsLitCampfire(state) {
-			return true
-		}
-		if smokeBlocked(state) {
-			return registry.IsLitCampfire(w.BlockAt(x, y-i-1, z))
-		}
-	}
-	return false
+func HiveSedated(blockAt func(x, y, z int32) uint16, x, y, z int32) bool {
+	return world.SmokeyColumn(blockAt, x, y, z)
 }
 
 // HiveFireNearby reports whether a fire block stands within one cell of the
@@ -51,18 +42,6 @@ func HiveFireNearby(w BlockReader, x, y, z int32) bool {
 					return true
 				}
 			}
-		}
-	}
-	return false
-}
-
-// smokeBlocked reports whether the state's collision meets the 4-wide post
-// the smoke rises through.
-// vanilla: CampfireBlock.SHAPE_VIRTUAL_POST
-func smokeBlocked(state uint16) bool {
-	for _, b := range world.CollisionBoxes(state) {
-		if b.MinX < 10.0/16 && b.MaxX > 6.0/16 && b.MinZ < 10.0/16 && b.MaxZ > 6.0/16 && b.MaxY > b.MinY {
-			return true
 		}
 	}
 	return false

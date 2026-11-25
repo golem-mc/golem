@@ -135,13 +135,13 @@ func writtenBookTag(book protocol.WrittenBook) *nbt.OrderedCompound {
 	return tag
 }
 
-func writtenBookOf(value nbt.Tag) (protocol.WrittenBook, bool) {
-	return readWrittenBook(value, false)
+func (lookup *TagLookup) writtenBookOf(value nbt.Tag) (protocol.WrittenBook, bool) {
+	return lookup.readWrittenBook(value, false)
 }
 
 // readWrittenBook optionally keeps the page codecs' safe partial values.
 // vanilla: WrittenBookContent.CODEC, Filterable.codec
-func readWrittenBook(value nbt.Tag, partial bool) (protocol.WrittenBook, bool) {
+func (lookup *TagLookup) readWrittenBook(value nbt.Tag, partial bool) (protocol.WrittenBook, bool) {
 	tag, ok := nbt.CompoundView(value)
 	if !ok {
 		return protocol.WrittenBook{}, false
@@ -183,13 +183,13 @@ func readWrittenBook(value nbt.Tag, partial bool) (protocol.WrittenBook, bool) {
 			return protocol.WrittenBook{}, false
 		}
 		readText := func(tag nbt.Tag) (protocol.Text, bool) {
-			if !ComponentDecodes(tag) {
+			if !lookup.componentDecodes(tag) {
 				return protocol.Text{}, false
 			}
 			return protocol.ComponentTextOf(tag)
 		}
 		if partial {
-			readText = partialBookTextOf
+			readText = lookup.partialBookTextOf
 		}
 		for _, item := range list.Items {
 			raw, filtered := filterableOf(nbt.ListElement(item))
@@ -228,22 +228,22 @@ func readWrittenBook(value nbt.Tag, partial bool) (protocol.WrittenBook, bool) {
 // partialBookTextOf reads a stored component's partial value, dropping
 // invalid optional style fields while still requiring valid content.
 // vanilla: Style.Serializer.MAP_CODEC, OptionalFieldCodec.decode
-func partialBookTextOf(tag nbt.Tag) (protocol.Text, bool) {
+func (lookup *TagLookup) partialBookTextOf(tag nbt.Tag) (protocol.Text, bool) {
 	if !protocol.RawTextFits(tag) {
 		return protocol.Text{}, false
 	}
-	tag = partialBookTextTag(tag)
-	if !ComponentDecodes(tag) {
+	tag = lookup.partialBookTextTag(tag)
+	if !lookup.componentDecodes(tag) {
 		return protocol.Text{}, false
 	}
 	return protocol.ComponentTextOf(tag)
 }
 
 // partialBookTextTag copies readable children and optional fields.
-func partialBookTextTag(tag nbt.Tag) nbt.Tag {
+func (lookup *TagLookup) partialBookTextTag(tag nbt.Tag) nbt.Tag {
 	switch v := tag.(type) {
 	case nbt.List:
-		return partialBookTextList(v, ComponentDecodes)
+		return lookup.partialBookTextList(v, lookup.componentDecodes)
 	case nbt.CompoundTag:
 		out := maps.Clone(v.Entries())
 		for key, value := range v.Entries() {
@@ -254,22 +254,22 @@ func partialBookTextTag(tag nbt.Tag) nbt.Tag {
 				// vanilla: ComponentSerialization.createCodec
 				delete(out, key)
 				if list, ok := value.(nbt.List); ok {
-					if siblings := partialBookTextList(list, ComponentDecodes); len(siblings.Items) > 0 {
+					if siblings := lookup.partialBookTextList(list, lookup.componentDecodes); len(siblings.Items) > 0 {
 						out[key] = siblings
 					}
 				}
 			case "separator":
-				out[key] = partialBookTextTag(value)
+				out[key] = lookup.partialBookTextTag(value)
 			case "with":
 				if list, ok := value.(nbt.List); ok {
-					out[key] = partialBookTextList(list, textContentArgDecodes)
+					out[key] = lookup.partialBookTextList(list, lookup.textContentArgDecodes)
 				}
 			case "hover_event":
 				if event, ok := nbt.CompoundView(value); ok {
 					event = maps.Clone(event)
 					for _, field := range [...]string{"value", "name"} {
 						if nested, present := event[field]; present {
-							event[field] = partialBookTextTag(nested)
+							event[field] = lookup.partialBookTextTag(nested)
 						}
 					}
 					out[key] = event
@@ -283,7 +283,7 @@ func partialBookTextTag(tag nbt.Tag) nbt.Tag {
 			if value, present := out[key]; present {
 				// Validate through the strict reader so partial recovery never
 				// relays a style field that the normal decoder would reject.
-				if !ComponentDecodes(nbt.Compound{"text": nbt.String(""), key: value}) {
+				if !lookup.componentDecodes(nbt.Compound{"text": nbt.String(""), key: value}) {
 					delete(out, key)
 				}
 			}
@@ -295,10 +295,10 @@ func partialBookTextTag(tag nbt.Tag) nbt.Tag {
 
 // partialBookTextList keeps the recursive list codec's readable partial values.
 // vanilla: ComponentSerialization.createCodec, TranslatableContents.ARG_CODEC
-func partialBookTextList(list nbt.List, decodes func(nbt.Tag) bool) nbt.List {
+func (lookup *TagLookup) partialBookTextList(list nbt.List, decodes func(nbt.Tag) bool) nbt.List {
 	items := make([]nbt.Tag, 0, len(list.Items))
 	for _, item := range list.Items {
-		out := partialBookTextTag(nbt.ListElement(item))
+		out := lookup.partialBookTextTag(nbt.ListElement(item))
 		if !decodes(out) {
 			continue
 		}

@@ -70,13 +70,16 @@ func (w pluginWorld) BlockEntity(p plugin.BlockPos) (plugin.BlockEntity, bool) {
 		return nil, false
 	}
 	b := w.dim.w.BlockEntity(int32(p.X), int32(p.Y), int32(p.Z))
-	if b == nil || !b.IsLive() {
-		if carried := w.dim.w.CarriedBlockEntity(int32(p.X), int32(p.Y), int32(p.Z)); carried != nil {
-			return pluginCarriedHandle(w, carried), true
-		}
-		return nil, false
+	if b != nil && b.IsLive() {
+		return pluginBlockEntityHandle(w, b), true
 	}
-	return pluginBlockEntityHandle(w, b), true
+	if ride := w.dim.w.PistonBlockEntity(int32(p.X), int32(p.Y), int32(p.Z)); ride != nil {
+		return pluginPistonBlockEntity{world: w, entity: ride}, true
+	}
+	if carried := w.dim.w.CarriedBlockEntity(int32(p.X), int32(p.Y), int32(p.Z)); carried != nil {
+		return pluginCarriedHandle(w, carried), true
+	}
+	return nil, false
 }
 
 type pluginChunk struct {
@@ -96,6 +99,9 @@ func (c pluginChunk) BlockEntities() []plugin.BlockEntity {
 		if b.IsLive() {
 			out = append(out, pluginBlockEntityHandle(c.world, b))
 		}
+	}
+	for _, b := range c.world.dim.w.PistonBlockEntities(c.chunk) {
+		out = append(out, pluginPistonBlockEntity{world: c.world, entity: b})
 	}
 	for _, b := range c.world.dim.w.CarriedBlockEntities(c.chunk) {
 		out = append(out, pluginCarriedHandle(c.world, b))
@@ -127,6 +133,25 @@ func (b pluginBlockEntity) Data() plugin.Data {
 		keys:  b.entity.PluginDataKeys,
 		write: func(key string, value nbt.Tag) { b.world.dim.w.SetBlockEntityPluginData(b.entity, key, value) },
 	}
+}
+
+type pluginPistonBlockEntity struct {
+	world  pluginWorld
+	entity *world.PistonBlockEntity
+}
+
+func (b pluginPistonBlockEntity) World() plugin.World { return b.world }
+func (b pluginPistonBlockEntity) Pos() plugin.BlockPos {
+	p := b.entity.Pos()
+	return plugin.BlockPos{X: int(p[0]), Y: int(p[1]), Z: int(p[2])}
+}
+func (b pluginPistonBlockEntity) Type() plugin.Key {
+	k, _ := plugin.ParseKey(world.KindPiston.Name())
+	return k
+}
+func (b pluginPistonBlockEntity) IsValid() bool { return b.entity.IsValid() }
+func (b pluginPistonBlockEntity) Data() plugin.Data {
+	return pluginData{read: b.entity.ReadPluginData, keys: b.entity.PluginDataKeys, write: b.entity.SetPluginData}
 }
 
 // treeFeatures are the configured features World.GenerateTree places.

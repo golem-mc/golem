@@ -143,11 +143,10 @@ func (s *StandBody) travel(w World, box AABB, halfWidth, gravity float64) (lande
 
 // move moves the stand along its velocity as far as blocks allow, axis by
 // axis in vanilla's Y, X, Z order, zeroing stopped axes. It reports whether
-// it ended on the ground, which only a downward collision this move gives.
+// it ended on the ground: only a downward collision sets it, so a body
+// with no vertical velocity is off the ground.
+// vanilla: Entity.move, Entity.setOnGroundWithMovement
 func (s *StandBody) move(w World, box AABB, halfWidth, gravity float64) (bool, float64) {
-	// onGround is only the actual downward collision: the carried flag (a /tp
-	// sets it) neither survives the move nor counts as a landing.
-	// vanilla: Entity.move, Entity.checkFallDamage
 	var onGround bool
 	ctx, startY := fallCtx(s.FallDistance), s.Y
 	dx, dy, dz, stuck := s.stuck.scale(s.VX, s.VY, s.VZ)
@@ -170,6 +169,9 @@ func (s *StandBody) move(w World, box AABB, halfWidth, gravity float64) (bool, f
 		cx, cz := box.centerXZ()
 		s.SetPos(cx, box.minY, cz)
 		if !blocked {
+			if axis == axisY {
+				onGround = false
+			}
 			continue
 		}
 		switch axis {

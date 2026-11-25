@@ -1,6 +1,10 @@
 package entity
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/golem-mc/golem/registry"
+)
 
 // The firework rocket's flight as ordinary unit tests, driving the step
 // over a world that is nothing but the blocks each case sets. No server is
@@ -77,5 +81,25 @@ func TestAFireworkRocketCannotHitItsLauncherAtFirst(t *testing.T) {
 	}
 	if !burst {
 		t.Error("a rocket flown clear of its launcher and turned back never burst on them")
+	}
+}
+
+// vanilla: FireworkRocketEntity.tick, Entity.collideWithShapes
+func TestFireworkSlidesAlongWallBeforeHandlingItsHit(t *testing.T) {
+	w := newTestWorld()
+	w.set(1, 64, 1, registry.BlockStone.DefaultState())
+	f := NewFirework(1, 0.5, 64, 0.5, 0, 0, 1, 0, 3)
+	f.ShotAtAngle = true
+	f.VX, f.VY, f.VZ = 1, 0, 1.25
+
+	events := f.Step(w, nil, nil, nil)
+	if len(events) != 2 || events[0].Kind != FireworkHitBlock || events[1].Kind != FireworkBurst {
+		t.Fatalf("events = %+v, want a block hit and burst", events)
+	}
+	if burst := events[1]; burst.X != 0.875 || burst.Y != 64 || burst.Z != 1.75 {
+		t.Errorf("burst position = (%v, %v, %v), want (0.875, 64, 1.75)", burst.X, burst.Y, burst.Z)
+	}
+	if !f.hitWall || f.VX != 1 || f.VY != 0 || f.VZ != 1.25 {
+		t.Errorf("wall hit = %v, velocity = (%v, %v, %v), want a wall hit with the original velocity", f.hitWall, f.VX, f.VY, f.VZ)
 	}
 }

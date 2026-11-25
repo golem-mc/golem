@@ -55,7 +55,17 @@ func packIDs(t *testing.T, line protocol.Text) []string {
 // expectPackList reads one /datapack list line and checks its key and ids.
 func expectPackList(t *testing.T, c *servertest.Client, key string, want ...string) {
 	t.Helper()
-	got := servertest.FeedbackComponent(t, c)
+	checkPackList(t, c.ExpectPlay(protocol.IDPlaySystemChat), key, want...)
+}
+
+// checkPackList checks a /datapack list line already read.
+func checkPackList(t *testing.T, data []byte, key string, want ...string) {
+	t.Helper()
+	r := protocol.NewReader(data)
+	got, ok := protocol.ReadText(r)
+	if !ok {
+		t.Fatalf("decode system chat component: %v", r.Err())
+	}
 	if got.Translate != key {
 		t.Fatalf("list line %q, want %q", got.Translate, key)
 	}

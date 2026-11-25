@@ -26,14 +26,21 @@ func TestContainerChangesRequireALoadedComparator(t *testing.T) {
 
 	w.SetWorldAge(4)
 	touch()
-	touch()
-	check("no comparator")
-	if w.containerChangeSeen != nil {
-		t.Fatal("deduplicated a batch with no comparator")
+	if len(w.containerChanges) != 0 {
+		t.Fatal("touch queued a wake with no comparator loaded")
 	}
-	if !w.chunks[ChunkPos{}].dirty {
+	if !w.ChunkDirty(ChunkPos{}) {
 		t.Fatal("touch did not dirty the container chunk")
 	}
+	w.Save()
+	colliding := ChunkPos{X: nearSlots}
+	w.Acquire(colliding)
+	touch()
+	check("no comparator")
+	if !w.ChunkDirty(ChunkPos{}) || w.ChunkDirty(colliding) {
+		t.Fatal("touch on a near-cache miss did not dirty only the container chunk")
+	}
+	w.Release(colliding)
 
 	west, ok := registry.WithProp(registry.BlockComparator.DefaultState(), registry.PropFacing, "west")
 	if !ok {
@@ -45,9 +52,9 @@ func TestContainerChangesRequireALoadedComparator(t *testing.T) {
 	if w.BlockEntity(16, GroundLevel, 0) != nil {
 		t.Fatal("expected a comparator block without a block entity")
 	}
-	w.SetWorldAge(11)
+	w.TickTime()
 	touch()
-	check("first comparator placed after touch", containerChange{pos: container, tick: 10})
+	check("first comparator placed after touch", containerChange{pos: container, tick: 11})
 	check("already drained")
 
 	north, ok := registry.WithProp(west, registry.PropFacing, "north")
@@ -100,15 +107,52 @@ func TestContainerChangesSeeGeneratedComparators(t *testing.T) {
 	w.Acquire(ChunkPos{})
 	pos := ChunkPos{X: 1}
 	w.Acquire(pos)
-	w.Touch(15, GroundLevel, 0)
-	if got := w.takeContainerChanges(); len(got) != 1 {
-		t.Fatalf("loaded generated comparator section: drained %v, want one change", got)
+	check := func(step string, y int32, want int) {
+		t.Helper()
+		w.Touch(15, y, 0)
+		if got := w.takeContainerChanges(); len(got) != want {
+			t.Fatalf("%s: drained %v, want %d changes", step, got, want)
+		}
 	}
+	check("loaded generated comparator section", 80, 1)
+	check("loaded, other section", GroundLevel, 0)
 	w.Release(pos)
 	w.FlushSaves()
 	w.Acquire(pos)
-	w.Touch(15, GroundLevel, 0)
+	check("reloaded uniform comparator section", 80, 1)
+	check("reloaded, other section", GroundLevel, 0)
+}
+
+func TestContainerChangesReachAcrossChunkBorders(t *testing.T) {
+	t.Parallel()
+	w := newTestWorld(t, NewFlatGenerator())
+	for cx := int32(-1); cx <= 1; cx++ {
+		w.Acquire(ChunkPos{X: cx})
+	}
+	comparator := registry.BlockComparator.DefaultState()
+	check := func(step string, container posKey, want int) {
+		t.Helper()
+		w.Touch(container[0], container[1], container[2])
+		if got := w.takeContainerChanges(); len(got) != want {
+			t.Fatalf("%s: drained %v, want %d changes", step, got, want)
+		}
+	}
+	y := int32(GroundLevel)
+	w.SetBlock(-2, y, 0, comparator)
+	check("negative side, within three", posKey{1, y, 0}, 1)
+	check("negative side, out of reach", posKey{3, y, 0}, 0)
+	w.SetBlock(-2, y, 0, airState)
+	w.SetBlock(16, y, 0, comparator)
+	check("positive border from the lower chunk", posKey{13, y, 0}, 1)
+	check("positive border, out of reach", posKey{12, y, 0}, 0)
+	check("outside the world", posKey{13, 10000, 0}, 0)
+
+	// A comparator placed after the touch is recorded still wakes.
+	w.SetBlock(16, y, 0, airState)
+	w.SetBlock(-16, y, 0, comparator)
+	w.Touch(13, y, 0)
+	w.SetBlock(14, y, 0, comparator)
 	if got := w.takeContainerChanges(); len(got) != 1 {
-		t.Fatalf("reloaded uniform comparator section: drained %v, want one change", got)
+		t.Fatalf("comparator placed before drain: drained %v, want one change", got)
 	}
 }

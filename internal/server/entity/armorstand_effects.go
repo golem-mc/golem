@@ -59,6 +59,7 @@ func (s *ArmorStand) tickEffects() {
 		})
 	})
 	if len(changes) != 0 {
+		s.effectsChanged()
 		s.clampAbsorption()
 		s.SyncEffectAttributes()
 	}

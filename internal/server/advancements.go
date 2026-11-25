@@ -350,7 +350,10 @@ func (c *client) bredAnimalsAdvancements(parent, partner, child string, ents map
 
 // blocksAround reads the blocks around a position for a location condition.
 func blocksAround(w *world.World, x, y, z int32) advancement.Blocks {
-	return func(dx, dy, dz int32) uint16 { return w.BlockAt(x+dx, y+dy, z+dz) }
+	return advancement.Blocks{
+		At:     func(dx, dy, dz int32) uint16 { return w.BlockAt(x+dx, y+dy, z+dz) },
+		Loaded: func(dx, dy, dz int32) bool { return w.LoadedAt(x+dx, y+dy, z+dz) },
+	}
 }
 
 // placedBlockAdvancements fires placed_block for a block the player placed.
@@ -1027,10 +1030,22 @@ func (s *Server) blowOf(w *world.World, damageType registry.DamageType, cause *d
 	if cause == nil {
 		return b
 	}
-	b.Attacker = s.entityLoot(w, causeEntityID(cause))
-	b.Direct = b.Attacker
-	if cause.directID != 0 {
+	switch {
+	case cause.directType != "":
+		typ, burning, velocity := cause.directType, cause.directBurning, [3]float64{cause.flightVX, cause.flightVY, cause.flightVZ}
+		b.Direct = func() rules.LootEntity {
+			return rules.LootEntity{Type: typ, OnFire: burning, Facts: func() rules.LootFacts { return rules.LootFacts{Movement: velocity} }}
+		}
+		if cause.directIsSource {
+			b.Attacker = b.Direct
+			return b
+		}
+	case cause.directID != 0:
 		b.Direct = s.entityLoot(w, cause.directID)
+	}
+	b.Attacker = s.entityLoot(w, causeEntityID(cause))
+	if b.Direct == nil {
+		b.Direct = b.Attacker
 	}
 	b.Indirect = !damageIsDirect(cause)
 	return b

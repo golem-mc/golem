@@ -6,6 +6,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/registry"
 )
 
 // parkedSaves counts the chunk saves the I/O pool has parked: on a region
@@ -16,6 +19,50 @@ func parkedSaves() int {
 	dump := buf[:runtime.Stack(buf, true)]
 	return bytes.Count(dump, []byte("world.(*regionFile).writeChunk(")) +
 		bytes.Count(dump, []byte("world.(*World).saveLoaded("))
+}
+
+func TestTouchDuringReleaseSaveKeepsTheNewInventory(t *testing.T) {
+	t.Parallel()
+	w := newTestWorld(t, NewFlatGenerator())
+	t.Cleanup(func() { _ = w.Close() })
+	pos := ChunkPos{}
+	w.Acquire(pos)
+	x, y, z := int32(2), int32(GroundLevel), int32(3)
+	w.SetBlock(x, y, z, registry.BlockHopper.DefaultState())
+	be := w.EnsureBlockEntity(x, y, z, KindHopper)
+
+	// Pause the unload after encoding the empty hopper.
+	encoded := make(chan struct{})
+	write := make(chan struct{})
+	w.SetChunkWriteGate(func() {
+		close(encoded)
+		<-write
+	})
+	defer close(write)
+	w.Release(pos)
+	select {
+	case <-encoded:
+	case <-time.After(10 * time.Second):
+		t.Fatal("release save did not reach its write")
+	}
+	w.SetChunkWriteGate(nil)
+	want := protocol.ItemStack{ItemID: int32(registry.ItemCobblestone), Count: 1}
+	be.Use(func(b *BlockEntity) {
+		b.Put(0, want)
+		w.Touch(x, y, z)
+	})
+	// Let the stale write through and wait for the newer generation to save.
+	write <- struct{}{}
+	w.FlushSaves()
+	if w.ChunkLoaded(pos) {
+		t.Fatal("the saved chunk stayed loaded")
+	}
+	w.Acquire(pos)
+	defer w.Release(pos)
+	got := w.BlockEntity(x, y, z)
+	if got == nil || !got.Slots[0].Equal(want) {
+		t.Fatal("the hopper's new item did not survive release and reload")
+	}
 }
 
 func waitParkedSaves(t *testing.T, want int) {

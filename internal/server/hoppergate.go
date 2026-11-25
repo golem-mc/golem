@@ -5,6 +5,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
+	"github.com/golem-mc/golem/registry"
 )
 
 // moveGate carries one hopper direction's plugin decision into the locked
@@ -63,10 +64,14 @@ func (s *Server) askHopper(w *world.World, be *world.BlockEntity) *hopperGate {
 		g.push.probing, g.pull.probing = true, true
 		g.push.seen, g.pull.seen = false, false
 		be.UseLive(func(b *world.BlockEntity) {
-			if b.Cooldown > 1 || !world.HopperEnabled(w, b.X, b.Y, b.Z) {
+			if b.Cooldown > 1 {
 				return
 			}
-			s.hopperStep(w, b, g, &hopperTurn{})
+			state := w.BlockAt(b.X, b.Y, b.Z)
+			if !registry.StateEnabled(state) {
+				return
+			}
+			s.hopperStep(w, b, state, g, &hopperTurn{})
 		})
 		g.probing, g.push.probing, g.pull.probing = false, false, false
 		if !g.push.seen && !g.pull.seen && g.pending == nil {

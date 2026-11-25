@@ -2,6 +2,8 @@ package world
 
 import (
 	"testing"
+
+	"github.com/golem-mc/golem/nbt"
 )
 
 // The piston engine's black-box checks: a piston on the flat ground, its
@@ -352,15 +354,111 @@ func TestAMovingPistonCollidesAsItsCarriedBlock(t *testing.T) {
 	ride := movingPistonStateOf(dirEast, false)
 	w.SetBlock(12, 64, 9, ride)
 	p.pistonRideCreate([3]int32{12, 64, 9}, ride, blocks["dirt"], dirEast, true, false)
-	be := w.BlockEntity(12, 64, 9)
-	for progress, want := range map[float64]float64{0: -1, 0.5: -0.5, 1: 0} {
-		be.Use(func(b *BlockEntity) { b.RideProgress = progress })
+	r, ok := w.pistonRideAt(12, 64, 9)
+	if !ok {
+		t.Fatalf("missing piston ride at (12, 64, 9)")
+	}
+	for _, tc := range []struct {
+		age  int64
+		want float64
+	}{
+		{0, -1},
+		{1, -0.5},
+		{2, 0},
+	} {
+		if _, _, ok := w.stepPistonRide(12, 64, 9, r.createdTick+tc.age); !ok {
+			t.Fatalf("missing piston ride at (12, 64, 9)")
+		}
 		boxes := w.MovingPistonBoxes(12, 64, 9)
-		if len(boxes) != 1 || boxes[0].MinX != want || boxes[0].MaxX != want+1 {
-			t.Errorf("progress %v: boxes %+v, want one unit box at x %v", progress, boxes, want)
+		if len(boxes) != 1 || boxes[0].MinX != tc.want || boxes[0].MaxX != tc.want+1 {
+			t.Errorf("age %d: boxes %+v, want one unit box at x %v", tc.age, boxes, tc.want)
 		}
 	}
 	if boxes := w.MovingPistonBoxes(13, 64, 9); boxes != nil {
 		t.Errorf("a cell with no ride has boxes %+v", boxes)
+	}
+}
+
+// TestPistonRideSurvivesChunkSaveAndLoad checks that an active moving-piston
+// ride round-trips CustomName and plugins through SetBlockEntityTag and chunk
+// save/load, and preserves live collision progress across command edits.
+func TestPistonRideSurvivesChunkSaveAndLoad(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWorld(dir, NewFlatGenerator())
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	pos := ChunkPos{X: 0, Z: 0}
+	w.Acquire(pos)
+	p := NewPhysics(w)
+	dirt := rsState(t, "minecraft:dirt", nil)
+	ride := movingPistonStateOf(dirEast, false)
+	w.SetBlock(4, 64, 4, ride)
+	p.pistonRideCreate([3]int32{4, 64, 4}, ride, dirt, dirEast, true, false)
+
+	r, ok := w.pistonRideAt(4, 64, 4)
+	if !ok {
+		t.Fatal("missing piston ride at (4, 64, 4)")
+	}
+	if _, _, ok := w.stepPistonRide(4, 64, 4, r.createdTick+1); !ok {
+		t.Fatal("stepPistonRide failed")
+	}
+
+	// Command edit preserves live rideProgress and round-trips CustomName and plugins.
+	if kind, ok := w.SetBlockEntityTag(4, 64, 4, KindPiston.Name(), nbt.Compound{
+		"blockState": nbt.String("minecraft:dirt"),
+		"facing":     nbt.Byte(dirEast),
+		"extending":  nbt.Byte(1),
+		"source":     nbt.Byte(0),
+		"CustomName": nbt.String("Mover"),
+		"plugins":    nbt.Compound{"test:flag": nbt.Byte(1)},
+	}); !ok || kind != KindPiston {
+		t.Fatalf("SetBlockEntityTag = (%v, %v), want (KindPiston, true)", kind, ok)
+	}
+	boxes := w.MovingPistonBoxes(4, 64, 4)
+	if len(boxes) != 1 || boxes[0].MinX != -0.5 || boxes[0].MaxX != 0.5 {
+		t.Fatalf("MovingPistonBoxes after command edit = %+v, want half-extended [-0.5, 0.5]", boxes)
+	}
+
+	tag, ok := w.BlockEntityTag(4, 64, 4)
+	if !ok {
+		t.Fatal("BlockEntityTag missing for active piston ride")
+	}
+	if tag["id"] != nbt.String("minecraft:piston") || tag["blockState"] != nbt.String("minecraft:dirt") {
+		t.Fatalf("BlockEntityTag = %v, want piston carrying dirt", tag)
+	}
+	if tag["CustomName"] != nbt.String("Mover") {
+		t.Fatalf("BlockEntityTag CustomName = %v, want Mover", tag["CustomName"])
+	}
+	if plugins, ok := nbt.Get[nbt.Compound](tag, "plugins"); !ok || plugins["test:flag"] != nbt.Byte(1) {
+		t.Fatalf("BlockEntityTag plugins = %v, want test:flag=1", tag["plugins"])
+	}
+	w.Save()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	w2, err := NewWorld(dir, NewFlatGenerator())
+	if err != nil {
+		t.Fatalf("reopen NewWorld: %v", err)
+	}
+	defer w2.Close()
+	w2.Acquire(pos)
+	got, ok := w2.pistonRideAt(4, 64, 4)
+	if !ok {
+		t.Fatal("piston ride lost across chunk save/load")
+	}
+	if got.movedState != dirt || int(got.dir) != dirEast || !got.extending || got.isSource || got.createdTick != -1 {
+		t.Fatalf("reloaded piston ride = %+v, want dirt/east/extending/!source/createdTick=-1", got)
+	}
+	reloadedTag, ok := w2.BlockEntityTag(4, 64, 4)
+	if !ok {
+		t.Fatal("reloaded BlockEntityTag missing")
+	}
+	if reloadedTag["CustomName"] != nbt.String("Mover") {
+		t.Fatalf("reloaded CustomName = %v, want Mover", reloadedTag["CustomName"])
+	}
+	if plugins, ok := nbt.Get[nbt.Compound](reloadedTag, "plugins"); !ok || plugins["test:flag"] != nbt.Byte(1) {
+		t.Fatalf("reloaded plugins = %v, want test:flag=1", reloadedTag["plugins"])
 	}
 }

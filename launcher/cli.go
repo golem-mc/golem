@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -121,6 +120,9 @@ launcher.json, pinned to exact versions (the commands above edit it):
     ]
   }
 
+Use golem-launcher channel [stable|dev] to view or set where updates come
+from. Stable follows releases (the default). Dev follows the newest commits.
+
 Server options follow --; see them with: golem-launcher -- --help
 Plugins and the launcher.json format: docs/plugins.md
 `
@@ -162,15 +164,16 @@ Example:
 	},
 	{
 		name: "plugin add", usage: "[<path>[@version]...]",
-		short: "add plugins, pinned (no version: the latest release tag)",
+		short: "add plugins, pinned (no version: the latest on this channel)",
 		help: `Adds plugins to launcher.json, all in one write after one build check: if
 one fails, nothing is written and the failing path is named. With no argument,
 on a terminal, a list of the known plugins opens: space ticks, enter installs,
 q cancels.
 
-Without a version the latest release tag (go's module query @latest) is looked
-up and written pinned. The path may be a package inside a module; the module's other listed packages move to the same
-version. A local package directory (./dir, in a module) is written as it is.
+Without a version, the latest version on the configured channel is pinned.
+The path may be a package inside a module. The module's other listed packages
+move to the same version. A local package directory (./dir, in a module) is
+written as it is.
 Adding a listed plugin with a version changes its version. launcher.json is
 written only if the result builds.
 
@@ -217,8 +220,8 @@ Example:
 		short: "show the server version, or set it",
 		help: `Without an argument prints the server version of launcher.json. With one,
 sets it: a release tag, a pseudo-version, a commit, a local checkout (./dir)
-or latest (the newest release tag). launcher.json is written only if the
-server and every plugin still build together.
+or latest (the newest version on the configured channel). launcher.json is
+written only if the server and every plugin still build together.
 
 Example:
   golem-launcher server
@@ -229,6 +232,22 @@ Example:
 					return usageError{"server takes at most one version"}
 				}
 				return c.serverCmd(ctx, args)
+			}
+		},
+	},
+	{
+		name: "channel", usage: "[stable|dev]",
+		short: "show or set the update channel",
+		help: `Shows or sets the update channel in launcher.json. Stable follows releases
+and is the default. Dev follows the newest commits on the default branch.
+Run golem-launcher update after switching to move the pinned versions.
+
+Example:
+  golem-launcher channel
+  golem-launcher channel dev`,
+		flags: func(*flag.FlagSet) handler {
+			return func(ctx context.Context, c *cli, args []string) error {
+				return c.channelCmd(ctx, args)
 			}
 		},
 	},
@@ -244,10 +263,13 @@ Example:
 	{
 		name: "update", usage: "[--server] [plugin...]",
 		short: "move the server and plugins to their latest versions, pinned",
-		help: `Moves the server and every plugin, or only those named, to their latest
-versions and pins them. It is refused, with launcher.json unchanged, if the
-result does not build, for instance when a plugin's newest version needs a
-newer server than the one update moves to.
+		help: `Moves the selected entries forward and pins their versions. Stable (the
+default) follows release tags. Dev follows the newest commit on each module's
+default branch and pins the version Go resolves. Local paths stay as they are.
+
+Updating everything selects the server first, then the plugins. The launcher
+writes launcher.json once, after the build check passes. An update is refused
+if a plugin needs a newer server than the selected version.
 
 Flags:
   --server   update the server; alone, only the server (with no flag and no
@@ -540,7 +562,7 @@ func (c *cli) parse(cfg config) (state, error) {
 	return state{cfg, plugins, srvDir}, nil
 }
 
-func (c *cli) load(ctx context.Context) (state, error) {
+func (c *cli) readConfig(ctx context.Context) (config, error) {
 	existed := fileExists(c.configPath)
 	cfg, err := loadConfig(c.configPath, func() (v string, err error) {
 		err = c.l.step("finding the latest release", func() (err error) {
@@ -550,12 +572,44 @@ func (c *cli) load(ctx context.Context) (state, error) {
 		return v, err
 	})
 	if err != nil {
-		return state{}, err
+		return config{}, err
 	}
 	if !existed {
 		c.ui.Info("wrote %s for server %s with no plugins", c.configPath, cfg.Server)
 	}
+	return cfg, nil
+}
+
+func (c *cli) load(ctx context.Context) (state, error) {
+	cfg, err := c.readConfig(ctx)
+	if err != nil {
+		return state{}, err
+	}
 	return c.parse(cfg)
+}
+
+func (c *cli) channelCmd(ctx context.Context, args []string) error {
+	var ch updateChannel
+	if len(args) > 0 {
+		ch = updateChannel(args[0])
+		if len(args) > 1 || !ch.valid() {
+			return usageError{"channel takes stable or dev"}
+		}
+	}
+	cfg, err := c.readConfig(ctx)
+	if err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		fmt.Fprintln(c.out, cfg.updateChannel())
+		return nil
+	}
+	cfg.Channel = &ch
+	if err := writeConfig(c.configPath, cfg); err != nil {
+		return err
+	}
+	fmt.Fprintf(c.out, "run golem-launcher update to move to the newest %s versions\n", ch)
+	return nil
 }
 
 func (c *cli) run(ctx context.Context, rebuild bool, serverArgs []string) error {
@@ -618,8 +672,7 @@ func (c *cli) save(ctx context.Context, old state, cfg config, verify bool) erro
 		fmt.Fprintf(c.out, "%s is unchanged\n", c.configPath)
 		return nil
 	}
-	data, _ := json.MarshalIndent(cfg, "", "  ")
-	if err := os.WriteFile(c.configPath, append(data, '\n'), 0o644); err != nil {
+	if err := writeConfig(c.configPath, cfg); err != nil {
 		return err
 	}
 	o := c.ui.Out()
@@ -717,8 +770,9 @@ func (c *cli) resolveAdd(ctx context.Context, st state, arg string) (addition, e
 		return addition{entry: entry, pkg: one[0].Path}, nil
 	}
 	p, v, _ := strings.Cut(arg, "@")
+	ch := st.cfg.updateChannel()
 	if v == "" {
-		v = "latest"
+		v = ch.query()
 	}
 	v, err := c.l.pin(ctx, p, v)
 	if err != nil {
@@ -726,11 +780,11 @@ func (c *cli) resolveAdd(ctx context.Context, st state, arg string) (addition, e
 	}
 	// A build has one version of a module, so the module's other
 	// packages move with this one.
-	mod, _, err := c.l.latestPlugin(ctx, p)
+	mod, _, err := c.l.latestPlugin(ctx, p, ch)
 	if err != nil {
 		return addition{}, err
 	}
-	same, err := c.moduleEntries(ctx, st.plugins, mod)
+	same, err := c.moduleEntries(ctx, st.plugins, mod, ch)
 	if err != nil {
 		return addition{}, err
 	}
@@ -785,13 +839,13 @@ func (c *cli) pluginAdd(ctx context.Context, args []string) error {
 
 // moduleEntries answers the indexes of the remote plugins whose package is
 // in module mod (as of mod's latest version).
-func (c *cli) moduleEntries(ctx context.Context, plugins []pluginSpec, mod string) ([]int, error) {
+func (c *cli) moduleEntries(ctx context.Context, plugins []pluginSpec, mod string, ch updateChannel) ([]int, error) {
 	var r []int
 	for i, p := range plugins {
 		if p.Dir != "" || p.Path != mod && !strings.HasPrefix(p.Path, mod+"/") {
 			continue
 		}
-		pm, _, err := c.l.latestPlugin(ctx, p.Path)
+		pm, _, err := c.l.latestPlugin(ctx, p.Path, ch)
 		if err != nil {
 			return nil, err
 		}
@@ -865,7 +919,7 @@ func (c *cli) pluginList(ctx context.Context) error {
 		_ = c.l.step("finding the latest versions of "+plural(remote, "plugin"), func() error {
 			for i, p := range st.plugins {
 				if p.Dir == "" {
-					_, latest[i], _ = c.l.latestPlugin(ctx, p.Path)
+					_, latest[i], _ = c.l.latestPlugin(ctx, p.Path, st.cfg.updateChannel())
 				}
 			}
 			return nil
@@ -917,7 +971,7 @@ func (c *cli) serverCmd(ctx context.Context, args []string) error {
 	switch {
 	case v == "latest":
 		err := c.l.step("finding the latest golem version", func() (err error) {
-			v, err = c.l.latestServer(ctx)
+			v, err = c.l.latestServer(ctx, st.cfg.updateChannel())
 			return err
 		})
 		if err != nil {
@@ -993,9 +1047,10 @@ func (c *cli) update(ctx context.Context, server bool, names []string) error {
 			pick[i] = true
 		}
 	}
+	ch := cfg.updateChannel()
 	err = c.l.step("finding the latest versions", func() error {
 		if server && st.srvDir == "" {
-			latest, err := c.l.latestOf(ctx, serverModule, false)
+			latest, err := c.l.latestOf(ctx, serverModule, ch, false)
 			if err != nil {
 				return err
 			}
@@ -1007,18 +1062,18 @@ func (c *cli) update(ctx context.Context, server bool, names []string) error {
 			if !pick[i] || p.Dir != "" {
 				continue
 			}
-			latest, err := c.l.latestOf(ctx, p.Path, false)
+			latest, err := c.l.latestOf(ctx, p.Path, ch, false)
 			if err != nil {
 				return err
 			}
 			// Every package of the module moves, so one build has one
 			// version of it. latestOf's query is remembered, so this asks
 			// go nothing more.
-			mod, _, err := c.l.latestPlugin(ctx, p.Path)
+			mod, _, err := c.l.latestPlugin(ctx, p.Path, ch)
 			if err != nil {
 				return err
 			}
-			same, err := c.moduleEntries(ctx, st.plugins, mod)
+			same, err := c.moduleEntries(ctx, st.plugins, mod, ch)
 			if err != nil {
 				return err
 			}

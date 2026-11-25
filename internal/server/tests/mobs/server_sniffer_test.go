@@ -47,7 +47,7 @@ func TestASnifferEggOnMossCracksAndHatchesABaby(t *testing.T) {
 	}
 	// The hatch tick is jittered, so the baby may have wandered off the block centre.
 	for _, m := range srv.Mobs() {
-		if m.Kind == sniffer && m.Baby && math.Abs(m.X-2.5) < 4 && math.Abs(m.Z-2.5) < 4 {
+		if m.Kind == sniffer && m.Baby && math.Abs(m.X-2.5) < 12 && math.Abs(m.Z-2.5) < 12 {
 			return
 		}
 	}

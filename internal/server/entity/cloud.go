@@ -101,6 +101,13 @@ func (c *Cloud) Waiting() bool { return c.waiting }
 // Radius is the reach the cloud's rain covers now.
 func (c *Cloud) Radius() float32 { return c.radius }
 
+// Box is the cloud's bounding box at its current radius.
+// vanilla: AreaEffectCloud.getDimensions
+func (c *Cloud) Box() AABB {
+	r := float64(c.radius)
+	return NewAABB(c.X-r, c.Y, c.Z-r, c.X+r, c.Y+0.5, c.Z+r)
+}
+
 // RadiusPerTick is the shrink the cloud's radius takes each tick, the
 // negative share of the radius over its six hundred.
 func (c *Cloud) RadiusPerTick() float32 { return c.radiusPerTick }

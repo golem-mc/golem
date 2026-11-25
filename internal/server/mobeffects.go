@@ -250,6 +250,7 @@ func (fx *mobEffects) convert(cv mobConversion) {
 // reach clients, which the black-box tests read and vanilla fixes, so a new
 // kind goes where its packets belong, not at the end.
 func (fx *mobEffects) apply(s *Server, in *mobTickInputs) {
+	s.rollDeathLoot(fx.deaths)
 	applyEach(s, fx.gameEvents, func(s *Server, event mobGameEvent) {
 		s.gameEvent(event.w, event.event, event.x, event.y, event.z, event.context)
 	})

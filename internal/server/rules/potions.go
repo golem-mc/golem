@@ -184,11 +184,12 @@ func InstantBrewing(contents protocol.PotionContents) bool {
 // vanilla: PotionContents.BASE_POTION_COLOR
 const BasePotionColour = -13083194
 
-// PotionColour is the level-weighted average of the visible effects'
-// colours, opaque, or the unbrewed default. Custom colours are dropped by the
-// slot reader, so not modelled.
-// vanilla: PotionContents.getColor/getColorOptional
+// PotionColour returns the custom colour, the opaque effect average, or the unbrewed default.
+// vanilla: PotionContents.getColorOr
 func PotionColour(contents protocol.PotionContents) int32 {
+	if contents.CustomColor != nil {
+		return *contents.CustomColor
+	}
 	var red, green, blue, weight int32
 	for _, in := range PotionInstances(contents) {
 		if !in.Visible {

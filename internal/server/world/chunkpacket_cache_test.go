@@ -2,6 +2,7 @@ package world
 
 import (
 	"bytes"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -57,6 +58,8 @@ func TestChunkPacketCacheInvalidation(t *testing.T) {
 			check("new entity", true)
 			be.Use(func(be *BlockEntity) { be.SignFront.Messages[0] = "Edited without a terrain write" })
 			check("update tag", true)
+			be.Use(func(be *BlockEntity) { be.SignFront.Messages[0] = "edited without a terrain write" })
+			check("same-size update tag", true)
 			w.SetBlock(6, 70, 7, registry.BlockStates["minecraft:chest"])
 			chest := w.EnsureBlockEntity(6, 70, 7, KindChest)
 			check("container", true)
@@ -78,10 +81,21 @@ func TestChunkPacketCacheInvalidation(t *testing.T) {
 			w.mu.Lock()
 			c.blockLight[5] = new([lightArrayLen]byte)
 			c.blockLight[5][0] = 15
-			c.lightFormsStale = true
+			c.invalidateLightForms()
 			c.lightGen++
 			w.mu.Unlock()
 			check("light only", true)
+			// The wire entries sit in a 16-entry stack buffer: cross its end.
+			for i := range int32(15) {
+				x, z := i%8, 10+i/8
+				w.SetBlock(x, 71, z, registry.BlockStates["minecraft:chest"])
+				w.EnsureBlockEntity(x, 71, z, KindChest)
+				if n := i + 3; n == 16 || n == 17 || n == 18 {
+					check(fmt.Sprintf("%d entities", n), true)
+				}
+			}
+			be.Use(func(be *BlockEntity) { be.SignFront.Messages[0] = "Edited past the buffer" })
+			check("update tag past 16 entities", true)
 
 			var readers sync.WaitGroup
 			for range 10 {
@@ -94,4 +108,33 @@ func TestChunkPacketCacheInvalidation(t *testing.T) {
 			readers.Wait()
 		})
 	}
+}
+
+func TestChunkPacketCacheHitAllocations(t *testing.T) {
+	w, err := NewWorld(t.TempDir(), NewFlatGenerator())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	c, _ := w.Acquire(ChunkPos{})
+	check := func(name string, maxAllocs float64) {
+		t.Run(name, func(t *testing.T) {
+			packet := w.CachedChunkPacket(c)
+			allocs := testing.AllocsPerRun(100, func() {
+				if w.CachedChunkPacket(c) != packet {
+					t.Fatal("unchanged chunk rebuilt its packet")
+				}
+			})
+			if allocs > maxAllocs {
+				t.Errorf("cache hit allocated %.0f times, want at most %.0f", allocs, maxAllocs)
+			}
+		})
+	}
+	check("0blockentities", 0)
+	for i := range int32(10) {
+		x, z := i%4, i/4
+		w.SetBlock(x, GroundLevel, z, registry.BlockChest.DefaultState())
+		w.EnsureBlockEntity(x, GroundLevel, z, KindChest)
+	}
+	check("10blockentities", 0)
 }

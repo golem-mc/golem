@@ -1,6 +1,8 @@
 package world
 
 import (
+	"sync"
+
 	"github.com/golem-mc/golem/internal/server/world/levelgen"
 	"github.com/golem-mc/golem/internal/server/world/terrain"
 	"github.com/golem-mc/golem/registry"
@@ -50,10 +52,16 @@ func (g *NetherGenerator) terrainBiomes(q *netherQuarts, cx, cz int32, carve boo
 	}}
 }
 
+var netherProtoChunks = sync.Pool{New: func() any {
+	return terrain.NewProtoChunk(0, 256, terrain.Netherrack)
+}}
+
 // buildTerrain fills, surfaces and optionally carves a chunk with one noise context.
 // vanilla: NoiseBasedChunkGenerator.buildTerrain
 func (g *NetherGenerator) buildTerrain(c *Chunk, carve bool) {
-	chunk := terrain.NewProtoChunk(0, 256, terrain.Netherrack)
+	chunk := netherProtoChunks.Get().(*terrain.ProtoChunk)
+	defer netherProtoChunks.Put(chunk)
+	chunk.Reset()
 	q := g.quartBiomes(c.x, c.z)
 	g.state.BuildTerrain(chunk, c.x, c.z, g.fossilBeardifier(c.x, c.z), g.terrainBiomes(&q, c.x, c.z, carve))
 	g.copyMaterials(c, chunk)

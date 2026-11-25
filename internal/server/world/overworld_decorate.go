@@ -233,6 +233,7 @@ func (r *decorRegion) finishOverworld(own *decorProto) {
 	for _, k := range own.sources {
 		c.scheduleGenerated(k[0], k[1]+worldMinY, k[2])
 	}
+	own.transferFluidTicks(c, worldMinY)
 	var seed int64
 	if g, ok := r.src.(*OverworldGenerator); ok {
 		seed = g.seed

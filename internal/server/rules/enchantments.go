@@ -744,12 +744,12 @@ func enchRollBetween(rng *rand.Rand, min, max float64) float64 {
 	return float64(rng.Float32()*float32(max-min) + float32(min))
 }
 
-// ProjectileIgniteTicks is the burn the weapon's projectile_spawned ignite
-// effects give the projectile (flame: an arrow arrives burning for 100 s).
+// ProjectileIgniteTicks is the longest burn a stack's projectile_spawned
+// ignite effects give the projectile (Flame burns for 100 s).
 // vanilla: EnchantmentHelper.onProjectileSpawned
-func ProjectileIgniteTicks(weapon protocol.ItemStack) int32 {
+func ProjectileIgniteTicks(stack protocol.ItemStack) int32 {
 	var best int32
-	for _, ench := range enchantsOn(weapon) {
+	for _, ench := range enchantsOn(stack) {
 		for _, spawned := range ench.def.Effects.ProjectileSpawned {
 			if !enchCondition(spawned.Requires, &EnchContext{}) {
 				continue
@@ -822,6 +822,30 @@ func Disenchant(stack *protocol.ItemStack) int {
 // EnchLevelValueAt is LevelBasedValue.calculate for the exported callers.
 func EnchLevelValueAt(v *registry.EnchLevelValue, level int32) float32 {
 	return float32(enchLevelValue(v, level))
+}
+
+// enchLevelValueThrows reports whether calculate at level reaches a lookup
+// below level 1, which reads index level-1 and throws. A fraction whose
+// denominator is zero never reads its numerator.
+// vanilla: LevelBasedValue.Lookup.calculate, LevelBasedValue.Fraction.calculate
+func enchLevelValueThrows(v *registry.EnchLevelValue, level int32) bool {
+	if v == nil || level >= 1 {
+		return false
+	}
+	switch v.Kind {
+	case registry.EnchValueLookup:
+		return true
+	case registry.EnchValueClamped:
+		return enchLevelValueThrows(v.Value, level)
+	case registry.EnchValueFraction:
+		if enchLevelValueThrows(v.Den, level) {
+			return true
+		}
+		return enchLevelValue(v.Den, level) != 0 && enchLevelValueThrows(v.Num, level)
+	case registry.EnchValueExponent:
+		return enchLevelValueThrows(v.ExpBase, level) || enchLevelValueThrows(v.ExpPower, level)
+	}
+	return false
 }
 
 // itemEnchValue folds an item's conditional value component in its loot context.
