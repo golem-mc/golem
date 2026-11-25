@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/plugin"
 )
@@ -123,6 +125,40 @@ func BenchmarkTickOwnedFangsBite(b *testing.B) {
 		for _, it := range s.fangs.list {
 			f := it.fangs
 			it.fangs = entity.NewEvokerFangs(f.ID, f.X, f.Y, f.Z, 0, -7, owner)
+		}
+		s.tickFangs()
+	}
+}
+
+// BenchmarkTickPlayerOwnedFangsBite repeats a player's bites among mobs on
+// their team so each bite checks alliances without changing the herd.
+func BenchmarkTickPlayerOwnedFangsBite(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	var owner *client
+	s.mu.RLock()
+	for _, c := range s.clients {
+		owner = c
+		break
+	}
+	s.mu.RUnlock()
+	s.mobsMu.Lock()
+	s.mobInputs.clientByEntityID = map[int32]*client{owner.player.EntityID: owner}
+	s.mobInputs.playerTeams = map[uuid.UUID]string{owner.player.UUID: "t"}
+	s.mobsMu.Unlock()
+	for i := range trackerBenchBodies {
+		x, z := trackerBenchSpot(i)
+		id := s.SpawnMob("minecraft:vindicator", x, -60, z)
+		s.mobsMu.Lock()
+		s.herdOf(w).byID[id].mob.Team = "t"
+		s.mobsMu.Unlock()
+		s.spawnFangs(fangsCast{w: w, owner: owner.player.EntityID, x: x, y: -60, z: z})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		for _, it := range s.fangs.list {
+			f := it.fangs
+			it.fangs = entity.NewEvokerFangs(f.ID, f.X, f.Y, f.Z, 0, -7, owner.player.EntityID)
 		}
 		s.tickFangs()
 	}
