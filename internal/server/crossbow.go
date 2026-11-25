@@ -219,6 +219,9 @@ func (s *Server) spawnCrossbowRocket(w *world.World, stack protocol.ItemStack, x
 	ownerID int32, ownerUUID uuid.UUID) {
 	yaw, pitch := entity.ArrowAngles(vx, vy, vz)
 	rocket := s.newFirework(w, stack, x, y, z, ownerID, ownerUUID, 0)
+	// The rocket carries the whole loaded stack, count and all.
+	// vanilla: CrossbowItem.createProjectile, FireworkRocketEntity(Level, ItemStack, ...)
+	rocket.stack = stack
 	r := rocket.rocket
 	r.ShotAtAngle = true
 	r.VX, r.VY, r.VZ = vx, vy, vz

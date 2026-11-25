@@ -29,7 +29,7 @@ type fireworkEntity struct {
 	w      *world.World
 	uuid   uuid.UUID
 	stack  protocol.ItemStack
-	bodyTrack[fireworkMetadataState]
+	bodyTrack[struct{}]
 	shotMark
 
 	portal rules.EntityPortal
@@ -48,7 +48,7 @@ type fireworkEntity struct {
 
 // fireworkTracker tracks the rockets. A rocket's flight is never on the
 // ground, and its Teleport Entity carries no velocity: the motion packets do.
-var fireworkTracker = trackedKind[*fireworkEntity, fireworkMetadataState]{
+var fireworkTracker = trackedKind[*fireworkEntity, struct{}]{
 	rangeChunks: entity.FireworkTrackingRange,
 	interval:    entity.FireworkUpdateInterval,
 	lock:        func(s *Server) *sync.Mutex { return &s.fireworksMu },
@@ -56,7 +56,7 @@ var fireworkTracker = trackedKind[*fireworkEntity, fireworkMetadataState]{
 	chunks:      func(s *Server) *entity.ChunkIndex[*fireworkEntity] { return &s.fireworkChunks },
 	filing:      func(it *fireworkEntity) *entity.Filing { return &it.rocket.Filing },
 	uuid:        func(it *fireworkEntity) uuid.UUID { return it.uuid },
-	track:       func(it *fireworkEntity) *bodyTrack[fireworkMetadataState] { return &it.bodyTrack },
+	track:       func(it *fireworkEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
 	world:       func(it *fireworkEntity) *world.World { return it.w },
 	id:          func(it *fireworkEntity) int32 { return it.rocket.ID },
 	dead:        func(it *fireworkEntity) bool { return it.rocket.Dead },
@@ -65,7 +65,6 @@ var fireworkTracker = trackedKind[*fireworkEntity, fireworkMetadataState]{
 		return bodyPose{x: r.X, y: r.Y, z: r.Z, yaw: r.Yaw, pitch: r.Pitch}
 	},
 	pairing: fireworkPairing,
-	own:     fireworkMetadataStateOf,
 }
 
 // handleUseFirework launches a gliding player's rocket attached to them for
@@ -316,21 +315,19 @@ type fireworkMetadataState struct {
 	fire        bool
 }
 
-// same reports whether two states tell a client the same.
-func (a *fireworkMetadataState) same(b *fireworkMetadataState) bool {
-	return a.name == b.name && a.attached == b.attached && a.shotAtAngle == b.shotAtAngle &&
-		a.fire == b.fire && a.stack.Count == b.stack.Count && a.stack.SamePtr(&b.stack)
-}
-
-// tellFireworkChanges tells c the metadata a tick turned, the tick it turned in.
-func tellFireworkChanges(it *fireworkEntity, was *toldBody[fireworkMetadataState], now *fireworkMetadataState, c *client, metas *sendList) {
-	if was.own.same(now) {
-		return
+// fireworkBurnDelta is the metadata, encoded once for every watcher, telling
+// a rocket's burn that was burning before this tick; nil if it has not turned.
+func fireworkBurnDelta(it *fireworkEntity, burning bool) *outbound {
+	if burning == (it.rocket.FireTicks > 0) {
+		return nil
 	}
-	if data := fireworkMetadataTable(it, &was.own); data != nil {
-		metas.add(c, outbound{id: protocol.IDPlayEntityMetadata, data: data})
+	was := fireworkMetadataStateOf(it)
+	was.fire = burning
+	data := fireworkMetadataTable(it, &was)
+	if data == nil {
+		return nil
 	}
-	was.own = *now
+	return &outbound{id: protocol.IDPlayEntityMetadata, data: data}
 }
 
 func fireworkMetadataStateOf(it *fireworkEntity) fireworkMetadataState {
@@ -441,19 +438,18 @@ func (s *Server) tickFireworks() {
 	defer releaseNearbyWorlds(near)
 
 	var (
-		out             trackSends
-		motions, sounds sendList
-		metas           sendList
-		removals        = make(map[*world.World][]int32)
-		bursts          []fireworkBurst
-		mobHits         []thrownMobHit
-		gates           []gatewayTouch
-		targetHits      []targetBlockHit
-		projectileHits  []projectileBlockHit
-		splashes        []projectileSplash
-		landings        []projectileLanding
-		shots           []projectileShot
-		deflects        []breezeDeflect
+		out                    trackSends
+		motions, sounds, metas sendList
+		removals               = make(map[*world.World][]int32)
+		bursts                 []fireworkBurst
+		mobHits                []thrownMobHit
+		gates                  []gatewayTouch
+		targetHits             []targetBlockHit
+		projectileHits         []projectileBlockHit
+		splashes               []projectileSplash
+		landings               []projectileLanding
+		shots                  []projectileShot
+		deflects               []breezeDeflect
 	)
 
 	boatsByWorld, _, boatRoots := s.boatSnapshots()
@@ -528,6 +524,7 @@ func (s *Server) tickFireworks() {
 		}
 		from := it.rocket.Box()
 		first := it.rocket.Life == 0
+		burning := it.rocket.FireTicks > 0
 		it.queue(&shots, it.w, it.rocket.X, it.rocket.Y, it.rocket.Z, it.ownerUUID)
 		for _, ev := range it.rocket.Step(it.w, owner, carrier, targets) {
 			if ev.Kind == entity.FireworkHitTarget {
@@ -598,14 +595,16 @@ func (s *Server) tickFireworks() {
 		// alone, the newly paired included.
 		// vanilla: ServerEntity.sendChanges, sendToTrackingPlayers
 		body := fireworkTracker.body(it)
-		mt := body.schedule(nil)
+		// A burn lit or put out this tick is dirty data: a movement tick off
+		// the period. vanilla: ServerEntity.sendChanges, sendDirtyEntityData
+		meta := fireworkBurnDelta(it, burning)
+		mt := body.schedule(func() bool { return meta != nil })
 		var motion *outbound
 		if mt.gate && it.motionDue(it.rocket.VX, it.rocket.VY, it.rocket.VZ, false) {
 			motion = &outbound{id: protocol.IDPlaySetEntityMotion,
 				data: entityVelocityPayload(it.rocket.ID, it.rocket.VX, it.rocket.VY, it.rocket.VZ)}
 		}
 
-		now := fireworkMetadataStateOf(it)
 		for _, i := range body.watchers(near[it.w]) {
 			watch := watchers[it.w][i]
 			if watch.c.theWorld() != it.w {
@@ -618,7 +617,9 @@ func (s *Server) tickFireworks() {
 			if motion != nil {
 				motions.add(watch.c, *motion)
 			}
-			tellFireworkChanges(it, was, &now, watch.c, &metas)
+			if meta != nil {
+				metas.add(watch.c, *meta)
+			}
 			body.moveTold(was, watch.c, mt, &out)
 		}
 		alive = append(alive, it)

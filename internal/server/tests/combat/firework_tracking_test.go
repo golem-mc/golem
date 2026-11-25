@@ -44,9 +44,10 @@ func TestAFireworkRocketsVelocityGoesToItsWatchersAlone(t *testing.T) {
 }
 
 // TestAFireworkRocketsBurnEndsIsTold sets a rocket alight for four ticks and
-// flies it on: the watcher is told the fire flag, then the flag clearing while
-// the rocket is still flying.
-// vanilla: Entity.baseTick, FireworkRocketEntity.tick
+// flies it on: the watcher is told the fire flag once, then the flag clearing
+// on the fourth tick, off the rocket's ten-tick movement period, while the
+// rocket is still flying.
+// vanilla: Entity.baseTick, ServerEntity.sendChanges
 func TestAFireworkRocketsBurnEndsIsTold(t *testing.T) {
 	t.Parallel()
 	cfg := servertest.BlockTestConfig()
@@ -56,8 +57,8 @@ func TestAFireworkRocketsBurnEndsIsTold(t *testing.T) {
 	rocket := srv.SpawnFireworkAtAngle(3.5, 65, 3.5, 0, 0, 0, 200)
 	srv.RunLine("data merge entity " + rocket.UUID.String() + " {Fire:4s}")
 
-	burning, cleared := false, false
-	c.ReadTicks(srv, 12, func(id int32, data []byte) bool {
+	set, cleared := 0, false
+	c.ReadTicks(srv, 4, func(id int32, data []byte) bool {
 		if id != protocol.IDPlayEntityMetadata {
 			return false
 		}
@@ -70,13 +71,16 @@ func TestAFireworkRocketsBurnEndsIsTold(t *testing.T) {
 			return false
 		}
 		if flags&protocol.EntityFlagOnFire != 0 {
-			burning = true
+			set++
 			return false
 		}
-		cleared = burning
+		cleared = set > 0
 		return cleared
 	})
-	if !burning || !cleared {
-		t.Fatalf("fire flag told set = %v, then cleared = %v; want both", burning, cleared)
+	if set != 1 || !cleared {
+		t.Fatalf("fire flag told set %d times, then cleared = %v within four ticks; want once, then cleared", set, cleared)
+	}
+	if _, _, ok := srv.FireworkState(rocket.UUID); !ok {
+		t.Fatal("the rocket ended before its burn did")
 	}
 }
