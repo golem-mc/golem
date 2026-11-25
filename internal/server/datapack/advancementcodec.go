@@ -617,7 +617,12 @@ func (decoder ResourceDecoder) advCombat(name, trigger string, conditions obj) (
 	var terms []any
 	source := blow
 	if blowKey == "damage" {
-		source = obj{"type": blow["type"]}
+		// damage.type is itself the DamageSourcePredicate.
+		// vanilla: DamagePredicate.CODEC
+		source, _ = blow["type"].(obj)
+		if blow["type"] != nil && source == nil {
+			return c, false
+		}
 		if se, has := blow["source_entity"]; has {
 			terms = append(terms, obj{"condition": "minecraft:entity_properties", "entity": "attacker", "predicate": se})
 		}

@@ -597,12 +597,26 @@ func TestPackEntityHurtPlayerTestsSourceEntityAndType(t *testing.T) {
 	packCriterion(t, dir, "zombie", "entity_hurt_player", `{"damage":{"source_entity":{"minecraft:entity_type":"minecraft:zombie"}}}`)
 	packCriterion(t, dir, "skeleton", "entity_hurt_player", `{"damage":{"source_entity":{"minecraft:entity_type":"minecraft:skeleton"}}}`)
 	packCriterion(t, dir, "shot", "entity_hurt_player", `{"damage":{"type":{"tags":[{"id":"minecraft:is_projectile","expected":true}]}}}`)
+	for _, key := range []string{"direct_entity", "source_entity"} {
+		for _, kind := range []string{"zombie", "skeleton"} {
+			packCriterion(t, dir, key+"_"+kind, "entity_hurt_player",
+				`{"damage":{"type":{"`+key+`":{"minecraft:entity_type":"minecraft:`+kind+`"}}}}`)
+		}
+	}
 	srv, c := joinOp(t, cfg, "Packer")
 	c.MoveToGround(0.5, 64, 0.5, true)
 	c.Settle()
 	id := srv.SpawnMob("minecraft:zombie", 0.5, 64, 1.0)
 	srv.SetMobTargetPlayer(id, "Packer")
 	servertest.UntilTicks(t, srv, 400, "the zombie's hit", func() bool { return srv.AdvancementObtained("Packer", "pk:zombie", "c") })
+	for _, key := range []string{"direct_entity", "source_entity"} {
+		if !srv.AdvancementObtained("Packer", "pk:"+key+"_zombie", "c") {
+			t.Errorf("a zombie's hit did not fire the damage.type.%s zombie criterion", key)
+		}
+		if srv.AdvancementObtained("Packer", "pk:"+key+"_skeleton", "c") {
+			t.Errorf("a zombie's hit fired the damage.type.%s skeleton criterion", key)
+		}
+	}
 	if srv.AdvancementObtained("Packer", "pk:skeleton", "c") {
 		t.Error("a zombie's hit fired the skeleton source_entity criterion")
 	}
