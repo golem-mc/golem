@@ -518,7 +518,7 @@ func TestAPlayerKeepsFarmlandBesideTheStoneItLandsOn(t *testing.T) {
 	servertest.SetFarmBlock(t, c, srv, 1, 63, 0, "minecraft:air", nil)
 	servertest.SetFarmBlock(t, c, srv, 1, 63, 1, "minecraft:air", nil)
 
-	got := landingChanges(t, srv, c, 1.125, 64, 1.125)
+	got := landingChanges(t, srv, c, 1.125, 64, 0.875)
 
 	farmland := srv.BlockAt(0, 63, 0)
 	if st := servertest.CropsStateOf(t, "minecraft:dirt", nil); farmland == st {

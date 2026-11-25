@@ -621,40 +621,47 @@ func standingBlock(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32, sta
 	return bx, by, bz, state
 }
 
-// supportCell finds the supporting block: among the cells whose collision
-// crosses the 1e-6 slab under the feet, the nearest to the position, equal
-// distances going to the greater Y, then Z, then X. The row of the feet is
-// tried before the one below, where a fence's post reaches up. Without one
-// it answers the cell under the centre and its state, found false.
+// supportCell finds the supporting block: among the cells of the feet row
+// and the row below (where a fence's post reaches up) whose collision
+// crosses the 1e-6 slab under the feet, the nearest to the position by full
+// 3D distance to the cell centre, equal distances going to the greater Y,
+// then Z, then X. The centre column's cell of the feet row is the closest
+// candidate there is, so it answers alone on contact. Without a support it
+// answers the cell under the centre and its state, found false.
 // vanilla: Entity.setOnGroundWithMovement, CollisionGetter.findSupportingBlock
 func supportCell(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32, state uint16, found bool) {
 	const slab = 1e-6
 	cx, cz := int32(math.Floor(x)), int32(math.Floor(z))
 	cy := int32(math.Floor(y - slab))
-	minX, maxX := CellRange(x-halfWidth, x+halfWidth)
-	minZ, maxZ := CellRange(z-halfWidth, z+halfWidth)
-	var centre uint16
-	for row := cy; row >= cy-1; row-- {
-		bestD := math.Inf(1)
+	loX, loY, loZ, hiX, hiZ := x-halfWidth, y-slab, z-halfWidth, x+halfWidth, z+halfWidth
+	centre := w.BlockAt(cx, cy, cz)
+	if world.StateCollides(centre, cx, cy, cz, loX, loY, loZ, hiX, y, hiZ) {
+		return cx, cy, cz, centre, true
+	}
+	minX, maxX := CellRange(loX, hiX)
+	minZ, maxZ := CellRange(loZ, hiZ)
+	bestD := math.Inf(1)
+	// Ascending Y, Z, X so <= leaves the greater of equal distances.
+	for row := cy - 1; row <= cy; row++ {
+		dy := float64(row) + 0.5 - y
 		for zz := minZ; zz <= maxZ; zz++ {
 			for xx := minX; xx <= maxX; xx++ {
-				s := w.BlockAt(xx, row, zz)
 				if row == cy && xx == cx && zz == cz {
-					centre = s
+					continue
 				}
-				if !world.StateCollides(s, xx, row, zz, x-halfWidth, y-slab, z-halfWidth, x+halfWidth, y, z+halfWidth) {
+				s := w.BlockAt(xx, row, zz)
+				if !world.StateCollides(s, xx, row, zz, loX, loY, loZ, hiX, y, hiZ) {
 					continue
 				}
 				dx, dz := float64(xx)+0.5-x, float64(zz)+0.5-z
-				// Cells come in ascending Z then X, so <= leaves the greater of equals.
-				if d := dx*dx + dz*dz; d <= bestD {
+				if d := dx*dx + dy*dy + dz*dz; d <= bestD {
 					bestD, bx, by, bz, state, found = d, xx, row, zz, s, true
 				}
 			}
 		}
-		if found {
-			return bx, by, bz, state, true
-		}
+	}
+	if found {
+		return bx, by, bz, state, true
 	}
 	return cx, cy, cz, centre, false
 }

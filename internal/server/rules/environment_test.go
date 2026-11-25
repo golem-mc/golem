@@ -345,9 +345,10 @@ var standingFixtures = func(t testing.TB) []struct {
 		maxReads int
 	}{
 		{"centred stone", stubBlocks{{0, 63, 0}: stone}, 0.5, 64, 0.5, 1},
-		{"stone edge", stubBlocks{{0, 63, 0}: stone}, 1.1, 64, 0.5, 3},
+		{"stone edge", stubBlocks{{0, 63, 0}: stone}, 1.1, 64, 0.5, 4},
 		{"fence", stubBlocks{{0, 63, 0}: fence}, 0.5, 64.5, 0.5, 2},
-		{"corner", stubBlocks{{0, 63, 0}: stone, {1, 63, 1}: stone}, 1.05, 64, 1.05, 4},
+		{"corner centre hit", stubBlocks{{0, 63, 0}: stone, {1, 63, 1}: stone}, 1.05, 64, 1.05, 1},
+		{"corner centre miss", stubBlocks{{0, 63, 0}: stone, {1, 63, 1}: stone}, 0.95, 64, 0.95, 4},
 	}
 }
 
@@ -385,6 +386,8 @@ func BenchmarkOnPosCell(b *testing.B) {
 func TestSupportCellPrefersTheNearestThenTheGreater(t *testing.T) {
 	stone := stateOf(t, "minecraft:stone")
 	path := stateOf(t, "minecraft:dirt_path")
+	fence := stateOf(t, "minecraft:oak_fence")
+	slab := stateOf(t, "minecraft:stone_slab")
 	for _, tc := range []struct {
 		name         string
 		w            stubBlocks
@@ -395,6 +398,8 @@ func TestSupportCellPrefersTheNearestThenTheGreater(t *testing.T) {
 		{"equal Z goes to the greater", stubBlocks{{0, 63, 0}: path, {0, 63, 1}: path}, 0.5, 63.9375, 1, 0, 1},
 		{"equal X goes to the greater", stubBlocks{{0, 63, 0}: path, {1, 63, 0}: path}, 1, 63.9375, 0.5, 1, 0},
 		{"centre column beats a corner", stubBlocks{{0, 63, 0}: stone, {1, 63, 1}: stone}, 0.95, 64, 0.95, 0, 0},
+		{"centre column wins an exact boundary", stubBlocks{{0, 63, 0}: stone, {1, 63, 0}: stone}, 1, 64, 0.5, 1, 0},
+		{"the lower row's nearer fence beats the upper row's slab", stubBlocks{{0, 63, 0}: fence, {1, 64, 1}: slab}, 0.71, 64.5, 0.71, 0, 0},
 	} {
 		bx, _, bz, _, found := supportCell(tc.w, tc.x, tc.y, tc.z, 0.3)
 		if !found || bx != tc.wantX || bz != tc.wantZ {
