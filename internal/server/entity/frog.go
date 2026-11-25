@@ -4,7 +4,6 @@ import (
 	"math"
 	"slices"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/blocklogic"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -43,11 +42,6 @@ func (m *Mob) finalizeFrog(dice Dice, ctx rules.SpawnContext) {
 // FinishTadpoleGrowth finalizes a conversion and fits the larger body in the world.
 // vanilla: Tadpole.ageUp
 func (m *Mob) FinishTadpoleGrowth(w World, old *Mob, biome registry.Biome) {
-	// ConversionParams.single(this, false, false) does not carry equipment.
-	for slot := range 6 {
-		m.SetEquipment(slot, protocol.ItemStack{})
-	}
-	m.ResetDropChances()
 	m.FinalizeSpawn(m.SpawnDice(), biome, nil, rules.LocalDifficulty{})
 	m.Persistence = true
 	m.refreshDimensions(w, old.width(), old.height())
