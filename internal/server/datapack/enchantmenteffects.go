@@ -3,6 +3,7 @@ package datapack
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -177,37 +178,36 @@ func optPredicate(o obj) *registry.EnchBlockPredicate {
 	return nil
 }
 
-// pureStateProviders are the state providers that read no world, which the
-// server runs for a replace effect; the rest (rule_based, copy_properties,
-// random_block) read the block already there.
-var pureStateProviders = []string{"minecraft:rotated_block_provider", "minecraft:weighted_state_provider",
-	"minecraft:noise_provider", "minecraft:noise_threshold_provider", "minecraft:dual_noise_provider"}
+// ErrRemovedBlockStateProvider reports a retired provider type in a replace effect.
+var ErrRemovedBlockStateProvider = errors.New("removed block state provider type")
 
 // stateProvider reads a block_state provider: a simple one gives its state, a
 // pure one its raw JSON for the server to compile.
 // vanilla: BlockStateProvider.CODEC
 func stateProvider(v any) (state uint16, raw any) {
-	var check func(v any)
-	check = func(v any) {
-		o, ok := v.(obj)
-		if !ok || o["type"] == nil {
-			return
-		}
-		kind := stateProviderType(o)
-		switch {
-		case kind == "minecraft:simple":
-		case kind == "minecraft:randomized_int" || kind == "minecraft:randomized_int_state_provider":
-			check(required(o, "source"))
-		case slices.Contains(pureStateProviders, kind):
-		default:
-			fail("a block state provider of type %s", kind)
-		}
-	}
 	if o, ok := v.(obj); ok && o["type"] != nil && stateProviderType(o) != "minecraft:simple" {
-		check(v)
+		checkReplaceProvider(o)
 		return 0, plainJSON(v)
 	}
 	return simpleState(v), nil
+}
+
+// vanilla: BlockStateProviderTypes.bootstrap
+func checkReplaceProvider(o obj) {
+	kind := stateProviderType(o)
+	switch kind {
+	case "minecraft:simple", "minecraft:rotated_block_provider", "minecraft:weighted", "minecraft:noise",
+		"minecraft:noise_threshold", "minecraft:dual_noise":
+	case "minecraft:randomized_int", "minecraft:randomized_int_state_provider":
+		if source, ok := required(o, "source").(obj); ok && source["type"] != nil {
+			checkReplaceProvider(source)
+		}
+	case "minecraft:weighted_state_provider", "minecraft:noise_provider",
+		"minecraft:noise_threshold_provider", "minecraft:dual_noise_provider":
+		panic(lootFailure{fatal: fmt.Errorf("%w %q", ErrRemovedBlockStateProvider, kind)})
+	default:
+		fail("a block state provider of type %s", kind)
+	}
 }
 
 // plainJSON copies a decoded tree with its numbers as float64, the form the
