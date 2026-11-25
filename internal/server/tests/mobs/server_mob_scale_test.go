@@ -38,12 +38,11 @@ func TestAnAirbornePigGrowsAroundItsOldCenter(t *testing.T) {
 	srv, c := servertest.Join(t, servertest.MobTestConfig(), name, servertest.OpsListing(t, name))
 	servertest.HoldTicks(t, srv)
 	c.ChatCommand(`summon minecraft:pig 3.5 200 3.5 {NoGravity:1b,NoAI:1b}`)
-	spawn := protocol.NewReader(c.ExpectMobPacket(protocol.IDPlaySpawnEntity))
-	pigID := spawn.ReadVarInt()
-	spawn.ReadUUID()
-	if kind := spawn.ReadVarInt(); kind != protocol.EntityTypePig {
-		t.Fatalf("spawned entity type = %d, want pig", kind)
+	pig := c.ExpectMobSpawn(protocol.EntityTypePig)
+	if !pig.NoGravity {
+		t.Fatal("pig's spawn metadata has NoGravity = false, want true")
 	}
+	pigID := pig.EntityID
 	servertest.RunTicks(t, srv, 1)
 	if _, y, _, ok := srv.MobPos(pigID); !ok || y != 200 {
 		t.Fatalf("pig's initial feet Y = %v (present %v), want 200", y, ok)
