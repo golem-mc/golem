@@ -623,7 +623,7 @@ func (m *Mob) pushStep(w World, players []Player, others []*Mob, events []MobEve
 	if g := m.push; g != nil {
 		pack = g.candidates(m, 0)
 	}
-	window := newSectionWindow(m.X-bw/2, m.X+bw/2, m.Y, m.Y+h, m.Z-bw/2, m.Z+bw/2)
+	window := NewSectionWindow(m.X-bw/2, m.X+bw/2, m.Y, m.Y+h, m.Z-bw/2, m.Z+bw/2)
 	for _, other := range pack {
 		if other == nil || other == m || !other.Pushable() {
 			continue

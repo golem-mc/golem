@@ -17,6 +17,9 @@ type crammer struct {
 	rule  entity.CollisionRule
 	// riding is whether the body is a passenger; passengers are not counted.
 	riding bool
+	// at is where a mob is filed; a body with filed unset is not tied to a section.
+	at    [3]float64
+	filed bool
 }
 
 // crammingCrowd is one tick's pushable bodies per world, filed in a grid.
@@ -135,7 +138,10 @@ func (s *Server) buildCrammingCrowd(cc *crammingCrowd) {
 		if cw == nil {
 			continue
 		}
-		herd := s.herdOf(dim.w)
+		herd := dim.mobs
+		if len(herd.herd) == 0 {
+			continue
+		}
 		// Every player is filed before the first mob, so one test of a mob
 		// against the crowd serves every player: a chunk is walked once.
 		clear(cc.visited)
@@ -144,17 +150,25 @@ func (s *Server) buildCrammingCrowd(cc *crammingCrowd) {
 			// Pushable's.
 			box := entity.NewAABB(m.BlastBox())
 			if cw.nearPlayer(box) && m.Pushable() {
-				cw.add(crammer{box: box, team: m.Team, rule: m.TeamCollision, riding: m.RidesVehicle})
+				cw.add(crammer{box: box, team: m.Team, rule: m.TeamCollision, riding: m.RidesVehicle,
+					at: [3]float64{m.X, m.Y, m.Z}, filed: true})
 			}
 			return true
 		}
+		// One route per world: the indexed walk only if every player's
+		// area is small, else a single pass over the herd.
+		indexed := true
+		for p := 0; p < cw.players && indexed; p++ {
+			bounds := cw.bodies[p].box.Bounds()
+			_, indexed = smallChunkArea(&bounds)
+		}
+		if !indexed {
+			herd.mobsInArea(chunkArea{}, false, file)
+			continue
+		}
 		for p := 0; p < cw.players; p++ {
 			bounds := cw.bodies[p].box.Bounds()
-			area, indexed := smallChunkArea(&bounds)
-			if !indexed {
-				herd.mobsInArea(area, false, file)
-				break
-			}
+			area, _ := smallChunkArea(&bounds)
 			area.each(func(pos world.ChunkPos) bool {
 				if _, seen := cc.visited[pos]; !seen {
 					cc.visited[pos] = struct{}{}
@@ -217,9 +231,13 @@ func (c *client) crammingHurt() (rules.Hurt, bool) {
 	me := cw.bodies[at.i]
 	box, team, rule := me.box, me.team, me.rule
 	total, standing := 0, 0
+	// The shared walk may have filed a mob only another player reaches.
+	// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+	bn := box.Bounds()
+	window := entity.NewSectionWindow(bn[0], bn[3], bn[1], bn[4], bn[2], bn[5])
 	cw.grid.Query(box, func(i int32) {
 		b := &cw.bodies[i]
-		if b.owner == c || !box.Crosses(b.box) || !entity.PushableBy(team, rule, b.team, b.rule) {
+		if b.owner == c || !box.Crosses(b.box) || (b.filed && !window.HoldsAt(b.at[0], b.at[1], b.at[2])) || !entity.PushableBy(team, rule, b.team, b.rule) {
 			return
 		}
 		total++

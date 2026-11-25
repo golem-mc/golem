@@ -55,3 +55,28 @@ func TestPlayerTakesCrammingDamage(t *testing.T) {
 		t.Error("no cramming damage event for the player")
 	}
 }
+
+// TestCrammingIgnoresAMobOnlyAnotherPlayerReaches: a scaled cow whose box
+// overlaps a player but is filed beyond that player's sections is not
+// counted, though another player's search reaches it.
+// vanilla: LivingEntity.pushEntities, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestCrammingIgnoresAMobOnlyAnotherPlayerReaches(t *testing.T) {
+	t.Parallel()
+	srv, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Stayer", servertest.OpsListing(t, "Stayer"))
+	servertest.HoldTicks(t, srv)
+	c.MoveToGround(11.5, 64, 0.5, true)
+	c.Settle()
+	other := servertest.DialServer(t, srv).Join("Bystander")
+	other.MoveToGround(18, 64, 12.5, true)
+	other.Settle()
+	srv.SetGameRule("natural_health_regeneration", false)
+	srv.SetGameRuleValue("max_entity_cramming", 1)
+	cow := srv.SpawnMob("minecraft:cow", 18, 64, 0.5)
+	srv.SetMobNoAI(cow)
+	c.ChatCommand("attribute @e[type=minecraft:cow,limit=1] minecraft:scale base set 16")
+	servertest.AwaitSystemChatSaying(t, c, "commands.attribute.base_value.set.success")
+	servertest.RunTicks(t, srv, 20)
+	if hp := srv.PlayerHealth("Stayer"); hp != 20 {
+		t.Fatalf("health = %v, want 20: the cow is filed outside the player's sections", hp)
+	}
+}
