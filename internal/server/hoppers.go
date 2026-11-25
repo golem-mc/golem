@@ -669,10 +669,13 @@ func (s *Server) dropItemColumns() {
 	s.itemsMu.Unlock()
 }
 
-// itemsOverColumn is false only when the index says no item reaches the column.
+// itemsOverColumn reports whether an item may reach the column.
 func (s *Server) itemsOverColumn(w *world.World, x, z int32) bool {
 	s.itemsMu.Lock()
 	defer s.itemsMu.Unlock()
+	if len(s.items) == 0 {
+		return false
+	}
 	idx := s.itemCols
 	if idx == nil || idx.w != w {
 		return true
