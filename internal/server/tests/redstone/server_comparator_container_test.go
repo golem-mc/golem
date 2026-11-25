@@ -77,6 +77,58 @@ func TestComparatorFollowsADoubleChestChangedThroughItsWindow(t *testing.T) {
 	servertest.ExpectWirePower(t, srv, 5, 64, -2, "5")
 }
 
+// TestAComparatorBehindAConductorSeesTheFartherChestHalfTwoTicksLater changes
+// only the half of a double chest farthest from a comparator, through the
+// chest window: the comparator sits three cells from that half, across the
+// chunk border, behind the other half and a stone block. The wake still
+// reaches it, and the wire changes two ticks after the click.
+// vanilla: CompoundContainer.setChanged, Level.updateNeighbourForOutputSignal, ComparatorBlock.refreshOutputState
+func TestAComparatorBehindAConductorSeesTheFartherChestHalfTwoTicksLater(t *testing.T) {
+	t.Parallel()
+	srv, w := servertest.OpenWindowedOps(t, servertest.BlockTestConfig())
+	c := w.Client
+	servertest.HoldTicks(t, srv)
+
+	servertest.Setblock(t, c, 13, 64, 0, "minecraft:chest[facing=south,type=right]")
+	servertest.Setblock(t, c, 14, 64, 0, "minecraft:chest[facing=south,type=left]")
+	stone, _ := registry.FindState("minecraft:stone", nil)
+	wire, _ := registry.FindState("minecraft:redstone_wire", nil)
+	if !srv.SetBlock(15, 64, 0, stone) || !srv.SetBlock(17, 64, 0, wire) {
+		t.Fatal("the cells' chunks are not loaded")
+	}
+	servertest.Setblock(t, c, 16, 64, 0, "minecraft:comparator[facing=west]")
+	if got := servertest.WirePowerAt(srv, 17, 64, 0); got != "0" {
+		t.Fatalf("the wire reads %q before the click, want 0", got)
+	}
+
+	// The click changes a single half; slot 0 is in the half the test
+	// checks below to be the one at x=13.
+	dirt := servertest.ItemStack(t, "minecraft:dirt", 64)
+	w.FacePlayer(13.5, 64, 3.5, 0, 0)
+	w.UseBlock(13, 64, 0)
+	w.ExpectContainerOpen(protocol.MenuGeneric9x6, true, 13, 64, 0)
+	w.SetCreativeSlot(36, dirt)
+	w.Click(81, 0, protocol.ClickModePickup)
+	w.ExpectClickResult(map[int16]protocol.ItemStack{81: {}}, dirt)
+	w.Click(0, 0, protocol.ClickModePickup)
+	w.ExpectClickResult(map[int16]protocol.ItemStack{0: dirt}, protocol.ItemStack{})
+	if far := srv.InventoryAt(13, 64, 0); far == nil || far[0].Count != 64 {
+		t.Fatalf("the click did not land in the half at x=13: %v", far)
+	}
+	if near := srv.InventoryAt(14, 64, 0); near != nil && near[0].Count != 0 {
+		t.Fatalf("the half at x=14 changed too: %v", near)
+	}
+
+	servertest.RunTicks(t, srv, 1)
+	if got := servertest.WirePowerAt(srv, 17, 64, 0); got != "0" {
+		t.Fatalf("the wire reads %q one tick after the click, want 0", got)
+	}
+	servertest.RunTicks(t, srv, 1)
+	if got := servertest.WirePowerAt(srv, 17, 64, 0); got != "1" {
+		t.Fatalf("the wire reads %q two ticks after the click, want 1", got)
+	}
+}
+
 // TestAComparatorSeesAContainerChangeTwoTicksLater pins the tick the wire
 // changes on, not only that it changes: a hopper move into a chest schedules
 // the comparator reading the chest for two ticks after the move, so the wire

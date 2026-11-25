@@ -1372,6 +1372,7 @@ func (w *World) takeContainerChanges() []containerChange {
 	if w.comparatorBlocks.Load() == 0 {
 		return nil
 	}
+	changes = w.filterContainerChanges(changes)
 	if len(changes) < 2 {
 		return changes
 	}
@@ -1394,6 +1395,37 @@ func (w *World) takeContainerChanges() []containerChange {
 		unique = append(unique, c)
 	}
 	return unique
+}
+
+// filterContainerChanges keeps, in order and in place, the changes with a
+// comparator section in their own Y within three blocks horizontally: a chest
+// partner, a conductor and the comparator beyond it. containerChanged checks
+// the exact cells. The caller holds w.mu.
+func (w *World) filterContainerChanges(changes []containerChange) []containerChange {
+	kept := changes[:0]
+	for _, c := range changes {
+		if w.comparatorNear(c.pos) {
+			kept = append(kept, c)
+		}
+	}
+	return kept
+}
+
+// comparatorNear reports whether a loaded chunk within three blocks of pos
+// holds a comparator in pos's section. The caller holds w.mu.
+func (w *World) comparatorNear(pos posKey) bool {
+	if !contains(pos[1]) {
+		return false
+	}
+	si := (pos[1] - worldMinY) / sectionSize
+	for cx := (pos[0] - 3) >> 4; cx <= (pos[0]+3)>>4; cx++ {
+		for cz := (pos[2] - 3) >> 4; cz <= (pos[2]+3)>>4; cz++ {
+			if l, ok := w.loadedAt(ChunkPos{X: cx, Z: cz}); ok && l.chunk.sections[si].comparators != 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // takePendingGenerated returns and clears the generated chunks' scheduled
