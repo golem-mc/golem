@@ -2516,6 +2516,12 @@ func (c *spreadContext) load(i int) {
 	} else {
 		state = c.w.BlockAt(x, c.y, z)
 	}
+	c.seed(i, state)
+}
+
+// seed stores a cell's state and classification, reusing the last one computed
+// for the same state.
+func (c *spreadContext) seed(i int, state uint16) {
 	c.states[i] = state
 	if c.lastFlags&cellKnown != 0 && state == c.lastState {
 		c.flags[i] = c.lastFlags
@@ -2659,20 +2665,21 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		c = &ctx
 		// Only ranking competing sides needs the slope-search cache.
 		c.init(w, x, y, z, fs.kind)
+		// Seed every eligible side before any hole lookup. Already-wet sides
+		// can still outrank a side that can receive a write.
+		var idx [4]int
 		for i, d := range horizontal4 {
 			if side := &sides[i]; side.eligible {
-				ti, _ := c.index(x+d[0], z+d[1])
-				c.states[ti] = side.state
-				c.flags[ti] = c.cellFlags(side.state) | cellKnown
+				idx[i], _ = c.index(x+d[0], z+d[1])
+				c.seed(idx[i], side.state)
 			}
 		}
-		// Already-wet sides can still outrank a side that can receive a write.
-		for i, d := range horizontal4 {
+		for i := range sides {
 			side := &sides[i]
 			if !side.eligible {
 				continue
 			}
-			side.hole = c.isHole(x+d[0], z+d[1])
+			side.hole = c.holeAt(idx[i])
 			hasHole = hasHole || side.hole
 		}
 	}
