@@ -30,7 +30,7 @@ func TestFangsBiteHurtsMobsOnBothSidesOfAChunkBorderAndSparesAllies(t *testing.T
 	allyVex := srv.SpawnMob("minecraft:vex", 16, 64, 0.5)
 	strayVex := srv.SpawnMob("minecraft:vex", 16, 64, 0.5)
 	srv.SetMobVexOwner(allyVex, distant)
-	// The ghast's feet are in chunk X=3, beyond the ordinary search padding.
+	// The ghast's box reaches the bite, but its feet are in chunk X=3, outside the sections the bite searches.
 	wide := srv.SpawnMobTagged("minecraft:ghast", 48.25, 64, 0.5, nbt.Compound{
 		"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
 			nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(16)},
@@ -61,7 +61,7 @@ func TestFangsBiteHurtsMobsOnBothSidesOfAChunkBorderAndSparesAllies(t *testing.T
 	}{
 		{"west pig", west, true}, {"east pig", east, true}, {"far pig", far, false}, {"pig beside the bite", near, false},
 		{"owner", owner, false}, {"vex of a distant illager", allyVex, false},
-		{"stray vex", strayVex, true}, {"wide ghast", wide, true},
+		{"stray vex", strayVex, true}, {"wide ghast filed beyond the search", wide, false},
 	} {
 		hp, ok := srv.MobHealth(tc.id)
 		if !ok {
