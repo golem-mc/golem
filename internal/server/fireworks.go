@@ -44,6 +44,10 @@ type fireworkEntity struct {
 	tags nbt.StringSet
 	// custom is the custom name, guarded like tags.
 	custom customName
+	// fire is the on-fire flag told to the client. The rocket's tick sets it
+	// from the burn, so a rocket launched burning pairs unlit.
+	// vanilla: Entity.baseTick's setSharedFlagOnFire
+	fire bool
 }
 
 // fireworkTracker tracks the rockets. A rocket's flight is never on the
@@ -315,14 +319,15 @@ type fireworkMetadataState struct {
 	fire        bool
 }
 
-// fireworkBurnDelta is the metadata, encoded once for every watcher, telling
-// a rocket's burn that was burning before this tick; nil if it has not turned.
-func fireworkBurnDelta(it *fireworkEntity, burning bool) *outbound {
-	if burning == (it.rocket.FireTicks > 0) {
+// fireworkBurnDelta sets the told on-fire flag from the burn and returns the
+// metadata, encoded once for every watcher; nil if the flag has not turned.
+func fireworkBurnDelta(it *fireworkEntity) *outbound {
+	burning := it.rocket.FireTicks > 0
+	if burning == it.fire {
 		return nil
 	}
 	was := fireworkMetadataStateOf(it)
-	was.fire = burning
+	it.fire = burning
 	data := fireworkMetadataTable(it, &was)
 	if data == nil {
 		return nil
@@ -332,7 +337,7 @@ func fireworkBurnDelta(it *fireworkEntity, burning bool) *outbound {
 
 func fireworkMetadataStateOf(it *fireworkEntity) fireworkMetadataState {
 	return fireworkMetadataState{stack: it.stack, name: it.custom,
-		attached: it.rocket.AttachedTo, shotAtAngle: it.rocket.ShotAtAngle, fire: it.rocket.FireTicks > 0}
+		attached: it.rocket.AttachedTo, shotAtAngle: it.rocket.ShotAtAngle, fire: it.fire}
 }
 
 // fireworkMetadataTable writes spawn fields (was == nil) or fields changed by a command.
@@ -524,7 +529,6 @@ func (s *Server) tickFireworks() {
 		}
 		from := it.rocket.Box()
 		first := it.rocket.Life == 0
-		burning := it.rocket.FireTicks > 0
 		it.queue(&shots, it.w, it.rocket.X, it.rocket.Y, it.rocket.Z, it.ownerUUID)
 		for _, ev := range it.rocket.Step(it.w, owner, carrier, targets) {
 			if ev.Kind == entity.FireworkHitTarget {
@@ -597,7 +601,7 @@ func (s *Server) tickFireworks() {
 		body := fireworkTracker.body(it)
 		// A burn lit or put out this tick is dirty data: a movement tick off
 		// the period. vanilla: ServerEntity.sendChanges, sendDirtyEntityData
-		meta := fireworkBurnDelta(it, burning)
+		meta := fireworkBurnDelta(it)
 		mt := body.schedule(func() bool { return meta != nil })
 		var motion *outbound
 		if mt.gate && it.motionDue(it.rocket.VX, it.rocket.VY, it.rocket.VZ, false) {

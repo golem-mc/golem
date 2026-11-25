@@ -332,6 +332,7 @@ func (e *entitySnapshot) SetDataTag(tag nbt.CompoundTag) bool {
 		before := fireworkMetadataStateOf(body)
 		applyFireworkTag(body, data)
 		body.ownerID, body.rocket.OwnerID = owner, owner
+		body.fire = body.rocket.FireTicks > 0
 		body.teleported = true
 		payload := fireworkMetadataTable(body, &before)
 		watchers, w := trackedWatchers(body.tracked), body.w

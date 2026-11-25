@@ -206,20 +206,20 @@ func TestPackPillagerFailedDrawIsSilentAtTheEnd(t *testing.T) {
 	}) {
 		t.Fatal("the pillager did not spawn")
 	}
-	started := false
-	c.ReadTicks(srv, 120, func(pid int32, data []byte) bool {
-		if pid != protocol.IDPlaySoundEffect {
-			return false
-		}
-		if servertest.SoundIs(data, "minecraft:item.crossbow.loading_end") {
-			t.Error("the failed draw played the loading end sound")
-		}
-		started = started || servertest.SoundIs(data, "minecraft:item.crossbow.loading_start")
-		return false
-	})
-	if !started {
-		t.Error("the draw played no start sound")
+	endSound := func(pid int32, data []byte) bool {
+		return pid == protocol.IDPlaySoundEffect && servertest.SoundIs(data, "minecraft:item.crossbow.loading_end")
 	}
+	if !c.ReadTicks(srv, 120, func(pid int32, data []byte) bool {
+		if endSound(pid, data) {
+			t.Error("the loading end sound played before the draw started")
+		}
+		return pid == protocol.IDPlaySoundEffect && servertest.SoundIs(data, "minecraft:item.crossbow.loading_start")
+	}) {
+		t.Fatal("the draw played no start sound")
+	}
+	// The start sound plays a fifth into the 25-tick draw, the load on its
+	// last tick: 20 more ticks end the draw, the 2 after are slack.
+	c.ExpectNoneWithinTicks(srv, 22, endSound)
 	if got := srv.MobHand(id).ChargedProjectiles(); len(got) != 0 {
 		t.Errorf("crossbow loaded %v after a draw it could not pay", got)
 	}
