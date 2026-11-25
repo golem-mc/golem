@@ -183,8 +183,11 @@ func (s *Server) fangsBite(it fangsEffect) {
 		ownerUUID = ent.uuid
 	}
 	lookup := s.fangsAllyByUUIDLocked
+	// A body is found only through the sections its feet are filed in, however
+	// wide its box. vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+	window := entity.NewSectionWindow(minX, maxX, minY, maxY, minZ, maxZ)
 	for _, m := range h.herd {
-		if m.Dead || m == owner.Mob {
+		if m.Dead || m == owner.Mob || !window.HoldsAt(m.X, m.Y, m.Z) {
 			continue
 		}
 		if owner.Mob != nil && owner.Mob.EvokerFangsDirectAlly(m, ownerUUID) {
@@ -209,7 +212,6 @@ func (s *Server) fangsBite(it fangsEffect) {
 		}
 	}
 	s.mu.RUnlock()
-	window := entity.NewSectionWindow(minX, maxX, minY, maxY, minZ, maxZ)
 	for _, c := range clients {
 		// One position read for the box and the section, which the connection goroutine may move between reads.
 		pos := c.player.Position()
