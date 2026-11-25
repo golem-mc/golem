@@ -1,6 +1,7 @@
 package blocks
 
 import (
+	"encoding/binary"
 	"fmt"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"os"
@@ -370,17 +371,20 @@ func TestABrokenLodestoneClearsTheCompassTarget(t *testing.T) {
 // TestLodestoneCompassUnloadedTarget checks a compass pointing into an
 // unloaded chunk is judged by the saved chunk in one tick: a never-generated
 // chunk and a saved one with no lodestone clear the target, a saved lodestone
-// keeps it, and so does a region file with a truncated header, left as it
-// is, without stopping the others. A crafting input is not ticked. No check loads a chunk.
+// keeps it, and so do a region file with a truncated header, left as it
+// is, and a header entry pointing past the end of its file, without stopping
+// the others. A crafting input is not ticked. No check loads a chunk.
 // vanilla: LodestoneTracker.tick, PoiManager.existsAtPosition
 func TestLodestoneCompassUnloadedTarget(t *testing.T) {
 	t.Parallel()
 	const dim = "minecraft:overworld"
-	const never, withLodestone, without, unreadable = 98765, 200000, 300000, 400000
+	const never, withLodestone, without, unreadable, pastEnd = 98765, 200000, 300000, 400000, 500000
 	cfg := servertest.SurvivalTestConfig()
 	cfg.LevelName = t.TempDir()
 	rx, rz := int32(unreadable>>4)>>5, int32(unreadable>>4)>>5
 	region := filepath.Join(world.DimensionDir(cfg.LevelName, world.DimensionName), "region", fmt.Sprintf("r.%d.%d.mca", rx, rz))
+	pastEndChunk := int32(pastEnd >> 4)
+	pastEndRegion := filepath.Join(filepath.Dir(region), fmt.Sprintf("r.%d.%d.mca", pastEndChunk>>5, pastEndChunk>>5))
 	srv, c := servertest.Join(t, cfg, "Wanderer", func(srv *server.Server) {
 		shapeLodestone(t, srv, withLodestone, 64, withLodestone)
 		stone, _ := registry.FindState("minecraft:stone", nil)
@@ -392,6 +396,12 @@ func TestLodestoneCompassUnloadedTarget(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(region, []byte{0, 0, 0, 2}, 0o644); err != nil { // a truncated header
+			t.Fatal(err)
+		}
+		header := make([]byte, 8192)
+		index := (pastEndChunk & 31) * 33 // x and z share the slot's low bits
+		binary.BigEndian.PutUint32(header[index*4:], 0xFFFF<<8|1)
+		if err := os.WriteFile(pastEndRegion, header, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -406,6 +416,7 @@ func TestLodestoneCompassUnloadedTarget(t *testing.T) {
 		{player.HotbarSlot + 1, withLodestone, 64, true},
 		{player.HotbarSlot + 2, without, 64, false},
 		{player.HotbarSlot + 3, unreadable, 64, true},
+		{player.HotbarSlot + 4, pastEnd, 64, true},
 		{1, never, 64, true}, // a crafting input
 	}
 	for _, s := range slots {

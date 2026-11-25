@@ -100,6 +100,9 @@ type regionFile struct {
 	// anyUnreadable mirrors whether unreadable has any bit set, so the cache
 	// can ask in O(1) whether the file must stay open.
 	anyUnreadable bool
+	// pastEnd marks the entries opened with an offset past the end of the
+	// file: the loader reads them as absent, a peek as a failed read.
+	pastEnd [chunksPerRegion]bool
 }
 
 // regionCoords is the region of a chunk, (x >> 5, z >> 5); Go's arithmetic
@@ -186,6 +189,7 @@ func openRegionFile(path string, format saveFormat, create bool) (*regionFile, e
 			slog.Warn("region file entry points past the end of the file, ignoring it",
 				"file", path, "index", i, "sector", sector)
 			rf.offsets[i] = 0
+			rf.pastEnd[i] = true
 			continue
 		}
 		if sector >= regionHeaderLen/sectorSize {
@@ -237,7 +241,7 @@ func (rf *regionFile) allocate(count int) int {
 // the chunk unreadable and later writes to it are refused.
 // vanilla: RegionFile.getChunkDataInputStream
 func (rf *regionFile) readChunk(pos ChunkPos) ([]byte, error) {
-	data, err := rf.peekChunk(pos)
+	data, err := rf.chunkData(pos)
 	if err != nil {
 		rf.markUnreadable(regionIndex(pos.X, pos.Z))
 	}
@@ -245,8 +249,21 @@ func (rf *regionFile) readChunk(pos ChunkPos) ([]byte, error) {
 }
 
 // peekChunk is readChunk that leaves the record unmarked on a failure, for a
-// reader that does not decide whether the chunk may be written.
+// reader that does not decide whether the chunk may be written, and that fails
+// on an entry whose offset pointed past the end of the file.
 func (rf *regionFile) peekChunk(pos ChunkPos) ([]byte, error) {
+	index := regionIndex(pos.X, pos.Z)
+	rf.mu.Lock()
+	pastEnd := rf.pastEnd[index]
+	rf.mu.Unlock()
+	if pastEnd {
+		return nil, fmt.Errorf("chunk %d in %s: its offset points past the end of the file", index, rf.path)
+	}
+	return rf.chunkData(pos)
+}
+
+// chunkData reads and decodes the chunk's record, nil if absent.
+func (rf *regionFile) chunkData(pos ChunkPos) ([]byte, error) {
 	index := regionIndex(pos.X, pos.Z)
 	compType, payload, err := rf.readRecord(index)
 	if err == nil && payload == nil {
@@ -475,6 +492,7 @@ func (rf *regionFile) writeChunk(pos ChunkPos, nbtData []byte) error {
 		rf.free(sector, sectors)
 		return err
 	}
+	rf.pastEnd[index] = false
 	if staged != "" {
 		// The staged payload is renamed only once the header points at the
 		// stub, so a crash between leaves the old copy readable.
@@ -507,6 +525,7 @@ func (rf *regionFile) removeChunk(pos ChunkPos) error {
 	}
 	old := rf.offsets[index]
 	if old == 0 {
+		rf.pastEnd[index] = false
 		return nil
 	}
 	wasExternal, err := rf.chunkExternal(index)

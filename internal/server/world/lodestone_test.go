@@ -1,6 +1,7 @@
 package world
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -252,6 +253,45 @@ func TestResolveLodestonesRefusesTruncatedRegion(t *testing.T) {
 	now = now.Add(lodestoneRetryDelay)
 	if present, known := resolve(); !known || !present {
 		t.Errorf("answer after the retry delay = %v, %v, want true, true", present, known)
+	}
+}
+
+// TestResolveLodestonesRefusesOffsetPastEnd checks a record whose offset points
+// past the end of the file leaves the position unknown and uncached, and the
+// chunk writable, while the loader still reads it as absent.
+func TestResolveLodestonesRefusesOffsetPastEnd(t *testing.T) {
+	w := writeSavedRoot(t, savedLodestoneRoot(t, "minecraft:full", "minecraft:lodestone"))
+	rx, rz := regionCoords(ChunkPos{})
+	path := regionFilePath(w.storage, rx, rz)
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry [4]byte
+	binary.BigEndian.PutUint32(entry[:], 0xFFFF<<8|1)
+	if _, err := f.WriteAt(entry[:], int64(regionIndex(0, 0))*4); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	p := LodestonePos{1, 64, 1}
+	got := w.ResolveLodestones([]LodestonePos{p})
+	defer got.Close()
+	if _, known := got.Lookup(p); known {
+		t.Error("answered for a record past the end of the file")
+	}
+	if _, known := w.LodestoneCached(p.X, p.Y, p.Z); known {
+		t.Error("a record past the end of the file was cached as an answer")
+	}
+	rf, err := w.region(rx, rz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.releaseRegion(rf)
+	if data, err := rf.readChunk(ChunkPos{}); data != nil || err != nil {
+		t.Errorf("loader read = %v, %v; want absent", data, err)
+	}
+	if rf.unreadable[regionIndex(0, 0)] {
+		t.Error("the compass lookup marked the chunk unreadable")
 	}
 }
 

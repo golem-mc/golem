@@ -1,9 +1,11 @@
 package server
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/registry"
 )
@@ -67,6 +69,24 @@ func BenchmarkTickLodestoneCompasses(b *testing.B) {
 			c.srv.ForgetLodestoneAnswers()
 			b.StartTimer()
 			c.tickLodestoneCompasses()
+		}
+	})
+}
+
+// BenchmarkTickMobsEquippedTracker is BenchmarkTickMobs over 200 zombies each
+// holding a stick that carries a lodestone tracker: every mob takes the
+// equipped-compass pass, none holds a compass.
+func BenchmarkTickMobsEquippedTracker(b *testing.B) {
+	stick := protocol.ItemStack{ItemID: int32(registry.ItemStick), Count: 1}
+	stick.SetLodestoneTracker(protocol.LodestoneTracker{
+		Target:  &protocol.LodestoneTarget{Dimension: "minecraft:overworld", X: 0, Y: 70, Z: 0},
+		Tracked: true,
+	})
+	benchTickMobs(b, []mobMix{{entity.TypeZombie, 200}}, 96, 200, func(s *Server, _ *rand.Rand) {
+		s.mobsMu.Lock()
+		defer s.mobsMu.Unlock()
+		for _, m := range s.allDims()[0].mobs.herd {
+			m.SetEquipment(protocol.EquipMainHand, stick)
 		}
 	})
 }
