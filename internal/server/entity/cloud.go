@@ -119,45 +119,59 @@ type CloudTarget struct {
 	FeetX, FeetZ float64
 }
 
-// Step advances the cloud one tick (AreaEffectCloud.serverTick) and returns
-// the bodies this tick's pass reached, for the caller to apply the effects.
-// Expiry or shrinking may end it; the pass runs every 5th tick after the
-// wait; a reached body is skipped for 20 ticks. A body immune to all its
-// effects is never reached.
-// vanilla: AreaEffectCloud.serverTick
+// Step advances the cloud one tick and applies its pass to targets.
 func (c *Cloud) Step(targets []CloudTarget) []CloudTarget {
+	if !c.Advance() {
+		return nil
+	}
+	return c.Apply(targets)
+}
+
+// Advance runs the tick's expiry, wait and shrink (AreaEffectCloud.serverTick)
+// and reports whether this tick is one of the cloud's application passes
+// (every 5th tick after the wait, with effects): only then does Apply need
+// targets. Expiry or shrinking may end the cloud.
+// vanilla: AreaEffectCloud.serverTick
+func (c *Cloud) Advance() bool {
 	c.TickCount++
 	if c.Duration != -1 && c.TickCount-c.WaitTime >= c.Duration {
 		c.Dead = true
-		return nil
+		return false
 	}
 	if waiting := c.TickCount < c.WaitTime; waiting != c.waiting {
 		c.waiting = waiting
 	}
 	if c.waiting {
-		return nil
+		return false
 	}
-	radius := c.radius
 	if c.radiusPerTick != 0 {
-		radius += c.radiusPerTick
+		radius := c.radius + c.radiusPerTick
 		if radius < cloudMinRadius {
 			c.Dead = true
-			return nil
+			return false
 		}
 		c.radius = radius
 	}
 	if c.TickCount%CloudApplicationFlip != 0 {
-		return nil
+		return false
 	}
+	if len(c.Effects) == 0 {
+		clear(c.victims)
+		return false
+	}
+	return true
+}
 
+// Apply is the application pass Advance announced: it returns the bodies the
+// cloud reached, for the caller to apply the effects. A reached body is
+// skipped for 20 ticks. A body immune to all the effects is never reached.
+// vanilla: AreaEffectCloud.serverTick
+func (c *Cloud) Apply(targets []CloudTarget) []CloudTarget {
+	radius := c.radius
 	for id, until := range c.victims {
 		if c.TickCount >= until {
 			delete(c.victims, id)
 		}
-	}
-	if len(c.Effects) == 0 {
-		clear(c.victims)
-		return nil
 	}
 	var reached []CloudTarget
 	for i := range targets {

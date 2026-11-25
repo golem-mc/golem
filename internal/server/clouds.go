@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"maps"
 	"math"
 	"slices"
@@ -390,22 +391,17 @@ func (s *Server) tickClouds() {
 	}
 	s.mu.RUnlock()
 
-	type watcher struct {
-		c           *client
-		pos         player.Position
-		chunkRadius int32
-	}
-	watchers := make(map[*world.World][]watcher)
+	watchers := make(map[*world.World][]cloudWatcher)
 	for _, c := range clients {
 		if c.player == nil {
 			continue
 		}
 		pos := c.player.Position()
-		watchers[c.theWorld()] = append(watchers[c.theWorld()], watcher{
+		watchers[c.theWorld()] = append(watchers[c.theWorld()], cloudWatcher{
 			c: c, pos: pos, chunkRadius: c.chunkRadius(),
 		})
 	}
-	near := nearbyWorlds(watchers, func(w watcher) trackingWatcher {
+	near := nearbyWorlds(watchers, func(w cloudWatcher) trackingWatcher {
 		return trackingWatcher{c: w.c, x: w.pos.X, z: w.pos.Z, chunkRadius: w.chunkRadius}
 	})
 	defer releaseNearbyWorlds(near)
@@ -419,7 +415,7 @@ func (s *Server) tickClouds() {
 		// held are the clouds whose reach waits for AreaEffectCloudApplyEvent.
 		held []heldCloudApply
 	)
-	worldTargets := make(map[*world.World]*cloudWorldTargets)
+	var scratch *cloudWorldTargets
 	s.lockTick(&s.arrowsMu)
 	s.lockTick(&s.mobsMu)
 	alive := s.clouds[:0]
@@ -436,45 +432,26 @@ func (s *Server) tickClouds() {
 			continue
 		}
 		dim := s.dimensionOfWorld(it.w)
-		wt := worldTargets[it.w]
-		if wt == nil {
-			wt = &cloudWorldTargets{
-				mobsByID:    make(map[int32]*entity.Mob, len(dim.mobs.herd)),
-				clientsByID: make(map[int32]*client, len(watchers[it.w])),
-				index:       make(map[int32]int, len(dim.mobs.herd)),
-			}
-			// Skip the dying: vanilla: isAffectedByPotions, !isDeadOrDying
-			for _, m := range dim.mobs.herd {
-				if !m.Alive() {
-					continue
+		var (
+			wt      *cloudWorldTargets
+			reached []entity.CloudTarget
+		)
+		if it.cloud.Advance() {
+			if scratch == nil {
+				scratch = &cloudWorldTargets{
+					mobsByID:    make(map[int32]*entity.Mob),
+					clientsByID: make(map[int32]*client),
+					index:       make(map[int32]int),
 				}
-				wt.index[m.ID] = len(wt.targets)
-				wt.targets = append(wt.targets, entity.CloudTarget{
-					ArrowTarget: entity.MobTarget(m.ID, mobEntityType(m.Type), m),
-					FeetX:       m.X, FeetZ: m.Z,
-				})
-				wt.mobsByID[m.ID] = m
 			}
-			for _, target := range mannequins.byWorld[it.w] {
-				wt.targets = append(wt.targets, entity.CloudTarget{ArrowTarget: target, FeetX: (target.MinX + target.MaxX) / 2, FeetZ: (target.MinZ + target.MaxZ) / 2})
-			}
-			for _, w := range watchers[it.w] {
-				if w.c.player.Vitals().Dead {
-					continue
-				}
-				wt.targets = append(wt.targets, entity.CloudTarget{
-					ArrowTarget: w.c.projectileTarget(w.pos, projectileUnhittable(w.c)),
-					FeetX:       w.pos.X, FeetZ: w.pos.Z,
-				})
-				wt.clientsByID[w.c.player.EntityID] = w.c
-			}
-			worldTargets[it.w] = wt
+			wt = scratch
+			wt.fill(it.cloud, dim, it.w, mannequins, watchers[it.w])
+			reached = it.cloud.Apply(wt.targets)
 		}
-
-		reached := it.cloud.Step(wt.targets)
 		if s.plugins != nil && s.plugins.Has(pluginruntime.AreaEffectCloudApply) && len(reached) > 0 {
 			held = append(held, s.holdCloudApply(it, dim, wt, reached))
-		} else {
+			scratch = nil // the held reach keeps these targets
+		} else if len(reached) > 0 {
 			lnd.land(it, dim, wt, reached)
 		}
 
@@ -542,13 +519,69 @@ func (s *Server) tickClouds() {
 	}
 }
 
-// cloudWorldTargets is one world's living mobs and players, built when a
-// cloud there first steps; index is a mob's entry by entity ID.
+// cloudWatcher is a player in range of the clouds, as of the tick's start.
+type cloudWatcher struct {
+	c           *client
+	pos         player.Position
+	chunkRadius int32
+}
+
+// cloudWorldTargets is the living mobs, mannequins and players one cloud's
+// application pass may reach; index is a mob's entry by entity ID.
 type cloudWorldTargets struct {
 	targets     []entity.CloudTarget
 	index       map[int32]int
 	mobsByID    map[int32]*entity.Mob
 	clientsByID map[int32]*client
+	mobs        []*entity.Mob
+}
+
+// fill rebuilds the targets for c: the mobs of the chunks its box covers by
+// entity ID, then the world's mannequins, then its players. The mob lock is held.
+func (wt *cloudWorldTargets) fill(c *entity.Cloud, dim *dimension, w *world.World, mannequins mannequinTargetSnapshot, watchers []cloudWatcher) {
+	wt.targets = wt.targets[:0]
+	clear(wt.index)
+	clear(wt.mobsByID)
+	clear(wt.clientsByID)
+	wt.mobs = wt.mobs[:0]
+	r := float64(c.Radius())
+	box := [6]float64{c.X - r, c.Y, c.Z - r, c.X + r, c.Y + 0.5, c.Z + r}
+	area, indexed := smallChunkArea(&box)
+	dim.mobs.mobsInArea(area, indexed, func(m *entity.Mob) bool {
+		wt.mobs = append(wt.mobs, m)
+		return true
+	})
+	if indexed {
+		// A dragon's parts reach beyond its own chunk's padding.
+		wt.mobs = append(wt.mobs, dim.mobs.dragonBodies...)
+	}
+	slices.SortFunc(wt.mobs, func(a, b *entity.Mob) int { return cmp.Compare(a.ID, b.ID) })
+	wt.mobs = slices.Compact(wt.mobs)
+	for _, m := range wt.mobs {
+		// Skip the dying: vanilla: isAffectedByPotions, !isDeadOrDying
+		if !m.Alive() {
+			continue
+		}
+		wt.index[m.ID] = len(wt.targets)
+		wt.targets = append(wt.targets, entity.CloudTarget{
+			ArrowTarget: entity.MobTarget(m.ID, mobEntityType(m.Type), m),
+			FeetX:       m.X, FeetZ: m.Z,
+		})
+		wt.mobsByID[m.ID] = m
+	}
+	for _, target := range mannequins.byWorld[w] {
+		wt.targets = append(wt.targets, entity.CloudTarget{ArrowTarget: target, FeetX: (target.MinX + target.MaxX) / 2, FeetZ: (target.MinZ + target.MaxZ) / 2})
+	}
+	for _, wa := range watchers {
+		if wa.c.player.Vitals().Dead {
+			continue
+		}
+		wt.targets = append(wt.targets, entity.CloudTarget{
+			ArrowTarget: wa.c.projectileTarget(wa.pos, projectileUnhittable(wa.c)),
+			FeetX:       wa.pos.X, FeetZ: wa.pos.Z,
+		})
+		wt.clientsByID[wa.c.player.EntityID] = wa.c
+	}
 }
 
 // cloudLanding collects what the clouds' effects did, to tell once the locks
