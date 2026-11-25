@@ -102,6 +102,7 @@ func (s *Server) registerFangs(it *fangsEntity) {
 type fangsEffect struct {
 	w         *world.World
 	id, owner int32
+	uuid      uuid.UUID
 	x, y, z   float64
 }
 
@@ -125,7 +126,7 @@ func (s *Server) tickFangs() {
 		if spike || bite {
 			// The effects must not read a command's concurrent position or owner write.
 			f := it.fangs
-			at := fangsEffect{w: it.w, id: f.ID, owner: f.OwnerID, x: f.X, y: f.Y, z: f.Z}
+			at := fangsEffect{w: it.w, id: f.ID, owner: f.OwnerID, uuid: it.uuid, x: f.X, y: f.Y, z: f.Z}
 			if spike {
 				fx.spikes = append(fx.spikes, at)
 			}
@@ -172,6 +173,7 @@ func (s *Server) fangsBite(it fangsEffect) {
 	w := it.w
 	body := entity.EvokerFangs{X: it.x, Y: it.y, Z: it.z}
 	minX, minY, minZ, maxX, maxY, maxZ := body.BiteBox()
+	fang := &removedBody{id: it.uuid, typ: registry.EntityTypeEvokerFangs}
 
 	s.mobsMu.Lock()
 	owner := entity.AllianceMember{}
@@ -224,8 +226,9 @@ func (s *Server) fangsBite(it fangsEffect) {
 		if allied {
 			continue
 		}
+		// The fang may be discarded before the damage lands, so the cause carries its identity.
 		cause := &damageCause{entityID: it.owner, directID: it.id + 1, x: it.x, y: it.y, z: it.z,
-			killer: s.entityKiller(w, it.owner)}
+			killer: s.entityKiller(w, it.owner), exploder: fang}
 		damage := rules.ScaledWithDifficulty(entity.FangsDamage, w.Difficulty())
 		if landed, softened := c.hurt(damage, rules.DamageTypeIndirectMagic, cause); landed {
 			if !softened {
@@ -239,20 +242,8 @@ func (s *Server) fangsBite(it fangsEffect) {
 			s.hurtMobPlain(w, m, entity.FangsDamage, rules.DamageTypeMagic)
 			continue
 		}
-		s.hurtMobVia(w, m, owner.Mob, it.id, entity.FangsDamage, rules.DamageTypeIndirectMagic)
+		s.hurtMobVia(w, m, owner.Mob, it.id, fang, entity.FangsDamage, rules.DamageTypeIndirectMagic)
 	}
-}
-
-// fangsByEntityID is the fangs with this entity ID in w, nil for none.
-func (s *Server) fangsByEntityID(w *world.World, id int32) *fangsEntity {
-	s.fangs.mu.Lock()
-	defer s.fangs.mu.Unlock()
-	for _, it := range s.fangs.list {
-		if it.fangs.ID == id && it.w == w {
-			return it
-		}
-	}
-	return nil
 }
 
 // vanilla: EntityReference.getEntity

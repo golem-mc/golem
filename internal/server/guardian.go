@@ -61,19 +61,20 @@ func (s *Server) hurtMobBy(w *world.World, m, source *entity.Mob, amount float64
 	s.hurtMobByThen(w, m, source, amount, damageType, nil)
 }
 
-// hurtMobVia is hurtMobBy for a blow dealt through the entity directID.
-func (s *Server) hurtMobVia(w *world.World, m, source *entity.Mob, directID int32, amount float64, damageType registry.DamageType) {
-	s.hurtMobByDirect(w, m, source, directID+1, amount, damageType, nil)
+// hurtMobVia is hurtMobBy for a blow dealt through the entity directID, whose
+// handle direct names to damage listeners even when it is already gone.
+func (s *Server) hurtMobVia(w *world.World, m, source *entity.Mob, directID int32, direct *removedBody, amount float64, damageType registry.DamageType) {
+	s.hurtMobByDirect(w, m, source, directID+1, direct, amount, damageType, nil)
 }
 
 // hurtMobByThen applies a kind's additional push before collecting hurt packets.
 func (s *Server) hurtMobByThen(w *world.World, m, source *entity.Mob, amount float64, damageType registry.DamageType, after func()) {
-	s.hurtMobByDirect(w, m, source, 0, amount, damageType, after)
+	s.hurtMobByDirect(w, m, source, 0, nil, amount, damageType, after)
 }
 
 // hurtMobByDirect is hurtMobByThen with the direct entity's ID plus one (0 for
-// the source).
-func (s *Server) hurtMobByDirect(w *world.World, m, source *entity.Mob, direct int32, amount float64, damageType registry.DamageType, after func()) {
+// the source); removed is the direct entity's handle for listeners, nil for none.
+func (s *Server) hurtMobByDirect(w *world.World, m, source *entity.Mob, direct int32, removed *removedBody, amount float64, damageType registry.DamageType, after func()) {
 	s.mobsMu.Lock()
 	ent := s.herdOf(w).book[m]
 	if ent == nil || m.Dead {
@@ -82,7 +83,9 @@ func (s *Server) hurtMobByDirect(w *world.World, m, source *entity.Mob, direct i
 	}
 	var landed bool
 	if direct != 0 {
+		s.pendingExploder = removed
 		landed = m.HurtByMobVia(amount, damageType, source, direct-1)
+		s.pendingExploder = nil // under mobsMu, which guards it
 	} else {
 		landed = m.HurtByMobAs(amount, damageType, source)
 	}

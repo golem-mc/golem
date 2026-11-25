@@ -7448,6 +7448,17 @@ func (s *Server) SpawnFangs(x, y, z float64, ownerID int32) {
 	s.spawnFangs(fangsCast{w: s.world, owner: ownerID, x: x, y: y, z: z, warmup: 0})
 }
 
+// SpawnExpiringFangs stands overworld fangs whose next tick is both their bite
+// and their last, owned by the entity ID given.
+func (s *Server) SpawnExpiringFangs(x, y, z float64, ownerID int32) {
+	s.spawnFangs(fangsCast{w: s.world, owner: ownerID, x: x, y: y, z: z, warmup: 0})
+	s.fangs.mu.Lock()
+	defer s.fangs.mu.Unlock()
+	f := s.fangs.list[len(s.fangs.list)-1].fangs
+	f.SetWarmup(-7)
+	f.SetLife(0)
+}
+
 // RunWindBurst bursts a wind charge at the centre given, owned by nobody.
 func (s *Server) RunWindBurst(x, y, z float64) {
 	s.burstWindCharge(windBurst{w: s.world, x: x, y: y, z: z, rng: rand.New(rand.NewSource(1))})

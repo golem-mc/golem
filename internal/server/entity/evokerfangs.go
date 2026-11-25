@@ -55,6 +55,10 @@ func NewEvokerFangs(id int32, x, y, z, radians float64, warmup int, ownerID int3
 // Warmup is the remaining delay saved by EvokerFangs.addAdditionalSaveData.
 func (f *EvokerFangs) Warmup() int { return f.warmup }
 
+// SetLife changes the ticks left after the warmup, for a test that expires the
+// fangs on the tick they bite.
+func (f *EvokerFangs) SetLife(ticks int) { f.life = ticks }
+
 // SetWarmup changes the saved delay without restarting the attack animation.
 func (f *EvokerFangs) SetWarmup(ticks int) { f.warmup = ticks }
 
