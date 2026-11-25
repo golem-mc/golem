@@ -6400,6 +6400,13 @@ func (s *Server) LaunchFireball(kind entity.ThrownKind, x, y, z, dx, dy, dz floa
 	return s.spawnFireball(kind, s.allDims()[0].w, x, y, z, dx, dy, dz, ownerID, uuid.Nil, explosionPower, 1)
 }
 
+// LaunchAcceleratedFireball is LaunchFireball with the acceleration power a
+// saved projectile may carry.
+func (s *Server) LaunchAcceleratedFireball(kind entity.ThrownKind, x, y, z, dx, dy, dz, acceleration float64) int32 {
+	return s.spawnFireball(kind, s.allDims()[0].w, x, y, z, dx, dy, dz, 0, uuid.Nil, 1, 1,
+		func(t *entity.Thrown) { t.AccelerationPower = acceleration })
+}
+
 // LaunchShulkerBullet puts a shulker bullet at (x, y, z) in the first
 // dimension's world, homing on the mob with the entity ID given.
 func (s *Server) LaunchShulkerBullet(x, y, z float64, targetMobID int32, seed int64) {

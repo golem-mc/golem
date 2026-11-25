@@ -667,22 +667,52 @@ func (t *Thrown) RestoreLeftOwner(left bool) { t.leftOwner = left }
 // thrownBox is the body's box grown along the flight and by a block each
 // way, for Projectile.isOutsideOwnerCollisionRange.
 func (t *Thrown) thrownBox() ArrowTarget {
+	return t.thrownBoxFor(t.VX, t.VY, t.VZ)
+}
+
+func (t *Thrown) thrownBoxFor(vx, vy, vz float64) ArrowTarget {
 	grow := ThrownHalfSize + 1
 	return ArrowTarget{
-		MinX: math.Min(t.X, t.X+t.VX) - grow,
-		MinY: math.Min(t.Y, t.Y+t.VY) - 1,
-		MinZ: math.Min(t.Z, t.Z+t.VZ) - grow,
-		MaxX: math.Max(t.X, t.X+t.VX) + grow,
-		MaxY: math.Max(t.Y, t.Y+t.VY) + ThrownHeight + 1,
-		MaxZ: math.Max(t.Z, t.Z+t.VZ) + grow,
+		MinX: math.Min(t.X, t.X+vx) - grow,
+		MinY: math.Min(t.Y, t.Y+vy) - 1,
+		MinZ: math.Min(t.Z, t.Z+vz) - grow,
+		MaxX: math.Max(t.X, t.X+vx) + grow,
+		MaxY: math.Max(t.Y, t.Y+vy) + ThrownHeight + 1,
+		MaxZ: math.Max(t.Z, t.Z+vz) + grow,
 	}
 }
 
-// MoveBox is thrownBox as min and max corners (x, y, z, x, y, z), what a
-// flight may meet this tick.
+// MoveBox is the box (x, y, z, x, y, z) of what the coming Step may meet:
+// thrownBox over the velocity after the tick's gravity, acceleration and
+// inertia. A shulker bullet's steering is not modelled; callers pad it.
 func (t *Thrown) MoveBox() [6]float64 {
-	b := t.thrownBox()
+	vx, vy, vz := t.nextVelocity()
+	b := t.thrownBoxFor(vx, vy, vz)
 	return [6]float64{b.MinX, b.MinY, b.MinZ, b.MaxX, b.MaxY, b.MaxZ}
+}
+
+// nextVelocity is the velocity Step moves by, before a bubble column's push.
+// vanilla: ThrowableProjectile.tick, AbstractHurtingProjectile.tick
+func (t *Thrown) nextVelocity() (vx, vy, vz float64) {
+	c := Thrown{Kind: t.Kind, VX: t.VX, VY: t.VY, VZ: t.VZ, NoGravity: t.NoGravity,
+		AccelerationPower: t.AccelerationPower, Dangerous: t.Dangerous, wasInWater: t.wasInWater}
+	switch {
+	case t.Kind == ThrownLlamaSpit || t.Kind == ThrownShulkerBullet:
+	case t.Kind.IsFireball():
+		c.accelerate(c.wasInWater)
+	case t.Kind.IsWindCharge():
+		c.pushAlongHeading()
+	default:
+		if !c.NoGravity {
+			c.VY -= c.Kind.Gravity()
+		}
+		inertia := thrownAirDrag
+		if c.wasInWater {
+			inertia = thrownWaterInertia
+		}
+		c.VX, c.VY, c.VZ = c.VX*inertia, c.VY*inertia, c.VZ*inertia
+	}
+	return c.VX, c.VY, c.VZ
 }
 
 // sweepThrownTargets returns the body whose box (grown by the age's margin)

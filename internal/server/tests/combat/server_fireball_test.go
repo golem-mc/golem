@@ -7,6 +7,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
 )
 
 // fireballWall launches a hurting projectile of the kind at the block at
@@ -144,5 +145,49 @@ func TestASmallFireballIgnitesAndHurtsAPlayer(t *testing.T) {
 	}
 	if srv.PlayerFire("Actor") <= 0 {
 		t.Error("the player is not burning")
+	}
+}
+
+// TestAFireballHitsAScaledMobWhoseCentreIsOffTheFlight checks the box the
+// flight is tested against is the mob's own: a scale-16 cow six blocks off
+// the line is still struck.
+// vanilla: EntitySection.getEntities, LivingEntity.getBoundingBox
+func TestAFireballHitsAScaledMobWhoseCentreIsOffTheFlight(t *testing.T) {
+	t.Parallel()
+	srv, _ := flameScene(t)
+	srv.SetGameRule("mob_griefing", false)
+	scale := nbt.Compound{"attributes": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+		nbt.Compound{"id": nbt.String("minecraft:scale"), "base": nbt.Double(16)}}}}
+	cow := srv.SpawnMobTagged("minecraft:cow", 24.5, 64, 6.5, scale)
+	if cow == 0 {
+		t.Fatal("the cow was refused")
+	}
+	before, _ := srv.MobHealth(cow)
+
+	if srv.LaunchFireball(entity.ThrownSmallFireball, 3.5, 65.0, 0.5, 1, 0, 0, 0, 1) == 0 {
+		t.Fatal("could not launch")
+	}
+	servertest.DriveTargetTicks(srv, 40)
+
+	if after, _ := srv.MobHealth(cow); after >= before {
+		t.Errorf("health %v -> %v, want the fireball to hurt it", before, after)
+	}
+}
+
+// TestAFireballWithSavedAccelerationReachesAMobInOneTick checks the sweep
+// is queried over the velocity after the acceleration is applied.
+// vanilla: AbstractHurtingProjectile.tick, ProjectileUtil.getEntityHitResult
+func TestAFireballWithSavedAccelerationReachesAMobInOneTick(t *testing.T) {
+	t.Parallel()
+	srv, _ := flameScene(t)
+	srv.SetGameRule("mob_griefing", false)
+	cow := srv.SpawnMob("minecraft:cow", 12.5, 64, 0.5)
+	before, _ := srv.MobHealth(cow)
+
+	srv.LaunchAcceleratedFireball(entity.ThrownSmallFireball, 3.5, 65.0, 0.5, 1, 0, 0, 10)
+	servertest.DriveTargetTicks(srv, 1)
+
+	if after, _ := srv.MobHealth(cow); after >= before {
+		t.Errorf("health %v -> %v, want the fireball to hurt it", before, after)
 	}
 }
