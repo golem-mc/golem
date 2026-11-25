@@ -141,6 +141,66 @@ func TestNoLeavesHeight(t *testing.T) {
 	}
 }
 
+func TestLiveColumnHeightMatchesFullScan(t *testing.T) {
+	t.Parallel()
+
+	for _, dim := range []string{DimensionName, NetherName, EndName} {
+		t.Run(dim, func(t *testing.T) {
+			t.Parallel()
+			c := newChunk(0, 0)
+			w := &World{
+				dim:    dimensionShapes[dim],
+				chunks: map[ChunkPos]*loadedChunk{{}: {chunk: c}},
+			}
+			floor := w.dim.minY
+			ceiling := floor + w.dim.height - 1
+			queries := []struct {
+				name   string
+				height func(int32, int32) int32
+				counts *[65536]bool
+			}{
+				{"NoLeavesHeight", w.NoLeavesHeight, &noLeavesBlockingByState},
+				{"OceanFloorHeight", w.OceanFloorHeight, &oceanFloorByState},
+			}
+			check := func(chunk *Chunk, x, z int32) {
+				t.Helper()
+				for _, query := range queries {
+					want := floor - 1
+					if chunk != nil {
+						for y := ceiling; y >= floor; y-- {
+							if query.counts[chunk.BlockAt(x, y, z)] {
+								want = y
+								break
+							}
+						}
+					}
+					if got := query.height(x, z); got != want {
+						t.Errorf("%s(%d, %d) = %d, want %d", query.name, x, z, got, want)
+					}
+				}
+			}
+
+			check(c, 8, 8)
+			check(nil, -1, 8)
+
+			stone := registry.BlockStone.DefaultState()
+			leaves := registry.BlockOakLeaves.DefaultState()
+			c.SetBlock(8, floor, 8, stone)
+			c.SetBlock(8, floor+1, 8, leaves)
+			c.SetBlock(9, floor, 8, stone)
+			c.SetBlock(9, floor+1, 8, leaves)
+			c.SetBlock(9, floor+2, 8, registry.BlockWater.DefaultState())
+			check(c, 8, 8)
+			check(c, 9, 8)
+			check(c, 10, 8)
+
+			c.SetBlock(8, ceiling, 8, stone)
+			check(c, 8, 8)
+			check(c, 9, 8)
+		})
+	}
+}
+
 // TestHeightmapTopMatchesFullScan checks the shared top-section bound against
 // a scan of every block in the dimension, for a void chunk, blocks at each
 // dimension limit, one high block and storage below the dimension floor.

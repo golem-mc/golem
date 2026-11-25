@@ -657,6 +657,39 @@ func TestPackEntityHurtPlayerTestsSourceEntityAndType(t *testing.T) {
 	}
 }
 
+func TestPackOwnerlessProjectileIsItsOwnDamageSource(t *testing.T) {
+	for _, shot := range []struct {
+		kind  string
+		shoot func(*server.Server, float64, float64, float64, float64, float64, float64) int32
+	}{
+		{"arrow", (*server.Server).ShootArrow},
+		{"trident", (*server.Server).ShootTrident},
+	} {
+		t.Run(shot.kind, func(t *testing.T) {
+			cfg, data := packConfig(t)
+			dir := filepath.Join(data, "pk", "advancement")
+			projectile := `{"minecraft:entity_type":"minecraft:` + shot.kind + `"}`
+			packCriterion(t, dir, "source", "entity_hurt_player", `{"damage":{"type":{"source_entity":`+projectile+`}}}`)
+			packCriterion(t, dir, "direct", "entity_hurt_player", `{"damage":{"type":{"direct_entity":`+projectile+`,"is_direct":true}}}`)
+			packCriterion(t, dir, "indirect", "entity_hurt_player", `{"damage":{"type":{"direct_entity":`+projectile+`,"is_direct":false}}}`)
+
+			srv, c := joinOp(t, cfg, "Packer")
+			c.MoveToGround(0.5, 64, 0.5, true)
+			c.Settle()
+			servertest.HoldTicks(t, srv)
+			if id := shot.shoot(srv, 3.5, 65.2, 0.5, -3, 0, 0); id == 0 {
+				t.Fatal("the ownerless projectile never flew")
+			}
+			servertest.RunTicks(t, srv, 8)
+			for name, want := range map[string]bool{"source": true, "direct": true, "indirect": false} {
+				if got := srv.AdvancementObtained("Packer", "pk:"+name, "c"); got != want {
+					t.Errorf("%s obtained = %v, want %v", name, got, want)
+				}
+			}
+		})
+	}
+}
+
 // TestPackKilledEntityTestsKillingBlow: a player_killed_entity criterion on
 // the killing blow's source entity fires for the player's melee kill when it
 // asks for a player, not when it asks for a zombie.

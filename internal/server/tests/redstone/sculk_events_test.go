@@ -5,6 +5,7 @@ package redstone
 // entity. vanilla: VibrationSystem, SculkSensorBlockEntity
 
 import (
+	"sync/atomic"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -87,6 +88,61 @@ func sensorFrequency(t *testing.T, srv *server.Server) int32 {
 	}
 	got, _ := nbt.Get[nbt.Int](tag, "last_vibration_frequency")
 	return int32(got)
+}
+
+// vanilla: NoteBlock.playNote, NoteBlock.triggerEvent
+func TestSilentPlayerHeadNoteVibration(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		cover      string
+		frequency  int32
+		comparator string
+		events     int32
+		tones      int
+	}{
+		{"player_head", 10, "10", 1, 0},
+		{"stone", 0, "0", 0, 0},
+		{"air", 10, "10", 1, 1},
+	} {
+		t.Run(tc.cover, func(t *testing.T) {
+			srv, c := comparatorSensorScene(t)
+			srv.SetBlockEntityTagAt(4, 64, 4, "minecraft:sculk_sensor", nbt.Compound{"last_vibration_frequency": nbt.Int(0)})
+			servertest.Setblock(t, c, 0, 64, 4, "note_block")
+			if tc.cover != "air" {
+				servertest.Setblock(t, c, 0, 65, 4, tc.cover)
+			}
+
+			var events atomic.Int32
+			srv.ObserveGameEvents(func(event string, x, y, z float64) {
+				if event == "minecraft:note_block_play" && x == 0.5 && y == 64.5 && z == 4.5 {
+					events.Add(1)
+				}
+			})
+			var sounds, actions int
+			c.ChatCommand("setblock -1 64 4 redstone_block")
+			c.SettleAndCollect(func(id int32, _ []byte) {
+				switch id {
+				case protocol.IDPlaySoundEffect:
+					sounds++
+				case protocol.IDPlayBlockAction:
+					actions++
+				}
+			})
+			servertest.ExpectBlockNamed(t, srv, 0, 64, 4, "minecraft:note_block", map[string]string{"powered": "true"})
+			servertest.RunTicks(t, srv, 9)
+
+			if got := sensorFrequency(t, srv); got != tc.frequency {
+				t.Errorf("the sensor heard frequency %d, want %d", got, tc.frequency)
+			}
+			if got := events.Load(); got != tc.events {
+				t.Errorf("posted %d note game events, want %d", got, tc.events)
+			}
+			if sounds != tc.tones || actions != tc.tones {
+				t.Errorf("heard %d sounds and %d block actions, want %d of each", sounds, actions, tc.tones)
+			}
+			expectComparator(t, srv, tc.comparator)
+		})
+	}
 }
 
 // TestAThrownSnowballShootsAndLandsAsVibrations: the throw is

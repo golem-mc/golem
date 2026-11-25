@@ -2,6 +2,7 @@ package datapack
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 
@@ -44,11 +45,18 @@ func gameEventOf(o obj) registry.GameEvent {
 	return ev
 }
 
-// isSimpleProvider reports whether a provider type is the simple one; the
-// world compiler accepts both names too.
-func isSimpleProvider(t string) bool {
-	t = registry.Qualify(t)
-	return t == "minecraft:simple_state_provider" || t == "minecraft:simple"
+const legacySimpleStateProvider = "minecraft:simple_state_provider"
+
+// ErrLegacySimpleStateProvider is a registry decoding error that prevents world load.
+var ErrLegacySimpleStateProvider = errors.New("unknown block state provider type " + legacySimpleStateProvider)
+
+// vanilla: BlockStateProviderTypes.bootstrap
+func stateProviderType(o obj) string {
+	kind := registry.Qualify(requireStr(o, "type"))
+	if kind == legacySimpleStateProvider {
+		panic(lootFailure{fatal: ErrLegacySimpleStateProvider})
+	}
+	return kind
 }
 
 // simpleState reads a simple state provider or a bare state; a registry
@@ -56,7 +64,7 @@ func isSimpleProvider(t string) bool {
 // vanilla: BlockStateProvider.CODEC, BlockState.FULL_CODEC
 func simpleState(v any) uint16 {
 	if o, ok := v.(obj); ok && o["type"] != nil {
-		if !isSimpleProvider(requireStr(o, "type")) {
+		if stateProviderType(o) != "minecraft:simple" {
 			fail("a block state provider other than simple")
 		}
 		unknownKeys(o, "a simple state provider", "type", "state")
@@ -173,8 +181,7 @@ func optPredicate(o obj) *registry.EnchBlockPredicate {
 // server runs for a replace effect; the rest (rule_based, copy_properties,
 // random_block) read the block already there.
 var pureStateProviders = []string{"minecraft:rotated_block_provider", "minecraft:weighted_state_provider",
-	"minecraft:noise_provider", "minecraft:noise_threshold_provider", "minecraft:dual_noise_provider",
-	"minecraft:randomized_int_state_provider"}
+	"minecraft:noise_provider", "minecraft:noise_threshold_provider", "minecraft:dual_noise_provider"}
 
 // stateProvider reads a block_state provider: a simple one gives its state, a
 // pure one its raw JSON for the server to compile.
@@ -186,17 +193,17 @@ func stateProvider(v any) (state uint16, raw any) {
 		if !ok || o["type"] == nil {
 			return
 		}
-		kind := registry.Qualify(requireStr(o, "type"))
+		kind := stateProviderType(o)
 		switch {
-		case isSimpleProvider(kind):
-		case kind == "minecraft:randomized_int_state_provider":
+		case kind == "minecraft:simple":
+		case kind == "minecraft:randomized_int" || kind == "minecraft:randomized_int_state_provider":
 			check(required(o, "source"))
 		case slices.Contains(pureStateProviders, kind):
 		default:
 			fail("a block state provider of type %s", kind)
 		}
 	}
-	if o, ok := v.(obj); ok && o["type"] != nil && !isSimpleProvider(requireStr(o, "type")) {
+	if o, ok := v.(obj); ok && o["type"] != nil && stateProviderType(o) != "minecraft:simple" {
 		check(v)
 		return 0, plainJSON(v)
 	}

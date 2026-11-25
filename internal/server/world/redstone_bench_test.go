@@ -141,6 +141,50 @@ func BenchmarkComparatorInput(b *testing.B) {
 	}
 }
 
+// BenchmarkNeighborPower measures the boolean and numeric queries with a source below the receiver.
+func BenchmarkNeighborPower(b *testing.B) {
+	w := newTestWorld(b, NewFlatGenerator())
+	b.Cleanup(func() { _ = w.Close() })
+	w.Acquire(ChunkPos{})
+	p := NewPhysics(w)
+	weak, ok := registry.WithInt(registry.BlockDaylightDetector.DefaultState(), registry.PropPower, 7)
+	if !ok {
+		b.Fatal("no daylight detector state with power 7")
+	}
+	const x, y, z = 8, 80, 8
+	for _, tc := range []struct {
+		name  string
+		state uint16
+		power int
+	}{
+		{"air", registry.BlockAir.DefaultState(), 0},
+		{"weak", weak, 7},
+		{"full", registry.BlockRedstoneBlock.DefaultState(), 15},
+	} {
+		w.SetBlock(x, y-1, z, tc.state)
+		b.Run(tc.name, func(b *testing.B) {
+			b.Run("boolean", func(b *testing.B) {
+				if got, want := p.hasNeighborSignal(x, y, z), tc.power > 0; got != want {
+					b.Fatalf("hasNeighborSignal = %t, want %t", got, want)
+				}
+				b.ReportAllocs()
+				for b.Loop() {
+					p.hasNeighborSignal(x, y, z)
+				}
+			})
+			b.Run("numeric", func(b *testing.B) {
+				if got := p.bestNeighborSignal(x, y, z); got != tc.power {
+					b.Fatalf("bestNeighborSignal = %d, want %d", got, tc.power)
+				}
+				b.ReportAllocs()
+				for b.Loop() {
+					p.bestNeighborSignal(x, y, z)
+				}
+			})
+		})
+	}
+}
+
 // BenchmarkComparatorTickUnchanged refreshes an idle comparator's stored output.
 func BenchmarkComparatorTickUnchanged(b *testing.B) {
 	for _, mode := range []string{"compare", "subtract"} {
