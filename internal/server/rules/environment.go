@@ -579,6 +579,11 @@ func OnPosCell(w BlockAt, x, y, z, halfWidth float64) (int32, int32, int32, uint
 // vanilla: Entity.getOnPosLegacy
 func onPosCell(w BlockAt, x, y, z, halfWidth float64) (int32, int32, int32, uint16) {
 	sx, sy, sz, sstate, found := supportCell(w, x, y, z, halfWidth)
+	return onPosFrom(w, x, y, z, sx, sy, sz, sstate, found)
+}
+
+// onPosFrom is onPosCell given the support search's result.
+func onPosFrom(w BlockAt, x, y, z float64, sx, sy, sz int32, sstate uint16, found bool) (int32, int32, int32, uint16) {
 	if found && isPostBlock(sstate) {
 		return sx, sy, sz, sstate
 	}
@@ -684,8 +689,9 @@ func searchSupport(w BlockAt, x, y, z, boxX, boxZ, halfWidth float64, skipCentre
 // whether no support was found at all.
 // vanilla: Entity.checkSupportingBlock
 func OnPosCellMoved(w BlockAt, x, y, z, halfWidth, dx, dz float64, noBlocks bool) (sx, sy, sz int32, state uint16, unsupported bool) {
-	if _, _, _, _, found := supportCell(w, x, y, z, halfWidth); found {
-		sx, sy, sz, state = onPosCell(w, x, y, z, halfWidth)
+	cx, cy, cz, cstate, found := supportCell(w, x, y, z, halfWidth)
+	if found {
+		sx, sy, sz, state = onPosFrom(w, x, y, z, cx, cy, cz, cstate, true)
 		return sx, sy, sz, state, false
 	}
 	if !noBlocks && (dx != 0 || dz != 0) {
@@ -700,7 +706,7 @@ func OnPosCellMoved(w BlockAt, x, y, z, halfWidth, dx, dz float64, noBlocks bool
 			return bx, cy, bz, st, false
 		}
 	}
-	sx, sy, sz, state = onPosCell(w, x, y, z, halfWidth)
+	sx, sy, sz, state = onPosFrom(w, x, y, z, cx, cy, cz, cstate, false)
 	return sx, sy, sz, state, true
 }
 
