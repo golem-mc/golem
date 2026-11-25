@@ -923,6 +923,44 @@ func (p *Physics) NotifyPlaced(x, y, z int32, oldState uint16) ([]BlockChange, [
 	return p.notifyChanged(x, y, z, oldState, true)
 }
 
+// NotifyPlacedHooks is the part of NotifyPlaced a block write owns: the new
+// block's on-place and the shape passes, with no neighbour update. A block
+// entity's tag loads after it, then NotifyPlacedWake.
+// vanilla: Level.setBlock, LevelChunk.setBlockState
+func (p *Physics) NotifyPlacedHooks(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	newState := p.w.BlockAt(x, y, z)
+	if oldState == newState {
+		return nil, nil, nil
+	}
+	var changes []BlockChange
+	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	p.shapePass(x, y, z, oldState, newState, &changes)
+	effects, primes := p.takeWake()
+	return changes, effects, primes
+}
+
+// NotifyPlacedWake is the explicit neighbour update of a command's placement
+// after NotifyPlacedHooks and the tag load: the old block's removal reactions
+// when the block type changed, then the block and its six neighbours hear of
+// the block now at the position, and comparators reading it.
+// vanilla: ServerLevel.updateNeighboursOnBlockSet
+func (p *Physics) NotifyPlacedWake(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	newState := p.w.BlockAt(x, y, z)
+	var changes []BlockChange
+	if registry.BlockOf(oldState) != registry.BlockOf(newState) {
+		p.redstoneAfterRemoval(x, y, z, oldState, false, true, &changes)
+		p.containerRemoved(x, y, z, oldState, newState)
+	}
+	p.updateAsNeighbor(x, y, z, &changes, true, oldState, newState, [3]int32{})
+	p.wakeAround(x, y, z, newState, newState, &changes)
+	effects, primes := p.takeWake()
+	return changes, effects, primes
+}
+
 func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([]BlockChange, []Effect, []TNTPrime) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -931,7 +969,7 @@ func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([
 		return nil, nil, nil
 	}
 	var changes []BlockChange
-	p.redstoneAfterRemoval(x, y, z, oldState, false, &changes)
+	p.redstoneAfterRemoval(x, y, z, oldState, false, false, &changes)
 	p.containerRemoved(x, y, z, oldState, newState)
 	p.redstoneOnPlace(x, y, z, oldState, &changes)
 	if handNew {
@@ -940,27 +978,28 @@ func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([
 	} else {
 		p.neighborUpdate(x, y, z, oldState, newState, &changes)
 	}
-	// A new state with an analog output wakes the comparators reading it,
-	// through a conductor too; the face asked is immaterial, only whether there
-	// is an output.
-	// A container is answered by its block alone: computing its output would
-	// roll a pending loot table, which only a comparator's read does.
-	// vanilla: Level.setBlock, Block.hasAnalogOutputSignal
-	cur := p.w.BlockAt(x, y, z)
-	if isFullnessContainer(registry.BlockOf(cur)) {
-		p.analogOutputChanged(x, y, z, p.now)
-	} else if _, has := p.analogOutputOf(cur, x, y, z, dirDown); has {
-		p.analogOutputChanged(x, y, z, p.now)
-	}
-	// vanilla: Level.setBlock — the old and new states'
-	// updateIndirectNeighbourShapes flank the neighbour shape pass; only
-	// redstone wire overrides it, for the wires a step above or below its
-	// connected sides.
-	p.wireSlopeChanges(x, y, z, oldState, &changes)
-	p.shapeUpdateNeighbors(x, y, z, &changes)
-	p.wireSlopeChanges(x, y, z, newState, &changes)
+	p.blockAnalogOutputChanged(x, y, z)
+	p.shapePass(x, y, z, oldState, newState, &changes)
 	effects, primes := p.takeWake()
 	return changes, effects, primes
+}
+
+// shapePass is a write's neighbour shape pass, flanked by the old and new
+// states' updateIndirectNeighbourShapes; only redstone wire overrides those,
+// for the wires a step above or below its connected sides.
+// vanilla: Level.setBlock
+func (p *Physics) shapePass(x, y, z int32, oldState, newState uint16, changes *[]BlockChange) {
+	p.wireSlopeChanges(x, y, z, oldState, changes)
+	p.shapeUpdateNeighbors(x, y, z, changes)
+	p.wireSlopeChanges(x, y, z, newState, changes)
+}
+
+// wakeAround tells the six neighbours of a block set at the position, then
+// the comparators reading it.
+// vanilla: ServerLevel.updateNeighboursOnBlockSet
+func (p *Physics) wakeAround(x, y, z int32, old, changed uint16, changes *[]BlockChange) {
+	p.wakeNeighbors(x, y, z, old, changed, changes)
+	p.blockAnalogOutputChanged(x, y, z)
 }
 
 // NotifyNeighbours is the neighbour update a command's
@@ -972,8 +1011,7 @@ func (p *Physics) NotifyNeighbours(x, y, z int32, oldState uint16) ([]BlockChang
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	var changes []BlockChange
-	p.wakeNeighbors(x, y, z, oldState, p.w.BlockAt(x, y, z), &changes)
-	p.blockAnalogOutputChanged(x, y, z)
+	p.wakeAround(x, y, z, oldState, p.w.BlockAt(x, y, z), &changes)
 	effects, primes := p.takeWake()
 	return changes, effects, primes
 }
