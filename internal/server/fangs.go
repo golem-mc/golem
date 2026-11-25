@@ -209,9 +209,15 @@ func (s *Server) fangsBite(it fangsEffect) {
 		}
 	}
 	s.mu.RUnlock()
+	window := entity.NewSectionWindow(minX, maxX, minY, maxY, minZ, maxZ)
 	for _, c := range clients {
 		cMinX, cMinY, cMinZ, cMaxX, cMaxY, cMaxZ := c.Box()
 		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, cMinX, cMinY, cMinZ, cMaxX, cMaxY, cMaxZ) {
+			continue
+		}
+		// A scaled player's box can reach past the sections its feet are filed in.
+		// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+		if pos := c.player.Position(); !window.HoldsAt(pos.X, pos.Y, pos.Z) {
 			continue
 		}
 		if owner.Mob == nil {
