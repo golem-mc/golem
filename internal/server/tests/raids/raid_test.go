@@ -131,6 +131,15 @@ func raiderIDs(srv *server.Server) []int32 {
 	return ids
 }
 
+// killRaiders kills every raider through /kill, so their deaths reach the
+// raid before it next ticks.
+// vanilla: KillCommand, Raider.die
+func killRaiders(srv *server.Server) {
+	for _, kind := range []string{"pillager", "vindicator", "evoker", "ravager", "witch"} {
+		srv.RunLine("kill @e[type=minecraft:" + kind + "]")
+	}
+}
+
 // TestTheBarFollowsTheRaidersHealth: the bar starts full with the wave and
 // drops as raiders die.
 // vanilla: Raid.updateBossbar
@@ -167,9 +176,7 @@ func TestTheNextWaveFollowsTheLastRaider(t *testing.T) {
 	srv, c, _ := village(t, rules.DifficultyNormal)
 	startRaid(t, c, srv, 0)
 	run(c, srv, 330)
-	for _, id := range raiderIDs(srv) {
-		srv.KillMob(id)
-	}
+	killRaiders(srv)
 	run(c, srv, 100)
 	if r := srv.Raids()[0]; r.Groups != 1 || r.Alive != 0 {
 		t.Fatalf("100 ticks after the wave: %+v, want the countdown still running", r)
@@ -186,7 +193,7 @@ func TestTheNextWaveFollowsTheLastRaider(t *testing.T) {
 func TestACompletedRaidIsWon(t *testing.T) {
 	t.Parallel()
 	shooters := &shooterPlugin{}
-	srv, c, bell := bareBellWith(t, rules.DifficultyEasy, []plugin.Registration{{Name: "shooters", Plugin: shooters}})
+	srv, c, bell := bareBellWith(t, servertest.HostileTestConfig(), rules.DifficultyEasy, []plugin.Registration{{Name: "shooters", Plugin: shooters}})
 	// The villager claiming the bell can celebrate alongside the platform villagers.
 	villagers := []int32{spawnVillager(t, srv, bell)}
 	startRaid(t, c, srv, 0)
@@ -195,9 +202,7 @@ func TestACompletedRaidIsWon(t *testing.T) {
 		if r := srv.Raids()[0]; r.Groups != wave {
 			t.Fatalf("wave %d: raid = %+v", wave, r)
 		}
-		for _, id := range raiderIDs(srv) {
-			srv.KillMob(id)
-		}
+		killRaiders(srv)
 	}
 	run(c, srv, 60)
 	r := srv.Raids()[0]
@@ -344,14 +349,37 @@ func TestNoRaidStartsInTheNether(t *testing.T) {
 }
 
 // TestRaidersWalkTowardTheVillage: raiders spawned away from the village head
-// for the raid's centre.
-// vanilla: PathfindToRaidGoal
+// for the raid's centre. At the harness's simulation distance 4 the send view's neighbor
+// ring loads a fifth ring of chunks, where a wave would stand still.
+// vanilla: PathfindToRaidGoal, Raid.findRandomSpawnPos (isPositionEntityTicking)
 func TestRaidersWalkTowardTheVillage(t *testing.T) {
 	t.Parallel()
 	srv, c, bell := village(t, rules.DifficultyNormal)
 	srv.SetPlayerGameMode("Hero", protocol.GameModeCreative)
 	startRaid(t, c, srv, 0)
 	run(c, srv, 330)
+	wantRaidersCloser(t, srv, c, bell)
+}
+
+// TestACachedWavePositionLeavesWhenItStopsTicking: a position found while the
+// simulation distance was 5 is searched again once 4 leaves it outside.
+// vanilla: Raid.tick (isPositionEntityTicking on the cached position)
+func TestACachedWavePositionLeavesWhenItStopsTicking(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.HostileTestConfig()
+	cfg.SimulationDistance = 5
+	srv, c, bell := villageWith(t, cfg, rules.DifficultyNormal)
+	srv.SetPlayerGameMode("Hero", protocol.GameModeCreative)
+	startRaid(t, c, srv, 0)
+	run(c, srv, 5)
+	srv.SetSimulationDistance(4)
+	run(c, srv, 325)
+	wantRaidersCloser(t, srv, c, bell)
+}
+
+// wantRaidersCloser fails unless the raiders walk toward the bell over 200 ticks.
+func wantRaidersCloser(t *testing.T, srv *server.Server, c *servertest.Client, bell [3]int32) {
+	t.Helper()
 	meanDist := func() float64 {
 		sum, n := 0.0, 0
 		for _, m := range srv.Mobs() {

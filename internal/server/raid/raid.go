@@ -108,6 +108,8 @@ type Level interface {
 	Difficulty() uint8
 	// ChunkLoaded reports whether the chunk holding the block is in memory.
 	ChunkLoaded(x, z int) bool
+	// EntityTicking reports whether entities at the block are stepped.
+	EntityTicking(x, z int) bool
 	IsVillage(x, y, z int) bool
 	// SurfaceY is the world-surface height of the column.
 	SurfaceY(x, z int) int
@@ -496,7 +498,7 @@ func (r *Raid) tickOngoing() {
 	if alive == 0 && r.hasMoreWaves() {
 		if r.cooldown > 0 {
 			find := r.waveSpawn == nil && r.cooldown%5 == 0
-			if r.waveSpawn != nil && !r.level.ChunkLoaded(r.waveSpawn.X, r.waveSpawn.Z) {
+			if r.waveSpawn != nil && !r.level.EntityTicking(r.waveSpawn.X, r.waveSpawn.Z) {
 				find = true
 			}
 			if find {

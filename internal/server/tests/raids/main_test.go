@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -28,7 +29,13 @@ type bossEvent struct {
 // has claimed the bell.
 func village(t *testing.T, difficulty uint8) (*server.Server, *servertest.Client, [3]int32) {
 	t.Helper()
-	srv, c, bell := bareBell(t, difficulty)
+	return villageWith(t, servertest.HostileTestConfig(), difficulty)
+}
+
+// villageWith is village on a server of cfg.
+func villageWith(t *testing.T, cfg *config.Config, difficulty uint8) (*server.Server, *servertest.Client, [3]int32) {
+	t.Helper()
+	srv, c, bell := bareBellWith(t, cfg, difficulty, nil)
 	spawnVillager(t, srv, bell)
 	return srv, c, bell
 }
@@ -54,13 +61,13 @@ func spawnVillagerIn(t *testing.T, srv *server.Server, dimension string, bell [3
 // answers the server and the player's connection. No villager claims it.
 func bareBell(t *testing.T, difficulty uint8) (*server.Server, *servertest.Client, [3]int32) {
 	t.Helper()
-	return bareBellWith(t, difficulty, nil)
+	return bareBellWith(t, servertest.HostileTestConfig(), difficulty, nil)
 }
 
-// bareBellWith is bareBell on a server running the plugins.
-func bareBellWith(t *testing.T, difficulty uint8, plugins []plugin.Registration) (*server.Server, *servertest.Client, [3]int32) {
+// bareBellWith is bareBell on a server of cfg running the plugins.
+func bareBellWith(t *testing.T, cfg *config.Config, difficulty uint8, plugins []plugin.Registration) (*server.Server, *servertest.Client, [3]int32) {
 	t.Helper()
-	srv := servertest.NewTestServerWithPlugins(t, servertest.HostileTestConfig(), plugins)
+	srv := servertest.NewTestServerWithPlugins(t, cfg, plugins)
 	srv.SetDifficulty(difficulty)
 	connect := func() *servertest.Client { return servertest.DialServer(t, srv) }
 	c := connect().Join("Hero")
