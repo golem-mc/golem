@@ -100,17 +100,23 @@ func (s *Server) registerFangs(it *fangsEntity) {
 	fangsTracker.register(s, it)
 }
 
-// fangsEffect holds only the inputs an attack needs after the fangs lock is released.
+// fangsEffect holds only the inputs a spike or removal needs after the fangs lock is released.
 type fangsEffect struct {
-	w         *world.World
-	id        int32
+	w       *world.World
+	id      int32
+	x, y, z float64
+}
+
+// fangsBiteEffect is a fangsEffect with the owner the bite resolves.
+type fangsBiteEffect struct {
+	fangsEffect
 	ownerUUID uuid.UUID
-	x, y, z   float64
 }
 
 // fangsEffects keeps spike, bite and removal ordering after the lock is released.
 type fangsEffects struct {
-	spikes, bites, gone []fangsEffect
+	spikes, gone []fangsEffect
+	bites        []fangsBiteEffect
 }
 
 // tickFangs ticks every fang set: the spike event, the bite, the removal.
@@ -128,12 +134,12 @@ func (s *Server) tickFangs() {
 		if spike || bite {
 			// The effects must not read a command's concurrent position or owner write.
 			f := it.fangs
-			at := fangsEffect{w: it.w, id: f.ID, ownerUUID: it.ownerUUID, x: f.X, y: f.Y, z: f.Z}
+			at := fangsEffect{w: it.w, id: f.ID, x: f.X, y: f.Y, z: f.Z}
 			if spike {
 				fx.spikes = append(fx.spikes, at)
 			}
 			if bite {
-				fx.bites = append(fx.bites, at)
+				fx.bites = append(fx.bites, fangsBiteEffect{at, it.ownerUUID})
 			}
 		}
 		if it.fangs.Dead {
@@ -171,7 +177,7 @@ func (fx fangsEffects) apply(s *Server) {
 // fangsBite hurts every living body in reach except the owner and its
 // allies. Ownerless fangs hurt everything with plain magic damage, unscaled
 // and without knockback. vanilla: EvokerFangs.dealDamageTo
-func (s *Server) fangsBite(it fangsEffect) {
+func (s *Server) fangsBite(it fangsBiteEffect) {
 	w := it.w
 	body := entity.EvokerFangs{X: it.x, Y: it.y, Z: it.z}
 	minX, minY, minZ, maxX, maxY, maxZ := body.BiteBox()
