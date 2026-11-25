@@ -1484,6 +1484,31 @@ func (p *Physics) bookTick(x, y, z int32, typ fluidType, due int64, priority int
 	p.insertTick(blockKey{x, y, z}, typ, due, priority)
 }
 
+// dropTickIndex forgets the chunk index after a queue mutation. The stores are
+// skipped while no snapshot has scanned the heap, the common case between saves.
+func (p *Physics) dropTickIndex() {
+	if p.chunkIdx.scanned {
+		p.chunkIdx = tickIndex{}
+	}
+}
+
+func (p *Physics) pushTick(t scheduledTick) {
+	p.dropTickIndex()
+	p.queue.push(t)
+}
+
+func (p *Physics) popTick() scheduledTick {
+	p.dropTickIndex()
+	return p.queue.pop()
+}
+
+// setTicks replaces the heap's entries with kept and restores heap order.
+func (p *Physics) setTicks(kept tickQueue) {
+	p.dropTickIndex()
+	p.queue = kept
+	p.queue.init()
+}
+
 // insertTick queues a visit unless one is waiting for the same key and fluid
 // type. Runs under p.mu.
 func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority int) {

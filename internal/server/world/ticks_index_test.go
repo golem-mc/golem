@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+
+	"github.com/golem-mc/golem/registry"
 )
 
 // linearChunkTicks is chunkTicks without the index: every heap entry in slice
@@ -27,54 +29,105 @@ func linearChunkTicks(p *Physics, pos ChunkPos) chunkTicks {
 
 func TestChunkTicksIndexMatchesLinearScan(t *testing.T) {
 	w, p := newFluidBookingWorld(t)
-	chunks := []ChunkPos{{}, {X: 1}, {X: 2, Z: 1}, {X: 5, Z: 5}}
-	for _, c := range chunks[:3] {
-		w.Acquire(c)
+	a, b, c := ChunkPos{}, ChunkPos{X: 1}, ChunkPos{X: 2, Z: 1}
+	chunks := []ChunkPos{a, b, c, {X: 5, Z: 5}}
+	w.Acquire(b)
+	w.Acquire(c)
+	stone := registry.BlockStone.DefaultState()
+	for _, pos := range []blockKey{{3, 63, 0}, {4, 63, 1}, {18, 63, 0}, {19, 63, 0}, {34, 63, 17}} {
+		w.SetBlock(pos.x, pos.y, pos.z, stone)
 	}
-	check := func(step string) {
+	water := fluidTypeOf(fluidHolding(waterByLevel[0]))
+	p.mu.Lock()
+	for _, e := range []struct {
+		pos   blockKey
+		fluid bool
+		due   int64
+	}{
+		{blockKey{3, 63, 0}, false, 5}, {blockKey{1, 64, 0}, true, 5}, {blockKey{4, 63, 1}, false, 20}, {blockKey{2, 64, 2}, true, 20},
+		{blockKey{17, 64, 0}, true, 7}, {blockKey{18, 63, 0}, false, 20},
+		{blockKey{33, 64, 16}, true, 20}, {blockKey{34, 63, 17}, false, 7},
+	} {
+		if e.fluid {
+			p.insertTick(e.pos, water, e.due, tickPriorityNormal)
+		} else {
+			p.insertTick(e.pos, 0, e.due, tickPriorityNormal)
+		}
+	}
+	p.schedulePistonFinalize(19, 63, 0, 20)
+	p.mu.Unlock()
+
+	// check compares every chunk with the linear scan over several snapshots
+	// (the first scans, the later ones build and use the index) and the counts
+	// of blocks and fluids saved in a, b, c with want.
+	check := func(step string, want [3][2]int) {
 		t.Helper()
-		// The first snapshot scans, the later ones use the index.
 		for round := range 3 {
-			for _, c := range chunks {
-				got, want := p.chunkTicks(c), linearChunkTicks(p, c)
-				if !reflect.DeepEqual(got, want) {
-					t.Fatalf("%s, round %d, chunk %v: got %+v, want %+v", step, round, c, got, want)
+			for i, cp := range chunks {
+				got, lin := p.chunkTicks(cp), linearChunkTicks(p, cp)
+				if !reflect.DeepEqual(got, lin) {
+					t.Fatalf("%s, round %d, chunk %v: got %+v, linear %+v", step, round, cp, got, lin)
+				}
+				if i < 3 && [2]int{len(got.block), len(got.fluid)} != want[i] {
+					t.Fatalf("%s, chunk %v: %d block, %d fluid entries, want %v", step, cp, len(got.block), len(got.fluid), want[i])
 				}
 			}
 		}
+		if p.chunkIdx.byChunk == nil {
+			t.Fatalf("%s: index not built after the snapshots", step)
+		}
 	}
-	p.mu.Lock()
-	for i := range int32(40) {
-		x, z := i%24, i/12*16
-		p.insertTick(blockKey{x, 64, z}, fluidTypeOf(fluidHolding(waterByLevel[0])), 10+int64(i%7), tickPriorityNormal)
-		p.schedulePriority(x, 63, z, 5+int64(i%5), int(i%3)-1)
+	// mutate runs f on a warmed index and checks it is dropped, or kept when
+	// f leaves the heap alone.
+	mutate := func(step string, dropped bool, f func()) {
+		t.Helper()
+		if p.chunkIdx.byChunk == nil {
+			t.Fatalf("%s: index cold before the mutation", step)
+		}
+		f()
+		if (p.chunkIdx.byChunk == nil) != dropped {
+			t.Fatalf("%s: index dropped = %v, want %v", step, p.chunkIdx.byChunk == nil, dropped)
+		}
 	}
-	p.mu.Unlock()
-	check("booked")
-	p.mu.Lock()
-	p.now += 2
-	p.mu.Unlock()
-	check("now advanced")
-	setBlock(t, w, p, 3, 63, 0, waterByLevel[0])
-	check("block changed")
-	p.Tick(p.now + 1)
-	check("popped")
-	p.mu.Lock()
-	p.seq++
-	p.cancelled = map[int64]struct{}{p.queue[0].seq: {}}
-	p.mu.Unlock()
-	check("cancelled")
-	p.SetTickFilter(func(c ChunkPos) bool { return c.X != 1 })
-	p.Tick(p.now + 1)
-	p.Tick(p.now + 10)
-	check("parked")
+	locked := func(f func()) func() {
+		return func() {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			f()
+		}
+	}
+	check("booked", [3][2]int{{2, 2}, {2, 1}, {1, 1}})
+	mutate("insertion", true, locked(func() { p.insertTick(blockKey{5, 64, 3}, water, 20, tickPriorityNormal) }))
+	check("inserted", [3][2]int{{2, 3}, {2, 1}, {1, 1}})
+	mutate("block replaced", false, func() { w.SetBlock(4, 63, 1, airState) })
+	check("block replaced", [3][2]int{{2, 3}, {2, 1}, {1, 1}})
+	found := false
+	for _, e := range p.chunkTicks(a).block {
+		if e.x == 4 {
+			found = true
+			if e.id != registry.BlockStone.Name() {
+				t.Fatalf("saved id %q of the replaced cell, want the booked type", e.id)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the replaced cell's tick is not saved")
+	}
+	mutate("popped", true, func() { p.Tick(5) })
+	check("popped", [3][2]int{{1, 2}, {2, 1}, {1, 1}})
+	p.SetTickFilter(func(cp ChunkPos) bool { return cp != b })
+	mutate("parked", true, func() { p.Tick(7) })
+	check("parked", [3][2]int{{1, 2}, {2, 1}, {0, 1}})
+	if len(p.parked[b]) == 0 {
+		t.Fatal("no entry parked for the filtered chunk")
+	}
+	mutate("cancelled", false, locked(func() { p.cancelPistonFinalize(19, 63, 0) }))
+	check("cancelled", [3][2]int{{1, 2}, {1, 1}, {0, 1}})
 	p.SetTickFilter(nil)
-	p.Tick(p.now + 1)
-	check("reactivated")
-	p.ClearTicksIn(0, 60, 0, 20, 70, 8)
-	check("cleared")
-	p.mu.Lock()
-	p.adoptTicks(nil, []ChunkPos{{X: 2, Z: 1}})
-	p.mu.Unlock()
-	check("unloaded")
+	mutate("reactivated", true, func() { p.Tick(8) })
+	check("reactivated", [3][2]int{{1, 2}, {1, 0}, {0, 1}})
+	mutate("cleared", true, func() { p.ClearTicksIn(0, 60, 0, 15, 70, 15) })
+	check("cleared", [3][2]int{{0, 0}, {1, 0}, {0, 1}})
+	mutate("unloaded", true, locked(func() { p.adoptTicks(nil, []ChunkPos{c}) }))
+	check("unloaded", [3][2]int{{0, 0}, {1, 0}, {0, 0}})
 }

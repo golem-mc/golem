@@ -426,29 +426,12 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 // tickIndex maps a chunk to the offsets of its entries in Physics.queue, in
 // slice order, so a save reads one chunk's ticks without scanning the heap.
 // It holds offsets only; every queue mutation goes through pushTick, popTick
-// or setTicks, which drop it. Only under p.mu.
+// or setTicks (physics.go), which drop it. Only under p.mu.
 type tickIndex struct {
 	byChunk map[ChunkPos][]int32
 	// scanned is set once a snapshot scanned the heap: the index is built on
 	// the next snapshot that finds the heap unchanged.
 	scanned bool
-}
-
-func (p *Physics) pushTick(t scheduledTick) {
-	p.chunkIdx = tickIndex{}
-	p.queue.push(t)
-}
-
-func (p *Physics) popTick() scheduledTick {
-	p.chunkIdx = tickIndex{}
-	return p.queue.pop()
-}
-
-// setTicks replaces the heap's entries with kept and restores heap order.
-func (p *Physics) setTicks(kept tickQueue) {
-	p.chunkIdx = tickIndex{}
-	p.queue = kept
-	p.queue.init()
 }
 
 // queuedIn calls f on the heap entries of chunk pos, in heap slice order.

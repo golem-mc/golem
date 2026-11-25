@@ -208,29 +208,46 @@ func fallsAfterReload(t *testing.T, waterlogged bool) int {
 	return falls
 }
 
+// BenchmarkChunkTicksDistant saves one chunk while n ticks wait in other
+// chunks. "warm" repeats the save of an unchanged heap; "mutated" changes the
+// heap before each of three consecutive saves, so the first scan and the
+// index build run under the physics mutex as well.
 func BenchmarkChunkTicksDistant(b *testing.B) {
-	for _, n := range []int{0, 4096, 65536} {
-		b.Run(strconv.Itoa(n), func(b *testing.B) {
-			w := newTestWorld(b, NewFlatGenerator())
-			b.Cleanup(func() { w.Close() })
-			w.Acquire(ChunkPos{})
-			p := NewPhysics(w)
-			water := fluidTypeOf(fluidHolding(waterByLevel[0]))
-			p.mu.Lock()
-			p.insertTick(blockKey{0, 64, 0}, water, 200, tickPriorityNormal)
-			for i := range int32(n) {
-				p.insertTick(blockKey{16 + i%256, 64, i / 256}, water, 200, tickPriorityNormal)
-			}
-			p.mu.Unlock()
-			p.chunkTicks(ChunkPos{})
-			p.chunkTicks(ChunkPos{})
-			b.ReportAllocs()
-			for b.Loop() {
-				if got := p.chunkTicks(ChunkPos{}); len(got.fluid) != 1 || len(got.block) != 0 {
-					b.Fatalf("got %d fluid, %d block entries, want one fluid", len(got.fluid), len(got.block))
+	for _, mode := range []string{"warm", "mutated"} {
+		for _, n := range []int{0, 4096, 65536} {
+			b.Run(mode+"/"+strconv.Itoa(n), func(b *testing.B) {
+				w := newTestWorld(b, NewFlatGenerator())
+				b.Cleanup(func() { w.Close() })
+				w.Acquire(ChunkPos{})
+				p := NewPhysics(w)
+				water := fluidTypeOf(fluidHolding(waterByLevel[0]))
+				p.mu.Lock()
+				p.insertTick(blockKey{0, 64, 0}, water, 200, tickPriorityNormal)
+				for i := range int32(n) {
+					p.insertTick(blockKey{16 + i%256, 64, i / 256}, water, 200, tickPriorityNormal)
 				}
-			}
-		})
+				p.mu.Unlock()
+				save := func() {
+					if got := p.chunkTicks(ChunkPos{}); len(got.fluid) != 1 || len(got.block) != 0 {
+						b.Fatalf("got %d fluid, %d block entries, want one fluid", len(got.fluid), len(got.block))
+					}
+				}
+				save()
+				save()
+				b.ReportAllocs()
+				for b.Loop() {
+					if mode == "mutated" {
+						p.mu.Lock()
+						p.pushTick(scheduledTick{pos: blockKey{16, 64, 0}, due: 0, seq: -1})
+						p.popTick()
+						p.mu.Unlock()
+						save()
+						save()
+					}
+					save()
+				}
+			})
+		}
 	}
 }
 
