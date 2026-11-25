@@ -2711,8 +2711,13 @@ func (s *Server) teleportMob(ent *mobEntity, to player.Position, yaw, pitch floa
 // even while ticks are frozen.
 // vanilla: TeleportCommand.performTeleport, Entity.teleportSameDimension
 func (s *Server) turnTeleportMob(ent *mobEntity, move command.Move, by string) {
-	to := move.Pos
 	s.mobsMu.Lock()
+	// A relative turn is worked out from the mob's angles now, which an
+	// earlier target in the command may have changed.
+	if move.Command && move.LookAt == nil && !move.KeepRotation {
+		move = move.AgainstAngles(ent.mob.Yaw, ent.mob.Pitch)
+	}
+	to := move.Pos
 	turn := teleportTurn(move)
 	book := s.herdOf(ent.w).book
 	// Before the mount turns: a rider's turn keeps its angle to the mount.

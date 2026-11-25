@@ -146,3 +146,34 @@ func TestTeleportTurnsMobPassengerWithMount(t *testing.T) {
 func nbtRotation(yaw, pitch float64) string {
 	return "[" + strconv.FormatFloat(yaw, 'f', 1, 64) + "f, " + strconv.FormatFloat(pitch, 'f', 1, 64) + "f]"
 }
+
+// TestTeleportResolvesEachTargetFromItsLiveRotation: the mount's turn has
+// already moved its rider when the rider's own turn in the same command
+// comes up, so the rider's relative offset is worked out from where it is now.
+func TestTeleportResolvesEachTargetFromItsLiveRotation(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance = config.MinDistance
+	cfg.SimulationDistance = config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Summoner", servertest.OpsListing(t, "Summoner"))
+	servertest.HoldTicks(t, srv)
+	c.Settle()
+	c.ChatCommand(`summon chicken 3.5 64 3.5 {NoAI:1b,NoGravity:1b,Tags:["pair"],Rotation:[90f,0f],Passengers:[` +
+		`{id:"minecraft:pig",NoAI:1b,NoGravity:1b,Tags:["pair"],Rotation:[0f,0f]}]}`)
+	uuids := map[int32]uuid.UUID{}
+	c.SettleAndCollect(func(id int32, data []byte) {
+		if id == protocol.IDPlaySpawnEntity {
+			r := protocol.NewReader(data)
+			r.ReadVarInt()
+			u := r.ReadUUID()
+			uuids[r.ReadVarInt()] = u
+		}
+	})
+	c.ChatCommand("execute positioned 3.5 64 3.5 rotated 0 0 run tp @e[tag=pair,sort=nearest] 6.5 64 6.5 ~45 ~30")
+	c.Settle()
+	for name, kind := range map[string]int32{"chicken": protocol.EntityTypeChicken, "pig": protocol.EntityTypePig} {
+		c.ChatCommand("data get entity @e[type=" + name + ",limit=1] Rotation")
+		c.ExpectCommandFeedbackText("commands.data.entity.query",
+			servertest.EntityDisplayComponent("minecraft:"+name, "entity.minecraft."+name, uuids[kind]), servertest.NBTArg("[45.0f, 30.0f]"))
+	}
+}
