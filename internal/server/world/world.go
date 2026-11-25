@@ -1564,20 +1564,10 @@ func (w *World) BlockAt(x, y, z int32) uint16 {
 	if loaded := w.nearAt(pos); loaded != nil {
 		return loaded.chunk.sharedBlockAt(x&15, y, z&15)
 	}
-	w.mu.RLock()
-	loaded, ok := w.chunks[pos]
-	if !ok {
-		w.mu.RUnlock()
-		return airState
+	if chunk := w.sharedChunkOnNearMiss(pos); chunk != nil {
+		return chunk.sharedBlockAt(x&15, y, z&15)
 	}
-	// Two chunks sharing a slot (more than nearSlots chunks apart on an axis)
-	// take it from each other on a miss, so a run of reads in one chunk hits.
-	if slot := &w.near[nearIndex(pos)]; slot.Load() != loaded {
-		slot.Store(loaded)
-	}
-	state := loaded.chunk.BlockAt(x&15, y, z&15)
-	w.mu.RUnlock()
-	return state
+	return airState
 }
 
 // sharedChunkAt returns pos's loaded chunk for lock-free sharedBlockAt reads,
@@ -1586,12 +1576,18 @@ func (w *World) sharedChunkAt(pos ChunkPos) *Chunk {
 	if loaded := w.nearAt(pos); loaded != nil {
 		return loaded.chunk
 	}
+	return w.sharedChunkOnNearMiss(pos)
+}
+
+func (w *World) sharedChunkOnNearMiss(pos ChunkPos) *Chunk {
 	w.mu.RLock()
 	loaded, ok := w.chunks[pos]
 	if !ok {
 		w.mu.RUnlock()
 		return nil
 	}
+	// Chunks sharing a slot take it from each other on a miss, so a run of
+	// reads in one chunk hits.
 	if slot := &w.near[nearIndex(pos)]; slot.Load() != loaded {
 		slot.Store(loaded)
 	}

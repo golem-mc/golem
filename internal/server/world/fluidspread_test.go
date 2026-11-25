@@ -246,3 +246,30 @@ func TestSpreadContextChunkQuadrant(t *testing.T) {
 		})
 	}
 }
+
+func TestSpreadContextSeesPublishedChunk(t *testing.T) {
+	t.Parallel()
+	w := newTestWorld(t, NewFlatGenerator())
+	t.Cleanup(func() { w.Close() })
+	w.Acquire(ChunkPos{})
+	const x, y, z = 16, GroundLevel, 4
+	ctx := newSpreadContext(w, x-1, y, z, fluidWater)
+	if got := ctx.state(x, z); got != airState {
+		t.Fatalf("state before publication = %d, want air", got)
+	}
+
+	neighbor := ChunkPos{X: 1}
+	<-w.AcquireAsync(neighbor)
+	t.Cleanup(func() { w.Release(neighbor) })
+	if !w.SetBlock(x, y, z+1, stoneState) {
+		t.Fatal("could not place stone in the published chunk")
+	}
+
+	// The top was read before publication, but the first hole check is after it.
+	if ctx.isHole(x, z) {
+		t.Error("first hole check after publication saw air below instead of stone")
+	}
+	if got := ctx.state(x, z+1); got != stoneState {
+		t.Errorf("first state in the next cell after publication = %d, want stone", got)
+	}
+}

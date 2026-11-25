@@ -2405,13 +2405,14 @@ func newSpreadContext(w fluidSpreadReader, x, y, z int32, kind fluidKind) spread
 // loadChunk resolves one chunk in the 2x2 quadrant and snapshots its block
 // storage at y and y-1.
 func (c *spreadContext) loadChunk(q uint, cx, cz int32) {
+	ch := c.world.sharedChunkAt(ChunkPos{X: cx, Z: cz})
+	if ch == nil {
+		// A chunk worker can publish this neighbour during the search.
+		return
+	}
 	c.chunksLoaded |= 1 << q
 	c.topFill[q] = airState
 	c.belowFill[q] = airState
-	ch := c.world.sharedChunkAt(ChunkPos{X: cx, Z: cz})
-	if ch == nil {
-		return
-	}
 	if ly := uint32(c.y - worldMinY); ly < worldHeight {
 		s := &ch.sections[ly>>4]
 		c.topWords[q] = s.blocks.Load()
@@ -2473,8 +2474,10 @@ func (c *spreadContext) load(i int) {
 		}
 		if b := c.topWords[q]; b != nil {
 			state = b.load(c.topYOff | int(z&15)<<4 | int(x&15))
-		} else {
+		} else if c.chunksLoaded&(1<<q) != 0 {
 			state = c.topFill[q]
+		} else {
+			state = c.w.BlockAt(x, c.y, z)
 		}
 	} else {
 		state = c.w.BlockAt(x, c.y, z)
@@ -2531,12 +2534,13 @@ func (c *spreadContext) holeAt(i int) bool {
 		top := c.states[i]
 		var below uint16
 		if c.world != nil {
-			// load(i) already loaded chunk q for cell i.
 			q := uint((x>>4-c.cx0)|(z>>4-c.cz0)<<1) & 3
 			if b := c.belowWords[q]; b != nil {
 				below = b.load(c.belowYOff | int(z&15)<<4 | int(x&15))
-			} else {
+			} else if c.chunksLoaded&(1<<q) != 0 {
 				below = c.belowFill[q]
+			} else {
+				below = c.w.BlockAt(x, c.y-1, z)
 			}
 		} else {
 			below = c.w.BlockAt(x, c.y-1, z)
