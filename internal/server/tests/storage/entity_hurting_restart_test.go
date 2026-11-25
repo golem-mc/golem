@@ -37,9 +37,10 @@ func thrownByKind(srv *server.Server) map[string]string {
 // vanilla: AbstractHurtingProjectile.addAdditionalSaveData, LargeFireball.addAdditionalSaveData, WitherSkull.addAdditionalSaveData
 func TestHurtingProjectilesSurviveARestart(t *testing.T) {
 	t.Parallel()
-	kinds := []string{"minecraft:wind_charge", "minecraft:small_fireball", "minecraft:fireball", "minecraft:wither_skull"}
+	kinds := []string{"minecraft:wind_charge", "minecraft:breeze_wind_charge", "minecraft:small_fireball", "minecraft:fireball", "minecraft:wither_skull"}
 	again, level := restartAround(t, func(srv *server.Server) {
 		srv.ThrowThrown(entity.ThrownWindCharge, 3.5, 100, 3.5, 0, -90, 0, 1)
+		srv.ThrowThrown(entity.ThrownBreezeWindCharge, 7.5, 100, 3.5, 0, -90, 0, 1)
 		srv.LaunchFireball(entity.ThrownSmallFireball, 4.5, 100, 3.5, 1, 0, 0, 0, 1)
 		srv.LaunchFireball(entity.ThrownLargeFireball, 5.5, 100, 3.5, 1, 0, 0, 0, 3)
 		srv.TuneFireballAcceleration(uuid.MustParse(thrownByKind(srv)["minecraft:fireball"]), 0.02)
@@ -87,6 +88,11 @@ func TestHurtingProjectilesSurviveARestart(t *testing.T) {
 		}
 		if vy := motionOf(c)[1]; vy < 0.5 {
 			t.Errorf("the reloaded wind charge climbs at vy = %v, want it to resume its launch", vy)
+		}
+	})
+	servertest.EntityFileIs(t, level, pos, "minecraft:breeze_wind_charge", func(c nbt.Compound) {
+		if vy := motionOf(c)[1]; vy < 0.5 {
+			t.Errorf("the reloaded breeze wind charge climbs at vy = %v, want it to resume its launch", vy)
 		}
 	})
 	servertest.EntityFileIs(t, level, pos, "minecraft:small_fireball", func(nbt.Compound) {})
