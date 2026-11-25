@@ -475,36 +475,36 @@ func (s *Server) summonThrown(w *world.World, name string, x, y, z float64, tag 
 }
 
 // savedThrownKind is the kind a chunk file keeps a thrown body of, by entity
-// id; false for an id that is no thrown kind.
-func savedThrownKind(id string) (entity.ThrownKind, bool) {
-	switch id {
-	case "minecraft:snowball":
+// type; false for a type that is no thrown kind.
+func savedThrownKind(typ int32) (entity.ThrownKind, bool) {
+	switch typ {
+	case protocol.EntityTypeSnowball:
 		return entity.ThrownSnowball, true
-	case "minecraft:egg":
+	case protocol.EntityTypeEgg:
 		return entity.ThrownEgg, true
-	case "minecraft:ender_pearl":
+	case protocol.EntityTypeEnderPearl:
 		return entity.ThrownEnderPearl, true
-	case "minecraft:splash_potion":
+	case protocol.EntityTypeSplashPotion:
 		return entity.ThrownSplashPotion, true
-	case "minecraft:lingering_potion":
+	case protocol.EntityTypeLingeringPotion:
 		return entity.ThrownLingeringPotion, true
-	case "minecraft:experience_bottle":
+	case protocol.EntityTypeExperienceBottle:
 		return entity.ThrownExperienceBottle, true
-	case "minecraft:breeze_wind_charge":
+	case protocol.EntityTypeBreezeWindCharge:
 		return entity.ThrownBreezeWindCharge, true
-	case "minecraft:wind_charge":
+	case protocol.EntityTypeWindCharge:
 		return entity.ThrownWindCharge, true
-	case "minecraft:small_fireball":
+	case protocol.EntityTypeSmallFireball:
 		return entity.ThrownSmallFireball, true
-	case "minecraft:fireball":
+	case protocol.EntityTypeFireball:
 		return entity.ThrownLargeFireball, true
-	case "minecraft:dragon_fireball":
+	case protocol.EntityTypeDragonFireball:
 		return entity.ThrownDragonFireball, true
-	case "minecraft:wither_skull":
+	case protocol.EntityTypeWitherSkull:
 		return entity.ThrownWitherSkull, true
-	case "minecraft:shulker_bullet":
+	case protocol.EntityTypeShulkerBullet:
 		return entity.ThrownShulkerBullet, true
-	case "minecraft:llama_spit":
+	case protocol.EntityTypeLlamaSpit:
 		return entity.ThrownLlamaSpit, true
 	}
 	return 0, false
@@ -513,7 +513,7 @@ func savedThrownKind(id string) (entity.ThrownKind, bool) {
 // thrownIsSaved reports whether a thrown body is of a kind the chunk file
 // keeps.
 func thrownIsSaved(it *thrownEntity) bool {
-	_, ok := savedThrownKind(registry.EntityTypes[it.throwable.Kind.EntityType()])
+	_, ok := savedThrownKind(it.throwable.Kind.EntityType())
 	return ok
 }
 

@@ -1878,7 +1878,8 @@ func (h *mobHerd) standUp(pos world.ChunkPos, tags []nbt.Tag, s *Server, known m
 				continue
 			}
 		default:
-			if kind, ok := savedThrownKind(string(id)); ok {
+			typ, _ := registry.EntityTypeID(string(id))
+			if kind, ok := savedThrownKind(typ); ok {
 				if ent := s.thrownOfTag(h.w, kind, string(id), compound); ent != nil {
 					woken.thrown = append(woken.thrown, ent)
 					known[ent.uuid] = true
