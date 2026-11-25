@@ -39,15 +39,16 @@ func TestCalfFollowTimingOnFlatGround(t *testing.T) {
 		{
 			name: "mounted adult",
 			setup: []string{
-				`summon minecraft:pig -0.1 180 0.5 {OnGround:1b,Motion:[0.45d,0d,0d],Passengers:[{id:"minecraft:cow",NoAI:1b}]}`,
+				// Give the mount a floor collision on its first tick so its slide tests ground friction.
+				`summon minecraft:pig -0.1 180 0.5 {OnGround:1b,Motion:[0.54d,-0.08d,0d],Passengers:[{id:"minecraft:cow",NoAI:1b}]}`,
 				"summon minecraft:cow 8.85 180 0.5 {Age:-24000}",
 			},
 			adultY:    180.86874998,
 			firstNear: 45,
 			want: []sample{
-				{1, 8.85, 0.35}, {3, 8.85, 0.81928706}, {9, 8.85, 1.08105829},
-				{10, 8.7875, 1.08429270}, {30, 6.12459211, 1.08429270},
-				{45, 4.05961435, 1.08429270}, {90, 2.79711692, 1.08429270},
+				{1, 8.85, 0.44}, {3, 8.85, 0.89582271}, {9, 8.85, 1.08429801},
+				{10, 8.7875, 1.08429801}, {30, 6.12459211, 1.08429801},
+				{45, 4.05961435, 1.08429801}, {90, 2.79711692, 1.08429801},
 			},
 		},
 	} {
