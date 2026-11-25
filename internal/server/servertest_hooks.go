@@ -3838,7 +3838,7 @@ func (s *Server) SpawnCloudEntity(x, y, z float64) TestTrackedBody {
 
 // SpawnOwnerlessCloud stands an area effect cloud with the effects given and
 // no owner, already past its wait, where the tests put it.
-func (s *Server) SpawnOwnerlessCloud(x, y, z float64, specs []protocol.PotionEffectSpec) {
+func (s *Server) SpawnOwnerlessCloud(x, y, z float64, specs []protocol.PotionEffectSpec) TestTrackedBody {
 	effects := make([]effect.Instance, 0, len(specs))
 	for _, spec := range specs {
 		effects = append(effects, effect.FromWireSpec(spec))
@@ -3849,6 +3849,18 @@ func (s *Server) SpawnOwnerlessCloud(x, y, z float64, specs []protocol.PotionEff
 	it := s.clouds[len(s.clouds)-1]
 	it.cloud.WaitTime = 0
 	it.cloud.Restore(0, 3, -1e-3)
+	return TestTrackedBody{ID: it.cloud.ID, UUID: it.uuid}
+}
+
+// SetCloudRadius sets the radius of the cloud with the identity given.
+func (s *Server) SetCloudRadius(id uuid.UUID, radius float32) {
+	s.arrowsMu.Lock()
+	defer s.arrowsMu.Unlock()
+	for _, it := range s.clouds {
+		if it.uuid == id {
+			it.cloud.Restore(it.cloud.TickCount, radius, -1e-3)
+		}
+	}
 }
 
 // CloudState reads the age and radius of the cloud with the identity given.
