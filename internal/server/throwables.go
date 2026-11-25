@@ -585,6 +585,11 @@ func (s *Server) thrownOfFields(w *world.World, kind entity.ThrownKind, stackOf 
 func (s *Server) registerThrown(it *thrownEntity) {
 	s.resolveBulletTarget(it)
 	thrownTracker.register(s, it)
+	s.thrownRegistered(it)
+}
+
+// thrownRegistered is what a shown thrown body needs after the tracker has it.
+func (s *Server) thrownRegistered(it *thrownEntity) {
 	// The ticket goes down at once: a pearl in a chunk nothing ticks would
 	// never step to place it.
 	if it.throwable.Kind == entity.ThrownEnderPearl {
@@ -1072,10 +1077,13 @@ func thrownTeleportPayload(t *entity.Thrown) []byte {
 func (s *Server) killThrown(it *thrownEntity) {
 	s.arrowsMu.Lock()
 	it.throwable.Dead = true
+	held := it.held
 	s.arrowsMu.Unlock()
 	s.entityDestroyed(it.uuid)
-	s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
-		removeEntitiesPayload([]int32{it.throwable.ID}))
+	if !held {
+		s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
+			removeEntitiesPayload([]int32{it.throwable.ID}))
+	}
 }
 
 // teleportThrown moves a thrown body to the position given and stops it.

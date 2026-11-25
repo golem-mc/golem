@@ -203,6 +203,22 @@ func (s *Server) EndClockTime() int64 {
 	return total
 }
 
+// PluginEntityDataKeys counts the keys of the plugin Data stored for an
+// entity UUID, live or not.
+func (s *Server) PluginEntityDataKeys(id uuid.UUID) (n int) {
+	s.entityData.Read(entityDataID(id), func(c nbt.CompoundTag) { n = len(c.Entries()) })
+	return n
+}
+
+// PluginCallsQueued is signalled when a connection queues a plugin call for
+// the tick goroutine, nil with no plugins.
+func (s *Server) PluginCallsQueued() <-chan struct{} {
+	if s.plugins == nil {
+		return nil
+	}
+	return s.plugins.CallsQueued()
+}
+
 // SetTickClock replaces the clock the main loop schedules its ticks by and
 // the logger the loop's own lines go to, the backlog warning and a
 // finished sprint's report. It has to be called before the main loop is
@@ -232,10 +248,6 @@ func (s *Server) StopTick() { s.stopTick() }
 // anything they hold is released when a test server stops. Calling it again,
 // or after Shutdown, is safe.
 func (s *Server) DisablePlugins() { s.disablePlugins() }
-
-// PluginCallsQueued is signalled when a connection queues a plugin call, so
-// a held test can run the tick that serves it once it is pending.
-func (s *Server) PluginCallsQueued() <-chan struct{} { return s.plugins.CallsQueued() }
 
 // FlushSaves waits for the chunk saves queued in every dimension. Tests call
 // it once they have stopped driving the world, before their world directory is
@@ -3838,7 +3850,7 @@ func (s *Server) SpawnCloudEntity(x, y, z float64) TestTrackedBody {
 
 // SpawnOwnerlessCloud stands an area effect cloud with the effects given and
 // no owner, already past its wait, where the tests put it.
-func (s *Server) SpawnOwnerlessCloud(x, y, z float64, specs []protocol.PotionEffectSpec) {
+func (s *Server) SpawnOwnerlessCloud(x, y, z float64, specs []protocol.PotionEffectSpec) TestTrackedBody {
 	effects := make([]effect.Instance, 0, len(specs))
 	for _, spec := range specs {
 		effects = append(effects, effect.FromWireSpec(spec))
@@ -3849,6 +3861,18 @@ func (s *Server) SpawnOwnerlessCloud(x, y, z float64, specs []protocol.PotionEff
 	it := s.clouds[len(s.clouds)-1]
 	it.cloud.WaitTime = 0
 	it.cloud.Restore(0, 3, -1e-3)
+	return TestTrackedBody{ID: it.cloud.ID, UUID: it.uuid}
+}
+
+// SetCloudRadius sets the radius of the cloud with the identity given.
+func (s *Server) SetCloudRadius(id uuid.UUID, radius float32) {
+	s.arrowsMu.Lock()
+	defer s.arrowsMu.Unlock()
+	for _, it := range s.clouds {
+		if it.uuid == id {
+			it.cloud.Restore(it.cloud.TickCount, radius, -1e-3)
+		}
+	}
 }
 
 // CloudState reads the age and radius of the cloud with the identity given.

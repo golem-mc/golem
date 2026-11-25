@@ -227,8 +227,7 @@ func (s *Server) spawnCrossbowRocket(w *world.World, stack protocol.ItemStack, x
 	r.Yaw, r.Pitch = yaw, pitch
 	rocket.skipStep = deferStep
 	rocket.spawning = len(stack.Enchantments) > 0
-	s.registerFirework(rocket)
-	if rocket.spawning {
+	if s.launchFirework(rocket) && rocket.spawning {
 		s.spawnEffects(spawnedProjectile{w: w, typ: protocol.EntityTypeFireworkRocket, body: rocket}, stack, protocol.ItemStack{})
 	}
 }

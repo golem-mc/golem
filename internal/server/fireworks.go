@@ -156,7 +156,7 @@ func (c *client) launchFireworkOnFace(hand, x, y, z, face int32, cursorX, cursor
 func (s *Server) spawnFirework(w *world.World, stack protocol.ItemStack, x, y, z float64,
 	ownerID int32, ownerUUID uuid.UUID, attached int32) *fireworkEntity {
 	it := s.newFirework(w, stack, x, y, z, ownerID, ownerUUID, attached)
-	s.registerFirework(it)
+	s.launchFirework(it)
 	return it
 }
 
@@ -266,10 +266,13 @@ func (s *Server) killFirework(it *fireworkEntity) {
 	s.fireworksMu.Lock()
 	fireworkTracker.unfile(it)
 	s.fireworks = slices.DeleteFunc(s.fireworks, func(o *fireworkEntity) bool { return o == it })
+	held := it.held
 	s.fireworksMu.Unlock()
 	s.entityDestroyed(it.uuid)
-	s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
-		removeEntitiesPayload([]int32{it.rocket.ID}))
+	if !held {
+		s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
+			removeEntitiesPayload([]int32{it.rocket.ID}))
+	}
 }
 
 // teleportFirework moves a rocket to the position given, its flight
