@@ -57,7 +57,7 @@ func (s *Server) tickArrows() {
 			arrowTracker.unfile(it)
 			continue // hit, picked up, or expired before this tick
 		}
-		if !gate.ticks(it.w, it.arrow.X, it.arrow.Z) {
+		if it.spawning || !gate.ticks(it.w, it.arrow.X, it.arrow.Z) {
 			held = append(held, it)
 			alive = append(alive, it)
 			continue

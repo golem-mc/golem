@@ -61,6 +61,10 @@ type arrowEntity struct {
 	// custom is the custom name, guarded like tags.
 	custom customName
 	look   entityLook
+
+	// spawning holds the arrow out of its tick while its spawn effects run.
+	// Guarded by the arrow lock once registered.
+	spawning bool
 }
 
 // arrowTracker tracks the arrows and the tridents; a watcher's own state is
@@ -584,23 +588,32 @@ func (s *Server) spawnArrowFrom(w *world.World, x, y, z, vx, vy, vz float64,
 	weapon protocol.ItemStack, fireTicks int32, ammo protocol.ItemStack) int32 {
 	it := newArrowEntity(s, w, x, y, z, vx, vy, vz, yaw, pitch, crit, baseDamage, pickup, ownerID, ownerUUID, weapon, fireTicks)
 	armArrow(it, ammo)
-	if s.launchArrow(it) {
-		s.arrowSpawnedFrom(it, ammo, weapon)
-	}
+	s.launchArrowFrom(it, ammo, weapon)
 	return it.arrow.ID
 }
 
-// arrowSpawnedFrom runs the fired ammunition's projectile_spawned effects at
-// the new arrow, then the weapon's when the two are different items.
-// vanilla: Projectile.applyOnProjectileSpawned
-func (s *Server) arrowSpawnedFrom(it *arrowEntity, ammo, weapon protocol.ItemStack) {
+// launchArrowFrom puts the arrow in the world, then runs the fired
+// ammunition's projectile_spawned effects at it, then the weapon's when the
+// two are different items. The arrow's tick holds it still until they have
+// run: a player's shot runs on its connection, which vanilla runs between
+// ticks.
+// vanilla: Projectile.spawnProjectile, Projectile.applyOnProjectileSpawned
+func (s *Server) launchArrowFrom(it *arrowEntity, ammo, weapon protocol.ItemStack) {
 	if !ammo.Empty() && weapon.ItemID == ammo.ItemID {
 		weapon = protocol.ItemStack{}
 	}
-	if len(ammo.Enchantments) == 0 && len(weapon.Enchantments) == 0 {
+	effects := len(ammo.Enchantments) > 0 || len(weapon.Enchantments) > 0
+	it.spawning = effects
+	if !s.launchArrow(it) || !effects {
 		return
 	}
-	p := spawnedProjectile{w: it.w, typ: it.entityType, body: it}
+	s.spawnEffects(spawnedProjectile{w: it.w, typ: it.entityType, body: it}, ammo, weapon)
+}
+
+// spawnEffects runs the projectile_spawned effects of ammo, then weapon, at
+// p, then lets p's tick step it.
+func (s *Server) spawnEffects(p spawnedProjectile, ammo, weapon protocol.ItemStack) {
+	defer p.body.spawned(s)
 	s.projectileSpawned(ammo, p)
 	s.projectileSpawned(weapon, p)
 }
@@ -619,6 +632,8 @@ type spawnedBody interface {
 	spawnedTarget(s *Server) enchantTarget
 	// spawnedSnapshot freezes the body for a requirement; nil once it is gone.
 	spawnedSnapshot(s *Server) *entitySnapshot
+	// spawned lets the body's tick step it.
+	spawned(s *Server)
 }
 
 // spawnedIgniter is a spawnedBody an ignite effect sets burning.
@@ -637,6 +652,12 @@ func (it *arrowEntity) spawnedSnapshot(s *Server) *entitySnapshot {
 	s.arrowsMu.Lock()
 	defer s.arrowsMu.Unlock()
 	return s.arrowSnapshot(it, nil)
+}
+
+func (it *arrowEntity) spawned(s *Server) {
+	s.arrowsMu.Lock()
+	it.spawning = false
+	s.arrowsMu.Unlock()
 }
 
 func (it *arrowEntity) ignite(s *Server, ticks int32) {
@@ -728,9 +749,7 @@ func (s *Server) spawnTrident(w *world.World, x, y, z, vx, vy, vz float64,
 	}
 	it.arrow.Yaw, it.arrow.Pitch = yaw, pitch
 	it.arrow.Foil = tridentFoil(&stack)
-	if s.launchArrow(it) {
-		s.arrowSpawnedFrom(it, protocol.ItemStack{}, stack)
-	}
+	s.launchArrowFrom(it, protocol.ItemStack{}, stack)
 	return it.arrow.ID
 }
 
@@ -1121,9 +1140,7 @@ func (s *Server) spawnMobShot(shot mobShot) {
 		it.arrow.HitSound = crossbowHitSound
 		it.arrow.PierceLevel = rules.PiercingLevel(shot.weapon, protocol.ItemStack{ItemID: int32(registry.ItemArrow), Count: 1}, &rules.EnchContext{Rand: s.levelRng})
 	}
-	if s.launchArrow(it) {
-		s.arrowSpawnedFrom(it, protocol.ItemStack{}, shot.weapon)
-	}
+	s.launchArrowFrom(it, protocol.ItemStack{}, shot.weapon)
 }
 
 // mayPickUpArrow puts a player's touch of a shaft they may take to

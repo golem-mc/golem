@@ -1,11 +1,16 @@
 package combat
 
 import (
+	"fmt"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/plugin"
+	"github.com/golem-mc/golem/registry"
 )
 
 // spawnEnchantment is an enchantment whose projectile_spawned entries are
@@ -45,11 +50,17 @@ func ammoPack(t *testing.T) string {
 		"data/pk/enchantment/sky.json": spawnEnchantment(runFunction("sky", `,"requirements":{"type":"minecraft:location_check","predicate":{"can_see_sky":true}}`)),
 		"data/pk/enchantment/moved.json": spawnEnchantment(runFunction("move", "") + "," +
 			runFunction("aftermove", `,"requirements":{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:nbt":"{Pos:[5.5d,64.0d,0.5d]}"}}`)),
-		"data/pk/enchantment/retarget.json": spawnEnchantment(runFunction("move", "") + "," + replaceWith("gold_block", "")),
+		"data/pk/enchantment/contend.json": spawnEnchantment(`{"effect":{"type":"minecraft:summon_entity","entity":"minecraft:armor_stand"}}`),
+		"data/pk/enchantment/retarget.json": spawnEnchantment(runFunction("move", "") + "," +
+			runFunction("originair", `,"requirements":{"type":"minecraft:location_check","predicate":{"block":{"blocks":"#minecraft:air"}}}`) + "," +
+			runFunction("thisstone", `,"requirements":{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:location":{"block":{"blocks":"#minecraft:base_stone_overworld"}}}}`) + "," +
+			replaceWith("gold_block", "")),
 		"data/pk/enchantment/restone.json": spawnEnchantment(
 			replaceWith("stone", `,"requirements":{"type":"minecraft:location_check","predicate":{"block":{"blocks":"#minecraft:air"}}}`) + "," +
 				runFunction("onstone", `,"requirements":{"type":"minecraft:location_check","predicate":{"block":{"blocks":"#minecraft:base_stone_overworld"}}}`)),
 		"data/pack/function/onstone.mcfunction":     "tag @s add onstone\n",
+		"data/pack/function/originair.mcfunction":   "tag @s add originair\n",
+		"data/pack/function/thisstone.mcfunction":   "tag @s add thisstone\n",
 		"data/pack/function/sky.mcfunction":         "tag @s add sky\n",
 		"data/pack/function/move.mcfunction":        "tp @s 5 64 0\n",
 		"data/pack/function/aftermove.mcfunction":   "tag @s add aftermove\n",
@@ -71,12 +82,15 @@ func fireLoaded(t *testing.T, weapon, item string) *server.Server {
 	return fireLoadedWith(t, weapon, item, "pk:ammo")
 }
 
-func fireLoadedWith(t *testing.T, weapon, item, ammoEnchantment string) *server.Server {
+func fireLoadedWith(t *testing.T, weapon, item, ammoEnchantment string, before ...func(*server.Server)) *server.Server {
 	t.Helper()
 	cfg := servertest.BowTestConfig()
 	cfg.LevelName = ammoPack(t)
 	srv, c, _ := servertest.JoinAs(t, cfg, "Archer")
 	servertest.HoldTicks(t, srv)
+	for _, f := range before {
+		f(srv)
+	}
 	crossbow := servertest.EnchantedStack(t, "minecraft:crossbow", weapon, 1)
 	crossbow.SetChargedProjectiles([]protocol.ItemStack{servertest.EnchantedStack(t, item, ammoEnchantment, 1)})
 	srv.GiveSlot("Archer", 36, crossbow)
@@ -176,13 +190,25 @@ func TestCrossbowRocketRequirementSeesMove(t *testing.T) {
 	}
 }
 
-// A block effect after a teleport writes where the projectile now stands.
-// vanilla: Enchantment.onProjectileSpawned, ReplaceBlock.apply
+// After a teleport from air onto stone, a location requirement still reads
+// the enchantment's origin, an entity location requirement and a block
+// effect read where the projectile now stands.
+// vanilla: Enchantment.onProjectileSpawned, LocationCheck.test, EntityLocationPredicate.matches, ReplaceBlock.apply
 func TestCrossbowSpawnEffectReplacesAtMovedProjectile(t *testing.T) {
-	for _, item := range []string{"minecraft:arrow", "minecraft:firework_rocket"} {
-		srv := fireLoadedWith(t, "pk:weapon", item, "pk:retarget")
+	for _, item := range []struct{ name, typ string }{
+		{"minecraft:arrow", "arrow"}, {"minecraft:firework_rocket", "firework_rocket"},
+	} {
+		srv := fireLoadedWith(t, "pk:weapon", item.name, "pk:retarget", func(srv *server.Server) {
+			srv.RunLine("setblock 5 64 0 minecraft:stone")
+		})
+		if !hasEntity(srv, "type="+item.typ+",tag=originair") {
+			t.Errorf("%s: the location requirement did not read the air the projectile was shot from", item.name)
+		}
+		if !hasEntity(srv, "type="+item.typ+",tag=thisstone") {
+			t.Errorf("%s: the entity location requirement did not read the stone the projectile was moved to", item.name)
+		}
 		if !executeHolds(srv.RunLine("execute if block 5 64 0 minecraft:gold_block")) {
-			t.Errorf("%s: no gold block where the projectile was moved to", item)
+			t.Errorf("%s: no gold block where the projectile was moved to", item.name)
 		}
 	}
 }
@@ -193,5 +219,88 @@ func TestCrossbowSpawnRequirementSeesPlacedBlock(t *testing.T) {
 	srv := fireLoadedWith(t, "pk:weapon", "minecraft:arrow", "pk:restone")
 	if !hasEntity(srv, "type=arrow,tag=onstone") {
 		t.Error("the requirement did not see the stone the previous entry placed")
+	}
+}
+
+// spawnStepper steps every projectile from the listener of the armor stand a
+// spawn effect summons, while the shot's effects are still running, and
+// reports whether a projectile moved.
+type spawnStepper struct {
+	srv     atomic.Pointer[server.Server]
+	spawned atomic.Int32
+	stepped atomic.Bool
+}
+
+func (p *spawnStepper) Enable(s plugin.Server) error {
+	plugin.Listen(s, func(e *plugin.EntitySpawnEvent) {
+		if e.Entity.Type() != registry.EntityTypeArmorStand {
+			return
+		}
+		var shots []plugin.Entity
+		var before []plugin.Vec3
+		for body := range e.Entity.World().Entities() {
+			if t := body.Type(); t == registry.EntityTypeArrow || t == registry.EntityTypeFireworkRocket {
+				shots, before = append(shots, body), append(before, body.Pos())
+			}
+		}
+		p.srv.Load().TickProjectiles()
+		for i, body := range shots {
+			if body.Pos() != before[i] {
+				p.stepped.Store(true)
+			}
+		}
+		p.spawned.Add(1)
+	})
+	return nil
+}
+
+func (p *spawnStepper) Disable() {}
+
+// A projectile's step that contends with its spawn effects waits for them:
+// vanilla runs the shot's packet between ticks.
+// vanilla: PacketUtils.ensureRunningOnSameThread, Projectile.applyOnProjectileSpawned
+func TestCrossbowSpawnEffectsRunBeforeFirstStep(t *testing.T) {
+	for _, item := range []string{"minecraft:arrow", "minecraft:firework_rocket"} {
+		cfg := servertest.BowTestConfig()
+		cfg.LevelName = ammoPack(t)
+		stepper := &spawnStepper{}
+		srv := servertest.NewTestServerWithPlugins(t, cfg, []plugin.Registration{{Name: "stepper", Plugin: stepper}})
+		stepper.srv.Store(srv)
+		c := servertest.DialServer(t, srv)
+		c.JoinAs("Archer")
+		servertest.HoldTicks(t, srv)
+		crossbow := servertest.EnchantedStack(t, "minecraft:crossbow", "pk:flame", 1)
+		crossbow.SetChargedProjectiles([]protocol.ItemStack{servertest.EnchantedStack(t, item, "pk:contend", 1)})
+		srv.GiveSlot("Archer", 36, crossbow)
+		c.MoveTo(0.5, 64, 0.5, -90, 0)
+		c.Settle()
+		c.Send(protocol.IDPlayUseItem, func(b *protocol.Buffer) {
+			b.PutVarInt(protocol.HandMain)
+			b.PutVarInt(1)
+			b.PutF32(-90)
+			b.PutF32(0)
+		})
+		// The listener runs on a tick once the connection has read the use.
+		for i := 0; stepper.spawned.Load() == 0; i++ {
+			if i == 400 {
+				t.Fatalf("%s: the spawn effect summoned nothing", item)
+			}
+			servertest.RunTicks(t, srv, 1)
+			time.Sleep(5 * time.Millisecond)
+		}
+		c.Settle()
+		if stepper.stepped.Load() {
+			t.Errorf("%s: the projectile stepped before its spawn effects ran", item)
+		}
+		typ := "type=" + item[len("minecraft:"):]
+		if arrows := srv.ArrowsInDimension("minecraft:overworld"); item == "minecraft:arrow" && (len(arrows) != 1 || !arrows[0].Burning) {
+			t.Errorf("%s: arrows %+v, want one lit by the weapon's Flame", item, arrows)
+		}
+		get := "data get entity @e[" + typ + ",limit=1] Pos"
+		pos := fmt.Sprint(srv.RunLine(get))
+		servertest.RunTicks(t, srv, 1)
+		if fmt.Sprint(srv.RunLine(get)) == pos {
+			t.Errorf("%s: the projectile did not step once its spawn effects ran", item)
+		}
 	}
 }

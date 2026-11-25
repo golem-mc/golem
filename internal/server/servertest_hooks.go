@@ -4945,6 +4945,14 @@ func (s *Server) SetPhysicsSeed(seed int64) {
 	}
 }
 
+// TickProjectiles runs the arrow and rocket passes once, as the main loop
+// runs them. A plugin listener calls it to step a projectile between two of
+// the server's own steps.
+func (s *Server) TickProjectiles() {
+	s.tickArrows()
+	s.tickFireworks()
+}
+
 // TickEntities runs the entity passes the main loop runs after the physics,
 // the items and the arrows and the throwables and the fishing hooks and the orbs and the primed
 // bodies, n times over, exactly as the main loop's own passes run them. It

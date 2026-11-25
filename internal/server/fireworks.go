@@ -45,6 +45,10 @@ type fireworkEntity struct {
 	tags nbt.StringSet
 	// custom is the custom name, guarded like tags.
 	custom customName
+
+	// spawning holds the rocket out of its tick while its spawn effects run.
+	// Guarded by the firework lock once registered.
+	spawning bool
 }
 
 // fireworkTracker tracks the rockets. A rocket's flight is never on the
@@ -508,7 +512,7 @@ func (s *Server) tickFireworks() {
 			fireworkTracker.unfile(it)
 			continue // the life ran out before this tick
 		}
-		if !gate.ticks(it.w, it.rocket.X, it.rocket.Z) {
+		if it.spawning || !gate.ticks(it.w, it.rocket.X, it.rocket.Z) {
 			held = append(held, it)
 			alive = append(alive, it)
 			continue
@@ -892,4 +896,10 @@ func (it *fireworkEntity) spawnedSnapshot(s *Server) *entitySnapshot {
 	s.fireworksMu.Lock()
 	defer s.fireworksMu.Unlock()
 	return s.fireworkSnapshot(it, nil)
+}
+
+func (it *fireworkEntity) spawned(s *Server) {
+	s.fireworksMu.Lock()
+	it.spawning = false
+	s.fireworksMu.Unlock()
 }
