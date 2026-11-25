@@ -7,9 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -146,5 +148,32 @@ func TestPackWeaponPostAttackActions(t *testing.T) {
 	}
 	if got := srv.InventorySlot(name, player.HotbarSlot).Damage; got != 4 {
 		t.Errorf("weapon wear %d, want 3 effect + 1 attack", got)
+	}
+}
+
+// A post-attack effect that takes the level runs in the fangs' level, at the
+// body of the evoker hit back from another dimension.
+// vanilla: EvokerFangs.dealDamageTo, ReplaceBlock.apply
+func TestPackReplaceBlockOnFangsOwnerRunsInTheFangsLevel(t *testing.T) {
+	cfg := servertest.HostileTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	cfg.LevelName = postAttackPack(t, "chest", "#minecraft:enchantable/chest_armor", packPostAttack("victim", "attacker",
+		`{"type":"minecraft:replace_block","block_state":{"type":"minecraft:simple_state_provider","state":{"id":"minecraft:gold_block"}},"offset":[0,-1,0]}`))
+	const name = "Wearer"
+	srv, c, _ := servertest.JoinAs(t, cfg, name)
+	servertest.HoldTicks(t, srv)
+	srv.GiveSlot(name, player.ArmorSlot+1, servertest.EnchantedStack(t, "minecraft:iron_chestplate", "pk:targets", 1))
+	t.Cleanup(srv.HoldChunkInDimension(world.NetherName, 0, 0))
+	evoker := srv.SpawnMobInDimension("minecraft:evoker", world.NetherName, 0.5, 64, 0.5)
+	srv.SetMobNoAI(evoker)
+	at := srv.PlayerPosition(name)
+	srv.SpawnFangs(at.X, at.Y, at.Z, evoker)
+	c.ReadTicks(srv, 8, func(int32, []byte) bool { return false })
+	gold, _ := registry.BlockByName("minecraft:gold_block")
+	if got := registry.BlockOf(srv.BlockAt(0, 63, 0)); got != gold {
+		t.Errorf("overworld block at the evoker's coordinates is %s, want gold_block", got.Name())
+	}
+	if got := registry.BlockOf(srv.BlockInDimension(world.NetherName, 0, 63, 0)); got == gold {
+		t.Error("nether block under the evoker is gold_block, want the effect to leave that level alone")
 	}
 }

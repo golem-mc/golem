@@ -95,7 +95,13 @@ func (c *client) Relation(name string) []command.Entity {
 			return []command.Entity{v}
 		}
 	case "attacker":
-		return firstRelated(c.srv.relatedByID(c.theWorld(), c.player.Vitals().LastHurtBy))
+		id := c.player.Vitals().LastHurtBy
+		related := c.srv.relatedByID(c.theWorld(), id)
+		if related == nil {
+			// vanilla: EntityReference.getEntity
+			related = c.srv.relatedMobAnyDim(id)
+		}
+		return firstRelated(related)
 	}
 	return nil
 }

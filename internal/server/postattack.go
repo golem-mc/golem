@@ -157,9 +157,9 @@ func (s *Server) postAttack(w *world.World, attacker, victim attackBody, weapon 
 
 func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rules.PostAttackAction, cause *damageCause, when velocitySync) {
 	e := a.Effect
-	// The target's feedback and position effects belong to its own world.
-	hitW := w
-	w = target.at(w)
+	// The target's body and feedback live in its own world; effects that take
+	// the level run in the hit's. vanilla: Enchantment.applyEffects
+	tw := target.at(w)
 	var x, y, z float64
 	var silent bool
 	var body enchantTarget
@@ -232,7 +232,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 	} else {
 		s.mobsMu.Lock()
 		m := target.mob
-		ent := s.herdOf(w).book[m]
+		ent := s.herdOf(tw).book[m]
 		if ent == nil {
 			s.mobsMu.Unlock()
 			return
@@ -248,7 +248,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			}
 		}
 		if e.Duration != nil {
-			m.IgniteForTicksBy(int(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level)))), entity.CombustSource{By: s.attackBodyEntityLocked(hitW, owner)})
+			m.IgniteForTicksBy(int(rules.IgniteTicks(float64(rules.EnchLevelValueAt(e.Duration, a.Level)))), entity.CombustSource{By: s.attackBodyEntityLocked(w, owner)})
 		}
 		if i := e.ApplyImpulse; i != nil {
 			impulse := rules.LookImpulse(float32(m.Yaw), float32(m.Pitch), i.CoordinateScale, float64(rules.EnchLevelValueAt(i.Magnitude, a.Level)))
@@ -271,17 +271,21 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 		sound, volume, pitch := mobSound(m, true), m.SoundVolume(), m.VoicePitch()
 		vx, vy, vz := m.VX, m.VY, m.VZ
 		s.mobsMu.Unlock()
-		s.tellSplashMob(w, tell)
+		s.tellSplashMob(tw, tell)
 		if e.ApplyImpulse != nil {
-			s.broadcastWorld(w, protocol.IDPlaySetEntityMotion, entityVelocityPayload(id, vx, vy, vz))
+			s.broadcastWorld(tw, protocol.IDPlaySetEntityMotion, entityVelocityPayload(id, vx, vy, vz))
 		}
 		if landed {
-			s.broadcastWorld(w, protocol.IDPlayEntityMetadata, health)
+			s.broadcastWorld(tw, protocol.IDPlayEntityMetadata, health)
 			if !softened {
-				s.broadcastWorld(w, protocol.IDPlayDamageEvent, damageEventPayload(id, hit.DamageType, causeEntityID(cause), causeEntityID(cause)))
-				s.broadcastVoice(w, kind, silent, x, y, z, sound, volume, pitch)
+				// The hit's level does not track a mob in another dimension, so no damage event.
+				// vanilla: ServerLevel.broadcastDamageEvent
+				if tw == w {
+					s.broadcastWorld(w, protocol.IDPlayDamageEvent, damageEventPayload(id, hit.DamageType, causeEntityID(cause), causeEntityID(cause)))
+				}
+				s.broadcastVoice(tw, kind, silent, x, y, z, sound, volume, pitch)
 				if hit.DamageType == registry.DamageTypeThorns {
-					s.broadcastSoundID(w, thornsHitSound, category, x, y, z, 1, 1)
+					s.broadcastSoundID(tw, thornsHitSound, category, x, y, z, 1, 1)
 				}
 			}
 		}
@@ -304,7 +308,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 		}
 	}
 	if e.ChangeItemDamage != nil {
-		s.wearPostAttack(hitW, owner, a.Piece, int32(rules.EnchLevelValueAt(e.ChangeItemDamage, a.Level)))
+		s.wearPostAttack(w, owner, a.Piece, int32(rules.EnchLevelValueAt(e.ChangeItemDamage, a.Level)))
 	}
 }
 

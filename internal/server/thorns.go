@@ -39,9 +39,14 @@ func (s *Server) thornsOnOwner(w *world.World, victim *client, ownerID int32, da
 		ctx.Attacker = protocol.EntityTypePlayer
 		s.postAttack(w, attackBody{player: owner}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
 	} else if ent := s.mobByEntityIDAnyDim(ownerID); ent != nil {
-		ctx.Attacker = mobEntityType(ent.mob.Type)
-		s.postAttack(w, attackBody{mob: ent.mob, w: ent.w}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
+		s.thornsOnMobOwner(w, victim, ent.mob, ent.w, ctx)
 	}
+}
+
+// thornsOnMobOwner hits back a mob owner already resolved, living in ownerW.
+func (s *Server) thornsOnMobOwner(w *world.World, victim *client, owner *entity.Mob, ownerW *world.World, ctx *rules.EnchContext) {
+	ctx.Attacker = mobEntityType(owner.Type)
+	s.postAttack(w, attackBody{mob: owner, w: ownerW}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
 }
 
 // mobThorns defers a mob victim's post-attack dispatch until after the mob lock.

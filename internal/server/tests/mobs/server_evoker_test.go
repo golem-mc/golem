@@ -1,6 +1,7 @@
 package mobs
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -352,6 +353,7 @@ func damageEventOf(c *servertest.Client, srv *server.Server, ticks int, victim i
 			if r.ReadVarInt() == victim {
 				damageType = r.ReadVarInt()
 				cause = r.ReadVarInt()
+				return true
 			}
 		}
 		return false
@@ -391,12 +393,14 @@ func TestFangsKeepTheirOwnerAcrossDimensions(t *testing.T) {
 	}
 	c.ChatCommand("execute as @e[type=minecraft:pig,limit=1] on attacker run say hi")
 	said := false
-	c.ReadTicks(srv, 2, func(pid int32, _ []byte) bool {
-		said = said || pid == protocol.IDPlayDisguisedChat
-		return false
+	c.ReadTicks(srv, 2, func(pid int32, data []byte) bool {
+		if pid == protocol.IDPlayDisguisedChat {
+			said = bytes.Contains(bytes.ToLower(data), []byte("evoker"))
+		}
+		return said
 	})
 	if !said {
-		t.Error("the pig's attacker relation found nobody, want the nether evoker")
+		t.Error("the pig's attacker relation did not find the nether evoker as the speaker")
 	}
 }
 
@@ -416,18 +420,14 @@ func TestFangsFollowTheirOwnerThroughATransferDuringWarmup(t *testing.T) {
 		srv.SetMobNoAI(id)
 		srv.SetMobHealth(id, 100)
 	}
-	_, portalX, _, _ := servertest.PortalStates(t)
-	if !srv.SetBlock(40, 64, 40, portalX) {
-		t.Fatal("placing the portal block failed")
-	}
 	owner := srv.SpawnMob(evokerKind, 40.5, 64, 40.5)
 	srv.SpawnFangsWarmup(10.5, 64, 0.5, owner, 4)
-	srv.TickMobs(1)
+	t.Cleanup(srv.HoldChunkInDimension(world.NetherName, 0, 0))
+	srv.RunLine("execute in minecraft:the_nether run tp @e[type=minecraft:evoker,limit=1] 0.5 64 0.5")
 	mobs := srv.MobsInDimension(world.NetherName)
 	if len(mobs) != 1 || mobs[0].ID == owner {
 		t.Fatalf("the nether holds %+v, want the evoker under a new ID (was %d)", mobs, owner)
 	}
-	t.Cleanup(srv.HoldChunkInDimension(world.NetherName, int32(mobs[0].X), int32(mobs[0].Z)))
 	srv.SetMobNoAI(mobs[0].ID)
 	_, cause := damageEventOf(c, srv, 14, pig)
 	if cause != mobs[0].ID+1 {
@@ -445,7 +445,7 @@ func TestFangsThornsReachAnOwnerInAnotherDimension(t *testing.T) {
 	t.Parallel()
 	cfg := servertest.HostileTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, c := servertest.Join(t, cfg, "Target")
+	srv, c := servertest.Join(t, cfg, "Target", servertest.OpsListing(t, "Target"))
 	servertest.HoldTicks(t, srv)
 	srv.GiveSlot("Target", player.ArmorSlot+1, servertest.EnchantedStack(t, "minecraft:diamond_chestplate", "minecraft:thorns", 7))
 	t.Cleanup(srv.HoldChunkInDimension(world.NetherName, 0, 0))
@@ -454,7 +454,22 @@ func TestFangsThornsReachAnOwnerInAnotherDimension(t *testing.T) {
 	at := srv.PlayerPosition("Target")
 	srv.SpawnFangs(at.X, at.Y, at.Z, evoker)
 	c.ReadTicks(srv, 8, func(int32, []byte) bool { return false })
-	if hp, _ := srv.MobHealthInDimension(world.NetherName, evoker); hp >= 24 {
+	hp, ok := srv.MobHealthInDimension(world.NetherName, evoker)
+	if !ok {
+		t.Fatal("the nether evoker is gone")
+	}
+	if hp >= 24 {
 		t.Errorf("nether evoker health = %v, want it hurt by the thorns", hp)
+	}
+	c.ChatCommand("execute on attacker run say hi")
+	said := false
+	c.ReadTicks(srv, 2, func(pid int32, data []byte) bool {
+		if pid == protocol.IDPlayDisguisedChat {
+			said = bytes.Contains(bytes.ToLower(data), []byte("evoker"))
+		}
+		return said
+	})
+	if !said {
+		t.Error("the player's attacker relation did not find the nether evoker as the speaker")
 	}
 }

@@ -2639,25 +2639,29 @@ func (s *Server) mobByEntityIDAnyDimLocked(id int32) (*mobEntity, *dimension) {
 	return nil, nil
 }
 
-// mobByUUIDAnyDimLocked finds a live mob by identity, looking in first before
-// the other dimensions, with its dimension. The caller holds mobsMu.
+// mobByUUIDLocked finds a mob by identity, trying first (nil for none)
+// before the other dimensions, with its dimension. A removed mob is skipped;
+// the caller checks the rest of its eligibility and holds mobsMu.
 // vanilla: ServerLevel.getEntity(UUID), Entity.level().getServer().getLevel
-func (s *Server) mobByUUIDAnyDimLocked(id uuid.UUID, first *world.World) (*mobEntity, *dimension) {
+func (s *Server) mobByUUIDLocked(id uuid.UUID, first *dimension) (*mobEntity, *dimension) {
 	if id == uuid.Nil {
 		return nil, nil
 	}
 	find := func(dim *dimension) *mobEntity {
-		if m := dim.mobs.byUUID[id]; m != nil && !m.Dead && !m.Discarded() {
+		if m := dim.mobs.byUUID[id]; m != nil && !m.Discarded() {
 			return dim.mobs.book[m]
 		}
 		return nil
 	}
-	if d := s.dimensionOfWorld(first); d != nil {
-		if ent := find(d); ent != nil {
-			return ent, d
+	if first != nil {
+		if ent := find(first); ent != nil {
+			return ent, first
 		}
 	}
 	for _, dim := range s.allDims() {
+		if dim == first {
+			continue
+		}
 		if ent := find(dim); ent != nil {
 			return ent, dim
 		}

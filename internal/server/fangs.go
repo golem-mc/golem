@@ -103,7 +103,7 @@ func (s *Server) registerFangs(it *fangsEntity) {
 // fangsEffect holds only the inputs an attack needs after the fangs lock is released.
 type fangsEffect struct {
 	w         *world.World
-	id, owner int32
+	id        int32
 	ownerUUID uuid.UUID
 	x, y, z   float64
 }
@@ -128,7 +128,7 @@ func (s *Server) tickFangs() {
 		if spike || bite {
 			// The effects must not read a command's concurrent position or owner write.
 			f := it.fangs
-			at := fangsEffect{w: it.w, id: f.ID, owner: f.OwnerID, ownerUUID: it.ownerUUID, x: f.X, y: f.Y, z: f.Z}
+			at := fangsEffect{w: it.w, id: f.ID, ownerUUID: it.ownerUUID, x: f.X, y: f.Y, z: f.Z}
 			if spike {
 				fx.spikes = append(fx.spikes, at)
 			}
@@ -180,11 +180,11 @@ func (s *Server) fangsBite(it fangsEffect) {
 	h := s.herdOf(w)
 	owner := entity.AllianceMember{}
 	var ownerUUID uuid.UUID
-	ownerID := it.owner
+	var ownerID int32
 	ownerW := w
 	// The owner is found by identity: a dimension transfer gives it a new entity ID.
 	// vanilla: EntityReference.getEntity
-	if ent, dim := s.mobByUUIDAnyDimLocked(it.ownerUUID, w); ent != nil {
+	if ent, dim := s.mobByUUIDLocked(it.ownerUUID, s.dimensionOfWorld(w)); ent != nil && !ent.mob.Dead {
 		ownerW = dim.w
 		owner = entity.AllianceMember{Mob: ent.mob, Team: ent.mob.Team}
 		ownerUUID = ent.uuid
@@ -273,7 +273,12 @@ func (s *Server) fangsBite(it fangsEffect) {
 			if !softened {
 				c.knockbackFromPoint(w, it.x, it.y, it.z, syncVelocityAfterTravel)
 			}
-			s.thornsOnOwner(w, c, ownerID, rules.DamageTypeIndirectMagic, -1)
+			if owner.Mob != nil {
+				s.thornsOnMobOwner(w, c, owner.Mob, ownerW, &rules.EnchContext{
+					DamageType: rules.DamageTypeIndirectMagic, Victim: protocol.EntityTypePlayer,
+					Attacker: -1, DirectAttacker: -1,
+				})
+			}
 		}
 	}
 	for _, m := range victims {
@@ -287,10 +292,8 @@ func (s *Server) fangsBite(it fangsEffect) {
 
 // vanilla: EntityReference.getEntity
 func (s *Server) fangsAllyByUUIDLocked(id uuid.UUID) entity.AllianceMember {
-	for _, dim := range s.allDims() {
-		if m := dim.mobs.byUUID[id]; m != nil && !m.Discarded() {
-			return entity.AllianceMember{Mob: m, Team: m.Team}
-		}
+	if ent, _ := s.mobByUUIDLocked(id, nil); ent != nil {
+		return entity.AllianceMember{Mob: ent.mob, Team: ent.mob.Team}
 	}
 	// The mob pass snapshots online players' teams before fangs tick.
 	if team, online := s.mobInputs.playerTeams[id]; online {
