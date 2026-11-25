@@ -259,7 +259,8 @@ func (s *Server) stepThrown(fx *thrownEffects, in *thrownTickInputs, it *thrownE
 		rollMark = t.RandSrc.Mark()
 	}
 	raw := t.StepGather(it.w, func(*entity.Thrown) (*entity.ArrowTarget, []entity.ArrowTarget) {
-		return s.gatherTargets(in, it, tw), in.targets
+		owner := s.gatherTargets(in, it, tw)
+		return owner, in.targets
 	})
 	if asking {
 		if ask, held := s.thrownHitAskOf(it, &tw.bodies, before.HitAllowed, raw); held {

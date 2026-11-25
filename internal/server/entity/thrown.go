@@ -698,12 +698,16 @@ func (t *Thrown) thrownBoxFor(vx, vy, vz float64) ArrowTarget {
 	}
 }
 
-// MoveBox is the box (x, y, z, x, y, z) of what the move may meet: thrownBox
-// over the velocity StepGather has settled. A shulker bullet's steering is
-// not modelled; callers pad it.
+// MoveBox is the box (x, y, z, x, y, z) of what the move may meet: the
+// kind's own box swept over the velocity StepGather has settled, grown by a
+// block. A shulker bullet's steering is not modelled; callers pad it.
+// vanilla: ProjectileUtil.getEntityHitResult
 func (t *Thrown) MoveBox() [6]float64 {
-	b := t.thrownBox()
-	return [6]float64{b.MinX, b.MinY, b.MinZ, b.MaxX, b.MaxY, b.MaxZ}
+	b := t.blockBox(t.X, t.Y, t.Z)
+	return [6]float64{
+		math.Min(b.minX, b.minX+t.VX) - 1, math.Min(b.minY, b.minY+t.VY) - 1, math.Min(b.minZ, b.minZ+t.VZ) - 1,
+		math.Max(b.maxX, b.maxX+t.VX) + 1, math.Max(b.maxY, b.maxY+t.VY) + 1, math.Max(b.maxZ, b.maxZ+t.VZ) + 1,
+	}
 }
 
 // sweepThrownTargets returns the body whose box (grown by the age's margin)

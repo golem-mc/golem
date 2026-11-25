@@ -192,6 +192,17 @@ func TestAFireballSkipsAScaledMobFiledBeyondTheSectionPadding(t *testing.T) {
 	}
 }
 
+// TestAFireballReachesAScaledMobFiledInTheChunkItsOwnBoxPadsInto checks the
+// query uses the fireball's own 0.3125-wide box, so the padded bound just
+// reaches the cow's chunk.
+// vanilla: ProjectileUtil.getEntityHitResult, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestAFireballReachesAScaledMobFiledInTheChunkItsOwnBoxPadsInto(t *testing.T) {
+	t.Parallel()
+	if before, after := scaledCowFlight(t, 12.86, 16.5); after >= before {
+		t.Errorf("health %v -> %v, want the fireball to hurt it", before, after)
+	}
+}
+
 // TestAFireballWithSavedAccelerationReachesAMobInOneTick checks the sweep
 // is queried over the velocity after the acceleration is applied.
 // vanilla: AbstractHurtingProjectile.tick, ProjectileUtil.getEntityHitResult
