@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"math"
 	"slices"
 	"strconv"
 	"testing"
@@ -16,7 +15,9 @@ import (
 
 // angleByte is the protocol angle of degrees.
 func angleByte(degrees float64) uint8 {
-	return uint8(int32(math.Floor(math.Mod(degrees, 360) * 256 / 360)))
+	var b protocol.Buffer
+	b.PutAngle(float32(degrees))
+	return b.Bytes()[0]
 }
 
 // A chicken carrying a pig carrying a cow, each facing its own way, so a rider

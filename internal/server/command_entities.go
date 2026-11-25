@@ -914,10 +914,12 @@ func (e *entitySnapshot) Kill() {
 
 // teleportTurn is the rotation transition move gives a mob and its riders.
 // A facing clause turns only the mount, after the teleport, so the
-// riders get a zero relative turn; only /teleport wraps its angles.
+// riders get a zero relative turn; only /teleport wraps its angles. A
+// coordinate-only /teleport has zero relative offsets, and a plugin's
+// rewritten destination has no relative axes, so both follow the flags.
 // vanilla: TeleportCommand.performTeleport, LookAt.perform
 func teleportTurn(move command.Move) entity.Turn {
-	if move.LookAt != nil || move.KeepRotation {
+	if move.LookAt != nil {
 		return entity.Turn{RelYaw: true, RelPitch: true}
 	}
 	t := entity.Turn{Yaw: move.Pos.Yaw, Pitch: move.Pos.Pitch}
