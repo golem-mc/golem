@@ -91,7 +91,9 @@ func (m *Mob) effectsStep(events []MobEvent) []MobEvent {
 	if len(changes) > 0 {
 		m.effectsChanged()
 		for _, ch := range changes {
-			m.effectChanged(ch, false)
+			if !ch.DurationOnly {
+				m.effectChanged(ch, false)
+			}
 		}
 		m.clampAbsorption()
 	}

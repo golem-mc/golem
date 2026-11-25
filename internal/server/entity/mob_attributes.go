@@ -349,7 +349,6 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 		m.syncShulkerArmor(a)
 	}
 	m.SyncSpeedModifiers(a)
-	rules.ApplyActiveEffects(a, m.effects.All())
 	return a
 }
 

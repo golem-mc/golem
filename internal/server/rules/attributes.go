@@ -236,26 +236,40 @@ func UpdateSupportedEffectAttributes(a *player.Attributes, active []effect.Insta
 }
 
 // HasEffectModifier reports whether the effect carries an attribute modifier.
-func HasEffectModifier(id int32) bool {
-	return slices.ContainsFunc(effectModifiers, func(em effectModifier) bool { return em.effect == id })
+func HasEffectModifier(id int32) bool { return modifierOf(id) != nil }
+
+// effectModifierByID indexes effectModifiers by effect ID.
+var effectModifierByID = func() (t [64]*effectModifier) {
+	for i, em := range effectModifiers {
+		t[em.effect] = &effectModifiers[i]
+	}
+	return t
+}()
+
+func modifierOf(id int32) *effectModifier {
+	if uint32(id) >= uint32(len(effectModifierByID)) {
+		return nil
+	}
+	return effectModifierByID[id]
 }
 
 // ApplyEffectChange puts on or takes off the one modifier of the changed
-// effect, where the map has its attribute.
-// vanilla: MobEffect.addAttributeModifiers, removeAttributeModifiers
+// effect, where the map has its attribute. A refresh removes the modifier
+// first, so it is re-added at the end of the list.
+// vanilla: LivingEntity.onEffectUpdated, MobEffect.addAttributeModifiers, removeAttributeModifiers
 func ApplyEffectChange(a *player.Attributes, ch effect.Change) {
-	for _, em := range effectModifiers {
-		if em.effect == ch.Instance.ID && a.Has(em.attribute) {
-			em.apply(a, ch.Instance, ch.Kind != effect.Removed)
-		}
+	em := modifierOf(ch.Instance.ID)
+	if em == nil || !a.Has(em.attribute) {
+		return
 	}
-}
-
-// ApplyActiveEffects puts on the modifiers of the active effects, touching
-// no other effect's.
-func ApplyActiveEffects(a *player.Attributes, active []effect.Instance) {
-	for _, in := range active {
-		ApplyEffectChange(a, effect.Change{Kind: effect.Added, Instance: in})
+	switch ch.Kind {
+	case effect.Removed:
+		em.apply(a, ch.Instance, false)
+	case effect.Updated:
+		a.RemoveModifier(em.attribute, em.id)
+		fallthrough
+	default:
+		em.apply(a, ch.Instance, true)
 	}
 }
 

@@ -94,11 +94,17 @@ func TestSavedEffectsDoNotRaiseMaximumHealth(t *testing.T) {
 	if got, ok := srv.MobHealth(pig.EntityID); !ok || got != 10 {
 		t.Errorf("effect-only health = %v (%v), want 10", got, ok)
 	}
+	if got := attributeGet(c, "@e[type=minecraft:pig,limit=1]", "minecraft:max_health"); got != "10.0" {
+		t.Errorf("effect-only max_health = %q, want 10.0", got)
+	}
 
 	c.ChatCommand("summon minecraft:pig 1.5 64 0.5 " + savedBoostPigNBT)
 	boosted := c.AwaitSpawn(protocol.EntityTypePig)
 	if got, ok := srv.MobHealth(boosted.EntityID); !ok || got != 18 {
 		t.Errorf("saved-modifier health = %v (%v), want 18", got, ok)
+	}
+	if got := attributeGet(c, "@e[type=minecraft:pig,x=1.5,y=64,z=0.5,distance=..0.4,limit=1]", "minecraft:max_health"); got != "18.0" {
+		t.Errorf("saved-modifier max_health = %q, want 18.0", got)
 	}
 }
 
@@ -121,5 +127,67 @@ func TestEndedHealthBoostSendsTheTrimmedHealth(t *testing.T) {
 	servertest.RunTicks(t, srv, 1)
 	if got := servertest.ExpectMobHealth(c, pig.EntityID); got != 10 {
 		t.Errorf("health metadata = %v, want 10", got)
+	}
+}
+
+func TestDurationNoticeKeepsACommandModifier(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, effectModifierConfig(), "Keeper", servertest.OpsListing(t, "Keeper"))
+	servertest.HoldTicks(t, srv)
+
+	c.ChatCommand("summon minecraft:pig 0.5 64 0.5 {NoAI:1b}")
+	c.ExpectMobSpawn(protocol.EntityTypePig)
+	c.ChatCommand("effect give @e[type=minecraft:pig,limit=1] minecraft:health_boost 601 1")
+	c.ChatCommand("attribute @e[type=minecraft:pig,limit=1] minecraft:max_health modifier remove minecraft:effect.health_boost")
+	c.ChatCommand("attribute @e[type=minecraft:pig,limit=1] minecraft:max_health modifier add minecraft:effect.health_boost 2 add_value")
+	c.Settle()
+	servertest.RunTicks(t, srv, 1)
+	if got := attributeGet(c, "@e[type=minecraft:pig,limit=1]", "minecraft:max_health"); got != "12.0" {
+		t.Errorf("max_health = %q, want 12.0", got)
+	}
+}
+
+func TestPromotedEffectRewritesItsModifier(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, effectModifierConfig(), "Keeper", servertest.OpsListing(t, "Keeper"))
+	servertest.HoldTicks(t, srv)
+
+	c.ChatCommand("summon minecraft:pig 0.5 64 0.5 {NoAI:1b}")
+	c.ExpectMobSpawn(protocol.EntityTypePig)
+	c.ChatCommand("effect give @e[type=minecraft:pig,limit=1] minecraft:health_boost 1 1")
+	c.ChatCommand("effect give @e[type=minecraft:pig,limit=1] minecraft:health_boost 100 0")
+	c.Settle()
+	servertest.RunTicks(t, srv, 21)
+	if got := attributeGet(c, "@e[type=minecraft:pig,limit=1]", "minecraft:max_health"); got != "14.0" {
+		t.Errorf("max_health = %q, want 14.0", got)
+	}
+}
+
+func TestRefreshedSpeedMovesBehindSlowness(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, effectModifierConfig(), "Keeper", servertest.OpsListing(t, "Keeper"), func(s *server.Server) {
+		servertest.FreezeUntilHeld(t, s)
+	})
+	servertest.HoldTicks(t, srv)
+
+	c.ChatCommand("summon minecraft:pig 0.5 64 0.5 {NoAI:1b}")
+	c.ExpectMobSpawn(protocol.EntityTypePig)
+	c.ChatCommand("effect give @e[type=minecraft:pig,limit=1] minecraft:speed 5")
+	c.ChatCommand("effect give @e[type=minecraft:pig,limit=1] minecraft:slowness 10")
+	c.ChatCommand("effect give @e[type=minecraft:pig,limit=1] minecraft:speed 10")
+	c.ChatCommand("data get entity @e[type=minecraft:pig,limit=1] attributes[{id:\"minecraft:movement_speed\"}].modifiers[0].id")
+	var got string
+	c.SettleAndCollect(func(id int32, data []byte) {
+		if id != protocol.IDPlaySystemChat {
+			return
+		}
+		if text, ok := protocol.ReadText(protocol.NewReader(data)); ok && text.Translate == "commands.data.entity.query" {
+			for _, e := range text.With[len(text.With)-1].Extra {
+				got += e.Text
+			}
+		}
+	})
+	if got != `"minecraft:effect.slowness"` {
+		t.Errorf("first modifier = %q, want slowness", got)
 	}
 }
