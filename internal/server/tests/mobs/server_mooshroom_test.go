@@ -5,6 +5,7 @@ import (
 
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -339,6 +340,7 @@ func TestBrownMooshroomRejectsShelfMushroom(t *testing.T) {
 	t.Parallel()
 	cfg := servertest.MobTestConfig()
 	cfg.GameMode = "survival"
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	srv, c := servertest.Join(t, cfg, "Florist", servertest.OpsListing(t, "Florist"))
 	c.MoveToGround(2.5, 64, 5.5, true)
 	c.Settle()
@@ -355,19 +357,8 @@ func TestBrownMooshroomRejectsShelfMushroom(t *testing.T) {
 	srv.GiveSlot("Florist", player.HotbarSlot, servertest.ItemStack(t, "minecraft:bowl", 1))
 	c.Settle()
 	c.UseOn(cow.EntityID)
-	found := false
-	c.SettleAndCollect(func(id int32, data []byte) {
-		if id == protocol.IDPlayContainerSlot {
-			r := protocol.NewReader(data)
-			r.ReadVarInt()
-			r.ReadVarInt()
-			r.ReadI16()
-			if stack, ok := r.ReadSlot(); ok && stack.ItemID == int32(registry.ItemMushroomStew) {
-				found = true
-			}
-		}
-	})
-	if !found {
-		t.Fatal("bowl did not give ordinary mushroom stew")
+	slot, stack := c.ExpectContainerSlot()
+	if slot != int16(player.HotbarSlot) || stack.ItemID != int32(registry.ItemMushroomStew) || stack.Count != 1 {
+		t.Fatalf("bowl gave slot %d %+v, want one mushroom stew in slot %d", slot, stack, player.HotbarSlot)
 	}
 }
