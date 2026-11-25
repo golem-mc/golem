@@ -296,9 +296,9 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	a.Instance(registry.AttributeMovementSpeed)
 	// Vanilla instantiates movement_speed and the equipment's attributes in
 	// the first tick, not with the map; a zombie's setBaby does it on load.
-	var synthetic []registry.AttributeID
-	if !m.is(TypeZombie) {
-		synthetic = append(synthetic, registry.AttributeMovementSpeed)
+	synthetic := []registry.AttributeID{registry.AttributeMovementSpeed}
+	if m.is(TypeZombie) {
+		synthetic = synthetic[:0]
 	}
 	if m.Size > 0 {
 		a.Instance(registry.AttributeMaxHealth)

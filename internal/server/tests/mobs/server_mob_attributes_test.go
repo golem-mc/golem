@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
@@ -135,6 +136,7 @@ func TestAttributeSpeedDrivesTheChase(t *testing.T) {
 func TestFrozenZombieListsMovementSpeed(t *testing.T) {
 	t.Parallel()
 	cfg := servertest.MobTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
 	srv, c := servertest.Join(t, cfg, "Keeper", servertest.OpsListing(t, "Keeper"))
 	srv.RunLine("tick freeze")
 

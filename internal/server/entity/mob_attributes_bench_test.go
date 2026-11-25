@@ -13,7 +13,7 @@ func BenchmarkMobBuildAttributes(b *testing.B) {
 		name  string
 		kind  MobType
 		type_ int32
-	}{{"rabbit", TypeRabbit, 0}, {"killer bunny", TypeRabbit, 99}, {"pig", TypePig, 0}} {
+	}{{"rabbit", TypeRabbit, 0}, {"killer bunny", TypeRabbit, 99}, {"pig", TypePig, 0}, {"zombie", TypeZombie, 0}} {
 		b.Run(tc.name, func(b *testing.B) {
 			m := NewMob(tc.kind, 1, .5, 66, .5, 1)
 			m.RabbitType = tc.type_
