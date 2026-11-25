@@ -135,6 +135,8 @@ func (m *Mob) piglinIdle() bool {
 	return m.TargetID == 0 && b.admiring == 0 && b.retreat == 0 && b.celebrate == 0 && b.ride == 0
 }
 
+var piglinKinds = mobKindsMatching(piglinKind)
+
 func piglinKind(t MobType) bool { return t == TypePiglin || t == TypePiglinBrute }
 
 // piglinSafeArmour is PiglinAi.isWearingSafeArmor: any worn piece in the

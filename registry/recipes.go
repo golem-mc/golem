@@ -321,21 +321,24 @@ func CookingMatchCached(kind string, stack protocol.ItemStack, last *string) *Co
 	if stack.Empty() {
 		return nil
 	}
-	table := cookingTable(kind)
+	set := recipes()
+	k := cookingKindOf(kind)
 	if last != nil && *last != "" {
+		table := set.cooking[k]
 		for i := range table {
 			if table[i].ID == *last && slices.Contains(table[i].Ingredient, stack.ItemID) {
 				return &table[i]
 			}
 		}
 	}
-	for i := range table {
-		if slices.Contains(table[i].Ingredient, stack.ItemID) {
-			if last != nil {
-				*last = table[i].ID
-			}
-			return &table[i]
+	if stack.ItemID < 0 || int(stack.ItemID) >= len(set.cookingByItem[k]) {
+		return nil
+	}
+	if i := set.cookingByItem[k][stack.ItemID]; i >= 0 {
+		if last != nil {
+			*last = set.cooking[k][i].ID
 		}
+		return &set.cooking[k][i]
 	}
 	return nil
 }
@@ -355,16 +358,20 @@ func CookingRecipeByID(kind, id string) (*CookingRecipe, bool) {
 // cookingTable is the recipe table a block entity kind cooks from; anything
 // not a blast furnace, smoker or campfire uses smelting.
 func cookingTable(kind string) []CookingRecipe {
-	set := recipes()
+	return recipes().cooking[cookingKindOf(kind)]
+}
+
+// cookingKindOf maps a block entity kind to its cooking kind.
+func cookingKindOf(kind string) int {
 	switch kind {
 	case "minecraft:blast_furnace":
-		return set.cooking[CookingBlasting]
+		return CookingBlasting
 	case "minecraft:smoker":
-		return set.cooking[CookingSmoking]
+		return CookingSmoking
 	case "minecraft:campfire":
-		return set.cooking[CookingCampfire]
+		return CookingCampfire
 	}
-	return set.cooking[CookingSmelting]
+	return CookingSmelting
 }
 
 // SmeltingResult returns what a stack smelts into, or nothing.
