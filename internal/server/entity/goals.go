@@ -1394,7 +1394,7 @@ func (g *followParentGoal) ShouldContinue(t *tickView) bool {
 	if g.oneShot {
 		return false
 	}
-	if !g.m.IsBaby() || g.parent == nil || !slices.Contains(t.others, g.parent) || !g.parent.Alive() {
+	if !g.m.IsBaby() || g.parent == nil || t.mobByID(g.parent.ID) != g.parent || !g.parent.Alive() {
 		return false
 	}
 	d := Dist2(g.m.X, g.m.Y, g.m.Z, g.parent.X, g.parent.Y, g.parent.Z)

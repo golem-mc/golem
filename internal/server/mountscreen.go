@@ -89,7 +89,7 @@ func (b mountSlots) Put(slot int, stack protocol.ItemStack) {
 				b.ent.mob.BodyDropChance = entity.GuaranteedDropChance
 			}
 		} else {
-			b.ent.mob.SetMetadataHorseSaddle(stack)
+			b.ent.mob.SetEquipment(protocol.EquipSaddle, stack)
 			if !stack.Empty() {
 				b.ent.mob.SaddleDropChance = entity.GuaranteedDropChance
 			}

@@ -98,11 +98,6 @@ func (m *Mob) cureStep(w World) bool {
 // preserved equipment to drop; binding equipment goes in inventory slots.
 // vanilla: ZombieVillager.finishConversion
 func (m *Mob) CuredFrom(old *Mob) []protocol.ItemStack {
-	for slot := range 6 {
-		m.SetEquipment(slot, protocol.ItemStack{})
-	}
-	m.ResetDropChances()
-	m.CanBreakDoors = false
 	m.transferVillagerData(old)
 	drops := old.takePreservedEquipment(func(slot int, stack protocol.ItemStack) bool {
 		if !player.HasBindingCurse(stack) {
@@ -149,13 +144,14 @@ func (m *Mob) loadCure(tag nbt.Compound, difficulty uint8) {
 }
 
 // InfectedFrom initializes an infected zombie and restores its villager data.
-// vanilla: Zombie.killedEntity, Villager.convertTo
+// vanilla: Zombie.convertVillagerToZombieVillager
 func (m *Mob) InfectedFrom(old *Mob, special float32) {
-	// CONVERSION initializes attributes, retaining the converted age and equipment.
-	m.rollBreakDoors(GoDice{NewDice(m.lootSeed ^ breakDoorSalt)}, special)
+	// CONVERSION retains loot pickup, age and equipment.
+	dice := m.SpawnDice()
+	m.finalizeMob(dice)
+	m.rollBreakDoors(dice, special)
 	m.RollConversionAttributes(special)
 	m.SetMetadataHealth(m.MaxHealth)
-	m.CanPickUpLoot = NewDice(m.lootSeed^lootPickupSalt).Float64() < lootPickupOdds*float64(special)
 	m.transferVillagerData(old)
 	m.SetMetadataVillagerFinalized(true)
 }

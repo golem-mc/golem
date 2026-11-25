@@ -744,8 +744,8 @@ func enchRollBetween(rng *rand.Rand, min, max float64) float64 {
 	return float64(rng.Float32()*float32(max-min) + float32(min))
 }
 
-// ProjectileIgniteTicks is the burn a stack's projectile_spawned ignite
-// effects give the projectile (flame: an arrow arrives burning for 100 s).
+// ProjectileIgniteTicks is the longest burn a stack's projectile_spawned
+// ignite effects give the projectile (Flame burns for 100 s).
 // vanilla: EnchantmentHelper.onProjectileSpawned
 func ProjectileIgniteTicks(stack protocol.ItemStack) int32 {
 	var best int32

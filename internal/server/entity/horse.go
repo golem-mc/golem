@@ -737,7 +737,7 @@ func (m *Mob) UseItem(held protocol.ItemStack, sneaking bool) (click HorseClick,
 		}
 		if !m.IsBaby() && IsSaddle(held) && m.CanTakeSaddle() {
 			held.Count = 1
-			m.SetMetadataHorseSaddle(held)
+			m.SetEquipment(protocol.EquipSaddle, held)
 			m.SaddleDropChance = guaranteedDropChance
 			return HorseClickSaddle, false
 		}

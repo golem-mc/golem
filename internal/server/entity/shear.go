@@ -33,18 +33,8 @@ func (m *Mob) ShearEquipment(clicker uuid.UUID, creative bool) (ShearedEquipment
 	} else if len(m.PassengerIDs()) > 0 {
 		return ShearedEquipment{}, false
 	}
-	const saddleSlot = 7
-	for slot := range saddleSlot + 1 {
-		var stack protocol.ItemStack
-		if slot < saddleSlot {
-			stack = m.EquipmentSlot(slot)
-		} else {
-			stack = m.SaddleSlot()
-			if stack.Empty() {
-				// /item can write Horse.Saddle on a copper golem.
-				stack = m.Horse.Saddle
-			}
-		}
+	for slot := range protocol.EquipSaddle + 1 {
+		stack := m.EquipmentSlot(slot)
 		if stack.Empty() {
 			continue
 		}
@@ -55,14 +45,7 @@ func (m *Mob) ShearEquipment(clicker uuid.UUID, creative bool) (ShearedEquipment
 		if !creative && player.HasBindingCurse(stack) {
 			continue
 		}
-		switch {
-		case slot < saddleSlot:
-			m.SetEquipment(slot, protocol.ItemStack{})
-		case m.Type == TypeCopperGolem && !m.Antenna.Empty():
-			m.SetMetadataAntenna(protocol.ItemStack{})
-		default:
-			m.SetMetadataHorseSaddle(protocol.ItemStack{})
-		}
+		m.SetEquipment(slot, protocol.ItemStack{})
 		return ShearedEquipment{Stack: stack, Sound: eq.ShearingSound, DropHeight: m.shearDropHeight()}, true
 	}
 	return ShearedEquipment{}, false

@@ -1,16 +1,68 @@
 package commands
 
 import (
-	"github.com/golem-mc/golem/internal/server/servertest"
+	"bytes"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
 // The /execute store kinds that write NBT, each handed the return value or
 // the success of the command the chain ends in.
 // vanilla: ExecuteCommand.storeData
+
+func TestExecuteStoreRejectsMalformedNBTArguments(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.StartExecuteWorld(t, "Testificate")
+	servertest.HoldTicks(t, srv)
+
+	for _, tc := range []struct {
+		name   string
+		before string
+		after  string
+		key    string
+		with   []string
+	}{
+		{"scale suffix", "execute store result storage t:a y int 2.5", "x run say hi", "command.expected.separator", nil},
+		{"scale exponent", "execute store result storage t:a y int 1.5", "e2 run say hi", "command.expected.separator", nil},
+		{"entity scale", "execute store result entity @s Air short 1", "x run say hi", "command.expected.separator", nil},
+		{"success scale", "execute store success storage t:a y int 2.5", "x run say hi", "command.expected.separator", nil},
+		{"block scale before target lookup", "execute store result block 0 -60 0 x int 1", "x run say hi", "command.expected.separator", nil},
+		{"missing list index", "execute store result storage t:a y[", " int 1 run say hi", "parsing.int.expected", nil},
+		{"fractional list index", "execute store result storage t:a y[", "1.5] int 1 run say hi", "parsing.int.invalid", []string{"1.5"}},
+		{"missing scale before run", "execute store result storage t:a y int ", "run say hi", "parsing.double.expected", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := tc.before + tc.after
+			c.ChatCommand(cmd)
+			var messages [][]byte
+			c.ReadTicks(srv, 0, func(id int32, data []byte) bool {
+				switch id {
+				case protocol.IDPlaySystemChat:
+					messages = append(messages, data)
+				case protocol.IDPlayDisguisedChat:
+					t.Error("say hi ran after a malformed store argument")
+				}
+				return false
+			})
+			want := [][]byte{
+				servertest.CommandErrorMessageForTest(tc.key, tc.with...),
+				servertest.CommandErrorContextForTest(cmd, len(tc.before)),
+			}
+			if len(messages) != len(want) {
+				t.Fatalf("got %d system chat lines, want 2 (error %s and cursor before %q)", len(messages), tc.key, tc.after)
+			}
+			for i, msg := range messages {
+				if !bytes.Equal(msg, want[i]) {
+					t.Errorf("chat line %d = % X, want % X", i+1, msg, want[i])
+				}
+			}
+		})
+	}
+	c.Disconnect()
+}
 
 // TestExecuteStoreWritesTheResultIntoStorage checks the storage store: the
 // result of the run's command scaled and cast to the type word, a success

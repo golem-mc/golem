@@ -85,8 +85,7 @@ func TestFillFromProtoMatchesSetBlock(t *testing.T) {
 						t.Fatalf("%s keepAir %v: section %d index %d: got %d, want %d", tc.name, keepAir, sy, i, g.at(i), w.at(i))
 					}
 				}
-				if [8]int{int(w.ticking), int(w.emitting), int(w.listening), int(w.rods), int(w.catalysts), int(w.eggs), int(w.touches.Load()), int(w.shapes.Load())} !=
-					[8]int{int(g.ticking), int(g.emitting), int(g.listening), int(g.rods), int(g.catalysts), int(g.eggs), int(g.touches.Load()), int(g.shapes.Load())} {
+				if !sameCounts(w, g) {
 					t.Errorf("%s keepAir %v: section %d counts differ", tc.name, keepAir, sy)
 				}
 				if g.shapes.Load() > 0 {

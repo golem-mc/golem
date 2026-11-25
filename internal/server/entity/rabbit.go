@@ -214,6 +214,9 @@ func (g *rabbitAvoidGoal) nearest(t *tickView) (x, y, z float64, found bool) {
 		}
 		return
 	}
+	if g.avoid == avoidWolves && m.push != nil && !m.push.present[TypeWolf] {
+		return
+	}
 	for _, o := range m.herdNear(t, max(g.maxDist, avoidHeight)) {
 		if g.accepts(o) {
 			consider(o.X, o.Y, o.Z, o.width(), o.height(), 1)
