@@ -414,3 +414,40 @@ func BenchmarkHopperItemBoxMany(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkCartMouthPickup measures a hopper cart taking the item in its
+// mouth while N other items touch only its body.
+func BenchmarkCartMouthPickup(b *testing.B) {
+	stone := protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 1}
+	for _, n := range []int{0, 16, 128} {
+		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 0)
+			cart := s.spawnMinecart(w, "minecraft:hopper_minecart", 4.5, 64, 4.5)
+			mouth := s.spawnItem(w, stone, 4.5, 65.25, 4.5, 0, 0, 0, 0)
+			body := make([]*itemEntity, n)
+			for i := range n {
+				body[i] = s.spawnItem(w, stone, 4.5, 64.1, 4.5, 0, 0, 0, 0)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				mouth.item.Dead = false
+				mouth.item.Stack = stone
+				s.minecartsMu.Lock()
+				cart.cargo.slots[0] = protocol.ItemStack{}
+				s.minecartsMu.Unlock()
+				s.destroyedMu.Lock()
+				s.destroyed = s.destroyed[:0]
+				s.destroyedMu.Unlock()
+				s.hopperCartSuck(cart)
+				if !mouth.item.Dead {
+					b.Fatal("mouth item not taken")
+				}
+				for _, e := range body {
+					if e.item.Dead {
+						b.Fatal("body item taken")
+					}
+				}
+			}
+		})
+	}
+}
