@@ -166,7 +166,6 @@ func benchMobSpectator(b *testing.B) func(*Server, *rand.Rand) {
 			s.mu.Unlock()
 		})
 	}
-
 }
 
 type mobMix struct {

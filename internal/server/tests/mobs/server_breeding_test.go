@@ -261,6 +261,44 @@ func TestAFedBabyGrowsUpFaster(t *testing.T) {
 func TestABabyFollowsTheAdultOfItsKind(t *testing.T) {
 	t.Parallel()
 	srv, c := servertest.BreedingPlayer(t, "survival", "Watcher", "", 0, servertest.OpsListing(t, "Watcher"))
+	srv.StopTick()
+	srv.SpawnMob("minecraft:cow", 2.5, 64, 3.5)
+	adult := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.ChatCommand(`summon minecraft:cow 9.5 64 3.5 {Age:-24000}`)
+	calf := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	if !calf.Baby {
+		t.Fatal("the summoned calf is a baby, want the age read to make it one")
+	}
+
+	// The walk, in batches of world-steps: FollowParentGoal closes the
+	// seven-block gap within about forty ticks, while the aimless stroll
+	// beside it leaves the gap standing for hundreds.
+	closed := false
+	for range 10 {
+		srv.TickMobs(10)
+		a, _ := mobWithID(srv, adult.EntityID)
+		b, _ := mobWithID(srv, calf.EntityID)
+		if blocksAway(a.X, a.Y, a.Z, b.X, b.Y, b.Z) < 3 {
+			closed = true
+			break
+		}
+	}
+	a, _ := mobWithID(srv, adult.EntityID)
+	b, _ := mobWithID(srv, calf.EntityID)
+	if !closed {
+		d := blocksAway(a.X, a.Y, a.Z, b.X, b.Y, b.Z)
+		t.Fatalf("the calf still stands %v blocks from the adult after 100 ticks, want it closed within three", d)
+	}
+	if !b.Baby {
+		t.Error("the calf grew up on its walk, want the baby it still is")
+	}
+}
+
+// TestABabyFollowsItsParentAmongAHugeHerd: the same walk with seventy more
+// cows in the dimension, enough that the parent search runs on the push grid.
+func TestABabyFollowsItsParentAmongAHugeHerd(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Watcher", "", 0, servertest.OpsListing(t, "Watcher"))
 	servertest.HoldTicks(t, srv)
 	srv.SpawnMob("minecraft:cow", 2.5, 64, 3.5)
 	adult := c.ExpectMobSpawn(protocol.EntityTypeCow)
