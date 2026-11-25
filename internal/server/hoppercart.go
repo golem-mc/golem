@@ -84,20 +84,11 @@ func (s *Server) hopperCartSuck(it *minecartEntity) {
 		}
 	}
 
-	// vanilla: Hopper.SUCK_AABB moved onto the cart's level position
-	var found []*itemEntity
-	if above == nil {
-		found = s.itemEntitiesIn(w, x-0.5, y-0.5+11.0/16.0, z-0.5, x+0.5, y-0.5+2, z+0.5)
-	}
-	for _, e := range s.itemEntitiesIn(w, minX-0.25, minY, minZ-0.25, maxX+0.25, maxY, maxZ+0.25) {
-		if !slices.Contains(found, e) {
-			found = append(found, e)
-		}
-	}
 	var taken, shrunk []*itemEntity
-	for _, e := range found {
+	// try offers one item to the cart; true once a whole item went in.
+	try := func(e *itemEntity) bool {
 		if e.item.Stack.Empty() {
-			continue
+			return false
 		}
 		s.minecartsMu.Lock()
 		left, _ := inventory.AddItem(cart, e.item.Stack, 0, false)
@@ -105,11 +96,35 @@ func (s *Server) hopperCartSuck(it *minecartEntity) {
 		if left.Empty() {
 			e.item.Dead = true
 			taken = append(taken, e)
-			break
+			return true
 		}
 		if left.Count != e.item.Stack.Count {
 			e.item.Stack = left
 			shrunk = append(shrunk, e)
+		}
+		return false
+	}
+	// vanilla: Hopper.SUCK_AABB moved onto the cart's level position
+	var mouth []*itemEntity
+	whole := false
+	if above == nil {
+		mouth = s.itemEntitiesIn(w, x-0.5, y-0.5+11.0/16.0, z-0.5, x+0.5, y-0.5+2, z+0.5)
+		for _, e := range mouth {
+			if try(e) {
+				whole = true
+				break
+			}
+		}
+	}
+	if !whole {
+		for _, e := range s.itemEntitiesIn(w, minX-0.25, minY, minZ-0.25, maxX+0.25, maxY, maxZ+0.25) {
+			// Only the mouth results can repeat: a box query returns each item once.
+			if slices.Contains(mouth, e) {
+				continue
+			}
+			if try(e) {
+				break
+			}
 		}
 	}
 	if len(taken) > 0 || len(shrunk) > 0 {

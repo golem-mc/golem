@@ -111,6 +111,52 @@ func TestAHopperMinecartTakesAnItemEntityWhole(t *testing.T) {
 	}
 }
 
+// TestAHopperMinecartTakesTheMouthDropBeforeABodyDrop: one whole item per
+// tick, and the mouth is searched before the widened cart box.
+// vanilla: MinecartHopper.suckInItems
+func TestAHopperMinecartTakesTheMouthDropBeforeABodyDrop(t *testing.T) {
+	t.Parallel()
+	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
+	cartID := hopperCartAt(t, srv, "")
+	srv.SpawnItemEntity(4.5, 64.25, 1.5, "minecraft:stone", 1)
+	srv.SpawnItemEntity(4.5, 65, 1.5, "minecraft:diamond", 1)
+
+	srv.TickMinecarts(1)
+	if got := srv.MinecartCargoAt(cartID, 0); got.Count != 1 || got.ItemID != servertest.ItemID(t, "minecraft:diamond") {
+		t.Errorf("the cart holds %+v, want the mouth diamond", got)
+	}
+	items := srv.ItemsInDimension(world.DimensionName)
+	if servertest.ItemCountOf(items, "minecraft:stone") != 1 || servertest.ItemCountOf(items, "minecraft:diamond") != 0 {
+		t.Errorf("items left %+v, want only the body stone", items)
+	}
+}
+
+// TestAHopperMinecartFallsBackToABodyDropWhenTheMouthFails: a mouth drop the
+// cart has no room for leaves the search to the cart's box.
+// vanilla: MinecartHopper.suckInItems
+func TestAHopperMinecartFallsBackToABodyDropWhenTheMouthFails(t *testing.T) {
+	t.Parallel()
+	srv, _ := servertest.OpenWindowed(t, servertest.BlockTestConfig())
+	cartID := hopperCartAt(t, srv, "")
+	stone := protocol.ItemStack{ItemID: servertest.ItemID(t, "minecraft:stone"), Count: 64}
+	for slot := range 4 {
+		srv.StowMinecartCargo(cartID, slot, stone)
+	}
+	stone.Count = 63
+	srv.StowMinecartCargo(cartID, 4, stone)
+	srv.SpawnItemEntity(4.5, 65, 1.5, "minecraft:diamond", 1)
+	srv.SpawnItemEntity(4.5, 64.25, 1.5, "minecraft:stone", 1)
+
+	srv.TickMinecarts(1)
+	if got := srv.MinecartCargoAt(cartID, 4); got.Count != 64 {
+		t.Errorf("slot 4 holds %+v, want the body stone added", got)
+	}
+	items := srv.ItemsInDimension(world.DimensionName)
+	if servertest.ItemCountOf(items, "minecraft:diamond") != 1 || servertest.ItemCountOf(items, "minecraft:stone") != 0 {
+		t.Errorf("items left %+v, want only the diamond", items)
+	}
+}
+
 // TestABrokenHopperMinecartDropsItselfAndItsContents: a broken hopper cart
 // leaves a hopper minecart item and its stacks.
 // vanilla: MinecartHopper.getDropItem
