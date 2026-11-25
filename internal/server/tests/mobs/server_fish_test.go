@@ -583,3 +583,32 @@ func TestANoAIFullPufferfishStingsAPlayerRidingABoat(t *testing.T) {
 		t.Errorf("the rider lost %.1f health, want 3", lost)
 	}
 }
+
+// TestAScaledNoAIPufferfishStingsOnlyAPlayerWhoseSectionWalkFilesIt: the
+// player's contact query visits sections 2 blocks past the player's box
+// sideways, and files a fish by its position, so a huge fish filed one
+// section farther is missed though its box overlaps.
+// vanilla: Player.aiStep, EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestAScaledNoAIPufferfishStingsOnlyAPlayerWhoseSectionWalkFilesIt(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		x    float64
+		lost float64
+	}{{"same section", 14.9, 3}, {"next section", 17.1, 0}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := squidTests(t)
+			srv.SetDifficulty(rules.DifficultyNormal)
+			c.MoveTo(12.4, 64, -2.5, 0, 0)
+			c.Settle()
+			c.ChatCommand(fmt.Sprintf("summon minecraft:pufferfish %.1f 64 -2.5 {PuffState:2,NoAI:1b,Silent:1b,attributes:[{id:\"minecraft:scale\",base:16}]}", tc.x))
+			c.Settle()
+			before := srv.PlayerHealth("Striker")
+			srv.TickMobs(1)
+			if lost := before - srv.PlayerHealth("Striker"); lost != tc.lost {
+				t.Errorf("the player lost %.1f health, want %.1f", lost, tc.lost)
+			}
+		})
+	}
+}

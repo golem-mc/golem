@@ -56,15 +56,19 @@ func (s *Server) applyLivePufferTouches(touches []pufferTouch, inWorld map[*worl
 	}
 }
 
-// touchPuffers stings c with every touch whose fish box it reaches in its world.
+// touchPuffers stings c with every touch whose fish box it reaches in its
+// world and whose fish stands in a section the pickup query visits.
+// vanilla: Player.aiStep, EntitySectionStorage.forEachAccessibleNonEmptySection
 func (s *Server) touchPuffers(c *client, touches []pufferTouch) {
 	if !canPickUp(c) || c.player.GameMode() == protocol.GameModeCreative {
 		return
 	}
 	reach := c.pickupBox()
+	window := entity.NewSectionWindowOf(reach)
 	for i := range touches {
 		touch := &touches[i]
-		if c.theWorld() != touch.strike.w || !reach.Crosses(touch.box) {
+		if c.theWorld() != touch.strike.w || !reach.Crosses(touch.box) ||
+			!window.HoldsAt(touch.strike.x, touch.strike.y, touch.strike.z) {
 			continue
 		}
 		strike := touch.strike

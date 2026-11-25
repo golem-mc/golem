@@ -78,29 +78,24 @@ func (m *Mob) scaryCandidates(t *tickView, grow float64) []*Mob {
 }
 
 // scaryIn reports whether o is a scary mob other than the fish whose box
-// crosses reach and whose section vanilla's walk for reach visits.
+// crosses reach and whose section the walk of window visits.
 // vanilla: EntityGetter.getEntitiesOfClass, EntitySection.getEntities
-func (m *Mob) scaryIn(reach AABB, o *Mob) bool {
-	return o != m && inSectionWalk(reach, o) && o.mobBox().Crosses(reach) && scaryTo(o)
+func (m *Mob) scaryIn(window SectionWindow, reach AABB, o *Mob) bool {
+	return o != m && window.holds(o) && o.mobBox().Crosses(reach) && scaryTo(o)
 }
 
-// inSectionWalk reports whether o, filed by its block position, stands in a
-// section the walk for box visits: 2 blocks past it sideways, 4 below, 0
-// above, so a chonky box filed farther off is missed.
-// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection,
-// PersistentEntitySectionManager.addEntity
-func inSectionWalk(box AABB, o *Mob) bool {
-	x, y, z := sectionCoord(o.X), sectionCoord(o.Y), sectionCoord(o.Z)
-	return x >= sectionCoord(box.minX-2) && x <= sectionCoord(box.maxX+2) &&
-		y >= sectionCoord(box.minY-4) && y <= sectionCoord(box.maxY) &&
-		z >= sectionCoord(box.minZ-2) && z <= sectionCoord(box.maxZ+2)
+// NewSectionWindowOf is the sections an entity query for box reaches.
+func NewSectionWindowOf(box AABB) SectionWindow {
+	b := box.Bounds()
+	return NewSectionWindow(b[0], b[3], b[1], b[4], b[2], b[5])
 }
 
 // scaryMobNear reports whether a scary mob is in the fish's box grown by grow.
 func (m *Mob) scaryMobNear(t *tickView, grow float64) bool {
 	reach := m.mobBox().Inflate(grow)
+	window := NewSectionWindowOf(reach)
 	for _, o := range m.scaryCandidates(t, grow) {
-		if m.scaryIn(reach, o) {
+		if m.scaryIn(window, reach, o) {
 			return true
 		}
 	}
@@ -167,8 +162,9 @@ func (m *Mob) pufferStings(t *tickView, events []MobEvent) []MobEvent {
 	}
 	damage := float64(1 + p.state)
 	reach := m.mobBox().Inflate(puffStingGrow)
+	window := NewSectionWindowOf(reach)
 	for _, o := range m.scaryCandidates(t, puffStingGrow) {
-		if m.scaryIn(reach, o) {
+		if m.scaryIn(window, reach, o) {
 			events = append(events, MobEvent{Mob: m, Kind: MobAttackedPlayer, Damage: damage,
 				Player: o.asTarget(), Touch: true, Puff: p.state})
 		}
