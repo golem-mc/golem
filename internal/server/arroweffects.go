@@ -367,11 +367,13 @@ func (s *Server) arrowPlayerOutcome(hit arrowPlayerHit) arrowOutcome {
 	}
 	// The shaft's own ID, one above on the wire, is the direct the
 	// event names — the body that carried the blow.
-	cause := &damageCause{entityID: shooterID, x: hit.x, y: hit.y, z: hit.z, killer: shooterKiller, directID: hit.arrow.arrow.ID + 1, projectileOwnerless: shooterID == 0, directType: arrowTypeName(hit.arrow), directBurning: hit.igniteTicks > 0,
-		directName: s.directNameOf(shooterKiller, directType, hit.arrow.uuid, hit.custom),
-		weapon:     hit.arrow.arrow.Weapon,
-		piercing:   hit.arrow.piercingHit,
-		flying:     true, flightVX: hit.vx, flightVY: hit.vy, flightVZ: hit.vz}
+	cause := &damageCause{entityID: shooterID, x: hit.x, y: hit.y, z: hit.z, killer: shooterKiller, directID: hit.arrow.arrow.ID + 1, directType: arrowTypeName(hit.arrow), directBurning: hit.igniteTicks > 0, projectileOwnerless: shooterID == 0,
+		// vanilla: AbstractArrow.onHitEntity, ThrownTrident.onHitEntity
+		directIsSource: shooterID == 0,
+		directName:     s.directNameOf(shooterKiller, directType, hit.arrow.uuid, hit.custom),
+		weapon:         hit.arrow.arrow.Weapon,
+		piercing:       hit.arrow.piercingHit,
+		flying:         true, flightVX: hit.vx, flightVY: hit.vy, flightVZ: hit.vz}
 	priorFire := hit.victim.player.Vitals().FireTicks
 	if hit.igniteTicks > 0 {
 		// The ignite runs ahead of the hurt; a refused hurt puts the

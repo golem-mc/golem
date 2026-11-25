@@ -114,7 +114,7 @@ func (w *World) highestOf(table *[65536]bool, x, z int32) int32 {
 	if !ok {
 		return empty
 	}
-	for y := w.dim.minY + w.dim.height - 1; y >= w.dim.minY; y-- {
+	for y := w.heightmapTop(loaded.chunk); y >= w.dim.minY; y-- {
 		if table[loaded.chunk.BlockAt(lx, y, lz)] {
 			return y
 		}
