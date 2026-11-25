@@ -496,15 +496,26 @@ func (m *Mob) attrScale() float64 {
 	return s
 }
 
-// OnAttributeUpdated applies an attribute change's limits to the body:
-// health above the new maximum trims down to it. Callers hold the mob lock.
-// A scale change reaches the box at its next read, deliberately without
-// vanilla's fudgePositionAfterSizeChange.
+// EditAttributes applies an edit under the mob lock and reports a scale change.
 // vanilla: LivingEntity.onAttributeUpdated
-func (m *Mob) OnAttributeUpdated() {
-	if m.Health > m.healthCap() {
-		m.SetMetadataHealth(m.healthCap())
+func (m *Mob) EditAttributes(w World, edit func(*player.Attributes)) bool {
+	oldScale := m.attrScale()
+	oldWidth, oldHeight := m.width(), m.height()
+	edit(m.attrs)
+	if cap := m.healthCap(); m.Health > cap {
+		m.SetMetadataHealth(cap)
 	}
+	if m.attrScale() == oldScale {
+		return false
+	}
+	// vanilla: Vex.tick holds noPhysics through the dimension refresh.
+	if m.Type != TypeVex {
+		m.refreshDimensions(w, oldWidth, oldHeight)
+		if m.IsShulker() && !m.RidesVehicle {
+			m.snapShulker()
+		}
+	}
+	return true
 }
 
 // savedAttrEdits reports whether the saved attributes list holds an
