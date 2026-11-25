@@ -33,6 +33,74 @@ func TestFollowParentLeavesHerd(t *testing.T) {
 	}
 }
 
+// TestFollowParentDyingAdult starts toward a nearer dying adult and stops
+// once it is dead.
+func TestFollowParentDyingAdult(t *testing.T) {
+	calf := NewMob(TypeCow, 1, 8.85, 64, 0.5, 1)
+	calf.BabyAge = -24000
+	rider := NewMob(TypeCow, 2, 0.3, 64, 0.5, 2)
+	dying := NewMob(TypeCow, 3, 15.5, 64, 0.5, 3)
+	dying.Dead = true
+	view := &tickView{w: testWorld{}, others: []*Mob{calf, rider}, corpses: []*Mob{dying}}
+	g := &followParentGoal{m: calf}
+	if !g.CanStart(view) {
+		t.Fatal("calf did not start")
+	}
+	if g.parent != dying {
+		t.Fatalf("calf chose %v, want the nearer dying adult", g.parent.ID)
+	}
+	if g.ShouldContinue(view) {
+		t.Error("kept following a dying adult")
+	}
+}
+
+// TestFollowParentRangedIgnoresCorpses: the brain variants sense living
+// adults only.
+func TestFollowParentRangedIgnoresCorpses(t *testing.T) {
+	calf := NewMob(TypeCow, 1, 8.85, 64, 0.5, 1)
+	calf.BabyAge = -24000
+	dying := NewMob(TypeCow, 3, 15.5, 64, 0.5, 3)
+	dying.Dead = true
+	view := &tickView{w: testWorld{}, others: []*Mob{calf}, corpses: []*Mob{dying}}
+	g := &followParentGoal{m: calf, ranged: &followRange{min: 2, max: 16, scan: 16}}
+	if g.CanStart(view) {
+		t.Error("a ranged follow targeted a dying adult")
+	}
+}
+
+// BenchmarkFollowParentCanStart measures a calf's parent search over a herd
+// of the given size, with a tenth of it dying adults.
+func BenchmarkFollowParentCanStart(b *testing.B) {
+	for _, n := range []int{8, 64, 512, 4096} {
+		b.Run(fmt.Sprintf("herd=%d", n), func(b *testing.B) {
+			calf := NewMob(TypeCow, 1, 0.5, 64, 0.5, 1)
+			calf.BabyAge = -24000
+			others := []*Mob{calf}
+			var corpses []*Mob
+			for i := 0; i < n-1; i++ {
+				x := 40.5 + float64(i%16)
+				if i < 4 {
+					x = 8.5 + float64(i)
+				}
+				o := NewMob(TypeCow, int32(100+i), x, 64, 40.5, int64(100+i))
+				if i%10 == 9 {
+					o.Dead = true
+					corpses = append(corpses, o)
+					continue
+				}
+				others = append(others, o)
+			}
+			view := &tickView{w: testWorld{}, others: others, corpses: corpses}
+			g := &followParentGoal{m: calf}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				g.CanStart(view)
+			}
+		})
+	}
+}
+
 // BenchmarkFollowParentShouldContinue measures an active follow goal's
 // per-tick check with the parent last in a herd of the given size.
 func BenchmarkFollowParentShouldContinue(b *testing.B) {

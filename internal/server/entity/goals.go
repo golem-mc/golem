@@ -66,6 +66,9 @@ type tickView struct {
 	// stands is the world's visible armor stands, a goat ram's targets.
 	stands []StandTarget
 	events []MobEvent
+	// corpses are the dimension's dying bodies, still in the world until
+	// their removal.
+	corpses []*Mob
 	// shulkerView is the collision view Mob.shulkerWorld reuses.
 	shulkerView shulkerWorld
 }
@@ -1357,18 +1360,26 @@ func (g *followParentGoal) CanStart(t *tickView) bool {
 	if g.sensedParent == nil {
 		cands = g.m.herdNear(t, max(scan, followScanRise))
 	}
-	for _, o := range cands {
-		if o == g.m || o.Type != g.m.Type || !o.Alive() || o.IsBaby() {
-			continue
-		}
-		if !boxesOverlap(
-			g.m.X, g.m.Y-followScanRise, g.m.Z,
-			g.m.width()+2*scan, g.m.height()+2*followScanRise,
-			o.X, o.Y, o.Z, o.width(), o.height()) {
-			continue
-		}
-		if d := Dist2(g.m.X, g.m.Y, g.m.Z, o.X, o.Y, o.Z); d <= best {
-			best, nearest = d, o
+	var corpses []*Mob
+	if g.sensedParent == nil && g.ranged == nil {
+		// vanilla: FollowParentGoal.canUse finds dying adults through the
+		// class query; the brain sensors filter for living entities.
+		corpses = t.corpses
+	}
+	for _, list := range [2][]*Mob{cands, corpses} {
+		for _, o := range list {
+			if o == g.m || o.Type != g.m.Type || o.gone || o.IsBaby() || (g.ranged != nil && !o.Alive()) {
+				continue
+			}
+			if !boxesOverlap(
+				g.m.X, g.m.Y-followScanRise, g.m.Z,
+				g.m.width()+2*scan, g.m.height()+2*followScanRise,
+				o.X, o.Y, o.Z, o.width(), o.height()) {
+				continue
+			}
+			if d := Dist2(g.m.X, g.m.Y, g.m.Z, o.X, o.Y, o.Z); d <= best {
+				best, nearest = d, o
+			}
 		}
 	}
 	if g.sensedParent != nil {

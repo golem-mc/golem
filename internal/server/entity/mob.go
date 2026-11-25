@@ -2179,7 +2179,9 @@ type Mob struct {
 	preyKnown bool
 	// stands is the tick's visible armor stands of the world, which a goat's
 	// ram may target. Set for one tick.
-	stands   []StandTarget
+	stands []StandTarget
+	// corpses is the tick's dying bodies, a classic follow-parent candidate.
+	corpses  []*Mob
 	pushCell pushCellKey
 	pushIdx  int
 	// pushSlot is the mob's index in its cell's entries.
@@ -5299,7 +5301,7 @@ func (m *Mob) tickInto(out []MobEvent, tick *tickView, w World, players []Player
 	if m.Type == TypeFox {
 		events = m.foxStep(w, events)
 	}
-	*tick = tickView{w: w, players: players, others: others, prey: m.prey, preyKnown: m.preyKnown, stands: m.stands, events: tick.events[:0]}
+	*tick = tickView{w: w, players: players, others: others, prey: m.prey, preyKnown: m.preyKnown, stands: m.stands, corpses: m.corpses, events: tick.events[:0]}
 	if m.push != nil {
 		tick.byID = m.push.byID
 	}

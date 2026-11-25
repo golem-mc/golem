@@ -631,22 +631,22 @@ type Mobs []*Mob
 // holders from the holders snapshot. A dead or despawned mob reports and
 // leaves the collection at once, so it never ticks twice.
 func (mobs *Mobs) Tick(w World, players []Player, holders []LeashHolder) []MobEvent {
-	return mobs.tickBuf(w, players, holders, nil, nil, nil, nil, nil)
+	return mobs.tickBuf(w, players, holders, nil, nil, nil, nil, nil, nil)
 }
 
 // TickInto appends events to buf[:0] and reuses paths across ticks. crowd,
 // if not nil, is the boats and minecarts the mobs' cramming counts.
-func (mobs *Mobs) TickInto(buf []MobEvent, w World, players []Player, holders []LeashHolder, crowd *PushCrowd, stands []StandTarget, paths *MobPathScratch) []MobEvent {
-	return mobs.tickBuf(w, players, holders, nil, buf[:0], crowd, stands, paths)
+func (mobs *Mobs) TickInto(buf []MobEvent, w World, players []Player, holders []LeashHolder, crowd *PushCrowd, stands []StandTarget, corpses []*Mob, paths *MobPathScratch) []MobEvent {
+	return mobs.tickBuf(w, players, holders, nil, buf[:0], crowd, stands, corpses, paths)
 }
 
 // tick is Tick; a non-nil gathered counts the push grid's candidates.
 func (mobs *Mobs) tick(w World, players []Player, holders []LeashHolder, gathered *int) []MobEvent {
-	return mobs.tickBuf(w, players, holders, gathered, nil, nil, nil, nil)
+	return mobs.tickBuf(w, players, holders, gathered, nil, nil, nil, nil, nil)
 }
 
 // tickBuf is tick appending to events.
-func (mobs *Mobs) tickBuf(w World, players []Player, holders []LeashHolder, gathered *int, events []MobEvent, crowd *PushCrowd, stands []StandTarget, paths *MobPathScratch) []MobEvent {
+func (mobs *Mobs) tickBuf(w World, players []Player, holders []LeashHolder, gathered *int, events []MobEvent, crowd *PushCrowd, stands []StandTarget, corpses []*Mob, paths *MobPathScratch) []MobEvent {
 	// A snapshot, not the live slice: the compaction below writes into the
 	// backing array the loop reads, and a push pass would see it half
 	// rebuilt.
@@ -664,7 +664,7 @@ func (mobs *Mobs) tickBuf(w World, players []Player, holders []LeashHolder, gath
 			prey = append(prey, o)
 		}
 	}
-	t := herdTick{w: w, players: players, holders: holders, others: others, grid: grid, prey: prey, stands: stands, paths: paths, events: events}
+	t := herdTick{w: w, players: players, holders: holders, others: others, grid: grid, prey: prey, stands: stands, corpses: corpses, paths: paths, events: events}
 	for _, m := range others {
 		if m.Vehicle == nil {
 			// A rider on a mob ticks after its vehicle.
@@ -699,6 +699,7 @@ type herdTick struct {
 	grid    *pushGrid
 	prey    []*Mob
 	stands  []StandTarget
+	corpses []*Mob
 	paths   *MobPathScratch
 	tv      tickView
 	events  []MobEvent
@@ -737,7 +738,7 @@ func (t *herdTick) tick(m *Mob) {
 	}
 	// The grid is set for this body's tick only and cleared after, so
 	// an early return or a later tick reads no stale grid.
-	m.push, m.prey, m.preyKnown, m.stands = t.grid, t.prey, true, t.stands
+	m.push, m.prey, m.preyKnown, m.stands, m.corpses = t.grid, t.prey, true, t.stands, t.corpses
 	m.tickPaths = t.paths
 	firstEvent := len(t.events)
 	w := t.w
@@ -746,7 +747,7 @@ func (t *herdTick) tick(m *Mob) {
 	}
 	t.events = m.tickInto(t.events, &t.tv, w, t.players, t.others)
 	m.tickPaths = nil
-	m.push, m.prey, m.preyKnown, m.stands = nil, nil, false, nil
+	m.push, m.prey, m.preyKnown, m.stands, m.corpses = nil, nil, false, nil, nil
 	t.grid.moved(m)
 	m.herdKept = !m.Dead && !m.gone
 	if !m.herdKept {
