@@ -4574,11 +4574,16 @@ func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *
 		return false
 	}
 	from := source.HitSource()
-	fromX, fromZ := source.X, source.Z
-	if push != nil {
-		fromX, fromZ = push[0], push[1]
+	// The source's feet are read when the shove is applied: throughWindow
+	// can run a listener that moves it.
+	pushFrom := func() (float64, float64) {
+		if push != nil {
+			return push[0], push[1]
+		}
+		return source.X, source.Z
 	}
 	if m.sulfurBlocked(damageType) {
+		fromX, fromZ := pushFrom()
 		m.hitKnockback(&from, fromX-m.X, fromZ-m.Z, amount)
 		return true
 	}
@@ -4617,6 +4622,7 @@ func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *
 	if soft {
 		return true
 	}
+	fromX, fromZ := pushFrom()
 	m.hitKnockback(&from, fromX-m.X, fromZ-m.Z, amount)
 	return true
 }

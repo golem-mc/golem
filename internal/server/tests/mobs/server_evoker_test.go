@@ -3,6 +3,7 @@ package mobs
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/entity"
@@ -181,36 +182,55 @@ func TestAnEvokerTurnsBlueSheepRed(t *testing.T) {
 
 // TestFangsHurtAMobWithTheJawsAsDirectSource: with the evoker and the jaws on
 // opposite sides of the victim, the damage is the evoker's, the event names
-// the jaws as the direct entity, and the shove points away from the jaws.
+// the spawned jaws as the direct entity, and the shove points away from them.
 // vanilla: EvokerFangs.dealDamageTo, DamageSource.getSourcePosition
 func TestFangsHurtAMobWithTheJawsAsDirectSource(t *testing.T) {
 	t.Parallel()
-	srv, c := evokerWorld(t)
+	cfg := servertest.HostileTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Target")
+	servertest.HoldTicks(t, srv)
 	evoker := srv.SpawnMob(evokerKind, 14.5, 64, 0.5)
 	srv.SetMobNoAI(evoker)
 	pig := srv.SpawnMob("minecraft:pig", 10.5, 64, 0.5)
 	srv.SetMobNoAI(pig)
 	srv.SpawnFangs(9.7, 64, 0.5, evoker)
-	var cause, direct int32
-	pumpTicks(c, srv, 40, servertest.HostileSkip, func(pid int32, data []byte) bool {
-		if pid != protocol.IDPlayDamageEvent {
-			return false
+	var fangs, cause, direct int32
+	var vx float64
+	var hurt, shoved bool
+	// A zero-warmup fang bites on its eighth tick.
+	c.ReadTicks(srv, 8, func(pid int32, data []byte) bool {
+		switch pid {
+		case protocol.IDPlaySpawnEntity:
+			if kind, e, _, _ := servertest.ReadSpawnEntity(t, data); kind == int32(registry.EntityTypeEvokerFangs) {
+				fangs = e.EntityID
+			}
+		case protocol.IDPlayDamageEvent:
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() == pig {
+				r.ReadVarInt()
+				cause, direct = r.ReadVarInt(), r.ReadVarInt()
+				hurt = true
+			}
+		case protocol.IDPlaySetEntityMotion:
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() == pig {
+				vx, _, _ = r.ReadLpVec3()
+				shoved = shoved || hurt
+			}
 		}
-		r := protocol.NewReader(data)
-		if r.ReadVarInt() != pig {
-			return false
-		}
-		r.ReadVarInt()
-		cause, direct = r.ReadVarInt(), r.ReadVarInt()
-		return true
+		return false
 	})
+	if fangs == 0 || !hurt {
+		t.Fatalf("fangs spawned = %d, pig hurt = %v", fangs, hurt)
+	}
 	if cause != evoker+1 {
 		t.Errorf("damage cause = %d, want the evoker %d", cause, evoker+1)
 	}
-	if direct == 0 || direct == evoker+1 {
-		t.Errorf("direct entity = %d, want the jaws", direct)
+	if direct != fangs+1 {
+		t.Errorf("direct entity = %d, want the jaws %d", direct, fangs+1)
 	}
-	if vx, _, _, _ := srv.MobVelocity(pig); vx <= 0 {
-		t.Errorf("pig vx = %v, want a shove away from the jaws (+x)", vx)
+	if !shoved || vx <= 0 {
+		t.Errorf("pig motion after the bite = %v (sent %v), want a shove away from the jaws (+x)", vx, shoved)
 	}
 }
