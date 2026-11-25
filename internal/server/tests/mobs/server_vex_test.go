@@ -87,6 +87,7 @@ func TestAVexFindsAnEvokerThatWakesAfterIt(t *testing.T) {
 	}
 	cfg := servertest.HostileTestConfig()
 	cfg.LevelName = t.TempDir()
+	cfg.SimulationDistance = 4
 	srv, c := servertest.Join(t, cfg, "Keeper", hardNight)
 	servertest.HoldTicks(t, srv)
 	evoker := srv.SpawnMob(evokerKind, 10.5, 64, 0.5)
