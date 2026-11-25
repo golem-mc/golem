@@ -179,11 +179,7 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 			out.fluid = append(out.fluid, st)
 			return
 		}
-		name, ok := bookedBlockName(t, p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z))
-		if !ok {
-			return
-		}
-		st.id = name
+		st.id = bookedBlockName(t)
 		out.block = append(out.block, st)
 	}
 	for _, t := range p.queue {

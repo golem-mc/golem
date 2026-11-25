@@ -506,8 +506,8 @@ type scheduledTick struct {
 	event    uint8
 	// fluid is the booked fluid type of a fluid visit, zero for any other.
 	fluid fluidType
-	// block is the block a block tick was booked for, zero to name it by the
-	// cell; vanilla's ScheduledTick keeps the type it was booked for.
+	// block is the block a block tick was booked for (air is a valid type);
+	// vanilla's ScheduledTick keeps the type it was booked for.
 	block registry.Block
 }
 
@@ -1533,9 +1533,7 @@ func (p *Physics) BlockTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) BlockTicks {
 		if t.fluid != 0 {
 			continue
 		}
-		if name, ok := bookedBlockName(t, p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)); ok {
-			out = append(out, boxTick{tick: t, id: name})
-		}
+		out = append(out, boxTick{tick: t, id: bookedBlockName(t)})
 	}
 	p.mu.Unlock()
 	slices.SortFunc(out, func(a, b boxTick) int {

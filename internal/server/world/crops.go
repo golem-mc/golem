@@ -225,15 +225,11 @@ func (p *Physics) scheduleSoil(block registry.Block, x, y, z int32, due int64, p
 	p.scheduleBookedFor(p.farmlandBooked, x, y, z, due, priority, farmlandTickEvent, block)
 }
 
-// bookedBlockName is the block a queue entry was booked for: the block recorded
-// at booking, else the cell's current one.
+// bookedBlockName is the block a block-tick queue entry was booked for, air
+// included.
 // vanilla: ScheduledTick.type
-func bookedBlockName(t scheduledTick, state uint16) (string, bool) {
-	if t.block != registry.BlockAir {
-		return t.block.Name(), true
-	}
-	name, _, ok := registry.BlockStateName(state)
-	return name, ok
+func bookedBlockName(t scheduledTick) string {
+	return t.block.Name()
 }
 
 // DirtPathSurvives reports whether a dirt path placed here would stand.

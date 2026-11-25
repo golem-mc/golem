@@ -443,3 +443,31 @@ func TestSavedSoilTickPriorityIsClamped(t *testing.T) {
 		t.Errorf("cleared path became %s, want minecraft:dirt_path", got)
 	}
 }
+
+// TestSavedAirTickKeepsAirThroughCopyAndSave adopts a saved air tick, puts an
+// uncovered path in its cell and checks the copy and the save still name air,
+// so the path is not turned to dirt.
+func TestSavedAirTickKeepsAirThroughCopyAndSave(t *testing.T) {
+	w, p, dir := newSavedWorldAround(t, 0, 0)
+	const y = GroundLevel
+	p.mu.Lock()
+	p.adoptBlockTick(8, y, 8, w.BlockAt(8, y, 8), registry.BlockAir.Name(), p.now+1, 0)
+	p.mu.Unlock()
+	w.SetBlock(8, y, 8, registry.BlockDirtPath.DefaultState())
+	ticks := p.BlockTicksIn(8, y, 8, 8, y, 8)
+	if len(ticks) != 1 || ticks[0].id != registry.BlockAir.Name() {
+		t.Fatalf("copied ticks = %+v, want one booked for air", ticks)
+	}
+	w.SetBlock(8, y, 10, registry.BlockDirtPath.DefaultState())
+	p.ScheduleBlockTicks(ticks, 0, 0, 2)
+
+	w, p = reopenWorldAround(t, w, dir, 0, 0)
+	for clock := int64(0); clock <= 2; clock++ {
+		p.Tick(clock)
+	}
+	for _, z := range []int32{8, 10} {
+		if got, _, _ := registry.BlockStateName(w.BlockAt(8, y, z)); got != "minecraft:dirt_path" {
+			t.Errorf("path at z=%d = %s, want minecraft:dirt_path", z, got)
+		}
+	}
+}
