@@ -317,10 +317,11 @@ func (s shulkerWorld) BodyBoxes(box AABB) []AABB {
 	if s.self != nil && s.self.push != nil {
 		g := s.self.push
 		// A grown shell reaches at most one body size past the body box, and
-		// wide is half the widest body, so twice wide covers it.
-		near := g.gatherBox(box.inflate(2*g.wide, 2*g.wide, 2*g.wide))
-		hits := near[:0]
-		for _, o := range near {
+		// shellWide is half the widest shell's, so twice it covers it.
+		r := g.shellWide
+		g.near = g.gatherBoxInto(g.near[:0], box.inflate(2*r, 2*r, 2*r), r)
+		hits := g.near[:0]
+		for _, o := range g.near {
 			if s.blocks(o, box) {
 				hits = append(hits, o)
 			}
@@ -439,29 +440,12 @@ func (m *Mob) canStayAt(w World, at Waypoint, face uint8) bool {
 		return false
 	}
 	s := faceStep[face]
-	if !m.supportFull(w.BlockAt(at.X+s[0], at.Y+s[1], at.Z+s[2]), at.Y+s[1], face^1) {
+	if !faceFullFor(w.BlockAt(at.X+s[0], at.Y+s[1], at.Z+s[2]), at.Y+s[1], m.Y, face^1) {
 		return false
 	}
 	// getProgressAabb at full peek, deflated.
 	open := shulkerDeltaBox(m.attrScale(), face^1, -1, 1, float64(at.X)+0.5, float64(at.Y), float64(at.Z)+0.5)
 	return !overlapsSolid(w, collideCtx{}, open.inflate(-shulkerDeflate, -shulkerDeflate, -shulkerDeflate))
-}
-
-// supportFull is faceFull for the block at row y, except that scaffolding's
-// shape depends on where the shulker's feet are.
-// vanilla: BlockBehaviour.isFaceFull, ScaffoldingBlock.getCollisionShape
-func (m *Mob) supportFull(state uint16, y int32, face uint8) bool {
-	if boxes, ok := world.ScaffoldingBoxes(state, y, m.Y); ok {
-		// Only a plate spanning the whole cell can fill a scaffold's top or bottom face.
-		for _, b := range boxes {
-			if b.MinX == 0 && b.MaxX == 1 && b.MinZ == 0 && b.MaxZ == 1 &&
-				(face == faceUp && b.MaxY == 1 || face == faceDown && b.MinY == 0) {
-				return true
-			}
-		}
-		return false
-	}
-	return faceFull(state, face)
 }
 
 // teleportShulker tries five random cells within eight blocks and takes the

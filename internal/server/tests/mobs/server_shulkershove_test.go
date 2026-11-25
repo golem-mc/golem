@@ -39,7 +39,7 @@ func TestAMountedShulkerBlocksAStationaryShellsFace(t *testing.T) {
 	t.Parallel()
 	srv, _ := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
 	servertest.HoldTicks(t, srv)
-	srv.RunLine(`fill -8 99 -8 12 99 8 stone`)
+	srv.RunLine(`fill -1 99 0 3 99 0 stone`)
 	srv.RunLine(`setblock 4 100 0 stone`)
 	srv.RunLine(`summon pig -0.3 100 0.5 {Tags:[carrier],Motion:[0.0,0.0,0.0]}`)
 	srv.RunLine(`summon shulker -0.3 100 0.5 {Tags:[rider],AttachFace:0b,NoAI:1b}`)
@@ -47,10 +47,14 @@ func TestAMountedShulkerBlocksAStationaryShellsFace(t *testing.T) {
 	srv.RunLine(`summon shulker 3.5 100 0.5 {Tags:[still],AttachFace:5b,Peek:100b}`)
 	still := srv.MobIDsOfKind("minecraft:shulker")[1]
 	srv.RunLine(`ride @e[tag=rider,limit=1] mount @e[tag=carrier,limit=1]`)
-	srv.RunLine(`data merge entity @e[tag=carrier,limit=1] {Motion:[3.0d,0.0d,0.0d]}`)
+	srv.RunLine(`data merge entity @e[tag=carrier,limit=1] {Motion:[2.65d,0.0d,0.0d]}`)
 	servertest.RunTicks(t, srv, 1)
-	if face, _, _ := srv.ShulkerState(still); face == 5 {
-		t.Errorf("stationary shell kept its east face, but the rider fills its hull")
+	// The rider fills the east face's opening, so the shell takes the floor
+	// where it stands rather than teleporting.
+	face, _, _ := srv.ShulkerState(still)
+	x, y, z, _ := srv.MobPos(still)
+	if face != 0 || x != 3.5 || y != 100 || z != 0.5 {
+		t.Errorf("stationary shell has face %d at (%v, %v, %v), want face 0 at (3.5, 100, 0.5)", face, x, y, z)
 	}
 }
 

@@ -240,3 +240,34 @@ func TestAnEndermanKeepsItsOwnCollisionView(t *testing.T) {
 		t.Errorf("retained skip %v, want [0]", got)
 	}
 }
+
+// TestAShellsHullQueryIgnoresAFarWideBody: the live-hull query reaches as
+// far as the widest shulker, so a huge mob elsewhere does not widen it to
+// the whole herd.
+func TestAShellsHullQueryIgnoresAFarWideBody(t *testing.T) {
+	seen := func(giant bool) int {
+		herd := []*Mob{NewMob(TypeShulker, 0, 0.5, 64, 0.5, 0)}
+		for i := range 400 {
+			herd = append(herd, NewMob(TypeCow, int32(i+1), float64(i%20)*4-40, 64, float64(i/20)*4-40, int64(i+1)))
+		}
+		if giant {
+			big := NewMob(TypeCow, 1000, 1000, 64, 1000, 1000)
+			big.SetAttributes(big.BuildAttributes(nbt.List{}))
+			big.attrs.SetBase(registry.AttributeScale, 16)
+			herd = append(herd, big)
+		}
+		g := takePushGrid(len(herd), nil)
+		defer g.release()
+		g.build(herd)
+		herd[0].push = g
+		n := 0
+		g.gathered = &n
+		tv := tickView{w: newTestWorld(), others: herd}
+		herd[0].shulkerWorld(&tv).BodyBoxes(herd[0].mobBox())
+		return n
+	}
+	plain, wide := seen(false), seen(true)
+	if plain == 0 || wide != plain {
+		t.Errorf("the shell's query looked at %d entries, %d with a giant cow far away; want the same", plain, wide)
+	}
+}

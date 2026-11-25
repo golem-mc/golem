@@ -85,7 +85,7 @@ func (m *Mob) stepShulkerPeek(w World, t *tickView) {
 	others := t.others
 	if g := m.push; g != nil {
 		// The entries are body boxes, which is what mobBox is for a non-shulker.
-		g.shove = g.gatherBoxInto(g.shove[:0], slab)
+		g.shove = g.gatherBoxInto(g.shove[:0], slab, g.wide)
 		others = g.shove
 		sortSnapshot(others)
 	}

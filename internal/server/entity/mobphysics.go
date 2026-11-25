@@ -796,6 +796,9 @@ func (g *pushGrid) entryOf(m *Mob) pushEntry {
 	if hw > g.wide {
 		g.wide = hw
 	}
+	if hw > g.shellWide && m.IsShulker() {
+		g.shellWide = hw
+	}
 	return pushEntry{
 		m:    m,
 		minX: m.X - hw, maxX: m.X + hw,
@@ -822,8 +825,9 @@ type pushGrid struct {
 	// byID is the snapshot by entity ID, the first mob filed winning a
 	// shared ID; kept between ticks like cells.
 	byID map[int32]*Mob
-	// wide bounds the half-width of every box filed this tick.
-	wide float64
+	// wide bounds the half-width of every box filed this tick, shellWide
+	// that of every shulker's.
+	wide, shellWide float64
 	// caravan is the snapshot's llamas that are leashed or in a caravan, plus
 	// those that joined one this tick: the only ones a caravan goal can pick.
 	caravan []*Mob
@@ -950,7 +954,7 @@ func (g *pushGrid) reset() {
 	g.shove = g.shove[:0]
 	clear(g.caravan)
 	g.caravan = g.caravan[:0]
-	g.wide, g.gathered, g.crammingSet, g.crowd = 0, nil, false, nil
+	g.wide, g.shellWide, g.gathered, g.crammingSet, g.crowd = 0, 0, nil, false, nil
 }
 
 // file appends e to cell and returns its slot.
@@ -1108,15 +1112,16 @@ func overlapping(dst []*Mob, c []pushEntry, box AABB, seen *int) []*Mob {
 // pushIdx where the order is observable). The result is scratch valid until
 // the next query.
 func (g *pushGrid) gatherBox(box AABB) []*Mob {
-	g.near = g.gatherBoxInto(g.near[:0], box)
+	g.near = g.gatherBoxInto(g.near[:0], box, g.wide)
 	return g.near
 }
 
-// gatherBoxInto appends to dst the mobs gatherBox finds, for a caller whose
-// result must survive another query.
-func (g *pushGrid) gatherBoxInto(dst []*Mob, box AABB) []*Mob {
-	x0, z0 := cellCoords(box.minX-g.wide, box.minZ-g.wide)
-	x1, z1 := cellCoords(box.maxX+g.wide, box.maxZ+g.wide)
+// gatherBoxInto appends to dst the mobs whose box crosses box, searching the
+// cells whose centres lie within reach of it: g.wide finds every kind,
+// g.shellWide only shulkers.
+func (g *pushGrid) gatherBoxInto(dst []*Mob, box AABB, reach float64) []*Mob {
+	x0, z0 := cellCoords(box.minX-reach, box.minZ-reach)
+	x1, z1 := cellCoords(box.maxX+reach, box.maxZ+reach)
 	return g.collectInto(dst, x0, x1, z0, z1, box)
 }
 

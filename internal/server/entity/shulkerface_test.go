@@ -50,16 +50,16 @@ func TestShulkerSupportUsesTheShulkersFeetForScaffolding(t *testing.T) {
 		t.Fatal("no scaffolding state")
 	}
 	m := NewMob(TypeShulker, 1, 0.5, 70, 0.5, 3)
-	if !m.supportFull(scaffold, 70, faceDown) {
+	if !faceFullFor(scaffold, 70, m.Y, faceDown) {
 		t.Error("feet level with an unstable bottom: underside not full")
 	}
 	m.Y = 68
-	if m.supportFull(scaffold, 70, faceDown) {
+	if faceFullFor(scaffold, 70, m.Y, faceDown) {
 		t.Error("feet below the scaffolding: underside full")
 	}
 	pad := defaultState(t, "minecraft:lily_pad")
 	m.Y = 70
-	if m.supportFull(pad, 70, faceDown) {
+	if faceFullFor(pad, 70, m.Y, faceDown) {
 		t.Error("lily pad underside full")
 	}
 }
