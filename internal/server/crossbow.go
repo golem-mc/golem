@@ -127,11 +127,11 @@ func (c *client) loadCrossbow(hand int32, crossbow protocol.ItemStack) bool {
 		ammo = bowFind{stack: protocol.ItemStack{ItemID: int32(registry.ItemArrow), Count: 1}, slot: -1, ok: true}
 	}
 	drawn, spent := rules.CrossbowDraw(crossbow, ammo.stack, creative, c.itemEnchContext())
+	if spent != 0 {
+		c.consumeAmmo(ammo, spent)
+	}
 	if len(drawn) == 0 {
 		return false
-	}
-	if spent > 0 {
-		c.consumeAmmo(ammo, spent)
 	}
 	crossbow.SetChargedProjectiles(drawn)
 	c.setHeld(hand, crossbow)

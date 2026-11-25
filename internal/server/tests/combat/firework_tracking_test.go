@@ -75,7 +75,7 @@ func TestAFireworkRocketsBurnEndsIsTold(t *testing.T) {
 		}
 		return false
 	})
-	c.ReadTicks(srv, 3, func(id int32, data []byte) bool {
+	count := func(id int32, data []byte) bool {
 		if on, told := fireFlag(id, data); told {
 			if on {
 				set++
@@ -84,7 +84,12 @@ func TestAFireworkRocketsBurnEndsIsTold(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}
+	c.ReadTicks(srv, 1, count)
+	if set != 1 || cleared {
+		t.Fatalf("on tick one the fire flag was told set %d times, cleared = %v; want set once", set, cleared)
+	}
+	c.ReadTicks(srv, 2, count)
 	if set != 1 || cleared {
 		t.Fatalf("through tick three the fire flag was told set %d times, cleared = %v; want set once, never cleared", set, cleared)
 	}

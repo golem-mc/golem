@@ -330,15 +330,15 @@ func (g *crossbowAttackGoal) loadCrossbow(t *tickView, stack protocol.ItemStack)
 		ammo = protocol.ItemStack{ItemID: int32(registry.ItemArrow), Count: 1}
 	}
 	drawn, spent := rules.CrossbowDraw(stack, ammo, false, m.crossbowEnchContext(t.w))
-	if len(drawn) == 0 {
-		return false
-	}
-	if slot >= 0 {
+	if slot >= 0 && spent != 0 {
 		ammo.Count -= spent
 		if ammo.Count <= 0 {
 			ammo = protocol.ItemStack{}
 		}
 		m.SetEquipment(slot, ammo)
+	}
+	if len(drawn) == 0 {
+		return false
 	}
 	stack.SetChargedProjectiles(drawn)
 	m.SetEquipment(g.chargeSlot, stack)

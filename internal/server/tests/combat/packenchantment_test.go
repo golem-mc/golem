@@ -184,10 +184,16 @@ func TestPackTridentReleaseAmplifiedWearNeverBreaks(t *testing.T) {
 // sound plays, the end sound does not, and the crossbow stays empty.
 // vanilla: CrossbowItem.tryLoadProjectiles, ProjectileWeaponItem.draw
 func TestPackPillagerFailedDrawIsSilentAtTheEnd(t *testing.T) {
+	t.Run("costs more than held", func(t *testing.T) { pillagerFailedDraw(t, 2, 1) })
+	// A split of -1 is an empty projectile and gives one ammunition back.
+	t.Run("negative cost", func(t *testing.T) { pillagerFailedDraw(t, -1, 2) })
+}
+
+func pillagerFailedDraw(t *testing.T, cost, wantHeld int32) {
 	cfg := servertest.HostileTestConfig()
 	cfg.GameMode = "creative"
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	cfg.LevelName = valueEffectPack(t, "ammotwo", `{"minecraft:ammo_use":[{"effect":{"type":"minecraft:set","value":2}}]}`)
+	cfg.LevelName = valueEffectPack(t, "ammotwo", fmt.Sprintf(`{"minecraft:ammo_use":[{"effect":{"type":"minecraft:set","value":%d}}]}`, cost))
 	srv, c := servertest.Join(t, cfg, "Observer")
 	servertest.HoldTicks(t, srv)
 	srv.SetDifficulty(rules.DifficultyHard)
@@ -223,7 +229,7 @@ func TestPackPillagerFailedDrawIsSilentAtTheEnd(t *testing.T) {
 	if got := srv.MobHand(id).ChargedProjectiles(); len(got) != 0 {
 		t.Errorf("crossbow loaded %v after a draw it could not pay", got)
 	}
-	if off := srv.MobOffHand(id); off.Count != 1 {
-		t.Errorf("off hand = %v, want the one arrow kept", off)
+	if off := srv.MobOffHand(id); off.Count != wantHeld {
+		t.Errorf("off hand = %v, want %d arrows", off, wantHeld)
 	}
 }
