@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -91,21 +92,17 @@ func TestADeadPlayersChunksAreDroppedAndComeBackOnRespawn(t *testing.T) {
 // vanilla: PlayerList.respawn
 func TestRespawnedPlayerDeathTimeIsZero(t *testing.T) {
 	t.Parallel()
-	srv, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Victim", servertest.OpsListing(t, "Victim"))
+	cfg := servertest.SurvivalTestConfig()
+	cfg.ViewDistance = config.MinDistance
+	cfg.SimulationDistance = config.MinDistance
+	srv, c, _ := servertest.JoinAs(t, cfg, "Victim", servertest.OpsListing(t, "Victim"))
 	servertest.HoldTicks(t, srv)
 	c.ChatCommand("kill")
 	c.Settle()
-	servertest.RunTicks(t, srv, 15)
+	servertest.RunTicks(t, srv, 1)
 	c.PerformRespawn()
 	c.Settle()
-	servertest.RunTicks(t, srv, 5)
-	got := ""
-	for _, text := range srv.RunLine("data get entity Victim DeathTime") {
-		if text.Translate == "commands.data.entity.query" && len(text.With) == 2 {
-			got = text.With[1].Plain()
-		}
-	}
-	if got != "0s" {
-		t.Errorf("DeathTime after respawn = %q, want 0s", got)
-	}
+	c.ChatCommand("data get entity Victim DeathTime")
+	c.ExpectCommandFeedbackText("commands.data.entity.query",
+		servertest.PlayerDisplayComponent("Victim"), servertest.NBTArg("0s"))
 }

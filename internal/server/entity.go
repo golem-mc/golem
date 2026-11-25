@@ -624,7 +624,15 @@ func (s *Server) tickDeadBodies() {
 		if c.deadHealthPending.Load() {
 			continue
 		}
-		if c.deathTicks.Add(1) < corpseTicks {
+		// Dead is rechecked under the vitals lock the respawn resets the body
+		// under, so a tick that raced the respawn cannot count on the new body.
+		var ticks int32
+		c.player.UpdateBody(func(v *player.Vitals, _ *effect.Set, _ *player.Attributes) {
+			if v.Dead {
+				ticks = c.deathTicks.Add(1)
+			}
+		})
+		if ticks < corpseTicks {
 			continue
 		}
 		c.trackMu.Lock()
