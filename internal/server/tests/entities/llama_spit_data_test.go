@@ -66,6 +66,7 @@ func TestLlamaSpitSurvivesARestart(t *testing.T) {
 	servertest.UntilTicks(t, againSrv, 20, "saved spit wakes", func() bool {
 		return len(againSrv.SelectedEntities("minecraft:llama_spit")) == 1
 	})
+	servertest.RunTicks(t, againSrv, 2)
 	again.ChatCommand("data get entity @e[type=minecraft:llama_spit,limit=1] Item")
 	again.ExpectCommandFailure(servertest.CommandErrorMessageForTest("arguments.nbtpath.nothing_found", "Item"))
 	againSrv.FlushMobs()
@@ -75,6 +76,41 @@ func TestLlamaSpitSurvivesARestart(t *testing.T) {
 		}
 		if _, ok := tag["Item"]; ok {
 			t.Error("restored llama spit has an Item")
+		}
+	})
+}
+
+// vanilla: LlamaSpit.tick applyGravity, Entity.isNoGravity, EntityType.LLAMA_SPIT
+func TestLlamaSpitKeepsItsPlaceAcrossAChunkUnload(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelName = t.TempDir()
+	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Tester"))
+	c := connect().Join("Tester")
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand("summon minecraft:llama_spit 4.5 70.5 4.5 {NoGravity:1b}")
+	servertest.AwaitSystemChatSaying(t, c, "commands.summon.success")
+	servertest.RunTicks(t, srv, 2)
+	var saved nbt.Compound
+	srv.FlushMobs()
+	servertest.EntityFileIs(t, cfg.LevelName, world.ChunkPos{}, "minecraft:llama_spit", func(tag nbt.Compound) { saved = tag })
+
+	c.Disconnect()
+	servertest.UntilTicks(t, srv, 400, "spit unloads", func() bool {
+		return len(srv.SelectedEntities("minecraft:llama_spit")) == 0
+	})
+	connect().Join("Tester")
+	servertest.UntilTicks(t, srv, 20, "spit wakes", func() bool {
+		return len(srv.SelectedEntities("minecraft:llama_spit")) == 1
+	})
+	servertest.RunTicks(t, srv, 2)
+	srv.FlushMobs()
+	servertest.EntityFileIs(t, cfg.LevelName, world.ChunkPos{}, "minecraft:llama_spit", func(tag nbt.Compound) {
+		if !reflect.DeepEqual(tag["UUID"], saved["UUID"]) || !reflect.DeepEqual(tag["Pos"], saved["Pos"]) {
+			t.Errorf("reloaded UUID/Pos = %v %v, want %v %v", tag["UUID"], tag["Pos"], saved["UUID"], saved["Pos"])
+		}
+		if _, ok := tag["Item"]; ok {
+			t.Error("reloaded llama spit has an Item")
 		}
 	})
 }
