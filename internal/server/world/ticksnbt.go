@@ -410,10 +410,11 @@ func (p *Physics) forgetBooking(t scheduledTick) {
 			delete(p.fluidBooked, fluidBook{t.pos, t.fluid})
 			return
 		}
-		delete(p.pending, t.pos)
 		if t.priority == tickPriorityFinalize {
 			delete(p.finalizeSeq, t.pos)
+			return
 		}
+		delete(p.pending, t.pos)
 	default:
 		delete(p.pendingEvent, t.pos)
 	}

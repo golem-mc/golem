@@ -1260,7 +1260,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		default:
 			if next.fluid != 0 {
 				delete(p.fluidBooked, fluidBook{next.pos, next.fluid})
-			} else {
+			} else if next.priority != tickPriorityFinalize {
 				delete(p.pending, next.pos)
 			}
 		}
@@ -1491,6 +1491,12 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 			return
 		}
 		p.fluidBooked[book] = struct{}{}
+	} else if priority == tickPriorityFinalize {
+		// A landing is a block-entity tick: it neither waits behind nor holds
+		// back an ordinary block tick of the cell.
+		if _, ok := p.finalizeSeq[key]; ok {
+			return
+		}
 	} else {
 		if p.pending[key] {
 			return
@@ -1646,7 +1652,6 @@ func (p *Physics) schedulePistonFinalize(x, y, z int32, due int64) {
 func (p *Physics) cancelPistonFinalize(x, y, z int32) {
 	key := blockKey{x, y, z}
 	if seq, ok := p.finalizeSeq[key]; ok {
-		delete(p.pending, key)
 		delete(p.finalizeSeq, key)
 		p.cancelled[seq] = struct{}{}
 	}

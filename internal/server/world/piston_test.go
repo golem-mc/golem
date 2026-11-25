@@ -512,3 +512,30 @@ func TestLandingSavedAtLowPriorityStillLands(t *testing.T) {
 		}
 	}
 }
+
+// TestLandingIsBookedApartFromABlockTick books a block tick and a landing at a
+// moving piston's cell: both queue, and after a save and reload the landing is
+// still pending.
+// vanilla: PistonMovingBlockEntity.tick, LevelChunkTicks.schedule
+func TestLandingIsBookedApartFromABlockTick(t *testing.T) {
+	w, p, dir := newSavedWorldAround(t, 0, 0)
+	const x, y, z = 4, 64, 4
+	ride := movingPistonStateOf(dirEast, false)
+	w.SetBlock(x, y, z, ride)
+	p.mu.Lock()
+	p.schedule(x, y, z, 5)
+	p.schedulePistonFinalize(x, y, z, 5)
+	p.schedulePistonFinalize(x, y, z, 6)
+	if len(p.queue) != 2 {
+		t.Errorf("%d entries queued, want a block tick and one landing", len(p.queue))
+	}
+	p.mu.Unlock()
+
+	w, p = reopenWorldAround(t, w, dir, 0, 0)
+	p.Tick(0)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, ok := p.finalizeSeq[blockKey{x, y, z}]; !ok {
+		t.Error("the landing was lost across a reload")
+	}
+}
