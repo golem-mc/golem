@@ -164,3 +164,54 @@ func TestFluidSlopeTagReload(t *testing.T) {
 		t.Fatalf("slope distance after restore = %d, want 1", got)
 	}
 }
+
+type fluidSpreadTestReader struct {
+	surface    map[[2]int32]uint16
+	floorReads int
+}
+
+func (r *fluidSpreadTestReader) BlockAt(x, y, z int32) uint16 {
+	switch y {
+	case 63:
+		r.floorReads++
+		return stoneState
+	case 64:
+		if state, ok := r.surface[[2]int32{x, z}]; ok {
+			return state
+		}
+	}
+	return airState
+}
+
+func (r *fluidSpreadTestReader) BoolRule(GameRuleIndex) bool { return true }
+
+func TestFluidSpreadSkipsUnneededHoleReads(t *testing.T) {
+	source, flowing := waterByLevel[0], waterByLevel[1]
+	for _, tc := range []struct {
+		name  string
+		sides [4]uint16 // north, east, south, west
+		want  [4]bool
+	}{
+		{name: "same fluid", sides: [4]uint16{flowing, flowing, flowing, flowing}},
+		{name: "single outlet", sides: [4]uint16{stoneState, airState, stoneState, stoneState}, want: [4]bool{1: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &fluidSpreadTestReader{surface: map[[2]int32]uint16{{0, 0}: source}}
+			for i, d := range horizontal4 {
+				r.surface[d] = tc.sides[i]
+			}
+			flows, winners := fluidSideFlows(r, 0, 64, 0, source, fluidHolding(source), fluidBehaviours[fluidWater])
+			if winners != tc.want {
+				t.Fatalf("winning directions = %v, want %v", winners, tc.want)
+			}
+			for i, won := range winners {
+				if won && flows[i] != fluidHolding(flowing) {
+					t.Errorf("flow in direction %d = %+v, want level-1 water", i, flows[i])
+				}
+			}
+			if r.floorReads != 0 {
+				t.Errorf("fluid spread read %d floor cells with no outlets to rank, want 0", r.floorReads)
+			}
+		})
+	}
+}
