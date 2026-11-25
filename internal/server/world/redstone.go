@@ -726,7 +726,12 @@ func (p *Physics) shapeUpdateBody(x, y, z int32, d [3]int32, changes *[]BlockCha
 		// below it.
 		// vanilla: FaceAttachedHorizontalDirectionalBlock.updateShape, ComparatorBlock.updateShape
 		toward := blocklogic.Opposite(directionOf(d))
-		if block == registry.BlockComparator && toward != dirDown {
+		if block == registry.BlockComparator {
+			// updateShape answers air, which destroys with the break event;
+			// the neighbor-change removal stays the diode's own.
+			if toward == dirDown && !canSurvive(p.w, x, y, z, state) {
+				p.popBlock(x, y, z, state, changes)
+			}
 			return
 		}
 		if p.supportCheck(x, y, z, state, toward, changes) {

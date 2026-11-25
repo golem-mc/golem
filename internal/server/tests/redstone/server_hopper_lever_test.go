@@ -5,6 +5,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/registry"
 )
 
 // A powered floor lever on a hopper locks it; the hopper's enabled write then
@@ -37,5 +38,26 @@ func TestHopperEnabledChangeKeepsSideComparator(t *testing.T) {
 	servertest.ExpectBlockNamed(t, srv, 6, 70, 0, "minecraft:comparator", nil)
 	if n := countDropped(srv.ItemsInDimension(world.DimensionName), "minecraft:comparator"); n != 0 {
 		t.Fatalf("dropped comparators = %d, want 0", n)
+	}
+}
+
+// A comparator whose lower neighbour's mode toggle shape-updates the comparator
+// above it loses its support: it drops with the break event.
+// vanilla: ComparatorBlock.updateShape, Block.destroyBlock
+func TestStackedComparatorBreakShowsBreakEvent(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.AttachActor(t)
+	servertest.HoldTicks(t, srv)
+	servertest.Setblock(t, c, 5, 64, 0, "comparator[facing=north]")
+	servertest.Setblock(t, c, 5, 65, 0, "comparator[facing=north] strict")
+	c.UseBlock(5, 64, 0)
+	got := c.ReadBreak(5, 65, 0, func(b servertest.BreakWire) bool {
+		return b.Air && len(b.Drops) == 1
+	})
+	if !got.Air || !got.BlockEventSeen {
+		t.Fatalf("upper comparator air=%v breakEvent=%v, want both", got.Air, got.BlockEventSeen)
+	}
+	if registry.BlockOf(got.BlockEventData) != registry.BlockComparator {
+		t.Fatalf("break event data is block %d, want comparator", registry.BlockOf(got.BlockEventData))
 	}
 }
