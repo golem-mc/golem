@@ -38,13 +38,19 @@ func BundleRemoveFirst(bundle protocol.ItemStack) (rest, removed protocol.ItemSt
 	return rest, items[0], true
 }
 
-// BundleItemWeight returns an item's weight inside a bundle and whether a
-// bundle accepts it: 1/maxStackSize, any stack carrying bundle_contents 1/16
-// plus its own contents' weight, a stack with bees inside a whole bundle, and
-// shulker boxes not at all.
-// vanilla: BundleContents.canItemBeInBundle, BundleContents.getWeight
+// BundleAccepts reports whether a stack may be inserted into a bundle. Weighing
+// a stored entry does not check it.
+// vanilla: BundleContents.canItemBeInBundle
+func BundleAccepts(stack protocol.ItemStack) bool {
+	return !stack.Empty() && !registry.Item(stack.ItemID).InTag(registry.ItemTagIDShulkerBoxes)
+}
+
+// BundleItemWeight returns an item's weight inside a bundle, ok false for an
+// empty stack: 1/maxStackSize, any stack carrying bundle_contents 1/16 plus its
+// own contents' weight, a stack with bees inside a whole bundle.
+// vanilla: BundleContents.getWeight
 func BundleItemWeight(stack protocol.ItemStack) (*big.Rat, bool) {
-	if stack.Empty() || registry.Item(stack.ItemID).InTag(registry.ItemTagIDShulkerBoxes) {
+	if stack.Empty() {
 		return nil, false
 	}
 	if contents, ok := stack.BundleContentsOf(); ok {

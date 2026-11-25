@@ -36,7 +36,7 @@ func bundleMaxAdd(weight, itemWeight *big.Rat) int32 {
 // vanilla: BundleContents.Mutable.tryInsert
 func bundleInsert(items []protocol.ItemStack, stack protocol.ItemStack) ([]protocol.ItemStack, int32) {
 	itemWeight, ok := rules.BundleItemWeight(stack)
-	if !ok {
+	if !ok || !rules.BundleAccepts(stack) {
 		return items, 0
 	}
 	amount := min(stack.Count, bundleMaxAdd(rules.BundleItemsWeight(items), itemWeight))
@@ -83,7 +83,7 @@ func bundleStackedOnOther(s *Session, view View, inv *player.Inventory, button, 
 		itemWeight, ok := rules.BundleItemWeight(other)
 		// A bundle refusing the stack, or full, leaves both in place rather
 		// than trading; the click is still the bundle's.
-		if !ok {
+		if !ok || !rules.BundleAccepts(other) {
 			outcome.BundleSounds = append(outcome.BundleSounds, registry.SoundItemBundleInsertFail)
 			return true
 		}

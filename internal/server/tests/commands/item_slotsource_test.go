@@ -265,5 +265,15 @@ func TestItemSlotSources(t *testing.T) {
 		t.Errorf("bundle entries after nested component write = %q, want three unmerged stones, two with empty projectiles", got)
 	}
 
+	// 15. A shulker box already stored in a bundle counts toward capacity.
+	run(`item replace block 2 64 3 container.18 with bundle[bundle_contents=[{id:"minecraft:shulker_box"}]]`)
+	run("item replace block 2 64 3 container.19 with bundle")
+	expectRefusal(
+		`item replace block 2 64 3 {type:"contents",component:"minecraft:bundle_contents",slot_source:{type:"slot_range",slots:"container.19"}} from block 2 64 3 container.18`,
+		"commands.item.target.failed")
+	if got := plainQuery(t, srv, "data get block 2 64 3 Items[{Slot:19b}]", "commands.data.block.query"); strings.Contains(got, "bundle_contents") {
+		t.Errorf("destination bundle = %q, want it left empty", got)
+	}
+
 	c.Disconnect()
 }

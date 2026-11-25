@@ -505,7 +505,7 @@ func trimTrailingEmpty(items []protocol.ItemStack) []protocol.ItemStack {
 
 func bundleWeightWithAdded(weight *big.Rat, add protocol.ItemStack) (*big.Rat, bool) {
 	itemWeight, ok := BundleItemWeight(add)
-	if !ok {
+	if !ok || !BundleAccepts(add) {
 		return nil, false
 	}
 	next := new(big.Rat).Add(weight, itemWeight.Mul(itemWeight, big.NewRat(int64(add.Count), 1)))
