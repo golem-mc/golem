@@ -100,3 +100,22 @@ func TestAnUnreadableChunkSurvivesRegionEviction(t *testing.T) {
 		t.Errorf("writeChunk over the damaged chunk after eviction = %v, want errUnreadable", err)
 	}
 }
+
+// TestClosedWorldRegionLookupFails checks that a region lookup after Close
+// returns errWorldClosed instead of panicking on the released cache.
+func TestClosedWorldRegionLookupFails(t *testing.T) {
+	t.Parallel()
+	w, err := NewWorld(t.TempDir(), NewFlatGenerator())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.region(0, 0); !errors.Is(err, errWorldClosed) {
+		t.Errorf("region after Close: err = %v, want errWorldClosed", err)
+	}
+	if _, err := w.peekRegion(0, 0); !errors.Is(err, errWorldClosed) {
+		t.Errorf("peekRegion after Close: err = %v, want errWorldClosed", err)
+	}
+}

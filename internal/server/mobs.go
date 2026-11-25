@@ -3302,25 +3302,28 @@ func mobEquipmentPayload(ent *mobEntity) []byte {
 	return equipmentEntriesPayload(m.ID, slots[:], used)
 }
 
-// tickMobCompasses clears invalid targets on equipped compasses.
+// tickMobCompasses clears invalid targets on equipped compasses. A target
+// in a saved chunk the probe cannot answer is noted and left, for the caller to
+// resolve with no lock held and tick again.
 // vanilla: EntityEquipment.tick, CompassItem.inventoryTick
-func tickMobCompasses(m *entity.Mob, w *world.World, dim string) {
+func tickMobCompasses(m *entity.Mob, probe *lodestoneProbe, dim string) {
+	w := probe.w
 	bottom, top := w.MinY(), w.MinY()+w.Height()
-	if cleared, ok := rules.ClearLostLodestone(w, m.MainHand, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.MainHand, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipMainHand, cleared)
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.OffHand, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.OffHand, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipOffHand, cleared)
 	}
 	for i := range m.Worn {
-		if cleared, ok := rules.ClearLostLodestone(w, m.Worn[i], dim, bottom, top); ok {
+		if cleared, ok := rules.ClearLostLodestone(probe, m.Worn[i], dim, bottom, top); ok {
 			m.SetEquipment(protocol.EquipFeet+i, cleared)
 		}
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.Body, dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.Body, dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipBody, cleared)
 	}
-	if cleared, ok := rules.ClearLostLodestone(w, m.SaddleSlot(), dim, bottom, top); ok {
+	if cleared, ok := rules.ClearLostLodestone(probe, m.SaddleSlot(), dim, bottom, top); ok {
 		m.SetEquipment(protocol.EquipSaddle, cleared)
 	}
 }

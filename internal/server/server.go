@@ -1209,6 +1209,11 @@ type respawnPos struct {
 
 // client is a connection and its state from handshake to play.
 type client struct {
+	// compassProbe is the lodestone tick's scratch, reused across ticks.
+	compassProbe lodestoneProbe
+	// compassRead, when set, runs between the compass tick's saved-chunk read
+	// and its write, for a test to interleave a dimension change.
+	compassRead func()
 	// effectCause is what the caller names for the next effect change.
 	effectCause    effect.Cause
 	statusProtocol int // handshake protocol for the server-list callback

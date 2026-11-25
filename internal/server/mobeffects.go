@@ -19,6 +19,9 @@ type mobEffects struct {
 	// pufferTouches are the puffed pufferfish a player may touch, applied after the mob lock.
 	pufferTouches []pufferTouch
 	dragonDeaths  []dragonDeathEffect
+	// lodestoneMobs are mobs whose compass targets lie in saved chunks, read
+	// after the mob lock; the mob is ticked again with the answers.
+	lodestoneMobs []lodestoneMob
 	// gateways are the mobs found in an end gateway.
 	gateways []gatewayTouch
 	// raiderDeaths are raiders that died this tick, removed from their raids
@@ -252,6 +255,7 @@ func (fx *mobEffects) convert(cv mobConversion) {
 // reach clients, which the black-box tests read and vanilla fixes, so a new
 // kind goes where its packets belong, not at the end.
 func (fx *mobEffects) apply(s *Server, in *mobTickInputs) {
+	s.finishMobCompasses(fx.lodestoneMobs)
 	s.rollDeathLoot(fx.deaths)
 	applyEach(s, fx.gameEvents, func(s *Server, event mobGameEvent) {
 		s.gameEvent(event.w, event.event, event.x, event.y, event.z, event.context)
