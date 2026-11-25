@@ -233,6 +233,10 @@ func (s *Server) StopTick() { s.stopTick() }
 // or after Shutdown, is safe.
 func (s *Server) DisablePlugins() { s.disablePlugins() }
 
+// PluginCallsQueued is signalled when a connection queues a plugin call, so
+// a held test can run the tick that serves it once it is pending.
+func (s *Server) PluginCallsQueued() <-chan struct{} { return s.plugins.CallsQueued() }
+
 // FlushSaves waits for the chunk saves queued in every dimension. Tests call
 // it once they have stopped driving the world, before their world directory is
 // removed, so the removal does not race a save still in flight on the I/O pool.
@@ -4946,6 +4950,14 @@ func (s *Server) SetPhysicsSeed(seed int64) {
 	for _, dim := range s.allDims() {
 		dim.physics.SetSeed(seed)
 	}
+}
+
+// TickProjectiles runs the arrow and rocket passes once, as the main loop
+// runs them. A plugin listener calls it to step a projectile between two of
+// the server's own steps.
+func (s *Server) TickProjectiles() {
+	s.tickArrows()
+	s.tickFireworks()
 }
 
 // TickEntities runs the entity passes the main loop runs after the physics,
