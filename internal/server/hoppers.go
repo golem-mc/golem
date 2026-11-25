@@ -48,7 +48,11 @@ func faceStep(face int32) (int32, int32, int32) {
 
 // blockFacing reads a block's facing property, down if it has none.
 func blockFacing(w *world.World, x, y, z int32) int32 {
-	id := w.BlockAt(x, y, z)
+	return stateFacing(w.BlockAt(x, y, z))
+}
+
+// stateFacing is the face a state points at, FaceBottom for one without facing.
+func stateFacing(id uint16) int32 {
 	if !registry.StateHasFacing(id) {
 		return protocol.FaceBottom
 	}
@@ -358,10 +362,11 @@ func (s *Server) tickHopper(w *world.World, be *world.BlockEntity, age int64) {
 		if !b.HopperReady(age) {
 			return false
 		}
-		if !world.HopperEnabled(w, b.X, b.Y, b.Z) {
+		state := w.BlockAt(b.X, b.Y, b.Z)
+		if !registry.StateEnabled(state) {
 			return true
 		}
-		s.hopperStep(w, b, gate, &turn)
+		s.hopperStep(w, b, state, gate, &turn)
 		if turn.moved || (gate != nil && gate.vetoed()) {
 			b.Cooldown = world.HopperMoveInterval
 			if !turn.moved {
@@ -405,13 +410,13 @@ type hopperTurn struct {
 
 // hopperStep is one turn's moves under the hopper's lock, recorded in t; a
 // probing gate makes it write nothing.
-func (s *Server) hopperStep(w *world.World, b *world.BlockEntity, gate *hopperGate, t *hopperTurn) {
+func (s *Server) hopperStep(w *world.World, b *world.BlockEntity, state uint16, gate *hopperGate, t *hopperTurn) {
 	self := containerSlots(b, w)
 	if b.HopperTargets == nil {
 		b.HopperTargets = &world.HopperTargets{}
 	}
 	if b.FilledSlots() != 0 {
-		t.pushed = s.hopperEject(w, self, gate)
+		t.pushed = s.hopperEject(w, self, stateFacing(state), gate)
 		t.moved = t.pushed != nil
 	}
 	if !b.HopperFull() {
@@ -424,9 +429,8 @@ func (s *Server) hopperStep(w *world.World, b *world.BlockEntity, gate *hopperGa
 // hopperEject pushes one item out the spout (vanilla's ejectItems),
 // returning the container it went into, nil if none, for the caller to sync
 // after the hopper's lock.
-func (s *Server) hopperEject(w *world.World, self blockEntitySlots, gate *hopperGate) containerTarget {
+func (s *Server) hopperEject(w *world.World, self blockEntitySlots, face int32, gate *hopperGate) containerTarget {
 	b := self.be
-	face := blockFacing(w, b.X, b.Y, b.Z)
 	tx, ty, tz := faceOffset(b.X, b.Y, b.Z, face)
 	cache := &b.HopperTargets.Push
 	hopperRefresh(w, cache, tx, ty, tz)
