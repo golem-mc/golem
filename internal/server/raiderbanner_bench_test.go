@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -10,6 +11,23 @@ import (
 	"github.com/golem-mc/golem/internal/server/raid"
 	"github.com/golem-mc/golem/registry"
 )
+
+// BenchmarkRaiderBannersWithoutIllagers measures the banner pass in herds of pigs.
+func BenchmarkRaiderBannersWithoutIllagers(b *testing.B) {
+	for _, pigs := range []int{0, 128, 2048} {
+		b.Run(fmt.Sprintf("%dPigs", pigs), func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 1)
+			for i := range pigs {
+				m := entity.NewMob(entity.TypePig, s.nextEntity(), 0.5, 64, 0.5, int64(i+1))
+				s.addMob(&mobEntity{mob: m, w: w, uuid: uuid.New()})
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				s.tickRaiderBanners()
+			}
+		})
+	}
+}
 
 // BenchmarkRaiderBannerLoot runs the full loot pass, including captain claims,
 // with 40 raid members and 1,000 ground items. Movement and clients are excluded;

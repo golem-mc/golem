@@ -276,6 +276,8 @@ type mobHerd struct {
 	// dragons counts the ender dragons in herd the same way, so a tick with
 	// none skips the crystal and fight passes over the herd.
 	dragons atomic.Int32
+	// illagers lets the banner pass skip this herd. Guarded by mobsMu.
+	illagers int32
 	// leashWaits is the mobs that joined carrying a saved lead, which the
 	// mob tick re-ties to their holder or lets go after the grace.
 	leashWaits []*mobEntity
@@ -294,6 +296,10 @@ func (h *mobHerd) count(m *entity.Mob, n int32) {
 		h.wardens.Add(n)
 	case entity.TypeEnderDragon:
 		h.dragons.Add(n)
+	default:
+		if entity.IsIllagerType(m.Type) {
+			h.illagers += n
+		}
 	}
 }
 
@@ -391,6 +397,7 @@ func (h *mobHerd) setHerd(herd entity.Mobs) {
 	h.version++
 	h.wardens.Store(0)
 	h.dragons.Store(0)
+	h.illagers = 0
 	for _, m := range herd {
 		h.count(m, 1)
 	}
