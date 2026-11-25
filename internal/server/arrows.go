@@ -1116,6 +1116,7 @@ func (t *mobDimTick) shotArrow(fx *mobEffects, ev entity.MobEvent) {
 	}
 	if shot.crossbow {
 		shot.weapon = ev.Stack
+		shot.ammo = ev.Ammo
 	} else if !shot.trident && registry.Item(shot.weapon.ItemID) != registry.ItemBow {
 		// vanilla: ProjectileUtil.getWeaponHoldingHand falls back to the off hand
 		shot.weapon = ev.Mob.OffHand
@@ -1132,23 +1133,39 @@ func (t *mobDimTick) shotArrow(fx *mobEffects, ev entity.MobEvent) {
 
 // spawnMobShot stands a mob's arrow or thrown trident in the world.
 func (s *Server) spawnMobShot(shot mobShot) {
-	yaw, pitch := entity.ArrowAngles(shot.vx, shot.vy, shot.vz)
 	if shot.trident {
+		yaw, pitch := entity.ArrowAngles(shot.vx, shot.vy, shot.vz)
 		// AbstractArrow.setOwner only allows pickup for a player owner.
 		s.spawnTrident(shot.w, shot.x, shot.y, shot.z, shot.vx, shot.vy, shot.vz, yaw, pitch,
 			entity.PickupDisallowed, shot.shooter, shot.shooterUUID, shot.weapon)
 		return
 	}
+	var ammo protocol.ItemStack
+	if shot.ammo != nil {
+		ammo = *shot.ammo
+	}
+	if isFireworkRocket(ammo) {
+		s.spawnCrossbowRocket(shot.w, ammo, shot.x, shot.y, shot.z, shot.vx, shot.vy, shot.vz,
+			shot.shooter, shot.shooterUUID, true)
+		return
+	}
+	yaw, pitch := entity.ArrowAngles(shot.vx, shot.vy, shot.vz)
+	pickup := entity.PickupDisallowed
+	if ammo.Intangible {
+		// vanilla: AbstractArrow.setPickup via the intangible projectile
+		pickup = entity.PickupCreativeOnly
+	}
 	it := newArrowEntity(s, shot.w, shot.x, shot.y, shot.z, shot.vx, shot.vy, shot.vz, yaw, pitch,
-		false, shot.damage, entity.PickupDisallowed, shot.shooter, shot.shooterUUID,
+		false, shot.damage, pickup, shot.shooter, shot.shooterUUID,
 		shot.weapon, shot.fireTicks)
 	it.arrow.Effect = shot.effect
+	armArrow(it, ammo)
 	if shot.crossbow {
 		// vanilla: CrossbowItem.createProjectile
 		it.arrow.HitSound = crossbowHitSound
-		it.arrow.PierceLevel = rules.PiercingLevel(shot.weapon, protocol.ItemStack{ItemID: int32(registry.ItemArrow), Count: 1}, &rules.EnchContext{Rand: s.levelRng})
+		it.arrow.PierceLevel = rules.PiercingLevel(shot.weapon, ammo, &rules.EnchContext{Rand: s.levelRng})
 	}
-	s.launchArrowFrom(it, protocol.ItemStack{}, shot.weapon)
+	s.launchArrowFrom(it, ammo, shot.weapon)
 }
 
 // mayPickUpArrow puts a player's touch of a shaft they may take to

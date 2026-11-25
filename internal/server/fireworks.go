@@ -45,6 +45,12 @@ type fireworkEntity struct {
 	tags nbt.StringSet
 	// custom is the custom name, guarded like tags.
 	custom customName
+	// fire is the on-fire flag told to the client. The rocket's tick sets it
+	// from the burn, so a rocket launched burning pairs unlit.
+	// vanilla: Entity.baseTick's setSharedFlagOnFire
+	fire bool
+	// skipStep holds back the next step of a rocket a mob shot this tick.
+	skipStep bool
 
 	// spawning holds the rocket out of its tick while its spawn effects run.
 	// Guarded by the firework lock once registered.
@@ -240,6 +246,7 @@ func applyFireworkTag(it *fireworkEntity, compound nbt.Compound) {
 	it.portal.Cooldown = portalCooldownOf(compound)
 	it.tags.Reset(tagsOfTag(compound))
 	it.custom = customNameOfTag(compound)
+	rocket.FireTicks = int(shortFieldOf(compound, "Fire"))
 }
 
 // registerFirework puts a built rocket into the world and shows it to every
@@ -321,11 +328,28 @@ type fireworkMetadataState struct {
 	name        customName
 	attached    int32
 	shotAtAngle bool
+	fire        bool
+}
+
+// fireworkBurnDelta sets the told on-fire flag from the burn and returns the
+// metadata, encoded once for every watcher; nil if the flag has not turned.
+func fireworkBurnDelta(it *fireworkEntity) *outbound {
+	burning := it.rocket.FireTicks > 0
+	if burning == it.fire {
+		return nil
+	}
+	was := fireworkMetadataStateOf(it)
+	it.fire = burning
+	data := fireworkMetadataTable(it, &was)
+	if data == nil {
+		return nil
+	}
+	return &outbound{id: protocol.IDPlayEntityMetadata, data: data}
 }
 
 func fireworkMetadataStateOf(it *fireworkEntity) fireworkMetadataState {
 	return fireworkMetadataState{stack: it.stack, name: it.custom,
-		attached: it.rocket.AttachedTo, shotAtAngle: it.rocket.ShotAtAngle}
+		attached: it.rocket.AttachedTo, shotAtAngle: it.rocket.ShotAtAngle, fire: it.fire}
 }
 
 // fireworkMetadataTable writes spawn fields (was == nil) or fields changed by a command.
@@ -339,6 +363,14 @@ func fireworkMetadataTable(it *fireworkEntity, was *fireworkMetadataState) []byt
 	var b protocol.Buffer
 	b.PutVarInt(it.rocket.ID)
 	head := b.Len()
+	if now.fire != was.fire {
+		b.PutMetadata(protocol.MetadataIndexEntityFlags, protocol.MetadataByte)
+		var flags uint8
+		if now.fire {
+			flags = protocol.EntityFlagOnFire
+		}
+		b.PutU8(flags)
+	}
 	// Pairing always includes the carried item, even an empty stack.
 	if spawn || !now.stack.Equal(was.stack) {
 		b.PutMetadata(protocol.MetadataIndexItemSlot, protocol.MetadataSlot)
@@ -405,6 +437,20 @@ func fireworkWatchers(clients []*client) map[*world.World][]fireworkWatcher {
 		})
 	}
 	return watchers
+}
+
+// fireworkLaunchSound queues the launch sound for the watchers within its
+// volume's earshot.
+func fireworkLaunchSound(it *fireworkEntity, watchers []fireworkWatcher, sounds *sendList) {
+	r := it.rocket
+	earshot := soundRange(fireworkLaunchVolume)
+	launch := soundEffectIDAt(registry.SoundEntityFireworkRocketLaunch,
+		protocol.SoundCategoryAmbient, r.X, r.Y, r.Z, fireworkLaunchVolume, 1.0)
+	for _, watch := range watchers {
+		if entity.Dist2(r.X, r.Y, r.Z, watch.pos.X, watch.pos.Y, watch.pos.Z) < earshot*earshot {
+			sounds.add(watch.c, outbound{id: protocol.IDPlaySoundEffect, data: launch})
+		}
+	}
 }
 
 func fireworkTargetOrder(a, b entity.ArrowTarget) int { return cmp.Compare(a.EntityID, b.EntityID) }
@@ -515,14 +561,18 @@ func (s *Server) tickFireworks() {
 			fireworkTracker.unfile(it)
 			continue // the life ran out before this tick
 		}
+		if it.skipStep { // shot by a mob this tick; vanilla: EntityTickList.forEach
+			it.skipStep = false
+			alive = append(alive, it)
+			continue
+		}
 		if it.spawning || !gate.ticks(it.w, it.rocket.X, it.rocket.Z) {
 			held = append(held, it)
 			alive = append(alive, it)
 			continue
 		}
 
-		// A boost rocket whose rider has left the world stands where the
-		// last follow put it until its life ends.
+		// A boost rocket whose rider left stands still until its life ends.
 		var carrier *entity.FireworkCarrier
 		if it.rocket.AttachedTo != 0 {
 			for _, watch := range watchers[it.w] {
@@ -607,19 +657,10 @@ func (s *Server) tickFireworks() {
 			}
 		}
 
-		// The launch sound plays from where the first tick's rise took the
-		// rocket, to the players within its volume's earshot.
+		// The launch sound plays where the first tick's rise took the rocket.
 		// vanilla: FireworkRocketEntity.tick's life == 0, ServerLevel.playSeededSound
 		if first {
-			earshot := soundRange(fireworkLaunchVolume)
-			launch := soundEffectIDAt(registry.SoundEntityFireworkRocketLaunch,
-				protocol.SoundCategoryAmbient,
-				it.rocket.X, it.rocket.Y, it.rocket.Z, fireworkLaunchVolume, 1.0)
-			for _, watch := range watchers[it.w] {
-				if entity.Dist2(it.rocket.X, it.rocket.Y, it.rocket.Z, watch.pos.X, watch.pos.Y, watch.pos.Z) < earshot*earshot {
-					sounds.add(watch.c, outbound{id: protocol.IDPlaySoundEffect, data: launch})
-				}
-			}
+			fireworkLaunchSound(it, watchers[it.w], &sounds)
 		}
 
 		if it.rocket.Dead {
@@ -648,11 +689,12 @@ func (s *Server) tickFireworks() {
 				})
 			}
 		}
-		// The velocity goes out on a movement tick only, to the watchers
-		// alone, the newly paired included.
-		// vanilla: ServerEntity.sendChanges, sendToTrackingPlayers
+		// The velocity goes out on a movement tick only, the newly paired
+		// included; a burn lit or put out is dirty data, one off the period.
+		// vanilla: ServerEntity.sendChanges, sendToTrackingPlayers, sendDirtyEntityData
 		body := fireworkTracker.body(it)
-		mt := body.schedule(false)
+		meta := fireworkBurnDelta(it)
+		mt := body.schedule(meta != nil)
 		var motion *outbound
 		if mt.gate && it.motionDue(it.rocket.VX, it.rocket.VY, it.rocket.VZ, false) {
 			motion = &outbound{id: protocol.IDPlaySetEntityMotion,
@@ -664,12 +706,17 @@ func (s *Server) tickFireworks() {
 			if watch.c.theWorld() != it.w {
 				continue // crossed to another dimension since the snapshot
 			}
+			shows := len(out.shows)
 			was, seen := body.settle(watch.c, watch.pos.X, watch.pos.Z, watch.chunkRadius, &out)
 			if !seen || !mt.gate {
 				continue
 			}
 			if motion != nil {
 				motions.add(watch.c, *motion)
+			}
+			// A watcher paired by this settle has the flag already.
+			if meta != nil && len(out.shows) == shows {
+				motions.add(watch.c, *meta)
 			}
 			body.moveTold(was, watch.c, mt, &out)
 		}
@@ -904,5 +951,11 @@ func (it *fireworkEntity) spawnedSnapshot(s *Server) *entitySnapshot {
 func (it *fireworkEntity) spawned(s *Server) {
 	s.fireworksMu.Lock()
 	it.spawning = false
+	s.fireworksMu.Unlock()
+}
+
+func (it *fireworkEntity) ignite(s *Server, ticks int32) {
+	s.fireworksMu.Lock()
+	it.rocket.FireTicks = max(it.rocket.FireTicks, int(ticks))
 	s.fireworksMu.Unlock()
 }

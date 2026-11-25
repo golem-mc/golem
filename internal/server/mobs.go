@@ -626,6 +626,8 @@ type mobShot struct {
 	damage      float64
 	effect      entity.ArrowEffect
 	weapon      protocol.ItemStack
+	// ammo is the crossbow's loaded projectile, nil for a bow or trident.
+	ammo *protocol.ItemStack
 	// fireTicks is the burn the arrow is shot with.
 	fireTicks int32
 	crossbow  bool

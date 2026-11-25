@@ -241,8 +241,8 @@ func (g *rangedAttackGoal) Tick(t *tickView) {
 // arrowAim is a mob arrow's origin (the eyes less 0.1) and its aim at a
 // third of the target's height (Height, or a player's when unset), lifted by lift per block of horizontal
 // distance.
-func arrowAim(m *Mob, p *Player, lift float64) (ox, oy, oz, ax, ay, az float64) {
-	ox, oy, oz = m.X, m.Y+m.eyeHeight()-ArrowSpawnBelow, m.Z
+func arrowAim(m *Mob, p *Player, lift, below float64) (ox, oy, oz, ax, ay, az float64) {
+	ox, oy, oz = m.X, m.Y+m.eyeHeight()-below, m.Z
 	_, h, _ := p.box()
 	ax, ay, az = p.X-ox, p.Y+h/3-oy, p.Z-oz
 	ay += math.Sqrt(ax*ax+az*az) * lift
@@ -255,7 +255,7 @@ func arrowAim(m *Mob, p *Player, lift float64) (ox, oy, oz, ax, ay, az float64) 
 // event carries it all; the server creates the arrow.
 func (g *rangedAttackGoal) shoot(t *tickView, p *Player) {
 	m := g.m
-	originX, originY, originZ, aimX, aimY, aimZ := arrowAim(m, p, rangedArrowAimLift)
+	originX, originY, originZ, aimX, aimY, aimZ := arrowAim(m, p, rangedArrowAimLift, ArrowSpawnBelow)
 	inaccuracy := rangedArrowInaccuracy - rangedInaccuracyPerDifficultyLevel*float64(t.w.Difficulty())
 	vx, vy, vz := ShootVelocity(aimX, aimY, aimZ, rangedArrowPower, inaccuracy, m.Rand)
 	damage := MobArrowDamage(1.0, t.w.Difficulty(), m.Rand)
