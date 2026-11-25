@@ -439,14 +439,24 @@ func addItemPtr[B Block](dest B, stack *protocol.ItemStack, face int32, throughF
 // addOneItem pours a single item of stack into dest's face slots without
 // mutating or copying stack unless an empty slot accepts it.
 func addOneItem[B Block](dest B, stack *protocol.ItemStack, face int32, throughFace bool) (moved, intoEmpty bool) {
+	kind := dest.Kind()
 	slots := allSlots(dest)
-	if throughFace && isWorldly(dest.Kind()) {
+	if throughFace && isWorldly(kind) {
 		slots = slotsForFace(dest, face)
 	}
+	checkPlacement := !isPlainContainer(kind)
+	if kind == KindCrafter {
+		target := crafterTarget(dest, stack)
+		if target < 0 {
+			return false, false
+		}
+		// Crafters expose the whole grid in slot order on every face.
+		slots = slots[target : target+1]
+		checkPlacement = false
+	}
 	wasEmpty := Empty(dest)
-	plain := isPlainContainer(dest.Kind())
 	for _, slot := range slots {
-		if !plain && !canPlaceThroughFace(dest, stack, slot) {
+		if checkPlacement && !canPlaceThroughFace(dest, stack, slot) {
 			continue
 		}
 		item := dest.StackPtr(slot)
