@@ -12,6 +12,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -622,6 +623,39 @@ func TestPackEntityHurtPlayerTestsSourceEntityAndType(t *testing.T) {
 	}
 	if srv.AdvancementObtained("Packer", "pk:shot", "c") {
 		t.Error("a zombie's melee hit fired the is_projectile criterion")
+	}
+}
+
+// TestPackEntityHurtPlayerTestsArrowAsDirectEntity: a skeleton's arrow that
+// hits the player fires damage.type.direct_entity for the arrow and
+// source_entity for the skeleton, and neither reversed.
+// vanilla: DamageSourcePredicate.matches, AbstractArrow.onHitEntity
+func TestPackEntityHurtPlayerTestsArrowAsDirectEntity(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	for _, want := range []struct{ key, kind string }{
+		{"direct_entity", "arrow"}, {"source_entity", "skeleton"},
+		{"direct_entity", "skeleton"}, {"source_entity", "arrow"},
+	} {
+		packCriterion(t, dir, want.key+"_"+want.kind, "entity_hurt_player",
+			`{"damage":{"type":{"`+want.key+`":{"minecraft:entity_type":"minecraft:`+want.kind+`"}}}}`)
+	}
+	srv, c := joinOp(t, cfg, "Packer")
+	srv.SetDifficulty(rules.DifficultyHard)
+	srv.SetDayTime(18000)
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	srv.SpawnMob("minecraft:skeleton", 8.5, 64, 0.5)
+	servertest.UntilTicks(t, srv, servertest.SkeletonTicks, "the arrow's hit", func() bool {
+		return srv.AdvancementObtained("Packer", "pk:direct_entity_arrow", "c")
+	})
+	if !srv.AdvancementObtained("Packer", "pk:source_entity_skeleton", "c") {
+		t.Error("a skeleton's arrow did not fire the damage.type.source_entity skeleton criterion")
+	}
+	for _, name := range []string{"direct_entity_skeleton", "source_entity_arrow"} {
+		if srv.AdvancementObtained("Packer", "pk:"+name, "c") {
+			t.Errorf("a skeleton's arrow fired the %s criterion", name)
+		}
 	}
 }
 

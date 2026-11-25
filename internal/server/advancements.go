@@ -1035,6 +1035,10 @@ func (s *Server) blowOf(w *world.World, damageType registry.DamageType, cause *d
 	if cause.directID != 0 {
 		b.Direct = s.entityLoot(w, cause.directID)
 	}
+	if cause.directType != "" {
+		thrown := rules.LootEntity{Type: cause.directType}
+		b.Direct = func() rules.LootEntity { return thrown }
+	}
 	b.Indirect = !damageIsDirect(cause)
 	return b
 }
