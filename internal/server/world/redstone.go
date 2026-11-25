@@ -720,6 +720,12 @@ func (p *Physics) shapeUpdateBody(x, y, z int32, d [3]int32, changes *[]BlockCha
 		}
 		return
 	}
+	// The fruit-facing conversion answers before the stem's support check.
+	// vanilla: AttachedStemBlock.updateShape
+	if (block == registry.BlockAttachedMelonStem || block == registry.BlockAttachedPumpkinStem) &&
+		p.attachedStemUpdateShape(x, y, z, state, [3]int32{-d[0], -d[1], -d[2]}, p.w.BlockAt(x-d[0], y-d[1], z-d[2]), changes) {
+		return
+	}
 	if survivalOf[state].watch != 0 && !railBlocks[block] && !isDoorLike[block] {
 		// A neighbour's write the block's support depends on; a rail checks
 		// support only in neighborChanged, and a comparator only for a change

@@ -494,22 +494,25 @@ func (p *Physics) stemTick(x, y, z int32, state uint16, changes *[]BlockChange) 
 }
 
 // attachedStemUpdateShape turns an attached stem whose fruit is gone back to a
-// plain stem at age 7, which can bear again.
+// plain stem at age 7, which can bear again; it reports whether it did, as the
+// conversion comes before the stem's support check.
 // vanilla: AttachedStemBlock.updateShape
-func (p *Physics) attachedStemUpdateShape(x, y, z int32, state uint16, from [3]int32, changed uint16, changes *[]BlockChange) {
+func (p *Physics) attachedStemUpdateShape(x, y, z int32, state uint16, from [3]int32, changed uint16, changes *[]BlockChange) bool {
 	if directionOf(from) != registry.StateFacing(state) {
-		return
+		return false
 	}
 	fruit, stem := registry.BlockPumpkin, registry.BlockPumpkinStem
 	if registry.BlockOf(state) == registry.BlockAttachedMelonStem {
 		fruit, stem = registry.BlockMelon, registry.BlockMelonStem
 	}
 	if registry.BlockOf(changed) == fruit {
-		return
+		return false
 	}
-	if next, ok := registry.WithInt(stem.DefaultState(), registry.PropAge, 7); ok {
+	next, ok := registry.WithInt(stem.DefaultState(), registry.PropAge, 7)
+	if ok {
 		p.setShaped(x, y, z, next, changes)
 	}
+	return ok
 }
 
 // --- Sugar cane ---

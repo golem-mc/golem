@@ -61,3 +61,22 @@ func TestStackedComparatorBreakShowsBreakEvent(t *testing.T) {
 		t.Fatalf("break event data is block %d, want comparator", registry.BlockOf(got.BlockEventData))
 	}
 }
+
+// An unsupported attached stem facing a comparator whose mode toggles turns
+// back into a plain age-7 stem rather than breaking: the fruit-facing
+// conversion answers before the support check.
+// vanilla: AttachedStemBlock.updateShape
+func TestComparatorToggleTurnsFacingAttachedStemBack(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.AttachActor(t)
+	servertest.HoldTicks(t, srv)
+	servertest.Setblock(t, c, 5, 64, 0, "comparator[facing=north]")
+	servertest.Setblock(t, c, 5, 64, 1, "attached_pumpkin_stem[facing=north] strict")
+	c.UseBlock(5, 64, 0)
+	c.AwaitBlockState(5, 64, 0, servertest.MustState(t, "minecraft:comparator", map[string]string{"facing": "north", "mode": "subtract"}))
+	servertest.ExpectBlockNamed(t, srv, 5, 64, 0, "minecraft:comparator", map[string]string{"mode": "subtract"})
+	servertest.ExpectBlockNamed(t, srv, 5, 64, 1, "minecraft:pumpkin_stem", map[string]string{"age": "7"})
+	if n := countDropped(srv.ItemsInDimension(world.DimensionName), "minecraft:pumpkin_seeds"); n != 0 {
+		t.Fatalf("dropped pumpkin seeds = %d, want 0", n)
+	}
+}
