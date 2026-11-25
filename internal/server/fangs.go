@@ -217,12 +217,6 @@ func (s *Server) fangsBite(it fangsEffect) {
 		}
 	}
 	s.mu.RUnlock()
-	// Indirect magic scales only for a living non-player cause.
-	// vanilla: DamageSource.scalesWithDifficulty
-	damage := entity.FangsDamage
-	if rules.DamageScales(rules.DamageTypeIndirectMagic, owner.Mob != nil) {
-		damage = rules.ScaledWithDifficulty(damage, w.Difficulty())
-	}
 	for _, c := range clients {
 		cMinX, cMinY, cMinZ, cMaxX, cMaxY, cMaxZ := c.Box()
 		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, cMinX, cMinY, cMinZ, cMaxX, cMaxY, cMaxZ) {
@@ -238,13 +232,28 @@ func (s *Server) fangsBite(it fangsEffect) {
 		if allied {
 			continue
 		}
-		cause := &damageCause{entityID: it.owner, directID: it.id + 1, x: it.x, y: it.y, z: it.z,
-			killer: s.entityKiller(w, it.owner)}
+		// Indirect magic scales only for a living non-player cause.
+		// vanilla: DamageSource.scalesWithDifficulty
+		damage := entity.FangsDamage
+		if rules.DamageScales(rules.DamageTypeIndirectMagic, owner.Mob != nil) {
+			damage = rules.ScaledWithDifficulty(damage, w.Difficulty())
+		}
+		var killer *rules.Killer
+		if ownerClient != nil {
+			killer = &rules.Killer{Name: ownerClient.DisplayName(), Weapon: ownerClient.heldItem(protocol.HandMain)}
+		} else {
+			killer = s.entityKiller(w, it.owner)
+		}
+		cause := &damageCause{entityID: it.owner, directID: it.id + 1, x: it.x, y: it.y, z: it.z, killer: killer}
 		if landed, softened := c.hurt(damage, rules.DamageTypeIndirectMagic, cause); landed {
 			if !softened {
 				c.knockbackFromPoint(w, it.x, it.y, it.z, syncVelocityAfterTravel)
 			}
-			s.thornsOnOwner(w, c, it.owner, rules.DamageTypeIndirectMagic, fangsTypeID)
+			if ownerClient != nil {
+				s.thornsOnPlayerOwner(w, c, ownerClient, rules.DamageTypeIndirectMagic, fangsTypeID)
+			} else {
+				s.thornsOnOwner(w, c, it.owner, rules.DamageTypeIndirectMagic, fangsTypeID)
+			}
 		}
 	}
 	for _, m := range victims {
@@ -268,6 +277,20 @@ func (s *Server) hurtMobByPlayerFangs(w *world.World, m *entity.Mob, it fangsEff
 	cause := &damageCause{entityID: it.owner, player: true, creative: owner.player.GameMode() == protocol.GameModeCreative,
 		x: it.x, z: it.z}
 	if !s.hurtMobTyped(w, m, entity.FangsDamage, rules.DamageTypeIndirectMagic, cause, it.id+1, "minecraft:evoker_fangs", true, nil) {
+		return
+	}
+	// Only worn enchantments can act, so an unenchanted mob skips the sky and
+	// block lookups and the loot binding.
+	s.mobsMu.Lock()
+	enchanted := false
+	for _, p := range m.EnchEquipment() {
+		if p.Stack.Enchanted() {
+			enchanted = true
+			break
+		}
+	}
+	s.mobsMu.Unlock()
+	if !enchanted {
 		return
 	}
 	s.postAttack(w, attackBody{player: owner}, attackBody{mob: m}, protocol.ItemStack{}, &rules.EnchContext{

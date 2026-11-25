@@ -953,12 +953,13 @@ func TestPackKilledEntityByFangsIsIndirectMagic(t *testing.T) {
 	srv, c := joinOp(t, cfg, "Packer")
 	c.MoveToGround(0.5, 64, 0.5, true)
 	c.Settle()
+	servertest.HoldTicks(t, srv)
 	id := srv.SpawnMob("minecraft:husk", 3.5, 64, 0.5)
 	srv.SetMobNoAI(id)
 	srv.SetMobHealth(id, 4)
 	owner := nbt.Stringify(nbt.Compound{"Owner": nbt.UUIDToIntArray(protocol.OfflineUUID("Packer"))})
 	srv.RunLine("summon minecraft:evoker_fangs 3.5 64 0.5 " + owner)
-	servertest.UntilTicks(t, srv, 20, "the fangs' kill", func() bool { return srv.AdvancementObtained("Packer", "pk:fangs", "c") })
+	servertest.UntilTicks(t, srv, 9, "the fangs' kill", func() bool { return srv.AdvancementObtained("Packer", "pk:fangs", "c") })
 	if srv.AdvancementObtained("Packer", "pk:melee", "c") {
 		t.Error("a fang's kill fired the direct-attack criterion")
 	}
