@@ -72,7 +72,9 @@ type World struct {
 	// means no limit.
 	limit *Border
 	dir   string
-	gen   Generator
+	// oldVersionLogged limits the unsupported-data-version warning to one per world.
+	oldVersionLogged atomic.Bool
+	gen              Generator
 	// debug is the debug world flag: no block writes, ticks or spawning.
 	// Every dimension of a debug world carries it.
 	debug atomic.Bool
@@ -680,7 +682,18 @@ func (w *World) holdLocked(pos ChunkPos) *Chunk {
 // world lock so chunks prepare in parallel without holding readers up.
 func (w *World) readyChunk(pos ChunkPos) (*Chunk, *[16][16]int32, bool) {
 	c, err := w.loadChunk(pos)
-	if err != nil {
+	var old *unsupportedVersionError
+	if errors.As(err, &old) {
+		// Terrain generated over the stored chunk would hide it from the
+		// player; the record stays on disk (marked unreadable, never saved).
+		if !w.oldVersionLogged.Swap(true) {
+			slog.Warn("world has chunks saved before data version 3692"+
+				" (Minecraft 1.20.3), which this server cannot upgrade; they are served empty and left unchanged on disk",
+				"dimension", w.dimName, "chunk", pos, "data_version", old.version)
+		}
+		c = newChunk(pos.X, pos.Z)
+		w.encodeChunk(c)
+	} else if err != nil {
 		slog.Warn("could not load chunk, generating instead; changes to it will not be saved",
 			"x", pos.X, "z", pos.Z, "error", err)
 	}

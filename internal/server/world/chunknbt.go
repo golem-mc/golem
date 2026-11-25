@@ -392,9 +392,17 @@ func checkChunkFormat(root nbt.Compound) error {
 		return fmt.Errorf("chunk status %q has no namespace", status)
 	}
 	if version, ok := nbt.Get[nbt.Int](root, "DataVersion"); ok && version != 0 && version < chunkDataVersionFloor {
-		return fmt.Errorf("chunk data version %d is below %d", version, chunkDataVersionFloor)
+		return &unsupportedVersionError{version: int32(version)}
 	}
 	return nil
+}
+
+// unsupportedVersionError is a record saved before chunkDataVersionFloor,
+// which this server has no data fixers for.
+type unsupportedVersionError struct{ version int32 }
+
+func (e *unsupportedVersionError) Error() string {
+	return fmt.Sprintf("chunk data version %d is below %d", e.version, chunkDataVersionFloor)
 }
 
 // chunkIsFull reports whether the root is a readable, fully generated chunk;
