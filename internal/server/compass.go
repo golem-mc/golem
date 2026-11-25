@@ -20,8 +20,8 @@ import (
 // unloaded chunk is judged by the saved chunk.
 // vanilla: CompassItem.inventoryTick, LodestoneTracker.tick
 func (c *client) tickLodestoneCompasses() {
-	w := c.theWorld()
-	dim := c.dimension().name
+	d := c.dimension()
+	w, dim := d.w, d.name
 	bottom, top := w.MinY(), w.MinY()+w.Height()
 	type slotSync struct {
 		payload []byte
@@ -36,6 +36,11 @@ func (c *client) tickLodestoneCompasses() {
 	// Crafting slots are menu state, not inventory, and are not ticked.
 	pass := func(final bool) {
 		c.player.Inventory(func(inv *player.Inventory) {
+			// A dimension change during the unlocked read leaves the answers
+			// for the world the player left.
+			if c.dimension() != d {
+				return
+			}
 			var lost []int
 			for slot := player.ArmorSlot; slot < len(inv.Slots); slot++ {
 				// Only a stack with components can carry a tracker.
@@ -60,6 +65,9 @@ func (c *client) tickLodestoneCompasses() {
 	pass(false)
 	if len(probe.misses) > 0 {
 		probe.resolved = w.ResolveLodestones(probe.misses)
+		if c.compassRead != nil {
+			c.compassRead()
+		}
 		pass(true)
 		probe.resolved.Close()
 		probe.resolved = nil

@@ -1623,21 +1623,14 @@ func (w *World) RelightAsync(x, z int32) <-chan []LightChange {
 // chunk unloaded after its slot was loaded reads as it left, its blocks no
 // longer written.
 func (w *World) BlockAt(x, y, z int32) uint16 {
-	state, _ := w.blockIfLoaded(x, y, z)
-	return state
-}
-
-// blockIfLoaded is BlockAt that also reports whether the chunk was resident
-// at that read, air and false when it was not.
-func (w *World) blockIfLoaded(x, y, z int32) (uint16, bool) {
 	pos := ChunkPos{X: x >> 4, Z: z >> 4}
 	if loaded := w.nearAt(pos); loaded != nil {
-		return loaded.chunk.sharedBlockAt(x&15, y, z&15), true
+		return loaded.chunk.sharedBlockAt(x&15, y, z&15)
 	}
 	if chunk := w.sharedChunkOnNearMiss(pos); chunk != nil {
-		return chunk.sharedBlockAt(x&15, y, z&15), true
+		return chunk.sharedBlockAt(x&15, y, z&15)
 	}
-	return airState, false
+	return airState
 }
 
 // sharedChunkAt returns pos's loaded chunk for lock-free sharedBlockAt reads,

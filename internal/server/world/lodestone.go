@@ -189,10 +189,11 @@ func (c *lodestoneCache) drop(pos ChunkPos) {
 // is known without reading the disk: the live block in a loaded chunk, a kept
 // answer for a saved one. known is false otherwise; ResolveLodestone finds out.
 func (w *World) LodestoneCached(x, y, z int32) (present, known bool) {
-	if state, ok := w.blockIfLoaded(x, y, z); ok {
-		return registry.BlockOf(state) == registry.BlockLodestone, true
+	pos := ChunkPos{X: x >> 4, Z: z >> 4}
+	if chunk := w.sharedChunkAt(pos); chunk != nil {
+		return registry.BlockOf(chunk.sharedBlockAt(x&15, y, z&15)) == registry.BlockLodestone, true
 	}
-	return w.lodestones.get(ChunkPos{X: x >> 4, Z: z >> 4}, posKey{x, y, z})
+	return w.lodestones.get(pos, posKey{x, y, z})
 }
 
 // ForgetLodestones drops every kept answer, so a benchmark can measure the cold
@@ -252,10 +253,10 @@ func (w *World) ResolveLodestones(positions []LodestonePos) *LodestoneAnswers {
 	a := &LodestoneAnswers{w: w, found: make(map[LodestonePos]bool, len(positions)), versions: map[ChunkPos]uint64{}}
 	var cold map[ChunkPos][]LodestonePos
 	for _, p := range positions {
-		if _, live := w.blockIfLoaded(p.X, p.Y, p.Z); live {
+		pos := ChunkPos{X: p.X >> 4, Z: p.Z >> 4}
+		if w.sharedChunkAt(pos) != nil {
 			continue // the live block answers
 		}
-		pos := ChunkPos{X: p.X >> 4, Z: p.Z >> 4}
 		if _, held := a.versions[pos]; !held {
 			a.versions[pos] = w.lodestones.begin(pos)
 		}

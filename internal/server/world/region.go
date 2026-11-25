@@ -241,7 +241,7 @@ func (rf *regionFile) allocate(count int) int {
 // the chunk unreadable and later writes to it are refused.
 // vanilla: RegionFile.getChunkDataInputStream
 func (rf *regionFile) readChunk(pos ChunkPos) ([]byte, error) {
-	data, err := rf.chunkData(pos)
+	data, err := rf.chunkData(pos, false)
 	if err != nil {
 		rf.markUnreadable(regionIndex(pos.X, pos.Z))
 	}
@@ -249,23 +249,18 @@ func (rf *regionFile) readChunk(pos ChunkPos) ([]byte, error) {
 }
 
 // peekChunk is readChunk that leaves the record unmarked on a failure, for a
-// reader that does not decide whether the chunk may be written, and that fails
-// on an entry whose offset pointed past the end of the file.
+// reader that does not decide whether the chunk may be written. It fails on an
+// entry the loader reads as absent but vanilla calls invalid: an offset past
+// the end of the file, or a nonzero offset with zero sectors.
+// vanilla: RegionFile.getChunkDataInputStream
 func (rf *regionFile) peekChunk(pos ChunkPos) ([]byte, error) {
-	index := regionIndex(pos.X, pos.Z)
-	rf.mu.Lock()
-	pastEnd := rf.pastEnd[index]
-	rf.mu.Unlock()
-	if pastEnd {
-		return nil, fmt.Errorf("chunk %d in %s: its offset points past the end of the file", index, rf.path)
-	}
-	return rf.chunkData(pos)
+	return rf.chunkData(pos, true)
 }
 
 // chunkData reads and decodes the chunk's record, nil if absent.
-func (rf *regionFile) chunkData(pos ChunkPos) ([]byte, error) {
+func (rf *regionFile) chunkData(pos ChunkPos, peek bool) ([]byte, error) {
 	index := regionIndex(pos.X, pos.Z)
-	compType, payload, err := rf.readRecord(index)
+	compType, payload, err := rf.readRecord(index, peek)
 	if err == nil && payload == nil {
 		return nil, nil
 	}
@@ -313,12 +308,18 @@ func (rf *regionFile) hasUnreadable() bool {
 
 // readRecord returns the chunk's compression type and compressed payload, nil
 // if absent.
-func (rf *regionFile) readRecord(index int) (byte, []byte, error) {
+func (rf *regionFile) readRecord(index int, peek bool) (byte, []byte, error) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	if peek && rf.pastEnd[index] {
+		return 0, nil, errors.New("its offset points past the end of the file")
+	}
 	offset := rf.offsets[index]
 	sector, count := int(offset>>8), int(offset&0xFF)
+	if peek && offset != 0 && count == 0 {
+		return 0, nil, errors.New("it occupies zero sectors")
+	}
 	if offset == 0 || count == 0 {
 		return 0, nil, nil // vanilla drops a zero-sector entry as absent
 	}

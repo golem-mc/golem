@@ -295,6 +295,52 @@ func TestResolveLodestonesRefusesOffsetPastEnd(t *testing.T) {
 	}
 }
 
+// TestResolveLodestonesRefusesZeroSectorEntry checks a nonzero location entry
+// whose sector count is zero leaves the position unknown and uncached, and the
+// chunk writable, while the loader still reads it as absent.
+func TestResolveLodestonesRefusesZeroSectorEntry(t *testing.T) {
+	w := writeSavedRoot(t, savedLodestoneRoot(t, "minecraft:full", "minecraft:lodestone"))
+	rx, rz := regionCoords(ChunkPos{})
+	path := regionFilePath(w.storage, rx, rz)
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry [4]byte
+	at := int64(regionIndex(0, 0)) * 4
+	if _, err := f.ReadAt(entry[:], at); err != nil {
+		t.Fatal(err)
+	}
+	if entry[3] == 0 {
+		t.Fatal("the saved chunk has no location entry")
+	}
+	entry[3] = 0
+	if _, err := f.WriteAt(entry[:], at); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	p := LodestonePos{1, 64, 1}
+	got := w.ResolveLodestones([]LodestonePos{p})
+	defer got.Close()
+	if _, known := got.Lookup(p); known {
+		t.Error("answered for a zero-sector entry")
+	}
+	if _, known := w.LodestoneCached(p.X, p.Y, p.Z); known {
+		t.Error("a zero-sector entry was cached as an answer")
+	}
+	rf, err := w.region(rx, rz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.releaseRegion(rf)
+	if data, err := rf.readChunk(ChunkPos{}); data != nil || err != nil {
+		t.Errorf("loader read = %v, %v; want absent", data, err)
+	}
+	if rf.unreadable[regionIndex(0, 0)] {
+		t.Error("the compass lookup marked the chunk unreadable")
+	}
+}
+
 // TestLodestoneRetryClearedByLoadOrWrite checks a load or write of a chunk
 // whose read failed lets it be read at once, and that a failure of a read
 // that crossed one holds nothing off.
