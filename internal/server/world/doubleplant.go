@@ -86,8 +86,8 @@ func doublePlantSurvives(w BlockReader, state uint16, x, y, z int32) bool {
 }
 
 // doublePlantUpdate answers a two-tall plant's neighbour change, reporting
-// whether it was one: a half whose partner is gone breaks, as does a lower half
-// without ground.
+// whether it was one: a half whose partner is gone breaks, as does one that
+// cannot survive, for an update from any direction.
 // vanilla: DoublePlantBlock.updateShape
 func (p *Physics) doublePlantUpdate(x, y, z int32, state uint16, placed bool, from [3]int32, changes *[]BlockChange) bool {
 	block := registry.BlockOf(state)
@@ -97,19 +97,20 @@ func (p *Physics) doublePlantUpdate(x, y, z int32, state uint16, placed bool, fr
 	if !isDoublePlantState(block, stateIntOr(state, registry.PropAge, 0)) {
 		return false
 	}
-	if placed || from[0] != 0 || from[2] != 0 {
+	if placed {
 		return true
 	}
 	half := registry.StateValue(state, registry.PropHalf)
 	lower := half == "lower"
-	if lower == (from[1] == 1) {
+	if from[0] == 0 && from[2] == 0 && lower == (from[1] == 1) {
 		partner := p.w.BlockAt(x, y+from[1], z)
 		if registry.BlockOf(partner) != block || registry.StateValue(partner, registry.PropHalf) == half {
 			p.breakWithDrop(x, y, z, changes)
 		}
 		return true
 	}
-	if lower && from[1] == -1 && !p.w.DoublePlantSurvives(state, x, y, z) {
+	// Any other update falls through to VegetationBlock.updateShape.
+	if !p.w.DoublePlantSurvives(state, x, y, z) {
 		p.breakWithDrop(x, y, z, changes)
 	}
 	return true
