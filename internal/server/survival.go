@@ -48,7 +48,10 @@ type damageCause struct {
 	// lands; nil for any other cause.
 	exploder *removedBody
 	directID int32
-	x, y, z  float64
+	// directUUID is the direct entity's identity, which plugins are told; nil
+	// to resolve directID instead.
+	directUUID uuid.UUID
+	x, y, z    float64
 	// weapon belongs to the direct entity, independently of death attribution.
 	// vanilla: DamageSource.getWeaponItem
 	weapon protocol.ItemStack

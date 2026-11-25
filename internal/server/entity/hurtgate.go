@@ -4,6 +4,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/registry"
+	"github.com/google/uuid"
 )
 
 // HurtGate lets the server veto or edit a hurt before it lands. Ask runs with
@@ -28,10 +29,10 @@ type BarterGate interface {
 type HurtProbe struct {
 	Mob *Mob
 	// Type is the damage type; CauseID the causing entity's ID (0 for none),
-	// Direct the direct entity's ID plus one (0 for the causing one).
+	// Direct the direct entity's identity (nil for the causing one).
 	Type    registry.DamageType
 	CauseID int32
-	Direct  int32
+	Direct  uuid.UUID
 	// Amount is what the hurt window lets through; the gate may edit it.
 	Amount float64
 	// Final is the health the hurt would take: armour, Resistance, protection
@@ -46,7 +47,7 @@ type HurtProbe struct {
 type hurtContext struct {
 	causeID int32
 	// direct is HurtProbe.Direct.
-	direct        int32
+	direct        uuid.UUID
 	effectiveness float64
 }
 

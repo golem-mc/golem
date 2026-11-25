@@ -41,17 +41,16 @@ func (s *Server) pluginSource(w *world.World, damageType registry.DamageType, ca
 		if e := s.relatedByID(w, id); e != nil {
 			return pluginEntity{id: e.UUID()}
 		}
-		// fangs.mu is a leaf: nothing is locked inside it.
-		if fang := fangsTracker.identityOf(s, w, id); fang != uuid.Nil {
-			return pluginEntity{id: fang}
-		}
 		return nil
 	}
 	if !cause.posOnly {
 		src.Causing = handle(cause.entityID)
-		if cause.directID != 0 {
+		switch {
+		case cause.directUUID != uuid.Nil:
+			src.Direct = pluginEntity{id: cause.directUUID}
+		case cause.directID != 0:
 			src.Direct = handle(cause.directID - 1)
-		} else {
+		default:
 			src.Direct = src.Causing
 		}
 		// A creeper or a primed TNT is gone before its blast hurts.

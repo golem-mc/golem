@@ -169,3 +169,29 @@ func TestPluginMobDamagePlayerFangs(t *testing.T) {
 		t.Errorf("source causing %v direct %v (distinct %v), want the player and the fangs", causing, direct, distinct)
 	}
 }
+
+// /damage of a mob by an armor stand from a player names the player as cause
+// and the armor stand as the direct entity.
+// vanilla: DamageCommand.damage, DamageSource(Holder, Entity, Entity)
+func TestPluginMobDamageCommandByArmorStand(t *testing.T) {
+	t.Parallel()
+	var causing, direct registry.EntityType
+	srv, _ := tickScene(t, func(s plugin.Server) {
+		plugin.Listen(s, func(e *plugin.EntityDamageEvent) {
+			if e.Entity.Type() == registry.EntityTypePlayer || e.Source.Causing == nil {
+				return
+			}
+			causing = e.Source.Causing.Type()
+			if e.Source.Direct != nil {
+				direct = e.Source.Direct.Type()
+			}
+		})
+	})
+	id := srv.SpawnMob("minecraft:cow", 0.5, 64, 4.5)
+	srv.SetMobNoAI(id)
+	srv.RunLine("summon minecraft:armor_stand 0.5 64 2.5")
+	srv.RunLine("damage @e[type=cow,limit=1] 2 minecraft:mob_attack by @e[type=armor_stand,limit=1] from Victim")
+	if causing != registry.EntityTypePlayer || direct != registry.EntityTypeArmorStand {
+		t.Errorf("source causing %v direct %v, want the player and the armor stand", causing, direct)
+	}
+}

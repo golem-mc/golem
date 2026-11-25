@@ -102,6 +102,7 @@ func (s *Server) registerFangs(it *fangsEntity) {
 type fangsEffect struct {
 	w         *world.World
 	id, owner int32
+	identity  uuid.UUID
 	x, y, z   float64
 }
 
@@ -125,7 +126,7 @@ func (s *Server) tickFangs() {
 		if spike || bite {
 			// The effects must not read a command's concurrent position or owner write.
 			f := it.fangs
-			at := fangsEffect{w: it.w, id: f.ID, owner: f.OwnerID, x: f.X, y: f.Y, z: f.Z}
+			at := fangsEffect{w: it.w, id: f.ID, owner: f.OwnerID, identity: it.uuid, x: f.X, y: f.Y, z: f.Z}
 			if spike {
 				fx.spikes = append(fx.spikes, at)
 			}
@@ -278,7 +279,7 @@ func (s *Server) fangsBite(it fangsEffect) {
 		} else {
 			killer = s.entityKiller(w, it.owner)
 		}
-		cause := &damageCause{entityID: it.owner, directID: it.id + 1, x: it.x, y: it.y, z: it.z, killer: killer}
+		cause := &damageCause{entityID: it.owner, directID: it.id + 1, directUUID: it.identity, x: it.x, y: it.y, z: it.z, killer: killer}
 		if landed, softened := c.hurt(damage, rules.DamageTypeIndirectMagic, cause); landed {
 			if !softened {
 				c.knockbackFromPoint(w, it.x, it.y, it.z, syncVelocityAfterTravel)
@@ -309,8 +310,8 @@ func (s *Server) fangsBite(it fangsEffect) {
 // spared even by a creative owner.
 // vanilla: EvokerFangs.dealDamageTo, EnchantmentHelper.doPostAttackEffects
 func (s *Server) hurtMobByPlayerFangs(w *world.World, m *entity.Mob, it fangsEffect, owner *client) {
-	cause := &damageCause{entityID: it.owner, player: true, creative: owner.player.GameMode() == protocol.GameModeCreative,
-		x: it.x, z: it.z}
+	cause := &damageCause{entityID: it.owner, directUUID: it.identity, player: true,
+		creative: owner.player.GameMode() == protocol.GameModeCreative, x: it.x, z: it.z}
 	if !s.hurtMobTyped(w, m, entity.FangsDamage, rules.DamageTypeIndirectMagic, cause, it.id+1, "minecraft:evoker_fangs", true, nil) {
 		return
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
+	"github.com/google/uuid"
 )
 
 // attackBody identifies a living participant without holding its body lock.
@@ -250,7 +251,7 @@ func (s *Server) applyPostAttack(w *world.World, target, owner attackBody, a rul
 			} else if owner.mob != nil {
 				landed = m.HurtByMobAs(hit.Damage, hit.DamageType, owner.mob)
 			} else {
-				landed, softened = m.HurtByCommand(hit.Damage, hit.DamageType, cause.entityID, 0, false, false, cause.x, cause.z)
+				landed, softened = m.HurtByCommand(hit.Damage, hit.DamageType, cause.entityID, uuid.Nil, false, false, cause.x, cause.z)
 			}
 		}
 		health := ent.syncHealth()

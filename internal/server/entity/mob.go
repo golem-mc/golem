@@ -3919,13 +3919,13 @@ func (m *Mob) HurtByFirework(amount float64, damageType registry.DamageType, cau
 }
 
 // HurtByCommand is /damage: causeID (0 for none) is kept for
-// retaliation and kill credit, direct is the direct entity's ID plus one (0
+// retaliation and kill credit, direct is the direct entity's identity (nil
 // for the causing one), and a whole hit shoves away from (fromX, fromZ)
 // unless the type is no_knockback. When from is non-nil (a by/from entity),
 // a filled sulfur cube bends its shove by the attacker's aim. Results are
 // landed and softened.
 // vanilla: DamageCommand.damage, LivingEntity.hurtServer
-func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID, direct int32, causeIsPlayer, causeCreative bool, fromX, fromZ float64, from ...*HitSource) (landed, softened bool) {
+func (m *Mob) HurtByCommand(amount float64, damageType registry.DamageType, causeID int32, direct uuid.UUID, causeIsPlayer, causeCreative bool, fromX, fromZ float64, from ...*HitSource) (landed, softened bool) {
 	if causeID != 0 {
 		return m.hurtVia(amount, damageType, hurtContext{causeID: causeID, direct: direct}, causeIsPlayer, causeCreative, fromX-m.X, fromZ-m.Z, from...)
 	}

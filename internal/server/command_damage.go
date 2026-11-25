@@ -24,6 +24,7 @@ func damageCauseOf(origin command.DamageOrigin, damageType registry.DamageType) 
 	if causing != nil {
 		cause.entityID = causing.EntityID()
 		cause.directID = direct.EntityID() + 1
+		cause.directUUID = direct.UUID()
 		cause.killer = &rules.Killer{Name: causing.DisplayName()}
 		if p, ok := causing.(command.Target); ok {
 			cause.player, cause.creative = true, p.GameModeNumber() == protocol.GameModeCreative
@@ -176,7 +177,7 @@ func (s *Server) hurtMobTyped(w *world.World, m *entity.Mob, amount float64, dam
 	if cause != nil {
 		src = *cause
 	}
-	landed, softened := m.HurtByCommand(amount, damageType, src.entityID, direct, src.player, src.creative, src.x, src.z, hs)
+	landed, softened := m.HurtByCommand(amount, damageType, src.entityID, src.directUUID, src.player, src.creative, src.x, src.z, hs)
 	var health []byte
 	var sends []mobSend
 	if landed {

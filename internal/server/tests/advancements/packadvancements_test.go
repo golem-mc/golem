@@ -946,9 +946,11 @@ func TestPackHurtEntityFiresOnAPlayerLitTNTBlastOfTheEnderDragon(t *testing.T) {
 // vanilla: EvokerFangs.dealDamageTo, KilledTrigger.TriggerInstance.matches, DamageSourcePredicate.matches
 func TestPackKilledEntityByFangsIsIndirectMagic(t *testing.T) {
 	cfg, data := packConfig(t)
+	// A one-member tag: bypasses_armor would also hold plain magic.
+	writePackFile(t, filepath.Join(data, "pk", "tags", "damage_type", "indirect_magic.json"), `{"values":["minecraft:indirect_magic"]}`)
 	dir := filepath.Join(data, "pk", "advancement")
 	packCriterion(t, dir, "fangs", "player_killed_entity",
-		`{"killing_blow":{"tags":[{"id":"#minecraft:bypasses_armor","expected":true}],"direct_entity":{"minecraft:entity_type":"minecraft:evoker_fangs"}}}`)
+		`{"killing_blow":{"tags":[{"id":"#pk:indirect_magic","expected":true}],"direct_entity":{"minecraft:entity_type":"minecraft:evoker_fangs"}}}`)
 	packCriterion(t, dir, "melee", "player_killed_entity", `{"killing_blow":{"direct_entity":{"minecraft:entity_type":"minecraft:player"}}}`)
 	srv, c := joinOp(t, cfg, "Packer")
 	c.MoveToGround(0.5, 64, 0.5, true)
