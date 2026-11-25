@@ -318,7 +318,11 @@ func (t *mobDimTick) event(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent
 	case entity.MobShulkerShell:
 		t.shulkerShell(fx, ev)
 	case entity.MobShulkerShoved:
-		fx.shoves = append(fx.shoves, bodyShove{overlaps: slabOverlaps(ev.Slab), dx: ev.VX, dy: ev.VY, dz: ev.VZ, w: w})
+		sh := bodyShove{overlaps: slabOverlaps(ev.Slab), dx: ev.VX, dy: ev.VY, dz: ev.VZ, w: w}
+		if root := h.book[ev.Mob.RootVehicle()]; root != nil {
+			sh.ownBoat, sh.ownCart = root.vehicle, root.cart
+		}
+		fx.shoves = append(fx.shoves, sh)
 	case entity.MobShulkerTeleported:
 		t.shulkerTeleported(fx, ev)
 	case entity.MobThrewPotion:

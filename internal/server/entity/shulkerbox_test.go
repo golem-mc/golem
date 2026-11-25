@@ -292,7 +292,7 @@ func TestAnOpeningShulkerLeavesItsRideChainUnmoved(t *testing.T) {
 		}
 		openShell(m, w, herd, 1)
 		if pig.Y != 65 || sibling.Y != 65 {
-			t.Errorf("grid %v: chain moved to %v, %v", grid, pig.X, sibling.X)
+			t.Errorf("grid %v: chain y = %v, %v, want 65", grid, pig.Y, sibling.Y)
 		}
 		if free.Y == 65 {
 			t.Errorf("grid %v: the free pig was not pushed", grid)

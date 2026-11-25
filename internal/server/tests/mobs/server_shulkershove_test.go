@@ -2,6 +2,7 @@ package mobs
 
 import (
 	"math"
+	"strconv"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -72,5 +73,54 @@ func TestAShulkerUnderALilyPadTakesTheStoneBeside(t *testing.T) {
 	servertest.RunTicks(t, srv, 1)
 	if face, _, _ := srv.ShulkerState(shell); face != 5 {
 		t.Errorf("shell attach face = %d after one tick, want 5 (east, the stone)", face)
+	}
+}
+
+// TestAnOpeningShellDoesNotShoveItsOwnVehicle: a shell riding a boat or a
+// mob leaves that carrier in place while the free mob in its swept slab (a ravager, too wide to board a boat) moves.
+// Mounting resets the shell to face down, so the test turns it west and it
+// opens east, through the carrier's box.
+// vanilla: Shulker.onPeekAmountChange, Entity.isPassengerOfSameVehicle
+func TestAnOpeningShellDoesNotShoveItsOwnVehicle(t *testing.T) {
+	t.Parallel()
+	for _, carrier := range []string{"boat", "pig"} {
+		t.Run(carrier, func(t *testing.T) {
+			t.Parallel()
+			srv, _ := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
+			servertest.HoldTicks(t, srv)
+			srv.RunLine(`fill -2 99 -2 4 99 2 stone`)
+			if carrier == "boat" {
+				srv.RunLine(`summon oak_boat 0.5 100 0.5 {NoGravity:1b}`)
+			} else {
+				srv.RunLine(`summon pig 0.5 100 0.5 {NoAI:1b}`)
+			}
+			srv.RunLine(`summon shulker 0.5 100 0.5 {NoAI:1b,Tags:[shell]}`)
+			srv.RunLine(`ride @e[tag=shell,limit=1] mount @e[type=` + carrier + `,limit=1]`)
+			servertest.RunTicks(t, srv, 1)
+			shell := srv.MobIDsOfKind("minecraft:shulker")[0]
+			srv.RunLine(`data merge entity @e[tag=shell,limit=1] {AttachFace:4b}`)
+			sx, sy, sz, _ := srv.MobPos(shell)
+			carrierX := func() float64 {
+				if carrier == "boat" {
+					x, _, _, _, _, _ := srv.BoatState(srv.BoatIDs()[0])
+					return x
+				}
+				x, _, _, _ := srv.MobPos(srv.MobIDsOfKind("minecraft:pig")[0])
+				return x
+			}
+			srv.RunLine(`summon ravager ` + strconv.FormatFloat(sx+1.4, 'f', -1, 64) + ` ` + strconv.FormatFloat(sy, 'f', -1, 64) + ` ` +
+				strconv.FormatFloat(sz, 'f', -1, 64) + ` {NoAI:1b,NoGravity:1b}`)
+			free := srv.MobIDsOfKind("minecraft:ravager")[0]
+			beforeCarrier := carrierX()
+			beforeFree, _, _, _ := srv.MobPos(free)
+			srv.RunLine(`data merge entity @e[tag=shell,limit=1] {Peek:100b}`)
+			servertest.RunTicks(t, srv, 1)
+			if got := carrierX(); got != beforeCarrier {
+				t.Errorf("%s x = %v after the shell opened, want %v", carrier, got, beforeCarrier)
+			}
+			if got, _, _, _ := srv.MobPos(free); got <= beforeFree {
+				t.Errorf("free ravager x = %v after the shell opened, want above %v", got, beforeFree)
+			}
+		})
 	}
 }

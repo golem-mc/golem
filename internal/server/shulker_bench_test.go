@@ -40,7 +40,8 @@ func BenchmarkShulkerTeamDefence(b *testing.B) {
 }
 
 // BenchmarkShulkerShellShoves ticks ten shells through repeated opening and
-// closing cycles, with twenty items reset over their swept slabs each tick.
+// closing cycles, with twenty items reset over their swept slabs each tick and
+// each shell riding a mob, beside an unrelated mob in its slab.
 func BenchmarkShulkerShellShoves(b *testing.B) {
 	s, w := newCommandBenchServer(b, 0)
 	var shells []*entity.Mob
@@ -52,6 +53,11 @@ func BenchmarkShulkerShellShoves(b *testing.B) {
 		m := s.mobByEntityIDLocked(w, id).mob
 		m.NoAI = true
 		shells = append(shells, m)
+		carrier := s.mobByEntityIDLocked(w, s.spawnMobInDim(s.allDims()[0], entity.TypePig, x, world.GroundLevel, z, int64(i), nil)).mob
+		carrier.NoAI, carrier.Persistence = true, true
+		m.Vehicle = carrier
+		other := s.mobByEntityIDLocked(w, s.spawnMobInDim(s.allDims()[0], entity.TypePig, x, world.GroundLevel+0.9, z, int64(i), nil)).mob
+		other.NoAI, other.NoGravity, other.Persistence = true, true, true
 		for range 2 {
 			items = append(items, s.spawnItem(w, protocol.ItemStack{ItemID: stone, Count: 1}, x, world.GroundLevel+1.125, z, 0, 0, 0, 1000))
 		}
