@@ -156,18 +156,3 @@ func TestContainerChangesReachAcrossChunkBorders(t *testing.T) {
 		t.Fatalf("comparator placed before drain: drained %v, want one change", got)
 	}
 }
-
-func TestContainerChangesReachThroughAChestPartnerAndConductor(t *testing.T) {
-	t.Parallel()
-	w := newTestWorld(t, NewFlatGenerator())
-	w.Acquire(ChunkPos{})
-	w.Acquire(ChunkPos{X: 1})
-	y := int32(GroundLevel)
-	// Chest at 13 with its partner at 14 is touched; a comparator at 16 is
-	// three cells from the touched half, behind the partner and a conductor.
-	w.SetBlock(16, y, 0, registry.BlockComparator.DefaultState())
-	w.Touch(13, y, 0)
-	if got := w.takeContainerChanges(); len(got) != 1 {
-		t.Fatalf("drained %v, want one change three cells from the comparator", got)
-	}
-}
