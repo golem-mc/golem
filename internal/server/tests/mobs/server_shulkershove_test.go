@@ -1,6 +1,7 @@
 package mobs
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -72,6 +73,69 @@ func TestAShulkerUnderALilyPadTakesTheStoneBeside(t *testing.T) {
 	servertest.RunTicks(t, srv, 1)
 	if face, _, _ := srv.ShulkerState(shell); face != 5 {
 		t.Errorf("shell attach face = %d after one tick, want 5 (east, the stone)", face)
+	}
+}
+
+// TestAnOpeningShellDoesNotShoveItsOwnVehicle: a shell riding a boat, a
+// minecart or a mob leaves that carrier in place while the free ravager in its
+// swept slab moves. The shell is scaled to 0.75 so the slab lies inside the
+// carrier's box, and mounting resets it to face down, so the test turns it
+// west and it opens east. Over a cart the ravager stands on the cart's box,
+// which keeps ordinary cart collisions out of the measurement.
+// vanilla: Shulker.onPeekAmountChange, Entity.isPassengerOfSameVehicle
+func TestAnOpeningShellDoesNotShoveItsOwnVehicle(t *testing.T) {
+	t.Parallel()
+	for _, carrier := range []string{"boat", "minecart", "pig"} {
+		t.Run(carrier, func(t *testing.T) {
+			t.Parallel()
+			srv, _ := servertest.Join(t, servertest.HostileTestConfig(), "Watcher")
+			servertest.HoldTicks(t, srv)
+			srv.RunLine(`fill -2 99 -2 4 99 2 stone`)
+			var cart int32
+			switch carrier {
+			case "boat":
+				srv.RunLine(`summon oak_boat 0.5 100 0.5 {NoGravity:1b}`)
+			case "minecart":
+				cart = srv.SpawnMinecartOfKind("minecraft:minecart", 0.5, 100, 0.5)
+			default:
+				srv.RunLine(`summon pig 0.5 100 0.5 {NoAI:1b}`)
+			}
+			srv.RunLine(`summon shulker 0.5 100 0.5 {NoAI:1b,Tags:[shell],attributes:[{id:"minecraft:scale",base:0.75d}]}`)
+			srv.RunLine(`ride @e[tag=shell,limit=1] mount @e[type=` + carrier + `,limit=1]`)
+			servertest.RunTicks(t, srv, 1)
+			shell := srv.MobIDsOfKind("minecraft:shulker")[0]
+			srv.RunLine(`data merge entity @e[tag=shell,limit=1] {AttachFace:4b}`)
+			sx, sy, sz, _ := srv.MobPos(shell)
+			carrierX := func() float64 {
+				switch carrier {
+				case "boat":
+					x, _, _, _, _, _ := srv.BoatState(srv.BoatIDs()[0])
+					return x
+				case "minecart":
+					x, _, _, _, _ := srv.MinecartState(cart)
+					return x
+				}
+				x, _, _, _ := srv.MobPos(srv.MobIDsOfKind("minecraft:pig")[0])
+				return x
+			}
+			// A minecart's box is 0.7 tall; the shell's slab is 0.75 tall.
+			fy := sy
+			if carrier == "minecart" {
+				fy = 100.72
+			}
+			srv.RunLine(fmt.Sprintf(`summon ravager %g %g %g {NoAI:1b,NoGravity:1b}`, sx+1.2, fy, sz))
+			free := srv.MobIDsOfKind("minecraft:ravager")[0]
+			beforeCarrier := carrierX()
+			beforeFree, _, _, _ := srv.MobPos(free)
+			srv.RunLine(`data merge entity @e[tag=shell,limit=1] {Peek:100b}`)
+			servertest.RunTicks(t, srv, 1)
+			if got := carrierX(); got != beforeCarrier {
+				t.Errorf("%s x = %v after the shell opened, want %v", carrier, got, beforeCarrier)
+			}
+			if got, _, _, _ := srv.MobPos(free); got <= beforeFree {
+				t.Errorf("free ravager x = %v after the shell opened, want above %v (shell y %v)", got, beforeFree, sy)
+			}
+		})
 	}
 }
 
