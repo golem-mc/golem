@@ -363,10 +363,13 @@ func TestReplacingAPoweredLeverWithAPlayingJukeboxKeepsTheHopperLocked(t *testin
 	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
 	servertest.HoldTicks(t, srv)
 
+	servertest.Setblock(t, c, 2, 65, 0, "minecraft:stone")
 	servertest.Setblock(t, c, 3, 64, 0, "minecraft:hopper[facing=down]")
-	servertest.Setblock(t, c, 3, 65, 0, "minecraft:lever[face=floor,powered=true]")
-	servertest.Setblock(t, c, 4, 64, 0, "minecraft:observer[facing=west]")
-	servertest.RunTicks(t, srv, 6)
+	servertest.Setblock(t, c, 3, 65, 0, "minecraft:lever[face=wall,facing=east,powered=true]")
+	servertest.Setblock(t, c, 4, 64, 0, "minecraft:observer[facing=west] strict")
+	if _, props := servertest.StatePropsOf(t, srv, 3, 64, 0); props["enabled"] != "false" {
+		t.Fatalf("hopper before replacement = %v, want enabled=false", props)
+	}
 	servertest.Setblock(t, c, 3, 65, 0, servertest.JukeboxCommand("cat", 0))
 	servertest.RunTicks(t, srv, 2)
 	if _, props := servertest.StatePropsOf(t, srv, 4, 64, 0); props["powered"] != "false" {
