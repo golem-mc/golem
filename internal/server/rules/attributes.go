@@ -254,8 +254,8 @@ func modifierOf(id int32) *effectModifier {
 }
 
 // ApplyEffectChange puts on or takes off the one modifier of the changed
-// effect, where the map has its attribute. A refresh removes the modifier
-// first, so it is re-added at the end of the list.
+// effect, where the map has its attribute. An add or refresh removes the
+// modifier first, so it is re-added at the end of the list.
 // vanilla: LivingEntity.onEffectUpdated, MobEffect.addAttributeModifiers, removeAttributeModifiers
 func ApplyEffectChange(a *player.Attributes, ch effect.Change) {
 	em := modifierOf(ch.Instance.ID)
@@ -265,10 +265,8 @@ func ApplyEffectChange(a *player.Attributes, ch effect.Change) {
 	switch ch.Kind {
 	case effect.Removed:
 		em.apply(a, ch.Instance, false)
-	case effect.Updated:
-		a.RemoveModifier(em.attribute, em.id)
-		fallthrough
 	default:
+		a.RemoveModifier(em.attribute, em.id)
 		em.apply(a, ch.Instance, true)
 	}
 }
