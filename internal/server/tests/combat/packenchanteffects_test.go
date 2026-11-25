@@ -80,6 +80,59 @@ func TestPackReplaceBlockUnderVictim(t *testing.T) {
 	}
 }
 
+// vanilla: BlockStateProviderTypes.bootstrap, ReplaceBlock.apply, ReplaceDisk.apply
+func TestPackReplaceStateProviderIDs(t *testing.T) {
+	const noise = `"seed":2345,"scale":1.0,"noise":{"base_octave":-3}`
+	tests := []struct {
+		current string
+		removed string
+		fields  string
+		disk    bool
+	}{
+		{"weighted", "weighted_state_provider", `"entries":[{"data":"minecraft:gold_block","weight":1}]`, false},
+		{"noise", "noise_provider", noise + `,"states":["minecraft:gold_block"]`, true},
+		{"noise_threshold", "noise_threshold_provider", noise + `,"threshold":0.0,"high_chance":1.0,
+			"default_state":"minecraft:iron_block","low_states":["minecraft:gold_block"],"high_states":["minecraft:gold_block"]`, false},
+		{"dual_noise", "dual_noise_provider", noise + `,"states":["minecraft:gold_block"],
+			"variety":[1,3],"slow_scale":1.0,"slow_noise":{"base_octave":-10}`, true},
+	}
+	gold, _ := registry.BlockByName("minecraft:gold_block")
+	for _, tc := range tests {
+		effect := func(id string) string {
+			kind, fields := "replace_block", ""
+			if tc.disk {
+				kind, fields = "replace_disk", `,"radius":2,"height":1`
+			}
+			return fmt.Sprintf(`{"type":"minecraft:%s","offset":[0,-1,0],"block_state":{"type":"minecraft:%s",%s}%s}`,
+				kind, id, tc.fields, fields)
+		}
+		t.Run(tc.current, func(t *testing.T) {
+			srv, _ := hitZombieWith(t, effect(tc.current), nil)
+			if got := registry.BlockOf(srv.BlockAt(2, 63, 0)); got != gold {
+				t.Errorf("block under the zombie is %s, want gold_block", got.Name())
+			}
+			if tc.disk {
+				if got := registry.BlockOf(srv.BlockAt(3, 63, 0)); got != gold {
+					t.Errorf("block beside the zombie is %s, want gold_block", got.Name())
+				}
+			}
+		})
+		t.Run(tc.removed, func(t *testing.T) {
+			cfg := servertest.MobTestConfig()
+			cfg.LevelType = server.TestFlatLevelType
+			cfg.LevelName = postAttackPack(t, "mainhand", "#minecraft:enchantable/weapon", packPostAttack("attacker", "victim", effect(tc.removed)))
+			srv, err := server.New(cfg)
+			if err == nil {
+				srv.Shutdown()
+				t.Fatalf("world loaded with removed state provider %s", tc.removed)
+			}
+			if !strings.Contains(err.Error(), "pk:targets") || !strings.Contains(err.Error(), "minecraft:"+tc.removed) {
+				t.Errorf("world load error = %v, want the enchantment and removed provider IDs", err)
+			}
+		})
+	}
+}
+
 // vanilla: SummonEntityEffect.apply
 func TestPackSummonEntityBesideVictim(t *testing.T) {
 	srv, _ := hitZombieWith(t, `{"type":"minecraft:summon_entity","entity":"minecraft:zombie"}`, nil)
