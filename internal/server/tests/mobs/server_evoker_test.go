@@ -439,21 +439,62 @@ func TestFangsFollowTheirOwnerThroughATransferDuringWarmup(t *testing.T) {
 }
 
 // TestFangsThornsReachAnOwnerInAnotherDimension: a Thorns VII wearer bitten by
-// fangs hurts the evoker that owns them from the nether.
-// vanilla: EvokerFangs.dealDamageTo, EnchantmentHelper.doPostAttackEffects
+// fangs hurts the evoker that owns them from the nether. A nether player
+// tracking the evoker hears its hurt and the Thorns sounds but gets no damage
+// event, which goes through the bite's level.
+// vanilla: EvokerFangs.dealDamageTo, EnchantmentHelper.doPostAttackEffects, ServerLevel.broadcastDamageEvent
 func TestFangsThornsReachAnOwnerInAnotherDimension(t *testing.T) {
 	t.Parallel()
 	cfg := servertest.HostileTestConfig()
 	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
-	srv, c := servertest.Join(t, cfg, "Target", servertest.OpsListing(t, "Target"))
+	srv, connect := servertest.Start(t, cfg, servertest.OpsListing(t, "Target"))
+	c := connect().Join("Target")
+	watcher := connect().Join("Watcher")
+	srv.MovePlayerToDimension("Watcher", world.NetherName, 0, 64, 4)
+	watcher.Settle()
 	servertest.HoldTicks(t, srv)
 	srv.GiveSlot("Target", player.ArmorSlot+1, servertest.EnchantedStack(t, "minecraft:diamond_chestplate", "minecraft:thorns", 7))
 	t.Cleanup(srv.HoldChunkInDimension(world.NetherName, 0, 0))
+	// Out of the netherrack, so no suffocation hurts the evoker or takes its invulnerability window.
+	for y := int32(64); y <= 65; y++ {
+		if !srv.SetBlockInDimension(world.NetherName, 0, y, 0, registry.BlockAir.DefaultState()) {
+			t.Fatalf("could not clear the nether block at y %d", y)
+		}
+	}
 	evoker := srv.SpawnMobInDimension(evokerKind, world.NetherName, 0.5, 64, 0.5)
 	srv.SetMobNoAI(evoker)
 	at := srv.PlayerPosition("Target")
 	srv.SpawnFangs(at.X, at.Y, at.Z, evoker)
-	c.ReadTicks(srv, 8, func(int32, []byte) bool { return false })
+	tracked, hurt, thorns, damaged := false, false, false, false
+	watcher.ReadTicks(srv, 8, func(pid int32, data []byte) bool {
+		switch pid {
+		case protocol.IDPlaySpawnEntity:
+			tracked = tracked || protocol.NewReader(data).ReadVarInt() == evoker
+		case protocol.IDPlayDamageEvent:
+			r := protocol.NewReader(data)
+			if r.ReadVarInt() == evoker {
+				damaged = true
+			}
+		case protocol.IDPlaySoundEffect:
+			name, _, _, _, _, _, _ := servertest.ReadAmbient(t, data)
+			switch name {
+			case "minecraft:entity.evoker.hurt":
+				hurt = true
+			case "minecraft:enchant.thorns.hit":
+				thorns = true
+			}
+		}
+		return false
+	})
+	if !tracked {
+		t.Fatal("the nether watcher was never sent the evoker")
+	}
+	if !hurt || !thorns {
+		t.Errorf("the nether watcher heard evoker hurt %v, thorns %v; want both", hurt, thorns)
+	}
+	if damaged {
+		t.Error("the nether watcher got a damage event for the evoker, want none from another level")
+	}
 	hp, ok := srv.MobHealthInDimension(world.NetherName, evoker)
 	if !ok {
 		t.Fatal("the nether evoker is gone")

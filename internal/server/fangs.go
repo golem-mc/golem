@@ -177,15 +177,16 @@ func (s *Server) fangsBite(it fangsEffect) {
 	minX, minY, minZ, maxX, maxY, maxZ := body.BiteBox()
 
 	s.mobsMu.Lock()
-	h := s.herdOf(w)
+	dim := s.dimensionOfWorld(w)
+	h := dim.mobs
 	owner := entity.AllianceMember{}
 	var ownerUUID uuid.UUID
 	var ownerID int32
 	ownerW := w
 	// The owner is found by identity: a dimension transfer gives it a new entity ID.
 	// vanilla: EntityReference.getEntity
-	if ent, dim := s.mobByUUIDLocked(it.ownerUUID, s.dimensionOfWorld(w)); ent != nil && !ent.mob.Dead {
-		ownerW = dim.w
+	if ent, at := s.mobByUUIDLocked(it.ownerUUID, dim); ent != nil && !ent.mob.Dead {
+		ownerW = at.w
 		owner = entity.AllianceMember{Mob: ent.mob, Team: ent.mob.Team}
 		ownerUUID = ent.uuid
 		ownerID = ent.mob.ID

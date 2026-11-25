@@ -73,7 +73,7 @@ func (s *Server) applyPackEffects(w *world.World, e registry.EnchEntityEffect, l
 	}
 	if e.RunFunction != "" {
 		if _, ok := s.funcs.Load().lib.Get(e.RunFunction); ok {
-			s.runEnchantLine(w, fmt.Sprintf("execute as %s at %s run function %s", t.uuid, t.uuid, e.RunFunction))
+			s.runEnchantFunction(w, e.RunFunction, t)
 		}
 	}
 }
@@ -142,6 +142,32 @@ func (s *Server) runEnchantLine(w *world.World, line string) {
 	if !ok {
 		return
 	}
+	_, _ = runSourceCommand(quiet, line, command.Tokenize(line), func(protocol.Text) {})
+}
+
+// runEnchantFunction runs a function as the target, at its position and
+// rotation but in w, the level of the hit, which may not be the target's.
+// vanilla: RunFunction.apply
+func (s *Server) runEnchantFunction(w *world.World, name string, t enchantTarget) {
+	src := s.gameLoopSource()
+	dim := s.dimensionOfWorld(w)
+	src.in = func() *dimension { return dim }
+	ctx := command.Context{Silent: true, Dim: dim.name, HasDim: true}
+	base, ok := src.InContext(ctx)
+	if !ok {
+		return
+	}
+	id := t.uuid
+	found := base.Entities(command.EntityQuery{UUID: &id})
+	if len(found) == 0 {
+		return
+	}
+	ctx.Executor, ctx.Pos, ctx.HasPos = found[0], found[0].Position(), true
+	quiet, ok := src.InContext(ctx)
+	if !ok {
+		return
+	}
+	line := "function " + name
 	_, _ = runSourceCommand(quiet, line, command.Tokenize(line), func(protocol.Text) {})
 }
 
