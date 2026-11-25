@@ -157,9 +157,21 @@ func (c *Conn) EnableEncryption(secret []byte) error {
 	defer c.writeMu.Unlock()
 	// The buffered reader sits below the cipher, so bytes it read ahead are
 	// decrypted as they are consumed.
-	c.r = cipher.StreamReader{S: newCFB8(block, secret, true), R: c.br}
+	c.r = &encryptedReader{
+		S: newCFB8(block, secret, true),
+		R: c.br}
 	c.encrypter = newCFB8(block, secret, false)
 	return nil
+}
+
+type encryptedReader struct {
+	cipher.StreamReader
+	prefix [1]byte
+}
+
+func (r *encryptedReader) ReadByte() (byte, error) {
+	_, err := io.ReadFull(&r.StreamReader, r.prefix[:])
+	return r.prefix[0], err
 }
 
 // ReadPacket reads the next packet and returns its ID and payload. The payload

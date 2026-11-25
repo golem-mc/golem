@@ -1,5 +1,12 @@
 package entity
 
+import (
+	"slices"
+
+	"github.com/golem-mc/golem/registry"
+	"github.com/google/uuid"
+)
+
 // EvokerFangs is the jaws an evoker's spell raises: they wait out a warmup,
 // show themselves, bite everything in reach 8 ticks later and vanish.
 // vanilla: EvokerFangs
@@ -77,19 +84,96 @@ func (f *EvokerFangs) BiteBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
 	return f.X - half, f.Y, f.Z - half, f.X + half, f.Y + FangsHeight, f.Z + half
 }
 
-// FangsAllied is EvokerFangs.dealDamageTo's isAlliedTo(owner, victim): the
-// illagers spare each other and an evoker spares the vexes whose summoner is
-// itself or an illager. summoner is the victim vex's summoner, nil when gone.
-// vanilla: AbstractIllager.considersEntityAsAlly, Evoker.considersEntityAsAlly
-func FangsAllied(owner, victim, summoner *Mob) bool {
-	if owner == nil || victim == nil {
+// AllianceMember identifies a mob or an online player and their effective team.
+type AllianceMember struct {
+	Mob    *Mob
+	Player uuid.UUID
+	Team   string
+}
+
+// EvokerFangsDirectAlly checks alliances an evoker can resolve before building the victim's box.
+// An evoker cannot have an owner, so a vex that names it already has its root.
+// vanilla: Evoker.considersEntityAsAlly
+func (m *Mob) EvokerFangsDirectAlly(victim *Mob, ownerID uuid.UUID) bool {
+	return m.Type == TypeEvoker && (teamOrIllagerAlly(m.Team, victim.Team, true, victim.Type) ||
+		victim.Type == TypeVex && ownerID != uuid.Nil && victim.VexOwnerUUID() == ownerID)
+}
+
+// FangsAllied checks the bite's alliance in both directions.
+// vanilla: EvokerFangs.dealDamageTo, Entity.isAlliedTo
+func FangsAllied(owner, victim AllianceMember, lookup func(uuid.UUID) AllianceMember) bool {
+	if owner == (AllianceMember{}) || victim == (AllianceMember{}) {
 		return false
 	}
-	if owner == victim || IsIllagerType(victim.Type) {
+	return sameAllianceMember(owner, victim) || owner.considersAlly(victim, lookup) || victim.considersAlly(owner, lookup)
+}
+
+func sameAllianceMember(a, b AllianceMember) bool {
+	return a.Mob != nil && a.Mob == b.Mob || a.Player != uuid.Nil && a.Player == b.Player
+}
+
+// vanilla: TamableAnimal.considersEntityAsAlly, Evoker.considersEntityAsAlly, Allay.considersEntityAsAlly
+func (a AllianceMember) considersAlly(b AllianceMember, lookup func(uuid.UUID) AllianceMember) bool {
+	if a.Mob != nil && a.Mob.Tamable.Tame {
+		if root := a.rootOwner(lookup); root != (AllianceMember{}) {
+			a = root
+		}
+	}
+	if sameAllianceMember(a, b) || a.teamOrIllagerAlly(b) {
 		return true
 	}
-	if victim.Type != TypeVex {
+	if a.Mob == nil {
 		return false
 	}
-	return summoner != nil && (summoner == owner || IsIllagerType(summoner.Type))
+	if a.Mob.Type == TypeEvoker && b.Mob != nil && b.Mob.Type == TypeVex {
+		root := b.rootOwner(lookup)
+		return root != (AllianceMember{}) && (sameAllianceMember(a, root) || a.teamOrIllagerAlly(root))
+	}
+	return a.Mob.AllayLikesPlayer(b.Player)
+}
+
+// vanilla: Entity.considersEntityAsAlly, AbstractIllager.considersEntityAsAlly
+func (a AllianceMember) teamOrIllagerAlly(b AllianceMember) bool {
+	kind := registry.EntityTypePlayer
+	if b.Mob != nil {
+		kind = b.Mob.Type
+	}
+	return teamOrIllagerAlly(a.Team, b.Team, a.Mob != nil && IsIllagerType(a.Mob.Type), kind)
+}
+
+func teamOrIllagerAlly(aTeam, bTeam string, illager bool, kind MobType) bool {
+	if aTeam != "" || bTeam != "" {
+		return aTeam != "" && aTeam == bTeam
+	}
+	return illager && kind.InTag(registry.EntityTypeTagIDIllagerFriends)
+}
+
+// vanilla: OwnableEntity.getRootOwner
+func (a AllianceMember) rootOwner(lookup func(uuid.UUID) AllianceMember) AllianceMember {
+	var seen []*Mob
+	for a.Mob != nil {
+		id, ownable := a.Mob.ownerReference()
+		if !ownable {
+			break
+		}
+		if id == uuid.Nil || slices.Contains(seen, a.Mob) {
+			return AllianceMember{}
+		}
+		seen = append(seen, a.Mob)
+		a = lookup(id)
+	}
+	return a
+}
+
+func (m *Mob) ownerReference() (uuid.UUID, bool) {
+	switch {
+	case m.Type == TypeVex:
+		return m.VexOwnerUUID(), true
+	case m.Type == TypeWolf || m.Type == TypeCat || m.Type == TypeParrot || IsNautilus(m.Type):
+		return m.Tamable.Owner, true
+	case IsEquine(m.Type):
+		return m.Horse.Owner, true
+	default:
+		return uuid.Nil, false
+	}
 }

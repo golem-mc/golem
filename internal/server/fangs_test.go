@@ -25,11 +25,13 @@ func TestFangsBiteReachesAcrossChunksAndFindsDistantOwners(t *testing.T) {
 	t.Cleanup(s.Shutdown)
 	w := s.world
 	h := s.herdOf(w)
+	ids := map[int32]uuid.UUID{}
 	add := func(kind entity.MobType, id int32, x, z float64) *entity.Mob {
+		ids[id] = uuid.New()
 		m := entity.NewMob(kind, id, x, 64, z, int64(id))
 		s.mobsMu.Lock()
 		h.add(m)
-		h.remember(&mobEntity{mob: m, w: w, uuid: uuid.New()})
+		h.remember(&mobEntity{mob: m, w: w, uuid: ids[id]})
 		s.mobsMu.Unlock()
 		return m
 	}
@@ -40,6 +42,7 @@ func TestFangsBiteReachesAcrossChunksAndFindsDistantOwners(t *testing.T) {
 	distant := add(entity.TypeEvoker, 5, 300.5, 300.5)
 	allyVex := add(entity.TypeVex, 6, 16.0, 0.5)
 	allyVex.SetVexOwner(distant.ID)
+	allyVex.SetVexOwnerUUID(ids[distant.ID])
 	strayVex := add(entity.TypeVex, 7, 16.0, 0.5)
 	for _, m := range []*entity.Mob{owner, west, east, far, distant, allyVex, strayVex} {
 		m.Health = 100

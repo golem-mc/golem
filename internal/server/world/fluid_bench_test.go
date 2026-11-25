@@ -231,6 +231,53 @@ func BenchmarkFluidSingleOutlet(b *testing.B) {
 	}
 }
 
+func BenchmarkWaterfallDestination(b *testing.B) {
+	w := newTestWorld(b, NewFlatGenerator())
+	b.Cleanup(func() { w.Close() })
+	w.Acquire(ChunkPos{})
+	const x, y, z = 8, 80, 8
+	w.SetBlock(x, y, z, waterByLevel[8])
+	p := NewPhysics(w)
+	origin := w.BlockAt(x, y, z)
+	destination := w.BlockAt(x, y-1, z)
+	var got fluidState
+	b.ReportAllocs()
+	for b.Loop() {
+		got = downwardLiquidAt(w, x, y-1, z, origin, destination, p.behaviourOf(fluidWater))
+	}
+	if want := fluidHolding(waterByLevel[8]); got != want {
+		b.Fatalf("destination fluid = %+v, want %+v", got, want)
+	}
+}
+
+func BenchmarkPourSurroundedBySources(b *testing.B) {
+	for _, tc := range []struct {
+		name    string
+		sources int
+	}{
+		{name: "no_sources"},
+		{name: "three_sources", sources: 3},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			w := newTestWorld(b, NewFlatGenerator())
+			b.Cleanup(func() { w.Close() })
+			w.Acquire(ChunkPos{})
+			const x, y, z = 8, 80, 8
+			for _, d := range horizontal4[:tc.sources] {
+				w.SetBlock(x+d[0], y, z+d[1], waterByLevel[0])
+			}
+			var got bool
+			b.ReportAllocs()
+			for b.Loop() {
+				got = pourSurroundedBySources(w, x, y, z, fluidWater)
+			}
+			if want := tc.sources >= 3; got != want {
+				b.Fatalf("surrounded by sources = %t, want %t", got, want)
+			}
+		})
+	}
+}
+
 // BenchmarkFluidSlopeLayouts measures the four first-step slope searches of a
 // water source at (0,64,0) on a 13x13 stone floor with no hole, a far hole at
 // (3,63,2), and a near hole at (0,63,2).

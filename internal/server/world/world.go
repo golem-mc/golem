@@ -783,6 +783,7 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	loaded.users.Add(1)
 	w.queueGeneratedTicks(c)
 	w.queueLoadedTicks(c)
+	c.rebuildRandomTickSections()
 	w.chunks[pos] = loaded
 	touches, comparators := c.redstoneBlockCounts()
 	w.touchBlocks += touches
