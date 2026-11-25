@@ -394,6 +394,11 @@ func NewWorld(dir string, gen Generator) (*World, error) {
 // NewDimensionWorld). An overworld whose level.dat and backup both fail to read
 // is an error, so a fresh world never starts over unreadable data.
 func newWorld(dir string, gen Generator, name string, shape dimensionShape, levelDat bool) (*World, error) {
+	return newWorldIn(dir, DimensionDir(dir, name), gen, name, shape, levelDat)
+}
+
+// newWorldIn is newWorld with the dimension's files in storage.
+func newWorldIn(dir, storage string, gen Generator, name string, shape dimensionShape, levelDat bool) (*World, error) {
 	level := defaultLevel("")
 	if levelDat {
 		loaded, err := LoadLevel(dir)
@@ -406,7 +411,7 @@ func newWorld(dir string, gen Generator, name string, shape dimensionShape, leve
 		dir:        dir,
 		gen:        gen,
 		level:      level,
-		storage:    DimensionDir(dir, name),
+		storage:    storage,
 		dim:        shape,
 		dimName:    name,
 		levelDat:   levelDat,

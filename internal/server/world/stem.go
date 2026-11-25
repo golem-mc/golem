@@ -212,3 +212,36 @@ func NewCustomDimensionWorld(dir, name string, shape DimensionShape, gen Generat
 	w, _ := newWorld(dir, gen, name, shape, false)
 	return w
 }
+
+// NewFolderDimensionWorld builds a plugin's dimension called name over an
+// existing world folder: its region, entities and poi files are the folder's
+// folderDim dimension's (layout.go), and the rest of the world is under dir.
+func NewFolderDimensionWorld(dir, folder, folderDim, name string, shape DimensionShape, gen Generator) *World {
+	w, _ := newWorldIn(dir, DimensionDir(folder, folderDim), gen, name, shape, false)
+	return w
+}
+
+// ReadFolderMeta reads the seed and spawn of the world folder's level.dat as a
+// PluginMeta; ok is false when the folder has none, so the world is new.
+// vanilla: LevelStorageSource.getDataTagFor
+func ReadFolderMeta(folder string) (m PluginMeta, ok bool, err error) {
+	level, err := LoadLevel(folder)
+	if err != nil || !level.existed {
+		return m, false, err
+	}
+	return PluginMeta{Seed: level.Seed, Spawn: level.Spawn}, level.HasSeed, nil
+}
+
+// FolderDimensionName is the dimension of a vanilla world folder that a
+// dimension type is stored as; other types keep their own name.
+func FolderDimensionName(typeName string) string {
+	switch typeName {
+	case DimensionType, "minecraft:overworld_caves":
+		return DimensionName
+	case NetherType:
+		return NetherName
+	case EndType:
+		return EndName
+	}
+	return typeName
+}
