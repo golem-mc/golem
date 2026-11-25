@@ -190,6 +190,10 @@ func (s *Server) pluginTeleportCause(b command.Entity, move command.Move, dim st
 		// A listener's destination is absolute.
 		move.Pos = player.Position{X: to.Pos.X, Y: to.Pos.Y, Z: to.Pos.Z, Yaw: to.Yaw, Pitch: to.Pitch, OnGround: p.OnGround}
 		move.RelX, move.RelY, move.RelZ, move.RelYaw, move.RelPitch = false, false, false, false, false
+		if to.Yaw != p.Yaw || to.Pitch != p.Pitch {
+			// The listener's angles replace a facing clause's.
+			move.LookAt = nil
+		}
 	}
 	return move, dim, true
 }

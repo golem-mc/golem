@@ -943,6 +943,14 @@ func teleportTurn(move command.Move) entity.Turn {
 // always gets its absolute destination, so a facing clause turns it here
 // rather than via the client-only Player Look At.
 func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
+	if ref, ok := e.ref.(*mobEntity); ok && move.Command && move.LookAt == nil && !move.KeepRotation {
+		// The event reports the angles this target turns to now, which an
+		// earlier target in the command may have changed.
+		e.srv.mobsMu.Lock()
+		yaw, pitch := ref.mob.Yaw, ref.mob.Pitch
+		e.srv.mobsMu.Unlock()
+		move = move.AgainstAngles(yaw, pitch)
+	}
 	move, dim, ok := e.srv.pluginTeleport(e, move, dim, by)
 	if !ok {
 		return
