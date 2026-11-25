@@ -1034,8 +1034,10 @@ func (s *Server) blowOf(w *world.World, damageType registry.DamageType, cause *d
 	b.Direct = b.Attacker
 	switch {
 	case cause.directType != "":
-		typ, burning := cause.directType, cause.directBurning
-		b.Direct = func() rules.LootEntity { return rules.LootEntity{Type: typ, OnFire: burning} }
+		typ, burning, velocity := cause.directType, cause.directBurning, cause.directVelocity
+		b.Direct = func() rules.LootEntity {
+			return rules.LootEntity{Type: typ, OnFire: burning, Facts: func() rules.LootFacts { return rules.LootFacts{Movement: velocity} }}
+		}
 	case cause.directID != 0:
 		b.Direct = s.entityLoot(w, cause.directID)
 	}

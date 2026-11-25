@@ -53,7 +53,9 @@ type damageCause struct {
 	directType string
 	// directBurning is the projectile's fire flag when it hit.
 	directBurning bool
-	x, y, z       float64
+	// directVelocity is the projectile's flight in blocks per tick when it hit.
+	directVelocity [3]float64
+	x, y, z        float64
 	// weapon belongs to the direct entity, independently of death attribution.
 	// vanilla: DamageSource.getWeaponItem
 	weapon protocol.ItemStack

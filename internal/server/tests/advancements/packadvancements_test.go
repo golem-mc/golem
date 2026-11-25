@@ -591,7 +591,7 @@ func TestPackEntityKilledPlayerTestsEntityType(t *testing.T) {
 // criterion fires for a zombie's hit when its damage.source_entity is a
 // zombie, not when it is a skeleton or when the damage must be a projectile.
 // A burning arrow a skeleton shot afterwards fires the direct arrow and source
-// skeleton criteria, with the arrow's fire flag, and neither reversed pair.
+// skeleton criteria, with the arrow's fire flag and flight speed, and neither reversed pair.
 // vanilla: EntityHurtPlayerTrigger.TriggerInstance.matches, DamagePredicate.matches
 func TestPackEntityHurtPlayerTestsSourceEntityAndType(t *testing.T) {
 	cfg, data := packConfig(t)
@@ -606,12 +606,14 @@ func TestPackEntityHurtPlayerTestsSourceEntityAndType(t *testing.T) {
 		}
 	}
 	for name, damage := range map[string]string{
-		"shot_direct_arrow":    `"direct_entity":{"minecraft:entity_type":"minecraft:arrow"}`,
-		"shot_source_skeleton": `"source_entity":{"minecraft:entity_type":"minecraft:skeleton"}`,
-		"shot_direct_skeleton": `"direct_entity":{"minecraft:entity_type":"minecraft:skeleton"}`,
-		"shot_source_arrow":    `"source_entity":{"minecraft:entity_type":"minecraft:arrow"}`,
-		"shot_direct_burning":  `"direct_entity":{"minecraft:entity_type":"minecraft:arrow","minecraft:flags":{"is_on_fire":true}}`,
-		"shot_direct_unlit":    `"direct_entity":{"minecraft:entity_type":"minecraft:arrow","minecraft:flags":{"is_on_fire":false}}`,
+		"shot_direct_arrow":      `"direct_entity":{"minecraft:entity_type":"minecraft:arrow"}`,
+		"shot_source_skeleton":   `"source_entity":{"minecraft:entity_type":"minecraft:skeleton"}`,
+		"shot_direct_skeleton":   `"direct_entity":{"minecraft:entity_type":"minecraft:skeleton"}`,
+		"shot_source_arrow":      `"source_entity":{"minecraft:entity_type":"minecraft:arrow"}`,
+		"shot_direct_burning":    `"direct_entity":{"minecraft:entity_type":"minecraft:arrow","minecraft:flags":{"is_on_fire":true}}`,
+		"shot_direct_unlit":      `"direct_entity":{"minecraft:entity_type":"minecraft:arrow","minecraft:flags":{"is_on_fire":false}}`,
+		"shot_direct_moving":     `"direct_entity":{"minecraft:entity_type":"minecraft:arrow","minecraft:movement":{"speed":{"min":1}}}`,
+		"shot_direct_stationary": `"direct_entity":{"minecraft:entity_type":"minecraft:arrow","minecraft:movement":{"speed":{"max":0}}}`,
 	} {
 		packCriterion(t, dir, name, "entity_hurt_player", `{"damage":{"type":{`+damage+`}}}`)
 	}
@@ -646,8 +648,8 @@ func TestPackEntityHurtPlayerTestsSourceEntityAndType(t *testing.T) {
 	srv.IgniteArrow(shaft, 100)
 	servertest.RunTicks(t, srv, 8)
 	for name, want := range map[string]bool{
-		"shot_direct_arrow": true, "shot_source_skeleton": true, "shot_direct_burning": true,
-		"shot_direct_skeleton": false, "shot_source_arrow": false, "shot_direct_unlit": false,
+		"shot_direct_arrow": true, "shot_source_skeleton": true, "shot_direct_burning": true, "shot_direct_moving": true,
+		"shot_direct_skeleton": false, "shot_source_arrow": false, "shot_direct_unlit": false, "shot_direct_stationary": false,
 	} {
 		if got := srv.AdvancementObtained("Packer", "pk:"+name, "c"); got != want {
 			t.Errorf("a skeleton's burning arrow: %s obtained = %v, want %v", name, got, want)
