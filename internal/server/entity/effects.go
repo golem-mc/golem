@@ -219,7 +219,10 @@ func (m *Mob) effectChanged(ch effect.Change, mayBuild bool) {
 		m.SetAttributes(m.BuildAttributes(nbt.List{}))
 	}
 	rules.ApplyEffectChange(m.attrs, ch)
-	m.OnAttributeUpdated()
+	// No effect modifier touches scale, so the box needs no refresh.
+	if cap := m.healthCap(); m.Health > cap {
+		m.SetMetadataHealth(cap)
+	}
 }
 
 // AddEffect gives a living body an effect after its type immunity check.
