@@ -1082,10 +1082,13 @@ func thrownTeleportPayload(t *entity.Thrown) []byte {
 func (s *Server) killThrown(it *thrownEntity) {
 	s.arrowsMu.Lock()
 	it.throwable.Dead = true
+	held := it.held
 	s.arrowsMu.Unlock()
 	s.entityDestroyed(it.uuid)
-	s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
-		removeEntitiesPayload([]int32{it.throwable.ID}))
+	if !held {
+		s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
+			removeEntitiesPayload([]int32{it.throwable.ID}))
+	}
 }
 
 // teleportThrown moves a thrown body to the position given and stops it.

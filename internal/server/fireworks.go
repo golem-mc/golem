@@ -252,10 +252,13 @@ func (s *Server) killFirework(it *fireworkEntity) {
 	s.fireworksMu.Lock()
 	fireworkTracker.unfile(it)
 	s.fireworks = slices.DeleteFunc(s.fireworks, func(o *fireworkEntity) bool { return o == it })
+	held := it.held
 	s.fireworksMu.Unlock()
 	s.entityDestroyed(it.uuid)
-	s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
-		removeEntitiesPayload([]int32{it.rocket.ID}))
+	if !held {
+		s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
+			removeEntitiesPayload([]int32{it.rocket.ID}))
+	}
 }
 
 // teleportFirework moves a rocket to the position given, its flight

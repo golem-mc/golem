@@ -54,11 +54,16 @@ func (s *Server) flushDestroyed() {
 	for _, gone := range ids {
 		id := gone.id
 		s.fireEntityRemove(id, gone.cause)
-		s.scoreboard.EntityRemoved(id.String())
-		s.dropEntityData(id.String())
-		for _, board := range s.privateScoreboards() {
-			board.EntityRemoved(id.String())
-		}
+		s.forgetEntity(id)
+	}
+}
+
+// forgetEntity drops a gone body's scores, teams and plugin data.
+func (s *Server) forgetEntity(id uuid.UUID) {
+	s.scoreboard.EntityRemoved(id.String())
+	s.dropEntityData(id.String())
+	for _, board := range s.privateScoreboards() {
+		board.EntityRemoved(id.String())
 	}
 }
 

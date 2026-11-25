@@ -203,6 +203,13 @@ func (s *Server) EndClockTime() int64 {
 	return total
 }
 
+// PluginEntityDataKeys counts the keys of the plugin Data stored for an
+// entity UUID, live or not.
+func (s *Server) PluginEntityDataKeys(id uuid.UUID) (n int) {
+	s.entityData.Read(entityDataID(id), func(c nbt.CompoundTag) { n = len(c.Entries()) })
+	return n
+}
+
 // PluginCallsQueued is signalled when a connection queues a plugin call for
 // the tick goroutine, nil with no plugins.
 func (s *Server) PluginCallsQueued() <-chan struct{} {

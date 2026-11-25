@@ -6,42 +6,50 @@ import (
 	"github.com/google/uuid"
 )
 
-// launchBody files a freshly shot projectile where plugin handles resolve it
-// and puts it to ProjectileLaunchEvent and EntitySpawnEvent listeners; only
-// an accepted one is published, so watchers never see a refused one. false
-// means a listener cancelled it and it is already dropped.
+// launchBody puts a freshly shot projectile to ProjectileLaunchEvent and
+// EntitySpawnEvent listeners and publishes it; with neither listened to it
+// is registered at once. A listener sees the body through plugin handles while
+// watchers do not; only an accepted one is shown. after runs once the body is
+// shown. false means a listener cancelled or removed it, and it is dropped.
 // vanilla: Projectile.spawnProjectile
-func launchBody[B any, S any](s *Server, k *trackedKind[B, S], it B, publish func()) bool {
+func launchBody[B any, S any](s *Server, k *trackedKind[B, S], it B, after func()) bool {
+	if !s.launchObserved() {
+		k.register(s, it)
+		after()
+		return true
+	}
 	k.hold(s, it)
 	id := k.uuid(it)
-	if !s.projectileLaunched(id) || !s.bodySpawnAllowed(id, plugin.SpawnDefault) {
-		k.drop(s, it)
+	if !s.projectileLaunched(id) || !k.stillHeld(s, it) || !s.bodySpawnAllowed(id, plugin.SpawnDefault) || !k.publish(s, it) {
+		k.discard(s, it)
 		return false
 	}
-	publish()
+	after()
 	return true
+}
+
+// launchObserved reports whether a plugin listens to a projectile's launch or
+// spawn.
+func (s *Server) launchObserved() bool {
+	r := s.plugins
+	return r != nil && (r.Has(pluginruntime.ProjectileLaunch) || r.Has(pluginruntime.EntitySpawn))
 }
 
 // launchArrow launches a freshly shot arrow or trident.
 func (s *Server) launchArrow(it *arrowEntity) bool {
-	return launchBody(s, &arrowTracker, it, func() {
-		arrowFirstTick(it)
-		arrowTracker.publish(s, it)
-	})
+	arrowFirstTick(it)
+	return launchBody(s, &arrowTracker, it, func() {})
 }
 
 // launchThrown is launchArrow for a thrown body, fireball or bullet.
 func (s *Server) launchThrown(it *thrownEntity) bool {
 	s.resolveBulletTarget(it)
-	return launchBody(s, &thrownTracker, it, func() {
-		thrownTracker.publish(s, it)
-		s.thrownRegistered(it)
-	})
+	return launchBody(s, &thrownTracker, it, func() { s.thrownRegistered(it) })
 }
 
 // launchFirework is launchArrow for a firework rocket.
 func (s *Server) launchFirework(it *fireworkEntity) bool {
-	return launchBody(s, &fireworkTracker, it, func() { fireworkTracker.publish(s, it) })
+	return launchBody(s, &fireworkTracker, it, func() {})
 }
 
 // projectileLaunched fires ProjectileLaunchEvent for a held projectile and

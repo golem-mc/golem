@@ -850,10 +850,13 @@ func projectileUnhittable(c *client) bool {
 func (s *Server) killArrow(it *arrowEntity) {
 	s.arrowsMu.Lock()
 	it.arrow.Dead = true
+	held := it.held
 	s.arrowsMu.Unlock()
 	s.entityDestroyed(it.uuid)
-	s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
-		removeEntitiesPayload([]int32{it.arrow.ID}))
+	if !held {
+		s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
+			removeEntitiesPayload([]int32{it.arrow.ID}))
+	}
 }
 
 // spendArrow discards an arrow that landed on a body; one with a pierce level

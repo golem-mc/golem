@@ -8,6 +8,7 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -184,7 +185,8 @@ func TestTheNextWaveFollowsTheLastRaider(t *testing.T) {
 // vanilla: Raid.tick
 func TestACompletedRaidIsWon(t *testing.T) {
 	t.Parallel()
-	srv, c, bell := bareBell(t, rules.DifficultyEasy)
+	shooters := &shooterPlugin{}
+	srv, c, bell := bareBellWith(t, rules.DifficultyEasy, []plugin.Registration{{Name: "shooters", Plugin: shooters}})
 	// The villager claiming the bell can celebrate alongside the platform villagers.
 	villagers := []int32{spawnVillager(t, srv, bell)}
 	startRaid(t, c, srv, 0)
@@ -243,6 +245,13 @@ func TestACompletedRaidIsWon(t *testing.T) {
 	})
 	if !launched {
 		t.Fatal("no villager celebration rocket reached the client within 300 ticks")
+	}
+	// A listener identifies the celebrating villager as the rocket's shooter.
+	// vanilla: CelebrateVillagersSurvivedRaid.spawnFirework
+	shooters.mu.Lock()
+	defer shooters.mu.Unlock()
+	if len(shooters.shooters) == 0 || shooters.shooters[0] != protocol.EntityTypeVillager {
+		t.Errorf("celebration rocket shooter types = %v, want a villager (%d)", shooters.shooters, protocol.EntityTypeVillager)
 	}
 }
 
