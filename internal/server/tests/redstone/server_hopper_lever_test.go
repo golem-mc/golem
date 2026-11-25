@@ -101,3 +101,24 @@ func TestHopperEnabledChangeStemConversionKeepsRail(t *testing.T) {
 		t.Fatalf("dropped rails = %d, want 0", n)
 	}
 }
+
+// A lichen above a hopper loses its down face when the hopper's enabled write
+// shape-updates it; the trimmed replacement keeps the shape flags, so the
+// unsupported rail beside the lichen stays.
+// vanilla: MultifaceBlock.updateShape, Block.updateOrDestroy, BaseRailBlock.neighborChanged
+func TestHopperEnabledChangeLichenTrimKeepsRail(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.AttachActor(t)
+	servertest.HoldTicks(t, srv)
+	servertest.Setblock(t, c, 5, 70, 0, "hopper[facing=down,enabled=true]")
+	servertest.Setblock(t, c, 5, 71, 1, "stone")
+	servertest.Setblock(t, c, 5, 71, 0, "glow_lichen[down=true,south=true] strict")
+	servertest.Setblock(t, c, 6, 71, 0, "rail strict")
+	servertest.Setblock(t, c, 4, 70, 0, "redstone_block")
+	servertest.ExpectBlockNamed(t, srv, 5, 70, 0, "minecraft:hopper", map[string]string{"enabled": "false"})
+	servertest.ExpectBlockNamed(t, srv, 5, 71, 0, "minecraft:glow_lichen", map[string]string{"down": "false", "south": "true"})
+	servertest.ExpectBlockNamed(t, srv, 6, 71, 0, "minecraft:rail", nil)
+	if n := countDropped(srv.ItemsInDimension(world.DimensionName), "minecraft:rail"); n != 0 {
+		t.Fatalf("dropped rails = %d, want 0", n)
+	}
+}

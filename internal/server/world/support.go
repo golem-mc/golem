@@ -724,13 +724,13 @@ const anyDirection = -1
 
 // supportCheck answers a change toward a direction, reporting whether the block
 // went; a block with a survival tick is scheduled instead and stays for now.
-func (p *Physics) supportCheck(x, y, z int32, state uint16, toward int, changes *[]BlockChange) bool {
+func (p *Physics) supportCheck(x, y, z int32, state uint16, toward int, changes *[]BlockChange, fromShape ...bool) bool {
 	s := survivalOf[state]
 	if toward != anyDirection && s.watch&(1<<toward) == 0 {
 		return false
 	}
 	if s.kind == surviveVine || s.kind == surviveMultiface {
-		return p.trimFaces(x, y, z, state, toward, changes)
+		return p.trimFaces(x, y, z, state, toward, changes, len(fromShape) > 0 && fromShape[0])
 	}
 	if canSurvive(p.w, x, y, z, state) {
 		return false
@@ -880,7 +880,7 @@ func SpeleothemThickness(w BlockReader, block registry.Block, tip int, mergeOppo
 
 // trimFaces is the vine's and multiface blocks' updateShape: drop faces that
 // lost their hold, and go when none remain.
-func (p *Physics) trimFaces(x, y, z int32, state uint16, toward int, changes *[]BlockChange) bool {
+func (p *Physics) trimFaces(x, y, z int32, state uint16, toward int, changes *[]BlockChange, clientOnly bool) bool {
 	s := survivalOf[state]
 	var kept uint8
 	switch {
@@ -901,7 +901,13 @@ func (p *Physics) trimFaces(x, y, z int32, state uint16, toward int, changes *[]
 		for d, prop := range facePropIDs {
 			next, _ = registry.WithBool(next, prop, kept&(1<<d) != 0)
 		}
-		p.setShaped(x, y, z, next, changes)
+		if clientOnly {
+			// The shape pass's replacement carries the shape flags: no neighbour wakes.
+			// vanilla: Block.updateOrDestroy
+			p.setClientShaped(x, y, z, next, changes)
+		} else {
+			p.setShaped(x, y, z, next, changes)
+		}
 	}
 	return false
 }

@@ -743,7 +743,7 @@ func (p *Physics) shapeUpdateBody(x, y, z int32, d [3]int32, changes *[]BlockCha
 			}
 			return
 		}
-		if p.supportCheck(x, y, z, state, toward, changes) {
+		if p.supportCheck(x, y, z, state, toward, changes, true) {
 			return
 		}
 	}
