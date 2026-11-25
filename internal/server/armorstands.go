@@ -927,14 +927,10 @@ func (s *Server) tickArmorStands() {
 			standTracker.unfile(ent)
 			continue // a punch or a blast took it out; its tail ran there
 		}
-		// A stand with a pending teleport is tracked before its step, so a
-		// gate tick tells the /tp pose and ground flag before the step moves
-		// it; the schedule takes the mark on that gate.
+		// Tracking runs before the step, so a gate tells the pose the last
+		// tick left, a /tp's included.
 		// vanilla: ServerChunkCache.tick, ServerLevel.tick
-		toldTeleport := ent.teleported
-		if toldTeleport {
-			trackStand(ent, watchers, near, &out)
-		}
+		trackStand(ent, watchers, near, &out)
 		// The portal pass runs ahead of the step, as for items; only a stand
 		// with physics is inside a block. vanilla: ArmorStand.hasPhysics
 		state := airBlockState
@@ -996,13 +992,10 @@ func (s *Server) tickArmorStands() {
 			}
 		}
 		alive = append(alive, ent)
-		if !toldTeleport {
-			trackStand(ent, watchers, near, &out)
-		}
 	}
 	s.armorStands = alive
 	s.unlockTick(&s.armorStandsMu)
-	// Before the removals: a stand told its teleport may break this tick.
+	// Before the removals: a stand told its pose may break this tick.
 	out.send()
 	s.runBodyLandings(bodyLandings)
 

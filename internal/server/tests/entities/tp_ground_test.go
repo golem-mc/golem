@@ -1,6 +1,7 @@
 package entities
 
 import (
+	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -40,6 +41,21 @@ func TestTeleportCommandSetsStandAndMannequinOnGround(t *testing.T) {
 			if !seen || sync.Y != 155 || !sync.OnGround {
 				t.Errorf("seen %v, sync %+v, want a position sync at y 155 with onGround", seen, sync)
 			}
+			if tc.nbt != "NoGravity:0b" {
+				return
+			}
+			// The next gate, three ticks on, tells the pose after three
+			// steps of the fall, the ground flag cleared.
+			seen = c.ReadTicks(srv, 3, func(pid int32, data []byte) bool {
+				if pid != protocol.IDPlayTeleportEntity {
+					return false
+				}
+				sync = servertest.ParseEntityPositionSync(data)
+				return true
+			})
+			if !seen || math.Abs(sync.Y-154.766368) > 1e-9 || sync.OnGround {
+				t.Errorf("seen %v, next sync %+v, want y 154.766368 without onGround", seen, sync)
+			}
 		})
 	}
 }
@@ -78,11 +94,14 @@ func TestTeleportedStandShortHopIsToldOnItsNextGate(t *testing.T) {
 // vanilla: ChunkMap.TrackedEntity.updatePlayer, ServerEntity.removePairing
 func TestTeleportedStandThatEndsSendsOneRemovalPerWatcher(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct{ name, nbt, dest string }{
-		{"broken", "Health:1.0f,Fire:20s", "33.5 150 0.5"},
-		{"voided", "", "33.5 -200 0.5"},
+	for _, tc := range []struct {
+		name, nbt, dest string
+		y               float64
+	}{
+		{"broken", "Health:1.0f,Fire:20s", "33.5 150 0.5", 150},
+		{"voided", "", "33.5 -200 0.5", -200},
 		// The portal block lies at the destination; the stand has physics.
-		{"portal", "", "33.5 150 0.5"},
+		{"portal", "", "33.5 150 0.5", 150},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -117,8 +136,8 @@ func TestTeleportedStandThatEndsSendsOneRemovalPerWatcher(t *testing.T) {
 						}
 					case protocol.IDPlayTeleportEntity:
 						if sync := servertest.ParseEntityPositionSync(d); sync.ID == standID {
-							if tc.name != "voided" && (sync.X != 33.5 || !sync.OnGround) {
-								t.Errorf("sync %+v, want x 33.5 with onGround", sync)
+							if sync.X != 33.5 || sync.Y != tc.y || sync.Z != 0.5 || !sync.OnGround {
+								t.Errorf("sync %+v, want (33.5, %v, 0.5) with onGround", sync, tc.y)
 							}
 							got = append(got, "sync")
 						}
