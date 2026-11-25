@@ -1,6 +1,9 @@
 package world
 
 import (
+	"cmp"
+	"slices"
+
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -13,6 +16,8 @@ type savedTick struct {
 	x, y, z  int32
 	delay    int32
 	priority int32
+	// seq is the booking order of a snapshot entry, for sorting; not saved.
+	seq int64
 }
 
 // decodeSavedTicks reads block_ticks or fluid_ticks; an entry missing its id or
@@ -149,27 +154,22 @@ func (w *World) prepareTick(x, z int32, dirty, takeLoaded bool) (loaded []loaded
 // chunkTicks is physics' pending ticks inside the chunk, as the file lists
 // them; piston-event entries are block events, not ticks, and are not saved.
 func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	var out chunkTicks
+	p.mu.Lock()
 	add := func(t scheduledTick) {
-		if t.pos.x>>4 != pos.X || t.pos.z>>4 != pos.Z || p.tickCancelled(t) {
-			return
-		}
-		if !isTickEvent(t.event) {
+		if t.pos.x>>4 != pos.X || t.pos.z>>4 != pos.Z || p.tickCancelled(t) || !isTickEvent(t.event) {
 			return
 		}
 		st := savedTick{
 			x: t.pos.x, y: t.pos.y, z: t.pos.z,
-			delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority),
+			delay: int32(max(t.due-p.now, 0)), priority: int32(t.priority), seq: t.seq,
 		}
 		if t.fluid != 0 {
 			st.id = t.fluid.name()
 			out.fluid = append(out.fluid, st)
 			return
 		}
-		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
-		name, _, ok := registry.BlockStateName(state)
+		name, _, ok := registry.BlockStateName(p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z))
 		if !ok {
 			return
 		}
@@ -182,6 +182,15 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 	for _, t := range p.parked[pos] {
 		add(t)
 	}
+	p.mu.Unlock()
+	// The heap's backing slice is in heap order, not booking order; the
+	// reload hands out sub-tick order from the saved list, and due and
+	// priority are restored from each entry. Sorted after the unlock so
+	// Physics.Tick is not held up.
+	// vanilla: LevelChunkTicks.pack
+	bySeq := func(a, b savedTick) int { return cmp.Compare(a.seq, b.seq) }
+	slices.SortFunc(out.block, bySeq)
+	slices.SortFunc(out.fluid, bySeq)
 	return out
 }
 
