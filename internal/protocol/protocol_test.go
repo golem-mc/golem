@@ -106,6 +106,51 @@ func TestVarIntTooLong(t *testing.T) {
 	}
 }
 
+// onlyReader hides every method but Read, forcing the io.Reader fallback.
+type onlyReader struct{ r io.Reader }
+
+func (o onlyReader) Read(p []byte) (int, error) { return o.r.Read(p) }
+
+func TestReadVarIntByteReaderAndReader(t *testing.T) {
+	cases := []struct {
+		name     string
+		in       []byte
+		want     int32
+		wantN    int
+		wantErr  error
+		wantLeft int
+	}{
+		{"one byte", []byte{0x05, 0xAA}, 5, 1, nil, 1},
+		{"multi byte", []byte{0xAC, 0x02, 0xAA}, 300, 2, nil, 1},
+		{"five bytes", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0x07, 0xAA}, math.MaxInt32, 5, nil, 1},
+		{"empty", nil, 0, 0, io.EOF, 0},
+		{"early EOF", []byte{0x80, 0x80}, 0, 2, io.EOF, 0},
+		{"too long", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01}, 0, 5, protocol.ErrVarIntTooLong, 1},
+	}
+	wrap := map[string]func([]byte) (io.Reader, func() int){
+		"ByteReader": func(b []byte) (io.Reader, func() int) {
+			r := bytes.NewReader(b)
+			return r, r.Len
+		},
+		"Reader": func(b []byte) (io.Reader, func() int) {
+			r := bytes.NewReader(b)
+			return onlyReader{r}, r.Len
+		},
+	}
+	for kind, mk := range wrap {
+		for _, c := range cases {
+			t.Run(kind+"/"+c.name, func(t *testing.T) {
+				r, left := mk(c.in)
+				got, n, err := protocol.ReadVarInt(r)
+				if got != c.want || n != c.wantN || !errors.Is(err, c.wantErr) || left() != c.wantLeft {
+					t.Errorf("got (%d, %d, %v) with %d left, want (%d, %d, %v) with %d left",
+						got, n, err, left(), c.want, c.wantN, c.wantErr, c.wantLeft)
+				}
+			})
+		}
+	}
+}
+
 // connPair returns two connected protocol connections.
 func connPair(t *testing.T) (*protocol.Conn, *protocol.Conn) {
 	t.Helper()

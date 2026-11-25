@@ -74,7 +74,7 @@ func TestAnIronGolemThrowsAHostileMobAfterHittingIt(t *testing.T) {
 		t.Run(fmt.Sprint(resistance), func(t *testing.T) {
 			srv, _ := villagerYard(t)
 			golem := srv.SpawnMobSeeded("minecraft:iron_golem", 4.5, 64, 0.5, 2162)
-			zombie := srv.SpawnMob("minecraft:zombie", 5.5, 64, 0.5)
+			zombie := srv.SpawnMobSeeded("minecraft:zombie", 5.5, 64, 0.5, 1)
 			srv.SetMobNoAI(zombie)
 			srv.SetMobKnockbackResistance(zombie, resistance)
 			for range 40 {

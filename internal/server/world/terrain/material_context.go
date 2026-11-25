@@ -24,6 +24,8 @@ type materialContext struct {
 	volume         Volume
 	biomes         Biomes
 	possibleBiomes []int
+	// Carving only evaluates the exposed dirt blocks in a chunk.
+	sampleBandsAtPoint bool
 	// prefilled is the volumes densities sampled, released by close.
 	prefilled [][]float32
 	updXZ     int64
@@ -122,6 +124,9 @@ func (c *materialContext) pointDensity(s Sampler) func() float32 {
 // maxY (the caller skips the rest), sampled up front over that band of the
 // chunk's volume.
 func (c *materialContext) bandDensity(s Sampler, minY, maxY int32) func() float32 {
+	if c.sampleBandsAtPoint {
+		return c.pointDensity(s)
+	}
 	band := c.volume
 	lo, hi := max(minY, c.volume.MinY), min(maxY, c.volume.MinY+c.volume.SizeY-1)
 	if hi < lo {

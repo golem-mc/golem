@@ -35,6 +35,7 @@ func TestAPiglinHuntsAPlayerWithoutGoldArmour(t *testing.T) {
 	t.Parallel()
 	_, playerID, srv := piglinWorld(t)
 	p := srv.SpawnMob(barterPiglin, 6.5, 64, 0.5)
+	srv.SetMobBaby(p, false) // the seeded spawn roll may make a baby, which hunts no one
 	if !huntsWithin(t, srv, p, playerID, 100) {
 		t.Fatal("the piglin never took the unarmoured player as its target")
 	}
@@ -46,6 +47,7 @@ func TestAPiglinIgnoresAPlayerWearingAnyGoldArmour(t *testing.T) {
 	c.ChatCommand("item replace entity Slayer armor.feet with minecraft:golden_boots")
 	c.Settle()
 	p := srv.SpawnMob(barterPiglin, 6.5, 64, 0.5)
+	srv.SetMobBaby(p, false) // the seeded spawn roll may make a baby, which hunts no one
 	if huntsWithin(t, srv, p, playerID, 200) {
 		t.Fatal("the piglin hunts a player wearing golden boots")
 	}
@@ -76,6 +78,7 @@ func TestAPiglinAdmiresAGoldIngotThenThrowsABarterItem(t *testing.T) {
 	t.Parallel()
 	c, _, srv := barterWorld(t)
 	p := srv.SpawnMob(barterPiglin, 5.5, 64, 0.5)
+	srv.SetMobBaby(p, false) // the seeded spawn roll may make a baby, which does not barter
 	c.ChatCommand(`summon item 5.5 64 0.5 {Item:{id:"minecraft:gold_ingot",count:1}}`)
 	c.Settle()
 	servertest.UntilTicks(t, srv, 40, "the piglin taking the ingot", func() bool {

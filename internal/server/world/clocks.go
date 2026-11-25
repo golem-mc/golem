@@ -159,7 +159,7 @@ func (w *World) TickTime() {
 	w = w.timeWorld()
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
-	w.level.WorldAge++
+	w.setWorldAge(w.level.WorldAge + 1)
 	if !w.ruleOf(RuleAdvanceTime) {
 		return
 	}

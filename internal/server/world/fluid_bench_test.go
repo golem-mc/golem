@@ -161,6 +161,76 @@ func BenchmarkFluidSpreadToSides(b *testing.B) {
 	}
 }
 
+func BenchmarkFluidSpreadLip(b *testing.B) {
+	for _, tc := range []struct {
+		name   string
+		dx, dz int32
+	}{
+		{name: "flat"},
+		{name: "north", dz: -1},
+		{name: "west", dx: -1},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			w := newTestWorld(b, NewFlatGenerator())
+			b.Cleanup(func() { w.Close() })
+			for x := int32(-1); x <= 0; x++ {
+				for z := int32(-1); z <= 0; z++ {
+					w.Acquire(ChunkPos{X: x, Z: z})
+				}
+			}
+			const y = 64
+			source := waterByLevel[0]
+			w.SetBlock(0, y, 0, source)
+			// Flowing water is eligible for slope selection but cannot be replaced sideways.
+			for _, d := range horizontal4 {
+				w.SetBlock(d[0], y, d[1], waterByLevel[1])
+			}
+			if tc.dx != 0 || tc.dz != 0 {
+				w.SetBlock(tc.dx, y-1, tc.dz, airState)
+			}
+			p := NewPhysics(w)
+			fs := fluidHolding(source)
+			var changes []BlockChange
+			b.ReportAllocs()
+			for b.Loop() {
+				p.spreadToSides(0, y, 0, source, fs, &changes)
+			}
+			if len(changes) != 0 {
+				b.Fatalf("spread changed %d blocks in the fixture", len(changes))
+			}
+		})
+	}
+}
+
+// BenchmarkFluidSingleOutlet spreads a source with one open side, where the
+// slope search cannot change the outcome.
+func BenchmarkFluidSingleOutlet(b *testing.B) {
+	w := newTestWorld(b, NewFlatGenerator())
+	b.Cleanup(func() { w.Close() })
+	w.Acquire(ChunkPos{})
+	const x, y, z = 8, GroundLevel, 8
+	source := waterByLevel[0]
+	w.SetBlock(x, y, z, source)
+	w.SetBlock(x-1, y, z, stoneState)
+	w.SetBlock(x, y, z-1, stoneState)
+	w.SetBlock(x, y, z+1, stoneState)
+	p := NewPhysics(w)
+	fs := fluidHolding(source)
+	var changes []BlockChange
+	b.ReportAllocs()
+	for b.Loop() {
+		w.SetBlock(x+1, y, z, airState)
+		changes = changes[:0]
+		p.spreadToSides(x, y, z, source, fs, &changes)
+	}
+	if len(changes) != 1 {
+		b.Fatalf("spread wrote %d blocks, want 1", len(changes))
+	}
+	if got := fluidHolding(w.BlockAt(x+1, y, z)); got.kind != fluidWater || got.amount != 7 {
+		b.Fatalf("east cell holds %+v, want level-1 water", got)
+	}
+}
+
 // BenchmarkFluidSlopeLayouts measures the four first-step slope searches of a
 // water source at (0,64,0) on a 13x13 stone floor with no hole, a far hole at
 // (3,63,2), and a near hole at (0,63,2).
@@ -196,7 +266,7 @@ func BenchmarkFluidSlopeLayouts(b *testing.B) {
 			p := NewPhysics(w)
 			reach := p.behaviourOf(fluidWater).slopeFindDistance
 			search := func() int {
-				ctx := p.newSpreadContext(0, 64, 0, fluidWater)
+				ctx := newSpreadContext(p.w, 0, 64, 0, fluidWater)
 				lowest := 1000
 				for i, d := range horizontal4 {
 					tx, tz := d[0], d[1]

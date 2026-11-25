@@ -142,9 +142,9 @@ func (w *World) evictChunkPacket(c *Chunk) {
 	c.packet = chunkPacketCache{}
 	w.mu.RLock()
 	c.lightFormsMu.Lock()
-	// Keep the initialized/stale distinction the light engine reads. Saves
+	// Keep the initialized distinction the light engine reads. Saves
 	// and Update Light can rebuild without retaining these buffers again.
-	c.lightFormsStale = c.lightFormsStale || c.lightEncoded != nil
+	c.lightFormsInit = c.lightFormsInit || c.lightEncoded != nil
 	c.lightEncoded, c.chunkLightEncoded = nil, nil
 	c.lightFormsRetained = false
 	c.lightFormsMu.Unlock()

@@ -355,7 +355,7 @@ func withConsumableTags(components nbt.Compound, stack protocol.ItemStack) nbt.C
 // readConsumableComponent lays the named consumption component on the
 // stack; false for a value the codec refuses, modeled false for any other
 // name, which stays one of the file's own.
-func readConsumableComponent(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
+func (lookup *TagLookup) readConsumableComponent(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
 	switch name {
 	case "minecraft:cooking_fuel":
 		return readFuelComponent(stack, value, "burn_time", (*protocol.ItemStack).SetCookingFuel), true
@@ -366,7 +366,7 @@ func readConsumableComponent(stack *protocol.ItemStack, name string, value nbt.T
 	case "minecraft:max_stack_size":
 		return readMaxStackSizeComponent(stack, value), true
 	case "minecraft:use_remainder":
-		remainder, ok := useRemainderOf(value)
+		remainder, ok := lookup.useRemainderOf(value)
 		switch {
 		case !ok:
 		case remainder.Equal(ConsumableRemainderOf(stack.ItemID)):
@@ -398,7 +398,7 @@ func readConsumableComponent(stack *protocol.ItemStack, name string, value nbt.T
 }
 
 // vanilla: ItemStackTemplate.CODEC
-func useRemainderOf(value nbt.Tag) (protocol.ItemStack, bool) {
+func (lookup *TagLookup) useRemainderOf(value nbt.Tag) (protocol.ItemStack, bool) {
 	if name, ok := value.(nbt.String); ok {
 		value = nbt.Compound{"id": name}
 	}
@@ -417,7 +417,7 @@ func useRemainderOf(value nbt.Tag) (protocol.ItemStack, bool) {
 			return protocol.ItemStack{}, false
 		}
 	}
-	remainder, ok := StoredStack(entry)
+	remainder, ok := lookup.storedStack(entry, false)
 	return remainder, ok && Item(remainder.ItemID) != ItemAir && !remainder.Empty()
 }
 

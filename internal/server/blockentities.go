@@ -1021,17 +1021,37 @@ func (s *Server) tickBlockEntities() {
 		// Only a hopper's pull reads the item index; be.Kind is fixed for life.
 		if slices.ContainsFunc(dim.tickingBuf, func(be *world.BlockEntity) bool { return be.Kind == world.KindHopper }) {
 			s.indexItemColumns(dim.w)
+			s.indexCartColumns(dim.w)
 		} else {
 			// The previous dimension's index must not answer for this one.
 			s.dropItemColumns()
+			s.dropCartColumns()
 		}
 		dim.sulfur.reset()
-		s.indexCartColumns(dim.w)
+		var tickCache [8][8]struct {
+			pos        world.ChunkPos
+			generation uint64
+			valid      bool
+			ticks      bool
+		}
 		for _, be := range dim.tickingBuf {
 			if seam := s.blockEntityTickSeam; seam != nil {
 				seam(be)
 			}
-			if be.Sleeping() || !ticks(blockChunk(be.X, be.Z)) {
+			if be.Sleeping() {
+				continue
+			}
+			pos := blockChunk(be.X, be.Z)
+			entry := &tickCache[pos.X&7][pos.Z&7]
+			// A ticket change during the filter must invalidate this entry on the next turn.
+			generation := dim.w.TicketGeneration()
+			if !entry.valid || entry.pos != pos || entry.generation != generation {
+				entry.pos = pos
+				entry.generation = generation
+				entry.ticks = ticks(pos)
+				entry.valid = true
+			}
+			if !entry.ticks {
 				continue
 			}
 			switch {

@@ -159,6 +159,7 @@ func TestNetherFortressSurvivesARestart(t *testing.T) {
 func TestNetherProtoCodecRoundTrips(t *testing.T) {
 	t.Parallel()
 	p := &decorProto{decorated: true, final: true, finals: 0x1a5, sources: []posKey{{1, 40, 2}}, shapes: []posKey{{15, 77, 0}},
+		fluidTicks: []decorFluidTick{{pos: posKey{3, 40, 4}, kind: fluidTypeOf(fluidState{kind: fluidWater, amount: 7})}},
 		entities: []protoEntity{{x: 3, y: 75, z: 4, lootSeed: -5}, {spawner: true, x: 1, y: 76, z: 2},
 			{x: 9, y: 50, z: 8, tag: nbt.Compound{"id": nbt.String("minecraft:chest"), "LootTableSeed": nbt.Long(77)}}}}
 	p.set(5, 70, 6, 1234)
@@ -167,6 +168,7 @@ func TestNetherProtoCodecRoundTrips(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !got.decorated || !got.final || got.finals != p.finals || !slices.Equal(got.sources, p.sources) ||
+		!slices.Equal(got.fluidTicks, p.fluidTicks) ||
 		!slices.Equal(got.shapes, p.shapes) || !slices.EqualFunc(got.entities, p.entities, func(a, b protoEntity) bool { return reflect.DeepEqual(a, b) }) {
 		t.Errorf("decoded %+v, want %+v", got, p)
 	}
@@ -203,5 +205,44 @@ func TestGeneratedSculkSensorHasItsBlockEntity(t *testing.T) {
 	}
 	if got := be.EncodeNBT(); !nbt.Equal(got, want) {
 		t.Errorf("saved %v, want %v", got, want)
+	}
+}
+
+func spilledProtoBytes() (*decorProto, []byte) {
+	p := &decorProto{decorated: true, final: true}
+	for y := range int32(64) {
+		p.set(y%16, y, y%16, 100+uint16(y))
+	}
+	buf := new(decorProtoBuf)
+	buf.deflate(p)
+	return p, bytes.Clone(buf.out.Bytes())
+}
+
+func TestInflateRoundTripsAndRejectsGarbage(t *testing.T) {
+	t.Parallel()
+	_, data := spilledProtoBytes()
+	buf := new(decorProtoBuf)
+	for range 3 {
+		got, err := decodeDecorProto(buf.inflate(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s, ok := got.get(5, 5, 5); !ok || s != 105 {
+			t.Errorf("block read back as %d, %v", s, ok)
+		}
+		if _, err := decodeDecorProto(buf.inflate([]byte("garbage"))); err == nil {
+			t.Error("garbage decoded")
+		}
+	}
+}
+
+func BenchmarkInflateDecodeProto(b *testing.B) {
+	_, data := spilledProtoBytes()
+	buf := new(decorProtoBuf)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := decodeDecorProto(buf.inflate(data)); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

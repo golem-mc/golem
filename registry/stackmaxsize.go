@@ -9,12 +9,18 @@ import (
 // own max_stack_size, 1 when the patch removes it, else the item's.
 // vanilla: ItemStack.getMaxStackSize
 func StackMaxStackSize(stack protocol.ItemStack) int32 {
+	return StackMaxStackSizePtr(&stack)
+}
+
+// StackMaxStackSizePtr is StackMaxStackSize without copying stack by value.
+// vanilla: ItemStack.getMaxStackSize
+func StackMaxStackSizePtr(stack *protocol.ItemStack) int32 {
 	if len(stack.Raw) != 0 {
 		if n, ok := stack.MaxStackSizeOf(); ok {
 			return n
 		}
 	}
-	if stack.Removes(protocol.DataComponentMaxStackSize) {
+	if stack.Removed != (protocol.Removals{}) && stack.Removes(protocol.DataComponentMaxStackSize) {
 		return 1
 	}
 	return MaxStackSize(stack.ItemID)

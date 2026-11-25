@@ -14,7 +14,7 @@ import (
 // roll (one per point of luck), and a gold ingot over a stick once luck has
 // cut the stick's weight to zero.
 const openerTable = `{"pools":[` +
-	`{"rolls":1,"conditions":[{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:player"}}],` +
+	`{"rolls":1,"condition":{"type":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:player"}},` +
 	`"entries":[{"type":"minecraft:item","name":"minecraft:diamond"}]},` +
 	`{"rolls":0,"bonus_rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:emerald"}]},` +
 	`{"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:stick","quality":-1},` +

@@ -50,41 +50,44 @@ type entitySnapshot struct {
 	// small.
 	name  *protocol.Text
 	plain string
-	// An unnamed item entity is named by its stack's item, settled on first
-	// use. vanilla: ItemEntity.getName
-	stackItem int32
-	byStack   bool
-	plainOnce sync.Once
-	dim       string
-	pos       player.Position
-	box       [6]float64
-	// tags are the scoreboard tags, copied with the snapshot so later /tag
-	// changes do not show through.
+	// nameStack is captured for unnamed items so the base name can be
+	// resolved outside the items lock. vanilla: ItemEntity.getName
+	nameStack     *protocol.ItemStack
+	stackNameOnce sync.Once
+	plainOnce     sync.Once
+	dim           string
+	pos           player.Position
+	box           [6]float64
+	// tags are captured alongside the other selector fields.
 	tags []string
 }
 
 // DisplayName is vanilla's Entity.getDisplayName.
 func (e *entitySnapshot) DisplayName() protocol.Text {
 	e.nameOnce.Do(func() {
-		name := entityDisplayName(e.srv.scoreboard, e.typ, e.uuid, e.baseName)
-		if e.byStack {
-			display, _ := registry.ItemTranslationKey(e.stackItem)
-			name.Translate = display
-			name.HoverEntity.Name.Translate = display
-		}
+		name := entityDisplayName(e.srv.scoreboard, e.typ, e.uuid, e.nameComponent())
 		e.name = &name
 	})
 	return *e.name
 }
 
+func (e *entitySnapshot) nameComponent() *protocol.Text {
+	if e.nameStack != nil {
+		e.stackNameOnce.Do(func() {
+			name := rules.ItemTypeName(*e.nameStack)
+			e.baseName = &name
+		})
+	}
+	return e.baseName
+}
+
 // PlainName is Entity.getPlainTextName, matched by the name option.
 func (e *entitySnapshot) PlainName() string {
-	e.plainOnce.Do(func() {
-		if e.byStack {
-			name, _ := registry.ItemName(e.stackItem)
-			e.plain = itemEnglishName(name)
-		}
-	})
+	if e.nameStack != nil {
+		e.plainOnce.Do(func() {
+			e.plain = e.nameComponent().Plain()
+		})
+	}
 	return e.plain
 }
 
@@ -114,6 +117,14 @@ func (e *entitySnapshot) Alive() bool { return e.alive }
 
 // Tags are the snapshot's scoreboard tags. vanilla: Entity.entityTags
 func (e *entitySnapshot) Tags() []string { return e.tags }
+
+// MatchesLiveTag tests the live set because a function reuses its @s snapshot
+// across commands. vanilla: EntitySelectorOptions.bootStrap
+func (e *entitySnapshot) MatchesLiveTag(filter command.TagFilter) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return filter.Passes(e.liveTags.Len(), e.liveTags.Contains)
+}
 
 // AddTag adds a scoreboard tag to the live body. vanilla: Entity.addTag
 func (e *entitySnapshot) AddTag(tag string) bool {
@@ -583,7 +594,7 @@ func (e *entitySnapshot) ItemIn(slot command.ItemSlot) (protocol.ItemStack, bool
 		case command.ItemSlotBody:
 			return ref.mob.Body, true
 		case command.ItemSlotSaddle:
-			return ref.mob.Horse.Saddle, true
+			return ref.mob.EquipmentSlot(protocol.EquipSaddle), true
 		}
 	case *armorStandEntity:
 		e.srv.armorStandsMu.Lock()
@@ -651,9 +662,9 @@ func (e *entitySnapshot) SetItemIn(slot command.ItemSlot, stack protocol.ItemSta
 			return false
 		}
 		if slot == command.ItemSlotBody {
-			ref.mob.SetEquipment(6, stack)
+			ref.mob.SetEquipment(protocol.EquipBody, stack)
 		} else {
-			ref.mob.SetMetadataHorseSaddle(stack)
+			ref.mob.SetEquipment(protocol.EquipSaddle, stack)
 		}
 		return true
 	}
@@ -709,7 +720,7 @@ func (e *entitySnapshot) SetItemIn(slot command.ItemSlot, stack protocol.ItemSta
 		}
 		m.SyncEquipmentModifiers()
 		slots := mannequinEquipmentNow(m)
-		equipment := equipmentEntriesPayload(m.ID, &slots, []int{wire})
+		equipment := equipmentEntriesPayload(m.ID, slots[:], []int{wire})
 		watchers, w := trackedWatchers(ref.tracked), ref.w
 		e.srv.mannequinsMu.Unlock()
 		e.srv.tellWatchers(w, watchers, []outbound{{id: protocol.IDPlayEntityEquipment, data: equipment}})
@@ -950,7 +961,7 @@ func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
 	case *armorStandEntity:
 		e.srv.teleportArmorStand(ref, to, by, move.Command)
 	case *mannequinEntity:
-		e.srv.teleportMannequin(ref, to, by, move.Command)
+		e.srv.teleportMannequin(ref, move, by)
 	case *cloudEntity:
 		e.srv.teleportCloud(ref, to, by)
 	case *fangsEntity:
@@ -1005,7 +1016,7 @@ func (e *entitySnapshot) Rotate(yaw, pitch float32) {
 		e.srv.armorStandsMu.Unlock()
 		e.srv.teleportArmorStand(ref, to, "rotate", false)
 	case *mannequinEntity:
-		e.srv.teleportMannequin(ref, to, "rotate", false)
+		e.srv.teleportMannequin(ref, command.Move{Pos: to, DeltaX: true, DeltaY: true, DeltaZ: true}, "rotate")
 	case *fixtureEntity:
 		e.srv.teleportFixture(ref, to)
 	}
@@ -1189,8 +1200,7 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 		s.mannequinsMu.Lock()
 		var twin *mannequinEntity
 		if alive = !ref.mannequin.Dead && slices.Contains(s.mannequins, ref); alive {
-			at.Yaw, at.Pitch = yaw, pitch
-			if twin = s.mannequinTwinAt(ref, to, at); twin != nil {
+			if twin = s.mannequinTwinAt(ref, to, move); twin != nil {
 				ref.mannequin.Dead = true
 				mannequinTracker.unfile(ref)
 				s.mannequins = slices.DeleteFunc(s.mannequins, func(o *mannequinEntity) bool { return o == ref })
@@ -1334,7 +1344,9 @@ func (ws worldScope) Entities(filters command.EntityQuery) []command.Entity {
 func (ws worldScope) query(q entityQuery) []command.Entity {
 	s := ws.srv
 	if q.Box != nil && q.chunk == nil && q.UUID == nil {
-		q.area = smallChunkArea(q.Box)
+		if area, ok := smallChunkArea(q.Box); ok {
+			q.area = &area
+		}
 	}
 	// Bound maintenance is linear in the batch size; larger limits collect once.
 	if q.Limit > 0 && q.Limit <= 16 {
@@ -1499,7 +1511,7 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 			if q.chunk != nil && !ix.Has(*q.chunk) {
 				return out
 			}
-			indexed = bodiesInChunks(ix, q)
+			indexed = func(yield func(E) bool) { bodiesInChunks(ix, q.chunk, q.area, yield) }
 		}
 		if q.candidates != nil {
 			q.kind = &entityQueryKind{mu: mu, snapshot: func(ref any, query *entityQuery) *entitySnapshot {
@@ -1590,11 +1602,12 @@ func (s *Server) appendMobSnapshots(out []command.Entity, q *entityQuery) []comm
 				appendMob(ent, dim.name)
 			}
 		} else if q.chunk != nil || q.area != nil {
-			for m := range bodiesInChunks(&dim.mobs.chunks, q) {
+			bodiesInChunks(&dim.mobs.chunks, q.chunk, q.area, func(m *entity.Mob) bool {
 				if ent := dim.mobs.record(m); ent != nil {
 					appendMob(ent, dim.name)
 				}
-			}
+				return true
+			})
 		} else {
 			for _, ent := range dim.mobs.book {
 				appendMob(ent, dim.name)
@@ -1706,7 +1719,9 @@ func (s *Server) itemSnapshot(it *itemEntity, q *entityQuery) *entitySnapshot {
 	}
 	e.setCustomName(it.custom.tag())
 	if e.baseName == nil {
-		e.stackItem, e.byStack = it.item.Stack.ItemID, true
+		stack := it.item.Stack
+		stack.Raw = slices.Clone(stack.Raw)
+		e.nameStack = &stack
 	}
 	e.bind(&s.itemsMu, &it.tags, &itemEntityOps)
 	return e
@@ -1888,11 +1903,9 @@ func (s *Server) cloudSnapshot(it *cloudEntity, q *entityQuery) *entitySnapshot 
 	if c.Dead {
 		return nil
 	}
-	r := float64(c.Radius())
 	pos := player.Position{X: c.X, Y: c.Y, Z: c.Z}
 	e := s.snapshot(q, it.tags, it, c.ID, typ, "Area Effect Cloud", it.uuid,
-		s.dimensionOfWorld(it.w).name, pos,
-		box6(c.X-r, c.Y, c.Z-r, c.X+r, c.Y+0.5, c.Z+r))
+		s.dimensionOfWorld(it.w).name, pos, box6(c.Box().Corners()))
 	if e == nil {
 		return nil
 	}

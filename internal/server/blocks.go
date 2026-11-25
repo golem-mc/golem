@@ -56,23 +56,41 @@ func (c *client) withinAttackRange(minX, minY, minZ, maxX, maxY, maxZ float64) b
 // state ID, as in a chunk palette.
 func blockUpdate(x, y, z int32, state uint16) []byte {
 	var b protocol.Buffer
-	b.PutPosition(x, y, z)
-	b.PutVarInt(int32(state))
+	putBlockUpdate(&b, x, y, z, state)
 	return b.Bytes()
 }
 
-// sectionBlocks builds Update Section Blocks for one section: its position
+func putBlockUpdate(b *protocol.Buffer, x, y, z int32, state uint16) {
+	b.PutPosition(x, y, z)
+	b.PutVarInt(int32(state))
+}
+
+// putSectionBlocks writes Update Section Blocks for one section: its position
 // packed into a long, then a VarLong per entry of state and local cell.
-func sectionBlocks(key [3]int32, entries []int64) []byte {
-	var b protocol.Buffer
+func putSectionBlocks(b *protocol.Buffer, key [3]int32, entries []int64) {
 	// Absolute signed section coordinates in 22, 22 and 20 bits, Y last.
 	b.PutI64(int64(uint64(key[0]&0x3FFFFF)<<42 | uint64(key[1]&0x3FFFFF)<<20 | uint64(key[2]&0xFFFFF)))
 	b.PutVarInt(int32(len(entries)))
 	for _, entry := range entries {
 		b.PutVarLong(entry)
 	}
-	return b.Bytes()
 }
+
+type sectionBlockGroup struct {
+	key     [3]int32
+	changes []world.BlockChange
+}
+
+type sectionBlockScratch struct {
+	sections map[[3]int32]int
+	groups   []sectionBlockGroup
+	entries  []int64
+	packet   protocol.Buffer
+}
+
+var sectionBlockScratches = sync.Pool{New: func() any {
+	return &sectionBlockScratch{sections: make(map[[3]int32]int)}
+}}
 
 // tellSectionBlocks sends a batch of block changes as one packet per
 // section touched: Block Update for a single change, else Update Section
@@ -83,50 +101,116 @@ func (s *Server) tellSectionBlocks(w *world.World, changes []world.BlockChange) 
 	if len(changes) == 0 {
 		return
 	}
-	sections := make(map[[3]int32][]world.BlockChange, len(changes))
-	keys := make([][3]int32, 0, len(changes))
+	scratch := sectionBlockScratches.Get().(*sectionBlockScratch)
 	for _, ch := range changes {
 		key := [3]int32{ch.X >> 4, ch.Z >> 4, ch.Y >> 4}
-		if _, ok := sections[key]; !ok {
-			keys = append(keys, key)
+		i, ok := scratch.sections[key]
+		if !ok {
+			i = len(scratch.sections)
+			scratch.sections[key] = i
+			if i == len(scratch.groups) {
+				scratch.groups = append(scratch.groups, sectionBlockGroup{})
+			}
+			group := &scratch.groups[i]
+			group.key = key
+			group.changes = group.changes[:0]
 		}
-		sections[key] = append(sections[key], ch)
+		group := &scratch.groups[i]
+		group.changes = append(group.changes, ch)
 	}
-	slices.SortFunc(keys, func(a, b [3]int32) int {
+	groups := scratch.groups[:len(scratch.sections)]
+	slices.SortFunc(groups, func(left, right sectionBlockGroup) int {
+		a, b := left.key, right.key
 		return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1]), cmp.Compare(a[2], b[2]))
 	})
-	for _, key := range keys {
-		changed := sections[key]
+	for _, group := range groups {
+		key, changed := group.key, group.changes
+		scratch.packet.Reset()
+		packetID := int32(protocol.IDPlayBlockUpdate)
 		if len(changed) == 1 {
 			ch := changed[0]
-			s.broadcastBlockUpdate(w, ch.X, ch.Y, ch.Z, ch.State)
+			putBlockUpdate(&scratch.packet, ch.X, ch.Y, ch.Z, ch.State)
 		} else {
-			entries := make([]int64, len(changed))
+			packetID = protocol.IDPlaySectionBlocks
+			scratch.entries = slices.Grow(scratch.entries[:0], len(changed))[:len(changed)]
 			for i, ch := range changed {
-				entries[i] = int64(ch.State)<<12 | int64(ch.X&15)<<8 | int64(ch.Z&15)<<4 | int64(ch.Y&15)
+				scratch.entries[i] = int64(ch.State)<<12 | int64(ch.X&15)<<8 | int64(ch.Z&15)<<4 | int64(ch.Y&15)
 			}
-			s.broadcastChunkExcept(w, nil, world.ChunkPos{X: key[0], Z: key[1]}, protocol.IDPlaySectionBlocks, sectionBlocks(key, entries))
+			putSectionBlocks(&scratch.packet, key, scratch.entries)
 		}
+		// The mailbox can still be holding the payload when scratch is reused.
+		data := slices.Clone(scratch.packet.Bytes())
+		s.broadcastChunkExcept(w, nil, world.ChunkPos{X: key[0], Z: key[1]}, packetID, data)
 		for _, ch := range changed {
-			s.broadcastBlockEntityIfNeeded(w, ch.X, ch.Y, ch.Z)
+			s.broadcastBlockEntityIfNeeded(w, ch.X, ch.Y, ch.Z, ch.State)
 		}
 	}
+	clear(scratch.sections)
+	sectionBlockScratches.Put(scratch)
 }
+
+var hasBlockEntityBlock = registry.BlocksOf(func(b registry.Block) bool {
+	_, ok := registry.BlockEntityTypes[b.Name()]
+	return ok
+})
+
+var blockEntitySendsUpdate = func() (types [1 << 8]bool) {
+	for name, sends := range registry.UpdatePacketBlockEntityTypes {
+		if kind, ok := world.BlockEntityKindByName(name); ok {
+			types[kind] = sends
+		}
+	}
+	return types
+}()
 
 // broadcastBlockEntityIfNeeded follows a block update with the cell's Block
 // Entity Data when its class sends one.
 // vanilla: ChunkHolder.broadcastBlockEntityIfNeeded
-func (s *Server) broadcastBlockEntityIfNeeded(w *world.World, x, y, z int32) {
+func (s *Server) broadcastBlockEntityIfNeeded(w *world.World, x, y, z int32, state uint16) {
+	if !hasBlockEntityBlock[registry.BlockOf(state)] {
+		return
+	}
 	if be := w.BlockEntity(x, y, z); be != nil {
-		if registry.UpdatePacketBlockEntityTypes[be.Kind.Name()] {
-			s.tellBlockEntity(w, x, y, z, be.Kind.Name(), true)
+		if blockEntitySendsUpdate[be.Kind] {
+			var compound nbt.Compound
+			be.Use(func(b *world.BlockEntity) { compound = b.UpdateTag() })
+			s.broadcastBlockEntityData(w, x, y, z, be.Kind.Name(), compound)
 		}
 		return
 	}
 	if tag, ok := w.BlockEntityTag(x, y, z); ok {
 		id, _ := nbt.Get[nbt.String](tag, "id")
-		s.tellBlockEntity(w, x, y, z, string(id), false)
+		if registry.UpdatePacketBlockEntityTypes[string(id)] {
+			s.broadcastCarriedBlockEntity(w, x, y, z, string(id), tag)
+		}
 	}
+}
+
+func (s *Server) tellCarriedBlockEntity(w *world.World, x, y, z int32, entityType string) {
+	if !registry.UpdatePacketBlockEntityTypes[entityType] {
+		return
+	}
+	if tag, ok := w.BlockEntityTag(x, y, z); ok {
+		s.broadcastCarriedBlockEntity(w, x, y, z, entityType, tag)
+	}
+}
+
+func (s *Server) broadcastCarriedBlockEntity(w *world.World, x, y, z int32, entityType string, tag nbt.Compound) {
+	compound := world.CarriedUpdateTag(entityType, tag, world.TrialSpawnerActive(w.BlockAt(x, y, z)))
+	s.broadcastBlockEntityData(w, x, y, z, entityType, compound)
+}
+
+// vanilla: ClientboundBlockEntityDataPacket.create, BlockEntity.getUpdateTag
+func (s *Server) broadcastBlockEntityData(w *world.World, x, y, z int32, entityType string, compound nbt.Compound) {
+	data, err := nbt.EncodeNetwork(compound)
+	if err != nil {
+		return
+	}
+	var out protocol.Buffer
+	out.PutPosition(x, y, z)
+	out.PutVarInt(world.BlockEntityTypeID(entityType))
+	out.PutRaw(data)
+	s.broadcastBlockChunkExcept(w, nil, x, z, protocol.IDPlayBlockEntityData, out.Bytes())
 }
 
 // worldEvent builds World Event. Event 2001 (block break) carries the

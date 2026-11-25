@@ -557,20 +557,6 @@ func turtleTravelPos(w World, m *Mob, xzSpread, ySpread int, target [2]float64, 
 	})
 }
 
-// swimsBelow reports whether a swimming turtle is a block or more off a
-// node's height, so the node is not yet reached.
-// vanilla: PathNavigation.followThePath
-func (m *Mob) swimsBelow(node Waypoint) bool {
-	return m.Type == TypeTurtle && m.InWater() && math.Abs(m.Y-float64(node.Y)) >= 1
-}
-
-// turtleCutsCorner is shouldTargetNextNodeInDirection for a turtle in a
-// liquid, the only place AmphibiousPathNavigation.canMoveDirectly holds.
-// vanilla: TurtlePathNavigation, AmphibiousPathNavigation.canMoveDirectly
-func (m *Mob) turtleCutsCorner(w World) bool {
-	return m.Type == TypeTurtle && (m.InWater() || m.InLava()) && m.swimCutsCorner(w)
-}
-
 // turtleSettle is the speed TurtleMoveControl settles at for a target: each
 // tick it divides the speed by div (down to floor), then lerps 0.125 toward
 // the target.

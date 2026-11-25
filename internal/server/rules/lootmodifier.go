@@ -296,21 +296,16 @@ func furnaceSmelt(k registry.LootFurnaceSmelt, item, count int32) protocol.ItemS
 // makes, each expanded in turn rather than picked among.
 // vanilla: SetContainerContents.run
 func (r *lootRoller) setContents(k registry.LootSetContents, s protocol.ItemStack) protocol.ItemStack {
-	var made []lootStack
-	for i := range k.Entries {
-		ok, candidates := r.expand(&k.Entries[i])
-		if !ok {
-			continue
-		}
+	var contents []protocol.ItemStack
+	var functions [8][]registry.LootFunction
+	out := lootOutput{functions: functions[:0], stacks: &contents}
+	var small [4]lootCandidate
+	for _, entry := range k.Entries {
+		_, candidates := r.expand(entry, small[:0])
 		for _, c := range candidates {
-			c.create(func(m lootStack) {
-				if m.count > 0 {
-					made = append(made, m)
-				}
-			})
+			r.create(c, out)
 		}
 	}
-	contents := splitStacks(made)
 	switch k.Component {
 	case "minecraft:container":
 		s.SetContainer(contents)

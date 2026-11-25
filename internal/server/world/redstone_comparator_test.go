@@ -26,14 +26,21 @@ func TestContainerChangesRequireALoadedComparator(t *testing.T) {
 
 	w.SetWorldAge(4)
 	touch()
-	touch()
-	check("no comparator")
-	if w.containerChangeSeen != nil {
-		t.Fatal("deduplicated a batch with no comparator")
+	if len(w.containerChanges) != 0 {
+		t.Fatal("touch queued a wake with no comparator loaded")
 	}
-	if !w.chunks[ChunkPos{}].dirty {
+	if !w.ChunkDirty(ChunkPos{}) {
 		t.Fatal("touch did not dirty the container chunk")
 	}
+	w.Save()
+	colliding := ChunkPos{X: nearSlots}
+	w.Acquire(colliding)
+	touch()
+	check("no comparator")
+	if !w.ChunkDirty(ChunkPos{}) || w.ChunkDirty(colliding) {
+		t.Fatal("touch on a near-cache miss did not dirty only the container chunk")
+	}
+	w.Release(colliding)
 
 	west, ok := registry.WithProp(registry.BlockComparator.DefaultState(), registry.PropFacing, "west")
 	if !ok {
@@ -45,9 +52,9 @@ func TestContainerChangesRequireALoadedComparator(t *testing.T) {
 	if w.BlockEntity(16, GroundLevel, 0) != nil {
 		t.Fatal("expected a comparator block without a block entity")
 	}
-	w.SetWorldAge(11)
+	w.TickTime()
 	touch()
-	check("first comparator placed after touch", containerChange{pos: container, tick: 10})
+	check("first comparator placed after touch", containerChange{pos: container, tick: 11})
 	check("already drained")
 
 	north, ok := registry.WithProp(west, registry.PropFacing, "north")

@@ -21,7 +21,7 @@ func (p *Physics) NotifyBlockSet(x, y, z int32, old uint16, u BlockUpdates) ([]B
 	oldBlock := registry.BlockOf(old)
 	movedSource := u.MovedByPiston && (isWire[oldBlock] || isTorch[oldBlock])
 	if removed && (u.Neighbors || u.MovedByPiston) && !movedSource {
-		p.redstoneAfterRemoval(x, y, z, old, u.MovedByPiston, &changes)
+		p.redstoneAfterRemoval(x, y, z, old, u.MovedByPiston, false, &changes)
 	}
 	if u.EntityEffects {
 		p.containerRemoved(x, y, z, old, state)
@@ -56,7 +56,7 @@ func (p *Physics) blockNeighborChanged(x, y, z int32, old uint16, changes *[]Blo
 	block := registry.BlockOf(state)
 	if fs := fluidHolding(state); fs.kind != fluidNone && !fluidContainer(state) {
 		if fs.kind != fluidLava || p.shouldSpreadLiquid(x, y, z, changes) {
-			p.schedule(x, y, z, p.now+p.tickDelayOf(fs.kind))
+			p.bookFluid(x, y, z, fs)
 		}
 		return
 	}

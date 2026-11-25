@@ -26,6 +26,8 @@ type config struct {
 	// path@commit), or local package directories inside a module, which are
 	// rebuilt on every start. The package may sit below its module's root.
 	Plugins []string `json:"plugins"`
+	// Channel is the source of latest versions. Unset follows releases.
+	Channel *updateChannel `json:"channel,omitempty"`
 	// AllowDependencyUpgrades lets a plugin raise the version of a module
 	// the server itself uses, which is otherwise refused: the server was
 	// tested with its own versions.
@@ -33,6 +35,22 @@ type config struct {
 	// UpdateCheck, false, turns off the check on start for newer versions
 	// of the server, the plugins and the launcher; unset is on.
 	UpdateCheck *bool `json:"updateCheck,omitempty"`
+}
+
+type updateChannel string
+
+const (
+	stableChannel updateChannel = "stable"
+	devChannel    updateChannel = "dev"
+)
+
+func (ch updateChannel) valid() bool { return ch == stableChannel || ch == devChannel }
+
+func (c config) updateChannel() updateChannel {
+	if c.Channel == nil {
+		return stableChannel
+	}
+	return *c.Channel
 }
 
 // pluginSpec is one entry of Plugins: the package Path, at Version or, when
@@ -137,8 +155,7 @@ func loadConfig(path string, latest func() (string, error)) (config, error) {
 			return config{}, fmt.Errorf("%s is missing and no server version could be chosen for it: %w", path, err)
 		}
 		cfg := config{Server: server, Plugins: []string{}}
-		data, _ := json.MarshalIndent(cfg, "", "  ")
-		if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		if err := writeConfig(path, cfg); err != nil {
 			return config{}, err
 		}
 		return cfg, nil
@@ -155,7 +172,15 @@ func loadConfig(path string, latest func() (string, error)) (config, error) {
 	if !isLocalPath(cfg.Server) && !isPinned(cfg.Server) {
 		return config{}, fmt.Errorf("%s: server %q is not a version: give a release tag (v1.2.3), a pseudo-version, a commit or a local checkout (./path)", path, cfg.Server)
 	}
+	if ch := cfg.updateChannel(); !ch.valid() {
+		return config{}, fmt.Errorf("%s: unknown channel %q (want stable or dev)", path, ch)
+	}
 	return cfg, nil
+}
+
+func writeConfig(path string, cfg config) error {
+	data, _ := json.MarshalIndent(cfg, "", "  ")
+	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
 
 // pluginSpecs parses Plugins; a local directory is relative to base, the

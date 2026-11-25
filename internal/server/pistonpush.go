@@ -77,6 +77,19 @@ func (g *bodyPistonGrid[B]) build(list []B, eligible func(B) bool, box func(B) [
 	g.built = true
 }
 
+// Bits of Server.pistonPopulated.
+const (
+	pistonItems uint32 = 1 << iota
+	pistonOrbs
+	pistonArrows
+	pistonTNTs
+	pistonFallings
+	pistonBoats
+	pistonArmorStands
+	pistonMinecarts
+	pistonEndCrystals
+)
+
 type bodyPistonGrids struct {
 	items       bodyPistonGrid[*itemEntity]
 	orbs        bodyPistonGrid[*orbEntity]
@@ -94,6 +107,22 @@ func setBodyPistonGrid[B comparable](mu *sync.Mutex, g *bodyPistonGrid[B], activ
 	mu.Lock()
 	defer mu.Unlock()
 	g.active, g.built = active, false
+}
+
+// setTrackedPistonGrid is setBodyPistonGrid for a tracked kind; turning it on
+// also refreshes the kind's pistonPopulated bit from its list.
+func setTrackedPistonGrid[B comparable, S any](s *Server, k *trackedKind[B, S], g *bodyPistonGrid[B], active bool) {
+	mu := k.lock(s)
+	mu.Lock()
+	defer mu.Unlock()
+	g.active, g.built = active, false
+	if active {
+		if len(*k.list(s)) > 0 {
+			s.pistonPopulated.Or(k.pistonBit)
+		} else {
+			s.pistonPopulated.And(^k.pistonBit)
+		}
+	}
 }
 
 // pistonCarry reads a piston move's sweep of a body's box. A move that would
@@ -130,22 +159,30 @@ func pistonCarry(w *world.World, pp *world.PistonPush, box [6]float64, onGround 
 // vanilla: PistonMovingBlockEntity.moveCollidedEntities, ServerPlayer
 func (s *Server) pushByPiston(w *world.World, pp *world.PistonPush) {
 	dim := s.dimensionOfWorld(w)
-	collectors := [...]func(*Server, *dimension, *world.PistonPush) []func(){
-		(*Server).collectMobsPistonPush,
-		(*Server).collectItemsPistonPush,
-		(*Server).collectOrbsPistonPush,
-		(*Server).collectArrowsPistonPush,
-		(*Server).collectTNTsPistonPush,
-		(*Server).collectFallingsPistonPush,
-		(*Server).collectBoatsPistonPush,
-		(*Server).collectArmorStandsPistonPush,
-		(*Server).collectCushionsPistonPush,
-		(*Server).collectMinecartsPistonPush,
-		(*Server).collectEndCrystalsPistonPush,
+	// A zero bit is a kind that is always visited.
+	collectors := [...]struct {
+		bit     uint32
+		collect func(*Server, *dimension, *world.PistonPush) []func()
+	}{
+		{0, (*Server).collectMobsPistonPush},
+		{pistonItems, (*Server).collectItemsPistonPush},
+		{pistonOrbs, (*Server).collectOrbsPistonPush},
+		{pistonArrows, (*Server).collectArrowsPistonPush},
+		{pistonTNTs, (*Server).collectTNTsPistonPush},
+		{pistonFallings, (*Server).collectFallingsPistonPush},
+		{pistonBoats, (*Server).collectBoatsPistonPush},
+		{pistonArmorStands, (*Server).collectArmorStandsPistonPush},
+		{0, (*Server).collectCushionsPistonPush},
+		{pistonMinecarts, (*Server).collectMinecartsPistonPush},
+		{pistonEndCrystals, (*Server).collectEndCrystalsPistonPush},
 	}
+	populated := s.pistonPopulated.Load()
 	var moves []func()
-	for _, collect := range collectors {
-		moves = append(moves, collect(s, dim, pp)...)
+	for _, c := range collectors {
+		if c.bit != 0 && populated&c.bit == 0 {
+			continue
+		}
+		moves = append(moves, c.collect(s, dim, pp)...)
 	}
 	for _, move := range moves {
 		move()

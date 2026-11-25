@@ -148,7 +148,7 @@ func (w *World) relightCells(cells []lightCell) {
 		if i >= written && c.hasLightForms() {
 			continue
 		}
-		c.lightFormsStale = true
+		c.invalidateLightForms()
 	}
 }
 
@@ -163,23 +163,10 @@ func (ctx *lightCtx) putLight(layer int, x, y, z int32, v uint8) {
 		return
 	}
 	i, high := lightNibbleIndex(x&15, lightLocalY(y), z&15)
-	var old uint8
-	if s := ctx.layer(c, layer)[si]; s != nil {
-		old = s[i] & 0x0F
-		if high {
-			old = s[i] >> 4
-		}
-	}
-	if old == v {
+	if lightNibbleAt(ctx.layer(c, layer)[si], i, high) == v {
 		return
 	}
-	s := ctx.writable(c, layer, si)
-	if high {
-		s[i] = s[i]&0x0F | v<<4
-	} else {
-		s[i] = s[i]&0xF0 | v&0x0F
-	}
-	ctx.touch(c)
+	ctx.writeLightNibble(c, layer, si, i, high, v)
 }
 
 // updateSkySources moves the column's sky sources to where its blocks put them:
@@ -302,7 +289,14 @@ func (ctx *lightCtx) runDecreases(dq, iq *lightQueue) {
 			if !contains(ny) || int(e.layer)&dirBit(n.dir) == 0 {
 				continue
 			}
-			to := ctx.getLight(layer, nx, ny, nz)
+			c, loaded := ctx.resolve(nx, nz)
+			if !loaded {
+				continue
+			}
+			lx, ly, lz := nx&15, ny-worldMinY, nz&15
+			si := int(ly/sectionSize) + 1 // light has one section below the world
+			i, high := lightNibbleIndex(lx, ly%sectionSize, lz)
+			to := lightNibbleAt(ctx.layer(c, layer)[si], i, high)
 			if to == 0 {
 				continue
 			}
@@ -310,13 +304,12 @@ func (ctx *lightCtx) runDecreases(dq, iq *lightQueue) {
 				iq.push(nx, ny, nz, to, layer|dirBit(n.dir^1))
 				continue
 			}
-			ctx.putLight(layer, nx, ny, nz, 0)
+			ctx.writeLightNibble(c, layer, si, i, high, 0)
 			if layer == skyLayer {
 				dq.push(nx, ny, nz, to, layer|allDirs&^dirBit(n.dir^1))
 				continue
 			}
-			state, _ := ctx.blockAt(nx, ny, nz)
-			emission := uint8(registry.LightEmission(state))
+			emission := uint8(registry.LightEmission(c.sharedBlockAt(lx, ny, lz)))
 			if emission < to {
 				dq.push(nx, ny, nz, to, layer|allDirs&^dirBit(n.dir^1))
 			}
@@ -354,20 +347,26 @@ func (ctx *lightCtx) runIncreases(iq *lightQueue) {
 			if !contains(ny) || int(e.layer)&dirBit(n.dir) == 0 {
 				continue
 			}
-			// A neighbour holding e.v-1 or more cannot be raised: spread gives at most e.v-1.
-			if ctx.getLight(layer, nx, ny, nz) >= e.v-1 {
-				continue
-			}
-			nbState, loaded := ctx.blockAt(nx, ny, nz)
+			c, loaded := ctx.resolve(nx, nz)
 			if !loaded {
 				continue
 			}
-			cand := spread(e.v, int(n.dir), fromState, nbState)
-			if cand == 0 {
+			lx, ly, lz := nx&15, ny-worldMinY, nz&15
+			si := int(ly/sectionSize) + 1 // light has one section below the world
+			i, high := lightNibbleIndex(lx, ly%sectionSize, lz)
+			old := lightNibbleAt(ctx.layer(c, layer)[si], i, high)
+			// A neighbour holding e.v-1 or more cannot be raised: spread gives at most e.v-1.
+			if old >= e.v-1 {
 				continue
 			}
+			nbState := c.sharedBlockAt(lx, ny, lz)
+			cand := spread(e.v, int(n.dir), fromState, nbState)
+			if cand <= old {
+				continue
+			}
+			ctx.writeLightNibble(c, layer, si, i, high, cand)
 			// A level-1 cell spreads nothing, so it is written but not queued.
-			if ctx.setLight(layer, nx, ny, nz, cand) && cand > 1 {
+			if cand > 1 {
 				iq.push(nx, ny, nz, cand, layer|allDirs&^dirBit(n.dir^1))
 			}
 		}

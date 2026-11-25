@@ -34,7 +34,7 @@ func (p *CachedPacket) frame(c *Conn) ([]byte, error) {
 	}
 	f := frames.Get().(*frame)
 	defer frames.Put(f)
-	packet, err := c.framePacket(f, p.id, p.data, false)
+	packet, err := c.framePacket(f, p.id, p.data)
 	if err != nil {
 		return nil, err
 	}

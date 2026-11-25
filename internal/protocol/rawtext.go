@@ -74,7 +74,12 @@ var DialogRefValid func(nbt.Tag) bool
 // underlined (which override an item's default style).
 // vanilla: Style.Serializer.MAP_CODEC
 func StyledTextOf(tag nbt.Tag) (Text, bool) {
-	modelled, styled, ok := stripStyle(tag)
+	return StyledTextWithDialog(tag, DialogRefValid)
+}
+
+// StyledTextWithDialog reads styled text with the caller's dialog validator.
+func StyledTextWithDialog(tag nbt.Tag, validDialog func(nbt.Tag) bool) (Text, bool) {
+	modelled, styled, ok := stripStyle(tag, validDialog)
 	if !ok {
 		return Text{}, false
 	}
@@ -93,16 +98,16 @@ func StyledTextOf(tag nbt.Tag) (Text, bool) {
 // refuses. It walks the components a component nests: siblings, arguments
 // and hover texts. It has no depth cap of its own: the NBT reader and
 // RawTextFits bound the tree at the client's depth.
-func stripStyle(tag nbt.Tag) (nbt.Tag, bool, bool) {
+func stripStyle(tag nbt.Tag, validDialog func(nbt.Tag) bool) (nbt.Tag, bool, bool) {
 	switch v := tag.(type) {
 	case *nbt.OrderedCompound:
-		return stripStyle(v.Entries())
+		return stripStyle(v.Entries(), validDialog)
 	case nbt.List:
 		// items is allocated only once an element turns out styled.
 		var items []nbt.Tag
 		for i, item := range v.Items {
 			inner := listElementOf(item)
-			out, s, ok := stripStyle(inner)
+			out, s, ok := stripStyle(inner, validDialog)
 			if !ok {
 				return nil, false, false
 			}
@@ -148,7 +153,7 @@ func stripStyle(tag nbt.Tag) (nbt.Tag, bool, bool) {
 					continue
 				}
 				// vanilla: ClickEvent.ShowDialog.CODEC
-				if !RawTextFits(event) || DialogRefValid == nil || !DialogRefValid(event["dialog"]) {
+				if !RawTextFits(event) || validDialog == nil || !validDialog(event["dialog"]) {
 					return nil, false, false
 				}
 				set(key, nil, true)
@@ -183,7 +188,7 @@ func stripStyle(tag nbt.Tag) (nbt.Tag, bool, bool) {
 				}
 				set(key, nil, true)
 			case "extra", "with":
-				inner, s, ok := stripStyle(value)
+				inner, s, ok := stripStyle(value, validDialog)
 				if !ok {
 					return nil, false, false
 				}
@@ -200,7 +205,7 @@ func stripStyle(tag nbt.Tag) (nbt.Tag, bool, bool) {
 					if !present {
 						continue
 					}
-					inner, s, ok := stripStyle(nested)
+					inner, s, ok := stripStyle(nested, validDialog)
 					if !ok {
 						return nil, false, false
 					}

@@ -1,9 +1,19 @@
 package terrain
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
+
+func BenchmarkAquiferBuffers(b *testing.B) {
+	rs := NewRandomState(Overworld, 12345)
+	b.ReportAllocs()
+	for b.Loop() {
+		n := NewNoiseChunk(rs, nil, rs.ChunkVolume(0, 0))
+		n.Recycle()
+	}
+}
 
 // The column fixtures come from vanilla's NoiseBasedAquifer via SamplerGolden.
 // Reorder their queries to exercise column and vertical-anchor invalidation,
@@ -69,4 +79,55 @@ func TestAquiferTraversalOrder(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAquiferSurfaceCacheEdges(t *testing.T) {
+	sampler := &aquiferSurfaceSampler{}
+	ctx := NewContext(nil)
+	defer ctx.recycle()
+	a := NewAquifer(ctx, &AquiferConfig{SurfaceLevel: sampler}, nil, NewVolume(16, 384, 16, -32, -64, -80), nil)
+	if a.surfaceCache != nil {
+		t.Error("precomputing the surface allocated the sparse cache")
+	}
+
+	// Inclusive quart-aligned bounds for chunk (-2, -5).
+	const minX, maxX, minZ, maxZ = -48, -8, -96, -56
+	for _, tc := range []struct {
+		name              string
+		x, z              int32
+		sampleX, sampleZ  int32
+		wantScalarSamples int
+	}{
+		{"min x min z", minX + 3, minZ + 1, minX, minZ, 0},
+		{"max x min z", maxX + 3, minZ + 1, maxX, minZ, 0},
+		{"min x max z", minX + 3, maxZ + 2, minX, maxZ, 0},
+		{"max x max z", maxX + 3, maxZ + 2, maxX, maxZ, 0},
+		{"below min x", minX - 1, minZ + 5, minX - 4, minZ + 4, 1},
+		{"above max x", maxX + 4, minZ + 5, maxX + 4, minZ + 4, 1},
+		{"below min z", minX + 5, minZ - 1, minX + 4, minZ - 4, 1},
+		{"above max z", minX + 5, maxZ + 4, minX + 4, maxZ + 4, 1},
+		{"same outside quart", minX - 2, minZ + 7, minX - 4, minZ + 4, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want := int32(math.Floor(float64(sampler.Sample(ctx, tc.sampleX, 0, tc.sampleZ))))
+			sampler.calls = 0
+			if got := a.surfaceLevel(tc.x, tc.z); got != want {
+				t.Errorf("surfaceLevel(%d, %d) = %d, want %d", tc.x, tc.z, got, want)
+			}
+			if sampler.calls != tc.wantScalarSamples {
+				t.Errorf("scalar samples = %d, want %d", sampler.calls, tc.wantScalarSamples)
+			}
+		})
+	}
+}
+
+type aquiferSurfaceSampler struct{ calls int }
+
+func (s *aquiferSurfaceSampler) Sample(_ *Context, x, y, z int32) float32 {
+	s.calls++
+	return float32(x+y+31*z) - 0.25
+}
+
+func (s *aquiferSurfaceSampler) SampleVolume(c *Context, out []float32, v Volume) {
+	sampleVolumeNaive(c, out, v, s)
 }

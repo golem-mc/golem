@@ -59,7 +59,7 @@ func (c *client) handleSetJigsawBlock(r *protocol.Reader) error {
 	tag["placement_priority"] = nbt.Int(placement)
 	w.SetBlockEntityTag(x, y, z, kindJigsaw, tag)
 	c.srv.markChanged(w, x, y, z)
-	c.srv.tellBlockEntity(w, x, y, z, kindJigsaw, false)
+	c.srv.tellCarriedBlockEntity(w, x, y, z, kindJigsaw)
 	return nil
 }
 

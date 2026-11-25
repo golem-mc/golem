@@ -11,7 +11,7 @@ import (
 // continuation or unparsable command keep them out.
 // vanilla: CommandFunction.fromLines
 func TestCompileFunctionRefusesWhatVanillaRefuses(t *testing.T) {
-	fn, err := compileFunction(PermLevelGamemasters, "t:ok", []string{"# c", "", "  say \\", "  hi  ", "\tkill @e "})
+	fn, err := compileFunction(ForLevel(PermLevelGamemasters), PermLevelGamemasters, "t:ok", []string{"# c", "", "  say \\", "  hi  ", "\tkill @e "})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestCompileFunctionRefusesWhatVanillaRefuses(t *testing.T) {
 		{[]string{"say hi", "nope"}, "line 2"},
 		{[]string{"op Alice"}, "line 1"},
 	} {
-		_, err := compileFunction(PermLevelGamemasters, "t:bad", tc.lines)
+		_, err := compileFunction(ForLevel(PermLevelGamemasters), PermLevelGamemasters, "t:bad", tc.lines)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("compile %q: error %v, want one containing %q", tc.lines, err, tc.want)
 		}
@@ -61,7 +61,7 @@ func TestCompileFunctionSpellsTheParseFailure(t *testing.T) {
 		{[]string{"give @s diamon"}, "Whilst parsing command on line 1: Unknown item 'minecraft:diamon' at position 8: give @s <--[HERE]"},
 		{[]string{"setblock 0 64 0 minecraft:nope"}, "Whilst parsing command on line 1: Unknown block type 'minecraft:nope' at position 16: ...ck 0 64 0 <--[HERE]"},
 	} {
-		_, err := compileFunction(PermLevelGamemasters, "t:bad", tc.lines)
+		_, err := compileFunction(ForLevel(PermLevelGamemasters), PermLevelGamemasters, "t:bad", tc.lines)
 		if err == nil || err.Error() != tc.want {
 			t.Errorf("compile %q: error %v, want %q", tc.lines[0], err, tc.want)
 		}

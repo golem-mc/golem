@@ -86,12 +86,47 @@ func TestChunkIndexSwapFixup(t *testing.T) {
 	checkChunkIndexUUID(t, &ix, ids[2], ms[2])
 }
 
+func TestChunkIndexChunksInSkipsEmptyRegions(t *testing.T) {
+	ix := NewRegionalChunkIndex[*Mob]()
+	west, middle, east := world.ChunkPos{X: -1}, world.ChunkPos{}, world.ChunkPos{X: 1}
+	check := func(want ...world.ChunkPos) {
+		t.Helper()
+		if got := slices.Collect(ix.ChunksIn(west, east)); !slices.Equal(got, want) {
+			t.Errorf("chunks to probe = %v, want %v", got, want)
+		}
+	}
+	check()
+	m, other := &Mob{}, &Mob{}
+	ix.Add(m, &m.Filing, west, uuid.UUID{1})
+	ix.Add(other, &other.Filing, west, uuid.UUID{2})
+	check(west)
+	m.Refile(east)
+	check(west, middle, east)
+	other.Unfile()
+	check(middle, east)
+	m.Refile(world.ChunkPos{X: 32})
+	check()
+	otherChunk := world.ChunkPos{X: 33}
+	ix.Add(other, &other.Filing, otherChunk, uuid.UUID{2})
+	m.Unfile()
+	if got := slices.Collect(ix.ChunksIn(otherChunk, otherChunk)); !slices.Equal(got, []world.ChunkPos{otherChunk}) {
+		t.Errorf("chunks to probe after removing a neighboring chunk = %v, want %v", got, otherChunk)
+	}
+	other.Unfile()
+	if got := slices.Collect(ix.ChunksIn(otherChunk, otherChunk)); len(got) != 0 {
+		t.Errorf("chunks to probe after removing the last chunk = %v, want none", got)
+	}
+}
+
 func TestChunkIndexStructCopy(t *testing.T) {
 	var ix ChunkIndex[*Mob]
 	m := &Mob{}
 	id := uuid.UUID{1}
 	ix.Add(m, &m.Filing, world.ChunkPos{}, id)
 	cp := *m
+	if ix.Contains(&cp.Filing) || !ix.Contains(&m.Filing) {
+		t.Fatal("Contains must recognize the original filing only")
+	}
 	cp.SetPos(40, 0, 0)
 	if !ix.Holds(&m.Filing, world.ChunkPos{}) || ix.Len() != 1 {
 		t.Fatal("a copy's SetPos moved the original")
@@ -111,10 +146,16 @@ func TestChunkIndexReplacedUUID(t *testing.T) {
 	id := uuid.UUID{1}
 	ix.Add(first, &first.Filing, world.ChunkPos{}, id)
 	ix.Add(second, &second.Filing, world.ChunkPos{}, id)
+	if !ix.Contains(&first.Filing) || !ix.Contains(&second.Filing) {
+		t.Fatal("both filings must be present despite sharing a UUID")
+	}
 	checkChunkIndexUUID(t, &ix, id, second)
 	first.SetPos(40, 0, 0)
 	checkChunkIndexUUID(t, &ix, id, second)
 	first.Unfile()
+	if ix.Contains(&first.Filing) || !ix.Contains(&second.Filing) {
+		t.Fatal("Contains must reject the unfiled body and retain the replacement")
+	}
 	checkChunkIndexUUID(t, &ix, id, second)
 	second.Unfile()
 	checkChunkIndexUUID(t, &ix, id, nil)

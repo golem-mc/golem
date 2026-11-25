@@ -284,9 +284,10 @@ func TestMagmaCubeLavaKickMovement(t *testing.T) {
 	c.Settle()
 
 	_, lastVY, _, _ := srv.MobVelocity(id)
-	// The first kick comes on tick 8 of this fixture, before the second
-	// movement gate would have carried the position.
-	for range 12 {
+	// The first kick comes within a few ticks of the fixture's start (its
+	// jump delay is random), before the second movement gate would have
+	// carried the position.
+	for range 40 {
 		seen := c.ReadTicks(srv, 1, func(pid int32, data []byte) bool {
 			switch pid {
 			case protocol.IDPlayTeleportEntity, protocol.IDPlayEntityPosition, protocol.IDPlayEntityPositionRot:

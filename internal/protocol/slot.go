@@ -168,6 +168,12 @@ func (s ItemStack) Enchanted() bool { return len(s.Enchantments) > 0 }
 // components, counts aside: the test behind every merge.
 // vanilla: ItemStack.isSameItemSameComponents
 func (s ItemStack) Same(other ItemStack) bool {
+	return s.SamePtr(&other)
+}
+
+// SamePtr is Same without copying either stack by value.
+// vanilla: ItemStack.isSameItemSameComponents
+func (s *ItemStack) SamePtr(other *ItemStack) bool {
 	if s.ItemID != other.ItemID {
 		return false
 	}
@@ -177,18 +183,20 @@ func (s ItemStack) Same(other ItemStack) bool {
 		s.Removed != other.Removed {
 		return false
 	}
-	if s.CustomName == nil || other.CustomName == nil {
-		if s.CustomName != other.CustomName {
+	if s.CustomName != other.CustomName {
+		if s.CustomName == nil || other.CustomName == nil || !namesEqual(*s.CustomName, *other.CustomName) {
 			return false
 		}
-	} else if !namesEqual(*s.CustomName, *other.CustomName) {
-		return false
 	}
-	if !sameEnchantments(s.Enchantments, other.Enchantments) {
-		return false
+	if len(s.Enchantments) != 0 || len(other.Enchantments) != 0 {
+		if !sameEnchantments(s.Enchantments, other.Enchantments) {
+			return false
+		}
 	}
-	if !sameRaw(s.Raw, other.Raw) {
-		return false
+	if len(s.Raw) != 0 || len(other.Raw) != 0 {
+		if !sameRaw(s.Raw, other.Raw) {
+			return false
+		}
 	}
 	if s.Lock != nil || other.Lock != nil {
 		if !nbt.Equal(s.Lock, other.Lock) {
@@ -200,16 +208,23 @@ func (s ItemStack) Same(other ItemStack) bool {
 			return false
 		}
 	}
-	if !maps.Equal(s.MapDecorations, other.MapDecorations) {
-		return false
+	if len(s.MapDecorations) != 0 || len(other.MapDecorations) != 0 {
+		if !maps.Equal(s.MapDecorations, other.MapDecorations) {
+			return false
+		}
 	}
 	if s.ContainerLoot != other.ContainerLoot || !slices.Equal(s.Recipes, other.Recipes) {
 		return false
 	}
-	if !sameContainer(s.Container, other.Container) {
-		return false
+	if len(s.Container) != 0 || len(other.Container) != 0 {
+		if !sameContainer(s.Container, other.Container) {
+			return false
+		}
 	}
-	return sameEnchantments(s.StoredEnchantments, other.StoredEnchantments)
+	if len(s.StoredEnchantments) != 0 || len(other.StoredEnchantments) != 0 {
+		return sameEnchantments(s.StoredEnchantments, other.StoredEnchantments)
+	}
+	return true
 }
 
 // sameRaw reports whether two unmodelled component sets hold the same

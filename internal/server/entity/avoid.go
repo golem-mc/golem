@@ -98,6 +98,11 @@ func (g *avoidGoal) nearestThreat(t *tickView) (x, y, z float64, player int32, m
 		}
 		return
 	}
+	if !g.monsters && g.m.push != nil && !slices.ContainsFunc(g.mobs, func(kind MobType) bool {
+		return g.m.push.present[kind]
+	}) {
+		return
+	}
 	for _, o := range g.m.herdNear(t, max(g.maxDist, avoidHeight)) {
 		if o == g.m || !o.Alive() || !g.threatens(o) {
 			continue

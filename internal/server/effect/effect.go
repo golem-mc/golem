@@ -312,6 +312,21 @@ func (s *Set) all() []Instance {
 	return all
 }
 
+// ParticleAmbience keeps the previous value when the last effect leaves.
+// vanilla: LivingEntity.updateInvisibilityStatus, areAllEffectsAmbient
+func (s *Set) ParticleAmbience(previous bool) bool {
+	if s.mask == 0 {
+		return previous
+	}
+	for mask := s.mask; mask != 0; mask &= mask - 1 {
+		in := s.active[bits.TrailingZeros64(mask)]
+		if in.Visible && !in.Ambient {
+			return false
+		}
+	}
+	return true
+}
+
 // Tick runs one game tick of every effect. apply carries out a due effect
 // tick and reports whether the effect stays; age is the body's tick count,
 // an infinite effect's rhythm.

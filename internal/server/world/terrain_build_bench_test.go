@@ -6,35 +6,31 @@ import (
 	"github.com/golem-mc/golem/internal/server/world/terrain"
 )
 
-type terrainBenchBiomes struct{ g *OverworldGenerator }
-
-func (b terrainBenchBiomes) Index(path string) int {
-	for i := range terrain.OverworldBiomeCount {
-		if terrain.OverworldBiome(i).Name() == path {
-			return i
-		}
-	}
-	return -1
-}
-func (b terrainBenchBiomes) At(x, y, z int32) int { return int(b.g.biomeAt(x, y, z)) }
-func (b terrainBenchBiomes) Temperature(biome int, x, y, z, _ int32) float32 {
-	return b.g.temperatureAt(terrain.OverworldBiome(biome), x, y, z)
+type surfaceLookupCounter struct {
+	terrain.Biomes
+	calls int
 }
 
-// BenchmarkBuildTerrainChunk includes fresh chunk allocation, fill, surface,
-// carver generation and mask application, without structures or decoration.
+func (b *surfaceLookupCounter) At(x, y, z int32) int {
+	b.calls++
+	return b.Biomes.At(x, y, z)
+}
+
+// BenchmarkBuildTerrainChunk measures a terrain build with warm biome grids,
+// without structures or decoration.
 func BenchmarkBuildTerrainChunk(b *testing.B) {
 	g := NewOverworldGenerator(12345)
 	g.DisableStructures()
-	rs := terrain.NewRandomState(terrain.Overworld, 12345)
-	biomes := terrainBenchBiomes{g}
-	config := terrain.TerrainBiomes{
-		Surface: biomes, Carving: biomes,
-		Carvers: func(int32, int32) []terrain.Carver { return terrain.OverworldCarvers },
-	}
-	b.ResetTimer()
+	chunk := terrain.NewProtoChunk(worldMinY, worldHeight, terrain.Stone)
+	g.state.BuildTerrain(chunk, 0, 0, nil, g.terrainBiomes(0, 0))
+	var lookups surfaceLookupCounter
+	b.ReportAllocs()
 	for b.Loop() {
-		chunk := terrain.NewProtoChunk(rs.MinY, rs.Height, terrain.Stone)
-		rs.BuildTerrain(chunk, 0, 0, nil, config)
+		chunk.Reset()
+		biomes := g.terrainBiomes(0, 0)
+		lookups.Biomes = biomes.Surface
+		biomes.Surface = &lookups
+		g.state.BuildTerrain(chunk, 0, 0, nil, biomes)
 	}
+	b.ReportMetric(float64(lookups.calls)/float64(b.N), "lookups/chunk")
 }

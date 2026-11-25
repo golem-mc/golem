@@ -121,14 +121,14 @@ func (c *client) DataTag() (nbt.CompoundTag, bool) {
 	if !ok {
 		return nil, false
 	}
-	var held protocol.ItemStack
-	c.player.Inventory(func(inv *player.Inventory) {
-		held = inv.Slots[player.HotbarSlot+int(inv.Selected)]
-	})
-	if !held.Empty() {
+	c.addSelectedItem(state)
+	return state, true
+}
+
+func (c *client) addSelectedItem(state *nbt.OrderedCompound) {
+	if held := c.heldItem(protocol.HandMain); !held.Empty() {
 		state.Set("SelectedItem", registry.StackTag(held))
 	}
-	return state, true
 }
 
 // savedTag is the player's saveWithoutId compound, without SelectedItem.
@@ -136,7 +136,7 @@ func (c *client) savedTag() (*nbt.OrderedCompound, bool) {
 	if c.player == nil {
 		return nil, false
 	}
-	return c.playerSaveState(nil, nil), true
+	return c.playerSaveState(c.savedVehicle(false), c.srv.savedPearlTags(c.player.UUID)), true
 }
 
 func (c *client) playerSaveState(vehicle nbt.Compound, pearls []nbt.Tag) *nbt.OrderedCompound {

@@ -1282,12 +1282,10 @@ func (s *Server) SetMobEquipment(id int32, slot string, stack protocol.ItemStack
 		switch slot {
 		case "body":
 			m.SetEquipment(6, stack)
-		case "saddle":
-			m.SetMetadataHorseSaddle(stack)
+		case "saddle", "antenna":
+			m.SetEquipment(protocol.EquipSaddle, stack)
 		case "mainhand":
 			m.SetEquipment(protocol.EquipMainHand, stack)
-		case "antenna":
-			m.SetMetadataAntenna(stack)
 		}
 	}
 }
@@ -4435,6 +4433,21 @@ func (s *Server) SpawnItemEntityDelay(x, y, z float64, item string, count, picku
 	}
 	it := s.spawnItem(s.world, protocol.ItemStack{ItemID: id, Count: int32(count)},
 		x, y-entity.ItemHalfSize, z, 0, 0, 0, pickupDelay)
+	return it.item.ID
+}
+
+// SpawnItemThrownBy is SpawnItemEntityDelay for a drop the named player
+// threw, so its pickup fires the thrown-item advancements.
+func (s *Server) SpawnItemThrownBy(thrower string, x, y, z float64, item string, count, pickupDelay int) int32 {
+	id, ok := registry.ItemID(item)
+	c := s.playerClient(thrower)
+	if !ok || c == nil {
+		return 0
+	}
+	it := s.newItemEntity(s.world, protocol.ItemStack{ItemID: id, Count: int32(count)},
+		x, y-entity.ItemHalfSize, z, 0, 0, 0, pickupDelay)
+	it.thrower = c.player.UUID
+	s.registerFreshItem(it)
 	return it.item.ID
 }
 

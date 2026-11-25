@@ -38,7 +38,7 @@ func TestParseNBTPathErrors(t *testing.T) {
 		text, key, prose string
 		cursor           int
 	}{
-		{"", pathNodeInvalidKey, "", 0}, {"a[", pathNodeInvalidKey, "", 2},
+		{"", pathNodeInvalidKey, "", 0}, {"a[", "parsing.int.expected", "", 2},
 		{"a[1", "", "expected ]", 3}, {"a b", "", "expected .", 1},
 		{`"unterminated`, pathNodeInvalidKey, "", 0},
 		{`a{v:"\q"}`, pathNodeInvalidKey, "", 7},

@@ -867,28 +867,43 @@ func (ws worldScope) SetBlockTagged(x, y, z int32, state uint16, defined map[str
 	if strict {
 		policy = strictBlockWrite
 	}
+	// A block entity's tag loads before the explicit neighbour wake, so a
+	// neighbour reads the loaded state (a playing jukebox's signal); the shape
+	// pass stays in the block write, before the load. Strict loads the tag too.
+	// vanilla: BlockInput.place, SetBlockCommand.setBlock
+	entityType, hasEntity := blockEntityTypeOf(state)
+	hasTag := hasEntity && tag != nil && tag.Entries() != nil
+	deferWake := !strict && hasTag
+	if deferWake {
+		policy = policy&^writeWake | writePlacedHooks
+	}
+	old := w.BlockAt(x, y, z)
 	changed := ws.writeBlock(x, y, z, state, defined, policy)
 	if !strict {
 		// BlockInput's shape pass also runs when Level.setBlock finds a match.
 		ws.srv.physicsFor(w).PlacementShapeUpdates(x, y, z, state)
 	}
 	if !changed {
-		// The block already matched; the tag still applies if it changes the
-		// block entity, which returns true.
-		return ws.retagBlockEntity(x, y, z, state, tag)
-	}
-	// A block argument without NBT arrives as a typed nil map.
-	if tag == nil || tag.Entries() == nil {
+		if !ws.retagBlockEntity(x, y, z, state, tag) {
+			return false
+		}
+		// vanilla: SetBlockCommand.setBlock wakes neighbours after the tag loads.
+		if !strict {
+			ws.srv.updateNeighboursOnBlockSet(w, x, y, z, w.BlockAt(x, y, z))
+		}
 		return true
 	}
-	entityType, hasEntity := blockEntityTypeOf(state)
-	if !hasEntity {
+	// A block argument without NBT arrives as a typed nil map.
+	if !hasTag {
 		return true
 	}
 	previousAuto := commandBlockAutoAt(w, x, y, z)
 	w.SetBlockEntityTag(x, y, z, entityType, tag)
 	ws.srv.markChanged(w, x, y, z)
 	ws.srv.commandBlockTagLoaded(w, x, y, z, previousAuto)
+	if deferWake {
+		ws.srv.blockPlacedWake(w, x, y, z, old)
+	}
 	return true
 }
 
@@ -940,40 +955,6 @@ func blockEntityTypeOf(state uint16) (string, bool) {
 	}
 	entityType, ok := registry.BlockEntityTypes[name]
 	return entityType, ok
-}
-
-// tellBlockEntity sends a block entity's data after the block update, only
-// for types whose vanilla class overrides getUpdatePacket, with their update
-// tag (empty without a getUpdateTag override); modelled says whether the
-// entity is modelled or a carried tag.
-// vanilla: ClientboundBlockEntityDataPacket.create, BlockEntity.getUpdateTag
-func (s *Server) tellBlockEntity(w *world.World, x, y, z int32, entityType string, modelled bool) {
-	if !registry.UpdatePacketBlockEntityTypes[entityType] {
-		return
-	}
-	var compound nbt.Compound
-	if modelled {
-		be := w.BlockEntity(x, y, z)
-		if be == nil {
-			return
-		}
-		be.Use(func(b *world.BlockEntity) { compound = b.UpdateTag() })
-	} else {
-		tag, ok := w.BlockEntityTag(x, y, z)
-		if !ok {
-			return
-		}
-		compound = world.CarriedUpdateTag(entityType, tag, world.TrialSpawnerActive(w.BlockAt(x, y, z)))
-	}
-	data, err := nbt.EncodeNetwork(compound)
-	if err != nil {
-		return
-	}
-	var out protocol.Buffer
-	out.PutPosition(x, y, z)
-	out.PutVarInt(world.BlockEntityTypeID(entityType))
-	out.PutRaw(data)
-	s.broadcastBlockChunkExcept(w, nil, x, z, protocol.IDPlayBlockEntityData, out.Bytes())
 }
 
 // replaceBlockEntity drops the old block entity when a command changed the
@@ -1587,10 +1568,12 @@ func (ws worldScope) summonMob(kind string, x, y, z float64, tag nbt.Compound) (
 	reason := ws.summonReason()
 	var id int32
 	if tag == nil {
-		// A summon loads even an empty tag, so a bat reads BatFlags 0 and flies.
-		// vanilla: SummonCommand's EntityType.loadEntityRecursive
+		// A summon loads even an empty tag, so a bat reads BatFlags 0 and flies
+		// and OnGround starts false until the first travel lands the body.
+		// vanilla: SummonCommand.createEntity, Entity.load
 		id = s.spawnMobArriving(dim, entity.MobTypeOf(kind), x, y, z, 0, nil, false, "", true, func(ent *mobEntity) {
 			ent.spawnReason = spawnReasonCode(reason)
+			ent.mob.OnGround = false
 			if ent.mob.Type == entity.TypeBat {
 				ent.mob.SetMetadataResting(false)
 			}

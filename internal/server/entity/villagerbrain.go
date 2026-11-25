@@ -369,7 +369,7 @@ func (m *Mob) acquirePoi(t *tickView, a *poiAcquire, match func(rules.POIKind) b
 // block.
 func (m *Mob) pathReaches(w World, p Waypoint, reach int32) bool {
 	foot := m.pathFootprint(w)
-	_, reached := findPath(w, foot, m.cell(), p, int32(m.maxPathLength()), reach)
+	_, reached := m.tickPaths.findPath(w, foot, m.cell(), p, int32(m.maxPathLength()), reach)
 	return reached
 }
 

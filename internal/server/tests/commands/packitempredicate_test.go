@@ -95,8 +95,8 @@ func TestPackMatchToolReadsCustomData(t *testing.T) {
 	cfg := packWorld(t)
 	writeFile(t, filepath.Join(cfg.LevelName, "datapacks", "a", "data", "minecraft", "loot_table", "blocks", "netherite_block.json"),
 		`{"pools":[{"rolls":1,"entries":[{"type":"minecraft:alternatives","children":[`+
-			`{"type":"minecraft:item","name":"minecraft:emerald","conditions":[{"type":"minecraft:match_tool",`+
-			`"predicate":{"items":"minecraft:stick","predicates":{"minecraft:custom_data":"{a:1b}"}}}]},`+
+			`{"type":"minecraft:item","name":"minecraft:emerald","condition":{"type":"minecraft:match_tool",`+
+			`"predicate":{"items":"minecraft:stick","predicates":{"minecraft:custom_data":"{a:1b}"}}}},`+
 			`{"type":"minecraft:item","name":"minecraft:dirt"}]}]}]}`)
 	_, c := joinPacks(t, cfg)
 

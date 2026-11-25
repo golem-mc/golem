@@ -50,3 +50,64 @@ func TestPistonRideMembershipKeepsPushOrder(t *testing.T) {
 	create(a)
 	check([][3]int32{b, a})
 }
+
+func TestPistonPushesSurviveNextTickUntilRecycled(t *testing.T) {
+	w, p := newOneChunkPhysics(t)
+	pos := [3]int32{8, 70, 8}
+	ride := movingPistonStateOf(dirUp, false)
+	w.SetBlock(pos[0], pos[1], pos[2], ride)
+	p.pistonRideCreate(pos, ride, registry.BlockStone.DefaultState(), dirUp, true, false)
+	p.now = 0
+	_, _, _, first := p.Tick(0)
+	var held *PistonPush
+	for _, e := range first {
+		if e.PistonPush != nil {
+			held = e.PistonPush
+		}
+	}
+	if held == nil {
+		t.Fatal("no push on the first tick")
+	}
+	want := held.Progress
+	_, _, _, second := p.Tick(1)
+	if held.Progress != want {
+		t.Fatalf("second Tick rewrote an unrecycled push: Progress %v, want %v", held.Progress, want)
+	}
+	p.RecycleTickResults(nil, first)
+	if p.sparePushes != nil {
+		t.Fatal("recycling an older batch took back the newer push slab")
+	}
+	p.RecycleTickResults(nil, second)
+}
+
+func TestPistonPushSlabSurvivesQuietTick(t *testing.T) {
+	w, p := newOneChunkPhysics(t)
+	move := func(x int32) {
+		pos := [3]int32{x, 70, 8}
+		ride := movingPistonStateOf(dirUp, false)
+		w.SetBlock(pos[0], pos[1], pos[2], ride)
+		p.pistonRideCreate(pos, ride, registry.BlockStone.DefaultState(), dirUp, true, false)
+	}
+	push := func(effects []Effect) *PistonPush {
+		for _, e := range effects {
+			if e.PistonPush != nil {
+				return e.PistonPush
+			}
+		}
+		return nil
+	}
+	move(8)
+	p.now = 0
+	_, _, _, e0 := p.Tick(0)
+	first := push(e0)
+	p.RecycleTickResults(nil, e0)
+	_, _, _, e1 := p.Tick(1)
+	p.RecycleTickResults(nil, e1)
+	_, _, _, quiet := p.Tick(2)
+	p.RecycleTickResults(nil, quiet)
+	move(9)
+	_, _, _, e3 := p.Tick(3)
+	if got := push(e3); got != first {
+		t.Fatal("a move after a quiet tick allocated a new push slab")
+	}
+}

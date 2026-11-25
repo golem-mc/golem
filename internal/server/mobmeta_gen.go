@@ -65,8 +65,8 @@ func encodeMobMetadata7_1(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadat
 	_, _ = m, t
 	shown := bodyShown{particles: now.particles, ambient: now.ambient}
 	if w.delta {
-		putBodyMetadata(&w.b, shown, !slices.Equal(now.particles, was.particles),
-			len(now.particles) > 0 && now.ambient != was.ambient, false)
+		putBodyMetadata(&w.b, shown, now.particleRevision != was.particleRevision || !slices.Equal(now.particles, was.particles),
+			now.ambient != was.ambient, false)
 	} else {
 		putBodyMetadata(&w.b, shown, len(now.particles) > 0, now.ambient, false)
 	}
@@ -274,7 +274,7 @@ func encodeMobMetadata34_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetada
 		}
 	}
 }
-func encodeMobMetadata36_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata35_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeEnderman {
@@ -286,33 +286,33 @@ func encodeMobMetadata36_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetada
 		w.boolean(protocol.MetadataIndexEndermanStaring, now.staredAt, was.staredAt)
 	}
 }
-func encodeMobMetadata37_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata36_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.boolean(protocol.MetadataIndexWitchDrinking, now.drinking, was.drinking)
 }
-func encodeMobMetadata38_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata37_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeBee {
 		w.varLong(protocol.MetadataIndexBeeAngerEnd, now.angerEnd, was.angerEnd)
 	}
 }
-func encodeMobMetadata38_1(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata37_1(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeWolf {
 		w.varLong(protocol.MetadataIndexWolfAngerEnd, now.angerEnd, was.angerEnd)
 	}
 }
-func encodeMobMetadata38_2(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata37_2(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeBee {
 		w.varLong(protocol.MetadataIndexBeeAngerEnd, now.angerEnd, was.angerEnd)
 	}
 }
-func encodeMobMetadata39_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata38_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	switch t {
@@ -335,26 +335,26 @@ func encodeMobMetadata39_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetada
 		}
 	}
 }
-func encodeMobMetadata40_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata39_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeWolf {
 		w.boolean(protocol.MetadataIndexWolfBegging, now.begging, was.begging)
 	}
 }
-func encodeMobMetadata41_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata40_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeTropicalFish {
 		w.varInt(protocol.MetadataIndexTropicalFishVariant, protocol.MetadataVarInt, now.tropicalVariant, was.tropicalVariant)
 	}
 }
-func encodeMobMetadata42_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata41_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.boolean(protocol.MetadataIndexBoggedSheared, now.sheared, was.sheared)
 }
-func encodeMobMetadata43_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata42_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeZombieVillager || t == entity.TypeVillager {
@@ -363,7 +363,7 @@ func encodeMobMetadata43_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetada
 		putVillagerMetadata(&w.b, t, now.villager, was.villager)
 	}
 }
-func encodeMobMetadata44_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata43_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeVillager {
@@ -371,50 +371,50 @@ func encodeMobMetadata44_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetada
 		w.varInt(protocol.MetadataIndexVillagerUnhappy, protocol.MetadataVarInt, now.unhappy, was.unhappy)
 	}
 }
-func encodeMobMetadata45_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata44_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.varIntTold(protocol.MetadataIndexCubeSize, protocol.MetadataVarInt, now.size, was.size, now.size > 1)
 }
-func encodeMobMetadata46_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata45_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypePhantom {
 		w.varIntTold(protocol.MetadataIndexPhantomSize, protocol.MetadataVarInt, now.phantomSize, was.phantomSize, now.phantomSize > 0)
 	}
 }
-func encodeMobMetadata47_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata46_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeSulfurCube {
 		w.boolean(protocol.MetadataIndexSulfurCubeFromBucket, now.fromBucket, was.fromBucket)
 	}
 }
-func encodeMobMetadata48_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata47_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeSulfurCube {
 		w.varIntTold(protocol.MetadataIndexSulfurCubeMaxFuse, protocol.MetadataVarInt, now.maxFuse, was.maxFuse, now.maxFuse != -1)
 	}
 }
-func encodeMobMetadata49_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata48_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.boolean(protocol.MetadataIndexTurtleHasEgg, now.hasEgg, was.hasEgg)
 }
-func encodeMobMetadata49_1(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata48_1(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.boolean(protocol.MetadataIndexTurtleLayingEgg, now.layingEgg, was.layingEgg)
 }
-func encodeMobMetadata50_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata49_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeTadpole || entity.Ageable(t) {
 		w.boolean(protocol.MetadataIndexAgeLocked, now.ageLocked, was.ageLocked)
 	}
 }
-func encodeMobMetadata51_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata50_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeAxolotl {
@@ -423,7 +423,7 @@ func encodeMobMetadata51_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetada
 		w.boolean(protocol.MetadataIndexAxolotlFromBucket, now.axolotlFromBucket, was.axolotlFromBucket)
 	}
 }
-func encodeMobMetadata52_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata51_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeDolphin {
@@ -431,50 +431,50 @@ func encodeMobMetadata52_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetada
 		w.varInt(protocol.MetadataIndexDolphinMoistness, protocol.MetadataVarInt, now.dolphinMoistness, was.dolphinMoistness)
 	}
 }
-func encodeMobMetadata53_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata52_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypePufferfish {
 		w.varInt(protocol.MetadataIndexPufferfishPuff, protocol.MetadataVarInt, now.puffState, was.puffState)
 	}
 }
-func encodeMobMetadata54_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata53_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.boolean(protocol.MetadataIndexGuardianMoving, now.guardianMoving, was.guardianMoving)
 }
-func encodeMobMetadata54_1(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata53_1(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.varInt(protocol.MetadataIndexGuardianTarget, protocol.MetadataVarInt, int(now.guardianTarget), int(was.guardianTarget))
 }
-func encodeMobMetadata55_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata54_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeShulker {
 		putShulkerMetadata(&w.b, now.shulker, was.shulker)
 	}
 }
-func encodeMobMetadata56_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata55_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 
 	w.flag(protocol.MetadataIndexBlazeFlags, 1, now.blazeCharged, was.blazeCharged)
 
 }
-func encodeMobMetadata57_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata56_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeEnderDragon {
 		w.varInt(protocol.MetadataIndexDragonPhase, protocol.MetadataVarInt, now.dragonPhase, was.dragonPhase)
 	}
 }
-func encodeMobMetadata58_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata57_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.boolean(protocol.MetadataIndexGhastCharging, now.ghastCharging, was.ghastCharging)
 }
-func encodeMobMetadata59_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata58_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeWither {
@@ -485,49 +485,49 @@ func encodeMobMetadata59_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetada
 		w.varInt(protocol.MetadataIndexWitherInvul, protocol.MetadataVarInt, now.witherInvul, was.witherInvul)
 	}
 }
-func encodeMobMetadata60_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata59_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.boolean(protocol.MetadataIndexHappyGhastStaysStill, now.staysStill, was.staysStill)
 }
-func encodeMobMetadata61_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata60_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeCreaking {
 		putCreakingMetadata(&w.b, was.creaking, now.creaking)
 	}
 }
-func encodeMobMetadata62_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata61_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.boolean(protocol.MetadataIndexStriderCold, now.striderCold, was.striderCold)
 }
-func encodeMobMetadata63_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata62_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.varInt(protocol.MetadataIndexPigBoost, protocol.MetadataVarInt, int(now.itemBoost), int(was.itemBoost))
 }
-func encodeMobMetadata64_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata63_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.boolean(protocol.MetadataIndexZombieVillagerCuring, now.curing, was.curing)
 }
-func encodeMobMetadata65_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata64_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.boolean(protocol.MetadataIndexZombieDrowning, now.drowning, was.drowning)
 }
-func encodeMobMetadata66_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata65_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.boolean(protocol.MetadataIndexSkeletonStraying, now.straying, was.straying)
 }
-func encodeMobMetadata67_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata66_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.varIntTold(protocol.MetadataIndexGlowSquidDark, protocol.MetadataVarInt, now.dark, was.dark, now.dark > 0)
 }
-func encodeMobMetadata68_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata67_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 
@@ -535,17 +535,17 @@ func encodeMobMetadata68_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetada
 	w.spawnFlag(protocol.MetadataIndexSilent, m.Silent)
 
 }
-func encodeMobMetadata69_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata68_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.boolean(protocol.MetadataIndexNoGravity, now.noGravity, was.noGravity)
 }
-func encodeMobMetadata70_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata69_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	w.spawnFlag(protocol.MetadataIndexFishFromBucket, m.IsFish() && m.FromBucket)
 }
-func encodeMobMetadata71_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
+func encodeMobMetadata70_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	m, t := ent.mob, ent.mob.Type
 	_, _ = m, t
 	if t == entity.TypeSalmon && m.SalmonSize != entity.SalmonMedium {
@@ -554,8 +554,8 @@ func encodeMobMetadata71_0(w *mobMetaWriter, ent *mobEntity, now, was *mobMetada
 	putMobAnimalMetadata(&w.b, m)
 }
 
-var mobMetadataSpawn = [...]mobMetaEncoder{encodeMobMetadata25_0, encodeMobMetadata26_0, encodeMobMetadata27_0, encodeMobMetadata28_0, encodeMobMetadata29_0, encodeMobMetadata11_0, encodeMobMetadata57_0, encodeMobMetadata53_0, encodeMobMetadata50_0, encodeMobMetadata7_0, encodeMobMetadata1_0, encodeMobMetadata68_0, encodeMobMetadata69_0, encodeMobMetadata9_0, encodeMobMetadata2_0, encodeMobMetadata3_0, encodeMobMetadata0_0, encodeMobMetadata7_1, encodeMobMetadata8_0, encodeMobMetadata19_0, encodeMobMetadata23_0, encodeMobMetadata24_0, encodeMobMetadata30_0, encodeMobMetadata31_0, encodeMobMetadata10_0, encodeMobMetadata32_0, encodeMobMetadata21_0, encodeMobMetadata13_0, encodeMobMetadata20_0, encodeMobMetadata14_0, encodeMobMetadata36_0, encodeMobMetadata15_0, encodeMobMetadata22_0, encodeMobMetadata16_0, encodeMobMetadata17_0, encodeMobMetadata18_0, encodeMobMetadata37_0, encodeMobMetadata42_0, encodeMobMetadata44_0, encodeMobMetadata43_0, encodeMobMetadata64_0, encodeMobMetadata65_0, encodeMobMetadata66_0, encodeMobMetadata46_0, encodeMobMetadata45_0, encodeMobMetadata48_0, encodeMobMetadata47_0, encodeMobMetadata67_0, encodeMobMetadata5_0, encodeMobMetadata4_0, encodeMobMetadata16_1, encodeMobMetadata6_0, encodeMobMetadata49_0, encodeMobMetadata49_1, encodeMobMetadata60_0, encodeMobMetadata56_0, encodeMobMetadata58_0, encodeMobMetadata59_0, encodeMobMetadata61_0, encodeMobMetadata63_0, encodeMobMetadata62_0, encodeMobMetadata41_0, encodeMobMetadata52_0, encodeMobMetadata51_0, encodeMobMetadata54_0, encodeMobMetadata54_1, encodeMobMetadata55_0, encodeMobMetadata70_0, encodeMobMetadata33_0, encodeMobMetadata38_0, encodeMobMetadata71_0, encodeMobMetadata34_0, encodeMobMetadata12_0, encodeMobMetadata39_0, encodeMobMetadata40_0, encodeMobMetadata38_1}
-var mobMetadataDelta = [...]mobMetaEncoder{encodeMobMetadata25_0, encodeMobMetadata26_0, encodeMobMetadata27_0, encodeMobMetadata28_0, encodeMobMetadata29_0, encodeMobMetadata11_0, encodeMobMetadata57_0, encodeMobMetadata53_0, encodeMobMetadata50_0, encodeMobMetadata7_0, encodeMobMetadata1_0, encodeMobMetadata69_0, encodeMobMetadata9_0, encodeMobMetadata2_0, encodeMobMetadata3_0, encodeMobMetadata0_0, encodeMobMetadata7_1, encodeMobMetadata8_0, encodeMobMetadata19_0, encodeMobMetadata31_0, encodeMobMetadata23_0, encodeMobMetadata24_0, encodeMobMetadata30_0, encodeMobMetadata10_0, encodeMobMetadata32_0, encodeMobMetadata21_0, encodeMobMetadata13_0, encodeMobMetadata33_1, encodeMobMetadata38_2, encodeMobMetadata20_0, encodeMobMetadata14_0, encodeMobMetadata36_0, encodeMobMetadata15_0, encodeMobMetadata22_0, encodeMobMetadata16_0, encodeMobMetadata17_0, encodeMobMetadata18_0, encodeMobMetadata37_0, encodeMobMetadata42_0, encodeMobMetadata44_0, encodeMobMetadata43_0, encodeMobMetadata64_0, encodeMobMetadata65_0, encodeMobMetadata66_0, encodeMobMetadata46_0, encodeMobMetadata45_0, encodeMobMetadata48_0, encodeMobMetadata47_0, encodeMobMetadata67_0, encodeMobMetadata5_0, encodeMobMetadata4_0, encodeMobMetadata16_1, encodeMobMetadata6_0, encodeMobMetadata49_0, encodeMobMetadata49_1, encodeMobMetadata60_0, encodeMobMetadata58_0, encodeMobMetadata59_0, encodeMobMetadata61_0, encodeMobMetadata56_0, encodeMobMetadata63_0, encodeMobMetadata62_0, encodeMobMetadata41_0, encodeMobMetadata52_0, encodeMobMetadata51_0, encodeMobMetadata54_0, encodeMobMetadata54_1, encodeMobMetadata55_0, encodeMobMetadata34_0, encodeMobMetadata12_0, encodeMobMetadata39_0, encodeMobMetadata40_0, encodeMobMetadata38_1}
+var mobMetadataSpawn = [...]mobMetaEncoder{encodeMobMetadata25_0, encodeMobMetadata26_0, encodeMobMetadata27_0, encodeMobMetadata28_0, encodeMobMetadata29_0, encodeMobMetadata11_0, encodeMobMetadata56_0, encodeMobMetadata52_0, encodeMobMetadata49_0, encodeMobMetadata7_0, encodeMobMetadata1_0, encodeMobMetadata67_0, encodeMobMetadata68_0, encodeMobMetadata9_0, encodeMobMetadata2_0, encodeMobMetadata3_0, encodeMobMetadata0_0, encodeMobMetadata7_1, encodeMobMetadata8_0, encodeMobMetadata19_0, encodeMobMetadata23_0, encodeMobMetadata24_0, encodeMobMetadata30_0, encodeMobMetadata31_0, encodeMobMetadata10_0, encodeMobMetadata32_0, encodeMobMetadata21_0, encodeMobMetadata13_0, encodeMobMetadata20_0, encodeMobMetadata14_0, encodeMobMetadata35_0, encodeMobMetadata15_0, encodeMobMetadata22_0, encodeMobMetadata16_0, encodeMobMetadata17_0, encodeMobMetadata18_0, encodeMobMetadata36_0, encodeMobMetadata41_0, encodeMobMetadata43_0, encodeMobMetadata42_0, encodeMobMetadata63_0, encodeMobMetadata64_0, encodeMobMetadata65_0, encodeMobMetadata45_0, encodeMobMetadata44_0, encodeMobMetadata47_0, encodeMobMetadata46_0, encodeMobMetadata66_0, encodeMobMetadata5_0, encodeMobMetadata4_0, encodeMobMetadata16_1, encodeMobMetadata6_0, encodeMobMetadata48_0, encodeMobMetadata48_1, encodeMobMetadata59_0, encodeMobMetadata55_0, encodeMobMetadata57_0, encodeMobMetadata58_0, encodeMobMetadata60_0, encodeMobMetadata62_0, encodeMobMetadata61_0, encodeMobMetadata40_0, encodeMobMetadata51_0, encodeMobMetadata50_0, encodeMobMetadata53_0, encodeMobMetadata53_1, encodeMobMetadata54_0, encodeMobMetadata69_0, encodeMobMetadata33_0, encodeMobMetadata37_0, encodeMobMetadata70_0, encodeMobMetadata34_0, encodeMobMetadata12_0, encodeMobMetadata38_0, encodeMobMetadata39_0, encodeMobMetadata37_1}
+var mobMetadataDelta = [...]mobMetaEncoder{encodeMobMetadata25_0, encodeMobMetadata26_0, encodeMobMetadata27_0, encodeMobMetadata28_0, encodeMobMetadata29_0, encodeMobMetadata11_0, encodeMobMetadata56_0, encodeMobMetadata52_0, encodeMobMetadata49_0, encodeMobMetadata7_0, encodeMobMetadata1_0, encodeMobMetadata68_0, encodeMobMetadata9_0, encodeMobMetadata2_0, encodeMobMetadata3_0, encodeMobMetadata0_0, encodeMobMetadata7_1, encodeMobMetadata8_0, encodeMobMetadata19_0, encodeMobMetadata31_0, encodeMobMetadata23_0, encodeMobMetadata24_0, encodeMobMetadata30_0, encodeMobMetadata10_0, encodeMobMetadata32_0, encodeMobMetadata21_0, encodeMobMetadata13_0, encodeMobMetadata33_1, encodeMobMetadata37_2, encodeMobMetadata20_0, encodeMobMetadata14_0, encodeMobMetadata35_0, encodeMobMetadata15_0, encodeMobMetadata22_0, encodeMobMetadata16_0, encodeMobMetadata17_0, encodeMobMetadata18_0, encodeMobMetadata36_0, encodeMobMetadata41_0, encodeMobMetadata43_0, encodeMobMetadata42_0, encodeMobMetadata63_0, encodeMobMetadata64_0, encodeMobMetadata65_0, encodeMobMetadata45_0, encodeMobMetadata44_0, encodeMobMetadata47_0, encodeMobMetadata46_0, encodeMobMetadata66_0, encodeMobMetadata5_0, encodeMobMetadata4_0, encodeMobMetadata16_1, encodeMobMetadata6_0, encodeMobMetadata48_0, encodeMobMetadata48_1, encodeMobMetadata59_0, encodeMobMetadata57_0, encodeMobMetadata58_0, encodeMobMetadata60_0, encodeMobMetadata55_0, encodeMobMetadata62_0, encodeMobMetadata61_0, encodeMobMetadata40_0, encodeMobMetadata51_0, encodeMobMetadata50_0, encodeMobMetadata53_0, encodeMobMetadata53_1, encodeMobMetadata54_0, encodeMobMetadata34_0, encodeMobMetadata12_0, encodeMobMetadata38_0, encodeMobMetadata39_0, encodeMobMetadata37_1}
 
 func mobMetadataTable(w *mobMetaWriter, ent *mobEntity, now, was *mobMetadataState) {
 	order := mobMetadataSpawn[:]
@@ -595,6 +595,7 @@ func mobMetadataStateOf(m *entity.Mob) mobMetadataState {
 	{
 		shown := mobEffectShown(m)
 		s.particles, s.ambient = shown.particles, shown.ambient
+		s.particleRevision = effectParticleRevision(m, shown.particles)
 		if shown.invisible {
 			s.baseFlags |= protocol.EntityFlagInvisible
 		}
@@ -775,9 +776,6 @@ func mobMetadataStateOf(m *entity.Mob) mobMetadataState {
 		}
 	}
 	{
-		s.saddled = !m.SaddleSlot().Empty()
-	}
-	{
 		s.creepy, s.staredAt = m.Creepy(), m.StaredAt()
 		s.carried = m.CarriedBlock()
 	}
@@ -945,10 +943,12 @@ func captureMobMetadata(m *entity.Mob, s *mobMetadataState, mask mobMetadataMask
 	}
 	if mask[0]&(1<<7) != 0 {
 		s.particles = zero.particles
+		s.particleRevision = zero.particleRevision
 		s.ambient = zero.ambient
 		s.baseFlags = zero.baseFlags
 		shown := mobEffectShown(m)
 		s.particles, s.ambient = shown.particles, shown.ambient
+		s.particleRevision = effectParticleRevision(m, shown.particles)
 		if shown.invisible {
 			s.baseFlags |= protocol.EntityFlagInvisible
 		}
@@ -1172,27 +1172,23 @@ func captureMobMetadata(m *entity.Mob, s *mobMetadataState, mask mobMetadataMask
 		}
 	}
 	if mask[0]&(1<<35) != 0 {
-		s.saddled = zero.saddled
-		s.saddled = !m.SaddleSlot().Empty()
-	}
-	if mask[0]&(1<<36) != 0 {
 		s.creepy = zero.creepy
 		s.staredAt = zero.staredAt
 		s.carried = zero.carried
 		s.creepy, s.staredAt = m.Creepy(), m.StaredAt()
 		s.carried = m.CarriedBlock()
 	}
-	if mask[0]&(1<<37) != 0 {
+	if mask[0]&(1<<36) != 0 {
 		s.drinking = zero.drinking
 		s.drinking = m.DrinkingPotion()
 	}
-	if mask[0]&(1<<38) != 0 {
+	if mask[0]&(1<<37) != 0 {
 		s.angerEnd = zero.angerEnd
 		if m.Type == entity.TypeWolf || m.Type == entity.TypeBee {
 			s.angerEnd = m.AngerEndTime()
 		}
 	}
-	if mask[0]&(1<<39) != 0 {
+	if mask[0]&(1<<38) != 0 {
 		s.tamableFlags = zero.tamableFlags
 		s.nautilusDash = zero.nautilusDash
 		s.parrotVariant = zero.parrotVariant
@@ -1214,54 +1210,54 @@ func captureMobMetadata(m *entity.Mob, s *mobMetadataState, mask mobMetadataMask
 			s.lying, s.relaxing = m.Lying, m.RelaxStateOne
 		}
 	}
-	if mask[0]&(1<<40) != 0 {
+	if mask[0]&(1<<39) != 0 {
 		s.begging = zero.begging
 		if m.Type == entity.TypeWolf {
 			s.begging = m.Begging
 		}
 	}
-	if mask[0]&(1<<41) != 0 {
+	if mask[0]&(1<<40) != 0 {
 		s.tropicalVariant = zero.tropicalVariant
 		s.tropicalVariant = int(m.TropicalVariant)
 	}
-	if mask[0]&(1<<42) != 0 {
+	if mask[0]&(1<<41) != 0 {
 		s.sheared = zero.sheared
 		s.sheared = m.Type == entity.TypeBogged && m.Sheared
 	}
-	if mask[0]&(1<<43) != 0 {
+	if mask[0]&(1<<42) != 0 {
 		s.villager = zero.villager
 		s.villager = m.Villager
 	}
-	if mask[0]&(1<<44) != 0 {
+	if mask[0]&(1<<43) != 0 {
 		s.unhappy = zero.unhappy
 		s.unhappy = m.Unhappy
 	}
-	if mask[0]&(1<<45) != 0 {
+	if mask[0]&(1<<44) != 0 {
 		s.size = zero.size
 		s.size = m.Size
 	}
-	if mask[0]&(1<<46) != 0 {
+	if mask[0]&(1<<45) != 0 {
 		s.phantomSize = zero.phantomSize
 		s.phantomSize = m.PhantomSize()
 	}
-	if mask[0]&(1<<47) != 0 {
+	if mask[0]&(1<<46) != 0 {
 		s.fromBucket = zero.fromBucket
 		s.fromBucket = m.FromBucket
 	}
-	if mask[0]&(1<<48) != 0 {
+	if mask[0]&(1<<47) != 0 {
 		s.maxFuse = zero.maxFuse
 		s.maxFuse = m.SulfurMaxFuse()
 	}
-	if mask[0]&(1<<49) != 0 {
+	if mask[0]&(1<<48) != 0 {
 		s.hasEgg = zero.hasEgg
 		s.layingEgg = zero.layingEgg
 		s.hasEgg, s.layingEgg = m.HasEgg, m.LayingEgg
 	}
-	if mask[0]&(1<<50) != 0 {
+	if mask[0]&(1<<49) != 0 {
 		s.ageLocked = zero.ageLocked
 		s.ageLocked = m.AgeLocked
 	}
-	if mask[0]&(1<<51) != 0 {
+	if mask[0]&(1<<50) != 0 {
 		s.axolotlVariant = zero.axolotlVariant
 		s.axolotlPlayingDead = zero.axolotlPlayingDead
 		s.axolotlFromBucket = zero.axolotlFromBucket
@@ -1271,80 +1267,80 @@ func captureMobMetadata(m *entity.Mob, s *mobMetadataState, mask mobMetadataMask
 			s.axolotlFromBucket = m.FromBucket
 		}
 	}
-	if mask[0]&(1<<52) != 0 {
+	if mask[0]&(1<<51) != 0 {
 		s.dolphinGotFish = zero.dolphinGotFish
 		s.dolphinMoistness = zero.dolphinMoistness
 		s.dolphinGotFish, s.dolphinMoistness = m.DolphinData()
 	}
-	if mask[0]&(1<<53) != 0 {
+	if mask[0]&(1<<52) != 0 {
 		s.puffState = zero.puffState
 		s.puffState = m.PuffState()
 	}
-	if mask[0]&(1<<54) != 0 {
+	if mask[0]&(1<<53) != 0 {
 		s.guardianMoving = zero.guardianMoving
 		s.guardianTarget = zero.guardianTarget
 		s.guardianMoving, s.guardianTarget = m.GuardianMoving(), m.GuardianTarget()
 	}
-	if mask[0]&(1<<55) != 0 {
+	if mask[0]&(1<<54) != 0 {
 		s.shulker = zero.shulker
 		if m.IsShulker() {
 			s.shulker = shulkerMetadata{m.ShulkerFace(), m.ShulkerPeek(), m.ShulkerColor() - 16}
 		}
 	}
-	if mask[0]&(1<<56) != 0 {
+	if mask[0]&(1<<55) != 0 {
 		s.blazeCharged = zero.blazeCharged
 		s.blazeCharged = m.BlazeCharged()
 	}
-	if mask[0]&(1<<57) != 0 {
+	if mask[0]&(1<<56) != 0 {
 		s.dragonPhase = zero.dragonPhase
 		s.dragonPhase = m.DragonPhase()
 	}
-	if mask[0]&(1<<58) != 0 {
+	if mask[0]&(1<<57) != 0 {
 		s.ghastCharging = zero.ghastCharging
 		s.ghastCharging = m.GhastCharging()
 	}
-	if mask[0]&(1<<59) != 0 {
+	if mask[0]&(1<<58) != 0 {
 		s.witherHeads = zero.witherHeads
 		s.witherInvul = zero.witherInvul
 		s.witherHeads, s.witherInvul = m.WitherHeads(), m.WitherInvul()
 	}
-	if mask[0]&(1<<60) != 0 {
+	if mask[0]&(1<<59) != 0 {
 		s.staysStill = zero.staysStill
 		s.staysStill = m.StaysStill()
 	}
-	if mask[0]&(1<<61) != 0 {
+	if mask[0]&(1<<60) != 0 {
 		s.creaking = zero.creaking
 		if m.IsCreaking() {
 			s.creaking = m.CreakingView()
 		}
 	}
-	if mask[0]&(1<<62) != 0 {
+	if mask[0]&(1<<61) != 0 {
 		s.striderCold = zero.striderCold
 		s.striderCold = m.StriderCold()
 	}
-	if mask[0]&(1<<63) != 0 {
+	if mask[0]&(1<<62) != 0 {
 		s.itemBoost = zero.itemBoost
 		s.itemBoost = m.ItemSteeringBoostTime()
 	}
-	if mask[1]&(1<<0) != 0 {
+	if mask[0]&(1<<63) != 0 {
 		s.curing = zero.curing
 		s.curing = m.Curing()
 	}
-	if mask[1]&(1<<1) != 0 {
+	if mask[1]&(1<<0) != 0 {
 		s.drowning = zero.drowning
 		s.drowning = m.DrownedConverting
 	}
-	if mask[1]&(1<<2) != 0 {
+	if mask[1]&(1<<1) != 0 {
 		s.straying = zero.straying
 		s.straying = m.StrayConverting
 	}
-	if mask[1]&(1<<3) != 0 {
+	if mask[1]&(1<<2) != 0 {
 		s.dark = zero.dark
 		if m.Type == entity.TypeGlowSquid {
 			s.dark = m.DarkTicks
 		}
 	}
-	if mask[1]&(1<<4) != 0 {
+	if mask[1]&(1<<3) != 0 {
 		s.noGravity = zero.noGravity
 		s.noGravity = m.NoGravity
 	}

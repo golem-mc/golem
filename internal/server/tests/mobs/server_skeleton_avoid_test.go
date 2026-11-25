@@ -47,3 +47,35 @@ func TestASkeletonFleesAWolf(t *testing.T) {
 		return ok && wolfOK && (x-wx)*(x-wx)+(z-wz)*(z-wz) > 36
 	})
 }
+
+// vanilla: AbstractSkeleton.registerGoals, AvoidEntityGoal.canUse
+func TestASkeletonFleesAWolfInADenseHerd(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.MobTestConfig()
+	cfg.GameMode = "creative"
+	srv, c := servertest.Join(t, cfg, "Observer", func(s *server.Server) {
+		servertest.FreezeUntilHeld(t, s)
+	})
+	servertest.HoldTicks(t, srv)
+	c.Settle()
+	srv.SetSpawning(false)
+	srv.SetDayTime(18000)
+
+	// Use enough mobs for the spatial query, with room beside them to flee.
+	for i := range 65 {
+		cow := srv.SpawnMob("minecraft:cow", float64(i%13)+0.5, 64, float64(i/13)+5.5)
+		if !srv.SetMobNoAI(cow) {
+			t.Fatalf("cow %d is missing", i)
+		}
+	}
+	wolf := srv.SpawnMob("minecraft:wolf", 0.5, 64, 0.5)
+	if !srv.SetMobNoAI(wolf) {
+		t.Fatal("wolf is missing")
+	}
+	skeleton := srv.SpawnMobSeeded("minecraft:skeleton", 3.5, 64, 0.5, 3468)
+	servertest.UntilTicks(t, srv, 45, "skeleton more than six blocks from the wolf", func() bool {
+		x, _, z, ok := srv.MobPos(skeleton)
+		wx, _, wz, wolfOK := srv.MobPos(wolf)
+		return ok && wolfOK && dist(x, z, wx, wz) > 6
+	})
+}

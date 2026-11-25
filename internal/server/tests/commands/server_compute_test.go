@@ -2,12 +2,16 @@ package commands
 
 import (
 	"bytes"
+	"math"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/registry"
 )
 
 // The /compute command, black-box: the provider kinds the commands tree
@@ -22,6 +26,37 @@ func expectCompute(t *testing.T, c *servertest.Client, key string) protocol.Text
 		t.Fatalf("feedback = %+v, want %s", got, key)
 	}
 	return got
+}
+
+// Run serially because data pack providers are process-wide.
+func TestComputeNamesRegistryProviders(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackContextProviders(nil, nil) })
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.LevelName = t.TempDir()
+	pack := filepath.Join(cfg.LevelName, "datapacks", "compute")
+	writeFile(t, filepath.Join(pack, "pack.mcmeta"), `{"pack":{"description":"Compute providers","min_format":121,"max_format":121}}`)
+	const constant = `{"type":"minecraft:constant","value":17}`
+	writeFile(t, filepath.Join(pack, "data", "review436", "context_int_provider", "keep.json"), constant)
+	writeFile(t, filepath.Join(pack, "data", "review436", "context_float_provider", "keep.json"), constant)
+	_, c := joinPacks(t, cfg)
+
+	name := protocol.Text{Text: "review436:keep"}
+	exact, rounded, original := int64(17), int64(8), float32(17)
+	for _, tc := range []struct {
+		input, key string
+		with       []protocol.Text
+	}{
+		{"integer review436:keep", "command.compute.result.named.exact", []protocol.Text{name, {Number: &exact}}},
+		{"float review436:keep", "command.compute.result.named.exact", []protocol.Text{name, {Number: &exact}}},
+		{"float review436:keep 0.5", "command.compute.result.named.rounded", []protocol.Text{name, {Float: &original}, {Number: &rounded}}},
+		{"integer " + constant, "command.compute.result.unnamed.exact", []protocol.Text{{Number: &exact}}},
+		{"float " + constant + " 0.5", "command.compute.result.unnamed.rounded", []protocol.Text{{Float: &original}, {Number: &rounded}}},
+	} {
+		c.ChatCommand("compute default " + tc.input)
+		c.ExpectCommandFeedbackText(tc.key, tc.with...)
+	}
+	c.Disconnect()
 }
 
 // TestComputeStoresItsValue checks that a constant provider answers its
@@ -63,6 +98,44 @@ func TestComputeStoresItsValue(t *testing.T) {
 	c.Disconnect()
 }
 
+// Run serially because data pack providers are process-wide.
+// vanilla: ComputeCommand.throwInvalidValue
+func TestComputeInvalidProviderFeedback(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackContextProviders(nil, nil) })
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.LevelName = t.TempDir()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	const division = `{"type":"minecraft:div","left":1,"right":0}`
+	servertest.WritePackFile(t, cfg, "compute", "pk/context_int_provider/div_zero.json", division)
+	servertest.WritePackFile(t, cfg, "compute", "pk/context_float_provider/div_zero.json", division)
+	// A pack file is read through JsonOps, whose number error names the value.
+	// vanilla: JsonOps.getNumberValue, Weighted.codec
+	const badWeight = `{"type":"minecraft:weighted_list","distribution":[{"data":1,"weight":"abc"},{"data":2,"weight":1}]}`
+	servertest.WritePackFile(t, cfg, "compute", "pk/context_int_provider/bad_weight.json", badWeight)
+	servertest.WritePackFile(t, cfg, "compute", "pk/context_float_provider/bad_weight.json", badWeight)
+	srv, c := joinPacks(t, cfg)
+	servertest.HoldTicks(t, srv)
+
+	for _, tc := range []struct{ kind, reason string }{
+		{"integer", "/ by zero"},
+		{"float", "Infinity"},
+	} {
+		c.Run(t, tc.kind, func(t *testing.T) {
+			command := "compute default " + tc.kind + " "
+			c.ChatCommand(command + "pk:div_zero")
+			c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.named.invalid", "pk:div_zero", tc.reason))
+
+			c.ChatCommand(command + division)
+			c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.unnamed.invalid", tc.reason))
+
+			c.ChatCommand(command + "pk:bad_weight")
+			c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.named.invalid", "pk:bad_weight", `pk:bad_weight: Not a number: "abc"`))
+		})
+	}
+	c.Disconnect()
+}
+
 // TestComputeRefusals checks the arithmetic a provider throws, the
 // registry entry no pack defines and a provider the codec refuses: every
 // missing key of a record is reported, in DFU's order (the reverse of the
@@ -81,6 +154,20 @@ func TestComputeRefusals(t *testing.T) {
 
 	c.ChatCommand(`compute default float {type:"minecraft:div",left:1,right:0}`)
 	c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("command.compute.result.unnamed.invalid", "Infinity"))
+
+	// The command's context has enchantment level 0, so a lookup reads index
+	// -1 and throws past the arithmetic catch, through /data's too.
+	// vanilla: LevelBasedValue.Lookup.calculate, Commands.performCommand
+	const lookup = `{type:"minecraft:enchantment_level",amount:{type:"minecraft:lookup",values:[L;1L,2L],fallback:7}}`
+	for _, command := range []string{
+		"compute default float " + lookup + " 1",
+		"data modify storage t:s v set compute default float " + lookup,
+	} {
+		c.ChatCommand(command)
+		if got := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat); !bytes.Equal(got, servertest.CommandErrorMessageForTest("command.failed")) {
+			t.Errorf("%s: answered % X, want command.failed", command, got)
+		}
+	}
 
 	c.ChatCommand("compute default integer pk:none")
 	if got := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat); !bytes.Equal(got,
@@ -166,6 +253,18 @@ func TestComputeRefusals(t *testing.T) {
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{},{}]}`,
 			missing("value", "{}") + "; " + missing("condition", "{}") + "; " +
 				missing("value", "{}") + "; " + missing("condition", "{}")},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"}]}`,
+			either + "Not a number; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"},{data:2,weight:1}]}`,
+			"Not a number"},
+		{`compute default float {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"},{data:2,weight:1}]} 1`,
+			"Not a number"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"},{weight:1}]}`,
+			either + missing("data", "{weight:1}") + "; Not a number; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"},{data:2}]}`,
+			either + missing("weight", "{data:2}") + "; Not a number; Weighted list must contain at least one entry with non-zero weight"},
+		{`compute default integer {type:"minecraft:weighted_list",distribution:[{data:1,weight:"abc"},{data:{type:"minecraft:constant"},weight:1}]}`,
+			either + either + missing("value", invalidDefault) + "; Not a number; Weighted list must contain at least one entry with non-zero weight"},
 		{`compute default integer {type:"minecraft:number_dispatcher",cases:[{},1]}`,
 			"Not a map: 1; " + missing("value", "{}") + "; " + missing("condition", "{}")},
 	} {
@@ -181,6 +280,82 @@ func TestComputeRefusals(t *testing.T) {
 		data = c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
 		if want := servertest.CommandErrorContextForTest(tc.command, len(tc.command)-suffix); !bytes.Equal(data, want) {
 			t.Errorf("%s: context = % X, want % X", tc.command, data, want)
+		}
+	}
+
+	// A weighted list whose total weight overflows an int is thrown from the
+	// list's constructor, so the command parse fails with no codec wrapping.
+	// vanilla: WeightedRandom.getTotalWeight, CommandDispatcher.parseNodes
+	weighted := func(w int32) string {
+		return `{type:"minecraft:weighted_list",distribution:[{data:1,weight:` + strconv.Itoa(int(w)) + `},{data:2,weight:1}]}`
+	}
+	// Both entries give 5, so the result at the limit is no draw.
+	weightedSame := func(w int32) string {
+		return `{type:"minecraft:weighted_list",distribution:[{data:5,weight:` + strconv.Itoa(int(w)) + `},{data:5,weight:1}]}`
+	}
+	for _, kind := range []string{"integer", "float"} {
+		suffix := ""
+		if kind == "float" {
+			suffix = " 1"
+		}
+		overflow := "compute default " + kind + " " + weighted(math.MaxInt32) + suffix
+		c.ChatCommand(overflow)
+		data := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); !bytes.Equal(data, want) {
+			t.Errorf("%s: refusal = % X, want % X", overflow, data, want)
+		}
+		data = c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorContextForTest(overflow, len(overflow)-len(suffix)); !bytes.Equal(data, want) {
+			t.Errorf("%s: context = % X, want % X", overflow, data, want)
+		}
+
+		// The exact limit parses and runs.
+		c.ChatCommand("compute default " + kind + " " + weightedSame(math.MaxInt32-1) + suffix)
+		servertest.CheckCommandFeedback(t, c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat),
+			"command.compute.result.unnamed.exact", protocol.Text{Number: new(int64(5))})
+	}
+
+	// Only a genuine overflow is thrown: a constant provider missing its value
+	// whose extra key spells the message is an ordinary codec refusal.
+	// vanilla: MapCodec.decode
+	spoof := `compute default integer {type:"minecraft:constant",note:"Sum of weights must be <= 2147483647"}`
+	c.ChatCommand(spoof)
+	if got, want := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); bytes.Equal(got, want) {
+		t.Errorf("%s: answered the overflow", spoof)
+	}
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+
+	// A table with an overflowing weighted list is no codec error either.
+	const loot = `{pools:[{rolls:1,entries:[{type:"minecraft:item",name:"minecraft:stick",modifier:{type:"minecraft:set_count",count:`
+	inline := "loot give @s loot " + loot + `{type:"minecraft:weighted_list",distribution:[{data:1,weight:2147483647},{data:2,weight:1}]}}}]}]}`
+	c.ChatCommand(inline)
+	data := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+	if want := servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); !bytes.Equal(data, want) {
+		t.Errorf("inline loot overflow = % X, want % X", data, want)
+	}
+	c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+
+	// The overflow also fails a provider inside a condition, an inline item
+	// modifier (one function or a list), a predicate argument, and a list
+	// whose other entry has a codec error: the sum covers the entries kept.
+	// vanilla: ConditionalProvider.mapCodec, SetItemCountFunction.CODEC, IntValueCheck.CODEC,
+	// ListCodec.decode, WeightedList.entryToListCodec
+	w := weighted(math.MaxInt32)
+	for _, command := range []string{
+		`compute default integer {type:"weighted_list",distribution:[{data:1,weight:2147483647},{data:2,weight:1},{weight:1}]}`,
+		`compute default integer {type:"minecraft:conditional",condition:{type:"minecraft:int_value_check",value:` + w + `,test:1},on_true:1}`,
+		`item modify entity @s hotbar.0 {type:"minecraft:set_count",count:` + w + `}`,
+		`item modify entity @s hotbar.0 [{type:"minecraft:set_count",count:` + w + `}]`,
+		`execute if predicate {type:"minecraft:int_value_check",value:` + w + `,test:1}`,
+	} {
+		c.ChatCommand(command)
+		data := c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorMessageForTest("command.exception", "Sum of weights must be <= 2147483647"); !bytes.Equal(data, want) {
+			t.Errorf("%s: refusal = % X, want % X", command, data, want)
+		}
+		data = c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat)
+		if want := servertest.CommandErrorContextForTest(command, len(command)); !bytes.Equal(data, want) {
+			t.Errorf("%s: context = % X, want % X", command, data, want)
 		}
 	}
 	c.Disconnect()

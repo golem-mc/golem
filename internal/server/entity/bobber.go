@@ -195,7 +195,7 @@ func NewBobber(id int32, x, eyeY, z, yaw, pitch float64, ownerID int32, seed int
 	}
 	// Each axis: 0.6 of the line plus a triangle roll around 0.5 with
 	// deviation 0.0172275 × 0.6, two draws per axis from the hook's source.
-	r := rand.New(rand.NewSource(seed))
+	r := NewDice(seed)
 	dist := math.Sqrt(rayX*rayX + rayY*rayY + rayZ*rayZ)
 	triangle := 0.0103365 * (r.Float64() - r.Float64())
 	vx := rayX * (0.6/dist + 0.5 + triangle)

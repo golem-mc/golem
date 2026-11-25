@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server"
+	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/registry"
+	"github.com/google/uuid"
 )
 
 // bulletsIn lists the bullets in flight.
@@ -50,7 +53,7 @@ func TestAShulkerFiresOnItsCadence(t *testing.T) {
 	t.Parallel()
 	srv, _, y := shulkerTests(t)
 	at := srv.PlayerPosition("Watcher")
-	srv.SpawnMob("minecraft:shulker", at.X+12, y, at.Z)
+	srv.SpawnMobSeeded("minecraft:shulker", at.X+12, y, at.Z, 1)
 	seen := map[int32]bool{}
 	var shots []int
 	for tick := 1; tick <= 1500; tick++ {
@@ -73,5 +76,53 @@ func TestAShulkerFiresOnItsCadence(t *testing.T) {
 		if gap := shots[i] - shots[i-1]; gap < 20 || gap > 110 || gap%10 != 0 {
 			t.Errorf("bullets %d and %d were %d ticks apart, want one of 20, 30, ..., 110", i-1, i, gap)
 		}
+	}
+}
+
+func TestShulkerBulletScaffoldingUsesFeetHeight(t *testing.T) {
+	t.Parallel()
+	srv, _ := servertest.Join(t, servertest.SpawningTestConfig(), "Watcher", func(s *server.Server) {
+		servertest.FreezeUntilHeld(t, s)
+	})
+	servertest.HoldTicks(t, srv)
+
+	const y = 70
+	const up, east = 1, 5
+	stone := registry.BlockStone.DefaultState()
+	scaffold, _ := registry.WithInt(registry.BlockScaffolding.DefaultState(), registry.PropDistance, 0)
+	for _, tc := range []struct {
+		name    string
+		z       int32
+		feetY   float64
+		wantDir int8
+	}{
+		{name: "below plate", z: 4, feetY: y + 0.5, wantDir: east},
+		// Within the isAbove epsilon while the bullet still probes this row.
+		{name: "at top of plate", z: 8, feetY: y + 1 - 5e-6, wantDir: up},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			z := float64(tc.z) + 0.5
+			target := srv.SpawnMob("minecraft:shulker", 12.5, y+3, z)
+			srv.LaunchShulkerBullet(5.5, tc.feetY, z, target, 3)
+			var bullet uuid.UUID
+			for _, it := range srv.ThrownInDimension("minecraft:overworld") {
+				if it.Kind == "minecraft:shulker_bullet" && it.Z == z {
+					bullet = uuid.MustParse(it.UUID)
+					break
+				}
+			}
+			if _, _, dir, _, ok := srv.ShulkerBulletState(bullet); !ok || dir != east {
+				t.Fatalf("initial bullet direction = %d, present %v; want east", dir, ok)
+			}
+			// Leave room for the bullet's first move before it probes east.
+			srv.SetBlock(6, y-1, tc.z, stone)
+			if !srv.SetBlock(6, y, tc.z, scaffold) {
+				t.Fatal("could not place scaffolding ahead of the bullet")
+			}
+			srv.TickEntities(1)
+			if _, _, dir, _, ok := srv.ShulkerBulletState(bullet); !ok || dir != tc.wantDir {
+				t.Errorf("bullet direction = %d, present %v; want %d", dir, ok, tc.wantDir)
+			}
+		})
 	}
 }

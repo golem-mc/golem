@@ -507,8 +507,6 @@ func (b *BlockEntity) codec(c *beCodec) {
 	case KindCreakingHeart:
 		// vanilla: CreakingHeartBlockEntity.saveAdditional
 		field(c, "creaking", &b.Creaking, beUUID, uuid.Nil)
-	case KindPiston:
-		b.pistonRide(c)
 	case KindCommandBlock:
 		b.commandBlockFields(c)
 	}
@@ -715,25 +713,6 @@ const BlockStateKeyPiston = "blockState"
 // BlockStateNBTKeys lists every block-entity NBT key decoded with BlockState.CODEC.
 var BlockStateNBTKeys = []string{
 	BlockStateKeyPiston,
-}
-
-// pistonRide walks a moving piston's ride in vanilla's shape: the block state
-// as its codec writes it, the facing as the legacy direction byte. The
-// progress is written finished and never read: the engine holds a move for
-// two whole ticks without animating, so a reloaded move finishes where it
-// was. The same-tick retraction's age check reads a creation tick no file
-// carries, so a reloaded move is old.
-// vanilla: PistonMovingBlockEntity.loadAdditional, saveAdditional
-func (b *BlockEntity) pistonRide(c *beCodec) {
-	field(c, BlockStateKeyPiston, &b.MovedState, beMovedState, 0)
-	field(c, "facing", &b.PistonDir, beLegacyDirection, 0)
-	if c.load {
-		b.CreatedTick = -1
-	} else {
-		c.out.Set("progress", nbt.Float(1))
-	}
-	field(c, "extending", &b.Extending, beFlag, false)
-	field(c, "source", &b.IsSource, beFlag, false)
 }
 
 // commandBlockFields walks the command block's BaseCommandBlock and

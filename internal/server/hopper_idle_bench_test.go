@@ -150,3 +150,42 @@ func BenchmarkIdleHoppers(b *testing.B) {
 		run(b, s)
 	})
 }
+
+// BenchmarkVehicleColumnDispatch is one block entity tick over chest boats,
+// with no hopper, one hopper clear of them, one hopper and no boats, and one
+// hopper with 8 boats in the box above it.
+func BenchmarkVehicleColumnDispatch(b *testing.B) {
+	for _, bc := range []struct {
+		name          string
+		spaced, above int
+		hopper        bool
+	}{
+		{"no_hopper", 200, 0, false},
+		{"one_hopper", 200, 0, true},
+		{"empty_index", 0, 0, true},
+		{"overlapping_boats", 200, 8, true},
+	} {
+		b.Run(bc.name, func(b *testing.B) {
+			s, w := newBlockBenchServer(b, 0)
+			for i := range bc.spaced {
+				s.spawnBoat(w, "minecraft:oak_chest_boat", float64((i%20)*4), 64, float64(10+(i/20)*4), 0, customName{})
+			}
+			// The hopper at (0, 64, 0) pulls from the unit box centred on (0.5, 65.5, 0.5).
+			for range bc.above {
+				s.spawnBoat(w, "minecraft:oak_chest_boat", 0.5, 65, 0.5, 0, customName{})
+			}
+			if bc.hopper {
+				w.SetBlock(0, 64, 0, registry.MustState("minecraft:hopper", map[string]string{"facing": "down", "enabled": "true"}))
+				w.EnsureBlockEntity(0, 64, 0, world.KindHopper)
+				// Without the hold the block entity pass skips the hopper.
+				b.Cleanup(w.HoldEntityTicking(world.ChunkPos{}))
+			}
+			s.tickBlockEntities()
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				s.tickBlockEntities()
+			}
+		})
+	}
+}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -58,13 +59,14 @@ func thunderstorm(srv *server.Server) {
 }
 
 // TestAThunderstormStrikesAWatchedChunkWithABolt checks the strike die: with
-// it forced, a thunderstorm puts a bolt entity in front of a tracking client,
-// the bolt lights a fire where it lands, and the bolt is removed when spent.
+// it forced, a thunderstorm sends a bolt to a tracking client even with
+// random block ticks disabled. The bolt lights a fire and is removed when spent.
 func TestAThunderstormStrikesAWatchedChunkWithABolt(t *testing.T) {
 	t.Parallel()
 	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
 	srv.StopTick()
 	srv.SetDifficulty(2)
+	srv.SetGameRuleValue(world.RuleRandomTickSpeed.String(), 0)
 	thunderstorm(srv)
 	if !srv.Thundering() {
 		t.Fatal("the world is not thundering")

@@ -68,6 +68,7 @@ type arrowEntity struct {
 // Teleport Entity carries no velocity: the motion packets do.
 var arrowTracker = trackedKind[*arrowEntity, arrowMetadataState]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.arrows.built = false },
+	pistonBit:        pistonArrows,
 
 	rangeChunks:    entity.ArrowTracking,
 	interval:       entity.ArrowInterval,
@@ -1001,7 +1002,9 @@ func (t *mobDimTick) shotArrow(fx *mobEffects, ev entity.MobEvent) {
 		// vanilla: Drowned.performRangedAttack can finish a hunt after the weapon changes.
 		shot.weapon = protocol.ItemStack{ItemID: int32(registry.ItemTrident), Count: 1}
 	}
-	if !shot.trident && !shot.crossbow && registry.Item(shot.weapon.ItemID) != registry.ItemBow {
+	if shot.crossbow {
+		shot.weapon = ev.Stack
+	} else if !shot.trident && registry.Item(shot.weapon.ItemID) != registry.ItemBow {
 		// vanilla: ProjectileUtil.getWeaponHoldingHand falls back to the off hand
 		shot.weapon = ev.Mob.OffHand
 	}

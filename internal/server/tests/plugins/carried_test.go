@@ -223,3 +223,134 @@ func TestPluginSkullHandle(t *testing.T) {
 		}
 	})
 }
+
+func TestPluginPistonRideBlockEntity(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	srv, h, run := worldPlugin(t, cfg)
+	w := srv.OverworldWorld()
+	pos := world.ChunkPos{X: 0, Z: 0}
+	w.Acquire(pos)
+	defer w.Release(pos)
+
+	pistonState, ok := registry.FindState("minecraft:piston", map[string]string{"facing": "east", "extended": "false"})
+	if !ok {
+		t.Fatal("missing piston state")
+	}
+	srv.SetBlockAndTell(4, 80, 4, pistonState)
+	srv.SetBlockAndTell(5, 80, 4, registry.BlockStone.DefaultState())
+	srv.SetBlockAndTell(4, 80, 5, registry.BlockRedstoneBlock.DefaultState())
+	srv.TickPhysics(1)
+	if registry.BlockOf(w.BlockAt(5, 80, 4)) != registry.BlockMovingPiston {
+		t.Fatal("moving_piston did not appear at (5, 80, 4)")
+	}
+
+	ridePositions := []plugin.BlockPos{{X: 5, Y: 80, Z: 4}, {X: 6, Y: 80, Z: 4}}
+	values := pluginDataValues()
+	var handles []plugin.BlockEntity
+	run(func() {
+		pw := h.Overworld()
+		chunk, ok := pw.Chunk(plugin.ChunkPos{X: 0, Z: 0})
+		if !ok {
+			t.Fatal("chunk (0,0) not loaded")
+		}
+		listed := chunk.BlockEntities()
+		byPos := make(map[plugin.BlockPos]plugin.BlockEntity, len(listed))
+		for _, b := range listed {
+			byPos[b.Pos()] = b
+		}
+		for _, p := range ridePositions {
+			b, ok := pw.BlockEntity(p)
+			if !ok {
+				t.Errorf("piston ride at %v missing from World.BlockEntity", p)
+				continue
+			}
+			if listedHandle := byPos[p]; listedHandle != b {
+				t.Errorf("piston ride at %v: Chunk.BlockEntities handle %v != World.BlockEntity handle %v", p, listedHandle, b)
+			}
+			if b.World() != pw || b.Pos() != p || !b.IsValid() || b.Type() != plugin.MinecraftKey("piston") {
+				t.Errorf("piston ride identity at %v: type=%v valid=%v", p, b.Type(), b.IsValid())
+			}
+			for name, value := range values {
+				b.Data().Set(plugin.Key{Namespace: "test", Path: name}, value)
+			}
+			checkPluginData(t, b.Data(), values)
+			again, _ := pw.BlockEntity(p)
+			if again != b {
+				t.Errorf("piston ride at %v: lookup changed identity", p)
+			}
+			handles = append(handles, b)
+		}
+		pw.Save(true)
+	})
+	if t.Failed() {
+		return
+	}
+
+	// Unload and reload the chunk: old handles become invalid, saved plugin data persists.
+	w.Release(pos)
+	w.DrainSaves()
+	w.Acquire(pos)
+	run(func() {
+		pw := h.Overworld()
+		for _, old := range handles {
+			if old.IsValid() || len(old.Data().Keys()) != 0 {
+				t.Errorf("unloaded piston ride handle at %v stayed live", old.Pos())
+			}
+			old.Data().Set(plugin.Key{Namespace: "test", Path: "stale"}, true)
+			fresh, ok := pw.BlockEntity(old.Pos())
+			if !ok {
+				t.Errorf("reloaded piston ride at %v missing", old.Pos())
+				continue
+			}
+			if fresh == old {
+				t.Errorf("reloaded piston ride at %v reused unloaded handle", old.Pos())
+			}
+			checkPluginData(t, fresh.Data(), values)
+		}
+	})
+	if t.Failed() {
+		return
+	}
+
+	// Extending a live piston and letting it finish lands the rides and invalidates their handles.
+	srv.ForceChunkInDimension(world.DimensionName, 0, 0)
+	srv.SetBlockAndTell(4, 80, 8, pistonState)
+	srv.SetBlockAndTell(5, 80, 8, registry.BlockStone.DefaultState())
+	srv.SetBlockAndTell(4, 80, 9, registry.BlockRedstoneBlock.DefaultState())
+	srv.TickPhysics(1)
+	if got := registry.BlockOf(w.BlockAt(5, 80, 8)); got != registry.BlockMovingPiston {
+		t.Fatalf("second moving_piston did not appear at (5, 80, 8): got %s", got.Name())
+	}
+	landingPositions := []plugin.BlockPos{{X: 5, Y: 80, Z: 8}, {X: 6, Y: 80, Z: 8}}
+	var landing []plugin.BlockEntity
+	run(func() {
+		pw := h.Overworld()
+		for _, p := range landingPositions {
+			b, ok := pw.BlockEntity(p)
+			if !ok || !b.IsValid() {
+				t.Fatalf("live piston ride at %v missing before landing", p)
+			}
+			b.Data().Set(plugin.Key{Namespace: "test", Path: "live"}, true)
+			landing = append(landing, b)
+		}
+	})
+	srv.TickPhysics(4)
+	run(func() {
+		pw := h.Overworld()
+		chunk, _ := pw.Chunk(plugin.ChunkPos{X: 0, Z: 0})
+		for _, b := range landing {
+			if b.IsValid() || len(b.Data().Keys()) != 0 {
+				t.Errorf("landed piston ride handle at %v stayed live", b.Pos())
+			}
+			if _, ok := pw.BlockEntity(b.Pos()); ok {
+				t.Errorf("landed piston ride at %v still visible in World.BlockEntity", b.Pos())
+			}
+		}
+		for _, b := range chunk.BlockEntities() {
+			if b.Pos().Z == 8 && b.Type() == plugin.MinecraftKey("piston") {
+				t.Errorf("landed piston ride at %v still listed in Chunk.BlockEntities", b.Pos())
+			}
+		}
+	})
+}

@@ -48,9 +48,8 @@ func (s State) String() string {
 }
 
 const (
-	// maxPacketSize caps the size of a packet as it appears on the wire. The
-	// vanilla client never sends more than 2 MiB.
-	maxPacketSize = 2 * 1024 * 1024
+	// vanilla: Varint21FrameDecoder.MAX_VARINT21_BYTES
+	packetLengthBytes = 3
 	// maxDecompressedSize caps how much a single packet may expand to, so that
 	// a small packet cannot be used to exhaust memory.
 	maxDecompressedSize = 8 * 1024 * 1024
@@ -167,12 +166,9 @@ func (c *Conn) EnableEncryption(secret []byte) error {
 // is the caller's to keep: handlers queue replies made of it for another
 // goroutine to write, so it must not share a buffer with the next packet.
 func (c *Conn) ReadPacket() (packetID int32, data []byte, err error) {
-	length, _, err := ReadVarInt(c.r)
+	length, _, err := readVarInt(c.r, packetLengthBytes)
 	if err != nil {
 		return 0, nil, fmt.Errorf("read packet length: %w", err)
-	}
-	if length < 0 || length > maxPacketSize {
-		return 0, nil, fmt.Errorf("packet length %d out of range", length)
 	}
 
 	frame, err := readFrame(c.r, int(length))
@@ -304,8 +300,7 @@ func decompress(frame []byte, threshold int) ([]byte, error) {
 	return out, nil
 }
 
-// varIntRoom is the most bytes a VarInt takes, the room WritePacket leaves
-// for the length prefix.
+// varIntRoom is the most bytes a VarInt takes.
 const varIntRoom = 5
 
 // zlibWriters holds the deflate state of finished packets: a fresh writer
@@ -317,10 +312,8 @@ var zlibWriters = sync.Pool{New: func() any {
 	return zw
 }}
 
-// frame is what WritePacket builds a packet in: id holds the packet ID and
-// then the length prefix. Frames are pooled: a frame is written to the
-// connection before WritePacket returns, and an io.Writer may not keep what it
-// was given.
+// frame holds the encoded packet ID and a standalone frame when needed.
+// Deflated frames reuse id to encode the length prefix.
 type frame struct{ id, out Buffer }
 
 var frames = sync.Pool{New: func() any { return new(frame) }}
@@ -332,7 +325,7 @@ func (c *Conn) WritePacket(packetID int32, data []byte) error {
 
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	packet, err := c.framePacket(f, packetID, data, false)
+	packet, err := c.framePacket(f, packetID, data)
 	if err != nil {
 		return err
 	}
@@ -370,9 +363,9 @@ func (c *Conn) WritePacketsCached(n int, at func(i int) (int32, []byte, *CachedP
 	})
 }
 
-// WritePacketsRaw is WritePacketsCached where an entry's raw flag sends it
-// uncompressed even above the threshold (see framePacket); it is ignored for
-// a cached entry.
+// WritePacketsRaw is WritePacketsCached where an uncached entry's raw flag
+// sends it with a Data Length of 0 even at or above the compression threshold.
+// vanilla: CompressionDecoder.decode
 func (c *Conn) WritePacketsRaw(n int, at func(i int) (int32, []byte, *CachedPacket, bool)) error {
 	f := frames.Get().(*frame)
 	defer frames.Put(f)
@@ -384,18 +377,27 @@ func (c *Conn) WritePacketsRaw(n int, at func(i int) (int32, []byte, *CachedPack
 	defer c.writeMu.Unlock()
 	for i := range n {
 		packetID, data, cached, raw := at(i)
-		var packet []byte
-		var err error
 		if cached != nil {
 			packetID, data = cached.id, cached.data
-			packet, err = cached.frame(c)
+			packet, err := cached.frame(c)
+			if err != nil {
+				return err
+			}
+			batch.PutRaw(packet)
 		} else {
-			packet, err = c.framePacket(f, packetID, data, raw)
+			f.id.Reset()
+			f.id.PutVarInt(packetID)
+			bodyLen := f.id.Len() + len(data)
+			if c.threshold < 0 || raw || bodyLen < c.threshold {
+				f.appendUncompressed(batch, data, bodyLen, c.threshold >= 0)
+			} else {
+				packet, err := f.deflate(data, bodyLen)
+				if err != nil {
+					return err
+				}
+				batch.PutRaw(packet)
+			}
 		}
-		if err != nil {
-			return err
-		}
-		batch.PutRaw(packet)
 		c.traceOut(packetID, len(data))
 		if batch.Len() >= batchFlushSize {
 			if err := c.writeFrames(batch.Bytes()); err != nil {
@@ -411,51 +413,55 @@ func (c *Conn) WritePacketsRaw(n int, at func(i int) (int32, []byte, *CachedPack
 }
 
 // framePacket builds the framed packet in f, which the result aliases; the
-// caller holds writeMu. raw sends the body with a Data Length of 0 even at or
-// above the threshold, which the client's decoder accepts at any size; it
-// spares deflating a body that cannot shrink.
-// vanilla: CompressionDecoder.decode
-func (c *Conn) framePacket(f *frame, packetID int32, data []byte, raw bool) ([]byte, error) {
-	id, out := &f.id, &f.out
-	id.Reset()
-	id.PutVarInt(packetID)
-	bodyLen := id.Len() + len(data)
-
-	// Room is left for the length prefix, filled in once the size is known,
-	// so the payload is copied once. The body with a size ahead of it bounds
-	// an uncompressed frame, and a compressed one unless deflate cannot shrink
-	// the body.
-	out.data = slices.Grow(out.data[:0], varIntRoom+varIntRoom+bodyLen)[:varIntRoom]
-	switch {
-	case c.threshold < 0:
-		out.PutRaw(id.Bytes())
-		out.PutRaw(data)
-	case raw || bodyLen < c.threshold:
-		// Below the threshold packets are sent as-is, marked by a zero size.
-		out.PutVarInt(0)
-		out.PutRaw(id.Bytes())
-		out.PutRaw(data)
-	default:
-		out.PutVarInt(int32(bodyLen))
-		zw := zlibWriters.Get().(*zlib.Writer)
-		defer zlibWriters.Put(zw)
-		zw.Reset(out)
-		if _, err := zw.Write(id.Bytes()); err != nil {
-			return nil, fmt.Errorf("compress packet: %w", err)
-		}
-		if _, err := zw.Write(data); err != nil {
-			return nil, fmt.Errorf("compress packet: %w", err)
-		}
-		if err := zw.Close(); err != nil {
-			return nil, fmt.Errorf("compress packet: %w", err)
-		}
+// caller holds writeMu.
+func (c *Conn) framePacket(f *frame, packetID int32, data []byte) ([]byte, error) {
+	f.id.Reset()
+	f.id.PutVarInt(packetID)
+	bodyLen := f.id.Len() + len(data)
+	if c.threshold >= 0 && bodyLen >= c.threshold {
+		return f.deflate(data, bodyLen)
 	}
 
-	prefix := id
-	prefix.Reset()
-	prefix.PutVarInt(int32(out.Len() - varIntRoom))
-	start := varIntRoom - prefix.Len()
-	copy(out.data[start:], prefix.Bytes())
+	f.out.Reset()
+	f.out.Grow(varIntRoom + 1 + bodyLen)
+	f.appendUncompressed(&f.out, data, bodyLen, c.threshold >= 0)
+	return f.out.Bytes(), nil
+}
+
+// vanilla: CompressionEncoder.encode, Varint21LengthFieldPrepender.encode
+func (f *frame) appendUncompressed(out *Buffer, data []byte, bodyLen int, compression bool) {
+	if compression {
+		out.PutVarInt(int32(bodyLen + 1))
+		out.PutU8(0)
+	} else {
+		out.PutVarInt(int32(bodyLen))
+	}
+	out.PutRaw(f.id.Bytes())
+	out.PutRaw(data)
+}
+
+func (f *frame) deflate(data []byte, bodyLen int) ([]byte, error) {
+	id, out := &f.id, &f.out
+	// Reserve space for the outer length prefix before the zlib size is known.
+	out.data = slices.Grow(out.data[:0], varIntRoom+varIntRoom+bodyLen)[:varIntRoom]
+	out.PutVarInt(int32(bodyLen))
+	zw := zlibWriters.Get().(*zlib.Writer)
+	defer zlibWriters.Put(zw)
+	zw.Reset(out)
+	if _, err := zw.Write(id.Bytes()); err != nil {
+		return nil, fmt.Errorf("compress packet: %w", err)
+	}
+	if _, err := zw.Write(data); err != nil {
+		return nil, fmt.Errorf("compress packet: %w", err)
+	}
+	if err := zw.Close(); err != nil {
+		return nil, fmt.Errorf("compress packet: %w", err)
+	}
+
+	id.Reset()
+	id.PutVarInt(int32(out.Len() - varIntRoom))
+	start := varIntRoom - id.Len()
+	copy(out.data[start:], id.Bytes())
 	return out.data[start:], nil
 }
 

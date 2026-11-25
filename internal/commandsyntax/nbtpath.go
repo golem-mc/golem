@@ -133,11 +133,9 @@ func (p *nbtPathParser) parseSelectorNode() (PathNode, *Error) {
 		p.pos++
 		return MatchElementNode{Pattern: pattern}, nil
 	}
-	start := p.pos
 	index, err := p.readIndex()
 	if err != nil {
-		p.pos = start
-		return nil, p.invalidNode()
+		return nil, err
 	}
 	if !p.at(']') {
 		return nil, &Error{Text: "expected ]", Cursor: p.pos}
@@ -199,17 +197,24 @@ func (p *nbtPathParser) readUnquotedName() string {
 	return p.src[start:p.pos]
 }
 
+// vanilla: StringReader.readInt
 func (p *nbtPathParser) readIndex() (int, *Error) {
 	start := p.pos
-	if p.at('-') {
+	for p.canRead() {
+		c := p.peek()
+		if (c < '0' || c > '9') && c != '.' && c != '-' {
+			break
+		}
 		p.pos++
 	}
-	for p.canRead() && p.src[p.pos] >= '0' && p.src[p.pos] <= '9' {
-		p.pos++
+	number := p.src[start:p.pos]
+	if number == "" {
+		return 0, &Error{Key: "parsing.int.expected", Cursor: start}
 	}
-	v, err := strconv.ParseInt(p.src[start:p.pos], 10, 32)
+	v, err := strconv.ParseInt(number, 10, 32)
 	if err != nil {
-		return 0, &Error{Text: "expected integer", Cursor: start}
+		p.pos = start
+		return 0, &Error{Key: "parsing.int.invalid", With: []string{number}, Cursor: start}
 	}
 	return int(v), nil
 }

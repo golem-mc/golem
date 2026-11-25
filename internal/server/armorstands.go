@@ -61,6 +61,7 @@ type armorStandEntity struct {
 var standTracker = trackedKind[*armorStandEntity, *armorStandMeta]{
 	steppedPath:      true,
 	invalidatePiston: func(dim *dimension) { dim.pistons.armorStands.built = false },
+	pistonBit:        pistonArmorStands,
 
 	rangeChunks: entity.ArmorStandTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.armorStandsMu },
@@ -351,8 +352,7 @@ func (c *client) placeArmorStand(hand, x, y, z, face int32) (handled bool, err e
 
 // boxTaken reports whether any non-spectator body's box overlaps the box a
 // placement would fill — vanilla's Level.getEntities(null, box).isEmpty().
-// The players, mobs, stands, crystals, items, orbs, TNT, falling blocks,
-// boats and minecarts are walked, each list under its own lock alone.
+// Each entity list is walked under its own lock alone.
 func (s *Server) boxTaken(w *world.World, box entity.AABB) bool {
 	s.mu.RLock()
 	clients := s.clientsLocked()
@@ -393,7 +393,7 @@ func (s *Server) boxTaken(w *world.World, box entity.AABB) bool {
 	if s.endCrystalBoxTaken(w, box) {
 		return true
 	}
-	return s.looseBoxTaken(w, box)
+	return s.looseBoxTaken(w, box) || s.arrowOrCloudBoxTaken(w, box)
 }
 
 // looseBoxTaken is boxTaken's half over the items, orbs, TNT, falling

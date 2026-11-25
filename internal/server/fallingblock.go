@@ -53,6 +53,7 @@ type fallingEntity struct {
 // Teleport Entity: the type does not track its delta.
 var fallingTracker = trackedKind[*fallingEntity, struct{}]{
 	invalidatePiston: func(dim *dimension) { dim.pistons.fallings.built = false },
+	pistonBit:        pistonFallings,
 
 	rangeChunks: entity.FallingBlockTrackingRange,
 	interval:    entity.FallingBlockUpdateInterval,

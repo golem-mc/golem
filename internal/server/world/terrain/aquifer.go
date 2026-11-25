@@ -2,6 +2,7 @@ package terrain
 
 import (
 	"math"
+	"sync"
 
 	"github.com/golem-mc/golem/internal/server/world/levelgen"
 )
@@ -68,17 +69,36 @@ type Aquifer struct {
 	ctx    *Context
 	global FluidPicker
 	// cfg is nil for a disabled aquifer. vanilla: Aquifer.createDisabled
-	cfg                          *AquiferConfig
-	random                       levelgen.PositionalRandomFactory
+	cfg    *AquiferConfig
+	random levelgen.PositionalRandomFactory
+	// siteRandom is reseeded per grid location by cacheNeighbors; nil until the first miss.
+	siteRandom                   levelgen.RandomSource
 	shouldSchedule               bool
 	skipSamplingAboveY           int32
 	minGridX, minGridY, minGridZ int32
 	gridSizeX, gridSizeZ         int32
-	status                       []FluidStatus
-	haveStatus                   []bool
-	location                     []int64
-	surfaceCache                 map[int64]int32
+	buffers                      *aquiferBuffers
+	minSurfaceQX, minSurfaceQZ   int32
+	surfaceWidth, surfaceDepth   int32
+	surfaceCache                 map[int64]int32 // Samples outside the precomputed rectangle.
 	neighbors                    aquiferNeighbors
+}
+
+type aquiferBuffers struct {
+	status        []FluidStatus
+	haveStatus    []bool
+	location      []int64
+	surfaceLevels []int32
+}
+
+// aquiferPools use the same column and chunk size classes as scratchPools.
+var aquiferPools [2]sync.Pool
+
+func resizeAquiferBuffer[T any](buf []T, size int) []T {
+	if cap(buf) < size {
+		return make([]T, size)
+	}
+	return buf[:size]
 }
 
 const (
@@ -120,7 +140,7 @@ func NewDisabledAquifer(global FluidPicker) *Aquifer { return &Aquifer{global: g
 // NewAquifer is vanilla: Aquifer.Config.create. It samples the surface level
 // over the volume through ctx, as the constructor does.
 func NewAquifer(ctx *Context, cfg *AquiferConfig, random levelgen.PositionalRandomFactory, v Volume, global FluidPicker) *Aquifer {
-	a := &Aquifer{ctx: ctx, global: global, cfg: cfg, random: random, surfaceCache: map[int64]int32{}}
+	a := &Aquifer{ctx: ctx, global: global, cfg: cfg, random: random}
 	a.minGridX = gridXZ(v.MinX + aquiferSampleX)
 	maxGridX := gridXZ(v.BlockX(v.SizeX-1)+aquiferSampleX) + 1
 	a.gridSizeX = maxGridX - a.minGridX + 1
@@ -130,17 +150,32 @@ func NewAquifer(ctx *Context, cfg *AquiferConfig, random levelgen.PositionalRand
 	a.minGridZ = gridXZ(v.MinZ + aquiferSampleZ)
 	maxGridZ := gridXZ(v.BlockZ(v.SizeZ-1)+aquiferSampleZ) + 1
 	a.gridSizeZ = maxGridZ - a.minGridZ + 1
-	total := a.gridSizeX * gridSizeY * a.gridSizeZ
-	a.status = make([]FluidStatus, total)
-	a.haveStatus = make([]bool, total)
-	a.location = make([]int64, total)
-	for i := range a.location {
-		a.location[i] = noLocation
+	total := int(a.gridSizeX * gridSizeY * a.gridSizeZ)
+	buffers, _ := aquiferPools[ctx.pool].Get().(*aquiferBuffers)
+	if buffers == nil {
+		buffers = &aquiferBuffers{}
 	}
+	buffers.status = resizeAquiferBuffer(buffers.status, total)
+	buffers.haveStatus = resizeAquiferBuffer(buffers.haveStatus, total)
+	buffers.location = resizeAquiferBuffer(buffers.location, total)
+	// Status values are only read after their validity bit is set.
+	clear(buffers.haveStatus)
+	for i := range buffers.location {
+		buffers.location[i] = noLocation
+	}
+	a.buffers = buffers
 	maxAdjusted := a.adjustSurfaceLevel(a.maxSurfaceLevel(fromGridXZ(a.minGridX, 0), fromGridXZ(a.minGridZ, 0), fromGridXZ(maxGridX, 9), fromGridXZ(maxGridZ, 9)))
 	skipAboveGridY := gridY(maxAdjusted+12) + 1
 	a.skipSamplingAboveY = fromGridY(skipAboveGridY, 11) - 1
 	return a
+}
+
+func (a *Aquifer) recycle() {
+	if b := a.buffers; b != nil {
+		a.buffers = nil
+		clear(a.neighbors.status[:])
+		aquiferPools[a.ctx.pool].Put(b)
+	}
 }
 
 // chunkPosKey is vanilla: ChunkPos.pack.
@@ -148,13 +183,20 @@ func chunkPosKey(x, z int32) int64 { return int64(uint32(x)) | int64(uint32(z))<
 
 // surfaceLevel is vanilla: NoiseBasedAquifer.surfaceLevel.
 func (a *Aquifer) surfaceLevel(blockX, blockZ int32) int32 {
-	qx := (blockX >> 2) << 2
-	qz := (blockZ >> 2) << 2
-	key := chunkPosKey(qx, qz)
+	qx, qz := blockX>>2, blockZ>>2
+	x, z := qx-a.minSurfaceQX, qz-a.minSurfaceQZ
+	if x >= 0 && x < a.surfaceWidth && z >= 0 && z < a.surfaceDepth {
+		return a.buffers.surfaceLevels[z*a.surfaceWidth+x]
+	}
+	bx, bz := qx<<2, qz<<2
+	key := chunkPosKey(bx, bz)
 	if v, ok := a.surfaceCache[key]; ok {
 		return v
 	}
-	v := floorInt(float64(a.cfg.SurfaceLevel.Sample(a.ctx, qx, 0, qz)))
+	v := floorInt(float64(a.cfg.SurfaceLevel.Sample(a.ctx, bx, 0, bz)))
+	if a.surfaceCache == nil {
+		a.surfaceCache = make(map[int64]int32)
+	}
 	a.surfaceCache[key] = v
 	return v
 }
@@ -166,11 +208,15 @@ func (a *Aquifer) maxSurfaceLevel(minBlockX, minBlockZ, maxBlockX, maxBlockZ int
 	v := Volume{maxQX - minQX + 1, 1, maxQZ - minQZ + 1, minQX << 2, 0, minQZ << 2, 4, 1, 4}
 	buf := a.ctx.acquire(v.Size())
 	a.cfg.SurfaceLevel.SampleVolume(a.ctx, buf, v)
+	a.minSurfaceQX, a.minSurfaceQZ = minQX, minQZ
+	a.surfaceWidth, a.surfaceDepth = v.SizeX, v.SizeZ
+	levels := resizeAquiferBuffer(a.buffers.surfaceLevels, v.Size())
+	a.buffers.surfaceLevels = levels
 	maxY := int32(math.MinInt32)
 	for z := range v.SizeZ {
 		for x := range v.SizeX {
 			s := floorInt(float64(buf[v.Index(x, 0, z)]))
-			a.surfaceCache[chunkPosKey(v.BlockX(x), v.BlockZ(z))] = s
+			levels[z*v.SizeX+x] = s
 			if s > maxY {
 				maxY = s
 			}
@@ -339,6 +385,7 @@ type aquiferNeighbors struct {
 
 func (a *Aquifer) cacheNeighbors(x, yAnchor, z int32) {
 	n := &a.neighbors
+	b := a.buffers
 	n.x, n.z, n.anchorY, n.valid = x, z, yAnchor, true
 	xAnchor := gridXZ(x + aquiferSampleX)
 	zAnchor := gridXZ(z + aquiferSampleZ)
@@ -348,20 +395,26 @@ func (a *Aquifer) cacheNeighbors(x, yAnchor, z int32) {
 			for z1 := int32(0); z1 <= 1; z1++ {
 				gx, gy, gz := xAnchor+x1, yAnchor+y1, zAnchor+z1
 				idx := a.index(gx, gy, gz)
-				loc := a.location[idx]
+				loc := b.location[idx]
 				if loc == noLocation {
-					r := a.random.At(gx, gy, gz)
+					r := a.siteRandom
+					if r == nil {
+						r = a.random.At(gx, gy, gz)
+						a.siteRandom = r
+					} else {
+						a.random.SeedAt(r, gx, gy, gz)
+					}
 					lx := fromGridXZ(gx, r.NextIntN(aquiferXRange))
 					ly := fromGridY(gy, r.NextIntN(aquiferYRange))
 					lz := fromGridXZ(gz, r.NextIntN(aquiferZRange))
 					loc = packBlockPos(lx, ly, lz)
-					a.location[idx] = loc
+					b.location[idx] = loc
 				}
 				dx, dz := unpackX(loc)-x, unpackZ(loc)-z
 				n.distanceXZ[i], n.y[i], n.index[i] = dx*dx+dz*dz, unpackY(loc), idx
 				n.status[i] = nil
-				if a.haveStatus[idx] {
-					n.status[i] = &a.status[idx]
+				if b.haveStatus[idx] {
+					n.status[i] = &b.status[idx]
 				}
 				i++
 			}
@@ -374,10 +427,11 @@ func (a *Aquifer) neighborStatus(i int) FluidStatus {
 		return *s
 	}
 	idx := a.neighbors.index[i]
-	loc := a.location[idx]
+	b := a.buffers
+	loc := b.location[idx]
 	s := a.computeFluid(unpackX(loc), unpackY(loc), unpackZ(loc))
-	a.status[idx], a.haveStatus[idx] = s, true
-	a.neighbors.status[i] = &a.status[idx]
+	b.status[idx], b.haveStatus[idx] = s, true
+	a.neighbors.status[i] = &b.status[idx]
 	return s
 }
 

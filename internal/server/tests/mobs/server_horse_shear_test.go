@@ -1,12 +1,14 @@
 package mobs
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
 )
 
 // saddledHorse is a still tame horse beside a survival player, saddled by a
@@ -85,5 +87,62 @@ func TestShearsTakeHorseArmourBeforeTheSaddle(t *testing.T) {
 	}
 	if !seen.heard("minecraft:item.horse_armor.unequip") {
 		t.Errorf("no armour unequip sound in %v", seen.sounds)
+	}
+}
+
+// vanilla: Mob.attemptToShearEquipment checks slots in declaration order.
+func TestShearsCheckEveryEquipmentSlot(t *testing.T) {
+	t.Parallel()
+	slots := []struct{ name, commandSlot, stack string }{
+		{"mainhand", "weapon.mainhand", "saddle"},
+		{"offhand", "weapon.offhand", "iron_horse_armor"},
+		{"feet", "armor.feet", `iron_boots[equippable={slot:"feet",can_be_sheared:true}]`},
+		{"legs", "armor.legs", `iron_leggings[equippable={slot:"legs",can_be_sheared:true}]`},
+		{"chest", "armor.chest", `iron_chestplate[equippable={slot:"chest",can_be_sheared:true}]`},
+		{"head", "armor.head", `iron_helmet[equippable={slot:"head",can_be_sheared:true}]`},
+		{"body", "armor.body", "iron_horse_armor"},
+	}
+	for i, first := range slots[:len(slots)-1] {
+		t.Run(first.name, func(t *testing.T) {
+			const name = "Shearer"
+			srv, c := servertest.Join(t, servertest.MobTestConfig(), name, servertest.OpsListing(t, name))
+			servertest.HoldTicks(t, srv)
+			srv.SetDayTime(18000)
+			c.MoveToGround(0.5, 64, 0.5, true)
+			id := srv.SpawnMob("minecraft:zombie", 1.5, 64, 0.5)
+			if !srv.SetMobNoAI(id) {
+				t.Fatal("the zombie did not spawn")
+			}
+			giveHand(t, srv, name, "minecraft:shears", 1)
+			later := slots[i+1]
+			selector, _ := srv.MobUUID(id)
+			for _, piece := range slots[i : i+2] {
+				c.ChatCommand("item replace entity " + selector + " " + piece.commandSlot + " with " + piece.stack)
+			}
+			firstItem, _, _ := strings.Cut(first.stack, "[")
+			laterItem, _, _ := strings.Cut(later.stack, "[")
+			checkSlots := func(wantFirst string) {
+				t.Helper()
+				equipment, _ := nbt.Get[nbt.Compound](entityCompound(t, c, selector), "equipment")
+				for _, slot := range []struct{ name, want string }{{first.name, wantFirst}, {later.name, "minecraft:" + laterItem}} {
+					stack, _ := nbt.Get[nbt.Compound](equipment, slot.name)
+					if got, _ := nbt.Get[nbt.String](stack, "id"); string(got) != slot.want {
+						t.Fatalf("%s held %q, want %q", slot.name, got, slot.want)
+					}
+				}
+			}
+			checkSlots("minecraft:" + firstItem)
+
+			c.UseOn(id)
+			c.Settle()
+			servertest.RunTicks(t, srv, 2)
+			checkSlots("")
+			if drops := srv.ItemsInDimension("minecraft:overworld"); len(drops) != 1 || drops[0].Item != "minecraft:"+firstItem || drops[0].Count != 1 {
+				t.Errorf("drops = %v, want one %s", drops, firstItem)
+			}
+			if got := srv.InventorySlot(name, player.HotbarSlot); got.Damage != 1 {
+				t.Errorf("shears damage = %d, want 1", got.Damage)
+			}
+		})
 	}
 }

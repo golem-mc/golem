@@ -147,7 +147,11 @@ func EntityTypeID(name string) (int32, bool) {
 // EntityTypeTagMembers returns the entity type names a built-in tag groups,
 // or false for an unknown tag.
 func EntityTypeTagMembers(tag string) ([]string, bool) {
-	for _, r := range tagsNow.Load().builtin {
+	return CurrentTagLookup().EntityTypeTagMembers(tag)
+}
+
+func (lookup *TagLookup) EntityTypeTagMembers(tag string) ([]string, bool) {
+	for _, r := range lookup.builtin {
 		if r.Registry != "minecraft:entity_type" {
 			continue
 		}
