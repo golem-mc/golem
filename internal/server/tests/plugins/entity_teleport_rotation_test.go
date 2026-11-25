@@ -22,6 +22,7 @@ func TestPluginTeleportRedirectTurnsMountAndRider(t *testing.T) {
 		return nil
 	}}}})
 	defer srv.HoldChunk(0, 0)()
+	servertest.HoldTicks(t, srv)
 	host.Scheduler().RunTask(func() {
 		host.Dispatch(host.Console(), `summon chicken 3.5 64 3.5 {NoAI:1b,NoGravity:1b,Rotation:[30f,10f],Passengers:[`+
 			`{id:"minecraft:pig",NoAI:1b,NoGravity:1b,Rotation:[0f,0f]}]}`)
@@ -50,17 +51,43 @@ func TestPluginTeleportRedirectOverridesFacingForRider(t *testing.T) {
 }
 
 // The event of a target an earlier target already turned reports that
-// target's live angles, so a position-only redirect keeps them.
+// target's live angles as both From and the resolved To, so a position-only
+// redirect keeps them, for a relative turn and a coordinate-only command alike.
 // vanilla: TeleportCommand.performTeleport
 func TestPluginTeleportEventSeesLiveAnglesOfLaterTarget(t *testing.T) {
 	t.Parallel()
-	got := runRotationScenario(t, func(e *plugin.EntityTeleportEvent) {
-		if e.Entity.Type() == registry.EntityTypePig {
-			e.To.Pos.X++
-		}
-	}, "execute positioned 3.5 64 3.5 rotated 0 0 run tp @e[tag=pair,sort=nearest] 5.5 64 5.5 ~-170 ~120")
-	if c, p := got["minecraft:chicken"], got["minecraft:pig"]; c != [2]float32{190, -90} || p != [2]float32{190, -90} {
-		t.Fatalf("chicken %v, pig %v; want [190 -90] twice", c, p)
+	for _, tc := range []struct {
+		name, cmd string
+		chickenTo *[2]float32
+		from, to  [2]float32
+		chicken   [2]float32
+		pig       [2]float32
+	}{
+		{name: "relative", cmd: "5.5 64 5.5 ~-170 ~120",
+			from: [2]float32{20, -90}, to: [2]float32{190, -90}, chicken: [2]float32{190, -90}, pig: [2]float32{190, -90}},
+		{name: "coordinates", cmd: "5.5 64 5.5", chickenTo: &[2]float32{90, 25},
+			from: [2]float32{-80, 90}, to: [2]float32{-80, 90}, chicken: [2]float32{90, 25}, pig: [2]float32{-80, 90}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var from, to [2]float32
+			got := runRotationScenario(t, func(e *plugin.EntityTeleportEvent) {
+				if e.Entity.Type() != registry.EntityTypePig {
+					if tc.chickenTo != nil {
+						e.To.Yaw, e.To.Pitch = tc.chickenTo[0], tc.chickenTo[1]
+					}
+					return
+				}
+				from, to = [2]float32{e.From.Yaw, e.From.Pitch}, [2]float32{e.To.Yaw, e.To.Pitch}
+				e.To.Pos.X++
+			}, "execute positioned 3.5 64 3.5 rotated 0 0 run tp @e[tag=pair,sort=nearest] "+tc.cmd)
+			if from != tc.from || to != tc.to {
+				t.Errorf("pig event from %v to %v; want %v to %v", from, to, tc.from, tc.to)
+			}
+			if c, p := got["minecraft:chicken"], got["minecraft:pig"]; c != tc.chicken || p != tc.pig {
+				t.Fatalf("chicken %v, pig %v; want %v and %v", c, p, tc.chicken, tc.pig)
+			}
+		})
 	}
 }
 
@@ -75,6 +102,7 @@ func runRotationScenario(t *testing.T, listener func(*plugin.EntityTeleportEvent
 		return nil
 	}}}})
 	defer srv.HoldChunk(0, 0)()
+	servertest.HoldTicks(t, srv)
 	host.Scheduler().RunTask(func() {
 		host.Dispatch(host.Console(), `summon chicken 3.5 64 3.5 {NoAI:1b,NoGravity:1b,Tags:["pair"],Rotation:[170f,-80f],Passengers:[`+
 			`{id:"minecraft:pig",NoAI:1b,NoGravity:1b,Tags:["pair"],Rotation:[0f,0f]}]}`)

@@ -943,14 +943,23 @@ func teleportTurn(move command.Move) entity.Turn {
 // always gets its absolute destination, so a facing clause turns it here
 // rather than via the client-only Player Look At.
 func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
-	if ref, ok := e.ref.(*mobEntity); ok && move.Command && move.LookAt == nil && !move.KeepRotation {
-		// The event reports the angles this target turns to now, which an
+	if ref, ok := e.ref.(*mobEntity); ok && move.Command {
+		// The event reports where this target is and turns to now, which an
 		// earlier target in the command may have changed.
 		e.srv.mobsMu.Lock()
-		yaw, pitch := ref.mob.Yaw, ref.mob.Pitch
+		m := ref.mob
+		e.pos = player.Position{X: m.X, Y: m.Y, Z: m.Z, Yaw: m.Yaw, Pitch: m.Pitch}
 		e.srv.mobsMu.Unlock()
-		move = move.AgainstAngles(yaw, pitch)
+		switch {
+		case move.LookAt != nil:
+			// The facing clause's angles stand.
+		case move.KeepRotation:
+			move.Pos.Yaw, move.Pos.Pitch = e.pos.Yaw, e.pos.Pitch
+		default:
+			move = move.AgainstAngles(e.pos.Yaw, e.pos.Pitch)
+		}
 	}
+	asked := move.Pos
 	move, dim, ok := e.srv.pluginTeleport(e, move, dim, by)
 	if !ok {
 		return
@@ -962,6 +971,10 @@ func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
 	}
 	switch ref := e.ref.(type) {
 	case *mobEntity:
+		if move.LookAt != nil && (move.Pos.Yaw != asked.Yaw || move.Pos.Pitch != asked.Pitch) {
+			// A listener's angles replace a facing clause's.
+			move.LookAt = nil
+		}
 		e.srv.turnTeleportMob(ref, move, by)
 	case *itemEntity:
 		e.srv.teleportItem(ref, to, by)
