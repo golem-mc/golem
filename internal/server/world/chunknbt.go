@@ -654,47 +654,17 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 	s.shapes.Store(0)
 	s.colliding, s.comparators = 0, 0
 	var sculkCounts [sculkCellKinds]int
+	var touches, shapes int32
 	// Invalid indices read as air, which contributes to none of these tallies.
 	for pIdx, state := range stateIDs {
-		n := int(counts[pIdx])
-		if n == 0 {
-			continue
-		}
-		if randomlyTicking(state) {
-			s.ticking += n
-		}
-		if registry.LightEmission(state) > 0 {
-			s.emitting += n
-		}
-		if MayCollide(state) {
-			s.colliding += n
-		}
-		if isLightningRod(state) {
-			s.rods += n
-		}
-		if IsTurtleEgg(state) {
-			s.eggs += n
-		}
-		block := registry.BlockOf(state)
-		if kind := sculkCellKindOf(block); kind != noSculkCell {
-			sculkCounts[kind] += n
-		}
-		switch block {
-		case registry.BlockNetherPortal:
-			s.portals += n
-		case registry.BlockComparator:
-			s.comparators += int32(n)
-		}
-		if registry.IsPOI(state) {
-			s.pois += n
-		}
-		if isTouchBlock[block] {
-			s.touches.Add(int32(n))
-		}
-		if isShapeBlock[block] {
-			s.shapes.Add(int32(n))
+		if n := int(counts[pIdx]); n > 0 {
+			if kind := s.countState(state, n, &touches, &shapes); kind != noSculkCell {
+				sculkCounts[kind] += n
+			}
 		}
 	}
+	s.touches.Store(touches)
+	s.shapes.Store(shapes)
 	if sculkCounts != [sculkCellKinds]int{} {
 		s.indexDecodedSculkCells(blocks, sculkCounts)
 	}
