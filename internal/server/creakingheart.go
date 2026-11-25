@@ -93,15 +93,12 @@ func (s *Server) creakingBodyOf(w *world.World, be *world.BlockEntity) (creaking
 	var body creakingBody
 	found := false
 	s.mobsMu.Lock()
-	for _, ent := range s.herdOf(w).book {
-		if ent.uuid != id {
-			continue
-		}
+	herd := s.herdOf(w)
+	if ent := herd.book[herd.byUUID[id]]; ent != nil {
 		m := ent.mob
 		body = creakingBody{ent: ent, feet: [3]float64{m.X, m.Y, m.Z}, persistent: m.Persistence}
 		body.boxMin[0], body.boxMin[1], body.boxMin[2], body.boxMax[0], body.boxMax[1], body.boxMax[2] = m.BlastBox()
 		found = true
-		break
 	}
 	s.mobsMu.Unlock()
 	switch {

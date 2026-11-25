@@ -9,8 +9,7 @@ import (
 
 type benchLodestoneWorld struct{}
 
-func (benchLodestoneWorld) BlockAt(x, y, z int32) uint16  { return 0 }
-func (benchLodestoneWorld) ChunkLoadedAt(x, z int32) bool { return true }
+func (benchLodestoneWorld) LodestoneCached(x, y, z int32) (present, known bool) { return false, true }
 
 var clearLostLodestoneBench protocol.ItemStack
 

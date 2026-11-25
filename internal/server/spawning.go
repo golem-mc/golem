@@ -35,6 +35,8 @@ func (s *Server) tickNaturalSpawning() {
 	s.tickPatrolSpawner(clients)
 	s.tickVillageSiege(clients)
 
+	// One snapshot serves every dimension, built when the first one spawns.
+	var gate *entityGate
 	for _, dim := range s.allDims() {
 		players := spawnPlayersOf(clients, dim.w)
 		if len(players) == 0 {
@@ -67,12 +69,22 @@ func (s *Server) tickNaturalSpawning() {
 		}
 		monsters := w.SpawnEnemies()
 
+		if gate == nil {
+			g := s.newEntityGateOf(clients)
+			gate = &g
+		}
+		centres, reach := gate.centres[w], gate.reach
+		ticking := func(pos entity.ChunkPos) bool {
+			return entityTicksIn(w, centres, reach, world.ChunkPos(pos))
+		}
 		chunks := dim.spawnablePositions[:0]
 		for _, pos := range spawning {
 			// A chunk whose light is still building reads as pitch dark, so wait
 			// (vanilla walks only FULL-status chunks).
 			// vanilla: ServerLevel.canSpawnEntitiesInChunk
-			if w.ChunkLightReady(pos) && entity.ChunkInBorder(w, entity.ChunkPos(pos)) {
+			// A spawn origin also has to entity-tick.
+			// vanilla: ServerChunkCache.tickChunks (isPositionEntityTicking)
+			if w.ChunkLightReady(pos) && entity.ChunkInBorder(w, entity.ChunkPos(pos)) && ticking(entity.ChunkPos(pos)) {
 				chunks = append(chunks, entity.ChunkPos(pos))
 			}
 		}
@@ -108,7 +120,7 @@ func (s *Server) tickNaturalSpawning() {
 				passes = append(passes, entity.NewSpawnPass(c, counts[c], dim.spawnTuning.Limit(c)))
 			}
 		}
-		entity.SpawnNaturally(w, s.spawnRng, chunks, players, bodies, potential, passes, spawnable, spawn)
+		entity.SpawnNaturally(w, s.spawnRng, chunks, players, bodies, potential, passes, spawnable, ticking, spawn)
 	}
 }
 

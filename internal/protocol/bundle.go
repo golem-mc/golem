@@ -31,11 +31,18 @@ func (s ItemStack) BundleContents() []ItemStack {
 }
 
 // SetBundleContents replaces the items a bundle stack holds, storing them as
-// the minecraft:bundle_contents component; an empty list removes the
-// component, the absence the item's own default is stored as.
+// the minecraft:bundle_contents component; an empty list resets the component
+// to its default.
 func (s *ItemStack) SetBundleContents(items []ItemStack) {
-	if len(items) == 0 {
-		s.dropRaw(DataComponentBundleContents)
+	s.SetBundleContentsPatch(items, false)
+}
+
+// SetBundleContentsPatch replaces the minecraft:bundle_contents patch, keeping
+// an explicit empty patch when keepEmpty is true and otherwise resetting to
+// the item's default.
+func (s *ItemStack) SetBundleContentsPatch(items []ItemStack, keepEmpty bool) {
+	if len(items) == 0 && !keepEmpty {
+		s.ResetComponent(DataComponentBundleContents)
 		return
 	}
 	s.SetExplicitBundleContents(items)

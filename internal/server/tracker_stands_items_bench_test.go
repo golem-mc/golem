@@ -121,6 +121,31 @@ func BenchmarkTickArmorStandsTracked(b *testing.B) {
 	}
 }
 
+// BenchmarkTickArmorStandsMarkerFire runs the armor stand tick over marker
+// stands whose fire timer stays positive through the measurement.
+func BenchmarkTickArmorStandsMarkerFire(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	spawnBenchStands(s, w)
+	for _, ent := range s.armorStands {
+		ent.stand.Marker = true
+		ent.stand.FireTicks = 1 << 30
+	}
+	for range 40 {
+		s.tickArmorStands()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.tickArmorStands()
+	}
+	b.StopTimer()
+	for _, ent := range s.armorStands {
+		if ent.stand.FireTicks <= 0 {
+			b.Fatal("fire timer expired during the run")
+		}
+	}
+}
+
 // BenchmarkTickArmorStandsMoving is BenchmarkTickArmorStandsTracked with every
 // stand moved a block each tick, so each movement tick sends a position.
 func BenchmarkTickArmorStandsMoving(b *testing.B) {
@@ -134,6 +159,25 @@ func BenchmarkTickArmorStandsMoving(b *testing.B) {
 	for i := range b.N {
 		for _, ent := range s.armorStands {
 			ent.stand.Y = float64(world.GroundLevel) + float64(i%2)
+		}
+		s.tickArmorStands()
+	}
+}
+
+// BenchmarkTickArmorStandsMovingDirty is BenchmarkTickArmorStandsMoving with
+// every stand's synched data changed each tick as well.
+func BenchmarkTickArmorStandsMovingDirty(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	spawnBenchStands(s, w)
+	for range 40 {
+		s.tickArmorStands()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		for _, ent := range s.armorStands {
+			ent.stand.Y = float64(world.GroundLevel) + float64(i%2)
+			ent.stand.Invisible = i%2 == 1
 		}
 		s.tickArmorStands()
 	}

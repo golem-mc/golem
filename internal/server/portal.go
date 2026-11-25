@@ -972,6 +972,15 @@ func (s *Server) entityPortalArrival(who command.Entity, kind rules.PortalKind, 
 // returns the body to its list.
 func (s *Server) crossPortal(w *world.World, id int32, pos player.Position, kind rules.PortalKind,
 	arrive func(to *dimension, spot world.SpawnPos, exitAxis [2]int32) (register func()), putBack func()) {
+	s.crossPortalTold(w, id, pos, kind, arrive, putBack, nil)
+}
+
+// crossPortalTold is crossPortal with the old body's removal sent to
+// watchers alone, for a body whose pairing the tick already settled; nil
+// broadcasts it to the source world.
+// vanilla: ServerEntity.removePairing
+func (s *Server) crossPortalTold(w *world.World, id int32, pos player.Position, kind rules.PortalKind,
+	arrive func(to *dimension, spot world.SpawnPos, exitAxis [2]int32) (register func()), putBack func(), watchers *[]uuid.UUID) {
 	from := s.dimensionOfWorld(w)
 	exitWho, exitFrom, exiting := s.portalExitSource(w, id)
 	to, spot, exitAxis, ok := s.entityPortalArrival(s.relatedByID(w, id), kind, from, pos, false)
@@ -1000,6 +1009,10 @@ func (s *Server) crossPortal(w *world.World, id int32, pos player.Position, kind
 		s.notePortalExit(nil, exitWho.UUID(), exitFrom, kind)
 	}
 	s.teleportSpectatorsOf(w, id, to, standingAt(spot))
+	if watchers != nil {
+		s.tellWatchers(w, *watchers, []outbound{{id: protocol.IDPlayRemoveEntities, data: removeEntitiesPayload([]int32{id})}})
+		return
+	}
 	s.broadcastWorld(w, protocol.IDPlayRemoveEntities, removeEntitiesPayload([]int32{id}))
 }
 
@@ -1010,10 +1023,10 @@ func (s *Server) crossPortal(w *world.World, id int32, pos player.Position, kind
 // that stays goes back to the list.
 // vanilla: Entity.teleportCrossDimension, NetherPortalBlock.getExitPortal
 func (k *trackedKind[B, S]) crossPortal(s *Server, b B, kind rules.PortalKind, register func(B),
-	twinAt func(to *world.World, at player.Position) (B, bool)) {
+	twinAt func(to *world.World, at player.Position) (B, bool), watchers *[]uuid.UUID) {
 	from := k.pose(b)
 	pos := player.Position{X: from.x, Y: from.y, Z: from.z, Yaw: from.yaw}
-	s.crossPortal(k.world(b), k.id(b), pos, kind,
+	s.crossPortalTold(k.world(b), k.id(b), pos, kind,
 		func(to *dimension, spot world.SpawnPos, exitAxis [2]int32) func() {
 			at := standingAt(spot)
 			if kind == rules.PortalNether && k.portalDimensions != nil {
@@ -1037,7 +1050,7 @@ func (k *trackedKind[B, S]) crossPortal(s *Server, b B, kind rules.PortalKind, r
 			mu.Lock()
 			*k.list(s) = append(*k.list(s), b)
 			mu.Unlock()
-		})
+		}, watchers)
 }
 
 // netherArrivalPosition maps a body's entry offset and clears exit block collisions.

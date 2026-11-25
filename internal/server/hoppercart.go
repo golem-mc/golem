@@ -313,7 +313,7 @@ func (s *Server) dropCartColumns() {
 func (s *Server) entityContainerAt(w *world.World, cx, cy, cz float64, except *minecartEntity) containerTarget {
 	// Boats are read under boatsMu then minecartsMu, the order the index
 	// build uses, so dropCartColumns cannot recycle a bucket mid-traversal.
-	// An empty or cart-only lookup takes minecartsMu alone.
+	// An empty or cart-only column needs minecartsMu alone.
 	s.minecartsMu.Lock()
 	locked := false
 	for {
@@ -332,29 +332,49 @@ func (s *Server) entityContainerAt(w *world.World, cx, cy, cz float64, except *m
 			locked = true
 			continue // the index may have changed while unlocked
 		}
-		var found []containerTarget
-		if !indexed {
-			carts.more = s.minecarts
-			boats.more = s.boats
-		}
-		carts.each(func(it *minecartEntity) {
+		var nearby [2]containerTarget
+		found := nearby[:0]
+		collectCart := func(it *minecartEntity) bool {
 			if it == except || it.w != w || it.cart.Dead || it.cargo.slots == nil {
-				return
+				return true
 			}
 			minX, minY, minZ, maxX, maxY, maxZ := it.cart.Box()
 			if boxMeets(minX, minY, minZ, maxX, maxY, maxZ, cx, cy, cz) {
 				found = append(found, cartTarget{s: s, it: it})
 			}
-		})
-		boats.each(func(it *boatEntity) {
+			return len(found) < 2
+		}
+		collectBoat := func(it *boatEntity) bool {
 			if it.w != w || it.boat.Dead || it.cargo == nil {
-				return
+				return true
 			}
 			minX, minY, minZ, maxX, maxY, maxZ := it.boat.Box()
 			if boxMeets(minX, minY, minZ, maxX, maxY, maxZ, cx, cy, cz) {
 				found = append(found, boatTarget{s: s, it: it})
 			}
-		})
+			return len(found) < 2
+		}
+		ordered := true
+		if !indexed {
+			box := [6]float64{cx - 0.5, cy - 0.5, cz - 0.5, cx + 0.5, cy + 0.5, cz + 0.5}
+			if area, ok := smallChunkArea(&box); ok {
+				bodiesInChunks(&s.minecartChunks, nil, &area, collectCart)
+				if len(found) < 2 {
+					bodiesInChunks(&s.boatChunks, nil, &area, collectBoat)
+				}
+				ordered = len(found) >= 2
+			}
+			if ordered {
+				// The same random draw must still select the same vehicle.
+				found = found[:0]
+				carts.more = s.minecarts
+				boats.more = s.boats
+			}
+		}
+		if ordered {
+			carts.each(func(it *minecartEntity) { collectCart(it) })
+			boats.each(func(it *boatEntity) { collectBoat(it) })
+		}
 		s.minecartsMu.Unlock()
 		if locked {
 			s.boatsMu.Unlock()

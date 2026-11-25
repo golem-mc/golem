@@ -8,28 +8,42 @@ import "slices"
 // ChargedProjectiles returns the projectiles a crossbow stack is loaded with;
 // nil for an unloaded one.
 func (s ItemStack) ChargedProjectiles() []ItemStack {
+	items, _ := s.ChargedProjectilesOf()
+	return items
+}
+
+// ChargedProjectilesOf returns the patched minecraft:charged_projectiles items
+// and whether the component is explicitly patched on the stack.
+func (s ItemStack) ChargedProjectilesOf() ([]ItemStack, bool) {
 	for _, raw := range s.Raw {
 		if raw.Type == DataComponentChargedProjectiles {
 			items, ok := bundleItemsOf(raw.Data)
 			if !ok {
-				return nil
+				return nil, false
 			}
 			if len(s.intangibleLoaded) == len(items) {
 				for i := range items {
 					items[i].Intangible = s.intangibleLoaded[i]
 				}
 			}
-			return items
+			return items, true
 		}
 	}
-	return nil
+	return nil, false
 }
 
 // SetChargedProjectiles loads the stack with the projectiles given; an empty
-// list removes the component, the absence an unloaded crossbow is stored as.
+// list resets the component to its default.
 func (s *ItemStack) SetChargedProjectiles(items []ItemStack) {
-	if len(items) == 0 {
-		s.dropRaw(DataComponentChargedProjectiles)
+	s.SetChargedProjectilesPatch(items, false)
+}
+
+// SetChargedProjectilesPatch replaces the minecraft:charged_projectiles patch,
+// keeping an explicit empty patch when keepEmpty is true and otherwise
+// resetting to the item's default.
+func (s *ItemStack) SetChargedProjectilesPatch(items []ItemStack, keepEmpty bool) {
+	if len(items) == 0 && !keepEmpty {
+		s.ResetComponent(DataComponentChargedProjectiles)
 		return
 	}
 	var value Buffer

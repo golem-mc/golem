@@ -214,7 +214,7 @@ func stackComponentsMap(stack protocol.ItemStack) nbt.Compound {
 		}
 		components["minecraft:stored_enchantments"] = enchantmentsTag(stack, true)
 	}
-	if len(stack.Container) > 0 {
+	if stack.Container != nil {
 		if components == nil {
 			components = nbt.Compound{}
 		}
@@ -262,7 +262,7 @@ func stackComponentsMap(stack protocol.ItemStack) nbt.Compound {
 		}
 		components["minecraft:bundle_contents"] = bundleContentsTag(contents)
 	}
-	if loaded := stack.ChargedProjectiles(); len(loaded) > 0 {
+	if loaded, ok := stack.ChargedProjectilesOf(); ok {
 		if components == nil {
 			components = nbt.Compound{}
 		}
@@ -848,7 +848,7 @@ func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name stri
 		if !ok {
 			return false, true
 		}
-		stack.SetContainer(contents)
+		stack.SetContainerPatch(contents, !ItemHasComponentDefault(stack.ItemID, "minecraft:container"))
 	case "minecraft:bundle_contents":
 		return lookup.readBundleContentsComponent(stack, value), true
 	case "minecraft:lore":
@@ -898,7 +898,7 @@ func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name stri
 		if !ok {
 			return false, true
 		}
-		stack.SetChargedProjectiles(loaded)
+		stack.SetChargedProjectilesPatch(loaded, !ItemHasComponentDefault(stack.ItemID, "minecraft:charged_projectiles"))
 	case "minecraft:potion_contents":
 		contents, ok := PotionContentsOf(value)
 		if !ok {

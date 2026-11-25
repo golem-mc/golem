@@ -13,6 +13,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/world"
 )
 
 // PushedPacket is one packet held in Client.pushback.
@@ -359,7 +360,7 @@ func ReadUntilViewSent(t *testing.T, c *Client) ([]byte, bool) {
 	t.Helper()
 	const timeout = ExpectTimeout
 	sent := int32(0)
-	whole := (2*c.ChunkRadius + 1) * (2*c.ChunkRadius + 1)
+	whole := ViewChunks(c.ChunkRadius)
 	deadline := time.Now().Add(timeout)
 	for {
 		id, data, err := c.ReadBy(deadline)
@@ -391,7 +392,7 @@ func ReadUntilViewSent(t *testing.T, c *Client) ([]byte, bool) {
 func (c *Client) ExpectViewWithinTicks(srv *server.Server, n int) {
 	c.T.Helper()
 	sent := int32(0)
-	whole := (2*c.ChunkRadius + 1) * (2*c.ChunkRadius + 1)
+	whole := ViewChunks(c.ChunkRadius)
 	if !c.ReadTicks(srv, n, func(id int32, _ []byte) bool {
 		switch id {
 		case protocol.IDPlayRespawn:
@@ -412,7 +413,7 @@ func (c *Client) ExpectViewWithinTicks(srv *server.Server, n int) {
 func AwaitViewSent(t *testing.T, c *Client) []byte {
 	t.Helper()
 	sent := int32(0)
-	whole := (2*c.ChunkRadius + 1) * (2*c.ChunkRadius + 1)
+	whole := ViewChunks(c.ChunkRadius)
 	for id, data := range c.Stream() {
 		switch id {
 		case protocol.IDPlayRespawn:
@@ -459,7 +460,7 @@ func (c *Client) ReadJoin(see func(id int32, data []byte)) {
 			// the end of the join's stream, read to its finish so no
 			// packet of it trails into whatever the test reads next.
 			see(id, data)
-			if c.ChunkRadius > 0 && sawChunks >= (2*c.ChunkRadius+1)*(2*c.ChunkRadius+1) {
+			if c.ChunkRadius > 0 && sawChunks >= ViewChunks(c.ChunkRadius) {
 				return
 			}
 			continue
@@ -491,4 +492,17 @@ func (c *Client) ExpectNext(packetID int32) []byte {
 // tells every player an advancement was made, which any tick can send.
 func isAdvancementAnnouncement(id int32, data []byte) bool {
 	return id == protocol.IDPlaySystemChat && bytes.Contains(data, []byte("chat.type.advancement."))
+}
+
+// ViewChunks is how many chunks a client with the given view radius is sent.
+func ViewChunks(radius int32) int32 {
+	n := int32(0)
+	for x := -radius - 2; x <= radius+2; x++ {
+		for z := -radius - 2; z <= radius+2; z++ {
+			if world.InSendView(world.ChunkPos{X: x, Z: z}, world.ChunkPos{}, radius) {
+				n++
+			}
+		}
+	}
+	return n
 }

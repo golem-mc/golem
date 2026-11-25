@@ -300,11 +300,11 @@ func conditionalNode(execute *Node, name string, expected bool) *Node {
 			dataConditional(execute, "storage", &Node{Type: NodeArgument, Name: "source", Parser: ParserResourceLoc}),
 		}},
 		itemsConditional("items", func() *Node {
-			return itemSourceNode("slots", false, redirectTo(execute, &Node{
+			return itemSlotsNode("slots", false, redirectTo(execute, &Node{
 				Type: NodeArgument, Name: "item_predicate", Parser: ParserItemPred, Executable: true,
 			}))
 		}),
-		itemsConditional("slots", func() *Node { return redirectTo(execute, itemSourceNode("slots", true)) }),
+		itemsConditional("slots", func() *Node { return redirectTo(execute, itemSlotsNode("slots", true)) }),
 	}}
 }
 
@@ -1747,7 +1747,7 @@ func stepItemsConditional(src Source, ctxs []execContext, expected bool, rest []
 		slotsAt = 3 + span
 	}
 	sourceSpan := min(spanCount(tokens[at+slotsAt:], tokenText, true, false), len(tokens)-at-slotsAt)
-	source, perr := parseSlotSource(joinSelector(tokens[at+slotsAt : at+slotsAt+sourceSpan]).text)
+	source, _, perr := parseSlotSource(joinSelector(tokens[at+slotsAt : at+slotsAt+sourceSpan]).text)
 	test, predSpan := itemsConditionalTest(countSlots, tokens, at+slotsAt+sourceSpan)
 	arity := slotsAt + sourceSpan + predSpan
 	if !block {
@@ -1761,7 +1761,7 @@ func stepItemsConditional(src Source, ctxs []execContext, expected bool, rest []
 			}
 			count := 0
 			for _, entity := range found {
-				for _, stack := range slotSourceStacks(view, source, func(name string) []protocol.ItemStack { return entitySlotStacks(entity, name) }) {
+				for _, stack := range slotSourceStacks(view, source, func(name string) []rules.SlotAccess { return entitySlotAccess(entity, name) }) {
 					count += test(stack)
 				}
 			}
@@ -1790,15 +1790,8 @@ func stepItemsConditional(src Source, ctxs []execContext, expected bool, rest []
 			return condAnswer{}
 		}
 		count := 0
-		for _, stack := range slotSourceStacks(view, source, func(name string) []protocol.ItemStack {
-			slots, _ := itemSlots(name)
-			var stacks []protocol.ItemStack
-			for _, slot := range slots {
-				if int(slot) >= 0 && int(slot) < size {
-					stacks = append(stacks, view.ItemInContainerAt(x, y, z, int(slot)))
-				}
-			}
-			return stacks
+		for _, stack := range slotSourceStacks(view, source, func(name string) []rules.SlotAccess {
+			return blockSlotAccess(view, x, y, z, size, name)
 		}) {
 			count += test(stack)
 		}
