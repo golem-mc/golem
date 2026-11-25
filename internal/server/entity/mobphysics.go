@@ -381,8 +381,6 @@ func (m *Mob) move(w World, dx, dy, dz float64) {
 	ctx := m.collideCtx()
 	ctx.moveCells = &cells
 
-	// vanilla: Entity.collide steps up on the flag the move started with.
-	stepGround := m.OnGround
 	if dy < 0 {
 		oldY := m.Y
 		landY, blocked := clipFall(w, ctx, m.X, m.Z, m.width()/2, m.Y, dy)
@@ -410,18 +408,17 @@ func (m *Mob) move(w World, dx, dy, dz float64) {
 			m.bouncedOff = m.bouncedOff || m.VY != 0
 		}
 		m.OnGround = false
-	} else if !m.GroundGuess || m.Age > 1 {
-		// vanilla: Entity.move, setOnGroundWithMovement: only a downward move
-		// that collides leaves the flag set. A guessed flag survives the
-		// spawn's first tick, which callers rely on.
-		m.OnGround = false
-	}
-	if dy != 0 {
-		stepGround = m.OnGround
 	}
 
 	if dx != 0 || dz != 0 {
-		m.moveHorizontal(w, ctx, stepGround, dx, dz)
+		m.moveHorizontal(w, ctx, dx, dz)
+	}
+	if dy == 0 && (!m.GroundGuess || m.Age > 1) {
+		// vanilla: Entity.move, setOnGroundWithMovement: only a downward move
+		// that collides leaves the flag set. Cleared after moveHorizontal,
+		// which steps up on the flag the move started with. A guessed flag
+		// survives the spawn's first tick, which callers rely on.
+		m.OnGround = false
 	}
 
 	// The block's speed factor scales the horizontal velocity after the move;
@@ -489,14 +486,14 @@ func (m *Mob) stuckInBlocks(w World) stuckFactor {
 // moveHorizontal moves the box along both horizontal axes, larger first; if
 // blocked while on the ground it retries lifted onto the obstacle (the
 // step-up). A stopped axis is vanilla's horizontal collision.
-func (m *Mob) moveHorizontal(w World, ctx collideCtx, onGround bool, dx, dz float64) {
+func (m *Mob) moveHorizontal(w World, ctx collideCtx, dx, dz float64) {
 	h, hw := m.height(), m.width()/2
 	startX, startZ := m.X, m.Z
 
 	box, obstacle, blockedX, blockedZ := collideHorizontal(w, ctx, m.mobBox(), dx, dz)
 	nextX, nextZ := box.centerXZ()
 
-	if (blockedX || blockedZ) && onGround {
+	if (blockedX || blockedZ) && m.OnGround {
 		if climb := obstacle - m.Y; climb > physicsEpsilon && climb <= m.stepHeight() && boxFits(w, ctx, startX, startZ, obstacle, h, hw) {
 			lifted := AABB{startX - hw, obstacle, startZ - hw, startX + hw, obstacle + h, startZ + hw}
 			rbox, _, _, _ := collideHorizontal(w, ctx, lifted, dx, dz)
