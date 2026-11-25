@@ -71,12 +71,46 @@ func TestPackRunFunctionRunsAsVictim(t *testing.T) {
 	}
 }
 
-// vanilla: ReplaceBlock.apply
+// vanilla: ReplaceBlock.apply, BlockStateProvider.DIRECT_CODEC
 func TestPackReplaceBlockUnderVictim(t *testing.T) {
-	srv, _ := hitZombieWith(t, `{"type":"minecraft:replace_block","block_state":{"type":"minecraft:simple_state_provider","state":{"id":"minecraft:gold_block"}},"offset":[0,-1,0]}`, nil)
-	gold, _ := registry.BlockByName("minecraft:gold_block")
-	if got := registry.BlockOf(srv.BlockAt(2, 63, 0)); got != gold {
-		t.Fatalf("block under the zombie is %s, want gold_block", got.Name())
+	const state = `{"id":"minecraft:gold_block"}`
+	for _, tc := range []struct{ name, provider string }{
+		{"simple", `{"type":"minecraft:simple","state":` + state + `}`},
+		{"bare_state", state},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _ := hitZombieWith(t, `{"type":"minecraft:replace_block","block_state":`+tc.provider+`,"offset":[0,-1,0]}`, nil)
+			if got := registry.BlockOf(srv.BlockAt(2, 63, 0)); got != registry.BlockGoldBlock {
+				t.Fatalf("block under the zombie is %s, want gold_block", got.Name())
+			}
+		})
+	}
+}
+
+// vanilla: BlockStateProviderTypes.bootstrap, RegistryDataLoader.load
+func TestPackRefusesLegacySimpleStateProvider(t *testing.T) {
+	const provider = `{"type":"minecraft:simple_state_provider","state":{"id":"minecraft:gold_block"}}`
+	for _, tc := range []struct{ name, effect string }{
+		{"replace_block", `{"type":"minecraft:replace_block","block_state":` + provider + `}`},
+		{"replace_disk", `{"type":"minecraft:replace_disk","radius":1,"height":1,"block_state":` + provider + `}`},
+		{"nested_source", `{"type":"minecraft:replace_block","block_state":{
+			"type":"minecraft:randomized_int","property":"age","values":1,"source":` + provider + `}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := servertest.BlockTestConfig()
+			cfg.LevelType = server.TestFlatLevelType
+			cfg.LevelName = postAttackPack(t, "mainhand", "minecraft:iron_sword", packPostAttack("attacker", "victim", tc.effect))
+			srv, err := server.NewSeeded(cfg, 1)
+			if err == nil {
+				srv.Shutdown()
+				t.Fatal("server started with an invalid enchantment block state provider")
+			}
+			for _, want := range []string{"pk:targets", "minecraft:simple_state_provider"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("startup error = %v, want it to name %q", err, want)
+				}
+			}
+		})
 	}
 }
 

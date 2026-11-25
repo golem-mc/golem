@@ -46,11 +46,18 @@ func gameEventOf(o obj) registry.GameEvent {
 	return ev
 }
 
-// isSimpleProvider reports whether a provider type is the simple one; the
-// world compiler accepts both names too.
-func isSimpleProvider(t string) bool {
-	t = registry.Qualify(t)
-	return t == "minecraft:simple_state_provider" || t == "minecraft:simple"
+const legacySimpleStateProvider = "minecraft:simple_state_provider"
+
+// ErrLegacySimpleStateProvider is a registry decoding error that prevents world load.
+var ErrLegacySimpleStateProvider = errors.New("unknown block state provider type " + legacySimpleStateProvider)
+
+// vanilla: BlockStateProviderTypes.bootstrap
+func stateProviderType(o obj) string {
+	kind := registry.Qualify(requireStr(o, "type"))
+	if kind == legacySimpleStateProvider {
+		panic(lootFailure{fatal: ErrLegacySimpleStateProvider})
+	}
+	return kind
 }
 
 // simpleState reads a simple state provider or a bare state; a registry
@@ -58,7 +65,7 @@ func isSimpleProvider(t string) bool {
 // vanilla: BlockStateProvider.CODEC, BlockState.FULL_CODEC
 func simpleState(v any) uint16 {
 	if o, ok := v.(obj); ok && o["type"] != nil {
-		if !isSimpleProvider(requireStr(o, "type")) {
+		if stateProviderType(o) != "minecraft:simple" {
 			fail("a block state provider other than simple")
 		}
 		unknownKeys(o, "a simple state provider", "type", "state")
@@ -178,7 +185,7 @@ var ErrRemovedBlockStateProvider = errors.New("removed block state provider type
 // pure one its raw JSON for the server to compile.
 // vanilla: BlockStateProvider.CODEC
 func stateProvider(v any) (state uint16, raw any) {
-	if o, ok := v.(obj); ok && o["type"] != nil && !isSimpleProvider(requireStr(o, "type")) {
+	if o, ok := v.(obj); ok && o["type"] != nil && stateProviderType(o) != "minecraft:simple" {
 		checkReplaceProvider(o)
 		return 0, plainJSON(v)
 	}
@@ -187,18 +194,17 @@ func stateProvider(v any) (state uint16, raw any) {
 
 // vanilla: BlockStateProviderTypes.bootstrap
 func checkReplaceProvider(o obj) {
-	kind := registry.Qualify(requireStr(o, "type"))
+	kind := stateProviderType(o)
 	switch kind {
-	case "minecraft:simple", "minecraft:simple_state_provider",
-		"minecraft:rotated_block_provider", "minecraft:weighted", "minecraft:noise",
+	case "minecraft:simple", "minecraft:rotated_block_provider", "minecraft:weighted", "minecraft:noise",
 		"minecraft:noise_threshold", "minecraft:dual_noise":
-	case "minecraft:randomized_int_state_provider":
+	case "minecraft:randomized_int", "minecraft:randomized_int_state_provider":
 		if source, ok := required(o, "source").(obj); ok && source["type"] != nil {
 			checkReplaceProvider(source)
 		}
 	case "minecraft:weighted_state_provider", "minecraft:noise_provider",
 		"minecraft:noise_threshold_provider", "minecraft:dual_noise_provider":
-		panic(lootFailure{cause: fmt.Errorf("%w %q", ErrRemovedBlockStateProvider, kind)})
+		panic(lootFailure{fatal: fmt.Errorf("%w %q", ErrRemovedBlockStateProvider, kind)})
 	default:
 		fail("a block state provider of type %s", kind)
 	}

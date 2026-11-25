@@ -20,9 +20,9 @@ type enchantmentDecoder struct {
 // DecodeEnchantment reads one data/<ns>/enchantment file into the tree the
 // server evaluates, the runtime twin of tools/gen's enchantments generator.
 // A component, effect or condition the tree cannot represent is left out and
-// named in dropped; a malformed required field or retired replace provider
-// type is an error. An omitted weight, cost or
-// anvil_cost reads as 1, 0 and 1: vanilla refuses such a file.
+// named in dropped; a malformed required field or retired block state provider
+// type is an error. An omitted weight, cost or anvil_cost reads as 1, 0 and 1:
+// vanilla refuses such a file.
 // vanilla: Enchantment.DIRECT_CODEC
 func DecodeEnchantment(id string, data []byte) (registry.EnchantmentDef, []string, error) {
 	return DecodeEnchantmentWith(id, data, nil)
@@ -123,7 +123,7 @@ func (d *enchantmentDecoder) keep(where string, f func()) (kept bool) {
 		switch r := recover().(type) {
 		case nil:
 		case lootFailure:
-			if r.cause != nil {
+			if r.fatal != nil {
 				panic(r)
 			}
 			if r.msg != "" {

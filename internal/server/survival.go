@@ -53,7 +53,10 @@ type damageCause struct {
 	directType string
 	// directBurning is the projectile's fire flag when it hit.
 	directBurning bool
-	x, y, z       float64
+	// directIsSource lets advancement predicates use the projectile itself
+	// as the source when it has no shooter.
+	directIsSource bool
+	x, y, z        float64
 	// weapon belongs to the direct entity, independently of death attribution.
 	// vanilla: DamageSource.getWeaponItem
 	weapon protocol.ItemStack

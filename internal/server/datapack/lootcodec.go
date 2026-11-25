@@ -24,8 +24,8 @@ import (
 // it into an error.
 type lootFailure struct {
 	msg string
-	// A cause is propagated through an enchantment's otherwise skippable effects.
-	cause error
+	// fatal carries a registry decoding error past the enchantment's entry fallback.
+	fatal error
 	// An optional field or list supplies a partial result to Codec.either.
 	partial bool
 	// overflow is a weighted list's total weight overflowing; the error is
@@ -39,8 +39,8 @@ func recoverLoot(err *error) {
 	switch r := recover().(type) {
 	case nil:
 	case lootFailure:
-		if r.cause != nil {
-			*err = r.cause
+		if r.fatal != nil {
+			*err = r.fatal
 			return
 		}
 		if r.overflow {
